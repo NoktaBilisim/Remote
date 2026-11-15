@@ -265,11 +265,21 @@ func (e *encoder) mediaType(w, h, fps int, sub *windows.GUID) (*comObj, error) {
 	}
 	t.call(vtAttrSetGUID, uintptr(unsafe.Pointer(&mfMTMajorType)), uintptr(unsafe.Pointer(&mfMediaTypeVideo)))
 	t.call(vtAttrSetGUID, uintptr(unsafe.Pointer(&mfMTSubtype)), uintptr(unsafe.Pointer(sub)))
-	t.call(vtAttrSetUINT64, uintptr(unsafe.Pointer(&mfMTFrameSize)), uintptr(uint64(w)<<32|uint64(h)))
-	t.call(vtAttrSetUINT64, uintptr(unsafe.Pointer(&mfMTFrameRate)), uintptr(uint64(fps)<<32|1))
-	t.call(vtAttrSetUINT64, uintptr(unsafe.Pointer(&mfMTPixelAspect)), uintptr(uint64(1)<<32|1))
+	setUINT64(t, &mfMTFrameSize, uint64(w)<<32|uint64(h))
+	setUINT64(t, &mfMTFrameRate, uint64(fps)<<32|1)
+	setUINT64(t, &mfMTPixelAspect, 1<<32|1)
 	t.call(vtAttrSetUINT32, uintptr(unsafe.Pointer(&mfMTInterlaceMode)), interlaceProgressive)
 	return t, nil
+}
+
+// setUINT64 IMFAttributes::SetUINT64. UINT64 değerle geçer: 64 bit ABI'de tek yazmaç, 32 bit stdcall'da iki sözcük
+// (düşük önce). Sabit uintptr'a doğrudan çevrilmez (386'da taşma derleme hatası, S-P17-5 ile aynı inceleme).
+func setUINT64(t *comObj, key *windows.GUID, v uint64) {
+	if unsafe.Sizeof(uintptr(0)) == 8 {
+		t.call(vtAttrSetUINT64, uintptr(unsafe.Pointer(key)), uintptr(v))
+		return
+	}
+	t.call(vtAttrSetUINT64, uintptr(unsafe.Pointer(key)), uintptr(uint32(v)), uintptr(uint32(v>>32)))
 }
 
 func (e *encoder) setCodec(id *windows.GUID, vt uint16, val uint64) {

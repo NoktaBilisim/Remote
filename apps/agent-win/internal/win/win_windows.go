@@ -446,7 +446,12 @@ func CursorPos() POINT {
 
 // WorkAreaAt noktanın bulunduğu ekranın çalışma alanı.
 func WorkAreaAt(p POINT) RECT {
-	hm, _, _ := pMonitorFromPoint.Call(uintptr(uint32(p.X))|uintptr(uint32(p.Y))<<32, MONITOR_NEAREST)
+	var hm uintptr
+	if unsafe.Sizeof(uintptr(0)) == 8 { // POINT değerle: amd64/arm64'te tek yazmaç (RootAt ile aynı)
+		hm, _, _ = pMonitorFromPoint.Call(uintptr(uint32(p.X))|uintptr(uint32(p.Y))<<32, MONITOR_NEAREST)
+	} else {
+		hm, _, _ = pMonitorFromPoint.Call(uintptr(p.X), uintptr(p.Y), MONITOR_NEAREST)
+	}
 	var mi MONITORINFOEXW
 	mi.Size = uint32(unsafe.Sizeof(mi))
 	_, _, _ = pGetMonitorInfoW.Call(hm, uintptr(unsafe.Pointer(&mi)))

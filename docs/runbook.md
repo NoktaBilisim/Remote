@@ -676,14 +676,16 @@ Caddy `/downloads/NoktaDestek.exe` hash kontrolü. Caddy her `/downloads/*.exe` 
 
 ### 11.1 Tek seferlik GitHub ayarları (repo sahibi)
 
-| Ayar                              | Değer                                                                                                                                                        |
-| --------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| Repo değişkeni `AGENT_SERVER_URL` | exe'ye ldflags ile gömülen tek adres, ör. `https://185.126.217.99:4450` (staging). Etiket build'i bu değişken yoksa durur. Prod için ayrı değer/etiket (P13) |
-| Environment `agent-release`       | Settings → Environments: required reviewers (kendiniz), "Deployment tags": `v*`                                                                              |
-| Tag ruleset                       | `v*` etiketlerini yalnız yöneticiler oluşturabilir/silebilir (AC-94 "korumalı v* etiketi")                                                                   |
-| Branch protection (main)          | required checks: `ci` job'ları + `agent-win` → `check`, `test-windows`, `build 1/2`, `build 2/2`, `tekrarlanabilirlik + SHA256SUMS`                          |
-| Repo değişkenleri (gözcü)         | `AGENT_WATCH_URL` = `https://<host>:4450/downloads/NoktaDestek.exe`; staging'de `AGENT_WATCH_CA_PEM` = §8'deki Caddy kök sertifikası (PEM, gizli değil)      |
-| Görünürlük                        | **Repo public olmalı**: GitHub attestation private repoda yalnız Enterprise Cloud'da çalışır (§11.6)                                                         |
+| Ayar                                  | Değer                                                                                                                                                                                                                                                      |
+| ------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Repo değişkeni `AGENT_SERVER_URL`     | exe'ye ldflags ile gömülen tek adres, ör. `https://185.126.217.99:4450` (staging). Etiket build'i bu değişken yoksa durur. Prod için ayrı değer/etiket (P13)                                                                                               |
+| Environment `agent-release`           | Settings → Environments: required reviewers (kendiniz), "Deployment tags": `v*`. Onay `approve` işindedir; imza, attestation ve Release onaydan SONRA koşar (S-P17-2)                                                                                      |
+| Environment `agent-sign` (S-P17-2)    | SignPath hesabı açılmadan ÖNCE: Settings → Environments → New `agent-sign`; Deployment branches and tags → "Selected" → yalnız tag kuralı `v*`; Environment secret `SIGNPATH_API_TOKEN` (repo secret DEĞİL). Ayrıntı §24.3                                 |
+| Tag ruleset                           | `v*` etiketlerini yalnız yöneticiler oluşturabilir/silebilir (AC-94 "korumalı v* etiketi")                                                                                                                                                                 |
+| Branch protection (main)              | required checks: `ci` job'ları + `agent-win` → `check`, `test-windows`, `build 1/2`, `build 2/2`, `tekrarlanabilirlik + SHA256SUMS`                                                                                                                        |
+| Repo değişkenleri (gözcü)             | `AGENT_WATCH_URL` = `https://<host>:4450/downloads/NoktaDestek.exe`; staging'de `AGENT_WATCH_CA_PEM` = §8'deki Caddy kök sertifikası (PEM, gizli değil)                                                                                                    |
+| SignPath (AC-252, P17; **şu an YOK**) | Hesap açılınca: repo değişkenleri `SIGNPATH_ORGANIZATION_ID`, `SIGNPATH_PROJECT_SLUG`, `SIGNPATH_SIGNING_POLICY_SLUG` + **`agent-sign` ortam secret'ı** `SIGNPATH_API_TOKEN` (§24.3). `SIGNPATH_ORGANIZATION_ID` yoksa `sign` işi atlanır, Release imzasız |
+| Görünürlük                            | **Repo public olmalı**: GitHub attestation private repoda yalnız Enterprise Cloud'da çalışır (§11.6)                                                                                                                                                       |
 
 **Durum (2026-11-15, U1):** repo **public** yapıldı (gitleaks tüm geçmiş 45 commit 0 bulgu; kullanıcı commit e-postası ve dokümanlardaki sunucu/ağ ayrıntılarının açılmasını kabul etti). Environment `agent-release` oluşturuldu: required reviewer `NoktaBilisim`, deployment policy yalnız `v*` etiketi. Tag ruleset "v* etiketleri korumalı (AC-94)" etkin: `refs/tags/v*` oluşturma/güncelleme/silme yalnız depo yöneticisi rolü (bypass). Repo değişkeni `AGENT_SERVER_URL` = `https://remote.noktabilisim.net` (prod; main push derlemeleri de bu adresi gömer). **Henüz yok:** `AGENT_WATCH_URL` (prod: `https://remote.noktabilisim.net/downloads/NoktaDestek.exe`, ilk Release yayınından sonra), main branch protection.
 
@@ -700,8 +702,10 @@ docker run --rm -v "$PWD:/repo" rhysd/actionlint:latest       # workflow sözdiz
 
 ### 11.3 Sürüm yayını (Release)
 
-1. main yeşil (özellikle `check`: govulncheck + lisans). `git tag -s vX.Y.Z && git push origin vX.Y.Z`.
-2. Actions → agent-win → `agent-release` onayı → Release'de `NoktaDestek.exe` + `SHA256SUMS`.
+1. main yeşil (özellikle `check`: govulncheck + lisans). `git tag -s vX.Y.Z && git push origin vX.Y.Z`. Etiket biçimi **`vX.Y.Z`**
+   (AC-94; ruleset ve `agent-release` ortamı `v*`); etiket = istemci sürümü (ldflags `config.version`). Yeni etiket mevcut en
+   yüksek Release sürümünden büyük olmalı (onay işi `approve` denetler). Sürüme özel ön koşullar: 0.11.0 için §24.
+2. Actions → agent-win → `approve` işinde `agent-release` onayı → (sign) → attest → Release'de `NoktaDestek.exe` + `SHA256SUMS`.
 3. Operatör makinesinde (gh oturumu açık):
    `deploy/agent/verify-and-publish.sh --tag vX.Y.Z --ssh root@185.126.217.99`
    Betik: indirir → `SHA256SUMS` → PE/≤40 MB/UPX yok → `gh attestation verify --repo NoktaBilisim/Remote --signer-workflow
@@ -2823,3 +2827,133 @@ sözleşmesi; uygulama dışında olduğu için audit'e girmez → bu kayıt zor
 3. **Silme doğrulaması:** `docker rm -fv <scratch>`; `docker ps -a --filter name=rs-restore-verify` **boş**;
    `docker volume ls -qf dangling=true` içinde scratch'e ait volume yok; `<şifreli dizin>` `rm -rf` + `ls` boş. Çıktılar
    kayda eklenir, iki onaylayan "silindi" satırını imzalar.
+
+## 24. P17 I5 — istemci 0.11.0 yayını, staging exe, imzalama (devops, 2026-11-15; mimari-e11 §8, AC-252, S17-2)
+
+Etiket: **`v0.11.0`** (mimari-e11 §8'deki `agent-v0.11.0` yazımı AC-94 "korumalı `v*` etiketi" ve kurulu GitHub ayarlarıyla
+çelişir: tag ruleset `refs/tags/v*`, `agent-release` deployment policy `v*`, `verify-and-publish.sh` prod kilidi `vX.Y.Z`.
+`agent-v*` etiketi korumasız olur ve release işi ortam politikasına takılır). İstemci sürümü etiketten gelir: `v0.11.0` →
+`build.sh … 0.11.0` → `config.version=0.11.0` (ldflags); kodda sabit sürüm yok.
+
+### 24.1 Ön koşullar (hepsi sağlanmadan etiket itilmez; release onayında yeniden kontrol edilir — S17-2, bağlayıcı)
+
+| #   | Kontrol                                                                                                                                               | Nasıl                                                                                                                                                                                                                                                                                          |
+| --- | ----------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1   | **P15 prod'da** (eski sunucu `share.state`'in yeni `reason`/`method` alanlarını strictObject ile reddeder, mesaj düşer)                               | §8 yayın geçmişinde prod satırı P15 (ve sonrası) commit'i; `ssh … 'cd /opt/remote/deploy && docker compose logs migrate --tail 5'` P15 migration'ı uygulanmış                                                                                                                                  |
+| 2   | P17 main'de, `agent-win` main push koşusu yeşil (check + test-windows + build 1/2, 2/2 + tekrarlanabilirlik)                                          | `gh run list --repo NoktaBilisim/Remote --workflow agent-win.yml --branch main -L 3`                                                                                                                                                                                                           |
+| 3   | Aynı commit'ten staging exe (§24.2) ile duman testi + I6 test raporu GEÇTİ; qa GEÇTİ, güvenlik Kritik/Yüksek 0                                        | `docs/test-raporu.md`, `docs/qa-raporu.md`, `docs/guvenlik-raporu.md`                                                                                                                                                                                                                          |
+| 4   | Bekleyen **`v1.0.0` release koşusu reddedildi** (sonra etiket silinir, §24.7) (run `43649073915`, 2026-11-14'ten beri `agent-release` onayı bekliyor) | Actions → agent-win → o koşu → Review deployments → **Reject**. Onaylanırsa P15 öncesi koddan **istemci 1.0.0** Release'i çıkar: 0.11.0'dan "yeni" görünür, kabul kodu eşiğini (≥ 0.11.0) geçer ama `admitCode`'u tanımaz; ayrıca release işi `v0.11.0`'ı "sürüm geriye gidiyor" diye durdurur |
+| 5   | (İsteğe bağlı) SignPath hesabı varsa §24.3 değişkenleri tanımlı                                                                                       | yoksa Release imzasız (ADR-0010), AC-252 "uygulanamaz"                                                                                                                                                                                                                                         |
+
+### 24.2 Staging exe (0.11.0) — yalnız main dalından
+
+1. Actions → agent-win → Run workflow: dal **main**, `server_url=https://stg.remote.noktabilisim.net`, `version=0.11.0`.
+   CLI: `gh workflow run agent-win.yml --repo NoktaBilisim/Remote --ref main -f server_url=https://stg.remote.noktabilisim.net -f version=0.11.0`
+2. Koşu yeşil → artifact `agent-win-stg`: `NoktaDestek-stg-0.11.0.exe` + `SHA256SUMS` + `build-meta.txt`; attestation
+   `refs/heads/main`. Release'e gitmez.
+3. `gh run list --repo NoktaBilisim/Remote --workflow agent-win.yml --branch main --event workflow_dispatch -L 5` → run-id →
+   `deploy/agent/verify-and-publish.sh --stg-run <run-id> --ssh root@185.126.217.99` (hedef `/opt/remote-stg/deploy`; §11.5).
+4. Staging `.env`: kabul kodu (AC-239) denenecekse tenant ayarı "Talep kabulünde kabul kodu iste" açılır. Sunucu `admitCode`'u
+   yalnız **istemcinin bildirdiği sürüm ≥ 0.11.0** (`ACCEPT_CODE_MIN_CLIENT_VERSION`) olan talebe üretir; ayar açıkken eski
+   istemcinin talebi 409 `ACCEPT_CODE_CLIENT_UNSUPPORTED` ile kabul edilmez (talep PENDING kalır). Bu yüzden staging exe
+   **`version=0.11.0` ile** üretilmelidir; `0.0.0` (varsayılan) ile derlenen exe kabul kodunu ve sürüm eşiklerini test edemez.
+
+Doğrulama (devops, 2026-11-15, yerel; p17-wip çalışma ağacı): CI imajıyla iki bağımsız derleme
+`build.sh https://stg.remote.noktabilisim.net 0.11.0` → aynı SHA-256 (`fa0c2623…`, 12.0 MB, PE); workflow'un `meta` ve `name`
+adımları dispatch girdileriyle yerelde koşturuldu: main + 0.11.0 → `NoktaDestek-stg-0.11.0.exe`, artifact `agent-win-stg`;
+dal `p17-wip` → "staging exe yalnız main dalından" (beklenen ret, S6-4); `version=0.11` → "x.y.z olmalı" (ret). Gerçek CI
+koşusu P17 main'e birleşince 1. adımla yapılır.
+
+WGC kanıtı (P17 QA Tur 1 / devops 1): `test-windows` işinde ayrı adım "AC-248/249 testleri (-v, SKIP görünür)"
+`go test -count=1 -v -run 'TestAC248|TestAC249' ./internal/...` koşar; günlükte her test `--- PASS`/`--- SKIP` olarak
+görünür. `TestAC248WGCWindowSmoke` SKIP ise koşu özetinde `::warning::` çıkar (iş kırmızı olmaz; runner oturumu WGC
+desteklemeyebilir) → bu durumda gerçek kare kanıtı Windows VM elle turundan alınır. Test hiç koşmadıysa (ad değişmiş)
+iş kırmızıdır. AC-249 testlerinden SKIP olan varsa da uyarı basılır.
+
+### 24.3 İmzalama (AC-252, koşullu) — SignPath hesabı şu an YOK
+
+- `agent-win.yml` `sign` işi yalnız **etiket push'unda** ve repo değişkeni `SIGNPATH_ORGANIZATION_ID` doluysa koşar
+  (`windows-2025`, izin `contents: read` + `actions: read`; action `signpath/github-action-submit-signing-request` SHA ile
+  sabit, v3.0). Değişken yoksa iş **skipped**; `attest` ve `release` imzasız ikiliyle sürer (bugünkü davranış) → AC-252
+  "uygulanamaz" kapanır.
+- Koşarsa: imzasız `agent-win` artifact'i doğrulanır (`sha256sum -c`) → yalnız exe `agent-win-unsigned` olarak yüklenir →
+  SignPath'e gönderilir, imzalı exe beklenir → `signtool verify /pa /tw /v` + `Get-AuthenticodeSignature` = Valid →
+  PE/≤ 40 MB/UPX yok → **SHA256SUMS imzalı exe'den** → artifact `agent-win-signed` → `attest` **imzalı exe'yi** attest eder →
+  Release imzalı exe + SHA256SUMS; notta imzasız (tekrarlanabilir) SHA-256 da yazılır.
+- Fail-closed: `sign` başarısızsa attest ve Release koşmaz; `SIGNPATH_ORGANIZATION_ID` doluyken imzasız ikili Release'e gitmez
+  (release adımı denetler).
+- Sıra (S-P17-2, 2026-11-15): etiket koşusunda `approve` (agent-release insan onayı) → `sign` → `attest` → `release`.
+  Reject edilen etiket için imzalı ikili **hiç üretilmez**; sürüm artışı denetimi de onay işinde, imzadan önce koşar.
+  `agent-win-signed` artifact'i 1 gün saklanır (kalıcı kopya Release'tedir). Release işi 1 günden sonra yalnız başına
+  "Re-run" edilirse artifact bulunamaz → tüm koşuyu yeniden başlatın (yeni onay ister).
+- Kurulum (hesap açılınca, kullanıcı; sıra önemli — token oluşturulmadan önce 1–2 tamam olmalı):
+  1. **GitHub ortamı `agent-sign`:** Settings → Environments → New environment `agent-sign` → "Deployment branches and
+     tags" = **Selected branches and tags** → Add rule → Ref type **Tag**, desen `v*` (dal kuralı EKLEMEYİN). Required
+     reviewers gerekmez (insan kapısı `agent-release`; `sign` ancak onaydan sonra koşar), isteğe bağlı eklenebilir.
+     "Environment secrets" → `SIGNPATH_API_TOKEN`. Token **repo secret'ı olarak tanımlanmaz** (varsa silin): repo secret'ı
+     dal push'unda değiştirilmiş herhangi bir iş akışına verilebilir; ortam secret'ı yalnız `v*` etiketinden (ruleset:
+     yalnız yönetici) koşan işe verilir.
+  2. **SignPath:** GitHub bağlayıcılı proje + yapıt yapılandırması (kök: tek `NoktaDestek.exe`, Authenticode) +
+     "release-signing" imzalama politikası. Politikada **origin verification** (Trusted Build System = GitHub.com) açılır
+     ve kısıtlanır: izinli kaynak ref'i yalnız `refs/tags/v*`, izinli iş akışı yalnız `.github/workflows/agent-win.yml`,
+     depo yalnız `NoktaBilisim/Remote`. Tercihen politika için SignPath tarafında elle onay (approver) da açılır. Menü
+     adları SignPath sürümüne göre değişebilir; kurulumda SignPath "GitHub trusted build system" belgesinden doğrulayın.
+     API token'ı yalnız bu projeye/politikaya submitter yetkili bir CI kullanıcısından üretin.
+  3. Repo **değişkenleri** (gizli değil): `SIGNPATH_ORGANIZATION_ID`, `SIGNPATH_PROJECT_SLUG`, `SIGNPATH_SIGNING_POLICY_SLUG`.
+     `SIGNPATH_ORGANIZATION_ID` en son tanımlanır (tanımlandığı an `sign` etkinleşir).
+  4. Doğrulama: bir sonraki etiket koşusunda `sign` işinin üstünde "agent-sign" ortamı görünür; dal üzerinde
+     `environment: agent-sign` deneyen bir iş "Branch … is not allowed to deploy to agent-sign" ile durur.
+- Tekrarlanabilirlik (§11.2) imzalı Release'te **imzasız** hash ile karşılaştırılır (Release notu / `sign` iş özeti).
+  "Hakkında" parmak izi (AC-128) indirilen dosyanınkidir → imzalı `SHA256SUMS` ilk 8 hane. `verify-and-publish.sh`
+  değişmedi (imzalı exe de PE; attestation imzalı özete bağlı).
+
+### 24.4 Yayın (ön koşullar §24.1 tamam)
+
+1. `git tag -s v0.11.0 <P17 main commit> && git push origin v0.11.0` (yalnız yönetici; ruleset).
+2. Actions → agent-win → etiket koşusu: check, test-windows, build ×2, tekrarlanabilirlik yeşil → `approve` işi
+   **"ONAY: sunucu ön koşulu prod'da mı"** adıyla `agent-release` onayı bekler. Koşu sayfasındaki "Yayın ön koşulu" özeti
+   **boş kutulu** bir kontrol listesidir (S-P17-3; kanıt değil, hatırlatma). Onaylayan §24.1'i yeniden kontrol eder ve onay
+   yorumuna P15 prod commit'ini yazar; herhangi biri eksikse **Reject** (etiket kalır; imza, attestation ve Release oluşmaz;
+   §24.1 tamamlanınca koşu "Re-run all jobs" edilir).
+3. Onaydan sonra: sürüm artışı denetimi (etiket mevcut en yüksek Release'ten büyük) → (sign) → attest → release (ikinci onay
+   yok). Release işi artifact adını (`agent-win`/`agent-win-signed`) ve SignPath tanımlıyken imzalı olmasını denetler.
+4. Prod yayını: `deploy/agent/verify-and-publish.sh --tag v0.11.0 --dry-run`, sonra `--ssh root@185.126.217.99` (§11.3).
+5. `MIN_AGENT_VERSION`: 0.11.0 yayınıyla **yükseltilmez** (0.10.x yeni sunucuyla çalışır; AC-234 alanları isteğe bağlı).
+   Kabul kodu ayarını açan tenant'ta 0.10.x müşteri 409 alır → teknisyen müşteriden güncel istemciyi indirmesini ister.
+   Tüm müşteriler 0.11.0'a geçmeden `MIN_AGENT_VERSION=0.11.0` yapılmaz (yapılırsa eski istemci 426 alır; §3).
+6. §8 yayın geçmişine satır (istemci 0.11.0, SHA-256, imzalı/imzasız). `AGENT_WATCH_URL` henüz yoksa §11.1'e göre eklenir.
+
+### 24.5 Geri alma
+
+Önceki Release'i aynı doğrulamayla yeniden yayınlayın: `verify-and-publish.sh --tag v0.10.0 --ssh root@185.126.217.99`
+(§11.4; prova 2026-11-11). Sunucu değişmez; 0.11.0'a özel alanlar isteğe bağlı olduğundan 0.10.x'e dönüş sunucuyu etkilemez,
+yalnız kabul kodu açık tenant'larda talepler 409 alır (ayar kapatılır ya da 0.11.0 düzeltilip yeni etiketle — `v0.11.1` —
+yeniden yayımlanır; aynı etiket yeniden kullanılmaz). Not: prod'da henüz bir `v*` Release yoksa (`gh release list` boş)
+geri dönülecek Release de yoktur → indirmeyi kapatma yolu §11.7/4.
+
+### 24.6 Hedef mimari
+
+İstemci yalnız `windows/amd64` derlenir (`build.sh` `GOARCH=amd64`, go-winres `--arch amd64`; CI vet/govulncheck/lisans
+yalnız amd64). `GOOS=windows GOARCH=386 go vet` `internal/capture/mf_windows.go:270` "constant 4294967297 overflows uintptr"
+ile kırmızıdır (2026-11-15 yerelde doğrulandı); 386 hedef olmadığından CI'yı etkilemez. 64 bit değerin tek `uintptr` ile
+geçirilmesi 386 çağrı kuralına zaten uymaz; 386 eklenirse önce backend-dev düzeltir (öneri: `capture` Windows dosyalarına
+`//go:build windows && amd64`).
+
+### 24.7 `v1.0.0` etiketinin silinmesi (S-P17-6; kullanıcı/yönetici — ajanlar silmez)
+
+Run `43649073915` **Reject** edildikten sonra `v1.0.0` etiketi de silinmelidir: etiket kaldıkça aynı koşu "Re-run" ile
+yeniden `agent-release` onayına düşer ve yanlışlıkla onaylanabilir (P15 öncesi koddan istemci 1.0.0; ayrıntı §24.1/4). Bu
+koşu etiketin commit'indeki eski `agent-win.yml` ile çalışır (onay `release` işindedir, imza akışı yok). Tag ruleset silmeyi
+yalnız depo yöneticisine (bypass) izin verir; komutları yönetici kendi makinesinde çalıştırır:
+
+```bash
+gh run view 43649073915 --repo NoktaBilisim/Remote --json status,conclusion   # conclusion "failure"/"cancelled" olmalı (Reject)
+gh release view v1.0.0 --repo NoktaBilisim/Remote || echo "Release yok (beklenen)"
+git ls-remote --tags origin v1.0.0            # silinecek etiketin commit'ini kaydedin (§8 notu için)
+git push origin --delete v1.0.0               # ya da: gh api -X DELETE repos/NoktaBilisim/Remote/git/refs/tags/v1.0.0
+git tag -d v1.0.0                              # yerel kopya
+git ls-remote --tags origin v1.0.0            # boş çıktı = silindi
+```
+
+Release oluşmuşsa (onaylandıysa) önce `gh release delete v1.0.0 --repo NoktaBilisim/Remote --yes`, indirilen exe yayına
+alındıysa §24.5 / §11.4. Reject ve silme (tarih, etiket commit'i, kim) §8 yayın geçmişine bir satır olarak yazılır.

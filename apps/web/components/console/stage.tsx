@@ -1,6 +1,8 @@
 "use client";
 
+import { SHARE_METHOD_LABELS } from "@remote/contracts/labels";
 import {
+  AppWindow,
   Expand,
   Hourglass,
   LoaderCircle,
@@ -306,6 +308,19 @@ export function Stage({
           {/* Kontrol sırasında işaretleme zaten pasif: şeritte yer kaplamaz (TEST-P7-2) */}
           {showing && !actual && !capturing && tools}
           {controlBar}
+          {showing && state.shareMethod === "WGC" && (
+            // P17 (AC-248): pencere modu konsolda görünür; DXGI/GDI'da rozet yok (görünüm değişmez)
+            <span
+              data-testid="stage-share-mode"
+              data-method={state.shareMethod}
+              title={t("cs.windowShareHint", { method: SHARE_METHOD_LABELS.WGC ?? "WGC" })}
+              className="inline-flex min-h-8 shrink-0 items-center gap-1.5 rounded-full bg-primary-surface px-2.5 text-xs font-medium whitespace-nowrap text-primary"
+            >
+              <AppWindow aria-hidden className="size-3.5" />
+              {t("cs.windowShare")}
+              <span className="sr-only">{` — ${t("cs.windowShareHint", { method: SHARE_METHOD_LABELS.WGC ?? "WGC" })}`}</span>
+            </span>
+          )}
           {!compact && monitors}
           {showing && !compact && (
             <div className="ml-auto flex shrink-0 items-center gap-2">

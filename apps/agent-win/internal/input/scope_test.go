@@ -205,7 +205,8 @@ func TestAC248S171KeyDroppedWhenFocusInOtherApp(t *testing.T) {
 	d.wins[hDialog] = &fakeWin{r: rect(300, 300, 600, 500), tid: 7, pid: 70, owner: hTarget}
 	d.fg = hDialog
 	a.Handle([]byte(`{"t":"k","code":"KeyC","down":true,"key":"c"}`))
-	if evs := inj.take(); len(evs) != 0 {
+	// C basılmaz; yalnız hâlâ basılı B bırakılır (S-P17-1: ön plan değişince basılı tuşlar bırakılır).
+	if evs := inj.take(); len(evs) != 1 || evs[0].Scan != 'b' || evs[0].Flags&KeyUp == 0 {
 		t.Fatalf("diyalog ön plandayken tuş: %+v", evs)
 	}
 }
@@ -312,5 +313,183 @@ func TestAC248S171NilAPIOrZeroHandleDropsAll(t *testing.T) {
 	a.Handle([]byte(`{"t":"m.move","x":0.5,"y":0.5}`))
 	if inj.n.Load() != 1 {
 		t.Fatal("monitör modu")
+	}
+}
+
+// kd tek klavye mesajı (key yalnız yazdırılabilir tek karakterde dolu).
+func kd(code string, down bool, key string) []byte {
+	d := "false"
+	if down {
+		d = "true"
+	}
+	k := ""
+	if key != "" {
+		k = `,"key":"` + key + `"`
+	}
+	return []byte(`{"t":"k","code":"` + code + `","down":` + d + k + `}`)
+}
+
+// play mesaj dizisini (kod, "+"/"-") oynatır ve enjekte edilen olayları döner.
+func play(a *Applier, inj *fakeInj, seq ...string) []Event {
+	for _, s := range seq {
+		a.Handle(kd(s[1:], s[0] == '+', ""))
+	}
+	return inj.take()
+}
+
+// hasVK olaylarda vk sanal tuşunun BASMASI var mı.
+func hasVKDown(evs []Event, vks ...uint16) bool {
+	for _, e := range evs {
+		for _, vk := range vks {
+			if !e.Mouse && e.VK == vk && e.Flags&KeyUp == 0 {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+const (
+	vkTab, vkEsc, vkLWin, vkRWin, vkR, vkC, vkF4, vkCtrl, vkAlt, vkSnap = 0x09, 0x1B, 0x5B, 0x5C, 'R', 'C', 0x73, 0xA2, 0xA4, 0x2C
+)
+
+// S-P17-1: pencere modunda Win tuşu ve kabuk kısayolları hedef ön plandayken bile iletilmez.
+func TestSP171WindowModeShellShortcutsDropped(t *testing.T) {
+	for _, c := range []struct {
+		name string
+		seq  []string
+		bad  []uint16
+	}{
+		{"Win tek", []string{"+MetaLeft", "-MetaLeft"}, []uint16{vkLWin}},
+		{"Win+R ve metin", []string{"+MetaLeft", "+KeyR", "-KeyR", "+KeyC", "+Enter", "-MetaLeft"}, []uint16{vkLWin, vkR, vkC, 0x0D}},
+		{"sağ Win+E", []string{"+MetaRight", "+KeyE", "-KeyE", "-MetaRight"}, []uint16{vkRWin, 'E'}},
+		{"Alt+Tab+Tab", []string{"+AltLeft", "+Tab", "-Tab", "+Tab", "-Tab", "-AltLeft"}, []uint16{vkTab}},
+		{"Alt+Shift+Tab", []string{"+AltLeft", "+ShiftLeft", "+Tab", "-Tab", "-ShiftLeft", "-AltLeft"}, []uint16{vkTab}},
+		{"Alt+Esc", []string{"+AltLeft", "+Escape", "-Escape", "-AltLeft"}, []uint16{vkEsc}},
+		{"Ctrl+Esc", []string{"+ControlLeft", "+Escape", "-Escape", "-ControlLeft"}, []uint16{vkEsc}},
+		{"Ctrl+Shift+Esc", []string{"+ControlLeft", "+ShiftLeft", "+Escape", "-Escape", "-ShiftLeft", "-ControlLeft"}, []uint16{vkEsc}},
+		{"PrintScreen", []string{"+PrintScreen", "-PrintScreen"}, []uint16{vkSnap}},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			_, inj, a, logs := newScoped(t)
+			evs := play(a, inj, c.seq...)
+			if hasVKDown(evs, c.bad...) {
+				t.Fatalf("kabuk kısayolu iletildi: %+v", evs)
+			}
+			if a.ScopeDropped() == 0 || len(*logs) != 1 || (*logs)[0] != DropShell {
+				t.Fatalf("düşen=%d tanılama=%v", a.ScopeDropped(), *logs)
+			}
+			// Değiştiriciler bırakıldıktan sonra bu alıcının bastığı hiçbir tuş basılı kalmaz ve normal yazı geçer.
+			if len(a.keys) != 0 {
+				t.Fatalf("basılı kalan: %v", a.keys)
+			}
+			a.Handle(kd("KeyA", true, "a"))
+			if evs := inj.take(); len(evs) != 1 || evs[0].Scan != 'a' {
+				t.Fatalf("kısayoldan sonra harf: %+v", evs)
+			}
+		})
+	}
+}
+
+// S-P17-1: Win/Alt basılıyken gelen sonraki tuşlar da düşer (kilit); kilit değiştiriciler bırakılınca açılır.
+func TestSP171ShellLatchUntilModifiersReleased(t *testing.T) {
+	_, inj, a, _ := newScoped(t)
+	evs := play(a, inj, "+AltLeft", "+Tab", "-Tab", "+KeyA", "-KeyA", "+F4")
+	if hasVKDown(evs, vkTab, 'A', vkF4) {
+		t.Fatalf("Alt+Tab sonrası Alt basılıyken tuş iletildi: %+v", evs)
+	}
+	evs = play(a, inj, "-AltLeft", "+KeyA")
+	if !hasVKDown(evs, 'A') {
+		t.Fatalf("Alt bırakıldıktan sonra tuş geçmeli: %+v", evs)
+	}
+	// k.release_all kilidi ve uzaktaki Win durumunu sıfırlar.
+	play(a, inj, "-KeyA", "+MetaLeft")
+	a.Handle([]byte(`{"t":"k.release_all"}`))
+	inj.take()
+	if evs := play(a, inj, "+KeyB"); !hasVKDown(evs, 'B') {
+		t.Fatalf("release_all sonrası: %+v", evs)
+	}
+}
+
+// S-P17-1: hedef ön plandayken normal harfler, Ctrl+C ve Alt+F4 (yalnız hedefi kapatır) iletilir.
+func TestSP171WindowModeOrdinaryKeysPass(t *testing.T) {
+	_, inj, a, logs := newScoped(t)
+	a.Handle(kd("KeyX", true, "x"))
+	a.Handle(kd("KeyX", false, "x"))
+	if evs := inj.take(); len(evs) != 2 || evs[0].Scan != 'x' || evs[1].Flags != KeyUnicode|KeyUp {
+		t.Fatalf("harf: %+v", evs)
+	}
+	if evs := play(a, inj, "+ControlLeft", "+KeyC", "-KeyC", "-ControlLeft"); !hasVKDown(evs, vkCtrl) || !hasVKDown(evs, vkC) || len(evs) != 4 {
+		t.Fatalf("Ctrl+C: %+v", evs)
+	}
+	if evs := play(a, inj, "+AltLeft", "+F4", "-F4", "-AltLeft"); !hasVKDown(evs, vkAlt) || !hasVKDown(evs, vkF4) {
+		t.Fatalf("Alt+F4: %+v", evs)
+	}
+	if a.ScopeDropped() != 0 || len(*logs) != 0 {
+		t.Fatalf("düşen=%d %v", a.ScopeDropped(), *logs)
+	}
+}
+
+// S-P17-1: monitör (tüm ekran) modunda davranış değişmez — Win+E, Alt+Tab, Ctrl+Esc, PrintScreen iletilir.
+func TestSP171MonitorModeUnchanged(t *testing.T) {
+	g, inj, a := newApplier()
+	g.Open()
+	for _, c := range []struct {
+		seq  []string
+		want []uint16
+	}{
+		{[]string{"+MetaLeft", "+KeyE", "-KeyE", "-MetaLeft"}, []uint16{vkLWin, 'E'}},
+		{[]string{"+AltLeft", "+Tab", "-Tab", "-AltLeft"}, []uint16{vkAlt, vkTab}},
+		{[]string{"+ControlLeft", "+Escape", "-Escape", "-ControlLeft"}, []uint16{vkCtrl, vkEsc}},
+		{[]string{"+PrintScreen", "-PrintScreen"}, []uint16{vkSnap}},
+	} {
+		evs := play(a, inj, c.seq...)
+		for _, vk := range c.want {
+			if !hasVKDown(evs, vk) {
+				t.Fatalf("%v: 0x%X iletilmedi: %+v", c.seq, vk, evs)
+			}
+		}
+		if len(evs) != len(c.seq) {
+			t.Fatalf("%v: %d olay", c.seq, len(evs))
+		}
+	}
+	if a.ScopeDropped() != 0 {
+		t.Fatalf("düşen=%d", a.ScopeDropped())
+	}
+	// Monitör modunda RateBurst (500) geçerli; pencere modu tuş sınırı uygulanmaz.
+	for range 100 {
+		a.Handle(kd("KeyA", true, "a"))
+	}
+	if n := len(inj.take()); n != 100 {
+		t.Fatalf("monitör modunda tuş patlaması: %d", n)
+	}
+}
+
+// S-P17-1 (TOCTOU): pencere modunda tuş patlaması WindowKeyBurst ile sınırlanır.
+func TestSP171WindowModeKeyBurstLimited(t *testing.T) {
+	_, inj, a, logs := newScoped(t)
+	for range 100 { // sahte saat mesaj başına 10 ms: 40 + 100×0,4 = en çok 80
+		a.Handle(kd("KeyA", true, "a"))
+	}
+	n := len(inj.take())
+	if n < WindowKeyBurst || n > WindowKeyBurst+40 {
+		t.Fatalf("iletilen=%d", n)
+	}
+	if len(*logs) != 1 || (*logs)[0] != DropKeyBurst {
+		t.Fatalf("tanılama: %v", *logs)
+	}
+}
+
+// S-P17-1: ön plan hedeften çıkınca bu alıcının basılı tuttuğu tuşlar bırakılır (yeni pencerede Ctrl takılı kalmaz).
+func TestSP171UnfocusReleasesHeldKeys(t *testing.T) {
+	d, inj, a, _ := newScoped(t)
+	play(a, inj, "+ControlLeft")
+	d.fg = hBrowser
+	evs := play(a, inj, "+KeyV")
+	if len(evs) != 1 || evs[0].VK != vkCtrl || evs[0].Flags&KeyUp == 0 {
+		t.Fatalf("Ctrl bırakılmalı, V basılmamalı: %+v", evs)
+	}
+	if evs := play(a, inj, "-ControlLeft"); len(evs) != 0 {
+		t.Fatalf("çift bırakma: %+v", evs)
 	}
 }

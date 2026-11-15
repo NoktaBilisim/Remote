@@ -1,4 +1,9 @@
 # Windows istemci (P6, ADR-0010, G-07, AC-94/96/128): kalite + tekrarlanabilir build + SHA256SUMS + attestation + Release.
+# Release etiketi `vX.Y.Z` (AC-94 "korumalı v* etiketi"; tag ruleset + agent-release ortamı `v*`). Etiket = istemci sürümü
+# (ldflags config.version). mimari-e11 §8'deki `agent-v0.11.0` yazımı AC-94 ile çelişir; geçerli olan `v0.11.0` (runbook §24).
+# P17 AC-252: SignPath imzası koşullu (`vars.SIGNPATH_ORGANIZATION_ID` yoksa `sign` atlanır, imzasız akış aynen sürer).
+# Etikette sıra (S-P17-2): reproducible → approve (agent-release, insan onayı) → sign (agent-sign) → attest → release.
+# Hedef yalnız windows/amd64 (build.sh, vet, govulncheck, lisans); 386/arm64 derlenmez.
 # G-18: Action'lar commit SHA ile sabit; varsayılan izin `contents: read`; yazma izinleri yalnız attest/release job'larında.
 # Go adımları sabit digest'li resmi imajda koşar (yerel doğrulama komutuyla birebir aynı ortam, runbook §11).
 # Go sürümü değişince (go.mod `toolchain`) GO_IMAGE de değişir; `check` job'u uyuşmazlıkta kırmızı olur.
@@ -87,6 +92,21 @@ jobs:
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with: { go-version: "${{ env.GO_VERSION }}", cache: false }
       - run: go test -count=1 ./...
+      # P17 QA Tur 1 / devops 1: AC-248/249 testleri günlükte PASS/SKIP olarak görünür koşar. WGC duman testi (gerçek kare
+      # alımının tek otomatik kanıtı) SKIP olursa uyarı basılır; iş kırmızı olmaz (runner oturumu WGC desteklemeyebilir,
+      # kanıt o durumda Windows VM elle turundan gelir — runbook §24).
+      - name: AC-248/249 testleri (-v, SKIP görünür)
+        shell: bash
+        run: |
+          go test -count=1 -v -run 'TestAC248|TestAC249' ./internal/... | tee "$RUNNER_TEMP/ac248-249.txt"
+          if grep -q -- '--- SKIP: TestAC248WGCWindowSmoke' "$RUNNER_TEMP/ac248-249.txt"; then
+            echo "::warning::TestAC248WGCWindowSmoke SKIP: WGC gerçek kare kanıtı bu koşuda YOK (Windows VM elle turu gerekli)"
+          fi
+          grep -q -- '--- PASS: TestAC248WGCWindowSmoke' "$RUNNER_TEMP/ac248-249.txt" || grep -q -- '--- SKIP: TestAC248WGCWindowSmoke' "$RUNNER_TEMP/ac248-249.txt" \
+            || { echo "::error::TestAC248WGCWindowSmoke koşmadı (ad değişti mi?)"; exit 1; }
+          if grep -- '--- SKIP: TestAC249' "$RUNNER_TEMP/ac248-249.txt"; then
+            echo "::warning::AC-249 testlerinden SKIP olan var (yukarıdaki satırlar)"
+          fi
       # AC-108 / P6 DoD "trace-check.ps1 temiz": yer tutucu adresli exe (gerçek sunucuya istek atmaz) dosya adından kodla
       # açılır → resolve ağ hatası → kod penceresi → WM_CLOSE ile kapatılır → önce/sonra farkı. Dosya aktarımı ve oturum
       # akışı burada yok; tam senaryo Windows VM elle testinde (runbook §11.8).
@@ -224,6 +244,19 @@ jobs:
           (cd dist && sha256sum "$exe" > SHA256SUMS && cat SHA256SUMS)
           { echo "### $exe ($artifact)"; echo '```'; cat dist/SHA256SUMS; cat dist/build-meta.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
           echo "exe=$exe" >> "$GITHUB_OUTPUT"; echo "artifact=$artifact" >> "$GITHUB_OUTPUT"
+      - name: onaylayan için kontrol listesi (yalnız etiket; S17-2, S-P17-3)
+        # Onay beklenirken koşu sayfasında görünsün diye onay işinden ÖNCE yazılır. Kutular bilerek boş: kontrol kanıtı
+        # değildir; onaylayan maddeleri kontrol edip sonucu onay yorumuna yazar (runbook §24.4).
+        if: github.event_name == 'push' && github.ref_type == 'tag'
+        run: |
+          {
+            echo "### Yayın ön koşulu (S17-2) — onay vermeden önce kontrol edin (runbook §24.1)"
+            echo "- [ ] İstemcinin gerektirdiği sunucu paketi prod'da (0.11.0 → P15)"
+            echo "- [ ] Aynı commit'ten staging exe ile duman testi GEÇTİ (runbook §24.2)"
+            echo "- [ ] qa GEÇTİ, güvenlik Kritik/Yüksek 0; bekleyen eski etiket koşusu yok"
+            echo
+            echo "Biri eksikse agent-release onayında **Reject**. Onay yorumuna P15 prod commit'ini yazın."
+          } >> "$GITHUB_STEP_SUMMARY"
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: ${{ steps.name.outputs.artifact }}
@@ -231,48 +264,197 @@ jobs:
           if-no-files-found: error
           retention-days: 30
 
+  approve:
+    name: "ONAY: sunucu ön koşulu prod'da mı (runbook §24.1) — onaydan sonra imza + Release"
+    # S17-2 (mimari-e11 §8, bağlayıcı): istemcinin gerektirdiği sunucu paketi (0.11.0 için P15) prod'da değilse ONAYLAMAYIN;
+    # "Reject" edin. Eski sunucu `share.state`'i strictObject ile doğrular, yeni alanlar reddedilir.
+    # S-P17-2: tek insan kapısı bu iştir ve imzalamadan (sign), attestation'dan ve Release'ten ÖNCE gelir: Reject edilen
+    # etiket için imzalı ikili hiç üretilmez. Ortam onayı (required reviewers, deployment tags `v*`) repo ayarında
+    # (runbook §11.1). Kontrol listesi `reproducible` işinin özetindedir.
+    if: >-
+      !cancelled() && github.event_name == 'push' && github.ref_type == 'tag' && needs.check.result == 'success' &&
+      needs.test-windows.result == 'success' && needs.reproducible.result == 'success'
+    needs: [check, test-windows, reproducible]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    environment: agent-release
+    permissions:
+      contents: read
+    steps:
+      - name: sürüm artışı (yeni etiket > en yüksek Release)
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+          REPO: ${{ github.repository }}
+        run: |
+          # Sürüm geriye gidemez: yeni etiket mevcut en yüksek Release sürümünden büyük olmalı (karışık sürüm ve
+          # MIN_AGENT_VERSION / kabul kodu eşiği yanlış istemciye uygulanmasın). Rollback yeni etiketle değil §11.4 ile.
+          # İmzadan önce denetlenir: reddedilecek sürüm imzalanmaz.
+          tags=$(gh release list --repo "$REPO" --limit 100 --exclude-drafts --json tagName --jq '.[].tagName')
+          top=$(printf '%s\n' "$tags" | { grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' || true; } | sed 's/^v//' \
+            | sort -t. -k1,1n -k2,2n -k3,3n | tail -1)
+          if [ -n "$top" ]; then
+            hi=$(printf '%s\n%s\n' "$top" "${TAG#v}" | sort -t. -k1,1n -k2,2n -k3,3n | tail -1)
+            [ "$hi" = "${TAG#v}" ] && [ "$top" != "${TAG#v}" ] || { echo "::error::$TAG mevcut en yüksek Release v$top'tan büyük değil"; exit 1; }
+          fi
+          echo "onaylandı: $TAG (onaylayan ve yorum: Environments → agent-release → deployment geçmişi)" >> "$GITHUB_STEP_SUMMARY"
+
+  sign:
+    name: SignPath imzası + signtool verify (AC-252; hesap yoksa atlanır)
+    # AC-252 (mimari-e11 §8.1): yalnız Release etiketi push'unda, agent-release ONAYINDAN SONRA ve repo değişkeni
+    # SIGNPATH_ORGANIZATION_ID tanımlıysa. Değişken yoksa iş "skipped" olur; attest/release imzasız ikiliyle sürer
+    # (ADR-0010), AC-252 "uygulanamaz" kapanır.
+    # S-P17-2: `SIGNPATH_API_TOKEN` yalnız `agent-sign` ORTAM secret'ıdır (deployment policy yalnız `v*` etiketi); dal
+    # push'unda değiştirilmiş bir iş akışı bu ortama giremez, token'ı okuyamaz. SignPath politikası ayrıca kökeni
+    # (refs/tags/v*, bu iş akışı dosyası) doğrular (runbook §24.3).
+    # İmzalı ikili tekrarlanabilir DEĞİLDİR (imza eklenir); tekrarlanabilirlik imzasız ikilide (`reproducible`) kanıtlanır,
+    # imzasız SHA-256 Release notunda yazılır. SHA256SUMS ve attestation İMZALI ikiliden üretilir (runbook §24.3).
+    if: >-
+      !cancelled() && github.event_name == 'push' && github.ref_type == 'tag' && vars.SIGNPATH_ORGANIZATION_ID != '' &&
+      needs.approve.result == 'success'
+    needs: [reproducible, approve]
+    runs-on: windows-2025
+    timeout-minutes: 30
+    environment: agent-sign
+    permissions:
+      contents: read
+      actions: read # SignPath bağlayıcısı bu koşunun iş/artifact bilgisini github.token ile okur
+    outputs:
+      artifact: ${{ steps.out.outputs.artifact }}
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with: { name: "${{ needs.reproducible.outputs.artifact }}", path: unsigned }
+      - name: ön kontrol (yapılandırma + imzasız SHA256SUMS)
+        shell: bash
+        env:
+          ART: ${{ needs.reproducible.outputs.artifact }}
+          PROJECT: ${{ vars.SIGNPATH_PROJECT_SLUG }}
+          POLICY: ${{ vars.SIGNPATH_SIGNING_POLICY_SLUG }}
+          TOKEN_SET: ${{ secrets.SIGNPATH_API_TOKEN != '' }}
+        run: |
+          [ "$ART" = agent-win ] || { echo "::error::yalnız Release artifact'i (agent-win) imzalanır (bulunan: $ART)"; exit 1; }
+          [ -n "$PROJECT" ] && [ -n "$POLICY" ] || { echo "::error::SIGNPATH_PROJECT_SLUG / SIGNPATH_SIGNING_POLICY_SLUG repo değişkeni eksik"; exit 1; }
+          [ "$TOKEN_SET" = true ] || { echo "::error::SIGNPATH_API_TOKEN agent-sign ortam secret'ı eksik (runbook §24.3)"; exit 1; }
+          cd unsigned && sha256sum -c SHA256SUMS
+      - id: up
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: agent-win-unsigned
+          path: unsigned/NoktaDestek.exe
+          if-no-files-found: error
+          retention-days: 1
+      - uses: signpath/github-action-submit-signing-request@f6d04783b4569d051e0c80105fe66e82819d0092 # v3.0
+        with:
+          api-token: ${{ secrets.SIGNPATH_API_TOKEN }}
+          organization-id: ${{ vars.SIGNPATH_ORGANIZATION_ID }}
+          project-slug: ${{ vars.SIGNPATH_PROJECT_SLUG }}
+          signing-policy-slug: ${{ vars.SIGNPATH_SIGNING_POLICY_SLUG }}
+          github-artifact-id: ${{ steps.up.outputs.artifact-id }}
+          wait-for-completion: true
+          output-artifact-directory: signed
+      - name: signtool verify /pa (Authenticode zinciri + zaman damgası)
+        shell: pwsh
+        run: |
+          $exe = Join-Path $PWD 'signed/NoktaDestek.exe'
+          if (-not (Test-Path $exe)) { Write-Output "::error::SignPath çıktısında NoktaDestek.exe yok"; exit 1 }
+          $st = Get-ChildItem "${env:ProgramFiles(x86)}\Windows Kits\10\bin" -Recurse -Filter signtool.exe |
+            Where-Object { $_.FullName -match '\\x64\\' } | Sort-Object FullName -Descending | Select-Object -First 1
+          if (-not $st) { Write-Output "::error::signtool.exe bulunamadı (Windows SDK)"; exit 1 }
+          & $st.FullName verify /pa /tw /v $exe
+          if ($LASTEXITCODE -ne 0) { Write-Output "::error::signtool verify /pa başarısız"; exit 1 }
+          $sig = Get-AuthenticodeSignature -FilePath $exe
+          if ($sig.Status -ne 'Valid') { Write-Output "::error::Authenticode durumu $($sig.Status)"; exit 1 }
+          Write-Output "imzalayan: $($sig.SignerCertificate.Subject)"
+      - name: SHA256SUMS (imzalı ikiliden) + boyut/packer kontrolü
+        id: out
+        shell: bash
+        run: |
+          f=signed/NoktaDestek.exe
+          size=$(stat -c %s "$f"); echo "boyut=$size"
+          [ "$size" -le 41943040 ] || { echo "::error::imzalı exe 40 MB'ı aşıyor (AC-96)"; exit 1; }
+          [ "$(head -c2 "$f")" = MZ ] || { echo "::error::PE değil"; exit 1; }
+          if grep -aq 'UPX!' "$f"; then echo "::error::UPX/packer izi (ADR-0010)"; exit 1; fi
+          mkdir dist && cp "$f" dist/NoktaDestek.exe && cp unsigned/build-meta.txt dist/
+          awk '{print $1}' unsigned/SHA256SUMS > dist/unsigned-sha256.txt
+          (cd dist && sha256sum NoktaDestek.exe > SHA256SUMS && cat SHA256SUMS)
+          { echo "### NoktaDestek.exe (imzalı, agent-win-signed)"; echo '```'; cat dist/SHA256SUMS
+            echo "imzasız (tekrarlanabilir) SHA-256: $(cat dist/unsigned-sha256.txt)"; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+          echo "artifact=agent-win-signed" >> "$GITHUB_OUTPUT"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: agent-win-signed
+          path: dist/
+          if-no-files-found: error
+          # S-P17-2: imzalı kopya yalnız hemen ardından koşan release işi için; kalıcı kopya Release'tedir.
+          retention-days: 1
+
   attest:
     name: build provenance attestation
     # Fork PR'larında id-token yok; yalnız main/etiket push'u ve elle tetikleme. GitHub, attestation'ı private
-    # repoda yalnız Enterprise Cloud'da destekler (runbook §11.6).
-    if: github.event_name != 'pull_request'
-    needs: reproducible
+    # repoda yalnız Enterprise Cloud'da destekler (runbook §11.6). AC-252: `sign` koştuysa imzalı ikili, atlandıysa
+    # imzasız ikili attest edilir; `sign` başarısızsa attest (ve Release) koşmaz (fail-closed). Etikette yalnız
+    # agent-release onayından sonra (Reject edilen etiket attest edilmez; onaysızken `sign` de "skipped" görünür).
+    if: >-
+      !cancelled() && github.event_name != 'pull_request' && needs.reproducible.result == 'success' &&
+      (github.ref_type != 'tag' || needs.approve.result == 'success') &&
+      (needs.sign.result == 'success' || needs.sign.result == 'skipped')
+    needs: [reproducible, approve, sign]
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions:
       contents: read
       id-token: write
       attestations: write
+    outputs:
+      artifact: ${{ steps.pick.outputs.artifact }}
     steps:
+      - name: attest edilecek artifact
+        id: pick
+        env:
+          SIGNED: ${{ needs.sign.outputs.artifact }}
+          PLAIN: ${{ needs.reproducible.outputs.artifact }}
+        run: echo "artifact=${SIGNED:-$PLAIN}" >> "$GITHUB_OUTPUT"
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
-        with: { name: "${{ needs.reproducible.outputs.artifact }}", path: dist }
+        with: { name: "${{ steps.pick.outputs.artifact }}", path: dist }
       - run: cd dist && sha256sum -c SHA256SUMS
       - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
         with: { subject-path: "dist/${{ needs.reproducible.outputs.exe }}" }
 
   release:
-    name: GitHub Release (korumalı v* etiketi)
-    if: github.ref_type == 'tag'
-    needs: [check, test-windows, attest]
+    name: GitHub Release (korumalı v* etiketi; agent-release onayından sonra)
+    # İnsan kapısı `approve` işidir (S17-2, S-P17-2); bu iş yalnız onaylanmış + (imzalanmış) + attest edilmiş ikiliyi yayımlar.
+    # Ayrı ortam onayı yok (ikinci onay aynı kişiye aynı soruyu sorardı). Etiket yalnız yöneticilerce itilebilir (ruleset).
+    if: >-
+      !cancelled() && github.event_name == 'push' && github.ref_type == 'tag' && needs.approve.result == 'success' &&
+      needs.attest.result == 'success'
+    needs: [approve, attest]
     runs-on: ubuntu-24.04
     timeout-minutes: 10
-    # Ortam onayı (required reviewers) repo ayarında: Settings → Environments → agent-release (runbook §11.1).
-    environment: agent-release
     permissions:
       contents: write
     steps:
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
-        with: { name: agent-win, path: dist }
+        with: { name: "${{ needs.attest.outputs.artifact }}", path: dist }
       - name: Release oluştur (exe + SHA256SUMS)
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ github.ref_name }}
           REPO: ${{ github.repository }}
+          ART: ${{ needs.attest.outputs.artifact }}
+          SIGNPATH_ORG: ${{ vars.SIGNPATH_ORGANIZATION_ID }}
         run: |
+          case "$ART" in agent-win|agent-win-signed) ;; *) echo "::error::Release artifact'i $ART olamaz"; exit 1 ;; esac
+          # AC-252: SignPath yapılandırılmışsa imzasız ikili Release'e gitmez.
+          [ -z "$SIGNPATH_ORG" ] || [ "$ART" = agent-win-signed ] || { echo "::error::SignPath tanımlı ama ikili imzasız"; exit 1; }
           cd dist && sha256sum -c SHA256SUMS
           server=$(sed -n 1p build-meta.txt)
+          if [ "$ART" = agent-win-signed ]; then
+            sig="Authenticode imzalı (SignPath, AC-252). İmzasız tekrarlanabilir derlemenin SHA-256'sı: $(cat unsigned-sha256.txt)"
+          else
+            sig="imzasız (ADR-0010)"
+          fi
           {
-            echo "Nokta Destek Windows istemcisi $TAG (imzasız, ADR-0010). Sunucu: $server"
+            echo "Nokta Destek Windows istemcisi $TAG ($sig). Sunucu: $server"
             echo
             echo '```'; cat SHA256SUMS; echo '```'
             echo

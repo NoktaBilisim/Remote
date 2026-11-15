@@ -40,10 +40,11 @@ type TopWindow struct {
 	HWND    uintptr
 	Title   string
 	PID     uint32
-	Visible bool // WS_VISIBLE
-	Tool    bool // WS_EX_TOOLWINDOW (görev çubuğunda olmayan yardımcı pencere)
-	Cloaked bool // DWM tarafından gizlenmiş (başka sanal masaüstü, askıdaki UWP)
-	Iconic  bool // simge durumunda
+	Visible bool   // WS_VISIBLE
+	Tool    bool   // WS_EX_TOOLWINDOW (görev çubuğunda olmayan yardımcı pencere)
+	Cloaked bool   // DWM tarafından gizlenmiş (başka sanal masaüstü, askıdaki UWP)
+	Iconic  bool   // simge durumunda
+	Class   string // pencere sınıfı (S-P17-4: kabuk pencereleri listeden çıkarılır)
 }
 
 var (
@@ -71,7 +72,7 @@ func TopWindows() []TopWindow {
 		_, pid := ThreadProcess(h)
 		out = append(out, TopWindow{HWND: h, Title: windowTitle(h), PID: pid,
 			Visible: windows.IsWindowVisible(windows.HWND(h)), Tool: ExStyle(h)&WS_EX_TOOLWINDOW != 0,
-			Cloaked: Cloaked(h), Iconic: IsIconic(h)})
+			Cloaked: Cloaked(h), Iconic: IsIconic(h), Class: ClassName(h)})
 	}
 	return out
 }

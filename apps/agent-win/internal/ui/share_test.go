@@ -19,10 +19,16 @@ func TestAC248ShareableWindowsFilter(t *testing.T) {
 		{HWND: 8, Title: "Satır\r\nsonu", PID: 16, Visible: true},
 		{HWND: 9, Title: strings.Repeat("ç", 100), PID: 17, Visible: true},
 		{HWND: 0, Title: "sıfır", PID: 18, Visible: true},
+		// S-P17-4: kabuk pencereleri (görünür, başlıklı, araç penceresi değil) listelenmez.
+		{HWND: 20, Title: "Program Manager", PID: 30, Visible: true, Class: "Progman"},
+		{HWND: 21, Title: "Masaüstü", PID: 30, Visible: true, Class: "WorkerW"},
+		{HWND: 22, Title: "Görev çubuğu", PID: 30, Visible: true, Class: "Shell_TrayWnd"},
+		{HWND: 23, Title: "İkinci görev çubuğu", PID: 30, Visible: true, Class: "Shell_SecondaryTrayWnd"},
+		{HWND: 24, Title: "Belgeler", PID: 30, Visible: true, Class: "CabinetWClass"}, // Gezgin penceresi kalır
 	}
 	got := shareableWindows(all, self)
 	want := []shareWindow{{1, "Muhasebe — Fatura"}, {7, "Not Defteri (simge durumunda)"}, {8, "Satır sonu"},
-		{9, strings.Repeat("ç", shareTitleMax-1) + "…"}}
+		{9, strings.Repeat("ç", shareTitleMax-1) + "…"}, {24, "Belgeler"}}
 	if len(got) != len(want) {
 		t.Fatalf("%v", got)
 	}

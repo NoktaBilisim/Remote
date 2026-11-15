@@ -220,6 +220,9 @@ function onMsg(s: ControlState, m: ServerOutbound, now: number): ControlState {
     case "session.ended":
       return { ...stop(s, "system", now, "idle"), monitorPending: null };
     case "share.state": {
+      // P17 (AC-248): pencere modunda (WGC) istemci monitör listesi göndermez ve `monitor.request`i yok sayar —
+      // önceki listeden kalan monitör seçici gösterilmez, bekleyen istek kapanır.
+      if (m.state === "sharing" && m.method === "WGC") return { ...s, monitors: [], activeMonitor: null, monitorPending: null };
       const monitors = m.monitors ?? s.monitors;
       const activeMonitor = m.activeMonitor ?? s.activeMonitor;
       const hit = s.monitorPending !== null && activeMonitor === s.monitorPending.id;

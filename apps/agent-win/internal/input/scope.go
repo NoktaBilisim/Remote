@@ -10,7 +10,16 @@ import "time"
 //     (WindowFromPoint → GA_ROOT) hedef değilse ve hedefin sahip olduğu (GW_OWNER zinciri, aynı süreç) bir
 //     diyalog/menü de değilse olay düşer. Tekerlek imlecin altındaki pencereye gittiğinden aynı denetim imleç
 //     konumunda yapılır.
-//   - Klavye: ön plan penceresinin kökü hedef değilse tuş düşer (kuyruklanmaz, odak çalınmaz).
+//   - Klavye: ön plan penceresinin kökü hedef değilse tuş düşer (kuyruklanmaz, odak çalınmaz); bu anda bu alıcının
+//     basılı tuttuğu tuşlar bırakılır (takılı değiştirici yeni ön plan penceresine taşınmaz).
+//   - Kabuk kısayolları (S-P17-1): Win tuşu ve Win basılıyken her tuş, Alt+Tab, Alt+Esc, Ctrl+Esc, Ctrl+Shift+Esc
+//     ve PrintScreen hedef pencereye değil kabuğa gider (Çalıştır kutusu, Başlat, Görev Yöneticisi, pencere geçişi,
+//     tüm ekranın panoya alınması); ön plan denetiminden ÖNCE düşer. Böyle bir kısayol görüldükten sonra uzaktaki
+//     Win/Alt/Ctrl bırakılana dek gelen bütün basmalar da düşer (Alt+Tab+Tab, Win+R+metin). Alt+F4 iletilir: ön plan
+//     hedefken yalnız hedef pencereyi (ya da onun diyaloğunu) kapatır; kapanış paylaşımı WINDOW_CLOSED ile bitirir.
+//   - Tuş patlaması (S-P17-1 TOCTOU): denetim SendInput'tan hemen önce kilit altında yapılır, ama tuş sistem girdi
+//     kuyruğundan sonra teslim edilir. Pencere modunda tuş basmaları ayrıca WindowKeyPerSec/WindowKeyBurst ile
+//     sınırlanır; ön plan değişirse kuyruğa girmiş olabilecek tuş sayısı küçük kalır.
 //   - Pencere simge durumunda ya da kapalıysa bütün girdi düşer.
 //
 // İstisna (S7-13 ile aynı gerekçe): bu alıcının basılı tuttuğu tuş/düğmenin BIRAKILMASI ve k.release_all düşmez;
@@ -40,6 +49,15 @@ const (
 	DropMinimized = "WINDOW_MINIMIZED"
 	DropOccluded  = "OCCLUDED"
 	DropUnfocused = "UNFOCUSED"
+	DropShell     = "SHELL_SHORTCUT" // S-P17-1
+	DropKeyBurst  = "KEY_BURST"      // S-P17-1
+)
+
+// Pencere modu tuş basma sınırı (S-P17-1): hızlı yazı (~12/sn) ve konsolun tuş tekrarı (~30/sn) sığar; monitör
+// modundaki RateBurst (500) patlaması pencere modunda uygulanmaz.
+const (
+	WindowKeyPerSec = 40
+	WindowKeyBurst  = 40
 )
 
 // dropLogEvery aynı alıcıda en çok bu aralıkta bir tanılama satırı (mimari: 5 sn'de en çok 1).
@@ -209,7 +227,16 @@ func (a *Applier) translateScoped(m Msg) []Event {
 		return a.translate(m)
 	case "k":
 		if !*m.Down {
-			return a.key(m) // yalnız basılı tuşun bırakılması üretilir (key içinde)
+			delete(a.scopeMeta, m.Code)
+			evs := a.key(m) // yalnız basılı tuşun bırakılması üretilir (key içinde)
+			if len(a.scopeMeta) == 0 && !a.modHeld(shellMods...) {
+				a.scopeLatch = false
+			}
+			return evs
+		}
+		if a.shellShortcut(m.Code) {
+			a.dropLocked(DropShell)
+			return nil
 		}
 		if why := a.windowState(); why != "" {
 			a.dropLocked(why)
@@ -217,9 +244,68 @@ func (a *Applier) translateScoped(m Msg) []Event {
 		}
 		if a.scope.api.ForegroundRoot() != a.scope.hwnd {
 			a.dropLocked(DropUnfocused)
+			return a.releaseKeysLocked()
+		}
+		if !a.takeKeyLocked(a.cur) {
+			a.dropLocked(DropKeyBurst)
 			return nil
 		}
 		return a.key(m)
 	}
 	return nil
+}
+
+// shellMods kabuk kısayolu kilidini (scopeLatch) ayakta tutan değiştiriciler.
+var shellMods = []string{"MetaLeft", "MetaRight", "AltLeft", "AltRight", "ControlLeft", "ControlRight"}
+
+// shellShortcut S-P17-1: basılan tuş pencere modunda kabuğa giden bir kısayol mu (ya da kısayol kilidi açık mı).
+// Win basması enjekte edilmez; uzakta basılı olduğu scopeMeta'da izlenir (monitör modunda basılıp a.keys'te kalan
+// Win de sayılır). a.mu altında.
+func (a *Applier) shellShortcut(code string) bool {
+	alt := a.modHeld("AltLeft", "AltRight")
+	ctrl := a.modHeld("ControlLeft", "ControlRight")
+	switch {
+	case code == "MetaLeft" || code == "MetaRight":
+		a.scopeMeta[code] = true
+	case a.scopeLatch || len(a.scopeMeta) > 0 || a.modHeld("MetaLeft", "MetaRight"):
+	case code == "Tab" && alt, code == "Escape" && (alt || ctrl):
+	case code == "PrintScreen":
+		return true // değiştiricisiz de kabuğa gider (ekran alıntısı); kilit açılmaz
+	default:
+		return false
+	}
+	a.scopeLatch = true
+	return true
+}
+
+// resetShellLocked kabuk kısayolu durumunu sıfırlar (monitör moduna dönüş, k.release_all, kapı kapanışı). a.mu altında.
+func (a *Applier) resetShellLocked() {
+	clear(a.scopeMeta)
+	a.scopeLatch = false
+}
+
+// releaseKeysLocked bu alıcının basılı tuttuğu tuşların bırakılması (ön plan hedeften çıktı). a.mu altında.
+func (a *Applier) releaseKeysLocked() []Event {
+	var evs []Event
+	for _, k := range a.keys {
+		evs = append(evs, keyEvents(k, false)...)
+	}
+	clear(a.keys)
+	return evs
+}
+
+// takeKeyLocked pencere modu tuş basma kovası (WindowKeyPerSec/WindowKeyBurst). a.mu altında.
+func (a *Applier) takeKeyLocked(now time.Time) bool {
+	if a.keyLast.IsZero() {
+		a.keyTokens, a.keyLast = WindowKeyBurst, now
+	}
+	if el := now.Sub(a.keyLast).Seconds(); el > 0 {
+		a.keyTokens = min(WindowKeyBurst, a.keyTokens+el*WindowKeyPerSec)
+		a.keyLast = now
+	}
+	if a.keyTokens < 1 {
+		return false
+	}
+	a.keyTokens--
+	return true
 }

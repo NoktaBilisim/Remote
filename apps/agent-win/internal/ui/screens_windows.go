@@ -431,7 +431,7 @@ func topWindows() []windowCandidate {
 	out := make([]windowCandidate, 0, len(ws))
 	for _, w := range ws {
 		out = append(out, windowCandidate{HWND: w.HWND, Title: w.Title, PID: w.PID, Visible: w.Visible, Tool: w.Tool,
-			Cloaked: w.Cloaked, Iconic: w.Iconic})
+			Cloaked: w.Cloaked, Iconic: w.Iconic, Class: w.Class})
 	}
 	return out
 }

@@ -85,6 +85,10 @@ type Applier struct {
 	buttons map[string]bool
 	// AC-248 / S17-1 pencere modu (scope.go); scope.on false ise monitör modu.
 	scope       winScope
+	scopeMeta   map[string]bool // S-P17-1: pencere modunda düşürülen, uzakta hâlâ basılı Win tuşları
+	scopeLatch  bool            // S-P17-1: kabuk kısayolu görüldü; Win/Alt/Ctrl bırakılana dek basmalar düşer
+	keyTokens   float64         // S-P17-1: pencere modu tuş basma kovası
+	keyLast     time.Time
 	dropLog     func(reason string)
 	dropAt      time.Time
 	pendingDrop string
@@ -96,7 +100,8 @@ func NewApplier(g *control.Gate, inj Injector, now func() time.Time) *Applier {
 	if now == nil {
 		now = time.Now
 	}
-	a := &Applier{gate: g, inj: inj, now: now, keys: map[string]heldKey{}, buttons: map[string]bool{}}
+	a := &Applier{gate: g, inj: inj, now: now, keys: map[string]heldKey{}, buttons: map[string]bool{},
+		scopeMeta: map[string]bool{}}
 	g.OnClose(a.ReleaseAll)
 	return a
 }
@@ -106,6 +111,7 @@ func (a *Applier) SetTarget(mon, virt Rect) {
 	a.mu.Lock()
 	a.mon, a.virt, a.hasMon = mon, virt, mon.Right > mon.Left && virt.Right > virt.Left
 	a.scope = winScope{}
+	a.resetShellLocked()
 	a.mu.Unlock()
 }
 
@@ -210,6 +216,7 @@ func (a *Applier) releaseLocked() {
 	}
 	clear(a.buttons)
 	clear(a.keys)
+	a.resetShellLocked()
 	if len(evs) > 0 {
 		_ = a.inj.Inject(evs)
 	}

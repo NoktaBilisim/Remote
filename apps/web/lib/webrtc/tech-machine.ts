@@ -4,7 +4,14 @@
  * Kendi WS kopması: reconnectSince; 4401 auth iptali, 4409 başka sekme, 1008/1009 protokol → ended.
  */
 import { describeShareFailure } from "@remote/contracts/labels";
-import { WS_CLOSE, type GuestKind, type ServerOutbound, type SessionEndedReason } from "@remote/contracts/ws";
+import {
+  SHARE_METHODS,
+  WS_CLOSE,
+  type GuestKind,
+  type ServerOutbound,
+  type SessionEndedReason,
+  type ShareMethod,
+} from "@remote/contracts/ws";
 
 export interface Pending {
   guestId: string;
@@ -28,6 +35,11 @@ export interface TechState {
    * "Bilinmeyen neden (KOD)". 0.10.x istemci göndermez → null.
    */
   shareFail: string | null;
+  /**
+   * P17 (AC-248): paylaşım sürerken istemcinin bildirdiği yakalama yolu (`share.state{sharing, method}`). Konsol yalnız
+   * `WGC`'de (pencere modu) mod rozetini gösterir; DXGI/GDI'da görünüm değişmez. Durunca / müşteri ayrılınca null.
+   */
+  shareMethod: ShareMethod | null;
   /** Müşteri bağlantısı koptu (ms). */
   peerLostSince: number | null;
   /** Kendi WS'imiz koptu (ms). */
@@ -56,6 +68,7 @@ export const initialTech: TechState = {
   guest: null,
   share: "unknown",
   shareFail: null,
+  shareMethod: null,
   peerLostSince: null,
   reconnectSince: null,
   maxEndsAt: null,
@@ -72,12 +85,29 @@ export const initialTech: TechState = {
  * QA-P4-12: sunucu `hello{tech}` içinde misafir adını ve son paylaşım durumunu, `peer.joined{guest}` içinde adı
  * gönderebilir (opsiyonel alanlar). Sözleşme sürümünden bağımsız okunur; yoksa null.
  */
-function extras(m: ServerOutbound): { guestName: string | null; share: "sharing" | "stopped" | null; shareFail: string | null } {
+function extras(m: ServerOutbound): {
+  guestName: string | null;
+  share: "sharing" | "stopped" | null;
+  shareFail: string | null;
+  shareMethod: ShareMethod | null;
+} {
   const x = m as { guestName?: unknown; share?: unknown };
   const guestName = typeof x.guestName === "string" && x.guestName.trim() ? x.guestName.slice(0, 100) : null;
   const sh = x.share && typeof x.share === "object" ? (x.share as { state?: unknown; reason?: unknown; method?: unknown }) : null;
   const st = sh?.state;
-  return { guestName, share: st === "sharing" || st === "stopped" ? st : null, shareFail: sh ? shareFailOf(sh.reason, sh.method) : null };
+  const share = st === "sharing" || st === "stopped" ? st : null;
+  return {
+    guestName,
+    share,
+    shareFail: sh ? shareFailOf(sh.reason, sh.method) : null,
+    shareMethod: share ? sharingMethodOf(share, sh?.method) : null,
+  };
+}
+
+/** P17 (AC-248): yalnız `sharing` iken bilinen yöntem (`SHARE_METHODS`) tutulur; diğer her durumda null. */
+export function sharingMethodOf(state: unknown, method: unknown): ShareMethod | null {
+  if (state !== "sharing" || typeof method !== "string") return null;
+  return (SHARE_METHODS as readonly string[]).includes(method) ? (method as ShareMethod) : null;
 }
 
 /** P15 (AC-234): `share.state.reason/method` → konsol metni (yalnız dize değerler; diğerleri yok sayılır). */
@@ -131,6 +161,7 @@ function onMsg(s: TechState, m: ServerOutbound, now: number): TechState {
         peerLostSince: active && !m.peerPresent ? (s.peerLostSince ?? now) : null,
         share: active && m.peerPresent && x.share ? x.share : s.share,
         shareFail: active && m.peerPresent && x.share ? x.shareFail : s.shareFail,
+        shareMethod: active && m.peerPresent && x.share ? x.shareMethod : s.shareMethod,
       };
     }
     case "peer.pending":
@@ -151,14 +182,15 @@ function onMsg(s: TechState, m: ServerOutbound, now: number): TechState {
         peerLostSince: null,
         share: "unknown",
         shareFail: null,
+        shareMethod: null,
         // TEST-P4-2: canlı kabulde kalan süre sayacı sunucunun bildirdiği üst sınırla başlar (opsiyonel alan)
         maxEndsAt: joinedMaxEndsAt(m) ?? s.maxEndsAt,
       };
     case "peer.left":
       if (m.role !== "guest" || s.phase !== "live") return s;
-      return { ...s, peerLostSince: s.peerLostSince ?? now, share: "unknown", shareFail: null };
+      return { ...s, peerLostSince: s.peerLostSince ?? now, share: "unknown", shareFail: null, shareMethod: null };
     case "share.state":
-      return { ...s, share: m.state, shareFail: shareFailOf(m.reason, m.method) };
+      return { ...s, share: m.state, shareFail: shareFailOf(m.reason, m.method), shareMethod: sharingMethodOf(m.state, m.method) };
     case "session.warning":
       return { ...s, warnEndsAt: m.endsAt };
     case "session.ended":

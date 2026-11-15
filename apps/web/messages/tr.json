@@ -1539,6 +1539,8 @@
   "wa.svc.testRate": "Çok fazla test denendi. Bir dakika sonra tekrar deneyin.",
   "cs.shareFailed": "Paylaşım başlatılamadı",
   "cs.shareFailReason": "Neden: {reason}",
+  "cs.windowShare": "Pencere paylaşımı",
+  "cs.windowShareHint": "Müşteri yalnız bir pencereyi paylaşıyor ({method})",
   "perm.a.block": "Engelle",
   "srs.ac.title": "Talep kabulü",
   "srs.ac.label": "Talep kabulünde kabul kodu iste",

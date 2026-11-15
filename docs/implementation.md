@@ -6536,18 +6536,18 @@ Not: I0'ın yukarıda andığı `flow_test.go` `RunTicket` imza kırmızısı bu
 
 ### Değişen dosyalar (`apps/agent-win/`)
 
-| Dosya | Değişiklik |
-| --- | --- |
-| `internal/capture/reason.go` | `Error.Method` alanı (hatanın ait olduğu yakalama yolu) + `(*Error).ShareMethod()` → contracts `SHARE_METHODS` değeri (DXGI1 → DXGI; WGC). Method boşsa yalnız nedenin kesin belirlediği yol: `GDI_FAILED`→GDI; `DXGI_*`, `D3D_DEVICE`, `FIRST_FRAME_TIMEOUT`→DXGI; diğerleri "" (alan gönderilmez) |
-| `internal/signal/messages.go` | `ShareState` ve `ShareSnapshot` (`hello.share`) için `reason`/`method` (omitempty); `validateShare` contracts deseni `^[A-Z0-9_]{1,32}$` ve enum `DXGI\|GDI\|WGC` |
-| `internal/flow/flow.go` | AC-234: `sendStopped(err)` hata anında döngüden beklemesiz `share.state {stopped, reason, method}`; neden yalnız `capture.Reason` sabiti (HRESULT/Op gitmez), tipsiz hata `OTHER`, hata yoksa alansız (0.10.x biçimi). Aynı soket + aynı durum/neden/yöntem 5 sn içinde tekrar gönderilmez; durum değişimi ve farklı neden hemen gider; yeni sokette (yeniden bağlanma) sınır sıfırlanır. AC-250: soket kopuşunda `bindingPending = false`. AC-239: `RunTicket(..., admitCode)` — kod varsa lobi ekranı (`UI.Lobby`, kod büyük yazı) ve `lobby.wait` → `hello`; yoksa eski "Teknisyen bağlanıyor…" |
-| `internal/request/ws.go` | `Accepted.AdmitCode` (`admitCode`, sıkı şema); varsa (null/boş dahil) 4 hane olmalı (`validAdmitCode`) |
-| `internal/request/types.go`, `wait.go` | `AcceptView.AdmitCode`, `Outcome.AdmitCode` taşınır |
-| `internal/launch/run.go` | `flow.RunTicket(..., res.AdmitCode)` |
-| `internal/ui/accept.go` (+ `request_windows.go` tek satır) | AC-239: onay diyaloğunda talep kodu satırının sonuna "Kabul kodu: 0 9 3 7" (gövde yüksekliği değişmesin diye aynı satır; I3'ün `control_windows.go` düzenine dokunulmadı). Paylaşım sonrası lobi ekranı kodu `fontBig` ile gösterir (mevcut `screens_windows.go` Lobby, değişmedi) |
-| `internal/remember/origin.go` | AC-251: `SameRegistration(prev, server, renewed, customer)` |
-| `internal/launch/keeper.go` | `Issued` değişim kararı ad yerine `SameRegistration` ile |
-| Testler | yeni `internal/flow/p17_test.go`, `internal/request/p17_test.go`; eklemeler `signal/signal_test.go`, `ui/accept_test.go`, `launch/run_test.go` (AC-187 testi `Renewed: true` ile güncellendi) |
+| Dosya                                                      | Değişiklik                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| ---------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `internal/capture/reason.go`                               | `Error.Method` alanı (hatanın ait olduğu yakalama yolu) + `(*Error).ShareMethod()` → contracts `SHARE_METHODS` değeri (DXGI1 → DXGI; WGC). Method boşsa yalnız nedenin kesin belirlediği yol: `GDI_FAILED`→GDI; `DXGI_*`, `D3D_DEVICE`, `FIRST_FRAME_TIMEOUT`→DXGI; diğerleri "" (alan gönderilmez)                                                                                                                                                                                                                                                                                                |
+| `internal/signal/messages.go`                              | `ShareState` ve `ShareSnapshot` (`hello.share`) için `reason`/`method` (omitempty); `validateShare` contracts deseni `^[A-Z0-9_]{1,32}$` ve enum `DXGI\|GDI\|WGC`                                                                                                                                                                                                                                                                                                                                                                                                                                  |
+| `internal/flow/flow.go`                                    | AC-234: `sendStopped(err)` hata anında döngüden beklemesiz `share.state {stopped, reason, method}`; neden yalnız `capture.Reason` sabiti (HRESULT/Op gitmez), tipsiz hata `OTHER`, hata yoksa alansız (0.10.x biçimi). Aynı soket + aynı durum/neden/yöntem 5 sn içinde tekrar gönderilmez; durum değişimi ve farklı neden hemen gider; yeni sokette (yeniden bağlanma) sınır sıfırlanır. AC-250: soket kopuşunda `bindingPending = false`. AC-239: `RunTicket(..., admitCode)` — kod varsa lobi ekranı (`UI.Lobby`, kod büyük yazı) ve `lobby.wait` → `hello`; yoksa eski "Teknisyen bağlanıyor…" |
+| `internal/request/ws.go`                                   | `Accepted.AdmitCode` (`admitCode`, sıkı şema); varsa (null/boş dahil) 4 hane olmalı (`validAdmitCode`)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
+| `internal/request/types.go`, `wait.go`                     | `AcceptView.AdmitCode`, `Outcome.AdmitCode` taşınır                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| `internal/launch/run.go`                                   | `flow.RunTicket(..., res.AdmitCode)`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
+| `internal/ui/accept.go` (+ `request_windows.go` tek satır) | AC-239: onay diyaloğunda talep kodu satırının sonuna "Kabul kodu: 0 9 3 7" (gövde yüksekliği değişmesin diye aynı satır; I3'ün `control_windows.go` düzenine dokunulmadı). Paylaşım sonrası lobi ekranı kodu `fontBig` ile gösterir (mevcut `screens_windows.go` Lobby, değişmedi)                                                                                                                                                                                                                                                                                                                 |
+| `internal/remember/origin.go`                              | AC-251: `SameRegistration(prev, server, renewed, customer)`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| `internal/launch/keeper.go`                                | `Issued` değişim kararı ad yerine `SameRegistration` ile                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
+| Testler                                                    | yeni `internal/flow/p17_test.go`, `internal/request/p17_test.go`; eklemeler `signal/signal_test.go`, `ui/accept_test.go`, `launch/run_test.go` (AC-187 testi `Renewed: true` ile güncellendi)                                                                                                                                                                                                                                                                                                                                                                                                      |
 
 ### Tasarımdan sapmalar (gerekçeli)
 
@@ -6571,7 +6571,7 @@ Not: I0'ın yukarıda andığı `flow_test.go` `RunTicket` imza kırmızısı bu
    son öğe ya da p.method) ve yayın hatasında `e.Method = p.method`. Öneri: I2 (`select/mf/dxgi`) ya da I4 (WGC) bu
    dosyaya dokunurken eklesin; flow tarafı hazır (`Method` set edilmiş hata testte doğrulandı).
 5. **Sürüm 0.11.0:** Kodda sabit sürüm yok; `config.version` yalnız ldflags ile `build/build.sh <server> <x.y.z>`,
-   değer `agent-win.yml`'de etiketten (`agent-v0.11.0`) gelir — I5 (devops). Sunucu `admitCode`'u yalnız
+   değer `agent-win.yml`'de etiketten (`v0.11.0`; I5 notu) gelir — I5 (devops). Sunucu `admitCode`'u yalnız
    `clientVersion ≥ 0.11.0`'a ürettiği için Release etiketi 0.11.0 olmalı; aksi hâlde ayar açık tenant'ta talep 409
    `ACCEPT_CODE_CLIENT_UNSUPPORTED` alır.
 
@@ -6619,7 +6619,7 @@ zaten destekliyor.
   `…\Themes\Personalize`), `HighContrast`, `DarkTitleBar` (DWMWA 20, olmazsa 19; hata yok sayılır), `SetWindowTheme`,
   `ClassicTheme`, `SettingName`, `Redraw`.
 - `internal/diag/reparse_windows.go` (yeniden yazıldı): `diag.Dir` — `CreateFile(FILE_FLAG_OPEN_REPARSE_POINT |
-  FILE_FLAG_BACKUP_SEMANTICS)` + `GetFileInformationByHandleEx(FileAttributeTagInfo)` ile reparse reddi; klasör zinciri
+FILE_FLAG_BACKUP_SEMANTICS)` + `GetFileInformationByHandleEx(FileAttributeTagInfo)` ile reparse reddi; klasör zinciri
   (üst klasör = %LOCALAPPDATA% ve NoktaDestek) `FILE_SHARE_DELETE` olmadan açık tutulur; silme
   `SetFileInformationByHandle(FileDispositionInfoEx, DELETE|POSIX_SEMANTICS)` (desteklenmezse `FileDispositionInfo`);
   yeniden adlandırma handle üzerinden `NtSetInformationFile(FileRenameInformation)` (yalnız dosya adı, RootDirectory
@@ -6755,11 +6755,11 @@ Sözleşme değişikliği yok.
 `BenchmarkAC246Convert1080p` (docker golang:1.26, linux/arm64 — Apple Silicon; mutlak değerler Windows/x64'ten farklıdır,
 oran anlamlıdır):
 
-| Senaryo | ns/kare | Tam dönüşüme göre |
-| --- | --- | --- |
-| full (0.10.x davranışı, her kare) | 3 438 640 | — |
-| idle_dirty (saat 100×35 + metin imleci 2×20 + fare imleci) | 11 670 | %99.7 az |
-| typing_dirty (10 satır parçası 800×20) | 434 082 | %87 az |
+| Senaryo                                                    | ns/kare   | Tam dönüşüme göre |
+| ---------------------------------------------------------- | --------- | ----------------- |
+| full (0.10.x davranışı, her kare)                          | 3 438 640 | —                 |
+| idle_dirty (saat 100×35 + metin imleci 2×20 + fare imleci) | 11 670    | %99.7 az          |
+| typing_dirty (10 satır parçası 800×20)                     | 434 082   | %87 az            |
 
 Dönüşüm maliyetinde kazanç ≥ %40 hedefinin çok üstünde; ancak AC'nin ölçütü **süreç CPU'su** (yakalama kopyası +
 kodlama dahil, 1080p durağan masaüstü 60 sn, D12 0.10.x tabanı). Kodlama tam kare sürdüğünden toplam kazanç
@@ -6790,21 +6790,21 @@ Sunucu, şema ve `packages/contracts` değişmedi.
 
 ### Değişen / yeni dosyalar (`apps/agent-win/`)
 
-| Dosya | Değişiklik |
-| --- | --- |
-| `internal/capture/window_windows.go` (yeni, amd64/arm64) | `WindowCaptureSupported()` (IsSupported, kendi MTA iş parçacığında, önbellekli); `openWGCGrabber(hwnd)` hata sınıflandırma; `wgcGrabber` (I0 `wgcWindow`'u `grabber`'a bağlar): pencere yoksa `WINDOW_CLOSED` (kalıcı), `IsIconic` ise son kare boyutunda siyah + "Pencere simge durumunda" kaplaması (GDI DIB, bir kez verilir; kodlayıcı 1 sn'de bir tekrarlar), değilse WGC karesi. `damager` yok → her kare tam dönüşüm (I2 notu); imleci WGC çizer |
-| `internal/capture/window_other_windows.go` (yeni) | 386 vb.: `WindowCaptureSupported()=false`, açıcı `WGC_UNSUPPORTED` (pencere seçeneği gösterilmez) |
-| `internal/capture/wgc_windows.go` | Simge durumunda `get_Size` 0 dönerse havuz 1×1 açılır, ilk karede `Recreate` (tek değişiklik) |
-| `internal/capture/reason.go` | Yeni nedenler `WGC_UNSUPPORTED`, `WINDOW_CLOSED`, `WINDOW_UNAVAILABLE`; `ShareMethod` bunları WGC'ye eşler; `windowFinal` (kalıcı pencere nedeni). `methodWGC` → `select.go` `MethodWGC` (dışa açık) |
-| `internal/capture/select.go` | `MethodWGC`; `selectMethod`/`awaitFirst` pencere nedenini korur ve beklemeden döner (FIRST_FRAME_TIMEOUT'a çevirmez); WGC açma hatasına DXGI HRESULT tablosu uygulanmaz |
-| `internal/capture/source_windows.go` | `Opener.OpenWindow(hwnd)` (zincir yalnız WGC; DXGI/GDI yedeği yok — tüm ekranı gösterirdi); `pipeline.hwnd`; `grab` kalıcı pencere hatasında yeniden açmaz, hatayı akışa verir (→ `share.state stopped`); pencere modunda `acilis_yedek` kaydı yazılmaz; tanılama hedefi `"window"` (başlık yazılmaz) |
-| `internal/win/window_windows.go` (yeni) | `TopWindows` (EnumWindows), `IsWindow`, `IsIconic`, `ExStyle`, `Cloaked`, `ThreadProcess`, `Owner`, `ClassName`, `RootAt` (WindowFromPoint→GA_ROOT), `ForegroundRoot`, `WindowBounds` (DWMWA_EXTENDED_FRAME_BOUNDS, yoksa GetWindowRect), `B2U`, radyo/liste sabitleri |
-| `internal/input/scope.go` (yeni), `applier.go` | S17-1: `SetWindowTarget(hwnd, virt, WindowAPI)`, `SetDropLog`, `ScopeDropped`; `Handle` kilitli kısmı `handleLocked`'a ayrıldı, tanılama yazımı kilit dışında (S7-3). `SetTarget` (monitör) kapsamı kaldırır |
-| `internal/input/window_windows.go` (yeni) | `WinWindowAPI` (her olayda güncel değer) |
-| `internal/flow/flow.go`, `control.go`, `messages.go` | `UI.ChooseMonitor` → `UI.ChooseShare(ctx, mons, def, windows) (ShareChoice, ok)`; `Deps.WindowCapture/CaptureWindow/SetInputWindow`; WGC destekliyse tek monitörde de seçim ekranı; pencere modunda `share.state sharing` `method:"WGC"` (monitör listesi yok), `monitor.request` yok sayılır, girdi hedefi pencere; üç yeni neden için müşteri yönlendirme metni |
+| Dosya                                                                   | Değişiklik                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
+| ----------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `internal/capture/window_windows.go` (yeni, amd64/arm64)                | `WindowCaptureSupported()` (IsSupported, kendi MTA iş parçacığında, önbellekli); `openWGCGrabber(hwnd)` hata sınıflandırma; `wgcGrabber` (I0 `wgcWindow`'u `grabber`'a bağlar): pencere yoksa `WINDOW_CLOSED` (kalıcı), `IsIconic` ise son kare boyutunda siyah + "Pencere simge durumunda" kaplaması (GDI DIB, bir kez verilir; kodlayıcı 1 sn'de bir tekrarlar), değilse WGC karesi. `damager` yok → her kare tam dönüşüm (I2 notu); imleci WGC çizer                         |
+| `internal/capture/window_other_windows.go` (yeni)                       | 386 vb.: `WindowCaptureSupported()=false`, açıcı `WGC_UNSUPPORTED` (pencere seçeneği gösterilmez)                                                                                                                                                                                                                                                                                                                                                                               |
+| `internal/capture/wgc_windows.go`                                       | Simge durumunda `get_Size` 0 dönerse havuz 1×1 açılır, ilk karede `Recreate` (tek değişiklik)                                                                                                                                                                                                                                                                                                                                                                                   |
+| `internal/capture/reason.go`                                            | Yeni nedenler `WGC_UNSUPPORTED`, `WINDOW_CLOSED`, `WINDOW_UNAVAILABLE`; `ShareMethod` bunları WGC'ye eşler; `windowFinal` (kalıcı pencere nedeni). `methodWGC` → `select.go` `MethodWGC` (dışa açık)                                                                                                                                                                                                                                                                            |
+| `internal/capture/select.go`                                            | `MethodWGC`; `selectMethod`/`awaitFirst` pencere nedenini korur ve beklemeden döner (FIRST_FRAME_TIMEOUT'a çevirmez); WGC açma hatasına DXGI HRESULT tablosu uygulanmaz                                                                                                                                                                                                                                                                                                         |
+| `internal/capture/source_windows.go`                                    | `Opener.OpenWindow(hwnd)` (zincir yalnız WGC; DXGI/GDI yedeği yok — tüm ekranı gösterirdi); `pipeline.hwnd`; `grab` kalıcı pencere hatasında yeniden açmaz, hatayı akışa verir (→ `share.state stopped`); pencere modunda `acilis_yedek` kaydı yazılmaz; tanılama hedefi `"window"` (başlık yazılmaz)                                                                                                                                                                           |
+| `internal/win/window_windows.go` (yeni)                                 | `TopWindows` (EnumWindows), `IsWindow`, `IsIconic`, `ExStyle`, `Cloaked`, `ThreadProcess`, `Owner`, `ClassName`, `RootAt` (WindowFromPoint→GA_ROOT), `ForegroundRoot`, `WindowBounds` (DWMWA_EXTENDED_FRAME_BOUNDS, yoksa GetWindowRect), `B2U`, radyo/liste sabitleri                                                                                                                                                                                                          |
+| `internal/input/scope.go` (yeni), `applier.go`                          | S17-1: `SetWindowTarget(hwnd, virt, WindowAPI)`, `SetDropLog`, `ScopeDropped`; `Handle` kilitli kısmı `handleLocked`'a ayrıldı, tanılama yazımı kilit dışında (S7-3). `SetTarget` (monitör) kapsamı kaldırır                                                                                                                                                                                                                                                                    |
+| `internal/input/window_windows.go` (yeni)                               | `WinWindowAPI` (her olayda güncel değer)                                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| `internal/flow/flow.go`, `control.go`, `messages.go`                    | `UI.ChooseMonitor` → `UI.ChooseShare(ctx, mons, def, windows) (ShareChoice, ok)`; `Deps.WindowCapture/CaptureWindow/SetInputWindow`; WGC destekliyse tek monitörde de seçim ekranı; pencere modunda `share.state sharing` `method:"WGC"` (monitör listesi yok), `monitor.request` yok sayılır, girdi hedefi pencere; üç yeni neden için müşteri yönlendirme metni                                                                                                               |
 | `internal/ui/share.go` (yeni), `screens_windows.go`, `theme_windows.go` | `shareableWindows` süzgeci (görünür, araç penceresi değil, kendi sürecimiz değil, DWM-gizli değil, başlıklı; ≤ 64; başlık ≤ 70 karakter; simge durumundakiler ekli). `ChooseShare`: "Tüm ekran / Yalnız bir pencere" radyo, monitör ve pencere listesi, "Listeyi yenile"; pencere modunda gösterge metni "Paylaştığınız pencere izleniyor — …", işaretleme katmanı yok. Radyo düğmeleri koyu temada onay kutusu gibi klasik çizilir (I3 `ctrlKind`) — iki temada tablo renkleri |
-| `cmd/noktadestek/main.go` | Bağlama: `WindowCapture`, `CaptureWindow: opener.OpenWindow`, `SetInputWindow` → `applier.SetWindowTarget(hwnd, VirtualScreen(), WinWindowAPI{})`; tanılama logu varsa `input_dropped` satırı (yalnız neden) |
-| Testler | yeni `input/scope_test.go`, `capture/window_test.go`, `flow/window_test.go`, `ui/share_test.go`; `flow_test.go` sahte UI `ChooseShare` |
+| `cmd/noktadestek/main.go`                                               | Bağlama: `WindowCapture`, `CaptureWindow: opener.OpenWindow`, `SetInputWindow` → `applier.SetWindowTarget(hwnd, VirtualScreen(), WinWindowAPI{})`; tanılama logu varsa `input_dropped` satırı (yalnız neden)                                                                                                                                                                                                                                                                    |
+| Testler                                                                 | yeni `input/scope_test.go`, `capture/window_test.go`, `flow/window_test.go`, `ui/share_test.go`; `flow_test.go` sahte UI `ChooseShare`                                                                                                                                                                                                                                                                                                                                          |
 
 ### S17-1 girdi kapsamı (uygulanan kurallar)
 
@@ -6879,8 +6879,7 @@ Eklenene dek konsol "Bilinmeyen neden (KOD)" gösterir (S17-2 yolu, hatasız).
 1. **Seçim ekranı:** Tek monitörde paylaşım başlarken "Tüm ekran / Yalnız bir pencere" görünür; varsayılan Tüm ekran,
    pencere listesi pasif. "Yalnız bir pencere" → liste etkin; Nokta Destek pencereleri, görünmez/araç pencereleri ve
    başka sanal masaüstündekiler listede yok; simge durumundaki pencere "(simge durumunda)" ekiyle var. "Listeyi yenile"
-   yeni açılan pencereyi getirir. Açık ve koyu temada metin/radyo/liste okunur. WGC olmayan sistemde (Server Core /
-   1809) yalnız monitör seçimi (çoklu monitörde) görünür.
+   yeni açılan pencereyi getirir. Açık ve koyu temada metin/radyo/liste okunur. WGC olmayan sistemde (Server Core / 1809) yalnız monitör seçimi (çoklu monitörde) görünür.
 2. **Yalnız pencere görüntüsü:** Not Defteri paylaşılır; konsolda yalnız Not Defteri içeriği (sarı WGC kenarlığı
    beklenir), mod "Pencere yakalama (WGC)"; müşteri göstergesi "Paylaştığınız pencere izleniyor — …".
 3. **Örtüşen pencere (S17-1):** Kontrol izni verilir. Tarayıcı Not Defteri'nin sağ yarısının üstüne getirilir. Teknisyen
@@ -6903,3 +6902,187 @@ Eklenene dek konsol "Bilinmeyen neden (KOD)" gösterir (S17-2 yolu, hatasız).
    girdi UIPI nedeniyle uygulanmaz (AC-105 uyarısı) — sonucu raporla.
 10. **Monitör modu regresyonu:** "Tüm ekran" ile 0.10.x davranışı (çoklu monitör seçimi, monitör geçişi, işaretleme
     katmanı, kontrol) değişmemiş.
+11. **Kabuk kısayolları (S-P17-1):** Not Defteri "Yalnız bir pencere" ile paylaşılır, kontrol izni verilir, Not Defteri
+    ön planda. Teknisyen konsoldan Win+R ve hemen ardından `notepad` + Enter yazar → Çalıştır kutusu **açılmaz**, hiçbir
+    metin başka pencereye gitmez. Aynı şekilde Win tek başına (Başlat açılmaz), Win+E/Win+D, Alt+Tab (pencere geçişi
+    olmaz), Ctrl+Esc, Ctrl+Shift+Esc (Görev Yöneticisi açılmaz), PrintScreen (ekran alıntısı açılmaz) → etkisiz;
+    tanılama logunda `input_dropped reason=SHELL_SHORTCUT`. Ctrl+C/Ctrl+V ve normal yazı Not Defteri'ne gider; Alt+F4
+    Not Defteri'ni kapatır ve paylaşım `WINDOW_CLOSED` ile durur. Monitör modunda Win+E ve Alt+Tab çalışmaya devam eder.
+
+## P17 konsol (frontend) — AC-248 mod görünürlüğü + pencere neden etiketleri (frontend-dev, 2026-11-15)
+
+Kapsam: AC-248 "teknisyen konsolunda mod görünür", AC-234 (yeni neden kodları Türkçe). Sunucu ve şema değişmedi.
+
+### Rotalar
+
+Yeni rota yok. Değişen ekran: `/sessions/[id]/console` (auth gerekir) — paylaşım pencere modundayken sahne şeridinde
+"Pencere paylaşımı" rozeti.
+
+### Değişen / yeni dosyalar
+
+| Dosya                                                                                 | Değişiklik                                                                                                                                                                                                                                                                                                 |
+| ------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `packages/contracts/src/labels.ts`                                                    | `SHARE_FAIL_REASON_LABELS`: `WGC_UNSUPPORTED` "Bu Windows sürümü pencere paylaşımını desteklemiyor", `WINDOW_CLOSED` "Paylaşılan pencere kapatıldı", `WINDOW_UNAVAILABLE` "Seçilen pencere paylaşılamadı (pencereye erişilemiyor)". `reason.go` ile karşılaştırıldı: başka eksik kod yok (15 kod, birebir) |
+| `packages/contracts/test/p17-share-reasons.test.ts` (yeni), `test/raw-go.d.ts` (yeni) | `reason.go` Vite `?raw` ile okunur, `Reason\w+ Reason = "KOD"` sabitleri regex ile çıkarılır; etiket tablosuyla **iki yönlü** eşitlik (eksik ya da fazla kod kırmızı), desen ve WGC yöntem etiketi. `@types/node` eklememek için `node:fs` yerine `?raw` (contracts `types: []`)                           |
+| `apps/web/lib/webrtc/tech-machine.ts`                                                 | `TechState.shareMethod` (yalnız `sharing` + bilinen `SHARE_METHODS`); `share.state`, `hello{share}` (konsol yenileme) okur; `peer.joined`/`peer.left`/`stopped` sıfırlar. `sharingMethodOf` dışa açık                                                                                                      |
+| `apps/web/lib/control/machine.ts`                                                     | `share.state{sharing, WGC}` → monitör listesi, etkin monitör ve bekleyen monitör isteği temizlenir (istemci pencere modunda `monitor.request`i yok sayar; seçici gizlenir). Diğer yöntemlerde değişiklik yok                                                                                               |
+| `apps/web/components/console/stage.tsx`                                               | Şeritte `stage-share-mode` rozeti (yalnız görüntü görünürken ve `WGC`'de)                                                                                                                                                                                                                                  |
+| `apps/web/messages/tr.json`                                                           | `cs.windowShare`, `cs.windowShareHint`                                                                                                                                                                                                                                                                     |
+| `DESIGN.md`                                                                           | "Konsol paylaşım modu rozeti" satırı                                                                                                                                                                                                                                                                       |
+| `apps/web/lib/p17-console.test.ts` (yeni), `apps/web/e2e/p17-console.spec.ts` (yeni)  | Testler (aşağıda)                                                                                                                                                                                                                                                                                          |
+
+### Sapmalar / notlar
+
+- Görünen metin "Pencere paylaşımı" (operatör için mod adı); teknik yöntem etiketi `SHARE_METHOD_LABELS.WGC`
+  ("Pencere yakalama (WGC)") `title` + `sr-only` ile verilir. I6 senaryo 2'deki "mod 'Pencere yakalama (WGC)'"
+  beklentisi rozette "Pencere paylaşımı" (üzerine gelince WGC) olarak okunmalı; senaryo 8 artık Türkçe neden
+  ("Paylaşılan pencere kapatıldı — Pencere yakalama (WGC)") gösterir.
+- `WINDOW_CLOSED` / `WINDOW_UNAVAILABLE` metinleri görevdeki ve I4 önerisinin birleşimi.
+- Bileşen testi altyapısı (testing-library) yok; durumlar reducer testleri + e2e ile kapsandı.
+- Skill: `ui-ux-pro-max` küçük rozet için okunmadı; proje DESIGN.md'deki mevcut hap kalıbı (StatusBadge/AnonymizedBadge) kullanıldı.
+
+### AC ↔ test
+
+- contracts: `p17-share-reasons.test.ts` (reason.go ↔ etiket tablosu, WGC neden metinleri).
+- vitest `lib/p17-console.test.ts`: WGC → `shareMethod`; DXGI/yöntemsiz; kapanışta mod temizlenir + Türkçe neden;
+  peer.left/peer.joined sıfırlar; hello ile geri gelir; bilinmeyen yöntem yok sayılır; pencere modunda monitör listesi kapanır.
+- e2e `p17-console.spec.ts` "AC-248: …": rozet yok → WGC'de ≤ 2 sn rozet + `title`, monitör seçici gizli, axe (şerit)
+  açık + koyu tema temiz, DXGI'da rozet yok, `WINDOW_CLOSED` → "Neden: Paylaşılan pencere kapatıldı — Pencere yakalama (WGC)".
+
+```
+pnpm --filter @remote/contracts test/typecheck/lint → 14 dosya, 103 test ok; tsc, eslint temiz
+pnpm --filter @remote/web lint/typecheck/test → temiz; 39 dosya, 351 test ok
+playwright --project=desktop p17-console + p15 AC-234 → 2 passed; p7-control + p4-media → 23 passed (regresyon)
+```
+
+## P17 I5 (devops, 2026-11-15) — 0.11.0 Release hattı, staging exe, AC-252 koşullu imza
+
+Ayrıntılı operasyon: `docs/runbook.md` §24 (ve §11.1/§11.3 güncellemeleri).
+
+| Dosya                             | Değişiklik                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| --------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `.github/workflows/agent-win.yml` | Yeni `sign` işi (AC-252): yalnız etiket push'u + `vars.SIGNPATH_ORGANIZATION_ID` doluysa; SignPath action SHA ile (v3.0, `f6d04783…`), `signtool verify /pa /tw /v` + `Get-AuthenticodeSignature`, SHA256SUMS imzalı exe'den (`agent-win-signed`). `attest` imzalıyı (yoksa imzasızı) attest eder; `sign` başarısızsa attest/Release koşmaz. `release`: ad S17-2 ön koşulunu söyler, özet kontrol listesi, sürüm artışı denetimi (yeni etiket > en yüksek Release), artifact adı denetimi, SignPath tanımlıyken imzasız ikili reddi, notta imzalı/imzasız bilgisi |
+| `docs/runbook.md`                 | §11.1 SignPath satırı, §11.3 etiket biçimi; yeni §24 (ön koşullar, staging exe, imzalama, yayın, geri alma, hedef mimari)                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+
+Kararlar ve gerekçeler:
+
+1. **Etiket `v0.11.0`, `agent-v0.11.0` değil.** mimari-e11 §8 `agent-v0.11.0` diyor; AC-94 "Release yalnız korumalı `v*`
+   etiketinden", kurulu tag ruleset (`refs/tags/v*`), `agent-release` deployment policy (`v*`) ve `verify-and-publish.sh` prod
+   kilidi (`^v[0-9]+\.[0-9]+\.[0-9]+$`) `v*`. `agent-v*` korumasız kalır ve release işi ortam politikasına takılır. Gereksinim
+   (AC-94) mimari satırından üstündür; workflow ve runbook `v0.11.0` der. **mimar:** mimari-e11 §8 "Sürüm" satırını
+   `v0.11.0` olarak düzeltsin. P17 I1 notu (yukarıda, madde 5) `agent-v0.11.0` diyor; geçerli değer `v0.11.0`.
+2. **Bekleyen `v1.0.0` koşusu (kullanıcı):** `v1.0.0` etiketi itilmiş, agent-win koşusu `43649073915` 2026-11-14'ten beri
+   `agent-release` onayı bekliyor. Onaylanırsa P15 öncesi koddan **istemci sürümü 1.0.0** Release'i çıkar (etiket = istemci
+   sürümü): 0.11.0'dan büyük görünür, kabul kodu eşiğini geçer ama `admitCode`'u tanımaz; yeni sürüm artışı denetimi de
+   `v0.11.0`'ı durdurur. Öneri: koşuyu **Reject** edin (runbook §24.1/4). Etiketi silmek isteğe bağlı (yönetici; ruleset).
+3. **S17-2 elle kontrol:** otomatik denetlenemiyor (`/health` sürüm/commit vermiyor). Kapı `agent-release` onayıdır; işin adı
+   ve özetindeki kontrol listesi + runbook §24.1. Otomatik yapılacaksa backend-dev'e not: `/ready` gövdesine son migration adı
+   (zaten `migrations` alanı varsa) kullanılarak release işi prod'da P15 migration'ını sorgulayabilir — şimdilik kapsam dışı.
+4. **İmzalı ikili tekrarlanabilir değil:** tekrarlanabilirlik imzasız ikilide kanıtlanır; imzasız SHA-256 Release notunda ve
+   `sign` özetinde. `verify-and-publish.sh` değişmedi.
+5. **386:** hedef değil (build/vet/govulncheck/lisans yalnız amd64). `GOOS=windows GOARCH=386 go vet` →
+   `mf_windows.go:270:77: constant 4294967297 overflows uintptr` yerelde doğrulandı; CI'yı etkilemez. backend-dev'e öneri:
+   `capture` Windows dosyalarına `//go:build windows && amd64` (386 hiç eklenmeyecekse).
+
+Doğrulama (yerel, 2026-11-15): `rhysd/actionlint:1.7.8` (CI ile aynı digest, gömülü shellcheck) 0 bulgu; CI imajında iki
+bağımsız `build.sh https://stg.remote.noktabilisim.net 0.11.0` → aynı SHA-256 `fa0c2623…`; `meta`/`name` adımları dispatch
+girdileriyle yerelde: main+0.11.0 → `NoktaDestek-stg-0.11.0.exe`/`agent-win-stg`, `p17-wip` → ret, `0.11` → ret; sürüm artışı
+denetimi 6 durumla (boş, 0.10.0, 1.0.0 → ret, eşit → ret, 0.11.1). `sign` işi gerçek SignPath hesabı olmadan koşturulamadı
+(hesap yok → skipped yolu = bugünkü akış). Gerçek CI dispatch koşusu P17 main'e birleşince runbook §24.2/1 ile yapılır.
+
+## P17 güvenlik düzeltmeleri (CI) — devops, 2026-11-15
+
+Kaynak: `docs/guvenlik-raporu.md` "P17 kod turu 1" S-P17-2/3/6 + `docs/qa-raporu.md` "P17 — Tur 1" devops 1.
+
+| Dosya                             | Değişiklik                                                                                                                                                                                                                                                                                                                                                                                                              |
+| --------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `.github/workflows/agent-win.yml` | Yeni `approve` işi (`environment: agent-release`, sürüm artışı denetimi buraya taşındı); `sign` → `needs: [reproducible, approve]`, `environment: agent-sign`, `agent-win-signed` retention 1 gün; `attest` etikette yalnız onaydan sonra; `release` ortamsız, `needs: [approve, attest]`. `reproducible` özetinde boş kutulu kontrol listesi (yalnız etiket). `test-windows`: AC-248/249 `-v` adımı + WGC SKIP uyarısı |
+| `docs/runbook.md`                 | §11.1 `agent-sign` satırı, SignPath satırı (ortam secret'ı); §11.3 sıra; §24.1/4; §24.2 WGC CI notu; §24.3 sıra + kurulum (ortam, deployment policy `v*`, origin verification); §24.4 onay akışı; yeni §24.7 `v1.0.0` etiket silme (kullanıcı)                                                                                                                                                                          |
+
+Kararlar:
+
+1. **S-P17-2 — imza onaydan sonra (seçenek A), ikinci onaylı ortam + kısa retention değil (seçenek B).** Etiket koşusu:
+   `reproducible` → `approve` (agent-release, tek insan kapısı) → `sign` (agent-sign) → `attest` → `release`. Gerekçe:
+   B'de Reject edilen etiket yine de imzalanmış olurdu (imza onaydan önce) ya da iki ayrı onay gerekirdi; A'da Reject →
+   imzalı ikili hiç oluşmaz, tek onay, ek risk yok. `release`'i ayrı bir işte tutmak (onayı `approve`'a taşımak) `signtool
+verify`'ın Windows runner'da kalmasını sağlar. Sürüm artışı denetimi onay işinde, imzadan önce koşar (reddedilecek
+   sürüm imzalanmaz). `release` işinden `environment` kaldırıldı: koşul `needs.approve.result == 'success'`; ikinci onay
+   aynı soruyu tekrar sorardı. `agent-sign`'da onaylayıcı zorunlu değil (isteğe bağlı); erişim kontrolü deployment policy
+   (yalnız `v*` etiketi, ruleset: yalnız yönetici) + token'ın yalnız ortam secret'ı olması + SignPath origin verification.
+   İmzalı artifact retention 30 → 1 gün (kalıcı kopya Release'te).
+2. **S-P17-3:** kontrol listesi `[ ]`, başlık "onay vermeden önce kontrol edin"; `reproducible` işinin özetine taşındı ki
+   onay beklenirken koşu sayfasında görünsün (onaylı işin özeti ancak onaydan sonra yazılır). Kanıt onay yorumudur.
+3. **S-P17-6:** silme kullanıcıda (ruleset bypass); komutlar runbook §24.7. Ajanlar etiketi silmedi.
+4. **QA devops 1:** `go test -count=1 -v -run 'TestAC248|TestAC249' ./internal/...` ayrı adım; `--- SKIP:
+TestAC248WGCWindowSmoke` → `::warning::`, test hiç koşmazsa (ad değişti) `::error::`; AC-249 SKIP → uyarı. SKIP'te iş
+   kırmızı yapılmadı: GitHub Windows runner oturumunun WGC desteği garanti değil, kanıt o durumda VM elle turundan gelir.
+   Dispatch koşusu ve runbook satırı koordinatörde (commit sonrası).
+
+GitHub ayarlarına dokunulmadı (kullanıcı): `agent-sign` ortamı + ortam secret'ı + SignPath politikası runbook §24.3'e göre
+hesap açılmadan önce kurulur.
+
+Doğrulama (yerel): `rhysd/actionlint:1.7.8@sha256:96d4a8c8…` (CI ile aynı) 0 bulgu; Prettier `agent-win.yml`,
+`docs/runbook.md` temiz. WGC grep mantığı 3 örnek günlükle (PASS / SKIP+AC-249 SKIP / test yok → rc 1) denendi; `go test -v`
+CI Go imajında koşturulup satır biçimi (`--- PASS: TestAC248…`) doğrulandı. Onay/imza sırası gerçek etiket koşusu olmadan
+denenemez (etiket itmek kullanıcı işi); `sign` SignPath hesabı olmadığı için yine skipped yolunda.
+
+## P17 güvenlik düzeltmeleri (Go) — backend-dev, 2026-11-15
+
+Kaynak: `docs/guvenlik-raporu.md` "P17 kod turu 1" S-P17-1/4/5 + koordinatör ek isteği (QA: `mf_windows.go:270` 386 taşması).
+
+| Dosya (`apps/agent-win/`)                                                                                               | Değişiklik                                                                                                                                                                                                                                                                                                                                                                                                                                           |
+| ----------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `internal/input/scope.go`                                                                                               | S-P17-1: `shellShortcut` (ön plan denetiminden önce), `DropShell = "SHELL_SHORTCUT"`, `DropKeyBurst = "KEY_BURST"`, pencere modu tuş kovası `WindowKeyPerSec = 40` / `WindowKeyBurst = 40`, ön plan hedeften çıkınca basılı tuşların bırakılması (`releaseKeysLocked`)                                                                                                                                                                               |
+| `internal/input/applier.go`                                                                                             | `scopeMeta` (uzakta basılı, düşürülmüş Win), `scopeLatch`, tuş kovası alanları; `SetTarget` ve `releaseLocked` (k.release_all / kapı kapanışı) kabuk durumunu sıfırlar                                                                                                                                                                                                                                                                               |
+| `internal/input/scope_test.go`                                                                                          | `TestSP171WindowModeShellShortcutsDropped` (Win tek, Win+R+metin, sağ Win+E, Alt+Tab+Tab, Alt+Shift+Tab, Alt+Esc, Ctrl+Esc, Ctrl+Shift+Esc, PrintScreen), `…ShellLatchUntilModifiersReleased`, `…WindowModeOrdinaryKeysPass` (harf, Ctrl+C, Alt+F4), `…MonitorModeUnchanged`, `…WindowModeKeyBurstLimited`, `…UnfocusReleasesHeldKeys`; mevcut `TestAC248S171KeyDroppedWhenFocusInOtherApp` beklentisi güncellendi (odak kaçınca basılı B bırakılır) |
+| `internal/win/window_windows.go`, `internal/ui/share.go`, `internal/ui/screens_windows.go`, `internal/ui/share_test.go` | S-P17-4: `TopWindow.Class` (`GetClassName`) → `windowCandidate.Class`; `Progman`, `WorkerW`, `Shell_TrayWnd`, `Shell_SecondaryTrayWnd` listelenmez; test (Gezgin `CabinetWClass` kalır)                                                                                                                                                                                                                                                              |
+| `internal/diag/reparse_windows.go`, `reparse_windows_test.go`                                                           | S-P17-5: `//go:build windows && (amd64 \|\| arm64)`                                                                                                                                                                                                                                                                                                                                                                                                  |
+| `internal/diag/reparse_unsupported_windows.go` (yeni)                                                                   | `windows && !(amd64 \|\| arm64)`: aynı API, her işlem `errors.ErrUnsupported` (kapalı başarısızlık; mod bitli zayıf denetime dönüş yok)                                                                                                                                                                                                                                                                                                              |
+| `internal/capture/mf_windows.go`                                                                                        | `setUINT64`: `IMFAttributes::SetUINT64` 64 bit ABI'de tek, 32 bit'te iki sözcük; `uintptr(uint64(1)<<32\|1)` sabit taşması (386 derleme hatası) kalktı                                                                                                                                                                                                                                                                                               |
+| `internal/win/win_windows.go`                                                                                           | `WorkAreaAt`: `MonitorFromPoint` POINT'i `RootAt` ile aynı kalıpla geçirir (386 vet "shift of 32" bulgusu)                                                                                                                                                                                                                                                                                                                                           |
+
+### S-P17-1 kuralları (pencere modu; monitör modu değişmedi)
+
+- Düşer (`SHELL_SHORTCUT`): `MetaLeft`/`MetaRight` basması (hiç enjekte edilmez); Win uzakta basılıyken her basma;
+  Alt (sol/sağ) basılıyken `Tab` ve `Escape`; Ctrl basılıyken `Escape` (Ctrl+Esc, Ctrl+Shift+Esc); `PrintScreen`.
+- Kilit: kısayol görüldükten sonra uzaktaki Win/Alt/Ctrl hepsi bırakılana dek **bütün** basmalar düşer (Alt+Tab+Tab,
+  Win+R+metin). Bırakmalar her zaman geçer (S7-13). `k.release_all`, kapı kapanışı ve monitör moduna dönüş kilidi sıfırlar.
+  Monitör modunda basılıp `a.keys`'te kalan Win de "Win basılı" sayılır.
+- Denetim sırası: kabuk → kapalı/simge → ön plan (`UNFOCUSED`; bu anda bu alıcının basılı tuttuğu tuşlar bırakılır,
+  rapor madde 2) → pencere modu tuş kovası (`KEY_BURST`) → `key()` (Ctrl+Alt+Del / Win+L engeli aynen).
+- TOCTOU: ön plan denetimi zaten kilit altında `SendInput`'tan hemen önce, her mesajda tek tek yapılıyor; teslim sistem
+  kuyruğundan sonra olduğundan ek olarak pencere modunda tuş basmaları 40/sn, patlama 40 ile sınırlandı (monitör
+  modundaki `RateBurst = 500` yerine). Kabuk kısayolları hiç iletilmediğinden kalan pencere yalnız yerel kullanıcının
+  odak değiştirmesidir; o durumda kuyruğa girmiş olabilecek tuş sayısı en çok ~40.
+
+### Sapmalar (gerekçeli)
+
+1. **Alt+F4 iletilir.** Ön plan kökü hedef olduğunda yalnız hedefi (veya hedefin diyaloğunu) kapatır; kapanış paylaşımı
+   `WINDOW_CLOSED` ile bitirir. Pencere içi işlemdir, kapsam dışına etki etmez.
+2. **Alt tek başına ve Alt+harf iletilir** (menü erişim tuşları, Alt+F → Dosya menüsü hedefin içidir). Yalnız Alt+Tab ve
+   Alt+Esc kabuğa gider. Alt+Space hedefin sistem menüsünü açar (hedefe ait) — iletilir.
+3. **PrintScreen eklendi** (raporda yoktu): Windows 11'de Ekran Alıntısı Aracı'nı açar / tüm ekranı panoya alır — pencere
+   dışı içerik panoya girer ve teknisyen hedefte yapıştırabilirdi. Kilit açmaz (değiştiricisiz tek tuş).
+4. **`ContextMenu` iletilir**: odaklı denetime (hedef) gider.
+5. **Ön plan kaybında basılı tuşların bırakılması** (rapor madde 2): bırakma olayı yeni ön plan penceresine gider ama yeni
+   etkileşim üretmez; bırakılmazsa teknisyenin Ctrl'i yerel kullanıcının diğer penceresinde takılı kalırdı.
+6. **386 (S-P17-5 + QA):** istemci yalnız windows/amd64 dağıtılır (runbook §24.6). 386'da paket derlemesi kırılmasın diye
+   diag'a desteklenmiyor eşi eklendi (tanılama logu ve "beni hatırla" 386'da çalışmaz, fail-closed); MF ve
+   `MonitorFromPoint` çağrıları 32 bit ABI'ye uygun yazıldı. `GOOS=windows GOARCH=386 go vet ./...` artık temiz;
+   `remember/reparse_windows_test.go` 386'da `ErrReparse` beklediği için o mimaride koşmaz (CI 386 koşturmuyor).
+   arm64 vet de temiz.
+
+### Bağımlılık
+
+Yok.
+
+### Test
+
+`docker run golang:1.26` (`apps/agent-win`): `gofmt -l .` boş; `go test -race -count=1 ./...` tüm paketler `ok`
+(input: 6 yeni S-P17-1 testi PASS; ui: filtre testi PASS); `GOOS=windows GOARCH=amd64|arm64|386 go vet ./...` 0 bulgu;
+Linux `go vet ./...` 0 bulgu. Windows çalışma zamanı (gerçek `GetClassName`, SendInput) CI `test-windows` + I6 senaryo 11.
+
+### frontend-dev / konsol için
+
+Sözleşme değişmedi. Yeni tanılama nedenleri yalnız istemci logunda (`input_dropped reason=SHELL_SHORTCUT|KEY_BURST`);
+ağa/konsola gitmez.

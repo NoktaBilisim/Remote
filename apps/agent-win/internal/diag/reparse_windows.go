@@ -1,4 +1,4 @@
-//go:build windows
+//go:build windows && (amd64 || arm64)
 
 package diag
 
@@ -26,7 +26,8 @@ type attrTagInfo struct {
 	ReparseTag uint32
 }
 
-// renameInfo FILE_RENAME_INFORMATION (amd64: ReplaceIfExists@0, RootDirectory@8, FileNameLength@16 (bayt),
+// renameInfo FILE_RENAME_INFORMATION (yalnız 64 bit düzen, S-P17-5; 32 bit Windows: reparse_unsupported_windows.go;
+// amd64/arm64: ReplaceIfExists@0, RootDirectory@8, FileNameLength@16 (bayt),
 // FileName@20). Ad yalnız dosya adıdır (ayırıcı yok) ve RootDirectory boştur: NtSetInformationFile bunu aynı klasör
 // içinde yeniden adlandırma olarak işler, yol çözümlemesi yapılmaz. kernel32 SetFileInformationByHandle(FileRenameInfo)
 // KULLANILMAZ: göreli adı geçerli çalışma klasörüne göre DOS yoluna çevirir (CI'da D:\ → ERROR_NOT_SAME_DEVICE).

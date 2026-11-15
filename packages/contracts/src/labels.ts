@@ -278,6 +278,10 @@ export const SHARE_FAIL_REASON_LABELS: Readonly<Record<string, string>> = {
   NO_H264_ENCODER: "Bilgisayarda görüntü kodlayıcı (H.264) bulunamadı",
   ENCODER_CONFIG: "Görüntü kodlayıcı ayarları kabul etmedi",
   ENCODE_FAILED: "Yayın sırasında görüntü kodlama hatası",
+  // P17 I4 (AC-248): pencere modu (WGC). Go `capture.Reason` ile eşleşme `test/p17-share-reasons.test.ts`'te denetlenir.
+  WGC_UNSUPPORTED: "Bu Windows sürümü pencere paylaşımını desteklemiyor",
+  WINDOW_CLOSED: "Paylaşılan pencere kapatıldı",
+  WINDOW_UNAVAILABLE: "Seçilen pencere paylaşılamadı (pencereye erişilemiyor)",
   OTHER: "Diğer hata",
 };
 

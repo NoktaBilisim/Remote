@@ -1,3 +1,178 @@
+# Güvenlik Raporu — P17 kod turu 1 (2026-11-15)
+
+DURUM: DÜZELTİLMELİ
+Özet: Kritik 0 / Yüksek 1 / Orta 1 / Düşük 4
+
+Kapsam: dal `p17-wip` (`git diff main...HEAD`, son commit ac20df3) + commit edilmemiş değişiklikler (`git diff`: I5 yayın hattı,
+konsol etiketleri). İncelenenler: `apps/agent-win/internal/input/{scope.go,window_windows.go,applier.go}`,
+`internal/win/window_windows.go`, `internal/capture/{wgc_windows.go,window_windows.go}`, `internal/ui/share.go`,
+`internal/flow/{flow.go,control.go}`, `cmd/noktadestek/main.go`, `internal/diag/{diag.go,reparse_windows.go,reparse.go}`,
+`internal/remember/{origin.go,remember.go}`, `internal/request/{ws.go,wait.go}`, `internal/signal/messages.go`,
+`.github/workflows/agent-win.yml`, `docs/runbook.md` §24, `apps/web/{components/console/stage.tsx,lib/control/machine.ts,
+lib/webrtc/tech-machine.ts}`, `packages/contracts/src/labels.ts`. Kod değiştirilmedi; staging'e bağlanılmadı, ACCESS.txt okunmadı.
+
+## Bulgular (öncelik sırasıyla)
+
+### [YÜKSEK] S-P17-1 Pencere modunda sistem kısayolları (Win+R/E/X/D/sayı, Alt+Tab, Ctrl+Esc, Ctrl+Shift+Esc) pencere dışına etki eder; type-ahead ile Çalıştır kutusuna yazılabilir — A01 Bozuk erişim kontrolü (S17-1 kapsam ihlali)
+
+Yer: `apps/agent-win/internal/input/scope.go:210-222` (klavye yalnız `ForegroundRoot() == hwnd` denetimi),
+`apps/agent-win/internal/input/applier.go:285` (`blocked`: yalnız Ctrl+Alt+Del ve Win+L).
+
+Sorun: Pencere modunda tuş, ön plan kökü hedef pencereyse **içeriğine bakılmadan** enjekte edilir. Win tuşu ve kabuk
+kısayolları hedef pencereye değil kabuğa (explorer) gider; etkisi paylaşılan pencerenin dışındadır. Monitör modunda bu
+bilinçli olarak izinli (implementation.md adım 28: "Win+E Gezgin'i açmalı, Alt+Tab çalışmalı"); pencere modu için ayrı bir
+kural yazılmamış, `scope_test.go`'da Meta/Alt+Tab senaryosu yok. Ek olarak denetim mesaj anında yapılır, teslim ise
+sistem girdi kuyruğundan sonra olur (TOCTOU): `RateBurst = 500` mesajlık patlama içinde ön plan hâlâ hedefken kuyruğa
+giren tuşlar, Win+R ile açılan Çalıştır kutusu ön plana geçtikten sonra **ona** teslim edilir (Windows'ta Win+R'den
+hemen sonra hızlı yazının Çalıştır kutusuna düşmesi bilinen davranıştır).
+
+İstismar senaryosu: Müşteri teknisyeni sınırlamak için "Yalnız bir pencere" (ör. Not Defteri) seçer ve kontrole izin
+verir. Teknisyen konsoldan tek patlamada `MetaLeft↓ KeyR↓ KeyR↑ MetaLeft↑` + `p o w e r s h e l l …` + `Enter` gönderir.
+Her mesaj Not Defteri ön plandayken denetlendiği için düşmez; tuşlar Çalıştır kutusuna düşer ve müşteri kullanıcısı
+yetkisiyle komut çalışır. Teknisyen ekranı göremese de (WGC yalnız Not Defteri'ni yakalar) komut körlemesine çalışır.
+Daha zararsız biçimleri: Win+D (pencereyi küçültür), Win+E/Win+1..9 (uygulama başlatır), Alt+Tab (odak başka pencereye).
+Yerel kullanıcı ancak kendi kısayoluyla (Ctrl+Shift+F12) durdurabilir. Windows'ta elle doğrulanmalı (I6), ancak tek
+patlamada Win+R'nin pencere dışına etki ettiği koddan kesindir.
+
+Düzeltme (atanan ajan: backend-dev; kural için mimar onayı):
+
+1. Pencere modunda `MetaLeft/MetaRight` (ve `ContextMenu` dışı kabuk tuşları) **basma** olayları düşürülür; Alt basılıyken
+   `Tab`/`Escape`/`F4` hariç tutulabilir ama en az `Alt+Tab`, `Alt+Esc`, `Ctrl+Esc`, `Ctrl+Shift+Esc` düşer
+   (`translateScoped` "k" dalında `blocked` öncesi ayrı `scopedBlocked`). Neden kodu `DropShortcut` (diag, içerik yok).
+2. TOCTOU'yu daraltmak için pencere modunda klavye olayları tek tek enjekte edilir ve her basmadan önce ön plan yeniden
+   okunur (zaten öyle); ek olarak ön plan değişikliği algılandığında (`ForegroundRoot != hwnd`) basılı tuşlar bırakılır.
+   1. madde uygulanınca kabuk kısayolu tetiklenemeyeceğinden kalan pencere yalnız yerel kullanıcının odak değiştirmesidir.
+3. Birim testi (`scope_test.go`): pencere modunda Meta+R, Alt+Tab, Ctrl+Esc, Ctrl+Shift+Esc → enjekte edilen olay 0;
+   monitör modunda davranış değişmez. I6 elle testi: Not Defteri paylaşılırken konsoldan Win+R + metin → Çalıştır açılmaz.
+4. `docs/mimari-e11.md` §8.1 AC-248 satırına "pencere modunda Win ve kabuk kısayolları iletilmez" eklenir (mimar).
+
+### [ORTA] S-P17-2 SignPath API token'ı ortamsız repo secret'ı; imzalama Release onayından ÖNCE koşar — A08 Yazılım bütünlüğü
+
+Yer: `.github/workflows/agent-win.yml:238-300` (`sign` işi; `environment:` yok, `secrets.SIGNPATH_API_TOKEN` satır 277),
+`:361` (`environment: agent-release` yalnız `release` işinde).
+
+Sorun: (a) Token repo seviyesinde tanımlanacak (runbook §24.3 "secret `SIGNPATH_API_TOKEN` (yalnız `sign` işi okur)") —
+"yalnız sign işi okur" bir YAML kuralıdır, erişim kontrolü değildir: yazma yetkili herhangi bir hesap bir dalda iş
+akışını değiştirip `push` olayında secret'ı başka bir adıma verebilir. (b) `sign` etiket push'unda, S17-2 insan onayından
+önce koşar: onay "Reject" edilse bile Authenticode imzalı ikili üretilmiş ve 30 gün artifact olarak durur (`agent-win-signed`).
+
+İstismar senaryosu: Ele geçirilmiş/yanlış niyetli bir katkıcı hesabı (repo açık kaynak, katkıcı sayısı artacak) dalda
+`agent-win.yml`'ı değiştirip token'la kendi derlediği zararlı exe'yi Nokta Bilişim sertifikasıyla imzalatır; SignPath
+politikası köken (origin) doğrulaması ile ref'i kısıtlamıyorsa imza verilir. (b)'de onaylanmamış (P15 prod'da değilken)
+etiketin imzalı ikilisi dağıtım dışına sızabilir.
+
+Düzeltme (atanan ajan: devops): `sign` işine `environment: agent-sign` (deployment policy yalnız `v*` etiketi, gerekli
+onaylayıcı) eklenir ve `SIGNPATH_API_TOKEN` **ortam secret'ı** olarak yalnız orada tanımlanır; SignPath imzalama
+politikasında "GitHub trusted build system / origin verification" açılır, izinli ref `refs/tags/v*` ve iş akışı
+`.github/workflows/agent-win.yml` ile sınırlanır, tercihen SignPath tarafında elle onay. Runbook §24.3 güncellenir.
+Hesap henüz yok; hesap açılmadan önce yapılması yeterlidir (bu nedenle Yüksek değil).
+
+### [DÜŞÜK] S-P17-3 Release iş özeti kontrol listesini otomatik "[x]" işaretliyor — A09 (kanıt bütünlüğü)
+
+Yer: `.github/workflows/agent-win.yml:371-375`.
+Sorun: "onaylayan kişi kontrol etti" ve iki madde koşulsuz `[x]` yazılır; onaylayanın gerçekten kontrol ettiğine dair kanıt
+değildir, sonradan denetimde yanıltıcıdır.
+Düzeltme (devops): Metni "Onaylayan şu maddeleri kontrol etmekle yükümlüdür" + `[ ]` yap ya da maddeyi environment onay
+yorumuna taşı (runbook §24.4'te "onay yorumuna P15 prod commit'i yazılır").
+
+### [DÜŞÜK] S-P17-4 Paylaşılabilir pencere listesinde kabuk pencereleri ("Program Manager" masaüstü) çıkabiliyor — A04
+
+Yer: `apps/agent-win/internal/ui/share.go:38` (süzgeç yalnız görünür/araç/cloaked/başlık/kendi PID).
+Sorun: `Progman` ("Program Manager") görünür, araç penceresi değil, başlıklı; seçilirse "yalnız bir pencere" fiilen
+masaüstü simgeleri olur — çift tıkla uygulama başlatılır (başlatılan pencere kapsam dışı kalır, ama başlatma gerçekleşir).
+Düzeltme (backend-dev): sınıf adı `Progman`, `WorkerW`, `Shell_TrayWnd`, `Shell_SecondaryTrayWnd` olanları listeden çıkar;
+birim testi.
+
+### [DÜŞÜK] S-P17-5 `renameInfo` düzeni yalnız 64 bit doğru; dosya etiketi tüm Windows mimarilerini kapsıyor — A05
+
+Yer: `apps/agent-win/internal/diag/reparse_windows.go:1,33-39`.
+Sorun: Elle hizalanmış `_ uint32` dolgusu 386'da `FILE_RENAME_INFORMATION` (BOOLEAN@0, HANDLE@4, ULONG@8, WCHAR@12) ile
+uyuşmaz; 386 derlenirse rename yanlış ad/uzunlukla çağrılır. Bugün yalnız amd64 derleniyor (runbook §24.6), etkisi yok.
+Düzeltme (backend-dev): dosyayı `//go:build windows && (amd64 || arm64)` ile sınırla (runbook §24.6 önerisiyle aynı).
+
+### [DÜŞÜK] S-P17-6 Bekleyen `v1.0.0` Release koşusu ve etiketi — A08 (süreç)
+
+Yer: `docs/runbook.md` §24.1 madde 4 (run `43649073915`).
+Değerlendirme: Not **doğru ve gerekli**. Onaylanırsa P15 öncesi koddan `config.version=1.0.0` istemci Release'i çıkar:
+(1) sunucu `ACCEPT_CODE_MIN_CLIENT_VERSION` (≥ 0.11.0) eşiğini geçtiği için kabul kodu açık tenant'ta bu istemciye
+`admitCode` gönderir, eski istemcinin sıkı şeması (`DecodeStrict`) `request.accepted`'ı bilinmeyen alanla reddeder → akış
+kırılır; (2) `release` işinin sürüm artış kontrolü (`agent-win.yml:376-385`) `v0.11.0`'ı kalıcı olarak reddeder (fail-closed,
+güvenli ama yayını kilitler); (3) 0.11.0'ın güvenlik düzeltmeleri "eski sürüm" görünür. Ek öneri (devops/kullanıcı):
+Reject'ten sonra `v1.0.0` etiketi (ruleset bypass ile yönetici) silinsin; aksi hâlde aynı koşu "Re-run" ile yeniden onaya
+düşer ve yanlışlıkla onaylanabilir. Silme ve Reject runbook §8 yayın geçmişine not edilsin.
+
+## Odak maddeleri — incelenen ve temiz bulunanlar
+
+- **S17-1 fare kapsamı:** `scopedMove` (scope.go): koordinat `DWMWA_EXTENDED_FRAME_BOUNDS` sınırına eşlenip kırpılır,
+  `WindowFromPoint→GA_ROOT` hedef değilse düşer; sürükleme sırasında da her hareket denetlenir, kırpma pencere dışına
+  taşımayı engeller. Hareket+düğme aynı `SendInput` grubunda (araya yerel girdi girmez). Süreç PerMonitorV2
+  (`build/winres.json:11`), fiziksel koordinatlar tutarlı. Tekerlek imleç konumunda denetlenir.
+- **Sahiplik/menü:** sahip zinciri ≤ 8 adım, her adımda aynı PID; sahipsiz `#32768` yalnız hedefle aynı iş parçacığındaysa.
+  Başka süreçten pencere hedefe "sahip" yaptırılsa bile PID denetimi reddeder.
+- **Release-all / bırakma:** yalnız bu alıcının basılı tuttuğu tuş/düğme bırakılır (`key`/`buttons` haritası); düğme
+  bırakma konumsuz; yeni etkileşim üretmez — kabul edilebilir (S7-13 gerekçesi).
+- **Simge/kapalı:** `windowState` her olayda `IsWindow`/`IsIconic`; hedef 0 ya da API nil → tümü düşer; yakalama
+  açılamasa bile `setInputMonitor` pencere kapsamını kurar (monitöre sessiz dönüş yok, flow.go `s.window != 0`).
+  Pencere modunda `monitor.request` yok sayılır (control.go:166). Başka sanal masaüstüne taşınan pencerede fare/klavye düşer.
+- **Diag satırı:** `input_dropped` yalnız `Event/Version/Reason` (sabit sabitler); koordinat, başlık, tuş yok; 5 sn'de ≤ 1;
+  yalnız kalıcı modda ve yükseltilmemiş süreçte; dosya 2×128 KB ile sınırlı.
+- **WGC:** `CreateForWindow(hwnd)` yalnız seçilen pencere; kendi pencerelerimiz listede PID ile hariç ve WGC pencere
+  yakalaması üstteki başka pencereleri içermez; kapanınca `WINDOW_CLOSED` (kalıcı, `share.state stopped`), simge
+  durumunda içerik yerine kaplama. COM/WinRT: tüm ara nesneler `defer release`, kare `closeAndRelease`, `close()` nil-güvenli
+  ve açılış hatasında `defer c.close()`; HSTRING silinir. Sızıntı görülmedi.
+- **diag/reparse (AC-249):** her açılış `OPEN_REPARSE_POINT|BACKUP_SEMANTICS` + `FileAttributeTagInfo`; üst ve klasör
+  `FILE_SHARE_DELETE`'siz tutulur (işlem süresince yeniden adlandırma/junction takası yok), `GetFinalPathNameByHandle`
+  eşleşmesi; yazma kiplerinde `NumberOfLinks == 1` (hard link reddi). Rename kaynak handle'ı paylaşımsız açılır,
+  `NtSetInformationFile(FileRenameInformation, RootDirectory=NULL, yalın ad)` aynı klasörde yol çözmeden çalışır; hedef
+  denetimi ile rename arası yarışta hedef bağlantıyla değiştirilse bile rename bağlantının kendisini değiştirir (izlemez).
+  Silme handle üzerinden POSIX disposition. Log rotasyonu kilit altında, aynı `Dir` ile.
+- **SameRegistration:** köken + sunucunun `renewed` kararı + ad; tenant id istemciye gelmiyor (G-E10-4). Tutucu (şüphede
+  bilgi gösterir).
+- **admitCode:** `validAdmitCode` — alan varsa 4 hane zorunlu (`null`, boş, sayı reddi), sıkı şema büyük/küçük harf duyarlı;
+  sunucu 0.10.x'e kod üretmiyor, ayar açıkken 409 `ACCEPT_CODE_CLIENT_UNSUPPORTED` (panel.ts:149-205), web hata metni eşli.
+- **share.state reason:** istemci `^[A-Z0-9_]{1,32}$` + method enum = `contracts/ws.ts:75-88` (P15 rakamı da kabul ediyor;
+  mimarideki `[A-Z_]` yazımından geniş ama yine sabit karakter kümesi). Konsol: `describeShareFailure` `Object.hasOwn`
+  ile tablo, bilinmeyen kod düz metin; React metin düğümü, `dangerouslySetInnerHTML` yok. Mod rozeti yalnız
+  `SHARE_METHODS` beyaz listesinden (`sharingMethodOf`), etiketler sabit tablodan.
+- **I5 iş akışı:** tüm action'lar SHA sabit; `signpath/github-action-submit-signing-request@f6d04783…` `git ls-remote` ile
+  `refs/tags/v3.0` = `refs/tags/v3` doğrulandı. Varsayılan `contents: read`; `sign` `actions: read`, `attest`
+  `id-token/attestations: write`, `release` `contents: write`. `run:` içinde `${{ }}` doğrudan girdi yok (hepsi `env:`
+  üzerinden; `inputs.*` choice + regex). `sign` yalnız `push` + `tag` → `pull_request` bağlamında secret yok. Sıra:
+  reproducible → sign (fail → attest/release koşmaz) → attest (imzalı ikili) → release; `SIGNPATH_ORGANIZATION_ID` doluyken
+  imzasız ikili reddi (`release` adımı). Sürüm artış kontrolü `gh` hatasında `bash -e` ile fail-closed; artifact adı
+  beyaz listesi; `--verify-tag`.
+
+## Otomatik tarama çıktıları
+
+- `pnpm audit --audit-level=moderate`: **No known vulnerabilities found**.
+- Gizli bilgi `git grep -nE "(api[_-]?key|secret|password|token)\s*[:=]\s*['\"][^'\"]{8,}"` (agent-win, .github, contracts,
+  konsol): eşleşme yok.
+- `.env` geçmişi: `git log --all --name-only -- '*.env' '.env*'` → yalnız `.env.example`.
+- SignPath action SHA'sı uzak repoda etiketle eşleşiyor (yukarıda).
+- **Çalıştırılamadı:** `go test` / `GOOS=windows go vet` / `govulncheck` Docker konteynerinde çalıştırma izni ortam
+  tarafından reddedildi (yerelde `go` yok). CI `check` işi (govulncheck windows/amd64 + linux, go-licenses) bu taramaları
+  zorunlu yapar; P17 main koşusunun yeşil olması bu turun ön koşulu sayılır.
+
+## Tasarımda vaat edilip kodda bulunmayanlar
+
+- mimari-e11 §8.1 AC-248 "girdi yalnız paylaşılan pencereye" — kabuk kısayolları için kural yok (S-P17-1).
+- §8.1 AC-252 "SHA sabitli action, CI'da `signtool verify /pa`" — var; secret'ın ortamla sınırlanması tasarımda yok
+  (S-P17-2, tasarıma eklenmesi önerilir).
+
+## Olumlu
+
+- Pencere kapsamı fail-closed tasarlanmış (hedef yok/API yok/sınır alınamıyor → düşer); monitör moduna sessiz dönüş yok.
+- AC-249 handle tabanlı dosya işlemleri, önceki yol tabanlı `os.Remove`/`os.Rename`'i tamamen kaldırmış; junction/symlink/
+  hard link için Windows birim testleri var.
+- İmzalama hattı fail-closed ve imzasız/imzalı hash'ler ayrı izlenebilir; tekrarlanabilirlik imzasız ikilide korunuyor.
+- Konsol tarafında yeni alanlar beyaz liste ve sabit etiket tablosuyla işleniyor.
+
+## Önerilen "Sonra" (gereksinimler §9)
+
+- S-P17-3 (özet metni), S-P17-4 (kabuk pencereleri), S-P17-5 (build etiketi), S-P17-6 (v1.0.0 etiketinin silinmesi).
+
+---
+
 # Güvenlik Raporu — P13b kod turu 2 (2026-11-15)
 
 DURUM: GEÇTİ
