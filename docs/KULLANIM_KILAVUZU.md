@@ -1939,7 +1939,7 @@ SMS, WhatsApp veya e-postayla öğrenebilir. Hangi kanalları sunacağınızı b
 - **KVKK notu:** Bu kutucuk açık rıza değil, **hizmet bildirimi tercihidir**. Mesaj yalnız müşterinin kendi talebinin
   durumunu bildirir; reklam veya kampanya içermez. Ticari elektronik ileti olmadığı için İYS kaydı gerekmez. Bildirim
   metinleri sabittir; teknisyenin ret notu bildirime yazılmaz.
-- **Alıcı başına tavanlar:** aynı numaraya/adrese firmanızdan 24 saatte en çok 3, tüm sistemden en çok 5 bildirim gider.
+- **Alıcı başına tavanlar:** aynı numaraya/adrese firmanızdan 24 saatte en çok 3, tüm sistemden yaklaşık 5 bildirim gider (birkaç firma aynı anda bildirim gönderirse bu sayı az miktarda aşılabilir).
   Firma başına saatte SMS 100, WhatsApp 60, e-posta 100 bildirimle sınırlıdır. Aynı numarayla bekleyen başka bir web
   talebi varsa yeni talep için bildirim gönderilmez. Tavana takılan bildirim gönderilmez ve denetim kaydına "sınıra
   takıldı" olarak yazılır.

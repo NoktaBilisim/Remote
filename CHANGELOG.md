@@ -47,8 +47,8 @@ Biçim [Keep a Changelog](https://keepachangelog.com/tr/1.1.0/), sürümleme [Se
 ### Güvenlik — P19
 
 - Web formu bot kapısı: tek kullanımlık, 30 dk geçerli, süreç yeniden başlayınca düşen form token'ı; açılıştan 2 sn önce
-  gönderim reddi; gizli alan. Form kapalı, ref geçersiz ya da pasif → aynı 404 (oracle yok). Form bilgisi ucuna ağ öneki
-  kovaları (S-P19-K1).
+  gönderim reddi; gizli alan. Form kapalı, ref geçersiz ya da pasif → aynı 404 (oracle yok). Form bilgisi ucuna IPv6 /56 (120/dk)
+  ve /48 (240/dk) kovaları; IPv4'te önek kovası yok (NAT) (S-P19-K1).
 - Dış gönderimler: tek DNS çözümüne sabitlenmiş istek, yönlendirme izlenmez, iç/özel adres reddi, canlı ortamda SMS adresi
   yalnız `https` + 443. Zaman aşımı ve erişilemezlik dışarıya tek neden (`unreachable`) olarak döner.
 - SMS anahtarı adres kökenine bağlı şifrelenir; adres değişince eski anahtar yeni adrese gönderilmez ("anahtar okunamıyor").

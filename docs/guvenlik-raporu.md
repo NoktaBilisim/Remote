@@ -1,3 +1,100 @@
+# Güvenlik Raporu — P19 kod turu 2 (p19-wip 27fc5d4, 2026-11-15)
+
+DURUM: GEÇTİ (Kritik/Yüksek 0).
+Özet: Kritik 0 / Yüksek 0 / Orta 0 / Düşük 1 (yeni, artık risk) + 2 bilgi. Tur 1'in Orta 1 / Düşük 3 bulgusu: 3'ü kapandı,
+K2 "yaklaşık tavan" kararı kabul edildi.
+
+Kapsam: `git diff eb2f00d..27fc5d4` (ea64286 düzeltmeleri + 27fc5d4 web düzeltmeleri) ve tur 1'de "İncelenmedi" listesindeki
+alanlar (`git diff b0570c8..27fc5d4`). Kod değiştirilmedi; commit yok; staging'e bağlanılmadı; ACCESS.txt okunmadı.
+
+## Tur 1 bulgularının durumu
+
+| #                                                  | Durum                               | Kanıt / değerlendirme                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| -------------------------------------------------- | ----------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| S-P19-K1 (Orta) nonce kümesi firmalar arası DoS    | **Kapandı** (artık risk → K5 Düşük) | Token v2: `part` (firma kimliğinden HMAC türevi 8 B) imza kapsamında (`form-token.ts:94-101,108-118`) → istemci başka firmanın bölmesine yazamaz. Firma başı 10 000, toplam 100 000; boşalan bölme silinir (`form-token.ts:38-81`). `GET /form` IPv6 /56 120/dk ve /48 240/dk kovaları (`service.ts:769-775`, `limits.ts:47-49,92-93`). Kilitli `createIp` anahtarında token tüketilmeden 429 (`service.ts:826-834`). IPv4 /24 kovasının olmaması (CGNAT/kurum NAT'ı) gerekçesi kabul edilebilir: IPv4 adres döndürme pahalı. |
+| S-P19-K2 (Düşük) sistem geneli alıcı tavanı yarışı | **Kabul edildi**                    | Firma içi sayımlar `lockSettings` ile kesin; sistem geneli aşım en çok 4 + N (N = aynı anda geçiş yapan firma sayısı); `outbox.ts:149-154` yorumu + runbook §26.5/26.6. Gerekçe doğru: RR'de kilitleyici okuma gap kilidiyle firmalar arası 1213 (deadlock) üretirdi. Telafi edici kontroller: firma × alıcı 3/24 sa ve firma × kanal tavanı kesin, WA'da süreç içi alıcı kovası (sistem geneli 3/sa) ek sınır. Saldırgan N firmada aynı anda geçiş zamanlamak zorunda → etki küçük.                                          |
+| S-P19-K3 (Düşük) send-link kovaları                | **Kapandı**                         | Alıcı kovası `${tenantId}                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     | ${hash}`; kovalar 20/sa kullanıcı tavanından SONRA ve rezervasyon audit'inden önce, TX içinde (`send-link.ts:131-142`). Önemsiz kalıntı: alıcı kovası `hit` olup tenant kovası reddederse alıcı sayımı 1 harcanır (taciz yönünde güvenli taraf). |
+| S-P19-K4 (Düşük) ad süzgeci                        | **Kapandı**                         | `DOT_VARIANTS` (U+3002, U+FF61, U+FE12, U+FE52, U+2024, U+FF0E) → `.`, ardından IPv4 biçimi boşlukla bozuluyor (`templates.ts:12-33`); birim testi eklenmiş (`test/unit/p19-notify-j3.test.ts`).                                                                                                                                                                                                                                                                                                                              |
+
+## Bulgular (öncelik sırasıyla)
+
+### [DÜŞÜK] S-P19-K5 Tek firmanın web formu ~100 IPv4 adresiyle 30 dk kapatılabilir (K1 artık riski) — A04 (kullanılabilirlik)
+
+Yer: `apps/server/src/requests/form-token.ts:20` (`FORM_NONCE_TENANT_MAX = 10_000`), `apps/server/src/requests/service.ts:768`
+(IPv4'te tek kova `info` 60/dk/ipKey, aşımda 15 dk).
+Sorun: Firma bölmesi dolunca yalnız o firmanın formu `FORM_TOKEN_INVALID` verir (fail-closed). IPv4'te adres başına ~110 nonce/30 dk
+→ 10 000 için ~90 adres; IPv6'da ~22 /48. Toplam 100 000 küme ise ≥ 10 firma ref'i + ~900 IPv4 gerektirir (botnet ölçeği).
+İstismar senaryosu: Hedef firmanın açık `/r/<ref>`'ini bilen biri ~90 IPv4 adresinden (konut proxy/botnet) token alıp tüketir;
+firmanın web formu 30 dk kapalı kalır. AGENT (Windows istemcisi) talepleri etkilenmez; `web_form_token_store_full` alarmı düşer;
+kill switch ve ref yenileme mevcuttur.
+Düzeltme (Sonra): Bölme içinde ipKey başına alt tavan (ör. ipKey başına ≤ 200 canlı nonce; aşan ipKey'in token'ı tüketilmeden 429) ya da bölme dolduğunda yalnız son 10 dk'da ≥ 50 nonce harcamış ipKey'leri reddedip diğerlerine izin veren ayrım. Runbook'ta
+"form token kümesi doldu" adımına ref yenilemenin ilk müdahale olduğu yazılmalı. Atanan ajan: backend-dev (+ devops runbook).
+`docs/gereksinimler.md` §9'a "Sonra" önerilir.
+
+### [BİLGİ] B-1 WA müşteri alıcı kovası sistem genelinde ortak
+
+Yer: `apps/server/src/notify/whatsapp.ts:357-369` (alıcı anahtarı yalnız `recipientHash`). Bir firmanın aynı numaraya saatte 3 WA
+gönderimi başka firmanın o numaraya WA bildirimini/bağlantısını `rate_limited` (kalıcı, yeniden denenmez) yapar. Paylaşılan sistem
+WhatsApp numarasının engellenmemesi için bilinçli (S-P19-T1 m.3); kayıp audit'te `wa_bucket` olarak görünür. Kabul edilebilir.
+
+### [BİLGİ] B-2 `macAt` emekli sürümde güncel sürüme düşüyor
+
+Yer: `apps/server/src/lib/crypto.ts:115-118`, `cli/crypto.ts:229-236`. `NOTIFY_RECIPIENT_KEY_VERSION` emekliye ayrılırsa hata yok
+(durum geçişi TX'i kırılmaz) ama 24 sa tavan sayımı bir kez sıfırlanır; check-retire yalnız uyarı veriyor. Runbook adımı (sabiti
+önce taşı) yeterli; isteğe bağlı olarak check-retire bu sürümde `EXIT.PENDING` dönebilir.
+
+## Tur 1'de "İncelenmedi" olan alanlar — sonuç
+
+- **`/ws/request` WEB yolu + signaling:** Origin varsa BROWSER kuralı (izinli köken), yoksa AGENT; satır bulunduktan sonra
+  `source` ↔ tür eşleşmesi zorunlu, uyuşmazlık 403 `client_kind` (`requests/ws.ts:71-74,91`). Sürüm kapıları yalnız AGENT dalında,
+  AGENT'ta `clientVersion === null` fail-closed 403 (`ws.ts:100-107`). Kabulde misafir türü `source`'tan (`panel.ts:251`), admit
+  TX'i ve audit `guest.kind` kullanıyor (`signaling/admit.ts:184,198`); `/ws/guest` upgrade'de `publicClientAllowed(…, g.kind)`
+  korunuyor (`signaling/ws.ts:185`). Sorgu dizesi reddi ve sır `Sec-WebSocket-Protocol`'de (web `waiting-room.tsx:89`).
+  `/public/requests/cancel` tür ↔ kaynak uyuşmazlığında sessiz 204 (oracle yok). Bulgu yok.
+- **`notify/whatsapp.ts` müşteri kovası:** sistem 600 / firma 60 / alıcı 3 saatlik, `usable` değilse istek gönderilmiyor; ortak
+  `service-url.ts` (T5 kuralı WA'ya da uygulanıyor). B-1 dışında bulgu yok.
+- **`customers/csv-export.ts`:** `customers.view` + `customers.export`, 10/dk/kullanıcı, > 50 000 → 400 (yarım dosya yok), audit
+  akıştan önce, sabit dosya adı (başlık enjeksiyonu yok), `X-Content-Type-Options: nosniff`, ref dışa aktarılmıyor, anonim
+  müşterinin kişisel hücreleri boş, `csvRow` formül kaçışı. Bulgu yok.
+- **`cli/crypto.ts`:** check-retire `session_messages` + `tenant_settings.sms_api_key_enc` + `notification_outbox.recipient_enc`
+  sayıyor, > 0 → `EXIT.PENDING`; SMS anahtarı rewrap aynı AAD (köken `sms_url ?? SMSPORTAL_URL`), `FOR UPDATE`, çözülemeyen satır
+  sayılıp atlanıyor, audit'te değer yok. B-2 dışında bulgu yok.
+- **Migration CHECK'leri ve grants:** `support_requests_source_version_chk` (WEB ⇔ `client_version IS NULL`), `sms_url` regex
+  (userinfo/`?`/`#`/boşluk/kontrol karakteri yok), `sms_header`, şifreli alan en az başlık uzunluğu, outbox son durumda
+  `recipient_enc IS NULL` zorunlu, `recipient_hash` 64 küçük hex, `last_reason` yalnız kod biçimi (ham hata metni yazılamaz),
+  enum'lar ikili karşılaştırmalı; bileşik FK `(request_id, tenant_id)` tenant tutarlılığını DB'de zorluyor. Grants: `app`'e yalnız
+  SELECT/INSERT/UPDATE/DELETE, DDL/TRIGGER/REFERENCES REVOKE. Tetikleyici sayısı değişmedi (23). Bulgu yok.
+- **Web `/r/[ref]` (request-end.tsx dahil) ve CSP:** `request-end.tsx` yalnız sabit sözlük metni basıyor; `dangerouslySetInnerHTML`
+  yok; talep sırrı `sessionStorage`'da (sekme kapsamı, localStorage değil); indirme bağlantısında ref `encodeURIComponent`.
+  CSP (`apps/web/proxy.ts:21-36`): nonce + `strict-dynamic`, `unsafe-inline` yok, `connect-src 'self' wss://<host>` (çıplak `wss:`
+  yok), `frame-ancestors 'none'`, `base-uri 'none'`, `form-action 'self'`, `object-src 'none'`; `Referrer-Policy: no-referrer`
+  (ref'li yol üçüncü tarafa sızmaz); `/r/` PUBLIC_PATHS'te ve `next=`'e yazılmıyor. Bulgu yok.
+- **Sahte XFF:** Caddy dış blokta `trusted_proxies` yok → istemci XFF'i ezilir; 4451'de yalnız 172.30.0.128/32 güvenilir +
+  `trusted_proxies_strict`; `header_up X-Forwarded-For {client_ip}` tek değer (`deploy/Caddyfile:10-13,52-54,101`); server
+  production'da `TRUSTED_PROXY_CIDR` zorunlu (`env.ts:104`). Yeni web uçları `auditContext(req).ip` → aynı yol. P19 değişikliği
+  yok; bulgu yok.
+- **gitleaks:** aşağıda.
+
+## Otomatik tarama çıktıları
+
+- `docker run zricethezav/gitleaks:v8.30.1 git /repo --redact`: "88 commits scanned … ~17.96 MB … **no leaks found**"
+  (depoda tüm dallarda 89 commit; çalışma ağacında commit edilmemiş değişiklik taranmadı).
+- `pnpm audit --audit-level=moderate` (tur 1): bilinen açık yok; ea64286/27fc5d4'te package.json/lockfile değişmedi.
+
+## Tasarımda vaat edilip kodda bulunmayanlar
+
+Yok. S-P19-1..15 ve tur 1 K1–K4 kararlarının tamamı kodda karşılık buldu (K2: kesin tavan yerine belgelenmiş yaklaşık tavan —
+bilinçli karar, kabul edildi).
+
+## Olumlu
+
+- K1 düzeltmesi firma kimliğini token'da açık taşımadan imza kapsamına almış; tüketim hâlâ ilk await'ten önce ve senkron (T4 korunuyor).
+- WS'de tür ↔ kaynak eşleşmesi satır okunduktan sonra yapılıyor: web sırrı ajandan, ajan sırrı tarayıcıdan kullanılamıyor.
+- DB CHECK'leri uygulama kurallarının ikinci hattı (outbox alıcısının son durumda silinmesi, ham hata metni yazılamaması) olarak
+  tasarlanmış.
+
+---
+
 # Güvenlik Raporu — P19 kod turu 1 (p19-wip eb2f00d, 2026-11-15)
 
 DURUM: GEÇTİ (Kritik/Yüksek 0). Orta/Düşük bulgular `docs/gereksinimler.md` §9'a "Sonra" olarak eklenmeli ya da P19 düzeltme turunda kapatılmalı.

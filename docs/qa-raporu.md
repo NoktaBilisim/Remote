@@ -1,3 +1,108 @@
+# QA Raporu — Tur 2 (P19 / J7, Tur 1 düzeltmeleri)
+
+Tarih: 2026-11-15 · Denetçi: qa-denetci · Dal `p19-wip`, commit `27fc5d4` (ea64286 + 27fc5d4). Kapsam:
+
+- Tur 1'in dört maddesi.
+- Güvenlik K1–K4 kod değişiklikleri (`form-token.ts`, `limits.ts`, `service.ts`, `send-link.ts`, `templates.ts`, `outbox.ts`).
+- Frontend düzeltmeleri.
+- J9 dokümanlarının koddaki son değerlerle tutarlılığı.
+
+Kod değiştirilmedi, staging'e bağlanılmadı, ACCESS.txt okunmadı.
+
+DURUM: GEÇTİ
+
+## Test sonucu
+
+| Komut                                                                                                        | Sonuç                                                                                                                                                                                                                        |
+| ------------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `pnpm -r run lint`                                                                                           | temiz (çıkış 0)                                                                                                                                                                                                              |
+| `pnpm -r run typecheck`                                                                                      | temiz (çıkış 0)                                                                                                                                                                                                              |
+| `pnpm format:check`                                                                                          | "All matched files use Prettier code style!"                                                                                                                                                                                 |
+| `pnpm -r run test` (unit)                                                                                    | contracts **133/133**, web **386/386** (+1: `lib/i18n.test.ts` yinelenen anahtar), server **433/433** (+3). Skip yok                                                                                                         |
+| `test-db.sh up` (geçici `rs-qa-p19t2-24162`, mysql 8.4.13, `--max-connections=300`, port 34927) + `test:int` | **77 dosya, 789/789 geçti** (Tur 1: 777; +12 yeni test), skip yok, 56 sn. Konteyner `down` ile silindi; `docker ps -a`'da `rs-qa-p19` yok. Prune/restart yapılmadı                                                           |
+| `pnpm --filter @remote/web e2e` (desktop + mobile + perf), 1. koşu                                           | 441 geçti, **1 kırmızı**, 1 koşmadı. Kırmızı test: `[mobile] customers.spec.ts:273` AC-194 "390 px — liste ve detayda…", `customer-requests` 5 sn içinde görünmedi. Aynı test tek başına `--repeat-each=5` ile **5/5** geçti |
+| `pnpm --filter @remote/web e2e`, 2. tam koşu                                                                 | **443 geçti, 0 kalan, 200 skip.** Skip'ler proje kapılı (`desktopOnly`, desktop/mobile/perf); +3, Tur 2'de eklenen `desktopOnly` senaryolarından                                                                             |
+
+e2e değerlendirmesi: kırmızı test P19 öncesi bir AC-194 senaryosu. İzole koşuda ve ikinci tam koşuda yeşil, yani yük altında kararsız bir test; regresyon değil. Engelleyici sayılmadı, Öneriler'e yazıldı.
+
+## Tur 1 maddeleri
+
+| #   | Madde                                  | Durum      | Kanıt                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
+| --- | -------------------------------------- | ---------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1   | [backend-dev] AC-261 kabul yolu        | ✅ kapandı | `p19-notify-j3.test.ts` "AC-261: kabul → aynı TX'te REQ_ACCEPTED PENDING; tick → 'kabul edildi' SMS, SENT, alıcı NULL, audit başarı; firma kanalı kapalıysa satır yok". Doğrulananlar: `POST …/accept` 200 → `[REQ_ACCEPTED, SMS, PENDING]`; `tick()` sonrası SENT ve `recipientEnc` null; sahte smsportal'da "kabul edildi" metni; audit `success`, maskeli alıcı `+90******9901`; olumsuz yolda (firma `notifySmsEnabled=false`) satır sayısı 0                                   |
+| 2   | [backend-dev] S-P19-12 tavan dalları   | ✅ kapandı | Üç yeni test: (a) iki firmada 3 + 2 bildirimden sonra 6. bildirim `FAILED rate_limited`, scope `recipient_global`, metrik. (b) Son 1 saatte 100 SENT satır tohumlandıktan sonra 101. bildirim scope `tenant_channel`, metrik; başka firma PENDING kalıyor. (c) `sendCustomer` ile firmada 60 gönderimden sonra 61. bildirim FAILED, scope `wa_bucket`; WA sunucusuna istek gitmiyor (`wa.hits` değişmiyor), audit `fail`, metrik; başka firma SENT. Kriteri gerçekten doğruluyorlar |
+| 3   | [backend-dev] yetki devri üç eylemde   | ✅ kapandı | `users-p9.test.ts` `it.each(["sessions.send_link","customers.export","customers.import"])`: Admin'de anahtar kapalıyken `true` → 403 + `fields["permissions.<k>"]`; `false` → 201                                                                                                                                                                                                                                                                                                   |
+| 4   | [teknik-yazar] AC-288 dokümanlar + PDF | ✅ kapandı | Ayrıntı aşağıda                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
+
+Tur 1 öneri maddeleri: WhatsApp ikonu artık `MessageCircle` (`session-send-link.tsx:3,145`). Sahte anahtar sabiti aynı kaldı; zorunlu değildi.
+
+## AC-288 doküman kontrolü (koddaki son değerlere göre)
+
+- **Form bilgisi ucu kovaları:** kodda `limits.ts:82-83` `WEB_FORM_PREFIX_PER_MIN = 120`, `WEB_FORM_NET48_PER_MIN = 240`, aşımda `BLOCK` 15 dk. `service.ts`'te bu kovalar yalnız `isIPv6Key(net)` olduğunda uygulanıyor, IPv4'te önek kovası yok (yalnız `info` 60/dk/IP). `docs/api.md:2733-2734` birebir aynı: "IP başına 60/dk; ayrıca IPv6 /56 120/dk ve IPv6 /48 240/dk (IPv4'te önek kovası yok …) (aşımda 15 dk 429)". Kılavuz, DATASHEET ve README'de çelişen bir sayı yok. CHANGELOG:50-51 yalnız "ağ öneki kovaları (S-P19-K1)" diyor; yanlış değil ama "IPv6" belirtilmemiş (Öneriler).
+- **KULLANIM_KILAVUZU.md:** J9 listesinin hepsi var: web talep formu, "Web" rozeti, form bağlantısı, "Form spam'i altında ne yapılır?" (`:1909`; kill switch + ref yenileme), durum bildirimi (hizmet bildirimi, İYS gerekmez `:1940`), Ayarlar > SMS (bantlar tablosu, anahtar okunamıyor metni `:2086` sözleşmeyle aynı, test SMS), teknisyen send-link, CSV dışa/içe (üç yetki), "Sohbete şifre yazmayın" (`:1308`).
+- **Diğer dosyalar:** `docs/api.md` P19 uçları ve yetki tablosu var. `docs/mimari-protokol.md` §5.5 (`:354`) var. README env `SMSPORTAL_URL` (`:573`) var. CHANGELOG ve DATASHEET güncellendi. Runbook K2 notu var.
+- **Kılavuzdaki sistem tavanı:** `:1942` "tüm sistemden en çok 5 bildirim gider" diyor. K2 kararıyla sistem geneli tavan yaklaşık (firmalar arası kilitsiz; runbook/implementation'da belgeli). Kullanıcı metni için küçük bir kesinlik farkı (Öneriler).
+- **PDF:** `docs/pdf/{README,KULLANIM_KILAVUZU,DATASHEET}.pdf` aynı commit'te, kaynak .md'lerden sonra üretilmiş (md 13:38:32, PDF 13:38:43-44). Kılavuz 74 sayfa, DATASHEET 7 sayfa. Bu ortamda poppler yok; sayfalar görüntüye çevrilip Türkçe karakter kontrolü **yapılamadı**. Bu kontrol teknik-yazar ya da J8'de yapılmalı.
+
+## Güvenlik K1–K4 değişikliklerinin QA açısından incelemesi
+
+- **K1:** Form token v2 firma bölme anahtarını HMAC kapsamında taşıyor. Firma başı 10 000, toplam 100 000 sınırı var. Senkron `consume(part, nonce, …)` ilk `await`'ten önce kalıyor (T4 korunuyor). Kilitli IP token tüketilmeden 429 alıyor. Unit `p19-form-token.test.ts` ve `p19-web-j2.test.ts` yeşil.
+- **K3:** send-link alıcı kovası firma bazlı. Yeni test, kullanıcı tavanına takılan isteğin alıcı kovasını harcamadığını da doğruluyor.
+- **K2:** belgelendi. **K4:** ad süzgeci unit testi (+3) yeşil.
+- Önem derecelendirmesi güvenlik raporunun işidir.
+
+## Frontend düzeltmeleri
+
+- `messages/tr.json`'da `sendlink.*` ↔ `sl.*` çakışması giderildi. `lib/i18n.test.ts` ham metinden yinelenen anahtarı yakalıyor; doğru yaklaşım, çünkü `JSON.parse` sessizce ezer.
+- `waiting-room.tsx`: `onFinished` ref'e alındı, böylece her çizimde soket yeniden açılmıyor. Ayrıca `ended` bayrağı ve CONNECTING'de kapatma eklendi.
+- `request-end.tsx`: talep kapanış metinleri ayrıldı. Yalnız token sınıfları kullanılıyor (`text-fg-muted`, `bg-surface`, `border-border`), ikonlar lucide-react ve anlamlı.
+- e2e `p19-j5.spec.ts` yeşil.
+
+## Kabul kriterleri
+
+| AC     | Durum                             | Kanıt                                                                                    |
+| ------ | --------------------------------- | ---------------------------------------------------------------------------------------- |
+| AC-259 | ✅                                | Tur 1 kanıtları + K1 testleri (`p19-web-j2`)                                             |
+| AC-260 | ✅                                | Tur 1 kanıtları + K3 testi                                                               |
+| AC-261 | ✅                                | Kabul, ret ve süre dolumunun üçü de entegrasyon testli; tavan dallarının dördü de testli |
+| AC-263 | ✅                                | Tur 1 kanıtları (değişiklik yok; testler yeşil)                                          |
+| AC-285 | ✅                                | AC-72 + üç anahtar için AC-73 parametreli test                                           |
+| AC-286 | ✅                                | Tur 1                                                                                    |
+| AC-287 | ✅                                | e2e iki tema axe 0 + 390 px; yeni kapanış ekranları token'lı                             |
+| AC-288 | ✅ (PDF görsel kontrolü bekliyor) | Yukarıdaki doküman kontrolü                                                              |
+| AC-289 | —                                 | Go istemci değişmedi                                                                     |
+| AC-290 | qa tarafı ✅                      | Güvenlik Kritik/Yüksek 0 koşulu guvenlik raporuna bağlı                                  |
+
+## Düzeltilmeli
+
+Yok.
+
+## Definition of Done
+
+| Madde                                   | ✅/❌ | Not                                                                                                                          |
+| --------------------------------------- | ----- | ---------------------------------------------------------------------------------------------------------------------------- |
+| Lint / typecheck / format               | ✅    | Hepsi çıkış 0                                                                                                                |
+| Testler yeşil                           | ✅    | 952 unit, 789/789 int, e2e 443/0 (ikinci tam koşu; ilk koşudaki tek kırmızı izole koşuda 5/5 ve tam koşuda tekrar etmedi)    |
+| Her AC testli ve kriteri doğruluyor     | ✅    | Tur 1 açıkları kapandı                                                                                                       |
+| Tasarım–kod uyumu, sapmalar gerekçeli   | ✅    | K1 (token v2, firma bölmesi, IPv6 /56·/48 kovaları) ve K2 (yaklaşık tavan) implementation.md / guvenlik-raporu'nda gerekçeli |
+| `any` / hata yutma / PII log / ham renk | ✅    | Değişen dosyalarda yeni bulgu yok                                                                                            |
+| Yeni bağımlılık / env / grant           | ✅    | Yok                                                                                                                          |
+| Dokümantasyon + PDF                     | ✅    | İçerik kodla tutarlı; PDF'ler yeniden üretilmiş (görsel Türkçe kontrolü bu ortamda yapılamadı)                               |
+
+## Öneriler (zorunlu değil)
+
+- [frontend-dev] `apps/web/e2e/customers.spec.ts:281` (AC-194 mobil): tam koşuda bir kez `customer-requests` 5 sn içinde görünmedi. İzole koşuda 5/5 geçti. Bekleme süresini sayfa yükleme durumuna bağlamak (önce başlık ya da iskeletin kaybolmasını beklemek) veya paylaşılan sahte durumdan bağımsızlaştırmak kararsızlığı giderir.
+- [teknik-yazar] `docs/KULLANIM_KILAVUZU.md:1942`: "tüm sistemden en çok 5" yerine "yaklaşık 5" (K2). `CHANGELOG.md:50`: "Form bilgisi ucuna IPv6 ağ öneki kovaları (/56 120/dk, /48 240/dk)".
+- [teknik-yazar] PDF'lerde Türkçe karakter ve kapak (logo, sürüm, tarih) görsel kontrolü yapılıp sonucu implementation.md'ye yazılmalı. Bu denetimde poppler yoktu.
+
+## Olumlu
+
+- Tur 1'in bütün maddeleri tasarımın test satırlarına birebir uyan, gerçekten davranışı doğrulayan testlerle kapandı. Özellikle WA kovası testinde "istek gitmedi" (`wa.hits`) kontrolü var.
+- Tam entegrasyon 789/789 ve yine kararsızlık yok.
+- Yinelenen sözlük anahtarı testi, sessiz metin ezilmesini kalıcı olarak önlüyor.
+
+---
+
 # QA Raporu — Tur 1 (P19 / J7: web talep formu, bağlantı gönderimi, durum bildirimi, müşteri CSV)
 
 Tarih: 2026-11-15 · Denetçi: qa-denetci · Dal `p19-wip`, commit `eb2f00d` · Kapsam: mimari-e11 §8c (J1–J6 kabul sütunları,

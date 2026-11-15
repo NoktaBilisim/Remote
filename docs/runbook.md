@@ -3236,6 +3236,8 @@ action='request.customer_notify' AND JSON_UNQUOTE(JSON_EXTRACT(new_value,'$.reas
 2. Firma Admin'ine haber verilir (meşru yoğunluk mu — kampanya, toplu duyuru — yoksa spam mı).
 3. Spam ise Admin panelde **web formunu kapatır** (`web_form_enabled=false`; form hemen tek tip 404) ve sızan bağlantının
    **ref'ini yeniler** (Genel ref ya da ilgili müşterinin ref'i; eski `/r/<ref>` 404). Kılavuz: "Form spam'i altında ne yapılır".
+   Form "çok yoğun / geçici olarak kullanılamıyor" yanıtı veriyorsa (firma token kümesi doldu, S-P19-K5) ilk müdahale
+   **ref yenilemedir**: yeni ref ile form hemen açılır; eski bağlantı 30 dk sonra kendiliğinden temizlenir.
    Admin'e ulaşılamıyorsa Super Admin firma bağlamında aynısını yapar (audit'e düşer). DB'den doğrudan `UPDATE` yapılmaz
    (audit dışı kalır).
 4. Doğrulama: `curl -s -o /dev/null -w '%{http_code}\n' https://<host>/r/<eski-ref>` → 404; 10–20 dk sonra `notify-volume` DUZELDI.
