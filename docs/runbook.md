@@ -3614,8 +3614,8 @@ Windows 10 ve 11 VM, staging adresli 0.13.0 istemci (§28a.5), varsayılan yazı
 3. `pwsh -File apps\agent-win\test\trace-check.ps1 -Mode Compare -SnapshotPath D:\once-p28a.json -ExePath "<exe tam yolu>"`
    (kayıtlı bilgisayarda `-Binding on`). Beklenen: `TEMİZ` — `İÇERİK İŞARETİ [D-P28a-3]` satırı **yok**: işaretler `%LOCALAPPDATA%\NoktaDestek`
    (tanılama logu dahil), `%ProgramData%\NoktaDestek Servis`, `%TEMP%`, İndirilenler ve Application olay günlüğünde (kaynak `NoktaDestek`) yok;
-   açık `--pdf-isleyici` süreci yok. Sunucu tarafı aynı işaretlerle backend `scripts/log-scan` + e2e ile taranır (server logu, `audit_logs`,
-   `/metrics`, tarayıcı konsolu).
+   açık `--pdf-isleyici` süreci yok. Sunucu tarafı aynı işaretlerle otomatik testlerde taranır: `apps/server/test/integration/clip-print-ws.test.ts`
+   (server logu, `audit_logs`, `/metrics`) ve `apps/web/e2e/p28a-clip-print.spec.ts` (tarayıcı konsolu).
 4. Teknisyenin koyduğu pano metni oturumdan sonra müşteri panosunda kalır (amaç budur; Win+V geçmişine/buluta düşmez) — trace-check panoyu
    taramaz; müşteri isterse panoyu temizler.
 5. Sonuç `docs/test-raporu.md`'ye (Windows sürümü, yazıcı, çıkış kodu).

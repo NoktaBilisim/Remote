@@ -10949,3 +10949,29 @@ Kapsam: mimari-p28 §10 K7 + r2 D-P28a-3. Uygulama kodu değişmedi (Go kaynağ�
   sunucu tarafı tarama backend K2 `scripts/log-scan`. `remote-watch` bu serileri okumaz (mimari: alarm yok).
 
 **Doğrulama:** `pnpm format:check` temiz; `python3 yaml.safe_load` geçerli; actionlint temiz; trace-check pwsh ayrıştırma + birim 8/8.
+
+## P28a düzeltme turu 1 (backend)
+
+- **D-P28aK-2 (güvenlik, Düşük):** `apps/server/src/signaling/clip-print.ts` `handleClipConsent` — açma isteği artık önce oturum
+  caps'inde `clipboard` olmasını şartlıyor (teknisyen yetkisi yok ya da oturum içinde daraldı). Yoksa misafire `clip.consent{on:false}`,
+  teknisyene iletim yok, audit yok; yalnız `rs_clip_print_denied_total{kind="consent",reason="permission"}` (+ dakikada en çok 1 log).
+  Kapı sırası §4.3 ile aynı: yetki → kontrol GRANTED → oran. Kapatma yönü değişmedi (fail-closed). Sözleşme değişikliği yok.
+- **Testler:** birim `test/unit/clip-print.test.ts` — "AC-344 (D-P28aK-2)" iki test (yetkisiz açma; `onCapsNarrowed` sonrası yeniden açma).
+  Entegrasyon `test/integration/clip-print-ws.test.ts` — pano yetkisiz teknisyen + yetenekli istemci, GRANTED iken `on:true` → misafire
+  `{on:false}`, teknisyene mesaj 0, `clipboard.consent` audit 0, metrik `reason="permission"` 1.
+- **Doğrulama:** server `lint` + `typecheck` temiz, birim 505/505, entegrasyon `clip-print*` 8/8 (ayrı konteyner `rs-mysql-fix28`), prettier temiz.
+
+## P28a düzeltme turu 1 (frontend)
+
+- **qa a11y (Düşük):** `components/collab/clip-print-panel.tsx` — `hasReason()` tip koruyucusu; `aria-describedby` yalnız neden metni
+  gerçekten çizildiğinde veriliyor ("iş sürüyor"/`busy` durumunda metin yok → öznitelik de yok). e2e: pano gönderimi sürerken
+  `clip-pull`'da `aria-describedby` yok.
+- **D-P28aK-1 (güvenlik, Düşük):** `apps/web/eslint.config.mjs` — `lib/**` + `components/**` için `no-console: error`
+  (`lib/clip/**`, `lib/print/**`, `lib/dc/chunk-sender.ts`, `clip-print-panel.tsx` kapsamda). Tek istisna `lib/startup-check.ts`
+  (Node açılış günlüğü, tarayıcıya gitmez). Mevcut kodda başka `console.*` yoktu. Birim: `lib/clip/clip-print-p28a.test.ts`
+  "console.* sızıntısı yok" — pano gönder/al, yabancı cid, bozuk parça, sunucu hatası, Clipboard API retleri, yazdırma (başarılı,
+  PDF değil, iptal) boyunca `console.{log,info,warn,error,debug,trace}` casuslarında `P28A-ISARET-` / `gizli-ad-` 0.
+- **mimari-p28 §9 içerik taraması (e2e):** `e2e/p28a-clip-print.spec.ts` — PDF içeriği ve reddedilen dosya işaretli
+  (`P28A-ISARET-…`, `gizli-ad-1/2.pdf`); işaretli pano metniyle "Gönder" (izinli Clipboard API) eklendi, WS'e ve DOM'a içerik
+  gitmiyor. Her testte `page.on("console")` (tüm düzeyler) + `pageerror` kayıtlarında işaret 0 (`afterEach`).
+- **Doğrulama:** web `lint` + `typecheck` temiz, birim 432/432, `playwright test p28a` 3/3 (desktop; mobile atlanır), prettier temiz.

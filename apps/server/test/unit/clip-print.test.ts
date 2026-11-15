@@ -248,6 +248,35 @@ describe("P28a clip.consent (§4.3, r2 O-P28a-5)", () => {
     expect(s.audits).toHaveLength(0);
   });
 
+  it("AC-344 (D-P28aK-2): oturum caps'inde clipboard yoksa açma reddedilir — misafire {on:false}, audit yok, metrik reason=permission", async () => {
+    const s = setup({ perms: ["remote_control.use", "file_transfer.use", "file_transfer.print"] });
+    handleClipConsent(s.rooms, s.room, s.guest, true);
+    await s.flush();
+    expect(s.room.clipPrint.consent).toBe(false);
+    expect(s.guestPeer.of("clip.consent")).toEqual([{ t: "clip.consent", on: false }]);
+    expect(s.techPeer.of("clip.consent")).toEqual([]);
+    expect(s.audits).toHaveLength(0);
+    expect(s.denied().join("\n")).toContain('kind="consent",reason="permission"');
+  });
+
+  it("AC-344 (D-P28aK-2): caps oturum içinde daraldıktan sonra yeniden açma reddedilir", async () => {
+    const s = setup();
+    handleClipConsent(s.rooms, s.room, s.guest, true);
+    s.room.caps = s.room.caps.filter((c) => c !== "clipboard");
+    onCapsNarrowed(s.rooms, s.room);
+    handleClipConsent(s.rooms, s.room, s.guest, true);
+    await s.flush();
+    expect(s.room.clipPrint.consent).toBe(false);
+    expect(s.guestPeer.of("clip.consent")).toEqual([
+      { t: "clip.consent", on: false },
+      { t: "clip.consent", on: false },
+    ]);
+    expect(s.audits.map((a) => a.newValue)).toEqual([
+      { on: true, by: "customer" },
+      { on: false, by: "system", reason: "permission" },
+    ]);
+  });
+
   it("AC-347: değişim audit clipboard.consent{on, by:customer} + teknisyene iletim; aynı değer no-op", async () => {
     const s = setup();
     handleClipConsent(s.rooms, s.room, s.guest, true);

@@ -7,8 +7,23 @@ import { axeScan, guardConsole, newSession, signIn } from "./helpers";
 guardConsole();
 test.beforeEach(({}, info) => test.skip(info.project.name !== "desktop", "konsol masaüstü akışı"));
 
+// mimari-p28 §9 içerik taraması: işaretli pano metni ve dosya adı tarayıcı konsoluna (her düzey) ve sayfa hatalarına 0 kez düşer
+const MARK = "P28A-ISARET-e2e çğıöşüİ";
+const consoleSeen: string[] = [];
+test.beforeEach(({ page }) => {
+  consoleSeen.length = 0;
+  page.on("console", (m) => consoleSeen.push(`${m.type()}: ${m.text()}`));
+  page.on("pageerror", (e) => consoleSeen.push(`pageerror: ${e.message}`));
+});
+test.afterEach(() => {
+  expect(
+    consoleSeen.filter((l) => /P28A-ISARET-|gizli-ad-/.test(l)),
+    "konsolda işaretli içerik olmamalı",
+  ).toEqual([]);
+});
+
 const MOCK = "http://127.0.0.1:4217";
-const PDF = { name: "gizli-ad-1.pdf", mimeType: "application/pdf", buffer: Buffer.from("%PDF-1.7\n1 0 obj\n%%EOF\n") };
+const PDF = { name: "gizli-ad-1.pdf", mimeType: "application/pdf", buffer: Buffer.from(`%PDF-1.7\n% ${MARK}\n1 0 obj\n%%EOF\n`) };
 
 async function live(page: Page, browser: Browser, features: string[]) {
   const { id } = await newSession(page);
@@ -54,6 +69,17 @@ test("AC-343/348/349: neden metinleri → kontrol izni → pano anahtarı → ya
   await expect(page.getByTestId("clip-reason")).toHaveCount(0);
   expect(await axeScan(page, '[data-testid="clip-print"]')).toEqual([]);
 
+  // Gönder: işaretli pano metni okunur, WS'e yalnız bayt sayısı gider (içerik değil)
+  await context.grantPermissions(["clipboard-read", "clipboard-write"]);
+  await page.evaluate((t) => navigator.clipboard.writeText(t), MARK);
+  await page.getByTestId("clip-push").click();
+  await expect.poll(() => agentP28(a)).toContain("clip.push");
+  // İş sürüyor: neden metni çizilmez → aria-describedby DOM'da olmayan id'yi göstermez
+  await expect(page.getByTestId("clip-progress")).toBeVisible();
+  await expect(page.getByTestId("clip-pull")).not.toHaveAttribute("aria-describedby");
+  expect(JSON.stringify(await techSent(page, id))).not.toContain("P28A-ISARET-");
+  await expect(page.locator("body")).not.toContainText("P28A-ISARET-");
+
   // Yazdır → misafire print.request (ad WS'de yok) → müşteri yanıt vermedi
   await page.getByTestId("print-input").setInputFiles(PDF);
   await expect.poll(() => agentP28(a)).toContain("print.request");
@@ -74,7 +100,7 @@ test("AC-348: PDF olmayan dosya reddedilir; Vazgeç print.cancel gönderir; kont
   await signIn(context, "p28");
   const { a, id } = await live(page, browser, ["rs.cap.clip1", "rs.cap.print1"]);
   await grant(page, a);
-  await page.getByTestId("print-input").setInputFiles({ name: "not.pdf", mimeType: "application/pdf", buffer: Buffer.from("merhaba") });
+  await page.getByTestId("print-input").setInputFiles({ name: "gizli-ad-2.pdf", mimeType: "application/pdf", buffer: Buffer.from(MARK) });
   await expect(page.getByTestId("print-error")).toHaveText("Yalnız PDF dosyası yazdırılabilir");
   expect(await techSent(page, id)).toEqual([]);
 

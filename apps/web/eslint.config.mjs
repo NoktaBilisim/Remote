@@ -18,6 +18,13 @@ const config = [
       "@next/next/no-img-element": "off",
     },
   },
+  {
+    // D-P28aK-1 (mimari-p28 §6): pano içeriği / dosya adı console.*'a yazılmaz — tarayıcı kodunda console yasak.
+    // lib/clip/**, lib/print/**, lib/dc/chunk-sender.ts ve components/collab/clip-print-panel.tsx bu kapsamın içinde.
+    files: ["lib/**/*.{ts,tsx}", "components/**/*.{ts,tsx}"],
+    ignores: ["lib/startup-check.ts"], // sunucu açılış hatası (Node günlüğü, tarayıcıya gitmez)
+    rules: { "no-console": "error" },
+  },
 ];
 
 export default config;

@@ -35,9 +35,9 @@ function captureLogs(): { logger: pino.Logger; text: () => string } {
   return { logger: pino({ level: "debug" }, stream), text: () => lines.join("") };
 }
 
-async function techAndAgent(l: Live, caps: string[]) {
+async function techAndAgent(l: Live, caps: string[], perms: Record<string, boolean> = PERMS) {
   const tenant = await createTenant();
-  const user = await createUser({ tenantId: tenant.id, role: "USER", perms: PERMS });
+  const user = await createUser({ tenantId: tenant.id, role: "USER", perms });
   const s = await loginAs(l.app, user);
   const created = (await l.app.inject({ method: "POST", url: "/api/v1/sessions", headers: s.headers, payload: {} })).json<{
     id: string;
@@ -163,6 +163,18 @@ describe("P28a K2 — kapı ve yaşam döngüsü", () => {
       expect(hay).not.toContain("P28A-ISARET-");
       expect(hay).not.toContain("gizli-ad-");
     }
+  });
+
+  it("AC-344 (D-P28aK-2): teknisyenin pano yetkisi yokken clip.consent{on:true} → misafire {on:false}, teknisyene iletim ve audit yok", async () => {
+    live = await startLive({ env: { METRICS_TOKEN: "m".repeat(32) } });
+    const x = await techAndAgent(live, CAPS, { ...PERMS, "remote_control.clipboard": false });
+    await grant(x.tech, x.guest);
+    x.guest.send({ t: "clip.consent", on: true });
+    expect(await x.guest.waitFor("clip.consent")).toEqual({ t: "clip.consent", on: false });
+    const metrics = await live.app.inject({ method: "GET", url: "/metrics", headers: { authorization: `Bearer ${"m".repeat(32)}` } });
+    expect(metrics.body).toContain('rs_clip_print_denied_total{kind="consent",reason="permission"} 1');
+    expect(x.tech.msgs.filter((m) => m.t === "clip.consent")).toEqual([]);
+    expect(await audits(x.sessionId, "clipboard.consent")).toEqual([]);
   });
 
   it("AC-347 (O-P28a-5): 1 dk içinde 7 clip.consent değişimi → 6 audit satırı, 7. misafire {on:false}", async () => {

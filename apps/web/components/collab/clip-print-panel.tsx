@@ -18,9 +18,11 @@ import { consentLeftSec, type PrintView } from "@/lib/print/print-send";
  */
 
 const reasonKey = (r: FeatureReason) => `cp.r.${r}` as MessageKey;
+/** Neden metni çizilecek mi? "busy" (iş sürüyor) için metin yok; aria-describedby yalnız çizilen öğeye bağlanır. */
+const hasReason = (s: FeatureState): s is FeatureState & { reason: FeatureReason } => !!s.reason && s.reason !== "busy";
 
 function Reason({ s, id, cooldownSec, testId }: { s: FeatureState; id: string; cooldownSec: number; testId: string }) {
-  if (!s.reason || s.reason === "busy") return null;
+  if (!hasReason(s)) return null;
   return (
     <p id={id} className="text-xs text-fg-muted" data-testid={testId}>
       {t(reasonKey(s.reason), { sec: cooldownSec })}
@@ -131,7 +133,7 @@ export function ClipPrintPanel({ cp, now }: { cp: ClipPrint; now: number | null 
                   className="grow"
                   disabled={!c.enabled}
                   loading={clipView?.dir === "TO_CUSTOMER"}
-                  aria-describedby={c.reason ? clipReason : undefined}
+                  aria-describedby={hasReason(c) ? clipReason : undefined}
                   onClick={cp.push}
                   data-testid="clip-push"
                 >
@@ -143,7 +145,7 @@ export function ClipPrintPanel({ cp, now }: { cp: ClipPrint; now: number | null 
                   className="grow"
                   disabled={!c.enabled}
                   loading={clipView?.dir === "TO_TECH"}
-                  aria-describedby={c.reason ? clipReason : undefined}
+                  aria-describedby={hasReason(c) ? clipReason : undefined}
                   onClick={cp.pull}
                   data-testid="clip-pull"
                 >
@@ -175,7 +177,7 @@ export function ClipPrintPanel({ cp, now }: { cp: ClipPrint; now: number | null 
               <Button
                 variant="secondary"
                 disabled={!p.enabled}
-                aria-describedby={p.reason ? printReason : undefined}
+                aria-describedby={hasReason(p) ? printReason : undefined}
                 onClick={() => {
                   cp.clearPrintError();
                   input.current?.click();

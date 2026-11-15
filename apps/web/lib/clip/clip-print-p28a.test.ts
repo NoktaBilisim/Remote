@@ -246,3 +246,45 @@ describe("PrintJobs (AC-348..350; O-P28a-2, Y-P28a-1)", () => {
     expect(r.ws).toHaveLength(0);
   });
 });
+
+describe("console.* sızıntısı yok (D-P28aK-1; mimari-p28 §6, §9)", () => {
+  const MARK = "P28A-ISARET-7f3c çğıöşüİ";
+  const NAME = "gizli-ad-7f3c.pdf";
+  const LEVELS = ["log", "info", "warn", "error", "debug", "trace"] as const;
+
+  it("pano gönder/al, ret dalları ve yazdırma akışında işaretli içerik console'a gitmez", async () => {
+    const spies = LEVELS.map((l) => vi.spyOn(console, l).mockImplementation(() => undefined));
+    try {
+      // Gönder (teknisyen → müşteri) + sonuçlar
+      const r = clipRig(MARK);
+      await r.jobs.push();
+      r.jobs.onCtl({ t: "clip.ready", cid: "cid-0000001" });
+      r.jobs.onStatus({ cid: "cid-0000001", result: "OK" });
+      // Al (müşteri → teknisyen): geçerli veri, sonra yanlış cid ve bozuk parça
+      r.jobs.pull();
+      for (const p of splitClip(utf8(MARK))!) r.jobs.onCtl({ t: "clip.data", cid: "cid-0000001", ...p });
+      await vi.waitFor(() => expect(r.written()).toBe(MARK));
+      r.jobs.onCtl({ t: "clip.data", cid: "yabanci-cid", seq: 0, last: true, b64: bytesToB64(utf8(MARK)) });
+      r.jobs.pull();
+      r.jobs.onCtl({ t: "clip.data", cid: "cid-0000001", seq: 3, last: true, b64: bytesToB64(utf8(MARK)) });
+      r.jobs.onError(`sunucu: ${MARK}`);
+      // Clipboard API ret dalları
+      await readClipboard({ readText: () => Promise.reject(new Error(MARK)), writeText: () => Promise.resolve() });
+      await writeClipboard({ readText: async () => "", writeText: () => Promise.reject(new Error(MARK)) }, MARK);
+      // Yazdırma: başarılı iş, PDF olmayan dosya, iptal
+      const pr = printRig();
+      await pr.jobs.start(new File([new TextEncoder().encode(`%PDF-1.7 ${MARK}`)], NAME));
+      await pr.jobs.onReady("pid-0000001");
+      pr.jobs.onStatus({ pid: "pid-0000001", result: "PRINTED", pages: 1 });
+      const pr2 = printRig();
+      await pr2.jobs.start(new File([MARK], NAME));
+      await pr2.jobs.start(new File([new TextEncoder().encode("%PDF-1.7")], NAME));
+      pr2.jobs.cancel();
+    } finally {
+      const seen = JSON.stringify(spies.flatMap((s) => s.mock.calls.map((c) => c.map(String))));
+      for (const s of spies) s.mockRestore();
+      expect(seen).not.toContain("P28A-ISARET-");
+      expect(seen).not.toContain("gizli-ad-");
+    }
+  });
+});

@@ -173,14 +173,19 @@ export function handleClipReport(
 // --- Müşteri pano anahtarı (clip.consent) ---
 
 /**
- * clip.consent (guest → S → tech; §4.3, r2 O-P28a-5): aynı değer no-op; açma yalnız kontrol GRANTED iken ve dakikada en
- * çok 6 değişim içinde (aşan: misafire `{on:false}`, audit yok, metrik). Kapatma yönü sınırlanmaz (fail-closed).
+ * clip.consent (guest → S → tech; §4.3, r2 O-P28a-5): aynı değer no-op; açma yalnız oturum caps'inde `clipboard` varken
+ * (D-P28aK-2), kontrol GRANTED iken ve dakikada en çok 6 değişim içinde (aşan: misafire `{on:false}`, audit yok, metrik).
+ * Kapatma yönü sınırlanmaz (fail-closed).
  */
 export function handleClipConsent(rooms: Rooms, room: Room, guest: Guest, on: boolean): void {
   const cp = room.clipPrint;
   if (on === cp.consent) return;
   const now = rooms.clock.now();
   cp.consentTimes = recent(cp.consentTimes, now);
+  if (on && !room.caps.includes("clipboard")) {
+    guest.peer?.send({ t: "clip.consent", on: false });
+    return noteDenied(rooms, room, "consent", "permission");
+  }
   if (on && room.control.state !== "GRANTED") {
     guest.peer?.send({ t: "clip.consent", on: false });
     return noteDenied(rooms, room, "consent", "control");
