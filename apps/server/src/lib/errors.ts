@@ -1,6 +1,6 @@
 // Tipli uygulama hataları ve standart hata zarfı (mimari-api.md "Ortak kurallar").
 // Bilinmeyen hatalar loglanır, kullanıcıya yalnız 500 + requestId döner (stack/SQL sızmaz).
-import { BINDING_INVALID_MESSAGE } from "@remote/contracts/api/bindings";
+import { BINDING_INVALID_MESSAGE, BINDING_LIMIT_MESSAGE } from "@remote/contracts/api/bindings";
 import { ACCEPT_CODE_CLIENT_UNSUPPORTED_MESSAGE } from "@remote/contracts/api/requests";
 import { INVALID_IMAGE_MESSAGE, PAYLOAD_TOO_LARGE_MESSAGE } from "@remote/contracts/api/branding";
 import { SESSION_ANONYMIZED_MESSAGE } from "@remote/contracts/api/sessions";
@@ -38,6 +38,7 @@ const DEFAULT_MESSAGES: Record<ErrorCode, string> = {
   INTERNAL: "Beklenmeyen bir hata oluştu.",
   NOT_READY: "Servis hazır değil.",
   BINDING_INVALID: BINDING_INVALID_MESSAGE,
+  BINDING_LIMIT: BINDING_LIMIT_MESSAGE,
   FORM_TOKEN_INVALID: "Formun süresi doldu, sayfayı yenileyin.",
   CHANNEL_UNAVAILABLE: "Bu gönderim kanalı şu an kullanılamıyor. Ayarları kontrol edin.",
   REQUEST_REF_INVALID: "Bu dosya artık geçerli değil; firmanızdan yenisini isteyin.",

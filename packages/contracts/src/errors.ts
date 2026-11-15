@@ -69,6 +69,8 @@ export const ERROR_STATUS = {
   CHAT_UNSUPPORTED: 409,
   /** P8c: bilgisayar kaydı geçersiz (yok/unutulmuş/değiştirilmiş/müşteri yenilendi-pasif/Genel yenilendi/tenant pasif/süresi doldu) — tek gövde (AC-185). */
   BINDING_INVALID: 404,
+  /** P20 (AC-254, protokol §6.1): bilgisayar 5 firmaya kayıtlı; yalnız WS `error` kodu (HTTP ucunda üretilmez). */
+  BINDING_LIMIT: 409,
   /** P12 (AC-84): yükleme 2 MB'ı aşıyor. */
   PAYLOAD_TOO_LARGE: 413,
   ACCOUNT_LOCKED: 423,

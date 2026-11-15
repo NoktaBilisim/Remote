@@ -8141,3 +8141,79 @@ Sözleşme değişikliği yok. `formToken` opak; yalnız uzunluğu 78 → 88 kar
   ilk port seçilir (INP, INP-3, ... en çok 20 aday, hepsi aralık içi), peer başlatılır ve dinlediği doğrulanır; dinlemiyorsa
   sıradaki aday denenir. Aynı risk `test-local.sh`'taki bant/kapasite peer'ında (sabit 49991) da vardı: aynı yöntemle
   `PEERP` seçilir. `host-firewall.sh` ve coturn yapılandırması değişmedi; aralık dışı/3478/53 düşme testleri aynen.
+
+## P20 K1 (sunucu) — 2026-11-15
+
+Kapsam: mimari-e11 §8d.2 + §8d.5, protokol §6.1 (çoklu firma kaydı, AC-254, S-P20-4) + S-P18-K7 metriği. Go istemci
+(`apps/agent-win`) dosyalarına dokunulmadı. Şema/migration yok. Staging'e dağıtım yapılmadı (K1 kabul ölçütündeki "staging'e
+dağıtıldı" adımı devops/koordinatörde).
+
+### Değişen dosyalar
+
+- `packages/contracts/src/ws.ts`: `BINDING_MULTI_MIN_VERSION = "0.12.0"`, `BINDING_MAX_PER_DEVICE = 5`;
+  `bindingRequestEnvelopeSchema` (+`previousKeys` 1..5 benzersiz, `full: true`) ve `bindingRequestSchema` (zarf + `superRefine`
+  karşılıklı dışlama), `BINDING_REQUEST_EXCLUSIVE_MESSAGE`; `binding.offer.multi?: true`; `binding.issued.previousIndex?: 0..4|null`;
+  `WS_ERROR_CODES += "BINDING_LIMIT"`.
+- `packages/contracts/src/errors.ts` (`BINDING_LIMIT: 409`), `src/api/bindings.ts` (`BINDING_LIMIT_MESSAGE`),
+  `fixtures/bindings.json` (`multi.*`: constants, errorCode, valid/invalid guestInbound+serverOutbound, exclusive).
+- `apps/server/src/bindings/repo.ts`: `lockActiveByHashesForTenant` (iki adım, PK sıralı kilit; db-notlari "P20").
+- `apps/server/src/bindings/service.ts`: `IssueInput`; çoklu dal (§8d.2 adım 1–6): yalnız oturum tenant'ı, en son kullanılan
+  yenilenir, aynı tenant fazlası `REPLACED` + audit, `full` + eşleşme yok → `Denied("capacity")` → `BINDING_LIMIT` + audit
+  `binding.denied{reason:"capacity"}` + metrik; audit `binding.issued.newValue.multi = true`, `replacedOtherTenant` çoklu dalda
+  hep `false`; `previousIndex`. Eski dal aynen.
+- `apps/server/src/signaling/{binding,handlers,rooms,types}.ts`: teklifte sürüm kapısı + bağlantı başına `bindingOfferMulti`;
+  multi'siz bağlantıdan `previousKeys` → `CONFLICT` (+`rs_binding_denied_total{reason="no_multi"}`); hata kodu servisten
+  (`CONFLICT|BINDING_LIMIT`); `parseFrame`'e isteğe bağlı `soft` geri çağrısı — ADMITTED misafirin zarfı geçerli
+  `previousKey+previousKeys` isteği `error VALIDATION` alır, soket açık (diğer her şema hatası bugünkü gibi 1008).
+- `apps/server/src/requests/service.ts` (issuer bağlantısı), `requests/ws.ts` + `ops/metrics.ts`
+  (`rs_request_messages_rejected_total{reason="validation"}`, S-P18-K7; `rs_bindings_issued_total{renewed,multi}`),
+  `lib/logger.ts` (`*.previousKeys`), `lib/errors.ts` (mesaj eşlemesi).
+- `apps/server/src/lib/db.ts`: **hata düzeltmesi** — `isTransientDbError` `$queryRaw` hatalarını (`P2010`, `cause.originalCode`
+  dize "1213"/"1205") tanımıyordu; `issueBinding`'in mevcut tek yeniden denemesi ham sorgu kilitlenmesinde hiç çalışmıyordu.
+- Testler: `apps/server/test/integration/bindings-p20.test.ts` (yeni, 6), `test/unit/db-transient-p20.test.ts` (yeni),
+  `packages/contracts/test/bindings-p20.test.ts` (yeni, 5); `bindings-p8c.test.ts` metrik regex'i (`multi="false"` etiketi),
+  `p18-messages-h3.test.ts` (S-P18-K7 metrik iddiası).
+- Dokümanlar: `docs/db-notlari.md` "P20" (EXPLAIN + kilit sırası), `docs/runbook.md` metrik tablosu (2 satır).
+
+### Tasarımdan sapmalar (gerekçeli)
+
+1. **Kilit sorgusu iki adım** (§8d.2 adım 2 tek `SELECT … FOR UPDATE`): RR'de kilitli okuma `tenant_id` süzgecine takılan başka
+   tenant satırını da kilitler; S-P20-4 için önce kilitsiz aday kimlikler, sonra `FORCE INDEX (PRIMARY) … ORDER BY id FOR UPDATE`.
+   Sıralama "en son kullanılan önce" JS'te. Ayrıntı db-notlari "P20".
+2. **Mimar notu "IN listesi hash sırasıyla kilitlenir" yerine PK sırası**: tek sorguda plan istatistiğe göre tenant indeksine
+   kayıp filesort'la kilitleyebiliyordu (EXPLAIN'de görüldü); PK aralığı deterministik.
+3. **`previousIndex` `cur` yolunda**: aynı oturumda ikinci istekte `cur` anahtarı listedeyse sırası, değilse `null` (tasarım "target
+   (veya cur)" dedi; uygulandı).
+4. Metrik etiketi `rs_bindings_issued_total` artık her zaman `{renewed, multi}` (eski dalda `multi="false"`); pano sorguları
+   `sum by (renewed)` değişmeden çalışır.
+
+Yeni bağımlılık yok. Yeni env yok.
+
+### Test komutları ve son çıktı
+
+Geçici konteyner `rs-mysql-p20k1-92263` (`apps/server/scripts/test-db.sh up`, `TEST_DB_PORT=33461`, `--max-connections=300`,
+env dosyası oturum scratchpad'inde), iş bitince silindi.
+
+- Kırmızı kanıt: `bindings-p20.test.ts` K1 kodundan önce 6/6 kırmızı (regresyon testi `binding.offer.multi` yok / `previousKeys`
+  şema dışı → 1008).
+- `pnpm format:check` → temiz; `pnpm -r run typecheck` → 0 hata; `pnpm -r run lint` → 0 sorun.
+- `pnpm --filter @remote/server test` → 30 dosya / 434 test geçti; `pnpm --filter @remote/contracts test` → 17 / 138 geçti.
+- `vitest run test/integration` (apps/server, tamamı) → **78 dosya / 795 test geçti**; `bindings-p20` 3 ardışık koşu 6/6.
+
+### Sözleşme notları (frontend-dev ve Go paketleri K3/K5 için)
+
+- Web/panel etkisi yok (`binding.*` yalnız `/ws/guest` AGENT). `WS_ERROR_CODES`'a `BINDING_LIMIT` eklendi; panel bu kodu almaz.
+- Go (`internal/signal`, `flow/binding.go`, `launch/keeper.go`):
+  - `binding.offer` artık `{"t":"binding.offer","multi":true}` olabilir (yalnız ticket `clientVersion ≥ 0.12.0`). ≤ 0.11.x'e
+    alan gitmez.
+  - `binding.request` ekleri: `previousKeys: [bindingKey…]` (1..5, benzersiz; aksi 1008), `full: true` (yalnız `true`; `false`
+    → 1008). `previousKey` ile birlikte → `{"t":"error","code":"VALIDATION"}`, soket açık. Multi teklifi almamış bağlantıdan
+    `previousKeys` → `error CONFLICT`.
+  - `binding.issued.previousIndex`: yalnız `previousKeys`'li isteğe; `0..4` yenilenen anahtarın listedeki sırası, `null` yeni
+    kayıt (yeni yuva). Eski isteğe alan hiç gelmez (anahtar yok, `null` değil).
+  - Yeni WS hata kodu `BINDING_LIMIT` (mesaj `"Bu bilgisayar en çok 5 firmaya kayıtlı olabilir"`); oturum sürer. Go `error.code`
+    enum'u (DecodeStrict) bu kodu kabul etmeli; istemci kendi metnini gösterir (§8d.2).
+  - Oturum başına 3 istek sınırı ve teklif/bağlantı kuralı değişmedi; `BINDING_LIMIT` ve `VALIDATION` dışı CONFLICT/RATE_LIMITED
+    anlamları aynı.
+  - Fikstür: `packages/contracts/fixtures/bindings.json` → `multi` (constants.minVersion/maxPerDevice, errorCode, valid, invalid,
+    exclusive). Go testleri bu bölümü okuyabilir.

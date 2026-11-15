@@ -59,11 +59,11 @@ export function createMetrics(): Metrics {
   m.counter("rs_file_meta_total", "file.meta sonuçları (result; P5)");
   m.counter("rs_file_meta_rate_limited_total", "file.meta kota aşımları (class: accepted|declined|sender; S-P5-T2-3)");
   m.counter("rs_requests_created_total", "Oluşturulan destek talepleri (P8b; P8c via: ref|binding)");
-  m.counter("rs_bindings_issued_total", "Verilen/yenilenen bilgisayar kayıtları (P8c; renewed: true|false)");
+  m.counter("rs_bindings_issued_total", "Verilen/yenilenen bilgisayar kayıtları (P8c; renewed: true|false; P20 multi: true|false)");
   m.counter("rs_binding_invalid_total", "Geçersiz bilgisayar kaydı denemeleri (P8c; rs_request_ref_invalid_total'a da sayılır)");
   m.counter(
     "rs_binding_denied_total",
-    "Verilmeyen bilgisayar kayıtları (P8c B-P8c-4; reason: stale_source|inactive|rate|no_offer|browser)",
+    "Verilmeyen bilgisayar kayıtları (P8c B-P8c-4; reason: stale_source|inactive|rate|no_offer|browser; P20: capacity|no_multi)",
   );
   m.counter("rs_bindings_revoked_total", "Geçersizleştirilen bilgisayar kayıtları (P8c; reason)");
   m.counter("rs_request_ref_invalid_total", "Geçersiz firma ref'i denemeleri (P8b; alarm > 100/dk)");
@@ -97,7 +97,10 @@ export function createMetrics(): Metrics {
   m.counter("rs_request_sla_breached_total", "SLA hedefi aşılarak kapanan talepler (P18 AC-257; kapanışta bir kez)");
   // P18 H3 sayaçları (kayıt H2'de; remote-watch H5 alarmları bu adlara bağlı): artıran kod H3 mesajlaşmasıdır.
   m.counter("rs_request_messages_total", "Kabul öncesi talep mesajları (P18 AC-255; sender: TECH|CUSTOMER)");
-  m.counter("rs_request_messages_rejected_total", "Reddedilen talep mesajları (P18; reason: rate|cap|closed|unsupported|tenant_rate)");
+  m.counter(
+    "rs_request_messages_rejected_total",
+    "Reddedilen talep mesajları (P18; reason: rate|cap|closed|unsupported|tenant_rate; P20 S-P18-K7: validation)",
+  );
   m.counter("rs_request_messages_read_total", "Panelden talep mesajı okumaları (P18 S-P18-T10; PENDING okuma audit'siz)");
   m.counter("rs_crypto_decrypt_failures_total", "Alan şifresi çözülemeyen satırlar (P18 S-P18-T2; table) — alarm > 0");
   m.counter("rs_calendar_fallback_total", "Kurulamayan mesai takvimi → Europe/Istanbul + SLA yok (P18 S-P18-T12; tenant)");

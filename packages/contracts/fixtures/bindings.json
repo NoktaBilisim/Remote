@@ -15,11 +15,18 @@
   ],
   "valid": {
     "guestInbound": [
-      { "t": "binding.request" },
-      { "t": "binding.request", "previousKey": "rsb_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA" }
+      {
+        "t": "binding.request"
+      },
+      {
+        "t": "binding.request",
+        "previousKey": "rsb_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+      }
     ],
     "serverOutbound": [
-      { "t": "binding.offer" },
+      {
+        "t": "binding.offer"
+      },
       {
         "t": "binding.issued",
         "bindingKey": "rsb_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
@@ -35,29 +42,214 @@
         "renewed": true
       }
     ],
-    "statusInput": [{ "bindingKey": "rsb_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA", "clientVersion": "0.10.0" }],
-    "revokeInput": [{ "bindingKey": "rsb_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA" }]
+    "statusInput": [
+      {
+        "bindingKey": "rsb_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+        "clientVersion": "0.10.0"
+      }
+    ],
+    "revokeInput": [
+      {
+        "bindingKey": "rsb_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+      }
+    ]
   },
   "invalid": {
     "guestInbound": [
-      { "t": "binding.request", "previousKey": "abc" },
-      { "t": "binding.request", "customerId": "01JC0000000000000000000000" },
-      { "t": "binding.request", "previousKey": null }
+      {
+        "t": "binding.request",
+        "previousKey": "abc"
+      },
+      {
+        "t": "binding.request",
+        "customerId": "01JC0000000000000000000000"
+      },
+      {
+        "t": "binding.request",
+        "previousKey": null
+      }
     ],
     "serverOutbound": [
-      { "t": "binding.offer", "extra": true },
-      { "t": "binding.issued", "bindingKey": "rsb_short", "tenantName": "X", "customerFirmName": null, "renewed": false },
-      { "t": "binding.issued", "bindingKey": "rsb_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA", "tenantName": "X", "renewed": false }
+      {
+        "t": "binding.offer",
+        "extra": true
+      },
+      {
+        "t": "binding.issued",
+        "bindingKey": "rsb_short",
+        "tenantName": "X",
+        "customerFirmName": null,
+        "renewed": false
+      },
+      {
+        "t": "binding.issued",
+        "bindingKey": "rsb_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+        "tenantName": "X",
+        "renewed": false
+      }
     ],
     "statusInput": [
-      { "bindingKey": "rsb_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA" },
-      { "bindingKey": "rsb_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA", "clientVersion": "0.10" }
+      {
+        "bindingKey": "rsb_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+      },
+      {
+        "bindingKey": "rsb_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+        "clientVersion": "0.10"
+      }
     ],
-    "revokeInput": [{}, { "bindingKey": "x" }]
+    "revokeInput": [
+      {},
+      {
+        "bindingKey": "x"
+      }
+    ]
   },
   "messages": {
     "invalid": "Bu bilgisayarın destek kaydı artık geçerli değil. Firmanızdan yeni dosya isteyin ya da teknisyeninizin verdiği kodla bağlanın.",
     "forgotten": "Bu bilgisayar unutuldu",
     "noSource": "Destek istemek için firmanızın gönderdiği dosyayı kullanın veya teknisyeninizin verdiği kodu girin"
+  },
+  "multi": {
+    "_doc": "P20 çoklu firma kaydı (mimari-protokol §6.1, mimari-e11 §8d.2). valid/invalid: ws.ts guestInbound/serverOutbound şemaları (invalid guestInbound → sunucu 1008). exclusive: zarf geçerli ama previousKey+previousKeys birlikte → sunucu error VALIDATION (soket açık). constants: BINDING_MULTI_MIN_VERSION, BINDING_MAX_PER_DEVICE; errorCode: yeni WS error kodu.",
+    "constants": {
+      "minVersion": "0.12.0",
+      "maxPerDevice": 5
+    },
+    "errorCode": "BINDING_LIMIT",
+    "valid": {
+      "guestInbound": [
+        {
+          "t": "binding.request",
+          "previousKeys": ["rsb_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"]
+        },
+        {
+          "t": "binding.request",
+          "previousKeys": [
+            "rsb_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+            "rsb_abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQ",
+            "rsb_0123456789-_0123456789-_0123456789-_0123456",
+            "rsb_BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB",
+            "rsb_CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC"
+          ],
+          "full": true
+        },
+        {
+          "t": "binding.request",
+          "previousKeys": ["rsb_abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQ", "rsb_0123456789-_0123456789-_0123456789-_0123456"]
+        }
+      ],
+      "serverOutbound": [
+        {
+          "t": "binding.offer",
+          "multi": true
+        },
+        {
+          "t": "binding.issued",
+          "bindingKey": "rsb_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+          "tenantName": "Nokta Bilişim",
+          "customerFirmName": null,
+          "renewed": true,
+          "previousIndex": 0
+        },
+        {
+          "t": "binding.issued",
+          "bindingKey": "rsb_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+          "tenantName": "Nokta Bilişim",
+          "customerFirmName": null,
+          "renewed": true,
+          "previousIndex": 4
+        },
+        {
+          "t": "binding.issued",
+          "bindingKey": "rsb_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+          "tenantName": "Nokta Bilişim",
+          "customerFirmName": null,
+          "renewed": false,
+          "previousIndex": null
+        },
+        {
+          "t": "error",
+          "code": "BINDING_LIMIT",
+          "message": "Bu bilgisayar en çok 5 firmaya kayıtlı olabilir"
+        }
+      ]
+    },
+    "invalid": {
+      "guestInbound": [
+        {
+          "t": "binding.request",
+          "previousKeys": []
+        },
+        {
+          "t": "binding.request",
+          "previousKeys": [
+            "rsb_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+            "rsb_abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQ",
+            "rsb_0123456789-_0123456789-_0123456789-_0123456",
+            "rsb_BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB",
+            "rsb_CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC",
+            "rsb_DDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDD"
+          ]
+        },
+        {
+          "t": "binding.request",
+          "previousKeys": ["rsb_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA", "rsb_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"]
+        },
+        {
+          "t": "binding.request",
+          "previousKeys": ["abc"]
+        },
+        {
+          "t": "binding.request",
+          "previousKeys": ["rsb_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"],
+          "full": false
+        },
+        {
+          "t": "binding.request",
+          "previousKeys": "rsb_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+        },
+        {
+          "t": "binding.request",
+          "previousKeys": null
+        }
+      ],
+      "serverOutbound": [
+        {
+          "t": "binding.offer",
+          "multi": false
+        },
+        {
+          "t": "binding.issued",
+          "bindingKey": "rsb_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+          "tenantName": "Nokta Bilişim",
+          "customerFirmName": null,
+          "renewed": true,
+          "previousIndex": 5
+        },
+        {
+          "t": "binding.issued",
+          "bindingKey": "rsb_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+          "tenantName": "Nokta Bilişim",
+          "customerFirmName": null,
+          "renewed": true,
+          "previousIndex": -1
+        },
+        {
+          "t": "binding.issued",
+          "bindingKey": "rsb_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+          "tenantName": "Nokta Bilişim",
+          "customerFirmName": null,
+          "renewed": true,
+          "previousIndex": 1.5
+        }
+      ]
+    },
+    "exclusive": [
+      {
+        "t": "binding.request",
+        "previousKey": "rsb_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+        "previousKeys": ["rsb_abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQ"]
+      }
+    ]
   }
 }

@@ -34,6 +34,8 @@ const REDACT_PATHS = [
   // P8c (mimari-e10 §5.6, §15.6): kayıt anahtarı + müşteri kişisel alanları (savunma; gövdeler zaten loglanmaz).
   "*.bindingKey",
   "*.previousKey",
+  // P20 (§8d.2): çoklu firma kaydı anahtar listesi.
+  "*.previousKeys",
   "*.contactName",
   "*.phone",
   "*.email",

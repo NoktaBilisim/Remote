@@ -4,6 +4,7 @@
 import type { BindingInfo, BindingRevokeReason } from "@remote/contracts/api/bindings";
 import {
   BINDING_DENIED_MESSAGE,
+  BINDING_LIMIT_MESSAGE,
   bindingKeySchema,
   bindingRevokeInputSchema,
   bindingStatusInputSchema,
@@ -100,16 +101,27 @@ export async function bindingRevoke(svc: RequestService, ctx: AuditContext, body
 /** Ret nedeni yalnız sunucuda (audit `binding.denied{reason}` + `rs_binding_denied_total{reason}`); istemciye tek mesaj. */
 
 class Denied extends Error {
-  readonly reason: "stale_source" | "inactive";
+  readonly reason: "stale_source" | "inactive" | "capacity";
   readonly requestId: string | null;
-  constructor(reason: "stale_source" | "inactive", requestId: string | null = null) {
+  constructor(reason: "stale_source" | "inactive" | "capacity", requestId: string | null = null) {
     super("binding_denied");
     this.reason = reason;
     this.requestId = requestId;
   }
 }
 
-export type IssueResult = { ok: true; msg: Extract<ServerOutbound, { t: "binding.issued" }> } | { ok: false; message: string };
+export type IssueResult =
+  { ok: true; msg: Extract<ServerOutbound, { t: "binding.issued" }> } | { ok: false; code: "CONFLICT" | "BINDING_LIMIT"; message: string };
+
+/** WS `binding.request` girdisi. `previousKeys` (P20 çoklu dal) ile `previousKey` (eski dal) birlikte gelmez (şema). */
+export type IssueInput = {
+  sessionId: string;
+  clientVersion: string;
+  previousKey?: string | undefined;
+  previousKeys?: readonly string[] | undefined;
+  full?: boolean | undefined;
+};
+const denied = { ok: false, code: "CONFLICT", message: BINDING_DENIED_MESSAGE } as const;
 
 const sessionSelect = {
   tenantId: true,
@@ -127,15 +139,11 @@ const sessionSelect = {
  * mode AGENT, tenant aktif, oturumun müşterisi varsa aktif (satır FOR SHARE → eşzamanlı pasife alma bekler).
  * UQ(active_session_id) ihlali ya da kilitlenme (eşzamanlı iki istek) → TX bir kez yeniden denenir.
  */
-export async function issueBinding(
-  svc: RequestService,
-  ctx: AuditContext,
-  a: { sessionId: string; clientVersion: string; previousKey?: string | undefined },
-): Promise<IssueResult> {
+export async function issueBinding(svc: RequestService, ctx: AuditContext, a: IssueInput): Promise<IssueResult> {
   const head = await svc.d.db.supportSession.findFirst({ where: { id: a.sessionId }, select: { tenantId: true } });
   if (!head) {
     svc.d.metrics.inc("rs_binding_denied_total", { reason: "inactive" });
-    return { ok: false, message: BINDING_DENIED_MESSAGE };
+    return denied;
   }
   await ensureSettings(svc, head.tenantId); // Genel/müşteri kayıtla talep TX'i ayar satırını kilitler (§3.4 (2))
   for (let attempt = 1; ; attempt++) {
@@ -153,7 +161,8 @@ export async function issueBinding(
           result: "fail",
           newValue: { reason: err.reason, ...(err.requestId ? { requestId: err.requestId } : {}) },
         });
-        return { ok: false, message: BINDING_DENIED_MESSAGE };
+        // P20 (§8d.2 adım 5): 5 doluyken oturum firmasının kaydı yok → BINDING_LIMIT; oturum sürer.
+        return err.reason === "capacity" ? { ok: false, code: "BINDING_LIMIT", message: BINDING_LIMIT_MESSAGE } : denied;
       }
       // Eşzamanlı iki istek: ikisi de yok olan `active_session_id` aralığını FOR UPDATE ile kilitleyip INSERT eder →
       // UQ ihlali ya da InnoDB gap-lock kilitlenmesi (1213). İkisinde de bir kez yeniden denenir; ikinci denemede §15.3
@@ -164,14 +173,11 @@ export async function issueBinding(
   }
 }
 
-async function issueTx(
-  svc: RequestService,
-  ctx: AuditContext,
-  a: { sessionId: string; clientVersion: string; previousKey?: string | undefined },
-): Promise<IssueResult> {
+async function issueTx(svc: RequestService, ctx: AuditContext, a: IssueInput): Promise<IssueResult> {
   const { db } = svc.d;
   const key = newBindingKey();
   const keyHash = sha256Hex(key);
+  const hashes = a.previousKeys?.map(sha256Hex);
   const out = await db.$transaction(async (tx) => {
     const now = new Date(svc.d.clock.now());
     const s = await tx.supportSession.findFirst({ where: { id: a.sessionId, status: "ACTIVE", mode: "AGENT" }, select: sessionSelect });
@@ -189,8 +195,33 @@ async function issueTx(
 
     // §15.3 adım 1–2
     const cur = await repo.lockActiveOfSession(tx, a.sessionId);
-    const prev = !cur && a.previousKey ? await repo.lockActiveByHash(tx, sha256Hex(a.previousKey)) : null;
-    const target = cur ?? (prev && prev.tenantId === s.tenantId ? prev : null);
+    let prev: repo.IssueRow | null = null;
+    let target: repo.IssueRow | null;
+    let sameTenantReplaced = 0;
+    if (hashes) {
+      // P20 çoklu dal (§8d.2, S-P20-4): yalnız oturum tenant'ının satırları; başka tenant'ın satırı asla iptal edilmez.
+      const mine = cur ? [] : await repo.lockActiveByHashesForTenant(tx, s.tenantId, hashes);
+      target = cur ?? mine[0] ?? null;
+      if (!target && a.full) throw new Denied("capacity");
+      for (const r of mine.slice(1)) {
+        // §8d.2 adım 4: aynı tenant fazlası REPLACED (aynı tenant; karşı tenant bilgisi yok).
+        if ((await repo.revokeById(tx, r.id, s.tenantId, "REPLACED", now)) === 0) continue;
+        sameTenantReplaced++;
+        await writeAudit(tx, ctx, {
+          tenantId: s.tenantId,
+          ...CUSTOMER,
+          action: BINDING_AUDIT.REVOKED,
+          entity: ENTITY,
+          entityId: r.id,
+          result: "success",
+          newValue: { reason: "REPLACED" },
+        });
+      }
+    } else {
+      prev = !cur && a.previousKey ? await repo.lockActiveByHash(tx, sha256Hex(a.previousKey)) : null;
+      target = cur ?? (prev && prev.tenantId === s.tenantId ? prev : null);
+    }
+    const previousIndex = hashes ? (target?.keyHash ? hashes.indexOf(target.keyHash) : -1) : undefined;
     let bindingId: string;
     let customerId: string | null = s.customerId;
     let replaced: { id: string; tenantId: string } | null = null;
@@ -235,17 +266,17 @@ async function issueTx(
       entity: ENTITY,
       entityId: bindingId,
       result: "success",
-      newValue: { customerId, renewed, replacedOtherTenant: replaced !== null },
+      newValue: { customerId, renewed, replacedOtherTenant: replaced !== null, ...(hashes ? { multi: true } : {}) },
     });
     const firm = customerId
       ? customerId === s.customerId
         ? (s.customer?.name ?? null)
         : ((await tx.customer.findUnique({ where: { id: customerId }, select: { name: true } }))?.name ?? null)
       : null;
-    return { renewed, replaced, tenantName: s.tenant.name, firm };
+    return { renewed, replaced: (replaced ? 1 : 0) + sameTenantReplaced, tenantName: s.tenant.name, firm, previousIndex };
   }, REQUEST_TX_OPTIONS);
-  svc.d.metrics.inc("rs_bindings_issued_total", { renewed: String(out.renewed) });
-  if (out.replaced) svc.d.metrics.inc("rs_bindings_revoked_total", { reason: "REPLACED" });
+  svc.d.metrics.inc("rs_bindings_issued_total", { renewed: String(out.renewed), multi: String(hashes !== undefined) });
+  countRevoked(svc, "REPLACED", out.replaced);
   return {
     ok: true,
     msg: {
@@ -254,6 +285,7 @@ async function issueTx(
       tenantName: out.tenantName.slice(0, 120),
       customerFirmName: out.firm?.slice(0, 100) ?? null,
       renewed: out.renewed,
+      ...(out.previousIndex === undefined ? {} : { previousIndex: out.previousIndex < 0 ? null : out.previousIndex }),
     },
   };
 }

@@ -64,6 +64,8 @@ export interface Guest {
   ticketGen?: number;
   /** P8c: `binding.offer` gönderilen bağlantı — `binding.request` yalnız bu soketten kabul edilir (protokol §6). */
   bindingOfferPeer?: Peer;
+  /** P20 (protokol §6.1): bu bağlantıya `binding.offer.multi` gitti — `previousKeys` yalnız o zaman kabul edilir. */
+  bindingOfferMulti?: boolean;
   peer?: Peer;
   timer?: unknown;
 }

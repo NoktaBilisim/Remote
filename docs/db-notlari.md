@@ -1277,3 +1277,36 @@ Test (geçici `rs-p19j2-575f81`, mysql 8.4.13, `--max-connections=300`, silindi)
 --exit-code` 0, tetikleyici 23, `check-app-grants.sh` **627/627 PASS** (+1: BROWSER talep oturumu OK, KIOSK `mode_chk` DENIED).
 Dolu DB (talebe bağlı BROWSER oturumu) down → 3819, kısıt yok + kayıt duruyor (değişiklik yok). Fikstür silinip boş DB down →
 kısıt geri, kayıt silindi, tetikleyici 23; yeniden up → migration yeniden uygulandı, diff 0, grants 627/627.
+
+## P20 — çoklu firma kaydı kilit sorgusu (K1 backend, 2026-11-15; K0 notu yerine)
+
+Şema/migration/grants değişikliği **yok**. `bindings/repo.ts` `lockActiveByHashesForTenant(tx, tenantId, keyHashes≤5)` iki adımlı:
+
+1. Kilitsiz aday: `SELECT id FROM device_bindings FORCE INDEX (device_bindings_key_hash_key) WHERE key_hash IN (…≤5) AND
+tenant_id = ? AND revoked_at IS NULL`.
+2. Kilit: `SELECT id, tenant_id, customer_id, key_hash, last_used_at FROM device_bindings FORCE INDEX (PRIMARY) WHERE id IN
+(…sıralı) AND tenant_id = ? AND revoked_at IS NULL ORDER BY id FOR UPDATE`; "en son kullanılan önce" sıralaması JS'te.
+
+Neden iki adım (mimari §8d.2 adım 2'deki tek sorgudan sapma): REPEATABLE READ'de kilitli okuma, `tenant_id` süzgecine takılan
+(başka tenant'ın) satırı da kilitler — S-P20-4 "başka tenant satırı sorguya girmez" ancak böyle tam sağlanır. Adım 1 yalnız bu
+tenant'ın kimliklerini döndürür (`tenant_id` değişmez; eşleşen `key_hash` yeni satırda doğamaz → aday kümesi yalnız küçülür);
+adım 2 son commit'e göre koşulları yeniden denetler.
+
+EXPLAIN (MySQL 8.4.13, geçici test DB, 168 satır):
+
+| Sorgu                       | type  | key                                                    | rows | Extra                                     |
+| --------------------------- | ----- | ------------------------------------------------------ | ---- | ----------------------------------------- |
+| 1 (FORCE INDEX yok)         | ref   | `device_bindings_tenant_id_customer_id_revoked_at_idx` | 1    | Using index condition; Using where        |
+| 1 (FORCE INDEX key_hash UQ) | range | `device_bindings_key_hash_key`                         | 5    | Using index condition; Using where        |
+| 2 (FORCE INDEX yok)         | ref   | `device_bindings_tenant_id_customer_id_revoked_at_idx` | 1    | Using index condition; **Using filesort** |
+| 2 (FORCE INDEX PRIMARY)     | range | `PRIMARY`                                              | 2    | Using where                               |
+
+`FORCE INDEX` gerekçesi: küçük/çarpık istatistikte iyimser plan tenant indeksini seçiyor; kilitli sorguda bu, tenant'ın etkin
+satırlarını tenant-indeks sırasıyla taramak (ve kilitlemek) demek. PK aralığı + `ORDER BY id` filesort'suz → **kilitler PK artan
+sırasıyla** alınır; aynı kümeyi farklı sırayla gönderen eşzamanlı istekler satır kilidinde döngü kuramaz.
+
+Kalan kilitlenme kaynağı (önceden de vardı): `lockActiveOfSession` yok olan `active_session_id` için aralık kilidi alır; iki farklı
+oturumun TX'i aynı satırı yenilerken (STORED `active_session_id` eklemesi) birbirinin aralığına girerse 1213. `issueBinding`'in tek
+yeniden denemesi bunu çözer — ancak `$queryRaw` hatası `P2010` + `cause.originalCode: "1213"` (dize) taşıdığından
+`isTransientDbError` onu tanımıyordu (yeniden deneme hiç çalışmıyordu → `INTERNAL`). K1'de düzeltildi (`lib/db.ts`); eşzamanlılık
+testi `bindings-p20.test.ts` "K0" 3/3 yeşil.

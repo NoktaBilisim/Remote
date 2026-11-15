@@ -38,11 +38,17 @@ const TRANSIENT_MYSQL = new Set([1205, 1213, 45028]);
 
 export function isTransientDbError(err: unknown): boolean {
   if (typeof err !== "object" || err === null) return false;
-  const e = err as { name?: unknown; code?: unknown; meta?: { driverAdapterError?: { cause?: { code?: unknown } } } };
+  const e = err as {
+    name?: unknown;
+    code?: unknown;
+    meta?: { driverAdapterError?: { cause?: { code?: unknown; originalCode?: unknown } } };
+  };
   if (typeof e.name !== "string" || !e.name.startsWith("PrismaClient")) return false;
   if (typeof e.code === "string" && TRANSIENT_PRISMA.has(e.code)) return true;
-  const mysqlCode = e.meta?.driverAdapterError?.cause?.code;
-  return typeof mysqlCode === "number" && TRANSIENT_MYSQL.has(mysqlCode);
+  const cause = e.meta?.driverAdapterError?.cause;
+  if (typeof cause?.code === "number" && TRANSIENT_MYSQL.has(cause.code)) return true;
+  // P20 K1: ham sorgu ($queryRaw, P2010) sürücü kodunu `originalCode` dizesiyle taşır (ör. "1213"); önceden tanınmıyordu.
+  return typeof cause?.originalCode === "string" && TRANSIENT_MYSQL.has(Number(cause.originalCode));
 }
 
 /**

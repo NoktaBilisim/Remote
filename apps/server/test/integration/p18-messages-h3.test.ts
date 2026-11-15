@@ -367,11 +367,12 @@ describe("AC-255 geriye uyum (0.11.0 istemci — yetenek bildirmeyen soket)", ()
     expect((await c2.closed).code).toBe(1008);
   });
 
-  it("S-P18-K1: yetenekli sokette zarf geçerli, gövde hatalı (21 satır / yumuşak tire / bidi) → error VALIDATION, soket açık, talep düşmez", async () => {
+  it("S-P18-K1 / S-P18-K7: yetenekli sokette zarf geçerli, gövde hatalı (21 satır / yumuşak tire / bidi) → error VALIDATION, soket açık, talep düşmez", async () => {
     const { r } = await firm();
     const cust = await reqWs(r.secret);
     await waitMsg(cust, "request.messages");
     const bad = [Array.from({ length: 21 }, (_, i) => `satır ${i}`).join("\n"), "kopya\u00ADlanmış metin", "abc\u202Edef"];
+    const before = metric('rs_request_messages_rejected_total{reason="validation"}');
     for (const [i, body] of bad.entries()) {
       tick();
       cust.send({ t: "request.message", body, clientMsgId: `bad-${i}` });
@@ -381,6 +382,8 @@ describe("AC-255 geriye uyum (0.11.0 istemci — yetenek bildirmeyen soket)", ()
     }
     await settle();
     expect(isOpen(cust)).toBe(true);
+    // S-P18-K7 (P20 §8d.5): gövde hatası metrikte görünür (gövde etiketsiz)
+    expect(metric('rs_request_messages_rejected_total{reason="validation"}') - before).toBe(bad.length);
     expect(await rowsOf(r.id)).toBe(0);
     expect((await db().supportRequest.findUniqueOrThrow({ where: { id: r.id } })).status).toBe("PENDING");
     // Aynı soketten geçerli mesaj iletilir (soket ve talep sağlam).

@@ -176,12 +176,14 @@ export class RequestService {
         void this.connectTimeout(requestId, "auth_revoked").catch((err: unknown) => this.logErr(err, "request_auth_revoked")),
     };
     // P8c (ADR-0017): admit edilmiş AGENT misafirin `binding.request`'i → verme TX'i (müşteri istemciden değil oturumdan).
-    d.rooms.bindingIssuer = (room, guest, previousKey) =>
+    d.rooms.bindingIssuer = (room, guest, req) =>
       issueBinding(this, guest.ctx ?? { ...SYSTEM_CTX, userAgent: "signaling" }, {
         sessionId: room.sessionId,
         // binding.ts yalnız AGENT misafiri için çağırır; oturum bağlantısı akışında sürüm beyan etmeyen 0.8.x AGENT olabilir.
         clientVersion: guest.clientVersion ?? UNDECLARED_AGENT_VERSION,
-        previousKey,
+        previousKey: req.previousKey,
+        previousKeys: req.previousKeys,
+        full: req.full,
       });
   }
 

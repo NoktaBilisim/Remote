@@ -112,8 +112,8 @@ describe("AC-181 kayıt verme (WS)", () => {
     expect(await g.guest.waitFor("error")).toMatchObject({ code: "RATE_LIMITED" });
     const metrics = (await x.l.app.inject({ method: "GET", url: "/metrics", headers: { authorization: `Bearer ${FAKE_METRICS_TOKEN}` } }))
       .body;
-    expect(metrics).toMatch(/rs_bindings_issued_total\{renewed="false"\} [1-9]/);
-    expect(metrics).toMatch(/rs_bindings_issued_total\{renewed="true"\} [1-9]/);
+    expect(metrics).toMatch(/rs_bindings_issued_total\{renewed="false",multi="false"\} [1-9]/);
+    expect(metrics).toMatch(/rs_bindings_issued_total\{renewed="true",multi="false"\} [1-9]/);
     expect(metrics).toMatch(/rs_requests_created_total\{via="ref"\} [1-9]/);
     expect(metrics).toMatch(/rs_customers_active /);
     expect(x.logs.join("\n")).not.toContain(msg.bindingKey);

@@ -2,7 +2,7 @@
 // Kurallar: geçersizleştirmede `revokedAt` + `revokeReason` + `keyHash: null` HER ZAMAN birlikte (CHECK);
 // `activeSessionId` STORED üretilmiş sütundur — asla yazılmaz (MySQL 3105).
 import type { BindingRevokeReason } from "@remote/contracts/api/bindings";
-import type { Prisma } from "../generated/prisma/client.ts";
+import { Prisma } from "../generated/prisma/client.ts";
 import type { Db } from "../lib/db.ts";
 
 type DbOrTx = Db | Prisma.TransactionClient;
@@ -73,6 +73,35 @@ export async function lockActiveByHash(tx: Prisma.TransactionClient, keyHash: st
     LockedRow[]
   >`SELECT id, tenant_id, customer_id, key_hash FROM device_bindings WHERE key_hash = ${keyHash} AND revoked_at IS NULL FOR UPDATE`;
   return toIssueRow(rows[0]);
+}
+
+/**
+ * P20 çoklu dal (mimari-e11 §8d.2 adım 2, S-P20-4): `previousKeys` özetlerinden YALNIZ oturum tenant'ının etkin satırları,
+ * kilitli; en son kullanılan önce. İki adım (db-notlari "P20"):
+ *  1) kilitsiz aday okuma `key_hash IN (…) AND tenant_id = ?` (UQ key_hash aralığı) → yalnız bu tenant'ın kimlikleri;
+ *     başka tenant'ın satırı ne döner ne kilitlenir (RR'de kilitli okuma, tenant süzgecine takılan satırı da kilitlerdi).
+ *  2) kimlikler PK sırasıyla (`FORCE INDEX (PRIMARY)` + `ORDER BY id`; küçük tabloda iyimser plan tenant indeksini
+ *     tarayıp o sırayla kilitliyordu) `FOR UPDATE` → eşzamanlı istekler aynı sırayla kilitler (kilitlenme yok);
+ *     koşullar son commit'e göre yeniden denetlenir (arada yenilenen/iptal edilen satır düşer). `tenant_id` değişmez,
+ *     eşleşen `key_hash` yeni satırda doğamaz (anahtar rastgele) → aday kümesi yalnız küçülebilir.
+ */
+export async function lockActiveByHashesForTenant(
+  tx: Prisma.TransactionClient,
+  tenantId: string,
+  keyHashes: readonly string[],
+): Promise<(IssueRow & { lastUsedAt: Date })[]> {
+  if (keyHashes.length === 0) return [];
+  const hashes = Prisma.join([...keyHashes]);
+  const cand = await tx.$queryRaw<{ id: string }[]>`SELECT id FROM device_bindings FORCE INDEX (device_bindings_key_hash_key)
+    WHERE key_hash IN (${hashes}) AND tenant_id = ${tenantId} AND revoked_at IS NULL`;
+  if (cand.length === 0) return [];
+  const ids = Prisma.join(cand.map((r) => r.id).sort());
+  const rows = await tx.$queryRaw<(LockedRow & { last_used_at: Date })[]>`SELECT id, tenant_id, customer_id, key_hash, last_used_at
+    FROM device_bindings FORCE INDEX (PRIMARY) WHERE id IN (${ids}) AND tenant_id = ${tenantId} AND revoked_at IS NULL ORDER BY id FOR UPDATE`;
+  return rows
+    .filter((r) => r.key_hash !== null && keyHashes.includes(r.key_hash))
+    .sort((a, b) => b.last_used_at.getTime() - a.last_used_at.getTime() || (a.id < b.id ? -1 : 1))
+    .map((r) => ({ id: r.id, tenantId: r.tenant_id, customerId: r.customer_id, keyHash: r.key_hash, lastUsedAt: r.last_used_at }));
 }
 
 /** Yerinde güncelleme (yeni anahtar, oturum, son kullanım, sayaç). `last_session_id` = oturum → UQ'ya girer. */

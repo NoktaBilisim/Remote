@@ -1,7 +1,7 @@
 // Oda + lobi durum makinesi (mimari-protokol §1, §3.1; akışlar A1, A4, A5). Tek instance, bellek içi.
 // DB'ye yalnız oturum bitişi (ACTIVE→ENDED) yazılır; tüketim admit.ts'te tek atomik UPDATE ile.
 import { randomInt } from "node:crypto";
-import type { IssueOutcome } from "./binding.ts";
+import type { BindingRequest, IssueOutcome } from "./binding.ts";
 import type { FastifyBaseLogger } from "fastify";
 import type { PermissionKey } from "@remote/contracts/permissions";
 import type { GuestKind, SessionEndedReason } from "@remote/contracts/ws";
@@ -61,7 +61,7 @@ export class Rooms implements RoomNotifier, TechnicianLiveControl {
    * P8c (ADR-0017, protokol §6): `binding.request` verme TX'i — bindings servisi bağlar. Yoksa (test/eski kurulum) teklif
    * gönderilmez. Kayıt oturum yetkisi vermez; bu kanca yalnız admit edilmiş AGENT misafirin soketinden çağrılır.
    */
-  bindingIssuer?: (room: Room, guest: Guest, previousKey: string | undefined) => Promise<IssueOutcome>;
+  bindingIssuer?: (room: Room, guest: Guest, req: BindingRequest) => Promise<IssueOutcome>;
   private readonly rooms = new Map<string, Room>();
   readonly reconnect = new Map<string, string>(); // sha256(reconnectToken) → sessionId
 

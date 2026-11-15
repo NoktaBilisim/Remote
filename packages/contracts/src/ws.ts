@@ -42,6 +42,8 @@ export const WS_ERROR_CODES = [
   "NOT_FOUND",
   "VALIDATION",
   "INTERNAL",
+  /** P20 (§6.1): `full: true` isteğinde oturum firmasının kaydı yok — kayıt verilmez, oturum sürer. */
+  "BINDING_LIMIT",
 ] as const;
 export type WsErrorCode = (typeof WS_ERROR_CODES)[number];
 
@@ -222,7 +224,31 @@ const bindingKey = z.string().regex(/^rsb_[A-Za-z0-9_-]{43}$/);
  * guest(AGENT) → S: yalnız `binding.offer` alındıktan sonra, bir kez. `previousKey` yalnız dosyadaki kaydın sunucu kökeni
  * bu sunucuysa. Kaydın müşterisi istemciden ALINMAZ (oturumdan gelir).
  */
-export const bindingRequestSchema = z.strictObject({ t: z.literal("binding.request"), id, previousKey: bindingKey.optional() });
+/** P20 (protokol §6.1): çoklu firma teklifi yalnız bu sürüm ve üstündeki AGENT ticket'ına (≤ 0.11.x sıkı ayrıştırıcı). */
+export const BINDING_MULTI_MIN_VERSION = "0.12.0";
+/** P20 (AC-254): bir bilgisayarın aynı sunucuda en çok kaç firma kaydı olur (`previousKeys` üst sınırı). */
+export const BINDING_MAX_PER_DEVICE = 5;
+/**
+ * Zarf: alan biçimleri. P20 `previousKeys` (1..5, benzersiz) + `full` yalnız `multi` teklifinden sonra (aksi CONFLICT).
+ * Biçim dışı → 1008 (§1); yalnız `previousKey` + `previousKeys` birlikteliği `error VALIDATION` (soket açık, §6.1).
+ */
+export const bindingRequestEnvelopeSchema = z.strictObject({
+  t: z.literal("binding.request"),
+  id,
+  previousKey: bindingKey.optional(),
+  previousKeys: z
+    .array(bindingKey)
+    .min(1)
+    .max(BINDING_MAX_PER_DEVICE)
+    .refine((a) => new Set(a).size === a.length, { message: "Anahtarlar benzersiz olmalı" })
+    .optional(),
+  full: z.literal(true).optional(),
+});
+export const BINDING_REQUEST_EXCLUSIVE_MESSAGE = "previousKey ve previousKeys birlikte gönderilemez";
+export const bindingRequestSchema = bindingRequestEnvelopeSchema.superRefine((m, ctx) => {
+  if (m.previousKey !== undefined && m.previousKeys !== undefined)
+    ctx.addIssue({ code: "custom", path: ["previousKeys"], message: BINDING_REQUEST_EXCLUSIVE_MESSAGE });
+});
 
 /** Misafirden kabul edilen mesajlar (lobideyken yalnız `session.end`, mimari-protokol §3.1). */
 export const guestInboundSchema = z.discriminatedUnion("t", [
@@ -304,13 +330,21 @@ export const serverOutboundSchema = z.discriminatedUnion("t", [
   z.strictObject({ t: z.literal("control.state"), state: z.enum(CONTROL_STATES), source: z.enum(CONTROL_SOURCES) }),
   envStateSchema.omit({ id: true }),
   // P8c (protokol §6): yalnız ≥ 0.10.0 AGENT misafire; `hello` şeması değişmez (0.9.x sıkı ayrıştırıcı).
-  z.strictObject({ t: z.literal("binding.offer") }),
+  // P20 (§6.1): `multi` yalnız ≥ BINDING_MULTI_MIN_VERSION; `previousIndex` yalnız `previousKeys`'li isteğe.
+  z.strictObject({ t: z.literal("binding.offer"), multi: z.literal(true).optional() }),
   z.strictObject({
     t: z.literal("binding.issued"),
     bindingKey,
     tenantName: z.string().max(120),
     customerFirmName: z.string().max(100).nullable(),
     renewed: z.boolean(),
+    previousIndex: z
+      .number()
+      .int()
+      .min(0)
+      .max(BINDING_MAX_PER_DEVICE - 1)
+      .nullable()
+      .optional(),
   }),
 ]);
 export type ServerOutbound = z.infer<typeof serverOutboundSchema>;

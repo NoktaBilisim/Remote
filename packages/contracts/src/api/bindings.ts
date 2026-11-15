@@ -36,6 +36,8 @@ export const BINDING_NO_SOURCE_MESSAGE =
   "Destek istemek için firmanızın gönderdiği dosyayı kullanın veya teknisyeninizin verdiği kodu girin";
 /** `binding.request` reddi (`error{CONFLICT}`): oturum/tenant/müşteri uygun değil ya da bayat kaynak (§15.1). */
 export const BINDING_DENIED_MESSAGE = "Kayıt verilemedi";
+/** P20 (protokol §6.1): `error{BINDING_LIMIT}` metni. İstemci kendi bilgilendirme cümlesini gösterir (mimari-e11 §8d.2). */
+export const BINDING_LIMIT_MESSAGE = "Bu bilgisayar en çok 5 firmaya kayıtlı olabilir";
 
 /** POST /public/bindings/status (AC-182, 185). `last_used_at`'i değiştirmez (K21). */
 export const bindingStatusInputSchema = z.strictObject({ bindingKey: bindingKeySchema, clientVersion: clientVersionSchema });

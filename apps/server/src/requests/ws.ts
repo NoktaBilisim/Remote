@@ -156,6 +156,7 @@ export function requestChannels(app: FastifyInstance, svc: RequestService, reval
         if (!parsed.success && caps.chat && requestMessageEnvelopeSchema.safeParse(msg).success) {
           // S-P18-K1: zarf geçerli, gövde (S-P18-T8 kuralları) değil → soket açık kalır; talep düşmez. Gövde loglanmaz.
           const reason = parsed.error.issues[0]?.message ?? "Mesaj geçersiz";
+          rooms.metrics.inc("rs_request_messages_rejected_total", { reason: "validation" }); // S-P18-K7 (P20 §8d.5)
           hub.sendChatError(row.id, "VALIDATION", reason.slice(0, 300));
           return;
         }
