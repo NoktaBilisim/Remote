@@ -57,6 +57,7 @@ export function systemDeps(app: FastifyInstance): SystemDeps {
     turnEnv: { urls: app.env.turnUrls, secret: app.env.TURN_SECRET, ttlMin: app.env.TURN_CRED_TTL_MIN },
     whatsappEnvUrl: app.env.WHATSAPP_SERVICE_URL,
     whatsappEnvApiKey: app.env.WHATSAPP_SERVICE_API_KEY,
+    whatsappAllowInsecureHttp: app.env.WHATSAPP_ALLOW_INSECURE_HTTP,
     production: app.env.NODE_ENV === "production",
     metrics: app.metrics,
   };

@@ -10431,3 +10431,39 @@ görüntüleri iki tema × masaüstü/mobil kontrol edildi (liste, 404, müşter
 
 - CI öz testi (D-P27-K5): yeniden başlatma kaydı runner'da `MoveFileEx(DELAY_UNTIL_REBOOT)` ile güvenilir oluşmadığı için adım aynı kaydı `HKLM\SYSTEM\CurrentControlSet\Control\Session Manager\PendingFileRenameOperations`'a doğrudan yazar ve `finally`'de eski değere döndürür. Ürün kodu `MoveFileEx` kullanmaya devam eder.
 - Kaldırıcı `relaunch` artık `ShellExecute` çalışma dizinini ikilinin klasörü yapar (güvenlik tur 3 bilgi notu 1): devralınan dizin (ör. Program Files) kopya süreçte tutulup iz bırakmaz.
+
+## SMTP düz bağlantıda AUTH (kullanıcı talebi, 2026-11-15) — backend-dev
+
+Küçük düzeltme (bug fix, kullanıcı talebi): TLS/SSL desteklemeyen, port 25'te SMTP AUTH isteyen sunucuyla test maili.
+Eski B-P10-5 reddi (güvenlik "Yok" + kimlik bilgisi) kaldırıldı.
+
+- **Sözleşme** `packages/contracts/src/api/tenants.ts`: `superRefine`'daki "Yok + kimlik" kuralı ve `SMTP_INSECURE_AUTH_MESSAGE`
+  kaldırıldı ("şifre kullanıcı adısız olmaz" kuralı duruyor). Yeni `SMTP_AUTH_FAILED_MESSAGE` (535 yönlendirici metin).
+- **Gönderim** `apps/server/src/mail/service.ts`: `insecure_auth` neden kodu ve ön ret kaldırıldı. "Yok" → `ignoreTLS: true` +
+  `auth` (sunucu STARTTLS sunsa bile düz bağlantı). `notify/outbox.ts` eşlemesi ve `labels.ts` etiketi temizlendi
+  (eski audit kayıtlarında `insecure_auth` ham kod olarak görünür).
+- **Test uçları** `tenants/smtp-routes.ts` `smtpTestFailMessage`: `auth` (EAUTH/535) → `SMTP_AUTH_FAILED_MESSAGE`, diğerleri tek
+  genel mesaj (B-P10-1). `/settings/smtp/test` (502) ve `/settings/support-requests/email/test` (200 `ok:false`) kullanır.
+  Oturum bağlantısı e-postası (`sessions/email.ts`) genel mesajda kaldı: teknisyen ayarı düzeltemez. Sapma notu: kimlik reddi
+  yalnız SMTP oturumu kurulduktan sonra gelir, port tarama kâhini değildir; uçlar `settings.edit` + 5/dk/tenant.
+- **Audit** `tenants/settings.ts`: SMTP eski/yeni görünümünde `security: "NONE"` + kullanıcı adı varsa `insecureAuth: true`
+  (yalnız boolean; maske kara listesine takılmaz, şifre yine yalnız `smtpPassword: "***"`).
+- **Web** `settings/smtp/*`, `lib/account/smtp-form.ts`: "Yok"ta kullanıcı adı/şifre açık, altında `Alert tone="warning"`
+  (`smtp-insecure-auth`, DESIGN.md `warning` tokenı); `smtpCredsAllowed`, `smtp.noCreds`, `smtp.credsWillClear` kaldırıldı.
+- **frontend-dev için sözleşme:** `SMTP_INSECURE_AUTH_MESSAGE` dışa aktarımı yok; PUT `smtp` artık NONE + user/password kabul eder.
+- Bağımlılık eklenmedi.
+
+Testler: `security-p10.test.ts` (NONE+AUTH kabul, taşıyıcıya `ignoreTLS`+`auth`, EAUTH → `auth` + mesaj),
+`account-p10.test.ts` (gerçek MySQL + STARTTLS sunan, TLS'siz AUTH'a izin veren süreç içi sahte SMTP: kayıt, audit
+`insecureAuth`, oturum `secure:false` ile teslim, yanlış şifre → 502 535 mesajı + audit `reason:auth`), web `account.test.ts`,
+`audit.test.ts`, e2e `p10-account.spec.ts` + mock, contracts yüzey anlık görüntüsü. Sonuç: lint/typecheck yeşil; contracts
+173/173, web 408/408, server unit 463/463; SMTP ile ilgili 8 entegrasyon dosyası 71/71. Tam `test/integration` 921/924:
+3 kırmızı bu işle ilgisiz (`whatsapp-admin-p12b` — eşzamanlı WhatsApp çalışmasının yeni alanı; `signaling-lifecycle` — tek
+başına koşuda yeşil, yük altında kararsız). E2E (Playwright) koşulmadı.
+
+## WhatsApp düz http izni — K13 geçici çözümü (kullanıcı kararı, 2026-11-15) — backend-dev
+
+- Yeni env `WHATSAPP_ALLOW_INSECURE_HTTP` (`true`/`false`, varsayılan `false`; başka değer → açılış hatası). `true` iken `isInsecureServiceTarget(..., allowInsecureHttp)` WhatsApp hedefinde düz http'yi (genel adres + anahtar) güvensiz saymaz; ayrıştırılamayan adres yine kapalı. SMS etkilenmez.
+- Açılışta tek `warn {alarm:"whatsapp_insecure_http_allowed"}` (adres/anahtar yok). Sözleşme: `WhatsappSettingsView.insecureAllowed`; web sarı uyarı `wa-svc-insecure-allowed`.
+- Tasarımdan sapma (mimari §13.5 / S-P13b-8): production'da düz http yalnız bu bayrakla bilinçli açılır. Kaldırma koşulu: whatsapp-bildirim servisinin HTTPS'e geçmesi (kullanıcı: sunucu değişikliğinde). Yeni bağımlılık yok.
+

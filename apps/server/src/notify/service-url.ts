@@ -54,9 +54,19 @@ export function keyOverPlainHttp(url: string, hasKey: boolean): boolean {
   return u.protocol === "http:" && !isLoopbackHost(u.hostname);
 }
 
-/** Adres + anahtar birlikte: §13.5 kuralı ve production'da anahtar + düz http (S-P13b-8). */
-export function isInsecureServiceTarget(url: string, hasKey: boolean, production: boolean): boolean {
+/**
+ * Adres + anahtar birlikte: §13.5 kuralı ve production'da anahtar + düz http (S-P13b-8). K13 geçici çözümü:
+ * `allowInsecureHttp` (yalnız WhatsApp, env `WHATSAPP_ALLOW_INSECURE_HTTP`) açıkken düz http (genel adres, anahtar dahil)
+ * güvensiz sayılmaz; ayrıştırılamayan adres yine fail-closed. SMS bu parametreyi geçmez (davranış aynı).
+ */
+export function isInsecureServiceTarget(url: string, hasKey: boolean, production: boolean, allowInsecureHttp = false): boolean {
+  if (allowInsecureHttp) return !isParsableServiceUrl(url);
   return isInsecureServiceUrl(url, production) || (production && keyOverPlainHttp(url, hasKey));
+}
+
+/** K13: hedef normalde güvensiz olup yalnız `allowInsecureHttp` bayrağı sayesinde açık mı (panel uyarısı). */
+export function isInsecureTargetAllowed(url: string, hasKey: boolean, production: boolean, allowInsecureHttp: boolean): boolean {
+  return allowInsecureHttp && isParsableServiceUrl(url) && isInsecureServiceTarget(url, hasKey, production);
 }
 
 /** WHATWG ile ayrıştırılabilir http(s) adresi mi (DB CHECK yalnız regex; `http://a:99999` CHECK'ten geçer). */

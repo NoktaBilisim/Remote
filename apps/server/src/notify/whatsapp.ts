@@ -42,6 +42,11 @@ interface WhatsappDeps {
   /** S-P13b-3: başlangıç anahtarı (env `WHATSAPP_SERVICE_API_KEY`); varsa her istekte `x-api-key`. */
   apiKey?: string | null;
   production: boolean;
+  /**
+   * K13 geçici çözümü (env `WHATSAPP_ALLOW_INSECURE_HTTP`): düz http (genel adres, anahtar dahil) kanalı kapatmaz.
+   * Açılışta bir kez `whatsapp_insecure_http_allowed` alarmı; ayrıştırılamayan adres yine kapalı.
+   */
+  allowInsecureHttp?: boolean;
   publicBaseUrl: string;
   db: Db;
   log: Log;
@@ -102,6 +107,7 @@ export class WhatsappNotifier {
   private url: string;
   private apiKey: string | null = null;
   private insecureNow: boolean;
+  private insecureAllowedNow = false;
   private readonly d: WhatsappDeps;
   private readonly fetchFn: FetchLike;
   private win: Window;
@@ -116,6 +122,11 @@ export class WhatsappNotifier {
     this.fetchFn = d.fetch ?? ((url, init) => fetch(url, init));
     this.url = "";
     this.insecureNow = false;
+    if (d.allowInsecureHttp)
+      d.log.warn(
+        { alarm: "whatsapp_insecure_http_allowed" },
+        "WHATSAPP_ALLOW_INSECURE_HTTP açık: WhatsApp servis anahtarı ve mesajlar şifresiz (http) gidebilir",
+      );
     this.setUrl(d.url, d.apiKey ?? null);
     this.win = this.newWindow(this.windowStart(d.clock.now()));
   }
@@ -133,6 +144,11 @@ export class WhatsappNotifier {
     return this.insecureNow;
   }
 
+  /** K13: etkin hedef normalde güvensiz, yalnız `allowInsecureHttp` sayesinde açık (panel uyarısı). */
+  get insecureAllowed(): boolean {
+    return this.insecureAllowedNow;
+  }
+
   /**
    * Etkin adresi değiştirir (AC-196: yeniden başlatma yok; sonraki gönderim/test yeni adrese). Boş → yapılandırılmamış.
    * Güvensiz adrese geçişte alarm logu (adres loga yazılmaz). Sürmekte olan denemeler sonraki çağrıda yeni adresi kullanır.
@@ -145,10 +161,15 @@ export class WhatsappNotifier {
     const invalid = url !== "" && !isParsableServiceUrl(url);
     const urlInsecure = url !== "" && (invalid || isInsecureServiceUrl(url, this.d.production));
     const plainKey = url !== "" && keyOverPlainHttp(url, key !== null);
+    const strictInsecure = urlInsecure || (this.d.production && plainKey);
+    const allowed = !invalid && strictInsecure && this.d.allowInsecureHttp === true;
     this.url = url;
     this.apiKey = key;
-    this.insecureNow = urlInsecure || (this.d.production && plainKey);
+    this.insecureNow = strictInsecure && !allowed;
+    this.insecureAllowedNow = allowed;
     if (invalid) this.d.log.error({ alarm: "whatsapp_invalid_url" }, "WhatsApp servis adresi ayrıştırılamıyor: kanal kapalı");
+    else if (allowed)
+      return; // açılış alarmı yeterli (adres/anahtar loglanmaz)
     else if (urlInsecure)
       this.d.log.warn(
         { alarm: "whatsapp_insecure" },

@@ -5,6 +5,14 @@ Biçim [Keep a Changelog](https://keepachangelog.com/tr/1.1.0/), sürümleme [Se
 
 ## [Unreleased]
 
+### Değişti — WhatsApp servisi geçici düz http izni (K13, kullanıcı kararı 2026-11-15)
+
+- Yeni `WHATSAPP_ALLOW_INSECURE_HTTP` (varsayılan `false`): `true` iken WhatsApp servisi düz `http://` + API anahtarıyla kullanılabilir; Super Admin → WhatsApp servisi ekranında sarı "Şifresiz bağlantıya izin verildi" uyarısı. Servis HTTPS'e geçince kapatılır.
+
+### Değişti — SMTP düz bağlantıda AUTH (kullanıcı talebi, 2026-11-15)
+
+- SMTP güvenlik "Yok" iken kullanıcı adı/şifre kabul edilir (STARTTLS'e yükseltmeden AUTH; formda açık metin uyarısı, audit `insecureAuth: true`, test mailinde 535 için yönlendirici mesaj).
+
 ### Eklendi — P27 gözetimsiz erişim (AC-273..275, 293..297, 336..342; **prod'da kapalı**, SignPath imzası gelene kadar)
 
 - Yeni Windows ikilisi `NoktaDestekServis.exe` (ayrı ürün yolu; `NoktaDestek.exe` değişmedi). Tek ayar penceresi: kur,

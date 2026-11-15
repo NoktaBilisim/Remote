@@ -18,6 +18,7 @@ const panel: WhatsappServiceView = {
   url: "https://wa.ornek.com:3000",
   source: "panel",
   insecure: false,
+  insecureAllowed: false,
   updatedAt: "2026-11-13T09:00:00.000Z",
   apiKeySet: true,
   apiKeySource: "panel",
@@ -26,6 +27,7 @@ const env: WhatsappServiceView = {
   url: "http://10.0.0.5:3000",
   source: "env",
   insecure: false,
+  insecureAllowed: false,
   updatedAt: null,
   apiKeySet: false,
   apiKeySource: null,
@@ -105,6 +107,9 @@ describe("S-P13b-3 WhatsApp servis anahtarı ön kontrolü", () => {
     expect(normalizeWaView({ url: null, source: "env", insecure: false, updatedAt: null }).apiKeySource).toBeNull();
     expect(normalizeWaView({ ...panel, apiKeySource: "x" }).apiKeySource).toBeNull();
     expect(normalizeWaView({ ...panel }).apiKeySource).toBe("panel");
+    // K13: insecureAllowed yalnız true iken true; eski yanıtta alan yoksa false
+    expect(normalizeWaView({ url: null, source: "env", insecure: false, updatedAt: null }).insecureAllowed).toBe(false);
+    expect(normalizeWaView({ ...env, insecureAllowed: true }).insecureAllowed).toBe(true);
   });
   it("adres kökeni değişirse (şema/host/port) kayıtlı panel anahtarı için yeniden giriş gerekir; yol değişimi gerekmez", () => {
     expect(waKeyNeedsReenter(panel, "https://wa2.ornek.com:3000")).toBe(true);

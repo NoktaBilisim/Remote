@@ -92,6 +92,13 @@ const schema = z
     // S-P13b-3: servisin `x-api-key` anahtarı (16–256, boşluk/kontrol karakteri yok). Yalnız env adresiyle birlikte gönderilir
     // (panel adresine panel anahtarı gider). Loglanmaz; değer hata mesajına yazılmaz.
     WHATSAPP_SERVICE_API_KEY: waApiKeySchema.optional(),
+    // K13 geçici çözümü (kullanıcı kararı 2026-11-15): `true` → WhatsApp hedefi için düz http (genel adres, anahtar dahil)
+    // güvensiz sayılmaz, kanal açılır; açılışta `whatsapp_insecure_http_allowed` alarmı, Super Admin ekranında uyarı. Yalnız
+    // WhatsApp (SMS kuralı değişmez). Yalnız `true`/`false`; varsayılan `false`. Servis HTTPS'e geçince kaldırılır.
+    WHATSAPP_ALLOW_INSECURE_HTTP: z
+      .enum(["true", "false"], "true veya false olmalı")
+      .default("false")
+      .transform((v) => v === "true"),
     // P19 J3 (§8c.4, S-P19-T5): firmaların sistem varsayılanı smsportal adresi (boş = varsayılan yok). userinfo/sorgu/parça
     // reddedilir; değer hata mesajına yazılmaz. Değişimi kayıtlı anahtarları çözülemez kılar (runbook §26.3).
     SMSPORTAL_URL: z.preprocess((v) => (v === "" ? undefined : v), serviceUrlSchema.optional()),

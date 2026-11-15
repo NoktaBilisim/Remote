@@ -9,7 +9,7 @@ import { Segmented } from "@/components/ui/segmented";
 import { SelectField } from "@/components/ui/select-field";
 import { TextField } from "@/components/ui/text-field";
 import { SMTP_DEFAULT_PORTS } from "@/lib/account/contract";
-import { smtpCredsAllowed, smtpPortOptions } from "@/lib/account/smtp-form";
+import { smtpPortOptions } from "@/lib/account/smtp-form";
 import { t } from "@/lib/i18n";
 import type { useSmtpForm } from "./use-smtp-form";
 
@@ -102,19 +102,18 @@ export function SmtpServerSection(p: Props) {
 }
 
 /** Şifre: forma geri yazılmaz; kayıtlıysa yer tutucu + "boş bırakılırsa korunur". */
-function PasswordField({ f: { st, errors, set, saved }, credsOn }: { f: Form; credsOn: boolean }) {
-  const hasPw = Boolean(saved?.hasPassword) && credsOn;
+function PasswordField({ f: { st, errors, set, saved } }: { f: Form }) {
+  const hasPw = Boolean(saved?.hasPassword);
   return (
     <TextField
       label={t("smtp.password")}
       type="password"
       revealable
-      value={credsOn ? st.password : ""}
+      value={st.password}
       onChange={set("password")}
-      disabled={!credsOn}
       error={errors.password}
       placeholder={hasPw ? "••••••••" : undefined}
-      hint={!credsOn ? undefined : hasPw ? t("smtp.passwordKept") : t("smtp.passwordHint")}
+      hint={hasPw ? t("smtp.passwordKept") : t("smtp.passwordHint")}
       autoComplete="new-password"
       maxLength={200}
       data-testid="smtp-password"
@@ -122,31 +121,29 @@ function PasswordField({ f: { st, errors, set, saved }, credsOn }: { f: Form; cr
   );
 }
 
+/** Kimlik doğrulama; güvenlik "Yok" iken alanlar açık, altında düz metin uyarısı (kullanıcı talebi 2026-11-15). */
 export function SmtpAuthSection({ f }: { f: Form }) {
-  const { st, errors, set, saved } = f;
-  const credsOn = smtpCredsAllowed(st.security);
+  const { st, errors, set } = f;
   return (
     <SettingsSection id="auth" title={t("smtp.auth")} Icon={Lock}>
-      {!credsOn && (
-        <p className="text-sm text-fg-muted" data-testid="smtp-no-creds">
-          {t("smtp.noCreds")}
-          {saved?.user ? ` ${t("smtp.credsWillClear")}` : ""}
-        </p>
-      )}
       <TextField
         label={t("smtp.user")}
-        value={credsOn ? st.user : ""}
+        value={st.user}
         onChange={set("user")}
-        disabled={!credsOn}
         error={errors.user}
-        hint={credsOn ? t("smtp.userHint") : undefined}
+        hint={t("smtp.userHint")}
         autoComplete="off"
         spellCheck={false}
         autoCapitalize="none"
         maxLength={190}
         data-testid="smtp-user"
       />
-      <PasswordField f={f} credsOn={credsOn} />
+      <PasswordField f={f} />
+      {st.security === "NONE" && (
+        <Alert tone="warning" testId="smtp-insecure-auth">
+          {t("smtp.insecureAuth")}
+        </Alert>
+      )}
     </SettingsSection>
   );
 }

@@ -1,5 +1,6 @@
 // Tenant ayarları görünümü ve PUT TX gövdesi (service.ts'ten taşındı, PT-K12; AC-4, P10 AC-67/78/79/122).
-// SMTP şifresi audit'e yalnız `smtpPassword: "***"` olarak (değiştiyse) girer.
+// SMTP şifresi audit'e yalnız `smtpPassword: "***"` olarak (değiştiyse) girer. Güvenlik "Yok" + kullanıcı adı (düz bağlantıda
+// AUTH, kullanıcı talebi 2026-11-15) eski/yeni SMTP görünümüne `insecureAuth: true` bayrağıyla girer.
 // P27a (AC-331, K-P27a-1): `mfaRememberDevice` true→false aynı TX'te firmanın tüm hatırlanan cihazlarını siler; audit
 // `newValue.revokedTrustedDevices` (mimari-p27a §3.4). Yeniden açmak eskileri geri getirmez.
 import type { SmtpSecurity, TenantSettingsView, UpdateTenantSettingsData } from "@remote/contracts/api/tenants";
@@ -64,13 +65,17 @@ const smtpAudit = (r: {
   fromEmail: r.smtpFromEmail,
 });
 
+type SmtpAuditOut = SmtpAudit & { insecureAuth?: true; smtpPassword?: string };
+/** Düz bağlantıda AUTH bayrağı (yalnız boolean; kimlik değeri değil). */
+const withInsecureFlag = (a: SmtpAudit): SmtpAuditOut => (a.security === "NONE" && a.user !== null ? { ...a, insecureAuth: true } : a);
+
 /** SMTP değişikliği: değiştiyse yazılacak alanlar ve audit eski/yeni (şifre maskeli); değişmediyse null. */
 function smtpChange(
   cur: repo.SettingsRow,
   s: NonNullable<UpdateTenantSettingsData["smtp"]> | null,
   secrets: SecretBox,
   tenantId: string,
-): { fields: Record<string, unknown>; before: SmtpAudit; after: SmtpAudit | (SmtpAudit & { smtpPassword: string }) } | null {
+): { fields: Record<string, unknown>; before: SmtpAuditOut; after: SmtpAuditOut } | null {
   const before = smtpAudit(cur);
   const passEnc =
     s === null || s.user === null
@@ -93,7 +98,8 @@ function smtpChange(
     smtpFromEmail: after.fromEmail,
     smtpPassEnc: passEnc,
   };
-  return { fields, before, after: passChanged ? { ...after, smtpPassword: "***" } : after };
+  const shown = withInsecureFlag(after);
+  return { fields, before: withInsecureFlag(before), after: passChanged ? { ...shown, smtpPassword: "***" } : shown };
 }
 
 /** PUT /settings/tenant TX gövdesi: yalnız değişen alanlar yazılır; değişiklik yoksa yazma/audit yok. */

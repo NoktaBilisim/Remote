@@ -55,6 +55,7 @@ function createNotifier(app: FastifyInstance, deps: AppDeps, w: Wiring): Whatsap
     url: env.WHATSAPP_SERVICE_URL,
     apiKey: env.WHATSAPP_SERVICE_API_KEY ?? null,
     production: env.NODE_ENV === "production",
+    allowInsecureHttp: env.WHATSAPP_ALLOW_INSECURE_HTTP,
     publicBaseUrl: env.PUBLIC_BASE_URL,
     db: deps.db,
     log: app.log,

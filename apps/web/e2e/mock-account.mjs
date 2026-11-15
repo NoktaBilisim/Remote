@@ -3,7 +3,6 @@
 // kapısı). Çerez senaryoları (u-<senaryo>-<rastgele>): acc (ADMIN, 2FA etkin, 2 kurtarma kodu, SMTP ayarlı), nosmtp (ADMIN,
 // SMTP yok), accro (USER, yalnız settings.view), accbad (ADMIN; ilk GET /settings/tenant 500 — P14b AC-224). Sabitler: TOTP "123456", kurtarma "abcde-23456" (sunucu gibi normalize: tire/boşluk silinir, küçük harf), sıfırlama tokenı RESET_OK.
 import {
-  SMTP_INSECURE_AUTH_MESSAGE,
   SMTP_PORT_MESSAGE,
   SMTP_SEND_FAILED_MESSAGE,
   updateTenantSettingsInputSchema,
@@ -211,7 +210,7 @@ export async function handleAccount(req, res, { url, session, csrfOk, send, err,
             res,
             400,
             err("VALIDATION", "Doğrulama hatası", {
-              fields: { "smtp.port": SMTP_PORT_MESSAGE, "smtp.security": SMTP_INSECURE_AUTH_MESSAGE },
+              fields: { "smtp.port": SMTP_PORT_MESSAGE, "smtp.security": "Güvenlik seçimi geçersiz" },
             }),
           ),
           true

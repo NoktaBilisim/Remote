@@ -40,6 +40,8 @@ export interface SystemDeps {
   whatsappEnvUrl: string;
   /** S-P13b-3: `WHATSAPP_SERVICE_API_KEY` (yalnız env adresiyle birlikte gönderilir). */
   whatsappEnvApiKey: string | undefined;
+  /** K13 geçici çözümü: `WHATSAPP_ALLOW_INSECURE_HTTP` (yalnız WhatsApp; düz http güvensiz sayılmaz). */
+  whatsappAllowInsecureHttp: boolean;
   production: boolean;
   /** P14a (AC-212): `rs_mysql_test_failed_total{class}`. */
   metrics: Pick<Metrics, "inc">;

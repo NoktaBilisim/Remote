@@ -2079,6 +2079,10 @@ Ekranda "WhatsApp servisi güvenli yapılandırılmamış…" uyarısı görün�
 yöneticinize bildirin. Servis adresini yalnız Super Admin değiştirir (bkz. "Super Admin için: Sistem ayarları > WhatsApp
 servisi"). **E-posta bildirimi** için bkz. "Admin için: Destek talebi e-posta bildirimi".
 
+Super Admin ekranında sarı **"Şifresiz bağlantıya izin verildi"** uyarısı görünüyorsa sistem yöneticisi WhatsApp servisine
+geçici olarak düz `http` ile bağlanmaya izin vermiştir (`WHATSAPP_ALLOW_INSECURE_HTTP`): servis anahtarı ve mesajlar ağda
+açık metin gider. WhatsApp servisi HTTPS'e taşındığında bu izin kapatılmalıdır.
+
 ### Güvenilen IP / ağlar
 
 Kurumsal ofis gibi bilinen ağlardan gelen talepler "Güvenilen ağ" işaretiyle gelir ve IP sınırlarından muaftır
@@ -2266,8 +2270,11 @@ Görmek için `settings.view`, değiştirmek için `settings.edit` yetkisi gerek
    | Gönderen adı / Gönderen e-posta | Alıcının göreceği ad ve adres                                                                                                     |
 3. **Kaydet**'e basın.
 
-**Güvenlik "Yok" seçilirse** kullanıcı adı ve şifre alanları kapanır: şifresiz bağlantıda kimlik bilgisi gönderilmez.
-Sağlayıcınız kimlik doğrulaması istiyorsa SSL veya TLS seçin.
+**Güvenlik "Yok" seçilirse** kullanıcı adı ve şifre yine girilebilir (TLS/SSL desteklemeyen, port 25'te kimlik doğrulaması
+isteyen sunucular için). Bu durumda alanların altında sarı bir uyarı çıkar: kullanıcı adı ve şifre ağda açık metin gider;
+yalnız güvendiğiniz ağdaki sunucular için kullanın. Sunucu TLS sunsa bile "Yok" seçiliyken bağlantı şifrelenmez. Test
+sırasında "Sunucu kimlik bilgilerini reddetti (535)…" mesajı çıkarsa kullanıcı adı/şifreyi ve sunucunun bu güvenlik
+seçeneğinde kimlik doğrulamaya (AUTH) izin verip vermediğini kontrol edin. Mümkünse SSL veya TLS tercih edin.
 
 **İç ağ adresleri kabul edilmez:** sunucu adresi şirket içi/özel bir IP'ye (ör. 192.168.x.x, 10.x.x.x) çıkıyorsa
 "Bu sunucu adresi kullanılamaz." uyarısı çıkar. İnternetten erişilen bir SMTP sunucusu kullanın.
@@ -2278,7 +2285,7 @@ Sağlayıcınız kimlik doğrulaması istiyorsa SSL veya TLS seçin.
 2. **Test Maili Gönder** → alıcı adresini yazın → gönderin.
 3. Sonuç pencerede görünür. Başarısız bir test **12 saniyeye kadar** sürebilir; bu sırada pencerede "Sunucuya bağlanılıyor…" yazar ve
    pencere sonuç gelene kadar kapanmaz.
-4. Hata mesajı tek ve geneldir ("E-posta gönderilemedi. Sunucu, port, güvenlik ve kimlik bilgilerini kontrol edin.");
+4. Hata mesajı (kimlik reddi dışında) tek ve geneldir ("E-posta gönderilemedi. Sunucu, port, güvenlik ve kimlik bilgilerini kontrol edin.");
    sunucu adı, port–güvenlik eşleşmesi (465↔SSL, 587↔TLS) ve kullanıcı/şifreyi kontrol edin. Firma başına dakikada en çok
    5 test yapılabilir.
 

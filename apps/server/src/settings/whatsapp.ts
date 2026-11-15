@@ -15,7 +15,7 @@ import { aadFor } from "../lib/crypto.ts";
 import type { Db } from "../lib/db.ts";
 import { AppError } from "../lib/errors.ts";
 import type { FixedWindowCounter } from "../lib/rate.ts";
-import { isInsecureServiceTarget } from "../notify/service-url.ts";
+import { isInsecureServiceTarget, isInsecureTargetAllowed } from "../notify/service-url.ts";
 import type { WhatsappNotifier } from "../notify/whatsapp.ts";
 import { GLOBAL_KEY, who, type SystemDeps } from "./system.ts";
 
@@ -73,10 +73,12 @@ export async function getWhatsappSettings(d: SystemDeps): Promise<WhatsappSettin
   const rec = await readWhatsapp(d.db);
   const url = rec?.url ?? (d.whatsappEnvUrl || null);
   const apiKeySource = rec ? (rec.secretEnc ? "panel" : null) : url !== null && d.whatsappEnvApiKey ? "env" : null;
+  const hasKey = apiKeySource !== null;
   return {
     url,
     source: rec ? "panel" : "env",
-    insecure: url !== null && isInsecureServiceTarget(url, apiKeySource !== null, d.production),
+    insecure: url !== null && isInsecureServiceTarget(url, hasKey, d.production, d.whatsappAllowInsecureHttp),
+    insecureAllowed: url !== null && isInsecureTargetAllowed(url, hasKey, d.production, d.whatsappAllowInsecureHttp),
     updatedAt: rec?.updatedAt.toISOString() ?? null,
     apiKeySet: apiKeySource !== null,
     apiKeySource,

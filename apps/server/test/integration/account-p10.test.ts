@@ -3,12 +3,13 @@
 // verir ("smtp.test" → 127.0.0.1); diğer tüm yasak aralıklar gerçek kuralla reddedilir.
 import { type LoginResponse, type MeResponse, type MfaEnableResponse, type MfaSetupResponse } from "@remote/contracts/api/auth";
 import {
-  SMTP_INSECURE_AUTH_MESSAGE,
+  SMTP_AUTH_FAILED_MESSAGE,
   SMTP_PORT_MESSAGE,
   SMTP_SEND_FAILED_MESSAGE,
   type TenantSettingsView,
 } from "@remote/contracts/api/tenants";
 import type { FastifyInstance } from "fastify";
+import nodemailer from "nodemailer";
 import { SMTPServer } from "smtp-server";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { base32Decode, hotp, stepOf } from "../../src/auth/mfa.ts";
@@ -40,14 +41,51 @@ interface Mail {
 const inbox: Mail[] = [];
 let smtp: SMTPServer;
 let smtpPort = 0;
+/** Düz bağlantıda AUTH sunucusu (STARTTLS sunar, AUTH'a TLS'siz izin verir); alınan iletiler + bağlantı TLS'e yükseldi mi. */
+const authInbox: { to: string; secure: boolean; user: string | undefined }[] = [];
+let authSmtp: SMTPServer;
+let authPort = 0;
 let p10: NonNullable<Parameters<typeof makeApp>[0]>["p10"];
 let app: FastifyInstance;
 let wsBase = "";
-/** Sözleşme yalnız 25/465/587/2525'e izin verir (B-P10-1): 2525 → süreç içi sahte SMTP, diğerleri → kapalı port 9. */
-const transport: TransportFactory = inboxTransport(() => smtpPort);
+/**
+ * Sözleşme yalnız 25/465/587/2525'e izin verir (B-P10-1): 2525 → süreç içi sahte SMTP, diğerleri → kapalı port 9.
+ * Kimlikli 2525 (`auth` var) → AUTH sunucusu.
+ */
+const plainTransport = inboxTransport(() => smtpPort);
+const transport: TransportFactory = (o) =>
+  o.port === 2525 && o.auth
+    ? nodemailer.createTransport({ ...o, port: authPort } as Parameters<typeof nodemailer.createTransport>[0])
+    : plainTransport(o);
+
+async function startAuthSmtp(): Promise<{ smtp: SMTPServer; port: number }> {
+  const srv = new SMTPServer({
+    allowInsecureAuth: true,
+    authMethods: ["PLAIN", "LOGIN"],
+    logger: false,
+    onAuth(auth, _session, cb) {
+      if (auth.username === "kullanici" && auth.password === FAKE_SMTP_PASSWORD) return cb(null, { user: auth.username });
+      cb(Object.assign(new Error("Authentication credentials invalid"), { responseCode: 535 }));
+    },
+    onData(stream, session, cb) {
+      stream.resume();
+      stream.on("end", () => {
+        authInbox.push({
+          to: session.envelope.rcptTo.map((r) => r.address).join(","),
+          secure: session.secure,
+          user: session.user as string | undefined,
+        });
+        cb();
+      });
+    },
+  });
+  await new Promise<void>((r) => srv.listen(0, "127.0.0.1", () => r()));
+  return { smtp: srv, port: (srv.server.address() as { port: number }).port };
+}
 
 beforeAll(async () => {
   ({ smtp, port: smtpPort } = await startInboxSmtp(inbox));
+  ({ smtp: authSmtp, port: authPort } = await startAuthSmtp());
   const netguard = loopbackNetguard();
   p10 = { netguard, mailTransport: transport, mfaSetupEnforcement: true };
   app = makeApp({ p10, env: { TRUSTED_PROXY_CIDR: "127.0.0.1/32" } });
@@ -57,6 +95,7 @@ beforeAll(async () => {
 afterAll(async () => {
   await app.close();
   await closeSmtp(smtp);
+  await closeSmtp(authSmtp);
 });
 
 const db = () => testDb();
@@ -426,30 +465,50 @@ describe("AC-78/79/80/122 SMTP ayarı ve test", () => {
     ).toBe(1);
   });
 
-  it("B-P10-1/B-P10-5: kayıtta izinsiz port 400 fields.smtp.port; güvenlik Yok + kimlik bilgisi 400 fields.smtp.security; DB'de kalmış böyle ayarla gönderim reddedilir", async () => {
+  it("B-P10-1: kayıtta izinsiz port 400 fields.smtp.port", async () => {
     const t = await createTenant();
     const { s } = await enrolledAdmin(t.id);
     const base = { host: "smtp.test", fromEmail: "a@b.test" };
     expect((await call(s, "PUT", "/settings/tenant", { smtp: { ...base, port: 22, security: "STARTTLS" } })).json()).toMatchObject({
       error: { code: "VALIDATION", fields: { "smtp.port": SMTP_PORT_MESSAGE } },
     });
-    expect(
-      (
-        await call(s, "PUT", "/settings/tenant", { smtp: { ...base, port: 25, security: "NONE", user: "u", password: FAKE_SMTP_PASSWORD } })
-      ).json(),
-    ).toMatchObject({ error: { code: "VALIDATION", fields: { "smtp.security": SMTP_INSECURE_AUTH_MESSAGE } } });
-    await configureSmtp(s);
-    await db().tenantSettings.update({ where: { tenantId: t.id }, data: { smtpUser: "eski-kullanici" } });
-    const before = inbox.length;
-    expect((await call(s, "POST", "/settings/smtp/test", { to: "x@y.test" })).json()).toMatchObject({
-      error: { code: "UPSTREAM", message: SMTP_SEND_FAILED_MESSAGE },
+  });
+
+  it("SMTP düz bağlantıda AUTH (2026-11-15): Yok + kimlik kaydedilir (audit insecureAuth, şifre ***), test maili STARTTLS'e yükselmeden AUTH ile gider; 535 → yönlendirici mesaj", async () => {
+    const t = await createTenant();
+    const { s } = await enrolledAdmin(t.id);
+    const smtpIn = { host: "smtp.test", port: 2525, security: "NONE", user: "kullanici", fromEmail: "destek@firma.test" };
+    const put = await call(s, "PUT", "/settings/tenant", { smtp: { ...smtpIn, password: FAKE_SMTP_PASSWORD } });
+    expect(put.statusCode, put.body).toBe(200);
+    expect(put.json<TenantSettingsView>().smtp).toMatchObject({ security: "NONE", user: "kullanici", hasPassword: true });
+    const saved = await db().auditLog.findFirstOrThrow({ where: { tenantId: t.id, action: "tenant_settings.updated" } });
+    expect(saved.newValue).toMatchObject({ smtp: { security: "NONE", user: "kullanici", insecureAuth: true, smtpPassword: "***" } });
+    expect(JSON.stringify(saved.newValue)).not.toContain(FAKE_SMTP_PASSWORD);
+
+    const ok = await call(s, "POST", "/settings/smtp/test", { to: "alici@y.test" });
+    expect(ok.statusCode, ok.body).toBe(200);
+    expect(authInbox.find((m) => m.to === "alici@y.test")).toMatchObject({ secure: false, user: "kullanici" });
+
+    const wrong = await call(s, "PUT", "/settings/tenant", { smtp: { ...smtpIn, password: "yanlis-sifre-test" } });
+    expect(wrong.statusCode, wrong.body).toBe(200);
+    expect((await call(s, "POST", "/settings/smtp/test", { to: "red@y.test" })).json()).toMatchObject({
+      error: { code: "UPSTREAM", message: SMTP_AUTH_FAILED_MESSAGE },
     });
-    expect(inbox.length).toBe(before);
+    expect(authInbox.some((m) => m.to === "red@y.test")).toBe(false);
     expect(
       await db().auditLog.count({
-        where: { tenantId: t.id, action: "mail.sent", newValue: { path: "$.reason", equals: "insecure_auth" } },
+        where: { tenantId: t.id, action: "mail.sent", result: "fail", newValue: { path: "$.reason", equals: "auth" } },
       }),
     ).toBe(1);
+
+    const tls = await call(s, "PUT", "/settings/tenant", { smtp: { ...smtpIn, port: 587, security: "STARTTLS" } });
+    const last = await db().auditLog.findFirstOrThrow({
+      where: { tenantId: t.id, action: "tenant_settings.updated" },
+      orderBy: { id: "desc" },
+    });
+    expect(tls.statusCode, tls.body).toBe(200);
+    expect(last.oldValue).toMatchObject({ smtp: { insecureAuth: true } });
+    expect((last.newValue as { smtp: Record<string, unknown> }).smtp).not.toHaveProperty("insecureAuth");
   });
 });
 

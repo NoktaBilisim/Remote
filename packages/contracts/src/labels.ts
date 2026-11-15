@@ -283,7 +283,6 @@ export const OUTBOUND_REASON_LABELS: Readonly<Record<string, string>> = {
   tls: "TLS/sertifika hatası",
   rejected: "Alıcı veya ileti sunucu tarafından reddedildi",
   port_not_allowed: "İzin verilmeyen port",
-  insecure_auth: "Şifresiz bağlantıda kimlik bilgisi gönderilmedi",
   not_configured: "SMTP ayarı yapılandırılmamış",
   no_smtp: "SMTP ayarı yok",
   // MySQL

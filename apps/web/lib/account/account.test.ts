@@ -3,7 +3,7 @@ import { groupSecret } from "./contract";
 import { IDLE_PROBE_MS, shouldProbe } from "./idle";
 import { recoveryFileName, recoveryFileText } from "./recovery";
 import { readResetToken } from "./reset-token";
-import { buildSmtpInput, smtpCredsAllowed, smtpDirty, smtpPortOptions, smtpServerFields, suggestPort, toSmtpState } from "./smtp-form";
+import { buildSmtpInput, smtpDirty, smtpPortOptions, smtpServerFields, suggestPort, toSmtpState } from "./smtp-form";
 
 const view = {
   host: "smtp.ornek.com",
@@ -53,18 +53,14 @@ describe("P10 SMTP formu (AC-79)", () => {
     expect(smtpPortOptions("587", lbl).map((o) => o.value)).toEqual(["25", "465", "587", "2525"]);
     expect(smtpPortOptions("2526", lbl).at(-1)).toEqual({ value: "2526", label: "2526 (eski)" });
   });
-  it("B-P10-5: güvenlik Yok iken kullanıcı adı/şifre gönderilmez", () => {
-    expect(smtpCredsAllowed("NONE")).toBe(false);
-    expect(smtpCredsAllowed("SSL")).toBe(true);
+  it("SMTP düz bağlantıda AUTH (2026-11-15): güvenlik Yok iken kullanıcı adı/şifre gönderilir", () => {
     const st = { ...toSmtpState(view), security: "NONE" as const, port: "25", password: "gizli-deger" };
     const r = buildSmtpInput(st);
     expect(r.errors).toEqual({});
-    expect(r.input).toMatchObject({ security: "NONE", user: "" });
-    expect(r.input && "password" in r.input).toBe(false);
-    // Yazılan şifre "Yok"ta kirlilik sayılmaz; kullanıcı adı silinecekse kirli
-    const none = { ...toSmtpState({ ...view, security: "NONE", port: 25, user: null, hasPassword: false }) };
-    expect(smtpDirty(none, { ...none, user: "x", password: "y" })).toBe(false);
-    expect(smtpDirty(toSmtpState(view), { ...toSmtpState(view), security: "NONE" })).toBe(true);
+    expect(r.input).toMatchObject({ security: "NONE", user: "destek", password: "gizli-deger" });
+    const none = toSmtpState({ ...view, security: "NONE", port: 25, user: null, hasPassword: false });
+    expect(smtpDirty(none, { ...none, user: "x", password: "y" })).toBe(true);
+    expect(buildSmtpInput({ ...none, password: "y" }).errors.user).toBe("Şifre için kullanıcı adı gerekli");
   });
   it("tüm alanlar boş → kaldır (null)", () => {
     expect(buildSmtpInput({ ...toSmtpState(null), port: "" }).input).toBeNull();

@@ -1,5 +1,11 @@
 // P10 birim testleri: TOTP (RFC 6238 Ek B), AES-256-GCM kutusu, netguard (G-12), şablonlar, env anahtar ayrıştırma.
-import { SMTP_INSECURE_AUTH_MESSAGE, SMTP_PORT_MESSAGE, smtpHostSchema, smtpSettingsInputSchema } from "@remote/contracts/api/tenants";
+import {
+  SMTP_AUTH_FAILED_MESSAGE,
+  SMTP_PORT_MESSAGE,
+  SMTP_SEND_FAILED_MESSAGE,
+  smtpHostSchema,
+  smtpSettingsInputSchema,
+} from "@remote/contracts/api/tenants";
 import { describe, expect, it } from "vitest";
 import { buildApp } from "../../src/app.ts";
 import {
@@ -24,6 +30,7 @@ import { MailService, type SmtpConfig, type TransportFactory } from "../../src/m
 import { createMetrics } from "../../src/ops/metrics.ts";
 import { FAKE_APP_ENCRYPTION_KEYS } from "../helpers/secrets.ts";
 import { renderMailHtml, sessionLinkMail } from "../../src/mail/templates.ts";
+import { smtpTestFailMessage } from "../../src/tenants/smtp-routes.ts";
 
 describe("AC-67 TOTP (RFC 6238)", () => {
   const key = Buffer.from("12345678901234567890", "ascii");
@@ -276,19 +283,18 @@ describe("AC-79 SMTP şeması", () => {
       expect(r.error?.issues[0]).toMatchObject({ path: ["port"], message: SMTP_PORT_MESSAGE });
     }
   });
-  it("B-P10-5: güvenlik Yok + kullanıcı adı/şifre → alan hatası `security`; kimliksiz Yok ve TLS'li kimlik kabul", () => {
+  it("SMTP düz bağlantıda AUTH (2026-11-15): güvenlik Yok + kullanıcı adı/şifre kabul; şifre kullanıcı adısız yine ret", () => {
     const base = { host: "smtp.test", port: 25, fromEmail: "a@b.test" };
-    for (const bad of [{ user: "u" }, { user: "u", password: "p" }]) {
-      const r = smtpSettingsInputSchema.safeParse({ ...base, security: "NONE", ...bad });
-      expect(r.success).toBe(false);
-      expect(r.error?.issues.find((i) => i.path[0] === "security")?.message).toBe(SMTP_INSECURE_AUTH_MESSAGE);
-    }
+    for (const ok of [{ user: "u" }, { user: "u", password: "p" }])
+      expect(smtpSettingsInputSchema.safeParse({ ...base, security: "NONE", ...ok }).success).toBe(true);
+    const noUser = smtpSettingsInputSchema.safeParse({ ...base, security: "NONE", password: "p" });
+    expect(noUser.error?.issues.find((i) => i.path[0] === "user")?.message).toBe("Şifre için kullanıcı adı gerekli");
     expect(smtpSettingsInputSchema.safeParse({ ...base, security: "NONE" }).success).toBe(true);
     expect(smtpSettingsInputSchema.safeParse({ ...base, port: 587, security: "STARTTLS", user: "u", password: "p" }).success).toBe(true);
   });
 });
 
-describe("B-P10-1/5 gönderim katmanı", () => {
+describe("B-P10-1 gönderim katmanı", () => {
   const log = { warn: () => undefined, error: () => undefined };
   const logo = { logoUrlFor: async () => "https://rs.test/img/logo.png", fallbackLogoUrl: "https://rs.test/img/logo.png" };
   const netguard = createNetGuard({ lookupAll: async () => ["8.8.4.4"] });
@@ -314,17 +320,36 @@ describe("B-P10-1/5 gönderim katmanı", () => {
       ...(attemptCapMs ? { attemptCapMs } : {}),
     });
 
-  it("B-P10-1/5: izinsiz port (DB'de eski değer) ve Yok+kimlik bilgisi bağlantı kurulmadan reddedilir", async () => {
+  it("B-P10-1: izinsiz port (DB'de eski değer) bağlantı kurulmadan reddedilir", async () => {
     let opened = 0;
     const svc = mk(() => ((opened += 1), { sendMail: async () => ({}), close: () => undefined }));
     expect(await svc.deliver({ ...cfg, port: 22 }, "x@y.test", content)).toEqual({ ok: false, reason: "port_not_allowed" });
-    expect(await svc.deliver({ ...cfg, security: "NONE", port: 25, user: "u", pass: "p" }, "x@y.test", content)).toEqual({
-      ok: false,
-      reason: "insecure_auth",
-    });
     expect(opened).toBe(0);
     expect(await svc.deliver(cfg, "x@y.test", content)).toEqual({ ok: true });
     expect(opened).toBe(1);
+  });
+
+  it("SMTP düz bağlantıda AUTH (2026-11-15): Yok + kimlik → ignoreTLS ile düz bağlantı, auth taşıyıcıya gider", async () => {
+    const seen: Record<string, unknown>[] = [];
+    const svc = mk((o) => (seen.push(o), { sendMail: async () => ({}), close: () => undefined }));
+    expect(await svc.deliver({ ...cfg, security: "NONE", port: 25, user: "u", pass: "p" }, "x@y.test", content)).toEqual({ ok: true });
+    expect(seen).toHaveLength(1);
+    expect(seen[0]).toMatchObject({ secure: false, requireTLS: false, ignoreTLS: true, auth: { user: "u", pass: "p" } });
+  });
+
+  it("SMTP EAUTH (535) → `auth` sınıfı; test yanıtı yönlendirici mesaj, diğer sınıflar genel mesaj", async () => {
+    const svc = mk(() => ({
+      sendMail: async () => Promise.reject(Object.assign(new Error("Invalid login: 535 5.7.8"), { code: "EAUTH", responseCode: 535 })),
+      close: () => undefined,
+    }));
+    expect(await svc.deliver({ ...cfg, security: "NONE", port: 25, user: "u", pass: "x" }, "x@y.test", content)).toEqual({
+      ok: false,
+      reason: "auth",
+    });
+    expect(smtpTestFailMessage("auth")).toBe(SMTP_AUTH_FAILED_MESSAGE);
+    expect(SMTP_AUTH_FAILED_MESSAGE).toContain("(535)");
+    for (const r of ["connect", "tls", "rejected", "port_not_allowed"] as const)
+      expect(smtpTestFailMessage(r)).toBe(SMTP_SEND_FAILED_MESSAGE);
   });
 
   it("B-P10-1: deneme tavanı (asılı sunucu) ve etkileşimli başarısızlıkta sabit süre tabanı — anında ret ile zaman aşımı aynı sürede döner", async () => {

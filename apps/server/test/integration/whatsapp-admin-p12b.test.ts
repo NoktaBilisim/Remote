@@ -75,7 +75,15 @@ describe("P12b WhatsApp servis adresi (AC-196)", () => {
     const r = await call(app, sSuper, "GET", W);
     expect(r.statusCode).toBe(200);
     expect(r.headers["cache-control"]).toBe("no-store");
-    expect(view(r)).toEqual({ url: envFake.url, source: "env", insecure: false, updatedAt: null, apiKeySet: false, apiKeySource: null });
+    expect(view(r)).toEqual({
+      url: envFake.url,
+      source: "env",
+      insecure: false,
+      insecureAllowed: false,
+      updatedAt: null,
+      apiKeySet: false,
+      apiKeySource: null,
+    });
   });
 
   it("AC-196: PUT panel kaydı env'in yerine yeniden başlatmasız geçer — sonraki ilk bildirim ve test yeni adrese; audit eski→yeni", async () => {
@@ -147,7 +155,15 @@ describe("P12b WhatsApp servis adresi (AC-196)", () => {
   it("AC-196: DELETE env'e döner ({url:null} satırı), audit; ikinci DELETE değişiklik/audit yok; test env adresine", async () => {
     const d = await call(app, sSuper, "DELETE", W);
     expect(d.statusCode).toBe(200);
-    expect(view(d)).toEqual({ url: envFake.url, source: "env", insecure: false, updatedAt: null, apiKeySet: false, apiKeySource: null });
+    expect(view(d)).toEqual({
+      url: envFake.url,
+      source: "env",
+      insecure: false,
+      insecureAllowed: false,
+      updatedAt: null,
+      apiKeySet: false,
+      apiKeySource: null,
+    });
     expect((await testDb().systemSetting.findUniqueOrThrow({ where: { key: "whatsapp" } })).valueJson).toEqual({ url: null });
     const del = await audits("settings.whatsapp.deleted");
     expect(del).toHaveLength(1);
@@ -390,6 +406,45 @@ describe("P12b WhatsApp güvensiz adres — production (AC-196, AC-150, K13)", (
       await call(prod, s, "DELETE", W);
     }
     expect(prod.whatsapp.effectiveUrl).toBe(envFake.url);
+  });
+
+  it("K13 WHATSAPP_ALLOW_INSECURE_HTTP=true: http + genel adres + anahtar kanalı kapatmaz; görünüm insecureAllowed, tenant yanıtı insecure değil", async () => {
+    const prod = makeApp({
+      env: {
+        ...PROXY,
+        NODE_ENV: "production",
+        DEPLOY_ENV: "production",
+        SESSION_REF_KEY: "k".repeat(40),
+        APP_ENCRYPTION_KEYS: FAKE_APP_ENCRYPTION_KEYS,
+        WHATSAPP_SERVICE_URL: envFake.url,
+        WHATSAPP_ALLOW_INSECURE_HTTP: "true",
+      },
+    });
+    extraApps.push(prod);
+    await prod.ready();
+    const s = await prodSuper(prod);
+    try {
+      // loopback http → normalde de güvenli: izin uyarısı yok
+      expect(view(await call(prod, s, "GET", W))).toMatchObject({ url: envFake.url, insecure: false, insecureAllowed: false });
+      const put = await call(prod, s, "PUT", W, { url: "http://203.0.113.10:3000", apiKey: FAKE_WA_PANEL_API_KEY });
+      expect(put.statusCode, put.body).toBe(200);
+      expect(view(put)).toMatchObject({ source: "panel", insecure: false, insecureAllowed: true, apiKeySource: "panel" });
+      expect({ insecure: prod.whatsapp.insecure, allowed: prod.whatsapp.insecureAllowed, usable: prod.whatsapp.usable }).toEqual({
+        insecure: false,
+        allowed: true,
+        usable: true,
+      });
+      const t = await createTenant();
+      await testDb().tenantSettings.update({ where: { tenantId: t.id }, data: { requireTech2fa: false } });
+      const admin = await createUser({ tenantId: t.id, role: "USER", perms: { "settings.view": true, "settings.edit": true } });
+      const g = await call(prod, await loginAs(prod, admin), "GET", "/api/v1/settings/support-requests");
+      expect(g.statusCode, g.body).toBe(200);
+      expect(g.json<{ whatsapp: object }>().whatsapp).toMatchObject({ serviceConfigured: true, insecure: false });
+      const https = await call(prod, s, "PUT", W, { url: "https://wa.example.test", apiKey: FAKE_WA_PANEL_API_KEY });
+      expect(view(https)).toMatchObject({ insecure: false, insecureAllowed: false });
+    } finally {
+      await call(prod, s, "DELETE", W);
+    }
   });
 });
 

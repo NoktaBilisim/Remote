@@ -73,7 +73,6 @@ const MAIL_REASON: Record<string, Reason> = {
   not_configured: "unconfigured",
   auth: "unauthorized",
   port_not_allowed: "host_not_allowed",
-  insecure_auth: "host_not_allowed",
   connect: "unreachable",
 };
 

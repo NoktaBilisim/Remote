@@ -46,6 +46,12 @@ export function WhatsappAlerts({ f }: P) {
           {t("wa.svc.insecure", { warning: WA_INSECURE_WARNING })}
         </Alert>
       )}
+      {/* K13 geçici çözümü: düz http yalnız WHATSAPP_ALLOW_INSECURE_HTTP bayrağıyla açık */}
+      {saved.insecureAllowed && (
+        <Alert tone="warning" testId="wa-svc-insecure-allowed">
+          {t("wa.svc.insecureAllowed")}
+        </Alert>
+      )}
       {f.formError && <FormError error={f.formError} />}
     </>
   );

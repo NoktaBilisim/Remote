@@ -153,6 +153,28 @@ test("AC-196 güvensiz adres: uyarı kutusu; test isteği gönderilmeden hata", 
   expect(await axeScan(page, "#icerik")).toEqual([]);
 });
 
+test("K13 WHATSAPP_ALLOW_INSECURE_HTTP: düz http kanalı açık, sarı izin uyarısı; özel ağ adresinde uyarı kalkar", async ({
+  page,
+  context,
+}, info) => {
+  desktopOnly(info.project.name);
+  await signIn(context, "ausaiok");
+  await open(page);
+  await expect(page.getByTestId("wa-svc-insecure")).toHaveCount(0);
+  await expect(page.getByTestId("wa-svc-insecure-allowed")).toHaveText(
+    "Şifresiz bağlantıya izin verildi (WHATSAPP_ALLOW_INSECURE_HTTP). Servis anahtarı ve mesajlar ağda açık metin gider; HTTPS'e geçince kapatın.",
+  );
+  await expect(page.getByTestId("wa-svc-effective")).toHaveText("http://203.0.113.60:3000");
+  await page.getByTestId("wa-test-phone").fill("05320000000");
+  await page.getByTestId("wa-test-send").click();
+  await expect(page.getByTestId("wa-test-result")).toContainText("Test mesajı gönderildi");
+  expect(await axeScan(page, "#icerik")).toEqual([]);
+  await page.getByTestId("wa-svc-url").fill("http://10.0.0.5:3000");
+  await page.getByTestId("save-bar-save").click();
+  await expect(page.getByTestId("setting-source")).toHaveText("Panel");
+  await expect(page.getByTestId("wa-svc-insecure-allowed")).toHaveCount(0);
+});
+
 test("AC-196 boş durum: servis yapılandırılmamış → yönlendirici bilgi, test pasif; kayıtla etkinleşir", async ({ page, context }, info) => {
   desktopOnly(info.project.name);
   await signIn(context, "ausawa0");

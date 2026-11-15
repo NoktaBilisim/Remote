@@ -21,8 +21,9 @@ import { normalizePhone } from "@/lib/requests/validate";
  */
 export type WhatsappServiceView = WhatsappSettingsView;
 export function normalizeWaView(
-  v: Omit<WhatsappSettingsView, "source" | "apiKeySet" | "apiKeySource"> & {
+  v: Omit<WhatsappSettingsView, "source" | "apiKeySet" | "apiKeySource" | "insecureAllowed"> & {
     source: string;
+    insecureAllowed?: boolean;
     apiKeySet?: boolean;
     apiKeySource?: string | null;
   },
@@ -31,6 +32,7 @@ export function normalizeWaView(
   return {
     ...v,
     source: src === "panel" ? src : "env",
+    insecureAllowed: v.insecureAllowed === true,
     apiKeySet: Boolean(v.apiKeySet),
     apiKeySource: v.apiKeySource === "panel" || v.apiKeySource === "env" ? v.apiKeySource : null,
   };

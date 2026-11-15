@@ -1,8 +1,14 @@
 // POST /api/v1/settings/smtp/test (P10; AC-80, 122, G-12). settings.edit, etkin tenant; 5/dk/tenant (6. → 429).
 // Kayıtlı SMTP ayarıyla test maili; netguard (özel/loopback hedef → 400 HOST_NOT_ALLOWED); hata → 502 tek genel mesaj
-// (B-P10-1: sınıf yalnız log/audit'te; etkileşimli gönderim → başarısızlık yanıtı sabit süre tabanında).
+// (B-P10-1: sınıf yalnız log/audit'te; etkileşimli gönderim → başarısızlık yanıtı sabit süre tabanında). İstisna: kimlik
+// reddi (EAUTH/535) yönlendirici mesajla döner (SMTP_AUTH_FAILED_MESSAGE; kullanıcı talebi 2026-11-15).
 import { SMTP_REQUIRED_MESSAGE } from "@remote/contracts/api/requests";
-import { SMTP_SEND_FAILED_MESSAGE, smtpTestInputSchema, type SmtpTestResponse } from "@remote/contracts/api/tenants";
+import {
+  SMTP_AUTH_FAILED_MESSAGE,
+  SMTP_SEND_FAILED_MESSAGE,
+  smtpTestInputSchema,
+  type SmtpTestResponse,
+} from "@remote/contracts/api/tenants";
 import { MAIL_AUDIT } from "@remote/contracts/audit";
 import type { FastifyInstance } from "fastify";
 import { maskEmail } from "../audit/mask.ts";
@@ -14,6 +20,10 @@ import type { MailService, SmtpFailure } from "../mail/service.ts";
 import type { MailContent } from "../mail/templates.ts";
 import { smtpTestMail } from "../mail/templates.ts";
 import type { FixedWindowCounter } from "../lib/rate.ts";
+
+/** Test gönderimi hata mesajı: kimlik reddi (EAUTH/535) yönlendirici, diğerleri tek genel mesaj (B-P10-1). */
+export const smtpTestFailMessage = (reason: SmtpFailure): string =>
+  reason === "auth" ? SMTP_AUTH_FAILED_MESSAGE : SMTP_SEND_FAILED_MESSAGE;
 
 /** SMTP + e-posta kanal testi ortak gövdesi: limit → ayar → gönderim → audit. Dönen: başarı ya da hata nedeni. */
 export async function sendTenantTest(o: {
@@ -74,7 +84,7 @@ export async function smtpSettingsRoutes(app: FastifyInstance): Promise<void> {
       entity: "tenant_settings",
       content: (firm) => smtpTestMail({ firm }),
     });
-    if (!out.ok) throw new AppError("UPSTREAM", { message: SMTP_SEND_FAILED_MESSAGE });
+    if (!out.ok) throw new AppError("UPSTREAM", { message: smtpTestFailMessage(out.reason) });
     return { ok: true, message: "Test e-postası gönderildi." };
   });
 }

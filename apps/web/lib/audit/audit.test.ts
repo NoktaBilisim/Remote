@@ -75,17 +75,7 @@ describe("P13a audit etiketleri (AC-199, T-P12b)", () => {
   it("dış gönderim reason kodları: WhatsApp, SMTP, MySQL ve izdüşüm 'other' Türkçe; bilinmeyen ham", () => {
     for (const k of ["unconfigured", "insecure", "timeout", "http_error", "redirect", "unreachable", "invalid_response", "other"])
       expect(OUTBOUND_REASON_LABELS[k]).toBeTruthy();
-    for (const k of [
-      "connect",
-      "auth",
-      "tls",
-      "rejected",
-      "port_not_allowed",
-      "insecure_auth",
-      "not_configured",
-      "database",
-      "secret_unreadable",
-    ])
+    for (const k of ["connect", "auth", "tls", "rejected", "port_not_allowed", "not_configured", "database", "secret_unreadable"])
       expect(OUTBOUND_REASON_LABELS[k]).toBeTruthy();
     expect(reasonLabel("unreachable")).toBe("Servise ulaşılamadı");
     expect(reasonLabel("yeni_kod")).toBe("yeni_kod");

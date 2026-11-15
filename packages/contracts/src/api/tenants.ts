@@ -186,9 +186,6 @@ export const SMTP_DEFAULT_PORTS: Record<SmtpSecurity, number> = { NONE: 25, SSL:
  */
 export const SMTP_ALLOWED_PORTS = [25, 465, 587, 2525] as const;
 export const SMTP_PORT_MESSAGE = "Port 25, 465, 587 veya 2525 olmalı";
-/** B-P10-5: güvenlik "Yok" iken kimlik bilgisi düz metin gider → reddedilir (alan hatası `smtp.security`). */
-export const SMTP_INSECURE_AUTH_MESSAGE =
-  "Kullanıcı adı/şifre için SSL veya STARTTLS seçin (şifresiz bağlantıda kimlik bilgisi açık gider)";
 /** AC-122: kayıt/test ret mesajı — genel (hangi aralığa düştüğü söylenmez). */
 export const SMTP_HOST_NOT_ALLOWED_MESSAGE = "Bu sunucu adresi kullanılamaz.";
 
@@ -243,6 +240,8 @@ const smtpFromNameSchema = z.preprocess(
 /**
  * PUT /settings/tenant `smtp` nesnesi. `password`: boş/verilmemiş → kayıtlı şifre korunur (AC-78); `user` boşsa şifre
  * de silinir (kimliksiz SMTP). Şifre kullanıcı adı olmadan verilemez. `smtp: null` → SMTP ayarı tamamen kaldırılır.
+ * Güvenlik "Yok" + kimlik bilgisi kabul edilir (kullanıcı talebi 2026-11-15, TLS'siz iç sunucu; eski B-P10-5 reddi
+ * kaldırıldı): kimlik ağda açık gider, UI uyarır, audit `insecureAuth: true` yazar.
  */
 export const smtpSettingsInputSchema = z
   .strictObject({
@@ -264,8 +263,6 @@ export const smtpSettingsInputSchema = z
   .superRefine((s, ctx) => {
     if (s.password !== undefined && s.user === null)
       ctx.addIssue({ code: "custom", path: ["user"], message: "Şifre için kullanıcı adı gerekli" });
-    if (s.security === "NONE" && (s.user !== null || s.password !== undefined))
-      ctx.addIssue({ code: "custom", path: ["security"], message: SMTP_INSECURE_AUTH_MESSAGE });
   });
 export type SmtpSettingsInput = z.input<typeof smtpSettingsInputSchema>;
 export type SmtpSettingsData = z.output<typeof smtpSettingsInputSchema>;
@@ -295,6 +292,12 @@ export interface SmtpTestResponse {
  * (bağlantı/TLS/kimlik/ret) yalnız sunucu logunda ve audit'te; yanıt süresi de sabit tabana çekilir (port tarama kâhini yok).
  */
 export const SMTP_SEND_FAILED_MESSAGE = "E-posta gönderilemedi. Sunucu, port, güvenlik ve kimlik bilgilerini kontrol edin.";
+/**
+ * Test gönderiminde (SMTP / e-posta kanalı testi, settings.edit) sunucu kimliği reddettiyse (EAUTH, 535) yönlendirici mesaj
+ * (kullanıcı talebi 2026-11-15). Ret ancak SMTP oturumu kurulduktan sonra gelir; port tarama kâhini değildir.
+ */
+export const SMTP_AUTH_FAILED_MESSAGE =
+  "Sunucu kimlik bilgilerini reddetti (535). Kullanıcı adı/şifreyi ve sunucunun bu güvenlik seçeneğinde AUTH'a izin verip vermediğini kontrol edin.";
 
 /** PUT gövdesi: alanlar opsiyonel (verilen değişir), en az biri. Aralık dışı → 400 `fields.<alan>` (AC-4). */
 export const updateTenantSettingsInputSchema = z

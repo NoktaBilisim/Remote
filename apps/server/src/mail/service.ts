@@ -5,7 +5,8 @@
 //    tavanda/başarısızlıkta `destroy()` edilir — damlatan sunucu bağlantıyı açık tutamaz), arka plan gönderiminde bağlantı hatasında 1
 //    yeniden deneme (mimari §7). Etkileşimli (test/oturum linki) gönderim tek deneme + başarısızlıkta sabit süre tabanı
 //    (B-P10-1: kapalı port ile zaman aşımı ayırt edilemez). Hata sınıfı yalnız log/audit'te; kullanıcıya tek genel mesaj.
-//  - Port allowlist (SMTP_ALLOWED_PORTS) ve "güvenlik Yok + kimlik bilgisi" reddi gönderimde de denetlenir (B-P10-1/5).
+//  - Port allowlist (SMTP_ALLOWED_PORTS) gönderimde de denetlenir (B-P10-1). Güvenlik "Yok" + kimlik bilgisi: `ignoreTLS`
+//    ile düz bağlantıda AUTH (sunucu STARTTLS sunsa bile yükseltilmez; kullanıcı talebi 2026-11-15).
 //  - Her gönderim audit `mail.sent {kind, recipient(maskeli), subject, result, reason}`.
 import { SMTP_ALLOWED_PORTS, type SmtpSecurity } from "@remote/contracts/api/tenants";
 import { MAIL_AUDIT } from "@remote/contracts/audit";
@@ -34,7 +35,7 @@ export interface SmtpConfig {
 }
 
 /** Sunucu içi hata sınıfı (log/audit/metrik); kullanıcıya gösterilmez (SMTP_SEND_FAILED_MESSAGE). */
-export type SmtpFailure = "connect" | "auth" | "tls" | "rejected" | "port_not_allowed" | "insecure_auth";
+export type SmtpFailure = "connect" | "auth" | "tls" | "rejected" | "port_not_allowed";
 type MailFailure = SmtpFailure | "not_configured";
 type SendOutcome = { ok: true } | { ok: false; reason: MailFailure };
 
@@ -147,7 +148,6 @@ export class MailService {
 
   async deliver(cfg: SmtpConfig, to: string, content: MailContent, attempts = 2, logoUrl = this.d.fallbackLogoUrl): Promise<SendOutcome> {
     if (!(SMTP_ALLOWED_PORTS as readonly number[]).includes(cfg.port)) return { ok: false, reason: "port_not_allowed" };
-    if (cfg.security === "NONE" && cfg.user) return { ok: false, reason: "insecure_auth" };
     const ip = await this.d.netguard.resolve(cfg.host);
     const servername = cfg.host.replace(/^\[|\]$/g, "");
     const cap = this.d.attemptCapMs ?? MAIL_ATTEMPT_CAP_MS;

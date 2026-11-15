@@ -13,7 +13,8 @@ const FORM_ID = "smtp-form";
 
 /**
  * SMTP Ayarları (AC-79, 80, 122; ortak standart §2.1). Port yalnız izinli değerlerden seçilir (25/465/587/2525, B-P10-1);
- * güvenlik seçimi portu önerir (25/465/587). "Yok" seçiliyken kullanıcı adı/şifre pasif (B-P10-5). Şifre forma geri
+ * güvenlik seçimi portu önerir (25/465/587). "Yok" seçiliyken kullanıcı adı/şifre açık kalır, altında düz metin uyarısı
+ * görünür (kullanıcı talebi 2026-11-15). Şifre forma geri
  * yazılmaz: kayıtlıysa "kayıtlı — değiştirmek için yazın", boş bırakılırsa korunur. Kayıt PUT /settings/tenant `{ smtp }`;
  * 400 `HOST_NOT_ALLOWED` sunucu alanına genel mesajla düşer. Tüm alanlar boşaltılıp kaydedilirse onayla `smtp: null`.
  * "Test Maili Gönder" kayıtlı ayarla çalışır (kirliyken pasif), alıcıyı diyalogda sorar, sonucu diyalogda gösterir.

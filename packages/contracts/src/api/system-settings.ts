@@ -225,6 +225,11 @@ export interface WhatsappSettingsView {
   url: string | null;
   source: "panel" | "env";
   insecure: boolean;
+  /**
+   * K13 geçici çözümü: hedef normalde güvensiz (düz http) ama `WHATSAPP_ALLOW_INSECURE_HTTP` ile kanal açık. Panel sarı
+   * uyarı gösterir; `insecure` bu durumda false.
+   */
+  insecureAllowed: boolean;
   updatedAt: string | null;
   /** S-P13b-3: etkin adresle gönderilecek anahtar var mı (değer asla dönmez). */
   apiKeySet: boolean;

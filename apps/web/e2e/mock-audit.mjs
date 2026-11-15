@@ -9,6 +9,7 @@
 //   ausawa0  SUPER_ADMIN, WhatsApp servisi hiç yapılandırılmamış (panel yok, env yok → url null)
 //   ausarsv  SUPER_ADMIN, panelde P19 URL kuralına uymayan eski adres (kullanıcı bilgisi içerir) → "yeniden kaydedin" bandı
 //   ausains  SUPER_ADMIN, WhatsApp servisi panelde http:// + genel adres (insecure, canlı ortam varsayımı)
+//   ausaiok  SUPER_ADMIN, env'de http:// + genel adres + anahtar, WHATSAPP_ALLOW_INSECURE_HTTP=true (insecureAllowed, K13)
 //   ausabrk  SUPER_ADMIN, WhatsApp ayarı ilk GET'te 500 (sonra 200 → "Tekrar dene")
 //   ausadef  SUPER_ADMIN, WhatsApp servisi panel yok + env yok → adres null, source "env" (yapılandırılmamış)
 //   ausasu   SUPER_ADMIN, P14a step-up (AC-215): sistem ayarı yazımı son 5 dk'da step-up ister (401 MFA_STEP_UP_REQUIRED);
@@ -40,7 +41,7 @@ export const AU = {
 const ALL_NO_WS = PERMISSION_KEYS.filter((k) => !k.startsWith("support_requests."));
 
 export function auditUser(cookie) {
-  const m = cookie?.match(/^u-(auadm|auview|aunone|auempty|aubroken|ausa(?:wa0|ins|brk|def|su|rsv)?)-/);
+  const m = cookie?.match(/^u-(auadm|auview|aunone|auempty|aubroken|ausa(?:wa0|ins|iok|brk|def|su|rsv)?)-/);
   if (!m) return null;
   const kind = m[1];
   const role = kind.startsWith("ausa") ? "SUPER_ADMIN" : kind === "auview" || kind === "aunone" ? "USER" : "ADMIN";
@@ -198,21 +199,25 @@ function seedItems(kind) {
 const stores = new Map();
 // P12b (AC-196): WhatsApp servis adresi — sözleşme docs/mimari-api.md "Yönetim" whatsapp satırları
 const WA_ENV_URL = "http://10.20.0.5:3000";
+const WA_ENV_PUBLIC_URL = "http://203.0.113.60:3000";
 const waEnv = (kind) => ({
-  url: kind === "ausawa0" ? null : WA_ENV_URL,
+  url: kind === "ausawa0" ? null : kind === "ausaiok" ? WA_ENV_PUBLIC_URL : WA_ENV_URL,
   source: "env",
   insecure: false,
+  insecureAllowed: kind === "ausaiok",
   updatedAt: null,
-  apiKeySet: kind === "ausa",
-  apiKeySource: kind === "ausa" ? "env" : null,
+  apiKeySet: kind === "ausa" || kind === "ausaiok",
+  apiKeySource: kind === "ausa" || kind === "ausaiok" ? "env" : null,
 });
 function waInitial(kind) {
-  if (kind === "ausadef") return { url: null, source: "env", insecure: false, updatedAt: null, apiKeySet: false, apiKeySource: null };
+  if (kind === "ausadef")
+    return { url: null, source: "env", insecure: false, insecureAllowed: false, updatedAt: null, apiKeySet: false, apiKeySource: null };
   if (kind === "ausarsv")
     return {
       url: "https://kul:sifre@wa.ornek.com",
       source: "panel",
       insecure: false,
+      insecureAllowed: false,
       updatedAt: iso(3_600_000),
       apiKeySet: false,
       apiKeySource: null,
@@ -222,6 +227,7 @@ function waInitial(kind) {
       url: "http://203.0.113.50:3000",
       source: "panel",
       insecure: true,
+      insecureAllowed: false,
       updatedAt: iso(3_600_000),
       apiKeySet: false,
       apiKeySource: null,
@@ -502,7 +508,9 @@ export async function handleAudit(req, res, { url, session, csrfOk, send, err, r
     s.wa = {
       url,
       source: "panel",
-      insecure: waInsecure(url),
+      // K13: WHATSAPP_ALLOW_INSECURE_HTTP (ausaiok) açıkken düz http güvensiz sayılmaz, uyarı bayrağı döner
+      insecure: waInsecure(url) && who.kind !== "ausaiok",
+      insecureAllowed: waInsecure(url) && who.kind === "ausaiok",
       updatedAt: new Date().toISOString(),
       apiKeySet: keySet,
       apiKeySource: keySet ? "panel" : null,

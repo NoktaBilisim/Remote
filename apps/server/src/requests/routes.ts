@@ -1,10 +1,9 @@
 // /api/v1/support-requests (kuyruk/geçmiş/kabul/ret) ve /api/v1/settings/support-requests (ayarlar). Sıra:
 // requireAuth (CSRF durum değiştirenlerde) → requirePerm → tenantScope (Super Admin firma seçmeli, AC-148) → zod → servis.
 import { emailTestInputSchema, type EmailTestResponse } from "@remote/contracts/api/requests";
-import { SMTP_SEND_FAILED_MESSAGE } from "@remote/contracts/api/tenants";
 import { MAIL_AUDIT } from "@remote/contracts/audit";
 import { newRequestMail } from "../mail/templates.ts";
-import { sendTenantTest } from "../tenants/smtp-routes.ts";
+import { sendTenantTest, smtpTestFailMessage } from "../tenants/smtp-routes.ts";
 import {
   acceptRequestInputSchema,
   assignRequestInputSchema,
@@ -209,7 +208,7 @@ export async function requestSettingsRoutes(app: FastifyInstance): Promise<void>
       entity: "tenant_request_settings",
       content: (firm) => newRequestMail({ publicBaseUrl: app.env.PUBLIC_BASE_URL, firm, requestCode: "123456" }),
     });
-    return out.ok ? { ok: true, message: "Test e-postası gönderildi." } : { ok: false, message: SMTP_SEND_FAILED_MESSAGE };
+    return out.ok ? { ok: true, message: "Test e-postası gönderildi." } : { ok: false, message: smtpTestFailMessage(out.reason) };
   });
 
   app.post("/whatsapp/test", async (req): Promise<WhatsappTestResponse> => {

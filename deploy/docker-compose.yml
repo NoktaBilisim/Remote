@@ -125,6 +125,7 @@ services:
       # prod ön koşulu K13: TLS veya özel ağ (runbook §12).
       WHATSAPP_SERVICE_URL: ${WHATSAPP_SERVICE_URL:-}
       WHATSAPP_SERVICE_API_KEY: ${WHATSAPP_SERVICE_API_KEY:-}
+      WHATSAPP_ALLOW_INSECURE_HTTP: ${WHATSAPP_ALLOW_INSECURE_HTTP:-}
       # P19 (mimari-e11 §8c.3/§8c.4): smsportal sistem varsayılanı (firma `sms_url` boşsa). Boş = varsayılan yok. Guard'sız
       # güvenilen adres (devops); production'da http:// + özel olmayan host → SMS kanalı kapalı. Değişimi runbook §26.3.
       SMSPORTAL_URL: ${SMSPORTAL_URL:-}

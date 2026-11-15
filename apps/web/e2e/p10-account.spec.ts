@@ -144,16 +144,16 @@ test("AC-79/80/122 SMTP ayarları: port önerisi, maskeli şifre, iç ağ reddi,
   await sec.getByRole("button", { name: "Yok" }).click();
   await expect(page.getByTestId("smtp-port")).toHaveValue("25");
   await expect(page.getByTestId("smtp-insecure")).toBeVisible();
-  // B-P10-5: "Yok" iken kullanıcı adı/şifre pasif ve boş; açıklama görünür
-  await expect(page.getByTestId("smtp-user")).toBeDisabled();
-  await expect(page.getByTestId("smtp-user")).toHaveValue("");
-  await expect(page.getByTestId("smtp-password")).toBeDisabled();
-  await expect(page.getByTestId("smtp-no-creds")).toContainText("Şifresiz bağlantıda kimlik bilgisi gönderilmez; SSL veya TLS seçin.");
-  await sec.getByRole("button", { name: "TLS" }).click();
-  await expect(page.getByTestId("smtp-port")).toHaveValue("587");
+  // Düz bağlantıda AUTH (2026-11-15): "Yok" iken kullanıcı adı/şifre açık; altında düz metin uyarısı
   await expect(page.getByTestId("smtp-user")).toBeEnabled();
   await expect(page.getByTestId("smtp-user")).toHaveValue("destek@ornek.com");
-  await expect(page.getByTestId("smtp-no-creds")).toHaveCount(0);
+  await expect(page.getByTestId("smtp-password")).toBeEnabled();
+  await expect(page.getByTestId("smtp-insecure-auth")).toContainText(
+    "Şifreleme yok: kullanıcı adı ve şifre ağda açık metin gider. Yalnız güvendiğiniz ağdaki sunucular için kullanın.",
+  );
+  await sec.getByRole("button", { name: "TLS" }).click();
+  await expect(page.getByTestId("smtp-port")).toHaveValue("587");
+  await expect(page.getByTestId("smtp-insecure-auth")).toHaveCount(0);
   // B-P10-1: port yalnız izinli değerler (seçim kutusu); 2525 güvenlik değişince korunur
   await expect(page.getByTestId("smtp-port").locator("option")).toHaveText(["25", "465", "587", "2525"]);
   await page.getByTestId("smtp-port").selectOption("2525");
@@ -167,16 +167,16 @@ test("AC-79/80/122 SMTP ayarları: port önerisi, maskeli şifre, iç ağ reddi,
   await page.getByTestId("save-bar").getByRole("button", { name: "Kaydet" }).click();
   await expect(page.getByText("Port 25, 465, 587 veya 2525 olmalı")).toBeVisible();
   await expect(page.getByTestId("smtp-port")).toHaveAttribute("aria-invalid", "true");
-  await expect(page.getByTestId("smtp-security-error")).toContainText("SSL veya STARTTLS seçin");
+  await expect(page.getByTestId("smtp-security-error")).toContainText("Güvenlik seçimi geçersiz");
 
-  // "Yok" ile kayıt: kimlik bilgisi gövdede yok (sunucu reddeder)
+  // "Yok" ile kayıt: kullanıcı adı gövdede (düz bağlantıda AUTH); boş şifre gönderilmez (kayıtlı şifre korunur)
   await sec.getByRole("button", { name: "Yok" }).click();
   await expect(page.getByTestId("smtp-security-error")).toHaveCount(0);
   await page.getByTestId("smtp-host").fill("mail.ornek.com");
   const putNone = page.waitForRequest((r) => r.method() === "PUT" && r.url().endsWith("/api/v1/settings/tenant"));
   await page.getByTestId("save-bar").getByRole("button", { name: "Kaydet" }).click();
   const noneBody = (await putNone).postDataJSON().smtp;
-  expect(noneBody).toMatchObject({ security: "NONE", port: 25, user: "" });
+  expect(noneBody).toMatchObject({ security: "NONE", port: 25, user: "destek@ornek.com" });
   expect(noneBody).not.toHaveProperty("password");
   await expect(page.getByTestId("toast")).toContainText("SMTP ayarları kaydedildi");
   await sec.getByRole("button", { name: "TLS" }).click();

@@ -6,7 +6,6 @@ import { useToast } from "@/components/ui/toast";
 import type { SmtpSecurity, SmtpSettingsView, TenantSettingsView } from "@/lib/account/contract";
 import {
   buildSmtpInput,
-  smtpCredsAllowed,
   smtpDirty,
   smtpServerFields,
   suggestPort,
@@ -57,7 +56,7 @@ function useSmtpState(initial: SmtpSettingsView | null, formRef: RefObject<HTMLF
   return { ...state, confirmClear, setConfirmClear, testOpen, setTestOpen, dirty, reset, focusError };
 }
 
-/** Alan değişimi (alan hatası temizlenir) ve güvenlik seçimi (port önerisi; "Yok" → kimlik alanı hataları temizlenir). */
+/** Alan değişimi (alan hatası temizlenir) ve güvenlik seçimi (port önerisi). */
 function useSmtpEdit({ setSt, setErrors }: Pick<ReturnType<typeof useSmtpState>, "setSt" | "setErrors">) {
   const set = (k: keyof SmtpState) => (e: { target: { value: string } }) => {
     setSt((s) => ({ ...s, [k]: e.target.value }));
@@ -65,12 +64,7 @@ function useSmtpEdit({ setSt, setErrors }: Pick<ReturnType<typeof useSmtpState>,
   };
   const setSecurity = (security: SmtpSecurity) => {
     setSt((s) => ({ ...s, security, port: suggestPort(s.port, security) }));
-    setErrors((x) => ({
-      ...x,
-      security: undefined,
-      port: undefined,
-      ...(smtpCredsAllowed(security) ? {} : { user: undefined, password: undefined }),
-    }));
+    setErrors((x) => ({ ...x, security: undefined, port: undefined }));
   };
   return { set, setSecurity };
 }
