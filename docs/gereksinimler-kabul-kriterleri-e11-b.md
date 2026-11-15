@@ -1,6 +1,6 @@
 # Kabul kriterleri — E11 (bölüm B: G5–G8 + ortak, AC-245..AC-297)
 
-Tarih: 2026-11-14 Durum: ONAYLANDI (kullanıcı kararları 2026-11-14, gereksinimler-e11 §8; mimari-e11 sonrası revizyon r2: AC-264, 271, 272, 273, 292, 297; AC-273 ADR-0022 r2). Ana doküman: `/Users/mennan/Projeler/Remote/docs/gereksinimler-e11.md`. Bölüm A: `/Users/mennan/Projeler/Remote/docs/gereksinimler-kabul-kriterleri-e11.md`. Tasarım: `docs/mimari-e11.md`, ADR-0021..0028.
+Tarih: 2026-11-14 Durum: ONAYLANDI (kullanıcı kararları 2026-11-14, gereksinimler-e11 §8; mimari-e11 sonrası revizyon r2: AC-264, 271, 272, 273, 292, 297; AC-273 ADR-0022 r2; P27 tasarım turu 2026-11-15: AC-297 r3, AC-273/274 kapsam notları — proje-yoneticisi onaylı). Ana doküman: `/Users/mennan/Projeler/Remote/docs/gereksinimler-e11.md`. Bölüm A: `/Users/mennan/Projeler/Remote/docs/gereksinimler-kabul-kriterleri-e11.md`. Tasarım: `docs/mimari-e11.md`, ADR-0021..0028.
 G8 AC'leri **çerçeve AC**'dir: her biri ayrı tasarım turunda proje-yoneticisi tarafından ayrıntılandırılır.
 
 ## G5 — Windows istemci 0.11.x (Go)
@@ -49,7 +49,37 @@ G8 AC'leri **çerçeve AC**'dir: her biri ayrı tasarım turunda proje-yoneticis
 - AC-294: Gözetimsiz bağlantı süresince cihazın tüm monitörlerinde her zaman üstte, kapatılamayan "Uzaktan bağlantı: <teknisyen adı> — <destek firması>" göstergesi bulunur; kilit ekranında da görünür; gösterge çizilemezse bağlantı açılmaz (fail-closed testi).
 - AC-295: Cihazda yerel "Gözetimsiz erişimi kapat" anahtarı vardır (tepside ve servis ayar penceresinde; standart kullanıcı kapatabilir, yeniden açmak yerel yönetici ister); kapalıyken sunucu bağlanamaz, açık bağlantı ≤ 2 sn içinde kesilir, durum panelde "Yerel olarak kapalı" görünür; sunucudan bu anahtar değiştirilemez.
 - AC-296: Her gözetimsiz bağlantı başladığında müşteri firmanın tanımlı bildirim adreslerine (en çok 5 e-posta; tenant'ta SMS/WhatsApp açıksa onlara da) cihaz adı, teknisyen, başlangıç saati içeren bildirim ≤ 60 sn içinde gider; bildirim adresi tanımlı olmayan müşterinin cihazı için bağlantı açılmaz; gönderim audit'e yazılır.
-- AC-297: (r2) Prod ortamında (`NODE_ENV=production`) gözetimsiz erişim, istemci servisi SignPath (veya eşdeğer güvenilir) Authenticode imzası taşımadıkça kapalıdır: servis kayıtta ve her bağlanışta kendi imza durumunu beyan eder; imzasız beyanda kayıt ve bağlantı reddedilir, panelde "Gözetimsiz erişim kod imzası olmadan kullanılamaz" gösterilir. Staging'de imzasız çalışır. **Not:** bu kontrol cihazın kendi beyanına dayanır; değiştirilmiş bir istemci yanlış beyan verebilir. Bu nedenle bir **kimlik doğrulama değil, kullanılabilirlik kapısıdır** (imzasız yapının yanlışlıkla prod'da dağıtılmasını önler); güvenlik AC-273 ve AC-293..296'ya dayanır.
+- AC-297: (r2) Prod ortamında (`NODE_ENV=production`) gözetimsiz erişim, istemci servisi SignPath (veya eşdeğer güvenilir) Authenticode imzası taşımadıkça kapalıdır: servis kayıtta ve her bağlanışta kendi imza durumunu beyan eder; imzasız beyanda kayıt ve bağlantı reddedilir, panelde "Gözetimsiz erişim kod imzası olmadan kullanılamaz" gösterilir. Staging'de imzasız çalışır. **Not:** bu kontrol cihazın kendi beyanına dayanır; değiştirilmiş bir istemci yanlış beyan verebilir. Bu nedenle bir **kimlik doğrulama değil, kullanılabilirlik kapısıdır** (imzasız yapının yanlışlıkla prod'da dağıtılmasını önler); güvenlik AC-273 ve AC-293..296'ya dayanır. **r3 (P27, 2026-11-15) için aşağıdaki revizyon notuna bakın; metin onunla birlikte okunur.**
+
+### P27 tasarım turu revizyon notları (mimar, 2026-11-15; `docs/mimari-p27.md`) — proje-yoneticisi onayı, 2026-11-15
+
+- **AC-297 (r3 — ONAYLANDI):** "`NODE_ENV=production`" ifadesi "`DEPLOY_ENV` staging olmayan ortam" olarak okunur. Gerekçe: staging de
+  `NODE_ENV=production` ile koşar (compose varsayılanı); literal okuma staging'de de özelliği kapatır ve AC'nin "staging'de imzasız
+  çalışır" cümlesiyle çelişir. Uygulama: `UNATTENDED_MODE=off|unsigned|signed`, `unsigned` yalnız `DEPLOY_ENV=staging` (K-P27-3).
+  **proje-yoneticisi onayı, 2026-11-15.** Gerekçe: AC'nin amacı (imzasız yapı prod'da kullanılamaz, staging'de test edilebilir)
+  değişmez; revizyon yalnız AC içindeki çelişkiyi giderir. Onay koşulları (test edilebilir): (a) `DEPLOY_ENV` tanımsız veya `staging`
+  dışında herhangi bir değerse `UNATTENDED_MODE=unsigned` ile sunucu açılmaz (env doğrulama birim testi) — fail-closed;
+  (b) `UNATTENDED_MODE` verilmezse `off` geçerlidir: kayıt kodu, kayıt ve bağlantı 409 `UNATTENDED_DISABLED` döner, panelde açıklama
+  bandı görünür (entegrasyon + e2e); (c) prod açılışında P27 `off` başlar, SignPath imzası gelince `signed` ile açılır
+  (gereksinimler-e11 R30, kullanıcı kararı 2026-11-15).
+- **AC-274 (kapsam notu, metin değişmez — ONAYLANDI):** görüntü/girdi Windows **fiziksel konsol oturumu** içindir (giriş ekranı, masaüstü,
+  kilit ekranı, UAC). RDP/terminal sunucu oturumları ve Ctrl+Alt+Del (SAS) gönderimi Sonra (K-P27-13). Yeniden başlatma sonrası
+  ≤ 2 dk koşulu cihazın **çevrimiçi** olmasıdır; açık bağlantı yeniden başlatmada biter, teknisyen yeni bağlantı açar (K-P27-12).
+  **proje-yoneticisi onayı, 2026-11-15.** Gerekçe: AC metni "UAC ve kilit ekranı" der; bunlar fiziksel konsolda oluşur, RDP ve SAS
+  AC'de hiç yazılı değildi — bu not kapsamı daraltmaz, netleştirir. Windows 10/11 kilit ekranı varsayılan olarak SAS istemediği için
+  AC'nin kilit ekranı koşulu SAS olmadan sağlanır. "Yeniden çevrimiçi" ifadesi zaten oturumun sürmesini değil cihazın listede
+  çevrimiçi görünmesini ölçer; ikinci bir "kesintisiz sürdürme" yolu açmamak sadelik ilkesine uygundur. RDP, SAS ve yeniden başlatmada
+  oturumun sürmesi gereksinimler-e11 §11 "Sonra" satırına yazıldı. Kılavuz notu (AC-288): etki alanı politikasıyla SAS zorunlu
+  kılınmış cihazlarda kilit ekranı açılamaz.
+- **AC-273 (kapsam notu — ONAYLANDI, bilinçli daraltma):** "tam erişim"deki dosya = mevcut teknisyenden cihaza aktarım, otomatik kabul, sabit `Gelen` klasörü (K-P27-11).
+  **proje-yoneticisi onayı, 2026-11-15.** Gerekçe: katılımlı oturumda dosya iki yönlüdür (AC-53), ancak cihazdan teknisyene yön
+  müşterinin cihaz başında dosya seçip göndermesiyle çalışır; gözetimsizde cihaz başında kimse yoktur. Bu yönü sağlamak yeni bir yetenek
+  (teknisyenin cihaz dosya sistemine uzaktan göz atıp dosya çekmesi) ve yeni bir tehdit yüzeyi (SYSTEM yetkisiyle keyfi dosya okuma, R32)
+  demektir; AC-273 bunu ayrıca tanımlamıyordu. Mevcut tek yol (teknisyenden cihaza) aynen kullanılır, yalnız kabul adımı S24 gereği
+  otomatiktir (sadelik ilkesi). Bu, kullanıcının "tam erişim" kararını görüntü/kontrol açısından daraltmaz; teknisyen cihazdaki dosyaya
+  kontrol üzerinden erişebilir. Cihazdan teknisyene dosya çekme gereksinimler-e11 §11 "Sonra" satırına yazıldı (mimari-p27 §2).
+  Kılavuz notu (AC-288): `%ProgramData%\NoktaDestek Servis\Gelen\` klasörü cihazdaki tüm oturum açmış kullanıcılarca okunabilir ve
+  servis kaldırılınca silinir.
 
 ## G8 — Ürün genişlemeleri (en sona; her biri ayrı tasarım turu — S28 kararı)
 
