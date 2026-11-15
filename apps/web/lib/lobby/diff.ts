@@ -7,7 +7,7 @@ import type { WaitingSessionsResponse } from "@remote/contracts/api/sessions";
 export type LobbySession = WaitingSessionsResponse["sessions"][number];
 export type LobbyPrev = ReadonlyMap<string, { waiting: number; arrivals: number }>;
 
-export interface LobbyToast {
+interface LobbyToast {
   /** Bu turda yeni gelen ve hâlâ bekleyen misafir sayısı (≥ 1). */
   n: number;
   /** Yanıtta bekleyeni olan tek oturum → o oturumun konsolu; birden çok → oturum listesi. */

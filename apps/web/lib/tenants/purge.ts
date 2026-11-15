@@ -18,34 +18,15 @@ import {
 } from "@remote/contracts/api/tenants";
 import { ApiError } from "@/lib/api";
 
-export {
-  TENANT_PURGE_CANCEL_CONFLICT_MESSAGE,
-  TENANT_PURGE_DELAY_HOURS,
-  TENANT_PURGE_OPEN_JOB_MESSAGE,
-  TENANT_PURGE_PASSIVE_DAYS,
-  TENANT_PURGE_PREVIEW_REQUIRED_MESSAGE,
-  TENANT_PURGE_STEPS,
-  TENANT_REACTIVATE_PURGE_PARTIAL_MESSAGE,
-  TENANT_REACTIVATE_PURGE_SCHEDULED_MESSAGE,
-};
-export {
-  TENANT_NAME_MAX,
-  TENANT_PURGE_NOT_ELIGIBLE_MESSAGE,
-  TENANT_PURGE_OPEN_STATES,
-  TENANT_PURGE_PREVIEW_TTL_MIN,
-} from "@remote/contracts/api/tenants";
+export { TENANT_PURGE_DELAY_HOURS, TENANT_PURGE_PASSIVE_DAYS, TENANT_PURGE_STEPS, TENANT_REACTIVATE_PURGE_SCHEDULED_MESSAGE };
+export { TENANT_PURGE_OPEN_STATES } from "@remote/contracts/api/tenants";
 export type {
   PurgeJobItem,
   PurgeJobsResponse,
   TenantPurgeBadge,
-  TenantPurgeCancelResponse,
-  TenantPurgeCounts,
-  TenantPurgeInput,
   TenantPurgePreviewResponse,
   TenantPurgeScheduledResponse,
-  TenantPurgeState,
   TenantPurgeStatus,
-  TenantPurgeStep,
 } from "@remote/contracts/api/tenants";
 
 /** RUNNING işte durum yoklaması (mimari §7.8: 3 sn). */
@@ -79,7 +60,7 @@ export const PURGE_STEP_LABELS: Readonly<Record<TenantPurgeStep, string>> = {
 
 const DAY_MS = 86_400_000;
 
-export type PurgeEligibility =
+type PurgeEligibility =
   | { kind: "active" }
   | { kind: "wait"; eligibleAt: string }
   /** `passiveSince` bilinmiyor (sunucu alanı göndermedi) ya da 30 gün doldu → düğme açık; son karar sunucuda. */
@@ -128,7 +109,7 @@ export const purgeRemainingMs = (scheduledFor: string, now: number | null): numb
  * Silme/iptal/önizleme hatası → arayüz eylemi. `field`: ad alanının altında; `preview`: önizleme yeniden alınmalı (428);
  * `refresh`: durum değişti (açık iş/iptal çakışması) — panel yenilenir; `notEligible`: tarih ya da neden.
  */
-export type PurgeUiError =
+type PurgeUiError =
   | { kind: "field"; message: string }
   | { kind: "preview"; message: string }
   | { kind: "refresh"; message: string }
@@ -155,7 +136,7 @@ export const isReactivatePurgeConflict = (e: unknown): e is ApiError =>
   (e.message === TENANT_REACTIVATE_PURGE_SCHEDULED_MESSAGE || e.message === TENANT_REACTIVATE_PURGE_PARTIAL_MESSAGE);
 
 /** `lastError` hata sınıfı → Türkçe (FAILED kartı). Bilinmeyen sınıf ham gösterilir. */
-export const PURGE_ERROR_LABELS: Readonly<Record<string, string>> = {
+const PURGE_ERROR_LABELS: Readonly<Record<string, string>> = {
   db_fk: "veritabanı bağımlılık hatası",
   db_signal: "veritabanı koruması reddetti",
   fs: "dosya sistemi hatası",

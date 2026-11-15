@@ -26,7 +26,7 @@ export class ApiError extends Error {
 export const EXPIRED_LOGIN_PATH = "/login?reason=expired";
 
 /** P14a (AC-215): hassas uç son 5 dk içinde step-up ister (`requireStepUp`, contracts `errors.ts`). */
-export const STEP_UP_REQUIRED_CODE = "MFA_STEP_UP_REQUIRED";
+const STEP_UP_REQUIRED_CODE = "MFA_STEP_UP_REQUIRED";
 
 /**
  * 401: oturum süresi dolmuş/geçersiz. P14a (AC-215): 401 `MFA_STEP_UP_REQUIRED` oturum düşmesi değildir (kullanıcı

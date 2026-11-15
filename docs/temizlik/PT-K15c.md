@@ -114,3 +114,60 @@ Değişen: `app/(panel)/admin/settings/whatsapp/whatsapp-form.tsx`, `app/(panel)
 
 Eklenen: `admin/settings/whatsapp/{use-whatsapp-form.ts,whatsapp-parts.tsx}`, `settings/consent-text/{use-consent-form.ts,consent-parts.tsx}`,
 `components/ui/use-combobox.ts`.
+
+## 6. 3. tur (son)
+
+Kural aynı: davranış / görünüm değişmez; testid / role / aria-* / sınıf / metin aynı; efekt sırası korunur; commit yok.
+
+| Madde                            | Önce                                                                                 | Şimdi                                                                                                                                                                                                                                                                                                                                                                                     | Durum |
+| -------------------------------- | ------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----- |
+| 4) `AvatarUploader` + logo klonu | `AvatarUploader` 224; `LogoUploader` 185 / cx 23; jscpd 13 satır                     | yeni `components/branding/image-pick.tsx` 115 (`useImagePick` — gizli input ref + hidrasyon `ready` + ön kontrol/çözme/boyut; `useUploadRun` — meşgul, hata temizliği, 401 yönlendirme, `onFail`; `HiddenFileInput`; `UploadError`); `use-avatar-uploader.ts` 88, `avatar-uploader.tsx` 163; `use-logo-uploader.ts` 52, `logo-uploader.tsx` 163. Hepsi ≤ 40 / cx ≤ 15; kapsam jscpd **0** | tamam |
+| 4b) WhatsApp test / anahtar      | `WhatsappTestSection` 111, `WhatsappApiKeyField` 67, `WhatsappApiKeyRemoveDialog` 53 | yeni `whatsapp/use-wa-test.ts` 64 (`okResult`, `failure`, `useWaTest`); `whatsapp-test-section.tsx` 100 (`TestForm`, `TestResultAlert`); `whatsapp-api-key-field.tsx` 128 (`keyHint`, `KeyRemoveButton`, props tipleri ayrı) — hepsi ≤ 40                                                                                                                                                 | tamam |
+| 5) Kapsam lib knip export'ları   | 102 bulgu (kapsamdaki `lib/**`)                                                      | **0** — 27 dosya: kullanılmayan yeniden dışa aktarımlar listeden çıkarıldı (contracts'tan doğrudan alınanlar), yalnız dosya içinde kullanılanlarda `export` kaldırıldı, hiç kullanılmayan 6 tip silindi (`WhatsappSource`, `WhatsappServiceInput`, `WhatsappServiceTestInput`, `TurnField`, `LoginResult`/`MeResult` yeniden dışa aktarımı)                                               | tamam |
+| 6) Ölü i18n anahtarları          | 27 ölü aday / 153 dinamik aday                                                       | **19 silindi**, 8 bırakıldı (aşağıda)                                                                                                                                                                                                                                                                                                                                                     | tamam |
+| DESIGN.md `ui/skeleton` notu     | yok                                                                                  | bileşen tablosunda `ListPageSkeleton({ testId, label })` notu                                                                                                                                                                                                                                                                                                                             | tamam |
+
+Kapsam ESLint ölçümü (40 / cx 15, `olc.sh`): **43 → 37 uyarı** (bu turun hedefleri 0; kalan 37 görev listesinde olmayan
+işlevler: `LoginForm`, `MfaVerifyForm`, `RetentionForm`, `LimitsForm`, `Dialog`, `RequestNotifier`, `lib/api.ts send` cx 25 vb. — sonraki temizlik adayı).
+
+### Kararlar / notlar (3. tur)
+
+1. **Yükleyiciler:** hata ayrımı korundu — avatar: seçim hatası `error` (bileşen altı), istek hatası `dialogError` (diyalog içi);
+   logo: tek `error`, kaldırma başarısızsa onay diyaloğu kapanır (`useUploadRun` `onFail`). Yeni seçimde kırpma durumu sıfırlama
+   sırası aynı (crop → zoom → area → dialogError → pick). `useImagePick` ortak primitif değil, `components/branding/` içi yardımcı —
+   DESIGN.md'ye eklenmedi. Hook sırası değişti (efekt yok, `useSyncExternalStore` hidrasyon bayrağı aynı) — davranış farkı yok.
+2. **WhatsApp testi:** hata eşlemesi saf işlev (`failure`): 400 `fields.phoneNumber` → alan, 429 → `locked`, diğer → `danger`;
+   401 yönlendirmesi kancada (eskisi gibi en önce).
+3. **knip:** `lib/*/contract.ts` web yüzü dosyalarından yalnız web'de **hiçbir yerden** (app, components, lib, testler, e2e) bu yoldan
+   alınmayan adlar çıkarıldı; sunucu/contracts'taki aynı adlar etkilenmez. `lib/users/form.ts` ↔ `lib/admin-settings/forms.ts`
+   `splitServerFields` ikizi (aynı gövde) fark edildi; `users` parça B alanında olduğu için birleştirilmedi — sonraki tur adayı.
+   Kapsamda lib dışı kalan knip bulgusu: `components/branding/theme-provider.tsx` (`THEME_ICONS`, `themeOptions`, `useTheme`) — görev
+   maddesi yalnız `lib`; dokunulmadı.
+4. **i18n — silinen 19** (iki yoldan teyit: (a) çalışma kopyasında ve `HEAD`'de tüm `apps/web` + depo genelinde birebir metin
+   araması 0, (b) dinamik kurgu taraması — `` `${k}.x` ``, `"önek." +`, ölçümün önek listesi — eşleşme yok):
+   `s.subtitle`, `g.loading`, `p7.keySent`, `h.f.toggle`, `h.f.active`, `h.d.crumb`, `us.never`, `us.f.roleHint`, `us.e.superAdmin`,
+   `tn.f.conflict`, `acc.navLabel`, `my.title`, `my.restart`, `tu.title`, `av.title`, `av.readonly`, `us.x.openFor`, `tn.p.goList`, `tn.detailFor`.
+   **Bırakılan 8** (ölçüm "ölü aday" sayıyor ama dinamik kullanılıyor): `us.r.{title,body,confirm,done}`, `us.m.{title,body,confirm,done}` —
+   `users/[id]/user-dialogs.tsx` `k = mfa ? "us.m" : deact ? "us.d" : "us.r"` + ``t(`${k}.title`)``. Ölçüm aracı bu kalıbı (önek
+   değişkende) yakalamıyor. **153 dinamik aday dokunulmadı** (şüpheli = bırak).
+
+### Doğrulama (3. tur sonu)
+
+- `tsc --noEmit` (web): temiz. ESLint (proje yapılandırması, React Compiler dahil) tüm `apps/web`: 0 hata, 0 uyarı.
+- Kök `pnpm format:check`: temiz (prettier yalnız değişen dosyalara uygulandı).
+- `vitest`: 386/386; `vitest list` önce = sonra. `playwright test --list`: önce = sonra (645 satır, satır numarası hariç).
+- Etkilenen e2e (`auth`, `customers`, `p10-account`, `p11-admin`, `p12-branding`, `p12b-whatsapp`, `p13a`, `p13bl-lobby`, `p14a-a4`,
+  `p16`, `p19-j5`, `p8-history`, `p9-users`, `sessions`; desktop + mobile): **303 geçti, 0 kırmızı**, 123 atlandı.
+- Tam e2e 1. koşu: 441 geçti, **1 kırmızı** — `p5-collab` TEST-P5-1 (`desktop-rtc`, WebRTC dosya teklifi `offered` yerine `rejected`;
+  `lib/dc` / `console` bu işin kapsamı dışında, dokunulmadı). 2. tam koşu: **443 geçti, 0 kırmızı**, 200 atlandı; TEST-P5-1
+  `--repeat-each=3` 3/3 geçti → zamanlamaya bağlı kararsız test (ayrı not).
+
+### Değişen / eklenen dosyalar (3. tur, `apps/web/` altında)
+
+Değişen: `components/branding/{avatar-uploader,logo-uploader}.tsx`, `admin/settings/whatsapp/{whatsapp-test-section,whatsapp-api-key-field}.tsx`,
+`messages/tr.json`, `lib/` altında 27 dosya (`api.ts`, `agent-download.ts`, `auth-schema.ts`, `guest-resume.ts`, `tab-title.ts`,
+`account/{contract,idle,smtp-form,step-up}.ts`, `admin-settings/{contract,forms,whatsapp}.ts`, `audit/{actions,contract,query}.ts`,
+`branding/image.ts`, `customers/{contract,form,import}.ts`, `history/{anonymized,query}.ts`, `lobby/diff.ts`, `tenants/purge.ts`,
+`users/{contract,delete,tenant-options,user-options}.ts`); kökte `DESIGN.md` (tek satır).
+
+Eklenen: `components/branding/{image-pick.tsx,use-avatar-uploader.ts,use-logo-uploader.ts}`, `admin/settings/whatsapp/use-wa-test.ts`.

@@ -8,7 +8,6 @@ import { t } from "@/lib/i18n";
  * arayüze özgü "şifre tekrar" kontrolü var.
  */
 export { loginInputSchema as loginInput };
-export type { LoginResponse as LoginResult, MeResponse as MeResult } from "@remote/contracts/api/auth";
 
 function message(field: string, issue: z.core.$ZodIssue): string {
   if (issue.code === "too_small") {

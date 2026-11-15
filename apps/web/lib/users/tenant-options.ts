@@ -10,7 +10,7 @@ export const TENANT_COMBO_DEBOUNCE_MS = 250;
 /** Sunucu şemasıyla aynı üst sınır (fazlası 400 olurdu); uzun metin kırpılır. */
 const Q_MAX = 120;
 
-export function tenantOptionsPath(q: string): string {
+function tenantOptionsPath(q: string): string {
   const qs = new URLSearchParams({ limit: String(TENANT_OPTIONS_MAX) });
   const v = q.trim().slice(0, Q_MAX);
   if (v) qs.set("q", v);

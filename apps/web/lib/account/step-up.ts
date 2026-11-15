@@ -7,7 +7,7 @@ import { ApiError, NetworkError } from "@/lib/api";
 import { t } from "@/lib/i18n";
 import { RECOVERY_CODES_LOW_THRESHOLD, stepUpInputSchema, type StepUpMethod, type StepUpResponse } from "./contract";
 
-export type StepUpBody = { method: StepUpMethod; code: string };
+type StepUpBody = { method: StepUpMethod; code: string };
 
 /** Alan metni → gönderilecek gövde ya da alan hatası (istek atılmaz). */
 export function buildStepUp(method: StepUpMethod, raw: string): { body?: StepUpBody; error?: string } {

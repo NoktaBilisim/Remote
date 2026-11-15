@@ -22,10 +22,10 @@ type SP = Record<string, string | string[] | undefined>;
 
 const one = (v: string | string[] | undefined) => (Array.isArray(v) ? v[0] : v)?.trim() || undefined;
 
-export const isAuditAction = (v: string): boolean => auditActionFilterSchema.safeParse(v).success;
+const isAuditAction = (v: string): boolean => auditActionFilterSchema.safeParse(v).success;
 
 /** İki gün arası gün farkı (YYYY-MM-DD; UTC gece yarısı, DST'den bağımsız). */
-export function daySpan(from: string, to: string): number {
+function daySpan(from: string, to: string): number {
   return Math.round((Date.parse(`${to}T00:00:00Z`) - Date.parse(`${from}T00:00:00Z`)) / DAY_MS);
 }
 
@@ -87,7 +87,7 @@ export function parseAuditParams(sp: SP, opts: { allowTenant: boolean; today: st
 const ORDER: AuditField[] = ["from", "to", "tenantId", "userId", "action", "result"];
 
 /** Filtre → sorgu dizesi (boşlar yazılmaz; sabit sıra → kararlı URL). */
-export function auditQuery(f: AuditFilters): string {
+function auditQuery(f: AuditFilters): string {
   const q = new URLSearchParams();
   for (const k of ORDER) {
     const v = f[k];

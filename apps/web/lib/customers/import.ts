@@ -22,7 +22,7 @@ export function errorReportCsv(errors: readonly ImportRowError[]): string {
   return CSV_BOM + lines.join(""); // csvRow her satırı CRLF ile bitirir
 }
 
-export type ImportFailure =
+type ImportFailure =
   | { kind: "field"; message: string }
   | { kind: "previewExpired"; message: string }
   | { kind: "busy"; message: string }

@@ -19,21 +19,12 @@ import { ApiError } from "@/lib/api";
 import { toUiError, type UiError } from "@/lib/error-message";
 import { t } from "@/lib/i18n";
 
-export {
-  AVATAR_PX,
-  DEFAULT_LOGO_URL,
-  IMAGE_DIMENSIONS_MESSAGE,
-  INVALID_IMAGE_MESSAGE,
-  PAYLOAD_TOO_LARGE_MESSAGE,
-  UPLOAD_ACCEPT,
-  UPLOAD_MAX_BYTES,
-};
-export type { AvatarResponse, LogoResponse, PublicBrandingResponse, SystemLogoResponse } from "@remote/contracts/api/branding";
+export { AVATAR_PX, IMAGE_DIMENSIONS_MESSAGE, INVALID_IMAGE_MESSAGE, PAYLOAD_TOO_LARGE_MESSAGE, UPLOAD_MAX_BYTES };
 
-export type PrecheckResult = { ok: true } | { ok: false; message: string };
+type PrecheckResult = { ok: true } | { ok: false; message: string };
 
 /** AC-229: tarayıcı MIME bildirmediğinde (`file.type === ""`, ör. bazı sistemlerde .webp) ön kabul için uzantılar. */
-export const UPLOAD_EXTENSIONS = [".png", ".jpg", ".jpeg", ".webp"] as const;
+const UPLOAD_EXTENSIONS = [".png", ".jpg", ".jpeg", ".webp"] as const;
 
 /** `<input accept>` değeri: MIME + uzantı (AC-229 — MIME eşlemesi olmayan sistemde dosya seçicide .webp gizlenmesin). */
 export const ACCEPT_ATTR = [...UPLOAD_ACCEPT, ...UPLOAD_EXTENSIONS].join(",");

@@ -6,9 +6,9 @@
  */
 import { API_BASE } from "@/lib/api";
 
-export type AgentEnd = "expired" | "cancelled" | "consumed" | "notFound";
+type AgentEnd = "expired" | "cancelled" | "consumed" | "notFound";
 
-export type AgentProbe =
+type AgentProbe =
   | { kind: "ok" }
   | { kind: "notReady" }
   | { kind: "end"; end: AgentEnd }

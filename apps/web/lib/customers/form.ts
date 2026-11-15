@@ -55,7 +55,7 @@ function p18Of(d: CustomerDraft): { priority: RequestPriority | null; sla: numbe
 }
 
 /** Zod hatası → alan başına ilk mesaj (bilinmeyen yol yok sayılır). */
-export function errorsOf(error: z.ZodError): CustomerErrors {
+function errorsOf(error: z.ZodError): CustomerErrors {
   const out: CustomerErrors = {};
   for (const i of error.issues) {
     const k = i.path[0];
@@ -76,7 +76,7 @@ export function serverFieldErrors(fields: Record<string, string> | undefined): {
   return { errors, rest };
 }
 
-export type FormResult<T> = { ok: true; body: T } | { ok: false; errors: CustomerErrors };
+type FormResult<T> = { ok: true; body: T } | { ok: false; errors: CustomerErrors };
 
 export function buildCreate(d: CustomerDraft): FormResult<CreateCustomerInput> {
   const body: CreateCustomerInput = { name: d.name };

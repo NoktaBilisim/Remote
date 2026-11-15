@@ -27,7 +27,7 @@ export interface SmtpState {
 }
 
 export type SmtpField = "host" | "port" | "security" | "user" | "password" | "fromName" | "fromEmail";
-export const SMTP_FIELDS: readonly SmtpField[] = ["host", "port", "security", "user", "password", "fromName", "fromEmail"];
+const SMTP_FIELDS: readonly SmtpField[] = ["host", "port", "security", "user", "password", "fromName", "fromEmail"];
 
 export const toSmtpState = (s: SmtpSettingsView | null): SmtpState => ({
   host: s?.host ?? "",
@@ -43,7 +43,7 @@ export const toSmtpState = (s: SmtpSettingsView | null): SmtpState => ({
 export const smtpCredsAllowed = (security: SmtpSecurity): boolean => security !== "NONE";
 
 /** Gönderilecek (etkin) kimlik: "Yok" seçiliyken boş. */
-export const effectiveCreds = (st: SmtpState): { user: string; password: string } =>
+const effectiveCreds = (st: SmtpState): { user: string; password: string } =>
   smtpCredsAllowed(st.security) ? { user: st.user, password: st.password } : { user: "", password: "" };
 
 /**
@@ -63,7 +63,7 @@ const norm = (st: SmtpState) => {
 export const smtpDirty = (a: SmtpState, b: SmtpState): boolean => norm(a) !== norm(b);
 
 /** Boş form (yapılandırma kaldırılacak): sunucu, kullanıcı, şifre, gönderen alanlarının hepsi boş. */
-export const smtpEmpty = (st: SmtpState): boolean => {
+const smtpEmpty = (st: SmtpState): boolean => {
   const c = effectiveCreds(st);
   return !st.host.trim() && !c.user.trim() && !c.password && !st.fromName.trim() && !st.fromEmail.trim();
 };

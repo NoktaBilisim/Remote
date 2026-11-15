@@ -6,7 +6,7 @@ import { api } from "@/lib/api";
 import { t } from "@/lib/i18n";
 import type { UserOptionsResponse } from "./contract";
 
-export type TechOption = { value: string; label: string };
+type TechOption = { value: string; label: string };
 
 export function userOptionsPath(tenantId?: string): string {
   return tenantId ? `/users/options?${new URLSearchParams({ tenantId }).toString()}` : "/users/options";

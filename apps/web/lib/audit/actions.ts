@@ -23,7 +23,7 @@ import {
 import { AUDIT_ACTION_GROUPS } from "./contract";
 import { labelOf, OUTBOUND_REASON_LABELS, TIMELINE_ACTION_LABELS } from "@remote/contracts/labels";
 
-export const AUDIT_ACTION_LABELS: Readonly<Record<string, string>> = {
+const AUDIT_ACTION_LABELS: Readonly<Record<string, string>> = {
   ...TIMELINE_ACTION_LABELS,
   "auth.login": "Giriş",
   "auth.logout": "Çıkış",
@@ -123,15 +123,15 @@ export { OUTBOUND_REASON_LABELS };
 export const reasonLabel = (reason: string): string => labelOf(OUTBOUND_REASON_LABELS, reason);
 
 /** Grup (adın ilk bölümü) → Türkçe başlık: contracts `AUDIT_ACTION_GROUPS` (`auth.*` → "Giriş ve hesap güvenliği"). */
-export const AUDIT_GROUP_LABELS: Readonly<Record<string, string>> = {
+const AUDIT_GROUP_LABELS: Readonly<Record<string, string>> = {
   ...Object.fromEntries(AUDIT_ACTION_GROUPS.map((g) => [g.prefix.slice(0, -2), g.label])),
 };
 
-export const groupOf = (action: string): string => action.split(".")[0] ?? action;
+const groupOf = (action: string): string => action.split(".")[0] ?? action;
 export const actionLabel = (action: string): string => labelOf(AUDIT_ACTION_LABELS, action);
 export const groupLabel = (group: string): string => labelOf(AUDIT_GROUP_LABELS, group);
 
-export interface ActionOptionGroup {
+interface ActionOptionGroup {
   label: string;
   options: { value: string; label: string }[];
 }
@@ -169,7 +169,7 @@ const MAIL_ACTIONS: ReadonlySet<string> = new Set(Object.values(MAIL_AUDIT));
 export const isMailAction = (action: string): boolean =>
   MAIL_ACTIONS.has(action) || groupOf(action) === "mail" || /^settings\.[a-z_]+\.test$/.test(action);
 
-export type AuditPayload = { kind: "json"; oldValue: string | null; newValue: string | null } | { kind: "reason"; reason: string | null };
+type AuditPayload = { kind: "json"; oldValue: string | null; newValue: string | null } | { kind: "reason"; reason: string | null };
 
 const pretty = (v: unknown): string | null => {
   if (v === null || v === undefined) return null;

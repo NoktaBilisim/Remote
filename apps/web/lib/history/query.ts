@@ -15,7 +15,7 @@ import {
 } from "@remote/contracts/api/sessions";
 
 export const PAGE_SIZES = [10, 25, 50, 100] as const;
-export const DEFAULT_PAGE_SIZE = 25;
+const DEFAULT_PAGE_SIZE = 25;
 const ULID = /^[0-9A-HJKMNP-TV-Z]{26}$/;
 const DAY = /^\d{4}-\d{2}-\d{2}$/;
 
@@ -35,7 +35,7 @@ export interface HistoryFilters {
   pageSize: number;
 }
 
-export type FilterField = Exclude<keyof HistoryFilters, "page" | "pageSize"> | "page" | "pageSize";
+type FilterField = Exclude<keyof HistoryFilters, "page" | "pageSize"> | "page" | "pageSize";
 export type SearchParams = Record<string, string | string[] | undefined>;
 
 /** "2026-02-30" gibi var olmayan günleri de reddeder. */
@@ -125,7 +125,7 @@ export function parseFilters(sp: SearchParams): { filters: HistoryFilters; ignor
 }
 
 /** Filtre → sorgu dizesi (varsayılanlar yazılmaz; sabit sıra → kararlı URL). */
-export function toQuery(f: Partial<HistoryFilters>, opts: { paging?: boolean } = {}): string {
+function toQuery(f: Partial<HistoryFilters>, opts: { paging?: boolean } = {}): string {
   const q = new URLSearchParams();
   const put = (k: string, v: string | number | undefined) => {
     if (v !== undefined && v !== "") q.set(k, String(v));

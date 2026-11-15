@@ -5,8 +5,8 @@ import { t } from "@/lib/i18n";
  * önekleri TEK yazıcıdan (`components/tab-title.tsx`) geçer; iki ayrı yazıcı birbirinin önekini silerdi. Bu dosya saf
  * fonksiyonlar + küçük modül deposudur (bileşen ve bildiriciler arasında).
  */
-export type TitlePart = "lobby" | "requests";
-export interface TitleParts {
+type TitlePart = "lobby" | "requests";
+interface TitleParts {
   lobby: number;
   requests: number;
 }

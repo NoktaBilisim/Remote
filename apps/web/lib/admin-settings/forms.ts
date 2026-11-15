@@ -76,7 +76,7 @@ export function buildMysqlInput(s: MysqlState): { input?: MysqlSettingsData; err
 }
 
 /** Sunucu `fields` → alan hataları + alana bağlanamayanlar (form üstü). */
-export function splitServerFields<F extends string>(
+function splitServerFields<F extends string>(
   fields: Record<string, string>,
   known: readonly F[],
 ): { errors: Partial<Record<F, string>>; rest: string[] } {
@@ -95,7 +95,6 @@ export interface TurnState {
   urls: string[];
   secret: string;
 }
-export type TurnField = "urls" | "secret";
 export type TurnErrors = { urls?: string; secret?: string; url?: Record<number, string> };
 
 export const toTurnState = (v: TurnSettingsView | null): TurnState => ({ urls: v?.urls.length ? [...v.urls] : [""], secret: "" });

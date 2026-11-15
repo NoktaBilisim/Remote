@@ -12,16 +12,7 @@ import { Section, SourceBadge } from "../section";
 
 const PATH = "/admin/settings/whatsapp";
 
-/** Servis anahtarı bölümü (S-P13b-3): maskeli alan, kaynak rozeti, panel anahtarı için "Anahtarı kaldır". Değer üst formda tutulur (PUT ile birlikte gider). */
-export function WhatsappApiKeyField({
-  saved,
-  value,
-  onChange,
-  error,
-  inputRef,
-  busy,
-  onRemoveClick,
-}: {
+type KeyFieldProps = {
   saved: WhatsappServiceView;
   value: string;
   onChange: (v: string) => void;
@@ -29,7 +20,17 @@ export function WhatsappApiKeyField({
   inputRef: RefObject<HTMLInputElement | null>;
   busy: boolean;
   onRemoveClick: () => void;
-}) {
+};
+
+/** Alan ipucu: anahtarın kaynağına (panel / ortam / yok) ve adresin kaynağına göre. */
+function keyHint(saved: WhatsappServiceView): string {
+  if (saved.apiKeySource === "panel") return t("wa.svc.keyHintSet");
+  if (saved.apiKeySource === "env") return t("wa.svc.keyHintEnv");
+  return saved.source === "panel" ? t("wa.svc.keyHintPanelNone") : t("wa.svc.keyHintNone");
+}
+
+/** Servis anahtarı bölümü (S-P13b-3): maskeli alan, kaynak rozeti, panel anahtarı için "Anahtarı kaldır". Değer üst formda tutulur (PUT ile birlikte gider). */
+export function WhatsappApiKeyField({ saved, value, onChange, error, inputRef, busy, onRemoveClick }: KeyFieldProps) {
   return (
     <Section
       id="wa-key"
@@ -54,43 +55,30 @@ export function WhatsappApiKeyField({
         value={value}
         onChange={(e) => onChange(e.target.value)}
         error={error}
-        hint={
-          saved.apiKeySource === "panel"
-            ? t("wa.svc.keyHintSet")
-            : saved.apiKeySource === "env"
-              ? t("wa.svc.keyHintEnv")
-              : saved.source === "panel"
-                ? t("wa.svc.keyHintPanelNone")
-                : t("wa.svc.keyHintNone")
-        }
+        hint={keyHint(saved)}
         autoComplete="new-password"
         spellCheck={false}
         autoCapitalize="none"
         maxLength={300}
         data-testid="wa-key-input"
       />
-      {saved.apiKeySource === "panel" && saved.source === "panel" && (
-        <div>
-          <Button type="button" variant="danger-ghost" disabled={busy} onClick={onRemoveClick} data-testid="wa-key-remove">
-            <Trash2 aria-hidden className="size-4" />
-            {t("wa.svc.keyRemove")}
-          </Button>
-        </div>
-      )}
+      {saved.apiKeySource === "panel" && saved.source === "panel" && <KeyRemoveButton busy={busy} onClick={onRemoveClick} />}
     </Section>
   );
 }
 
-/** Panel anahtarını siler (PUT `apiKey: null`); adres kayıtlı değerle gider, formdaki kaydedilmemiş adres kullanılmaz. */
-export function WhatsappApiKeyRemoveDialog({
-  open,
-  saved,
-  busy,
-  setBusy,
-  onClose,
-  onRemoved,
-  onFail,
-}: {
+function KeyRemoveButton({ busy, onClick }: { busy: boolean; onClick: () => void }) {
+  return (
+    <div>
+      <Button type="button" variant="danger-ghost" disabled={busy} onClick={onClick} data-testid="wa-key-remove">
+        <Trash2 aria-hidden className="size-4" />
+        {t("wa.svc.keyRemove")}
+      </Button>
+    </div>
+  );
+}
+
+type RemoveDialogProps = {
   open: boolean;
   saved: WhatsappServiceView;
   busy: boolean;
@@ -98,7 +86,10 @@ export function WhatsappApiKeyRemoveDialog({
   onClose: () => void;
   onRemoved: (v: WhatsappServiceView) => void;
   onFail: (err: unknown) => void;
-}) {
+};
+
+/** Panel anahtarını siler (PUT `apiKey: null`); adres kayıtlı değerle gider, formdaki kaydedilmemiş adres kullanılmaz. */
+export function WhatsappApiKeyRemoveDialog({ open, saved, busy, setBusy, onClose, onRemoved, onFail }: RemoveDialogProps) {
   const remove = async () => {
     if (!saved.url || saved.source !== "panel") return;
     setBusy(true);

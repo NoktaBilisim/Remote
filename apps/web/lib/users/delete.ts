@@ -15,8 +15,7 @@ export function userDeleteState(
 }
 
 /** DELETE /users/:id hatası → diyalog içi gösterim: ad alanı, bayat kayıt (yeniden yükle) ya da genel mesaj. */
-export type UserDeleteError =
-  { kind: "field"; message: string } | { kind: "stale"; message: string } | { kind: "message"; message: string };
+type UserDeleteError = { kind: "field"; message: string } | { kind: "stale"; message: string } | { kind: "message"; message: string };
 
 export function userDeleteErrorOf(e: unknown, notFound: string): UserDeleteError | null {
   if (!(e instanceof ApiError)) return null;

@@ -5,11 +5,11 @@
  * "oturumunuz sona erdi" ile girişe. Yoklama sunucunun boşta sayacını yalnız oturum zaten geçerliyse uzatır (WS/başka
  * sekme etkinliği) — istemci kendi başına oturum düşürmez, sunucuyla çelişmez.
  */
-export const IDLE_MS = 30 * 60_000;
+const IDLE_MS = 30 * 60_000;
 /** Sunucunun boşta sınırından biraz sonra (saat kayması/60 sn'lik `last_seen_at` yazımı payı). */
 export const IDLE_PROBE_MS = IDLE_MS + 90_000;
 /** Sekmeye dönüşte art arda yoklama yapılmaz. */
-export const VISIBLE_PROBE_MIN_GAP_MS = 60_000;
+const VISIBLE_PROBE_MIN_GAP_MS = 60_000;
 
 export type ProbeReason = "idle" | "visible";
 

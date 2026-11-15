@@ -19,7 +19,7 @@ const resumeSchema = z.object({
 });
 export type GuestResume = Omit<z.infer<typeof resumeSchema>, "savedAt">;
 /** Sunucunun yeniden bağlanma penceresiyle aynı (signal.ts RECONNECT_WINDOW_MS). */
-export const RESUME_MAX_AGE_MS = 120_000;
+const RESUME_MAX_AGE_MS = 120_000;
 type Store = Pick<Storage, "getItem" | "setItem" | "removeItem">;
 
 const store = (): Store | undefined => {

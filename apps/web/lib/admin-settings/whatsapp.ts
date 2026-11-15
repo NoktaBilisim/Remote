@@ -11,9 +11,7 @@ import {
   canonicalWaUrl as contractsCanonicalWaUrl,
   waApiKeySchema,
   waServiceUrlSchema,
-  type WhatsappAdminTestInput,
   type WhatsappAdminTestResponse,
-  type WhatsappSettingsInput,
   type WhatsappSettingsView,
 } from "@remote/contracts/api/system-settings";
 import { normalizePhone } from "@/lib/requests/validate";
@@ -21,7 +19,6 @@ import { normalizePhone } from "@/lib/requests/validate";
 /**
  * Kaynak contracts'tan `"panel" | "env"`. `normalizeWaView` beklenmeyen değeri "env"e indirir (savunma).
  */
-export type WhatsappSource = WhatsappSettingsView["source"];
 export type WhatsappServiceView = WhatsappSettingsView;
 export function normalizeWaView(
   v: Omit<WhatsappSettingsView, "source" | "apiKeySet" | "apiKeySource"> & {
@@ -38,8 +35,6 @@ export function normalizeWaView(
     apiKeySource: v.apiKeySource === "panel" || v.apiKeySource === "env" ? v.apiKeySource : null,
   };
 }
-export type WhatsappServiceInput = WhatsappSettingsInput;
-export type WhatsappServiceTestInput = WhatsappAdminTestInput;
 export type WhatsappServiceTestResponse = WhatsappAdminTestResponse;
 
 export const WA_SERVICE_URL_MAX = WA_URL_MAX;
@@ -52,7 +47,7 @@ export const WA_URL_MESSAGES = {
   chars: "Adreste boşluk, görünmez karakter, @, ? veya # olamaz",
   invalid: "Geçerli bir adres girin (ör. https://wa.ornek.com:3000)",
 } as const;
-export const WA_PHONE_MESSAGES = { required: "Telefon numarası gerekli", invalid: "Telefon numarası geçersiz" } as const;
+const WA_PHONE_MESSAGES = { required: "Telefon numarası gerekli", invalid: "Telefon numarası geçersiz" } as const;
 
 /** Sondaki `/` kırpılır (sunucu da kırpar) → kirli karşılaştırması ve gönderim aynı biçimde. */
 export const normalizeWaUrl = (raw: string): string => raw.trim().replace(/\/+$/, "");
