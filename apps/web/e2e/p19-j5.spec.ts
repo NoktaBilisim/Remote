@@ -290,48 +290,6 @@ test("AC-260: SMS ayarı — anahtar okunamıyor bandı, anahtar maskeli/korunur
   await expect(page.getByTestId("sms-unusable")).toBeVisible();
 });
 
-test("AC-260: send-link — kanal seçimi, E.164 önizleme, TR dışı SMS reddi, 502/409, 429 geri sayımı, başarı", async ({ page, context }) => {
-  await signInP19(context, "p19tech");
-  await openCreated(page);
-  await page.getByTestId("send-link-open").click();
-  const form = page.getByTestId("send-link-form");
-  await expect(form.getByRole("group", { name: "Gönderim kanalı" })).toBeVisible();
-  await page.getByTestId("send-link-phone").fill("+44 7700 900123");
-  await page.getByTestId("send-link-send").click();
-  await expect(form.getByText("SMS yalnız Türkiye cep numaralarına gönderilir")).toBeVisible();
-  await page.getByTestId("send-link-phone").fill("0532 000 05 02");
-  await expect(form.getByText("Gönderilecek numara: +905320000502")).toBeVisible();
-  await page.getByTestId("send-link-send").click();
-  await expect(page.getByTestId("send-link-result")).toContainText("SMS gönderilemedi");
-  await page.getByTestId("send-link-phone").fill("05320000409");
-  await page.getByTestId("send-link-send").click();
-  await expect(page.getByTestId("send-link-result")).toContainText("kullanılamıyor");
-  await page.getByTestId("send-link-phone").fill("05320000429");
-  await page.getByTestId("send-link-send").click();
-  await expect(page.getByTestId("send-link-send")).toContainText("Bekleyin");
-  await expect(page.getByTestId("send-link-send")).toBeDisabled();
-  await expect(page.getByTestId("send-link-send")).toHaveText(/Gönder/, { timeout: 6000 });
-  await form.getByRole("button", { name: "WhatsApp" }).click();
-  await page.getByTestId("send-link-phone").fill("0532 111 22 33");
-  await page.getByTestId("send-link-send").click();
-  await expect(page.getByTestId("send-link-result")).toHaveText("Bağlantı WhatsApp ile gönderildi: +905321112233");
-});
-
-test("AC-260: kanal yoksa send-link kendi metnini gösterir (sistem logosu metni değil)", async ({ page, context }) => {
-  await signInP19(context, "p19tech");
-  await page.route("**/send-link/options", (r) => r.fulfill({ json: { sms: false, whatsapp: false, suggestedPhone: null } }));
-  await openCreated(page);
-  await page.getByTestId("send-link-open").click();
-  await expect(page.getByTestId("send-link-none")).toContainText("SMS ve WhatsApp şu an kullanılamıyor");
-});
-
-test("AC-260: send_link yetkisi yoksa düğme yok", async ({ page, context }) => {
-  await signInP19(context, "p19technl");
-  await openCreated(page);
-  await expect(page.getByTestId("session-email-open")).toBeVisible();
-  await expect(page.getByTestId("send-link-open")).toHaveCount(0);
-});
-
 test("S-P19-T5: kurala uymayan kayıtlı WhatsApp adresi → 'yeniden kaydedin' bandı", async ({ page, context }) => {
   await sessionCookies(context, `u-ausarsv-${newRoom()}`);
   await page.goto("/admin/settings/whatsapp");
@@ -345,10 +303,11 @@ test("tur 2 ekranları iki tema axe 0, 390 px", async ({ browser }) => {
     await signInP19(ctx, "p19tech");
     const p = await ctx.newPage();
     await openCreated(p);
-    await p.getByTestId("send-link-open").click();
-    await expect(p.getByTestId("send-link-form")).toBeVisible();
+    // LG-3: P19 "SMS / WhatsApp ile gönder" → tek "Müşteriye gönder" diyaloğu (akış testleri e2e/lg-send.spec.ts)
+    await p.getByTestId("customer-send-open").click();
+    await expect(p.getByTestId("cs-form")).toBeVisible();
     await noHorizontalOverflow(p);
-    expect(await axeScan(p), `send-link ${scheme}`).toEqual([]);
+    expect(await axeScan(p), `customer-send ${scheme}`).toEqual([]);
     await ctx.close();
   }
 });

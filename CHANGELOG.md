@@ -5,6 +5,21 @@ Biçim [Keep a Changelog](https://keepachangelog.com/tr/1.1.0/), sürümleme [Se
 
 ## [Unreleased]
 
+### Eklendi — Müşteriye bağlantı gönderme (LG, AC-405..428)
+
+- Tek **Müşteriye gönder** penceresi: oturum kartı, kayıt kodu penceresi ve müşteri ayrıntısından açılır. Kanal seçimi,
+  alıcı, salt okunur önizleme (müşteriye birebir aynı metin gider), geri sayımlı hız sınırı. Oturum kartındaki eski
+  "E-posta ile gönder" ve "SMS / WhatsApp ile gönder" düğmeleri bu tek düğmeye indi.
+- Oturum bağlantısı mesajına (e-posta, WhatsApp) Windows destek programının doğrudan indirme bağlantısı eklendi;
+  e-postada dosya adı biçimi ve SHA-256 de yazar. SMS metni kısaltıldı (≤ 3 parça).
+- Kayıt kodu ve servis kurulum bağlantısı müşterinin bildirim adreslerine **yalnız e-postayla** gönderilir; kod başına
+  en çok 3 gönderim. Kayıt kodunu WhatsApp'la gönderme, servis HTTPS'e geçip risk yazılı kabul edilene kadar kapalı.
+- Müşteriye özel Hızlı Destek ve talep formu bağlantıları e-posta veya WhatsApp ile gönderilir.
+- Yeni uçlar: `POST /api/v1/customer-send/options`, `POST /api/v1/customer-send`, oturumsuz
+  `GET /api/v1/public/unattended/download?t=` (koda bağlı süreli belirteç, IP başına 20/dk, geçersizlikte tek tip 404).
+- Yeni audit eylemleri `unattended.code.sent`, `customer.link_sent`, `unattended.code.downloaded` (ipucu; kod + IP
+  saatte 1, kod başına en çok 10). `sessions.send_link` yetkisinin etiketi "Müşteriye bağlantı gönder" oldu.
+
 ### Değişti — WhatsApp servisi geçici düz http izni (K13, kullanıcı kararı 2026-11-15)
 
 - Yeni `WHATSAPP_ALLOW_INSECURE_HTTP` (varsayılan `false`): `true` iken WhatsApp servisi düz `http://` + API anahtarıyla kullanılabilir; Super Admin → WhatsApp servisi ekranında sarı "Şifresiz bağlantıya izin verildi" uyarısı. Servis HTTPS'e geçince kapatılır.

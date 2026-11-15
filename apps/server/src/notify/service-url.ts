@@ -39,7 +39,7 @@ export function isInsecureServiceUrl(url: string, production: boolean): boolean 
 }
 
 /** Loopback host mu (127.0.0.0/8, ::1, localhost). */
-function isLoopbackHost(host: string): boolean {
+export function isLoopbackHost(host: string): boolean {
   const h = host.replace(/^\[|\]$/g, "").toLowerCase();
   return h === "localhost" || h === "::1" || (isIP(h) === 4 && h.startsWith("127."));
 }

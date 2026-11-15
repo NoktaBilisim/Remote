@@ -7,7 +7,8 @@ import { createNetGuard } from "../../src/lib/netguard.ts";
 import { postJson, publicReason } from "../../src/lib/outbound.ts";
 import { tenantUrlPortOk } from "../../src/notify/sms.ts";
 import { isParsableServiceUrl } from "../../src/notify/service-url.ts";
-import { firmName, linkMessage, sanitizeTemplateName, statusMessage, techShortName } from "../../src/notify/templates.ts";
+import { renderFor } from "../../src/notify/customer-templates.ts";
+import { firmName, sanitizeTemplateName, statusMessage, techShortName } from "../../src/notify/templates.ts";
 
 describe("S-P19-T8 / S-P19-11 şablonlar", () => {
   it("S-P19-T8: alan adı, şema, tam genişlik nokta, bidi ve sıfır genişlik boşluk atılır", () => {
@@ -39,8 +40,20 @@ describe("S-P19-T8 / S-P19-11 şablonlar", () => {
   });
 
   it("AC-261: durum SMS ≤ 2 bölüm (UCS-2 134); AC-260 bağlantı SMS ≤ 3 bölüm (201; sapma notu); ret metni ve müşteri metni şablonda yok", () => {
-    const link = `https://remote.example.com/session/${"a".repeat(43)}`;
-    expect(linkMessage("A".repeat(60), link, "Mehmet Ali Yılmaz").length).toBeLessThanOrEqual(201);
+    const link = `https://remote.noktabilisim.net/session/${"a".repeat(43)}`;
+    // LG §5.1 (qa LG tur 1 madde 7): K1 SMS istemci satırsız → en kötü durumda (firma 30, kısa ad 20) UCS-2 ≤ 3 parça (3 × 67).
+    const agent = { url: `https://remote.example.com/api/v1/public/agent/download?ref=${"a".repeat(69)}`, sha256: "a".repeat(64) };
+    const k1 = {
+      kind: "SESSION" as const,
+      firm: "A".repeat(60),
+      technician: "Abdurrahmanoğulları Ali Yılmaz", // kısa ad 20 karakter (en kötü)
+      link,
+      code: "12345678",
+      expiresAt: new Date(),
+      agent,
+    };
+    expect(renderFor("SMS", k1).text.length).toBeLessThanOrEqual(3 * 67);
+    expect(renderFor("SMS", k1).text).not.toContain("agent/download");
     for (const k of ["REQ_ACCEPTED", "REQ_REJECTED", "REQ_EXPIRED"] as const)
       expect(statusMessage(k, "A".repeat(60), "ABC123").length).toBeLessThanOrEqual(134);
     expect(statusMessage("REQ_REJECTED", "Firma", "ABC123")).toBe("Firma: ABC123 numaralı destek talebiniz şu an karşılanamadı.");

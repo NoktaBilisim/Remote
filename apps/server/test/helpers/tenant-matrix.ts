@@ -27,6 +27,11 @@ export const ROUTE_CLASSES: Record<string, RouteClass> = {
   "POST /api/v1/unattended/registration-codes": "scoped",
   "GET /api/v1/unattended/download": "scoped",
   "POST /api/v1/unattended/register": "public",
+  // LG (mimari-link-gonderme §4.2): hedef kimliği gövdede (tenantScope'lu); başka firmanın oturum/kod/müşterisi → 404
+  // lg-send.test.ts ("AC-415/416/D-LG-5", "AC-421/423", "AC-413/414"). Public indirme kimliksiz (belirteç).
+  "POST /api/v1/customer-send": "scoped",
+  "POST /api/v1/customer-send/options": "scoped",
+  "GET /api/v1/public/unattended/download": "public",
   "GET /api/v1/unattended/devices/:id": "tenant",
   "PUT /api/v1/unattended/devices/:id/grants": "tenant",
   "POST /api/v1/unattended/devices/:id/revoke": "tenant",

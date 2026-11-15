@@ -447,7 +447,9 @@ describe("AC-10 şablon", () => {
     expect(m.subject).not.toMatch(/[\r\n]/);
     const html = renderMailHtml("https://rs.test/img/logo.png", m.bodyHtml);
     expect(html).toContain('<img src="https://rs.test/img/logo.png"');
-    expect(m.bodyHtml).toContain("Ayşe &#60;x&#62;");
+    // LG (AC-424): ad değişkeni süzülür — ham etiket hiç girmez (önceden kaçışlıydı).
+    expect(m.bodyHtml).toContain("<b>Ayşe x</b>");
+    expect(m.bodyHtml).not.toContain("<x>");
     expect(m.text).toContain("1234 5678");
     expect(m.text).toContain("13:00");
     expect(m.text).toContain("https://rs.test/session/abc");

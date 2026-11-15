@@ -1,6 +1,8 @@
 // E-posta şablonları (P10). Metin + basit HTML; tüm değişken içerik HTML-kaçışlı. Konu tek satır (CR/LF yok).
 // P12 (AC-81): şablon yalnız gövde HTML'ini üretir; logo (firma → sistem → Nokta, mutlak public URL) gönderimde
 // `MailService` tarafından `renderMailHtml` ile eklenir — tenant'ı bilen tek yer orası.
+import { mailOf, renderFor } from "../notify/customer-templates.ts";
+
 export interface MailContent {
   subject: string;
   text: string;
@@ -31,14 +33,19 @@ const istanbul = (d: Date): string =>
     minute: "2-digit",
   }).format(d);
 
-/** AC-10: logo, teknisyen adı, link, kısa kod, son geçerlilik (Europe/Istanbul). */
-export function sessionLinkMail(o: { firm: string; technician: string; link: string; code: string; expiresAt: Date }): MailContent {
-  const code = `${o.code.slice(0, 4)} ${o.code.slice(4)}`;
-  const until = istanbul(o.expiresAt);
-  const subject = oneLine(`${o.firm} – uzak destek bağlantınız`);
-  const text = `Merhaba,\n\n${o.technician} (${o.firm}) sizinle uzak destek oturumu başlatmak istiyor.\n\nBağlantı: ${o.link}\nKod: ${code}\nSon geçerlilik: ${until} (Türkiye saati)\n\nBu isteği siz beklemiyorsanız bağlantıyı açmayın.`;
-  const bodyHtml = `<p>Merhaba,</p><p><b>${esc(o.technician)}</b> (${esc(o.firm)}) sizinle uzak destek oturumu başlatmak istiyor.</p><p><a href="${esc(o.link)}">Oturuma katıl</a></p><p>Kod: <b>${esc(code)}</b><br>Son geçerlilik: ${esc(until)} (Türkiye saati)</p><p>Bu isteği siz beklemiyorsanız bağlantıyı açmayın.</p>`;
-  return { subject, text, bodyHtml };
+/**
+ * AC-10 (P10) → LG (§5.1): K1 e-postası `notify/customer-templates.ts` `renderFor("EMAIL", SESSION)`'dan gelir (kopya yok).
+ * `agent` verilmezse indirme satırı yoktur.
+ */
+export function sessionLinkMail(o: {
+  firm: string;
+  technician: string;
+  link: string;
+  code: string;
+  expiresAt: Date;
+  agent?: { url: string; sha256: string } | null;
+}): MailContent {
+  return mailOf(renderFor("EMAIL", { kind: "SESSION", ...o, agent: o.agent ?? null }));
 }
 
 /** AC-66: sıfırlama bağlantısı (30 dk, tek kullanım). */

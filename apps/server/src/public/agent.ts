@@ -7,7 +7,7 @@ import type { Db } from "../lib/db.ts";
 import { AppError } from "../lib/errors.ts";
 import { ipKey, prefixKey } from "../lib/ip.ts";
 import { assertLookupAllowed, consume, countFailedLookup, GONE, type PublicLimits } from "../sessions/public.ts";
-import { parseSessionRef } from "../sessions/codes.ts";
+import { parseSessionRef, sessionRef } from "../sessions/codes.ts";
 import * as repo from "../sessions/repo.ts";
 import { expireSession } from "../sessions/service.ts";
 import type { AgentBinary } from "./agent-binary.ts";
@@ -54,4 +54,17 @@ export async function agentDownload(deps: AgentDownloadDeps, ctx: AuditContext, 
 /** Bütünlük kapısı (G-07, S6-2): ikili AGENT_SHA256 ile eşleşmiyorsa / yoksa / yapılandırılmamışsa 503 NOT_READY. */
 export async function assertAgentReady(binary: AgentBinary): Promise<void> {
   if ((await binary.check()) !== "ok") throw new AppError("NOT_READY", { message: UNAVAILABLE });
+}
+
+/** LG (§5.1, AC-411/412): K1 mesajındaki doğrudan indirme bağlantısı — yalnız ikili kapısı `ok` iken (aksi null, satır düşer). */
+export interface AgentLinkDeps {
+  binary: AgentBinary;
+  sha256: string | undefined;
+  refKey: string;
+  publicBaseUrl: string;
+}
+export async function agentLinkFor(d: AgentLinkDeps, sessionId: string): Promise<{ url: string; sha256: string } | null> {
+  if (!d.sha256 || (await d.binary.check()) !== "ok") return null;
+  const url = `${d.publicBaseUrl.replace(/\/+$/, "")}/api/v1/public/agent/download?ref=${sessionRef(d.refKey, sessionId)}`;
+  return { url, sha256: d.sha256 };
 }

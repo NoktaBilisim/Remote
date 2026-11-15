@@ -286,6 +286,10 @@ Windows elle turu ve AV kapısı bekliyor)
 - Bekleme ekranında **talep öncesi sohbet** (`/ws/request`, `rs.cap.chat1`; P18 sunucusu). Şema, migration, yeni env yok.
   Yayın: etiket `v0.12.0` (imzasız; prod öncesi runbook §24.10 AV kapısı). Ayrıntı [`CHANGELOG.md`](CHANGELOG.md), runbook §24.8–24.11.
 
+**LG — müşteriye bağlantı gönderme** (AC-405..428): tek "Müşteriye gönder" penceresi (oturum kartı, kayıt kodu, müşteri
+ayrıntısı) ile oturum bağlantısı + Windows programı, kayıt kodu + servis kurulum bağlantısı (yalnız e-posta, kod başına 3)
+ve müşteri bağlantıları e-posta / WhatsApp / SMS ile gönderilir. Uçlar `docs/api.md` "Müşteriye bağlantı gönderme".
+
 **P19 — web talep formu, SMS ve müşteri bildirimi, müşteri CSV** (AC-259..261, 263; kod tamam, QA/güvenlik ve staging testi sürüyor)
 
 - Web talep formu `/r/<ref>`: müşteri program indirmeden tarayıcıdan talep açar, beklerken teknisyenle yazışır, kabulde

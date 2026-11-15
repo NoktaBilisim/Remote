@@ -1,3 +1,223 @@
+# Güvenlik Raporu — LG — Kod turu 1 (müşteriye bağlantı gönderme, commit edilmemiş çalışma ağacı, 2026-11-15)
+
+DURUM: GEÇTİ — Kritik 0 / Yüksek 0 / Orta 0 / Düşük 3
+Kapsam: `apps/server/src/customer-send/{routes,service,targets}.ts`, `unattended/public-download.ts`, `unattended/registration.ts` (diff),
+`notify/customer-templates.ts`, `notify/whatsapp.ts` (diff), `lib/crypto.ts` (diff), `lib/logger.ts` (diff), `sessions/{email,send-link}.ts` (diff),
+`mail/templates.ts` (diff), `public/agent.ts` (diff), `app-routes.ts` / `app-hooks.ts` (diff), `packages/contracts/src/api/customer-send.ts`,
+web `components/send-to-customer/*`, `lib/customer-send.ts`. Testlere bakıldı (`test/unit/lg-send.test.ts`, `test/integration/lg-send.test.ts`).
+Staging'e bağlanılmadı.
+
+## Tasarım turu bulgularının durumu
+
+| Madde | Durum | Kanıt |
+|---|---|---|
+| O-LG-1 | **Kapandı** | `whatsapp.ts` `transportEncrypted` (usable && (https \|\| loopback)); production, özel ağ ve K13 bayrağından bağımsız. `service.ts:62` K2 WA → `insecure_transport`. Birim testi dört durumu kapsıyor (`lg-send.test.ts:127-160`), geçti. |
+| O-LG-2 | **Kodda kapandı**, kılavuz notu eksik | `public-download.ts:38,46-60`: (kod, ipKey) saatte 1 audit, kod başına en çok 10, UA ailesi `uaSummary`, HEAD gövdesiz 404 ve audit yok (`:62-65`). Mimari §8/§10.2 "ipucu" diye düzeltildi. Kılavuz notu yok (aşağıda). |
+| O-LG-3 | **Kapandı** (genişleme noktası uygulandı) | `contracts/api/customer-send.ts:18` `UNATTENDED_CODE: ["EMAIL"]`; şema (`:51`) ve serviste (`service.ts:194`) iki kez denetleniyor; `transportEncrypted` ikinci savunma. K2 WA'yı açmak için (a)+(b) koşulları hâlâ geçerli. |
+| D-LG-1 | **Kapandı** | `customer-send/routes.ts:19-21` `onSend` → `Cache-Control: no-store`; test `lg-send.test.ts:122`. |
+| D-LG-2 | **Kapandı** | Ayrı ve oturumsuz eklenti (`app-routes.ts`, prefix `/api/v1/public/unattended`). Sıra şöyle: biçim → IP 20/dk → `usableCodeWhere` (tenant ACTIVE dahil) + kapı (404) → ikili kapısı (503). Yüklem `lockValidCode` ile ortak (`registration.ts`). Testlerde firma pasif, kapı kapalı ve 503 yalnız geçerli belirteçle (`lg-send.test.ts:225-262`). |
+| D-LG-3 | **Kapandı** | `crypto.ts` `macBytesAt` ham bayt → `base64url` (43 karakter); amaç `unattended-download` ≠ `unattended-code`; iki tarafta da normalize kod kullanılıyor (`targets.ts:139,151`; `createCode` yeni kodu zaten normalize üretir). Test `lg-send.test.ts:122-123`. v1 anahtarı kaldırılırsa sessizce güncel anahtara düşme davranışı kabul edildi (runbook rotasyon notu devops'ta). |
+| D-LG-4 | **Kapandı** | `customer-templates.ts:27-31` `* _ ~ \` < >` ve 5 haneden uzun rakam dizileri süzülüyor; e-posta HTML'i `esc`. Firma adını yalnız Super Admin değiştirebiliyor (`tenants/routes.ts:59-60,96`); bulgu Düşük kalıyor. |
+| D-LG-5 | **Kapandı** | `targets.ts:119-138`: önce `manage`, sonra `tenant+createdBy` kapsamı, iptal audit'i (409) en sonda ve `tenantId+userId+entityId` ile. |
+| D-LG-6 | **Açık** | Aşağıda D-LGK-2. |
+
+## Bulgular (öncelik sırasıyla)
+
+### [DÜŞÜK] D-LGK-1 Oturumsuz indirme ucunda kod başına audit tavanı sorgusu uygun indeksi kullanmıyor; tavan yarışa açık — A04 / DoS
+Yer: apps/server/src/unattended/public-download.ts:49-50
+Sorun: `auditLog.count({ where: { action, entityId } })` sorgusunda `tenantId` ve `entity` yok. Bu yüzden `[tenantId, entity, entityId, createdAt]`
+indeksi kullanılamıyor. Sorgu `[action, createdAt]` üzerinden tüm tenant'ların `unattended.code.downloaded` satırlarını tarıyor ve maliyeti tablo
+büyüdükçe artıyor. Sayım ile yazma arasında kilit olmadığından, aynı anda gelen farklı IP'ler 10 sınırını birkaç satır aşabilir.
+İstismar senaryosu: Belirteci bilen biri birçok IP'den indirme yapar. Her (kod, IP) çifti saatte bir kez oturumsuz bir tarama sorgusu tetikler.
+Etki sınırlı, çünkü önünde IP 20/dk kovası ve saatlik kilit var.
+Düzeltme: Sorguya `tenantId: code.tenantId, entity: "unattended_registration_codes"` eklenir; böylece mevcut bileşik indeks kullanılır.
+Yarış kabul edilebilir; isterseniz "en çok ~10" diye belgelenir. (backend-dev)
+
+### [DÜŞÜK] D-LGK-2 (D-LG-6 devamı) K13 düz http bayrağının bitiş kaydı yok; K3 WA kalıcı müşteri bağlantılarını açık ağdan taşıyor — A02
+Yer: apps/server/src/customer-send/service.ts:59-62 (K3/K1 WA için yalnız `usable`); docs/runbook.md:91, :881; docs/gereksinimler.md §9 (kayıt yok).
+Sorun: K3 mesajı müşterinin uzun ömürlü `requestRef` indirme bağlantısını ve web formu bağlantısını taşır. `WHATSAPP_ALLOW_INSECURE_HTTP=true`
+iken bu mesaj ve whatsapp-bildirim API anahtarı düz http üzerinden gider. Runbook'ta "HTTPS'e geçince false" notu var, ancak tarihli bir bitiş,
+gereksinimler §9'da "Sonra" kaydı ve prod açılış kontrol listesinde "bayrak kapalı" maddesi yok.
+İstismar senaryosu: Yol üzerindeki biri ref'li bağlantıyı yakalar ve müşteri adına talep açar ya da firmaya ait indirme bağlantısını kullanır.
+API anahtarını ele geçiren biri Nokta numarasından keyfi mesaj gönderebilir.
+Düzeltme: gereksinimler §9'a tarihli bir "Sonra" kaydı ve prod açılış kontrol listesine "`WHATSAPP_ALLOW_INSECURE_HTTP` boş/false" maddesi eklenir.
+İsteğe bağlı: K3 WA da `transportEncrypted` koşuluna bağlanabilir (ürün kararı). (devops; proje-yoneticisi)
+
+### [DÜŞÜK] D-LGK-3 O-LG-2'nin kullanıcı tarafı yarım: kılavuzda "e-posta tarayıcıları indirme kaydı oluşturabilir" notu yok — A09
+Yer: docs/KULLANIM_KILAVUZU.md (eşleşme yok).
+Sorun: Panelde görülen `unattended.code.downloaded` satırı, Safe Links/Proofpoint gibi e-posta tarayıcılarının yaptığı GET'lerden de oluşabilir.
+Kullanıcı bunu "müşteri indirdi" diye yorumlayabilir.
+Düzeltme: Kılavuzdaki gözetimsiz/kayıt kodu bölümüne bu not eklenir. (teknik-yazar)
+
+### Bilgi
+- `hitSendBuckets` bellek kovaları TX içinde artırılıyor. TX sonradan (audit yazımında) geri alınırsa kova yine de harcanmış olur. Bu yalnız
+  kullanıcı aleyhine bir sapma, güvenlik etkisi yok.
+- `auditOnce` tablosu kilitli kayıtlarla dolarsa `hit` true döner ve audit yazılmaz (metrik sayılmaya devam eder). Bu, belirteç bilen geniş bir
+  botnet gerektirir; audit zaten "ipucu" niteliğinde.
+
+## Odak noktaları — doğrulama özeti
+- **IDOR / tenant guard:** Üç hedefin hepsi `tenantScope(req)` tenantId ile yükleniyor. K1'de `technicianId = auth.user.id`, K2'de `createdBy = auth.user.id`
+  ve `bumpSentCount` UPDATE'inde de `tenant_id + created_by` koşulu var. K3 tenant kapsamında; alıcı önerileri yalnız aynı tenant + müşteri
+  kayıtlarından geliyor. K2 alıcısı kilitli ve sunucuda yeniden denetleniyor (`service.ts:98-106`). Rota `requireAuth` (CSRF) altında.
+- **Oturumsuz indirme ucu:** 256 bit belirteç, yalnız SHA-256'sı üzerinden UNIQUE aramayla bulunuyor. Biçim, bilinmeyen, kullanılmış, süresi
+  dolmuş, müşteri pasif, firma pasif ve kapı kapalı durumlarının hepsi aynı 404 gövdesini döndürüyor (test). IP başına 20/dk (IPv6 /64).
+  `no-store`, `no-referrer`, `noindex` ve `nosniff` başlıkları var; `Content-Disposition: attachment`; HEAD ayrı. Sorgu dizesi
+  `maskUrl` ile log serileştiricisinden siliniyor.
+- **Belirteç türetme:** KD-LG1 kodda doğru uygulanmış (D-LG-3 tablosu).
+- **Audit / log:** K2 audit'inde `channel`, maskeli alıcı ve `customerId` var. K3 audit'inde yalnız bağlantı türleri var. Kod, belirteç, bağlantı ve
+  ref yazılmıyor. `REDACT_PATHS`'e `body.to`, `*.target.code` ve `*.target.link` eklendi. Oturumsuz indirme audit'i `username:"public"` ile yazılıyor.
+- **Şablon enjeksiyonu:** Serbest metin ve müşteri adı şablona girmiyor; firma ve teknisyen adı süzülüyor; HTML'deki tüm değişkenler `esc`'ten geçiyor.
+  Konu tek satır. Web önizlemesi düz metin olarak çiziliyor (`dangerouslySetInnerHTML` yok).
+- **K2 WhatsApp kapalı:** sözleşme, şema, servis ve `transportEncrypted` olmak üzere dört katmanda kapalı.
+- **Önizleme = gönderim:** `options` ve `send` aynı `resolveTarget` + `renderFor`'u kullanıyor. K1'in eski uçları da (`sessionLinkMail`,
+  `sendSessionLink`) artık `renderFor` üzerinden geçiyor, kopya şablon kalmadı. Girdiler deterministik (normalize kod, HMAC ref, env SHA).
+- **SSRF / open redirect:** İstemciden URL alınmıyor. Bağlantılar `PUBLIC_BASE_URL`'den üretiliyor. K1'de gelen `link` için önce önek
+  denetleniyor, ardından kalan kısmın tamamı `sessionTokenSchema` ve `tokenHash` ile eşleştiriliyor (`targets.ts:54-59,85-87`). Ayar bağlantısı
+  (`settingsHref`) sunucudaki sabit bir kümeden geliyor. Yönlendirme yapan bir uç yok.
+
+## Otomatik tarama çıktıları
+- Bağımlılık değişikliği yok (`pnpm-lock.yaml` değişmedi; `packages/contracts/package.json` yalnız `exports` satırı ekliyor). Bu nedenle `pnpm audit` çalıştırılmadı.
+- Gizli bilgi taraması (`api_key|secret|password|token = '…'` deseni, yeni LG dosyaları ve testleri): eşleşme yok.
+- `vitest run test/unit/lg-send.test.ts`: 13/13 geçti. Entegrasyon testleri DB gerektirdiği için çalıştırılmadı (yalnız okundu).
+
+## Tasarımda vaat edilip kodda bulunmayanlar
+- Kılavuz notu (O-LG-2), bkz. D-LGK-3.
+- K13 bitiş kaydı (D-LG-6), bkz. D-LGK-2.
+- Bunların dışında tasarım turunda vaat edilen her kontrol kodda bulundu.
+
+## Olumlu
+- Hata sırası (404 → 403 → 400 → 409) üç hedefte tutarlı ve dosya başında belgelenmiş. K2'de `manage` yokluğu 404 dönüyor (varlık sızdırmıyor).
+- K2'de `sent_count` koşullu UPDATE ile ve aynı TX içinde artırılıyor. Kova reddi TX'i geri aldığı için hak boşa harcanmıyor.
+- Yüklem tek kaynakta (`usableCodeWhere`): kayıt ucu ve indirme ucu aynı kuralı kullanıyor; tenant pasif durumu her ikisine de eklendi.
+- Testler tasarım turu maddelerinin çoğunu doğrudan adlarıyla kapsıyor (O-LG-1/2/3, D-LG-1/2/3).
+
+---
+
+# Güvenlik Raporu — LG — Tasarım turu (müşteriye bağlantı gönderme, kod öncesi, 2026-11-15)
+
+DURUM: GEÇTİ (koşullu) — Kritik 0 / Yüksek 0 / Orta 3 / Düşük 6
+Kapsam: `docs/mimari-link-gonderme.md` r1, `docs/gereksinimler-link-gonderme.md` (AC-405..428, R-LG1..5), `docs/tasarim-kontrol.md` LG.
+Tasarımın dayandığı mevcut kod da okundu: `notify/whatsapp.ts`, `notify/service-url.ts`, `notify/templates.ts`, `lib/crypto.ts`,
+`lib/logger.ts`, `unattended/{registration,register,routes,download}.ts`, `deploy/Caddyfile`, `deploy/nginx/remote.noktabilisim.net.conf`.
+Kod yazılmadı, staging'e bağlanılmadı. Orta bulgular O-LG-1 ve O-LG-2 LG-2 birleştirme koşuludur (mimari §5.4 ve §8'e r2 notu yeterli).
+
+## Bulgular (öncelik sırasıyla)
+
+### [ORTA] O-LG-1 K2 WhatsApp "güvensiz taşıma" koşulu kodda olmayan bir özelliğe ve yanlış semantiğe bağlı — A02 Cryptographic Failures / A04
+Yer: docs/mimari-link-gonderme.md:312 (§5.4 "`insecureHttp: boolean`"), :409; apps/server/src/notify/whatsapp.ts:143-169; notify/service-url.ts `isInsecureServiceUrl`.
+Sorun: `WhatsappNotifier` üzerinde `insecureHttp` yok. Var olanlar `insecure` ve `insecureAllowed`. Bayrak açıkken `insecure` **false** döner
+(whatsapp.ts:168, `strictInsecure && !allowed`). Geliştirici "güvensiz mi" diye `insecure`'a bakarsa K2 WA düz http'de açık kalır.
+`insecureAllowed` doğru özellik olsa da iki boşluk bırakır. (1) Yalnız `production` iken true olur: `NODE_ENV≠production` bir ortamda
+genel adrese giden http "güvenli" sayılır. (2) Özel ağ adresine (10/8, 172.16/12, 192.168/16, 100.64/10) giden http hiçbir ortamda
+güvensiz sayılmaz.
+İstismar senaryosu: Kanal yolunda dinleme yapan biri (ISP, ortak ağ, servis sunucusunun önündeki ağ) K2 mesajındaki kayıt kodunu ve
+indirme belirtecini düz metin okur. Kodu müşteriden önce kullanır ve kendi makinesini müşteri adına kaydeder.
+Düzeltme (karar): K2 WA için ayrı ve sıkı bir yüklem tanımlanır: `whatsapp.transportEncrypted = usable && (protocol === "https:" || isLoopbackHost)`.
+Bu yüklem `production` bayrağından ve özel ağ istisnasından bağımsızdır. K2 WA yalnız `transportEncrypted` iken `available` olur. Mimari §5.4'te
+`insecureHttp` adı bu yüklemle değiştirilir. Birim testi dört durumu kapsar: bayraklı http genel adres, prod dışı http genel adres,
+http özel ağ, https. İlk üçünde `block:"insecure_transport"` ve 409 beklenir. (atanan ajan: backend-dev; mimar §5.4 metni)
+
+### [ORTA] O-LG-2 "İndirme izi" telafisi güvenilir değil; oturumsuz uçtan audit seli açılıyor — A09 Logging & Monitoring / A04
+Yer: docs/mimari-link-gonderme.md:353 (`unattended.code.downloaded`), :410 (§10.2 m.2, R-LG1 telafisi).
+Sorun: E-posta güvenlik ağ geçitleri (Microsoft Safe Links/Defender, Proofpoint, Mimecast) ve bazı mesajlaşma önizleme getiricileri
+bağlantıyı alıcı açmadan önce GET eder. Her biri "başarılı indirme" audit'i üretir. Bu yüzden panelde görülen indirme, gerçek kişinin
+indirdiğini göstermez. §10.2 ise bunu R-LG1'in telafisi olarak sunuyor. Ayrıca uç oturumsuzdur. Belirteci bilen biri IP başına 20/dk ile
+24 saat boyunca kod başına onbinlerce audit satırı yazdırabilir (IP sayısıyla çarpılır). Audit salt-ekleme ve silinemezdir.
+İstismar senaryosu: Belirteci ele geçiren kişi botnet'ten indirme döngüsü kurar. Tenant'ın audit ekranı ve tablo boyutu şişer, gerçek
+olaylar gürültüde kaybolur.
+Düzeltme (karar): `unattended.code.downloaded` kod başına `(codeId, ipKey)` için saatte en fazla 1 kez ve kod ömrü boyunca en fazla 10 kez
+yazılır. Sonrakiler yalnız metrikte sayılır (sayaç bellekte, ADR-0005). Audit `new_value`'ya kısaltılmış UA ailesi eklenir. §10.2 m.2 metni
+"telafi" yerine "ipucu" olarak düzeltilir; kılavuzda "e-posta tarayıcıları da indirme kaydı oluşturabilir" notu yer alır. `HEAD` isteği
+gövdesiz 404/405 döner ve audit yazmaz. R-LG1'in asıl telafisi "Yeni — doğrulanmadı" durumu ve P27 kayıt bildirimidir.
+(atanan ajan: backend-dev; mimar §8/§10.2 metni; teknik-yazar kılavuz notu)
+
+### [ORTA] O-LG-3 R-LG1 kalan riski: kod Nokta'nın WhatsApp hesabında ve servis sunucusunda 24 saat düz metin — A04 (risk kabulü)
+Yer: docs/gereksinimler-link-gonderme.md:125 (R-LG1); docs/mimari-link-gonderme.md:405-420; `whatsapp-bildirim` (ayrı repo: `index.js`
+`/send-message`, `panel.js` paneli, http :3000).
+Sorun: Taşıma şifrelense de mesaj gönderen tarafta kalır. Bağlı telefonun sohbet geçmişinde ve whatsapp-web.js oturum dizininde durur
+(Windows sunucusu). Bu kanal bütün tenant'larca paylaşılan tek hesaptır. Panel ve API bugün düz http üzerinden çalışıyor (K13). Kod
+kalıcı cihaz kaydı verir. Kod sızarsa saldırgan cihazı müşteri adına kaydedebilir. Teknisyen bu cihazı müşterinin sanıp ona bağlanır ve
+müşteri parolalarını orada yazar (kimlik bilgisi toplama). Gerçek müşteri ise "kod kullanılmış" hatası alır.
+Karar: **Mimarın kararı (K2 WA güvensiz taşımada kapalı) şu an için yeterli ve onaylanır.** Bugün WA http + K13 bayrağıyla çalıştığı için
+K2 WA fiilen kapalıdır; K2 yalnız e-postayla gider. K2 WA'nın açılması (servis https'e geçince) şu iki ek koşula bağlanır. (a) whatsapp-bildirim
+paneli ve API'si yalnız https üzerinden çalışır ve panel erişimi kısıtlıdır. (b) Kullanıcı (Nokta) "paylaşılan WA hesabında kayıt kodu 24 saat
+görünür" kalan riskini yazılı kabul eder (gereksinimler §9 R-LG1'e not). Bu koşullar yoksa genişleme noktası uygulanır:
+`CHANNELS_BY_KIND.UNATTENDED_CODE` değerinden `"WHATSAPP"` çıkarılır. Ek öneri: kayıt kodu kullanıldığında `unattended.code.sent` alıcısına
+"kod kullanıldı, siz değilseniz arayın" bildirimi zaten P27 kayıt bildirimiyle gidiyor; testte doğrulanır.
+(atanan ajan: proje-yoneticisi + kullanıcı onayı; devops whatsapp-bildirim https)
+
+### [DÜŞÜK] D-LG-1 `customer-send` yanıtları için `Cache-Control: no-store` tanımlı değil — A05
+Yer: docs/mimari-link-gonderme.md:163-164 (§4.2); karşılaştırma: apps/server/src/unattended/routes.ts:145-148 (eklenti genelinde no-store var).
+API'de genel bir no-store kancası yok; her eklenti kendisi ekliyor. `options` yanıtı K2'de düz kodu ve belirteçli bağlantıyı, K1'de oturum
+bağlantısını taşır.
+Düzeltme: `customer-send` eklentisine `onSend` kancasıyla `Cache-Control: no-store` eklenir (unattended kalıbı). (backend-dev)
+
+### [DÜŞÜK] D-LG-2 Public indirme ucunun kaydı ve geçerlilik yüklemi belirsiz — A01 / A04
+Yer: docs/mimari-link-gonderme.md:47, :165, :193; apps/server/src/unattended/routes.ts:145 (`requireAuth` eklenti kancası).
+Sorun: (a) Uç `unattendedRoutes` içine eklenirse `requireAuth` kancasına takılır; ayrı bir eklentiye konursa yanlışlıkla genel API kancalarını
+atlamamalıdır. (b) 404 listesinde **tenant pasif** durumu yok. (c) 503 kontrolünün sırası tanımlı değil.
+Düzeltme: Uç `unattendedRegisterRoutes` gibi ayrı, oturumsuz bir eklentide yer alır ve `checkPublicClient` benzeri istemci kontrolünü kullanır.
+Geçerlilik tek bir yüklemden gelir: kod `used_at IS NULL`, `expires_at > NOW`, müşteri ACTIVE ve anonim değil, tenant ACTIVE ve kapı
+`available`. Bu yüklem `registerTx` ile paylaşılır (iki ayrı kural tutulmaz). Sıra şöyledir: biçim, IP kovası, yüklem (aksi 404), ikili
+kapısı (503). Böylece 503 geçersiz belirteçle tetiklenemez. Testlere "tenant pasif → 404" eklenir. (backend-dev)
+
+### [DÜŞÜK] D-LG-3 Belirteç türetme uygulama tuzakları — A02
+Yer: docs/mimari-link-gonderme.md:67-74; apps/server/src/lib/crypto.ts:45, :115-118; unattended/registration.ts:29, :47.
+- `SecretBox.mac/macAt` 64 hex döndürür, sözleşme ise 43 karakter base64url ister. Belirteç ham 32 bayttan base64url'e çevrilir; hex
+  çıktısının base64'ü alınmaz.
+- Türetme `createCode` ve gönderim tarafında aynı **normalize edilmiş** koddan yapılır (tire yok, büyük harf; `registerDevice` ayrıştırıcısı).
+- `macAt(CODE_MAC_VERSION=1, "unattended-download", …)` kullanılır. v1 anahtarı kaldırılırsa `macAt` sessizce güncel anahtara düşer ve
+  bekleyen bağlantılar 404 olur. 24 saatlik ömürle kabul edilir; runbook rotasyon notuna eklenir.
+- HKDF amaç ayrımı (`unattended-download` ≠ `unattended-code`) zorunludur. Aynı amaç kullanılırsa `code_hash` belirtecin hex'i olur ve
+  DB sızıntısı bağlantıyı verir. Birim testi iki değerin farklı olduğunu doğrular. (backend-dev)
+
+### [DÜŞÜK] D-LG-4 Şablon ad süzgeci WhatsApp biçim karakterlerini ve telefon numarasını geçiriyor — A03 (içerik enjeksiyonu)
+Yer: apps/server/src/notify/templates.ts:21-41 (`sanitizeTemplateName`, `firmName`); karşılaştırma whatsapp.ts:55-63 `firmLabel`.
+Süzgeç bağlantıları ve satır sonlarını temizliyor; bu yeterli. Ancak `* _ ~ \`` karakterleri WA metninde biçim değiştirir. 30 karakterlik
+firma adına "Banka 4440000 arayın" gibi bir numara da yazılabilir (sesli oltalama). Gönderen numara bütün tenant'larda Nokta'nındır.
+Düzeltme: `renderFor` içindeki WA kısa metninde `F` ve `T` değişkenlerinden `* _ ~ \`` çıkarılır. Tenant adını değiştirme yetkisinin
+Super Admin'de kaldığı doğrulanır; Admin değiştirebiliyorsa bu bulgu Orta'ya çıkar. (backend-dev)
+
+### [DÜŞÜK] D-LG-5 §4.5 iptal edilmiş kod yolunda kontrol sırası — A01
+Yer: docs/mimari-link-gonderme.md:184-187, :216-220.
+Audit'e bakan "iptal → 409" yolu, `unattended.manage` kontrolünden ve `tenant_id + user_id + entity_id` kapsamından **sonra** çalışmalıdır.
+Aksi halde yetkisi alınmış bir kullanıcı 404 yerine 409 görür (AC-416 varlık sızdırmama). Test: manage'i alınmış üretici + iptal kod → 404. (backend-dev)
+
+### [DÜŞÜK] D-LG-6 K13 bayrağının bitiş koşulu yok; K1/K3 WA düz http'de devam ediyor — A02
+Yer: apps/server/src/notify/whatsapp.ts:46-49, :125-129; docs/mimari-link-gonderme.md:409.
+Bayrak açıkken K1 oturum bağlantısı ve kodu, K3 müşteri ref'i ve whatsapp-bildirim API anahtarı ağda açık gider. Anahtarı yakalayan biri
+Nokta numarasından keyfi mesaj gönderebilir. Bu LG'den önce kabul edilmiş bir risktir, ancak LG gönderim hacmini artırıyor.
+Düzeltme: K13 için tarihli bir bitiş kaydı ("whatsapp-bildirim https olunca bayrak kaldırılır") runbook'a ve gereksinimler §9'a "Sonra"
+olarak eklenir. Prod açılışında bayrak kapalı olmalıdır (devops kontrol listesi). (devops)
+
+### Bilgi
+- **KD-LG1 onaylanır.** Sunucu anahtarlı HMAC-SHA256 PRF çıktısı (256 bit) AC-419'un "≥128 bit tahmin edilemez" şartını karşılar. Düz
+  belirteç hiçbir yerde saklanmaz. Kod 80 bit olduğu için PRF girdisi de tahmin edilemez. Başarısız arama kovasına gerek yoktur.
+- KD-LG6 (başarısız gönderim hakkı geri vermez) ve KD-LG5 (önizlemede bağlantı yalnız üreticiye görünür) güvenlik açısından uygundur.
+- R-LG4 (K3 serbest alıcı) Düşük olarak kabul edilir. K1 de aynı serbestliğe sahip; ortak kovalar ve WA müşteri global tavanı uygulanıyor.
+
+## Otomatik tarama çıktıları
+Tasarım turu: yeni bağımlılık yok, kod yok. `pnpm audit` ve gitleaks LG-4b kod denetiminde çalıştırılır.
+
+## Tasarımda vaat edilip kodda bulunmayanlar
+Kod henüz yok. Tasarımın dayandığı mevcut kontroller doğrulandı:
+- Caddy erişim ve hata logu sorgu dizesini siler: `deploy/Caddyfile` `request>uri regexp "\?.*$" ""` (global `log default` ve site `log`).
+- nginx `remote_masked` biçimi kullanılıyor (`deploy/nginx/remote.noktabilisim.net.conf:26`, :42, :69) ve error_log `crit` düzeyinde.
+- `maskUrl` sorgu dizesini kırpar (`apps/server/src/lib/logger.ts:5-8`).
+- `ipKey` IPv6 /64 kovası mevcut (`unattended/register.ts:57`).
+- **Var olmayan:** `WhatsappNotifier.insecureHttp` (O-LG-1). Ayrıca genel API `no-store` kancası yok (D-LG-1).
+
+## Olumlu
+- Metni yalnız sunucu üretiyor, serbest metin yok ve önizleme gönderimle aynı fonksiyondan geliyor (T-LG1).
+- GET indirme kodu tüketmiyor. Bu sayede bağlantı tarayıcıları ve önizleme getiricileri müşteriyi kilitleyemez.
+- Belirteç ayrı HKDF amacıyla türetiliyor; yalnız SHA-256'sı ve UNIQUE indeksi tutuluyor. Kod silinince bağlantı da ölüyor.
+- Tek tip 404 kuralı kapı kapalı ve tenant/müşteri durumlarını da kapsıyor. Ayrıca `no-referrer`, `no-store`, `noindex` ve `nosniff` başlıkları var.
+- K2 alıcısı kilitli (yalnız `customer_notify_contacts`). Bu adreslerin değişmesi step-up ister ve bildirim üretir.
+- `sent_count` DB'de tutuluyor, CHECK kısıtı var ve koşullu UPDATE kullanılıyor; yeniden başlatmaya ve yarış durumuna dayanıklı.
+- Gizli değerler (`code`, `link`) sorgu dizesine değil POST gövdesine konuyor ve `REDACT_PATHS` genişletiliyor.
+
+---
+
 # Güvenlik Raporu — P28a tasarım turu (K9a, AC-290; pano + uzaktan yazdırma, kod öncesi, 2026-11-15)
 
 DURUM: DÜZELTİLMELİ — Kritik 0 / Yüksek 1 / Orta 5 / Düşük 4 (+3 bilgi)

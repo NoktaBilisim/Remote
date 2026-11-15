@@ -26,6 +26,8 @@ import { armOrphanedPending, pendingGauge } from "./requests/jobs.ts";
 import { closeRequestLimits, createRequestLimits, type RequestLimits } from "./requests/limits.ts";
 import { RequestService } from "./requests/service.ts";
 import { applyWhatsapp } from "./settings/routes.ts";
+import { closeSendLinkLimits, createSendLinkLimits } from "./sessions/send-link.ts";
+import { serviceBinary } from "./unattended/download.ts";
 import type { UploadStore } from "./uploads/store.ts";
 
 /** buildApp ara ürünleri (yalnız bu dosyada; kapanış değişkenlerinin yerini tutar). */
@@ -116,6 +118,20 @@ export function decorateRequests(app: FastifyInstance, deps: AppDeps, w: Wiring)
     }
   });
   const { sms, outbox } = decorateOutbox(app, deps, w, notifier);
+  // LG §7: alıcı/firma bellek kovaları TEK örnek — K1 eski uçları (sessions/routes) ve customer-send ortak kullanır.
+  const sendLinkLimits = createSendLinkLimits();
+  app.decorate("sendLinkLimits", sendLinkLimits);
+  app.addHook("onClose", async () => closeSendLinkLimits(sendLinkLimits));
+  // P27 servis ikilisi kapısı tek örnek (oturumlu indirme, LG public indirme ve K2 kanal kapısı ortak; alarm tek kez).
+  app.decorate(
+    "unattendedBinary",
+    serviceBinary(deps.env.UNATTENDED_AGENT_PATH, deps.env.UNATTENDED_AGENT_SHA256, (state) =>
+      app.log.warn(
+        { alarm: "unattended_binary", state },
+        "Gözetimsiz servis ikilisi indirilemez (yapılandırma eksik, dosya yok veya SHA-256 uyuşmuyor)",
+      ),
+    ),
+  );
   const requests: RequestService = new RequestService({
     db: deps.db,
     env: deps.env,

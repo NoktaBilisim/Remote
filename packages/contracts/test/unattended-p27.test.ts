@@ -21,7 +21,7 @@ import {
   UNATTENDED_REVOKE_REASON_LABELS,
   UNATTENDED_REVOKE_REASONS,
 } from "../src/api/unattended.ts";
-import { UNATTENDED_AUDIT } from "../src/audit.ts";
+import { LG_AUDIT_LABELS, UNATTENDED_AUDIT } from "../src/audit.ts";
 import { ERROR_STATUS } from "../src/errors.ts";
 import { CONSENT_SOURCE_LABELS, END_REASON_LABELS, SESSION_MODE_LABELS } from "../src/labels.ts";
 import { effectivePermissions, PERMISSION_DESCRIPTIONS, PERMISSION_KEYS, PERMISSION_MODULES } from "../src/permissions.ts";
@@ -258,7 +258,7 @@ describe("P27 konsol ve oturum sözleşmesi ekleri", () => {
     for (const a of actions) {
       expect(a.startsWith("unattended.")).toBe(true);
       expect(a.length).toBeLessThanOrEqual(60);
-      expect(UNATTENDED_AUDIT_LABELS[a]).toBeTruthy();
+      expect(UNATTENDED_AUDIT_LABELS[a] ?? LG_AUDIT_LABELS[a]).toBeTruthy(); // LG: code.sent/downloaded etiketi LG kümesinde
     }
   });
 });

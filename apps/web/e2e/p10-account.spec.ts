@@ -299,23 +299,6 @@ test("AC-151 SMTP yoksa e-posta kanalı pasif + SMTP ayarlarına bağlantı", as
   await expect(page.getByTestId("mail-smtp-link")).toHaveAttribute("href", "/settings/smtp");
 });
 
-test("AC-10 oturum linkini e-postayla gönder: başarı ve saatlik sınır", async ({ page, context }, info) => {
-  desktopOnly(info.project.name);
-  await signIn(context);
-  await page.goto("/sessions");
-  await page.getByRole("button", { name: "Yeni destek oturumu" }).first().click();
-  const dlg = page.getByTestId("new-session-dialog");
-  await dlg.getByTestId("session-email-open").click();
-  const to = dlg.getByTestId("session-email-to");
-  await expect(to).toBeFocused();
-  await to.fill("musteri@ornek.com");
-  await dlg.getByTestId("session-email-send").click();
-  await expect(dlg.getByTestId("session-email-result")).toContainText("musteri@ornek.com adresine gönderildi");
-  await to.fill("limit@ornek.com");
-  await dlg.getByTestId("session-email-send").click();
-  await expect(dlg.getByTestId("session-email-result")).toContainText("Saatte en çok 20");
-});
-
 test("AC-115 yönetici kullanıcının 2FA'sını sıfırlar (onaylı)", async ({ page, context }, info) => {
   desktopOnly(info.project.name);
   await signIn(context, "usadm");

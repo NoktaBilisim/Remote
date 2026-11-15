@@ -1434,3 +1434,21 @@ devices/codes/contacts SELECT/INSERT/UPDATE/DELETE; grants SELECT/INSERT/DELETE 
 - Temiz up (25 migration) OK; `migrate diff --exit-code` 0; tetikleyici 23. `check-app-grants.sh` **730/730 PASS** (+81 P27).
 - Dolu DB (1 cihaz) down → `p27_down_guard_chk` 3819, değişiklik yok. Boş DB down → P27a şemasına diff 0, tables_priv satırı yok,
   kayıt silindi, tetikleyici 23; yeniden up → diff 0, grants 730/730. Seed OK.
+
+## LG — müşteriye bağlantı gönderme: kayıt kodu indirme belirteci ve gönderim sayacı (LG-1, 2026-11-15)
+
+Migration `20261122000000_link_send` (mimari-link-gonderme §3; AC-419, AC-420). Yeni tablo yok, grant değişmez (yalnız yorum).
+
+- `unattended_registration_codes.download_token_hash CHAR(64) NULL UNIQUE` — K1 indirme belirtecinin SHA-256 hex'i; düz belirteç
+  DB'de yok. **Mimariye ek:** `…_download_token_hash_chk` (küçük harf hex, `code_hash_chk` kalıbı). LG öncesi kodlarda NULL
+  kalır (veri taşıma yok; belirteç türetilemez, kodlar ≤ 24 sa'te biter). MySQL UNIQUE çoklu NULL'a izin verir; public uç araması
+  `WHERE download_token_hash = ?` UNIQUE indeksle const erişim.
+- `sent_count TINYINT UNSIGNED NOT NULL DEFAULT 0` + `…_sent_count_chk` (0..3). Artış yalnız koşullu UPDATE (`sent_count < 3`,
+  §4.4); 0 satır → yeniden oku, 3 ise 429. Başarısız gönderimde geri alınmaz.
+- Kilit: tek ALTER; CHECK eklemek COPY (tablo yeniden yazılır, kod üretimi/tüketimi bekler). Tablo küçük (≤ 24 sa bekleyen + 7 g
+  temizlik); ön kontrol gerekmez. Tetikleyici 23 değişmez.
+- Geri alma: `down.sql` (koruma yok; kayıp yalnız bekleyen kodların indirme bağlantısı ve sayaçlar — mimari §3 kabul). Önce LG
+  sunucu kodu geri alınmalı.
+- Test (2026-11-15, geçici `rs-lg1-*`, mysql 8.4.13, `--max-connections=300`, silindi): temiz up 26 migration, `migrate diff
+--exit-code` 0; `test/integration/lg-schema.test.ts` (CHECK/UNIQUE/çoklu NULL/koşullu artış/EXPLAIN) + P27 kod testleri geçti;
+  down → P27 şemasına diff 0 → yeniden up → diff 0; tetikleyici 23; `check-app-grants.sh` PASS.

@@ -1,8 +1,23 @@
 # Mimari — Müşteriye bağlantı gönderme (LG)
 
-Tarih: 2026-11-15 · Durum: TASLAK r1 (güvenlik tasarım turu bekliyor) · Girdi: `docs/gereksinimler-link-gonderme.md` (AC-405..428, M1..M8) · Sıra: P28'den ÖNCE, tek dikey paket **LG**. Ana belge: `docs/mimari.md`. Kontrol listesi: `docs/tasarim-kontrol.md` "LG".
+Tarih: 2026-11-15 · Durum: TASLAK r2 (güvenlik tasarım turu işlendi, §0) · Girdi: `docs/gereksinimler-link-gonderme.md` (AC-405..428, M1..M8) · Sıra: P28'den ÖNCE, tek dikey paket **LG**. Ana belge: `docs/mimari.md`. Kontrol listesi: `docs/tasarim-kontrol.md` "LG".
 
 Açık soru kararları (çağıran ajan): **S-LG1** e-posta ve WhatsApp birlikte sunulur ama her gönderim tek kanala gider (V-LG2). **S-LG2** kılavuz bağlantısı eklenmez.
+
+## 0. r2 notu — güvenlik tasarım turu (`docs/guvenlik-raporu.md` "LG")
+
+| Bulgu  | İşlendiği yer   | Özet                                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| ------ | --------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| O-LG-1 | §5.4, §12       | `insecureHttp` yerine yeni yüklem: `whatsapp.transportEncrypted = usable && (protocol === "https:" \|\| isLoopbackHost)`. Yüklem `production` bayrağından ve özel ağ istisnasından bağımsızdır.                                                                                                                                                                                                                                                     |
+| O-LG-2 | §8, §10.2       | İndirme audit'i "telafi" değil "ipucu"dur. Yazım sınırı: aynı kod + IP için saatte en çok 1, kod başına toplam en çok 10. HEAD isteği audit yazmaz.                                                                                                                                                                                                                                                                                                 |
+| O-LG-3 | §1, §4.1, §10.2 | **Koordinatör kararı:** K2 WhatsApp kanalı şimdilik **kapalı**: `CHANNELS_BY_KIND.UNATTENDED_CODE = ["EMAIL"]`. Açılması için iki koşul birlikte gerekir: (a) whatsapp-bildirim servisi ve paneli HTTPS'e geçmiş, panel erişimi kısıtlanmış olmalı; (b) kullanıcı (Nokta) R-LG1 kalan riskini yazılı kabul etmiş olmalı. Bu koşullar sağlandığında `"WHATSAPP"` geri eklenir ve O-LG-1 yüklemi uygulanır.                                           |
+| D-LG-1 | §4.2            | `customer-send` eklentisi `onSend` kancasıyla `Cache-Control: no-store` ekler (unattended kalıbı).                                                                                                                                                                                                                                                                                                                                                  |
+| D-LG-2 | §4.2, §4.3, §12 | Public uç ayrı ve oturumsuz bir eklentide yer alır (`unattendedRegisterRoutes` kalıbı, `checkPublicClient` benzeri istemci kontrolü). Geçerlilik tek bir yüklemden gelir ve bu yüklem `registerTx` ile paylaşılır: kod kullanılmamış ve süresi dolmamış, müşteri ACTIVE ve anonim değil, **tenant ACTIVE**, gözetimsiz kapısı `available`. Sıra: biçim → IP kovası → yüklem (aksi 404) → ikili kapısı (503). Testlere "tenant pasif → 404" eklenir. |
+| D-LG-3 | §3.1, §12       | Belirteç ham 32 bayt HMAC'ten base64url'e çevrilir; hex çıktısı kodlanmaz. Türetme her iki tarafta normalize edilmiş koddan yapılır (tire yok, büyük harf; `registerDevice` ayrıştırıcısı). HKDF amacı `unattended-download` ≠ `unattended-code` olmalıdır; birim testi iki değerin farklı olduğunu doğrular. v1 anahtarı kaldırılırsa bekleyen bağlantılar 404 olur; 24 saatlik ömürle kabul edilir ve runbook'un rotasyon notuna yazılır.         |
+| D-LG-4 | §5              | WA kısa metninde `F` ve `T` değişkenlerinden `* _ ~` ve ters tırnak çıkarılır. Tenant adını yalnız Super Admin'in değiştirebildiği doğrulanır; Admin değiştirebiliyorsa bulgu Orta'ya çıkar.                                                                                                                                                                                                                                                        |
+| D-LG-5 | §4.5            | Audit'e bakan "iptal → 409" yolu, `unattended.manage` ve `tenant_id + user_id + entity_id` kapsam kontrolünden **sonra** çalışır. Test: manage yetkisi alınmış üretici + iptal kod → 404.                                                                                                                                                                                                                                                           |
+| D-LG-6 | §13             | **Prod ön koşulu:** prod açılışında `WHATSAPP_ALLOW_INSECURE_HTTP=false`. Bayrağın bitiş kaydı ("whatsapp-bildirim https olunca kaldırılır") runbook'a ve gereksinimler §9'a Sonra olarak eklenir (devops).                                                                                                                                                                                                                                         |
+| KD-LG1 | §3.1            | Güvenlik onayladı.                                                                                                                                                                                                                                                                                                                                                                                                                                  |
 
 ## 1. Özet ve kısıtlar
 
@@ -12,11 +27,11 @@ Açık soru kararları (çağıran ajan): **S-LG1** e-posta ve WhatsApp birlikte
 - Etkileşimli gönderimler outbox'a girmez. Otomatik yeniden deneme yapılmaz.
 - `mail/service.ts` ve `notify/service-url.ts` dosyalarının tasarımı bu belgenin kapsamında değildir; başka ajan düzeltiyor. `WHATSAPP_ALLOW_INSECURE_HTTP` bayrağı varsayılır (§5.4).
 
-| Kod | Gönderim                       | Kanallar               | Yetki                                                                            | Alıcı                                    |
-| --- | ------------------------------ | ---------------------- | -------------------------------------------------------------------------------- | ---------------------------------------- |
-| K1  | Oturum bağlantısı + istemci    | E-posta, WhatsApp, SMS | EMAIL `sessions.create`; SMS/WA `sessions.send_link`; yalnız oturumun teknisyeni | Serbest (talepten doğduysa öneri)        |
-| K2  | Kayıt kodu + servis indirme    | E-posta, WhatsApp      | `unattended.manage` + kodu üreten kullanıcı                                      | Yalnız `customer_notify_contacts`        |
-| K3  | Müşteriye özel indirme + talep | E-posta, WhatsApp      | `customers.view` + `sessions.send_link`                                          | Serbest, müşteri kaydı/adresleriyle dolu |
+| Kod | Gönderim                       | Kanallar                             | Yetki                                                                            | Alıcı                                    |
+| --- | ------------------------------ | ------------------------------------ | -------------------------------------------------------------------------------- | ---------------------------------------- |
+| K1  | Oturum bağlantısı + istemci    | E-posta, WhatsApp, SMS               | EMAIL `sessions.create`; SMS/WA `sessions.send_link`; yalnız oturumun teknisyeni | Serbest (talepten doğduysa öneri)        |
+| K2  | Kayıt kodu + servis indirme    | E-posta (WhatsApp kapalı, r2 O-LG-3) | `unattended.manage` + kodu üreten kullanıcı                                      | Yalnız `customer_notify_contacts`        |
+| K3  | Müşteriye özel indirme + talep | E-posta, WhatsApp                    | `customers.view` + `sessions.send_link`                                          | Serbest, müşteri kaydı/adresleriyle dolu |
 
 ## 2. Bileşenler
 
@@ -90,7 +105,7 @@ export type CustomerSendChannel = (typeof CUSTOMER_SEND_CHANNELS)[number];
 /** K2/K3'te SMS yok (kapsam dışı 3). */
 export const CHANNELS_BY_KIND = {
   SESSION: ["EMAIL", "WHATSAPP", "SMS"],
-  UNATTENDED_CODE: ["EMAIL", "WHATSAPP"],
+  UNATTENDED_CODE: ["EMAIL"], // r2 O-LG-3: WHATSAPP koşullar sağlanınca eklenir (§10.2)
   CUSTOMER: ["EMAIL", "WHATSAPP"],
 } as const satisfies Record<string, readonly CustomerSendChannel[]>;
 
@@ -218,6 +233,7 @@ Sıra her uçta aynıdır: şema 400 → hedef yok veya sahibi değil 404 → ye
 - `codeHash(secrets, normalize(code))` hesaplanır ve kayıttaki `code_hash` ile `safeEqual` ile karşılaştırılır. Satır şöyle aranır: `id = codeId AND tenant_id AND created_by = user`.
 - Satır yoksa (iptal ile silinmiş ya da gece temizliğiyle gitmiş olabilir) ve hash tenant + `created_by` içinde de yoksa, `codeId` hiç görülmemişse 404 döner. İptal edilen kodun audit'i (`unattended.code.cancelled`, `entityId = codeId`, `user`) varsa 409 döner. Böylece "tüketilmiş/iptal → 409" testi tutarlı kalır ve başka kullanıcının kodu sızmaz.
 - Kullanılmış ya da süresi dolmuş satır mevcutsa 409 döner.
+- r2 (D-LG-5): audit'e bakan iptal yolu, `unattended.manage` ve `tenant_id + user_id + entity_id` kapsam kontrolünden sonra çalışır; yetkisi alınmış üretici 404 görür.
 
 ## 5. Mesaj şablonları (`notify/customer-templates.ts`)
 
@@ -253,6 +269,8 @@ Dosya adı "Destek-" ile başlar. SHA-256: {AGENT_SHA256}
 ```
 
 SMS uzunluğu 2–3 parçaya çıkar (maliyet). Kabul edilir: SMS yalnız K1'de bulunur ve tenant tavanı 200/sa'dir.
+
+> Sapma (qa LG tur 1 madde 7, koordinatör kararı 2026-11-15): SMS'te istemci satırı ve uyarı satırı yoktur; SMS metni `{F} uzak destek ({T}):` / `{link}` / `Kod: {code} · Son geçerlilik: {until} (TR)` → UCS-2 ≤ 3 parça. Kısa metin bloğu yalnız WhatsApp için geçerlidir.
 
 ### 5.2 K2 — kayıt kodu + servis kurulumu
 
@@ -306,11 +324,11 @@ E-posta konusu `{F} – destek bağlantılarınız`. Gövde aynı satırlardan o
 
 ### 5.4 Kanal kullanılabilirliği
 
-| Kanal    | Koşul (hepsi)                                                                                                                                                                                                                                                                                                             |
-| -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| EMAIL    | Kullanıcının o hedefteki e-posta yetkisi var (§6) ve `mail.configFor(tenantId)` dolu.                                                                                                                                                                                                                                     |
-| WHATSAPP | Yetki var ve `whatsapp.usable`. **K2'de ek koşul:** taşıma güvenli olmalı. Bayrağı yazan ajanın `WhatsappNotifier` üzerine eklediği "güvensiz http ile açık" bilgisi okunur (backend bu salt okunur özelliği `insecureHttp: boolean` adıyla kullanır). Bilgi `true` ise K2 WA `block:"insecure_transport"` döner (§10.2). |
-| SMS      | Yalnız K1. `sessions.send_link` ve `sms.usableFor(tenantId)` gerekir.                                                                                                                                                                                                                                                     |
+| Kanal    | Koşul (hepsi)                                                                                                                                                       |
+| -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| EMAIL    | Kullanıcının o hedefteki e-posta yetkisi var (§6) ve `mail.configFor(tenantId)` dolu.                                                                               |
+| WHATSAPP | Yetki var ve `whatsapp.usable`. **K2'de ek koşul:** taşıma güvenli olmalı. **r2 (O-LG-1):** `WhatsappNotifier.transportEncrypted = usable && (protocol === "https:" |     | isLoopbackHost)`(production bayrağından ve özel ağ istisnasından bağımsız; mevcut`insecure`/`insecureAllowed`kullanılmaz).`false`ise`block:"insecure_transport"`+ 409. Şu an K2 WA`CHANNELS_BY_KIND` dışında olduğu için yüklem kanal geri eklendiğinde devreye girer (O-LG-3). |
+| SMS      | Yalnız K1. `sessions.send_link` ve `sms.usableFor(tenantId)` gerekir.                                                                                               |
 
 Hiç kanal yoksa diyalog "Gönderim kanalı yapılandırılmamış" der. `settingsHref` yalnız kullanıcı o sayfayı açabiliyorsa dolar: SMTP ve SMS için `settings.view`, WhatsApp sistem ayarı için Super Admin.
 
@@ -345,12 +363,12 @@ Tenant ayrımı her sorguda `tenant_id = auth.tenantId` ile uygulanır. Super Ad
 
 Sabitler `packages/contracts/src/audit.ts` dosyasına eklenir. Etiketler `labels.ts` ve audit ekranı süzgeci üzerinden gelir.
 
-| Eylem                                             | Entity / entityId                        | `new_value`                                                                                                             | Not                                                                                     |
-| ------------------------------------------------- | ---------------------------------------- | ----------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------- |
-| `session.email`, `session.link_sent`, `mail.sent` | Mevcut                                   | Mevcut                                                                                                                  | K1 aynen (AC-414).                                                                      |
-| `unattended.code.sent`                            | `unattended_registration_codes` / codeId | reserved: `{phase, channel, recipient, customerId}`; result: `{phase, channel, recipient, customerId, result, reason?}` | AC-420                                                                                  |
-| `customer.link_sent`                              | `customers` / customerId                 | `{phase, channel, recipient, result?, reason?, links: ["download","webform"]}`                                          | AC-423. `links` yalnız hangi bağlantıların gittiğini söyler; URL ve ref yazılmaz.       |
-| `unattended.code.downloaded`                      | `unattended_registration_codes` / codeId | `{customerId}`, `user_id = NULL`, IP ve UA audit bağlamından                                                            | Yalnız başarılı indirmede yazılır (iz ve R-LG1 telafisi). Başarısızlar yalnız metrikte. |
+| Eylem                                             | Entity / entityId                        | `new_value`                                                                                                             | Not                                                                                                                                                                                   |
+| ------------------------------------------------- | ---------------------------------------- | ----------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `session.email`, `session.link_sent`, `mail.sent` | Mevcut                                   | Mevcut                                                                                                                  | K1 aynen (AC-414).                                                                                                                                                                    |
+| `unattended.code.sent`                            | `unattended_registration_codes` / codeId | reserved: `{phase, channel, recipient, customerId}`; result: `{phase, channel, recipient, customerId, result, reason?}` | AC-420                                                                                                                                                                                |
+| `customer.link_sent`                              | `customers` / customerId                 | `{phase, channel, recipient, result?, reason?, links: ["download","webform"]}`                                          | AC-423. `links` yalnız hangi bağlantıların gittiğini söyler; URL ve ref yazılmaz.                                                                                                     |
+| `unattended.code.downloaded`                      | `unattended_registration_codes` / codeId | `{customerId}`, `user_id = NULL`, IP ve UA audit bağlamından                                                            | Yalnız başarılı GET indirmesinde yazılır (**ipucu**, telafi değil). r2 O-LG-2 sınırı: aynı kod + IP saatte en çok 1, kod başına en çok 10; HEAD yazmaz. Başarısızlar yalnız metrikte. |
 
 - `recipient` alanı `maskEmail` ya da `maskPhone` ile maskelenir. Kod, belirteç, oturum token'ı, bağlantı ve ref audit'e yazılmaz. `mail.sent` satırına konu yazılır; konu gizli değer içermez.
 - Metrikler: `rs_link_send_total{kind,channel,result}` (mevcut metriğe `kind` etiketi eklenir) ve `rs_unattended_download_total{result: ok|not_found|not_ready|rate_limited}`. Etikette alıcı veya kimlik bulunmaz (AC-425).
@@ -402,12 +420,12 @@ Davranış:
 | T-LG6 | Kişisel verinin log veya metriğe sızması.                              | §8 log ve metrik kuralları; AC-425 log yakalama testi.                                                                                                                                                       |
 | T-LG7 | İmzasız ikilinin oturumsuz dağıtımı (R-LG3).                           | `AgentBinary` SHA kapısı (503). E-postada SHA-256 yazılır. Prod'da gözetimsiz kapısı kapalı olduğu için kod da bağlantı da üretilmez (P27).                                                                  |
 
-### 10.2 R-LG1 kararı: kayıt kodu WhatsApp'tan gönderilebilir, koşullu
+### 10.2 R-LG1 kararı (r2): K2 WhatsApp kapalı, koşullar sağlanınca açılır
 
-**Karar:** WhatsApp kanalı K2 için açık kalır. Gereksinimdeki koşullara aşağıdaki iki ek kontrol eklenir.
+**r2 kararı (koordinatör, O-LG-3):** K2 şimdilik yalnız e-postayla gider. WhatsApp iki koşul birlikte sağlanınca açılır: (a) whatsapp-bildirim servisi ve paneli HTTPS'te ve panel erişimi kısıtlı; (b) kullanıcı R-LG1 kalan riskini yazılı kabul etti. Açıldığında aşağıdaki kontroller geçerlidir.
 
-1. **Güvensiz taşımada kapalı.** `whatsapp-bildirim` servisine giden istek `WHATSAPP_ALLOW_INSECURE_HTTP` ile düz http üzerinden açılmışsa, kod ağda açık metin olarak gider. Bu durumda K2 WhatsApp kanalı `available:false` ve `block:"insecure_transport"` döner; sunucu da 409 `CHANNEL_UNAVAILABLE` verir. K1 ve K3 bu bayrakla çalışmaya devam eder: K1 oturum kodu teknisyen onayı olmadan erişim vermez ve süresi kısadır, K3 bağlantıları zaten kalıcı ve yenilenebilir referanslardır. Kayıt kodu ise kalıcı cihaz kaydı verir, bu yüzden eşik daha yüksektir.
-2. **İndirme izi.** Her başarılı servis indirmesi `unattended.code.downloaded` olarak audit'e yazılır (IP ve UA ile). Böylece yanlış alıcıya gitmiş bir mesaj, kayıttan önce panelde fark edilebilir.
+1. **Şifresiz taşımada kapalı** (`transportEncrypted`, §5.4). `whatsapp-bildirim` servisine giden istek düz http ise, kod ağda açık metin olarak gider. Bu durumda K2 WhatsApp kanalı `available:false` ve `block:"insecure_transport"` döner; sunucu da 409 `CHANNEL_UNAVAILABLE` verir. K1 ve K3 bu bayrakla çalışmaya devam eder: K1 oturum kodu teknisyen onayı olmadan erişim vermez ve süresi kısadır, K3 bağlantıları zaten kalıcı ve yenilenebilir referanslardır. Kayıt kodu ise kalıcı cihaz kaydı verir, bu yüzden eşik daha yüksektir.
+2. **İndirme ipucu.** Başarılı servis indirmesi `unattended.code.downloaded` olarak audit'e yazılır (IP ve UA ile; aynı kod + IP saatte en çok 1, kod başına en çok 10, HEAD yazmaz). Bu bir ipucudur, telafi kontrolü değildir: indirmeyi kimin yaptığını kanıtlamaz. Asıl telafi "Yeni — doğrulanmadı" durumu ve P27 kayıt bildirimidir.
 
 Gereksinimden gelen koşullar aynen uygulanır:
 
@@ -417,7 +435,7 @@ Gereksinimden gelen koşullar aynen uygulanır:
 - Cihaz, kayıt olduğunda "Yeni — doğrulanmadı" görünür ve yetki verilene kadar bağlanılamaz.
 - Kayıt bildirimi müşteri adreslerine ve `manage` sahiplerine gider (P27).
 
-**Kalan risk (kabul):** `whatsapp-bildirim` hesabına erişimi olan kişi kodu 24 saat boyunca sohbet geçmişinde görebilir. Bu, Nokta'nın kendi işlettiği sistem genel hesabıdır (V-LG5). Güvenlik tasarım turunda yeniden değerlendirilir. Turda "kapat" kararı çıkarsa yapılacak tek değişiklik `CHANNELS_BY_KIND.UNATTENDED_CODE` değerinden `"WHATSAPP"` çıkarmaktır (genişleme noktası).
+**Kalan risk (kabul):** `whatsapp-bildirim` hesabına erişimi olan kişi kodu 24 saat boyunca sohbet geçmişinde görebilir. Bu, Nokta'nın kendi işlettiği sistem genel hesabıdır (V-LG5). Bu risk yazılı kabul edilmeden kanal açılmaz. Açılış tek değişikliktir: `CHANNELS_BY_KIND.UNATTENDED_CODE` değerine `"WHATSAPP"` eklenir (genişleme noktası). O sırada şablon, test ve `transportEncrypted` yüklemi hazırdır.
 
 Değerlendirilen alternatifler:
 
@@ -475,7 +493,7 @@ Komutlar: `pnpm -r run lint`, `pnpm -r run typecheck`, `pnpm -r run test`, `pnpm
 | LG-4b AppSec denetimi (R-LG1 kararı, §10 ve belirteç dahil)                                                                                               | guvenlik     | LG-2, LG-3                                                                       | LG-4a ile paralel                      |
 | LG-5 Kılavuz, api.md, CHANGELOG                                                                                                                           | teknik-yazar | LG-4 GEÇTİ                                                                       | —                                      |
 
-Devops işi yoktur: env, compose ve Caddy değişmez. Staging dağıtımı mevcut runbook'la yapılır. K2 staging'de denenir; staging'de WhatsApp http bayrağıyla açıksa K2 WhatsApp yalnız e2e mock'ta doğrulanır (§10.2).
+Devops işi yoktur: env, compose ve Caddy değişmez. **Prod ön koşulu (r2 D-LG-6):** prod açılışında `WHATSAPP_ALLOW_INSECURE_HTTP=false`; bayrak bitiş kaydı runbook'a eklenir. Staging dağıtımı mevcut runbook'la yapılır. K2 staging'de denenir; staging'de WhatsApp http bayrağıyla açıksa K2 WhatsApp yalnız e2e mock'ta doğrulanır (§10.2).
 
 ## 14. Kabul kriterleri eşlemesi
 

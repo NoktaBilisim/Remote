@@ -37,6 +37,8 @@ export const CUSTOMER_AUDIT = {
   EXPORTED: "customer.exported",
   /** P19 (AC-263): özet `{total, created, updated, skipped, failed, onConflict}`; satır olayları `source: "import"`. */
   IMPORTED: "customer.imported",
+  /** LG (AC-423): müşteriye özel bağlantılar gönderildi — `{phase, channel, recipient(maskeli), links, result?, reason?}`. */
+  LINK_SENT: "customer.link_sent",
 } as const;
 export const BINDING_AUDIT = {
   ISSUED: "binding.issued",
@@ -281,6 +283,10 @@ export const UNATTENDED_AUDIT = {
   SESSION_STARTED: "unattended.session.started",
   SESSION_ENDED: "unattended.session.ended",
   LOCAL_STATE: "unattended.local_state",
+  /** LG (AC-420): kayıt kodu müşteriye gönderildi — `{phase, channel, recipient(maskeli), customerId, result?, reason?}`. */
+  CODE_SENT: "unattended.code.sent",
+  /** LG (AC-419, O-LG-2): public servis indirmesi — `{customerId, ua}`; kod+IP saatte 1, kod başına en çok 10 satır. */
+  CODE_DOWNLOADED: "unattended.code.downloaded",
 } as const;
 export type UnattendedAuditAction = (typeof UNATTENDED_AUDIT)[keyof typeof UNATTENDED_AUDIT];
 
@@ -289,6 +295,13 @@ export const P19_NOTIFY_AUDIT_LABELS: Readonly<Record<string, string>> = {
   [NOTIFY_AUDIT.CUSTOMER_NOTIFY]: "Müşteriye durum bildirimi",
   [NOTIFY_AUDIT.SMS_UPDATED]: "SMS ayarları değişti",
   [NOTIFY_AUDIT.SMS_TEST]: "Test SMS'i",
+};
+
+/** LG (mimari-link-gonderme §8) eylemlerinin Türkçe etiketleri (web `AUDIT_ACTION_LABELS`'a yayılır). */
+export const LG_AUDIT_LABELS: Readonly<Record<string, string>> = {
+  [UNATTENDED_AUDIT.CODE_SENT]: "Kayıt kodu müşteriye gönderildi",
+  [UNATTENDED_AUDIT.CODE_DOWNLOADED]: "Servis kurulum dosyası indirildi (bağlantıdan)",
+  [CUSTOMER_AUDIT.LINK_SENT]: "Müşteriye bağlantılar gönderildi",
 };
 
 /** P19 J2 eylemlerinin Türkçe etiketleri (web `AUDIT_ACTION_LABELS`'a yayılır). */

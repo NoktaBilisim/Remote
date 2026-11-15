@@ -72,7 +72,8 @@ export function createMetrics(): Metrics {
   m.counter("rs_web_form_rejected_total", "Web formu bot kapısı retleri (P19 S-P19-1; reason: fast|token|honeypot|token_store_full)");
   m.counter("rs_notify_suppressed_total", "Bastırılan müşteri durum bildirimleri (P19 S-P19-12; reason: pending_duplicate)");
   // P19 J3 (§8c.3, §8c.7; J6 remote-watch sözleşmesi): outbox yalnız son durumları sayar, rate_limited hariç.
-  m.counter("rs_link_send_total", "Oturum bağlantısı gönderimleri (P19 AC-260; channel, result: ok|<neden>)");
+  m.counter("rs_link_send_total", "Müşteriye bağlantı gönderimleri (P19 AC-260, LG; kind, channel, result: ok|<neden>)");
+  m.counter("rs_unattended_download_total", "LG public servis indirme (result: ok|not_found|not_ready|rate_limited)");
   m.counter(
     "rs_sms_send_total",
     "SMS çağrıları (P19; result: ok|timeout|unreachable|unauthorized|http_error|redirect|host_not_allowed|unconfigured|invalid_phone)",

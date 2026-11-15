@@ -13,6 +13,7 @@ import { handleP18, p18User } from "./mock-p18.mjs";
 import { handleP19, p19User } from "./mock-p19.mjs";
 import { handleP27, p27User } from "./mock-p27.mjs";
 import { handleHistory, historyUser } from "./mock-history.mjs";
+import { handleLg, lgOutbox } from "./mock-lg.mjs";
 import { handleRequests, requestUser } from "./mock-requests.mjs";
 import { handleLobby, handleSessions, lobbyHook, sessionUser } from "./mock-sessions.mjs";
 import { handleUsers, usersUser } from "./mock-users.mjs";
@@ -124,6 +125,9 @@ const srv = createServer(async (req, res) => {
   const ageHit = req.method === "GET" && url.match(/^\/__e2e\/age\/([0-9A-Z]{26})\?ms=(\d+)$/);
   if (ageHit) return send(res, ageRoom(ageHit[1], Number(ageHit[2])) ? 200 : 404, {});
   // P13b-L: lobi durumu kancası (/__e2e/lobby/<oturum>?waiting=&arrivals=, /__e2e/lobby-calls/<çerez>)
+  // LG-3: sahte SMTP/WA yakalayıcısının son mesajı (/__e2e/lg-outbox/<çerez>) — e2e önizleme = gönderilen metin karşılaştırması
+  const lgHit = req.method === "GET" && url.match(/^\/__e2e\/lg-outbox\/([\w-]+)$/);
+  if (lgHit) return send(res, 200, lgOutbox(lgHit[1]));
   const lh = req.method === "GET" && lobbyHook(url);
   if (lh) return send(res, lh.status, lh.body);
   // P13b-L: panel geneli lobi sayacı ucu — tüm sahte kullanıcılar için (panel kabuğu her sayfada yoklar)
@@ -134,6 +138,8 @@ const srv = createServer(async (req, res) => {
   if (req.method !== "GET" && req.headers.origin !== (process.env.MOCK_ALLOWED_ORIGIN ?? "http://localhost:3217"))
     return send(res, 403, err("FORBIDDEN", "Origin reddedildi."));
 
+  // LG-3: müşteriye gönder (POST /customer-send/options, /customer-send) — oturumlu tüm sahte kullanıcılar
+  if (await handleLg(req, res, { url, session, csrfOk, send, err, readJson })) return;
   // P10: hesap güvenliği / SMTP (girişte yalnız kendi hesaplarını işler, diğerlerini aşağıya bırakır)
   if (await handleAccount(req, res, { url, session, csrfOk, send, err, readJson, sessionCookies })) return;
   // P12: tema, avatar, logo, herkese açık marka (u-br*, u-brsa-*; /public/branding herkes)

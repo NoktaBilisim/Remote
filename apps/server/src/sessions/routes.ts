@@ -26,7 +26,8 @@ import {
 } from "@remote/contracts/api/sessions";
 import { emailSessionLink } from "./email.ts";
 import { sendLinkInputSchema, type SendLinkOptions, type SendLinkResponse } from "@remote/contracts/api/notify";
-import { closeSendLinkLimits, createSendLinkLimits, sendLinkOptions, sendSessionLink, type SendLinkDeps } from "./send-link.ts";
+import { sendLinkOptions, sendSessionLink, type SendLinkDeps } from "./send-link.ts";
+import type { AgentLinkDeps } from "../public/agent.ts";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import { auditContext } from "../audit/service.ts";
 import { authOf, checkPublicClient, requireAnyPerm, requireAuth, requirePerm, tenantScope } from "../auth/guards.ts";
@@ -48,6 +49,14 @@ function idParam(req: FastifyRequest): string {
   if (!id || !ULID.test(id)) throw new AppError("NOT_FOUND");
   return id;
 }
+
+/** LG §5.1: K1 metnindeki istemci indirme bağlantısı bağımlılıkları (eski uçlar ve customer-send ortak). */
+export const agentDeps = (app: FastifyInstance): AgentLinkDeps => ({
+  binary: app.agentBinary,
+  sha256: app.env.AGENT_SHA256,
+  refKey: app.sessionRefKey,
+  publicBaseUrl: app.env.PUBLIC_BASE_URL,
+});
 
 export async function sessionRoutes(app: FastifyInstance): Promise<void> {
   app.addHook("preHandler", requireAuth);
@@ -142,15 +151,13 @@ function detailRoutes(app: FastifyInstance): void {
     const { tenantId } = tenantScope(req);
     const id = idParam(req);
     const input = parseInput(sessionEmailInputSchema, req.body);
-    await emailSessionLink(app.mail, app.env.PUBLIC_BASE_URL, auditContext(req), authOf(req), tenantId, id, input);
+    await emailSessionLink(app.mail, app.env.PUBLIC_BASE_URL, auditContext(req), authOf(req), tenantId, id, input, agentDeps(app));
     return { sent: true };
   });
 }
 
 function sendLinkRoutes(app: FastifyInstance): void {
   // P19 J3 (AC-260): bağlantıyı SMS/WhatsApp ile gönder — sessions.create + sessions.send_link; 20/sa/kullanıcı (audit).
-  const sendLimits = createSendLinkLimits();
-  app.addHook("onClose", async () => closeSendLinkLimits(sendLimits));
   const sendDeps = (): SendLinkDeps => ({
     db: app.db,
     sms: app.sms,
@@ -158,7 +165,8 @@ function sendLinkRoutes(app: FastifyInstance): void {
     secrets: app.secrets,
     metrics: app.metrics,
     publicBaseUrl: app.env.PUBLIC_BASE_URL,
-    limits: sendLimits,
+    limits: app.sendLinkLimits,
+    agent: agentDeps(app),
   });
   const sendLinkPerms = [requirePerm("sessions.create"), requirePerm("sessions.send_link")];
   app.post("/:id/send-link", { preHandler: sendLinkPerms }, async (req, reply): Promise<SendLinkResponse> => {

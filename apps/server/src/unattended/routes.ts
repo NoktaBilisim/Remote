@@ -26,7 +26,7 @@ import { AppError, parseInput } from "../lib/errors.ts";
 import { FixedWindowCounter } from "../lib/rate.ts";
 import { connectDevice } from "./connect.ts";
 import { putContacts, getContacts } from "./contacts.ts";
-import { sendServiceBinary, serviceBinary } from "./download.ts";
+import { sendServiceBinary } from "./download.ts";
 import { createGate, unattendedStatus } from "./gate.ts";
 import { registerDevice, type RegisterLimits } from "./register.ts";
 import { cancelCode, createCode, listCodes, type RegistrationDeps } from "./registration.ts";
@@ -132,13 +132,7 @@ function codeAndContactRoutes(p: Panel): void {
 
 /** Servis ikilisi indirme (yalnız `manage`; SHA uyuşmazsa 503). */
 function downloadRoute(app: FastifyInstance): void {
-  const bin = serviceBinary(app.env.UNATTENDED_AGENT_PATH, app.env.UNATTENDED_AGENT_SHA256, (state) =>
-    app.log.warn(
-      { alarm: "unattended_binary", state },
-      "Gözetimsiz servis ikilisi indirilemez (yapılandırma eksik, dosya yok veya SHA-256 uyuşmuyor)",
-    ),
-  );
-  app.get("/download", manage(), async (_req, reply) => sendServiceBinary(bin, app.env.UNATTENDED_AGENT_PATH, reply));
+  app.get("/download", manage(), async (_req, reply) => sendServiceBinary(app.unattendedBinary, app.env.UNATTENDED_AGENT_PATH, reply));
 }
 
 export async function unattendedRoutes(app: FastifyInstance, opts: UnattendedRouteOptions): Promise<void> {

@@ -17,7 +17,7 @@ import { writeAudit, type AuditContext } from "../audit/service.ts";
 import type { Db } from "../lib/db.ts";
 import type { Metrics } from "../ops/metrics.ts";
 import type { Clock } from "../signaling/types.ts";
-import { isInsecureServiceUrl, isParsableServiceUrl, keyOverPlainHttp } from "./service-url.ts";
+import { isInsecureServiceUrl, isLoopbackHost, isParsableServiceUrl, keyOverPlainHttp } from "./service-url.ts";
 
 export const WA_TIMEOUT_MS = 8_000;
 const WA_RETRY_DELAYS_MS = [0, 5_000, 20_000] as const;
@@ -182,6 +182,16 @@ export class WhatsappNotifier {
         { event: "whatsapp_key_over_http" },
         "WhatsApp servis anahtarı şifresiz (http) gönderilecek — yalnız geliştirme ortamında izinli",
       );
+  }
+
+  /**
+   * LG (O-LG-1): taşıma şifreli mi — kullanılabilir VE (https ya da loopback). `production`, özel ağ istisnası ve K13
+   * `allowInsecureHttp` bayrağından BAĞIMSIZ; kalıcı yetki veren içerik (K2 kayıt kodu) yalnız bu yüklem true iken gider.
+   */
+  get transportEncrypted(): boolean {
+    if (!this.usable || !isParsableServiceUrl(this.url)) return false;
+    const u = new URL(this.url);
+    return u.protocol === "https:" || isLoopbackHost(u.hostname);
   }
 
   /** Kanal kullanılabilir mi (ayar ekranı ve gönderim kapısı). */

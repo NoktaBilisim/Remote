@@ -16,11 +16,12 @@ import {
   type SendLinkOptions,
 } from "@remote/contracts/api/notify";
 import { sessionTokenSchema } from "@remote/contracts/api/sessions";
-import { NOTIFY_AUDIT } from "@remote/contracts/audit";
+import { CUSTOMER_AUDIT, NOTIFY_AUDIT, UNATTENDED_AUDIT } from "@remote/contracts/audit";
 import { maskPhone } from "../audit/mask.ts";
 import { writeAudit, type AuditContext } from "../audit/service.ts";
 import type { AuthContext } from "../auth/session.ts";
 import type { SecretBox } from "../lib/crypto.ts";
+import { Prisma } from "../generated/prisma/client.ts";
 import type { Db } from "../lib/db.ts";
 import { AppError } from "../lib/errors.ts";
 import { safeEqual, sha256Hex } from "../lib/ids.ts";
@@ -29,7 +30,8 @@ import { FixedWindowCounter } from "../lib/rate.ts";
 import type { Metrics } from "../ops/metrics.ts";
 import { recipientHash } from "../notify/outbox.ts";
 import { SmsClient } from "../notify/sms.ts";
-import { linkMessage } from "../notify/templates.ts";
+import { renderFor } from "../notify/customer-templates.ts";
+import { agentLinkFor, type AgentLinkDeps } from "../public/agent.ts";
 import type { WhatsappNotifier } from "../notify/whatsapp.ts";
 import { lockTechnician } from "./repo.ts";
 
@@ -43,6 +45,39 @@ export interface SendLinkDeps {
   metrics: Metrics;
   publicBaseUrl: string;
   limits: SendLinkLimits;
+  /** LG §5.1: K1 metnindeki doğrudan indirme bağlantısı. */
+  agent: AgentLinkDeps;
+}
+
+/**
+ * LG §7 (AC-420, 423): kullanıcı başına 20/sa bağlantı havuzu — K1 SMS/WA, K2 ve K3 aynı sayaç (`phase:"reserved"` satırları).
+ */
+export const LINK_POOL_ACTIONS = [NOTIFY_AUDIT.LINK_SENT, UNATTENDED_AUDIT.CODE_SENT, CUSTOMER_AUDIT.LINK_SENT] as const;
+
+/** TX içinde (kullanıcı satırı kilitliyken) havuz sayımı; dolu → 429 + Retry-After. */
+export async function assertLinkPool(tx: Prisma.TransactionClient, tenantId: string, userId: string, now: Date): Promise<void> {
+  const since = new Date(now.getTime() - HOUR_MS);
+  const rows = await tx.$queryRaw<{ created_at: Date }[]>`SELECT created_at FROM audit_logs
+    WHERE tenant_id = ${tenantId} AND user_id = ${userId} AND action IN (${Prisma.join([...LINK_POOL_ACTIONS])}) AND created_at >= ${since}
+      AND JSON_UNQUOTE(JSON_EXTRACT(new_value, '$.phase')) = 'reserved'
+    ORDER BY created_at LIMIT ${SEND_LINK_PER_HOUR}`;
+  if (rows.length >= SEND_LINK_PER_HOUR) {
+    const oldest = rows[0]?.created_at.getTime() ?? now.getTime();
+    throw new AppError("RATE_LIMITED", { retryAfterSec: Math.max(1, Math.ceil((oldest + HOUR_MS - now.getTime()) / 1000)) });
+  }
+}
+
+/** S-P19-K3: bellek kovaları (alıcı firma kapsamlı 5/sa, firma 200/sa) — kullanıcı tavanından SONRA, rezervasyondan önce. */
+export function hitSendBuckets(limits: SendLinkLimits, tenantId: string, recipientKey: string): void {
+  const buckets = [
+    [limits.recipient, `${tenantId}|${recipientKey}`],
+    [limits.tenant, tenantId],
+  ] as const;
+  for (const [counter, key] of buckets) {
+    const wait = counter.blockedFor(key);
+    if (wait > 0) throw new AppError("RATE_LIMITED", { retryAfterSec: wait });
+  }
+  for (const [counter, key] of buckets) if (counter.hit(key)) throw new AppError("RATE_LIMITED", { retryAfterSec: 3600 });
 }
 
 export interface SendLinkLimits {
@@ -77,11 +112,12 @@ async function ownPending(db: Db, auth: AuthContext, tenantId: string, id: strin
       status: true,
       expiresAt: true,
       tokenHash: true,
+      activeCode: true,
       tenant: { select: { name: true } },
     },
   });
   if (!s) throw new AppError("NOT_FOUND");
-  if (s.status !== "PENDING" || s.expiresAt <= new Date())
+  if (s.status !== "PENDING" || s.expiresAt <= new Date() || !s.activeCode)
     throw new AppError("CONFLICT", { message: "Yalnız bekleyen oturumun bağlantısı gönderilebilir." });
   return s;
 }
@@ -119,27 +155,8 @@ export async function sendSessionLink(
   const now = new Date();
   await d.db.$transaction(async (tx) => {
     await lockTechnician(tx, auth.user.id);
-    const since = new Date(now.getTime() - HOUR_MS);
-    const rows = await tx.$queryRaw<{ created_at: Date }[]>`SELECT created_at FROM audit_logs
-      WHERE tenant_id = ${tenantId} AND user_id = ${auth.user.id} AND action = ${NOTIFY_AUDIT.LINK_SENT} AND created_at >= ${since}
-        AND JSON_UNQUOTE(JSON_EXTRACT(new_value, '$.phase')) = 'reserved'
-      ORDER BY created_at LIMIT ${SEND_LINK_PER_HOUR}`;
-    if (rows.length >= SEND_LINK_PER_HOUR) {
-      const oldest = rows[0]?.created_at.getTime() ?? now.getTime();
-      throw new AppError("RATE_LIMITED", { retryAfterSec: Math.max(1, Math.ceil((oldest + HOUR_MS - now.getTime()) / 1000)) });
-    }
-    // S-P19-K3: bellek kovaları kullanıcı tavanından SONRA (tavana takılan istek kova harcamaz) ve rezervasyondan önce
-    // (kova reddi TX'i geri alır → rezervasyon yazılmaz). Alıcı kovası firma kapsamlı: bir firmanın gönderimi başka firmanın
-    // aynı numaraya gönderimini kilitlemez (sms-routes.ts test ucu kalıbı).
-    const buckets = [
-      [d.limits.recipient, `${tenantId}|${hash}`],
-      [d.limits.tenant, tenantId],
-    ] as const;
-    for (const [counter, key] of buckets) {
-      const wait = counter.blockedFor(key);
-      if (wait > 0) throw new AppError("RATE_LIMITED", { retryAfterSec: wait });
-    }
-    for (const [counter, key] of buckets) if (counter.hit(key)) throw new AppError("RATE_LIMITED", { retryAfterSec: 3600 });
+    await assertLinkPool(tx, tenantId, auth.user.id, now);
+    hitSendBuckets(d.limits, tenantId, hash);
     await writeAudit(tx, ctx, {
       ...who,
       action: NOTIFY_AUDIT.LINK_SENT,
@@ -150,14 +167,22 @@ export async function sendSessionLink(
     });
   });
 
-  const message = linkMessage(s.tenant.name, input.link, auth.user.fullName);
+  const message = renderFor(input.channel, {
+    kind: "SESSION",
+    firm: s.tenant.name,
+    technician: auth.user.fullName,
+    link: input.link,
+    code: s.activeCode ?? "",
+    expiresAt: s.expiresAt,
+    agent: await agentLinkFor(d.agent, id),
+  }).text;
   const raw =
     input.channel === "SMS"
       ? await d.sms.send(tenantId, input.phone, message, smsState ?? undefined)
       : await d.whatsapp.sendCustomer(tenantId, hash, input.phone, message);
   const reason =
     raw === "ok" ? null : raw === "invalid_phone" || raw === "unconfigured" || raw === "rate_limited" ? raw : publicReason(raw);
-  d.metrics.inc("rs_link_send_total", { channel: input.channel, result: raw });
+  d.metrics.inc("rs_link_send_total", { kind: "SESSION", channel: input.channel, result: raw });
   await writeAudit(d.db, ctx, {
     ...who,
     action: NOTIFY_AUDIT.LINK_SENT,

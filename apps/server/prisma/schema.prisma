@@ -877,18 +877,24 @@ model UnattendedDeviceGrant {
 
 // P27-K0 (mimari-p27 §3.3; AC-273): tek kullanımlık kayıt kodu. Düz kod DB'de yok (HMAC-SHA256 hex). Tüketim = koşullu UPDATE
 // `used_at IS NULL AND expires_at > ?` + cihaz INSERT tek TX. app SELECT/INSERT/UPDATE/DELETE. Elle CHECK'ler: code_hash hex,
-// (used_at IS NULL) = (device_id IS NULL), expires_at ∈ (created_at, created_at + 24 sa + 1 dk].
+// (used_at IS NULL) = (device_id IS NULL), expires_at ∈ (created_at, created_at + 24 sa + 1 dk]; LG-1: download_token_hash hex,
+// sent_count 0..3.
 model UnattendedRegistrationCode {
-  id         String    @id @db.Char(26)
-  tenantId   String    @map("tenant_id") @db.Char(26)
-  customerId String    @map("customer_id") @db.Char(26)
-  codeHash   String    @unique @map("code_hash") @db.Char(64) // HMAC-SHA256 hex (macAt, amaç "unattended-code")
-  createdBy  String?   @map("created_by") @db.Char(26) // Super Admin olabilir → tekil FK; kullanıcı silmede NULL
-  expiresAt  DateTime  @map("expires_at") @db.DateTime(3) // created_at + 24 sa
-  usedAt     DateTime? @map("used_at") @db.DateTime(3)
-  deviceId   String?   @map("device_id") @db.Char(26) // kodla kaydolan cihaz (used_at ile birlikte)
-  createdAt  DateTime  @default(now()) @map("created_at") @db.DateTime(3)
-  updatedAt  DateTime  @updatedAt @map("updated_at") @db.DateTime(3)
+  id                String    @id @db.Char(26)
+  tenantId          String    @map("tenant_id") @db.Char(26)
+  customerId        String    @map("customer_id") @db.Char(26)
+  codeHash          String    @unique @map("code_hash") @db.Char(64) // HMAC-SHA256 hex (macAt, amaç "unattended-code")
+  createdBy         String?   @map("created_by") @db.Char(26) // Super Admin olabilir → tekil FK; kullanıcı silmede NULL
+  expiresAt         DateTime  @map("expires_at") @db.DateTime(3) // created_at + 24 sa
+  usedAt            DateTime? @map("used_at") @db.DateTime(3)
+  deviceId          String?   @map("device_id") @db.Char(26) // kodla kaydolan cihaz (used_at ile birlikte)
+  createdAt         DateTime  @default(now()) @map("created_at") @db.DateTime(3)
+  updatedAt         DateTime  @updatedAt @map("updated_at") @db.DateTime(3)
+  // LG-1 (mimari-link-gonderme §3): K1 indirme belirteci SHA-256 hex (düz belirteç yok; public uçta tek satır arama). LG öncesi
+  // kodlarda NULL. Elle CHECK: hex. MySQL UNIQUE çoklu NULL'a izin verir.
+  downloadTokenHash String?   @unique @map("download_token_hash") @db.Char(64)
+  // LG-1: K2 kod başına gönderim sayacı. Elle CHECK 0..3; artış koşullu UPDATE `sent_count < 3` (§4.4).
+  sentCount         Int       @default(0) @map("sent_count") @db.UnsignedTinyInt
 
   tenant   Tenant            @relation(fields: [tenantId], references: [id], onDelete: Restrict, onUpdate: Restrict)
   customer Customer          @relation(fields: [tenantId, customerId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)

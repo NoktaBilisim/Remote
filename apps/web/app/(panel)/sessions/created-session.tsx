@@ -10,20 +10,10 @@ import { useToast } from "@/components/ui/toast";
 import { formatRemaining, formatTime } from "@/lib/format";
 import { t } from "@/lib/i18n";
 import { copyText, useNow } from "@/lib/use-now";
-import { SessionEmail } from "./session-email";
-import { SessionSendLink } from "./session-send-link";
+import { SendToCustomerDialog } from "@/components/send-to-customer/send-to-customer-dialog";
 
 /** Oluşturulan oturumun link + kod + doğrulama kodu + geçerlilik geri sayımı (AC-1, 3, 9). */
-export function CreatedSession({
-  data,
-  cancelled,
-  canSendLink = false,
-}: {
-  data: CreateSessionResponse;
-  cancelled: boolean;
-  /** P19 (AC-260): `sessions.create` + `sessions.send_link`. */
-  canSendLink?: boolean;
-}) {
+export function CreatedSession({ data, cancelled }: { data: CreateSessionResponse; cancelled: boolean }) {
   const id = useId();
   const toast = useToast();
   const now = useNow();
@@ -78,10 +68,8 @@ export function CreatedSession({
         <p id={`${id}-note`} className="text-xs text-fg-muted">
           {t("d.linkNote")}
         </p>
-        {/* P10 (AC-10) */}
-        <SessionEmail sessionId={data.id} link={data.link} disabled={invalid} />
-        {/* P19 (AC-260): SMS / WhatsApp ile gönder */}
-        {canSendLink && <SessionSendLink sessionId={data.id} link={data.link} disabled={invalid} />}
+        {/* LG-3 (AC-405): tek "Müşteriye gönder"; kanallar (e-posta `sessions.create`, SMS/WA `send_link`) sunucudan */}
+        <SendToCustomerDialog target={{ kind: "SESSION", sessionId: data.id, link: data.link }} disabled={invalid} />
       </div>
 
       <div className="grid gap-3 sm:grid-cols-2">

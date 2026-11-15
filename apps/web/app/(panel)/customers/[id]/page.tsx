@@ -3,6 +3,7 @@ import { notFound, redirect } from "next/navigation";
 import { Globe, Link2, UserRound } from "lucide-react";
 import { Breadcrumb } from "@/components/breadcrumb";
 import { CopyLink } from "@/components/copy-link";
+import { SendToCustomerDialog } from "@/components/send-to-customer/send-to-customer-dialog";
 import { LoadError } from "@/components/load-error";
 import { Alert } from "@/components/ui/alert";
 import { EXPIRED_LOGIN_PATH } from "@/lib/api";
@@ -76,6 +77,9 @@ export default async function CustomerPage({ params }: { params: Promise<{ id: s
   const c = res.data;
   const canEdit = perms.includes("customers.edit");
   const anon = Boolean(c.anonymizedAt);
+  // LG-3 (AC-421, 423): ACTIVE + anonim değil + en az bir bağlantı + `customers.view` (yukarıda) + `sessions.send_link`
+  const canSendToCustomer =
+    c.status === "ACTIVE" && !anon && Boolean(c.downloadUrl || c.webFormUrl) && perms.includes("sessions.send_link");
   const pii = (v: string | null) =>
     v ?? (anon ? <span className="italic text-fg-muted">{t("cu.anonymized")}</span> : <span className="text-fg-muted">—</span>);
 
@@ -109,7 +113,10 @@ export default async function CustomerPage({ params }: { params: Promise<{ id: s
               >
                 {c.downloadUrl}
               </code>
-              <CopyLink url={c.downloadUrl} srLabel={t("cu.copyFor", { name: c.name })} testId="customer-copy" />
+              <div className="flex flex-wrap items-start gap-2">
+                <CopyLink url={c.downloadUrl} srLabel={t("cu.copyFor", { name: c.name })} testId="customer-copy" />
+                {canSendToCustomer && <SendToCustomerDialog target={{ kind: "CUSTOMER", customerId: c.id }} testId="customer-send" />}
+              </div>
               <dl className="grid grid-cols-1 gap-x-6 gap-y-1 text-sm sm:grid-cols-[auto_1fr]">
                 <Row label={t("srs.dl.fileName")} testId="customer-file-name">
                   <span className="font-mono">{c.fileName}</span>

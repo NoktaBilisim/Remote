@@ -11,10 +11,10 @@ geliştirilir (bkz. `README.md` "Yol haritası"); kılavuz da her paketle birlik
 - **Teknisyen için:** Oturumlar ve bekleme odası ("Müşteri bekliyor" rozeti, menü sayacı, bildirim), Uzaktan kontrol
   (konsol; "Pencere paylaşımı" rozeti dahil), Oturum geçmişi (dosyalarda "Doğrulanmış / Müşteri bildirimi", talepte SLA satırı), Destek talepleri ("Bu kaynağı engelle"; öncelik, atama,
   SLA rozetleri, kabul öncesi mesajlaşma),
-  Engellenenler, web formundan gelen talepler ("Web" rozeti), oturum bağlantısını SMS veya WhatsApp ile gönderme, müşterinin
-  ekranı gelmiyorsa (paylaşım hata nedeni)
+  Engellenenler, web formundan gelen talepler ("Web" rozeti), müşterinin ekranı gelmiyorsa (paylaşım hata nedeni)
 - **Admin ve teknisyen için:** Müşteriler (müşteri firmalar, bağlantı gönderme, web talep formu bağlantısı, kayıtlı
-  bilgisayarlar, CSV dışa/içe aktarma)
+  bilgisayarlar, CSV dışa/içe aktarma); **Müşteriye gönder** (oturum bağlantısı, kayıt kodu ve müşteri bağlantılarını
+  e-posta, WhatsApp ya da SMS ile gönderme)
 - **Admin, teknisyen ve müşteri BT için:** Gözetimsiz erişim (SMTP ön koşulu, bildirim adresleri, kayıt kodu, teknisyen
   yetkisi, bağlanma, cihaz rozetleri, iptal; müşteri tarafında servisi kurma, gösterge, tepsi, yerel kapatma, kaldırma)
 - **Herkes için (teknisyen, Admin, Super Admin):** Giriş ve hesap güvenliği — iki adımlı doğrulama (2FA), kurtarma
@@ -1658,9 +1658,11 @@ Super Admin müşterileri bir firma seçtikten sonra görür.
 
 ### Bağlantıyı müşteriye nasıl gönderirim?
 
-1. Listede müşterinin satırındaki (veya detay sayfasındaki) **Kopyala**'ya tıklayın. 2 saniye "Kopyalandı" yazar.
-   Tarayıcı panoya izin vermezse bağlantı seçili hâlde gösterilir; Ctrl+C ile kopyalayın.
-2. Bağlantıyı e-posta veya mesajla müşteriye gönderin. Sistem müşteriye kendisi göndermez.
+1. Müşterinin detay sayfasında **Müşteriye gönder**'e basın ve e-posta ya da WhatsApp ile gönderin. Ayrıntı:
+   "Teknisyen ve Admin için: Müşteriye gönder" bölümü.
+   Ya da listede müşterinin satırındaki (veya detay sayfasındaki) **Kopyala**'ya tıklayın. 2 saniye "Kopyalandı" yazar.
+   Tarayıcı panoya izin vermezse bağlantı seçili hâlde gösterilir; Ctrl+C ile kopyalayıp kendiniz iletin.
+2. Müşteri bağlantıyı açar.
 3. Müşteri dosyayı bir kez indirip masaüstüne kaydetsin. Destek gerektiğinde dosyayı açıp **Destek iste**'ye bassın.
 4. Windows "Bilgisayarınız korundu" uyarısı gösterirse müşteri **Ek bilgi** → **Yine de çalıştır**'a basmalıdır.
 
@@ -2539,37 +2541,141 @@ Kendi 2FA'nızı başka bir Admin sıfırlar.
 Her yeni talepte alıcılara firma adı, talep kodu ve panel bağlantısı gider. Müşterinin adı, telefonu ve açıklaması
 e-postaya yazılmaz; ayrıntı paneldedir. Firma başına saatte en çok 30 bildirim e-postası gönderilir.
 
-## Teknisyen için: Oturum bağlantısını e-postayla gönderme
+## Teknisyen ve Admin için: Müşteriye gönder (e-posta, WhatsApp, SMS)
 
-1. **Oturumlar** → **Yeni destek oturumu** → oturumu oluşturun.
-2. Bağlantının gösterildiği pencerede **Linki e-postayla gönder** → müşterinin e-posta adresini yazın → gönderin.
-3. "Bağlantı … adresine gönderildi." mesajını görürsünüz. E-postada adınız, firma, bağlantı, 8 haneli kod ve son
-   geçerlilik saati bulunur.
+**Müşteriye gönder** penceresi, müşterinin ihtiyaç duyduğu bağlantıyı panelden tek mesajla iletir. Bağlantıyı kopyalayıp
+başka bir uygulamadan göndermeniz gerekmez. Her gönderim denetim kaydına yazılır.
 
-- Yalnız bu pencere açıkken gönderilebilir (bağlantı güvenlik gereği sonradan gösterilmez).
-- Yalnız bekleyen (müşteri henüz katılmamış) oturum gönderilebilir. Saatte en çok 20 e-posta.
-- Firmanın SMTP ayarı yoksa veya gönderim başarısızsa satırda hata görünür; bağlantıyı kopyalayıp başka yolla iletin.
+Pencere üç yerden açılır. Pencere her yerde aynıdır; yalnız mesajın içeriği değişir.
 
-## Teknisyen için: Oturum bağlantısını SMS veya WhatsApp ile gönderme
+| Nereden açılır                                                              | Mesajda ne gider                                                                                       | Kanallar               |
+| --------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------ | ---------------------- |
+| **Oturumlar** → yeni oturum oluşturunca çıkan kart                          | Oturum bağlantısı, 8 haneli kod, son geçerlilik saati ve Windows destek programının indirme bağlantısı | E-posta, WhatsApp, SMS |
+| **Gözetimsiz cihazlar** → **Kayıt kodları** → kod oluşturunca çıkan pencere | Servis kurulum dosyasının indirme bağlantısı, kayıt kodu, son geçerlilik ve 4 adımlık kurulum özeti    | Yalnız e-posta         |
+| **Müşteriler** → müşteri ayrıntısı → **Bağlantı** bölümü                    | Müşteriye özel Hızlı Destek indirme bağlantısı ve (web formu açıksa) destek talebi formu bağlantısı    | E-posta, WhatsApp      |
 
-Yetki: "Oturumlar → Oluştur" ve "Oturumlar → Bağlantı gönder (SMS/WhatsApp)". Admin'de açık, teknisyende kapalı başlar.
+Mesajlarda müşterinin adı, talep metni ya da sizin yazdığınız bir metin yer almaz. Metin sabittir; değiştirilemez.
 
-1. **Oturumlar** → **Yeni destek oturumu** → oturumu oluşturun.
-2. Bağlantının gösterildiği pencerede **SMS / WhatsApp ile gönder**'e basın.
-3. Kanalı seçin. Yalnız kullanılabilir kanallar görünür (SMS: Ayarlar > SMS; WhatsApp: sistem WhatsApp servisi). İkisi de
-   yoksa "SMS ve WhatsApp şu an kullanılamıyor…" yazar.
-4. **Müşterinin cep telefonu** alanına numarayı yazın (ör. `0532 000 00 00`). Altında gönderilecek numara uluslararası
-   biçimde görünür. Oturum bir talepten doğduysa alan talepteki numarayla dolu gelir.
-5. **Gönder**'e basın. "Bağlantı SMS ile gönderildi: …" ya da "Bağlantı WhatsApp ile gönderildi: …" mesajı çıkar.
+### Nasıl gönderirim?
 
-Mesajda firma adı, bağlantı, adınız ("Ad S." biçiminde) ve "Bağlantıyı kimseyle paylaşmayın." uyarısı bulunur.
+1. Yukarıdaki yerlerden birinde **Müşteriye gönder**'e basın.
+2. **Gönderim kanalı** bölümünden kanalı seçin (ok tuşlarıyla da değiştirebilirsiniz).
+3. Alıcıyı girin ya da seçin:
+   - E-posta için adresi yazın (ör. `musteri@ornek.com`).
+   - WhatsApp ve SMS için cep numarasını yazın (ör. `0532 000 00 00`). Altında "Gönderilecek numara: +90…" satırı çıkar.
+   - Alan, müşteri kaydındaki ya da talepteki adresle dolu gelebilir. İsterseniz değiştirin.
+4. **Gönderilecek mesaj** kutusunu okuyun. Müşteriye birebir bu metin gider (e-postada konu da gösterilir).
+5. **Gönder**'e basın. "Gönderildi (kanal, maskeli alıcı)" mesajı çıkar.
 
-- SMS yalnız Türkiye cep numaralarına gider; yurt dışı numara için WhatsApp'ı seçin.
-- Yalnız bekleyen (müşteri henüz katılmamış) oturumun bağlantısı gönderilir.
-- Sınırlar: kişi başına saatte 20 gönderim (SMS + WhatsApp), aynı numaraya saatte 5, firma başına saatte 200. Sınıra
-  gelince düğme "Bekleyin (…)" geri sayımı gösterir.
-- "SMS gönderilemedi…" / "WhatsApp mesajı gönderilemedi…" çıkarsa bağlantıyı kopyalayıp başka yolla iletin ve
-  Admin'inize haber verin. Her gönderim denetim kaydına yazılır (numara maskeli).
+Pencere gönderimden sonra açık kalır. Başka bir kanalı seçip ikinci kez gönderebilirsiniz. Her gönderim tek kanala gider.
+
+### Hangi kanal ne zaman görünür?
+
+Pencere yalnız sizin yetkinizin olduğu **ve** o an çalışan kanalları gösterir.
+
+- **E-posta:** firmanızın SMTP ayarı kayıtlı olmalı (**Ayarlar > E-posta (SMTP)**).
+- **WhatsApp:** sistem WhatsApp servisi çalışıyor olmalı (Super Admin ayarlar).
+- **SMS:** yalnız oturum bağlantısında ve firmanızın SMS ayarı kayıtlıysa. SMS yalnız Türkiye cep numaralarına gider.
+  SMS metni kısa tutulduğu için Windows programı satırı SMS'te yoktur.
+
+Bir kanal ayarlı değilse pencerenin altındaki **Kullanılamayan kanallar** listesinde nedeniyle görünür:
+"yapılandırılmamış", "kayıtlı alıcı yok" ya da "güvenli bağlantı (https) gerekli". Ayarları görme yetkiniz varsa
+yanında ilgili ayar sayfasının bağlantısı çıkar. Hiç kanal yoksa "Gönderim kanalı yapılandırılmamış." yazar;
+Admin'inizden SMTP ya da WhatsApp ayarını isteyin.
+
+### Oturum bağlantısını gönderme
+
+- Yalnız oturumu oluşturan teknisyen gönderebilir.
+- Yalnız bekleyen (müşteri henüz katılmamış) ve süresi dolmamış oturum gönderilir.
+- Bağlantı güvenlik gereği sonradan gösterilmez. Kartı kapattıysanız yeni oturum oluşturun.
+- E-postada ayrıca Windows programının dosya adı biçimi ("Destek-" ile başlar), "Windows 10 / 11" bilgisi ve dosyanın
+  SHA-256 parmak izi yazar. Sunucudaki program hazır değilse indirme satırı mesaja hiç girmez; önizleme de bunu gösterir.
+- Windows programı bağlantısı oturumla birlikte geçersizleşir.
+
+### Kayıt kodunu gönderme
+
+- **Müşteriye gönder** düğmesi yalnız kod oluşturulduktan sonra açılan pencerede bulunur. Pencereyi kapatırsanız kodu
+  yeniden gönderemezsiniz; kod sistemde düz metin olarak saklanmaz. Gerekirse yeni kod oluşturun.
+- Yalnız kodu oluşturan kişi gönderebilir.
+- Alıcı serbest yazılmaz. Yalnız müşterinin **Gözetimsiz bildirim adresleri** listesinden seçilir. Liste boşsa kanal
+  "kayıtlı alıcı yok" diye görünür; önce müşteri ayrıntısında adres ekleyin.
+- **Bir kayıt kodu en çok 3 kez gönderilebilir.** Pencerede "Kalan gönderim hakkı: n / 3" yazar. Başarısız bir gönderim
+  de hakkı tüketir. Hak bitince "Bu kod için gönderim hakkı doldu." yazar; gerekirse yeni kod oluşturun.
+- Sunucudaki servis kurulum dosyası hazır değilse e-posta kanalı görünmez.
+
+**Kayıt kodu neden yalnız e-postayla gider?** Kayıt kodu, müşterinin bilgisayarına kalıcı erişim kurar. WhatsApp
+mesajları bütün firmaların ortak kullandığı tek bir WhatsApp hesabından gider ve o hesabın geçmişinde düz metin olarak
+kalır. WhatsApp servisi ile sunucumuz arasındaki bağlantı da henüz şifreli değildir. Kod yanlış ellere geçerse biri
+kendi bilgisayarını müşteri adına kaydedebilir. Bu yüzden kayıt kodu şimdilik yalnız müşterinin kayıtlı e-posta
+adreslerine gönderilir.
+
+### Müşteri bağlantılarını gönderme
+
+- Düğme müşteri aktifken, anonimleştirilmemişken ve müşterinin indirme bağlantısı varken görünür.
+- Mesajda "Bu bağlantılar firmanıza özeldir, paylaşmayın." uyarısı bulunur.
+- Bağlantı her gönderimde müşterinin güncel bağlantısından üretilir. Bağlantıyı yenilediyseniz eski mesajlardaki
+  bağlantılar çalışmaz; yeni mesaj gönderin.
+- Bu bağlantılar kalıcıdır. Yanlış kişiye gittiyse müşteri ayrıntısında **Bağlantıyı yenile** ile eskisini geçersiz kılın.
+
+### Servis indirme bağlantısı (oturum açmadan) ne zaman çalışmaz?
+
+Kayıt kodu e-postasındaki indirme bağlantısı müşterinin panele girmesini gerektirmez. Kod geçerli olduğu sürece
+bağlantı birden çok kez açılabilir; yarıda kalan indirme yeniden başlatılabilir. Bağlantı şu durumlarda çalışmaz ve
+"bulunamadı" sayfası gösterir:
+
+- Kayıt kodu kullanıldı (servis kuruldu ve kod girildi).
+- Kod iptal edildi.
+- Kodun 24 saatlik süresi doldu.
+- Müşteri pasife alındı ya da anonimleştirildi.
+- Firmanız pasife alındı.
+- Gözetimsiz erişim sunucuda kapatıldı.
+
+Sunucudaki servis dosyası hazır değilse "Servis programı şu an indirilemiyor." yazar; daha sonra yeniden deneyin.
+Aynı ağdan bir dakikada 20'den fazla deneme yapılırsa bir süre beklemek gerekir.
+
+**"İndirildi" kaydı yalnız bir ipucudur.** Bağlantı açıldığında **Audit log**'a "kayıt kodu indirildi" satırı düşer.
+Ancak bu satırı müşteri dışında başkaları da oluşturabilir: kurumsal e-posta güvenlik tarayıcıları (ör. Microsoft
+Safe Links, Proofpoint) bağlantıyı müşteri açmadan önce kendileri açar; WhatsApp ve benzeri uygulamalar da bağlantı
+önizlemesi için sayfayı çağırabilir. Bu satırı "müşteri dosyayı indirdi" diye kesin kabul etmeyin. Kurulumun asıl
+kanıtı, cihazın **Gözetimsiz cihazlar** listesinde görünmesidir. Aynı kod ve aynı ağ için saatte en çok bir kayıt, bir
+kod için toplamda en çok 10 kayıt yazılır.
+
+### Gönderim sınırları
+
+| Sınır                                                                                                    | Değer        |
+| -------------------------------------------------------------------------------------------------------- | ------------ |
+| Oturum bağlantısı, e-posta (kişi başına)                                                                 | Saatte 20    |
+| Oturum bağlantısı WhatsApp/SMS + kayıt kodu + müşteri bağlantıları, her kanal (kişi başına, ortak sayaç) | Saatte 20    |
+| Aynı alıcıya (firma içinde; oturum e-postası hariç)                                                      | Saatte 5     |
+| Firma toplamı (oturum e-postası hariç)                                                                   | Saatte 200   |
+| Bir kayıt kodu                                                                                           | En çok 3 kez |
+
+Sınıra gelince **Gönder** düğmesi "Bekleyin (…)" geri sayımını gösterir; süre dolunca yeniden açılır.
+
+### Rolünüze göre
+
+- **Teknisyen (User):** Oturum bağlantısını e-postayla göndermek için "Oturumlar → Oluştur" yetkisi yeter. WhatsApp ve
+  SMS için ayrıca "Oturumlar → Müşteriye bağlantı gönder" yetkisi gerekir. Müşteri bağlantılarını göndermek için
+  "Müşteriler → Görüntüle" ve "Oturumlar → Müşteriye bağlantı gönder" birlikte gerekir. Teknisyende bu yetki kapalı başlar;
+  Admin açar.
+- **Admin:** Teknisyenin yapabildiklerine ek olarak, "Gözetimsiz erişim → Yönet" yetkisiyle kendi oluşturduğu kayıt
+  kodunu gönderir. Admin'de yetkiler açık başlar. Kullanıcılara bu yetkileri **Kullanıcılar** ekranından verir.
+- **Super Admin:** Önce üst menüden bir firma seçmelidir; firma seçmeden gönderim yapılamaz. Firma seçince Admin gibi
+  davranır. WhatsApp servisinin ayarı yalnız Super Admin'dedir.
+
+### Sık karşılaşılan mesajlar (Müşteriye gönder)
+
+| Mesaj                                                                    | Ne yapmalı                                                                                        |
+| ------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------- |
+| Gönderim kanalı yapılandırılmamış.                                       | Admin'den SMTP (e-posta) ya da Super Admin'den WhatsApp servisi ayarını isteyin                   |
+| Kanal kullanılamıyor. Başka bir kanal seçin ya da ayarları kontrol edin. | Kanal az önce kapandı; başka kanal seçin                                                          |
+| Mesaj gönderilemedi. Daha sonra yeniden deneyin.                         | Gönderim servisi hata verdi. Biraz sonra deneyin; sürerse Admin'e haber verin                     |
+| Gönderim sınırına ulaşıldı; süre dolunca yeniden deneyebilirsiniz.       | Geri sayımın bitmesini bekleyin                                                                   |
+| Bu kod için gönderim hakkı doldu.                                        | Kod 3 kez gönderildi; gerekirse yeni kod oluşturun                                                |
+| Gönderim hedefi artık geçerli değil; diyaloğu kapatın.                   | Oturum başladı/bitti, kod kullanıldı ya da süresi doldu, müşteri pasif. Yeni oturum veya kod açın |
+| Bu kanalla gönderme yetkiniz yok.                                        | Admin'den ilgili yetkiyi isteyin                                                                  |
+| Alıcı müşterinin kayıtlı bildirim adreslerinden seçilmelidir.            | Kayıt kodunda alıcıyı listeden seçin                                                              |
+| Telefonu +90… biçiminde girin. / Geçerli bir e-posta adresi girin.       | Alıcıyı düzeltin                                                                                  |
 
 ## Admin için: Kişisel verilerin saklama süresi ve anonimleştirme (KVKK)
 
@@ -2781,7 +2887,10 @@ Her gözetimsiz bağlantı başladığında bu adreslere e-posta gider (cihaz ad
 
 1. Kenar çubuğu → **Gözetimsiz cihazlar** → **Kayıt kodları** sekmesi → **Kayıt kodu oluştur**.
 2. Müşteriyi seçin → **Kodu oluştur**. "Kimliğinizi doğrulayın" penceresi açılabilir.
-3. Kod `ABCD-1234-EFGH-5678` biçiminde **yalnız bir kez** gösterilir. Kopyalayın veya not edin.
+3. Kod `ABCD-1234-EFGH-5678` biçiminde **yalnız bir kez** gösterilir. Kopyalayın veya not edin. Kodu ve servis
+   kurulum bağlantısını müşterinin bildirim adresine e-postayla iletmek için aynı penceredeki **Müşteriye gönder**'i
+   kullanın (en çok 3 kez; ayrıntı "Teknisyen ve Admin için: Müşteriye gönder" bölümü). Pencere kapanınca kod yeniden
+   gönderilemez.
 4. Aynı pencerede **Servis programını indir** ile `NoktaDestekServis.exe`'yi indirin ve kısa yönergeyi uygulayın:
    1. Servis programını müşteri bilgisayarında yönetici hesabıyla çalıştırıp kurun.
    2. Kurulum penceresine bu kayıt kodunu girin.

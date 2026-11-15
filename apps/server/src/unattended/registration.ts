@@ -17,9 +17,10 @@ import {
 import { UNATTENDED_AUDIT } from "@remote/contracts/audit";
 import { writeAudit, type AuditContext } from "../audit/service.ts";
 import type { AuthContext } from "../auth/session.ts";
+import type { Prisma } from "../generated/prisma/client.ts";
 import type { SecretBox } from "../lib/crypto.ts";
 import { AppError } from "../lib/errors.ts";
-import { newId } from "../lib/ids.ts";
+import { newId, sha256Hex } from "../lib/ids.ts";
 import type { Metrics } from "../ops/metrics.ts";
 import { customerStatusShared, enqueueEventMails } from "./contacts.ts";
 import { deviceRegisteredMail, sendInternalNotice } from "./mail.ts";
@@ -45,6 +46,26 @@ export function newRegistrationCode(): string {
 
 /** Sabit anahtar sürümlü HMAC (rotasyonda bekleyen kodlar geçerli kalsın — recipient_hash kalıbı). */
 export const codeHash = (secrets: SecretBox, code: string): string => secrets.macAt(CODE_MAC_VERSION, "unattended-code", code);
+
+/**
+ * LG (§3.1, D-LG-3): servis indirme belirteci = base64url(HMAC-SHA256(ayrı HKDF amacı, normalize kod)) → 43 karakter. Düz
+ * belirteç saklanmaz; DB'de yalnız `downloadTokenHash`. Girdi her iki tarafta `normalizeRegistrationCode` çıktısıdır.
+ */
+export const downloadToken = (secrets: SecretBox, normalizedCode: string): string =>
+  secrets.macBytesAt(CODE_MAC_VERSION, "unattended-download", normalizedCode).toString("base64url");
+export const downloadTokenHash = (token: string): string => sha256Hex(token);
+
+/**
+ * D-LG-2: bekleyen kodun geçerlilik yüklemi — kayıt TX'i (`lockValidCode`) ve public indirme TEK kaynaktan: kullanılmamış,
+ * süresi dolmamış, müşteri ACTIVE ve anonim değil, firma ACTIVE. Gözetimsiz kapısı (`gate.available`) çağıranda denetlenir.
+ */
+export const usableCodeWhere = (now: Date) =>
+  ({
+    usedAt: null,
+    expiresAt: { gt: now },
+    customer: { status: "ACTIVE", anonymizedAt: null },
+    tenant: { status: "ACTIVE" },
+  }) satisfies Prisma.UnattendedRegistrationCodeWhereInput;
 
 export async function listCodes(d: RegistrationDeps, tenantId: string): Promise<RegistrationCodeListResponse> {
   const rows = await d.db.unattendedRegistrationCode.findMany({
@@ -96,7 +117,16 @@ export async function createCode(
   await d.db.$transaction(async (tx) => {
     if ((await customerStatusShared(tx, tenantId, customerId)) !== "ACTIVE") throw passiveCustomer();
     await tx.unattendedRegistrationCode.create({
-      data: { id, tenantId, customerId, codeHash: codeHash(d.secrets, code), createdBy: auth.user.id, expiresAt, createdAt: now },
+      data: {
+        id,
+        tenantId,
+        customerId,
+        codeHash: codeHash(d.secrets, code),
+        downloadTokenHash: downloadTokenHash(downloadToken(d.secrets, code)),
+        createdBy: auth.user.id,
+        expiresAt,
+        createdAt: now,
+      },
     });
     await writeAudit(tx, ctx, {
       tenantId,
@@ -172,11 +202,12 @@ interface CodeRow {
 
 /**
  * Geçerli kodu kilitler. Kilit sırası müşteri (FOR SHARE) → kod (FOR UPDATE): müşteri pasifi (müşteri X → kodları siler)
- * ile aynı sıra, kilitlenme yok. D-P27-K2: müşteri pasif/anonim → null (geçersiz kodla aynı tek 404).
+ * ile aynı sıra, kilitlenme yok. D-P27-K2: müşteri pasif/anonim → null (geçersiz kodla aynı tek 404). D-LG-2: yüklem
+ * `usableCodeWhere` (public indirmeyle ortak; firma pasif de geçersiz).
  */
 async function lockValidCode(tx: Tx, hash: string, now: Date): Promise<CodeRow | null> {
   const peek = await tx.unattendedRegistrationCode.findFirst({
-    where: { codeHash: hash, usedAt: null, expiresAt: { gt: now } },
+    where: { codeHash: hash, ...usableCodeWhere(now) },
     select: { tenantId: true, customerId: true },
   });
   if (!peek || (await customerStatusShared(tx, peek.tenantId, peek.customerId)) !== "ACTIVE") return null;

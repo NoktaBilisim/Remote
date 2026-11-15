@@ -7,6 +7,7 @@ import { useId, useState, type FormEvent } from "react";
 import { CopyLink } from "@/components/copy-link";
 import { CustomerCombobox } from "@/components/customer-combobox";
 import { FormError } from "@/components/form-error";
+import { SendToCustomerDialog } from "@/components/send-to-customer/send-to-customer-dialog";
 import { Alert } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import type { ComboOption } from "@/components/ui/combobox";
@@ -20,7 +21,7 @@ import { isContactMissing, isSmtpMissing, unattendedUiError } from "@/lib/unatte
 
 type Failure = { ui: UiError; contactFor?: string };
 
-/** Kod bir kez gösterilir (AC-273): kopyala, indir, 3 adım + UAC satırı (O-P27-4, AC-342). */
+/** Kod bir kez gösterilir (AC-273): kopyala, müşteriye gönder (LG), indir, 3 adım + UAC satırı (O-P27-4, AC-342). */
 function CodeResult({ created }: { created: CreatedRegistrationCode }) {
   return (
     <div className="flex flex-col gap-4" data-testid="un-code-result">
@@ -28,7 +29,11 @@ function CodeResult({ created }: { created: CreatedRegistrationCode }) {
       <p className="font-mono text-2xl font-bold tracking-wider text-fg break-all" data-testid="un-code-value">
         {created.code}
       </p>
-      <CopyLink url={created.code} srLabel={t("un.code.copy")} testId="un-code-copy" />
+      <div className="flex flex-wrap items-start gap-2">
+        <CopyLink url={created.code} srLabel={t("un.code.copy")} testId="un-code-copy" />
+        {/* LG-3 (AC-415): gönderim yolu yalnız bu tek gösterimde; diyalog kapanınca kod bellekten atılır */}
+        <SendToCustomerDialog target={{ kind: "UNATTENDED_CODE", codeId: created.id, code: created.code }} testId="un-code-send" />
+      </div>
       <p className="text-sm text-fg-muted tabular-nums">{t("un.code.expires", { at: formatDateTime(created.expiresAt) })}</p>
       <a
         href={created.downloadUrl}

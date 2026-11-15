@@ -140,6 +140,7 @@ REVOKE IF EXISTS ALTER, DROP, INDEX, TRIGGER, REFERENCES ON unattended_devices F
 GRANT SELECT, INSERT, DELETE ON unattended_device_grants TO 'app'@'%';
 REVOKE IF EXISTS UPDATE, ALTER, DROP, INDEX, TRIGGER, REFERENCES ON unattended_device_grants FROM 'app'@'%';
 -- unattended_registration_codes: üretim INSERT, tüketim UPDATE (used_at + device_id), iptal/temizlik/firma silme DELETE.
+-- LG: sent_count UPDATE (K2 koşullu artış) ve download_token_hash (üretim INSERT) aynı yetkiyle; değişiklik yok.
 GRANT SELECT, INSERT, UPDATE, DELETE ON unattended_registration_codes TO 'app'@'%';
 REVOKE IF EXISTS ALTER, DROP, INDEX, TRIGGER, REFERENCES ON unattended_registration_codes FROM 'app'@'%';
 -- customer_notify_contacts: panel düzenleme (TX'te DELETE + INSERT), müşteri anonimleştirmesi ve firma silme DELETE.

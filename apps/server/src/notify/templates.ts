@@ -49,10 +49,6 @@ export function techShortName(raw: string): string {
   return cut(`${cut(first, TECH_MAX - 3)} ${initial.toLocaleUpperCase("tr-TR")}.`, TECH_MAX);
 }
 
-export function linkMessage(firm: string, link: string, technician: string): string {
-  return `${firmName(firm)} destek bağlantınız: ${link} — Teknisyen: ${techShortName(technician)}. Bağlantıyı kimseyle paylaşmayın.`;
-}
-
 export function statusMessage(kind: NotifyKind, firm: string, code: string): string {
   const f = firmName(firm);
   switch (kind) {

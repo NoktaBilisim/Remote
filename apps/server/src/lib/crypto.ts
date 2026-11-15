@@ -42,7 +42,15 @@ export const NOTIFY_RECIPIENT_KEY_VERSION = 1;
 export const keyVersionOf = (data: Uint8Array): number => data[0] ?? 0;
 
 /** HKDF amaç etiketleri (anahtar ayrımı). */
-type MacPurpose = "recovery-code" | "avatar-url" | "purge-preview" | "web-form-token" | "notify-recipient" | "unattended-code";
+type MacPurpose =
+  | "recovery-code"
+  | "avatar-url"
+  | "purge-preview"
+  | "web-form-token"
+  | "notify-recipient"
+  | "unattended-code"
+  // LG (§3.1, D-LG-3): servis indirme belirteci — `unattended-code`'dan AYRI alt anahtar (code_hash belirteci vermesin).
+  | "unattended-download";
 
 export class SecretBox {
   private readonly keys: Map<number, Buffer>;
@@ -115,6 +123,12 @@ export class SecretBox {
   macAt(ver: number, purpose: MacPurpose, value: string): string {
     const v = this.keys.has(ver) ? ver : this.current;
     return createHmac("sha256", this.macKey(v, purpose)).update(value, "utf8").digest("hex");
+  }
+
+  /** `macAt` ile aynı anahtar seçimi, ham 32 bayt çıktı (D-LG-3: belirteç hex'in değil baytların base64url'idir). */
+  macBytesAt(ver: number, purpose: MacPurpose, value: string): Buffer {
+    const v = this.keys.has(ver) ? ver : this.current;
+    return createHmac("sha256", this.macKey(v, purpose)).update(value, "utf8").digest();
   }
 
   /** Tüm anahtar sürümleriyle özetler (doğrulama; rotasyondan önce yazılmış kayıtlar da eşleşir). */

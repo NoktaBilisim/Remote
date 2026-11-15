@@ -238,6 +238,9 @@ stack, SQL veya iç ayrıntı içermez.
 | GET                         | `/api/v1/files/logo/:tenantId/:file`, `/api/v1/files/system-logo/:file` (P12)     | Public                                                                    | 200 (PNG)             |
 | GET                         | `/api/v1/files/avatar/:tenantId/:file` (P12)                                      | Oturum (aynı firma veya Super Admin)                                      | 200 (WEBP)            |
 | GET                         | `/api/v1/public/branding?tenant=<slug>` (P12)                                     | Public                                                                    | 200                   |
+| POST                        | `/api/v1/customer-send/options` (LG)                                              | Oturum + CSRF, hedefe göre (aşağıda), firma bağlamı                       | 200                   |
+| POST                        | `/api/v1/customer-send` (LG)                                                      | Oturum + CSRF, hedefe ve kanala göre (aşağıda), firma bağlamı             | 200                   |
+| GET                         | `/api/v1/public/unattended/download?t=` (LG)                                      | Public, oturumsuz; süreli belirteç                                        | 200 (exe)             |
 
 ### POST /api/v1/auth/login
 
@@ -1900,10 +1903,12 @@ süreden anlaşılmasın). Arka plan gönderimleri (bildirimler) 10 sn zaman aş
 
 ### POST /api/v1/sessions/:id/email (AC-10)
 
+Panel artık bu uç yerine `POST /api/v1/customer-send` (`SESSION`, `EMAIL`) kullanır; uç ve kuralları aynen geçerlidir.
 Yetki `sessions.create`; yalnız oturumun kendi teknisyeni. Gövde `{ "to": "musteri@example.com", "link": "<oluşturma
 yanıtındaki link>" }` → `{ "sent": true }`. Düz token sunucuda tutulmadığı için bağlantı istemciden gelir; sunucu
 `${PUBLIC_BASE_URL}/session/<token>` biçimini ve token'ın bu oturuma ait olduğunu doğrular (başka adres gönderilemez).
-E-posta: teknisyen adı, firma, bağlantı, 8 haneli kod, son geçerlilik (Türkiye saati), logo.
+E-posta: teknisyen adı, firma, bağlantı, 8 haneli kod, son geçerlilik (Türkiye saati), logo; ikili kapısı açıksa Windows
+programı bağlantısı, "Destek-" dosya adı biçimi ve SHA-256 (LG AC-412).
 Hatalar: 400 (`fields.to`; `fields.link` "Bağlantı bu oturuma ait değil."), 404 (başkasının oturumu), 409 "Yalnız bekleyen
 oturumun bağlantısı gönderilebilir.", 429 (teknisyen başına saatte 20; `Retry-After`), 502 (SMTP yok / gönderim hatası).
 
@@ -2886,8 +2891,10 @@ smsportal'a giden istek: `POST {url}/api/external/send-sms`, başlık `x-api-key
 { "channel": "SMS", "phone": "0532 000 00 00", "link": "https://remote.example.com/j/…" }
 ```
 
-`link` oturumun kendi bağlantısı olmalıdır. 200 → `{ "sent": true }`. Mesaj sabit şablon: firma adı (≤ 30), bağlantı,
-teknisyen "Ad S.", "Bağlantıyı kimseyle paylaşmayın.".
+`link` oturumun kendi bağlantısı olmalıdır. 200 → `{ "sent": true }`. Panel artık bu uç yerine `POST /api/v1/customer-send`
+(`SESSION`) kullanır; kurallar aynıdır. Mesaj sabit şablondur (LG `renderFor`): firma adı (≤ 30), teknisyen "Ad S.",
+bağlantı, 8 haneli kod ve son geçerlilik. WhatsApp'ta ayrıca Windows programı bağlantısı (ikili kapısı açıksa) ve
+"Beklemiyorsanız bağlantıyı açmayın, kimseyle paylaşmayın." satırı bulunur; SMS bu iki satırı içermez (≤ 3 parça).
 
 | Durum | Kod                   | Ne zaman                                                                                                     |
 | ----- | --------------------- | ------------------------------------------------------------------------------------------------------------ |
@@ -3082,6 +3089,156 @@ Audit eylemleri `unattended.code.created/cancelled`, `unattended.device.register
 `unattended.grant.changed` (`selfGrant`), `unattended.contacts.changed` (maskeli), `unattended.notify.failed`,
 `unattended.connect` (`stepUpMethod`), `unattended.session.started/ended`, `unattended.local_state`. Kayıt kodu, bilet, nonce
 ve anahtar yazılmaz. Metrikler `rs_unattended_*` (runbook §27.8).
+
+## Müşteriye bağlantı gönderme (LG)
+
+Kaynak: `apps/server/src/customer-send/{routes,service,targets}.ts`, `apps/server/src/notify/customer-templates.ts`,
+`apps/server/src/unattended/public-download.ts`, `packages/contracts/src/api/customer-send.ts`. Tasarım
+`docs/mimari-link-gonderme.md` (r2); gereksinim AC-405..428. Web: `components/send-to-customer/` (tek diyalog; oturum
+kartı, kayıt kodu penceresi ve müşteri ayrıntısından açılır).
+
+Mesaj metnini yalnız sunucu üretir. İstemci hedef kimliğini, kanalı ve alıcıyı gönderir. Önizleme (`options`) ve gönderim
+aynı şablon fonksiyonundan (`renderFor`) geçer; müşteriye giden metin önizlemeyle karakter karakter aynıdır.
+
+Üç hedef türü vardır:
+
+| Tür (`kind`)           | İçerik                                                                                                                           | Kanallar                   | Yetki                                                                                          | Alıcı                                                           |
+| ---------------------- | -------------------------------------------------------------------------------------------------------------------------------- | -------------------------- | ---------------------------------------------------------------------------------------------- | --------------------------------------------------------------- |
+| `SESSION` (K1)         | Oturum bağlantısı, 8 haneli kod, son geçerlilik, Windows istemci indirme bağlantısı (`/public/agent/download`)                   | `EMAIL`, `WHATSAPP`, `SMS` | `EMAIL`: `sessions.create`; `WHATSAPP`/`SMS`: `sessions.send_link`. Yalnız oturumun teknisyeni | Serbest; müşteri kaydı ve talepten öneri                        |
+| `UNATTENDED_CODE` (K2) | Servis indirme bağlantısı (oturumsuz, aşağıda), kayıt kodu, son geçerlilik, 4 adım; e-postada `NoktaDestekServis.exe` ve SHA-256 | Yalnız `EMAIL` (r2 O-LG-3) | `unattended.manage` + kodu üreten kullanıcı                                                    | Kilitli: yalnız müşterinin `customer_notify_contacts` kayıtları |
+| `CUSTOMER` (K3)        | Müşteriye özel Hızlı Destek bağlantısı ve (web formu açıksa) `/r/<ref>` talep bağlantısı                                         | `EMAIL`, `WHATSAPP`        | `customers.view` + `sessions.send_link`                                                        | Serbest; müşteri kaydı ve bildirim adreslerinden öneri          |
+
+Uçlar `requireAuth` + CSRF + firma bağlamı ister (Super Admin bir firma seçmelidir). Tüm yanıtlarda
+`Cache-Control: no-store`. Gizli değerler (bağlantı, kod) yalnız gövdede taşınır, sorgu dizesine konmaz.
+
+**Hedef şeması (`target`)** — kimlikler 26 karakter ULID:
+
+```json
+{ "kind": "SESSION", "sessionId": "01K…", "link": "https://remote.example.com/session/<token>" }
+{ "kind": "UNATTENDED_CODE", "codeId": "01K…", "code": "ABCD-1234-EFGH-5678" }
+{ "kind": "CUSTOMER", "customerId": "01K…" }
+```
+
+- `SESSION.link` (≤ 500): oluşturma yanıtındaki bağlantı; `${PUBLIC_BASE_URL}/session/<token>` biçiminde olmalı ve
+  token'ın SHA-256'sı oturumla eşleşmeli.
+- `UNATTENDED_CODE.code` (16–19 karakter): biçimli ya da tiresiz; sunucu normalize eder ve HMAC'ini kod kaydıyla karşılaştırır.
+- Nesneler katıdır; fazladan alan 400.
+
+**Hedef çözümleme hata sırası** (iki uçta aynı): 404 → 403 → 400 → 409.
+
+| HTTP | Kod                   | Ne zaman                                                                                                                                                                                                                                                 |
+| ---- | --------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 404  | `NOT_FOUND`           | Kayıt yok ya da başka firmanın; K1 oturum başka teknisyenin; K2 `unattended.manage` yok ya da kodu başkası üretti                                                                                                                                        |
+| 403  | `FORBIDDEN`           | K1: hiçbir kanal yetkisi yok; K3: `customers.view` veya `sessions.send_link` yok                                                                                                                                                                         |
+| 400  | `VALIDATION`          | Şema; `fields.link` "Bağlantı bu oturuma ait değil."; `fields.code` "Kayıt kodu bu kayıtla eşleşmiyor."                                                                                                                                                  |
+| 409  | `UNATTENDED_DISABLED` | K2: gözetimsiz kapısı kapalı (`UNATTENDED_MODE`)                                                                                                                                                                                                         |
+| 409  | `CONFLICT`            | K1 "Yalnız bekleyen oturumun bağlantısı gönderilebilir."; K2 "Kayıt kodu artık geçerli değil; yeni kod oluşturun." (kullanılmış, süresi dolmuş, iptal edilmiş); K2 "Müşteri pasif; kayıt kodu gönderilemez."; K3 "Müşteri pasif; bağlantı gönderilemez." |
+
+### POST /api/v1/customer-send/options
+
+Pencere açılınca çağrılır. Gönderim, sayaç ya da audit yazmaz.
+
+İstek: `{ "target": <hedef> }`
+
+Yanıt 200:
+
+```json
+{
+  "kind": "UNATTENDED_CODE",
+  "channels": [{ "channel": "EMAIL", "available": true, "block": null, "settingsHref": "/settings/smtp" }],
+  "recipients": { "email": [{ "value": "it@musteri.com", "source": "contact" }], "phone": [] },
+  "recipientsLocked": true,
+  "previews": { "EMAIL": { "subject": "Firma – uzaktan destek servisi kurulumu", "text": "Merhaba,\n\n…" } },
+  "remainingSends": 3
+}
+```
+
+- `channels`: yalnız tür için tanımlı **ve** kullanıcının yetkili olduğu kanallar. Yetkisiz kanal listeye hiç girmez.
+- `block` (`available: false` iken): `unconfigured` (e-posta: firma SMTP kaydı yok ya da K2'de servis ikili kapısı
+  kapalı; WhatsApp: servis kullanılamaz; SMS: firma SMS ayarı yok), `insecure_transport` (K2 WhatsApp için ayrılmış;
+  bugün K2'de WhatsApp tanımlı olmadığından dönmez), `no_recipient` (K2: kanal için kayıtlı adres yok).
+- `settingsHref`: `settings.view` varsa `/settings/smtp` ya da `/settings/sms`; WhatsApp için yalnız Super Admin'e
+  `/admin/settings/whatsapp`; aksi `null`.
+- `recipients.*.source`: `contact` (bildirim adresi), `customer` (müşteri kaydı), `request` (talepteki telefon).
+- `previews`: yalnız kullanılabilir kanallar için; `subject` yalnız `EMAIL`'de.
+- `remainingSends`: K2'de `3 − sent_count`; diğerlerinde `null`.
+
+Hatalar: yukarıdaki hedef çözümleme tablosu; 401/403 oturum ve CSRF hataları.
+
+### POST /api/v1/customer-send
+
+İstek:
+
+```json
+{ "target": { "kind": "CUSTOMER", "customerId": "01K…" }, "channel": "WHATSAPP", "to": "+905320000000" }
+```
+
+- `channel` ∈ `EMAIL`, `WHATSAPP`, `SMS`; tür için tanımlı olmalı.
+- `to` (1–254, kırpılır): `EMAIL` için geçerli e-posta (≤ 254); `WHATSAPP`/`SMS` için E.164. SMS yalnız Türkiye cep (+90 5…).
+- K2'de `to` müşterinin bildirim adreslerinden biri olmalı (e-posta büyük/küçük harf duyarsız karşılaştırılır).
+
+Yanıt 200: `{ "sent": true }`
+
+Akış: hedef çözümleme → kanal türde yoksa 400 → kanal yetkisi yoksa 403 → kanal kullanılamazsa 409 → alıcı denetimi 400
+→ gönderim. K1 mevcut P10 (`POST /sessions/:id/email`) ve P19 (`POST /sessions/:id/send-link`) servis fonksiyonlarına
+devredilir; tavanları, audit eylemleri (`session.email`, `session.link_sent`) ve hata eşlemeleri aynen geçerlidir.
+K2/K3 tek işlemde sınırları ayırır (`phase:"reserved"` audit), işlem dışında gönderir ve sonucu ikinci audit
+satırına (`phase:"result"`) yazar. Başarısız gönderim K2 hakkını geri vermez. Otomatik yeniden deneme yoktur.
+
+| HTTP | Kod                                | Ne zaman                                                                                                                                                                                                                                                        |
+| ---- | ---------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 400  | `VALIDATION`                       | `fields.to` ("Geçerli bir e-posta adresi girin.", "Telefonu +90… biçiminde girin.", SMS yalnız TR cep, K2 "Alıcı müşterinin kayıtlı bildirim adreslerinden seçilmelidir."); `fields.channel` "Bu gönderim için kanal desteklenmiyor."; hedef çözümleme 400'leri |
+| 403  | `FORBIDDEN`                        | Seçilen kanal için yetki yok; hedef çözümleme 403'leri                                                                                                                                                                                                          |
+| 404  | `NOT_FOUND`                        | Hedef çözümleme                                                                                                                                                                                                                                                 |
+| 409  | `CHANNEL_UNAVAILABLE`              | Kanal yapılandırılmamış, alıcı yok ya da servis yapılandırılmamış                                                                                                                                                                                               |
+| 409  | `CONFLICT` · `UNATTENDED_DISABLED` | Hedef çözümleme; K2 kod bu arada kullanıldı/süresi doldu                                                                                                                                                                                                        |
+| 429  | `RATE_LIMITED`                     | Sınır aşıldı (aşağıda); `Retry-After`. K2'de 4. gönderim (`retryAfterSec` 3600)                                                                                                                                                                                 |
+| 502  | `UPSTREAM`                         | E-posta: tek genel SMTP mesajı. WhatsApp/SMS: sabit mesaj + `fields.reason` ∈ `unreachable`, `unauthorized`, `http_error`, `redirect`, `host_not_allowed`. Sağlayıcının ham hatası dönmez                                                                       |
+
+**Sınırlar**
+
+| Sınır                                                               | Değer                                        |
+| ------------------------------------------------------------------- | -------------------------------------------- |
+| K1 e-posta, kullanıcı başına                                        | 20/sa (P10)                                  |
+| K1 WhatsApp/SMS + K2 + K3 (her kanal), kullanıcı başına ortak havuz | 20/sa (`phase:"reserved"` satırları sayılır) |
+| Aynı alıcı, firma kapsamlı (K1 e-posta hariç)                       | 5/sa                                         |
+| Firma toplamı (K1 e-posta hariç)                                    | 200/sa                                       |
+| K2 kayıt kodu başına (tüm kanallar)                                 | 3 (koşullu `sent_count` artışı)              |
+
+**Audit:** `unattended.code.sent` (K2; `{phase, channel, recipient, customerId, result?, reason?}`) ve
+`customer.link_sent` (K3; `{phase, channel, recipient, links: ["download","webform"], result?, reason?}`). Alıcı
+`maskEmail`/`maskPhone` ile maskelenir. Kayıt kodu, indirme belirteci, bağlantı ve ref audit'e ve loga yazılmaz.
+Metrik `rs_link_send_total{kind, channel, result}`.
+
+### GET /api/v1/public/unattended/download?t=<belirteç>
+
+K2 e-postasındaki servis kurulum bağlantısı. **Oturumsuz ve çerezsiz** ayrı eklentidir; panel kancaları uygulanmaz.
+
+- `t`: 43 karakter base64url (`[A-Za-z0-9_-]{43}`). Sunucu anahtarlı HMAC ile normalize kayıt kodundan türetilir
+  (amaç `unattended-download`, 256 bit). DB'de yalnız SHA-256'sı tutulur; bağlantı kodu içermez.
+- Kod geçerli kaldıkça birden çok indirmeye izin verilir.
+
+Denetim sırası: biçim → IP 20/dk → kod yüklemi (`usableCodeWhere`: kullanılmamış, süresi dolmamış, müşteri ACTIVE ve
+anonim değil, firma ACTIVE) + gözetimsiz kapısı → servis ikili kapısı. 503 yalnız geçerli belirteçle tetiklenebilir.
+
+Yanıt 200: `Content-Type: application/vnd.microsoft.portable-executable`,
+`Content-Disposition: attachment; filename="NoktaDestekServis.exe"`, gövde dosya akışı.
+
+Her yanıtta `Cache-Control: no-store`, `Referrer-Policy: no-referrer`, `X-Robots-Tag: noindex`,
+`X-Content-Type-Options: nosniff`.
+
+| HTTP | Kod            | Ne zaman                                                                                                                                                  |
+| ---- | -------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 404  | `NOT_FOUND`    | Tek tip: biçim bozuk, belirteç bilinmiyor, kod kullanılmış/iptal edilmiş/süresi dolmuş, müşteri pasif ya da anonim, firma pasif, gözetimsiz kapısı kapalı |
+| 429  | `RATE_LIMITED` | IP (IPv6 /64) başına dakikada 20'yi aşan istek; `Retry-After`                                                                                             |
+| 503  | `NOT_READY`    | "Servis programı şu an indirilemiyor." — ikili yok ya da SHA-256'sı `UNATTENDED_AGENT_SHA256` ile uyuşmuyor                                               |
+
+`HEAD` her zaman gövdesiz 404 döner ve audit yazmaz.
+
+**Audit (ipucu):** başarılı indirme `unattended.code.downloaded` (`username: "public"`, `{customerId, ua}`; `ua` yalnız
+tarayıcı/işletim sistemi ailesi). Aynı kod + IP için saatte en çok 1, kod başına toplam en çok 10 satır; sonrakiler yalnız
+metrikte. E-posta güvenlik tarayıcıları ve mesaj uygulaması önizlemeleri de bu satırı oluşturabilir; satır "müşteri
+indirdi" kanıtı değildir. Metrik `rs_unattended_download_total{result}` (`ok`, `not_found`, `rate_limited`, `not_ready`).
 
 ## Saklama ve anonimleştirme (P13a)
 

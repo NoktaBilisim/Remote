@@ -36,7 +36,7 @@ export const RQ = {
 export const RQ_SESSION = "01JRQSES000000000000000001";
 
 export function requestUser(cookie) {
-  const m = cookie?.match(/^u-(rqadm|rqblk|rqmail|rqro|rqsa|rqempty|rqbroken|rqcu|rqcuro|rqcuempty|rqcubroken|rqcuslow)-/);
+  const m = cookie?.match(/^u-(rqadm|rqblk|rqmail|rqro|rqsa|rqempty|rqbroken|rqcu|rqcuro|rqcuempty|rqcubroken|rqcuslow|rqculg)-/);
   if (!m) return null;
   const role = m[1] === "rqsa" ? "SUPER_ADMIN" : m[1] === "rqro" ? "USER" : "ADMIN";
   return {
@@ -48,11 +48,13 @@ export function requestUser(cookie) {
         ? ["sessions.view", "support_requests.view"]
         : /^rqcu(empty|broken|slow)?$/.test(m[1])
           ? [...ADMIN_P, "customers.view", "customers.create", "customers.edit", "customers.delete"]
-          : m[1] === "rqcuro"
-            ? ["sessions.view", "sessions.create", "support_requests.view", "customers.view"]
-            : m[1] === "rqblk"
-              ? [...ADMIN_P, "support_requests.block"] // P15 (AC-235) kısayolu
-              : ADMIN_P,
+          : m[1] === "rqculg" // LG-3 (AC-421/423): rqcu + sessions.send_link → müşteri ayrıntısında "Müşteriye gönder"
+            ? [...ADMIN_P, "customers.view", "customers.edit", "sessions.send_link"]
+            : m[1] === "rqcuro"
+              ? ["sessions.view", "sessions.create", "support_requests.view", "customers.view"]
+              : m[1] === "rqblk"
+                ? [...ADMIN_P, "support_requests.block"] // P15 (AC-235) kısayolu
+                : ADMIN_P,
     tenant: role === "SUPER_ADMIN" ? null : TENANT,
     actingTenant: null,
     kind: m[1],

@@ -25,6 +25,7 @@ import type { RequestService } from "./requests/service.ts";
 import { requestChannels } from "./requests/ws.ts";
 import type { FetchLike, WhatsappNotifier } from "./notify/whatsapp.ts";
 import type { SmsClient } from "./notify/sms.ts";
+import type { SendLinkLimits } from "./sessions/send-link.ts";
 import type { NotifyOutbox } from "./notify/outbox.ts";
 import type { RequestHub } from "./requests/hub.ts";
 import type { RetentionJob } from "./jobs/retention.ts";
@@ -66,6 +67,10 @@ declare module "fastify" {
     /** P19 J3: firma SMS istemcisi ve müşteri durum bildirimi kuyruğu. */
     sms: SmsClient;
     outbox: NotifyOutbox;
+    /** LG §7: bağlantı gönderimi alıcı/firma kovaları (K1 + customer-send ortak tek örnek). */
+    sendLinkLimits: SendLinkLimits;
+    /** P27 servis ikilisi bütünlük kapısı (UNATTENDED_AGENT_PATH + SHA). */
+    unattendedBinary: AgentBinary;
     /** P10: gizli alan şifreleme, e-posta, hesap güvenliği. */
     secrets: SecretBox;
     netguard: NetGuard;

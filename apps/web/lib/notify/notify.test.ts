@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { SEND_FAILED_MESSAGES, SERVICE_URL_MESSAGE, SMS_TR_ONLY_MESSAGE } from "@remote/contracts/api/notify";
-import { ApiError } from "@/lib/api";
-import { availableChannels, checkLinkPhone, sendLinkFailure } from "./send-link";
+import { SERVICE_URL_MESSAGE, SMS_TR_ONLY_MESSAGE } from "@remote/contracts/api/notify";
+import { checkLinkPhone } from "./send-link";
 import { buildSmsInput, smsDirty, smsToState } from "./sms-form";
 
 const view = {
@@ -16,27 +15,11 @@ const view = {
 };
 
 describe("P19 send-link (AC-260)", () => {
-  it("yalnız kullanılabilir kanallar", () => {
-    expect(availableChannels({ sms: true, whatsapp: false, suggestedPhone: null })).toEqual(["SMS"]);
-    expect(availableChannels({ sms: false, whatsapp: false, suggestedPhone: null })).toEqual([]);
-  });
   it("telefon: E.164 önizleme; SMS yalnız TR cep", () => {
     expect(checkLinkPhone("0532 111 22 33", "SMS").e164).toBe("+905321112233");
     expect(checkLinkPhone("+44 7700 900123", "SMS").error).toBe(SMS_TR_ONLY_MESSAGE);
     expect(checkLinkPhone("+44 7700 900123", "WHATSAPP").e164).toBe("+447700900123");
     expect(checkLinkPhone("", "SMS").error).toBeTruthy();
-  });
-  it("hata eşlemesi: 400 telefon, 429 geri sayım, 502 kanal mesajı, 409", () => {
-    expect(sendLinkFailure(new ApiError(400, "VALIDATION", "x", { phone: SMS_TR_ONLY_MESSAGE }), "SMS", "g")).toEqual({
-      kind: "phone",
-      message: SMS_TR_ONLY_MESSAGE,
-    });
-    expect(sendLinkFailure(new ApiError(429, "RATE_LIMITED", "x", undefined, undefined, 90), "SMS", "g")).toMatchObject({
-      kind: "rate",
-      retryAfterSec: 90,
-    });
-    expect(sendLinkFailure(new ApiError(502, "UPSTREAM", "x"), "WHATSAPP", "g")).toMatchObject({ message: SEND_FAILED_MESSAGES.WHATSAPP });
-    expect(sendLinkFailure(new ApiError(409, "CHANNEL_UNAVAILABLE", "kanal yok"), "SMS", "g")).toMatchObject({ tone: "warning" });
   });
 });
 

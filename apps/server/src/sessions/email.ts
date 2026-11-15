@@ -15,6 +15,7 @@ import { AppError } from "../lib/errors.ts";
 import { safeEqual, sha256Hex } from "../lib/ids.ts";
 import type { MailService } from "../mail/service.ts";
 import { sessionLinkMail } from "../mail/templates.ts";
+import { agentLinkFor, type AgentLinkDeps } from "../public/agent.ts";
 import { lockTechnician } from "./repo.ts";
 
 const HOUR_MS = 3_600_000;
@@ -34,6 +35,7 @@ export async function emailSessionLink(
   tenantId: string,
   id: string,
   input: { to: string; link: string },
+  agentDeps: AgentLinkDeps,
 ): Promise<void> {
   const db = mail.d.db;
   const s = await db.supportSession.findFirst({
@@ -55,6 +57,7 @@ export async function emailSessionLink(
     link: input.link,
     code: s.activeCode,
     expiresAt: s.expiresAt,
+    agent: await agentLinkFor(agentDeps, id), // LG §5.1 (AC-411/412)
   });
   const who = { tenantId, userId: auth.user.id, username: auth.user.email };
 

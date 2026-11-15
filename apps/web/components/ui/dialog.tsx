@@ -15,8 +15,12 @@ import { t } from "@/lib/i18n";
 const FOCUSABLE =
   'a[href], button:not([disabled]), input:not([disabled]):not([type="hidden"]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
 
+/** LG-3: iç içe diyalog (ör. kod diyaloğunda "Müşteriye gönder") — React olayları ağaçta yukarı taşınır; yalnız kendi olayı. */
+const own = (e: React.SyntheticEvent<HTMLDialogElement>) => e.target === e.currentTarget;
+
 function trapTab(e: React.KeyboardEvent<HTMLDialogElement>) {
-  if (e.key !== "Tab") return;
+  if (e.key !== "Tab" || e.defaultPrevented) return;
+  if (e.target instanceof Element && e.target.closest("dialog") !== e.currentTarget) return;
   const items = [...e.currentTarget.querySelectorAll<HTMLElement>(FOCUSABLE)].filter((el) => el.getClientRects().length > 0);
   const first = items[0];
   const last = items.at(-1);
@@ -85,6 +89,7 @@ export function Dialog({
       aria-describedby={description ? `${id}-d` : undefined}
       // "close" olayı kuyruktan (asenkron) gelir: kapandıktan hemen sonra yeniden açılan diyaloğa eski olay ulaşırsa yok say
       onClose={(e) => {
+        if (!own(e)) return;
         const el = e.currentTarget;
         if (el.open) return;
         onClose();
@@ -96,7 +101,7 @@ export function Dialog({
       }}
       onKeyDown={trapTab}
       onCancel={(e) => {
-        if (!onDismiss) return;
+        if (!onDismiss || !own(e)) return;
         e.preventDefault();
         onDismiss();
       }}
