@@ -8,6 +8,9 @@ const REF = "webformaaaaaaaaa";
 const MOCK = "http://127.0.0.1:4217";
 const desktopOnly = (name: string) => test.skip(name !== "desktop", "paylaşılan sahte durum: tek proje");
 const newRoom = () => Math.random().toString(36).slice(2, 10);
+/** Benzersiz web formu ref'i (mock-p19 `webformz` + 8 karakter a-z2-7). */
+const uniqueRef = () =>
+  `webformz${Array.from({ length: 8 }, () => "abcdefghijklmnopqrstuvwxyz234567"[Math.floor(Math.random() * 32)]).join("")}`;
 const stats = async (page: Page, ref: string) =>
   (await (await page.request.get(`${MOCK}/__e2e/p19/gets/${ref}`)).json()) as {
     gets: number;
@@ -63,6 +66,7 @@ test("AC-259: geçersiz ref → tek tip bulunamadı ekranı", async ({ page }) =
 
 test("AC-259: kutucuklar işaretsiz, 2 sn sayacı, gönderim → bekleme → sohbet → kabul (doğrulama + kabul kodu)", async ({ page }, info) => {
   desktopOnly(info.project.name);
+  const REF = uniqueRef();
   await page.goto(`/r/${REF}`);
   await expect(page.getByTestId("wr-form")).toBeVisible();
   await expect(page.getByTestId("wr-notify-sms")).not.toBeChecked();
@@ -102,21 +106,41 @@ test("AC-259: kutucuklar işaretsiz, 2 sn sayacı, gönderim → bekleme → soh
   await expect(page.getByTestId("wr-share")).toBeVisible();
   await expect(page.getByTestId("wr-download")).toHaveAttribute("href", `/api/v1/public/agent/request-download?ref=${REF}`);
   await page.getByTestId("wr-decline").click();
-  await expect(page.getByTestId("wr-closed-cancelled")).toBeVisible();
+  await expect(page.getByTestId("wr-end-cancelledByYou")).toContainText("Talebinizi iptal ettiniz");
   await page.getByTestId("wr-new").click();
   await expect(page.getByTestId("wr-form")).toBeVisible();
 });
 
 test("AC-259: talebi iptal et → kapanış + yeni talep", async ({ page }, info) => {
   desktopOnly(info.project.name);
-  await page.goto(`/r/${REF}`);
+  await page.goto("/r/webformcancelx22");
   await fillForm(page);
   await expect(page.getByTestId("wr-submit")).toBeEnabled({ timeout: 5000 });
   await page.getByTestId("wr-submit").click();
   await page.getByTestId("wr-cancel").click();
-  await expect(page.getByTestId("wr-closed-cancelled")).toBeVisible();
+  await expect(page.getByTestId("wr-end-cancelledByYou")).toContainText("Talebinizi iptal ettiniz");
+  await expect(page.getByText("Teknisyen bu destek oturumunu iptal etti")).toHaveCount(0);
   await expect(page.getByTestId("wr-new")).toBeVisible();
 });
+
+for (const [status, reason, testId, text, ref] of [
+  ["EXPIRED", "", "wr-end-expired", "Talebinizin süresi doldu", "webformclosea222"],
+  ["REJECTED", "", "wr-end-rejected", "Talebiniz reddedildi", "webformcloseb222"],
+  ["CANCELLED", "TENANT_PASSIVE", "wr-end-closed", "Talebiniz kapatıldı", "webformclosec222"],
+] as const)
+  test(`AC-259: sunucu kapanışı ${status} → talep metni (oturum metni değil)`, async ({ page }, info) => {
+    desktopOnly(info.project.name);
+    await page.goto(`/r/${ref}`);
+    await fillForm(page);
+    await expect(page.getByTestId("wr-submit")).toBeEnabled({ timeout: 5000 });
+    await page.getByTestId("wr-submit").click();
+    await expect(page.getByTestId("wr-position")).toHaveText("2");
+    await page.request.get(`${MOCK}/__e2e/p19/close/${ref}?status=${status}${reason ? `&reason=${reason}` : ""}`);
+    await expect(page.getByTestId(testId)).toContainText(text);
+    if (status === "REJECTED") await expect(page.getByTestId("wr-reject-message")).toContainText("Şu an yoğunuz");
+    await expect(page.getByText("Bu destek bağlantısının süresi doldu")).toHaveCount(0);
+    await expect(page.getByTestId("wr-new")).toBeVisible();
+  });
 
 test("AC-292: saklama satırı yoksa gönder düğmesi pasif", async ({ page }) => {
   await page.goto("/r/webformnoretenti");
@@ -296,6 +320,14 @@ test("AC-260: send-link — kanal seçimi, E.164 önizleme, TR dışı SMS reddi
   await page.getByTestId("send-link-phone").fill("0532 111 22 33");
   await page.getByTestId("send-link-send").click();
   await expect(page.getByTestId("send-link-result")).toHaveText("Bağlantı WhatsApp ile gönderildi: +905321112233");
+});
+
+test("AC-260: kanal yoksa send-link kendi metnini gösterir (sistem logosu metni değil)", async ({ page, context }) => {
+  await signInP19(context, "p19tech");
+  await page.route("**/send-link/options", (r) => r.fulfill({ json: { sms: false, whatsapp: false, suggestedPhone: null } }));
+  await openCreated(page);
+  await page.getByTestId("send-link-open").click();
+  await expect(page.getByTestId("send-link-none")).toContainText("SMS ve WhatsApp şu an kullanılamıyor");
 });
 
 test("AC-260: send_link yetkisi yoksa düğme yok", async ({ page, context }) => {

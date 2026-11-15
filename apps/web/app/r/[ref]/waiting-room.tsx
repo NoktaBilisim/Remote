@@ -10,7 +10,8 @@ import { formatRemaining } from "@/lib/format";
 import { t } from "@/lib/i18n";
 import { wsUrl } from "@/lib/webrtc/signal";
 import { reconnectDelay, requestProtocols, shouldReconnect, type StoredRequest } from "@/lib/web-request/flow";
-import { GuestEndScreen } from "../../session/guest-ui";
+import type { CancelReason } from "@remote/contracts/api/requests";
+import { RequestEndScreen, type RequestEnd } from "./request-end";
 import { GuestSession } from "../../session/[token]/guest-session";
 import { RequestChat, type ChatItem } from "./request-chat";
 
@@ -19,7 +20,14 @@ type Phase =
   | { kind: "pending"; position: number; expiresAt: number; offset: number }
   | { kind: "accepted"; wsTicket: string; technicianName: string; techVerifyCode: string; admitCode: string | null }
   | { kind: "sharing"; wsTicket: string; technicianName: string; techVerifyCode: string; admitCode: string | null }
-  | { kind: "closed"; status: "CANCELLED" | "EXPIRED" | "REJECTED" | "CONNECT_FAILED"; message?: string }
+  | {
+      kind: "closed";
+      status: "CANCELLED" | "EXPIRED" | "REJECTED" | "CONNECT_FAILED";
+      message?: string;
+      reason?: CancelReason;
+      /** Müşterinin kendi iptali / "Vazgeç" (sunucu yanıtını beklemeden). */
+      byCustomer?: boolean;
+    }
   | { kind: "gone" };
 
 const toItem = (m: Omit<RequestChatMessage, "t">): ChatItem => ({
@@ -60,13 +68,18 @@ export function WaitingRoom({
     phaseRef.current = phase;
   }, [phase]);
 
-  const finish = useCallback(
-    (p: Phase) => {
-      setPhase(p);
-      if (p.kind === "closed" || p.kind === "gone") onFinished();
-    },
-    [onFinished],
-  );
+  /** Son durum (kapanış/bulunamadı) senkron işareti: `phaseRef` efektle güncellendiği için kapanış olayı ondan önce gelebilir. */
+  const ended = useRef(false);
+  // Üst bileşen her çizimde yeni `onFinished` verir; bağımlılık olursa soket her çizimde yeniden açılırdı → ref
+  const onFinishedRef = useRef(onFinished);
+  useEffect(() => {
+    onFinishedRef.current = onFinished;
+  }, [onFinished]);
+  const finish = useCallback((p: Phase) => {
+    if (p.kind === "closed" || p.kind === "gone") ended.current = true;
+    setPhase(p);
+    if (p.kind === "closed" || p.kind === "gone") onFinishedRef.current();
+  }, []);
 
   useEffect(() => {
     let attempt = 0;
@@ -118,12 +131,12 @@ export function WaitingRoom({
           });
         } else if (m.t === "request.closed") {
           stopped = true;
-          finish({ kind: "closed", status: m.status, message: m.message });
+          finish({ kind: "closed", status: m.status, message: m.message, reason: m.reason });
         }
       };
       s.onclose = (ev) => {
         if (ws.current === s) ws.current = null;
-        if (stopped) return;
+        if (stopped || ended.current) return;
         const k = phaseRef.current.kind;
         if (k === "closed" || k === "sharing" || k === "gone") return;
         if (!shouldReconnect(ev.code)) {
@@ -141,8 +154,11 @@ export function WaitingRoom({
       stopped = true;
       clearTimeout(timer);
       clearInterval(tick);
-      ws.current?.close(1000);
+      const s = ws.current;
       ws.current = null;
+      // Bağlanırken kapatmak tarayıcı konsoluna uyarı yazar → açılınca kapat
+      if (s?.readyState === WebSocket.CONNECTING) s.onopen = () => s.close(1000);
+      else s?.close(1000);
     };
   }, [request.requestSecret, finish]);
 
@@ -169,7 +185,7 @@ export function WaitingRoom({
       sendWs({ t: "request.cancel" });
     } finally {
       setCancelling(false);
-      finish({ kind: "closed", status: "CANCELLED" });
+      finish({ kind: "closed", status: "CANCELLED", byCustomer: true });
       ws.current?.close(1000);
     }
   };
@@ -191,19 +207,21 @@ export function WaitingRoom({
         storeKey={null}
       />
     );
-  if (phase.kind === "gone") return <GuestEndScreen kind="notFound" action={newBtn} />;
+  if (phase.kind === "gone") return <RequestEndScreen end="gone" action={newBtn} />;
   if (phase.kind === "closed") {
-    const kind =
+    const end: RequestEnd =
       phase.status === "REJECTED"
         ? "rejected"
         : phase.status === "EXPIRED"
           ? "expired"
-          : phase.status === "CANCELLED"
-            ? "cancelled"
-            : "error";
+          : phase.status === "CONNECT_FAILED"
+            ? "connectFailed"
+            : phase.byCustomer || phase.reason === "CUSTOMER"
+              ? "cancelledByYou"
+              : "closed";
     return (
       <div className="flex flex-col gap-3" data-testid={`wr-closed-${phase.status.toLowerCase()}`}>
-        <GuestEndScreen kind={kind} action={newBtn} />
+        <RequestEndScreen end={end} action={newBtn} />
         {phase.status === "REJECTED" && phase.message && (
           <Alert tone="warning" testId="wr-reject-message">
             <span className="whitespace-pre-wrap">{t("wr.rejectMsg", { msg: phase.message })}</span>
@@ -240,7 +258,7 @@ export function WaitingRoom({
             variant="secondary"
             onClick={() => {
               sendWs({ t: "request.decline" });
-              finish({ kind: "closed", status: "CANCELLED" });
+              finish({ kind: "closed", status: "CANCELLED", byCustomer: true });
             }}
             data-testid="wr-decline"
           >

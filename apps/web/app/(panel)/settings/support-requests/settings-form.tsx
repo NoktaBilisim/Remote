@@ -8,6 +8,7 @@ import {
   KeyRound,
   Link2,
   Mail,
+  MessageCircle,
   MessageSquare,
   MessageSquareText,
   Plus,
@@ -495,7 +496,7 @@ export function SettingsForm({ initial }: { initial: SupportRequestSettings }) {
             {(
               [
                 ["sms", "notifySms", MessageSquareText, "/settings/sms"],
-                ["whatsapp", "notifyWa", MessageSquare, null],
+                ["whatsapp", "notifyWa", MessageCircle, null],
                 ["email", "notifyEmail", Mail, "/settings/smtp"],
               ] as const
             ).map(([ch, key, Icon, href]) => (

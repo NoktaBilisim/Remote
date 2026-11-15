@@ -1,6 +1,6 @@
 "use client";
 
-import { Clock, Mail, MessageSquare, MessageSquareText, MoonStar, Send, type LucideIcon } from "lucide-react";
+import { Clock, Mail, MessageCircle, MessageSquareText, MoonStar, Send, type LucideIcon } from "lucide-react";
 import type { CreateRequestResponse, NotifyChoice, WebFormInfo } from "@remote/contracts/api/requests";
 import { useEffect, useId, useRef, useState } from "react";
 import { FormError } from "@/components/form-error";
@@ -19,7 +19,7 @@ const fieldlessError = (errs: Record<string, string>): string | undefined => Obj
 
 const CHANNELS: [keyof NotifyChoice, LucideIcon][] = [
   ["sms", MessageSquareText],
-  ["whatsapp", MessageSquare],
+  ["whatsapp", MessageCircle],
   ["email", Mail],
 ];
 

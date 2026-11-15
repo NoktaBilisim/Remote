@@ -8108,3 +8108,24 @@ test:int`: **77 dosya, 789/789** (önceki 777 + 12 yeni), 54 sn. Konteyner `down
 
 Sözleşme değişikliği yok. `formToken` opak; yalnız uzunluğu 78 → 88 karakter (şema sınırı 200). IPv6 /56·/48 aşımında
 `GET /public/web-requests/form` 429 `RATE_LIMITED` + `Retry-After` (mevcut 429 yolu).
+
+## P19 düzeltme turu (frontend) — 2026-11-15
+
+1. **Yinelenen i18n anahtarı:** `sl.none` hem send-link'te hem sistem logosunda tanımlıydı (JSON son değeri aldığı için send-link
+   "kanal yok" durumunda sistem logosu metni çıkıyordu). Send-link anahtarları `sendlink.*` önekine taşındı
+   (`app/(panel)/sessions/session-send-link.tsx`). Yeni birim test `apps/web/lib/i18n.test.ts`: `tr.json` ham metninden anahtarları
+   sayar, yinelenen anahtar 0 (HEAD sürümünde `sl.none`'ı yakaladığı doğrulandı).
+2. **Web talebi kapanış metinleri:** bekleme sayfası artık oturum metinlerini (`GuestEndScreen`) değil talep metinlerini gösterir —
+   yeni `app/r/[ref]/request-end.tsx` (`wr.end.*`): süre doldu, siz iptal ettiniz (iptal düğmesi, "Vazgeç" ya da `reason: CUSTOMER`),
+   talep kapatıldı (diğer iptal nedenleri), reddedildi (+ teknisyen notu), bağlantı kurulamadı, talep bulunamadı.
+3. **WhatsApp ikonu `MessageCircle`** (§8c.8): web formu kutucuğu, talep ayarı bildirim anahtarı, send-link kanal seçimi. (P8b'nin
+   personel bildirimleri bölümü başlığı `MessageSquare` olarak kaldı — WhatsApp'a özgü değil, "Bildirimler".)
+4. **Ek hata (e2e tekrarında bulundu):** `WaitingRoom`'un `finish` geri çağrısı üstün her çizimde yeni verdiği `onFinished`'a
+   bağlıydı → soket her üst çizimde (ör. form bilgisi yüklenince) kapanıp yeniden açılıyor, bu arada gelen `request.accepted`
+   kaybolabiliyordu. `onFinished` ref'e alındı; kapanış sonrası yeniden bağlanma senkron `ended` işaretiyle engellendi; bağlanırken
+   ayrılmada soket açılınca kapatılır (konsol uyarısı yok).
+
+- e2e: kapanış metinleri (EXPIRED/REJECTED/CANCELLED başka neden), müşteri iptali metni, send-link "kanal yok" metni; mock-p19
+  `close` kancası ve test başına benzersiz `webformz…` ref'i (kancalar ref'teki tüm soketlere yayınladığı için paralel yalıtım).
+  Akış testleri 8× tekrar ×2 → 80/80. Tüm web e2e (desktop + mobile) **422 geçti, 0 hata**; vitest 386/386; eslint/tsc temiz;
+  `pnpm format:check` temiz.

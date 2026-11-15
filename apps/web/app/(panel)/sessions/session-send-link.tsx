@@ -1,6 +1,6 @@
 "use client";
 
-import { MessageSquare, MessageSquareText, Send, Smartphone } from "lucide-react";
+import { MessageCircle, MessageSquareText, Send, Smartphone } from "lucide-react";
 import type { SendLinkChannel, SendLinkOptions, SendLinkResponse } from "@remote/contracts/api/notify";
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState, type FormEvent } from "react";
@@ -74,7 +74,7 @@ export function SessionSendLink({ sessionId, link, disabled }: { sessionId: stri
     setBusy(true);
     try {
       await api<SendLinkResponse>("POST", `/sessions/${sessionId}/send-link`, { channel, phone: chk.e164, link });
-      const message = t(channel === "SMS" ? "sl.sentSms" : "sl.sentWa", { phone: chk.e164 });
+      const message = t(channel === "SMS" ? "sendlink.sentSms" : "sendlink.sentWa", { phone: chk.e164 });
       setResult({ tone: "success", message });
       toast(message);
     } catch (err) {
@@ -85,7 +85,7 @@ export function SessionSendLink({ sessionId, link, disabled }: { sessionId: stri
         const at = Date.now() + f.retryAfterSec * 1000;
         setNow(Date.now());
         setUntil(at);
-        setResult({ tone: "warning", message: t("sl.rate") });
+        setResult({ tone: "warning", message: t("sendlink.rate") });
       } else setResult({ tone: f.tone, message: f.message });
     } finally {
       setBusy(false);
@@ -96,13 +96,13 @@ export function SessionSendLink({ sessionId, link, disabled }: { sessionId: stri
     return (
       <Button variant="secondary" className="self-start" disabled={disabled} onClick={() => void open()} data-testid="send-link-open">
         <Smartphone aria-hidden className="size-4" />
-        {t("sl.open")}
+        {t("sendlink.open")}
       </Button>
     );
   if (load.kind === "loading")
     return (
       <div className="flex flex-col gap-2" data-testid="send-link-loading" aria-busy>
-        <span className="sr-only">{t("sl.loading")}</span>
+        <span className="sr-only">{t("sendlink.loading")}</span>
         <Skeleton className="h-11 w-48" />
         <Skeleton className="h-11 w-full" />
       </div>
@@ -123,16 +123,16 @@ export function SessionSendLink({ sessionId, link, disabled }: { sessionId: stri
   if (chs.length === 0)
     return (
       <Alert tone="info" testId="send-link-none">
-        {t("sl.none")}
+        {t("sendlink.none")}
       </Alert>
     );
   const preview = checkLinkPhone(phone, channel).e164;
   const waitLeft = until === null ? 0 : until - now;
   return (
-    <form noValidate onSubmit={send} className="flex flex-col gap-2" data-testid="send-link-form" aria-label={t("sl.open")}>
+    <form noValidate onSubmit={send} className="flex flex-col gap-2" data-testid="send-link-form" aria-label={t("sendlink.open")}>
       {chs.length > 1 ? (
         <Segmented
-          label={t("sl.channel")}
+          label={t("sendlink.channel")}
           value={channel}
           onChange={(v) => {
             setChannel(v);
@@ -142,18 +142,18 @@ export function SessionSendLink({ sessionId, link, disabled }: { sessionId: stri
           options={chs.map((c) => ({
             value: c,
             label: c === "SMS" ? "SMS" : "WhatsApp",
-            icon: c === "SMS" ? <MessageSquareText aria-hidden className="size-4" /> : <MessageSquare aria-hidden className="size-4" />,
+            icon: c === "SMS" ? <MessageSquareText aria-hidden className="size-4" /> : <MessageCircle aria-hidden className="size-4" />,
           }))}
         />
       ) : (
         <p className="text-sm text-fg-muted" data-testid="send-link-single">
-          {t("sl.via", { channel: channel === "SMS" ? "SMS" : "WhatsApp" })}
+          {t("sendlink.via", { channel: channel === "SMS" ? "SMS" : "WhatsApp" })}
         </p>
       )}
       <div className="flex flex-col gap-2 sm:flex-row sm:items-start">
         <TextField
           ref={inputRef}
-          label={t("sl.phone")}
+          label={t("sendlink.phone")}
           type="tel"
           inputMode="tel"
           value={phone}
@@ -162,7 +162,7 @@ export function SessionSendLink({ sessionId, link, disabled }: { sessionId: stri
             setPhoneError(undefined);
           }}
           error={phoneError}
-          hint={preview ? t("sl.preview", { e164: preview }) : t("sl.hint")}
+          hint={preview ? t("sendlink.preview", { e164: preview }) : t("sendlink.hint")}
           autoComplete="off"
           disabled={busy || disabled}
           className="min-w-0 flex-1"
@@ -176,7 +176,7 @@ export function SessionSendLink({ sessionId, link, disabled }: { sessionId: stri
           data-testid="send-link-send"
         >
           {!busy && <Send aria-hidden className="size-4" />}
-          {until !== null ? t("sl.wait", { t: formatRemaining(waitLeft) }) : t("sl.send")}
+          {until !== null ? t("sendlink.wait", { t: formatRemaining(waitLeft) }) : t("sendlink.send")}
         </Button>
       </div>
       {result && (

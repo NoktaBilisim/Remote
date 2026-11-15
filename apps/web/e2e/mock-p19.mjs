@@ -14,9 +14,16 @@ const TENANT = { id: "01JTNP1900000000000000000A", name: "Demo Firma" };
 const REFS = {
   webformaaaaaaaaa: { retention: 30 },
   webformnoretenti: { retention: 0 },
+  // ayrı ref'ler: kapanış kancası ref'teki tüm soketlere yayınlar → paralel testler birbirini kapatmasın
+  webformcancelx22: { retention: 30 },
+  webformclosea222: { retention: 30 },
+  webformcloseb222: { retention: 30 },
+  webformclosec222: { retention: 30 },
   webformratelimit: { retention: 30, firstFail: [429, "RATE_LIMITED", "Lütfen birkaç saniye sonra tekrar deneyin."] },
   webformtokenbadx: { retention: 30, firstFail: [400, "FORM_TOKEN_INVALID", "Formun süresi doldu, sayfayı yenileyin."] },
 };
+/** Test başına benzersiz ref (`webformz` + 8): kancalar ref'teki tüm soketlere yayınlar → paralel testler yalıtılır. */
+const refCfg = (ref) => REFS[ref] ?? (/^webformz[a-z2-7]{8}$/.test(ref) ? { retention: 30 } : undefined);
 const state = new Map(); // ref → {gets, posts, last, tokens: Map(token → issuedAt), secret, sockets:Set}
 const st = (ref) =>
   state.get(ref) ?? state.set(ref, { gets: 0, posts: 0, last: null, tokens: new Map(), secret: null, sockets: new Set() }).get(ref);
@@ -191,34 +198,43 @@ export function p19Upgrade(req, sock, head, cookie, url, protos) {
 }
 
 function hook(url, send, res) {
-  const m = url.match(/^\/__e2e\/p19\/(gets|accept|techmsg)\/([a-z2-7]{16})(?:\?(.*))?$/);
+  const m = url.match(/^\/__e2e\/p19\/(gets|accept|techmsg|close)\/([a-z2-7]{16})(?:\?(.*))?$/);
   if (!m) return false;
   const s = st(m[2]);
   const q = new URLSearchParams(m[3] ?? "");
   if (m[1] === "gets") return (send(res, 200, { gets: s.gets, posts: s.posts, last: s.last }), true);
   const out =
-    m[1] === "accept"
+    m[1] === "close"
       ? [
-          { t: "request.chat", enabled: false },
           {
-            t: "request.accepted",
-            wsTicket: "T".repeat(43),
-            technicianName: "Selin Teknik",
-            techVerifyCode: "4821",
-            ticketExpiresAt: iso(Date.now() + 60_000),
-            ...(q.get("admit") ? { admitCode: "7351" } : {}),
+            t: "request.closed",
+            status: q.get("status") ?? "EXPIRED",
+            ...(q.get("status") === "REJECTED" ? { message: "Şu an yoğunuz" } : {}),
+            ...(q.get("reason") ? { reason: q.get("reason") } : {}),
           },
         ]
-      : [
-          {
-            t: "request.message",
-            id: `01JMSG${String(++seq).padStart(20, "0")}`,
-            sender: "TECH",
-            senderName: "Selin Teknik",
-            body: q.get("body") ?? "Merhaba",
-            createdAt: iso(Date.now()),
-          },
-        ];
+      : m[1] === "accept"
+        ? [
+            { t: "request.chat", enabled: false },
+            {
+              t: "request.accepted",
+              wsTicket: "T".repeat(43),
+              technicianName: "Selin Teknik",
+              techVerifyCode: "4821",
+              ticketExpiresAt: iso(Date.now() + 60_000),
+              ...(q.get("admit") ? { admitCode: "7351" } : {}),
+            },
+          ]
+        : [
+            {
+              t: "request.message",
+              id: `01JMSG${String(++seq).padStart(20, "0")}`,
+              sender: "TECH",
+              senderName: "Selin Teknik",
+              body: q.get("body") ?? "Merhaba",
+              createdAt: iso(Date.now()),
+            },
+          ];
   for (const ws of s.sockets) for (const o of out) ws.send(JSON.stringify(o));
   send(res, 200, { sockets: s.sockets.size });
   return true;
@@ -239,7 +255,7 @@ export async function handleP19(req, res, { url, session, csrfOk, send, err, rea
   // --- public: web talep formu ---
   if (path === "/api/v1/public/web-requests/form" && req.method === "GET") {
     const ref = q.get("ref") ?? "";
-    const cfg = REFS[ref];
+    const cfg = refCfg(ref);
     if (!cfg) return (send(res, 404, err("REQUEST_REF_INVALID", "Bağlantı geçersiz.")), true);
     const s = st(ref);
     s.gets++;
@@ -260,7 +276,7 @@ export async function handleP19(req, res, { url, session, csrfOk, send, err, rea
     if (!req.headers.origin) return (send(res, 403, err("CSRF_INVALID", "Köken doğrulanamadı.")), true);
     const body = await readJson(req);
     const ref = typeof body.ref === "string" ? body.ref : "";
-    const cfg = REFS[ref];
+    const cfg = refCfg(ref);
     if (!cfg) return (send(res, 404, err("REQUEST_REF_INVALID", "Bağlantı geçersiz.")), true);
     const s = st(ref);
     s.posts++;
