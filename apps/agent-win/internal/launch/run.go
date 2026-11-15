@@ -53,50 +53,22 @@ type Deps struct {
 
 // Run açılış kararını verir ve seçilen akışı yürütür; dönen sonucun Message'ı son ekrandır (boşsa son ekran yok).
 func Run(ctx context.Context, d Deps) flow.Outcome {
-	if d.Now == nil {
-		d.Now = time.Now
-	}
-	if d.Autostart == nil {
-		d.Autostart = defaultAutostart()
-	}
+	d = d.withDefaults()
 	obs := &observedAPI{API: d.API}
 	d.API = obs
 	server, serverOK := remember.CanonicalOrigin(d.ServerURL.String())
 	st := d.startState()
 	notes := d.startupNotes(st)
 	if d.Store != nil && serverOK {
-		k := newKeeper(d.Store, server, d.Now)
-		k.diag, k.tenant = d.Diag, obs.lastTenant
-		d.Flow.Binding = k
-		obs.touch = func(key string) {
-			if err := d.Store.TouchBinding(key, d.Now()); err != nil && d.Diag != nil {
-				d.Diag(eventStoreFailure, remember.ErrorClass(err))
-			}
-		}
+		d.Flow.Binding, obs.touch = d.keeperFor(obs, server)
 	}
 	if !serverOK {
 		server = ""
 	}
 	d.Flow.API = d.API
-	in := Input{Bindings: len(st.Data.ForOrigin(server))}
-	var info *api.TenantRequestInfo
-	var infoErr error
-	ref, isRef := pairing.RefFromFileName(d.Exe)
-	code, isCode := pairing.FromFileName(d.Exe)
-	switch {
-	case isRef:
-		in.File = FileRef
-		info, infoErr = d.API.TenantInfo(ctx, ref)
-		in.Net = refNet(infoErr)
-	case isCode:
-		in.File = FileCode
-		res, err := d.API.Resolve(ctx, code)
-		in.Net = codeNet(err)
-		if in.Net == NetGone {
-			m := flow.ResolveMessage(err)
-			in.GoneMessage = m.Title + ". " + m.Body
-		}
-		d.Flow.API = &onceResolve{API: d.API, code: code, res: res, err: err}
+	in, file, code, once := d.openFile(ctx, len(st.Data.ForOrigin(server)))
+	if once != nil {
+		d.Flow.API = once
 	}
 	dec := Decide(in)
 	if ctx.Err() != nil {
@@ -108,11 +80,59 @@ func Run(ctx context.Context, d Deps) flow.Outcome {
 	if d.Home == nil {
 		return flow.Outcome{}
 	}
-	var file *fileFirm
+	var fp *fileFirm
 	if dec.FileRow {
-		file = &fileFirm{ref: ref, info: info, err: infoErr}
+		fp = &file
 	}
-	return d.firmHome(ctx, server, file, joinNotes(append([]string{dec.Notice}, notes...)))
+	return d.firmHome(ctx, server, fp, joinNotes(append([]string{dec.Notice}, notes...)))
+}
+
+// withDefaults saat ve otomatik başlatma verilmediyse varsayılanları koyar.
+func (d Deps) withDefaults() Deps {
+	if d.Now == nil {
+		d.Now = time.Now
+	}
+	if d.Autostart == nil {
+		d.Autostart = defaultAutostart()
+	}
+	return d
+}
+
+// keeperFor oturumdaki `binding.issued` yazıcısı ve kayıtla açılan talebin 201'inde son kullanım güncelleyicisi.
+func (d Deps) keeperFor(obs *observedAPI, server string) (*keeper, func(key string)) {
+	k := newKeeper(d.Store, server, d.Now)
+	k.diag, k.tenant = d.Diag, obs.lastTenant
+	touch := func(key string) {
+		if err := d.Store.TouchBinding(key, d.Now()); err != nil && d.Diag != nil {
+			d.Diag(eventStoreFailure, remember.ErrorClass(err))
+		}
+	}
+	return k, touch
+}
+
+// openFile dosya adındaki kaynağı sunucuya sorar: ref → firma bilgisi (yanıt dosya satırına kalır), kod → resolve
+// (yanıt kod akışına bir kez verilir: once). bindings gömülü kökenin kayıt sayısıdır.
+func (d Deps) openFile(ctx context.Context, bindings int) (in Input, file fileFirm, code string, once *onceResolve) {
+	in = Input{Bindings: bindings}
+	ref, isRef := pairing.RefFromFileName(d.Exe)
+	code, isCode := pairing.FromFileName(d.Exe)
+	switch {
+	case isRef:
+		in.File = FileRef
+		file = fileFirm{ref: ref}
+		file.info, file.err = d.API.TenantInfo(ctx, ref)
+		in.Net = refNet(file.err)
+	case isCode:
+		in.File = FileCode
+		res, err := d.API.Resolve(ctx, code)
+		in.Net = codeNet(err)
+		if in.Net == NetGone {
+			m := flow.ResolveMessage(err)
+			in.GoneMessage = m.Title + ". " + m.Body
+		}
+		once = &onceResolve{API: d.API, code: code, res: res, err: err}
+	}
+	return in, file, code, once
 }
 
 // startState açılış okuma durumu (K5 Migrate sonucunu verirse o, değilse LoadState). Depo yoksa kayıtsız.

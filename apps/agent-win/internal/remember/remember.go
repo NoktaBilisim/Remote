@@ -10,8 +10,6 @@ package remember
 
 import (
 	"errors"
-	"io"
-	"os"
 	"sync"
 	"time"
 
@@ -27,12 +25,6 @@ const (
 	plainMax       = 32 * 1024  // G-P20-4: en kötü durum ≈ 19 KB (10 öğe × azami alan + kişisel bilgi)
 	sealedMax      = 128 * 1024 // DPAPI zarfı + pay
 	suggestForgetN = 3          // aynı sınıf-2 kodu ardışık bu kadar açılışta → silme önerisi (G-P20-18)
-)
-
-// Kilit yoklama aralığı ve en uzun bekleme (G-P20-2); testler kısaltır.
-var (
-	lockPoll = 50 * time.Millisecond
-	lockWait = 2 * time.Second
 )
 
 // Status okuma sonucu.
@@ -74,88 +66,6 @@ type Store struct {
 	mu              sync.Mutex
 }
 
-// held alınmış kilit: klasör (handle'larıyla sabit, AC-249) ve kilit dosyası.
-type held struct {
-	dir  *diag.Dir
-	lock *os.File // kilit ve sayaç baytı bu handle üzerinden; nil = kilitsiz (ForgetAll zaman aşımı)
-}
-
-// acquire klasörü açar (create: yoksa oluşturur), `kayitlar.lock`'u handle kuralıyla açar ve özel kilidi 50 ms
-// aralıkla en çok 2 sn yoklar. Klasör veya kilit dosyası açılışındaki paylaşım ihlali (başka sürecin wipe'ı kilit
-// dosyasını ya da boş klasörü silmek için kısa süre DELETE erişimiyle açık tutar; AV) aynı süre içinde yeniden denenir:
-// henüz hiçbir dosya okunmadığı ve yazılmadığı için geçici sınıfın "dosyaya dokunma" kuralı (G-P20-18) korunur; süre
-// dolarsa paylaşım hatası (sınıf 2, ClassSharing) döner. Klasör yoksa os.ErrNotExist; kilit zaman aşımında
-// ErrLockTimeout.
-func (s *Store) acquire(create bool) (*held, error) {
-	deadline := time.Now().Add(lockWait)
-	for {
-		h, retry, err := s.tryAcquire(create)
-		if !retry {
-			return h, err
-		}
-		if time.Now().After(deadline) {
-			if err == nil {
-				err = ErrLockTimeout
-			}
-			return nil, err
-		}
-		time.Sleep(lockPoll)
-	}
-}
-
-// tryAcquire tek deneme. retry: kilit başkasında (err nil) veya paylaşım ihlali (err dolu); handle'lar kapatılmıştır.
-func (s *Store) tryAcquire(create bool) (*held, bool, error) {
-	dir, err := diag.OpenDir(s.Dir, create)
-	if err != nil {
-		return nil, isSharing(err), err
-	}
-	f, err := dir.Open(lockName, diag.ModeLock)
-	if err != nil {
-		dir.Close()
-		return nil, isSharing(err), err
-	}
-	ok, err := tryLock(f)
-	if ok {
-		return &held{dir: dir, lock: f}, false, nil
-	}
-	_ = f.Close()
-	dir.Close()
-	return nil, err == nil, err
-}
-
-// unlock kilidi bırakır ve kilit dosyasını kapatır (klasör açık kalır).
-func (h *held) unlock() {
-	if h.lock != nil {
-		unlock(h.lock)
-		_ = h.lock.Close()
-		h.lock = nil
-	}
-}
-
-func (h *held) close() {
-	h.unlock()
-	h.dir.Close()
-}
-
-// counter kilit dosyasındaki tek bayt: yüksek 4 bit sınıf-2 kodu, düşük 4 bit ardışık açılış sayısı (G-P20-18).
-// Kişisel veri değildir; yalnız kilit altında okunur/yazılır.
-func (h *held) counter() byte {
-	if h.lock == nil {
-		return 0
-	}
-	b := make([]byte, 1)
-	if n, err := h.lock.ReadAt(b, 0); n != 1 || (err != nil && !errors.Is(err, io.EOF)) {
-		return 0
-	}
-	return b[0]
-}
-
-func (h *held) setCounter(v byte) {
-	if h.lock != nil && h.counter() != v {
-		_, _ = h.lock.WriteAt([]byte{v}, 0)
-	}
-}
-
 // LoadState dosyayı okur (G-P20-3): sınıf 1'de dosya silinir (StatusAbsent), sınıf 2'de dokunulmaz
 // (StatusUnreadable). Kayıtlı/kayıtsız kararı ve salt-okunur açılış bu sonuca göre verilir.
 func (s *Store) LoadState() LoadResult {
@@ -194,86 +104,6 @@ func (s *Store) LoadPersonal() (Personal, bool) {
 	return *d.Personal, true
 }
 
-// readSealed dosyayı klasör handle'ı üzerinden (AC-249) okur ve çözer. Dosya yoksa os.ErrNotExist; dönen hata
-// sınıflandırılabilir (classify).
-func readSealed(dir *diag.Dir, name string, unprotect func([]byte) ([]byte, error)) ([]byte, error) {
-	f, err := dir.Open(name, diag.ModeRead)
-	if err != nil {
-		return nil, err
-	}
-	sealed, err := io.ReadAll(io.LimitReader(f, sealedMax+1))
-	_ = f.Close()
-	if err != nil {
-		return nil, err
-	}
-	if len(sealed) > sealedMax {
-		return nil, errCorrupt
-	}
-	plain, err := unprotect(sealed)
-	if err != nil {
-		return nil, err
-	}
-	if len(plain) > plainMax {
-		return nil, errCorrupt
-	}
-	return plain, nil
-}
-
-// load kilit altında `kayitlar.bin`'i okur. startup true ise (açılışta bir kez, Migrate) sınıf-2 sayacı ilerletilir;
-// başarılı okumada sayaç sıfırlanır.
-func (s *Store) load(h *held, startup bool) LoadResult {
-	plain, err := readSealed(h.dir, fileName, s.Unprotect)
-	if notExist(err) {
-		h.setCounter(0)
-		return LoadResult{Status: StatusAbsent}
-	}
-	var d Data
-	var trimmed bool
-	if err == nil {
-		d, trimmed, err = decode(plain)
-		if err != nil {
-			err = errCorrupt
-		}
-	}
-	if err == nil {
-		h.setCounter(0)
-		return LoadResult{Data: d, Status: StatusOK, Trimmed: trimmed}
-	}
-	class := classify(err)
-	if class == ClassFormat {
-		h.setCounter(0)
-		s.dropBroken(h.dir)
-		return LoadResult{Status: StatusAbsent, Class: ClassFormat}
-	}
-	r := LoadResult{Status: StatusUnreadable, Class: class, cause: err}
-	code, c := counterCode(class), h.counter()
-	n := c & 0x0f
-	if c>>4 != code {
-		n = 0
-	}
-	if startup {
-		if n < 0x0f {
-			n++
-		}
-		h.setCounter(code<<4 | n)
-	}
-	r.SuggestForget = n >= suggestForgetN
-	return r
-}
-
-// dropBroken sınıf-1: bozuk dosya ve tmp silinir (handle ile); kalıcı veri kalmadıysa tanılama logu da (kalıcı mod
-// kapandı). `hatirla.bin` ve kilit dosyasına dokunulmaz.
-func (s *Store) dropBroken(dir *diag.Dir) {
-	_ = dir.Remove(fileName)
-	_ = dir.Remove(tmpName)
-	if f, err := dir.Open(legacyName, diag.ModeRead); err == nil {
-		_ = f.Close()
-		return
-	}
-	_ = dir.Remove(diag.FileName)
-	_ = dir.Remove(diag.OldName)
-}
-
 // update mevcut içeriği kilit altında yeniden okur, fn ile değiştirip yazar. Okuma sınıf-2 ise yazmaz
 // (ErrUnreadable; boş veriyle üzerine yazma yok). Veri boşaldıysa dosyalar (ve boşsa klasör) silinir. Kayıt
 // kalmadıysa tercih düşer. fn errNoChange dönerse yazılmaz.
@@ -284,10 +114,7 @@ func (s *Store) update(fn func(*Data) error) error {
 	if notExist(err) {
 		var d Data
 		if err := fn(&d); err != nil {
-			if errors.Is(err, errNoChange) {
-				return nil
-			}
-			return classed(err)
+			return changeErr(err)
 		}
 		if d.empty() {
 			return nil
@@ -297,6 +124,11 @@ func (s *Store) update(fn func(*Data) error) error {
 	if err != nil {
 		return classed(err)
 	}
+	return s.updateHeld(h, fn)
+}
+
+// updateHeld update'in kilit alındıktan sonraki kısmı: yeniden oku, değiştir, yaz ya da (boşaldıysa) sil.
+func (s *Store) updateHeld(h *held, fn func(*Data) error) error {
 	r := s.load(h, false)
 	if r.Status == StatusUnreadable {
 		h.close()
@@ -306,10 +138,7 @@ func (s *Store) update(fn func(*Data) error) error {
 	d.Bindings = append([]Binding(nil), d.Bindings...)
 	if err := fn(&d); err != nil {
 		h.close()
-		if errors.Is(err, errNoChange) {
-			return nil
-		}
-		return classed(err)
+		return changeErr(err)
 	}
 	if len(d.Bindings) == 0 {
 		d.Prefs = nil
@@ -319,6 +148,14 @@ func (s *Store) update(fn func(*Data) error) error {
 	}
 	defer h.close()
 	return classed(s.write(h.dir, d))
+}
+
+// changeErr fn hatası: errNoChange yazmadan başarıdır, diğerleri sınıflandırılır.
+func changeErr(err error) error {
+	if errors.Is(err, errNoChange) {
+		return nil
+	}
+	return classed(err)
 }
 
 // SavePersonal talep 201 aldıktan sonra kişisel bilgileri yazar; kayıtlar korunur.
@@ -442,66 +279,6 @@ func (s *Store) ForgetAll() error {
 		return classed(err)
 	}
 	return s.wipe(h)
-}
-
-// wipe kilit altında veri dosyalarını siler, kilidi bırakıp kilit dosyasını ve (hepsi silindiyse) boş klasörü siler.
-// Bağlantı olan girdi silinmez ve hata döner (AC-249). Kilit dosyası başka süreçte açıksa kalır (kişisel veri yok).
-func (s *Store) wipe(h *held) error {
-	var errs []error
-	for _, n := range []string{fileName, tmpName, legacyName, legacyTmpName, diag.FileName, diag.OldName} {
-		if err := h.dir.Remove(n); err != nil && !notExist(err) {
-			errs = append(errs, err)
-		}
-	}
-	h.unlock()
-	if err := h.dir.Remove(lockName); err != nil && !notExist(err) && !isSharing(err) {
-		errs = append(errs, err)
-	}
-	if len(errs) == 0 {
-		h.dir.RemoveIfEmpty()
-	}
-	h.dir.Close()
-	return classed(errors.Join(errs...))
-}
-
-// write aynı klasörde `.tmp` (yalnız yeni dosya) → handle üzerinden yeniden adlandırma (diag.Dir, AC-249; var olan
-// kayitlar.bin'in üzerine). Önceki çalışmadan kalan tmp → silinir ve bir kez yeniden denenir (G-E9-13). Klasör zinciri,
-// tmp veya hedef bağlantı/reparse noktasıysa diag.ErrReparse; hedef dışı dosya değişmez.
-func (s *Store) write(dir *diag.Dir, d Data) error {
-	plain, err := encode(d)
-	if err != nil {
-		return err
-	}
-	if len(plain) > plainMax {
-		return errTooLarge
-	}
-	sealed, err := s.Protect(plain)
-	if err != nil {
-		return &Error{Class: ClassDPAPI, Err: err}
-	}
-	if len(sealed) > sealedMax {
-		return errTooLarge
-	}
-	f, err := dir.Open(tmpName, diag.ModeCreate)
-	if errors.Is(err, os.ErrExist) {
-		_ = dir.Remove(tmpName)
-		f, err = dir.Open(tmpName, diag.ModeCreate)
-	}
-	if err != nil {
-		return err
-	}
-	_, werr := f.Write(sealed)
-	serr := f.Sync()
-	cerr := f.Close()
-	if err := errors.Join(werr, serr, cerr); err != nil {
-		_ = dir.Remove(tmpName)
-		return err
-	}
-	if err := dir.Rename(tmpName, fileName); err != nil {
-		_ = dir.Remove(tmpName)
-		return err
-	}
-	return nil
 }
 
 // NoticeText AC-188 bilgi satırı (P6 karşılama ve talep formu; kayıt yalnız başarılı oturumdan sonra yazılır).

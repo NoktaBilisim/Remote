@@ -1,10 +1,6 @@
 package remember
 
 import (
-	"bytes"
-	"encoding/json"
-	"errors"
-	"io"
 	"regexp"
 	"sort"
 	"time"
@@ -82,62 +78,6 @@ func (b Binding) usedAt() time.Time {
 	return b.LastUsedAt
 }
 
-// legacy v1/v2 (`hatirla.bin`) içeriği: tek kayıt.
-type legacy struct {
-	Personal *Personal
-	Binding  *Binding
-}
-
-type fileV1 struct {
-	V         int    `json:"v"`
-	Name      string `json:"name"`
-	Phone     string `json:"phone"`
-	Email     string `json:"email,omitempty"`
-	DeviceKey string `json:"deviceKey"`
-}
-
-type filePersonal struct {
-	Name  string `json:"name"`
-	Phone string `json:"phone"`
-	Email string `json:"email,omitempty"`
-}
-
-type fileBinding struct {
-	Server       string `json:"server"`
-	Key          string `json:"key"`
-	TenantName   string `json:"tenantName"`
-	CustomerName string `json:"customerName,omitempty"`
-	IssuedAt     string `json:"issuedAt"`
-}
-
-type fileV2 struct {
-	V         int           `json:"v"`
-	Personal  *filePersonal `json:"personal,omitempty"`
-	Binding   *fileBinding  `json:"binding,omitempty"`
-	DeviceKey string        `json:"deviceKey,omitempty"`
-}
-
-type fileBindingV3 struct {
-	Server       string `json:"server"`
-	Key          string `json:"key"`
-	TenantName   string `json:"tenantName"`
-	CustomerName string `json:"customerName,omitempty"`
-	IssuedAt     string `json:"issuedAt"`
-	LastUsedAt   string `json:"lastUsedAt,omitempty"`
-}
-
-type filePrefs struct {
-	Tray bool `json:"tray"`
-}
-
-type fileV3 struct {
-	V         int             `json:"v"`
-	Personal  *filePersonal   `json:"personal,omitempty"`
-	DeviceKey string          `json:"deviceKey,omitempty"`
-	Bindings  []fileBindingV3 `json:"bindings,omitempty"`
-	Prefs     *filePrefs      `json:"prefs,omitempty"`
-}
-
 func hasControl(s string) bool {
 	for _, r := range s {
 		if unicode.In(r, unicode.Cc, unicode.Cf) {
@@ -161,11 +101,6 @@ func (b Binding) valid() bool {
 	origin, ok := CanonicalOrigin(b.Server)
 	return ok && origin == b.Server && BindingKeyRe.MatchString(b.Key) && validText(b.TenantName, 1, tenantMaxRune) &&
 		validText(b.CustomerName, 0, custMaxRune) && !b.IssuedAt.IsZero()
-}
-
-func (l legacy) valid() bool {
-	return (l.Personal != nil || l.Binding != nil) && (l.Personal == nil || l.Personal.valid()) &&
-		(l.Binding == nil || l.Binding.valid())
 }
 
 // countOK yazım kuralı (G-P20-17): anahtar benzersiz, köken başına ≤ 5, en çok 2 köken.
@@ -220,163 +155,4 @@ func normalize(in []Binding) ([]Binding, bool) {
 		out = append(out, b)
 	}
 	return out, len(out) != len(in)
-}
-
-func strictDecode(plain []byte, dst any) error {
-	dec := json.NewDecoder(bytes.NewReader(plain))
-	dec.DisallowUnknownFields()
-	return dec.Decode(dst)
-}
-
-func version(plain []byte) (int, error) {
-	var head struct {
-		V int `json:"v"`
-	}
-	err := json.Unmarshal(plain, &head)
-	return head.V, err
-}
-
-func parseTime(s string) (time.Time, error) {
-	t, err := time.Parse(time.RFC3339, s)
-	return t.UTC(), err
-}
-
-// decodeLegacy v1/v2 düz metnini çözer (yalnız göç).
-func decodeLegacy(plain []byte) (legacy, error) {
-	v, err := version(plain)
-	if err != nil {
-		return legacy{}, err
-	}
-	var l legacy
-	switch v {
-	case formatV1:
-		var f fileV1
-		if err := strictDecode(plain, &f); err != nil {
-			return legacy{}, err
-		}
-		l.Personal = &Personal{Name: f.Name, Phone: f.Phone, Email: f.Email, DeviceKey: f.DeviceKey}
-	case formatV2:
-		var f fileV2
-		if err := strictDecode(plain, &f); err != nil {
-			return legacy{}, err
-		}
-		if (f.Personal == nil) != (f.DeviceKey == "") {
-			return legacy{}, errors.New("remember: cihaz anahtarı kişisel bilgiye bağlı")
-		}
-		if f.Personal != nil {
-			l.Personal = &Personal{Name: f.Personal.Name, Phone: f.Personal.Phone, Email: f.Personal.Email, DeviceKey: f.DeviceKey}
-		}
-		if f.Binding != nil {
-			at, err := parseTime(f.Binding.IssuedAt)
-			if err != nil {
-				return legacy{}, err
-			}
-			l.Binding = &Binding{Server: f.Binding.Server, Key: f.Binding.Key, TenantName: f.Binding.TenantName,
-				CustomerName: f.Binding.CustomerName, IssuedAt: at}
-		}
-	default:
-		return legacy{}, errors.New("remember: bilinmeyen sürüm")
-	}
-	if !l.valid() {
-		return legacy{}, errors.New("remember: geçersiz veri")
-	}
-	return l, nil
-}
-
-// decode v3 düz metnini katı çözer. Biçim hatası (bilinmeyen sürüm/alan, geçersiz öğe, bütünlük) hata döner (sınıf 1);
-// sayım ihlali hata değildir, normalize ile düzeltilir ve ikinci dönüş true olur (G-P20-17).
-func decode(plain []byte) (Data, bool, error) {
-	v, err := version(plain)
-	if err != nil {
-		return Data{}, false, err
-	}
-	if v != formatV3 {
-		return Data{}, false, errors.New("remember: bilinmeyen sürüm")
-	}
-	var f fileV3
-	dec := json.NewDecoder(bytes.NewReader(plain))
-	dec.DisallowUnknownFields()
-	if err := dec.Decode(&f); err != nil {
-		return Data{}, false, err
-	}
-	if _, err := dec.Token(); !errors.Is(err, io.EOF) {
-		return Data{}, false, errors.New("remember: fazladan veri")
-	}
-	if (f.Personal == nil) != (f.DeviceKey == "") {
-		return Data{}, false, errors.New("remember: cihaz anahtarı kişisel bilgiye bağlı")
-	}
-	var d Data
-	if f.Personal != nil {
-		d.Personal = &Personal{Name: f.Personal.Name, Phone: f.Personal.Phone, Email: f.Personal.Email, DeviceKey: f.DeviceKey}
-		if !d.Personal.valid() {
-			return Data{}, false, errors.New("remember: geçersiz kişisel bilgi")
-		}
-	}
-	bs := make([]Binding, 0, len(f.Bindings))
-	for _, fb := range f.Bindings {
-		b := Binding{Server: fb.Server, Key: fb.Key, TenantName: fb.TenantName, CustomerName: fb.CustomerName}
-		if b.IssuedAt, err = parseTime(fb.IssuedAt); err != nil {
-			return Data{}, false, err
-		}
-		if fb.LastUsedAt != "" {
-			if b.LastUsedAt, err = parseTime(fb.LastUsedAt); err != nil {
-				return Data{}, false, err
-			}
-		}
-		if !b.valid() {
-			return Data{}, false, errors.New("remember: geçersiz kayıt")
-		}
-		bs = append(bs, b)
-	}
-	if f.Prefs != nil {
-		if len(bs) == 0 {
-			return Data{}, false, errors.New("remember: tercih kayıtsız tutulmaz")
-		}
-		d.Prefs = &Prefs{Tray: f.Prefs.Tray}
-	}
-	var trimmed bool
-	d.Bindings, trimmed = normalize(bs)
-	if d.empty() {
-		return Data{}, false, errors.New("remember: boş veri")
-	}
-	return d, trimmed, nil
-}
-
-// encode v3 yazar. Geçersiz öğe veya boş veri → errInvalid; sayım ihlali → ErrLimit (yazımda kesin ret, G-P20-17).
-// HTML kaçışı kapalıdır (G-P20-4): `< > &` 6 bayta şişmez (U+2028/2029'u Go her durumda kaçışlar; bütçe bunu kapsar).
-func encode(d Data) ([]byte, error) {
-	if d.empty() || (d.Personal != nil && !d.Personal.valid()) || (d.Prefs != nil && len(d.Bindings) == 0) {
-		return nil, errInvalid
-	}
-	f := fileV3{V: formatV3}
-	if p := d.Personal; p != nil {
-		f.Personal = &filePersonal{Name: p.Name, Phone: p.Phone, Email: p.Email}
-		f.DeviceKey = p.DeviceKey
-	}
-	for _, b := range d.Bindings {
-		if !b.valid() {
-			return nil, errInvalid
-		}
-	}
-	if !countOK(d.Bindings) {
-		return nil, ErrLimit
-	}
-	for _, b := range sortBindings(append([]Binding(nil), d.Bindings...)) {
-		fb := fileBindingV3{Server: b.Server, Key: b.Key, TenantName: b.TenantName, CustomerName: b.CustomerName,
-			IssuedAt: b.IssuedAt.UTC().Format(time.RFC3339)}
-		if !b.LastUsedAt.IsZero() {
-			fb.LastUsedAt = b.LastUsedAt.UTC().Format(time.RFC3339)
-		}
-		f.Bindings = append(f.Bindings, fb)
-	}
-	if d.Prefs != nil {
-		f.Prefs = &filePrefs{Tray: d.Prefs.Tray}
-	}
-	var buf bytes.Buffer
-	enc := json.NewEncoder(&buf)
-	enc.SetEscapeHTML(false)
-	if err := enc.Encode(f); err != nil {
-		return nil, err
-	}
-	return bytes.TrimSuffix(buf.Bytes(), []byte("\n")), nil
 }
