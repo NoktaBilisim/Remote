@@ -1,3 +1,98 @@
+## P27 — kod turu 3
+
+# QA Raporu — P27 (gözetimsiz erişim) Tur 3 (kısa doğrulama)
+
+DURUM: GEÇTİ
+
+Tarih: 2026-11-15 · Dal `p27-wip` @ `86ed103` (PR NoktaBilisim/Remote#10). İncelenen commit'ler: `9f12760` (K12 web + D-P27-K5 Go +
+tur 2 doküman maddeleri) ve `86ed103` (Windows öz testi düzeltmesi + kaldırıcı çalışma dizini). Kod değiştirilmedi, staging'e
+bağlanılmadı. Windows elle testleri (AC-274/289/342, implementation.md "P27 — düzeltme turu 2" adım 1–4) önceki turlardaki gibi
+kullanıcıda bekliyor; kod/CI ayağı bu raporun kapsamı.
+
+## Test sonucu
+
+| Kaynak                                         | Sonuç                                                                                                                                                                                                                                                                                                                                        |
+| ---------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| CI `86ed103` — ci.yml (run 43746307740)        | lint + type-check, shellcheck + actionlint, audit+lisans+gitleaks, coturn, build (+ Docker) **pass**. `test (MySQL 8.4)`: contracts 173/173, web 408/408, server 461/461; `test:int` **923/923** (91 dosya)                                                                                                                                  |
+| CI `86ed103` — web e2e (Playwright, mock API)  | **pass**: 480 geçti / 0 kaldı / 203 skip (skip'ler `desktopOnly`/`mobileOnly` proje ayrımı — önceki turlarla aynı desen). `unattended.spec.ts:198` "kısmi durum…" **desktop ve mobile yeşil**                                                                                                                                                |
+| CI `86ed103` — agent-win.yml (run 43746307788) | gofmt+vet+`test -race`+govulncheck+lisans, `go test (Windows)` (trace-check `-Servis` öz testi dahil), build 1/2–2/2, tekrarlanabilirlik + SHA256SUMS **pass**                                                                                                                                                                               |
+| CI atlananlar                                  | SignPath, ONAY, attestation, Release — yalnız etiket yolunda (gerekçeli, AC-252/297)                                                                                                                                                                                                                                                         |
+| Ara commit `9f12760` (bilgi)                   | `go test (Windows)` kırmızıydı (öz testte `MoveFileEx(DELAY_UNTIL_REBOOT)` runner'da başarısız) → `86ed103` CI adımında kayıt `PendingFileRenameOperations`'a doğrudan yazılıp geri alınarak düzeltildi. e2e'de `p15.spec.ts:173` (AC-235, 409 sonrası odak) 1 kez kırmızı; `86ed103`'te web kodu değişmeden yeşil → kararsız test (Öneri 1) |
+
+## Tur 2 maddelerinin durumu
+
+| Madde                                                   | Durum | Kanıt                                                                                                                                                                                                                                                                                                                                  |
+| ------------------------------------------------------- | ----- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1. api.md pasif müşteri 409 + `/register` 404 notu      | ✅    | `docs/api.md:3009` hata sütununda `CONFLICT` (müşteri pasif); `:3023-3026` "Pasif müşteri (D-P27-K2)" — mesaj metni koddaki `registration.ts:73` ile birebir, `/register` aynı 404 `REGISTRATION_CODE_INVALID` + kod tüketilmez, `cancelledRegistrations` audit                                                                        |
+| 2. SMTP bilgi e-postası koşulu + `smtpChangeNotice`     | ✅    | `docs/api.md:3018-3021` "eski SMTP kaydı varsa … yoksa gönderim denenmez"; `:3028-3034` tablo `unattendedDevices` + `sent/failed/no_recipients/no_previous_config`. Kılavuz `:2735-2738` "Eski bir SMTP ayarı kayıtlıysa … yoksa ya da başka yönetici yoksa e-posta gitmez"                                                            |
+| 3. Kılavuz + mesaj tablosu + CHANGELOG (D-P27-K2) + PDF | ✅    | Kılavuz `:2863-2864` (kodlar silinir, pasife kod yok, **Yeniden aktif et**), `:2938` mesaj satırı; CHANGELOG `:50-56` (K1–K4 dördü de). PDF (pypdf): `KULLANIM_KILAVUZU.pdf` 86 sayfa, "kayıt kodları silinir", "Müşteri pasif; kayıt kodu oluşturulamaz", "Eski bir SMTP ayarı kayıtlıysa", "Cihaz bağlanıyor" metinleri var          |
+| 4. Runbook §27.2 adım 5 açılış logu + menü/düğme adları | ✅    | `docs/runbook.md:3418-3420` `grep -m1 unattended.mode` → `unattended.mode=unsigned deployEnv=staging` (kod `server.ts:26` ile eşleşiyor); "backend açık işi" kaldırıldı. §27 giriş, adım 6, §27.6, §27.8: **Gözetimsiz cihazlar** / **Servis programını indir** / **Cihazı iptal et** (`tr.json` `nav.unattended`, `un.code.download`) |
+
+## Yeni değişikliklerin AC/DoD etkisi
+
+- **K12 web (implementation.md "P27 — K12 düzeltmeleri"):** gözetimsiz konsolda doğrulama/oturum kodu gizli + "Cihaz bağlanıyor…"
+  (`console-overlay.test.ts` 6 test + e2e `p17-console.spec.ts` "K12: gözetimsiz konsol bekleme…" axe dahil); arama 64 sınırı
+  (`unattended.spec.ts` "K12: arama kutusu sözleşme sınırında (64)" — `maxlength`, kırpma, URL `q`); olmayan/bozuk/yetkisiz cihaz
+  gerçek HTTP 404 (`unattended.spec.ts` "K12: … HTTP 404" üç durumu `res.status()` ile doğruluyor; `[id]/page.tsx:147,153` `notFound()`);
+  modül ikonu tek kaynak `lib/module-icons.ts` (`Record<ModuleKey, LucideIcon>` — std. 1.8 derleme zamanında zorlanıyor). Rotalar
+  tablosu güncel. Sapma (ayrıntıda iskelet yok, 404 `<title>`) gerekçeli. Kılavuz adım 3 konsol metni güncellendi. Test-operatoru
+  tur 2 GEÇTİ (`docs/test-raporu.md`).
+- **D-P27-K5 Go kaldırıcı (implementation.md "P27 — düzeltme turu 2"):** mimari §5.3 sapması (`%TEMP%` → `%SystemRoot%\Temp\NoktaDestekServis-kaldir-<16 hex>`,
+  SY/BA korumalı DACL, SHA eşitliği, her çıkış yolunda yeniden başlatmada silme) **gerekçeli** (`%ProgramData%` neden seçilmedi dahil)
+  ve `docs/mimari-p27.md` §5.3'e not düşülmüş; runbook §27.7 iz testi UYARI davranışı eklendi; `uninstall_test.go` 3 test +
+  CI `-Servis` öz testinde iki yeni durum (kayıtsız kopya → çıkış 1, kayıtlı → çıkış 0) yeşil. AC-289/AC-274 otomatik ayağı korunuyor.
+  Güvenlik tur 3: D-P27-K5 kapandı, Kritik/Yüksek 0.
+- **`86ed103`:** kaldırıcı `ShellExecute` çalışma dizini = kopya klasörü (güvenlik tur 3 BİLGİ önerisinin uygulanması; Program
+  Files'ın tanıtıcıyla tutulup iz kalmasını önler). Davranış daraltması, sözleşme değişikliği yok.
+
+## Kabul kriterleri
+
+Tur 1–2'deki ✅'ler değişmedi. Bu turda durumu değişenler:
+
+| AC     | Durum                                | Kanıt / eksik                                                                                                    |
+| ------ | ------------------------------------ | ---------------------------------------------------------------------------------------------------------------- |
+| AC-288 | ✅                                   | Tur 2 madde 1–3 kapandı (yukarıda); PDF güncel                                                                   |
+| AC-290 | ✅                                   | Tur 2'de yalnız doküman nedeniyle bekliyordu; doküman maddeleri kapandı                                          |
+| AC-289 | ✅ (+ Windows'ta elle test bekliyor) | CI `-Servis` öz testi D-P27-K5 kopya klasörü durumlarıyla genişledi, `86ed103`'te yeşil; tekrarlanabilirlik pass |
+| AC-274 | elle test bekliyor (değişmedi)       | Otomatik kısmi kanıt + yeni kaldırma kopyası testleri; Windows elle testi kullanıcıda                            |
+
+## Düzeltilmeli
+
+Yok.
+
+## Definition of Done
+
+| Madde                                            | ✅/❌ | Not                                                                                                             |
+| ------------------------------------------------ | ----- | --------------------------------------------------------------------------------------------------------------- |
+| 1. AC'lerin tamamı testle kanıtlı, testler yeşil | ✅    | `86ed103`'te tüm CI işleri yeşil (test:int 923/923, e2e 480/0, Go + Windows). Windows elle testleri kullanıcıda |
+| 2. Lint/format/type-check temiz                  | ✅    | CI pass; gofmt pass                                                                                             |
+| 3. qa GEÇTİ + güvenlik Kritik/Yüksek 0           | ✅    | Bu rapor GEÇTİ; `docs/guvenlik-raporu.md` "P27 — kod turu 3" GEÇTİ (0/0/0/0)                                    |
+| 4. test-operatoru sayfa taraması                 | ✅    | `docs/test-raporu.md` "P27a + P27 — sayfa testi tur 2" GEÇTİ                                                    |
+| 5. Migration geri alınabilir, seed güncel        | ✅    | Bu turlarda migration yok                                                                                       |
+| 6. Dokümantasyon güncel                          | ✅    | Tur 2 dört maddesi kapandı; PDF'ler yeniden üretildi (pypdf metin kontrolü)                                     |
+| 7. Sapmalar implementation.md'de gerekçeli       | ✅    | D-P27-K5 konum sapması + K12 sapmaları gerekçeli; mimari-p27 §5.3 notu var                                      |
+
+## Öneriler (zorunlu değil)
+
+1. [frontend-dev] `apps/web/e2e/p15.spec.ts:212` — 409 sonrası `expect(cidr).toBeFocused()` `9f12760` CI'ında bir kez kırmızı,
+   kod değişmeden yeşile döndü (kararsız). Odak verme zamanlaması (409 hatası render'ı sonrası `focus()`) incelenip test
+   deterministik hale getirilmeli; tekrar kırmızı CI paket kapısını boşuna tutar.
+2. [backend-dev] `docs/implementation.md:10360` `.github/workflows/agent-win.yml` satırı hâlâ "`MoveFileEx(…, DELAY_UNTIL_REBOOT)` kayıtlı
+   → çıkış 0" diyor; `86ed103`'te öz test kaydı `PendingFileRenameOperations`'a doğrudan yazıyor ve kaldırıcı çalışma dizini
+   değişikliği hiç yazılmamış. "P27 — düzeltme turu 2"ye iki satırlık ek not.
+3. Tur 2'deki öneriler (`settingsTx` 41 satır, remote-watch P27 alarmları, SignPath iki-PE) prod açılışından önce kapanmalı.
+   (`rs_unattended_device_auth_total{revoked|tenant_passive}` runbook §27.8'e eklendi — tur 2 önerisi kapandı.)
+
+## Olumlu
+
+- Tur 2'nin dört doküman maddesi kodla birebir eşleşen metinlerle kapandı (409 mesajı, log satırı, menü/düğme adları); PDF gerçekten
+  yeniden üretilmiş.
+- K12 düzeltmeleri adı K12 olan, davranışı gerçekten ölçen testlerle geldi (HTTP durum kodu, `maxlength` + URL, axe).
+- Mobil kararsızlığın kök nedeni (hidrasyon öncesi `fastForward`) bulunup test düzeltildi, ürün davranışı değiştirilmedi.
+- D-P27-K5 sapması mimariye, runbook'a ve CI öz testine birlikte işlenmiş; Windows CI kırmızısı aynı gün kök nedeniyle giderildi.
+
+---
+
 ## P27 — kod turu 2
 
 # QA Raporu — P27 (gözetimsiz erişim) Tur 2 (doğrulama)

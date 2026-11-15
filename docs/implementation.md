@@ -10426,3 +10426,8 @@ görüntüleri iki tema × masaüstü/mobil kontrol edildi (liste, 404, müşter
 (`[id]/loading.tsx` silindi), `app/(panel)/users/[id]/user-editor-parts.tsx`, `lib/module-icons.ts` (yeni),
 `lib/unattended/console-overlay.test.ts` (yeni), `messages/tr.json`, `e2e/{mock-p27.mjs, unattended.spec.ts, p17-console.spec.ts}`;
 `DESIGN.md` (Segmented `size="field"`).
+
+### P27 — kapanış notu (koordinatör, 86ed103)
+
+- CI öz testi (D-P27-K5): yeniden başlatma kaydı runner'da `MoveFileEx(DELAY_UNTIL_REBOOT)` ile güvenilir oluşmadığı için adım aynı kaydı `HKLM\SYSTEM\CurrentControlSet\Control\Session Manager\PendingFileRenameOperations`'a doğrudan yazar ve `finally`'de eski değere döndürür. Ürün kodu `MoveFileEx` kullanmaya devam eder.
+- Kaldırıcı `relaunch` artık `ShellExecute` çalışma dizinini ikilinin klasörü yapar (güvenlik tur 3 bilgi notu 1): devralınan dizin (ör. Program Files) kopya süreçte tutulup iz bırakmaz.
