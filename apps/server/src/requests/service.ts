@@ -766,6 +766,13 @@ export class RequestService {
     const r = await this.resolveRef(ref);
     if (!r || !r.s.webFormEnabled) throw this.refInvalid(ip);
     await this.limit(ctx, r.s.tenantId, "info", "req.info", "ip", ip);
+    // S-P19-K1: token veren uca IPv6 /56 ve /48 kovaları — /64 döndürmeyle nonce kümesi doldurulamaz. IPv4'te yalnız /32
+    // (`info`): adres döndürme pahalı; /24 kovası CGNAT/kurum NAT'ında meşru ziyaretçiyi keserdi.
+    const net = netKey(ctx.ip);
+    if (isIPv6Key(net)) {
+      await this.limit(ctx, r.s.tenantId, "webFormPrefix", "req.web_form.prefix", "prefix", prefixKey(ctx.ip));
+      await this.limit(ctx, r.s.tenantId, "webFormNet48", "req.web_form.net48", "net48", net);
+    }
     const tenantId = r.s.tenantId;
     const [info, ts, avail] = await Promise.all([
       this.requestInfo(tenantId, r.s.tenant, r.s.waitMinutes),
@@ -779,7 +786,7 @@ export class RequestService {
       chatRetentionDays: ts.retentionDays,
       channels: this.channelsOf(r.s, avail),
       businessHours: info.businessHours,
-      formToken: this.formTokens.issue(ref as string), // resolveRef biçimi doğruladı; token bu ref'e bağlı
+      formToken: this.formTokens.issue(ref as string, tenantId), // resolveRef biçimi doğruladı; token bu ref'e + firma bölmesine bağlı
       minDelayMs: WEB_FORM_MIN_DELAY_MS,
     };
   }
@@ -816,8 +823,15 @@ export class RequestService {
       await this.webFormRejected(ctx, "fast");
       throw new AppError("RATE_LIMITED", { retryAfterSec: Math.ceil(check.retryAfterMs / 1000), message: WEB_FORM_FAST_MESSAGE });
     }
+    // S-P19-K1: ipKey kovası zaten kilitliyse token TÜKETİLMEDEN 429 (sayımsız, senkron; kilitli istemci nonce kümesini
+    // şişiremez). Önek/net48 burada bakılmaz: güvenilen CIDR muafiyeti DB gerektirir (createCore'da S14-1 ön kontrolü).
+    const ipWait = blocked(this.d.limits.createIp, ipKey(ctx.ip));
     // İlk await'ten önce: doğrulama + tüketim aynı senkron adımda (aynı token'la 10 paralel → tam 1 geçer).
-    const consumed = check.ok ? this.formTokens.nonces.consume(check.nonce, check.expiresAt) : "used";
+    const consumed = ipWait > 0 ? "blocked" : check.ok ? this.formTokens.nonces.consume(check.part, check.nonce, check.expiresAt) : "used";
+    if (consumed === "blocked") {
+      await this.rateAudit(ctx, null, "req.create.ip", "ip", ipKey(ctx.ip));
+      throw rateLimited(ipWait);
+    }
     if (consumed !== "ok") {
       await this.webFormRejected(ctx, consumed === "full" ? "token_store_full" : "token");
       throw new AppError("FORM_TOKEN_INVALID");

@@ -10,6 +10,7 @@ import { WEB_REQUEST_AUDIT } from "@remote/contracts/audit";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { aadFor, SecretBox } from "../../src/lib/crypto.ts";
 import { newId, newSecretToken } from "../../src/lib/ids.ts";
+import { netKey, prefixKey } from "../../src/lib/ip.ts";
 import { FormTokens } from "../../src/requests/form-token.ts";
 import { sweepRequests } from "../../src/requests/jobs.ts";
 import { createTenant, createUser, loginAs, ORIGIN, testDb, type Session } from "../helpers/app.ts";
@@ -22,14 +23,14 @@ let live: Live;
 const db = testDb;
 const box = new SecretBox(null);
 /** Form token'ı 3 sn geriye tarihli üretilir (2 sn kuralını test başına beklemeden geçmek için); doğrulama gerçek saatle. */
-function backdatedTokens(maxNonces?: number): FormTokens {
+function backdatedTokens(maxNonces?: number, tenantMaxNonces?: number): FormTokens {
   let skew = 0;
-  const ft = new FormTokens(box, () => Date.now() + skew, maxNonces);
+  const ft = new FormTokens(box, () => Date.now() + skew, maxNonces, tenantMaxNonces);
   const issue = ft.issue.bind(ft);
-  ft.issue = (ref: string) => {
+  ft.issue = (ref: string, tenantId: string) => {
     skew = -3000;
     try {
-      return issue(ref);
+      return issue(ref, tenantId);
     } finally {
       skew = 0;
     }
@@ -329,6 +330,58 @@ describe("S-P19-1 bot kapısı", () => {
     expect(fourth.statusCode).toBe(429);
     const rows = await db().supportRequest.findMany({ where: { tenantId: t.id }, select: { ipKey: true } });
     expect(new Set(rows.map((r) => r.ipKey))).toEqual(new Set([remote]));
+  });
+});
+
+describe("S-P19-K1 nonce kümesi firma bölmeli + token ucu ağ kovaları", () => {
+  it("S-P19-K1: A firmasının bölmesi dolunca (sınır 3) A 400 token_store_full; B firmasının formu 201", async () => {
+    const { ref: refA } = await webTenant({ trustedCidrs: ["10.0.0.0/8"] });
+    const { ref: refB } = await webTenant({ trustedCidrs: ["10.0.0.0/8"] });
+    const prev = live.app.requests.formTokens;
+    live.app.requests.formTokens = backdatedTokens(100, 3);
+    try {
+      for (let i = 0; i < 3; i++) expect((await createWeb(refA)).statusCode).toBe(201);
+      const full = await createWeb(refA);
+      expect(full.statusCode).toBe(400);
+      expect(errOf(full).code).toBe("FORM_TOKEN_INVALID");
+      const b = await createWeb(refB);
+      expect(b.statusCode, b.body).toBe(201);
+    } finally {
+      live.app.requests.formTokens = prev;
+    }
+  });
+
+  it("S-P19-K1: kilitli ipKey'den gönderim token'ı TÜKETMEDEN 429; kilit kalkınca aynı token 201", async () => {
+    const { ref } = await webTenant();
+    const ip = nextIp();
+    const info = await token(ref, ip);
+    const body = webBody(ref, info);
+    const ft = live.app.requests.formTokens;
+    const before = ft.nonces.size;
+    for (let i = 0; i < 6; i++) live.app.requests.d.limits.createIp.hit(ip); // 6. olay kilidi başlatır
+    const r = await postWeb(body, ip);
+    expect(r.statusCode, r.body).toBe(429);
+    expect(errOf(r).code).toBe("RATE_LIMITED");
+    expect(ft.nonces.size).toBe(before);
+    expect((await postWeb(body, nextIp())).statusCode).toBe(201); // aynı token başka adresten geçer (tüketilmemişti)
+  });
+
+  it("S-P19-K1: IPv6 — aynı /48'in farklı /56'larından token ucu 240/dk sonrası 429 (req.web_form.net48); başka /48 etkilenmez", async () => {
+    const { t, ref } = await webTenant();
+    for (let i = 0; i < 240; i++) live.app.requests.d.limits.webFormNet48.hit(netKey("2001:db8:4801::1"));
+    const r = await form(ref, "2001:db8:4801:aa00::1");
+    expect(r.statusCode, r.body).toBe(429);
+    expect(errOf(r).code).toBe("RATE_LIMITED");
+    expect((await form(ref, "2001:db8:4802:aa00::1")).statusCode).toBe(200);
+    const a = await db().auditLog.findFirst({ where: { tenantId: t.id, action: "request.rate_limited" }, orderBy: { id: "desc" } });
+    expect(a?.newValue).toMatchObject({ bucket: "req.web_form.net48", keyType: "net48" });
+  });
+
+  it("S-P19-K1: IPv6 /56 kovası 120/dk sonrası 429; aynı /48'in başka /56'sı 200", async () => {
+    const { ref } = await webTenant();
+    for (let i = 0; i < 120; i++) live.app.requests.d.limits.webFormPrefix.hit(prefixKey("2001:db8:5601:1100::1"));
+    expect((await form(ref, "2001:db8:5601:11ff::1")).statusCode).toBe(429);
+    expect((await form(ref, "2001:db8:5601:1200::1")).statusCode).toBe(200);
   });
 });
 

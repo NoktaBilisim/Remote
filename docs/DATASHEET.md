@@ -16,13 +16,17 @@ oturum bilgisi, KVKK onayları ve denetim kayıtları kalır.
 - **Müşteri başlatmalı destek** — müşteri programdan "Destek iste" der; talep canlı kuyruğa düşer, teknisyen tek
   tıkla kabul eder. Bir kez destek alan bilgisayar firmayı hatırlar, yeni link gerekmez. İstenmeyen talep gönderen IP,
   ağ veya bilgisayar süreli ya da süresiz engellenir.
+- **Program indirmeden destek talebi** — müşteri firmanın web formu bağlantısından tarayıcıyla talep açar, beklerken
+  teknisyenle yazışır, kabulde ekranını paylaşır. İsterse talebinin kabul/ret/süre dolumu bilgisini SMS, WhatsApp veya
+  e-postayla alır (yalnız hizmet bildirimi; reklam yok). İstenmeyen talep yağarsa form tek tuşla kapanır.
 - **İzinli uzaktan kontrol** — her kontrol isteğini müşteri onaylar, tek tuşla geri alır; uzaktan tıklama izin sayılmaz.
 - **Zorlu donanımda da görüntü** — ekran üç farklı yöntemle okunur (HDR ve çift ekran kartlı dizüstüler dahil);
   okunamazsa müşteri ekranında kısa bir neden kodu ve ne yapacağı yazar; yeni sürüm programla neden teknisyen konsoluna
   da gelir.
 - **Sohbet, dosya, ekran üzerine işaretleme** — dosya içeriği sunucudan geçmez, her dosyayı alıcı onaylar. Geçmişte her
   dosya "Doğrulanmış" ya da "Müşteri bildirimi" olarak ayrılır.
-- **Müşteri firma yönetimi** — her müşteriye ayrı kalıcı indirme bağlantısı; talep ve oturumlar firmaya göre süzülür.
+- **Müşteri firma yönetimi** — her müşteriye ayrı kalıcı indirme ve web formu bağlantısı; talep ve oturumlar firmaya
+  göre süzülür; müşteri listesi Excel uyumlu CSV olarak dışa aktarılır, CSV'den önizlemeli ve hata raporlu içe aktarılır.
 - **Kullanıcı ve yetki yönetimi** — teknisyen ekleme, modül bazlı aç/kapa yetkileri, pasife alma; değişiklik açık
   oturumlara anında yansır.
 - **İki adımlı doğrulama ve e-posta** — yöneticilerde zorunlu, teknisyenlerde firma ayarıyla 2FA; şifremi unuttum,
@@ -50,20 +54,20 @@ oturum bilgisi, KVKK onayları ve denetim kayıtları kalır.
 
 ## Modüller
 
-| Modül                            | Ne yapar                                                                                                                                                                                                                                                                            |
-| -------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Destek oturumları                | Tek kullanımlık link ve 8 haneli kod, bekleme odası, teknisyen kabulü, iptal, zorla sonlandırma; müşteri beklerken panelin her sayfasında sayaç ve bildirim                                                                                                                         |
-| Teknisyen konsolu                | Canlı ekran, uzaktan kontrol, monitör değiştirme, sohbet, dosya, işaretleme, kalite paneli                                                                                                                                                                                          |
-| Hızlı Destek (Windows)           | Müşteri programı: "Destek iste", "Bağlantı kodum var", "Bu bilgisayarı unut", onay ve izin diyalogları; tüm ekran yerine yalnız bir pencereyi paylaşma (kontrol o pencereyle sınırlı), açık/koyu tema                                                                               |
-| Destek talepleri                 | Canlı kuyruk, bildirim ve ses, kabul/ret, firma filtresi, son 30 gün geçmişi, kaynak engelleme (Engellenenler ekranı), isteğe bağlı kabul kodu, atama, öncelik ve SLA, mesai saatleri ve tatiller                                                                                   |
-| Müşteriler                       | Müşteri firma kaydı, firma başına bağlantı (kopyala, yenile), pasife alma, talep ve oturum geçmişi                                                                                                                                                                                  |
-| Oturum geçmişi                   | Filtreli liste, ayrıntı, ticket/not, dosya doğrulama etiketi, CSV                                                                                                                                                                                                                   |
-| Kullanıcılar                     | Kullanıcı ekleme (tek seferlik geçici şifre), rol, yetki tablosu, pasife alma / yeniden etkinleştirme, kalıcı silme                                                                                                                                                                 |
-| Firmalar (Süper Yönetici)        | Firma oluşturma, düzenleme, pasife alma, firmalar arası geçiş, kalıcı silme (önizleme, 24 saat iptal penceresi, ilerleme)                                                                                                                                                           |
-| Audit log                        | Salt okunur denetim kaydı: tarih, kullanıcı, işlem, sonuç ve firma filtreleri, ayrıntı, CSV                                                                                                                                                                                         |
-| Sistem ayarları (Süper Yönetici) | MySQL bağlantı bilgisi + bağlantı testi (isteğe bağlı zorunlu TLS ve sertifika doğrulaması), TURN sunucuları ve gizli anahtar, sistem logosu (yükleme/kaldırma), Süper Yönetici şifre sıfırlama, WhatsApp servis adresi + test mesajı                                               |
-| Hesabım                          | Profil resmi (kare kırpma), tema (Açık / Koyu / Sistem), 2FA kurulumu, kurtarma kodları ve yenilenmesi, şifre değiştirme/sıfırlama, tüm cihazlardan çıkış                                                                                                                           |
-| Ayarlar                          | Genel sınırlar (kod geçerliliği, en uzun oturum, teknisyen başına açık oturum, dosya boyutu), destek talebi bağlantısı, bekleme süresi, WhatsApp ve e-posta bildirimi + test, güvenilen ağlar, SMTP + test maili, teknisyen 2FA zorunluluğu, sürümlü aydınlatma metni, firma logosu |
+| Modül                            | Ne yapar                                                                                                                                                                                                                                                                                                                                                            |
+| -------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Destek oturumları                | Tek kullanımlık link ve 8 haneli kod, bekleme odası, teknisyen kabulü, iptal, zorla sonlandırma; müşteri beklerken panelin her sayfasında sayaç ve bildirim                                                                                                                                                                                                         |
+| Teknisyen konsolu                | Canlı ekran, uzaktan kontrol, monitör değiştirme, sohbet, dosya, işaretleme, kalite paneli                                                                                                                                                                                                                                                                          |
+| Hızlı Destek (Windows)           | Müşteri programı: "Destek iste", "Bağlantı kodum var", "Bu bilgisayarı unut", onay ve izin diyalogları; tüm ekran yerine yalnız bir pencereyi paylaşma (kontrol o pencereyle sınırlı), açık/koyu tema                                                                                                                                                               |
+| Destek talepleri                 | Canlı kuyruk, bildirim ve ses, kabul/ret, firma filtresi, son 30 gün geçmişi, kaynak engelleme (Engellenenler ekranı), isteğe bağlı kabul kodu, atama, öncelik ve SLA, mesai saatleri ve tatiller, web talep formu ve "Web" kaynak süzgeci                                                                                                                          |
+| Müşteriler                       | Müşteri firma kaydı, firma başına bağlantı ve web formu bağlantısı (kopyala, yenile), pasife alma, talep ve oturum geçmişi, CSV dışa/içe aktarma                                                                                                                                                                                                                    |
+| Oturum geçmişi                   | Filtreli liste, ayrıntı, ticket/not, dosya doğrulama etiketi, CSV                                                                                                                                                                                                                                                                                                   |
+| Kullanıcılar                     | Kullanıcı ekleme (tek seferlik geçici şifre), rol, yetki tablosu, pasife alma / yeniden etkinleştirme, kalıcı silme                                                                                                                                                                                                                                                 |
+| Firmalar (Süper Yönetici)        | Firma oluşturma, düzenleme, pasife alma, firmalar arası geçiş, kalıcı silme (önizleme, 24 saat iptal penceresi, ilerleme)                                                                                                                                                                                                                                           |
+| Audit log                        | Salt okunur denetim kaydı: tarih, kullanıcı, işlem, sonuç ve firma filtreleri, ayrıntı, CSV                                                                                                                                                                                                                                                                         |
+| Sistem ayarları (Süper Yönetici) | MySQL bağlantı bilgisi + bağlantı testi (isteğe bağlı zorunlu TLS ve sertifika doğrulaması), TURN sunucuları ve gizli anahtar, sistem logosu (yükleme/kaldırma), Süper Yönetici şifre sıfırlama, WhatsApp servis adresi + test mesajı                                                                                                                               |
+| Hesabım                          | Profil resmi (kare kırpma), tema (Açık / Koyu / Sistem), 2FA kurulumu, kurtarma kodları ve yenilenmesi, şifre değiştirme/sıfırlama, tüm cihazlardan çıkış                                                                                                                                                                                                           |
+| Ayarlar                          | Genel sınırlar (kod geçerliliği, en uzun oturum, teknisyen başına açık oturum, dosya boyutu), destek talebi bağlantısı, bekleme süresi, WhatsApp ve e-posta bildirimi + test, güvenilen ağlar, SMTP + test maili, SMS + test SMS, web talep formu aç/kapa ve müşteriye durum bildirimi kanalları, teknisyen 2FA zorunluluğu, sürümlü aydınlatma metni, firma logosu |
 
 ## Güvenlik ve yönetim
 
@@ -99,6 +103,9 @@ oturum bilgisi, KVKK onayları ve denetim kayıtları kalır.
   Geçici şifre 24 saat geçerlidir, ilk girişte değiştirilir ve işlem denetim kaydına yazılır.
 - Kod kalitesi: her değişiklikte otomatik biçim, lint, tip ve test denetimi; entegrasyon ve uçtan uca testler kararsızlığa
   karşı her hafta 20 kez tekrar koşulur.
+- Web talep formu otomatik gönderimlere karşı tek kullanımlık form anahtarı ve gönderim gecikmesiyle korunur; firmaya
+  saatlik ve bekleyen talep sınırı uygulanır. Müşteriye giden bildirimlerde alıcı ve firma başına günlük/saatlik tavan vardır;
+  SMS API anahtarı şifreli saklanır, servis adresine anahtar yazılamaz.
 - Tarayıcı bağlantısı yalnız HTTPS (HSTS); WhatsApp servis anahtarı şifreli saklanır ve yalnız kayıtlı servis adresine gider.
 - Şifreler argon2id ile saklanır; hatalı girişte kilit (ve kullanıcıya e-posta), ilk girişte şifre değişimi, CSRF
   koruması, süreli oturum (30 dk boşta / 8 sa).
@@ -124,7 +131,9 @@ oturum bilgisi, KVKK onayları ve denetim kayıtları kalır.
 - E-posta (firmanın kendi SMTP sunucusu): şifre sıfırlama, güvenlik bildirimleri, yeni talep bildirimi, oturum
   bağlantısını müşteriye gönderme; test butonu.
 - MySQL: bağlantı bilgisi yönetim panelinde, "Bağlantıyı Test Et" ile; geçiş sunucu yapılandırmasıyla yapılır.
-- SMS bildirimi bu sürümde yoktur.
+- SMS (Nokta Bilişim smsportal servisi, arka planda NetGSM): oturum bağlantısını ve talep durumunu müşteriye SMS ile
+  gönderme; firma başına adres, şifreli API anahtarı, başlık ve test SMS butonu. Türkiye cep numaralarına gider.
+- WhatsApp ile müşteriye oturum bağlantısı ve talep durumu gönderimi (aynı whatsapp-bildirim servisi).
 
 ## Teknik özellikler
 

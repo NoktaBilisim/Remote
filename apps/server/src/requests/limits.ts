@@ -44,6 +44,9 @@ export interface RequestLimits {
   createNet48: FixedWindowCounter;
   download: FixedWindowCounter;
   info: FixedWindowCounter;
+  /** S-P19-K1: web formu token verme ucu IPv6 ağ kovaları — /56 120/dk, /48 240/dk (IPv4'te yalnız `info` /32). */
+  webFormPrefix: FixedWindowCounter;
+  webFormNet48: FixedWindowCounter;
   cancel: FixedWindowCounter;
   waTest: FixedWindowCounter;
   accept: FixedWindowCounter;
@@ -75,6 +78,9 @@ export const TENANT_KNOWN_PER_HOUR = 120;
 /** P19 (S-P19-15): WEB firma kovası ve WEB bekleyen alt tavanı (toplam 50 aynı; AGENT'a en az 20 yer kalır). */
 export const TENANT_WEB_PER_HOUR = 60;
 export const WEB_PENDING_MAX = 30;
+/** S-P19-K1: `GET /public/web-requests/form` önek ve /48 kovaları (dakikalık; aşımda 15 dk 429). */
+export const WEB_FORM_PREFIX_PER_MIN = 120;
+export const WEB_FORM_NET48_PER_MIN = 240;
 
 export function createRequestLimits(): RequestLimits {
   return {
@@ -84,6 +90,8 @@ export function createRequestLimits(): RequestLimits {
     createNet48: new FixedWindowCounter(41, HOUR, BLOCK),
     download: new FixedWindowCounter(31, HOUR, BLOCK),
     info: new FixedWindowCounter(61, MIN, BLOCK),
+    webFormPrefix: new FixedWindowCounter(WEB_FORM_PREFIX_PER_MIN + 1, MIN, BLOCK),
+    webFormNet48: new FixedWindowCounter(WEB_FORM_NET48_PER_MIN + 1, MIN, BLOCK),
     cancel: new FixedWindowCounter(31, MIN, BLOCK),
     waTest: new FixedWindowCounter(6, MIN, MIN),
     accept: new FixedWindowCounter(31, MIN, MIN),

@@ -1,3 +1,130 @@
+# Güvenlik Raporu — P19 kod turu 1 (p19-wip eb2f00d, 2026-11-15)
+
+DURUM: GEÇTİ (Kritik/Yüksek 0). Orta/Düşük bulgular `docs/gereksinimler.md` §9'a "Sonra" olarak eklenmeli ya da P19 düzeltme turunda kapatılmalı.
+Özet: Kritik 0 / Yüksek 0 / Orta 1 / Düşük 3
+
+Kapsam: `git diff b0570c8..eb2f00d` (P19), `docs/mimari-e11.md` §8c.9 S-P19-1..15 ve §8c.14. Elle incelenen dosyalar:
+`lib/outbound.ts`, `lib/netguard.ts`, `notify/{service-url,sms,outbox,templates}.ts`, `requests/{form-token,web-routes,limits}.ts`,
+`requests/service.ts` (createCore/createWeb/webFormInfo), `requests/jobs.ts`, `sessions/send-link.ts` + `sessions/routes.ts`,
+`tenants/sms-routes.ts`, `customers/{routes,csv-import}.ts`, `lib/csv.ts`, `packages/contracts/src/{csv,api/requests}.ts`,
+`apps/web/proxy.ts`, `deploy/Caddyfile`, `lib/logger.ts`. Kod değiştirilmedi; commit yok; staging'e bağlanılmadı; ACCESS.txt okunmadı.
+Tur sınırı nedeniyle bazı alanlar incelenmedi (aşağıda "İncelenmedi").
+
+## Bulgular (öncelik sırasıyla)
+
+### [ORTA] S-P19-K1 Form nonce kümesi IPv6 /64 döndürmeyle doldurulup TÜM firmaların web formu kapatılabilir — A04 Insecure Design (kullanılabilirlik)
+
+Yer: `apps/server/src/requests/form-token.ts:12,36-46` (`FORM_NONCE_MAX = 100_000`, süreç geneli tek küme, dolu → `full`);
+`apps/server/src/requests/service.ts:768` (token veren `GET /form` yalnız `info` kovası, anahtar `ipKey` = IPv6 /64, 60/dk);
+`apps/server/src/requests/service.ts:820-824` (tüketim ip/önek/net48/tenant kovalarından ÖNCE).
+Sorun: Kümeye her geçerli token tüketimi 30 dk girer; tüketim `createIp`/`createPrefix`/`createNet48` kovalarından önce yapıldığı için
+bu kovalara takılan (429) gönderimler de kümeyi doldurur. Token alma ucunda önek/net48 kovası yok. Küme dolunca tasarım gereği
+fail-closed: tüm firmaların tüm ziyaretçileri `FORM_TOKEN_INVALID` alır (firmalar arası DoS).
+İstismar senaryosu: Saldırgan herhangi bir firmanın açık `/r/<ref>`'ini bilir (ref müşteriye dağıtılan bağlantıdır). Bir VPS'in
+/48 (ya da /56) IPv6 bloğundan her /64 için dakikada 60 token alır, 2 sn bekler ve her token'ı bir kez POST eder. /64 başına
+~120 nonce/30 dk (60 sonra 15 dk kilit) → ~850 /64 (bir /56 = 256, bir /48 = 65 536) ile 100 000 sınırı 30 dk içinde dolar ve
+sürekli dolu tutulur. Talep oluşmasa da (createIp 429) nonce harcanır. Alarm (`web_form_token_store_full`) düşer ama hizmet
+kesintisi sürer.
+Düzeltme: (1) Tüketimi ip/önek/net48 kovası kontrolünden SONRAYA almak yerine (paralel tek kullanım gerekliliği bozulmasın diye)
+token'ı veren `GET /form` ucuna `prefixKey` (/56) ve `netKey` (/48) kovaları ekleyin (createPrefix/createNet48 eşdeğeri);
+(2) nonce kümesini firma başına bölün (`Map<tenantId, FormNonceStore>`, firma başı tavan ör. 10 000; dolu firma yalnız kendi
+formunu kapatır) — firmalar arası etki kalkar; (3) test: tek /48'den 5 000 token tüketimi sonrası başka firmanın formu 201.
+Atanan ajan: backend-dev (S-P19-1/S-P19-T4 ile birlikte; mimar onayı ile firma bazlı küme).
+
+### [DÜŞÜK] S-P19-K2 Sistem geneli alıcı tavanı (5/24 sa) firmalar arası eşzamanlılıkta aşılabilir — A04
+
+Yer: `apps/server/src/notify/outbox.ts:150-168` (`recGlobal` sayımı, satır 161); kilit yalnız `lockSettings(tenantId)`
+(`requests/panel.ts:156,290`, `requests/jobs.ts:27`).
+Sorun: Firma içi sayımlar firma ayar satırı kilidiyle sıralanır; sistem geneli sayım farklı firmaların TX'leri arasında kilitsiz
+anlık görüntü okumasıdır. İki firmada aynı anda sona eren/kabul edilen taleplerde her iki TX de 4 görür ve ikisi de yazar.
+İstismar senaryosu: Saldırgan aynı numarayla N firmada eşzamanlı süresi dolacak WEB talebi açar (aynı `wait_minutes`); süpürme
+işi aynı turda işler → numaraya 5 yerine N'ye kadar bildirim. Firma içi 3/24 sa ve firma kanal tavanı sınırlar; etki küçüktür.
+Düzeltme: Sistem geneli sayımdan önce alıcı başına kilit (ör. `GET_LOCK('nrh:'||recipient_hash, 2)` ya da küçük bir
+`notify_recipient_lock(recipient_hash PK)` satırına `INSERT … ON DUPLICATE KEY UPDATE` + `FOR UPDATE`) — kilit sırası ayarlar →
+alıcı. Ya da tavanı "en çok" değil "yaklaşık" diye belgeleyin (runbook). Atanan ajan: backend-dev (+ dba kilit tablosu seçilirse).
+
+### [DÜŞÜK] S-P19-K3 send-link bellek kovaları gönderimden ve kullanıcı tavanından önce harcanıyor; alıcı kovası firmalar arası ortak — A04
+
+Yer: `apps/server/src/sessions/send-link.ts:116-123` (alıcı kovası anahtarı yalnız `hash`, tenant yok; `hit` 20/sa DB kontrolünden
+(128-138) ve kanal hatasından önce).
+Sorun: (a) Alıcı kovası tüm firmalarda tek: bir firmanın teknisyeni bir numaraya saatte 5 gönderimle o numaranın başka firmalardan
+alacağı bağlantı SMS/WA'sını 1 saat 429'a sokar. (b) 20/sa kullanıcı tavanına takılan istek de alıcı/tenant kovasını tüketir.
+İstismar senaryosu: Kötü niyetli ya da ele geçirilmiş bir teknisyen hesabı rakip firmanın müşteri numarasına 5 gönderim yaparak
+o firmanın bağlantı gönderimini engeller (dar, 1 saatlik).
+Düzeltme: Alıcı kovasını `${tenantId}|${hash}` yapın (SMS test ucundaki `sms-routes.ts:141` kalıbı) ve kova `hit`'ini kullanıcı
+tavanı TX'inden sonra çağırın. Sistem geneli taciz koruması isteniyorsa ayrıca daha yüksek (ör. 15/sa) global kova. Atanan ajan: backend-dev.
+
+### [DÜŞÜK] S-P19-K4 Şablon ad süzgecinde ideografik nokta ve IP biçimi atlanıyor — A03 (içerik) / oltalama
+
+Yer: `apps/server/src/notify/templates.ts:13-23`.
+Sorun: NFKC, U+FF0E'yi `.`'ya çevirir ama U+3002 `。` ve U+FF61 `｡` (NFKC → U+3002) noktaya çevrilmez; `evil。com` metinde kalır
+(bazı istemciler/IDNA uygulamaları bunu alan adı ayırıcısı sayar). `\.(?=[a-z]{2,}\b)` IP biçimini (`1.2.3.4`) bırakır.
+İstismar senaryosu: Firma adını değiştirebilen hesap (Super Admin/firma adı düzenleyen rol) adı `Banka｡com destek` yapar; müşteriye
+giden SMS'te bağlantı gibi görünen metin taşınır. Yetki gerektirdiği için Düşük.
+Düzeltme: NFKC sonrası `[。｡﹒]` → `.` eşleyin; ardından IPv4 benzeri `\d{1,3}(\.\d{1,3}){3}` desenini boşlukla
+bozun; birim teste ekleyin. Atanan ajan: backend-dev.
+
+## Otomatik tarama çıktıları
+
+- `pnpm audit --audit-level=moderate`: "No known vulnerabilities found". P19'da yeni bağımlılık yok (package.json farkı yalnız
+  `@remote/contracts` dışa aktarma yolları `./api/notify`, `./csv`; `@fastify/multipart` P19 öncesinden mevcut) — doğrulandı.
+- Gizli bilgi `git grep` (test/e2e/docs hariç): eşleşme yok.
+- `.env*` git geçmişi: yalnız `.env.example` (boş anahtarlar). Gerçek `.env` hiç commit edilmemiş.
+- `dangerouslySetInnerHTML` `apps/web/app/r/**`: yok (S-P19-9).
+
+## Tasarımda vaat edilip kodda bulunmayanlar
+
+Bu turda incelenen kapsamda bulunmadı. Doğrulananlar (kanıt):
+
+- S-P19-1/T4: bootId'li HMAC (`form-token.ts:50,61-63`), ref'e bağlı, senkron `consume` ilk await'ten önce (`service.ts:820`),
+  `< 2 sn` tüketmez, küme dolu fail-closed, gizli alan (`service.ts:810-813`). (Fail-closed'un DoS etkisi → K1.)
+- S-P19-2: geçersiz ref / form kapalı tek `refInvalid` yolu, kovalardan önce (`service.ts:449`, `webFormInfo` 766).
+- S-P19-3: POST'ta `checkPublicClient(req,"BROWSER")` (`web-routes.ts:19`), çerezsiz, CORS başlığı yok.
+- S-P19-5: tek çözüm + `lookup` ile IP sabitleme, SNI = ad, `agent:false`, yönlendirme izlenmez, gövde 4 KB'ta kesilir, ham
+  hata/gövde dönmez (`outbound.ts:37-99`); netguard kayıtta (`sms-routes.ts:73`) ve her gönderimde (`sms.ts:122`); prod yalnız
+  https + 443 (`sms.ts:52-57`); `timeout`→`unreachable` (`outbound.ts:19`).
+- S-P19-6/T5/T6: `@?#` ve userinfo reddi (`service-url.ts:64-67`), AAD kökene bağlı, köken değişince anahtar yeniden istenir
+  (`sms-routes.ts:92-95`), GET anahtar ve sistem URL'sini döndürmez (`sms-routes.ts:50-62`), audit `***`, çözülemeyen anahtar
+  `unconfigured` + saatte 1 warn (anahtar/URL yok) (`sms.ts:81-88,132-138`).
+- S-P19-7: send-link yalnız kendi teknisyeni + PENDING + `token_hash` eşleşmesi (`send-link.ts:73-87,108-110`), sabit şablon,
+  20/sa DB sayımlı (`users FOR UPDATE`), SMS testi 3/sa/alıcı (`sms-routes.ts:138-145`).
+- S-P19-8: ≤ 2 MB (başlık + multipart `fileSize`, `parts:1`), ≤ 5 000 kayıt (hatalı kayıtlar dahil), 8 KB kayıt, kapanmamış tırnak
+  satır hatası, UTF-8 `fatal`; formül kaçışı + ters kaçış tek kaynak (`contracts/src/csv.ts`). Ayrıştırıcı en kötü durum
+  5 000 × 8 KB ile sınırlı.
+- S-P19-4/14: önizleme import+create+view, uygulama import+create, `update` ⇒ `customers.edit` (`csv-import.ts:315`); `previewId`
+  kullanıcı + tenant + sabit zamanlı karşılaştırma, tek kullanım (`csv-import.ts:120-131`); tüm sorgular `tenantId` kapsamlı.
+- S-P19-12: recipient_hash HMAC (HKDF `notify-recipient`), aynı TX'te DB sayımlı alıcı/firma/kanal tavanları, aşımda FAILED
+  `rate_limited` + audit; bekleyen WEB talebiyle aynı numara/e-posta bastırma, yanıtta belirtilmez (`service.ts:604-613`);
+  telefon E.164'e normalize (biçim oynatmayla hash atlatma yok); son durumda `recipient_enc = NULL`; `lockSettings` ilk ifade.
+- S-P19-13: sürüm kapısı ve QUEUE_FULL eşlemesi yalnız `source==="AGENT"` (`service.ts:464,489-495`); WEB `clientVersion: null`.
+- S-P19-15: WEB ayrı firma kovası ve bekleyen alt tavanı 30 (`service.ts:545-560,596-599`).
+- CSP/PUBLIC_PATHS: `/r/` eklendi, `next=` yönlendirmesi `/r/` için boş (`apps/web/proxy.ts`). Caddy: `/r/[^/?]+` → `/r/***`
+  her iki log bloğunda; sorgu dizesi zaten loglanmıyor; uygulama logger'ı `maskUrl` ile sorguyu atıyor (`lib/logger.ts:5-6,61`).
+
+## İncelenmedi (tur sınırı; sonraki turda)
+
+- `/ws/request` WEB yolu (`requests/ws.ts`, `signaling/{admit,rooms,ws}.ts` farkları): Origin + WEB sırrı + `client_kind`, kabul
+  kodu WEB dalı (S-P19-3, S-P19-13 testleri yalnız tasarımla eşlendi, kod satır satır okunmadı).
+- `notify/whatsapp.ts` müşteri kovası (sistem 600/sa, firma 60/sa, alıcı 3/sa) ayrıntısı ve WA URL T5 kuralının kayıt ucunda uygulanışı.
+- `customers/csv-export.ts` (export yetki/limit/audit), `cli/crypto.ts` check-retire/rewrap kapsamı (S-P19-T6).
+- Migration `20261120000000_p19_web_requests` CHECK'leri, `grants.sql` ve `check-app-grants.sh` negatifleri (dba testleri
+  `p19-schema-j1.test.ts` var; SQL elle doğrulanmadı).
+- Web tarafı: `apps/web/app/r/[ref]/*` (sessionStorage, token yenileme), `session-send-link.tsx`, `import-wizard.tsx`
+  (hata raporu indirme kaçışı), CSP başlık üretimi (`frame-ancestors 'none'`, `connect-src` çıplak `wss:` yok — B1).
+- Sahte `X-Forwarded-For`: `trustProxy` yapılandırması P19'da değişmedi (önceki turlarda doğrulandı); yeni uçlar `ctx.ip`'yi aynı
+  yoldan alıyor — ayrı test yapılmadı.
+- gitleaks CI çalıştırması (yerelde yalnız `git grep` deseni çalıştırıldı).
+
+## Olumlu
+
+- Dış gönderim katmanı (`lib/outbound.ts`) bağımlılıksız, DNS rebinding'e kapalı, yanıt içeriğini hiçbir yere taşımıyor.
+- Bot kapısında doğrulama + tüketimin aynı senkron adımda yapılması paralel yeniden kullanımı kesin olarak engelliyor.
+- Bildirim tavanları bellekte değil DB'de; yeniden başlatma sayımı sıfırlamıyor. Alıcı düz SHA-256 değil anahtarlı HMAC.
+- Sırlar (SMS anahtarı, form token, ref, alıcı) log/audit/API yanıtında maskeli; hata zarfı sınıflandırılmış neden döndürüyor.
+- CSV içe aktarma yetki bileşimi ve previewId bağı tasarımdaki S-P19-14/S-P19-4 kararlarına birebir uyuyor.
+
+---
+
 # Güvenlik Raporu — P19 tasarım turu (2026-11-15)
 
 DURUM: GEÇTİ (Tur 2, 26f4bbf). Tur 1: DÜZELTİLMELİ.

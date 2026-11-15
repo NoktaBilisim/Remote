@@ -136,6 +136,19 @@ describe("P9 kullanıcı oluşturma", () => {
     ).toBe(0);
   });
 
+  it.each(["sessions.send_link", "customers.export", "customers.import"] as const)(
+    "AC-73 / K-P19-6: Admin sahip olmadığı %s yetkisini veremez (403 fields), false ile 201",
+    async (key) => {
+      const { s } = await tenantWithAdmin({ [key]: false });
+      const r = await create(s, { permissions: { [key]: true } });
+      expect(r.statusCode).toBe(403);
+      expect(r.json().error.fields).toHaveProperty([`permissions.${key}`]);
+      const ok = await create(s, { role: "ADMIN", permissions: { [key]: false } });
+      expect(ok.statusCode).toBe(201);
+      expect(ok.json<CreateUserResponse>().user.permissions[key]).toBe(false);
+    },
+  );
+
   it("users.create yetkisi yoksa 403; Super Admin firma seçmeden 403", async () => {
     const t = await createTenant();
     const u = await createUser({ tenantId: t.id, role: "USER", perms: { "users.view": true } });

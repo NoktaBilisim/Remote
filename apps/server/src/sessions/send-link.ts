@@ -3,7 +3,7 @@
 // (SHA-256(token) = token_hash) → başka adres gönderilemez. Şablon sabit (serbest metin yok).
 //  - 20/sa/kullanıcı (SMS + WA toplam): TX + `users FOR UPDATE` + son 1 sa `session.link_sent {phase:"reserved"}` sayımı;
 //    rezervasyon gönderimden ÖNCE aynı TX'te; sonuç ayrı satır `{phase:"result"}` (yeniden başlatmaya dayanıklı).
-//  - Bellek kovaları: alıcı 5/sa (taciz), tenant 200/sa (maliyet) → 429.
+//  - Bellek kovaları (kullanıcı tavanından sonra; S-P19-K3): firma × alıcı 5/sa (taciz), tenant 200/sa (maliyet) → 429.
 //  - Kanal kullanılamaz → 409 CHANNEL_UNAVAILABLE; servis hatası → 502 UPSTREAM sabit mesaj + `fields.reason` (timeout →
 //    unreachable). Numara loga yazılmaz; audit `maskPhone`.
 import {
@@ -114,14 +114,6 @@ export async function sendSessionLink(
   if (!available) throw new AppError("CHANNEL_UNAVAILABLE");
 
   const hash = recipientHash(d.secrets, input.channel, input.phone);
-  for (const [counter, key] of [
-    [d.limits.recipient, hash],
-    [d.limits.tenant, tenantId],
-  ] as const) {
-    const wait = counter.blockedFor(key);
-    if (wait > 0 || counter.hit(key)) throw new AppError("RATE_LIMITED", { retryAfterSec: wait || 3600 });
-  }
-
   const who = { tenantId, userId: auth.user.id, username: auth.user.email };
   const recipient = maskPhone(input.phone);
   const now = new Date();
@@ -136,6 +128,18 @@ export async function sendSessionLink(
       const oldest = rows[0]?.created_at.getTime() ?? now.getTime();
       throw new AppError("RATE_LIMITED", { retryAfterSec: Math.max(1, Math.ceil((oldest + HOUR_MS - now.getTime()) / 1000)) });
     }
+    // S-P19-K3: bellek kovaları kullanıcı tavanından SONRA (tavana takılan istek kova harcamaz) ve rezervasyondan önce
+    // (kova reddi TX'i geri alır → rezervasyon yazılmaz). Alıcı kovası firma kapsamlı: bir firmanın gönderimi başka firmanın
+    // aynı numaraya gönderimini kilitlemez (sms-routes.ts test ucu kalıbı).
+    const buckets = [
+      [d.limits.recipient, `${tenantId}|${hash}`],
+      [d.limits.tenant, tenantId],
+    ] as const;
+    for (const [counter, key] of buckets) {
+      const wait = counter.blockedFor(key);
+      if (wait > 0) throw new AppError("RATE_LIMITED", { retryAfterSec: wait });
+    }
+    for (const [counter, key] of buckets) if (counter.hit(key)) throw new AppError("RATE_LIMITED", { retryAfterSec: 3600 });
     await writeAudit(tx, ctx, {
       ...who,
       action: NOTIFY_AUDIT.LINK_SENT,

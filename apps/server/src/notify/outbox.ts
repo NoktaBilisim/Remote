@@ -146,7 +146,12 @@ export class NotifyOutbox {
     }
   }
 
-  /** S-P19-12: firma içi alıcı 3/24 sa, sistem geneli alıcı 5/24 sa, firma × kanal saatlik tavan. */
+  /**
+   * S-P19-12: firma içi alıcı 3/24 sa, sistem geneli alıcı 5/24 sa, firma × kanal saatlik tavan. Firma içi sayımlar
+   * `lockSettings` ile kesin; sistem geneli sayım firmalar arası kilitsiz anlık görüntü → YAKLAŞIK tavan (S-P19-K2; N firmada
+   * eşzamanlı geçişte en çok 4 + N). Alıcı kilidi bilinçli eklenmedi: RR anlık görüntüsü kilitten önce kurulduğu için kesinlik
+   * kilitleyici okuma (gap kilidi → firmalar arası 1213) ya da TX içinde ikinci havuz bağlantısı gerektirir (runbook §26.5 m.6).
+   */
   private async overLimit(
     tx: Prisma.TransactionClient,
     tenantId: string,

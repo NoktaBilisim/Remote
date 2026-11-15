@@ -2,9 +2,11 @@
 // Sahte smsportal ve WhatsApp servisleri yerel (127.0.0.1); gerçek servise istek gitmez. Saat sahte (outbox gecikmeleri).
 import type { FastifyInstance } from "fastify";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { NOTIFY_LIMITS } from "@remote/contracts/api/notify";
+import { randomBytes } from "node:crypto";
+import { NOTIFY_LIMITS, WA_CUSTOMER_LIMITS } from "@remote/contracts/api/notify";
 import { writeAudit } from "../../src/audit/service.ts";
 import { countAllByVersion } from "../../src/cli/crypto.ts";
+import { newId } from "../../src/lib/ids.ts";
 import { recipientHash } from "../../src/notify/outbox.ts";
 import { sweepRequests } from "../../src/requests/jobs.ts";
 import {
@@ -33,11 +35,17 @@ const build = (env: Record<string, string> = {}): FastifyInstance =>
     signaling: { clock },
   });
 
+/** Dosya çok firma açar: giriş IP kovası (20/dk, 127.0.0.1) her girişten önce sıfırlanır (test altyapısı; davranış testi değil). */
+function login(user: TestUser): Promise<Session> {
+  app.authLimits.ip.reset("127.0.0.1");
+  return loginAs(app, user);
+}
+
 async function firm(): Promise<{ tenantId: string; admin: TestUser; s: Session }> {
   const t = await createTenant();
   await createRequestSettings(t.id);
   const admin = await createUser({ tenantId: t.id, role: "ADMIN" });
-  return { tenantId: t.id, admin, s: await loginAs(app, admin) };
+  return { tenantId: t.id, admin, s: await login(admin) };
 }
 
 async function setKey(s: Session, body: Record<string, unknown> = { url: null, header: "NOKTA", apiKey: API_KEY }) {
@@ -185,6 +193,53 @@ describe("AC-260 bağlantı gönderimi (SMS / WhatsApp)", () => {
       codes.push(r.statusCode);
     }
     expect(codes).toEqual([200, 200, 200, 200, 200, 429]);
+  });
+
+  it("S-P19-K3: alıcı kovası firma kapsamlı (A'da 6. → 429, B'de aynı numara 200); kullanıcı tavanına takılan istek alıcı kovasını harcamaz", async () => {
+    const send = async (s: Session, tenantId: string, techId: string, phone: string) => {
+      const sess = await createSupportSessionRow({ tenantId, technicianId: techId });
+      const r = await app.inject({
+        method: "POST",
+        url: `/api/v1/sessions/${sess.id}/send-link`,
+        headers: s.headers,
+        payload: { channel: "SMS", phone, link: `${ORIGIN}/session/${sess.token}` },
+      });
+      return r.statusCode;
+    };
+    const a = await firm();
+    const b = await firm();
+    expect((await setKey(a.s)).statusCode).toBe(200);
+    expect((await setKey(b.s)).statusCode).toBe(200);
+    const phone = "05330000031";
+    const codesA: number[] = [];
+    for (let i = 0; i < 6; i++) codesA.push(await send(a.s, a.tenantId, a.admin.id, phone));
+    expect(codesA).toEqual([200, 200, 200, 200, 200, 429]);
+    expect(await send(b.s, b.tenantId, b.admin.id, phone)).toBe(200);
+
+    // B firmasında kullanıcı tavanı dolu teknisyen aynı numaraya 6 kez dener → hepsi 429 (kullanıcı tavanı); alıcı kovası
+    // harcanmadığından aynı firmadaki başka teknisyen o numaraya hâlâ 4 kez daha gönderebilir (B'de 1 harcandı).
+    const capped = await createUser({ tenantId: b.tenantId, role: "ADMIN" });
+    const cs = await login(capped);
+    for (let i = 0; i < 20; i++)
+      await writeAudit(
+        testDb(),
+        { ip: "", userAgent: "test", requestId: "" },
+        {
+          tenantId: b.tenantId,
+          userId: capped.id,
+          username: capped.email,
+          action: "session.link_sent",
+          entity: "support_sessions",
+          result: "success",
+          newValue: { phase: "reserved", channel: "SMS", recipient: "+90*****0000" },
+        },
+      );
+    const capCodes: number[] = [];
+    for (let i = 0; i < 6; i++) capCodes.push(await send(cs, b.tenantId, capped.id, phone));
+    expect(capCodes).toEqual([429, 429, 429, 429, 429, 429]);
+    const codesB: number[] = [];
+    for (let i = 0; i < 5; i++) codesB.push(await send(b.s, b.tenantId, b.admin.id, phone));
+    expect(codesB).toEqual([200, 200, 200, 200, 429]);
   });
 
   it("AC-260: send_link yetkisi olmayan USER → 403", async () => {
@@ -415,6 +470,106 @@ describe("AC-261 durum bildirimi kuyruğu", () => {
     expect(app.metrics.render()).toMatch(/rs_notify_rate_limited_total\{scope="recipient_tenant",channel="SMS"\} \d+/);
     // S-P19-T11: e-posta `+` eki aynı alıcı sayılır (hash normalize).
     expect(recipientHash(app.secrets, "EMAIL", "ad+1@example.test")).toBe(recipientHash(app.secrets, "EMAIL", "AD@example.test"));
+  });
+
+  it("AC-261: kabul → aynı TX'te REQ_ACCEPTED PENDING; tick → 'kabul edildi' SMS, SENT, alıcı NULL, audit başarı; firma kanalı kapalıysa satır yok", async () => {
+    const f = await notifyFirm({ sms: true });
+    const id = await f.req({ sms: true }, "+905321239901");
+    const smsBefore = sms.hits.length;
+    const acc = await app.inject({ method: "POST", url: `/api/v1/support-requests/${id}/accept`, headers: f.s.headers, payload: {} });
+    expect(acc.statusCode, acc.body).toBe(200);
+    expect((await rows(id)).map((r) => [r.kind, r.channel, r.state])).toEqual([["REQ_ACCEPTED", "SMS", "PENDING"]]);
+    await app.outbox.tick();
+    expect((await rows(id))[0]).toMatchObject({ kind: "REQ_ACCEPTED", state: "SENT", recipientEnc: null });
+    expect(sms.hits.slice(smsBefore).some((h) => String(h.body.message).includes("kabul edildi"))).toBe(true);
+    const a = await testDb().auditLog.findFirstOrThrow({
+      where: { tenantId: f.tenantId, action: "request.customer_notify", entityId: id },
+    });
+    expect(a.result).toBe("success");
+    expect(a.newValue).toMatchObject({ kind: "REQ_ACCEPTED", channel: "SMS", result: "success", recipient: "+90******9901" });
+
+    // Olumsuz yol: talep bayrağı açık, firma SMS kanalı kapalı → satır yazılmaz.
+    const g = await notifyFirm({ sms: true });
+    await testDb().tenantRequestSettings.update({ where: { tenantId: g.tenantId }, data: { notifySmsEnabled: false } });
+    const id2 = await g.req({ sms: true }, "+905321239902");
+    const acc2 = await app.inject({ method: "POST", url: `/api/v1/support-requests/${id2}/accept`, headers: g.s.headers, payload: {} });
+    expect(acc2.statusCode, acc2.body).toBe(200);
+    expect(await rows(id2)).toHaveLength(0);
+  });
+
+  it("S-P19-12: iki firmada aynı numara — toplam 5 bildirimden sonra 6. FAILED recipient_global (firma içi 3 aşılmadan)", async () => {
+    const a = await notifyFirm({ sms: true });
+    const b = await notifyFirm({ sms: true });
+    const phone = "+905327770002";
+    for (let i = 0; i < 3; i++) expect((await reject(a.s, await a.req({ sms: true }, phone))).statusCode).toBe(204);
+    for (let i = 0; i < 2; i++) expect((await reject(b.s, await b.req({ sms: true }, phone))).statusCode).toBe(204);
+    const id = await b.req({ sms: true }, phone);
+    expect((await reject(b.s, id)).statusCode).toBe(204);
+    expect((await rows(id))[0]).toMatchObject({ state: "FAILED", lastReason: "rate_limited", recipientEnc: null });
+    const au = await testDb().auditLog.findFirstOrThrow({
+      where: { tenantId: b.tenantId, action: "request.customer_notify", entityId: id },
+    });
+    expect(au.newValue).toMatchObject({ reason: "rate_limited", scope: "recipient_global" });
+    expect(app.metrics.render()).toMatch(/rs_notify_rate_limited_total\{scope="recipient_global",channel="SMS"\} \d+/);
+  });
+
+  it("S-P19-12: firma × kanal SMS — son 1 sa'te 100 satır (DB tohumu) sonrası 101. FAILED tenant_channel; başka firma etkilenmez", async () => {
+    const f = await notifyFirm({ sms: true });
+    const at = new Date(clock.now() - 60_000);
+    const data = [];
+    for (let i = 0; i < 34; i++) {
+      const rid = await f.req({});
+      for (const kind of ["REQ_ACCEPTED", "REQ_REJECTED", "REQ_EXPIRED"] as const)
+        data.push({
+          id: newId(),
+          tenantId: f.tenantId,
+          requestId: rid,
+          kind,
+          channel: "SMS",
+          state: "SENT",
+          recipientMask: "+90******0000",
+          recipientHash: randomBytes(32).toString("hex"),
+          recipientEnc: null,
+          sentAt: at,
+          createdAt: at,
+          nextAt: at,
+        });
+    }
+    await testDb().notificationOutbox.createMany({ data: data.slice(0, NOTIFY_LIMITS.tenantPerHour.SMS) });
+    const id = await f.req({ sms: true }, "+905327770003");
+    expect((await reject(f.s, id)).statusCode).toBe(204);
+    expect((await rows(id))[0]).toMatchObject({ state: "FAILED", lastReason: "rate_limited" });
+    const au = await testDb().auditLog.findFirstOrThrow({
+      where: { tenantId: f.tenantId, action: "request.customer_notify", entityId: id },
+    });
+    expect(au.newValue).toMatchObject({ reason: "rate_limited", scope: "tenant_channel" });
+    expect(app.metrics.render()).toMatch(/rs_notify_rate_limited_total\{scope="tenant_channel",channel="SMS"\} \d+/);
+    const o = await notifyFirm({ sms: true });
+    const id2 = await o.req({ sms: true }, "+905327770003");
+    expect((await reject(o.s, id2)).statusCode).toBe(204);
+    expect((await rows(id2))[0]).toMatchObject({ state: "PENDING" });
+  });
+
+  it("S-P19-12: WA müşteri kovası — firmada 60 gönderim sonrası 61. FAILED wa_bucket (gönderilmez); başka firma SENT", async () => {
+    const f = await notifyFirm({ whatsapp: true });
+    for (let i = 0; i < WA_CUSTOMER_LIMITS.tenantPerHour; i++)
+      expect(await app.whatsapp.sendCustomer(f.tenantId, randomBytes(32).toString("hex"), "+905320000000", "x")).toBe("ok");
+    const id = await f.req({ whatsapp: true }, "+905327770004");
+    expect((await reject(f.s, id)).statusCode).toBe(204);
+    const waBefore = wa.hits.length;
+    await app.outbox.tick();
+    expect((await rows(id))[0]).toMatchObject({ channel: "WHATSAPP", state: "FAILED", lastReason: "rate_limited", recipientEnc: null });
+    expect(wa.hits.length).toBe(waBefore);
+    const au = await testDb().auditLog.findFirstOrThrow({
+      where: { tenantId: f.tenantId, action: "request.customer_notify", entityId: id, result: "fail" },
+    });
+    expect(au.newValue).toMatchObject({ reason: "rate_limited", scope: "wa_bucket" });
+    expect(app.metrics.render()).toMatch(/rs_notify_rate_limited_total\{scope="wa_bucket",channel="WHATSAPP"\} \d+/);
+    const o = await notifyFirm({ whatsapp: true });
+    const id2 = await o.req({ whatsapp: true }, "+905327770005");
+    expect((await reject(o.s, id2)).statusCode).toBe(204);
+    await app.outbox.tick();
+    expect((await rows(id2))[0]).toMatchObject({ state: "SENT" });
   });
 
   it("S-P19-10: 7 gün temizliği SENT/FAILED satırını siler; göstergeler boş kuyrukta da yazılır", async () => {

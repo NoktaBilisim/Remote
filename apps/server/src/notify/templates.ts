@@ -9,14 +9,24 @@ const TECH_MAX = 20;
 // Cc + Cf (bidi U+202A–202E, U+2066–2069, sıfır genişlik U+200B–200F dahil) + satır/paragraf ayırıcı.
 const INVISIBLE = /[\p{Cc}\p{Cf}\p{Zl}\p{Zp}\u200B-\u200F\u202A-\u202E\u2066-\u2069]/gu;
 
-/** S-P19-T8: NFKC → görünmez/bidi atılır → şema ve `://` → `www.` → TLD benzeri nokta boşluğa → boşluk tekleşir. */
+// S-P19-K4: NFKC sonrası noktaya dönmeyen nokta varyantları (IDNA ayırıcıları): U+3002 。 (U+FF61 ｡ ve U+FE12 ︒ NFKC ile buna
+// döner), U+FE52 ﹒ ve U+2024 ․ (NFKC '.' verir; savunma derinliği). Hepsi '.' sayılır → aşağıdaki kurallar uygulanır.
+const DOT_VARIANTS = /[\u3002\uFF61\uFE12\uFE52\u2024\uFF0E]/g;
+const IPV4_LIKE = /\d{1,3}(?:\.\d{1,3}){3}/g;
+
+/**
+ * S-P19-T8/K4: NFKC → görünmez/bidi atılır → nokta varyantları '.' → şema ve `://` → `www.` → IPv4 biçimi ve TLD benzeri
+ * nokta boşluğa → boşluk tekleşir.
+ */
 export function sanitizeTemplateName(raw: string): string {
   return raw
     .normalize("NFKC")
     .replace(INVISIBLE, "")
+    .replace(DOT_VARIANTS, ".")
     .replace(/[a-z][a-z0-9+.-]*:\/\//gi, "")
     .replace(/:\/\//g, "")
     .replace(/www\./gi, "")
+    .replace(IPV4_LIKE, (m) => m.replace(/\./g, " "))
     .replace(/\.(?=[a-z]{2,}\b)/gi, " ")
     .replace(/\s+/g, " ")
     .trim();

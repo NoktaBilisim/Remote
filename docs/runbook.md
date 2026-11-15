@@ -3102,7 +3102,7 @@ Tatiller → Resmî tatilleri ekle (yıl)" ile ertesi yılın listesinin yüklen
 
 ## 26. P19 — web talep formu, SMS, müşteri bildirimi kuyruğu (devops J6, 2026-11-15; mimari-e11 §8c, S-P19-10/12/T6/T9, R31)
 
-Kapsam: migration `20261120000000_p19_web_requests` (tetikleyici **23 aynı**, grants **626/626**), yeni env `SMSPORTAL_URL`
+Kapsam: migration `20261120000000_p19_web_requests` + `20261120010000_p19_request_session_mode` (tetikleyici **23 aynı**, grants **627/627**), yeni env `SMSPORTAL_URL`
 (§3; yalnız `server`), Caddy log süzgecine `/r/<ref>` → `/r/***` (iki log bloğu; G-10), yeni `remote-watch` kontrolleri,
 smsportal arıza yolu, SMS anahtarı ve `SMSPORTAL_URL` değişimi, form spam'i. `backup.env`/`deploy/backup/*` değişmez.
 SQL komutları §25.2 adım 2'deki biçimle (`docker compose exec -T mysql sh -c 'MYSQL_PWD="$MYSQL_MIGRATOR_PASSWORD" mysql
@@ -3242,6 +3242,14 @@ action='request.customer_notify' AND JSON_UNQUOTE(JSON_EXTRACT(new_value,'$.reas
 5. Tek kaynak IP'den yoğun istek varsa: `docker compose logs caddy --since 1h | grep '"/r/\*\*\*' | grep -o '"client_ip":"[^"]*"' | sort | uniq -c | sort -rn | head`
    → host güvenlik duvarında geçici engel (§13.4 kalıbı). Tavanlar zaten FAILED `rate_limited` üretir (kontör/numara korunur);
    alarm, firma payını meşru müşterilere kapatmamak için erken müdahale içindir.
+6. **Sistem geneli alıcı tavanı (5/24 sa) yaklaşıktır (S-P19-K2, kabul edilen risk).** Firma içi alıcı (3/24 sa) ve firma × kanal
+   tavanları firma ayar satırı kilidiyle kesindir; sistem geneli sayım farklı firmaların TX'leri arasında kilitsizdir. N firmada
+   **aynı anda** sona eren/kabul edilen talepler aynı numaraya en çok `4 + N` bildirim üretebilir (her firmada yine en çok 3/24 sa).
+   Belirti: aynı `recipient_hash` için 24 saatte 5'ten fazla `SENT`/`PENDING` satır —
+   `SELECT recipient_hash, channel, COUNT(*) FROM notification_outbox WHERE created_at > NOW() - INTERVAL 1 DAY AND
+(last_reason IS NULL OR last_reason <> 'rate_limited') GROUP BY 1,2 HAVING COUNT(*) > 5`. Eylem: hash'in geldiği firmalar
+   (`tenant_id`) adım 1–3 ile ele alınır (çok firmada eşzamanlı WEB talebi = form istismarı). Kesin kilit (alıcı başına `GET_LOCK` /
+   kilit tablosu) bilinçli olarak eklenmedi; gerekçe `docs/implementation.md` "P19 güvenlik düzeltme turu 1".
 
 ### 26.6 smsportal tek nokta arıza yolu (R31)
 

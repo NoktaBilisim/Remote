@@ -8038,3 +8038,73 @@ Ayarlar sekmelerine "SMS" (`MessageSquareText`) eklendi (SMTP'nin yanında).
   (kanal seçimi, TR dışı SMS reddi, E.164 önizleme, 502 kanal mesajı, 409 kanal yok, 429 geri sayımı ve süre sonunda yeniden
   etkin, WhatsApp başarı); yetkisizde düğme yok; WA "yeniden kaydedin" bandı; iki tema axe 0 + 390 px (SMS ayarı, send-link).
 - **Tüm web e2e takımı (desktop + mobile): 417 geçti, 0 hata** (197 atlanan = proje bazlı `desktopOnly` / rtc / perf).
+
+## P19 güvenlik düzeltme turu 1 (backend) — 2026-11-15
+
+Kaynak: `docs/guvenlik-raporu.md` "P19 kod turu 1" S-P19-K1..K4 + aynı turda `docs/qa-raporu.md` (P19 J7 tur 1) Düzeltilmeli 1–3
+(test maddeleri). Yeni bağımlılık yok, yeni env yok, şema/migration değişmedi, contracts değişmedi.
+
+### Değişen dosyalar
+
+- `apps/server/src/requests/form-token.ts` — token biçimi `v2`: `"v2" ‖ issuedAt ‖ part (8 B) ‖ nonce ‖ HMAC(…|part|nonce)`.
+  `part` = firma kimliğinden HMAC türevi (kimlik açık taşınmaz; HMAC kapsamında → istemci başka firmanın bölmesine yazamaz).
+  `FormNonceStore` firma bölmeli: firma başı `FORM_NONCE_TENANT_MAX = 10 000`, toplam `FORM_NONCE_MAX = 100 000` (bellek tavanı
+  değişmedi). Bölme dolarsa yalnız o firma `full`; boşalan bölme silinir. `issue(ref, tenantId)`.
+- `apps/server/src/requests/limits.ts` — `webFormPrefix` (IPv6 /56, 120/dk) ve `webFormNet48` (IPv6 /48, 240/dk); aşımda 15 dk.
+- `apps/server/src/requests/service.ts` — `webFormInfo`: `info` (/64 · IPv4 /32) sonrası IPv6'da /56 ve /48 kovaları
+  (audit `request.rate_limited{bucket:"req.web_form.prefix"|"req.web_form.net48"}`). `createWeb`: tüketimden önce senkron, sayımsız
+  `createIp` kilit ön kontrolü (aşağıda karar).
+- `apps/server/src/sessions/send-link.ts` — alıcı kovası anahtarı `${tenantId}|${hash}`; bellek kovaları kullanıcı 20/sa TX
+  denetiminden SONRA, rezervasyon audit'inden ÖNCE ve aynı TX içinde (kova reddi TX'i geri alır). Önce iki kovanın kilidi
+  sayımsız bakılır, sonra ikisi sayılır (tenant kilitliyken alıcı kovası harcanmaz).
+- `apps/server/src/notify/templates.ts` — `sanitizeTemplateName`: NFKC sonrası U+3002, U+FF61, U+FE12, U+FE52, U+2024, U+FF0E → `.`;
+  IPv4 benzeri `\d{1,3}(\.\d{1,3}){3}` noktaları boşluğa.
+- `apps/server/src/notify/outbox.ts` — yalnız yorum (K2 kararı). `docs/runbook.md` §26.5 m.6 (K2 belirti sorgusu + eylem).
+- Testler: `test/unit/p19-form-token.test.ts` (+2), `test/unit/p19-notify-j3.test.ts` (+1), `test/integration/p19-web-j2.test.ts`
+  (+4, `backdatedTokens` yeni `issue` imzası), `test/integration/p19-notify-j3.test.ts` (+5; giriş IP kovası dosya içi `login()`
+  ile sıfırlanır — dosya 20/dk'dan fazla giriş yapıyor), `test/integration/users-p9.test.ts` (+3, `it.each`).
+
+### Kararlar / tasarımdan sapmalar
+
+1. **K1 — tüketim sırası (T4 korunarak).** Tüketimi ip/önek/net48 kovalarının ARKASINA almak T4'ü bozardı (createCore'da kovalar
+   `resolveRef`/güvenilen CIDR/kapı await'lerinden sonra). Bunun yerine tüketimden hemen önce, aynı senkron adımda `createIp`
+   kilidine **sayımsız** bakılır: ipKey kilitliyse 429 ve token TÜKETİLMEZ (aynı token kilit kalkınca ya da başka adresten bir kez
+   geçer — tek kullanım bozulmaz). Önek/net48 burada bakılmaz: güvenilen CIDR muafiyeti DB gerektirir; muaf ofis adresi paylaşılan
+   /24'teki yabancı yüzünden reddedilmesin. Kalan şişirme: ipKey başına kilide kadar ≤ 6 tüketim/sa + token ucunda /56·/48
+   kovaları + firma bölmesi. Toplam 100 000'i doldurmak artık ≥ 10 firmanın bölmesini aynı anda doldurmayı gerektirir.
+2. **K1 — IPv4'te /24 kovası yok** (raporda "uygun genişlik"): IPv4 adres döndürme pahalı; /24 kovası CGNAT/kurum NAT'ında meşru
+   ziyaretçiyi keser (mevcut testte de 10.19.x /24'ten > 120/dk form açılışı vardı). IPv4'te mevcut `info` /32 60/dk geçerli.
+3. **K1 — token biçimi `v1` → `v2`** (`part` eklendi; 66 B → 88 karakter, şema `{16,200}` içinde). Eski token'lar zaten yeni
+   süreçte bootId nedeniyle geçersiz; istemci token'ı opak taşır → frontend değişikliği yok.
+4. **K2 — "yaklaşık tavan" kabulü (kilit eklenmedi).** InnoDB RR'de TX'in anlık görüntüsü `lockSettings` sonrası ilk tutarlı
+   okumada kurulur; alıcı kilidi (`GET_LOCK`) sonradan alınsa da sayım eski görüntüyü okur. Kesinlik için ya kilitleyici okuma
+   (`COUNT … FOR SHARE`: farklı alıcıların gap kilitleri + insert intention → firmalar arası 1213 deadlock — doğrulanmış desen) ya
+   da TX içinde ikinci havuz bağlantısıyla taze okuma (havuz açlığı riski; ayrıca `RELEASE_LOCK` commit'ten önce yapılmak zorunda,
+   pencere kalır) gerekir; `GET_LOCK` oturum düzeyinde olduğundan commit sonrası serbest bırakmak havuzlu bağlantıda mümkün değil.
+   Kilit tablosu dba/migration gerektirir ve ODKU next-key kilidiyle aynı deadlock sınıfına girer. Etki: N firmada eşzamanlı
+   geçişte en çok `4 + N` bildirim (firma içi 3/24 sa ve firma × kanal tavanı kesin kalır). Runbook §26.5 m.6 + `outbox.ts` yorumu.
+5. **K3** — sistem geneli ek taciz kovası (rapordaki "isteğe bağlı 15/sa") eklenmedi; kapsam dışı.
+
+### Test komutları ve son çıktı
+
+- `pnpm --filter @remote/server lint` / `typecheck`: temiz.
+- `vitest run test/unit` (server): 29 dosya, **433/433**.
+- Geçici MySQL (`TEST_DB_CONTAINER=rs-bk-p19sec-72028`, port 34393, `--max-connections=300`, benzersiz env dosyası) + `pnpm run
+test:int`: **77 dosya, 789/789** (önceki 777 + 12 yeni), 54 sn. Konteyner `down` ile silindi; paylaşılan Docker'da prune/restart yok.
+- `pnpm format:check`: değiştirdiğim dosyalar temiz. Çıkış 1 yalnız `docs/guvenlik-raporu.md` ve `docs/qa-raporu.md` yüzünden
+  (denetçilerin çalışma ağacındaki dosyaları; bu tura dahil değil, dokunulmadı).
+
+### QA Düzeltilmeli 1–3 (test maddeleri)
+
+- **1 (AC-261 kabul):** "AC-261: kabul → aynı TX'te REQ_ACCEPTED PENDING; tick → 'kabul edildi' SMS, SENT, alıcı NULL, audit
+  başarı; firma kanalı kapalıysa satır yok".
+- **2 (S-P19-12 dalları):** `recipient_global` (A'da 3 + B'de 2 → B'nin 3.'sü), `tenant_channel` (son 1 sa'te 100 SMS satırı DB
+  tohumu → 101.; başka firma PENDING), `wa_bucket` (firma 60 `sendCustomer` → 61. outbox FAILED, WA servisine istek yok; başka
+  firma SENT). Her vakada audit `scope` + `rs_notify_rate_limited_total{scope,channel}`.
+- **3 (K-P19-6):** `users-p9` "AC-73 / K-P19-6" `it.each` — `sessions.send_link`, `customers.export`, `customers.import`: 403 +
+  `fields["permissions.<anahtar>"]`; `false` ile 201.
+
+### frontend-dev için
+
+Sözleşme değişikliği yok. `formToken` opak; yalnız uzunluğu 78 → 88 karakter (şema sınırı 200). IPv6 /56·/48 aşımında
+`GET /public/web-requests/form` 429 `RATE_LIMITED` + `Retry-After` (mevcut 429 yolu).

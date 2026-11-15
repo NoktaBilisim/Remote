@@ -19,6 +19,19 @@ describe("S-P19-T8 / S-P19-11 şablonlar", () => {
     expect([...firmName("A".repeat(50))]).toHaveLength(30);
   });
 
+  it("S-P19-K4: ideografik/yarım genişlik/küçük nokta varyantları noktaya eşlenir ve bozulur; IPv4 biçimi bozulur", () => {
+    expect(sanitizeTemplateName("Banka\u3002com destek")).toBe("Banka com destek");
+    expect(sanitizeTemplateName("Banka\uFF61com destek")).toBe("Banka com destek");
+    expect(sanitizeTemplateName("Banka\uFE12com")).toBe("Banka com");
+    expect(sanitizeTemplateName("Banka\uFE52com")).toBe("Banka com");
+    expect(sanitizeTemplateName("Banka\u2024com")).toBe("Banka com");
+    expect(sanitizeTemplateName("evil\u3002example\u3002tld")).toBe("evil example tld");
+    expect(sanitizeTemplateName("Destek 192.168.1.10 ara")).toBe("Destek 192 168 1 10 ara");
+    expect(sanitizeTemplateName("Destek \uFF11\uFF10\uFF0E\uFF10\uFF0E\uFF10\uFF0E\uFF11")).toBe("Destek 10 0 0 1");
+    expect(sanitizeTemplateName("http://1.2.3.4/x")).toBe("1 2 3 4/x");
+    expect(sanitizeTemplateName("Nokta A.Ş. 2.0")).toBe("Nokta A.Ş. 2.0"); // sürüm/kısaltma bozulmaz
+  });
+
   it("S-P19-T8: teknisyen 'Ad S.' biçimi", () => {
     expect(techShortName("Mehmet Ali Yılmaz")).toBe("Mehmet Y.");
     expect(techShortName("Ayşe")).toBe("Ayşe");

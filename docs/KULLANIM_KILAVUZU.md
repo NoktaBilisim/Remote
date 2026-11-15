@@ -3,19 +3,22 @@
 Bu kılavuz Nokta Bilişim uzaktan destek platformunun kullanıcıya dönük ekranlarını anlatır. Platform paketler hâlinde
 geliştirilir (bkz. `README.md` "Yol haritası"); kılavuz da her paketle birlikte büyür. Bu sürümde yer alan bölümler:
 
-- **Müşteri için:** Hızlı Destek uygulaması (Windows), yalnız bir pencereyi paylaşma (0.11), "Destek iste" ile talep gönderme, bilgisayarın hatırlanması
+- **Müşteri için:** Hızlı Destek uygulaması (Windows), yalnız bir pencereyi paylaşma (0.11), "Destek iste" ile talep gönderme,
+  program indirmeden tarayıcıdan talep gönderme (web talep formu, durum bildirimi, "sohbete şifre yazmayın"), bilgisayarın hatırlanması
   ("Bağlantı kodum var", "Bu bilgisayarı unut"), uzaktan kontrol izni, ekran görüntüsü alınamazsa ne yapılır,
   bilgisayarda ne kalır (iz ve gizlilik)
 - **Teknisyen için:** Oturumlar ve bekleme odası ("Müşteri bekliyor" rozeti, menü sayacı, bildirim), Uzaktan kontrol
   (konsol; "Pencere paylaşımı" rozeti dahil), Oturum geçmişi (dosyalarda "Doğrulanmış / Müşteri bildirimi", talepte SLA satırı), Destek talepleri ("Bu kaynağı engelle"; öncelik, atama,
   SLA rozetleri, kabul öncesi mesajlaşma),
-  Engellenenler, müşterinin ekranı gelmiyorsa (paylaşım hata nedeni)
-- **Admin ve teknisyen için:** Müşteriler (müşteri firmalar, bağlantı gönderme, kayıtlı bilgisayarlar)
+  Engellenenler, web formundan gelen talepler ("Web" rozeti), oturum bağlantısını SMS veya WhatsApp ile gönderme, müşterinin
+  ekranı gelmiyorsa (paylaşım hata nedeni)
+- **Admin ve teknisyen için:** Müşteriler (müşteri firmalar, bağlantı gönderme, web talep formu bağlantısı, kayıtlı
+  bilgisayarlar, CSV dışa/içe aktarma)
 - **Herkes için (teknisyen, Admin, Super Admin):** Giriş ve hesap güvenliği — iki adımlı doğrulama (2FA), kurtarma
   kodları ve kurtarma kodlarını yenileme, şifremi unuttum, Hesabım sayfası, tüm cihazlardan çıkış, kritik ayarlarda kimliğinizi yeniden doğrulama;
   hesap menüsü, profil resmi ve tema; giriş ekranında firma logosu
 - **Admin için:** Kullanıcılar ve yetkiler (2FA sıfırlama ve kullanıcıyı kalıcı silme dahil), Uzaktan kontrol yetkisi ve kayıtlar, Oturum geçmişi
-  yetkileri, Ayarlar > Genel (oturum ve dosya sınırları), Ayarlar > Destek talepleri (e-posta bildirimi, kabul kodu, öncelik ve SLA dahil), Ayarlar > Mesai saatleri ve Tatiller, Ayarlar > E-posta (SMTP), Audit log, Ayarlar >
+  yetkileri, Ayarlar > Genel (oturum ve dosya sınırları), Ayarlar > Destek talepleri (web talep formu, form spam'i altında ne yapılır, müşteriye durum bildirimi, e-posta bildirimi, kabul kodu, öncelik ve SLA dahil), Ayarlar > Mesai saatleri ve Tatiller, Ayarlar > E-posta (SMTP), Ayarlar > SMS, Audit log, Ayarlar >
   Aydınlatma metni, Ayarlar > Güvenlik, Ayarlar > Logo, kullanıcının profil resmi, kişisel verilerin saklama süresi ve
   anonimleştirme, kurumsal bilgisayarlarda Hızlı Destek'e izin verme (AppLocker / antivirüs), ağ gereksinimleri
   (güvenlik duvarı izin listesi)
@@ -657,6 +660,63 @@ sorar ve olağan akışla devam eder (bkz. "KVKK onayı ve bağlanma").
 | Bağlantı süresi doldu                                          | Bağlantı isteğine 1 dakika içinde yanıt verilmedi. Gerekirse yeniden talep oluşturun.                                                                                                                                    |
 | Bağlantı kurulamadı                                            | Teknisyen kabul etti ama bağlantı kurulamadı. Yeniden talep oluşturun veya firmanızı arayın.                                                                                                                             |
 | Talep başka bir pencerede açıldı                               | Aynı talep başka bir pencerede izleniyor; bu pencereyi kapatabilirsiniz.                                                                                                                                                 |
+
+### Program indirmeden tarayıcıdan destek isteyebilir miyim? (web talep formu)
+
+Evet, firmanız **web talep formunu** açtıysa. Firmanız size `https://<destek adresi>/r/…` biçiminde bir **form bağlantısı**
+verir (e-posta imzası, web sitesi, sözleşme vb.). Bağlantıyı tarayıcıda açmanız yeterlidir; program indirmeniz gerekmez.
+
+**Nasıl talep gönderirim?**
+
+1. Form bağlantısını açın. Sayfanın üstünde firmanızın adı ve logosu görünür. Tanımadığınız bir ad görürseniz sayfayı
+   kapatın.
+2. Formu doldurun:
+   - **Adınız soyadınız** (en az 2 karakter), **Telefon**, **E-posta** (isteğe bağlı), **Sorununuzu kısaca anlatın**
+     (en az 10, en çok 500 karakter).
+   - **Talebimin durumunu bana bildir** (isteğe bağlı): **SMS ile**, **WhatsApp ile**, **E-posta ile**. Kutucuklar
+     işaretsiz gelir. Yalnız firmanızın açtığı kanallar görünür. E-posta ile bildirim seçerseniz e-posta adresi zorunlu
+     olur. Bkz. "Durum bildirimi ne gönderir?".
+3. Aydınlatma metnini okuyun ve "Aydınlatma metnini okudum; bilgilerimin destek talebi için işlenmesini kabul ediyorum."
+   kutusunu işaretleyin. Düğmenin hemen üstünde "Sohbet mesajları kayıt altına alınır ve N gün saklanır." satırı yazar.
+4. **Talep gönder**'e basın. Sayfa açıldıktan sonra düğme birkaç saniye "Talep gönder (N sn)" yazar ve pasiftir; bu,
+   otomatik gönderimlere karşı bir önlemdir. Süre bitince düğme açılır.
+5. **Talebiniz alındı** görünümü açılır: **Talep kodu**, **Sıranız** ve **Kalan süre**. Teknisyen sizi arayıp talep
+   kodunu sorabilir; kodu yalnız sizi arayan teknisyene söyleyin.
+6. Beklerken **Teknisyenle yazışma** bölümünden teknisyene yazabilir, onun mesajlarını okuyabilirsiniz.
+   **Sohbete şifre veya kart bilgisi yazmayın.** Mesajlar kayıt altına alınır.
+7. Teknisyen talebi kabul edince "Teknisyen <ad> bağlanmak istiyor" yazar ve bir **doğrulama kodu** görünür. Telefondaki
+   teknisyen aynı kodu söylemeli. Firmanız kabul kodu kullanıyorsa ekranda ayrıca "Teknisyene söyleyeceğiniz kabul kodu"
+   çıkar; bu kodu teknisyene okuyun.
+8. Her şey doğruysa **Ekranımı paylaş**'a basın; tarayıcı hangi ekranı paylaşacağınızı sorar. Emin değilseniz
+   **Vazgeç**'e basın.
+
+**Bilmeniz gerekenler**
+
+- Tarayıcıdan yapılan paylaşımda teknisyen ekranınızı **yalnız görür**; farenizi ve klavyenizi kullanamaz. Uzaktan kontrol
+  gerekiyorsa aynı sayfadaki "Uzaktan kontrol gerekiyorsa Windows programını indirin" bağlantısını kullanın.
+- Sayfayı yenilerseniz (F5) bekleme ekranına geri dönersiniz. **Sekmeyi ya da tarayıcıyı kapatırsanız** talebiniz kısa
+  süre sonra iptal olur; yeniden talep oluşturmanız gerekir.
+- **Talebi iptal et** ile talebinizi geri çekebilirsiniz.
+- Bağlantı koparsa "Bağlantı koptu, yeniden bağlanılıyor…" yazar; sayfa kendiliğinden yeniden bağlanır.
+
+**Durum bildirimi ne gönderir?**
+
+Kutucuğu işaretlediyseniz yalnız **bu talebin** durumu bildirilir: kabul edildi, karşılanamadı (ret) ya da bekleme süresi
+doldu. Mesajda firma adı ve talep kodu bulunur; reklam gönderilmez. Bu bir **hizmet bildirimi tercihidir**; ticari ileti
+izni değildir. İşaretlemezseniz hiçbir bildirim gönderilmez. Aynı numaraya ya da adrese günde gönderilebilecek bildirim
+sayısı sınırlıdır; bu yüzden bazı bildirimler gitmeyebilir. Sayfa açıkken sonucu zaten ekranda görürsünüz.
+
+**Sık karşılaşılan mesajlar (web talep formu)**
+
+| Mesaj                                                                      | Ne yapmalı                                                                                                 |
+| -------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------- |
+| Bağlantı geçersiz                                                          | Bağlantı yanlış, firmanız formu kapatmış ya da bağlantıyı yenilemiş. Firmanızdan güncel bağlantıyı isteyin |
+| Lütfen birkaç saniye sonra tekrar deneyin.                                 | Çok hızlı gönderdiniz; düğme yeniden açılınca tekrar basın                                                 |
+| Formun süresi doldu, sayfayı yenileyin.                                    | Sayfayı uzun süre açık bıraktınız; sayfa formu kendisi yeniler, tekrar gönderin                            |
+| Şu an çok yoğunuz, lütfen birkaç dakika sonra tekrar deneyin.              | Kuyruk dolu ya da çok sayıda deneme yapıldı; birkaç dakika bekleyin                                        |
+| Şu an mesai dışındayız ve talep alınmıyor. Sonraki açılış: …               | Belirtilen saatte tekrar deneyin ya da firmanızı arayın                                                    |
+| Şu an mesai dışındayız; talebiniz alınır ve mesai başladığında yanıtlanır. | Bilgi notudur; talebiniz kuyruğa girer                                                                     |
+| Teknisyenin notu: …                                                        | Talep reddedildi; nottaki yönlendirmeyi izleyin. **Yeni talep oluştur** ile yeniden başlayabilirsiniz      |
 
 ### Bilgisayarım hatırlanır mı? (Hızlı Destek 0.10.0 ve sonrası)
 
@@ -1319,6 +1379,20 @@ seçilir.
 
 Engel ekleme ve kaldırma denetim kaydına yazılır (not metni yazılmaz).
 
+### Web formundan gelen talepler ("Web" rozeti)
+
+Firmanız web talep formunu açtıysa müşteriler program indirmeden tarayıcıdan da talep gönderir. Bu talepler kartta
+**Web** rozetiyle görünür. Kuyrukta ve Geçmiş sekmesinde **Talep kaynağı** süzgeciyle (Tüm kaynaklar / İstemci / Web)
+ayırabilirsiniz.
+
+- Kabul, ret, atama, öncelik, SLA ve **Mesajlar** paneli diğer taleplerle aynıdır. Web talebinde müşteri mesajlaşmayı her
+  zaman destekler.
+- Kabul kodu ayarı açıksa web talebinde de çalışır; müşteri kodu kendi sayfasında görür.
+- Müşteri tarayıcıdan paylaştığı için **uzaktan kontrol yoktur**, yalnız görüntü gelir. Kontrol gerekiyorsa müşteriden
+  sayfadaki bağlantıyla Windows programını indirip yeni talep açmasını isteyin.
+- Müşteri sekmeyi kapatırsa talep kısa süre sonra kendiliğinden iptal olur.
+- Telefon doğrulaması (kayıtlı numaradan arayıp talep kodunu sorma) web talebinde de atlanmaz: formu herkes doldurabilir.
+
 ### Geçmiş sekmesi
 
 **Geçmiş** sekmesi son 30 günde kapanan talepleri gösterir: kabul edilen, reddedilen, iptal olan, süresi dolan,
@@ -1336,7 +1410,8 @@ indirme bağlantısı vardır. Müşteri bu bağlantıdan indirdiği dosyayı sa
 
 **Kim ne yapabilir?** Kenar menüsünde **Müşteriler** (bina simgesi) görünmüyorsa "Müşteriler → Görüntüle" yetkiniz
 yoktur. Ekleme için "Ekle", düzenleme / bağlantı yenileme / yeniden aktif etme / kayıt iptali için "Düzenle", pasife alma
-için "Sil" yetkisi gerekir. Admin'de hepsi varsayılan açık, teknisyende (User) kapalıdır; yöneticiniz açar.
+için "Sil" yetkisi gerekir. CSV indirmek için "Dışa aktar", CSV'den eklemek için "İçe aktar" + "Ekle" + "Görüntüle"
+yetkisi gerekir. Admin'de hepsi varsayılan açık, teknisyende (User) kapalıdır; yöneticiniz açar.
 Super Admin müşterileri bir firma seçtikten sonra görür.
 
 ### Nasıl müşteri eklerim?
@@ -1442,16 +1517,59 @@ listeden seçin (yalnız aktif müşteriler). Boş bırakabilirsiniz. Müşteri 
 bilgisayarı o müşteri için kaydedilir; müşteri bir sonraki seferde doğrudan size talep gönderebilir. Alan görünmüyorsa
 "Müşteriler → Görüntüle" yetkiniz yoktur.
 
+### Web talep formu bağlantısı
+
+Müşteri detay sayfasında **Web talep formu bağlantısı** ve **Kopyala** düğmesi bulunur. Bu bağlantıyı açan kişi program
+indirmeden tarayıcıdan talep gönderir; talep bu müşterinin adıyla düşer. Bölüm yalnız firmanızda web talep formu açıkken
+görünür ve müşteri aktif olmalıdır (bkz. "Admin için: Ayarlar > Destek talepleri").
+
+Form bağlantısı ile indirme bağlantısı aynı müşteri anahtarını kullanır: **Bağlantıyı yenile** ikisini birlikte değiştirir.
+Yenilemeden sonra eski form bağlantısı "Bağlantı geçersiz" gösterir; yeni bağlantıyı müşteriye yeniden gönderin.
+
+### Müşterileri CSV olarak nasıl dışa aktarırım?
+
+1. **Müşteriler** listesinde durum filtresini seçin (Aktif / Pasif / Tümü).
+2. Başlıktaki **Dışa aktar**'a basın. `musteriler-YYYYAAGG.csv` dosyası iner; Excel'de doğrudan açılır.
+
+Sütunlar: Ad, Yetkili kişi, Telefon, E-posta, Not, Dosya etiketi, Varsayılan öncelik, SLA (dk), Durum. En çok 50.000
+müşteri dışa aktarılır; dakikada en çok 10 dışa aktarma yapılır. Dışa aktarma denetim kaydına yazılır.
+
+### Müşterileri CSV'den nasıl içe aktarırım?
+
+**İçe aktar** düğmesi yalnız Müşteriler modülünde **İçe aktar, Ekle ve Görüntüle** yetkilerinin üçü birlikte varsa
+görünür. Mevcut müşterileri güncellemek için ayrıca **Düzenle** yetkisi gerekir.
+
+1. **Müşteriler** → **İçe aktar**.
+2. **Dosya** adımı: CSV dosyasını sürükleyin ya da tıklayıp seçin, **Önizle**'ye basın.
+   - İlk satır sütun başlıkları olmalı; en az **Ad** sütunu gerekir. Diğer sütunlar dışa aktarmadaki adlarla aynıdır.
+   - Ayraç noktalı virgül ya da virgül olabilir. Excel'de **CSV UTF-8** olarak kaydedin.
+   - En çok 5.000 satır ve 2 MB.
+3. **Önizleme** adımı: toplam satır, **Yeni**, **Zaten var** ve **Hatalı** sayıları ile ilk 50 satır görünür.
+   - Hatalı satırlar içe aktarılmaz. **Hata raporunu indir** ile satır numarası ve nedenini içeren CSV'yi alın.
+   - Aynı adla kayıtlı müşteriler için **Atla** (mevcut müşteriye dokunulmaz) ya da **Güncelle** (dosyadaki sütunlar
+     mevcut müşteriye yazılır; bağlantı ve durum değişmez) seçin.
+   - **İçe aktar**'a basın. Önizleme 15 dakika geçerlidir.
+4. **Sonuç** adımı: Eklendi / Güncellendi / Atlandı / Başarısız sayıları.
+
+Her yeni müşteriye kendi bağlantısı verilir. **Durum** sütunu dikkate alınmaz; yeni kayıtlar aktif başlar. Kullanıcı başına
+saatte en çok 10 önizleme yapılır. Her eklenen/güncellenen müşteri ve özet denetim kaydına yazılır.
+
 ### Sık karşılaşılan mesajlar (Müşteriler)
 
-| Mesaj                                | Ne yapmalı                                                                              |
-| ------------------------------------ | --------------------------------------------------------------------------------------- |
-| Bu adla bir müşteri zaten var        | Farklı bir ad yazın veya Pasif filtresinde aynı adlı müşteriyi bulup yeniden aktif edin |
-| Müşteri pasif; bağlantı yenilenemez. | Önce **Yeniden aktif et** (zaten yeni bağlantı üretir)                                  |
-| Seçilen müşteri artık aktif değil…   | Yeni oturumda başka müşteri seçin veya alanı boşaltın                                   |
-| Müşteri bulunamadı                   | Müşteri yok ya da görme yetkiniz yok; **Müşterilere dön**                               |
-| Müşterileri görme yetkiniz yok…      | Yöneticinizden "Müşteriler" yetkisini isteyin                                           |
-| Kayıtlar alınamadı.                  | **Tekrar dene**'ye basın                                                                |
+| Mesaj                                                              | Ne yapmalı                                                                              |
+| ------------------------------------------------------------------ | --------------------------------------------------------------------------------------- |
+| Bu adla bir müşteri zaten var                                      | Farklı bir ad yazın veya Pasif filtresinde aynı adlı müşteriyi bulup yeniden aktif edin |
+| Müşteri pasif; bağlantı yenilenemez.                               | Önce **Yeniden aktif et** (zaten yeni bağlantı üretir)                                  |
+| Seçilen müşteri artık aktif değil…                                 | Yeni oturumda başka müşteri seçin veya alanı boşaltın                                   |
+| Müşteri bulunamadı                                                 | Müşteri yok ya da görme yetkiniz yok; **Müşterilere dön**                               |
+| Müşterileri görme yetkiniz yok…                                    | Yöneticinizden "Müşteriler" yetkisini isteyin                                           |
+| Kayıtlar alınamadı.                                                | **Tekrar dene**'ye basın                                                                |
+| Dosya UTF-8 değil. Excel'de 'CSV UTF-8' olarak kaydedin.           | Dosyayı Excel'de "CSV UTF-8" türüyle yeniden kaydedin                                   |
+| “Ad” sütunu bulunamadı…                                            | İlk satıra sütun başlıklarını yazın; en az "Ad" olmalı                                  |
+| En çok 5.000 satır / Dosya en çok 2 MB olabilir.                   | Dosyayı bölün ve parça parça içe aktarın                                                |
+| Önizlemenin süresi doldu ya da geçersiz; dosyayı yeniden yükleyin. | 15 dakika geçti ya da yeni önizleme yapıldı; dosyayı yeniden yükleyin                   |
+| Başka bir içe aktarma sürüyor                                      | Firmanızda başka bir içe aktarma bitene kadar bekleyin                                  |
+| En çok 50.000 müşteri dışa aktarılabilir.                          | Durum filtresiyle daraltın                                                              |
 
 ---
 
@@ -1769,13 +1887,73 @@ Müşteri kaydında ayrı bir değer yoksa yeni taleplere bu öncelik ve SLA hed
 - Değer talep açılırken sabitlenir; değişiklik bekleyen talepleri etkilemez.
 - Müşteriye özel değer için bkz. "Nasıl müşteri eklerim?" (Varsayılan öncelik, SLA hedefi).
 
+### Web talep formu
+
+Müşteriler program indirmeden tarayıcıdan talep gönderebilsin istiyorsanız formu açın.
+
+1. **Web talep formu** bölümünde **Web talep formunu aç** anahtarını açın, **Kaydet**'e basın.
+2. **Form bağlantısını kopyala** ile genel form bağlantısını alın. Form kapalıyken "Form şu an kapalı. Bağlantıyı
+   paylaşmadan önce formu açıp kaydedin." yazar.
+
+Genel form bağlantısından gelen talepler "Genel" görünür. Müşteriye özel form bağlantısı müşterinin detay sayfasındadır.
+Formu kapattığınızda bütün form bağlantıları **hemen** "Bağlantı geçersiz" gösterir; bekleyen talepler etkilenmez.
+
+**Form bağlantısını nasıl paylaşırım?** Web sitenizin "Destek" sayfasına, e-posta imzanıza veya karşılama yazınıza ekleyin.
+Bağlantıyı yalnız müşterilerinize verin; herkese açık bir yerde yayınlarsanız istenmeyen talep riskine karşı aşağıdaki
+adımları bilin.
+
+**Sınırlar:** Web formundan firmanıza saatte en çok 60 talep gelir ve aynı anda en çok 30 web talebi bekleyebilir
+(toplam bekleyen sınırı 50; böylece Windows programından gelen taleplere her zaman yer kalır). Aynı internet adresinden
+gelen talepler programdaki gibi sınırlıdır.
+
+### Form spam'i altında ne yapılır?
+
+Kuyruğa tanımadığınız, anlamsız talepler yağıyorsa ya da müşteriler "çok yoğunuz" mesajı alıyorsa:
+
+1. **Formu hemen kapatın:** **Web talep formunu aç** anahtarını kapatıp **Kaydet**'e basın. Bütün form bağlantıları anında
+   geçersiz olur; yeni web talebi gelmez. Programdan gelen talepler etkilenmez.
+2. **Sızan bağlantıyı yenileyin:**
+   - Spam genel form bağlantısından geliyorsa bu sayfadaki **Bağlantıyı yenile** (bkz. "Bağlantıyı ne zaman
+     yenilemeliyim?"). Dikkat: bu, Genel indirme bağlantısını, indirilmiş Genel dosyaları ve Genel olarak hatırlanan
+     bilgisayarları da geçersiz kılar.
+   - Spam bir müşterinin bağlantısından geliyorsa o müşterinin detay sayfasındaki **Bağlantıyı yenile**.
+3. Bekleyen sahte talepleri **Reddet** ile kapatın; tekrar eden kaynakları **Bu kaynağı engelle** ile engelleyin.
+4. Formu yeniden açın ve **yeni** bağlantıyı yalnız müşterilerinize gönderin.
+
+Eski bağlantı yenilemeden sonra çalışmaz. Formu kapatmak ve bağlantı yenilemek denetim kaydına yazılır.
+
+### Müşteriye durum bildirimi (SMS / WhatsApp / E-posta)
+
+Web formundan talep gönderen müşteri, talebinin kabul edildiğini, karşılanamadığını ya da bekleme süresinin dolduğunu
+SMS, WhatsApp veya e-postayla öğrenebilir. Hangi kanalları sunacağınızı burada seçersiniz.
+
+1. **Müşteriye durum bildirimi** bölümünde **SMS ile bildir**, **WhatsApp ile bildir**, **E-posta ile bildir**
+   anahtarlarından istediklerinizi açın.
+2. **Kaydet**'e basın.
+
+- Kanal açık ama kullanılamıyorsa altında uyarı çıkar ve kanal formda **gösterilmez**:
+  - SMS: "SMS ayarı eksik ya da anahtar okunamıyor" → **SMS ayarlarına git** (bkz. "Admin için: Ayarlar > SMS").
+  - WhatsApp: sistem WhatsApp servisi kullanılamıyor → Super Admin'e başvurun.
+  - E-posta: SMTP ayarı yok → **SMTP ayarlarına git**.
+- Müşteri formda kutucuğu işaretlemezse hiçbir bildirim gitmez. Kutucuklar varsayılan işaretsizdir.
+- **KVKK notu:** Bu kutucuk açık rıza değil, **hizmet bildirimi tercihidir**. Mesaj yalnız müşterinin kendi talebinin
+  durumunu bildirir; reklam veya kampanya içermez. Ticari elektronik ileti olmadığı için İYS kaydı gerekmez. Bildirim
+  metinleri sabittir; teknisyenin ret notu bildirime yazılmaz.
+- **Alıcı başına tavanlar:** aynı numaraya/adrese firmanızdan 24 saatte en çok 3, tüm sistemden en çok 5 bildirim gider.
+  Firma başına saatte SMS 100, WhatsApp 60, e-posta 100 bildirimle sınırlıdır. Aynı numarayla bekleyen başka bir web
+  talebi varsa yeni talep için bildirim gönderilmez. Tavana takılan bildirim gönderilmez ve denetim kaydına "sınıra
+  takıldı" olarak yazılır.
+- Gönderim başarısız olursa sistem 3 kez dener; yine olmazsa vazgeçer ve denetim kaydına başarısız olarak yazar. Başarısız
+  bildirim sonradan yeniden gönderilmez.
+
 ### Yetkiler ve kayıtlar
 
 - **Destek talepleri → Görüntüle** (`support_requests.view`) kuyruğu, **Kabul et** (`support_requests.accept`) kabul ve
   reddi, **Engelle** (`support_requests.block`) talep engellerini, **Ata / öncelik** (`support_requests.assign`) atama ve öncelik
   değişikliğini, **Mesaj yaz** (`support_requests.message`) kabul öncesi mesajlaşmayı açar. Admin'de varsayılan açık, User'da kapalıdır; **Kullanıcılar** ekranındaki yetki tablosundan açılır.
-- Kabul, ret, iptal, süre dolumu, ayar değişikliği (eski → yeni), bağlantı yenileme, WhatsApp gönderimi ve testi,
-  atama, öncelik değişikliği, gönderilen mesaj (içeriksiz, yalnız uzunluk) ve mesai dışı ret denetim kaydına yazılır. Müşteri adı, telefonu ve açıklaması denetim kaydına yazılmaz.
+- Kabul, ret, iptal, süre dolumu, ayar değişikliği (eski → yeni; web formunu açma/kapama ve bildirim kanalları dahil),
+  bağlantı yenileme, WhatsApp gönderimi ve testi, müşteriye durum bildirimi (alıcı maskeli), reddedilen web formu
+  gönderimi, atama, öncelik değişikliği, gönderilen mesaj (içeriksiz, yalnız uzunluk) ve mesai dışı ret denetim kaydına yazılır. Müşteri adı, telefonu ve açıklaması denetim kaydına yazılmaz.
 
 ## Admin için: Ayarlar > Mesai saatleri ve Tatiller
 
@@ -1873,6 +2051,50 @@ Sağlayıcınız kimlik doğrulaması istiyorsa SSL veya TLS seçin.
    5 test yapılabilir.
 
 **SMTP ayarını kaldırmak:** sayfadaki "SMTP ayarlarını kaldır" düğmesi (onay ister). Kaldırınca e-posta bildirimleri durur.
+
+## Admin için: Ayarlar > SMS
+
+Müşteriye oturum bağlantısı ve talep durumu SMS'leri bu ayarla Nokta Bilişim **smsportal** servisi üzerinden gönderilir.
+Görmek için `settings.view`, değiştirmek ve test için `settings.edit` yetkisi gerekir. Super Admin önce firma seçer.
+
+### Nasıl SMS ayarı yaparım?
+
+1. **Ayarlar** → üstteki alt menüden **SMS**.
+2. Alanları doldurun:
+   | Alan                            | Açıklama                                                                                                                                         |
+   | ------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
+   | smsportal adresi                | Boş bırakırsanız sistem varsayılan adresi kullanılır ("Sistem varsayılanı"). Varsayılan tanımlı değilse adres girmeniz gerekir                   |
+   | API anahtarı                    | smsportal yönetim panelinden oluşturduğunuz anahtar (8–256 karakter, boşluksuz). Maskelidir; kayıtlıysa "Kayıtlı — değiştirmek için yazın" yazar |
+   | Gönderen başlığı (isteğe bağlı) | NetGSM'de onaylı başlık; en çok 11 karakter (harf, rakam, boşluk, nokta, tire)                                                                   |
+3. **Kaydet**'e basın.
+
+**Adrese anahtar yazmayın.** Adres yalnız `https://sunucu/yol` biçiminde olur; kullanıcı adı, şifre, `?…` ya da `#…`
+içeren adres reddedilir ("Adres kullanıcı adı, şifre veya sorgu içeremez; API anahtarını ayrı alana yazın."). Anahtar
+yalnız **API anahtarı** alanına yazılır ve şifreli saklanır; kaydedildikten sonra forma geri gelmez.
+
+- Anahtar alanını boş bırakırsanız kayıtlı anahtar korunur. **Anahtarı sil** onay ister; kaydedince SMS gönderimi durur.
+- Adresi değiştirirseniz anahtarı yeniden girmeniz gerekir ("Adres değişti; API anahtarını yeniden girin.").
+- Canlı ortamda adres `https` olmalı ve yalnız 443 portunu kullanmalıdır. İç ağ ve özel adresler kabul edilmez ("Bu sunucu
+  adresi kullanılamaz.").
+
+### Ekrandaki bantlar ne demek?
+
+| Bant                                                                                       | Anlamı ve yapılacak                                                                                                               |
+| ------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------- |
+| SMS kanalı kullanılabilir.                                                                 | Her şey hazır                                                                                                                     |
+| SMS kanalı kullanılamıyor: adres ya da API anahtarı eksik.                                 | Adres (veya sistem varsayılanı) ve anahtarı girip kaydedin                                                                        |
+| Kayıtlı API anahtarı okunamıyor (servis adresi değişmiş olabilir). Anahtarı yeniden girin. | Sistem varsayılan adresi değişmiş olabilir. Güvenlik gereği eski anahtar yeni adrese gönderilmez; anahtarı yeniden yazıp kaydedin |
+| Adres şifresiz (http) ve genel bir sunucuda…                                               | Anahtar açık metin gideceği için kanal kapalıdır; `https://` adres girin                                                          |
+
+### Test SMS nasıl gönderilir?
+
+1. Ayarı **kaydedin** (test kayıtlı ayarla yapılır; kaydedilmemiş değişiklik varsa uyarı çıkar).
+2. **Test için cep telefonu** alanına numarayı yazın, **Test SMS Gönder**'e basın.
+3. Sonuç ekranda görünür: "Test SMS'i gönderildi." ya da neden ("SMS servisine ulaşılamadı.", "SMS servisi API anahtarını
+   reddetti.", "SMS servisi yapılandırılmamış ya da kullanılamıyor." vb.).
+
+SMS yalnız Türkiye cep numaralarına gönderilir. Kişi başına dakikada 5, firma başına dakikada 20, aynı numaraya saatte 3
+test yapılabilir. Ayar değişikliği (anahtar `***` olarak) ve her test denetim kaydına yazılır.
 
 ## Admin için: Audit log (denetim kaydı)
 
@@ -2067,6 +2289,27 @@ e-postaya yazılmaz; ayrıntı paneldedir. Firma başına saatte en çok 30 bild
 - Yalnız bu pencere açıkken gönderilebilir (bağlantı güvenlik gereği sonradan gösterilmez).
 - Yalnız bekleyen (müşteri henüz katılmamış) oturum gönderilebilir. Saatte en çok 20 e-posta.
 - Firmanın SMTP ayarı yoksa veya gönderim başarısızsa satırda hata görünür; bağlantıyı kopyalayıp başka yolla iletin.
+
+## Teknisyen için: Oturum bağlantısını SMS veya WhatsApp ile gönderme
+
+Yetki: "Oturumlar → Oluştur" ve "Oturumlar → Bağlantı gönder (SMS/WhatsApp)". Admin'de açık, teknisyende kapalı başlar.
+
+1. **Oturumlar** → **Yeni destek oturumu** → oturumu oluşturun.
+2. Bağlantının gösterildiği pencerede **SMS / WhatsApp ile gönder**'e basın.
+3. Kanalı seçin. Yalnız kullanılabilir kanallar görünür (SMS: Ayarlar > SMS; WhatsApp: sistem WhatsApp servisi). İkisi de
+   yoksa "SMS ve WhatsApp şu an kullanılamıyor…" yazar.
+4. **Müşterinin cep telefonu** alanına numarayı yazın (ör. `0532 000 00 00`). Altında gönderilecek numara uluslararası
+   biçimde görünür. Oturum bir talepten doğduysa alan talepteki numarayla dolu gelir.
+5. **Gönder**'e basın. "Bağlantı SMS ile gönderildi: …" ya da "Bağlantı WhatsApp ile gönderildi: …" mesajı çıkar.
+
+Mesajda firma adı, bağlantı, adınız ("Ad S." biçiminde) ve "Bağlantıyı kimseyle paylaşmayın." uyarısı bulunur.
+
+- SMS yalnız Türkiye cep numaralarına gider; yurt dışı numara için WhatsApp'ı seçin.
+- Yalnız bekleyen (müşteri henüz katılmamış) oturumun bağlantısı gönderilir.
+- Sınırlar: kişi başına saatte 20 gönderim (SMS + WhatsApp), aynı numaraya saatte 5, firma başına saatte 200. Sınıra
+  gelince düğme "Bekleyin (…)" geri sayımı gösterir.
+- "SMS gönderilemedi…" / "WhatsApp mesajı gönderilemedi…" çıkarsa bağlantıyı kopyalayıp başka yolla iletin ve
+  Admin'inize haber verin. Her gönderim denetim kaydına yazılır (numara maskeli).
 
 ## Admin için: Kişisel verilerin saklama süresi ve anonimleştirme (KVKK)
 
@@ -2559,18 +2802,19 @@ olarak (eski → yeni adres) yazılır.
 
 ### Sık karşılaşılan mesajlar (WhatsApp servisi)
 
-| Mesaj                                                                                                 | Ne yapmalı                                                                                                             |
-| ----------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
-| Adres http:// veya https:// ile başlamalı; kullanıcı adı/şifre, ? ve # içeremez (en çok 200 karakter) | Adresi kurala uygun yazın                                                                                              |
-| Servis yapılandırılmamış.                                                                             | Önce servis adresini kaydedin                                                                                          |
-| Servis anahtarı reddetti.                                                                             | Anahtar yok veya yanlış. **Servis anahtarı** bölümüne doğru anahtarı girip kaydedin                                    |
-| Adres değiştiği için servis anahtarını yeniden girin.                                                 | Adres değişti; anahtarı yeniden yazın veya kaldırın, sonra kaydedin                                                    |
-| Servis anahtarı 16–256 karakter olmalı; boşluk ve kontrol karakteri içeremez.                         | Anahtarı boşluksuz ve doğru uzunlukta yazın                                                                            |
-| Servis güvenli yapılandırılmamış.                                                                     | Güvensiz veya okunamayan adres; `https://` ya da iç ağ adresi kaydedin                                                 |
-| Servis 8 saniye içinde yanıt vermedi (zaman aşımı).                                                   | Servis yavaş veya kapalı; sistem yöneticisine bildirin, biraz sonra tekrar deneyin                                     |
-| Servise ulaşılamadı veya servis hata döndürdü.                                                        | Adresi kontrol edin; servis çalışıyor mu, güvenlik duvarı izin veriyor mu bakın. Ayrıntılı neden audit log kaydındadır |
-| Çok fazla test denendi. Bir dakika sonra tekrar deneyin.                                              | Dakikalık test sınırı doldu; bir dakika bekleyin                                                                       |
-| Çok fazla istek. Lütfen biraz sonra tekrar deneyin. (kaydederken)                                     | Dakikada 10 kaydetme/geri dönme sınırı doldu; bir dakika bekleyin                                                      |
+| Mesaj                                                                                                 | Ne yapmalı                                                                                                                   |
+| ----------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
+| Adres http:// veya https:// ile başlamalı; kullanıcı adı/şifre, ? ve # içeremez (en çok 200 karakter) | Adresi kurala uygun yazın                                                                                                    |
+| Servis yapılandırılmamış.                                                                             | Önce servis adresini kaydedin                                                                                                |
+| Servis anahtarı reddetti.                                                                             | Anahtar yok veya yanlış. **Servis anahtarı** bölümüne doğru anahtarı girip kaydedin                                          |
+| Adres değiştiği için servis anahtarını yeniden girin.                                                 | Adres değişti; anahtarı yeniden yazın veya kaldırın, sonra kaydedin                                                          |
+| Servis anahtarı 16–256 karakter olmalı; boşluk ve kontrol karakteri içeremez.                         | Anahtarı boşluksuz ve doğru uzunlukta yazın                                                                                  |
+| Servis güvenli yapılandırılmamış.                                                                     | Güvensiz veya okunamayan adres; `https://` ya da iç ağ adresi kaydedin                                                       |
+| Servis 8 saniye içinde yanıt vermedi (zaman aşımı).                                                   | Servis yavaş veya kapalı; sistem yöneticisine bildirin, biraz sonra tekrar deneyin                                           |
+| Servise ulaşılamadı veya servis hata döndürdü.                                                        | Adresi kontrol edin; servis çalışıyor mu, güvenlik duvarı izin veriyor mu bakın. Ayrıntılı neden audit log kaydındadır       |
+| Çok fazla test denendi. Bir dakika sonra tekrar deneyin.                                              | Dakikalık test sınırı doldu; bir dakika bekleyin                                                                             |
+| Çok fazla istek. Lütfen biraz sonra tekrar deneyin. (kaydederken)                                     | Dakikada 10 kaydetme/geri dönme sınırı doldu; bir dakika bekleyin                                                            |
+| Kayıtlı adres yeni güvenlik kuralına uymuyor (…); kanal kullanılamıyor. Adresi yeniden kaydedin.      | Eski kayıtta kullanıcı adı, şifre veya sorgu var. Adresi yalın biçimde (`https://sunucu`) yazıp kaydedin; anahtar ayrı alana |
 
 ## Super Admin için: Başka bir Super Admin'in şifresini sıfırlama
 

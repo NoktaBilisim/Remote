@@ -5,6 +5,64 @@ Biçim [Keep a Changelog](https://keepachangelog.com/tr/1.1.0/), sürümleme [Se
 
 ## [Unreleased]
 
+### Eklendi — P19 (web talep formu, SMS, müşteriye durum bildirimi, oturum bağlantısını SMS/WhatsApp ile gönderme, müşteri CSV; AC-259–261, AC-263)
+
+- **Web talep formu** (AC-259): müşteri program indirmeden `/r/<ref>` sayfasından talep gönderir; bekleme görünümünde
+  sıra, kalan süre, teknisyenle yazışma (P18 mesajlaşmasının müşteri tarafı; "Sohbete şifre veya kart bilgisi yazmayın"),
+  iptal, kabulde doğrulama kodu (+ varsa kabul kodu) ve **Ekranımı paylaş** (tarayıcı oturumu, yalnız görüntü). Form
+  kutucuğuyla isteğe bağlı durum bildirimi (SMS / WhatsApp / e-posta; varsayılan işaretsiz). Gönder düğmesinin üstünde
+  "Sohbet mesajları kayıt altına alınır ve N gün saklanır" satırı. Uçlar `GET /api/v1/public/web-requests/form`,
+  `POST /api/v1/public/web-requests`; WS yolu `docs/mimari-protokol.md` §5.5.
+- **Ayarlar → Destek talepleri:** "Web talep formunu aç" anahtarı (kapatınca bütün form bağlantıları hemen geçersiz) ve form
+  bağlantısını kopyalama; "Müşteriye durum bildirimi" kanal anahtarları ve kullanılamayan kanal uyarıları. Müşteri detayında
+  "Web talep formu bağlantısı". Talepler ekranında **Web** rozeti ve **Talep kaynağı** süzgeci (Tüm kaynaklar / İstemci / Web).
+- **Ayarlar → SMS** (AC-260): firma başına smsportal adresi (boş = sistem varsayılanı `SMSPORTAL_URL`), API anahtarı (maskeli,
+  şifreli; adres değişince yeniden istenir), gönderen başlığı, **Test SMS Gönder**; "anahtar okunamıyor", "güvensiz",
+  "kullanılamıyor" bantları. Uçlar `GET|PUT /api/v1/settings/sms`, `POST /api/v1/settings/sms/test`.
+- **Oturum bağlantısını SMS / WhatsApp ile gönderme** (AC-260): yeni oturum penceresinde "SMS / WhatsApp ile gönder"; SMS yalnız
+  TR cep numarası. Yeni yetki `sessions.send_link`. Uçlar `POST /api/v1/sessions/:id/send-link`,
+  `GET /api/v1/sessions/:id/send-link/options`.
+- **Müşteriye durum bildirimi** (AC-261): web talebi kabul edilince, reddedilince ya da süresi dolunca seçilen kanallara
+  sabit şablonlu mesaj; kalıcı kuyruk (`notification_outbox`), 3 deneme, başarısızlık audit'te. Alıcı başına 24 saatte firma
+  içi 3 / sistem geneli 5; firma başına saatte SMS 100, WhatsApp 60, e-posta 100.
+- **Müşteri CSV dışa / içe aktarma** (AC-263): **Dışa aktar** (Excel uyumlu, `;`, BOM, formül kaçışı) ve 3 adımlı **İçe aktar**
+  (dosya → önizleme + hata raporu → sonuç; çakışmada Atla / Güncelle). Yeni yetkiler `customers.export`, `customers.import`
+  (içe aktarma için İçe aktar + Ekle + Görüntüle birlikte). Uçlar `GET /api/v1/customers/export.csv`,
+  `POST /api/v1/customers/import/{preview,commit}`.
+- **Audit:** `request.web_form_rejected`, `request.customer_notify`, `session.link_sent`, `settings.sms_updated`,
+  `settings.sms_test`, `customer.exported`, `customer.imported`; `request.created` += `source`, `notify`, `notifySuppressed`.
+
+### Değişti — P19
+
+- Talepler `source` (`AGENT` | `WEB`) taşır; WEB talebinde `clientVersion` `null`, sürüm kapıları yalnız programdan gelen
+  taleplere uygulanır. `GET /api/v1/support-requests` += `source` ve `?source=`; panel `request.new` += `source`.
+- `GET|PUT /api/v1/settings/support-requests` += `webFormEnabled`, `webFormUrl`, `notifySmsEnabled`, `notifyWhatsappEnabled`,
+  `notifyEmailEnabled`, `channelWarnings`. `GET /api/v1/customers/:id` += `webFormUrl`.
+- Firma kuyruk kovaları kaynağa göre ayrıldı: web formu saatte 60 talep ve en çok 30 bekleyen (toplam bekleyen sınırı 50
+  aynı); programdan gelen taleplere her zaman yer kalır.
+- Sistem WhatsApp servis adresi kuralı sıkılaştı: kullanıcı adı/şifre, `?` ya da `#` içeren kayıtlı adres kanalı kapatır;
+  Sistem ayarları → WhatsApp servisi'nde "Adresi yeniden kaydedin" bandı.
+- Firma silme `MESSAGES` adımı bildirim kuyruğunu da siler; talep anonimleştirmesi talebin bildirim satırlarını siler.
+
+### Güvenlik — P19
+
+- Web formu bot kapısı: tek kullanımlık, 30 dk geçerli, süreç yeniden başlayınca düşen form token'ı; açılıştan 2 sn önce
+  gönderim reddi; gizli alan. Form kapalı, ref geçersiz ya da pasif → aynı 404 (oracle yok). Form bilgisi ucuna ağ öneki
+  kovaları (S-P19-K1).
+- Dış gönderimler: tek DNS çözümüne sabitlenmiş istek, yönlendirme izlenmez, iç/özel adres reddi, canlı ortamda SMS adresi
+  yalnız `https` + 443. Zaman aşımı ve erişilemezlik dışarıya tek neden (`unreachable`) olarak döner.
+- SMS anahtarı adres kökenine bağlı şifrelenir; adres değişince eski anahtar yeni adrese gönderilmez ("anahtar okunamıyor").
+  Bildirim alıcısı şifreli saklanır, son durumda silinir; şablonlarda firma/teknisyen adı bağlantı ve kontrol
+  karakterlerinden arındırılır. Ref, form token'ı, talep sırrı loga ve audit'e yazılmaz; Caddy logunda `/r/***`.
+
+### Operasyon — P19
+
+- Yeni env `SMSPORTAL_URL` (yalnız `server`; boş olabilir). Migration `20261120000000_p19_web_requests` ve
+  `20261120010000_p19_request_session_mode`; tetikleyici sayısı **23** (değişmedi), `check-app-grants.sh` 627 satır.
+- `remote-watch` yeni alarmlar: `notify-outbox-pending`, `notify-outbox-failed`, `notify-volume`, `sms-key-unreadable`,
+  `p19-metrics`. `crypto:check-retire` / `crypto:rewrap` SMS anahtarını kapsar. Runbook §26 (staging yayını, `SMSPORTAL_URL`
+  değişimi, SMS anahtarı rotasyonu, form spam'i → eylem, smsportal arıza yolu).
+
 ### Eklendi — P18 (talep iletişimi: kabul öncesi mesajlaşma, atama, öncelik, SLA, mesai/tatil; AC-255–258)
 
 - **Kabul öncesi mesajlaşma** (AC-255): Talepler ekranında her kartta **Mesajlar** paneli (masaüstünde sağ panel, dar

@@ -2711,6 +2711,194 @@ Ayrıntılı ve bağlayıcı sözleşme: `docs/mimari-protokol.md` §5.4. Özet:
 - `/ws/panel`: `request.updated {id, priority, assignedTo, slaDueAt}` (atama/öncelik), `request.activity {id, kind:"message",
 sender, at}` (gövdesiz, talep başına ≤ 1/sn), `request.new` += `priority`, `slaDueAt`, `afterHours`, `customerChat`.
 
+## Web talep formu, dış gönderim ve müşteri CSV (P19)
+
+AC-259, 260, 261, 263; tasarım `docs/mimari-e11.md` §8c. Sözleşme kaynağı `packages/contracts/src/api/{requests,notify,customers}.ts`,
+`errors.ts`, `permissions.ts`, `audit.ts`. Panel uçları oturum + CSRF (yazma) + yetki + `tenantScope` zincirini kullanır;
+Super Admin önce firma seçer. Yanıtlar `Cache-Control: no-store`.
+
+**Yeni yetkiler** (yetki tablosunda kendiliğinden çıkar; Admin açık, User kapalı):
+
+| Anahtar              | Ekranda                        | Açar                                                                             |
+| -------------------- | ------------------------------ | -------------------------------------------------------------------------------- |
+| `sessions.send_link` | Bağlantı gönder (SMS/WhatsApp) | Oturum bağlantısını SMS/WhatsApp ile gönderme (+ `sessions.create`)              |
+| `customers.export`   | Dışa aktar                     | Müşteri CSV'si (+ `customers.view`)                                              |
+| `customers.import`   | İçe aktar                      | CSV önizleme (+ `create` + `view`), uygulama (+ `create`; güncellemede + `edit`) |
+
+**Yeni hata kodları:** `FORM_TOKEN_INVALID` 400 ("Formun süresi doldu, sayfayı yenileyin."), `CHANNEL_UNAVAILABLE` 409.
+
+### GET /api/v1/public/web-requests/form?ref=<ref>
+
+Kimlik yok, çerez yok. Form kapalı, ref geçersiz ya da pasif → aynı gövdeyle 404 `REQUEST_REF_INVALID` (hangisi olduğu
+söylenmez); geçersiz ref denemesi IP başına 10/dk, aşımda 429. Geçerli ref'te IP başına 60/dk; ayrıca IPv6 /56 120/dk ve IPv6 /48 240/dk
+(IPv4'te önek kovası yok — NAT arkasındaki meşru ziyaretçiler kesilmesin) (aşımda 15 dk 429). Yanıt `WebFormInfo` (müşteri adı **dönmez**):
+
+```json
+{ "tenant": { "name": "Acme BT", "logoUrl": "/api/v1/files/logo/01K…/…webp" },
+  "consentText": { "id": "01K…", "version": 3, "body": "…", "sha256": "…" },
+  "chatRetentionDays": 365,
+  "channels": { "sms": true, "whatsapp": false, "email": true },
+  "businessHours": { "openNow": true, "nextOpeningAt": null, "afterHoursMode": "ACCEPT" },
+  "formToken": "…", "minDelayMs": 2000 }
+```
+
+`channels.<k>` yalnız firma kanalı açtıysa **ve** kanal kullanılabilirse `true`. `formToken` 30 dk geçerli, tek kullanımlık,
+süreç yeniden başlayınca geçersizdir.
+
+### POST /api/v1/public/web-requests
+
+Kimlik yok; `Origin` `ALLOWED_ORIGINS`'te olmalı (tarayıcı kuralı; CORS başlığı verilmez). Gövde ≤ 8 KB.
+
+```http
+POST /api/v1/public/web-requests
+Content-Type: application/json
+Origin: https://remote.example.com
+
+{ "ref": "…", "formToken": "…", "website": "", "clientInstanceId": "…",
+  "customerName": "Ayşe Yılmaz", "phone": "0532 000 00 00", "email": "ayse@example.com",
+  "description": "Yazıcı çıktı vermiyor", "consentTextId": "01K…", "consentAccepted": true,
+  "notify": { "sms": true, "whatsapp": false, "email": false } }
+```
+
+201 → `CreateRequestResponse` `{ requestId, requestSecret, requestCode, expiresAt, position }`. `requestSecret` yalnız bu
+yanıtta döner; `/ws/request` için kullanılır (`docs/mimari-protokol.md` §5.5).
+
+Kurallar: alan sınırları programdaki taleple aynı (AC-134). `notify` varsayılanı hepsi `false`; `notify.email` ⇒ `email`
+zorunlu. Kapalı/kullanılamaz kanal seçilirse 400 `fields.notify.<kanal>`. Gizli alan `website` doluysa genel 400 `VALIDATION`.
+Aynı firmada aynı telefonla (e-postada `notifyEmailKey` eşitliği) bekleyen WEB talebi varsa talep açılır ama ilgili
+bildirim bayrakları 0 yazılır; yanıt bunu belirtmez. Talep `source: "WEB"`, `clientVersion: null`; sürüm kapıları uygulanmaz.
+
+| Durum | Kod                   | Ne zaman                                                                                        |
+| ----- | --------------------- | ----------------------------------------------------------------------------------------------- |
+| 400   | `VALIDATION`          | Alan hatası (`fields`), gizli alan dolu                                                         |
+| 400   | `FORM_TOKEN_INVALID`  | Token bozuk, 30 dk'dan eski, kullanılmış, başka ref'e ait ya da sunucu yeniden başlamış         |
+| 403   | `FORBIDDEN`           | `Origin` yok ya da izinli değil                                                                 |
+| 404   | `REQUEST_REF_INVALID` | Ref geçersiz/pasif ya da form kapalı (tek tip gövde)                                            |
+| 409   | `OUTSIDE_HOURS`       | Mesai dışı + "Reddet" modu; `fields.nextOpeningAt`                                              |
+| 429   | `RATE_LIMITED`        | Token alındıktan sonra 2 sn dolmadan (`retryAfterSec: 2`, token harcanmaz) ya da IP/önek kovası |
+| 429   | `QUEUE_FULL`          | Firma web kovası (60/sa), WEB bekleyen alt tavanı (30) ya da toplam bekleyen (50)               |
+
+Token 2 sn kuralı dışındaki her red sonrasında harcanmıştır; istemci yeniden `GET …/form` çağırır. Talep iptali mevcut
+`POST /api/v1/public/requests/cancel` (tarayıcıdan `Origin` ile; her durumda 204).
+
+### GET / PUT /api/v1/settings/support-requests — eklenenler
+
+Yanıta `webFormEnabled`, `webFormUrl` (`<PUBLIC_BASE_URL>/r/<Genel ref>`, form kapalıyken de döner), `notifySmsEnabled`,
+`notifyWhatsappEnabled`, `notifyEmailEnabled`, `channelWarnings` (`["sms"|"whatsapp"|"email"]`: açık ama kullanılamayan
+kanallar). PUT'ta dört bayrak opsiyoneldir; verilmezse korunur. Form kapatma (kill switch) ve Genel ref yenileme
+(`settings.support_requests.ref_rotated`) form bağlantısını hemen 404 yapar.
+
+`GET /api/v1/support-requests` öğelerine `source` (`AGENT`|`WEB`) ve süzgeç `?source=AGENT|WEB`; panel `request.new` += `source`.
+`GET /api/v1/customers/:id` += `webFormUrl` (form açık, müşteri aktif ve anonim değilse; aksi `null`).
+
+### GET / PUT /api/v1/settings/sms
+
+GET yetki `settings.view`; PUT `settings.edit`, firma başına 30/dk. Firma (tenant) ayarıdır.
+
+```http
+PUT /api/v1/settings/sms
+Content-Type: application/json
+X-CSRF-Token: …
+
+{ "url": "https://sms.example.com", "header": "ACME", "apiKey": "…" }
+```
+
+- `url`: `null` = sistem varsayılanı (`SMSPORTAL_URL`). Yalnız köken + yol; kullanıcı adı/şifre, `?`, `#`, boşluk yok,
+  ≤ 255 karakter. Production'da `https` + 443. İç/özel adres → 400 `HOST_NOT_ALLOWED`.
+- `header`: `null` ya da 1–11 karakter (`A-Za-z0-9 .-`).
+- `apiKey`: yok ya da `""` → korunur; `null` → silinir; dolu → 8–256 yazdırılabilir ASCII, şifreli saklanır (bağlam etkin
+  adresin kökeni). Etkin köken değişip anahtar verilmezse 400 `fields.apiKey` = "Adres değişti; API anahtarını yeniden girin."
+
+Yanıt `SmsSettingsView` (anahtar ve sistem varsayılan adresi **asla** dönmez):
+
+```json
+{ "url": null, "defaultUrl": true, "header": "ACME", "apiKeySet": true,
+  "keyUnreadable": false, "insecure": false, "usable": true, "updatedAt": "2026-11-15T10:00:00.000Z" }
+```
+
+`keyUnreadable: true` → kayıtlı anahtar etkin adresle çözülemiyor (ör. `SMSPORTAL_URL` değişti); kanal kullanılamaz, Admin
+anahtarı yeniden girer. Değişmeyen PUT audit yazmaz. Hatalar: 400 `VALIDATION` / `HOST_NOT_ALLOWED`, 403, 429.
+
+### POST /api/v1/settings/sms/test
+
+Yetki `settings.edit`; 5/dk/kullanıcı, 20/dk/firma, 3/sa/alıcı. Gövde `{ "phone": "0532 000 00 00" }`. Kayıtlı ayarla sabit
+"Nokta Destek test SMS'i" metnini gönderir. 200 → `{ ok, message, reason }`; `reason` ∈ `unconfigured`, `unreachable`
+(zaman aşımı dahil), `unauthorized`, `http_error`, `redirect`, `host_not_allowed`. Hatalar: 400 (`fields.phone`: yalnız
+TR cep), 403, 429.
+
+smsportal'a giden istek: `POST {url}/api/external/send-sms`, başlık `x-api-key`, gövde `{ phone: "5xxxxxxxxx", message, header? }`;
+8 sn zaman aşımı, yönlendirme izlenmez.
+
+### POST /api/v1/sessions/:id/send-link · GET /api/v1/sessions/:id/send-link/options
+
+`options`: yetki `sessions.send_link` → `{ "sms": true, "whatsapp": true, "suggestedPhone": "+905320000000" | null }`
+(`suggestedPhone` yalnız talepten doğan oturumda, kendi teknisyenine).
+
+`send-link`: yetki `sessions.create` + `sessions.send_link`; 20/sa/kullanıcı (SMS + WA toplam), 5/sa/alıcı, 200/sa/firma.
+
+```json
+{ "channel": "SMS", "phone": "0532 000 00 00", "link": "https://remote.example.com/j/…" }
+```
+
+`link` oturumun kendi bağlantısı olmalıdır. 200 → `{ "sent": true }`. Mesaj sabit şablon: firma adı (≤ 30), bağlantı,
+teknisyen "Ad S.", "Bağlantıyı kimseyle paylaşmayın.".
+
+| Durum | Kod                   | Ne zaman                                                                                                     |
+| ----- | --------------------- | ------------------------------------------------------------------------------------------------------------ |
+| 400   | `VALIDATION`          | `fields.phone` (SMS yalnız TR cep), `fields.link` (bu oturumun bağlantısı değil)                             |
+| 404   | `NOT_FOUND`           | Oturum yok ya da başka firmanın                                                                              |
+| 409   | `CONFLICT`            | Oturum bekleyen değil                                                                                        |
+| 409   | `CHANNEL_UNAVAILABLE` | Kanal yapılandırılmamış ya da güvensiz                                                                       |
+| 429   | `RATE_LIMITED`        | Kova aşımı (`retryAfterSec`)                                                                                 |
+| 502   | `UPSTREAM`            | Servis hatası; `fields.reason` ∈ `unreachable`, `unauthorized`, `http_error`, `redirect`, `host_not_allowed` |
+
+### Durum bildirimi kuyruğu (yeni uç yok)
+
+WEB talebi kabul edildiğinde, reddedildiğinde ya da süresi dolduğunda, aynı işlemde müşterinin seçtiği **ve** firmanın
+açtığı her kanal için `notification_outbox` satırı yazılır. İşçi 2 sn'de bir gönderir; başarısızlıkta 10 sn ve 30 sn sonra
+yeniden dener, 3. denemeden sonra FAILED. Kalıcı nedenler (`unconfigured`, `unauthorized`, `host_not_allowed`,
+`invalid_phone`, `rate_limited`, `recipient_unreadable`) yeniden denenmez. Tavanlar (`NOTIFY_LIMITS`, DB'de sayılır):
+alıcı başına 24 saatte firma içi 3, sistem geneli 5; firma × kanal saatte SMS 100, WHATSAPP 60, EMAIL 100; WA müşteri kovası
+sistem 600/sa, firma 60/sa, alıcı 3/sa. Aşımda satır `FAILED rate_limited` + audit `scope`. Alıcı şifreli tutulur, son durumda
+silinir; satırlar 7 gün sonra temizlenir.
+
+### GET /api/v1/customers/export.csv?status=active|passive|all
+
+Yetki `customers.view` + `customers.export`; 10/dk/kullanıcı. `text/csv; charset=utf-8`, BOM, `;` ayraç, formül kaçışı,
+`attachment; filename="musteriler-YYYYMMDD.csv"`. Sütunlar: Ad, Yetkili kişi, Telefon, E-posta, Not, Dosya etiketi,
+Varsayılan öncelik, SLA (dk), Durum. > 50 000 satır → 400 `VALIDATION`.
+
+### POST /api/v1/customers/import/preview
+
+Yetki `customers.import` + `create` + `view`; 10/sa/kullanıcı. `multipart/form-data`, tek alan `file` (≤ 2 MB, UTF-8,
+≤ 5 000 veri satırı, kayıt ≤ 8 KB; ayraç başlıktan `;` ya da `,`). 200 → `ImportPreview`:
+
+```json
+{ "previewId": "…", "total": 120, "counts": { "create": 100, "conflict": 15, "error": 5 },
+  "rows": [ { "line": 2, "kind": "create", "name": "Acme", "…": "…" } ],
+  "errors": [ { "line": 7, "column": "E-posta", "message": "…" } ], "errorsTruncated": false, "warnings": [] }
+```
+
+`rows` ilk 50 satır; `errors` ≤ 500; `line` dosyadaki fiziksel satır (1 = başlık). Önizleme 15 dk geçerli, kullanıcı başına
+tek (yenisi eskisini geçersiz kılar). Hatalar: 400 `VALIDATION` `fields.file` (dosya yok / UTF-8 değil / Ad sütunu yok /
+boş), 403, 413 `PAYLOAD_TOO_LARGE`, 429.
+
+### POST /api/v1/customers/import/commit
+
+Yetki `customers.import` + `create`; `onConflict: "update"` ise ayrıca `customers.edit`. Gövde
+`{ "previewId": "…", "onConflict": "skip" | "update" }` → 200 `{ total, created, updated, skipped, failed }`. `previewId` tek
+kullanımlık. Her yeni müşteriye yeni ref; `Durum` sütunu yok sayılır. Hatalar: 400, 403, 409 `CONFLICT` ("Başka bir içe
+aktarma sürüyor"), 428 `PREVIEW_REQUIRED`.
+
+### Audit (P19)
+
+`request.created` += `source`, `notify`, `notifySuppressed?`; `request.web_form_rejected` (`reason` fast | token | honeypot |
+token_store_full; IP anahtarı başına dakikada 1); `request.customer_notify` (kanal, tür, maskeli alıcı, sonuç; tavanda
+`reason: "rate_limited"`, `scope`); `session.link_sent` (kanal, maskeli alıcı, sonuç); `settings.sms_updated` (eski → yeni
+`{url, header, apiKeySet}`, anahtar `***`); `settings.sms_test`; `customer.exported` `{count, status}`; `customer.imported`
+`{total, created, updated, skipped, failed, onConflict}` + satır başına `customer.created/updated` (`source: "import"`).
+Ref, form token'ı, talep sırrı, gizli alan ve mesaj gövdesi hiçbir kayda yazılmaz.
+
 ## Saklama ve anonimleştirme (P13a)
 
 Yeni uç yoktur. Kaynak: `docs/mimari-p13.md` §2–§3, `apps/server/src/jobs/retention.ts`.

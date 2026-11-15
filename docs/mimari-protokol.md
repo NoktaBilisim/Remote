@@ -351,6 +351,51 @@ Panel kanalı tek yönlü kalır (istemci mesajı 1008). Sıralama garantisi §5
 - [ ] `body` yalnız düz metin çizilir; `senderName` yalnız TECH'te gösterilir.
 - [ ] `VALIDATION` hem `error` (K1 sonrası) hem 1008 (K1 öncesi) durumunda kullanıcı metni kaybolmaz.
 
+### 5.5 P19 — tarayıcı talep soketi (WEB kaynaklı talep; mimari-e11 §8c.2, AC-259, S-P19-1/3/4/13)
+
+Kaynak ve doğrulama: `apps/server/src/requests/{web-routes,form-token,service,ws,panel,public-routes}.ts`,
+`packages/contracts/src/api/requests.ts` (`webRequestInputSchema`, `WebFormInfo`, `REQUEST_SOURCES`), web
+`apps/web/app/r/[ref]/*`, `apps/web/lib/web-request/flow.ts`. §5.1–5.4 aynen geçerlidir; bu bölüm yalnız tarayıcı yolunu ekler.
+
+**Akış:** `/r/<ref>` sayfası → `GET /api/v1/public/web-requests/form?ref=` (form bilgisi + `formToken`) → en az 2 sn sonra
+`POST /api/v1/public/web-requests` → 201 `requestSecret` → `sessionStorage` `rs.wr.<ref>` (sekme kapsamı; F5'te bekleme
+görünümüne dönülür, kapanış/iptalde silinir) → `/ws/request` → `request.accepted` → "Ekranımı paylaş" → `/ws/guest`
+(`mode=BROWSER`). Uçların ayrıntısı `docs/api.md` "Web talep formu, dış gönderim ve müşteri CSV (P19)".
+
+**Form token'ı (bot kapısı):**
+
+| Kural      | Değer                                                                                                                                                                                                                             |
+| ---------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Biçim      | base64url(`v1` ‖ issuedAt ‖ nonce 16 B ‖ HMAC-SHA256); anahtar uygulama anahtar halkasından HKDF (`web-form-token`), yeni env yok                                                                                                 |
+| Bağlam     | HMAC girdisi süreç kimliği (`bootId`, açılışta rastgele, bellekte) + ref içerir; yeniden başlatma bütün token'ları düşürür                                                                                                        |
+| Yaş        | < 2 000 ms → 429 `RATE_LIMITED` `retryAfterSec: 2`, **token harcanmaz**; > 30 dk → 400 `FORM_TOKEN_INVALID`                                                                                                                       |
+| Tüketim    | Doğrulama + tek kullanım kaydı ilk `await`'ten önce aynı senkron adımda (aynı token'la paralel istekte tam biri geçer); küme ≤ 100 000, dolu → fail-closed 400                                                                    |
+| Sıra       | bodyLimit 8 KB → Origin → zod → bot kapısı (tüketim) → ref/form kapalı (tek tip 404) → mesai → kovalar → TX. Tüketimden sonraki her red token'ı harcar; istemci her 4xx/429/503'te yeni token alır ve 2 sn sayacını yeniden kurar |
+| Gizli alan | `website` doluysa genel 400 `VALIDATION`                                                                                                                                                                                          |
+
+**`/ws/request` tarayıcı el sıkışması (§5.1 tablosuna ek):**
+
+|                  | Kural                                                                                                                                                                                                                                                                      |
+| ---------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Kimlik           | `Sec-WebSocket-Protocol: rs.v1, rs.req.<requestSecret>, rs.cap.chat1` (tarayıcı her zaman sohbet yeteneği bildirir; §5.4.1)                                                                                                                                                |
+| İstemci türü     | `Origin` başlığı **varsa** BROWSER (köken `ALLOWED_ORIGINS`'te olmalı), yoksa §5.1 AGENT kuralı. Satır bulunduktan sonra `source` türle eşleşmeli: BROWSER ↔ `WEB`, AGENT ↔ `AGENT`; aksi 403 `client_kind` (web sırrı programdan, program sırrı tarayıcıdan kullanılamaz) |
+| Sürüm            | WEB satırında `client_version` NULL'dır; sürüm kapıları (426, eski istemci eşlemesi, `OUTSIDE_HOURS` → `QUEUE_FULL`) yalnız AGENT dalında çalışır                                                                                                                          |
+| Mesajlar         | §5.1 ve §5.4 ile aynı (`request.state`, `request.accepted`, `request.closed`, `request.cancel`, `request.decline`, sohbet ekleri)                                                                                                                                          |
+| Yeniden bağlanma | Tarayıcı 1008 / 4xxx kapanışta durur (tek tip "bulunamadı" + "Yeni talep oluştur"); diğer kapanışlarda üstel 1→30 sn yeniden dener. Kopma zamanlayıcısı §5.1 ile aynı (sekme kapanınca talep CANCELLED(DISCONNECTED))                                                      |
+
+**İptal:** `POST /api/v1/public/requests/cancel` AGENT ya da BROWSER kabul eder; tür ↔ `source` uyuşmazlığında sessiz 204.
+
+**Kabul (ön-kabul, §5.2'ye ek):** WEB talebi kabulünde `preAdmitGuest(…, {kind: "BROWSER", clientVersion: null})`; misafir
+`/ws/guest`'e `rs.ticket.<wsTicket>` ile **tarayıcıdan** (Origin ile) bağlanır, oturum `mode=BROWSER` olur → `input` kanalı
+yoktur (yalnız görüntü). Kabul kodu (`requireAcceptCode`) WEB talebinde **desteklenir sayılır**: `admitCode` bekleme
+sayfasında gösterilir, `client_unsupported` WEB'de üretilmez. `binding.offer` BROWSER misafirine gönderilmez (§6).
+
+**`/ws/panel`:** `request.new` += `source: "AGENT" | "WEB"`; WEB'de `customerChat: "SUPPORTED"`.
+
+**Log/iz:** Caddy iki log bloğunda `/r/<ref>` → `/r/***`; logger `*.ref`, `*.requestSecret`, `*.formToken`, `*.website`
+redakte. `/r/<ref>` sayfası uygulamanın sıkı CSP'siyle sunulur (`connect-src 'self' wss://<host>`, `frame-ancestors 'none'`,
+`Referrer-Policy: no-referrer`).
+
 ## 6. Bilgisayar kaydı mesajları (P8c — mimar, 2026-11-12; ADR-0017, `docs/mimari-e10.md` §3.4)
 
 Şemalar `packages/contracts/src/ws.ts` (`binding.*`, `strictObject`); Go eşi `internal/signal/messages.go`, ortak fixture `fixtures/bindings.json`. Kanal mevcut `/ws/guest` soketidir; yeni WS ucu yok. `hello` şeması **değişmez** (0.9.x istemci sıkı ayrıştırır).
