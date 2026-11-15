@@ -1,4 +1,4 @@
-# API Dokümanı — Remote Support (P1–P8, P8b-1, P8c, P9, P10, P11, P12, P12b, P13a, P13b, P13b-L, P14a, P14b, P15, P16, P18)
+# API Dokümanı — Remote Support (P1–P8, P8b-1, P8c, P9, P10, P11, P12, P12b, P13a, P13b, P13b-L, P14a, P14b, P15, P16, P18, P19, P20)
 
 Bu belge P1–P8, P8b-1, P8c-1, P9, P10, P11, P12, P12b, P13a, P13b ve P13b-L'de **kodda var olan** uçları anlatır. Sonraki paketlerin bağlayıcı sözleşmesi
 `docs/mimari-api.md`'dedir. Kaynak: `apps/server/src/auth/routes.ts`, `auth/guards.ts`, `lib/errors.ts`,
@@ -38,6 +38,9 @@ tenant-purge-repo,retention,orphan-scan}.ts`, `audit/{read,view,repo}.ts`, `ops/
 P18: `requests/{assign,calendar,hours,hours-routes,messages,routes,service,ws,hub,panel}.ts`, `sessions/{history,history-repo}.ts`,
 `users/{routes,repo}.ts`, `cli/crypto.ts`, `packages/contracts/src/{errors.ts,permissions.ts,ws-request.ts,holidays-tr.ts,
 api/requests.ts,api/sessions.ts,api/customers.ts}`. Özet: "Talep iletişimi (P18)" bölümü.
+P20: `signaling/{binding,handlers,rooms,types}.ts`, `bindings/{service,repo}.ts`, `lib/{logger,db,errors}.ts`, `ops/metrics.ts`,
+`packages/contracts/src/{ws.ts,errors.ts,api/bindings.ts}`, `fixtures/bindings.json` (`multi`). Özet: "Çoklu firma kaydı (P20)"
+(bölüm "WebSocket `/ws/guest` — kayıt mesajları" altında). REST uç değişikliği yok.
 
 ## Genel kurallar
 
@@ -1648,6 +1651,48 @@ Yeni WS ucu yok; mevcut misafir soketi kullanılır, `hello` şeması değişmed
 
 İstemci `error` yanıtında oturuma devam eder, kayıt yazmaz.
 
+### Çoklu firma kaydı (P20)
+
+Bir bilgisayar aynı sunucuda en çok **5** firmaya kayıtlı olabilir (`BINDING_MAX_PER_DEVICE = 5`). Ek alanlar yalnız
+`clientVersion ≥ 0.12.0` (`BINDING_MULTI_MIN_VERSION`) Windows istemcisine açılır; 0.10/0.11 eski tek kayıt dalını (`previousKey`)
+aynen kullanır. Bağlayıcı sözleşme `docs/mimari-protokol.md` §6.1, `docs/mimari-e11.md` §8d.2.
+
+| `t` / alan                     | Yön         | Tip                                                     | Kural                                                                                                                                                     |
+| ------------------------------ | ----------- | ------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `binding.offer.multi`          | S → misafir | `true` (isteğe bağlı)                                   | Yalnız ticket `clientVersion ≥ 0.12.0` ise eklenir (≤ 0.11.x sıkı ayrıştırıcısı bilinmeyen alanı reddeder). Bağlantı başına saklanır                      |
+| `binding.request.previousKeys` | misafir → S | `bindingKey[]`, 1..5, benzersiz                         | Bilgisayardaki bu sunucuya ait bütün anahtarlar. Biçim dışı (boş, > 5, yinelenen) → kapanış 1008. `multi` teklifi almamış bağlantıdan → `error{CONFLICT}` |
+| `binding.request.full`         | misafir → S | `true` (isteğe bağlı)                                   | Bu sunucuda 5 kayıt dolu. `false` değeri biçim dışıdır (1008)                                                                                             |
+| `previousKey` + `previousKeys` | misafir → S | —                                                       | Birlikte gönderilemez → `error{VALIDATION}` ("previousKey ve previousKeys birlikte gönderilemez"); kabul edilmiş misafirde soket açık kalır               |
+| `binding.issued.previousIndex` | S → misafir | `0..4` veya `null`                                      | Yalnız `previousKeys`'li isteğe eklenir: yenilenen anahtarın listedeki sırası; yeni kayıtta `null`. Eski isteğe alan hiç gelmez                           |
+| `error{BINDING_LIMIT}`         | S → misafir | mesaj "Bu bilgisayar en çok 5 firmaya kayıtlı olabilir" | Yalnız `full: true` isteğe, oturumun firmasıyla eşleşen kayıt yoksa. Oturum sürer; istemci kendi bilgi cümlesini gösterir                                 |
+
+**Sunucu kuralı (çoklu dal):** yalnız **oturumun firmasına** ait, iptal edilmemiş satırlar `previousKeys` özetleriyle aranır ve
+kilitlenir; başka firmanın satırı sorguya girmez, hiçbir zaman yenilenmez ya da iptal edilmez. Eşleşen en son kullanılan satır
+yenilenir (`renewed: true`), aynı firmanın fazla satırları `REPLACED` ile iptal edilir (audit `binding.revoked`). Eşleşme yoksa:
+`full` → `BINDING_LIMIT` (audit `binding.denied {reason:"capacity"}`, metrik `rs_binding_denied_total{reason="capacity"}`);
+değilse yeni satır. Audit `binding.issued.newValue.multi = true`; `replacedOtherTenant` çoklu dalda hep `false`. Oturum başına
+3 istek sınırı değişmedi. `*.previousKeys` logda maskelenir.
+
+Örnek (0.12.0 istemci, iki kayıtlı firma, ikincisi bu oturumun firması):
+
+```json
+{ "t": "binding.offer", "multi": true }
+{ "t": "binding.request", "previousKeys": ["rsb_<43 karakter>", "rsb_<43 karakter>"] }
+{ "t": "binding.issued", "bindingKey": "rsb_<43 karakter>", "tenantName": "Acme", "customerFirmName": null, "renewed": true, "previousIndex": 1 }
+```
+
+Sınır dolu ve oturumun firması kayıtlı değil:
+
+```json
+{ "t": "binding.request", "previousKeys": ["rsb_…", "rsb_…", "rsb_…", "rsb_…", "rsb_…"], "full": true }
+{ "t": "error", "code": "BINDING_LIMIT", "message": "Bu bilgisayar en çok 5 firmaya kayıtlı olabilir" }
+```
+
+Kimliksiz uçlar (`POST /public/bindings/status`, `/revoke`) değişmedi: istemci her firmayı kendi anahtarıyla ayrı sorar ve
+iptal eder. Metrikler: `rs_bindings_issued_total{renewed,multi}` (eski dalda `multi="false"`),
+`rs_binding_denied_total{reason="capacity"|"no_multi"}`, `rs_request_messages_rejected_total{reason="validation"}` (`/ws/request`
+sohbet gövdesi reddi).
+
 ### Hız sınırları (P8c ekleri)
 
 | Kova                  | Anahtar   | Sınır             | Uç                                                                |
@@ -2967,7 +3012,7 @@ P8b-1: `request.created` (yalnız `clientVersion`; IP `ip_address` sütununda), 
 audit'e yazılmaz.
 P8c-1: `customer.created`, `customer.updated` (yalnız değişen alanlar; yetkili kişi/telefon/e-posta/not maskeli),
 `customer.ref_rotated`, `customer.deactivated` (`revokedBindings`, `cancelledRequests`), `customer.reactivated`,
-`customer.anonymized` (sistem), `binding.issued`, `binding.revoked` (`reason`), `binding.denied` (bayat kaynak / pasif);
+`customer.anonymized` (sistem), `binding.issued`, `binding.revoked` (`reason`), `binding.denied` (bayat kaynak / pasif; P20 `capacity`);
 `request.created` += `{via: "ref"|"binding", customerId}`. Kayıt anahtarı ve ref'in tamamı hiçbir olayda yoktur (ref
 yalnız ilk 4 karakter). Geçersiz kayıt denemesi audit'e değil metriğe yazılır.
 P9: `user.created` (e-posta, ad, rol, durum; geçici şifre yok), `user.updated` (değişen alanlar eski → yeni),

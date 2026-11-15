@@ -4,6 +4,7 @@ Bu kılavuz Nokta Bilişim uzaktan destek platformunun kullanıcıya dönük ekr
 geliştirilir (bkz. `README.md` "Yol haritası"); kılavuz da her paketle birlikte büyür. Bu sürümde yer alan bölümler:
 
 - **Müşteri için:** Hızlı Destek uygulaması (Windows), yalnız bir pencereyi paylaşma (0.11), "Destek iste" ile talep gönderme,
+  birden çok firmaya kayıt, tepside çalıştırma ve Windows açılışında başlatma, beklerken teknisyenle yazışma (0.12),
   program indirmeden tarayıcıdan talep gönderme (web talep formu, durum bildirimi, "sohbete şifre yazmayın"), bilgisayarın hatırlanması
   ("Bağlantı kodum var", "Bu bilgisayarı unut"), uzaktan kontrol izni, ekran görüntüsü alınamazsa ne yapılır,
   bilgisayarda ne kalır (iz ve gizlilik)
@@ -263,7 +264,9 @@ da aynı kuralla logo gösterir.
 
 Hızlı Destek, teknisyenin ekranınızı görmesini sağlayan küçük bir Windows programıdır. Kurulum gerektirmez,
 yönetici şifresi sormaz, bilgisayarınızda iz bırakmaz (istisnalar: bkz. "Bilgisayarımda ne kalır?"). Program
-kapandığında hiçbir parçası çalışmaya devam etmez.
+kapandığında hiçbir parçası çalışmaya devam etmez. Tek istisna, sizin açıkça açtığınız **Tepside çalıştır** seçeneğidir
+(0.12 ve sonrası; bkz. "Program tepside çalışsın ve Windows açılınca başlasın mı?"); bu durumda saatin yanında Nokta
+Destek simgesi her zaman görünür.
 
 **Ne gerekir?**
 
@@ -606,7 +609,10 @@ paylaşılmaz. **Vazgeç** derseniz "Ekranınız paylaşılmadı" yazar ve talep
 **Beklerken neler yapabilirim?**
 
 - **Talebi iptal et:** talep firmanızın listesinden kalkar ve forma dönersiniz ("Talebiniz iptal edildi").
-- Pencereyi sağ üstteki **X** ile kapatmak da talebi iptal eder ve programı kapatır.
+- **Teknisyenle yazışın** (0.12 ve sonrası): bekleme penceresindeki **Teknisyenle yazışma** alanından teknisyene yazabilir,
+  onun mesajlarını okuyabilirsiniz. Bkz. "Beklerken teknisyenle nasıl yazışırım?".
+- Pencereyi sağ üstteki **X** ile kapatmak da talebi iptal eder ve programı kapatır (**Tepside çalıştır** açıksa program
+  kapanmaz, tepsiye döner).
 - İnternet kısa süre koparsa "Bağlantı koptu, yeniden bağlanılıyor…" yazar. Program yaklaşık 2 dakika boyunca
   kendiliğinden yeniden bağlanmayı dener; bir şey yapmanız gerekmez.
 - Firmanız bekleme süresi içinde yanıt veremezse "Talebiniz zaman aşımına uğradı" yazar. Pencerenin üstündeki
@@ -733,7 +739,9 @@ NoktaDestek dosyasını (hangisi olursa olsun) açıp **Destek iste**'ye basman�
 - Oturumu lobide **Vazgeç** ile bırakırsanız ya da ekranınızı paylaşmazsanız bilgisayar hatırlanmaz.
 
 **Programı yeniden açtığımda ne görürüm?**
-Ana ekran açılır. Üstte firma adı, kırmızı dolandırıcılık uyarısı ve (kayıtlıysa) "Bu bilgisayar <firma>[ – <müşteri
+Hızlı Destek 0.12 ve sonrasında bilgisayarınız kayıtlıysa **firma listeli ana ekran** açılır (bkz. "Birden çok firmadan
+destek alıyorum"). Aşağıdaki açıklama 0.10–0.11 ana ekranını ve 0.12'de geçerli bir firma dosyasıyla açılan ekranı
+anlatır: üstte firma adı, kırmızı dolandırıcılık uyarısı ve (kayıtlıysa) "Bu bilgisayar <firma>[ – <müşteri
 firma>] için kayıtlı" satırı bulunur. Altında dört düğme vardır:
 
 | Düğme                       | Ne yapar                                                                                                    |
@@ -773,10 +781,172 @@ olabilir; uzun süre kullanılmayan kayıtlar da kendiliğinden düşer. Program
 kalır). **Bağlantı kodum var** ile teknisyenin kodunu girin veya firmanızdan yeni dosya isteyin. Bir sonraki başarılı
 oturumdan sonra bilgisayar yeniden hatırlanır.
 
-**Başka bir firmadan destek alırsam?** Bir bilgisayar aynı anda tek firmaya kayıtlıdır. Başka bir firmayla oturum
-yaparsanız oturum sonunda "Bu bilgisayar artık <yeni firma> için kayıtlı." yazar.
+**Başka bir firmadan destek alırsam?** Hızlı Destek 0.12 ve sonrasında bilgisayar aynı anda **en çok 5 firmaya** kayıtlı
+olabilir; yeni firma eskisinin yerine geçmez. Ayrıntı bir sonraki bölümde. (0.10–0.11'de bilgisayar tek firmaya kayıtlıydı
+ve oturum sonunda "Bu bilgisayar artık <yeni firma> için kayıtlı." yazardı.)
 
 **Paylaşılan bilgisayardaysanız** işiniz bitince **Bu bilgisayarı unut**'a tıklayın.
+
+### Birden çok firmadan destek alıyorum (Hızlı Destek 0.12 ve sonrası)
+
+Bir bilgisayar aynı destek sunucusunda **en çok 5 firmaya** kayıtlı olabilir. Her firmayla ilk başarılı oturumdan sonra
+o firma listeye eklenir ve oturum sonunda "Bu bilgisayar artık <firma> için de kayıtlı (2/5)." gibi bir satır görünür.
+Eski sürümdeki (0.10–0.11) kaydınız ilk açılışta kendiliğinden taşınır; bir şey yapmanız gerekmez.
+
+**Firma listesi ne zaman görünür?**
+
+- Programın adı değiştirilmişse (ör. `NoktaDestek.exe`) ve bilgisayar kayıtlıysa.
+- Elinizdeki firma dosyasının ya da teknisyen kodunun süresi dolduysa ve bilgisayar kayıtlıysa.
+- Program tepsideyken simgeye tıkladığınızda (bkz. sonraki bölüm).
+
+Geçerli bir firma dosyası (`NoktaDestek-<firma>-….exe`) ya da geçerli bir kod dosyası (`Destek-<kod>.exe`) açarsanız liste
+görünmez; o dosyanın firmasının ekranı açılır.
+
+**Ekranda neler var?**
+
+- **Destek istemek istediğiniz firmayı seçin:** listesi. Her satırda firma adı, varsa müşteri firma adı ve bu bilgisayarın
+  o firmaya kaydolduğu tarih yazar (ör. `Acme – Merkez Ofis (kayıt: 12.11.2026)`). Tek firmaya kayıtlıysanız liste yerine
+  "Kayıtlı firma: …" satırı görünür.
+- Tanımadığınız ya da beklemediğiniz bir tarihte eklenmiş bir firma görürseniz o firmayı seçip **Bu firmayı unut**'a basın.
+- **Başka sunucu (<adres>) — talep için seçilemez** bloğu: bilgisayarınız başka bir destek sunucusunun programıyla da
+  kayıt aldıysa o kayıtlar burada yalnız bilgi olarak listelenir. Onlardan destek istemek için o sunucunun programını
+  kullanın. 5 firma sınırı her sunucu için ayrı sayılır.
+- Kırmızı dolandırıcılık uyarısı: sizi kendiliğinden arayan biri bu programı açmanızı istediyse pencereyi kapatın.
+
+**Nasıl destek isterim?**
+
+1. Listeden firmayı seçin.
+2. **Destek iste**'ye basın. Talep formu açılır; pencere başlığında seçtiğiniz firma yazar.
+3. Sonrası "Teknisyeni beklemeden destek isteyebilir miyim?" bölümündeki gibidir.
+
+**Tek firmayı nasıl unuturum?**
+
+1. Listeden firmayı seçin, **Bu firmayı unut**'a basın.
+2. "<firma> bu bilgisayardan unutulsun mu? …" sorusuna **Evet** deyin.
+3. "<firma> bu bilgisayardan unutuldu." yazar. Yalnız o firmanın kaydı bu bilgisayardan silinir ve sunucuda iptal edilir;
+   diğer firmalar ve kayıtlı ad/telefonunuz kalır. O firmadan yeniden destek almak için firmanın dosyası ya da teknisyenin
+   kodu gerekir.
+
+**Hepsini nasıl unuturum?**
+
+1. **Bu bilgisayarı unut (tüm firmalar)**'a basın.
+2. "Bu bilgisayardaki tüm firma kayıtları ve kayıtlı bilgileriniz silinsin mi? …" sorusuna **Evet** deyin.
+3. "Bu bilgisayar unutuldu" yazar. Tüm firma kayıtları, hatırlanan ad/telefon/e-posta, tanılama dosyası, Windows açılışı
+   kaydı ve tepsi simgesi kaldırılır. Bu sunucudaki kayıtlar da iptal edilir. **Başka sunucunun kayıtları** yalnız bu
+   bilgisayardan silinir; o sunucuda iptal edilemez.
+
+**Ana ekranda görebileceğiniz bilgi satırları**
+
+| Mesaj                                                                                                   | Anlamı / ne yapmalı                                                                                                                                                                 |
+| ------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| <firma>: bu bilgisayarın kaydı artık geçerli değil, listeden çıkarıldı.                                 | Firma kaydı iptal etmiş ya da bağlantıyı yenilemiş. Firmanızdan yeni dosya isteyin                                                                                                  |
+| Firma adı değişti: eski → yeni                                                                          | Firma sunucudaki adını değiştirdi; bilgi notudur                                                                                                                                    |
+| Bu bilgisayar 5 firmaya kayıtlı; <firma> için kayıt alınmadı. Ana ekrandan bir firmayı unutabilirsiniz. | Sınır dolu. Kullanmadığınız bir firmayı unutun; bir sonraki oturumda yeni firma eklenir                                                                                             |
+| Bu bilgisayarda başka iki sunucunun kayıtları var; bu firma için kayıt alınmadı.                        | Bilgisayar zaten iki farklı sunucuya kayıtlı. Gerekmeyenleri **Bu bilgisayarı unut** ile temizleyin                                                                                 |
+| Eski sürümden kalan bir kayıt (<firma>) eklenemedi; 5 firma sınırı. …                                   | Eski sürümden kalan kayıt yer olmadığı için taşınmadı. Bir firmayı unutun. Eski sürüm dosyasını açmayın; tam temizlik için bu programda **Bu bilgisayarı unut**'u kullanın          |
+| Kayıt dosyasında sınırı aşan eski kayıtlar vardı; en eski kullanılanlar listeden çıkarıldı.             | Bilgi notudur; kalan kayıtlar çalışır                                                                                                                                               |
+| Bu bilgisayardaki kayıtlar şu an okunamıyor; kayıtlar silinmedi, program kayıtsız gibi çalışıyor. …     | Genellikle antivirüs taraması gibi geçici bir durumdur. Programı daha sonra yeniden açın. Sürerse **Bu bilgisayarı unut** ile silebilirsiniz (firmalardaki kayıtlar iptal edilemez) |
+| Kayıtlar art arda okunamadı. Bu bilgisayarı unut ile silmeniz önerilir; …                               | Kayıtlar kalıcı olarak okunamıyor (ör. Windows şifreniz yönetici tarafından sıfırlandı). **Bu bilgisayarı unut**'a basın ve firmanızdan yeni dosya isteyin                          |
+| Kayıt bu bilgisayara yazılamadı.                                                                        | Oturum sonunda görünür; kayıt alınamadı. Bir sonraki oturumda yeniden denenir                                                                                                       |
+
+### Program tepside çalışsın ve Windows açılınca başlasın mı? (Hızlı Destek 0.12 ve sonrası)
+
+Sık destek alıyorsanız programı her seferinde aramak zorunda kalmamak için iki seçenek vardır. İkisi de **kapalı** gelir;
+siz açmadıkça program bilgisayarınızda çalışmaya devam etmez. Seçenekler firma listeli ana ekranın altındadır, bu yüzden
+yalnız bilgisayarınız en az bir firmaya kayıtlıyken görünür.
+
+**Tepside çalıştır nasıl açılır?**
+
+1. Ana ekranın altındaki **Tepside çalıştır** kutusunu işaretleyin.
+2. Bundan sonra (oturum ya da talep yokken) pencereyi **X** ile kapattığınızda program kapanmaz; saatin yanındaki bildirim
+   alanına (tepsi) iner. İlk seferde "Program tepside çalışmaya devam ediyor" balonu çıkar.
+3. Oturum bitince de program kapanmaz: son ekran birkaç saniye görünür, sonra pencere kapanır ve program tepside kalır.
+
+Geçerli bir firma dosyası ya da kod dosyasıyla açtığınız program pencere kapanınca her zamanki gibi kapanır; tepsiye
+inmez. Tepsi en kolay **Windows açılışında başlat** ile kullanılır.
+
+**Tepsi simgesiyle neler yapılır?**
+
+- Simgeye tıklayın (ya da klavyeyle seçip Enter'a basın): ana ekran açılır. Pencere zaten açıksa öne gelir.
+- Sağ tıklayın: yalnız üç seçenek vardır: **Destek iste** (ana ekranı açar), **Aç**, **Çık**.
+- **Çık:** pencere açık değilse program hemen kapanır. Oturum ya da talep sürüyorsa "Nokta Destek penceresi açık. Çıkarsanız
+  süren oturum veya destek talebi sonlanır. Çıkılsın mı?" sorulur; **Evet** derseniz oturum teknisyende de biter.
+- Oturum sürerken simgenin ipucunda "Nokta Destek — oturum sürüyor" yazar.
+- Program ikinci kez açılırsa yeni bir simge çıkmaz; var olan pencere öne gelir.
+
+**Windows açılışında başlat nasıl açılır?**
+
+1. Önce **Tepside çalıştır**'ı işaretleyin. Bu kutu işaretli değilken **Windows açılışında başlat** pasiftir ve altında
+   "Windows açılışında başlatmak için önce Tepside çalıştır'ı açın." yazar.
+2. **Windows açılışında başlat** kutusunu işaretleyin.
+3. Bundan sonra Windows'a girdiğinizde program **pencere açmadan ve sunucuya bağlanmadan** yalnız tepsi simgesiyle başlar.
+   Siz simgeye tıklayana kadar internete çıkmaz.
+
+**Kutu pasifse ya da kendiliğinden kapandıysa** altında nedeni yazar:
+
+| Mesaj                                                                                                        | Ne yapmalı                                                                                                                           |
+| ------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------ |
+| Program yönetici olarak çalışıyor; Windows açılışında başlatma bu durumda açılamaz                           | Programı "Yönetici olarak çalıştır" demeden, çift tıklayarak açın. Yönetici olarak açılan programda iki kutu da pasiftir             |
+| Program ağ veya çıkarılabilir bir konumdan çalışıyor; programı İndirilenler'e veya kendi klasörünüze taşıyın | Programı USB bellekten ya da ağ klasöründen değil, bilgisayarınızdaki bir klasörden açın                                             |
+| Program geçici bir klasörden (ör. zip içinden) çalışıyor; …                                                  | Zip dosyasını önce bir klasöre çıkarın, programı oradan açın                                                                         |
+| Bu klasöre başka kullanıcılar yazabiliyor; …                                                                 | Programı İndirilenler'e ya da kendi klasörünüze taşıyın (ör. `C:\Users\Public` ya da herkesin yazabildiği bir klasör uygun değildir) |
+| Program bağlantılı bir klasörden çalışıyor; …                                                                | Programı gerçek bir klasöre (İndirilenler) taşıyın                                                                                   |
+| Klasör izinleri denetlenemedi; Windows açılışında başlatma kullanılamıyor                                    | Programı İndirilenler'e taşıyıp oradan açın                                                                                          |
+| Windows ayarlarında devre dışı                                                                               | Görev Yöneticisi > Başlangıç uygulamaları'nda Nokta Destek kapatılmış. Oradan **Etkinleştir** deyin                                  |
+| Windows açılışında başlatma kapatıldı: program bulunamadı; yeniden açmak için kutuyu işaretleyin.            | Programı taşıdınız ya da sildiniz; eski konumdaki başlatma kaydı silindi. Programı yeni yerinden açıp kutuyu yeniden işaretleyin     |
+| Windows açılışında başlatma kapatıldı: Bu klasöre başka kullanıcılar yazabiliyor; …                          | Programın bulunduğu klasörün izinleri değişti. Programı İndirilenler'e taşıyıp kutuyu yeniden işaretleyin                            |
+| Windows açılışında başlatma kaydı silinemedi; kullanım kılavuzundaki elle kaldırma adımını uygulayın.        | Aşağıdaki "Elle kaldırma" adımını uygulayın                                                                                          |
+
+Program tepsideyken aynı denetimler her pencere açılışında yapılır. Başlatma kaydı silinirse tepside "Windows açılışında
+başlatma kapatıldı (klasör izinleri)" ya da "Windows açılışında başlatma kapatıldı (program bulunamadı)" balonu çıkar.
+
+**Nasıl kapatırım?**
+
+- **Windows açılışında başlat** kutusunun işaretini kaldırın: Windows açılışı kaydı silinir, tepsi seçeneği kalır.
+- **Tepside çalıştır** kutusunun işaretini kaldırın: Windows açılışı kaydı da silinir; pencere kapanınca program kapanır.
+- Son firmayı unuttuğunuzda ya da **Bu bilgisayarı unut** dediğinizde ikisi de kendiliğinden kapanır.
+
+**Elle kaldırma** (program silindiyse ya da kayıt silinemediyse). Yönetici şifresi gerekmez:
+
+1. Windows tuşu + R'ye basın, `cmd` yazıp Enter'a basın.
+2. Şu satırı yazıp Enter'a basın:
+
+   ```bat
+   reg delete HKCU\Software\Microsoft\Windows\CurrentVersion\Run /v NoktaDestek /f
+   ```
+
+3. Program tepsideyse simgeye sağ tıklayıp **Çık** deyin. Kayıtlı firmaları da silmek için programı açıp **Bu bilgisayarı
+   unut**'a basın; program artık yoksa `%LOCALAPPDATA%\NoktaDestek` klasörünü silin.
+
+Görev Yöneticisi > Başlangıç uygulamaları > Nokta Destek > **Devre dışı bırak** da programın açılışta başlamasını durdurur,
+ama kaydı silmez.
+
+### Beklerken teknisyenle nasıl yazışırım? (Hızlı Destek 0.12 ve sonrası)
+
+"Destek iste" ile talep gönderdikten sonra bekleme penceresinde **Teknisyenle yazışma** alanı görünür. Teknisyen talebi
+kabul etmeden önce size "Birkaç dakika içinde bağlanacağım" gibi bir not yazabilir; siz de yanıt verebilirsiniz.
+
+1. Alttaki kutuya mesajınızı yazın.
+2. **Gönder**'e basın ya da Enter'a basın. Mesajınız önce "Siz (gönderiliyor…)" olarak görünür, sunucu kaydedince onaylanır.
+3. Teknisyenin mesajları "[SS:DD] Teknisyen <ad>:" başlığıyla görünür.
+
+**Sohbete şifre veya kart bilgisi yazmayın.** Mesajlar kayıt altına alınır ve firmanın saklama süresi boyunca durur.
+
+- Mesaj en çok 1.000 karakter ve 20 satır olabilir. Saniyede bir mesaj gönderebilirsiniz; bir mesaj onaylanmadan ikincisi
+  gönderilmez ("Önceki mesajınız gönderiliyor; lütfen bekleyin.").
+- Teknisyen talebi kabul edince "Talep kabul edildi; sohbet kapandı." yazar. Oturum başlayınca yazışmaya oturum penceresindeki
+  sohbetten devam edersiniz.
+- Pencere arka plandayken teknisyen yazarsa görev çubuğundaki simge yanıp söner. Pencere görünmüyorsa tepside "Teknisyenden
+  yeni mesaj" balonu çıkar; balonda mesajın içeriği yazmaz.
+
+| Mesaj                                                          | Ne yapmalı                                                                  |
+| -------------------------------------------------------------- | --------------------------------------------------------------------------- |
+| Bağlantı bekleniyor; mesaj şu an gönderilemez.                 | Program sunucuya bağlanıyor; birkaç saniye bekleyin                         |
+| Çok hızlı mesaj gönderildi; birazdan yeniden deneniyor…        | Bir şey yapmayın; program mesajı kendisi yeniden gönderir                   |
+| Mesaj gönderilemedi. Tekrar deneyin.                           | Metniniz kutuya geri konur; **Gönder**'e yeniden basın                      |
+| Mesaj en çok 1000 karakter olabilir / en çok 20 satır olabilir | Mesajı kısaltın                                                             |
+| Mesaj görünmez veya kontrol karakteri içeremez                 | Başka bir yerden kopyaladığınız metni yeniden yazın                         |
+| Talep kabul edildi ya da kapandı; mesaj gönderilemez.          | Talep artık beklemede değil; teknisyen bağlanınca oturum sohbetini kullanın |
 
 ### "Ekran görüntüsü alınamadı" yazıyor (Hızlı Destek 0.10.2 ve sonrası)
 
@@ -810,7 +980,11 @@ ve destek talebi bu sırada çalışmaya devam eder.
 - **Kodla bir kez bağlandıysanız** (bilgisayar kaydı yok, "Bilgilerimi hatırla" işaretsiz): program kapandıktan sonra
   bilgisayarınızda hiçbir şey kalmaz. Ekran sorunu yaşansa bile dosya yazılmaz.
 - **Bilgisayarınız hatırlanıyorsa** veya **"Bilgilerimi hatırla"** açıksa: `%LOCALAPPDATA%\NoktaDestek` klasöründe
-  şifreli ayar dosyası `hatirla.bin` bulunur.
+  şifreli ayar dosyası bulunur: 0.12 ve sonrasında `kayitlar.bin` ve yanında kilit dosyası `kayitlar.lock` (içinde kişisel
+  veri yoktur); 0.10–0.11'de `hatirla.bin`. 0.12 eski dosyayı ilk açılışta `kayitlar.bin`'e taşır ve siler.
+- **Windows açılışında başlat** açıksa: Windows kayıt defterinde `HKCU\Software\Microsoft\Windows\CurrentVersion\Run` altında
+  `NoktaDestek` adlı tek bir değer bulunur. **Tepside çalıştır** açıksa Windows, bildirim alanı simgelerinin geçmişini
+  kendisi tutar; bu Windows'un kaydıdır, program yazmaz ve silemez.
 - Aynı klasörde, **yalnız ekran görüntüsü alınamadığında** ve program yönetici olarak çalıştırılmadıysa, bir de
   **tanılama dosyası** oluşur: `tanilama.log` (dolunca eskisi `tanilama.log.1` olur; ikisi birlikte en çok 256 KB).
   - İçinde yalnız teknik bilgi vardır: tarih, program sürümü, Windows sürümü, monitör sayısı ve çözünürlüğü, ekran
@@ -819,8 +993,8 @@ ve destek talebi bu sırada çalışmaya devam eder.
     anahtarlar yazılmaz.** Ekran görüntüsü de yazılmaz.
   - Dosya otomatik olarak hiçbir yere gönderilmez. Teknisyeniniz isterse dosyayı kendiniz (ör. e-postayla) iletirsiniz.
     Klasörü açmak için Windows tuşu + R'ye basın, `%LOCALAPPDATA%\NoktaDestek` yazıp Enter'a basın.
-- **Silmek için:** ana ekranda **Bu bilgisayarı unut**'a tıklayın; ayar dosyası, tanılama dosyası ve boş kalan klasör
-  silinir. Kayıt yokken **Bilgilerimi unut** da aynı şekilde her şeyi siler.
+- **Silmek için:** ana ekranda **Bu bilgisayarı unut**'a tıklayın; ayar ve kilit dosyaları, tanılama dosyası, boş kalan
+  klasör ve Windows açılışı kaydı silinir. Kayıt yokken **Bilgilerimi unut** da aynı şekilde her şeyi siler.
 
 ---
 
@@ -1280,9 +1454,9 @@ edin, **Vazgeç** ile geri dönün.
 
 Talebi kabul etmeden önce müşteriye kısa bir not yazabilirsiniz (ör. "Birkaç dakika içinde bağlanacağım").
 
-> **Bu sürümde müşteri tarafı yok.** Müşterinin mesajları görüp yanıtlayabilmesi için tarayıcı bekleme sayfası (P19) ve
-> Hızlı Destek 0.12.0 (P20) gereklidir. Bugünkü Hızlı Destek (0.11 ve öncesi) mesajlaşmayı desteklemez; bu durumda panel
-> bunu söyler ve gönderim kapalı olur. Müşteriye telefonla ulaşın.
+> **Müşteri tarafı:** müşteri mesajları web talep formunun bekleme sayfasında ya da Hızlı Destek **0.12** ve sonrasının
+> bekleme penceresinde görür ve yanıtlar. Hızlı Destek 0.11 ve öncesi mesajlaşmayı desteklemez; bu durumda panel bunu söyler
+> ve gönderim kapalı olur. Müşteriye telefonla ulaşın.
 
 **Kim okur, kim yazar?**
 
@@ -1493,6 +1667,11 @@ kayıtla gelir. Talep kartında:
 | **Kayıtlı bilgisayar — <firma \| Genel>**      | Talep, daha önce destek almış ve kaydı geçerli bir bilgisayardan geldi. Bu bir kimlik doğrulaması **değildir**; talep kodunu yine telefonla doğrulayın |
 | **Kaydı iptal edilmiş bilgisayar**             | Talep bir kayıtla açılmış ama kayıt artık geçersiz                                                                                                     |
 | **Bu talep bağlantı yenilenmeden önce açıldı** | Talep eski bağlantı/kayıtla açıldı; kabul edebilirsiniz ama bilgisayar yeniden kaydedilmez                                                             |
+
+**Birden çok firmaya kayıtlı bilgisayarlar (Hızlı Destek 0.12):** bir müşteri bilgisayarı aynı sunucuda en çok 5 firmaya
+kayıtlı olabilir. Panelde yalnız **kendi firmanızın** kaydını görürsünüz; bilgisayarın başka firmalara da kayıtlı olduğu
+size görünmez. Sizin firmanızdaki oturumlar ve iptaller yalnız sizin kaydınızı etkiler; başka firmanın kaydı yenilenmez ya da
+iptal edilmez. Müşteri programdan "Bu firmayı unut" derse yalnız o firmanın kaydı iptal olur.
 
 **Tek bir bilgisayarın kaydını iptal etmek** (ör. aynı bilgisayardan istenmeyen talepler geliyorsa):
 
@@ -2385,9 +2564,15 @@ kısıtlıyorsa Hızlı Destek engellenebilir. Bu bölüm o şirketin BT sorumlu
   kullanılır.
 - `Destek-12345678.exe`, `NoktaDestek.exe` ve `NoktaDestek-<firma adı>-….exe` aynı programdır; yalnız adları farklıdır.
   Aynı sürümün hepsinin SHA-256 özeti aynıdır, tek bir hash kuralı hepsini kapsar.
-- Program kurulum yapmaz, yönetici izni istemez, hizmet veya başlangıç kaydı oluşturmaz. Yalnız
-  `%LOCALAPPDATA%\NoktaDestek\` klasörüne ayar (`hatirla.bin`) ve tanılama (`tanilama.log`) dosyası yazar; buradan program
-  çalıştırmaz.
+- Program kurulum yapmaz, yönetici izni istemez, hizmet, zamanlanmış görev oluşturmaz, kendini kopyalamaz. Yalnız
+  `%LOCALAPPDATA%\NoktaDestek\` klasörüne ayar (`kayitlar.bin`, kilit `kayitlar.lock`; 0.11 ve öncesinde `hatirla.bin`) ve
+  tanılama (`tanilama.log`) dosyası yazar; buradan program çalıştırmaz.
+- 0.12 ve sonrasında kullanıcı **Windows açılışında başlat** seçeneğini açıkça işaretlerse yalnız o kullanıcının
+  `HKCU\Software\Microsoft\Windows\CurrentVersion\Run` anahtarına `NoktaDestek` = `"<program yolu>" --tray` değeri yazılır;
+  program açılışta yalnız tepsi simgesiyle başlar, kullanıcı tıklayana kadar ağa çıkmaz. Program yönetici olarak açıldıysa,
+  başka kullanıcıların yazabildiği bir klasörde (ör. `C:\Users\Public`, `%ProgramData%`), ağ/çıkarılabilir sürücüde ya da
+  geçici klasörde duruyorsa bu değer yazılmaz. Kurumda istenmiyorsa Grup İlkesi ile kullanıcı `Run` anahtarı kısıtlanabilir;
+  program bu durumda tepsisiz, her zamanki gibi çalışır.
 - Ağ: yalnız destek sunucusunun adresine HTTPS ile, görüntü aktarımı için de TURN sunucusuna bağlanır. Açılması gereken
   portlar bir sonraki bölümdedir ("Ağ gereksinimleri").
 

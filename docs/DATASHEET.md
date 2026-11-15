@@ -14,8 +14,9 @@ oturum bilgisi, KVKK onayları ve denetim kayıtları kalır.
 
 - **Kurulumsuz müşteri programı** — tek dosya, yönetici yetkisi istemez; kod ile bağlanan bilgisayarda iz bırakmaz.
 - **Müşteri başlatmalı destek** — müşteri programdan "Destek iste" der; talep canlı kuyruğa düşer, teknisyen tek
-  tıkla kabul eder. Bir kez destek alan bilgisayar firmayı hatırlar, yeni link gerekmez. İstenmeyen talep gönderen IP,
-  ağ veya bilgisayar süreli ya da süresiz engellenir.
+  tıkla kabul eder; beklerken teknisyenle yazışır. Bir kez destek alan bilgisayar firmayı hatırlar (en çok 5 firma),
+  yeni link gerekmez; isterse program tepside durur, Windows açılışında başlar. İstenmeyen talep gönderen IP, ağ veya
+  bilgisayar süreli ya da süresiz engellenir.
 - **Program indirmeden destek talebi** — müşteri firmanın web formu bağlantısından tarayıcıyla talep açar, beklerken
   teknisyenle yazışır, kabulde ekranını paylaşır. İsterse talebinin kabul/ret/süre dolumu bilgisini SMS, WhatsApp veya
   e-postayla alır (yalnız hizmet bildirimi; reklam yok). İstenmeyen talep yağarsa form tek tuşla kapanır.
@@ -58,7 +59,7 @@ oturum bilgisi, KVKK onayları ve denetim kayıtları kalır.
 | -------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Destek oturumları                | Tek kullanımlık link ve 8 haneli kod, bekleme odası, teknisyen kabulü, iptal, zorla sonlandırma; müşteri beklerken panelin her sayfasında sayaç ve bildirim                                                                                                                                                                                                         |
 | Teknisyen konsolu                | Canlı ekran, uzaktan kontrol, monitör değiştirme, sohbet, dosya, işaretleme, kalite paneli                                                                                                                                                                                                                                                                          |
-| Hızlı Destek (Windows)           | Müşteri programı: "Destek iste", "Bağlantı kodum var", "Bu bilgisayarı unut", onay ve izin diyalogları; tüm ekran yerine yalnız bir pencereyi paylaşma (kontrol o pencereyle sınırlı), açık/koyu tema                                                                                                                                                               |
+| Hızlı Destek (Windows)           | Müşteri programı: "Destek iste", "Bağlantı kodum var", 5 firmaya kadar kayıt ve firma seçimi, firma/bilgisayar unutma, beklerken sohbet, isteğe bağlı tepsi ve Windows açılışında başlatma, onay ve izin diyalogları; yalnız bir pencereyi paylaşma, açık/koyu tema                                                                                                 |
 | Destek talepleri                 | Canlı kuyruk, bildirim ve ses, kabul/ret, firma filtresi, son 30 gün geçmişi, kaynak engelleme (Engellenenler ekranı), isteğe bağlı kabul kodu, atama, öncelik ve SLA, mesai saatleri ve tatiller, web talep formu ve "Web" kaynak süzgeci                                                                                                                          |
 | Müşteriler                       | Müşteri firma kaydı, firma başına bağlantı ve web formu bağlantısı (kopyala, yenile), pasife alma, talep ve oturum geçmişi, CSV dışa/içe aktarma                                                                                                                                                                                                                    |
 | Oturum geçmişi                   | Filtreli liste, ayrıntı, ticket/not, dosya doğrulama etiketi, CSV                                                                                                                                                                                                                                                                                                   |
@@ -116,7 +117,8 @@ oturum bilgisi, KVKK onayları ve denetim kayıtları kalır.
   sertifika doğrulamalı gönderilir.
 - Müşteri programı yalnız kendi sunucusuna bağlanır; bütünlüğü SHA-256 ve tekrarlanabilir derlemeyle doğrulanır.
   Hatırlanan bilgiler Windows hesabına bağlı şifreyle (DPAPI) saklanır, tek tıkla silinir. Tanılama dosyası kişisel
-  veri içermez.
+  veri içermez. Windows açılışında başlatma yalnız kullanıcı seçerse açılır; program başkalarının yazabildiği klasörden
+  çalışıyorsa açılmaz. Bir firma, bilgisayarın başka firmalara kaydını göremez ve iptal edemez.
 - Logo ve profil resimleri: yalnız PNG/JPG/WEBP (dosya içeriğinden denetlenir, SVG kabul edilmez), en çok 2 MB; sunucuda
   yeniden boyutlandırılır, konum gibi gizli bilgiler (EXIF) silinir. Profil resimleri aynı firmanın kullanıcılarına görünür;
   müşteri, teknisyeninin resmini yalnız oturum sürerken, 10 dakika geçerli imzalı bir adresten görür.

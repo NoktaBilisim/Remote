@@ -5,6 +5,71 @@ Biçim [Keep a Changelog](https://keepachangelog.com/tr/1.1.0/), sürümleme [Se
 
 ## [Unreleased]
 
+### Eklendi — istemci 0.12.0 (Windows; P20, AC-253, AC-254, AC-255 müşteri ucu)
+
+- **Tepside çalıştır ve Windows açılışında başlat** (AC-253): firma listeli ana ekranda iki onay kutusu; ikisi de varsayılan
+  kapalı, "Windows açılışında başlat" yalnız "Tepside çalıştır" açıkken seçilebilir. Açılınca `HKCU\…\Run` altına
+  `NoktaDestek` = `"<exe yolu>" --tray` (REG_SZ) yazılır; Windows açılışında program pencere açmadan, sunucuya bağlanmadan ve
+  kısayol/kanca kurmadan yalnız tepsi simgesiyle başlar. Tepsi menüsü yalnız **Destek iste / Aç / Çık**; simgeye tıklama ya da
+  Enter ana ekranı açar. Oturum sürerken **Çık** onay ister ve oturumu bitirir. Tepside çalışırken pencere kapatılınca (X) ya
+  da oturum bitince program tepsiye döner (ilk seferde "Program tepside çalışmaya devam ediyor" balonu). Kullanıcı başına tek
+  tepsi örneği; ikinci açılış ilkini öne getirir.
+- **Windows açılışında başlatma güvenlik denetimi:** program yönetici olarak çalışıyorsa, ağ/çıkarılabilir sürücüden, geçici
+  klasörden (zip içi), bağlantılı (junction) klasörden ya da başka kullanıcıların yazabildiği bir klasörden (ör.
+  `C:\Users\Public`, `%ProgramData%`) çalışıyorsa seçenek açılmaz ve nedeni yazılır. Denetim her açılışta ve tepsiden her pencere
+  açılışında tekrarlanır; koşul bozulursa Run değeri silinir ("Windows açılışında başlatma kapatıldı (klasör izinleri)").
+  Run değerinin gösterdiği program artık yoksa da değer silinir ("… kapatıldı: program bulunamadı; yeniden açmak için kutuyu
+  işaretleyin").
+- **Çoklu firma kaydı** (AC-254): bir bilgisayar aynı sunucuda en çok **5 firmaya** kayıtlı olabilir. Ana ekranda firma listesi
+  ("Firma – Müşteri (kayıt: GG.AA.YYYY)"); seçilen firmayla **Destek iste**, **Bu firmayı unut** (onaylı, yalnız o firmanın
+  kaydı iptal edilir) ve **Bu bilgisayarı unut (tüm firmalar)**. Başka bir sunucunun kayıtları ayrı "Başka sunucu (<adres>) —
+  talep için seçilemez" bloğunda gösterilir. Yeni firma eklenince oturum sonunda "Bu bilgisayar artık <firma> için de kayıtlı
+  (n/5)."; sınır doluysa "Bu bilgisayar 5 firmaya kayıtlı; <firma> için kayıt alınmadı. …". Ana ekran her açılışta kayıtları
+  sunucuya sorar; yalnız geçersiz olan kayıt listeden çıkar.
+- **Talep öncesi sohbet** (AC-255 müşteri ucu): "Destek iste" bekleme penceresinde **Teknisyenle yazışma** alanı (geçmiş, giriş
+  kutusu, **Gönder**; Enter gönderir). Mesaj 1–1.000 karakter, en çok 20 satır, saniyede 1 mesaj; çok hızlı gönderimde
+  kendiliğinden yeniden dener, bağlantı kopup gelince mesajı çift yazmaz. Talep kabul edilince sohbet kapanır. Pencere
+  gizliyken yeni teknisyen mesajında yalnız "Teknisyenden yeni mesaj" balonu çıkar (mesaj içeriği yok); pencere arka
+  plandayken görev çubuğu simgesi yanıp söner. Oturum içi sohbet değişmedi.
+- **Sunucu — `binding.offer.multi`:** ticket `clientVersion ≥ 0.12.0` ise teklif `multi: true` taşır. `binding.request` +=
+  `previousKeys` (1..5) ve `full: true`; `binding.issued` += `previousIndex`; yeni WS hata kodu `BINDING_LIMIT`. Çoklu dalda
+  yalnız oturumun firmasının kayıtları okunur ve yenilenir; başka firmanın kaydı hiçbir zaman iptal edilmez. Ayrıntı
+  `docs/api.md` "Çoklu firma kaydı (P20)".
+
+### Değişti — istemci 0.12.0
+
+- Kayıt dosyası `%LOCALAPPDATA%\NoktaDestek\kayitlar.bin` (sürüm 3) ve süreçler arası kilit dosyası `kayitlar.lock`. 0.10/0.11
+  `hatirla.bin` ilk açılışta kayıpsız taşınır; geri okuma doğrulanmadan eski dosya silinmez. 5 firma doluysa eski kayıt
+  eklenmez ve ana ekranda "Eski sürümden kalan bir kayıt (<firma>) eklenemedi; 5 firma sınırı. …" yazar.
+- Dosya geçici olarak okunamazsa (ör. antivirüs kilidi) silinmez; program o açılışta kayıtsız gibi çalışır. Art arda 3
+  açılışta okunamazsa **Bu bilgisayarı unut** önerilir; sessiz silme yok.
+- Kayıt yazılamazsa oturum sonunda "Kayıt bu bilgisayara yazılamadı" bilgisi gösterilir.
+- Eski tek kayıt davranışı ("Bu bilgisayar artık <yeni firma> için kayıtlı", başka firmanın kaydının yerine geçme) kalktı.
+- "Bu bilgisayarı unut" `kayitlar.bin`, `hatirla.bin`, `kayitlar.lock`, tanılama logu, Run değeri ve tepsi simgesini kaldırır.
+- Sunucu: `rs_bindings_issued_total` her zaman `{renewed, multi}` etiketli; yeni `rs_binding_denied_total{reason="capacity"|"no_multi"}`
+  ve `rs_request_messages_rejected_total{reason="validation"}`. Audit `binding.issued.newValue.multi`,
+  `binding.denied {reason:"capacity"}`. Logda `*.previousKeys` maskelenir.
+
+### Düzeltildi — P20
+
+- Sunucu `isTransientDbError` ham sorgu (`$queryRaw`) kilitlenmelerini (MySQL 1213/1205) tanımıyordu; kayıt vermede tek
+  yeniden deneme bu durumda hiç çalışmıyordu.
+- İstemci (güvenlik kod turu 1): Run değerinin gösterdiği program silinmişse değer silinir (S-P20-K1); ikinci tepsi örneği
+  yalnız aynı Windows kullanıcısının penceresini öne getirir (S-P20-K2); tepsi kilidi süreç ömrü boyunca açıkça tutulur
+  (S-P20-K3).
+
+### Bilinen sınırlamalar — istemci 0.12.0
+
+- Firma listesi ve tepsi/başlatma kutuları, program firma dosyası (`NoktaDestek-<firma>-….exe`) ya da kod dosyası
+  (`Destek-<kod>.exe`) geçerliyken görünmez; o durumda o firmanın tek ekranı açılır ve pencere kapatılınca program tepsiye
+  inmez. Liste; dosya adı değiştirilmiş programda (ör. `NoktaDestek.exe`), dosyanın süresi dolunca ve tepsiden açılışta
+  görünür.
+- Tepsi ipucu oturumda firma adı göstermez ("Nokta Destek — oturum sürüyor"). Exe'de simge kaynağı yok; Görev Yöneticisi >
+  Başlangıç'ta genel simge görünür.
+- 0.12.0 imzasızdır; prod yayını runbook §24.10 AV kapısına bağlıdır. Windows CI (AC-253/254 zorunlu testleri) ve gerçek
+  Windows 10/11 elle turu bekliyor (`docs/test-raporu.md` "P20 — Windows elle test listesi").
+- 0.11.x'e dönülürse `kayitlar.bin` görülmez (silinmez) ve Run değeri kalır; kaldırma adımı kılavuzda ve runbook §24.11'de.
+
 ### Eklendi — P19 (web talep formu, SMS, müşteriye durum bildirimi, oturum bağlantısını SMS/WhatsApp ile gönderme, müşteri CSV; AC-259–261, AC-263)
 
 - **Web talep formu** (AC-259): müşteri program indirmeden `/r/<ref>` sayfasından talep gönderir; bekleme görünümünde

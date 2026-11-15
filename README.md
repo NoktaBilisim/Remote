@@ -4,7 +4,7 @@ Self-hosted, çok kiracılı (multi-tenant) uzaktan destek platformu. Teknisyen 
 oturumu açar; müşteri taşınabilir Windows istemcisi (tam erişim) veya tarayıcı (yalnız görüntü) ile katılır.
 Görüntü eşler arası WebRTC ile akar; sunucu yalnız sinyalizasyon ve meta veri tutar.
 
-## Şu anki durum: P1–P13a tamamlandı, P13b (prod açılışı) kodu hazır, P14a/P14b, P15, P16, P17 (istemci 0.11.0), P18 (talep iletişimi) ve P19 (web talep formu, SMS, müşteri bildirimi, müşteri CSV) kodlandı (QA sürüyor)
+## Şu anki durum: P1–P13a tamamlandı, P13b (prod açılışı) kodu hazır, P14a/P14b, P15, P16, P17 (istemci 0.11.0), P18 (talep iletişimi), P19 (web talep formu, SMS, müşteri bildirimi, müşteri CSV) ve P20 (istemci 0.12.0) kodlandı (QA sürüyor)
 
 İş P1..P13 dikey paketlerle yürür (`docs/mimari.md` §10). P1–P11 ve **P12** (firma ve sistem logosu, kullanıcı profil
 resmi, kullanıcı başına tema, hesap menüsü, tasarım token lint kuralı) tamamlandı: P12 güvenlik Kritik/Yüksek 0 (doğrulama
@@ -252,6 +252,18 @@ P13c'ye kadar ayrı staging yoktur; yeni kod yerelde (`scripts/e2e-real.sh`) den
   kişisel veri yok; kod modunda ve yönetici olarak çalışırken yazılmaz). SHA-256
   `85142c14bf6941c2d5c3803b2818f0b1645c95b77704e640c8ff49d4059687bc`.
 
+**P20 — Windows istemci 0.12.0** (AC-253..255; kod tamam, QA tur 1 ve güvenlik kod turu 1 bulguları düzeltildi; Windows CI,
+Windows elle turu ve AV kapısı bekliyor)
+
+- İsteğe bağlı **Tepside çalıştır** ve **Windows açılışında başlat** (`HKCU\…\Run` → `"<exe>" --tray`; açılışta pencere, ağ,
+  kısayol yok; klasör ACL / yükseltilmiş süreç / geçici ya da ağ konumu denetimi, program yoksa değer silinir).
+- Bir bilgisayarda aynı sunucuda **en çok 5 firma** kaydı: firma listeli ana ekran, firma seçerek "Destek iste", "Bu firmayı
+  unut", "Bu bilgisayarı unut (tüm firmalar)". Kayıt dosyası `kayitlar.bin` v3 (0.10/0.11 `hatirla.bin` kayıpsız göç) +
+  süreçler arası `kayitlar.lock`. Sunucu eki `binding.offer.multi` / `previousKeys` / `previousIndex` / `BINDING_LIMIT`
+  (başka firmanın kaydı asla iptal edilmez; `docs/api.md` "Çoklu firma kaydı (P20)").
+- Bekleme ekranında **talep öncesi sohbet** (`/ws/request`, `rs.cap.chat1`; P18 sunucusu). Şema, migration, yeni env yok.
+  Yayın: etiket `v0.12.0` (imzasız; prod öncesi runbook §24.10 AV kapısı). Ayrıntı [`CHANGELOG.md`](CHANGELOG.md), runbook §24.8–24.11.
+
 **P19 — web talep formu, SMS ve müşteri bildirimi, müşteri CSV** (AC-259..261, 263; kod tamam, QA/güvenlik ve staging testi sürüyor)
 
 - Web talep formu `/r/<ref>`: müşteri program indirmeden tarayıcıdan talep açar, beklerken teknisyenle yazışır, kabulde
@@ -490,6 +502,7 @@ görür. `deploy/staging-users.sh` staging test hesapları için hâlâ kullanı
 | P16 (kod ✓, QA sürüyor)                                                           | G4: kullanıcı ve firma kalıcı silme (24 sa iptal penceresi), gece kalıcı silme, yetim dosya taraması, imha defteri ve geri yükleme sonrası yeniden silme                                                                   |
 | P18 (kod ✓, QA sürüyor)                                                           | G6-a talep iletişimi: kabul öncesi mesajlaşma (panel), atama, öncelik, SLA, mesai saatleri ve tatiller                                                                                                                     |
 | P19 (kod ✓, QA sürüyor)                                                           | G6-b web talep formu, SMS ayarı + test, oturum bağlantısını SMS/WhatsApp ile gönderme, müşteriye durum bildirimi, müşteri CSV dışa/içe aktarma                                                                             |
+| P20 (kod ✓, QA sürüyor)                                                           | G5-b Windows istemci 0.12.0: tepsi + Windows açılışında başlatma, 5 firmaya kadar kayıt, talep öncesi sohbet                                                                                                               |
 | P13c                                                                              | Ayrı staging (`stg.remote.noktabilisim.net`, ayrı DB/sır/yedek); E11 özelliklerinden önce                                                                                                                                  |
 
 Prod açılışının ön koşulları ve imzalı kontrol listesi: runbook §20.1–§20.3. TURN için yalnız 443/TCP'nin açık olduğu
