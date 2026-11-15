@@ -1,0 +1,35 @@
+# Prettier (ADR-0024, P14a A0). .gitignore'daki her şey (node_modules, .next, dist, coverage,
+# playwright-report, test-results, apps/server/src/generated ...) Prettier 3 tarafından zaten atlanır;
+# aşağıdakiler ayrıca, açıkça hariç tutulur.
+
+# Build / test çıktıları (gitignore ile çift güvence)
+**/.next/
+**/dist/
+**/coverage/
+**/playwright-report/
+**/test-results/
+**/blob-report/
+apps/web/out/
+apps/web/next-env.d.ts
+
+# Kilit dosyası (pnpm yazar)
+pnpm-lock.yaml
+
+# Go istemcisi: gofmt ile biçimlenir (winres.json dahil, go-winres üretir/okur)
+apps/agent-win/
+
+# Prisma: migration SQL'leri dba'nındır, geri alınamaz geçmiştir; üretilen istemci
+apps/server/prisma/migrations/
+apps/server/src/generated/
+
+# YAML (CI, compose, dependabot): kapsam dışı (ADR-0024: TS/JS/JSON/MD/CSS)
+*.yml
+*.yaml
+
+# Doküman çıktıları ve kanıt/arsiv: üretilmiş PDF'ler, ekran/ölçüm çıktıları,
+# test-operatoru kanıt betikleri, tasarım prototipleri (statik referans), eski sürüm arşivi
+docs/pdf/
+docs/img/
+docs/test-raporu/
+docs/tasarim/
+docs/arsiv/

@@ -4702,3 +4702,35 @@ Kaynak: `docs/mimari-e11.md` §3, ADR-0019 m.5, ADR-0021. Kurulum (C3) **yapılm
 - **Test:** `test-publish-lock.sh` 24/24 (yeni S13C-15 4 madde); `test-backup.sh` bölüm I'ya S13C-14 3 madde; **arka arkaya 3 koşu**
   (sonuçlar aşağıda); `test-watch.sh` GEÇTİ; shellcheck `-S warning` 0.
 - **Sonuç:** `test-backup.sh` arka arkaya 3 koşu: 73/73, 73/73, 73/73 (rc 0). Test konteynerleri silindi.
+
+## P14a A0 — devops (Prettier kurulumu + tek seferlik biçimlendirme; AC-218, ADR-0024; 2026-11-15)
+
+- **Bağımlılık:** kök `devDependencies` `prettier` **3.10.1** (MIT, `--save-exact`). Lock'ta yalnız bu paket eklendi.
+  ADR-0024'teki `eslint-config-prettier` **eklenmedi**: üç ESLint yapılandırmasında (`@eslint/js` recommended,
+  `typescript-eslint` strict, `eslint-config-next`) biçim kuralı yok; çakışma olmadığı `pnpm -r run lint` ile doğrulandı.
+  Biçim kuralı eklenirse o gün eklenir.
+- **Seçenekler (`.prettierrc`):** printWidth 140, çift tırnak, noktalı virgül, trailingComma all, arrowParens always,
+  LF, `proseWrap: preserve`, `embeddedLanguageFormatting: off`. Ölçüm (446 dosyalık kapsamda değişen satır):
+  140 → +23.1k/−9.2k; 120 → +30.8k; tek tırnak → +42k; `semi:false` → +55k; `arrowParens: avoid` / `bracketSpacing:false` /
+  `trailingComma: es5` hepsi daha büyük fark. 160–200 daha küçük fark verir ama ADR-0024 140 dedi ve satır okunurluğu için 140 tutuldu.
+  `embeddedLanguageFormatting: off`: dokümanlardaki sıkıştırılmış JSON/TS örnekleri (ör. `docs/api.md`) olduğu gibi kalır.
+  `proseWrap: preserve`: elle kırılmış Markdown paragrafları birleştirilmez (`never` 2.800+ satırı tek satıra çekiyordu).
+- **Hariç (`.prettierignore`, ayrıca `.gitignore`'daki her şey):** build/test çıktıları, `apps/web/next-env.d.ts`,
+  `pnpm-lock.yaml`, `apps/agent-win/` (gofmt), `apps/server/prisma/migrations/`, `apps/server/src/generated/`,
+  `*.yml`/`*.yaml` (ADR kapsamı TS/JS/JSON/MD/CSS; CI/compose dosyaları elle bakılır), `docs/pdf/`, `docs/img/`
+  (ölçüm/ekran çıktıları), `docs/test-raporu/` (test-operatoru kanıt betikleri), `docs/tasarim/` (statik prototip),
+  `docs/arsiv/`. `packages/contracts/fixtures/*.json` dahil (Go testleri `json.Unmarshal` ile okur, biçimden bağımsız).
+- **Markdown tablo koruması:** Prettier tabloları hizalar (görünüm değişmez). Ancak 107 yerde tablonun son satırından
+  hemen sonra boş satırsız metin vardı; GFM bunu zaten tablo satırı olarak gösteriyordu ve Prettier bunu `| metin |`
+  satırına çevirip sütunu yüzlerce karakter genişletiyordu. Biçimlendirmeden önce bu 107 yere **boş satır** eklendi
+  (yazarın niyeti: tablo biter, paragraf başlar). Tek içerik düzeltmesi: `docs/db-notlari.md` "Up guard" satırında
+  `smtp_*/totp_*` → `` `smtp_*`/`totp_*` `` (Prettier bunu vurgu olarak okuyup `smtp__/totp__` yapıyordu).
+- **Doğrulama:** 66 Markdown dosyası `marked` (GFM) ile biçim öncesi/sonrası HTML'e çevrilip karşılaştırıldı; kalan
+  farklar zararsız: liste içi boşluk (sıkı → gevşek liste, `guvenlik-raporu.md`), satır sonu boşluğu, `api.md`'de
+  satır başındaki "5." (CommonMark'a göre zaten paragraf; marked liste sanıyordu). Prettier iki dosyada (`p5-collab.spec.ts`,
+  `db-notlari.md`) ikinci geçişte sabitlendi; `pnpm format:check` 0 fark.
+- **CI:** `quality` işinde `pnpm format:check`, lint'ten önce. Yeni Action/izin yok.
+- **Kullanım:** `pnpm format` (yaz), `pnpm format:check` (denetle). Ajanlar kendiliğinden `pnpm format` çalıştırmaz;
+  değiştirdikleri dosyaları `pnpm exec prettier --write <dosya>` ile biçimler. Blame: `git config blame.ignoreRevsFile .git-blame-ignore-revs`.
+- **Test:** `pnpm format:check` temiz; `pnpm -r run lint` 0 hata; `pnpm -r run typecheck` temiz; birim: contracts 78/78,
+  web 271/271, server 368/368. MySQL entegrasyon (`test:int`) ve e2e yerelde koşulmadı (CI'da koşar).

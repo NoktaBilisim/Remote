@@ -1,4 +1,4 @@
-# CI (P1): lint -> type-check -> test (MySQL) -> build (+ Docker imajları) ; audit, lisans, gitleaks.
+# CI (P1): format:check (P14a) -> lint -> type-check -> test (MySQL) -> build (+ Docker imajları) ; audit, lisans, gitleaks.
 # G-18: tüm Action'lar commit SHA ile sabit; varsayılan izin yalnız `contents: read`; secret kullanılmaz
 # (fork PR'leri de güvenle çalışır). main'e merge için tüm job'lar "required status check" yapılır (runbook).
 name: ci
@@ -28,6 +28,7 @@ jobs:
         with: { node-version: "${{ env.NODE_VERSION }}", cache: pnpm }
       - run: pnpm install --frozen-lockfile
       - run: pnpm db:generate
+      - run: pnpm format:check # ADR-0024: Prettier, ana dalda 0 fark (kapsam .prettierignore)
       - run: pnpm -r --if-present run lint
       - run: pnpm -r --if-present run typecheck
 
