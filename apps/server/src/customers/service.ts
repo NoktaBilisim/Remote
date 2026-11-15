@@ -70,7 +70,7 @@ const isRefConflict = (err: unknown): boolean => REF_CONFLICTS.has(conflictIndex
  * Tüm TX'i yeniden dener: ref çakışmasında en çok 5 deneme, geçici DB hatasında (B-P8c2-2) bir kez. Geri alınan TX'in
  * audit/kayıt geçersizleştirmesi de geri alındığından yeniden deneme çift yazmaz. Ad çakışması 409.
  */
-async function withTxRetry<T>(fn: () => Promise<T>): Promise<T> {
+export async function withTxRetry<T>(fn: () => Promise<T>): Promise<T> {
   let transient = 0;
   for (let attempt = 1; ; attempt++) {
     try {

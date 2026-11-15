@@ -915,6 +915,12 @@ süresi ölçülüp yazılır), worker sorgusu EXPLAIN'i (`state, next_at`).
 (8.4'te CHECK eklemek yalnız COPY; ayrı INPLACE ikinci yeniden yazım olurdu). Ek CHECK'ler: SENT ⇔ `sent_at`, FAILED ⇒
 `last_reason`, `last_reason` kod biçimi, `attempts ≤ 3`. `sms_header` 12 karakter CHECK'ten önce 1406 ile reddedilir.
 
+**backend sapma notu (J2, 2026-11-15; implementation.md "P19 J2"):** P8b `support_sessions_request_mode_chk` (talep oturumu
+yalnız `mode='AGENT'`) §8c.2 m.5'teki BROWSER ön-kabulü (oturum `mode=BROWSER`) engelliyordu ve J1'de gevşetilmemişti. Ek
+migration `20261120010000_p19_request_session_mode` kısıtı düşürür (yalnız meta veri; `support_sessions_mode_chk` AGENT|BROWSER
+kümesini korur; talep ↔ kaynak eşleşmesi tablolar arası → servis kuralı). check-app-grants: eski negatif → `OK` + `mode='KIOSK'`
+negatifi. Tetikleyici 23 aynı.
+
 ### 8c.2 Web talep formu ve bekleme sayfası (AC-259, AC-143/144, AC-292 form satırı)
 
 **Akış:** `GET /r/<ref>` (Next, panel düzeni dışında) → `GET /api/v1/public/web-requests/form?ref=` → form → `POST

@@ -20,7 +20,7 @@ import { sha256Hex } from "../lib/ids.ts";
 import { cidrMatcher, ipKey, prefixKey } from "../lib/ip.ts";
 import { FixedWindowCounter } from "../lib/rate.ts";
 import type { Metrics } from "../ops/metrics.ts";
-import { isOutdated } from "../lib/version.ts";
+import { isOutdated, UNDECLARED_AGENT_VERSION } from "../lib/version.ts";
 import { parseSessionRef, sessionRef } from "./codes.ts";
 import { effectiveLogoUrl } from "../uploads/urls.ts";
 import * as repo from "./repo.ts";
@@ -219,7 +219,8 @@ export async function resolvePublicSession(
 ): Promise<ResolveSessionResponse> {
   limits.clientIpIsProxy.check(ctx.ip);
   // P8b r2 (§13.4): AGENT sürümü düşükse 426 (yoksa 0.0.0 sayılır — 0.8.x MIN tanımlanınca güncellemeye zorlanır).
-  if (input.clientKind === "AGENT" && isOutdated(input.clientVersion, minAgentVersion)) throw outdated(minAgentVersion);
+  if (input.clientKind === "AGENT" && isOutdated(input.clientVersion ?? UNDECLARED_AGENT_VERSION, minAgentVersion))
+    throw outdated(minAgentVersion);
   const ip = ipKey(ctx.ip);
   let row: repo.PublicSessionRow | null;
   if ("token" in input) {

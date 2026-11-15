@@ -342,3 +342,107 @@ export interface GeneralLinkResponse {
   downloadUrl: string;
   fileName: string;
 }
+
+// ---------------------------------------------------------------------------------------------------------------
+// P19 — müşteri CSV dışa/içe aktarma (AC-263; mimari-e11 §8c.5, §8c.6; S-P19-4, 8, 14)
+// ---------------------------------------------------------------------------------------------------------------
+
+/** Ortak sütunlar (sıra sabit). Ref dışa aktarılmaz (K-P19-5). `Durum` içe aktarmada yok sayılır. */
+export const CUSTOMER_CSV_COLUMNS = [
+  "Ad",
+  "Yetkili kişi",
+  "Telefon",
+  "E-posta",
+  "Not",
+  "Dosya etiketi",
+  "Varsayılan öncelik",
+  "SLA (dk)",
+  "Durum",
+] as const;
+export type CustomerCsvColumn = (typeof CUSTOMER_CSV_COLUMNS)[number];
+
+/** Dışa aktarma üst sınırı (aşımda 400, yarım dosya yok) ve dakika başına istek (kullanıcı). */
+export const CUSTOMER_EXPORT_MAX_ROWS = 50_000;
+export const CUSTOMER_EXPORTS_PER_MIN = 10;
+/** İçe aktarma: dosya ≤ 2 MB, ≤ 5 000 veri satırı, kayıt ≤ 8 KB; önizleme 10/sa/kullanıcı, 15 dk geçerli. */
+export const CUSTOMER_IMPORT_MAX_BYTES = 2 * 1024 * 1024;
+export const CUSTOMER_IMPORT_MAX_ROWS = 5_000;
+export const CUSTOMER_IMPORT_MAX_RECORD_CHARS = 8 * 1024;
+export const CUSTOMER_IMPORT_PREVIEWS_PER_HOUR = 10;
+export const CUSTOMER_IMPORT_PREVIEW_TTL_MS = 15 * 60_000;
+/** Önizleme yanıtında en çok gösterilen satır ve hata sayısı (sayaçlar tümünü sayar). */
+export const CUSTOMER_IMPORT_PREVIEW_ROWS = 50;
+export const CUSTOMER_IMPORT_ERRORS_MAX = 500;
+/** multipart dosya alanı. */
+export const CUSTOMER_IMPORT_FIELD = "file";
+
+export const CUSTOMER_IMPORT_MESSAGES = {
+  noFile: "Bir CSV dosyası seçin.",
+  notUtf8: "Dosya UTF-8 değil. Excel'de 'CSV UTF-8' olarak kaydedin.",
+  tooManyRows: "En çok 5.000 satır",
+  tooLarge: "Dosya en çok 2 MB olabilir.",
+  noNameColumn: "“Ad” sütunu bulunamadı. İlk satır sütun başlıklarını içermeli.",
+  empty: "Dosyada içe aktarılacak satır yok.",
+  previewRequired: "Önizlemenin süresi doldu ya da geçersiz; dosyayı yeniden yükleyin.",
+  busy: "Başka bir içe aktarma sürüyor",
+  exportTooMany: "En çok 50.000 müşteri dışa aktarılabilir.",
+} as const;
+
+/** GET /customers/export.csv: `status` vars. `all` (Durum sütunu dosyadadır). */
+export const exportCustomersQuerySchema = z.strictObject({
+  status: z.enum(CUSTOMER_STATUS_FILTERS).default("all"),
+});
+export type ExportCustomersQuery = z.infer<typeof exportCustomersQuerySchema>;
+
+export const CUSTOMER_IMPORT_CONFLICT_MODES = ["skip", "update"] as const;
+export type CustomerImportConflictMode = (typeof CUSTOMER_IMPORT_CONFLICT_MODES)[number];
+
+/** POST /customers/import/commit. `update` ayrıca `customers.edit` ister. */
+export const importCommitInputSchema = z.strictObject({
+  previewId: z.string().regex(/^[A-Za-z0-9_-]{22}$/, "Geçersiz önizleme"),
+  onConflict: z.enum(CUSTOMER_IMPORT_CONFLICT_MODES),
+});
+export type ImportCommitInput = z.infer<typeof importCommitInputSchema>;
+
+/** Önizleme satır sınıfı: `create` (ad firmada yok), `conflict` (aynı ad var, pasifler dahil), `error`. */
+export const CUSTOMER_IMPORT_ROW_KINDS = ["create", "conflict", "error"] as const;
+export type CustomerImportRowKind = (typeof CUSTOMER_IMPORT_ROW_KINDS)[number];
+
+export interface ImportPreviewRow {
+  /** Dosyadaki fiziksel satır (1 = başlık). */
+  line: number;
+  kind: CustomerImportRowKind;
+  /** Dosyadaki ad (hatalı satırda ham hücre; boş olabilir). */
+  name: string;
+  contactName: string | null;
+  phone: string | null;
+  email: string | null;
+}
+
+export interface ImportRowError {
+  line: number;
+  /** `CUSTOMER_CSV_COLUMNS` başlığı; satır düzeyindeki hata (tırnak, uzunluk, tekrar) için `null`. */
+  column: CustomerCsvColumn | null;
+  message: string;
+}
+
+/** POST /customers/import/preview 200. Sayılar "tahmin": uygulama çakışmayı yeniden hesaplar. */
+export interface ImportPreview {
+  previewId: string;
+  total: number;
+  counts: Record<CustomerImportRowKind, number>;
+  rows: ImportPreviewRow[];
+  errors: ImportRowError[];
+  /** Hata sayısı `errors.length`'ten büyükse yanıtta yalnız ilk 500 vardır. */
+  errorsTruncated: boolean;
+  warnings: string[];
+}
+
+/** POST /customers/import/commit 200 (audit `customer.imported` ile aynı özet). */
+export interface ImportResult {
+  total: number;
+  created: number;
+  updated: number;
+  skipped: number;
+  failed: number;
+}

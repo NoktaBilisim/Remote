@@ -6,6 +6,7 @@ import type {
   ListRequestsQuery,
   NetworkMatch,
   RequestPriority,
+  RequestSource,
   RequestStatus,
   CancelReason,
   SupportRequestItem,
@@ -72,6 +73,7 @@ export function toItem(r: repo.ItemRow, now: number, generalRotatedAt: Date | nu
     customerEmail: r.customerEmail,
     description: r.description,
     clientVersion: r.clientVersion,
+    source: r.source as RequestSource,
     acceptedBy: r.acceptor ? { id: r.acceptor.id, name: r.acceptor.fullName } : null,
     rejectMessage: r.rejectMessage,
     sessionId: r.session?.id ?? null,
@@ -102,7 +104,7 @@ export async function listRequests(
   const rotated = await generalRotatedAt(svc, tenantId);
   if (q.tab === "pending") {
     const assigned = q.assigned ? { mode: q.assigned, userId } : undefined;
-    const { rows, total } = await repo.listPending(svc.d.db, tenantId, q.customer, assigned);
+    const { rows, total } = await repo.listPending(svc.d.db, tenantId, q.customer, assigned, q.source);
     return { items: rows.map((r) => toItem(r, now, rotated)), page: 1, pageSize: rows.length, total };
   }
   const since = new Date(now - REQUEST_HISTORY_DAYS * DAY_MS);
@@ -113,6 +115,7 @@ export async function listRequests(
     q.status,
     { skip: (q.page - 1) * q.pageSize, take: q.pageSize },
     q.customer,
+    q.source,
   );
   return { items: rows.map((r) => toItem(r, now, rotated)), page: q.page, pageSize: q.pageSize, total };
 }
@@ -149,6 +152,8 @@ export async function acceptRequest(
   await acceptLimit(svc, ctx, auth, tenantId);
   const { db } = svc.d;
   const res = await db.$transaction(async (tx) => {
+    // S-P19-T12 kilit sırası: ayarlar → teknisyen → müşteri → talep (oluşturma/ret/süre dolumu ile aynı; 1213 yok).
+    await repo.lockSettings(tx, tenantId);
     await srepo.lockTechnician(tx, auth.user.id);
     const settings = await srepo.sessionSettings(tx, tenantId);
     if (!settings) throw new Error("tenant_settings satırı yok");
@@ -163,10 +168,11 @@ export async function acceptRequest(
     // < ACCEPT_CODE_MIN_CLIENT_VERSION) talep kabul edilmez (fail-closed): düşük sürüm beyanı doğrulamayı atlatamaz.
     // Talep PENDING kalır (kuyruktan düşmez); yalnız fail audit'i commit edilir.
     const acceptCode = (await repo.settingsByTenant(tx, tenantId))?.requireAcceptCode === true;
-    // P19 J1 köprüsü (fail-closed): client_version NULL yalnız WEB talebinde olur; WEB yolu J2'de `source`'a bağlanır
-    // (S-P19-13: WEB kabul kodunu destekler). J2 öncesi WEB satırı üretilmez.
+    // P19 (S-P19-13, T2): sürüm kapısı yalnız AGENT dalında. WEB (tarayıcı) kabul kodunu destekler sayılır → asla
+    // client_unsupported almaz; AGENT satırında client_version DB CHECK'i gereği NULL olamaz (NULL ise yine fail-closed).
     if (
       head?.status === "PENDING" &&
+      head.source === "AGENT" &&
       acceptCode &&
       (head.clientVersion === null || compareVersions(head.clientVersion, ACCEPT_CODE_MIN_CLIENT_VERSION) < 0)
     ) {
@@ -240,6 +246,8 @@ export async function acceptRequest(
     },
     {
       requestId: id,
+      // P19 (§8c.2 m.5): WEB talebi tarayıcı modunda ön-kabul (input kanalı yok); AGENT yolu değişmez.
+      kind: r.source === "WEB" ? "BROWSER" : "AGENT",
       name: r.customerName ?? "Müşteri",
       ...(r.customerEmail ? { email: r.customerEmail } : {}),
       clientVersion: r.clientVersion,
@@ -278,6 +286,7 @@ export async function rejectRequest(
   if (auth.user.tenantId !== tenantId) throw new AppError("FORBIDDEN", { message: "Talep yalnız kendi firmanızda reddedilebilir." });
   await acceptLimit(svc, ctx, auth, tenantId);
   const ok = await svc.d.db.$transaction(async (tx) => {
+    await repo.lockSettings(tx, tenantId); // S-P19-T12: ilk ifade
     const now = new Date(svc.d.clock.now());
     if ((await repo.rejectPending(tx, tenantId, id, auth.user.id, message, now)) === 0) return false;
     await writeAudit(tx, ctx, {
@@ -413,8 +422,13 @@ export async function ensureSettings(svc: RequestService, tenantId: string): Pro
   }
 }
 
+/** P19 (AC-259): `${PUBLIC_BASE_URL}/r/<ref>` — müşteriye paylaşılan web talep formu adresi. */
+export const webFormUrl = (base: string, ref: string): string => `${base.replace(/\/+$/, "")}/r/${ref}`;
+
 function settingsView(svc: RequestService, s: repo.SettingsRow, smtpConfigured: boolean): SupportRequestSettings {
   const n = svc.d.notifier;
+  const enabled = { sms: s.notifySmsEnabled, whatsapp: s.notifyWhatsappEnabled, email: s.notifyEmailEnabled };
+  const available = svc.channelsOf(s, smtpConfigured);
   return {
     downloadUrl: requestDownloadUrl(svc.d.env.PUBLIC_BASE_URL, s.requestRef),
     fileName: requestFileName(s.fileLabel, s.requestRef),
@@ -427,6 +441,12 @@ function settingsView(svc: RequestService, s: repo.SettingsRow, smtpConfigured: 
     requireAcceptCode: s.requireAcceptCode,
     defaultPriority: s.defaultPriority as RequestPriority,
     defaultSlaMinutes: s.defaultSlaMinutes,
+    webFormEnabled: s.webFormEnabled,
+    webFormUrl: webFormUrl(svc.d.env.PUBLIC_BASE_URL, s.requestRef),
+    notifySmsEnabled: s.notifySmsEnabled,
+    notifyWhatsappEnabled: s.notifyWhatsappEnabled,
+    notifyEmailEnabled: s.notifyEmailEnabled,
+    channelWarnings: (["sms", "whatsapp", "email"] as const).filter((k) => enabled[k] && !available[k]),
   };
 }
 
@@ -445,6 +465,10 @@ const auditShape = (s: {
   requireAcceptCode: boolean;
   defaultPriority: string;
   defaultSlaMinutes: number | null;
+  webFormEnabled: boolean;
+  notifySmsEnabled: boolean;
+  notifyWhatsappEnabled: boolean;
+  notifyEmailEnabled: boolean;
 }) => ({
   waitMinutes: s.waitMinutes,
   trustedCidrs: s.trustedCidrs,
@@ -455,6 +479,10 @@ const auditShape = (s: {
   requireAcceptCode: s.requireAcceptCode,
   defaultPriority: s.defaultPriority,
   defaultSlaMinutes: s.defaultSlaMinutes,
+  webFormEnabled: s.webFormEnabled,
+  notifySmsEnabled: s.notifySmsEnabled,
+  notifyWhatsappEnabled: s.notifyWhatsappEnabled,
+  notifyEmailEnabled: s.notifyEmailEnabled,
 });
 
 /** PUT /settings/support-requests (AC-142, 151, 152): SMTP ayarlı değilse e-posta kanalı açılamaz. Audit eski→yeni (alıcılar maskeli). */
@@ -471,7 +499,14 @@ export async function updateSettings(
   await svc.d.db.$transaction(async (tx) => {
     const before = await repo.settingsByTenant(tx, tenantId);
     if (!before) throw new Error("settings_missing");
+    const p19 = {
+      webFormEnabled: input.webFormEnabled ?? before.webFormEnabled,
+      notifySmsEnabled: input.notifySmsEnabled ?? before.notifySmsEnabled,
+      notifyWhatsappEnabled: input.notifyWhatsappEnabled ?? before.notifyWhatsappEnabled,
+      notifyEmailEnabled: input.notifyEmailEnabled ?? before.notifyEmailEnabled,
+    };
     await repo.updateSettings(tx, tenantId, {
+      ...p19,
       waitMinutes: input.waitMinutes,
       trustedCidrs: input.trustedCidrs,
       waEnabled: input.whatsapp.enabled,
@@ -492,6 +527,10 @@ export async function updateSettings(
       requireAcceptCode: before.requireAcceptCode,
       defaultPriority: before.defaultPriority,
       defaultSlaMinutes: before.defaultSlaMinutes,
+      webFormEnabled: before.webFormEnabled,
+      notifySmsEnabled: before.notifySmsEnabled,
+      notifyWhatsappEnabled: before.notifyWhatsappEnabled,
+      notifyEmailEnabled: before.notifyEmailEnabled,
     };
     const next = {
       waitMinutes: input.waitMinutes,
@@ -503,6 +542,7 @@ export async function updateSettings(
       requireAcceptCode: input.requireAcceptCode ?? before.requireAcceptCode,
       defaultPriority: input.defaultPriority ?? before.defaultPriority,
       defaultSlaMinutes: input.defaultSlaMinutes === undefined ? before.defaultSlaMinutes : input.defaultSlaMinutes,
+      ...p19,
     };
     await writeAudit(tx, ctx, {
       ...who(auth, tenantId),

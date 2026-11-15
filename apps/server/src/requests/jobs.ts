@@ -24,6 +24,7 @@ export async function sweepRequests(svc: RequestService, now = new Date(svc.d.cl
   const out: SweepResult = { expired: 0, connectFailed: 0, tenantPassive: 0, customerPassive: 0, bindingsRevoked: 0 };
   for (const r of await repo.findExpired(svc.d.db, now, BATCH)) {
     const ok = await svc.d.db.$transaction(async (tx) => {
+      await repo.lockSettings(tx, r.tenantId); // S-P19-T12: ayarlar → talep (oluşturma/kabul/ret ile aynı sıra)
       if ((await repo.expireOne(tx, r.id, now)) === 0) return false;
       await writeAudit(tx, SYSTEM_CTX, {
         tenantId: r.tenantId,

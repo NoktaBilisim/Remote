@@ -14,7 +14,9 @@ export const PERMISSION_MODULES = [
   { key: "support_requests", actions: ["view", "accept", "block", "assign", "message"] },
   // P8c (AC-165): view = liste, detay, Genel bağlantı, oturumda seçim; edit = düzenle, bağlantıyı yenile, yeniden aktif et,
   // tek kayıt iptali; delete = PASİFE ALMA (kalıcı silme yok — V23).
-  { key: "customers", actions: ["view", "create", "edit", "delete"] },
+  // P19 (AC-263, S-P19-14): export = CSV indir (+ view); import = CSV önizleme (+ create + view) / uygulama (+ create,
+  // güncellemede + edit). Bağımlılık toggle kaydında değil uçta zorlanır (K-P19-9).
+  { key: "customers", actions: ["view", "create", "edit", "delete", "export", "import"] },
   { key: "users", actions: ["view", "create", "edit", "delete"] },
   { key: "settings", actions: ["view", "edit"] },
   { key: "audit", actions: ["view", "export"] },
@@ -43,6 +45,9 @@ export const PERMISSION_DESCRIPTIONS: Readonly<Partial<Record<PermissionKey, str
   "support_requests.accept":
     "Talep kabul et — kabul edilen talep için oturum açar (Oturum oluşturma yetkisi gerekmez; açık oturum sınırı geçerlidir). Reddetme de bu yetkiyle yapılır.",
   "customers.delete": "Müşteriyi pasife alır (kalıcı silme yoktur).",
+  "customers.export": "Müşteri listesini CSV olarak indirir.",
+  "customers.import":
+    "CSV'den müşteri ekler/günceller. Ekle ve Görüntüle yetkisiyle birlikte çalışır (var olanları güncellemek için Düzenle de gerekir).",
   "users.edit": "Kullanıcı bilgilerini, rolünü ve yetkilerini değiştirir; kullanıcıyı pasife alır veya yeniden etkinleştirir.",
   "support_requests.block":
     "Belirli bir IP adresinden/ağdan veya bilgisayardan gelen destek taleplerini engeller; engelleri listeler ve kaldırır.",

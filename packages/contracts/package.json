@@ -22,6 +22,7 @@
     "./dc": "./src/dc.ts",
     "./files": "./src/files.ts",
     "./audit": "./src/audit.ts",
+    "./csv": "./src/csv.ts",
     "./labels": "./src/labels.ts",
     "./holidays-tr": "./src/holidays-tr.ts"
   },

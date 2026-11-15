@@ -50,6 +50,8 @@ export interface RequestLimits {
   /** Tenant: tüm talepler (60/sa sonrası bilinmeyen kaynak reddi) ve bilinen kaynak tavanı (120/sa). */
   tenantAll: HourCounter;
   tenantKnown: HourCounter;
+  /** P19 (S-P19-15, K-P19-8): WEB talepleri için ayrı firma kovası (60/sa); AGENT kovalarına dokunmaz (ve tersi). */
+  tenantWebAll: HourCounter;
   /** `request.rate_limited` audit'i kaynak başına dakikada en çok 1 (AC-144). */
   rateAudit: FixedWindowCounter;
   /** `/ws/request` upgrade 31/dk/ipKey. */
@@ -70,6 +72,9 @@ export interface RequestLimits {
 
 export const TENANT_UNKNOWN_PER_HOUR = 60;
 export const TENANT_KNOWN_PER_HOUR = 120;
+/** P19 (S-P19-15): WEB firma kovası ve WEB bekleyen alt tavanı (toplam 50 aynı; AGENT'a en az 20 yer kalır). */
+export const TENANT_WEB_PER_HOUR = 60;
+export const WEB_PENDING_MAX = 30;
 
 export function createRequestLimits(): RequestLimits {
   return {
@@ -84,6 +89,7 @@ export function createRequestLimits(): RequestLimits {
     accept: new FixedWindowCounter(31, MIN, MIN),
     tenantAll: new HourCounter(),
     tenantKnown: new HourCounter(),
+    tenantWebAll: new HourCounter(),
     rateAudit: new FixedWindowCounter(2, MIN, MIN),
     wsUpgrade: new FixedWindowCounter(31, MIN, MIN),
     panelUpgrade: new FixedWindowCounter(31, MIN, MIN),

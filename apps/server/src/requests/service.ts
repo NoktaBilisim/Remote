@@ -5,10 +5,18 @@ import type {
   CancelReason,
   CreateRequestData,
   CreateRequestResponse,
+  NotifyChoice,
   RequestPriority,
+  RequestSource,
   TenantRequestInfo,
+  WebFormInfo,
+  WebRequestData,
 } from "@remote/contracts/api/requests";
 import {
+  notifyEmailKey,
+  WEB_FORM_FAST_MESSAGE,
+  WEB_FORM_MIN_DELAY_MS,
+  webRequestInputSchema,
   CHAT_MIN_CLIENT_VERSION,
   compareQueue,
   REQUEST_BUSY_MESSAGE,
@@ -20,12 +28,14 @@ import type { FastifyBaseLogger } from "fastify";
 import { writeAudit, type AuditContext } from "../audit/service.ts";
 import type { Env } from "../env.ts";
 import { REQUEST_TX_OPTIONS, type Db } from "../lib/db.ts";
-import { AppError, DB_BUSY_MESSAGE, DB_BUSY_RETRY_SEC } from "../lib/errors.ts";
+import { AppError, DB_BUSY_MESSAGE, DB_BUSY_RETRY_SEC, parseInput } from "../lib/errors.ts";
+import { WEB_REQUEST_AUDIT } from "@remote/contracts/audit";
+import { FormTokens } from "./form-token.ts";
 import { ConcurrencyGate, GateBusyError, type GateOptions } from "../lib/gate.ts";
 import { newId, newRequestCode, newSecretToken, sha256Hex } from "../lib/ids.ts";
 import { cidrListMatcher, ipKey, isIPv6Key, netKey, prefixKey } from "../lib/ip.ts";
 import type { FixedWindowCounter } from "../lib/rate.ts";
-import { compareVersions, isOutdated } from "../lib/version.ts";
+import { compareVersions, isOutdated, UNDECLARED_AGENT_VERSION } from "../lib/version.ts";
 import type { WhatsappNotifier } from "../notify/whatsapp.ts";
 import type { Metrics } from "../ops/metrics.ts";
 import { abuseEmail, currentConsentText } from "../public/consent.ts";
@@ -40,6 +50,8 @@ import {
   RATE_BLOCK_SEC,
   TENANT_KNOWN_PER_HOUR,
   TENANT_UNKNOWN_PER_HOUR,
+  TENANT_WEB_PER_HOUR,
+  WEB_PENDING_MAX,
   type RequestLimits,
 } from "./limits.ts";
 import { bindingInvalid, issueBinding, resolveUsable } from "../bindings/service.ts";
@@ -107,6 +119,18 @@ const isUniqueConflict = (err: unknown, index: string): boolean => {
 
 const tenantActive = (t: { status: string; deletedAt: Date | null }): boolean => t.status === "ACTIVE" && t.deletedAt === null;
 
+const NO_NOTIFY: NotifyChoice = { sms: false, whatsapp: false, email: false };
+
+/**
+ * Ortak oluşturma çekirdeğinin girdisi (P19 §8c.2): AGENT (`createRequestInputSchema`) ve WEB (`webRequestInputSchema`)
+ * aynı TX'e girer. Sürüm yalnız AGENT dalında vardır (S-P19-13: WEB'de `null`; `?? "0.0.0"` yasak).
+ */
+export type CreateCoreInput = Omit<CreateRequestData, "clientVersion"> & { notify: NotifyChoice } & (
+    { source: "AGENT"; clientVersion: string } | { source: "WEB"; clientVersion: null }
+  );
+
+const agentInput = (d: CreateRequestData): CreateCoreInput => ({ ...d, source: "AGENT", notify: NO_NOTIFY });
+
 /** Tek 404 gövdesi (AC-131, 132, 145): biçim dışı / yok / yenilenmiş / pasif / ayarı yok ayırt edilmez. */
 const refInvalidError = (): AppError => new AppError("REQUEST_REF_INVALID");
 
@@ -126,6 +150,8 @@ export class RequestService {
   private readonly outsideAudit = new Map<string, { at: number; pending: number }>();
   /** P18 H3 (AC-255): kabul öncesi mesajlaşma. */
   readonly messages: RequestMessages;
+  /** P19 (S-P19-1, T4): web formu bot kapısı (bootId'li HMAC + kullanılmış nonce kümesi). Testte değiştirilebilir. */
+  formTokens: FormTokens;
 
   constructor(d: RequestServiceDeps) {
     this.d = d;
@@ -133,6 +159,7 @@ export class RequestService {
     this.gate = new ConcurrencyGate(d.gate ?? REQUEST_GATE);
     this.blocks = new RequestBlockCache(d.db, () => d.clock.now());
     this.messages = new RequestMessages(this, d.secrets);
+    this.formTokens = new FormTokens(d.secrets, () => d.clock.now());
     d.rooms.requestHooks = {
       admitted: (requestId) => this.clearConnectTimer(requestId),
       failed: (requestId) =>
@@ -142,7 +169,8 @@ export class RequestService {
     d.rooms.bindingIssuer = (room, guest, previousKey) =>
       issueBinding(this, guest.ctx ?? { ...SYSTEM_CTX, userAgent: "signaling" }, {
         sessionId: room.sessionId,
-        clientVersion: guest.clientVersion ?? "0.0.0",
+        // binding.ts yalnız AGENT misafiri için çağırır; oturum bağlantısı akışında sürüm beyan etmeyen 0.8.x AGENT olabilir.
+        clientVersion: guest.clientVersion ?? UNDECLARED_AGENT_VERSION,
         previousKey,
       });
   }
@@ -246,8 +274,7 @@ export class RequestService {
    * (`fields.nextOpeningAt`); eski istemci → 429 `QUEUE_FULL` aynı mesaj, `Retry-After` YOK; hız sınırı sayaç/alarmlarına
    * girmez (yalnız `rs_requests_outside_hours_total{mode,legacy}`). Audit tenant başına dakikada 1 satır (`count`).
    */
-  private async rejectOutsideHours(ctx: AuditContext, tenantId: string, tc: TenantCalendar, next: number | null, clientVersion: string) {
-    const legacy = compareVersions(clientVersion, CHAT_MIN_CLIENT_VERSION) < 0;
+  private async rejectOutsideHours(ctx: AuditContext, tenantId: string, tc: TenantCalendar, next: number | null, legacy: boolean) {
     this.d.metrics.inc("rs_requests_outside_hours_total", { mode: "REJECT", legacy: String(legacy) });
     const now = this.d.clock.now();
     const st = this.outsideAudit.get(tenantId) ?? { at: Number.NEGATIVE_INFINITY, pending: 0 };
@@ -387,15 +414,31 @@ export class RequestService {
    * → bekleyen sayımları → kod → INSERT → audit] → commit sonrası tenant kovası sayımı → hub/WhatsApp.
    */
   async create(ctx: AuditContext, body: unknown, parse: (b: unknown) => CreateRequestData): Promise<CreateRequestResponse> {
+    return this.createCore(ctx, body, (b) => agentInput(parse(b)), "AGENT");
+  }
+
+  /**
+   * Ortak oluşturma çekirdeği (AGENT ve WEB). WEB'de gövde zaten zod + bot kapısından geçmiştir (`createWeb`); ref/form
+   * kapalı → kovalardan ÖNCE tek tip 404 (S-P19-2). Kova/TX sırası iki kaynakta aynı (P18 sırası).
+   */
+  private async createCore(
+    ctx: AuditContext,
+    body: unknown,
+    parse: (b: unknown) => CreateCoreInput,
+    source: RequestSource,
+  ): Promise<CreateRequestResponse> {
     const ip = ipKey(ctx.ip);
     const prefix = prefixKey(ctx.ip);
     const net = netKey(ctx.ip);
     this.assertRefNotBlocked(ip);
+    const web = source === "WEB";
     // P8c: `ref` (Genel/müşteri) ya da `bindingKey` (kayıt). Çözümleme kovalardan önce yalnız güvenilen CIDR için bakılır.
     const peekObj = typeof body === "object" && body !== null ? (body as { ref?: unknown; bindingKey?: unknown }) : {};
     const peekedRef = peekObj.bindingKey === undefined ? await this.resolveRef(peekObj.ref) : null;
     const peekedBinding = peekObj.bindingKey !== undefined ? await resolveUsable(this, peekObj.bindingKey) : null;
     const bs = peekedBinding ? await repo.settingsByTenant(this.d.db, peekedBinding.row.tenantId) : null;
+    // P19 (§8c.2 m.2, S-P19-2): geçersiz ref, pasif müşteri, form kapalı → aynı 404 (aynı gövde, kova/TX'e varılmaz).
+    if (web && (!peekedRef || !peekedRef.s.webFormEnabled)) throw this.refInvalid(ip);
     const peeked = peekedRef?.s ?? (bs && tenantActive(bs.tenant) ? bs : null);
     const trusted = peeked ? cidrListMatcher(repo.jsonStrings(peeked.trustedCidrs))(ctx.ip) : false;
     // P14a (AC-209) sıra: hazır mı (kapı; dolu/zaman aşımı → 503 NOT_READY) → IP/önek kovası → TX → commit sonrası tenant
@@ -412,7 +455,9 @@ export class RequestService {
       // B-P8c-5 (§5.2): biçim dışı / yok / geçersiz anahtar aynı 404 BINDING_INVALID + `req.ref_invalid` kovası (400 değil).
       if (peekObj.bindingKey !== undefined && !peekedBinding) throw bindingInvalid(this, ip);
       const input = parse(body);
-      if (isOutdated(input.clientVersion, this.d.env.MIN_AGENT_VERSION)) throw outdated(this.d.env.MIN_AGENT_VERSION);
+      // S-P19-13: sürüm kapısı yalnız AGENT dalında (WEB 426 almaz).
+      if (input.source === "AGENT" && isOutdated(input.clientVersion, this.d.env.MIN_AGENT_VERSION))
+        throw outdated(this.d.env.MIN_AGENT_VERSION);
       let s: repo.SettingsRow | null = null;
       let customerId: string | null = null;
       let binding: { id: string; keyHash: string } | null = null;
@@ -443,8 +488,24 @@ export class RequestService {
       // tüketilmez (sayım commit sonrası). Takvim bozuksa (T12) mesai uygulanmaz.
       const tc = await this.calendars.get(tenantId);
       const hours = openState(tc, this.d.clock.now(), () => this.calendars.fallback(tenantId, "range_error"));
+      // S-P19-13: eski istemci → QUEUE_FULL eşlemesi yalnız AGENT; WEB her zaman 409 OUTSIDE_HOURS.
       if (!hours.openNow && tc.cal.afterHoursMode === "REJECT")
-        await this.rejectOutsideHours(ctx, tenantId, tc, hours.next, input.clientVersion);
+        await this.rejectOutsideHours(
+          ctx,
+          tenantId,
+          tc,
+          hours.next,
+          input.source === "AGENT" && compareVersions(input.clientVersion, CHAT_MIN_CLIENT_VERSION) < 0,
+        );
+      // P19 (§8c.6): firmanın kapalı/kullanılamaz kanalı seçilmişse 400 (form yalnız açık kanalları gösterir).
+      if (web) {
+        const ch = this.channelsOf(s, (await this.d.mail.configFor(tenantId)) !== null);
+        const bad = (["sms", "whatsapp", "email"] as const).filter((k) => input.notify[k] && !ch[k]);
+        if (bad.length > 0)
+          throw new AppError("VALIDATION", {
+            fields: Object.fromEntries(bad.map((k) => [`notify.${k}`, "Bu bildirim kanalı şu an kullanılamıyor"])),
+          });
+      }
 
       const consent = await this.d.db.consentText.findFirst({
         where: { id: input.consentTextId, tenantId, isCurrent: true },
@@ -462,7 +523,8 @@ export class RequestService {
       const knownDevice = deviceHash ? await repo.deviceSeen(this.d.db, tenantId, deviceHash, now) : false;
       // G-E9-15: ayrıcalık yalnız TRUSTED veya known_device; P8c K20: etkin kayıt da "bilinen" (yalnız kuyruk ≥ 40 eşiği ve
       // bilinen tavanı 120/sa için — ip/önek/net48/tenant kovalarından muaf DEĞİL).
-      const privileged = trusted || knownDevice || binding !== null;
+      // P19 (§8c.2 m.2): WEB'de cihaz yok → "bilinen kaynak" = güvenilen CIDR ya da daha önce bağlanmış ağ (IP/önek).
+      const privileged = web ? trusted || networkMatch !== "NONE" : trusted || knownDevice || binding !== null;
 
       // S8b-5: kovalar + TX süreç içi kapıdan geçer (tenant başına 2, toplam 4); bekleyen bağlantı tutmaz.
       const secret = newSecretToken();
@@ -470,22 +532,26 @@ export class RequestService {
       const expiresAt = new Date(now.getTime() + s.waitMinutes * 60_000);
       // Tenant kovası (§13.6): kilitlenmez; 60/sa sonrası yalnız bilinmeyen kaynak reddi, bilinen tavanı 120/sa. Burada yalnız
       // okunur; sayım commit sonrası (AC-209: başarısız TX / 503 kovayı artırmaz).
-      const { tenantAll, tenantKnown } = this.d.limits;
+      // P19 (S-P19-15): WEB yalnız kendi firma kovasını (60/sa) tüketir; AGENT kovalarına dokunmaz (ve tersi).
+      const { tenantAll, tenantKnown, tenantWebAll } = this.d.limits;
       if (
-        (!privileged && tenantAll.count(tenantId) >= TENANT_UNKNOWN_PER_HOUR) ||
-        (privileged && tenantKnown.count(tenantId) >= TENANT_KNOWN_PER_HOUR)
+        web
+          ? tenantWebAll.count(tenantId) >= TENANT_WEB_PER_HOUR
+          : (!privileged && tenantAll.count(tenantId) >= TENANT_UNKNOWN_PER_HOUR) ||
+            (privileged && tenantKnown.count(tenantId) >= TENANT_KNOWN_PER_HOUR)
       ) {
-        const until = tenantAll.windowEnds(tenantId);
+        const until = (web ? tenantWebAll : tenantAll).windowEnds(tenantId);
         if (this.alerted.get(tenantId) !== until) {
           this.alerted.set(tenantId, until);
           this.d.hub.publish(tenantId, { t: "queue.alert", kind: "rate_limited", until: new Date(until).toISOString() });
           this.d.log.warn({ alarm: "request_tenant_rate", tenantId }, "tenant talep kovası aşıldı");
         }
-        await this.rateAudit(ctx, tenantId, "tenant", "tenant", tenantId);
+        await this.rateAudit(ctx, tenantId, web ? "tenant.web" : "tenant", "tenant", tenantId);
         throw rateLimited(RATE_BLOCK_SEC, REQUEST_BUSY_MESSAGE);
       }
 
-      let created: { code: string; position: number; priority: string; slaDueAt: Date | null; afterHours: boolean } | undefined;
+      let created:
+        { code: string; position: number; priority: string; slaDueAt: Date | null; afterHours: boolean; suppressed: boolean } | undefined;
       // Hangi bekleyen sınırı aştı (audit kovası/anahtar türü ayrımı): IP başına 3 ya da önek (net_key) başına 10.
       let pendingHit: { bucket: string; keyType: "ip" | "prefix" | "tenant"; key: string } | undefined;
       for (let attempt = 1; !created; attempt++) {
@@ -518,6 +584,23 @@ export class RequestService {
               pendingHit = { bucket: "pending.tenant", keyType: "tenant", key: tenantId };
               throw new AppError("QUEUE_FULL");
             }
+            // P19 (S-P19-15): WEB bekleyen alt tavanı 30 (toplam 50 aynı) → form spam'i AGENT'a en az 20 yer bırakır.
+            if (web && c.web >= WEB_PENDING_MAX) {
+              pendingHit = { bucket: "pending.tenant_web", keyType: "tenant", key: tenantId };
+              throw new AppError("QUEUE_FULL");
+            }
+            // P19 (S-P19-12, T10/T11): aynı tenant'ta aynı numara/e-postayla bekleyen WEB talebi varsa yeni talep açılır ama
+            // o kanalın bildirim bayrağı 0 yazılır; yanıt bunu belirtmez (başka kişinin talebi hakkında oracle yok).
+            const emailKey = input.email ? notifyEmailKey(input.email) : null;
+            const phoneDup = c.webContacts.some((w) => w.phone === input.phone);
+            const emailDup = emailKey !== null && c.webContacts.some((w) => w.email !== null && notifyEmailKey(w.email) === emailKey);
+            const notify = {
+              sms: input.notify.sms && !phoneDup,
+              whatsapp: input.notify.whatsapp && !phoneDup,
+              email: input.notify.email && !emailDup,
+            };
+            const suppressed =
+              notify.sms !== input.notify.sms || notify.whatsapp !== input.notify.whatsapp || notify.email !== input.notify.email;
             // P18 (AC-257, §8b.2): öncelik/SLA müşteri ?? firma varsayılanı (kilitli ayar satırıyla); değerler dondurulur.
             const policy = await repo.requestPolicy(tx, tenantId, customerId);
             const afterHours = !hours.openNow;
@@ -554,6 +637,10 @@ export class RequestService {
               slaMinutes: policy.slaMinutes,
               slaDueAt,
               afterHours,
+              source: input.source,
+              notifySms: notify.sms,
+              notifyWhatsapp: notify.whatsapp,
+              notifyEmail: notify.email,
             });
             // S8b-3: IP yalnız audit `ip_address` sütununda. P8c §5.7: via + customerId (ref/anahtar değeri asla).
             await writeAudit(tx, ctx, {
@@ -563,12 +650,19 @@ export class RequestService {
               entity: "support_requests",
               entityId: id,
               result: "success",
-              newValue: { clientVersion: input.clientVersion, via, customerId },
+              newValue: {
+                clientVersion: input.clientVersion,
+                via,
+                customerId,
+                source: input.source,
+                notify,
+                ...(suppressed ? { notifySuppressed: true } : {}),
+              },
             });
             // Sıra (AC-257): aynı ya da yüksek öncelikli bekleyenler önde (hepsi daha önce oluşturuldu).
             const me = { priority: policy.priority, createdAt: now, id };
             const ahead = c.priorities.filter((p) => compareQueue({ priority: p, createdAt: new Date(0), id: "" }, me) < 0).length;
-            return { code, position: ahead + 1, priority: policy.priority, slaDueAt, afterHours };
+            return { code, position: ahead + 1, priority: policy.priority, slaDueAt, afterHours, suppressed };
           }, REQUEST_TX_OPTIONS);
         } catch (err) {
           if (attempt < CODE_ATTEMPTS && isUniqueConflict(err, PENDING_CODE_INDEX)) continue;
@@ -582,9 +676,15 @@ export class RequestService {
     const { created, s, tenantId, customerId, binding, input, networkMatch, knownDevice, via, privileged, secret, id, expiresAt, now } =
       peeked ? await this.gated(peeked.tenantId, admit) : await admit();
 
-    // commit sonrası: tenant kovası yalnız yazılmış talep için artar (AC-209).
-    this.d.limits.tenantAll.add(tenantId);
-    if (privileged) this.d.limits.tenantKnown.add(tenantId);
+    // commit sonrası: tenant kovası yalnız yazılmış talep için artar (AC-209). P19: WEB yalnız kendi kovasını.
+    if (web) {
+      this.d.limits.tenantWebAll.add(tenantId);
+      this.d.metrics.inc("rs_web_requests_total", { result: "created" });
+    } else {
+      this.d.limits.tenantAll.add(tenantId);
+      if (privileged) this.d.limits.tenantKnown.add(tenantId);
+    }
+    if (created.suppressed) this.d.metrics.inc("rs_notify_suppressed_total", { reason: "pending_duplicate" });
     this.d.metrics.inc("rs_requests_created_total", { via });
     if (created.afterHours) this.d.metrics.inc("rs_requests_outside_hours_total", { mode: "ACCEPT", legacy: "false" });
     const firm = customerId ? await this.d.db.customer.findUnique({ where: { id: customerId }, select: { id: true, name: true } }) : null;
@@ -605,7 +705,10 @@ export class RequestService {
       slaDueAt: created.slaDueAt?.toISOString() ?? null,
       afterHours: created.afterHours,
       // H3: oluşturma anı tahmini (soket henüz yok); kesin durum GET …/messages `customerChat` (soket yeteneği).
-      customerChat: compareVersions(input.clientVersion, CHAT_MIN_CLIENT_VERSION) >= 0 ? "SUPPORTED" : "UNSUPPORTED",
+      // P19 (§8c.2 m.6): tarayıcı her zaman rs.cap.chat1 bildirir → WEB "SUPPORTED".
+      customerChat:
+        input.source === "WEB" || compareVersions(input.clientVersion, CHAT_MIN_CLIENT_VERSION) >= 0 ? "SUPPORTED" : "UNSUPPORTED",
+      source: input.source,
     });
     this.d.hub.queueChanged(tenantId);
     await this.publishCount(tenantId);
@@ -624,6 +727,99 @@ export class RequestService {
       expiresAt: expiresAt.toISOString(),
       position: created.position,
     };
+  }
+
+  // ------------------------------------------------------------------ P19 web talep formu (§8c.2; AC-259)
+
+  /**
+   * Müşteriye sunulabilir durum bildirimi kanalları: firma açmış **ve** kanal kullanılabilir. SMS altyapısı J3'tedir; o
+   * gelene dek SMS yalnız firma anahtarına bakar (J3 `sms` kullanılabilirliğini buraya ekler).
+   */
+  channelsOf(s: repo.SettingsRow, smtpConfigured: boolean): NotifyChoice {
+    return {
+      sms: s.notifySmsEnabled,
+      whatsapp: s.notifyWhatsappEnabled && this.d.notifier.usable,
+      email: s.notifyEmailEnabled && smtpConfigured,
+    };
+  }
+
+  /** GET /public/web-requests/form?ref= — geçersiz ref, pasif müşteri, form kapalı → aynı 404 (S-P19-2). */
+  async webFormInfo(ctx: AuditContext, ref: unknown): Promise<WebFormInfo> {
+    const ip = ipKey(ctx.ip);
+    this.assertRefNotBlocked(ip);
+    const r = await this.resolveRef(ref);
+    if (!r || !r.s.webFormEnabled) throw this.refInvalid(ip);
+    await this.limit(ctx, r.s.tenantId, "info", "req.info", "ip", ip);
+    const tenantId = r.s.tenantId;
+    const [info, ts, smtp] = await Promise.all([
+      this.requestInfo(tenantId, r.s.tenant, r.s.waitMinutes),
+      this.d.db.tenantSettings.findUnique({ where: { tenantId }, select: { retentionDays: true } }),
+      this.d.mail.configFor(tenantId),
+    ]);
+    if (!ts || !info.businessHours) throw new Error("tenant_settings satırı yok");
+    return {
+      tenant: info.tenant,
+      consentText: info.consentText,
+      chatRetentionDays: ts.retentionDays,
+      channels: this.channelsOf(r.s, smtp !== null),
+      businessHours: info.businessHours,
+      formToken: this.formTokens.issue(ref as string), // resolveRef biçimi doğruladı; token bu ref'e bağlı
+      minDelayMs: WEB_FORM_MIN_DELAY_MS,
+    };
+  }
+
+  /** Bot kapısı reddi: metrik her seferinde, audit ipKey başına dakikada 1 (AC-144 kalıbı); token/ref/ipKey yazılmaz. */
+  private async webFormRejected(ctx: AuditContext, reason: "fast" | "token" | "honeypot" | "token_store_full"): Promise<void> {
+    this.d.metrics.inc("rs_web_form_rejected_total", { reason });
+    this.d.metrics.inc("rs_web_requests_total", { result: "rejected" });
+    if (reason === "token_store_full") this.d.log.warn({ alarm: "web_form_token_store_full" }, "web formu nonce kümesi dolu");
+    const k = `webform|${ipKey(ctx.ip)}`;
+    if (this.d.limits.rateAudit.blockedFor(k) > 0 || this.d.limits.rateAudit.hit(k)) return;
+    await writeAudit(this.d.db, ctx, {
+      tenantId: null,
+      ...CUSTOMER,
+      action: WEB_REQUEST_AUDIT.WEB_FORM_REJECTED,
+      entity: "support_requests",
+      result: "fail",
+      newValue: { reason },
+    });
+  }
+
+  /**
+   * POST /public/web-requests (§8c.2 m.2–3): zod → bot kapısı (gizli alan, token HMAC + ref + yaş, SENKRON tüketim) → ortak
+   * çekirdek (ref/form → kovalar → mesai → TX). Tüketim ref/mesai/kova/TX'ten ÖNCE: sonraki red alan token da harcanmıştır.
+   */
+  async createWeb(ctx: AuditContext, body: unknown): Promise<CreateRequestResponse> {
+    const input: WebRequestData = parseInput(webRequestInputSchema, body);
+    if (input.website !== "") {
+      await this.webFormRejected(ctx, "honeypot");
+      throw new AppError("VALIDATION");
+    }
+    const check = this.formTokens.verify(input.formToken, input.ref);
+    if (!check.ok && check.reason === "fast") {
+      await this.webFormRejected(ctx, "fast");
+      throw new AppError("RATE_LIMITED", { retryAfterSec: Math.ceil(check.retryAfterMs / 1000), message: WEB_FORM_FAST_MESSAGE });
+    }
+    // İlk await'ten önce: doğrulama + tüketim aynı senkron adımda (aynı token'la 10 paralel → tam 1 geçer).
+    const consumed = check.ok ? this.formTokens.nonces.consume(check.nonce, check.expiresAt) : "used";
+    if (consumed !== "ok") {
+      await this.webFormRejected(ctx, consumed === "full" ? "token_store_full" : "token");
+      throw new AppError("FORM_TOKEN_INVALID");
+    }
+    const core: CreateCoreInput = {
+      ref: input.ref,
+      clientInstanceId: input.clientInstanceId,
+      customerName: input.customerName,
+      phone: input.phone,
+      ...(input.email !== undefined ? { email: input.email } : {}),
+      description: input.description,
+      consentTextId: input.consentTextId,
+      consentAccepted: input.consentAccepted,
+      notify: input.notify,
+      source: "WEB",
+      clientVersion: null,
+    };
+    return this.createCore(ctx, core, () => core, "WEB");
   }
 
   /**
@@ -663,10 +859,11 @@ export class RequestService {
   }
 
   /** POST /public/requests/cancel (AC-141): her durumda 204 — sır oracle'ı yok. */
-  async cancelBySecret(ctx: AuditContext, secret: string): Promise<void> {
+  async cancelBySecret(ctx: AuditContext, secret: string, source: RequestSource = "AGENT"): Promise<void> {
     await this.limit(ctx, null, "cancel", "req.cancel", "ip", ipKey(ctx.ip));
     const row = await repo.findBySecretHash(this.d.db, sha256Hex(secret));
-    if (row) await this.customerCancel(ctx, row);
+    // P19 (§8c.2 m.4): tür ↔ kaynak uyuşmazlığında sessizce 204 (sır oracle'ı yok).
+    if (row && row.source === source) await this.customerCancel(ctx, row);
   }
 
   /**

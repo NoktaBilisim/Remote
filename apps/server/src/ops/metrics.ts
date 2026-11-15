@@ -68,6 +68,9 @@ export function createMetrics(): Metrics {
   m.counter("rs_bindings_revoked_total", "Geçersizleştirilen bilgisayar kayıtları (P8c; reason)");
   m.counter("rs_request_ref_invalid_total", "Geçersiz firma ref'i denemeleri (P8b; alarm > 100/dk)");
   m.counter("rs_request_rate_limited_total", "Talep hız/bekleyen sınırı aşımları (bucket)");
+  m.counter("rs_web_requests_total", "Web talep formu gönderimleri (P19; result: created|rejected)");
+  m.counter("rs_web_form_rejected_total", "Web formu bot kapısı retleri (P19 S-P19-1; reason: fast|token|honeypot|token_store_full)");
+  m.counter("rs_notify_suppressed_total", "Bastırılan müşteri durum bildirimleri (P19 S-P19-12; reason: pending_duplicate)");
   m.counter(
     "rs_guest_code_rate_limited_total",
     "Kod/agent indirme yolunda 429 (P14a AC-208; scope: ip|prefix — alarm: 15 dk'da prefix >= 20)",

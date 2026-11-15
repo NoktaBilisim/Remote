@@ -59,6 +59,9 @@ export const ROUTE_CLASSES: Record<string, RouteClass> = {
   "GET /api/v1/public/requests/tenant": "public",
   "POST /api/v1/public/requests": "public",
   "POST /api/v1/public/requests/cancel": "public",
+  // P19 J2 (AC-259): web talep formu — kimliksiz, ref + form token'ı (tek tip 404; tenant id almaz).
+  "GET /api/v1/public/web-requests/form": "public",
+  "POST /api/v1/public/web-requests": "public",
   "GET /api/v1/public/agent/request-download": "public",
   "GET /api/v1/support-requests": "scoped",
   "GET /api/v1/support-requests/count": "scoped",

@@ -33,6 +33,10 @@ export const CUSTOMER_AUDIT = {
   DEACTIVATED: "customer.deactivated",
   REACTIVATED: "customer.reactivated",
   ANONYMIZED: "customer.anonymized",
+  /** P19 (AC-263): `{count, status}`. */
+  EXPORTED: "customer.exported",
+  /** P19 (AC-263): özet `{total, created, updated, skipped, failed, onConflict}`; satır olayları `source: "import"`. */
+  IMPORTED: "customer.imported",
 } as const;
 export const BINDING_AUDIT = {
   ISSUED: "binding.issued",
@@ -230,6 +234,20 @@ export const REQUEST_COMMS_AUDIT = {
 export const CRYPTO_AUDIT = {
   REWRAP: "crypto.rewrap",
 } as const;
+
+/**
+ * P19 J2 (mimari-e11 §8c.7; AC-259). Gövde/PII/token yok:
+ *  - WEB_FORM_REJECTED `{reason: fast|token|honeypot|token_store_full}` — ipKey başına dakikada 1 satır (AC-144 kalıbı).
+ *  - `request.created` += `source`, `notify: {sms, whatsapp, email}`, `notifySuppressed?: true` (S-P19-12).
+ */
+export const WEB_REQUEST_AUDIT = {
+  WEB_FORM_REJECTED: "request.web_form_rejected",
+} as const;
+
+/** P19 J2 eylemlerinin Türkçe etiketleri (web `AUDIT_ACTION_LABELS`'a yayılır). */
+export const P19_REQUEST_AUDIT_LABELS: Readonly<Record<string, string>> = {
+  [WEB_REQUEST_AUDIT.WEB_FORM_REJECTED]: "Web talep formu reddedildi",
+};
 
 /** P18 eylemlerinin Türkçe etiketleri (web `AUDIT_ACTION_LABELS`'a yayılır). */
 export const P18_AUDIT_LABELS: Readonly<Record<string, string>> = {

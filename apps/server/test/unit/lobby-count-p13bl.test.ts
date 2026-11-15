@@ -135,7 +135,7 @@ describe("P13b-L Rooms lobi sayımı", () => {
   it("AC-305: talepten doğan ön-kabullü misafir (TICKETED, requestId) sayılmaz", () => {
     const { rooms, rowOf } = setup();
     const row = rowOf("T1", "U1");
-    rooms.preAdmitGuest(row, { requestId: newId(), name: "Ayşe Yılmaz", clientVersion: "1.0.0", consent });
+    rooms.preAdmitGuest(row, { requestId: newId(), kind: "AGENT", name: "Ayşe Yılmaz", clientVersion: "1.0.0", consent });
     expect(rooms.get(row.id)?.lobby.size).toBe(1);
     expect(waitingIn(rooms, row.id)).toBe(0);
     expect(waitingFor(rooms, "T1", "U1")).toEqual([]);

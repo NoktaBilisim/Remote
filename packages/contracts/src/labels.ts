@@ -1,7 +1,7 @@
 // Enum → Türkçe etiket eşlemesinin TEK yeri (mimari-api "Oturum geçmişi (P8)"). Web ve sunucu CSV'si aynı eşlemeyi kullanır.
 // CHECK'i olmayan değerler (`end_reason`, audit `action`) bilinmiyorsa ham gösterilir: `labelOf` boş bırakmaz, hata atmaz.
 import type { CustomerStatus } from "./api/customers.ts";
-import type { AfterHoursMode, CancelReason, NetworkMatch, RequestPriority, RequestStatus } from "./api/requests.ts";
+import type { AfterHoursMode, CancelReason, NetworkMatch, RequestPriority, RequestSource, RequestStatus } from "./api/requests.ts";
 import type {
   ConsentDecision,
   ConsentLevel,
@@ -60,6 +60,12 @@ export const END_REASON_LABELS: Readonly<Record<string, string>> = {
 export const SESSION_SOURCE_LABELS: Readonly<Record<SessionSource, string>> = {
   TECH: "Teknisyen",
   REQUEST: "Talep",
+};
+
+/** P19 (AC-259, mimari-e11 §8c.6): talep kaynağı rozeti (kuyruk kartı / geçmiş). */
+export const REQUEST_SOURCE_LABELS: Readonly<Record<RequestSource, string>> = {
+  AGENT: "İstemci",
+  WEB: "Web",
 };
 
 /** P8b (AC-140): talep durumları. */

@@ -1,8 +1,14 @@
 // /api/v1/customers (P8c; mimari-api "Müşteriler ve bilgisayar kaydı (P8c)", mimari-e10 §4). Sıra: requireAuth (CSRF
 // durum değiştirenlerde) → requirePerm → tenantScope (Super Admin firma seçmeli; `all` istisnası YOK — AC-172) → zod → servis.
 // Gövdeler loglanmaz (logger gövde yazmaz; K19 §15.6 (5)); doğrulama hatası yalnız alan adı + mesaj döner.
+import multipart from "@fastify/multipart";
 import {
+  CUSTOMER_EXPORTS_PER_MIN,
+  CUSTOMER_IMPORT_MAX_BYTES,
+  CUSTOMER_IMPORT_PREVIEWS_PER_HOUR,
   createCustomerInputSchema,
+  exportCustomersQuerySchema,
+  importCommitInputSchema,
   customerActionInputSchema,
   customerOptionsQuerySchema,
   customerTabQuerySchema,
@@ -12,6 +18,8 @@ import {
   type CustomerListResponse,
   type CustomerOptionsResponse,
   type GeneralLinkResponse,
+  type ImportPreview,
+  type ImportResult,
 } from "@remote/contracts/api/customers";
 import type { SupportRequestListResponse } from "@remote/contracts/api/requests";
 import type { SessionListResponse } from "@remote/contracts/api/sessions";
@@ -19,6 +27,9 @@ import type { FastifyInstance, FastifyRequest } from "fastify";
 import { auditContext } from "../audit/service.ts";
 import { authOf, requireAnyPerm, requireAuth, requirePerm, tenantScope } from "../auth/guards.ts";
 import { AppError, parseInput } from "../lib/errors.ts";
+import { FixedWindowCounter } from "../lib/rate.ts";
+import { exportCustomersCsv } from "./csv-export.ts";
+import { commitImport, ImportPreviewStore, previewImport, readCsvUpload } from "./csv-import.ts";
 import {
   createCustomer,
   customerOptions,
@@ -53,6 +64,59 @@ export async function customerRoutes(app: FastifyInstance): Promise<void> {
     const { tenantId } = tenantScope(req);
     return listCustomers(svc(), tenantId, parseInput(listCustomersQuerySchema, req.query));
   });
+
+  // P19 (AC-263, S-P19-14, K-P19-9): CSV dışa/içe aktarma. Statik yollar `/:id`'den önce eşleşir (find-my-way).
+  const MIN = 60_000;
+  const HOUR = 60 * MIN;
+  const exportLimit = new FixedWindowCounter(CUSTOMER_EXPORTS_PER_MIN + 1, MIN, MIN);
+  const previewLimit = new FixedWindowCounter(CUSTOMER_IMPORT_PREVIEWS_PER_HOUR + 1, HOUR, HOUR);
+  const previews = new ImportPreviewStore(() => svc().d.clock.now());
+  const importLocks = new Set<string>();
+  app.addHook("onClose", async () => {
+    exportLimit.close();
+    previewLimit.close();
+  });
+
+  app.get("/export.csv", { preHandler: [requirePerm("customers.view"), requirePerm("customers.export")] }, async (req, reply) => {
+    const { tenantId } = tenantScope(req);
+    const q = parseInput(exportCustomersQuerySchema, req.query);
+    const out = await exportCustomersCsv(app.db, req.log, auditContext(req), authOf(req), tenantId, q, exportLimit);
+    void reply
+      .header("Content-Type", "text/csv; charset=utf-8")
+      .header("Content-Disposition", `attachment; filename="${out.filename}"`)
+      .header("X-Content-Type-Options", "nosniff");
+    return reply.send(out.body);
+  });
+
+  // multipart ayrıştırıcısı yalnız önizleme alt bağlamında (diğer uçlar multipart gövdeyi reddetmeye devam eder).
+  await app.register(async (sub) => {
+    await sub.register(multipart, {
+      limits: { fileSize: CUSTOMER_IMPORT_MAX_BYTES, files: 1, fields: 0, parts: 1 },
+      throwFileSizeLimit: true,
+    });
+    sub.post(
+      "/import/preview",
+      { preHandler: [requirePerm("customers.import"), requirePerm("customers.create"), requirePerm("customers.view")] },
+      async (req): Promise<ImportPreview> => {
+        const { tenantId } = tenantScope(req);
+        const auth = authOf(req);
+        const wait = previewLimit.blockedFor(auth.user.id);
+        if (wait > 0 || previewLimit.hit(auth.user.id)) throw new AppError("RATE_LIMITED", { retryAfterSec: wait || 3600 });
+        const file = await readCsvUpload(req);
+        return previewImport(svc(), previews, auth, tenantId, file);
+      },
+    );
+  });
+
+  app.post(
+    "/import/commit",
+    { preHandler: [requirePerm("customers.import"), requirePerm("customers.create")] },
+    async (req): Promise<ImportResult> => {
+      const { tenantId } = tenantScope(req);
+      const input = parseInput(importCommitInputSchema, req.body);
+      return commitImport(svc(), previews, importLocks, auditContext(req), authOf(req), tenantId, input);
+    },
+  );
 
   app.get("/general-link", view, async (req): Promise<GeneralLinkResponse> => generalLink(svc(), tenantScope(req).tenantId));
 

@@ -5,7 +5,8 @@
 # Doğrulananlar: firma dosyası NoktaDestek-<label>-<ref>.exe (AC-130, G-E9-11) aynı ikiliyi sunar (iki firma adı → aynı SHA-256) ve forward_auth'a
 # adı sorgu dizesiz iletir; kapı 404/503 dönerse dosya sunulmaz; biçim dışı adlar server'a hiç gitmez; P6 yolları
 # (NoktaDestek.exe, Destek-<8 hane>.exe) server'a maskeli gider; /ws/request ve /ws/panel yükseltilir; /internal/* 404;
-# Caddy erişim/hata logunda ref, sorgu dizesi ve WS subprotocol (talep sırrı) yok (G-10, G-E9-8, T31).
+# Caddy erişim/hata logunda ref, sorgu dizesi ve WS subprotocol (talep sırrı) yok (G-10, G-E9-8, T31); P19 web talep formu
+# /r/<ref> iki log bloğunda da /r/*** (S-P19-10).
 # P13c: ROBOTS_NOINDEX yokken (prod) X-Robots-Tag / robots.txt Disallow yok; staging katmanı değerleriyle noindex + trusted_proxies.
 # Kullanım: deploy/test-caddy.sh   ·   KEEP=1 (konteynerleri bırak)   ·   uzun WS bağlantısı (HTTP zaman aşımlarından etkilenmiyor mu, ~40 sn):
 #           CADDY_TEST_WS_HOLD=1 deploy/test-caddy.sh
@@ -14,7 +15,7 @@ cd "$(dirname "$0")"
 CADDY_IMAGE="$(awk '/image: caddy:/ {print $2; exit}' docker-compose.yml)"
 NODE_IMAGE="$(sed -n 's/^ARG NODE_IMAGE=//p' ../apps/server/Dockerfile)"
 [ -n "$CADDY_IMAGE" ] && [ -n "$NODE_IMAGE" ] || { echo "imaj adı bulunamadı"; exit 2; }
-P=remote-caddy-test
+P="remote-caddy-test-$$"   # benzersiz ad: paralel koşular / paylaşılan Docker çakışmaz
 TMP="$(mktemp -d)"
 cleanup() { docker rm -f "$P-caddy" "$P-caddy-stg" "$P-server" >/dev/null 2>&1 || true; docker network rm "$P" >/dev/null 2>&1 || true; rm -rf "$TMP"; }
 trap cleanup EXIT
@@ -27,6 +28,7 @@ REF=abcdefghijklmn27            # [a-z2-7]{16}
 REF2=zyxwvutsrqpo2345           # ikinci firma (AC-130: aynı ikili)
 FIRM="NoktaDestek-DemoFirma-$REF"
 sha256() { if command -v sha256sum >/dev/null; then sha256sum "$1"; else shasum -a 256 "$1"; fi | awk '{print $1}'; }
+WREF="webref$(openssl rand -hex 8)"   # P19 /r/<ref> (sahte; her koşuda rastgele)
 SUBPROTO="rs.req.TESTSIRRI$(openssl rand -hex 16)"   # sahte talep sırrı (subprotocol), her koşuda rastgele
 mkdir -p "$TMP/dl"
 printf 'MZ-sahte-ikili-%s' "$(date +%s)" >"$TMP/dl/NoktaDestek.exe"
@@ -184,6 +186,12 @@ docker exec "$P-caddy-stg" caddy adapt --config /etc/caddy/Caddyfile --adapter c
   && pass "staging: 4451 trusted_proxies = CADDY_TRUSTED_PROXIES" || fail "staging trusted_proxies"
 docker rm -f "$P-caddy-stg" >/dev/null
 
+echo "== P19 web talep formu /r/<ref> (web:3000 testte yok → 502: erişim + hata logu birlikte sınanır)"
+for u in "/r/$WREF" "/r/$WREF/" "/r/$WREF?x=1" "/r/$WREF/bekle"; do
+  CODE="$(curl -s -o /dev/null -w '%{http_code}' "$B$u")"
+  [ "$CODE" = 502 ] && pass "$u → web'e yönlendi (502, test web'i yok)" || fail "$u → $CODE"
+done
+
 echo "== server erişilemez → 502, dosya sunulmaz (hata logu da maskeli olmalı)"
 docker stop -t 1 "$P-server" >/dev/null
 CODE="$(curl -s -o "$TMP/out" -w '%{http_code}' "$B/downloads/$FIRM.exe?utm=2")"
@@ -196,7 +204,9 @@ docker logs "$P-caddy" >"$TMP/caddy.log" 2>&1
 grep -q '"uri":"/downloads/NoktaDestek-\*\*\*"' "$TMP/caddy.log" && pass "erişim logu /downloads/NoktaDestek-***" || fail "maskeli firma yolu logda yok"
 grep -q '"uri":"/downloads/NoktaDestek.exe"' "$TMP/caddy.log" && pass "kodsuz ad maskelenmez (NoktaDestek.exe)" || fail "NoktaDestek.exe logda yok"
 grep -q '"uri":"/api/v1/files/avatar/T1/abcdefghijklmnop.webp"' "$TMP/caddy.log" && pass "erişim logu /api/v1/files yolu sorgu dizesiz" || fail "/api/v1/files log satırı"
-for s in "$REF" "$REF2" "TESTSIRRI" "utm=" "x=1" "gizlisorgu" "12345678" "DemoFirma" "IkinciFirma2" "test-only-edge-secret"; do
+grep '"logger":"http.log.access' "$TMP/caddy.log" | grep -q '"uri":"/r/\*\*\*/bekle"' && pass "P19 erişim logu /r/***/bekle" || fail "P19 erişim logu /r/*** yok"
+grep '"logger":"http.log.error' "$TMP/caddy.log" | grep -q '"uri":"/r/\*\*\*"' && pass "P19 hata logu (varsayılan logger) /r/***" || fail "P19 hata logu /r/*** yok"
+for s in "$WREF" "webref" "$REF" "$REF2" "TESTSIRRI" "utm=" "x=1" "gizlisorgu" "12345678" "DemoFirma" "IkinciFirma2" "test-only-edge-secret"; do
   if grep -q -- "$s" "$TMP/caddy.log"; then fail "logda '$s' var"; else pass "logda '$s' yok"; fi
 done
 

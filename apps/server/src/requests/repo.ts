@@ -25,6 +25,10 @@ const settingsSelect = {
   requireAcceptCode: true, // P15 (AC-239)
   defaultPriority: true, // P18 (AC-257)
   defaultSlaMinutes: true,
+  webFormEnabled: true, // P19 (AC-259)
+  notifySmsEnabled: true,
+  notifyWhatsappEnabled: true,
+  notifyEmailEnabled: true,
   tenant: { select: { id: true, name: true, status: true, deletedAt: true, logoPath: true } },
 } as const;
 export type SettingsRow = Prisma.TenantRequestSettingsGetPayload<{ select: typeof settingsSelect }>;
@@ -101,8 +105,18 @@ export const jsonStrings = (v: Prisma.JsonValue): string[] => (Array.isArray(v) 
 export async function pendingSnapshot(tx: DbOrTx, tenantId: string, k: { clientInstance: string; ipKey: string; netKey: string }) {
   const rows = await tx.supportRequest.findMany({
     where: { tenantId, status: "PENDING" },
-    select: { clientInstance: true, ipKey: true, netKey: true, requestCode: true, priority: true },
+    select: {
+      clientInstance: true,
+      ipKey: true,
+      netKey: true,
+      requestCode: true,
+      priority: true,
+      source: true,
+      customerPhone: true,
+      customerEmail: true,
+    },
   });
+  const web = rows.filter((r) => r.source === "WEB");
   return {
     instance: rows.filter((r) => r.clientInstance === k.clientInstance).length,
     ip: rows.filter((r) => r.ipKey === k.ipKey).length,
@@ -111,6 +125,10 @@ export async function pendingSnapshot(tx: DbOrTx, tenantId: string, k: { clientI
     codes: new Set(rows.map((r) => r.requestCode)),
     /** P18 (AC-257): bekleyenlerin öncelikleri — yeni talebin sırası `compareQueue` ile (aynı/yüksek öncelik önde). */
     priorities: rows.map((r) => r.priority),
+    /** P19 (S-P19-15): WEB bekleyen sayısı (alt tavan 30). */
+    web: web.length,
+    /** P19 (S-P19-12): bekleyen WEB taleplerinin alıcıları (≤ 30; bildirim bastırma karşılaştırması). */
+    webContacts: web.map((r) => ({ phone: r.customerPhone, email: r.customerEmail })),
   };
 }
 
@@ -152,6 +170,7 @@ const secretSelect = {
   status: true,
   requestCode: true,
   clientVersion: true,
+  source: true, // P19 (S-P19-3, 13): tür ↔ kaynak ve sürüm kapısı
   createdAt: true,
   expiresAt: true,
   acceptedBy: true,
@@ -207,6 +226,7 @@ const itemSelect = {
   customerEmail: true,
   description: true,
   clientVersion: true,
+  source: true,
   rejectMessage: true,
   acceptor: { select: { id: true, fullName: true } },
   session: { select: { id: true } },
@@ -235,8 +255,15 @@ export async function listPending(
   tenantId: string,
   customer?: string,
   assigned?: { mode: "me" | "none"; userId: string },
+  source?: string,
 ): Promise<{ rows: ItemRow[]; total: number }> {
-  const where: Prisma.SupportRequestWhereInput = { tenantId, status: "PENDING", ...customerWhere(customer), ...assignedWhere(assigned) };
+  const where: Prisma.SupportRequestWhereInput = {
+    tenantId,
+    status: "PENDING",
+    ...customerWhere(customer),
+    ...assignedWhere(assigned),
+    ...(source ? { source } : {}),
+  };
   const [rows, total] = await Promise.all([
     db.supportRequest.findMany({ where, select: itemSelect, orderBy: [{ createdAt: "asc" }, { id: "asc" }], take: 200 }),
     db.supportRequest.count({ where }),
@@ -251,12 +278,14 @@ export async function listHistory(
   status: string | undefined,
   page: { skip: number; take: number },
   customer?: string,
+  source?: string,
 ) {
   const where: Prisma.SupportRequestWhereInput = {
     tenantId,
     closedAt: { gte: since },
     ...(status ? { status } : {}),
     ...customerWhere(customer),
+    ...(source ? { source } : {}),
   };
   const [rows, total] = await Promise.all([
     db.supportRequest.findMany({ where, select: itemSelect, orderBy: [{ closedAt: "desc" }, { id: "desc" }], ...page }),
@@ -282,7 +311,7 @@ export function findItem(db: DbOrTx, tenantId: string, id: string): Promise<Item
 export function findStatusInTenant(db: DbOrTx, tenantId: string, id: string) {
   return db.supportRequest.findFirst({
     where: { id, tenantId },
-    select: { status: true, acceptedBy: true, customerId: true, clientVersion: true },
+    select: { status: true, acceptedBy: true, customerId: true, clientVersion: true, source: true },
   });
 }
 

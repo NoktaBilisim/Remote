@@ -40,6 +40,7 @@ import { businessHoursRoutes, holidayRoutes } from "./requests/hours-routes.ts";
 import { requestBlockRoutes } from "./requests/block-routes.ts";
 import { RequestService } from "./requests/service.ts";
 import { requestChannels } from "./requests/ws.ts";
+import { publicWebRequestRoutes } from "./requests/web-routes.ts";
 import { customerRoutes } from "./customers/routes.ts";
 import { publicBindingRoutes } from "./bindings/public-routes.ts";
 import { userRoutes } from "./users/routes.ts";
@@ -384,6 +385,7 @@ export function buildApp(deps: AppDeps): FastifyInstance {
   void app.register(publicAgentRoutes, { prefix: "/api/v1/public/agent" });
   void app.register(internalAgentRoutes, { prefix: "/internal" });
   void app.register(publicRequestRoutes, { prefix: "/api/v1/public/requests" });
+  void app.register(publicWebRequestRoutes, { prefix: "/api/v1/public/web-requests" });
   void app.register(publicRequestDownloadRoutes, { prefix: "/api/v1/public/agent" });
   void app.register(supportRequestRoutes, { prefix: "/api/v1/support-requests" });
   void app.register(requestSettingsRoutes, { prefix: "/api/v1/settings/support-requests" });

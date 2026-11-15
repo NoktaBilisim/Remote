@@ -181,7 +181,7 @@ export async function admitRequestGuest(rooms: Rooms, room: Room, guest: Guest, 
     perms = new Set(effectivePermissions(tech.role as Role, tech.permissions));
     ok = await rooms.db.$transaction(async (tx) => {
       const keys = { guestIpKey: ipKey(ctx.ip), guestNetKey: netKey(ctx.ip) };
-      if ((await repo.consumeForAdmit(tx, room.sessionId, now, "AGENT", customerOf(guest), { ...keys, requestId })) !== 1) return false;
+      if ((await repo.consumeForAdmit(tx, room.sessionId, now, guest.kind, customerOf(guest), { ...keys, requestId })) !== 1) return false;
       const consent = { ...guest.consent, at: now, ip: ctx.ip, userAgent: ctx.userAgent.slice(0, 300) };
       await recordViewConsent(tx, room.sessionId, room.tenantId, consent, requestId);
       await writeAudit(tx, ctx, {
@@ -195,7 +195,7 @@ export async function admitRequestGuest(rooms: Rooms, room: Room, guest: Guest, 
           via: "request",
           requestId,
           acceptedBy: room.technicianId,
-          guestKind: "AGENT",
+          guestKind: guest.kind,
           consentTextId: consent.textId,
           consentSha256: consent.sha256,
         },

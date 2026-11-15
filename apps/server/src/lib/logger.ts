@@ -28,6 +28,9 @@ const REDACT_PATHS = [
   "*.requestSecret",
   "*.wsTicket",
   "*.deviceKey",
+  // P19 (§8c.2 m.8): web formu token'ı ve gizli alan.
+  "*.formToken",
+  "*.website",
   // P8c (mimari-e10 §5.6, §15.6): kayıt anahtarı + müşteri kişisel alanları (savunma; gövdeler zaten loglanmaz).
   "*.bindingKey",
   "*.previousKey",

@@ -485,6 +485,79 @@ export interface CreateRequestResponse {
   position: number;
 }
 
+// ---------------------------------------------------------------------------------------------------------------
+// P19 J2 — web talep formu (mimari-e11 §8c.2, §8c.6; AC-259, S-P19-1/2/3/12/13/15)
+// ---------------------------------------------------------------------------------------------------------------
+
+/** Talep kaynağı: AGENT (Windows istemcisi) | WEB (tarayıcı formu, `client_version` NULL). DB ikili CHECK ile aynı. */
+export const REQUEST_SOURCES = ["AGENT", "WEB"] as const;
+export type RequestSource = (typeof REQUEST_SOURCES)[number];
+
+/** Bot kapısı (S-P19-1): token alındıktan bu süre geçmeden gönderim 429 `RATE_LIMITED` (`retryAfterSec: 2`, token harcanmaz). */
+export const WEB_FORM_MIN_DELAY_MS = 2000;
+/** Token ömrü 30 dk; sonrası 400 `FORM_TOKEN_INVALID`. */
+export const WEB_FORM_TOKEN_TTL_MS = 30 * 60_000;
+export const WEB_FORM_FAST_MESSAGE = "Lütfen birkaç saniye sonra tekrar deneyin.";
+
+/** Gizli alan (`website`): insan boş bırakır; doluysa sunucu genel 400 `VALIDATION` döner (alan adı verilmez). */
+export const honeypotSchema = z.string().max(200).default("");
+
+/** Durum bildirimi kanal tercihi (hizmet bildirimi; varsayılan işaretsiz — S-P19-10, B2). */
+export const notifyChoiceSchema = z
+  .strictObject({ sms: z.boolean().default(false), whatsapp: z.boolean().default(false), email: z.boolean().default(false) })
+  .default({ sms: false, whatsapp: false, email: false });
+export type NotifyChoice = z.output<typeof notifyChoiceSchema>;
+
+/** Form token'ı: base64url (`v1` ‖ issuedAt ‖ nonce ‖ HMAC); biçim sunucuda doğrulanır. */
+export const formTokenSchema = z.string().regex(/^[A-Za-z0-9_-]{16,200}$/, "Formun süresi doldu, sayfayı yenileyin.");
+
+/** POST /public/web-requests (AC-259; AC-134 alan kuralları AGENT ile aynı). `notify.email` ⇒ `email` zorunlu. */
+export const webRequestInputSchema = z
+  .strictObject({
+    ref: tenantRefSchema,
+    formToken: formTokenSchema,
+    website: honeypotSchema,
+    clientInstanceId: clientInstanceSchema,
+    customerName: customerNameSchema,
+    phone: phoneSchema,
+    email: optionalEmailSchema,
+    description: descriptionSchema,
+    consentTextId: z.string().regex(ULID, "Aydınlatma metni geçersiz"),
+    consentAccepted: z.literal(true, "Aydınlatma metni onaylanmalı"),
+    notify: notifyChoiceSchema,
+  })
+  .superRefine((b, ctx) => {
+    if (b.notify.email && b.email === undefined)
+      ctx.addIssue({ code: "custom", path: ["email"], message: "E-posta ile bildirim için e-posta adresi girin" });
+  });
+export type WebRequestInput = z.input<typeof webRequestInputSchema>;
+export type WebRequestData = z.output<typeof webRequestInputSchema>;
+
+/**
+ * S-P19-T11: e-posta tavan/özet/bastırma anahtarı — NFC + trim + küçük harf + yerel kısımdaki `+…` eki atılır
+ * (`ad+1@x` ≡ `ad@x`). Yalnız karşılaştırma/özet içindir; gönderim adresi değişmez. J3 `recipient_hash` aynı işlevi kullanır.
+ */
+export function notifyEmailKey(email: string): string {
+  const e = email.normalize("NFC").trim().toLowerCase();
+  const at = e.lastIndexOf("@");
+  if (at <= 0) return e;
+  const local = e.slice(0, at);
+  const plus = local.indexOf("+");
+  return (plus > 0 ? local.slice(0, plus) : local) + e.slice(at);
+}
+
+/** GET /public/web-requests/form?ref= yanıtı. Müşteri adı DÖNMEZ (S-P19-2); kanal yalnız firma açtıysa ve kullanılabilirse true. */
+export interface WebFormInfo {
+  tenant: { name: string; logoUrl: string | null };
+  consentText: { id: string; version: number; body: string; sha256: string };
+  /** `tenant_settings.retention_days` — "Sohbet mesajları kayıt altına alınır ve <N> gün saklanır" (AC-292 form satırı). */
+  chatRetentionDays: number;
+  channels: { sms: boolean; whatsapp: boolean; email: boolean };
+  businessHours: PublicBusinessHours;
+  formToken: string;
+  minDelayMs: number;
+}
+
 /** POST /public/requests/cancel (AC-141, §13.3). Yanıt her durumda 204 (sır oracle'ı yok). */
 export const cancelRequestInputSchema = z.strictObject({ requestSecret: requestSecretSchema });
 export type CancelRequestInput = z.infer<typeof cancelRequestInputSchema>;
@@ -505,6 +578,8 @@ export const listRequestsQuerySchema = z
     customer: customerFilterSchema.optional(),
     /** P18 (AC-256): yalnız `pending` — `me` = bana atananlar, `none` = atanmamış. */
     assigned: z.enum(["me", "none"]).optional(),
+    /** P19 (AC-259): kaynak filtresi (kuyruk ve geçmiş). */
+    source: z.enum(REQUEST_SOURCES).optional(),
     page: z.coerce.number().int().min(1).max(10_000).default(1),
     pageSize: z.coerce.number().int().min(1).max(REQUEST_PAGE_SIZE_MAX).default(25),
   })
@@ -535,6 +610,8 @@ export interface SupportRequestItem {
   description: string | null;
   /** P19: WEB (tarayıcı formu) talebinde null — sürüm yalnız AGENT'ta anlamlıdır (mimari-e11 §8c.2 m.1). */
   clientVersion: string | null;
+  /** P19 (AC-259): "Web" / "İstemci" rozeti (`REQUEST_SOURCE_LABELS`). */
+  source: RequestSource;
   acceptedBy: { id: string; name: string } | null;
   rejectMessage: string | null;
   sessionId: string | null;
@@ -600,7 +677,20 @@ export interface SupportRequestSettings {
   defaultPriority: RequestPriority;
   /** P18 (AC-257): firma varsayılan SLA hedefi (dakika, 5..1440); null = SLA yok. */
   defaultSlaMinutes: number | null;
+  /** P19 (AC-259): web talep formu açık mı; kapalıyken `/r/<ref>` tek tip 404. */
+  webFormEnabled: boolean;
+  /** `${PUBLIC_BASE_URL}/r/<Genel ref>` (form kapalıyken de döner; paylaşmadan önce açılmalı). */
+  webFormUrl: string;
+  /** P19 (AC-261): müşteriye durum bildirimi kanalları (firmanın sunduğu). */
+  notifySmsEnabled: boolean;
+  notifyWhatsappEnabled: boolean;
+  notifyEmailEnabled: boolean;
+  /** Açık ama şu an kullanılamayan kanallar (form bu kanalı göstermez); ayar sayfasına bağlantı. */
+  channelWarnings: NotifyChannelKey[];
 }
+
+/** P19: ayar/form kanal anahtarı (küçük harf; outbox `channel` değerleri J3 `NOTIFY_CHANNELS`'tadır). */
+export type NotifyChannelKey = "sms" | "whatsapp" | "email";
 
 /**
  * P15 (AC-239, S15-1/S15-6): `request.accepted.admitCode` yalnız bu sürüm ve üstündeki talep istemcisine gönderilir.
@@ -637,6 +727,11 @@ export const updateRequestSettingsInputSchema = z
       .max(SLA_MINUTES_MAX, `En çok ${SLA_MINUTES_MAX} dakika`)
       .nullable()
       .optional(),
+    /** P19 (AC-259, 261): verilmezse mevcut değer korunur. */
+    webFormEnabled: z.boolean().optional(),
+    notifySmsEnabled: z.boolean().optional(),
+    notifyWhatsappEnabled: z.boolean().optional(),
+    notifyEmailEnabled: z.boolean().optional(),
   })
   .superRefine((s, ctx) => {
     if (s.whatsapp.enabled && s.whatsapp.recipients.length === 0)

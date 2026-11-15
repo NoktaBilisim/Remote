@@ -121,6 +121,12 @@ describe("ayar formu", () => {
     requireAcceptCode: false,
     defaultPriority: "NORMAL" as const,
     defaultSlaMinutes: null,
+    webFormEnabled: false,
+    webFormUrl: "https://x/r/abcdefghijklmnop",
+    notifySmsEnabled: false,
+    notifyWhatsappEnabled: false,
+    notifyEmailEnabled: false,
+    channelWarnings: [],
   };
   it("geçerli durum → PUT gövdesi (telefon E.164, CIDR kanonik, boş satır atlanır)", () => {
     const st = {

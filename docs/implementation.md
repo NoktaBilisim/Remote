@@ -7632,3 +7632,200 @@ Ayrıntı: `docs/db-notlari.md` "P19"; mimari-e11 §8c.1, §8c.9 (S-P19-12, T5),
 created_at`). `SupportRequest.source/notifySms/notifyWhatsapp/notifyEmail`, `TenantRequestSettings.webFormEnabled/
 notify*Enabled`, `TenantSettings.smsUrl/smsApiKeyEnc/smsHeader`.
 - **Ölçülmedi:** `support_requests` COPY süresi staging'de ölçülmeli (dba staging'e bağlanmadı) — J6/J8 deploy notuna.
+
+## P19 J4 (CSV) — backend, 2026-11-15
+
+AC-263; mimari-e11 §8c.5–§8c.7; S-P19-4 (preview), S-P19-8, S-P19-14 (K-P19-9).
+
+**Değişen / yeni dosyalar**
+
+- `packages/contracts/src/csv.ts` (yeni; `package.json` exports `./csv`): `CSV_BOM`, `CSV_SEPARATOR`, `CSV_EOL`, `csvCell`,
+  `csvRow` (lib/csv.ts'den taşındı, davranış aynı) + `csvUnescapeCell` (formül kaçışı tersi). Web hata raporu bunu kullanır.
+- `packages/contracts/src/api/customers.ts`: `CUSTOMER_CSV_COLUMNS`, sınır sabitleri (`CUSTOMER_EXPORT_MAX_ROWS` 50 000,
+  `CUSTOMER_EXPORTS_PER_MIN` 10, `CUSTOMER_IMPORT_MAX_BYTES` 2 MB, `CUSTOMER_IMPORT_MAX_ROWS` 5 000,
+  `CUSTOMER_IMPORT_MAX_RECORD_CHARS` 8 KB, `CUSTOMER_IMPORT_PREVIEWS_PER_HOUR` 10, `CUSTOMER_IMPORT_PREVIEW_TTL_MS` 15 dk,
+  `CUSTOMER_IMPORT_PREVIEW_ROWS` 50, `CUSTOMER_IMPORT_ERRORS_MAX` 500, `CUSTOMER_IMPORT_FIELD` "file"),
+  `CUSTOMER_IMPORT_MESSAGES`, `exportCustomersQuerySchema`, `importCommitInputSchema`, `CUSTOMER_IMPORT_CONFLICT_MODES`,
+  `CUSTOMER_IMPORT_ROW_KINDS`, tipler `ImportPreview`, `ImportPreviewRow`, `ImportRowError`, `ImportResult`.
+- `packages/contracts/src/permissions.ts`: `customers` += `export`, `import` (+ açıklamalar). `audit.ts`: `CUSTOMER_AUDIT.EXPORTED/IMPORTED`.
+- `apps/server/src/lib/csv.ts`: kaçış contracts'tan yeniden dışa aktarılır; `parseCsv` (RFC 4180, BOM, `;`/`,` başlıktan,
+  CRLF/LF/CR, çok satırlı hücre, fiziksel satır no; kapanmamış tırnak / > 8 KB kayıt → satır hatası ve sonraki fiziksel
+  satırdan devam; > maxRows → `CsvTooManyRowsError`).
+- `apps/server/src/customers/csv-export.ts` (yeni), `csv-import.ts` (yeni), `repo.ts` (+`exportPage`, `countForExport`,
+  `nameKeyIndex`, `findMany`), `routes.ts` (3 uç), `service.ts` (`withTxRetry` export edildi; davranış aynı).
+- Testler: `apps/server/test/unit/csv-p19.test.ts` (5), `apps/server/test/integration/customers-csv-p19.test.ts` (12).
+
+**Uçlar (J5 için)**
+
+| Uç                                                                           | Yetki (preHandler dizisi)                                                            | Girdi                                      | Çıktı                                                                    | Hatalar                                                                                                                                                |
+| ---------------------------------------------------------------------------- | ------------------------------------------------------------------------------------ | ------------------------------------------ | ------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `GET /api/v1/customers/export.csv?status=active\|passive\|all` (vars. `all`) | `customers.view` + `customers.export`; 10/dk/kullanıcı                               | —                                          | `text/csv`, `attachment; filename="musteriler-YYYYMMDD.csv"`, `no-store` | 403 · 429 · 400 `VALIDATION` (> 50 000)                                                                                                                |
+| `POST /api/v1/customers/import/preview`                                      | `customers.import` + `create` + `view`; 10/sa/kullanıcı                              | multipart tek alan `file` (≤ 2 MB)         | 200 `ImportPreview`                                                      | 400 `VALIDATION` `fields.file` (dosya yok / UTF-8 değil / Ad sütunu yok / boş) · 403 · 413 `PAYLOAD_TOO_LARGE` ("En çok 5.000 satır" ya da 2 MB) · 429 |
+| `POST /api/v1/customers/import/commit`                                       | `customers.import` + `create`; `onConflict:"update"` ise serviste + `customers.edit` | `{previewId, onConflict:"skip"\|"update"}` | 200 `ImportResult` `{total, created, updated, skipped, failed}`          | 400 · 403 · 409 `CONFLICT` "Başka bir içe aktarma sürüyor" · 428 `PREVIEW_REQUIRED`                                                                    |
+
+- `ImportPreview`: `{previewId, total, counts:{create, conflict, error}, rows (ilk 50, satır sırası), errors (≤ 500,
+`{line, column: CUSTOMER_CSV_COLUMNS üyesi | null, message}`), errorsTruncated, warnings}`. `line` = dosyadaki fiziksel satır
+  (1 = başlık). Hata raporu web'de `csvRow` (contracts `./csv`) ile üretilmeli.
+- `previewId` tek kullanımlıktır (uygulamada tüketilir; 403/409 tüketmez). Kullanıcı başına tek önizleme; yeni önizleme
+  eskisini geçersiz kılar. Başka kullanıcı/firma, süre dolumu → 428.
+- Dışa aktarma biçimi: öncelik "Düşük/Normal/Yüksek", durum "Aktif/Pasif" (`PRIORITY_LABELS`, `CUSTOMER_STATUS_LABELS`);
+  içe aktarma etiketi ya da kodu (`LOW`…) kabul eder; `Durum` yok sayılır (uyarı döner), yeni kayıt ACTIVE.
+- **Web eksik (J5):** `apps/web/messages/tr.json` `"perm.a.import": "İçe aktar"` anahtarı gerekiyor — `lib/users/users.test.ts`
+  "bilinen modül ve eylemlerin Türkçe etiketi var" bu anahtar eklenene kadar kırmızı (kapsam dışı olduğu için eklemedim).
+  Audit etiketleri `customer.exported` / `customer.imported` da web sözlüğüne eklenmeli (bilinmeyen ad ham gösterilir).
+
+**Davranış ayrıntıları ve tasarımdan sapmalar (gerekçeli)**
+
+1. Satır audit'i `createMany` değil satır başına `writeAudit` (aynı parti TX'inde). Gerekçe: maskeleme/IP kuralları tek yerde
+   (`audit/service.ts`), `audit/*` kapsam dışı; ölçüm 5 000 satırda 5,5 sn → hedefin çok altında.
+2. Güncelleme modunda dosyada **sütunu olan** alanlar yazılır; boş hücre alanı boşaltır (`Dosya etiketi` boşsa korunur);
+   sütunu olmayan alana dokunulmaz. Ad, dosyadaki yazımıyla güncellenir (anahtar aynı). Değişiklik yoksa satır `skipped`.
+   Anonim müşteri `skipped` (AC-195). Ref ve durum değişmez.
+3. Yarışta eklenen aynı ad: `createMany({skipDuplicates})` (MySQL INSERT IGNORE) → satır `skipped`, parti geri alınmaz;
+   `request_refs` ve audit yalnız gerçekten eklenen satırlar için. Ref çakışmasında (`request_refs` PK) parti yeni ref'lerle
+   `withTxRetry` ile yeniden denenir.
+4. Dışa aktarma sırası `id` (ULID) imleci — mimarideki gibi; aynı milisaniyede eklenen satırlarda sıra oluşturma sırasıyla
+   birebir olmayabilir (gidiş-dönüş testi satır kümesini karşılaştırır).
+5. multipart okuyucu `customers/csv-import.ts` içinde (`uploads/multipart.ts` mesajları resim için ve `uploads/*` kapsam dışı);
+   multipart ayrıştırıcısı yalnız önizleme alt bağlamında kayıtlı.
+6. Özet audit `customer.imported` `{total, created, updated, skipped, failed, onConflict}`; hata hâlinde `result:"fail"` +
+   kısmi sayılar (finally). Dışa: `customer.exported {count, status}`. Entity mevcut kalıpla `customer`.
+7. Kilit ve önizleme bellek içi (tek instance, ADR-0005); süreç yeniden başlarsa önizleme 428 ile yeniden alınır.
+
+**Yeni bağımlılık:** yok (ayrıştırıcı elle; `@fastify/multipart` mevcut).
+
+**Test ve ölçüm** (geçici `rs-mysql-j4-csv` konteyneri, `--max-connections=300`; bitince silindi)
+
+- `pnpm --filter @remote/server exec vitest run test/unit` → 415/415.
+- `vitest run` customers-csv-p19, customers-p8c-api, permissions-ac72-p9, users-p9, security-p14a-users, audit-p11,
+  sessions-history-api-p8 → 98/98 (taşınan CSV kaçışı ve yeni yetki anahtarları regresyonsuz).
+- contracts testleri 133/133; değişen dosyalarda eslint + prettier temiz; tsc'de customers/csv kaynaklı hata yok.
+- **5 000 satır önizleme + uygulama yerel ölçüm: 5,5 sn** (≤ 30 sn). Staging ölçümü yapılmadı (staging'e bağlanılmadı) — J8/qa.
+- Not: `pnpm -r typecheck` ve `pnpm format:check` şu an J2'nin süren dosyalarında (requests/_, public/_, sessions/public.ts,
+  signaling/ws.ts) kırmızı; J4 dosyalarından kaynaklanan hata yok.
+
+## P19 J6 (devops) — 2026-11-15
+
+Ayrıntı: mimari-e11 §8c.2 m.8, §8c.3, §8c.4, §8c.7, §8c.14 (J6 satırları); runbook §26 (yeni), §3 (`SMSPORTAL_URL`).
+
+- **Caddy** (`deploy/Caddyfile`): iki log bloğuna (global `log default` = hata logu, site `log` = erişim logu) `request>uri regexp
+"/r/[^/?]+" "/r/***"` (G-10, S-P19-10). Desen bilinçli olarak çapasızdır (yol içinde `/r/` geçen her yer maskelenir — fazla
+  maskeleme güvenli yöndür). `deploy/test-caddy.sh`: `/r/<ref>`, `/r/<ref>/`, `/r/<ref>?x=1`, `/r/<ref>/bekle` istekleri (testte
+  web yok → 502: erişim + hata logu birlikte üretilir); erişim logunda `/r/***/bekle`, hata logunda `/r/***`, ref ve `webref` hiçbir
+  satırda yok. Negatif doğrulandı: süzgeç satırı bloklardan biri kaldırılınca 3 FAIL (her blok ayrı). Konteyner/ağ adı artık
+  benzersiz (`remote-caddy-test-<pid>`), çıkışta silinir. **74/74 PASS.**
+- **Env:** `SMSPORTAL_URL` → `.env.example` (boş, açıklamalı), `deploy/docker-compose.yml` yalnız `server`
+  (`${SMSPORTAL_URL:-}`; migrate/web'e verilmez), runbook §3 satırı + §26.3. `env.ts` zod tarafı J3'te (dokunulmadı).
+  `docker compose config` (CI'daki sahte .env ile) geçerli; boş/dolu değer server'a doğru iner.
+- **remote-watch** (`deploy/ops/remote-watch.sh`): metrik okuyucusuna 16.–21. alan (outbox toplam = P19 işareti, outbox
+  FAILED, en eski PENDING (en büyük seri), rate_limited toplamı, `rs_sms_key_unreadable_total`, hacim `kanal=değer` listesi).
+  Yeni kontroller: `notify-outbox-pending` (> 60 sn), `notify-outbox-failed` (15 dk'da > %50), `notify-volume` (≥ tavanın %80'i
+  ardışık iki turda = 10 dk boyunca **ya da** 15 dk'da rate_limited +20), `sms-key-unreadable` (artıştan sonra 24 sa; P18
+  `crypto-decrypt`'ten ayrı), `p19-metrics` (fail-closed). P19 öncesi server'da hiçbiri çalışmaz. Durum anahtarları
+  `notify_volume_since`, `sms_key_unreadable`, `notify_samples` (ayrı örnek dizisi; `incr()` örnek listesini parametre alır,
+  P14a örnekleri değişmedi). Bütün değerler `^[0-9]+$` süzgecinden geçer (S14-2). Yeni `watch.env` anahtarları:
+  `WATCH_NOTIFY_CAPS`, `WATCH_NOTIFY_FAIL_MIN`, `WATCH_NOTIFY_RL_MAX` (`watch.env.example`).
+- **Sapma (gerekçe):** FAILED oranı alarmına en az FAILED sayısı eklendi (`WATCH_NOTIFY_FAIL_MIN`, vars. **3**). Tasarımın yalın
+  kuralıyla 15 dk'da tek başarısız bildirim %100 sayılır ve gece alarmı üretir; tek başarısızlık zaten audit'tedir. `=1` tasarımın
+  kuralını birebir uygular (testte sınandı). Tavanlar betikte sabit (`SMS:100 WHATSAPP:60 EMAIL:100`, contracts `NOTIFY_LIMITS`);
+  tavan değişirse aynı commit'te `WATCH_NOTIFY_CAPS` varsayılanı güncellenir (runbook §26.2).
+- **J3'e notlar (metrik sözleşmesi; betik bunlara göre yazıldı):** (1) `rs_notify_outbox_total{channel,result}` yalnız **son
+  durumları** saymalı, `result` ∈ `sent|failed` (büyük/küçük harf fark etmez); ara denemeler ayrı değer olarak sayılırsa oran
+  bozulur. (2) Kuyruğa almada tavan nedeniyle `FAILED rate_limited` yazılan satırlar `rs_notify_rate_limited_total`'a sayılmalı,
+  `rs_notify_outbox_total{result="failed"}`'a **sayılmamalı** (aksi hâlde istismar `notify-outbox-failed`'ı da tetikler; ayrı
+  alarmı var). (3) `rs_notify_tenant_max_hourly`: mevcut `Metrics.gauge` kayıt biçimi `{role="<kanal>"}` yazar; betik `channel`
+  ve `role` etiketlerini kabul eder, kanal değeri `SMS|WHATSAPP|EMAIL` beklenir. (4) `rs_notify_outbox_oldest_pending_seconds`
+  ve `rs_sms_key_unreadable_total` her zaman yazılmalı (kuyruk boşken gösterge 0) — yoksa `p19-metrics` alarmı.
+- **Test** (`deploy/ops/test-watch.sh`, alpine konteyneri `rs-watch-test-<pid>`, çıkışta silindi): P19 için 25 yeni senaryo
+  (temiz durum, PENDING 61/60, FAILED 6/10 – 5/10 – 2/2 alt sınır – FAIL_MIN=1, süreç yeniden başlama, rate_limited +20/+19, hacim
+  < %80 iki tur, ilk tur bekler, 10 dk sonra ALERT, düşünce kalkar, küçük harf kanal, `WATCH_NOTIFY_CAPS` geçersiz/özel, SMS anahtarı
+  artış / 24 sa / ilk tur / P18 alarmını tetiklememe, `p19-metrics`, P19 öncesi server, S14-2 enjeksiyon) + gerçek `/metrics`
+  metninden ayrıştırma (role/channel etiketi, en büyük PENDING, FAILED/failed). **128/128 PASS, SONUÇ: GEÇTİ.**
+- **Runbook §26:** staging yayını + migration notu (J1 COPY ALTER: boyut/disk ön kontrolü, ön yedek, süre ölçümü yayın geçmişine,
+  geri alma), alarm tablosu, `SMSPORTAL_URL` değişimi (etkilenen firma sayımı + duyuru + geri dönüş penceresi), SMS anahtarı
+  rotasyonu + `APP_ENCRYPTION_KEYS` emekliliğinde `sms_api_key_enc` / `recipient_enc` sayımı, form spam'i / bildirim istismarı
+  alarm → eylem (server logu/DB'den tenant, `web_form_enabled=false`, ref yenileme, doğrulama), smsportal tek nokta arıza yolu (R31).
+- **Kontroller:** shellcheck v0.11.0 `-S warning` (CI imajı) temiz; Prettier yalnız değişen dosyalarda.
+- **Staging (J6 kabulü, yayında yapılır — bu turda staging'e bağlanılmadı):** Caddy logunda ref 0 (§26.1/8), alarm kuralları yüklü
+  (§26.1/9), ilk gece yedeği PASS (§26.1/10), COPY ALTER süresi ölçümü (§26.1/5).
+
+## P19 J2 (backend) — 2026-11-15
+
+Kaynak: mimari-e11 §8c.2, §8c.6, §8c.7, §8c.9 (S-P19-1/2/3/4/9/12/13/15), §8c.14 (T4, T10, T11, T12, T2, T9).
+
+- **Yeni dosyalar:** `apps/server/src/requests/form-token.ts` (`FormTokens`: `bootId`'li HMAC token, HKDF amaç
+  `web-form-token`, yeni env yok; `FormNonceStore.consume` — varlık denetimi + ekleme aynı senkron adımda, 100 000 sınır,
+  dolu → fail-closed), `requests/web-routes.ts` (`GET /api/v1/public/web-requests/form`, `POST /api/v1/public/web-requests`),
+  migration `20261120010000_p19_request_session_mode` (aşağıda sapma 1), `test/unit/p19-form-token.test.ts`,
+  `test/integration/p19-web-j2.test.ts`.
+- **Değişenler:** `requests/service.ts` — `create` artık ortak çekirdek `createCore(…, source)`'u çağırır; `createWeb` (zod →
+  gizli alan → token doğrulama + senkron tüketim → çekirdek), `webFormInfo`, `channelsOf`. WEB dalı: ref/form kapalı → kovalardan
+  önce tek 404; sürüm kapıları (426, legacy, OUTSIDE_HOURS→QUEUE_FULL) yalnız AGENT; kapalı/kullanılamaz kanal → 400
+  `notify.<kanal>`; `tenantWebAll` (60/sa) ayrı kova; WEB bekleyen alt tavanı 30 (toplam 50); bastırma (aynı tenant'ta bekleyen
+  WEB talebiyle aynı E.164 → sms/whatsapp 0, `notifyEmailKey` eşitliği → email 0; yanıt aynı, audit `notifySuppressed: true`,
+  metrik); `request.new` += `source`, WEB → `customerChat: "SUPPORTED"`; audit `request.created` += `source`, `notify`.
+  `requests/ws.ts` — Origin varsa BROWSER, satır `source` ↔ tür eşleşmesi (aksi 403 `client_kind`); J1 NULL köprüsü kaldırıldı,
+  sürüm kapısı AGENT dalında. `requests/panel.ts` — kabul TX'i `lockSettings` → teknisyen → müşteri → talep (T12); kabul kodu
+  denetimi yalnız `source==="AGENT"` (J1 fail-closed köprüsü S-P19-13 kuralına çevrildi); `preAdmitGuest(kind)`; ret TX'i
+  `lockSettings` ilk ifade; ayar ucu += `webFormEnabled`, `notify*Enabled` (opsiyonel, verilmezse korunur), `webFormUrl`,
+  `channelWarnings`; liste `source` filtresi + öğe `source`. `requests/jobs.ts` — süre dolumu TX'inde `lockSettings` ilk ifade.
+  `requests/public-routes.ts` — iptal ucu AGENT veya BROWSER; uyuşmazlıkta sessiz 204. `requests/repo.ts` (ayar seçimi,
+  `pendingSnapshot` += `web`, `webContacts`; `source` seçimleri/filtreleri), `requests/limits.ts` (`tenantWebAll`,
+  `TENANT_WEB_PER_HOUR`, `WEB_PENDING_MAX`), `signaling/rooms.ts` + `admit.ts` (misafir türü çağırandan; tüketim/audit
+  `guest.kind`), `lib/version.ts` (`isOutdated(version: string, …)`; oturum bağlantısı akışındaki sürüm beyansız 0.8.x AGENT
+  için açık `UNDECLARED_AGENT_VERSION` — talep `client_version`'ında kullanılmaz), `lib/crypto.ts` (`MacPurpose` +=
+  `web-form-token`), `lib/logger.ts` (`*.formToken`, `*.website` redakte), `lib/errors.ts`, `ops/metrics.ts`
+  (`rs_web_requests_total`, `rs_web_form_rejected_total`, `rs_notify_suppressed_total`), `app.ts` (rota kaydı).
+- **Contracts (J3/J5 için):** `errors.ts` `FORM_TOKEN_INVALID: 400` (mesaj "Formun süresi doldu, sayfayı yenileyin.");
+  `api/requests.ts` `REQUEST_SOURCES`/`RequestSource`, `WEB_FORM_MIN_DELAY_MS`, `WEB_FORM_TOKEN_TTL_MS`, `WEB_FORM_FAST_MESSAGE`,
+  `honeypotSchema`, `notifyChoiceSchema`/`NotifyChoice`, `formTokenSchema`, `webRequestInputSchema`/`WebRequestInput`/
+  `WebRequestData`, `WebFormInfo`, **`notifyEmailKey`** (T11 normalizasyonu — J3 `recipient_hash` aynı işlevi kullanmalı),
+  `SupportRequestItem.source`, `listRequestsQuerySchema.source`, `SupportRequestSettings` += `webFormEnabled`, `webFormUrl`,
+  `notifySmsEnabled`, `notifyWhatsappEnabled`, `notifyEmailEnabled`, `channelWarnings: NotifyChannelKey[]`;
+  `updateRequestSettingsInputSchema` += aynı dört opsiyonel bayrak. `audit.ts` `WEB_REQUEST_AUDIT.WEB_FORM_REJECTED`
+  (`request.web_form_rejected`), `P19_REQUEST_AUDIT_LABELS`. `labels.ts` `REQUEST_SOURCE_LABELS` ("İstemci"/"Web").
+  `ws-request.ts` panel `request.new` += `source` (opsiyonel); fikstür `panelOutbound` += WEB örneği.
+  **Eklenmedi (sahip paket):** `CHANNEL_UNAVAILABLE`, `permissions.sessions.send_link`, `api/notify.ts` (J3);
+  `customers.export/import` (J4).
+- **Tasarımdan sapmalar (gerekçeli):**
+  1. **Şema:** P8b `support_sessions_request_mode_chk` talep oturumunu `mode='AGENT'`'a bağlıyordu → §8c.2 m.5 BROWSER ön-kabulü
+     3819 ile düşüyordu (J1'de gevşetilmemiş). Ek migration kısıtı **düşürür** (DROP CHECK yalnız meta veri; `mode_chk` AGENT|
+     BROWSER kümesini korur; down kısıtı geri ekler, BROWSER talep oturumu varsa 3819 ile durur). `check-app-grants.sh`: eski
+     negatif `OK`'a çevrildi + `mode='KIOSK'` → `support_sessions_mode_chk` negatifi. Tetikleyici 23 aynı. mimari §8c.1'e not
+     düşüldü. **dba/J6:** db-notlari "P19"a satır eklenmeli; staging migrate sırası değişmez.
+  2. **Sıra:** WEB'de mesai denetimi AGENT çekirdeğindeki (P18) yerinde — IP/önek kovası mesai reddinden önce sayılır (§8c.2 m.2
+     listesinde mesai kovalardan önce). Ref/form kapalı ise kovalara hiç varılmaz. Ayrı sıra çekirdeği ikiye bölerdi.
+  3. **AC-143 "60 paralel → 50" web'de:** WEB alt tavanı 30 olduğundan test 20 AGENT bekleyen + 60 paralel WEB → tam 30 WEB
+     (toplam 50) biçiminde yazıldı (iki tavan birlikte doğrulanır).
+  4. **SMS kanalı kullanılabilirliği:** SMS altyapısı J3'te; `channelsOf` SMS için şimdilik yalnız firma anahtarına bakar —
+     **J3 `sms` kullanılabilirliğini (`unconfigured`/`keyUnreadable`) `RequestService.channelsOf`'a eklemeli.**
+  5. **Süpürücü kilidi:** süre dolumu TX'i talep başına ayrı TX'te `lockSettings` ilk ifade (tenant başına gruplama J3'ün outbox
+     kuyruğa almasıyla gelir).
+  6. `GET /customers/:id` += `webFormUrl` J4'ün dosyalarında (`customers/*`) olduğu için eklenmedi → J4 ya da birleşmede
+     (`webFormUrl()` `requests/panel.ts`'ten dışa açık).
+  7. Sınıf adı `FormNonceStore.consume` (mimarideki `OneTimeStore.consume`): `signaling/store.ts`'te farklı anlamlı
+     `OneTimeStore` (issue/take) zaten var; ad çakışması önlendi, sözleşme aynı.
+- **T10 kabul edilen risk:** bastırma kaynak bazlı değil (saldırgan kurbanın numarasıyla bekleyen WEB talebi tutarak kurbanın
+  bildirimini susturabilir); gereksinimler §9 Sonra.
+- **Yeni bağımlılık:** yok. **Yeni env:** yok (token anahtarı mevcut halkadan HKDF).
+- **J3 için:** kabul/ret/süre dolumu TX'lerinde `lockSettings` artık ilk ifade — outbox kuyruğa alma aynı TX'te, bu kilitten
+  sonra eklenmeli (T12). `support_requests.notify_*` bayrakları bastırma sonrası değerdir (outbox yalnız 1 olan kanala satır
+  açar). `RequestService.channelsOf(s, smtpConfigured)` form + ayar uyarıları için tek kaynak.
+- **J5 için:** public uçlar `GET /api/v1/public/web-requests/form?ref=` → `WebFormInfo`; `POST /api/v1/public/web-requests`
+  (Origin şart, çerez yok) → 201 `CreateRequestResponse`; 400 `FORM_TOKEN_INVALID` / 429 (`RATE_LIMITED` < 2 sn, `retryAfterSec`,
+  `QUEUE_FULL`) / 409 `OUTSIDE_HOURS` / 404 `REQUEST_REF_INVALID` sonrası yeni token alınmalı (503 `NOT_READY` dahil — token
+  harcanmıştır). `/ws/request` tarayıcıdan `Origin` ile ve `rs.cap.chat1` ile açılır; iptal `POST /public/requests/cancel`
+  (Origin ile). Bekleme sayfası `request.accepted.admitCode` varsa gösterir.
+- **Test:** geçici `rs-p19j2-7c41ae` (mysql 8.4.13, `--max-connections=300`, port 33461; silindi).
+  `test/integration/p19-web-j2.test.ts` **17/17** (AC-259 uçtan uca: form → kuyruk → panel `request.new` → kabul → `/ws/guest`
+  BROWSER hello, `mode=BROWSER`; mesai REJECT 409; S-P19-1 1,8 sn 429 + aynı token 2,1 sn'de 201 + yeniden kullanım 400, 10
+  paralel → 1×201/9×400, yeniden başlatma, küme dolu (sınır 3), başka ref, gizli alan; AC-143 20 AGENT + 60 paralel WEB → 30;
+  sahte XFF etkisiz + IP bekleyen sınırı; S-P19-2 üç 404 gövdesi eşit; S-P19-3 Origin/WS türü; S-P19-4 iptal türü; S-P19-9;
+  S-P19-12 numara + e-posta `+` bastırma, kapalı kanal 400; S-P19-13 kabul kodu WEB; S-P19-15 kovalar + kill switch; T12 20
+  oluşturma + 5 kabul + süpürücü eşzamanlı → 500/1213 yok; ayar ucu). `test/unit/p19-form-token.test.ts` 6/6.
+  Tüm `test:int`: 762/764 → düzeltme sonrası yalnız `tenant-isolation` AC-69 kalır (J4'ün sınıflandırılmamış
+  `customers/export.csv`, `import/preview|commit` uçları — J4 `tenant-matrix.ts`'e eklemeli); güncellenen
+  `security-p8b-fix1` (`request.created` += `source`, `notify`), `tenant-matrix.ts` (+2 public uç), `lobby-count-p13bl`
+  (`preAdmitGuest` `kind`), web `lib/requests/requests.test.ts` (ayar fikstürü yeni alanlar). Server unit 421/421, contracts
+  133/133, web 370/371 (kalan: `users.test.ts` "import" eylem etiketi — J4'ün `permissions.ts` değişikliği), `pnpm -r
+typecheck` temiz, eslint (server/contracts/web değişenler) temiz, `pnpm format:check` temiz, `check-app-grants.sh` 627/627.

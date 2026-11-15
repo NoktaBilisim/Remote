@@ -20,7 +20,7 @@ import { FixedWindowCounter } from "../lib/rate.ts";
 import * as repo from "../sessions/repo.ts";
 import { onGuestMessage, onTechMessage, TokenBucket } from "./handlers.ts";
 import { admitRequestGuest } from "./admit.ts";
-import { isOutdated } from "../lib/version.ts";
+import { isOutdated, UNDECLARED_AGENT_VERSION } from "../lib/version.ts";
 import type { RequestChannels } from "../requests/ws.ts";
 import type { Rooms } from "./rooms.ts";
 import type { Peer, Room } from "./types.ts";
@@ -184,7 +184,8 @@ export function attachSignaling(
       if (!room || !g || g.state !== "TICKETED") return { status: 403, reason: "ticket" };
       if (!publicClientAllowed(req.headers, env.allowedOrigins, g.kind)) return { status: 403, reason: "client_kind" };
       // P8b r2 (§13.4): AGENT sürümü nonce/talep kaydından (yeniden beyan yok).
-      if (g.kind === "AGENT" && isOutdated(g.clientVersion, env.MIN_AGENT_VERSION)) return { status: 426, reason: "outdated" };
+      if (g.kind === "AGENT" && isOutdated(g.clientVersion ?? UNDECLARED_AGENT_VERSION, env.MIN_AGENT_VERSION))
+        return { status: 426, reason: "outdated" };
       const r = room;
       if (g.requestId) {
         // P8b §5.2: ön-kabullü misafir — ticket kuşağı güncel olmalı (yeniden bağlanan /ws/request eskisini geçersiz kılar).

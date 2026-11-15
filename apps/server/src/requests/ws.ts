@@ -68,7 +68,10 @@ export function requestChannels(app: FastifyInstance, svc: RequestService, reval
 
   async function request(req: IncomingMessage, url: URL, ctx: AuditContext, accept: Accept): Promise<UpgradeReject | null> {
     if (url.search !== "") return { status: 403, reason: "query" };
-    if (!publicClientAllowed(req.headers, env.allowedOrigins, "AGENT")) return { status: 403, reason: "client_kind" };
+    // P19 (§8c.2 m.1, S-P19-3): Origin varsa BROWSER (izinli köken şart), yoksa AGENT kuralı. Satır bulunduktan sonra tür ↔
+    // `source` eşleşmeli (web sırrı ajandan, ajan sırrı tarayıcıdan kullanılamaz).
+    const kind = req.headers.origin !== undefined ? "BROWSER" : "AGENT";
+    if (!publicClientAllowed(req.headers, env.allowedOrigins, kind)) return { status: 403, reason: "client_kind" };
     const ip = ipKey(ctx.ip);
     // P14a (AC-210): `wsUpgrade` kovası güvenilen CIDR'ı (talebin tenant ayarı) sayılmaz → sayım güven belirlenince. Burada
     // yalnız zaten kilitli anahtar reddedilir (sayım yok); ref kovası herkese aynen.
@@ -85,6 +88,7 @@ export function requestChannels(app: FastifyInstance, svc: RequestService, reval
       const e = svc.refInvalid(ip);
       return { status: e.code === "RATE_LIMITED" ? 429 : 403, reason: "secret" };
     }
+    if (row.source !== (kind === "BROWSER" ? "WEB" : "AGENT")) return { status: 403, reason: "client_kind" };
     const now = Date.now();
     const sess = row.session;
     const accepted = row.status === "ACCEPTED" && sess?.status === "PENDING" && sess.expiresAt.getTime() > now;
@@ -93,10 +97,14 @@ export function requestChannels(app: FastifyInstance, svc: RequestService, reval
     const trusted = settings ? cidrListMatcher(repo.jsonStrings(settings.trustedCidrs))(ctx.ip) : false;
     if (!trusted && hitBlocked(limits.wsUpgrade, ip) > 0) return { status: 429, reason: "rate" };
     if (!trusted && hub.ipFull(ip)) return { status: 429, reason: "ip_sockets" }; // G-E9-9; güvenilen CIDR muaf (G-E9-16)
-    // P19 J1 köprüsü: client_version NULL = WEB talebi; bu uç J2'ye kadar yalnız AGENT kabul eder (§8c.2 m.1 tür ↔ source).
-    const clientVersion = row.clientVersion;
-    if (clientVersion === null) return { status: 403, reason: "client_kind" };
-    if (isOutdated(clientVersion, env.MIN_AGENT_VERSION)) return { status: 426, reason: "outdated" };
+    // S-P19-13: sürüm kapıları (426, legacy) yalnız AGENT dalında; WEB satırı hiçbir sürüm kapısından geçmez. AGENT'ta
+    // client_version DB CHECK'i gereği NULL olamaz; olursa fail-closed.
+    let legacy = false;
+    if (row.source === "AGENT") {
+      if (row.clientVersion === null) return { status: 403, reason: "client_kind" };
+      if (isOutdated(row.clientVersion, env.MIN_AGENT_VERSION)) return { status: 426, reason: "outdated" };
+      legacy = compareVersions(row.clientVersion, BINDING_MIN_CLIENT_VERSION) < 0;
+    }
 
     // P18 H3: yetenek bildirimi (sürüme bakılmaz; P19 tarayıcısının clientVersion'ı yok). Yanıt yine yalnız rs.v1.
     const caps = { chat: protos.includes(WS_REQUEST_CAP_CHAT) };
@@ -109,7 +117,7 @@ export function requestChannels(app: FastifyInstance, svc: RequestService, reval
         tenantId: row.tenantId,
         ipKey: ip,
         trusted,
-        legacy: compareVersions(clientVersion, BINDING_MIN_CLIENT_VERSION) < 0,
+        legacy,
       };
       hub.attachRequest(conn);
       if (row.status === "PENDING") {

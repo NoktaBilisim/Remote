@@ -140,3 +140,44 @@ export function anonymizeCandidates(db: DbOrTx, tenantId: string, cutoff: Date, 
 export function countActive(db: DbOrTx): Promise<number> {
   return db.customer.count({ where: { status: "ACTIVE" } });
 }
+
+// ------------------------------------------------------------------ P19 CSV (AC-263)
+
+export const exportSelect = {
+  id: true,
+  name: true,
+  contactName: true,
+  phone: true,
+  email: true,
+  note: true,
+  fileLabel: true,
+  defaultPriority: true,
+  slaMinutes: true,
+  status: true,
+  anonymizedAt: true,
+} as const;
+export type CustomerExportRow = Prisma.CustomerGetPayload<{ select: typeof exportSelect }>;
+
+export function countForExport(db: DbOrTx, tenantId: string, status: CustomerStatusFilter): Promise<number> {
+  return db.customer.count({ where: { tenantId, ...statusWhere(status) } });
+}
+
+/** Dışa aktarma partisi: `id` imleciyle (ULID = oluşturma sırası), PK sırası. */
+export function exportPage(db: DbOrTx, tenantId: string, status: CustomerStatusFilter, afterId: string | null, take: number) {
+  return db.customer.findMany({
+    where: { tenantId, ...statusWhere(status), ...(afterId ? { id: { gt: afterId } } : {}) },
+    select: exportSelect,
+    orderBy: { id: "asc" },
+    take,
+  });
+}
+
+/** İçe aktarma çakışma sınıfı: firmanın TÜM ad anahtarları (pasifler dahil) tek sorguda — N+1 yok. */
+export async function nameKeyIndex(db: DbOrTx, tenantId: string): Promise<Map<string, string>> {
+  const rows = await db.customer.findMany({ where: { tenantId }, select: { id: true, nameKey: true } });
+  return new Map(rows.map((r) => [r.nameKey, r.id]));
+}
+
+export function findMany(db: DbOrTx, tenantId: string, ids: string[]): Promise<CustomerRow[]> {
+  return db.customer.findMany({ where: { tenantId, id: { in: ids } }, select: detailSelect });
+}

@@ -6,7 +6,8 @@
 # dolunca yeniden; düzelince bir kez DUZELDI; watch.env 644 / bağlantı / root dışı sahip -> çalışmaz; sır içeren alarm
 # komutu çalıştırılmaz; site dışı hatırlatma 7 günde bir; install/uninstall (kurulu kopya root 0755, watch.env 600);
 # P13c ikinci örnek `stg` (ayrı env/durum, [stg] alarm adı, coturn kontrolü yok, @stg birimleri yalnız stg'de sayılır);
-# P18 H5 crypto-decrypt / calendar-fallback / msg-tenant-rate / p18-metrics.
+# P18 H5 crypto-decrypt / calendar-fallback / msg-tenant-rate / p18-metrics; P19 J6 notify-outbox-pending /
+# notify-outbox-failed / notify-volume / sms-key-unreadable / p19-metrics.
 # Kullanım: deploy/ops/test-watch.sh   Çıkış 0 = tüm beklentiler tuttu.
 set -euo pipefail
 cd "$(dirname "$0")"
@@ -246,6 +247,61 @@ clr; p18 'a[$(touch /tmp/pwn11)] a[$(touch /tmp/pwn12)] a[$(touch /tmp/pwn13)] 5
 sed -i 's/^decrypt_fail=.*/decrypt_fail=a[$(touch \/tmp\/pwn14)] 1/' /var/lib/rw/state; p18 "1 0 - 5"; run
 ls /tmp/pwn* >/dev/null 2>&1 && no "P18 enjeksiyon: $(ls /tmp/pwn*)" || ok "S14-2: P18 metrik/durum alanlarında a[\$(…)] komut çalıştırmadı"
 good; clr; run
+# P19 J6 (mimari-e11 §8c.3/§8c.7, S-P19-12/T6; runbook §26.2): alanlar 16-21 = outbox-toplam outbox-failed en-eski-PENDING
+# rate-limited sms-key-unreadable hacim(kanal=değer,…). 12-15 P18 temiz.
+p19() { echo "$((NOW - 3600)) 0 0 0 0 0 0 - $((NOW - 3600)) 0 0 0 0 - 5 $1" >/scn/metrics; }
+clr19() { sed -i -E '/^(notify_volume_since|sms_key_unreadable|notify_samples)=/d' /var/lib/rw/state; }
+ns() { sed -i '/^notify_samples=/d' /var/lib/rw/state; echo "notify_samples=$1" >>/var/lib/rw/state; }
+good; clr; clr19; p19 "10 0 3 0 0 SMS=10,WHATSAPP=5"; run
+p18n 'p19-metrics\|notify-\|sms-key' && grep -q 'check="notify-volume"} 1' /var/lib/rw/status.prom && grep -q 'check="sms-key-unreadable"} 1' /var/lib/rw/status.prom \
+  && ok "P19 server temiz -> 5 P19 kontrolü OK, alarm yok" || no "p19 temiz: $(cat /out/o)"
+clr19; p19 "10 0 61 0 0 -"; run
+p18a notify-outbox-pending && grep -q 'en eski PENDING bildirim 61 sn' /out/o && ok "outbox en eski PENDING 61 sn -> ALERT notify-outbox-pending" || no "pending: $(cat /out/o)"
+clr19; p19 "10 0 60 0 0 -"; run
+p18n notify-outbox-pending && ok "en eski PENDING 60 sn -> alarm yok (eşik > 60)" || no "pending 60: $(cat /out/o)"
+clr19; ns "$((NOW - 1200)):10:0:0"; p19 "20 6 0 0 0 -"; run
+p18a notify-outbox-failed && grep -q 'FAILED 6 / 10' /out/o && ok "15 dk'da FAILED 6/10 (> %50) -> ALERT notify-outbox-failed" || no "failed oran: $(cat /out/o)"
+clr19; ns "$((NOW - 1200)):10:0:0"; p19 "20 5 0 0 0 -"; run
+p18n notify-outbox-failed && ok "FAILED 5/10 (= %50) -> alarm yok" || no "failed %50: $(cat /out/o)"
+clr19; ns "$((NOW - 1200)):10:0:0"; p19 "12 2 0 0 0 -"; run
+p18n notify-outbox-failed && ok "FAILED 2/2 ama < WATCH_NOTIFY_FAIL_MIN (3) -> alarm yok" || no "failed min: $(cat /out/o)"
+clr19; ns "$((NOW - 1200)):10:0:0"; p19 "12 2 0 0 0 -"; WATCH_NOTIFY_FAIL_MIN=1 run
+p18a notify-outbox-failed && ok "WATCH_NOTIFY_FAIL_MIN=1 -> FAILED 2/2 ALERT (tasarımın yalın kuralı)" || no "failed min1: $(cat /out/o)"
+clr19; ns "$((NOW - 1200)):50:0:0"; p19 "9 8 0 0 0 -"; run
+grep -q 'ALERT check=notify-outbox-failed.*FAILED 8 / 9' /out/o && ok "süreç yeniden başladı (toplam 50 -> 9, FAILED 0 -> 8) -> yeni değerler artış sayıldı, ALERT" || no "restart: $(cat /out/o)"
+clr19; ns "$((NOW - 1200)):0:0:5"; p19 "0 0 0 25 0 -"; run
+p18a notify-volume && grep -q 'rs_notify_rate_limited_total +20' /out/o && ok "S-P19-12: 15 dk'da rate_limited +20 -> ALERT notify-volume" || no "rl: $(cat /out/o)"
+clr19; ns "$((NOW - 1200)):0:0:5"; p19 "0 0 0 24 0 -"; run
+p18n notify-volume && ok "rate_limited +19 -> alarm yok" || no "rl 19: $(cat /out/o)"
+clr19; p19 "0 0 0 0 0 role_SMS_x=1,SMS=79,WHATSAPP=47,EMAIL=79"; run; run
+p18n notify-volume && ok "hacim SMS 79/100, WA 47/60, EMAIL 79/100 (< %80) iki tur -> alarm yok" || no "vol alt: $(cat /out/o)"
+clr19; p19 "0 0 0 0 0 WHATSAPP=48"; run
+p18n notify-volume && grep -q '^notify_volume_since=[0-9]' /var/lib/rw/state && ok "hacim WA 48/60 ilk tur -> henüz alarm yok (10 dk boyunca şartı)" || no "vol ilk: $(cat /out/o)"
+sed -i "s/^notify_volume_since=.*/notify_volume_since=$((NOW - 600))/" /var/lib/rw/state; run
+p18a notify-volume && grep -q 'WHATSAPP=48/60' /out/o && ok "S-P19-12: hacim >= %80 10 dk boyunca -> ALERT notify-volume" || no "vol 10dk: $(cat /out/o)"
+p19 "0 0 0 0 0 WHATSAPP=10"; run
+p18n notify-volume && grep -q '^notify_volume_since=$' /var/lib/rw/state && ok "hacim düştü -> alarm kalktı, süre sıfırlandı" || no "vol düştü: $(cat /out/o)"
+clr19; p19 "0 0 0 0 0 sms=80"; sed -i '/^notify_volume_since=/d' /var/lib/rw/state; echo "notify_volume_since=$((NOW - 600))" >>/var/lib/rw/state; run
+p18a notify-volume && ok "kanal etiketi küçük harf (sms=80) -> büyük harfe çevrildi, ALERT" || no "vol küçük: $(cat /out/o)"
+clr19; p19 "0 0 0 0 0 SMS=40"; sed -i '/^notify_volume_since=/d' /var/lib/rw/state; echo "notify_volume_since=$((NOW - 600))" >>/var/lib/rw/state; WATCH_NOTIFY_CAPS="SMS:50 WHATSAPP:60 EMAIL:100" run
+grep -q 'ALERT check=notify-volume.*SMS=40/50' /out/o && ok "WATCH_NOTIFY_CAPS=SMS:50 -> 40/50 = %80 ALERT" || no "caps: $(cat /out/o)"
+WATCH_NOTIFY_CAPS="SMS=50" run; [ "$RC" = 1 ] && grep -q 'WATCH_NOTIFY_CAPS biçimi' /out/o && ok "WATCH_NOTIFY_CAPS biçim hatası -> çalışmaz" || no "caps biçim: rc=$RC"
+clr19; p19 "0 0 0 0 0 -"; run; p19 "0 0 0 0 2 -"; run
+p18a sms-key-unreadable && ok "S-P19-T6: rs_sms_key_unreadable_total arttı -> ALERT sms-key-unreadable (crypto-decrypt değil)" || no "smskey: $(cat /out/o)"
+p18n crypto-decrypt && ok "SMS anahtarı uyarısı P18 crypto-decrypt alarmını tetiklemez" || no "smskey/decrypt: $(cat /out/o)"
+sed -i "s/^sms_key_unreadable=.*/sms_key_unreadable=2 $((NOW - 90000))/" /var/lib/rw/state; run
+p18n sms-key-unreadable && ok "SMS anahtarı: artıştan 24 sa sonra alarm kalktı" || no "smskey 24h: $(cat /out/o)"
+clr19; p19 "0 0 0 0 3 -"; run
+p18a sms-key-unreadable && ok "SMS anahtarı: ilk P19 turunda sayaç > 0 -> taban 0, ALERT (sessiz kalmaz)" || no "smskey ilk: $(cat /out/o)"
+clr19; p19 "0 - - 0 - -"; run
+p18a p19-metrics && grep -q 'rs_notify_outbox_oldest_pending_seconds,rs_sms_key_unreadable_total' /out/o && ok "P19 server, zorunlu gösterge/sayaç yok -> ALERT p19-metrics (fail-closed)" || no "p19-metrics: $(cat /out/o)"
+clr19; p19 "- - - - - -"; run
+! grep -q 'p19-metrics\|notify-' /var/lib/rw/status.prom && ! grep -q '^notify_samples=[0-9]' /var/lib/rw/state && ok "P19 öncesi server (rs_notify_outbox_total yok) -> P19 kontrolleri ve örnek yok" || no "p18 server: $(cat /out/o)"
+clr19; p19 'a[$(touch /tmp/pwn15)] a[$(touch /tmp/pwn16)] a[$(touch /tmp/pwn17)] 0 0 SMS=a[$(touch /tmp/pwn18)]'; run
+p19 '1 0 0 0 0 -'; ns 'a[$(touch /tmp/pwn19)]:1:1:1'; sed -i '/^notify_volume_since=/d;/^sms_key_unreadable=/d' /var/lib/rw/state
+printf 'notify_volume_since=a[$(touch /tmp/pwn20)]\nsms_key_unreadable=a[$(touch /tmp/pwn21)] 1\n' >>/var/lib/rw/state; p19 '1 0 0 0 1 SMS=90'; run
+ls /tmp/pwn* >/dev/null 2>&1 && no "P19 enjeksiyon: $(ls /tmp/pwn*)" || ok "S14-2: P19 metrik/durum alanlarında a[\$(…)] komut çalıştırmadı"
+good; clr; clr19; run
 cp /le/$H/fullchain.pem /tmp/web.bak
 neg 'cert:web' "cp /tc/short.crt /le/$H/fullchain.pem"
 cp /tmp/web.bak /le/$H/fullchain.pem
@@ -348,7 +404,7 @@ if command -v node >/dev/null 2>&1; then
     'rs_orphan_files_total{action="deleted"} 4' 'rs_orphan_files_total{action="circuit_open"} 3' 'rs_erasure_ledger_write_failed_total 0' >"$M"
   JS="$(sed -n 's/.*node -e "\(const sum=.*\)" 2>\/dev\/null)" || rt=.*/\1/p' "$HERE/remote-watch.sh" | sed 's/\\"/"/g')"
   got="$(M="$M" node -e "globalThis.fetch=async()=>({text:async()=>require('fs').readFileSync(process.env.M,'utf8')});$JS")"
-  exp="1763000000 3 - - 1 0 1 1763000100 - 3 0 - - - -"
+  exp="1763000000 3 - - 1 0 1 1763000100 - 3 0 - - - - - - - - - -"
   if [ "$got" = "$exp" ]; then echo "PASS  metrik ayrıştırma: etiketli rs_retention_failures_total toplamı 3, SCHEDULED/RUNNING, circuit_open 3, P18 serisi yok -> '-'"
   else echo "FAIL  metrik ayrıştırma: '$got' (beklenen '$exp')"; echo "SONUÇ-İÇ 1" >>"$TMP/out"; fi
   # P18 H5: decrypt (bütün table), takvim (bütün tenant), yalnız reason~tenant kova reddi, mesaj sayacı (P18 işareti).
@@ -356,9 +412,20 @@ if command -v node >/dev/null 2>&1; then
     'rs_calendar_fallback_total{tenant="t2"} 2' 'rs_request_messages_rejected_total{reason="tenant_rate"} 4' \
     'rs_request_messages_rejected_total{reason="sender_cap"} 9' 'rs_request_messages_total{sender="CUSTOMER"} 7' >>"$M"
   got="$(M="$M" node -e "globalThis.fetch=async()=>({text:async()=>require('fs').readFileSync(process.env.M,'utf8')});$JS")"
-  exp="1763000000 3 - - 1 0 1 1763000100 - 3 0 2 3 4 7"
+  exp="1763000000 3 - - 1 0 1 1763000100 - 3 0 2 3 4 7 - - - - - -"
   if [ "$got" = "$exp" ]; then echo "PASS  metrik ayrıştırma P18: decrypt 2, takvim 1+2, tenant kova 4 (sender_cap hariç), mesaj 7"
   else echo "FAIL  metrik ayrıştırma P18: '$got' (beklenen '$exp')"; echo "SONUÇ-İÇ 1" >>"$TMP/out"; fi
+  # P19 J6: outbox toplam (etiketsiz 0 dahil), FAILED (result=failed/FAILED), en eski PENDING (en büyük), rate_limited toplamı,
+  # SMS anahtarı, hacim (Metrics.gauge {role=…} ve {channel=…} biçimleri).
+  printf '%s\n' 'rs_notify_outbox_total{channel="SMS",result="sent"} 7' 'rs_notify_outbox_total{channel="SMS",result="failed"} 2' \
+    'rs_notify_outbox_total{channel="EMAIL",result="FAILED"} 1' 'rs_notify_outbox_oldest_pending_seconds{channel="SMS"} 12.5' \
+    'rs_notify_outbox_oldest_pending_seconds{channel="EMAIL"} 70' 'rs_notify_rate_limited_total{scope="tenant_channel",channel="SMS"} 4' \
+    'rs_notify_rate_limited_total{scope="wa_bucket",channel="WHATSAPP"} 3' 'rs_sms_key_unreadable_total 0' \
+    'rs_notify_tenant_max_hourly{role="SMS"} 81' 'rs_notify_tenant_max_hourly{channel="WHATSAPP"} 2' >>"$M"
+  got="$(M="$M" node -e "globalThis.fetch=async()=>({text:async()=>require('fs').readFileSync(process.env.M,'utf8')});$JS")"
+  exp="1763000000 3 - - 1 0 1 1763000100 - 3 0 2 3 4 7 10 3 70 7 0 SMS=81,WHATSAPP=2"
+  if [ "$got" = "$exp" ]; then echo "PASS  metrik ayrıştırma P19: outbox 10 (FAILED 3), en eski 70, rate_limited 7, anahtar 0, hacim SMS=81,WHATSAPP=2"
+  else echo "FAIL  metrik ayrıştırma P19: '$got' (beklenen '$exp')"; echo "SONUÇ-İÇ 1" >>"$TMP/out"; fi
 else echo "UYARI: host'ta node yok — metrik ayrıştırma testi atlandı"; fi
 grep -E '^(PASS|FAIL)' "$TMP/out" || true
 n="$(sed -n 's/^SONUÇ-İÇ //p' "$TMP/out" | sort -n | tail -1)"

@@ -31,7 +31,7 @@ export const aadFor = {
 export const keyVersionOf = (data: Uint8Array): number => data[0] ?? 0;
 
 /** HKDF amaç etiketleri (anahtar ayrımı). */
-export type MacPurpose = "recovery-code" | "avatar-url" | "purge-preview";
+export type MacPurpose = "recovery-code" | "avatar-url" | "purge-preview" | "web-form-token";
 
 export class SecretBox {
   private readonly keys: Map<number, Buffer>;

@@ -13,6 +13,7 @@ import {
   MESSAGE_SENDERS,
   NETWORK_MATCHES,
   REQUEST_PRIORITIES,
+  REQUEST_SOURCES,
   REQUEST_STATUSES,
   requestMessageBodySchema,
 } from "./api/requests.ts";
@@ -187,6 +188,8 @@ export const panelOutboundSchema = z.discriminatedUnion("t", [
      * tahmini; kesin durum `GET …/messages` `customerChat`'tedir — soket yeteneği). Şemada opsiyonel (eski fikstür/sekme).
      */
     customerChat: z.enum(["SUPPORTED", "UNSUPPORTED"]).optional(),
+    /** P19 (AC-259): talep kaynağı; sunucu her zaman gönderir, şemada opsiyonel (eski fikstür/sekme → AGENT sayılır). */
+    source: z.enum(REQUEST_SOURCES).optional(),
   }),
   z.strictObject({ t: z.literal("request.removed"), id: ulid, status: z.enum(REQUEST_STATUSES) }),
   /** Yalnız kabul eden kullanıcının soketlerine (AC-155). */

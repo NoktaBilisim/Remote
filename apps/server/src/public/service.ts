@@ -8,7 +8,7 @@ import { writeAudit, type AuditContext } from "../audit/service.ts";
 import type { Db } from "../lib/db.ts";
 import { AppError } from "../lib/errors.ts";
 import { ipKey, netKey } from "../lib/ip.ts";
-import { isOutdated } from "../lib/version.ts";
+import { isOutdated, UNDECLARED_AGENT_VERSION } from "../lib/version.ts";
 import { outdated } from "../sessions/public.ts";
 import type { FixedWindowCounter } from "../lib/rate.ts";
 import * as repo from "../sessions/repo.ts";
@@ -63,7 +63,8 @@ export async function joinPublicSession(
   if (!nonce) throw new AppError("NONCE_INVALID");
   checkClient(nonce.kind); // kind istemci beyanı değil, nonce kaydından
   // P8b r2 (§13.4): sürüm nonce kaydından (yeniden beyan alınmaz).
-  if (nonce.kind === "AGENT" && isOutdated(nonce.clientVersion, minAgentVersion)) throw outdated(minAgentVersion);
+  if (nonce.kind === "AGENT" && isOutdated(nonce.clientVersion ?? UNDECLARED_AGENT_VERSION, minAgentVersion))
+    throw outdated(minAgentVersion);
 
   const row = await repo.findForSignal(db, nonce.sessionId);
   if (!row) throw new AppError("NONCE_INVALID");

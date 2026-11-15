@@ -46,6 +46,8 @@ export const ERROR_STATUS = {
   NONCE_INVALID: 410,
   /** P10 (AC-66): şifre sıfırlama bağlantısı geçersiz, kullanılmış veya süresi dolmuş (tek yanıt). */
   RESET_TOKEN_INVALID: 410,
+  /** P19 (AC-259, S-P19-1): web form token'ı bozuk/süresi dolmuş/kullanılmış/önceki süreç/küme dolu — web yeni token alır. */
+  FORM_TOKEN_INVALID: 400,
   /** P8b: firma dosyası ref'i geçersiz/yenilenmiş/pasif tenant/ayarı yok — tek gövde (AC-131, 132, 145). */
   REQUEST_REF_INVALID: 404,
   /** P8b: bu istemci örneğinin zaten bekleyen talebi var (AC-143). */

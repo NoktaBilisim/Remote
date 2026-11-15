@@ -125,6 +125,9 @@ services:
       # prod ön koşulu K13: TLS veya özel ağ (runbook §12).
       WHATSAPP_SERVICE_URL: ${WHATSAPP_SERVICE_URL:-}
       WHATSAPP_SERVICE_API_KEY: ${WHATSAPP_SERVICE_API_KEY:-}
+      # P19 (mimari-e11 §8c.3/§8c.4): smsportal sistem varsayılanı (firma `sms_url` boşsa). Boş = varsayılan yok. Guard'sız
+      # güvenilen adres (devops); production'da http:// + özel olmayan host → SMS kanalı kapalı. Değişimi runbook §26.3.
+      SMSPORTAL_URL: ${SMSPORTAL_URL:-}
       # P8b G-E9-4 (mimari-e9 §13.4): asgari Windows istemci sürümü (x.y.z). Boş = kontrol yok; düşük sürüm 426
       # CLIENT_OUTDATED. Güvenlik yamasında yamalı sürüme yükseltilir (runbook §12).
       MIN_AGENT_VERSION:

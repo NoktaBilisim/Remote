@@ -19,7 +19,7 @@
 	# G-10 (S6 bilinen 3): hata logu (http.log.error, reverse_proxy/forward_auth 502/503 vb.) varsayılan logger'a
 	# `request` nesnesiyle tam URI ve başlıkları yazar. Site `log` bloğu yalnız erişim logunu kapsar; aynı filtre
 	# burada da uygulanır (sorgu dizesi, /session/<token>, /downloads/Destek-<kod>.exe, firma dosyası
-	# /downloads/NoktaDestek-<label>-<ref>.exe (P8b, G-E9-8), kimlik başlıkları).
+	# /downloads/NoktaDestek-<label>-<ref>.exe (P8b, G-E9-8), web talep formu /r/<ref> (P19), kimlik başlıkları).
 	log default {
 		output stderr
 		format filter {
@@ -29,6 +29,8 @@
 				request>uri regexp "/session/[^/?]+" "/session/***"
 				request>uri regexp "/downloads/Destek-[^/?]+" "/downloads/Destek-***"
 				request>uri regexp "NoktaDestek-[^/?]+" "NoktaDestek-***"
+				# P19 (mimari-e11 §8c.2 m.8, S-P19-10): web talep formu /r/<ref> — firma/müşteri ref'i loglanmaz.
+				request>uri regexp "/r/[^/?]+" "/r/***"
 				request>headers>Sec-Websocket-Protocol delete
 				request>headers>Cookie delete
 				request>headers>Authorization delete
@@ -102,7 +104,7 @@
 
 	log {
 		output stdout
-		# G-10 / AC-90: sorgu dizesi, oturum token'ı, firma dosyası ref'i (P8b), çerez ve WS subprotocol loglanmaz.
+		# G-10 / AC-90: sorgu dizesi, oturum token'ı, firma dosyası ref'i (P8b), web form ref'i (P19), çerez ve WS subprotocol loglanmaz.
 		# Subprotocol silme /ws/request'teki talep sırrını (`rs.req.*`) ve /ws/guest ticket'ını da kapsar (T31).
 		format filter {
 			wrap json
@@ -111,6 +113,8 @@
 				request>uri regexp "/session/[^/?]+" "/session/***"
 				request>uri regexp "/downloads/Destek-[^/?]+" "/downloads/Destek-***"
 				request>uri regexp "NoktaDestek-[^/?]+" "NoktaDestek-***"
+				# P19 (mimari-e11 §8c.2 m.8, S-P19-10): web talep formu /r/<ref> — firma/müşteri ref'i loglanmaz.
+				request>uri regexp "/r/[^/?]+" "/r/***"
 				request>headers>Sec-Websocket-Protocol delete
 				request>headers>Cookie delete
 				request>headers>Authorization delete

@@ -89,7 +89,14 @@ describe("S8b-3 / QA-P8b-11 talep audit'leri", () => {
   it("AC-160 / S8b-3 / S-P13a-1: request.created audit newValue'da müşteri IP'si yok (ip_address sütununda yalnız /24 öneki), clientVersion var", async () => {
     const { ip, c } = await acceptedTicket();
     const a = await testDb().auditLog.findFirstOrThrow({ where: { entityId: c.requestId, action: "request.created" } });
-    expect(a.newValue).toEqual({ clientVersion: "0.9.0", via: "ref", customerId: null }); // P8c: via + customerId (mimari-e10 §8)
+    expect(a.newValue).toEqual({
+      clientVersion: "0.9.0",
+      via: "ref",
+      customerId: null,
+      // P19 (§8c.7): kaynak + seçilen bildirim kanalları (AGENT'ta hep kapalı)
+      source: "AGENT",
+      notify: { sms: false, whatsapp: false, email: false },
+    }); // P8c: via + customerId (mimari-e10 §8)
     expect(JSON.stringify(a.newValue)).not.toContain(ip);
     // S-P13a-1: müşteri kaydında tam IP değil ağ öneki (/24), UA yok
     expect(a.ipAddress).toBe(netKey(ip));

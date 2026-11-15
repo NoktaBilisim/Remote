@@ -36,7 +36,8 @@ TAG=remote-watch
 WATCH_ENV_KEYS="WATCH_ALERT_CMD WATCH_REPEAT_MIN WATCH_DISK_MAX_PCT WATCH_CERT_MIN_DAYS WATCH_DEPLOY_DIR WATCH_PUBLIC_HOST
 WATCH_SERVICES WATCH_PROJECT WATCH_TURN_CONTAINER WATCH_TURN_TLS WATCH_TURN_CERT_FILE WATCH_LE_DIR WATCH_BACKUP_STATUS
 WATCH_BACKUP_DIR WATCH_DISK_PATHS WATCH_OFFSITE_REMIND_DAYS WATCH_TREE_DIR WATCH_TIMERS WATCH_TURN_CHECKS
-WATCH_GUEST_PREFIX_MAX WATCH_MYSQL_FAIL_MAX WATCH_PURGE_CHECKS WATCH_PURGE_REPEAT_MIN"
+WATCH_GUEST_PREFIX_MAX WATCH_MYSQL_FAIL_MAX WATCH_PURGE_CHECKS WATCH_PURGE_REPEAT_MIN WATCH_NOTIFY_CAPS WATCH_NOTIFY_FAIL_MIN
+WATCH_NOTIFY_RL_MAX"
 
 # P13c: isteğe bağlı örnek adı (2. argüman). Boş = prod (bugünkü adlar/yollar birebir).
 INST="${2:-}"
@@ -166,11 +167,19 @@ MF_MAX="${WATCH_MYSQL_FAIL_MAX:-10}"
 PURGE_CHECKS="${WATCH_PURGE_CHECKS:-1}"
 PURGE_REPEAT="${WATCH_PURGE_REPEAT_MIN:-0}"
 TREE="${WATCH_TREE_DIR-/opt/remote$S}"
+# P19 (mimari-e11 §8c.3, S-P19-12/T6; runbook §26.2): müşteri bildirimi kuyruğu. NOTIFY_CAPS = firma × kanal saatlik tavanı
+# (contracts NOTIFY_LIMITS ile AYNI tutulur; hacim alarmı tavanın %80'i). FAIL_MIN = 15 dk'da FAILED oranı alarmının en az
+# FAILED sayısı (tek başarısızlık %100 sayılıp gece alarmı üretmesin; 1 = tasarımın yalın kuralı). RL_MAX = 15 dk'da
+# rs_notify_rate_limited_total artış eşiği.
+NOTIFY_CAPS="${WATCH_NOTIFY_CAPS:-SMS:100 WHATSAPP:60 EMAIL:100}"
+NF_MIN="${WATCH_NOTIFY_FAIL_MIN:-3}"
+NRL_MAX="${WATCH_NOTIFY_RL_MAX:-20}"
+for x in $NOTIFY_CAPS; do [[ "$x" =~ ^[A-Z_]{1,16}:[1-9][0-9]{0,5}$ ]] || die "WATCH_NOTIFY_CAPS biçimi KANAL:sayı (bulunan: $x)"; done
 if [ -n "$INST" ]; then TIMERS="${WATCH_TIMERS:-remote-backup@$INST.timer}"; TURN_CHECKS="${WATCH_TURN_CHECKS:-0}"
 else TIMERS="${WATCH_TIMERS:-remote-turn-fw.timer remote-backup.timer}"; TURN_CHECKS="${WATCH_TURN_CHECKS:-1}"; fi
 case "$TURN_CHECKS" in 0|1) ;; *) die "WATCH_TURN_CHECKS 0 ya da 1 olmalı" ;; esac
 case "$PURGE_CHECKS" in 0|1) ;; *) die "WATCH_PURGE_CHECKS 0 ya da 1 olmalı" ;; esac
-for v in REPEAT_MIN DISK_MAX CERT_DAYS REMIND_DAYS GP_MAX MF_MAX PURGE_REPEAT; do
+for v in REPEAT_MIN DISK_MAX CERT_DAYS REMIND_DAYS GP_MAX MF_MAX PURGE_REPEAT NF_MIN NRL_MAX; do
   case "${!v}" in ''|*[!0-9]*) die "WATCH_${v} sayı olmalı (bulunan: ${!v})" ;; esac
 done
 for c in docker systemctl curl openssl df timeout awk; do command -v "$c" >/dev/null 2>&1 || die "'$c' bulunamadı"; done
@@ -244,17 +253,21 @@ fi
 # Saklama işi (runbook §18.6 mantığı): metrik + süreç yaşı; hata sayacı son 24 saatte arttıysa alarm.
 seen retention
 RET_FC=""; R_GP=""; R_MF=""; P_SCH=""; P_FAIL=""; P_RUN=""; P_HB=""; O_LAST=""; O_CIRC=""; L_FAIL=""; st_epoch="$NOW"
-D_FAIL=""; C_FB=""; M_TEN=""; M_ALL=""
+D_FAIL=""; C_FB=""; M_TEN=""; M_ALL=""; NO_TOT=""; NO_FAIL=""; NO_OLD=""; NO_RL=""; SK_UNR=""; NO_VOL=""
 if [ -n "$SERVER_C" ]; then
   # 12.-15. alan (P18 H5; mimari-e11 §8b.13 T2/T4/T12): rs_crypto_decrypt_failures_total (bütün table), rs_calendar_fallback_total
   # (bütün tenant), rs_request_messages_rejected_total{reason~"tenant"} (firma müşteri mesajı kovası, queue.alert),
   # rs_request_messages_total (P18 server işareti).
+  # 16.-21. alan (P19 J6; mimari-e11 §8c.3/§8c.7): rs_notify_outbox_total (bütün seriler; P19 işareti — etiketsiz sayaç da
+  # "… 0" yazılır), rs_notify_outbox_total{result~"fail"}, rs_notify_outbox_oldest_pending_seconds (en büyük),
+  # rs_notify_rate_limited_total (bütün scope/channel), rs_sms_key_unreadable_total, rs_notify_tenant_max_hourly kanal=değer
+  # listesi (etiket adı channel ya da role — Metrics.gauge kayıtları {role=…} yazar; kanal adı [A-Za-z0-9_] dışı "_").
   # 3./4. alan (P14a A5): rs_guest_code_rate_limited_total{scope="prefix"} ve rs_mysql_test_failed_total (tüm class) toplamı;
   # seri yoksa "-" (metrik henüz yayında değil -> değerlendirilmez).
-  rt="$(timeout 20 docker exec "$SERVER_C" node -e "const sum=(t,re)=>{let n=0,k=0;for(const x of t.matchAll(re)){n+=Number(x[1]);k++}return k?String(n):'-'};fetch('http://127.0.0.1:3001/metrics',{headers:{authorization:'Bearer '+(process.env.METRICS_TOKEN||'')}}).then(r=>r.text()).then(t=>{const m=t.match(/^rs_retention_last_success_timestamp_seconds (\S+)/m);const f=t.match(/^rs_retention_failures_total (\S+)/m);console.log([m?m[1]:'yok',sum(t,/^rs_retention_failures_total(?:\{[^}]*\})? (\S+)/gm).replace('-','0'),sum(t,/^rs_guest_code_rate_limited_total\{[^}]*scope=\"prefix\"[^}]*\} (\S+)/gm),sum(t,/^rs_mysql_test_failed_total(?:\{[^}]*\})? (\S+)/gm),sum(t,/^rs_tenant_purge_jobs\{[^}]*=\"SCHEDULED\"[^}]*\} (\S+)/gm),sum(t,/^rs_tenant_purge_jobs\{[^}]*=\"FAILED\"[^}]*\} (\S+)/gm),sum(t,/^rs_tenant_purge_jobs\{[^}]*=\"RUNNING\"[^}]*\} (\S+)/gm),sum(t,/^rs_tenant_purge_last_heartbeat_seconds(?:\{[^}]*\})? (\S+)/gm),sum(t,/^rs_orphan_scan_last_success_timestamp_seconds(?:\{[^}]*\})? (\S+)/gm),sum(t,/^(?:rs_orphan_scan_circuit_open_total(?:\{[^}]*\})?|rs_orphan_files_total\{[^}]*action=\"circuit_open\"[^}]*\}) (\S+)/gm),sum(t,/^rs_erasure_ledger_write_failed_total(?:\{[^}]*\})? (\S+)/gm),sum(t,/^rs_crypto_decrypt_failures_total(?:\{[^}]*\})? (\S+)/gm),sum(t,/^rs_calendar_fallback_total(?:\{[^}]*\})? (\S+)/gm),sum(t,/^rs_request_messages_rejected_total\{[^}]*reason=\"[^\"]*tenant[^\"]*\"[^}]*\} (\S+)/gm),sum(t,/^rs_request_messages_total(?:\{[^}]*\})? (\S+)/gm)].join(' '))}).catch(()=>console.log('yok 0'))" 2>/dev/null)" || rt="yok 0"
+  rt="$(timeout 20 docker exec "$SERVER_C" node -e "const sum=(t,re)=>{let n=0,k=0;for(const x of t.matchAll(re)){n+=Number(x[1]);k++}return k?String(n):'-'};const mx=(t,re)=>{let n=null;for(const x of t.matchAll(re)){const v=Number(x[1]);if(n===null||v>n)n=v}return n===null?'-':String(n)};fetch('http://127.0.0.1:3001/metrics',{headers:{authorization:'Bearer '+(process.env.METRICS_TOKEN||'')}}).then(r=>r.text()).then(t=>{const m=t.match(/^rs_retention_last_success_timestamp_seconds (\S+)/m);const f=t.match(/^rs_retention_failures_total (\S+)/m);console.log([m?m[1]:'yok',sum(t,/^rs_retention_failures_total(?:\{[^}]*\})? (\S+)/gm).replace('-','0'),sum(t,/^rs_guest_code_rate_limited_total\{[^}]*scope=\"prefix\"[^}]*\} (\S+)/gm),sum(t,/^rs_mysql_test_failed_total(?:\{[^}]*\})? (\S+)/gm),sum(t,/^rs_tenant_purge_jobs\{[^}]*=\"SCHEDULED\"[^}]*\} (\S+)/gm),sum(t,/^rs_tenant_purge_jobs\{[^}]*=\"FAILED\"[^}]*\} (\S+)/gm),sum(t,/^rs_tenant_purge_jobs\{[^}]*=\"RUNNING\"[^}]*\} (\S+)/gm),sum(t,/^rs_tenant_purge_last_heartbeat_seconds(?:\{[^}]*\})? (\S+)/gm),sum(t,/^rs_orphan_scan_last_success_timestamp_seconds(?:\{[^}]*\})? (\S+)/gm),sum(t,/^(?:rs_orphan_scan_circuit_open_total(?:\{[^}]*\})?|rs_orphan_files_total\{[^}]*action=\"circuit_open\"[^}]*\}) (\S+)/gm),sum(t,/^rs_erasure_ledger_write_failed_total(?:\{[^}]*\})? (\S+)/gm),sum(t,/^rs_crypto_decrypt_failures_total(?:\{[^}]*\})? (\S+)/gm),sum(t,/^rs_calendar_fallback_total(?:\{[^}]*\})? (\S+)/gm),sum(t,/^rs_request_messages_rejected_total\{[^}]*reason=\"[^\"]*tenant[^\"]*\"[^}]*\} (\S+)/gm),sum(t,/^rs_request_messages_total(?:\{[^}]*\})? (\S+)/gm),sum(t,/^rs_notify_outbox_total(?:\{[^}]*\})? (\S+)/gm),sum(t,/^rs_notify_outbox_total\{[^}]*result=\"fail(?:ed)?\"[^}]*\} (\S+)/gmi),mx(t,/^rs_notify_outbox_oldest_pending_seconds(?:\{[^}]*\})? (\S+)/gm),sum(t,/^rs_notify_rate_limited_total(?:\{[^}]*\})? (\S+)/gm),sum(t,/^rs_sms_key_unreadable_total(?:\{[^}]*\})? (\S+)/gm),[...t.matchAll(/^rs_notify_tenant_max_hourly\{(?:[^}]*,)?(?:channel|role)=\"([^\"]*)\"[^}]*\} (\S+)/gm)].map(x=>x[1].replace(/\W/g,'_')+'='+x[2]).join(',')||'-'].join(' '))}).catch(()=>console.log('yok 0'))" 2>/dev/null)" || rt="yok 0"
   started="$(docker inspect -f '{{.State.StartedAt}}' "$SERVER_C" 2>/dev/null)"
   st_epoch="$(date -d "$started" +%s 2>/dev/null || echo "$NOW")"
-  read -r r_last r_fail R_GP R_MF P_SCH P_FAIL P_RUN P_HB O_LAST O_CIRC L_FAIL D_FAIL C_FB M_TEN M_ALL _ <<<"$rt"
+  read -r r_last r_fail R_GP R_MF P_SCH P_FAIL P_RUN P_HB O_LAST O_CIRC L_FAIL D_FAIL C_FB M_TEN M_ALL NO_TOT NO_FAIL NO_OLD NO_RL SK_UNR NO_VOL _ <<<"$rt"
   r_last="${r_last%.*}"; r_fail="${r_fail%.*}"
   # S14-2: konteyner çıktısı güvenilmez; $(( )) bash aritmetiği `a[$(komut)]` ile komut çalıştırır -> yalnız ^[0-9]+$ girer.
   [[ "$st_epoch" =~ ^[0-9]+$ ]] || { err "UYARI: server başlangıç zamanı geçersiz; şimdi varsayıldı"; st_epoch="$NOW"; }
@@ -297,6 +310,29 @@ if [ -n "$SERVER_C" ] && [[ "${r_last:-yok}" != yok ]] && [ -n "$(num "${M_ALL:-
   D_FAIL="$(num "${D_FAIL:--}")"; C_FB="$(num "${C_FB:--}")"; M_TEN="$(num "${M_TEN:--}")"; M_TEN="${M_TEN:-0}"
   miss=""; [ -n "$D_FAIL" ] || miss="rs_crypto_decrypt_failures_total"; [ -n "$C_FB" ] || miss="${miss:+$miss,}rs_calendar_fallback_total"
   [ -z "$miss" ] || fail p18-metrics "metrik yok: $miss (P18 server sözleşmesi; runbook §25.4)"
+fi
+
+# P19 (mimari-e11 §8c.3/§8c.7, S-P19-12/T6; runbook §26.2). rs_notify_outbox_total yoksa server P19 öncesidir -> değerlendirilmez.
+# Varsa en eski PENDING göstergesi ve anahtar okunamadı sayacı ZORUNLU (yoksa p19-metrics; fail-closed). Etiketli seriler
+# (FAILED, rate_limited, hacim göstergesi) ilk değere kadar yoktur -> 0.
+P19=0; VOL_HI=""
+cap_of() { local x; for x in $NOTIFY_CAPS; do [ "${x%%:*}" = "$1" ] && { echo "${x#*:}"; return; }; done; }
+if [ -n "$SERVER_C" ] && [[ "${r_last:-yok}" != yok ]] && [ -n "$(num "${NO_TOT:--}")" ]; then
+  P19=1; seen p19-metrics; seen notify-outbox-pending; seen notify-outbox-failed; seen notify-volume; seen sms-key-unreadable
+  NO_TOT="$(num "$NO_TOT")"; NO_FAIL="$(num "${NO_FAIL:--}")"; NO_FAIL="${NO_FAIL:-0}"; NO_RL="$(num "${NO_RL:--}")"; NO_RL="${NO_RL:-0}"
+  NO_OLD="$(num "${NO_OLD:--}")"; SK_UNR="$(num "${SK_UNR:--}")"
+  miss=""; [ -n "$NO_OLD" ] || miss="rs_notify_outbox_oldest_pending_seconds"; [ -n "$SK_UNR" ] || miss="${miss:+$miss,}rs_sms_key_unreadable_total"
+  [ -z "$miss" ] || fail p19-metrics "metrik yok: $miss (P19 server sözleşmesi; runbook §26.2)"
+  [ -z "$NO_OLD" ] || [ "$NO_OLD" -le 60 ] || fail notify-outbox-pending "en eski PENDING bildirim ${NO_OLD} sn (> 60; kanal servisi ulaşılamıyor ya da işçi durdu; runbook §26.2)"
+  # Hacim: herhangi bir kanalda firma başı en yüksek saatlik sayı >= tavanın %80'i (yukarı yuvarlanır: SMS 80, WA 48, EMAIL 80).
+  IFS=, read -ra vpairs <<<"${NO_VOL:--}"
+  for x in "${vpairs[@]+"${vpairs[@]}"}"; do
+    ch="${x%%=*}"; v="$(num "${x#*=}")"
+    [[ "$ch" =~ ^[A-Za-z0-9_]{1,16}$ ]] && [ -n "$v" ] || continue
+    ch="${ch^^}"; c="$(cap_of "$ch")"
+    [ -n "$c" ] || { err "UYARI: rs_notify_tenant_max_hourly bilinmeyen kanal $ch (WATCH_NOTIFY_CAPS)"; continue; }
+    [ "$v" -lt $(((c * 80 + 99) / 100)) ] || VOL_HI="${VOL_HI:+$VOL_HI,}$ch=$v/$c"
+  done
 fi
 
 # Sertifikalar: LE web (nginx), LE remote-turn, coturn'ün dağıtılmış dosyası ve 5349'dan sunulan.
@@ -400,6 +436,21 @@ if [ "$P18" = 1 ]; then
   read -r a b <<<"$(bump msg-tenant-rate "$M_TEN" "${mt_prev% *}" "${mt_prev#* }")"; mt_prev="$a $b"
   [ $((NOW - b)) -ge 3600 ] || fail msg-tenant-rate "firma müşteri mesajı kovası (300/dk) aşıldı, queue.alert (runbook §25.4)"
 fi
+# P19: hacim >= %80 "10 dk boyunca" = timer 10 dk'da bir -> ardışık iki turda (ilk görülme anından >= 9 dk) yüksek. SMS anahtarı
+# okunamadı (T6; P18 crypto-decrypt'ten AYRI, Uyarı) artıştan sonra 24 sa; ilk P19 turunda taban 0.
+vs_prev="$(st_get notify_volume_since)"; sk_prev="$(st_get sms_key_unreadable)"; nsamples="$(st_get notify_samples)"
+[[ "$vs_prev" =~ ^[0-9]+$ ]] || vs_prev=""
+if [ "$P19" = 1 ]; then
+  if [ -n "$VOL_HI" ]; then
+    vs_prev="${vs_prev:-$NOW}"
+    [ $((NOW - vs_prev)) -lt 540 ] || fail notify-volume "firma başı saatlik bildirim >= tavanın %80'i ($VOL_HI) >= 10 dk (log notify.tenant_volume -> tenant; runbook §26.5)"
+  else vs_prev=""; fi
+  if [ -n "$SK_UNR" ]; then
+    [ -n "$sk_prev" ] || sk_prev="0 0"
+    read -r a b <<<"$(bump sms-key-unreadable "$SK_UNR" "${sk_prev% *}" "${sk_prev#* }")"; sk_prev="$a $b"
+    [ $((NOW - b)) -ge "$DAY" ] || fail sms-key-unreadable "rs_sms_key_unreadable_total arttı (firma SMS anahtarı çözülemedi: SMSPORTAL_URL değişti / sürüm emekli; runbook §26.3)"
+  fi
+else vs_prev=""; fi
 
 # P14a A5 (AC-208/212): sayaç örnekleri "ts:prefix:mysql" (90 dk tutulur). Artış = pencere başından (pencereden eski en
 # yeni örnek; yoksa en eski) bugüne ardışık farkların toplamı; azalma = süreç yeniden başladı -> yeni değer artış sayılır.
@@ -408,9 +459,9 @@ gp="$(num "$R_GP")"; mf="$(num "$R_MF")"
 kept=""
 for x in $samples; do IFS=: read -r ts _ _ <<<"$x"; [[ "$ts" =~ ^[0-9]+$ ]] && [ $((NOW - ts)) -le 5400 ] && kept="${kept:+$kept }$x"; done
 samples="$kept"; [ -z "$gp$mf" ] || samples="${samples:+$samples }$NOW:${gp:--}:${mf:--}"
-incr() {  # incr <alan 2|3> <pencere sn> -> artış (örnek yoksa boş)
-  local f="$1" w="$2" base=0 i=0 x ts v prev="" sum=0 n=0 arr=()
-  for x in $samples; do arr+=("$x"); done
+incr() {  # incr <alan> <pencere sn> [örnekler; vars. $samples] -> artış (örnek yoksa boş)
+  local f="$1" w="$2" base=0 i=0 x ts v prev="" sum=0 n=0 arr=() src="${3-$samples}"
+  for x in $src; do arr+=("$x"); done
   for x in "${arr[@]+"${arr[@]}"}"; do ts="${x%%:*}"; [[ "$ts" =~ ^[0-9]+$ ]] && [ $((NOW - ts)) -ge "$w" ] && base="$i"; i=$((i + 1)); done
   for x in "${arr[@]:base}"; do
     v="$(cut -d: -f"$f" <<<"$x")"; [[ "$v" =~ ^[0-9]+$ ]] || { prev=""; continue; }
@@ -421,6 +472,20 @@ incr() {  # incr <alan 2|3> <pencere sn> -> artış (örnek yoksa boş)
 }
 d="$(incr 2 900)"; [ -z "$d" ] || [ "$d" -lt "$GP_MAX" ] || fail guest-code-prefix "rs_guest_code_rate_limited_total{scope=prefix} +$d / >=15 dk (eşik $GP_MAX)"
 d="$(incr 3 3600)"; [ -z "$d" ] || [ "$d" -lt "$MF_MAX" ] || fail mysql-test-failed "rs_mysql_test_failed_total +$d / >=1 sa (eşik $MF_MAX)"
+# P19 örnekleri "ts:outbox-toplam:outbox-failed:rate-limited" (ayrı durum anahtarı, 90 dk). FAILED oranı: 15 dk'da FAILED
+# artışı >= NF_MIN ve toplam artışın yarısından fazla. rate_limited: 15 dk'da artış >= NRL_MAX -> notify-volume.
+kept=""
+for x in $nsamples; do IFS=: read -r ts _ <<<"$x"; [[ "$ts" =~ ^[0-9]+$ ]] && [ $((NOW - ts)) -le 5400 ] && kept="${kept:+$kept }$x"; done
+nsamples="$kept"
+if [ "$P19" = 1 ]; then
+  nsamples="${nsamples:+$nsamples }$NOW:$NO_TOT:$NO_FAIL:$NO_RL"
+  dt="$(incr 2 900 "$nsamples")"; dfl="$(incr 3 900 "$nsamples")"; drl="$(incr 4 900 "$nsamples")"
+  [ -z "$dfl" ] || [ "${dt:-0}" -ge "$dfl" ] || dt="$dfl"   # tutarsız örnek (FAILED > toplam) -> toplam en az FAILED
+  if [ -n "$dfl" ] && [ "$dfl" -ge "$NF_MIN" ] && [ $((dfl * 2)) -gt "${dt:-0}" ]; then
+    fail notify-outbox-failed "15 dk'da FAILED $dfl / $dt son durum (> %50; runbook §26.2)"
+  fi
+  [ -z "$drl" ] || [ "$drl" -lt "$NRL_MAX" ] || fail notify-volume "rs_notify_rate_limited_total +$drl / >=15 dk (eşik $NRL_MAX; runbook §26.5)"
+fi
 
 cur=""
 for x in "${FAILS[@]+"${FAILS[@]}"}"; do
@@ -464,9 +529,9 @@ if [ -f "$BSTATUS" ] && [ "$(prom remote_backup_offsite_configured)" = 0 ]; then
 fi
 
 tmp="$STATE.tmp.$$"
-printf 'failing=%s\nlast_sent=%s\noffsite_remind=%s\nretention_fail_count=%s\nretention_fail_at=%s\ncounter_samples=%s\npurge_sent=%s\norphan_circuit=%s\nledger_write=%s\ndecrypt_fail=%s\ncalendar_fallback=%s\nmsg_tenant_rate=%s\n' \
+printf 'failing=%s\nlast_sent=%s\noffsite_remind=%s\nretention_fail_count=%s\nretention_fail_at=%s\ncounter_samples=%s\npurge_sent=%s\norphan_circuit=%s\nledger_write=%s\ndecrypt_fail=%s\ncalendar_fallback=%s\nmsg_tenant_rate=%s\nnotify_volume_since=%s\nsms_key_unreadable=%s\nnotify_samples=%s\n' \
   "$keep" "$last_sent" "$remind" "${prev_rfc:-}" "${prev_rfa:-}" "$samples" "$purge_sent" "${oc_prev:-}" "${lw_prev:-}" \
-  "${df_prev:-}" "${cf_prev:-}" "${mt_prev:-}" >"$tmp" && mv -f "$tmp" "$STATE"
+  "${df_prev:-}" "${cf_prev:-}" "${mt_prev:-}" "${vs_prev:-}" "${sk_prev:-}" "$nsamples" >"$tmp" && mv -f "$tmp" "$STATE"
 tmp="$STATE_DIR/status.prom.tmp.$$"
 {
   echo "# $TAG (mimari-p13 §7.8); sır yok"

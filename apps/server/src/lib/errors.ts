@@ -38,6 +38,7 @@ const DEFAULT_MESSAGES: Record<ErrorCode, string> = {
   INTERNAL: "Beklenmeyen bir hata oluştu.",
   NOT_READY: "Servis hazır değil.",
   BINDING_INVALID: BINDING_INVALID_MESSAGE,
+  FORM_TOKEN_INVALID: "Formun süresi doldu, sayfayı yenileyin.",
   REQUEST_REF_INVALID: "Bu dosya artık geçerli değil; firmanızdan yenisini isteyin.",
   REQUEST_PENDING: "Bu pencereden gönderilmiş, bekleyen bir talebiniz zaten var.",
   REQUEST_TAKEN: "Talep başka bir teknisyen tarafından alındı.",

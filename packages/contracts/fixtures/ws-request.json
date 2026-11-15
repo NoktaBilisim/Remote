@@ -87,6 +87,25 @@
         "staleSource": false
       },
       {
+        "t": "request.new",
+        "id": "01JC0000000000000000000004",
+        "requestCode": "112233",
+        "customerName": "Web Müşteri",
+        "preview": "Tarayıcıdan talep",
+        "networkMatch": "NONE",
+        "knownDevice": false,
+        "createdAt": "2026-11-15T10:00:00.000Z",
+        "customerFirm": null,
+        "viaBinding": false,
+        "bindingRevoked": false,
+        "staleSource": false,
+        "priority": "NORMAL",
+        "slaDueAt": null,
+        "afterHours": false,
+        "customerChat": "SUPPORTED",
+        "source": "WEB"
+      },
+      {
         "t": "request.removed",
         "id": "01JC0000000000000000000000",
         "status": "ACCEPTED"

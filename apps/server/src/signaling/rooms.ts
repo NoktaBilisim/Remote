@@ -163,7 +163,16 @@ export class Rooms implements RoomNotifier, TechnicianLiveControl {
    */
   preAdmitGuest(
     row: RoomRow,
-    g: { requestId: string; name: string; email?: string; clientVersion: string | null; consent: GuestConsent; acceptCode?: boolean },
+    g: {
+      requestId: string;
+      /** P19 (§8c.2 m.5): AGENT (Windows istemcisi) | BROWSER (web talebi; oturum mode=BROWSER, input kanalı yok). */
+      kind: GuestKind;
+      name: string;
+      email?: string;
+      clientVersion: string | null;
+      consent: GuestConsent;
+      acceptCode?: boolean;
+    },
   ): { wsTicket: string; expiresAt: number; admitCode?: string } {
     const room = this.getOrCreate(row);
     room.requestId = g.requestId;
@@ -179,7 +188,7 @@ export class Rooms implements RoomNotifier, TechnicianLiveControl {
         id: newId(),
         name: g.name,
         ...(g.email ? { email: g.email } : {}),
-        kind: "AGENT",
+        kind: g.kind,
         ipKey: "",
         admitHash: "",
         consent: g.consent,

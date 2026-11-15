@@ -28,10 +28,12 @@ export async function publicRequestRoutes(app: FastifyInstance): Promise<void> {
     return reply.status(201).send(out);
   });
 
+  // P19 (§8c.2 m.4): AGENT veya BROWSER (Origin varsa BROWSER kuralı); tür ↔ `source` uyuşmazlığında sessizce 204.
   app.post("/cancel", { bodyLimit: 1024 }, async (req, reply) => {
-    checkPublicClient(req, "AGENT");
+    const kind = req.headers.origin !== undefined ? "BROWSER" : "AGENT";
+    checkPublicClient(req, kind);
     const { requestSecret } = parseInput(cancelRequestInputSchema, req.body);
-    await app.requests.cancelBySecret(auditContext(req), requestSecret);
+    await app.requests.cancelBySecret(auditContext(req), requestSecret, kind === "BROWSER" ? "WEB" : "AGENT");
     return reply.status(204).header("Cache-Control", "no-store").send();
   });
 }
