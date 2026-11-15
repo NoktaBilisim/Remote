@@ -17,13 +17,13 @@ export { REQUEST_BLOCK_NOTE_MAX };
 
 /** Seçim değeri: saat (dize) ya da "none" (süresiz). */
 export type DurationValue = string;
-export const DURATION_NONE = "none";
+const DURATION_NONE = "none";
 
 /** Süre seçenekleri (contracts hazır listesi): 1 sa, 1 gün, 7 gün, 30 gün, süresiz. */
 export function durationOptions(): { value: DurationValue; label: string }[] {
   return REQUEST_BLOCK_DURATION_PRESETS.map((h) => ({ value: h === null ? DURATION_NONE : String(h), label: durationLabel(h) }));
 }
-export function durationLabel(h: number | null): string {
+function durationLabel(h: number | null): string {
   if (h === null) return t("bl.dur.none");
   if (h < 24) return t("bl.dur.hours", { n: h });
   return t("bl.dur.days", { n: h / 24 });

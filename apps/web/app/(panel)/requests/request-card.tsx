@@ -1,44 +1,14 @@
 "use client";
 
-import {
-  Building2,
-  Ellipsis,
-  Hourglass,
-  Info,
-  Mail,
-  MessageSquare,
-  MonitorSmartphone,
-  Phone,
-  ShieldAlert,
-  ShieldBan,
-  ShieldCheck,
-  ShieldOff,
-  TriangleAlert,
-  UserCheck,
-  UserX,
-} from "lucide-react";
-import {
-  BINDING_REVOKED_LABEL,
-  CANCEL_REASON_LABELS,
-  FIRST_SEEN_SOURCE_LABEL,
-  GENERAL_CUSTOMER_LABEL,
-  KNOWN_DEVICE_LABEL,
-  labelOf,
-  NETWORK_MATCH_LABELS,
-  REQUEST_STATUS_LABELS,
-  STALE_SOURCE_LABEL,
-  viaBindingLabel,
-} from "@remote/contracts/labels";
-import Link from "next/link";
+import { Ellipsis, Info, MessageSquare, ShieldBan, ShieldOff, UserCheck, UserX } from "lucide-react";
+import { labelOf, REQUEST_STATUS_LABELS } from "@remote/contracts/labels";
+import type { ReactNode } from "react";
 import { Button } from "@/components/ui/button";
 import { closeMenu, Menu } from "@/components/ui/menu";
-import { formatDateTime, formatDuration } from "@/lib/format";
 import { t } from "@/lib/i18n";
 import { REQUEST_VERIFY_HINT, type RequestStatus, type SupportRequestItem } from "@/lib/requests/contract";
-import { formatRequestCode, sourceView } from "@/lib/requests/source";
-import { slaView } from "@/lib/requests/p18";
 import { AssignMenuItems, type AssignActions } from "./assign-menu";
-import { AfterHoursBadge, AssignedChip, PriorityBadge, SlaBadge, WebSourceBadge } from "./request-badges";
+import { CardFacts, ClosedInfo, P18Badges, RequestCode, SourceIndicator } from "./request-card-parts";
 
 const STATUS_PILL: Record<RequestStatus, string> = {
   PENDING: "bg-primary-surface text-primary",
@@ -61,106 +31,7 @@ export function RequestStatusBadge({ status }: { status: RequestStatus }) {
   );
 }
 
-/** Bilinen kaynak göstergesi (mimari-e9 §13.1): renk tek başına anlam taşımaz, her durumda metin var. */
-export function SourceIndicator({
-  item,
-}: {
-  item: Pick<SupportRequestItem, "networkMatch" | "knownDevice"> &
-    Partial<Pick<SupportRequestItem, "viaBinding" | "bindingRevoked" | "staleSource" | "customerFirm">>;
-}) {
-  const v = sourceView(item.networkMatch, item.knownDevice);
-  // P8c r2 (§15.1, §15.7 K20): kayıtlı bilgisayar = bilinen kaynak, NÖTR rozet (doğrulama değildir); yalnız kayıt etkinken.
-  // İptal edilmiş kayıt → "İlk kez görülen kaynak" gibi uyarı rozeti.
-  const binding = Boolean(item.viaBinding);
-  const revoked = !binding && Boolean(item.bindingRevoked);
-  return (
-    <div className="flex flex-col gap-1.5" data-testid="request-source" data-known={v.known || binding}>
-      {binding && (
-        <span
-          data-testid="request-via-binding"
-          className="inline-flex w-fit items-start gap-1.5 rounded-md bg-surface-muted px-2.5 py-1 text-xs font-medium text-fg"
-        >
-          <ShieldCheck aria-hidden className="mt-px size-4 shrink-0" />
-          {viaBindingLabel(item.customerFirm?.name ?? null)}
-        </span>
-      )}
-      {revoked && (
-        <span
-          data-testid="request-binding-revoked"
-          className="inline-flex w-fit items-start gap-1.5 rounded-md bg-warning-surface px-2.5 py-1 text-xs font-medium text-warning"
-        >
-          <ShieldAlert aria-hidden className="mt-px size-4 shrink-0" />
-          {BINDING_REVOKED_LABEL}
-        </span>
-      )}
-      {item.staleSource && (
-        <span data-testid="request-stale-source" className="inline-flex w-fit items-start gap-1.5 text-xs font-medium text-warning">
-          <TriangleAlert aria-hidden className="mt-px size-4 shrink-0" />
-          {STALE_SOURCE_LABEL}
-        </span>
-      )}
-      {v.known ? (
-        <>
-          {/* TEST-P8b-4: rozet tek satır; nedenler altında hizalı liste. */}
-          <span className="inline-flex w-fit items-center gap-1.5 rounded-full bg-success-surface px-2.5 py-0.5 text-xs font-medium whitespace-nowrap text-success">
-            <ShieldCheck aria-hidden className="size-4 shrink-0" />
-            {t("rq.src.known")}
-          </span>
-          <ul className="flex flex-col gap-0.5 text-xs text-fg-muted" data-testid="request-source-reasons">
-            {v.reasons.map((r) => (
-              <li key={r}>{r === "device" ? KNOWN_DEVICE_LABEL : NETWORK_MATCH_LABELS[r === "trusted" ? "TRUSTED" : "IP"]}</li>
-            ))}
-          </ul>
-        </>
-      ) : binding || revoked ? null : (
-        <span
-          data-testid="request-first-seen"
-          className="inline-flex w-fit items-start gap-1.5 rounded-md bg-warning-surface px-2.5 py-1 text-xs font-medium text-warning"
-        >
-          <ShieldAlert aria-hidden className="mt-px size-4 shrink-0" />
-          {FIRST_SEEN_SOURCE_LABEL}
-        </span>
-      )}
-      {v.sameBlock && (
-        <span className="text-xs text-fg-muted" data-testid="request-same-block">
-          {NETWORK_MATCH_LABELS.PREFIX}
-        </span>
-      )}
-    </div>
-  );
-}
-
-export function RequestCode({ code }: { code: string }) {
-  return (
-    <div className="flex flex-col">
-      <span className="text-xs font-medium text-fg-muted">{t("rq.code")}</span>
-      <span
-        data-testid="request-code"
-        aria-label={t("rq.codeSr", { digits: code.split("").join(" ") })}
-        className="font-mono text-3xl font-bold tracking-wider text-fg tabular-nums"
-      >
-        {formatRequestCode(code)}
-      </span>
-    </div>
-  );
-}
-
-/** Talep kartı (AC-146): ad, telefon, e-posta, açıklama düz metin (React metin düğümü — bağlantıya çevrilmez). */
-export function RequestCard({
-  item,
-  now,
-  canAccept = false,
-  busy = false,
-  onAccept,
-  onReject,
-  onRevokeBinding,
-  onBlock,
-  meId,
-  offsetMs = 0,
-  assign,
-  onThread,
-  unread = 0,
-}: {
+interface RequestCardProps {
   item: SupportRequestItem;
   now?: number | null;
   canAccept?: boolean;
@@ -180,54 +51,134 @@ export function RequestCard({
   /** P18 (AC-255): verilirse "Mesajlar" düğmesi (kabul öncesi yazışma paneli). */
   onThread?: () => void;
   unread?: number;
-}) {
-  const pending = item.status === "PENDING";
-  const waitSec = pending && now ? Math.max(item.waitSec, Math.floor((now - Date.parse(item.createdAt)) / 1000)) : item.waitSec;
-  const name = item.customerName ?? t("rq.anon");
-  const titleId = `talep-${item.id}-t`;
+}
+
+const dangerItem =
+  "flex min-h-11 w-full cursor-pointer items-center gap-2 rounded-sm px-3 text-left text-sm text-danger hover:bg-danger-surface";
+
+/** Kart menüsü öğesi: menüyü kapatır, sonra eylemi çalıştırır. */
+function DangerItem({ testId, Icon, label, onRun }: { testId: string; Icon: typeof ShieldBan; label: string; onRun: () => void }) {
+  return (
+    <button
+      type="button"
+      onClick={(e) => {
+        closeMenu(e.currentTarget);
+        onRun();
+      }}
+      data-testid={testId}
+      className={dangerItem}
+    >
+      <Icon aria-hidden className="size-4 shrink-0" />
+      {label}
+    </button>
+  );
+}
+
+/** "Diğer" menüsü (atama/öncelik, engelle, kaydı iptal et); öğe yoksa null. Bileşen değil, öğe üretir (ağaç aynı). */
+function cardMenu(p: RequestCardProps, name: string, pending: boolean): ReactNode {
+  const { item, onRevokeBinding, onBlock, assign } = p;
   const canRevoke = Boolean(onRevokeBinding && item.viaBinding);
   const assignItems = pending && assign ? <AssignMenuItems item={item} actions={assign} /> : null;
-  const revokeMenu =
-    canRevoke || onBlock || assignItems ? (
-      <Menu
-        label={t("rq.more")}
-        icon={<Ellipsis aria-hidden className="size-4" />}
-        align="end"
-        testId="request-menu"
-        panelLabel={t("rq.moreFor", { name })}
+  if (!(canRevoke || onBlock || assignItems)) return null;
+  return (
+    <Menu
+      label={t("rq.more")}
+      icon={<Ellipsis aria-hidden className="size-4" />}
+      align="end"
+      testId="request-menu"
+      panelLabel={t("rq.moreFor", { name })}
+    >
+      {assignItems}
+      {assignItems && (onBlock || canRevoke) && <div aria-hidden className="my-1 border-t border-border" />}
+      {onBlock && <DangerItem testId="request-block" Icon={ShieldBan} label={t("bl.rq.open")} onRun={onBlock} />}
+      {canRevoke && (
+        <DangerItem testId="request-revoke-binding" Icon={ShieldOff} label={t("rq.revoke.open")} onRun={() => onRevokeBinding?.()} />
+      )}
+    </Menu>
+  );
+}
+
+/** "Mesajlar" düğmesi + okunmamış sayısı. */
+function ThreadButton({ name, unread, onClick }: { name: string; unread: number; onClick: () => void }) {
+  return (
+    <Button
+      variant="secondary"
+      onClick={onClick}
+      aria-label={unread > 0 ? t("th.openUnread", { name, n: unread }) : t("th.openFor", { name })}
+      data-testid="thread-open"
+      className="shrink-0"
+    >
+      <MessageSquare aria-hidden className="size-4" />
+      {t("th.open")}
+      {unread > 0 && (
+        <span
+          data-testid="thread-unread"
+          className="inline-flex min-w-5 items-center justify-center rounded-full bg-primary px-1.5 text-xs font-semibold text-on-primary tabular-nums"
+        >
+          {unread > 99 ? "99+" : unread}
+        </span>
+      )}
+    </Button>
+  );
+}
+
+/** Bekleyen talep alt çubuğu: doğrulama ipucu, mesajlar, menü, reddet/kabul et. */
+function PendingBar({ p, name, menu }: { p: RequestCardProps; name: string; menu: ReactNode }) {
+  const busy = p.busy ?? false;
+  return (
+    <div className="mt-4 flex flex-col gap-3 border-t border-border pt-4 sm:flex-row sm:items-center">
+      <p className="flex min-w-0 flex-1 items-start gap-2 text-sm text-fg-muted" data-testid="request-hint">
+        <Info aria-hidden className="mt-0.5 size-4 shrink-0 text-primary" />
+        {REQUEST_VERIFY_HINT}
+      </p>
+      {p.onThread && <ThreadButton name={name} unread={p.unread ?? 0} onClick={p.onThread} />}
+      {menu}
+      {(p.canAccept ?? false) && (
+        <div className="flex flex-col-reverse gap-2 sm:flex-row">
+          <Button variant="secondary" onClick={p.onReject} disabled={busy} aria-label={t("rq.rejectFor", { name })}>
+            <UserX aria-hidden className="size-4" />
+            {t("rq.reject")}
+          </Button>
+          <Button onClick={p.onAccept} loading={busy} aria-label={t("rq.acceptFor", { name })}>
+            {!busy && <UserCheck aria-hidden className="size-4" />}
+            {t("rq.accept")}
+          </Button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** Kartın sol sütunu: ad + durum, P18 rozetleri, bilgiler, açıklama, kapanış bilgisi. */
+function CardMain({ p, name, titleId, pending }: { p: RequestCardProps; name: string; titleId: string; pending: boolean }) {
+  return (
+    <div className="min-w-0 flex-1">
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+        <h3 id={titleId} className="text-base font-semibold text-fg wrap-anywhere">
+          {name}
+        </h3>
+        {!pending && <RequestStatusBadge status={p.item.status} />}
+      </div>
+      <P18Badges item={p.item} pending={pending} now={p.now ?? null} meId={p.meId} offsetMs={p.offsetMs ?? 0} />
+      <CardFacts item={p.item} pending={pending} now={p.now} />
+      <p
+        className="mt-3 rounded-md bg-canvas px-3 py-2 text-sm whitespace-pre-wrap text-fg wrap-anywhere"
+        data-testid="request-description"
       >
-        {assignItems}
-        {assignItems && (onBlock || canRevoke) && <div aria-hidden className="my-1 border-t border-border" />}
-        {onBlock && (
-          <button
-            type="button"
-            onClick={(e) => {
-              closeMenu(e.currentTarget);
-              onBlock();
-            }}
-            data-testid="request-block"
-            className="flex min-h-11 w-full cursor-pointer items-center gap-2 rounded-sm px-3 text-left text-sm text-danger hover:bg-danger-surface"
-          >
-            <ShieldBan aria-hidden className="size-4 shrink-0" />
-            {t("bl.rq.open")}
-          </button>
-        )}
-        {canRevoke && (
-          <button
-            type="button"
-            onClick={(e) => {
-              closeMenu(e.currentTarget);
-              onRevokeBinding?.();
-            }}
-            data-testid="request-revoke-binding"
-            className="flex min-h-11 w-full cursor-pointer items-center gap-2 rounded-sm px-3 text-left text-sm text-danger hover:bg-danger-surface"
-          >
-            <ShieldOff aria-hidden className="size-4 shrink-0" />
-            {t("rq.revoke.open")}
-          </button>
-        )}
-      </Menu>
-    ) : null;
+        {p.item.description ?? t("rq.noDescription")}
+      </p>
+      {!pending && <ClosedInfo item={p.item} />}
+    </div>
+  );
+}
+
+/** Talep kartı (AC-146): ad, telefon, e-posta, açıklama düz metin (React metin düğümü — bağlantıya çevrilmez). */
+export function RequestCard(p: RequestCardProps) {
+  const { item } = p;
+  const pending = item.status === "PENDING";
+  const name = item.customerName ?? t("rq.anon");
+  const titleId = `talep-${item.id}-t`;
+  const menu = cardMenu(p, name, pending);
   return (
     <article
       id={`talep-${item.id}`}
@@ -237,196 +188,14 @@ export function RequestCard({
       className="scroll-mt-24 rounded-lg border border-border bg-surface p-4 shadow-sm target:ring-2 target:ring-ring sm:p-5"
     >
       <div className="flex flex-col gap-4 lg:flex-row lg:items-start">
-        <div className="min-w-0 flex-1">
-          <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
-            <h3 id={titleId} className="text-base font-semibold text-fg wrap-anywhere">
-              {name}
-            </h3>
-            {!pending && <RequestStatusBadge status={item.status} />}
-          </div>
-          <P18Badges item={item} pending={pending} now={now ?? null} meId={meId} offsetMs={offsetMs} />
-          <dl className="mt-2 grid grid-cols-1 gap-x-6 gap-y-1 text-sm sm:grid-cols-2">
-            <div className="flex min-w-0 items-center gap-2 sm:col-span-2">
-              <dt>
-                <Building2 aria-hidden className="size-4 text-fg-muted" />
-                <span className="sr-only">{t("rq.firm")}</span>
-              </dt>
-              <dd className="font-medium text-fg wrap-anywhere" data-testid="request-firm">
-                {item.customerFirm?.name ?? GENERAL_CUSTOMER_LABEL}
-              </dd>
-            </div>
-            <div className="flex min-w-0 items-center gap-2">
-              <dt>
-                <Phone aria-hidden className="size-4 text-fg-muted" />
-                <span className="sr-only">{t("rq.phone")}</span>
-              </dt>
-              <dd className="text-fg tabular-nums wrap-anywhere">{item.customerPhone ?? "—"}</dd>
-            </div>
-            <div className="flex min-w-0 items-center gap-2">
-              <dt>
-                <Mail aria-hidden className="size-4 text-fg-muted" />
-                <span className="sr-only">{t("rq.email")}</span>
-              </dt>
-              <dd className="text-fg wrap-anywhere">{item.customerEmail ?? "—"}</dd>
-            </div>
-            <div className="flex min-w-0 items-center gap-2">
-              <dt>
-                <Hourglass aria-hidden className="size-4 text-fg-muted" />
-                <span className="sr-only">{t("rq.wait")}</span>
-              </dt>
-              <dd className="text-fg tabular-nums" data-testid="request-wait">
-                {pending ? t("rq.waiting", { d: formatDuration(waitSec) }) : t("rq.waited", { d: formatDuration(waitSec) })}
-              </dd>
-            </div>
-            <div className="flex min-w-0 items-center gap-2">
-              <dt>
-                <MonitorSmartphone aria-hidden className="size-4 text-fg-muted" />
-                <span className="sr-only">{t("rq.version")}</span>
-              </dt>
-              <dd className="text-fg-muted">
-                {/* P19: WEB talebinde sürüm yok (null); "Web" kaynak etiketi J5'te. */}
-                {item.clientVersion !== null ? `${t("rq.versionValue", { v: item.clientVersion })} · ` : ""}
-                {formatDateTime(item.createdAt)}
-              </dd>
-            </div>
-          </dl>
-          <p
-            className="mt-3 rounded-md bg-canvas px-3 py-2 text-sm whitespace-pre-wrap text-fg wrap-anywhere"
-            data-testid="request-description"
-          >
-            {item.description ?? t("rq.noDescription")}
-          </p>
-          {!pending && <ClosedInfo item={item} />}
-        </div>
+        <CardMain p={p} name={name} titleId={titleId} pending={pending} />
         <div className="flex shrink-0 flex-col gap-3 lg:w-64">
           <RequestCode code={item.requestCode} />
           <SourceIndicator item={item} />
         </div>
       </div>
-      {pending && (
-        <div className="mt-4 flex flex-col gap-3 border-t border-border pt-4 sm:flex-row sm:items-center">
-          <p className="flex min-w-0 flex-1 items-start gap-2 text-sm text-fg-muted" data-testid="request-hint">
-            <Info aria-hidden className="mt-0.5 size-4 shrink-0 text-primary" />
-            {REQUEST_VERIFY_HINT}
-          </p>
-          {onThread && (
-            <Button
-              variant="secondary"
-              onClick={onThread}
-              aria-label={unread > 0 ? t("th.openUnread", { name, n: unread }) : t("th.openFor", { name })}
-              data-testid="thread-open"
-              className="shrink-0"
-            >
-              <MessageSquare aria-hidden className="size-4" />
-              {t("th.open")}
-              {unread > 0 && (
-                <span
-                  data-testid="thread-unread"
-                  className="inline-flex min-w-5 items-center justify-center rounded-full bg-primary px-1.5 text-xs font-semibold text-on-primary tabular-nums"
-                >
-                  {unread > 99 ? "99+" : unread}
-                </span>
-              )}
-            </Button>
-          )}
-          {revokeMenu}
-          {canAccept && (
-            <div className="flex flex-col-reverse gap-2 sm:flex-row">
-              <Button variant="secondary" onClick={onReject} disabled={busy} aria-label={t("rq.rejectFor", { name })}>
-                <UserX aria-hidden className="size-4" />
-                {t("rq.reject")}
-              </Button>
-              <Button onClick={onAccept} loading={busy} aria-label={t("rq.acceptFor", { name })}>
-                {!busy && <UserCheck aria-hidden className="size-4" />}
-                {t("rq.accept")}
-              </Button>
-            </div>
-          )}
-        </div>
-      )}
-      {!pending && revokeMenu && <div className="mt-4 flex justify-end border-t border-border pt-4">{revokeMenu}</div>}
+      {pending && <PendingBar p={p} name={name} menu={menu} />}
+      {!pending && menu && <div className="mt-4 flex justify-end border-t border-border pt-4">{menu}</div>}
     </article>
-  );
-}
-
-/** P18 rozet satırı: öncelik, mesai dışı, atanan, SLA (bekleyen); kapalı talepte öncelik + SLA aşımı. */
-function P18Badges({
-  item,
-  pending,
-  now,
-  meId,
-  offsetMs,
-}: {
-  item: SupportRequestItem;
-  pending: boolean;
-  now: number | null;
-  meId?: string;
-  offsetMs: number;
-}) {
-  const sla = pending ? slaView(item, now, offsetMs) : item.slaBreached ? ({ kind: "breached" } as const) : ({ kind: "none" } as const);
-  const web = item.source === "WEB";
-  if (!pending && !web && item.priority === "NORMAL" && !item.afterHours && sla.kind === "none") return null;
-  return (
-    <div className="mt-2 flex flex-wrap items-center gap-2" data-testid="request-p18">
-      {web && <WebSourceBadge />}
-      <PriorityBadge priority={item.priority} />
-      {item.afterHours && <AfterHoursBadge />}
-      {pending && item.assignedTo && <AssignedChip assignedTo={item.assignedTo} meId={meId} />}
-      <SlaBadge view={sla} />
-    </div>
-  );
-}
-
-function ClosedInfo({ item }: { item: SupportRequestItem }) {
-  return (
-    <dl className="mt-3 grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-sm">
-      {item.slaDueAt && (
-        <>
-          <dt className="text-fg-muted">{t("rq.sla.target")}</dt>
-          <dd className="text-fg tabular-nums" data-testid="request-sla-target">
-            {formatDateTime(item.slaDueAt)} · {item.slaBreached ? t("rq.sla.missed") : t("rq.sla.met")}
-          </dd>
-        </>
-      )}
-      {item.closedAt && (
-        <>
-          <dt className="text-fg-muted">{t("rq.closedAt")}</dt>
-          <dd className="text-fg tabular-nums">{formatDateTime(item.closedAt)}</dd>
-        </>
-      )}
-      {item.cancelReason && (
-        <>
-          <dt className="text-fg-muted">{t("rq.cancelReason")}</dt>
-          <dd className="text-fg">{labelOf(CANCEL_REASON_LABELS, item.cancelReason)}</dd>
-        </>
-      )}
-      {item.acceptedBy && (
-        <>
-          <dt className="text-fg-muted">{t("rq.acceptedBy")}</dt>
-          <dd className="text-fg wrap-anywhere">{item.acceptedBy.name}</dd>
-        </>
-      )}
-      {item.rejectMessage && (
-        <>
-          <dt className="text-fg-muted">{t("rq.rejectMessage")}</dt>
-          <dd className="text-fg wrap-anywhere" data-testid="request-reject-message">
-            {item.rejectMessage}
-          </dd>
-        </>
-      )}
-      {item.sessionId && (
-        <>
-          <dt className="text-fg-muted">{t("rq.session")}</dt>
-          <dd>
-            <Link
-              href={`/history/${item.sessionId}`}
-              className="inline-flex min-h-11 items-center font-medium text-primary hover:underline"
-            >
-              {t("rq.sessionLink")}
-            </Link>
-          </dd>
-        </>
-      )}
-    </dl>
   );
 }

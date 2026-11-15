@@ -25,7 +25,7 @@ export function checkLinkPhone(raw: string, channel: SendLinkChannel): { e164?: 
   return { e164 };
 }
 
-export type SendLinkFailure =
+type SendLinkFailure =
   | { kind: "phone"; message: string }
   | { kind: "rate"; message: string; retryAfterSec: number }
   | { kind: "message"; message: string; tone: "danger" | "warning" };

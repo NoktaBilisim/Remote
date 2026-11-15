@@ -21,7 +21,7 @@ export function panelCloseAction(code: number, everOpened: boolean, unopenedAtte
 export const panelBackoff = (attempt: number): number => Math.min(1000 * 2 ** attempt, 30_000);
 
 /** AC-216: jitter oranı (± %20) — aynı anda sınıra takılan sekmeler aynı saniyede geri gelmesin. */
-export const PANEL_RETRY_JITTER = 0.2;
+const PANEL_RETRY_JITTER = 0.2;
 
 /**
  * Kapanıştan sonraki bekleme (ms). 4429 `retry=<sn>` → sunucunun söylediği süre ± %20 (`rand` ∈ [0,1)); diğer

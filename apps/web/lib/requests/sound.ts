@@ -3,7 +3,7 @@
  * Tercih tarayıcıda saklanır (kullanıcı başına; sunucu tercihi P12). Tarayıcı sesi engellerse (autoplay politikası)
  * sessizce geçilir; görsel bildirim (toast + rozet) her durumda gösterilir.
  */
-export const SOUND_KEY = "rs.requests.sound";
+const SOUND_KEY = "rs.requests.sound";
 
 export function readSoundPref(storage: Pick<Storage, "getItem"> | null = safeStorage()): boolean {
   return storage?.getItem(SOUND_KEY) !== "off";

@@ -22,7 +22,6 @@ import { TR_HOLIDAY_YEARS } from "@remote/contracts/holidays-tr";
 export {
   AFTER_HOURS_MODES,
   BUSINESS_DAY_INTERVALS_MAX,
-  DEFAULT_TIME_ZONE,
   HOLIDAYS_MAX,
   TR_HOLIDAY_YEARS,
   type AfterHoursMode,

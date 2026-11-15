@@ -6,8 +6,8 @@ import { networkBadge, type NetworkMatch } from "@remote/contracts/api/requests"
  * - PREFIX → nötr not "Aynı ağ bloğu"; uyarıyı KALDIRMAZ
  * - bilinen sinyal yoksa → "İlk kez görülen kaynak" uyarısı
  */
-export type SourceReason = "ip" | "trusted" | "device";
-export interface SourceView {
+type SourceReason = "ip" | "trusted" | "device";
+interface SourceView {
   known: boolean;
   reasons: SourceReason[];
   sameBlock: boolean;

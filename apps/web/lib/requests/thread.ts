@@ -5,24 +5,21 @@
 import {
   clientMsgIdSchema,
   MESSAGE_BODY_MAX,
-  MESSAGE_LINES_MAX,
   MESSAGE_UNREADABLE_LABEL,
   requestMessageBodySchema,
   type CustomerChatState,
-  type MessageSender,
   type RequestMessageItem,
   type RequestMessageListResponse,
   type SendRequestMessageResponse,
 } from "@remote/contracts/api/requests";
 
-export { MESSAGE_BODY_MAX, MESSAGE_LINES_MAX, MESSAGE_UNREADABLE_LABEL };
+export { MESSAGE_BODY_MAX, MESSAGE_UNREADABLE_LABEL };
 export type CustomerChat = CustomerChatState;
-export type { MessageSender };
-export type RequestMessage = RequestMessageItem;
+type RequestMessage = RequestMessageItem;
 export type RequestMessagesResponse = RequestMessageListResponse;
 export type PostMessageResponse = SendRequestMessageResponse;
 
-export type BodyCheck = { ok: true; body: string } | { ok: false; empty: boolean; message: string };
+type BodyCheck = { ok: true; body: string } | { ok: false; empty: boolean; message: string };
 
 /** Sunucuyla aynı kural (`requestMessageBodySchema`): NFC + trim, 1..1000 kod noktası, ≤ 20 satır, yasak karakter yok. */
 export function checkMessageBody(raw: string): BodyCheck {

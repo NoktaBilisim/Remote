@@ -102,7 +102,7 @@ export function buildWebRequest(
   return { errors };
 }
 
-export type SubmitFailure =
+type SubmitFailure =
   | { kind: "fields"; fields: Record<string, string> }
   | { kind: "fast"; message: string }
   | { kind: "token"; message: string }

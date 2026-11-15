@@ -38,7 +38,7 @@ export function matchesAssigned(it: Pick<SupportRequestItem, "assignedTo">, filt
   return filter === "me" ? it.assignedTo?.id === meId : it.assignedTo === null;
 }
 
-export interface RequestUpdate {
+interface RequestUpdate {
   id: string;
   priority: RequestPriority;
   assignedTo: { id: string; name: string } | null;

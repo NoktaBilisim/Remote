@@ -2,7 +2,7 @@
 
 Tarih: 2026-11-15 · Dal: `pt-wip` · Tasarım: `docs/mimari-temizlik.md` §5 K13 · AC: `docs/gereksinimler.md` §10.
 Kural: davranış ve görünüm değişmez; dışa açık adlar bulundukları modül yolundan verilir; yeni bağımlılık yok.
-**Durum: KISMİ (1. tur).** Ayar formları (SMTP, SMS, destek talepleri, mesai saatleri, tatiller) bitti; talep kuyruğu
+**Durum: KISMİ (1. ve 2. tur; ayrıntı §6).** Ayar formları (SMTP, SMS, destek talepleri, mesai saatleri, tatiller) bitti; talep kuyruğu
 (`app/(panel)/requests/**`) ve web talep (`app/r/**`) sonraki turda.
 
 ## 1. Durum özeti
@@ -10,8 +10,8 @@ Kural: davranış ve görünüm değişmez; dışa açık adlar bulundukları mo
 | Hedef (§5 K13)                                                                             | Önce                          | Sonra                                                                 | Durum                      |
 | ------------------------------------------------------------------------------------------ | ----------------------------- | --------------------------------------------------------------------- | -------------------------- |
 | `SettingsForm` (support-requests)                                                          | dosya 611 · 440 satır · cx 20 | dosya 71 · ≤ 40 satır (+ bölüm bileşenleri, kancalar)                 | tamam                      |
-| `SmtpForm`                                                                                 | dosya 360 · 298 · cx 28       | dosya 57 · ≤ 40 (+ `smtp-sections`, `use-smtp-form`)                 | tamam                      |
-| `SmsForm`                                                                                  | dosya 294 · 251 · cx 26       | dosya 61 · ≤ 40 (+ `sms-sections`, `use-sms-form`)                   | tamam                      |
+| `SmtpForm`                                                                                 | dosya 360 · 298 · cx 28       | dosya 57 · ≤ 40 (+ `smtp-sections`, `use-smtp-form`)                  | tamam                      |
+| `SmsForm`                                                                                  | dosya 294 · 251 · cx 26       | dosya 61 · ≤ 40 (+ `sms-sections`, `use-sms-form`)                    | tamam                      |
 | `BusinessHoursForm`                                                                        | dosya 283 · 207               | ≤ 40 (+ `hours-parts`, `use-business-hours`)                          | tamam                      |
 | `HolidaysSection`                                                                          | dosya 345 · 297 · cx 16       | ≤ 40 (+ `holiday-parts`, `use-holidays`); `HolidayActions` 46         | tamam (1 hedef üstü, < 60) |
 | Ayar formu iskelet klonu (3 form) `Section`                                                | jscpd klon (19/17 satır)      | `components/settings/section.tsx` (`SettingsSection`)                 | tamam                      |
@@ -77,3 +77,45 @@ kapsamdaki knip adları (`lib/requests/{contract,business-hours,blocks,thread,pa
   sırası farklı). Test dosyalarına dokunulmadı.
 - `playwright test --list` önce: 643 test (sonra karşılaştırması ve e2e koşusu sonraki turda).
 - Prettier yalnız değişen/eklenen dosyalara; `prettier --check` temiz.
+
+## 6. 2. tur (2026-11-15) — talep kuyruğu, kart, Geçmiş klonu, knip
+
+**Durum: KISMİ (2. tur, tur sınırında tutarlı noktada durdu).** Yöntem 1. turla aynı (dosya-içi yardımcı çıkarma,
+dışa açık adlar yerinde; `RequestStatusBadge`, `RequestCard`, `RequestQueue`, `RequestHistory` aynı dosyalarda).
+
+### 6.1 Biten
+
+| Hedef                                 | Önce                                    | Sonra                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| ------------------------------------- | --------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `RequestQueue` (`request-queue.tsx`)  | dosya 448 · 364 satır · cx 28 (+ cx 18) | dosya 286 · ≤ 40; kancalar `use-request-queue.ts` (`useQueueThread`, `useQueueList`/`useQueueRefresh`, `useQueueLive`, `useWide`), `use-queue-actions.ts` (`useAcceptFlow`, `useAssignFlow`, `usePriority`)                                                                                                                                                                                                                                                                                                          |
+| `RequestCard` (`request-card.tsx`)    | dosya 432 · 196 · cx 38                 | dosya 201 · ≤ 40, cx ≤ 15 (`cardMenu`, `DangerItem`, `ThreadButton`, `PendingBar`, `CardMain`); çizim parçaları `request-card-parts.tsx` (`SourceIndicator`, `RequestCode`, `CardFacts`, `P18Badges`, `ClosedInfo`)                                                                                                                                                                                                                                                                                                  |
+| `SourceIndicator` 65, `ClosedInfo` 53 | —                                       | ≤ 40 (`BindingNotes`, `KnownSource`, `Fact`, `ClosedRow`)                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
+| `request-history` ↔ `request-queue`   | jscpd klon (engelle + kayıt iptali)     | `card-dialogs.tsx` (`useCardMenus`, `CardMenuDialogs`); `RequestHistory` 51 → ≤ 40                                                                                                                                                                                                                                                                                                                                                                                                                                   |
+| Kapsam knip (11 export + 11 tip)      | 22                                      | 0 — hepsi `git grep` ile teyitli (yalnız tanımlandığı dosyada kullanılıyor): `contract.ts` 3 export + 3 tip yeniden-dışa-aktarımı silindi; `export` kaldırıldı: `DEFAULT_TIME_ZONE` (yeniden-dışa-aktarım), `DURATION_NONE`, `durationLabel`, `MESSAGE_LINES_MAX`, `MessageSender`, `RequestMessage`, `BodyCheck`, `PANEL_RETRY_JITTER`, `SOUND_KEY`, `RequestUpdate`, `SendLinkFailure`, `SourceReason`, `SourceView`, `SubmitFailure`; `SourceIndicator`/`RequestCode` parça dosyasına taşındı (kart içi kullanım) |
+| DESIGN.md                             | `components/settings` belgesiz          | §6 tablosuna `SettingsSection`, `DirtyBar`, `PhoneTestRow`/`usePhoneTest` satırları                                                                                                                                                                                                                                                                                                                                                                                                                                  |
+
+Kararlar: (1) DOM/testid/aria/sınıf/metin aynı; `RequestCard` menüsü bileşen değil öğe üreten işlev (`cardMenu`) — öğe
+ağacı ve "menü var mı" koşulu aynı. (2) Efekt sırası aynı: yazışma ref'i → liste ref'i → saat ofseti → panel olayları →
+pageshow → yoklama; `useNow`/`useWide`/`useRequestNotifier` yine `RequestQueue` içinde. Efekt bağımlılık listelerine
+kanca dönüşündeki kararlı ref/setter'lar eklendi (yeniden çalışma koşulu aynı). (3) `assignTo` hata dalı
+`userIdError` ile sadeleştirildi: gösterilen mesaj/nesne (`{ message, tone, requestId }`) ve dal sırası aynı.
+(4) `CardMenuDialogs` iptal sonrası sıra: diyalog kapat → `onRemoved` (kuyruk: kart düşer) → toast → `onRefresh`
+(kuyruk `refresh()`, Geçmiş `router.refresh()`) — her iki çağıranda önceki sıra.
+
+### 6.2 Kalan (3. tur)
+
+`page.tsx` `RequestsPage` 258 / cx 47 (dosya 318), `request-thread.tsx` `RequestThread` 303 / cx 32 (+ gönderim 44 / cx 19,
+dosya 357), `reject-dialog` 122, `assign-menu` `AssignMenuItems` 63 / `AssignDialog` 82, `revoke-binding-dialog` 58,
+`customer-filter` 52; `app/r/[ref]/` `WaitingRoom` 271 (dosya 329), `WebRequestForm` 198, `WebRequestFlow` 92,
+`RequestChat` 102; `settings/support-requests/page.tsx` 58, `HolidayActions` 46, `lib/requests/settings-form.ts buildInput` 60 / cx 18.
+Kapsam ESLint ölçümü (test dosyaları hariç): **32 → 24** uyarı;
+kapsamda > 300 satır dosya: **6 → 3** (`page.tsx` 318, `request-thread.tsx` 357, `waiting-room.tsx` 329; `request-queue` 286, `request-card` 201).
+
+### 6.3 Doğrulama (2. tur sonu)
+
+- `pnpm --filter @remote/web typecheck` (`tsc --noEmit`): temiz.
+- `eslint` (`app/(panel)/requests`, `lib/requests`, `lib/notify`, `lib/web-request`): 0 hata/uyarı (React Compiler kuralları dahil).
+- `vitest run`: 386 / 386 geçti; `vitest list` önce/sonra sıralı karşılaştırma **aynı** (351 satır).
+- `playwright test --list`: önce/sonra **aynı** (643 test, 24 dosya; satır numaraları dahil — test dosyalarına dokunulmadı).
+- e2e (hedefli): `playwright test p8b-requests p18 p19 p15 customers` → **100 geçti, 64 atlandı (proje/genişlik koşullu), 0 kırmızı**. Tam e2e koşusu 3. tura bırakıldı.
+- Prettier yalnız değişen/eklenen dosyalara.
