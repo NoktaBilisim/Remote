@@ -3,21 +3,25 @@
 import { CircleDot, Eraser, MoveUpRight, PenLine, Signal, Square, Undo2 } from "lucide-react";
 import { useEffect } from "react";
 import { ChatPanel } from "@/components/collab/chat-panel";
+import { ClipPrintPanel } from "@/components/collab/clip-print-panel";
 import { FilesPanel } from "@/components/collab/files-panel";
 import { chatFilesOptions } from "@/components/collab/tab-options";
 import type { DrawTool } from "@/components/collab/annot-layer";
 import { QualityPanel } from "@/components/console/quality-panel";
 import { Segmented } from "@/components/ui/segmented";
 import { ANNOT_COLORS, type AnnotColor } from "@/lib/dc/ctl";
+import type { ClipPrint } from "@/lib/clip/use-clip-print";
 import type { Collab } from "@/lib/dc/use-collab";
 import { t } from "@/lib/i18n";
 import type { useQuality } from "@/lib/webrtc/use-quality";
 
 type Tab = "chat" | "files" | "quality";
 
-/** Konsol yan paneli: Sohbet / Dosyalar / Kalite (anında sekme geçişi, DESIGN §3). */
+/** Konsol yan paneli: Sohbet / Dosyalar / Kalite (anında sekme geçişi, DESIGN §3) + P28a "Pano ve yazdırma" bölümü. */
 export function CollabSide({
   collab,
+  clipPrint,
+  now,
   quality,
   canFiles,
   peerName,
@@ -25,6 +29,8 @@ export function CollabSide({
   onTab,
 }: {
   collab: Collab;
+  clipPrint: ClipPrint;
+  now: number | null;
   quality: ReturnType<typeof useQuality>;
   canFiles: boolean;
   peerName: string;
@@ -54,6 +60,7 @@ export function CollabSide({
       {tab === "chat" && <ChatPanel collab={collab} peerName={peerName} />}
       {tab === "files" && <FilesPanel collab={collab} allowed={canFiles} peerName={peerName} />}
       {tab === "quality" && <QualityPanel last={quality.last} verdict={quality.verdict} />}
+      <ClipPrintPanel cp={clipPrint} now={now} />
     </aside>
   );
 }

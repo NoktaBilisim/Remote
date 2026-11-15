@@ -216,6 +216,8 @@ func (s *session) onPeer(ctx context.Context, e peerEvent) {
 		s.onChunk(*e.chunk, e.ok)
 	case e.ctl != nil:
 		s.onCtl(*e.ctl)
+	case e.run != nil:
+		e.run()
 	case e.doneTimeout != "":
 		if s.files == nil {
 			return
@@ -228,7 +230,7 @@ func (s *session) onPeer(ctx context.Context, e peerEvent) {
 
 // onChunk dosya parçası: alım sonucu ya da (yüzde değiştikçe) ilerleme.
 func (s *session) onChunk(c dc.Chunk, ok bool) {
-	if s.files == nil {
+	if s.cp.chunk(c, ok) || s.files == nil { // P28a: yazdırmanın idx'i dosya alıcısına gitmez (O-P28a-2 m.3)
 		return
 	}
 	if r := s.files.Chunk(c, ok); r != nil {
@@ -249,7 +251,15 @@ func (s *session) onCtl(m dc.Ctl) {
 		s.d.UI.Chat(m.Text)
 	case "annot.stroke", "annot.laser", "annot.undo", "annot.clear":
 		s.d.UI.Annot(m)
+	case "clip.ready", "clip.data", "print.ready", "print.offer", "print.done":
+		s.cp.onCtl(m)
 	case "file.offer":
+		if !s.cp.fileIdx(*m.Idx) { // P28a: etkin yazdırmanın idx'i
+			if b, err := dc.FileReply("file.reject", m.FID); err == nil && s.peer != nil {
+				_ = s.peer.SendCtl(b)
+			}
+			return
+		}
 		if p := s.files.Offer(m); p != nil {
 			s.lastPct = -1
 			s.d.UI.FileOffer(*p)

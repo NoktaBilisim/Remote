@@ -1,7 +1,7 @@
 "use client";
 
 import type { SessionView } from "@remote/contracts/api/sessions";
-import { useId, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import type { DrawTool } from "@/components/collab/annot-layer";
 import { CollabSide, type CollabTab } from "@/components/console/collab-side";
 import { Alert } from "@/components/ui/alert";
@@ -11,6 +11,7 @@ import { toUiError } from "@/lib/error-message";
 import { formatTime } from "@/lib/format";
 import { t } from "@/lib/i18n";
 import { useNow } from "@/lib/use-now";
+import { useClipPrint } from "@/lib/clip/use-clip-print";
 import type { AnnotColor } from "@/lib/dc/ctl";
 import { useCollab } from "@/lib/dc/use-collab";
 import { useQuality } from "@/lib/webrtc/use-quality";
@@ -21,16 +22,35 @@ import { ConsoleStage } from "./console-stage";
 import { useControlToasts } from "./use-control-toasts";
 
 /** Konsol: üst bar (müşteri, durum, süre, doğrulama kodu, bitir/iptal) + sahne. Sohbet/dosya/işaretleme/kalite P5. */
-export function ConsoleView({ session, canFiles, canControl }: { session: SessionView; canFiles: boolean; canControl: boolean }) {
+export function ConsoleView({
+  session,
+  canFiles,
+  canControl,
+  canClip = false,
+  canPrint = false,
+}: {
+  session: SessionView;
+  canFiles: boolean;
+  canControl: boolean;
+  /** P28a: `remote_control.clipboard` / `file_transfer.print` (yoksa düğme gizli). */
+  canClip?: boolean;
+  canPrint?: boolean;
+}) {
   const ts = useTechSession(session.id);
   const { state, control } = ts;
   const [tab, setTab] = useState<CollabTab>("chat");
   const [tool, setTool] = useState<DrawTool | null>(null);
   const [color, setColor] = useState<AnnotColor>("red");
-  const collab = useCollab(ts.channels, collabOptions(ts, canFiles, tab));
+  // P28a §4.4: yazdırma `file` kanalını kullanırken dosya teklifi "busy" (kanca sırası nedeniyle ref üzerinden)
+  const printBusy = useRef<() => boolean>(() => false);
+  const collab = useCollab(ts.channels, { ...collabOptions(ts, canFiles, tab), printBusy: () => printBusy.current() });
   const quality = useQuality(ts.pc, ts.send);
   const now = useNow();
   const toast = useToast();
+  const clipPrint = useClipPrint(ts, collab, { clip: canClip, print: canPrint }, toast, now);
+  useEffect(() => {
+    printBusy.current = clipPrint.transferring;
+  }, [clipPrint.transferring]);
   const { confirm, setConfirm, busy, confirmEnd } = useEndConfirm(session.id, state.phase === "live", quality, ts.end, toast);
   const controlHint = useId();
   const live = state.phase === "live";
@@ -60,7 +80,18 @@ export function ConsoleView({ session, canFiles, canControl }: { session: Sessio
             now={now}
             releaseRef={releaseRef}
           />
-          {live && <CollabSide collab={collab} quality={quality} canFiles={canFiles} peerName={name} tab={tab} onTab={setTab} />}
+          {live && (
+            <CollabSide
+              collab={collab}
+              clipPrint={clipPrint}
+              now={now}
+              quality={quality}
+              canFiles={canFiles}
+              peerName={name}
+              tab={tab}
+              onTab={setTab}
+            />
+          )}
         </div>
       )}
 

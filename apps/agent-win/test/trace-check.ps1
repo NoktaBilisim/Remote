@@ -95,6 +95,20 @@
     PendingFileRenameOperations'ta yeniden başlatmada silinmek üzere kayıtlıysa UYARI, değilse iz; yeniden başlatma
     sonrası hiç görünmemeli.
 
+.PARAMETER ContentMarker
+    P28a K7 (mimari-p28 §9, r2 D-P28a-3; AC-347/350/351). Pano metni ve yazdırılan dosya adı istemci günlüğüne, tanılama
+    paketine (internal/diag) ve diske GEÇMEMELİ. Varsayılan işaretler: 'P28A-ISARET-' (elle turda panoya konan metin) ve
+    'gizli-ad-' (yazdırılan PDF'in adı). Compare/Check modlarında her zaman taranır (büyük/küçük harf duyarsız; içerik
+    UTF-8 ve UTF-16LE olarak):
+      - %LOCALAPPDATA%\NoktaDestek\ altındaki tüm dosyalar (tanilama.log, tanilama.log.1, kayıt dosyaları),
+      - %ProgramData%\NoktaDestek Servis\ altındaki tüm dosyalar (okunabildiği kadar; yönetici değilseniz UYARI),
+      - %TEMP% dosyaları (Compare: önceki durumdan sonra değişenler; Check: yalnız istemci desenine uyanlar),
+      - Application olay günlüğünde kaynak 'NoktaDestek' olaylarının metni (Compare: önceki durumdan sonrakiler),
+      - taranan tüm girdilerin YOLU (ör. %TEMP%\gizli-ad-1.pdf, İndirilenler'de gizli-ad-*.pdf).
+    Bulunan her eşleşme iz sayılır ("İÇERİK İŞARETİ [D-P28a-3]"); eşleşen içerik ekrana BASILMAZ, yalnız yer + işaret.
+    Boş dizi (-ContentMarker @()) taramayı kapatır. OS yazdırma kuyruğu (spool) taranmaz; belge adı sabittir
+    ("NoktaDestek uzaktan yazdırma", dosya adı kuyruğa düşmez).
+
 .PARAMETER Strict
     Desene uymayan yeni girdileri de iz say (sessiz, temiz bir VM'de kullanın).
 
@@ -111,6 +125,7 @@
     # 0.12.0 tepsi + Windows açılışı açık (runbook §24.9): -Binding on -Tray on -Autostart on -ExePath "<exe tam yolu>"
     # P27 gözetimsiz servis kurulu (yönetici PowerShell): -Servis on ; kaldırıldıktan sonra: -Servis off (varsayılan)
     # 0.12.0 "Bu bilgisayarı unut" sonrası: -Binding off -Remember off -Tray off -Autostart off (varsayılanlar)
+    # 0.13.0 pano + yazdırma turu (runbook §28a.4): P28A-ISARET- / gizli-ad- içerik taraması her Compare/Check'te açık
     pwsh -File apps\agent-win\test\trace-check.ps1 -Mode Compare -SnapshotPath D:\iz-once.json -ExePath "$env:USERPROFILE\Downloads\Destek-12345678.exe"
 
 .EXAMPLE
@@ -135,6 +150,7 @@ param(
     [string]$Diagnostics = 'auto',
     [ValidateSet('on', 'off')]
     [string]$Servis = 'off',
+    [string[]]$ContentMarker = @('P28A-ISARET-', 'gizli-ad-'),
     [switch]$Strict
 )
 
@@ -325,6 +341,75 @@ function Get-ServisAclProblem {
     return $p
 }
 
+function Find-MarkerInText {
+    # Saf fonksiyon (P28a D-P28a-3): metin(ler)de geçen işaretleri döndürür (büyük/küçük harf duyarsız). İçerik döndürmez.
+    param([string[]]$Text, [string[]]$Marker)
+    $hits = @()
+    foreach ($m in $Marker) {
+        if (-not $m) { continue }
+        foreach ($t in $Text) {
+            if ($t -and $t.IndexOf($m, [StringComparison]::OrdinalIgnoreCase) -ge 0) { $hits += $m; break }
+        }
+    }
+    return $hits
+}
+
+function Find-ContentMarker {
+    # Saf fonksiyon (P28a D-P28a-3): bayt içeriğini UTF-8 ve UTF-16LE (iki hizalama) olarak çözüp işaretleri arar.
+    param([byte[]]$Bytes, [string[]]$Marker)
+    if (-not $Bytes -or $Bytes.Length -eq 0) { return @() }
+    $texts = @([Text.Encoding]::UTF8.GetString($Bytes), [Text.Encoding]::Unicode.GetString($Bytes))
+    if ($Bytes.Length -gt 2) { $texts += [Text.Encoding]::Unicode.GetString($Bytes, 1, $Bytes.Length - 1) }
+    return @(Find-MarkerInText -Text $texts -Marker $Marker)
+}
+
+function Find-PathMarker {
+    # Saf fonksiyon (P28a D-P28a-3): taranan girdilerin yolunda/adında işaret (ör. %TEMP%\gizli-ad-1.pdf) — iz satırları.
+    param([string[]]$Entries, [string[]]$Marker)
+    $out = @()
+    foreach ($a in $Entries) {
+        $item = ($a -split "`t", 2)[-1]
+        foreach ($m in @(Find-MarkerInText -Text @($item) -Marker $Marker)) { $out += "İÇERİK İŞARETİ [D-P28a-3] yol '$m': $a" }
+    }
+    return $out
+}
+
+function Get-ContentMarkerHit {
+    # Windows: istemci günlüğü/tanılama/servis verisi, %TEMP% ve olay günlüğünde işaret arar. { Trace; Warning }.
+    # $Since: Compare'de önceki durum zamanı (yalnız sonrası); Check'te $null. Eşleşen içerik döndürülmez.
+    param([string[]]$Marker, $Since, [string]$Pattern)
+    $trace = @(); $warning = @()
+    $maxBytes = 16MB
+    $files = @()
+    foreach ($root in (Join-Path $env:LOCALAPPDATA 'NoktaDestek'), (Join-Path $env:ProgramData 'NoktaDestek Servis')) {
+        if (-not (Test-Path -LiteralPath $root)) { continue }
+        $errs = $null
+        $files += @(Get-ChildItem -LiteralPath $root -Recurse -File -Force -ErrorAction SilentlyContinue -ErrorVariable errs)
+        if ($errs) { $warning += "içerik taraması: $root altı kısmen okunamadı (yönetici PowerShell ile yineleyin)" }
+    }
+    Get-ChildItem -LiteralPath ([IO.Path]::GetTempPath()) -Recurse -Depth 3 -File -Force -ErrorAction SilentlyContinue | ForEach-Object {
+        if ($null -ne $Since) { if ($_.LastWriteTime -ge $Since) { $files += $_ } }
+        elseif ($_.FullName -match $Pattern) { $files += $_ }
+    }
+    foreach ($f in $files) {
+        if ($f.Length -gt $maxBytes) { $warning += "içerik taraması: $($f.FullName) $maxBytes bayttan büyük, atlandı"; continue }
+        $bytes = $null
+        try { $bytes = [IO.File]::ReadAllBytes($f.FullName) } catch { $warning += "içerik taraması: $($f.FullName) okunamadı"; continue }
+        foreach ($m in @(Find-ContentMarker -Bytes $bytes -Marker $Marker)) { $trace += "İÇERİK İŞARETİ [D-P28a-3] dosya '$m': $($f.FullName)" }
+    }
+    $filter = @{ LogName = 'Application'; ProviderName = 'NoktaDestek' }
+    if ($null -ne $Since) { $filter.StartTime = $Since }
+    $events = @()
+    try { $events = @(Get-WinEvent -FilterHashtable $filter -ErrorAction Stop) } catch { $events = @() }   # olay/kaynak yok
+    foreach ($ev in $events) {
+        $txt = @([string]$ev.Message) + @($ev.Properties | ForEach-Object { [string]$_.Value })
+        foreach ($m in @(Find-MarkerInText -Text $txt -Marker $Marker)) {
+            $trace += "İÇERİK İŞARETİ [D-P28a-3] olay günlüğü '$m': Application/NoktaDestek kayıt $($ev.RecordId) ($($ev.TimeCreated.ToString('o')))"
+        }
+    }
+    return [pscustomobject]@{ Trace = $trace; Warning = $warning }
+}
+
 function Get-DownloadsPath {
     $k = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\User Shell Folders'
     $v = (Get-ItemProperty -Path $k -Name '{374DE290-123F-4565-9164-39C4925E467B}' -ErrorAction SilentlyContinue)
@@ -450,10 +535,13 @@ if ($Mode -eq 'Snapshot') {
 
 $before = @()
 $exclude = @()
+$since = $null
 if ($Mode -eq 'Compare') {
     $full = [IO.Path]::GetFullPath($SnapshotPath)
     try {
-        $before = @((Get-Content -LiteralPath $full -Raw -Encoding UTF8 | ConvertFrom-Json).entries)
+        $snapObj = Get-Content -LiteralPath $full -Raw -Encoding UTF8 | ConvertFrom-Json
+        $before = @($snapObj.entries)
+        if ($snapObj.created) { $since = if ($snapObj.created -is [datetime]) { $snapObj.created } else { [datetime]::Parse([string]$snapObj.created, [Globalization.CultureInfo]::InvariantCulture, [Globalization.DateTimeStyles]::RoundtripKind) } }
     } catch {
         Write-Output "HATA: önceki durum okunamadı: $full ($($_.Exception.Message))"
         exit 2
@@ -506,6 +594,12 @@ if ($Servis -eq 'on') {   # kurulu servis (ve yardımcı/tepsi) çalışır: iz 
 }   # tepside çalışan istemci iz değil (AC-253, K-P20-7)
 
 $traces = @($r.Trace) + @($procs) + @($missing)
+$markerWarn = @()
+if (@($ContentMarker | Where-Object { $_ }).Count -gt 0) {   # P28a D-P28a-3: içerik işaretleri (pano metni, yazdırılan dosya adı)
+    $traces += @(Find-PathMarker -Entries $after -Marker $ContentMarker)
+    $ch = Get-ContentMarkerHit -Marker $ContentMarker -Since $since -Pattern $pattern
+    $traces += @($ch.Trace); $markerWarn = @($ch.Warning)
+}
 if ($Mode -eq 'Check') {
     # Önceki durum yok: desene uyan her girdi iz sayılır (Compare-TraceSnapshot hepsini "yeni" görür).
     $review = @()
@@ -517,7 +611,7 @@ if ($Mode -eq 'Check') {
 Write-Output ("trace-check ($Mode, Remember=$Remember, Binding=$Binding, Tray=$Tray, Autostart=$Autostart, " +
     "Diagnostics=$Diagnostics, Servis=$Servis) — desen: $pattern")
 foreach ($p in $r.Preexisting) { Write-Output "UYARI (çalıştırmadan önce de vardı): $p" }
-foreach ($w in @($al.Warning) + $servisWarn) { Write-Output "UYARI: $w" }
+foreach ($w in @($al.Warning) + $servisWarn + $markerWarn) { Write-Output "UYARI: $w" }
 foreach ($p in $procInfo) { Write-Output "BİLGİ (tepside çalışıyor, -Tray on): $p" }
 if ($review.Count -gt 0) {
     Write-Output "İNCELEYİN — desene uymayan yeni girdiler ($($review.Count)); istemciye ait değilse yok sayılabilir:"

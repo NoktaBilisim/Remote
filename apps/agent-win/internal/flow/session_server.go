@@ -33,6 +33,8 @@ func (s *session) onServer(ctx context.Context, m signal.Inbound) (Outcome, bool
 		s.onControlServer(ctx, m)
 	case signal.BindingOffer, signal.BindingIssued:
 		s.onBinding(ctx, m)
+	case signal.ClipConsent, signal.ClipPush, signal.ClipPull, signal.PrintRequest, signal.PrintCancel:
+		s.cp.onServer(m)
 	case signal.ErrorMsg:
 		s.onError(m)
 	}
@@ -101,8 +103,10 @@ func (s *session) onHello(ctx context.Context, h signal.Hello) (Outcome, bool) {
 		s.d.Admitted()
 	}
 	s.closeControl(ctx, "", true) // AC-24: her yeni PeerConnection kapı kapalı başlar
+	s.cp.reset()                  // P28a: yeni soket — önceki bekleyen kimlikler geçersiz
 	s.helloEnv(ctx)               // K8: hello'dan hemen sonra tek env.state (monitör seçimi beklenmez)
 	s.applyHello(h)
+	s.cp.capsChanged()
 	s.dropPeer()
 	p, err := s.d.NewPeer(s.ice, s.caps, s.handlers(ctx))
 	if err != nil {

@@ -3240,6 +3240,123 @@ tarayıcı/işletim sistemi ailesi). Aynı kod + IP için saatte en çok 1, kod 
 metrikte. E-posta güvenlik tarayıcıları ve mesaj uygulaması önizlemeleri de bu satırı oluşturabilir; satır "müşteri
 indirdi" kanıtı değildir. Metrik `rs_unattended_download_total{result}` (`ok`, `not_found`, `rate_limited`, `not_ready`).
 
+## Pano ve uzaktan yazdırma (P28a)
+
+Kaynak: `docs/mimari-p28.md` §4, ADR-0031, `packages/contracts/src/ws-clip-print.ts` ve `dc-clip-print.ts`
+(fikstür `packages/contracts/fixtures/clip-print.json`; aynı dosya Go testinde kullanılır). **Yeni REST ucu, tablo, migration
+ve env değişkeni yoktur.** İçerik (pano metni, PDF baytları, dosya adı, SHA-256) WebSocket'ten **geçmez**; WS yalnız
+yetkilendirme, durum ve audit taşır, içerik DataChannel'dadır. Sunucu misafire ilettiği her mesajı alanlarını yeniden kurarak
+gönderir; misafir yalnız sunucunun WS ile yetkilediği kimliğe (`cid`/`pid`) ait DC içeriğini uygular.
+
+### Yetki ve yetenek bildirimi
+
+| Yetki                      | `caps` değeri | Açıklama (toggle ekranı)                                                                               |
+| -------------------------- | ------------- | ------------------------------------------------------------------------------------------------------ |
+| `remote_control.clipboard` | `clipboard`   | Kontrol izni verilmiş oturumda, müşteri ayrıca izin verirse düz metin panosunu gönderir ve alır.       |
+| `file_transfer.print`      | `print`       | Müşterinin onayıyla PDF belgeyi müşterinin varsayılan yazıcısına gönderir (yalnız Windows uygulaması). |
+
+Rol varsayılanı: Admin açık, User kapalı. `file_transfer.print`, `file_transfer.use`'dan bağımsızdır. Yetki daralırsa
+`caps.update` gider ve bekleyen iş iptal olur; genişleme yeni oturumda geçerlidir.
+
+- Windows istemci (0.13.0+) `/ws/guest`'e `Sec-WebSocket-Protocol: rs.v1, rs.ticket.<t>|rs.reconnect.<r>, rs.cap.clip1, rs.cap.print1`
+  ile bağlanır. Sunucu yanıtı yalnız `rs.v1`'dir. Tarayıcı misafiri belirteç bildirmez (sunucu tarayıcı misafirinde de özellikleri boş sayar).
+- **Gözetimsiz odada** (P27 servisi) sunucu belirteçleri okumaz: `guestFeatures = []`; `clip.push` / `clip.pull` /
+  `print.request` → `error{FORBIDDEN}`.
+- Misafire giden `hello.caps` ve `caps.update` yeni değerleri (`clipboard`, `print`) yalnız misafir ilgili belirteci
+  bildirdiyse içerir; eski istemciye bugünkü iki değer (`remote_control`, `file_transfer`) gider.
+- Teknisyene giden `hello` ve `peer.joined{role:"guest"}` yeni isteğe bağlı alan taşır: `guestFeatures?: ("clipboard"|"print")[]`
+  (yoksa `[]`); `hello` ayrıca `clipConsent?: boolean`.
+- Misafirden gelen `clip.*` / `print.*` mesajları yalnız ilgili özelliği bildiren sokette şemadadır; yeteneksiz sokette
+  ya da şema dışı alanla gelirse bağlantı **1008** ile kapanır.
+
+### WS mesajları
+
+Kimlikler `cid`, `pid`: `^[A-Za-z0-9_-]{8,26}$` (konsol üretir, 16 bayt rastgele base64url). Teknisyen mesajları
+isteğe bağlı `id` (istek kimliği, ≤ 26) taşıyabilir.
+
+| `t`             | Yön                 | Alanlar                                                                                                  | Kural                                                                                                                                                                   |
+| --------------- | ------------------- | -------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `clip.consent`  | misafir→S→teknisyen | `on: boolean`                                                                                            | `on:true` yalnız kontrol `GRANTED` iken kabul; değilse misafire `clip.consent{on:false}`. Oda başına değişim ≤ 6/dk; aşan yok sayılır, misafire `{on:false}`, audit yok |
+| `clip.consent`  | S→misafir           | `on: false`                                                                                              | Sunucu kapattı (kontrol `VIEW`'a döndü, yetki daraldı); istemci kutuyu kapatır, yanıt göndermez                                                                         |
+| `clip.push`     | teknisyen→S→misafir | `cid`, `bytes: 1..65536`                                                                                 | Kapı sırası aşağıda. Geçerse oda başına tek bekleyen pano işi kurulur (10 sn)                                                                                           |
+| `clip.pull`     | teknisyen→S→misafir | `cid`                                                                                                    | `clip.push` ile aynı kapı                                                                                                                                               |
+| `clip.report`   | misafir→S           | `cid`, `dir: "TO_CUSTOMER"\|"TO_TECH"`, `bytes: 0..65536`, `result`                                      | Yalnız bekleyen `cid` eşleşirse; audit `clipboard.transfer`, teknisyene `clip.status`                                                                                   |
+| `clip.status`   | S→teknisyen         | `cid`, `result`, `bytes`                                                                                 | 10 sn içinde rapor yoksa sunucu `TIMEOUT`, misafir koparsa `DISCONNECTED` üretir                                                                                        |
+| `print.request` | teknisyen→S→misafir | `pid`, `sizeBytes: 5..20971520`                                                                          | Kapı sırası aşağıda. Geçerse oda başına tek bekleyen yazdırma işi (10 dk). Dosya adı ve hash WS'den geçmez                                                              |
+| `print.cancel`  | teknisyen→S→misafir | `pid`                                                                                                    | Bekleyen eşleşirse iletilir; eşleşmezse yok sayılır. Teknisyen koparsa sunucu kendisi üretir                                                                            |
+| `print.report`  | misafir→S           | `pid`, `decision: "APPROVED"\|"REJECTED"\|"TIMEOUT"\|"NONE"`, `result`, `pages?: 1..100000`, `sizeBytes` | Yalnız bekleyen `pid` eşleşirse; audit `print.job`; `REJECTED`/`TIMEOUT` → 30 sn bekleme; teknisyene `print.status`                                                     |
+| `print.status`  | S→teknisyen         | `pid`, `result`, `pages?`                                                                                | 10 dk içinde rapor yoksa `ABANDONED`, misafir koparsa `DISCONNECTED`                                                                                                    |
+
+Kontrol `VIEW`'a her dönüşte: pano izni kapanır (misafire `clip.consent{on:false}`, audit `clipboard.consent{by:"system", reason:"control_closed"}`);
+bekleyen yazdırma iptal edilir (misafire `print.cancel`, teknisyene `print.status{CANCELLED}`, audit `print.job{result:"CANCELLED", reportedBy:"server"}`).
+
+**Sonuç kümeleri**
+
+- Pano: `OK`, `EMPTY`, `TOO_LARGE`, `SENSITIVE` (parola yöneticisi işaretli içerik okunmadı), `INVALID`, `DENIED`, `ERROR`,
+  `TIMEOUT`, `DISCONNECTED` (son ikisini sunucu da üretir; `DISCONNECTED` yalnız sunucu).
+- Yazdırma: `PRINTED`, `NO_PRINTER`, `REJECTED`, `TIMEOUT`, `INVALID_PDF`, `TOO_LARGE`, `BUSY`, `CANCELLED`, `ERROR`,
+  `ABANDONED`, `DISCONNECTED` (son ikisi yalnız sunucu).
+
+### Sunucu kapısı ve hata kodları
+
+Kapı sırayla denenir; ilk tutan `error{code, message}` döner ve mesaj misafire iletilmez. Kapı retleri audit'e yazılmaz;
+`rs_clip_print_denied_total{kind,reason}` artar ve server loguna oda başına dakikada en çok 1 satır `ws_clip_print_denied` düşer.
+
+| Sıra | Koşul                                                    | Pano (`clip.push`/`clip.pull`)                                                                     | Yazdırma (`print.request`)                                                             | `reason`                    |
+| ---- | -------------------------------------------------------- | -------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------- | --------------------------- |
+| 1    | Yetki yok / oturum `caps`'inde yok                       | `FORBIDDEN` "Pano yetkiniz yok."                                                                   | `FORBIDDEN` "Uzaktan yazdırma yetkiniz yok."                                           | `permission`                |
+| 2    | Kabul edilmiş müşteri yok                                | `CONFLICT` "Müşteri bağlı değil."                                                                  | aynı                                                                                   | `no_guest`                  |
+| 3    | Misafir özelliği bildirmedi (eski, tarayıcı, gözetimsiz) | `FORBIDDEN` "Müşterinin uygulaması bu özelliği desteklemiyor — güncel sürümü indirmesini isteyin." | aynı                                                                                   | `feature`                   |
+| 4    | Kontrol `GRANTED` değil                                  | `FORBIDDEN` "Önce uzaktan kontrol izni alın."                                                      | aynı                                                                                   | `control`                   |
+| 5    | Müşteri pano kutusu kapalı (yalnız pano)                 | `FORBIDDEN` "Müşteri pano iznini açmadı."                                                          | —                                                                                      | `consent`                   |
+| 6    | Bekleyen iş var                                          | `CONFLICT` "Önceki pano işlemi sürüyor."                                                           | `CONFLICT` "Önceki yazdırma işi sürüyor."                                              | `pending`                   |
+| 7    | Hız / sınır                                              | `RATE_LIMITED` (son 60 sn'de ≥ 30 istek)                                                           | `RATE_LIMITED` ret/yanıtsızlık sonrası 30 sn (`cooldown`); oturumda 20 istek (`limit`) | `rate`, `cooldown`, `limit` |
+| —    | Aynı `cid`/`pid` odada yeniden kullanıldı (son 64)       | `VALIDATION` "Bu işlem kimliği daha önce kullanıldı."                                              | aynı                                                                                   | `reuse`                     |
+
+Eşleşmeyen `clip.report` / `print.report` / `print.cancel` yok sayılır (`unmatched_report`, `unmatched_cancel`).
+
+### DataChannel mesajları (`ctl` kanalı, ≤ 16 KB)
+
+| `t`           | Yön               | Alanlar                                                            | Kural                                                                                                                |
+| ------------- | ----------------- | ------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------- |
+| `clip.ready`  | misafir→teknisyen | `cid`                                                              | Misafir WS `clip.push`'u kabul etti; konsol veriyi ancak bundan sonra gönderir                                       |
+| `clip.data`   | iki yön           | `cid`, `seq: 0..7`, `last: boolean`, `b64` (≤ 8192 ham bayt)       | UTF-8, 8 KB parçalar, standart base64; toplam ≤ 65 536 bayt; push'ta toplam = `clip.push.bytes`                      |
+| `print.ready` | misafir→teknisyen | `pid`                                                              | Varsayılan yazıcı var, başka aktarım yok; misafir bayt almaya hazır                                                  |
+| `print.offer` | teknisyen→misafir | `pid`, `idx: 0..65535`, `name` (1..255), `size`, `sha256` (64 hex) | `pid` başına tek teklif; `size` WS'de yetkilenen `sizeBytes` ile aynı olmalı; `idx` dosya aktarımıyla ortak sayaçtan |
+| `print.done`  | teknisyen→misafir | `pid`                                                              | Son parçadan sonra; misafir bayt sayısı + SHA-256 + `%PDF-` öneki denetler                                           |
+
+PDF baytları mevcut `file` kanalında, P5 çerçevesiyle (`print.offer.idx | seq | yük ≤ 16 KB`) gider. Yön başına tek aktif
+aktarım kuralı yazdırmayı da kapsar (dosya gönderimi sürerken `print.report{NONE, BUSY}`).
+
+**Misafir tarafı süreler:** pano kimliği 8 sn; yazdırma aktarım + sayfa sayımı 8 dk, onay diyaloğu 60 sn. Süre dolunca
+`report{TIMEOUT}` (aktarım aşamasında `ERROR`). WS koptuğunda bekleyen tüm kimlikler silinir ve pano kutusu kapanır.
+
+### Örnek akış (pano gönder)
+
+```text
+teknisyen → S     {"t":"clip.push","cid":"Q2xpcC0xMjM0NTY3OA","bytes":42}
+S → misafir {"t":"clip.push","cid":"Q2xpcC0xMjM0NTY3OA","bytes":42}
+misafir → teknisyen (DC) {"t":"clip.ready","cid":"Q2xpcC0xMjM0NTY3OA"}
+teknisyen → misafir (DC) {"t":"clip.data","cid":"Q2xpcC0xMjM0NTY3OA","seq":0,"last":true,"b64":"…"}
+misafir → S {"t":"clip.report","cid":"Q2xpcC0xMjM0NTY3OA","dir":"TO_CUSTOMER","bytes":42,"result":"OK"}
+S → teknisyen     {"t":"clip.status","cid":"Q2xpcC0xMjM0NTY3OA","result":"OK","bytes":42}
+```
+
+Ret örneği (müşteri kutuyu açmamış): `{"t":"error","code":"FORBIDDEN","message":"Müşteri pano iznini açmadı."}`.
+
+### Audit ve metrik
+
+`entity = "support_sessions"`, `entity_id = sessionId`. İçerik, dosya adı ve hash hiçbir olayda yoktur.
+
+| Eylem                | `new_value`                                                                                            | `result`                          |
+| -------------------- | ------------------------------------------------------------------------------------------------------ | --------------------------------- |
+| `clipboard.consent`  | `{on, by:"customer"\|"system", reason?:"control_closed"\|"permission"\|"disconnect"\|"session_ended"}` | success                           |
+| `clipboard.transfer` | `{direction, bytes, result, reportedBy:"customer"\|"server"}`                                          | `OK` → success, diğer → fail      |
+| `print.job`          | `{decision, pages?, sizeBytes, result, reportedBy}`                                                    | `PRINTED` → success, diğer → fail |
+
+Metrikler: `rs_clipboard_transfer_total{direction,result}`, `rs_print_job_total{result}`,
+`rs_clip_print_denied_total{kind,reason}` (okuma ve sorun giderme: runbook §28a).
+
 ## Saklama ve anonimleştirme (P13a)
 
 Yeni uç yoktur. Kaynak: `docs/mimari-p13.md` §2–§3, `apps/server/src/jobs/retention.ts`.
@@ -3347,5 +3464,7 @@ P15: `mfa.recovery_regenerated` (`{ count }`; kod yazılmaz), `auth.superadmin_r
 `settings.system_logo.removed`, `request_block.created` / `request_block.deleted`, `request.rate_limited { bucket: "blocked" }`,
 `request.accepted` += `acceptCode: true` (ayar açıkken), `retention.run` += `blocks`, `file.transfer.sender_report` entity
 `session_files` (+ `reportedBy`).
+P28a: `clipboard.consent`, `clipboard.transfer`, `print.job` (gruplar "Pano paylaşımı", "Uzaktan yazdırma"); pano metni,
+belge içeriği, dosya adı ve SHA-256 yazılmaz (ayrıntı "Pano ve uzaktan yazdırma (P28a)").
 Şifre, token ve çerez değerleri `***` olarak maskelenir. Kayıtlar Audit log ekranında (`/audit`) ve
 `GET /api/v1/audit` ile okunur; değiştirilemez.

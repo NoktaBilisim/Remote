@@ -5,6 +5,7 @@ import { writeAudit, type AuditContext } from "../audit/service.ts";
 import { newSecretToken, sha256Hex } from "../lib/ids.ts";
 import * as repo from "../sessions/repo.ts";
 import { offerBinding } from "./binding.ts";
+import { capsFor, featureList, guestFeatures } from "./rooms-features.ts";
 import type { Rooms } from "./rooms.ts";
 import { iceServersFor, type IceGrant } from "./turn.ts";
 import type { Guest, Room } from "./types.ts";
@@ -43,7 +44,15 @@ export function sendHelloTech(rooms: Rooms, room: Room): void {
     ...(g ? { guestName: g.name } : {}), // QA-P4-12: yeniden bağlanan teknisyen misafiri tanır
     ...(g && room.share ? { share: room.share } : {}),
     ...(room.unattended ? { unattended: { deviceId: room.unattended.deviceId, deviceName: room.unattended.deviceName } } : {}),
+    ...clipPrintFields(room),
   });
+}
+
+/** P28a (§4.2): misafir özellik bildirdiyse teknisyene `guestFeatures` (+ hello'da `clipConsent`); yoksa alan yok (= `[]`). */
+function clipPrintFields(room: Room, withConsent = true) {
+  const f = guestFeatures(room);
+  if (f.size === 0) return {};
+  return { guestFeatures: featureList(f), ...(withConsent ? { clipConsent: room.clipPrint.consent } : {}) };
 }
 
 /** Misafir hello'su (admit ve yeniden bağlanma): yeni reconnectToken (eskisi geçersiz), caps. */
@@ -60,7 +69,7 @@ export function sendHelloGuest(rooms: Rooms, room: Room, guest: Guest): void {
     guestKind: guest.kind,
     iceServers: grant(rooms, room).iceServers,
     maxEndsAt: iso(room.maxEndsAt ?? rooms.clock.now()),
-    caps: room.caps,
+    caps: capsFor(room.caps, guestFeatures(room)), // P28a T7: eski istemciye yeni değer gitmez
     ...(room.maxFileMb ? { maxFileMb: room.maxFileMb } : {}),
     reconnectToken: token,
   });
@@ -76,6 +85,7 @@ export function sendGuestJoined(room: Room, guest: Guest): void {
     guestName: guest.name,
     ...(room.maxEndsAt ? { maxEndsAt: iso(room.maxEndsAt) } : {}),
     ...(room.maxFileMb ? { maxFileMb: room.maxFileMb } : {}),
+    ...clipPrintFields(room, false),
   });
 }
 

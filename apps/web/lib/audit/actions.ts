@@ -7,6 +7,7 @@ import {
   AUTH_AUDIT,
   BACKUP_AUDIT,
   BINDING_AUDIT,
+  CLIP_PRINT_AUDIT_LABELS,
   CONTROL_AUDIT,
   CUSTOMER_AUDIT,
   MAIL_AUDIT,
@@ -105,6 +106,8 @@ const AUDIT_ACTION_LABELS: Readonly<Record<string, string>> = {
   ...P19_NOTIFY_AUDIT_LABELS,
   // LG (AC-420, AC-425): müşteriye bağlantı gönderme ve oturumsuz servis indirme
   ...LG_AUDIT_LABELS,
+  // P28a (AC-347, 351): pano izni/aktarımı ve uzaktan yazdırma
+  ...CLIP_PRINT_AUDIT_LABELS,
 };
 
 /**

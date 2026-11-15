@@ -1,6 +1,7 @@
 // Sinyalizasyon bellek içi durumu (mimari §3.5, ADR-0005 tek instance): oda, lobi misafiri, teknisyen
 // bağlantısı ve saat. DB'ye yazılmaz; süreç yeniden başlarsa ACTIVE oturumlar ENDED{server} yapılır.
 import type { Cap, GuestKind, ServerOutbound, ShareSnapshot } from "@remote/contracts/ws";
+import type { ClipDirection, GuestFeature } from "@remote/contracts/ws-clip-print";
 import type { PermissionKey, Role } from "@remote/contracts/permissions";
 import type { ControlAuditAction } from "@remote/contracts/audit";
 import { LOBBY_GUEST_MAX } from "@remote/contracts/api/sessions";
@@ -18,6 +19,11 @@ export interface Peer {
   close(code: number, reason: string): void;
   /** Soket OPEN mı (CLOSING/CLOSED değil) — reconnect çakışma kararı için (TEST-P4-1). */
   isOpen(): boolean;
+  /**
+   * P28a (mimari-p28 §4.2): bu misafir soketinin bildirdiği `rs.cap.*` özellikleri (ws-auth; gözetimsiz odada / tarayıcıda
+   * boş). Oda özelliği bağlı ADMITTED misafirin soketinden okunur — misafir ayrılınca kendiliğinden boşalır.
+   */
+  features?: ReadonlySet<GuestFeature>;
 }
 
 /** Zamanlayıcı soyutlaması: üretimde gerçek saat, testlerde elle ilerletilen sahte saat (AC-13, AC-25). */
@@ -132,6 +138,36 @@ export interface FileMetaQuota {
   total: number;
 }
 
+/** P28a pano/yazdırma işini isteyen teknisyen (audit aktörü). */
+export interface ClipPrintActor {
+  userId: string;
+  username: string;
+  ctx: AuditContext;
+}
+
+/**
+ * P28a oda durumu (mimari-p28 §3, §4.3; r2 O-P28a-1/5, Y-P28a-1). Bellekte; içerik (pano metni, PDF, dosya adı) yok.
+ * `consent` müşteri anahtarının sunucu aynası; kontrol VIEW'a dönünce / misafir kopunca / oturum bitince false.
+ */
+export interface ClipPrintRoom {
+  consent: boolean;
+  /** Son 60 sn'de işlenen müşteri `clip.consent` değişimleri (≤ CLIP_CONSENT_PER_MIN). */
+  consentTimes: number[];
+  /** Oda başına tek bekleyen pano işi (CLIP_PENDING_TIMEOUT_MS). */
+  clipPending: { cid: string; dir: ClipDirection; actor: ClipPrintActor; timer: unknown } | null;
+  /** Son 60 sn'de iletilen pano istekleri (≤ CLIP_PER_MIN). */
+  clipTimes: number[];
+  /** Oda başına tek bekleyen yazdırma işi (PRINT_PENDING_TIMEOUT_MS). */
+  printPending: { pid: string; sizeBytes: number; actor: ClipPrintActor; timer: unknown } | null;
+  /** Oturum başına iletilen yazdırma isteği (≤ PRINT_PER_SESSION) ve ret/yanıtsızlık sonrası bekleme sonu (ms). */
+  printCount: number;
+  printCooldownUntil: number;
+  /** İletilmiş son ID_REUSE_WINDOW cid/pid (yeniden kullanım → VALIDATION). */
+  usedIds: string[];
+  /** Kapı reddi / eşleşmeyen rapor logu oda başına dakikada en çok 1. */
+  logAt?: number;
+}
+
 export interface Room {
   sessionId: string;
   /** P8b: talepten doğan oturum (guest.admit/guest.reject → CONFLICT; P15 `acceptCode` açıksa izinli). */
@@ -177,6 +213,8 @@ export interface Room {
   guestEnv?: GuestEnv;
   /** P7 uzaktan kontrol durumu. */
   control: ControlRoom;
+  /** P28a pano + uzaktan yazdırma durumu (clip-print.ts). */
+  clipPrint: ClipPrintRoom;
   /** P8c: oturum başına iletilen `binding.request` sayısı (≤ 3, mimari-e10 §5.3). */
   bindingRequests?: number;
   /** G-P13b-1: son verilen TURN credential (yeniden bağlanmada aynısı; `active.ts` grant). */

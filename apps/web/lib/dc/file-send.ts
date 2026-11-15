@@ -2,15 +2,14 @@
  * Dosya gönderen taraf ("gönder" parçası, lib/dc/files.ts): özet → teklif → kabulde parça pompası; kendi teklif
  * hızı sınırı ve yanıtsız teklif zaman aşımı (TEST-P5-1); gönderen raporu (file.meta) transfer başına bir kez.
  */
-import { encodeFileChunk, FILE_BUFFERED_MAX as BUFFER_HIGH, FILE_CHUNK_MAX_PAYLOAD as CHUNK_BYTES } from "@remote/contracts/dc";
 import { sanitizeFileName } from "@remote/contracts/files";
+import { pumpChunks } from "./chunk-sender";
 import { newId, type CtlMessage, type FileDirection, type FileResult } from "./ctl";
 import { fileRisk, OFFER_TIMEOUT_MS, SELF_OFFER_LIMIT, sha256Hex, type OutState, type TransferStore } from "./file-model";
 
 type FidMsg<T extends CtlMessage["t"]> = Extract<CtlMessage, { t: T }>;
 
 export class FileSender {
-  private outCount = 0;
   /** Gönderilen tekliflerin zamanları (SELF_OFFER_LIMIT). */
   private sentOffers: number[] = [];
 
@@ -42,14 +41,15 @@ export class FileSender {
   async send(file: File): Promise<"ok" | "tooLarge" | "busy" | "denied" | "rate"> {
     if (!this.d.allowed()) return "denied";
     if (file.size > this.s.max) return "tooLarge";
-    if (this.activeOut()) return "busy";
+    // O-P28a-2 / §4.4: yön başına tek aktif aktarım — yazdırma aktarımı sürerken dosya teklifi başlamaz
+    if (this.activeOut() || this.d.extBusy?.()) return "busy";
     const t0 = this.s.now();
     this.sentOffers = this.sentOffers.filter((x) => t0 - x < SELF_OFFER_LIMIT.windowMs);
     if (this.sentOffers.length >= SELF_OFFER_LIMIT.max && this.d.selfThrottle?.() !== false) return "rate";
     const fid = newId();
     const st: OutState = {
       t: { fid, dir: "out", name: file.name, size: file.size, done: 0, status: "hashing", ...fileRisk(file.name) },
-      idx: this.outCount++ & 0xffff,
+      idx: this.s.nextIdx(),
       file,
       sha: "",
       abort: false,
@@ -125,32 +125,14 @@ export class FileSender {
     }
   }
 
-  private waitLow(): Promise<void> {
-    const ch = this.d.file;
-    return new Promise((res) => {
-      const fn = () => {
-        ch.removeEventListener("bufferedamountlow", fn);
-        res();
-      };
-      ch.addEventListener("bufferedamountlow", fn);
-    });
-  }
-
   private async pump(st: OutState) {
     this.s.set(st, { status: "sending" });
-    const ch = this.d.file;
-    let seq = 0;
-    for (let off = 0; off < st.file.size; off += CHUNK_BYTES) {
-      if (st.abort || ch.readyState !== "open") return;
-      if (ch.bufferedAmount > BUFFER_HIGH) await this.waitLow();
-      const delay = this.d.chunkDelayMs?.() ?? 0;
-      if (delay > 0) await new Promise((r) => setTimeout(r, delay));
-      if (st.abort || ch.readyState !== "open") return;
-      const part = new Uint8Array(await st.file.slice(off, off + CHUNK_BYTES).arrayBuffer());
-      ch.send(encodeFileChunk(st.idx, seq++, part) as Uint8Array<ArrayBuffer>);
-      this.s.set(st, { done: Math.min(off + part.byteLength, st.t.size) });
-    }
-    if (!st.abort) this.d.sendCtl({ t: "file.done", fid: st.t.fid });
+    const done = await pumpChunks(this.d.file, st.idx, st.file, {
+      aborted: () => st.abort,
+      onProgress: (n) => this.s.set(st, { done: n }),
+      delayMs: this.d.chunkDelayMs,
+    });
+    if (done) this.d.sendCtl({ t: "file.done", fid: st.t.fid });
   }
 
   /** Bağlantı koptu/oturum bitti: aktif gönderimler durur. */

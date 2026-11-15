@@ -12,6 +12,7 @@ import (
 	"remote-support/agent-win/internal/api"
 	"remote-support/agent-win/internal/autorun"
 	"remote-support/agent-win/internal/capture"
+	"remote-support/agent-win/internal/clipprint"
 	"remote-support/agent-win/internal/control"
 	"remote-support/agent-win/internal/diag"
 	"remote-support/agent-win/internal/env"
@@ -145,12 +146,9 @@ func (a *app) launchDeps(client *api.Client, u *ui.UI, opener capture.Opener, ga
 func (a *app) flowDeps(client *api.Client, u *ui.UI, opener capture.Opener, applier *input.Applier, gate *control.Gate,
 	hotkey string, active func()) flow.Deps {
 	cfg := a.cfg
-	return flow.Deps{
+	d := flow.Deps{
 		Host: cfg.DisplayHost(), Version: cfg.Version, Fingerprint: a.fp,
 		API: client,
-		Dial: func(ctx context.Context, cred signal.Credential) (flow.Conn, error) {
-			return signal.Dial(ctx, client.HTTPClient(), cfg.ServerURL, cred)
-		},
 		NewPeer: func(ice []signal.IceServer, caps []string, h rtc.Handlers) (flow.Peer, error) {
 			return rtc.New(ice, caps, h)
 		},
@@ -177,5 +175,30 @@ func (a *app) flowDeps(client *api.Client, u *ui.UI, opener capture.Opener, appl
 		},
 		EnvProbe:     env.Probe,
 		SelfElevated: a.elevated, // K8: env.state.selfElevated (GRANTED audit'i, konsol rozeti)
+		ClipPrintUI:  u,
+		Printer:      clipprint.NewPrinter(a.exe), // işleyici `exe --pdf-isleyici` (kısıtlı süreç, iş başına)
 	}
+	if c := a.clipboard(); c != nil {
+		d.Clipboard = c
+	}
+	// P28a (mimari-p28 §4.2): yalnız bağlı özellikler (Clipboard/Printer + ClipPrintUI, K4/K5) bildirilir.
+	features := flow.Features(d)
+	d.Dial = func(ctx context.Context, cred signal.Credential) (flow.Conn, error) {
+		return signal.Dial(ctx, client.HTTPClient(), cfg.ServerURL, cred, features)
+	}
+	return d
+}
+
+// clipboard P28a pano iş parçacığı süreç ömründe bir kez kurulur (kapsam başına iş parçacığı açılmaz); kurulamazsa nil
+// ve pano özelliği bildirilmez (flow.Features).
+func (a *app) clipboard() flow.Clipboard {
+	a.clipOnce.Do(func() {
+		if c, err := clipprint.NewClipboard(); err == nil {
+			a.clip = c
+		}
+	})
+	if a.clip == nil {
+		return nil
+	}
+	return a.clip
 }

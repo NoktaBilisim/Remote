@@ -71,3 +71,10 @@ func TestAC247ContrastFunction(t *testing.T) {
 		}
 	}
 }
+
+// AC-247 / AC-346: gösterge ve 3 sn bildirim satırı iki temada aynı renklerle WCAG AA (≥ 4.5:1).
+func TestAC247IndicatorNoticeContrast(t *testing.T) {
+	if r := contrastRatio(indicatorText, indicatorBg); r < 4.5 {
+		t.Fatalf("gösterge/bildirim: %.2f:1 < 4.5:1", r)
+	}
+}

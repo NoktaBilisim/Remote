@@ -43,3 +43,7 @@ func themePalette(dark bool) palette {
 func useDark(appsUseLight uint32, found, highContrast bool) bool {
 	return found && appsUseLight == 0 && !highContrast
 }
+
+// indicatorBg / indicatorText AC-103 göstergesi ve P28a bildirim satırı (AC-346): temadan bağımsız (iki temada aynı
+// kırmızı zemin, beyaz metin; AC-247 kontrast testi theme_test.go).
+var indicatorBg, indicatorText = rgb{185, 28, 28}, rgb{0xff, 0xff, 0xff}

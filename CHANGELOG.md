@@ -5,6 +5,48 @@ Biçim [Keep a Changelog](https://keepachangelog.com/tr/1.1.0/), sürümleme [Se
 
 ## [Unreleased]
 
+### Eklendi — P28a pano paylaşımı ve uzaktan yazdırma, istemci 0.13.0 (AC-343..352, AC-404)
+
+- **Pano paylaşımı:** konsolda yeni "Pano ve yazdırma" bölümü. **Panoyu gönder** teknisyenin panosundaki düz metni müşterinin
+  panosuna, **Müşteri panosunu al** müşterinin panosundaki metni teknisyenin panosuna yazar. Yalnız düz metin, en çok 64 KB;
+  Türkçe karakterler, emoji ve satır sonları aynen korunur. Kontrol izni ve müşterinin oturum penceresindeki **Pano
+  paylaşımına izin ver** kutusu gerekir; kutu her oturumda kapalı başlar, kontrol kapanınca kendiliğinden kapanır ve yalnız
+  müşterinin kendi fare/klavyesiyle değişir. Müşteride her işlemde 3 sn bildirim. Parola yöneticisinin gizli işaretlediği
+  içerik okunmaz (`SENSITIVE`). Teknisyenin koyduğu metin Windows pano geçmişine ve bulut panosuna düşmez.
+- **Uzaktan yazdırma:** **Uzaktan yazdır** ile seçilen PDF (en çok 20 MB) müşterinin varsayılan yazıcısına tek kopya gider.
+  Müşteride her belge için onay penceresi (teknisyen, dosya adı, sayfa sayısı, yazıcı; "Reddet" varsayılan, "Yazdır" 1,5 sn
+  kilitli, 60 sn yanıtsızlık = ret). Ret/yanıtsızlık sonrası 30 sn bekleme, oturumda en çok 20 istek. Belge yalnız bellekte
+  tutulur; Windows.Data.Pdf ile düşük bütünlüklü, iş nesnesiyle sınırlanmış ayrı bir süreçte çizilir, GDI ile basılır;
+  gömülü JavaScript/eylem çalışmaz (ADR-0031). Yazdırma kuyruğundaki belge adı sabittir ("NoktaDestek uzaktan yazdırma").
+- Yeni yetkiler `remote_control.clipboard` ("Pano paylaşımı") ve `file_transfer.print` ("Uzaktan yazdır"); toggle
+  ekranına kendiliğinden eklendi. Admin'de açık, User'da kapalı başlar; migration yok.
+- Yeni audit eylemleri `clipboard.consent`, `clipboard.transfer`, `print.job` (Audit log grupları "Pano paylaşımı",
+  "Uzaktan yazdırma"; oturum zaman çizelgesinde de görünür). İçerik, dosya adı ve hash yazılmaz.
+- Yeni WS mesajları `clip.consent`, `clip.push`, `clip.pull`, `clip.report`, `clip.status`, `print.request`, `print.cancel`,
+  `print.report`, `print.status`; DC `ctl` mesajları `clip.ready`, `clip.data`, `print.ready`, `print.offer`, `print.done`;
+  yetenek belirteçleri `rs.cap.clip1`, `rs.cap.print1`; `hello`/`peer.joined` += `guestFeatures`, `hello` += `clipConsent`
+  (`docs/api.md` "Pano ve uzaktan yazdırma (P28a)").
+- Metrikler `rs_clipboard_transfer_total{direction,result}`, `rs_print_job_total{result}`,
+  `rs_clip_print_denied_total{kind,reason}` (runbook §28a).
+
+### Güvenlik — P28a
+
+- Sunucu kapısı + istemci kapısı: misafir yalnız sunucunun WS ile yetkilediği, tek kullanımlık, yöne bağlı ve süreli
+  `cid`/`pid` içeriğini uygular; sunucudan geçmemiş DC içeriği reddedilir. Yeniden kullanılan kimlik `VALIDATION`.
+- Yazdırma da kontrol izni (`GRANTED`) ister; kontrol kapanınca bekleyen yazdırma sunucuda ve istemcide `CANCELLED` biter.
+- **Gözetimsiz oturumda** pano ve yazdırma sunucu tarafında kapalıdır (istemci belirteç gönderse de yok sayılır).
+- Pano izni değişimi oda başına dakikada 6 ile sınırlı; fazlası audit üretmez. Pano isteği dakikada 30.
+- Pano metni ve dosya adı sunucu logu, audit, metrik, tarayıcı konsolu ve istemci tanılama logunda yer almaz (otomatik
+  işaret taraması; Windows iz testi).
+
+### Bilinen sınırlamalar — P28a
+
+- Yalnız Windows istemci (0.13.0+). Tarayıcıdan bağlanan müşteride yazdırma düğmesi görünmez, pano pasiftir. Eski istemcide
+  düğmeler "Müşterinin uygulaması bu özelliği desteklemiyor — güncel sürümü indirmesini isteyin" ile pasiftir.
+- Yazıcı ve kopya sayısı seçilemez; yalnız PDF. Dosya/görsel/zengin metin panosu ve otomatik pano eşitleme yok.
+- Firefox ve Safari pano okumasında ek "Yapıştır" onayı ister; Chrome/Edge önerilir.
+- Windows elle turu (gerçek yazıcı, ≤ 1 sn / ≤ 5 sn ölçümleri) ve imzalı yayın bekliyor; staging'e çıkar, prod P28 sonunda.
+
 ### Eklendi — Müşteriye bağlantı gönderme (LG, AC-405..428)
 
 - Tek **Müşteriye gönder** penceresi: oturum kartı, kayıt kodu penceresi ve müşteri ayrıntısından açılır. Kanal seçimi,

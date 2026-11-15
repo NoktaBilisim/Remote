@@ -120,6 +120,11 @@ const (
 	EvControlHotkey // global kısayol (input.Host kapıyı zaten kapattı)
 	EvMonitorAccept // Monitor
 	EvMonitorDeny
+	// P28a (clipprint.go). EvClipConsent yalnız gerçek yerel girdiyle üretilir (D-P28a-1); EvPrintApprove yalnız G-03
+	// kurallarına uyan tıklamayla.
+	EvClipConsent  // On
+	EvPrintApprove // PID
+	EvPrintReject  // PID
 )
 
 // Event kullanıcı olayı.
@@ -128,6 +133,8 @@ type Event struct {
 	Text    string
 	FID     string
 	Monitor int
+	On      bool   // EvClipConsent
+	PID     string // EvPrintApprove / EvPrintReject
 }
 
 // Deps akışın bağımlılıkları.
@@ -173,6 +180,11 @@ type Deps struct {
 	// Unattended P27 (mimari-p27 §5.6): gözetimsiz yardımcı. control.request kullanıcıya sorulmadan GRANTED{UNATTENDED}
 	// ile kabul edilir; kapatma kısayolu gerekmez (yerel anahtar geçerlidir). Yalnız internal/unattended/helper açar.
 	Unattended bool
+	// P28a (mimari-p28 §5): pano ve yazdırma uygulamaları (K4) ve arayüzü (K5). Herhangi biri nil ise ilgili özellik
+	// bildirilmez (Features) ve iletimler yok sayılır.
+	Clipboard   Clipboard
+	Printer     Printer
+	ClipPrintUI ClipPrintUI
 	// Admitted P8b-2: ilk `hello` geldiğinde bir kez çağrılır (talep modu `/ws/request`'i 1000 ile ancak bundan sonra
 	// kapatır; öncesindeki 1000 sunucuda "vazgeçme" sayılır). nil olabilir.
 	Admitted func()

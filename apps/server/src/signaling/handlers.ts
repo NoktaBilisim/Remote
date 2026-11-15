@@ -2,10 +2,12 @@
 // 50 mesaj/sn token-bucket → 1008 + log `ws_rate_exceeded`; relay yalnız aynı odanın karşı tarafına ve
 // alanlar yeniden kurularak (gelen nesne aktarılmaz). Lobi misafiri yalnız `session.end` gönderebilir.
 // P7: control.request/release/cancel, monitor.request/denied, control.state, env.state → control.ts (§3.3, ADR-0013).
+// P28a: clip.*/print.* → clip-print.ts; misafir şeması soketin bildirdiği özelliğe göre (yeteneksiz sokette → 1008).
 import {
   BINDING_REQUEST_EXCLUSIVE_MESSAGE,
   bindingRequestEnvelopeSchema,
-  guestInboundSchema,
+  guestInboundSchemaFor,
+  type GuestInboundFull,
   SHARE_STATE_MIN_INTERVAL_MS,
   techInboundSchema,
   WS_CLOSE,
@@ -24,6 +26,14 @@ import {
   onShareMonitor,
 } from "./control.ts";
 import { handleBindingRequest } from "./binding.ts";
+import {
+  handleClipConsent,
+  handleClipReport,
+  handleClipRequest,
+  handlePrintCancel,
+  handlePrintReport,
+  handlePrintRequest,
+} from "./clip-print.ts";
 import type { Rooms } from "./rooms.ts";
 import type { Clock, Guest, Peer, Room, TechConn } from "./types.ts";
 
@@ -84,7 +94,8 @@ function parseFrame<T extends z.ZodType>(
 }
 
 type TechMsg = z.infer<typeof techInboundSchema>;
-type GuestMsg = z.infer<typeof guestInboundSchema>;
+type GuestMsg = GuestInboundFull;
+const NO_FEATURES = new Set<never>();
 
 export async function onTechMessage(
   rooms: Rooms,
@@ -156,6 +167,16 @@ async function techAction(rooms: Rooms, room: Room, tech: TechConn, peer: Peer, 
       if (room.admitted) await rooms.finish(room, "tech", "TECH", tech.ctx);
       else tech.peer.send({ t: "error", code: "CONFLICT", message: "Bekleyen oturum iptal ile kapatılır." });
       return;
+    case "clip.push":
+    case "clip.pull":
+      handleClipRequest(rooms, room, tech, m);
+      return;
+    case "print.request":
+      handlePrintRequest(rooms, room, tech, m);
+      return;
+    case "print.cancel":
+      handlePrintCancel(rooms, room, tech, m.pid);
+      return;
   }
 }
 
@@ -169,7 +190,8 @@ export async function onGuestMessage(
   isBinary: boolean,
 ): Promise<void> {
   if (!rooms.live(room) || guest.peer !== peer) return;
-  const m = parseFrame(rooms, peer, bucket, guestInboundSchema, data, isBinary, (json) => {
+  const schema = guestInboundSchemaFor(peer.features ?? NO_FEATURES);
+  const m = parseFrame(rooms, peer, bucket, schema, data, isBinary, (json) => {
     // P20 (protokol §6.1): zarfı geçerli `binding.request`te previousKey + previousKeys → error VALIDATION, soket açık.
     if (guest.state !== "ADMITTED" || !bindingRequestEnvelopeSchema.safeParse(json).success) return false;
     peer.send({ t: "error", code: "VALIDATION", message: BINDING_REQUEST_EXCLUSIVE_MESSAGE });
@@ -217,6 +239,15 @@ async function guestAction(rooms: Rooms, room: Room, guest: Guest, peer: Peer, m
       return;
     case "binding.request":
       await handleBindingRequest(rooms, room, guest, peer, m);
+      return;
+    case "clip.consent":
+      handleClipConsent(rooms, room, guest, m.on);
+      return;
+    case "clip.report":
+      handleClipReport(rooms, room, m);
+      return;
+    case "print.report":
+      handlePrintReport(rooms, room, m);
       return;
   }
 }

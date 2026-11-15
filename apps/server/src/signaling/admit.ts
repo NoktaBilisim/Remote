@@ -8,6 +8,7 @@ import { syncDisconnect } from "./active.ts";
 import { recordViewConsent } from "../public/consent.ts";
 import * as repo from "../sessions/repo.ts";
 import { admitHash, type Rooms } from "./rooms.ts";
+import { capsOf } from "./rooms-features.ts";
 import { ADMIT_FAIL_MAX, type Guest, type Peer, type Room, type TechConn } from "./types.ts";
 import { safeEqual } from "../lib/ids.ts";
 
@@ -25,12 +26,6 @@ function customerOf(g: Guest): { name: string | null; email: string | null } {
 }
 
 type AuditTx = Parameters<typeof writeAudit>[0];
-
-/** Teknisyen etkin yetkilerinden oturum caps'i (bağlanma anı; sonra yalnız daralır). */
-const capsOf = (perms: ReadonlySet<string>): Room["caps"] => [
-  ...(perms.has("remote_control.use") ? (["remote_control"] as const) : []),
-  ...(perms.has("file_transfer.use") ? (["file_transfer"] as const) : []),
-];
 
 function auditAdmit(
   rooms: Rooms,

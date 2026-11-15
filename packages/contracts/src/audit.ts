@@ -290,6 +290,28 @@ export const UNATTENDED_AUDIT = {
 } as const;
 export type UnattendedAuditAction = (typeof UNATTENDED_AUDIT)[keyof typeof UNATTENDED_AUDIT];
 
+/**
+ * P28a pano + uzaktan yazdırma (mimari-p28 §8.1; AC-347, 348, 351). Entity `support_sessions`, entity_id = sessionId. Pano
+ * içeriği, PDF, dosya adı ve hash ASLA yazılmaz:
+ *  - CLIPBOARD_CONSENT `{on, by: "customer"|"system", reason?: control_closed|permission|disconnect|session_ended}` (aktör müşteri/sistem).
+ *  - CLIPBOARD_TRANSFER `{direction, bytes, result, reportedBy: "customer"|"server"}` (aktör isteyen teknisyen; OK → success).
+ *  - PRINT_JOB `{decision, pages?, sizeBytes, result, reportedBy}` (aktör isteyen teknisyen; PRINTED → success).
+ * Kapıda reddedilen istekler audit'e yazılmaz (metrik + log, K-P28a-8).
+ */
+export const CLIP_PRINT_AUDIT = {
+  CLIPBOARD_CONSENT: "clipboard.consent",
+  CLIPBOARD_TRANSFER: "clipboard.transfer",
+  PRINT_JOB: "print.job",
+} as const;
+export type ClipPrintAuditAction = (typeof CLIP_PRINT_AUDIT)[keyof typeof CLIP_PRINT_AUDIT];
+
+/** P28a eylemlerinin Türkçe etiketleri (web `AUDIT_ACTION_LABELS`'a yayılır). */
+export const CLIP_PRINT_AUDIT_LABELS: Readonly<Record<ClipPrintAuditAction, string>> = {
+  [CLIP_PRINT_AUDIT.CLIPBOARD_CONSENT]: "Pano izni değişti",
+  [CLIP_PRINT_AUDIT.CLIPBOARD_TRANSFER]: "Pano aktarımı",
+  [CLIP_PRINT_AUDIT.PRINT_JOB]: "Uzaktan yazdırma",
+};
+
 export const P19_NOTIFY_AUDIT_LABELS: Readonly<Record<string, string>> = {
   [NOTIFY_AUDIT.LINK_SENT]: "Oturum bağlantısı gönderildi (SMS/WhatsApp)",
   [NOTIFY_AUDIT.CUSTOMER_NOTIFY]: "Müşteriye durum bildirimi",

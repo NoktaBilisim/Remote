@@ -82,7 +82,7 @@ func (u *UI) ControlPromptClosed() { u.t.Do(func() { closeDlg(u.ctlDlg) }) }
 func (u *UI) MonitorPromptClosed() { u.t.Do(func() { closeDlg(u.monDlg) }) }
 
 func (u *UI) closePrompts() {
-	for _, d := range []*consentDlg{u.ctlDlg, u.monDlg, u.offer} {
+	for _, d := range []*consentDlg{u.ctlDlg, u.monDlg, u.offer, u.printDlg} {
 		closeDlg(d)
 	}
 }

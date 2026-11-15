@@ -25,7 +25,18 @@ const send = (ws, m) => ws?.readyState === 1 && ws.send(JSON.stringify(m));
 const iso = (ms) => new Date(Date.now() + ms).toISOString();
 /** P5: sunucuya giden file.meta / quality.summary kaydı (oturum id → [{ from, m }]); test GET /__e2e/ws-log/:id ile okur. */
 export const wsLog = new Map();
-const LOGGED = new Set(["file.meta", "quality.summary", "control.request", "control.release", "control.cancel", "monitor.request"]);
+const LOGGED = new Set([
+  "file.meta",
+  "quality.summary",
+  "control.request",
+  "control.release",
+  "control.cancel",
+  "monitor.request",
+  "clip.push",
+  "clip.pull",
+  "print.request",
+  "print.cancel",
+]);
 const log = (id, from, m) => LOGGED.has(m.t) && (wsLog.get(id) ?? wsLog.set(id, []).get(id)).push({ from, m });
 
 /** P7 test kancası: yetki kaldırıldı → misafire control.revoke + caps.update, teknisyene control.state{VIEW, SYSTEM}. */
@@ -94,8 +105,12 @@ function end(rec, reason) {
   endRoom(rec.view.id, reason);
 }
 
-function admitted(r, rec, ws, kind = "BROWSER", guestName) {
+function admitted(r, rec, ws, kind = "BROWSER", guestName, features = []) {
   const first = !r.maxEndsAt;
+  // P28a (§4.2): misafirin bildirdiği özellikler teknisyene peer.joined/hello ile; pano anahtarı kapalı başlar
+  r.guestFeatures = features;
+  r.clipConsent = false;
+  r.printPending = null;
   r.guestKind = kind;
   r.guestName = guestName ?? null;
   r.ctl = { forwarded: 0, deniedAt: 0, monitors: 0, state: "VIEW", monPending: null, monDeniedAt: 0, active: null };
@@ -124,10 +139,12 @@ function admitted(r, rec, ws, kind = "BROWSER", guestName) {
     ...(guestName ? { guestName } : {}),
     ...(first ? { maxEndsAt: r.maxEndsAt } : {}),
     maxFileMb: rec.maxFileMb,
+    guestFeatures: features,
   });
   ws.on("message", (raw) => {
     const m = JSON.parse(String(raw));
     log(rec.view.id, "guest", m);
+    if (p28Guest(r, m)) return;
     if (m.t === "sdp.answer") send(r.tech, { t: m.t, sdp: m.sdp });
     else if (m.t === "ice") send(r.tech, { t: "ice", candidate: m.candidate, sdpMid: m.sdpMid, sdpMLineIndex: m.sdpMLineIndex });
     else if (m.t === "share.state") {
@@ -155,6 +172,7 @@ function admitted(r, rec, ws, kind = "BROWSER", guestName) {
           r.ctl.deniedAt = Date.now();
         } else if (r.ctl.state === "VIEW") return; // K6: REQUESTED'de UI|HOTKEY|SYSTEM = istek kapandı (ret değil)
         r.ctl.state = "VIEW";
+        p28ControlClosed(r);
       }
       send(r.tech, { t: "control.state", state: m.state, source: m.source });
     } else if (m.t === "monitor.denied") {
@@ -194,7 +212,9 @@ function onTech(ws, rec) {
     iceServers: [],
     maxEndsAt: active ? iso(8 * 3600_000) : null,
     ...(active ? { maxFileMb: rec.maxFileMb } : {}),
-    ...(r.guest ? { guestKind: r.guestKind, ...(r.guestName ? { guestName: r.guestName } : {}) } : {}),
+    ...(r.guest
+      ? { guestKind: r.guestKind, ...(r.guestName ? { guestName: r.guestName } : {}), guestFeatures: r.guestFeatures ?? [] }
+      : {}),
   });
   for (const [guestId, e] of r.lobby) send(ws, { t: "peer.pending", guestId, name: e.name, guestKind: "BROWSER", since: e.since });
   ws.on("message", (raw) => {
@@ -227,7 +247,10 @@ function onTech(ws, rec) {
       r.ctl.forwarded++;
       r.ctl.state = "REQUESTED";
       send(r.guest, { t: "control.request" });
-    } else if (m.t === "control.release" || m.t === "control.cancel") techClose(r, m.t);
+    } else if (m.t === "control.release" || m.t === "control.cancel") {
+      techClose(r, m.t);
+      p28ControlClosed(r);
+    } else if (p28Tech(r, rec, ws, m)) return;
     else if (m.t === "monitor.request") {
       if (r.guestKind !== "AGENT") return send(ws, { t: "error", code: "FORBIDDEN", message: "Yalnız istemci." });
       if (r.ctl.active === m.monitorId) return send(ws, { t: "error", code: "VALIDATION", message: "Bu monitör zaten paylaşılıyor." });
@@ -254,6 +277,61 @@ function onTech(ws, rec) {
     r.tech = null;
     techGone(r);
   });
+}
+
+/*
+ * P28a (mimari-p28 §4.3) asgari taklit — K2 sunucusu paralel yazılıyor: kapı (yetki → özellik → GRANTED → anahtar →
+ * bekleyen), misafire iletim, rapor → teknisyene clip.status / print.status, kontrol VIEW'da bekleyen yazdırma iptali.
+ */
+function p28Tech(r, rec, ws, m) {
+  if (!["clip.push", "clip.pull", "print.request", "print.cancel"].includes(m.t)) return false;
+  const deny = (code, message) => send(ws, { t: "error", code, message });
+  if (m.t === "print.cancel") {
+    if (r.printPending === m.pid) send(r.guest, { t: "print.cancel", pid: m.pid });
+    return true;
+  }
+  const clip = m.t.startsWith("clip.");
+  if (!(clip ? rec.canClip : rec.canPrint)) return (deny("FORBIDDEN", "Yetkiniz yok."), true);
+  if (!r.guest) return (deny("CONFLICT", "Müşteri bağlı değil."), true);
+  if (!(r.guestFeatures ?? []).includes(clip ? "clipboard" : "print"))
+    return (deny("FORBIDDEN", "Müşterinin uygulaması bu özelliği desteklemiyor"), true);
+  if (r.ctl?.state !== "GRANTED") return (deny("FORBIDDEN", "Kontrol izni yok"), true);
+  if (clip && !r.clipConsent) return (deny("FORBIDDEN", "Müşteri pano iznini açmadı"), true);
+  if (clip) send(r.guest, m.t === "clip.push" ? { t: m.t, cid: m.cid, bytes: m.bytes } : { t: m.t, cid: m.cid });
+  else {
+    if (r.printPending) return (deny("CONFLICT", "Bekleyen yazdırma var."), true);
+    r.printPending = m.pid;
+    send(r.guest, { t: "print.request", pid: m.pid, sizeBytes: m.sizeBytes });
+  }
+  return true;
+}
+
+function p28Guest(r, m) {
+  if (m.t === "clip.consent") {
+    r.clipConsent = m.on && r.ctl?.state === "GRANTED";
+    if (m.on && !r.clipConsent) send(r.guest, { t: "clip.consent", on: false });
+    send(r.tech, { t: "clip.consent", on: r.clipConsent });
+  } else if (m.t === "clip.report") send(r.tech, { t: "clip.status", cid: m.cid, result: m.result, bytes: m.bytes });
+  else if (m.t === "print.report") {
+    if (r.printPending !== m.pid) return true;
+    r.printPending = null;
+    send(r.tech, { t: "print.status", pid: m.pid, result: m.result, ...(m.pages ? { pages: m.pages } : {}) });
+  } else return false;
+  return true;
+}
+
+/** r2 Y-P28a-1: kontrol VIEW'a döndü → pano anahtarı kapanır, bekleyen yazdırma iptal. */
+function p28ControlClosed(r) {
+  if (r.clipConsent) {
+    r.clipConsent = false;
+    send(r.guest, { t: "clip.consent", on: false });
+    send(r.tech, { t: "clip.consent", on: false });
+  }
+  if (r.printPending) {
+    send(r.guest, { t: "print.cancel", pid: r.printPending });
+    send(r.tech, { t: "print.status", pid: r.printPending, result: "CANCELLED" });
+    r.printPending = null;
+  }
 }
 
 function onGuestTicket(ws, entry) {
@@ -304,7 +382,8 @@ export function attachWs(srv) {
       const r = rec && rooms.get(agentFor);
       if (!rec || !r?.tech || r.guest) return sock.destroy();
       Object.assign(rec.view, { status: "ACTIVE", code: null });
-      return wss.handleUpgrade(req, sock, head, (ws) => admitted(r, rec, ws, "AGENT", "Ayşe Yılmaz"));
+      const features = [...(protos.includes("rs.cap.clip1") ? ["clipboard"] : []), ...(protos.includes("rs.cap.print1") ? ["print"] : [])];
+      return wss.handleUpgrade(req, sock, head, (ws) => admitted(r, rec, ws, "AGENT", "Ayşe Yılmaz", features));
     }
     const tk = protos.find((p) => p.startsWith("rs.ticket."))?.slice(10);
     const rc = protos.find((p) => p.startsWith("rs.reconnect."))?.slice(13);

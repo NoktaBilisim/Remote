@@ -23,6 +23,7 @@ import {
   type Timing,
 } from "./types.ts";
 import { recordEnded, scheduleActive, sendGuestJoined, sendHelloGuest, sendHelloTech, syncDisconnect } from "./active.ts";
+import { newClipPrint } from "./clip-print.ts";
 import { newControl } from "./control.ts";
 import { closeControlOnEnd, narrowCaps, resetOnGuestGone, revokeOnTechChange } from "./control-revoke.ts";
 import { endDeviceRoom } from "./rooms-device.ts";
@@ -113,6 +114,7 @@ export class Rooms implements RoomNotifier, TechnicianLiveControl {
         caps: [],
         fileMeta: { quotas: new Map(), auditAt: new Map() },
         control: newControl(),
+        clipPrint: newClipPrint(),
         timers: {},
         ending: false,
         lobbyArrivals: 0,

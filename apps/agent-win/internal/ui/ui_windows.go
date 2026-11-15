@@ -27,6 +27,7 @@ const (
 	idEndSession = 32
 	idGrant      = 41
 	idCtlClose   = 42
+	idClipSwitch = 43
 	timerTopmost = 2
 )
 
@@ -58,6 +59,9 @@ type UI struct {
 	elevated bool
 	// windowShare AC-248: müşteri "Yalnız bir pencere" seçti (gösterge metni, işaretleme katmanı yok).
 	windowShare bool
+	// P28a yazdırma onay diyaloğu (print_windows.go) ve onun pid'i.
+	printDlg *consentDlg
+	printPID string
 
 	// P8b-2 talep modu (request_windows.go)
 	reqEvents chan request.UserAction
@@ -84,9 +88,13 @@ type sessionWin struct {
 	grantBtn *ctrl
 	closeBtn *ctrl
 	hotkey   *ctrl
-	unread   int
-	active   bool
-	finished bool
+	// P28a pano anahtarı (D-P28a-1): clipOn mantıksal durum; görünüm yalnız ondan yazılır.
+	clipChk     *ctrl
+	clipOn      bool
+	clipEnabled bool
+	unread      int
+	active      bool
+	finished    bool
 }
 
 // New UI iş parçacığını başlatır. footer "Hakkında" satırıdır (alan adı + sürüm + parmak izi, AC-128). gate izin

@@ -58,6 +58,12 @@ type Ctl struct {
 	Size  *int64       `json:"size,omitempty"`
 	SHA   string       `json:"sha256,omitempty"`
 	OK    *bool        `json:"ok,omitempty"`
+	// P28a (ctl_clip_print.go): pano/yazdırma kimlikleri ve `clip.data` parçası.
+	CID  string `json:"cid,omitempty"`
+	PID  string `json:"pid,omitempty"`
+	Seq  *int   `json:"seq,omitempty"`
+	Last *bool  `json:"last,omitempty"`
+	B64  string `json:"b64,omitempty"`
 }
 
 // Tip başına izinli alanlar: zorunlu (+) ve isteğe bağlı (?). zod strictObject eşi.
@@ -74,6 +80,11 @@ var ctlFields = map[string]struct{ req, opt []string }{
 	"file.done":    {[]string{"fid"}, nil},
 	"file.result":  {[]string{"fid", "ok"}, nil},
 	"ping":         {nil, []string{"id"}},
+	"clip.ready":   {[]string{"cid"}, nil},
+	"clip.data":    {[]string{"cid", "seq", "last", "b64"}, nil},
+	"print.ready":  {[]string{"pid"}, nil},
+	"print.offer":  {[]string{"pid", "idx", "name", "size", "sha256"}, nil},
+	"print.done":   {[]string{"pid"}, nil},
 }
 
 // FileTypes file_transfer yeteneğine bağlı tipler (AC-119).
@@ -155,14 +166,22 @@ func (m Ctl) valid() bool {
 		l := utf16Len(m.Name)
 		return msgIDRe.MatchString(m.FID) && *m.Idx >= 0 && *m.Idx <= 0xFFFF && l >= 1 && l <= nameMax &&
 			*m.Size >= 0 && *m.Size <= FileMaxBytesCap && sha256Re.MatchString(m.SHA)
+	case "clip.ready", "clip.data", "print.ready", "print.offer", "print.done":
+		return m.validClipPrint()
 	default: // file.accept/reject/cancel/done/result
 		return msgIDRe.MatchString(m.FID)
 	}
 }
 
 // Allowed misafir tarafı yetenek filtresi (G-09): file_transfer yoksa dosya tipleri kabul edilmez
-// (çağıran file.offer'a otomatik file.reject döner, diğerlerini düşürür).
+// (çağıran file.offer'a otomatik file.reject döner, diğerlerini düşürür). P28a: `clip.*` ← clipboard, `print.*` ← print.
 func Allowed(t string, caps []string) bool {
+	switch {
+	case slices.Contains(clipTypes, t):
+		return slices.Contains(caps, capClipboard)
+	case slices.Contains(printTypes, t):
+		return slices.Contains(caps, capPrint)
+	}
 	return !slices.Contains(fileTypes, t) || slices.Contains(caps, capFileTransfer)
 }
 

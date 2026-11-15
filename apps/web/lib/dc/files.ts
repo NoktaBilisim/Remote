@@ -61,6 +61,15 @@ export class FileTransfers {
     return this.rx.dropped;
   }
 
+  /** P28a (O-P28a-2): dosya ve yazdırma ortak `fidIndex` sayacından sıradaki değer. */
+  nextIdx(): number {
+    return this.store.nextIdx();
+  }
+  /** Giden yönde etkin dosya aktarımı var (yazdırma bu sırada başlamaz, §4.4). */
+  get outBusy(): boolean {
+    return this.store.list.some((x) => x.dir === "out" && ["hashing", "offered", "sending"].includes(x.status));
+  }
+
   /** Gönderim başlatır; sonuç: başladı / sınır aşımı / zaten aktif transfer / yetki yok. */
   send(file: File): Promise<"ok" | "tooLarge" | "busy" | "denied" | "rate"> {
     return this.tx.send(file);

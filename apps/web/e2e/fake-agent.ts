@@ -22,13 +22,13 @@ export interface AgentLog {
   asked: boolean;
 }
 
-export async function startFakeAgent(browser: Browser, sessionId: string): Promise<Page> {
+export async function startFakeAgent(browser: Browser, sessionId: string, features: string[] = []): Promise<Page> {
   const ctx = await browser.newContext();
   const a = await ctx.newPage();
   // about:blank → loopback WS tarayıcıda engelleniyor; sahte sunucunun kendi kökenine (JSON ucu) gidilir
   await a.goto(`http://127.0.0.1:4217/__e2e/ws-log/${sessionId}`);
   await a.evaluate(
-    async ({ url, sessionId }) => {
+    async ({ url, sessionId, features }) => {
       type W = Window & { __agent: AgentLogLike & { send: (m: unknown) => void } };
       interface AgentLogLike {
         inputs: unknown[];
@@ -39,9 +39,11 @@ export async function startFakeAgent(browser: Browser, sessionId: string): Promi
         closes: string[];
         gate: boolean;
         asked: boolean;
+        p28: string[];
       }
       const w = window as unknown as W;
-      const ws = new WebSocket(url, ["rs.v1", `rs.e2eagent.${sessionId}`]);
+      // P28a: özellik bildirimi (`rs.cap.clip1`, `rs.cap.print1`) — Windows istemci gibi
+      const ws = new WebSocket(url, ["rs.v1", `rs.e2eagent.${sessionId}`, ...features]);
       const send = (m: unknown) => {
         const x = m as { t?: string; state?: string };
         if (x.t === "control.state") {
@@ -64,6 +66,7 @@ export async function startFakeAgent(browser: Browser, sessionId: string): Promi
         closes: [],
         gate: false,
         asked: false,
+        p28: [],
         send,
       };
       const cv = document.createElement("canvas");
@@ -128,7 +131,11 @@ export async function startFakeAgent(browser: Browser, sessionId: string): Promi
           close(`revoke:${m.reason}`);
         } else if (m.t === "control.release") close("release");
         else if (m.t === "control.cancel") close("cancel");
-        else if (m.t === "caps.update") {
+        else if (typeof m.t === "string" && (m.t.startsWith("clip.") || m.t.startsWith("print."))) {
+          w.__agent.p28.push(m.t);
+          // Go istemci gibi: iptal edilen iş `print.report{CANCELLED}` ile kapanır (§4.3 print.cancel)
+          if (m.t === "print.cancel") send({ t: "print.report", pid: m.pid, decision: "NONE", result: "CANCELLED", sizeBytes: 0 });
+        } else if (m.t === "caps.update") {
           w.__agent.caps.push(m.caps);
           if (!m.caps.includes("remote_control")) w.__agent.gate = false;
         }
@@ -138,13 +145,15 @@ export async function startFakeAgent(browser: Browser, sessionId: string): Promi
         ws.onerror = () => rej(new Error("agent ws"));
       });
     },
-    { url: "ws://127.0.0.1:4217/ws/guest", sessionId } /* istemci gibi doğrudan sunucuya (Next yok) */,
+    { url: "ws://127.0.0.1:4217/ws/guest", sessionId, features } /* istemci gibi doğrudan sunucuya (Next yok) */,
   );
   return a;
 }
 
 export const agentSend = (a: Page, m: unknown) =>
   a.evaluate((x) => (window as unknown as { __agent: { send: (m: unknown) => void } }).__agent.send(x), m);
+/** P28a: misafire ulaşan clip.* / print.* mesaj tipleri. */
+export const agentP28 = (a: Page) => a.evaluate(() => (window as unknown as { __agent: { p28: string[] } }).__agent.p28);
 export const agentLog = (a: Page) =>
   a.evaluate(() => {
     const { inputs, controlRequests, monitorRequests, revokes, caps, closes, gate, asked } = (window as unknown as { __agent: AgentLog })

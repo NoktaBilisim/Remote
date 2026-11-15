@@ -6,10 +6,10 @@ geliştirilir (bkz. `README.md` "Yol haritası"); kılavuz da her paketle birlik
 - **Müşteri için:** Hızlı Destek uygulaması (Windows), yalnız bir pencereyi paylaşma (0.11), "Destek iste" ile talep gönderme,
   birden çok firmaya kayıt, tepside çalıştırma ve Windows açılışında başlatma, beklerken teknisyenle yazışma (0.12),
   program indirmeden tarayıcıdan talep gönderme (web talep formu, durum bildirimi, "sohbete şifre yazmayın"), bilgisayarın hatırlanması
-  ("Bağlantı kodum var", "Bu bilgisayarı unut"), uzaktan kontrol izni, ekran görüntüsü alınamazsa ne yapılır,
+  ("Bağlantı kodum var", "Bu bilgisayarı unut"), uzaktan kontrol izni, pano paylaşımı ve uzaktan yazdırma onayı (0.13), ekran görüntüsü alınamazsa ne yapılır,
   bilgisayarda ne kalır (iz ve gizlilik)
 - **Teknisyen için:** Oturumlar ve bekleme odası ("Müşteri bekliyor" rozeti, menü sayacı, bildirim), Uzaktan kontrol
-  (konsol; "Pencere paylaşımı" rozeti dahil), Oturum geçmişi (dosyalarda "Doğrulanmış / Müşteri bildirimi", talepte SLA satırı), Destek talepleri ("Bu kaynağı engelle"; öncelik, atama,
+  (konsol; "Pencere paylaşımı" rozeti dahil), Pano ve uzaktan yazdırma (konsol), Oturum geçmişi (dosyalarda "Doğrulanmış / Müşteri bildirimi", talepte SLA satırı), Destek talepleri ("Bu kaynağı engelle"; öncelik, atama,
   SLA rozetleri, kabul öncesi mesajlaşma),
   Engellenenler, web formundan gelen talepler ("Web" rozeti), müşterinin ekranı gelmiyorsa (paylaşım hata nedeni)
 - **Admin ve teknisyen için:** Müşteriler (müşteri firmalar, bağlantı gönderme, web talep formu bağlantısı, kayıtlı
@@ -20,7 +20,7 @@ geliştirilir (bkz. `README.md` "Yol haritası"); kılavuz da her paketle birlik
 - **Herkes için (teknisyen, Admin, Super Admin):** Giriş ve hesap güvenliği — iki adımlı doğrulama (2FA), kurtarma
   kodları ve kurtarma kodlarını yenileme, "Bu cihazı 30 gün hatırla" ve hatırlanan cihazlar, şifremi unuttum, Hesabım sayfası, tüm cihazlardan çıkış, kritik ayarlarda kimliğinizi yeniden doğrulama;
   hesap menüsü, profil resmi ve tema; giriş ekranında firma logosu
-- **Admin için:** Kullanıcılar ve yetkiler (2FA sıfırlama ve kullanıcıyı kalıcı silme dahil), Uzaktan kontrol yetkisi ve kayıtlar, Oturum geçmişi
+- **Admin için:** Kullanıcılar ve yetkiler (2FA sıfırlama ve kullanıcıyı kalıcı silme dahil), Uzaktan kontrol yetkisi ve kayıtlar (pano paylaşımı ve uzaktan yazdırma yetkisi dahil), Oturum geçmişi
   yetkileri, Ayarlar > Genel (oturum ve dosya sınırları), Ayarlar > Destek talepleri (web talep formu, form spam'i altında ne yapılır, müşteriye durum bildirimi, e-posta bildirimi, kabul kodu, öncelik ve SLA dahil), Ayarlar > Mesai saatleri ve Tatiller, Ayarlar > E-posta (SMTP), Ayarlar > SMS, Audit log, Ayarlar >
   Aydınlatma metni, Ayarlar > Güvenlik (2FA cihaz hatırlama, kullanıcının hatırlanan cihazlarını kaldırma), Ayarlar > Logo, kullanıcının profil resmi, kişisel verilerin saklama süresi ve
   anonimleştirme, kurumsal bilgisayarlarda Hızlı Destek'e izin verme (AppLocker / antivirüs), ağ gereksinimleri
@@ -582,6 +582,61 @@ yeniden izin istemesi gerekir.
 - **"Dikkat: Bu program yönetici olarak çalışıyor …"** Programı "Yönetici olarak çalıştır" ile açtınız. Bu durumda
   teknisyen yönetici onayı isteyen pencereleri de kullanabilir. Gerekmiyorsa oturumu bitirip programı normal açın.
 
+### Teknisyenle pano paylaşımı (Hızlı Destek 0.13 ve sonrası)
+
+Teknisyen uzun bir komutu veya lisans anahtarını panonuza koyabilir ya da panonuzdaki bir metni (ör. hata mesajı) alabilir.
+Böylece metni telefonda harf harf okumanız gerekmez. Yalnız **düz metin** aktarılır (en çok 64 KB); dosya, resim ve biçimli
+metin aktarılmaz. Bu özellik yalnız Hızlı Destek programıyla çalışır; tarayıcıdan bağlandıysanız yoktur.
+
+**Pano paylaşımını açmak için**
+
+1. Önce teknisyene uzaktan kontrol izni verin (bkz. "Teknisyen bilgisayarımı kullanmak isterse"). Kontrol izni yokken
+   pano kutusu pasiftir.
+2. **Nokta Destek — Oturum** penceresinde **Pano paylaşımına izin ver** kutusunu **kendi farenizle** veya klavyeyle
+   (Boşluk tuşu) işaretleyin. Teknisyenin uzaktan tıklaması bu kutuyu değiştirmez.
+3. Teknisyen panonuza metin koyduğunda ekranın üstündeki yazının altında 3 saniye **"Teknisyen panonuza metin koydu"**,
+   panonuzu okuduğunda **"Teknisyen panonuzu okudu"** yazar.
+
+Kutu **her oturumda kapalı başlar**. Uzaktan kontrolü kapattığınızda (düğme veya Ctrl+Shift+F12), bağlantı koptuğunda veya
+oturum bittiğinde kendiliğinden kapanır. İstediğiniz an işaretini kaldırarak da kapatabilirsiniz.
+
+**Bilmeniz gerekenler**
+
+- Pano düğmeleri yalnız izninizle çalışır. Ancak kontrol verdiğiniz teknisyen ekranınızda gördüğünüz her şeyi görebilir;
+  panonuzda başkasının görmemesi gereken bir şey varsa kutuyu açmadan önce panonuza başka bir şey kopyalayın.
+- Parola yöneticinizin "gizli" olarak işaretlediği içerik (ör. kopyalanan parola) okunmaz ve teknisyene gitmez; teknisyen
+  "Pano içeriği gizli olarak işaretli, aktarılmadı" görür.
+- Teknisyenin koyduğu metin oturum bittikten sonra da panonuzda kalır (yapıştırabilmeniz için). Windows pano geçmişine
+  (Win+V) ve bulut panosuna düşmez. İsterseniz başka bir şey kopyalayarak silebilirsiniz.
+- Teknisyenin panonuza koyduğu metni **komut satırına körlemesine yapıştırmayın**; ne yaptığını bilmiyorsanız önce
+  okuyun veya teknisyene sorun.
+
+### Teknisyen belge yazdırmak isterse (uzaktan yazdırma, Hızlı Destek 0.13 ve sonrası)
+
+Teknisyen bir PDF belgeyi (ör. form, kurulum talimatı) sizin **varsayılan yazıcınızdan** bastırabilir. Her belge için ayrı
+onayınız istenir. Bu özellik yalnız Hızlı Destek programıyla ve teknisyen uzaktan kontroldeyken çalışır.
+
+1. Ekranda **Uzaktan yazdırma** penceresi açılır: "<teknisyen adı> bir belgeyi yazıcınıza göndermek istiyor". Altında
+   **dosya adı**, **sayfa sayısı**, **yazıcınızın adı**, boyut ve kalan süre yazar.
+2. Belgeyi bekliyor musunuz? Beklemiyorsanız **Reddet**'e tıklayın. Enter'a basmak da reddeder.
+3. Bekliyorsanız **kendi farenizle** **Yazdır**'a tıklayın. Bu düğme yanlışlıkla basılmasın diye ilk 1,5 saniye çalışmaz.
+   Teknisyenin uzaktan tıklaması sayılmaz.
+4. Belge yazıcıya tek kopya gider; ekranın üstünde 3 saniye **"Belge yazıcıya gönderildi"** yazar.
+
+Diğer durumlar:
+
+- **60 saniye** yanıt vermezseniz istek reddedilmiş sayılır. Reddettiğiniz veya yanıtsız bıraktığınız istekten sonra
+  30 saniye yeni istek gelmez. Bir oturumda en çok 20 yazdırma isteği gelebilir.
+- Uzaktan kontrolü kapatırsanız bekleyen yazdırma iptal olur ve oturum penceresinde "Uzaktan kontrol kapandı; yazdırma
+  iptal edildi." yazar.
+- Bilgisayarınızda varsayılan yazıcı yoksa pencere hiç açılmaz; teknisyen "Müşterinin varsayılan yazıcısı yok" görür.
+  Varsayılan yazıcı seçmek için: **Ayarlar → Bluetooth ve cihazlar → Yazıcılar ve tarayıcılar**.
+- Varsayılan yazıcınız **Microsoft Print to PDF** ise Windows "Farklı kaydet" penceresi açar; belgeyi nereye
+  kaydedeceğinizi siz seçersiniz.
+- Belge yalnız bellekte tutulur, diskinize kaydedilmez ve iş bitince silinir. Belgede gömülü komut veya bağlantı varsa
+  çalıştırılmaz. Windows'un yazdırma kuyruğunda iş bir süre **"NoktaDestek uzaktan yazdırma"** adıyla görünebilir; bu
+  Windows'un kaydıdır, dosya adı yazmaz.
+
 ### Oturumu kapatma
 
 - **Oturumu bitir** düğmesine tıklayın. Teknisyen ekranınızı artık göremez ve program birkaç saniye içinde kendiliğinden
@@ -613,6 +668,9 @@ yeniden izin istemesi gerekir.
 | İzin ver düğmesi çalışmıyor                                          | İlk 1,5 saniye beklenir; sonra kendi farenizle tıklayın. Kırmızı "kısayol kaydedilemedi" uyarısı varsa izin verilemez. "Bu tıklama uzak bağlantı … kabul edilmedi" uyarısı çıktıysa bilgisayarın başındaki kişi kendi faresiyle tıklamalıdır. |
 | Teknisyen tıklıyor ama bir pencerede hiçbir şey olmuyor              | O pencere yönetici yetkisiyle açılmış olabilir (ör. yönetici komut istemi). Teknisyen bunu konsolda görür; gerekirse işlemi siz yapın.                                                                                                        |
 | Windows onay ekranı (UAC) açıkken teknisyen ekranı göremiyor         | Bu ekran güvenlik gereği paylaşılmaz. Onayı siz verin; görüntü kendiliğinden geri gelir.                                                                                                                                                      |
+| Pano paylaşımına izin ver kutusu pasif                               | Önce teknisyene uzaktan kontrol izni verin; kutu yalnız kontrol açıkken işaretlenir.                                                                                                                                                          |
+| Pano kutusu kendiliğinden kapandı                                    | Uzaktan kontrol kapandı, bağlantı koptu veya oturum bitti. Gerekirse kontrol iznini yeniden verip kutuyu yeniden işaretleyin.                                                                                                                 |
+| Uzaktan kontrol kapandı; yazdırma iptal edildi.                      | Kontrolü kapattığınız için bekleyen yazdırma durdu. Teknisyen kontrolü yeniden alıp belgeyi yeniden gönderebilir.                                                                                                                             |
 
 ### Teknisyeni beklemeden destek isteyebilir miyim? ("Destek iste")
 
@@ -1046,6 +1104,9 @@ ve destek talebi bu sırada çalışmaya devam eder.
     anahtarlar yazılmaz.** Ekran görüntüsü de yazılmaz.
   - Dosya otomatik olarak hiçbir yere gönderilmez. Teknisyeniniz isterse dosyayı kendiniz (ör. e-postayla) iletirsiniz.
     Klasörü açmak için Windows tuşu + R'ye basın, `%LOCALAPPDATA%\NoktaDestek` yazıp Enter'a basın.
+- **Pano ve uzaktan yazdırma (0.13):** teknisyenin panonuza koyduğu metin panoda kalır (Win+V geçmişine ve bulut panosuna
+  düşmez). Yazdırılan belge diske yazılmaz; yalnız Windows'un yazdırma kuyruğu işi "NoktaDestek uzaktan yazdırma" adıyla
+  kısa süre tutabilir. Pano metni ve belge adı tanılama dosyasına yazılmaz.
 - **Silmek için:** ana ekranda **Bu bilgisayarı unut**'a tıklayın; ayar ve kilit dosyaları, tanılama dosyası, boş kalan
   klasör ve Windows açılışı kaydı silinir. Kayıt yokken **Bilgilerimi unut** da aynı şekilde her şeyi siler.
 
@@ -1280,6 +1341,104 @@ Konsolda ve müşterinin tarayıcı sayfasında sohbetten saniyede en çok **5 m
 mesaj **gönderilmez**, yazdığınız metin kutuda kalır ve altında "Çok hızlı yazıyorsunuz. Mesaj gönderilmedi; bir saniye
 sonra yeniden gönderin." yazar. Bir saniye bekleyip **Gönder**'e yeniden basın. Sınırın içinde gönderilen mesajlar karşı
 tarafa eksiksiz ulaşır.
+
+---
+
+## Teknisyen için: Pano ve uzaktan yazdırma (konsol)
+
+Konsolun yan panelinde **Pano ve yazdırma** bölümü vardır. Buradan müşteriye düz metin gönderir, müşterinin panosundaki
+metni alır ve bir PDF'i müşterinin yazıcısından bastırırsınız. Pano metni ve belge sunucudan geçmez; doğrudan müşteriye
+gider.
+
+**Ön koşullar**
+
+| Gerekli                | Pano (gönder / al)                            | Uzaktan yazdır                               |
+| ---------------------- | --------------------------------------------- | -------------------------------------------- |
+| Yetki                  | **Uzaktan kontrol → Pano paylaşımı**          | **Dosya transferi → Uzaktan yazdır**         |
+| Müşteri programı       | Hızlı Destek **0.13 veya sonrası** (Windows)  | Hızlı Destek **0.13 veya sonrası** (Windows) |
+| Uzaktan kontrol izni   | Evet ("Kontrol sizde")                        | Evet ("Kontrol sizde")                       |
+| Müşterinin ayrıca izni | **Pano paylaşımına izin ver** kutusu işaretli | Her belge için müşteri **Yazdır**'a basar    |
+
+Yetkiniz yoksa ilgili düğme hiç görünmez. Diğer koşullardan biri eksikse düğme pasiftir ve altında nedeni yazar.
+
+### Müşteriye metin nasıl gönderirim? ("Panoyu gönder")
+
+1. Göndereceğiniz metni kendi bilgisayarınızda kopyalayın (Ctrl+C).
+2. **Panoyu gönder**'e tıklayın. Düğme "Gönderiliyor…" olur.
+3. "Müşterinin panosuna kopyalandı" bildirimi çıkar. Müşteriden metni yapıştırmasını (Ctrl+V) isteyin veya kontrolle
+   kendiniz yapıştırın.
+
+### Müşterinin panosundaki metni nasıl alırım? ("Müşteri panosunu al")
+
+1. Müşteriden metni kopyalamasını isteyin (ya da kontrolle kendiniz kopyalayın).
+2. **Müşteri panosunu al**'a tıklayın. Düğme "Alınıyor…" olur.
+3. "Metin panonuza kopyalandı — kişisel veri içerebilir; işiniz bitince panoyu temizleyin" bildirimi çıkar. Metin ekranda
+   gösterilmez; kendi bilgisayarınızda yapıştırın.
+
+Notlar:
+
+- Yalnız düz metin, en çok **64 KB**. Türkçe karakterler, emoji ve satır sonları aynen korunur.
+- Tarayıcı ilk kullanımda pano izni isteyebilir. **Firefox ve Safari** okumada ayrıca "Yapıştır" onayı ister; **Chrome
+  veya Edge** önerilir. Firefox/Safari'de "Al"dan sonra birkaç saniye beklerseniz tarayıcı panoya yazmayı reddedebilir
+  ("Tarayıcı panoya yazmaya izin vermedi"); yeniden **Al**'a tıklayın.
+- Müşteriden aldığınız metin parola veya kişisel veri içerebilir. Windows pano geçmişini (Win+V) ve bulut panosunu
+  kapatın ya da metni kullandıktan sonra panonuzu temizleyin. Aldığınız metni **komut satırına körlemesine yapıştırmayın**.
+- Müşterinin panosuna sizin koyduğunuz metni geri almaya çalışırsanız "Pano içeriği gizli olarak işaretli, aktarılmadı"
+  döner. Bu beklenen bir güvenlik davranışıdır.
+- Dakikada en çok 30 pano isteği gönderilebilir; bir istek bitmeden yenisi başlamaz ("Önceki işlem sürüyor").
+
+### Belgeyi müşterinin yazıcısından nasıl bastırırım? ("Uzaktan yazdır")
+
+1. Kontrol sizdeyken **Uzaktan yazdır**'a tıklayın ve bilgisayarınızdan bir PDF seçin. Yalnız **PDF**, en çok **20 MB**.
+2. Durum satırı sırayla "Hazırlanıyor…", "Müşteri uygulaması hazırlanıyor…", "Gönderiliyor %…" ve "Müşteri onayı bekleniyor
+   (… sn)" gösterir. Müşteriye telefonda ekranındaki pencereden **Yazdır**'a basmasını söyleyin.
+3. Müşteri onaylayınca "Belge müşterinin yazıcısına gönderildi (… sayfa)" yazar. Belge müşterinin **varsayılan
+   yazıcısına tek kopya** gider; yazıcı veya kopya sayısı seçilemez.
+4. Vazgeçmek için iş sürerken **Vazgeç**'e tıklayın.
+
+Kurallar:
+
+- Aynı anda tek yazdırma işi olur. Müşteri reddederse veya 60 saniye yanıt vermezse düğme **30 saniye** pasif kalır
+  ("Müşteri reddetti veya yanıt vermedi; … sn sonra tekrar deneyin").
+- Bir oturumda en çok **20** yazdırma isteği gönderilebilir.
+- Yazdırma sürerken başka dosya gönderilemez; dosya gönderimi sürerken de yazdırma başlamaz ("Başka bir aktarım sürüyor").
+- Kontrol bırakılırsa veya müşteri kontrolü kapatırsa bekleyen yazdırma iptal olur: "Kontrol izni kapandı, yazdırma
+  iptal edildi".
+
+### Düğme neden pasif? (neden metinleri)
+
+| Düğmenin altında yazan                                                              | Ne yapmalı                                                                                    |
+| ----------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------- |
+| Bağlantı kuruluyor…                                                                 | Birkaç saniye bekleyin.                                                                       |
+| Müşteri bağlı değil                                                                 | Müşterinin bağlanmasını ve kabul etmenizi bekleyin.                                           |
+| Pano yalnız müşteri uygulamasında ve kontrol izniyle kullanılır                     | Müşteri tarayıcıdan bağlı. Pano ve yazdırma için Hızlı Destek programıyla bağlanmalı.         |
+| Gözetimsiz oturumda kullanılamaz — müşteri onayı gerekir                            | Gözetimsiz bağlantıda pano ve yazdırma bilerek kapalıdır (başında onay verecek kimse yok).    |
+| Müşterinin uygulaması bu özelliği desteklemiyor — güncel sürümü indirmesini isteyin | Müşterinin programı 0.13'ten eski. Yeni bağlantı gönderin; müşteri güncel sürümü indirsin.    |
+| Önce uzaktan kontrol izni alın                                                      | **Kontrol iste** ile izin alın.                                                               |
+| Müşteri pano paylaşımına izin vermedi                                               | Müşteriden oturum penceresinde **Pano paylaşımına izin ver** kutusunu işaretlemesini isteyin. |
+| Müşteri reddetti veya yanıt vermedi; … sn sonra tekrar deneyin                      | Süre dolunca yeniden deneyin.                                                                 |
+
+Tarayıcıyla bağlanan müşteride **Uzaktan yazdır** düğmesi hiç görünmez.
+
+### Sık karşılaşılan mesajlar (pano ve yazdırma)
+
+| Mesaj                                                                           | Anlamı / ne yapmalı                                                                                                                         |
+| ------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- |
+| Panoda metin yok                                                                | Kopyalanan şey metin değil (dosya, resim) ya da pano boş. Metni yeniden kopyalayın.                                                         |
+| Pano metni 64 KB sınırını aşıyor                                                | Metni bölün veya dosya olarak gönderin.                                                                                                     |
+| Pano içeriği gizli olarak işaretli, aktarılmadı                                 | Müşterinin panosunda parola yöneticisinin gizli işaretlediği içerik var (ya da sizin koyduğunuz metin). Aktarılmaz.                         |
+| Müşteri tarafında izin kapalı, aktarılmadı                                      | Müşterinin pano kutusu veya kontrol izni bu sırada kapandı.                                                                                 |
+| Pano aktarımı başarısız / Pano aktarımı zaman aşımına uğradı                    | Müşteride başka bir program panoyu tutuyor olabilir. Biraz sonra yeniden deneyin.                                                           |
+| Tarayıcı pano okumasına izin vermedi — adres çubuğundaki site izinlerinden açın | Adres çubuğundaki kilit/ayar simgesinden bu site için "Pano" iznini açın.                                                                   |
+| Bu tarayıcı panoya erişimi desteklemiyor — Chrome veya Edge kullanın            | Tarayıcınızı değiştirin.                                                                                                                    |
+| Yalnız PDF dosyası yazdırılabilir                                               | Seçtiğiniz dosya PDF değil. Belgeyi "PDF olarak kaydet" ile dönüştürün.                                                                     |
+| Dosya 20 MB sınırını aşıyor                                                     | Belgeyi küçültün veya bölün; ya da dosya olarak gönderip müşteriye yazdırtın.                                                               |
+| Müşterinin varsayılan yazıcısı yok                                              | Müşteri Windows ayarlarından bir yazıcıyı varsayılan yapmalı.                                                                               |
+| Müşteri yazdırmayı reddetti / Müşteri yanıt vermedi                             | Müşteriyle konuşun; 30 saniye sonra yeniden deneyin.                                                                                        |
+| Belge açılamadı (bozuk veya parola korumalı)                                    | PDF'i açıp parolasız olarak yeniden kaydedin, tekrar gönderin.                                                                              |
+| Yazdırma başarısız oldu                                                         | Müşterinin yazıcısı çevrimdışı veya sürücü hatası olabilir. Müşteri aynı belgeyi kendisi yazdırabiliyor mu, deneyin; yöneticinize bildirin. |
+| Yazdırma yanıtsız kaldı (süre doldu) / Müşteri bağlantısı koptu                 | 10 dakikada sonuç gelmedi veya müşteri koptu. Bağlantıyı kontrol edip yeniden deneyin.                                                      |
+| Bu oturumda yazdırma sınırına ulaşıldı.                                         | 20 istek doldu. Gerekirse yeni oturum açın.                                                                                                 |
 
 ---
 
@@ -1847,7 +2006,8 @@ bkz. "Herkes için: Giriş ve hesap güvenliği"). 2FA sorunu için bkz. "Admin 
 
 1. Listeden kullanıcıya tıklayın. Sağda **Yetkiler** tablosu açılır: her satır bir modül (Oturumlar, Uzaktan kontrol,
    Dosya transferi, Oturum geçmişi, Destek talepleri, Müşteriler, Kullanıcılar, Ayarlar, Audit log), sütunlar alt
-   yetkiler (Görüntüle, Ekle, Düzenle, Sil, Dışa aktar; "Diğer" sütununda Zorla sonlandır, Kullan, Kabul / ret).
+   yetkiler (Görüntüle, Ekle, Düzenle, Sil, Dışa aktar; "Diğer" sütununda Zorla sonlandır, Kullan, Kabul / ret,
+   Pano paylaşımı, Uzaktan yazdır).
 2. Anahtarları açıp kapatın. **Tümü** sütunundaki anahtar o modülün tüm alt yetkilerini birlikte açar veya kapatır;
    bir kısmı açıksa yarım görünür. Anlamı adından anlaşılmayan yetkilerin açıklaması ekrandaki "Yetki
    açıklamaları" bölümündedir. "Uygulanmaz" yazan hücrede o modülün böyle bir yetkisi yoktur.
@@ -2000,6 +2160,34 @@ ekranında "Uzaktan kontrol" ve "Monitör" işlem gruplarıyla süzebilirsiniz (
 
 İzin, ret ve kapanışlar ayrıca KVKK onay kanıtı olarak saklanır. **İzin kaydı yazılamazsa kontrol hiç açılmaz**:
 müşterinin onayı kaydedilmeden teknisyen bilgisayarı kullanamaz.
+
+### Pano paylaşımı ve uzaktan yazdırma yetkisi
+
+- **Uzaktan kontrol → Pano paylaşımı** (`remote_control.clipboard`): "Kontrol izni verilmiş oturumda, müşteri ayrıca izin
+  verirse düz metin panosunu gönderir ve alır." Pratikte **Uzaktan kontrol → Kullan** yetkisi de gerekir, çünkü pano
+  yalnız kontrol izniyle çalışır.
+- **Dosya transferi → Uzaktan yazdır** (`file_transfer.print`): "Müşterinin onayıyla PDF belgeyi müşterinin varsayılan
+  yazıcısına gönderir (yalnız Windows uygulaması)." **Dosya transferi → Kullan**'dan bağımsızdır; dosya gönderme yetkisi
+  olmayan teknisyene yalnız yazdırma verilebilir.
+- İkisi de Admin rolünde açık, teknisyende (User) kapalı başlar. Yetki kaldırılırsa açık oturumda hemen uygulanır;
+  bekleyen pano/yazdırma işi iptal olur. Oturum sırasında **verilen** yetki yeni oturumda geçerli olur.
+- İki özellik de yalnız Hızlı Destek 0.13 ve sonrasıyla bağlanan müşteride çalışır. Tarayıcı müşterisinde ve **gözetimsiz
+  oturumlarda kullanılamaz** (müşteri onayı gerekir; yetki açık olsa da sunucu reddeder).
+
+### Pano ve yazdırma kayıtları (audit)
+
+Pano metni, belgenin içeriği ve dosya adı hiçbir kayda yazılmaz. Audit log ekranında "Pano paylaşımı" ve "Uzaktan
+yazdırma" işlem gruplarıyla süzebilirsiniz; aynı olaylar oturum ayrıntısındaki zaman çizelgesinde de görünür.
+
+| Kayıt                                   | Ne zaman                                                           | Yazılan bilgi                                     |
+| --------------------------------------- | ------------------------------------------------------------------ | ------------------------------------------------- |
+| `clipboard.consent` (Pano izni değişti) | Müşteri pano kutusunu açtı/kapattı veya kutu kendiliğinden kapandı | Açık/kapalı, kim (müşteri/sistem), kapanma nedeni |
+| `clipboard.transfer` (Pano aktarımı)    | Her gönder/al işlemi                                               | Yön (müşteriye / müşteriden), bayt sayısı, sonuç  |
+| `print.job` (Uzaktan yazdırma)          | Her yazdırma isteğinin sonucu                                      | Müşteri kararı, sayfa sayısı, boyut, sonuç        |
+
+Yazdırma kaydı belgenin **hangi belge olduğunu kanıtlamaz**: dosya adı ve içerik özeti bilerek tutulmaz; yalnız karar,
+sayfa, boyut ve sonuç vardır. Müşteri pano kutusunu çok sık açıp kapatırsa (dakikada 6'dan fazla) fazlası yok sayılır ve
+kayda yazılmaz.
 
 ---
 
@@ -2941,7 +3129,8 @@ Teknisyende liste yalnız yetkili olduğu cihazları gösterir; hiç yoksa "Size
 3. Konsol açılır, "Cihaz bağlanıyor…" görünür; cihaz katılınca ekran gelir. Müşteri onaylı oturumdaki doğrulama kodu ve
    oturum kodu burada yoktur; kimseye kod söylemeniz gerekmez. Başlıkta **Gözetimsiz** rozeti ve cihaz adı vardır.
 4. Kontrol için konsoldaki **Kontrol iste** düğmesini kullanın; cihazda onay sorulmaz. Dosya gönderebilirsiniz; dosya
-   cihazda `C:\ProgramData\NoktaDestek Servis\Gelen\` klasörüne düşer. Cihazdan dosya çekme ve sohbet yoktur.
+   cihazda `C:\ProgramData\NoktaDestek Servis\Gelen\` klasörüne düşer. Cihazdan dosya çekme ve sohbet yoktur. Pano paylaşımı ve
+   uzaktan yazdırma da yoktur; konsolda "Gözetimsiz oturumda kullanılamaz — müşteri onayı gerekir" yazar.
 5. Bitirmek için oturumu normal şekilde sonlandırın.
 
 - **Kod her bağlantıda yeniden sorulur.** Bir doğrulama tek bağlantı açar; "Bu cihazı 30 gün hatırla" bunu atlatmaz.

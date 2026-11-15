@@ -1,3 +1,113 @@
+# Güvenlik Raporu — P28a kod turu 1 (K8; pano + uzaktan yazdırma, dal p28a, HEAD b0ed14c, 2026-11-16)
+
+DURUM: GEÇTİ — Kritik 0 / Yüksek 0 / Orta 0 / Düşük 2
+
+Kapsam: sunucu `signaling/{clip-print,rooms-features,ws-auth,admit,active,control,control-grant,control-revoke,handlers,rooms}.ts`,
+`ops/metrics.ts`; contracts `ws-clip-print.ts`, `dc-clip-print.ts`, `ws.ts`/`dc.ts`/`permissions.ts`/`audit.ts` (diff); web
+`lib/clip/*`, `lib/print/*`, `lib/dc/{chunk-sender,file-send,files,use-collab,file-model}.ts`, `components/collab/clip-print-panel.tsx`;
+Go `internal/{printing,proclimit,clip,clipprint,dc/ctl_clip_print.go,signal/clipprint.go}`, `flow/clipprint*.go` + oturum bağlantıları
+(`control.go`, `session*.go`), `cmd/noktadestek/main.go`; `.github/workflows/agent-win.yml` (diff). Staging'e bağlanılmadı; testler
+çalıştırılmadı (CI'ya güvenildi), kod okundu.
+
+## Tasarım turu bulgularının (r2) kodda karşılanması
+
+| Madde    | Durum       | Kanıt                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
+| -------- | ----------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Y-P28a-1 | **Kapandı** | Sunucu: `clip-print.ts:73-80` `guestGate` pano ve yazdırmada `control.state === "GRANTED"` istiyor (3b). `onControlClosed` (`:314-317`) dört kapanış yolunda da çağrılıyor: `control-grant.ts` `onView`, `control.ts` `handleControlClose`, `control-revoke.ts` `revokeControl` / `revokeOnTechChange`. İstemci: `flow/control.go:54` `closeControl` → `cp.controlClosed()` (yazdırma CANCELLED, diyalog kapanır, ctx iptali işçi job'unu kapatır); `onPrintRequest` (`clipprint_print.go:70`), `onInspected` (`:190`) ve `onPrintDecision` (`:215`) kapıyı yeniden denetliyor. Konsol `use-clip-print.ts:127-132`. |
+| O-P28a-1 | **Kapandı** | Sunucu son 64 kimlik (`clip-print.ts:83-89`, yeniden kullanım → VALIDATION). Misafir: 8 sn / 8 dk son tarihler (`clipprint.go:294`, `clipprint_print.go:80`); yön bağı (`onClipData` yalnız push işinin cid'i, pull iş tutmuyor); tek kullanım (`remember`, son 64); `reset()` kopma ve yeni hello'da (`session.go:187`, `session_server.go:106`).                                                                                                                                                                                                                                                                  |
+| O-P28a-2 | **Kapandı** | pid başına tek offer (`clipprint_print.go:100`); boyut WS'de yetkilenen değerle eşit olmalı, `idx` son 64'te ise ret (`:102`); done sonrası çerçeve → ERROR (`:127`); yazdırma `idx`'i dosya alıcısına gitmiyor (`session_media.go:233`) ve dosya teklifi o `idx`'le reddediliyor (`:257`). Konsolda ortak sayaç `file-model.ts` `nextIdx`.                                                                                                                                                                                                                                                                         |
+| O-P28a-3 | **Kapandı** | `proto.go:150-170` render yanıtında w/h hedefle aynı olmalı, stride `align4(w*3)`, n = stride*h ≤ 64 MiB; yük doğrulamadan önce okunmuyor; hata durumunda yük taşıyan yanıt ErrProtocol. Hedefi üst süreç belirliyor (`render.go` `targetSize`, ≤ 300 DPI, ≤ 40 Mpx). Sayfa 1..100000 (`readInspect`), render dizini `< pages` (`worker.go:157,170`). `HANDLE_LIST` yalnız iki boru ucu, alt süreç yasağı, mitigasyon (`proclimit_windows.go:184-202`). Okuma goroutine'de; zaman aşımı ve iptal `Close` → job kapanıyor (`worker.go:183-222`).                                                                     |
+| O-P28a-4 | **Kapandı** | `rooms-features.ts:30-31` `room.unattended` veya AGENT dışı misafirde belirteçler hiç okunmuyor (`NONE`). Bağlama `ws-auth.ts` `bindGuest` içinde, soket başına yapılıyor; gözetimsiz yol (`deviceTicket`) da aynı `openGuest`'ten geçiyor. İstemci tarafı da bildirmiyor (`flow/clipprint.go:100-102`). Entegrasyon testi `clip-print-unattended.test.ts`.                                                                                                                                                                                                                                                         |
+| O-P28a-5 | **Kapandı** | `clip-print.ts:179-200`: açma ≤ 6/dk/oda, aşımda misafire `{on:false}` + metrik, audit yok; aynı değer no-op.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| D-P28a-1 | **Kapandı** | `flow/clipprint.go:259-273`: açma isteği yetenek + kapı ile kesiştiriliyor, görünüm her durumda `syncSwitch` ile mantığa çekiliyor. Olay yalnız yerel girdiyle üretiliyor (`ui/session_windows.go`).                                                                                                                                                                                                                                                                                                                                                                                                                |
+| D-P28a-2 | **Kapandı** | `clip/clip.go:60-62` dört biçim (okunamayan/kısa veri gizli sayılıyor, fail-closed); `clip_windows.go:200-220` biçim denetimi, `GlobalSize` sınırı ve kopya tek açık oturumda; ayrı iş parçacığı + 2 sn.                                                                                                                                                                                                                                                                                                                                                                                                            |
+| D-P28a-3 | **Kapandı** | Yeni Go paketlerinde (`clip`, `clipprint`, `printing`, `proclimit`, `signal/clipprint.go`, `dc/ctl_clip_print.go`) log/diag çağrısı yok; `flow/clipprint*.go` yalnız sabit metinli `Status`/`Notice` kullanıyor. `trace-check.ps1` içerik işareti taraması eklendi. Spool adı sabit.                                                                                                                                                                                                                                                                                                                                |
+| D-P28a-4 | **Kapandı** | `use-clip-print.ts:25-26,67-68` "Al" başarı bildirimi hatırlatmalı ve 8 sn.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+
+## Bulgular (öncelik sırasıyla)
+
+### [DÜŞÜK] D-P28aK-1 Web'de "pano içeriği console'a yazılmaz" için vaat edilen lint kuralı ve testi yok — A09 Security Logging Failures
+
+Yer: apps/web/eslint.config.mjs:6-21 (kural yok); apps/web/lib/clip/clip-print-p28a.test.ts (console/DOM sızıntı testi yok)
+Sorun: Mimari §6 "Pano içeriği hiçbir zaman DOM'a basılmaz, `console.*`'a yazılmaz (**lint kuralı + test**)" diyor. Sunucu ve contracts
+paketlerinde `no-console: error` var, web paketinde yok. Birim testlerinde `console` casusu veya DOM'da içerik araması da yok. Bugünkü
+kod içeriği loglamıyor ve DOM'a basmıyor (`clipboard.ts`, `chunks.ts`, `use-clip-print.ts` incelendi). Bulgu gerileme koruması eksikliği.
+İstismar senaryosu: İleride bir hata ayıklama satırı (`console.log(text)`) eklenirse müşteri panosundaki parola, teknisyen tarayıcısının
+konsoluna ve tarayıcı uzantılarının/Sentry konsol yakalamasının erişebildiği yere düşer. CI bunu yakalamaz.
+Düzeltme: `apps/web/eslint.config.mjs` içinde `lib/clip/**`, `lib/print/**` ve `components/collab/clip-print-panel.tsx` için
+`no-console: "error"` (tercihen tüm `lib/**`). `clip-print-p28a.test.ts`'e `vi.spyOn(console, …)` ile push/pull akışında hiç çağrı
+olmadığını ve işaretli metnin `ClipView`/bildirim nesnelerinde bulunmadığını doğrulayan test. (atanan ajan: frontend-dev)
+
+### [DÜŞÜK] D-P28aK-2 `clip.consent{on:true}` oturum caps'inde `clipboard` yokken de kabul edilip audit'e yazılıyor — A04 Insecure Design
+
+Yer: apps/server/src/signaling/clip-print.ts:179-200
+Sorun: Açma isteği yalnız kontrol GRANTED ve oran sınırına bakıyor. `room.caps.includes("clipboard")` denetlenmiyor. Teknisyenin pano
+yetkisi yoksa veya oturum içinde daraldıysa (`onCapsNarrowed` izni kapatıyor ama sonraki açmayı engellemiyor) değiştirilmiş bir istemci
+`on:true` gönderir. Sunucu izni açık sayar, teknisyene `clip.consent{on:true}` iletir ve `clipboard.consent{on:true, by:"customer"}`
+audit satırı yazar. Pano aktarımı yine `actorMay` kapısında reddedildiği için veri sızmıyor. Etki yanıltıcı audit ve konsol durumu, en
+çok 6 satır/dk.
+İstismar senaryosu: Müşteri tarafındaki değiştirilmiş istemci, yetkisi alınmış teknisyenin oturumunda "Müşteri pano iznini açtı" kayıtları
+üretir. Denetimde izin sorumluluğu bulanıklaşır.
+Düzeltme: `on && !room.caps.includes("clipboard")` → misafire `{on:false}`, `noteDenied(…, "consent", "permission")`, audit yok
+(control kapısıyla aynı kalıp). Birim testi eklenmeli. (atanan ajan: backend-dev)
+
+## Odak noktaları — doğrulama özeti
+
+- **Yetki ve kapı sırası (sunucu):** `actorMay` = oda sahibi teknisyen + yetki + oda caps'i. Kapı sırası mimari §4.3 ile birebir: yetki →
+  misafir → AGENT ve özellik → GRANTED → izin (pano) → bekleyen iş → oran/cooldown/limit → kimliğin yeniden kullanımı. Reddedilen istekler
+  audit'e değil metriğe ve dakikada en çok 1 log satırına yazılıyor. Log satırında yalnız `kind`, `reason`, `sessionId` var.
+- **Misafir şeması:** `guestInboundSchemaFor(peer.features)`. Yeteneksiz sokette `clip.*`/`print.report` şema dışında kalıyor → 1008.
+  Tüm şemalar `strictObject`; `cid`/`pid` için `^[A-Za-z0-9_-]{8,26}$`; bayt 0..65536, boyut 5..20 MiB, sayfa 1..100000. Raporda misafirin
+  beyan ettiği `sizeBytes` audit'e girmiyor; sunucunun yetkilediği değer yazılıyor (`clip-print.ts:280`).
+- **Tenant izolasyonu:** Oda tek tenant'a bağlı; audit `tenantId: room.tenantId`, `entityId: room.sessionId`. Çapraz oda iletimi yok.
+  Teknisyen değişince (`revokeOnTechChange`) izin kapanıyor ve bekleyen yazdırma iptal ediliyor.
+- **Audit içeriği:** Yalnız `{on, by, reason}`, `{direction, bytes, result, reportedBy}`, `{decision, pages?, sizeBytes, result, reportedBy}`.
+  Dosya adı, hash ve içerik WS şemasında bile yok.
+- **Metrik kardinalitesi:** `rs_clipboard_transfer_total{direction,result}`, `rs_print_job_total{result}`,
+  `rs_clip_print_denied_total{kind,reason}`. Etiketlerin hepsi sabit küme; kimlik, tenant ve oturum etiketi yok.
+- **DC sınırları (Go):** Zorunlu alan, `null` reddi ve bilinmeyen anahtar reddi `ParseCtl`'de (`dc/ctl.go:100-122`), böylece işaretçi
+  alanlarının nil olması imkânsız. `clip.data` en çok 8 parça × 10 924 karakter, base64 kalıbı; birleştiricide toplam = beyan, UTF-8 ve
+  U+0000 denetimi var. Yazdırma alıcısında `rx` sayacı > size ya da > 20 MiB → TOO_LARGE; SHA-256 + `%PDF-` doğrulanmadan işçiye
+  gitmiyor. Tampon yalnız bellekte tutuluyor, her sonuçta sıfırlanıyor; goroutine kullanıyorsa dönüşte sıfırlanıyor.
+- **İşçi yalıtımı:** `DefaultIsolation = FullIsolation` (düşük bütünlük + yalnız Microsoft imzalı görüntü + dinamik kod yasak; R-P28a-1
+  geri dönüşüne gerek kalmamış). Kısıtlı jeton (`DISABLE_MAX_PRIVILEGE`), job (tek süreç, kill-on-close, 512 MB, işlenmeyen istisnada
+  ölüm, tüm UI kısıtları), `CREATE_SUSPENDED` → job'a atama → devam (yarış yok), `DETACHED_PROCESS`, açık `lpDesktop`, çalışma dizini
+  System32. İşçi kipi yalnız tam olarak `--pdf-isleyici` argümanıyla açılıyor, ilk iş `dllsafe.Harden`. PDF ayrıştırma işçide, GDI üst
+  süreçte. İşçi tarafı istek sınırı: inspect ≤ 20 MiB, render yük taşımaz ve hedef geçerli olmalı. Bilgi: düşük bütünlük okuma gizliliğini
+  korumuyor; bu kabul Y-P28a-1 kapısına bağlı (değişmedi).
+- **Pano (Win32):** Okuma ve yazma ayrı iş parçacığında ve sınırlı sürede. Gizli işaretli panoda içerik okunmuyor. Yazmada geçmiş/bulut
+  dışlama biçimleri aynı oturumda (T9).
+- **Web:** İçerik `state`'e, DOM'a ve toast'a girmiyor. Tamponlar `fill(0)` ile sıfırlanıyor. "Al" yönünde yalnız bekleyen ve yöne bağlı
+  cid'in verisi kabul ediliyor. Teknisyen tarafındaki PDF denetimi yalnız kullanılabilirlik içindir; asıl doğrulama misafirde. Dosya adı
+  yalnız DC'de ve teknisyenin kendi ekranında (React kaçışlı).
+- **CI:** `agent-win.yml` yeni adımları yalnız `run:`; yeni `uses:` yok (mevcutlar SHA ile sabit). İş akışı `permissions: contents: read`.
+- **Tehdit modeli T1–T10:** T1 (yetki + GRANTED + ayrı izin + bildirim + SENSITIVE + audit), T2 (yalnız yerel girdi), T3 (WS'siz DC
+  içeriği uygulanmıyor), T4 (yalıtım + kapı + çıktı doğrulama), T5 (tek bekleyen, 30/dk, 20/oturum, 30 sn), T6 (log/audit/metrik temiz),
+  T7 (`capsFor`), T8 (yalnız bellek), T9 (geçmiş/bulut biçimleri), T10 (`reset`/`close`/`onGuestGone`): kodda karşılığı var.
+
+## Otomatik tarama çıktıları
+
+- `pnpm audit --audit-level=moderate`: `No known vulnerabilities found`.
+- Gizli bilgi kalıbı (`git grep -nE "(api[_-]?key|secret|password|token)\s*[:=]\s*['\"][^'\"]{8,}"`, test/fikstür/docs hariç): eşleşme yok.
+- `.env` geçmişi: yalnız `.env.example` izlenmiş, gerçek `.env` yok.
+- P28a'da yeni npm veya Go bağımlılığı yok (`go.mod`/`go.sum`, `package.json`, `pnpm-lock.yaml` diff boş). WinRT çağrıları `x/sys/windows` ile.
+
+## Tasarımda vaat edilip kodda bulunmayanlar
+
+- Mimari §6: web için "lint kuralı + test" (D-P28aK-1).
+- Diğer r2 maddelerinin hepsi kodda var (tablo yukarıda).
+
+## Olumlu
+
+- Sunucu iletimde alanları yeniden kuruyor; içerik, dosya adı ve hash WS'ye hiç girmiyor.
+- Kontrol kapanışının dört sunucu yolu ve istemcideki tek `closeControl` noktası `onControlClosed`/`controlClosed`'a bağlanmış. Y-P28a-1
+  iki tarafta da tutarlı.
+- İşçi protokolü üst süreçte "önce başlığı doğrula, sonra oku" düzeninde; bellek tahsisi doğrulanmış uzunlukla yapılıyor.
+- `proclimit` servis yardımcısıyla ortak; kopya kod yok.
+- Gözetimsiz odada kapalılık hem sunucuda hem istemcide ayrı ayrı uygulanıyor.
+
+---
+
 # Güvenlik Raporu — LG — Kod turu 1 (müşteriye bağlantı gönderme, commit edilmemiş çalışma ağacı, 2026-11-15)
 
 DURUM: GEÇTİ — Kritik 0 / Yüksek 0 / Orta 0 / Düşük 3

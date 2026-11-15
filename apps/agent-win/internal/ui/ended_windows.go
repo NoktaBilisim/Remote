@@ -17,13 +17,14 @@ func (u *UI) Ended(m flow.Message) {
 	u.t.Do(func() {
 		u.teardownSession()
 		if s := u.sess; s != nil {
-			s.finished = true
+			s.finished, s.clipOn = true, false
+			setChecked(s.clipChk, false)
 			win.SetText(s.watch.h, m.Title)
 			win.SetText(s.status.h, m.Body)
 			if u.endNote != "" {
 				appendLine(s.history, "Sistem", u.endNote)
 			}
-			for _, c := range []*ctrl{s.input, s.sendBtn, s.endBtn, s.fileBtn, s.grantBtn, s.closeBtn} {
+			for _, c := range []*ctrl{s.input, s.sendBtn, s.endBtn, s.fileBtn, s.grantBtn, s.closeBtn, s.clipChk} {
 				win.EnableWindow(c.h, false)
 			}
 			return

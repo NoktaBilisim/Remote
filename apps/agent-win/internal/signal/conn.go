@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/url"
 	"regexp"
+	"slices"
 
 	"github.com/coder/websocket"
 )
@@ -61,15 +62,21 @@ type Conn struct {
 
 // Dial `wss://<host>/ws/guest`'e (sorgu dizesi YOK) bağlanır. httpClient api.Client'ın TLS doğrulamalı istemcisidir;
 // Origin başlığı gönderilmez (sunucu Origin'siz bağlantıyı yalnız ticket.kind=AGENT ile kabul eder, ADR-0012).
-func Dial(ctx context.Context, httpClient *http.Client, server *url.URL, cred Credential) (*Conn, error) {
+// features P28a (mimari-p28 §4.2) bildirilen özellik belirteçleri (FeatureClip, FeaturePrint); kimlik değildir. Gözetimsiz
+// yardımcı nil geçer (sunucu da gözetimsiz odada okumaz, O-P28a-4). Bilinmeyen/tekrarlı belirteç hata döner.
+func Dial(ctx context.Context, httpClient *http.Client, server *url.URL, cred Credential, features []string) (*Conn, error) {
 	proto, err := cred.protocol()
+	if err != nil {
+		return nil, err
+	}
+	protos, err := subprotocols(proto, features)
 	if err != nil {
 		return nil, err
 	}
 	u := url.URL{Scheme: "wss", Host: server.Host, Path: guestPath}
 	ws, resp, err := websocket.Dial(ctx, u.String(), &websocket.DialOptions{
 		HTTPClient:   httpClient,
-		Subprotocols: []string{Subprotocol, proto},
+		Subprotocols: protos,
 	})
 	if resp != nil && resp.Body != nil {
 		_ = resp.Body.Close()
@@ -83,6 +90,18 @@ func Dial(ctx context.Context, httpClient *http.Client, server *url.URL, cred Cr
 	}
 	ws.SetReadLimit(maxPayload)
 	return &Conn{ws: ws}, nil
+}
+
+// subprotocols `rs.v1, <kimlik>, <özellikler…>` listesi; özellik yalnız bilinen ve tekrarsız belirteç olabilir.
+func subprotocols(cred string, features []string) ([]string, error) {
+	out := []string{Subprotocol, cred}
+	for _, f := range features {
+		if (f != FeatureClip && f != FeaturePrint) || slices.Contains(out, f) {
+			return nil, errors.New("signal: geçersiz özellik belirteci")
+		}
+		out = append(out, f)
+	}
+	return out, nil
 }
 
 // Read sıradaki sunucu mesajını doğrulayarak döner. Şema ihlalinde soketi 1008 ile kapatır.

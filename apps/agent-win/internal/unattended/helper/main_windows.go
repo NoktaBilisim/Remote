@@ -60,7 +60,7 @@ func flowDeps(cfg config.Config, inc *incoming, desk *desktop.Gate) (flow.Deps, 
 		Dial: func(ctx context.Context, cred signal.Credential) (flow.Conn, error) {
 			dctx, cancel := context.WithTimeout(ctx, dialTimeout)
 			defer cancel()
-			return signal.Dial(dctx, client.HTTPClient(), cfg.ServerURL, cred)
+			return signal.Dial(dctx, client.HTTPClient(), cfg.ServerURL, cred, nil) // P28a: yardımcı özellik bildirmez (O-P28a-4)
 		},
 		NewPeer: func(ice []signal.IceServer, caps []string, h rtc.Handlers) (flow.Peer, error) {
 			return rtc.New(ice, caps, h)

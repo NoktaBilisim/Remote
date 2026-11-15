@@ -2,6 +2,7 @@
 // annot.*, file.*, ping), `file` kanalı çerçevesi ve alınan bayt sınırı; P7: `input` kanalı. DC'de `control.*` tipi YOKTUR (kontrol isteği
 // yalnız WS'den); strict şema bilinmeyen tipi/alanı reddeder (G-09).
 import { z } from "zod";
+import { CLIP_CTL_TYPES, ctlClipPrintMessages, PRINT_CTL_TYPES } from "./dc-clip-print.ts";
 
 /** Teknisyen offer'da açar. `input` yalnız AGENT; BROWSER misafir bu kanalı kabul etmez/kapatır. */
 export const DC_LABELS = { CTL: "ctl", FILE: "file", INPUT: "input" } as const;
@@ -130,6 +131,7 @@ export const ctlMessageSchema = z.discriminatedUnion("t", [
   fileDoneSchema,
   fileResultSchema,
   pingSchema,
+  ...ctlClipPrintMessages, // P28a (mimari-p28 §4.4)
 ]);
 export type CtlMessage = z.infer<typeof ctlMessageSchema>;
 export type CtlType = CtlMessage["t"];
@@ -151,8 +153,10 @@ export function parseCtlMessage(raw: unknown): CtlMessage | null {
   return r.success ? r.data : null;
 }
 
-/** Misafir tarafı yetenek filtresi (G-09): mesaj bu caps ile kabul edilebilir mi. */
+/** Misafir tarafı yetenek filtresi (G-09): mesaj bu caps ile kabul edilebilir mi. P28a: `clip.*` ← `clipboard`, `print.*` ← `print`. */
 export function ctlAllowed(t: CtlType, caps: readonly string[]): boolean {
+  if (CLIP_CTL_TYPES.has(t)) return caps.includes("clipboard");
+  if (PRINT_CTL_TYPES.has(t)) return caps.includes("print");
   return !FILE_CTL_TYPES.has(t) || caps.includes("file_transfer");
 }
 

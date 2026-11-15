@@ -24,6 +24,8 @@ interface CollabOptions {
   sendMeta: (m: FileMetaMsg) => void;
   /** Tenant sınırı (hello/peer.joined `maxFileMb`); yoksa 100 MB. */
   maxFileMb?: number;
+  /** P28a (§4.4): uzaktan yazdırma aktarımı sürüyor → giden dosya teklifi "busy" (yön başına tek aktarım). */
+  printBusy?: () => boolean;
 }
 
 const e2eCorrupt = () => process.env.NEXT_PUBLIC_RS_E2E === "1" && Boolean((globalThis as { __rsCorruptSha?: boolean }).__rsCorruptSha);
@@ -64,6 +66,7 @@ export function useCollab(ch: Channels | null, o: CollabOptions) {
       chunkDelayMs: e2eChunkDelay,
       offerTimeoutMs: e2eOfferTimeout,
       selfThrottle: e2eSelfThrottle,
+      extBusy: () => opts.current.printBusy?.() ?? false,
     });
     ft.current = t;
     // S-P5-6: karşı tarafın chat/annot seli bu sekmeyi kilitlemesin — aşan mesaj düşer
@@ -136,6 +139,10 @@ export function useCollab(ch: Channels | null, o: CollabOptions) {
     cancel: (fid: string, dir: "in" | "out") => ft.current?.cancel(fid, dir),
     annot,
     sendAnnot,
+    /** P28a (O-P28a-2): dosya + yazdırma ortak `fidIndex` sayacı; kanal yoksa null. */
+    nextIdx: () => ft.current?.nextIdx() ?? null,
+    /** P28a (§4.4): giden dosya aktarımı sürüyor (yazdırma başlamaz). */
+    fileOutBusy: () => ft.current?.outBusy ?? false,
   };
 }
 export type Collab = ReturnType<typeof useCollab>;

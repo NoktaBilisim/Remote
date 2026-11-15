@@ -12,6 +12,7 @@ import type {
   SessionStatus,
   TimelineEvent,
 } from "./api/sessions.ts";
+import type { ClipResult, PrintDecision, PrintResult } from "./ws-clip-print.ts";
 
 /** Bilinen değer → etiket; bilinmeyen → ham değer; null/undefined → "". */
 export function labelOf(map: Readonly<Record<string, string>>, value: string | null | undefined): string {
@@ -213,6 +214,43 @@ export const TIMELINE_ACTION_LABELS: Readonly<Record<string, string>> = {
   "session.ended": "Oturum bitti",
   "unattended.session.started": "Gözetimsiz bağlantı başladı",
   "unattended.session.ended": "Gözetimsiz bağlantı bitti",
+  // P28a (mimari-p28 §8.1)
+  "clipboard.consent": "Pano izni değişti",
+  "clipboard.transfer": "Pano aktarımı",
+  "print.job": "Uzaktan yazdırma",
+};
+
+/** P28a (AC-345, 346): pano sonucu — konsol durum metni ve zaman çizelgesi. */
+export const CLIP_RESULT_LABELS: Readonly<Record<ClipResult, string>> = {
+  OK: "Aktarıldı",
+  EMPTY: "Panoda metin yok",
+  TOO_LARGE: "Pano metni 64 KB sınırını aşıyor",
+  SENSITIVE: "Pano içeriği gizli olarak işaretli, aktarılmadı",
+  INVALID: "Pano metni geçersiz, aktarılmadı",
+  DENIED: "Müşteri tarafında izin kapalı, aktarılmadı",
+  ERROR: "Pano aktarımı başarısız",
+  TIMEOUT: "Pano aktarımı zaman aşımına uğradı",
+  DISCONNECTED: "Müşteri bağlantısı koptu",
+};
+/** P28a (AC-349, 350): yazdırma sonucu. */
+export const PRINT_RESULT_LABELS: Readonly<Record<PrintResult, string>> = {
+  PRINTED: "Yazıcıya gönderildi",
+  NO_PRINTER: "Müşterinin varsayılan yazıcısı yok",
+  REJECTED: "Müşteri reddetti",
+  TIMEOUT: "Müşteri yanıt vermedi",
+  INVALID_PDF: "Belge geçerli bir PDF değil",
+  TOO_LARGE: "Belge 20 MB sınırını aşıyor",
+  BUSY: "Başka bir dosya aktarımı sürüyor",
+  CANCELLED: "Yazdırma iptal edildi",
+  ERROR: "Yazdırma hatası",
+  ABANDONED: "Yazdırma yanıtsız kaldı (süre doldu)",
+  DISCONNECTED: "Müşteri bağlantısı koptu",
+};
+export const PRINT_DECISION_LABELS: Readonly<Record<PrintDecision, string>> = {
+  APPROVED: "Müşteri onayladı",
+  REJECTED: "Müşteri reddetti",
+  TIMEOUT: "Müşteri yanıt vermedi",
+  NONE: "Onay sorulmadı",
 };
 
 export interface TimelineText {
@@ -263,6 +301,20 @@ export function describeTimelineEvent(ev: Pick<TimelineEvent, "action" | "detail
     }
     case "session.terminated":
       return plain(base, str(d.reason));
+    case "clipboard.consent":
+      return plain(
+        d.on === true ? "Müşteri pano iznini açtı" : d.by === "system" ? "Pano izni kendiliğinden kapandı" : "Müşteri pano iznini kapattı",
+      );
+    case "clipboard.transfer": {
+      const dir = str(d.direction) === "TO_TECH" ? "Müşteri panosu alındı" : "Pano müşteriye gönderildi";
+      const result = str(d.result);
+      return plain(`${dir} (${str(d.bytes) ?? "0"} bayt)`, result && result !== "OK" ? labelOf(CLIP_RESULT_LABELS, result) : null);
+    }
+    case "print.job": {
+      const result = str(d.result);
+      const pages = str(d.pages);
+      return plain(pages ? `${base} (${pages} sayfa)` : base, result ? labelOf(PRINT_RESULT_LABELS, result) : null);
+    }
     default:
       return plain(base);
   }
