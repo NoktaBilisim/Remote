@@ -212,7 +212,7 @@ olmayan yetkiyi veremez kuralı mevcut kullanıcı ucunda zaten uygulanır.
 - `DeviceListItem`: `{ id, name, customerId, customerName, online, localEnabled, signatureOk, lastSeenAt, lastSessionAt,
 grantCount, canConnect, verified, notifyFailed, replacedAlert }` (r2: `verified` = `verified_at` dolu — O-P27-5; `notifyFailed` =
   `notify_failed_at` dolu — Y-P27-1; `replacedAlert` = 10 dk'da > 3 kez 4409 — D-P27-3). `DeviceDetail` (`manage`) ek olarak
-  `registeredIp`, `registeredAt` (grant ekranında; O-P27-5) — `canConnect` sunucu hesaplar (grant ∧ `connect` ∧ online ∧ localEnabled ∧ signatureOk ∧ adres var).
+  `registeredIp`, `registeredAt` (grant ekranında; O-P27-5) — `canConnect` sunucu hesaplar (grant ∧ `connect` ∧ online ∧ localEnabled ∧ signatureOk ∧ adres var ∧ tenant SMTP kaydı var — AC-336 PY revizyonu); `connectBlockedReason` (`smtp` / `offline` / `local_disabled` / `no_contacts` / null) düğme pasifken neden metnini seçer; aynı `smtp` nedeni "Kayıt kodu oluştur" düğmesini de pasif yapar.
   Panel çevrimiçi durumunu **15 sn REST yoklamasıyla** tazeler (ADR-0029 kalıbı; panel için yeni WS yok).
 - Hız sınırı (`lib/rate.ts`): `register` IP başına 10/sa; **r2 (D-P27-1, K-P27-21):** sistem geneli tavan yalnız **başarısız**
   denemeleri sayar (100/sa; aşımda yalnız başarısız-yanıt yolu 429 döner, geçerli kod yine kaydolur — kod HMAC araması tavandan önce)
