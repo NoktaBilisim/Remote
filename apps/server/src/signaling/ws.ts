@@ -15,7 +15,7 @@ import { publicClientAllowed } from "../auth/guards.ts";
 import { findUserById } from "../auth/repo.ts";
 import { canSignIn, resolveSession } from "../auth/session.ts";
 import { newId, sha256Hex } from "../lib/ids.ts";
-import { cidrMatcher, ipKey } from "../lib/ip.ts";
+import { cidrMatcher, ipKey, netKey } from "../lib/ip.ts";
 import { FixedWindowCounter } from "../lib/rate.ts";
 import * as repo from "../sessions/repo.ts";
 import { onGuestMessage, onTechMessage, TokenBucket } from "./handlers.ts";
@@ -189,6 +189,13 @@ export function attachSignaling(
       if (g.requestId) {
         // P8b §5.2: ön-kabullü misafir — ticket kuşağı güncel olmalı (yeniden bağlanan /ws/request eskisini geçersiz kılar).
         if (t?.gen !== g.ticketGen) return { status: 403, reason: "ticket" };
+        if (g.admitHash) {
+          // P15 (AC-239): kabul kodlu talep oturumu — normal lobi akışı (lobby.wait + peer.pending; tüketim guest.admit'te).
+          g.ipKey = ipKey(ctx.ip);
+          g.netKey = netKey(ctx.ip);
+          accept(req, socket, head, "guest", (ws, peer) => bindGuest(ws, peer, r, g, ctx, () => rooms.attachGuest(r, g, peer)));
+          return null;
+        }
         // S8b-2: g.peer burada atanmaz (eşzamanlı ikinci bağlantı ezmesin); admitRequestGuest kazanınca atar.
         accept(req, socket, head, "guest", (ws, peer) =>
           bindGuest(

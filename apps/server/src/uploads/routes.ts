@@ -19,6 +19,7 @@ import { manageableUser } from "../users/service.ts";
 import { readUpload } from "./multipart.ts";
 import {
   removeAvatar,
+  removeSystemLogo,
   removeTenantLogo,
   uploadAvatar,
   uploadSystemLogo,
@@ -80,4 +81,8 @@ export async function uploadRoutes(app: FastifyInstance, opts: { deps: BrandingD
     consume(req);
     return uploadSystemLogo(d, auditContext(req), authOf(req), read(req));
   });
+  // P15 (AC-233): kaldırma → varsayılan Nokta logosu.
+  app.delete("/admin/settings/system-logo", { preHandler: requireSuperAdmin }, async (req): Promise<SystemLogoResponse> =>
+    removeSystemLogo(d, auditContext(req), authOf(req)),
+  );
 }

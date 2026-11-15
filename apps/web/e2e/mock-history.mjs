@@ -163,6 +163,20 @@ function detail(s, who) {
             sha256: "ab".repeat(32),
             result: "OK",
             createdAt: at(5),
+            reportedBy: "TECH",
+            verified: true,
+          },
+          // P15 (AC-238): yalnız müşterinin bildirdiği satır → "Müşteri bildirimi"
+          {
+            id: "01JFILE0000000000000000002",
+            direction: "TO_TECH",
+            fileName: "log.txt",
+            sizeBytes: 2048,
+            sha256: "cd".repeat(32),
+            result: "OK",
+            createdAt: at(6),
+            reportedBy: "CUSTOMER",
+            verified: false,
           },
         ]
       : [],

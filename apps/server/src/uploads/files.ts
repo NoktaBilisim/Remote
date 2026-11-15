@@ -13,7 +13,9 @@ import { authOf, requireAuth } from "../auth/guards.ts";
 import { AppError } from "../lib/errors.ts";
 import { ipKey } from "../lib/ip.ts";
 import { FixedWindowCounter } from "../lib/rate.ts";
-import { isFileName, isPrefix, type UploadStore } from "./store.ts";
+import { techAvatarQuerySchema } from "@remote/contracts/api/sessions";
+import { isFileName, isPrefix, isRelPath, type UploadStore } from "./store.ts";
+import { verifyTechAvatarSig } from "./tech-avatar.ts";
 import { canViewAvatar, effectiveLogoUrl, systemLogoPath, systemLogoUrl } from "./urls.ts";
 
 const MIME: Record<string, string> = { png: "image/png", jpg: "image/jpeg", webp: "image/webp" };
@@ -33,8 +35,21 @@ async function sendFile(
   req: FastifyRequest,
   reply: FastifyReply,
   rel: string,
-  visibility: "public" | "private",
+  visibility: "public" | "private" | "signed",
 ): Promise<FastifyReply> {
+  if (visibility === "signed") {
+    // P15 (AC-236): imzalı tek seferlik URL — saklanmaz, ETag/304 yok (her istek imza + oturum durumu denetimi).
+    const data = await store.read(rel);
+    if (!data) throw new AppError("NOT_FOUND");
+    const ext = rel.slice(rel.lastIndexOf(".") + 1);
+    return reply
+      .header("Cache-Control", "private, no-store")
+      .header("X-Content-Type-Options", "nosniff")
+      .header("Content-Security-Policy", "default-src 'none'; frame-ancestors 'none'; sandbox")
+      .header("Content-Type", MIME[ext] ?? "application/octet-stream")
+      .header("Content-Disposition", "inline")
+      .send(data);
+  }
   const etag = `"${createHash("sha256").update(rel).digest("base64url").slice(0, 27)}"`; // ad rastgele ve değişmez → içerik de
   // Avatar (B-P12-4): tarayıcı saklayabilir ama her kullanımda ETag ile yeniden doğrular → yetki/oturum/kaldırma
   // her seferinde sunucuda denetlenir (çıkış sonrası paylaşımlı bilgisayarda önbellekten gösterilmez).
@@ -66,6 +81,34 @@ export async function fileRoutes(app: FastifyInstance, opts: { store: UploadStor
     const rel = relOf(req, "png");
     if ((await systemLogoPath(app.db)) !== rel) throw new AppError("NOT_FOUND");
     return sendFile(store, req, reply, rel, "public");
+  });
+
+  // P15 (AC-236): müşteri ekranı teknisyen avatarı — kimliksiz, imzalı (≤ 10 dk) + oturum PENDING(süresi dolmamış)/ACTIVE.
+  // Geçersiz imza/süre veya bitmiş oturum → 403 (tek gövde); avatar yok/kaldırıldı → 404. 60/dk/IP.
+  const avatarLimit = new FixedWindowCounter(BRANDING_PER_MIN + 1, 60_000, 60_000);
+  app.addHook("onClose", async () => avatarLimit.close());
+  app.get("/public/sessions/:sessionId/tech-avatar", async (req, reply) => {
+    const key = ipKey(req.ip);
+    const wait = avatarLimit.blockedFor(key);
+    if (wait > 0 || avatarLimit.hit(key)) throw new AppError("RATE_LIMITED", { retryAfterSec: wait || 60 });
+    const sessionId = (req.params as { sessionId?: string }).sessionId ?? "";
+    const q = techAvatarQuerySchema.safeParse(req.query);
+    const now = Date.now();
+    if (
+      !/^[0-9A-HJKMNP-TV-Z]{26}$/.test(sessionId) ||
+      !q.success ||
+      !verifyTechAvatarSig(app.secrets, sessionId, q.data.exp, q.data.sig, now)
+    )
+      throw new AppError("FORBIDDEN");
+    const s = await app.db.supportSession.findUnique({
+      where: { id: sessionId },
+      select: { status: true, expiresAt: true, technician: { select: { avatarPath: true, deletedAt: true } } },
+    });
+    const live = s && (s.status === "ACTIVE" || (s.status === "PENDING" && s.expiresAt.getTime() > now));
+    if (!s || !live) throw new AppError("FORBIDDEN");
+    const rel = s.technician.deletedAt === null ? s.technician.avatarPath : null;
+    if (!rel || !isRelPath(rel)) throw new AppError("NOT_FOUND");
+    return sendFile(store, req, reply, rel, "signed");
   });
 
   // Şifre değişimi / 2FA kurulumu bekleyen oturum da kendi üst menüsünü gösterebilir (veri sızıntısı yok).

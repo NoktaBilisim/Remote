@@ -67,10 +67,25 @@ export const iceRestartSchema = z.strictObject({ t: z.literal("ice.restart"), id
 export const sessionEndSchema = z.strictObject({ t: z.literal("session.end"), id });
 export const guestAdmitSchema = z.strictObject({ t: z.literal("guest.admit"), id, admitCode: z.string().regex(/^\d{4}$/) });
 export const guestRejectSchema = z.strictObject({ t: z.literal("guest.reject"), id, guestId: ulid });
+/**
+ * P15 (AC-234, S17-2): paylaşım başlatılamadı / yayında kalıcı hata nedeni. İstemcinin sabit kodu (Go `capture.Reason`;
+ * ör. `DXGI_UNSUPPORTED`, `NO_H264_ENCODER`, `OTHER`). Enum DEĞİL: yeni istemcinin bilinmeyen kodu mesajı düşürmesin —
+ * konsol `SHARE_FAIL_REASON_LABELS`'ta yoksa ham gösterir. Büyük harf/rakam/alt çizgi, ≤ 32 (kişisel veri taşıyamaz).
+ */
+export const SHARE_FAIL_REASON_PATTERN = /^[A-Z0-9_]{1,32}$/;
+/** P15 (AC-234): son denenen yakalama yolu. `WGC` P17 pencere modu (AC-248). */
+export const SHARE_METHODS = ["DXGI", "GDI", "WGC"] as const;
+export type ShareMethod = (typeof SHARE_METHODS)[number];
+/** P15 (S17-2): sunucu oda başına `share.state` iletimini bu aralıkla sınırlar; aradakiler birleştirilip sonuncusu iletilir. */
+export const SHARE_STATE_MIN_INTERVAL_MS = 1_000;
+
 export const shareStateSchema = z.strictObject({
   t: z.literal("share.state"),
   id,
   state: z.enum(["sharing", "stopped"]),
+  /** P15 (AC-234): isteğe bağlı — 0.10.x istemci göndermez. */
+  reason: z.string().regex(SHARE_FAIL_REASON_PATTERN).optional(),
+  method: z.enum(SHARE_METHODS).optional(),
   monitors: z
     .array(
       z.strictObject({
@@ -95,13 +110,21 @@ export type FileResult = (typeof FILE_RESULTS)[number];
 const FILE_SIZE_CAP = 2048 * 1024 * 1024;
 
 /**
- * İçerik asla WS'den geçmez (AC-55). Tek kaynak **alıcı tarafın** raporudur (TO_CUSTOMER → misafir, TO_TECH →
- * teknisyen); gönderenin raporu sunucuda yok sayılır (tek satır, implementation.md P5).
+ * İçerik asla WS'den geçmez (AC-55). P15 (AC-238): `fid` varsa iki tarafın raporu da `session_files`'a yazılır
+ * (`reported_by` TECH|CUSTOMER); `fid` yoksa yalnız **alıcı tarafın** raporu (P5 kuralı).
  * `fileName` ham gelir; sunucu `sanitizeFileName` uygular.
  */
 export const fileMetaSchema = z.strictObject({
   t: z.literal("file.meta"),
   id,
+  /**
+   * P15 (AC-238): DC transfer kimliği (`file.offer.fid`, gönderen üretir). Varsa iki tarafın raporu ayrı satır olarak
+   * yazılır ve `match_key` ile eşlenir; yoksa (0.10.x) eski kural: yalnız alıcının raporu satır olur.
+   */
+  fid: z
+    .string()
+    .regex(/^[A-Za-z0-9_-]{1,26}$/)
+    .optional(),
   direction: z.enum(FILE_DIRECTIONS),
   fileName: z.string().min(1).max(255),
   sizeBytes: z.number().int().min(0).max(FILE_SIZE_CAP),

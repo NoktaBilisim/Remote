@@ -102,7 +102,7 @@ const publicSelect = {
   expiresAt: true,
   techVerifyCode: true,
   tenant: { select: { name: true, logoPath: true } },
-  technician: { select: { fullName: true } },
+  technician: { select: { fullName: true, avatarPath: true } }, // P15 (AC-236): imzalı avatar URL'si
 } as const;
 
 export type PublicSessionRow = Prisma.SupportSessionGetPayload<{ select: typeof publicSelect }>;

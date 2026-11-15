@@ -14,8 +14,9 @@ import {
   SESSION_ENDED_BY_LABELS,
   SESSION_MODE_LABELS,
   SESSION_SOURCE_LABELS,
+  fileVerificationLabel,
 } from "@remote/contracts/labels";
-import { Download, ShieldUser, Upload } from "lucide-react";
+import { CircleAlert, Download, ShieldCheck, ShieldUser, Upload } from "lucide-react";
 import Link from "next/link";
 import type { ReactNode } from "react";
 import { StatusBadge } from "@/components/ui/badge";
@@ -365,6 +366,25 @@ export function Quality({ s }: { s: D }) {
   );
 }
 
+/**
+ * P15 (AC-238): teknisyen raporlu ya da iki tarafça eşleşen satır "Doğrulanmış" (`success`); yalnız müşterinin bildirdiği
+ * satır "Müşteri bildirimi" (`warning` — sunucu teknisyen tarafından doğrulamadı). Metin + ikon, renk tek başına değil.
+ */
+function FileVerification({ verified }: { verified: boolean }) {
+  return (
+    <span
+      data-testid="file-verified"
+      data-verified={verified ? "true" : "false"}
+      className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-xs font-medium ${
+        verified ? "bg-success-surface text-success" : "bg-warning-surface text-warning"
+      }`}
+    >
+      {verified ? <ShieldCheck aria-hidden className="size-4" /> : <CircleAlert aria-hidden className="size-4" />}
+      {fileVerificationLabel(verified)}
+    </span>
+  );
+}
+
 export function Files({ s }: { s: D }) {
   if (s.files.length === 0) return <Muted testId="files-empty">{t(isAnonymized(s) ? "h.anon.files" : "h.file.empty")}</Muted>;
   const cols: Col<FileMeta>[] = [
@@ -396,9 +416,13 @@ export function Files({ s }: { s: D }) {
     },
     {
       head: t("h.file.result"),
+      // P15 (AC-238): sonuç + doğrulama etiketi aynı hücrede (≥ 1280 px'te tablo taşmasın)
       cell: (f) => (
-        <span className={f.result === "OK" ? "text-success" : f.result === "CORRUPT" ? "text-danger" : "text-fg"}>
-          {labelOf(FILE_RESULT_LABELS, f.result)}
+        <span className="flex flex-col items-start gap-1">
+          <span className={f.result === "OK" ? "text-success" : f.result === "CORRUPT" ? "text-danger" : "text-fg"}>
+            {labelOf(FILE_RESULT_LABELS, f.result)}
+          </span>
+          <FileVerification verified={f.verified} />
         </span>
       ),
     },

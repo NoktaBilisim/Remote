@@ -309,6 +309,64 @@ export function checkTrustedCidr(raw: string): CidrCheck {
   return { ok: false, message: "CIDR biçiminde olmalı (ör. 203.0.113.0/24)" };
 }
 
+/** P15 (AC-235): engel önek sınırları — IPv4 /24–/32, IPv6 /48–/128 (DB `request_blocks_ip_range_chk` ile aynı). */
+export const BLOCK_IPV4_MIN_PREFIX = 24;
+export const BLOCK_IPV6_MIN_PREFIX = 48;
+
+export type BlockCidrCheck = { ok: true; cidr: string; version: 4 | 6; bits: number } | { ok: false; message: string };
+const BLOCK_CIDR_FORMAT = "IP adresi veya CIDR olmalı (ör. 203.0.113.7 ya da 203.0.113.0/24)";
+
+/**
+ * P15 (AC-235): engel hedefi doğrulama + normalizasyon. Önek yoksa tek adres (/32, /128). Hizasız önek ağ adresine
+ * indirgenir (`203.0.113.7/24` → `203.0.113.0/24`; DB CHECK hizasızı 3819 ile reddeder). IPv4-eşlemeli IPv6
+ * (`::ffff:1.2.3.4`, `::ffff:102:304`, önek ≥ /120) IPv4'e çevrilir — sunucu istemci IP'sini de aynı biçime indirger.
+ * Güvenilen CIDR'ın aksine özel aralıklar reddedilmez (engel zararsızdır).
+ */
+export function checkBlockCidr(raw: string): BlockCidrCheck {
+  const v = raw.trim();
+  const [addrRaw = "", bitsRaw, ...rest] = v.split("/");
+  if (rest.length > 0 || (bitsRaw !== undefined && !/^\d{1,3}$/.test(bitsRaw))) return { ok: false, message: BLOCK_CIDR_FORMAT };
+  let addr = addrRaw;
+  let bits = bitsRaw === undefined ? null : Number(bitsRaw);
+  const dotted = /^::ffff:(\d{1,3}(?:\.\d{1,3}){3})$/i.exec(addr);
+  let v4 = dotted?.[1] ? parseIPv4(dotted[1]) : parseIPv4(addr);
+  if (dotted) bits = bits === null ? null : bits - 96;
+  if (!v4 && !dotted) {
+    const g = parseIPv6(addr);
+    if (g && g.slice(0, 5).every((x) => x === 0) && g[5] === 0xffff) {
+      v4 = [(g[6] ?? 0) >> 8, (g[6] ?? 0) & 255, (g[7] ?? 0) >> 8, (g[7] ?? 0) & 255];
+      bits = bits === null ? null : bits - 96;
+    }
+  }
+  if (v4) {
+    const b = bits ?? 32;
+    if (b < 0 || b > 32) return { ok: false, message: "IPv4 önek uzunluğu en çok 32 olabilir" };
+    if (b < BLOCK_IPV4_MIN_PREFIX) return { ok: false, message: `IPv4 aralığı en geniş /${BLOCK_IPV4_MIN_PREFIX} olabilir` };
+    return { ok: true, cidr: `${maskBits(v4, 8, b).join(".")}/${b}`, version: 4, bits: b };
+  }
+  addr = addrRaw;
+  const v6 = parseIPv6(addr);
+  if (v6) {
+    const b = bits ?? 128;
+    if (b > 128) return { ok: false, message: "IPv6 önek uzunluğu en çok 128 olabilir" };
+    if (b < BLOCK_IPV6_MIN_PREFIX) return { ok: false, message: `IPv6 aralığı en geniş /${BLOCK_IPV6_MIN_PREFIX} olabilir` };
+    return { ok: true, cidr: `${formatIPv6(maskBits(v6, 16, b))}/${b}`, version: 6, bits: b };
+  }
+  return { ok: false, message: BLOCK_CIDR_FORMAT };
+}
+
+export const blockCidrSchema = z
+  .string()
+  .max(60, BLOCK_CIDR_FORMAT)
+  .transform((v, ctx) => {
+    const r = checkBlockCidr(v);
+    if (!r.ok) {
+      ctx.addIssue({ code: "custom", message: r.message });
+      return z.NEVER;
+    }
+    return r.cidr;
+  });
+
 export const trustedCidrSchema = z
   .string()
   .max(60, "CIDR biçiminde olmalı (ör. 203.0.113.0/24)")
@@ -478,7 +536,19 @@ export interface SupportRequestSettings {
   trustedCidrs: string[];
   whatsapp: { enabled: boolean; recipients: string[]; serviceConfigured: boolean; insecure: boolean };
   email: { enabled: boolean; recipients: string[]; smtpConfigured: boolean };
+  /** P15 (AC-239): "Talep kabulünde kabul kodu iste" — açıkken müşteri ekranındaki 4 haneli kodla kabul (AC-112). */
+  requireAcceptCode: boolean;
 }
+
+/**
+ * P15 (AC-239, S15-1/S15-6): `request.accepted.admitCode` yalnız bu sürüm ve üstündeki talep istemcisine gönderilir.
+ * Ayar açıkken daha eski istemcinin talebi kabul edilmez (fail-closed): 409 `ACCEPT_CODE_CLIENT_UNSUPPORTED`, talep
+ * PENDING kalır; audit `request.accepted` result=fail, `reason:"client_unsupported"`.
+ */
+export const ACCEPT_CODE_MIN_CLIENT_VERSION = "0.11.0";
+
+/** P15 düzeltme 2 (S15-6): `ACCEPT_CODE_CLIENT_UNSUPPORTED` mesajı (teknisyene). */
+export const ACCEPT_CODE_CLIENT_UNSUPPORTED_MESSAGE = `Müşterinin istemcisi kabul kodunu desteklemiyor (${ACCEPT_CODE_MIN_CLIENT_VERSION} gerekli). Müşteriden istemciyi güncellemesini isteyin veya bu firmada kabul kodu ayarını kapatın.`;
 
 /** PUT /settings/support-requests (AC-142, 152). Mevcut bekleyenlerin `expires_at`'i değişmez. */
 export const updateRequestSettingsInputSchema = z
@@ -494,6 +564,8 @@ export const updateRequestSettingsInputSchema = z
       enabled: z.boolean(),
       recipients: uniqueList(z.string().trim().max(254).pipe(z.email("E-posta adresi geçersiz")), REQUEST_RECIPIENTS_MAX, "alıcı"),
     }),
+    /** P15 (AC-239): verilmezse mevcut değer korunur (eski form gövdesi ayarı kapatmaz). */
+    requireAcceptCode: z.boolean().optional(),
   })
   .superRefine((s, ctx) => {
     if (s.whatsapp.enabled && s.whatsapp.recipients.length === 0)

@@ -138,6 +138,9 @@ function admitted(r, rec, ws, kind = "BROWSER", guestName) {
         state: m.state,
         ...(m.monitors ? { monitors: m.monitors } : {}),
         ...(m.activeMonitor !== undefined ? { activeMonitor: m.activeMonitor } : {}),
+        // P15 (AC-234): neden/yöntem sunucu gibi aynen iletilir
+        ...(m.reason !== undefined ? { reason: m.reason } : {}),
+        ...(m.method !== undefined ? { method: m.method } : {}),
       });
     } else if (m.t === "control.state") {
       if (m.state === "GRANTED") {

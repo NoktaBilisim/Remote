@@ -124,8 +124,8 @@ test("AC-62: detay — özet, onay kayıtları, kontrol dönemleri, zaman çizel
   await expect(tl.locator('[data-action="gelecek.olay"]')).toContainText("gelecek.olay"); // bilinmeyen → ham
   await expect(tl.locator('[data-action="guest.admit"]')).toContainText("(başarısız)");
   await expect(page.getByTestId("quality")).toContainText("TURN");
-  await expect(page.getByTestId("file-meta-row")).toContainText("kurulum.msi");
-  await expect(page.getByTestId("file-meta-row")).toContainText("1,5 MB");
+  await expect(page.getByTestId("file-meta-row").first()).toContainText("kurulum.msi");
+  await expect(page.getByTestId("file-meta-row").first()).toContainText("1,5 MB");
 
   await page.goto(`/history/${BROWSER}`);
   await expect(page.getByTestId("control-browser")).toHaveText("Tarayıcı modunda uzaktan kontrol yoktur.");
@@ -301,11 +301,11 @@ test("TEST-P8-1: detay dosya/onay tabloları — ≥ 1280 taşma yok, ad tek sat
     await expect(page.getByTestId("files")).toBeVisible();
     expect(await hOverflow(page, "files-scroll"), `${width} dosyalar`).toBeLessThanOrEqual(0);
     expect(await hOverflow(page, "consents-scroll"), `${width} onaylar`).toBeLessThanOrEqual(0);
-    const name = page.getByTestId("file-meta-row").getByTestId("file-name");
+    const name = page.getByTestId("file-meta-row").first().getByTestId("file-name");
     const lh = await name.evaluate((el) => parseFloat(getComputedStyle(el).lineHeight));
     expect((await name.boundingBox())!.height, `${width} dosya adı tek satır`).toBeLessThan(lh * 1.5);
   }
-  const sha = page.getByTestId("file-sha").filter({ visible: true });
+  const sha = page.getByTestId("file-sha").filter({ visible: true }).first();
   await expect(sha.locator("code")).toHaveText("abababab…abababab");
   await expect(sha.locator("code")).toHaveAttribute("title", "ab".repeat(32));
   await context.grantPermissions(["clipboard-read", "clipboard-write"]);
@@ -318,10 +318,32 @@ test("TEST-P8-1: detay dosya/onay tabloları — ≥ 1280 taşma yok, ad tek sat
     await expect(page.getByTestId("files")).toBeHidden();
     await expect(page.getByTestId("consents")).toBeHidden();
     await expect(page.getByTestId("consent-row-card")).toHaveCount(3);
-    await expect(page.getByTestId("file-meta-row-card")).toContainText("kurulum.msi");
+    await expect(page.getByTestId("file-meta-row-card").first()).toContainText("kurulum.msi");
     for (const card of await page.locator('[data-testid="consent-row-card"], [data-testid="file-meta-row-card"]').all())
       expect(await card.evaluate((el) => el.scrollWidth - el.clientWidth), `${width} kart`).toBeLessThanOrEqual(0);
     await noHorizontalOverflow(page);
+  }
+});
+
+test('AC-238: geçmiş detayında dosya satırı "Doğrulanmış" / "Müşteri bildirimi" etiketi (tablo ve kart)', async ({
+  page,
+  context,
+}, info) => {
+  desktopOnly(info.project.name);
+  await signIn(context, "hu");
+  await page.setViewportSize({ width: 1280, height: 900 });
+  await page.goto(`/history/${RICH}`);
+  const rowsT = page.getByTestId("file-meta-row");
+  await expect(rowsT).toHaveCount(2);
+  await expect(rowsT.filter({ hasText: "kurulum.msi" }).getByTestId("file-verified")).toHaveText("Doğrulanmış");
+  await expect(rowsT.filter({ hasText: "kurulum.msi" }).getByTestId("file-verified")).toHaveAttribute("data-verified", "true");
+  await expect(rowsT.filter({ hasText: "log.txt" }).getByTestId("file-verified")).toHaveText("Müşteri bildirimi");
+  await page.setViewportSize({ width: 390, height: 844 });
+  await expect(page.getByTestId("file-meta-row-card").filter({ hasText: "log.txt" })).toContainText("Müşteri bildirimi");
+  await noHorizontalOverflow(page);
+  for (const scheme of ["light", "dark"] as const) {
+    await page.emulateMedia({ colorScheme: scheme });
+    expect(await axeScan(page, "main"), `AC-238 ${scheme}`).toEqual([]);
   }
 });
 

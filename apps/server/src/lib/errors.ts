@@ -1,6 +1,7 @@
 // Tipli uygulama hataları ve standart hata zarfı (mimari-api.md "Ortak kurallar").
 // Bilinmeyen hatalar loglanır, kullanıcıya yalnız 500 + requestId döner (stack/SQL sızmaz).
 import { BINDING_INVALID_MESSAGE } from "@remote/contracts/api/bindings";
+import { ACCEPT_CODE_CLIENT_UNSUPPORTED_MESSAGE } from "@remote/contracts/api/requests";
 import { INVALID_IMAGE_MESSAGE, PAYLOAD_TOO_LARGE_MESSAGE } from "@remote/contracts/api/branding";
 import { SESSION_ANONYMIZED_MESSAGE } from "@remote/contracts/api/sessions";
 import { USER_IF_MATCH_REQUIRED_MESSAGE, USER_STALE_WRITE_MESSAGE } from "@remote/contracts/api/users";
@@ -40,6 +41,7 @@ const DEFAULT_MESSAGES: Record<ErrorCode, string> = {
   REQUEST_PENDING: "Bu pencereden gönderilmiş, bekleyen bir talebiniz zaten var.",
   REQUEST_TAKEN: "Talep başka bir teknisyen tarafından alındı.",
   REQUEST_CLOSED: "Talep artık açık değil (iptal, süre dolumu veya ret).",
+  ACCEPT_CODE_CLIENT_UNSUPPORTED: ACCEPT_CODE_CLIENT_UNSUPPORTED_MESSAGE,
   QUEUE_FULL: "Şu an çok yoğunuz, lütfen firmanızı telefonla arayın.",
   CLIENT_OUTDATED: "Bu Hızlı Destek dosyası eski. Güvenliğiniz için yeni sürümü indirin.",
   UPSTREAM: "Servise ulaşılamadı.",

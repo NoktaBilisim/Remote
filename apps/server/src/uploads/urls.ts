@@ -16,7 +16,7 @@ type DbOrTx = Db | Prisma.TransactionClient;
 
 export const SYSTEM_LOGO_KEY = "system_logo";
 
-/** Kayıtlı sistem logosunun göreli yolu; yoksa/bozuksa null. */
+/** Kayıtlı sistem logosunun göreli yolu; satır yok / `{path:null}` (P15 kaldırma) / bozuksa null → varsayılan logo. */
 export async function systemLogoPath(db: DbOrTx): Promise<string | null> {
   const row = await db.systemSetting.findUnique({ where: { key: SYSTEM_LOGO_KEY }, select: { valueJson: true } });
   const parsed = systemLogoValueSchema.safeParse(row?.valueJson);

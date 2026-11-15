@@ -7,6 +7,7 @@ import { handleAccount } from "./mock-account.mjs";
 import { handleBranding } from "./mock-branding.mjs";
 import { auditUser, handleAudit } from "./mock-audit.mjs";
 import { handleCustomers } from "./mock-customers.mjs";
+import { handleP15, p15User } from "./mock-p15.mjs";
 import { handleHistory, historyUser } from "./mock-history.mjs";
 import { handleRequests, requestUser } from "./mock-requests.mjs";
 import { handleLobby, handleSessions, lobbyHook, sessionUser } from "./mock-sessions.mjs";
@@ -77,6 +78,8 @@ async function readJson(req) {
 /** /auth/me gövdesi (çekirdek sahte kullanıcılar); P10/P12 hesap/marka kullanıcıları kendi modüllerinde çözülür → null. */
 function resolveMe(session) {
   const tenant = { id: "01JTENANT", name: "Demo Firma" };
+  const p15 = p15User(session);
+  if (p15) return p15;
   const au = auditUser(session);
   if (au) return { user: au.user, permissions: au.permissions, tenant: au.tenant, actingTenant: au.actingTenant };
   const uu = usersUser(session);
@@ -162,6 +165,7 @@ const srv = createServer(async (req, res) => {
     return send(res, 204, undefined, clearCookies);
   }
 
+  if (await handleP15(req, res, { url, session, csrfOk, send, err, readJson })) return;
   if (await handleAudit(req, res, { url, session, csrfOk, send, err, readJson })) return;
   if (await handleUsers(req, res, { url, session, csrfOk, send, err, readJson })) return;
   if (await handleCustomers(req, res, { url, session, csrfOk, send, err, readJson })) return;

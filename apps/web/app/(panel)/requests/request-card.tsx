@@ -9,6 +9,7 @@ import {
   MonitorSmartphone,
   Phone,
   ShieldAlert,
+  ShieldBan,
   ShieldCheck,
   ShieldOff,
   TriangleAlert,
@@ -149,6 +150,7 @@ export function RequestCard({
   onAccept,
   onReject,
   onRevokeBinding,
+  onBlock,
 }: {
   item: SupportRequestItem;
   now?: number | null;
@@ -158,13 +160,16 @@ export function RequestCard({
   onReject?: () => void;
   /** P8c r2 (§15.2): verilirse ve kayıt etkinse kart menüsünde "Bu bilgisayarın kaydını iptal et" (`customers.edit` + `support_requests.view`). */
   onRevokeBinding?: () => void;
+  /** P15 (AC-235): verilirse kart menüsünde "Bu kaynağı engelle" (`support_requests.block`). */
+  onBlock?: () => void;
 }) {
   const pending = item.status === "PENDING";
   const waitSec = pending && now ? Math.max(item.waitSec, Math.floor((now - Date.parse(item.createdAt)) / 1000)) : item.waitSec;
   const name = item.customerName ?? t("rq.anon");
   const titleId = `talep-${item.id}-t`;
+  const canRevoke = Boolean(onRevokeBinding && item.viaBinding);
   const revokeMenu =
-    onRevokeBinding && item.viaBinding ? (
+    canRevoke || onBlock ? (
       <Menu
         label={t("rq.more")}
         icon={<Ellipsis aria-hidden className="size-4" />}
@@ -172,18 +177,34 @@ export function RequestCard({
         testId="request-menu"
         panelLabel={t("rq.moreFor", { name })}
       >
-        <button
-          type="button"
-          onClick={(e) => {
-            closeMenu(e.currentTarget);
-            onRevokeBinding();
-          }}
-          data-testid="request-revoke-binding"
-          className="flex min-h-11 w-full cursor-pointer items-center gap-2 rounded-sm px-3 text-left text-sm text-danger hover:bg-danger-surface"
-        >
-          <ShieldOff aria-hidden className="size-4 shrink-0" />
-          {t("rq.revoke.open")}
-        </button>
+        {onBlock && (
+          <button
+            type="button"
+            onClick={(e) => {
+              closeMenu(e.currentTarget);
+              onBlock();
+            }}
+            data-testid="request-block"
+            className="flex min-h-11 w-full cursor-pointer items-center gap-2 rounded-sm px-3 text-left text-sm text-danger hover:bg-danger-surface"
+          >
+            <ShieldBan aria-hidden className="size-4 shrink-0" />
+            {t("bl.rq.open")}
+          </button>
+        )}
+        {canRevoke && (
+          <button
+            type="button"
+            onClick={(e) => {
+              closeMenu(e.currentTarget);
+              onRevokeBinding?.();
+            }}
+            data-testid="request-revoke-binding"
+            className="flex min-h-11 w-full cursor-pointer items-center gap-2 rounded-sm px-3 text-left text-sm text-danger hover:bg-danger-surface"
+          >
+            <ShieldOff aria-hidden className="size-4 shrink-0" />
+            {t("rq.revoke.open")}
+          </button>
+        )}
       </Menu>
     ) : null;
   return (

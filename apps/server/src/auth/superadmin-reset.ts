@@ -1,4 +1,4 @@
-// P13b `reset-superadmin` servisi (mimari-p13 §7.7; AC-90). Yalnız sunucudaki CLI çağırır (HTTP ucu yok).
+// P13b `reset-superadmin` servisi (mimari-p13 §7.7; AC-90). CLI ve P15 (AC-232) panel ucu aynı çekirdeği kullanır.
 // Tek TX: parola + bayraklar, açık oturumlar ve sıfırlama bağlantıları, isteğe bağlı 2FA, audit. Geçici parola yalnız
 // dönüş değerinde taşınır; audit'e, loga ve hata mesajına girmez.
 import { AUTH_AUDIT } from "@remote/contracts/audit";
@@ -34,51 +34,81 @@ export const cliAuditContext = (): AuditContext => ({ ip: "", userAgent: CLI_USE
 
 const eligible = { role: "SUPER_ADMIN", deletedAt: null, status: "ACTIVE" } as const;
 
-/**
- * Bulunamazsa (ya da hesap SUPER_ADMIN/aktif/silinmemiş değilse) `not_found`; başka hesap bilgisi dönmez. Gerçek
- * çalıştırmada bu durum `result=fail` audit'i bırakır, dry-run hiçbir şey yazmaz. Uygunluk TX içinde koşullu UPDATE ile
- * yeniden denetlenir (arada rol/durum değişirse değişiklik yapılmaz).
- */
-export async function resetSuperadmin(db: Db, ctx: AuditContext, input: SuperadminResetInput): Promise<SuperadminResetResult> {
-  const email = normalizeLoginEmail(input.email);
-  const user = await db.user.findFirst({ where: { email, ...eligible }, select: { id: true } });
-  if (input.dryRun) return user ? { kind: "dry_run", userId: user.id } : { kind: "not_found" };
-  if (!user) {
-    await auditNotFound(db, ctx);
-    return { kind: "not_found" };
-  }
+/** Audit aktörü: CLI (`username="cli"`, user_id NULL) ya da panel (P15: işlemi yapan Super Admin). */
+export interface ResetActor {
+  userId: string | null;
+  username: string;
+  via: "cli" | "panel";
+}
+const CLI_ACTOR: ResetActor = { userId: null, username: CLI_USERNAME, via: "cli" };
 
+export type ResetCoreResult = { kind: "not_found" } | { kind: "reset"; tempPassword: string; revokedSessions: number };
+
+/**
+ * Ortak çekirdek (CLI + P15 panel ucu; kopya yok): tek TX'te parola + `must_change_password` + kilit sayaçları, açık
+ * oturumlar ve sıfırlama bağlantıları, isteğe bağlı 2FA, audit `auth.superadmin_reset`. Uygunluk (etkin, silinmemiş
+ * SUPER_ADMIN) TX içinde koşullu UPDATE ile yeniden denetlenir; tutmazsa `not_found` (+ fail audit).
+ */
+export async function resetSuperadminById(
+  db: Db,
+  ctx: AuditContext,
+  actor: ResetActor,
+  userId: string,
+  resetMfa: boolean,
+): Promise<ResetCoreResult> {
   const tempPassword = newTemporaryPassword(SUPERADMIN_TEMP_PASSWORD_LENGTH);
   const passwordHash = await hashPassword(tempPassword); // argon2 TX dışında (kilit süresi kısa kalır)
   const out = await db.$transaction(async (tx) => {
     const now = new Date();
-    const mfa = input.resetMfa ? { totpEnabled: false, totpSecretEnc: null, totpLastStep: null } : {};
+    const mfa = resetMfa ? { totpEnabled: false, totpSecretEnc: null, totpLastStep: null } : {};
     const updated = await tx.user.updateMany({
-      where: { id: user.id, ...eligible },
+      where: { id: userId, ...eligible },
       data: { passwordHash, mustChangePassword: true, failedLoginCount: 0, failedWindowAt: null, lockedUntil: null, ...mfa },
     });
     if (updated.count !== 1) return null;
-    const sessions = await tx.authSession.updateMany({ where: { userId: user.id, revokedAt: null }, data: { revokedAt: now } });
-    await tx.passwordResetToken.updateMany({ where: { userId: user.id, usedAt: null }, data: { usedAt: now } });
-    if (input.resetMfa) await tx.recoveryCode.deleteMany({ where: { userId: user.id } });
-    const newValue = { mustChangePassword: true, mfaReset: input.resetMfa, revokedSessions: sessions.count };
+    const sessions = await tx.authSession.updateMany({ where: { userId, revokedAt: null }, data: { revokedAt: now } });
+    await tx.passwordResetToken.updateMany({ where: { userId, usedAt: null }, data: { usedAt: now } });
+    if (resetMfa) await tx.recoveryCode.deleteMany({ where: { userId } });
+    const newValue = {
+      mustChangePassword: true,
+      mfaReset: resetMfa,
+      revokedSessions: sessions.count,
+      ...(actor.via === "panel" ? { via: "panel" } : {}),
+    };
     await writeAudit(tx, ctx, {
       tenantId: null,
-      userId: null,
-      username: CLI_USERNAME,
+      userId: actor.userId,
+      username: actor.username,
       action: AUTH_AUDIT.SUPERADMIN_RESET,
       entity: "users",
-      entityId: user.id,
+      entityId: userId,
       result: "success",
       newValue,
     });
     return sessions.count;
   });
   if (out === null) {
-    await auditNotFound(db, ctx);
+    await auditNotFound(db, ctx, actor);
     return { kind: "not_found" };
   }
-  return { kind: "reset", userId: user.id, tempPassword, revokedSessions: out, mfaReset: input.resetMfa };
+  return { kind: "reset", tempPassword, revokedSessions: out };
+}
+
+/**
+ * Bulunamazsa (ya da hesap SUPER_ADMIN/aktif/silinmemiş değilse) `not_found`; başka hesap bilgisi dönmez. Gerçek
+ * çalıştırmada bu durum `result=fail` audit'i bırakır, dry-run hiçbir şey yazmaz.
+ */
+export async function resetSuperadmin(db: Db, ctx: AuditContext, input: SuperadminResetInput): Promise<SuperadminResetResult> {
+  const email = normalizeLoginEmail(input.email);
+  const user = await db.user.findFirst({ where: { email, ...eligible }, select: { id: true } });
+  if (input.dryRun) return user ? { kind: "dry_run", userId: user.id } : { kind: "not_found" };
+  if (!user) {
+    await auditNotFound(db, ctx, CLI_ACTOR);
+    return { kind: "not_found" };
+  }
+  const r = await resetSuperadminById(db, ctx, CLI_ACTOR, user.id, input.resetMfa);
+  if (r.kind === "not_found") return r;
+  return { kind: "reset", userId: user.id, tempPassword: r.tempPassword, revokedSessions: r.revokedSessions, mfaReset: input.resetMfa };
 }
 
 /**
@@ -95,11 +125,11 @@ export async function superadminTempPasswordExpired(db: Db | Prisma.TransactionC
   return last !== null && now.getTime() - last.createdAt.getTime() > SUPERADMIN_TEMP_TTL_MS;
 }
 
-function auditNotFound(db: Db, ctx: AuditContext): Promise<void> {
+function auditNotFound(db: Db, ctx: AuditContext, actor: ResetActor): Promise<void> {
   return writeAudit(db, ctx, {
     tenantId: null,
-    userId: null,
-    username: CLI_USERNAME,
+    userId: actor.userId,
+    username: actor.username,
     action: AUTH_AUDIT.SUPERADMIN_RESET,
     entity: "users",
     entityId: null,

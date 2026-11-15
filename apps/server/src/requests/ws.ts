@@ -112,6 +112,7 @@ export function requestChannels(app: FastifyInstance, svc: RequestService, reval
             technicianName: sess.technician.fullName.slice(0, 100),
             techVerifyCode: sess.techVerifyCode,
             ticketExpiresAt: new Date(t.expiresAt).toISOString(),
+            ...(t.admitCode ? { admitCode: t.admitCode } : {}),
           });
       }
       const bucket = new TokenBucket(rooms.clock, WS_REQUEST_RATE_PER_SEC);

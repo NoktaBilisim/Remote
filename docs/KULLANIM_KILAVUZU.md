@@ -7,18 +7,20 @@ geliştirilir (bkz. `README.md` "Yol haritası"); kılavuz da her paketle birlik
   ("Bağlantı kodum var", "Bu bilgisayarı unut"), uzaktan kontrol izni, ekran görüntüsü alınamazsa ne yapılır,
   bilgisayarda ne kalır (iz ve gizlilik)
 - **Teknisyen için:** Oturumlar ve bekleme odası ("Müşteri bekliyor" rozeti, menü sayacı, bildirim), Uzaktan kontrol
-  (konsol), Oturum geçmişi, Destek talepleri, müşterinin ekranı gelmiyorsa
+  (konsol), Oturum geçmişi (dosyalarda "Doğrulanmış / Müşteri bildirimi"), Destek talepleri ("Bu kaynağı engelle"),
+  Engellenenler, müşterinin ekranı gelmiyorsa (paylaşım hata nedeni)
 - **Admin ve teknisyen için:** Müşteriler (müşteri firmalar, bağlantı gönderme, kayıtlı bilgisayarlar)
 - **Herkes için (teknisyen, Admin, Super Admin):** Giriş ve hesap güvenliği — iki adımlı doğrulama (2FA), kurtarma
-  kodları, şifremi unuttum, Hesabım sayfası, tüm cihazlardan çıkış, kritik ayarlarda kimliğinizi yeniden doğrulama;
+  kodları ve kurtarma kodlarını yenileme, şifremi unuttum, Hesabım sayfası, tüm cihazlardan çıkış, kritik ayarlarda kimliğinizi yeniden doğrulama;
   hesap menüsü, profil resmi ve tema; giriş ekranında firma logosu
 - **Admin için:** Kullanıcılar ve yetkiler (2FA sıfırlama dahil), Uzaktan kontrol yetkisi ve kayıtlar, Oturum geçmişi
-  yetkileri, Ayarlar > Genel (oturum ve dosya sınırları), Ayarlar > Destek talepleri (e-posta bildirimi dahil), Ayarlar > E-posta (SMTP), Audit log, Ayarlar >
+  yetkileri, Ayarlar > Genel (oturum ve dosya sınırları), Ayarlar > Destek talepleri (e-posta bildirimi ve kabul kodu dahil), Ayarlar > E-posta (SMTP), Audit log, Ayarlar >
   Aydınlatma metni, Ayarlar > Güvenlik, Ayarlar > Logo, kullanıcının profil resmi, kişisel verilerin saklama süresi ve
   anonimleştirme, kurumsal bilgisayarlarda Hızlı Destek'e izin verme (AppLocker / antivirüs), ağ gereksinimleri
   (güvenlik duvarı izin listesi)
 - **Super Admin için:** Firmalar ve aranabilir firma seçici, tüm firmaların oturum geçmişi, destek talepleri, Sistem ayarları
-  (MySQL, TURN, sistem logosu ve WhatsApp servisi), şifre/2FA kaybı
+  (MySQL, TURN, sistem logosunu değiştirme/kaldırma, WhatsApp servisi), başka bir Super Admin'in şifresini sıfırlama,
+  şifre/2FA kaybı
 
 ---
 
@@ -67,9 +69,22 @@ Aynı kodu iki kez kullanamazsınız; yeni kodun gelmesini bekleyin. Çok sayıd
 ### Kurtarma kodlarım biterse ya da telefonumu kaybedersem?
 
 - **Hesabım** sayfası kalan kurtarma kodu sayısını gösterir; 3 veya daha azsa uyarı çıkar.
-- Kodları kendiniz yenileyemezsiniz. Admin'inizden **2FA sıfırlaması** isteyin; sonraki girişte 2FA'yı yeniden kurar ve
-  yeni kodlar alırsınız.
-- Admin iseniz aynı firmadaki başka bir Admin sıfırlar. Super Admin için bkz. "Super Admin için: Şifre veya 2FA kaybı".
+- Telefonunuz yanınızdaysa kodları **kendiniz yenileyebilirsiniz** (aşağıya bakın).
+- Telefonunuzu kaybettiyseniz kodları yenileyemezsiniz. Admin'inizden **2FA sıfırlaması** isteyin; sonraki girişte
+  2FA'yı yeniden kurar ve yeni kodlar alırsınız. Admin iseniz aynı firmadaki başka bir Admin sıfırlar. Super Admin için
+  bkz. "Super Admin için: Şifre veya 2FA kaybı".
+
+### Kurtarma kodlarımı nasıl yenilerim?
+
+1. **Hesabım** sayfasında **Kurtarma kodlarını yenile**'ye basın.
+2. Doğrulama uygulamanızdaki **güncel 6 haneli kodu** yazın. Kurtarma koduyla yenileme yapılmaz.
+3. **Yeni kodları oluştur**'a basın. Ekranda 10 yeni kurtarma kodu çıkar.
+4. Kodları parola kasanıza kaydedin. Kodlar **yalnız bir kez** gösterilir; pencere kodlar ekrandayken Esc ile kapanmaz,
+   **Kapat**'a basarak çıkarsınız.
+
+Yeniledikten sonra **eski kodlarınızın hepsi hemen geçersiz** olur. "Kod hatalı veya süresi geçmiş." yazarsa uygulamadaki
+yeni kodu bekleyip tekrar deneyin. Çok sayıda hatalı denemede girişteki gibi kısa süreli bekleme gelir. Yenileme denetim
+kaydına yazılır; kodların kendisi hiçbir yere yazılmaz.
 
 ### Şifremi unuttum
 
@@ -90,7 +105,7 @@ sorun. Bağlantı "geçersiz veya süresi dolmuş" diyorsa **Yeni bağlantı ist
 - **Profil:** ad soyad, e-posta, rol ve profil resmi (bkz. "Profil resmimi nasıl yüklerim?"),
 - **Görünüm:** tema seçimi (Açık / Koyu / Sistem),
 - **Şifre değiştir** (mevcut şifre + yeni şifre iki kez),
-- 2FA durumu ("Etkin" / kurulum bağlantısı) ve kullanılmamış kurtarma kodu sayısı,
+- 2FA durumu ("Etkin" / kurulum bağlantısı), kullanılmamış kurtarma kodu sayısı ve **Kurtarma kodlarını yenile**,
 - **Tüm cihazlardan çıkış**.
 
 ### Tüm cihazlardan çıkış
@@ -187,8 +202,12 @@ silinir.
 ### Profil resmim kimlere görünür?
 
 Profil resminiz üst menüde, kullanıcı listesinde ve audit log ekranında görünür. Yalnız **kendi firmanızdaki** oturum açmış
-kullanıcılar (ve Süper Yönetici) görebilir. Müşteriler sizin resminizi **görmez**; müşteri ekranında teknisyenin baş harfleri
-gösterilir.
+kullanıcılar (ve Süper Yönetici) görebilir.
+
+Müşteri, bağlantıyı tarayıcıda açtığında karşılama ekranında adınızın yanında **profil resminizi** görür; böylece
+kiminle konuştuğunu anlar. Resim yalnız o destek oturumu bekliyor veya sürüyorken, 10 dakika geçerli özel bir adresten
+gösterilir; oturum bitince açılmaz. Resminiz yoksa baş harfleriniz gösterilir. Resminizi müşteriye göstermek
+istemiyorsanız kaldırın (bkz. "Profil resmimi nasıl kaldırırım?").
 
 ### Temayı nasıl değiştiririm?
 
@@ -523,7 +542,7 @@ Bu özellik Hızlı Destek **0.9.0** ve sonrasında vardır.
    - Her şey doğruysa **kendi farenizle** **Ekranımı paylaş**'a tıklayın. Bu düğme yanlışlıkla basılmasın diye ilk
      1,5 saniye çalışmaz. Enter veya boşluk tuşu paylaşmaz; uzak bağlantı (TeamViewer, Uzak Masaüstü vb.) üzerinden
      yapılan tıklama sayılmaz.
-9. "Teknisyen bağlanıyor…" yazar ve bağlantı kendiliğinden kurulur. Kabul kodu sorulmaz. Sonrası normal oturumla
+9. "Teknisyen bağlanıyor…" yazar ve bağlantı kendiliğinden kurulur. Varsayılan ayarda kabul kodu sorulmaz. Sonrası normal oturumla
    aynıdır: ekran seçimi, kırmızı çerçeve, sohbet ve dosya (bkz. "Ekran seçimi ve oturum"). Teknisyen fare ve
    klavyenizi kullanmak isterse ayrıca izin istenir.
 
@@ -775,8 +794,26 @@ firmaların oturumlarını gösterir. Yeni oturum açmak, iptal etmek veya sonla
 
 ## Teknisyen için: Müşterinin ekranı gelmiyorsa
 
-Hızlı Destek 0.10.2 ve sonrası ekranı okuyamazsa bunu yalnız **müşterinin penceresinde** gösterir; konsolunuzda ekran
-siyah kalır veya "paylaşılmıyor" görünür. Neden kodu henüz konsola gelmez.
+Hızlı Destek ekranı okuyamazsa konsolunuzda ekran siyah kalır veya "paylaşılmıyor" görünür.
+
+- **Hızlı Destek 0.11 ve sonrası:** konsolda kırmızı bir uyarı çıkar: **"Paylaşım başlatılamadı"** ve altında
+  **"Neden: …"** (ör. "Ekran yakalama bu ekran kartında/ayarda desteklenmiyor (hibrit GPU, HDR veya eski sürücü)").
+  Varsa denenen yöntem de yazılır (ör. "Masaüstü çoğaltma (DXGI)", "Yedek yakalama (GDI)"). Tanınmayan bir kod
+  "Bilinmeyen neden (KOD)" olarak görünür.
+- **Hızlı Destek 0.10.x:** neden konsola gelmez; yalnız müşterinin penceresinde görünür. Aşağıdaki adımlarla müşteriden
+  öğrenin.
+
+Sık görülen nedenler:
+
+| Konsolda görünen neden                                                      | Ne yapmalı                                                               |
+| --------------------------------------------------------------------------- | ------------------------------------------------------------------------ |
+| Ekran yakalama bu ekran kartında/ayarda desteklenmiyor                      | HDR'yi kapatın, ekran kartı sürücüsünü güncelleyin; yedek yöntem denenir |
+| Ekran yakalamaya izin verilmedi (kilit ekranı veya güvenli masaüstü)        | Müşteri kilit ekranını veya Windows onay penceresini kapatsın            |
+| Ekran yakalama şu an kullanılamıyor (tam ekran uygulama veya uzak masaüstü) | Tam ekran uygulamayı veya Uzak Masaüstü bağlantısını kapatın             |
+| Seçilen monitör bulunamadı                                                  | Başka bir monitör seçin veya müşteri ekranı yeniden bağlasın             |
+| Windows medya bileşenleri eksik / Görüntü kodlayıcı bulunamadı              | Windows "N" sürümü: Medya Özellik Paketi kurulmalı                       |
+
+Müşteriden bilgi alma adımları:
 
 1. Müşteriden pencerenin alt satırındaki mesajı ve **parantez içindeki kodu** okumasını isteyin (ör. `DXGI_UNSUPPORTED`).
    Kod tablosu: müşteri bölümündeki "Ekran görüntüsü alınamadı yazıyor".
@@ -923,6 +960,10 @@ Satıra tıklayınca oturum ayrıntısı açılır:
 - **Zaman çizelgesi:** oturumdaki olaylar sırasıyla (kabul, kontrol istekleri, bitiş…). Başarısız olaylar kırmızı ve
   "(başarısız)" etiketlidir. En çok 500 olay gösterilir.
 - **Kalite özeti** ve **Dosyalar:** ortalama görüntü kalitesi, aktarılan dosyaların adı, boyutu ve sonucu (içerik saklanmaz).
+  Her dosyanın sonucunun yanında bir etiket bulunur:
+  - **Doğrulanmış:** aktarımı teknisyen tarafı (konsol) bildirdi; kayıt güvenilirdir.
+  - **Müşteri bildirimi:** aktarımı yalnız müşterinin programı bildirdi, teknisyen tarafından doğrulanmadı. Örneğin
+    konsol aktarım sırasında kapandıysa böyle görünür.
 
 "Oturum bulunamadı" görürseniz oturum sizin değildir, silinmiştir ya da bağlantı hatalıdır.
 
@@ -967,8 +1008,9 @@ kendiliğinden silinir. Bu oturumlar listede ve ayrıntıda **Anonimleştirildi*
 3. Dosyaya çift tıklayın. Türkçe Excel dosyayı doğrudan sütunlara ayırır; Türkçe harfler doğru görünür, saatler
    Türkiye saatidir.
 
-- Dosyada: oturum no, oluşturma/başlangıç/bitiş, süre, durum, mod, teknisyen, müşteri, ticket no, sonlandıran,
-  bitiş nedeni, not. E-posta ve onay kayıtları dosyaya girmez.
+- Dosyada: oturum no, oluşturma/başlangıç/bitiş, süre, durum, mod, kaynak, müşteri firma, bekleme, teknisyen, müşteri,
+  ticket no, sonlandıran, bitiş nedeni, not ve **Dosyalar**. "Dosyalar" sütununda aktarılan dosya sayısı yazar (ör.
+  `2 doğrulanmış; 1 müşteri bildirimi`); dosya yoksa boştur. E-posta ve onay kayıtları dosyaya girmez.
 - `=`, `+`, `-`, `@` ile başlayan değerlerin başında `'` görebilirsiniz. Bu bilerek eklenir; hücre formül olarak
   çalışmaz, metin kalır.
 - Sütunlar tek sütunda toplanırsa Excel'in liste ayracı `;` değildir: **Veri → Metni Sütunlara Dönüştür** ile ayraç
@@ -1049,6 +1091,56 @@ Olası mesajlar:
   Yöneticinize haber verin; gerekirse indirme bağlantısını yeniler.
 - Firmanız WhatsApp bildirimini açtıysa kayıtlı numaralara da kısa mesaj gider (müşteri bilgisi içermez; talep kodu
   ve panel bağlantısı).
+
+### İstenmeyen talepleri nasıl engellerim? ("Bu kaynağı engelle")
+
+Aynı yerden tekrar tekrar sahte veya rahatsız edici talep geliyorsa kaynağı engelleyebilirsiniz. Bunun için
+"Destek talepleri → Engelle" yetkiniz olmalıdır.
+
+1. Talep kartının sağ üstündeki menüyü (üç nokta) açın, **Bu kaynağı engelle**'yi seçin. Seçenek hem **Bekleyenler**
+   hem **Geçmiş** sekmesindeki kartlarda vardır.
+2. **Neyi engelleyelim?** sorusunu yanıtlayın:
+   - **IP adresi:** talebin geldiği internet adresi. Aynı ağdaki (ör. aynı ofis) başka bilgisayarlar da engellenebilir.
+   - **Bu bilgisayar:** yalnız talebi gönderen bilgisayar; adresi değişse de engelli kalır.
+3. **Süre** seçin (1 saat, 1 gün, 7 gün, 30 gün veya Süresiz). Süre dolunca engel kendiliğinden kalkar.
+4. İsterseniz **Not** yazın (neden engellediğinizi hatırlamak için, en çok 200 karakter).
+5. **Engelle**'ye basın. "Kaynak engellendi" mesajı çıkar.
+
+Bekleyen bu talep engelden etkilenmez; isterseniz ayrıca reddedin. Engellenen kaynaktan gelen yeni talepler kuyruğa
+düşmez; gönderen "Şu an çok yoğunuz, lütfen firmanızı telefonla arayın." mesajını görür. Engelleri görmek ve kaldırmak
+için bkz. "Engellenenler".
+
+| Mesaj                                                    | Anlamı                                                                                            |
+| -------------------------------------------------------- | ------------------------------------------------------------------------------------------------- |
+| Bu kaynak zaten engelli.                                 | Bu IP veya bilgisayar için etkin bir engel zaten var                                              |
+| Bu talebin kaynak bilgisi yok (anonimleştirilmiş veya …) | Talebin adresi saklama süresi dolduğu için silinmiş ya da programı bilgisayar bilgisi göndermemiş |
+| Firma başına en çok 1000 engel eklenebilir…              | Engellenenler ekranından eski engelleri kaldırın                                                  |
+
+### Engellenenler ekranı
+
+Kenar menüsündeki **Engellenenler** (kalkan simgesi) firmanızın tüm talep engellerini gösterir. Menüde görünmüyorsa
+"Destek talepleri → Engelle" yetkiniz yoktur. Super Admin önce üst menüden bir firma seçmelidir.
+
+- **Etkin** sekmesi süresi dolmamış engelleri, **Süresi dolanlar dahil** sekmesi hepsini listeler. Süresi dolan engeller
+  30 gün sonra kendiliğinden silinir.
+- Her satırda engelin türü (**IP engeli** veya **Bilgisayar engeli**), adres ya da bilgisayarın kısa kimliği, bitiş
+  zamanı, not, kimin ne zaman eklediği görünür.
+- Sayfanın üstünde "x / 1000 engel" yazar. Sınır dolunca **Engel ekle** pasif olur; önce eski engelleri kaldırın.
+
+**Elle IP veya ağ engeli eklemek:**
+
+1. **Engel ekle**'ye basın.
+2. **IP adresi veya ağ** alanına tek adres (`203.0.113.7`) ya da ağ (`203.0.113.0/24`) yazın. IPv4 için en geniş /24,
+   IPv6 için en geniş /48 girilebilir.
+3. Süre ve isteğe bağlı not seçip **Engelle**'ye basın.
+
+Bilgisayar engeli elle eklenemez; Talepler ekranında ilgili talebin menüsünden **Bu kaynağı engelle → Bu bilgisayar**
+seçilir.
+
+**Engeli kaldırmak:** satırdaki **Kaldır**'a basın ve onaylayın. O kaynaktan gelen talepler yeniden kuyruğa düşer.
+"Bu engel zaten kaldırılmış" yazarsa başka biri sizden önce kaldırmıştır; liste yenilenir.
+
+Engel ekleme ve kaldırma denetim kaydına yazılır (not metni yazılmaz).
 
 ### Geçmiş sekmesi
 
@@ -1231,8 +1323,9 @@ bkz. "Herkes için: Giriş ve hesap güvenliği"). 2FA sorunu için bkz. "Admin 
 4. Kaydedince yeni yetkiler kullanıcının **açık destek oturumlarına hemen** uygulanır; kaldırılan yetkiye bağlı işlem
    (ör. uzaktan kontrol) kapanır. Her değişiklik denetim kaydına "kim, kime, hangi yetki, eski → yeni" olarak yazılır.
 
-Not: "Kullanıcılar → Sil" anahtarı şu an hiçbir işlemi açmaz; kullanıcı kalıcı silinmez, pasife alma "Düzenle" yetkisiyle
-yapılır.
+Not: "Kullanıcılar → Sil" anahtarı kalıcı kullanıcı silme içindir; bu işlem henüz ekranda yoktur, anahtar şimdiden
+listede durur. Pasife alma "Düzenle" yetkisiyle yapılır. "Destek talepleri → Engelle" anahtarı talep engellerini
+(Engellenenler ekranı ve "Bu kaynağı engelle") açar.
 
 ### Kilitli yetkiler
 
@@ -1423,10 +1516,25 @@ Kurumsal ofis gibi bilinen ağlardan gelen talepler "Güvenilen ağ" işaretiyle
 
 Firma başına toplam bekleyen talep sınırı (50) güvenilen ağlar için de geçerlidir.
 
+### Talep kabulünde kabul kodu iste
+
+Bu ayar açıkken bir talebi kabul ettiğinizde müşterinin ekranında 4 haneli bir **kabul kodu** çıkar. Müşteri kodu size
+telefonda okur, siz kodu konsoldaki **Kabul kodu** alanına girersiniz (kod veya bağlantıyla gelen müşteriyle aynı yöntem,
+bkz. "Bekleyen müşteriyi nasıl kabul ederim?"). Kapalıyken müşteri onay verince doğrudan bağlanır.
+
+1. **Ayarlar > Destek talepleri** sayfasında **Talep kabulü** bölümünü bulun.
+2. **Talep kabulünde kabul kodu iste** anahtarını açın veya kapatın, **Kaydet**'e basın.
+
+- Kodun **60 saniye** içinde girilmesi gerekir; süre dolarsa talep "bağlanamadı" olarak kapanır.
+- **Önemli uyumluluk uyarısı:** Hızlı Destek **0.10.x** sürümü kabul kodunu desteklemez. Ayar açıkken eski sürümle
+  gelen talebi **kabul edemezsiniz**: Kabul'e basınca "Müşterinin istemcisi kabul kodunu desteklemiyor (0.11.0 gerekli)…"
+  uyarısı çıkar, talep kuyrukta bekler. Müşteriden Hızlı Destek'i güncellemesini isteyin ya da ayarı kapatın.
+  Müşterilerinizin hepsi **0.11** veya sonrasına geçene kadar bu ayarı **kapalı** tutmanız önerilir.
+
 ### Yetkiler ve kayıtlar
 
 - **Destek talepleri → Görüntüle** (`support_requests.view`) kuyruğu, **Kabul et** (`support_requests.accept`) kabul ve
-  reddi açar. Admin'de varsayılan açık, User'da kapalıdır; **Kullanıcılar** ekranındaki yetki tablosundan açılır.
+  reddi, **Engelle** (`support_requests.block`) talep engellerini açar. Admin'de varsayılan açık, User'da kapalıdır; **Kullanıcılar** ekranındaki yetki tablosundan açılır.
 - Kabul, ret, iptal, süre dolumu, ayar değişikliği (eski → yeni), bağlantı yenileme, WhatsApp gönderimi ve testi
   denetim kaydına yazılır. Müşteri adı, telefonu ve açıklaması denetim kaydına yazılmaz.
 
@@ -1912,8 +2020,15 @@ sekmesi (resim simgesi). Admin bu adresi açarsa yetki uyarısı görür.
 1. **Logo seç** (varsa **Logoyu değiştir**) ile dosyayı seçin, önizlemeyi kontrol edin.
 2. **Logoyu kaydet**'e basın. "Sistem logosu kaydedildi" mesajından sonra giriş ekranında yeni logo görünür.
 
-Sistem logosu bu sürümde **kaldırılamaz**, yalnız değiştirilebilir. Nokta Bilişim logosuna dönmek isterseniz o logoyu
-yeniden yükleyin. Değişiklik audit log'a "Sistem" kaydı olarak yazılır. Dosya kuralları ve hata mesajları için bkz.
+**Sistem logosunu kaldırmak:**
+
+1. Aynı sekmede **Logoyu kaldır**'a basın.
+2. "Sistem logosu kaldırılsın mı?" penceresinde onaylayın.
+3. "Sistem logosu kaldırıldı; varsayılan Nokta logosu gösteriliyor" mesajı çıkar. Giriş ekranında, PDF çıktılarında ve
+   logosu olmayan firmalarda Nokta Bilişim logosu görünür.
+
+Özel logo yoksa sekmede "Özel sistem logosu yok; varsayılan Nokta Bilişim logosu gösteriliyor." yazar. Yükleme ve
+kaldırma audit log'a "Sistem" kaydı olarak yazılır. Dosya kuralları ve hata mesajları için bkz.
 "Resim dosyası kuralları". Süper Yönetici kendi profil resmini Hesabım sayfasından yönetir.
 
 ## Super Admin için: Sistem ayarları > WhatsApp servisi
@@ -2038,10 +2153,34 @@ olarak (eski → yeni adres) yazılır.
 | Çok fazla test denendi. Bir dakika sonra tekrar deneyin.                                              | Dakikalık test sınırı doldu; bir dakika bekleyin                                                                       |
 | Çok fazla istek. Lütfen biraz sonra tekrar deneyin. (kaydederken)                                     | Dakikada 10 kaydetme/geri dönme sınırı doldu; bir dakika bekleyin                                                      |
 
+## Super Admin için: Başka bir Super Admin'in şifresini sıfırlama
+
+Birden fazla Super Admin varsa, şifresini unutan bir Super Admin'e panelden geçici şifre verebilirsiniz. Ekran:
+**Sistem ayarları** → **Super Admin'ler** sekmesi.
+
+1. Listede Super Admin'ler adı, e-postası ve 2FA durumuyla görünür. Kendi satırınızda düğme yoktur; kendi şifrenizi
+   Hesabım sayfasından değiştirin.
+2. Kişinin satırında **Şifre sıfırla**'ya basın.
+3. "<Ad> için şifre sıfırlansın mı?" penceresinde **Şifreyi sıfırla**'ya basın.
+4. Son 5 dakikada kimliğinizi doğrulamadıysanız **Kimliğinizi doğrulayın** penceresi açılır; 2FA kodunuzu girin (bkz.
+   "Kritik bir ayarı değiştirirken 'Kimliğinizi doğrulayın' penceresi").
+5. Geçici şifre **yalnız bir kez** gösterilir. Kopyalayıp kişiye güvenli bir kanaldan (yüz yüze, telefon) iletin.
+   Pencerede kaç oturumun kapatıldığı da yazar.
+
+- Kişinin tüm açık oturumları ve yürüttüğü destek oturumları hemen kapanır.
+- Geçici şifre **24 saat** geçerlidir; kişi ilk girişte yeni şifre belirlemek zorundadır.
+- Kişinin 2FA'sı değişmez. 2FA'sını da kaybettiyse sunucu yöneticisine başvurun (aşağıya bakın).
+- Listede tek Super Admin varsa "Başka Super Admin yok" yazar; sıfırlama sunucudaki komut satırı aracıyla yapılır.
+- "Bu hesap artık etkin bir Super Admin değil; liste yenilendi." yazarsa hesap bu arada pasife alınmış veya rolü
+  değişmiştir.
+- Kısa sürede çok fazla sıfırlama yapılırsa (dakikada 5) bir süre beklemeniz istenir.
+
+Sıfırlama audit log'a yazılır (geçici şifre yazılmaz).
+
 ## Super Admin için: Şifre veya 2FA kaybı
 
 Super Admin'in bir firması olmadığı için SMTP ayarı da yoktur: "Şifremi unuttum" e-posta göndermez ve kimse panelden
-Super Admin'in 2FA'sını sıfırlayamaz. Bu yüzden:
+Super Admin'in 2FA'sını sıfırlayamaz. Başka bir Super Admin yalnız şifrenizi sıfırlayabilir (bkz. önceki bölüm). Bu yüzden:
 
 - İlk girişte 2FA'yı kurarken 10 kurtarma kodunu **mutlaka** parola kasasına kaydedin.
 - Hem telefon hem kurtarma kodları kaybolduysa veya şifre unutulduysa **sunucu yöneticisine başvurun**. Sunucu yöneticisi

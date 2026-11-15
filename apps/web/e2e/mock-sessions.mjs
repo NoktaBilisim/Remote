@@ -183,6 +183,12 @@ byToken.set(fixed("B"), Object.assign(newSession("PENDING"), { noAbuse: true }))
 // "L" (P12 QA-2, AC-81): firmanın yüklenmiş logosu var → resolve tenant.logoUrl dolu (dosya mock-branding.mjs'den sunulur)
 export const TENANT_LOGO_URL = "/api/v1/files/logo/demo/public-demo-logo-0001.png";
 byToken.set(fixed("L"), Object.assign(newSession("PENDING"), { tenantLogo: TENANT_LOGO_URL }));
+// "V" (P15, AC-236): teknisyenin avatarı var → resolve technician.avatarUrl oturuma bağlı imzalı URL (≤ 10 dk);
+// oturum PENDING/ACTIVE değilse 403. Baytlar 1×1 PNG.
+byToken.set(fixed("V"), Object.assign(newSession("PENDING"), { techAvatar: true }));
+const AVATAR_PNG = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=", "base64");
+const techAvatarUrl = (rec) =>
+  `/api/v1/public/sessions/${rec.view.id}/tech-avatar?exp=${Math.floor(Date.now() / 1000) + 600}&sig=${"a".repeat(64)}`;
 // P6 (AC-27) indirme ucu: "D" istemci yayında değil (503 NOT_READY), "G" indirme anında oturum iptal (410)
 byToken.set(fixed("D"), Object.assign(newSession("PENDING"), { agent: "notReady" }));
 byToken.set(fixed("G"), Object.assign(newSession("PENDING"), { agent: "gone" }));
@@ -194,6 +200,16 @@ export async function handleSessions(req, res, { url, session, csrfOk, send, err
   const path = url.split("?")[0];
   const q = new URLSearchParams(url.split("?")[1] ?? "");
 
+  const ta = req.method === "GET" && path.match(/^\/api\/v1\/public\/sessions\/([0-9A-Z]{26})\/tech-avatar$/);
+  if (ta) {
+    const rec = [...byToken.values()].find((r) => r.view.id === ta[1] && r.techAvatar);
+    const exp = Number(q.get("exp"));
+    if (!rec || !/^[a-f0-9]{64}$/.test(q.get("sig") ?? "") || !(exp * 1000 > Date.now()))
+      return (send(res, 403, err("FORBIDDEN", "Yetkiniz yok.")), true);
+    if (rec.view.status !== "PENDING" && rec.view.status !== "ACTIVE") return (send(res, 403, err("FORBIDDEN", "Yetkiniz yok.")), true);
+    res.writeHead(200, { "Content-Type": "image/png", "Cache-Control": "private, no-store" });
+    return (res.end(AVATAR_PNG), true);
+  }
   if (path === "/api/v1/public/sessions/resolve" && req.method === "POST") {
     const { token: tk, clientKind } = await readJson(req);
     if (clientKind !== "BROWSER") return (send(res, 400, err("VALIDATION", "Geçersiz istek.")), true);
@@ -209,7 +225,7 @@ export async function handleSessions(req, res, { url, session, csrfOk, send, err
     const body = {
       sessionRef: rec.ref,
       tenant: { name: "Demo Firma", logoUrl: rec.tenantLogo ?? null },
-      technician: { name: rec.view.technician.name, avatarUrl: null },
+      technician: { name: rec.view.technician.name, avatarUrl: rec.techAvatar ? techAvatarUrl(rec) : null },
       techVerifyCode: rec.view.techVerifyCode,
       expiresAt: rec.view.expiresAt,
       joinNonce: token(),

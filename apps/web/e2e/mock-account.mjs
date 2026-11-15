@@ -10,6 +10,7 @@ import {
   smtpTestInputSchema,
 } from "@remote/contracts/api/tenants";
 import { sessionEmailInputSchema } from "@remote/contracts/api/sessions";
+import { mfaRecoveryCodesInputSchema } from "@remote/contracts/api/auth";
 import { PERMISSION_KEYS } from "@remote/contracts/permissions";
 
 export const RESET_OK = "r".repeat(43);
@@ -135,6 +136,21 @@ export async function handleAccount(req, res, { url, session, csrfOk, send, err,
   if (req.method === "GET" && path === "/api/v1/auth/me") return (send(res, 200, me(s)), true);
   if (post && !csrfOk) return (send(res, 403, err("CSRF_INVALID", "CSRF doğrulaması başarısız.")), true);
 
+  // P15 (AC-231): kurtarma kodlarını yenile — TOTP "123456" → 10 yeni kod; "000000" → 429 (5 hatalı deneme kilidi taklidi);
+  // diğer → 400 fields.code. 2FA kurulu değilse 403 MFA_SETUP_REQUIRED.
+  if (post && path === "/api/v1/auth/mfa/recovery-codes") {
+    const p = mfaRecoveryCodesInputSchema.safeParse(await readJson(req));
+    if (!s.enabled) return (send(res, 403, err("MFA_SETUP_REQUIRED", "Önce iki adımlı doğrulamayı kurun.")), true);
+    if (p.success && p.data.code === "000000")
+      return (send(res, 429, err("RATE_LIMITED", "Çok fazla deneme."), [], { "Retry-After": "300" }), true);
+    if (!p.success || p.data.code !== "123456")
+      return (send(res, 400, err("VALIDATION", "Doğrulama hatası", { fields: { code: "Kod hatalı" } })), true);
+    s.rcLeft = 10;
+    s.regenerated = (s.regenerated ?? 0) + 1;
+    const L = "ABCDEFGHIJ";
+    const codes = Array.from({ length: 10 }, (_, i) => `RG${L[i]}${L[s.regenerated % 10]}Z-${L[i]}WXYZ`);
+    return (send(res, 200, { codes }), true);
+  }
   if (post && path === "/api/v1/auth/mfa/verify") {
     const b = await readJson(req);
     if (b.code === "123456" || (b.recoveryCode && b.recoveryCode.toLowerCase().replace(/[\s-]/g, "") === "abcde23456" && !s.usedRecovery)) {

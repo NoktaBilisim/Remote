@@ -205,7 +205,9 @@ async function publicLogos(f: PublicFx): Promise<string[]> {
   expect(r.statusCode, r.body).toBe(200);
   const body = r.json<PublicInfo & { technician: { name: string; avatarUrl: string | null } }>();
   expect(body.tenant.name).toBe(f.t.name);
-  expect(body.technician.avatarUrl).toBeNull(); // KVKK (sapma 3): müşteriye teknisyen resmi gösterilmez
+  // P15 AC-236: sapma 3 kalktı — teknisyen avatarı kısa ömürlü imzalı URL ile (oturum id'si; bağlantı token'ı yolda yok).
+  const tav = body.technician.avatarUrl;
+  if (tav !== null) expect(tav).toMatch(/^\/api\/v1\/public\/sessions\/[0-9A-Z]{26}\/tech-avatar\?exp=\d+&sig=[a-f0-9]{64}$/);
   const out = [body.tenant.logoUrl];
   const info = await app.inject({ method: "GET", url: `/api/v1/public/requests/tenant?ref=${f.ref}`, remoteAddress: nextPublicIp() });
   const binding = await app.inject({
@@ -223,7 +225,7 @@ async function publicLogos(f: PublicFx): Promise<string[]> {
 }
 
 describe("AC-81 karşılama sayfası ve istemci logosu (QA-1)", () => {
-  it("AC-81: firma logosu yüklüyse resolve, talep bilgisi ve bilgisayar kaydı uçları firma logosu URL'sini döner; teknisyenin avatarı olsa da resolve'da avatarUrl null; kaldırınca (sistem logosu yok) `/img/logo.png`", async () => {
+  it("AC-81: firma logosu yüklüyse resolve, talep bilgisi ve bilgisayar kaydı uçları firma logosu URL'sini döner; teknisyen avatarı resolve'da imzalı URL (AC-236); kaldırınca (sistem logosu yok) `/img/logo.png`", async () => {
     expect(await systemLogoPath(db()), "ön koşul: boş test DB'si (scripts/test-db.sh up)").toBeNull();
     const f = await publicFixture();
     expect(await publicLogos(f)).toEqual([DEFAULT_LOGO_URL, DEFAULT_LOGO_URL, DEFAULT_LOGO_URL]);

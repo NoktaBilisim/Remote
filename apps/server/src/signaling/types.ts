@@ -132,8 +132,10 @@ export interface FileMetaQuota {
 
 export interface Room {
   sessionId: string;
-  /** P8b: talepten doğan oturum (guest.admit/guest.reject → CONFLICT). */
+  /** P8b: talepten doğan oturum (guest.admit/guest.reject → CONFLICT; P15 `acceptCode` açıksa izinli). */
   requestId?: string;
+  /** P15 (AC-239): talep oturumu kabul koduyla — misafir lobiye düşer, teknisyen 4 haneli kodu girer (AC-112 kuralları). */
+  acceptCode?: boolean;
   tenantId: string;
   technicianId: string;
   technicianName: string;
@@ -165,6 +167,8 @@ export interface Room {
   reconnectConflictAuditAt?: number;
   /** Misafirden gelen son `share.state` (QA-P4-12): teknisyen yeniden bağlanınca hello'da gönderilir; misafir ayrılınca "stopped". */
   share?: ShareSnapshot;
+  /** P15 (S17-2): teknisyene son `share.state` iletim anı (ms); `SHARE_STATE_MIN_INTERVAL_MS` içinde gelenler birleştirilir. */
+  shareSentAt?: number;
   /** P7 son `env.state` (AGENT; §3.3 K8): GRANTED audit'ine `selfElevated` yazılır; misafir ayrılınca/kopunca temizlenir. */
   guestEnv?: GuestEnv;
   /** P7 uzaktan kontrol durumu. */
@@ -173,7 +177,8 @@ export interface Room {
   bindingRequests?: number;
   /** G-P13b-1: son verilen TURN credential (yeniden bağlanmada aynısı; `active.ts` grant). */
   iceGrant?: { cfg: TurnConfig; grant: IceGrant };
-  timers: { disconnect?: unknown; warn?: unknown; maxEnd?: unknown; iceRefresh?: unknown; idle?: unknown };
+  /** `share`: P15 (S17-2) birleştirilmiş `share.state`'in gecikmeli iletimi. */
+  timers: { disconnect?: unknown; warn?: unknown; maxEnd?: unknown; iceRefresh?: unknown; idle?: unknown; share?: unknown };
   ending: boolean;
 }
 

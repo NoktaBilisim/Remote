@@ -87,3 +87,8 @@ REVOKE IF EXISTS UPDATE, ALTER, DROP, INDEX, TRIGGER, REFERENCES ON audit_logs F
 
 -- /ready: uygulanmış son migration sürümünü okur (yalnız okuma).
 GRANT SELECT ON _prisma_migrations TO 'app'@'%';
+
+-- P15 request_blocks (mimari-e11 §6; AC-235): engel ekleme INSERT, kaldırma ve süresi dolanın temizliği DELETE. UPDATE YOK:
+-- engel satırı değişmez (süre değişimi = aynı TX'te DELETE + INSERT; iz audit'te) → hedef/süre sessizce değiştirilemez.
+GRANT SELECT, INSERT, DELETE ON request_blocks TO 'app'@'%';
+REVOKE IF EXISTS UPDATE, ALTER, DROP, INDEX, TRIGGER, REFERENCES ON request_blocks FROM 'app'@'%';

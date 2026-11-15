@@ -83,6 +83,8 @@ describe("P5 session_files", () => {
       "sha256",
       "result",
       "created_at",
+      "reported_by", // P15 AC-238
+      "match_key", // P15 AC-238 (SHA-256 hex; içerik değil)
     ]);
   });
 

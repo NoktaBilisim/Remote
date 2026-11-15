@@ -118,6 +118,7 @@ describe("ayar formu", () => {
     trustedCidrs: [],
     whatsapp: { enabled: false, recipients: [], serviceConfigured: true, insecure: false },
     email: { enabled: false, recipients: [], smtpConfigured: false },
+    requireAcceptCode: false,
   };
   it("geçerli durum → PUT gövdesi (telefon E.164, CIDR kanonik, boş satır atlanır)", () => {
     const st = {
@@ -127,13 +128,22 @@ describe("ayar formu", () => {
       waRecipients: ["0532 111 22 33"],
       mailEnabled: false,
       mailRecipients: [],
+      acceptCode: false,
     };
     expect(buildInput(st, base.email).input).toEqual({
       waitMinutes: 45,
       trustedCidrs: ["203.0.113.0/24"],
       whatsapp: { enabled: true, recipients: ["+905321112233"] },
       email: { enabled: false, recipients: [] },
+      requireAcceptCode: false,
     });
+  });
+  it("AC-239: kabul kodu anahtarı durumdan PUT gövdesine gider ve kirli sayılır", () => {
+    const a = toState({ ...base, requireAcceptCode: true });
+    expect(a.acceptCode).toBe(true);
+    expect(buildInput({ ...a, acceptCode: false }, base.email).input?.requireAcceptCode).toBe(false);
+    expect(buildInput(a, base.email).input?.requireAcceptCode).toBe(true);
+    expect(isDirty(a, { ...a, acceptCode: false })).toBe(true);
   });
   it("alan bazlı hatalar", () => {
     const st = {
@@ -143,6 +153,7 @@ describe("ayar formu", () => {
       waRecipients: ["12", "05321112233", "+905321112233"],
       mailEnabled: false,
       mailRecipients: [],
+      acceptCode: false,
     };
     const { input, errors } = buildInput(st, base.email);
     expect(input).toBeUndefined();
@@ -188,6 +199,9 @@ describe("kabul / hata mesajları", () => {
     expect(requestErrorMessage(new ApiError(429, "QUEUE_FULL", ""))).toMatch("yoğunuz");
     expect(requestErrorMessage(new ApiError(426, "CLIENT_OUTDATED", ""))).toMatch("eski");
     expect(requestErrorMessage(new ApiError(409, "OPEN_SESSION_LIMIT", "Sınır"))).toBe("Sınır");
+    expect(requestErrorMessage(new ApiError(409, "ACCEPT_CODE_CLIENT_UNSUPPORTED", ""))).toBe(
+      "Müşterinin istemcisi kabul kodunu desteklemiyor (0.11.0 gerekli). Müşteriden istemciyi güncellemesini isteyin veya bu firmada kabul kodu ayarını kapatın.",
+    );
   });
 });
 

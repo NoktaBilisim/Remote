@@ -12,6 +12,7 @@ import {
   ScrollText,
   ServerCog,
   Settings,
+  ShieldBan,
   Users,
   type LucideIcon,
 } from "lucide-react";
@@ -29,6 +30,8 @@ const items: { href: string; label: MessageKey; Icon: LucideIcon; perm?: string;
   { href: "/", label: "panel.home", Icon: House },
   { href: "/sessions", label: "nav.sessions", Icon: MonitorSmartphone, perm: "sessions.view" },
   { href: "/requests", label: "nav.requests", Icon: Inbox, perm: "support_requests.view" },
+  // P15 (AC-235): Engellenenler — engel (yasak) anlamında ShieldBan
+  { href: "/request-blocks", label: "nav.blocks", Icon: ShieldBan, perm: "support_requests.block" },
   { href: "/customers", label: "nav.customers", Icon: Building2, perm: "customers.view" },
   { href: "/history", label: "nav.history", Icon: History, perm: "session_history.view" },
   { href: "/users", label: "nav.users", Icon: Users, perm: "users.view" },

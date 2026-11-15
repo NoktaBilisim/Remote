@@ -193,6 +193,13 @@ export async function handleBranding(req, res, { url, session, csrfOk, send, err
     return true;
   }
 
+  // P15 (AC-233): sistem logosunu kaldır → varsayılan Nokta logosu
+  if (path === "/api/v1/admin/settings/system-logo" && m === "DELETE") {
+    if (s.kind !== "brsa") return (send(res, 403, err("FORBIDDEN", "Yetkiniz yok.")), true);
+    s.systemLogoUrl = null;
+    return (send(res, 200, { logoUrl: DEFAULT_LOGO_URL }), true);
+  }
+
   if (m === "GET" && path === "/api/v1/settings/tenant") {
     return (
       send(res, 200, {

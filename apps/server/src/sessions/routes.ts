@@ -164,6 +164,7 @@ export async function publicSessionRoutes(app: FastifyInstance): Promise<void> {
         superAdminFallback: app.env.NODE_ENV !== "production", // S-P4-1
       },
       app.env.MIN_AGENT_VERSION,
+      app.secrets,
     );
     void reply.header("Cache-Control", "no-store");
     return out;

@@ -179,9 +179,27 @@ export function consentsOf(db: DbOrTx, s: { id: string; tenantId: string }, take
 export function filesOf(db: DbOrTx, s: { id: string; tenantId: string }, take: number) {
   return db.sessionFile.findMany({
     where: { sessionId: s.id, tenantId: s.tenantId },
-    select: { id: true, direction: true, fileName: true, sizeBytes: true, sha256: true, result: true, createdAt: true },
+    select: {
+      id: true,
+      direction: true,
+      fileName: true,
+      sizeBytes: true,
+      sha256: true,
+      result: true,
+      createdAt: true,
+      reportedBy: true,
+      matchKey: true,
+    },
     orderBy: [{ createdAt: "asc" }, { id: "asc" }],
     take,
+  });
+}
+
+/** P15 (AC-238): CSV "Dosyalar" hücresi için parti oturumlarının rapor satırları (yalnız eşleme alanları; fid'siz eşleme için yön/özet/boyut). */
+export function fileReportsOf(db: DbOrTx, tenantIds: readonly string[], sessionIds: readonly string[]) {
+  return db.sessionFile.findMany({
+    where: { sessionId: { in: [...sessionIds] }, tenantId: { in: [...tenantIds] } },
+    select: { id: true, sessionId: true, reportedBy: true, matchKey: true, direction: true, sha256: true, sizeBytes: true },
   });
 }
 

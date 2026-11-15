@@ -15,6 +15,7 @@ export function requestErrorMessage(e: unknown): string {
     if (e.code === "OPEN_SESSION_LIMIT") return e.message || t("rq.err.limit");
     if (e.code === "QUEUE_FULL") return t("rq.err.queueFull");
     if (e.code === "CLIENT_OUTDATED") return t("rq.err.outdated");
+    if (e.code === "ACCEPT_CODE_CLIENT_UNSUPPORTED") return t("rq.err.acceptCodeUnsupported");
   }
   return toUiError(e).message;
 }

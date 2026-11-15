@@ -21,6 +21,7 @@ const settingsSelect = {
   emailEnabled: true,
   emailRecipients: true,
   trustedCidrs: true,
+  requireAcceptCode: true, // P15 (AC-239)
   tenant: { select: { id: true, name: true, status: true, deletedAt: true, logoPath: true } },
 } as const;
 export type SettingsRow = Prisma.TenantRequestSettingsGetPayload<{ select: typeof settingsSelect }>;
@@ -256,7 +257,10 @@ export function findItem(db: DbOrTx, tenantId: string, id: string): Promise<Item
 }
 
 export function findStatusInTenant(db: DbOrTx, tenantId: string, id: string) {
-  return db.supportRequest.findFirst({ where: { id, tenantId }, select: { status: true, acceptedBy: true, customerId: true } });
+  return db.supportRequest.findFirst({
+    where: { id, tenantId },
+    select: { status: true, acceptedBy: true, customerId: true, clientVersion: true },
+  });
 }
 
 // ---------------- Geçişler (§3.4) ----------------

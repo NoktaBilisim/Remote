@@ -54,6 +54,8 @@ export const ERROR_STATUS = {
   REQUEST_TAKEN: 409,
   /** P8b: talep iptal/süre dolumu/ret/bağlanamadı ile kapanmış (AC-153). */
   REQUEST_CLOSED: 409,
+  /** P15 düzeltme 2 (S15-6): firmada kabul kodu açık, talep istemcisi < ACCEPT_CODE_MIN_CLIENT_VERSION; talep PENDING kalır. */
+  ACCEPT_CODE_CLIENT_UNSUPPORTED: 409,
   /** P8c: bilgisayar kaydı geçersiz (yok/unutulmuş/değiştirilmiş/müşteri yenilendi-pasif/Genel yenilendi/tenant pasif/süresi doldu) — tek gövde (AC-185). */
   BINDING_INVALID: 404,
   /** P12 (AC-84): yükleme 2 MB'ı aşıyor. */

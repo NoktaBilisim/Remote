@@ -6,7 +6,12 @@ import { configDefaults, defineConfig } from "vitest/config";
 const WHATSAPP_SERIAL = ["test/integration/whatsapp-admin-p12b.test.ts"];
 // P14a A3: `system_settings` mysql/turn satırlarını yazar (settings-p11 ve bindings-p8c ile paylaşılan satırlar) → ana
 // projeyle eşzamanlı koşmaz; whatsapp dosyasıyla aynı seri projede (farklı satırlar, çakışma yok).
-const SYSTEM_SETTINGS_SERIAL = [...WHATSAPP_SERIAL, "test/integration/p14a-a3-settings.test.ts"];
+// P15: sistem logosu kaldırma (`system_settings.system_logo`, branding-p12 ile paylaşılan satır) → aynı seri proje.
+const SYSTEM_SETTINGS_SERIAL = [
+  ...WHATSAPP_SERIAL,
+  "test/integration/p14a-a3-settings.test.ts",
+  "test/integration/system-logo-p15.test.ts",
+];
 // P13a (B4): bindings-p8c AC-192, settings-p11 ile paylaşılan `system_settings.turn` satırında yarışıyordu → ayrı proje.
 const BINDINGS_SERIAL = ["test/integration/bindings-p8c.test.ts"];
 // P13a: saklama işi tüm firmalarda + global tablolarda (audit 730 g, giriş oturumları) çalışır; başka dosyalarla eşzamanlı

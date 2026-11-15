@@ -11,7 +11,10 @@ import { Section } from "../section";
 
 export const metadata: Metadata = { title: `${t("sys.tab.logo")} · ${t("sys.title")}` };
 
-/** /admin/settings/system-logo — Super Admin sistem logosu (AC-82). Geçerli logo herkese açık uçtan okunur; kaldırma yok. */
+/**
+ * /admin/settings/system-logo — Super Admin sistem logosu (AC-82). Geçerli logo herkese açık uçtan okunur. P15 (AC-233):
+ * "Logoyu kaldır" (onaylı) → DELETE → login/PDF varsayılan Nokta logosuna döner.
+ */
 export default async function SystemLogoPage() {
   const res = await serverGet<PublicBrandingResponse>("/public/branding");
   if (res.kind === "error") {
@@ -31,8 +34,9 @@ export default async function SystemLogoPage() {
           logoUrl={res.data.logoUrl}
           alt={t("sl.alt")}
           canEdit
-          removable={false}
+          removable
           savedMessage={t("sl.saved")}
+          texts={{ none: t("sl.none"), removeTitle: t("sl.removeTitle"), removeBody: t("sl.removeBody"), removed: t("sl.removed") }}
           testId="system-logo-uploader"
         />
       </Section>

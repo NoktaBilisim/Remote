@@ -378,7 +378,7 @@ run_root 3 "SELECT COUNT(*) FROM information_schema.TRIGGERS WHERE EVENT_OBJECT_
 run_root 0 "SELECT (SELECT COUNT(*) FROM information_schema.USER_PRIVILEGES WHERE GRANTEE=\"'app'@'%'\" AND PRIVILEGE_TYPE<>'USAGE') + (SELECT COUNT(*) FROM information_schema.SCHEMA_PRIVILEGES WHERE GRANTEE=\"'app'@'%'\") + (SELECT COUNT(*) FROM information_schema.TABLE_PRIVILEGES WHERE GRANTEE=\"'app'@'%'\" AND PRIVILEGE_TYPE IN ('TRIGGER','ALTER','DROP','CREATE','INDEX','REFERENCES','GRANT OPTION'))" "app: global/DB yetkisi yok, hiçbir tabloda TRIGGER/ALTER/DROP/CREATE/INDEX yok"
 run_root 0 "SELECT COUNT(*) FROM information_schema.TABLE_PRIVILEGES WHERE GRANTEE=\"'app'@'%'\" AND TABLE_NAME='audit_logs' AND PRIVILEGE_TYPE NOT IN ('SELECT','INSERT','DELETE')" "app: audit_logs yalnız SELECT/INSERT/DELETE (DELETE P13a)"
 # P13a (K27): DELETE yetkisi tam olarak bu tablolarda; support_sessions/session_consents/support_requests/device_bindings/customers… YOK.
-run_root "audit_logs,auth_sessions,password_reset_tokens,recovery_codes,session_files,tenant_settings,tenants,user_permissions,users" "SELECT GROUP_CONCAT(TABLE_NAME ORDER BY CAST(TABLE_NAME AS BINARY)) FROM information_schema.TABLE_PRIVILEGES WHERE GRANTEE=\"'app'@'%'\" AND TABLE_SCHEMA=DATABASE() AND PRIVILEGE_TYPE='DELETE'" "app: DELETE yetkili tablo kümesi (K27)"
+run_root "audit_logs,auth_sessions,password_reset_tokens,recovery_codes,request_blocks,session_files,tenant_settings,tenants,user_permissions,users" "SELECT GROUP_CONCAT(TABLE_NAME ORDER BY CAST(TABLE_NAME AS BINARY)) FROM information_schema.TABLE_PRIVILEGES WHERE GRANTEE=\"'app'@'%'\" AND TABLE_SCHEMA=DATABASE() AND PRIVILEGE_TYPE='DELETE'" "app: DELETE yetkili tablo kümesi (K27)"
 run_root "consent_texts.is_current:UPDATE,consent_texts.updated_at:UPDATE,password_reset_tokens.updated_at:UPDATE,password_reset_tokens.used_at:UPDATE,recovery_codes.updated_at:UPDATE,recovery_codes.used_at:UPDATE,session_consents.ip:UPDATE,session_consents.user_agent:UPDATE" "SELECT GROUP_CONCAT(CONCAT(TABLE_NAME,'.',COLUMN_NAME,':',PRIVILEGE_TYPE) ORDER BY CAST(TABLE_NAME AS BINARY),CAST(COLUMN_NAME AS BINARY)) FROM information_schema.COLUMN_PRIVILEGES WHERE GRANTEE=\"'app'@'%'\" AND TABLE_SCHEMA=DATABASE()" "app: sütun düzeyi yetki kümesi (P13a session_consents ip/user_agent)"
 run_root 0 "SELECT COUNT(*) FROM information_schema.COLUMN_PRIVILEGES WHERE GRANTEE=\"'app'@'%'\" AND TABLE_NAME='audit_logs'" "app: audit_logs sütun düzeyi UPDATE yok"
 run DENIED "DROP TRIGGER audit_logs_force_created_at" "denied"
@@ -448,6 +448,45 @@ run OK     "$(WA 2F6170692F7631)"                         # /api/v1
 SA="UPDATE users SET password_hash='\$argon2id\$x',must_change_password=1,failed_login_count=0,failed_window_at=NULL,locked_until=NULL,updated_at=NOW(3) $WU"
 AS1="INSERT INTO auth_sessions (id,user_id,token_hash,ip,user_agent,last_seen_at,expires_at,updated_at) VALUES ('00000000000000000000GRANTZ','00000000000000000000GRANTU',$H1,'203.0.113.7','ua',NOW(3),NOW(3)+INTERVAL 1 HOUR,NOW(3))"
 run OK     "$TX $AS1; $RC1; $PR1; $SA; UPDATE auth_sessions SET revoked_at=NOW(3),updated_at=NOW(3) WHERE user_id='00000000000000000000GRANTU' AND revoked_at IS NULL; UPDATE password_reset_tokens SET used_at=NOW(3),updated_at=NOW(3) WHERE user_id='00000000000000000000GRANTU' AND used_at IS NULL; $UU totp_enabled=0,totp_secret_enc=NULL,totp_last_step=NULL $WU; DELETE FROM recovery_codes WHERE user_id='00000000000000000000GRANTU'; INSERT INTO audit_logs (action,entity,entity_id,username,user_agent,result,new_value) VALUES ('auth.superadmin_reset','users','00000000000000000000GRANTU','cli','reset-superadmin-cli','success',JSON_OBJECT('mustChangePassword',TRUE,'mfaReset',TRUE,'revokedSessions',1)); $R"
+# P15 (AC-233, 235, 238, 239 + P14 devri e-posta `\z`). request_blocks: SELECT/INSERT/DELETE, UPDATE/DDL yok; CHECK'ler.
+RB="INSERT INTO request_blocks (id,tenant_id,kind,ip_from,ip_to,device_key_hash,expires_at,note,created_by) VALUES"
+GU="'00000000000000000000GRANTU'"
+run OK     "SELECT COUNT(*) FROM request_blocks"
+run OK     "$TX $RB ('00000000000000000000GRANTB','$GT','IP',UNHEX('CB007100'),UNHEX('CB0071FF'),NULL,NOW(3)+INTERVAL 1 HOUR,'Spam',$GU),('00000000000000000000GRANTD','$GT','DEVICE',NULL,NULL,$H1,NULL,NULL,$GU),('00000000000000000000GRANT6','$GT','IP',UNHEX('20010DB8000100000000000000000000'),UNHEX('20010DB80001FFFFFFFFFFFFFFFFFFFF'),NULL,NULL,NULL,$GU); DELETE FROM request_blocks WHERE id='00000000000000000000GRANTB'; $R"
+run DENIED "UPDATE request_blocks SET expires_at=NULL WHERE id='-'" "denied"
+run DENIED "ALTER TABLE request_blocks ADD COLUMN x INT" "denied"
+run DENIED "$TX $RB ('00000000000000000000GRANTB','$GT','ip',UNHEX('CB007100'),UNHEX('CB0071FF'),NULL,NULL,NULL,$GU); $R" request_blocks_kind_chk
+run DENIED "$TX $RB ('00000000000000000000GRANTB','$GT','IP',UNHEX('CB007100'),UNHEX('CB0071FF'),$H1,NULL,NULL,$GU); $R" request_blocks_target_chk
+run DENIED "$TX $RB ('00000000000000000000GRANTB','$GT','DEVICE',NULL,NULL,NULL,NULL,NULL,$GU); $R" request_blocks_target_chk
+run DENIED "$TX $RB ('00000000000000000000GRANTB','$GT','IP',UNHEX('CB000000'),UNHEX('CB00FFFF'),NULL,NULL,NULL,$GU); $R" request_blocks_ip_range_chk   # /16 > /24
+run DENIED "$TX $RB ('00000000000000000000GRANTB','$GT','IP',UNHEX('CB007101'),UNHEX('CB0071FF'),NULL,NULL,NULL,$GU); $R" request_blocks_ip_range_chk   # ağ adresi değil
+run DENIED "$TX $RB ('00000000000000000000GRANTB','$GT','IP',UNHEX('CB007100'),UNHEX('20010DB8000100000000000000000000'),NULL,NULL,NULL,$GU); $R" request_blocks_ip_range_chk
+run DENIED "$TX $RB ('00000000000000000000GRANTB','$GT','IP',UNHEX('20010DB8000000000000000000000000'),UNHEX('20010DB8FFFFFFFFFFFFFFFFFFFFFFFF'),NULL,NULL,NULL,$GU); $R" request_blocks_ip_range_chk   # /32 > /48
+run DENIED "$TX $RB ('00000000000000000000GRANTB','$GT','DEVICE',NULL,NULL,UPPER($H1),NULL,NULL,$GU); $R" request_blocks_device_key_hash_fmt_chk
+run DENIED "$TX $RB ('00000000000000000000GRANTB','$GT','DEVICE',NULL,NULL,CONCAT(REPEAT('a',63),CHAR(10)),NULL,NULL,$GU); $R" request_blocks_device_key_hash_fmt_chk
+run DENIED "$TX $RB ('00000000000000000000GRANTB','$GT','DEVICE',NULL,NULL,$H1,NOW(3)-INTERVAL 1 MINUTE,NULL,$GU); $R" request_blocks_expires_chk
+run DENIED "$TX $RB ('00000000000000000000GRANTB','$GT','DEVICE',NULL,NULL,$H1,NULL,' Spam',$GU); $R" request_blocks_note_chk
+run DENIED "$TX $RB ('00000000000000000000GRANTB','$GT','DEVICE',NULL,NULL,$H1,NULL,NULL,'00000000000000000000NOUSER'); $R" "foreign key"
+run DENIED "$TX $RB ('00000000000000000000GRANTB','$GT','DEVICE',NULL,NULL,$H1,NULL,NULL,$GU),('00000000000000000000GRANTC','$GT','DEVICE',NULL,NULL,$H1,NULL,NULL,$GU); $R" "Duplicate"
+# AC-233: logo kaldırma = {"path": null} (UPDATE); DELETE hâlâ yok (yukarıdaki mysql DELETE denemesiyle aynı tablo düzeyi).
+run OK     "$TX $SSI ('system_logo','{\"path\":null}',NULL,NOW(3)) ON DUPLICATE KEY UPDATE value_json=VALUES(value_json),secret_enc=NULL,updated_at=NOW(3); $R"
+run DENIED "DELETE FROM system_settings WHERE \`key\`='system_logo'" "denied"
+run DENIED "$TX $SSI ('system_logo','{\"path\":null}',RANDOM_BYTES(45),NOW(3)) ON DUPLICATE KEY UPDATE value_json=VALUES(value_json),secret_enc=VALUES(secret_enc); $R" system_settings_system_logo_chk
+run DENIED "$TX $SSI ('system_logo','{}',NULL,NOW(3)) ON DUPLICATE KEY UPDATE value_json=VALUES(value_json),secret_enc=NULL; $R" system_settings_system_logo_chk
+# mysql_chk: JSON şeması `$`'ı gerçek son (ECMAScript) → host/database sonundaki satır sonu zaten ret (P15 doğrulaması).
+run DENIED "$TX $SSI ('mysql',JSON_OBJECT('host',CONCAT('db.internal',CHAR(10 USING utf8mb4)),'port',3306,'database','remote','user','rapor'),NULL,NOW(3)) ON DUPLICATE KEY UPDATE value_json=VALUES(value_json); $R" system_settings_mysql_chk
+run DENIED "$TX $SSI ('mysql',JSON_OBJECT('host','db.internal','port',3306,'database',CONCAT('remote',CHAR(13,10 USING utf8mb4)),'user','rapor'),NULL,NOW(3)) ON DUPLICATE KEY UPDATE value_json=VALUES(value_json); $R" system_settings_mysql_chk
+# AC-239 / AC-238: yeni sütunlar app'in mevcut tablo yetkisiyle yazılır; session_files UPDATE hâlâ yok.
+run OK     "$TX $RS1; UPDATE tenant_request_settings SET require_accept_code=1 WHERE tenant_id='$GT'; $R"
+run OK     "$TX $ADM; $SF ('00000000000000000000GRANTF','00000000000000000000GRANTS','$GT','TO_CUSTOMER','rapor.pdf',1024,$H1,'OK'); INSERT INTO session_files (id,session_id,tenant_id,direction,file_name,size_bytes,sha256,result,reported_by,match_key) VALUES ('00000000000000000000GRANTG','00000000000000000000GRANTS','$GT','TO_CUSTOMER','rapor.pdf',1024,$H1,'OK','CUSTOMER',$H2); $R"
+run DENIED "$TX $ADM; INSERT INTO session_files (id,session_id,tenant_id,direction,file_name,size_bytes,sha256,result,reported_by) VALUES ('00000000000000000000GRANTG','00000000000000000000GRANTS','$GT','TO_CUSTOMER','rapor.pdf',1024,$H1,'OK','customer'); $R" session_files_reported_by_chk
+run DENIED "$TX $ADM; INSERT INTO session_files (id,session_id,tenant_id,direction,file_name,size_bytes,sha256,result,match_key) VALUES ('00000000000000000000GRANTG','00000000000000000000GRANTS','$GT','TO_CUSTOMER','rapor.pdf',1024,$H1,'OK',CONCAT(REPEAT('a',63),CHAR(10))); $R" session_files_match_key_fmt_chk
+run DENIED "$TX $ADM; INSERT INTO session_files (id,session_id,tenant_id,direction,file_name,size_bytes,sha256,result,match_key) VALUES ('00000000000000000000GRANTG','00000000000000000000GRANTS','$GT','TO_CUSTOMER','rapor.pdf',1024,$H1,'OK',$H2),('00000000000000000000GRANTH','00000000000000000000GRANTS','$GT','TO_CUSTOMER','rapor.pdf',1024,$H1,'OK',$H2); $R" "Duplicate"
+run DENIED "UPDATE session_files SET reported_by='TECH' WHERE id='-'" "denied"
+# P14 devri: 4 e-posta CHECK'i `\z` (sondaki satır sonu ret).
+run OK     "$TX UPDATE tenant_settings SET smtp_host='smtp.example.com',smtp_port=465,smtp_security='SSL',smtp_from_email='a@b.test' WHERE tenant_id='$GT'; $R"
+run DENIED "$TX UPDATE tenant_settings SET smtp_host='smtp.example.com',smtp_port=465,smtp_security='SSL',smtp_from_email=CONCAT('a@b.test',CHAR(13,10)) WHERE tenant_id='$GT'; $R" tenant_settings_smtp_from_email_chk
+run DENIED "$TX $ADM; UPDATE support_sessions SET customer_name='Ayse Yilmaz',customer_email=CONCAT('a@b.test',CHAR(10)) WHERE id='00000000000000000000GRANTS'; $R" support_sessions_customer_email_chk
 # Temizlik (FK sırasıyla)
 run OK     "DELETE FROM users WHERE id='00000000000000000000GRANTU'; DELETE FROM tenant_settings WHERE tenant_id='00000000000000000000GRANTT'; DELETE FROM tenants WHERE id='00000000000000000000GRANTT'"
 # P13a `backup` kullanıcısı (mimari-p13 §4): yalnız 'backup'@'localhost'; DB'de SELECT, SHOW VIEW, TRIGGER; global yetki yok.

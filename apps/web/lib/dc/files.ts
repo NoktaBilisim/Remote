@@ -310,6 +310,7 @@ export class FileTransfers {
   private meta(st: InState, result: FileResult) {
     this.d.sendMeta({
       t: "file.meta",
+      fid: st.t.fid,
       direction: this.d.inbound,
       fileName: st.t.name,
       sizeBytes: Math.min(st.t.size, 2 ** 31),
@@ -335,7 +336,15 @@ export class FileTransfers {
     st.reported = true;
     const direction: FileDirection = this.d.inbound === "TO_CUSTOMER" ? "TO_TECH" : "TO_CUSTOMER";
     const fileName = sanitizeFileName(st.t.name.slice(0, 255)) || "dosya";
-    this.d.sendMeta({ t: "file.meta", direction, fileName, sizeBytes: Math.min(st.t.size, 2 ** 31), sha256: st.sha, result });
+    this.d.sendMeta({
+      t: "file.meta",
+      fid: st.t.fid,
+      direction,
+      fileName,
+      sizeBytes: Math.min(st.t.size, 2 ** 31),
+      sha256: st.sha,
+      result,
+    });
   }
   private activeOut = () => [...this.out.values()].some((o) => ["offered", "hashing", "sending"].includes(o.t.status));
   private activeIn = () => [...this.inc.values()].some((o) => ["pending", "receiving", "verifying"].includes(o.t.status));

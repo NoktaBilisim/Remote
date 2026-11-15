@@ -73,8 +73,13 @@ export const AUTH_AUDIT = {
    * kodu sayısı; kod ASLA yazılmaz); başarısızda `{ method, reason }` (invalid_code | replayed_code).
    */
   STEP_UP: "auth.step_up",
-  /** P13b (mimari-p13 §7.7): sunucudaki `reset-superadmin` CLI'si; `username="cli"`, parola/hash yazılmaz. */
+  /**
+   * P13b (mimari-p13 §7.7): sunucudaki `reset-superadmin` CLI'si; `username="cli"`, parola/hash yazılmaz. P15 (AC-232):
+   * panel yolu aynı eylemi yazar (aktör Super Admin, `newValue.via: "panel"`); geçici parolanın 24 sa ömrü iki yolda aynı.
+   */
   SUPERADMIN_RESET: "auth.superadmin_reset",
+  /** P15 (AC-231): kurtarma kodları yenilendi `{ count }` (kod ASLA yazılmaz); hatalı TOTP `{ reason }` fail. */
+  MFA_RECOVERY_REGENERATED: "mfa.recovery_regenerated",
 } as const;
 
 /** P10: gönderilen her e-posta (ortak standart 2.1: alıcı (maskeli), konu, sonuç). `kind` şablon türü. */
@@ -130,6 +135,8 @@ export const BRANDING_AUDIT = {
   AVATAR_UPDATED: "user.avatar_updated",
   AVATAR_REMOVED: "user.avatar_removed",
   SYSTEM_LOGO_UPDATED: "settings.system_logo.updated",
+  /** P15 (AC-233): sistem logosu kaldırıldı `{ path }` eski → `{ path: null }` (varsayılan Nokta logosu). */
+  SYSTEM_LOGO_REMOVED: "settings.system_logo.removed",
   /** Reddedilen yükleme (tür/boyut); `kind`: logo | avatar | system_logo. */
   UPLOAD_REJECTED: "upload.rejected",
   THEME_CHANGED: "user.theme_changed",
@@ -137,11 +144,21 @@ export const BRANDING_AUDIT = {
 
 /**
  * P13a (AC-199): günlük saklama işi. Firma başına tek kayıt (değişiklik ya da hata varsa) `{sessions, consents, files,
- * requests, customers, bindings}`; firmadan bağımsız silmeler `tenant_id NULL` tek kayıt `{audit, authSessions,
+ * requests, customers, bindings, blocks}` (P15: `blocks` süresi 30 g önce dolmuş talep engeli); firmadan bağımsız silmeler `tenant_id NULL` tek kayıt `{audit, authSessions,
  * resetTokens}`. Yalnız sayılar (kişisel veri yok); `username=system`, `user_id NULL`, entity `retention`.
  */
 export const RETENTION_AUDIT = {
   RUN: "retention.run",
+} as const;
+
+/**
+ * P15 (AC-235): talep engelleri. Entity `request_blocks`. `{ kind, cidr | deviceFingerprint, expiresAt, source }` —
+ * IP (kişisel veri) yalnız engel değeri olarak; not metni yazılmaz (`hasNote`). Engelli kaynağın talebi ayrı satır
+ * yazmaz: `request.rate_limited { bucket: "blocked" }` (dakikada 1).
+ */
+export const REQUEST_BLOCK_AUDIT = {
+  CREATED: "request_block.created",
+  DELETED: "request_block.deleted",
 } as const;
 
 /** P13b (G-P13b-5, dba D2): yedek audit süreklilik denetiminin taban çizgisi sıfırlandı (geri yükleme / elle kabul). */

@@ -90,7 +90,7 @@ export function GuestWelcome({
         className="flex flex-col gap-4 rounded-lg border border-border bg-surface p-4 shadow-sm sm:flex-row sm:items-center sm:justify-between"
       >
         <div className="flex min-w-0 items-center gap-3">
-          <Avatar name={data.technician.name} size="lg" />
+          <Avatar name={data.technician.name} size="lg" src={data.technician.avatarUrl} testId="guest-tech-avatar" />
           <div className="min-w-0">
             <p className="truncate font-semibold text-fg" data-testid="guest-tech">
               {data.technician.name}

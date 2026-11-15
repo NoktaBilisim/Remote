@@ -2,6 +2,8 @@
 // Limitler (G-02, G-11, AC-3): başarısız kod ipKey 10/dk + prefixKey 30/dk, aşımda o anahtar 15 dk 429;
 // token yolu 30/dk/ipKey; durum yoklaması 60/dk/ipKey. Resolve oturumu tüketmez (tüketim P3 admit TX'i).
 // Global başarısız kod sayacı yalnız alarm üretir, engellemez (G-02, mimari §11: > 100/dk).
+import type { SecretBox } from "../lib/crypto.ts";
+import { techAvatarSignedUrl } from "../uploads/tech-avatar.ts";
 import type { FastifyBaseLogger } from "fastify";
 import type {
   PublicSessionStatusResponse,
@@ -213,6 +215,7 @@ export async function resolvePublicSession(
   ) => { joinNonce: string; nonceExpiresAt: string },
   abuseSrc: AbuseEmailSource,
   minAgentVersion?: string,
+  secrets?: SecretBox,
 ): Promise<ResolveSessionResponse> {
   limits.clientIpIsProxy.check(ctx.ip);
   // P8b r2 (§13.4): AGENT sürümü düşükse 426 (yoksa 0.0.0 sayılır — 0.8.x MIN tanımlanınca güncellemeye zorlanır).
@@ -254,8 +257,11 @@ export async function resolvePublicSession(
   return {
     sessionRef: sessionRef(refKey, row.id),
     tenant: { name: row.tenant.name, logoUrl }, // P12: firma → sistem → Nokta logosu (public URL)
-    // P12: teknisyen avatarı oturumlu uçtan sunulur; müşteriye (kimliksiz) açılmaz → baş harf rozeti (implementation.md).
-    technician: { name: row.technician.fullName, avatarUrl: null },
+    // P15 (AC-236): avatar varsa oturuma bağlı imzalı URL (≤ 10 dk); yoksa null → baş harf rozeti.
+    technician: {
+      name: row.technician.fullName,
+      avatarUrl: secrets && row.technician.avatarPath ? techAvatarSignedUrl(secrets, row.id, now.getTime()) : null,
+    },
     techVerifyCode: row.techVerifyCode,
     expiresAt: row.expiresAt.toISOString(),
     ...issueNonce(row.id, input.clientKind, input.clientKind === "AGENT" ? (input.clientVersion ?? "0.0.0") : undefined), // resolve tüketmez; nonce join içindir (P3)

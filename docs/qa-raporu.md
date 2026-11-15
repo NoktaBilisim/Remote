@@ -703,3 +703,166 @@ Diğer 28 AC Tur 1'deki gibi ✅; bu turdaki tam koşularda da yeşil.
 ### Olumlu
 
 - Düzeltme kapsamı dar: iş mantığı serviste, `techOptions` saf modüle taşınmış ve birim testi var. e2e "sayfa kayıtlarından seçenek yok" koşulunu doğrudan ölçüyor (istek sayısı 0, tek seçenek).
+
+---
+
+## P15 — Tur 1
+
+# QA Raporu — P15 Tur 1
+
+DURUM: DÜZELTİLMELİ
+
+Tarih: 2026-11-15 · Denetçi: qa-denetci · Kapsam: AC-231..239 (mimari-e11 §6), `git diff 0dd1d99` + izlenmeyen P15 dosyaları, implementation.md "P15 — dba/frontend/backend", db-notlari "P15". Geçici konteyner `rs-qa-p15t1-k7w2` (mysql:8.4.13, port 33515) iş sonunda `test-db.sh down` ile silindi; env dosyası silindi.
+
+### Test sonucu
+
+| Komut                                                              | Sonuç                                                                                                            |
+| ------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------- |
+| `pnpm -r run lint` · `pnpm -r run typecheck` · `pnpm format:check` | temiz · temiz · "All matched files use Prettier code style"                                                      |
+| server `test` (unit)                                               | 23 dosya / **377 geçti**                                                                                         |
+| server `test:int` (tam, geçici MySQL)                              | 65 dosya / **632 geçti**, 0 düştü, 0 skip                                                                        |
+| contracts `test`                                                   | 12 dosya / **94 geçti**                                                                                          |
+| web `test` (vitest)                                                | 36 dosya / **333 geçti**                                                                                         |
+| web `e2e` (tam)                                                    | **379 geçti**, 0 düştü, 169 atlandı (mobil projede `desktopOnly`, bilinen ve gerekçeli kalıp)                    |
+| `check-app-grants.sh`                                              | **425/425 PASS** (migrate sonrası ve down→up sonrası iki kez)                                                    |
+| Migration `down.sql` → `db:migrate` (int test verisi dolu DB'de)   | down: `request_blocks` yok, `reported_by` yok, P15 migration kaydı 0; up + grants OK; `migrate diff` drift **0** |
+
+### Kabul kriterleri
+
+| AC  | Durum          | Kanıt / eksik                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
+| --- | -------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 231 | ✅             | int `AC-231: geçerli TOTP → 10 yeni kod; eski kodlar aynı TX'te silinir; audit kod içermez…`, `AC-231: 5 hatalı TOTP sonrası kilit (429)…`; web `p15.test.ts` AC-231; e2e `AC-231: Hesabım — kurtarma kodlarını yenile…` (bir kez gösterim, Kaydettim'siz kapanmaz) + axe                                                                                                                                                                                                                                                                                                                                                                                                                |
+| 232 | ✅             | int `AC-232: step-up'lı SA başka SA'yı sıfırlar → geçici parola, oturumları kapanır, must_change, audit; kendi id 403; step-up yoksa…`, `AC-232: hedef SA değil / yok → 404…`; e2e AC-232 (liste, tek SA → CLI boş durumu, axe). P13b çekirdeği `resetSuperadminById` ile yeniden kullanılmış (kopya yok)                                                                                                                                                                                                                                                                                                                                                                                |
+| 233 | ✅             | int `system-logo-p15` (`{path:null}`, dosya silinir, `/public/branding` varsayılan, audit, idempotent, Admin 403), `security-p15-db` (app DELETE yok); `check-app-grants` 425/425; e2e `p12-branding` AC-233. PDF aynı `systemLogoUrl` kaynağını kullanıyor (ayrı PDF testi yok — not)                                                                                                                                                                                                                                                                                                                                                                                                   |
+| 234 | ✅             | int `AC-234: reason/method konsola iletilir; 0.10.x yükü (alansız) hatasız; S17-2…`, `AC-234: gerçek WS…; biçim dışı reason 1008`; web `p15.test.ts`; e2e `AC-234: … ≤ 2 sn; bilinmeyen kod ham; 0.10.x eski metin`. İstemci kısmı P17 (mimari §13)                                                                                                                                                                                                                                                                                                                                                                                                                                      |
+| 235 | ✅             | int `AC-235: IP/önek ve cihaz engeli → tek tip 429, talep yazılmaz…; tenant izolasyonu`, `AC-235: 1.000 sınırı → 409; süresi dolmuş hedef yeniden; saklama 30 g`, `AC-235: başka tenant'ın engeli kaldırılamaz (404)`; contracts önek sınırları (/23, /47 red); `security-p15-db` CHECK'leri; e2e AC-235 (liste, 5 durum, kısayol, axe)                                                                                                                                                                                                                                                                                                                                                  |
+| 236 | ⚠️             | int `AC-236: resolve imzalı URL…; bozuk imza 403; oturum bitince 403; avatarsız null`; e2e AC-236. **Eksik:** "≤ 10 dk geçerli" testle kanıtlanmıyor — test yalnız `exp+1` (imza bozulur) deniyor; geçerli imzalı ama süresi geçmiş (`exp < now`) ya da `exp > now+600` URL'nin 403 döndüğünü sınayan test yok (kod `verifyTechAvatarSig` doğru görünüyor)                                                                                                                                                                                                                                                                                                                               |
+| 237 | ⏭ P15 kısmı ✅ | int `AC-237: users.delete toggle listesinde; USER kapalı, ADMIN açık`; e2e AC-237. Uç ve "silme düğmesi görünmez / uç 403" kanıtı mimari §6 gereği P16'da ("uç P16"); P16 QA'sında kapanmalı. dba riski (eski `users.delete` grant'leri) açık — Öneriler                                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| 238 | ❌             | Sunucu tarafı testli (int `AC-238: fid'li iki rapor…`, `security-p15-db`, `p8-history` e2e mock'la). **Ancak gerçek akış bozuk:** web istemcisi `apps/web/lib/dc/files.ts:311-318` (`meta`) ve `:338` (`senderMeta`) `file.meta`'ya `fid` eklemiyor (güvenlik raporu bulgusu doğrulandı). Sonuç: tarayıcı misafirli TO_CUSTOMER aktarımda teknisyenin gönderen raporu satıra yazılmaz (`collab.ts` fid'siz gönderen → yalnız audit), tek satır müşteri (alıcı) raporu `CUSTOMER` + rastgele `legacy:` match_key → teknisyenin gönderdiği her dosya geçmiş/CSV'de **"Müşteri bildirimi"** görünür. Testler `handleFileMeta`'yı elle `fid` ile çağırdığından bu açığı yakalamıyor          |
+| 239 | ⚠️             | int `AC-239: kapalıyken akış değişmez (regresyon)`, `AC-239: açıkken müşteri 4 haneli kod alır, lobiye düşer; yanlış kod tüketmez; doğru kodla ACTIVE`; web `requests.test.ts`, e2e AC-239. **Eksik:** "müşterinin okuduğu kod" uçtan uca mümkün değil: talep istemcisi `apps/agent-win` `signal.DecodeStrict` (`internal/signal/strict.go`) bilinmeyen `admitCode` alanını reddeder ve kodu gösteren istemci yok; AC-239 istemci kısmı mimari §13'te hiçbir pakete atanmamış (yalnız "234 istemci P17"). Sunucu sürüm kapısı yok, ayar ekranı uyarısız açılabiliyor → Admin açarsa 0.10.x'teki **tüm talepler bağlanamaz** (implementation.md sapma 2 bunu kabul ediyor ama koruma yok) |
+
+### Düzeltilmeli
+
+1. [frontend-dev] `apps/web/lib/dc/files.ts:311-318` ve `:338` — `file.meta` gövdesine transferin `fid`'i (`file.offer.fid`, contracts `ws.ts` `fid` alanı) eklenmeli; alıcı raporu ve gönderen raporu aynı `fid`'i taşımalı. vitest'e "file.meta her iki yönde `fid` içerir" testi; e2e/`mock-ws` ile TO_CUSTOMER aktarımın geçmişte "Doğrulanmış" göründüğü bir AC-238 testi.
+2. [backend-dev] AC-238 için gerçek iki uçlu akış testi: tarayıcı istemcisinin ürettiği biçimde (fid'li) TO_CUSTOMER aktarımda geçmiş `verified:true, reportedBy:"TECH"`; ayrıca fid'siz (0.10.x / mevcut Go istemci) alıcı-müşteri raporunun nasıl etiketleneceği kararı implementation.md'ye yazılmalı (bugün "Müşteri bildirimi" — eski P5 davranışında bu satır tek kaynaktı; Go istemci fid gönderene kadar TO_CUSTOMER'da regresyon).
+3. [mimari] AC-239 istemci kısmını (Go istemcinin `request.accepted.admitCode`'u kabul edip müşteriye göstermesi) bir pakete ata (P17) ve mimari §13 eşlemesini güncelle.
+4. [backend-dev] `apps/server/src/requests/panel.ts` `acceptRequest` — `admitCode` yalnız istemci sürümü kodu destekliyorsa (`r.clientVersion` ≥ P17 sürümü) üretilmeli; desteklemeyen istemcide ayar açık olsa da bugünkü akış (kodsuz) sürmeli ve audit'e `acceptCode:false, reason:"client_unsupported"` yazılmalı. Entegrasyon testi: ayar açık + 0.10.x `clientVersion` → `request.accepted` alanı yok, misafir doğrudan `hello`.
+5. [frontend-dev] `settings/support-requests` "Talep kabulünde kabul kodu iste" açıklamasına hangi istemci sürümünden itibaren geçerli olduğu notu (madde 4 ile tutarlı metin, `messages/tr.json` `srs.ac.desc`).
+6. [backend-dev] `apps/server/test/integration/p15-backend.test.ts` AC-236 (veya `uploads/tech-avatar.ts` birim testi) — geçerli MAC ile `exp = now-1` ve `exp = now+601` URL'lerinin 403 verdiği, `techAvatarSignedUrl`'in `exp − now ≤ 600` ürettiği sınanmalı.
+
+### Sözleşme uyumu (frontend ↔ backend)
+
+| Konu                             | Sonuç                                                                                                                                                                                                                                                         |
+| -------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Engel hata kodları               | 409 `CONFLICT` + `REQUEST_BLOCK_EXISTS_MESSAGE` + `fields.cidr`/`fields.target`; web `blockErrorOf` mesaja göre `cidr` alanına, kısayolda form üstüne yazar (`m.message ?? m.fields.cidr`) — uyumlu. Sınır / kaynak yok (409 farklı mesaj) form üstü — uyumlu |
+| `requireAcceptCode`              | contracts input opsiyonel; sunucu `?? before` ile korur; web `acceptCode ↔ requireAcceptCode` gönderir/okur — uyumlu                                                                                                                                          |
+| `reportedBy` / `verified`        | Sunucu `SessionFileRecord`'a ekliyor, web `FileVerification verified` kullanıyor — uyumlu (veri kaynağı sorunu madde 1)                                                                                                                                       |
+| Avatar URL yolu                  | Sunucu `/api/v1/public/sessions/<ULID>/tech-avatar?exp=&sig=` (token değil ULID); web mock aynı desen; `guest-welcome` `Avatar src` ile göreli kullanır, Caddy `/api/*` → server — uyumlu                                                                     |
+| Kurtarma / SA sıfırlama hataları | 400 `fields.code`, 429 `retryAfterSec`, `MFA_STEP_UP_REQUIRED`, 403 self, 404 — web `stepUpErrorOf` / `StepUpProvider` / 404 toast — uyumlu                                                                                                                   |
+
+### Definition of Done
+
+| Madde                                  | ✅/❌ | Not                                                                                                                                                             |
+| -------------------------------------- | ----- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Tüm AC'ler testle kanıtlı              | ❌    | 238 ❌, 236/239 ⚠️, 237 P16'ya devir                                                                                                                            |
+| Testler yeşil, skip gerekçeli          | ✅    | 632 + 377 + 94 + 333 + 379 e2e; skip yalnız `desktopOnly`                                                                                                       |
+| lint / typecheck / format              | ✅    | temiz                                                                                                                                                           |
+| Migration + down.sql + grants          | ✅    | down→up drift 0; grants 425/425; `request_blocks` grants.sql'de                                                                                                 |
+| Tenant izolasyonu (arka uç)            | ✅    | request-blocks `tenantScope` + `{id, tenantId}`; çapraz tenant 404 testli                                                                                       |
+| Yetki tek tanımdan, arka uç + arayüz   | ✅    | `support_requests.block` contracts'ta; route `requirePerm`; menü `perm`; toggle otomatik (e2e)                                                                  |
+| Audit (sırsız)                         | ✅    | `mfa.recovery_regenerated {count}`, `auth.superadmin_reset` (geçici parola yok), `settings.system_logo.removed`, `request_block.created/deleted` (not yazılmaz) |
+| Liste sayfalı / sınırlı                | ✅    | request-blocks `pageSize ≤ 100`; superadmins ≤ 100                                                                                                              |
+| Transaction                            | ✅    | yenileme, sıfırlama, logo kaldırma, engel ekle/kaldır tek TX; dosya commit sonrası silinir                                                                      |
+| `any` / hata yutma / PII log / ölü kod | ✅    | taramada yok; `catch` blokları loglu ya da bilinçli (P2002 → duplicate/409)                                                                                     |
+| 5 durum + a11y + ikon                  | ✅    | Engellenenler 5 durum e2e; axe iki tema; `ShieldBan`, `ShieldUser`, `KeyRound` anlamlı                                                                          |
+| Bağımlılık                             | ✅    | yeni bağımlılık yok (yalnız contracts `exports` girdisi)                                                                                                        |
+| Sapmalar gerekçeli                     | ✅    | `reported_by` VARCHAR+CHECK (ADR-0014), AC-238 sütun yerine hap, 60 sn kabul kodu penceresi, URL'de ULID, güvenilir CIDR muaf değil — implementation.md'de      |
+| Dokümantasyon                          | not   | api.md ve mimari-protokol.md güncellemesi teknik yazarda sürüyor (bu turda bulgu sayılmadı)                                                                     |
+
+### Öneriler (zorunlu değil)
+
+- dba açık riski: P16 öncesi `SELECT user_id FROM user_permissions WHERE perm_key='users.delete' AND granted=1` denetimi ve sıfırlama kararı (mimar/kullanıcı) — P16 ucu açılınca eski USER grant'i kalıcı silme yetkisi verir.
+- AC-233 PDF yolunu doğrudan sınayan küçük bir test (PDF logo kaynağı `systemLogoUrl`).
+- Engel kapısında engellenen her deneme `rateAudit` ile kısılıyor; ayrı bir `rs_request_blocked_total` metriği izlemeyi kolaylaştırır.
+
+### Olumlu
+
+- P13b sıfırlama çekirdeği tek fonksiyona çıkarıldı (CLI + panel aynı TX ve audit); kopya yok.
+- DB CHECK'leri (gerçek CIDR hizası, önek sınırları, `\z`) uygulama doğrulamasını ikinci katmanda zorluyor; grants ve down.sql dolu veritabanında sorunsuz.
+- `share.state` birleştirme (S17-2) son durumu kaybetmiyor; 0.10.x uyumluluğu testli.
+- İmzalı avatar URL'si token yerine ULID taşıyor, ayrı HKDF etiketi, `private, no-store`.
+
+---
+
+## P15 — Tur 2
+
+DURUM: GEÇTİ
+
+Tarih: 2026-11-15 · Denetçi: qa-denetci · Kapsam: Tur 1'in 6 maddesi (implementation.md "P15 düzeltme turu 1", mimari-e11 §8/§13) + tam test. Geçici konteyner `rs-qa-p15t2-r8n4` (mysql:8.4.13, port 33516) iş sonunda silindi (doğrulandı), env dosyası silindi.
+
+### Test sonucu
+
+| Komut                           | Sonuç                                                                                                                           |
+| ------------------------------- | ------------------------------------------------------------------------------------------------------------------------------- |
+| lint · typecheck · format:check | temiz · temiz · temiz                                                                                                           |
+| server `test`                   | 24 dosya / **383 geçti**                                                                                                        |
+| server `test:int` (tam)         | 65 dosya / **635 geçti**, 0 düştü, 0 skip (bu koşuda `account-p10` AC-67 kararsızlığı görülmedi)                                |
+| contracts                       | 12 dosya / **94 geçti**                                                                                                         |
+| web vitest                      | 37 dosya / **335 geçti**                                                                                                        |
+| web e2e (tam)                   | **380 geçti**, 0 düştü, 169 atlandı (`desktopOnly`, gerekçeli)                                                                  |
+| Migration down → up (dolu DB)   | down sonrası TO_CUSTOMER 151 / TO_TECH 26 satır; up sonrası backfill TO_CUSTOMER→`CUSTOMER` 151, TO_TECH→`TECH` 26; drift **0** |
+| `check-app-grants.sh`           | **425/425 PASS**                                                                                                                |
+
+Raporlanan sayılar (383 / 635 / 335 / 380) bağımsız koşuyla birebir doğrulandı.
+
+### Tur 1 maddeleri
+
+| #                                         | Durum | Doğrulama                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
+| ----------------------------------------- | ----- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1 [frontend] `fid`                        | ✅    | `lib/dc/files.ts` `meta()` ve `senderMeta()` `fid: st.t.fid` gönderiyor. vitest `p15-fid.test.ts` (iki yön, ret raporu dahil, sunucu şemasına uyum); e2e `p5-collab` "AC-238: … iki uç aynı fid … tek 'Doğrulanmış' grup"                                                                                                                                                                                                                                                   |
+| 2 [backend] iki uçlu test + fid'siz karar | ✅    | int `AC-238: tarayıcı istemcisi biçimi (fid'li iki uç) TO_CUSTOMER → 'Doğrulanmış'; fid'siz (0.10.x Go) müşteri raporu TECH raporuyla eşlenir…`; unit `p15-fix1` 4 test (bire bir eşleme, farklı boyut/özet eşlenmez, eşli TECH yeniden kullanılmaz, eski satırlar). Karar implementation.md'de yazılı. `groupFileReports` okundu: müşteri satırı TECH satırını değiştiremez, gösterilen satır her zaman TECH; CSV `fileReportsOf` gerekli alanları seçiyor                 |
+| 3 [mimari] AC-239 istemci → P17           | ✅    | mimari-e11 §8.1 satır 239 (`RequestAccepted.AdmitCode`, `DecodeStrict` şeması, kabul ekranında kod), §8.3 I1 "234 + 239 (istemci…; sürüm ≥ 0.11.0)", §13 "P15 (234 ve 239 istemci P17)"                                                                                                                                                                                                                                                                                     |
+| 4 [backend] sürüm kapısı                  | ✅    | `requests/panel.ts:155` `compareVersions(r.clientVersion, ACCEPT_CODE_MIN_CLIENT_VERSION) >= 0` (contracts `"0.11.0"`); audit `acceptVerification` + `reason:"client_unsupported"`, info logu. int `AC-239: ayar açık + 0.10.x istemci → admitCode yok, misafir doğrudan hello; audit…` ve `ayar açık + 0.11.0 istemci → acceptVerification:true`. **Sapma kabul:** `acceptCode` anahtarı audit maskesine (`code` deseni) takıldığı için `acceptVerification` adı gerekçeli |
+| 5 [frontend] ayar metni                   | ✅    | `tr.json` `srs.ac.desc` "Yalnız 0.11 ve sonraki istemcilerde uygulanır; daha eski istemciler kodsuz bağlanır."                                                                                                                                                                                                                                                                                                                                                              |
+| 6 [backend] AC-236 süre testleri          | ✅    | int AC-236: `exp − now ≤ 600` (ve > 570), geçerli MAC ile `now+60` → 200, `now−1` → 403, `now+601` → 403                                                                                                                                                                                                                                                                                                                                                                    |
+
+### Kabul kriterleri
+
+| AC  | Durum          | Kanıt                                                                                   |
+| --- | -------------- | --------------------------------------------------------------------------------------- |
+| 231 | ✅             | Tur 1 kanıtları değişmedi, yeşil                                                        |
+| 232 | ✅             | Tur 1 kanıtları, yeşil                                                                  |
+| 233 | ✅             | Tur 1 kanıtları, yeşil                                                                  |
+| 234 | ✅             | Sunucu + konsol testli; istemci kısmı P17 (mimari §13)                                  |
+| 235 | ✅             | Tur 1 kanıtları + S15-5 önbellek düzeltmesi unit testli (`p15-fix1` S15-5 ×2)           |
+| 236 | ✅             | madde 6                                                                                 |
+| 237 | ✅ (P15 kısmı) | anahtar/toggle testli; uç + düğme kanıtı mimari §6 gereği P16 QA'sında kapanacak        |
+| 238 | ✅             | madde 1–2; S15-2 backfill migration'da, dolu DB'de doğrulandı                           |
+| 239 | ✅ (P15 kısmı) | sunucu akışı + sürüm kapısı + regresyon testli; müşteriye kod gösterimi P17 I1'e atandı |
+
+### Düzeltilmeli
+
+Yok.
+
+### Definition of Done
+
+| Madde                         | ✅/❌ | Not                                                                                       |
+| ----------------------------- | ----- | ----------------------------------------------------------------------------------------- |
+| AC'ler testle kanıtlı         | ✅    | 237 uç kısmı P16, 234/239 istemci kısmı P17 — mimaride açıkça atanmış                     |
+| Testler yeşil, skip gerekçeli | ✅    | yukarıda                                                                                  |
+| lint / typecheck / format     | ✅    |                                                                                           |
+| Migration + down + grants     | ✅    | backfill ve down→up dolu DB'de doğrulandı                                                 |
+| Sapmalar gerekçeli            | ✅    | `acceptVerification`, fid'siz eşleme kararı, S15-4 "Sonra" gerekçesi implementation.md'de |
+| Bağımlılık                    | ✅    | yeni bağımlılık yok                                                                       |
+| Dokümantasyon                 | not   | api.md / mimari-protokol.md teknik yazarda (bulgu sayılmadı)                              |
+
+### Öneriler (zorunlu değil)
+
+- `20261117000000_p15_g3/migration.sql` P15 turunda yeniden düzenlendi (backfill eklendi). Staging'e P15 migration'ı uygulanmış ise checksum uyuşmazlığı çıkar; deploy öncesi `_prisma_migrations` kontrol edilmeli (uygulanmadıysa sorun yok).
+- `account-p10` AC-67 TOTP adım sınırı kararsızlığı (implementation.md'de bir kez görüldü) AC-219 kapsamında takip edilmeli.
+- Tur 1 önerileri geçerli: P16 öncesi eski `users.delete` grant denetimi; AC-233 PDF logo testi.
+
+### Olumlu
+
+- fid'siz eski istemci için okuma tarafında bire bir, içerik eşlemeli birleştirme: veri modeli değişmeden geriye uyum sağlandı ve müşteri raporu TECH satırını ezemiyor.
+- Sürüm kapısı ayarı güvenli hâle getirdi: eski istemcide akış bozulmuyor, audit'te neden görünüyor.

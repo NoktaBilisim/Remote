@@ -68,7 +68,7 @@ export default async function AccountPage() {
               <ThemePicker testId="acc-theme" />
             </div>
           </section>
-          <AccountSecurity mfa={mfa ?? null} />
+          <AccountSecurity mfa={mfa ?? null} account={user.email} />
         </div>
       </div>
     </>

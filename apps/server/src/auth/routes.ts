@@ -5,6 +5,7 @@ import {
   loginInputSchema,
   logoutAllInputSchema,
   mfaEnableInputSchema,
+  mfaRecoveryCodesInputSchema,
   mfaSetupInputSchema,
   mfaVerifyInputSchema,
   passwordChangeInputSchema,
@@ -15,6 +16,7 @@ import {
   type LogoutAllResponse,
   type MeResponse,
   type MfaEnableResponse,
+  type MfaRecoveryCodesResponse,
   type MfaSetupResponse,
   type MfaVerifyResponse,
   type StepUpResponse,
@@ -41,6 +43,7 @@ import {
   mfaSetup,
   mfaVerify,
   recoveryCodesLeft,
+  regenerateRecoveryCodes,
   resetPassword,
   stepUp,
 } from "./account.ts";
@@ -136,6 +139,13 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
     const input = parseInput(stepUpInputSchema, req.body);
     noStore(reply);
     return stepUp(app.account, auditContext(req), authOf(req), input);
+  });
+
+  // --- P15: kurtarma kodlarını yenile (AC-231) — tam oturum, geçerli TOTP ---
+  app.post("/mfa/recovery-codes", { preHandler: requireAuth }, async (req, reply): Promise<MfaRecoveryCodesResponse> => {
+    const { code } = parseInput(mfaRecoveryCodesInputSchema, req.body);
+    noStore(reply);
+    return { codes: await regenerateRecoveryCodes(app.account, auditContext(req), authOf(req), code) };
   });
 
   // --- P10: tüm cihazlardan çıkış (AC-68, 115) ---

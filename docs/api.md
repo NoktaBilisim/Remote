@@ -1,4 +1,4 @@
-# API Dokümanı — Remote Support (P1–P8, P8b-1, P8c, P9, P10, P11, P12, P12b, P13a, P13b, P13b-L, P14a, P14b)
+# API Dokümanı — Remote Support (P1–P8, P8b-1, P8c, P9, P10, P11, P12, P12b, P13a, P13b, P13b-L, P14a, P14b, P15)
 
 Bu belge P1–P8, P8b-1, P8c-1, P9, P10, P11, P12, P12b, P13a, P13b ve P13b-L'de **kodda var olan** uçları anlatır. Sonraki paketlerin bağlayıcı sözleşmesi
 `docs/mimari-api.md`'dedir. Kaynak: `apps/server/src/auth/routes.ts`, `auth/guards.ts`, `lib/errors.ts`,
@@ -27,6 +27,10 @@ P13b: `app.ts` (HSTS), `auth/{service,superadmin-reset}.ts`, `cli/reset-superadm
 `notify/whatsapp.ts`, `env.ts`, `packages/contracts/src/{audit.ts,api/system-settings.ts,api/audit.ts}`.
 P13b-L: `sessions/{routes,lobby}.ts`, `signaling/{lobby-count,rooms,types}.ts`, `customers/service.ts`,
 `packages/contracts/src/api/sessions.ts` (`waitingSessionsResponseSchema`, `waitingGuests`). Özet: "GET /api/v1/sessions/waiting".
+P15: `auth/{routes,account,superadmin-routes,superadmin-reset}.ts`, `requests/{block-routes,blocks,service}.ts`,
+`uploads/{routes,service,files,tech-avatar}.ts`, `sessions/{public,history}.ts`, `signaling/{handlers,rooms,collab}.ts`,
+`packages/contracts/src/{ws.ts,ws-request.ts,labels.ts,audit.ts,permissions.ts,api/request-blocks.ts,api/users.ts,api/auth.ts}`.
+Özet: "G3 küçük özellikler (P15)" bölümü.
 
 ## Genel kurallar
 
@@ -90,43 +94,44 @@ Sıra: önce zorunlu şifre değişimi (`mustChangePassword` iken setup/enable 4
 `message` Türkçedir ve kullanıcıya gösterilebilir. `fields` yalnız alan hatalarında bulunur. 500 yanıtı
 stack, SQL veya iç ayrıntı içermez.
 
-| Kod                        | HTTP | Ne zaman                                                                                                                                                                                                                                                                                                                                                                 |
-| -------------------------- | ---- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `VALIDATION`               | 400  | Şema hatası (`fields` ile), bozuk/büyük gövde, yanlış mevcut şifre (`fields.current`), güncel olmayan KVKK metni (`fields.consentTextId`)                                                                                                                                                                                                                                |
-| `UNAUTHENTICATED`          | 401  | Oturum yok/düşmüş; hatalı kimlik bilgisi (genel mesaj)                                                                                                                                                                                                                                                                                                                   |
-| `FORBIDDEN`                | 403  | Yetki anahtarı yok; join'de teknisyenin reddettiği IP; P9: Super Admin firma seçmedi, `/admin/*` SUPER_ADMIN değil, sahip olunmayan yetki (`fields["permissions.<anahtar>"]`), daha geniş yetkili hesap, kendi hesabı                                                                                                                                                    |
-| `CSRF_INVALID`             | 403  | Origin eksik/izinsiz veya `X-CSRF-Token` eşleşmiyor                                                                                                                                                                                                                                                                                                                      |
-| `PASSWORD_CHANGE_REQUIRED` | 403  | İlk giriş şifre değişimi yapılmadan başka uç çağrıldı                                                                                                                                                                                                                                                                                                                    |
-| `MFA_REQUIRED`             | 403  | P10: oturum 2FA kodu bekliyor ("Devam etmek için iki adımlı doğrulama kodunu girin.")                                                                                                                                                                                                                                                                                    |
-| `MFA_STEP_UP_REQUIRED`     | 401  | P14a: hassas işlem (MySQL/TURN/WhatsApp sistem ayarı PUT/DELETE) son 5 dk içinde step-up ister; oturum geçerlidir → kod sor, `POST /auth/step-up`, isteği bir kez tekrarla                                                                                                                                                                                               |
-| `MFA_SETUP_REQUIRED`       | 403  | P14a: step-up gereken uçta TOTP kurulu değil. P10: 2FA zorunlu ama kurulmamış ("Devam etmeden önce iki adımlı doğrulamayı kurmanız gerekiyor.")                                                                                                                                                                                                                          |
-| `HOST_NOT_ALLOWED`         | 400  | P10: SMTP sunucusu özel/iç ağ/loopback/link-local/CGNAT adresine veya sunucunun kendi adresine çözülüyor ("Bu sunucu adresi kullanılamaz.")                                                                                                                                                                                                                              |
-| `RESET_TOKEN_INVALID`      | 410  | P10: şifre sıfırlama bağlantısı geçersiz, kullanılmış veya süresi dolmuş                                                                                                                                                                                                                                                                                                 |
-| `NOT_FOUND`                | 404  | Yol veya kayıt yok (başka tenant'ın / başka teknisyenin kaydı da 404)                                                                                                                                                                                                                                                                                                    |
-| `REQUEST_REF_INVALID`      | 404  | P8b: firma ref'i geçersiz, yenilenmiş, firma pasif veya ayarı yok (hepsi aynı yanıt)                                                                                                                                                                                                                                                                                     |
-| `CONFLICT`                 | 409  | Kayıt işleme uygun durumda değil (ör. PENDING olmayan oturumu iptal, ACTIVE olmayanı sonlandırma); P9: e-posta/kısa ad çakışması (`fields.email` / `fields.slug`), zaten pasif/aktif                                                                                                                                                                                     |
-| `STALE_WRITE`              | 409  | P14a: `PATCH /users/:id` `If-Match` sürümü güncel değil ("Kayıt başkası tarafından değiştirildi, yeniden yükleyin")                                                                                                                                                                                                                                                      |
-| `PRECONDITION_REQUIRED`    | 428  | P14a: `PATCH /users/:id` `If-Match: "v<n>"` başlığı yok veya bozuk                                                                                                                                                                                                                                                                                                       |
-| `LOBBY_FULL`               | 409  | Bekleme odasında 3 misafir var (join)                                                                                                                                                                                                                                                                                                                                    |
-| `OPEN_SESSION_LIMIT`       | 409  | Teknisyenin açık oturum sınırı dolu (P8b: talep kabulünde talep beklemede kalır)                                                                                                                                                                                                                                                                                         |
-| `REQUEST_PENDING`          | 409  | P8b: bu istemci örneğinin zaten bekleyen talebi var                                                                                                                                                                                                                                                                                                                      |
-| `REQUEST_TAKEN`            | 409  | P8b: talebi başka teknisyen kabul etti                                                                                                                                                                                                                                                                                                                                   |
-| `REQUEST_CLOSED`           | 409  | P8b: talep iptal, süre dolumu veya ret ile kapandı                                                                                                                                                                                                                                                                                                                       |
-| `SESSION_ANONYMIZED`       | 409  | P13a: oturum saklama süresi dolduğu için anonimleştirildi, ticket/not yazılamaz ("Bu oturum saklama süresi dolduğu için anonimleştirildi; düzenlenemez.")                                                                                                                                                                                                                |
-| `SESSION_EXPIRED`          | 410  | Oturum linkinin/kodunun süresi dolmuş                                                                                                                                                                                                                                                                                                                                    |
-| `SESSION_CONSUMED`         | 410  | Link/kod kullanılmış (müşteri kabul edilmiş)                                                                                                                                                                                                                                                                                                                             |
-| `SESSION_CANCELLED`        | 410  | Oturum iptal edilmiş                                                                                                                                                                                                                                                                                                                                                     |
-| `NONCE_INVALID`            | 410  | `joinNonce` süresi dolmuş (60 sn), kullanılmış veya bilinmiyor                                                                                                                                                                                                                                                                                                           |
-| `CLIENT_OUTDATED`          | 426  | P8b: Windows istemci sürümü `MIN_AGENT_VERSION`'dan düşük; `fields.minVersion`                                                                                                                                                                                                                                                                                           |
-| `ACCOUNT_LOCKED`           | 423  | Giriş kilidi; `Retry-After` (saniye) başlığı ile                                                                                                                                                                                                                                                                                                                         |
-| `INVALID_IMAGE`            | 400  | P12: yüklenen dosya PNG/JPEG/WEBP değil (tür içerikten okunur; SVG, GIF, sahte uzantı reddedilir), bozuk, 24 MP'den büyük ("Yalnız PNG, JPG veya WEBP resim yükleyebilirsiniz.") ya da boyut/oran dışı ("Resim boyutları uygun değil: her kenar en az 16 px, en-boy oranı logoda en çok 20:1, profil resminde en çok 4:1 olmalı.")                                       |
-| `PAYLOAD_TOO_LARGE`        | 413  | P12: yüklenen dosya 2 MB'tan büyük ("Dosya en çok 2 MB olabilir.")                                                                                                                                                                                                                                                                                                       |
-| `METHOD_NOT_ALLOWED`       | 405  | P11: audit uçlarına POST/PUT/PATCH/DELETE (`Allow` başlığıyla); audit kayıtları salt okunurdur                                                                                                                                                                                                                                                                           |
-| `RATE_LIMITED`             | 429  | Hız sınırı aşıldı (giriş, oturum oluşturma, public uçlar, P8 müşteri araması ve CSV dışa aktarma; P11 audit CSV, MySQL testi, aydınlatma metni kaydı; P12 resim yükleme 20/sa/kullanıcı, resim işleme kuyruğu dolu, `/public/branding` 60/dk/IP; P13a sistem ayarı PUT/DELETE 10/dk/kullanıcı; P13b-L `GET /sessions/waiting` 60/dk/kullanıcı); `Retry-After` ile        |
-| `QUEUE_FULL`               | 429  | P8b: firmada 50 bekleyen talep, ya da ≥ 40 iken bilinmeyen kaynak ("Şu an çok yoğunuz, lütfen firmanızı telefonla arayın.")                                                                                                                                                                                                                                              |
-| `INTERNAL`                 | 500  | Beklenmeyen hata                                                                                                                                                                                                                                                                                                                                                         |
-| `UPSTREAM`                 | 502  | P8b: WhatsApp test ucu — servis yapılandırılmamış veya production'da güvensiz adres. P10: SMTP yok ("Önce SMTP ayarlarını yapın") veya gönderim başarısız (tek genel mesaj "E-posta gönderilemedi. Sunucu, port, güvenlik ve kimlik bilgilerini kontrol edin.")                                                                                                          |
-| `NOT_READY`                | 503  | `/ready`: DB'ye ulaşılamıyor veya migration yok; P6: Windows istemci ikilisi yok, yapılandırılmamış veya SHA-256'sı `AGENT_SHA256` ile uyuşmuyor. **P8b-1:** herhangi bir uçta geçici DB çekişmesi (Prisma P2028/P2034, MySQL 1205/1213/45028) veya talep kapısı dolu → `Retry-After: 5`, mesaj "Sunucu şu an yoğun…"; yazma geri alındığından yeniden deneme güvenlidir |
+| Kod                              | HTTP | Ne zaman                                                                                                                                                                                                                                                                                                                                                                 |
+| -------------------------------- | ---- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `VALIDATION`                     | 400  | Şema hatası (`fields` ile), bozuk/büyük gövde, yanlış mevcut şifre (`fields.current`), güncel olmayan KVKK metni (`fields.consentTextId`)                                                                                                                                                                                                                                |
+| `UNAUTHENTICATED`                | 401  | Oturum yok/düşmüş; hatalı kimlik bilgisi (genel mesaj)                                                                                                                                                                                                                                                                                                                   |
+| `FORBIDDEN`                      | 403  | Yetki anahtarı yok; join'de teknisyenin reddettiği IP; P9: Super Admin firma seçmedi, `/admin/*` SUPER_ADMIN değil, sahip olunmayan yetki (`fields["permissions.<anahtar>"]`), daha geniş yetkili hesap, kendi hesabı                                                                                                                                                    |
+| `CSRF_INVALID`                   | 403  | Origin eksik/izinsiz veya `X-CSRF-Token` eşleşmiyor                                                                                                                                                                                                                                                                                                                      |
+| `PASSWORD_CHANGE_REQUIRED`       | 403  | İlk giriş şifre değişimi yapılmadan başka uç çağrıldı                                                                                                                                                                                                                                                                                                                    |
+| `MFA_REQUIRED`                   | 403  | P10: oturum 2FA kodu bekliyor ("Devam etmek için iki adımlı doğrulama kodunu girin.")                                                                                                                                                                                                                                                                                    |
+| `MFA_STEP_UP_REQUIRED`           | 401  | P14a: hassas işlem (MySQL/TURN/WhatsApp sistem ayarı PUT/DELETE) son 5 dk içinde step-up ister; oturum geçerlidir → kod sor, `POST /auth/step-up`, isteği bir kez tekrarla                                                                                                                                                                                               |
+| `MFA_SETUP_REQUIRED`             | 403  | P14a: step-up gereken uçta TOTP kurulu değil. P10: 2FA zorunlu ama kurulmamış ("Devam etmeden önce iki adımlı doğrulamayı kurmanız gerekiyor.")                                                                                                                                                                                                                          |
+| `HOST_NOT_ALLOWED`               | 400  | P10: SMTP sunucusu özel/iç ağ/loopback/link-local/CGNAT adresine veya sunucunun kendi adresine çözülüyor ("Bu sunucu adresi kullanılamaz.")                                                                                                                                                                                                                              |
+| `RESET_TOKEN_INVALID`            | 410  | P10: şifre sıfırlama bağlantısı geçersiz, kullanılmış veya süresi dolmuş                                                                                                                                                                                                                                                                                                 |
+| `NOT_FOUND`                      | 404  | Yol veya kayıt yok (başka tenant'ın / başka teknisyenin kaydı da 404)                                                                                                                                                                                                                                                                                                    |
+| `REQUEST_REF_INVALID`            | 404  | P8b: firma ref'i geçersiz, yenilenmiş, firma pasif veya ayarı yok (hepsi aynı yanıt)                                                                                                                                                                                                                                                                                     |
+| `CONFLICT`                       | 409  | Kayıt işleme uygun durumda değil (ör. PENDING olmayan oturumu iptal, ACTIVE olmayanı sonlandırma); P9: e-posta/kısa ad çakışması (`fields.email` / `fields.slug`), zaten pasif/aktif                                                                                                                                                                                     |
+| `STALE_WRITE`                    | 409  | P14a: `PATCH /users/:id` `If-Match` sürümü güncel değil ("Kayıt başkası tarafından değiştirildi, yeniden yükleyin")                                                                                                                                                                                                                                                      |
+| `ACCEPT_CODE_CLIENT_UNSUPPORTED` | 409  | P15 (S15-6): firmada kabul kodu açık, talebin istemcisi 0.11.0'dan eski; talep PENDING kalır                                                                                                                                                                                                                                                                             |
+| `PRECONDITION_REQUIRED`          | 428  | P14a: `PATCH /users/:id` `If-Match: "v<n>"` başlığı yok veya bozuk                                                                                                                                                                                                                                                                                                       |
+| `LOBBY_FULL`                     | 409  | Bekleme odasında 3 misafir var (join)                                                                                                                                                                                                                                                                                                                                    |
+| `OPEN_SESSION_LIMIT`             | 409  | Teknisyenin açık oturum sınırı dolu (P8b: talep kabulünde talep beklemede kalır)                                                                                                                                                                                                                                                                                         |
+| `REQUEST_PENDING`                | 409  | P8b: bu istemci örneğinin zaten bekleyen talebi var                                                                                                                                                                                                                                                                                                                      |
+| `REQUEST_TAKEN`                  | 409  | P8b: talebi başka teknisyen kabul etti                                                                                                                                                                                                                                                                                                                                   |
+| `REQUEST_CLOSED`                 | 409  | P8b: talep iptal, süre dolumu veya ret ile kapandı                                                                                                                                                                                                                                                                                                                       |
+| `SESSION_ANONYMIZED`             | 409  | P13a: oturum saklama süresi dolduğu için anonimleştirildi, ticket/not yazılamaz ("Bu oturum saklama süresi dolduğu için anonimleştirildi; düzenlenemez.")                                                                                                                                                                                                                |
+| `SESSION_EXPIRED`                | 410  | Oturum linkinin/kodunun süresi dolmuş                                                                                                                                                                                                                                                                                                                                    |
+| `SESSION_CONSUMED`               | 410  | Link/kod kullanılmış (müşteri kabul edilmiş)                                                                                                                                                                                                                                                                                                                             |
+| `SESSION_CANCELLED`              | 410  | Oturum iptal edilmiş                                                                                                                                                                                                                                                                                                                                                     |
+| `NONCE_INVALID`                  | 410  | `joinNonce` süresi dolmuş (60 sn), kullanılmış veya bilinmiyor                                                                                                                                                                                                                                                                                                           |
+| `CLIENT_OUTDATED`                | 426  | P8b: Windows istemci sürümü `MIN_AGENT_VERSION`'dan düşük; `fields.minVersion`                                                                                                                                                                                                                                                                                           |
+| `ACCOUNT_LOCKED`                 | 423  | Giriş kilidi; `Retry-After` (saniye) başlığı ile                                                                                                                                                                                                                                                                                                                         |
+| `INVALID_IMAGE`                  | 400  | P12: yüklenen dosya PNG/JPEG/WEBP değil (tür içerikten okunur; SVG, GIF, sahte uzantı reddedilir), bozuk, 24 MP'den büyük ("Yalnız PNG, JPG veya WEBP resim yükleyebilirsiniz.") ya da boyut/oran dışı ("Resim boyutları uygun değil: her kenar en az 16 px, en-boy oranı logoda en çok 20:1, profil resminde en çok 4:1 olmalı.")                                       |
+| `PAYLOAD_TOO_LARGE`              | 413  | P12: yüklenen dosya 2 MB'tan büyük ("Dosya en çok 2 MB olabilir.")                                                                                                                                                                                                                                                                                                       |
+| `METHOD_NOT_ALLOWED`             | 405  | P11: audit uçlarına POST/PUT/PATCH/DELETE (`Allow` başlığıyla); audit kayıtları salt okunurdur                                                                                                                                                                                                                                                                           |
+| `RATE_LIMITED`                   | 429  | Hız sınırı aşıldı (giriş, oturum oluşturma, public uçlar, P8 müşteri araması ve CSV dışa aktarma; P11 audit CSV, MySQL testi, aydınlatma metni kaydı; P12 resim yükleme 20/sa/kullanıcı, resim işleme kuyruğu dolu, `/public/branding` 60/dk/IP; P13a sistem ayarı PUT/DELETE 10/dk/kullanıcı; P13b-L `GET /sessions/waiting` 60/dk/kullanıcı); `Retry-After` ile        |
+| `QUEUE_FULL`                     | 429  | P8b: firmada 50 bekleyen talep, ya da ≥ 40 iken bilinmeyen kaynak ("Şu an çok yoğunuz, lütfen firmanızı telefonla arayın.")                                                                                                                                                                                                                                              |
+| `INTERNAL`                       | 500  | Beklenmeyen hata                                                                                                                                                                                                                                                                                                                                                         |
+| `UPSTREAM`                       | 502  | P8b: WhatsApp test ucu — servis yapılandırılmamış veya production'da güvensiz adres. P10: SMTP yok ("Önce SMTP ayarlarını yapın") veya gönderim başarısız (tek genel mesaj "E-posta gönderilemedi. Sunucu, port, güvenlik ve kimlik bilgilerini kontrol edin.")                                                                                                          |
+| `NOT_READY`                      | 503  | `/ready`: DB'ye ulaşılamıyor veya migration yok; P6: Windows istemci ikilisi yok, yapılandırılmamış veya SHA-256'sı `AGENT_SHA256` ile uyuşmuyor. **P8b-1:** herhangi bir uçta geçici DB çekişmesi (Prisma P2028/P2034, MySQL 1205/1213/45028) veya talep kapısı dolu → `Retry-After: 5`, mesaj "Sunucu şu an yoğun…"; yazma geri alındığından yeniden deneme güvenlidir |
 
 ## Uçlar
 
@@ -140,6 +145,7 @@ stack, SQL veya iç ayrıntı içermez.
 | POST                        | `/api/v1/auth/mfa/enable` (P10)                                                   | Oturum + CSRF, aşama `setup` veya `ok`                                    | 200                   |
 | POST                        | `/api/v1/auth/mfa/verify` (P10)                                                   | Oturum (aşama `verify`) + CSRF                                            | 200 + yeni çerezler   |
 | POST                        | `/api/v1/auth/step-up` (P14a)                                                     | Oturum (aşama `ok`) + CSRF, TOTP kurulu                                   | 200                   |
+| POST                        | `/api/v1/auth/mfa/recovery-codes` (P15)                                           | Oturum + CSRF, TOTP kurulu                                                | 200                   |
 | POST                        | `/api/v1/auth/logout-all` (P10)                                                   | Oturum + CSRF                                                             | 200                   |
 | POST                        | `/api/v1/auth/password/forgot` (P10)                                              | Public (Origin)                                                           | 202                   |
 | POST                        | `/api/v1/auth/password/reset` (P10)                                               | Public (Origin)                                                           | 204                   |
@@ -206,7 +212,11 @@ stack, SQL veya iç ayrıntı içermez.
 | PATCH                       | `/api/v1/auth/me/preferences` (P12)                                               | Oturum + CSRF (şifre değişimi / 2FA kurulumu aşamasında da)               | 200 + `rs_theme`      |
 | POST · DELETE               | `/api/v1/settings/logo` (P12)                                                     | Oturum + CSRF, `settings.edit`, firma bağlamı                             | 200                   |
 | POST · DELETE               | `/api/v1/users/:id/avatar` (P12; `:id` = `me` olabilir)                           | Oturum + CSRF; kendi hesabı serbest, başkası `users.edit`                 | 200                   |
-| POST                        | `/api/v1/admin/settings/system-logo` (P12)                                        | Oturum + CSRF, yalnız SUPER_ADMIN                                         | 200                   |
+| POST · DELETE               | `/api/v1/admin/settings/system-logo` (P12; P15 DELETE)                            | Oturum + CSRF, yalnız SUPER_ADMIN                                         | 200                   |
+| GET                         | `/api/v1/admin/superadmins` (P15)                                                 | Oturum, yalnız SUPER_ADMIN                                                | 200                   |
+| POST                        | `/api/v1/admin/superadmins/:id/reset-password` (P15)                              | Oturum + CSRF, yalnız SUPER_ADMIN, step-up                                | 200                   |
+| GET · POST · DELETE         | `/api/v1/request-blocks` · `/api/v1/request-blocks/:id` (P15)                     | Oturum (+ CSRF), `support_requests.block`, firma bağlamı                  | 200 · 201 · 204       |
+| GET                         | `/api/v1/public/sessions/:sessionId/tech-avatar?exp=&sig=` (P15)                  | Public, imzalı URL (≤ 10 dk)                                              | 200 (WEBP)            |
 | GET                         | `/api/v1/files/logo/:tenantId/:file`, `/api/v1/files/system-logo/:file` (P12)     | Public                                                                    | 200 (PNG)             |
 | GET                         | `/api/v1/files/avatar/:tenantId/:file` (P12)                                      | Oturum (aynı firma veya Super Admin)                                      | 200 (WEBP)            |
 | GET                         | `/api/v1/public/branding?tenant=<slug>` (P12)                                     | Public                                                                    | 200                   |
@@ -351,8 +361,26 @@ Hassas işlemlerden önce taze 2FA kanıtı (ADR-0022). Gövde `{ "method": "TOT
 - Audit `auth.step_up` `{ method, remaining }` (kod yazılmaz); hatada `{ method, reason }`.
 - Hatalar: 400 `fields.code` "Kod hatalı veya süresi geçmiş." (401 değil), 403 `MFA_SETUP_REQUIRED` (TOTP kurulu değil),
   429 (deneme sınırı verify/enable ile ortak).
-- Step-up isteyen uçlar: `PUT /admin/settings/mysql`, `PUT|DELETE /admin/settings/turn`, `PUT|DELETE /admin/settings/whatsapp`.
+- Step-up isteyen uçlar: `PUT /admin/settings/mysql`, `PUT|DELETE /admin/settings/turn`, `PUT|DELETE /admin/settings/whatsapp`,
+  `POST /admin/superadmins/:id/reset-password` (P15).
   Eksikse 401 `MFA_STEP_UP_REQUIRED`, TOTP yoksa 403 `MFA_SETUP_REQUIRED`.
+
+### POST /api/v1/auth/mfa/recovery-codes (P15)
+
+Kurtarma kodlarını yeniler (AC-231). Gövde `{ "code": "123456" }`: yalnız doğrulama uygulamasının 6 haneli TOTP kodu;
+kurtarma koduyla yenileme yapılmaz. Başarıda eski kodların hepsi aynı işlemde silinir, 10 yeni kod **yalnız bu yanıtta**
+döner. `Cache-Control: no-store`.
+
+```json
+{ "codes": ["ABCDE-FGHIJ", "…"] }
+```
+
+- Aynı TOTP zaman adımı ikinci kez kabul edilmez. Deneme sayacı `/auth/mfa/verify` ve step-up ile ortaktır (hesap + IP
+  5 / 5 dk, hesap 15 / 15 dk).
+- Audit `mfa.recovery_regenerated` `{ count }`; hatalı kodda `result: fail`, `{ reason: invalid_code | replayed_code }`.
+  Kodlar hiçbir yere yazılmaz.
+- Hatalar: 400 `VALIDATION` `fields.code` "Kod hatalı veya süresi geçmiş.", 401, 403 `MFA_SETUP_REQUIRED` (2FA kurulu
+  değil), 403 `CSRF_INVALID`, 429 `RATE_LIMITED` + `Retry-After`.
 
 ### Kullanıcı düzenleme: ETag / If-Match (P14a)
 
@@ -597,17 +625,17 @@ curl -sk https://localhost:4450/api/v1/sessions/$ID/history -b "__Host-rs_sessio
 
 Yanıt = liste öğesinin tüm alanları + şunlar:
 
-| Alan                | Açıklama                                                                                                                                                                                                                                            |
-| ------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `customerEmail`     | Müşterinin katılırken yazdığı e-posta (yoksa `null`)                                                                                                                                                                                                |
-| `note`              | Teknisyen notu (`null` olabilir)                                                                                                                                                                                                                    |
-| `terminatedBy`      | Yalnız `endedBy=ADMIN` ise `{ id, name }` (sonlandıran yönetici)                                                                                                                                                                                    |
-| `quality`           | Kalite özeti `{ fps, kbps, rttMs, connType }`; kayıt yoksa veya okunamıyorsa `null`                                                                                                                                                                 |
-| `files[]`           | `{ id, direction: TO_CUSTOMER\|TO_TECH, fileName, sizeBytes, sha256, result: OK\|REJECTED\|CANCELLED\|CORRUPT, createdAt }`, en çok 500. İçerik yoktur                                                                                              |
-| `consents[]`        | `{ id, at, level: VIEW\|CONTROL, decision: GRANTED\|DENIED\|REVOKED, source: UI\|HOTKEY\|RECONNECT\|SYSTEM\|TECH, consentText: { id, version, sha256 } \| null }`, en çok 500. **IP ve tarayıcı bilgisi dönmez** (kanıt DB'de kalır)                |
-| `controlPeriods[]`  | `{ grantedAt, revokedAt, revokedSource, revokedReason, selfElevated }`. Sunucu her `GRANTED`'ı ardından gelen ilk `REVOKED` ile eşleştirir. Kapanış kaydı yoksa `revokedAt`/`revokedSource` `null`; bitiş tahmin edilmez. BROWSER oturumda boş dizi |
-| `timeline[]`        | `{ at, action, actor: TECH\|CUSTOMER\|ADMIN\|SYSTEM, actorName, result: success\|fail, details }`, en çok 500 olay                                                                                                                                  |
-| `timelineTruncated` | 500 olay sınırı aşıldıysa `true`                                                                                                                                                                                                                    |
+| Alan                | Açıklama                                                                                                                                                                                                                                                                                                                                                       |
+| ------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `customerEmail`     | Müşterinin katılırken yazdığı e-posta (yoksa `null`)                                                                                                                                                                                                                                                                                                           |
+| `note`              | Teknisyen notu (`null` olabilir)                                                                                                                                                                                                                                                                                                                               |
+| `terminatedBy`      | Yalnız `endedBy=ADMIN` ise `{ id, name }` (sonlandıran yönetici)                                                                                                                                                                                                                                                                                               |
+| `quality`           | Kalite özeti `{ fps, kbps, rttMs, connType }`; kayıt yoksa veya okunamıyorsa `null`                                                                                                                                                                                                                                                                            |
+| `files[]`           | `{ id, direction: TO_CUSTOMER\|TO_TECH, fileName, sizeBytes, sha256, result: OK\|REJECTED\|CANCELLED\|CORRUPT, createdAt, reportedBy: TECH\|CUSTOMER, verified }`, en çok 500. İçerik yoktur. P15: aynı aktarımın iki raporu tek satıra indirgenir; `verified` = teknisyen raporu var ("Doğrulanmış"), `false` = yalnız müşteri bildirdi ("Müşteri bildirimi") |
+| `consents[]`        | `{ id, at, level: VIEW\|CONTROL, decision: GRANTED\|DENIED\|REVOKED, source: UI\|HOTKEY\|RECONNECT\|SYSTEM\|TECH, consentText: { id, version, sha256 } \| null }`, en çok 500. **IP ve tarayıcı bilgisi dönmez** (kanıt DB'de kalır)                                                                                                                           |
+| `controlPeriods[]`  | `{ grantedAt, revokedAt, revokedSource, revokedReason, selfElevated }`. Sunucu her `GRANTED`'ı ardından gelen ilk `REVOKED` ile eşleştirir. Kapanış kaydı yoksa `revokedAt`/`revokedSource` `null`; bitiş tahmin edilmez. BROWSER oturumda boş dizi                                                                                                            |
+| `timeline[]`        | `{ at, action, actor: TECH\|CUSTOMER\|ADMIN\|SYSTEM, actorName, result: success\|fail, details }`, en çok 500 olay                                                                                                                                                                                                                                             |
+| `timelineTruncated` | 500 olay sınırı aşıldıysa `true`                                                                                                                                                                                                                                                                                                                               |
 
 Zaman çizelgesine yalnız şu eylemler girer: `session.created`, `guest.pending`, `guest.rejected`, `guest.admitted`,
 `guest.admit` (başarısız), `reconnect.conflict`, `control.requested/granted/denied/revoked/released/cancelled`,
@@ -687,8 +715,11 @@ Yanıt başlıkları: `Content-Type: text/csv; charset=utf-8`, `Content-Disposit
 Dosya biçimi:
 
 - UTF-8 **BOM** (`EF BB BF`), ayraç **`;`** (tr-TR Excel liste ayracı), satır sonu CRLF. Excel çift tıklamayla sütunlara açar.
-- Sütunlar (sabit sıra): `Oturum No; [Firma]; Oluşturma; Başlangıç; Bitiş; Süre; Durum; Mod; Teknisyen; Müşteri;
-Ticket No; Sonlandıran; Bitiş nedeni; Not`. `Firma` yalnız firma seçmemiş Super Admin'de 2. sütundur.
+- Sütunlar (sabit sıra, `SESSION_CSV_COLUMNS`): `Oturum No; [Firma]; Oluşturma; Başlangıç; Bitiş; Süre; Durum; Mod;
+Kaynak; Müşteri firma; Bekleme; Teknisyen; Müşteri; Ticket No; Sonlandıran; Bitiş nedeni; Not; Dosyalar`. `Firma` yalnız
+  firma seçmemiş Super Admin'de 2. sütundur.
+- **Dosyalar (P15, AC-238):** `"N doğrulanmış; M müşteri bildirimi"` (sıfır olan kısım yazılmaz, ör. `2 doğrulanmış`).
+  Dosya yoksa ve anonimleştirilmiş oturumda boş.
 - Zamanlar **Europe/Istanbul** `YYYY-AA-GG SS:dd:ss`; süre `SS:DD:ss` (yoksa boş). Durum, mod, sonlandıran ve bitiş
   nedeni Türkçe etiketle yazılır (ör. `Bitti`, `İstemci`, `Teknisyen`, `Müşteri bitirdi`).
 - E-posta, onay kayıtları ve zaman çizelgesi CSV'ye girmez.
@@ -740,8 +771,9 @@ Yanıt 200 (`Cache-Control: no-store`):
 - `sessionRef`: HMAC (`SESSION_REF_KEY`) + oturum id; tahmin edilemez, token değildir, yalnız durum yoklamasında
   kullanılır.
 - `tenant.logoUrl` (P12): firma logosu → sistem logosu → `/img/logo.png`; kod artık her zaman dolu döner (tip `string | null`).
-  `technician.avatarUrl` **her zaman `null`**: avatar oturumlu uçtan sunulur, kimliksiz müşteriye açılmaz (KVKK);
-  müşteri ekranı baş harf rozeti gösterir.
+- `technician.avatarUrl` (P15, AC-236): teknisyenin profil resmi varsa oturuma bağlı, 10 dakika geçerli imzalı adres
+  (`/api/v1/public/sessions/<sessionId>/tech-avatar?exp=&sig=`); yoksa `null` ve müşteri ekranı baş harf rozeti gösterir.
+  Ayrıntı: "G3 küçük özellikler (P15)".
 - `consentText` (P4): tenant'ın güncel (`is_current`) KVKK aydınlatma metni. `body` düz metindir (HTML değil);
   istemci metin olarak basar. `sha256` gövdenin UTF-8 SHA-256 özetidir. `id` join'de `consentTextId` olarak geri
   gönderilir.
@@ -985,8 +1017,8 @@ const ws = new WebSocket("wss://<host>:4450/ws/guest", ["rs.v1", "rs.ticket." + 
 | `sdp.answer`                         | misafir→S→teknisyen | `sdp`                                                                                                                                                                                                         |
 | `ice`                                | iki yön             | `candidate` (≤ 2000), `sdpMid?`, `sdpMLineIndex?`                                                                                                                                                             |
 | `ice.restart`                        | teknisyen→S→misafir | —                                                                                                                                                                                                             |
-| `share.state`                        | misafir→S→teknisyen | `state: sharing\|stopped`, `monitors?`, `activeMonitor?`                                                                                                                                                      |
-| `file.meta`                          | iki taraf→S         | P5: `direction`, `fileName`, `sizeBytes`, `sha256`, `result` (aşağıya bakın)                                                                                                                                  |
+| `share.state`                        | misafir→S→teknisyen | `state: sharing\|stopped`, `monitors?`, `activeMonitor?`; P15: `reason?` (`^[A-Z0-9_]{1,32}$`), `method?: DXGI\|GDI\|WGC`; teknisyene oda başına en çok 1 sn'de bir (birleştirilir)                           |
+| `file.meta`                          | iki taraf→S         | P5: `direction`, `fileName`, `sizeBytes`, `sha256`, `result`; P15: `fid?` (aşağıya bakın)                                                                                                                     |
 | `quality.summary`                    | teknisyen→S         | P5: `fps`, `kbps`, `rttMs` (`{avg,min,max}`), `connType` (aşağıya bakın)                                                                                                                                      |
 | `session.end`                        | iki taraf→S         | — (PENDING'de teknisyenden gelirse `error{CONFLICT}`; iptal REST ile yapılır)                                                                                                                                 |
 | `session.ended`                      | S→taraf             | `reason`: `tech`, `customer`, `timeout`, `max_duration`, `cancelled`, `tenant_passive`, `server`, `admin`, `auth_revoked`, `rejected`, `lobby_timeout`                                                        |
@@ -1053,14 +1085,19 @@ dosya meta verisini (`file.meta`) ve kalite özetini (`quality.summary`) alır.
 | `sizeBytes` | tam sayı, 0..2048 MiB                                          |
 | `sha256`    | `/^[a-f0-9]{64}$/`                                             |
 | `result`    | `OK` \| `REJECTED` \| `CANCELLED` \| `CORRUPT`                 |
+| `fid?`      | P15: DataChannel transfer kimliği, `^[A-Za-z0-9_-]{1,26}$`     |
 | `id?`       | ≤ 26                                                           |
 
 Her transferde iki taraf da birer rapor gönderir; sunucu raporu kimin gönderdiğini mesajdan değil soketten belirler.
 
 - **Alıcının raporu** (`TO_CUSTOMER` → misafir, `TO_TECH` → teknisyen): `session_files` satırı + audit `file.transfer`
   (entity `session_files`; `OK` → success, diğerleri fail) **tek işlemde** yazılır. Geçmişin tek kaynağıdır.
-- **Gönderenin raporu**: `session_files`'a yazılmaz; yalnız audit `file.transfer.sender_report` (entity
-  `support_sessions`). Değiştirilmiş bir konsol `TO_TECH` raporunu bastırsa da müşteri tarafının izi kalır.
+- **Gönderenin raporu**: `fid` yoksa (0.10.x istemci) `session_files`'a yazılmaz; yalnız audit
+  `file.transfer.sender_report`. Değiştirilmiş bir konsol `TO_TECH` raporunu bastırsa da müşteri tarafının izi kalır.
+- **P15 (AC-238), `fid` varsa:** gönderenin raporu da ayrı `session_files` satırı olur (`reported_by` = raporlayan
+  bağlantının rolü, `TECH` | `CUSTOMER`). İki rapor `match_key` (oturum + yön + `fid` + SHA-256 + boyut özeti) ile eşlenir;
+  geçmiş ekranı ve CSV bunları tek dosya sayar. Aynı taraf aynı aktarımı ikinci kez raporlarsa yok sayılır (metrik
+  `rs_file_meta_total{result="duplicate"}`). Gönderen raporunun audit `entity`'si artık `session_files`'tır.
 - **Audit içeriği (P13a, S-P13a-8):** `file.transfer`, `file.transfer.sender_report` ve `file.meta.rejected_by_db`
   kayıtlarının `newValue`'su `{ sessionId, direction, ext, sizeBytes, result }`'tır. **Dosya adı ve SHA-256 audit'e
   yazılmaz** (audit 730 gün saklanır; ad kişisel veri içerebilir). `ext` yalnız uzantıdır (son noktadan sonrası, ASCII
@@ -1368,13 +1405,13 @@ Yetki `settings.edit`; yanıt `no-store`. Satır yoksa ilk okumada oluşturulur 
   "fileName": "NoktaDestek-OrnekLtd-….exe", "refPrefix": "abcd", "refRotatedAt": null, "waitMinutes": 30,
   "trustedCidrs": ["203.0.113.0/24"],
   "whatsapp": { "enabled": true, "recipients": ["+905320000000"], "serviceConfigured": true, "insecure": false },
-  "email": { "enabled": false, "recipients": [], "smtpConfigured": false } }
+  "email": { "enabled": false, "recipients": [], "smtpConfigured": false }, "requireAcceptCode": false }
 ```
 
 PUT gövdesi: `{ waitMinutes: 10..120, trustedCidrs: ≤ 10 tekil (IPv4 en geniş /16, IPv6 /32; özel/loopback yok),
 whatsapp: { enabled, recipients: ≤ 5 tekil telefon }, email: { enabled, recipients: ≤ 5 } }`. WhatsApp açıkken en az
 bir alıcı; SMTP yokken `email.enabled=true` → 400 "Önce SMTP ayarlarını yapın" (P10; `email.smtpConfigured` bunu gösterir). Bekleme süresi yalnız yeni taleplere
-uygulanır. Hata alanları `fields["whatsapp.recipients.1"]`, `fields["trustedCidrs.0"]` biçimindedir.
+uygulanır. P15 (AC-239): `requireAcceptCode?: boolean` — verilmezse mevcut değer korunur. Hata alanları `fields["whatsapp.recipients.1"]`, `fields["trustedCidrs.0"]` biçimindedir.
 
 ### POST /api/v1/settings/support-requests/rotate-ref
 
@@ -1405,7 +1442,8 @@ talebi engellemez.
 `wss://<host>/ws/request`, sorgu dizesi yok. `Sec-WebSocket-Protocol: rs.v1, rs.req.<requestSecret>`; `Origin` yok.
 Talep başına tek soket (yenisi gelince eski 4409), IP başına ≤ 5 soket (güvenilen ağ muaf), sürüm düşükse 426.
 Sunucu → istemci: `request.state` (sıra, talep kodu, süreler; 10 sn'de bir ve kuyruk değişince), `request.accepted`
-(`wsTicket`, `technicianName`, `techVerifyCode`; istemci müşteri onayından sonra `/ws/guest`'e bağlanır),
+(`wsTicket`, `technicianName`, `techVerifyCode`, P15: `admitCode?`; istemci müşteri onayından sonra `/ws/guest`'e bağlanır;
+`admitCode` yalnız firma ayarı `requireAcceptCode` açıkken gelir, bkz. "G3 küçük özellikler (P15)"),
 `request.closed` (`status`, `reason?`, ret mesajı). İstemci → sunucu: `request.cancel`, `request.decline`.
 
 ### WebSocket `/ws/panel` (teknisyen paneli, tek yönlü)
@@ -2209,8 +2247,13 @@ DELETE → `{ "avatarUrl": null }` (yoksa da 200 `null`, audit yok).
 ### POST /api/v1/admin/settings/system-logo
 
 Yalnız SUPER_ADMIN. Firma belli olmadığında giriş ekranında ve logosu olmayan firmalarda görünen sistem logosunu yükler
-veya değiştirir → `{ "logoUrl": "/api/v1/files/system-logo/<ad>.png" }`. **DELETE yoktur.** Mevcut sistem logosu
+veya değiştirir → `{ "logoUrl": "/api/v1/files/system-logo/<ad>.png" }`. Mevcut sistem logosu
 `GET /public/branding` (slug'sız) ile okunur. Hatalar: 400, 401, 403, 413, 429.
+
+**DELETE (P15, AC-233)** sistem logosunu kaldırır → `{ "logoUrl": "/img/logo.png" }` (varsayılan Nokta Bilişim logosu;
+giriş ekranı, PDF ve logosu olmayan firmalar). Kayıt `{ path: null }` yapılır, dosya işlem sonrası silinir. Kayıtlı logo
+yoksa yine 200 döner, audit yazmaz. Audit `settings.system_logo.removed` (eski `{ path }` → `{ path: null }`).
+Hatalar: 401, 403.
 
 ### GET /api/v1/files/logo/:tenantId/:file · /files/system-logo/:file · /files/avatar/:tenantId/:file
 
@@ -2244,6 +2287,132 @@ Giriş ekranı logosu. Çerez istemez. Yanıt `Cache-Control: no-store`:
 ```bash
 curl -sk 'https://localhost:4450/api/v1/public/branding?tenant=demo'
 ```
+
+## G3 küçük özellikler (P15)
+
+Kaynak: `docs/mimari-e11.md` §6, AC-231..239. Kurtarma kodu yenileme yukarıda "POST /api/v1/auth/mfa/recovery-codes",
+sistem logosu kaldırma "POST /api/v1/admin/settings/system-logo" bölümündedir.
+
+### GET /api/v1/admin/superadmins
+
+Yalnız SUPER_ADMIN. Etkin ve pasif Super Admin hesapları (silinmişler hariç), ad sırasıyla en çok 100. `no-store`.
+
+```json
+{ "items": [ { "id": "01K…", "fullName": "Ayşe Yönetici", "email": "ayse@example.com", "status": "ACTIVE",
+  "totpEnabled": true, "self": false } ] }
+```
+
+`self: true` isteği yapan hesaptır; arayüz bu satırda sıfırlama düğmesini göstermez. Hatalar: 401, 403.
+
+### POST /api/v1/admin/superadmins/:id/reset-password
+
+Başka bir Super Admin'in şifresini panelden sıfırlar (AC-232). Gövde `{}`. Sıra: oturum + CSRF → SUPER_ADMIN → hız
+sınırı (kullanıcı başına 5/dk) → **step-up** (son 5 dk içinde 2FA kanıtı) → id → kendi id'si 403 → sıfırlama.
+Sunucudaki `reset-superadmin` CLI'siyle aynı servis kullanılır.
+
+```bash
+curl -sk -X POST https://localhost:4450/api/v1/admin/superadmins/$ID/reset-password \
+  -H 'Content-Type: application/json' -H 'Origin: https://localhost:4450' -H "X-CSRF-Token: $CSRF" \
+  -b "__Host-rs_session=$SESSION; __Host-rs_csrf=$CSRF" -d '{}'
+```
+
+```json
+{ "temporaryPassword": "<geçici şifre>", "revokedSessions": 2 }
+```
+
+- Geçici şifre **yalnız bu yanıtta** döner; 24 saat geçerlidir, hedef ilk girişte yeni şifre belirlemek zorundadır.
+- Hedefin tüm giriş oturumları kapanır; yürüttüğü canlı destek oturumları ve panel soketleri sonlanır.
+- 2FA'ya dokunmaz (gerekirse CLI `--reset-mfa`).
+- Audit `auth.superadmin_reset` (aktör Super Admin, `newValue.via: "panel"`; şifre yazılmaz).
+- Hatalar: 401 `MFA_STEP_UP_REQUIRED` (step-up gerekli), 403 `FORBIDDEN` ("Kendi şifrenizi bu yolla sıfırlayamazsınız;
+  şifre değiştirme ekranını kullanın." veya rol), 403 `MFA_SETUP_REQUIRED`, 403 `CSRF_INVALID`, 404 `NOT_FOUND` (biçimsiz
+  id veya etkin bir Super Admin değil), 429 `RATE_LIMITED` + `Retry-After`.
+
+### GET · POST · DELETE /api/v1/request-blocks
+
+Destek talebi engelleri (AC-235). Yetki `support_requests.block`; firma bağlamı (Super Admin firma seçmemişse 403
+"Önce bir firma seçin."). Tüm yanıtlar `Cache-Control: no-store`. Yazma uçları kullanıcı başına dakikada 30.
+
+Engellenen IP/ağdan ya da bilgisayardan gelen `POST /public/requests` diğer reddedilen taleplerle **aynı tek tip yanıtı**
+alır: 429 `RATE_LIMITED` + "Şu an çok yoğunuz, lütfen firmanızı telefonla arayın." Talep yazılmaz, kuyruğa düşmez.
+Güvenilen ağlar engelden muaf değildir. Engel kontrolü tenant başına bellek önbelleğinden yapılır; ekleme ve kaldırma
+önbelleği hemen geçersiz kılar.
+
+**GET** `?kind=IP|DEVICE&includeExpired=false|true&page=1&pageSize=25` (`pageSize` ≤ 100). Varsayılan yalnız etkin engeller.
+
+```json
+{ "items": [ { "id": "01K…", "kind": "IP", "cidr": "203.0.113.0/24", "deviceFingerprint": null,
+  "expiresAt": "2026-11-22T10:00:00.000Z", "expired": false, "note": "Tekrarlayan sahte talep",
+  "createdAt": "2026-11-15T10:00:00.000Z", "createdBy": { "id": "01K…", "fullName": "Ayşe Yönetici" } } ],
+  "page": 1, "pageSize": 25, "total": 1, "used": 1, "max": 1000 }
+```
+
+`deviceFingerprint` cihaz anahtarı özetinin ilk 8 hanesidir (yalnız ayırt etmek için). `used` süresi dolmuşlar dahil
+toplam satırdır; `max` firma başına üst sınırdır (1.000).
+
+**POST** iki biçim alır:
+
+| `source`  | Gövde                                                                             | Not                                                                                                                          |
+| --------- | --------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
+| `CIDR`    | `{ source, cidr, durationHours, note? }`                                          | Elle IP veya ağ. IPv4 /24–/32, IPv6 /48–/128; önek yoksa tek adres. Hizasız önek ağ adresine indirgenir                      |
+| `REQUEST` | `{ source, requestId, target: "IP"\|"DEVICE", prefixLen?, durationHours, note? }` | Talepler ekranındaki "Bu kaynağı engelle". IP veya cihaz anahtarı sunucuda talep satırından alınır; `prefixLen` yalnız IP'de |
+
+`durationHours`: 1 ile 8760 (1 yıl) arası tam sayı veya `null` (süresiz). `note`: en çok 200 karakter, kontrol/görünmez
+karakter yok. Yanıt 201 `RequestBlockItem`. Süresi dolan engel 30 gün sonra gece saklama işiyle silinir.
+
+```bash
+curl -sk -X POST https://localhost:4450/api/v1/request-blocks \
+  -H 'Content-Type: application/json' -H 'Origin: https://localhost:4450' -H "X-CSRF-Token: $CSRF" \
+  -b "__Host-rs_session=$SESSION; __Host-rs_csrf=$CSRF" \
+  -d '{"source":"CIDR","cidr":"203.0.113.0/24","durationHours":168,"note":"Tekrarlayan sahte talep"}'
+```
+
+**DELETE** `/api/v1/request-blocks/:id` → 204.
+
+Hatalar (kaynak `packages/contracts/src/api/request-blocks.ts`):
+
+| Kod                | Durum                                                                                                                   |
+| ------------------ | ----------------------------------------------------------------------------------------------------------------------- |
+| 400 `VALIDATION`   | Gövde/şema; `fields.cidr`, `fields.prefixLen`, `fields.durationHours`, `fields.note`                                    |
+| 403 `FORBIDDEN`    | `support_requests.block` yok veya firma seçilmemiş                                                                      |
+| 404 `NOT_FOUND`    | POST `source: "REQUEST"`: talep bu firmada yok. DELETE: engel yok (biçimsiz id dahil)                                   |
+| 409 `CONFLICT`     | "Bu kaynak zaten engelli." — aynı hedef etkin engelli; `fields.cidr` (IP) veya `fields.target` (cihaz) aynı metni taşır |
+| 409 `CONFLICT`     | "Firma başına en çok 1000 engel eklenebilir. Önce eski engelleri kaldırın." (alan yok)                                  |
+| 409 `CONFLICT`     | "Bu talebin kaynak bilgisi yok (anonimleştirilmiş veya cihaz anahtarı gönderilmemiş)." (alan yok)                       |
+| 429 `RATE_LIMITED` | Yazma 30/dk/kullanıcı; `Retry-After`                                                                                    |
+
+Audit `request_block.created` / `request_block.deleted` (entity `request_blocks`; `{ kind, cidr | deviceFingerprint,
+expiresAt, source }`, not metni yazılmaz, yalnız `hasNote`). Engelli kaynağın talebi ayrı satır yazmaz:
+`request.rate_limited { bucket: "blocked" }` (kaynak başına dakikada 1).
+
+### GET /api/v1/public/sessions/:sessionId/tech-avatar?exp=&sig=
+
+Müşteri ekranındaki teknisyen fotoğrafı (AC-236). Adres `POST /public/sessions/resolve` yanıtındaki
+`technician.avatarUrl`'den gelir; elle kurulmaz.
+
+- İmza HMAC-SHA-256; anahtar `APP_ENCRYPTION_KEYS`'ten `avatar-url` etiketiyle türetilir. Adres 600 sn geçerlidir.
+  URL'de oturum token'ı değil oturum kimliği (ULID) bulunur; token loglara düşmez.
+- Oturum `ACTIVE` ya da süresi dolmamış `PENDING` olmalıdır (karşılama ekranı).
+- Yanıt WEBP; `Cache-Control: private, no-store`, `nosniff`, `default-src 'none'` CSP.
+- IP başına dakikada 60 istek.
+- Hatalar: 403 `FORBIDDEN` (imza/süre geçersiz, biçimsiz kimlik veya oturum bitmiş; tek gövde), 404 (teknisyenin resmi yok
+  veya kaldırıldı), 429 `RATE_LIMITED`.
+
+### Paylaşım hata nedeni ve kabul kodu (WS)
+
+- **`share.state.reason` / `method` (AC-234):** 0.11+ istemci paylaşım başlatılamadığında neden kodunu (ör.
+  `DXGI_UNSUPPORTED`, `NO_H264_ENCODER`) ve son denenen yöntemi (`DXGI` | `GDI` | `WGC`) gönderir. Sunucu alanları yeniden
+  kurup teknisyene iletir. Türkçe etiketler `contracts/labels.ts` `SHARE_FAIL_REASON_LABELS`; bilinmeyen kod
+  "Bilinmeyen neden (KOD)" olarak gösterilir. 0.10.x istemci bu alanları göndermez.
+- **Birleştirme (S17-2):** sunucu `share.state`'i teknisyene oda başına en çok 1 sn'de bir iletir. Aradaki mesajlar
+  düşürülmez; aralık sonunda en son durum tek mesajla gider.
+- **`request.accepted.admitCode` (AC-239):** firma ayarı "Talep kabulünde kabul kodu iste" (`requireAcceptCode`) açıksa
+  sunucu 4 haneli bir kod üretir ve yalnız müşteriye gönderir. Müşteri `/ws/guest`'e bağlanınca bekleme odasına düşer
+  (`lobby.wait`); teknisyen kodu konsolda `guest.admit` ile girer (P3 bekleme odası kuralları). Pencere 60 sn'dir. İstemci
+  yeniden bağlanırsa yeni kod üretilir. Ayar kapalıyken alan gönderilmez ve akış değişmez.
+- **Eski istemci (S15-6):** ayar açıkken talebin `clientVersion`'ı 0.11.0'dan eskiyse `POST /requests/:id/accept`
+  409 `ACCEPT_CODE_CLIENT_UNSUPPORTED` döner; talep PENDING kalır, audit `request.accepted` `result:"fail"`,
+  `reason:"client_unsupported"`. Kod hiçbir koşulda sessizce atlanmaz. Ayar kapalıyken eski istemci normal kabul edilir.
 
 ## Saklama ve anonimleştirme (P13a)
 
@@ -2348,5 +2517,9 @@ P13b: `auth.superadmin_reset` (CLI; kullanıcı `cli`, `newValue.mustChangePassw
 yok; bulunamazsa `fail{reason:"not_found"}`), `auth.login` fail `{reason:"temp_password_expired"}` (CLI geçici şifresi 24 saati
 geçti; yanıt 401 "Geçici şifrenin süresi doldu (24 saat). Sunucu yöneticisinden yeniden sıfırlama isteyin."),
 `backup.audit_baseline_reset` (grup "Yedekleme", `backup.*` filtresi), `settings.whatsapp.test` `reason: "unauthorized"`.
+P15: `mfa.recovery_regenerated` (`{ count }`; kod yazılmaz), `auth.superadmin_reset` panel yolu (`via: "panel"`),
+`settings.system_logo.removed`, `request_block.created` / `request_block.deleted`, `request.rate_limited { bucket: "blocked" }`,
+`request.accepted` += `acceptCode: true` (ayar açıkken), `retention.run` += `blocks`, `file.transfer.sender_report` entity
+`session_files` (+ `reportedBy`).
 Şifre, token ve çerez değerleri `***` olarak maskelenir. Kayıtlar Audit log ekranında (`/audit`) ve
 `GET /api/v1/audit` ile okunur; değiştirilemez.

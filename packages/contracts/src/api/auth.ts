@@ -169,6 +169,22 @@ export interface StepUpResponse {
 }
 
 // ---------------------------------------------------------------------------------------------------------------
+// P15 — Kurtarma kodlarını yenile (AC-231)
+// ---------------------------------------------------------------------------------------------------------------
+
+/**
+ * POST /auth/mfa/recovery-codes `{ code }` (yalnız TOTP; kurtarma koduyla yenileme yok). Başarıda eski kodların hepsi
+ * aynı TX'te silinir, 10 yeni kod YALNIZ bu yanıtta döner. Hatalı kod → 400 `fields.code`; 2FA deneme sayacı
+ * `/auth/mfa/verify` + step-up ile ortak (5 / 5 dk hesap+IP, 15 / 15 dk hesap) → 429 + `Retry-After`. 2FA kurulu
+ * değil → 403 `MFA_SETUP_REQUIRED`. Audit `mfa.recovery_regenerated` (kod içermez).
+ */
+export const mfaRecoveryCodesInputSchema = z.strictObject({ code: totpCodeSchema });
+export type MfaRecoveryCodesInput = z.input<typeof mfaRecoveryCodesInputSchema>;
+export interface MfaRecoveryCodesResponse {
+  codes: string[];
+}
+
+// ---------------------------------------------------------------------------------------------------------------
 // P10 — Tüm cihazlardan çıkış (AC-68, AC-115) ve şifre sıfırlama (AC-66)
 // ---------------------------------------------------------------------------------------------------------------
 

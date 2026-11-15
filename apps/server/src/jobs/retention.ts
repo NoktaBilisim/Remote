@@ -12,6 +12,8 @@ import { newId } from "../lib/ids.ts";
 import { anonymizeRequestsOf } from "../requests/jobs.ts";
 import * as rrepo from "../requests/repo.ts";
 import { SYSTEM, type RequestService } from "../requests/service.ts";
+import { purgeExpiredBlocks } from "../requests/blocks.ts";
+import { REQUEST_BLOCK_EXPIRED_RETENTION_DAYS } from "@remote/contracts/api/request-blocks";
 import * as repo from "./retention-repo.ts";
 
 const DAY_MS = 86_400_000;
@@ -31,6 +33,8 @@ export interface TenantCounts {
   requests: number;
   customers: number;
   bindings: number;
+  /** P15 (AC-235): süresi 30 günden önce dolmuş talep engelleri (IP kişisel veri). */
+  blocks: number;
 }
 export interface GlobalCounts {
   audit: number;
@@ -52,12 +56,13 @@ const KINDS: Record<keyof (TenantCounts & GlobalCounts), string> = {
   requests: "requests",
   customers: "customers",
   bindings: "bindings",
+  blocks: "request_blocks",
   audit: "audit",
   authSessions: "auth_sessions",
   resetTokens: "reset_tokens",
 };
 
-const zeroTenant = (): TenantCounts => ({ sessions: 0, consents: 0, files: 0, requests: 0, customers: 0, bindings: 0 });
+const zeroTenant = (): TenantCounts => ({ sessions: 0, consents: 0, files: 0, requests: 0, customers: 0, bindings: 0, blocks: 0 });
 const sum = (o: object): number => Object.values(o).reduce((a: number, b: unknown) => a + (typeof b === "number" ? b : 0), 0);
 
 /** Tek süreç (ADR-0005) içinde tek örnek; `run` eşzamanlı çağrılırsa ikincisi çalışmadan `null` döner. */
@@ -164,9 +169,10 @@ export class RetentionJob {
     c.requests += await anonymizeRequestsOf(svc, t, now);
     c.customers += await anonymizeCustomersOf(svc, t, now);
     c.bindings += await expireIdleBindingsOf(svc, t, now);
+    c.blocks += await purgeExpiredBlocks(svc.d.db, t.tenantId, new Date(now.getTime() - REQUEST_BLOCK_EXPIRED_RETENTION_DAYS * DAY_MS));
     const cutoff = new Date(now.getTime() - t.retentionDays * DAY_MS);
     for (;;) {
-      const r = await repo.anonymizeSessionBatch(svc.d.db, t.tenantId, cutoff, now, SESSION_BATCH);
+      const r = await repo.anonymizeSessionBatch(svc.d.db, t.tenantId, cutoff, SESSION_BATCH);
       c.sessions += r.sessions;
       c.consents += r.consents;
       c.files += r.files;

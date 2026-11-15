@@ -13,7 +13,12 @@ import type {
   UpdateRequestSettingsData,
   WhatsappTestResponse,
 } from "@remote/contracts/api/requests";
-import { REQUEST_CONNECT_WINDOW_SEC, REQUEST_HISTORY_DAYS, SMTP_REQUIRED_MESSAGE } from "@remote/contracts/api/requests";
+import {
+  ACCEPT_CODE_MIN_CLIENT_VERSION,
+  REQUEST_CONNECT_WINDOW_SEC,
+  REQUEST_HISTORY_DAYS,
+  SMTP_REQUIRED_MESSAGE,
+} from "@remote/contracts/api/requests";
 import { maskPhone } from "../audit/mask.ts";
 import { writeAudit, type AuditContext } from "../audit/service.ts";
 import type { AuthContext } from "../auth/session.ts";
@@ -24,6 +29,7 @@ import * as brepo from "../bindings/repo.ts";
 import * as crepo from "../customers/repo.ts";
 import { conflictIndex } from "../lib/db.ts";
 import { newId, newSecretToken, newTenantRef, sha256Hex } from "../lib/ids.ts";
+import { compareVersions } from "../lib/version.ts";
 import { newTechVerifyCode } from "../sessions/codes.ts";
 import * as srepo from "../sessions/repo.ts";
 import { fileLabelOf, requestDownloadUrl, requestFileName } from "./ref.ts";
@@ -136,11 +142,29 @@ export async function acceptRequest(
     const head = await repo.findStatusInTenant(tx, tenantId, id);
     if (head?.status === "PENDING" && head.customerId && (await crepo.shareStatus(tx, tenantId, head.customerId)) !== "ACTIVE")
       return "customer_passive" as const;
+    // P15 (AC-239, S15-6): kabul kodu ayarı kabul TX'inde okunur. Ayar açıkken kodu desteklemeyen (istemci beyanı
+    // < ACCEPT_CODE_MIN_CLIENT_VERSION) talep kabul edilmez (fail-closed): düşük sürüm beyanı doğrulamayı atlatamaz.
+    // Talep PENDING kalır (kuyruktan düşmez); yalnız fail audit'i commit edilir.
+    const acceptCode = (await repo.settingsByTenant(tx, tenantId))?.requireAcceptCode === true;
+    if (head?.status === "PENDING" && acceptCode && compareVersions(head.clientVersion, ACCEPT_CODE_MIN_CLIENT_VERSION) < 0) {
+      await writeAudit(tx, ctx, {
+        ...who(auth, tenantId),
+        action: "request.accepted",
+        entity: "support_requests",
+        entityId: id,
+        result: "fail",
+        // Anahtar adı "code" içermez: audit maskesi (MASKED_KEY) onu "***" yapardı.
+        newValue: { acceptVerification: false, reason: "client_unsupported", clientVersion: head.clientVersion },
+      });
+      return "client_unsupported" as const;
+    }
     if ((await repo.acceptPending(tx, tenantId, id, auth.user.id, now)) === 0) return null;
     const r = await repo.findById(tx, id);
     if (!r) throw new Error("request_missing_after_accept");
     const sessionId = newId();
     const techVerifyCode = newTechVerifyCode();
+    // P15 (AC-239): kod penceresi aynı 60 sn (DB `support_sessions_ttl_chk` talep oturumunu 55..65 sn'ye bağlar); kodun
+    // bu sürede girilmesi gerekir (implementation.md P15 sapma notu).
     await srepo.insertSession(tx, {
       id: sessionId,
       tenantId,
@@ -164,18 +188,25 @@ export async function acceptRequest(
       entityId: id,
       result: "success",
       oldValue: { status: "PENDING" },
-      newValue: { status: "ACCEPTED", sessionId, waitSec },
+      newValue: {
+        status: "ACCEPTED",
+        sessionId,
+        waitSec,
+        // Anahtar adı "code" içermez: audit maskesi (MASKED_KEY) onu "***" yapardı.
+        ...(acceptCode ? { acceptVerification: true } : {}),
+      },
     });
-    return { r, sessionId, techVerifyCode, now };
+    return { r, sessionId, techVerifyCode, now, acceptCode };
   });
   if (res === "customer_passive") {
     await svc.cancelSystem(id, "CUSTOMER_PASSIVE");
     throw new AppError("REQUEST_CLOSED");
   }
+  if (res === "client_unsupported") throw new AppError("ACCEPT_CODE_CLIENT_UNSUPPORTED");
   if (!res) throw await lostRace(svc, tenantId, id);
 
   // commit sonrası (§3.4): ön-kabullü misafir + ticket → bekleyen istemciye; panellere kaldırma; 60 sn penceresi.
-  const { r, sessionId, techVerifyCode, now } = res;
+  const { r, sessionId, techVerifyCode, now, acceptCode } = res;
   const ticket = svc.d.rooms.preAdmitGuest(
     {
       id: sessionId,
@@ -190,6 +221,7 @@ export async function acceptRequest(
       ...(r.customerEmail ? { email: r.customerEmail } : {}),
       clientVersion: r.clientVersion,
       consent: { textId: r.consentTextId, version: r.consentText.version, sha256: r.consentSha256, at: now, ip: "", userAgent: "" },
+      acceptCode,
     },
   );
   svc.d.hub.clearDisconnect(id);
@@ -199,6 +231,7 @@ export async function acceptRequest(
     technicianName: auth.user.fullName.slice(0, 100),
     techVerifyCode,
     ticketExpiresAt: new Date(ticket.expiresAt).toISOString(),
+    ...(ticket.admitCode ? { admitCode: ticket.admitCode } : {}),
   });
   svc.d.hub.publish(tenantId, { t: "request.removed", id, status: "ACCEPTED" });
   svc.d.hub.queueChanged(tenantId);
@@ -279,6 +312,7 @@ function settingsView(svc: RequestService, s: repo.SettingsRow, smtpConfigured: 
     trustedCidrs: repo.jsonStrings(s.trustedCidrs),
     whatsapp: { enabled: s.waEnabled, recipients: repo.jsonStrings(s.waRecipients), serviceConfigured: n.configured, insecure: n.insecure },
     email: { enabled: s.emailEnabled, recipients: repo.jsonStrings(s.emailRecipients), smtpConfigured },
+    requireAcceptCode: s.requireAcceptCode,
   };
 }
 
@@ -294,6 +328,7 @@ const auditShape = (s: {
   waRecipients: string[];
   emailEnabled: boolean;
   emailRecipients: string[];
+  requireAcceptCode: boolean;
 }) => ({
   waitMinutes: s.waitMinutes,
   trustedCidrs: s.trustedCidrs,
@@ -301,6 +336,7 @@ const auditShape = (s: {
   waRecipients: s.waRecipients.map(maskPhone),
   emailEnabled: s.emailEnabled,
   emailRecipients: s.emailRecipients,
+  requireAcceptCode: s.requireAcceptCode,
 });
 
 /** PUT /settings/support-requests (AC-142, 151, 152): SMTP ayarlı değilse e-posta kanalı açılamaz. Audit eski→yeni (alıcılar maskeli). */
@@ -324,6 +360,7 @@ export async function updateSettings(
       waRecipients: input.whatsapp.recipients,
       emailEnabled: input.email.enabled,
       emailRecipients: input.email.recipients,
+      requireAcceptCode: input.requireAcceptCode ?? before.requireAcceptCode,
     });
     const old = {
       waitMinutes: before.waitMinutes,
@@ -332,6 +369,7 @@ export async function updateSettings(
       waRecipients: repo.jsonStrings(before.waRecipients),
       emailEnabled: before.emailEnabled,
       emailRecipients: repo.jsonStrings(before.emailRecipients),
+      requireAcceptCode: before.requireAcceptCode,
     };
     const next = {
       waitMinutes: input.waitMinutes,
@@ -340,6 +378,7 @@ export async function updateSettings(
       waRecipients: input.whatsapp.recipients,
       emailEnabled: input.email.enabled,
       emailRecipients: input.email.recipients,
+      requireAcceptCode: input.requireAcceptCode ?? before.requireAcceptCode,
     };
     await writeAudit(tx, ctx, {
       ...who(auth, tenantId),

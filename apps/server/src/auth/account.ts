@@ -324,6 +324,47 @@ export async function stepUp(d: AccountDeps, ctx: AuditContext, auth: AuthContex
   return { stepUpUntil, method: "RECOVERY", recoveryCodesLeft: out };
 }
 
+/**
+ * POST /auth/mfa/recovery-codes (P15, AC-231): yalnız TOTP (tüketilir — `totp_last_step` tekrar koruması); deneme
+ * sayacı verify/step-up ile ortak (5 hatada kilit). Tek TX: faktör + eski kodların hepsi silinir + 10 yeni kod + audit
+ * `mfa.recovery_regenerated {count}` (kod yazılmaz). Kodlar yalnız dönüş değerinde taşınır.
+ */
+export async function regenerateRecoveryCodes(d: AccountDeps, ctx: AuditContext, auth: AuthContext, code: string): Promise<string[]> {
+  if (!auth.totpEnabled) throw new AppError("MFA_SETUP_REQUIRED");
+  const userId = auth.user.id;
+  hitMfaLimit(d, userId, ctx.ip);
+  const now = new Date(d.now?.() ?? Date.now());
+  const codes = Array.from({ length: RECOVERY_CODE_COUNT }, newRecoveryCode);
+  const out = await d.db.$transaction(async (tx) => {
+    const check = await consumeSecondFactor(d, tx, userId, { totp: code }, now);
+    if (check !== "ok") return check;
+    await tx.recoveryCode.deleteMany({ where: { userId } });
+    await tx.recoveryCode.createMany({ data: codes.map((c) => ({ id: newId(), userId, codeHash: recoveryCodeHash(d.secrets, c) })) });
+    await writeAudit(tx, ctx, {
+      ...who(auth),
+      action: AUTH_AUDIT.MFA_RECOVERY_REGENERATED,
+      entity: "users",
+      entityId: userId,
+      result: "success",
+      newValue: { count: codes.length },
+    });
+    return "ok" as const;
+  });
+  if (out !== "ok") {
+    await writeAudit(d.db, ctx, {
+      ...who(auth),
+      action: AUTH_AUDIT.MFA_RECOVERY_REGENERATED,
+      entity: "users",
+      entityId: userId,
+      result: "fail",
+      newValue: { reason: out === "replay" ? "replayed_code" : "invalid_code" },
+    });
+    throw new AppError("VALIDATION", { fields: { code: "Kod hatalı veya süresi geçmiş." } });
+  }
+  resetMfaLimit(d, userId, ctx.ip);
+  return codes;
+}
+
 export async function recoveryCodesLeft(db: Db, userId: string): Promise<number> {
   return db.recoveryCode.count({ where: { userId, usedAt: null } });
 }

@@ -11,7 +11,16 @@ test.beforeEach(({}, info) => test.skip(!info.project.name.startsWith("desktop")
 const MOCK = "http://127.0.0.1:4217";
 type LogEntry = {
   from: "tech" | "guest";
-  m: { t: string; result?: string; direction?: string; fileName?: string; sizeBytes?: number; sha256?: string; fps?: { avg: number } };
+  m: {
+    t: string;
+    fid?: string;
+    result?: string;
+    direction?: string;
+    fileName?: string;
+    sizeBytes?: number;
+    sha256?: string;
+    fps?: { avg: number };
+  };
 };
 const wsLog = async (page: Page, id: string) => (await (await page.request.get(`${MOCK}/__e2e/ws-log/${id}`)).json()) as LogEntry[];
 
@@ -265,6 +274,29 @@ test("AC-53: tenant sınırı (1 MB) üstü dosya gönderilmez — teklif çıkm
   await expect(guestSide(g).getByRole("button", { name: "Dosyalar" })).toHaveAttribute("aria-pressed", "false");
   expect((await wsLog(page, id)).filter((e) => e.m.t === "file.meta")).toEqual([]);
   await g.context().close();
+});
+
+test("AC-238: teknisyen → müşteri aktarımında iki uç aynı fid ile file.meta gönderir (sunucuda tek 'Doğrulanmış' grup)", async ({
+  page,
+  context,
+  browser,
+}) => {
+  await signIn(context, "p5");
+  const { g, id } = await live(page, browser);
+  await watchRows(g);
+  await side(page).getByRole("button", { name: "Dosyalar" }).click();
+  await page.getByTestId("file-input").setInputFiles({ name: "fid.txt", mimeType: "text/plain", buffer: Buffer.from("fid-testi") });
+  await acceptOffer(g);
+  await expect(g.getByTestId("file-row")).toHaveAttribute("data-status", "ok", { timeout: 15_000 });
+  await expect.poll(async () => (await wsLog(page, id)).filter((e) => e.m.t === "file.meta" && e.m.fileName === "fid.txt").length).toBe(2);
+  const metas = (await wsLog(page, id)).filter((e) => e.m.t === "file.meta" && e.m.fileName === "fid.txt");
+  const fids = metas.map((e) => e.m.fid);
+  expect(fids[0]).toMatch(/^[A-Za-z0-9_-]{1,26}$/);
+  expect(fids[1]).toBe(fids[0]);
+  expect(metas.map((e) => [e.from, e.m.direction]).sort()).toEqual([
+    ["guest", "TO_CUSTOMER"],
+    ["tech", "TO_CUSTOMER"],
+  ]);
 });
 
 test("AC-54: SHA-256 uyuşmazlığı → 'Dosya bozuk', indirme sunulmaz, file.meta CORRUPT", async ({ page, context, browser }) => {

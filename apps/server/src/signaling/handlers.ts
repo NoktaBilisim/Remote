@@ -2,7 +2,7 @@
 // 50 mesaj/sn token-bucket → 1008 + log `ws_rate_exceeded`; relay yalnız aynı odanın karşı tarafına ve
 // alanlar yeniden kurularak (gelen nesne aktarılmaz). Lobi misafiri yalnız `session.end` gönderebilir.
 // P7: control.request/release/cancel, monitor.request/denied, control.state, env.state → control.ts (§3.3, ADR-0013).
-import { guestInboundSchema, techInboundSchema, WS_CLOSE, WS_MAX_PAYLOAD } from "@remote/contracts/ws";
+import { guestInboundSchema, SHARE_STATE_MIN_INTERVAL_MS, techInboundSchema, WS_CLOSE, WS_MAX_PAYLOAD } from "@remote/contracts/ws";
 import type { z } from "zod";
 import { admitGuest, rejectGuest } from "./admit.ts";
 import { handleFileMeta, handleQualitySummary } from "./collab.ts";
@@ -83,7 +83,7 @@ export async function onTechMessage(
   const m = parseFrame(rooms, peer, bucket, techInboundSchema, data, isBinary);
   if (!m) return;
   const guest = room.admitted?.peer;
-  if ((m.t === "guest.admit" || m.t === "guest.reject") && room.requestId) {
+  if ((m.t === "guest.admit" || m.t === "guest.reject") && room.requestId && !room.acceptCode) {
     // P8b §5.2 adım 5: talep oturumunda lobi yok.
     tech.peer.send({ t: "error", code: "CONFLICT", message: "Talep oturumunda lobi yok; müşteri onayıyla otomatik bağlanır." });
     return;
@@ -164,9 +164,12 @@ export async function onGuestMessage(
         state: m.state,
         ...(m.monitors ? { monitors: m.monitors } : {}),
         ...(m.activeMonitor !== undefined ? { activeMonitor: m.activeMonitor } : {}),
+        // P15 (AC-234): neden kodu + yöntem (0.11+ istemci); alanlar yeniden kurulur, gelen nesne aktarılmaz.
+        ...(m.reason !== undefined ? { reason: m.reason } : {}),
+        ...(m.method !== undefined ? { method: m.method } : {}),
       };
       room.share = snap; // QA-P4-12: teknisyen yeniden bağlanınca hello.share
-      tech?.send({ t: "share.state", ...snap });
+      relayShareState(rooms, room);
       await onShareMonitor(rooms, room, guest, m.activeMonitor); // P7: karşılanan monitör isteği → monitor.granted
       return;
     }
@@ -189,6 +192,28 @@ export async function onGuestMessage(
       await handleBindingRequest(rooms, room, guest, peer, m.previousKey);
       return;
   }
+}
+
+/**
+ * P15 (S17-2): `share.state` teknisyene oda başına en çok `SHARE_STATE_MIN_INTERVAL_MS`'de bir iletilir. Aralık
+ * içindekiler düşürülmez, birleştirilir: aralık sonunda `room.share`'deki EN SON durum tek mesajla gider (son durum
+ * kaybolmaz). Monitör karşılama denetimi (onShareMonitor) her mesajda çalışır; yalnız konsola yayın sınırlanır.
+ */
+export function relayShareState(rooms: Rooms, room: Room): void {
+  const send = (): void => {
+    room.shareSentAt = rooms.clock.now();
+    if (room.share) room.tech?.peer.send({ t: "share.state", ...room.share });
+  };
+  const wait = room.shareSentAt === undefined ? 0 : room.shareSentAt + SHARE_STATE_MIN_INTERVAL_MS - rooms.clock.now();
+  if (wait <= 0 && room.timers.share === undefined) return send();
+  if (room.timers.share !== undefined) return;
+  room.timers.share = rooms.clock.setTimeout(
+    () => {
+      room.timers.share = undefined;
+      if (rooms.live(room)) send();
+    },
+    Math.max(wait, 0),
+  );
 }
 
 const iceOut = (m: { candidate: string; sdpMid?: string | undefined; sdpMLineIndex?: number | undefined }) =>

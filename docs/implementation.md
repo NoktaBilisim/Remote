@@ -5727,3 +5727,128 @@ seçenekleri artık sayfadaki kayıtlardan üretilmiyor; liste her zaman `/users
 - server `test`: **377/377**. `test:int` (geçici `rs-mysql-ac225-*:33391`, sonra silindi): **62 dosya / 605/605**.
 - web `test`: **35 dosya / 323** geçti.
 - e2e `p8-history.spec.ts` + `p14a-a4.spec.ts`, desktop + mobile: **42 geçti, 20 atlandı** (`desktopOnly`), 0 hata.
+
+## P15 — dba
+
+- Migration `apps/server/prisma/migrations/20261117000000_p15_g3` (+ `down.sql`): `request_blocks`, `session_files.reported_by`/`match_key`, `require_accept_code`, `system_logo` `{path:null}`, 4 e-posta CHECK'i `\z`. `grants.sql` += request_blocks (SELECT/INSERT/DELETE). `check-app-grants.sh` 425/425.
+- Sapmalar: `reported_by` ENUM yerine VARCHAR + ikili CHECK (ADR-0014). `system_settings_mysql_chk` değişmedi (JSON şeması `$` = gerçek son; `\z` desteklenmiyor). Ek UQ'lar (request_blocks hedef, session_files taraf başına rapor).
+- Backend sözleşmesi: `docs/db-notlari.md` "P15 → Backend notları". `support_requests.block` anahtarı contracts'a backend ekleyecek.
+
+## P15 — frontend (frontend-dev, 2026-11-15)
+
+Kapsam: mimari-e11 §6, AC-231..239 arayüz tarafı. Sunucu dosyalarına ve contracts'a dokunulmadı; sunucu uçları e2e'de sahte
+API ile (yeni `e2e/mock-p15.mjs` + mevcut mock'lara ekler). Tasarım skill'i (`ui-ux-pro-max`) bu turda okunmadı; ekranlar
+DESIGN.md token/primitifleriyle yazıldı, DESIGN.md §6 güncellendi.
+
+### Rotalar
+
+| Yol                                  | Auth                                 | Ne yapar                                                                                                           |
+| ------------------------------------ | ------------------------------------ | ------------------------------------------------------------------------------------------------------------------ |
+| `/request-blocks` (yeni)             | evet, `support_requests.block`       | Engellenenler: etkin/süresi dolanlar listesi, "x / 1.000", Engel ekle (IP/ağ, süre, not), Kaldır (onaylı) — AC-235 |
+| `/admin/settings/superadmins` (yeni) | Super Admin                          | Super Admin listesi; başka bir etkin Super Admin için şifre sıfırla (step-up, geçici şifre bir kez) — AC-232       |
+| `/account`                           | evet                                 | + "Kurtarma kodlarını yenile" (TOTP → 10 kod bir kez) — AC-231                                                     |
+| `/admin/settings/system-logo`        | Super Admin                          | + "Logoyu kaldır" (onay → varsayılan Nokta logosu) — AC-233                                                        |
+| `/requests`                          | `support_requests.view` (+ `.block`) | Kart menüsünde "Bu kaynağı engelle" (IP / bu bilgisayar) — AC-235                                                  |
+| `/settings/support-requests`         | `settings.edit`                      | + "Talep kabulünde kabul kodu iste" anahtarı (`requireAcceptCode`) — AC-239                                        |
+| `/history/[id]`                      | `session_history.view`               | Dosya satırında "Doğrulanmış / Müşteri bildirimi" — AC-238                                                         |
+| `/sessions/[id]/console`             | `sessions.view`                      | Paylaşım hatasında neden/yöntem etiketi — AC-234                                                                   |
+| `/session/[token]`                   | hayır (müşteri)                      | Teknisyen avatarı imzalı URL'den, yoksa baş harf — AC-236                                                          |
+
+### AC → yapılan
+
+- **AC-231:** `components/account/recovery-regenerate.tsx` + `lib/account/recovery.ts` `buildRecoveryRegenerate` (contracts
+  `mfaRecoveryCodesInputSchema`; yalnız TOTP). Hata eşlemesi step-up ile ortak (`stepUpErrorOf`: 400 `fields.code` → alan temizlenir,
+  429 → "N dakika sonra"). Kodlar `RecoveryCodes` ile bir kez; görünürken Esc/X kapatmaz. `acc.rcLow` metni yenileme düğmesine yönlendirir.
+- **AC-232:** `admin/settings/superadmins/{page,superadmin-list}.tsx`; Sistem ayarları 5. sekme. Düğme yalnız `!self && ACTIVE`
+  satırda. Step-up `lib/api` + `StepUpProvider` ile (yeni kod yok). Geçici şifre adımı `new-user-dialog.tsx`'ten
+  `components/temp-password-dialog.tsx`'e çıkarıldı (kopya yok; yeni kullanıcı akışı aynı test kimlikleriyle çalışıyor). 404 → toast + yenile.
+- **AC-233:** `LogoUploader` `texts` prop'u (sistem logosu metinleri) + DELETE yanıtındaki `logoUrl` kullanılır; sistem sayfasında `removable`.
+- **AC-234:** `tech-machine.ts` `shareFail` (contracts `describeShareFailure`; `hello.share` içindeki neden de okunur, peer.joined/left'te
+  temizlenir); `stage.tsx` `role=alert` "Paylaşım başlatılamadı" + "Neden: …". Nedensiz `stopped` (0.10.x) eski metin.
+- **AC-235:** `request-blocks/{page,loading,block-list}.tsx`, `components/request-blocks/block-dialogs.tsx`, `lib/requests/blocks.ts`
+  (doğrulama contracts `createRequestBlockInputSchema`/`checkBlockCidr`). 5 durum: iskelet, boş (eylemli), hata (Tekrar dene), kısmi
+  (sınır dolu uyarısı + Ekle pasif; süresi dolanlar ayrı sekmede), başarı. Menü öğesi `ShieldBan`. Talepler kısayolu kuyruk ve Geçmiş kartında.
+- **AC-236:** `guest-welcome.tsx` `Avatar src={technician.avatarUrl}`; yüklenemezse/boşsa baş harf (mevcut `Avatar` davranışı).
+- **AC-237:** Kod değişikliği yalnız `perm.a.block` etiketi; anahtar `PERMISSION_MODULES`'tan otomatik çıkıyor (vitest + e2e doğruladı).
+  `users.delete` silme düğmesi P16 kapsamında (uç yok) — bu pakette yalnız toggle doğrulandı.
+- **AC-238:** `history/[id]/sections.tsx` Sonuç hücresinde etiket hapı (`fileVerificationLabel`). **Sapma:** ayrı "Doğrulama" sütunu
+  1280 px'te tabloyu taşırdığı için (TEST-P8-1) Sonuç hücresine alındı. CSV sunucuda üretiliyor (`SESSION_CSV_COLUMNS` "Dosyalar") — web'de iş yok.
+- **AC-239:** `settings-form.ts` `acceptCode` ↔ `requireAcceptCode` (kirli karşılaştırmasında); formda "Talep kabulü" bölümü (`KeyRound`, `Switch`).
+
+### Değişen / eklenen dosyalar (apps/web + DESIGN.md)
+
+Yeni: `app/(panel)/request-blocks/{page,loading,block-list}.tsx`, `app/(panel)/admin/settings/superadmins/{page,superadmin-list}.tsx`,
+`components/account/recovery-regenerate.tsx`, `components/request-blocks/block-dialogs.tsx`, `components/temp-password-dialog.tsx`,
+`lib/requests/blocks.ts`, `lib/p15.test.ts`, `e2e/p15.spec.ts`, `e2e/mock-p15.mjs`. Değişen: `app/(panel)/{side-nav,account/page,
+account/account-security,admin/settings/system-tabs,admin/settings/system-logo/page,history/[id]/sections,requests/{page,request-card,
+request-queue,request-history},settings/support-requests/settings-form,users/new-user-dialog}.tsx`, `app/session/[token]/guest-welcome.tsx`,
+`components/branding/logo-uploader.tsx`, `components/console/stage.tsx`, `lib/account/recovery.ts`, `lib/requests/{settings-form,requests.test}.ts`,
+`lib/webrtc/tech-machine.ts`, `messages/tr.json`; e2e `mock-{api,account,branding,history,requests,sessions,ws}.mjs`,
+`p8-history.spec.ts` (ikinci dosya satırı → `.first()`, AC-238 testi), `p12-branding.spec.ts` (AC-233 testi). DESIGN.md §6.
+
+### Test
+
+- web `lint` temiz · `typecheck` temiz · `test` **36 dosya / 333** (yeni `lib/p15.test.ts`: AC-231/234/235/237/238; `requests.test.ts` AC-239).
+- e2e `p15.spec.ts` (AC-231, 232, 234, 235, 236, 237, 239; axe açık+koyu ve 390 px taşma: kurtarma diyaloğu, Super Admin'ler,
+  Engellenenler + boş durum + ekle diyaloğu, destek talebi ayarları), `p12-branding` AC-233, `p8-history` AC-238 (axe iki tema, 390 px).
+- **Tam e2e:** 379 geçti, 0 düştü, 169 atlandı (mobil projede `desktopOnly`).
+- `pnpm format:check`: değiştirdiğim dosyalar temiz; kalan 8 uyarı backend ajanının paralel dosyaları (`apps/server/src/requests/blocks.ts`,
+  `requests/panel.ts`, `sessions/history.ts`, `signaling/{collab,handlers}.ts`, `uploads/files.ts`, `test/integration/p15-backend.test.ts`,
+  `packages/contracts/test/p15-contracts.test.ts`) — dokunulmadı.
+
+### Backend'e notlar / açık
+
+1. Engel ekleme hata kodları sözleşmede yazılı değil: web 409 + mesaj `REQUEST_BLOCK_EXISTS_MESSAGE` ise hedef alanına, diğer 409/400
+   (sınır, `REQUEST_BLOCK_NO_SOURCE_MESSAGE`) form üstüne yazar. Sunucu farklı kod/mesaj dönerse yine form üstünde görünür.
+2. Kısayol IPv4/IPv6 bilmediği için `prefixLen` göndermiyor (yalnız tek adres); ağ engeli Engellenenler ekranından elle eklenir.
+3. Cihaz engeli elle eklenemez (sözleşmede `CIDR` dışında elle kaynak yok) — ekranda bilgi notu var.
+4. AC-239 müşteri/istemci tarafı (`request.accepted.admitCode`, Go istemci) web kapsamı dışında; konsol lobi kodu girişi (AC-112) zaten var.
+
+## P15 — backend (AC-231..239 + S16-14)
+
+Ana oturum, backend ajanının raporundan derledi (ajan bu bölümü yazamadan tur sınırına ulaştı).
+
+- **Uçlar:** `POST /auth/mfa/recovery-codes` (AC-231), `GET /admin/superadmins` (≤ 100, `self` bayrağı; frontend için eklendi) + `POST /admin/superadmins/:id/reset-password` (AC-232, step-up, `auth/superadmin-reset.ts` yeniden kullanıldı), `DELETE /admin/settings/system-logo` (AC-233, `{path:null}`), `GET/POST/DELETE /request-blocks` (AC-235, yetki `support_requests.block`; çakışma 409 `CONFLICT` + `REQUEST_BLOCK_EXISTS_MESSAGE`, `fields.cidr`/`fields.target`; hata kodları `contracts/src/api/request-blocks.ts` yorumunda), `GET /public/sessions/:sessionId/tech-avatar?exp=&sig=` (AC-236).
+- **WS:** `share.state {reason, method}` (AC-234; `reason` `^[A-Z0-9_]{1,32}$`, etiketler `labels.ts`); S17-2: 1 sn içinde gelen `share.state` birleştirilir, son durum iletilir. `file.meta` `fid` (AC-238). `request.accepted` `admitCode` (AC-239).
+- **AC-238:** iki tarafın raporu ayrı satır (`reported_by`, `match_key`); geçmişte `reportedBy`/`verified`; CSV son sütun "Dosyalar" = `"N doğrulanmış; M müşteri bildirimi"`. Gönderen raporu audit `entity` artık `session_files`.
+- **S16-14:** `anonymized_at` `UTC_TIMESTAMP(3)` ile yazılıyor; saklama testleri fikstürü geriye kaydırarak yeniden yazıldı.
+- **Sapmalar:**
+  1. AC-239 kabul kodu penceresi 60 sn (DB `support_sessions_ttl_chk` talep oturumunu 55–65 sn'ye bağlıyor); `REQUEST_ACCEPT_CODE_WINDOW_SEC` contracts'tan kaldırıldı. Daha uzun pencere gerekirse dba migration'ı.
+  2. AC-239: 0.10.x istemci `admitCode` içeren `request.accepted`'ı reddeder → ayar istemci 0.11.x yaygınlaşana kadar kapalı kalmalı (P17 kapsamına eklenecek).
+  3. AC-236: imzalı URL yolunda token değil oturum ULID'i (token Caddy/pino loguna düşmesin); avatar süresi dolmamış PENDING oturumda da verilir (karşılama ekranı).
+  4. Engeller güvenilir CIDR'ı muaf tutmaz.
+- **Testler:** `test/integration/p15-backend.test.ts`, `system-logo-p15.test.ts` (SYSTEM_SETTINGS_SERIAL), `contracts/test/p15-contracts.test.ts`. Sonuç: server `test:int` 65 dosya / 632, unit 377, contracts 94; lint/typecheck/format temiz. Güncellenen eski testler: `branding-p12`, `history-p8`, `collab-p5`, `retention-p13a`.
+
+## P15 düzeltme turu 1 (backend + frontend, 2026-11-15)
+
+Kaynak: qa-raporu "P15 — Tur 1" (madde 1, 2, 4, 5, 6), guvenlik-raporu "P15 — kod turu 1" (S15-1..5) ve koordinatörün `bl.subtitle` isteği. Madde 3 (AC-239 istemci kısmını P17'ye atamak) mimarın işi, burada yapılmadı.
+
+| Madde                 | Yapılan                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| --------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| AC-238 / QA 1         | `apps/web/lib/dc/files.ts`: `meta()` (alıcı) ve `senderMeta()` (gönderen) `file.meta` gövdesine transferin `fid`'ini ekliyor. İki uç aynı `fid`, yön ve özetle rapor veriyor.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
+| AC-238 / QA 2         | **fid'siz istemci kararı:** 0.10.x Go istemci (yalnız alıcı, TO_CUSTOMER) `fid` göndermiyor, bu yüzden raporu teknisyenin fid'li raporuyla aynı `match_key`'e düşmüyor. `sessions/history.ts` `groupFileReports` okuma sırasında şunu yapıyor: yalnız müşteri satırından oluşan grup, aynı yön + SHA-256 + boyuttaki ve henüz müşteri eşi olmayan bir TECH grubuyla sırayla, bire bir birleşiyor. **Teknisyen raporu varsa "Doğrulanmış"** oluyor. **Eşi olmayan fid'siz müşteri raporu "Müşteri bildirimi"** olarak kalıyor. Gösterilen satır her zaman TECH satırı. Müşteri uydurma bir raporla TECH satırını değiştiremiyor, yalnız kendi satırını bir TECH grubuna katabiliyor. Bunun etkisi yalnız sayımda: aynı içerik için ayrı bir "Müşteri bildirimi" görünmüyor. `fileReportsOf` (CSV) seçimine `direction/sha256/sizeBytes` eklendi. |
+| AC-239 / S15-1 / QA 4 | `requests/panel.ts` `acceptRequest`: `admitCode` yalnız `clientVersion ≥ ACCEPT_CODE_MIN_CLIENT_VERSION` ("0.11.0", contracts `api/requests.ts`) olduğunda üretiliyor. Eski istemcide ayar açık olsa da kodsuz akış sürüyor. Audit `request.accepted` için `acceptVerification:false, reason:"client_unsupported"` yazılıyor, commit sonrası da `accept_code_client_unsupported` info logu düşülüyor. Sürüm istemcinin beyanı; kod da zaten aynı istemciye gidiyor, bu yüzden düşük sürüm beyan etmek kimseye ek yetki vermiyor.                                                                                                                                                                                                                                                                                                                |
+| QA 5                  | `tr.json` `srs.ac.desc` metnine "Yalnız 0.11 ve sonraki istemcilerde uygulanır; daha eski istemciler kodsuz bağlanır." eklendi.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| AC-236 / QA 6         | int testi: geçerli MAC ile `exp = now−1` ve `exp = now+601` için 403 dönüyor. Kontrol olarak `now+60` için 200 dönüyor. Üretilen URL'de `exp − now ≤ 600`.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
+| S15-2                 | Kodla doğrulandı: `0dd1d99` `collab.ts` dosyasında P5 satırı yalnız alıcının raporuydu, TO_CUSTOMER'da alıcı müşteri. `20261117000000_p15_g3/migration.sql` içine sütun eklemenin hemen ardından `UPDATE session_files SET reported_by='CUSTOMER' WHERE match_key IS NULL AND direction='TO_CUSTOMER'` eklendi. down.sql'e yalnız not eklendi, çünkü sütunla birlikte düşüyor. db-notlari güncellendi. Dolu test DB'sinde down → up yapıldı: eski TO_CUSTOMER satırlarının 151'i de CUSTOMER oldu, TO_TECH satırlarının 26'sı TECH kaldı.                                                                                                                                                                                                                                                                                                       |
+| S15-3                 | `bl.deviceNote` metnine "Cihaz engeli istemcinin bildirdiği kimliğe dayanır; kesin engel için IP/ağ engeli de ekleyin." eklendi.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| S15-5                 | `requests/blocks.ts`: hata temizleyicisi artık yalnız `byTenant.get(tenantId) === p` olduğunda siliyor.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| S15-4                 | **Sonra.** Super Admin'in tenant'ı yok, `MailService.configFor(null)` → `null` (sistem SMTP'si yok). Bu yüzden hedefe giden e-posta her zaman `not_configured` olurdu. Sıfırlama zaten `auth.superadmin_reset` (via=panel, aktör) olarak audit'e yazılıyor. Sistem SMTP'si ayrı bir iş gerektiriyor (mimar / gereksinimler §9).                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| `bl.subtitle`         | Metin, sunucunun gerçek ret mesajına (`REQUEST_BUSY_MESSAGE`) göre düzeltildi: "Şu an çok yoğunuz, lütfen firmanızı telefonla arayın."                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
+
+**Sapma:** QA 4 audit anahtarı olarak `acceptCode:false` öneriyordu. Audit maskesi (`audit/mask.ts` `MASKED_KEY`, `code` deseni) bu anahtarı `***` yaptığı için okunur değil (P15'teki `acceptCode:true` da maskeliydi). Anahtarın adı `acceptVerification` (true/false) olarak değiştirildi.
+
+**Değişen dosyalar:** `apps/server/src/{requests/panel.ts,requests/blocks.ts,sessions/history.ts,sessions/history-repo.ts}`, `apps/server/prisma/migrations/20261117000000_p15_g3/{migration.sql,down.sql}`, `packages/contracts/src/api/requests.ts` (`ACCEPT_CODE_MIN_CLIENT_VERSION`), `apps/web/lib/dc/files.ts`, `apps/web/messages/tr.json`, `docs/db-notlari.md`. Testler: `apps/server/test/integration/p15-backend.test.ts` (+4 test, AC-239 akışı artık `0.11.0` istemciyle), yeni `apps/server/test/unit/p15-fix1.test.ts`, yeni `apps/web/lib/dc/p15-fid.test.ts`, `apps/web/e2e/p5-collab.spec.ts` (+AC-238). Bağımlılık eklenmedi.
+
+**frontend-dev için sözleşme:** `file.meta` artık her zaman `fid` taşıyor (contracts'ta zaten opsiyoneldi). `request.accepted.admitCode` yalnız ≥ 0.11.0 istemcide geliyor. Audit `request.accepted.newValue.acceptVerification` / `reason` ekranda gösterilmiyor.
+
+**Test:** lint 0, typecheck 0, `format:check` temiz. Server unit 24 dosya / 383. `test:int` (geçici `rs-p15fix1-q8z3`, port 33529, iş sonunda silindi) 65 dosya / **635 geçti**. İlk koşuda `account-p10` AC-67 bir kez düştü: TOTP 30 sn adım sınırı duvar saatine bağlı ve bu dosyaya bu turda dokunulmadı. Temiz yeniden koşuda geçti. Contracts testleri geçti. Web vitest 37 dosya / 335. e2e (p15, p8-history, p5-collab komutu): 380 geçti, 0 düştü, 169 atlandı (`desktopOnly`).
+
+## P15 düzeltme turu 2 (S15-6, 2026-11-15)
+
+Kaynak: guvenlik-raporu "P15 — kod turu 2" S15-6 (Orta, fail-open kabul kodu). Seçenek (a) fail-closed uygulandı.
+
+- **Davranış:** firmada `requireAcceptCode` açıkken talep istemcisinin beyanı `clientVersion < ACCEPT_CODE_MIN_CLIENT_VERSION` ("0.11.0") ise kabul **409 `ACCEPT_CODE_CLIENT_UNSUPPORTED`** ile reddedilir (standart hata zarfı, mesaj `ACCEPT_CODE_CLIENT_UNSUPPORTED_MESSAGE`). Kontrol kabul TX'inde, `acceptPending`'den **önce** yapılır: talep PENDING kalır, oturum satırı açılmaz, kuyruktan düşmez. Aynı TX'te audit `request.accepted` `result:"fail"`, `newValue {acceptVerification:false, reason:"client_unsupported", clientVersion}` commit edilir. Ayar kapalıyken davranış değişmedi. Ayar açık + ≥ 0.11.0: başarı audit'i `acceptVerification:true` (eski `reason` dalı ve `accept_code_client_unsupported` info logu kaldırıldı, artık erişilemez).
+- **Sözleşme (frontend-dev):** yeni hata kodu `ACCEPT_CODE_CLIENT_UNSUPPORTED` (409, `packages/contracts/src/errors.ts`). Web `lib/requests/errors.ts` `requestErrorMessage` bu koda `rq.err.acceptCodeUnsupported` döndürür; kuyruktaki kabul akışı zaten bu fonksiyonla toast gösteriyor, kart düşürülmez (yalnız TAKEN/CLOSED/404 düşürür). `srs.ac.desc` yeni davranışa göre güncellendi; kılavuz "Talep kabulü" uyumluluk notu güncellendi.
+- **Diğer:** `requests/repo.ts` `findStatusInTenant` seçimine `clientVersion` eklendi. `sessions/history.ts` `groupFileReports` yorumu düzeltildi (birleştirme fid'li müşteri-yalnız gruplara da uygulanıyor; davranış değişmedi). gereksinimler §9'a S15-4 "Sonra" satırı eklendi.
+- **Değişen dosyalar:** `packages/contracts/src/{errors.ts,api/requests.ts}`, `apps/server/src/{lib/errors.ts,requests/panel.ts,requests/repo.ts,sessions/history.ts}`, `apps/server/test/integration/p15-backend.test.ts`, `apps/web/lib/requests/{errors.ts,requests.test.ts}`, `apps/web/messages/tr.json`, `docs/{KULLANIM_KILAVUZU.md,gereksinimler.md}`. Bağımlılık eklenmedi.

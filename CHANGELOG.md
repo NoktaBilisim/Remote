@@ -5,6 +5,43 @@ Biçim [Keep a Changelog](https://keepachangelog.com/tr/1.1.0/), sürümleme [Se
 
 ## [Unreleased]
 
+### Eklendi — P15 (G3 küçük özellikler; AC-231–239)
+
+- **Kurtarma kodlarını yenile** (AC-231): Hesabım sayfasında güncel TOTP koduyla 10 yeni kurtarma kodu; eski kodlar aynı
+  işlemde geçersizleşir, yeni kodlar bir kez gösterilir. API `POST /api/v1/auth/mfa/recovery-codes`; audit
+  `mfa.recovery_regenerated`.
+- **Super Admin şifre sıfırlama** (AC-232): Sistem ayarları > **Super Admin'ler** sekmesi; başka bir etkin Super Admin için
+  step-up sonrası tek seferlik geçici şifre (24 sa), hedefin oturumları kapanır. API `GET /api/v1/admin/superadmins`,
+  `POST /api/v1/admin/superadmins/:id/reset-password` (CLI ile aynı servis; audit `auth.superadmin_reset` `via: "panel"`).
+- **Sistem logosunu kaldır** (AC-233): `DELETE /api/v1/admin/settings/system-logo`; varsayılan Nokta Bilişim logosuna döner.
+  Audit `settings.system_logo.removed`.
+- **Paylaşım hata nedeni** (AC-234): `share.state` isteğe bağlı `reason` ve `method`; konsol "Paylaşım başlatılamadı" +
+  "Neden: …" gösterir (Türkçe etiketler `contracts/labels.ts`). İstemci tarafı Hızlı Destek 0.11 (P17).
+- **Talep engelleri** (AC-235): yeni **Engellenenler** ekranı ve Talepler kartında **Bu kaynağı engelle** (IP adresi/ağ veya
+  bilgisayar; 1 sa – 1 yıl ya da süresiz; firma başına 1.000). Engelli kaynağın talebi tek tip "yoğunuz" yanıtı alır,
+  kuyruğa düşmez. Yeni yetki `support_requests.block`; API `GET/POST/DELETE /api/v1/request-blocks`; tablo
+  `request_blocks`; audit `request_block.created/deleted`. Süresi dolan engel 30 gün sonra saklama işiyle silinir.
+- **Müşteri ekranında teknisyen fotoğrafı** (AC-236): resolve yanıtında oturuma bağlı, 10 dk geçerli imzalı avatar adresi;
+  `GET /api/v1/public/sessions/:sessionId/tech-avatar`. Resim yoksa baş harf.
+- **Dosya doğrulama** (AC-238): `file.meta.fid` ile iki tarafın raporu ayrı satır (`session_files.reported_by`,
+  `match_key`); geçmişte "Doğrulanmış / Müşteri bildirimi" etiketi, CSV'de son sütun **Dosyalar**.
+- **Talep kabulünde kabul kodu** (AC-239): Ayarlar > Destek talepleri > **Talep kabulü** anahtarı (`requireAcceptCode`,
+  varsayılan kapalı). Açıkken `request.accepted.admitCode`; müşteri bekleme odasına düşer, teknisyen 4 haneli kodu 60 sn
+  içinde konsola girer. **Hızlı Destek 0.10.x bu ayarla bağlanamaz; 0.11.x yaygınlaşana kadar kapalı tutun.**
+- Migration `20261117000000_p15_g3` (+ `down.sql`).
+
+### Değişti — P15
+
+- `share.state` teknisyene oda başına en çok 1 sn'de bir iletilir; aradakiler birleştirilir, son durum kaybolmaz (S17-2).
+- `users.delete` yetkisinin açıklaması kalıcı silmeye çevrildi; anahtar listede durur, uç P16'da gelecek (AC-237).
+- Gönderen dosya raporunun audit `entity`'si `session_files` oldu.
+- 4 e-posta CHECK'i sondaki satır sonunu reddeder (`\z`).
+- Hesabım'daki "kurtarma kodu azaldı" uyarısı artık yenileme düğmesine yönlendirir.
+
+### Düzeltildi — P15
+
+- Saklama işinde `anonymized_at` UTC olarak yazılıyor (S16-14).
+
 ### Eklendi — P14a (güvenlik/kalite; AC-201–219) ve P14b (UI/erişilebilirlik; AC-220–230)
 
 - **Step-up doğrulama** (AC-215, ADR-0022): MySQL/TURN/WhatsApp sistem ayarı kaydı ve ortam değerine dönüş son 5 dk içinde

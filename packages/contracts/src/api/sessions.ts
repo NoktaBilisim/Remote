@@ -95,6 +95,11 @@ export interface ResolveSessionResponse {
   /** Opak; GET /public/sessions/status?ref= yoklaması için. Token değildir. */
   sessionRef: string;
   tenant: { name: string; logoUrl: string | null };
+  /**
+   * P15 (AC-236): `avatarUrl` teknisyenin avatarı varsa oturuma bağlı imzalı URL
+   * (`/api/v1/public/sessions/<sessionId>/tech-avatar?exp=&sig=`, ≤ `TECH_AVATAR_URL_TTL_SEC`); yoksa null → baş harf rozeti.
+   * Oturum PENDING/ACTIVE değilse (bitti/iptal/süresi doldu) URL 403 döner.
+   */
   technician: { name: string; avatarUrl: string | null };
   techVerifyCode: string;
   expiresAt: string;
@@ -299,6 +304,13 @@ export interface SessionFileRecord {
   sha256: string;
   result: (typeof FILE_RESULTS)[number];
   createdAt: string;
+  /**
+   * P15 (AC-238): satırı yazan taraf. Aynı aktarımın iki raporu (`match_key`) tek satıra indirgenir; teknisyen raporu
+   * varsa o gösterilir. Eski (P15 öncesi) satırlar `TECH`.
+   */
+  reportedBy: "TECH" | "CUSTOMER";
+  /** P15 (AC-238): teknisyen raporlu ya da iki tarafça eşleşen → true ("Doğrulanmış"); yalnız müşteri → false ("Müşteri bildirimi"). */
+  verified: boolean;
 }
 
 export const TIMELINE_ACTORS = ["TECH", "CUSTOMER", "ADMIN", "SYSTEM"] as const;
@@ -421,6 +433,8 @@ export const SESSION_CSV_COLUMNS = [
   "Sonlandıran",
   "Bitiş nedeni",
   "Not",
+  // P15 (AC-238): "N doğrulanmış; M müşteri bildirimi" (dosya yoksa ve anonimleştirilmişte boş).
+  "Dosyalar",
 ] as const;
 /** P13a (AC-197): 409 `SESSION_ANONYMIZED` mesajı (mimari-p13 §3). */
 export const SESSION_ANONYMIZED_MESSAGE = "Bu oturum saklama süresi dolduğu için anonimleştirildi; düzenlenemez.";
@@ -471,3 +485,10 @@ export const waitingSessionsResponseSchema = z.strictObject({
   ),
 });
 export type WaitingSessionsResponse = z.infer<typeof waitingSessionsResponseSchema>;
+
+/** P15 (AC-236): imzalı teknisyen avatarı URL'sinin ömrü (sn; mimari ≤ 10 dk). */
+export const TECH_AVATAR_URL_TTL_SEC = 600;
+export const techAvatarQuerySchema = z.strictObject({
+  exp: z.string().regex(/^\d{1,12}$/),
+  sig: z.string().regex(/^[a-f0-9]{64}$/),
+});

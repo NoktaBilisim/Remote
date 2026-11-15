@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState, type ReactNode } from "react";
 import { ChangePasswordForm } from "@/app/(auth)/change-password/change-password-form";
+import { RecoveryRegenerate } from "@/components/account/recovery-regenerate";
 import { FormError } from "@/components/form-error";
 import { Alert } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
@@ -33,9 +34,9 @@ function Section({ id, title, Icon, children }: { id: string; title: string; Ico
 
 /**
  * Hesap güvenliği bölümleri: şifre değiştir (AC-66), 2FA durumu (AC-67), tüm cihazlardan çıkış (AC-68/115 — onaylı,
- * yıkıcı; bu oturum açık kalır, diğerleri ve açık destek oturumları ≤ 5 sn'de kapanır).
+ * yıkıcı; bu oturum açık kalır, diğerleri ve açık destek oturumları ≤ 5 sn'de kapanır), kurtarma kodlarını yenile (P15, AC-231).
  */
-export function AccountSecurity({ mfa }: { mfa: MfaStatus | null }) {
+export function AccountSecurity({ mfa, account }: { mfa: MfaStatus | null; account: string }) {
   const router = useRouter();
   const toast = useToast();
   const [confirm, setConfirm] = useState(false);
@@ -82,6 +83,8 @@ export function AccountSecurity({ mfa }: { mfa: MfaStatus | null }) {
                 {t("acc.rcLow")}
               </Alert>
             )}
+            {/* P15 (AC-231): yeni 10 kod, eskiler geçersizleşir */}
+            <RecoveryRegenerate account={account} />
             <p className="text-sm text-fg-muted">{t(mfa.required ? "acc.mfaRequiredNote" : "acc.mfaResetNote")}</p>
           </>
         ) : (

@@ -14,11 +14,14 @@ oturum bilgisi, KVKK onayları ve denetim kayıtları kalır.
 
 - **Kurulumsuz müşteri programı** — tek dosya, yönetici yetkisi istemez; kod ile bağlanan bilgisayarda iz bırakmaz.
 - **Müşteri başlatmalı destek** — müşteri programdan "Destek iste" der; talep canlı kuyruğa düşer, teknisyen tek
-  tıkla kabul eder. Bir kez destek alan bilgisayar firmayı hatırlar, yeni link gerekmez.
+  tıkla kabul eder. Bir kez destek alan bilgisayar firmayı hatırlar, yeni link gerekmez. İstenmeyen talep gönderen IP,
+  ağ veya bilgisayar süreli ya da süresiz engellenir.
 - **İzinli uzaktan kontrol** — her kontrol isteğini müşteri onaylar, tek tuşla geri alır; uzaktan tıklama izin sayılmaz.
 - **Zorlu donanımda da görüntü** — ekran üç farklı yöntemle okunur (HDR ve çift ekran kartlı dizüstüler dahil);
-  okunamazsa müşteri ekranında kısa bir neden kodu ve ne yapacağı yazar.
-- **Sohbet, dosya, ekran üzerine işaretleme** — dosya içeriği sunucudan geçmez, her dosyayı alıcı onaylar.
+  okunamazsa müşteri ekranında kısa bir neden kodu ve ne yapacağı yazar; yeni sürüm programla neden teknisyen konsoluna
+  da gelir.
+- **Sohbet, dosya, ekran üzerine işaretleme** — dosya içeriği sunucudan geçmez, her dosyayı alıcı onaylar. Geçmişte her
+  dosya "Doğrulanmış" ya da "Müşteri bildirimi" olarak ayrılır.
 - **Müşteri firma yönetimi** — her müşteriye ayrı kalıcı indirme bağlantısı; talep ve oturumlar firmaya göre süzülür.
 - **Kullanıcı ve yetki yönetimi** — teknisyen ekleme, modül bazlı aç/kapa yetkileri, pasife alma; değişiklik açık
   oturumlara anında yansır.
@@ -49,14 +52,14 @@ oturum bilgisi, KVKK onayları ve denetim kayıtları kalır.
 | Destek oturumları                | Tek kullanımlık link ve 8 haneli kod, bekleme odası, teknisyen kabulü, iptal, zorla sonlandırma; müşteri beklerken panelin her sayfasında sayaç ve bildirim                                                                                                                         |
 | Teknisyen konsolu                | Canlı ekran, uzaktan kontrol, monitör değiştirme, sohbet, dosya, işaretleme, kalite paneli                                                                                                                                                                                          |
 | Hızlı Destek (Windows)           | Müşteri programı: "Destek iste", "Bağlantı kodum var", "Bu bilgisayarı unut", onay ve izin diyalogları                                                                                                                                                                              |
-| Destek talepleri                 | Canlı kuyruk, bildirim ve ses, kabul/ret, firma filtresi, son 30 gün geçmişi                                                                                                                                                                                                        |
+| Destek talepleri                 | Canlı kuyruk, bildirim ve ses, kabul/ret, firma filtresi, son 30 gün geçmişi, kaynak engelleme (Engellenenler ekranı), isteğe bağlı kabul kodu                                                                                                                                      |
 | Müşteriler                       | Müşteri firma kaydı, firma başına bağlantı (kopyala, yenile), pasife alma, talep ve oturum geçmişi                                                                                                                                                                                  |
-| Oturum geçmişi                   | Filtreli liste, ayrıntı, ticket/not, CSV                                                                                                                                                                                                                                            |
+| Oturum geçmişi                   | Filtreli liste, ayrıntı, ticket/not, dosya doğrulama etiketi, CSV                                                                                                                                                                                                                   |
 | Kullanıcılar                     | Kullanıcı ekleme (tek seferlik geçici şifre), rol, yetki tablosu, pasife alma / yeniden etkinleştirme                                                                                                                                                                               |
 | Firmalar (Süper Yönetici)        | Firma oluşturma, düzenleme, pasife alma, firmalar arası geçiş                                                                                                                                                                                                                       |
 | Audit log                        | Salt okunur denetim kaydı: tarih, kullanıcı, işlem, sonuç ve firma filtreleri, ayrıntı, CSV                                                                                                                                                                                         |
-| Sistem ayarları (Süper Yönetici) | MySQL bağlantı bilgisi + bağlantı testi (isteğe bağlı zorunlu TLS ve sertifika doğrulaması), TURN sunucuları ve gizli anahtar, sistem logosu, WhatsApp servis adresi + test mesajı                                                                                                  |
-| Hesabım                          | Profil resmi (kare kırpma), tema (Açık / Koyu / Sistem), 2FA kurulumu ve kurtarma kodları, şifre değiştirme/sıfırlama, tüm cihazlardan çıkış                                                                                                                                        |
+| Sistem ayarları (Süper Yönetici) | MySQL bağlantı bilgisi + bağlantı testi (isteğe bağlı zorunlu TLS ve sertifika doğrulaması), TURN sunucuları ve gizli anahtar, sistem logosu (yükleme/kaldırma), Süper Yönetici şifre sıfırlama, WhatsApp servis adresi + test mesajı                                               |
+| Hesabım                          | Profil resmi (kare kırpma), tema (Açık / Koyu / Sistem), 2FA kurulumu, kurtarma kodları ve yenilenmesi, şifre değiştirme/sıfırlama, tüm cihazlardan çıkış                                                                                                                           |
 | Ayarlar                          | Genel sınırlar (kod geçerliliği, en uzun oturum, teknisyen başına açık oturum, dosya boyutu), destek talebi bağlantısı, bekleme süresi, WhatsApp ve e-posta bildirimi + test, güvenilen ağlar, SMTP + test maili, teknisyen 2FA zorunluluğu, sürümlü aydınlatma metni, firma logosu |
 
 ## Güvenlik ve yönetim
@@ -82,8 +85,9 @@ oturum bilgisi, KVKK onayları ve denetim kayıtları kalır.
   için bir kanca hazırdır; hedef kurum tarafından seçilir.
 - İzleme: servisler, web ve TURN sertifikaları, yedek yaşı, denetim kaydı sürekliliği, disk ve dosya izinleri 10 dakikada bir
   denetlenir; bozulunca alarm (ör. Telegram), düzelince tek "düzeldi" bildirimi gider.
-- Kurtarma: Süper Yönetici şifresi veya 2FA kaybında sunucu yöneticisi sunucudan sıfırlar; geçici şifre 24 saat geçerlidir,
-  ilk girişte değiştirilir ve işlem denetim kaydına yazılır.
+- Kurtarma: kullanıcı kurtarma kodlarını 2FA koduyla kendisi yeniler (eskiler hemen geçersiz olur). Süper Yönetici şifresini
+  başka bir Süper Yönetici panelden, yeniden 2FA doğrulamasıyla sıfırlar; 2FA kaybında sunucu yöneticisi sunucudan sıfırlar.
+  Geçici şifre 24 saat geçerlidir, ilk girişte değiştirilir ve işlem denetim kaydına yazılır.
 - Kod kalitesi: her değişiklikte otomatik biçim, lint, tip ve test denetimi; entegrasyon ve uçtan uca testler kararsızlığa
   karşı her hafta 20 kez tekrar koşulur.
 - Tarayıcı bağlantısı yalnız HTTPS (HSTS); WhatsApp servis anahtarı şifreli saklanır ve yalnız kayıtlı servis adresine gider.
@@ -98,8 +102,8 @@ oturum bilgisi, KVKK onayları ve denetim kayıtları kalır.
   Hatırlanan bilgiler Windows hesabına bağlı şifreyle (DPAPI) saklanır, tek tıkla silinir. Tanılama dosyası kişisel
   veri içermez.
 - Logo ve profil resimleri: yalnız PNG/JPG/WEBP (dosya içeriğinden denetlenir, SVG kabul edilmez), en çok 2 MB; sunucuda
-  yeniden boyutlandırılır, konum gibi gizli bilgiler (EXIF) silinir. Profil resimleri yalnız aynı firmanın kullanıcılarına
-  görünür, müşteriye gösterilmez.
+  yeniden boyutlandırılır, konum gibi gizli bilgiler (EXIF) silinir. Profil resimleri aynı firmanın kullanıcılarına görünür;
+  müşteri, teknisyeninin resmini yalnız oturum sürerken, 10 dakika geçerli imzalı bir adresten görür.
 
 ## Entegrasyonlar
 

@@ -234,7 +234,13 @@ export function Stage({
       </Msg>
     );
   else if (live && state.share === "stopped")
-    overlay = (
+    overlay = state.shareFail ? (
+      // P15 (AC-234): istemci neden kodu bildirdiyse Türkçe etiket (bilinmeyen kod ham) + yöntem
+      <Msg alert testId="stage-share-failed" icon={<ScreenShareOff aria-hidden className="size-8" />} title={t("cs.shareFailed")}>
+        <p data-testid="stage-share-reason">{t("cs.shareFailReason", { reason: state.shareFail })}</p>
+        <p className="mt-1">{t("cs.stoppedBody")}</p>
+      </Msg>
+    ) : (
       <Msg icon={<ScreenShareOff aria-hidden className="size-8" />} title={t("cs.stopped")}>
         {t("cs.stoppedBody")}
       </Msg>

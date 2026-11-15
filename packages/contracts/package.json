@@ -9,6 +9,7 @@
     "./api/auth": "./src/api/auth.ts",
     "./api/sessions": "./src/api/sessions.ts",
     "./api/requests": "./src/api/requests.ts",
+    "./api/request-blocks": "./src/api/request-blocks.ts",
     "./api/customers": "./src/api/customers.ts",
     "./api/bindings": "./src/api/bindings.ts",
     "./api/users": "./src/api/users.ts",

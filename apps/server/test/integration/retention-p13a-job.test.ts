@@ -12,6 +12,7 @@ import {
 import { RETENTION_AUDIT } from "@remote/contracts/audit";
 import { newId, sha256Hex } from "../../src/lib/ids.ts";
 import { RetentionJob, SESSION_BATCH } from "../../src/jobs/retention.ts";
+import { anonymizeSessionBatch, deleteOldAudit } from "../../src/jobs/retention-repo.ts";
 import {
   createSupportSessionRow,
   createTenant,
@@ -201,7 +202,7 @@ describe("P13a saklama işi — oturum anonimleştirme (AC-197)", () => {
     const audits = await retentionAudits(tenantId);
     expect(audits).toHaveLength(1);
     expect(audits[0]).toMatchObject({ result: "success", username: "system", userId: null, entity: "retention" });
-    expect(audits[0]?.newValue).toEqual({ sessions: 2, consents: 2, files: 2, requests: 0, customers: 0, bindings: 0 });
+    expect(audits[0]?.newValue).toEqual({ sessions: 2, consents: 2, files: 2, requests: 0, customers: 0, bindings: 0, blocks: 0 });
   });
 
   it("AC-197: aynı gün ikinci çalıştırma hiçbir satırı değiştirmez (idempotent) ve audit yazmaz", async () => {
@@ -218,9 +219,26 @@ describe("P13a saklama işi — oturum anonimleştirme (AC-197)", () => {
     expect(await retentionAudits(tenantId)).toHaveLength(1);
   });
 
-  it("AC-197: saat ileri alınınca (sahte saat) süresi yeni dolan oturum anonimleşir", async () => {
-    await app.retention.run(new Date(Date.now() + 20 * DAY));
-    expect(await testDb().supportSession.findUniqueOrThrow({ where: { id: young } })).toMatchObject({ customerName: null, note: null });
+  it("AC-197 / S16-14: süresi yeni dolan oturum (fikstür geçmişe çekilir, iş gerçek saatle) anonimleşir; damga DB saati", async () => {
+    // S16-14: iş ileri saatle koşmaz — fikstür migrator ile 20 gün geriye alınır (80 → 100 gün).
+    // Tüm zaman sütunları birlikte kaydırılır (ttl_chk / ended_at sırası korunur).
+    await testFixtureDb().$executeRaw`UPDATE support_sessions SET created_at = created_at - INTERVAL 20 DAY,
+      expires_at = expires_at - INTERVAL 20 DAY, ended_at = ended_at - INTERVAL 20 DAY, consumed_at = consumed_at - INTERVAL 20 DAY
+      WHERE id = ${young}`;
+    const before = Date.now();
+    await app.retention.run();
+    const s = await testDb().supportSession.findUniqueOrThrow({ where: { id: young } });
+    expect(s).toMatchObject({ customerName: null, note: null });
+    expect(Math.abs((s.anonymizedAt?.getTime() ?? 0) - before)).toBeLessThan(60_000);
+  });
+
+  it("S16-14: iş saati ileride olsa da `anonymized_at` DB saatiyle yazılır (tetikleyici aralığı [−1 g, +1 dk])", async () => {
+    const id = await finishedSession(tenantId, tech.id, 1);
+    // Mantıksal kesme 20 gün ileride: aday seçimi iş saatiyle, damga DB saatiyle.
+    const r = await anonymizeSessionBatch(testDb(), tenantId, new Date(Date.now() + 20 * DAY), SESSION_BATCH);
+    expect(r.sessions).toBeGreaterThanOrEqual(1);
+    const s = await testDb().supportSession.findUniqueOrThrow({ where: { id }, select: { anonymizedAt: true } });
+    expect(Math.abs((s.anonymizedAt?.getTime() ?? 0) - Date.now())).toBeLessThan(60_000);
   });
 
   it("AC-197: liste/detay `anonymized`, müşteri adı hiçbir alanda yok (zaman çizelgesi dahil), dosyalar boş", async () => {
@@ -312,10 +330,10 @@ describe("P13a saklama işi — global silmeler (AC-198)", () => {
       });
       return id;
     };
-    const expiredOld = await sess(8, null);
-    // İş saati +1 g ileride: kesme noktası "5 g önce" (yeni kayıtlar 4 g önceden yeni).
-    const revokedRecently = await sess(8, 3); // max(expires, revoked) = 3 g önce → kalır
-    const expiredRecent = await sess(4, null);
+    // S16-14: iş gerçek saatle koşar (kesme "7 g önce"); fikstürler buna göre geçmişte.
+    const expiredOld = await sess(9, null);
+    const revokedRecently = await sess(9, 4); // max(expires, revoked) = 4 g önce → kalır
+    const expiredRecent = await sess(5, null);
     const token = async (expiresDaysAgo: number) => {
       const id = newId();
       const expiresAt = new Date(Date.now() - expiresDaysAgo * DAY);
@@ -324,12 +342,11 @@ describe("P13a saklama işi — global silmeler (AC-198)", () => {
       });
       return id;
     };
-    const tokOld = await token(8);
-    const tokRecent = await token(4);
+    const tokOld = await token(9);
+    const tokRecent = await token(5);
     const auditsBefore = (await retentionAudits(null)).length;
 
-    // İş saati DB'den ileride olsa da (sahte saat) audit silme tetikleyici sınırını aşmaz (ifade geri alınmaz).
-    const r = await app.retention.run(new Date(Date.now() + 1 * DAY));
+    const r = await app.retention.run();
     expect(r?.failures).toBe(0);
     expect(await testDb().auditLog.count({ where: { id: old.id } })).toBe(0);
     expect(await testDb().auditLog.count({ where: { id: keep.id } })).toBe(1);
@@ -346,6 +363,15 @@ describe("P13a saklama işi — global silmeler (AC-198)", () => {
     expect(g.audit).toBeGreaterThanOrEqual(1);
     expect(g.authSessions).toBeGreaterThanOrEqual(1);
     expect(g.resetTokens).toBeGreaterThanOrEqual(1);
+  });
+
+  it("AC-198: kesme iş saatinden ileride verilse de audit silme tetikleyici sınırını aşmaz (LEAST; ifade geri alınmaz)", async () => {
+    const keep = await testFixtureDb().auditLog.create({
+      data: { action: "p13a.job", entity: "audit_logs", result: "success", createdAt: new Date(Date.now() - 729.9 * DAY) },
+      select: { id: true },
+    });
+    await deleteOldAudit(testDb(), new Date(Date.now() - 729 * DAY), 5000);
+    expect(await testDb().auditLog.count({ where: { id: keep.id } })).toBe(1);
   });
 
   it("AC-198: uygulama kullanıcısı 730 günden yeni audit'i silemez ve eklediği kaydı geri tarihleyemez", async () => {

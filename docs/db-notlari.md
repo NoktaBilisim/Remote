@@ -952,3 +952,57 @@ Ardından: `prisma migrate resolve --rolled-back 20261116000000_p14a_security` �
 - **Gerekçe:** A1 migration'ı (§4.1) bu alanı kapsamıyordu. P11 şeması `additionalProperties:false` olduğu için A3'ün yazdığı `requireTls` anahtarı 3819 ile reddediliyordu. Alan zorunlu değil, eski satırlar geçerli kalıyor; okuyucu alan yoksa `false` sayıyor. QA Tur 1 bu ek migration'ı gerekçeli kabul etti.
 - **`down.sql` (elle; Prisma çalıştırmaz):** önce `mysql` satırındaki `requireTls` anahtarı `JSON_REMOVE` ile siliniyor (P11 şeması bilinmeyen anahtarı reddettiği için bu sıra şart). Ardından CHECK P11 şemasına döndürülüyor ve `_prisma_migrations` kaydı siliniyor. **Önce P14a A3 sunucu kodu geri alınmalı.** Silinen veri yalnız TLS zorunluluğu tercihi; geri alındığında varsayılan `false` olur ve yönetici paneli yeniden işaretleyebilir.
 - Komut: `pnpm --filter @remote/server exec prisma db execute --file prisma/migrations/20261116010000_p14a_mysql_tls/down.sql` (migrator).
+
+## P15 — request_blocks, session_files raporlayan, kabul kodu, logo kaldırma, e-posta `\z` (2026-11-15)
+
+Migration `apps/server/prisma/migrations/20261117000000_p15_g3/{migration.sql,down.sql}`. Mimari-e11 §6; AC-233, 235, 237, 238, 239 + P14a'dan devreden e-posta CHECK'leri. Veri taşıma: yalnız S15-2 (aşağıda, `session_files` eski TO_CUSTOMER satırları → CUSTOMER). `grants.sql` += `request_blocks` (SELECT/INSERT/DELETE).
+
+### Şema
+
+| Değişiklik                                    | Ayrıntı                                                                                                                                                                                                                                                                                                                                                                       |
+| --------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `request_blocks` (yeni)                       | `id, tenant_id, kind, ip_from VARBINARY(16), ip_to VARBINARY(16), device_key_hash CHAR(64), expires_at, note VARCHAR(200), created_by, created_at`. FK tenant/created_by RESTRICT. IX(tenant_id, kind, expires_at), IX(created_by), **UQ(tenant_id, ip_from, ip_to)**, **UQ(tenant_id, device_key_hash)**. UPDATE yetkisi yok, o yüzden updated_at da yok                     |
+| CHECK'ler                                     | `kind_chk` (ikili IP/DEVICE), `target_chk` (IP ⇒ ip_from/ip_to dolu + hash NULL; DEVICE tersi), `ip_range_chk` (4/16 bayt, aynı uzunluk, gerçek CIDR: ip_from ağ, ip_to yayın adresi; IPv4 ≤ /24, IPv6 ≤ /48), `device_key_hash_fmt_chk` (`^[a-f0-9]{64}\z`, 'c'), `expires_chk` (expires_at > created_at), `note_chk` (1..200, kırpılmış, Cc/Cf/Zl/Zp yok)                   |
+| `session_files.reported_by`                   | `VARCHAR(20) NOT NULL DEFAULT 'TECH'` + ikili `session_files_reported_by_chk`. **Sapma:** mimaride ENUM; proje kuralı VARCHAR + ikili CHECK (ADR-0014). INSTANT                                                                                                                                                                                                               |
+| `session_files.match_key`                     | `CHAR(64) NULL`, `^[a-f0-9]{64}\z`. **UQ(session_id, match_key, reported_by)**. Eski satırlar NULL                                                                                                                                                                                                                                                                            |
+| `session_files` veri (S15-2, düzeltme 1)      | `UPDATE … SET reported_by='CUSTOMER' WHERE match_key IS NULL AND direction='TO_CUSTOMER'`. P5'te tek satır alıcının raporuydu (koddan doğrulandı: `collab.ts` 0dd1d99, gönderen raporu yalnız audit); TO_CUSTOMER alıcısı müşteri. TO_TECH eski satırları TECH kalır. Migration henüz hiçbir ortama uygulanmadığı için aynı dosyaya eklendi. down.sql: sütunla birlikte düşer |
+| `tenant_request_settings.require_accept_code` | `BOOLEAN NOT NULL DEFAULT false`, INSTANT                                                                                                                                                                                                                                                                                                                                     |
+| `system_settings_system_logo_chk`             | `path` artık `string \| null` (AC-233; V31, WhatsApp kalıbı). app'e DELETE verilmedi                                                                                                                                                                                                                                                                                          |
+| 4 e-posta CHECK'i                             | customers, support_requests, support_sessions (`customer_name IS NOT NULL` korunuyor), tenant_settings smtp_from: `$` → `\z`. Ön kontrol `p15_precheck` + SIGNAL (P14a kalıbı)                                                                                                                                                                                                |
+
+**`system_settings_mysql_chk` değişmedi.** JSON_SCHEMA_VALID `pattern`'i ICU değil, ECMAScript motoru kullanıyor. Orada `$` gerçek son anlamına geliyor: host/database sonuna eklenen 8 sonlandırıcının hepsi 3819 ile reddedildi. `\z` bu motorda desteklenmiyor; `"abc"` bile `^[a-z]+\z`'den kalıyor. `\z`'ye çevirmek her geçerli değeri reddederdi. `system_logo` ve `turn` şemaları için de aynı durum geçerli (8.4.13'te denendi). `$` ile biten REGEXP_LIKE yalnız sabit uzunluklu `CHAR(n)` + `{n}` desenlerinde kaldı (P14a: etkilenmiyor).
+
+**AC-237:** DB değişikliği gerekmedi. `perm_key` serbest VARCHAR(60), seed yetki satırı yazmıyor. `support_requests.block` anahtarını `packages/contracts/src/permissions.ts`'e backend ekleyecek. **Risk (karar gerekli):** `users.delete` şimdiye dek hiçbir ucu korumuyordu ama toggle'ı vardı. USER'a daha önce açılmış bir satır, P16'da kalıcı silme yetkisi verir. Kontrol: `SELECT user_id FROM user_permissions WHERE perm_key='users.delete' AND granted=1;`. Sıfırlama gerekirse: `DELETE FROM user_permissions WHERE perm_key='users.delete';` (rol varsayılanına döner).
+
+### Ön kontrol düşerse: düzeltme SQL'i (migrator, önce yedek)
+
+Desenler satır içinde verilmeli, `@değişken` kullanılmamalı. `prisma db execute` bağlantısında kullanıcı değişkeni utf8mb4_general_ci oluyor ve 1267 veriyor (denendi). P14a'daki `SET @t` kalıbı da mysql CLI dışında aynı hatayı verir. Aşağıdaki SQL idempotent:
+
+```sql
+UPDATE customers SET email = REGEXP_REPLACE(email, '(\\r\\n|[\\n\\x{0B}\\x{0C}\\r\\x{85}\\x{2028}\\x{2029}])\\z', '') WHERE NOT REGEXP_LIKE(email, '^[^@\\s\\p{Cc}\\p{Cf}]+@[^@\\s\\p{Cc}\\p{Cf}]+\\z', 'c');
+UPDATE support_requests SET customer_email = REGEXP_REPLACE(customer_email, '(\\r\\n|[\\n\\x{0B}\\x{0C}\\r\\x{85}\\x{2028}\\x{2029}])\\z', '') WHERE NOT REGEXP_LIKE(customer_email, '^[^@\\s\\p{Cc}\\p{Cf}]+@[^@\\s\\p{Cc}\\p{Cf}]+\\z', 'c');
+UPDATE support_sessions SET customer_email = REGEXP_REPLACE(customer_email, '(\\r\\n|[\\n\\x{0B}\\x{0C}\\r\\x{85}\\x{2028}\\x{2029}])\\z', '') WHERE NOT REGEXP_LIKE(customer_email, '^[^@\\s\\p{Cc}\\p{Cf}]+@[^@\\s\\p{Cc}\\p{Cf}]+\\z', 'c');
+UPDATE tenant_settings SET smtp_from_email = REGEXP_REPLACE(smtp_from_email, '(\\r\\n|[\\n\\x{0B}\\x{0C}\\r\\x{85}\\x{2028}\\x{2029}])\\z', '') WHERE NOT REGEXP_LIKE(smtp_from_email, '^[^@\\s\\p{Cc}\\p{Cf}]+@[^@\\s\\p{Cc}\\p{Cf}]+\\z', 'c');
+```
+
+Ardından: `prisma migrate resolve --rolled-back 20261117000000_p15_g3` → `pnpm db:migrate`.
+
+### Kilit ve geri alma
+
+- COPY: e-posta CHECK'leri olan 4 tablo ve session_files. UQ INPLACE, sütunlar INSTANT.
+- `down.sql` sırasıyla şunları yapar: yordamı siler; `request_blocks`'u düşürür; `match_key` dolu gönderen tarafı satırlarını siler (eski "tek satır = alıcı raporu" modeli); sütunları düşürür; `path:null` logo satırını siler; CHECK'leri eski hâline getirir; migration kaydını siler. **Önce P15 sunucu kodu geri alınmalı, grants.sql'den request_blocks satırları çıkarılmalı.**
+
+### Backend notları
+
+- **Kapı önbelleği:** `findMany({ where: { tenantId, OR: [{expiresAt: null}, {expiresAt: {gt: now}}] } })` (IX). IP bellekte karşılaştırılır. İstemci IP'si 4 ya da 16 bayta çevrilir; **IPv4-eşlemeli IPv6 4 bayta indirgenir**. Eşleşme koşulu: `ipFrom.length === ip.length && Buffer.compare(ipFrom, ip) <= 0 && Buffer.compare(ip, ipTo) <= 0`. SQL'de karşılaştırma `LENGTH(ip_from)=LENGTH(?) AND ip_from <= ? AND ip_to >= ?` (baytsal, VARBINARY).
+- **Yazma:** CIDR → ip_from ağ, ip_to yayın adresi (/32 ve /128'de ikisi aynı). Hizasız önek 3819 verir, zod önce normalize etmeli. `device_key_hash` küçük harf hex olmalı.
+- **Ekleme TX'i:** tenant satırı `FOR UPDATE` → `COUNT(*)` < 1.000 → aynı hedefin süresi dolmuş satırını DELETE → INSERT. P2002 → 409. Süre değişikliği DELETE + INSERT ile yapılır. Kaldırma `deleteMany({ where: { id, tenantId } })`, 0 satır → 404.
+- **Saklama önerisi:** IP kişisel veri. P13a işine `DELETE … WHERE expires_at < now - 30 gün` eklenmeli (karar mimar/backend).
+- **session_files (AC-238):** iki tarafın raporu ayrı satır. `reported_by` raporlayan bağlantının rolüdür. `match_key = sha256Hex(sessionId\ndirection\nfid\nsha256\nsizeBytes)`; yeni satırlarda **her zaman dolu** olmalı (down.sql buna dayanıyor). Aynı taraf tekrar raporlarsa P2002 gelir, yok sayılır. "Doğrulanmış": TECH satırı ya da aynı match_key'i taşıyan iki taraf. Yalnız CUSTOMER satırı varsa "Müşteri bildirimi". Liste/CSV match_key'e göre tekilleştirilir; NULL olan eski satırlar `reported_by`'a göre sayılır (S15-2 sonrası eski TO_CUSTOMER = CUSTOMER). Düzeltme 1: fid'siz müşteri raporu, aynı yön + SHA-256 + boyuttaki eşsiz TECH grubuyla okumada eşlenir (`groupFileReports`). `file.meta`'ya `fid` eklenmesi protokol işi.
+- **Logo:** kaldırma = `upsert system_logo {path:null}`. Okuyucu `null`'ı "satır yok" gibi ele alır.
+
+### Test (2026-11-15, geçici `rs-p15-dba-a71c3e:33461`, mysql 8.4.13, silindi)
+
+- Temiz up, drift 0. İlk denemede `HEX()` 1267 harmanlama hatası verdi; `COLLATE utf8mb4_bin` ile düzeldi. Kısmi durum down.sql ile temizlendi, down da bu sırada sınanmış oldu.
+- down sonrası eski `$` ile `a@b.test\r\n` ve `x@y.test`+U+2028 yazıldı. deploy → `P3018` + `P15_PRECHECK customers=1 tenant_settings=1`, hiçbir şey değişmedi. Düzeltme SQL'i iki kez çalıştı (idempotent) → resolve → up OK, drift 0, yordam silindi, tetikleyici 3.
+- `security-p15-db.test.ts` (9 test) eklendi. `session-files-p5` sütun listesi ve `session-history-p8` ikili CHECK sayısı (26 → 29) güncellendi. `check-app-grants.sh` **425/425**. typecheck temiz, `test` yeşil, `test:int` **614/614**.

@@ -79,12 +79,16 @@ export const avatarPathSchema = (tenantId: string | null) =>
     .max(200)
     .regex(/^([0-9A-Z]{26}|system)\/[A-Za-z0-9_-]{16,100}\.(png|jpg|webp)$/)
     .refine((p) => p.split("/")[0] === (tenantId ?? SYSTEM_PREFIX));
-/** `system_settings_system_logo_chk` value_json `{ path }`. */
+/**
+ * `system_settings_system_logo_chk` value_json `{ path }`. P15 (AC-233, V31): kaldırma `{ path: null }` yazar (app'e
+ * DELETE yetkisi yok) — okuyucu null'ı "satır yok" gibi ele alır (varsayılan Nokta logosu).
+ */
 export const systemLogoValueSchema = z.strictObject({
   path: z
     .string()
     .max(200)
-    .regex(/^system\/[A-Za-z0-9_-]{16,100}\.(png|jpg|webp)$/),
+    .regex(/^system\/[A-Za-z0-9_-]{16,100}\.(png|jpg|webp)$/)
+    .nullable(),
 });
 
 /** Logo / sistem logosu herkese açık (login, müşteri sayfası, e-posta); avatar oturumlu (aynı tenant veya Super Admin). */
@@ -106,7 +110,10 @@ export interface LogoResponse {
 export interface AvatarResponse {
   avatarUrl: string | null;
 }
-/** POST /admin/settings/system-logo (SUPER_ADMIN). Kaldırma bu pakette yok (yalnız değiştirme). */
+/**
+ * POST /admin/settings/system-logo (SUPER_ADMIN). P15 (AC-233): DELETE /admin/settings/system-logo aynı yanıtı döner
+ * (`logoUrl` = `DEFAULT_LOGO_URL`); kayıt yokken DELETE 200 ve audit yazmaz.
+ */
 export interface SystemLogoResponse {
   logoUrl: string;
 }

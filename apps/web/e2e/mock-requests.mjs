@@ -12,6 +12,7 @@ import {
   whatsappTestInputSchema,
 } from "@remote/contracts/api/requests";
 import { SMTP_SEND_FAILED_MESSAGE } from "@remote/contracts/api/tenants";
+import { REQUEST_BLOCK_NO_SOURCE_MESSAGE, createRequestBlockInputSchema } from "@remote/contracts/api/request-blocks";
 
 const ADMIN_P = [
   "sessions.view",
@@ -35,7 +36,7 @@ export const RQ = {
 export const RQ_SESSION = "01JRQSES000000000000000001";
 
 export function requestUser(cookie) {
-  const m = cookie?.match(/^u-(rqadm|rqmail|rqro|rqsa|rqempty|rqbroken|rqcu|rqcuro|rqcuempty|rqcubroken|rqcuslow)-/);
+  const m = cookie?.match(/^u-(rqadm|rqblk|rqmail|rqro|rqsa|rqempty|rqbroken|rqcu|rqcuro|rqcuempty|rqcubroken|rqcuslow)-/);
   if (!m) return null;
   const role = m[1] === "rqsa" ? "SUPER_ADMIN" : m[1] === "rqro" ? "USER" : "ADMIN";
   return {
@@ -49,7 +50,9 @@ export function requestUser(cookie) {
           ? [...ADMIN_P, "customers.view", "customers.create", "customers.edit", "customers.delete"]
           : m[1] === "rqcuro"
             ? ["sessions.view", "sessions.create", "support_requests.view", "customers.view"]
-            : ADMIN_P,
+            : m[1] === "rqblk"
+              ? [...ADMIN_P, "support_requests.block"] // P15 (AC-235) kısayolu
+              : ADMIN_P,
     tenant: role === "SUPER_ADMIN" ? null : TENANT,
     actingTenant: null,
     kind: m[1],
@@ -166,6 +169,7 @@ const settingsSeed = (kind) => ({
   whatsapp: { enabled: false, recipients: [], serviceConfigured: true, insecure: false },
   // P10: rqmail = SMTP ayarlı firma (AC-151)
   email: { enabled: false, recipients: [], smtpConfigured: kind === "rqmail" },
+  requireAcceptCode: false,
 });
 
 const stores = new Map();
@@ -340,6 +344,18 @@ export async function handleRequests(req, res, { url, session, csrfOk, send, err
     return (send(res, 204, undefined), true);
   }
 
+  // P15 (AC-235): "Bu kaynağı engelle" — B talebinin cihaz anahtarı yok (kaynak yok mesajı)
+  if (path === "/api/v1/request-blocks" && req.method === "POST") {
+    if (!can("support_requests.block")) return (send(res, 403, err("FORBIDDEN", "Yetkiniz yok.")), true);
+    const parsed = createRequestBlockInputSchema.safeParse(await readJson(req));
+    if (!parsed.success || parsed.data.source !== "REQUEST")
+      return (send(res, 400, err("VALIDATION", "Doğrulama hatası", { fields: parsed.success ? {} : fieldsOf(parsed.error) })), true);
+    if (parsed.data.target === "DEVICE" && parsed.data.requestId === RQ.B)
+      return (send(res, 409, err("CONFLICT", REQUEST_BLOCK_NO_SOURCE_MESSAGE)), true);
+    (s.blocks ??= []).push(parsed.data);
+    return (send(res, 201, { id: "01JBLKRQ000000000000000001" }), true);
+  }
+
   if (path.startsWith("/api/v1/settings/support-requests")) {
     if (!can("settings.edit")) return (send(res, 403, err("FORBIDDEN", "Yetkiniz yok.")), true);
     if (path === "/api/v1/settings/support-requests" && req.method === "GET") return (send(res, 200, s.settings), true);
@@ -353,6 +369,7 @@ export async function handleRequests(req, res, { url, session, csrfOk, send, err
         trustedCidrs: parsed.data.trustedCidrs,
         whatsapp: { ...s.settings.whatsapp, ...parsed.data.whatsapp },
         email: { ...s.settings.email, ...parsed.data.email },
+        ...(parsed.data.requireAcceptCode !== undefined ? { requireAcceptCode: parsed.data.requireAcceptCode } : {}),
       });
       return (send(res, 200, s.settings), true);
     }

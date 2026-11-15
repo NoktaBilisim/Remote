@@ -1,6 +1,7 @@
 // Saklama işinin (P13a, mimari-p13 §2; AC-197, AC-198) veri erişimi. Oturum adımı tenant kapsamlıdır; audit / giriş
 // oturumu / sıfırlama bağlantısı adımları firmadan bağımsızdır (global). Yetkiler: db-notlari "P13a" (app → session_files
 // DELETE, session_consents UPDATE(ip, user_agent), audit_logs DELETE yalnız 730 günden eski — tetikleyici).
+import { Prisma } from "../generated/prisma/client.ts";
 import type { Db } from "../lib/db.ts";
 import { REQUEST_TX_OPTIONS } from "../lib/db.ts";
 
@@ -20,7 +21,7 @@ export interface SessionBatchResult {
  * kayıtlarının ip/user_agent'ı NULL → oturumun kişisel alanları NULL + anonymized_at. Son UPDATE `anonymized_at IS NULL`
  * koşullu (eşzamanlı ikinci tur 0 satır sayar). Onay kararı, seviye, kaynak, metin sürümü/özeti kalır (KVKK kanıtı).
  */
-export async function anonymizeSessionBatch(db: Db, tenantId: string, cutoff: Date, now: Date, limit: number): Promise<SessionBatchResult> {
+export async function anonymizeSessionBatch(db: Db, tenantId: string, cutoff: Date, limit: number): Promise<SessionBatchResult> {
   return db.$transaction(async (tx) => {
     const rows = await tx.supportSession.findMany({
       where: { tenantId, anonymizedAt: null, createdAt: { lt: cutoff }, status: { in: [...FINISHED_STATUSES] } },
@@ -35,11 +36,14 @@ export async function anonymizeSessionBatch(db: Db, tenantId: string, cutoff: Da
       where: { tenantId, sessionId: { in: ids }, OR: [{ ip: { not: null } }, { userAgent: { not: null } }] },
       data: { ip: null, userAgent: null },
     });
-    const sessions = await tx.supportSession.updateMany({
-      where: { tenantId, id: { in: ids }, anonymizedAt: null, status: { in: [...FINISHED_STATUSES] } },
-      data: { customerName: null, customerEmail: null, note: null, guestNetKey: null, guestIpKey: null, anonymizedAt: now },
-    });
-    return { selected: rows.length, sessions: sessions.count, consents: consents.count, files: files.count };
+    // S16-14: `anonymized_at` DB saatiyle (UTC_TIMESTAMP(3); sunucu `--default-time-zone=+00:00`) yazılır — iş mantıksal
+    // saatle (`now`/`cutoff`) aday seçer, ama damga S16-3 tetikleyicisinin `[−1 g, +1 dk]` aralığında kalır.
+    const sessions = await tx.$executeRaw`UPDATE support_sessions
+      SET customer_name = NULL, customer_email = NULL, note = NULL, guest_net_key = NULL, guest_ip_key = NULL,
+          anonymized_at = UTC_TIMESTAMP(3)
+      WHERE tenant_id = ${tenantId} AND id IN (${Prisma.join(ids)}) AND anonymized_at IS NULL
+        AND status IN (${Prisma.join([...FINISHED_STATUSES])})`;
+    return { selected: rows.length, sessions, consents: consents.count, files: files.count };
   }, REQUEST_TX_OPTIONS);
 }
 

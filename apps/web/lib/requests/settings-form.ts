@@ -23,6 +23,8 @@ export interface SettingsState {
   /** P10 (AC-151): e-posta kanalı. */
   mailEnabled: boolean;
   mailRecipients: string[];
+  /** P15 (AC-239): "Talep kabulünde kabul kodu iste". */
+  acceptCode: boolean;
 }
 
 /** Hata anahtarları sunucu `fields` yolu biçiminde: "waitMinutes", "whatsapp.recipients.1", "trustedCidrs.0" … */
@@ -47,6 +49,7 @@ export const toState = (s: SupportRequestSettings): SettingsState => ({
   waRecipients: [...s.whatsapp.recipients],
   mailEnabled: s.email.enabled,
   mailRecipients: [...s.email.recipients],
+  acceptCode: s.requireAcceptCode,
 });
 
 const norm = (st: SettingsState) =>
@@ -57,6 +60,7 @@ const norm = (st: SettingsState) =>
     r: st.waRecipients.map((x) => x.trim()).filter(Boolean),
     me: st.mailEnabled,
     mr: st.mailRecipients.map((x) => x.trim().toLowerCase()).filter(Boolean),
+    ac: st.acceptCode,
   });
 
 export const isDirty = (a: SettingsState, b: SettingsState): boolean => norm(a) !== norm(b);
@@ -114,6 +118,7 @@ export function buildInput(
       trustedCidrs: cidrs,
       whatsapp: { enabled: st.waEnabled, recipients },
       email: { enabled: st.mailEnabled, recipients: mails },
+      requireAcceptCode: st.acceptCode,
     },
   };
 }

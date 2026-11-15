@@ -199,7 +199,7 @@ export async function removeAvatar(d: BrandingDeps, ctx: AuditContext, auth: Aut
   return { avatarUrl: null };
 }
 
-// --- sistem logosu (AC-82; kaldırma yok — app'in system_settings DELETE yetkisi yok, db-notlari P12 açık nokta 1) ---
+// --- sistem logosu (AC-82; P15 AC-233 kaldırma = `{path:null}` UPDATE — app'in system_settings DELETE yetkisi yok, V31) ---
 
 export async function uploadSystemLogo(
   d: BrandingDeps,
@@ -228,6 +228,32 @@ export async function uploadSystemLogo(
     });
     return old;
   });
+  return { logoUrl: await systemLogoUrl(d.db) };
+}
+
+/**
+ * DELETE /admin/settings/system-logo (P15, AC-233): satır kilidi + `{ path: null }` + audit tek TX; dosya commit SONRASI
+ * silinir. Kayıtlı logo yoksa yazım ve audit yok (idempotent). Login/PDF/e-posta `systemLogoPath` null → varsayılan logo.
+ */
+export async function removeSystemLogo(d: BrandingDeps, ctx: AuditContext, auth: AuthContext): Promise<SystemLogoResponse> {
+  const old = await d.db.$transaction(async (tx) => {
+    await tx.$queryRaw`SELECT \`key\` FROM system_settings WHERE \`key\` = ${SYSTEM_LOGO_KEY} FOR UPDATE`;
+    const cur = await systemLogoPath(tx);
+    if (cur === null) return null;
+    await tx.systemSetting.update({ where: { key: SYSTEM_LOGO_KEY }, data: { valueJson: { path: null }, updatedBy: auth.user.id } });
+    await writeAudit(tx, ctx, {
+      tenantId: null,
+      ...actor(auth),
+      action: BRANDING_AUDIT.SYSTEM_LOGO_REMOVED,
+      entity: "system_settings",
+      entityId: SYSTEM_LOGO_KEY,
+      result: "success",
+      oldValue: { path: cur },
+      newValue: { path: null },
+    });
+    return cur;
+  });
+  await dropFile(d, old);
   return { logoUrl: await systemLogoUrl(d.db) };
 }
 

@@ -35,6 +35,7 @@ import * as crepo from "../customers/repo.ts";
 import { parseFirmDownloadUri, requestDownloadLocation } from "./ref.ts";
 import { effectiveLogoUrl } from "../uploads/urls.ts";
 import * as repo from "./repo.ts";
+import { RequestBlockCache } from "./blocks.ts";
 import { maskEmail } from "../audit/mask.ts";
 import type { MailService } from "../mail/service.ts";
 import { newRequestMail } from "../mail/templates.ts";
@@ -95,10 +96,13 @@ export class RequestService {
   private readonly alerted = new Map<string, number>();
   private readonly gate: ConcurrencyGate;
   private gateLoggedAt = Number.NEGATIVE_INFINITY;
+  /** P15 (AC-235): talep engelleri kapı önbelleği (tenant başına; yazmada geçersiz kılınır). */
+  readonly blocks: RequestBlockCache;
 
   constructor(d: RequestServiceDeps) {
     this.d = d;
     this.gate = new ConcurrencyGate(d.gate ?? REQUEST_GATE);
+    this.blocks = new RequestBlockCache(d.db, () => d.clock.now());
     d.rooms.requestHooks = {
       admitted: (requestId) => this.clearConnectTimer(requestId),
       failed: (requestId) =>
@@ -337,6 +341,14 @@ export class RequestService {
       }
       const tenantId = s.tenantId;
       const via = binding ? "binding" : "ref";
+      const deviceHash = input.deviceKey ? sha256Hex(`${tenantId}${input.deviceKey}`) : null;
+      // P15 (AC-235): engelli IP/önek ya da cihaz → diğer reddedilen taleplerle aynı tek tip yanıt (429 + "yoğunuz"
+      // mesajı); talep yazılmaz, kuyruğa düşmez. Güvenilen CIDR muaf DEĞİL (açık engel kararı önceliklidir).
+      const blockedBy = await this.blocks.match(tenantId, ctx.ip, deviceHash);
+      if (blockedBy) {
+        await this.rateAudit(ctx, tenantId, "blocked", blockedBy === "IP" ? "ip" : "device", blockedBy === "IP" ? ip : (deviceHash ?? ""));
+        throw rateLimited(RATE_BLOCK_SEC, REQUEST_BUSY_MESSAGE);
+      }
 
       const consent = await this.d.db.consentText.findFirst({
         where: { id: input.consentTextId, tenantId, isCurrent: true },
@@ -351,7 +363,6 @@ export class RequestService {
 
       const now = new Date(this.d.clock.now());
       const networkMatch = trusted ? ("TRUSTED" as const) : await repo.networkSeen(this.d.db, tenantId, ip, net, now);
-      const deviceHash = input.deviceKey ? sha256Hex(`${tenantId}${input.deviceKey}`) : null;
       const knownDevice = deviceHash ? await repo.deviceSeen(this.d.db, tenantId, deviceHash, now) : false;
       // G-E9-15: ayrıcalık yalnız TRUSTED veya known_device; P8c K20: etkin kayıt da "bilinen" (yalnız kuyruk ≥ 40 eşiği ve
       // bilinen tavanı 120/sa için — ip/önek/net48/tenant kovalarından muaf DEĞİL).

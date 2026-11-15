@@ -30,7 +30,8 @@ const noop = () => () => undefined;
 /**
  * Logo yükle / değiştir / kaldır (AC-81 firma, AC-82 sistem). Seçilen dosya ön kontrolden ve tarayıcıda çözmeden geçer,
  * **önizleme** (açık zeminli kart — koyu temada da okunur) gösterilir; "Kaydet" ile ham dosya yüklenir (sunucu
- * 512 px'e küçültür, EXIF siler). `removable` iken kaldırma onaylıdır; kaldırınca sistem logosu gösterilir.
+ * 512 px'e küçültür, EXIF siler). `removable` iken kaldırma onaylıdır; kaldırınca sistem logosu gösterilir (sistem logosu
+ * kaldırılınca varsayılan Nokta logosu — P15, AC-233).
  */
 export function LogoUploader({
   endpoint,
@@ -39,6 +40,7 @@ export function LogoUploader({
   canEdit,
   removable,
   savedMessage,
+  texts,
   testId = "logo-uploader",
 }: {
   endpoint: string;
@@ -47,6 +49,8 @@ export function LogoUploader({
   canEdit: boolean;
   removable: boolean;
   savedMessage: string;
+  /** P15 (AC-233): kaldırma metinleri (sistem logosu: "varsayılan Nokta logosu"); verilmezse firma logosu metinleri. */
+  texts?: { none: string; removeTitle: string; removeBody: string; removed: string };
   testId?: string;
 }) {
   const router = useRouter();
@@ -106,10 +110,10 @@ export function LogoUploader({
     setBusy(true);
     setError(null);
     try {
-      await api<{ logoUrl: string | null }>("DELETE", endpoint);
-      setUrl(null);
+      const r = await api<{ logoUrl: string | null } | undefined>("DELETE", endpoint);
+      setUrl(r?.logoUrl ?? null);
       setConfirm(false);
-      toast(t("lg.removed"));
+      toast(texts?.removed ?? t("lg.removed"));
       router.refresh();
     } catch (e) {
       if (isUnauthenticated(e)) return router.replace(EXPIRED_LOGIN_PATH);
@@ -130,7 +134,7 @@ export function LogoUploader({
           </div>
           {!custom && removable && (
             <p className="text-xs text-fg-muted" data-testid={`${testId}-none`}>
-              {t("lg.none")}
+              {texts?.none ?? t("lg.none")}
             </p>
           )}
         </figure>
@@ -206,8 +210,8 @@ export function LogoUploader({
         onClose={() => !busy && setConfirm(false)}
         role="alertdialog"
         size="sm"
-        title={t("lg.removeTitle")}
-        description={t("lg.removeBody")}
+        title={texts?.removeTitle ?? t("lg.removeTitle")}
+        description={texts?.removeBody ?? t("lg.removeBody")}
         testId="logo-remove-dialog"
         footer={
           <>

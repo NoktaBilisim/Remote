@@ -1,5 +1,6 @@
 import { expect, test, type Browser, type BrowserContext, type Page } from "@playwright/test";
 import { CSRF_COOKIE, SESSION_COOKIE } from "@remote/contracts/api/auth";
+import { DEFAULT_LOGO_URL } from "@remote/contracts/api/branding";
 import sharp from "sharp";
 import { axeScan, guardConsole, noHorizontalOverflow } from "./helpers";
 
@@ -271,13 +272,43 @@ test("AC-82: Super Admin sistem logosunu değiştirir (Sistem ayarları sekmesi)
   const up = page.getByTestId("system-logo-uploader");
   await expect(up).toHaveAttribute("data-custom", "false");
   await expect(up).toHaveAttribute("data-ready", "true");
-  await expect(page.getByTestId("system-logo-uploader-remove")).toHaveCount(0); // bu pakette kaldırma yok
+  await expect(page.getByTestId("system-logo-uploader-remove")).toHaveCount(0); // varsayılan logoda kaldırma yok (P15 AC-233)
   await page
     .getByTestId("system-logo-uploader-input")
     .setInputFiles({ name: "sistem.png", mimeType: "image/png", buffer: await png(300, 100) });
   await page.getByTestId("system-logo-uploader-save").click();
   await expect(page.getByTestId("toast").last()).toContainText("Sistem logosu kaydedildi");
   await expect(up).toHaveAttribute("data-custom", "true");
+});
+
+test("AC-233: Super Admin sistem logosunu kaldırır (onay → varsayılan Nokta logosu, login de döner)", async ({ page, context }, info) => {
+  desktopOnly(info.project.name);
+  await signInBr(context, "brsa");
+  await page.goto("/admin/settings/system-logo");
+  const up = page.getByTestId("system-logo-uploader");
+  await expect(up).toHaveAttribute("data-ready", "true");
+  await page
+    .getByTestId("system-logo-uploader-input")
+    .setInputFiles({ name: "sistem.png", mimeType: "image/png", buffer: await png(300, 100) });
+  await page.getByTestId("system-logo-uploader-save").click();
+  await expect(up).toHaveAttribute("data-custom", "true");
+  // Kaldır → onay (alertdialog, ilk odak Vazgeç); Vazgeç değişiklik yapmaz
+  await page.getByTestId("system-logo-uploader-remove").click();
+  const dlg = page.getByTestId("logo-remove-dialog");
+  await expect(dlg).toHaveAttribute("role", "alertdialog");
+  await expect(dlg).toContainText("Sistem logosu kaldırılsın mı?");
+  await expect(dlg.getByRole("button", { name: "Vazgeç" })).toBeFocused();
+  await page.keyboard.press("Escape");
+  await expect(up).toHaveAttribute("data-custom", "true");
+  await page.getByTestId("system-logo-uploader-remove").click();
+  await page.getByTestId("logo-remove-confirm").click();
+  await expect(page.getByTestId("toast").last()).toContainText("varsayılan Nokta logosu");
+  await expect(up).toHaveAttribute("data-custom", "false");
+  await expect(page.getByTestId("system-logo-uploader-none")).toBeVisible();
+  await expect(page.getByTestId("system-logo-uploader-remove")).toHaveCount(0);
+  // Herkese açık marka ucu da varsayılana döndü (login aynı uçtan okur)
+  const pub = (await (await page.request.get("/api/v1/public/branding")).json()) as { logoUrl: string };
+  expect(pub.logoUrl).toBe(DEFAULT_LOGO_URL);
 });
 
 async function scanBothThemes(browser: Browser, scenario: string, path: string, width: number) {

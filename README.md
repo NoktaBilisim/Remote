@@ -4,7 +4,7 @@ Self-hosted, çok kiracılı (multi-tenant) uzaktan destek platformu. Teknisyen 
 oturumu açar; müşteri taşınabilir Windows istemcisi (tam erişim) veya tarayıcı (yalnız görüntü) ile katılır.
 Görüntü eşler arası WebRTC ile akar; sunucu yalnız sinyalizasyon ve meta veri tutar.
 
-## Şu anki durum: P1–P13a tamamlandı, P13b (prod açılışı) kodu hazır, P14a/P14b kodlandı (QA sürüyor)
+## Şu anki durum: P1–P13a tamamlandı, P13b (prod açılışı) kodu hazır, P14a/P14b ve P15 kodlandı (QA sürüyor)
 
 İş P1..P13 dikey paketlerle yürür (`docs/mimari.md` §10). P1–P11 ve **P12** (firma ve sistem logosu, kullanıcı profil
 resmi, kullanıcı başına tema, hesap menüsü, tasarım token lint kuralı) tamamlandı: P12 güvenlik Kritik/Yüksek 0 (doğrulama
@@ -395,6 +395,20 @@ menüden firma seçme notu çıkar; önceden "Yeni destek oturumu" 403 ile dön�
   talep/kayıt iptalinin aynı işlemde yapılması, `/ws/panel` 4429 `retry=<sn>`, yeni metrikler ve alarmlar (runbook §22).
 - Prettier (`pnpm format`), CI'da shellcheck/actionlint ve kararlılık koşusu (`stability` iş akışı). Ayrıntı `CHANGELOG.md`.
 
+**P15 — G3 küçük özellikler (AC-231..239; kodlandı, QA denetimi sürüyor)**
+
+- **Kurtarma kodlarını yenile:** Hesabım'da güncel TOTP koduyla 10 yeni kod (`POST /api/v1/auth/mfa/recovery-codes`).
+- **Super Admin şifre sıfırlama:** Sistem ayarları > Super Admin'ler; step-up sonrası tek seferlik geçici şifre
+  (`GET /api/v1/admin/superadmins`, `POST /api/v1/admin/superadmins/:id/reset-password`).
+- **Sistem logosunu kaldır:** varsayılan Nokta logosuna dönüş (`DELETE /api/v1/admin/settings/system-logo`).
+- **Talep engelleri:** Engellenenler ekranı ve Talepler kartında "Bu kaynağı engelle" (IP/ağ veya bilgisayar, süreli ya da
+  süresiz, firma başına 1.000); yeni yetki `support_requests.block`; `GET/POST/DELETE /api/v1/request-blocks`.
+- **Paylaşım hata nedeni** konsolda (`share.state.reason/method`; istemci 0.11), **müşteri ekranında teknisyen fotoğrafı**
+  (10 dk imzalı adres), **dosya doğrulama** ("Doğrulanmış / Müşteri bildirimi", CSV "Dosyalar" sütunu).
+- **Talep kabulünde kabul kodu** (varsayılan kapalı). Hızlı Destek 0.10.x bu ayarla bağlanamaz; 0.11.x yaygınlaşana kadar
+  kapalı tutun.
+- Migration `20261117000000_p15_g3`; yeni ortam değişkeni ve bağımlılık yok.
+
 API ayrıntısı: [`docs/api.md`](docs/api.md). Sürüm geçmişi: [`CHANGELOG.md`](CHANGELOG.md).
 Kullanım (müşteri, teknisyen, yönetici): [`docs/KULLANIM_KILAVUZU.md`](docs/KULLANIM_KILAVUZU.md).
 Ürün föyü: [`docs/DATASHEET.md`](docs/DATASHEET.md).
@@ -430,6 +444,7 @@ görür. `deploy/staging-users.sh` staging test hesapları için hâlâ kullanı
 | P13b-L (kod ✓, qa GEÇTİ, güvenlik Kritik/Yüksek 0; staging testi AC-316 bekliyor) | Bekleme odası göstergesi: liste rozeti, "Oturumlar" menü sayacı, bildirim, sekme başlığı, `GET /sessions/waiting`                                                                                                          |
 | P14a (kod ✓, QA sürüyor)                                                          | G1 güvenlik/kalite: step-up 2FA, iyimser kilit, hız sınırları, MySQL TLS, metrikler, Prettier, CI kararlılık koşusu                                                                                                        |
 | P14b (kod ✓, QA sürüyor)                                                          | G2 UI/a11y: 404 sayfaları, anahtar kontrastı, mobil menü, Ayarlar > Genel, aranabilir firma seçici, sohbet hız sınırı                                                                                                      |
+| P15 (kod ✓, QA sürüyor)                                                           | G3: kurtarma kodu yenileme, Super Admin şifre sıfırlama, sistem logosu kaldırma, talep engelleri, paylaşım hata nedeni, teknisyen fotoğrafı, dosya doğrulama, talep kabul kodu                                             |
 | P13c                                                                              | Ayrı staging (`stg.remote.noktabilisim.net`, ayrı DB/sır/yedek); E11 özelliklerinden önce                                                                                                                                  |
 
 Prod açılışının ön koşulları ve imzalı kontrol listesi: runbook §20.1–§20.3. TURN için yalnız 443/TCP'nin açık olduğu
@@ -610,7 +625,19 @@ fiziksel ekran yakalanmaz. WebRTC hattı, sinyalizasyon, server ve DB gerçektir
 `e2e:real:users` (`apps/server/scripts/e2e-real-users.ts`) `NODE_ENV=production` iken veya `E2E_REAL_ALLOW=1` olmadan
 çalışmaz (pnpm komutu bayrağı kendisi verir). Betik prod imajına girmez.
 
-### Son test sonuçları (P14a/P14b, 2026-11-15)
+### Son test sonuçları (P15, 2026-11-15)
+
+Kaynak: `docs/implementation.md` "P15 — frontend" ve "P15 — backend".
+
+| Takım                                     | Sonuç                                                                    |
+| ----------------------------------------- | ------------------------------------------------------------------------ |
+| Birim (`pnpm -r run test`)                | 804: server 377, web 333, contracts 94                                   |
+| Server entegrasyon (`test:int`, temiz DB) | 632 (65 dosya); P15: `p15-backend`, `system-logo-p15`, `security-p15-db` |
+| Web e2e (sahte API/WS, tüm projeler)      | 379 geçti, 0 hata (169 mobil atlama); P15 spec'i `e2e/p15.spec.ts`       |
+
+20 koşuluk `stability` çalıştırması (AC-219) GitHub'da push sonrası yapılır.
+
+#### Önceki paket (P14a/P14b, 2026-11-15)
 
 | Takım                                         | Sonuç                                                                                                             |
 | --------------------------------------------- | ----------------------------------------------------------------------------------------------------------------- |
@@ -619,8 +646,6 @@ fiziksel ekran yakalanmaz. WebRTC hattı, sinyalizasyon, server ve DB gerçektir
 | Web e2e (sahte API/WS, tüm projeler)          | 356 geçti, 0 hata; P14 spec'leri `e2e/p14a-a4.spec.ts`, `e2e/p14b-ui.spec.ts`                                     |
 | `pnpm format:check` · shellcheck · actionlint | 0 fark · `-S warning` 0 · 0                                                                                       |
 | `deploy/ops/test-watch.sh`                    | GEÇTİ (AC-208/212 alarmları dahil)                                                                                |
-
-20 koşuluk `stability` çalıştırması (AC-219) GitHub'da push sonrası yapılır.
 
 #### Önceki paket (P13b, 2026-11-15)
 
@@ -934,6 +959,10 @@ docs/               Gereksinim, mimari, ADR, runbook, DB notları, API, denetim 
   kodu; kod audit'e yazılmaz). Kullanıcı düzenleme iyimser kilitli (`If-Match`, 428/409); kullanıcı yönetimi işlemleri aktörün
   yetkisini işlem içinde yeniden okur. Kullanıcı ve firma yazma uçları hız sınırlı; yetki kaynaklı 403'ler audit'e yazılır.
   MySQL testi isteğe bağlı TLS + sertifika doğrulaması. Prod'da zayıf şifreleme anahtarı başlangıçta reddedilir.
+- P15: kurtarma kodu yenileme yalnız TOTP ile ve 2FA deneme sayacına bağlı; Super Admin panel sıfırlaması step-up ister,
+  kendi hesabına kapalıdır. Talep engelleri firma bazlı ve yetkiye bağlı; engelli kaynak diğer reddedilenlerle aynı yanıtı
+  alır. Müşteriye gösterilen teknisyen fotoğrafı oturuma bağlı, 10 dk geçerli HMAC imzalı adresten ve yalnız oturum
+  sürerken sunulur; adreste oturum token'ı yoktur.
 - Prod (P13b): yedek manifesti imzalı, geri yükleme imza ve ortam kilidiyle; `reset-superadmin` şifreyi yalnız terminale
   yazar; yerel 4451'e yalnız root/nginx bağlanır (`proxy-guard`); HSTS `includeSubDomains`; WhatsApp servis anahtarı şifreli
   saklanır, yalnız kaydedildiği adrese gider.

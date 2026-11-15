@@ -1,9 +1,9 @@
 "use client";
 
-import { Check, Copy, KeyRound, ShieldCheck, UserPlus } from "lucide-react";
-import { useEffect, useId, useRef, useState, type FormEvent } from "react";
+import { ShieldCheck, UserPlus } from "lucide-react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 import { FormError } from "@/components/form-error";
-import { Alert } from "@/components/ui/alert";
+import { TemporaryPasswordDialog } from "@/components/temp-password-dialog";
 import { Button } from "@/components/ui/button";
 import { Dialog } from "@/components/ui/dialog";
 import { SelectField } from "@/components/ui/select-field";
@@ -11,7 +11,6 @@ import { TextField } from "@/components/ui/text-field";
 import { api, ApiError } from "@/lib/api";
 import { toUiError, type UiError } from "@/lib/error-message";
 import { t } from "@/lib/i18n";
-import { copyText } from "@/lib/use-now";
 import { USER_EMAIL_MAX, USER_FULL_NAME_MAX, type CreateUserResponse, type ManagedRole } from "@/lib/users/contract";
 import {
   buildCreateUser,
@@ -93,7 +92,17 @@ export function NewUserDialog({
     }
   };
 
-  if (created) return <TemporaryPassword created={created} onDone={(edit) => onDone(created.user.id, edit)} />;
+  if (created)
+    return (
+      <TemporaryPasswordDialog
+        password={created.temporaryPassword}
+        title={t("us.pw.title", { name: created.user.fullName })}
+        description={t("us.pw.desc")}
+        secondary={{ label: t("us.pw.editPerms"), Icon: ShieldCheck, testId: "pw-edit-perms" }}
+        testId="user-temp-password"
+        onDone={(edit) => onDone(created.user.id, edit)}
+      />
+    );
 
   return (
     <>
@@ -174,114 +183,6 @@ export function NewUserDialog({
         }
       />
     </>
-  );
-}
-
-/** Geçici şifre adımı: salt okunur mono alan + Kopyala; pano yoksa alan seçilir. Kapatınca bir daha gösterilmez. */
-function TemporaryPassword({ created, onDone }: { created: CreateUserResponse; onDone: (edit: boolean) => void }) {
-  const [copy, setCopy] = useState<"idle" | "copied" | "manual">("idle");
-  const [warn, setWarn] = useState(false);
-  const inputRef = useRef<HTMLInputElement>(null);
-  const backRef = useRef<HTMLButtonElement>(null);
-  const id = useId();
-  // Uyarı açılınca odak güvenli seçime ("Şifreye dön"): Enter yanlışlıkla kapatmasın
-  useEffect(() => {
-    if (warn) backRef.current?.focus();
-  }, [warn]);
-
-  const doCopy = async () => {
-    if (await copyText(created.temporaryPassword)) {
-      setCopy("copied");
-      setWarn(false);
-    } else {
-      setCopy("manual");
-      inputRef.current?.focus();
-      inputRef.current?.select();
-    }
-  };
-  const tryClose = (edit: boolean) => {
-    if (copy === "idle" && !warn) return setWarn(true);
-    onDone(edit);
-  };
-
-  return (
-    <Dialog
-      open
-      onClose={() => onDone(false)}
-      // Esc/X: uyarı açıkken güvenli seçim (şifreye dön), değilse kopyalanmadıysa uyarı
-      onDismiss={() => (warn ? setWarn(false) : tryClose(false))}
-      testId="user-temp-password"
-      title={t("us.pw.title", { name: created.user.fullName })}
-      description={t("us.pw.desc")}
-      footer={
-        warn ? (
-          <>
-            <Button ref={backRef} variant="secondary" onClick={() => setWarn(false)} className="sm:ml-auto">
-              {t("us.pw.back")}
-            </Button>
-            <Button variant="danger-ghost" onClick={() => onDone(false)} data-testid="pw-close-anyway">
-              {t("us.pw.closeAnyway")}
-            </Button>
-          </>
-        ) : (
-          <>
-            <Button variant="secondary" onClick={() => tryClose(true)} className="sm:ml-auto" data-testid="pw-edit-perms">
-              <ShieldCheck aria-hidden className="size-4" />
-              {t("us.pw.editPerms")}
-            </Button>
-            <Button onClick={() => tryClose(false)} data-testid="pw-done">
-              <Check aria-hidden className="size-4" />
-              {t("us.pw.done")}
-            </Button>
-          </>
-        )
-      }
-    >
-      <div className="flex flex-col gap-3">
-        <Alert tone="warning">{t("us.pw.once")}</Alert>
-        <div className="flex flex-col gap-1.5">
-          <label htmlFor={id} className="flex items-center gap-2 text-sm font-medium text-fg">
-            <KeyRound aria-hidden className="size-4 text-fg-muted" />
-            {t("us.pw.label")}
-          </label>
-          <div className="flex flex-col gap-2 sm:flex-row">
-            <input
-              ref={inputRef}
-              id={id}
-              readOnly
-              value={created.temporaryPassword}
-              autoComplete="off"
-              spellCheck={false}
-              onFocus={(e) => e.currentTarget.select()}
-              data-testid="temp-password"
-              className="min-h-11 w-full min-w-0 rounded-md border border-border bg-surface-muted px-3 font-mono text-base tracking-wide text-fg sm:text-sm"
-            />
-            <Button
-              type="button"
-              variant="secondary"
-              onClick={() => void doCopy()}
-              data-autofocus
-              data-testid="pw-copy"
-              className="shrink-0"
-            >
-              {copy === "copied" ? <Check aria-hidden className="size-4 text-success" /> : <Copy aria-hidden className="size-4" />}
-              {t("us.pw.copy")}
-            </Button>
-          </div>
-          <p
-            role="status"
-            className={copy === "idle" ? "sr-only" : `text-xs font-medium ${copy === "copied" ? "text-success" : "text-fg-muted"}`}
-          >
-            {copy === "copied" ? t("us.pw.copied") : copy === "manual" ? t("us.pw.manual") : ""}
-          </p>
-        </div>
-        {warn && (
-          <Alert tone="danger" testId="pw-not-copied">
-            {t("us.pw.notCopied")}
-          </Alert>
-        )}
-      </div>
-    </Dialog>
   );
 }
 

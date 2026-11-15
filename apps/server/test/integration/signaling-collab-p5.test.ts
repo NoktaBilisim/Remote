@@ -74,8 +74,8 @@ describe("P5 file.meta", () => {
     ]);
     // S-P13a-8: ad ve sha256 yalnız session_files'ta (saklama işiyle silinir); audit'te uzantı + boyut + yön
     expect(audits.map((a) => a.newValue)).toEqual([
-      { sessionId: fx.session.id, direction: "TO_CUSTOMER", ext: "pdf", sizeBytes: "2048", result: "OK" },
-      { sessionId: fx.session.id, direction: "TO_TECH", ext: "zip", sizeBytes: "2048", result: "CORRUPT" },
+      { sessionId: fx.session.id, direction: "TO_CUSTOMER", ext: "pdf", sizeBytes: "2048", result: "OK", reportedBy: "CUSTOMER" },
+      { sessionId: fx.session.id, direction: "TO_TECH", ext: "zip", sizeBytes: "2048", result: "CORRUPT", reportedBy: "TECH" },
     ]);
     const text = JSON.stringify(audits.map((a) => a.newValue));
     for (const raw of ["rapor", "log.zip", SHA]) expect(text).not.toContain(raw);

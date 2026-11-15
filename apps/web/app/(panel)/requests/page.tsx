@@ -132,6 +132,8 @@ export default async function RequestsPage({ searchParams }: { searchParams: Pro
   );
   // B-P8c-3: sunucu revoke-binding için customers.edit + support_requests.view ister; menü de ikisini birden arar.
   const canRevoke = perms.includes("customers.edit") && perms.includes("support_requests.view");
+  // P15 (AC-235): kart menüsünde "Bu kaynağı engelle" + başlıkta Engellenenler bağlantısı
+  const canBlock = perms.includes("support_requests.block");
 
   if (res.kind === "error") {
     return (
@@ -165,6 +167,7 @@ export default async function RequestsPage({ searchParams }: { searchParams: Pro
             canAccept={perms.includes("support_requests.accept")}
             canSettings={perms.includes("settings.edit")}
             canRevoke={canRevoke}
+            canBlock={canBlock}
             customer={customer}
           />
         </section>
@@ -211,7 +214,7 @@ export default async function RequestsPage({ searchParams }: { searchParams: Pro
               }
             />
           ) : (
-            <RequestHistory items={items} canRevoke={canRevoke} />
+            <RequestHistory items={items} canRevoke={canRevoke} canBlock={canBlock} />
           )}
         </div>
         {total > PAGE_SIZE && (

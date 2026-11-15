@@ -163,10 +163,16 @@ export class Rooms implements RoomNotifier, TechnicianLiveControl {
    */
   preAdmitGuest(
     row: RoomRow,
-    g: { requestId: string; name: string; email?: string; clientVersion: string; consent: GuestConsent },
-  ): { wsTicket: string; expiresAt: number } {
+    g: { requestId: string; name: string; email?: string; clientVersion: string; consent: GuestConsent; acceptCode?: boolean },
+  ): { wsTicket: string; expiresAt: number; admitCode?: string } {
     const room = this.getOrCreate(row);
     room.requestId = g.requestId;
+    // P15 (AC-239): kabul kodu açık → lobi + admitCode (yalnız müşteriye `request.accepted.admitCode` ile gider).
+    let admitCode: string | undefined;
+    if (g.acceptCode) {
+      room.acceptCode = true;
+      admitCode = String(randomInt(0, 10_000)).padStart(4, "0");
+    }
     let guest = [...room.lobby.values()].find((x) => x.requestId === g.requestId);
     if (!guest) {
       guest = {
@@ -185,19 +191,24 @@ export class Rooms implements RoomNotifier, TechnicianLiveControl {
       };
       room.lobby.set(guest.id, guest);
     }
+    if (admitCode) guest.admitHash = admitHash(guest.id, admitCode);
     guest.ticketGen = (guest.ticketGen ?? 0) + 1; // önceki ticket geçersiz (yeniden bağlanan /ws/request)
     const { token, expiresAt } = this.tickets.issue({ sessionId: row.id, guestId: guest.id, gen: guest.ticketGen });
-    return { wsTicket: token, expiresAt };
+    return { wsTicket: token, expiresAt, ...(admitCode ? { admitCode } : {}) };
   }
 
   /** Talep oturumu için yeniden ticket (oturum hâlâ PENDING; /ws/request yeniden bağlandı). Misafir yoksa null. */
-  reissueRequestTicket(sessionId: string, requestId: string): { wsTicket: string; expiresAt: number } | null {
+  reissueRequestTicket(sessionId: string, requestId: string): { wsTicket: string; expiresAt: number; admitCode?: string } | null {
     const room = this.rooms.get(sessionId);
     const guest = room ? [...room.lobby.values()].find((x) => x.requestId === requestId && x.state === "TICKETED") : undefined;
     if (!room || !guest) return null;
     guest.ticketGen = (guest.ticketGen ?? 0) + 1;
     const { token, expiresAt } = this.tickets.issue({ sessionId, guestId: guest.id, gen: guest.ticketGen });
-    return { wsTicket: token, expiresAt };
+    // P15 (AC-239): düz kod saklanmaz → yeniden bağlanan istemciye yeni kod (misafir henüz lobide değil).
+    if (!room.acceptCode) return { wsTicket: token, expiresAt };
+    const admitCode = String(randomInt(0, 10_000)).padStart(4, "0");
+    guest.admitHash = admitHash(guest.id, admitCode);
+    return { wsTicket: token, expiresAt, admitCode };
   }
 
   /** Ticket ile gelen misafir → LOBBY (lobby.wait + teknisyene peer.pending). */

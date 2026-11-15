@@ -69,6 +69,15 @@ export const requestOutboundSchema = z.discriminatedUnion("t", [
     technicianName: z.string().min(1).max(100),
     techVerifyCode: z.string().regex(/^\d{4}$/),
     ticketExpiresAt: iso,
+    /**
+     * P15 (AC-239): yalnız tenant ayarı `requireAcceptCode` açıkken. Müşteri ekranında gösterilen 4 haneli kabul kodu;
+     * `/ws/guest` bağlantısı lobiye düşer (`lobby.wait`), teknisyen kodu konsola girer (AC-112 kuralları). Ayar kapalıyken
+     * alan yoktur (0.10.x istemci sıkı ayrıştırır).
+     */
+    admitCode: z
+      .string()
+      .regex(/^\d{4}$/)
+      .optional(),
   }),
   z
     .strictObject({

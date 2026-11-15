@@ -32,6 +32,8 @@ import { CONTROL_AUDIT } from "@remote/contracts/audit";
 import type { CustomerFirmRef, CustomerStatus } from "@remote/contracts/api/customers";
 import {
   END_REASON_LABELS,
+  FILE_CUSTOMER_REPORT_LABEL,
+  FILE_VERIFIED_LABEL,
   SESSION_ENDED_BY_LABELS,
   SESSION_MODE_LABELS,
   SESSION_SOURCE_LABELS,
@@ -285,15 +287,7 @@ async function buildDetail(
     note: anonymized ? null : row.note,
     terminatedBy: row.endedBy === "ADMIN" && row.terminatedBy ? { id: row.terminatedBy, name: names.get(row.terminatedBy) ?? "" } : null,
     quality,
-    files: (anonymized ? [] : files).map((f): SessionFileRecord => ({
-      id: f.id,
-      direction: f.direction as SessionFileRecord["direction"],
-      fileName: f.fileName,
-      sizeBytes: Number(f.sizeBytes),
-      sha256: f.sha256,
-      result: f.result as SessionFileRecord["result"],
-      createdAt: f.createdAt.toISOString(),
-    })),
+    files: anonymized ? [] : collapseFileReports(files),
     consents: consents.map((c): SessionConsentRecord => ({
       id: c.id,
       at: c.createdAt.toISOString(),
@@ -369,6 +363,84 @@ export async function updateHistory(
   return getHistoryDetail(db, log, auth, id);
 }
 
+// ---- P15 (AC-238): dosya raporlarının tekilleştirilmesi ----
+
+type FileReportRow = {
+  id: string;
+  reportedBy: string;
+  matchKey: string | null;
+  direction: string;
+  sha256: string;
+  sizeBytes: bigint | number;
+};
+
+/**
+ * match_key'e göre grupla (NULL = eski satır, kendi başına bir grup). Teknisyen satırı varsa grup doğrulanmıştır.
+ * P15 düzeltme 1 (QA 2): fid'siz istemci (0.10.x Go) alıcı raporu kendi `match_key`'ini taşır ve teknisyenin fid'li
+ * gönderen raporuyla eşleşmez. Bu yüzden yalnız müşteri satırından oluşan her grup (fid'li ya da fid'siz; ayrım
+ * yapılmaz), aynı yön + SHA-256 + boyuttaki, henüz müşteri eşi olmayan bir teknisyen grubuyla (sırayla, bire bir)
+ * birleştirilir: teknisyen raporu varsa "doğrulanmış". fid'li müşteri satırına da uygulanması zararsızdır (doğrulama
+ * yine teknisyen satırına bağlı; yalnız sayım etkilenir — guvenlik-raporu P15 kod turu 2). Eşi olmayan müşteri raporu
+ * "Müşteri bildirimi" kalır. Gösterilen satır her zaman teknisyeninki.
+ */
+export function groupFileReports<T extends FileReportRow>(rows: readonly T[]): { row: T; verified: boolean }[] {
+  const groups = new Map<string, T[]>();
+  for (const r of rows) {
+    const k = r.matchKey ?? `id:${r.id}`;
+    const g = groups.get(k);
+    if (g) g.push(r);
+    else groups.set(k, [r]);
+  }
+  const content = (r: T) => `${r.direction}\n${r.sha256}\n${String(r.sizeBytes)}`;
+  const isTech = (r: T) => r.reportedBy !== "CUSTOMER";
+  const unpairedTech = new Map<string, T[][]>();
+  for (const g of groups.values()) {
+    const t = g.find(isTech);
+    if (!t || g.length > 1) continue;
+    const q = unpairedTech.get(content(t));
+    if (q) q.push(g);
+    else unpairedTech.set(content(t), [g]);
+  }
+  const out: T[][] = [];
+  for (const g of groups.values()) {
+    const first = g[0] as T;
+    const partner = g.some(isTech) ? undefined : unpairedTech.get(content(first))?.shift();
+    if (partner) partner.push(...g);
+    else out.push(g);
+  }
+  return out.map((g) => {
+    const tech = g.find(isTech);
+    return { row: tech ?? (g[0] as T), verified: tech !== undefined };
+  });
+}
+
+function collapseFileReports(files: Awaited<ReturnType<typeof hrepo.filesOf>>): SessionFileRecord[] {
+  return groupFileReports(files).map(({ row: f, verified }): SessionFileRecord => ({
+    id: f.id,
+    direction: f.direction as SessionFileRecord["direction"],
+    fileName: f.fileName,
+    sizeBytes: Number(f.sizeBytes),
+    sha256: f.sha256,
+    result: f.result as SessionFileRecord["result"],
+    createdAt: f.createdAt.toISOString(),
+    reportedBy: f.reportedBy === "CUSTOMER" ? "CUSTOMER" : "TECH",
+    verified,
+  }));
+}
+
+/** CSV "Dosyalar" hücresi: "N doğrulanmış; M müşteri bildirimi" (sıfır olan kısım yazılmaz; dosya yoksa boş). */
+export function fileSummaryCell(rows: readonly FileReportRow[]): string {
+  const g = groupFileReports(rows);
+  const v = g.filter((x) => x.verified).length;
+  const c = g.length - v;
+  return [
+    v ? `${v} ${FILE_VERIFIED_LABEL.toLocaleLowerCase("tr")}` : "",
+    c ? `${c} ${FILE_CUSTOMER_REPORT_LABEL.toLocaleLowerCase("tr")}` : "",
+  ]
+    .filter(Boolean)
+    .join("; ");
+}
+
 // ---- CSV (AC-63, 124) ----
 
 export interface CsvExport {
@@ -376,7 +448,7 @@ export interface CsvExport {
   body: Readable;
 }
 
-function csvCells(r: hrepo.HistoryExportRow, withTenant: boolean): string[] {
+function csvCells(r: hrepo.HistoryExportRow, withTenant: boolean, files: readonly FileReportRow[]): string[] {
   return [
     r.id,
     ...(withTenant ? [r.tenant.name] : []),
@@ -395,6 +467,7 @@ function csvCells(r: hrepo.HistoryExportRow, withTenant: boolean): string[] {
     labelOf(SESSION_ENDED_BY_LABELS, r.endedBy),
     labelOf(END_REASON_LABELS, r.endReason),
     r.anonymizedAt !== null ? "" : (r.note ?? ""),
+    r.anonymizedAt !== null ? "" : fileSummaryCell(files),
   ];
 }
 
@@ -455,7 +528,14 @@ export async function exportHistoryCsv(
       while (written < SESSION_EXPORT_MAX_ROWS) {
         const batch = await hrepo.exportBatch(db, scope, filter, q.sort, after, Math.min(EXPORT_BATCH, SESSION_EXPORT_MAX_ROWS - written));
         if (batch.length === 0) return;
-        yield batch.map((r) => csvRow(csvCells(r, withTenant))).join("");
+        const reports = await hrepo.fileReportsOf(
+          db,
+          [...new Set(batch.map((r) => r.tenantId))],
+          batch.map((r) => r.id),
+        );
+        const bySession = new Map<string, FileReportRow[]>();
+        for (const f of reports) bySession.set(f.sessionId, [...(bySession.get(f.sessionId) ?? []), f]);
+        yield batch.map((r) => csvRow(csvCells(r, withTenant, bySession.get(r.id) ?? []))).join("");
         written += batch.length;
         const last = batch[batch.length - 1];
         if (!last || batch.length < EXPORT_BATCH) return;

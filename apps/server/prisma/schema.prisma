@@ -36,6 +36,7 @@ model Tenant {
   customers       Customer[]
   requestRefs     RequestRef[]
   deviceBindings  DeviceBinding[]
+  requestBlocks   RequestBlock[]
 
   @@map("tenants")
 }
@@ -98,6 +99,7 @@ model User {
   recoveryCodes      RecoveryCode[]
   passwordResets     PasswordResetToken[]
   systemSettings     SystemSetting[]
+  requestBlocks      RequestBlock[]
 
   @@index([tenantId, status])
   @@map("users")
@@ -331,19 +333,24 @@ model SessionConsent {
 // Elle (migration.sql): direction/result enum, sha256 biçimi, size_bytes 0..2 GiB, file_name temizlenmiş
 // biçim (sanitizeFileName çıktısı: 1..255 karakter, yasak karakter/Cf yok, sonda nokta/boşluk yok).
 model SessionFile {
-  id        String   @id @db.Char(26)
-  sessionId String   @map("session_id") @db.Char(26)
-  tenantId  String   @map("tenant_id") @db.Char(26)
-  direction String   @db.VarChar(20) // TO_CUSTOMER | TO_TECH
-  fileName  String   @map("file_name") @db.VarChar(255) // sanitizeFileName sonrası ad (G-06)
-  sizeBytes BigInt   @map("size_bytes") // beyan/alınan bayt; <= tenant max_file_mb (üst sınır 2048 MB)
-  sha256    String   @db.Char(64) // küçük harf hex (gönderenin beyanı; OK ise alıcı doğruladı)
-  result    String   @db.VarChar(20) // OK | REJECTED | CANCELLED | CORRUPT
-  createdAt DateTime @default(now()) @map("created_at") @db.DateTime(3)
+  id         String   @id @db.Char(26)
+  sessionId  String   @map("session_id") @db.Char(26)
+  tenantId   String   @map("tenant_id") @db.Char(26)
+  direction  String   @db.VarChar(20) // TO_CUSTOMER | TO_TECH
+  fileName   String   @map("file_name") @db.VarChar(255) // sanitizeFileName sonrası ad (G-06)
+  sizeBytes  BigInt   @map("size_bytes") // beyan/alınan bayt; <= tenant max_file_mb (üst sınır 2048 MB)
+  sha256     String   @db.Char(64) // küçük harf hex (gönderenin beyanı; OK ise alıcı doğruladı)
+  result     String   @db.VarChar(20) // OK | REJECTED | CANCELLED | CORRUPT
+  // P15 (AC-238): raporlayan taraf (TECH | CUSTOMER; ikili CHECK, ADR-0014 — mimarideki ENUM yerine). Eski satırlar TECH.
+  reportedBy String   @default("TECH") @map("reported_by") @db.VarChar(20)
+  // P15: sunucunun ürettiği SHA-256 hex (aynı aktarımın iki taraf raporunu eşler); eski satırlarda NULL.
+  matchKey   String?  @map("match_key") @db.Char(64)
+  createdAt  DateTime @default(now()) @map("created_at") @db.DateTime(3)
 
   session SupportSession @relation(fields: [sessionId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
   tenant  Tenant         @relation(fields: [tenantId], references: [id], onDelete: Restrict, onUpdate: Restrict)
 
+  @@unique([sessionId, matchKey, reportedBy]) // P15: taraf başına aktarım başına tek rapor; eşleşme araması
   @@index([sessionId, tenantId, createdAt]) // oturum detayı dosya listesi (GET /sessions/:id) + session FK
   @@index([tenantId, createdAt]) // tenant FK + retention (P13)
   @@map("session_files")
@@ -353,18 +360,19 @@ model SessionFile {
 // app SELECT/INSERT/UPDATE (DELETE yok). Elle (migration.sql): request_ref/file_label biçimi, wait_minutes 10..120,
 // JSON dizileri JSON_SCHEMA_VALID (wa ≤ 5 E.164, email ≤ 5, trusted_cidrs ≤ 10; tekil), kanal açık ⇒ ≥ 1 alıcı.
 model TenantRequestSettings {
-  tenantId        String    @id @map("tenant_id") @db.Char(26)
-  requestRef      String    @unique @map("request_ref") @db.Char(16) // [a-z2-7]{16} (80 bit); gizli değil, tahmin edilemez
-  refRotatedAt    DateTime? @map("ref_rotated_at") @db.DateTime(3)
-  fileLabel       String    @map("file_label") @db.VarChar(20) // [A-Za-z0-9]{1,20} — dosya adındaki firma kısa adı (AC-130)
-  waitMinutes     Int       @default(30) @map("wait_minutes") // 10..120 (AC-142)
-  waEnabled       Boolean   @default(false) @map("wa_enabled")
-  waRecipients    Json      @map("wa_recipients") // string[] E.164, ≤ 5 (uygulama `[]` yazar; MySQL JSON varsayılanı Prisma'da yok)
-  emailEnabled    Boolean   @default(false) @map("email_enabled") // P10'a kadar sunucu true'yu reddeder
-  emailRecipients Json      @map("email_recipients") // string[] e-posta, ≤ 5 (P10)
-  trustedCidrs    Json      @map("trusted_cidrs") // string[] CIDR, ≤ 10 (§13.6; genişlik/özel aralık kuralı zod'da)
-  createdAt       DateTime  @default(now()) @map("created_at") @db.DateTime(3)
-  updatedAt       DateTime  @updatedAt @map("updated_at") @db.DateTime(3)
+  tenantId          String    @id @map("tenant_id") @db.Char(26)
+  requestRef        String    @unique @map("request_ref") @db.Char(16) // [a-z2-7]{16} (80 bit); gizli değil, tahmin edilemez
+  refRotatedAt      DateTime? @map("ref_rotated_at") @db.DateTime(3)
+  fileLabel         String    @map("file_label") @db.VarChar(20) // [A-Za-z0-9]{1,20} — dosya adındaki firma kısa adı (AC-130)
+  waitMinutes       Int       @default(30) @map("wait_minutes") // 10..120 (AC-142)
+  waEnabled         Boolean   @default(false) @map("wa_enabled")
+  waRecipients      Json      @map("wa_recipients") // string[] E.164, ≤ 5 (uygulama `[]` yazar; MySQL JSON varsayılanı Prisma'da yok)
+  emailEnabled      Boolean   @default(false) @map("email_enabled") // P10'a kadar sunucu true'yu reddeder
+  emailRecipients   Json      @map("email_recipients") // string[] e-posta, ≤ 5 (P10)
+  trustedCidrs      Json      @map("trusted_cidrs") // string[] CIDR, ≤ 10 (§13.6; genişlik/özel aralık kuralı zod'da)
+  requireAcceptCode Boolean   @default(false) @map("require_accept_code") // P15 (AC-239): kabulde 4 haneli kod
+  createdAt         DateTime  @default(now()) @map("created_at") @db.DateTime(3)
+  updatedAt         DateTime  @updatedAt @map("updated_at") @db.DateTime(3)
 
   tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Restrict, onUpdate: Restrict)
 
@@ -549,4 +557,30 @@ model SystemSetting {
 
   @@index([updatedBy]) // FK
   @@map("system_settings")
+}
+
+// P15 (mimari-e11 §6; AC-235): talep engelleri (IP/önek ya da cihaz anahtarı). app SELECT/INSERT/DELETE (UPDATE yok →
+// updated_at yok; süre değişimi = DELETE + INSERT). Tenant başına ≤ 1.000 (uygulama). Elle CHECK'ler: kind ikili enum,
+// kind ⇔ hedef sütunlar, IP 4/16 bayt gerçek CIDR bloğu (IPv4 ≤ /24, IPv6 ≤ /48), device_key_hash hex, expires_at >
+// created_at, note metin kuralı. Ayrıntı db-notlari "P15".
+model RequestBlock {
+  id            String    @id @db.Char(26)
+  tenantId      String    @map("tenant_id") @db.Char(26)
+  kind          String    @db.VarChar(20) // IP | DEVICE
+  ipFrom        Bytes?    @map("ip_from") @db.VarBinary(16) // ağ adresi (4 ya da 16 bayt)
+  ipTo          Bytes?    @map("ip_to") @db.VarBinary(16) // yayın adresi (aynı uzunluk)
+  deviceKeyHash String?   @map("device_key_hash") @db.Char(64) // SHA-256 hex, küçük harf
+  expiresAt     DateTime? @map("expires_at") @db.DateTime(3) // NULL = süresiz
+  note          String?   @db.VarChar(200)
+  createdBy     String    @map("created_by") @db.Char(26)
+  createdAt     DateTime  @default(now()) @map("created_at") @db.DateTime(3)
+
+  tenant  Tenant @relation(fields: [tenantId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  creator User   @relation(fields: [createdBy], references: [id], onDelete: Restrict, onUpdate: Restrict)
+
+  @@unique([tenantId, ipFrom, ipTo]) // aynı aralık tek satır
+  @@unique([tenantId, deviceKeyHash]) // aynı cihaz tek satır
+  @@index([tenantId, kind, expiresAt]) // kapı önbelleği yüklemesi + liste
+  @@index([createdBy]) // FK
+  @@map("request_blocks")
 }

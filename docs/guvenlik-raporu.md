@@ -4946,3 +4946,451 @@ düzeltmesi"); (2) `git diff b2e5771 -- apps/web` (implementation.md "P14b B3 b�
 
 - Step-up istemci mantığı saf fonksiyonda ve birim testli (tek tekrar / vazgeç / eşzamanlı tek diyalog).
 - Tur 1'deki iki Orta bulgu hedefli, testli ve yan etkisiz düzeltildi; S14-2 için enjeksiyon negatif testleri eklendi.
+
+---
+
+## P16/P17 — Tasarım turu
+
+Kapsam: `docs/adr/0030-kalici-silme-fk-plani.md`, `docs/mimari-e11.md` §7 (P16, AC-240..244) ve §8 (P17). Kod henüz yok. Bulguların bir kısmı mevcut kodla (`auth/service.ts`, `uploads/store.ts`, `prisma/sql/grants.sql`, `deploy/backup/backup.sh`) karşılaştırılarak doğrulandı.
+
+Özet: Kritik 0 / Yüksek 2 / Orta 4 / Düşük 7
+
+### [YÜKSEK] S16-1 Audit maskesi fail-open: silinen firmanın kullanıcıları ve yanlış `entity` adı — A01/A04 (KVKK)
+
+Yer: ADR-0030 m.4 "Audit okuması"; mimari-e11 §7.4; mevcut yazım `users/service.ts:324` (`user.created` newValue `{email, fullName}` ham), `auth/service.ts:58` (`username = user.email`).
+
+Sorun:
+
+- Maske kararı "kullanıcı satırının `status = 'DELETED'` olması" koşuluna bağlı. Firma silmede (AC-242, adım `USERS`) kullanıcı satırları **fiziksel olarak silinir**. `IN` sorgusu bu kullanıcılar için satır döndürmez ve maske uygulanmaz. Bu firmanın bütün kullanıcılarının e-postası ve adı (`username` sütunu, `user.created`/`user.updated` `old_value`/`new_value`) 730 gün boyunca audit listesinde ve CSV'de açık görünür.
+- ADR `entity = 'user'` diyor. Kod `entity: "users"` yazıyor (22 yer). Metin harfiyen uygulanırsa hedef kullanıcı maskesi (`entity_id`) hiç çalışmaz.
+- G4 kabul testi yalnız mezar taşı senaryosunu ölçüyor ("eski e-posta hiçbir yanıtta yok"), firma silme sonrası durumu ölçmüyor. Bu yüzden açık testten geçer.
+
+İstismar senaryosu: Firma KVKK silme talebiyle silinir. Super Admin ya da audit CSV'sini alan kişi silinmiş firmanın çalışanlarının e-posta ve ad bilgilerine 730 gün boyunca erişir. AC-241'deki "ham değer hiçbir uçtan dönmez" değişmezi bozulur.
+
+Düzeltme (atanan: mimar → backend-dev):
+
+- Maske **fail-closed** olmalı. `user_id`/`entity_id` için kullanıcı satırı **yoksa** ya da `DELETED` ise maskele. Satırın `tenant_id`'si `tenants`'ta yoksa satırdaki bütün kimlik alanlarını maskele.
+- ADR ve §7.4'te `entity = 'users'` olarak düzeltilmeli (ya da `contracts/audit.ts` sabitine bağlanmalı).
+- G3/G4 kabulüne şu test eklenmeli: firma silindikten sonra `GET /audit` ve CSV gövdesinde o firmanın kullanıcı e-postaları aranır ve 0 sonuç beklenir.
+
+### [YÜKSEK] S17-1 WGC "Yalnız bir pencere" modunda girdi kapsamı yalnız koordinatla sınırlı — A01 (onay kapsamı aşımı)
+
+Yer: mimari-e11 §8.1 AC-248 ("`SendInput` koordinatları pencere dikdörtgenine kırpılır").
+
+Sorun:
+
+- Dikdörtgen kırpma, o dikdörtgenin üstündeki **başka pencereyi** dışarıda bırakmaz. Örneğin üste açılmış bir tarayıcı, parola yöneticisi ya da bildirim penceresi dikdörtgenin içinde kalır.
+- Klavye girdisi koordinat taşımaz ve **ön plandaki pencereye** gider. Kullanıcı başka bir uygulamaya geçerse teknisyenin tuşları o uygulamaya yazılır.
+- Kullanıcı bu modu açıkça "yalnız bu pencere" diye seçiyor. Kodun bu kapsamın dışına girdi göndermesi onay kapsamının aşılmasıdır.
+
+İstismar senaryosu: Kullanıcı yalnız muhasebe programını paylaşır ve tarayıcısını üstte açar. Teknisyen dikdörtgen içinde tıklayıp yazar. Girdi tarayıcıya gider, ama teknisyen onu görmez (WGC yalnız hedef pencereyi yakalar). Kör ama gerçek bir etkileşim olur.
+
+Düzeltme (atanan: mimar → backend-dev Go):
+
+- Fare: her olayda `WindowFromPoint(pt)` → `GetAncestor(GA_ROOT)` değeri hedef `hwnd`'e eşit olmalı. Gerekirse aynı süreç kimliğine sahip sahipli pencereler (menü/diyalog) de kabul edilir. Değilse olay düşürülür.
+- Klavye: yalnız `GetForegroundWindow()` kökü hedef penceredeyse gönderilir.
+- Pencere simge durumundaysa ya da kapanmışsa girdinin tamamı düşürülür.
+- Birim testine "örtüşen pencere" ve "odak başka uygulamada" senaryoları, Windows elle teste de aynı iki senaryo eklenmeli.
+- Bu bulgu yalnız AC-248'i (I0/I4) bloklar; P17'nin kalanı etkilenmez.
+
+### [ORTA] S16-2 Firma silme yürütücüsü iş satırına güveniyor; `FILES` adımında yol doğrulaması yok — A01/A08
+
+Yer: ADR-0030 m.5 (`tenant_id` CHAR(26), FK yok); §7.3 adım `FILES` (`rm -r uploads/{tenantId}/`); `uploads/store.ts:10` (`isPrefix` → `"system"` de geçerli).
+
+Sorun:
+
+- `tenant_purge_jobs.tenant_id` için biçim CHECK'i yok. CHAR(26) daha kısa değer de kabul eder (`system`, `..`).
+- Yürütücü her turda uygunluğu (PASSIVE, `passive_at` ≥ 30 g) yeniden doğrulamıyor. Doğrulama yalnız POST'ta var.
+- Tetikleyicisiz adımlar ilk tetikleyicili adımdan önce çalışır: `FENCE` (oturum iptali) ve `SESSION_FILES` (`session_files`'ta `app` DELETE'i zaten var). Hatalı bir iş satırı (yazılım hatası ya da `app` kimliğinin ele geçirilmesi) aktif bir firmada önce bu adımları yürütür, sonra `db_signal` ile FAILED olur.
+- Firması olmayan bir iş bütün DB adımlarında 0 satır siler ve `FILES` adımına ulaşır. `tenant_id = 'system'` ise sistem logosu klasörü, `..` gibi bir değer ise (yol birleştirme kontrolsüzse) yükleme kökünün dışı silinir.
+
+İstismar senaryosu: `app` kimliği ele geçirilir. `INSERT tenant_purge_jobs (tenant_id='system', state='RUNNING', step='FILES')` yazılır, yürütücü 60 sn içinde `uploads/system`'ı siler. DB yazma yetkisi dosya sistemi silmeye dönüşür.
+
+Düzeltme (atanan: dba + backend-dev):
+
+- CHECK `tenant_id REGEXP BINARY '^[0-9A-Z]{26}$'` eklenmeli.
+- Yürütücü her turun başında şunu doğrulamalı: `step < TENANT_ROW` iken firma PASSIVE ve `passive_at <= UTC − 30 g` (DB saati); `step ≥ TENANT_ROW` iken firma satırı yok **ve** iş satırında `tenant_row_deleted_at` dolu (TENANT_ROW adımında aynı TX'te yazılır). Aksi hâlde iş `FAILED/invalid_job` olur ve alarm üretir.
+- `FILES` adımı yalnız `TENANT_PREFIX_RE` ile doğrulanmış id kabul etmeli (`isPrefix` kullanılmamalı) ve `resolve` + kök altında kalma kontrolünden geçmeli (`UploadStore.abs` kalıbı). `fs.rm` sembolik bağlantıyı izlemez. Bu davranış testle sabitlenmeli: hedef klasör bir sembolik bağlantıysa yalnız bağlantı silinir.
+
+### [ORTA] S16-3 `anonymized_at`/`revoked_at` DB saatine zorlanmıyor; "30 gün DB kilidi" 4 tabloda atlatılabilir — A04
+
+Yer: ADR-0030 m.3 tablosu ve "Alternatifler" son madde ("Sonraya bırakıldı"); "Sonuçlar → Olumlu" ("DB'de … zorlanmış `passive_at`").
+
+Sorun: `support_sessions`, `support_requests` ve `device_bindings`'te tetikleyici koşulu, uygulamanın yazdığı zaman damgasına dayanır. `app` (ya da hatalı bir anonimleştirme kodu) canlı bir satıra `anonymized_at = '2000-01-01'` yazarsa tetikleyici DELETE'i kabul eder. Bu durumda kişisel alanı silinmemiş bir oturum geçmişi kalıcı olarak gider. ADR'deki gerekçe ("sahte saatli testler bozulur") zayıf, çünkü test fikstürleri `migrator` ile yazılır ve `migrator` tetikleyiciden muaftır.
+
+Düzeltme (atanan: mimar → dba):
+
+- BEFORE UPDATE tetikleyicisi eklenmeli. `anonymized_at`/`revoked_at` NULL'dan dolu değere bir kez geçebilir. Yazılan değer `[UTC_SYSDATE − 1 g, UTC_SYSDATE + 1 dk]` aralığında olmalı. Dolu değer değiştirilemez. `migrator` ve `root` muaf kalır.
+- Bu eklenmezse "Sonuçlar" metni düzeltilmeli: DB 30 gün zorlaması yalnız firma silmede vardır.
+- Tetikleyici sayısı artar. continuity sabiti ve beklenen sayılar da güncellenmeli.
+
+### [ORTA] S16-4 Firma silmede vazgeçme penceresi ve ikinci göz yok (R26) — A04
+
+Yer: ADR-0030 m.5/m.6; §7.3 "POST sonrası hemen `kick()`"; §7.5 (iptal ucu yok, RUNNING işte yeniden etkinleştirme 409).
+
+Sorun: Tek bir Super Admin oturumu (step-up ile) bir firmanın bütün verisini 60 sn içinde geri dönüşsüz silmeye başlatabilir. İş başladıktan sonra durdurulamaz. Önizleme, ad onayı ve step-up yanlış hedefe karşı korur. Çalınmış bir oturum ile TOTP'ye (ya da kötü niyetli bir yöneticiye) karşı korumaz. Prod'da birden çok Super Admin olsa bile kimse olaydan haberdar edilmez.
+
+Düzeltme (atanan: mimar → backend-dev):
+
+- POST, `SCHEDULED` durumunda bir iş açmalı; `FENCE` adımı en erken T+24 saatte başlamalı.
+- `DELETE /admin/tenants/:id/purge` (iptal; step-up gerekir) eklenmeli. Yalnız `SCHEDULED` iş iptal edilebilir.
+- İş açıldığında bütün Super Admin'lere e-posta/WhatsApp bildirimi gönderilmeli ve bu gönderim audit'e yazılmalı.
+- `PURGING(t)` koşulu `state = 'RUNNING'` olarak kalır. Böylece SCHEDULED durumda DB kilidi kapalı kalır.
+- Kullanıcı bekleme süresi istemezse bu karar ADR'de kalan risk olarak açıkça yazılmalı.
+
+### [ORTA] S16-5 Felaket geri yüklemesi silinmiş firma ve kullanıcıları geri getirir — A04 (KVKK)
+
+Yer: ADR-0030 m.8; §7.7 "Restore-verify".
+
+Sorun: ≤ 14 günlük bir yedek tam geri yüklenirse (DR), yedekten sonra silinmiş firmalar, mezar taşı yapılmış kullanıcılar ve gece silinmiş oturumlar geri gelir. `tenant_purge_jobs` DONE satırı ve `tenant.purged` audit'i de yedek anına döndüğü için silme işinin kaydı da kaybolur. Gece işi oturumları yeniden siler, ancak firma ve kullanıcı silmeleri kendiliğinden tekrarlanmaz. KVKK imha kararı sessizce geri alınmış olur.
+
+Ayrıca scratch dışa aktarımında bütün firmaları içeren tam bir yedek açılır. Bu işlem uygulama dışında olduğu için audit'e girmez.
+
+Düzeltme (atanan: devops + backend-dev):
+
+- DB dışında bir "imha defteri" tutulmalı: silinen firma id'leri ve mezar taşı kullanıcı id'leri ile zamanları. Bu defter yedek manifestine/site dışı hedefe eklenebilir ya da `remote-watch` tarafından günlük dışa aktarılabilir.
+- Runbook'a geri yükleme sonrası zorunlu bir adım eklenmeli: defter yeniden oynatılır (firma için CLI ile purge, kullanıcı için mezar taşı). Restore-verify bu adımın yapıldığını kontrol etmeli.
+- Scratch dışa aktarımı için runbook kaydı (kim, ne zaman, hangi talep), iki kişilik onay, ağsız konteyner ve scratch'in silindiğinin doğrulanması (`ls` boş) zorunlu olmalı.
+
+### [DÜŞÜK] S16-6 `previewId` tek kullanımlık değil ve duruma bağlı değil — A07
+
+Yer: ADR-0030 m.6.
+
+Sorun: HMAC yalnız (tenant, aktör, son geçerlilik) içeriyor. Oturuma, `passive_at` değerine ve iş durumuna bağlı değil. 15 dk içinde aynı aktörün başka bir oturumu (çalınmış çerez) aynı `previewId`'yi kullanabilir. FAILED sonrası "yeni önizleme" kuralı da sunucuda zorlanmaz: eski bir önizleme, aynı pencere içindeyse sürdürmeye yeter.
+
+Düzeltme: HMAC'e `authSessionId`, `passive_at` ve (varsa) `job.attempts`/`job.updatedAt` eklenmeli. `previewId` audit'e ve loglara yazılmamalı (yalnız sayılar yazılır).
+
+### [DÜŞÜK] S16-7 Mezar taşı e-postasıyla girişte tetikleyici SIGNAL'i ve alarm gürültüsü — A07
+
+Yer: `auth/service.ts:139` (`findUserByLogin`) ve `:85` (`bumpAccountFailures` UPDATE); ADR-0030 m.3 (`users` BEFORE UPDATE → DELETED ise SIGNAL).
+
+Sorun: `deleted+<id>@invalid` ile yapılan her giriş denemesinde sayaç UPDATE'i tetikleyiciye takılır. Hata yakalanıp `auth_fail_counter_fallback` alarmı loglanır. Bu sahte bir alarm seli üretir; kilitlenme bildirimi de `@invalid` adresine gönderilmeye çalışılır. Parola sıfırlama isteğinde de aynı yol izlenebilir.
+
+Düzeltme: `findUserByLogin` ve parola sıfırlama sorgusu `status <> 'DELETED'` koşuluyla süzmeli; mezar taşı "hayalet hesap" yoluna (bellek kovası) düşmeli. G4'e bir test eklenmeli: mezar taşı ile 6 deneme sonunda 401/423 döner, alarm logu oluşmaz.
+
+### [DÜŞÜK] S16-8 Gece işi kesme anı uygulama saatiyle, tetikleyici DB saatiyle hesaplanıyor — A04 (kullanılabilirlik)
+
+Yer: §7.2 (`cut = now − 30 g`); ADR-0030 m.3 (`UTC_SYSDATE`).
+
+Sorun: Uygulama saati DB'den ileride olursa sınırdaki aday tetikleyicide SIGNAL alır. 500'lük parti TX'i bütünüyle geri alınır. Aynı aday her gece ilk partide kalır ve silme işi kalıcı olarak takılır.
+
+Düzeltme: Aday sorgusu `UTC_TIMESTAMP(3) − INTERVAL 30 DAY − INTERVAL 1 HOUR` ile DB saatinde çalışmalı. `db_signal` partide sınıflandırılmalı ve metrik/alarm üretmeli.
+
+### [DÜŞÜK] S16-9 Yetim taramasında devre kesici ve referans kaynağı kaydı yok — A04
+
+Yer: ADR-0030 m.7; §7.6.
+
+Sorun: DB yol kümesi hatalı ya da eksik okunursa (sütun adı değişimi, boş sonuç) bütün logo ve avatarlar işaretlenir ve 7 gün sonra silinir. P18+ ile `uploads/` altına yeni dosya türü gelirse ve tarama kümesine eklenmezse, o dosyalar da 7 günde sessizce silinir.
+
+Path traversal ve symlink tarafı yeterli (`isRelPath` + `lstat`, `UploadStore.abs` kök kontrolü).
+
+Düzeltme:
+
+- Devre kesici: DB kümesi boşken diskte dosya varsa ya da `found / toplam > %20` ise silme yapılmamalı, audit `fail` ve alarm üretilmeli.
+- Referans kaynakları tek bir listeden (`UPLOAD_REFERENCE_SOURCES`) okunmalı. Meta-test, `*_path` sütunlarının bu listede olduğunu doğrulamalı.
+
+### [DÜŞÜK] S16-10 `tenant_purge_jobs` üzerinde koşulsuz DELETE; FAILED işten sonra yeniden etkinleştirme — A04/A09
+
+Yer: ADR-0030 m.3 (`tenant_purge_jobs` SELECT/INSERT/UPDATE/DELETE, tetikleyici yok); m.5 "Çakışma".
+
+Sorun:
+
+- `app`, RUNNING ya da FAILED iş satırını silebilir. Bu, kanıtı siler ve UQ'yu boşaltır.
+- FAILED bir işi olan, yarısı silinmiş bir firma `reactivate` ile yeniden açılabilir. Tetikleyici yalnız RUNNING durumu engelliyor.
+
+Düzeltme:
+
+- BEFORE DELETE tetikleyicisi: yalnız `state = 'DONE' AND finished_at <= UTC − 730 g` satırları silinebilir. Tetikleyici sayısı buna göre güncellenir.
+- FAILED iş varken `reactivate` 409 döndürmeli ("Firma kısmen silindi; silmeyi tamamlayın"). Bu kural DB'de de `tenants` UPDATE tetikleyicisine `state IN ('RUNNING','FAILED')` olarak eklenmeli.
+
+### [DÜŞÜK] S16-11 Operasyon ve meta-test boşlukları — A05
+
+Yer: `deploy/backup/backup.sh:103` (`BACKUP_EXPECTED_TRIGGERS:-3`); ADR-0030 m.5 meta-test.
+
+Sorun ve düzeltme:
+
+- G7 yalnız restore-verify sayısını güncelliyor. `backup.sh` varsayılanı ve `backup.env` değeri 16 yapılmazsa migration'dan sonraki ilk gece yedek FAIL olur. G7 kapsamına eklenmeli; varsayılan 16 olmalı ve runbook'a yazılmalı.
+- MySQL'de FK eylemleri (`CASCADE`/`SET NULL`) tetikleyicileri **çalıştırmaz**. Meta-test korunan 10 tabloya giden bütün FK'lerin `DELETE_RULE = 'RESTRICT'` olduğunu da doğrulamalı. Aksi hâlde ileride eklenecek tek bir CASCADE, tetikleyici kilidinin etrafından dolaşır.
+- Meta-test yalnız `tenants`'a giden FK'leri sayıyor. Firma dışı tablolardan firma kullanıcılarına (`users`) giden FK'ler de listelenmeli. Aksi hâlde `USERS` adımı `db_fk` ile FAILED olur.
+
+### [DÜŞÜK] S17-2 `share.state` doğrulaması: enum katılığı ile "bilinmeyen ham" çelişkisi; sunucu tarafı hız sınırı — A03/A04
+
+Yer: mimari-e11 §6 satır AC-234 ("bilinmeyen ham"); §8 ("strictObject"; "5 sn'de en çok 1 kez" yalnız istemcide).
+
+Sorun:
+
+- `reason` bir `z.enum` ise, 0.12 istemcisinin yeni bir nedeni bütün mesajı düşürür. Konsol paylaşımın durduğunu öğrenmez.
+- `reason` serbest metinse uzunluk ve karakter sınırı tanımlı değil.
+- İstemci güvenilmez bir uç. 5 sn sınırı sunucuda yok ve her mesaj konsola yayınlanıyor.
+
+Düzeltme:
+
+- `reason: z.string().regex(/^[A-Z_]{1,32}$/)` kullanılmalı; etiket tablosunda yoksa "Bilinmeyen neden (KOD)" metin olarak gösterilmeli. `method` enum olarak kalabilir.
+- Nesne `strictObject` kalmalı.
+- Sunucuda oturum başına `share.state` için ≥ 1 sn aralık sınırı olmalı; fazlası düşürülmeli.
+- Yayın sırası kuralı (P15 prod → 0.11.0) Release iş akışında elle kontrol maddesi olarak yazılmalı.
+
+### Tasarımda vaat edilip tasarımın kendisinde eksik kalanlar
+
+- ADR-0030 "Sonuçlar": "DB'de zorlanmış 30 gün" ifadesi yalnız firma silme için doğru, gece silmesi için değil (S16-3).
+- ADR-0030 m.4: "Ham değer hiçbir uçtan dönmez" iddiası firma silme sonrasında bozuluyor (S16-1).
+- AC-248 metni "yalnız bir pencere" diyor, ancak girdi tasarımı bu kapsamı sağlamıyor (S17-1).
+
+### Olumlu
+
+- `USER()` ile `migrator`/`root` muafiyeti doğru: tetikleyici içinde `CURRENT_USER()` DEFINER'ı döndürürdü (P13a kalıbı). `app`'te TRIGGER, ALTER ve DROP yetkisi yok; TRUNCATE yapamaz, tetikleyiciyi kapatamaz.
+- Saat kaynağı `SYSDATE` + `CONVERT_TZ`: `SET TIMESTAMP` ve `time_zone` ile oynanamaz. Compose'ta `--sysdate-is-now` yasağı belgeli.
+- `passive_at`'ın INSERT/UPDATE'te DB'ye zorlanması ve RUNNING işte durum değişiminin SIGNAL vermesi, `app` ele geçirilse bile 30 günlük bekleme sağlar. Geri doldurmada `updated_at` kullanılması temkinli bir seçim.
+- `audit_logs` FK'sinin kaldırılması değiştirilemezliği bozmuyor. Audit satırına dokunulmuyor, içerik özeti (`h`) sabit kalıyor ve G3 bunu test ediyor. NULL'lama alternatifinin reddi doğru.
+- Super Admin satırı tetikleyiciyle hiçbir zaman silinemiyor. Mezar taşı UPDATE'i DB'de engelleniyor. `users_deleted_chk` ve fail-closed NULL karşılaştırması yerinde.
+- Pasif firmaya yeni yazım mevcut kodda zaten kapalı: `requests/service.ts:85` ve `auth/session.ts:67` (`tenantActive`), acting tenant geçişi de aktif firma ister. `FENCE` ek bir kat.
+- Yetim taramasında yeniden adlandırma yapılmaması, 7 günlük gecikme ve atomik liste dosyası yarışları doğru kapatıyor.
+- `RETENTION_PURGE_MODE` varsayılanı `dry` (fail-safe); prod'a geçiş runbook adımına bağlı.
+- P17 AC-249 (reparse noktası, handle üzerinden silme) ve AC-251 (`(origin, tenantId)` karşılaştırması) güvenlik açısından doğru tasarlanmış.
+
+DURUM: DÜZELTİLMELİ — **mimara kısa geri dönüş gerekli** (Kritik 0 / Yüksek 2).
+
+- S16-1 (maske fail-closed + `entity = 'users'` + test) ve S17-1 (pencere modunda girdi kapsamı) tasarım metnine işlenmeden G4 ve I4 kodlanmamalı.
+- S16-2 ve S16-3 dba'nın G1 migration'ını (CHECK, ek tetikleyici, tetikleyici sayısı) değiştirdiği için G1'den **önce** karara bağlanmalı. S16-4 (vazgeçme penceresi) için kullanıcı kararı gerekir.
+- P17'de I1, I2 ve I3 S17-1'den bağımsızdır; hemen başlayabilir.
+- Düşük bulgular (S16-6..11, S17-2) `docs/gereksinimler.md` §9'a "Sonra" olarak eklenebilir. Ancak S16-11'in ilk maddesi (yedek tetikleyici sayısı) G7'ye dahil edilmeli, aksi hâlde ilk gece yedek FAIL olur.
+
+---
+
+## P16/P17 — Tasarım turu 2
+
+Kapsam: ADR-0030 r2, `docs/mimari-e11.md` §7.1–7.11 ve §8, `docs/tasarim-kontrol.md` "P16 r2". Mevcut kodla karşılaştırma: `jobs/retention-repo.ts:40`, `test/integration/retention-p13a-job.test.ts`, `docs/runbook.md` (`WATCH_ALERT_CMD`), ADR-0022.
+
+Özet: Kritik 0 / Yüksek 0 / Orta 1 / Düşük 4
+
+### Tur 1 bulgularının durumu
+
+| Bulgu          | Durum                         | Kanıt                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| -------------- | ----------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| S16-1 (Yüksek) | Kapandı                       | ADR m.4: maske, kullanıcı ya da firma satırı **yoksa** da uygulanıyor; `entity = "users"`; `AUDIT_IDENTITY_KEYS` iç içe nesnelerde de maskeleniyor; firma silme sonrası "e-posta 0" testi G3/G4'te                                                                                                                                                                                                                    |
+| S17-1 (Yüksek) | Kapandı                       | §8.1 AC-248: fare `WindowFromPoint` kökü, klavye ön plan kökü hedefte değilse olay düşüyor; simge durumunda bütün girdi düşüyor; örtüşme ve odak birim testleri I4 kabulünde                                                                                                                                                                                                                                          |
+| S16-2 (Orta)   | Kapandı                       | `tenant_id` için Crockford ULID CHECK'i var; her turda DB saatiyle uygunluk doğrulanıyor (`invalid_job`); `TENANT_ROW` → `tenant_row_deleted_at` aynı TX'te; `FILES` yalnız `TENANT_PREFIX_RE` ve `absDir` ile kuruluyor                                                                                                                                                                                              |
+| S16-3 (Orta)   | Kapandı (bkz. S16-14)         | `anonymized_at`/`revoked_at` için BEFORE UPDATE: bir kez yazılabiliyor, `[−1 g, +1 dk]` aralığında olmalı                                                                                                                                                                                                                                                                                                             |
+| S16-4 (Orta)   | Kısmen (bkz. S16-12)          | 24 saat `SCHEDULED`; `scheduled_for` INSERT'te DB saatine zorlanıyor ve geçişler tetikleyiciyle denetleniyor; iptal ucu step-up istiyor; `PURGING` yalnız RUNNING'de açılıyor; panel bandı, audit ve alarm var. E-posta "Sonra"ya bırakıldı (kabul edilebilir sapma)                                                                                                                                                  |
+| S16-5 (Orta)   | Kapandı (bkz. S16-13)         | İmha defteri DB dışında, yedek setinde ayrı dosya; `erasure:replay` + `erasure:verify` restore-verify'a bağlı; scratch için iki onay                                                                                                                                                                                                                                                                                  |
+| S16-6..11      | Kapandı                       | `previewId` oturuma, `passive_at`'a ve iş `id:updated_at`'ına bağlı, `preview_hash` UQ; mezar taşı giriş/sıfırlama sorgusundan süzülüyor; kesme anı DB saatiyle + 1 sa pay; devre kesici ve `UPLOAD_REFERENCE_SOURCES` meta-testi; iş satırı yalnız DONE/CANCELLED + 730 g sonra silinebiliyor; FAILED'de yeniden etkinleştirme 409 + tetikleyici; `BACKUP_EXPECTED_TRIGGERS` 22; `DELETE_RULE = RESTRICT` meta-testi |
+| S17-2 (Düşük)  | Kapandı (P15'e geri bildirim) | `reason` regex, sunucuda ≥ 1 sn sınır, Release elle kontrol maddesi                                                                                                                                                                                                                                                                                                                                                   |
+
+### [ORTA] S16-12 Bildirimin yerine konan operatör alarmının kanalı yok — A09
+
+Yer: ADR-0030 m.5 "Vazgeçme penceresi"; mimari-e11 §7.3 "Zamanlama ve bildirim"; `docs/runbook.md` dağıtım kaydı 2026-11-15 (`WATCH_ALERT_CMD` boş — "alarm kanalı kararı bekliyor").
+
+Sorun: E-posta düşünce, 24 saatlik pencerede başka birinin haberdar olması iki yola kalıyor:
+
+- Panel bandı: yalnız o 24 saat içinde panele giren bir Super Admin görür.
+- `remote-watch` alarmı: bugün hiçbir yere gitmiyor, çünkü `WATCH_ALERT_CMD` boş.
+
+Super Admin oturumu ele geçirilirse (ya da yönetici kötü niyetliyse), örneğin hafta sonu, 24 saat kimse fark etmeden geçebilir. Bu durumda S16-4'ün amacı (ikinci gözün iptal edebilmesi) gerçekleşmez.
+
+Düzeltme (atanan: devops; mimar yalnız ön koşul cümlesi ekler):
+
+- `WATCH_ALERT_CMD` (mevcut WhatsApp/Telegram kanalı) P16'nın prod açılışı için **ön koşul** olmalı. G7 kabulüne şu madde eklenmeli: "staging'de `SCHEDULED` iş → ≤ 10 dk içinde dış kanala mesaj".
+- `rs_tenant_purge_jobs{state="SCHEDULED"}` alarmının eşik süresi, 24 saatlik pencerenin içinde birden çok kez tetiklenecek biçimde ayarlanmalı (ör. her 10 dk turunda, durum sürdükçe).
+
+Bu bulgu kodlamayı engellemez. Prod açılışını engeller.
+
+### [DÜŞÜK] S16-13 İmha defteri yalnız DONE'da yazılıyor ve uygulama tarafından değiştirilebilir — A08
+
+Yer: ADR-0030 m.9.
+
+Sorun:
+
+- Defter satırı yalnız `DONE`'da yazılıyor. `TENANT_ROW` commit edildikten sonra `FILES`/`DONE` öncesinde alınan bir yedekten geri yükleme yapılırsa, defterde kayıt olmaz. Uzak bir olasılık.
+- Yazım hatasında işlem başarılı sayılıyor; yalnız alarm üretiliyor.
+- Dosyayı server süreci yazıyor (0600). `app` süreci ele geçirilirse defterden satır silinebilir ya da dosya kesilebilir. Bir sonraki restore'da veri sessizce geri gelir.
+
+Düzeltme:
+
+- Firma için defter satırı `SCHEDULED → RUNNING` geçişinde de yazılmalı (`phase: "started"`). Replay her iki satırı da işlemeli.
+- `backup.sh`, defter dosyası yoksa ya da bir önceki yedekteki boyutundan küçükse FAIL vermeli (yalnız eklenebilirliğin dışarıdan doğrulanması).
+- `erasure:replay` bir audit satırı yazmalı (`erasure.replayed`, sayılar).
+
+### [DÜŞÜK] S16-14 S16-3 tetikleyicisi mevcut testleri ve sahte saat yolunu kırar — A04 (uygulama tuzağı)
+
+Yer: `jobs/retention-repo.ts:40` (`anonymizedAt: now`, çağıranın saati); `test/integration/retention-p13a-job.test.ts:222` (`retention.run(Date.now() + 20 gün)`) ve `:332` (+1 gün); ADR-0030 m.3 son paragraf.
+
+Sorun: Bu testler işi `app` bağlantısıyla gelecek bir saatle çalıştırıyor. Yeni BEFORE UPDATE tetikleyicisi `anonymized_at > UTC_SYSDATE + 1 dk` değerini reddeder. ADR'deki "fikstür `migrator` ile kurulur" çözümü fikstürü kapsıyor, **işin kendi UPDATE'ini** kapsamıyor. Kırmızı CI'ı geçmek için tetikleyici aralığını gevşetme baskısı doğar.
+
+Düzeltme (atanan: backend-dev + dba):
+
+- Saklama işi `anonymized_at`'ı uygulama saatiyle değil DB saatiyle yazmalı (`UTC_TIMESTAMP(3)`). Kesme hesabı mantıksal saatle kalabilir.
+- Etkilenen testler fikstür satırlarını geçmişe çekecek biçimde yeniden yazılmalı (migrator ile), iş gerçek saatle koşmalı.
+- G1/G2 kabulüne şu madde eklenmeli: "tetikleyici aralığı `[−1 g, +1 dk]` değişmedi".
+
+### [DÜŞÜK] S17-3 Pencere modunda tuş bırakma olayları ve görünmeyen sahipli pencereler — A04
+
+Yer: mimari-e11 §8.1 AC-248 (girdi kapsamı).
+
+Sorun:
+
+- Klavye olayı odak değişince "düşürülüyor". Bu kural basma ile bırakma arasında da uygulanırsa `Ctrl`/`Alt`/`Win` basılı kalır ve kullanıcının kendi uygulamasındaki tuşları değiştirir (ör. `Ctrl` basılıyken yazılan harfler kısayol olur).
+- Sahipli menü ve diyaloglar girdiye kabul ediliyor, ancak WGC `CreateForWindow` bunları yakalamaz. Teknisyen görmediği bir diyalogla kör etkileşim kurar.
+
+Düzeltme:
+
+- Basma olayı gönderilmiş her tuşun bırakma olayı, odaktan bağımsız olarak her zaman gönderilmeli. Odak kaybında basılı bütün değiştirici tuşlar bırakılmalı.
+- Sahipli pencere görünürken konsola "Diyalog açık, görüntülenemiyor" durumu bildirilmeli ya da o diyaloğa girdi düşürülmeli. Seçim I0 prototip raporunda gerekçelendirilmeli.
+
+### [DÜŞÜK] S16-15 `tenant_purge_jobs` adım geçişi tetikleyicide tek yönlü değil — A04
+
+Yer: ADR-0030 m.3 (`tenant_purge_jobs` BEFORE UPDATE yalnız `state` geçişlerini ve sabit sütunları denetliyor).
+
+Sorun: `app` RUNNING bir işte `step` değerini ileri atlatabilir. Her turdaki uygunluk doğrulaması `FILES` ve sonrasını yakalıyor (`tenant_row_deleted_at` NULL ise `invalid_job`). Ancak `TENANT_ROW` öncesindeki atlamalar FK hatasıyla FAILED olur ve tutarsız bir ara durum bırakır. Güvenlik etkisi düşük.
+
+Düzeltme: Tetikleyiciye kural eklenmeli: `NEW.step` ya eski adıma ya da bir sonraki adıma eşit olabilir (sıra numarası `FIELD(...)` ile hesaplanır). `tenant_row_deleted_at` yalnız `step = 'TENANT_ROW'` iken NULL'dan dolu değere geçebilir.
+
+### Olumlu (tur 2)
+
+- `PURGING` koşulu `SCHEDULED` durumda kilidi açmıyor. `scheduled_for` INSERT'te DB saatine zorlanıyor ve değiştirilemiyor. Bu yüzden `app` ele geçirilse bile 24 saat + 30 gün beklemesi DB'de garanti.
+- `previewId` aynı oturuma bağlı. ADR-0022'de step-up aynı oturum satırına `step_up_at` yazıyor, oturum id'si değişmiyor; bağlama kullanım akışını kırmıyor.
+- FAILED işi sürdürmenin beklemesiz olması tutarlı: karar 24 saat önce verildi ve uygunluk her turda yeniden doğrulanıyor.
+- Maske anahtar kümesi `contracts`'ta tek tanım. Fazla maskeleme (ör. silinmiş firmanın müşteri adları) fail-closed tarafta kalıyor.
+- Tetikleyici sayısı (22) bütün tüketicilerde (continuity, check-app-grants, backup.sh, restore-verify) birlikte güncelleniyor.
+
+DURUM: GEÇTİ — **kodlamaya geçilebilir** (Kritik 0 / Yüksek 0); mimara dönüş gerekmiyor.
+
+- S16-12 (Orta) kodlamayı engellemez, **P16'nın prod açılışını engeller**: `WATCH_ALERT_CMD` kurulmadan prod'da firma silme açılmamalı (G7 kabulü).
+- S16-14, G1/G2 başlamadan backend-dev ve dba'ya iletilmeli. Aksi hâlde tetikleyici aralığı gevşetilebilir.
+- S16-13, S16-15 ve S17-3 (Düşük) ilgili görev paketlerine eklenebilir ya da `docs/gereksinimler.md` §9'a "Sonra" olarak yazılabilir.
+- S16-4 kullanıcı onayı bekleyen bir varsayım. Kullanıcı 24 saatlik beklemeyi reddederse S16-4 yeniden Orta olarak açılır.
+
+## P15 — kod turu 1
+
+DURUM: GEÇTİ
+Özet: Kritik 0 / Yüksek 0 / Orta 0 / Düşük 5
+
+Kapsam: `git diff 0dd1d99` (commit edilmemiş P15 değişiklikleri), AC-231..239. Kaynaklar: mimari-e11 §6, implementation.md "P15 — dba / frontend / backend", db-notlari "P15".
+
+### Bulgular (öncelik sırasıyla)
+
+### [DÜŞÜK] S15-1 Kabul kodu ayarı 0.10.x istemcide talebi bozuyor; sunucu sürüme göre ayırmıyor — A04 Insecure Design (erişilebilirlik)
+
+Yer: apps/server/src/requests/panel.ts:146 (acceptCode), apps/server/src/signaling/rooms.ts:174, packages/contracts/src/ws-request.ts (`admitCode`)
+Sorun: `requireAcceptCode` açıldığında `request.accepted` her istemciye `admitCode` ile gidiyor. 0.10.x istemci sıkı ayrıştırdığı için mesajı reddediyor ve kabul edilen talep bağlanamıyor. Talep satırında `clientVersion` var ama kullanılmıyor. Şu an tek önlem dokümandaki "kapalı kalsın" notu.
+İstismar senaryosu: Bir Admin ayarı açar. O tenant'taki tüm 0.10.x müşterilerin kabul edilen talepleri 60 sn sonra düşer. Bu bir saldırı değil, yapılandırma kaynaklı hizmet kaybı.
+Düzeltme: `r.clientVersion < 0.11.0` ise ya kabul kodsuz eski akışa düşülmeli ya da ayar ekranında bir uyarı gösterilip sunucu tarafında sürüm kapısı konmalı. P17 ile birlikte yapılabilir. (backend-dev, frontend-dev)
+
+### [DÜŞÜK] S15-2 Eski `session_files` satırları "Doğrulanmış" görünüyor — A08 Data Integrity
+
+Yer: apps/server/prisma/migrations/20261117000000_p15_g3/migration.sql:99, apps/server/src/sessions/history.ts (`groupFileReports`: NULL match_key → TECH)
+Sorun: P5 kuralına göre eski satır alıcının raporuydu. Bu yüzden `direction='TO_CUSTOMER'` olan eski satırlar aslında müşterinin raporu. Migration bunları `DEFAULT 'TECH'` ile işaretliyor, geçmiş ekranı ve CSV de "doğrulanmış" gösteriyor.
+İstismar senaryosu: P15'ten önce kötü niyetli bir müşteri istemcisinin uydurduğu TO_CUSTOMER dosya raporu, denetim/CSV kanıtında teknisyen doğrulamış gibi görünür.
+Düzeltme: Yeni veya düzeltme migration'ında `UPDATE session_files SET reported_by='CUSTOMER' WHERE match_key IS NULL AND direction='TO_CUSTOMER'` çalıştırılmalı. Alternatif olarak okuyucuda `match_key IS NULL` olan satır yöne göre sınıflandırılabilir. (dba, backend-dev)
+
+### [DÜŞÜK] S15-3 Cihaz engeli istemcinin gönderdiği `deviceKey`'e dayanıyor — A04 Insecure Design
+
+Yer: apps/server/src/requests/service.ts:344-347
+Sorun: DEVICE engeli `sha256(tenantId + input.deviceKey)` ile eşleşiyor. `deviceKey` isteğe bağlı ve tamamen istemcinin denetiminde.
+İstismar senaryosu: Engellenen kişi gövdeden `deviceKey` alanını çıkarır ya da rastgele bir değer gönderir; cihaz engeli atlanır. Bu durumda yalnız IP/önek engeli ve hız kovaları kalır.
+Düzeltme: Kod değişikliği gerekmiyor. Arayüzdeki "bu bilgisayar" seçeneğine ve kullanım kılavuzuna "cihaz engeli caydırıcıdır, kararlı bir saldırgan için IP/ağ engeli de ekleyin" notu yazılmalı. (frontend-dev, teknik-yazar)
+
+### [DÜŞÜK] S15-4 Panelden Super Admin şifre sıfırlamasında hedef kişiye bildirim gitmiyor — A09 Logging & Monitoring
+
+Yer: apps/server/src/auth/superadmin-routes.ts:60-73
+Sorun: Sıfırlama audit'e yazılıyor (`auth.superadmin_reset`, via=panel, aktör belli) ama hedef Super Admin e-posta almıyor. Recovery step-up akışında böyle bir e-posta var. Hedefin 2FA'sı korunduğu (`resetMfa=false`) için hesap ele geçirme riski düşük.
+İstismar senaryosu: Ele geçirilmiş bir Super Admin hesabı diğer Super Admin'leri arka arkaya sıfırlayıp kilitler. Hedefler bunu ancak bir sonraki girişte fark eder.
+Düzeltme: Commit sonrasında hedefe "şifreniz X tarafından sıfırlandı" e-postası gönderilmeli (SMTP yoksa `mail.sent{not_configured}` audit'i yeterli). (backend-dev)
+
+### [DÜŞÜK] S15-5 Engel önbelleğinde hata temizleyicisi daha yeni yüklemeyi silebilir — A04
+
+Yer: apps/server/src/requests/blocks.ts:129
+Sorun: `p.catch(() => this.byTenant.delete(tenantId))` haritada o an hangi promise varsa onu siliyor. Sıra şöyle olursa: P1 yüklemesi başlar → yazma `invalidate` çağırır → P2 yüklemesi başlar → P1 hata verir. Bu durumda P2 önbellekten düşer. Sonuç yalnızca fazladan bir DB okuması; güvenlik etkisi yok. Ters yönde, bayat engel listesinin kalması mümkün değil.
+Düzeltme: `if (this.byTenant.get(tenantId) === p) this.byTenant.delete(tenantId)`. (backend-dev)
+
+### Odak noktalarında doğrulananlar (bulgu yok)
+
+- **AC-231 kurtarma kodları** (`auth/account.ts` `regenerateRecoveryCodes`): yalnız TOTP kabul ediliyor ve `totp_last_step` koşullu UPDATE ile tüketiliyor (tekrar kullanım engelli). Deneme sayacı `hitMfaLimit` verify/step-up ile ortak (5 hata → kilit). Faktör tüketimi, eski kodların `deleteMany`'si, 10 yeni kodun yazılması ve audit tek TX'te. Audit'te yalnız `{count}` ya da `{reason}` var, kod yok. Yanıt `no-store`. Kodlar HMAC (`recovery-code` HKDF etiketi) ile saklanıyor. 2FA'sız hesap → `MFA_SETUP_REQUIRED`.
+- **AC-232 Super Admin sıfırlama:** sıra requireAuth → requireSuperAdmin → hız sınırı (5/dk) → step-up. Kendi id'si için 403. Hedef TX içinde koşullu UPDATE ile yeniden denetleniyor (etkin, silinmemiş SUPER_ADMIN). Oturumlar ve sıfırlama bağlantıları iptal ediliyor, `endLive` çağrılıyor. Geçici parola yalnız yanıtta (`no-store`). Audit'te parola yok, hata yolunda da sızmıyor. 2FA sıfırlanmıyor; geçici parola tek başına giriş için yetmiyor. Frontend'de parola yalnız React state'inde tutuluyor, storage/console/innerHTML kullanılmıyor.
+- **AC-233 logo kaldırma:** dosya yolu DB'den geliyor ve `systemLogoValueSchema` regex'i (`^system/[A-Za-z0-9_-]{16,100}\.(png|jpg|webp)$`) ile DB JSON şeması iki katmanlı bariyer oluşturuyor. Kullanıcı girdisi yok, path traversal yok. Satır kilidi + `{path:null}` + audit tek TX'te, dosya commit sonrasında siliniyor. `app` için DELETE yetkisi yok (V31).
+- **AC-235 engeller:**
+  - Tenant izolasyonu: tüm sorgular `tenantScope` ile, kaldırma `{id, tenantId}`, REQUEST kaynağı `supportRequest.findFirst({id, tenantId})`. Panel IP'yi/cihaz anahtarını görmüyor, yalnız 8 haneli parmak izi gösteriliyor.
+  - CIDR: `checkBlockCidr` `::ffff:` biçimini (noktalı ve hex) v4'e indirip öneki −96 ile düzeltiyor. `/0`, IPv4 < /24 ve IPv6 < /48 reddediliyor. `::ffff:x/100` → /4 → ret. DB `ip_range_chk` aynı sınırı ve hizalı ağ/yayın adresini ayrıca zorluyor.
+  - Kapı tarafı: `ipBytes` eşlemeli IPv6'yı 4 bayta indiriyor ve uzunluk eşitliği arıyor. `::/48` gibi bir IPv6 engeli IPv4'ü kapsamıyor (aşırı engel yok).
+  - IP kaynağı `trustProxy: TRUSTED_PROXY_CIDR` (yalnız Caddy). XFF sahteciliği ile atlatma yok.
+  - Güvenilir CIDR'ın muaf olmaması bilinçli bir karar ve doğru: engel kontrolü `trusted` dalının dışında.
+  - 1.000 sınırı tenant satırına `FOR UPDATE` ile seri hale geliyor, yarış yok.
+  - Önbellek her yazmada `finally` içinde geçersiz kılınıyor; süre dolumu karşılaştırma anında denetleniyor.
+  - Ret yanıtı tek tip (429 + `REQUEST_BUSY_MESSAGE`). Audit kısılıyor (`rateAudit` kovası), dolayısıyla audit şişirme yok.
+- **AC-236 avatar URL:** HKDF etiketi `remote-support/avatar-url/v1` diğer amaçlardan ayrık. `exp` için hem geçmiş hem "TTL'den uzak gelecek" reddediliyor. Karşılaştırma `safeEqual` (sha256 + timingSafeEqual). Rotasyonda tüm anahtar sürümleri deneniyor. Yolda token değil ULID var. Her istekte oturum durumu kontrol ediliyor. Yanıt başlıkları: `private, no-store`, `nosniff`, `sandbox` CSP. Hız sınırı 60/dk/IP. PENDING oturumda avatarın verilmesi yeni bir sızıntı değil: aynı resolve yanıtı teknisyen adını zaten döndürüyor, kitle aynı.
+- **AC-234 share.state:** `reason` `^[A-Z0-9_]{1,32}$`, `method` enum. Alanlar yeniden kuruluyor, gelen nesne aktarılmıyor. Birleştirme zamanlayıcısı `rooms.live` kontrolü yapıyor. Konsol etiketi React metni olarak basılıyor (XSS yok).
+- **AC-238 reported_by:** `reportedBy` istemciden değil, bağlantının rolünden (`from.side`) geliyor; müşteri TECH satırı üretemiyor. UQ `(session_id, match_key, reported_by)` olduğu için müşteri satırı teknisyen satırıyla çakışıp onu engelleyemiyor. Gruplamada TECH satırı gösteriliyor, müşteri aynı `match_key`'le bile içeriği değiştiremiyor. Kota S-P5-1 ile sınırlı.
+- **AC-239 kabul kodu:** `randomInt` ile 4 hane, saklanan değer `admitHash` (düz kod tutulmuyor), karşılaştırma `safeEqual`. `ADMIT_FAIL_MAX` sonrasında lobi boşaltılıyor. Tüketim `request_id` ile bağlı. Yeniden bağlanmada yeni kod üretiliyor. Kod yalnız müşterinin `/ws/request` kanalına gidiyor. 60 sn penceresi DB TTL CHECK'iyle tutarlı.
+- **Migration / grants:** `request_blocks` için SELECT/INSERT/DELETE verildi, UPDATE/ALTER/DROP/INDEX/TRIGGER/REFERENCES REVOKE edildi. CHECK'ler ikili harmanlamalı ve `\z` ile. Ön kontrol SIGNAL kalıbı kullanılmış. E-posta CHECK'lerindeki sonda satır sonu açığı (P14 devri) kapandı.
+
+### Otomatik tarama çıktıları
+
+- `pnpm audit --audit-level=moderate`: **No known vulnerabilities found**.
+- Diff'te gizli bilgi kalıbı (`api_key|secret|password|token = '…'`): 0 eşleşme.
+- `git log --all -- '*.env'`: boş, `.env` geçmişte yok.
+
+### Tasarımda vaat edilip kodda bulunmayanlar
+
+- AC-238 `fid`: web `lib/dc/files.ts:311-338` `file.meta`'ya `fid` eklemiyor. Bu yüzden teknisyenin gönderdiği (TO_CUSTOMER) dosyalarda gönderen raporu yalnız audit'e gidiyor; satır yalnız müşteri alıcı raporu olarak oluşuyor ve "Müşteri bildirimi" görünüyor. Go 0.11 istemcisi `fid` gönderdiğinde TO_TECH aktarımı iki ayrı grup olarak listelenir (teknisyenin fid'siz satırı + müşterinin fid'li satırı). Bu güvenlik açığı değil, işlev/doğruluk boşluğu. Not qa'ya ve frontend-dev'e (P15 düzeltmesi ya da P17).
+
+### Olumlu
+
+Tüm hassas uçlar `no-store` dönüyor ve hız sınırına sahip. P13b sıfırlama çekirdeği kopyalanmadan yeniden kullanılmış. Engel tablosunda UPDATE yetkisi yok, süre değişikliği DELETE+INSERT ile yapılıyor ve iz audit'te kalıyor. İmzalı URL'de token yerine ULID kullanılması log sızıntısını önlüyor. Kodlar ve parolalar audit/log'a girmiyor.
+
+Öneri: S15-1..5, `docs/gereksinimler.md` §9'a "Sonra" olarak eklenebilir. S15-1, ayarın prod'da açılmasından önce kapatılmalı.
+
+## P15 — kod turu 2
+
+DURUM: GEÇTİ
+Özet: Kritik 0 / Yüksek 0 / Orta 1 / Düşük 1
+
+Kapsam: P15 düzeltme turu 1 (implementation.md "P15 düzeltme 1" tablosu). S15-1..5 yeniden doğrulandı. Ayrıca `sessions/history.ts` içindeki fid'siz eşleme değerlendirildi.
+
+### S15-1..5 yeniden doğrulama
+
+| Bulgu | Durum                                     | Kanıt / not                                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| ----- | ----------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| S15-1 | Kapandı, ancak yeni bulgu S15-6 doğdu     | `requests/panel.ts:154-155`: `admitCode` yalnız `compareVersions(clientVersion, "0.11.0") >= 0` olduğunda üretiliyor. 0.10.x istemci artık bozulmuyor. Audit `acceptVerification:false, reason:"client_unsupported"` (`panel.ts:184`) ve info logu var. Fakat seçilen çözüm fail-open; aşağıya bkz. S15-6.                                                                                                                                                 |
+| S15-2 | Kapandı                                   | `migration.sql:102-106`: `UPDATE session_files SET reported_by='CUSTOMER' WHERE match_key IS NULL AND direction='TO_CUSTOMER'`. Sütun eklemenin hemen ardından çalışıyor ve idempotent. down.sql'deki not doğru (sütunla birlikte düşüyor). Uyarı: migration dosyası yerinde değiştirildi. Bu ancak p15_g3 henüz hiçbir kalıcı DB'ye (staging dahil) uygulanmadıysa güvenli, aksi hâlde checksum uyuşmazlığı çıkar. P15 commit edilmemiş, şu an sorun yok. |
+| S15-3 | Kapandı                                   | `tr.json` `bl.deviceNote`; `request-blocks/page.tsx:128`'de görünüyor.                                                                                                                                                                                                                                                                                                                                                                                     |
+| S15-4 | Kabul edildi ("Sonra"), Düşük olarak açık | Gerekçe geçerli: Super Admin'in tenant'ı yok, `configFor(null)` → sistem SMTP'si yok, dolayısıyla e-posta her zaman `not_configured` olurdu. Sıfırlama audit'te aktörüyle (`via=panel`) kayıtlı, hedefin 2FA'sı korunuyor. Öneri (Sonra): sistem SMTP gelene kadar hedef, bir sonraki girişte zorunlu şifre değiştirme ekranında "Şifreniz <ad> tarafından <tarih>'te sıfırlandı" bilgisini görsün (e-posta gerektirmez). gereksinimler §9'a eklenmeli.    |
+| S15-5 | Kapandı                                   | `requests/blocks.ts`: `if (this.byTenant.get(tenantId) === p) this.byTenant.delete(tenantId)`.                                                                                                                                                                                                                                                                                                                                                             |
+
+### Bulgular
+
+### [ORTA] S15-6 Kabul kodu, istemcinin beyan ettiği sürümle sessizce atlanabiliyor (fail-open) — A04 Insecure Design / A07
+
+Yer: apps/server/src/requests/panel.ts:154-155 (`compareVersions(r.clientVersion, ACCEPT_CODE_MIN_CLIENT_VERSION)`), packages/contracts/src/api/requests.ts:548. Web konsolunda ve talep kartında bu duruma ait bir uyarı yok (`acceptVerification` web'de hiç kullanılmıyor).
+Sorun: `clientVersion`, talep gövdesinde istemcinin kendi beyanı. Ayar açıkken "0.10.x" beyan eden her talep kodsuz, otomatik bağlanma akışına düşüyor. Teknisyen bunu hiçbir yerde görmüyor; iz yalnız audit/log'da. Implementation notundaki "kod zaten aynı istemciye gider, düşük sürüm beyanı ek yetki vermez" gerekçesi AC-239'un tehdit modelini kaçırıyor. Kodun amacı şu: teknisyen kodu **telefondaki gerçek müşteriden** alır, kod ise kabul edilen talebin istemcisine gider. Teknisyen yanlış talebi kabul ederse telefondaki müşteri kodu göremez ve hata ortaya çıkar. Sürümü düşük beyan etmek bu doğrulamayı tamamen kaldırıyor.
+İstismar senaryosu: Saldırgan, aradığı bilinen bir müşterinin adı/firma ref'iyle `clientVersion:"0.10.9"` beyan eden bir talep açar (değiştirilmiş istemci ya da doğrudan HTTP). Teknisyen kuyruktaki iki benzer karttan saldırganınkini kabul eder. Kod istenmediği için oturum otomatik kurulur ve teknisyen saldırganın makinesine bağlanır; dosya gönderebilir, kimlik bilgisi yazabilir. Firma "kabul kodu açık" olduğu için korunduğunu sanır.
+Düzeltme (birini seçin, mimar onayıyla):
+(a) Fail-closed: ayar açıkken eski istemcinin talebi kabulde net bir mesajla reddedilsin ("Müşterinin uygulaması kabul kodunu desteklemiyor; güncelleme isteyin"). İstenirse tenant `MIN_AGENT_VERSION` mantığı ile birleştirilebilir.
+(b) En azından görünür uyarı: kabul yanıtı ve `request.accepted` sonrasında konsola `acceptVerification:false` iletilsin. Talep kartı ve konsolda "Kabul kodu doğrulanmadı (eski istemci 0.10.x) — müşteriyi başka yolla doğrulayın" uyarısı `role=alert` ile gösterilsin. Kartta sürüm < 0.11 ise kabul düğmesinde ek onay istensin.
+Ayar açıklamasındaki (`srs.ac.desc`) "eski istemciler kodsuz bağlanır" uyarısı Admin'i bilgilendiriyor ama teknisyeni anında korumuyor. Bu yüzden Orta.
+(atanan ajan: backend-dev + frontend-dev; karar: mimar)
+
+### [DÜŞÜK] S15-4 Super Admin panel sıfırlamasında hedefe bildirim yok — Sonra (yukarıdaki tablo)
+
+### Değerlendirme: fid'siz eski istemci eşlemesi (`sessions/history.ts:377-411` `groupFileReports`)
+
+Sonuç: **sahte "Doğrulanmış" üretilemiyor, bulgu yok.**
+
+- `verified` yalnız grupta `reportedBy !== "CUSTOMER"` olan bir satır varken true oluyor. `reportedBy` bağlantı rolünden yazılıyor (`collab.ts`), müşteri TECH satırı üretemiyor. Birleştirme yalnız "müşteri-yalnız grup → var olan, eşi olmayan TECH grubu" yönünde. TECH satırı olmayan bir içerik hiçbir yolla doğrulanmış olamıyor. Gösterilen satır her zaman TECH satırı, bu yüzden müşteri ad/sonuç/özet alanlarını değiştiremiyor.
+- Kalan etki yalnız sayımla sınırlı (bütünlük açısından önemsiz):
+  - Müşteri, aynı yön + SHA-256 + boyutu taşıyan uydurma bir raporu gerçek bir TECH grubuna katarsa o rapor ayrıca "Müşteri bildirimi" olarak görünmez. Bilgi kaybı yok, çünkü içerik teknisyence zaten doğrulanmış.
+  - Bire bir eşleme sırası nedeniyle uydurma bir müşteri satırı gerçek fid'siz eşin yerini alabilir. Bu durumda gerçek rapor ayrı bir "Müşteri bildirimi" satırı olarak görünür; hatalı yönde değil, temkinli yönde bir sapma.
+  - Kod yorumu "fid'siz" diyor ama birleştirme fid'li müşteri-yalnız gruplara da uygulanıyor. Etkisi aynı ve zararsız; yorumun düzeltilmesi önerilir (qa notu).
+- Satır şişirme UQ `(session_id, match_key, reported_by)` ve S-P5-1 kotasıyla sınırlı.
+
+### Otomatik tarama
+
+Bu turda yeni bağımlılık yok (implementation.md). Kod turu 1'deki `pnpm audit` sonucu (açık yok) geçerli.
+
+Öneri: S15-6, ayar (`requireAcceptCode`) prod'da herhangi bir tenant için açılmadan önce kapatılmalı. Kapatılana kadar runbook/kılavuzda "ayar yalnız tüm istemciler ≥ 0.11 olduğunda güvenlik kontrolü sayılır" yazılmalı. S15-6 ve S15-4, gereksinimler §9'a eklenmeli.
+
+### P15 — S15-6 kapanış notu (düzeltme turu 2)
+
+S15-6 seçenek (a) ile fail-closed kapatıldı: `requests/panel.ts` `acceptRequest`, firmada `requireAcceptCode` açıkken
+`clientVersion` < 0.11.0 olan talebin kabulünü transaction içinde, durum güncellemesinden önce 409
+`ACCEPT_CODE_CLIENT_UNSUPPORTED` ile reddeder; talep PENDING kalır, oturum açılmaz, audit `request.accepted`
+`result:"fail"`, `reason:"client_unsupported"`. Kodsuz geçiş dalı kaldırıldı. Int testleri: ayar açık + 0.10.4 → 409,
+ayar kapalı + 0.10.4 → normal kabul, 0.11.0 akışı değişmedi (test:int 636 geçti). Durum: **Kapandı**. S15-4 gereksinimler §9'da.

@@ -58,12 +58,24 @@ export async function admitGuest(rooms: Rooms, room: Room, tech: TechConn, code:
   try {
     ok = await rooms.db.$transaction(async (tx) => {
       const keys = guest.netKey && guest.ipKey ? { guestIpKey: guest.ipKey, guestNetKey: guest.netKey } : {};
-      if ((await repo.consumeForAdmit(tx, room.sessionId, now, guest.kind, customerOf(guest), keys)) !== 1) return false; // count=0 → consent yazılmaz
-      await recordViewConsent(tx, room.sessionId, room.tenantId, guest.consent);
-      const c = guest.consent;
+      const rid = guest.requestId; // P15 (AC-239): kabul kodlu talep oturumu — tüketim `AND request_id = :rid`
+      const extra = rid ? { ...keys, requestId: rid } : keys;
+      if ((await repo.consumeForAdmit(tx, room.sessionId, now, guest.kind, customerOf(guest), extra)) !== 1) return false; // count=0 → consent yazılmaz
+      // Talep oturumunda onay kaydı bu bağlantının IP/UA'sıyla (admitRequestGuest ile aynı kural, §5.2 adım 2).
+      const c = rid
+        ? { ...guest.consent, at: now, ip: guest.ctx?.ip ?? "", userAgent: (guest.ctx?.userAgent ?? "").slice(0, 300) }
+        : guest.consent;
+      await recordViewConsent(tx, room.sessionId, room.tenantId, c, rid);
       await audit(
         "success",
-        { guestId: guest.id, guestKind: guest.kind, consentTextId: c.textId, consentVersion: String(c.version), consentSha256: c.sha256 },
+        {
+          guestId: guest.id,
+          guestKind: guest.kind,
+          consentTextId: c.textId,
+          consentVersion: String(c.version),
+          consentSha256: c.sha256,
+          ...(rid ? { via: "request", requestId: rid } : {}),
+        },
         tx,
       );
       return true;
@@ -90,6 +102,7 @@ export async function admitGuest(rooms: Rooms, room: Room, tech: TechConn, code:
     ...(tech.permissions.has("remote_control.use") ? (["remote_control"] as const) : []),
     ...(tech.permissions.has("file_transfer.use") ? (["file_transfer"] as const) : []),
   ];
+  if (guest.requestId) rooms.requestHooks?.admitted(guest.requestId); // P15 (AC-239): bağlanma zamanlayıcısı durur
   const limits = await repo.activeLimits(rooms.db, room.tenantId);
   room.maxFileMb = limits.maxFileMb;
   rooms.startActive(room, guest, now.getTime(), limits.maxActiveHours);

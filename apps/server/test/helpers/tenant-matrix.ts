@@ -6,7 +6,8 @@
 //  - list:   tenant kayıtlarını listeleyen GET → B'nin yanıtı kendi kaydını içerir, A'nınkini içermez
 // Yeni paket uç eklediğinde ROUTE_CLASSES + (tenant ise) CROSS_TENANT_CASES'e satır ekler.
 import type { FastifyInstance, InjectOptions } from "fastify";
-import { createSupportSessionRow, createTenant, createUser, type TestUser } from "./app.ts";
+import { newId, sha256Hex } from "../../src/lib/ids.ts";
+import { createSupportSessionRow, createTenant, createUser, testDb, type TestUser } from "./app.ts";
 import { createCustomerRow, createRequestRow } from "./requests.ts";
 
 // P8b: "scoped" = tenantScope'lu koleksiyon/ayar ucu (id'siz); izolasyonu requests-p8b.test.ts ("AC-147/148") ve
@@ -142,11 +143,21 @@ export const ROUTE_CLASSES: Record<string, RouteClass> = {
   // P14b (AC-225/226): seçenek uçları (izolasyon: security-p14a-users.test.ts "AC-225")
   "GET /api/v1/users/options": "scoped",
   "GET /api/v1/admin/tenants/options": "system",
+  // P15 (AC-231..236): kurtarma kodu kendi hesabı; SA sıfırlama + sistem logosu kaldırma sistem; engeller tenantScope'lu
+  // koleksiyon (izolasyon: p15-backend.test.ts "AC-235") + id'li kaldırma; imzalı avatar kimliksiz (imza + oturum durumu).
+  "POST /api/v1/auth/mfa/recovery-codes": "self",
+  "GET /api/v1/admin/superadmins": "system",
+  "POST /api/v1/admin/superadmins/:id/reset-password": "system",
+  "DELETE /api/v1/admin/settings/system-logo": "system",
+  "GET /api/v1/request-blocks": "scoped",
+  "POST /api/v1/request-blocks": "scoped",
+  "DELETE /api/v1/request-blocks/:id": "tenant",
+  "GET /api/v1/public/sessions/:sessionId/tech-avatar": "public",
 };
 
 export interface TwoTenants {
-  a: { tenantId: string; admin: TestUser; user: TestUser; sessionId: string; requestId: string; customerId: string };
-  b: { tenantId: string; admin: TestUser; user: TestUser; sessionId: string; requestId: string; customerId: string };
+  a: { tenantId: string; admin: TestUser; user: TestUser; sessionId: string; requestId: string; customerId: string; blockId: string };
+  b: { tenantId: string; admin: TestUser; user: TestUser; sessionId: string; requestId: string; customerId: string; blockId: string };
 }
 
 export interface CrossTenantCase {
@@ -223,6 +234,8 @@ export const CROSS_TENANT_CASES: CrossTenantCase[] = [
     route: "GET /api/v1/files/avatar/:tenantId/:file",
     request: (fx) => ({ method: "GET", url: `/api/v1/files/avatar/${fx.a.tenantId}/${"A".repeat(24)}.webp` }),
   },
+  // P15 (AC-235): A'nın engelini B Admin'i kaldıramaz → 404
+  { route: "DELETE /api/v1/request-blocks/:id", request: (fx) => ({ method: "DELETE", url: `/api/v1/request-blocks/${fx.a.blockId}` }) },
   {
     route: "POST /api/v1/support-requests/:id/reject",
     request: (fx) => ({
@@ -254,7 +267,11 @@ export async function twoTenants(): Promise<TwoTenants> {
     const session = await createSupportSessionRow({ tenantId: t.id, technicianId: user.id });
     const request = await createRequestRow(t.id); // P8b
     const customer = await createCustomerRow(t.id); // P8c
-    return { tenantId: t.id, admin, user, sessionId: session.id, requestId: request.id, customerId: customer.id };
+    const blockId = newId(); // P15 (AC-235)
+    await testDb().requestBlock.create({
+      data: { id: blockId, tenantId: t.id, kind: "DEVICE", deviceKeyHash: sha256Hex(blockId), createdBy: admin.id },
+    });
+    return { tenantId: t.id, admin, user, sessionId: session.id, requestId: request.id, customerId: customer.id, blockId };
   };
   return { a: await side(), b: await side() };
 }

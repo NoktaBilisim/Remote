@@ -1,12 +1,13 @@
 // P5 konsol işbirliği sinyalleri (mimari-protokol §3; AC-46, AC-53, AC-55, AC-117, AC-119; db-notlari P5).
-// `file.meta`: alıcının raporu session_files + audit (tek TX); gönderenin raporu yalnız audit (S-P5-3). Ad sunucuda da
+// `file.meta`: alıcının raporu session_files + audit (tek TX); P15 (AC-238): `fid`'li gönderen raporu da ayrı satır
+// (`reported_by`, `match_key` ile eşlenir); fid'siz gönderen raporu yalnız audit (S-P5-3). Ad sunucuda da
 // temizlenir. Kota raporlayan taraf × sınıf başına (S-P5-1; gönderen raporu ayrı `sender` sınıfı, S-P5-T2-3).
 // `quality.summary`: yalnız tüketilmiş (ACTIVE) oturuma, periyodik üzerine yazma. İçerik hiçbir zaman WS'den geçmez.
 import { maxFileBytes } from "@remote/contracts/dc";
 import { sanitizeFileName } from "@remote/contracts/files";
 import type { FileMeta, QualitySummary } from "@remote/contracts/ws";
 import { writeAudit, type AuditContext } from "../audit/service.ts";
-import { newId } from "../lib/ids.ts";
+import { newId, sha256Hex } from "../lib/ids.ts";
 import type { Rooms } from "./rooms.ts";
 import type { FileMetaClass, Peer, Room } from "./types.ts";
 
@@ -86,7 +87,18 @@ export function isCheckViolation(err: unknown): boolean {
   return cause?.code === 3819 || cause?.originalCode === "3819";
 }
 
-export type FileMetaResult = "recorded" | "sender_reported" | "forbidden" | "rate_limited" | "too_large" | "rejected_by_db" | "error";
+export type FileMetaResult =
+  "recorded" | "sender_reported" | "duplicate" | "forbidden" | "rate_limited" | "too_large" | "rejected_by_db" | "error";
+
+/**
+ * P15 (AC-238, db-notlari P15): aynı aktarımın iki taraf raporunu eşleyen anahtar. `fid` yoksa (0.10.x) eşleşme
+ * olmasın diye satıra özgü rastgele bileşen kullanılır — anahtar yeni satırlarda her zaman dolu (down.sql buna dayanır).
+ */
+export const fileMatchKey = (sessionId: string, m: FileMeta, fid: string): string =>
+  sha256Hex(`${sessionId}\n${m.direction}\n${fid}\n${m.sha256}\n${m.sizeBytes}`);
+
+/** Prisma P2002 (UQ session_id+match_key+reported_by): aynı taraf aynı aktarımı ikinci kez raporladı → yok sayılır. */
+const isDuplicate = (err: unknown): boolean => typeof err === "object" && err !== null && (err as { code?: unknown }).code === "P2002";
 
 export async function handleFileMeta(rooms: Rooms, room: Room, from: Reporter, m: FileMeta): Promise<FileMetaResult> {
   // G-09/AC-119: teknisyenin dosya yetkisi yoksa (caps'te yok) meta da kabul edilmez.
@@ -118,10 +130,10 @@ export async function handleFileMeta(rooms: Rooms, room: Room, from: Reporter, m
   const fileName = sanitizeFileName(m.fileName);
   const value = fileAuditValue(room.sessionId, m, fileName);
   const outcome = m.result === "OK" ? "success" : "fail";
+  const isSender = from.side !== receiver;
   try {
-    if (from.side !== receiver) {
-      // S-P5-3: gönderenin raporu session_files'a yazılmaz (tek kaynak alıcı), ama audit'te kalır — TO_TECH'te teknisyen
-      // raporlamasa da müşteri tarafının izi olur.
+    if (isSender && m.fid === undefined) {
+      // S-P5-3 (fid'siz 0.10.x istemci): gönderenin raporu session_files'a yazılmaz (eşlenemez), ama audit'te kalır.
       await writeAudit(rooms.db, ctx, {
         tenantId: room.tenantId,
         ...actor,
@@ -134,7 +146,10 @@ export async function handleFileMeta(rooms: Rooms, room: Room, from: Reporter, m
       rooms.metrics.inc("rs_file_meta_total", { result: "sender_reported" });
       return "sender_reported";
     }
+    // P15 (AC-238): fid varsa iki tarafın raporu da ayrı satır (`reported_by` = raporlayan bağlantının rolü).
     const id = newId();
+    const reportedBy = from.side === "tech" ? "TECH" : "CUSTOMER";
+    const matchKey = fileMatchKey(room.sessionId, m, m.fid ?? `legacy:${id}`);
     await rooms.db.$transaction(async (tx) => {
       await tx.sessionFile.create({
         data: {
@@ -146,27 +161,33 @@ export async function handleFileMeta(rooms: Rooms, room: Room, from: Reporter, m
           sizeBytes: BigInt(m.sizeBytes),
           sha256: m.sha256,
           result: m.result,
+          reportedBy,
+          matchKey,
         },
       });
       await writeAudit(tx, ctx, {
         tenantId: room.tenantId,
         ...actor,
-        action: "file.transfer",
+        action: isSender ? "file.transfer.sender_report" : "file.transfer",
         entity: "session_files",
         entityId: id,
         result: outcome,
-        newValue: value,
+        newValue: { ...value, reportedBy },
       });
     });
   } catch (err) {
+    if (isDuplicate(err)) {
+      rooms.metrics.inc("rs_file_meta_total", { result: "duplicate" });
+      return "duplicate";
+    }
     if (isCheckViolation(err)) return rejectedByDb(rooms, room, from, ctx, actor, m);
     const ref = newId();
     rooms.log.error({ err, ref, event: "file_meta_write_failed", sessionId: room.sessionId }, "file.meta yazılamadı");
     rooms.metrics.inc("rs_file_meta_total", { result: "error" });
     return "error";
   }
-  rooms.metrics.inc("rs_file_meta_total", { result: "recorded" });
-  return "recorded";
+  rooms.metrics.inc("rs_file_meta_total", { result: isSender ? "sender_reported" : "recorded" });
+  return isSender ? "sender_reported" : "recorded";
 }
 
 type Actor = { userId?: string; username: string };

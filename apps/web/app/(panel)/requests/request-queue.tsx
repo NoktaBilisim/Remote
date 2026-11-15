@@ -17,6 +17,7 @@ import { useNow } from "@/lib/use-now";
 import { RejectDialog } from "./reject-dialog";
 import { RequestCard } from "./request-card";
 import { RevokeBindingDialog } from "./revoke-binding-dialog";
+import { RequestBlockDialog } from "@/components/request-blocks/block-dialogs";
 
 const POLL_MS = 15_000;
 
@@ -36,6 +37,7 @@ export function RequestQueue({
   canAccept,
   canSettings,
   canRevoke = false,
+  canBlock = false,
   customer,
 }: {
   initial: SupportRequestItem[];
@@ -43,6 +45,8 @@ export function RequestQueue({
   canSettings: boolean;
   /** P8c r2 (§15.2) + B-P8c-3: `customers.edit` ve `support_requests.view`. */
   canRevoke?: boolean;
+  /** P15 (AC-235): `support_requests.block` → kart menüsünde "Bu kaynağı engelle". */
+  canBlock?: boolean;
   /** P8c (AC-176): müşteri filtresi (`general` | ULID); yenilemelerde de uygulanır. */
   customer?: string;
 }) {
@@ -56,6 +60,7 @@ export function RequestQueue({
   const [busyId, setBusyId] = useState<string | null>(null);
   const [rejecting, setRejecting] = useState<SupportRequestItem | null>(null);
   const [revoking, setRevoking] = useState<SupportRequestItem | null>(null);
+  const [blocking, setBlocking] = useState<SupportRequestItem | null>(null);
   const seq = useRef(0);
 
   const refresh = useCallback(async () => {
@@ -162,6 +167,7 @@ export function RequestQueue({
                 onAccept={() => void accept(it)}
                 onReject={() => setRejecting(it)}
                 onRevokeBinding={canRevoke ? () => setRevoking(it) : undefined}
+                onBlock={canBlock ? () => setBlocking(it) : undefined}
               />
             </li>
           ))}
@@ -179,6 +185,14 @@ export function RequestQueue({
           setRejecting(null);
           drop(id);
           toast(code === "REQUEST_TAKEN" ? t("rq.err.taken") : t("rq.err.closed"), "danger");
+        }}
+      />
+      <RequestBlockDialog
+        request={blocking ? { id: blocking.id, name: blocking.customerName ?? t("rq.anon") } : null}
+        onClose={() => setBlocking(null)}
+        onSaved={() => {
+          setBlocking(null);
+          toast(t("bl.rq.done"));
         }}
       />
       <RevokeBindingDialog

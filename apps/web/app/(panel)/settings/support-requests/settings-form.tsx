@@ -1,6 +1,20 @@
 "use client";
 
-import { Copy, Link2, Mail, MessageSquare, Plus, RefreshCw, RotateCcw, Save, Send, ShieldCheck, Timer, Trash2 } from "lucide-react";
+import {
+  Copy,
+  KeyRound,
+  Link2,
+  Mail,
+  MessageSquare,
+  Plus,
+  RefreshCw,
+  RotateCcw,
+  Save,
+  Send,
+  ShieldCheck,
+  Timer,
+  Trash2,
+} from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { MailTestDialog } from "@/components/account/mail-test-dialog";
@@ -277,6 +291,19 @@ export function SettingsForm({ initial }: { initial: SupportRequestSettings }) {
               onChange={(e) => set({ waitMinutes: e.target.value })}
               error={errText(errors.waitMinutes)}
               hint={t("srs.wait.hint", { min: WAIT_MIN, max: WAIT_MAX })}
+            />
+          </Section>
+
+          {/* P15 (AC-239): kabul kodu — açıkken kabul, müşteri ekranındaki 4 haneli kodla tamamlanır (AC-112) */}
+          <Section id="ac" title={t("srs.ac.title")} Icon={KeyRound}>
+            <Switch
+              label={t("srs.ac.label")}
+              checked={st.acceptCode}
+              onChange={(v) => set({ acceptCode: v })}
+              description={t("srs.ac.desc")}
+              onText={t("rq.on")}
+              offText={t("rq.off")}
+              testId="accept-code-switch"
             />
           </Section>
 

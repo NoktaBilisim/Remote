@@ -261,3 +261,52 @@ export const OUTBOUND_REASON_LABELS: Readonly<Record<string, string>> = {
   unreachable: "Servise ulaşılamadı",
   invalid_response: "Servis geçersiz yanıt döndürdü",
 };
+
+/**
+ * P15 (AC-234): `share.state.reason` — istemcinin paylaşım hatası neden kodu (Go `capture.Reason`). Kişisel veri yok.
+ * Bilinmeyen kod (yeni istemci) `describeShareFailure` ile "Bilinmeyen neden (KOD)" olarak gösterilir (S17-2).
+ */
+export const SHARE_FAIL_REASON_LABELS: Readonly<Record<string, string>> = {
+  DXGI_UNSUPPORTED: "Ekran yakalama bu ekran kartında/ayarda desteklenmiyor (hibrit GPU, HDR veya eski sürücü)",
+  DXGI_ACCESS_DENIED: "Ekran yakalamaya izin verilmedi (kilit ekranı veya güvenli masaüstü)",
+  DXGI_NOT_AVAILABLE: "Ekran yakalama şu an kullanılamıyor (tam ekran uygulama veya uzak masaüstü)",
+  NO_OUTPUT: "Seçilen monitör bulunamadı",
+  D3D_DEVICE: "Grafik aygıtı başlatılamadı",
+  FIRST_FRAME_TIMEOUT: "Ekran görüntüsü zamanında alınamadı",
+  GDI_FAILED: "Yedek ekran yakalama yöntemi de başarısız oldu",
+  MF_STARTUP: "Windows medya bileşenleri eksik (Media Feature Pack)",
+  NO_H264_ENCODER: "Bilgisayarda görüntü kodlayıcı (H.264) bulunamadı",
+  ENCODER_CONFIG: "Görüntü kodlayıcı ayarları kabul etmedi",
+  ENCODE_FAILED: "Yayın sırasında görüntü kodlama hatası",
+  OTHER: "Diğer hata",
+};
+
+/** P15 (AC-234): `share.state.method` — son denenen yakalama yolu. */
+export const SHARE_METHOD_LABELS: Readonly<Record<string, string>> = {
+  DXGI: "Masaüstü çoğaltma (DXGI)",
+  GDI: "Yedek yakalama (GDI)",
+  WGC: "Pencere yakalama (WGC)",
+};
+
+/**
+ * P15 (AC-234): konsoldaki paylaşım hatası metni. Bilinen kod → Türkçe etiket; bilinmeyen → "Bilinmeyen neden (KOD)"
+ * (ham kod korunur). `method` varsa parantez içinde eklenir. `reason` yoksa null (0.10.x istemci: metin yok).
+ */
+export function describeShareFailure(reason: string | null | undefined, method?: string | null): string | null {
+  if (!reason) return null;
+  const base = Object.hasOwn(SHARE_FAIL_REASON_LABELS, reason)
+    ? (SHARE_FAIL_REASON_LABELS[reason] ?? reason)
+    : `Bilinmeyen neden (${reason})`;
+  return method ? `${base} — ${labelOf(SHARE_METHOD_LABELS, method)}` : base;
+}
+
+/** P15 (AC-238): `session_files.reported_by`. */
+export const FILE_REPORTED_BY_LABELS: Readonly<Record<string, string>> = {
+  TECH: "Teknisyen",
+  CUSTOMER: "Müşteri",
+};
+/** P15 (AC-238): teknisyen raporlu ya da iki tarafça eşleşen satır. */
+export const FILE_VERIFIED_LABEL = "Doğrulanmış";
+/** P15 (AC-238): yalnız müşteri tarafının bildirdiği satır (sunucu teknisyen tarafından doğrulamadı). */
+export const FILE_CUSTOMER_REPORT_LABEL = "Müşteri bildirimi";
+export const fileVerificationLabel = (verified: boolean): string => (verified ? FILE_VERIFIED_LABEL : FILE_CUSTOMER_REPORT_LABEL);

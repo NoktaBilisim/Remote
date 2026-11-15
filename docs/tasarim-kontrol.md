@@ -580,3 +580,55 @@ Kontrol listesi baştan gezildi; değişmeyen maddeler ana karardaki gibi kalır
 | 8. Lisans / bağımlılık                        | Kapsam dışı: yeni bağımlılık yok                                                                                                                                    | —                | —              |
 | 9. AC / riskler / DoD                         | Kapsamda: AC-304..316 eşlemesi §11; R-L6, R-L7 eklendi; K-L1..K-L4 proje-yoneticisine                                                                               | §11–12           | —              |
 | 9. Dokümantasyon                              | Kapsamda: mimari-api satırı, kılavuz, CHANGELOG                                                                                                                     | §10.3            | P13b-L         |
+
+## P16 — Kalıcı silme (2026-11-15, `docs/mimari-e11.md` §7, ADR-0030)
+
+Kontrol listesi baştan gezildi; değişmeyen maddeler E11 kararındaki gibi kalır, yalnız bu işe dokunanlar yazıldı.
+
+| Madde                    | Karar                                                                                                                                                                   | Gerekçe / nerede | Paket |
+| ------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------- | ----- |
+| 1. Yetki / IDOR          | Kapsamda: `users.delete` + `canManage` + tenant kapsamı; firma silme yalnız SUPER_ADMIN; Super Admin hedefi silinemez                                                   | §7.5             | P16   |
+| 1. Kimlik doğrulama      | Kapsamda: iki silme ucunda step-up (varsayım: kullanıcı silmede de)                                                                                                     | ADR-0030         | P16   |
+| 1. Hesap silme (KVKK)    | Kapsamda: mezar taşı; kişisel alanlar silinir, audit `username` 730 gün maskeli (K-E11-4)                                                                               | ADR-0030 m.4     | P16   |
+| 2. Silme stratejisi      | Kapsamda: FK RESTRICT korunur, döngü nullable FK ile kırılır; cascade yok; `app` DELETE tetikleyiciyle koşullu                                                          | ADR-0030 m.2–3   | P16   |
+| 2. Audit                 | Kapsamda: `audit_logs.tenant_id` FK'si kaldırılır (satırlar değişmez, continuity özeti bozulmaz); yeni eylemler `user.deleted`, `tenant.purge_*`, `uploads.orphan_scan` | ADR-0030 m.1     | P16   |
+| 2. Migration / geri alma | Kapsamda: ön kontrol SIGNAL; `down.sql` mezar taşı/iş varsa durur; tetikleyici özeti sabiti güncellenir                                                                 | §7.1             | P16   |
+| 2. Multi-tenant          | Kapsamda: firma tablosu ekleyen her paket purge adımına ya da istisna listesine girer (meta-test)                                                                       | ADR-0030 m.5     | P16+  |
+| 2. Dosya                 | Kapsamda: firma klasörü işin son adımında; avatar commit sonrası; haftalık yetim tarama (7 gün)                                                                         | §7.6             | P16   |
+| 3. Hata formatı          | Kapsamda: `PURGE_NOT_ELIGIBLE` 409, `PREVIEW_REQUIRED` 428                                                                                                              | §7.5             | P16   |
+| 3. İdempotency           | Kapsamda: adımlar tekrar çalıştırılabilir; tek iş/firma (UQ)                                                                                                            | §7.3             | P16   |
+| 4. Tehdit modeli         | Kapsamda: yanlış/kötü niyetli silme (R26): dryRun + `previewId` + ad onayı + step-up + DB'de zorlanan `passive_at`; kalan risk ADR'de                                   | ADR-0030         | P16   |
+| 4. Log maskeleme         | Kapsamda: silme audit'inde PII yok; `last_error` yalnız sınıf                                                                                                           | §7.3, §7.5       | P16   |
+| 5. Yıkıcı işlem onayı    | Kapsamda: önizleme + ad yazma + step-up; geri alma yok (bilinçli)                                                                                                       | §7.8             | P16   |
+| 5. 5 durum / a11y        | Kapsamda: silme diyalogları, ilerleme görünümü, pasif düğme ipuçları; axe 0                                                                                             | §7.8             | P16   |
+| 6. Arka plan işleri      | Kapsamda: gece silme (500'lük parti), firma silme yürütücüsü (60 sn, 3 deneme), haftalık tarama                                                                         | §7.2, §7.3, §7.6 | P16   |
+| 7. Config                | Kapsamda: `RETENTION_PURGE_MODE` (`dry` varsayılan; staging `on`)                                                                                                       | §7.7             | P16   |
+| 7. Metrik / alarm        | Kapsamda: `rs_tenant_purge_*`, `rs_orphan_*`, `rs_retention_rows_total{kind=purged_*}`; FAILED, heartbeat, tarama yaşı alarmları                                        | §7.3, §7.7       | P16   |
+| 7. Yedekleme             | Kapsamda: yedekten düşme ≤ 14 g (site dışı hedef dahil, varsayım); silinen firma yalnız scratch'ten dışa aktarım                                                        | ADR-0030 m.8     | P16   |
+| 8. KVKK                  | Kapsamda: K27 kapanır; anonim kayıtlar 30 gün sonra silinir                                                                                                             | §7.2             | P16   |
+
+### P16 r2 — güvenlik tasarım turu sonrası (S16-1..11, S17-1..2)
+
+| Madde                  | Karar                                                                                                                                                                                                  | Gerekçe / nerede                  | Paket        |
+| ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | --------------------------------- | ------------ |
+| 1. Yetki               | Kapsamda: `users.delete` toggle'ı migration'da tüm kullanıcılardan sıfırlanır, rol varsayılanına döner (ana oturum kararı)                                                                             | §7.1                              | P16 G1       |
+| 2. Audit / KVKK        | Kapsamda: maske fail-closed (kullanıcı ya da firma satırı yoksa da); `entity` sabiti `"users"`; firma silme sonrası audit/CSV'de e-posta 0 testi                                                       | ADR-0030 m.4 (S16-1)              | P16 G3/G4    |
+| 2. Silme stratejisi    | Kapsamda: `anonymized_at`/`revoked_at` bir kez yazılır, DB saatine yakın; iş satırı yalnız DONE/CANCELLED + 730 g silinir; FK `DELETE_RULE = RESTRICT` meta-testi                                      | ADR-0030 m.3, m.5 (S16-3, 10, 11) | P16 G1/G3    |
+| 4. Tehdit modeli       | Kapsamda: iş satırına güvenilmez (biçim CHECK, her turda uygunluk, `FILES` yalnız tenant öneki); `previewId` tek kullanımlık + oturuma/duruma bağlı                                                    | ADR-0030 m.5, m.6 (S16-2, 6)      | P16 G1/G3    |
+| 5. Yıkıcı işlem onayı  | Kapsamda (**kullanıcı onayı bekleyen varsayım**): firma silme 24 saat SCHEDULED, iptal edilebilir, bütün Super Admin'lerde bant + operatör alarmı                                                      | ADR-0030 m.5 (S16-4)              | P16 G3/G6    |
+| 7. Yedekleme / restore | Kapsamda: DB dışı imha defteri + restore sonrası `erasure:replay`; scratch dışa aktarımında iki onay; `backup.sh` beklenen tetikleyici 22                                                              | ADR-0030 m.8, m.9 (S16-5, 11)     | P16 G3/G7    |
+| 6. Arka plan işleri    | Kapsamda: gece kesme anı DB saatiyle; yetim taramada devre kesici + tek referans listesi                                                                                                               | §7.2, §7.6 (S16-8, 9)             | P16 G2/G5    |
+| 3. API / WS (P17)      | Kapsamda: pencere modunda fare `WindowFromPoint` kökü, klavye ön plan kökü hedef değilse düşer; `share.state.reason` regex + sunucu ≥ 1 sn (P15'e geri bildirim); yayın sırası Release kontrol maddesi | §8 (S17-1, 2)                     | P17 I4 / P15 |
+| Sonra                  | Sistem SMTP ve Super Admin e-posta bildirimi; firma silmede dört göz; defterin site dışına günlük ayrı itilmesi                                                                                        | §7.11                             | sonra        |
+
+## P17 — İstemci 0.11.0 (2026-11-15, `docs/mimari-e11.md` §8)
+
+| Madde                          | Karar                                                                                                                 | Gerekçe / nerede | Paket |
+| ------------------------------ | --------------------------------------------------------------------------------------------------------------------- | ---------------- | ----- |
+| 3. API sözleşmesi / sürümleme  | Kapsamda: `share.state.reason/method` P15 sözleşmesine birebir; P15 prod'da olmadan 0.11.0 yayımlanmaz; 0.10.x uyumlu | §8               | P17   |
+| 4. Hassas veri / dosya sistemi | Kapsamda: reparse/junction koruması, handle ile silme                                                                 | §8.1 (249)       | P17   |
+| 5. Tema / erişilebilirlik      | Kapsamda: Windows koyu mod, ≥ 4.5:1 renk tablosu testi                                                                | §8.1 (247)       | P17   |
+| 6. Performans                  | Kapsamda: dirty-rect ≥ %40 CPU düşüşü ölçümü; yazılım MFT geri dönüşü                                                 | §8.1 (245, 246)  | P17   |
+| 7. CI/CD                       | Kapsamda: SignPath varsa imza + `signtool verify`; yoksa AC-252 uygulanamaz                                           | §8.1 (252)       | P17   |
+| 8. Lisans                      | Kapsamda: yeni Go bağımlılığı yok; gerekirse MIT/BSD/Apache                                                           | §8.2             | P17   |
+| 9. Riskler                     | Kapsamda: WGC prototipi 2 gün zaman kutusu, başarısızsa K-E11-3                                                       | §8.3             | P17   |

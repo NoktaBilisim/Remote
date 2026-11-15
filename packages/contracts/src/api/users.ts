@@ -227,3 +227,33 @@ export interface UserOption {
 export interface UserOptionsResponse {
   items: UserOption[];
 }
+
+// ---------------------------------------------------------------------------------------------------------------
+// P15 — Super Admin panel şifre sıfırlama (AC-232; P13b CLI servisinin panel yolu)
+// ---------------------------------------------------------------------------------------------------------------
+
+/** GET /admin/superadmins (SUPER_ADMIN) — sıfırlanacak hesabı seçmek için; en çok `SUPERADMIN_LIST_MAX`. */
+export const SUPERADMIN_LIST_MAX = 100;
+export interface SuperadminItem {
+  id: string;
+  fullName: string;
+  email: string;
+  status: UserStatus;
+  totpEnabled: boolean;
+  /** İsteği yapan kendisi mi (kendi şifresi bu yolla sıfırlanamaz → düğme gizli; uç 403). */
+  self: boolean;
+}
+export interface SuperadminListResponse {
+  items: SuperadminItem[];
+}
+
+/**
+ * POST /admin/superadmins/:id/reset-password `{}` — step-up (AC-215) ister. Geçici parola YALNIZ bu yanıtta döner;
+ * hedef ilk girişte değiştirmek zorundadır (24 sa içinde), tüm oturumları kapanır. Kendi id'si → 403; hedef etkin bir
+ * Super Admin değilse 404. 2FA'ya dokunmaz (gerekirse CLI `--reset-mfa`).
+ */
+export const superadminResetInputSchema = z.strictObject({});
+export interface SuperadminResetResponse {
+  temporaryPassword: string;
+  revokedSessions: number;
+}
