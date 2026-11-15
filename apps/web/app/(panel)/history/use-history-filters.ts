@@ -99,6 +99,15 @@ function usePickers(filters: HistoryFilters, tenantLabel?: string, customerFirmN
   return { tenant, setTenant, loadTenants, firmMode, setFirmMode, firm, setFirm };
 }
 
+/** Uygulanacak filtreler: boş alanlar düşer, müşteri araması kırpılır, sayfa 1. */
+const nextFilters = (draft: Draft, pageSize: HistoryFilters["pageSize"]) =>
+  ({
+    ...Object.fromEntries(Object.entries(draft).filter(([, v]) => v.trim() !== "")),
+    customer: checkCustomer(draft.customer).value,
+    page: 1,
+    pageSize,
+  }) as Partial<HistoryFilters>;
+
 export interface HistoryFilterInput {
   filters: HistoryFilters;
   technicians: Opt[] | null;
@@ -133,12 +142,7 @@ export function useHistoryFilters({
     const errs = validateDraft(draft);
     setErrors(errs);
     if (Object.values(errs).some(Boolean)) return;
-    const next = {
-      ...Object.fromEntries(Object.entries(draft).filter(([, v]) => v.trim() !== "")),
-      customer: checkCustomer(draft.customer).value,
-      page: 1,
-      pageSize: filters.pageSize,
-    } as Partial<HistoryFilters>;
+    const next = nextFilters(draft, filters.pageSize);
     start(() => router.push(historyHref(next)));
   };
   const clear = () => {

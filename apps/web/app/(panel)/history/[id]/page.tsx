@@ -11,7 +11,11 @@ import { isAnonymized } from "@/lib/history/anonymized";
 import { t } from "@/lib/i18n";
 import { getMe, serverGet } from "@/lib/server-api";
 import { NoteForm } from "./note-form";
-import { ConsentsList, ControlPeriods, Files, Quality, RequestInfo, Section, Summary, Timeline } from "./sections";
+import { ControlPeriods } from "./control-periods";
+import { ConsentsList, Files } from "./files";
+import { Section } from "./sections";
+import { RequestInfo, Summary } from "./summary";
+import { Quality, Timeline } from "./timeline";
 
 export const metadata: Metadata = { title: t("h.d.title") };
 
