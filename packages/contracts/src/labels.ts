@@ -30,6 +30,7 @@ export const SESSION_STATUS_LABELS: Readonly<Record<SessionStatus, string>> = {
 export const SESSION_MODE_LABELS: Readonly<Record<SessionMode, string>> = {
   AGENT: "İstemci",
   BROWSER: "Tarayıcı",
+  UNATTENDED: "Gözetimsiz",
 };
 
 export const SESSION_ENDED_BY_LABELS: Readonly<Record<SessionEndedBy, string>> = {
@@ -54,6 +55,16 @@ export const END_REASON_LABELS: Readonly<Record<string, string>> = {
   // P8b (mimari-e9 §3.3, §13.3): talep oturumu kabul sonrası 60 sn'de bağlanmadı / müşteri onay ekranında vazgeçti.
   connect_timeout: "Müşteri bağlanamadı",
   customer_declined: "Müşteri vazgeçti",
+  // P27 (mimari-p27 §4.4, §4.6): gözetimsiz oturum bitişleri + `connect.result` iptal nedenleri (`CANCELLED(<reason>)`).
+  permission: "Teknisyen yetkisi kaldırıldı",
+  device_revoked: "Cihaz iptal edildi",
+  local_disabled: "Cihazda gözetimsiz erişim kapatıldı",
+  indicator_failed: "Cihazda bağlantı göstergesi gösterilemedi",
+  device_timeout: "Cihaz yanıt vermedi",
+  session_changed: "Cihazda Windows oturumu değişti",
+  helper_failed: "Cihazda bağlantı başlatılamadı",
+  no_console: "Cihazda etkin Windows oturumu yok",
+  busy: "Cihazda başka gözetimsiz bağlantı var",
 };
 
 /** P8b (AC-158): geçmiş listesi/CSV "Kaynak". */
@@ -150,6 +161,7 @@ export const CONSENT_SOURCE_LABELS: Readonly<Record<ConsentRecordSource, string>
   RECONNECT: "Bağlantı koptu",
   SYSTEM: "Sistem",
   TECH: "Teknisyen",
+  UNATTENDED: "Gözetimsiz erişim (otomatik)",
 };
 
 /** `control.revoked` (SYSTEM kaynağı) `reason` etiketi (§3 tablo). */
@@ -199,6 +211,8 @@ export const TIMELINE_ACTION_LABELS: Readonly<Record<string, string>> = {
   "session.expired": "Süresi doldu",
   "session.terminated": "Yönetici sonlandırdı",
   "session.ended": "Oturum bitti",
+  "unattended.session.started": "Gözetimsiz bağlantı başladı",
+  "unattended.session.ended": "Gözetimsiz bağlantı bitti",
 };
 
 export interface TimelineText {

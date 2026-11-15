@@ -152,7 +152,8 @@ export interface PublicSessionStatusResponse {
 
 // --- P8: oturum geçmişi (mimari-api "Oturum geçmişi (P8)"; AC-60..63, 124) ---
 
-export const SESSION_MODES = ["AGENT", "BROWSER"] as const;
+/** P27 (mimari-p27 §3.5, §4.6): `UNATTENDED` = gözetimsiz cihaz oturumu (`device_id` dolu; geçmiş filtresi "Gözetimsiz"). */
+export const SESSION_MODES = ["AGENT", "BROWSER", "UNATTENDED"] as const;
 export type SessionMode = (typeof SESSION_MODES)[number];
 
 /** P8b (AC-158): oturum kaynağı — `request_id IS NULL` → TECH (link/kod), değilse REQUEST (müşteri talebi). */
@@ -268,8 +269,8 @@ export const CONSENT_LEVELS = ["VIEW", "CONTROL"] as const;
 export type ConsentLevel = (typeof CONSENT_LEVELS)[number];
 export const CONSENT_DECISIONS = ["GRANTED", "DENIED", "REVOKED"] as const;
 export type ConsentDecision = (typeof CONSENT_DECISIONS)[number];
-/** session_consents.source (P7: TECH). */
-export const CONSENT_RECORD_SOURCES = ["UI", "HOTKEY", "RECONNECT", "SYSTEM", "TECH"] as const;
+/** session_consents.source (P7: TECH; P27: UNATTENDED — gözetimsiz otomatik kabul, metinsiz, §2 adım 5). */
+export const CONSENT_RECORD_SOURCES = ["UI", "HOTKEY", "RECONNECT", "SYSTEM", "TECH", "UNATTENDED"] as const;
 export type ConsentRecordSource = (typeof CONSENT_RECORD_SOURCES)[number];
 
 /** Onay kaydı (§3). `ip` ve `user_agent` API'de dönmez (veri en aza indirme). */

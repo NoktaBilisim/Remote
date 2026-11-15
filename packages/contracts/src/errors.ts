@@ -71,6 +71,20 @@ export const ERROR_STATUS = {
   BINDING_INVALID: 404,
   /** P20 (AC-254, protokol §6.1): bilgisayar 5 firmaya kayıtlı; yalnız WS `error` kodu (HTTP ucunda üretilmez). */
   BINDING_LIMIT: 409,
+  /** P27 (AC-297, §4.5): gözetimsiz erişim kapalı (`UNATTENDED_MODE=off`) ya da imza kapısı reddetti. */
+  UNATTENDED_DISABLED: 409,
+  /** P27 (§4.3 adım 8): cihaz `/ws/device`'a bağlı değil. */
+  DEVICE_OFFLINE: 409,
+  /** P27 (AC-338, K-P27-7): cihazda etkin/bekleyen gözetimsiz oturum var. */
+  DEVICE_BUSY: 409,
+  /** P27 (AC-295): cihazda yerel anahtar kapalı (son beyan). */
+  DEVICE_LOCAL_DISABLED: 409,
+  /** P27 (AC-296): müşteride bildirim adresi yok — bağlantı ve kayıt kodu açılmaz. */
+  NOTIFY_CONTACT_REQUIRED: 409,
+  /** P27 (AC-336, Y-P27-1): tenant SMTP kaydı yok — bağlantı ve kayıt kodu açılmaz. */
+  NOTIFY_CHANNEL_UNAVAILABLE: 409,
+  /** P27 (AC-273): kayıt kodu yok/kullanılmış/süresi dolmuş — tek gövde (oracle yok). */
+  REGISTRATION_CODE_INVALID: 404,
   /** P12 (AC-84): yükleme 2 MB'ı aşıyor. */
   PAYLOAD_TOO_LARGE: 413,
   ACCOUNT_LOCKED: 423,

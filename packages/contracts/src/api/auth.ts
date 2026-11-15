@@ -61,6 +61,11 @@ export interface MfaStatus {
   stage: MfaStage;
   /** Kullanılmamış kurtarma kodu sayısı (etkin değilse 0). */
   recoveryCodesLeft: number;
+  /**
+   * P27a (AC-325, AC-331, K-P27a-2): 2FA sayfasında "Bu cihazı 30 gün hatırla" kutusu gösterilsin mi — aşama `verify`
+   * ve firma anahtarı `mfaRememberDevice` açık; Super Admin'de her zaman `false`.
+   */
+  rememberDeviceAvailable: boolean;
 }
 
 export interface LoginResponse {
@@ -105,9 +110,13 @@ export const recoveryCodeSchema = z
   .transform((s) => s.replace(/\s+/g, "").toUpperCase())
   .pipe(z.string().regex(/^[A-Z2-7]{5}-?[A-Z2-7]{5}$/, "Kurtarma kodu geçersiz"));
 
-/** POST /auth/mfa/verify — `code` veya `recoveryCode` (ikisi birden değil). 5 deneme / 5 dk / kullanıcı → 429. */
+/**
+ * POST /auth/mfa/verify — `code` veya `recoveryCode` (ikisi birden değil). 5 deneme / 5 dk / kullanıcı → 429.
+ * P27a (AC-325, K-P27a-4): `rememberDevice` yalnız TOTP koluyla; kurtarma koduyla birlikte gelirse 400 `VALIDATION`.
+ * Politika izin vermiyorsa (firma anahtarı kapalı veya Super Admin) `true` hata vermeden yok sayılır.
+ */
 export const mfaVerifyInputSchema = z.union([
-  z.strictObject({ code: totpCodeSchema }),
+  z.strictObject({ code: totpCodeSchema, rememberDevice: z.boolean().optional() }),
   z.strictObject({ recoveryCode: recoveryCodeSchema }),
 ]);
 export type MfaVerifyInput = z.infer<typeof mfaVerifyInputSchema>;
@@ -134,6 +143,8 @@ export interface MfaVerifyResponse {
   user: AuthUser;
   /** Kurtarma koduyla girildiyse kalan kod sayısı. */
   recoveryCodesLeft: number;
+  /** P27a (AC-325): bu yanıtla güvenilir cihaz çerezi yazıldı mı (`rememberDevice` + izin + TOTP). */
+  deviceRemembered: boolean;
 }
 
 // ---------------------------------------------------------------------------------------------------------------
@@ -192,6 +203,8 @@ export interface MfaRecoveryCodesResponse {
 export const logoutAllInputSchema = z.strictObject({});
 export interface LogoutAllResponse {
   revokedSessions: number;
+  /** P27a (AC-328): silinen hatırlanan cihaz sayısı (bu cihaz dahil; yanıt çerezi de siler). */
+  revokedTrustedDevices: number;
 }
 
 /** Sıfırlama bağlantısı: `${PUBLIC_BASE_URL}${RESET_PASSWORD_PATH}#token=<token>` (token parça içinde → sunucu/proxy loguna girmez). */
@@ -219,3 +232,55 @@ export type PasswordResetInput = z.infer<typeof passwordResetInputSchema>;
 export const SESSION_COOKIE = "__Host-rs_session";
 export const CSRF_COOKIE = "__Host-rs_csrf";
 export const CSRF_HEADER = "x-csrf-token";
+
+// ---------------------------------------------------------------------------------------------------------------
+// P27a — 2FA'da "Bu cihazı 30 gün hatırla" (mimari-p27a §4, §5; AC-325..335b)
+// ---------------------------------------------------------------------------------------------------------------
+
+/**
+ * Güvenilir cihaz çerezi (K-P27a-7): yalnız auth uçlarına gider; HttpOnly, Secure, SameSite=Strict, `Domain` yok
+ * (host-only). `__Host-` öneki `Path=/` istediği için `__Secure-`. Web kodu okumaz.
+ */
+export const TRUSTED_DEVICE_COOKIE = "__Secure-rs_td";
+export const TRUSTED_DEVICE_COOKIE_PATH = "/api/v1/auth";
+/** Sabit süre (K-P27a-3): kullanımda/döndürmede uzamaz. */
+export const TRUSTED_DEVICE_DAYS = 30;
+/** Kullanıcı başına üst sınır (K-P27a-6, AC-332): 11.'si oluşturulurken en eski düşer. */
+export const TRUSTED_DEVICE_MAX_PER_USER = 10;
+/**
+ * Çerez değeri biçimi (r3, O-P27a-r2-1): `<satır id (ULID, 26)>.<gizli (32 bayt base64url, 43)>`. Uymayan değer
+ * "bilinmeyen" sayılır (yalnız TOTP; hiçbir satıra dokunulmaz).
+ */
+export const TRUSTED_DEVICE_COOKIE_VALUE_RE = /^([0-9A-HJKMNP-TV-Z]{26})\.([A-Za-z0-9_-]{43})$/;
+
+/** Hesabım → "Hatırlanan cihazlar" satırı (AC-329). Belirteç ve özeti hiçbir zaman dönmez (AC-333). */
+export interface TrustedDeviceView {
+  id: string;
+  /** "Chrome · Windows"; çözülemezse "Bilinmeyen tarayıcı". */
+  uaSummary: string;
+  /** Son kullanım IP'si (kullanıcının kendi verisi, maskesiz). */
+  ip: string;
+  /** ISO UTC. */
+  createdAt: string;
+  lastUsedAt: string | null;
+  expiresAt: string;
+  /** İstek çerezi bu satıra ait ve geçerli. */
+  current: boolean;
+}
+
+/** GET /auth/trusted-devices — yalnız kendi cihazları, en yeni önce, ≤ `TRUSTED_DEVICE_MAX_PER_USER` (sayfalama yok). */
+export interface TrustedDeviceListResponse {
+  items: TrustedDeviceView[];
+}
+
+/** DELETE /auth/trusted-devices/:id — başkasının/olmayan id 404. */
+export const trustedDeviceParamsSchema = z.strictObject({
+  id: z.string().regex(/^[0-9A-HJKMNP-TV-Z]{26}$/, "Geçersiz kimlik"),
+});
+export type TrustedDeviceParams = z.infer<typeof trustedDeviceParamsSchema>;
+
+/** DELETE /auth/trusted-devices[/:id] yanıtı; `currentCleared` → bu tarayıcının çerezi de silindi. */
+export interface TrustedDeviceRevokeResponse {
+  revoked: number;
+  currentCleared: boolean;
+}

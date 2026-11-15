@@ -90,6 +90,17 @@ export const AUTH_AUDIT = {
   SUPERADMIN_RESET: "auth.superadmin_reset",
   /** P15 (AC-231): kurtarma kodları yenilendi `{ count }` (kod ASLA yazılmaz); hatalı TOTP `{ reason }` fail. */
   MFA_RECOVERY_REGENERATED: "mfa.recovery_regenerated",
+  /**
+   * P27a (mimari-p27a §4.3; AC-325, 326, 329, 330, 332, 335b). Belirteç, çerez değeri, `token_hash` ve tam UA ASLA
+   * yazılmaz (AC-333). CREATED: entity `trusted_devices` / satır id, `{ uaSummary, expiresAt }`.
+   */
+  TRUSTED_DEVICE_CREATED: "auth.trusted_device_created",
+  /** Girişte TOTP atlandı (entity `trusted_devices` / satır id, `{ uaSummary }`); `auth.login` satırı `{ mfa: "remembered" }`. */
+  TRUSTED_DEVICE_USED: "auth.trusted_device_used",
+  /** Tekil/kullanıcı geneli kaldırma (entity `users` / hedef): `{ reason: "user" | "admin" | "limit", count }`. */
+  TRUSTED_DEVICE_REVOKED: "auth.trusted_device_revoked",
+  /** r3 yeniden kullanım (entity `users`, `result: "fail"`): `{ count, revokedSessions }` (silinen cihaz / iptal edilen oturum). */
+  TRUSTED_DEVICE_REUSE: "auth.trusted_device_reuse",
 } as const;
 
 /** P10: gönderilen her e-posta (ortak standart 2.1: alıcı (maskeli), konu, sonuç). `kind` şablon türü. */
@@ -251,6 +262,27 @@ export const NOTIFY_AUDIT = {
   SMS_UPDATED: "settings.sms_updated",
   SMS_TEST: "settings.sms_test",
 } as const;
+
+/**
+ * P27 gözetimsiz erişim (mimari-p27 §7.2; AC-273, 275, 293, 295, 296, 336, 337, 339). Kayıt kodu, imza, anahtar, bilet ASLA
+ * yazılmaz; adresler maskeli. Alanlar §7.2 tablosunda; Türkçe etiketler `api/unattended.ts` `UNATTENDED_AUDIT_LABELS`.
+ */
+export const UNATTENDED_AUDIT = {
+  CODE_CREATED: "unattended.code.created",
+  CODE_CANCELLED: "unattended.code.cancelled",
+  DEVICE_REGISTERED: "unattended.device.registered",
+  DEVICE_REVOKED: "unattended.device.revoked",
+  DEVICE_AUTH: "unattended.device.auth",
+  DEVICE_REPLACED: "unattended.device.replaced",
+  GRANT_CHANGED: "unattended.grant.changed",
+  CONTACTS_CHANGED: "unattended.contacts.changed",
+  NOTIFY_FAILED: "unattended.notify.failed",
+  CONNECT: "unattended.connect",
+  SESSION_STARTED: "unattended.session.started",
+  SESSION_ENDED: "unattended.session.ended",
+  LOCAL_STATE: "unattended.local_state",
+} as const;
+export type UnattendedAuditAction = (typeof UNATTENDED_AUDIT)[keyof typeof UNATTENDED_AUDIT];
 
 export const P19_NOTIFY_AUDIT_LABELS: Readonly<Record<string, string>> = {
   [NOTIFY_AUDIT.LINK_SENT]: "Oturum bağlantısı gönderildi (SMS/WhatsApp)",

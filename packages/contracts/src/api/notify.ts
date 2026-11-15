@@ -7,6 +7,16 @@ export const NOTIFY_CHANNELS = ["SMS", "WHATSAPP", "EMAIL"] as const;
 export type NotifyChannel = (typeof NOTIFY_CHANNELS)[number];
 export const NOTIFY_KINDS = ["REQ_ACCEPTED", "REQ_REJECTED", "REQ_EXPIRED"] as const;
 export type NotifyKind = (typeof NOTIFY_KINDS)[number];
+/**
+ * P27 (mimari-p27 §3.5, §7.1; AC-296, 337): gözetimsiz bildirim türleri. `UNATTENDED_STARTED` oturuma (`session_id`),
+ * `UN_*` müşteriye giden güvenlik olayına (`event_id`) bağlıdır; S-P19-12 tavanlarından muaftır (K-P27-8, 14). Ayrı küme:
+ * `NotifyKind` talep türleri olarak kalır (talep şablonları/işçi K4'te genişler); outbox `kind` CHECK'i `OUTBOX_KINDS`'tır.
+ */
+export const UNATTENDED_NOTIFY_KINDS = ["UNATTENDED_STARTED", "UN_CONTACTS_CHANGED", "UN_DEVICE_REGISTERED"] as const;
+export type UnattendedNotifyKind = (typeof UNATTENDED_NOTIFY_KINDS)[number];
+/** `notification_outbox.kind` (VARCHAR(20) — her ad ≤ 20 karakter) kümesinin tamamı. */
+export const OUTBOX_KINDS = [...NOTIFY_KINDS, ...UNATTENDED_NOTIFY_KINDS] as const;
+export type OutboxKind = (typeof OUTBOX_KINDS)[number];
 
 /**
  * S-P19-12 / K-P19-7: kuyruğa almada DB sayımlı tavanlar (aynı TX; yeniden başlatmaya dayanıklı). Alıcı tavanları kanal

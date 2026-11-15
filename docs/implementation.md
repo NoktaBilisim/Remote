@@ -9048,3 +9048,142 @@ Test (geçici `rs-p27a-k1-59530b`, mysql 8.4.13, `--max-connections=300`, silind
 Koruma geçilince down çalıştı: P19 şemasına diff 0, tables_priv satırı ve migration kaydı silindi. Yeniden up: diff 0,
 grants 649/649. `typecheck` temiz, server unit 435/435. `test:int` 794/796: yalnız yukarıdaki iki meta-test kırmızı (beklenen,
 K4).
+
+### P27a-K2 (sözleşmeler, audit sabitleri, repo, çerez yardımcıları) — backend-dev — 2026-11-15
+
+Mimari-p27a r3 §2, §3.4, §4, §5.1–5.3, §10 K2; AC-325, 328–333, 335b (sözleşme/repo kısmı). Login/MFA akışına bağlama K3'te.
+
+| Dosya                                                | Değişiklik                                                                                                                                                                                                                                                                                                                                                                          |
+| ---------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `packages/contracts/src/api/auth.ts`                 | `mfaVerifyInputSchema` TOTP koluna `rememberDevice?` (kurtarma koluyla 400); `MfaVerifyResponse.deviceRemembered`; `MfaStatus.rememberDeviceAvailable`; `LogoutAllResponse.revokedTrustedDevices`; `TRUSTED_DEVICE_COOKIE/_PATH/_DAYS/_MAX_PER_USER/_COOKIE_VALUE_RE`; `TrustedDeviceView`, `TrustedDeviceListResponse`, `trustedDeviceParamsSchema`, `TrustedDeviceRevokeResponse` |
+| `packages/contracts/src/api/tenants.ts`              | `updateTenantSettingsInputSchema.mfaRememberDevice?`, `TenantSettingsView.mfaRememberDevice`                                                                                                                                                                                                                                                                                        |
+| `packages/contracts/src/api/users.ts`                | `UserDetail.trustedDeviceCount`; `forgetDevicesInputSchema` (`{}`), `ForgetDevicesResponse { revoked }`                                                                                                                                                                                                                                                                             |
+| `packages/contracts/src/audit.ts`                    | `AUTH_AUDIT.TRUSTED_DEVICE_CREATED/USED/REVOKED/REUSE` (yalnız bu 4 satır; P27'nin `UNATTENDED_AUDIT` eki korunmuştur)                                                                                                                                                                                                                                                              |
+| `apps/server/src/auth/trusted-device-repo.ts` (yeni) | `findById`, `createTrustedDevice` (kullanıcı `FOR UPDATE` → `replaceId` silme → INSERT → sınır üstü en eskiyi silme; `tenant_id` kilitli satırdan), `rotate` (koşullu UPDATE, `boolean`), `listForUser`, `countForUser`, `deleteForUser(userId, id?)`, `deleteForTenant`, `deleteExpired(now, limit)`                                                                               |
+| `apps/server/src/auth/trusted-device.ts` (yeni)      | `newTrustedDeviceSecret`, `hashTrustedDeviceSecret`, `trustedDeviceSecretMatches` (`timingSafeEqual`), `format/parseTrustedDeviceCookie`, `readTrustedDeviceCookies` (ham başlık, ≤ 2), `trustedDeviceExpiresAt`, `trustedDeviceRemainingSec`                                                                                                                                       |
+| testler                                              | `packages/contracts/test/p27a-contracts.test.ts` (7), `apps/server/test/unit/trusted-device-token.test.ts` (7), `apps/server/test/integration/p27a-repo.test.ts` (14)                                                                                                                                                                                                               |
+
+Tasarımdan sapmalar (gerekçeli):
+
+- `trusted-device.ts` §7'de K3'ündür; koordinatör K2'ye çerez biçim/ayrıştırma/üretim/özet yardımcılarını verdi. K3 aynı
+  dosyaya `rememberAllowed`, `issue`, `consumeAtLogin`, `uaSummary` ve çerez ayarlarını ekler. Unit test adı
+  `trusted-device-token.test.ts` (K3'ün `trusted-device.test.ts`'iyle çakışmasın).
+- Repo testi `test/unit/trusted-device-repo.test.ts` yerine `test/integration/p27a-repo.test.ts`: unit projesi DB kullanmıyor.
+  Repo testi gerçek MySQL ister.
+- Repo adları: `insertTrustedDevice` + `deleteOverLimit` tek işlevde birleşti (`createTrustedDevice`; kilit + sınır aynı
+  çağrıda, ayrı çağrılınca sıra hatası olamaz). `deleteOverLimit` iç işlev. `touch` yok: r3'te `rotate` `last_used_at`/`ip`
+  yazıyor, ayrı dokunma yolu kullanılmıyor.
+- `createTrustedDevice` `tenantId` almaz, kilitli kullanıcı satırından okur. Firmasız kullanıcıda (Super Admin) hata atar
+  (K-P27a-2'nin uygulama düzeyindeki ikinci güvencesi; K3 `rememberAllowed` ile buraya gelmez).
+- `listForUser`/`countForUser` süresi dolmuş satırları dışlar ("etkin cihazlar", AC-329/330). `deleteForUser` dolmuşları da
+  siler.
+- `TRUSTED_DEVICE_COOKIE_VALUE_RE` contracts'ta (§10 "çerez biçimi sabiti"). Grup 1 = id, grup 2 = gizli.
+- Yeni hata kodu ve bağımlılık yok; `errors.ts`'e dokunulmadı.
+
+K3/K4/K5 için (sözleşme değişikliği, typecheck): Zorunlu yeni alanlar yüzünden server `typecheck` şu 5 yerde K3/K4 tamamlayana
+kadar kırmızı. Yer tutucu değer yazılmadı.
+
+- K3: `src/auth/routes.ts` 122 (`deviceRemembered`), 160 (`revokedTrustedDevices`), 239 (`rememberDeviceAvailable`).
+- K4: `src/tenants/settings.ts` 28 (`mfaRememberDevice`), `src/users/view.ts` 28 (`trustedDeviceCount`).
+- Ayrıca P27'nin paralel `errors.ts` değişikliği `src/lib/errors.ts` 18'i kırıyor (P27'nin işi, K2 dışı).
+
+K5: web typecheck bu değişikliklerle hata vermiyor. Kalan web hatası `console-parts.tsx` (P27).
+
+Test (geçici `rs-p27a-k2-12310` ve `rs-p27a-k2-b`, mysql 8.4.13, `--max-connections=300`, ikisi de silindi):
+
+- contracts 172/172 (pt-surface anlık görüntüsü P27 ajanı tarafından iki paketin eklerini içerecek biçimde güncel).
+- server unit 442/442; `p27a-repo` 14/14 (3 tekrar kararlı).
+- Gerileme `auth-login`, `account-p10`, `security-p14a-auth`, `p14a-a3`, `db-grants`, `p27a-repo`: 59/59. İlk koşuda
+  `account-p10` 2 ve `security-p14a-auth` 1 test kırmızıydı. Yeni konteynerde tek başına 27/27, sonra 6 dosya birlikte
+  59/59 geçti. Server çalışma zamanında değişiklik olmadığı için bunları zamanlama kararsızlığı sayıyorum.
+- eslint (contracts + yeni server dosyaları) temiz. Kendi dosyalarımda prettier temiz ve tsc hatası yok.
+
+## P27
+
+### P27-K1 — contracts: gözetimsiz erişim sözleşmeleri (backend-dev, 2026-11-15)
+
+Kaynak: `docs/mimari-p27.md` §4 (r2 + r3), §6, §7.1–7.2, §9 K1 satırı. AC: 285 (doğrudan); 273, 275, 293, 295, 296, 297, 336,
+337, 342 için sözleşme ayağı.
+
+#### Değişen / yeni dosyalar
+
+- **yeni** `packages/contracts/src/api/unattended.ts`: `UNATTENDED_MODES`, `UnattendedStatus`; `UNATTENDED_ERROR_MESSAGES` (7 kod) +
+  bant metinleri; kayıt kodu (`REGISTRATION_CODE_*`, `normalizeRegistrationCode`, `formatRegistrationCode`, `registrationCodeSchema`,
+  `createRegistrationCodeInputSchema`, `CreatedRegistrationCode`, `RegistrationCodeItem`); `registerDeviceInputSchema` +
+  `RegisterDeviceResponse`; liste (`listDevicesQuerySchema`: q ≤ 64, customerId, state online|offline|all, opak cursor, limit 1..100
+  varsayılan 50), `DeviceListItem`, `DeviceDetail`, `DeviceGrant`, `CONNECT_BLOCKED_REASONS` + etiketleri, `DEVICE_POLL_MS` (15 sn);
+  `putDeviceGrantsInputSchema` (tam küme, ≤ 200, benzersiz); `UnattendedConnectResponse`; bildirim adresleri
+  (`NOTIFY_CONTACTS_MAX` 5, `putNotifyContactsInputSchema`: e-posta tekilliği `notifyEmailKey` ile, telefon E.164'e normalize);
+  `UNATTENDED_REVOKE_REASONS` + etiketleri; `UNATTENDED_AUDIT_LABELS`.
+- **yeni** `packages/contracts/src/ws-device.ts`: `/ws/device` sabitleri (yol, `rs.device.v1`, v1, 4 KB, 5 msg/sn, 10 sn auth süresi,
+  kapanış 4401/4403/4409), `deviceAuthMessage` (imza dizesi), b64url/sürüm/özet desenleri, `deviceAuthSchema` (kimliksiz soketin tek
+  mesajı), `deviceInboundSchema` (connect.result, device.state, session.closed, device.unregister), `deviceOutboundSchema`
+  (device.hello, device.ready, connect, disconnect, revoked), `DEVICE_CONNECT_FAIL_REASONS`, `deviceIndicatorText`.
+- **yeni** `packages/contracts/fixtures/ws-device.json`: Go servisi (K5) için valid/invalid örnekleri + imza dizesi örneği.
+- **yeni** `packages/contracts/test/unattended-p27.test.ts`: 23 test, adları AC numaralı.
+- ekler: `permissions.ts` (`unattended: [connect, manage]` + 2 açıklama), `errors.ts` (7 kod), `audit.ts` (`UNATTENDED_AUDIT`, 21
+  satır), `ws.ts` (21 satır: `ControlSource` + `UNATTENDED`, misafir GRANTED kaynağı `UI|UNATTENDED`, `SessionEndedReason` + 6
+  neden, tech `hello.unattended`), `api/sessions.ts` (`SESSION_MODES` + `UNATTENDED`, `CONSENT_RECORD_SOURCES` + `UNATTENDED`),
+  `api/notify.ts` (`UNATTENDED_NOTIFY_KINDS`, `OUTBOX_KINDS`), `labels.ts` (mod, onay kaynağı, bitiş nedenleri, zaman çizelgesi
+  etiketleri), `package.json` exports (`./api/unattended`, `./ws-device`), `test/pt-surface.test.ts` (`ws-device.ts` mesaj listesine
+  eklendi) + anlık görüntü.
+- K1 dışı zorunlu dokunuşlar (typecheck/test yeşil kalsın diye): `apps/server/src/lib/errors.ts` (`DEFAULT_MESSAGES` her `ErrorCode`'u
+  ister → `...UNATTENDED_ERROR_MESSAGES`, 3 satır); `apps/web/messages/tr.json` (konsol `c.reason.<neden>` 6 anahtar; toggle ekranı
+  `perm.m.unattended`, `perm.a.connect`, `perm.a.manage` — web `users.test.ts` AC-72 etiket testi bunları ister).
+
+#### Tasarımdan sapmalar (gerekçeli)
+
+1. **`permission` bitiş nedeni eklendi.** §4.6 "mevcut `permission` yeniden kullanılır" diyor, ama `permission` yalnız
+   `CONTROL_REVOKE_REASONS`'ta var, `SESSION_ENDED_REASONS`'ta yok. `finishDevice(…, "permission")` ve `revalidateTech` bunu
+   `session.ended` nedeni olarak kullanıyor, o yüzden kümeye eklendi (toplam 6 yeni neden).
+2. **`NotifyKind` genişletilmedi, ayrı küme açıldı.** `NOTIFY_KINDS` talep türleri olarak kaldı. Yeni türler
+   `UNATTENDED_NOTIFY_KINDS` içinde, tamamı (outbox `kind` CHECK kümesi) `OUTBOX_KINDS`. Gerekçe: server `notify/templates.ts`
+   `statusMessage` `NotifyKind` üzerinde varsayılansız switch kullanıyor. Kümeyi genişletmek K4'ün dosyasında tip hatası verirdi.
+   Ayrıca türler farklı çapa kullanıyor (request_id / session_id / event_id). K4 işçide `row.kind as OutboxKind` + dal ekler.
+3. **`connect.indicatorText` alanı eklendi.** §4.5 r2 "yardımcıya giden gösterge metni sunucudan gelir" diyor ama §4.4 tablosunda alan
+   yok. Metni sunucu `deviceIndicatorText(tech, firm, mode==="unsigned")` ile üretir (AC-294/342 "TEST" ibaresi).
+4. **`CONNECT_BLOCKED_REASONS` += `no_grant`, `unsigned`.** `canConnect` formülü grant ve imza koşullarını da içeriyor. Bu ikisi
+   olmadan sunucu pasif düğme için doğru bir neden veremezdi (manage sahibi grant'sız cihaz, imzasız cihaz). Öncelik sırası
+   şemanın yorumunda yazılı.
+5. **Audit etiketleri `api/unattended.ts`'te.** `audit.ts` 326 satırdı, kod + etiket eklemesi > 30 satır olurdu ("dokunan böler").
+   Eylem sabitleri `audit.ts`'te kaldı, etiketler (`UNATTENDED_AUDIT_LABELS`) API modülünde.
+6. **`fixtures/ws-device.json` eklendi** (K1 dosya listesinde yok). Gerekçe: ADR-0004 kalıbı. Go servisi zod okuyamaz; K5'in
+   `wsdevice` testi bu örneklerle doğrular.
+
+#### Bağımlılık
+
+Yok.
+
+#### Doğrulama (2026-11-15)
+
+- `pnpm --filter @remote/contracts test` → 19 dosya, 165/165 (pt-surface anlık görüntüsü güncellendi; eski adlı mesaj listesi
+  girdisi silindi).
+- contracts `tsc --noEmit` + `eslint .` temiz; `pnpm -r run lint` temiz; web `typecheck` temiz, web `test` 386/386.
+- `apps/server typecheck`: K1 kaynaklı hata **yok**. Kalan 5 hata paralel P27a'nın auth/tenant/user alanlarından geliyor
+  (`deviceRemembered`, `revokedTrustedDevices`, `rememberDeviceAvailable`, `mfaRememberDevice`, `trustedDeviceCount`). Onlar P27a'ya
+  ait. Not: pt-surface anlık görüntüsü P27a'nın o anki `api/auth|tenants|users` dışa aktarımlarını da içeriyor. P27a bu yüzeyi
+  değiştirirse anlık görüntüyü yeniden üretmeli.
+
+#### K2/K3/K4/K8 için notlar
+
+- **K3 (güvenlik):** misafir `control.state{GRANTED, source:"UNATTENDED"}` artık şemadan geçiyor. `control.ts` bunu **yalnız
+  `room.unattended`** odasında kabul etmeli. Diğer odalarda protokol hatası + audit verilmeli (§4.6). Bu denetim K3'e kadar yok.
+  K0 CHECK'i `UNATTENDED`'ı içermiyorsa onay kaydı yazılamaz ve fail-closed olur.
+- K3: `disconnect.reason` = `SessionEndedReason`. `connect.result` iptal nedenleri (`helper_failed`, `no_console`, `busy`)
+  `session.ended` kümesinde değil, yalnız DB `end_reason` (`END_REASON_LABELS`'ta etiketli). Konsola bunlar için hangi `session.ended`
+  nedeninin gideceğine K3 karar verir.
+- K2: kayıt kodu düz metin olarak `formatRegistrationCode` biçiminde döner, HMAC normalize hâl üzerinden alınır. Liste
+  `limit` + opak `cursor` (audit kalıbı). `DeviceDetail` manage alanları (`lastIp`, `registeredIp`, `registeredAt`, `grants`)
+  manage sahibi olmayana null döner. §6'daki "son 20 gözetimsiz oturum" için sözleşmede alan yok: mevcut geçmiş ucu mı kullanılacak,
+  K2/K8 kararlaştırır.
+- K4: `OUTBOX_KINDS`/`UnattendedNotifyKind` kullanılır. `NotifyKind` talep şablonlarına aittir.
+
+#### frontend-dev için
+
+- Yeni giriş noktaları: `@remote/contracts/api/unattended`, `@remote/contracts/ws-device`.
+- `SESSION_MODE_LABELS` artık `UNATTENDED: "Gözetimsiz"` içeriyor. Geçmiş mod filtresi `Object.entries` ile ürettiği için seçenek
+  kendiliğinden geliyor.
+- Tech `hello.unattended {deviceId, deviceName}` yalnız gözetimsiz odada gelir. Rozet ve cihaz adı buradan alınır.
+- Pasif "Bağlan" ipucu: `CONNECT_BLOCKED_REASON_LABELS[connectBlockedReason]`. Hata metinleri: `UNATTENDED_ERROR_MESSAGES`.
+  Bantlar: `UNATTENDED_OFF_BANNER`, `UNATTENDED_TEST_BANNER`. Yoklama: `DEVICE_POLL_MS`.
+- `tr.json`'a eklenen 9 anahtar (yukarıda) dışında `un.*` anahtarları K8'e ait.

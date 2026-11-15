@@ -306,6 +306,11 @@ export const updateTenantSettingsInputSchema = z
     retentionDays: range("retentionDays").optional(),
     /** P10 (AC-67): USER rolü için 2FA zorunlu mu (Admin/Super Admin her zaman zorunlu). */
     requireTech2fa: z.boolean().optional(),
+    /**
+     * P27a (AC-331, K-P27a-1): "2FA cihaz hatırlama". `false`'a çekilince firmanın tüm hatırlanan cihazları aynı TX'te
+     * silinir; yeniden açmak eskileri geri getirmez. Super Admin hesaplarına hiçbir durumda uygulanmaz.
+     */
+    mfaRememberDevice: z.boolean().optional(),
     /** P10: SMTP; `null` → kaldır. Host özel/loopback IP'ye çözümlenirse 400 `HOST_NOT_ALLOWED` (AC-122). */
     smtp: smtpSettingsInputSchema.nullable().optional(),
   })
@@ -328,6 +333,8 @@ export interface TenantSettingsView {
   retentionDays: number;
   /** P10 (AC-67). */
   requireTech2fa: boolean;
+  /** P27a (AC-331): 2FA cihaz hatırlama (varsayılan açık). */
+  mfaRememberDevice: boolean;
   /** P10: SMTP ayarı yoksa null. */
   smtp: SmtpSettingsView | null;
 }

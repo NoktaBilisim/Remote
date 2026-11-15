@@ -196,6 +196,8 @@ export interface UserDetail extends UserListItem {
    * etkin yetkilerine kendisi de sahipse (kendinden geniş yetkili hesabı yönetemez). `false` → PATCH/deactivate 403.
    */
   canManage: boolean;
+  /** P27a (AC-330): kullanıcının hatırlanan (2FA atlatan) cihaz sayısı; ayrıntı yalnız kullanıcının kendi profilinde. */
+  trustedDeviceCount: number;
 }
 
 /** POST /users yanıtı (201): geçici şifre YALNIZ burada döner, tekrar alınamaz; `mustChangePassword=true`. */
@@ -306,3 +308,16 @@ export type DeleteUserInput = z.input<typeof deleteUserInputSchema>;
 export const USER_DELETE_CONFIRM_MISMATCH_MESSAGE = "Yazdığınız ad kullanıcının adıyla eşleşmiyor";
 export const USER_DELETE_ACTIVE_MESSAGE = "Önce kullanıcıyı pasife alın";
 export const USER_DELETE_OPEN_SESSION_MESSAGE = "Kullanıcının açık destek oturumu var; oturum kapanınca tekrar deneyin";
+
+// ---------------------------------------------------------------------------------------------------------------
+// P27a — Admin: hatırlanan cihazları kaldır (AC-330, mimari-p27a §4.2, K-P27a-9)
+// ---------------------------------------------------------------------------------------------------------------
+
+/**
+ * POST /users/:id/forget-devices `{}` — `users.edit` + yönetebilme (`canManage`); kendi id'si 403 (profil yolu), başka
+ * firma 404. Kullanıcının tüm hatırlanan cihazları silinir; audit `auth.trusted_device_revoked {reason:"admin", count}`.
+ */
+export const forgetDevicesInputSchema = z.strictObject({});
+export interface ForgetDevicesResponse {
+  revoked: number;
+}

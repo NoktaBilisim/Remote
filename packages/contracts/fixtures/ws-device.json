@@ -1,0 +1,103 @@
+{
+  "_doc": "/ws/device sözleşme örnekleri (mimari-p27 §4.4, P27-K1). valid.* şemadan geçmeli, invalid.* reddedilmeli. deviceAuth = kimliksiz soketin tek mesajı; deviceInbound = kimliği doğrulanmış soketten gelenler; deviceOutbound = sunucudan cihaza. Go servisi (K5, internal/servis/wsdevice.go) bu örnekleri go test ile doğrular. authMessage: deviceAuthMessage(nonce, deviceId, origin) beklenen dizesi.",
+  "authMessage": {
+    "nonce": "Tzvurhrfhd0k9x-ZN1JarzZap5Ix7vMOKvclD1Y-lUE",
+    "deviceId": "01JD0000000000000000000001",
+    "origin": "https://destek.example.com",
+    "expected": "rs-device-auth-v1\nTzvurhrfhd0k9x-ZN1JarzZap5Ix7vMOKvclD1Y-lUE\n01JD0000000000000000000001\nhttps://destek.example.com"
+  },
+  "valid": {
+    "deviceAuth": [
+      {
+        "t": "device.auth",
+        "deviceId": "01JD0000000000000000000001",
+        "sig": "GDikzjkLFK5bEnbKb0TdRzG30j7pPUJHfjw0QgrUtjCBnAjsIpu3Y93zC6ZsJNLHhRgVzTXrt-bgpwaMq3t9Mg",
+        "version": "0.13.0",
+        "sha256": "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08",
+        "signed": false,
+        "localEnabled": true,
+        "osVersion": "Windows 11 Pro 23H2 (22631)"
+      }
+    ],
+    "deviceInbound": [
+      { "t": "connect.result", "sessionId": "01JD0000000000000000000002", "ok": true },
+      { "t": "connect.result", "sessionId": "01JD0000000000000000000002", "ok": false, "reason": "indicator_failed" },
+      { "t": "device.state", "localEnabled": false },
+      { "t": "session.closed", "sessionId": "01JD0000000000000000000002", "reason": "session_changed" },
+      { "t": "device.unregister" }
+    ],
+    "deviceOutbound": [
+      { "t": "device.hello", "v": 1, "nonce": "2lGwFkcGYEJ_OM1wKccki4fMire12B7w7yG0o92yhB8" },
+      { "t": "device.ready", "tenantName": "Nokta Destek", "customerName": "Örnek Muhasebe Ltd." },
+      {
+        "t": "connect",
+        "sessionId": "01JD0000000000000000000002",
+        "ticket": "OSTHxpIxRYOEvsy1t7jssmOfVM9-lMgf5dSNuly4uso",
+        "techName": "Mehmet Teknisyen",
+        "tenantName": "Nokta Destek",
+        "techIp": "203.0.113.7",
+        "expiresInSec": 60,
+        "indicatorText": "TEST — imzasız · Uzaktan bağlantı: Mehmet Teknisyen — Nokta Destek"
+      },
+      { "t": "disconnect", "sessionId": "01JD0000000000000000000002", "reason": "device_revoked" },
+      { "t": "revoked" }
+    ]
+  },
+  "invalid": {
+    "deviceAuth": [
+      {
+        "t": "device.auth",
+        "deviceId": "01JD0000000000000000000001",
+        "sig": "GDikzjkLFK5bEnbKb0TdRzG30j7pPUJHfjw0QgrUtjCBnAjsIpu3Y93zC6ZsJNLHhRgVzTXrt-bgpwaMq3t9Mh",
+        "version": "0.13.0",
+        "sha256": "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08",
+        "signed": false,
+        "localEnabled": true,
+        "osVersion": "Windows 11"
+      },
+      {
+        "t": "device.auth",
+        "deviceId": "01JD0000000000000000000001",
+        "sig": "GDikzjkLFK5bEnbKb0TdRzG30j7pPUJHfjw0QgrUtjCBnAjsIpu3Y93zC6ZsJNLHhRgVzTXrt-bgpwaMq3t9Mg",
+        "version": "0.13.0",
+        "sha256": "9F86D081884C7D659A2FEAA0C55AD015A3BF4F1B2B0B822CD15D6C15B0F00A08",
+        "signed": false,
+        "localEnabled": true,
+        "osVersion": "Windows 11"
+      },
+      {
+        "t": "device.auth",
+        "deviceId": "01JD0000000000000000000001",
+        "sig": "GDikzjkLFK5bEnbKb0TdRzG30j7pPUJHfjw0QgrUtjCBnAjsIpu3Y93zC6ZsJNLHhRgVzTXrt-bgpwaMq3t9Mg",
+        "version": "0.13.0",
+        "sha256": "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08",
+        "signed": false,
+        "localEnabled": true,
+        "osVersion": "Windows‮11"
+      }
+    ],
+    "deviceInbound": [
+      { "t": "device.auth" },
+      { "t": "connect.result", "sessionId": "01JD0000000000000000000002", "ok": false },
+      { "t": "connect.result", "sessionId": "01JD0000000000000000000002", "ok": true, "reason": "busy" },
+      { "t": "connect.result", "sessionId": "01JD0000000000000000000002", "ok": false, "reason": "unknown" },
+      { "t": "device.state", "localEnabled": "false" },
+      { "t": "session.closed", "sessionId": "01JD0000000000000000000002", "reason": "Kullanıcı kapattı" },
+      { "t": "device.unregister", "extra": 1 }
+    ],
+    "deviceOutbound": [
+      { "t": "device.hello", "v": 2, "nonce": "2lGwFkcGYEJ_OM1wKccki4fMire12B7w7yG0o92yhB8" },
+      { "t": "device.state", "localEnabled": true },
+      { "t": "device.enable" },
+      {
+        "t": "connect",
+        "sessionId": "01JD0000000000000000000002",
+        "ticket": "OSTHxpIxRYOEvsy1t7jssmOfVM9-lMgf5dSNuly4uso",
+        "techName": "Mehmet Teknisyen",
+        "tenantName": "Nokta Destek",
+        "techIp": "203.0.113.7",
+        "expiresInSec": 60
+      }
+    ]
+  }
+}

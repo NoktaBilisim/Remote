@@ -18,6 +18,9 @@ export const PERMISSION_MODULES = [
   // P19 (AC-263, S-P19-14): export = CSV indir (+ view); import = CSV önizleme (+ create + view) / uygulama (+ create,
   // güncellemede + edit). Bağımlılık toggle kaydında değil uçta zorlanır (K-P19-9).
   { key: "customers", actions: ["view", "create", "edit", "delete", "export", "import"] },
+  // P27 (AC-273, 275, 293, 296; mimari-p27 §4.1): connect = yetkili olduğu cihaza bağlan (+ cihaz grant'ı + step-up);
+  // manage = tüm cihazları gör, kayıt kodu üret/iptal, teknisyen–cihaz yetkisi ver/al, cihazı iptal et, bildirim adresleri.
+  { key: "unattended", actions: ["connect", "manage"] },
   { key: "users", actions: ["view", "create", "edit", "delete"] },
   { key: "settings", actions: ["view", "edit"] },
   { key: "audit", actions: ["view", "export"] },
@@ -58,6 +61,11 @@ export const PERMISSION_DESCRIPTIONS: Readonly<Partial<Record<PermissionKey, str
   // P15 (AC-237): anahtar kalıcı kullanıcı silme ucunu korur (uç P16, ADR-0030). Pasife alma "Düzenle" yetkisiyle yapılır.
   // P16 (AC-237/241): DELETE /users/:id — yalnız pasif kullanıcı, ad onayı + step-up.
   "users.delete": 'Pasif kullanıcıyı kalıcı siler (geri alınamaz). Pasife alma "Düzenle" yetkisiyle yapılır.',
+  // P27 (§4.1): cihaz yetkisi olmadan `connect` tek başına bağlantı açmaz (AC-293).
+  "unattended.connect":
+    "Yetki verilmiş gözetimsiz cihazlara müşteri onayı olmadan bağlanır. Her bağlantıda iki adımlı doğrulama kodu istenir; cihaz bazında yetki ayrıca verilmelidir.",
+  "unattended.manage":
+    "Tüm gözetimsiz cihazları görür; kayıt kodu üretir, teknisyenlere cihaz yetkisi verir/alır, cihazı iptal eder ve müşteri bildirim adreslerini düzenler.",
 };
 
 export const ROLES = ["SUPER_ADMIN", "ADMIN", "USER"] as const;
