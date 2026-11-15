@@ -4,7 +4,7 @@ Self-hosted, çok kiracılı (multi-tenant) uzaktan destek platformu. Teknisyen 
 oturumu açar; müşteri taşınabilir Windows istemcisi (tam erişim) veya tarayıcı (yalnız görüntü) ile katılır.
 Görüntü eşler arası WebRTC ile akar; sunucu yalnız sinyalizasyon ve meta veri tutar.
 
-## Şu anki durum: P1–P13a tamamlandı, P13b (prod açılışı) kodu hazır, P14a/P14b, P15 ve P16 kodlandı (QA sürüyor)
+## Şu anki durum: P1–P13a tamamlandı, P13b (prod açılışı) kodu hazır, P14a/P14b, P15, P16 ve P17 (istemci 0.11.0) kodlandı (QA sürüyor)
 
 İş P1..P13 dikey paketlerle yürür (`docs/mimari.md` §10). P1–P11 ve **P12** (firma ve sistem logosu, kullanıcı profil
 resmi, kullanıcı başına tema, hesap menüsü, tasarım token lint kuralı) tamamlandı: P12 güvenlik Kritik/Yüksek 0 (doğrulama
@@ -251,6 +251,16 @@ P13c'ye kadar ayrı staging yoktur; yeni kod yerelde (`scripts/e2e-real.sh`) den
   kontrol edin."). Kalıcı modda ve yalnız sorun olduğunda `%LOCALAPPDATA%\NoktaDestek\tanilama.log` yazılır (≤ 256 KB,
   kişisel veri yok; kod modunda ve yönetici olarak çalışırken yazılmaz). SHA-256
   `85142c14bf6941c2d5c3803b2818f0b1645c95b77704e640c8ff49d4059687bc`.
+
+**P17 — Windows istemci 0.11.0** (kod tamam, güvenlik tur 2 Kritik/Yüksek 0; Windows elle turu ve Release bekliyor)
+
+- "Yalnız bir pencere" paylaşımı (Windows.Graphics.Capture); kontrol pencereyle sınırlı, kabuk kısayolları ve
+  erişilebilirlik kısayolları pencere modunda iletilmez. Konsolda "Pencere paylaşımı" rozeti.
+- Paylaşım hata nedeni ve yöntemi konsola (`share.state.reason/method`; yeni kodlar `WGC_UNSUPPORTED`, `WINDOW_CLOSED`,
+  `WINDOW_UNAVAILABLE`), kabul kodu gösterimi (`admitCode`), koyu tema, donanım kodlayıcıdan yazılıma kesintisiz geçiş,
+  kirli bölge dönüşümü, `%LOCALAPPDATA%\NoktaDestek` için junction/sembolik bağ koruması.
+- Yayın: etiket `v0.11.0`; onay (`agent-release`) → isteğe bağlı SignPath imzası → attestation → Release. P15 sunucusu
+  prod'da olmadan yayımlanmaz. Adımlar runbook §24; ayrıntı [`CHANGELOG.md`](CHANGELOG.md).
 
 **P9 — kullanıcı, yetki ve firma yönetimi**
 
@@ -887,7 +897,8 @@ alan adı olmalı ve sertifikası Windows'un güvendiği köklerden gelmelidir (
 geçersiz sertifikayı reddeder).
 
 **Yayın** — CI (`.github/workflows/agent-win.yml`) iki ayrı runner'da derler, hash eşitliğini doğrular, `SHA256SUMS` ve
-build attestation üretir; `v*` etiketinde onaylı Release açar. Sunucuya yayın operatör makinesinden yapılır:
+build attestation üretir; `v*` etiketinde onaylı Release açar (0.11.0 ve sonrası: onay → koşullu SignPath imzası →
+attestation → Release; runbook §24). Sunucuya yayın operatör makinesinden yapılır:
 
 ```bash
 deploy/agent/verify-and-publish.sh --tag vX.Y.Z --ssh root@185.126.217.99      # önce --dry-run ile yalnız doğrulama

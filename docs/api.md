@@ -1041,7 +1041,8 @@ const ws = new WebSocket("wss://<host>:4450/ws/guest", ["rs.v1", "rs.ticket." + 
 
 - `hello.guestName` (≤ 100): yalnız `role:"tech"` hello'sunda ve ACTIVE oturumda; kabul edilen misafirin lobide
   verdiği ad. PENDING oturumda yoktur.
-- `hello.share`: yalnız `role:"tech"` hello'sunda; misafirin son `share.state`'i `{ state, monitors?, activeMonitor? }`.
+- `hello.share`: yalnız `role:"tech"` hello'sunda; misafirin son `share.state`'i
+  `{ state, monitors?, activeMonitor?, reason?, method? }` (P15'ten beri `reason`/`method` da saklanır).
   Misafir hiç `share.state` göndermediyse yoktur; misafir koparsa `{ "state": "stopped" }` olur.
 - `peer.joined{role:"guest"}.guestName`: kabul anında ve misafir yeniden bağlandığında teknisyene gider.
 - Bu alanlar yalnız aynı odanın teknisyenine gönderilir; misafire veya başka odaya gitmez.
@@ -2413,6 +2414,17 @@ Müşteri ekranındaki teknisyen fotoğrafı (AC-236). Adres `POST /public/sessi
   `DXGI_UNSUPPORTED`, `NO_H264_ENCODER`) ve son denenen yöntemi (`DXGI` | `GDI` | `WGC`) gönderir. Sunucu alanları yeniden
   kurup teknisyene iletir. Türkçe etiketler `contracts/labels.ts` `SHARE_FAIL_REASON_LABELS`; bilinmeyen kod
   "Bilinmeyen neden (KOD)" olarak gösterilir. 0.10.x istemci bu alanları göndermez.
+- **Neden kodları (istemci `capture.Reason`, `contracts/labels.ts` ile birebir; `test/p17-share-reasons.test.ts`):**
+  `DXGI_UNSUPPORTED`, `DXGI_ACCESS_DENIED`, `DXGI_NOT_AVAILABLE`, `NO_OUTPUT`, `D3D_DEVICE`, `FIRST_FRAME_TIMEOUT`,
+  `GDI_FAILED`, `MF_STARTUP`, `NO_H264_ENCODER`, `ENCODER_CONFIG`, `ENCODE_FAILED`, `OTHER`; P17 (0.11.0, pencere modu):
+  `WGC_UNSUPPORTED` (pencere yakalama yok), `WINDOW_CLOSED` (paylaşılan pencere kapandı), `WINDOW_UNAVAILABLE` (pencere
+  yakalamaya açılamadı). Şema enum değil, desen `^[A-Z0-9_]{1,32}$`; yeni kod sunucu değişikliği gerektirmez.
+- **`method`:** `DXGI` (masaüstü çoğaltma), `GDI` (yedek), `WGC` (P17 pencere yakalama). Yöntem bilinmiyorsa alan yoktur
+  (ör. Media Foundation/kodlayıcı nedenleri).
+- **Pencere modu (P17, AC-248):** 0.11.0 istemci müşteri "Yalnız bir pencere" seçtiğinde `{ "t": "share.state", "state":
+"sharing", "method": "WGC" }` gönderir; `monitors`/`activeMonitor` yoktur ve istemci `monitor.request`'i yok sayar. Konsol
+  bu durumda "Pencere paylaşımı" rozetini gösterir, monitör seçiciyi gizler. Pencere kapanınca
+  `{ "state": "stopped", "reason": "WINDOW_CLOSED", "method": "WGC" }` gelir; istemci tüm ekrana geçmez.
 - **Birleştirme (S17-2):** sunucu `share.state`'i teknisyene oda başına en çok 1 sn'de bir iletir. Aradaki mesajlar
   düşürülmez; aralık sonunda en son durum tek mesajla gider.
 - **`request.accepted.admitCode` (AC-239):** firma ayarı "Talep kabulünde kabul kodu iste" (`requireAcceptCode`) açıksa

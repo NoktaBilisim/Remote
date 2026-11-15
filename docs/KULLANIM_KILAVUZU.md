@@ -3,11 +3,11 @@
 Bu kılavuz Nokta Bilişim uzaktan destek platformunun kullanıcıya dönük ekranlarını anlatır. Platform paketler hâlinde
 geliştirilir (bkz. `README.md` "Yol haritası"); kılavuz da her paketle birlikte büyür. Bu sürümde yer alan bölümler:
 
-- **Müşteri için:** Hızlı Destek uygulaması (Windows), "Destek iste" ile talep gönderme, bilgisayarın hatırlanması
+- **Müşteri için:** Hızlı Destek uygulaması (Windows), yalnız bir pencereyi paylaşma (0.11), "Destek iste" ile talep gönderme, bilgisayarın hatırlanması
   ("Bağlantı kodum var", "Bu bilgisayarı unut"), uzaktan kontrol izni, ekran görüntüsü alınamazsa ne yapılır,
   bilgisayarda ne kalır (iz ve gizlilik)
 - **Teknisyen için:** Oturumlar ve bekleme odası ("Müşteri bekliyor" rozeti, menü sayacı, bildirim), Uzaktan kontrol
-  (konsol), Oturum geçmişi (dosyalarda "Doğrulanmış / Müşteri bildirimi"), Destek talepleri ("Bu kaynağı engelle"),
+  (konsol; "Pencere paylaşımı" rozeti dahil), Oturum geçmişi (dosyalarda "Doğrulanmış / Müşteri bildirimi"), Destek talepleri ("Bu kaynağı engelle"),
   Engellenenler, müşterinin ekranı gelmiyorsa (paylaşım hata nedeni)
 - **Admin ve teknisyen için:** Müşteriler (müşteri firmalar, bağlantı gönderme, kayıtlı bilgisayarlar)
 - **Herkes için (teknisyen, Admin, Super Admin):** Giriş ve hesap güvenliği — iki adımlı doğrulama (2FA), kurtarma
@@ -365,7 +365,11 @@ Vazgeçmek isterseniz **Vazgeç**'e tıklayın; ekranınız paylaşılmaz.
 ### Ekran seçimi ve oturum
 
 Bilgisayarınıza birden fazla monitör bağlıysa **Teknisyenle paylaşılacak ekranı seçin** penceresi açılır. Birincil
-ekran seçili gelir. İstediğiniz ekranı seçip **Paylaş**'a tıklayın. Tek monitörde bu soru sorulmaz.
+ekran seçili gelir. İstediğiniz ekranı seçip **Paylaş**'a tıklayın. Tek monitörde bu soru sorulmaz (Hızlı Destek 0.11 ve
+sonrasında Windows pencere paylaşımını destekliyorsa tek monitörde de sorulur; bkz. aşağıdaki bölüm).
+
+Windows'unuz koyu modda ise (Ayarlar → Kişiselleştirme → Renkler → "Varsayılan uygulama modunuzu seçin": Koyu) Hızlı
+Destek 0.11 ve sonrası pencerelerini koyu renkte gösterir. Yüksek karşıtlık açıksa sizin renkleriniz korunur.
 
 Paylaşım başlayınca:
 
@@ -377,6 +381,52 @@ Paylaşım başlayınca:
 - İnternet kısa süre koparsa "Bağlantı koptu, yeniden bağlanılıyor…" yazar. Program 2 dakika içinde kendiliğinden
   yeniden bağlanır; bir şey yapmanız gerekmez.
 - Oturumun bitmesine 5 dakika kala durum satırında uyarı çıkar.
+
+### Yalnız bir pencereyi paylaşma (Hızlı Destek 0.11 ve sonrası)
+
+Teknisyenin bütün ekranınızı değil yalnız bir programı (ör. hata veren muhasebe programı) görmesini istiyorsanız bunu
+kullanın. Seçenek, Windows'unuz pencere paylaşımını destekliyorsa görünür (Windows 10'un güncel sürümleri ve Windows 11).
+
+**Nasıl yalnız bir pencere paylaşırım?**
+
+1. Paylaşım başlarken **Teknisyenle neyi paylaşmak istiyorsunuz?** penceresi açılır. **Tüm ekran** seçili gelir.
+2. **Yalnız bir pencere**'yi seçin. Altındaki listede açık pencereleriniz başlıklarıyla görünür. Küçültülmüş pencerelerin
+   yanında "(simge durumunda)" yazar.
+3. Paylaşmak istediğiniz pencereyi seçin. Yeni açtığınız bir program listede yoksa **Listeyi yenile**'ye tıklayın.
+4. **Paylaş**'a tıklayın. Ekranın üstündeki yazı **"Paylaştığınız pencere izleniyor — <teknisyen adı>"** olur.
+
+Listede Nokta Destek'in kendi pencereleri, masaüstü, görev çubuğu ve başka sanal masaüstündeki pencereler görünmez.
+
+**Ne olur?**
+
+- Teknisyen yalnız seçtiğiniz pencerenin içini görür. Başka pencereler, masaüstü ve bildirimler görüntüye girmez.
+- Uzaktan kontrol izni verirseniz teknisyenin faresi ve klavyesi **yalnız bu pencerede** çalışır:
+  - Pencerenin üstüne başka bir pencere gelmişse, teknisyenin o bölgedeki tıklaması hiçbir yere gitmez.
+  - Teknisyen yazı yazdığında harfler yalnız bu pencere öndeyken gider. Siz başka bir programa geçerseniz teknisyenin
+    yazdıkları o programa **gitmez** ve sonradan da yazılmaz.
+  - Paylaşılan programın kendi menüleri ve "Farklı kaydet" gibi pencereleri fareyle kullanılabilir. Bu küçük pencereler
+    öndeyken teknisyenin klavyesi çalışmaz; gerekirse yazıyı siz yazın.
+- Pencere modunda teknisyenin **Windows kısayolları çalışmaz**: Windows tuşu (Başlat menüsü, Win+R "Çalıştır", Win+E,
+  Win+D), Alt+Tab ile pencere değiştirme, Ctrl+Esc, Ctrl+Shift+Esc (Görev Yöneticisi) ve Print Screen etkisizdir. Ctrl+C,
+  Ctrl+V ve normal yazı çalışır; Alt+F4 paylaşılan pencereyi kapatır.
+- Bilgisayarınızda **Yapışkan Tuşlar** veya **Fare Tuşları** açıksa, bunlarla kısayol oluşturabilecek tuşlar da (ör. tek
+  başına basılan Ctrl ardından Esc, sayısal tuş takımı) teknisyenden gelmez. Teknisyen rakam için klavyenin üst sırasını
+  kullanır.
+- Ekrana çizim (işaretleme) ve ekran değiştirme pencere modunda yoktur.
+
+> **Dikkat:** Paylaştığınız pencerenin içinden başka programlar açılabilir (ör. Dosya Gezgini, tarayıcı). Teknisyen o
+> pencerede bir programı başlatırsa, yeni program paylaşılan pencerenin dışında açılır; teknisyen onu görmez ama siz
+> görürsünüz. Seçim penceresinde de bu uyarı yazılıdır. Yalnız ihtiyaç olan programı paylaşın; beklemediğiniz bir şey
+> açılırsa **Kontrolü kapat**'a tıklayın veya Ctrl+Shift+F12'ye basın.
+
+**Pencereyi küçültürsem veya kapatırsam?**
+
+- **Küçültürseniz:** teknisyen siyah bir ekran ve "Pencere simge durumunda" yazısı görür; bu sırada fare ve klavyesi hiçbir
+  şey yapamaz. Pencereyi geri açtığınızda görüntü ve kontrol kendiliğinden döner.
+- **Kapatırsanız:** paylaşım durur. Durum satırında "Ekran görüntüsü alınamadı (WINDOW_CLOSED). Paylaşılan pencere kapandı;
+  oturumu bitirip yeniden başlatın." yazar. Program kendiliğinden tüm ekranı paylaşmaya **geçmez**. Devam etmek için
+  oturumu bitirip teknisyeninizin verdiği kodla yeniden bağlanın.
+- **Taşır veya boyutunu değiştirirseniz:** görüntü yeni boyuta uyar, kontrol doğru yere düşmeye devam eder.
 
 ### Teknisyen dosya gönderirse
 
@@ -687,6 +737,9 @@ Parantez içindeki **kodu teknisyeninize telefonda okuyun**. Mesajın devamı il
 | FIRST_FRAME_TIMEOUT                                  | Ekran yanıt vermedi; tekrar deneyin.                                       |
 | MF_STARTUP, NO_H264_ENCODER                          | Windows'un "N" sürümünde Windows Medya Özellik Paketi gerekir.             |
 | GDI_FAILED, ENCODER_CONFIG, ENCODE_FAILED, OTHER 0x… | Kodu teknisyeninize bildirin.                                              |
+| WGC_UNSUPPORTED                                      | Bu Windows sürümünde pencere paylaşımı yok; tüm ekranı paylaşın.           |
+| WINDOW_CLOSED                                        | Paylaşılan pencere kapandı; oturumu bitirip yeniden başlatın.              |
+| WINDOW_UNAVAILABLE                                   | Bu pencere paylaşılamıyor; başka bir pencere ya da tüm ekranı seçin.       |
 
 Teknisyeniniz isterse bilgisayarınızdaki tanılama dosyasını da gönderebilirsiniz (bkz. aşağıdaki bölüm). Sohbet, dosya
 ve destek talebi bu sırada çalışmaya devam eder.
@@ -805,13 +858,16 @@ Hızlı Destek ekranı okuyamazsa konsolunuzda ekran siyah kalır veya "paylaş�
 
 Sık görülen nedenler:
 
-| Konsolda görünen neden                                                      | Ne yapmalı                                                               |
-| --------------------------------------------------------------------------- | ------------------------------------------------------------------------ |
-| Ekran yakalama bu ekran kartında/ayarda desteklenmiyor                      | HDR'yi kapatın, ekran kartı sürücüsünü güncelleyin; yedek yöntem denenir |
-| Ekran yakalamaya izin verilmedi (kilit ekranı veya güvenli masaüstü)        | Müşteri kilit ekranını veya Windows onay penceresini kapatsın            |
-| Ekran yakalama şu an kullanılamıyor (tam ekran uygulama veya uzak masaüstü) | Tam ekran uygulamayı veya Uzak Masaüstü bağlantısını kapatın             |
-| Seçilen monitör bulunamadı                                                  | Başka bir monitör seçin veya müşteri ekranı yeniden bağlasın             |
-| Windows medya bileşenleri eksik / Görüntü kodlayıcı bulunamadı              | Windows "N" sürümü: Medya Özellik Paketi kurulmalı                       |
+| Konsolda görünen neden                                                      | Ne yapmalı                                                                     |
+| --------------------------------------------------------------------------- | ------------------------------------------------------------------------------ |
+| Ekran yakalama bu ekran kartında/ayarda desteklenmiyor                      | HDR'yi kapatın, ekran kartı sürücüsünü güncelleyin; yedek yöntem denenir       |
+| Ekran yakalamaya izin verilmedi (kilit ekranı veya güvenli masaüstü)        | Müşteri kilit ekranını veya Windows onay penceresini kapatsın                  |
+| Ekran yakalama şu an kullanılamıyor (tam ekran uygulama veya uzak masaüstü) | Tam ekran uygulamayı veya Uzak Masaüstü bağlantısını kapatın                   |
+| Seçilen monitör bulunamadı                                                  | Başka bir monitör seçin veya müşteri ekranı yeniden bağlasın                   |
+| Windows medya bileşenleri eksik / Görüntü kodlayıcı bulunamadı              | Windows "N" sürümü: Medya Özellik Paketi kurulmalı                             |
+| Paylaşılan pencere kapatıldı                                                | Müşteri pencere modunda paylaştığı pencereyi kapattı; oturumu yeniden başlatın |
+| Seçilen pencere paylaşılamadı (pencereye erişilemiyor)                      | Müşteri başka bir pencere ya da "Tüm ekran" seçsin                             |
+| Bu Windows sürümü pencere paylaşımını desteklemiyor                         | Müşteri "Tüm ekran"ı paylaşsın                                                 |
 
 Müşteriden bilgi alma adımları:
 
@@ -890,6 +946,23 @@ onaylasa bile kontrol açılmaz.
 - İşiniz bitince **Kontrolü bırak**'a tıklayın. Müşteri tarafında kontrol hemen kapanır, basılı kalan tuş olmaz.
 - Düğme **Kontrole devam** olur. Tekrar kontrol için tıklayın; bu yeni bir istektir, müşteri yeniden onaylar ve
   haktan düşer.
+
+### Müşteri yalnız bir pencere paylaşıyorsa ("Pencere paylaşımı" rozeti)
+
+Hızlı Destek 0.11 ve sonrasında müşteri tüm ekran yerine tek bir pencere paylaşabilir. Bu durumda sahnenin üst şeridinde
+**Pencere paylaşımı** rozeti görünür (üzerine gelince "Müşteri yalnız bir pencereyi paylaşıyor (Pencere yakalama (WGC))").
+
+- Yalnız o pencerenin içini görürsünüz. Monitör seçimi gizlenir; ekran değiştirme ve işaretleme yoktur.
+- Kontrol izniyle tıklamanız yalnız o pencereye gider. Üstüne başka pencere gelmiş bir bölgeye tıklarsanız hiçbir şey olmaz.
+- Klavyeniz yalnız müşteride o pencere öndeyken çalışır; müşteri başka programa geçerse yazdıklarınız gitmez ve sonradan
+  da yazılmaz. Pencerenin "Farklı kaydet" gibi küçük pencereleri öndeyken yalnız fare çalışır.
+- **Klavye kısayolları kısıtlıdır:** Windows tuşu ve Win+… kısayolları, Alt+Tab, Alt+Esc, Ctrl+Esc, Ctrl+Shift+Esc ve
+  Print Screen müşteriye gitmez (**Özel tuşlar** menüsünden gönderseniz de). Müşteride Yapışkan Tuşlar veya Fare Tuşları
+  açıksa tek başına Ctrl/Alt sonrası Tab/Esc ve sayısal tuş takımı da gitmez; rakam için üst sırayı kullanın. Ctrl+C,
+  Ctrl+V ve Alt+F4 çalışır. Hızlı yazımda saniyede 40 tuştan fazlası düşer.
+- Müşteri pencereyi küçültürse siyah ekran ve "Pencere simge durumunda" görürsünüz; girdiniz uygulanmaz. Pencere kapanırsa
+  kırmızı uyarı çıkar: **"Neden: Paylaşılan pencere kapatıldı — Pencere yakalama (WGC)"**. Müşteri oturumu yeniden başlatır.
+- Tüm ekrana ihtiyacınız varsa müşteriden oturumu bitirip yeniden bağlanırken **Tüm ekran**'ı seçmesini isteyin.
 
 ### Kontrolün kendiliğinden kapandığı durumlar
 

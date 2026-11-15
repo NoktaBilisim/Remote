@@ -1276,3 +1276,71 @@ Yalnız metin; kod/test tekrarı gerekmez. Uygulanınca Tur 3 belge kontrolüyle
 - S-P17-1 düzeltmesi raporun istediğinin ötesinde: kilit mantığı type-ahead'i (Win+R+metin) kesiyor, PrintScreen
   eklendi, ön plan kaybında basılı tuşlar bırakılıyor.
 - 386 için sessiz zayıf denetime dönmek yerine fail-closed eş seçilmiş.
+
+## P17 — Tur 3
+
+DURUM: GEÇTİ
+
+Kapsam: Tur 2 Düzeltilmeli 1–2 ve Öneri 1; güvenlik tur 2 düzeltmeleri S-P17-7 (Orta), S-P17-8 (Düşük); regresyon.
+Denetlenen commit `16956a2` (`p17-wip`, çalışma alanı temiz). Kod değiştirilmedi.
+
+### Test sonucu
+
+| Komut                                                                                      | Sonuç                                                                                                                                                                                                                                                                                      |
+| ------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Go (golang:1.26, linux) `go test -race ./...` · `GOOS=windows go vet ./...` · `gofmt -l .` | **19 paket ok** · 0 · boş; `GOOS=windows go test -c` (input, remember, ui) derleniyor                                                                                                                                                                                                      |
+| contracts / web vitest · `pnpm format:check`                                               | 14 dosya **103/103** · 39 dosya **351/351** · temiz                                                                                                                                                                                                                                        |
+| **Windows CI 43688024372** (`16956a2`, workflow_dispatch)                                  | `success`. `go test (Windows)` 20 paket `ok`; `-v` adımında 31 `--- PASS: TestAC248*/TestAC249*`, 0 SKIP, `::warning::`/`::error::` yok; **`TestAC248WGCWindowSmoke` PASS (0.53 s)**. build 1/2, tekrarlanabilirlik, attestation yeşil; imza/onay/release `skipped` (etiket yok, beklenen) |
+
+### Tur 2 maddeleri
+
+| Madde                                 | Durum | Kanıt                                                                                                                                                        |
+| ------------------------------------- | ----- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Düzeltilmeli 1 [backend-dev] impl.md  | ✅    | `implementation.md:6788` "koşu 43687183097 (`f862e0e`): `--- PASS: TestAC248WGCWindowSmoke (0.59s)` … K-E11-3 GO kanıtlı"; `:6855` "PASS 0.59 s, SKIP değil" |
+| Düzeltilmeli 2 [devops] runbook §24.2 | ✅    | `runbook.md:2850` "Kayıt: … 43687183097 (`f862e0e`) … 31 PASS, 0 SKIP; `TestAC248WGCWindowSmoke` PASS"                                                       |
+| Öneri 1 remember reparse build tag    | ✅    | `remember/reparse_windows_test.go:1` `//go:build windows && (amd64 \|\| arm64)`                                                                              |
+
+### Güvenlik tur 2 düzeltmeleri
+
+| Bulgu   | Durum | Kanıt                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| ------- | ----- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| S-P17-7 | ✅    | `scope.go` `shellShortcut` artık neden döner; Alt/Ctrl/Win = alıcı ∨ `GetAsyncKeyState`; Yapışkan Tuşlar bas-bırak izi (`tapCand`/`stickyArmed`, oturum başında kurulu), 5. Shift, Fare Tuşları'nda `Numpad*`/`NumLock`, Alt+Shift+NumLock her zaman; ayar 2 sn önbellek, okunamazsa "açık" (fail-closed). `STICKYKEYS` cbSize 8, `MOUSEKEYS` cbSize 28 doğru. 8 test `TestSP177*` gerçekten kuralları sınıyor: OS değiştiricisi (3 alt durum + değiştiricisiz Tab geçer), Ctrl↓↑Esc / Alt↓↑Tab / Ctrl↓↑Shift↓↑Esc düşer, Ctrl+C sonrası Esc geçer, odak kaybı bırakması izi kurar, ayar kapalıyken davranış aynı, 5. Shift ve sayaç sıfırlama, Numpad/üst sıra rakam ayrımı, periyodik ve oturum başı okuma, monitör modu değişmedi. Linux ve Windows CI'da PASS. Sapmalar 1–5 implementation.md'de gerekçeli; Windows çalışma zamanı I6 senaryo 12'de yazılı |
+| S-P17-8 | ✅    | `share.go` `windowShareWarning` + `screens_windows.go:364` kalın etiket, form 40 px uzadı (butonlar 444); `TestSP178WindowShareWarningText`. Görsel yerleşim I6 senaryo 12                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
+
+### Kabul kriterleri
+
+Tur 2 tablosu geçerli (234, 239, 245–252 ✅; 245/246/247 elle/ölçüm kısımları gerekçeli olarak I6'da). AC-248 kanıtı
+bu commit'te yeniden alındı (CI 43688024372 WGC duman PASS); S-P17-7 ile girdi kapsamı genişledi, regresyon yok
+(`TestAC248S171*`, `TestSP171*` yeşil).
+
+### Düzeltilmeli
+
+Yok.
+
+### Definition of Done
+
+| Madde                                         | ✅/❌ | Not                                                                 |
+| --------------------------------------------- | ----- | ------------------------------------------------------------------- |
+| Her AC'nin kanıtlayan testi var               | ✅    |                                                                     |
+| Testler yeşil (unit, Go vet/test, Windows CI) | ✅    | Linux 19 paket, Windows 20 paket + -v adımı, vitest 103+351         |
+| Format (prettier, gofmt)                      | ✅    |                                                                     |
+| Tasarım–kod uyumu, sapmalar gerekçeli         | ✅    | Denetim sırası değişikliği (sapma 1) gerekçeli                      |
+| Hata yutma / PII log                          | ✅    | Yeni nedenler `STICKY_KEYS`/`MOUSE_KEYS` sabit kod, tuş içeriği yok |
+| Yeni bağımlılık                               | ✅    | Yok                                                                 |
+| Dokümantasyon (implementation.md, runbook)    | ✅    | Tur 2 maddeleri işlendi                                             |
+
+### Öneriler (zorunlu değil)
+
+1. [guvenlik → backend-dev] Yapışkan Tuşlar **kilit** durumu ("art arda iki kez basınca kilitle", `SKF_TRISTATE`,
+   Windows'ta varsayılan açık) izde yok: Ctrl↓↑ Ctrl↓↑ (kilitli) → harf (iz temizlenir, Ctrl OS'ta kilitli kalır) → Esc
+   iletilir → Ctrl+Esc. Etki sınırlı (Başlat/Görev Yöneticisi ön planı alınca sonraki tuşlar `UNFOCUSED` düşer, fare
+   örtüşme denetimi var), ama S-P17-7'nin kapattığı yolun bir varyantı. Öneri: aynı Ctrl/Alt'ın araya tuş girmeden iki
+   ardışık bas-bırakı "kilitli" sayılsın; üçüncü bas-bırak gelene dek `stickyArmed` harfle temizlenmesin (ya da
+   `SKF_TRISTATE` açıksa Yapışkan Tuşlar açıkken pencere modunda Tab/Esc hep düşsün) + test. Güvenlik tur 3 değerlendirsin.
+2. Tur 1 Öneri 1 (TEST-P5-1) hâlâ açık.
+
+### Olumlu
+
+- Tur 2'nin iki metin maddesi ve öneri tek commit'te, istenen ayrıntıyla (koşu no, commit, süre) kapandı.
+- S-P17-7 testleri yalnız "düşer" değil "geçmesi gereken geçer" tarafını da (Ctrl+C sonrası Esc, üst sıra rakam,
+  monitör modu) doğruluyor; erişilebilirlik ayarı okunamazsa kapalı tarafta kalınıyor.

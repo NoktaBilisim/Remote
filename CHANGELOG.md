@@ -5,6 +5,66 @@ Biçim [Keep a Changelog](https://keepachangelog.com/tr/1.1.0/), sürümleme [Se
 
 ## [Unreleased]
 
+### Eklendi — istemci 0.11.0 (Windows; P17, AC-234 istemci, AC-239 istemci, AC-245–252)
+
+- **Yalnız bir pencere paylaş** (AC-248, Windows.Graphics.Capture): paylaşım başlarken "Tüm ekran / Yalnız bir pencere"
+  seçimi (WGC destekliyse tek monitörde de sorulur). Pencere listesi görünür, başlıklı pencerelerden oluşur (en çok 64; Nokta
+  Destek, araç pencereleri, başka sanal masaüstündekiler ve masaüstü/görev çubuğu hariç); simge durumundakiler
+  "(simge durumunda)" ekiyle. Müşteri göstergesi "Paylaştığınız pencere izleniyor — <ad>"; pencere listesinin altında uyarı:
+  "Paylaştığınız pencerenin içinden (ör. Dosya Gezgini, tarayıcı) başka programlar açılabilir." Pencere modunda işaretleme
+  katmanı ve monitör geçişi yoktur. Pencere küçültülünce siyah kare + "Pencere simge durumunda"; pencere kapanınca paylaşım
+  `WINDOW_CLOSED` ile durur (tüm ekrana kendiliğinden geçilmez).
+- **Pencere modunda girdi kapsamı** (S17-1, S-P17-1, S-P17-7): fare olayı yalnız hedef pencereye ya da onun menü/diyaloğuna
+  düşerse uygulanır (üstte başka pencere varsa düşer); klavye yalnız hedef pencere öndeyken gider, kuyruklanmaz; pencere
+  küçükken/kapalıyken bütün girdi düşer. Kabuk kısayolları iletilmez: Win tuşu ve Win+…, Alt+Tab, Alt+Esc, Ctrl+Esc,
+  Ctrl+Shift+Esc, PrintScreen. Tuş basmaları saniyede 40 ile sınırlı. Yapışkan Tuşlar açıkken bas-bırak Ctrl/Alt sonrası
+  Tab/Esc ve 5. art arda Shift; Fare Tuşları açıkken Numpad ve NumLock düşer. Düşmeler yalnız yerel tanılama loguna
+  `input_dropped reason=<KOD>` (en çok 5 sn'de bir, içerik yok). Monitör modu değişmedi.
+- **Paylaşım hata nedeni** (AC-234 istemci): paylaşım başlatılamazsa ya da yayında kalıcı hata olursa ≤ 1 sn içinde
+  `share.state {stopped, reason, method}` gönderilir (aynı neden 5 sn'de en çok 1 kez). Yeni neden kodları
+  `WGC_UNSUPPORTED`, `WINDOW_CLOSED`, `WINDOW_UNAVAILABLE`; pencere modunda `method: "WGC"`.
+- **Kabul kodu istemcide** (AC-239): `request.accepted.admitCode` varsa onay diyaloğunda "Kabul kodu: 0 9 3 7" ve lobide
+  büyük gösterilir. Sunucu kodu yalnız 0.11.0 ve sonrası istemciye üretir.
+- **Koyu tema** (AC-247): Windows "Uygulama modu" koyuysa pencereler ve başlık çubuğu koyu; ayar değişince canlı güncellenir.
+  Yüksek karşıtlık açıkken koyu tablo uygulanmaz. Metin/zemin çiftleri ≥ 4.5:1.
+- **Kodlayıcı yedeği** (AC-245): donanım H.264 kodlayıcı hata verir ya da 3 sn çıktı vermezse yayın kesilmeden yazılım
+  kodlayıcıya geçilir (zorunlu IDR, tek yönlü). Geçiş yerel tanılama loguna `encoder_fallback` olarak yazılır.
+- **Kirli bölge dönüşümü** (AC-246): DXGI'nin bildirdiği değişen bölgeler dışında renk dönüşümü yapılmaz; ekran
+  değişmediyse kare atlanır. Durağan masaüstünde dönüşüm maliyeti ölçümde %87–99,7 düştü (süreç CPU ölçümü Windows elle
+  turunda).
+- **Konsolda pencere modu** (AC-248): paylaşım pencere modundayken sahne şeridinde "Pencere paylaşımı" rozeti (üzerine
+  gelince "Müşteri yalnız bir pencereyi paylaşıyor (Pencere yakalama (WGC))"); monitör seçici gizlenir. Yeni Türkçe neden
+  etiketleri: "Bu Windows sürümü pencere paylaşımını desteklemiyor", "Paylaşılan pencere kapatıldı", "Seçilen pencere
+  paylaşılamadı (pencereye erişilemiyor)" (`contracts/labels.ts`; `reason.go` ile iki yönlü test).
+- **Yayın hattı** (I5, AC-252, S-P17-2/3): etiket `v0.11.0`. Etiket koşusu `reproducible` → `approve` (`agent-release`
+  insan onayı, sürüm artışı denetimi) → `sign` → `attest` → `release`. `sign` yalnız `vars.SIGNPATH_ORGANIZATION_ID` doluysa
+  koşar (SignPath, `signtool verify /pa`; ortam `agent-sign`); hesap yoksa adım atlanır ve Release imzasız çıkar. Onay
+  kontrol listesi `reproducible` özetinde. Ayrıntı runbook §24.
+
+### Değişti — istemci 0.11.0
+
+- **Reparse/junction koruması** (AC-249): `%LOCALAPPDATA%\NoktaDestek` altındaki `hatirla.bin` ve `tanilama.log` handle
+  üzerinden açılır, yazılır, yeniden adlandırılır ve silinir; junction, sembolik bağlantı ve sabit bağ hedefleri reddedilir.
+  `%LOCALAPPDATA%` bir junction ise hatırlama ve tanılama logu kapalı kalır. 32 bit Windows'ta bu işlemler desteklenmez
+  (kapalı başarısızlık; istemci yalnız windows/amd64 dağıtılır).
+- **Kayıt değişimi bildirimi** (AC-251): "Bu bilgisayar artık … için kayıtlı" kararı ada göre değil, sunucunun kayıt
+  yenileme kararına göre verilir (aynı adlı farklı firma bildirilir, aynı firmanın ad değişimi bildirilmez).
+- Bağlantı koparsa bekleyen kayıt isteği sıfırlanır; yeni teklif tek istek doğurur (AC-250).
+
+### Bilinen sınırlamalar — istemci 0.11.0
+
+- Pencere modunda hedefin sahipli diyaloğu (ör. "Farklı kaydet") öndeyken fare çalışır, klavye düşer. WGC yalnız hedef
+  pencereyi yakaladığı için teknisyen açılır menüleri ve diyalogları görüntüde görmeyebilir.
+- Yayın sırası: 0.11.0 Release'i, P15 sunucusu prod'da olmadan yayımlanmaz (eski sunucu yeni `share.state` alanlarını
+  reddeder). 0.10.x istemci yeni sunucuyla çalışmaya devam eder.
+- Gerçek Windows 10/11 elle turu (I6) bekliyor. WGC duman testi Windows CI'da geçti (koşu 43687183097, ilk kare 134 ms).
+
+### Kararlılık
+
+- P16 sonrası `stability` koşusu 43683190681 (main `5e125d7`, 2026-11-15, retry 0): entegrasyon 20/20 yeşil (MySQL 8.4),
+  e2e `--repeat-each 20` yeşil. Yerelde `p5-collab` TEST-P5-1 hâlâ ara sıra düşüyor (P17 QA tur 1: `--repeat-each=3` → 5/6);
+  kayıt açık, P17'den bağımsız (gereksinimler §9 "Sonra").
+
 ### Eklendi — P16 (G4 kalıcı silme; AC-240–244, ADR-0030 r2)
 
 - **Kullanıcıyı kalıcı silme** (AC-237, AC-241): Kullanıcı detayında **Kalıcı sil** (yalnız `users.delete`; pasif

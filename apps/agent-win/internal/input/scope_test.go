@@ -532,51 +532,53 @@ func TestSP177OSModifierStateCounted(t *testing.T) {
 	}
 }
 
-// S-P17-7: Yapışkan Tuşlar açıkken tek başına Ctrl/Alt basma+bırakmasından sonra gelen Esc/Tab düşer.
-func TestSP177StickyKeysLoneModifierThenEscDropped(t *testing.T) {
-	d, inj, a, logs := newScoped(t)
-	d.sticky = true
-	// Oturum başında önceki durum bilinmez: ilk Esc düşer; bir harf kilitli değiştiriciyi tüketir.
-	if evs := play(a, inj, "+Escape"); hasVKDown(evs, vkEsc) || len(*logs) != 1 || (*logs)[0] != DropSticky {
-		t.Fatalf("oturum başı Esc: %+v %v", evs, *logs)
-	}
-	play(a, inj, "+KeyA", "-KeyA")
-	if evs := play(a, inj, "+Escape", "-Escape"); !hasVKDown(evs, vkEsc) {
-		t.Fatalf("harften sonra Esc geçmeli: %+v", evs)
-	}
-	for _, seq := range [][]string{
-		{"+ControlLeft", "-ControlLeft", "+Escape"},
-		{"+AltLeft", "-AltLeft", "+Tab"},
-		{"+ControlLeft", "-ControlLeft", "+ShiftLeft", "-ShiftLeft", "+Escape"}, // Ctrl+Shift+Esc (Görev Yöneticisi)
+// S-P17-7: Yapışkan Tuşlar açıkken pencere modunda Tab ve Esc her zaman düşer — bas-bırak kilidi, "iki kez basınca
+// kilitle" (araya harf girse de kilit sürer) ve odak kaçınca bırakılan Ctrl dahil; diğer tuşlar geçer.
+func TestSP177StickyKeysTabEscAlwaysDropped(t *testing.T) {
+	for _, c := range []struct {
+		name string
+		seq  []string
+	}{
+		{"oturum başı Esc", []string{"+Escape"}},
+		{"Ctrl bas-bırak + Esc", []string{"+ControlLeft", "-ControlLeft", "+Escape"}},
+		{"Alt bas-bırak + Tab", []string{"+AltLeft", "-AltLeft", "+Tab"}},
+		{"Ctrl, Shift + Esc", []string{"+ControlLeft", "-ControlLeft", "+ShiftLeft", "-ShiftLeft", "+Escape"}},
+		{"Ctrl×2 kilit + harf + Esc", []string{"+ControlLeft", "-ControlLeft", "+ControlLeft", "-ControlLeft", "+KeyA", "-KeyA", "+Escape"}},
+		{"harf + Tab", []string{"+KeyA", "-KeyA", "+Tab"}},
+		{"Ctrl+C + Esc", []string{"+ControlLeft", "+KeyC", "-KeyC", "-ControlLeft", "+Escape"}},
 	} {
-		evs := play(a, inj, seq...)
-		if hasVKDown(evs, vkEsc, vkTab) {
-			t.Fatalf("%v: %+v", seq, evs)
-		}
-		play(a, inj, "+KeyB", "-KeyB") // kilidi tüketir
+		t.Run(c.name, func(t *testing.T) {
+			d, inj, a, logs := newScoped(t)
+			d.sticky = true
+			evs := play(a, inj, c.seq...)
+			if hasVKDown(evs, vkEsc, vkTab) {
+				t.Fatalf("Tab/Esc iletildi: %+v", evs)
+			}
+			if len(*logs) != 1 || (*logs)[0] != DropSticky {
+				t.Fatalf("tanılama: %v", *logs)
+			}
+			if evs := play(a, inj, "+KeyX"); len(evs) != 1 || !hasVKDown(evs, 'X') {
+				t.Fatalf("harf geçmeli: %+v", evs)
+			}
+		})
 	}
-	// Kısayolda kullanılan Ctrl (Ctrl+C) bırakılınca kilitlenmez: sonraki Esc geçer.
-	if evs := play(a, inj, "+ControlLeft", "+KeyC", "-KeyC", "-ControlLeft", "+Escape", "-Escape"); !hasVKDown(evs, vkEsc) {
-		t.Fatalf("Ctrl+C sonrası Esc: %+v", evs)
-	}
-}
-
-// S-P17-7: odak kaçınca bırakılan Ctrl de Yapışkan Tuşlar'da kilitlenebilir; odak dönünce ilk Esc düşer.
-func TestSP177StickyKeysArmedByUnfocusRelease(t *testing.T) {
 	d, inj, a, _ := newScoped(t)
 	d.sticky = true
-	play(a, inj, "+KeyA", "-KeyA", "+ControlLeft")
+	play(a, inj, "+ControlLeft")
 	d.fg = hBrowser
-	play(a, inj, "+KeyV")
+	play(a, inj, "+KeyV") // Ctrl bırakılır (yeni ön planda kilitlenebilir)
 	d.fg = hTarget
 	if evs := play(a, inj, "+Escape"); hasVKDown(evs, vkEsc) {
-		t.Fatalf("kilitli Ctrl + Esc: %+v", evs)
+		t.Fatalf("odak dönüşü Esc: %+v", evs)
 	}
 }
 
 // S-P17-7: Yapışkan Tuşlar kapalıyken Ctrl↓↑ Esc davranışı değişmez.
 func TestSP177StickyKeysOffUnchanged(t *testing.T) {
 	_, inj, a, logs := newScoped(t)
+	if evs := play(a, inj, "+ControlLeft", "-ControlLeft", "+ControlLeft", "-ControlLeft", "+KeyA", "-KeyA", "+Escape", "-Escape"); !hasVKDown(evs, vkEsc) {
+		t.Fatalf("Ctrl×2 + harf + Esc (kapalı): %+v", evs)
+	}
 	if evs := play(a, inj, "+Escape", "-Escape", "+ControlLeft", "-ControlLeft", "+Escape", "-Escape", "+AltLeft", "-AltLeft", "+Tab"); len(evs) != 9 {
 		t.Fatalf("Yapışkan Tuşlar kapalı: %+v", evs)
 	}

@@ -6911,7 +6911,8 @@ Eklenene dek konsol "Bilinmeyen neden (KOD)" gösterir (S17-2 yolu, hatasız).
 12. **Erişilebilirlik (S-P17-7):** Ayarlar → Erişilebilirlik → Klavye'den **Yapışkan Tuşlar** açılır; Not Defteri pencere
     modunda paylaşılır, kontrol verilir. Teknisyen önce bir harf yazar, sonra Ctrl'e basıp bırakır ve Esc'ye basar →
     Başlat menüsü **açılmaz**; Alt bas-bırak + Tab → pencere geçişi olmaz; Ctrl, Shift bas-bırak + Esc → Görev Yöneticisi
-    açılmaz (`input_dropped reason=STICKY_KEYS`). Ctrl+C sonra Esc normal çalışır. Teknisyen Shift'e 5 kez basar →
+    açılmaz (`input_dropped reason=STICKY_KEYS`). Ctrl'e iki kez basıp (kilitle) bir harf ve ardından Esc → Başlat
+    açılmaz. Yapışkan Tuşlar açıkken pencere modunda Tab/Esc hiç iletilmez (QA tur 3); kapatılınca Esc yine çalışır. Teknisyen Shift'e 5 kez basar →
     Yapışkan Tuşlar diyaloğu açılmaz. **Fare Tuşları** açılır: teknisyen Numpad 8/2/4/6/5 → imleç oynamaz, tıklama olmaz
     (`reason=MOUSE_KEYS`); üst sıra rakamlar yazılır. Ayar oturum sırasında değiştirilirse ≤ 2 sn içinde uygulanır.
     Müşteri fiziksel Alt'ı basılı tutarken teknisyen Tab gönderir → pencere geçişi olmaz. Paylaşım ekranında pencere
@@ -7105,18 +7106,16 @@ Kaynak: `docs/guvenlik-raporu.md` "P17 kod turu 2" S-P17-7 (Orta), S-P17-8 (Dü�
 | `internal/input/scope.go`                                                             | `WindowAPI`'ye `OSModifiers()` ve `Accessibility()`; `shellShortcut` artık neden döner ve Alt/Ctrl/Win kararında uzak ∨ işletim sistemi durumunu kullanır; Yapışkan Tuşlar / Fare Tuşları kuralları; `DropSticky = "STICKY_KEYS"`, `DropMouseKeys = "MOUSE_KEYS"`; ayar önbelleği `accessEvery = 2 sn` |
 | `internal/input/applier.go`                                                           | İz alanları `tapCand`, `stickyArmed`, `shiftRun`, ayar önbelleği; `releaseLocked` bırakılan Ctrl/Alt'ı Yapışkan Tuşlar izine işler; `SetTarget` (monitör) izi sıfırlar                                                                                                                                 |
 | `internal/input/window_windows.go`, `internal/win/window_windows.go`                  | `GetAsyncKeyState` (`VK_LWIN/VK_RWIN`, `VK_MENU`, `VK_CONTROL`), `SPI_GETSTICKYKEYS` (`SKF_STICKYKEYSON`), `SPI_GETMOUSEKEYS` (`MKF_MOUSEKEYSON`); okunamazsa "açık" (kapalı tarafta kal)                                                                                                              |
-| `internal/input/scope_test.go`                                                        | Sahte API'ye işletim sistemi değiştiricileri ve erişilebilirlik; 8 yeni `TestSP177…` testi                                                                                                                                                                                                             |
+| `internal/input/scope_test.go`                                                        | Sahte API'ye işletim sistemi değiştiricileri ve erişilebilirlik; 7 yeni `TestSP177…` testi (QA tur 3: `TestSP177StickyKeysTabEscAlwaysDropped` Ctrl×2 + harf + Esc dahil 7 alt senaryo; kapalıyken aynı dizide Esc geçer)                                                                              |
 | `internal/ui/share.go`, `internal/ui/screens_windows.go`, `internal/ui/share_test.go` | S-P17-8: `windowShareWarning` metni pencere listesinin altında (kalın, form 40 px uzadı); `TestSP178WindowShareWarningText`                                                                                                                                                                            |
 
 ### Kurallar (yalnız pencere modu; monitör modu değişmedi)
 
 - **İşletim sistemi değiştiricileri:** Tab+Alt, Esc+Alt/Ctrl ve "Win basılı" kararında `GetAsyncKeyState` de sayılır
   (yerel kullanıcının fiziksel basılı tuttuğu Alt + uzak Tab da düşer, `SHELL_SHORTCUT`).
-- **Yapışkan Tuşlar açıkken:** Ctrl/Alt basılıp araya değiştirici olmayan bir tuş girmeden bırakılmışsa (`stickyArmed`)
-  sonraki Tab/Esc düşer (`STICKY_KEYS`). Değiştirici olmayan tuş enjekte edilince iz temizlenir (işletim sistemi de kilitli
-  değiştiriciyi o tuşla tüketir). Shift izi ne kurar ne bozar (Ctrl↓↑ Shift↓↑ Esc = Ctrl+Shift+Esc da düşer). Odak kaçınca
-  ya da `k.release_all`/kapı kapanışında bırakılan Ctrl/Alt da iz kurar. Pencere oturumu başında iz "kurulu" başlar
-  (önceki durum bilinmez): Yapışkan Tuşlar açıksa ilk harften önceki Tab/Esc düşer.
+- **Yapışkan Tuşlar açıkken:** pencere modunda Tab ve Esc **her zaman** düşer (`STICKY_KEYS`). (İlk sürümdeki "tek başına
+  bas-bırak izi" QA tur 3 öneri 1 ile kaldırıldı: "iki kez basınca kilitle" varyantında Ctrl araya giren harften sonra da
+  kilitli kalır, iz temizlenip Esc → Ctrl+Esc olurdu. İz alanları `tapCand`/`stickyArmed` silindi.)
 - **Art arda 5. Shift** (Yapışkan Tuşlar kısayolu) her zaman düşer (`STICKY_KEYS`); araya başka tuş girince sayaç sıfırlanır.
 - **Fare Tuşları açıkken** `Numpad*` ve `NumLock` düşer (`MOUSE_KEYS`); **Alt+Shift+NumLock** (kısayol) her zaman düşer.
 - **Ayar okuma:** pencere oturumu başında (`SetWindowTarget`) ve sonra en çok 2 sn'de bir, yalnız tuş basması geldiğinde
@@ -7128,10 +7127,12 @@ Kaynak: `docs/guvenlik-raporu.md` "P17 kod turu 2" S-P17-7 (Orta), S-P17-8 (Dü�
    `OSModifiers` için geçerli bir API gerekir; pencere kapalı/simgeyken tuş zaten düşer. Kapalıyken basılan Win
    `scopeMeta`'ya girmez — işletim sistemi o Win'i hiç görmediğinden sonraki tuş kısayol oluşturamaz.
 2. **"Kilitli" durumu işletim sisteminden okunmuyor:** Yapışkan Tuşlar'ın kilitli değiştiricisi `GetAsyncKeyState`'te
-   güvenilir görünmediği için koordinatörün "en sade güvenli kural"ı (tek başına bas-bırak izi) uygulandı.
+   güvenilir görünmediği için en sade güvenli kural uygulandı: Yapışkan Tuşlar açıkken Tab/Esc hiç iletilmez. Bedeli:
+   bu ayarı kullanan müşteride teknisyen pencere modunda Tab/Esc kullanamaz (fare, Enter, ok tuşları çalışır; Tüm ekran
+   modunda kısıt yok).
 3. **Fare Tuşları'nda bütün Numpad** düşer (NumLock durumuna bakılmaz; Fare Tuşları ayarına göre NumLock açık ya da kapalıyken
    etkin olabilir). Pencere modunda rakam için üst sıra kullanılabilir.
-4. **Ayar okunamazsa açık sayılır:** en kötü durumda Numpad ve bas-bırak sonrası Tab/Esc düşer; kapsam delinmez.
+4. **Ayar okunamazsa açık sayılır:** en kötü durumda Numpad ve Tab/Esc düşer; kapsam delinmez.
 5. **S-P17-8 metni** raporun önerdiği uzun cümle yerine koordinatörün verdiği kısa metinle; kullanım kılavuzu notu
    teknik-yazar işi.
 
@@ -7142,7 +7143,7 @@ Yok.
 ### Test
 
 `docker run golang:1.26` (`apps/agent-win`): `gofmt -l .` boş; `go test -race -count=1 ./...` 19 paket `ok`
-(`-run SP17`: 15 test PASS — S-P17-1 6, S-P17-7 8, S-P17-8 1); Linux `go vet ./...` ve `GOOS=windows GOARCH=amd64|arm64|386
+(`-run SP17`: 14 test PASS — S-P17-1 6, S-P17-7 7, S-P17-8 1); Linux `go vet ./...` ve `GOOS=windows GOARCH=amd64|arm64|386
 go vet ./...` 0 bulgu. Windows çalışma zamanı (GetAsyncKeyState, SPI, form yerleşimi) I6 senaryo 12.
 
 ### frontend-dev / konsol için

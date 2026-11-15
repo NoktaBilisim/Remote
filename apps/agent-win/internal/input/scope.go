@@ -22,8 +22,8 @@ import (
 //     hedefken yalnız hedef pencereyi (ya da onun diyaloğunu) kapatır; kapanış paylaşımı WINDOW_CLOSED ile bitirir.
 //   - Değiştirici kararı (S-P17-7): "Alt/Ctrl/Win basılı" = bu alıcının durumu VEYA işletim sisteminin durumu
 //     (GetAsyncKeyState; yerel kullanıcının basılı tuttuğu Alt + uzaktan Tab da düşer).
-//   - Erişilebilirlik (S-P17-7): Yapışkan Tuşlar açıkken tek başına basılıp bırakılan Ctrl/Alt'tan (araya başka tuş
-//     girmeden) sonra gelen Tab/Esc düşer (işletim sistemi kilitli değiştiriciyle Ctrl+Esc/Alt+Tab üretirdi); art arda
+//   - Erişilebilirlik (S-P17-7): Yapışkan Tuşlar açıkken Tab ve Esc her zaman düşer (işletim sistemi kilitli Ctrl/Alt
+//     ile Ctrl+Esc/Alt+Tab üretirdi; "iki kez basınca kilitle" kilidi araya giren harfle de çözülmez); art arda
 //     5. Shift (Yapışkan Tuşlar kısayolu) düşer. Fare Tuşları açıkken Numpad* ve NumLock düşer (imleci pencere dışına
 //     taşıyıp tıklatırdı); Alt+Shift+NumLock (Fare Tuşları kısayolu) her zaman düşer. Ayar oturum başında ve en çok
 //     accessEvery'de bir okunur.
@@ -101,7 +101,6 @@ func (a *Applier) SetWindowTarget(hwnd uintptr, virt Rect, api WindowAPI) {
 	a.mu.Lock()
 	a.scope, a.virt = winScope{on: true, hwnd: hwnd, api: api}, virt
 	a.accessAt = time.Time{} // oturum başında erişilebilirlik ayarı yeniden okunur
-	a.stickyArmed = true     // önceki durum bilinmiyor: ilk Tab/Esc kilitli değiştiriciyle birleşebilir (S-P17-7)
 	a.mu.Unlock()
 }
 
@@ -253,9 +252,6 @@ func (a *Applier) translateScoped(m Msg) []Event {
 		if !*m.Down {
 			delete(a.scopeMeta, m.Code)
 			evs := a.key(m) // yalnız basılı tuşun bırakılması üretilir (key içinde)
-			if len(evs) > 0 {
-				a.noteUpLocked(m.Code)
-			}
 			if len(a.scopeMeta) == 0 && !a.modHeld(shellMods...) {
 				a.scopeLatch = false
 			}
@@ -311,8 +307,8 @@ func (a *Applier) shellShortcut(code string) string {
 		return DropMouseKeys // Fare Tuşları kısayolu (ayar kapalıyken onay diyaloğu açar)
 	case mouseKeys && (code == "NumLock" || strings.HasPrefix(code, "Numpad")):
 		return DropMouseKeys
-	case sticky && a.stickyArmed && (code == "Tab" || code == "Escape"):
-		return DropSticky // işletim sistemi kilitli Ctrl/Alt ile birleştirirdi; kilit açılmaz
+	case sticky && (code == "Tab" || code == "Escape"):
+		return DropSticky // kilitli (bas-bırak ya da iki kez basılıp kilitlenmiş) Ctrl/Alt ile birleşirdi; kilit açılmaz
 	case isShift(code) && !shift && a.shiftRun >= stickyShiftRun-1:
 		return DropSticky
 	default:
@@ -333,29 +329,16 @@ func (a *Applier) accessibility() (sticky, mouseKeys bool) {
 
 func isShift(code string) bool { return code == "ShiftLeft" || code == "ShiftRight" }
 
-// noteDownLocked S-P17-7: enjekte edilen basmanın Yapışkan Tuşlar izine etkisi (held: otomatik tekrar). Ctrl/Alt
-// basması aday olur; değiştirici olmayan tuş işletim sisteminin kilitli değiştiricisini tüketir. a.mu altında.
+// noteDownLocked S-P17-7: enjekte edilen basma art arda Shift sayacını günceller (held: otomatik tekrar, sayılmaz).
+// a.mu altında.
 func (a *Applier) noteDownLocked(code string, held bool) {
 	switch {
 	case held:
 	case isShift(code):
 		a.shiftRun++
-	case code == "ControlLeft" || code == "ControlRight" || code == "AltLeft" || code == "AltRight":
-		a.tapCand[code] = true
-		a.shiftRun = 0
 	default:
-		clear(a.tapCand)
-		a.stickyArmed = false
 		a.shiftRun = 0
 	}
-}
-
-// noteUpLocked S-P17-7: araya başka tuş girmeden bırakılan Ctrl/Alt Yapışkan Tuşlar'da kilitlenir. a.mu altında.
-func (a *Applier) noteUpLocked(code string) {
-	if a.tapCand[code] {
-		a.stickyArmed = true
-	}
-	delete(a.tapCand, code)
 }
 
 // resetShellLocked kabuk kısayolu durumunu sıfırlar (monitör moduna dönüş, k.release_all, kapı kapanışı). a.mu altında.
@@ -367,9 +350,8 @@ func (a *Applier) resetShellLocked() {
 // releaseKeysLocked bu alıcının basılı tuttuğu tuşların bırakılması (ön plan hedeften çıktı). a.mu altında.
 func (a *Applier) releaseKeysLocked() []Event {
 	var evs []Event
-	for code, k := range a.keys {
+	for _, k := range a.keys {
 		evs = append(evs, keyEvents(k, false)...)
-		a.noteUpLocked(code)
 	}
 	clear(a.keys)
 	return evs
