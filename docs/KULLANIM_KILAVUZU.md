@@ -13,12 +13,12 @@ geliştirilir (bkz. `README.md` "Yol haritası"); kılavuz da her paketle birlik
 - **Herkes için (teknisyen, Admin, Super Admin):** Giriş ve hesap güvenliği — iki adımlı doğrulama (2FA), kurtarma
   kodları ve kurtarma kodlarını yenileme, şifremi unuttum, Hesabım sayfası, tüm cihazlardan çıkış, kritik ayarlarda kimliğinizi yeniden doğrulama;
   hesap menüsü, profil resmi ve tema; giriş ekranında firma logosu
-- **Admin için:** Kullanıcılar ve yetkiler (2FA sıfırlama dahil), Uzaktan kontrol yetkisi ve kayıtlar, Oturum geçmişi
+- **Admin için:** Kullanıcılar ve yetkiler (2FA sıfırlama ve kullanıcıyı kalıcı silme dahil), Uzaktan kontrol yetkisi ve kayıtlar, Oturum geçmişi
   yetkileri, Ayarlar > Genel (oturum ve dosya sınırları), Ayarlar > Destek talepleri (e-posta bildirimi ve kabul kodu dahil), Ayarlar > E-posta (SMTP), Audit log, Ayarlar >
   Aydınlatma metni, Ayarlar > Güvenlik, Ayarlar > Logo, kullanıcının profil resmi, kişisel verilerin saklama süresi ve
   anonimleştirme, kurumsal bilgisayarlarda Hızlı Destek'e izin verme (AppLocker / antivirüs), ağ gereksinimleri
   (güvenlik duvarı izin listesi)
-- **Super Admin için:** Firmalar ve aranabilir firma seçici, tüm firmaların oturum geçmişi, destek talepleri, Sistem ayarları
+- **Super Admin için:** Firmalar ve aranabilir firma seçici, firmayı kalıcı silme (24 saat iptal penceresi), tüm firmaların oturum geçmişi, destek talepleri, Sistem ayarları
   (MySQL, TURN, sistem logosunu değiştirme/kaldırma, WhatsApp servisi), başka bir Super Admin'in şifresini sıfırlama,
   şifre/2FA kaybı
 
@@ -985,6 +985,8 @@ kendiliğinden silinir. Bu oturumlar listede ve ayrıntıda **Anonimleştirildi*
 - Sayfa açıkken oturum anonimleşir ve **Kaydet**'e basarsanız "Bu oturum saklama süresi dolduğu için anonimleştirildi;
   düzenlenemez." yazar, sayfa salt okunur görünüme geçer. Yaptığınız değişiklik kaydedilmez.
 - CSV dosyasında bu oturumların **Müşteri** hücresinde `Anonimleştirildi` yazar, **Not** boştur.
+- Anonimleştirilmiş oturum 30 gün sonra gece işinde kalıcı silinebilir ve listeden kalkar (bkz. "Kişisel verilerin
+  saklama süresi ve anonimleştirme").
 
 ### Nasıl ticket numarası ve not eklerim?
 
@@ -1323,8 +1325,10 @@ bkz. "Herkes için: Giriş ve hesap güvenliği"). 2FA sorunu için bkz. "Admin 
 4. Kaydedince yeni yetkiler kullanıcının **açık destek oturumlarına hemen** uygulanır; kaldırılan yetkiye bağlı işlem
    (ör. uzaktan kontrol) kapanır. Her değişiklik denetim kaydına "kim, kime, hangi yetki, eski → yeni" olarak yazılır.
 
-Not: "Kullanıcılar → Sil" anahtarı kalıcı kullanıcı silme içindir; bu işlem henüz ekranda yoktur, anahtar şimdiden
-listede durur. Pasife alma "Düzenle" yetkisiyle yapılır. "Destek talepleri → Engelle" anahtarı talep engellerini
+Not: "Kullanıcılar → Sil" anahtarı **pasif kullanıcıyı kalıcı silme** içindir ("Pasif kullanıcıyı kalıcı siler (geri
+alınamaz)"); bkz. "Kullanıcıyı kalıcı silme". Yönetici rolünde varsayılan açık, teknisyende kapalıdır. Bu sürümle
+birlikte bütün kullanıcılarda bu anahtar rol varsayılanına döndürüldü; daha önce bir teknisyene elle açılmışsa yeniden
+açılması gerekir. Pasife alma "Düzenle" yetkisiyle yapılır. "Destek talepleri → Engelle" anahtarı talep engellerini
 (Engellenenler ekranı ve "Bu kaynağı engelle") açar.
 
 ### Kilitli yetkiler
@@ -1354,6 +1358,40 @@ listede durur. Pasife alma "Düzenle" yetkisiyle yapılır. "Destek talepleri �
    sonlanır.
 3. Pasif kullanıcıyı listede **Durum: Pasif** filtresiyle bulursunuz. **Yeniden etkinleştir** ile geri açarsınız; rolü ve
    yetkileri önceki gibi kalır.
+
+### Kullanıcıyı kalıcı silme
+
+Ayrılan bir çalışanın kişisel bilgilerini sistemden tamamen çıkarmak için kullanılır. **Bu işlem geri alınamaz.**
+Yalnız bir hesabı kapatmak istiyorsanız pasife almanız yeterlidir.
+
+**Kim yapabilir?** "Kullanıcılar → Sil" yetkisi olan yönetici, kendi firmasındaki ve yönetebildiği (kendisinden geniş
+yetkili olmayan) kullanıcıyı siler. Kendi hesabınızı ve Super Admin hesaplarını bu yolla silemezsiniz. Yetkiniz yoksa
+**Kalıcı sil** düğmesi hiç görünmez.
+
+**Nasıl kalıcı silerim?**
+
+1. Kullanıcıyı önce pasife alın (bkz. "Pasife alma ve yeniden etkinleştirme"). Aktif kullanıcıda **Kalıcı sil** düğmesi
+   soluktur ve altında "Kalıcı silmek için önce kullanıcıyı pasife alın." yazar.
+2. Kullanıcının açık bir destek oturumu varsa oturumun kapanmasını bekleyin.
+3. Kullanıcı detayında **Kalıcı sil**'e (çöp kutusu simgesi) tıklayın.
+4. Pencerede "Onaylamak için adı yazın: …" alanına kullanıcının **ad soyadını** birebir yazın (büyük/küçük harf dahil).
+   Ad eşleşmezse istek gönderilmez, alanın altında hata yazar.
+5. **Kalıcı sil**'e basın. "Kimliğinizi doğrulayın" penceresi açılırsa 2FA kodunuzu girin (bkz. "Kritik bir ayarı
+   değiştirirken 'Kimliğinizi doğrulayın' penceresi").
+6. "Kullanıcı kalıcı silindi" mesajını görür, kullanıcı listesine dönersiniz.
+
+**Ne olur?**
+
+- Kullanıcının adı, e-postası, kullanıcı adı, şifresi, 2FA bilgisi, profil resmi (dosyasıyla birlikte), yetkileri, açık
+  giriş oturumları, kurtarma kodları ve şifre sıfırlama bağlantıları silinir. Hesapla bir daha giriş yapılamaz.
+- Kullanıcı listesinde artık görünmez. Oturum geçmişinde ve audit log'da **"Silinmiş kullanıcı #XXXXXX"** olarak görünür
+  (#'den sonra kaydın kısa kimliği); avatarın yerinde "#" vardır.
+- Audit kayıtları **silinmez ve değiştirilmez**; 730 gün saklanır. Ancak bu kayıtlarda kişinin kimliği artık
+  **maskelenmiş** gösterilir: e-posta `a***@***` gibi, kayıt içindeki ad/e-posta değerleri `***` olarak görünür. Açık hâli
+  ne ekranda ne CSV'de döner. Kayıt 730 gün dolunca kendiliğinden silinir.
+- İşlem audit log'a "Kullanıcı kalıcı silindi" (`user.deleted`) olarak yazılır; kayıtta kişisel bilgi bulunmaz.
+- Silinen bilgiler sunucu yedeklerinden en geç 14 gün içinde düşer (bkz. "Kişisel verilerin saklama süresi ve
+  anonimleştirme").
 
 ### "Kayıt başkası tarafından değiştirildi" uyarısı
 
@@ -1390,6 +1428,10 @@ audit log'a yazılır. Kullanıcı listesinde resmi olanların resmi, olmayanlar
 | Değişiklikler kaydedilemedi                                  | İnternet bağlantınızı kontrol edip tekrar **Kaydet**'e basın; değerleriniz formda durur.            |
 | Kayıt başkası tarafından değiştirildi, yeniden yükleyin      | **Yeniden yükle**'ye basın, değişikliklerinizi yeniden yapıp kaydedin.                              |
 | Çok fazla istek…                                             | Dakikada en çok 30 kullanıcı değişikliği (yeni kullanıcı için 10) yapılabilir; bir dakika bekleyin. |
+| Önce kullanıcıyı pasife alın                                 | Kalıcı silme yalnız pasif kullanıcıda yapılır; önce **Kullanıcıyı pasife al**.                      |
+| Kullanıcının açık destek oturumu var; oturum kapanınca…      | Kullanıcının açık oturumu bitince yeniden deneyin.                                                  |
+| Yazdığınız ad eşleşmiyor                                     | Ad soyadı ekrandaki gibi, büyük/küçük harf dahil birebir yazın.                                     |
+| Kullanıcı bulunamadı ya da zaten silinmiş.                   | Kullanıcı başka bir yönetici tarafından silinmiş olabilir; listeye dönün.                           |
 
 ---
 
@@ -1629,6 +1671,13 @@ adresi elle açarsa "Audit log'u görüntüleme yetkiniz yok." yazar.
 Listede: zaman, kullanıcı (resmi veya baş harfleri), firma (Super Admin), işlem (Türkçe ad + teknik ad), varlık, sonuç
 rozeti, IP adresi. Dar ekranda (telefon) tablo yerine kartlar gösterilir.
 
+**"Kimlik maskeli" rozeti:** Kaydın ilgili olduğu kullanıcı ya da firma kalıcı silindiyse satırda bu rozet görünür.
+Kullanıcı "Silinmiş kullanıcı #XXXXXX", firma "Silinmiş firma #XXXXXX" olarak yazılır; e-posta `a***@***` biçiminde,
+kayıt içindeki ad/e-posta/telefon değerleri `***` olarak gösterilir. Ayrıntı penceresinde "Bu kayıttaki kişi bilgileri
+maskelendi: ilgili kullanıcı ya da firma kalıcı silindi." notu çıkar. CSV'de de aynı maske uygulanır. Kalıcı silme
+kayıtlarını **İşlem** filtresinde "Kullanıcı kalıcı silindi", "Firma silme zamanlandı", "Firma kalıcı silindi" gibi
+adlarla; yetim dosya taramasını **Dosya deposu** grubunda bulursunuz.
+
 ### Kaydın ayrıntısını nasıl görürüm?
 
 Satırdaki **Ayrıntı** (göz simgesi) düğmesine, telefonda karta dokunun. Pencerede kayıt no, tarih, kullanıcı, işlem,
@@ -1794,9 +1843,36 @@ süresi dolan verileri kendiliğinden siler veya anonimleştirir. Sizin bir şey
 
 - Onay kararları (izin verdi/reddetti) ve onaylanan aydınlatma metninin sürümü KVKK onay kanıtı olarak kalır; kişiyi
   tanıtan bilgi kalmaz.
-- Anonimleştirilen kayıtlar istatistik için (süre, sayı, kalite) listede kalır; kişisel veri içermez.
-- Sunucu yedekleri 14 gün saklanır. Silinen veri bu yüzden yedeklerde en çok 14 gün daha bulunur.
-- Yedekten geri dönülürse silinmiş veri geri gelebilir; ilk gece turu bunları yeniden anonimleştirir.
+- Anonimleştirilen oturum, talep ve onay kayıtları ile geçersiz olan bilgisayar kayıtları **30 gün** daha istatistik için
+  (süre, sayı, kalite) listede kalır; kişisel veri içermez. Bu sürenin sonunda gece işi onları **kalıcı siler** (sunucu
+  yöneticisi bu adımı açtıysa; aşağıdaki nota bakın). Hâlâ kullanılan bir bilgisayar kaydına bağlı oturum silinmez.
+  Müşteri kayıtları ve aydınlatma metinleri gece işinde silinmez.
+- Kullanıcıları ve firmaları kalıcı silmek için bkz. "Kullanıcıyı kalıcı silme" (Admin) ve "Firmayı kalıcı silme"
+  (Super Admin).
+
+**Yedekler ve kalıcı silme**
+
+- **Kalıcı silinen veri sunucu yedeklerinden en geç 14 gün içinde düşer.** Yedekler 14 gün saklanır; sunucu dışındaki
+  yedek kopyalarının da en geç 14 günde silinmesi sunucu yöneticisinin aylık kontrol listesindedir (`docs/runbook.md` §23.7).
+- Her kalıcı silme (kullanıcı ve firma), kişisel veri içermeyen ayrı bir **imha defterine** de yazılır. Bu defter
+  veritabanı yedeğinin dışında tutulur.
+- Sunucu bir yedekten geri yüklenirse, sistem kullanıcılara açılmadan önce bu defter yeniden uygulanır: yedekte hâlâ
+  duran, ama daha önce kalıcı silinmiş kullanıcılar ve firmalar **yeniden silinir**. Böylece silinen veri geri
+  yüklemeyle geri gelmez. Yeniden silme yalnız geri yüklenen veride zaten pasif olan firmaları ve Super Admin olmayan
+  kullanıcıları kapsar; defterle uyuşmayan bir kayıt (ör. aktif görünen bir firma) kendiliğinden silinmez, sunucu
+  yöneticisi inceler.
+- Saklama süresi dolup anonimleştirilen veri de yedekten geri gelirse ilk gece turu onu yeniden anonimleştirir.
+
+**Sunucu yöneticisi için not**
+
+- Gece kalıcı silme adımı sunucu ayarı `RETENTION_PURGE_MODE` ile yönetilir. Varsayılan `dry`'dır: hiçbir satır silinmez,
+  yalnız silinecek kayıt sayıları "Saklama süresi işi" audit kaydına yazılır. `on` yapılınca silme başlar. Önerilen:
+  ilk hafta `dry` ile sayıları inceleyin, sonra `on` (`docs/runbook.md` §23.1).
+- **Yetim dosya taraması:** her pazar 04:30'da (Türkiye saati) yüklenen dosyalar taranır. Hiçbir kayda bağlı olmayan
+  dosya (ör. silinmiş kullanıcının kalan resmi) 7 gün sonra silinir; 24 saatten eski yarım yükleme artıkları da temizlenir.
+  Sonuç audit log'da "Yetim dosya taraması" olarak görünür. Bağsız dosya oranı çok yüksekse (%20'nin üstü) ya da
+  veritabanında hiç dosya kaydı yokken diskte dosya varsa o tur **hiç silme yapılmaz**, kayıt "Başarısız" düşer ve
+  alarm üretilir; sunucu yöneticisi inceler (`docs/runbook.md` §23.4).
 
 ## Admin için: Kurumsal bilgisayarlarda Hızlı Destek'e izin verme (AppLocker / antivirüs)
 
@@ -1915,6 +1991,92 @@ Süper Yönetici içindir" uyarısı çıkar.
 2. Onaylamak için firmanın **kısa adını** yazın ve **Firmayı pasife al**'a tıklayın.
 3. Pasif firma seçicide görünmez. **Yeniden etkinleştir** ile kullanıcılar tekrar giriş yapabilir; iptal edilen talepler
    ve bilgisayar kayıtları geri gelmez, müşteriler bir sonraki başarılı oturumda yeniden kaydolur.
+
+Firmanın zamanlanmış ya da yarım kalmış bir silme işi varsa yeniden etkinleştirme reddedilir: "Önce silme işini iptal
+edin" (zamanlanmış) veya "Firma kısmen silindi; silmeyi tamamlayın" (başlamış/başarısız) yazar.
+
+### Firmayı kalıcı silme
+
+Sözleşmesi biten bir firmanın tüm verisini ve dosyalarını sistemden çıkarır. **Bu işlem geri alınamaz.** Yalnız Super
+Admin yapabilir. Yanlışlığa karşı birkaç güvence vardır: firma en az 30 gün pasif olmalı, önce ne silineceği gösterilir,
+firma adı yazılarak onaylanır, 2FA kodu istenir ve silme **24 saat sonra** başlar; bu sürede iptal edilebilir.
+
+**Firma ayrıntı sayfası:** **Firmalar** listesinde firma adına tıklayın. Sayfada **Kalıcı silme** bölümü vardır.
+
+**Nasıl kalıcı silerim?**
+
+1. Firmayı pasife alın (bkz. "Firmayı pasife alma ve yeniden etkinleştirme") ve **30 gün** bekleyin. Bu sürede firma
+   gerekirse yeniden etkinleştirilebilir.
+   - Aktif firmada bölümde "Kalıcı silmek için önce firmayı Firmalar listesinden pasife alın." yazar.
+   - 30 gün dolmadıysa düğme soluktur ve "Silinebilir: <tarih>" yazar.
+2. **Kalıcı sil**'e tıklayın. Pencerede önizleme hazırlanır:
+   - **Silinecek kayıtlar:** adım adım sayılar (oturumlar, talepler, müşteriler, kayıtlı bilgisayarlar, kullanıcılar,
+     ayarlar, aydınlatma metinleri vb.);
+   - **Dosyalar:** dosya sayısı ve toplam boyut (logo, profil resimleri);
+   - "Audit kayıtları (n) silinmez; 730 gün saklanır.";
+   - "Silme 24 saat sonra başlar; bu sürede iptal edebilirsiniz."
+3. "Onaylamak için adı yazın: …" alanına **firma adını** birebir yazın.
+4. **Silmeyi zamanla**'ya basın ve "Kimliğinizi doğrulayın" penceresine 2FA kodunuzu girin.
+5. "<firma> için silme zamanlandı" mesajı çıkar. Önizleme 15 dakika geçerlidir; süre dolduysa ya da bu arada firmanın
+   durumu değiştiyse "Önizlemenin süresi doldu ya da geçersiz; önizlemeyi yeniden alın." yazar: **Önizlemeyi yenile**'ye
+   basıp yeniden onaylayın.
+
+**24 saatlik bekleme ve iptal**
+
+- Firma sayfasında **Silme zamanlandı** kartı, başlama zamanı ve kalan süre görünür.
+- Bütün Super Admin'lerin panelinde, her sayfanın üstünde kapatılamayan bir uyarı bandı çıkar: "<firma> <tarih>
+  tarihinde kalıcı silinecek." ve **İptal et** bağlantısı. Firmalar listesinde firmanın yanında "Silinecek: <tarih>"
+  rozeti görünür. Sunucu yöneticisi de alarm alır.
+- Vazgeçmek için banttaki **İptal et**'e ya da firma sayfasındaki **Silmeyi iptal et**'e basın, 2FA kodunuzu girin.
+  "<firma> için silme iptal edildi" yazar; hiçbir kayıt silinmez, firma pasif kalır ve yeniden etkinleştirilebilir.
+- Silmeyi siz başlatmadıysanız ve bandı görüyorsanız hemen iptal edin ve sunucu yöneticisine bildirin.
+- Silme başladıktan sonra iptal edilemez ("Yalnız başlamamış (zamanlanmış) silme işi iptal edilebilir.").
+
+**İlerleme**
+
+- 24 saat dolunca silme kendiliğinden başlar. Kart **Siliniyor** olur, "Adım 5/17: Destek oturumları" gibi bir ilerleme
+  çubuğu birkaç saniyede bir güncellenir. Listede rozet "Siliniyor"dur. Sayfayı kapatabilirsiniz; iş sunucuda sürer.
+- Sunucu yeniden başlarsa silme kaldığı adımdan devam eder.
+- Bitince kart **Firma kalıcı silindi** olur: "Firmanın verileri ve dosyaları silindi. Audit kayıtları saklanıyor." ve
+  bitiş zamanı. Firma listeden kalkar; geçmiş kayıtlarda "Silinmiş firma #XXXXXX" olarak görünür.
+
+**Silme başarısız olursa ("Sürdür")**
+
+- Kart **Silme başarısız** olur ve hangi adımda durduğunu yazar (ör. "dosya sistemi hatası"). Bantta "<firma> silme işi
+  başarısız; firma kısmen silindi." görünür; listede "Silme başarısız" rozeti vardır. Firma bu durumda yeniden
+  etkinleştirilemez.
+- Önce sunucu yöneticisine bildirin; hatanın nedeni giderilmelidir (`docs/runbook.md` §23.3). Neden "iş geçersiz" ise
+  sürdürmeyin, sunucu yöneticisi inceler.
+- Neden giderilince **Sürdür**'e basın, açılan önizlemede firma adını yazın, **Silmeyi sürdür** ve 2FA kodu. Silme
+  beklemeden, kaldığı adımdan devam eder ("<firma> için silme sürdürülüyor"). Firma kaydı daha önce silindiyse adı
+  "Silinmiş firma #XXXXXX" olarak yazılır.
+
+**Ne silinir, ne kalır?**
+
+| Silinir                                                                                                  | Kalır                                                                                        |
+| -------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------- |
+| Destek oturumları, dosya ve onay kayıtları, talepler, talep engelleri, müşteriler, kayıtlı bilgisayarlar | Audit kayıtları: 730 gün saklanır, kimlik bilgileri maskeli gösterilir, süre dolunca silinir |
+| Firmanın kullanıcıları, yetkileri, giriş oturumları; firma ayarları, aydınlatma metinleri, firma kaydı   | Silme işinin kendi kaydı (kim başlattı, ne zaman, kaç satır): 730 gün                        |
+| Firmanın dosya klasörü (logo, profil resimleri)                                                          |                                                                                              |
+
+- Her adım audit log'a yazılır: "Firma silme önizlemesi", "Firma silme zamanlandı", "Firma silme iptal edildi", "Firma
+  silme başladı", "Firma silme başarısız", "Firma kalıcı silindi" (yalnız sayılar).
+- Silinen veri sunucu yedeklerinden **en geç 14 gün içinde** düşer. Sunucu yedekten geri yüklenirse silinmiş firma,
+  sistem açılmadan yeniden silinir (bkz. "Yedekler ve kalıcı silme"). Silinen bir firmanın verisi resmî bir talep
+  (mahkeme, KVKK Kurulu) için gerekirse yalnız sunucu yöneticisi, iki kişinin onayıyla, yedekten ayrı bir ortamda
+  çıkarabilir (`docs/runbook.md` §23.7).
+
+**Sık karşılaşılan mesajlar (Firma silme)**
+
+| Mesaj                                                             | Ne yapmalı                                                         |
+| ----------------------------------------------------------------- | ------------------------------------------------------------------ |
+| Firma <tarih> tarihinden sonra silinebilir.                       | 30 günlük pasiflik dolmadı; o tarihten sonra deneyin.              |
+| Firma henüz kalıcı silinemez (en az 30 gün pasif olmalı).         | Firmayı önce pasife alın.                                          |
+| Firma adı eşleşmiyor                                              | Firma adını büyük/küçük harf dahil birebir yazın.                  |
+| Önizlemenin süresi doldu ya da geçersiz; önizlemeyi yeniden alın. | **Önizlemeyi yenile**'ye basıp yeniden onaylayın.                  |
+| Bu firma için açık bir silme işi var.                             | Başka bir Super Admin silmeyi zamanlamış; sayfa yenilenir.         |
+| Önce silme işini iptal edin                                       | Yeniden etkinleştirmeden önce zamanlanmış silmeyi iptal edin.      |
+| Firma kısmen silindi; silmeyi tamamlayın                          | Silme başlamış; yeniden etkinleştirilemez, **Sürdür** ile bitirin. |
 
 ---
 

@@ -21,7 +21,11 @@ import type {
 } from "@remote/contracts/api/tenants";
 import { aadFor, type SecretBox } from "../lib/crypto.ts";
 import type { NetGuard } from "../lib/netguard.ts";
-import { TENANT_SLUG_CONFLICT_MESSAGE } from "@remote/contracts/api/tenants";
+import {
+  TENANT_REACTIVATE_PURGE_PARTIAL_MESSAGE,
+  TENANT_REACTIVATE_PURGE_SCHEDULED_MESSAGE,
+  TENANT_SLUG_CONFLICT_MESSAGE,
+} from "@remote/contracts/api/tenants";
 import { BINDING_AUDIT, TENANT_AUDIT } from "@remote/contracts/audit";
 import { revokeForTenant as revokeTenantBindings } from "../bindings/repo.ts";
 import { writeAudit, type AuditContext } from "../audit/service.ts";
@@ -31,6 +35,7 @@ import { AppError } from "../lib/errors.ts";
 import { newId } from "../lib/ids.ts";
 import { createInitialConsent } from "../public/consent.ts";
 import { tenantLogoUrl } from "../uploads/urls.ts";
+import * as purgeRepo from "../jobs/tenant-purge-repo.ts";
 import * as repo from "./repo.ts";
 
 const ENTITY = "tenants";
@@ -51,7 +56,8 @@ const actor = (auth: AuthContext) => ({ userId: auth.user.id, username: auth.use
 const slugConflict = (): AppError =>
   new AppError("CONFLICT", { message: TENANT_SLUG_CONFLICT_MESSAGE, fields: { slug: TENANT_SLUG_CONFLICT_MESSAGE } });
 
-function toItem(r: repo.TenantRow): TenantItem {
+/** P16 (AC-242): `passiveSince` + açık silme işi rozeti (iş yoksa null). */
+function toItem(r: repo.TenantRow, job: purgeRepo.JobRow | null = null): TenantItem {
   return {
     id: r.id,
     name: r.name,
@@ -60,18 +66,28 @@ function toItem(r: repo.TenantRow): TenantItem {
     activeUserCount: r._count.users,
     createdAt: r.createdAt.toISOString(),
     updatedAt: r.updatedAt.toISOString(),
+    passiveSince: r.passiveAt ? r.passiveAt.toISOString() : null,
+    purge: job ? { state: job.state, scheduledFor: job.scheduledFor.toISOString(), step: job.step } : null,
   };
 }
 
 async function getOrThrow(db: Db, id: string): Promise<TenantItem> {
   const r = await repo.findTenant(db, id);
   if (!r) throw new AppError("NOT_FOUND");
-  return toItem(r);
+  return toItem(r, await purgeRepo.findOpenJob(db, id));
 }
 
 export async function listTenants(db: Db, q: ListTenantsQuery): Promise<TenantListResponse> {
   const { rows, total } = await repo.listTenants(db, q);
-  return { items: rows.map(toItem), page: q.page, pageSize: q.pageSize, total };
+  const jobs = new Map(
+    (
+      await purgeRepo.openJobsOf(
+        db,
+        rows.map((r) => r.id),
+      )
+    ).map((j) => [j.tenantId, j]),
+  );
+  return { items: rows.map((r) => toItem(r, jobs.get(r.id) ?? null)), page: q.page, pageSize: q.pageSize, total };
 }
 
 export const getTenant = getOrThrow;
@@ -220,6 +236,13 @@ export async function reactivateTenant(db: Db, ctx: AuditContext, auth: AuthCont
     const cur = await repo.lockTenant(tx, id);
     if (!cur) throw new AppError("NOT_FOUND");
     if (cur.status === "ACTIVE") throw new AppError("CONFLICT", { message: "Firma zaten aktif." });
+    // P16 (AC-242, S16-10): açık silme işi varken yeniden etkinleştirme yok (DB tetikleyicisi de reddeder).
+    const job = await purgeRepo.lockOpenJob(tx, id);
+    if (job)
+      throw new AppError("CONFLICT", {
+        message: job.state === "SCHEDULED" ? TENANT_REACTIVATE_PURGE_SCHEDULED_MESSAGE : TENANT_REACTIVATE_PURGE_PARTIAL_MESSAGE,
+        fields: { jobId: job.id, state: job.state },
+      });
     await repo.updateTenant(tx, id, { status: "ACTIVE" });
     await writeAudit(tx, ctx, {
       tenantId: id,

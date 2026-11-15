@@ -4,6 +4,7 @@ import { BINDING_INVALID_MESSAGE } from "@remote/contracts/api/bindings";
 import { ACCEPT_CODE_CLIENT_UNSUPPORTED_MESSAGE } from "@remote/contracts/api/requests";
 import { INVALID_IMAGE_MESSAGE, PAYLOAD_TOO_LARGE_MESSAGE } from "@remote/contracts/api/branding";
 import { SESSION_ANONYMIZED_MESSAGE } from "@remote/contracts/api/sessions";
+import { TENANT_PURGE_NOT_ELIGIBLE_MESSAGE, TENANT_PURGE_PREVIEW_REQUIRED_MESSAGE } from "@remote/contracts/api/tenants";
 import { USER_IF_MATCH_REQUIRED_MESSAGE, USER_STALE_WRITE_MESSAGE } from "@remote/contracts/api/users";
 import { ERROR_STATUS, type ErrorCode, type ErrorEnvelope } from "@remote/contracts/errors";
 import type { FastifyError, FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
@@ -51,6 +52,8 @@ const DEFAULT_MESSAGES: Record<ErrorCode, string> = {
   MFA_STEP_UP_REQUIRED: "Bu işlem için iki adımlı doğrulama kodunuzu yeniden girin.",
   STALE_WRITE: USER_STALE_WRITE_MESSAGE,
   PRECONDITION_REQUIRED: USER_IF_MATCH_REQUIRED_MESSAGE,
+  PURGE_NOT_ELIGIBLE: TENANT_PURGE_NOT_ELIGIBLE_MESSAGE,
+  PREVIEW_REQUIRED: TENANT_PURGE_PREVIEW_REQUIRED_MESSAGE,
   RESET_TOKEN_INVALID: "Bu şifre sıfırlama bağlantısı geçersiz veya süresi dolmuş. Yeni bağlantı isteyin.",
 };
 

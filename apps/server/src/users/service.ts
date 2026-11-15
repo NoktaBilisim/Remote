@@ -28,8 +28,16 @@ import type {
   UserOptionsResponse,
   UserStatus,
 } from "@remote/contracts/api/users";
-import { TEMPORARY_PASSWORD_LENGTH, USER_EMAIL_CONFLICT_MESSAGE, USER_OPTIONS_MAX } from "@remote/contracts/api/users";
-import { USER_AUDIT } from "@remote/contracts/audit";
+import {
+  TEMPORARY_PASSWORD_LENGTH,
+  USER_DELETE_ACTIVE_MESSAGE,
+  USER_DELETE_CONFIRM_MISMATCH_MESSAGE,
+  USER_DELETE_OPEN_SESSION_MESSAGE,
+  USER_EMAIL_CONFLICT_MESSAGE,
+  USER_OPTIONS_MAX,
+  confirmNameMatches,
+} from "@remote/contracts/api/users";
+import { AUDIT_ENTITY, USER_AUDIT, deletedUserLabel } from "@remote/contracts/audit";
 import { PERMISSION_KEYS, effectivePermissions, roleDefaultGranted, type PermissionKey, type Role } from "@remote/contracts/permissions";
 import { writeAudit, type AuditContext } from "../audit/service.ts";
 import { hashPassword } from "../auth/password.ts";
@@ -38,11 +46,12 @@ import type { Prisma } from "../generated/prisma/client.ts";
 import { conflictIndex, type Db } from "../lib/db.ts";
 import { AppError } from "../lib/errors.ts";
 import { newId, newTemporaryPassword } from "../lib/ids.ts";
+import type { UserPhase } from "../ops/erasure-ledger.ts";
 import { findTenant } from "../tenants/repo.ts";
 import { avatarUrlFor } from "../uploads/urls.ts";
 import * as repo from "./repo.ts";
 
-const ENTITY = "users";
+const ENTITY = AUDIT_ENTITY.USERS;
 const EMAIL_UQ = "users_email_key";
 
 /** Commit sonrası canlı yansıma için gereken dar arayüz (app.rooms + app.requestHub). */
@@ -60,7 +69,7 @@ export interface LockHooks {
   afterLock?: () => Promise<void>;
 }
 
-type Op = "create" | "update" | "deactivate" | "reactivate" | "reset_mfa";
+type Op = "create" | "update" | "deactivate" | "reactivate" | "reset_mfa" | "delete";
 
 /** Audit'e `denied` anahtarlarıyla yazılan 403 (AC-204). */
 class DeniedError extends AppError {
@@ -205,7 +214,7 @@ async function auditFailures<T>(
     if (err instanceof DeniedError || emailTaken) {
       await writeAudit(db, ctx, {
         ...who(auth, tenantId),
-        action: op === "create" ? USER_AUDIT.CREATED : USER_AUDIT.UPDATED,
+        action: op === "create" ? USER_AUDIT.CREATED : op === "delete" ? USER_AUDIT.DELETED : USER_AUDIT.UPDATED,
         entity: ENTITY,
         entityId: targetId,
         result: "fail",
@@ -268,9 +277,16 @@ export async function userOptionsTenant(db: Db, auth: AuthContext, requested: st
  * GET /users/options (P14b, AC-225): verilen tenant'ın teknisyenleri (tam liste, ≤ 1000). USER rolü yalnız kendisi
  * (oturum geçmişinde yalnız kendi kayıtlarını görür — `historyScope`).
  */
-export async function userOptions(db: Db, auth: AuthContext, tenantId: string): Promise<UserOptionsResponse> {
-  const rows = await repo.listUserOptions(db, { tenantId }, USER_OPTIONS_MAX, auth.user.role === "USER" ? auth.user.id : undefined);
-  return { items: rows.map((r) => ({ id: r.id, fullName: r.fullName, status: r.status as UserStatus })) };
+export async function userOptions(db: Db, auth: AuthContext, tenantId: string, includeDeleted = false): Promise<UserOptionsResponse> {
+  const self = auth.user.role === "USER" ? auth.user.id : undefined;
+  const rows = await repo.listUserOptions(db, { tenantId }, USER_OPTIONS_MAX, self);
+  const items: UserOptionsResponse["items"] = rows.map((r) => ({ id: r.id, fullName: r.fullName, status: r.status as UserStatus }));
+  // P16 (AC-241): mezar taşları ("Silinmiş kullanıcı #X") yalnız istenirse ve USER rolünde değil (USER yalnız kendisini görür).
+  if (includeDeleted && !self) {
+    const gone = await repo.listDeletedOptions(db, { tenantId }, Math.max(0, USER_OPTIONS_MAX - items.length));
+    items.push(...gone.map((r) => ({ id: r.id, fullName: deletedUserLabel(r.id), status: "DELETED" as const })));
+  }
+  return { items };
 }
 
 /**
@@ -532,5 +548,83 @@ export async function resetUserMfa(
     fx.hub.closeByUser(id);
   } catch (err) {
     fx.log.error({ err, alarm: "user_live_effect" }, "2FA sıfırlama canlı oturuma yansıtılamadı (yedek: 60 sn doğrulama)");
+  }
+}
+
+// ---------------------------------------------------------------------------------------------------------------
+// P16 — kalıcı kullanıcı silme (AC-237, AC-241; ADR-0030 m.4, mimari-e11 §7.4)
+// ---------------------------------------------------------------------------------------------------------------
+
+/** Yan etkiler: avatar dosyası (commit sonrası) ve imha defteri (niyet TX içinde, done commit sonrası); hata yanıtı bozmaz. */
+export interface UserPurgeEffects {
+  removeFile(rel: string | null): Promise<void>;
+  ledger: { append(e: { type: "user"; id: string; phase: UserPhase; at: string }): Promise<void> };
+  log: { error(obj: object, msg: string): void };
+}
+
+/**
+ * DELETE /users/:id. Tek TX: aktör + hedef `FOR UPDATE` → aktör yeniden okunur (`users.delete`) → hedef kapsamda (404;
+ * SUPER_ADMIN kapsamda hiç görünmez, S16-17) → kendi hesabı / daha geniş yetkili hedef 403 (+ fail audit) → ACTIVE 409 →
+ * açık oturum 409 → sürüm 409 `STALE_WRITE` → ad onayı 400 → defter `phase:"intent"` → mezar taşı TEK UPDATE
+ * (`WHERE id, version, status = PASSIVE`) + alt tablolar + audit `user.deleted` (PII yok). Commit sonrası avatar silinir ve
+ * deftere `{type: "user", id, phase: "done", at}` yazılır (S16-18).
+ */
+export async function purgeUser(
+  db: Db,
+  fx: UserPurgeEffects,
+  ctx: AuditContext,
+  auth: AuthContext,
+  tenantId: string,
+  id: string,
+  confirmName: string,
+  expectedVersion: number,
+  hooks: LockHooks = {},
+): Promise<void> {
+  const scope = { tenantId };
+  const at = new Date();
+  const avatarPath = await auditFailures(db, ctx, auth, tenantId, id, "delete", () =>
+    db.$transaction(async (tx) => {
+      const actor = await lockActor(tx, auth, tenantId, [id], "users.delete", hooks);
+      // S16-17: önce kapsam/varlık — kapsamlı sorgu Super Admin'i (tenant_id NULL) ve başka firmayı hiç görmez → 404
+      // (rol 403 ile ayırt edilemez, firma audit'ine Super Admin kimliği yazılmaz).
+      const cur = asManaged(await loadOrThrow(tx, scope, id));
+      if (cur.id === auth.user.id) throw new DeniedError("Kendi hesabınızı silemezsiniz.", ["self"]);
+      assertManage(actor, effectiveOf(cur.role, cur.permissions), "Sizden daha geniş yetkili bir hesabı silemezsiniz.");
+      if (cur.status !== "PASSIVE") throw new AppError("CONFLICT", { message: USER_DELETE_ACTIVE_MESSAGE });
+      if ((await repo.countOpenSessions(tx, scope, id)) > 0) throw new AppError("CONFLICT", { message: USER_DELETE_OPEN_SESSION_MESSAGE });
+      if (cur.version !== expectedVersion) throw stale();
+      if (!confirmNameMatches(confirmName, cur.fullName))
+        throw new AppError("VALIDATION", { fields: { confirmName: USER_DELETE_CONFIRM_MISMATCH_MESSAGE } });
+      // S16-18: niyet satırı denetimler geçtikten sonra, mezar taşından önce (commit ile defter arasında çökme penceresi yok).
+      // TX'ten önce yazılmaz: reddedilecek istek (409/400/403) deftere girip geri yüklemede silinmesin.
+      await appendUserLedger(fx, id, "intent", at);
+      if ((await repo.tombstone(tx, id, expectedVersion, deletedUserLabel(id), at)) !== 1) throw stale();
+      const counts = await repo.deleteUserChildren(tx, id);
+      await writeAudit(tx, ctx, {
+        ...who(auth, tenantId),
+        action: USER_AUDIT.DELETED,
+        entity: ENTITY,
+        entityId: id,
+        result: "success",
+        oldValue: { status: "PASSIVE" },
+        newValue: { status: "DELETED", ...counts },
+      });
+      return cur.avatarPath;
+    }),
+  );
+  try {
+    await fx.removeFile(avatarPath);
+  } catch (err) {
+    fx.log.error({ err, alarm: "upload_cleanup", userId: id }, "silinen kullanıcının avatar dosyası silinemedi (yetim taraması toplar)");
+  }
+  await appendUserLedger(fx, id, "done", at);
+}
+
+/** Defter yazım hatası silmeyi durdurmaz; alarm loglanır (sayaç `ErasureLedger` içinde). */
+async function appendUserLedger(fx: UserPurgeEffects, id: string, phase: UserPhase, at: Date): Promise<void> {
+  try {
+    await fx.ledger.append({ type: "user", id, phase, at: at.toISOString() });
+  } catch (err) {
+    fx.log.error({ err, alarm: "erasure_ledger_write_failed", userId: id, phase }, "imha defterine yazılamadı");
   }
 }

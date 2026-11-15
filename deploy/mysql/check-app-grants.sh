@@ -13,8 +13,19 @@ run() { # $1 beklenen, $2 sql, $3 (ops.) DENIED'de hata mesajında beklenen meti
   [ "$s" = PASS ] && [ "$got" = DENIED ] && [ -n "${3:-}" ] && [[ "$out" != *"$3"* ]] && s=FAIL
   [ "$s" = FAIL ] && FAILED=1; printf '%s | beklenen=%-6s sonuç=%-6s | %s %s\n' "$s" "$1" "$got" "$2" "$( [ $got = DENIED ] && echo "-> ${out##*: }" )"
 }
+run_mig() { # $1 beklenen, $2 sql — migrator (fikstür/temizlik; P16 tetikleyicilerinden muaf). Parola MIGRATOR_PW ya da konteyner env'i.
+  out=$(docker exec -e MPW="${MIGRATOR_PW:-}" "${CONTAINER:-rs-mysql-test}" sh -c 'MYSQL_PWD="${MPW:-$MYSQL_MIGRATOR_PASSWORD}" mysql -umigrator --protocol=socket -N "$1" -e "$0"' "$2" "${DB:-remote}" 2>&1)
+  if [ $? -eq 0 ]; then got=OK; else got=DENIED; fi
+  [ "$got" = "$1" ] && s=PASS || { s=FAIL; FAILED=1; }
+  printf '%s | beklenen=%-6s sonuç=%-6s | (migrator) %s %s\n' "$s" "$1" "$got" "${2:0:160}" "$( [ $got = DENIED ] && echo "-> ${out##*: }" )"
+}
+run_val() { # $1 beklenen tek değer, $2 sql (app), $3 açıklama
+  out=$(docker exec -e MYSQL_PWD="$APP_PW" "${CONTAINER:-rs-mysql-test}" mysql -uapp "${DB:-remote}" -N -e "$2" 2>&1)
+  [ "$out" = "$1" ] && s=PASS || { s=FAIL; FAILED=1; }
+  printf '%s | beklenen=%-6s sonuç=%-6s | (app) %s\n' "$s" "$1" "$out" "$3"
+}
 # Boş DB'de de anlamlı olsun diye geçici tenant/ayar/kullanıcı (app DML'iyle) eklenir, sonda silinir.
-run OK     "DELETE FROM users WHERE id='00000000000000000000GRANTU'; DELETE FROM tenant_settings WHERE tenant_id='00000000000000000000GRANTT'; DELETE FROM tenants WHERE id='00000000000000000000GRANTT'"
+run_mig OK "DELETE FROM tenant_purge_jobs WHERE tenant_id IN ('00000000000000000000GRANTT','00000000000000000000GRANTW'); DELETE FROM session_consents WHERE id IN ('00000000000000000000GRANT9','0000000000000000000GRANT10'); DELETE FROM support_sessions WHERE id IN ('00000000000000000000GRANT7','00000000000000000000GRANT8'); DELETE FROM customers WHERE id='00000000000000000000GRANTY'; DELETE FROM tenants WHERE id='00000000000000000000GRANTW'; DELETE FROM users WHERE id='00000000000000000000GRANTU'; DELETE FROM tenant_settings WHERE tenant_id='00000000000000000000GRANTT'; DELETE FROM tenants WHERE id='00000000000000000000GRANTT'"  # P16: app tenant/users silemez (tetikleyici) → migrator
 run OK     "INSERT INTO tenants (id,name,slug,updated_at) VALUES ('00000000000000000000GRANTT','grant-test','grant-test-tmp',NOW(3))"
 run OK     "INSERT INTO tenant_settings (tenant_id,updated_at) VALUES ('00000000000000000000GRANTT',NOW(3))"
 run OK     "INSERT INTO users (id,tenant_id,email,full_name,role,password_hash,updated_at) VALUES ('00000000000000000000GRANTU','00000000000000000000GRANTT','grant-test@invalid.test','Grant Test','USER','x',NOW(3))"
@@ -47,7 +58,7 @@ H1="REPEAT('a',64)"; H2="REPEAT('b',64)"; E15="NOW(3)+INTERVAL 15 MINUTE"
 run OK     "SELECT COUNT(*) FROM support_sessions"
 run OK     "START TRANSACTION; $SS ('00000000000000000000GRANTS',$T,$H1,'48291376','0427','PENDING',$E15,NULL,NOW(3),NOW(3)); UPDATE support_sessions SET status='CANCELLED',active_code=NULL,ended_at=NOW(3),ended_by='TECH',end_reason='cancelled' WHERE id='00000000000000000000GRANTS'; ROLLBACK"
 run OK     "START TRANSACTION; $SS ('00000000000000000000GRANT1',$T,$H1,NULL,'0427','EXPIRED',$E15,NOW(3),NOW(3),NOW(3)),('00000000000000000000GRANT2',$T,$H2,NULL,'0427','EXPIRED',$E15,NOW(3),NOW(3),NOW(3)); ROLLBACK"
-run DENIED "DELETE FROM support_sessions WHERE id='00000000000000000000GRANTS'"
+run DENIED "START TRANSACTION; $SS ('00000000000000000000GRANTS',$T,$H1,'48291376','0427','PENDING',$E15,NULL,NOW(3),NOW(3)); DELETE FROM support_sessions WHERE id='00000000000000000000GRANTS'; ROLLBACK" "p16: support_sessions DELETE"  # P16: yetki var, tetikleyici reddeder
 run DENIED "ALTER TABLE support_sessions ADD COLUMN x INT"
 run DENIED "START TRANSACTION; $SS ('00000000000000000000GRANT1',$T,$H1,'48291376','0427','PENDING',$E15,NULL,NOW(3),NOW(3)),('00000000000000000000GRANT2',$T,$H2,'48291376','0427','PENDING',$E15,NULL,NOW(3),NOW(3)); ROLLBACK"
 run DENIED "START TRANSACTION; $SS ('00000000000000000000GRANTS',$T,$H1,NULL,'0427','BOGUS',$E15,NULL,NOW(3),NOW(3)); ROLLBACK"
@@ -85,7 +96,7 @@ run DENIED "UPDATE consent_texts SET body='x' WHERE id='00000000000000000000GRAN
 # P8b-1: sütun düzeyi UPDATE(is_current, updated_at) izinli (seed yeni sürüm); diğer sütunlar hâlâ reddedilir.
 run OK     "UPDATE consent_texts SET is_current=0, updated_at=NOW(3) WHERE id='00000000000000000000GRANTC'"
 run DENIED "UPDATE consent_texts SET version=9 WHERE id='00000000000000000000GRANTC'"
-run DENIED "DELETE FROM consent_texts WHERE id='00000000000000000000GRANTC'"
+run DENIED "START TRANSACTION; $CT1; DELETE FROM consent_texts WHERE id='00000000000000000000GRANTC'; ROLLBACK" "p16: consent_texts DELETE"  # P16
 run DENIED "ALTER TABLE consent_texts ADD COLUMN x INT"
 run DENIED "START TRANSACTION; $CT1; $CT ('00000000000000000000GRANTD','00000000000000000000GRANTT',2,'v2',SHA2('v2',256),1,NOW(3)); ROLLBACK"
 run DENIED "START TRANSACTION; $CT1; $CT ('00000000000000000000GRANTD','00000000000000000000GRANTT',1,'v2',SHA2('v2',256),0,NOW(3)); ROLLBACK"
@@ -98,7 +109,7 @@ run DENIED "UPDATE session_consents SET level='CONTROL' WHERE id='00000000000000
 run DENIED "UPDATE session_consents SET decision='DENIED' WHERE id='00000000000000000000GRANTV'" "command denied"
 run DENIED "UPDATE session_consents SET consent_sha256=NULL,consent_text_id=NULL WHERE id='00000000000000000000GRANTV'" "command denied"
 run DENIED "UPDATE session_consents SET created_at=NOW(3) WHERE id='00000000000000000000GRANTV'" "command denied"
-run DENIED "DELETE FROM session_consents WHERE id='00000000000000000000GRANTV'"
+run DENIED "START TRANSACTION; $CT1; $ADM; $SC ('00000000000000000000GRANTV','00000000000000000000GRANTS','00000000000000000000GRANTT','VIEW','GRANTED','UI','00000000000000000000GRANTC',SHA2($B,256),'203.0.113.7','ua'); DELETE FROM session_consents WHERE id='00000000000000000000GRANTV'; ROLLBACK" "p16: session_consents DELETE"  # P16
 run DENIED "START TRANSACTION; $CT1; $ADM; $SC ('00000000000000000000GRANTV','00000000000000000000GRANTS','00000000000000000000GRANTT','VIEW','GRANTED','UI','00000000000000000000GRANTC',SHA2('baska',256),'203.0.113.7','ua'); ROLLBACK"
 run DENIED "START TRANSACTION; $CT1; $ADM; $SC ('00000000000000000000GRANTV','00000000000000000000GRANTS','00000000000000000000GRANTT','VIEW','GRANTED','UI','00000000000000000000GRANTC',NULL,'203.0.113.7','ua'); ROLLBACK"
 run DENIED "START TRANSACTION; $CT1; $ADM; $SC ('00000000000000000000GRANTV','00000000000000000000GRANTS','00000000000000000000GRANTT','CONTROL','GRANTED','UI','00000000000000000000GRANTC',SHA2($B,256),'203.0.113.7','ua'); ROLLBACK"
@@ -177,7 +188,7 @@ RSR="INSERT INTO support_sessions (id,tenant_id,technician_id,token_hash,active_
 ACC="$UR status='ACCEPTED',accepted_by='00000000000000000000GRANTU',accepted_at=NOW(3),closed_at=NOW(3) $WR"
 run OK     "SELECT COUNT(*) FROM tenant_request_settings; SELECT COUNT(*) FROM support_requests"
 run OK     "$TX $RS1; UPDATE tenant_request_settings SET wait_minutes=60,wa_enabled=1,wa_recipients='[\"+905301112233\"]',trusted_cidrs='[\"203.0.113.0/24\"]' WHERE tenant_id='00000000000000000000GRANTT'; $R"
-run DENIED "DELETE FROM tenant_request_settings WHERE tenant_id='00000000000000000000GRANTT'"
+run DENIED "$TX $RS1; DELETE FROM tenant_request_settings WHERE tenant_id='00000000000000000000GRANTT'; $R" "p16: tenant_request_settings DELETE"  # P16
 run DENIED "ALTER TABLE tenant_request_settings ADD COLUMN x INT"
 run DENIED "$TX $RS ('00000000000000000000GRANTT','ABCDEFGHIJK23456','GrantTest','[]','[]','[]',NOW(3)); $R" tenant_request_settings_ref_fmt_chk
 run DENIED "$TX $RS ('00000000000000000000GRANTT','abcdefghijk23456','Grant-Test','[]','[]','[]',NOW(3)); $R" tenant_request_settings_file_label_chk
@@ -197,7 +208,7 @@ run OK     "$TX $RQ; $UR status='REJECTED',rejected_by='00000000000000000000GRAN
 run OK     "$TX $RQ; $UR status='CANCELLED',cancel_reason='CUSTOMER',closed_at=NOW(3) $WR; $R"
 run OK     "$TX $RQ; $ACC; $UR status='CANCELLED',cancel_reason='CUSTOMER' $WR; $R"
 run OK     "$TX $RQ; $UR status='EXPIRED',closed_at=NOW(3) $WR; $UR customer_name=NULL,customer_phone=NULL,customer_email=NULL,description=NULL,ip=NULL,ip_key=NULL,net_key=NULL,device_hash=NULL,anonymized_at=NOW(3) $WR; $R"
-run DENIED "DELETE FROM support_requests WHERE id='00000000000000000000GRANTR'"
+run DENIED "$TX $RQ; DELETE FROM support_requests $WR; $R" "p16: support_requests DELETE"  # P16
 run DENIED "ALTER TABLE support_requests ADD COLUMN x INT"
 # Talep CHECK negatifleri (beklenen kısıt adıyla).
 run DENIED "$TX $(rq "'123456'" "'12345A'"); $R" support_requests_code_fmt_chk
@@ -259,10 +270,10 @@ UB="UPDATE device_bindings SET"; WB="WHERE id='00000000000000000000GRANTB'"
 REV="$UB revoked_at=NOW(3),revoke_reason='FORGOTTEN',key_hash=NULL $WB"
 run OK     "SELECT COUNT(*) FROM customers; SELECT COUNT(*) FROM request_refs; SELECT COUNT(*) FROM device_bindings"
 run OK     "$TX $CU1; $RR ('cccccccccccccccc','00000000000000000000GRANTT','00000000000000000000GRANTK'),('dddddddddddddddd','00000000000000000000GRANTT',NULL); $UC contact_name='Ayse Yilmaz',phone='+905301112233',email='ayse@example.test',note=CONCAT('satir 1',CHAR(10),'satir 2') $WC; $UC status='PASSIVE',passive_at=NOW(3) $WC; $UC contact_name=NULL,phone=NULL,email=NULL,note=NULL,anonymized_at=NOW(3) $WC; $R"
-run DENIED "DELETE FROM customers WHERE id='00000000000000000000GRANTK'"
+run DENIED "$TX $CU1; DELETE FROM customers $WC; $R" "p16: customers DELETE"  # P16
 run DENIED "ALTER TABLE customers ADD COLUMN x INT"
 run DENIED "UPDATE request_refs SET customer_id=NULL WHERE ref='cccccccccccccccc'"
-run DENIED "DELETE FROM request_refs WHERE ref='cccccccccccccccc'"
+run DENIED "$TX $RR ('dddddddddddddddd','00000000000000000000GRANTT',NULL); DELETE FROM request_refs WHERE ref='dddddddddddddddd'; $R" "p16: request_refs DELETE"  # P16
 run DENIED "ALTER TABLE request_refs ADD COLUMN x INT"
 run DENIED "$TX $RR ('cccccccccccccccc','00000000000000000000GRANTT',NULL); $RR ('cccccccccccccccc','00000000000000000000GRANTT',NULL); $R" PRIMARY
 run DENIED "$TX $RR ('CCCCCCCCCCCCCCCC','00000000000000000000GRANTT',NULL); $R" request_refs_ref_fmt_chk
@@ -303,7 +314,7 @@ run DENIED "$TX $CU1; $ADM; $DB1; $UB client_version='0.10' $WB; $R" device_bind
 run DENIED "$TX $CU1; $ADM; $DB1; $UB client_version=CONCAT('0.10.0',CHAR(10)) $WB; $R" device_bindings_client_version_fmt_chk  # P14a AC-201
 run DENIED "$TX $CU1; $ADM; $DB1; $UB issue_count=0 $WB; $R" device_bindings_issue_count_chk
 run DENIED "$TX $CU1; $ADM; $DB1; $UB active_session_id=NULL $WB; $R" "generated column"
-run DENIED "DELETE FROM device_bindings WHERE id='00000000000000000000GRANTB'"
+run DENIED "$TX $CU1; $ADM; $DB1; DELETE FROM device_bindings $WB; $R" "p16: device_bindings DELETE"  # P16
 run DENIED "ALTER TABLE device_bindings ADD COLUMN x INT"
 run DENIED "$TX $CU1; $GX; $ADM; $DBI ('00000000000000000000GRANTB','00000000000000000000GRANTX',NULL,$H1,'0.10.0','00000000000000000000GRANTS','00000000000000000000GRANTS',NOW(3),NOW(3)); $R" session_id_tenant_id_fkey
 # support_requests / support_sessions müşteri + kayıt bağı (bileşik FK) ve yeni iptal nedenleri.
@@ -374,11 +385,14 @@ run_root() { # $1 beklenen tek değer, $2 sql, $3 açıklama
   printf '%s | beklenen=%-6s sonuç=%-6s | (root) %s\n' "$s" "$1" "$out" "$3"
 }
 run_root 3 "SELECT COUNT(*) FROM information_schema.TRIGGERS WHERE EVENT_OBJECT_SCHEMA=DATABASE() AND EVENT_OBJECT_TABLE='audit_logs' AND ((TRIGGER_NAME='audit_logs_no_update' AND EVENT_MANIPULATION='UPDATE') OR (TRIGGER_NAME='audit_logs_retention_only_delete' AND EVENT_MANIPULATION='DELETE') OR (TRIGGER_NAME='audit_logs_force_created_at' AND EVENT_MANIPULATION='INSERT')) AND ACTION_TIMING='BEFORE'" "audit_logs tetikleyicileri var (BEFORE UPDATE + DELETE + INSERT/P13a)"
-run_root 3 "SELECT COUNT(*) FROM information_schema.TRIGGERS WHERE EVENT_OBJECT_SCHEMA=DATABASE()" "DB'de toplam tetikleyici = 3 (restore-verify ile aynı)"
+run_root 22 "SELECT COUNT(*) FROM information_schema.TRIGGERS WHERE EVENT_OBJECT_SCHEMA=DATABASE()" "DB'de toplam tetikleyici = 22 (audit 3 + P16 19; backup.sh/restore-verify ile aynı)"
+run_root "11,6,2" "SELECT CONCAT(SUM(EVENT_MANIPULATION='DELETE'),',',SUM(EVENT_MANIPULATION='UPDATE'),',',SUM(EVENT_MANIPULATION='INSERT')) FROM information_schema.TRIGGERS WHERE EVENT_OBJECT_SCHEMA=DATABASE() AND TRIGGER_NAME LIKE '%\\_guard'" "P16: 11 BEFORE DELETE, 6 BEFORE UPDATE, 2 BEFORE INSERT"
+run_root 0 "SELECT COUNT(*) FROM information_schema.REFERENTIAL_CONSTRAINTS WHERE CONSTRAINT_SCHEMA=DATABASE() AND (DELETE_RULE<>'RESTRICT' OR UPDATE_RULE<>'RESTRICT')" "P16 (S16-11): bütün FK'ler RESTRICT (CASCADE/SET NULL tetikleyiciyi atlatır)"
+run_root 0 "SELECT COUNT(*) FROM information_schema.REFERENTIAL_CONSTRAINTS WHERE CONSTRAINT_SCHEMA=DATABASE() AND REFERENCED_TABLE_NAME='tenants' AND TABLE_NAME IN ('audit_logs','tenant_purge_jobs')" "P16 (ADR-0030 m.1): audit_logs ve tenant_purge_jobs tenants'a FK taşımaz"
 run_root 0 "SELECT (SELECT COUNT(*) FROM information_schema.USER_PRIVILEGES WHERE GRANTEE=\"'app'@'%'\" AND PRIVILEGE_TYPE<>'USAGE') + (SELECT COUNT(*) FROM information_schema.SCHEMA_PRIVILEGES WHERE GRANTEE=\"'app'@'%'\") + (SELECT COUNT(*) FROM information_schema.TABLE_PRIVILEGES WHERE GRANTEE=\"'app'@'%'\" AND PRIVILEGE_TYPE IN ('TRIGGER','ALTER','DROP','CREATE','INDEX','REFERENCES','GRANT OPTION'))" "app: global/DB yetkisi yok, hiçbir tabloda TRIGGER/ALTER/DROP/CREATE/INDEX yok"
 run_root 0 "SELECT COUNT(*) FROM information_schema.TABLE_PRIVILEGES WHERE GRANTEE=\"'app'@'%'\" AND TABLE_NAME='audit_logs' AND PRIVILEGE_TYPE NOT IN ('SELECT','INSERT','DELETE')" "app: audit_logs yalnız SELECT/INSERT/DELETE (DELETE P13a)"
-# P13a (K27): DELETE yetkisi tam olarak bu tablolarda; support_sessions/session_consents/support_requests/device_bindings/customers… YOK.
-run_root "audit_logs,auth_sessions,password_reset_tokens,recovery_codes,request_blocks,session_files,tenant_settings,tenants,user_permissions,users" "SELECT GROUP_CONCAT(TABLE_NAME ORDER BY CAST(TABLE_NAME AS BINARY)) FROM information_schema.TABLE_PRIVILEGES WHERE GRANTEE=\"'app'@'%'\" AND TABLE_SCHEMA=DATABASE() AND PRIVILEGE_TYPE='DELETE'" "app: DELETE yetkili tablo kümesi (K27)"
+# P13a (K27) + P16 (ADR-0030 m.3): DELETE yetkisi tam olarak bu tablolarda; P16'nın 8 tablosunda koşul tetikleyicide.
+run_root "audit_logs,auth_sessions,consent_texts,customers,device_bindings,password_reset_tokens,recovery_codes,request_blocks,request_refs,session_consents,session_files,support_requests,support_sessions,tenant_purge_jobs,tenant_request_settings,tenant_settings,tenants,user_permissions,users" "SELECT GROUP_CONCAT(TABLE_NAME ORDER BY CAST(TABLE_NAME AS BINARY)) FROM information_schema.TABLE_PRIVILEGES WHERE GRANTEE=\"'app'@'%'\" AND TABLE_SCHEMA=DATABASE() AND PRIVILEGE_TYPE='DELETE'" "app: DELETE yetkili tablo kümesi (K27)"
 run_root "consent_texts.is_current:UPDATE,consent_texts.updated_at:UPDATE,password_reset_tokens.updated_at:UPDATE,password_reset_tokens.used_at:UPDATE,recovery_codes.updated_at:UPDATE,recovery_codes.used_at:UPDATE,session_consents.ip:UPDATE,session_consents.user_agent:UPDATE" "SELECT GROUP_CONCAT(CONCAT(TABLE_NAME,'.',COLUMN_NAME,':',PRIVILEGE_TYPE) ORDER BY CAST(TABLE_NAME AS BINARY),CAST(COLUMN_NAME AS BINARY)) FROM information_schema.COLUMN_PRIVILEGES WHERE GRANTEE=\"'app'@'%'\" AND TABLE_SCHEMA=DATABASE()" "app: sütun düzeyi yetki kümesi (P13a session_consents ip/user_agent)"
 run_root 0 "SELECT COUNT(*) FROM information_schema.COLUMN_PRIVILEGES WHERE GRANTEE=\"'app'@'%'\" AND TABLE_NAME='audit_logs'" "app: audit_logs sütun düzeyi UPDATE yok"
 run DENIED "DROP TRIGGER audit_logs_force_created_at" "denied"
@@ -434,7 +448,7 @@ run DENIED "$TX $ADM; $FULL; $ANON; $R" support_sessions_anonymized_chk
 run DENIED "$TX $ADM; $FULL; $END; UPDATE support_sessions SET customer_email=NULL,customer_name=NULL,anonymized_at=NOW(3) WHERE id='00000000000000000000GRANTS'; $R" support_sessions_anonymized_chk
 run DENIED "$TX $ADM; $FULL; $END; $ANON; UPDATE support_sessions SET note='yeniden' WHERE id='00000000000000000000GRANTS'; $R" support_sessions_anonymized_chk
 run DENIED "$TX $ADM; $FULL; $END; $ANON; UPDATE support_sessions SET customer_name='Ayse Yilmaz' WHERE id='00000000000000000000GRANTS'; $R" support_sessions_anonymized_chk
-run DENIED "DELETE FROM support_sessions WHERE id='00000000000000000000GRANTS'"
+run DENIED "$TX $ADM; DELETE FROM support_sessions WHERE id='00000000000000000000GRANTS'; $R" "p16: support_sessions DELETE"  # P16
 WA() { echo "$TX $SSI ('whatsapp',JSON_OBJECT('url',CONCAT('http://wa.example',CONVERT(X'$1' USING utf8mb4))),NULL,NOW(3)) ON DUPLICATE KEY UPDATE value_json=VALUES(value_json),secret_enc=NULL; $R"; }
 run DENIED "$(WA E2808B)" system_settings_whatsapp_chk   # U+200B sıfır genişlik (Cf)
 run DENIED "$(WA E280AE)" system_settings_whatsapp_chk   # U+202E RTLO (Cf)
@@ -487,8 +501,98 @@ run DENIED "UPDATE session_files SET reported_by='TECH' WHERE id='-'" "denied"
 run OK     "$TX UPDATE tenant_settings SET smtp_host='smtp.example.com',smtp_port=465,smtp_security='SSL',smtp_from_email='a@b.test' WHERE tenant_id='$GT'; $R"
 run DENIED "$TX UPDATE tenant_settings SET smtp_host='smtp.example.com',smtp_port=465,smtp_security='SSL',smtp_from_email=CONCAT('a@b.test',CHAR(13,10)) WHERE tenant_id='$GT'; $R" tenant_settings_smtp_from_email_chk
 run DENIED "$TX $ADM; UPDATE support_sessions SET customer_name='Ayse Yilmaz',customer_email=CONCAT('a@b.test',CHAR(10)) WHERE id='00000000000000000000GRANTS'; $R" support_sessions_customer_email_chk
+# P16 (ADR-0030 m.3–m.5, mimari-e11 §7.1; AC-240..242; S16-2,3,4,10,15): 19 tetikleyici, tenant_purge_jobs, mezar taşı,
+# tenants.passive_at. app DELETE yetkisi 8 tabloda var, koşul tetikleyicide (`p16:` önekli SIGNAL). Geçmiş tarihli
+# fikstürler migrator ile (tetikleyiciden muaf; P13a kalıbı), sonra app ile denenir.
+GJ="'00000000000000000000GRANTJ'"; GW="00000000000000000000GRANTW"
+PJ="INSERT INTO tenant_purge_jobs (id,tenant_id,scheduled_for,counts,preview_hash,started_by,updated_at) VALUES"
+PJ1="$PJ ($GJ,'$GT',NOW(3),'{}',$H1,$GU,NOW(3))"
+UJ="UPDATE tenant_purge_jobs SET"; WJ="WHERE id=$GJ"
+PAS="UPDATE tenants SET status='PASSIVE' WHERE id='$GT'"
+TOMB="UPDATE users SET status='DELETED',deleted_at=NOW(3),email=CONCAT('deleted+',id,'@invalid'),username=NULL,password_hash='!deleted',avatar_path=NULL,totp_secret_enc=NULL,full_name='Silinmis kullanici #GRANTU' $WU"
+UTC30="UTC_TIMESTAMP(3) - INTERVAL"
+# Negatifler (§7.1 listesi)
+run DENIED "$TX $ADM; $FULL; $END; $ANON; DELETE FROM support_sessions WHERE id='00000000000000000000GRANTS'; $R" "p16: support_sessions DELETE"   # taze anonim oturum
+run DENIED "$TX $RQ; $UR status='EXPIRED',closed_at=NOW(3) $WR; $UR customer_name=NULL,customer_phone=NULL,customer_email=NULL,description=NULL,ip=NULL,ip_key=NULL,net_key=NULL,device_hash=NULL,anonymized_at=NOW(3) $WR; DELETE FROM support_requests $WR; $R" "p16: support_requests DELETE"
+run DENIED "$TX $CU1; $ADM; $DB1; $REV; DELETE FROM device_bindings $WB; $R" "p16: device_bindings DELETE"   # taze geçersiz kayıt
+run DENIED "$TX $CU1; DELETE FROM customers $WC; $R" "p16: customers DELETE"   # aktif firma müşterisi
+run DENIED "$TX INSERT INTO users (id,tenant_id,email,full_name,role,password_hash,updated_at) VALUES ('00000000000000000000GRANTA',NULL,'grant-sa@invalid.test','Grant SA','SUPER_ADMIN','x',NOW(3)); DELETE FROM users WHERE id='00000000000000000000GRANTA'; $R" "p16: users DELETE"   # Super Admin
+run DENIED "DELETE FROM users $WU" "p16: users DELETE"   # firma kullanıcısı, iş yok
+run DENIED "DELETE FROM tenants WHERE id='$GT'" "p16: tenants DELETE"
+run_val 1 "$TX $PAS; UPDATE tenants SET passive_at='2000-01-01' WHERE id='$GT'; SELECT passive_at > UTC_TIMESTAMP(3) - INTERVAL 1 MINUTE FROM tenants WHERE id='$GT'; $R" "passive_at geri tarihleme yok sayılır (zorlanan değer)"
+run_val 1 "$TX UPDATE tenants SET status='PASSIVE',passive_at='2000-01-01' WHERE id='$GT'; SELECT passive_at > UTC_TIMESTAMP(3) - INTERVAL 1 MINUTE FROM tenants WHERE id='$GT'; $R" "PASSIVE geçişinde passive_at = DB saati"
+run_val 1 "$TX $GX; UPDATE tenants SET status='PASSIVE' WHERE id='00000000000000000000GRANTX'; UPDATE tenants SET status='ACTIVE',passive_at=NOW(3) WHERE id='00000000000000000000GRANTX'; SELECT passive_at IS NULL FROM tenants WHERE id='00000000000000000000GRANTX'; $R" "ACTIVE'e dönüşte passive_at NULL"
+run_val 1 "$TX INSERT INTO tenants (id,name,slug,status,passive_at,updated_at) VALUES ('00000000000000000000GRANTX','grant-x','grant-test-x','PASSIVE','2000-01-01',NOW(3)); SELECT passive_at > UTC_TIMESTAMP(3) - INTERVAL 1 MINUTE FROM tenants WHERE id='00000000000000000000GRANTX'; $R" "INSERT'te passive_at zorlanır"
+run OK     "$TX UPDATE users SET status='PASSIVE' $WU; $TOMB; $R"   # mezar taşı geçişi
+run DENIED "$TX UPDATE users SET status='PASSIVE' $WU; $TOMB; UPDATE users SET theme='DARK' $WU; $R" "p16: users tombstone"
+run DENIED "$TX UPDATE users SET status='DELETED' $WU; $R" users_deleted_chk
+run DENIED "$TX $TOMB; UPDATE users SET email='x@y.test' $WU; $R" "p16: users tombstone"
+run DENIED "$TX UPDATE users SET status='DELETED',deleted_at=NOW(3),email='baska@invalid',username=NULL,password_hash='!deleted' $WU; $R" users_deleted_chk
+run DENIED "$TX UPDATE users SET deleted_at=NOW(3) $WU; $R" users_deleted_chk
+run_val 1 "$TX $PAS; $PJ1; SELECT TIMESTAMPDIFF(MINUTE, UTC_TIMESTAMP(3), scheduled_for) BETWEEN 1439 AND 1440 AND state='SCHEDULED' AND step='FENCE' FROM tenant_purge_jobs WHERE id=$GJ; $R" "iş SCHEDULED açılır, scheduled_for = DB saati + 24 sa"
+run DENIED "$TX $PAS; $PJ1; UPDATE tenants SET status='ACTIVE' WHERE id='$GT'; $R" "p16: tenants status change"   # açık işte yeniden etkinleştirme
+run OK     "$TX $PAS; $PJ1; $UJ state='CANCELLED',cancelled_by=$GU $WJ; UPDATE tenants SET status='ACTIVE' WHERE id='$GT'; $R"   # iptal sonrası serbest
+run DENIED "$TX $PAS; $PJ1; $UJ state='CANCELLED',cancelled_by=$GU $WJ; $UJ attempts=1 $WJ; $R" "p16: tenant_purge_jobs DONE/CANCELLED"
+run DENIED "$TX $PAS; $PJ1; $PJ ('00000000000000000000GRANTK','$GT',NOW(3),'{}',$H2,$GU,NOW(3)); $R" tenant_purge_jobs_one_open_uq
+run DENIED "$TX $PJ ($GJ,'$GT',NOW(3),'{}',$H1,$GU,NOW(3)); $PJ ('00000000000000000000GRANTK','$GT',NOW(3),'{}',$H1,$GU,NOW(3)); $R" "Duplicate"   # preview_hash tek kullanım
+run DENIED "$TX INSERT INTO tenant_purge_jobs (id,tenant_id,state,scheduled_for,counts,preview_hash,started_by,updated_at) VALUES ($GJ,'$GT','RUNNING',NOW(3),'{}',$H1,$GU,NOW(3)); $R" "p16: tenant_purge_jobs INSERT"
+run DENIED "$TX INSERT INTO tenant_purge_jobs (id,tenant_id,step,scheduled_for,counts,preview_hash,started_by,updated_at) VALUES ($GJ,'$GT','FILES',NOW(3),'{}',$H1,$GU,NOW(3)); $R" "p16: tenant_purge_jobs INSERT"
+run DENIED "$TX $PAS; $PJ1; $UJ state='RUNNING' $WJ; $R" "p16: tenant_purge_jobs state transition"   # scheduled_for dolmadan RUNNING
+run DENIED "$TX $PAS; $PJ1; $UJ scheduled_for=NOW(3) - INTERVAL 1 DAY $WJ; $R" "immutable"
+run DENIED "$TX $PJ ($GJ,'system',NOW(3),'{}',$H1,$GU,NOW(3)); $R" tenant_purge_jobs_tenant_id_fmt_chk
+run DENIED "$TX $PJ ($GJ,'..',NOW(3),'{}',$H1,$GU,NOW(3)); $R" tenant_purge_jobs_tenant_id_fmt_chk
+run DENIED "$TX $PJ ($GJ,LOWER('$GT'),NOW(3),'{}',$H1,$GU,NOW(3)); $R" tenant_purge_jobs_tenant_id_fmt_chk
+run DENIED "$TX $PAS; $PJ1; $UJ last_error='Bad Error' $WJ; $R" tenant_purge_jobs_last_error_chk
+run DENIED "$TX $PAS; $PJ1; DELETE FROM tenant_purge_jobs $WJ; $R" "p16: tenant_purge_jobs DELETE"
+run DENIED "$TX $ADM; $FULL; $END; UPDATE support_sessions SET customer_name=NULL,customer_email=NULL,note=NULL,guest_net_key=NULL,guest_ip_key=NULL,anonymized_at='2000-01-01' WHERE id='00000000000000000000GRANTS'; $R" "p16: support_sessions.anonymized_at"
+run DENIED "$TX $ADM; $FULL; $END; UPDATE support_sessions SET customer_name=NULL,customer_email=NULL,note=NULL,guest_net_key=NULL,guest_ip_key=NULL,anonymized_at=NOW(3)+INTERVAL 1 DAY WHERE id='00000000000000000000GRANTS'; $R" "p16: support_sessions.anonymized_at"
+run DENIED "$TX $ADM; $FULL; $END; $ANON; UPDATE support_sessions SET anonymized_at=NOW(3)-INTERVAL 1 HOUR WHERE id='00000000000000000000GRANTS'; $R" "p16: support_sessions.anonymized_at"
+run DENIED "$TX $ADM; $FULL; $END; $ANON; UPDATE support_sessions SET anonymized_at=NULL WHERE id='00000000000000000000GRANTS'; $R" "p16: support_sessions.anonymized_at"
+run DENIED "$TX $RQ; $UR status='EXPIRED',closed_at=NOW(3) $WR; $UR customer_name=NULL,customer_phone=NULL,customer_email=NULL,description=NULL,ip=NULL,ip_key=NULL,net_key=NULL,device_hash=NULL,anonymized_at='2000-01-01' $WR; $R" "p16: support_requests.anonymized_at"
+run DENIED "$TX $CU1; $ADM; $DB1; $UB revoked_at='2000-01-01',revoke_reason='FORGOTTEN',key_hash=NULL $WB; $R" "p16: device_bindings.revoked_at"
+run DENIED "$TX $CU1; $ADM; $DB1; $REV; $UB revoked_at=NOW(3)-INTERVAL 1 HOUR $WB; $R" "p16: device_bindings.revoked_at"   # dolu revoked_at değişimi
+# Migrator fikstürü: 29 g anonim oturum → SIGNAL, 31 g → OK (üst oturum 31 g ise onay satırı da silinir).
+SSX="INSERT INTO support_sessions (id,tenant_id,technician_id,token_hash,active_code,tech_verify_code,status,expires_at,ended_at,created_at,updated_at) VALUES"
+run_mig OK "$SSX ('00000000000000000000GRANT7',$T,$H1,NULL,'0427','EXPIRED',$E15,NOW(3),NOW(3),NOW(3)),('00000000000000000000GRANT8',$T,$H2,NULL,'0427','EXPIRED',$E15,NOW(3),NOW(3),NOW(3)); UPDATE support_sessions SET anonymized_at=$UTC30 29 DAY WHERE id='00000000000000000000GRANT7'; UPDATE support_sessions SET anonymized_at=$UTC30 31 DAY WHERE id='00000000000000000000GRANT8'; INSERT INTO session_consents (id,session_id,tenant_id,level,decision,source) VALUES ('00000000000000000000GRANT9','00000000000000000000GRANT8','$GT','VIEW','DENIED','SYSTEM'),('0000000000000000000GRANT10','00000000000000000000GRANT7','$GT','VIEW','DENIED','SYSTEM')"
+run DENIED "DELETE FROM session_consents WHERE id='0000000000000000000GRANT10'" "p16: session_consents DELETE"
+run DENIED "DELETE FROM support_sessions WHERE id='00000000000000000000GRANT7'" "p16: support_sessions DELETE"   # 29 g
+run OK     "DELETE FROM session_consents WHERE id='00000000000000000000GRANT9'; DELETE FROM support_sessions WHERE id='00000000000000000000GRANT8'"   # 31 g
+run_val 0 "SELECT COUNT(*) FROM support_sessions WHERE id='00000000000000000000GRANT8'" "31 g anonim oturum silindi"
+run_mig OK "DELETE FROM session_consents WHERE id='0000000000000000000GRANT10'; DELETE FROM support_sessions WHERE id='00000000000000000000GRANT7'"
+# RUNNING iş (migrator fikstürü) — aktif firmada kilit açılmaz (S16-2), satır silinemez, adım atlanamaz (S16-15).
+run_mig OK "INSERT INTO tenant_purge_jobs (id,tenant_id,state,step,scheduled_for,counts,preview_hash,started_by,started_at,updated_at) VALUES ($GJ,'$GT','RUNNING','FENCE',NOW(3),'{}',$H1,$GU,NOW(3),NOW(3))"
+run DENIED "DELETE FROM tenant_purge_jobs $WJ" "p16: tenant_purge_jobs DELETE"   # RUNNING iş satırı
+run DENIED "$TX $CU1; DELETE FROM customers $WC; $R" "p16: customers DELETE"   # RUNNING iş ama firma ACTIVE
+run DENIED "$UJ step='BINDINGS' $WJ" "p16: tenant_purge_jobs step"
+run DENIED "$UJ tenant_row_deleted_at=NOW(3) $WJ" "p16: tenant_row_deleted_at"
+run OK     "$TX $UJ step='SESSION_FILES',heartbeat_at=NOW(3),counts=JSON_OBJECT('session_files',0),attempts=attempts+1 $WJ; $R"
+run DENIED "$UJ state='DONE',step='DONE' $WJ" "p16: tenant_purge_jobs step"
+run DENIED "$UJ preview_hash=$H2 $WJ" "p16: tenant_purge_jobs preview_hash"
+run DENIED "$TX $UJ state='FAILED',last_error='db_signal' $WJ; $UJ state='RUNNING' $WJ; $R" "requires a new preview_hash"
+run OK     "$TX $UJ state='FAILED',last_error='db_signal' $WJ; $UJ state='RUNNING',preview_hash=$H2 $WJ; $R"
+run DENIED "$TX $UJ state='FAILED' $WJ; UPDATE tenants SET status='PASSIVE' WHERE id='$GT'; $R" "p16: tenants status change"
+run_mig OK "DELETE FROM tenant_purge_jobs WHERE id=$GJ"
+# Uçtan uca firma silme (migrator fikstürü: PASSIVE + 31 g, RUNNING iş): kilit açılır; SCHEDULED/29 g açmaz.
+WCU="INSERT INTO customers (id,tenant_id,name,name_key,search_key,file_label,request_ref,updated_at) VALUES ('00000000000000000000GRANTY','$GW','Grant W','grant w','grant w','GrantW','wwwwwwwwwwwwwwww',NOW(3))"
+run_mig OK "INSERT INTO tenants (id,name,slug,status,passive_at,updated_at) VALUES ('$GW','grant-w','grant-test-w','PASSIVE',$UTC30 31 DAY,NOW(3)); $WCU; INSERT INTO tenant_purge_jobs (id,tenant_id,scheduled_for,counts,preview_hash,started_by,updated_at) VALUES ($GJ,'$GW',NOW(3),'{}',$H1,$GU,NOW(3))"
+run DENIED "DELETE FROM customers WHERE tenant_id='$GW'" "p16: customers DELETE"   # SCHEDULED iş kilidi açmaz
+run_mig OK "UPDATE tenant_purge_jobs SET state='RUNNING',step='CUSTOMERS',started_at=NOW(3) WHERE id=$GJ"
+run OK     "$TX DELETE FROM customers WHERE tenant_id='$GW'; $R"
+run DENIED "$TX DELETE FROM customers WHERE tenant_id='$GW'; DELETE FROM tenants WHERE id='$GW'; $R" "p16: tenants DELETE"   # adım TENANT_ROW değil
+run_mig OK "UPDATE tenants SET passive_at=$UTC30 29 DAY WHERE id='$GW'"
+run DENIED "DELETE FROM customers WHERE tenant_id='$GW'" "p16: customers DELETE"   # 29 g
+run_mig OK "UPDATE tenants SET passive_at=$UTC30 31 DAY WHERE id='$GW'; UPDATE tenant_purge_jobs SET step='TENANT_ROW' WHERE id=$GJ"
+run DENIED "$UJ tenant_row_deleted_at=NOW(3) $WJ" "p16: tenant_row_deleted_at"   # firma satırı hâlâ var
+run_val 1 "$TX DELETE FROM customers WHERE tenant_id='$GW'; DELETE FROM tenants WHERE id='$GW'; $UJ tenant_row_deleted_at='2000-01-01',step='FILES' $WJ; SELECT tenant_row_deleted_at > UTC_TIMESTAMP(3) - INTERVAL 1 MINUTE FROM tenant_purge_jobs $WJ; $R" "TENANT_ROW: firma satırı silinir, tenant_row_deleted_at DB saatiyle"
+run_mig OK "DELETE FROM tenant_purge_jobs WHERE id=$GJ; DELETE FROM customers WHERE id='00000000000000000000GRANTY'; DELETE FROM tenants WHERE id='$GW'"
+# DONE/CANCELLED iş satırı yalnız 730 g sonra (S16-10).
+run_mig OK "INSERT INTO tenant_purge_jobs (id,tenant_id,state,step,scheduled_for,counts,preview_hash,started_by,tenant_row_deleted_at,finished_at,updated_at) VALUES ($GJ,'$GW','DONE','DONE',NOW(3),'{}',$H1,$GU,NOW(3),$UTC30 729 DAY,NOW(3))"
+run DENIED "DELETE FROM tenant_purge_jobs $WJ" "p16: tenant_purge_jobs DELETE"
+run_mig OK "UPDATE tenant_purge_jobs SET finished_at=$UTC30 731 DAY WHERE id=$GJ"
+run OK     "DELETE FROM tenant_purge_jobs $WJ"
+run_mig OK "DELETE FROM tenant_purge_jobs WHERE id=$GJ"
 # Temizlik (FK sırasıyla)
-run OK     "DELETE FROM users WHERE id='00000000000000000000GRANTU'; DELETE FROM tenant_settings WHERE tenant_id='00000000000000000000GRANTT'; DELETE FROM tenants WHERE id='00000000000000000000GRANTT'"
+run_mig OK "DELETE FROM tenant_purge_jobs WHERE tenant_id IN ('00000000000000000000GRANTT','00000000000000000000GRANTW'); DELETE FROM session_consents WHERE id IN ('00000000000000000000GRANT9','0000000000000000000GRANT10'); DELETE FROM support_sessions WHERE id IN ('00000000000000000000GRANT7','00000000000000000000GRANT8'); DELETE FROM customers WHERE id='00000000000000000000GRANTY'; DELETE FROM tenants WHERE id='00000000000000000000GRANTW'; DELETE FROM users WHERE id='00000000000000000000GRANTU'; DELETE FROM tenant_settings WHERE tenant_id='00000000000000000000GRANTT'; DELETE FROM tenants WHERE id='00000000000000000000GRANTT'"  # P16: app tenant/users silemez (tetikleyici) → migrator
 # P13a `backup` kullanıcısı (mimari-p13 §4): yalnız 'backup'@'localhost'; DB'de SELECT, SHOW VIEW, TRIGGER; global yetki yok.
 run_root 1 "SELECT COUNT(*) FROM mysql.user WHERE user='backup'" "backup kullanıcısı var (tek hesap)"
 run_root "'backup'@'localhost'" "SELECT GROUP_CONCAT(DISTINCT GRANTEE) FROM information_schema.SCHEMA_PRIVILEGES WHERE GRANTEE LIKE \"'backup'@%\"" "backup yalnız localhost (soket; ağdan kullanılamaz)"
@@ -510,13 +614,13 @@ run_backup DENIED "DROP TABLE request_refs"
 run_backup DENIED "LOCK TABLES users READ"
 # Gerçek döküm (yedek betiğiyle aynı bayraklar): hatasız, 3 tetikleyici ve _prisma_migrations içerir.
 dump=$(docker exec -e BPW="${BACKUP_PW:-}" "${CONTAINER:-rs-mysql-test}" sh -c 'MYSQL_PWD="${BPW:-$MYSQL_BACKUP_PASSWORD}" mysqldump -ubackup --single-transaction --no-tablespaces --triggers --set-gtid-purged=OFF "$0" 2>&1 >/tmp/rs-grant-dump.sql; rc=$?; n=$(grep -c "^/\*!50003 CREATE\*/ /\*!50017 DEFINER=.*\*/ /\*!50003 TRIGGER" /tmp/rs-grant-dump.sql); m=$(grep -c "INSERT INTO \`_prisma_migrations\`" /tmp/rs-grant-dump.sql); rm -f /tmp/rs-grant-dump.sql; [ "$m" -gt 0 ] && m=yes; echo "rc=$rc triggers=$n migrations=$m"' "${DB:-remote}" 2>&1)
-[[ "$dump" == *"rc=0 triggers=3 migrations=yes" ]] && s=PASS || { s=FAIL; FAILED=1; }
-printf '%s | beklenen=rc=0 triggers=3 migrations=yes | (backup) mysqldump --single-transaction --no-tablespaces --triggers -> %s\n' "$s" "${dump//$'\n'/ }"
+[[ "$dump" == *"rc=0 triggers=22 migrations=yes" ]] && s=PASS || { s=FAIL; FAILED=1; }
+printf '%s | beklenen=rc=0 triggers=22 migrations=yes | (backup) mysqldump --single-transaction --no-tablespaces --triggers -> %s\n' "$s" "${dump//$'\n'/ }"
 # P13b G-P13b-5: audit-continuity.sql backup kullanıcısıyla çalışır ve tetikleyici özeti beklenen sabite eşit (tetikleyici
 # değiştiren migration audit-continuity.sql'deki sabiti güncellemezse burada FAIL olur).
 cont=$(docker exec -i -e BPW="${BACKUP_PW:-}" "${CONTAINER:-rs-mysql-test}" sh -c 'MYSQL_PWD="${BPW:-$MYSQL_BACKUP_PASSWORD}" exec mysql -ubackup -NB "$0"' "${DB:-remote}" < "$(dirname "$0")/audit-continuity.sql" 2>&1)
-[[ "$cont" == *'"triggers": {"ok": true, "count": 3,'* && "$cont" == *'"format": 2'* ]] && s=PASS || { s=FAIL; FAILED=1; }
-printf '%s | beklenen=triggers.ok=true count=3 | (backup) audit-continuity.sql -> %s\n' "$s" "$(grep -o '"triggers": {[^}]*}' <<<"$cont" || echo "${cont:0:200}")"
+[[ "$cont" == *'"triggers": {"ok": true, "count": 22,'* && "$cont" == *'"format": 2'* ]] && s=PASS || { s=FAIL; FAILED=1; }
+printf '%s | beklenen=triggers.ok=true count=22 | (backup) audit-continuity.sql -> %s\n' "$s" "$(grep -o '"triggers": {[^}]*}' <<<"$cont" || echo "${cont:0:200}")"
 # P13b D1/D2 (ADR-0020 m.2): geri yükleme migrator ile yapılır; güvenlik sınırı migrator'ın `*.*` üzerinde yetkisiz olmasıdır.
 run_root 0 "SELECT COUNT(*) FROM mysql.user WHERE user=''" "anonim MySQL hesabı yok (force_created_at USER() muafiyeti; §7.11)"
 run_root "migratorExtra=0" "$(sed -n "/^SELECT CONCAT('migratorExtra=',/,/;\$/p" "$(dirname "$0")/restore-sec-snapshot.sql")" "migrator: kendi DB'si dışında hiçbir yetki/rol/proxy/ek host yok (restore-sec-snapshot.sql ile aynı sorgu)"

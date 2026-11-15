@@ -4,6 +4,8 @@ import { SESSION_COOKIE } from "@remote/contracts/api/auth";
 import {
   createTenantInputSchema,
   listTenantsQuerySchema,
+  purgeJobsQuerySchema,
+  tenantPurgeInputSchema,
   tenantOptionsQuerySchema,
   switchTenantInputSchema,
   tenantActionInputSchema,
@@ -14,11 +16,14 @@ import {
   type TenantItem,
   type TenantListResponse,
   type TenantOptionsResponse,
+  type PurgeJobsResponse,
+  type TenantPurgeCancelResponse,
+  type TenantPurgeStatus,
   type TenantSettingsView,
 } from "@remote/contracts/api/tenants";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import { auditContext } from "../audit/service.ts";
-import { authOf, requireAuth, requirePerm, requireSuperAdmin, tenantScope } from "../auth/guards.ts";
+import { authOf, requireAuth, requirePerm, requireStepUp, requireSuperAdmin, tenantScope } from "../auth/guards.ts";
 import { countRevoked } from "../bindings/service.ts";
 import { AppError, parseInput } from "../lib/errors.ts";
 import { sha256Hex } from "../lib/ids.ts";
@@ -36,6 +41,7 @@ import {
   updateTenantSettings,
   type TenantLiveEffects,
 } from "./service.ts";
+import { cancelPurge, previewPurge, purgeJobs, purgeStatus, schedulePurge } from "./purge-service.ts";
 
 function idParam(req: FastifyRequest): string {
   const r = tenantIdSchema.safeParse((req.params as { id?: string }).id);
@@ -100,6 +106,34 @@ export async function adminTenantRoutes(app: FastifyInstance): Promise<void> {
     parseInput(tenantActionInputSchema, req.body);
     return reactivateTenant(app.db, auditContext(req), authOf(req), id);
   });
+
+  // P16 G3 (AC-242; mimari-e11 §7.5): kalıcı silme. Önizleme (`dryRun: true`) salt okuma, step-up yok; zamanlama ve
+  // iptal step-up (gövde ayrıştırılmadan önce: `dryRun` true değilse). Zamanlama/iptal sonrası göstergeler tazelenir.
+  const purgeDeps = () => ({ secrets: app.secrets, store: app.uploads });
+  const refreshPurgeMetrics = () =>
+    void app.tenantPurge.refreshMetrics().catch((err: unknown) => app.log.error({ err }, "silme işi göstergesi tazelenemedi"));
+  const stepUp = requireStepUp();
+
+  app.post("/tenants/:id/purge", async (req, reply) => {
+    const id = idParam(req);
+    const body: unknown = req.body;
+    if ((body as { dryRun?: unknown } | undefined)?.dryRun !== true) await stepUp(req);
+    const input = parseInput(tenantPurgeInputSchema, body);
+    if (input.dryRun) return previewPurge(app.db, purgeDeps(), auditContext(req), authOf(req), id);
+    const out = await schedulePurge(app.db, purgeDeps(), auditContext(req), authOf(req), id, input);
+    refreshPurgeMetrics();
+    return reply.status(202).send(out);
+  });
+
+  app.delete("/tenants/:id/purge", { preHandler: stepUp }, async (req): Promise<TenantPurgeCancelResponse> => {
+    const out = await cancelPurge(app.db, auditContext(req), authOf(req), idParam(req));
+    refreshPurgeMetrics();
+    return out;
+  });
+
+  app.get("/tenants/:id/purge", async (req): Promise<TenantPurgeStatus> => purgeStatus(app.db, idParam(req)));
+
+  app.get("/purge-jobs", async (req): Promise<PurgeJobsResponse> => purgeJobs(app.db, parseInput(purgeJobsQuerySchema, req.query).open));
 
   app.post("/switch-tenant", async (req): Promise<SwitchTenantResponse> => {
     const { tenantId } = parseInput(switchTenantInputSchema, req.body);

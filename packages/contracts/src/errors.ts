@@ -61,6 +61,13 @@ export const ERROR_STATUS = {
   /** P12 (AC-84): yükleme 2 MB'ı aşıyor. */
   PAYLOAD_TOO_LARGE: 413,
   ACCOUNT_LOCKED: 423,
+  /**
+   * P16 (AC-242, ADR-0030): firma kalıcı silmeye uygun değil — `fields.eligibleAt` (ISO; pasiflik 30 günü dolmadı) ya da
+   * `fields.reason` (`TENANT_PURGE_NOT_ELIGIBLE_REASONS`).
+   */
+  PURGE_NOT_ELIGIBLE: 409,
+  /** P16 (AC-242, S16-6): `previewId` yok, süresi geçmiş, başka oturuma/duruma ait ya da kullanılmış → önizleme yeniden alınmalı. */
+  PREVIEW_REQUIRED: 428,
   /** P14a (AC-206): `PATCH /users/:id` `If-Match: "v<n>"` başlığı olmadan (ya da bozuk biçimde) geldi. */
   PRECONDITION_REQUIRED: 428,
   /** P8b r2 (§13.4): AGENT sürümü MIN_AGENT_VERSION'dan düşük; `fields.minVersion`. */

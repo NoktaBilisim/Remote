@@ -58,9 +58,10 @@ case "${1:-}" in
       -e MYSQL_APP_PASSWORD="$APP_PW" -e MYSQL_MIGRATOR_PASSWORD="$MIG_PW" \
       -e MYSQL_BACKUP_PASSWORD="bak$(openssl rand -hex 12)" \
       -v "$ROOT/deploy/mysql/init:/docker-entrypoint-initdb.d:ro" \
-      "$MYSQL_IMAGE" --default-time-zone=+00:00 --log-bin-trust-function-creators=1 >/dev/null
+      "$MYSQL_IMAGE" --default-time-zone=+00:00 --log-bin-trust-function-creators=1 --max-connections=300 >/dev/null
     # P11: binlog (8.4 varsayılanı AÇIK) korunur; migrator'ın audit_logs tetikleyicilerini SUPER'siz oluşturabilmesi için
     # deploy/docker-compose.yml mysql `command` ile aynı bayrak (ERROR 1419 — docs/db-notlari.md "P11").
+    # P16: tam test:int çok sayıda dosyayı paralel koşar (her dosya app + migrator havuzu); varsayılan 151 sınırda kalıyordu.
     t0=$SECONDS
     wait_ready
     echo "test-db: $NAME hazır ($((SECONDS - t0)) sn), migrate başlıyor" >&2

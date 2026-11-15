@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { FastifyInstance } from "fastify";
-import { loginAs, makeApp } from "../helpers/app.ts";
+import { createUser, loginAs, loginStepUp, makeApp } from "../helpers/app.ts";
 import { CROSS_TENANT_CASES, ROUTE_CLASSES, collectRoutes, idsOf, twoTenants, type TwoTenants } from "../helpers/tenant-matrix.ts";
 
 let app: FastifyInstance;
@@ -54,9 +54,11 @@ describe("tenant izolasyonu (AC-69 test aracı)", () => {
 
   it("AC-69: tenant kaydı hedefleyen uçlarda B → A kaydı 404", async () => {
     const s = await loginAs(app, fx.b.admin);
+    // P16: step-up isteyen uçlar için B firmasında ayrı (sahte TOTP'li) Admin — fx.b.admin'in 2FA durumu değişmez.
+    const su = await loginStepUp(app, await createUser({ tenantId: fx.b.tenantId, role: "ADMIN" }));
     for (const c of CROSS_TENANT_CASES) {
       const req = c.request(fx);
-      const res = await app.inject({ ...req, headers: { ...s.headers, ...(req.headers ?? {}) } });
+      const res = await app.inject({ ...req, headers: { ...(c.stepUp ? su : s).headers, ...(req.headers ?? {}) } });
       expect(res.statusCode, c.route).toBe(404);
     }
   });

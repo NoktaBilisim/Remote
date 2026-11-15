@@ -21,7 +21,7 @@
 # hiçbir zaman geçerli bir çalıştırma gibi görünmez. Düz (şifresiz) döküm/arşiv HİÇ diske yazılmaz: akış doğrudan
 # gzip -> age'e gider, sayım/özetler akış üzerinde hesaplanır (S-P13a-3). Özel (çözme) anahtar sunucuda BULUNMAZ.
 # backup.env root'a ait ve 600 değilse çalışmaz (S-P13a-7). DB'deki tetikleyici sayısı BACKUP_EXPECTED_TRIGGERS
-# (vars. 3) değilse FAILED (S-P13a-4).
+# (vars. 22; P16 öncesi 3) değilse FAILED (S-P13a-4, S16-11).
 #
 # P13b sırası: meta -> audit ölçümü -> döküm -> manifest -> imza -> yayımla -> rotasyon -> site dışı kanca -> status.prom.
 #   Audit süreklilik (db-notlari "P13b"): önceki imzası geçerli, sonucu FAILED olmayan manifestle karşılaştırılır. FAILED
@@ -48,6 +48,8 @@ ENV_OK=1
 load_env_file "${BACKUP_ENV_FILE:-$SCRIPT_DIR/backup.env}" || ENV_OK=0
 # shellcheck source=deploy/backup/lib-offsite.sh
 . "$SCRIPT_DIR/lib-offsite.sh"
+# shellcheck source=deploy/backup/lib-ledger.sh
+. "$SCRIPT_DIR/lib-ledger.sh"   # P16 imha defteri (ADR-0030 m.9, S16-13): ayrı şifreli dosya + eklenebilirlik denetimi
 HOST_SHORT="$(hostname -s 2>/dev/null || hostname)"
 
 # S13C-2/S13C-13: ikinci yığın prod yedek yollarını kullanamaz (tek yığın staging etkilenmez). trap/status'tan ÖNCE:
@@ -63,8 +65,9 @@ case "${1:-}" in
     [ $# -eq 2 ] || die "kullanım: backup.sh --reset-audit-baseline \"<gerekçe 10-200 karakter>\""
     [ "$ENV_OK" = 1 ] || die "backup.env güvensiz (S-P13a-7)"
     need_cmd docker jq; audit_baseline_reset_cmd "$2"; exit 0 ;;
+  --reset-ledger-baseline) [ $# -eq 2 ] || die "kullanım: backup.sh --reset-ledger-baseline \"<gerekçe>\""; ledger_baseline_reset_cmd "$2"; exit 0 ;;
   '') ;;
-  *) die "kullanım: backup.sh [--alert | --reset-audit-baseline <gerekçe>]" ;;
+  *) die "kullanım: backup.sh [--alert | --reset-audit-baseline <gerekçe> | --reset-ledger-baseline <gerekçe>]" ;;
 esac
 
 STEP=başlangıç
@@ -100,7 +103,7 @@ file_root_600 "$SIGN_KEY" || die "imza anahtarı $SIGN_KEY yok ya da sahibi root
 SIGNER="$(ssh-keygen -l -E sha256 -f "$SIGN_KEY" 2>/dev/null | awk '{print $2}')"
 [[ "$SIGNER" =~ ^SHA256:[A-Za-z0-9+/]{43}$ ]] || die "imza anahtarının parmak izi okunamadı ($SIGN_KEY)"
 STEP=önkoşul
-EXPECTED_TRIGGERS="${BACKUP_EXPECTED_TRIGGERS:-3}"
+EXPECTED_TRIGGERS="${BACKUP_EXPECTED_TRIGGERS:-22}"  # P16 (ADR-0030 m.3, S16-11): 3 audit + 19 kalıcı silme
 case "$EXPECTED_TRIGGERS" in ''|*[!0-9]*) die "BACKUP_EXPECTED_TRIGGERS sayı olmalı" ;; esac
 : "${BACKUP_DIR:?BACKUP_DIR tanımlı değil (backup.env)}"
 : "${BACKUP_AGE_RECIPIENT:?BACKUP_AGE_RECIPIENT tanımlı değil (backup.env; age açık anahtarı, age1...)}"
@@ -223,19 +226,17 @@ wait_side
 read -r UP_FILES UP_DIGEST < "$WORK/up.digest.out"
 [ -n "${UP_DIGEST:-}" ] || die "uploads özet listesi hesaplanamadı"
 
+STEP=imha-defteri
+ledger_backup
 # --- 5. Manifest ---------------------------------------------------------------------------------------------------
 STEP=manifest
-file_json() {  # <ad> <şifreli dosya> <düz boyut> <düz sha256>
-  jq -n --arg name "$1" --argjson bytes "$(size_file "$2")" --arg sha256 "$(sha256_file "$2")" \
-    --argjson plainBytes "$3" --arg plainSha256 "$4" \
-    '{name: $name, bytes: $bytes, sha256: $sha256, plainBytes: $plainBytes, plainSha256: $plainSha256}'
-}
 COMMIT="$(git -C "$DEPLOY_DIR/.." rev-parse --short=12 HEAD 2>/dev/null || echo unknown)"
 IMAGE_TAG_VAL="$(awk -F= '$1 == "IMAGE_TAG" {print $2}' "$DEPLOY_DIR/.env" 2>/dev/null | tail -n 1)"
 TABLES_JSON="$(jq -Rn '[inputs | split("\t") | {(.[0]): (.[1] | tonumber)}] | add' < "$WORK/rows.tsv")"
 {
   file_json db.sql.gz.age "$OUT/db.sql.gz.age" "$(cat "$WORK/db.size.out")" "$(cat "$WORK/db.sha.out")"
   file_json uploads.tar.gz.age "$OUT/uploads.tar.gz.age" "$(cat "$WORK/up.size.out")" "$(cat "$WORK/up.sha.out")"
+  file_json "$LEDGER_FILE.age" "$OUT/$LEDGER_FILE.age" "$(jq .bytes <<<"$LEDGER_STATS")" "$(jq -r .sha256 <<<"$LEDGER_STATS")"
 } | jq -s '.' > "$WORK/files.json"
 jq -n --arg createdUtc "$(ts)" --arg run "$RUN" --arg host "$HOST_SHORT" --arg commit "$COMMIT" \
   --arg env "$DEPLOY_ENV_VAL" --arg signer "$SIGNER" --argjson seq "$((PREV_SEQ + 1))" --arg prevRun "$PREV_RUN" \
@@ -245,14 +246,14 @@ jq -n --arg createdUtc "$(ts)" --arg run "$RUN" --arg host "$HOST_SHORT" --arg c
   --arg database "$DB_NAME" --arg lastMigration "$LAST_MIGRATION" --argjson migrationsApplied "$MIGRATIONS" \
   --argjson triggers "$TRIGGERS" --arg triggerNames "$TRIGGER_NAMES" --argjson tables "$TABLES_JSON" --argjson upFiles "$UP_FILES" \
   --arg upDigest "$UP_DIGEST" --slurpfile files "$WORK/files.json" --arg recipients "$BACKUP_AGE_RECIPIENT" \
-  --argjson keepDays "$KEEP_DAYS" --argjson durationSeconds "$(( $(date -u +%s) - START_EPOCH ))" \
+  --argjson ledger "$LEDGER_JSON" --argjson keepDays "$KEEP_DAYS" --argjson durationSeconds "$(( $(date -u +%s) - START_EPOCH ))" \
   '{format: 2, run: $run, seq: $seq, prevRun: $prevRun, createdUtc: $createdUtc, env: $env, host: $host, signer: $signer,
     version: {commit: $commit, imageTag: $imageTag, mysql: $mysqlVersion, mysqlImage: $mysqlImage},
     database: $database, lastMigration: $lastMigration, migrationsApplied: $migrationsApplied, triggers: $triggers,
     triggerNames: ($triggerNames | split(",") | map(select(length > 0))),
     tables: $tables, uploads: {files: $upFiles, listSha256: $upDigest}, files: $files[0],
     ageRecipients: ($recipients | gsub(","; " ") | split(" ") | map(select(length > 0))),
-    keepDays: $keepDays, durationSeconds: $durationSeconds,
+    keepDays: $keepDays, ledger: $ledger, durationSeconds: $durationSeconds,
     audit: $audit, auditContinuity: {result: $auditResult, detail: $auditDetail, comparedWith: $prevRun,
       baselineMarker: $baselineMarker}}' > "$OUT/manifest.json"
 
@@ -283,6 +284,7 @@ case "$AUDIT_RESULT" in
     offsite_alert "remote-backup: audit-sureklilik $AUDIT_RESULT host=$HOST_SHORT run=$RUN (uyarı: taban çizgisi elle/geri yüklemeyle sıfırlandı)" ;;
 esac
 
+ledger_after_publish
 STEP=bitti
 db_bytes="$(jq -r '.files[0].bytes' "$BACKUP_DIR/$RUN/manifest.json")"
 up_bytes="$(jq -r '.files[1].bytes' "$BACKUP_DIR/$RUN/manifest.json")"
@@ -290,8 +292,6 @@ printf '%s remote-backup: OK run=%s dizin=%s db=%sB uploads=%sB/%s dosya tablo=%
   "$(ts)" "$RUN" "$BACKUP_DIR/$RUN" "$db_bytes" "$up_bytes" "$UP_FILES" "$(jq '.tables | length' "$BACKUP_DIR/$RUN/manifest.json")" \
   "$TRIGGERS" "$removed" "$kept" "$(( $(date -u +%s) - START_EPOCH ))"
 printf '%s remote-backup: audit-sureklilik: %s env=%s seq=%s signer=%s\n' "$(ts)" "$AUDIT_RESULT" "$DEPLOY_ENV_VAL" "$((PREV_SEQ + 1))" "$SIGNER" >&2
-if [ "${AUDIT_RESULT%% *}" = FAILED ]; then
-  STEP=audit-sureklilik
-  exit 1
-fi
+[ "${AUDIT_RESULT%% *}" != FAILED ] || { STEP=audit-sureklilik; exit 1; }
+[ "${LEDGER_RESULT%% *}" != FAILED ] || { STEP=imha-defteri; exit 1; }
 M_LAST_SUCCESS="$(date -u +%s)"

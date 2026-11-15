@@ -355,7 +355,14 @@ test("AC-312: /sessions 360 + 1280 px, iki tema axe 0 + taşma yok; rozete Tab i
   const widths = info.project.name === "desktop" ? [1280, 360] : [360];
   for (const width of widths) {
     await page.setViewportSize({ width, height: 800 });
-    await expect(page.getByTestId("waiting-badge").filter({ visible: true })).toHaveText("Müşteri bekliyor (1)");
+    const badge = page.getByTestId("waiting-badge").filter({ visible: true });
+    await expect(badge).toHaveText("Müşteri bekliyor (1)");
+    // Kararsız test (P16 düzeltme turu 1): genişlik değişince kart görünümündeki rozet yeniden bağlanır ve 200 ms'lik
+    // `@starting-style` giriş geçişiyle (opacity 0 → 1) belirir. axe geçiş bitmeden koşarsa yarı saydam metnin kontrastını
+    // düşük ölçer. CSS geçişi gerçek saatle ilerler (page.clock etkilemez) → geçişin bitmesi beklenir.
+    await expect
+      .poll(() => badge.evaluate((el) => el.getAnimations({ subtree: true }).length + Number(getComputedStyle(el).opacity !== "1")))
+      .toBe(0);
     for (const scheme of ["light", "dark"] as const) {
       await page.emulateMedia({ colorScheme: scheme });
       expect(await axeScan(page), `axe ${scheme} ${width}px ${info.project.name}`).toEqual([]);

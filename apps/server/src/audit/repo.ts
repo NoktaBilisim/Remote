@@ -46,18 +46,22 @@ const ROW_SELECT = {
   ipAddress: true,
   userAgent: true,
   result: true,
-  tenant: { select: { name: true } },
 } as const;
 
-export type AuditRow = Prisma.AuditLogGetPayload<{ select: typeof ROW_SELECT }>;
+/** P16 (ADR-0030 m.1): audit_logs.tenant_id artık FK değil → firma adı ayrı `IN` sorgusuyla; silinmiş firmada `tenant: null`. */
+export type AuditRow = Prisma.AuditLogGetPayload<{ select: typeof ROW_SELECT }> & { tenant: { name: string } | null };
 
-export function listAudit(db: Db, scope: AuditScope, f: AuditFilter, after: AuditCursor | null, take: number): Promise<AuditRow[]> {
-  return db.auditLog.findMany({
+export async function listAudit(db: Db, scope: AuditScope, f: AuditFilter, after: AuditCursor | null, take: number): Promise<AuditRow[]> {
+  const rows = await db.auditLog.findMany({
     where: auditWhere(scope, f, after),
     orderBy: [{ createdAt: "desc" }, { id: "desc" }],
     take,
     select: ROW_SELECT,
   });
+  const ids = [...new Set(rows.flatMap((r) => (r.tenantId ? [r.tenantId] : [])))];
+  const tenants = ids.length === 0 ? [] : await db.tenant.findMany({ where: { id: { in: ids } }, select: { id: true, name: true } });
+  const byId = new Map(tenants.map((t) => [t.id, { name: t.name }]));
+  return rows.map((r) => ({ ...r, tenant: (r.tenantId ? byId.get(r.tenantId) : undefined) ?? null }));
 }
 
 /** `limit + 1`'e kadar sayar (tüm aralığı taramaz). */
@@ -65,17 +69,22 @@ export function countAuditUpTo(db: Db, scope: AuditScope, f: AuditFilter, limit:
   return db.auditLog.count({ where: auditWhere(scope, f, null), take: limit + 1 });
 }
 
-/** Satırlardaki kullanıcıların güncel adı (user_id FK değil — ayrı sorgu). */
+/** Satırlardaki kullanıcıların güncel adı ve durumu (user_id FK değil — ayrı sorgu; P16 maskesi `status` ister). */
 export interface AuditUserInfo {
   fullName: string;
   avatarPath: string | null;
+  status: string;
 }
 
+/**
+ * P16 (S16-1): sayfadaki `user_id` ∪ (`entity = users` satırlarının `entity_id`) için tek `IN` sorgusu. Satırı OLMAYAN id
+ * haritada yoktur — maske bunu "silinmiş" sayar (fail-closed).
+ */
 export async function userNames(db: Db, ids: readonly string[]): Promise<Map<string, AuditUserInfo>> {
   if (ids.length === 0) return new Map();
   const users = await db.user.findMany({
     where: { id: { in: [...new Set(ids)] } },
-    select: { id: true, fullName: true, avatarPath: true },
+    select: { id: true, fullName: true, avatarPath: true, status: true },
   });
-  return new Map(users.map((u) => [u.id, { fullName: u.fullName, avatarPath: u.avatarPath }]));
+  return new Map(users.map((u) => [u.id, { fullName: u.fullName, avatarPath: u.avatarPath, status: u.status }]));
 }

@@ -13,6 +13,7 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run test/unit",
     "test:int": "vitest run test/integration",
+    "cli": "node src/cli/erasure.ts",
     "db:generate": "prisma generate",
     "db:migrate": "prisma migrate deploy && prisma db execute --file prisma/sql/grants.sql",
     "db:migrate:dev": "prisma migrate dev",

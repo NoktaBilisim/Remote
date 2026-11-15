@@ -151,7 +151,7 @@ describe("P13a app yetkileri (grants.sql, K27)", () => {
     ]) {
       await rejectsWith(app().sessionConsent.updateMany({ where: { id: c.id }, data }), COLUMN_DENIED);
     }
-    await rejectsWith(app().$executeRawUnsafe("DELETE FROM session_consents WHERE id = ?", c.id), PRIVILEGE_DENIED);
+    await rejectsWith(app().$executeRawUnsafe("DELETE FROM session_consents WHERE id = ?", c.id), /p16: session_consents DELETE/); // P16: yetki var, tetikleyici reddeder
   });
 
   it("session_files DELETE izinli (anonimleştirmede satır silinir), UPDATE yok", async () => {
@@ -185,7 +185,9 @@ describe("P13a app yetkileri (grants.sql, K27)", () => {
     await expect(app().passwordResetToken.deleteMany({ where: { id: tok.id } })).resolves.toEqual({ count: 1 });
   });
 
-  it("K27: support_sessions, session_consents, support_requests, device_bindings, customers DELETE yok (hard delete Sonra)", async () => {
+  // P16 (ADR-0030 m.3): 7 tabloda DELETE yetkisi var, koşul satır başına tetikleyicide (check-app-grants P16 bölümü ve
+  // 29/31 g fikstürü orada); system_settings'te hâlâ yok.
+  it("K27 → P16: DELETE yetkisi 7 tabloda var (koşul tetikleyicide), system_settings'te yok", async () => {
     for (const table of [
       "support_sessions",
       "session_consents",
@@ -194,10 +196,10 @@ describe("P13a app yetkileri (grants.sql, K27)", () => {
       "customers",
       "request_refs",
       "consent_texts",
-      "system_settings",
     ]) {
-      await rejectsWith(app().$executeRawUnsafe(`DELETE FROM ${table} WHERE 1 = 0`), PRIVILEGE_DENIED);
+      await expect(app().$executeRawUnsafe(`DELETE FROM ${table} WHERE 1 = 0`)).resolves.toBe(0);
     }
+    await rejectsWith(app().$executeRawUnsafe("DELETE FROM system_settings WHERE 1 = 0"), PRIVILEGE_DENIED);
   });
 });
 

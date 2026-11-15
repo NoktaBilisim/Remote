@@ -22,6 +22,8 @@ import { Rooms } from "./signaling/rooms.ts";
 import type { Clock, Timing } from "./signaling/types.ts";
 import { attachSignaling, type SignalingOptions } from "./signaling/ws.ts";
 import { RetentionJob } from "./jobs/retention.ts";
+import { OrphanScanJob } from "./jobs/orphan-scan.ts";
+import { registerPurgeMetrics, TenantPurgeRunner } from "./jobs/tenant-purge.ts";
 import { startScheduler, type Scheduler } from "./jobs/scheduler.ts";
 import { AgentBinary } from "./public/agent-binary.ts";
 import { internalAgentRoutes, publicAgentRoutes } from "./public/routes.ts";
@@ -53,6 +55,7 @@ import { DEFAULT_LOGO_URL } from "@remote/contracts/api/branding";
 import { fileRoutes, publicBrandingRoutes } from "./uploads/files.ts";
 import { uploadRoutes } from "./uploads/routes.ts";
 import { UploadStore } from "./uploads/store.ts";
+import { ErasureLedger } from "./ops/erasure-ledger.ts";
 import { mailLogoUrl } from "./uploads/urls.ts";
 
 declare module "fastify" {
@@ -70,6 +73,9 @@ declare module "fastify" {
     requestHub: RequestHub;
     /** P13a (AC-197..199): günlük saklama işi (zamanlayıcı + testler aynı örneği kullanır). */
     retention: RetentionJob;
+    orphanScan: OrphanScanJob;
+    /** P16 G3 (AC-242): firma silme yürütücüsü (zamanlayıcı 60 sn; testler `runJob`/`tick`). */
+    tenantPurge: TenantPurgeRunner;
     /** P12b (AC-196): WhatsApp istemcisi; etkin adres panel kaydı > env (`applyWhatsapp`). */
     whatsapp: WhatsappNotifier;
     /** P10: gizli alan şifreleme, e-posta, hesap güvenliği. */
@@ -80,6 +86,8 @@ declare module "fastify" {
     smtpTestLimit: FixedWindowCounter;
     /** P12: logo/avatar deposu (UPLOADS_DIR). */
     uploads: UploadStore;
+    /** P16 (ADR-0030 m.9): imha defteri (yalnız ekleme). */
+    erasureLedger: ErasureLedger;
     /** P10 (AC-67): zorunlu 2FA kurulum aşaması uygulanıyor mu (production'da her zaman true, B-P10-3). */
     mfaSetupEnforced: boolean;
   }
@@ -115,6 +123,8 @@ export interface AppDeps {
   mfaSetupEnforcement?: boolean;
   /** Yalnız testler: MySQL bağlantı testi yerine sahte yoklama (P11). */
   mysqlProbe?: (t: ProbeTarget) => Promise<ProbeResult>;
+  /** Yalnız testler: imha defteri yolu (üretimde sabit `ERASURE_LEDGER_PATH`, env yok). */
+  erasureLedgerPath?: string;
 }
 
 const PERMISSIONS_POLICY = "camera=(), microphone=(), geolocation=(), display-capture=(self)";
@@ -209,6 +219,8 @@ export function buildApp(deps: AppDeps): FastifyInstance {
   // P12 (AC-84): yükleme deposu; yazılamıyorsa alarm (yüklemeler 500 verir, sunucu yine açılır).
   const uploads = new UploadStore(env.UPLOADS_DIR);
   app.decorate("uploads", uploads);
+  const erasureLedger = new ErasureLedger(deps.erasureLedgerPath, () => metrics.inc("rs_erasure_ledger_write_failed_total")); // P16
+  app.decorate("erasureLedger", erasureLedger);
   app.addHook("onReady", async () => {
     if (!(await uploads.writable()))
       app.log.error({ alarm: "uploads_not_writable" }, "UPLOADS_DIR yazılamıyor; logo/avatar yüklemesi çalışmaz");
@@ -288,6 +300,24 @@ export function buildApp(deps: AppDeps): FastifyInstance {
   app.decorate("requests", requests);
   const retention = new RetentionJob(requests);
   app.decorate("retention", retention);
+  const orphanScan = new OrphanScanJob({ db: deps.db, store: uploads, metrics, log: app.log }); // P16 AC-243
+  app.decorate("orphanScan", orphanScan);
+  // P16 G3 (AC-242): firma silme yürütücüsü; FENCE sonrası canlı odalar/panel soketleri kapatılır.
+  const tenantPurge = new TenantPurgeRunner({
+    db: deps.db,
+    store: uploads,
+    ledger: erasureLedger,
+    metrics,
+    log: app.log,
+    live: {
+      closeTenant: async (tenantId) => {
+        await rooms.endByTenant(tenantId);
+        hub.closeByTenant(tenantId);
+      },
+    },
+  });
+  app.decorate("tenantPurge", tenantPurge);
+  registerPurgeMetrics(metrics, () => tenantPurge);
   app.decorate("requestHub", hub);
   app.decorate("account", {
     db: deps.db,
@@ -322,7 +352,7 @@ export function buildApp(deps: AppDeps): FastifyInstance {
       const armed = await armOrphanedPending(requests); // §3.5: 120 sn tolerans
       if (armed > 0) app.log.info({ pending: armed }, "yeniden başlatma: bekleyen talepler için kopma toleransı başlatıldı");
       requests.refreshCustomersGauge();
-      jobs = startScheduler(deps.db, app.log, rooms, undefined, requests, retention);
+      jobs = startScheduler(deps.db, app.log, rooms, undefined, requests, retention, orphanScan, tenantPurge);
     });
     app.addHook("onClose", async () => jobs?.stop());
   }

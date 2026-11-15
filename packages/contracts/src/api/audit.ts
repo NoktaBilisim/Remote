@@ -74,8 +74,20 @@ export interface AuditItem {
   userId: string | null;
   /** Kayıt anındaki kullanıcı adı/e-posta (`system`, `customer` gibi aktörler dahil). */
   username: string | null;
-  /** Güncel ad soyad (kullanıcı kaydı varsa). */
+  /** Güncel ad soyad (kullanıcı kaydı varsa). P16: kullanıcı silinmiş/yoksa `actorLabel` ile aynı etiket. */
   userFullName: string | null;
+  /**
+   * P16 (AC-241): aktörün gösterim etiketi — canlı kullanıcıda ad soyad, satırı olmayan ya da DELETED kullanıcıda
+   * "Silinmiş kullanıcı #XXXXXX"; `userId` yoksa null (sistem aktörü; `username` gösterilir).
+   */
+  actorLabel: string | null;
+  /** P16: firma etiketi — ad ya da satırı olmayan firmada "Silinmiş firma #XXXXXX"; `tenantId` yoksa null. */
+  tenantLabel: string | null;
+  /**
+   * P16 (S16-1, fail-closed): satırda kimlik maskesi uygulandı (aktör/hedef kullanıcı yok ya da DELETED, firma yok).
+   * `username` `a***@***`, değerlerde `AUDIT_IDENTITY_KEYS` `"***"`.
+   */
+  identityMasked: boolean;
   avatarUrl: string | null;
   action: string;
   entity: string;
@@ -136,6 +148,11 @@ export const AUDIT_ACTION_GROUPS: readonly { prefix: string; label: string }[] =
   { prefix: "retention.*", label: "Veri saklama" },
   // P13b (G-P13b-5): `backup.audit_baseline_reset`
   { prefix: "backup.*", label: "Yedekleme" },
+  // P16: `uploads.orphan_scan` (AC-243), `migration.p16_users_delete_reset` (G1)
+  { prefix: "uploads.*", label: "Dosya deposu" },
+  { prefix: "migration.*", label: "Veritabanı geçişi" },
+  // P16 G3 (S16-13): `erasure.replayed`
+  { prefix: "erasure.*", label: "İmha defteri" },
 ];
 
 /** 405 yanıtı mesajı (`METHOD_NOT_ALLOWED`; AC-76: audit kayıtları değiştirilemez/silinemez). */

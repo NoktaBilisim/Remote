@@ -205,7 +205,12 @@ describe("P13b reset-superadmin CLI (§7.7)", () => {
     const admin = await createUser({ tenantId, role: "ADMIN" });
     const passive = await createUser({ tenantId: null, role: "SUPER_ADMIN", status: "PASSIVE" });
     const deleted = await createUser({ tenantId: null, role: "SUPER_ADMIN" });
-    await testDb().user.update({ where: { id: deleted.id }, data: { deletedAt: new Date() } });
+    // P16 (users_deleted_chk): deleted_at yalnız mezar taşında (DELETED + mezar taşı alanları); fikstür migrator ile değil,
+    // app ile de yazılabilir (users_update_guard yalnız DELETED satırın kendisini kilitler).
+    await testDb().user.update({
+      where: { id: deleted.id },
+      data: { status: "DELETED", deletedAt: new Date(), email: `deleted+${deleted.id}@invalid`, username: null, passwordHash: "!deleted" },
+    });
     for (const target of [admin, passive, deleted]) {
       const before = await userRow(target.id);
       const failsBefore = (await resetAudits({ result: "fail" })).length;

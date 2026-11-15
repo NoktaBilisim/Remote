@@ -336,7 +336,7 @@ test("AC-237: yetki matrisinde yeni anahtarlar tanımdan otomatik çıkar (Deste
     "Destek talepleri — Engelle",
   );
   await expect(page.getByTestId("perm-users.delete").filter({ visible: true })).toHaveAccessibleName("Kullanıcılar — Sil");
-  await expect(page.getByTestId("permission-notes")).toContainText("Kullanıcıyı kalıcı olarak siler");
+  await expect(page.getByTestId("permission-notes")).toContainText("Pasif kullanıcıyı kalıcı siler");
 });
 
 // ---------------------------------------------------------------------------------------------------------------

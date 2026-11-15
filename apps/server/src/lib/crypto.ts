@@ -23,7 +23,7 @@ export const aadFor = {
 } as const;
 
 /** HKDF amaç etiketleri (anahtar ayrımı). */
-export type MacPurpose = "recovery-code" | "avatar-url";
+export type MacPurpose = "recovery-code" | "avatar-url" | "purge-preview";
 
 export class SecretBox {
   private readonly keys: Map<number, Buffer>;

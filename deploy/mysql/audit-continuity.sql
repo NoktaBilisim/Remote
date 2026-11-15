@@ -65,8 +65,9 @@ SELECT JSON_OBJECT(
                     AND `id` = (SELECT MAX(`id`) FROM `audit_logs` WHERE `action` = 'backup.audit_baseline_reset')),
     'triggers', (SELECT JSON_OBJECT('count', `c`, 'digest', `g`,
                                     -- BEKLENEN SABİT: tetikleyici değiştiren migration'la birlikte güncellenir
-                                    -- (20261114120000_p13a_retention sonrası 3 tetikleyici; check-app-grants da sınar).
-                                    'ok', IF(COALESCE(`g` = 'c1ce08778b8c0e52a67270189d562335cc7a5e43f5b5b67af4996f37493850eb', 0),
+                                    -- (20261118000000_p16_hard_delete sonrası 22 tetikleyici: audit 3 + P16 19; check-app-grants da sınar.
+                                    -- P13a sonrası 3 tetikleyicinin sabiti: c1ce0877…50eb).
+                                    'ok', IF(COALESCE(`g` = 'a4a6f55276c975e6d70a06f08f1879cfc04255b12fecd96921efb75863ae13be', 0),
                                              CAST('true' AS JSON), CAST('false' AS JSON)))
                    FROM (SELECT COUNT(*) AS `c`, SHA2(GROUP_CONCAT(JSON_ARRAY(`TRIGGER_NAME`, `EVENT_OBJECT_TABLE`,
                                 `ACTION_TIMING`, `EVENT_MANIPULATION`, `ACTION_ORDER`, `ACTION_STATEMENT`, `DEFINER`)

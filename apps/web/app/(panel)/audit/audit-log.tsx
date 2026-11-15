@@ -1,13 +1,13 @@
 "use client";
 
-import { ChevronRight, ChevronsDown, Eye, Info } from "lucide-react";
+import { ChevronRight, ChevronsDown, Eye, EyeOff, Info } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { Alert } from "@/components/ui/alert";
 import { Avatar } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { Dialog } from "@/components/ui/dialog";
-import { actionLabel, auditPayload, reasonLabel } from "@/lib/audit/actions";
+import { actionLabel, auditActor, auditPayload, reasonLabel } from "@/lib/audit/actions";
 import { AUDIT_RESULT_LABELS, type AuditItem, type AuditListResponse, type AuditResult } from "@/lib/audit/contract";
 import { auditApiPath, type AuditFilters } from "@/lib/audit/query";
 import { api, EXPIRED_LOGIN_PATH, isUnauthenticated } from "@/lib/api";
@@ -15,7 +15,22 @@ import { toUiError } from "@/lib/error-message";
 import { formatDateTime, formatNumber, formatTimeSeconds } from "@/lib/format";
 import { t } from "@/lib/i18n";
 
-const who = (a: AuditItem) => a.userFullName ?? a.username ?? t("au.system");
+const who = (a: AuditItem) => auditActor(a).name ?? t("au.system");
+/** P16: firma etiketi — silinmiş firmada "Silinmiş firma #…" (sunucu üretir). */
+const tenantOf = (a: AuditItem) => a.tenantLabel ?? a.tenantName;
+
+/** P16 (S16-1): kimlik maskesi uygulanmış satır rozeti (nötr; metin + ikon). */
+function MaskedBadge() {
+  return (
+    <span
+      data-testid="audit-masked"
+      className="inline-flex shrink-0 items-center gap-1 rounded-full bg-surface-muted px-2 py-0.5 text-xs font-medium whitespace-nowrap text-fg-muted"
+    >
+      <EyeOff aria-hidden className="size-3.5" />
+      {t("au.masked")}
+    </span>
+  );
+}
 
 /** Sonuç rozeti: renk + metin + nokta (yalnız renge dayanmaz). */
 export function ResultBadge({ result }: { result: AuditResult }) {
@@ -34,10 +49,11 @@ export function ResultBadge({ result }: { result: AuditResult }) {
 
 function UserCell({ a }: { a: AuditItem }) {
   const name = who(a);
-  const sub = a.userFullName && a.username && a.username !== a.userFullName ? a.username : null;
+  const display = auditActor(a).name;
+  const sub = display && a.username && a.username !== display ? a.username : null;
   return (
     <span className="flex min-w-0 items-center gap-2">
-      <Avatar name={name} src={a.avatarUrl} size="sm" testId="audit-avatar" />
+      <Avatar name={name} src={a.avatarUrl} size="sm" testId="audit-avatar" tombstone={auditActor(a).tombstone} />
       <span className="min-w-0">
         <span className="block truncate text-fg" title={name}>
           {name}
@@ -45,6 +61,11 @@ function UserCell({ a }: { a: AuditItem }) {
         {sub && (
           <span className="block truncate text-xs text-fg-muted" title={sub}>
             {sub}
+          </span>
+        )}
+        {a.identityMasked && (
+          <span className="mt-0.5 block">
+            <MaskedBadge />
           </span>
         )}
       </span>
@@ -153,8 +174,8 @@ export function AuditLog({ initial, filters, showTenant }: { initial: AuditListR
                   <UserCell a={a} />
                 </td>
                 {showTenant && (
-                  <td className="max-w-36 truncate px-3 py-2 whitespace-nowrap text-fg" title={a.tenantName ?? undefined}>
-                    {a.tenantName ?? <span className="text-fg-muted">—</span>}
+                  <td className="max-w-36 truncate px-3 py-2 whitespace-nowrap text-fg" title={tenantOf(a) ?? undefined}>
+                    {tenantOf(a) ?? <span className="text-fg-muted">—</span>}
                   </td>
                 )}
                 <td className="max-w-60 px-3 py-2">
@@ -189,15 +210,20 @@ export function AuditLog({ initial, filters, showTenant }: { initial: AuditListR
               aria-label={detailLabel(a)}
               className="flex w-full cursor-pointer items-center gap-3 rounded-lg border border-border bg-surface p-3 text-left hover:bg-surface-muted"
             >
-              <Avatar name={who(a)} src={a.avatarUrl} size="sm" />
+              <Avatar name={who(a)} src={a.avatarUrl} size="sm" tombstone={auditActor(a).tombstone} />
               <span className="min-w-0 flex-1">
                 <span className="flex items-center justify-between gap-2">
                   <span className="truncate font-medium text-fg">{actionLabel(a.action)}</span>
                   <ResultBadge result={a.result} />
                 </span>
                 <span className="mt-1 block truncate text-xs text-fg-muted">
-                  {[who(a), showTenant ? a.tenantName : null, a.entity].filter(Boolean).join(" · ")}
+                  {[who(a), showTenant ? tenantOf(a) : null, a.entity].filter(Boolean).join(" · ")}
                 </span>
+                {a.identityMasked && (
+                  <span className="mt-1 block">
+                    <MaskedBadge />
+                  </span>
+                )}
                 <span className="mt-0.5 block text-xs tabular-nums text-fg-muted">
                   {formatDateTime(a.createdAt)}
                   {a.ipAddress ? ` · ${a.ipAddress}` : ""}
@@ -281,6 +307,11 @@ function AuditDetailDialog({ item, onClose }: { item: AuditItem | null; onClose:
     >
       {item && payload && (
         <div className="flex flex-col gap-4">
+          {item.identityMasked && (
+            <Alert tone="info" testId="audit-masked-note">
+              {t("au.d.maskedNote")}
+            </Alert>
+          )}
           <dl className="flex flex-col gap-2">
             <Row term={t("au.col.time")}>
               <time dateTime={item.createdAt} className="tabular-nums">
@@ -290,7 +321,7 @@ function AuditDetailDialog({ item, onClose }: { item: AuditItem | null; onClose:
             <Row term={t("au.col.user")}>
               <UserCell a={item} />
             </Row>
-            {item.tenantName && <Row term={t("au.col.tenant")}>{item.tenantName}</Row>}
+            {tenantOf(item) && <Row term={t("au.col.tenant")}>{tenantOf(item)}</Row>}
             <Row term={t("au.col.action")}>
               <ActionCell action={item.action} />
             </Row>

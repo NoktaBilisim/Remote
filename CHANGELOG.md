@@ -5,6 +5,49 @@ Biçim [Keep a Changelog](https://keepachangelog.com/tr/1.1.0/), sürümleme [Se
 
 ## [Unreleased]
 
+### Eklendi — P16 (G4 kalıcı silme; AC-240–244, ADR-0030 r2)
+
+- **Kullanıcıyı kalıcı silme** (AC-237, AC-241): Kullanıcı detayında **Kalıcı sil** (yalnız `users.delete`; pasif
+  kullanıcı, ad yazarak onay, step-up). Kullanıcı satırı "mezar taşı"na çevrilir: kişisel alanlar, şifre, 2FA, avatar
+  dosyası, yetkiler, giriş oturumları, kurtarma kodları ve sıfırlama bağlantıları silinir; geçmişte "Silinmiş kullanıcı
+  #XXXXXX". API `DELETE /api/v1/users/:id` (`If-Match`, `{confirmName}`, 204); `GET /users/options?includeDeleted=1`.
+  Audit `user.deleted`.
+- **Firmayı kalıcı silme** (AC-242): Super Admin için yeni **firma ayrıntı sayfası** (`/admin/tenants/[id]`). En az 30 gün
+  pasif firma → önizleme (sayılar, dosya boyutu, saklanan audit) → ad onayı → step-up → iş 24 saat `SCHEDULED` bekler ve
+  iptal edilebilir → 17 adımlı silme (kesilirse kaldığı yerden sürer) → `DONE`. Başarısız işte **Sürdür**. Bütün Super
+  Admin'lerin panelinde kapatılamaz uyarı bandı; firma listesinde "Silinecek / Siliniyor / Silme başarısız" rozetleri.
+  API `POST|DELETE|GET /api/v1/admin/tenants/:id/purge`, `GET /api/v1/admin/purge-jobs?open=1`; tablo
+  `tenant_purge_jobs`. Audit `tenant.purge_previewed|scheduled|cancelled|started|failed`, `tenant.purged`.
+- **Gece kalıcı silme** (AC-240): anonimleşmeden 30 gün sonra oturum, onay, talep ve bilgisayar kaydı satırları FK
+  sırasıyla silinir (kesme anı DB saatiyle). Yeni env `RETENTION_PURGE_MODE` (`dry|on`, varsayılan `dry`: yalnız sayar);
+  sayılar `retention.run` audit'inde (`purged*` / `purgeCandidates`).
+- **Yetim dosya taraması** (AC-243): her pazar 04:30 (TR); kayıtsız dosya 7 gün sonra, 24 saatten eski `.tmp` silinir;
+  devre kesici (%20 / boş referans kümesi). Audit `uploads.orphan_scan`, metrik `rs_orphan_files_total{action}`.
+- **İmha defteri** (S16-5): `/var/lib/remote/erasure-ledger.jsonl` (yeni volume `remote_ledger`, kişisel veri yok);
+  yedek setine ayrı şifreli dosya olarak girer. Geri yükleme sonrası zorunlu `cli erasure:replay` + `erasure:verify`
+  (`restore.sh` otomatik çalıştırır; audit `erasure.replayed`).
+- **Audit maskesi** (AC-241, S16-1): silinmiş kullanıcı/firmaya ait audit satırları liste, CSV ve oturum zaman
+  çizelgesinde kimlik maskeli (`a***@***`, kimlik alanları `***`); yeni alanlar `actorLabel`, `tenantLabel`,
+  `identityMasked`; ekranda "Kimlik maskeli" rozeti.
+- Yeni hata kodları `PURGE_NOT_ELIGIBLE` (409), `PREVIEW_REQUIRED` (428).
+- Yeni alarmlar (`remote-watch`): `purge-scheduled`, `purge-failed`, `purge-heartbeat`, `orphan-circuit`, `orphan-scan`,
+  `ledger-write`, `ledger-backup`, `p16-metrics` (runbook §23.4).
+
+### Değişti — P16
+
+- Migration `20261118000000_p16_hard_delete`: `audit_logs.tenant_id` FK'si kaldırıldı (audit firma silindikten sonra da
+  kalır), `tenants.passive_at`, kullanıcı durumu `DELETED`, 19 yeni tetikleyici (toplam 22). Yedek ve geri yükleme
+  beklenen tetikleyici sayısı 22 (`BACKUP_EXPECTED_TRIGGERS`; staging'de elle `3` yazılıysa migration'dan önce boşaltın,
+  runbook §23.0).
+- **`users.delete` sıfırlandı:** migration bütün kullanıcı ezmelerini siler; herkes rol varsayılanına döner (Yönetici
+  açık, Teknisyen kapalı). Yetki açıklaması "Pasif kullanıcıyı kalıcı siler (geri alınamaz)".
+- Firma yeniden etkinleştirme, açık silme işi varken 409 döner ("Önce silme işini iptal edin" / "Firma kısmen silindi;
+  silmeyi tamamlayın"). `GET /admin/tenants` satırlarına `passiveSince` ve `purge` eklendi.
+- Silinmiş kullanıcının e-postasıyla giriş ve şifre sıfırlama "olmayan hesap" gibi davranır.
+- `rs_retention_failures_total` artık `{class}` etiketli (`db_signal | audit | other`).
+- Kullanım kılavuzu: kullanıcı ve firma kalıcı silme bölümleri; "yedeklerden en geç 14 günde düşer" ve geri yüklemede
+  yeniden silme (AC-244). Runbook §23 (kalıcı silme operasyonu).
+
 ### Eklendi — P15 (G3 küçük özellikler; AC-231–239)
 
 - **Kurtarma kodlarını yenile** (AC-231): Hesabım sayfasında güncel TOTP koduyla 10 yeni kurtarma kodu; eski kodlar aynı

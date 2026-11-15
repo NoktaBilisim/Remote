@@ -866,3 +866,235 @@ Yok.
 
 - fid'siz eski istemci için okuma tarafında bire bir, içerik eşlemeli birleştirme: veri modeli değişmeden geriye uyum sağlandı ve müşteri raporu TECH satırını ezemiyor.
 - Sürüm kapısı ayarı güvenli hâle getirdi: eski istemcide akış bozulmuyor, audit'te neden görünüyor.
+
+---
+
+## P16 — Tur 1
+
+DURUM: DÜZELTİLMELİ
+
+Kapsam: G4 kalıcı silme (AC-240..244) ve AC-237'nin silme ucu. Kod commit edilmemiş (git diff ve untracked dosyalar).
+Kaynaklar: gereksinimler-kabul-kriterleri-e11 G4, mimari-e11 §7.1–7.10, ADR-0030 r2, implementation.md P16 G1/G2+G5/G3/G4/G6/G7,
+db-notlari P16, runbook §23, DESIGN.md. Ortam: geçici `rs-qa-p16-bbf7d3` (mysql 8.4.13, `--max-connections=300`,
+binlog açık + bayrak). Ortam iş sonunda silindi.
+
+### Test sonucu
+
+| Komut                                                                                         | Sonuç                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| --------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `pnpm -r run lint`                                                                            | 0 hata                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| `pnpm -r run typecheck`                                                                       | 0 hata                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| `pnpm format:check`                                                                           | temiz                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| server unit                                                                                   | 24 dosya, **383/383**                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| server `test:int` (tam, temiz DB P1→P16)                                                      | 70 dosya, **673/673**, 0 skip. P16 dosyaları: users-delete 9, retention-p16-purge 6, orphan-scan 6, tenant-purge 9, tenant-purge-meta 7                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| contracts                                                                                     | 13 dosya, **99/99** (p16-contracts 5)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| web vitest                                                                                    | 38 dosya, **345/345** (p16 10)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| web e2e (tam)                                                                                 | **1. koşu: 387 geçti, 1 düştü, 1 çalışmadı, 178 atlandı.** Düşen test: `p9-users.spec.ts:325` "AC-70 Super Admin: firma seç → … pasife al", satır 390 `data-acting` "" beklenirken `01JTN…B` kaldı. **2. koşu: 389 geçti, 0 düştü.** Test tek başına `--repeat-each=10` ile 10/10 geçti. Sonuç: yük altında kararsız. Önceki turlarda kayıtlı değil. P16, Super Admin panel kabuğuna yoklamalı bant ekledi (`layout.tsx` + `purge-banner.tsx`), ilişki dışlanamadı                                                                                                                                             |
+| Temiz up                                                                                      | drift 0 (`migrate diff --exit-code` 0). `check-app-grants.sh` **501/501 PASS**                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| Dolu DB down/up/up (test:int sonrası: 1.216 kullanıcı, 971 firma, 13.215 oturum, 4.712 audit) | 1) `down.sql` → `p16_down_guard_chk` 3819. Hiçbir şey değişmedi, tetikleyici 22 kaldı (5 DELETED kullanıcı, 10 iş satırı, 38 firması olmayan audit satırı). 2) Koruma koşulları migrator ile temizlendi: iş satırları silindi, DELETED → PASSIVE, firması olmayan audit için yer tutucu firma. Ardından down OK: tetikleyici 3, `tenant_purge_jobs` yok, P15 şemasına diff 0. 3) up OK: drift 0, tetikleyici 22, `migration.p16_users_delete_reset` audit `grantedAfter: 0`, PASSIVE firmada `passive_at` boş 0. 4) `check-app-grants.sh` **501/501 PASS**, `audit-continuity.sql` `triggers.ok=true count=22` |
+
+Implementation.md'deki sayılar (383 / 99 / 345 / 673 / 501) bu bağımsız koşuyla birebir doğrulandı.
+
+### Kabul kriterleri
+
+| AC              | Durum                     | Kanıt veya eksik                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
+| --------------- | ------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 237 (silme ucu) | ✅                        | int `AC-237: users.delete anahtarı olmayan Admin → 403 (step-up'lı olsa da); USER → 403`: hedef PASSIVE kalıyor. Düğme gizliliği: vitest `AC-241 … düğme: yetki/yönetim/kendi hesabı → yok` (`userDeleteState` → `hidden`; `user-editor.tsx` bunu kullanıyor). Kendi hesabında düğme 0: e2e                                                                                                                                                                                                                                 |
+| 240             | ✅                        | int `retention-p16-purge` 6/6: DB saatiyle 30 g ± 1 sa sınırı, FK sırası, kayda bağlı oturumun kalması, ikinci koşuda 0; S16-8 uygulama saati +2 sa; `dry` 0 silme; `db_signal` metrik ve fail audit; açık işli firma atlanır; S16-10 iş satırı 730 g. `retention.run` audit'inde `purged*` sayıları var                                                                                                                                                                                                                    |
+| 241             | ✅                        | int `users-delete-p16` 9/9: ACTIVE 409, ad uyuşmazlığı 400, 428, 401, 403 (fail audit PII'siz), 404. Mezar taşı alanları ADR m.4'te, avatar dosyası yok, alt tablolar silinir, defter satırı yazılır. Liste, CSV ve zaman çizelgesi gövdelerinde eski e-posta ve ad 0 kez geçer, `s***@***`, `Silinmiş kullanıcı #<6>`. Satırı hiç olmayan kullanıcı ve firmada da maske var. S16-7: 6 deneme 401/423, fallback logu yok. e2e kullanıcı silme ve maskeli audit satırı                                                       |
+| 242             | ✅ (staging maddesi ayrı) | int `tenant-purge-p16` 9/9 ve `tenant-purge-meta-p16` 7/7: önizleme = silinen; +24 sa DB zorlaması; iptal sonrası 0 silme; previewId 428 (ikinci kullanım, başka oturum, durum değişimi, süre); `afterBatch` çökme + yeniden başlatma; `system` ve aktif firma için `invalid_job`; sembolik bağlantının hedefi korunur; firma ve klasör yok; audit değişmez; S16-1 e-posta 0; replay/verify. e2e önizleme → SCHEDULED → bant → iptal; RUNNING → DONE; FAILED → Sürdür                                                       |
+| 243             | ✅                        | int `orphan-scan-p16` 6/6: 0/6/8 gün, sonradan bağlanan dosya, `.tmp` 24 sa, sembolik bağlantı, devre kesici (boş küme ve %21 → silme yok, fail audit; %20 → silme), `*_path` meta-testi, pazar 04:30 TR. Sayılar metrikte ve audit'te                                                                                                                                                                                                                                                                                      |
+| 244             | ❌                        | Runbook ✅: §23.7 "≤ 14 gün" yaşam döngüsü kontrolü; §23.5 ve §23.7 silinen firmanın geri yüklenmesi (replay) ve scratch dışa aktarımı. **Kılavuz ❌:** `docs/KULLANIM_KILAVUZU.md`'de kalıcı silme bölümü yok. Satır 1326 hâlâ "bu işlem henüz ekranda yoktur" diyor. Satır 1798–1799'daki 14 gün cümlesi yalnız anonimleştirme bağlamında; "Yedekten geri dönülürse silinmiş veri geri gelebilir" cümlesi P16 replay davranışıyla çelişiyor. G8 (teknik-yazar) yapılmamış: KULLANIM_KILAVUZU, CHANGELOG ve PDF değişmemiş |
+
+### Düzeltilmeli
+
+1. [teknik-yazar] `docs/KULLANIM_KILAVUZU.md`. Şunları ekleyin:
+   - kullanıcı kalıcı silme (pasif şartı, ad yazarak onay, step-up, "Silinmiş kullanıcı #…");
+   - firma kalıcı silme (30 gün pasiflik, önizleme, 24 saat iptal penceresi, bant, durum kartı, FAILED → Sürdür);
+   - "Kalıcı silinen veri yedeklerden en geç 14 günde düşer" cümlesi (AC-244).
+
+   Ayrıca satır 1326'daki "henüz ekranda yoktur" notunu kaldırın. Satır 1799'u replay davranışına göre düzeltin ("geri yüklemeden sonra kalıcı silinenler yeniden silinir"). Ardından CHANGELOG'a P16 girdisini yazın ve `scripts/build-docs.sh` ile PDF'leri yeniden üretin (mimari §7.10 G8).
+
+2. [backend-dev] `docs/implementation.md` P16. Paket kabulü "S16-1..11 kapanış kanıtları implementation.md'de" diyor. Bugün kanıt tabloları G2+G5 ve G3 bölümlerine dağılmış durumda. **S16-3** ve **S16-7** için kanıt satırı yok:
+   - S16-3'ün kanıtı yalnız db-notlari'nda;
+   - S16-7'nin testi var (`AC-241: mezar taşı e-postasıyla 6 deneme …`) ama tabloda yer almıyor.
+
+   Tek bir "P16 S16 kapanış" tablosu ekleyin. S16-1..11 için her satırda bulgu → test adı veya check-app-grants satırı olsun. S16-12..15 için de durum yazın.
+
+3. [frontend-dev] `apps/web/app/(panel)/admin/tenants/[id]/purge-panel.tsx` 457 satır, yeni dosya. Kalite standardının dosya ≤ 300 hedefi aşılmış ve implementation.md'de gerekçe yok. Durum kartlarını (SCHEDULED / RUNNING / FAILED / DONE) ve önizleme diyaloğunu ayrı bileşenlere bölün ya da gerekçeyi G6 "Sapmalar"a yazın.
+
+4. [frontend-dev] `apps/web/e2e/p9-users.spec.ts:390` (AC-70) tam e2e koşusunda yük altında kararsız: 2 koşunun 1'inde düştü. Tenant seçici "temizle" sonrası `data-acting` boşalmıyor. Yalnız bu turda görüldü ve P16 Super Admin kabuğuna bant ekledi (`components/purge-banner.tsx` 60 sn yoklama; `router.refresh` ile ilk değer). Kök nedeni bulun: bant yoklaması ya da yenilemesi seçici durumuyla yarışıyor mu? Ardından düzeltin. Beklenen: `scripts/repeat-tests.sh` ile tam e2e'nin 5 ardışık koşusunda 0 kırmızı. Kararsızlık P16'dan bağımsızsa implementation.md "Kararsız testler" listesine yazın (AC-219).
+
+### Staging'de doğrulanacak (bulgu sayılmadı)
+
+- Migration sonrası ilk gece yedeği PASS (tetikleyici 22). Staging `backup.env`'de `BACKUP_EXPECTED_TRIGGERS=3` elle yazılıysa önce boşaltılmalı (runbook §23).
+- Staging restore provasında `erasure:replay` + `erasure:verify` PASS (G7 kabulü).
+- Bir test firmasının 24 saat beklemeli uçtan uca silinmesi ve gerçek uçlarla web akışı (e2e sahte API ile).
+- `remote-watch` yeni alarmlarının gerçek kanala (`WATCH_ALERT_CMD`) ulaşması. S16-12: prod açılışının ön koşulu.
+
+### Definition of Done
+
+| Madde                                                     | ✅/❌ | Not                                                                                                                                                                                                       |
+| --------------------------------------------------------- | ----- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Her AC'de adında AC no geçen yeşil test                   | ❌    | 240–243 ve 237 ✅; 244 bir doküman AC'si ve kılavuz kısmı eksik                                                                                                                                           |
+| Testler yeşil, skip gerekçeli                             | ❌    | AC-70 e2e kararsız (Düzeltilmeli 4). Skip'ler `desktopOnly` (gerekçeli kalıp)                                                                                                                             |
+| lint / typecheck / format                                 | ✅    |                                                                                                                                                                                                           |
+| Migration up/down/up + drift + grants                     | ✅    | dolu DB'de; down korumaları 3819 ile doğru duruyor                                                                                                                                                        |
+| Tasarım-kod uyumu, sapmalar gerekçeli                     | ✅    | `fields` zarfı, uygunluk sınırı (`≤ TENANT_ROW`), `purgedFiles`, `{class}` metriği, replay'in firmayı hazırlaması, dosya boyutları (tenant-purge 306/321) gerekçeli. Gerekçesiz tek madde: Düzeltilmeli 3 |
+| Katman, `any`, hata yutma, PII log                        | ✅    | Yeni dosyalarda `any`, `console`, eslint-disable, ham renk/px yok. Avatar ve defter hataları alarm loguyla (PII'siz `userId`)                                                                             |
+| Sayfalı liste / TX                                        | ✅    | `purge-jobs` ≤ 100; mezar taşı tek TX + `FOR UPDATE` + koşullu UPDATE                                                                                                                                     |
+| 5 durum, a11y, 390 px, iki tema axe 0                     | ✅    | e2e `P16: axe iki temada + taşma yok` 1280/390                                                                                                                                                            |
+| Yeni env/volume (`RETENTION_PURGE_MODE`, `remote_ledger`) | ✅    | .env.example, env.ts, compose, runbook                                                                                                                                                                    |
+| Yeni bağımlılık                                           | ✅    | yok                                                                                                                                                                                                       |
+| S16-1..11 kapanış kanıtları implementation.md'de          | ❌    | Düzeltilmeli 2                                                                                                                                                                                            |
+| Kılavuz / CHANGELOG / PDF                                 | ❌    | Düzeltilmeli 1 (G8)                                                                                                                                                                                       |
+
+### Öneriler (zorunlu değil)
+
+- `apps/server/scripts/test-db.sh`'a `--max-connections=300` eklenmesi (G3 notu). Bu turda 300 ile koşuldu ve bağlantı kaynaklı kırmızı görülmedi.
+- `deploy/ops/remote-watch.sh` 449 satıra çıktı. QA #2'deki "tek dosya kurulu kopya" gerekçesi 313 satır içindi; gerekçe güncellenmeli ya da bölünme yeniden değerlendirilmeli.
+- AC-237 "anahtarsız Admin'e düğme görünmez" maddesi bugün birim testiyle kanıtlı. Bunun için `users.delete`'siz bir Admin ile tek bir e2e adımı eklenebilir.
+- `gereksinimler-kabul-kriterleri-e11.md` "Uygulama durumu" tablosuna P16 satırları (240–244) eklenmeli.
+
+### Olumlu
+
+- Fail-closed audit maskesi gövde düzeyinde "0 kez geçer" testleriyle kanıtlı. Satırı hiç olmayan kullanıcı ve firma da kapsanıyor.
+- 30 gün ve 24 saat kuralları DB tetikleyicisiyle zorlanıyor, 501 negatif/pozitif grants satırıyla sınanıyor. down korumaları dolu DB'de doğru yerde duruyor.
+- Çökme dayanıklılığı (`afterBatch`) ve FK meta-testleri (`DELETE_RULE = RESTRICT`), şema değişince sessiz bozulmayı yakalıyor.
+
+---
+
+## P16 — Tur 2
+
+DURUM: DÜZELTİLMELİ
+
+Tur 1'in 4 maddesi kapandı. Kalan iki iş küçük ama zorunlu: biri doküman sapması, diğeri bu turda görülen ve kayda
+geçmemiş bir kararsız test (AC-219 kuralı). Ortam: geçici `rs-qa-p16-42b633` (mysql 8.4.13, `--max-connections=300`),
+iş sonunda silindi.
+
+### Test sonucu
+
+| Komut                                | Sonuç                                                                                                                                                                                                                         |
+| ------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `pnpm -r run lint` / `typecheck`     | 0 / 0                                                                                                                                                                                                                         |
+| `pnpm format:check`                  | Tur başında `docs/guvenlik-raporu.md` uyarısı vardı (güvenlik ajanının eşzamanlı yazdığı dosya). Tur sonunda temiz                                                                                                            |
+| server unit / contracts / web vitest | **383/383** / **99/99** / **345/345**                                                                                                                                                                                         |
+| server `test:int` (tam, 3 koşu)      | 1. koşu 675/676: **`security-p14a-users` AC-206 "yetki değişimi … sürüm artırır" `PATCH` 503**. Bu, geçici DB çekişmesinin (`isTransientDbError` → `NOT_READY`) yanıtı. 2. ve 3. koşu **676/676**. Dosya tek başına 3 × 15/15 |
+| web e2e (tam, 2 ardışık koşu)        | **390 geçti / 0 düştü / 179 atlandı** (iki koşuda da). AC-70, p12b AC-196, p13bl AC-312 ve TEST-P5-1 dahil hepsi yeşil                                                                                                        |
+| Temiz up                             | drift 0; `check-app-grants.sh` **501/501**                                                                                                                                                                                    |
+| `deploy/backup/test-backup.sh`       | Bu turda koşulmadı (dind yok kuralı). Koordinatör koşumu 100 PASS (S16-16 rc 3 vakası dahil); kabul edildi                                                                                                                    |
+
+### Tur 1 maddeleri
+
+| #                                          | Durum | Doğrulama                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
+| ------------------------------------------ | ----- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1 [teknik-yazar] kılavuz / CHANGELOG / PDF | ⚠️    | Kılavuz tamam: "Kullanıcıyı kalıcı silme" (1362), "Firmayı kalıcı silme" (1998), "Yedekler ve kalıcı silme" (14 gün cümlesi, replay ile yeniden silme). Eski "henüz ekranda yoktur" notu kalktı. CHANGELOG P16 girdisi ve DATASHEET var. KULLANIM_KILAVUZU.pdf metni güncel (pymupdf ile doğrulandı). **Kalan iki sapma (madde 1 aşağıda):** (a) `README.md` 07:51'de düzenlenmiş, `README.pdf` ise 07:50'de üretilmiş. PDF'te çıkış kodu 3 (kurcalama şüphesi) yok. (b) `docs/api.md:2453` Super Admin hedefini hâlâ 403 sayıyor, oysa S16-17 ile 404 oldu |
+| 2 [backend-dev] S16 kapanış tablosu        | ✅    | implementation.md "P16 S16 kapanış tablosu": S16-1..19 her biri test adı, check-app-grants satırı ya da migration bloğu. S16-3 için yeni test (`tpm` "AC-240 S16-3 …"), S16-7 kanıt satırı var. S16-12 prod ön koşulu açık olarak yazılı, S16-19 "Sonra"                                                                                                                                                                                                                                                                                                    |
+| 3 [frontend-dev] purge-panel boyutu        | ✅    | `purge-panel.tsx` 176, `purge-status-card.tsx` 123, `purge-dialog.tsx` 206 satır. `p16.spec.ts` yeşil. Ek olarak AC-237 e2e adımı geldi ("users.delete anahtarı olmayan Admin'e Kalıcı sil düğmesi görünmez")                                                                                                                                                                                                                                                                                                                                               |
+| 4 [frontend-dev] AC-70 kararsızlığı        | ✅    | Test iki aşamalı oldu: önce toast, sonra 10 sn içinde `data-acting=""`. Gerçek hata gizlenmiyor (retry yok). Kök neden yorumu (`startTransition` + `router.refresh` yük altında) "Kararsız testler" tablosunda. P16 bandıyla ilişkisi kod incelemesiyle dışlandı: bant `router.refresh` çağırmıyor, `ussa` senaryosunda 404. Benim 2 tam koşumda 2/2 yeşil. p12b AC-196 ve p13bl AC-312 kök nedenli test düzeltmeleri de makul ve yeşil                                                                                                                     |
+
+**Backend S16-16/17/18 (güvenlik turu düzeltmeleri):**
+
+- S16-16: `cli/erasure.ts`, rc 3 ile uygunsuz satırı reddeden test (`tpm` S16-16).
+- S16-17: `users/service.ts:588`; `loadOrThrow` kapsamlı sorgusu Super Admin'i ve başka firmayı 404'e düşürüyor; `readRole` silindi.
+- S16-18: defterde `intent` ve `done` satırları. `intent` TX içinde, denetimlerden sonra yazılıyor (gerekçeli sapma).
+- Hepsi testli ve yeşil. `test-db.sh` `--max-connections=300` eklendi ✅.
+
+### TEST-P5-1 kararı (AC-219)
+
+- `p5-collab` TEST-P5-1 (koordinatörün 15 tam koşusunda 2 düşüş) P16'dan bağımsız. Dosya aktarım teklifinin reddi `desktop-rtc` projesinde ve P5 kodunda; P16 bu dosyalara dokunmadı. Bu turdaki 2 tam koşumda yeşil.
+- Kayıt AC-219 kuralına uygun: implementation.md "Kararsız testler"de oran, şüphelenilen neden ve sonraki adım yazılı; retry ile gizlenmemiş.
+- **Karar: P16'yı engellemez.** AC-219 bir P16 AC'si değil (durumu "Bekliyor"). Ancak bu kayıt açık kaldıkça AC-219 kapanamaz: kök neden kanıtlanıp düzeltilmeli (sahibi frontend-dev / P5).
+
+### Kabul kriterleri
+
+| AC              | Durum                       | Kanıt                                                                                                                                                 |
+| --------------- | --------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 237 (silme ucu) | ✅                          | int `AC-237 …403`; e2e "AC-237: users.delete anahtarı olmayan Admin'e Kalıcı sil düğmesi görünmez"; vitest `userDeleteState`                          |
+| 240             | ✅                          | `retention-p16-purge` 6/6 + `tpm` "AC-240 S16-3"                                                                                                      |
+| 241             | ✅                          | `users-delete-p16` (S16-17 404, defter `intent` + `done`, reddedilen istekte defter yok)                                                              |
+| 242             | ✅ (staging uçtan uca ayrı) | `tenant-purge-p16` (+S16-18), `tenant-purge-meta-p16` (+S16-16)                                                                                       |
+| 243             | ✅                          | `orphan-scan-p16` 6/6                                                                                                                                 |
+| 244             | ✅                          | runbook §23.5 ve §23.7; kılavuz "Yedekler ve kalıcı silme" ("en geç 14 gün içinde düşer", geri yüklemede yeniden silme); KULLANIM_KILAVUZU.pdf güncel |
+
+### Düzeltilmeli
+
+1. [teknik-yazar]
+   - `docs/api.md:2453`: `DELETE /users/:id` 403 satırından "Super Admin hedef" çıkarılmalı. 404 satırına "Super Admin hedef (S16-17; rol ayırt edilmez)" eklenmeli.
+   - `scripts/build-docs.sh` ile `docs/pdf/README.pdf` yeniden üretilmeli. Bugünkü PDF, README'deki "3 replay … tutarsız defter satırını reddetti (kurcalama şüphesi)" çıkış kodunu içermiyor; README.md PDF'ten 1 dakika sonra değişmiş.
+   - Üretimden sonra üç PDF'in metni md ile karşılaştırılmalı.
+2. [backend-dev] `apps/server/test/integration/security-p14a-users.test.ts:276–278` (AC-206) tam `test:int`'te 3 koşunun 1'inde `PATCH /users/:id` → **503** döndü: geçici DB çekişmesi, `errors.ts:101` `db_busy`. Bu kararsızlık "Kararsız testler" listesinde yok.
+   - Kök nedeni bulun: hangi paralel dosya aynı `users` / `user_permissions` satır veya aralık kilitlerini tutuyor? P16'nın kullanıcı TX'leri (`lockActor` + `FOR UPDATE`, `deleteUserChildren`) adaydır.
+   - Testi ya da sorguyu düzeltin, veya oranı ve kök nedeni implementation.md "Kararsız testler"e yazın (AC-219; retry ile gizlemek yasak).
+   - Beklenen: tam `test:int` 5 ardışık koşuda 0 kırmızı, ya da gerekçeli kayıt.
+
+### Staging'de doğrulanacak (bulgu sayılmadı)
+
+Tur 1 listesi aynen geçerli:
+
+- ilk gece yedeği (tetikleyici 22);
+- restore + `erasure:replay` / `erasure:verify`;
+- 24 saat beklemeli uçtan uca firma silme ve gerçek uçlarla web akışı;
+- `WATCH_ALERT_CMD` alarm kanalı (S16-12, prod ön koşulu).
+
+### Definition of Done
+
+| Madde                                   | ✅/❌ | Not                                                                                    |
+| --------------------------------------- | ----- | -------------------------------------------------------------------------------------- |
+| Her AC'de adında AC no geçen yeşil test | ✅    | 237, 240–244                                                                           |
+| Testler yeşil, kararsızlar kayıtlı      | ❌    | AC-206 503 kayıtsız (madde 2). TEST-P5-1 kayıtlı ve P16'dan bağımsız                   |
+| lint / typecheck / format               | ✅    |                                                                                        |
+| Migration + grants                      | ✅    | 501/501, drift 0. Dolu DB down/up/up Tur 1'de doğrulandı; bu turda migration değişmedi |
+| Sapmalar gerekçeli                      | ✅    | S16-18 TX içi `intent`, verify'ın reddedilenleri saymaması, AC-70 kök neden yorumu     |
+| S16 kapanış kanıtları                   | ✅    | tek tablo                                                                              |
+| Dosya boyutu                            | ✅    | purge-panel bölündü; `remote-watch.sh` 449 satır gerekçesi yazıldı                     |
+| Dokümantasyon / PDF güncel              | ❌    | madde 1                                                                                |
+| Yeni bağımlılık                         | ✅    | yok                                                                                    |
+
+### Olumlu
+
+- Kararsız testler retry'la örtülmeden kök nedenleriyle çözüldü (p12b'de gizli Suspense düğümü, p13bl'de `@starting-style` geçişi). Çözülemeyen kayıt (TEST-P5-1) dürüstçe "açık" olarak yazıldı.
+- S16-16 replay süzgeci ve rc 3, geri yükleme sonrası kurcalanmış defterin canlı veriyi silmesini engelliyor ve testli.
+
+---
+
+## P16 — Tur 3
+
+DURUM: GEÇTİ
+
+Ortam: geçici `rs-qa-p16-d19f4a` (mysql 8.4.13, `--max-connections=300`). Ortam iş sonunda silindi.
+
+### Test sonucu
+
+| Komut                                                        | Sonuç                                   |
+| ------------------------------------------------------------ | --------------------------------------- |
+| `pnpm -r run lint` / `typecheck` / `pnpm format:check`       | 0 / 0 / temiz                           |
+| server `test:int` (tam, temiz DB P1→P16, **3 ardışık koşu**) | **679/679 · 679/679 · 679/679**, 0 skip |
+
+Web e2e bu turda koşulmadı: web kodu değişmedi. Tur 2'deki 2 tam koşu 390/390'dı.
+
+### Tur 2 maddeleri
+
+| #                             | Durum | Doğrulama                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
+| ----------------------------- | ----- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1 [teknik-yazar] api.md + PDF | ✅    | `docs/api.md:2453–2455`: 403 satırında artık Super Admin yok; 404 satırında "Super Admin hedef (S16-17 …)" var. Üç PDF 08:49'da yeniden üretildi; md dosyalarının hepsi bundan önce değişmiş. `README.pdf` metni pymupdf ile çıkarıldı: "reddetti" ve "kurcalama" geçiyor, yani çıkış kodu 3 PDF'te                                                                                                                                                                                                                                                                                                                   |
+| 2 [backend-dev] AC-206 503    | ✅    | Kök neden olarak iki ürün kilidi hatası düzeltildi. `users/repo.ts:111` `replacePermissions` artık sil+ekle yerine fark yazıyor: delete / update / createMany yalnız değişen anahtarlarda. `jobs/tenant-purge-repo.ts:41` `byTenantUser` partisi `IN (SELECT …) LIMIT` yerine önceden okunan sabit kimlik listesiyle çalışıyor. Regresyon testleri: `security-p14a-users` "AC-206 kilitlenme: iki firmada eşzamanlı yetki yazımı … 1213 deadlock / 503 vermez" ve `tenant-purge-meta-p16` "AC-242 kilit kapsamı: USER_CHILDREN partisi açıkken başka firmanın yetki yazımı beklemez". Bağımsız 3 tam koşuda 0 kırmızı |
+
+S16-20 (replay: yalnız `intent` satırı olan kullanıcıda PASSIVE şartı, CANCELLED iş sayılmaz) testli: `tenant-purge-meta-p16` "AC-242 S16-20 replay …" yeşil. 2FA'daki benzer kalıp gereksinimler §9'da "Sonra" olarak kayıtlı (P16 dışı).
+
+### Kabul kriterleri
+
+237 (silme ucu), 240, 241, 242, 243, 244: ✅. Kanıtlar Tur 1–2'deki gibi; testlerin hepsi yeşil.
+
+### Definition of Done
+
+Bütün maddeler ✅. Tur 2'nin iki ❌'i kapandı: kararsız AC-206'nın kök nedeni düzeltildi; doküman ve PDF güncel.
+
+### Açık kalanlar (P16 kabulünü engellemez)
+
+- Staging'de doğrulanacaklar:
+  - ilk gece yedeği (tetikleyici 22);
+  - restore + `erasure:replay` / `verify`;
+  - 24 saat beklemeli uçtan uca firma silme;
+  - `WATCH_ALERT_CMD` (S16-12, prod açılışının ön koşulu).
+- TEST-P5-1 (P5, AC-219 kaydında açık; sahibi frontend-dev). P16'dan bağımsız.

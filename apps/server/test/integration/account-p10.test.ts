@@ -113,6 +113,17 @@ const decodeQp = (raw: string): string => {
   return Buffer.from(bytes, "latin1").toString("utf8");
 };
 const totpNow = (secret: string, offset = 0) => hotp(base32Decode(secret), stepOf(Date.now()) + offset);
+/**
+ * Kararsız test kökü (AC-219): "aynı kod" / "sonraki kod" duvar saatinden (`totpNow`) türetilirse 30 sn adım sınırı
+ * enable ile doğrulama arasına düştüğünde "tekrar" sanılan kod aslında yeni adımın kodu olur (401 yerine 200). Kodlar
+ * sunucunun kaydettiği son adımdan (totp_last_step) türetilir: `offset` 0 = tekrar (reddedilmeli), 1 = sonraki geçerli adım
+ * (sunucu penceresi t±1 → enable'dan sonraki ~60 sn içinde kabul).
+ */
+const totpFromLastStep = async (userId: string, secret: string, offset: 0 | 1) => {
+  const { totpLastStep } = await db().user.findUniqueOrThrow({ where: { id: userId }, select: { totpLastStep: true } });
+  if (totpLastStep === null) throw new Error("totp_last_step boş (2FA etkin değil)");
+  return hotp(base32Decode(secret), Number(totpLastStep) + offset);
+};
 
 /** Admin'i 2FA kurulumundan geçirir; tam oturum + sır + kurtarma kodları döner. */
 async function enrolledAdmin(tenantId: string) {
@@ -171,9 +182,9 @@ describe("AC-67 iki adımlı doğrulama", () => {
     expect((await call(a.s, "GET", "/sessions")).json()).toMatchObject({ error: { code: "MFA_REQUIRED" } });
     expect((await call(a.s, "GET", "/auth/me")).json<MeResponse>()).toMatchObject({ permissions: [], mfa: { stage: "verify" } });
     // Kurulumda kullanılan adım/kod tekrar kabul edilmez (totp_last_step).
-    const reused = await call(a.s, "POST", "/auth/mfa/verify", { code: totpNow(secret) });
+    const reused = await call(a.s, "POST", "/auth/mfa/verify", { code: await totpFromLastStep(admin.id, secret, 0) });
     expect(reused.statusCode).toBe(401);
-    const v = await call(a.s, "POST", "/auth/mfa/verify", { code: totpNow(secret, 1) });
+    const v = await call(a.s, "POST", "/auth/mfa/verify", { code: await totpFromLastStep(admin.id, secret, 1) });
     expect(v.statusCode, v.body).toBe(200);
     const full = jar(v);
     expect(full.token).not.toBe(a.s.token); // token yenilenir
@@ -214,7 +225,7 @@ describe("AC-67 iki adımlı doğrulama", () => {
       app.inject({ method: "POST", url: "/api/v1/auth/mfa/verify", headers: a.s.headers, remoteAddress: addr, payload: body });
     for (let i = 0; i < 5; i++) expect((await from("10.88.0.1", { code: "999999" })).statusCode).toBe(401);
     expect((await from("10.88.0.1", { code: "999999" })).statusCode).toBe(429);
-    const ok = await from("10.88.0.2", { code: totpNow(secret, 1) });
+    const ok = await from("10.88.0.2", { code: await totpFromLastStep(admin.id, secret, 1) });
     expect(ok.statusCode, ok.body).toBe(200);
     const b = await signIn(admin);
     const fromB = (addr: string) =>

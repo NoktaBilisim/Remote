@@ -387,7 +387,11 @@ test("AC-70 Super Admin: firma seç → kullanıcılar; firma oluştur; pasife a
   await expect(switcher).toHaveAttribute("data-acting", "01JTN00000000000000000000B");
   await switcher.locator("summary").click();
   await switcher.getByTestId("tenant-switcher-clear").click();
-  await expect(switcher).toHaveAttribute("data-acting", "");
+  // P16 düzeltme turu 1 (AC-219): iki aşama ayrı doğrulanır — istek bitti (toast) → kabuk sunucudan yeniden çizildi.
+  // Yeniden çizim geçişte (startTransition + router.refresh) tüm RSC yükünü bekler; tam paralel koşuda 5 sn'lik varsayılan
+  // bütçe aşılabiliyor. Toast görünüp öznitelik 10 sn'de değişmezse gerçek hata olarak düşer.
+  await expect(page.getByText("Firma bağlamından çıkıldı")).toBeVisible();
+  await expect(switcher).toHaveAttribute("data-acting", "", { timeout: 10_000 });
   expect(await axeScan(page)).toEqual([]);
 });
 

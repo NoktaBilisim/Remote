@@ -33,6 +33,7 @@ export const ROUTE_CLASSES: Record<string, RouteClass> = {
   "POST /api/v1/settings/support-requests/email/test": "scoped",
   "POST /api/v1/sessions/:id/email": "tenant",
   "POST /api/v1/users/:id/reset-mfa": "tenant",
+  "DELETE /api/v1/users/:id": "tenant", // P16 (AC-241): step-up'lı B Admin'i → A kullanıcısı 404
   // P2
   "POST /api/v1/sessions": "self",
   "GET /api/v1/sessions": "list",
@@ -149,6 +150,11 @@ export const ROUTE_CLASSES: Record<string, RouteClass> = {
   "GET /api/v1/admin/superadmins": "system",
   "POST /api/v1/admin/superadmins/:id/reset-password": "system",
   "DELETE /api/v1/admin/settings/system-logo": "system",
+  // P16 G3 (AC-242): firma kalıcı silme (yalnız SUPER_ADMIN)
+  "POST /api/v1/admin/tenants/:id/purge": "system",
+  "DELETE /api/v1/admin/tenants/:id/purge": "system",
+  "GET /api/v1/admin/tenants/:id/purge": "system",
+  "GET /api/v1/admin/purge-jobs": "system",
   "GET /api/v1/request-blocks": "scoped",
   "POST /api/v1/request-blocks": "scoped",
   "DELETE /api/v1/request-blocks/:id": "tenant",
@@ -164,6 +170,8 @@ export interface CrossTenantCase {
   route: string;
   /** B kullanıcısıyla, A tenant'ının kaydını hedefleyen istek. */
   request: (fx: TwoTenants) => InjectOptions;
+  /** P16: uç step-up ister (AC-215) → istek step-up'lı B Admin oturumuyla gönderilir (yoksa 401 404'ü gölgeler). */
+  stepUp?: boolean;
 }
 
 export const CROSS_TENANT_CASES: CrossTenantCase[] = [
@@ -228,6 +236,16 @@ export const CROSS_TENANT_CASES: CrossTenantCase[] = [
   {
     route: "POST /api/v1/users/:id/avatar",
     request: (fx) => ({ method: "POST", url: `/api/v1/users/${fx.a.user.id}/avatar`, payload: {} }),
+  },
+  {
+    route: "DELETE /api/v1/users/:id",
+    stepUp: true,
+    request: (fx) => ({
+      method: "DELETE",
+      url: `/api/v1/users/${fx.a.user.id}`,
+      headers: { "if-match": '"v0"' },
+      payload: { confirmName: "Test Kullanıcı" },
+    }),
   },
   { route: "DELETE /api/v1/users/:id/avatar", request: (fx) => ({ method: "DELETE", url: `/api/v1/users/${fx.a.user.id}/avatar` }) },
   {

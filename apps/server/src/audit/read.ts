@@ -27,7 +27,7 @@ import type { FixedWindowCounter } from "../lib/rate.ts";
 import { avatarUrlFor, type AvatarViewer } from "../uploads/urls.ts";
 import * as repo from "./repo.ts";
 import { writeAudit, type AuditContext } from "./service.ts";
-import { auditValueView } from "./view.ts";
+import { auditValueView, identityUserIds, identityView } from "./view.ts";
 
 const DAY_MS = 86_400_000;
 const EXPORT_BATCH = 1000;
@@ -70,23 +70,31 @@ export function decodeCursor(s: string): repo.AuditCursor {
   return { createdAt: new Date(Number(m[1])), id };
 }
 
-/** `viewer` verilirse avatar yalnız görüntüleyenin erişebildiği dosyaysa döner (başka tenant/sistem avatarı → null). */
+/**
+ * `viewer` verilirse avatar yalnız görüntüleyenin erişebildiği dosyaysa döner (başka tenant/sistem avatarı → null).
+ * P16 (AC-241, S16-1): kimlik maskesi `identityView` ile (fail-closed); silinmiş aktörün avatarı yok.
+ */
 function toItem(r: repo.AuditRow, names: Map<string, repo.AuditUserInfo>, viewer?: AvatarViewer): AuditItem {
+  const id = identityView({ ...r, tenantName: r.tenant?.name ?? null }, names);
   const u = r.userId ? names.get(r.userId) : undefined;
+  const live = u && u.status !== "DELETED" ? u : undefined;
   return {
     id: r.id.toString(),
     createdAt: r.createdAt.toISOString(),
     tenantId: r.tenantId,
     tenantName: r.tenant?.name ?? null,
     userId: r.userId,
-    username: r.username,
-    userFullName: u?.fullName ?? null,
-    avatarUrl: viewer ? avatarUrlFor(u?.avatarPath, viewer) : null,
+    username: id.username,
+    userFullName: id.actorLabel,
+    actorLabel: id.actorLabel,
+    tenantLabel: id.tenantLabel,
+    identityMasked: id.masked,
+    avatarUrl: viewer && live ? avatarUrlFor(live.avatarPath, viewer) : null,
     action: r.action,
     entity: r.entity,
     entityId: r.entityId,
-    oldValue: auditValueView(r.action, r.oldValue),
-    newValue: auditValueView(r.action, r.newValue),
+    oldValue: auditValueView(r.action, r.oldValue, id.masked),
+    newValue: auditValueView(r.action, r.newValue, id.masked),
     ipAddress: r.ipAddress || null,
     userAgent: r.userAgent || null,
     result: (r.result === "fail" ? "fail" : "success") as AuditResult,
@@ -98,10 +106,7 @@ export async function listAuditItems(db: Db, auth: AuthContext, q: ListAuditQuer
   const filter = resolveAuditFilter(scope, q, now);
   const rows = await repo.listAudit(db, scope, filter, q.cursor ? decodeCursor(q.cursor) : null, AUDIT_PAGE_SIZE + 1);
   const page = rows.slice(0, AUDIT_PAGE_SIZE);
-  const names = await repo.userNames(
-    db,
-    page.flatMap((r) => (r.userId ? [r.userId] : [])),
-  );
+  const names = await repo.userNames(db, identityUserIds(page));
   const last = page[page.length - 1];
   const viewer: AvatarViewer = { role: auth.user.role, tenantId: auth.user.tenantId };
   return {
@@ -122,7 +127,7 @@ const json = (v: unknown): string => (v === null || v === undefined ? "" : JSON.
 function csvCells(i: AuditItem, withTenant: boolean): string[] {
   return [
     istanbulDateTime(new Date(i.createdAt)),
-    ...(withTenant ? [i.tenantName ?? ""] : []),
+    ...(withTenant ? [i.tenantLabel ?? ""] : []),
     i.username ?? "",
     i.userFullName ?? "",
     i.action,
@@ -187,10 +192,7 @@ export async function exportAuditCsv(
       while (written < AUDIT_EXPORT_MAX_ROWS) {
         const batch = await repo.listAudit(db, scope, filter, after, Math.min(EXPORT_BATCH, AUDIT_EXPORT_MAX_ROWS - written));
         if (batch.length === 0) return;
-        const names = await repo.userNames(
-          db,
-          batch.flatMap((r) => (r.userId ? [r.userId] : [])),
-        );
+        const names = await repo.userNames(db, identityUserIds(batch));
         yield batch.map((r) => csvRow(csvCells(toItem(r, names), withTenant))).join("");
         written += batch.length;
         const last = batch[batch.length - 1];

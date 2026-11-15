@@ -40,6 +40,8 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 . "$SCRIPT_DIR/lib.sh"
 # shellcheck source=deploy/backup/lib-restore.sh
 . "$SCRIPT_DIR/lib-restore.sh"
+# shellcheck source=deploy/backup/lib-ledger.sh
+. "$SCRIPT_DIR/lib-ledger.sh"   # P16: defter doğrulama (scratch) + uzlaştırma, erasure:replay/verify (canlı; runbook §23.5)
 DEPLOY_DIR="${BACKUP_DEPLOY_DIR:-$(cd "$SCRIPT_DIR/.." && pwd)}"
 LOG_TAG=remote-restore
 
@@ -76,7 +78,7 @@ trap 'rm -rf -- "$VDIR"' EXIT
 cp -- "$RUN_DIR/manifest.json" "$VDIR/manifest.json"
 [ ! -f "$RUN_DIR/manifest.json.sig" ] || cp -- "$RUN_DIR/manifest.json.sig" "$VDIR/manifest.json.sig"
 MANIFEST="$VDIR/manifest.json"
-EXPECTED_TRIGGERS="${RESTORE_EXPECTED_TRIGGERS:-3}"
+EXPECTED_TRIGGERS="${RESTORE_EXPECTED_TRIGGERS:-22}"  # P16 (S16-11): restore-verify beklenen tetikleyici
 READY_TIMEOUT="${RESTORE_READY_TIMEOUT:-240}"
 HOST_SHORT="$(hostname -s 2>/dev/null || hostname)"
 
@@ -213,6 +215,7 @@ checksum_tables "$SCRATCH" > "$WORK/checksum.scratch" || check "CHECKSUM (scratc
 read -r up_n up_d < <(uploads_digest "$MYSQL_IMAGE" < "$WORK/uploads.tar.gz")
 check "uploads dosya sayısı" "$(jq -r '.uploads.files' "$MANIFEST")" "$up_n"
 check "uploads özet listesi" "$(jq -r '.uploads.listSha256' "$MANIFEST")" "$up_d"
+ledger_restore_check "$SCRATCH"
 T5="$(date -u +%s)"
 printf 'restore-sure: toplam %ss (çözme %ss, MySQL açılış %ss, yükleme %ss, doğrulama %ss)\n' \
   "$((T5 - T0))" "$((T2 - T1))" "$((T3 - T2))" "$((T4 - T3))" "$((T5 - T4))"
@@ -264,6 +267,7 @@ check "uploads özet listesi (volume)" "$(jq -r '.uploads.listSha256' "$MANIFEST
 # eşleştirip "taban-cizgisi-sifirlandi" (uyarı) der. CHECKSUM'dan SONRA (audit satırı yazar).
 "$SCRIPT_DIR/backup.sh" --reset-audit-baseline "restore $M_RUN sonrasi (restore.sh --target $TARGET)" \
   || die "audit taban çizgisi sıfırlanamadı (veri yüklendi, server DURDURULMUŞ): backup.sh --reset-audit-baseline '<gerekçe>' + docker compose up -d (runbook §18)"
+ledger_live_reconcile; ledger_live_replay   # S16-5: server DURURKEN; başarısızsa server başlatılmaz
 log "yığın başlatılıyor (migrate önce)"
 docker compose up -d
 deadline=$(( $(date -u +%s) + READY_TIMEOUT ))
@@ -273,6 +277,7 @@ until [ "$(docker inspect -f '{{.State.Health.Status}}' "$(docker compose ps -q 
 done
 ready="$(docker compose exec -T server node -e "fetch('http://127.0.0.1:3001/ready').then(async r=>console.log(r.status, await r.text()))")"
 check "/ready" 200 "${ready%% *}"
+ledger_live_verify
 T7="$(date -u +%s)"
 printf 'restore-sure: %s kesintisi %ss (durdurma -> /ready 200), toplam %ss\n' "$TARGET" "$((T7 - T6))" "$((T7 - T0))"
 verdict

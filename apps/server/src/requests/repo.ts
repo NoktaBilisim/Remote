@@ -386,23 +386,17 @@ export function countAllPending(db: DbOrTx): Promise<number> {
 
 // ---------------- Anonimleştirme (AC-159) ----------------
 
-export async function anonymizeBatch(db: DbOrTx, tenantId: string, cutoff: Date, now: Date, limit: number): Promise<number> {
-  const r = await db.supportRequest.updateMany({
-    where: { tenantId, anonymizedAt: null, createdAt: { lt: cutoff } },
-    data: {
-      customerName: null,
-      customerPhone: null,
-      customerEmail: null,
-      description: null,
-      ip: null,
-      ipKey: null,
-      netKey: null,
-      deviceHash: null,
-      anonymizedAt: now,
-    },
-    limit,
-  });
-  return r.count;
+/**
+ * S16-14 (P16 G2): `anonymized_at` DB saatiyle (`UTC_TIMESTAMP(3)`) yazılır — iş mantıksal saatle (`cutoff`) aday seçer,
+ * damga S16-3 tetikleyicisinin `[UTC − 1 g, UTC + 1 dk]` aralığında kalır (uygulama saati ileride olsa da). Prisma
+ * `@updatedAt` ham ifadede çalışmadığı için `updated_at` de DB saatiyle. IX(tenant_id, anonymized_at, created_at).
+ */
+export async function anonymizeBatch(db: DbOrTx, tenantId: string, cutoff: Date, limit: number): Promise<number> {
+  return db.$executeRaw`UPDATE support_requests
+    SET customer_name = NULL, customer_phone = NULL, customer_email = NULL, description = NULL, ip = NULL, ip_key = NULL,
+        net_key = NULL, device_hash = NULL, anonymized_at = UTC_TIMESTAMP(3), updated_at = UTC_TIMESTAMP(3)
+    WHERE tenant_id = ${tenantId} AND anonymized_at IS NULL AND created_at < ${cutoff}
+    LIMIT ${limit}`;
 }
 
 export function retentionTenants(db: DbOrTx) {

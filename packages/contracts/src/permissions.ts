@@ -45,7 +45,8 @@ export const PERMISSION_DESCRIPTIONS: Readonly<Partial<Record<PermissionKey, str
   "support_requests.block":
     "Belirli bir IP adresinden/ağdan veya bilgisayardan gelen destek taleplerini engeller; engelleri listeler ve kaldırır.",
   // P15 (AC-237): anahtar kalıcı kullanıcı silme ucunu korur (uç P16, ADR-0030). Pasife alma "Düzenle" yetkisiyle yapılır.
-  "users.delete": 'Kullanıcıyı kalıcı olarak siler (geri alınamaz). Pasife alma "Düzenle" yetkisiyle yapılır.',
+  // P16 (AC-237/241): DELETE /users/:id — yalnız pasif kullanıcı, ad onayı + step-up.
+  "users.delete": 'Pasif kullanıcıyı kalıcı siler (geri alınamaz). Pasife alma "Düzenle" yetkisiyle yapılır.',
 };
 
 export const ROLES = ["SUPER_ADMIN", "ADMIN", "USER"] as const;

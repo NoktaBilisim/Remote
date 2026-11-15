@@ -94,7 +94,7 @@ jobs:
           # Root parolası docker CLI argümanına konmaz; konteynerin kendi env'inden okunur (check-app-grants.sh ile aynı).
           # Doğrulama `1 1` değilse adım düşer (migrate'in 1419 ile belirsiz düşmesini beklemeden).
           docker exec ${{ job.services.mysql.id }} sh -c 'MYSQL_PWD="$MYSQL_ROOT_PASSWORD" mysql -uroot -NBe \
-            "SET GLOBAL log_bin_trust_function_creators = 1; SELECT @@log_bin, @@log_bin_trust_function_creators"' \
+            "SET GLOBAL log_bin_trust_function_creators = 1; SET GLOBAL max_connections = 300; SELECT @@log_bin, @@log_bin_trust_function_creators"' \
             | tee /dev/stderr | grep -qx $'1\t1'
       - run: pnpm db:migrate
       - name: app kullanıcısı yetki sınırı (G-15)

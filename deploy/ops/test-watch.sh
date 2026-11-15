@@ -10,7 +10,7 @@
 set -euo pipefail
 cd "$(dirname "$0")"
 HERE="$PWD"
-C="rs-watch-test-$$"
+C="${TEST_CONTAINER_NAME:-rs-watch-test-$$}"
 TMP="$(mktemp -d)"
 cleanup() { docker rm -f "$C" >/dev/null 2>&1 || true; rm -rf "$TMP"; }
 trap cleanup EXIT
@@ -68,7 +68,8 @@ good() {
   echo 0 >/scn/ready_rc; echo 0 >/scn/stun_rc; echo healthy >/scn/turn_health; echo 200 >/scn/login_code
   printf 'remote-turn-fw.timer\nremote-backup.timer\n' >/scn/timers_active; : >/scn/failed
   echo "$(date -u -d '-2 hours' +%Y-%m-%dT%H:%M:%S.000000000Z)" >/scn/started
-  echo "$(( $(date +%s) - 3600 )) 0 0 0" >/scn/metrics
+  # alanlar: retention-ts retention-hata prefix mysql | P16: SCHEDULED FAILED RUNNING heartbeat orphan-ts circuit ledger-hata
+  echo "$(( $(date +%s) - 3600 )) 0 0 0 0 0 0 - $(( $(date +%s) - 3600 )) 0 0" >/scn/metrics
   cat >/scn/status.prom <<P
 remote_backup_last_success_timestamp_seconds $(( $(date +%s) - 3600 ))
 remote_backup_last_run_ok 1
@@ -76,6 +77,7 @@ remote_backup_offsite_configured 1
 remote_backup_offsite_last_success_timestamp_seconds $(( $(date +%s) - 3600 ))
 remote_backup_offsite_last_rc 0
 remote_backup_audit_continuity_ok 1
+remote_backup_ledger_ok 1
 P
   mkdir -p /opt/tree/deploy; chmod -R go-w /opt/tree
 }
@@ -156,7 +158,7 @@ grep -q 'ALERT check=retention rs_retention metrik değeri geçersiz' /out/o && 
 good; run
 # P14a A5 (AC-208/212): sayaç pencere alarmları. /scn/metrics = "<retention ts> <retention hata> <prefix> <mysql>".
 cs() { sed -i "s/^counter_samples=.*/counter_samples=$1/" /var/lib/rw/state; }
-met() { echo "$((NOW - 3600)) 0 $1 $2" >/scn/metrics; }
+met() { echo "$((NOW - 3600)) 0 $1 $2 0 0 0 - $((NOW - 3600)) 0 0" >/scn/metrics; }
 cnt() {  # cnt <ad> <örnekler> <prefix> <mysql> <alarm 1|0> <açıklama>
   good; run; cs "$2"; met "$3" "$4"; run
   if [ "$5" = 1 ]; then grep -q "ALERT check=$1" /out/o && alerted "$1" && ok "$6" || no "$6: $(grep -E 'ALERT|OK' /out/o | head -3)"
@@ -174,6 +176,41 @@ grep -q "^counter_samples=$((NOW - 1200)):0:0$" /var/lib/rw/state && ok "metrik 
 good; cs "$((NOW - 9000)):0:0"; run
 grep -q "^counter_samples=[0-9]*:0:0$" /var/lib/rw/state && ! grep -q "counter_samples=$((NOW - 9000)):" /var/lib/rw/state \
   && ok "90 dk'dan eski örnek atıldı" || no "budama: $(grep counter_samples /var/lib/rw/state)"
+good; run
+# P16 (mimari-e11 §7.7, S16-12/13; runbook §23.4): kalıcı silme alarmları
+p16() { echo "$((NOW - 3600)) 0 0 0 $1" >/scn/metrics; }   # p16 "<SCHEDULED> <FAILED> <RUNNING> <hb> <orphan-ts> <circuit> <ledger>"
+neg purge-scheduled "p16 '1 0 0 - $((NOW - 3600)) 0 0'"
+p16 "1 0 0 - $((NOW - 3600)) 0 0"; run; run
+alerted 'ALERT .*purge-scheduled' && ok "S16-12: SCHEDULED sürdükçe her turda yeniden alarm (WATCH_PURGE_REPEAT_MIN=0)" || no "purge tekrar: $(cat /out/alerts)"
+WATCH_PURGE_REPEAT_MIN=60 run
+[ ! -s /out/alerts ] && ok "WATCH_PURGE_REPEAT_MIN=60 -> tur içinde tekrar yok" || no "purge repeat 60: $(cat /out/alerts)"
+good; run
+neg purge-failed "p16 '0 1 0 - $((NOW - 3600)) 0 0'"
+neg purge-heartbeat "p16 '0 0 1 $((NOW - 2000)) $((NOW - 3600)) 0 0'"
+neg purge-heartbeat "p16 '0 0 1 2000 $((NOW - 3600)) 0 0'"
+neg purge-heartbeat "p16 '0 0 1 - $((NOW - 3600)) 0 0'"
+good; p16 "0 0 1 $((NOW - 60)) $((NOW - 3600)) 0 0"; run
+! grep -q 'ALERT check=purge-heartbeat' /out/o && ok "RUNNING + taze heartbeat -> alarm yok" || no "hb taze: $(cat /out/o)"
+neg p16-metrics "echo '$((NOW - 3600)) 0 0 0' >/scn/metrics"
+good; echo "$((NOW - 3600)) 0 0 0" >/scn/metrics; WATCH_PURGE_CHECKS=0 run
+! grep -q 'p16-metrics' /out/o && ok "WATCH_PURGE_CHECKS=0 -> P16 kontrolleri yok" || no "purge checks 0: $(cat /out/o)"
+good; run
+neg orphan-scan "p16 '0 0 0 - $((NOW - 9 * 86400)) 0 0'; echo $(date -u -d '-9 days' +%Y-%m-%dT%H:%M:%SZ) >/scn/started"
+good; p16 "0 0 0 - $((NOW - 86400)) 0 0"; echo "$(date -u -d '-9 days' +%Y-%m-%dT%H:%M:%SZ)" >/scn/started; run
+! grep -q 'ALERT check=orphan-scan' /out/o && ok "tarama 1 g önce -> alarm yok" || no "orphan taze: $(cat /out/o)"
+good; p16 "0 0 0 - - 0 0"; run
+! grep -q 'ALERT check=orphan-scan' /out/o && ok "süreç < 8 g ve tarama metriği yok -> alarm yok" || no "orphan yeni süreç: $(cat /out/o)"
+good; run; neg orphan-circuit "p16 '0 0 0 - $((NOW - 3600)) 1 0'"
+sed -i "s/^orphan_circuit=.*/orphan_circuit=1 $((NOW - 90000))/" /var/lib/rw/state; p16 "0 0 0 - $((NOW - 3600)) 1 0"; run
+! grep -q 'ALERT check=orphan-circuit' /out/o && ok "devre kesici: artıştan 24 sa sonra alarm kalktı" || no "circuit 24h: $(cat /out/o)"
+good; run; neg ledger-write "p16 '0 0 0 - $((NOW - 3600)) 0 1'"
+sed -i "s/^ledger_write=.*/ledger_write=0 $((NOW - 90000))/" /var/lib/rw/state; run
+! grep -q 'ALERT check=ledger-write' /out/o && ok "defter yazım hatası: sayaç 0 ve artıştan 24 sa sonra alarm kalktı" || no "ledger-write 24h: $(cat /out/o)"
+neg ledger-backup "sed -i 's/^remote_backup_ledger_ok .*/remote_backup_ledger_ok 0/' /scn/status.prom"
+good; sed -i '/remote_backup_ledger_ok/d' /scn/status.prom; run
+! grep -q 'ledger-backup' /out/o && ok "P16 öncesi status.prom (ledger_ok yok) -> değerlendirilmez" || no "ledger-backup yok: $(cat /out/o)"
+good; for inj in "0 0 1 a[\$(touch /tmp/pwn8)] 0 0 0" "a[\$(touch /tmp/pwn9)] 0 0 - 0 a[\$(touch /tmp/pwn10)] 1"; do echo "$((NOW - 3600)) 0 0 0 $inj" >/scn/metrics; run; done
+ls /tmp/pwn* >/dev/null 2>&1 && no "P16 enjeksiyon: $(ls /tmp/pwn*)" || ok "S14-2: P16 metrik alanlarında a[\$(…)] komut çalıştırmadı"
 good; run
 cp /le/$H/fullchain.pem /tmp/web.bak
 neg 'cert:web' "cp /tc/short.crt /le/$H/fullchain.pem"
@@ -267,7 +304,21 @@ EOF
 chmod 0755 "$TMP"; chmod 0644 "$TMP"/*
 docker run --rm --name "$C" --user 0 -v "$HERE:/w:ro" -v "$TMP:/t:ro" alpine:3.20 sh -c 'apk add --no-cache bash >/dev/null 2>&1 && bash /t/inner.sh' \
   >"$TMP/out" 2>&1 || true
+# Metrik ayrıştırma (gerçek /metrics metni; konteyner taslağı alanları hazır verdiği için ayrı): host node ile, fetch taslağı.
+# G2 (P16): rs_retention_failures_total{class} etiketli -> bütün seriler toplanır; P16 göstergeleri ve devre kesici.
+if command -v node >/dev/null 2>&1; then
+  M="$TMP/metrics.txt"
+  printf '%s\n' 'rs_retention_last_success_timestamp_seconds 1763000000' 'rs_retention_failures_total{class="db_signal"} 2' \
+    'rs_retention_failures_total{class="other"} 1' 'rs_tenant_purge_jobs{role="SCHEDULED"} 1' 'rs_tenant_purge_jobs{state="FAILED"} 0' \
+    'rs_tenant_purge_jobs{state="RUNNING"} 1' 'rs_tenant_purge_last_heartbeat_seconds 1763000100' \
+    'rs_orphan_files_total{action="deleted"} 4' 'rs_orphan_files_total{action="circuit_open"} 3' 'rs_erasure_ledger_write_failed_total 0' >"$M"
+  JS="$(sed -n 's/.*node -e "\(const sum=.*\)" 2>\/dev\/null)" || rt=.*/\1/p' "$HERE/remote-watch.sh" | sed 's/\\"/"/g')"
+  got="$(M="$M" node -e "globalThis.fetch=async()=>({text:async()=>require('fs').readFileSync(process.env.M,'utf8')});$JS")"
+  exp="1763000000 3 - - 1 0 1 1763000100 - 3 0"
+  if [ "$got" = "$exp" ]; then echo "PASS  metrik ayrıştırma: etiketli rs_retention_failures_total toplamı 3, SCHEDULED/RUNNING, circuit_open 3"
+  else echo "FAIL  metrik ayrıştırma: '$got' (beklenen '$exp')"; echo "SONUÇ-İÇ 1" >>"$TMP/out"; fi
+else echo "UYARI: host'ta node yok — metrik ayrıştırma testi atlandı"; fi
 grep -E '^(PASS|FAIL)' "$TMP/out" || true
-n="$(sed -n 's/^SONUÇ-İÇ //p' "$TMP/out")"
+n="$(sed -n 's/^SONUÇ-İÇ //p' "$TMP/out" | sort -n | tail -1)"
 echo
 if [ "$n" = 0 ]; then echo "SONUÇ: GEÇTİ"; else [ -n "$n" ] || tail -20 "$TMP/out"; echo "SONUÇ: ${n:-?} FAIL"; exit 1; fi

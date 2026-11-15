@@ -1,4 +1,4 @@
-# API Dokümanı — Remote Support (P1–P8, P8b-1, P8c, P9, P10, P11, P12, P12b, P13a, P13b, P13b-L, P14a, P14b, P15)
+# API Dokümanı — Remote Support (P1–P8, P8b-1, P8c, P9, P10, P11, P12, P12b, P13a, P13b, P13b-L, P14a, P14b, P15, P16)
 
 Bu belge P1–P8, P8b-1, P8c-1, P9, P10, P11, P12, P12b, P13a, P13b ve P13b-L'de **kodda var olan** uçları anlatır. Sonraki paketlerin bağlayıcı sözleşmesi
 `docs/mimari-api.md`'dedir. Kaynak: `apps/server/src/auth/routes.ts`, `auth/guards.ts`, `lib/errors.ts`,
@@ -31,6 +31,10 @@ P15: `auth/{routes,account,superadmin-routes,superadmin-reset}.ts`, `requests/{b
 `uploads/{routes,service,files,tech-avatar}.ts`, `sessions/{public,history}.ts`, `signaling/{handlers,rooms,collab}.ts`,
 `packages/contracts/src/{ws.ts,ws-request.ts,labels.ts,audit.ts,permissions.ts,api/request-blocks.ts,api/users.ts,api/auth.ts}`.
 Özet: "G3 küçük özellikler (P15)" bölümü.
+P16: `users/{routes,service,repo}.ts` (`DELETE /users/:id`), `tenants/{routes,purge-service}.ts`, `jobs/{tenant-purge,
+tenant-purge-repo,retention,orphan-scan}.ts`, `audit/{read,view,repo}.ts`, `ops/erasure-ledger.ts`, `cli/erasure.ts`,
+`packages/contracts/src/{errors.ts,audit.ts,permissions.ts,api/users.ts,api/tenants.ts,api/audit.ts}`. Özet: "Kalıcı silme
+(P16)" bölümü.
 
 ## Genel kurallar
 
@@ -111,7 +115,9 @@ stack, SQL veya iç ayrıntı içermez.
 | `CONFLICT`                       | 409  | Kayıt işleme uygun durumda değil (ör. PENDING olmayan oturumu iptal, ACTIVE olmayanı sonlandırma); P9: e-posta/kısa ad çakışması (`fields.email` / `fields.slug`), zaten pasif/aktif                                                                                                                                                                                     |
 | `STALE_WRITE`                    | 409  | P14a: `PATCH /users/:id` `If-Match` sürümü güncel değil ("Kayıt başkası tarafından değiştirildi, yeniden yükleyin")                                                                                                                                                                                                                                                      |
 | `ACCEPT_CODE_CLIENT_UNSUPPORTED` | 409  | P15 (S15-6): firmada kabul kodu açık, talebin istemcisi 0.11.0'dan eski; talep PENDING kalır                                                                                                                                                                                                                                                                             |
-| `PRECONDITION_REQUIRED`          | 428  | P14a: `PATCH /users/:id` `If-Match: "v<n>"` başlığı yok veya bozuk                                                                                                                                                                                                                                                                                                       |
+| `PURGE_NOT_ELIGIBLE`             | 409  | P16: firma kalıcı silmeye uygun değil ("Firma henüz kalıcı silinemez (en az 30 gün pasif olmalı)."); `fields.eligibleAt` (ISO) ya da `fields.reason` (`not_passive`)                                                                                                                                                                                                     |
+| `PRECONDITION_REQUIRED`          | 428  | P14a: `PATCH /users/:id` `If-Match: "v<n>"` başlığı yok veya bozuk; P16: `DELETE /users/:id` için de                                                                                                                                                                                                                                                                     |
+| `PREVIEW_REQUIRED`               | 428  | P16: firma silme önizlemesi (`previewId`) yok, süresi geçmiş (15 dk), başka oturuma/duruma ait ya da kullanılmış ("Önizlemenin süresi doldu ya da geçersiz; önizlemeyi yeniden alın.")                                                                                                                                                                                   |
 | `LOBBY_FULL`                     | 409  | Bekleme odasında 3 misafir var (join)                                                                                                                                                                                                                                                                                                                                    |
 | `OPEN_SESSION_LIMIT`             | 409  | Teknisyenin açık oturum sınırı dolu (P8b: talep kabulünde talep beklemede kalır)                                                                                                                                                                                                                                                                                         |
 | `REQUEST_PENDING`                | 409  | P8b: bu istemci örneğinin zaten bekleyen talebi var                                                                                                                                                                                                                                                                                                                      |
@@ -194,12 +200,15 @@ stack, SQL veya iç ayrıntı içermez.
 | GET                         | `/api/v1/users/:id` (P9; P14a `ETag`)                                             | Oturum, `users.view`                                                      | 200 + `ETag`          |
 | PATCH                       | `/api/v1/users/:id` (P9; P14a `If-Match` zorunlu)                                 | Oturum + CSRF, `users.edit`                                               | 200 + `ETag`          |
 | POST                        | `/api/v1/users/:id/deactivate` · `/reactivate` (P9)                               | Oturum + CSRF, `users.edit`                                               | 204                   |
+| DELETE                      | `/api/v1/users/:id` (P16)                                                         | Oturum + CSRF, `users.delete`, step-up, `If-Match`                        | 204                   |
 | GET                         | `/api/v1/settings/tenant` (P9)                                                    | Oturum, `settings.view`, firma bağlamı                                    | 200                   |
 | PUT                         | `/api/v1/settings/tenant` (P9)                                                    | Oturum + CSRF, `settings.edit`, firma bağlamı                             | 200                   |
 | GET · POST                  | `/api/v1/admin/tenants` (P9)                                                      | Oturum (+ CSRF), yalnız SUPER_ADMIN                                       | 200 · 201             |
 | GET                         | `/api/v1/admin/tenants/options` (P14b)                                            | Oturum, yalnız SUPER_ADMIN                                                | 200                   |
 | GET · PATCH                 | `/api/v1/admin/tenants/:id` (P9)                                                  | Oturum (+ CSRF), yalnız SUPER_ADMIN                                       | 200                   |
 | POST                        | `/api/v1/admin/tenants/:id/deactivate` · `/reactivate` (P9)                       | Oturum + CSRF, yalnız SUPER_ADMIN                                         | 200                   |
+| POST · DELETE · GET         | `/api/v1/admin/tenants/:id/purge` (P16)                                           | Oturum (+ CSRF), yalnız SUPER_ADMIN; step-up `dryRun:false` ve DELETE     | 200 · 202 · 200       |
+| GET                         | `/api/v1/admin/purge-jobs?open=1` (P16)                                           | Oturum, yalnız SUPER_ADMIN                                                | 200                   |
 | POST                        | `/api/v1/admin/switch-tenant` (P9)                                                | Oturum + CSRF, yalnız SUPER_ADMIN                                         | 200                   |
 | GET                         | `/api/v1/audit` · `/api/v1/audit/export.csv` (P11)                                | Oturum, `audit.view` · `audit.export`                                     | 200                   |
 | POST · PUT · PATCH · DELETE | `/api/v1/audit`, `/audit/export.csv`, `/audit/:id` (P11)                          | —                                                                         | 405                   |
@@ -2413,6 +2422,122 @@ Müşteri ekranındaki teknisyen fotoğrafı (AC-236). Adres `POST /public/sessi
 - **Eski istemci (S15-6):** ayar açıkken talebin `clientVersion`'ı 0.11.0'dan eskiyse `POST /requests/:id/accept`
   409 `ACCEPT_CODE_CLIENT_UNSUPPORTED` döner; talep PENDING kalır, audit `request.accepted` `result:"fail"`,
   `reason:"client_unsupported"`. Kod hiçbir koşulda sessizce atlanmaz. Ayar kapalıyken eski istemci normal kabul edilir.
+
+## Kalıcı silme (P16)
+
+Kaynak: `docs/mimari-e11.md` §7, ADR-0030 r2, `apps/server/src/{users,tenants}/routes.ts`, `tenants/purge-service.ts`,
+`packages/contracts/src/api/{users,tenants,audit}.ts`. Hata ek bilgisi zarfın `fields` alanındadır (dize değerler).
+
+### DELETE /api/v1/users/:id
+
+Pasif kullanıcıyı kalıcı siler (mezar taşı; AC-237, AC-241). Yetki `users.delete` + yönetebilme (`canManage`) + firma
+kapsamı; **step-up** (son 5 dk); `If-Match: "v<n>"` (`GET /users/:id` `ETag`'i); hız `/users` yazma 30/dk.
+
+```bash
+curl -sk -X DELETE "https://localhost:4450/api/v1/users/01K…" \
+  -H "Content-Type: application/json" -H "X-CSRF-Token: $CSRF" -H 'If-Match: "v7"' \
+  -b "__Host-rs_session=$SESSION; __Host-rs_csrf=$CSRF" \
+  -d '{"confirmName":"Ayşe Yılmaz"}'
+```
+
+`confirmName` (1..100) hedefin `fullName`'ine eşit olmalı (trim + NFC, harf duyarlı). Yanıt **204**. Sonuç: `email =
+deleted+<id>@invalid`, `fullName = "Silinmiş kullanıcı #<id son 6>"`, `status = DELETED`; şifre, 2FA, avatar (dosyasıyla),
+yetkiler, giriş oturumları, kurtarma kodları ve sıfırlama bağlantıları silinir. Kullanıcı `GET /users` listelerinde
+görünmez, `GET /users/:id` 404 döner; `GET /users/options?includeDeleted=1` mezar taşını etiketiyle döner. Giriş ve
+şifre sıfırlama silinmiş hesabı "olmayan hesap" gibi işler. Audit `user.deleted` (kişisel veri yok); imha defterine satır.
+
+| HTTP | Kod                     | Ne zaman                                                                                                        |
+| ---- | ----------------------- | --------------------------------------------------------------------------------------------------------------- |
+| 400  | `VALIDATION`            | `fields.confirmName` "Yazdığınız ad kullanıcının adıyla eşleşmiyor" ya da boş/uzun                              |
+| 401  | `MFA_STEP_UP_REQUIRED`  | Son 5 dk içinde step-up yok                                                                                     |
+| 403  | `FORBIDDEN`             | `users.delete` yok, kendi hesabı, daha geniş yetkili hedef (TX içi retler audit'e `fail`)                       |
+| 403  | `MFA_SETUP_REQUIRED`    | Aktörde TOTP kurulu değil                                                                                       |
+| 404  | `NOT_FOUND`             | Kullanıcı yok, başka firmada, Super Admin hedef (S16-17: kimlik sızmasın diye 404) ya da zaten silinmiş         |
+| 409  | `CONFLICT`              | Aktif kullanıcı ("Önce kullanıcıyı pasife alın"); açık destek oturumu ("Kullanıcının açık destek oturumu var…") |
+| 409  | `STALE_WRITE`           | `If-Match` sürümü güncel değil                                                                                  |
+| 428  | `PRECONDITION_REQUIRED` | `If-Match` yok ya da bozuk                                                                                      |
+| 429  | `RATE_LIMITED`          | Yazma hız sınırı                                                                                                |
+
+### POST /api/v1/admin/tenants/:id/purge
+
+Yalnız SUPER_ADMIN; hız `/admin` 30/dk. Gövde `dryRun` ile ayrılır (AC-242).
+
+**Önizleme `{"dryRun": true}`** — step-up yok, salt okuma. 200:
+
+```json
+{ "previewId": "1763300000000.9f2c…", "expiresAt": "2026-11-15T10:15:00.000Z",
+  "tenant": { "id": "01K…", "name": "Örnek Bilişim Ltd." },
+  "passiveSince": "2026-10-01T08:00:00.000Z", "eligibleAt": "2026-10-31T08:00:00.000Z",
+  "counts": { "SESSIONS": 412, "REQUESTS": 96, "CUSTOMERS": 23, "USERS": 6, "TENANT_ROW": 1 },
+  "files": { "count": 7, "bytes": 512000 }, "auditRetained": 5120 }
+```
+
+`counts` adım adlarıyla (`TENANT_PURGE_STEPS`); önizleme sayıları silinen sayılarla aynı koşuldan gelir. `previewId`
+15 dk geçerli, tek kullanımlık; firma, aktör, giriş oturumu, `passive_at` ve açık işin durumuna bağlıdır. Audit
+`tenant.purge_previewed` (yalnız sayılar). FAILED iş varsa önizleme 200 döner (sürdürme için).
+
+**Zamanlama `{"dryRun": false, "previewId": "…", "confirmName": "Örnek Bilişim Ltd."}`** — **step-up** (gövde
+ayrıştırılmadan önce). `confirmName` firma adına eşit olmalı (satırı silinmiş firmada "Silinmiş firma #XXXXXX"). 202:
+
+```json
+{ "jobId": "01K…", "state": "SCHEDULED", "scheduledFor": "2026-11-16T10:00:00.000Z" }
+```
+
+İş DB saatiyle +24 saat sonra başlar; bu süre ve 30 gün pasiflik DB tetikleyicisiyle zorlanır. Audit
+`tenant.purge_scheduled`. FAILED iş varsa 202 `{"state": "RUNNING"}` ile beklemeden sürdürülür (`scheduledFor` işin özgün
+zamanı; audit `tenant.purge_started {resumed: true}`).
+
+Hatalar: 400 (`fields.confirmName` "Firma adı eşleşmiyor", şema) · 401 `MFA_STEP_UP_REQUIRED` · 403 · 404 · 409
+`PURGE_NOT_ELIGIBLE` (`fields.reason = not_passive` ya da `fields.eligibleAt`) · 409 `CONFLICT` açık iş ("Bu firma için açık
+bir silme işi var."; `fields.jobId`, `fields.state`) · 428 `PREVIEW_REQUIRED`. Sıra: 404 → 428 → 400 (ad) → 409 uygunluk →
+409 açık iş.
+
+### DELETE /api/v1/admin/tenants/:id/purge (iptal)
+
+SUPER_ADMIN + **step-up**. Yalnız `SCHEDULED` iş iptal edilir → 200 `{"jobId": "01K…", "state": "CANCELLED"}`; audit
+`tenant.purge_cancelled`. Hatalar: 401 · 403 · 404 (açık iş yok) · 409 `CONFLICT` ("Yalnız başlamamış (zamanlanmış) silme
+işi iptal edilebilir."; `fields.jobId|state`).
+
+### GET /api/v1/admin/tenants/:id/purge
+
+SUPER_ADMIN. Firmanın son işi (firma satırı silinmiş olsa da) → 200:
+
+```json
+{ "jobId": "01K…", "state": "RUNNING", "step": "SESSIONS", "stepIndex": 5, "stepCount": 17,
+  "scheduledFor": "…", "counts": { "SESSION_FILES": 120 }, "attempts": 0, "lastError": null,
+  "startedAt": "…", "heartbeatAt": "…", "finishedAt": null, "cancelledAt": null }
+```
+
+`state`: `SCHEDULED | RUNNING | DONE | FAILED | CANCELLED`. `lastError` yalnız hata sınıfıdır (`db_fk`, `db_signal`, `fs`,
+`invalid_job`, `other`). İş yoksa 404.
+
+### GET /api/v1/admin/purge-jobs?open=1
+
+SUPER_ADMIN. Panel uyarı bandının kaynağı (60 sn yoklama). `open=1` (`true`) yalnız açık işler (`SCHEDULED|RUNNING|FAILED`);
+yoksa son işler. En çok 100 → `{ "items": [ { "jobId", "tenantId", "tenantName", "state", "scheduledFor" } ] }`;
+satırı silinmiş firmada `tenantName: null`.
+
+### Mevcut uçlarda değişenler
+
+- `GET /admin/tenants`: satıra `passiveSince` (ISO | null) ve `purge: { state, scheduledFor, step } | null` (açık iş).
+- `POST /admin/tenants/:id/reactivate`: açık iş varsa 409 `CONFLICT` — SCHEDULED: "Önce silme işini iptal edin";
+  RUNNING/FAILED: "Firma kısmen silindi; silmeyi tamamlayın".
+- `GET /audit`, `GET /audit/export.csv`, oturum zaman çizelgesi: öğeye `actorLabel`, `tenantLabel`, `identityMasked`
+  eklendi. Aktör ya da `entity = "users"` hedefi silinmiş/yoksa veya firma satırı yoksa satır **kimlik maskeli** döner:
+  `username` `a***@***`, `oldValue`/`newValue` içindeki kimlik anahtarları (`email`, `fullName`, `username`, `name`,
+  `contactName`, `phone`, `customerName`, `customerEmail`, `recipient`) `***`; etiketler "Silinmiş kullanıcı #XXXXXX",
+  "Silinmiş firma #XXXXXX". CSV "Firma" sütunu `tenantLabel`. Açık değer hiçbir uçtan dönmez.
+- `GET /users/options?includeDeleted=1`: mezar taşları "Silinmiş kullanıcı #XXXXXX" etiketiyle, `status: "DELETED"`.
+- Yeni audit eylemleri: `user.deleted`, `tenant.purge_previewed|scheduled|cancelled|started|failed`, `tenant.purged`,
+  `uploads.orphan_scan`, `erasure.replayed`, `migration.p16_users_delete_reset`; filtre grupları `uploads.*`, `erasure.*`,
+  `migration.*`.
+
+**Gece kalıcı silme ve yetim dosya taraması** (uç yok): saklama işi anonimleşmeden 30 gün sonra satırları siler
+(`RETENTION_PURGE_MODE=on`; varsayılan `dry` yalnız sayar); `retention.run` audit'ine `purged*` ya da `purgeCandidates`
+sayıları eklenir. Pazar 04:30 (TR) yetim dosya taraması `uploads.orphan_scan` yazar. Metrikler:
+`rs_retention_failures_total{class}`, `rs_tenant_purge_jobs{role="<STATE>"}`, `rs_tenant_purge_rows_total{table}`,
+`rs_tenant_purge_last_heartbeat_seconds`, `rs_orphan_files_total{action}`, `rs_orphan_scan_last_success_timestamp_seconds`,
+`rs_erasure_ledger_write_failed_total`. Alarm ve operasyon: `docs/runbook.md` §23.
 
 ## Saklama ve anonimleştirme (P13a)
 

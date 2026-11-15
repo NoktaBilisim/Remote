@@ -54,6 +54,12 @@ export const USER_AUDIT = {
   REACTIVATED: "user.reactivated",
   /** P10 (AC-115): Admin kullanıcının 2FA'sını sıfırladı (oturumlar iptal, canlı odalar biter). */
   MFA_RESET: "user.mfa_reset",
+  /**
+   * P16 (AC-241, ADR-0030 m.4): pasif kullanıcı kalıcı silindi (mezar taşı). PII YOK: `oldValue {status}`, `newValue
+   * {status: "DELETED", deletedPermissions, deletedMfaBackups, deletedResetLinks, deletedAuthSessions}`. 403'te
+   * `result: "fail"`, `{op: "delete", denied}`.
+   */
+  DELETED: "user.deleted",
 } as const;
 
 /**
@@ -165,3 +171,85 @@ export const REQUEST_BLOCK_AUDIT = {
 export const BACKUP_AUDIT = {
   AUDIT_BASELINE_RESET: "backup.audit_baseline_reset",
 } as const;
+
+/**
+ * P16 (AC-242, ADR-0030 m.5–m.6): firma kalıcı silme işi. Entity `tenants`, entity_id firma id'si. Yalnız sayılar ve
+ * iş kimliği (`jobId`, `step`, `scheduledFor`, `lastError` sınıfı); `previewId` audit'e ve loglara ASLA yazılmaz.
+ */
+export const TENANT_PURGE_AUDIT = {
+  PREVIEWED: "tenant.purge_previewed",
+  SCHEDULED: "tenant.purge_scheduled",
+  CANCELLED: "tenant.purge_cancelled",
+  STARTED: "tenant.purge_started",
+  FAILED: "tenant.purge_failed",
+  PURGED: "tenant.purged",
+} as const;
+
+/** P16 (AC-243): haftalık yetim dosya taraması `{found, deleted, ...}` ya da `fail{reason: "circuit_open"}`. Entity `uploads`. */
+export const UPLOADS_AUDIT = {
+  ORPHAN_SCAN: "uploads.orphan_scan",
+} as const;
+
+/**
+ * P16 G1 (dba): migration'ın yazdığı tek seferlik kayıt (`username = "migrator"`): `users.delete` sıfırlama sayımı
+ * `{grantedBefore, rowsDeleted, grantedAfter}`.
+ */
+export const MIGRATION_AUDIT = {
+  P16_USERS_DELETE_RESET: "migration.p16_users_delete_reset",
+} as const;
+
+/**
+ * P16 G3 (S16-13): geri yükleme sonrası `cli erasure:replay` (migrator, `username = "cli"`) `{users, tenants, invalid}`
+ * sayıları. Entity `erasure_ledger`.
+ */
+export const ERASURE_AUDIT = {
+  REPLAYED: "erasure.replayed",
+} as const;
+
+/** P16 eylemlerinin Türkçe etiketleri (web `AUDIT_ACTION_LABELS`'a yayılır). */
+export const P16_AUDIT_LABELS: Readonly<Record<string, string>> = {
+  [USER_AUDIT.DELETED]: "Kullanıcı kalıcı silindi",
+  [TENANT_PURGE_AUDIT.PREVIEWED]: "Firma silme önizlemesi",
+  [TENANT_PURGE_AUDIT.SCHEDULED]: "Firma silme zamanlandı",
+  [TENANT_PURGE_AUDIT.CANCELLED]: "Firma silme iptal edildi",
+  [TENANT_PURGE_AUDIT.STARTED]: "Firma silme başladı",
+  [TENANT_PURGE_AUDIT.FAILED]: "Firma silme başarısız",
+  [TENANT_PURGE_AUDIT.PURGED]: "Firma kalıcı silindi",
+  [UPLOADS_AUDIT.ORPHAN_SCAN]: "Yetim dosya taraması",
+  [MIGRATION_AUDIT.P16_USERS_DELETE_RESET]: "Migration: kullanıcı silme yetkileri sıfırlandı",
+  [ERASURE_AUDIT.REPLAYED]: "İmha defteri yeniden uygulandı",
+};
+
+/** Audit `entity` değerleri (S16-1: maske `entity = AUDIT_ENTITY.USERS` satırlarında hedef kullanıcıya da bakar). */
+export const AUDIT_ENTITY = {
+  USERS: "users",
+  TENANTS: "tenants",
+} as const;
+
+/**
+ * P16 (S16-1, ADR-0030 m.4): kimlik maskesi uygulanan satırda `oldValue`/`newValue` içinde (iç içe dahil) bu anahtarların
+ * değeri `"***"` olur (null kalır).
+ */
+export const AUDIT_IDENTITY_KEYS: ReadonlySet<string> = new Set([
+  "email",
+  "fullName",
+  "username",
+  "name",
+  "contactName",
+  "phone",
+  "customerName",
+  "customerEmail",
+  "recipient",
+]);
+
+/** Kimlik maskesi: e-posta `a***@***`, değilse `a***`; boş → `***`. */
+export function maskIdentity(value: string): string {
+  const first = [...value][0];
+  if (!first) return "***";
+  return value.includes("@") ? `${first}***@***` : `${first}***`;
+}
+
+/** Mezar taşı kullanıcı etiketi (DB `full_name` ile aynı biçim): "Silinmiş kullanıcı #<id son 6>". */
+export const deletedUserLabel = (id: string): string => `Silinmiş kullanıcı #${id.slice(-6)}`;
+/** Silinmiş (satırı olmayan) firma etiketi: "Silinmiş firma #<id son 6>". */
+export const deletedTenantLabel = (id: string): string => `Silinmiş firma #${id.slice(-6)}`;

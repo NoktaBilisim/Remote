@@ -93,6 +93,9 @@ const schema = z
     // `node` kullanıcısı yazabilmeli (compose/runbook: devops). Mutlak yol.
     UPLOADS_DIR: z.string().startsWith("/", "mutlak yol olmalı").default("/data/uploads"),
     LOG_LEVEL: z.enum(["fatal", "error", "warn", "info", "debug", "trace", "silent"]).default("info"),
+    // P16 (AC-240, ADR-0030 m.6, mimari-e11 §7.7): gece kalıcı silme modu. `dry` (varsayılan) aday sayılarını audit'e yazar,
+    // hiçbir satır silmez; `on` 30 g önce anonimleşmiş satırları siler. Staging `on`; prod ilk `dry` raporu kontrol edilince.
+    RETENTION_PURGE_MODE: z.enum(["dry", "on"]).default("dry"),
   })
   .refine((e) => e.NODE_ENV !== "production" || e.TRUSTED_PROXY_CIDR, {
     path: ["TRUSTED_PROXY_CIDR"],

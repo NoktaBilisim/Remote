@@ -8,7 +8,7 @@ import { forEachRetentionTenant } from "../helpers/retention.ts";
 import { Prisma } from "../../src/generated/prisma/client.ts";
 import { sha256Hex } from "../../src/lib/ids.ts";
 import { RequestService } from "../../src/requests/service.ts";
-import { createTenant, createUser, loginAs, ORIGIN, testDb, type Session } from "../helpers/app.ts";
+import { createTenant, createUser, loginAs, ORIGIN, testDb, testFixtureDb, type Session } from "../helpers/app.ts";
 import { createCustomerRow, createRequestSettings, requestClient, waitMsg } from "../helpers/requests.ts";
 import { admitted, joinGuest, startLive, TECH_PERMS, techSession, type Live } from "../helpers/signal-flow.ts";
 import { FAKE_METRICS_TOKEN, FAKE_TURN_SECRET } from "../helpers/secrets.ts";
@@ -278,10 +278,14 @@ describe("AC-182 / AC-184 / AC-185 / AC-186 / AC-187 kayıtla talep ve geçersiz
 
     const g2 = await acceptedGuest(x, {});
     await issue(g2.guest);
-    expect(await forEachRetentionTenant(x.l.app.requests, expireIdleBindingsOf, new Date(Date.now() + 10 * 86_400_000))).toBe(0);
-    expect(
-      await forEachRetentionTenant(x.l.app.requests, expireIdleBindingsOf, new Date(Date.now() + 731 * 86_400_000)),
-    ).toBeGreaterThanOrEqual(1);
+    // P16 (S16-14): revoked_at tetikleyicisi [UTC−1 g, UTC+1 dk] dışını reddeder → iş gerçek saatle koşar, fikstür
+    // (last_used_at) migrator ile geçmişe çekilir (sahte ileri saat yerine).
+    expect(await forEachRetentionTenant(x.l.app.requests, expireIdleBindingsOf, new Date())).toBe(0);
+    await testFixtureDb().deviceBinding.updateMany({
+      where: { tenantId: x.tenantId, revokedAt: null },
+      data: { lastUsedAt: new Date(Date.now() - 731 * 86_400_000) },
+    });
+    expect(await forEachRetentionTenant(x.l.app.requests, expireIdleBindingsOf, new Date())).toBeGreaterThanOrEqual(1);
     expect(await testDb().deviceBinding.count({ where: { tenantId: x.tenantId, revokeReason: "EXPIRED", keyHash: null } })).toBe(1);
   });
 

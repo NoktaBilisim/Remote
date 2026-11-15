@@ -63,7 +63,9 @@ COPY --from=prod-deps /repo/apps/server ./apps/server
 # (node:node 0700) kopyalar → ayrı chown/init adımı gerekmez. sharp (libvips) bu taban imajda (Debian bookworm, glibc
 # 2.36) npm'deki hazır @img/sharp-linux-{x64,arm64} ikilileriyle çalışır; apt paketi gerekmez (alpine/musl'a geçilirse
 # lockfile'daki linuxmusl paketleri kullanılır, yeniden doğrulayın: runbook §16.4).
-RUN mkdir -p /data/uploads && chown node:node /data/uploads && chmod 0700 /data/uploads
+# P16 imha defteri dizini (`ledger` volume'u, /var/lib/remote; aynı ilk-bağlama kopyası ile node:node 0700).
+RUN mkdir -p /data/uploads /var/lib/remote && chown node:node /data/uploads /var/lib/remote \
+ && chmod 0700 /data/uploads /var/lib/remote
 WORKDIR /app/apps/server
 USER node
 EXPOSE 3001

@@ -29,6 +29,9 @@ test("AC-196 kritik akış: env kaynağı → ön kontrol → kaydet (Panel) →
   desktopOnly(info.project.name);
   await signInAu(context, "ausa");
   await page.goto("/admin/settings/mysql");
+  // Kararsız test (P16 düzeltme turu 1): akış tamamlanmadan sekmeye tıklanırsa, React'in henüz yerleştirmediği akışlı
+  // içerik (`<div hidden id="S:0">` içinde mysql-form + setting-source) DOM'da yetim kalır → strict mode 2 öğe görür
+  await expect(page.getByTestId("mysql-form")).toHaveAttribute("data-ready", "true");
   await page.getByTestId("system-tabs").getByRole("link", { name: "WhatsApp servisi" }).click();
   await expect(page).toHaveURL(/\/admin\/settings\/whatsapp$/);
   await expect(page).toHaveTitle(/WhatsApp servisi · Sistem ayarları/);

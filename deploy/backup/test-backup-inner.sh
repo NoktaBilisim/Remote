@@ -30,6 +30,11 @@ rs() { bash "$B/restore.sh" --identity /root/age.key --allowed-signers "${AS:-/e
 has() { grep -q -- "$1" "${2:-/tmp/bo}"; }
 setenv() { sed -i "s/^DEPLOY_ENV=.*/DEPLOY_ENV=$1/" $D/.env; }
 prom() { awk -v k="$1" '$1 == k {print $2}' /var/lib/remote-backup-t/status.prom; }
+# P16: imha defteri volume'u gerçek imajdaki gibi node (1000) 0700; restore.sh yedek kopyasını uid 1000 ile yazar.
+docker compose exec -T server sh -c 'chown 1000:1000 /var/lib/remote && chmod 700 /var/lib/remote'
+LF=/var/lib/remote/erasure-ledger.jsonl
+ULA=01JA0000000000000000000000; ULB=01JB0000000000000000000000
+led() { docker compose exec -T server sh -c "$1"; }   # led "<sh>": sahte server içinde defter işlemi
 docker compose exec -T server sh -c 'mkdir -p /data/uploads/t1 && echo logo >/data/uploads/t1/a.png && echo av >/data/uploads/t1/b.webp'
 q "$SQLM" <<<"INSERT INTO audit_logs (created_at, username, action, entity, entity_id, user_agent, result) VALUES
   (UTC_TIMESTAMP(3) - INTERVAL 3 DAY,'cli','test.seed','test','1','t','success'),(UTC_TIMESTAMP(3) - INTERVAL 2 DAY,'cli','test.seed','test','2','t','success'),
@@ -46,6 +51,8 @@ t "manifest format 2, env staging, host rstest, signer = anahtar, seq 1" '[ "$(j
 t "çalıştırma dizini 700, dosyalar 600 (imza dahil)" '[ "$(stat -c %a $R1)" = 700 ] && [ -z "$(find $R1 -type f ! -perm 600)" ] && [ -f $M.sig ]'
 t "imza ssh-keygen -Y verify ile doğrulanır" 'ssh-keygen -Y verify -f /etc/remote-backup-t/allowed_signers -I remote-backup@rstest -n remote-backup -s $M.sig <$M >/dev/null 2>&1'
 sleep 1; bk; R2="$(last)"
+t "S16-11: manifest tetikleyici 22 (BACKUP_EXPECTED_TRIGGERS varsayılanı)" '[ "$(jq .triggers $M)" = 22 ]'
+t "P16: defter yokken yedek: ledger ilk, present false, şifreli boş dosya + files[2]" '[ "$(jq -r "[.ledger.result,.ledger.present,.ledger.bytes,.files[2].name]|join(\" \")" $M)" = "ilk false 0 erasure-ledger.jsonl.age" ] && [ -f $R1/erasure-ledger.jsonl.age ] && [ "$(prom remote_backup_ledger_ok)" = 1 ]'
 t "ikinci yedek: audit ok, seq 2, prevRun = ilk" 'has "audit-sureklilik: ok" && [ "$(jq -r ".seq,.prevRun" $R2/manifest.json | paste -sd" ")" = "2 ${R1##*/}" ]'
 rs "$R2"
 t "scratch geri yükleme meşru yedekte restore-verify: OK" '[ $RRC = 0 ] && has "restore-verify: OK" /tmp/ro && has "CHECK OK    manifest imzası" /tmp/ro'
@@ -109,7 +116,7 @@ bk; t "tetikleyiciler geri kurulunca -> ok" '[ $BRC = 0 ] && has "audit-sureklil
 echo "== E) site dışı kanca"
 export BACKUP_OFFSITE_CMD='d=/offsite/$REMOTE_BACKUP_RUN; mkdir -p $d && cp $REMOTE_BACKUP_RUN_DIR/* $d/ && { cat /etc/remote-backup-t/manifest_ed25519 && echo KEYREAD; cat /opt/tdeploy/.env && echo ENVREAD; ls $REMOTE_BACKUP_DIR && echo DIRLIST; env; id -u; } >$d/probe 2>/dev/null; true'
 bk; RO="$(last)"; P="/offsite/${RO##*/}/probe"
-t "kanca OK: remote-offsite olarak 4 dosya kopyaladı" '[ $BRC = 0 ] && has "OFFSITE OK" && [ "$(ls /offsite/${RO##*/} | grep -vc probe)" = 4 ] && [ "$(tail -1 $P)" = "$(id -u remote-offsite)" ]'
+t "kanca OK: remote-offsite olarak 5 dosya (defter dahil) kopyaladı" '[ $BRC = 0 ] && has "OFFSITE OK" && [ "$(ls /offsite/${RO##*/} | grep -vc probe)" = 5 ] && [ "$(tail -1 $P)" = "$(id -u remote-offsite)" ]'
 t "kanca imza anahtarını, deploy/.env'i okuyamadı, BACKUP_DIR'i listeleyemedi, ortamda sır yok" '! grep -Eq "KEYREAD|ENVREAD|DIRLIST|BACKUP_AGE|MYSQL_|ALERT_CMD" $P'
 t "kanca sonrası izinler 700/600, komut metni logda yok, offsite_last_rc 0" '[ "$(stat -c %a $RO)$(stat -c %a /var/backups/remote-t)" = 700700 ] && [ -z "$(find $RO -type f ! -perm 600)" ] && ! has "KEYREAD" && [ "$(prom remote_backup_offsite_last_rc)" = 0 ]'
 BACKUP_OFFSITE_CMD='exit 7' bk
@@ -207,4 +214,57 @@ for u in remote-backup@.service remote-backup-failed@.service; do
 done
 BACKUP_UNIT_NAME=remote-backup@stg.service bash "$B/backup.sh" --alert >/tmp/bo 2>&1
 t "--alert metni örnek birimine işaret eder (journalctl -u remote-backup@stg.service)" 'has "journalctl -u remote-backup@stg.service"'
+echo "== J) P16 imha defteri (ADR-0030 m.9, S16-5/11/13) + tetikleyici 22"
+BACKUP_EXPECTED_TRIGGERS=3 bk; t "BACKUP_EXPECTED_TRIGGERS=3 (P16 öncesi değer) -> FAILED adım=tetikleyici" '[ $BRC != 0 ] && has "FAILED adım=tetikleyici" && has "beklenen 3"'
+bk; t "varsayılan (22) -> rc 0" '[ $BRC = 0 ]'
+led "printf '%s\n' '{\"v\":1,\"type\":\"tenant\",\"id\":\"$ULA\",\"jobId\":\"$ULB\",\"at\":\"2026-11-15T00:00:00Z\"}' '{\"v\":1,\"type\":\"user\",\"id\":\"$ULB\",\"at\":\"2026-11-15T00:00:01Z\"}' >>$LF && chown 1000:1000 $LF && chmod 600 $LF"
+bk; RL="$(last)"
+t "2 satır eklendi -> ledger ok, lines 2, firma 1, kullanıcı 1" '[ $BRC = 0 ] && has "imha-defteri: ok" && [ "$(jq -r "[.ledger.lines,.ledger.tenants,.ledger.users]|join(\" \")" $RL/manifest.json)" = "2 1 1" ]'
+t "şifreli kopya çözülünce canlı defterle aynı" '[ "$(age -d -i /root/age.key $RL/erasure-ledger.jsonl.age | sha256sum | cut -d" " -f1)" = "$(led "cat $LF" | sha256sum | cut -d" " -f1)" ]'
+rs "$RL"; t "scratch restore: defter sha OK, bekleyen sayımı INFO" '[ $RRC = 0 ] && has "CHECK OK    erasure-ledger.jsonl.age sha256" /tmp/ro && has "imha defteri: 2 satır" /tmp/ro'
+led "cp $LF /tmp/l.bak && head -n 1 /tmp/l.bak >$LF"; bk
+t "S16-13: defter kısaldı -> yayımlandı ama rc≠0, FAILED adım=imha-defteri kisaldi, ledger_ok 0" '[ $BRC != 0 ] && has "FAILED adım=imha-defteri" && has "kisaldi" && [ "$(prom remote_backup_ledger_ok)" = 0 ] && [ "$(jq -r .ledger.result "$(last)/manifest.json")" = FAILED ]'
+bk; t "ertesi yedek yine FAILED (ref ilerlemedi)" '[ $BRC != 0 ] && has "kisaldi"'
+led "cp /tmp/l.bak $LF"; bk; t "defter geri konunca -> ok, ledger_ok 1" '[ $BRC = 0 ] && has "imha-defteri: ok" && [ "$(prom remote_backup_ledger_ok)" = 1 ]'
+led "sed -i 's/2026-11-15T00:00:00Z/2026-11-15T09:00:00Z/' $LF"; bk
+t "aynı boyda içerik değişti -> FAILED degisti" '[ $BRC != 0 ] && has "degisti"'
+led "cp /tmp/l.bak $LF && echo 'bozuk' >>$LF"; bk; t "geçersiz satır -> FAILED gecersiz-satir=1" '[ $BRC != 0 ] && has "gecersiz-satir=1"'
+led "cp /tmp/l.bak $LF && printf '{\"v\":1' >>$LF"; bk; t "satır sonu olmayan yarım satır -> FAILED gecersiz-satir" '[ $BRC != 0 ] && has "gecersiz-satir"'
+led "head -n 1 /tmp/l.bak >$LF"; bash "$B/backup.sh" --reset-ledger-baseline "test: defter kaybi incelendi" >/tmp/rb 2>&1
+LM=/var/backups/remote-t/ledger-baseline-reset.json
+t "--reset-ledger-baseline -> işaret root 600" 'grep -q "ledger-baseline-reset: OK" /tmp/rb && [ "$(stat -c "%u %a" $LM)" = "0 600" ]'
+bk; t "işaretli yedek: taban-sifirlandi (uyarı + alarm), rc 0, işaret tüketildi" '[ $BRC = 0 ] && has "imha-defteri: taban-sifirlandi" && grep -q "imha-defteri taban" /tmp/alerts && [ ! -e $LM ]'
+bk; t "sonraki yedek ok (yeni taban çizgisi)" '[ $BRC = 0 ] && has "imha-defteri: ok"'
+led "ln -sf /tmp/l.bak /var/lib/remote/x && rm $LF && ln -s /tmp/l.bak $LF"; bk
+t "defter sembolik bağlantı -> FAILED dosya-turu" '[ $BRC != 0 ] && has "dosya-turu"'
+led "rm -f $LF /var/lib/remote/x && cp /tmp/l.bak $LF && chown 1000:1000 $LF && chmod 600 $LF"
+bash "$B/backup.sh" --reset-ledger-baseline "test: sembolik baglanti duzeltildi" >/tmp/rb 2>&1; bk; RL2="$(last)"
+t "düzeltme + sıfırlama -> rc 0, 2 satır" '[ $BRC = 0 ] && [ "$(jq .ledger.lines $RL2/manifest.json)" = 2 ]'
+echo "-- canlı restore: defter uzlaştırma + erasure:replay/verify (taslak CLI)"
+led "rm -f $LF"
+RESTORE_ERASURE_POLL=1 rs --target staging --confirm remote@rstest --no-pre-backup "$RL2"
+t "canlı defter yok -> yedek kopyası volume'a yazıldı, replay + verify OK, restore-verify OK" '[ $RRC = 0 ] && has "yedekteki kopya" /tmp/ro && has "CHECK OK    canlı imha defteri = yedek" /tmp/ro && has "CHECK OK    erasure:replay" /tmp/ro && has "erasure:replay stub defter=2" /tmp/ro && has "CHECK OK    erasure:verify" /tmp/ro'
+t "yazılan defter uid 1000, 600" '[ "$(led "stat -c %u:%a $LF")" = "1000:600" ]'
+led "echo '{\"v\":1,\"type\":\"user\",\"id\":\"01JC0000000000000000000000\",\"at\":\"x\"}' >>$LF"
+RESTORE_ERASURE_POLL=1 rs --target staging --confirm remote@rstest --no-pre-backup "$RL2"
+t "canlı defter yedeği kapsıyor (3 satır) -> korundu, replay canlı defterle" '[ $RRC = 0 ] && has "korunuyor" /tmp/ro && has "erasure:replay stub defter=3" /tmp/ro && [ "$(led "wc -l <$LF")" = 3 ]'
+led "printf '%s\n' '{\"v\":1,\"type\":\"user\",\"id\":\"01JD0000000000000000000000\",\"at\":\"x\"}' >$LF"
+RESTORE_ERASURE_POLL=1 rs --target staging --confirm remote@rstest --no-pre-backup "$RL2"
+t "canlı defter yedekle uyuşmuyor -> restore rc≠0, DUR mesajı" '[ $RRC != 0 ] && has "yedektekiyle uyu" /tmp/ro'
+t "uyuşmazlıkta replay çalışmadı, server durdurulmuş" '! has "CHECK OK    erasure:replay" /tmp/ro && [ -z "$(docker compose ps -q --status running server)" ]'
+docker compose up -d --wait server web >/dev/null 2>&1
+t "uyuşmazlıkta canlı defter değişmedi (1 satır)" '[ "$(led "wc -l <$LF" | tr -d " ")" = 1 ]'
+led "cp /tmp/l.bak $LF"
+echo "STUB_REPLAY_RC=1" >>$D/.env
+RESTORE_ERASURE_POLL=1 rs --target staging --confirm remote@rstest --no-pre-backup "$RL2"
+t "erasure:replay rc≠0 -> restore FAIL, server BAŞLATILMADI" '[ $RRC != 0 ] && has "CHECK FAIL  erasure:replay" /tmp/ro && [ -z "$(docker compose ps -q --status running server)" ]'
+sed -i 's/^STUB_REPLAY_RC=1$/STUB_REPLAY_RC=3/' $D/.env
+docker compose up -d --wait server web >/dev/null 2>&1
+RESTORE_ERASURE_POLL=1 rs --target staging --confirm remote@rstest --no-pre-backup "$RL2"
+t "S16-16: erasure:replay rc 3 (tutarsız satır) -> restore FAIL, kurcalama mesajı, server BAŞLATILMADI" '[ $RRC != 0 ] && has "CHECK FAIL  erasure:replay" /tmp/ro && has "kurcalama" /tmp/ro && [ -z "$(docker compose ps -q --status running server)" ]'
+sed -i 's/^STUB_REPLAY_RC=3$/STUB_VERIFY_RC=1/' $D/.env
+docker compose up -d --wait server web >/dev/null 2>&1
+RESTORE_ERASURE_POLL=1 RESTORE_ERASURE_TIMEOUT=3 rs --target staging --confirm remote@rstest --no-pre-backup "$RL2"
+t "erasure:verify süre içinde geçmedi -> restore-verify FAIL" '[ $RRC != 0 ] && has "CHECK FAIL  erasure:verify" /tmp/ro'
+sed -i '/^STUB_VERIFY_RC=/d' $D/.env; docker compose up -d --wait server web >/dev/null 2>&1
 echo "SONUÇ-İÇ $F"

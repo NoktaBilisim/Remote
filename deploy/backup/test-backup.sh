@@ -11,7 +11,7 @@
 # Gereken: docker, pnpm (repo kurulu: pnpm install), openssl. Süre ~5-8 dk (7 scratch MySQL açılışı).
 set -euo pipefail
 REPO="$(cd "$(dirname "$0")/../.." && pwd)"
-PROJ="rstb$(date +%s)$((RANDOM % 1000))"
+PROJ="${TEST_BACKUP_PROJ:-rstb$(date +%s)$((RANDOM % 1000))}"
 H="$PROJ-helper"
 PORT=$((34000 + RANDOM % 1000))
 TMP="$(mktemp -d)"
@@ -58,16 +58,27 @@ $MYSQL_LINE
   server:
     image: node:22-alpine
     command: ["node", "-e", "require('http').createServer((q,s)=>s.end('ok')).listen(3001)"]
-    volumes: [uploads:/data/uploads]
+    volumes: [uploads:/data/uploads, ledger:/var/lib/remote]
     healthcheck:
       test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3001/ready').then(r=>process.exit(r.ok?0:1),()=>process.exit(1))"]
       interval: 2s
   web:
     image: node:22-alpine
     command: ["sleep", "infinity"]
+  # P16: erasure CLI taslağı (restore.sh `docker compose run migrate pnpm --filter @remote/server cli erasure:*`).
+  # Çıkış kodu .env'deki STUB_REPLAY_RC / STUB_VERIFY_RC; defteri salt okunur görür (satır sayısını basar).
+  migrate:
+    image: node:22-alpine
+    profiles: [stub]
+    entrypoint: ["sh", "-c", "n=\$\$(cat /var/lib/remote/erasure-ledger.jsonl 2>/dev/null | wc -l); case \"\$\$*\" in *erasure:replay*) echo \"erasure:replay stub defter=\$\$n\"; exit \$\$REPLAY_RC ;; *erasure:verify*) echo \"erasure:verify stub defter=\$\$n\"; exit \$\$VERIFY_RC ;; esac", "stub"]
+    environment:
+      REPLAY_RC: \${STUB_REPLAY_RC:-0}
+      VERIFY_RC: \${STUB_VERIFY_RC:-0}
+    volumes: [ledger:/var/lib/remote:ro]
 volumes:
   mysql_data:
   uploads:
+  ledger:
 EOF
 echo "test-backup: yardımcı konteyner $H"
 docker run -d --name "$H" --hostname rstest --label "rstb.owner=$PROJ" -v /var/run/docker.sock:/var/run/docker.sock \

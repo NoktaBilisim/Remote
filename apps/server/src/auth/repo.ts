@@ -39,10 +39,14 @@ const userSelect = {
 
 export type LoginUser = Prisma.UserGetPayload<{ select: typeof userSelect }>;
 
-/** '@' içeren girdi yalnız e-posta, içermeyen yalnız kullanıcı adı ile aranır (belirsizlik yok, S1-8). */
+/**
+ * '@' içeren girdi yalnız e-posta, içermeyen yalnız kullanıcı adı ile aranır (belirsizlik yok, S1-8).
+ * P16 (S16-7, ADR-0030 m.4): mezar taşı (`DELETED`) hiç bulunmaz → "olmayan hesap" yolu (bellek kovası); kilitli satıra
+ * sayaç UPDATE'i gitmez, `@invalid`'e posta denenmez. Giriş ve parola sıfırlama isteği bu fonksiyonu kullanır.
+ */
 export function findUserByLogin(db: DbOrTx, login: string): Promise<LoginUser | null> {
   const where = login.includes("@") ? { email: login.toLowerCase() } : { username: login };
-  return db.user.findUnique({ where, select: userSelect });
+  return db.user.findFirst({ where: { ...where, status: { not: "DELETED" } }, select: userSelect });
 }
 
 /**

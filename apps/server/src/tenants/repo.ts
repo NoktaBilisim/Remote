@@ -11,6 +11,7 @@ const tenantSelect = {
   name: true,
   slug: true,
   status: true,
+  passiveAt: true, // P16 (AC-242)
   createdAt: true,
   updatedAt: true,
   _count: { select: { users: { where: { status: "ACTIVE", deletedAt: null } } } },

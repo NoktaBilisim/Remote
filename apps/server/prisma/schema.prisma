@@ -19,6 +19,7 @@ model Tenant {
   slug      String    @unique @db.VarChar(60)
   status    String    @default("ACTIVE") @db.VarChar(20) // ACTIVE | PASSIVE
   logoPath  String?   @map("logo_path") @db.VarChar(200)
+  passiveAt DateTime? @map("passive_at") @db.DateTime(3) // P16 (AC-242): pasife alınma anı; tetikleyici DB saatine zorlar (tenants_passive_chk)
   deletedAt DateTime? @map("deleted_at") @db.DateTime(3)
   createdAt DateTime  @default(now()) @map("created_at") @db.DateTime(3)
   updatedAt DateTime  @updatedAt @map("updated_at") @db.DateTime(3)
@@ -26,7 +27,6 @@ model Tenant {
   settings        TenantSettings?
   users           User[]
   actingSessions  AuthSession[]
-  auditLogs       AuditLog[]
   supportSessions SupportSession[]
   consentTexts    ConsentText[]
   sessionConsents SessionConsent[]
@@ -81,7 +81,7 @@ model User {
   totpLastStep       BigInt?   @map("totp_last_step") // P10: son kabul edilen TOTP adımı (floor(unix/30)); tekrar oynatma koruması (RFC 6238 §5.2)
   avatarPath         String?   @map("avatar_path") @db.VarChar(200)
   theme              String    @default("SYSTEM") @db.VarChar(20) // LIGHT | DARK | SYSTEM
-  status             String    @default("ACTIVE") @db.VarChar(20) // ACTIVE | PASSIVE
+  status             String    @default("ACTIVE") @db.VarChar(20) // ACTIVE | PASSIVE | DELETED (P16 mezar taşı; users_deleted_chk)
   version            Int       @default(0) @db.UnsignedInt // P14a (ADR-0023, AC-206): If-Match / ETag "v<n>"; her yönetim yazmasında +1 (koşullu UPDATE)
   deletedAt          DateTime? @map("deleted_at") @db.DateTime(3)
   createdAt          DateTime  @default(now()) @map("created_at") @db.DateTime(3)
@@ -100,6 +100,8 @@ model User {
   passwordResets     PasswordResetToken[]
   systemSettings     SystemSetting[]
   requestBlocks      RequestBlock[]
+  purgeJobsStarted   TenantPurgeJob[]     @relation("PurgeJobStarter")
+  purgeJobsCancelled TenantPurgeJob[]     @relation("PurgeJobCanceller")
 
   @@index([tenantId, status])
   @@map("users")
@@ -198,8 +200,7 @@ model AuditLog {
   result        String   @db.VarChar(20) // success | fail
   correlationId String?  @map("correlation_id") @db.Char(26)
 
-  tenant Tenant? @relation(fields: [tenantId], references: [id], onDelete: Restrict, onUpdate: Restrict)
-
+  // P16 (ADR-0030 m.1): tenant_id bilinçli olarak FK DEĞİL — firma silinse de audit satırı kalır (730 g saklama).
   @@index([tenantId, createdAt])
   @@index([userId, createdAt]) // P11: (tenant_id, user_id, created_at) yerine — user_id ULID tenant'a özgü; Super Admin tüm-tenant kullanıcı filtresi
   @@index([tenantId, action, createdAt])
@@ -583,4 +584,40 @@ model RequestBlock {
   @@index([tenantId, kind, expiresAt]) // kapı önbelleği yüklemesi + liste
   @@index([createdBy]) // FK
   @@map("request_blocks")
+}
+
+// P16 (mimari-e11 §7.1, ADR-0030 m.5; AC-242): firma kalıcı silme işi. tenant_id bilinçli FK DEĞİL (firma satırı silinince
+// iş satırı kanıt olarak kalır). app SELECT/INSERT/UPDATE/DELETE; tetikleyiciler: INSERT yalnız SCHEDULED/FENCE ve
+// scheduled_for = DB saati + 24 sa (uygulamanın değeri yok sayılır), geçişler/adım ilerleyişi/sabit sütunlar BEFORE UPDATE'te,
+// DELETE yalnız DONE/CANCELLED + 730 g. Elle CHECK'ler: tenant_id Crockford ULID, state/step ikili enum, DONE ⇔ finished_at ⇔
+// step DONE, CANCELLED ⇔ cancelled_at ⇔ cancelled_by, counts nesne ≤ 4 KB, last_error sınıf adı, preview_hash hex.
+// Fonksiyonel UQ tenant_purge_jobs_one_open_uq: firma başına tek SCHEDULED|RUNNING|FAILED iş. Ayrıntı db-notlari "P16".
+model TenantPurgeJob {
+  id                 String    @id @db.Char(26)
+  tenantId           String    @map("tenant_id") @db.Char(26)
+  state              String    @default("SCHEDULED") @db.VarChar(20) // SCHEDULED | RUNNING | DONE | FAILED | CANCELLED
+  step               String    @default("FENCE") @db.VarChar(30) // ADR-0030 m.2 sırası (FENCE … TENANT_ROW → FILES → DONE)
+  scheduledFor       DateTime  @map("scheduled_for") @db.DateTime(3) // INSERT'te tetikleyici zorlar: UTC + 24 sa (S16-4)
+  counts             Json // {tablo: silinen satır}; ≤ 4 KB; açılışta {}
+  attempts           Int       @default(0) @db.UnsignedInt
+  lastError          String?   @map("last_error") @db.VarChar(60) // yalnız sınıf: db_fk | db_signal | fs | invalid_job | other
+  previewHash        String    @unique @map("preview_hash") @db.Char(64) // SHA-256(previewId) hex; tek kullanım (S16-6)
+  startedBy          String    @map("started_by") @db.Char(26)
+  cancelledBy        String?   @map("cancelled_by") @db.Char(26)
+  cancelledAt        DateTime? @map("cancelled_at") @db.DateTime(3) // tetikleyici zorlar
+  startedAt          DateTime? @map("started_at") @db.DateTime(3) // tetikleyici zorlar (SCHEDULED→RUNNING)
+  heartbeatAt        DateTime? @map("heartbeat_at") @db.DateTime(3)
+  tenantRowDeletedAt DateTime? @map("tenant_row_deleted_at") @db.DateTime(3) // TENANT_ROW adımında bir kez, DB saati
+  finishedAt         DateTime? @map("finished_at") @db.DateTime(3) // tetikleyici zorlar (→DONE)
+  createdAt          DateTime  @default(now()) @map("created_at") @db.DateTime(3)
+  updatedAt          DateTime  @updatedAt @map("updated_at") @db.DateTime(3)
+
+  starter   User  @relation("PurgeJobStarter", fields: [startedBy], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  canceller User? @relation("PurgeJobCanceller", fields: [cancelledBy], references: [id], onDelete: Restrict, onUpdate: Restrict)
+
+  @@index([state, scheduledFor]) // yürütücü: due SCHEDULED + açık işler; bant/metrik
+  @@index([tenantId]) // firma başına iş (GET /admin/tenants/:id/purge, uygunluk)
+  @@index([startedBy]) // FK
+  @@index([cancelledBy]) // FK
+  @@map("tenant_purge_jobs")
 }

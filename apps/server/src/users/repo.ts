@@ -100,14 +100,33 @@ export async function updateUser(tx: Prisma.TransactionClient, id: string, data:
   await tx.user.update({ where: { id }, data, select: { id: true } });
 }
 
-/** Ezme satırlarını verilen kümeyle değiştirir (tanım dışı eski anahtarlar da temizlenir). */
+/**
+ * Ezme satırlarını verilen kümeyle değiştirir (tanım dışı eski anahtarlar da temizlenir). P16 düzeltme 2 (QA AC-206 503):
+ * `DELETE … WHERE user_id = ?` + `INSERT` REPEATABLE READ'de aralık (next-key/gap) kilidi alır; ULID'ler monoton olduğundan
+ * en yeni kullanıcıların aralığı dizin sonundaki aynı boşluğu paylaşır → iki eşzamanlı TX (farklı firma bile) 1213
+ * deadlock → 503. Bu yüzden yalnız fark yazılır: var olan satırlar tam birincil anahtarla silinir/güncellenir (kayıt
+ * kilidi), yeniler eklenir. Okuma kilitsiz: çağıran `users` satırını TX başında `FOR UPDATE` tutar (lockUsers / yeni
+ * satır), bu kullanıcının ezmelerine eşzamanlı yazan yoktur.
+ */
 export async function replacePermissions(
   tx: Prisma.TransactionClient,
   userId: string,
   rows: readonly { permKey: string; granted: boolean }[],
 ): Promise<void> {
-  await tx.userPermission.deleteMany({ where: { userId } });
-  if (rows.length > 0) await tx.userPermission.createMany({ data: rows.map((r) => ({ userId, permKey: r.permKey, granted: r.granted })) });
+  const have = new Map(
+    (await tx.userPermission.findMany({ where: { userId }, select: { permKey: true, granted: true } })).map((r) => [r.permKey, r.granted]),
+  );
+  const want = new Map(rows.map((r) => [r.permKey, r.granted]));
+  const removed = [...have.keys()].filter((k) => !want.has(k));
+  const flipped = rows.filter((r) => have.has(r.permKey) && have.get(r.permKey) !== r.granted);
+  const added = rows.filter((r) => !have.has(r.permKey));
+  if (removed.length > 0) await tx.userPermission.deleteMany({ where: { userId, permKey: { in: removed } } });
+  for (const granted of [true, false]) {
+    const keys = flipped.filter((r) => r.granted === granted).map((r) => r.permKey);
+    if (keys.length > 0) await tx.userPermission.updateMany({ where: { userId, permKey: { in: keys } }, data: { granted } });
+  }
+  if (added.length > 0)
+    await tx.userPermission.createMany({ data: added.map((r) => ({ userId, permKey: r.permKey, granted: r.granted })) });
 }
 
 export async function revokeUserSessions(tx: Prisma.TransactionClient, userId: string, at: Date): Promise<number> {
@@ -130,4 +149,61 @@ export async function cancelPendingOfTechnician(
     data: { status: "CANCELLED", activeCode: null, endedAt: at, endedBy: "SYSTEM", endReason: "auth_revoked" },
   });
   return r.count;
+}
+
+/** P16: teknisyenin açık (PENDING/ACTIVE) destek oturumu sayısı (kalıcı silmede 409). */
+export function countOpenSessions(tx: Prisma.TransactionClient, scope: TenantScope, technicianId: string): Promise<number> {
+  return tx.supportSession.count({ where: { tenantId: scope.tenantId, technicianId, status: { in: ["PENDING", "ACTIVE"] } } });
+}
+
+/**
+ * P16 (ADR-0030 m.4; db-notlari "P16"): mezar taşı TEK UPDATE — koşul `id`, `version`, `status = 'PASSIVE'` (ACTIVE→DELETED'i
+ * DB engellemez; uygulama WHERE'de zorlar). Sonrasında satır tetikleyiciyle kilitlidir. 0 → çağıran 409.
+ */
+export async function tombstone(tx: Prisma.TransactionClient, id: string, version: number, label: string, at: Date): Promise<number> {
+  const r = await tx.user.updateMany({
+    where: { id, version, status: "PASSIVE", deletedAt: null },
+    data: {
+      status: "DELETED",
+      deletedAt: at,
+      email: `deleted+${id}@invalid`,
+      username: null,
+      fullName: label,
+      passwordHash: "!deleted",
+      avatarPath: null,
+      totpSecretEnc: null,
+      totpEnabled: false,
+      totpLastStep: null,
+      failedLoginCount: 0,
+      failedWindowAt: null,
+      lockedUntil: null,
+      version: { increment: 1 },
+    },
+  });
+  return r.count;
+}
+
+/** Mezar taşı alt tabloları (ADR-0030 m.4): yetki ezmeleri, kurtarma kodları, sıfırlama bağlantıları, giriş oturumları. */
+export async function deleteUserChildren(tx: Prisma.TransactionClient, userId: string) {
+  const permissions = await tx.userPermission.deleteMany({ where: { userId } });
+  const recoveryCodes = await tx.recoveryCode.deleteMany({ where: { userId } });
+  const resetTokens = await tx.passwordResetToken.deleteMany({ where: { userId } });
+  const authSessions = await tx.authSession.deleteMany({ where: { userId } });
+  return {
+    deletedPermissions: permissions.count,
+    // Anahtar adları mask.ts kara listesine (`code|token`) takılmasın diye nötr (yalnız sayı).
+    deletedMfaBackups: recoveryCodes.count,
+    deletedResetLinks: resetTokens.count,
+    deletedAuthSessions: authSessions.count,
+  };
+}
+
+/** P16 (AC-241): `GET /users/options?includeDeleted=1` — kapsamdaki mezar taşları (ad = etiket). */
+export function listDeletedOptions(db: DbOrTx, scope: TenantScope, take: number) {
+  return db.user.findMany({
+    where: { tenantId: scope.tenantId, status: "DELETED", role: { in: ["ADMIN", "USER"] } },
+    select: { id: true, fullName: true, status: true },
+    orderBy: [{ fullName: "asc" }, { id: "asc" }],
+    take,
+  });
 }

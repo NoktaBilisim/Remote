@@ -9,6 +9,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { AuditContext } from "../../src/audit/service.ts";
 import { resolveSession, type AuthContext } from "../../src/auth/session.ts";
 import { newId } from "../../src/lib/ids.ts";
+import { lockUsers, replacePermissions } from "../../src/users/repo.ts";
 import { updateUser, type UserLiveEffects } from "../../src/users/service.ts";
 import { createTenant, createUser, loginRequest, makeApp, ORIGIN, testDb, type Session, type TestUser } from "../helpers/app.ts";
 import { CSRF_COOKIE, SESSION_COOKIE } from "@remote/contracts/api/auth";
@@ -308,6 +309,65 @@ describe("AC-206 If-Match / ETag (iyimser kilit)", () => {
       expect(r.statusCode, `tur ${round}`).toBe(409);
       expect(r.json().error.code).toBe("STALE_WRITE");
       expect((await db().user.findUniqueOrThrow({ where: { id: target.id } })).fullName).toBe("İlk Kaydeden");
+    }
+  });
+
+  it("AC-206 kilitlenme: iki firmada eşzamanlı yetki yazımı (en yeni kullanıcılar) 1213 deadlock / 503 vermez — replacePermissions aralık kilidi almaz (bariyerli, 10/10)", async () => {
+    // QA P16 Tur 2: `DELETE … WHERE user_id = ?` boş aralıkta dizin sonundaki boşluğu kilitliyordu; iki TX'in ikisi de
+    // silip sonra eklediğinde 1213. Bariyer iki TX'i ekleme öncesinde buluşturur (eski kodda deadlock kesindi).
+    type Rows = { permKey: string; granted: boolean }[];
+    for (let round = 0; round < 10; round++) {
+      const [t1, t2] = [await createTenant(), await createTenant()];
+      const seed = { "sessions.view": true, "users.view": false, "audit.view": true };
+      const users =
+        round % 2 === 0
+          ? [await createUser({ tenantId: t1.id }), await createUser({ tenantId: t2.id })]
+          : [await createUser({ tenantId: t1.id, perms: seed }), await createUser({ tenantId: t2.id, perms: seed })];
+      // Tek satırlı turlarda yalnız ekleme; dolu turlarda silme (audit.view) + çevirme (users.view) + ekleme (sessions.terminate).
+      const want: Rows =
+        round % 2 === 0
+          ? [{ permKey: "sessions.view", granted: true }]
+          : [
+              { permKey: "sessions.view", granted: true },
+              { permKey: "users.view", granted: true },
+              { permKey: "sessions.terminate", granted: false },
+            ];
+      let arrived = 0;
+      let open!: () => void;
+      const gateOpen = new Promise<void>((r) => (open = r));
+      const atBarrier = async () => {
+        if (++arrived === 2) open();
+        await gateOpen;
+      };
+      const write = (userId: string) =>
+        db().$transaction(async (tx) => {
+          await lockUsers(tx, [userId]);
+          const perm = tx.userPermission;
+          const paused = new Proxy(perm, {
+            get: (target, key, receiver) =>
+              key === "createMany"
+                ? async (args: Parameters<typeof perm.createMany>[0]) => {
+                    await atBarrier();
+                    return target.createMany(args);
+                  }
+                : Reflect.get(target, key, receiver),
+          });
+          await replacePermissions(
+            new Proxy(tx, { get: (t, k, r) => (k === "userPermission" ? paused : Reflect.get(t, k, r)) }),
+            userId,
+            want,
+          );
+        });
+      const results = await Promise.allSettled(users.map((u) => write(u.id)));
+      expect(results.map((r) => r.status)).toEqual(["fulfilled", "fulfilled"]);
+      for (const u of users) {
+        const rows = await db().userPermission.findMany({
+          where: { userId: u.id },
+          select: { permKey: true, granted: true },
+          orderBy: { permKey: "asc" },
+        });
+        expect(rows).toEqual([...want].sort((a, b) => a.permKey.localeCompare(b.permKey)));
+      }
     }
   });
 });

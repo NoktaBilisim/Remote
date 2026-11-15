@@ -15,6 +15,8 @@ export const ORIGIN = "https://rs.test:4450";
 export const PASSWORD = "Dogru-Sifre-123";
 
 /** P12: yüklemeler süreç başına geçici dizine (testler /data'ya yazmaz). */
+/** P16: testlerin imha defteri (süreç başına). */
+export const TEST_LEDGER_PATH = join(tmpdir(), `rs-ledger-test-${process.pid}`, "erasure-ledger.jsonl");
 export const TEST_UPLOADS_DIR = join(tmpdir(), `rs-uploads-test-${process.pid}`);
 
 export function testEnv(extra: Record<string, string> = {}): Env {
@@ -67,6 +69,8 @@ export function makeApp(
     env,
     db: testDb(),
     mfaSetupEnforcement: env.NODE_ENV === "production",
+    erasureLedgerPath: TEST_LEDGER_PATH, // P16
+
     ...opts.p10,
     ...opts.p11,
     ...(opts.logger ? { logger: opts.logger } : {}),

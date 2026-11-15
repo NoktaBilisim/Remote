@@ -10,10 +10,12 @@ import {
   CONTROL_AUDIT,
   CUSTOMER_AUDIT,
   MAIL_AUDIT,
+  P16_AUDIT_LABELS,
   RETENTION_AUDIT,
   SYSTEM_AUDIT,
   TENANT_AUDIT,
   USER_AUDIT,
+  deletedUserLabel,
 } from "@remote/contracts/audit";
 import { AUDIT_ACTION_GROUPS } from "./contract";
 import { labelOf, OUTBOUND_REASON_LABELS, TIMELINE_ACTION_LABELS } from "@remote/contracts/labels";
@@ -88,7 +90,23 @@ export const AUDIT_ACTION_LABELS: Readonly<Record<string, string>> = {
   [RETENTION_AUDIT.RUN]: "Saklama süresi işi",
   // P13b (G-P13b-5): yedek audit süreklilik taban çizgisi
   [BACKUP_AUDIT.AUDIT_BASELINE_RESET]: "Yedek audit taban çizgisi sıfırlandı",
+  // P16 (AC-240..243): kalıcı silme, firma silme işi, yetim dosya taraması (`uploads.*`), migration kaydı (`migration.*`)
+  ...P16_AUDIT_LABELS,
 };
+
+/**
+ * P16 (AC-241): satırdaki aktör adı — `actorLabel` (canlı kullanıcıda ad, silinmişte "Silinmiş kullanıcı #…"), yoksa
+ * eski alanlar. `tombstone`: aktör kalıcı silinmiş (avatar "#", DESIGN §6).
+ */
+export function auditActor(a: {
+  userId: string | null;
+  username: string | null;
+  userFullName: string | null;
+  actorLabel?: string | null;
+}): { name: string | null; tombstone: boolean } {
+  const name = a.actorLabel ?? a.userFullName ?? a.username;
+  return { name, tombstone: Boolean(a.userId && a.actorLabel && a.actorLabel === deletedUserLabel(a.userId)) };
+}
 
 /** Dış gönderim `reason` etiketleri tek kaynak: contracts (`OUTBOUND_REASON_LABELS`, mimari-p13 §3). */
 export { OUTBOUND_REASON_LABELS };

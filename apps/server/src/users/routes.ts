@@ -6,6 +6,7 @@ import {
   USERS_CREATES_PER_MIN,
   USERS_WRITES_PER_MIN,
   createUserInputSchema,
+  deleteUserInputSchema,
   parseUserIfMatch,
   userEtag,
   listUsersQuerySchema,
@@ -20,7 +21,7 @@ import {
 } from "@remote/contracts/api/users";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { auditContext } from "../audit/service.ts";
-import { authOf, requireAnyPerm, requireAuth, requirePerm, tenantScope } from "../auth/guards.ts";
+import { authOf, requireAnyPerm, requireAuth, requirePerm, requireStepUp, tenantScope } from "../auth/guards.ts";
 import { AppError, parseInput } from "../lib/errors.ts";
 import { FixedWindowCounter } from "../lib/rate.ts";
 import {
@@ -28,6 +29,7 @@ import {
   deactivateUser,
   getUser,
   listUsers,
+  purgeUser,
   reactivateUser,
   resetUserMfa,
   updateUser,
@@ -77,7 +79,7 @@ export async function userRoutes(app: FastifyInstance): Promise<void> {
   });
   const fx = (): UserLiveEffects => ({ rooms: app.rooms, hub: app.requestHub, log: app.log });
   const view = { preHandler: requirePerm("users.view") };
-  // mimari-api: deactivate (ve P9 eki reactivate) users.edit; users.delete'in ucu yok (kalıcı silme yok).
+  // mimari-api: deactivate (ve P9 eki reactivate) users.edit; P16: users.delete → DELETE /users/:id (kalıcı silme).
   const edit = { preHandler: requirePerm("users.edit") };
 
   app.get("", view, async (req): Promise<UserListResponse> => {
@@ -92,8 +94,8 @@ export async function userRoutes(app: FastifyInstance): Promise<void> {
     { preHandler: requireAnyPerm("session_history.view", "support_requests.view", "users.view") },
     async (req): Promise<UserOptionsResponse> => {
       const auth = authOf(req);
-      const { tenantId } = parseInput(userOptionsQuerySchema, req.query);
-      return userOptions(app.db, auth, await userOptionsTenant(app.db, auth, tenantId));
+      const { tenantId, includeDeleted } = parseInput(userOptionsQuerySchema, req.query);
+      return userOptions(app.db, auth, await userOptionsTenant(app.db, auth, tenantId), includeDeleted);
     },
   );
 
@@ -140,6 +142,19 @@ export async function userRoutes(app: FastifyInstance): Promise<void> {
     const id = idParam(req);
     parseInput(userActionInputSchema, req.body);
     await reactivateUser(app.db, auditContext(req), authOf(req), tenantId, id);
+    return reply.status(204).send();
+  });
+
+  // P16 (AC-237, AC-241): kalıcı silme. Sıra: yazma hızı (kanca) → users.delete (anahtarsız 403, step-up'tan önce) →
+  // step-up → If-Match (428) → gövde (400) → servis.
+  app.delete("/:id", { preHandler: [requirePerm("users.delete"), requireStepUp()] }, async (req, reply) => {
+    const { tenantId } = tenantScope(req);
+    const id = idParam(req);
+    const version = parseUserIfMatch(req.headers["if-match"]);
+    if (version === null) throw new AppError("PRECONDITION_REQUIRED");
+    const { confirmName } = parseInput(deleteUserInputSchema, req.body);
+    const fx = { removeFile: (rel: string | null) => app.uploads.remove(rel), ledger: app.erasureLedger, log: app.log };
+    await purgeUser(app.db, fx, auditContext(req), authOf(req), tenantId, id, confirmName, version);
     return reply.status(204).send();
   });
 }

@@ -31,7 +31,10 @@ oturum bilgisi, KVKK onayları ve denetim kayıtları kalır.
 - **Değiştirilemez denetim kaydı** — kim, ne zaman, ne yaptı: filtreli ekran ve CSV; kayıtlar uygulamadan da
   veritabanından da düzenlenemez, silinemez.
 - **KVKK uyumlu saklama** — müşteri kişisel verileri firmanın belirlediği süre (90–730 gün) dolunca her gece
-  kendiliğinden anonimleştirilir; denetim kaydı 730 gün saklanır.
+  kendiliğinden anonimleştirilir, 30 gün sonra tamamen silinir (sunucu ayarıyla açılır); denetim kaydı 730 gün saklanır.
+- **Kalıcı silme (unutulma hakkı)** — ayrılan çalışanı ya da sözleşmesi biten firmayı tüm verisi ve dosyalarıyla
+  kalıcı silme; ad yazarak onay, 2FA doğrulaması, firmada 24 saat iptal penceresi. Silinen veri yedeklerden en geç
+  14 günde düşer, yedekten geri dönülse bile yeniden silinir.
 - **Şifreli ve imzalı günlük yedek** — veritabanı ve yüklenen dosyalar her gece şifreli yedeklenir ve imzalanır, 14 gün
   saklanır; imzası tutmayan yedek geri yüklenmez, geri yükleme önce ayrı bir test veritabanında doğrulanır.
 - **Sürekli izleme** — servisler, sertifikalar, yedek ve disk 10 dakikada bir denetlenir; sorun olunca yöneticiye alarm,
@@ -55,8 +58,8 @@ oturum bilgisi, KVKK onayları ve denetim kayıtları kalır.
 | Destek talepleri                 | Canlı kuyruk, bildirim ve ses, kabul/ret, firma filtresi, son 30 gün geçmişi, kaynak engelleme (Engellenenler ekranı), isteğe bağlı kabul kodu                                                                                                                                      |
 | Müşteriler                       | Müşteri firma kaydı, firma başına bağlantı (kopyala, yenile), pasife alma, talep ve oturum geçmişi                                                                                                                                                                                  |
 | Oturum geçmişi                   | Filtreli liste, ayrıntı, ticket/not, dosya doğrulama etiketi, CSV                                                                                                                                                                                                                   |
-| Kullanıcılar                     | Kullanıcı ekleme (tek seferlik geçici şifre), rol, yetki tablosu, pasife alma / yeniden etkinleştirme                                                                                                                                                                               |
-| Firmalar (Süper Yönetici)        | Firma oluşturma, düzenleme, pasife alma, firmalar arası geçiş                                                                                                                                                                                                                       |
+| Kullanıcılar                     | Kullanıcı ekleme (tek seferlik geçici şifre), rol, yetki tablosu, pasife alma / yeniden etkinleştirme, kalıcı silme                                                                                                                                                                 |
+| Firmalar (Süper Yönetici)        | Firma oluşturma, düzenleme, pasife alma, firmalar arası geçiş, kalıcı silme (önizleme, 24 saat iptal penceresi, ilerleme)                                                                                                                                                           |
 | Audit log                        | Salt okunur denetim kaydı: tarih, kullanıcı, işlem, sonuç ve firma filtreleri, ayrıntı, CSV                                                                                                                                                                                         |
 | Sistem ayarları (Süper Yönetici) | MySQL bağlantı bilgisi + bağlantı testi (isteğe bağlı zorunlu TLS ve sertifika doğrulaması), TURN sunucuları ve gizli anahtar, sistem logosu (yükleme/kaldırma), Süper Yönetici şifre sıfırlama, WhatsApp servis adresi + test mesajı                                               |
 | Hesabım                          | Profil resmi (kare kırpma), tema (Açık / Koyu / Sistem), 2FA kurulumu, kurtarma kodları ve yenilenmesi, şifre değiştirme/sıfırlama, tüm cihazlardan çıkış                                                                                                                           |
@@ -77,7 +80,13 @@ oturum bilgisi, KVKK onayları ve denetim kayıtları kalır.
   kendiliğinden silinir.
 - KVKK: aydınlatma metni firma bazında ve sürümlü, yönetici panelden düzenler; her onay, onaylanan sürümle saklanır.
   Saklama süresi (varsayılan 365 gün) dolan oturum, talep ve pasif müşteri kayıtlarında kişisel veriler (ad, e-posta, not,
-  IP, dosya kayıtları) her gece anonimleştirilir; onay kararı ve metin sürümü kanıt olarak kalır.
+  IP, dosya kayıtları) her gece anonimleştirilir; onay kararı ve metin sürümü kanıt olarak kalır. Anonimleştirilen kayıtlar
+  30 gün sonra tamamen silinir (sunucu ayarıyla açılır); hiçbir kayda bağlı olmayan yüklenmiş dosyalar haftalık taramayla temizlenir.
+- Kalıcı silme: yönetici pasif kullanıcıyı, Süper Yönetici en az 30 gün pasif firmayı kalıcı siler. Firma silmede önce
+  silinecekler gösterilir, firma adı yazılır, 2FA istenir; silme 24 saat sonra başlar, bu sürede bütün Süper
+  Yöneticilere uyarı gösterilir ve iptal edilebilir. Silme kesilirse kaldığı yerden sürer. Denetim kayıtları silinmez,
+  silinen kişinin kimliği bu kayıtlarda maskelenir. Silinen veri yedeklerden en geç 14 günde düşer; yedekten geri
+  yüklemede ayrı bir imha defteri sayesinde yeniden silinir.
 - Yedekleme: her gece veritabanı ve yüklenen dosyalar birlikte, açık anahtarla şifreli yedeklenir (çözme anahtarı sunucuda
   tutulmaz); 14 gün saklanır, hata olursa alarm verir. Her yedeğin bilgi dosyası imzalanır: imzasız, değiştirilmiş ya da
   başka ortama ait yedek geri yüklenmez. Geri yükleme önce geçici bir veritabanında satır sayıları ve özetlerle doğrulanır.

@@ -55,3 +55,18 @@ export function conflictIndex(err: unknown): string | null {
   const idx = e.meta?.driverAdapterError?.cause?.constraint?.index;
   return typeof idx === "string" ? idx : "";
 }
+
+/**
+ * P16 (ADR-0030 m.3; db-notlari "P16"): koşullu DELETE/UPDATE tetikleyicisinin reddi — MySQL 1644 (`SIGNAL SQLSTATE
+ * '45000'`) ve `p16:` önekli metin. Gece silme işi (`db_signal` sınıfı) ve firma silme yürütücüsü bu sınıfı kullanır;
+ * başka SIGNAL'ler (P11 audit, P14a ön kontrol) bu sınıfa girmez.
+ */
+export function isP16Signal(err: unknown): boolean {
+  if (typeof err !== "object" || err === null) return false;
+  const e = err as { message?: unknown; meta?: { driverAdapterError?: { cause?: Record<string, unknown> } } };
+  const cause = e.meta?.driverAdapterError?.cause;
+  const code = cause?.code ?? cause?.originalCode;
+  if (code !== 1644 && code !== "1644") return false;
+  const text = [cause?.message, cause?.originalMessage, e.message].filter((v) => typeof v === "string").join(" ");
+  return text.includes("p16:");
+}

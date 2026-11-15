@@ -1,6 +1,6 @@
 "use client";
 
-import { Archive, ArchiveRestore, KeyRound, RotateCw, ShieldCheck, UserRound } from "lucide-react";
+import { Archive, ArchiveRestore, KeyRound, RotateCw, ShieldCheck, Trash2, UserRound } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { PermissionMatrix } from "@/components/admin/permission-matrix";
@@ -8,6 +8,7 @@ import { FormError } from "@/components/form-error";
 import { Alert } from "@/components/ui/alert";
 import { AvatarUploader } from "@/components/branding/avatar-uploader";
 import { Button } from "@/components/ui/button";
+import { ConfirmNameDialog } from "@/components/ui/confirm-name-dialog";
 import { Dialog } from "@/components/ui/dialog";
 import { SaveBar } from "@/components/ui/save-bar";
 import { SelectField } from "@/components/ui/select-field";
@@ -35,6 +36,7 @@ import {
   type UserDraft,
   type UserField,
 } from "@/lib/users/form";
+import { userDeleteErrorOf, userDeleteState } from "@/lib/users/delete";
 import { changedKeys, forbiddenPermLabels, lockedKeys, normalize, permsForRole, type PermState } from "@/lib/users/permissions";
 import { StatusPill } from "../user-list";
 
@@ -77,6 +79,8 @@ export function UserEditor({
     if (focusErr) formRef.current?.querySelector<HTMLElement>('[aria-invalid="true"]')?.focus();
   }, [focusErr]);
 
+  const [deleting, setDeleting] = useState(false);
+  const deleteState = userDeleteState(saved, actor.permissions);
   const active = saved.status === "ACTIVE";
   const editable = canEdit && saved.canManage && active;
   const permsEditable = editable && !saved.isSelf;
@@ -176,20 +180,42 @@ export function UserEditor({
           </h1>
           <p className="mt-1 text-sm break-words text-fg-muted">{meta}</p>
         </div>
-        {canEdit &&
-          saved.canManage &&
-          !saved.isSelf &&
-          (active ? (
-            <Button variant="danger-ghost" onClick={() => setAction("deactivate")} disabled={busy} data-testid="user-deactivate">
-              <Archive aria-hidden className="size-4" />
-              {t("us.d.open")}
-            </Button>
-          ) : (
-            <Button variant="secondary" onClick={() => setAction("reactivate")} data-testid="user-reactivate">
-              <ArchiveRestore aria-hidden className="size-4" />
-              {t("us.r.open")}
-            </Button>
-          ))}
+        <div className="flex flex-wrap items-start gap-2">
+          {canEdit &&
+            saved.canManage &&
+            !saved.isSelf &&
+            (active ? (
+              <Button variant="danger-ghost" onClick={() => setAction("deactivate")} disabled={busy} data-testid="user-deactivate">
+                <Archive aria-hidden className="size-4" />
+                {t("us.d.open")}
+              </Button>
+            ) : (
+              <Button variant="secondary" onClick={() => setAction("reactivate")} data-testid="user-reactivate">
+                <ArchiveRestore aria-hidden className="size-4" />
+                {t("us.r.open")}
+              </Button>
+            ))}
+          {/* P16 (AC-241): kalıcı silme yalnız `users.delete` ile; etkin kullanıcıda pasif düğme + görünür neden */}
+          {deleteState !== "hidden" && (
+            <div className="flex flex-col items-start gap-1">
+              <Button
+                variant="danger-ghost"
+                onClick={() => setDeleting(true)}
+                disabled={deleteState === "needsPassive" || busy}
+                aria-describedby={deleteState === "needsPassive" ? "user-delete-why" : undefined}
+                data-testid="user-delete"
+              >
+                <Trash2 aria-hidden className="size-4" />
+                {t("us.x.open")}
+              </Button>
+              {deleteState === "needsPassive" && (
+                <p id="user-delete-why" className="max-w-56 text-xs text-fg-muted" data-testid="user-delete-why">
+                  {t("us.x.needsPassive")}
+                </p>
+              )}
+            </div>
+          )}
+        </div>
       </div>
 
       <div className="mt-4 flex flex-col gap-3">
@@ -326,6 +352,8 @@ export function UserEditor({
         <SaveBar dirty={dirty} busy={busy} formId={FORM_ID} onReset={reset} message={t("us.e.unsaved")} leaveBody={t("us.e.leaveBody")} />
       )}
 
+      <DeleteDialog open={deleting} user={saved} onClose={() => setDeleting(false)} />
+
       <StatusDialog
         action={action}
         user={saved}
@@ -428,6 +456,73 @@ function StatusDialog({
     >
       {error && <FormError error={error} />}
     </Dialog>
+  );
+}
+
+/**
+ * P16 (AC-241): kalıcı silme — ad yazarak onay → DELETE (If-Match + step-up, lib/api) → 204 → liste + toast. Hatalar
+ * diyalog içinde (`role=alert`): 409 (aktif / açık oturum), 404, step-up vazgeçme; bayat kayıtta "Sayfayı yenile".
+ */
+function DeleteDialog({ open, user, onClose }: { open: boolean; user: UserDetail; onClose: () => void }) {
+  const router = useRouter();
+  const toast = useToast();
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<UiError | null>(null);
+  const [fieldError, setFieldError] = useState<string | undefined>();
+  const [stale, setStale] = useState(false);
+
+  const close = () => {
+    setError(null);
+    setFieldError(undefined);
+    setStale(false);
+    onClose();
+  };
+  const run = async (confirmName: string) => {
+    setBusy(true);
+    setError(null);
+    setFieldError(undefined);
+    try {
+      await api<void>("DELETE", `/users/${user.id}`, { confirmName }, undefined, { headers: { "If-Match": userEtag(user.version) } });
+      toast(t("us.x.done"));
+      close();
+      router.replace("/users");
+      router.refresh();
+    } catch (e) {
+      if (isUnauthenticated(e)) return router.replace(EXPIRED_LOGIN_PATH);
+      const m = userDeleteErrorOf(e, t("us.x.notFound"));
+      if (m?.kind === "field") setFieldError(m.message);
+      else {
+        setStale(m?.kind === "stale");
+        setError(m ? { message: m.message, tone: "danger", requestId: e instanceof ApiError ? e.requestId : undefined } : toUiError(e));
+      }
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <ConfirmNameDialog
+      open={open}
+      onClose={close}
+      testId="user-delete-dialog"
+      title={t("us.x.title", { name: user.fullName })}
+      description={t("us.x.body")}
+      expectedName={user.fullName}
+      confirmLabel={t("us.x.confirm")}
+      busy={busy}
+      error={error}
+      fieldError={fieldError}
+      onTyped={() => setFieldError(undefined)}
+      errorAction={
+        stale && (
+          <Button variant="secondary" className="self-start" onClick={() => window.location.reload()} data-testid="user-delete-reload">
+            <RotateCw aria-hidden className="size-4" />
+            {t("us.x.reload")}
+          </Button>
+        )
+      }
+      onConfirm={(name) => void run(name)}
+    />
   );
 }
 

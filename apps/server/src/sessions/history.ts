@@ -1,6 +1,7 @@
 // Oturum geçmişi servisi (P8; AC-60..63, 124; mimari-api "Oturum geçmişi (P8)"). Kapsam her uçta `historyScope`.
 // Liste (filtreli, sayfalı), detay (onaylar, kontrol dönemleri, zaman çizelgesi izdüşümü, kalite, dosyalar),
 // not/ticket PATCH (audit'te not metni yok), CSV (formül kaçışı → RFC 4180; BOM, `;`, Europe/Istanbul).
+import { actorLabelOf } from "../audit/view.ts";
 import { Readable } from "node:stream";
 import {
   SESSION_CSV_ANONYMIZED,
@@ -241,7 +242,8 @@ async function buildDetail(
   const events = timelineRows.slice(0, SESSION_HISTORY_LIST_MAX);
   const userIds = new Set(events.flatMap((a) => (a.userId ? [a.userId] : [])));
   if (row.endedBy === "ADMIN" && row.terminatedBy) userIds.add(row.terminatedBy);
-  const names = new Map((await hrepo.userNames(db, [...userIds])).map((u) => [u.id, u.fullName]));
+  // P16 (AC-241, S16-1): aktör etiketi audit görünümüyle aynı kural (`actorLabelOf`): satırı yok/DELETED → "Silinmiş kullanıcı #X".
+  const users = new Map((await hrepo.userNames(db, [...userIds])).map((u) => [u.id, u]));
 
   let quality: SessionHistoryDetail["quality"] = null;
   if (row.qualitySummary !== null) {
@@ -264,7 +266,9 @@ async function buildDetail(
     const details = projectDetails(a.action, a.oldValue, a.newValue);
     const actorName =
       actor === "TECH" || actor === "ADMIN"
-        ? (names.get(a.userId ?? "") ?? null)
+        ? a.userId
+          ? actorLabelOf(a.userId, users)
+          : null
         : actor === "CUSTOMER" && !anonymized
           ? typeof details.name === "string"
             ? details.name
@@ -285,7 +289,8 @@ async function buildDetail(
     ...toListItem(row, scope, viewerId),
     customerEmail: anonymized ? null : row.customerEmail,
     note: anonymized ? null : row.note,
-    terminatedBy: row.endedBy === "ADMIN" && row.terminatedBy ? { id: row.terminatedBy, name: names.get(row.terminatedBy) ?? "" } : null,
+    terminatedBy:
+      row.endedBy === "ADMIN" && row.terminatedBy ? { id: row.terminatedBy, name: actorLabelOf(row.terminatedBy, users) } : null,
     quality,
     files: anonymized ? [] : collapseFileReports(files),
     consents: consents.map((c): SessionConsentRecord => ({

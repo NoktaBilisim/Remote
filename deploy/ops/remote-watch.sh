@@ -36,7 +36,7 @@ TAG=remote-watch
 WATCH_ENV_KEYS="WATCH_ALERT_CMD WATCH_REPEAT_MIN WATCH_DISK_MAX_PCT WATCH_CERT_MIN_DAYS WATCH_DEPLOY_DIR WATCH_PUBLIC_HOST
 WATCH_SERVICES WATCH_PROJECT WATCH_TURN_CONTAINER WATCH_TURN_TLS WATCH_TURN_CERT_FILE WATCH_LE_DIR WATCH_BACKUP_STATUS
 WATCH_BACKUP_DIR WATCH_DISK_PATHS WATCH_OFFSITE_REMIND_DAYS WATCH_TREE_DIR WATCH_TIMERS WATCH_TURN_CHECKS
-WATCH_GUEST_PREFIX_MAX WATCH_MYSQL_FAIL_MAX"
+WATCH_GUEST_PREFIX_MAX WATCH_MYSQL_FAIL_MAX WATCH_PURGE_CHECKS WATCH_PURGE_REPEAT_MIN"
 
 # P13c: isteğe bağlı örnek adı (2. argüman). Boş = prod (bugünkü adlar/yollar birebir).
 INST="${2:-}"
@@ -161,11 +161,16 @@ REMIND_DAYS="${WATCH_OFFSITE_REMIND_DAYS:-7}"
 # P14a A5 (AC-208/212; runbook §22): sayaç artış eşikleri. Pencere 15 dk / 1 sa (timer 10 dk -> en az pencere kadar).
 GP_MAX="${WATCH_GUEST_PREFIX_MAX:-20}"
 MF_MAX="${WATCH_MYSQL_FAIL_MAX:-10}"
+# P16 (mimari-e11 §7.7, S16-12; runbook §23.4): kalıcı silme alarmları. PURGE_REPEAT = SCHEDULED iş sürdükçe alarmın
+# yeniden gönderim aralığı (dk; 0 = her 10 dk'lık turda). PURGE_CHECKS=0 yalnız P16 öncesi server için.
+PURGE_CHECKS="${WATCH_PURGE_CHECKS:-1}"
+PURGE_REPEAT="${WATCH_PURGE_REPEAT_MIN:-0}"
 TREE="${WATCH_TREE_DIR-/opt/remote$S}"
 if [ -n "$INST" ]; then TIMERS="${WATCH_TIMERS:-remote-backup@$INST.timer}"; TURN_CHECKS="${WATCH_TURN_CHECKS:-0}"
 else TIMERS="${WATCH_TIMERS:-remote-turn-fw.timer remote-backup.timer}"; TURN_CHECKS="${WATCH_TURN_CHECKS:-1}"; fi
 case "$TURN_CHECKS" in 0|1) ;; *) die "WATCH_TURN_CHECKS 0 ya da 1 olmalı" ;; esac
-for v in REPEAT_MIN DISK_MAX CERT_DAYS REMIND_DAYS GP_MAX MF_MAX; do
+case "$PURGE_CHECKS" in 0|1) ;; *) die "WATCH_PURGE_CHECKS 0 ya da 1 olmalı" ;; esac
+for v in REPEAT_MIN DISK_MAX CERT_DAYS REMIND_DAYS GP_MAX MF_MAX PURGE_REPEAT; do
   case "${!v}" in ''|*[!0-9]*) die "WATCH_${v} sayı olmalı (bulunan: ${!v})" ;; esac
 done
 for c in docker systemctl curl openssl df timeout awk; do command -v "$c" >/dev/null 2>&1 || die "'$c' bulunamadı"; done
@@ -227,6 +232,9 @@ else
   ls_="$(prom remote_backup_last_success_timestamp_seconds)"
   age_ok "$ls_" || fail backup-age "son başarılı yedek 26 saatten eski (${ls_:-yok})"
   [ "$(prom remote_backup_audit_continuity_ok)" = 1 ] || fail audit-continuity "remote_backup_audit_continuity_ok != 1"
+  # P16 (S16-13): yedekteki imha defteri eklenebilirlik denetimi. Metrik yoksa (P16 öncesi backup.sh) değerlendirilmez.
+  lo_="$(prom remote_backup_ledger_ok)"
+  if [ -n "$lo_" ]; then seen ledger-backup; [ "$lo_" = 1 ] || fail ledger-backup "remote_backup_ledger_ok != 1 (defter kısaldı/değişti/yok; runbook §23.6)"; fi
   if [ "$(prom remote_backup_offsite_configured)" = 1 ]; then
     os_="$(prom remote_backup_offsite_last_success_timestamp_seconds)"
     age_ok "$os_" || fail offsite "site dışı kopya 26 saatten eski (rc=$(prom remote_backup_offsite_last_rc))"
@@ -235,14 +243,14 @@ fi
 
 # Saklama işi (runbook §18.6 mantığı): metrik + süreç yaşı; hata sayacı son 24 saatte arttıysa alarm.
 seen retention
-RET_FC=""; R_GP=""; R_MF=""
+RET_FC=""; R_GP=""; R_MF=""; P_SCH=""; P_FAIL=""; P_RUN=""; P_HB=""; O_LAST=""; O_CIRC=""; L_FAIL=""; st_epoch="$NOW"
 if [ -n "$SERVER_C" ]; then
   # 3./4. alan (P14a A5): rs_guest_code_rate_limited_total{scope="prefix"} ve rs_mysql_test_failed_total (tüm class) toplamı;
   # seri yoksa "-" (metrik henüz yayında değil -> değerlendirilmez).
-  rt="$(timeout 20 docker exec "$SERVER_C" node -e "const sum=(t,re)=>{let n=0,k=0;for(const x of t.matchAll(re)){n+=Number(x[1]);k++}return k?String(n):'-'};fetch('http://127.0.0.1:3001/metrics',{headers:{authorization:'Bearer '+(process.env.METRICS_TOKEN||'')}}).then(r=>r.text()).then(t=>{const m=t.match(/^rs_retention_last_success_timestamp_seconds (\S+)/m);const f=t.match(/^rs_retention_failures_total (\S+)/m);console.log((m?m[1]:'yok')+' '+(f?f[1]:'0')+' '+sum(t,/^rs_guest_code_rate_limited_total\{[^}]*scope=\"prefix\"[^}]*\} (\S+)/gm)+' '+sum(t,/^rs_mysql_test_failed_total(?:\{[^}]*\})? (\S+)/gm))}).catch(()=>console.log('yok 0'))" 2>/dev/null)" || rt="yok 0"
+  rt="$(timeout 20 docker exec "$SERVER_C" node -e "const sum=(t,re)=>{let n=0,k=0;for(const x of t.matchAll(re)){n+=Number(x[1]);k++}return k?String(n):'-'};fetch('http://127.0.0.1:3001/metrics',{headers:{authorization:'Bearer '+(process.env.METRICS_TOKEN||'')}}).then(r=>r.text()).then(t=>{const m=t.match(/^rs_retention_last_success_timestamp_seconds (\S+)/m);const f=t.match(/^rs_retention_failures_total (\S+)/m);console.log([m?m[1]:'yok',sum(t,/^rs_retention_failures_total(?:\{[^}]*\})? (\S+)/gm).replace('-','0'),sum(t,/^rs_guest_code_rate_limited_total\{[^}]*scope=\"prefix\"[^}]*\} (\S+)/gm),sum(t,/^rs_mysql_test_failed_total(?:\{[^}]*\})? (\S+)/gm),sum(t,/^rs_tenant_purge_jobs\{[^}]*=\"SCHEDULED\"[^}]*\} (\S+)/gm),sum(t,/^rs_tenant_purge_jobs\{[^}]*=\"FAILED\"[^}]*\} (\S+)/gm),sum(t,/^rs_tenant_purge_jobs\{[^}]*=\"RUNNING\"[^}]*\} (\S+)/gm),sum(t,/^rs_tenant_purge_last_heartbeat_seconds(?:\{[^}]*\})? (\S+)/gm),sum(t,/^rs_orphan_scan_last_success_timestamp_seconds(?:\{[^}]*\})? (\S+)/gm),sum(t,/^(?:rs_orphan_scan_circuit_open_total(?:\{[^}]*\})?|rs_orphan_files_total\{[^}]*action=\"circuit_open\"[^}]*\}) (\S+)/gm),sum(t,/^rs_erasure_ledger_write_failed_total(?:\{[^}]*\})? (\S+)/gm)].join(' '))}).catch(()=>console.log('yok 0'))" 2>/dev/null)" || rt="yok 0"
   started="$(docker inspect -f '{{.State.StartedAt}}' "$SERVER_C" 2>/dev/null)"
   st_epoch="$(date -d "$started" +%s 2>/dev/null || echo "$NOW")"
-  read -r r_last r_fail R_GP R_MF _ <<<"$rt"
+  read -r r_last r_fail R_GP R_MF P_SCH P_FAIL P_RUN P_HB O_LAST O_CIRC L_FAIL _ <<<"$rt"
   r_last="${r_last%.*}"; r_fail="${r_fail%.*}"
   # S14-2: konteyner çıktısı güvenilmez; $(( )) bash aritmetiği `a[$(komut)]` ile komut çalıştırır -> yalnız ^[0-9]+$ girer.
   [[ "$st_epoch" =~ ^[0-9]+$ ]] || { err "UYARI: server başlangıç zamanı geçersiz; şimdi varsayıldı"; st_epoch="$NOW"; }
@@ -251,6 +259,30 @@ if [ -n "$SERVER_C" ]; then
   elif ! [[ "$r_last" =~ ^[0-9]+$ ]]; then err "UYARI: rs_retention_last_success_timestamp_seconds geçersiz"; fail retention "rs_retention metrik değeri geçersiz"
   elif [ $((NOW - st_epoch)) -ge 93600 ] && [ $((NOW - r_last)) -ge 93600 ]; then fail retention "26 saattir başarılı saklama turu yok"; fi
   RET_FC="$r_fail"
+fi
+num() { [[ "${1%.*}" =~ ^[0-9]+$ ]] && echo "${1%.*}"; }
+
+# P16 kalıcı silme (mimari-e11 §7.3/§7.6/§7.7, ADR-0030 m.5/m.9; runbook §23.4). Değerler yalnız ^[0-9]+ ise kullanılır (S14-2).
+# Metrik sözleşmesi: rs_tenant_purge_jobs{state|role="<DURUM>"} gösterge; rs_tenant_purge_last_heartbeat_seconds (epoch ya
+# da yaş sn; > 1e9 epoch sayılır); rs_orphan_scan_last_success_timestamp_seconds; rs_orphan_scan_circuit_open_total ya da
+# rs_orphan_files_total{action="circuit_open"}; rs_erasure_ledger_write_failed_total. "-" = seri yok.
+up_s=$((NOW - st_epoch))
+if [ -n "$SERVER_C" ] && [ "$PURGE_CHECKS" = 1 ] && [[ "${r_last:-yok}" != yok ]]; then
+  seen p16-metrics; seen purge-scheduled; seen purge-failed; seen purge-heartbeat; seen orphan-scan; seen orphan-circuit; seen ledger-write
+  P_SCH="$(num "${P_SCH:--}")"; P_FAIL="$(num "${P_FAIL:--}")"; P_RUN="$(num "${P_RUN:--}")"; P_HB="$(num "${P_HB:--}")"
+  O_LAST="$(num "${O_LAST:--}")"; O_CIRC="$(num "${O_CIRC:--}")"; L_FAIL="$(num "${L_FAIL:--}")"
+  miss=""; [ -n "$P_SCH" ] || miss="rs_tenant_purge_jobs"; [ -n "$L_FAIL" ] || miss="${miss:+$miss,}rs_erasure_ledger_write_failed_total"
+  [ -z "$miss" ] || fail p16-metrics "metrik yok: $miss (P16 server mı? değilse WATCH_PURGE_CHECKS=0)"
+  [ "${P_SCH:-0}" -eq 0 ] || fail purge-scheduled "$P_SCH firma silme işi SCHEDULED (24 sa iptal penceresi; beklenmiyorsa panelden İptal et)"
+  [ "${P_FAIL:-0}" -eq 0 ] || fail purge-failed "$P_FAIL firma silme işi FAILED (invalid_job/db_*/fs; runbook §23.3)"
+  if [ "${P_RUN:-0}" -gt 0 ]; then
+    if [ -z "$P_HB" ]; then fail purge-heartbeat "RUNNING iş var, heartbeat metriği yok"
+    else hb_age="$P_HB"; [ "$P_HB" -lt 1000000000 ] || hb_age=$((NOW - P_HB))
+      [ "$hb_age" -le 1800 ] || fail purge-heartbeat "RUNNING iş heartbeat ${hb_age} sn (> 30 dk)"; fi
+  fi
+  if [ "$up_s" -ge $((8 * DAY)) ] && { [ -z "$O_LAST" ] || [ $((NOW - O_LAST)) -ge $((8 * DAY)) ]; }; then
+    fail orphan-scan "8 gündür başarılı yetim dosya taraması yok"
+  fi
 fi
 
 # Sertifikalar: LE web (nginx), LE remote-turn, coturn'ün dağıtılmış dosyası ve 5349'dan sunulan.
@@ -306,7 +338,8 @@ STATE="$STATE_DIR/state"
 st_get() { [ -f "$STATE" ] && sed -n "s/^$1=//p" "$STATE" | tail -1; }
 prev_fail="$(st_get failing)"; last_sent="$(st_get last_sent)"; remind="$(st_get offsite_remind)"
 prev_rfc="$(st_get retention_fail_count)"; prev_rfa="$(st_get retention_fail_at)"
-samples="$(st_get counter_samples)"
+samples="$(st_get counter_samples)"; purge_sent="$(st_get purge_sent)"
+case "$purge_sent" in ''|*[!0-9]*) purge_sent=0 ;; esac
 case "$last_sent" in ''|*[!0-9]*) last_sent=0 ;; esac
 case "$remind" in ''|*[!0-9]*) remind=0 ;; esac
 
@@ -319,10 +352,27 @@ if [ -n "$RET_FC" ] && [[ "$RET_FC" =~ ^[0-9]+$ ]]; then
   [ $((NOW - prev_rfa)) -ge "$DAY" ] || fail retention "rs_retention_failures_total son 24 saatte arttı"
 fi
 
+# P16: devre kesici ve defter yazım hatası sayaçları — artıştan sonra 24 saat alarm (süreç yeniden başlarsa sayaç sıfırlanır,
+# alarm yine 24 saat sürer). Defter yazım hatası ayrıca sayaç > 0 oldukça sürer (eksik satır elle eklenmeli; runbook §23.4).
+bump() {  # bump <ad> <değer> <önceki> <önceki artış anı> -> "<önceki> <artış anı>" yazar
+  local cur="$2" pc="$3" pa="$4"
+  [[ "$pc" =~ ^[0-9]+$ ]] || pc="$cur"; [[ "$pa" =~ ^[0-9]+$ ]] || pa=0
+  if [ "$cur" -gt "$pc" ] || { [ "$cur" -lt "$pc" ] && [ "$cur" -gt 0 ]; }; then pa="$NOW"; fi
+  echo "$cur $pa"
+}
+oc_prev="$(st_get orphan_circuit)"; lw_prev="$(st_get ledger_write)"
+if [ -n "$O_CIRC" ]; then
+  read -r a b <<<"$(bump orphan-circuit "$O_CIRC" "${oc_prev% *}" "${oc_prev#* }")"; oc_prev="$a $b"
+  [ $((NOW - b)) -ge "$DAY" ] || fail orphan-circuit "yetim tarama devre kesici açıldı (silme yapılmadı; runbook §23.4)"
+fi
+if [ -n "$L_FAIL" ]; then
+  read -r a b <<<"$(bump ledger-write "$L_FAIL" "${lw_prev% *}" "${lw_prev#* }")"; lw_prev="$a $b"
+  { [ "$L_FAIL" -eq 0 ] && [ $((NOW - b)) -ge "$DAY" ]; } || fail ledger-write "rs_erasure_ledger_write_failed_total=$L_FAIL (defter satırı yazılamadı; runbook §23.4)"
+fi
+
 # P14a A5 (AC-208/212): sayaç örnekleri "ts:prefix:mysql" (90 dk tutulur). Artış = pencere başından (pencereden eski en
 # yeni örnek; yoksa en eski) bugüne ardışık farkların toplamı; azalma = süreç yeniden başladı -> yeni değer artış sayılır.
 seen guest-code-prefix; seen mysql-test-failed
-num() { [[ "${1%.*}" =~ ^[0-9]+$ ]] && echo "${1%.*}"; }
 gp="$(num "$R_GP")"; mf="$(num "$R_MF")"
 kept=""
 for x in $samples; do IFS=: read -r ts _ _ <<<"$x"; [[ "$ts" =~ ^[0-9]+$ ]] && [ $((NOW - ts)) -le 5400 ] && kept="${kept:+$kept }$x"; done
@@ -363,8 +413,10 @@ for n in $prev_fail; do case " $cur " in *" $n "*) ;; *) fixed="${fixed:+$fixed 
 # keep = bir sonraki koşunun "önceki bozuk küme"si. Gönderim başarısızsa yeni kontroller "yeni" kalır, düzelenler yeniden
 # denenir (alarm komutu geçici olarak çalışmıyorsa mesaj kaybolmaz).
 keep="$cur"
-if [ -n "$cur" ] && { [ -n "$new" ] || [ $((NOW - last_sent)) -ge $((REPEAT_MIN * 60)) ]; }; then
-  if send "remote-watch${INST:+[$INST]} $H: ALERT ${cur// /,}"; then last_sent="$NOW"
+# S16-12: SCHEDULED iş sürdükçe alarm PURGE_REPEAT dakikada bir (vars. her tur) yeniden gönderilir.
+force=0; case " $cur " in *" purge-scheduled "*) [ $((NOW - purge_sent)) -lt $((PURGE_REPEAT * 60)) ] || force=1 ;; esac
+if [ -n "$cur" ] && { [ -n "$new" ] || [ "$force" = 1 ] || [ $((NOW - last_sent)) -ge $((REPEAT_MIN * 60)) ]; }; then
+  if send "remote-watch${INST:+[$INST]} $H: ALERT ${cur// /,}"; then last_sent="$NOW"; [ "$force" = 0 ] && [ -z "$new" ] || purge_sent="$NOW"
   else keep=""; for n in $cur; do case " $new " in *" $n "*) ;; *) keep="${keep:+$keep }$n" ;; esac; done; fi
 fi
 if [ -n "$fixed" ]; then
@@ -381,8 +433,8 @@ if [ -f "$BSTATUS" ] && [ "$(prom remote_backup_offsite_configured)" = 0 ]; then
 fi
 
 tmp="$STATE.tmp.$$"
-printf 'failing=%s\nlast_sent=%s\noffsite_remind=%s\nretention_fail_count=%s\nretention_fail_at=%s\ncounter_samples=%s\n' \
-  "$keep" "$last_sent" "$remind" "${prev_rfc:-}" "${prev_rfa:-}" "$samples" >"$tmp" && mv -f "$tmp" "$STATE"
+printf 'failing=%s\nlast_sent=%s\noffsite_remind=%s\nretention_fail_count=%s\nretention_fail_at=%s\ncounter_samples=%s\npurge_sent=%s\norphan_circuit=%s\nledger_write=%s\n' \
+  "$keep" "$last_sent" "$remind" "${prev_rfc:-}" "${prev_rfa:-}" "$samples" "$purge_sent" "${oc_prev:-}" "${lw_prev:-}" >"$tmp" && mv -f "$tmp" "$STATE"
 tmp="$STATE_DIR/status.prom.tmp.$$"
 {
   echo "# $TAG (mimari-p13 §7.8); sır yok"

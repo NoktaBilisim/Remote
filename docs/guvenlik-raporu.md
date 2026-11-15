@@ -5394,3 +5394,163 @@ S15-6 seçenek (a) ile fail-closed kapatıldı: `requests/panel.ts` `acceptReque
 `ACCEPT_CODE_CLIENT_UNSUPPORTED` ile reddeder; talep PENDING kalır, oturum açılmaz, audit `request.accepted`
 `result:"fail"`, `reason:"client_unsupported"`. Kodsuz geçiş dalı kaldırıldı. Int testleri: ayar açık + 0.10.4 → 409,
 ayar kapalı + 0.10.4 → normal kabul, 0.11.0 akışı değişmedi (test:int 636 geçti). Durum: **Kapandı**. S15-4 gereksinimler §9'da.
+
+---
+
+## P16 — kod turu 1
+
+Kapsam: commit edilmemiş P16 değişiklikleri (git diff + untracked): `users/{routes,service,repo}.ts`, `tenants/{routes,purge-service}.ts`, `jobs/{tenant-purge,tenant-purge-repo,orphan-scan,retention*}.ts`, `ops/erasure-ledger.ts`, `cli/erasure.ts`, `audit/{view,read,repo}.ts`, `auth/repo.ts`, migration `20261118000000_p16_hard_delete`, `grants.sql`, `deploy/backup/{lib-ledger,backup,restore}.sh`, web `admin/tenants/[id]`, `confirm-name-dialog`, `purge-banner`. Kaynaklar: ADR-0030 r2, mimari-e11 §7, implementation.md P16 G1–G7 kanıt tabloları, db-notlari P16, runbook §23.
+
+DURUM: GEÇTİ (Kritik 0 / Yüksek 0 / Orta 1 / Düşük 3)
+
+### Bulgular (öncelik sırasıyla)
+
+### [ORTA] S16-16 `erasure:replay` defter satırlarına koşulsuz güveniyor; tetikleyiciden muaf yolla aktif firma ve Super Admin hedeflenebilir — A08 Data Integrity / A04
+
+Yer: `apps/server/src/cli/erasure.ts:46-77` (`replayTenant`), `:27-43` (`replayUser`); `deploy/backup/lib-ledger.sh` `ledger_live_reconcile` (canlı defter yedeği kapsıyorsa canlı defter korunur); defteri yazan süreç server (`ops/erasure-ledger.ts`, volume rw).
+
+Sorun:
+
+- Replay `migrator` ile çalışır ve P16 tetikleyicilerinden muaftır. Defterdeki her `tenant` kimliği için firma durumuna bakmadan `status='PASSIVE', passive_at = UTC − 30 g − 1 sa` yazar ve doğrudan `RUNNING` iş açar (24 saatlik pencere, önizleme, step-up, alarm penceresi yok). Yürütücü 60 sn içinde firmanın tamamını siler.
+- `replayUser` rol ve firma süzmez: `role = 'SUPER_ADMIN'` ve `tenant_id IS NULL` satırlar da mezar taşına çevrilir (normal yolda DB ve servis bunu hiç izin vermez).
+- Defterin bütünlük denetimi (`backup.sh` ön ek kontrolü) yalnız "kısalmadı/değişmedi" garantisi verir; yeni eklenen satırın meşru olduğunu doğrulamaz. Server süreci (`app` kimliği, node kullanıcısı) defter dosyasına satır ekleyebilir.
+- Tasarım turu 2 "Olumlu" maddesindeki garanti ("`app` ele geçirilse bile 24 sa + 30 g beklemesi DB'de garanti") geri yükleme anında bu yoldan aşılır.
+
+İstismar senaryosu: Server süreci ele geçirilir (RCE ya da konteyner erişimi). Saldırgan deftere `{"v":1,"type":"tenant","id":"<aktif firma>","jobId":"<ULID>","phase":"done","at":"..."}` ve `{"v":1,"type":"user","id":"<Super Admin id>","at":"..."}` satırlarını ekler (geçerli JSONL; `backup.sh` ok verir). Bir sonraki geri yüklemede (`restore.sh` canlı adım 2) replay aktif firmayı pasif + 30 gün eskiymiş gibi yazar, RUNNING iş açar, Super Admin hesabını mezar taşına çevirir. Server açılınca firma geri dönüşsüz silinir. Ön koşul: app ele geçirme + bir geri yükleme olayı, bu yüzden Orta.
+
+Düzeltme (atanan: backend-dev; runbook satırı devops):
+
+- `replayTenant`: firma geri yüklenen DB'de `PASSIVE` değilse uygulama; `reddedilen_firma` sayacına ekle ve CLI'yi ayrı bir çıkış koduyla (ör. 3) bitir. Meşru durumda firma silme 30 g pasiflik + 24 sa gerektirdiği, yedek de ≤ 14 g olduğu için geri yüklenen DB'de firma zaten PASSIVE'tir (passive_at ≥ 16 g önce). Ek koşul: `passive_at <= UTC − 16 g` ya da firmanın `tenant_purge_jobs` satırı var.
+- `replayUser`: `WHERE ... AND role <> 'SUPER_ADMIN' AND tenant_id IS NOT NULL` ekle; reddedileni say.
+- Reddedilen kayıt varsa `restore.sh` server'ı başlatmasın, runbook §23.5'e elle karar adımı eklensin ("defter satırı geri yüklenen DB ile tutarsız — kurcalama şüphesi").
+- Test: aktif firma ve Super Admin içeren sahte defter satırı → 0 değişiklik, rc ≠ 0, audit `erasure.replayed` içinde `rejected` sayısı.
+
+### [DÜŞÜK] S16-17 Kullanıcı silmede kapsam dışı Super Admin kimliği 403 ile ayırt edilebiliyor — A01
+
+Yer: `apps/server/src/users/service.ts` `purgeUser` (`repo.readRole` kapsamsız, `loadOrThrow`'dan önce).
+
+Sorun: Rol kontrolü kapsam kontrolünden önce yapılıyor. `users.delete` + step-up'lı bir firma Admin'i, rastgele bir kimlik için 403 ("Super Admin hesabı bu yolla silinemez") ya da 404 alarak kimliğin Super Admin olup olmadığını öğrenir. Ayrıca kendi firmasının audit'ine Super Admin kimliğiyle `user.deleted fail` satırı yazdırabilir. ULID tahmin edilemez, bu yüzden etki düşük.
+
+Düzeltme (backend-dev): önce `loadOrThrow(tx, scope, id)` (kapsam dışı → 404), sonra rol kontrolü. Super Admin `tenant_id` NULL olduğundan kapsamlı sorgu zaten 404 döner; `readRole` yalnız avatar yolu için kalabilir.
+
+### [DÜŞÜK] S16-18 İmha defterinde çökme penceresi: `started` ve kullanıcı satırı commit'ten sonra yazılıyor — A08
+
+Yer: `jobs/tenant-purge.ts:131-140` (`started` yalnız aynı turda SCHEDULED→RUNNING yapıldıysa), `users/service.ts` `purgeUser` sonu (defter commit sonrası).
+
+Sorun: Süreç `start()` commit'i ile `appendLedger` arasında çökerse iş RUNNING olarak sürer ama `started` satırı bir daha yazılmaz (sonraki turda `started = false`). Kullanıcı silmede commit ile defter yazımı arasındaki çökmede ise defterde hiç satır olmaz; bu durum yazım hatası alarmını da üretmez. O aralıkta alınan yedekten geri yüklemede silme geri gelir. Olasılık düşük (S16-13'ün kalan payı).
+
+Düzeltme (backend-dev): firma için `job.step === "FENCE"` olan her turda `started` satırını yaz (tekrar satır zararsız, replay idempotent). Kullanıcı için defter satırını TX'ten önce "niyet" olarak yaz: replay yalnız PASSIVE kullanıcıyı (S16-16 süzgeciyle) mezar taşına çevirdiği için erken yazım güvenlidir.
+
+### [DÜŞÜK] S16-19 Maskeli audit satırında IP/UA ve izinli listede olmayan değer anahtarları açık kalıyor — A02/KVKK
+
+Yer: `audit/read.ts` `toItem` (`ipAddress`, `userAgent` maskeden bağımsız); `contracts/src/audit.ts` `AUDIT_IDENTITY_KEYS` (kara liste: email, fullName, username, name, contactName, phone, customerName, customerEmail, recipient).
+
+Sorun: Kimlik maskesi satır düzeyinde fail-closed, ama değer düzeyinde kara listeye dayanıyor. Gelecekte eklenecek bir kimlik anahtarı (ör. `technicianName`, `displayName`) maskelenmez. Silinmiş kullanıcının IP adresi ve tarayıcı bilgisi 730 gün boyunca liste ve CSV'de görünür. ADR-0030 m.4 IP'den söz etmiyor. Güvenlik kaydı için meşru menfaat gerekçesi olabilir, ancak bu karar yazılı değil.
+
+Düzeltme (mimar → backend-dev): IP/UA'nın maskeli satırda tutulma kararı ADR-0030 m.4'e yazılsın (tutulacaksa gerekçe, tutulmayacaksa `/24` kesme). Meta-test eklensin: `writeAudit` çağrılarındaki `newValue`/`oldValue` anahtarlarından `name|email|phone|user` içerenler `AUDIT_IDENTITY_KEYS` içinde olsun.
+
+### S16-1..15 kodda doğrulama
+
+| Bulgu          | Durum                                  | Kodda kanıt                                                                                                                                                                                                                            |
+| -------------- | -------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| S16-1          | Kapandı                                | `audit/view.ts` `identityView`: kullanıcı yok/DELETED, `entity=users` hedefi yok/DELETED ya da firma satırı yok → maske; `repo.listAudit` firma adını ayrı `IN` ile alıyor; CSV `tenantLabel`; zaman çizelgesi `actorLabelOf`          |
+| S16-2          | Kapandı                                | CHECK `tenant_purge_jobs_tenant_id_fmt_chk` (Crockford ULID, `'c'`); `tenant-purge.ts` `eligible()` her `runJob` başında DB saatiyle; `filesStep` `TENANT_PREFIX_RE` + `absDir` (resolve + kök altı); `rm` sembolik bağlantıyı izlemez |
+| S16-3          | Kapandı                                | `*_update_guard` ×3: tek seferlik, `[−1 g, +1 dk]`, NULL'lama yok                                                                                                                                                                      |
+| S16-4          | Kapandı (e-posta "Sonra")              | Insert guard `scheduled_for = DB + 24 sa`; SCHEDULED→RUNNING yalnız süre dolunca; iptal ucu step-up; PURGING yalnız RUNNING                                                                                                            |
+| S16-5 / S16-13 | Kapandı, kalan pay S16-16/S16-18       | Defter DB dışında, `started` + `done`; backup ön ek denetimi; restore'da replay + verify yoklaması                                                                                                                                     |
+| S16-6          | Kapandı                                | HMAC: firma, aktör, `sessionId`, `passive_at`, açık iş `id:updated_at`, exp; `preview_hash` UQ; previewId audit/log'da yok                                                                                                             |
+| S16-7          | Kapandı                                | `auth/repo.ts` `findUserByLogin` `status <> DELETED`                                                                                                                                                                                   |
+| S16-8          | Kapandı                                | Kesme SQL'de `UTC_TIMESTAMP(3) − 30 g − 1 sa`                                                                                                                                                                                          |
+| S16-9          | Kapandı                                | `orphan-scan.ts` devre kesici (boş referans / > %20), 7 g gecikme, `UPLOAD_REFERENCE_SOURCES` meta-testi                                                                                                                               |
+| S16-10         | Kapandı                                | `tenant_purge_jobs_delete_guard` (DONE/CANCELLED + 730 g); `tenants_update_guard` SCHEDULED/RUNNING/FAILED'de durum değişimi SIGNAL                                                                                                    |
+| S16-11         | Kapandı                                | Tetikleyici 22 bütün tüketicilerde; FK RESTRICT meta-testi                                                                                                                                                                             |
+| S16-12         | Kodda kapandı, **prod ön koşulu açık** | `remote-watch.sh` `purge-scheduled` her turda yineliyor; `WATCH_ALERT_CMD` kanalı kullanıcıda                                                                                                                                          |
+| S16-14         | Kapandı                                | `requests/repo.ts`, `bindings/repo.ts` damgaları DB saatiyle                                                                                                                                                                           |
+| S16-15         | Kapandı                                | Update guard: adım yalnız +1; `tenant_row_deleted_at` yalnız TENANT_ROW'da, firma satırı yokken, DB saatiyle                                                                                                                           |
+
+### Odak noktalarında doğrulananlar (bulgu yok)
+
+- **Yetki:** `DELETE /users/:id` sırası şöyle: yazma hızı → `users.delete` → step-up → If-Match 428 → zod → TX içinde aktör yeniden okunuyor, kendi hesabı/üst yetkili hedef 403, ACTIVE/açık oturum 409, sürüm 409, ad onayı 400. Mezar taşı tek UPDATE (`WHERE id, version, status='PASSIVE'`). Firma uçları `adminTenantRoutes` içinde (`requireAuth` + `requireSuperAdmin` + 30/dk yazma kovası). Zamanlama `dryRun !== true` iken gövde ayrıştırılmadan önce step-up istiyor; iptal de step-up istiyor.
+- **IDOR / tenant:** kullanıcı silme `tenantScope` + `loadOrThrow` ile çalışıyor. `listDeletedOptions` kapsamlı ve USER rolüne kapalı. Firma uçları Super Admin'e özel; `idParam` ULID şemasından geçiyor.
+- **Yanlış hedef:** `tenant_id='system'`/`..` CHECK'e takılıyor. `absDir` kök dışını reddediyor. `tenantFiles` sembolik bağlantıyı saymıyor. Aktif firmada DB tetikleyicileri bütün koşullu DELETE'leri SIGNAL ile durduruyor (COALESCE fail-closed). `users_delete_guard` Super Admin'i (`tenant_id NULL`) hiçbir zaman silmiyor. FENCE `USERS_OF` Super Admin'e dokunmuyor, yalnız `acting_tenant_id`'yi NULL yapıyor.
+- **Tetikleyiciler:** muafiyet `USER()` ile, `app`'te TRIGGER/ALTER/DROP yok (`grants.sql` REVOKE). Yeni DELETE yetkisi verilen 8 tablonun hepsinde BEFORE DELETE tetikleyicisi var. Durum geçişleri ve sabit sütunlar update guard'da zorlanıyor.
+- **PII:** `user.deleted` / `tenant.*` audit değerleri yalnız sayı ve kimlik. `last_error` CHECK `^[a-z_]{1,60}$` (ham hata metni yok). CLI çıktısı yalnız sayı. Defter satırı PII'siz ve sıkı ayrıştırılıyor. Metrik etiketleri sabit tablo adları.
+- **SQL enjeksiyonu:** `Prisma.raw` yalnız sabit tablo adlarıyla, kimlikler bağlı parametre. `ledger_pending_sql` kimlikleri ULID süzgecinden geçirdikten sonra kullanıyor.
+- **Betikler:** `ledger_read` ağsız, salt okunur, `cap-drop ALL`, sembolik bağlantıda rc 3. Gerekçe metni kontrol karakteri ve uzunluk denetiminden geçiyor ve `jq --arg` ile yazılıyor. Marker root 600 değilse yok sayılıyor. shellcheck temiz (G7 kaydı).
+- **DoS:** partiler 500 satır, tur başına tek iş, `purge-jobs` ≤ 100, bant yoklaması 60 sn. Önizleme sayımları Super Admin + 30/dk kovası arkasında.
+- **Web:** kullanıcı/firma silme ad onay diyaloğu + step-up; previewId yalnız bellekte (localStorage/sessionStorage yok); `dangerouslySetInnerHTML` yok.
+
+### Otomatik tarama çıktıları
+
+- `pnpm audit --audit-level=moderate`: **No known vulnerabilities found**. Yeni bağımlılık yok (`apps/server/package.json` yalnız `"cli"` betiği; lockfile değişmedi).
+- Gizli bilgi taraması (yeni P16 dosyaları, desen `api_key|secret|password|token = '...'`): eşleşme yok. `.env` git geçmişinde yok.
+
+### Tasarımda vaat edilip kodda bulunmayanlar
+
+- Yok. S16-4'teki e-posta bildirimi ve S16-12'deki dış alarm kanalı bilinçli olarak "Sonra"ya / operasyona bırakıldı.
+
+### Prod ön koşulu
+
+- **S16-12 (Orta, açık):** `WATCH_ALERT_CMD` (WhatsApp/Telegram) kurulup staging'de "SCHEDULED iş → ≤ 10 dk dış kanala mesaj" kanıtlanmadan prod'da firma silme açılmamalı. Bu adım kullanıcıda.
+- S16-16 kod düzeltmesi prod'dan önce yapılmalı (önerilir). Kodlama ya da staging'i engellemez.
+
+### Olumlu
+
+- Savunma DB'de kurulmuş: 22 tetikleyici, fail-closed COALESCE, DB saati, durum makinesi ve adım +1 kuralı. Uygulama hatası ya da `app` ele geçirme normal yolda 24 sa + 30 g beklemeyi aşamıyor.
+- Önizleme ve silme aynı `DATA_STEPS` koşulunu kullanıyor (önizleme sayısı = silinen sayı). Çökme sürdürmesi commit'li adımdan devam ediyor.
+- `users.delete` migration'da sıfırlanmış ve sayımı audit'e yazılmış (eskiden açılmış toggle'ın kalıcı silme yetkisine dönüşmesi engellendi).
+
+Sonra (`docs/gereksinimler.md` §9 önerisi): S16-17, S16-18, S16-19.
+
+---
+
+## P16 — kod turu 2
+
+Kapsam: P16 düzeltme turu 1 (S16-16, S16-17, S16-18) ve web `admin/tenants/[id]` bölünmesi (`page`, `purge-panel`, `purge-dialog`, `purge-status-card`). Kod değiştirilmedi.
+
+DURUM: GEÇTİ (Kritik 0 / Yüksek 0 / Orta 0 / Düşük 1 yeni; S16-12 prod ön koşulu açık)
+
+### Tur 1 bulgularının durumu
+
+| Bulgu          | Durum                 | Kodda kanıt                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| -------------- | --------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| S16-16 (Orta)  | Kapandı               | `cli/erasure.ts`: `USER_OK` (`role <> 'SUPER_ADMIN' AND tenant_id IS NOT NULL`) hem `SELECT … FOR UPDATE` kararında hem mezar taşı `UPDATE`'inin `WHERE`'inde var. `TENANT_OK` = PASSIVE ve (`passive_at <= UTC − 16 g` ya da iş satırı var); `COALESCE(…, 0)` fail-closed. Red durumunda: uygulanmıyor, sayılıyor, audit `result: fail` + `rejectedUsers/rejectedTenants`, çıkış `EXIT.REJECTED = 3`. `lib-ledger.sh` `ledger_live_replay`: rc ≠ 0 → `check` FAIL → `verdict` `exit 1`, server başlatılmıyor. rc 3 için ayrı log. Runbook §23.5'te "rc 3 — elle karar (iki kişi)" var. `verify` reddedilenleri bekleyen saymıyor, ayrı yazıyor |
+| S16-17 (Düşük) | Kapandı               | `users/service.ts:590`: `loadOrThrow(tx, scope, id)` rol ve self kontrolünden önce. Super Admin (`tenant_id NULL`) ve başka firma 404 alıyor. Kapsamsız `readRole` kaldırılmış, avatar yolu `cur.avatarPath`'ten geliyor                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| S16-18 (Düşük) | Kapandı (sapma kabul) | Firma: `tenant-purge.ts:139` `step === "FENCE"` olan her turda `started` yazılıyor. Kullanıcı: bütün denetimler geçtikten sonra TX içinde `intent`, commit sonrası `done`. `parseLedgerLine` 4 anahtarlı eski satırı (= done) ve `intent/done`'u kabul ediyor, başka değeri reddediyor                                                                                                                                                                                                                                                                                                                                                          |
+| S16-19 (Düşük) | Sonra                 | Değişiklik yok (gereksinimler §9)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
+
+**S16-18 sapmasının değerlendirmesi:** Tur 1'de "TX'ten önce yaz" önerilmişti. Ekip niyet satırını TX içinde, denetimler geçtikten sonra yazıyor. Bu daha iyi bir seçim: reddedilecek istekler (403/404/409/400) deftere hiç girmiyor. Commit ile defter arasındaki çökme penceresi de kapanıyor. Kalan tek pay şu: niyet satırı yazıldıktan sonra TX geri alınabilir (sürüm yarışı, `tombstone` 0 satır, commit hatası). Bu durumda defterde uygulanmamış bir `intent` kalır. Bu pay aşağıdaki S16-20'de ele alındı.
+
+### Bulgular
+
+### [DÜŞÜK] S16-20 Replay koşulları meşru silmenin izinden biraz geniş: tek başına `intent` satırı ve CANCELLED iş — A08
+
+Yer: `apps/server/src/cli/erasure.ts` `USER_OK`, `TENANT_OK` (`EXISTS (SELECT 1 FROM tenant_purge_jobs j WHERE j.tenant_id = t.id)`); `idsOf` `phase` alanına bakmıyor.
+
+Sorun:
+
+- `done` satırı olmayan bir `intent` satırı (TX geri alınmış silme) da replay'de uygulanıyor. Kullanıcı sonradan yeniden etkinleştirilmiş olsa bile `USER_OK` durum koşulu taşımadığı için bir geri yüklemede ACTIVE kullanıcı mezar taşına çevrilir.
+- `TENANT_OK` içindeki `EXISTS` her durumdaki işi sayıyor, CANCELLED dahil. Yakın zamanda pasife alınmış (< 16 g), silmesi zamanlanıp iptal edilmiş bir firma, sahte bir defter satırıyla geri yükleme anında 24 sa penceresi olmadan silinebilir.
+- İkisi de ya nadir bir yarış ya da app ele geçirme + geri yükleme + belirli bir durum gerektiriyor. Ayrıca app ele geçirildiğinde kullanıcı mezar taşı zaten DB'de engellenmiyor (ACTIVE→DELETED uygulamada). Bu yüzden Düşük.
+
+Düzeltme (backend-dev):
+
+- Kullanıcı: yalnız `intent` satırı olan (aynı id için `done`/fazsız satır yok) kayıtta ek koşul `u.status = 'PASSIVE'`. Değilse "reddedilen" olarak sayılsın.
+- Firma: `EXISTS` koşulu `j.state IN ('SCHEDULED','RUNNING','FAILED','DONE')` olsun, CANCELLED sayılmasın.
+- Test: geri alınmış silme sonrası yeniden etkinleştirilmiş kullanıcı → reddedilir. Yalnız CANCELLED işi olan, 16 günden yeni pasif firma → reddedilir.
+
+### Web (purge-panel bölünmesi) — güvenlik açısından nötr
+
+- `purge-dialog.tsx` aynı uçları aynı gövdeyle çağırıyor: `POST /admin/tenants/:id/purge` `{dryRun:false, previewId, confirmName}`, iptal için `DELETE …/purge`. Step-up `api` istemcisinde.
+- `previewId` yalnız bileşen durumunda tutuluyor. `localStorage`/`sessionStorage`, `dangerouslySetInnerHTML`, `console.*` ve dinamik `href` yok.
+- 401 → oturum süresi doldu sayfası, 428 → önizleme yenileme davranışı korunmuş. Yetki ve hedef kararı tamamen sunucuda (Super Admin + step-up + `idParam` ULID), istemci bölünmesi bunu değiştirmiyor.
+
+### Otomatik tarama
+
+- Yeni bağımlılık yok. Tur 1'de `pnpm audit` temizdi ve lockfile değişmedi.
+
+### Prod ön koşulu
+
+- **S16-12 (Orta, açık):** `WATCH_ALERT_CMD` dış kanalı kurulup staging'de "SCHEDULED iş → ≤ 10 dk mesaj" kanıtlanmadan prod'da firma silme açılmamalı. Bu adım kullanıcıda.
+
+Sonra (`docs/gereksinimler.md` §9): S16-19, S16-20.

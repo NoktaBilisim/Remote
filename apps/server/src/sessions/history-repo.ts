@@ -233,7 +233,7 @@ export function auditsOf(
 export function userNames(db: DbOrTx, ids: readonly string[]) {
   return ids.length === 0
     ? Promise.resolve([])
-    : db.user.findMany({ where: { id: { in: [...ids] } }, select: { id: true, fullName: true } });
+    : db.user.findMany({ where: { id: { in: [...ids] } }, select: { id: true, fullName: true, status: true } });
 }
 
 /** Kapsam koşulu UPDATE'in kendisinde (§4); count 0 → 404. */

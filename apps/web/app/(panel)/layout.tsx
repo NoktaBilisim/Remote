@@ -5,11 +5,13 @@ import { StepUpProvider } from "@/components/account/step-up-dialog";
 import { LogoImage } from "@/components/brand-logo";
 import { LoadError } from "@/components/load-error";
 import { LobbyNotifier } from "@/components/lobby-notifier";
+import { PurgeBanner } from "@/components/purge-banner";
 import { RequestNotifier } from "@/components/request-notifier";
 import { TabTitle } from "@/components/tab-title";
 import { EXPIRED_LOGIN_PATH } from "@/lib/api";
 import { t } from "@/lib/i18n";
-import { gateOf, getMe } from "@/lib/server-api";
+import { gateOf, getMe, serverGet } from "@/lib/server-api";
+import type { PurgeJobsResponse } from "@/lib/tenants/purge";
 import { resolveTheme } from "@/lib/theme";
 import { LogoutButton } from "./logout-button";
 import { SessionWatch } from "./session-watch";
@@ -40,6 +42,8 @@ export default async function PanelLayout({ children }: { children: React.ReactN
   // P13b-L (AC-306, 310): lobi göstergesi yalnız `sessions.view`'e bağlı (talep yetkisinden bağımsız); firma seçmemiş
   // Super Admin'de çalışmaz (uç da 403). scopeKey değişirse (firma geçişi) temel çizgi yeniden alınır.
   const lobby = (permissions as readonly string[]).includes("sessions.view") && (!isSa || Boolean(actingTenant));
+  // P16 (AC-242): Super Admin silme bandının ilk değeri sunucuda (flaş yok); hata → bant yok, istemci yoklaması dener
+  const purge = isSa ? await serverGet<PurgeJobsResponse>("/admin/purge-jobs?open=1") : null;
 
   return (
     // P9: sağlayıcı tüm kabuğu sarar (üst menüdeki firma geçişi de toast gösterir)
@@ -90,6 +94,7 @@ export default async function PanelLayout({ children }: { children: React.ReactN
               <SessionWatch />
               {/* P14a (AC-215): hassas uçların 401 MFA_STEP_UP_REQUIRED yanıtında kod soran tek diyalog (lib/api kaydı) */}
               <StepUpProvider />
+              {isSa && <PurgeBanner initial={purge?.kind === "ok" ? purge.data.items : []} />}
               {children}
             </main>
           </div>

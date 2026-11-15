@@ -158,12 +158,14 @@ export async function passiveTenantsWithBindings(db: DbOrTx, take: number): Prom
   return rows.map((r) => r.tenantId);
 }
 
-/** Boşta kalma (V28): son kullanımdan `retention_days` geçmiş etkin kayıtlar — IX(revoked_at, last_used_at), partili. */
-export async function expireIdle(db: DbOrTx, tenantId: string, cutoff: Date, now: Date, limit: number): Promise<number> {
-  const r = await db.deviceBinding.updateMany({
-    where: { tenantId, revokedAt: null, lastUsedAt: { lte: cutoff } },
-    data: revokeData("EXPIRED", now),
-    limit,
-  });
-  return r.count;
+/**
+ * Boşta kalma (V28): son kullanımdan `retention_days` geçmiş etkin kayıtlar — IX(revoked_at, last_used_at), partili.
+ * S16-14 (P16 G2): `revoked_at` DB saatiyle (S16-3 tetikleyicisi `[UTC − 1 g, UTC + 1 dk]`); aday seçimi iş saatiyle
+ * (`cutoff`). `revokeData` ile aynı üçlü (revoked_at + revoke_reason + key_hash NULL; CHECK).
+ */
+export async function expireIdle(db: DbOrTx, tenantId: string, cutoff: Date, limit: number): Promise<number> {
+  return db.$executeRaw`UPDATE device_bindings
+    SET revoked_at = UTC_TIMESTAMP(3), revoke_reason = 'EXPIRED', key_hash = NULL, updated_at = UTC_TIMESTAMP(3)
+    WHERE tenant_id = ${tenantId} AND revoked_at IS NULL AND last_used_at <= ${cutoff}
+    LIMIT ${limit}`;
 }

@@ -25,6 +25,8 @@ const ALLOWED_KEYS: ReadonlySet<string> = new Set([
   "keyType",
   // P13a retention.run (mimari-p13 §2): yalnız satır sayısı; `token` kalıbına takılmasın.
   "resetTokens",
+  // P16 retention.run dry modu (AC-240): `purgeCandidates` nesnesi yalnız sayılar; `candidate` (ICE) kalıbına takılmasın.
+  "purgeCandidates",
   // P13b auth.superadmin_reset (mimari-p13 §7.7): boolean bayrak; `pass` kalıbına takılmasın (parola/hash hiç yazılmaz).
   "mustChangePassword",
   // S-P13b-3 WhatsApp servis anahtarı: yalnız var/yok ve değişti bayrakları (değer `apiKey: "***"`).

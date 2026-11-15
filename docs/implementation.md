@@ -5306,7 +5306,16 @@ AC-194 390 px taşma) → frontend-dev. Yeni `shellcheck + actionlint` işi bran
 
 ### Kararsız testler
 
-(Boş — AC-219. Kararsız test bulunursa: test adı, koşu/oran, kök neden, düzelten commit. Retry ile gizlemek yasak.)
+(AC-219. Kararsız test bulunursa: test adı, koşu/oran, kök neden, düzeltme, kanıt. Retry ile gizlemek yasak.)
+
+| Test                                                                                                                                             | Koşu / oran                                                    | Kök neden                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                | Düzeltme (yalnız test; ürün kodu değişmedi)                                                                                                                                                                                                                                                                                                                        | Kanıt                                                                                                                                                                                                                                                                                                                                                                                                                                           |
+| ------------------------------------------------------------------------------------------------------------------------------------------------ | -------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `retention-p13a-job.test.ts` › "AC-199: bir firmadaki hata diğer firmaları durdurmaz; fail audit + rs_retention_* metrikleri" (serial-retention) | stability run 43666304959 (`0dd1d99`): 19/20; düşen koşu 20/20 | **Zaman sınırı + önceki koşulardan kalan veri.** `RetentionJob.run()` DB'deki tüm `tenant_settings` satırlarını sırayla gezer (~3,5 ms/firma). `repeat-tests.sh` aynı DB'yi 20 kez kullanır; her `test:int` ~700 firma bırakır → 20. koşuda ~14 bin firma, tek tur ~50 sn. Bu test iki tur yapan tek test → 60 sn `testTimeout` aşıldı. Koşu süresinin 226 → 360 sn artışı (+~14 sn/koşu ≈ dosyadaki 8 tur × ~1,75 sn) aynı eğilim. CI günlüğünde yalnız test adı vardı (günlük dosyası runner'da kaldı); hata yerelde birebir üretildi. | Test dosyasında `requests/repo.ts` `retentionTenants` sarmalandı: gerçek sorgu çalışır, sonuç yalnız bu dosyanın `tenantWith()` ile oluşturduğu firmalara süzülür. Global adımlar (audit 730 g, giriş oturumu, sıfırlama bağlantısı) süzülmez. Süre artık DB'deki yabancı veriden bağımsız; fail-soft (bozuk + sağlam firma), metrik ve audit iddiaları değişmedi. | Yerel MySQL 8.4 (`rs-flaky199-6f06c7`), 1 tam `test:int` + 13.300 sentetik firma (= ~14 bin, 20. koşu eşdeğeri). **Önce:** dosya 359 sn, her `run()` ~49 sn, yalnız bu test `Error: Test timed out in 60000ms`. **Sonra:** aynı DB'de dosya 1,5 sn, 16/16; dosya tek başına **30/30 yeşil** (toplam 49 sn). Taze DB'de (çalışma ağacı P16 değişiklikleriyle) tam `test:int` **65 dosya / 636 test geçti**; ardından dosya yine **30/30 yeşil**. |
+| `account-p10.test.ts` › "AC-67: 2FA etkin girişte doğrulama aşaması; aynı kod ikinci kez kabul edilmez; …" (ve B-P10-9 içindeki geçerli kod)     | aralıklı (yaklaşık 30 sn'de bir dar pencere)                   | **30 sn TOTP adım sınırı.** "Tekrar" kodu duvar saatinden (`totpNow` = `stepOf(Date.now())`) üretiliyordu. `enable` adımı S'yi `totp_last_step`'e yazdıktan sonra sınır geçilirse `totpNow` S+1'in kodunu verir; bu kod yeni ve geçerli → 401 yerine 200.                                                                                                                                                                                                                                                                                | Kodlar sunucunun kaydettiği adımdan türetilir: `totpFromLastStep(userId, secret, 0)` = tekrar (reddedilmeli), `…, 1` = sonraki geçerli adım (sunucu penceresi t±1; enable'dan sonraki ~60 sn içinde kabul). Duvar saatine bağlılık kalmadı.                                                                                                                        | Sınır geçişi zorlandı (enable sonrası bir sonraki adıma kadar bekleme, geçici): eski kod `AssertionError: expected 200 to be 401` (satır 187), yeni kod geçti. Dosya tek başına **30/30 yeşil** (taze DB, 1250 sn).                                                                                                                                                                                                                             |
+
+Not (ürün, bu işin dışı, mimari/P16 bilgisine): saklama işi firma sayısıyla doğrusal ve sıralı (~3,5 ms/firma, yerel). Gerçek
+kurulumda firma sayısı küçük olduğundan sorun değil; binlerce firmada tur dakikalar sürer (günlük iş için kabul edilebilir,
+turlar üst üste binmez). Ürün kodu değiştirilmedi.
 
 ## P14a A1 / P14b B1 — dba (2026-11-15)
 
@@ -5852,3 +5861,618 @@ Kaynak: guvenlik-raporu "P15 — kod turu 2" S15-6 (Orta, fail-open kabul kodu).
 - **Sözleşme (frontend-dev):** yeni hata kodu `ACCEPT_CODE_CLIENT_UNSUPPORTED` (409, `packages/contracts/src/errors.ts`). Web `lib/requests/errors.ts` `requestErrorMessage` bu koda `rq.err.acceptCodeUnsupported` döndürür; kuyruktaki kabul akışı zaten bu fonksiyonla toast gösteriyor, kart düşürülmez (yalnız TAKEN/CLOSED/404 düşürür). `srs.ac.desc` yeni davranışa göre güncellendi; kılavuz "Talep kabulü" uyumluluk notu güncellendi.
 - **Diğer:** `requests/repo.ts` `findStatusInTenant` seçimine `clientVersion` eklendi. `sessions/history.ts` `groupFileReports` yorumu düzeltildi (birleştirme fid'li müşteri-yalnız gruplara da uygulanıyor; davranış değişmedi). gereksinimler §9'a S15-4 "Sonra" satırı eklendi.
 - **Değişen dosyalar:** `packages/contracts/src/{errors.ts,api/requests.ts}`, `apps/server/src/{lib/errors.ts,requests/panel.ts,requests/repo.ts,sessions/history.ts}`, `apps/server/test/integration/p15-backend.test.ts`, `apps/web/lib/requests/{errors.ts,requests.test.ts}`, `apps/web/messages/tr.json`, `docs/{KULLANIM_KILAVUZU.md,gereksinimler.md}`. Bağımlılık eklenmedi.
+
+## P16 G1 (dba) — kalıcı silme veri modeli (2026-11-15)
+
+Kapsam: mimari-e11 §7.1 tamamı, §7.10 G1. Ayrıntı ve test kaydı: `docs/db-notlari.md` "P16".
+
+**Dosyalar**
+
+- `apps/server/prisma/migrations/20261118000000_p16_hard_delete/{migration.sql,down.sql}` (yeni)
+- `apps/server/prisma/schema.prisma` — `AuditLog.tenant`/`Tenant.auditLogs` çıktı; `Tenant.passiveAt`; `TenantPurgeJob` modeli (+ `User.purgeJobsStarted/Cancelled`)
+- `apps/server/prisma/sql/grants.sql` — 8 tabloya DELETE, `tenant_purge_jobs` SELECT/INSERT/UPDATE/DELETE
+- `deploy/mysql/check-app-grants.sh` (425 → 501), `deploy/mysql/audit-continuity.sql` (sabit, 22 tetikleyici)
+- `deploy/backup/backup.sh`, `backup.env.example` (`BACKUP_EXPECTED_TRIGGERS` 22), `deploy/backup/restore.sh` (`RESTORE_EXPECTED_TRIGGERS` 22; `lib-restore.sh` bu değişkeni kullanır, dosyanın kendisi değişmedi)
+- `apps/server/src/audit/repo.ts` — **minimal tip düzeltmesi:** FK/ilişki kalkınca `tenant: {select: {name}}` derlenmiyordu; `listAudit` firma adlarını ayrı `IN` sorgusuyla ekliyor, `AuditRow` biçimi aynı (silinmiş firmada `tenant: null`). Maske/etiket işi G4'ün.
+- Testler: `superadmin-reset-p13b` (silinmiş Super Admin fikstürü mezar taşı biçiminde), `retention-p13a-db` (K27 testi P16 yetkilerine; session_consents DELETE artık tetikleyici reddi), `session-history-p8` (ikili CHECK sayısı 29 → 36), `bindings-p8c` AC-185 (sahte ileri saat yerine migrator fikstürüyle `last_used_at` geçmişe; S16-14).
+- `docs/db-notlari.md` — "P16" bölümü + P14a düzeltme SQL'i (satır içi desen, sütunda `COLLATE utf8mb4_bin`; `prisma db execute`'ta 1267 yok).
+
+**Sapmalar / kararlar (gerekçeli)**
+
+- `users.delete` öncesi/sonrası sayım "migration çıktısı" olarak `audit_logs`'a (`migration.p16_users_delete_reset`) yazıldı: `prisma migrate deploy` SELECT sonucu basmaz. Contracts etiketi backend'e.
+- `tenant_purge_jobs.counts` NOT NULL (`{}`); `step` varsayılan `FENCE`. Ek CHECK'ler: DONE ⇔ step DONE, cancelled_at ⇔ cancelled_by, tenant_row_deleted_at ↔ step, preview_hash hex.
+- Tetikleyici sıkılaştırmaları (§7.1'in üstünde, fail-closed): INSERT'te yaşam döngüsü sütunları boş ve `attempts = 0` zorunlu; DONE/CANCELLED satır değişmez; preview_hash yalnız FAILED→RUNNING'de ve orada zorunlu değişir; started/finished/cancelled_at ve tenant_row_deleted_at DB saatine zorlanır; tenant_row_deleted_at firma satırı yokken yazılabilir (S16-2/S16-15).
+- `users_deleted_chk` ADR m.4 listesine `password_hash = '!deleted'` da eklendi (giriş imkânsızlığı DB'de).
+- `device_bindings(tenant_id, revoked_at)` indeksi eklenmedi (EXPLAIN: mevcut IX yeterli). Aday sorgularında `ORDER BY …, id` kullanılmamalı (db-notlari tablosu).
+- Ön kontrol ayrıca binlog bayrağını (`binlog_flag`) yoklar; bu dal sınanmadı.
+
+**Sonuç:** temiz up + drift 0; down/up temiz (iki koruma 3819); tetikleyici 22, continuity `ok=true`; check-app-grants 501/501; 29 g → SIGNAL, 31 g → OK; `users.delete` sonrası 0; server typecheck/lint temiz, unit 383/383, temiz DB `test:int` 636/636.
+
+**G2–G7 için notlar**
+
+- **G2:** `anonymized_at`/`revoked_at` DB saatiyle yazılmalı (S16-14; tetikleyici aralığı `[−1 g, +1 dk]` değiştirilmedi). `bindings/repo.ts revokeData(now)` ve `requests/repo.ts`/oturum anonimleştirme yolları uygulama `now`'u kullanıyor; gerçek saatle sorun yok, saat kayması > 1 dk ya da sahte saat SIGNAL alır. Gece işi sırası onay → oturum. SIGNAL tanıma: errno 1644 + `p16:` öneki.
+- **G3:** INSERT sonrası `scheduled_for`'u DB'den okuyun; adımlar birer UPDATE; TENANT_ROW TX'inde `DELETE tenants` sonra `tenant_row_deleted_at` + `step = 'FILES'`; DONE için `state = step = 'DONE'`; sürdürmede yeni `preview_hash`. FK meta-testi için `check-app-grants.sh` P16 bölümündeki iki sorgu kullanılabilir.
+- **G4:** mezar taşı tek UPDATE (alan listesi db-notlari); sonrasında satır kilitli → giriş/sayaç/sıfırlama sorguları `status <> 'DELETED'` süzmeli. ACTIVE→DELETED'i DB engellemiyor; `WHERE status = 'PASSIVE' AND version = ?` uygulamada.
+- **G7:** `test-backup-inner.sh` ve runbook (BACKUP_EXPECTED_TRIGGERS "boş = 3") 22'ye; staging `backup.env`'de elle 3 yazılıysa migration'dan önce değiştirin.
+
+## P16 G4 (backend) — kullanıcı mezar taşı, `DELETE /users/:id`, fail-closed audit maskesi (2026-11-15)
+
+Kapsam: mimari-e11 §7.4, §7.5 kullanıcı ucu, §7.10 G4; ADR-0030 r2 m.4; S16-1, S16-7. Ayrıca G3/G6 için §7.5'in tamamının
+`contracts` sözleşmesi (firma uçlarının sunucu uygulaması G3'te).
+
+**Contracts (G3/G6 bunlara bağlanır)**
+
+- `errors.ts`: `PURGE_NOT_ELIGIBLE: 409`, `PREVIEW_REQUIRED: 428` (sunucu `lib/errors.ts` varsayılan mesajları eklendi).
+- `audit.ts`: `USER_AUDIT.DELETED`, `TENANT_PURGE_AUDIT` (6 eylem), `UPLOADS_AUDIT.ORPHAN_SCAN`, `MIGRATION_AUDIT.P16_USERS_DELETE_RESET`,
+  `P16_AUDIT_LABELS` (Türkçe etiketler; web `AUDIT_ACTION_LABELS`'a yayar), `AUDIT_ENTITY {USERS, TENANTS}`, `AUDIT_IDENTITY_KEYS`,
+  `maskIdentity()`, `deletedUserLabel()`, `deletedTenantLabel()`.
+- `api/audit.ts`: `AuditItem` + `actorLabel`, `tenantLabel`, `identityMasked`; `AUDIT_ACTION_GROUPS` + `uploads.*`, `migration.*`.
+- `api/users.ts`: `deleteUserInputSchema` (`confirmName` 1..100), `confirmNameSchema(max)`, `normalizeConfirmName`, `confirmNameMatches`,
+  `USER_DELETE_{CONFIRM_MISMATCH,ACTIVE,OPEN_SESSION}_MESSAGE`; `userOptionsQuerySchema.includeDeleted` (`"0"|"1"` → boolean);
+  `UserOptionStatus = UserStatus | "DELETED"`.
+- `api/tenants.ts`: `TENANT_PURGE_STATES/OPEN_STATES/STEPS` (17, DB CHECK sırası), `TENANT_PURGE_PASSIVE_DAYS/DELAY_HOURS/PREVIEW_TTL_MIN/JOBS_MAX`,
+  `TENANT_PURGE_NOT_ELIGIBLE_REASONS`, mesaj sabitleri (önizleme, açık iş, iptal çakışması, reactivate 409 iki mesajı), `purgePreviewIdSchema`,
+  `tenantPurgeInputSchema` (dryRun ayrımlı birleşim), `TenantPurgePreviewResponse`, `TenantPurgeScheduledResponse`, `TenantPurgeCancelResponse`,
+  `TenantPurgeStatus`, `TenantPurgeBadge`, `purgeJobsQuerySchema`, `PurgeJobItem`, `PurgeJobsResponse`; `TenantItem.passiveSince?`, `TenantItem.purge?`.
+- `permissions.ts`: `users.delete` açıklaması "Pasif kullanıcıyı kalıcı siler (geri alınamaz)…".
+
+**Sunucu dosyaları**
+
+- `src/users/{routes,service,repo}.ts`: `DELETE /users/:id` (yazma hızı → `users.delete` → step-up → If-Match 428 → zod 400 → `purgeUser`).
+  TX: aktör+hedef `FOR UPDATE`, aktör yeniden okunur (`users.delete`), SUPER_ADMIN hedef/kendi/üstün hedef 403 (+ `user.deleted` fail audit,
+  PII'siz), kapsam dışı/silinmiş 404, ACTIVE 409, açık (PENDING/ACTIVE) oturum 409, sürüm 409 `STALE_WRITE`, ad onayı 400, mezar taşı TEK
+  UPDATE `WHERE id, version, status='PASSIVE'` (db-notlari alan listesi), alt tablolar silinir, audit `user.deleted`. Commit sonrası avatar
+  silinir + deftere `{type:"user", id, at}`; hatalar alarm logu (`upload_cleanup`, `erasure_ledger_write_failed`). `GET /users/options?includeDeleted=1`.
+- `src/auth/repo.ts`: `findUserByLogin` `status <> 'DELETED'` (giriş + parola sıfırlama isteği; S16-7).
+- `src/audit/{view,read,repo}.ts`: tek kimlik görünümü `identityView`/`actorLabelOf`/`maskIdentityKeys`; liste ve CSV; kullanıcı satırı yok/DELETED,
+  `entity=users` hedefi yok/DELETED, firma satırı yok → `username` `maskIdentity`, değerlerde kimlik anahtarları `***` (maskeden sonra dış gönderim
+  izdüşümü). CSV "Firma" sütunu `tenantLabel`. `src/sessions/{history,history-repo}.ts`: zaman çizelgesi aktörü ve `terminatedBy` aynı `actorLabelOf`.
+- `src/ops/erasure-ledger.ts` (yeni, asgari): `ErasureLedger.append` (JSONL, 0600, sabit yol `/var/lib/remote/erasure-ledger.jsonl`);
+  `app.ts` `erasureLedger` dekorasyonu + `AppDeps.erasureLedgerPath` (yalnız test). **G3:** firma satırları, `phase`, replay/verify bu sınıfa eklenir.
+- Testler: `test/integration/users-delete-p16.test.ts` (9, adlarında AC-237/AC-241), `packages/contracts/test/p16-contracts.test.ts` (5),
+  `test/helpers/app.ts` (`TEST_LEDGER_PATH`), `test/helpers/tenant-matrix.ts` + `tenant-isolation.test.ts` (yeni uç sınıflandırıldı; step-up'lı uçlar
+  için `stepUp` bayrağı ve B firmasında ayrı step-up'lı Admin).
+
+**Sapmalar (gerekçeli)**
+
+- Hata ek bilgisi `details` yerine mevcut zarfın `fields` (dize) alanıyla: `PURGE_NOT_ELIGIBLE` → `fields.eligibleAt|reason`, açık iş `CONFLICT` →
+  `fields.jobId`, `fields.state` (zarf değişmeden).
+- `TenantItem.passiveSince`/`purge` opsiyonel: sunucu doldurması G3'te; o birleşince zorunlu yapılabilir.
+- Audit sayaç anahtarları `deletedMfaBackups`/`deletedResetLinks`: `recoveryCodes`/`resetTokens` adları `mask.ts` kara listesine (`code|token`) takılıp `***` olurdu.
+- Maskeli satırda canlı aktörün `username`'i de maskelenir (ADR m.4 "satır kimlik maskeli"; fail-closed). Kimlik JSON değerleri `maskIdentity` yerine
+  tam `***` (ad/e-posta ilk harfi de sızmasın).
+- 403 (anahtar yok) yol katmanında audit yazmaz (mevcut `requirePerm` kalıbı); TX içi 403'ler fail audit'i yazar.
+- Mezar taşı adresi (`deleted+…@invalid`) parola sıfırlama şemasından zaten 400 alır; süzme `findUserByLogin` testinde doğrulandı.
+- Bilinen sınır (değişiklik yok, bilgi): silinmiş hesabın eski e-postasıyla SONRADAN yapılan giriş denemeleri, var olmayan her hesap gibi `userId NULL`,
+  `username = <yazılan>` ile audit'e düşer ve maskelenmez (P1'den beri "olmayan hesap" davranışı).
+
+**Doğrulama** (geçici `rs-p16g4-bcb8c5`, mysql 8.4.13, P1→P16 migrate; iş sonunda silindi)
+
+- `pnpm -r run lint` 0, `pnpm -r run typecheck` 0, server unit 383/383, contracts 99/99 (p16 5 dahil).
+- `users-delete-p16` 9/9, `tenant-isolation` 5/5. Tam `test:int`: 656/657 — tek kırmızı `retention-p13a-job` AC-198 (retention.run satır sayısı 5≠4);
+  dosya tek başına 16/16 yeşil. Paralel G2'nin değiştirdiği `jobs/retention*.ts` + yeni `retention-p16-purge.test.ts` (main projede eşzamanlı) kaynaklı;
+  G4 kodu retention'a dokunmuyor → G2'ye.
+- `pnpm format:check`: yalnız G2/G5'in devam eden dosyaları (`jobs/retention.ts`, `jobs/orphan-scan.ts`, `uploads/references.ts`) uyarı veriyor; G4 dosyaları temiz.
+
+**frontend-dev (G6) için:** `DELETE /users/:id` gövdesi `{confirmName}`, `If-Match: userEtag(version)`, step-up akışı mevcut P14a istemcisiyle; 409 mesajları
+contracts sabitlerinde. Audit ekranı `actorLabel`/`tenantLabel`/`identityMasked` kullanmalı (maskeli satırda avatar null → "#"); `P16_AUDIT_LABELS`'ı
+etiket sözlüğüne yayın. Oturum filtresi için `GET /users/options?includeDeleted=1`.
+
+## P16 G7 (devops) — kalıcı silme operasyonu (2026-11-15)
+
+Kapsam: mimari-e11 §7.7, §7.10 G7; ADR-0030 r2 m.8/m.9; S16-5, S16-11, S16-12, S16-13 (backup tarafı). Runbook §23 (yeni).
+
+**Dosyalar**
+
+- `deploy/docker-compose.yml` — volume `ledger` (`remote_ledger`) → server `/var/lib/remote` (rw), migrate `/var/lib/remote:ro`
+  (`cli erasure:*`); server env `RETENTION_PURGE_MODE: ${RETENTION_PURGE_MODE:-}`. `.env.example`/`env.ts` satırını G2 eklemişti
+  (değiştirilmedi).
+- `apps/server/Dockerfile` — `/var/lib/remote` node:node 0700 (boş named volume ilk bağlamada sahipliği imajdan alır).
+- `deploy/backup/lib-ledger.sh` (yeni) — defter okuma (ağsız, ro, DAC_READ_SEARCH), istatistik (satır/geçersiz/firma/kullanıcı;
+  ULID süzgeci), eklenebilirlik denetimi (önceki imzalı manifestin `ledger.ref` bytes+sha256'sı bugünkünün ön eki), `--reset-ledger-baseline`
+  host işareti, restore tarafı (scratch doğrulama + "henüz silinmemiş" sayımı, canlı uzlaştırma, `erasure:replay`/`verify`).
+- `deploy/backup/backup.sh` — adım 4b `imha-defteri`: `erasure-ledger.jsonl.age` + manifest `ledger` + `files[2]`; FAILED
+  (kısaldı/değişti/geçersiz satır/volume yok/bağlantı) → yedek yayımlanır, rc 1, ref ilerlemez (audit süreklilik kalıbı);
+  `--reset-ledger-baseline "<gerekçe>"`. `file_json` lib-ledger'a taşındı (≤ 300 satır). Varsayılan tetikleyici 22 (G1).
+- `deploy/backup/lib-offsite.sh` — `status.prom` `remote_backup_ledger_ok` (önceki değer yoksa 1).
+- `deploy/backup/restore.sh` — scratch: `ledger_restore_check` (tetikleyici ≥ 22 iken defter bölümü zorunlu); canlı: CHECKSUM +
+  audit taban çizgisi sonrası, **server durukken** defter uzlaştırma + `erasure:replay` (başarısızsa server başlatılmaz), `/ready`
+  sonrası `erasure:verify` yoklaması (`RESTORE_ERASURE_TIMEOUT` 1800, `RESTORE_ERASURE_POLL` 30).
+- `deploy/ops/remote-watch.sh` + `watch.env.example` — yeni kontroller `purge-scheduled` (S16-12: durum sürdükçe her tur yeniden,
+  `WATCH_PURGE_REPEAT_MIN`), `purge-failed`, `purge-heartbeat` (> 30 dk), `orphan-circuit` (24 sa), `orphan-scan` (> 8 g, süreç ≥ 8 g),
+  `ledger-write`, `ledger-backup`, `p16-metrics` (fail-closed; `WATCH_PURGE_CHECKS=0` yalnız P16 öncesi). **Düzeltme:**
+  `rs_retention_failures_total` artık bütün etiketli serilerin toplamı (G2 `{class}` ekleyince eski `^…_total (\S+)` deseni
+  sessizce 0 okurdu).
+- `deploy/ops/test-watch.sh` (+ P16 senaryoları, `TEST_CONTAINER_NAME`), `deploy/backup/test-backup.sh` (ledger volume, `migrate`
+  CLI taslağı `profiles: [stub]`, `TEST_BACKUP_PROJ`), `deploy/backup/test-backup-inner.sh` (J bölümü: tetikleyici 22/3, defter
+  ok/kısaldı/değişti/geçersiz/yarım satır/bağlantı/sıfırlama, scratch defter, canlı uzlaştırma 3 dal, replay/verify hata dalları;
+  site dışı 5 dosya).
+- `docs/runbook.md` — §23 (staging ön adım: `BACKUP_EXPECTED_TRIGGERS` elle 3 ise migration'dan önce boşalt; alarmlar; replay;
+  AC-244 iki madde: ≤ 14 g yaşam döngüsü kontrolü + scratch dışa aktarım iki onay/ağsız/silme doğrulaması); §18.2 "boş = 22",
+  §18 tablo 22.
+
+**Diğer ajanlara sözleşme notları**
+
+- **G3 (CLI):** `pnpm --filter @remote/server cli erasure:replay|verify` **migrate imajında** çalışır (`docker compose run --rm --no-deps
+-T migrate …`): `apps/server/package.json`'a `"cli"` betiği gerekir; DB `MIGRATE_DATABASE_URL` (migrator); defter
+  `/var/lib/remote/erasure-ledger.jsonl` salt okunur. verify: hepsi uygulandıysa rc 0, aksi ≠ 0 (restore.sh yoklar). Çıktıda PII yok.
+  Defter satırında `id` ULID olmalı (backup süzgeci `^[0-9A-HJKMNP-TV-Z]{26}$`; değilse `gecersiz-satir`).
+- **G3 metrikler:** `Metrics.gauge` kayıt (Record) dönüşünde etiketi `role=` basıyor; remote-watch `rs_tenant_purge_jobs{<herhangi>="SCHEDULED"}`
+  kabul eder. Bütün durumlar (0 dahil) yayımlanmalı; seri yoksa `p16-metrics` alarmı. `rs_tenant_purge_last_heartbeat_seconds` epoch
+  ya da yaş (sn) olabilir. `rs_erasure_ledger_write_failed_total` sayaç olarak kayıtlı olmalı (yoksa `p16-metrics`).
+- **G5:** devre kesici için `rs_orphan_scan_circuit_open_total` ya da `rs_orphan_files_total{action="circuit_open"}`; son başarı
+  `rs_orphan_scan_last_success_timestamp_seconds` (yeniden başlatmada yoksa 8 g süreç yaşı kuralı devreye girer).
+
+- **Sapma (dosya boyu, QA P16 notu):** `deploy/ops/remote-watch.sh` P16 kontrolleriyle (`purge-scheduled`, `p16-metrics`, defter/yetim/saklama alarmları) 313'ten **449** satıra çıktı; P14a'daki "tek dosyalık kurulu kopya" gerekçesi (root timer'ı yalnız `/usr/local/lib/remote/remote-watch.sh`'yi okur, ikinci source dosyası ayrı sahip/izin denetimi + kurulum adımı ve saldırı yüzeyi getirir) aynen geçerli olduğu için bölünmedi; büyüme tamamen yeni alarm kontrolleri, `test-watch.sh` her kontrolü ayrı testler.
+
+**Doğrulama:** shellcheck v0.11.0 `-S warning` (CI ile aynı imaj) `deploy/**/*.sh scripts/*.sh` temiz; actionlint 1.7.8 temiz
+(iş akışı değişmedi); `docker compose config --no-interpolate` geçerli; `deploy/ops/test-watch.sh` GEÇTİ (90 PASS; host node ile gerçek metrik metni ayrıştırma testi dahil: etiketli `rs_retention_failures_total{class}` toplamı — G2 notu (1)); `deploy/backup/test-backup.sh` GEÇTİ (99 PASS; dind yok, docker.sock + benzersiz `rs-p16g7-*` proje; J bölümü dahil, iş sonunda konteyner/volume kalmadı); remote-watch
+metrik JS'i örnek metinle denendi (`{class=…}` toplamı 3, `role="SCHEDULED"` 1, `action="circuit_open"` 3).
+
+## P16 G2+G5 (backend) — gece kalıcı silme ve yetim dosya taraması (2026-11-15)
+
+Kapsam: mimari-e11 §7.2 (AC-240, `RETENTION_PURGE_MODE`, iş satırı saklaması) ve §7.6 (AC-243). ADR-0030 r2 m.2, m.6, m.7.
+
+**Değişen / yeni dosyalar**
+
+- `apps/server/src/jobs/retention.ts` — `purgeAnonymized` (anonimleştirmeden sonra; kayıt B\* → oturum S\* → oturumsuz talep R\*), `purgeMode` (env; test için kurucu seçeneği), açık işli firma atlama (`skipTenant`), global adıma iş satırı saklaması (`purgedJobs`), hata sınıfı (`db_signal | audit | other`).
+- `apps/server/src/jobs/retention-repo.ts` — `purgeBindingsBatch`, `purgeSessionsBatch`, `purgeOrphanRequestsBatch` (parti 500, tek TX, kesme `UTC_TIMESTAMP(3) − 30 g − 1 sa`; `ORDER BY anonymized_at` — `, id` yok; kayıt adayında `NO_SEMIJOIN`), `countPurgeCandidates` (dry), `hasOpenPurgeJob`, `deleteOldPurgeJobs`/`countOldPurgeJobs`.
+- `apps/server/src/jobs/orphan-scan.ts` (yeni) — `OrphanScanJob`, `nextOrphanScanAt` (pazar 01:30 UTC = 04:30 İstanbul).
+- `apps/server/src/jobs/scheduler.ts` — 7. parametre `orphanScan` (haftalık zamanlayıcı; açılışta `init()` son başarıyı durum dosyasından yükler).
+- `apps/server/src/uploads/store.ts` — `absDir(prefix)`, `list()` (Dirent/lstat; sembolik bağlantı ne klasör ne dosya olarak listelenir), `removeTmp()`, `readOrphans()`/`writeOrphans()` (atomik, 0600, `uploads/.orphans.json`).
+- `apps/server/src/uploads/references.ts` (yeni) — `UPLOAD_REFERENCE_SOURCES` (`tenants.logo_path`, `users.avatar_path`, `system_settings.value_json.path`), `readUploadReferences`.
+- `apps/server/src/lib/db.ts` — `isP16Signal(err)` (cause.code 1644 + `p16:`); G3 yürütücüsü de kullanabilir.
+- `apps/server/src/requests/repo.ts` `anonymizeBatch`, `apps/server/src/bindings/repo.ts` `expireIdle` — ham UPDATE ile `anonymized_at` / `revoked_at` (ve `updated_at`) **DB saatiyle** (S16-14); `now` parametresi kalktı (çağıranlar `requests/jobs.ts`, `bindings/service.ts`).
+- `apps/server/src/env.ts` + `.env.example` — `RETENTION_PURGE_MODE` (`dry|on`, varsayılan `dry`).
+- `apps/server/src/app.ts` — `OrphanScanJob` kurulumu, `app.orphanScan` dekorasyonu, zamanlayıcıya geçiş (yalnız ekleme).
+- `apps/server/src/audit/mask.ts` — `ALLOWED_KEYS += "purgeCandidates"` (yalnız ekleme; aşağıda gerekçe).
+- Testler: `test/integration/retention-p16-purge.test.ts` (yeni, 6), `test/integration/orphan-scan-p16.test.ts` (yeni, 6), `retention-p13a-job.test.ts` (audit gövdesi/metrik etiketi beklentileri), `vitest.config.ts` (P16 dosyası `serial-retention` projesine).
+
+**Sapmalar (gerekçeli)**
+
+- **Audit `purgeCandidates` maske izinli listesinde:** kara liste `candidate` (ICE) kalıbı anahtarı yazımda `***` yapıyordu; nesnenin içi yine taranır, yalnız sayılar.
+- **`purgedFiles` sayacı eklendi** (mimaride dört sayaç): oturumla birlikte `session_files` de silinir (anonimleştirme zaten siliyor, pratikte 0); silinen satırın audit'te görünmemesi yerine sayıldı.
+- **`rs_retention_failures_total` artık `{class}` etiketli** (`db_signal | audit | other`; mimari §7.2 `{class}` diyor). Etiketsiz seri kalktı.
+- **Dry modu bütün silme adımlarına uygulanır** (iş satırı saklaması dahil: `purgeCandidates.jobs`). Dry sayıları tahmindir: aynı turda silinecek kayıtların serbest bırakacağı oturumlar sayılmaz.
+- **Açık işli firma:** gece işinin tüm firma adımları atlanır (ADR-0030 m.5 "gece saklama işi açık işi olan firmayı atlar"), yalnız silme adımı değil; o firmaya audit satırı yazılmaz.
+- **Yetim taraması devre kesici açıkken** `.tmp` temizliği de yapılmaz ve durum dosyası değişmez (ADR m.7 "o tur hiç silme yapılmaz").
+- **Yetim taraması son başarı zamanı** `uploads/.orphans.json` (`lastSuccessAt`) içinde tutulur; haftalık işte yeniden başlatma sonrası gösterge 7 güne kadar 0 kalıp > 8 g alarmını yanlış tetiklemesin diye.
+
+**G3 (firma silme) için genişleme noktaları**
+
+- `RetentionJob.skipTenant` (açık iş = SCHEDULED/RUNNING/FAILED), `globalSteps` (iş satırı saklaması burada; G3 başka global adım eklemez).
+- `isP16Signal` (`lib/db.ts`) → `db_signal` sınıfı; `UploadStore.absDir(prefix)` (`FILES` adımında ayrıca `TENANT_PREFIX_RE`).
+
+**G7 (devops) için notlar — kod tarafı hazır, compose/runbook/watch sizde**
+
+- `deploy/docker-compose.yml` server: `RETENTION_PURGE_MODE: ${RETENTION_PURGE_MODE:-}` (staging `on`, prod `dry` ile açılış); runbook'a mod ve "ilk dry raporu: audit `retention.run` → `purgeCandidates`" maddesi.
+- **`deploy/ops/remote-watch.sh` güncellenmeli:** `^rs_retention_failures_total (\S+)` deseni artık eşleşmez (seri `{class="…"}` etiketli); `rs_retention_failures_total(\{[^}]*\})? (\S+)` toplamı alınmalı, `class="db_signal"` ayrıca alarm. Aksi hâlde saklama işi hata alarmı sessizce 0 okur.
+- Yeni alarmlar: `rs_orphan_files_total{action="circuit_open"}` artışı; `rs_orphan_scan_last_success_timestamp_seconds` > 8 g (0 = hiç başarılı tur yok); log `alarm: "orphan_scan_circuit_open"`, `alarm: "retention_db_signal"`.
+- Durum dosyası `UPLOADS_DIR/.orphans.json` (0600) uploads volume'unda; yedek setine uploads ile girer, ek iş yok.
+
+**frontend-dev / G4 için**
+
+- Audit filtresine `uploads.*` grubu ve `uploads.orphan_scan` etiketi (sabit `UPLOADS_AUDIT.ORPHAN_SCAN`, G4 ekledi) gerekebilir; `retention.run` gövdesine `purged*` / `purgeCandidates` alanları eklendi (yalnız sayılar).
+
+**S16 kapanış kanıtları (G2/G5 payı)**
+
+| Bulgu              | Kanıt                                                                                                                                                                                                                                     |
+| ------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| S16-8              | Kesme yalnız SQL'de (`PURGE_CUT`); test "uygulama saati +2 sa": 29 g 23 sa'lik aday app-db ile doğrudan DELETE'te `p16:` SIGNAL alıyor, iş aynı koşulda `failures = 0` ve adayı seçmiyor; `db_signal` sınıfı, metrik ve fail audit testli |
+| S16-9              | Devre kesici: boş referans kümesi ve %21 → 0 silme, `.tmp` dahil; durum dosyası değişmez; `fail{reason: circuit_open}` audit + metrik; %20 eşikte silme çalışır. Meta-test `information_schema` `*_path` ⊆ `UPLOAD_REFERENCE_SOURCES`     |
+| S16-10 (gece payı) | DONE/CANCELLED iş satırı 731 g silinir, 729 g kalır (tetikleyiciyle uyumlu 1 sa pay)                                                                                                                                                      |
+| S16-14             | Talep `anonymized_at`, kayıt `revoked_at` (EXPIRED), oturum `anonymized_at` DB saatiyle; iş +2 sa saatle koşarken damgalar DB saatinin ±60 sn'sinde; tetikleyici aralığı `[−1 g, +1 dk]` değişmedi                                        |
+
+**Test (2026-11-15, geçici `rs-p16g2-23d1b0`, mysql 8.4.13, silindi)**
+
+- `pnpm --filter @remote/server lint` / `typecheck` temiz; `test` (unit) 383/383; `test:int` **657/657** (68 dosya; paralel G3/G4/G7 çalışma ağacıyla). AC-240: 6/6, AC-243: 6/6. `pnpm format:check` 0.
+- İlk tam koşuda AC-198 (retention-p13a-job) düştü: aynı `serial-retention` projesindeki iki dosya paralel koşup global `retention.run` satırı sayısında yarışıyordu → projeye `fileParallelism: false` (vitest.config.ts). Sonra tam koşu yeşil.
+
+G2+G5 notları (implementation.md "P16 G2+G5 (backend)") karşılandı: etiketli retention hata toplamı + testi; compose `RETENTION_PURGE_MODE` + runbook §23.1 mod satırı; `orphan-circuit` (`rs_orphan_files_total{action="circuit_open"}`), `orphan-scan` (> 8 g, 0 = hiç başarılı tur yok → süreç ≥ 8 g ise alarm); loglar `retention_db_signal`, `orphan_scan_circuit_open` runbook §23.4 grep satırı.
+
+- **Dolu DB'de 1644 (ikinci tur):** kök neden ön kontroldü (`P16_PRECHECK users=1`; P15 test fikstürünün bıraktığı `deleted_at` dolu ACTIVE Super Admin), tetikleyici ya da sıra değil. Ön kontrol fail-closed kaldı. Deploy öncesi kontrol ve düzeltme SQL'i db-notlari "P16 → Dolu DB'de 1644". 13.000 firmalı dolu DB'de up/down/up, drift 0, check-app-grants 501/501, `test:int` 657/657.
+
+## P16 G3 (backend) — firma silme yürütücüsü, firma uçları, imha defteri CLI, meta-testler (2026-11-15)
+
+Kapsam: mimari-e11 §7.3, §7.5 (firma uçları), §7.10 G3; ADR-0030 r2 m.1/m.2/m.5/m.6/m.9; S16-1, S16-2, S16-4, S16-5, S16-6,
+S16-11, S16-13, S16-15. Koordinatör notları (G6/G7 sözleşmesi) uygulandı.
+
+**Yeni / değişen dosyalar**
+
+- `apps/server/src/jobs/tenant-purge-repo.ts` (yeni) — adım tablosu `DATA_STEPS` (önizleme sayımı ve parti DELETE AYNI koşul →
+  önizleme = silinen), iş satırı geçişleri (tek tek UPDATE; `scheduled_for` INSERT sonrası DB'den okunur; TENANT_ROW TX'i önce
+  `DELETE tenants`, sonra `tenant_row_deleted_at` + `step = FILES`; DONE tek UPDATE'te `state = step = 'DONE'`), sıradaki iş
+  seçimi, uygunluk, FENCE, göstergeler.
+- `apps/server/src/jobs/tenant-purge.ts` (yeni) — `TenantPurgeRunner` (`tick`, `runJob`, `refreshMetrics`), `tenantFiles`,
+  `classifyPurgeError` (`db_fk | db_signal | fs | invalid_job | other`), `registerPurgeMetrics`.
+- `apps/server/src/tenants/purge-service.ts` (yeni) — önizleme, zamanlama/sürdürme, iptal, durum, `purge-jobs`.
+- `apps/server/src/tenants/routes.ts` — `POST|DELETE|GET /admin/tenants/:id/purge`, `GET /admin/purge-jobs`.
+- `apps/server/src/tenants/{service,repo}.ts` — `TenantItem.passiveSince` + `purge` rozeti (açık iş; sayfa başına tek IN
+  sorgusu); reactivate 409 (`TENANT_REACTIVATE_PURGE_SCHEDULED_MESSAGE` / `…_PARTIAL_MESSAGE`, `fields.jobId|state`).
+- `apps/server/src/ops/erasure-ledger.ts` — satır `{v:1, type, id, jobId?, phase?, at}` (`append` `v:1` ekler + fsync),
+  firma satırı (`phase: started|done`), `parseLedgerLine`, `readLedger`; yazım hatasında `rs_erasure_ledger_write_failed_total`.
+- `apps/server/src/cli/erasure.ts` (yeni) + `package.json` `"cli": "node src/cli/erasure.ts"` — `erasure:replay`, `erasure:verify`.
+- `apps/server/src/jobs/scheduler.ts` — 8. parametre `tenantPurge` (60 sn tur; açılışta göstergeler). `app.ts` — yürütücü,
+  `app.tenantPurge` dekorasyonu, metrik kaydı, defter sayacı (yalnız ekleme). `lib/crypto.ts` — `MacPurpose += "purge-preview"`.
+- Contracts (yalnız ekleme): `audit.ts` `ERASURE_AUDIT.REPLAYED` (`erasure.replayed`) + etiket; `api/audit.ts` grup `erasure.*`;
+  `api/tenants.ts` `TENANT_PURGE_CONFIRM_MISMATCH_MESSAGE`.
+- Testler: `test/integration/tenant-purge-p16.test.ts` (9), `test/integration/tenant-purge-meta-p16.test.ts` (7),
+  `test/helpers/tenant-purge.ts`, `test/helpers/tenant-matrix.ts` (4 yeni uç `system`).
+
+**Davranış (sözleşme)**
+
+- Önizleme `{dryRun:true}`: step-up yok; aktif → 409 `PURGE_NOT_ELIGIBLE` `fields.reason = not_passive`; < 30 g →
+  `fields.eligibleAt`; SCHEDULED/RUNNING iş → 409 `CONFLICT` `fields.jobId|state`; **FAILED işte 409 yok** (sürdürme). Audit
+  `tenant.purge_previewed` yalnız sayılar.
+- `previewId` = `<exp ms>.<HMAC hex>`; HMAC (HKDF `purge-preview`) firma, aktör, `authSessionId`, `passive_at`, açık işin
+  `id:updated_at` (yoksa `none`), exp. Tek kullanım `preview_hash` UQ. Sıra: 404 → 428 → 400 (ad) → 409 uygunluk → 409 açık iş.
+- `{dryRun:false}`: step-up `dryRun !== true` iken gövde ayrıştırılmadan önce. 202 `SCHEDULED` (`scheduledFor` DB'den) ya da
+  FAILED işte 202 `RUNNING` (yeni `preview_hash`, `attempts = 0`, heartbeat NULL → sonraki turda alınır; audit
+  `tenant.purge_started {resumed: true}`).
+- İptal: step-up; açık iş yok 404; SCHEDULED değil 409 `CONFLICT` (`fields.jobId|state`); audit `tenant.purge_cancelled`.
+- `GET /admin/tenants/:id/purge`: son iş (firma satırı silinse de); iş yoksa 404. `GET /admin/purge-jobs?open=1`: ≤ 100,
+  silinmiş firmada `tenantName: null`.
+- Yürütücü: tur başına tek iş; SCHEDULED başlatma (`started_at`/24 sa tetikleyicide) → uygunluk → adımlar. Defter `started`
+  satırı uygunluk doğrulandıktan sonra, `done` satırı DONE commit'inden sonra. Audit `tenant.purge_started`, `tenant.purged`
+  (`counts`), `tenant.purge_failed` (`step`, `errorClass`), aktör `system`.
+- Metrikler: `rs_tenant_purge_jobs{role="<STATE>"}` (5 durumun hepsi, 0 dahil; 60 sn + zamanlama/iptal sonrası tazelenir),
+  `rs_tenant_purge_last_heartbeat_seconds` (epoch, yoksa 0), `rs_tenant_purge_rows_total{table}`, `rs_erasure_ledger_write_failed_total`.
+- CLI: `pnpm --filter @remote/server cli erasure:replay|verify`; yalnız `MIGRATE_DATABASE_URL` okur (env.ts yüklenmez → migrate
+  servisinin env'i yeter); defteri salt okur. Çıkış 0 tamam · 1 verify bekleyen var · 2 kullanım/env · 5 DB/defter hatası.
+  Çıktı yalnız sayılar.
+
+**Tasarımdan sapmalar (gerekçeli)**
+
+- **Uygunluk sınırı:** mimari "step < TENANT_ROW iken firma PASSIVE…, step ≥ TENANT_ROW iken satır yok" diyor; G1 tasarımında
+  TENANT_ROW adımı satırı silen TX'te `FILES`'a geçtiği için `step = TENANT_ROW` iken satır henüz VARDIR. Kural: `≤ TENANT_ROW`
+  → PASSIVE ≥ 30 g; `> TENANT_ROW` → satır yok + `tenant_row_deleted_at` dolu. Ek olarak her turda `TENANT_PREFIX_RE`.
+- **Geçersiz SCHEDULED iş:** tetikleyici SCHEDULED→FAILED'e izin vermez; yürütücü işi RUNNING yapıp hemen FAILED
+  `invalid_job` yazar (defter satırı yazılmaz, hiçbir adım çalışmaz).
+- **Deneme sayımı:** "3 üstel deneme (1, 5, 30 dk)" → 1., 2., 3. hatadan sonra 1/5/30 dk bekleyip yeniden denenir, 4. hatada
+  FAILED. Bekleme DB saatiyle `heartbeat_at` üzerinden (`nextJobId`); hata yokken heartbeat > 30 dk iş yeniden alınır.
+- **Sayaçlar:** `counts` adım adlarıyla (contracts `TenantPurgeCounts`), FENCE dahil değil (iptal, silme değil); `TENANT_ROW: 1`.
+  `REQUEST_UNLINK` güncellenen satır sayısıdır.
+- **Satırı silinmiş firmanın sürdürülmesi** (FILES'ta `fs` hatası): önizleme/zamanlama FAILED iş varsa satır olmadan da çalışır;
+  ad onayı `deletedTenantLabel(id)` ("Silinmiş firma #XXXXXX"), `passiveSince = eligibleAt = tenant_row_deleted_at`.
+- **Replay firmayı hazırlar:** ADR m.9 yalnız "RUNNING iş açılır" diyor; geri yüklenen firma ACTIVE ya da < 30 g pasifse yürütücü
+  `invalid_job` verirdi. Replay (migrator, tetikleyiciden muaf) firmayı `PASSIVE, passive_at = UTC − 30 g − 1 sa` yapar; açık iş
+  varsa onu `RUNNING` + `step = FENCE` + `counts = {}` yapar (restore edilmiş ara durumdan güvenli baştan başlama), yoksa yeni
+  RUNNING iş ekler (`started_by` = firmanın önceki işinin sahibi, yoksa en eski aktif Super Admin; yoksa rc 5). Kullanıcı mezar
+  taşı aynı alanlarla tek UPDATE + 4 alt tablo; avatar dosyası migrate konteynerinde yok → yetim taraması toplar.
+- **Replay geçersiz satırlarda rc 0:** geçerli satırlar uygulanır, sayı çıktıda (`gecersiz_satir=`) ve audit'te; bozuk satırdan
+  bilgi kurtarılamaz, restore'u durdurmak veriyi daha uzun sunar. Defter bütünlüğünü G7'nin `backup.sh` denetimi yakalar.
+- **Dosya boyutu:** `tenant-purge-repo.ts` 321, `tenant-purge.ts` 306 satır (hedef 300; Prettier sonrası; bölmek adım
+  tablosunu ikiye ayırırdı).
+
+**Bağımlılık:** yok.
+
+**S16 kapanış kanıtları (G3 payı)**
+
+| Bulgu    | Kanıt                                                                                                                                                                                                                                                                                 |
+| -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| S16-1    | Silme sonrası `GET /audit?tenantId=` ve `export.csv` gövdesinde firma kullanıcılarının e-posta/kullanıcı adı ve firma adı 0 kez (uçtan uca test)                                                                                                                                      |
+| S16-2    | Elle `tenant_id='system'` INSERT CHECK'e takılır; aktif firma ve satırı olmayan firma için elle RUNNING iş → FAILED `invalid_job`, dosya ve satır duruyor, defterde yok; FILES yalnız `TENANT_PREFIX_RE` + `absDir`; sembolik bağlantıda yalnız bağlantı silinir, hedef dosya duruyor |
+| S16-4    | `scheduled_for` = DB + 24 sa (±2 dk); süre dolmadan yürütücü `idle`, app'in doğrudan `state='RUNNING'` UPDATE'i `p16:` SIGNAL; iptal sonrası satır sayıları ve dosya aynen, yeniden etkinleştirme açılır                                                                              |
+| S16-5/13 | Defter `started` + `done` (aynı `jobId`, PII yok); replay geri yüklenmiş firmayı RUNNING işle yeniden siler ve canlı kullanıcıyı mezar taşına çevirir; verify önce 1/1 sonra 0/0; ikinci replay 0; audit `erasure.replayed`                                                           |
+| S16-6    | Aynı `previewId` ikinci kez, başka oturum, `passive_at` değişimi, süresi geçmiş ve bozuk MAC → 428                                                                                                                                                                                    |
+| S16-11   | Meta: `tenants`'a FK veren tablolar = adım tabloları (USER_CHILDREN hariç) ∪ `auth_sessions`; `audit_logs`/`tenant_purge_jobs` FK'siz; korunan 11 tabloya giden bütün FK'ler RESTRICT; `users` FK listesi sabit (14) ve her biri adımda ya da Super Admin istisnasında                |
+| S16-15   | Çökme testi: her partiden/adımdan sonra çökme + yeni yürütücü → DONE, `counts` = önizleme, satırlar 0 (adımlar tetikleyicinin +1 kuralıyla ilerliyor)                                                                                                                                 |
+
+**frontend-dev (G6) için:** hata ek bilgisi `error.fields` altında; önizleme FAILED işte 200 döner; ad uyuşmazlığı
+`fields.confirmName = TENANT_PURGE_CONFIRM_MISMATCH_MESSAGE`; 202 `RUNNING` yanıtında `scheduledFor` işin özgün zamanıdır;
+`GET …/purge` DONE sonrası da 200.
+
+**devops (G7) için:** CLI env'i yalnız `MIGRATE_DATABASE_URL`; `/var/lib/remote` yoksa defter boş sayılır (verify 0). Gösterge
+etiketi `role="<STATE>"`.
+
+## P16 G6 (frontend) — kalıcı silme arayüzü (frontend-dev, 2026-11-15)
+
+Kapsam: mimari-e11 §7.8, §7.10 G6; sözleşme §7.5 + G4'ün contracts eklemeleri. Sunucu koduna ve contracts'a dokunulmadı
+(yalnız okundu). Firma uçları (G3) henüz yok → e2e sahte API (`e2e/mock-p16.mjs`). Tasarım skill'i `ui-ux-pro-max`
+kural tablosu okundu; ekranlar DESIGN.md token/primitifleriyle, DESIGN.md §4 (ikonlar) ve §6 güncellendi.
+
+### Rotalar
+
+| Yol                          | Auth                            | Ne yapar                                                                                                                                                                                              |
+| ---------------------------- | ------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `/admin/tenants/[id]` (yeni) | Super Admin                     | Firma ayrıntısı + "Kalıcı silme" (`#purge`): uygunluk, önizleme → ad onayı → step-up → SCHEDULED geri sayım + iptal; RUNNING adım çubuğu (3 sn); FAILED "Sürdür"; DONE ("Silinmiş firma #…") — AC-242 |
+| `/admin/tenants`             | Super Admin                     | + firma adı ayrıntıya bağlantı, "Silinecek: <tarih>" / "Siliniyor" / "Silme başarısız" rozetleri; zamanlanmış işte yeniden etkinleştirme 409 nedeni diyalogda                                         |
+| `/users/[id]`                | `users.view` (+ `users.delete`) | + "Kalıcı sil" (pasif kullanıcı; aktifte pasif düğme + neden) → ad onayı → step-up → `/users` — AC-241                                                                                                |
+| `/audit`                     | `audit.view`                    | Aktör `actorLabel`, firma `tenantLabel`, "Kimlik maskeli" rozeti, mezar taşı avatarı "#", ayrıntıda maske notu; P16 eylem etiketleri + `uploads.*` / `migration.*` filtre grupları — AC-241/243       |
+| Panel kabuğu (tüm sayfalar)  | Super Admin                     | Açık silme işi varken kapatılamaz uyarı bandı + iptal/durum bağlantısı (`GET /admin/purge-jobs?open=1`, 60 sn) — AC-242                                                                               |
+
+### Yapılanlar
+
+- **`components/ui/confirm-name-dialog.tsx` (yeni primitif):** ad yazarak onay; contracts `confirmNameMatches` ile istemci
+  ön kontrolü (eşleşmezse istek yok), odak Vazgeç, gönderimde kapanmaz, sunucu hatası diyalogda `role=alert`, açılışta sıfırlanır.
+- **Kullanıcı silme** (`users/[id]/user-editor.tsx`, `lib/users/delete.ts`): `DELETE /users/:id` `{confirmName}` +
+  `If-Match: userEtag(version)`; step-up mevcut `lib/api` + `StepUpProvider`. 409 (aktif / açık oturum) ve 404 diyalogda,
+  `STALE_WRITE`/428 → "Sayfayı yenile", 400 `fields.confirmName` → alan hatası.
+- **Firma silme** (`admin/tenants/[id]/{page,loading,purge-panel}.tsx`, `lib/tenants/purge.ts`): 5 durum — iskelet
+  (`loading.tsx`, önizleme iskeleti), boş (iş yok → uygunluk + düğme), hata (firma alınamadı → `LoadError`; önizleme hatası
+  → Tekrar dene), kısmi (firma var, silme durumu alınamadı → uyarı + Tekrar dene), başarı (DONE kartı). 428 → "Önizlemeyi
+  yenile"; `PURGE_NOT_ELIGIBLE` → "Firma <tarih> tarihinden sonra silinebilir"; açık iş `CONFLICT` → diyalog kapanır, panel yenilenir.
+- **Bant** (`components/purge-banner.tsx`, `(panel)/layout.tsx`): ilk değer layout'ta sunucudan, istemci 60 sn yoklar;
+  hatalar sessiz (diğer Super Admin sahte senaryolarında 404 → bant yok).
+- **Audit** (`audit/audit-log.tsx`, `lib/audit/actions.ts` `auditActor`, `components/ui/avatar.tsx` `tombstone`):
+  `...P16_AUDIT_LABELS` etiket sözlüğüne yayıldı → filtrede "Dosya deposu" (`uploads.*`) ve "Veritabanı geçişi"
+  (`migration.*`) grupları otomatik (G2 notu). Alanlar yoksa (eski kayıt/mock) `userFullName`/`tenantName`'e düşer.
+
+### Değişen / eklenen dosyalar (apps/web + DESIGN.md)
+
+Yeni: `app/(panel)/admin/tenants/[id]/{page,loading,purge-panel}.tsx`, `components/ui/confirm-name-dialog.tsx`,
+`components/purge-banner.tsx`, `lib/tenants/purge.ts`, `lib/users/delete.ts`, `lib/p16.test.ts`, `e2e/mock-p16.mjs`,
+`e2e/p16.spec.ts`. Değişen: `app/(panel)/{layout,admin/tenants/tenant-list,audit/audit-log,users/[id]/user-editor}.tsx`,
+`components/ui/avatar.tsx`, `lib/audit/actions.ts`, `lib/users/contract.ts` (yeniden dışa aktarım), `messages/tr.json`
+(yalnız ekleme), `e2e/mock-api.mjs` (p16 kancası), `e2e/p15.spec.ts` (G4'ün değiştirdiği `users.delete` açıklama metni). DESIGN.md §4, §6.
+
+### Sapmalar (gerekçeli)
+
+- Önizleme ve ad yazma tek diyalogda (önizleme alanın üstünde): ayrı iki diyalog yerine; önizleme kimliği diyalog açıkken
+  saklanır, 15 dk sonra sunucu 428 verirse aynı diyalogda yenilenir.
+- "İptal et" ayrı onay diyaloğu açmaz (yıkıcı değil, geri adım); step-up yine istenir.
+- Firma silme düğmesi ayrıntı sayfasında (mimari `admin/tenants/[id]`); listede yalnız rozet + ad bağlantısı. Sayfa yoktu, eklendi.
+- Uygunluk arayüz ipucudur: `passiveSince` gelmezse düğme açık, son karar sunucuda (409 `PURGE_NOT_ELIGIBLE`).
+
+### backend-dev (G3) için notlar
+
+G3 bölümüyle karşılaştırıldı: 1–3 G3'te karşılanmış (son iş firma silinse de döner, FAILED'de önizleme 200, reactivate mesaj sabitleri). Gerçek uçlarla e2e (sahte API yerine) staging'de test-operatoru turunda doğrulanmalı.
+
+1. `GET /admin/tenants/:id/purge`, firma satırı silindikten sonra (TENANT_ROW sonrası, DONE) da son işi dönmeli; web
+   RUNNING → DONE'ı bu uçla izler ve firma 404 + iş varsa "Silinmiş firma #…" gösterir.
+2. FAILED işte `dryRun:true` 409 vermemeli (sürdürme yeni önizlemeyle — ADR-0030).
+3. Yeniden etkinleştirme 409'u web'de mesaj metniyle ayrılıyor: `TENANT_REACTIVATE_PURGE_{SCHEDULED,PARTIAL}_MESSAGE` birebir dönmeli.
+4. `TenantItem.passiveSince` / `purge` dolunca liste rozetleri ve "Silinebilir: <tarih>" gerçek veriyle çalışır.
+
+### Test
+
+- web `lint` temiz · `typecheck` temiz · `test` **38 dosya / 345** (yeni `lib/p16.test.ts` 10: AC-241/242/243).
+- e2e `p16.spec.ts` 9/9 (desktop): kullanıcı silme (ad uyuşmazlığı, step-up, liste + toast), aktif/kendi/açık oturum,
+  firma önizleme → SCHEDULED geri sayım → bant → liste rozeti → yeniden etkinleştirme 409 → banttan iptal, uygun olmayan
+  firma, RUNNING → DONE (sahte yoklama), FAILED → Sürdür + kısmi durum, maskeli audit satırı; axe açık + koyu × 1280/390 px
+  (kullanıcı silme diyaloğu, önizleme + bant, FAILED kartı, firma listesi, audit) 0 ihlal, yatay taşma yok.
+- **Tam e2e:** 387 geçti + düzeltilen `p15` AC-237 testi tek başına yeşil (G4'ün izin metni değişikliği); 178 atlandı
+  (mobil `desktopOnly`); `desktop-perf` bağımlılık nedeniyle o koşuda çalışmadı.
+- `prettier --check` değiştirdiğim dosyalarda temiz.
+
+**Test (2026-11-15, geçici `rs-p16g3-006361`, mysql 8.4.13, P1→P16 migrate; iş sonunda silindi)**
+
+- `pnpm -r run lint` 0, `pnpm -r run typecheck` 0, server unit 383/383, contracts 99/99, `pnpm format:check` 0.
+- AC-242: `tenant-purge-p16` 9/9, `tenant-purge-meta-p16` 7/7; `tenant-isolation` 5/5 (4 yeni uç sınıflı).
+- Tam `test:int` **673/673** (70 dosya). İlk tam koşuda 2 kırmızı (`audit-immutability-p11` AC-123, `security-p14a-auth` AC-214):
+  ikisi de `Too many connections` / 503 — test MySQL'i `max_connections = 151`'de, `Max_used_connections` 152 (dosya başına iki
+  havuz × paralel işçi; önceden de sınırdaydı). Tek başına 17/17; ikinci tam koşu yeşil. CLI testinden ek havuz kaldırıldı. Not:
+  `scripts/test-db.sh`'a `--max-connections=300` eklenmesi önerilir (dba/devops kararı; dokunulmadı).
+- `pnpm --filter @remote/server cli erasure:verify` (migrator, defter yok) → `bekleyen_kullanici=0 bekleyen_firma=0`, rc 0;
+  bilinmeyen komut rc 2.
+
+## P16 S16 kapanış tablosu (backend, 2026-11-15)
+
+Tek tablo; P16 güvenlik bulgularının her biri → kanıt. Test adları `apps/server/test/integration/` altındaki dosyalardan (dosya kısaltması:
+`ud` users-delete-p16, `tp` tenant-purge-p16, `tpm` tenant-purge-meta-p16, `rp` retention-p16-purge, `os` orphan-scan-p16, `r13` retention-p13a-job);
+`cag` = `deploy/mysql/check-app-grants.sh`, `mig` = `apps/server/prisma/migrations/20261118000000_p16_hard_delete/migration.sql`.
+
+| Bulgu  | Durum                                                                                    | Kanıt                                                                                                                                                                                                                                                                                                                                                                                                                                  |
+| ------ | ---------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| S16-1  | Kapandı                                                                                  | `ud` "AC-241: liste, CSV ve oturum zaman çizelgesi gövdelerinde silinen kullanıcının eski e-posta/adı 0 kez geçer", "… kullanıcı satırı hiç olmayan ve firma satırı olmayan (fikstür) audit satırında da maske uygulanır", "… canlı kullanıcı/firma satırı maskelenmez"                                                                                                                                                                |
+| S16-2  | Kapandı                                                                                  | `tp` "AC-242 S16-2: elle eklenen 'system' işi CHECK'e takılır; aktif firma / satırı olmayan firma işi FAILED invalid_job …"; `tp` "AC-242 sembolik bağlantı: …"                                                                                                                                                                                                                                                                        |
+| S16-3  | Kapandı (**kanıt bu turda eklendi**)                                                     | `tpm` "AC-240 S16-3: app ile damga bir kez ve DB saatine yakın yazılır; ikinci yazım, NULL'lama ve geçmiş tarih SIGNAL" (3 tablo: `support_sessions`/`support_requests.anonymized_at`, `device_bindings.revoked_at`); tetikleyiciler `mig` `*_update_guard` (S16-3 yorumlu üç blok)                                                                                                                                                    |
+| S16-4  | Kapandı (e-posta Sonra)                                                                  | `tp` "AC-242 uçtan uca: … zamanlama (+24 sa DB) → bekleme → silme …", "AC-242 iptal: SCHEDULED → CANCELLED (step-up) …", "AC-242 step-up: zamanlama ve iptal step-up'sız 401 …"; `mig` insert guard ("fresh SCHEDULED job at step FENCE")                                                                                                                                                                                              |
+| S16-5  | Kapandı                                                                                  | `tpm` "AC-242 replay geri yüklenmiş firmayı ve kullanıcıyı yeniden siler; verify önce 1, sonra 0 …"; `deploy/backup/test-backup-inner.sh` canlı restore defter uzlaştırma + replay/verify satırları                                                                                                                                                                                                                                    |
+| S16-6  | Kapandı                                                                                  | `tp` "AC-242 previewId: başka oturum, durum değişimi, süre/biçim bozuk → 428 PREVIEW_REQUIRED"; `apps/server/src/tenants/purge-service.ts:91` `previewMaterial`                                                                                                                                                                                                                                                                        |
+| S16-7  | Kapandı (**kanıt satırı bu turda yazıldı**)                                              | `ud` describe "AC-241 S16-7 mezar taşıyla giriş" → "AC-241: mezar taşı e-postasıyla 6 deneme → 401/423; auth_fail_counter_fallback logu yok; posta denenmez; sıfırlama isteği olmayan hesap" (`findUserByLogin` mezar taşı ve eski e-posta için `null`); kod `apps/server/src/auth/repo.ts:47-49` (`status <> DELETED`)                                                                                                                |
+| S16-8  | Kapandı                                                                                  | `rp` "AC-240 / S16-8: uygulama saati +2 sa ileride iken parti takılmaz (kesme DB saatiyle) …"; `rp` "AC-240: DB saatiyle 30 g ± 1 sa sınırı …"                                                                                                                                                                                                                                                                                         |
+| S16-9  | Kapandı                                                                                  | `os` "AC-243 / S16-9: devre kesici — referans kümesi boşken …", "… %21 karşılıksız → silme yok …", "AC-243 / S16-9 meta-test: şemadaki bütün `*_path` sütunları `UPLOAD_REFERENCE_SOURCES` listesinde"                                                                                                                                                                                                                                 |
+| S16-10 | Kapandı                                                                                  | `rp` "AC-240 / S16-10: DONE/CANCELLED iş satırı 730 g sonra silinir, daha yenisi kalır …"; `tp` "AC-242 FAILED: yeniden etkinleştirme 409 …"; `mig` `tenant_purge_jobs_delete_guard`                                                                                                                                                                                                                                                   |
+| S16-11 | Kapandı                                                                                  | `tpm` describe "P16 G3 meta-testler (S16-11)" (4 test: FK kümesi, DELETE_RULE RESTRICT, users FK, adım sırası); `cag` P16 satırları (`run DENIED … "p16: support_sessions DELETE"`, `consent_texts`, `session_consents`, `tenant_request_settings`, `support_requests`); `test-backup-inner.sh` "S16-11: manifest tetikleyici 22"                                                                                                      |
+| S16-12 | Kodda kapandı, **prod ön koşulu açık** (kullanıcıda: `WATCH_ALERT_CMD` + staging kanıtı) | `deploy/ops/test-watch.sh:184` "S16-12: SCHEDULED sürdükçe her turda yeniden alarm"                                                                                                                                                                                                                                                                                                                                                    |
+| S16-13 | Kapandı (kalan pay S16-18 ile kapandı)                                                   | `tp` uçtan uca testte defter `["started","done"]`; `test-backup-inner.sh:226` "S16-13: defter kısaldı -> … FAILED adım=imha-defteri kisaldi"                                                                                                                                                                                                                                                                                           |
+| S16-14 | Kapandı                                                                                  | `r13` "AC-197 / S16-14: …", "S16-14: iş saati ileride olsa da `anonymized_at` DB saatiyle yazılır …"; `apps/server/src/requests/repo.ts:397`, `apps/server/src/bindings/repo.ts:168`                                                                                                                                                                                                                                                   |
+| S16-15 | Kapandı                                                                                  | `tp` "AC-242 çökme dayanıklılığı: afterBatch ile her parti/adımdan sonra çökme + yeni yürütücü → aynı sonuç"; `mig` `tenant_purge_jobs_update_guard` (adım yalnız +1, `tenant_row_deleted_at` yalnız TENANT_ROW) ve CHECK `tenant_purge_jobs` step/tenant_row satırları (`mig:101-110`)                                                                                                                                                |
+| S16-16 | Kapandı (bu tur)                                                                         | `tpm` "AC-242 S16-16 replay tutarsız satırı reddeder: aktif firma, taze pasif firma, Super Admin → 0 değişiklik; meşrular işlenir; rc 3; audit rejected"; `apps/server/src/cli/erasure.ts:33-35` (`USER_OK`/`TENANT_OK`), `:184` (`EXIT.REJECTED`); `deploy/backup/lib-ledger.sh` `ledger_live_replay` rc 3 dalı + `test-backup-inner.sh` "S16-16: erasure:replay rc 3 …" (dind yasağı nedeniyle bu turda koşulmadı; shellcheck temiz) |
+| S16-17 | Kapandı (bu tur)                                                                         | `ud` "AC-241: ACTIVE 409; … kendi 403; Super Admin / başka firma 404 (S16-17)" (SA = olmayan kimlik gövdesi, SA kimliğiyle audit 0); `apps/server/src/users/service.ts:588`                                                                                                                                                                                                                                                            |
+| S16-18 | Kapandı (bu tur)                                                                         | `tp` "AC-242 S16-18: start commit'i ile defter arasında çökme → RUNNING/FENCE iş sonraki turda `started` satırını yazar"; `ud` "AC-241: mezar taşı alanları …; defter satırı …" (`intent` + `done`) ve 409/400/403/404 reddinde defter satırı yok; `apps/server/src/jobs/tenant-purge.ts:138`, `apps/server/src/users/service.ts:600,620`                                                                                              |
+| S16-19 | **Sonra (mimar kararı)**                                                                 | `docs/gereksinimler.md` §9 "Sonra (S16-19)": ADR-0030 m.4 IP/UA kararı + `AUDIT_IDENTITY_KEYS` anahtar meta-testi                                                                                                                                                                                                                                                                                                                      |
+| S16-20 | Kapandı (düzeltme turu 2)                                                                | `tpm` "AC-242 S16-20 replay: yalnız intent satırı + yeniden etkinleştirilmiş kullanıcı ve yalnız CANCELLED işi olan taze pasif firma reddedilir; intent + PASSIVE uygulanır"; `tpm` S16-16 testi (meşru firma artık SCHEDULED işli); `apps/server/src/cli/erasure.ts` `userIdsOf`, `USER_INTENT_OK`, `TENANT_OK`                                                                                                                       |
+
+## P16 düzeltme turu 1 (backend, 2026-11-15)
+
+Kapsam: güvenlik P16 kod turu 1 S16-16 (Orta), S16-17, S16-18 (Düşük); QA P16 madde 2 (kapanış tablosu, S16-3/S16-7 kanıtı);
+`test-db.sh` bağlantı sınırı; remote-watch.sh boyut gerekçesi; S16-19 "Sonra" satırı.
+
+### Değişen dosyalar
+
+- `apps/server/src/cli/erasure.ts` — S16-16: replay satırı yalnız geri yüklenen DB ile tutarlıysa uygular. Firma: `PASSIVE` ve
+  (`passive_at <= UTC − 16 g` ya da `tenant_purge_jobs` satırı var). Kullanıcı: `role <> 'SUPER_ADMIN' AND tenant_id IS NOT NULL`
+  (UPDATE `WHERE`'de de). Reddedilen satır uygulanmaz, sayılır (`rejectedUsers`, `rejectedTenants`). Audit `erasure.replayed`
+  bu sayıları içerir, red varsa `result: fail`. CLI çıktısı `reddedilen_kullanici=… reddedilen_firma=…`, red varsa stderr'e
+  "kurcalama şüphesi" satırı ve **çıkış 3** (`EXIT.REJECTED`). verify aynı koşulla: bekleyen = uygun ve silinmemiş; reddedilenler
+  ayrı yazılır, bekleyen sayılmaz. `main` test için isteğe bağlı `ledgerPath` parametresi alır (varsayılan sabit yol).
+- `apps/server/src/ops/erasure-ledger.ts` — kullanıcı satırına `phase: "intent" | "done"` (5 anahtar). `phase`sız eski 4 anahtarlı
+  satır geçerli kalır (= done). `backup.sh`/`lib-ledger.sh` süzgeci `phase`'a bakmaz (değişiklik gerekmedi).
+- `apps/server/src/users/service.ts` — S16-17: `readRole` kaldırıldı; önce `loadOrThrow` (kapsamlı sorgu Super Admin'i görmez → 404),
+  avatar yolu `cur.avatarPath`. S16-18: denetimler geçtikten sonra, mezar taşı UPDATE'inden önce (TX içinde) `intent` satırı;
+  commit sonrası `done` satırı. Yazım hatası silmeyi durdurmaz, alarm loglanır (önceki kalıp).
+- `apps/server/src/users/repo.ts` — kullanılmayan `readRole` silindi.
+- `apps/server/src/jobs/tenant-purge.ts` — S16-18: `started` satırı FENCE'teki her turda (uygunluktan sonra) yazılır.
+- `deploy/backup/lib-ledger.sh` — `ledger_live_replay` rc 3 için ayrı mesaj ("tutarsız defter satırı REDDETTİ (kurcalama şüphesi)");
+  her rc≠0'da olduğu gibi server başlatılmaz (`check` FAIL + `verdict`, mevcut davranış korunur).
+- `deploy/backup/test-backup-inner.sh` — stub `STUB_REPLAY_RC=3` vakası.
+- `apps/server/scripts/test-db.sh` — `--max-connections=300` (CI zaten `SET GLOBAL max_connections = 300`).
+- Testler: `tenant-purge-meta-p16.test.ts` (S16-16 yeni test, mevcut replay testi yeni koşula uyarlandı: geri yüklenen firma
+  20 g pasif; S16-3 yeni test), `users-delete-p16.test.ts` (Super Admin 403 → 404, fail audit 2 → 1, defter `intent`+`done`,
+  reddedilen istekte defter satırı yok), `tenant-purge-p16.test.ts` (S16-18 yeni test).
+- Doküman: `docs/runbook.md` §23.5 (rc 3 elle karar adımı + CLI sözleşmesi), `README.md` P16 çıkış kodları, `docs/gereksinimler.md`
+  §9 S16-19 satırı, bu dosyada G7 remote-watch.sh 449 satır gerekçesi ve S16 kapanış tablosu.
+
+### Tasarımdan / rapordan sapmalar (gerekçeli)
+
+- **S16-18 kullanıcı niyet satırı TX'ten önce değil, TX içinde denetimlerden sonra yazılır.** TX'ten önce yazılırsa reddedilecek
+  istek (409 ACTIVE, 400 ad uyuşmazlığı, 403, 404) deftere girer ve sonraki geri yüklemede kullanıcı silinmemişken mezar taşına
+  çevrilirdi (S16-16 süzgeci kullanıcıda PASSIVE aramaz; meşru silmede yedekte kullanıcı ACTIVE olabileceği için aranamaz).
+  TX içinde yazımla commit → defter çökme penceresi kapanır; kalan tek durum "niyet yazıldı, commit DB hatasıyla düştü"dür ve
+  o durumda da yönetici adı onaylayıp step-up yapmıştır (geri yüklemede silinmesi kabul edilebilir).
+- **verify reddedilen satırları bekleyen saymaz** (rc yalnız uygun bekleyenlere göre 0/1). Reddedilen satır geri yüklemede zaten
+  replay rc 3 ile durdurur; elle karar sonrası server açıldığında verify'ın sonsuza kadar 1 dönmesi istenmez.
+- Kullanıcıda S16-16 süzgeci yalnız rol/firma (rapor önerisiyle aynı). Firma koşulu rapordaki gibi.
+
+### frontend-dev için
+
+Sözleşme değişikliği yok. `DELETE /users/:id` Super Admin hedefinde artık **404** (önce 403); arayüz zaten Super Admin'i listelemiyor.
+
+### Test (geçici `rs-p16fix-*`, mysql 8.4.13, `--max-connections=300`, iş sonunda silindi)
+
+- `pnpm -r run lint` 0 · `pnpm -r run typecheck` 0 · server unit **383/383** · contracts **99/99**.
+- Tam `test:int` **676/676** (70 dosya; yeni 3 test: S16-16, S16-3, S16-18). İlk tam koşuda tek kırmızı `sessions-lobby-p13bl`
+  AC-314 perf eşiği (p95 101,5 ms > 100, paralel ajan yükü; dosyaya dokunulmadı); tek başına p95 17,5 ms yeşil, ikinci tam koşu yeşil.
+- shellcheck v0.11.0 `-S warning` (`deploy/**/*.sh scripts/*.sh apps/server/scripts/*.sh`) temiz. `test-backup.sh` dind yasağı
+  nedeniyle koşulmadı (yeni rc 3 vakası devops/QA koşusunda doğrulanmalı).
+- `pnpm format:check`: değiştirdiğim dosyalar temiz; tek uyarı `docs/guvenlik-raporu.md` (güvenlik ajanının dosyası, dokunulmadı).
+
+## P16 düzeltme turu 1 (frontend, 2026-11-15)
+
+Kaynak: `docs/qa-raporu.md` "P16 — Tur 1" madde 3, madde 4 ve AC-237 önerisi. Rota değişikliği yok. Yeni bağımlılık, yeni
+primitif, yeni i18n anahtarı yok.
+
+### Madde 3: `purge-panel.tsx` bölündü (457 → 176 satır, davranış aynı)
+
+- `app/(panel)/admin/tenants/[id]/purge-panel.tsx` (176): durum, yoklama, iptal, zamanlama ve "Kalıcı sil" uygunluk düğmesi.
+- `…/[id]/purge-status-card.tsx` (yeni, 120): SCHEDULED, RUNNING, FAILED, DONE ve CANCELLED kartı, `PurgeProgress` ve
+  `isOpenPurge()`. Açık durum listesi contracts'taki `TENANT_PURGE_OPEN_STATES`'ten gelir, kopya tanım yok.
+- `…/[id]/purge-dialog.tsx` (yeni, 206): önizleme diyaloğu ve `PreviewBody`.
+- `data-testid`'ler, metinler, sınıflar ve geri çağrı sırası değişmedi. `e2e/p16.spec.ts` ek değişiklik olmadan yeşil.
+
+### AC-237 e2e adımı (öneri uygulandı)
+
+- `e2e/mock-p16.mjs`: yeni senaryo `p16admnd`. Bu, `users.delete` anahtarı olmayan bir ADMIN'dir (users.view/edit, audit.view).
+  `DELETE /users/:id` çağrısı 403 döner.
+- `e2e/p16.spec.ts`: "AC-237: users.delete anahtarı olmayan Admin'e Kalıcı sil düğmesi görünmez (pasif kullanıcıda da)". Pasif
+  (Pelin) ve aktif (Ahmet) kullanıcı detayında düzenleme düğmesi görünür, `user-delete` sayısı 0'dır.
+
+### Madde 4: AC-70 (`p9-users.spec.ts`) ve tam koşudaki diğer kararsızlar
+
+**P16 ilişkisi.** Kod incelemesi sonucunda dışlandı:
+
+- `PurgeBanner` `router.refresh()` çağırmaz. Yalnız `initial` prop'u değişince yerel durumu eşitler (render sırasında
+  setState). 60 sn'de bir `GET /admin/purge-jobs?open=1` sonucunu yerel duruma yazar.
+- AC-70 testi 60 sn'den kısa sürer, bu yüzden yoklama testin içinde hiç tetiklenmez.
+- `ussa` senaryosunda sahte API `purge-jobs` için 404 döner. Bant hiç çizilmez.
+
+P16'nın kabuğa eklediği tek etki, Super Admin layout'undaki bir ek sıralı sunucu isteğidir. Bu istek yeniden çizimi birkaç
+ms uzatır.
+
+**Yeniden üretme denemeleri.** Hata yeniden üretilemedi:
+
+- Test tek başına `--repeat-each 60 --workers 16`: 60/60.
+- Tam e2e 15 kez (3 × 5 ardışık): AC-70 15/15.
+
+**Olası neden.** Bu bir sonuçtur, kanıtlanmadı. "Bağlamdan çık" düğmesi yenilemeyi `startTransition(() => router.refresh())`
+ile yapar. Geçiş tüm RSC yükü gelene kadar commit edilmez. Next 16 eylem kuyruğu yenilemeleri sıralı işler. Yük altında bu
+süre varsayılan 5 sn'lik `expect` bütçesini aşabilir. Bu yorum QA'nın gözlemiyle tutarlıdır: hata yalnız tam koşuda görüldü,
+tek başına koşuda görülmedi.
+
+**Düzeltme (yalnız test).** İki aşama ayrı doğrulanıyor:
+
+1. "Firma bağlamından çıkıldı" toast'ı görünür. Bu, isteğin bittiğini gösterir.
+2. `data-acting=""` 10 sn içinde gelir. Bu, kabuğun sunucudan yeniden çizildiğini gösterir.
+
+Toast görünür ama öznitelik 10 sn'de değişmezse test gerçek hata olarak düşer.
+
+Tam koşularda yakalanan, P16'dan bağımsız diğer kararsızlar aşağıda.
+
+### Kararsız testler
+
+| Test                                                                                                                | Koşu / oran                                                                           | Kök neden                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 | Düzeltme                                                                                         | Kanıt                                                                                                                                                                                                                                    |
+| ------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `p9-users.spec.ts` AC-70 (satır 390, `data-acting` "")                                                              | QA: 2 tam koşunun 1'inde düştü. Burada 15 tam koşu + 60 tekil koşuda 0                | Yukarıda. Geçişli yenileme yük altında 5 sn'yi aşabiliyor. P16 bandıyla bağı kod incelemesiyle dışlandı                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   | Toast + 10 sn öznitelik beklemesi (yalnız test)                                                  | Düzeltme sonrası 5 ardışık tam koşuda AC-70 5/5                                                                                                                                                                                          |
+| `p12b-whatsapp.spec.ts` AC-196 kritik akış (satır 39, `setting-source` strict mode 2 öğe)                           | 5 tam koşunun 1'inde (önceki set, koşu 2)                                             | `page.goto("/admin/settings/mysql")` hemen ardından sekmeye tıklanıyordu. Akışlı Suspense içeriği (`<div hidden id="S:0">` içinde `mysql-form` ve `setting-source`) React yerleştirmeden istemci gezinmesi başladı. Bu gizli düğüm DOM'da yetim kaldı (trace DOM'unda doğrulandı) ve strict mode gizli öğeyi de saydı. Ürün etkisi yok: düğüm gizli. Aynı desen P13a customers AC-174/194'te de görülmüştü                                                                                                                                                                                | Tıklamadan önce `mysql-form` `data-ready=true` beklenir (P11/P14a testleriyle aynı)              | Düzeltme sonrası 10 tam koşuda 0                                                                                                                                                                                                         |
+| `p13bl-lobby.spec.ts` AC-312 (satır 361, axe `color-contrast` `waiting-badge`, light 360 px)                        | 5 tam koşunun 1'inde (ikinci set, koşu 4)                                             | Genişlik 1280 → 360 olunca kart görünümündeki rozet yeniden bağlanır ve 200 ms'lik `@starting-style` geçişiyle (opacity 0 → 1) belirir. `toHaveText` geçiş sırasında da sağlanır. axe yarı saydam metnin kontrastını düşük ölçer. CSS geçişi gerçek saatle ilerler, `page.clock` bunu etkilemez                                                                                                                                                                                                                                                                                           | axe'den önce rozette çalışan animasyon olmaması ve opacity'nin 1 olması beklenir (`expect.poll`) | Tekil 5 tekrar × 2 proje 10/10. Ardından 5 tam koşuda 0                                                                                                                                                                                  |
+| `p5-collab.spec.ts` TEST-P5-1 (iki test, `offerAndCancel` satır 332: 2. veya 3. teklif "offered" yerine "rejected") | 15 tam koşunun 2'sinde (koşu 4 / ikinci set ve koşu 4 / üçüncü set). Tek başına 12/12 | **Açık, P16'dan bağımsız** (`desktop-rtc`, P5 dosya aktarımı; P16 bu kodlara dokunmadı). Alıcı (teknisyen) teklifi `file.reject` ile reddediyor. Trace'te teknisyen sayfasının son anlık görüntüsü bu teklif gelmeden önce alınmış, bu yüzden red nedeni (`cooldown` veya `busy`) görülemedi. Şüphe: bir önceki teklifin diyaloğu kapanırken kuyruktaki `close` olayı, yeni teklif commit edildikten sonra ama `showModal` efekti çalışmadan önce gelirse, `Dialog` `onClose` yeni teklifi reddeder. Bu `lastReject`'i ayarlar ve sonraki teklif 30 sn `cooldown` ile otomatik reddedilir | Yok. Neden kanıtlanmadan ürün koduna dokunulmadı                                                 | Trace: `scratchpad/gres4`, `res4` (geçici). Önerilen sonraki adım: `files-panel` `onClose` reddini diyaloğun açıldığı fid'e bağlamak ve testte red nedenini (`p5.files.auto.*`) teknisyen tarafında doğrulamak (P5 sahibi / sonraki tur) |
+
+### Test
+
+- Web `lint` 0, `typecheck` 0, vitest **38 dosya / 345 test**.
+- Tam e2e tek koşu: **390 geçti / 179 atlandı** (yeni AC-237 testi dahil).
+- 5 ardışık tam e2e (`playwright test --retries 0`, her biri ayrı derleme), son set (tüm düzeltmelerden sonra): 1, 2, 3 ve 5.
+  koşu 390/390. 4. koşuda yalnız P5 TEST-P5-1 düştü (yukarıdaki tablo; P16'dan bağımsız, açık). Bu koşuda `desktop-perf` bağımlılık
+  yüzünden "did not run" oldu. AC-70, p12b ve p13bl üç sette de, düzeltme sonrası 0 kırmızı.
+- Not: `--repeat-each 5` tek koşuda `desktop-perf` (AC-41 FPS) 5 kopyayı paralel koşturuyor ve FPS eşiği düşüyor. Bu yüzden 5
+  koşu ardışık ayrı süreçlerle yapıldı (`scripts/repeat-tests.sh e2e` bu nedenle perf projesinde yanlış kırmızı verebilir;
+  devops'a not).
+- `pnpm format:check`: değiştirdiğim dosyalar temiz. Tek uyarı `docs/guvenlik-raporu.md` (güvenlik ajanının dosyası,
+  dokunulmadı).
+
+### Değişen / eklenen dosyalar (yalnız apps/web)
+
+Yeni: `app/(panel)/admin/tenants/[id]/purge-status-card.tsx`, `app/(panel)/admin/tenants/[id]/purge-dialog.tsx`.
+Değişen: `app/(panel)/admin/tenants/[id]/purge-panel.tsx`, `e2e/mock-p16.mjs`, `e2e/p16.spec.ts`, `e2e/p9-users.spec.ts`,
+`e2e/p12b-whatsapp.spec.ts`, `e2e/p13bl-lobby.spec.ts`.
+
+## P16 düzeltme turu 2 (backend, 2026-11-15)
+
+Kapsam: güvenlik "P16 — kod turu 2" S16-20 (Düşük) ve QA "P16 — Tur 2" Düzeltilmeli 2 (AC-206 `PATCH /users/:id` 503).
+
+### S16-20 — replay koşulları daraltıldı
+
+- `apps/server/src/cli/erasure.ts`: `userIdsOf` defterdeki kullanıcıları iki gruba ayırır: `done`/fazsız satırı olanlar ve
+  yalnız `intent` satırı olanlar. Yalnız `intent` satırı olanlarda ek koşul `u.status = 'PASSIVE'` (`USER_INTENT_OK`) uygulanır.
+  Bu koşul hem `FOR UPDATE` kararında hem mezar taşı `UPDATE`'inin `WHERE`'inde var. Koşul sağlanmazsa satır reddedilir
+  (rc 3). Yeniden etkinleştirilmiş ACTIVE hesap mezar taşına çevrilmez. Commit'ten sonra `done` yazılamadan çöken
+  meşru silme (PASSIVE) yine uygulanır.
+- `TENANT_OK` iş satırı `EXISTS`'i yalnız `state IN ('SCHEDULED','RUNNING','FAILED','DONE')` olan işleri sayar.
+  CANCELLED iş silme izni değildir. `verify` aynı koşulları kullanır.
+- Test (`tpm`): "AC-242 S16-20 replay: yalnız intent satırı + yeniden etkinleştirilmiş kullanıcı ve yalnız CANCELLED işi
+  olan taze pasif firma reddedilir; intent + PASSIVE uygulanır". Mevcut S16-16 testindeki "meşru" firma CANCELLED iş
+  yerine SCHEDULED işle kuruldu (yeni kural gereği). Fikstür yardımcısı: `insertJob`.
+
+### AC-206 503 — kök neden: iki ürün kilit hatası (retry yok)
+
+503, `isTransientDbError` → MySQL 1213 deadlock (Prisma P2034) yanıtıydı. Kaynak iki ayrı ürün hatası; ikisi de prod'da
+aynı 503'ü üretir.
+
+1. **`users/repo.ts` `replacePermissions`** (PATCH ve kullanıcı oluşturmada çağrılır) önce `DELETE … WHERE user_id = ?`, sonra
+   `INSERT` yapıyordu. REPEATABLE READ'de boş aralık silmesi next-key/gap kilidi alır. ULID'ler monoton olduğundan en yeni
+   kullanıcılar dizin sonundaki aynı boşluğu paylaşır. İki eşzamanlı TX (farklı firmalar dahil) önce siler, sonra ekler
+   ve 1213 alır. İki `mysql` oturumuyla deterministik olarak yeniden üretildi.
+   **Düzeltme:** yalnız fark yazılıyor. Var olan satırlar tam birincil anahtarla siliniyor ya da güncelleniyor (kayıt kilidi),
+   yeni satırlar ekleniyor. Okuma kilitsiz, çünkü çağıran `users` satırını TX başında `FOR UPDATE` tutuyor.
+2. **`jobs/tenant-purge-repo.ts` `byTenantUser` partisi** `DELETE FROM t WHERE user_id IN (SELECT u.id FROM users u WHERE
+u.tenant_id = ?) LIMIT 500` çalıştırıyordu. Tek tablolu `DELETE … LIMIT` semi-join'e çevrilemiyor (EXPLAIN: hedefte
+   `ALL` + `DEPENDENT SUBQUERY`). Bu yüzden her parti TX'i tablonun tamamına (supremum dahil) X, `users` satırlarına S
+   kilidi koyuyordu. `SHOW ENGINE INNODB STATUS` kaydı: 15.506 satır kilidi tutan purge TX'i ile başka firmanın 2FA
+   kurulumundaki `recovery_codes` INSERT'i arasında deadlock. Firma silme sürerken **bütün firmalarda** giriş, 2FA kurulumu
+   ve yetki yazımları bekliyor ya da 503 alıyordu. Aynı turdaki `account-p10` düşüşleri (`MFA_SETUP_REQUIRED`, 403≠401) ve
+   AC-202 düşüşü de bundan kaynaklanıyordu.
+   **Düzeltme:** firmanın kullanıcı kimlikleri önce okunuyor, DELETE sabit listeyle çalışıyor (EXPLAIN: `range`). Sayım
+   (önizleme) aynı koşulu koruyor. FENCE'teki `UPDATE auth_sessions … IN (SELECT …)` LIMIT'siz olduğu için semi-join
+   kullanıyor (EXPLAIN `ref`), değiştirilmedi.
+
+Regresyon testleri (ikisi de eski kodda kırmızı olarak doğrulandı, sonra geri alındı):
+
+- `security-p14a-users` "AC-206 kilitlenme: iki firmada eşzamanlı yetki yazımı (en yeni kullanıcılar) 1213 deadlock / 503
+  vermez — replacePermissions aralık kilidi almaz (bariyerli, 10/10)". İki TX `createMany` öncesinde bir bariyerde buluşuyor.
+  Turlar dönüşümlü olarak boş başlangıç ve silme + çevirme + ekleme farkıdır. Son satırlar beklenen kümeye eşit olmalı.
+- `tpm` "AC-242 kilit kapsamı: USER_CHILDREN partisi açıkken başka firmanın yetki yazımı beklemez (tam tablo kilidi yok)".
+
+Kalan risk (düzeltilmedi, kapsam dışı): `auth/account.ts` 2FA etkinleştirme ve kurtarma kodu yenileme de
+`recoveryCode.deleteMany({userId})` + `createMany` kalıbını kullanıyor. İki en yeni kullanıcı aynı anda 2FA kurarsa aynı
+gap deadlock'u teorik olarak mümkün. Fark tabanlı çözüm burada doğrudan uygulanamıyor: `regenerateRecoveryCodes`'ta ilk
+kilitsiz okuma (`loadSecret`) satır kilidinden önce yapıldığı için anlık görüntü bayat olabilir. Ayrı bir iş olarak
+önerilir (backend). 5 tam koşuda görülmedi.
+
+### Değişen dosyalar
+
+`apps/server/src/cli/erasure.ts`, `apps/server/src/users/repo.ts`, `apps/server/src/jobs/tenant-purge-repo.ts`,
+`apps/server/test/integration/tenant-purge-meta-p16.test.ts`, `apps/server/test/integration/security-p14a-users.test.ts`,
+`docs/implementation.md` (bu bölüm + S16 kapanış tablosunda S16-20 satırı). Yeni bağımlılık yok, sözleşme değişikliği yok
+(frontend-dev için bir şey yok).
+
+### Test
+
+Geçici `rs-p16fix2-b41e1e` (mysql 8.4.13, `--max-connections=300`), iş sonunda silindi.
+
+- `pnpm -r run lint` 0, `pnpm -r run typecheck` 0, `pnpm format:check` temiz, server unit **383/383**.
+- Tam `test:int`, düzeltmelerden sonra **5 ardışık koşu: 679/679 ×5, 0 kırmızı**.
+- Yalnız `replacePermissions` düzeltmesiyle yapılan ara set (purge düzeltmesi öncesi) 5 koşudan 3'ünde kırmızıydı:
+  AC-202 ve `account-p10`. Bu set ikinci kök nedeni ortaya çıkardı. Kayıt amaçlı yazıldı; "Kararsız testler"e yeni satır
+  gerekmiyor.

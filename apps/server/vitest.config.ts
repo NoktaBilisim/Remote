@@ -16,7 +16,8 @@ const SYSTEM_SETTINGS_SERIAL = [
 const BINDINGS_SERIAL = ["test/integration/bindings-p8c.test.ts"];
 // P13a: saklama işi tüm firmalarda + global tablolarda (audit 730 g, giriş oturumları) çalışır; başka dosyalarla eşzamanlı
 // koşarsa onların eski tarihli fikstürlerini anonimleştirir/siler → en sona, tek başına.
-const RETENTION_SERIAL = ["test/integration/retention-p13a-job.test.ts"];
+// P16 (AC-240): gece kalıcı silme aynı işin parçası (global adımlar dahil) → aynı seri proje.
+const RETENTION_SERIAL = ["test/integration/retention-p13a-job.test.ts", "test/integration/retention-p16-purge.test.ts"];
 const SERIAL = [...SYSTEM_SETTINGS_SERIAL, ...BINDINGS_SERIAL, ...RETENTION_SERIAL];
 
 export default defineConfig({
@@ -39,7 +40,12 @@ export default defineConfig({
       },
       { extends: true, test: { name: "serial-system-settings", include: SYSTEM_SETTINGS_SERIAL, sequence: { groupOrder: 1 } } },
       { extends: true, test: { name: "serial-bindings", include: BINDINGS_SERIAL, sequence: { groupOrder: 2 } } },
-      { extends: true, test: { name: "serial-retention", include: RETENTION_SERIAL, sequence: { groupOrder: 3 } } },
+      // P16: iki saklama dosyası da global adımı (audit 730 g, iş satırları) koşar ve global `retention.run` satırı sayar →
+      // proje içinde dosyalar sırayla.
+      {
+        extends: true,
+        test: { name: "serial-retention", include: RETENTION_SERIAL, fileParallelism: false, sequence: { groupOrder: 3 } },
+      },
     ],
   },
 });

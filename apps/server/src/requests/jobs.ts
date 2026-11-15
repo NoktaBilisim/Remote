@@ -73,7 +73,7 @@ export async function anonymizeRequestsOf(svc: RequestService, t: { tenantId: st
   const cutoff = new Date(now.getTime() - t.retentionDays * DAY_MS);
   let total = 0;
   for (;;) {
-    const n = await repo.anonymizeBatch(svc.d.db, t.tenantId, cutoff, now, ANON_BATCH);
+    const n = await repo.anonymizeBatch(svc.d.db, t.tenantId, cutoff, ANON_BATCH);
     total += n;
     if (n < ANON_BATCH) return total;
   }

@@ -175,6 +175,6 @@ describe("ADR-0014 enum CHECK ikili karşılaştırma", () => {
     const clauses = await testDb().$queryRaw<{ n: bigint }[]>`
       SELECT COUNT(*) AS n FROM information_schema.CHECK_CONSTRAINTS
       WHERE CONSTRAINT_SCHEMA = DATABASE() AND CHECK_CLAUSE LIKE '%charset binary%'`; // MySQL CAST(x AS BINARY)'yi böyle saklar
-    expect(Number(clauses[0]?.n)).toBe(29); // P15 session_files.reported_by, request_blocks kind/target + ADR-0014 14 + P8b-1 support_requests status/cancel_reason/network_match + P8c-1 customers.status, device_bindings.revoke_reason + P11 system_settings key/mysql/turn + P12 system_logo, tenants.logo_path, users.avatar_path (öndek ikili eşitlik) + whatsapp servis ayarı
+    expect(Number(clauses[0]?.n)).toBe(36); // P16 +7: tenants_passive_chk, users_deleted_chk, tenant_purge_jobs state/step/done/cancelled/tenant_row. P15 session_files.reported_by, request_blocks kind/target + ADR-0014 14 + P8b-1 support_requests status/cancel_reason/network_match + P8c-1 customers.status, device_bindings.revoke_reason + P11 system_settings key/mysql/turn + P12 system_logo, tenants.logo_path, users.avatar_path (öndek ikili eşitlik) + whatsapp servis ayarı
   });
 });

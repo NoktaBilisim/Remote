@@ -355,7 +355,7 @@ export async function expireIdleBindingsOf(
   const cutoff = new Date(now.getTime() - t.retentionDays * DAY_MS);
   let n = 0;
   for (;;) {
-    const k = await repo.expireIdle(svc.d.db, t.tenantId, cutoff, now, BATCH);
+    const k = await repo.expireIdle(svc.d.db, t.tenantId, cutoff, BATCH);
     n += k;
     if (k < BATCH) break;
   }

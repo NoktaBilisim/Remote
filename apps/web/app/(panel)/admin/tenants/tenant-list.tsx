@@ -1,6 +1,7 @@
 "use client";
 
-import { Archive, ArchiveRestore, ArrowRightLeft, Building, Check, PenLine, Plus } from "lucide-react";
+import { Archive, ArchiveRestore, ArrowRightLeft, Building, CalendarX2, Check, CircleAlert, PenLine, Plus, Trash2 } from "lucide-react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useId, useState, type ReactNode } from "react";
 import { FormError } from "@/components/form-error";
@@ -10,6 +11,7 @@ import { TextField } from "@/components/ui/text-field";
 import { useToast } from "@/components/ui/toast";
 import { api, ApiError, EXPIRED_LOGIN_PATH, isUnauthenticated } from "@/lib/api";
 import { toUiError, type UiError } from "@/lib/error-message";
+import { isReactivatePurgeConflict, type TenantPurgeBadge } from "@/lib/tenants/purge";
 import { formatDateTime, formatNumber } from "@/lib/format";
 import { t } from "@/lib/i18n";
 import type { SwitchTenantResponse, TenantItem } from "@/lib/users/contract";
@@ -118,9 +120,14 @@ export function TenantList({ items, actingId }: { items: TenantItem[]; actingId:
   const nameCell = (x: TenantItem) => (
     <span className="flex min-w-0 items-center gap-2">
       <Building aria-hidden className="size-4 shrink-0 text-fg-muted" />
-      <span className="truncate font-medium text-fg" title={x.name}>
-        {x.name}
-      </span>
+      <Link
+        href={`/admin/tenants/${x.id}`}
+        className="inline-flex min-h-11 min-w-0 items-center truncate font-medium text-primary hover:underline"
+        title={x.name}
+        data-testid="tenant-link"
+      >
+        <span className="truncate">{x.name}</span>
+      </Link>
       {x.id === actingId && (
         <span
           className="inline-flex shrink-0 items-center gap-1 rounded-full bg-primary-surface px-2 py-0.5 text-xs font-medium text-primary"
@@ -173,7 +180,10 @@ export function TenantList({ items, actingId }: { items: TenantItem[]; actingId:
                 <td className="px-3 py-2 text-right tabular-nums text-fg">{formatNumber(x.activeUserCount)}</td>
                 <td className="px-3 py-2 whitespace-nowrap tabular-nums text-fg">{formatDateTime(x.createdAt)}</td>
                 <td className="px-3 py-2">
-                  <StatusPill status={x.status} testId="tenant-status" />
+                  <span className="flex flex-col items-start gap-1">
+                    <StatusPill status={x.status} testId="tenant-status" />
+                    {x.purge && <PurgeBadge purge={x.purge} />}
+                  </span>
                 </td>
                 <td className="px-3 py-2">{actions(x)}</td>
               </tr>
@@ -187,7 +197,10 @@ export function TenantList({ items, actingId }: { items: TenantItem[]; actingId:
           <li key={x.id} data-testid="tenant-card" className="flex flex-col gap-2 rounded-lg border border-border bg-surface p-3">
             <div className="flex items-start justify-between gap-2">
               <div className="min-w-0">{nameCell(x)}</div>
-              <StatusPill status={x.status} testId="tenant-status" />
+              <span className="flex shrink-0 flex-col items-end gap-1">
+                <StatusPill status={x.status} testId="tenant-status" />
+                {x.purge && <PurgeBadge purge={x.purge} />}
+              </span>
             </div>
             <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-xs">
               <dt className="text-fg-muted">{t("tn.col.slug")}</dt>
@@ -261,7 +274,9 @@ function StatusDialog({
       router.refresh();
     } catch (e) {
       if (isUnauthenticated(e)) return router.replace(EXPIRED_LOGIN_PATH);
-      if (e instanceof ApiError && e.status === 409) {
+      // P16 (AC-242): açık silme işi varken yeniden etkinleştirme 409 → neden diyalogda (iş iptal edilmeli / tamamlanmalı)
+      if (isReactivatePurgeConflict(e)) setError({ message: e.message, tone: "danger", requestId: e.requestId });
+      else if (e instanceof ApiError && e.status === 409) {
         toast(t(deact ? "tn.d.already" : "tn.r.already"), "danger");
         onClose();
         router.refresh();
@@ -333,5 +348,28 @@ function StatusDialog({
         </div>
       )}
     </Dialog>
+  );
+}
+
+/** P16 (AC-242): firma listesinde silme işi rozeti — "Silinecek: <tarih>" / "Siliniyor" / "Silme başarısız" (metin + ikon). */
+function PurgeBadge({ purge }: { purge: TenantPurgeBadge }) {
+  if (purge.state !== "SCHEDULED" && purge.state !== "RUNNING" && purge.state !== "FAILED") return null;
+  const failed = purge.state === "FAILED";
+  const Icon = purge.state === "SCHEDULED" ? CalendarX2 : failed ? CircleAlert : Trash2;
+  const text =
+    purge.state === "SCHEDULED"
+      ? t("tn.p.badgeScheduled", { at: formatDateTime(purge.scheduledFor) })
+      : t(failed ? "tn.p.badgeFailed" : "tn.p.badgeRunning");
+  return (
+    <span
+      data-testid="tenant-purge-badge"
+      data-state={purge.state}
+      className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-xs font-medium whitespace-nowrap ${
+        failed ? "border-danger/30 bg-danger-surface text-danger" : "border-warning/30 bg-warning-surface text-warning"
+      }`}
+    >
+      <Icon aria-hidden className="size-3.5" />
+      {text}
+    </span>
   );
 }

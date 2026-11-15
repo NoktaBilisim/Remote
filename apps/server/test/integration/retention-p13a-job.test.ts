@@ -39,6 +39,21 @@ vi.mock("../../src/jobs/retention-repo.ts", async (orig) => {
   };
 });
 
+// Kararsız test kökü (AC-219, stability run 43666304959 koşu 20/20): iş DB'deki TÜM firmaları sırayla gezer (~3,5 ms/firma).
+// Kararlılık koşusu aynı DB'yi 20 kez kullandığından firma sayısı koşu başına ~700 artar; 20. koşuda (~14 bin firma) tek tur
+// ~50 sn, iki tur yapan fail-soft testi 60 sn tavanını aşıyordu. Firma listesi bu dosyanın oluşturduğu firmalarla
+// sınırlanır (gerçek sorgu çalışır, yalnız sonuç süzülür) → süre önceki koşulardan/diğer dosyalardan kalan veriden bağımsız.
+// Global adımlar (audit, giriş oturumu, sıfırlama bağlantısı) süzülmez.
+const scope = vi.hoisted(() => ({ tenantIds: new Set<string>() }));
+vi.mock("../../src/requests/repo.ts", async (orig) => {
+  const actual = await orig<typeof import("../../src/requests/repo.ts")>();
+  return {
+    ...actual,
+    retentionTenants: async (...args: Parameters<typeof actual.retentionTenants>) =>
+      (await actual.retentionTenants(...args)).filter((t) => scope.tenantIds.has(t.tenantId)),
+  };
+});
+
 const DAY = 86_400_000;
 const HIST = { "sessions.view": true, "session_history.view": true, "session_history.edit": true, "session_history.export": true };
 
@@ -54,6 +69,7 @@ beforeAll(async () => {
 
 async function tenantWith(retentionDays: number) {
   const t = await createTenant();
+  scope.tenantIds.add(t.id);
   await testDb().tenantSettings.update({ where: { tenantId: t.id }, data: { retentionDays } });
   return t.id;
 }
@@ -202,7 +218,17 @@ describe("P13a saklama işi — oturum anonimleştirme (AC-197)", () => {
     const audits = await retentionAudits(tenantId);
     expect(audits).toHaveLength(1);
     expect(audits[0]).toMatchObject({ result: "success", username: "system", userId: null, entity: "retention" });
-    expect(audits[0]?.newValue).toEqual({ sessions: 2, consents: 2, files: 2, requests: 0, customers: 0, bindings: 0, blocks: 0 });
+    // P16 (AC-240): varsayılan `RETENTION_PURGE_MODE=dry` → silme adayları `purgeCandidates` altında (bu firmada 0).
+    expect(audits[0]?.newValue).toEqual({
+      sessions: 2,
+      consents: 2,
+      files: 2,
+      requests: 0,
+      customers: 0,
+      bindings: 0,
+      blocks: 0,
+      purgeCandidates: { sessions: 0, consents: 0, files: 0, requests: 0, bindings: 0 },
+    });
   });
 
   it("AC-197: aynı gün ikinci çalıştırma hiçbir satırı değiştirmez (idempotent) ve audit yazmaz", async () => {
@@ -359,7 +385,7 @@ describe("P13a saklama işi — global silmeler (AC-198)", () => {
     const audits = await retentionAudits(null);
     expect(audits).toHaveLength(auditsBefore + 1);
     const g = audits.at(-1)?.newValue as Record<string, number>;
-    expect(Object.keys(g).sort()).toEqual(["audit", "authSessions", "resetTokens"]);
+    expect(Object.keys(g).sort()).toEqual(["audit", "authSessions", "purgeCandidates", "resetTokens"]); // P16: dry iş satırı adayı
     expect(g.audit).toBeGreaterThanOrEqual(1);
     expect(g.authSessions).toBeGreaterThanOrEqual(1);
     expect(g.resetTokens).toBeGreaterThanOrEqual(1);
@@ -445,7 +471,7 @@ describe("P13a saklama işi — partiler, fail-soft, metrikler (AC-199)", () => 
     const metrics = (await app.inject({ method: "GET", url: "/metrics", headers: { authorization: `Bearer ${FAKE_METRICS_TOKEN}` } })).body;
     expect(metrics).toMatch(/rs_retention_rows_total\{kind="sessions"\} [1-9]/);
     expect(metrics).toMatch(/rs_retention_rows_total\{kind="audit"\} [1-9]/);
-    expect(metrics).toMatch(/rs_retention_failures_total 1\n/);
+    expect(metrics).toMatch(/rs_retention_failures_total\{class="other"\} 1\n/); // P16: sınıf etiketi
     expect(metrics).toContain(`rs_retention_last_success_timestamp_seconds ${lastOk}`);
     expect(lastOk).toBeGreaterThan(0); // önceki hatasız turlardan
 
@@ -458,6 +484,8 @@ describe("P13a saklama işi — partiler, fail-soft, metrikler (AC-199)", () => 
   it("AC-199: audit kayıtlarında kişisel veri yok (yalnız sayılar)", async () => {
     const rows = await testDb().auditLog.findMany({ where: { action: RETENTION_AUDIT.RUN }, select: { newValue: true } });
     expect(rows.length).toBeGreaterThan(0);
-    for (const r of rows) for (const v of Object.values(r.newValue as Record<string, unknown>)) expect(typeof v).toBe("number");
+    // P16: dry modda `purgeCandidates` iç içe nesnesi de yalnız sayı.
+    const leaves = (v: unknown): unknown[] => (typeof v === "object" && v !== null ? Object.values(v).flatMap(leaves) : [v]);
+    for (const r of rows) for (const v of leaves(r.newValue)) expect(typeof v).toBe("number");
   });
 });

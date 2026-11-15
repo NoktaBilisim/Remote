@@ -11,6 +11,7 @@ status_init() {
   M_OFF_SUCCESS="$(prev_metric remote_backup_offsite_last_success_timestamp_seconds)"
   M_OFF_RC="$(prev_metric remote_backup_offsite_last_rc)"
   M_AUDIT_OK="$(prev_metric remote_backup_audit_continuity_ok)"
+  M_LEDGER_OK="$(awk '$1 == "remote_backup_ledger_ok" {v=$2} END {print (v == "" ? "1" : v)}' "$STATUS_FILE" 2>/dev/null || echo 1)"
   M_OFF_CONF=0; [ -n "${BACKUP_OFFSITE_CMD:-}" ] && M_OFF_CONF=1
   return 0
 }
@@ -29,6 +30,7 @@ write_status() {  # <last_run_ok>; atomik (aynı dizinde geçici dosya + mv)
     metric remote_backup_offsite_last_success_timestamp_seconds 'Son basarili site disi kopyanin zamani (epoch).' "$M_OFF_SUCCESS"
     metric remote_backup_offsite_last_rc 'Son site disi kanca cikis kodu (0 basarili).' "$M_OFF_RC"
     metric remote_backup_audit_continuity_ok 'Audit sureklilik denetimi gecti mi (1/0).' "$M_AUDIT_OK"
+    metric remote_backup_ledger_ok 'Imha defteri eklenebilirlik denetimi gecti mi (1/0; P16).' "$M_LEDGER_OK"
   } > "$tmp"
   chmod 644 "$tmp"; mv -f -- "$tmp" "$STATUS_FILE"
 }

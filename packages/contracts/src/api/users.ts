@@ -209,7 +209,14 @@ export interface CreateUserResponse {
  * SUPER_ADMIN'de kullanılır; firma seçili olan veya SUPER_ADMIN olmayan rollerde sunucuda yok sayılır (kapsam ezer —
  * `GET /sessions` `tenantId` kuralıyla aynı).
  */
-export const userOptionsQuerySchema = z.strictObject({ tenantId: userIdSchema.optional() });
+export const userOptionsQuerySchema = z.strictObject({
+  tenantId: userIdSchema.optional(),
+  /** P16 (AC-241): `1` → mezar taşları da ("Silinmiş kullanıcı #XXXXXX", `status: "DELETED"`) döner; geçmiş filtreleri için. */
+  includeDeleted: z
+    .enum(["0", "1"])
+    .optional()
+    .transform((v) => v === "1"),
+});
 export type UserOptionsQuery = z.infer<typeof userOptionsQuerySchema>;
 
 /**
@@ -219,10 +226,12 @@ export type UserOptionsQuery = z.infer<typeof userOptionsQuerySchema>;
  * `historyScope` kuralı). Yetki: `session_history.view` | `support_requests.view` | `users.view` (biri yeterli).
  * SUPER_ADMIN hesapları listelenmez.
  */
+/** P16: seçenek durumu — `includeDeleted=1` ile mezar taşları `DELETED` döner (ad = "Silinmiş kullanıcı #XXXXXX"). */
+export type UserOptionStatus = UserStatus | "DELETED";
 export interface UserOption {
   id: string;
   fullName: string;
-  status: UserStatus;
+  status: UserOptionStatus;
 }
 export interface UserOptionsResponse {
   items: UserOption[];
@@ -257,3 +266,35 @@ export interface SuperadminResetResponse {
   temporaryPassword: string;
   revokedSessions: number;
 }
+
+// ---------------------------------------------------------------------------------------------------------------
+// P16 — Kalıcı kullanıcı silme (AC-237, AC-241; ADR-0030 m.4, mimari-e11 §7.4–7.5)
+// ---------------------------------------------------------------------------------------------------------------
+
+/** Ad onayı karşılaştırma biçimi: trim + NFC, harf duyarlı (sunucu ve web aynı fonksiyonu kullanır). */
+export const normalizeConfirmName = (v: string): string => v.trim().normalize("NFC");
+export const confirmNameMatches = (typed: string, actual: string): boolean => normalizeConfirmName(typed) === normalizeConfirmName(actual);
+
+/** Ad onayı alanı: 1..`max` kod noktası (trim + NFC sonrası). Eşleşme sunucuda kayıtla karşılaştırılır. */
+export const confirmNameSchema = (max: number) =>
+  z
+    .string()
+    .max(max * 4, `En çok ${max} karakter olabilir`)
+    .transform(normalizeConfirmName)
+    .refine((v) => codePoints(v) >= 1, "Onay için adı yazın")
+    .refine((v) => codePoints(v) <= max, `En çok ${max} karakter olabilir`);
+
+/**
+ * DELETE /users/:id — `users.delete` + `canManage` + tenant kapsamı, **step-up** (AC-215), `If-Match: "v<n>"`, hız `/users`
+ * 30/dk. Gövde `{confirmName}` hedefin `fullName`'ine eşit olmalı (trim + NFC, harf duyarlı) → değilse 400
+ * `fields.confirmName`. Yanıt 204. Hatalar: 401 `MFA_STEP_UP_REQUIRED` · 403 `FORBIDDEN` (anahtar yok, kendi hesabı,
+ * SUPER_ADMIN hedef, daha geniş yetkili hedef) · 403 `MFA_SETUP_REQUIRED` · 404 (yok, başka firma, zaten silinmiş) ·
+ * 409 `CONFLICT` (aktif kullanıcı → `USER_DELETE_ACTIVE_MESSAGE`; açık oturum → `USER_DELETE_OPEN_SESSION_MESSAGE`) ·
+ * 409 `STALE_WRITE` · 428 `PRECONDITION_REQUIRED` · 429.
+ */
+export const deleteUserInputSchema = z.strictObject({ confirmName: confirmNameSchema(USER_FULL_NAME_MAX) });
+export type DeleteUserInput = z.input<typeof deleteUserInputSchema>;
+
+export const USER_DELETE_CONFIRM_MISMATCH_MESSAGE = "Yazdığınız ad kullanıcının adıyla eşleşmiyor";
+export const USER_DELETE_ACTIVE_MESSAGE = "Önce kullanıcıyı pasife alın";
+export const USER_DELETE_OPEN_SESSION_MESSAGE = "Kullanıcının açık destek oturumu var; oturum kapanınca tekrar deneyin";

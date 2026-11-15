@@ -3,6 +3,7 @@
 import { z } from "zod";
 import type { TenantRef } from "./auth.ts";
 import { UNSAFE_NAME_CHARS } from "./sessions.ts";
+import { confirmNameSchema } from "./users.ts";
 
 // ---------------------------------------------------------------------------------------------------------------
 // Firmalar (Super Admin)
@@ -129,6 +130,13 @@ export interface TenantItem {
   activeUserCount: number;
   createdAt: string;
   updatedAt: string;
+  /**
+   * P16 (AC-242): pasife alınma anı (`tenants.passive_at`); aktifte null. Sunucuda G3 doldurur — o zamana kadar alan
+   * gelmeyebilir (opsiyonel), web `?? null` ile okur.
+   */
+  passiveSince?: string | null;
+  /** P16 (AC-242): açık/son silme işi rozeti ("Silinecek: <tarih>" / "Siliniyor"); iş yoksa null. G3 doldurur. */
+  purge?: TenantPurgeBadge | null;
 }
 
 export interface TenantListResponse {
@@ -322,4 +330,152 @@ export interface TenantSettingsView {
   requireTech2fa: boolean;
   /** P10: SMTP ayarı yoksa null. */
   smtp: SmtpSettingsView | null;
+}
+
+// ---------------------------------------------------------------------------------------------------------------
+// P16 — Firma kalıcı silme (AC-242; ADR-0030 m.5–m.6, mimari-e11 §7.3, §7.5). Uçlar SUPER_ADMIN; hız `/admin` 30/dk.
+// Hata zarfında ek bilgi `fields` (dize) ile taşınır: 409 `PURGE_NOT_ELIGIBLE` → `fields.eligibleAt` (ISO) ya da
+// `fields.reason`; 409 `CONFLICT` (açık iş) → `fields.jobId`, `fields.state`.
+// ---------------------------------------------------------------------------------------------------------------
+
+export const TENANT_PURGE_STATES = ["SCHEDULED", "RUNNING", "DONE", "FAILED", "CANCELLED"] as const;
+export type TenantPurgeState = (typeof TENANT_PURGE_STATES)[number];
+/** Açık iş durumları (firma başına en çok bir; DB fonksiyonel UQ). */
+export const TENANT_PURGE_OPEN_STATES = ["SCHEDULED", "RUNNING", "FAILED"] as const satisfies readonly TenantPurgeState[];
+
+/** Adım sırası (DB `tenant_purge_jobs_step_chk` ve tetikleyici FIELD() listesiyle birebir). */
+export const TENANT_PURGE_STEPS = [
+  "FENCE",
+  "SESSION_FILES",
+  "SESSION_CONSENTS",
+  "REQUEST_UNLINK",
+  "BINDINGS",
+  "SESSIONS",
+  "REQUESTS",
+  "REQUEST_BLOCKS",
+  "REQUEST_REFS",
+  "CUSTOMERS",
+  "SETTINGS",
+  "CONSENT_TEXTS",
+  "USER_CHILDREN",
+  "USERS",
+  "TENANT_ROW",
+  "FILES",
+  "DONE",
+] as const;
+export type TenantPurgeStep = (typeof TENANT_PURGE_STEPS)[number];
+
+/** Pasiflikten sonra silinebilirlik (gün) ve zamanlama gecikmesi (saat; DB'de zorlanır, S16-4). */
+export const TENANT_PURGE_PASSIVE_DAYS = 30;
+export const TENANT_PURGE_DELAY_HOURS = 24;
+/** `previewId` geçerliliği (dk). */
+export const TENANT_PURGE_PREVIEW_TTL_MIN = 15;
+/** `GET /admin/purge-jobs` üst sınırı. */
+export const TENANT_PURGE_JOBS_MAX = 100;
+
+/** 409 `PURGE_NOT_ELIGIBLE` `fields.reason` değerleri (`eligibleAt` yoksa). */
+export const TENANT_PURGE_NOT_ELIGIBLE_REASONS = ["not_passive"] as const;
+export type TenantPurgeNotEligibleReason = (typeof TENANT_PURGE_NOT_ELIGIBLE_REASONS)[number];
+
+export const TENANT_PURGE_NOT_ELIGIBLE_MESSAGE = "Firma henüz kalıcı silinemez (en az 30 gün pasif olmalı).";
+export const TENANT_PURGE_PREVIEW_REQUIRED_MESSAGE = "Önizlemenin süresi doldu ya da geçersiz; önizlemeyi yeniden alın.";
+export const TENANT_PURGE_OPEN_JOB_MESSAGE = "Bu firma için açık bir silme işi var.";
+/** 400 `fields.confirmName`: yazılan ad firma adına (satırı silinmişse "Silinmiş firma #XXXXXX") eşit değil. */
+export const TENANT_PURGE_CONFIRM_MISMATCH_MESSAGE = "Firma adı eşleşmiyor";
+export const TENANT_PURGE_CANCEL_CONFLICT_MESSAGE = "Yalnız başlamamış (zamanlanmış) silme işi iptal edilebilir.";
+/** POST /admin/tenants/:id/reactivate yeni 409 `CONFLICT` mesajları. */
+export const TENANT_REACTIVATE_PURGE_SCHEDULED_MESSAGE = "Önce silme işini iptal edin";
+export const TENANT_REACTIVATE_PURGE_PARTIAL_MESSAGE = "Firma kısmen silindi; silmeyi tamamlayın";
+
+/** Opak `previewId` (sunucu üretir: HMAC + son geçerlilik; içeriğine güvenilmez). */
+export const purgePreviewIdSchema = z.string().regex(/^[A-Za-z0-9._-]{16,1024}$/, "Geçersiz önizleme");
+
+/**
+ * POST /admin/tenants/:id/purge. `{dryRun: true}` → 200 `TenantPurgePreviewResponse` (step-up yok, salt okuma).
+ * `{dryRun: false, previewId, confirmName}` → step-up; `confirmName` firma adına eşit (trim + NFC, harf duyarlı; değilse
+ * 400 `fields.confirmName`) → 202 `TenantPurgeScheduledResponse`. 428 `PREVIEW_REQUIRED`: önizleme yok/süresi geçmiş/
+ * başka oturum ya da durum/kullanılmış.
+ */
+export const tenantPurgeInputSchema = z.discriminatedUnion("dryRun", [
+  z.strictObject({ dryRun: z.literal(true) }),
+  z.strictObject({ dryRun: z.literal(false), previewId: purgePreviewIdSchema, confirmName: confirmNameSchema(TENANT_NAME_MAX) }),
+]);
+export type TenantPurgeInput = z.input<typeof tenantPurgeInputSchema>;
+export type TenantPurgeData = z.output<typeof tenantPurgeInputSchema>;
+
+/** Adım başına satır sayısı (FENCE/FILES/DONE dışı adımlar; tablo adı değil adım adı). */
+export type TenantPurgeCounts = Partial<Record<TenantPurgeStep, number>>;
+
+export interface TenantPurgePreviewResponse {
+  previewId: string;
+  expiresAt: string;
+  tenant: { id: string; name: string };
+  /** `passive_at` (ISO). */
+  passiveSince: string;
+  /** `passive_at + 30 g` (ISO). */
+  eligibleAt: string;
+  counts: TenantPurgeCounts;
+  files: { count: number; bytes: number };
+  /** Silinmeyen (730 gün saklanan) audit satırı sayısı. */
+  auditRetained: number;
+}
+
+/** 202: yeni iş `SCHEDULED` (`scheduledFor` = DB saati + 24 sa); FAILED işin sürdürülmesi `RUNNING`. */
+export interface TenantPurgeScheduledResponse {
+  jobId: string;
+  state: "SCHEDULED" | "RUNNING";
+  scheduledFor: string;
+}
+
+/** DELETE /admin/tenants/:id/purge (iptal; step-up) → 200. 404 iş yok · 409 `CONFLICT` iş SCHEDULED değil. */
+export interface TenantPurgeCancelResponse {
+  jobId: string;
+  state: "CANCELLED";
+}
+
+/** GET /admin/tenants/:id/purge → 200 (son iş); iş yoksa 404. */
+export interface TenantPurgeStatus {
+  jobId: string;
+  state: TenantPurgeState;
+  step: TenantPurgeStep;
+  /** `TENANT_PURGE_STEPS` içindeki 0 tabanlı sıra. */
+  stepIndex: number;
+  stepCount: number;
+  scheduledFor: string;
+  counts: TenantPurgeCounts;
+  attempts: number;
+  /** Yalnız hata sınıfı (`db_fk`, `db_signal`, `fs`, `invalid_job`, `other`). */
+  lastError: string | null;
+  startedAt: string | null;
+  heartbeatAt: string | null;
+  finishedAt: string | null;
+  cancelledAt: string | null;
+}
+
+/** GET /admin/tenants satırındaki rozet. */
+export interface TenantPurgeBadge {
+  state: TenantPurgeState;
+  scheduledFor: string;
+  step: TenantPurgeStep;
+}
+
+/** GET /admin/purge-jobs?open=1 (Super Admin bandı; 60 sn yoklama). `open` yoksa/0 → bütün son işler (≤ 100). */
+export const purgeJobsQuerySchema = z.strictObject({
+  open: z
+    .enum(["0", "1", "true", "false"])
+    .optional()
+    .transform((v) => v === "1" || v === "true"),
+});
+export type PurgeJobsQuery = z.output<typeof purgeJobsQuerySchema>;
+
+export interface PurgeJobItem {
+  jobId: string;
+  tenantId: string;
+  /** Firma satırı silindiyse null. */
+  tenantName: string | null;
+  state: TenantPurgeState;
+  scheduledFor: string;
+}
+export interface PurgeJobsResponse {
+  items: PurgeJobItem[];
 }

@@ -60,6 +60,9 @@ services:
     cap_drop: [ALL]
     environment:
       MIGRATE_DATABASE_URL: mysql://migrator:${MYSQL_MIGRATOR_PASSWORD}@mysql:3306/${MYSQL_DATABASE}
+    # P16 (ADR-0030 m.9): `cli erasure:replay|verify` imha defterini okur (salt okunur; yazan yalnız server). runbook §23.5
+    volumes:
+      - ledger:/var/lib/remote:ro
     networks: [db]
     depends_on:
       mysql: { condition: service_healthy }
@@ -129,10 +132,16 @@ services:
       # P12 (AC-81..84): logo/avatar yükleme kökü; dosyalar {tenantId|system}/{rastgele}.{png|jpg|webp}. Server
       # `GET /api/v1/files/{logo,system-logo,avatar}/...` uçlarıyla sunar (Caddy statik sunmaz, volume Caddy'ye bağlanmaz).
       UPLOADS_DIR: /data/uploads
+      # P16 (AC-240, mimari-e11 §7.2): gece kalıcı silme modu `dry|on` (boş = dry: yalnız sayar, silmez). Staging'de önce dry
+      # çıktısı (retention.run audit purgeCandidates.*) incelenir, sonra on (runbook §23.1).
+      RETENTION_PURGE_MODE: ${RETENTION_PURGE_MODE:-}
     volumes:
       - agent_downloads:/data/downloads:ro
       # Kök fs salt okunur; yazılabilir kalıcı tek dizin. İzin imajdan gelir (node:node 0700, apps/server/Dockerfile).
       - uploads:/data/uploads
+      # P16 (ADR-0030 m.9): imha defteri /var/lib/remote/erasure-ledger.jsonl (yalnız eklenen, 0600). Env yok, yol sabit.
+      # DB dökümüne girmez; backup.sh ayrı dosya olarak yedekler (runbook §23).
+      - ledger:/var/lib/remote
     networks: [edge, db]
     depends_on:
       migrate: { condition: service_completed_successfully }
@@ -215,3 +224,5 @@ volumes:
   agent_downloads:
   # P12: logo/avatar dosyaları (yalnız server yazar/okur). Yedek: runbook §16.3 (DB dökümüyle aynı anda alınır).
   uploads:
+  # P16: imha defteri (server yazar, migrate salt okur). SİLİNMEZ: restore sonrası silmeleri yeniden oynatmanın kaynağı.
+  ledger:

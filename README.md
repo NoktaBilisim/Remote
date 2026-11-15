@@ -4,7 +4,7 @@ Self-hosted, çok kiracılı (multi-tenant) uzaktan destek platformu. Teknisyen 
 oturumu açar; müşteri taşınabilir Windows istemcisi (tam erişim) veya tarayıcı (yalnız görüntü) ile katılır.
 Görüntü eşler arası WebRTC ile akar; sunucu yalnız sinyalizasyon ve meta veri tutar.
 
-## Şu anki durum: P1–P13a tamamlandı, P13b (prod açılışı) kodu hazır, P14a/P14b ve P15 kodlandı (QA sürüyor)
+## Şu anki durum: P1–P13a tamamlandı, P13b (prod açılışı) kodu hazır, P14a/P14b, P15 ve P16 kodlandı (QA sürüyor)
 
 İş P1..P13 dikey paketlerle yürür (`docs/mimari.md` §10). P1–P11 ve **P12** (firma ve sistem logosu, kullanıcı profil
 resmi, kullanıcı başına tema, hesap menüsü, tasarım token lint kuralı) tamamlandı: P12 güvenlik Kritik/Yüksek 0 (doğrulama
@@ -409,6 +409,19 @@ menüden firma seçme notu çıkar; önceden "Yeni destek oturumu" 403 ile dön�
   kapalı tutun.
 - Migration `20261117000000_p15_g3`; yeni ortam değişkeni ve bağımlılık yok.
 
+**P16 — G4 kalıcı silme (AC-240..244; kodlandı, QA denetimi sürüyor)**
+
+- **Kullanıcıyı kalıcı silme:** pasif kullanıcı, ad yazarak onay, step-up; geçmişte "Silinmiş kullanıcı #…", audit'te
+  kimlik maskeli (`DELETE /api/v1/users/:id`).
+- **Firmayı kalıcı silme:** en az 30 gün pasif firma; önizleme → ad onayı → step-up → **24 saat bekleme (iptal
+  edilebilir)** → adım adım silme, kesilirse sürer; Super Admin uyarı bandı (`/api/v1/admin/tenants/:id/purge`,
+  `/api/v1/admin/purge-jobs`).
+- **Gece kalıcı silme** (anonimleşmeden 30 gün sonra; `RETENTION_PURGE_MODE`, varsayılan `dry`) ve haftalık **yetim dosya
+  taraması**.
+- **İmha defteri** (`remote_ledger` volume) ve geri yükleme sonrası zorunlu `cli erasure:replay` + `erasure:verify`.
+  Kalıcı silinen veri yedeklerden en geç 14 günde düşer. Operasyon: [`docs/runbook.md`](docs/runbook.md) §23.
+- Migration `20261118000000_p16_hard_delete` (tetikleyici 3 → 22; `users.delete` ezmeleri sıfırlanır); yeni bağımlılık yok.
+
 API ayrıntısı: [`docs/api.md`](docs/api.md). Sürüm geçmişi: [`CHANGELOG.md`](CHANGELOG.md).
 Kullanım (müşteri, teknisyen, yönetici): [`docs/KULLANIM_KILAVUZU.md`](docs/KULLANIM_KILAVUZU.md).
 Ürün föyü: [`docs/DATASHEET.md`](docs/DATASHEET.md).
@@ -445,6 +458,7 @@ görür. `deploy/staging-users.sh` staging test hesapları için hâlâ kullanı
 | P14a (kod ✓, QA sürüyor)                                                          | G1 güvenlik/kalite: step-up 2FA, iyimser kilit, hız sınırları, MySQL TLS, metrikler, Prettier, CI kararlılık koşusu                                                                                                        |
 | P14b (kod ✓, QA sürüyor)                                                          | G2 UI/a11y: 404 sayfaları, anahtar kontrastı, mobil menü, Ayarlar > Genel, aranabilir firma seçici, sohbet hız sınırı                                                                                                      |
 | P15 (kod ✓, QA sürüyor)                                                           | G3: kurtarma kodu yenileme, Super Admin şifre sıfırlama, sistem logosu kaldırma, talep engelleri, paylaşım hata nedeni, teknisyen fotoğrafı, dosya doğrulama, talep kabul kodu                                             |
+| P16 (kod ✓, QA sürüyor)                                                           | G4: kullanıcı ve firma kalıcı silme (24 sa iptal penceresi), gece kalıcı silme, yetim dosya taraması, imha defteri ve geri yükleme sonrası yeniden silme                                                                   |
 | P13c                                                                              | Ayrı staging (`stg.remote.noktabilisim.net`, ayrı DB/sır/yedek); E11 özelliklerinden önce                                                                                                                                  |
 
 Prod açılışının ön koşulları ve imzalı kontrol listesi: runbook §20.1–§20.3. TURN için yalnız 443/TCP'nin açık olduğu
@@ -528,6 +542,7 @@ hesabın şifresi ezilmez. `NODE_ENV` production değilse `demo` adlı bir örne
 | `APP_ENCRYPTION_KEYS`                                                            | Evet              | P10: SMTP şifresi ve 2FA sırlarının AES-256-GCM anahtarı, `v1:<base64 32 bayt>`. Üretim: `echo "v1:$(openssl rand -base64 32)"`. Production'da yoksa server açılmaz. **Parola kasasında yedeklenmeli**: kaybolursa SMTP şifreleri yeniden girilir, tüm kullanıcıların 2FA'sı sıfırlanır. Rotasyonda eski sürüm silinmez (`v1:…,v2:…`); runbook §3 ve §14 P10                                                                                                                                                                                                                                                  |
 | `MIN_AGENT_VERSION`                                                              | Hayır             | P8b: asgari Windows istemci sürümü `x.y.z`; boş = kontrol yok. Müşterilerin tamamı 0.9.0 firma dosyasına geçene kadar boş bırakın (runbook §12.4)                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
 | `UPLOADS_DIR`                                                                    | Compose dışı      | P12: logo/avatar dosyalarının kökü, **mutlak yol**. Compose sabit `/data/uploads` verir (volume `remote_uploads`); boşsa `/data/uploads`. Yedeği DB ile aynı pencerede alınır (runbook §16.3)                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| `RETENTION_PURGE_MODE`                                                           | Hayır             | P16: gece kalıcı silme adımı. `dry` (varsayılan, boş = `dry`): hiçbir satır silinmez, aday sayıları `retention.run` audit'ine (`purgeCandidates`) yazılır. `on`: anonimleşmeden 30 gün sonra siler. Prod'da ilk hafta `dry`, sayılar incelenince `on` + `docker compose up -d server` (runbook §23.1)                                                                                                                                                                                                                                                                                                         |
 | `DATABASE_URL`, `MIGRATE_DATABASE_URL`, `TRUSTED_PROXY_CIDR`, `API_INTERNAL_URL` | Compose dışı      | Compose bunları kendisi üretir; yalnız yerel `pnpm` çalıştırmada gerekir                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
 
 TURN sunucusu (`deploy/turn`, ayrı compose projesi) şu değişkenleri okur:
@@ -807,6 +822,27 @@ teklif sınırı ve zaman aşımı, yetkisiz kullanıcı, işaretleme ve lazer, 
   `BACKUP_ALERT_CMD` çalışır (runbook §18.3, §19.10).
 - **Saklama işi:** server içinde her gün 03:30 çalışır; ayrı kurulum gerekmez. Süreler ve alarm (`rs_retention_*`, 26 sa):
   runbook §18.6. Anonimleştirilen veri yedeklerde en çok 14 gün daha kalır.
+
+**P16 eklemeleri (kalıcı silme; runbook §23):**
+
+- **İmha defteri:** her kalıcı silme (kullanıcı, firma) kişisel veri içermeyen bir satır olarak
+  `/var/lib/remote/erasure-ledger.jsonl`'a yazılır (volume `remote_ledger`, server rw, migrate salt okunur). Defter DB
+  dökümüne girmez; `backup.sh` onu ayrı şifreli dosya (`erasure-ledger.jsonl.age`) olarak yedek setine ve site dışına
+  ekler, kısalma/değişme varsa `FAILED adım=imha-defteri`. **`remote_ledger` volume'u silinmez; `docker compose down -v`
+  yasaktır.**
+- **Geri yükleme sonrası zorunlu:** `restore.sh --target staging|production` server'ı başlatmadan önce `erasure:replay`,
+  sonra `erasure:verify` çalıştırır. Elle DB yüklemesinde aynı iki komut zorunludur:
+  ```bash
+  cd /opt/remote/deploy && docker compose run --rm --no-deps -T migrate pnpm --filter @remote/server cli erasure:replay
+  docker compose up -d
+  docker compose run --rm --no-deps -T migrate pnpm --filter @remote/server cli erasure:verify   # rc 0 olana kadar
+  ```
+  Çıkış kodları: 0 tamam · 1 verify'da bekleyen var · 2 kullanım/env · 3 replay geri yüklenen DB ile tutarsız defter
+  satırını reddetti (kurcalama şüphesi; meşru satırlar uygulandı, `restore.sh` server'ı başlatmaz, elle karar) · 5 DB/defter
+  hatası (runbook §23.5). Replay yalnız geri yüklenen DB'de pasif (≥ 16 g ya da silme işi kaydı olan) firmaları ve Super
+  Admin olmayan, firmaya bağlı kullanıcıları işler.
+- **Yedekten düşme:** kalıcı silinen veri yedeklerden en geç 14 günde düşer (`BACKUP_KEEP_DAYS` ≤ 14 ve site dışı
+  saklama ≤ 14 gün; aylık kontrol runbook §23.7). Beklenen tetikleyici sayısı 22 (`BACKUP_EXPECTED_TRIGGERS` boş = 22).
 
 **P13b eklemeleri (runbook §18.9, ADR-0020):**
 

@@ -61,7 +61,7 @@ jobs:
           docker exec -i -e MYSQL_ROOT_PASSWORD -e MYSQL_DATABASE -e MYSQL_APP_PASSWORD \
             -e MYSQL_MIGRATOR_PASSWORD -e MYSQL_BACKUP_PASSWORD ${{ job.services.mysql.id }} bash < deploy/mysql/init/01-users.sh
           docker exec ${{ job.services.mysql.id }} sh -c 'MYSQL_PWD="$MYSQL_ROOT_PASSWORD" mysql -uroot -NBe \
-            "SET GLOBAL log_bin_trust_function_creators = 1; SELECT @@log_bin, @@log_bin_trust_function_creators"' \
+            "SET GLOBAL log_bin_trust_function_creators = 1; SET GLOBAL max_connections = 300; SELECT @@log_bin, @@log_bin_trust_function_creators"' \
             | tee /dev/stderr | grep -qx $'1\t1'
       - run: pnpm db:migrate
       - run: bash scripts/repeat-tests.sh "$RUNS" int
