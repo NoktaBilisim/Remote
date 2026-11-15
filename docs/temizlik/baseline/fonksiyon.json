@@ -1,0 +1,4554 @@
+{
+  "contracts.uretim": {
+    "uzun": [],
+    "karmasik": [
+      {
+        "file": "packages/contracts/src/api/requests.ts",
+        "line": 362,
+        "name": "checkBlockCidr",
+        "n": 29
+      },
+      {
+        "file": "packages/contracts/src/labels.ts",
+        "line": 219,
+        "name": "describeTimelineEvent",
+        "n": 24
+      }
+    ],
+    "ust40": 0,
+    "ust80": 0,
+    "ust150": 0,
+    "cx15": 2
+  },
+  "contracts.test": {
+    "uzun": [
+      {
+        "file": "packages/contracts/test/p15-contracts.test.ts",
+        "line": 13,
+        "name": "(anonim)",
+        "n": 95
+      },
+      {
+        "file": "packages/contracts/test/control-p7.test.ts",
+        "line": 10,
+        "name": "(anonim)",
+        "n": 78
+      },
+      {
+        "file": "packages/contracts/test/customers-p8c.test.ts",
+        "line": 58,
+        "name": "(anonim)",
+        "n": 67
+      },
+      {
+        "file": "packages/contracts/test/whatsapp-setting-p12b.test.ts",
+        "line": 7,
+        "name": "(anonim)",
+        "n": 66
+      },
+      {
+        "file": "packages/contracts/test/p16-contracts.test.ts",
+        "line": 21,
+        "name": "(anonim)",
+        "n": 52
+      },
+      {
+        "file": "packages/contracts/test/customers-p8c.test.ts",
+        "line": 134,
+        "name": "(anonim)",
+        "n": 50
+      },
+      {
+        "file": "packages/contracts/test/p18-h3-contracts.test.ts",
+        "line": 27,
+        "name": "(anonim)",
+        "n": 46
+      },
+      {
+        "file": "packages/contracts/test/sessions.test.ts",
+        "line": 10,
+        "name": "(anonim)",
+        "n": 45
+      },
+      {
+        "file": "packages/contracts/test/p18-contracts.test.ts",
+        "line": 63,
+        "name": "(anonim)",
+        "n": 44
+      },
+      {
+        "file": "packages/contracts/test/dc-files.test.ts",
+        "line": 21,
+        "name": "(anonim)",
+        "n": 42
+      },
+      {
+        "file": "packages/contracts/test/p18-contracts.test.ts",
+        "line": 132,
+        "name": "(anonim)",
+        "n": 41
+      },
+      {
+        "file": "packages/contracts/test/p18-h3-contracts.test.ts",
+        "line": 78,
+        "name": "(anonim)",
+        "n": 41
+      }
+    ],
+    "karmasik": [
+      {
+        "file": "packages/contracts/test/customers-p8c.test.ts",
+        "line": 147,
+        "name": "(anonim)",
+        "n": 17
+      }
+    ],
+    "ust40": 12,
+    "ust80": 1,
+    "ust150": 0,
+    "cx15": 1
+  },
+  "server.uretim": {
+    "uzun": [
+      {
+        "file": "apps/server/src/requests/service.ts",
+        "line": 436,
+        "name": "createCore",
+        "n": 264
+      },
+      {
+        "file": "apps/server/src/app.ts",
+        "line": 170,
+        "name": "buildApp",
+        "n": 259
+      },
+      {
+        "file": "apps/server/src/signaling/ws.ts",
+        "line": 61,
+        "name": "attachSignaling",
+        "n": 254
+      },
+      {
+        "file": "apps/server/src/requests/service.ts",
+        "line": 460,
+        "name": "(anonim)",
+        "n": 195
+      },
+      {
+        "file": "apps/server/src/customers/csv-import.ts",
+        "line": 305,
+        "name": "commitImport",
+        "n": 166
+      },
+      {
+        "file": "apps/server/src/requests/ws.ts",
+        "line": 64,
+        "name": "requestChannels",
+        "n": 163
+      },
+      {
+        "file": "apps/server/src/jobs/scheduler.ts",
+        "line": 31,
+        "name": "startScheduler",
+        "n": 131
+      },
+      {
+        "file": "apps/server/src/auth/routes.ts",
+        "line": 85,
+        "name": "authRoutes",
+        "n": 128
+      },
+      {
+        "file": "apps/server/src/customers/routes.ts",
+        "line": 54,
+        "name": "customerRoutes",
+        "n": 117
+      },
+      {
+        "file": "apps/server/src/requests/panel.ts",
+        "line": 143,
+        "name": "acceptRequest",
+        "n": 117
+      },
+      {
+        "file": "apps/server/src/requests/ws.ts",
+        "line": 69,
+        "name": "request",
+        "n": 116
+      },
+      {
+        "file": "apps/server/src/bindings/service.ts",
+        "line": 176,
+        "name": "issueTx",
+        "n": 108
+      },
+      {
+        "file": "apps/server/src/sessions/routes.ts",
+        "line": 52,
+        "name": "sessionRoutes",
+        "n": 106
+      },
+      {
+        "file": "apps/server/src/customers/csv-import.ts",
+        "line": 191,
+        "name": "previewImport",
+        "n": 99
+      },
+      {
+        "file": "apps/server/src/lib/csv.ts",
+        "line": 65,
+        "name": "parseCsv",
+        "n": 98
+      },
+      {
+        "file": "apps/server/src/requests/service.ts",
+        "line": 571,
+        "name": "(anonim)",
+        "n": 97
+      },
+      {
+        "file": "apps/server/src/requests/routes.ts",
+        "line": 62,
+        "name": "supportRequestRoutes",
+        "n": 96
+      },
+      {
+        "file": "apps/server/src/signaling/admit.ts",
+        "line": 143,
+        "name": "admitRequestGuest",
+        "n": 91
+      },
+      {
+        "file": "apps/server/src/sessions/history.ts",
+        "line": 227,
+        "name": "buildDetail",
+        "n": 90
+      },
+      {
+        "file": "apps/server/src/bindings/service.ts",
+        "line": 181,
+        "name": "(anonim)",
+        "n": 89
+      },
+      {
+        "file": "apps/server/src/signaling/collab.ts",
+        "line": 103,
+        "name": "handleFileMeta",
+        "n": 84
+      },
+      {
+        "file": "apps/server/src/requests/ws.ts",
+        "line": 111,
+        "name": "(anonim)",
+        "n": 81
+      },
+      {
+        "file": "apps/server/src/signaling/admit.ts",
+        "line": 27,
+        "name": "admitGuest",
+        "n": 81
+      },
+      {
+        "file": "apps/server/src/users/routes.ts",
+        "line": 64,
+        "name": "userRoutes",
+        "n": 80
+      },
+      {
+        "file": "apps/server/scripts/perf-sessions.ts",
+        "line": 84,
+        "name": "seedPerfSessions",
+        "n": 78
+      },
+      {
+        "file": "apps/server/src/sessions/history.ts",
+        "line": 509,
+        "name": "exportHistoryCsv",
+        "n": 77
+      },
+      {
+        "file": "apps/server/src/settings/routes.ts",
+        "line": 76,
+        "name": "adminSettingsRoutes",
+        "n": 77
+      },
+      {
+        "file": "apps/server/src/lib/outbound.ts",
+        "line": 27,
+        "name": "postJson",
+        "n": 75
+      },
+      {
+        "file": "apps/server/src/sessions/service.ts",
+        "line": 63,
+        "name": "createSupportSession",
+        "n": 74
+      },
+      {
+        "file": "apps/server/src/signaling/ws.ts",
+        "line": 164,
+        "name": "guest",
+        "n": 74
+      },
+      {
+        "file": "apps/server/src/requests/panel.ts",
+        "line": 492,
+        "name": "updateSettings",
+        "n": 70
+      },
+      {
+        "file": "apps/server/src/sessions/send-link.ts",
+        "line": 99,
+        "name": "sendSessionLink",
+        "n": 70
+      },
+      {
+        "file": "apps/server/src/tenants/routes.ts",
+        "line": 56,
+        "name": "adminTenantRoutes",
+        "n": 70
+      },
+      {
+        "file": "apps/server/src/cli/crypto.ts",
+        "line": 180,
+        "name": "main",
+        "n": 67
+      },
+      {
+        "file": "apps/server/src/requests/blocks.ts",
+        "line": 236,
+        "name": "createBlock",
+        "n": 67
+      },
+      {
+        "file": "apps/server/src/auth/service.ts",
+        "line": 129,
+        "name": "login",
+        "n": 66
+      },
+      {
+        "file": "apps/server/src/ops/metrics.ts",
+        "line": 52,
+        "name": "createMetrics",
+        "n": 65
+      },
+      {
+        "file": "apps/server/src/requests/panel.ts",
+        "line": 154,
+        "name": "(anonim)",
+        "n": 65
+      },
+      {
+        "file": "apps/server/src/signaling/handlers.ts",
+        "line": 146,
+        "name": "onGuestMessage",
+        "n": 65
+      },
+      {
+        "file": "apps/server/src/sessions/public.ts",
+        "line": 205,
+        "name": "resolvePublicSession",
+        "n": 64
+      },
+      {
+        "file": "apps/server/src/cli/reset-superadmin.ts",
+        "line": 64,
+        "name": "runResetSuperadmin",
+        "n": 63
+      },
+      {
+        "file": "apps/server/src/customers/csv-import.ts",
+        "line": 391,
+        "name": "(anonim)",
+        "n": 63
+      },
+      {
+        "file": "apps/server/src/mail/service.ts",
+        "line": 148,
+        "name": "deliver",
+        "n": 63
+      },
+      {
+        "file": "apps/server/src/sessions/email.ts",
+        "line": 29,
+        "name": "emailSessionLink",
+        "n": 63
+      },
+      {
+        "file": "apps/server/src/jobs/retention.ts",
+        "line": 175,
+        "name": "runOnce",
+        "n": 62
+      },
+      {
+        "file": "apps/server/src/tenants/service.ts",
+        "line": 356,
+        "name": "updateTenantSettings",
+        "n": 61
+      },
+      {
+        "file": "apps/server/src/customers/service.ts",
+        "line": 263,
+        "name": "createCustomer",
+        "n": 59
+      },
+      {
+        "file": "apps/server/src/users/service.ts",
+        "line": 374,
+        "name": "updateUser",
+        "n": 59
+      },
+      {
+        "file": "apps/server/src/cli/crypto.ts",
+        "line": 120,
+        "name": "rewrap",
+        "n": 58
+      },
+      {
+        "file": "apps/server/src/requests/panel.ts",
+        "line": 502,
+        "name": "(anonim)",
+        "n": 58
+      },
+      {
+        "file": "apps/server/src/signaling/handlers.ts",
+        "line": 86,
+        "name": "onTechMessage",
+        "n": 58
+      },
+      {
+        "file": "apps/server/src/tenants/service.ts",
+        "line": 152,
+        "name": "deactivateTenant",
+        "n": 58
+      },
+      {
+        "file": "apps/server/src/customers/service.ts",
+        "line": 432,
+        "name": "deactivateCustomer",
+        "n": 57
+      },
+      {
+        "file": "apps/server/src/jobs/orphan-scan.ts",
+        "line": 84,
+        "name": "runOnce",
+        "n": 57
+      },
+      {
+        "file": "apps/server/src/settings/system.ts",
+        "line": 172,
+        "name": "testMysql",
+        "n": 57
+      },
+      {
+        "file": "apps/server/src/audit/read.ts",
+        "line": 153,
+        "name": "exportAuditCsv",
+        "n": 56
+      },
+      {
+        "file": "apps/server/src/signaling/control.ts",
+        "line": 409,
+        "name": "onGranted",
+        "n": 56
+      },
+      {
+        "file": "apps/server/src/tenants/sms-routes.ts",
+        "line": 64,
+        "name": "updateSmsSettings",
+        "n": 56
+      },
+      {
+        "file": "apps/server/scripts/perf-sessions.ts",
+        "line": 236,
+        "name": "measure",
+        "n": 55
+      },
+      {
+        "file": "apps/server/src/auth/superadmin-routes.ts",
+        "line": 21,
+        "name": "superadminRoutes",
+        "n": 54
+      },
+      {
+        "file": "apps/server/src/requests/messages.ts",
+        "line": 220,
+        "name": "store",
+        "n": 54
+      },
+      {
+        "file": "apps/server/src/customers/service.ts",
+        "line": 328,
+        "name": "updateCustomer",
+        "n": 53
+      },
+      {
+        "file": "apps/server/src/sessions/service.ts",
+        "line": 79,
+        "name": "(anonim)",
+        "n": 53
+      },
+      {
+        "file": "apps/server/src/tenants/service.ts",
+        "line": 365,
+        "name": "(anonim)",
+        "n": 51
+      },
+      {
+        "file": "apps/server/src/uploads/files.ts",
+        "line": 70,
+        "name": "fileRoutes",
+        "n": 51
+      },
+      {
+        "file": "apps/server/src/auth/account.ts",
+        "line": 148,
+        "name": "mfaEnable",
+        "n": 50
+      },
+      {
+        "file": "apps/server/src/cli/crypto.ts",
+        "line": 55,
+        "name": "rewrapSmsKeys",
+        "n": 50
+      },
+      {
+        "file": "apps/server/src/mail/service.ts",
+        "line": 217,
+        "name": "sendForTenant",
+        "n": 50
+      },
+      {
+        "file": "apps/server/src/customers/csv-export.ts",
+        "line": 47,
+        "name": "exportCustomersCsv",
+        "n": 49
+      },
+      {
+        "file": "apps/server/src/customers/csv-import.ts",
+        "line": 336,
+        "name": "(anonim)",
+        "n": 49
+      },
+      {
+        "file": "apps/server/src/uploads/routes.ts",
+        "line": 31,
+        "name": "uploadRoutes",
+        "n": 49
+      },
+      {
+        "file": "apps/server/src/customers/csv-import.ts",
+        "line": 337,
+        "name": "(anonim)",
+        "n": 48
+      },
+      {
+        "file": "apps/server/src/notify/outbox.ts",
+        "line": 297,
+        "name": "settle",
+        "n": 48
+      },
+      {
+        "file": "apps/server/src/public/service.ts",
+        "line": 50,
+        "name": "joinPublicSession",
+        "n": 48
+      },
+      {
+        "file": "apps/server/src/tenants/service.ts",
+        "line": 159,
+        "name": "(anonim)",
+        "n": 48
+      },
+      {
+        "file": "apps/server/src/auth/service.ts",
+        "line": 72,
+        "name": "recordFailure",
+        "n": 47
+      },
+      {
+        "file": "apps/server/src/users/service.ts",
+        "line": 605,
+        "name": "purgeUser",
+        "n": 47
+      },
+      {
+        "file": "apps/server/src/auth/account.ts",
+        "line": 280,
+        "name": "stepUp",
+        "n": 46
+      },
+      {
+        "file": "apps/server/src/lib/outbound.ts",
+        "line": 55,
+        "name": "(anonim)",
+        "n": 46
+      },
+      {
+        "file": "apps/server/src/sessions/history.ts",
+        "line": 180,
+        "name": "deriveControlPeriods",
+        "n": 46
+      },
+      {
+        "file": "apps/server/src/users/service.ts",
+        "line": 457,
+        "name": "setStatus",
+        "n": 46
+      },
+      {
+        "file": "apps/server/src/bindings/service.ts",
+        "line": 296,
+        "name": "revokeRequestBinding",
+        "n": 45
+      },
+      {
+        "file": "apps/server/src/auth/superadmin-reset.ts",
+        "line": 52,
+        "name": "resetSuperadminById",
+        "n": 44
+      },
+      {
+        "file": "apps/server/src/customers/service.ts",
+        "line": 383,
+        "name": "rotateCustomerRef",
+        "n": 44
+      },
+      {
+        "file": "apps/server/src/requests/service.ts",
+        "line": 906,
+        "name": "customerCancel",
+        "n": 44
+      },
+      {
+        "file": "apps/server/src/sessions/routes.ts",
+        "line": 180,
+        "name": "publicSessionRoutes",
+        "n": 44
+      },
+      {
+        "file": "apps/server/src/users/service.ts",
+        "line": 542,
+        "name": "resetUserMfa",
+        "n": 44
+      },
+      {
+        "file": "apps/server/src/auth/account.ts",
+        "line": 411,
+        "name": "processForgot",
+        "n": 42
+      },
+      {
+        "file": "apps/server/src/customers/service.ts",
+        "line": 276,
+        "name": "(anonim)",
+        "n": 42
+      },
+      {
+        "file": "apps/server/src/requests/hours.ts",
+        "line": 245,
+        "name": "addHoliday",
+        "n": 42
+      },
+      {
+        "file": "apps/server/src/signaling/rooms.ts",
+        "line": 164,
+        "name": "preAdmitGuest",
+        "n": 42
+      },
+      {
+        "file": "apps/server/src/tenants/sms-routes.ts",
+        "line": 76,
+        "name": "(anonim)",
+        "n": 42
+      },
+      {
+        "file": "apps/server/src/users/service.ts",
+        "line": 386,
+        "name": "(anonim)",
+        "n": 42
+      },
+      {
+        "file": "apps/server/src/cli/erasure.ts",
+        "line": 187,
+        "name": "main",
+        "n": 41
+      },
+      {
+        "file": "apps/server/src/customers/service.ts",
+        "line": 277,
+        "name": "(anonim)",
+        "n": 41
+      },
+      {
+        "file": "apps/server/src/customers/service.ts",
+        "line": 493,
+        "name": "reactivateCustomer",
+        "n": 41
+      },
+      {
+        "file": "apps/server/src/requests/blocks.ts",
+        "line": 250,
+        "name": "(anonim)",
+        "n": 41
+      },
+      {
+        "file": "apps/server/src/requests/hours.ts",
+        "line": 311,
+        "name": "importTrHolidays",
+        "n": 41
+      },
+      {
+        "file": "apps/server/src/users/service.ts",
+        "line": 387,
+        "name": "(anonim)",
+        "n": 41
+      }
+    ],
+    "karmasik": [
+      {
+        "file": "apps/server/src/requests/service.ts",
+        "line": 460,
+        "name": "(anonim)",
+        "n": 48
+      },
+      {
+        "file": "apps/server/src/bindings/service.ts",
+        "line": 181,
+        "name": "(anonim)",
+        "n": 43
+      },
+      {
+        "file": "apps/server/src/signaling/ws.ts",
+        "line": 164,
+        "name": "guest",
+        "n": 34
+      },
+      {
+        "file": "apps/server/src/requests/service.ts",
+        "line": 571,
+        "name": "(anonim)",
+        "n": 31
+      },
+      {
+        "file": "apps/server/src/customers/csv-import.ts",
+        "line": 191,
+        "name": "previewImport",
+        "n": 30
+      },
+      {
+        "file": "apps/server/src/requests/service.ts",
+        "line": 436,
+        "name": "createCore",
+        "n": 29
+      },
+      {
+        "file": "apps/server/src/requests/ws.ts",
+        "line": 69,
+        "name": "request",
+        "n": 29
+      },
+      {
+        "file": "apps/server/src/lib/csv.ts",
+        "line": 65,
+        "name": "parseCsv",
+        "n": 27
+      },
+      {
+        "file": "apps/server/src/signaling/handlers.ts",
+        "line": 86,
+        "name": "onTechMessage",
+        "n": 27
+      },
+      {
+        "file": "apps/server/src/cli/crypto.ts",
+        "line": 180,
+        "name": "main",
+        "n": 26
+      },
+      {
+        "file": "apps/server/src/settings/system.ts",
+        "line": 172,
+        "name": "testMysql",
+        "n": 25
+      },
+      {
+        "file": "apps/server/src/settings/mysql-probe.ts",
+        "line": 51,
+        "name": "classifyMysqlError",
+        "n": 24
+      },
+      {
+        "file": "apps/server/src/settings/whatsapp.ts",
+        "line": 98,
+        "name": "(anonim)",
+        "n": 23
+      },
+      {
+        "file": "apps/server/src/signaling/admit.ts",
+        "line": 27,
+        "name": "admitGuest",
+        "n": 23
+      },
+      {
+        "file": "apps/server/src/auth/service.ts",
+        "line": 129,
+        "name": "login",
+        "n": 22
+      },
+      {
+        "file": "apps/server/src/signaling/handlers.ts",
+        "line": 146,
+        "name": "onGuestMessage",
+        "n": 22
+      },
+      {
+        "file": "apps/server/src/ops/erasure-ledger.ts",
+        "line": 52,
+        "name": "parseLedgerLine",
+        "n": 21
+      },
+      {
+        "file": "apps/server/src/signaling/collab.ts",
+        "line": 103,
+        "name": "handleFileMeta",
+        "n": 21
+      },
+      {
+        "file": "apps/server/src/signaling/control.ts",
+        "line": 409,
+        "name": "onGranted",
+        "n": 21
+      },
+      {
+        "file": "apps/server/src/requests/panel.ts",
+        "line": 56,
+        "name": "toItem",
+        "n": 20
+      },
+      {
+        "file": "apps/server/src/sessions/history.ts",
+        "line": 227,
+        "name": "buildDetail",
+        "n": 20
+      },
+      {
+        "file": "apps/server/src/sessions/send-link.ts",
+        "line": 99,
+        "name": "sendSessionLink",
+        "n": 20
+      },
+      {
+        "file": "apps/server/src/jobs/retention.ts",
+        "line": 175,
+        "name": "runOnce",
+        "n": 19
+      },
+      {
+        "file": "apps/server/src/signaling/admit.ts",
+        "line": 143,
+        "name": "admitRequestGuest",
+        "n": 19
+      },
+      {
+        "file": "apps/server/src/users/service.ts",
+        "line": 387,
+        "name": "(anonim)",
+        "n": 19
+      },
+      {
+        "file": "apps/server/scripts/perf-sessions.ts",
+        "line": 84,
+        "name": "seedPerfSessions",
+        "n": 18
+      },
+      {
+        "file": "apps/server/src/notify/whatsapp.ts",
+        "line": 141,
+        "name": "setUrl",
+        "n": 18
+      },
+      {
+        "file": "apps/server/src/signaling/control.ts",
+        "line": 200,
+        "name": "handleControlRequest",
+        "n": 18
+      },
+      {
+        "file": "apps/server/src/customers/csv-import.ts",
+        "line": 61,
+        "name": "readCsvUpload",
+        "n": 17
+      },
+      {
+        "file": "apps/server/src/mail/service.ts",
+        "line": 217,
+        "name": "sendForTenant",
+        "n": 17
+      },
+      {
+        "file": "apps/server/src/public/service.ts",
+        "line": 50,
+        "name": "joinPublicSession",
+        "n": 17
+      },
+      {
+        "file": "apps/server/src/requests/panel.ts",
+        "line": 154,
+        "name": "(anonim)",
+        "n": 17
+      },
+      {
+        "file": "apps/server/src/sessions/history-repo.ts",
+        "line": 36,
+        "name": "historyWhere",
+        "n": 17
+      },
+      {
+        "file": "apps/server/src/signaling/control.ts",
+        "line": 276,
+        "name": "handleMonitorRequest",
+        "n": 17
+      },
+      {
+        "file": "apps/server/src/signaling/ws.ts",
+        "line": 125,
+        "name": "tech",
+        "n": 17
+      },
+      {
+        "file": "apps/server/src/tenants/service.ts",
+        "line": 365,
+        "name": "(anonim)",
+        "n": 17
+      },
+      {
+        "file": "apps/server/src/app.ts",
+        "line": 170,
+        "name": "buildApp",
+        "n": 16
+      },
+      {
+        "file": "apps/server/src/auth/session.ts",
+        "line": 116,
+        "name": "resolveSession",
+        "n": 16
+      },
+      {
+        "file": "apps/server/src/notify/sms.ts",
+        "line": 72,
+        "name": "state",
+        "n": 16
+      },
+      {
+        "file": "apps/server/src/sessions/public.ts",
+        "line": 205,
+        "name": "resolvePublicSession",
+        "n": 16
+      },
+      {
+        "file": "apps/server/src/tenants/sms-routes.ts",
+        "line": 76,
+        "name": "(anonim)",
+        "n": 16
+      },
+      {
+        "file": "apps/server/src/uploads/files.ts",
+        "line": 90,
+        "name": "(anonim)",
+        "n": 16
+      }
+    ],
+    "ust40": 99,
+    "ust80": 23,
+    "ust150": 6,
+    "cx15": 42
+  },
+  "server.test": {
+    "uzun": [
+      {
+        "file": "apps/server/test/integration/tenant-purge-p16.test.ts",
+        "line": 77,
+        "name": "(anonim)",
+        "n": 261
+      },
+      {
+        "file": "apps/server/test/integration/sessions-history-api-p8.test.ts",
+        "line": 309,
+        "name": "(anonim)",
+        "n": 234
+      },
+      {
+        "file": "apps/server/test/integration/signaling-collab-p5.test.ts",
+        "line": 51,
+        "name": "(anonim)",
+        "n": 220
+      },
+      {
+        "file": "apps/server/test/integration/requests-p8b-2.test.ts",
+        "line": 55,
+        "name": "(anonim)",
+        "n": 211
+      },
+      {
+        "file": "apps/server/test/integration/settings-p11.test.ts",
+        "line": 64,
+        "name": "(anonim)",
+        "n": 197
+      },
+      {
+        "file": "apps/server/test/integration/p19-notify-j3.test.ts",
+        "line": 382,
+        "name": "(anonim)",
+        "n": 195
+      },
+      {
+        "file": "apps/server/test/integration/superadmin-reset-p13b.test.ts",
+        "line": 83,
+        "name": "(anonim)",
+        "n": 191
+      },
+      {
+        "file": "apps/server/test/integration/whatsapp-admin-p12b.test.ts",
+        "line": 73,
+        "name": "(anonim)",
+        "n": 186
+      },
+      {
+        "file": "apps/server/test/integration/p19-notify-j3.test.ts",
+        "line": 69,
+        "name": "(anonim)",
+        "n": 182
+      },
+      {
+        "file": "apps/server/test/integration/bindings-p8c.test.ts",
+        "line": 158,
+        "name": "(anonim)",
+        "n": 172
+      },
+      {
+        "file": "apps/server/test/integration/sessions-lobby-p13bl.test.ts",
+        "line": 47,
+        "name": "(anonim)",
+        "n": 168
+      },
+      {
+        "file": "apps/server/test/integration/requests-p8b-3.test.ts",
+        "line": 37,
+        "name": "(anonim)",
+        "n": 158
+      },
+      {
+        "file": "apps/server/test/integration/tenant-purge-meta-p16.test.ts",
+        "line": 152,
+        "name": "(anonim)",
+        "n": 154
+      },
+      {
+        "file": "apps/server/test/integration/requests-p8b-2.test.ts",
+        "line": 302,
+        "name": "(anonim)",
+        "n": 148
+      },
+      {
+        "file": "apps/server/test/integration/retention-p13a-job.test.ts",
+        "line": 166,
+        "name": "(anonim)",
+        "n": 148
+      },
+      {
+        "file": "apps/server/test/integration/retention-p16-purge.test.ts",
+        "line": 139,
+        "name": "(anonim)",
+        "n": 148
+      },
+      {
+        "file": "apps/server/test/integration/p15-backend.test.ts",
+        "line": 243,
+        "name": "(anonim)",
+        "n": 147
+      },
+      {
+        "file": "apps/server/test/integration/customers-csv-p19.test.ts",
+        "line": 201,
+        "name": "(anonim)",
+        "n": 141
+      },
+      {
+        "file": "apps/server/test/integration/agent-download.test.ts",
+        "line": 53,
+        "name": "(anonim)",
+        "n": 140
+      },
+      {
+        "file": "apps/server/test/integration/account-p10.test.ts",
+        "line": 144,
+        "name": "(anonim)",
+        "n": 136
+      },
+      {
+        "file": "apps/server/test/integration/p18-messages-h3.test.ts",
+        "line": 526,
+        "name": "(anonim)",
+        "n": 136
+      },
+      {
+        "file": "apps/server/test/integration/orphan-scan-p16.test.ts",
+        "line": 54,
+        "name": "(anonim)",
+        "n": 135
+      },
+      {
+        "file": "apps/server/test/integration/p18-backend-h2.test.ts",
+        "line": 415,
+        "name": "(anonim)",
+        "n": 134
+      },
+      {
+        "file": "apps/server/test/integration/audit-p11.test.ts",
+        "line": 78,
+        "name": "(anonim)",
+        "n": 126
+      },
+      {
+        "file": "apps/server/test/integration/users-delete-p16.test.ts",
+        "line": 72,
+        "name": "(anonim)",
+        "n": 125
+      },
+      {
+        "file": "apps/server/test/integration/customers-p8c-api.test.ts",
+        "line": 512,
+        "name": "(anonim)",
+        "n": 124
+      },
+      {
+        "file": "apps/server/test/integration/bindings-p20.test.ts",
+        "line": 91,
+        "name": "(anonim)",
+        "n": 122
+      },
+      {
+        "file": "apps/server/test/integration/security-p14a-users.test.ts",
+        "line": 248,
+        "name": "(anonim)",
+        "n": 120
+      },
+      {
+        "file": "apps/server/test/integration/sessions-history-api-p8.test.ts",
+        "line": 314,
+        "name": "(anonim)",
+        "n": 119
+      },
+      {
+        "file": "apps/server/test/unit/whatsapp-runtime-p12b.test.ts",
+        "line": 47,
+        "name": "(anonim)",
+        "n": 118
+      },
+      {
+        "file": "apps/server/test/integration/customers-p8c-api.test.ts",
+        "line": 330,
+        "name": "(anonim)",
+        "n": 117
+      },
+      {
+        "file": "apps/server/test/integration/users-delete-p16.test.ts",
+        "line": 210,
+        "name": "(anonim)",
+        "n": 115
+      },
+      {
+        "file": "apps/server/test/integration/customers-p8c-api.test.ts",
+        "line": 215,
+        "name": "(anonim)",
+        "n": 113
+      },
+      {
+        "file": "apps/server/test/integration/p18-backend-h2.test.ts",
+        "line": 206,
+        "name": "(anonim)",
+        "n": 112
+      },
+      {
+        "file": "apps/server/test/integration/signaling-lifecycle.test.ts",
+        "line": 14,
+        "name": "(anonim)",
+        "n": 111
+      },
+      {
+        "file": "apps/server/test/integration/p19-web-j2.test.ts",
+        "line": 219,
+        "name": "(anonim)",
+        "n": 110
+      },
+      {
+        "file": "apps/server/test/unit/lobby-count-p13bl.test.ts",
+        "line": 47,
+        "name": "(anonim)",
+        "n": 110
+      },
+      {
+        "file": "apps/server/test/integration/p15-backend.test.ts",
+        "line": 593,
+        "name": "(anonim)",
+        "n": 109
+      },
+      {
+        "file": "apps/server/test/integration/p19-web-j2.test.ts",
+        "line": 106,
+        "name": "(anonim)",
+        "n": 106
+      },
+      {
+        "file": "apps/server/test/unit/p11.test.ts",
+        "line": 13,
+        "name": "(anonim)",
+        "n": 105
+      },
+      {
+        "file": "apps/server/test/integration/p15-backend.test.ts",
+        "line": 479,
+        "name": "(anonim)",
+        "n": 104
+      },
+      {
+        "file": "apps/server/test/integration/whatsapp-admin-p12b.test.ts",
+        "line": 395,
+        "name": "(anonim)",
+        "n": 104
+      },
+      {
+        "file": "apps/server/test/integration/signaling-control-p7.test.ts",
+        "line": 752,
+        "name": "(anonim)",
+        "n": 102
+      },
+      {
+        "file": "apps/server/test/integration/account-p10.test.ts",
+        "line": 380,
+        "name": "(anonim)",
+        "n": 101
+      },
+      {
+        "file": "apps/server/test/integration/agent-download.test.ts",
+        "line": 204,
+        "name": "(anonim)",
+        "n": 101
+      },
+      {
+        "file": "apps/server/test/integration/security-p14a-auth.test.ts",
+        "line": 132,
+        "name": "(anonim)",
+        "n": 99
+      },
+      {
+        "file": "apps/server/test/integration/sessions-history-api-p8.test.ts",
+        "line": 105,
+        "name": "(anonim)",
+        "n": 99
+      },
+      {
+        "file": "apps/server/test/integration/requests-p8b-4.test.ts",
+        "line": 53,
+        "name": "(anonim)",
+        "n": 97
+      },
+      {
+        "file": "apps/server/test/integration/tenant-purge-p16.test.ts",
+        "line": 78,
+        "name": "(anonim)",
+        "n": 97
+      },
+      {
+        "file": "apps/server/test/helpers/tenant-purge.ts",
+        "line": 18,
+        "name": "seedPurgeTenant",
+        "n": 96
+      },
+      {
+        "file": "apps/server/test/integration/p19-schema-j1.test.ts",
+        "line": 94,
+        "name": "(anonim)",
+        "n": 96
+      },
+      {
+        "file": "apps/server/test/integration/session-files-p5.test.ts",
+        "line": 52,
+        "name": "(anonim)",
+        "n": 95
+      },
+      {
+        "file": "apps/server/test/integration/security-p8b-fix2.test.ts",
+        "line": 36,
+        "name": "(anonim)",
+        "n": 94
+      },
+      {
+        "file": "apps/server/test/integration/sessions-history-api-p8.test.ts",
+        "line": 596,
+        "name": "(anonim)",
+        "n": 94
+      },
+      {
+        "file": "apps/server/test/integration/consent-p4.test.ts",
+        "line": 147,
+        "name": "(anonim)",
+        "n": 93
+      },
+      {
+        "file": "apps/server/test/integration/requests-p8b.test.ts",
+        "line": 63,
+        "name": "(anonim)",
+        "n": 93
+      },
+      {
+        "file": "apps/server/test/integration/consent-p4.test.ts",
+        "line": 49,
+        "name": "(anonim)",
+        "n": 91
+      },
+      {
+        "file": "apps/server/test/integration/whatsapp-admin-p12b.test.ts",
+        "line": 504,
+        "name": "(anonim)",
+        "n": 91
+      },
+      {
+        "file": "apps/server/test/integration/account-p10.test.ts",
+        "line": 288,
+        "name": "(anonim)",
+        "n": 88
+      },
+      {
+        "file": "apps/server/test/integration/signaling-rooms.test.ts",
+        "line": 41,
+        "name": "(anonim)",
+        "n": 86
+      },
+      {
+        "file": "apps/server/test/integration/requests-p8b-6.test.ts",
+        "line": 38,
+        "name": "(anonim)",
+        "n": 85
+      },
+      {
+        "file": "apps/server/test/integration/signaling-control-p7.test.ts",
+        "line": 54,
+        "name": "(anonim)",
+        "n": 84
+      },
+      {
+        "file": "apps/server/test/integration/requests-p8b-5.test.ts",
+        "line": 362,
+        "name": "(anonim)",
+        "n": 83
+      },
+      {
+        "file": "apps/server/test/integration/users-p9.test.ts",
+        "line": 71,
+        "name": "(anonim)",
+        "n": 83
+      },
+      {
+        "file": "apps/server/test/integration/requests-p8b-5.test.ts",
+        "line": 114,
+        "name": "(anonim)",
+        "n": 82
+      },
+      {
+        "file": "apps/server/test/integration/signaling-ws.test.ts",
+        "line": 92,
+        "name": "(anonim)",
+        "n": 82
+      },
+      {
+        "file": "apps/server/test/integration/users-p9.test.ts",
+        "line": 199,
+        "name": "(anonim)",
+        "n": 82
+      },
+      {
+        "file": "apps/server/test/unit/security-p10.test.ts",
+        "line": 109,
+        "name": "(anonim)",
+        "n": 82
+      },
+      {
+        "file": "apps/server/test/integration/retention-p13a-db.test.ts",
+        "line": 118,
+        "name": "(anonim)",
+        "n": 81
+      },
+      {
+        "file": "apps/server/test/integration/session-history-p8.test.ts",
+        "line": 30,
+        "name": "(anonim)",
+        "n": 81
+      },
+      {
+        "file": "apps/server/test/integration/signaling-control-p7.test.ts",
+        "line": 558,
+        "name": "(anonim)",
+        "n": 81
+      },
+      {
+        "file": "apps/server/test/integration/customers-p8c-api.test.ts",
+        "line": 248,
+        "name": "(anonim)",
+        "n": 80
+      },
+      {
+        "file": "apps/server/test/integration/whatsapp-setting.test.ts",
+        "line": 58,
+        "name": "(anonim)",
+        "n": 80
+      },
+      {
+        "file": "apps/server/test/integration/auth-login.test.ts",
+        "line": 18,
+        "name": "(anonim)",
+        "n": 79
+      },
+      {
+        "file": "apps/server/test/integration/requests-p8b.test.ts",
+        "line": 163,
+        "name": "(anonim)",
+        "n": 79
+      },
+      {
+        "file": "apps/server/test/integration/retention-p13a-job.test.ts",
+        "line": 78,
+        "name": "finishedSession",
+        "n": 79
+      },
+      {
+        "file": "apps/server/test/integration/p18-backend-h2.test.ts",
+        "line": 331,
+        "name": "(anonim)",
+        "n": 78
+      },
+      {
+        "file": "apps/server/test/integration/p19-notify-j3.test.ts",
+        "line": 260,
+        "name": "(anonim)",
+        "n": 78
+      },
+      {
+        "file": "apps/server/test/integration/p18-backend-h2.test.ts",
+        "line": 60,
+        "name": "(anonim)",
+        "n": 77
+      },
+      {
+        "file": "apps/server/test/integration/retention-p13a-job.test.ts",
+        "line": 332,
+        "name": "(anonim)",
+        "n": 77
+      },
+      {
+        "file": "apps/server/test/unit/security-p10.test.ts",
+        "line": 291,
+        "name": "(anonim)",
+        "n": 77
+      },
+      {
+        "file": "apps/server/test/integration/audit-immutability-p11.test.ts",
+        "line": 70,
+        "name": "(anonim)",
+        "n": 76
+      },
+      {
+        "file": "apps/server/test/integration/requests-p8b.test.ts",
+        "line": 247,
+        "name": "(anonim)",
+        "n": 76
+      },
+      {
+        "file": "apps/server/test/integration/security-p14a-users.test.ts",
+        "line": 401,
+        "name": "(anonim)",
+        "n": 76
+      },
+      {
+        "file": "apps/server/test/unit/p19-form-token.test.ts",
+        "line": 18,
+        "name": "(anonim)",
+        "n": 76
+      },
+      {
+        "file": "apps/server/test/integration/account-p10.test.ts",
+        "line": 624,
+        "name": "(anonim)",
+        "n": 75
+      },
+      {
+        "file": "apps/server/test/integration/sessions.test.ts",
+        "line": 33,
+        "name": "(anonim)",
+        "n": 75
+      },
+      {
+        "file": "apps/server/test/integration/signaling-control-p7.test.ts",
+        "line": 406,
+        "name": "(anonim)",
+        "n": 75
+      },
+      {
+        "file": "apps/server/test/integration/p15-backend.test.ts",
+        "line": 262,
+        "name": "(anonim)",
+        "n": 74
+      },
+      {
+        "file": "apps/server/test/integration/p18-messages-h3.test.ts",
+        "line": 110,
+        "name": "(anonim)",
+        "n": 74
+      },
+      {
+        "file": "apps/server/test/integration/security-p15-db.test.ts",
+        "line": 149,
+        "name": "(anonim)",
+        "n": 74
+      },
+      {
+        "file": "apps/server/test/integration/tenant-purge-meta-p16.test.ts",
+        "line": 69,
+        "name": "(anonim)",
+        "n": 74
+      },
+      {
+        "file": "apps/server/test/unit/calendar-p18.test.ts",
+        "line": 32,
+        "name": "(anonim)",
+        "n": 74
+      },
+      {
+        "file": "apps/server/test/unit/rate.test.ts",
+        "line": 7,
+        "name": "(anonim)",
+        "n": 73
+      },
+      {
+        "file": "apps/server/test/integration/retention-p13a-job.test.ts",
+        "line": 414,
+        "name": "(anonim)",
+        "n": 72
+      },
+      {
+        "file": "apps/server/test/integration/sessions-public.test.ts",
+        "line": 37,
+        "name": "(anonim)",
+        "n": 72
+      },
+      {
+        "file": "apps/server/test/integration/signaling-rooms.test.ts",
+        "line": 137,
+        "name": "(anonim)",
+        "n": 72
+      },
+      {
+        "file": "apps/server/test/integration/signaling-ws.test.ts",
+        "line": 16,
+        "name": "(anonim)",
+        "n": 72
+      },
+      {
+        "file": "apps/server/test/integration/p15-backend.test.ts",
+        "line": 60,
+        "name": "(anonim)",
+        "n": 71
+      },
+      {
+        "file": "apps/server/test/integration/p18-messages-h3.test.ts",
+        "line": 584,
+        "name": "(anonim)",
+        "n": 71
+      },
+      {
+        "file": "apps/server/test/integration/requests-p8b-6.test.ts",
+        "line": 216,
+        "name": "(anonim)",
+        "n": 71
+      },
+      {
+        "file": "apps/server/test/integration/security-p8b-fix2.test.ts",
+        "line": 37,
+        "name": "(anonim)",
+        "n": 71
+      },
+      {
+        "file": "apps/server/test/integration/signaling-control-p7.test.ts",
+        "line": 147,
+        "name": "(anonim)",
+        "n": 70
+      },
+      {
+        "file": "apps/server/test/unit/image-p12.test.ts",
+        "line": 92,
+        "name": "(anonim)",
+        "n": 70
+      },
+      {
+        "file": "apps/server/test/integration/requests-p8b-4.test.ts",
+        "line": 201,
+        "name": "(anonim)",
+        "n": 69
+      },
+      {
+        "file": "apps/server/test/integration/requests-p8b-6.test.ts",
+        "line": 140,
+        "name": "(anonim)",
+        "n": 69
+      },
+      {
+        "file": "apps/server/test/integration/requests-p8b-6.test.ts",
+        "line": 217,
+        "name": "(anonim)",
+        "n": 69
+      },
+      {
+        "file": "apps/server/test/integration/requests-p8b-5.test.ts",
+        "line": 42,
+        "name": "(anonim)",
+        "n": 68
+      },
+      {
+        "file": "apps/server/test/integration/tenants-p9.test.ts",
+        "line": 119,
+        "name": "(anonim)",
+        "n": 68
+      },
+      {
+        "file": "apps/server/test/unit/gate.test.ts",
+        "line": 32,
+        "name": "(anonim)",
+        "n": 68
+      },
+      {
+        "file": "apps/server/test/integration/db-busy-p8b.test.ts",
+        "line": 37,
+        "name": "(anonim)",
+        "n": 67
+      },
+      {
+        "file": "apps/server/test/integration/p18-messages-h3.test.ts",
+        "line": 256,
+        "name": "(anonim)",
+        "n": 67
+      },
+      {
+        "file": "apps/server/test/integration/p18-messages-h3.test.ts",
+        "line": 456,
+        "name": "(anonim)",
+        "n": 67
+      },
+      {
+        "file": "apps/server/test/integration/requests-p8b-4.test.ts",
+        "line": 276,
+        "name": "(anonim)",
+        "n": 67
+      },
+      {
+        "file": "apps/server/test/integration/security-p14a-tenants.test.ts",
+        "line": 60,
+        "name": "(anonim)",
+        "n": 67
+      },
+      {
+        "file": "apps/server/test/unit/env-logger.test.ts",
+        "line": 54,
+        "name": "(anonim)",
+        "n": 67
+      },
+      {
+        "file": "apps/server/test/integration/branding-api-p12.test.ts",
+        "line": 356,
+        "name": "(anonim)",
+        "n": 66
+      },
+      {
+        "file": "apps/server/test/integration/p18-messages-h3.test.ts",
+        "line": 327,
+        "name": "(anonim)",
+        "n": 66
+      },
+      {
+        "file": "apps/server/test/integration/requests-p8b-5.test.ts",
+        "line": 203,
+        "name": "(anonim)",
+        "n": 66
+      },
+      {
+        "file": "apps/server/test/integration/security-p14a-tenants.test.ts",
+        "line": 165,
+        "name": "(anonim)",
+        "n": 66
+      },
+      {
+        "file": "apps/server/test/integration/p15-backend.test.ts",
+        "line": 133,
+        "name": "(anonim)",
+        "n": 65
+      },
+      {
+        "file": "apps/server/test/integration/settings-p11.test.ts",
+        "line": 325,
+        "name": "(anonim)",
+        "n": 65
+      },
+      {
+        "file": "apps/server/test/integration/signaling-lifecycle.test.ts",
+        "line": 136,
+        "name": "(anonim)",
+        "n": 65
+      },
+      {
+        "file": "apps/server/test/unit/security-p10.test.ts",
+        "line": 193,
+        "name": "(anonim)",
+        "n": 65
+      },
+      {
+        "file": "apps/server/test/integration/requests-p8b-5.test.ts",
+        "line": 204,
+        "name": "(anonim)",
+        "n": 64
+      },
+      {
+        "file": "apps/server/test/integration/account-p10.test.ts",
+        "line": 559,
+        "name": "(anonim)",
+        "n": 63
+      },
+      {
+        "file": "apps/server/test/integration/bindings-p8c.test.ts",
+        "line": 91,
+        "name": "(anonim)",
+        "n": 63
+      },
+      {
+        "file": "apps/server/test/integration/sessions-history-api-p8.test.ts",
+        "line": 211,
+        "name": "(anonim)",
+        "n": 63
+      },
+      {
+        "file": "apps/server/test/integration/p19-web-j2.test.ts",
+        "line": 388,
+        "name": "(anonim)",
+        "n": 62
+      },
+      {
+        "file": "apps/server/test/integration/signaling-control-p7.test.ts",
+        "line": 222,
+        "name": "(anonim)",
+        "n": 62
+      },
+      {
+        "file": "apps/server/test/integration/account-p10.test.ts",
+        "line": 560,
+        "name": "(anonim)",
+        "n": 61
+      },
+      {
+        "file": "apps/server/test/integration/branding-api-p12.test.ts",
+        "line": 99,
+        "name": "(anonim)",
+        "n": 61
+      },
+      {
+        "file": "apps/server/test/integration/p18-messages-h3.test.ts",
+        "line": 190,
+        "name": "(anonim)",
+        "n": 61
+      },
+      {
+        "file": "apps/server/test/integration/sessions-public.test.ts",
+        "line": 145,
+        "name": "(anonim)",
+        "n": 61
+      },
+      {
+        "file": "apps/server/test/integration/users-delete-p16.test.ts",
+        "line": 134,
+        "name": "(anonim)",
+        "n": 61
+      },
+      {
+        "file": "apps/server/test/integration/audit-customer-p13a.test.ts",
+        "line": 27,
+        "name": "(anonim)",
+        "n": 60
+      },
+      {
+        "file": "apps/server/test/integration/branding-api-p12.test.ts",
+        "line": 292,
+        "name": "(anonim)",
+        "n": 60
+      },
+      {
+        "file": "apps/server/test/integration/p15-backend.test.ts",
+        "line": 404,
+        "name": "(anonim)",
+        "n": 60
+      },
+      {
+        "file": "apps/server/test/integration/sessions-history-api-p8.test.ts",
+        "line": 707,
+        "name": "(anonim)",
+        "n": 60
+      },
+      {
+        "file": "apps/server/test/integration/signaling-control-p7.test.ts",
+        "line": 340,
+        "name": "(anonim)",
+        "n": 60
+      },
+      {
+        "file": "apps/server/test/integration/signaling-control-p7.test.ts",
+        "line": 686,
+        "name": "(anonim)",
+        "n": 60
+      },
+      {
+        "file": "apps/server/test/integration/retention-p13a-job.test.ts",
+        "line": 333,
+        "name": "(anonim)",
+        "n": 59
+      },
+      {
+        "file": "apps/server/test/unit/image-p12.test.ts",
+        "line": 167,
+        "name": "(anonim)",
+        "n": 59
+      },
+      {
+        "file": "apps/server/test/integration/audit-immutability-p11.test.ts",
+        "line": 173,
+        "name": "(anonim)",
+        "n": 58
+      },
+      {
+        "file": "apps/server/test/integration/audit.test.ts",
+        "line": 12,
+        "name": "(anonim)",
+        "n": 58
+      },
+      {
+        "file": "apps/server/test/integration/p15-backend.test.ts",
+        "line": 405,
+        "name": "(anonim)",
+        "n": 58
+      },
+      {
+        "file": "apps/server/test/integration/p15-backend.test.ts",
+        "line": 480,
+        "name": "(anonim)",
+        "n": 58
+      },
+      {
+        "file": "apps/server/test/integration/requests-p8b-3.test.ts",
+        "line": 253,
+        "name": "(anonim)",
+        "n": 58
+      },
+      {
+        "file": "apps/server/test/integration/sessions-history-api-p8.test.ts",
+        "line": 708,
+        "name": "(anonim)",
+        "n": 58
+      },
+      {
+        "file": "apps/server/test/integration/signaling-fix1.test.ts",
+        "line": 23,
+        "name": "(anonim)",
+        "n": 58
+      },
+      {
+        "file": "apps/server/test/integration/tenant-isolation.test.ts",
+        "line": 18,
+        "name": "(anonim)",
+        "n": 57
+      },
+      {
+        "file": "apps/server/test/integration/whatsapp-admin-p12b.test.ts",
+        "line": 276,
+        "name": "(anonim)",
+        "n": 57
+      },
+      {
+        "file": "apps/server/test/integration/bindings-p8c.test.ts",
+        "line": 526,
+        "name": "(anonim)",
+        "n": 56
+      },
+      {
+        "file": "apps/server/test/integration/customers-p8c-api.test.ts",
+        "line": 110,
+        "name": "(anonim)",
+        "n": 56
+      },
+      {
+        "file": "apps/server/test/integration/p15-backend.test.ts",
+        "line": 347,
+        "name": "(anonim)",
+        "n": 55
+      },
+      {
+        "file": "apps/server/test/integration/security-p14a-users.test.ts",
+        "line": 315,
+        "name": "(anonim)",
+        "n": 55
+      },
+      {
+        "file": "apps/server/test/integration/users-p9.test.ts",
+        "line": 315,
+        "name": "(anonim)",
+        "n": 55
+      },
+      {
+        "file": "apps/server/test/integration/security-p8b-fix1.test.ts",
+        "line": 125,
+        "name": "(anonim)",
+        "n": 54
+      },
+      {
+        "file": "apps/server/test/integration/customers-csv-p19.test.ts",
+        "line": 123,
+        "name": "(anonim)",
+        "n": 53
+      },
+      {
+        "file": "apps/server/test/integration/customers-p8c-api.test.ts",
+        "line": 457,
+        "name": "(anonim)",
+        "n": 53
+      },
+      {
+        "file": "apps/server/test/integration/users-delete-p16.test.ts",
+        "line": 211,
+        "name": "(anonim)",
+        "n": 53
+      },
+      {
+        "file": "apps/server/test/integration/whatsapp-admin-p12b.test.ts",
+        "line": 337,
+        "name": "(anonim)",
+        "n": 53
+      },
+      {
+        "file": "apps/server/test/integration/account-p10.test.ts",
+        "line": 487,
+        "name": "(anonim)",
+        "n": 52
+      },
+      {
+        "file": "apps/server/test/integration/p18-backend-h2.test.ts",
+        "line": 150,
+        "name": "(anonim)",
+        "n": 52
+      },
+      {
+        "file": "apps/server/test/integration/p18-messages-h3.test.ts",
+        "line": 400,
+        "name": "(anonim)",
+        "n": 52
+      },
+      {
+        "file": "apps/server/test/integration/requests-p8b-2.test.ts",
+        "line": 56,
+        "name": "(anonim)",
+        "n": 52
+      },
+      {
+        "file": "apps/server/test/integration/security-p8b-fix1.test.ts",
+        "line": 126,
+        "name": "(anonim)",
+        "n": 52
+      },
+      {
+        "file": "apps/server/test/integration/security-p8b-fix2.test.ts",
+        "line": 174,
+        "name": "(anonim)",
+        "n": 52
+      },
+      {
+        "file": "apps/server/test/integration/settings-p11.test.ts",
+        "line": 80,
+        "name": "(anonim)",
+        "n": 52
+      },
+      {
+        "file": "apps/server/test/integration/signaling-fix1.test.ts",
+        "line": 132,
+        "name": "(anonim)",
+        "n": 52
+      },
+      {
+        "file": "apps/server/test/integration/tenant-purge-meta-p16.test.ts",
+        "line": 222,
+        "name": "(anonim)",
+        "n": 52
+      },
+      {
+        "file": "apps/server/test/unit/p14a-a3.test.ts",
+        "line": 62,
+        "name": "(anonim)",
+        "n": 52
+      },
+      {
+        "file": "apps/server/test/integration/account-p10.test.ts",
+        "line": 648,
+        "name": "(anonim)",
+        "n": 51
+      },
+      {
+        "file": "apps/server/test/integration/customers-p8c-db.test.ts",
+        "line": 70,
+        "name": "(anonim)",
+        "n": 51
+      },
+      {
+        "file": "apps/server/test/integration/p14a-a3.test.ts",
+        "line": 115,
+        "name": "(anonim)",
+        "n": 51
+      },
+      {
+        "file": "apps/server/test/integration/retention-p13a-db.test.ts",
+        "line": 206,
+        "name": "(anonim)",
+        "n": 51
+      },
+      {
+        "file": "apps/server/test/integration/security-p14a-users.test.ts",
+        "line": 79,
+        "name": "(anonim)",
+        "n": 51
+      },
+      {
+        "file": "apps/server/test/integration/superadmin-reset-p13b.test.ts",
+        "line": 147,
+        "name": "(anonim)",
+        "n": 51
+      },
+      {
+        "file": "apps/server/test/integration/users-delete-p16.test.ts",
+        "line": 268,
+        "name": "(anonim)",
+        "n": 51
+      },
+      {
+        "file": "apps/server/test/integration/customers-p8c-db.test.ts",
+        "line": 226,
+        "name": "(anonim)",
+        "n": 50
+      },
+      {
+        "file": "apps/server/test/integration/signaling-fix1.test.ts",
+        "line": 133,
+        "name": "(anonim)",
+        "n": 50
+      },
+      {
+        "file": "apps/server/test/integration/p18-messages-h3.test.ts",
+        "line": 111,
+        "name": "(anonim)",
+        "n": 49
+      },
+      {
+        "file": "apps/server/test/integration/security-p14a-tenants.test.ts",
+        "line": 61,
+        "name": "(anonim)",
+        "n": 49
+      },
+      {
+        "file": "apps/server/test/integration/security-p8b-fix1.test.ts",
+        "line": 71,
+        "name": "(anonim)",
+        "n": 49
+      },
+      {
+        "file": "apps/server/test/unit/image-p12.test.ts",
+        "line": 36,
+        "name": "(anonim)",
+        "n": 49
+      },
+      {
+        "file": "apps/server/test/unit/p11.test.ts",
+        "line": 178,
+        "name": "(anonim)",
+        "n": 49
+      },
+      {
+        "file": "apps/server/test/integration/p15-backend.test.ts",
+        "line": 134,
+        "name": "(anonim)",
+        "n": 48
+      },
+      {
+        "file": "apps/server/test/integration/p18-backend-h2.test.ts",
+        "line": 61,
+        "name": "(anonim)",
+        "n": 48
+      },
+      {
+        "file": "apps/server/test/integration/p18-schema-h1.test.ts",
+        "line": 42,
+        "name": "(anonim)",
+        "n": 48
+      },
+      {
+        "file": "apps/server/test/integration/p19-web-j2.test.ts",
+        "line": 336,
+        "name": "(anonim)",
+        "n": 48
+      },
+      {
+        "file": "apps/server/test/unit/lobby-count-p13bl.test.ts",
+        "line": 167,
+        "name": "(anonim)",
+        "n": 48
+      },
+      {
+        "file": "apps/server/test/unit/p11.test.ts",
+        "line": 126,
+        "name": "(anonim)",
+        "n": 48
+      },
+      {
+        "file": "apps/server/test/integration/bindings-p8c.test.ts",
+        "line": 595,
+        "name": "(anonim)",
+        "n": 47
+      },
+      {
+        "file": "apps/server/test/integration/db-busy-p8b.test.ts",
+        "line": 58,
+        "name": "(anonim)",
+        "n": 47
+      },
+      {
+        "file": "apps/server/test/integration/orphan-scan-p16.test.ts",
+        "line": 55,
+        "name": "(anonim)",
+        "n": 47
+      },
+      {
+        "file": "apps/server/test/integration/p18-messages-h3.test.ts",
+        "line": 536,
+        "name": "(anonim)",
+        "n": 47
+      },
+      {
+        "file": "apps/server/test/integration/requests-p8b-6.test.ts",
+        "line": 164,
+        "name": "(anonim)",
+        "n": 47
+      },
+      {
+        "file": "apps/server/test/integration/security-p14a-users.test.ts",
+        "line": 135,
+        "name": "(anonim)",
+        "n": 47
+      },
+      {
+        "file": "apps/server/test/unit/security-p10.test.ts",
+        "line": 61,
+        "name": "(anonim)",
+        "n": 47
+      },
+      {
+        "file": "apps/server/test/integration/customers-p8c-db.test.ts",
+        "line": 174,
+        "name": "(anonim)",
+        "n": 46
+      },
+      {
+        "file": "apps/server/test/integration/p19-web-j2.test.ts",
+        "line": 457,
+        "name": "(anonim)",
+        "n": 46
+      },
+      {
+        "file": "apps/server/test/integration/requests-p8b-2.test.ts",
+        "line": 375,
+        "name": "(anonim)",
+        "n": 46
+      },
+      {
+        "file": "apps/server/test/integration/requests-p8b-5.test.ts",
+        "line": 272,
+        "name": "(anonim)",
+        "n": 46
+      },
+      {
+        "file": "apps/server/test/integration/tenants-p9.test.ts",
+        "line": 47,
+        "name": "(anonim)",
+        "n": 46
+      },
+      {
+        "file": "apps/server/test/integration/tenants-p9.test.ts",
+        "line": 126,
+        "name": "(anonim)",
+        "n": 46
+      },
+      {
+        "file": "apps/server/test/helpers/requests.ts",
+        "line": 56,
+        "name": "createRequestRow",
+        "n": 45
+      },
+      {
+        "file": "apps/server/test/integration/branding-api-p12.test.ts",
+        "line": 427,
+        "name": "(anonim)",
+        "n": 45
+      },
+      {
+        "file": "apps/server/test/integration/customers-csv-p19.test.ts",
+        "line": 258,
+        "name": "(anonim)",
+        "n": 45
+      },
+      {
+        "file": "apps/server/test/integration/customers-p8c-api.test.ts",
+        "line": 60,
+        "name": "(anonim)",
+        "n": 45
+      },
+      {
+        "file": "apps/server/test/integration/customers-p8c-api.test.ts",
+        "line": 168,
+        "name": "(anonim)",
+        "n": 45
+      },
+      {
+        "file": "apps/server/test/integration/p18-schema-h1.test.ts",
+        "line": 95,
+        "name": "(anonim)",
+        "n": 45
+      },
+      {
+        "file": "apps/server/test/integration/p19-notify-j3.test.ts",
+        "line": 151,
+        "name": "(anonim)",
+        "n": 45
+      },
+      {
+        "file": "apps/server/test/integration/security-p15-db.test.ts",
+        "line": 228,
+        "name": "(anonim)",
+        "n": 45
+      },
+      {
+        "file": "apps/server/test/integration/p15-backend.test.ts",
+        "line": 543,
+        "name": "(anonim)",
+        "n": 44
+      },
+      {
+        "file": "apps/server/test/integration/sessions-history-api-p8.test.ts",
+        "line": 549,
+        "name": "(anonim)",
+        "n": 44
+      },
+      {
+        "file": "apps/server/test/integration/sessions-lobby-p13bl.test.ts",
+        "line": 254,
+        "name": "(anonim)",
+        "n": 44
+      },
+      {
+        "file": "apps/server/test/integration/tenants-p9.test.ts",
+        "line": 191,
+        "name": "(anonim)",
+        "n": 44
+      },
+      {
+        "file": "apps/server/test/unit/requests-contract-p8b.test.ts",
+        "line": 98,
+        "name": "(anonim)",
+        "n": 44
+      },
+      {
+        "file": "apps/server/test/integration/mail-tls-p10.test.ts",
+        "line": 23,
+        "name": "(anonim)",
+        "n": 43
+      },
+      {
+        "file": "apps/server/test/integration/mail-tls-p10.test.ts",
+        "line": 71,
+        "name": "(anonim)",
+        "n": 43
+      },
+      {
+        "file": "apps/server/test/integration/p19-notify-j3.test.ts",
+        "line": 70,
+        "name": "(anonim)",
+        "n": 43
+      },
+      {
+        "file": "apps/server/test/integration/p19-notify-j3.test.ts",
+        "line": 198,
+        "name": "(anonim)",
+        "n": 43
+      },
+      {
+        "file": "apps/server/test/integration/retention-p13a-job.test.ts",
+        "line": 189,
+        "name": "(anonim)",
+        "n": 43
+      },
+      {
+        "file": "apps/server/test/integration/security-p14a-db.test.ts",
+        "line": 36,
+        "name": "targets",
+        "n": 43
+      },
+      {
+        "file": "apps/server/test/integration/signaling-fix1.test.ts",
+        "line": 85,
+        "name": "(anonim)",
+        "n": 43
+      },
+      {
+        "file": "apps/server/test/integration/whatsapp-admin-p12b.test.ts",
+        "line": 81,
+        "name": "(anonim)",
+        "n": 43
+      },
+      {
+        "file": "apps/server/test/integration/whatsapp-admin-p12b.test.ts",
+        "line": 348,
+        "name": "(anonim)",
+        "n": 43
+      },
+      {
+        "file": "apps/server/test/unit/p19-notify-j3.test.ts",
+        "line": 81,
+        "name": "(anonim)",
+        "n": 43
+      },
+      {
+        "file": "apps/server/test/integration/p14a-a3.test.ts",
+        "line": 258,
+        "name": "(anonim)",
+        "n": 42
+      },
+      {
+        "file": "apps/server/test/integration/p19-web-j2.test.ts",
+        "line": 107,
+        "name": "(anonim)",
+        "n": 42
+      },
+      {
+        "file": "apps/server/test/integration/requests-p8b-3.test.ts",
+        "line": 207,
+        "name": "(anonim)",
+        "n": 42
+      },
+      {
+        "file": "apps/server/test/integration/session-files-p5.test.ts",
+        "line": 153,
+        "name": "(anonim)",
+        "n": 42
+      },
+      {
+        "file": "apps/server/test/integration/sessions-history-api-p8.test.ts",
+        "line": 109,
+        "name": "(anonim)",
+        "n": 42
+      },
+      {
+        "file": "apps/server/test/integration/sessions-lobby-p13bl.test.ts",
+        "line": 255,
+        "name": "(anonim)",
+        "n": 42
+      },
+      {
+        "file": "apps/server/test/integration/tenant-purge-meta-p16.test.ts",
+        "line": 174,
+        "name": "(anonim)",
+        "n": 42
+      },
+      {
+        "file": "apps/server/test/unit/csv-p19.test.ts",
+        "line": 15,
+        "name": "(anonim)",
+        "n": 42
+      },
+      {
+        "file": "apps/server/test/unit/mask.test.ts",
+        "line": 4,
+        "name": "(anonim)",
+        "n": 42
+      },
+      {
+        "file": "apps/server/test/unit/requests-contract-p8b.test.ts",
+        "line": 36,
+        "name": "(anonim)",
+        "n": 42
+      },
+      {
+        "file": "apps/server/test/helpers/ws.ts",
+        "line": 115,
+        "name": "connect",
+        "n": 41
+      },
+      {
+        "file": "apps/server/test/integration/customers-csv-p19.test.ts",
+        "line": 79,
+        "name": "(anonim)",
+        "n": 41
+      },
+      {
+        "file": "apps/server/test/integration/p14a-a3.test.ts",
+        "line": 70,
+        "name": "(anonim)",
+        "n": 41
+      },
+      {
+        "file": "apps/server/test/integration/requests-p8b-5.test.ts",
+        "line": 406,
+        "name": "(anonim)",
+        "n": 41
+      },
+      {
+        "file": "apps/server/test/integration/retention-p16-purge.test.ts",
+        "line": 140,
+        "name": "(anonim)",
+        "n": 41
+      },
+      {
+        "file": "apps/server/test/unit/history-p8.test.ts",
+        "line": 104,
+        "name": "(anonim)",
+        "n": 41
+      }
+    ],
+    "karmasik": [],
+    "ust40": 244,
+    "ust80": 71,
+    "ust150": 13,
+    "cx15": 0
+  },
+  "web.uretim": {
+    "uzun": [
+      {
+        "file": "apps/web/app/(panel)/settings/support-requests/settings-form.tsx",
+        "line": 155,
+        "name": "SettingsForm",
+        "n": 440
+      },
+      {
+        "file": "apps/web/app/(panel)/requests/request-queue.tsx",
+        "line": 58,
+        "name": "RequestQueue",
+        "n": 364
+      },
+      {
+        "file": "apps/web/app/(panel)/customers/import/import-wizard.tsx",
+        "line": 58,
+        "name": "ImportWizard",
+        "n": 340
+      },
+      {
+        "file": "apps/web/app/(panel)/users/[id]/user-editor.tsx",
+        "line": 51,
+        "name": "UserEditor",
+        "n": 304
+      },
+      {
+        "file": "apps/web/app/(panel)/requests/request-thread.tsx",
+        "line": 37,
+        "name": "RequestThread",
+        "n": 303
+      },
+      {
+        "file": "apps/web/components/console/stage.tsx",
+        "line": 89,
+        "name": "Stage",
+        "n": 300
+      },
+      {
+        "file": "apps/web/app/(panel)/settings/smtp/smtp-form.tsx",
+        "line": 53,
+        "name": "SmtpForm",
+        "n": 298
+      },
+      {
+        "file": "apps/web/app/(panel)/settings/business-hours/holidays-section.tsx",
+        "line": 37,
+        "name": "HolidaysSection",
+        "n": 297
+      },
+      {
+        "file": "apps/web/app/(panel)/sessions/[id]/console/console-view.tsx",
+        "line": 34,
+        "name": "ConsoleView",
+        "n": 278
+      },
+      {
+        "file": "apps/web/app/r/[ref]/waiting-room.tsx",
+        "line": 46,
+        "name": "WaitingRoom",
+        "n": 271
+      },
+      {
+        "file": "apps/web/app/(panel)/requests/page.tsx",
+        "line": 49,
+        "name": "RequestsPage",
+        "n": 258
+      },
+      {
+        "file": "apps/web/app/(panel)/admin/settings/mysql/mysql-form.tsx",
+        "line": 35,
+        "name": "MysqlForm",
+        "n": 257
+      },
+      {
+        "file": "apps/web/app/(panel)/settings/sms/sms-form.tsx",
+        "line": 39,
+        "name": "SmsForm",
+        "n": 251
+      },
+      {
+        "file": "apps/web/app/session/[token]/guest-session.tsx",
+        "line": 45,
+        "name": "GuestSession",
+        "n": 251
+      },
+      {
+        "file": "apps/web/app/(panel)/admin/settings/whatsapp/whatsapp-form.tsx",
+        "line": 45,
+        "name": "WhatsappForm",
+        "n": 244
+      },
+      {
+        "file": "apps/web/app/(panel)/admin/settings/turn/turn-form.tsx",
+        "line": 43,
+        "name": "TurnForm",
+        "n": 242
+      },
+      {
+        "file": "apps/web/app/(panel)/customers/customer-form-dialog.tsx",
+        "line": 37,
+        "name": "CustomerFormDialog",
+        "n": 235
+      },
+      {
+        "file": "apps/web/components/ui/combobox.tsx",
+        "line": 25,
+        "name": "Combobox",
+        "n": 233
+      },
+      {
+        "file": "apps/web/components/branding/avatar-uploader.tsx",
+        "line": 40,
+        "name": "AvatarUploader",
+        "n": 224
+      },
+      {
+        "file": "apps/web/lib/webrtc/use-tech-session.ts",
+        "line": 68,
+        "name": "useTechSession",
+        "n": 218
+      },
+      {
+        "file": "apps/web/app/(panel)/history/history-filters.tsx",
+        "line": 67,
+        "name": "HistoryFiltersForm",
+        "n": 217
+      },
+      {
+        "file": "apps/web/app/(panel)/settings/consent-text/consent-form.tsx",
+        "line": 48,
+        "name": "ConsentForm",
+        "n": 217
+      },
+      {
+        "file": "apps/web/app/(panel)/settings/business-hours/business-hours-form.tsx",
+        "line": 71,
+        "name": "BusinessHoursForm",
+        "n": 207
+      },
+      {
+        "file": "apps/web/app/r/[ref]/web-request-form.tsx",
+        "line": 31,
+        "name": "WebRequestForm",
+        "n": 198
+      },
+      {
+        "file": "apps/web/app/(panel)/requests/request-card.tsx",
+        "line": 149,
+        "name": "RequestCard",
+        "n": 196
+      },
+      {
+        "file": "apps/web/components/branding/logo-uploader.tsx",
+        "line": 36,
+        "name": "LogoUploader",
+        "n": 185
+      },
+      {
+        "file": "apps/web/app/(panel)/admin/tenants/tenant-list.tsx",
+        "line": 52,
+        "name": "TenantList",
+        "n": 179
+      },
+      {
+        "file": "apps/web/components/account/mfa-setup.tsx",
+        "line": 28,
+        "name": "MfaSetup",
+        "n": 169
+      },
+      {
+        "file": "apps/web/app/(panel)/sessions/session-send-link.tsx",
+        "line": 25,
+        "name": "SessionSendLink",
+        "n": 160
+      },
+      {
+        "file": "apps/web/components/admin/permission-matrix.tsx",
+        "line": 62,
+        "name": "PermissionMatrix",
+        "n": 159
+      },
+      {
+        "file": "apps/web/app/(panel)/audit/audit-log.tsx",
+        "line": 98,
+        "name": "AuditLog",
+        "n": 157
+      },
+      {
+        "file": "apps/web/app/(panel)/users/(list)/page.tsx",
+        "line": 28,
+        "name": "UsersPage",
+        "n": 157
+      },
+      {
+        "file": "apps/web/app/session/[token]/join-form.tsx",
+        "line": 26,
+        "name": "JoinForm",
+        "n": 155
+      },
+      {
+        "file": "apps/web/app/(panel)/customers/(list)/page.tsx",
+        "line": 66,
+        "name": "CustomersPage",
+        "n": 153
+      },
+      {
+        "file": "apps/web/app/(panel)/sessions/new-session-dialog.tsx",
+        "line": 30,
+        "name": "NewSessionDialog",
+        "n": 153
+      },
+      {
+        "file": "apps/web/app/(panel)/users/new-user-dialog.tsx",
+        "line": 32,
+        "name": "NewUserDialog",
+        "n": 150
+      },
+      {
+        "file": "apps/web/app/(panel)/customers/[id]/page.tsx",
+        "line": 35,
+        "name": "CustomerPage",
+        "n": 149
+      },
+      {
+        "file": "apps/web/app/(panel)/admin/tenants/tenant-form-dialog.tsx",
+        "line": 29,
+        "name": "TenantFormDialog",
+        "n": 148
+      },
+      {
+        "file": "apps/web/lib/webrtc/use-guest-session.ts",
+        "line": 39,
+        "name": "useGuestSession",
+        "n": 148
+      },
+      {
+        "file": "apps/web/components/account/step-up-dialog.tsx",
+        "line": 66,
+        "name": "StepUpDialog",
+        "n": 146
+      },
+      {
+        "file": "apps/web/app/(panel)/sessions/session-list.tsx",
+        "line": 33,
+        "name": "SessionList",
+        "n": 145
+      },
+      {
+        "file": "apps/web/app/(panel)/sessions/sessions-view.tsx",
+        "line": 23,
+        "name": "SessionsView",
+        "n": 145
+      },
+      {
+        "file": "apps/web/components/request-notifier.tsx",
+        "line": 90,
+        "name": "RequestNotifier",
+        "n": 144
+      },
+      {
+        "file": "apps/web/app/(panel)/admin/tenants/[id]/purge-dialog.tsx",
+        "line": 30,
+        "name": "PurgeDialog",
+        "n": 140
+      },
+      {
+        "file": "apps/web/app/session/[token]/agent-download.tsx",
+        "line": 20,
+        "name": "AgentDownload",
+        "n": 140
+      },
+      {
+        "file": "apps/web/app/(panel)/history/history-list.tsx",
+        "line": 46,
+        "name": "HistoryList",
+        "n": 139
+      },
+      {
+        "file": "apps/web/app/(panel)/history/page.tsx",
+        "line": 38,
+        "name": "HistoryPage",
+        "n": 139
+      },
+      {
+        "file": "apps/web/app/(panel)/admin/tenants/[id]/purge-panel.tsx",
+        "line": 33,
+        "name": "PurgePanel",
+        "n": 132
+      },
+      {
+        "file": "apps/web/app/(panel)/history/[id]/note-form.tsx",
+        "line": 21,
+        "name": "NoteForm",
+        "n": 132
+      },
+      {
+        "file": "apps/web/app/(panel)/settings/security/retention-form.tsx",
+        "line": 27,
+        "name": "RetentionForm",
+        "n": 130
+      },
+      {
+        "file": "apps/web/app/(panel)/admin/tenants/page.tsx",
+        "line": 24,
+        "name": "TenantsPage",
+        "n": 123
+      },
+      {
+        "file": "apps/web/app/(panel)/audit/page.tsx",
+        "line": 43,
+        "name": "AuditPage",
+        "n": 123
+      },
+      {
+        "file": "apps/web/lib/control/use-remote-input.ts",
+        "line": 26,
+        "name": "useRemoteInput",
+        "n": 123
+      },
+      {
+        "file": "apps/web/app/(panel)/requests/reject-dialog.tsx",
+        "line": 22,
+        "name": "RejectDialog",
+        "n": 122
+      },
+      {
+        "file": "apps/web/app/session/[token]/guest-welcome.tsx",
+        "line": 29,
+        "name": "GuestWelcome",
+        "n": 122
+      },
+      {
+        "file": "apps/web/app/(panel)/audit/audit-filters.tsx",
+        "line": 32,
+        "name": "AuditFiltersForm",
+        "n": 121
+      },
+      {
+        "file": "apps/web/components/collab/files-panel.tsx",
+        "line": 74,
+        "name": "FilesPanel",
+        "n": 118
+      },
+      {
+        "file": "apps/web/components/temp-password-dialog.tsx",
+        "line": 16,
+        "name": "TemporaryPasswordDialog",
+        "n": 118
+      },
+      {
+        "file": "apps/web/components/ui/confirm-name-dialog.tsx",
+        "line": 20,
+        "name": "ConfirmNameDialog",
+        "n": 118
+      },
+      {
+        "file": "apps/web/app/(panel)/request-blocks/page.tsx",
+        "line": 38,
+        "name": "RequestBlocksPage",
+        "n": 113
+      },
+      {
+        "file": "apps/web/app/(panel)/settings/general/limits-form.tsx",
+        "line": 46,
+        "name": "LimitsForm",
+        "n": 113
+      },
+      {
+        "file": "apps/web/app/(auth)/reset-password/reset-form.tsx",
+        "line": 25,
+        "name": "ResetForm",
+        "n": 111
+      },
+      {
+        "file": "apps/web/app/(panel)/admin/settings/whatsapp/whatsapp-test-section.tsx",
+        "line": 19,
+        "name": "WhatsappTestSection",
+        "n": 111
+      },
+      {
+        "file": "apps/web/app/(panel)/history/[id]/page.tsx",
+        "line": 21,
+        "name": "HistoryDetailPage",
+        "n": 111
+      },
+      {
+        "file": "apps/web/app/(panel)/admin/settings/superadmins/superadmin-list.tsx",
+        "line": 23,
+        "name": "SuperadminList",
+        "n": 110
+      },
+      {
+        "file": "apps/web/app/(panel)/admin/tenants/tenant-list.tsx",
+        "line": 240,
+        "name": "StatusDialog",
+        "n": 110
+      },
+      {
+        "file": "apps/web/app/(panel)/request-blocks/block-list.tsx",
+        "line": 59,
+        "name": "BlockList",
+        "n": 108
+      },
+      {
+        "file": "apps/web/components/account/recovery-regenerate.tsx",
+        "line": 24,
+        "name": "RecoveryRegenerate",
+        "n": 108
+      },
+      {
+        "file": "apps/web/app/(panel)/sessions/created-session.tsx",
+        "line": 17,
+        "name": "CreatedSession",
+        "n": 107
+      },
+      {
+        "file": "apps/web/components/request-blocks/block-dialogs.tsx",
+        "line": 162,
+        "name": "RequestBlockDialog",
+        "n": 105
+      },
+      {
+        "file": "apps/web/components/collab/annot-layer.tsx",
+        "line": 32,
+        "name": "AnnotLayer",
+        "n": 104
+      },
+      {
+        "file": "apps/web/components/collab/chat-panel.tsx",
+        "line": 15,
+        "name": "ChatPanel",
+        "n": 104
+      },
+      {
+        "file": "apps/web/components/console/control-button.tsx",
+        "line": 28,
+        "name": "ControlButton",
+        "n": 103
+      },
+      {
+        "file": "apps/web/app/(panel)/customers/[id]/customer-actions.tsx",
+        "line": 104,
+        "name": "CustomerActions",
+        "n": 102
+      },
+      {
+        "file": "apps/web/app/r/[ref]/request-chat.tsx",
+        "line": 25,
+        "name": "RequestChat",
+        "n": 102
+      },
+      {
+        "file": "apps/web/app/(auth)/login/2fa/mfa-verify-form.tsx",
+        "line": 22,
+        "name": "MfaVerifyForm",
+        "n": 97
+      },
+      {
+        "file": "apps/web/app/(panel)/tenant-switcher.tsx",
+        "line": 28,
+        "name": "TenantSwitcher",
+        "n": 97
+      },
+      {
+        "file": "apps/web/components/account/mail-test-dialog.tsx",
+        "line": 23,
+        "name": "MailTestDialog",
+        "n": 97
+      },
+      {
+        "file": "apps/web/lib/control/use-remote-input.ts",
+        "line": 47,
+        "name": "(anonim)",
+        "n": 97
+      },
+      {
+        "file": "apps/web/app/(panel)/account/account-security.tsx",
+        "line": 39,
+        "name": "AccountSecurity",
+        "n": 96
+      },
+      {
+        "file": "apps/web/app/(panel)/customers/customer-list.tsx",
+        "line": 48,
+        "name": "CustomerList",
+        "n": 96
+      },
+      {
+        "file": "apps/web/components/ui/dialog.tsx",
+        "line": 33,
+        "name": "Dialog",
+        "n": 94
+      },
+      {
+        "file": "apps/web/app/(panel)/admin/tenants/[id]/page.tsx",
+        "line": 31,
+        "name": "TenantPage",
+        "n": 93
+      },
+      {
+        "file": "apps/web/components/console/collab-side.tsx",
+        "line": 75,
+        "name": "AnnotToolbar",
+        "n": 93
+      },
+      {
+        "file": "apps/web/app/r/[ref]/web-request-flow.tsx",
+        "line": 41,
+        "name": "WebRequestFlow",
+        "n": 92
+      },
+      {
+        "file": "apps/web/app/(auth)/change-password/change-password-form.tsx",
+        "line": 19,
+        "name": "ChangePasswordForm",
+        "n": 89
+      },
+      {
+        "file": "apps/web/app/(panel)/audit/audit-log.tsx",
+        "line": 293,
+        "name": "AuditDetailDialog",
+        "n": 89
+      },
+      {
+        "file": "apps/web/components/lobby-notifier.tsx",
+        "line": 50,
+        "name": "LobbyNotifier",
+        "n": 87
+      },
+      {
+        "file": "apps/web/lib/dc/use-collab.ts",
+        "line": 43,
+        "name": "useCollab",
+        "n": 87
+      },
+      {
+        "file": "apps/web/app/(panel)/sessions/session-email.tsx",
+        "line": 18,
+        "name": "SessionEmail",
+        "n": 85
+      },
+      {
+        "file": "apps/web/app/(panel)/users/user-filters.tsx",
+        "line": 19,
+        "name": "UserFilters",
+        "n": 85
+      },
+      {
+        "file": "apps/web/components/request-blocks/block-dialogs.tsx",
+        "line": 69,
+        "name": "AddBlockDialog",
+        "n": 83
+      },
+      {
+        "file": "apps/web/app/(panel)/requests/assign-menu.tsx",
+        "line": 99,
+        "name": "AssignDialog",
+        "n": 82
+      },
+      {
+        "file": "apps/web/app/(panel)/users/[id]/user-editor.tsx",
+        "line": 377,
+        "name": "StatusDialog",
+        "n": 82
+      },
+      {
+        "file": "apps/web/components/console/lobby-panel.tsx",
+        "line": 15,
+        "name": "LobbyPanel",
+        "n": 82
+      },
+      {
+        "file": "apps/web/app/r/[ref]/waiting-room.tsx",
+        "line": 84,
+        "name": "(anonim)",
+        "n": 79
+      },
+      {
+        "file": "apps/web/app/(panel)/settings/support-requests/settings-form.tsx",
+        "line": 72,
+        "name": "ListEditor",
+        "n": 78
+      },
+      {
+        "file": "apps/web/app/(panel)/side-nav.tsx",
+        "line": 44,
+        "name": "SideNav",
+        "n": 77
+      },
+      {
+        "file": "apps/web/app/(panel)/users/user-list.tsx",
+        "line": 27,
+        "name": "UserList",
+        "n": 77
+      },
+      {
+        "file": "apps/web/components/ui/menu.tsx",
+        "line": 19,
+        "name": "Menu",
+        "n": 77
+      },
+      {
+        "file": "apps/web/lib/control/machine.ts",
+        "line": 201,
+        "name": "onMsg",
+        "n": 77
+      },
+      {
+        "file": "apps/web/app/(panel)/layout.tsx",
+        "line": 23,
+        "name": "PanelLayout",
+        "n": 76
+      },
+      {
+        "file": "apps/web/components/account/recovery-codes.tsx",
+        "line": 16,
+        "name": "RecoveryCodes",
+        "n": 76
+      },
+      {
+        "file": "apps/web/app/(auth)/login/login-form.tsx",
+        "line": 17,
+        "name": "LoginForm",
+        "n": 75
+      },
+      {
+        "file": "apps/web/app/(panel)/admin/tenants/[id]/purge-status-card.tsx",
+        "line": 26,
+        "name": "PurgeStatusCard",
+        "n": 75
+      },
+      {
+        "file": "apps/web/app/(auth)/forgot-password/forgot-form.tsx",
+        "line": 19,
+        "name": "ForgotForm",
+        "n": 72
+      },
+      {
+        "file": "apps/web/app/(panel)/customers/customer-filters.tsx",
+        "line": 17,
+        "name": "CustomerFilters",
+        "n": 70
+      },
+      {
+        "file": "apps/web/app/(panel)/settings/business-hours/business-hours-form.tsx",
+        "line": 201,
+        "name": "(anonim)",
+        "n": 69
+      },
+      {
+        "file": "apps/web/components/lobby-notifier.tsx",
+        "line": 63,
+        "name": "(anonim)",
+        "n": 69
+      },
+      {
+        "file": "apps/web/app/(panel)/settings/tenant-settings-page.tsx",
+        "line": 17,
+        "name": "TenantSettingsPage",
+        "n": 68
+      },
+      {
+        "file": "apps/web/app/(panel)/admin/settings/whatsapp/whatsapp-api-key-field.tsx",
+        "line": 16,
+        "name": "WhatsappApiKeyField",
+        "n": 67
+      },
+      {
+        "file": "apps/web/app/(panel)/requests/request-card.tsx",
+        "line": 65,
+        "name": "SourceIndicator",
+        "n": 65
+      },
+      {
+        "file": "apps/web/lib/use-leave-guard.ts",
+        "line": 15,
+        "name": "useLeaveGuard",
+        "n": 64
+      },
+      {
+        "file": "apps/web/app/(panel)/customers/customers-actions.tsx",
+        "line": 50,
+        "name": "CustomersActions",
+        "n": 63
+      },
+      {
+        "file": "apps/web/app/(panel)/requests/assign-menu.tsx",
+        "line": 34,
+        "name": "AssignMenuItems",
+        "n": 63
+      },
+      {
+        "file": "apps/web/app/r/[ref]/waiting-room.tsx",
+        "line": 88,
+        "name": "(anonim)",
+        "n": 63
+      },
+      {
+        "file": "apps/web/app/(panel)/history/[id]/sections.tsx",
+        "line": 166,
+        "name": "DataTable",
+        "n": 62
+      },
+      {
+        "file": "apps/web/components/copy-link.tsx",
+        "line": 14,
+        "name": "CopyLink",
+        "n": 62
+      },
+      {
+        "file": "apps/web/lib/history/query.ts",
+        "line": 63,
+        "name": "parseFilters",
+        "n": 62
+      },
+      {
+        "file": "apps/web/components/csv-export-button.tsx",
+        "line": 31,
+        "name": "CsvExportButton",
+        "n": 61
+      },
+      {
+        "file": "apps/web/components/purge-banner.tsx",
+        "line": 20,
+        "name": "PurgeBanner",
+        "n": 61
+      },
+      {
+        "file": "apps/web/app/(panel)/users/[id]/user-editor.tsx",
+        "line": 466,
+        "name": "DeleteDialog",
+        "n": 60
+      },
+      {
+        "file": "apps/web/components/guest/share-strip.tsx",
+        "line": 8,
+        "name": "ShareStrip",
+        "n": 60
+      },
+      {
+        "file": "apps/web/lib/requests/settings-form.ts",
+        "line": 97,
+        "name": "buildInput",
+        "n": 60
+      },
+      {
+        "file": "apps/web/app/(panel)/account/page.tsx",
+        "line": 18,
+        "name": "AccountPage",
+        "n": 59
+      },
+      {
+        "file": "apps/web/app/(panel)/history/pagination.tsx",
+        "line": 18,
+        "name": "Pagination",
+        "n": 58
+      },
+      {
+        "file": "apps/web/app/(panel)/requests/revoke-binding-dialog.tsx",
+        "line": 18,
+        "name": "RevokeBindingDialog",
+        "n": 58
+      },
+      {
+        "file": "apps/web/app/(panel)/sessions/cancel-dialog.tsx",
+        "line": 17,
+        "name": "CancelDialog",
+        "n": 58
+      },
+      {
+        "file": "apps/web/app/(panel)/sessions/terminate-dialog.tsx",
+        "line": 16,
+        "name": "TerminateDialog",
+        "n": 58
+      },
+      {
+        "file": "apps/web/app/(panel)/settings/support-requests/page.tsx",
+        "line": 17,
+        "name": "SupportRequestSettingsPage",
+        "n": 58
+      },
+      {
+        "file": "apps/web/app/(panel)/admin/tenants/tenant-filters.tsx",
+        "line": 12,
+        "name": "TenantFilters",
+        "n": 56
+      },
+      {
+        "file": "apps/web/components/request-notifier.tsx",
+        "line": 101,
+        "name": "(anonim)",
+        "n": 56
+      },
+      {
+        "file": "apps/web/components/collab/files-panel.tsx",
+        "line": 17,
+        "name": "Row",
+        "n": 55
+      },
+      {
+        "file": "apps/web/app/(panel)/user-menu.tsx",
+        "line": 18,
+        "name": "UserMenu",
+        "n": 54
+      },
+      {
+        "file": "apps/web/components/guest/guest-collab.tsx",
+        "line": 15,
+        "name": "GuestCollab",
+        "n": 54
+      },
+      {
+        "file": "apps/web/lib/webrtc/tech-machine.ts",
+        "line": 149,
+        "name": "onMsg",
+        "n": 54
+      },
+      {
+        "file": "apps/web/app/(panel)/admin/settings/whatsapp/whatsapp-api-key-field.tsx",
+        "line": 85,
+        "name": "WhatsappApiKeyRemoveDialog",
+        "n": 53
+      },
+      {
+        "file": "apps/web/app/(panel)/requests/request-card.tsx",
+        "line": 380,
+        "name": "ClosedInfo",
+        "n": 53
+      },
+      {
+        "file": "apps/web/app/(panel)/requests/customer-filter.tsx",
+        "line": 16,
+        "name": "RequestCustomerFilter",
+        "n": 52
+      },
+      {
+        "file": "apps/web/components/request-notifier.tsx",
+        "line": 161,
+        "name": "(anonim)",
+        "n": 52
+      },
+      {
+        "file": "apps/web/app/(panel)/requests/request-history.tsx",
+        "line": 13,
+        "name": "RequestHistory",
+        "n": 51
+      },
+      {
+        "file": "apps/web/components/ui/avatar.tsx",
+        "line": 10,
+        "name": "Avatar",
+        "n": 51
+      },
+      {
+        "file": "apps/web/components/ui/toast.tsx",
+        "line": 64,
+        "name": "ToastViewport",
+        "n": 51
+      },
+      {
+        "file": "apps/web/app/(panel)/settings/security/security-form.tsx",
+        "line": 18,
+        "name": "SecurityForm",
+        "n": 50
+      },
+      {
+        "file": "apps/web/app/(panel)/history/[id]/sections.tsx",
+        "line": 272,
+        "name": "ControlPeriods",
+        "n": 49
+      },
+      {
+        "file": "apps/web/components/ui/save-bar.tsx",
+        "line": 15,
+        "name": "SaveBar",
+        "n": 49
+      },
+      {
+        "file": "apps/web/components/ui/select-field.tsx",
+        "line": 16,
+        "name": "SelectField",
+        "n": 49
+      },
+      {
+        "file": "apps/web/components/ui/switch.tsx",
+        "line": 11,
+        "name": "Switch",
+        "n": 49
+      },
+      {
+        "file": "apps/web/app/(panel)/history/history-list.tsx",
+        "line": 95,
+        "name": "(anonim)",
+        "n": 48
+      },
+      {
+        "file": "apps/web/app/(panel)/request-blocks/block-list.tsx",
+        "line": 95,
+        "name": "(anonim)",
+        "n": 48
+      },
+      {
+        "file": "apps/web/components/customer-combobox.tsx",
+        "line": 14,
+        "name": "CustomerCombobox",
+        "n": 48
+      },
+      {
+        "file": "apps/web/app/(panel)/admin/tenants/tenant-list.tsx",
+        "line": 73,
+        "name": "(anonim)",
+        "n": 47
+      },
+      {
+        "file": "apps/web/components/console/collab-side.tsx",
+        "line": 18,
+        "name": "CollabSide",
+        "n": 46
+      },
+      {
+        "file": "apps/web/components/ui/text-field.tsx",
+        "line": 18,
+        "name": "TextField",
+        "n": 46
+      },
+      {
+        "file": "apps/web/app/(panel)/sessions/session-list.tsx",
+        "line": 46,
+        "name": "(anonim)",
+        "n": 45
+      },
+      {
+        "file": "apps/web/app/(panel)/users/[id]/page.tsx",
+        "line": 22,
+        "name": "UserPage",
+        "n": 45
+      },
+      {
+        "file": "apps/web/components/console/control-button.tsx",
+        "line": 174,
+        "name": "MonitorPicker",
+        "n": 45
+      },
+      {
+        "file": "apps/web/app/(panel)/customers/[id]/customer-actions.tsx",
+        "line": 55,
+        "name": "ConfirmDialog",
+        "n": 44
+      },
+      {
+        "file": "apps/web/app/(panel)/requests/request-thread.tsx",
+        "line": 130,
+        "name": "(anonim)",
+        "n": 44
+      },
+      {
+        "file": "apps/web/lib/dc/annot.ts",
+        "line": 100,
+        "name": "drawAnnotations",
+        "n": 44
+      },
+      {
+        "file": "apps/web/lib/dc/files.ts",
+        "line": 447,
+        "name": "onCtl",
+        "n": 44
+      },
+      {
+        "file": "apps/web/app/(panel)/history/[id]/sections.tsx",
+        "line": 70,
+        "name": "Summary",
+        "n": 43
+      },
+      {
+        "file": "apps/web/app/(panel)/history/[id]/sections.tsx",
+        "line": 404,
+        "name": "Files",
+        "n": 43
+      },
+      {
+        "file": "apps/web/app/session/[token]/join-form.tsx",
+        "line": 55,
+        "name": "(anonim)",
+        "n": 43
+      },
+      {
+        "file": "apps/web/app/(panel)/history/[id]/sections.tsx",
+        "line": 323,
+        "name": "Timeline",
+        "n": 42
+      },
+      {
+        "file": "apps/web/app/r/[ref]/waiting-room.tsx",
+        "line": 95,
+        "name": "(anonim)",
+        "n": 42
+      },
+      {
+        "file": "apps/web/components/ui/switch.tsx",
+        "line": 100,
+        "name": "ToggleSwitch",
+        "n": 42
+      },
+      {
+        "file": "apps/web/lib/dc/sha256.ts",
+        "line": 21,
+        "name": "block",
+        "n": 42
+      },
+      {
+        "file": "apps/web/app/(panel)/customers/[id]/customer-tabs.tsx",
+        "line": 143,
+        "name": "SessionsTab",
+        "n": 41
+      },
+      {
+        "file": "apps/web/app/(panel)/customers/help-dialog.tsx",
+        "line": 15,
+        "name": "HelpDialog",
+        "n": 41
+      },
+      {
+        "file": "apps/web/app/(panel)/history/[id]/sections.tsx",
+        "line": 277,
+        "name": "(anonim)",
+        "n": 41
+      },
+      {
+        "file": "apps/web/app/(panel)/sessions/[id]/console/page.tsx",
+        "line": 22,
+        "name": "ConsolePage",
+        "n": 41
+      },
+      {
+        "file": "apps/web/app/(panel)/sessions/page.tsx",
+        "line": 15,
+        "name": "SessionsPage",
+        "n": 41
+      },
+      {
+        "file": "apps/web/app/(panel)/settings/business-hours/business-hours-form.tsx",
+        "line": 213,
+        "name": "(anonim)",
+        "n": 41
+      }
+    ],
+    "karmasik": [
+      {
+        "file": "apps/web/components/console/stage.tsx",
+        "line": 89,
+        "name": "Stage",
+        "n": 87
+      },
+      {
+        "file": "apps/web/lib/control/machine.ts",
+        "line": 201,
+        "name": "onMsg",
+        "n": 58
+      },
+      {
+        "file": "apps/web/app/(panel)/sessions/[id]/console/console-view.tsx",
+        "line": 34,
+        "name": "ConsoleView",
+        "n": 51
+      },
+      {
+        "file": "apps/web/app/(panel)/requests/page.tsx",
+        "line": 49,
+        "name": "RequestsPage",
+        "n": 47
+      },
+      {
+        "file": "apps/web/lib/webrtc/tech-machine.ts",
+        "line": 149,
+        "name": "onMsg",
+        "n": 41
+      },
+      {
+        "file": "apps/web/components/ui/combobox.tsx",
+        "line": 25,
+        "name": "Combobox",
+        "n": 40
+      },
+      {
+        "file": "apps/web/app/(panel)/requests/request-card.tsx",
+        "line": 149,
+        "name": "RequestCard",
+        "n": 38
+      },
+      {
+        "file": "apps/web/app/(panel)/audit/page.tsx",
+        "line": 43,
+        "name": "AuditPage",
+        "n": 36
+      },
+      {
+        "file": "apps/web/app/(panel)/users/[id]/user-editor.tsx",
+        "line": 51,
+        "name": "UserEditor",
+        "n": 36
+      },
+      {
+        "file": "apps/web/app/(panel)/requests/request-thread.tsx",
+        "line": 37,
+        "name": "RequestThread",
+        "n": 32
+      },
+      {
+        "file": "apps/web/components/console/control-button.tsx",
+        "line": 28,
+        "name": "ControlButton",
+        "n": 31
+      },
+      {
+        "file": "apps/web/app/(panel)/history/page.tsx",
+        "line": 38,
+        "name": "HistoryPage",
+        "n": 30
+      },
+      {
+        "file": "apps/web/app/(panel)/requests/request-queue.tsx",
+        "line": 58,
+        "name": "RequestQueue",
+        "n": 28
+      },
+      {
+        "file": "apps/web/app/(panel)/settings/smtp/smtp-form.tsx",
+        "line": 53,
+        "name": "SmtpForm",
+        "n": 28
+      },
+      {
+        "file": "apps/web/app/(panel)/settings/sms/sms-form.tsx",
+        "line": 39,
+        "name": "SmsForm",
+        "n": 26
+      },
+      {
+        "file": "apps/web/lib/api.ts",
+        "line": 116,
+        "name": "send",
+        "n": 25
+      },
+      {
+        "file": "apps/web/lib/webrtc/stats.ts",
+        "line": 31,
+        "name": "sampleFromStats",
+        "n": 25
+      },
+      {
+        "file": "apps/web/lib/webrtc/use-tech-session.ts",
+        "line": 132,
+        "name": "(anonim)",
+        "n": 25
+      },
+      {
+        "file": "apps/web/app/(panel)/customers/(list)/page.tsx",
+        "line": 66,
+        "name": "CustomersPage",
+        "n": 24
+      },
+      {
+        "file": "apps/web/app/(panel)/history/[id]/page.tsx",
+        "line": 21,
+        "name": "HistoryDetailPage",
+        "n": 24
+      },
+      {
+        "file": "apps/web/app/(panel)/layout.tsx",
+        "line": 23,
+        "name": "PanelLayout",
+        "n": 24
+      },
+      {
+        "file": "apps/web/app/(panel)/sessions/new-session-dialog.tsx",
+        "line": 30,
+        "name": "NewSessionDialog",
+        "n": 24
+      },
+      {
+        "file": "apps/web/lib/combobox.ts",
+        "line": 15,
+        "name": "comboKey",
+        "n": 24
+      },
+      {
+        "file": "apps/web/lib/dc/files.ts",
+        "line": 447,
+        "name": "onCtl",
+        "n": 24
+      },
+      {
+        "file": "apps/web/app/(panel)/admin/tenants/[id]/purge-panel.tsx",
+        "line": 33,
+        "name": "PurgePanel",
+        "n": 23
+      },
+      {
+        "file": "apps/web/app/session/[token]/guest-session.tsx",
+        "line": 45,
+        "name": "GuestSession",
+        "n": 23
+      },
+      {
+        "file": "apps/web/components/branding/logo-uploader.tsx",
+        "line": 36,
+        "name": "LogoUploader",
+        "n": 23
+      },
+      {
+        "file": "apps/web/app/(panel)/admin/tenants/[id]/page.tsx",
+        "line": 31,
+        "name": "TenantPage",
+        "n": 22
+      },
+      {
+        "file": "apps/web/app/(panel)/customers/import/import-wizard.tsx",
+        "line": 58,
+        "name": "ImportWizard",
+        "n": 22
+      },
+      {
+        "file": "apps/web/app/(panel)/users/(list)/page.tsx",
+        "line": 28,
+        "name": "UsersPage",
+        "n": 22
+      },
+      {
+        "file": "apps/web/app/r/[ref]/web-request-form.tsx",
+        "line": 31,
+        "name": "WebRequestForm",
+        "n": 22
+      },
+      {
+        "file": "apps/web/app/(panel)/settings/consent-text/consent-form.tsx",
+        "line": 48,
+        "name": "ConsentForm",
+        "n": 21
+      },
+      {
+        "file": "apps/web/eslint-rules/design-tokens.mjs",
+        "line": 26,
+        "name": "collect",
+        "n": 21
+      },
+      {
+        "file": "apps/web/lib/control/machine.ts",
+        "line": 158,
+        "name": "controlReducer",
+        "n": 21
+      },
+      {
+        "file": "apps/web/app/(panel)/history/[id]/note-form.tsx",
+        "line": 21,
+        "name": "NoteForm",
+        "n": 20
+      },
+      {
+        "file": "apps/web/app/(panel)/history/history-filters.tsx",
+        "line": 67,
+        "name": "HistoryFiltersForm",
+        "n": 20
+      },
+      {
+        "file": "apps/web/app/(panel)/settings/support-requests/settings-form.tsx",
+        "line": 155,
+        "name": "SettingsForm",
+        "n": 20
+      },
+      {
+        "file": "apps/web/app/r/[ref]/waiting-room.tsx",
+        "line": 46,
+        "name": "WaitingRoom",
+        "n": 20
+      },
+      {
+        "file": "apps/web/app/(panel)/customers/[id]/page.tsx",
+        "line": 35,
+        "name": "CustomerPage",
+        "n": 19
+      },
+      {
+        "file": "apps/web/app/(panel)/history/[id]/sections.tsx",
+        "line": 70,
+        "name": "Summary",
+        "n": 19
+      },
+      {
+        "file": "apps/web/app/(panel)/request-blocks/page.tsx",
+        "line": 38,
+        "name": "RequestBlocksPage",
+        "n": 19
+      },
+      {
+        "file": "apps/web/app/(panel)/requests/request-thread.tsx",
+        "line": 130,
+        "name": "(anonim)",
+        "n": 19
+      },
+      {
+        "file": "apps/web/components/request-notifier.tsx",
+        "line": 101,
+        "name": "(anonim)",
+        "n": 19
+      },
+      {
+        "file": "apps/web/app/(panel)/admin/settings/whatsapp/whatsapp-form.tsx",
+        "line": 45,
+        "name": "WhatsappForm",
+        "n": 18
+      },
+      {
+        "file": "apps/web/app/(panel)/admin/tenants/[id]/purge-status-card.tsx",
+        "line": 26,
+        "name": "PurgeStatusCard",
+        "n": 18
+      },
+      {
+        "file": "apps/web/app/(panel)/admin/tenants/tenant-list.tsx",
+        "line": 240,
+        "name": "StatusDialog",
+        "n": 18
+      },
+      {
+        "file": "apps/web/app/(panel)/requests/request-queue.tsx",
+        "line": 228,
+        "name": "(anonim)",
+        "n": 18
+      },
+      {
+        "file": "apps/web/app/(panel)/sessions/session-list.tsx",
+        "line": 46,
+        "name": "(anonim)",
+        "n": 18
+      },
+      {
+        "file": "apps/web/app/(panel)/settings/consent-text/consent-form.tsx",
+        "line": 78,
+        "name": "(anonim)",
+        "n": 18
+      },
+      {
+        "file": "apps/web/lib/requests/settings-form.ts",
+        "line": 97,
+        "name": "buildInput",
+        "n": 18
+      },
+      {
+        "file": "apps/web/app/(panel)/admin/settings/whatsapp/whatsapp-form.tsx",
+        "line": 87,
+        "name": "(anonim)",
+        "n": 17
+      },
+      {
+        "file": "apps/web/app/(panel)/admin/tenants/page.tsx",
+        "line": 24,
+        "name": "TenantsPage",
+        "n": 17
+      },
+      {
+        "file": "apps/web/app/(panel)/customers/customers-actions.tsx",
+        "line": 50,
+        "name": "CustomersActions",
+        "n": 17
+      },
+      {
+        "file": "apps/web/app/(panel)/sessions/[id]/console/console-view.tsx",
+        "line": 89,
+        "name": "(anonim)",
+        "n": 17
+      },
+      {
+        "file": "apps/web/components/collab/files-panel.tsx",
+        "line": 17,
+        "name": "Row",
+        "n": 17
+      },
+      {
+        "file": "apps/web/components/collab/files-panel.tsx",
+        "line": 74,
+        "name": "FilesPanel",
+        "n": 17
+      },
+      {
+        "file": "apps/web/components/ui/text-field.tsx",
+        "line": 18,
+        "name": "TextField",
+        "n": 17
+      },
+      {
+        "file": "apps/web/lib/agent-download.ts",
+        "line": 27,
+        "name": "probeAgentDownload",
+        "n": 17
+      },
+      {
+        "file": "apps/web/lib/webrtc/tech-machine.ts",
+        "line": 126,
+        "name": "techReducer",
+        "n": 17
+      },
+      {
+        "file": "apps/web/app/(panel)/admin/settings/mysql/mysql-form.tsx",
+        "line": 35,
+        "name": "MysqlForm",
+        "n": 16
+      },
+      {
+        "file": "apps/web/app/(panel)/settings/business-hours/holidays-section.tsx",
+        "line": 37,
+        "name": "HolidaysSection",
+        "n": 16
+      },
+      {
+        "file": "apps/web/app/session/[token]/join-form.tsx",
+        "line": 55,
+        "name": "(anonim)",
+        "n": 16
+      },
+      {
+        "file": "apps/web/components/account/mail-test-dialog.tsx",
+        "line": 51,
+        "name": "(anonim)",
+        "n": 16
+      },
+      {
+        "file": "apps/web/components/console/control-button.tsx",
+        "line": 174,
+        "name": "MonitorPicker",
+        "n": 16
+      },
+      {
+        "file": "apps/web/lib/webrtc/guest-machine.ts",
+        "line": 60,
+        "name": "guestReducer",
+        "n": 16
+      },
+      {
+        "file": "apps/web/lib/webrtc/use-guest-session.ts",
+        "line": 70,
+        "name": "(anonim)",
+        "n": 16
+      }
+    ],
+    "ust40": 174,
+    "ust80": 95,
+    "ust150": 35,
+    "cx15": 66
+  },
+  "web.test": {
+    "uzun": [
+      {
+        "file": "apps/web/lib/control/machine.test.ts",
+        "line": 31,
+        "name": "(anonim)",
+        "n": 270
+      },
+      {
+        "file": "apps/web/e2e/mock-audit.mjs",
+        "line": 307,
+        "name": "handleAudit",
+        "n": 233
+      },
+      {
+        "file": "apps/web/e2e/mock-users.mjs",
+        "line": 121,
+        "name": "handleUsers",
+        "n": 209
+      },
+      {
+        "file": "apps/web/e2e/mock-p19.mjs",
+        "line": 249,
+        "name": "handleP19",
+        "n": 198
+      },
+      {
+        "file": "apps/web/e2e/mock-account.mjs",
+        "line": 79,
+        "name": "handleAccount",
+        "n": 156
+      },
+      {
+        "file": "apps/web/e2e/mock-sessions.mjs",
+        "line": 199,
+        "name": "handleSessions",
+        "n": 155
+      },
+      {
+        "file": "apps/web/e2e/mock-p16.mjs",
+        "line": 219,
+        "name": "handleP16",
+        "n": 144
+      },
+      {
+        "file": "apps/web/e2e/p14a-a4.spec.ts",
+        "line": 253,
+        "name": "(anonim)",
+        "n": 123
+      },
+      {
+        "file": "apps/web/e2e/mock-customers.mjs",
+        "line": 97,
+        "name": "handleCustomers",
+        "n": 121
+      },
+      {
+        "file": "apps/web/e2e/mock-history.mjs",
+        "line": 144,
+        "name": "detail",
+        "n": 120
+      },
+      {
+        "file": "apps/web/e2e/fake-agent.ts",
+        "line": 25,
+        "name": "startFakeAgent",
+        "n": 119
+      },
+      {
+        "file": "apps/web/lib/requests/requests.test.ts",
+        "line": 111,
+        "name": "(anonim)",
+        "n": 115
+      },
+      {
+        "file": "apps/web/e2e/mock-p18.mjs",
+        "line": 240,
+        "name": "handleP18",
+        "n": 113
+      },
+      {
+        "file": "apps/web/e2e/fake-agent.ts",
+        "line": 31,
+        "name": "(anonim)",
+        "n": 110
+      },
+      {
+        "file": "apps/web/e2e/mock-audit.mjs",
+        "line": 86,
+        "name": "seedItems",
+        "n": 109
+      },
+      {
+        "file": "apps/web/e2e/mock-history.mjs",
+        "line": 281,
+        "name": "handleHistory",
+        "n": 107
+      },
+      {
+        "file": "apps/web/lib/control/input.test.ts",
+        "line": 22,
+        "name": "(anonim)",
+        "n": 103
+      },
+      {
+        "file": "apps/web/e2e/p7-control.spec.ts",
+        "line": 60,
+        "name": "(anonim)",
+        "n": 98
+      },
+      {
+        "file": "apps/web/e2e/mock-requests.mjs",
+        "line": 310,
+        "name": "handleRequests",
+        "n": 97
+      },
+      {
+        "file": "apps/web/lib/dc/p5.test.ts",
+        "line": 46,
+        "name": "(anonim)",
+        "n": 94
+      },
+      {
+        "file": "apps/web/e2e/p14a-a4.spec.ts",
+        "line": 30,
+        "name": "(anonim)",
+        "n": 92
+      },
+      {
+        "file": "apps/web/lib/users/users.test.ts",
+        "line": 132,
+        "name": "(anonim)",
+        "n": 92
+      },
+      {
+        "file": "apps/web/e2e/p12b-whatsapp.spec.ts",
+        "line": 25,
+        "name": "(anonim)",
+        "n": 89
+      },
+      {
+        "file": "apps/web/e2e/mock-branding.mjs",
+        "line": 119,
+        "name": "handleBranding",
+        "n": 88
+      },
+      {
+        "file": "apps/web/lib/p14a-a4.test.ts",
+        "line": 13,
+        "name": "(anonim)",
+        "n": 87
+      },
+      {
+        "file": "apps/web/e2e/mock-requests.mjs",
+        "line": 85,
+        "name": "seed",
+        "n": 82
+      },
+      {
+        "file": "apps/web/e2e/mock-requests.mjs",
+        "line": 226,
+        "name": "e2eHook",
+        "n": 78
+      },
+      {
+        "file": "apps/web/e2e/mock-ws.mjs",
+        "line": 97,
+        "name": "admitted",
+        "n": 78
+      },
+      {
+        "file": "apps/web/e2e/mock-ws.mjs",
+        "line": 181,
+        "name": "onTech",
+        "n": 76
+      },
+      {
+        "file": "apps/web/e2e/p10-account.spec.ts",
+        "line": 123,
+        "name": "(anonim)",
+        "n": 76
+      },
+      {
+        "file": "apps/web/e2e/mock-p15.mjs",
+        "line": 121,
+        "name": "handleP15",
+        "n": 75
+      },
+      {
+        "file": "apps/web/e2e/mock-p18.mjs",
+        "line": 97,
+        "name": "room",
+        "n": 74
+      },
+      {
+        "file": "apps/web/e2e/p11-admin.spec.ts",
+        "line": 166,
+        "name": "(anonim)",
+        "n": 73
+      },
+      {
+        "file": "apps/web/lib/webrtc/machines.test.ts",
+        "line": 73,
+        "name": "(anonim)",
+        "n": 72
+      },
+      {
+        "file": "apps/web/e2e/p13a.spec.ts",
+        "line": 172,
+        "name": "(anonim)",
+        "n": 70
+      },
+      {
+        "file": "apps/web/lib/branding/branding.test.ts",
+        "line": 43,
+        "name": "(anonim)",
+        "n": 68
+      },
+      {
+        "file": "apps/web/lib/p17-console.test.ts",
+        "line": 11,
+        "name": "(anonim)",
+        "n": 68
+      },
+      {
+        "file": "apps/web/e2e/mock-api.mjs",
+        "line": 107,
+        "name": "(anonim)",
+        "n": 66
+      },
+      {
+        "file": "apps/web/e2e/p14b-ui.spec.ts",
+        "line": 110,
+        "name": "(anonim)",
+        "n": 65
+      },
+      {
+        "file": "apps/web/lib/account/account.test.ts",
+        "line": 18,
+        "name": "(anonim)",
+        "n": 64
+      },
+      {
+        "file": "apps/web/e2e/p9-users.spec.ts",
+        "line": 325,
+        "name": "(anonim)",
+        "n": 63
+      },
+      {
+        "file": "apps/web/lib/dc/p5-teklif.test.ts",
+        "line": 61,
+        "name": "(anonim)",
+        "n": 63
+      },
+      {
+        "file": "apps/web/e2e/p5-collab.spec.ts",
+        "line": 534,
+        "name": "(anonim)",
+        "n": 61
+      },
+      {
+        "file": "apps/web/e2e/mock-p16.mjs",
+        "line": 158,
+        "name": "(anonim)",
+        "n": 59
+      },
+      {
+        "file": "apps/web/e2e/p6-agent-download.spec.ts",
+        "line": 11,
+        "name": "(anonim)",
+        "n": 58
+      },
+      {
+        "file": "apps/web/lib/api.test.ts",
+        "line": 8,
+        "name": "(anonim)",
+        "n": 58
+      },
+      {
+        "file": "apps/web/lib/dc/disk-sink.test.ts",
+        "line": 68,
+        "name": "(anonim)",
+        "n": 58
+      },
+      {
+        "file": "apps/web/lib/dc/p5-guvenlik.test.ts",
+        "line": 58,
+        "name": "(anonim)",
+        "n": 58
+      },
+      {
+        "file": "apps/web/e2e/mock-p19.mjs",
+        "line": 143,
+        "name": "p19Upgrade",
+        "n": 56
+      },
+      {
+        "file": "apps/web/lib/requests/requests.test.ts",
+        "line": 28,
+        "name": "(anonim)",
+        "n": 56
+      },
+      {
+        "file": "apps/web/e2e/p15.spec.ts",
+        "line": 193,
+        "name": "(anonim)",
+        "n": 55
+      },
+      {
+        "file": "apps/web/e2e/p5-collab.spec.ts",
+        "line": 171,
+        "name": "(anonim)",
+        "n": 55
+      },
+      {
+        "file": "apps/web/e2e/fake-agent.ts",
+        "line": 83,
+        "name": "(anonim)",
+        "n": 53
+      },
+      {
+        "file": "apps/web/e2e/mock-p16.mjs",
+        "line": 102,
+        "name": "store",
+        "n": 52
+      },
+      {
+        "file": "apps/web/e2e/p18-h4.spec.ts",
+        "line": 157,
+        "name": "(anonim)",
+        "n": 52
+      },
+      {
+        "file": "apps/web/e2e/p9-users.spec.ts",
+        "line": 100,
+        "name": "(anonim)",
+        "n": 52
+      },
+      {
+        "file": "apps/web/lib/p16.test.ts",
+        "line": 23,
+        "name": "(anonim)",
+        "n": 52
+      },
+      {
+        "file": "apps/web/e2e/customers.spec.ts",
+        "line": 21,
+        "name": "(anonim)",
+        "n": 51
+      },
+      {
+        "file": "apps/web/e2e/mock-p15.mjs",
+        "line": 44,
+        "name": "store",
+        "n": 51
+      },
+      {
+        "file": "apps/web/e2e/mock-ws.mjs",
+        "line": 200,
+        "name": "(anonim)",
+        "n": 51
+      },
+      {
+        "file": "apps/web/lib/web-request/flow.test.ts",
+        "line": 24,
+        "name": "(anonim)",
+        "n": 51
+      },
+      {
+        "file": "apps/web/e2e/mock-audit.mjs",
+        "line": 243,
+        "name": "astore",
+        "n": 50
+      },
+      {
+        "file": "apps/web/e2e/mock-users.mjs",
+        "line": 67,
+        "name": "ustore",
+        "n": 50
+      },
+      {
+        "file": "apps/web/e2e/p11-admin.spec.ts",
+        "line": 395,
+        "name": "(anonim)",
+        "n": 50
+      },
+      {
+        "file": "apps/web/e2e/p13bl-lobby.spec.ts",
+        "line": 329,
+        "name": "(anonim)",
+        "n": 50
+      },
+      {
+        "file": "apps/web/e2e/p5-collab.spec.ts",
+        "line": 626,
+        "name": "(anonim)",
+        "n": 50
+      },
+      {
+        "file": "apps/web/e2e/p14a-a4.spec.ts",
+        "line": 31,
+        "name": "(anonim)",
+        "n": 49
+      },
+      {
+        "file": "apps/web/e2e/p11-admin.spec.ts",
+        "line": 22,
+        "name": "(anonim)",
+        "n": 48
+      },
+      {
+        "file": "apps/web/e2e/p16.spec.ts",
+        "line": 104,
+        "name": "(anonim)",
+        "n": 48
+      },
+      {
+        "file": "apps/web/e2e/p12b-whatsapp.spec.ts",
+        "line": 236,
+        "name": "(anonim)",
+        "n": 47
+      },
+      {
+        "file": "apps/web/e2e/p8b-requests.spec.ts",
+        "line": 219,
+        "name": "(anonim)",
+        "n": 47
+      },
+      {
+        "file": "apps/web/e2e/p9-users.spec.ts",
+        "line": 24,
+        "name": "(anonim)",
+        "n": 46
+      },
+      {
+        "file": "apps/web/e2e/mock-history.mjs",
+        "line": 65,
+        "name": "seed",
+        "n": 45
+      },
+      {
+        "file": "apps/web/e2e/p10-account.spec.ts",
+        "line": 336,
+        "name": "(anonim)",
+        "n": 45
+      },
+      {
+        "file": "apps/web/e2e/p7-control.spec.ts",
+        "line": 401,
+        "name": "(anonim)",
+        "n": 45
+      },
+      {
+        "file": "apps/web/lib/users/users.test.ts",
+        "line": 163,
+        "name": "(anonim)",
+        "n": 45
+      },
+      {
+        "file": "apps/web/e2e/mock-ws.mjs",
+        "line": 128,
+        "name": "(anonim)",
+        "n": 44
+      },
+      {
+        "file": "apps/web/e2e/p19-j5.spec.ts",
+        "line": 67,
+        "name": "(anonim)",
+        "n": 44
+      },
+      {
+        "file": "apps/web/e2e/p4-media.spec.ts",
+        "line": 35,
+        "name": "(anonim)",
+        "n": 44
+      },
+      {
+        "file": "apps/web/e2e/p5-collab.spec.ts",
+        "line": 682,
+        "name": "(anonim)",
+        "n": 44
+      },
+      {
+        "file": "apps/web/lib/dc/disk-sink.test.ts",
+        "line": 20,
+        "name": "(anonim)",
+        "n": 44
+      },
+      {
+        "file": "apps/web/e2e/mock-ws.mjs",
+        "line": 278,
+        "name": "attachWs",
+        "n": 43
+      },
+      {
+        "file": "apps/web/e2e/p12-branding.spec.ts",
+        "line": 91,
+        "name": "(anonim)",
+        "n": 43
+      },
+      {
+        "file": "apps/web/e2e/p14a-a4.spec.ts",
+        "line": 166,
+        "name": "(anonim)",
+        "n": 43
+      },
+      {
+        "file": "apps/web/e2e/p7-control.spec.ts",
+        "line": 242,
+        "name": "(anonim)",
+        "n": 43
+      },
+      {
+        "file": "apps/web/lib/dc/p5-teklif.test.ts",
+        "line": 16,
+        "name": "pair",
+        "n": 43
+      },
+      {
+        "file": "apps/web/lib/users/users.test.ts",
+        "line": 21,
+        "name": "(anonim)",
+        "n": 43
+      },
+      {
+        "file": "apps/web/e2e/mock-p19.mjs",
+        "line": 33,
+        "name": "p19User",
+        "n": 42
+      },
+      {
+        "file": "apps/web/e2e/mock-p19.mjs",
+        "line": 200,
+        "name": "hook",
+        "n": 42
+      },
+      {
+        "file": "apps/web/e2e/p18-h4.spec.ts",
+        "line": 88,
+        "name": "(anonim)",
+        "n": 42
+      },
+      {
+        "file": "apps/web/e2e/mock-ws.mjs",
+        "line": 279,
+        "name": "(anonim)",
+        "n": 41
+      }
+    ],
+    "karmasik": [
+      {
+        "file": "apps/web/e2e/mock-audit.mjs",
+        "line": 307,
+        "name": "handleAudit",
+        "n": 115
+      },
+      {
+        "file": "apps/web/e2e/mock-users.mjs",
+        "line": 121,
+        "name": "handleUsers",
+        "n": 102
+      },
+      {
+        "file": "apps/web/e2e/mock-p19.mjs",
+        "line": 249,
+        "name": "handleP19",
+        "n": 95
+      },
+      {
+        "file": "apps/web/e2e/mock-sessions.mjs",
+        "line": 199,
+        "name": "handleSessions",
+        "n": 82
+      },
+      {
+        "file": "apps/web/e2e/mock-account.mjs",
+        "line": 79,
+        "name": "handleAccount",
+        "n": 79
+      },
+      {
+        "file": "apps/web/e2e/mock-p16.mjs",
+        "line": 219,
+        "name": "handleP16",
+        "n": 71
+      },
+      {
+        "file": "apps/web/e2e/mock-customers.mjs",
+        "line": 97,
+        "name": "handleCustomers",
+        "n": 65
+      },
+      {
+        "file": "apps/web/e2e/mock-api.mjs",
+        "line": 107,
+        "name": "(anonim)",
+        "n": 60
+      },
+      {
+        "file": "apps/web/e2e/mock-p18.mjs",
+        "line": 240,
+        "name": "handleP18",
+        "n": 59
+      },
+      {
+        "file": "apps/web/e2e/mock-requests.mjs",
+        "line": 310,
+        "name": "handleRequests",
+        "n": 53
+      },
+      {
+        "file": "apps/web/e2e/mock-history.mjs",
+        "line": 281,
+        "name": "handleHistory",
+        "n": 46
+      },
+      {
+        "file": "apps/web/e2e/mock-branding.mjs",
+        "line": 119,
+        "name": "handleBranding",
+        "n": 43
+      },
+      {
+        "file": "apps/web/e2e/mock-p15.mjs",
+        "line": 121,
+        "name": "handleP15",
+        "n": 40
+      },
+      {
+        "file": "apps/web/e2e/mock-history.mjs",
+        "line": 65,
+        "name": "seed",
+        "n": 35
+      },
+      {
+        "file": "apps/web/e2e/mock-ws.mjs",
+        "line": 279,
+        "name": "(anonim)",
+        "n": 28
+      },
+      {
+        "file": "apps/web/e2e/mock-ws.mjs",
+        "line": 200,
+        "name": "(anonim)",
+        "n": 26
+      },
+      {
+        "file": "apps/web/e2e/mock-ws.mjs",
+        "line": 128,
+        "name": "(anonim)",
+        "n": 23
+      },
+      {
+        "file": "apps/web/e2e/mock-requests.mjs",
+        "line": 226,
+        "name": "e2eHook",
+        "n": 17
+      }
+    ],
+    "ust40": 91,
+    "ust80": 26,
+    "ust150": 6,
+    "cx15": 18
+  }
+}

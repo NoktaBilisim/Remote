@@ -1,0 +1,1224 @@
+{
+  "yontem": "graphify-out/graph.json: üretim kaynak dosyasındaki kod düğümü, derece ≤ 1 (yalnız tanımlandığı dosyaya bağlı). Teyit: aynı dosya+ad knip (unused export/type) veya Go deadcode listesinde.",
+  "zayifDugum": 1122,
+  "teyitli": 185,
+  "gorevBasina": {
+    "K15": {
+      "zayif": 148,
+      "teyitli": 34
+    },
+    "K13": {
+      "zayif": 30,
+      "teyitli": 5
+    },
+    "kapsam dışı (contracts)": {
+      "zayif": 230,
+      "teyitli": 0
+    },
+    "K14": {
+      "zayif": 66,
+      "teyitli": 22
+    },
+    "atanmamış": {
+      "zayif": 78,
+      "teyitli": 0
+    },
+    "dokunulmaz (§3.7-4)": {
+      "zayif": 5,
+      "teyitli": 0
+    },
+    "K12": {
+      "zayif": 254,
+      "teyitli": 62
+    },
+    "K11": {
+      "zayif": 97,
+      "teyitli": 26
+    },
+    "K9": {
+      "zayif": 93,
+      "teyitli": 22
+    },
+    "K10": {
+      "zayif": 35,
+      "teyitli": 12
+    },
+    "K6": {
+      "zayif": 27,
+      "teyitli": 0
+    },
+    "K8": {
+      "zayif": 12,
+      "teyitli": 0
+    },
+    "K5": {
+      "zayif": 8,
+      "teyitli": 0
+    },
+    "K4": {
+      "zayif": 21,
+      "teyitli": 0
+    },
+    "K7": {
+      "zayif": 18,
+      "teyitli": 2
+    }
+  },
+  "silinecekAdaylar": [
+    {
+      "dosya": "apps/server/src/signaling/admit.ts",
+      "ad": "AdmitResult",
+      "gorev": "K10",
+      "teyit": "knip tip"
+    },
+    {
+      "dosya": "apps/server/src/signaling/collab.ts",
+      "ad": "FileMetaResult",
+      "gorev": "K10",
+      "teyit": "knip tip"
+    },
+    {
+      "dosya": "apps/server/src/signaling/collab.ts",
+      "ad": "QualityResult",
+      "gorev": "K10",
+      "teyit": "knip tip"
+    },
+    {
+      "dosya": "apps/server/src/signaling/collab.ts",
+      "ad": "Reporter",
+      "gorev": "K10",
+      "teyit": "knip tip"
+    },
+    {
+      "dosya": "apps/server/src/signaling/collab.ts",
+      "ad": "FILE_META_ACCEPTED_PER_SESSION",
+      "gorev": "K10",
+      "teyit": "knip export"
+    },
+    {
+      "dosya": "apps/server/src/signaling/collab.ts",
+      "ad": "FILE_META_PER_SESSION",
+      "gorev": "K10",
+      "teyit": "knip export"
+    },
+    {
+      "dosya": "apps/server/src/signaling/collab.ts",
+      "ad": "FILE_META_RATE_AUDIT_MS",
+      "gorev": "K10",
+      "teyit": "knip export"
+    },
+    {
+      "dosya": "apps/server/src/signaling/collab.ts",
+      "ad": "QUALITY_MAX_BYTES",
+      "gorev": "K10",
+      "teyit": "knip export"
+    },
+    {
+      "dosya": "apps/server/src/signaling/collab.ts",
+      "ad": "QUALITY_MIN_INTERVAL_MS",
+      "gorev": "K10",
+      "teyit": "knip export"
+    },
+    {
+      "dosya": "apps/server/src/signaling/control.ts",
+      "ad": "RequestResult",
+      "gorev": "K10",
+      "teyit": "knip tip"
+    },
+    {
+      "dosya": "apps/server/src/signaling/lobby-count.ts",
+      "ad": "WaitingSession",
+      "gorev": "K10",
+      "teyit": "knip tip"
+    },
+    {
+      "dosya": "apps/server/src/signaling/ws.ts",
+      "ad": "RECONNECT_CONFLICT_AUDIT_MS",
+      "gorev": "K10",
+      "teyit": "knip export"
+    },
+    {
+      "dosya": "apps/server/src/customers/csv-export.ts",
+      "ad": "CustomerCsvExport",
+      "gorev": "K11",
+      "teyit": "knip tip"
+    },
+    {
+      "dosya": "apps/server/src/customers/repo.ts",
+      "ad": "countActive",
+      "gorev": "K11",
+      "teyit": "knip export"
+    },
+    {
+      "dosya": "apps/server/src/jobs/orphan-scan.ts",
+      "ad": "OrphanScanResult",
+      "gorev": "K11",
+      "teyit": "knip tip"
+    },
+    {
+      "dosya": "apps/server/src/jobs/orphan-scan.ts",
+      "ad": "ORPHAN_CIRCUIT_RATIO",
+      "gorev": "K11",
+      "teyit": "knip export"
+    },
+    {
+      "dosya": "apps/server/src/jobs/orphan-scan.ts",
+      "ad": "ORPHAN_GRACE_DAYS",
+      "gorev": "K11",
+      "teyit": "knip export"
+    },
+    {
+      "dosya": "apps/server/src/jobs/orphan-scan.ts",
+      "ad": "TMP_MAX_AGE_MS",
+      "gorev": "K11",
+      "teyit": "knip export"
+    },
+    {
+      "dosya": "apps/server/src/jobs/retention-repo.ts",
+      "ad": "PurgeBindingsResult",
+      "gorev": "K11",
+      "teyit": "knip tip"
+    },
+    {
+      "dosya": "apps/server/src/jobs/retention-repo.ts",
+      "ad": "PurgeCandidates",
+      "gorev": "K11",
+      "teyit": "knip tip"
+    },
+    {
+      "dosya": "apps/server/src/jobs/retention-repo.ts",
+      "ad": "PurgeSessionsResult",
+      "gorev": "K11",
+      "teyit": "knip tip"
+    },
+    {
+      "dosya": "apps/server/src/jobs/retention-repo.ts",
+      "ad": "SessionBatchResult",
+      "gorev": "K11",
+      "teyit": "knip tip"
+    },
+    {
+      "dosya": "apps/server/src/jobs/retention-repo.ts",
+      "ad": "FINISHED_STATUSES",
+      "gorev": "K11",
+      "teyit": "knip export"
+    },
+    {
+      "dosya": "apps/server/src/jobs/retention.ts",
+      "ad": "GlobalCounts",
+      "gorev": "K11",
+      "teyit": "knip tip"
+    },
+    {
+      "dosya": "apps/server/src/jobs/retention.ts",
+      "ad": "PurgeMode",
+      "gorev": "K11",
+      "teyit": "knip tip"
+    },
+    {
+      "dosya": "apps/server/src/jobs/retention.ts",
+      "ad": "RetentionFailureClass",
+      "gorev": "K11",
+      "teyit": "knip tip"
+    },
+    {
+      "dosya": "apps/server/src/jobs/retention.ts",
+      "ad": "RetentionResult",
+      "gorev": "K11",
+      "teyit": "knip tip"
+    },
+    {
+      "dosya": "apps/server/src/jobs/retention.ts",
+      "ad": "TenantCounts",
+      "gorev": "K11",
+      "teyit": "knip tip"
+    },
+    {
+      "dosya": "apps/server/src/jobs/retention.ts",
+      "ad": "AUDIT_RETENTION_DAYS",
+      "gorev": "K11",
+      "teyit": "knip export"
+    },
+    {
+      "dosya": "apps/server/src/jobs/retention.ts",
+      "ad": "AUTH_GRACE_DAYS",
+      "gorev": "K11",
+      "teyit": "knip export"
+    },
+    {
+      "dosya": "apps/server/src/jobs/retention.ts",
+      "ad": "GLOBAL_BATCH",
+      "gorev": "K11",
+      "teyit": "knip export"
+    },
+    {
+      "dosya": "apps/server/src/jobs/tenant-purge-repo.ts",
+      "ad": "OPEN_STATES",
+      "gorev": "K11",
+      "teyit": "knip export"
+    },
+    {
+      "dosya": "apps/server/src/jobs/tenant-purge-repo.ts",
+      "ad": "PURGE_BATCH",
+      "gorev": "K11",
+      "teyit": "knip export"
+    },
+    {
+      "dosya": "apps/server/src/jobs/tenant-purge.ts",
+      "ad": "PurgeErrorClass",
+      "gorev": "K11",
+      "teyit": "knip tip"
+    },
+    {
+      "dosya": "apps/server/src/jobs/tenant-purge.ts",
+      "ad": "RunOutcome",
+      "gorev": "K11",
+      "teyit": "knip tip"
+    },
+    {
+      "dosya": "apps/server/src/jobs/tenant-purge.ts",
+      "ad": "PURGE_MAX_ERRORS",
+      "gorev": "K11",
+      "teyit": "knip export"
+    },
+    {
+      "dosya": "apps/server/src/lib/csv.ts",
+      "ad": "CsvParseResult",
+      "gorev": "K11",
+      "teyit": "knip tip"
+    },
+    {
+      "dosya": "apps/server/src/lib/csv.ts",
+      "ad": "CsvRecord",
+      "gorev": "K11",
+      "teyit": "knip tip"
+    },
+    {
+      "dosya": "apps/server/src/audit/read.ts",
+      "ad": "AuditCsvExport",
+      "gorev": "K12",
+      "teyit": "knip tip"
+    },
+    {
+      "dosya": "apps/server/src/audit/view.ts",
+      "ad": "IdentityResult",
+      "gorev": "K12",
+      "teyit": "knip tip"
+    },
+    {
+      "dosya": "apps/server/src/audit/view.ts",
+      "ad": "IdentityRow",
+      "gorev": "K12",
+      "teyit": "knip tip"
+    },
+    {
+      "dosya": "apps/server/src/audit/view.ts",
+      "ad": "IdentityUser",
+      "gorev": "K12",
+      "teyit": "knip tip"
+    },
+    {
+      "dosya": "apps/server/src/auth/account.ts",
+      "ad": "RaceHooks",
+      "gorev": "K12",
+      "teyit": "knip tip"
+    },
+    {
+      "dosya": "apps/server/src/auth/guards.ts",
+      "ad": "PublicClientKind",
+      "gorev": "K12",
+      "teyit": "knip tip"
+    },
+    {
+      "dosya": "apps/server/src/auth/mfa.ts",
+      "ad": "TOTP_DIGITS",
+      "gorev": "K12",
+      "teyit": "knip export"
+    },
+    {
+      "dosya": "apps/server/src/auth/mfa.ts",
+      "ad": "TOTP_ISSUER",
+      "gorev": "K12",
+      "teyit": "knip export"
+    },
+    {
+      "dosya": "apps/server/src/auth/repo.ts",
+      "ad": "SessionWithUser",
+      "gorev": "K12",
+      "teyit": "knip tip"
+    },
+    {
+      "dosya": "apps/server/src/auth/service.ts",
+      "ad": "LockNotifier",
+      "gorev": "K12",
+      "teyit": "knip tip"
+    },
+    {
+      "dosya": "apps/server/src/auth/session.ts",
+      "ad": "SessionPolicy",
+      "gorev": "K12",
+      "teyit": "knip tip"
+    },
+    {
+      "dosya": "apps/server/src/auth/session.ts",
+      "ad": "SESSION_ABSOLUTE_MS",
+      "gorev": "K12",
+      "teyit": "knip export"
+    },
+    {
+      "dosya": "apps/server/src/auth/session.ts",
+      "ad": "SESSION_IDLE_MS",
+      "gorev": "K12",
+      "teyit": "knip export"
+    },
+    {
+      "dosya": "apps/server/src/auth/superadmin-reset.ts",
+      "ad": "ResetActor",
+      "gorev": "K12",
+      "teyit": "knip tip"
+    },
+    {
+      "dosya": "apps/server/src/auth/superadmin-reset.ts",
+      "ad": "ResetCoreResult",
+      "gorev": "K12",
+      "teyit": "knip tip"
+    },
+    {
+      "dosya": "apps/server/src/auth/superadmin-reset.ts",
+      "ad": "SuperadminResetResult",
+      "gorev": "K12",
+      "teyit": "knip tip"
+    },
+    {
+      "dosya": "apps/server/src/auth/superadmin-reset.ts",
+      "ad": "CLI_USER_AGENT",
+      "gorev": "K12",
+      "teyit": "knip export"
+    },
+    {
+      "dosya": "apps/server/src/auth/superadmin-reset.ts",
+      "ad": "CLI_USERNAME",
+      "gorev": "K12",
+      "teyit": "knip export"
+    },
+    {
+      "dosya": "apps/server/src/auth/superadmin-reset.ts",
+      "ad": "SUPERADMIN_TEMP_PASSWORD_LENGTH",
+      "gorev": "K12",
+      "teyit": "knip export"
+    },
+    {
+      "dosya": "apps/server/src/auth/superadmin-reset.ts",
+      "ad": "SUPERADMIN_TEMP_TTL_MS",
+      "gorev": "K12",
+      "teyit": "knip export"
+    },
+    {
+      "dosya": "apps/server/src/auth/superadmin-routes.ts",
+      "ad": "SUPERADMIN_RESETS_PER_MIN",
+      "gorev": "K12",
+      "teyit": "knip export"
+    },
+    {
+      "dosya": "apps/server/src/bindings/service.ts",
+      "ad": "IssueInput",
+      "gorev": "K12",
+      "teyit": "knip tip"
+    },
+    {
+      "dosya": "apps/server/src/bindings/service.ts",
+      "ad": "IssueResult",
+      "gorev": "K12",
+      "teyit": "knip tip"
+    },
+    {
+      "dosya": "apps/server/src/cli/crypto.ts",
+      "ad": "RewrapResult",
+      "gorev": "K12",
+      "teyit": "knip tip"
+    },
+    {
+      "dosya": "apps/server/src/cli/crypto.ts",
+      "ad": "EXIT",
+      "gorev": "K12",
+      "teyit": "knip export"
+    },
+    {
+      "dosya": "apps/server/src/cli/erasure.ts",
+      "ad": "ReplayResult",
+      "gorev": "K12",
+      "teyit": "knip tip"
+    },
+    {
+      "dosya": "apps/server/src/cli/erasure.ts",
+      "ad": "VerifyResult",
+      "gorev": "K12",
+      "teyit": "knip tip"
+    },
+    {
+      "dosya": "apps/server/src/lib/crypto.ts",
+      "ad": "MacPurpose",
+      "gorev": "K12",
+      "teyit": "knip tip"
+    },
+    {
+      "dosya": "apps/server/src/lib/netguard.ts",
+      "ad": "HostClass",
+      "gorev": "K12",
+      "teyit": "knip tip"
+    },
+    {
+      "dosya": "apps/server/src/lib/netguard.ts",
+      "ad": "NetGuardOptions",
+      "gorev": "K12",
+      "teyit": "knip tip"
+    },
+    {
+      "dosya": "apps/server/src/lib/netguard.ts",
+      "ad": "HOST_NOT_ALLOWED_MESSAGE",
+      "gorev": "K12",
+      "teyit": "knip export"
+    },
+    {
+      "dosya": "apps/server/src/lib/outbound.ts",
+      "ad": "PublicOutcome",
+      "gorev": "K12",
+      "teyit": "knip tip"
+    },
+    {
+      "dosya": "apps/server/src/lib/rate.ts",
+      "ad": "CounterOptions",
+      "gorev": "K12",
+      "teyit": "knip tip"
+    },
+    {
+      "dosya": "apps/server/src/mail/service.ts",
+      "ad": "MailFailure",
+      "gorev": "K12",
+      "teyit": "knip tip"
+    },
+    {
+      "dosya": "apps/server/src/mail/service.ts",
+      "ad": "SendOutcome",
+      "gorev": "K12",
+      "teyit": "knip tip"
+    },
+    {
+      "dosya": "apps/server/src/mail/service.ts",
+      "ad": "MAIL_TIMEOUT_MS",
+      "gorev": "K12",
+      "teyit": "knip export"
+    },
+    {
+      "dosya": "apps/server/src/notify/outbox.ts",
+      "ad": "OUTBOX_BATCH",
+      "gorev": "K12",
+      "teyit": "knip export"
+    },
+    {
+      "dosya": "apps/server/src/notify/outbox.ts",
+      "ad": "OUTBOX_CLEANUP_BATCH",
+      "gorev": "K12",
+      "teyit": "knip export"
+    },
+    {
+      "dosya": "apps/server/src/notify/outbox.ts",
+      "ad": "OUTBOX_MAX_ATTEMPTS",
+      "gorev": "K12",
+      "teyit": "knip export"
+    },
+    {
+      "dosya": "apps/server/src/notify/outbox.ts",
+      "ad": "OUTBOX_RETENTION_MS",
+      "gorev": "K12",
+      "teyit": "knip export"
+    },
+    {
+      "dosya": "apps/server/src/notify/outbox.ts",
+      "ad": "OUTBOX_RETRY_DELAYS_MS",
+      "gorev": "K12",
+      "teyit": "knip export"
+    },
+    {
+      "dosya": "apps/server/src/notify/outbox.ts",
+      "ad": "OUTBOX_STALE_SENDING_MS",
+      "gorev": "K12",
+      "teyit": "knip export"
+    },
+    {
+      "dosya": "apps/server/src/notify/sms.ts",
+      "ad": "SmsOutcome",
+      "gorev": "K12",
+      "teyit": "knip tip"
+    },
+    {
+      "dosya": "apps/server/src/notify/sms.ts",
+      "ad": "SmsState",
+      "gorev": "K12",
+      "teyit": "knip tip"
+    },
+    {
+      "dosya": "apps/server/src/notify/sms.ts",
+      "ad": "SMS_TIMEOUT_MS",
+      "gorev": "K12",
+      "teyit": "knip export"
+    },
+    {
+      "dosya": "apps/server/src/notify/whatsapp.ts",
+      "ad": "PostOutcome",
+      "gorev": "K12",
+      "teyit": "knip tip"
+    },
+    {
+      "dosya": "apps/server/src/notify/whatsapp.ts",
+      "ad": "SendResult",
+      "gorev": "K12",
+      "teyit": "knip tip"
+    },
+    {
+      "dosya": "apps/server/src/notify/whatsapp.ts",
+      "ad": "WA_LIMITS",
+      "gorev": "K12",
+      "teyit": "knip export"
+    },
+    {
+      "dosya": "apps/server/src/notify/whatsapp.ts",
+      "ad": "WA_RETRY_DELAYS_MS",
+      "gorev": "K12",
+      "teyit": "knip export"
+    },
+    {
+      "dosya": "apps/server/src/public/consent.ts",
+      "ad": "PublishedConsent",
+      "gorev": "K12",
+      "teyit": "knip tip"
+    },
+    {
+      "dosya": "apps/server/src/sessions/history-repo.ts",
+      "ad": "HistoryAuditRow",
+      "gorev": "K12",
+      "teyit": "knip tip"
+    },
+    {
+      "dosya": "apps/server/src/sessions/history.ts",
+      "ad": "CsvExport",
+      "gorev": "K12",
+      "teyit": "knip tip"
+    },
+    {
+      "dosya": "apps/server/src/sessions/service.ts",
+      "ad": "CodeGenerators",
+      "gorev": "K12",
+      "teyit": "knip tip"
+    },
+    {
+      "dosya": "apps/server/src/settings/routes.ts",
+      "ad": "SYSTEM_SETTINGS_WRITES_PER_MIN",
+      "gorev": "K12",
+      "teyit": "knip export"
+    },
+    {
+      "dosya": "apps/server/src/settings/whatsapp.ts",
+      "ad": "WhatsappTarget",
+      "gorev": "K12",
+      "teyit": "knip tip"
+    },
+    {
+      "dosya": "apps/server/src/tenants/routes.ts",
+      "ad": "ADMIN_WRITES_PER_MIN",
+      "gorev": "K12",
+      "teyit": "knip export"
+    },
+    {
+      "dosya": "apps/server/src/uploads/files.ts",
+      "ad": "BRANDING_PER_MIN",
+      "gorev": "K12",
+      "teyit": "knip export"
+    },
+    {
+      "dosya": "apps/server/src/uploads/image.ts",
+      "ad": "ProcessedImage",
+      "gorev": "K12",
+      "teyit": "knip tip"
+    },
+    {
+      "dosya": "apps/server/src/uploads/image.ts",
+      "ad": "IMAGE_WAIT_MS",
+      "gorev": "K12",
+      "teyit": "knip export"
+    },
+    {
+      "dosya": "apps/server/src/uploads/image.ts",
+      "ad": "MAX_INPUT_PIXELS",
+      "gorev": "K12",
+      "teyit": "knip export"
+    },
+    {
+      "dosya": "apps/server/src/uploads/store.ts",
+      "ad": "UploadListing",
+      "gorev": "K12",
+      "teyit": "knip tip"
+    },
+    {
+      "dosya": "apps/server/src/users/service.ts",
+      "ad": "LockHooks",
+      "gorev": "K12",
+      "teyit": "knip tip"
+    },
+    {
+      "dosya": "apps/web/lib/requests/blocks.ts",
+      "ad": "DURATION_NONE",
+      "gorev": "K13",
+      "teyit": "knip export"
+    },
+    {
+      "dosya": "apps/web/lib/requests/panel-socket.ts",
+      "ad": "PANEL_RETRY_JITTER",
+      "gorev": "K13",
+      "teyit": "knip export"
+    },
+    {
+      "dosya": "apps/web/lib/requests/sound.ts",
+      "ad": "SOUND_KEY",
+      "gorev": "K13",
+      "teyit": "knip export"
+    },
+    {
+      "dosya": "apps/web/lib/requests/source.ts",
+      "ad": "SourceReason",
+      "gorev": "K13",
+      "teyit": "knip tip"
+    },
+    {
+      "dosya": "apps/web/lib/requests/thread.ts",
+      "ad": "BodyCheck",
+      "gorev": "K13",
+      "teyit": "knip tip"
+    },
+    {
+      "dosya": "apps/web/app/session/[token]/guest-session.tsx",
+      "ad": "GuestInfo",
+      "gorev": "K14",
+      "teyit": "knip tip"
+    },
+    {
+      "dosya": "apps/web/components/console/stage.tsx",
+      "ad": "StageControl",
+      "gorev": "K14",
+      "teyit": "knip tip"
+    },
+    {
+      "dosya": "apps/web/components/guest/share-strip.tsx",
+      "ad": "StripState",
+      "gorev": "K14",
+      "teyit": "knip tip"
+    },
+    {
+      "dosya": "apps/web/lib/control/input.ts",
+      "ad": "Box",
+      "gorev": "K14",
+      "teyit": "knip tip"
+    },
+    {
+      "dosya": "apps/web/lib/control/input.ts",
+      "ad": "KeyLike",
+      "gorev": "K14",
+      "teyit": "knip tip"
+    },
+    {
+      "dosya": "apps/web/lib/control/input.ts",
+      "ad": "KEY_CODE",
+      "gorev": "K14",
+      "teyit": "knip export"
+    },
+    {
+      "dosya": "apps/web/lib/control/machine.ts",
+      "ad": "DENY_COOLDOWN_MS",
+      "gorev": "K14",
+      "teyit": "knip export"
+    },
+    {
+      "dosya": "apps/web/lib/dc/annot.ts",
+      "ad": "LASER_FADE_MS",
+      "gorev": "K14",
+      "teyit": "knip export"
+    },
+    {
+      "dosya": "apps/web/lib/dc/annot.ts",
+      "ad": "MAX_PTS",
+      "gorev": "K14",
+      "teyit": "knip export"
+    },
+    {
+      "dosya": "apps/web/lib/dc/annot.ts",
+      "ad": "MAX_STROKES",
+      "gorev": "K14",
+      "teyit": "knip export"
+    },
+    {
+      "dosya": "apps/web/lib/dc/chat.ts",
+      "ad": "ChatAction",
+      "gorev": "K14",
+      "teyit": "knip tip"
+    },
+    {
+      "dosya": "apps/web/lib/dc/chat.ts",
+      "ad": "ChatItem",
+      "gorev": "K14",
+      "teyit": "knip tip"
+    },
+    {
+      "dosya": "apps/web/lib/dc/chat.ts",
+      "ad": "ChatState",
+      "gorev": "K14",
+      "teyit": "knip tip"
+    },
+    {
+      "dosya": "apps/web/lib/dc/chat.ts",
+      "ad": "CHAT_KEEP",
+      "gorev": "K14",
+      "teyit": "knip export"
+    },
+    {
+      "dosya": "apps/web/lib/dc/files.ts",
+      "ad": "DEFAULT_MAX_FILE_BYTES",
+      "gorev": "K14",
+      "teyit": "knip export"
+    },
+    {
+      "dosya": "apps/web/lib/dc/files.ts",
+      "ad": "KEEP",
+      "gorev": "K14",
+      "teyit": "knip export"
+    },
+    {
+      "dosya": "apps/web/lib/dc/use-collab.ts",
+      "ad": "ChatSendResult",
+      "gorev": "K14",
+      "teyit": "knip tip"
+    },
+    {
+      "dosya": "apps/web/lib/webrtc/guest-machine.ts",
+      "ad": "GuestEvent",
+      "gorev": "K14",
+      "teyit": "knip tip"
+    },
+    {
+      "dosya": "apps/web/lib/webrtc/stats.ts",
+      "ad": "SUSTAIN_MS",
+      "gorev": "K14",
+      "teyit": "knip export"
+    },
+    {
+      "dosya": "apps/web/lib/webrtc/tech-machine.ts",
+      "ad": "TechEvent",
+      "gorev": "K14",
+      "teyit": "knip tip"
+    },
+    {
+      "dosya": "apps/web/lib/webrtc/use-guest-session.ts",
+      "ad": "RESUME_MAX_ATTEMPTS",
+      "gorev": "K14",
+      "teyit": "knip export"
+    },
+    {
+      "dosya": "apps/web/lib/webrtc/use-guest-session.ts",
+      "ad": "RESUME_RETRY_MS",
+      "gorev": "K14",
+      "teyit": "knip export"
+    },
+    {
+      "dosya": "apps/web/components/branding/theme-provider.tsx",
+      "ad": "THEME_ICONS",
+      "gorev": "K15",
+      "teyit": "knip export"
+    },
+    {
+      "dosya": "apps/web/components/request-notifier.tsx",
+      "ad": "NotifierEvent",
+      "gorev": "K15",
+      "teyit": "knip tip"
+    },
+    {
+      "dosya": "apps/web/components/ui/toast.tsx",
+      "ad": "ToastOptions",
+      "gorev": "K15",
+      "teyit": "knip tip"
+    },
+    {
+      "dosya": "apps/web/lib/account/idle.ts",
+      "ad": "IDLE_MS",
+      "gorev": "K15",
+      "teyit": "knip export"
+    },
+    {
+      "dosya": "apps/web/lib/account/idle.ts",
+      "ad": "VISIBLE_PROBE_MIN_GAP_MS",
+      "gorev": "K15",
+      "teyit": "knip export"
+    },
+    {
+      "dosya": "apps/web/lib/account/smtp-form.ts",
+      "ad": "SMTP_FIELDS",
+      "gorev": "K15",
+      "teyit": "knip export"
+    },
+    {
+      "dosya": "apps/web/lib/account/step-up.ts",
+      "ad": "StepUpBody",
+      "gorev": "K15",
+      "teyit": "knip tip"
+    },
+    {
+      "dosya": "apps/web/lib/admin-settings/forms.ts",
+      "ad": "TurnField",
+      "gorev": "K15",
+      "teyit": "knip tip"
+    },
+    {
+      "dosya": "apps/web/lib/admin-settings/whatsapp.ts",
+      "ad": "WhatsappServiceInput",
+      "gorev": "K15",
+      "teyit": "knip tip"
+    },
+    {
+      "dosya": "apps/web/lib/admin-settings/whatsapp.ts",
+      "ad": "WhatsappServiceTestInput",
+      "gorev": "K15",
+      "teyit": "knip tip"
+    },
+    {
+      "dosya": "apps/web/lib/admin-settings/whatsapp.ts",
+      "ad": "WhatsappSource",
+      "gorev": "K15",
+      "teyit": "knip tip"
+    },
+    {
+      "dosya": "apps/web/lib/admin-settings/whatsapp.ts",
+      "ad": "WA_PHONE_MESSAGES",
+      "gorev": "K15",
+      "teyit": "knip export"
+    },
+    {
+      "dosya": "apps/web/lib/agent-download.ts",
+      "ad": "AgentEnd",
+      "gorev": "K15",
+      "teyit": "knip tip"
+    },
+    {
+      "dosya": "apps/web/lib/agent-download.ts",
+      "ad": "AgentProbe",
+      "gorev": "K15",
+      "teyit": "knip tip"
+    },
+    {
+      "dosya": "apps/web/lib/api.ts",
+      "ad": "STEP_UP_REQUIRED_CODE",
+      "gorev": "K15",
+      "teyit": "knip export"
+    },
+    {
+      "dosya": "apps/web/lib/audit/actions.ts",
+      "ad": "ActionOptionGroup",
+      "gorev": "K15",
+      "teyit": "knip tip"
+    },
+    {
+      "dosya": "apps/web/lib/audit/actions.ts",
+      "ad": "AUDIT_ACTION_LABELS",
+      "gorev": "K15",
+      "teyit": "knip export"
+    },
+    {
+      "dosya": "apps/web/lib/audit/actions.ts",
+      "ad": "AUDIT_GROUP_LABELS",
+      "gorev": "K15",
+      "teyit": "knip export"
+    },
+    {
+      "dosya": "apps/web/lib/branding/image.ts",
+      "ad": "PrecheckResult",
+      "gorev": "K15",
+      "teyit": "knip tip"
+    },
+    {
+      "dosya": "apps/web/lib/branding/image.ts",
+      "ad": "UPLOAD_EXTENSIONS",
+      "gorev": "K15",
+      "teyit": "knip export"
+    },
+    {
+      "dosya": "apps/web/lib/combobox.ts",
+      "ad": "ComboAction",
+      "gorev": "K15",
+      "teyit": "knip tip"
+    },
+    {
+      "dosya": "apps/web/lib/customers/form.ts",
+      "ad": "FormResult",
+      "gorev": "K15",
+      "teyit": "knip tip"
+    },
+    {
+      "dosya": "apps/web/lib/guest-resume.ts",
+      "ad": "RESUME_MAX_AGE_MS",
+      "gorev": "K15",
+      "teyit": "knip export"
+    },
+    {
+      "dosya": "apps/web/lib/history/anonymized.ts",
+      "ad": "SESSION_ANONYMIZED",
+      "gorev": "K15",
+      "teyit": "knip export"
+    },
+    {
+      "dosya": "apps/web/lib/history/query.ts",
+      "ad": "FilterField",
+      "gorev": "K15",
+      "teyit": "knip tip"
+    },
+    {
+      "dosya": "apps/web/lib/history/query.ts",
+      "ad": "DEFAULT_PAGE_SIZE",
+      "gorev": "K15",
+      "teyit": "knip export"
+    },
+    {
+      "dosya": "apps/web/lib/server-api.ts",
+      "ad": "MeState",
+      "gorev": "K15",
+      "teyit": "knip tip"
+    },
+    {
+      "dosya": "apps/web/lib/server-api.ts",
+      "ad": "ServerResult",
+      "gorev": "K15",
+      "teyit": "knip tip"
+    },
+    {
+      "dosya": "apps/web/lib/tab-title.ts",
+      "ad": "TitlePart",
+      "gorev": "K15",
+      "teyit": "knip tip"
+    },
+    {
+      "dosya": "apps/web/lib/tab-title.ts",
+      "ad": "TitleParts",
+      "gorev": "K15",
+      "teyit": "knip tip"
+    },
+    {
+      "dosya": "apps/web/lib/tenants/purge.ts",
+      "ad": "PurgeUiError",
+      "gorev": "K15",
+      "teyit": "knip tip"
+    },
+    {
+      "dosya": "apps/web/lib/tenants/purge.ts",
+      "ad": "PURGE_ERROR_LABELS",
+      "gorev": "K15",
+      "teyit": "knip export"
+    },
+    {
+      "dosya": "apps/web/lib/users/delete.ts",
+      "ad": "UserDeleteError",
+      "gorev": "K15",
+      "teyit": "knip tip"
+    },
+    {
+      "dosya": "apps/web/lib/users/user-options.ts",
+      "ad": "TechOption",
+      "gorev": "K15",
+      "teyit": "knip tip"
+    },
+    {
+      "dosya": "apps/agent-win/internal/input/applier.go",
+      "ad": "Limited",
+      "gorev": "K7",
+      "teyit": "deadcode (yalnız testte)"
+    },
+    {
+      "dosya": "apps/agent-win/internal/input/scope.go",
+      "ad": "ScopeDropped",
+      "gorev": "K7",
+      "teyit": "deadcode (yalnız testte)"
+    },
+    {
+      "dosya": "apps/server/src/requests/block-routes.ts",
+      "ad": "REQUEST_BLOCK_WRITES_PER_MIN",
+      "gorev": "K9",
+      "teyit": "knip export"
+    },
+    {
+      "dosya": "apps/server/src/requests/form-token.ts",
+      "ad": "FormTokenCheck",
+      "gorev": "K9",
+      "teyit": "knip tip"
+    },
+    {
+      "dosya": "apps/server/src/requests/form-token.ts",
+      "ad": "FORM_NONCE_MAX",
+      "gorev": "K9",
+      "teyit": "knip export"
+    },
+    {
+      "dosya": "apps/server/src/requests/form-token.ts",
+      "ad": "FORM_NONCE_TENANT_MAX",
+      "gorev": "K9",
+      "teyit": "knip export"
+    },
+    {
+      "dosya": "apps/server/src/requests/hours-routes.ts",
+      "ad": "BUSINESS_HOURS_WRITES_PER_MIN",
+      "gorev": "K9",
+      "teyit": "knip export"
+    },
+    {
+      "dosya": "apps/server/src/requests/hours-routes.ts",
+      "ad": "HOLIDAY_IMPORTS_PER_MIN",
+      "gorev": "K9",
+      "teyit": "knip export"
+    },
+    {
+      "dosya": "apps/server/src/requests/hours-routes.ts",
+      "ad": "HOLIDAY_WRITES_PER_MIN",
+      "gorev": "K9",
+      "teyit": "knip export"
+    },
+    {
+      "dosya": "apps/server/src/requests/hours.ts",
+      "ad": "HoursRow",
+      "gorev": "K9",
+      "teyit": "knip tip"
+    },
+    {
+      "dosya": "apps/server/src/requests/hub.ts",
+      "ad": "PANEL_SOCKETS_PER_USER",
+      "gorev": "K9",
+      "teyit": "knip export"
+    },
+    {
+      "dosya": "apps/server/src/requests/hub.ts",
+      "ad": "REQUEST_SOCKETS_PER_IP",
+      "gorev": "K9",
+      "teyit": "knip export"
+    },
+    {
+      "dosya": "apps/server/src/requests/jobs.ts",
+      "ad": "SweepResult",
+      "gorev": "K9",
+      "teyit": "knip tip"
+    },
+    {
+      "dosya": "apps/server/src/requests/limits.ts",
+      "ad": "WEB_FORM_NET48_PER_MIN",
+      "gorev": "K9",
+      "teyit": "knip export"
+    },
+    {
+      "dosya": "apps/server/src/requests/limits.ts",
+      "ad": "WEB_FORM_PREFIX_PER_MIN",
+      "gorev": "K9",
+      "teyit": "knip export"
+    },
+    {
+      "dosya": "apps/server/src/requests/messages.ts",
+      "ad": "RejectReason",
+      "gorev": "K9",
+      "teyit": "knip tip"
+    },
+    {
+      "dosya": "apps/server/src/requests/messages.ts",
+      "ad": "insertIfPending",
+      "gorev": "K9",
+      "teyit": "knip export"
+    },
+    {
+      "dosya": "apps/server/src/requests/repo.ts",
+      "ad": "CustomerRefRow",
+      "gorev": "K9",
+      "teyit": "knip tip"
+    },
+    {
+      "dosya": "apps/server/src/requests/repo.ts",
+      "ad": "KNOWN_WINDOW_DAYS",
+      "gorev": "K9",
+      "teyit": "knip export"
+    },
+    {
+      "dosya": "apps/server/src/requests/routes.ts",
+      "ad": "ASSIGN_WRITES_PER_MIN",
+      "gorev": "K9",
+      "teyit": "knip export"
+    },
+    {
+      "dosya": "apps/server/src/requests/routes.ts",
+      "ad": "MESSAGE_READS_PER_MIN",
+      "gorev": "K9",
+      "teyit": "knip export"
+    },
+    {
+      "dosya": "apps/server/src/requests/routes.ts",
+      "ad": "MESSAGE_WRITES_TENANT_PER_MIN",
+      "gorev": "K9",
+      "teyit": "knip export"
+    },
+    {
+      "dosya": "apps/server/src/requests/routes.ts",
+      "ad": "MESSAGE_WRITES_USER_PER_MIN",
+      "gorev": "K9",
+      "teyit": "knip export"
+    },
+    {
+      "dosya": "apps/server/src/requests/service.ts",
+      "ad": "CreateCoreInput",
+      "gorev": "K9",
+      "teyit": "knip tip"
+    }
+  ],
+  "knipDeadcodeGorevBasina": {
+    "K15": {
+      "knip tip": 46,
+      "knip export": 71
+    },
+    "K12": {
+      "knip export": 48,
+      "knip tip": 50
+    },
+    "atanmamış": {
+      "knip export": 17,
+      "knip tip": 7,
+      "deadcode": 2
+    },
+    "K11": {
+      "knip export": 15,
+      "knip tip": 17
+    },
+    "K10": {
+      "knip export": 12,
+      "knip tip": 8
+    },
+    "K9": {
+      "knip export": 21,
+      "knip tip": 8
+    },
+    "K13": {
+      "knip export": 11,
+      "knip tip": 11
+    },
+    "K14": {
+      "knip export": 19,
+      "knip tip": 15
+    },
+    "K5": {
+      "deadcode": 1
+    },
+    "K7": {
+      "deadcode (yalnız testte)": 3
+    },
+    "K8": {
+      "deadcode (yalnız testte)": 4
+    }
+  },
+  "kalanTeyitsiz": "doğrulandı, kullanılıyor (dosya içi tip/yardımcı; graf kenarı eksik) — tek tek liste tutulmaz, silinmez"
+}

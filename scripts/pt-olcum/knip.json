@@ -1,0 +1,17 @@
+{
+  "$schema": "https://unpkg.com/knip@5.88.1/schema.json",
+  "vitest": false,
+  "ignore": ["docs/**", "graphify-out/**", "apps/server/src/generated/**"],
+  "workspaces": {
+    ".": { "entry": ["scripts/*.mjs"], "project": ["scripts/*.mjs"] },
+    "apps/server": {
+      "entry": ["src/server.ts", "src/cli/main.ts", "prisma/*.ts", "prisma.config.ts", "scripts/*.ts", "test/**/*.test.ts"],
+      "project": ["src/**/*.ts", "test/**/*.ts", "prisma/*.ts", "scripts/*.ts"]
+    },
+    "apps/web": {
+      "entry": ["lib/**/*.test.ts", "e2e/**/*.spec.ts", "e2e/mock-api.mjs", "scripts/*.mjs", "*.config.{ts,mjs}"],
+      "project": ["app/**/*.{ts,tsx}", "components/**/*.{ts,tsx}", "lib/**/*.{ts,tsx}", "e2e/**/*.{ts,mjs}", "*.ts"]
+    },
+    "packages/contracts": { "entry": ["test/**/*.test.ts"], "project": ["src/**/*.ts", "test/**/*.ts"] }
+  }
+}

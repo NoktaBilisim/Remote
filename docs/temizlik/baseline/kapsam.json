@@ -1,0 +1,42 @@
+{
+  "server": {
+    "lines": 94.87,
+    "branches": 86.69,
+    "functions": 93.77,
+    "statements": 92.18
+  },
+  "web": {
+    "lines": 64.09,
+    "branches": 66.49,
+    "functions": 64.41,
+    "statements": 63.36
+  },
+  "contracts": {
+    "lines": 86.27,
+    "branches": 60.75,
+    "functions": 70.95,
+    "statements": 84.11
+  },
+  "go": {
+    "remote-support/agent-win/internal/api": 85.9,
+    "remote-support/agent-win/internal/autorun": 94.4,
+    "remote-support/agent-win/internal/capture": 97.1,
+    "remote-support/agent-win/internal/config": 85.7,
+    "remote-support/agent-win/internal/control": 96.4,
+    "remote-support/agent-win/internal/dc": 94.3,
+    "remote-support/agent-win/internal/diag": 81.3,
+    "remote-support/agent-win/internal/env": 100,
+    "remote-support/agent-win/internal/files": 96.8,
+    "remote-support/agent-win/internal/flow": 84.3,
+    "remote-support/agent-win/internal/input": 95.1,
+    "remote-support/agent-win/internal/launch": 85.5,
+    "remote-support/agent-win/internal/pairing": 100,
+    "remote-support/agent-win/internal/remember": 91.2,
+    "remote-support/agent-win/internal/request": 83.9,
+    "remote-support/agent-win/internal/rtc": 84.6,
+    "remote-support/agent-win/internal/signal": 84.8,
+    "remote-support/agent-win/internal/transfer": 78.3,
+    "remote-support/agent-win/internal/tray": 95.6,
+    "remote-support/agent-win/internal/ui": 96.6
+  }
+}

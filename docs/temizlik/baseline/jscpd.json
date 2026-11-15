@@ -1,0 +1,437 @@
+{
+  "toplam": {
+    "klon": 70,
+    "satir": 972,
+    "yuzde": 0.58
+  },
+  "uretim": {
+    "klon": 25,
+    "satir": 418
+  },
+  "test": {
+    "klon": 45,
+    "satir": 554
+  },
+  "klonlar": [
+    {
+      "a": "apps/web/app/globals.css:134-162",
+      "b": "apps/web/app/globals.css:104-133",
+      "lines": 29,
+      "test": false
+    },
+    {
+      "a": "apps/web/app/(panel)/users/new-user-dialog.tsx:112-139",
+      "b": "apps/web/app/(panel)/users/[id]/user-editor.tsx:265-289",
+      "lines": 28,
+      "test": false
+    },
+    {
+      "a": "apps/web/app/(panel)/customers/(list)/page.tsx:200-224",
+      "b": "apps/web/app/(panel)/users/(list)/page.tsx:163-187",
+      "lines": 25,
+      "test": false
+    },
+    {
+      "a": "apps/web/app/(auth)/change-password/change-password-form.tsx:82-105",
+      "b": "apps/web/app/(auth)/reset-password/reset-form.tsx:113-136",
+      "lines": 24,
+      "test": false
+    },
+    {
+      "a": "apps/web/app/(panel)/sessions/cancel-dialog.tsx:22-41",
+      "b": "apps/web/app/(panel)/sessions/terminate-dialog.tsx:21-40",
+      "lines": 20,
+      "test": false
+    },
+    {
+      "a": "apps/web/app/(panel)/settings/smtp/smtp-form.tsx:34-52",
+      "b": "apps/web/app/(panel)/settings/support-requests/settings-form.tsx:59-71",
+      "lines": 19,
+      "test": false
+    },
+    {
+      "a": "apps/agent-win/internal/api/bindings.go:40-57",
+      "b": "apps/agent-win/internal/api/requests.go:59-76",
+      "lines": 18,
+      "test": false
+    },
+    {
+      "a": "apps/agent-win/internal/api/api.go:152-169",
+      "b": "apps/agent-win/internal/api/requests.go:59-76",
+      "lines": 18,
+      "test": false
+    },
+    {
+      "a": "apps/agent-win/internal/tray/tray.go:80-96",
+      "b": "apps/agent-win/internal/ui/logo.go:61-77",
+      "lines": 17,
+      "test": false
+    },
+    {
+      "a": "apps/web/app/(panel)/settings/sms/sms-form.tsx:22-38",
+      "b": "apps/web/app/(panel)/settings/support-requests/settings-form.tsx:59-71",
+      "lines": 17,
+      "test": false
+    },
+    {
+      "a": "apps/web/app/(panel)/admin/tenants/loading.tsx:7-23",
+      "b": "apps/web/app/(panel)/users/(list)/loading.tsx:7-23",
+      "lines": 17,
+      "test": false
+    },
+    {
+      "a": "apps/web/app/(panel)/requests/request-history.tsx:35-51",
+      "b": "apps/web/app/(panel)/requests/request-queue.tsx:421-434",
+      "lines": 17,
+      "test": false
+    },
+    {
+      "a": "apps/web/app/(panel)/admin/settings/turn/page.tsx:15-30",
+      "b": "apps/web/app/(panel)/admin/settings/whatsapp/page.tsx:15-30",
+      "lines": 16,
+      "test": false
+    },
+    {
+      "a": "apps/web/app/(panel)/admin/settings/mysql/page.tsx:15-30",
+      "b": "apps/web/app/(panel)/admin/settings/whatsapp/page.tsx:15-30",
+      "lines": 16,
+      "test": false
+    },
+    {
+      "a": "apps/web/app/(panel)/users/user-filters.tsx:19-33",
+      "b": "apps/web/app/(panel)/admin/tenants/tenant-filters.tsx:12-24",
+      "lines": 15,
+      "test": false
+    },
+    {
+      "a": "apps/web/app/(panel)/customers/customer-filters.tsx:17-31",
+      "b": "apps/web/app/(panel)/admin/tenants/tenant-filters.tsx:12-24",
+      "lines": 15,
+      "test": false
+    },
+    {
+      "a": "apps/web/components/branding/avatar-uploader.tsx:50-63",
+      "b": "apps/web/components/branding/logo-uploader.tsx:53-66",
+      "lines": 14,
+      "test": false
+    },
+    {
+      "a": "apps/agent-win/internal/ui/screens_windows.go:279-291",
+      "b": "apps/agent-win/internal/ui/screens_windows.go:260-272",
+      "lines": 13,
+      "test": false
+    },
+    {
+      "a": "apps/web/app/(panel)/audit/audit-filters.tsx:143-155",
+      "b": "apps/web/app/(panel)/history/history-filters.tsx:277-289",
+      "lines": 13,
+      "test": false
+    },
+    {
+      "a": "apps/web/lib/webrtc/use-guest-session.ts:55-66",
+      "b": "apps/web/lib/webrtc/use-tech-session.ts:92-103",
+      "lines": 12,
+      "test": false
+    },
+    {
+      "a": "apps/web/app/(panel)/customers/customer-filters.tsx:59-70",
+      "b": "apps/web/app/(panel)/users/user-filters.tsx:60-71",
+      "lines": 12,
+      "test": false
+    },
+    {
+      "a": "apps/server/src/requests/ws.ts:47-58",
+      "b": "apps/server/src/signaling/ws.ts:42-53",
+      "lines": 12,
+      "test": false
+    },
+    {
+      "a": "apps/web/app/(panel)/settings/sms/sms-form.tsx:96-106",
+      "b": "apps/web/app/(panel)/settings/support-requests/settings-form.tsx:244-254",
+      "lines": 11,
+      "test": false
+    },
+    {
+      "a": "apps/web/components/console/collab-side.tsx:47-56",
+      "b": "apps/web/components/guest/guest-collab.tsx:49-58",
+      "lines": 10,
+      "test": false
+    },
+    {
+      "a": "apps/server/src/requests/panel.ts:539-548",
+      "b": "apps/server/src/requests/panel.ts:513-522",
+      "lines": 10,
+      "test": false
+    },
+    {
+      "a": "apps/server/test/integration/mail-starttls-p14a.test.ts:51-74",
+      "b": "apps/server/test/integration/mail-tls-p10.test.ts:24-47",
+      "lines": 24,
+      "test": true
+    },
+    {
+      "a": "apps/server/test/integration/account-p10.test.ts:54-77",
+      "b": "apps/server/test/integration/security-p14a-auth.test.ts:26-49",
+      "lines": 24,
+      "test": true
+    },
+    {
+      "a": "apps/server/test/integration/security-p14a-db.test.ts:5-21",
+      "b": "apps/server/test/integration/security-p15-db.test.ts:4-20",
+      "lines": 17,
+      "test": true
+    },
+    {
+      "a": "apps/server/test/integration/audit-immutability-p11.test.ts:50-66",
+      "b": "apps/server/test/integration/retention-p13a-db.test.ts:29-45",
+      "lines": 17,
+      "test": true
+    },
+    {
+      "a": "apps/web/e2e/helpers.ts:20-35",
+      "b": "apps/web/e2e/p9-users.spec.ts:13-21",
+      "lines": 16,
+      "test": true
+    },
+    {
+      "a": "apps/server/test/integration/mail-starttls-p14a.test.ts:4-19",
+      "b": "apps/server/test/integration/mail-tls-p10.test.ts:4-19",
+      "lines": 16,
+      "test": true
+    },
+    {
+      "a": "apps/web/e2e/p15.spec.ts:12-26",
+      "b": "apps/web/e2e/p16.spec.ts:26-40",
+      "lines": 15,
+      "test": true
+    },
+    {
+      "a": "apps/web/e2e/p15.spec.ts:154-168",
+      "b": "apps/web/e2e/p7-control.spec.ts:14-25",
+      "lines": 15,
+      "test": true
+    },
+    {
+      "a": "apps/web/e2e/p13bl-lobby.spec.ts:22-36",
+      "b": "apps/web/e2e/p14a-a4.spec.ts:10-23",
+      "lines": 15,
+      "test": true
+    },
+    {
+      "a": "apps/web/lib/dc/disk-sink.test.ts:74-88",
+      "b": "apps/web/lib/dc/p5.test.ts:15-29",
+      "lines": 15,
+      "test": true
+    },
+    {
+      "a": "apps/server/test/integration/mail-starttls-p14a.test.ts:81-95",
+      "b": "apps/server/test/integration/mail-tls-p10.test.ts:73-86",
+      "lines": 15,
+      "test": true
+    },
+    {
+      "a": "apps/server/test/integration/db-busy-p8b.test.ts:23-37",
+      "b": "apps/server/test/integration/security-p8b-fix2.test.ts:22-36",
+      "lines": 15,
+      "test": true
+    },
+    {
+      "a": "apps/web/e2e/auth.spec.ts:11-23",
+      "b": "apps/web/e2e/helpers.ts:10-17",
+      "lines": 13,
+      "test": true
+    },
+    {
+      "a": "apps/server/test/integration/customers-p8c-db.test.ts:8-20",
+      "b": "apps/server/test/integration/session-history-p8.test.ts:18-30",
+      "lines": 13,
+      "test": true
+    },
+    {
+      "a": "apps/server/test/integration/account-p10.test.ts:353-365",
+      "b": "apps/server/test/integration/account-p10.test.ts:317-329",
+      "lines": 13,
+      "test": true
+    },
+    {
+      "a": "apps/web/e2e/p17-console.spec.ts:9-20",
+      "b": "apps/web/e2e/p7-control.spec.ts:12-22",
+      "lines": 12,
+      "test": true
+    },
+    {
+      "a": "apps/server/test/integration/security-p15-db.test.ts:9-20",
+      "b": "apps/server/test/integration/whatsapp-setting.test.ts:9-20",
+      "lines": 12,
+      "test": true
+    },
+    {
+      "a": "apps/server/test/integration/permissions-ac72-p9.test.ts:25-36",
+      "b": "apps/server/test/integration/system-logo-p15.test.ts:3-14",
+      "lines": 12,
+      "test": true
+    },
+    {
+      "a": "apps/server/test/integration/audit-immutability-p11.test.ts:18-29",
+      "b": "apps/server/test/integration/retention-p13a-db.test.ts:13-20",
+      "lines": 12,
+      "test": true
+    },
+    {
+      "a": "apps/server/test/helpers/app.ts:152-163",
+      "b": "apps/server/test/integration/p18-messages-h3.test.ts:60-70",
+      "lines": 12,
+      "test": true
+    },
+    {
+      "a": "apps/agent-win/internal/signal/binding_test.go:119-129",
+      "b": "apps/agent-win/internal/signal/binding_test.go:34-44",
+      "lines": 11,
+      "test": true
+    },
+    {
+      "a": "apps/agent-win/internal/signal/binding_test.go:156-166",
+      "b": "apps/agent-win/internal/signal/binding_test.go:64-74",
+      "lines": 11,
+      "test": true
+    },
+    {
+      "a": "apps/web/e2e/p16.spec.ts:29-39",
+      "b": "apps/web/e2e/p18-h4.spec.ts:35-45",
+      "lines": 11,
+      "test": true
+    },
+    {
+      "a": "apps/web/e2e/p14a-a4.spec.ts:13-23",
+      "b": "apps/web/e2e/p8b-requests.spec.ts:13-22",
+      "lines": 11,
+      "test": true
+    },
+    {
+      "a": "apps/web/e2e/p11-admin.spec.ts:9-19",
+      "b": "apps/web/e2e/p12b-whatsapp.spec.ts:10-21",
+      "lines": 11,
+      "test": true
+    },
+    {
+      "a": "apps/server/test/integration/session-files-p5.test.ts:42-52",
+      "b": "apps/server/test/integration/session-history-p8.test.ts:20-30",
+      "lines": 11,
+      "test": true
+    },
+    {
+      "a": "apps/server/test/integration/retention-p13a-job.test.ts:47-57",
+      "b": "apps/server/test/integration/retention-p16-purge.test.ts:16-26",
+      "lines": 11,
+      "test": true
+    },
+    {
+      "a": "apps/server/test/integration/retention-p13a-db.test.ts:14-24",
+      "b": "apps/server/test/integration/security-p15-db.test.ts:9-20",
+      "lines": 11,
+      "test": true
+    },
+    {
+      "a": "apps/server/test/integration/p19-web-j2.test.ts:543-553",
+      "b": "apps/server/test/integration/p19-web-j2.test.ts:292-302",
+      "lines": 11,
+      "test": true
+    },
+    {
+      "a": "apps/server/test/integration/branding-p12.test.ts:8-18",
+      "b": "apps/server/test/integration/security-p15-db.test.ts:9-24",
+      "lines": 11,
+      "test": true
+    },
+    {
+      "a": "apps/web/e2e/p5-collab.spec.ts:558-567",
+      "b": "apps/web/e2e/p5-collab.spec.ts:249-258",
+      "lines": 10,
+      "test": true
+    },
+    {
+      "a": "apps/web/e2e/p5-collab.spec.ts:582-591",
+      "b": "apps/web/e2e/p5-collab.spec.ts:217-226",
+      "lines": 10,
+      "test": true
+    },
+    {
+      "a": "apps/web/e2e/p13bl-lobby.spec.ts:77-86",
+      "b": "apps/web/e2e/p4-media.spec.ts:6-17",
+      "lines": 10,
+      "test": true
+    },
+    {
+      "a": "apps/web/e2e/customers.spec.ts:10-19",
+      "b": "apps/web/e2e/p8b-requests.spec.ts:13-23",
+      "lines": 10,
+      "test": true
+    },
+    {
+      "a": "apps/server/test/integration/security-p14a-users.test.ts:31-40",
+      "b": "apps/server/test/integration/users-p9.test.ts:35-43",
+      "lines": 10,
+      "test": true
+    },
+    {
+      "a": "apps/server/test/integration/requests-p8b-3.test.ts:150-159",
+      "b": "apps/server/test/integration/requests-p8b-3.test.ts:38-81",
+      "lines": 10,
+      "test": true
+    },
+    {
+      "a": "apps/agent-win/internal/flow/binding_test.go:167-175",
+      "b": "apps/agent-win/internal/flow/binding_test.go:118-126",
+      "lines": 9,
+      "test": true
+    },
+    {
+      "a": "apps/web/e2e/p7-control.spec.ts:320-328",
+      "b": "apps/web/e2e/p7-control.spec.ts:305-313",
+      "lines": 9,
+      "test": true
+    },
+    {
+      "a": "apps/web/e2e/p13a.spec.ts:13-21",
+      "b": "apps/web/e2e/p9-users.spec.ts:13-21",
+      "lines": 9,
+      "test": true
+    },
+    {
+      "a": "apps/web/e2e/p12b-whatsapp.spec.ts:12-20",
+      "b": "apps/web/e2e/p13a.spec.ts:13-21",
+      "lines": 9,
+      "test": true
+    },
+    {
+      "a": "apps/server/test/integration/tenants-p9.test.ts:33-41",
+      "b": "apps/server/test/integration/users-p9.test.ts:35-43",
+      "lines": 9,
+      "test": true
+    },
+    {
+      "a": "apps/server/test/integration/tenant-purge-p16.test.ts:337-345",
+      "b": "apps/server/test/integration/tenant-purge-p16.test.ts:128-136",
+      "lines": 9,
+      "test": true
+    },
+    {
+      "a": "apps/server/test/integration/sessions-public.test.ts:181-189",
+      "b": "apps/server/test/integration/sessions-public.test.ts:117-125",
+      "lines": 9,
+      "test": true
+    },
+    {
+      "a": "apps/server/test/integration/security-p14a-tenants.test.ts:34-42",
+      "b": "apps/server/test/integration/security-p14a-users.test.ts:31-41",
+      "lines": 9,
+      "test": true
+    },
+    {
+      "a": "apps/server/test/integration/p18-backend-h2.test.ts:435-443",
+      "b": "apps/server/test/integration/p19-web-j2.test.ts:161-169",
+      "lines": 9,
+      "test": true
+    }
+  ]
+}

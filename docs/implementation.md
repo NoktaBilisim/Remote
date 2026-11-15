@@ -8901,3 +8901,56 @@ yok) yüzünden kırmızı; bu görevin dosyaları temiz. Repoda/CI'da bu klasö
 
 Sözleşme değişikliği yok: tüm adlar aynı yollardan aynı biçimde (değer/tip) alınmaya devam eder; `api/shared` dışa açık
 değildir, doğrudan import edilmez.
+
+## PT-K0 (ölçüm betiği, baseline, test kapsamı) — devops — 2026-11-15
+
+### Değişen / yeni dosyalar
+
+- Yeni `scripts/pt-olcum.sh` — tek komutla ölçüm (`<çıktı-dizini> [adım…]`) ve karşılaştırma (`karsilastir <eski> <yeni>`).
+  Kapsam adımı `TEST_DATABASE_URL` yoksa `apps/server/scripts/test-db.sh` ile benzersiz adlı (`pt-olcum-<pid>`) geçici
+  MySQL açar, çıkışta siler.
+- Yeni `scripts/pt-olcum/knip.json` (vitest eklentisi kapalı; test/e2e giriş), `scripts/pt-olcum/ozet.mjs` (ham araç
+  çıktısı → özet JSON + Markdown; yalnız Node standart kütüphanesi), `scripts/pt-olcum/golen.go` (Go işlev uzunluğu,
+  yalnız standart kütüphane). İki yardımcı dosya §5 K0 satırında adıyla yok; görevin kendi dizininde (`scripts/pt-olcum/`)
+  yeni dosya olarak eklendi (mimari §5 "yeni dosyalar yalnız o görevin dizininde").
+- Yeni `docs/temizlik/baseline.md` + `docs/temizlik/baseline/*.json` (boyut, fonksiyon, go, knip, jscpd, i18n, testler,
+  kapsam, graphify-capraz). Ölçülen kod `c661ea0` (ayrı `git worktree`, ölçüm sonrası kaldırıldı).
+- `apps/server`, `apps/web`, `packages/contracts` `package.json`: `test:cov` betiği + `@vitest/coverage-v8` 5.1.0
+  devDependency; `pnpm-lock.yaml` (yalnız bu paket ve geçişli bağımlılıkları + peer anahtar yeniden yazımı).
+
+### Bağımlılık gerekçesi (PT-D1)
+
+`@vitest/coverage-v8@5.1.0`: vitest ile aynı sürüm/ekip, yalnız devDependency, imaja girmez. Lisans: paket ve tüm yeni
+geçişli bağımlılıklar MIT (`@bcoe/v8-coverage`, `@vitest/istanbul-lib-coverage`, `@vitest/istanbul-lib-report`,
+`ast-v8-to-istanbul`, `js-tokens`, `magicast`, `tinyrainbow`; `obug`/`std-env` zaten vardı). `scripts/check-licenses.mjs`
+(prod) temiz. Geri dönüş: paketi ve `test:cov` betiklerini kaldırmak.
+
+### Sapmalar
+
+- `vitest.config.ts` ×3 değişmedi: kapsam ayarları `test:cov` betiğinde CLI bayraklarıyla (contracts'ta config dosyası yok;
+  yeni dosya açmak yerine üç pakette aynı yöntem).
+- knip/jscpd docker yerine `pnpm dlx` (sürüm sabit) ile: macOS'taki `node_modules` Linux konteynerinde yerel modül
+  sorunları çıkarmasın diye; repoya girmez. Go araçları CI imajında docker ile.
+- Vitest test listesi `vitest list` yerine kapsam koşusunun JSON raporundan: `vitest list` `it.each`'i açmıyor ve statik
+  çözümlemede `findMany({ where … })` gibi çağrıları test adı sanıyor (server'da 1 618 sahte/yinelenen satır, gerçek 1 230).
+- Testsiz Go `deadcode` yalnız `GOOS=windows`: `cmd/noktadestek` linux'ta derlenmez ("no main packages").
+- Baseline knip sayıları mimari §3.3'teki 93 + 93'ten farklı (üretim export 197, tip 155) — yöntem farkı; AC-321
+  eşiğinin uyarlanması mimara açık nokta olarak `docs/temizlik/baseline.md`'de.
+
+### Doğrulama (2026-11-15)
+
+```
+scripts/pt-olcum.sh <worktree>/docs/temizlik/baseline           # c661ea0, çıkış 0, geçici MySQL silindi
+scripts/pt-olcum.sh karsilastir docs/temizlik/baseline <14b2629 ölçümü>   # pt-surface 5 testi "eksik" olarak yakaladı (korkuluk çalışıyor)
+gofmt -l scripts/pt-olcum                                       # boş
+pnpm install --frozen-lockfile                                  # Done
+# c661ea0 + K0 worktree'sinde:
+pnpm -r run lint · pnpm -r run typecheck                        # 3 paket Done
+pnpm -r run test                                                # contracts 142, web 386, server 434 geçti
+server test:cov (unit + entegrasyon, geçici MySQL)              # 1 230 geçti
+pnpm format:check                                               # temiz
+```
+
+Ana çalışma kopyasında `lint`/`typecheck`/`format:check` kırmızısı yalnız paralel K6/K9/K10/K14 görevlerinin yarım
+dosyalarından (`apps/web/lib/webrtc/*`, `apps/server/src/requests/*`, `signaling/*`, `docs/temizlik/PT-K6.md`); K0
+dosyaları temiz.
