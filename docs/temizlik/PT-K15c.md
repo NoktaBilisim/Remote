@@ -60,3 +60,57 @@ Parça B / K13 dosyalarına dokunulmadı (`users/(list)/loading.tsx` ve `admin/t
 - **Tam e2e** (`pnpm --filter @remote/web e2e`): **443 geçti, 0 kırmızı**, 200 atlandı.
 - Ölçüm (tur başı): `scripts/pt-olcum.sh <dizin> boyut fonk knip jscpd i18n` — scratchpad `pt-k15c/once/` (oturum dizini, kalıcı değil);
   kapsam dosya listesi + ESLint ölçümü için `files.sh` / `olc.sh` aynı yerde (yeniden üretilebilir: §1'deki kapsam tanımı).
+
+## 5. 2. tur (yarım; tur sınırında durdu)
+
+Kural aynı: davranış / görünüm değişmez; testid / role / aria-* / sınıf / metin aynı; efekt sırası korunur; commit yok.
+
+| Madde                                | Önce                                  | Şimdi                                                                                                                                                                                                                                                                                                                                                                                                                   | Durum     |
+| ------------------------------------ | ------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------- |
+| 1) `WhatsappForm`                    | 244 / cx 18 (dosya 302), submit cx 17 | `whatsapp-form.tsx` 56 (`WhatsappForm` ≤ 40); `use-whatsapp-form.ts` 171 (`useWaDraft`, `validateWa`, `applyServerFields`, `useWaSave`, `useWaReset`, `useWaKeyRemove`, `useWhatsappForm`); `whatsapp-parts.tsx` 146 (`WhatsappAlerts`, `ServiceSummary`, `ServiceSection`, `WhatsappFields`, `WhatsappDialogs`); "Ortam değişkenine dön" → `EnvResetButton` / `EnvResetDialog` (`wa-svc-reset`, `-dialog`, `-confirm`) | tamam     |
+| 2) `ConsentForm`                     | 217 / cx 21, save cx 18               | `consent-form.tsx` 57; `use-consent-form.ts` 117 (`saveFailure`, `useConsentDraft`, `useConsentSave`, `useConsentForm`); `consent-parts.tsx` 204 (`ConsentAlerts`, `CurrentSection`, `CurrentMeta`, `BodyCount`, `BodyField`, `VersionRow`, `VersionHistory`, `ConfirmDialog`). `consentLength` artık dışa açık değil (yalnız kanca kullanıyordu)                                                                       | tamam     |
+| 3) `Combobox` + `comboKey`           | 233 / cx 40; `comboKey` cx 24         | `ui/combobox.tsx` 187 (`Combobox`, `ComboList`, `ComboStatusLine`, `ComboMessages`, `ComboInput`, `ClearButton`; hepsi ≤ 40 / cx ≤ 15); yeni `ui/use-combobox.ts` 162 (`useComboData`, `useComboText`, `comboActions`, `runAction`, `useScrollActive`, `useCombobox`); `lib/combobox.ts` `comboKey` → tuş tablosu (`Map`) + `step`/`jump`, cx ≤ 15                                                                      | tamam     |
+| 4) `AvatarUploader` 224 + logo klonu | jscpd 13 satır                        | okundu, dokunulmadı                                                                                                                                                                                                                                                                                                                                                                                                     | **kalan** |
+| 5) Kapsam lib knip export'ları       |                                       | başlanmadı                                                                                                                                                                                                                                                                                                                                                                                                              | **kalan** |
+| 6) Ölü i18n anahtarları (EN SON)     | 27 aday / 153 dinamik aday            | başlanmadı                                                                                                                                                                                                                                                                                                                                                                                                              | **kalan** |
+
+Kapsam ESLint ölçümü (40 / cx 15, `olc.sh`): **52 → 43 uyarı**. Kapsamda kalan (görev listesinde olmayan) WhatsApp uyarıları:
+`WhatsappTestSection` 111, `WhatsappApiKeyField` 67, `WhatsappApiKeyRemoveDialog` 53 — bu tur dokunulmadı.
+
+### Kararlar / notlar (2. tur)
+
+1. **Odak (WhatsApp):** yeni `lib/use-focus-error.ts` `useFocusOn<T>()` → `{ ref, focus }`; bileşende iki kez (önce adres, sonra anahtar —
+   eski efekt sırası). `focus` işlevleri forma parametre geçer (PT-K15.md §3-1 deseni); `useHydrated` yine ilk çağrı.
+2. **Odak (Consent):** eskisi gibi **senkron** (olay işleyicisinde `areaRef.current?.focus()`); `areaRef` bileşende oluşturulup kancaya
+   geçer. 400 `body` hatasında textarea o anda `disabled` olduğu için odak etkisiz kalıyordu — davranış korunmak için aynen bırakıldı
+   (ayrı düzeltme konusu; davranış değişikliği bu işin kapsamı dışında).
+3. **WhatsApp diyalog:** eski elle yazılmış "Ortam değişkenine dön" `Dialog`'u `EnvResetDialog` ile birebir aynı DOM (alertdialog, sm,
+   Vazgeç `data-autofocus`, `rq.rj.cancel`, `RotateCcw`); DELETE gövdesizse GET ile yeniden alma mantığı WhatsApp'a özgü kaldı.
+4. **Combobox:** efekt sırası korunur — önce söküm temizliği (`useComboData`), sonra etkin seçenek kaydırma (`useScrollActive`).
+   Dışarıdan değişen seçim çizim sırasında yansıtılır (efektsiz, eskisi gibi). `useId` tek çağrı (kimlikler aynı biçim). `ComboOption`
+   dışa açık arayüzü değişmedi; `ComboboxProps` / `ComboStatus` yalnız yeni kanca dosyası için dışa açıldı (tip). `use-combobox.ts`
+   bir primitif değil, `combobox.tsx`'in kancası — DESIGN.md'ye eklenmedi.
+5. **Sonraki adım `AvatarUploader` planı:** klon `onFile` (ön kontrol → data URL → `loadImage` → boyut kontrolü) + `noop`/`useSyncExternalStore`
+   hidrasyon kalıbı + gizli `input[type=file]` → `components/branding/` altında ortak `useImagePick(kind, onPicked)` kancası ve `HiddenFileInput`;
+   avatar: `use-avatar-uploader.ts` (kaydet / kaldır), `CropDialog`, `RemoveDialog`. Logo ayrımları (hata `setError` tek alan, avatar `dialogError`)
+   korunmalı; testid'ler `${testId}-input|-pick|-remove|-error`, `avatar-crop-*`, `logo-remove-*`.
+
+### Doğrulama (2. tur sonu)
+
+- `tsc --noEmit` (web): temiz.
+- ESLint (proje yapılandırması, React Compiler dahil) değişen/eklenen dosyalarda: 0 hata, 0 uyarı; 40/cx15 kuralıyla bu dosyalarda uyarı yok
+  (dokunulmayan `whatsapp-test-section`, `whatsapp-api-key-field` hariç).
+- Prettier yalnız değişen/eklenen dosyalara uygulandı.
+- `vitest`: 386/386; `vitest list` önce = sonra (aynı).
+- `playwright test --list`: önce = sonra (645 satır, satır numarası hariç).
+- **e2e bu turda koşulmadı:** ölçüm anında paralel bir ajanın `playwright test` süreci çalışıyordu (mock API 4217 portu çakışır). Sonraki
+  turda etkilenen spec'ler (`p12b-whatsapp`, `p13a`, `p19-j5`, `p11-admin`, combobox kullananlar: `p8-history`, `customers`, `p14a-a4`,
+  `p16`, `p13bl-lobby`, `sessions`) ve tur sonunda tam `pnpm --filter @remote/web e2e` koşulmalı.
+
+### Değişen / eklenen dosyalar (2. tur, `apps/web/` altında)
+
+Değişen: `app/(panel)/admin/settings/whatsapp/whatsapp-form.tsx`, `app/(panel)/settings/consent-text/consent-form.tsx`,
+`components/ui/combobox.tsx`, `lib/combobox.ts`, `lib/use-focus-error.ts` (`useFocusOn` eklendi).
+
+Eklenen: `admin/settings/whatsapp/{use-whatsapp-form.ts,whatsapp-parts.tsx}`, `settings/consent-text/{use-consent-form.ts,consent-parts.tsx}`,
+`components/ui/use-combobox.ts`.

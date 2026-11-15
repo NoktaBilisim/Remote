@@ -14,3 +14,16 @@ export function useFocusFirstError() {
   }, [focusErr]);
   return { formRef, focusError: () => setFocusErr((n) => n + 1) };
 }
+
+/**
+ * Tek alana odak: `focus()` her çağrıda sayaç artırır, çizimden sonra efekt `ref` öğesini odaklar (ör. doğrulama
+ * hatası olan belirli bir alan). Birden çok alan için ayrı ayrı çağrılır; efektler çağrı sırasıyla çalışır.
+ */
+export function useFocusOn<T extends HTMLElement>() {
+  const ref = useRef<T>(null);
+  const [n, setN] = useState(0);
+  useEffect(() => {
+    if (n) ref.current?.focus();
+  }, [n]);
+  return { ref, focus: () => setN((x) => x + 1) };
+}

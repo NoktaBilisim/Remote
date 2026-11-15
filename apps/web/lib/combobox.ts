@@ -11,29 +11,30 @@ export type ComboAction =
   | { kind: "select"; index: number }
   | { kind: "none" };
 
+type ComboKeyState = { open: boolean; active: number; count: number; hasText: boolean };
+
+const none = (): ComboAction => ({ kind: "none" });
+/** Açık ve dolu listede `to`'ya git; kapalıyken aç; boş listede yok. */
+const step = (s: ComboKeyState, to: number): ComboAction => {
+  if (!s.open) return { kind: "open" };
+  return s.count === 0 ? none() : { kind: "move", to };
+};
+/** Yalnız açık ve dolu listede `to`'ya git (Home/End). */
+const jump = (s: ComboKeyState, to: number): ComboAction => (s.open && s.count > 0 ? { kind: "move", to } : none());
+
+const KEYS = new Map<string, (s: ComboKeyState) => ComboAction>([
+  ["ArrowDown", (s) => step(s, s.active + 1 >= s.count ? 0 : s.active + 1)],
+  ["ArrowUp", (s) => step(s, s.active <= 0 ? s.count - 1 : s.active - 1)],
+  ["Home", (s) => jump(s, 0)],
+  ["End", (s) => jump(s, s.count - 1)],
+  ["Enter", (s) => (s.open && s.active >= 0 && s.active < s.count ? { kind: "select", index: s.active } : none())],
+  ["Escape", (s) => (s.open ? { kind: "close" } : s.hasText ? { kind: "clear" } : none())],
+  ["Tab", (s) => (s.open ? { kind: "close" } : none())],
+]);
+
 /** `active` = -1 hiçbiri. Liste kapalıyken ↓/↑ açar; açıkken dolaşır (uçlarda döner). */
-export function comboKey(key: string, s: { open: boolean; active: number; count: number; hasText: boolean }): ComboAction {
-  switch (key) {
-    case "ArrowDown":
-      if (!s.open) return { kind: "open" };
-      return s.count === 0 ? { kind: "none" } : { kind: "move", to: s.active + 1 >= s.count ? 0 : s.active + 1 };
-    case "ArrowUp":
-      if (!s.open) return { kind: "open" };
-      return s.count === 0 ? { kind: "none" } : { kind: "move", to: s.active <= 0 ? s.count - 1 : s.active - 1 };
-    case "Home":
-      return s.open && s.count > 0 ? { kind: "move", to: 0 } : { kind: "none" };
-    case "End":
-      return s.open && s.count > 0 ? { kind: "move", to: s.count - 1 } : { kind: "none" };
-    case "Enter":
-      return s.open && s.active >= 0 && s.active < s.count ? { kind: "select", index: s.active } : { kind: "none" };
-    case "Escape":
-      if (s.open) return { kind: "close" };
-      return s.hasText ? { kind: "clear" } : { kind: "none" };
-    case "Tab":
-      return s.open ? { kind: "close" } : { kind: "none" };
-    default:
-      return { kind: "none" };
-  }
+export function comboKey(key: string, s: ComboKeyState): ComboAction {
+  return KEYS.get(key)?.(s) ?? none();
 }
 
 /** Yazım gecikmesi (mimari-e10 §7 `options`: 300 ms). */
