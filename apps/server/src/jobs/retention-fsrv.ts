@@ -54,18 +54,22 @@ export async function fsrvExpire(db: Db, rt: FsrvRuntime, tenantId: string, now:
   return count;
 }
 
-/** (c) + açılış süpürmesi: bellekte aktarımı olmayan canlı satırlar → disk sil → CANCELLED. */
-export async function sweepOrphanRows(db: Db, rt: FsrvRuntime, now: Date): Promise<number> {
+/**
+ * (c) + açılış süpürmesi: bellekte aktarımı olmayan canlı satırlar → disk sil → CANCELLED. `id` imleciyle tüm canlı satırlar
+ * gezilir (D-P28b-K1-4); `batch` yalnız testte küçültülür.
+ */
+export async function sweepOrphanRows(db: Db, rt: FsrvRuntime, now: Date, batch = BATCH): Promise<number> {
   let n = 0;
-  const seen = new Set<string>();
+  let cursor: string | undefined;
   for (;;) {
-    const rows = (await frepo.liveRows(db, BATCH)).filter((r) => !rt.service.transfers.has(r.id) && !seen.has(r.id));
-    if (rows.length === 0) return n;
+    const rows = await frepo.liveRows(db, batch, cursor);
     for (const r of rows) {
-      seen.add(r.id);
+      if (rt.service.transfers.has(r.id)) continue;
       if (r.storageRel) await rt.store.remove(r.storageRel);
       n += await frepo.toFinal(db, r.id, ["UPLOADING", "SCANNING", "CLEAN"], "CANCELLED", now);
     }
+    if (rows.length < batch) return n;
+    cursor = rows[rows.length - 1]?.id;
   }
 }
 

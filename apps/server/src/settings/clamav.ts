@@ -2,7 +2,8 @@
 // value_json `{host, port, lastTest}` (gizli yok; DB CHECK `system_settings_clamav_chk`). Etkin hedef: panel kaydı > env
 // (`CLAMAV_HOST`/`CLAMAV_PORT`). Hedef kuralı (O-P28b-1): çözülen TÜM adresler `CLAMAV_ALLOWED_CIDR` içinde — aksi 400
 // `HOST_NOT_ALLOWED`. `lastTest` yalnız kayıtlı (etkin) hedefle yapılan testte yazılır; env kaynağında aynı host/port ile panel
-// satırı oluşturulur (lastTest'in tek yeri — implementation.md "P28b K3" sapması). Yazım + audit tek TX.
+// satırı oluşturulur (lastTest'in tek yeri — implementation.md "P28b K3" sapması). Bu env→panel geçişi `settings.clamav`
+// audit'iyle (`source: "env→panel"`) aynı TX'te yazılır (QA P28b m.6); sonrasında env `CLAMAV_HOST/PORT` etkisizdir. Yazım + audit tek TX.
 import {
   CLAMAV_DEFAULT_PORT,
   CLAMAV_HOST_NOT_ALLOWED_MESSAGE,
@@ -24,6 +25,7 @@ import type { Scanner, SelfTestResult } from "../fsrv/scan.ts";
 import type { Db } from "../lib/db.ts";
 import { AppError } from "../lib/errors.ts";
 import type { FixedWindowCounter } from "../lib/rate.ts";
+import { SYSTEM } from "../requests/service.ts";
 import { who } from "./system.ts";
 
 const KEY = "clamav";
@@ -119,18 +121,39 @@ export async function saveClamavSettings(
   return getClamavSettings(d);
 }
 
-/** `lastTest`'i etkin hedefin satırına yazar (env kaynağında aynı host/port ile panel satırı açılır). */
+/** Kaynak geçişi audit'inin aktörü: elle test (Super Admin) ya da öz-sınama (sistem). */
+type LastTestActor = { auth: AuthContext; ctx: AuditContext } | { auth: null; ctx: AuditContext };
+
+const SYSTEM_ACTOR: LastTestActor = { auth: null, ctx: { ip: "", userAgent: "fsrv", requestId: "" } };
+
+/**
+ * `lastTest`'i etkin hedefin satırına yazar. Satır yoksa (env kaynağı) aynı host/port ile panel satırı açılır ve aynı TX'te
+ * `settings.clamav` audit'i `{host, port, source: "env→panel"}` yazılır (QA P28b m.6; gizli değer yok).
+ */
 async function writeLastTest(
   d: Pick<ClamavDeps, "db" | "envHost" | "envPort">,
   target: ClamdTarget,
   lastTest: ClamavLastTest,
-  by: string | null,
+  actor: LastTestActor,
 ): Promise<void> {
   const rec: ClamavRecord = { host: target.host, port: target.port, lastTest };
-  await d.db.systemSetting.upsert({
-    where: { key: KEY },
-    create: { key: KEY, valueJson: toJson(rec), updatedBy: by },
-    update: { valueJson: toJson(rec) },
+  const by = actor.auth?.user.id ?? null;
+  await d.db.$transaction(async (tx) => {
+    const existed = (await tx.systemSetting.findUnique({ where: { key: KEY }, select: { key: true } })) !== null;
+    await tx.systemSetting.upsert({
+      where: { key: KEY },
+      create: { key: KEY, valueJson: toJson(rec), updatedBy: by },
+      update: { valueJson: toJson(rec) },
+    });
+    if (existed) return;
+    await writeAudit(tx, actor.ctx, {
+      ...(actor.auth ? who(actor.auth) : { tenantId: null, ...SYSTEM }),
+      action: FSRV_AUDIT.CLAMAV_UPDATED,
+      entity: "system_settings",
+      entityId: KEY,
+      newValue: { host: rec.host, port: rec.port, source: "env→panel" },
+      result: "success",
+    });
   });
 }
 
@@ -138,7 +161,7 @@ async function writeLastTest(
 export async function markMisconfigured(d: Pick<ClamavDeps, "db" | "envHost" | "envPort">, now: Date): Promise<void> {
   const target = await effectiveClamav(d);
   if (!target) return;
-  await writeLastTest(d, target, { ok: false, at: now.toISOString(), message: CLAMAV_TEST_MESSAGES.encrypted_off }, null);
+  await writeLastTest(d, target, { ok: false, at: now.toISOString(), message: CLAMAV_TEST_MESSAGES.encrypted_off }, SYSTEM_ACTOR);
 }
 
 function reasonOf(r: SelfTestResult): ClamavTestReason | "ok" {
@@ -201,7 +224,7 @@ export async function testClamav(
           dbDate: out.dbDate,
           ...(out.message ? { message: out.message } : {}),
         },
-        auth.user.id,
+        { auth, ctx },
       );
       if (out.ok) d.scanner.misconfigured = false;
     }

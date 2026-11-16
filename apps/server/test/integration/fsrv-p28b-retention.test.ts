@@ -4,15 +4,40 @@ import { randomBytes } from "node:crypto";
 import { readdir, utimes } from "node:fs/promises";
 import { join } from "node:path";
 import type { FastifyInstance } from "fastify";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 
 /** Tam saklama turu dolu test DB'sinde (binlerce firma) uzun sürer. */
 const RUN_TIMEOUT = 240_000;
 import { FSRV_AUDIT } from "@remote/contracts/audit";
 import { makeHeader } from "../../src/fsrv/box.ts";
-import { fsrvExpire, reconcile } from "../../src/jobs/retention-fsrv.ts";
+import { fsrvExpire, reconcile, sweepOrphanRows } from "../../src/jobs/retention-fsrv.ts";
+import { RetentionJob } from "../../src/jobs/retention.ts";
 import { newId } from "../../src/lib/ids.ts";
-import { createSupportSessionRow, createTenant, createUser, makeApp, TEST_FILES_DIR, testDb } from "../helpers/app.ts";
+import {
+  createSupportSessionRow,
+  createTenant,
+  createUser,
+  loginStepUp,
+  makeApp,
+  TEST_FILES_DIR,
+  testDb,
+  testFixtureDb,
+} from "../helpers/app.ts";
+import { makeDue, makeEligible } from "../helpers/tenant-purge.ts";
+
+// Kalıcı silme testi (purgeMode "on") yalnız kendi firmasında koşar (retention-p16-purge kalıbı); diğer testlerde kapsam yok.
+const scope = vi.hoisted(() => ({ tenantIds: null as Set<string> | null }));
+vi.mock("../../src/requests/repo.ts", async (orig) => {
+  const actual = await orig<typeof import("../../src/requests/repo.ts")>();
+  return {
+    ...actual,
+    retentionTenants: async (...args: Parameters<typeof actual.retentionTenants>) => {
+      const all = await actual.retentionTenants(...args);
+      const only = scope.tenantIds;
+      return only ? all.filter((t) => only.has(t.tenantId)) : all;
+    },
+  };
+});
 
 let app: FastifyInstance;
 beforeAll(async () => {
@@ -169,4 +194,97 @@ describe("AC-360 saklama işi: süre dolumu, mutabakat, anonimleştirme — disk
     },
     RUN_TIMEOUT,
   );
+
+  it("AC-360 kalıcı silme (purgeAnonymized): 30 g'den eski anonim oturumda kalan saklanan dosya → satır 0 + FILES_DIR/{tenant} boş", async () => {
+    const t = await createTenant();
+    const u = await createUser({ tenantId: t.id });
+    const sid = (await createSupportSessionRow({ tenantId: t.id, technicianId: u.id, status: "EXPIRED" })).id;
+    const f = await storedFile({ tenantId: t.id, sessionId: sid, createdAt: new Date(), state: "CLEAN" });
+    expect(await diskFiles(t.id)).toEqual([f.rel.split("/")[1]]);
+    // anonimleştirmeden 31 g önce geçmiş (savunma yolu: satır anonimleştirmede silinmemiş kenar durum); migrator, tetikleyiciden muaf
+    await testFixtureDb().$executeRaw`UPDATE support_sessions SET created_at = created_at - INTERVAL 40 DAY,
+        expires_at = expires_at - INTERVAL 40 DAY, ended_at = ended_at - INTERVAL 40 DAY,
+        anonymized_at = UTC_TIMESTAMP(3) - INTERVAL 31 DAY
+      WHERE id = ${sid}`;
+    scope.tenantIds = new Set([t.id]);
+    try {
+      await new RetentionJob(app.requests, { purgeMode: "on", fsrv: app.fsrv }).run(new Date());
+    } finally {
+      scope.tenantIds = null;
+    }
+    expect(await testDb().supportSession.count({ where: { id: sid } })).toBe(0);
+    expect(await testDb().sessionStoredFile.count({ where: { tenantId: t.id } })).toBe(0);
+    expect(await diskFiles(t.id)).toEqual([]);
+  });
+
+  it("AC-360 firma silme: SESSION_FILES adımı FILES_DIR/{tenant} klasörünü siler; session_stored_files satırı 0", async () => {
+    const t = await createTenant();
+    const u = await createUser({ tenantId: t.id });
+    const sid = (await createSupportSessionRow({ tenantId: t.id, technicianId: u.id, status: "ENDED" })).id;
+    const now = new Date();
+    await storedFile({
+      tenantId: t.id,
+      sessionId: sid,
+      createdAt: now,
+      state: "CLEAN",
+      deliveredAt: now,
+      expiresAt: new Date(now.getTime() + DAY),
+    });
+    expect(await diskFiles(t.id)).toHaveLength(1);
+    const superAdmin = await createUser({ tenantId: null, role: "SUPER_ADMIN" });
+    const sa = await loginStepUp(app, superAdmin);
+    await makeEligible(app, sa, t.id);
+    const url = `/api/v1/admin/tenants/${t.id}/purge`;
+    const pv = await app.inject({ method: "POST", url, headers: sa.headers, payload: { dryRun: true } });
+    expect(pv.statusCode, pv.body).toBe(200);
+    const sc = await app.inject({
+      method: "POST",
+      url,
+      headers: sa.headers,
+      payload: { dryRun: false, previewId: pv.json<{ previewId: string }>().previewId, confirmName: t.name },
+    });
+    expect(sc.statusCode, sc.body).toBe(202);
+    const jobId = sc.json<{ jobId: string }>().jobId;
+    await makeDue(jobId);
+    expect(await app.tenantPurge.runJob(jobId)).toBe("done");
+    expect(await testDb().sessionStoredFile.count({ where: { tenantId: t.id } })).toBe(0);
+    expect(await readdir(join(TEST_FILES_DIR, t.id)).catch((e: NodeJS.ErrnoException) => e.code)).toBe("ENOENT");
+  });
+
+  it("D-P28b-K1-4 yetim satır süpürmesi id imleciyle sayfalı: ilk sayfa bellekteki aktarımla dolu olsa da sonraki yetim CANCELLED", async () => {
+    const t = await createTenant();
+    const u = await createUser({ tenantId: t.id });
+    const sid = (await createSupportSessionRow({ tenantId: t.id, technicianId: u.id, status: "ACTIVE" })).id;
+    await testDb().tenant.update({ where: { id: t.id }, data: { storageQuotaGb: 1 } });
+    const ratio = app.fsrv.store.freeRatioOverride;
+    app.fsrv.store.freeRatioOverride = 1; // geliştirici diski dolu olabilir (disk kuralı ayrı testte)
+    // sayfa boyu 1: önce bellekte etkin aktarım (küçük id), sonra yetim satır (büyük id)
+    const liveT = await app.fsrv.service.begin({
+      sessionId: sid,
+      tenantId: t.id,
+      direction: "TO_TECH",
+      purpose: "FILE",
+      xid: newId().slice(0, 16),
+      name: "a.bin",
+      size: 10,
+      sha256: "0".repeat(64),
+      retentionDays: 1,
+      sender: { username: "customer", ctx: { ip: "", userAgent: "test", requestId: "r" } },
+    });
+    app.fsrv.store.freeRatioOverride = ratio;
+    if ("reject" in liveT) throw new Error(liveT.reject);
+    await new Promise((r) => setTimeout(r, 2)); // ULID zaman bileşeni: yetimin id'si büyük olsun
+    const orphan = await storedFile({ tenantId: t.id, sessionId: sid, createdAt: new Date(), state: "UPLOADING" });
+    expect(liveT.fid < orphan.id).toBe(true);
+    await sweepOrphanRows(app.db, app.fsrv, new Date(), 1);
+    expect(await testDb().sessionStoredFile.findUniqueOrThrow({ where: { id: orphan.id } })).toMatchObject({
+      state: "CANCELLED",
+      storageRel: null,
+    });
+    expect((await testDb().sessionStoredFile.findUniqueOrThrow({ where: { id: liveT.fid } })).state).toBe("UPLOADING");
+    const liveRel = (await testDb().sessionStoredFile.findUniqueOrThrow({ where: { id: liveT.fid } })).storageRel ?? "";
+    expect(await diskFiles(t.id)).toEqual([`${liveRel.split("/")[1]}.part`]); // yetimin .part'ı silindi, etkin aktarımınki kaldı
+    const tr = app.fsrv.service.transfers.get(liveT.fid);
+    if (tr) await app.fsrv.service.abortUpload(tr, "test");
+  });
 });

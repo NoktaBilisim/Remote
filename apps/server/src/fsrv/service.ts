@@ -64,6 +64,8 @@ export interface Transfer {
   header?: Buffer;
   key?: Buffer;
   next: number;
+  /** D-P28b-K1-1: parça yazımı sürerken gelen ikinci PUT 409 `{next}` alır (aynı parçaya eşzamanlı yazım yok). */
+  writing?: boolean;
   hash?: Hash;
   retentionDays: number;
   idleTimer?: unknown;
@@ -248,9 +250,14 @@ export class FsrvService {
     if (n < t.next) return { status: 200, body: { next: t.next, received: Math.min(t.next * FSRV_CHUNK_BYTES, t.size) } };
     if (n > t.next) return { status: 409, body: { next: t.next } };
     if (body.length !== fsrvChunkSize(t.size, n)) return { status: 400 };
-    if ((await this.d.store.freeRatio()) < DISK_MIN_FREE_RATIO) return { status: 409, quota: true };
-    await this.d.store.writePart(t.rel, chunkOffset(n), sealChunk(t.key, t.header, t.size, n, body));
-    if (t.next !== n) return { status: 409, body: { next: t.next } }; // eşzamanlı aynı parça
+    if (t.writing) return { status: 409, body: { next: t.next } }; // denetim + bayrak aynı eşzamanlı blokta
+    t.writing = true;
+    try {
+      if ((await this.d.store.freeRatio()) < DISK_MIN_FREE_RATIO) return { status: 409, quota: true };
+      await this.d.store.writePart(t.rel, chunkOffset(n), sealChunk(t.key, t.header, t.size, n, body));
+    } finally {
+      t.writing = false;
+    }
     t.hash.update(body);
     t.next = n + 1;
     this.touch(t);

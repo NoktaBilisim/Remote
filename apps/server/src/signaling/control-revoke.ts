@@ -5,6 +5,7 @@ import type { PermissionKey } from "@remote/contracts/permissions";
 import type { Cap, ControlRevokeReason } from "@remote/contracts/ws";
 import { writeAudit } from "../audit/service.ts";
 import { onCapsNarrowed, onControlClosed, onGuestGone } from "./clip-print.ts";
+import { fsrvSideGone } from "./fsrv.ts";
 import { capsFor, fileModeOf, guestFeatures } from "./rooms-features.ts";
 import { closeState, logFail, recordClose, SYSTEM, SYSTEM_CTX, systemClose } from "./control-record.ts";
 import type { Rooms } from "./rooms.ts";
@@ -110,6 +111,7 @@ export async function narrowCaps(rooms: Rooms, room: Room, perms: ReadonlySet<Pe
   if (visible.length !== seen.length) room.admitted?.peer?.send({ t: "caps.update", caps: visible });
   rooms.metrics.inc("rs_control_total", { event: "caps_narrowed" });
   onCapsNarrowed(rooms, room); // P28a: clipboard/print düştüyse izin kapanır / bekleyen yazdırma iptal
+  if (!next.includes("file_transfer")) fsrvSideGone(rooms, room, "TECH"); // D-P28b-K1-3: teknisyenin indirme belirteçleri
   const jobs: Promise<void>[] = [];
   if (!next.includes("remote_control")) jobs.push(revokeControl(rooms, room, "permission"));
   jobs.push(

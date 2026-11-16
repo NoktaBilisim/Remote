@@ -131,19 +131,33 @@ interface PurgeSessionsResult {
   requests: number;
 }
 
+type RawQuery = Pick<Db, "$queryRaw">;
+
+/** Adım 2 adayları (TX içinde ve diskin TX'ten önce silinmesi için aynı koşul). */
+function purgeSessionCandidates(q: RawQuery, tenantId: string, limit: number) {
+  return q.$queryRaw<{ id: string; request_id: string | null }[]>`SELECT s.id, s.request_id FROM support_sessions s
+    WHERE s.tenant_id = ${tenantId} AND s.anonymized_at < ${PURGE_CUT}
+      AND NOT EXISTS (SELECT 1 FROM device_bindings b WHERE b.first_session_id = s.id AND b.tenant_id = s.tenant_id)
+      AND NOT EXISTS (SELECT 1 FROM device_bindings b WHERE b.last_session_id = s.id AND b.tenant_id = s.tenant_id)
+    ORDER BY s.anonymized_at
+    LIMIT ${limit}`;
+}
+
 /**
  * Adım 2 (S*): `anonymized_at < cut` olan ve hiçbir kaydın `first/last_session_id`'si olmayan oturumlar. Sıra
  * `session_files` → `session_consents` (tetikleyici üst oturumu okur; oturumdan ÖNCE) → `support_sessions` → bağlı
  * talepler (`anonymized_at < cut`, başka oturum/onay başvurusu yok).
  */
-export async function purgeSessionsBatch(db: Db, tenantId: string, limit: number): Promise<PurgeSessionsResult> {
+export async function purgeSessionsBatch(
+  db: Db,
+  tenantId: string,
+  limit: number,
+  beforeTx?: (sessionIds: string[]) => Promise<void>,
+): Promise<PurgeSessionsResult> {
+  // P28b K8 (QA m.1): savunma amaçlı silinen saklanan dosya satırlarının diski TX'ten ÖNCE silinir (anonimleştirmeyle aynı yön).
+  if (beforeTx) await beforeTx((await purgeSessionCandidates(db, tenantId, limit)).map((r) => r.id));
   return db.$transaction(async (tx) => {
-    const rows = await tx.$queryRaw<{ id: string; request_id: string | null }[]>`SELECT s.id, s.request_id FROM support_sessions s
-      WHERE s.tenant_id = ${tenantId} AND s.anonymized_at < ${PURGE_CUT}
-        AND NOT EXISTS (SELECT 1 FROM device_bindings b WHERE b.first_session_id = s.id AND b.tenant_id = s.tenant_id)
-        AND NOT EXISTS (SELECT 1 FROM device_bindings b WHERE b.last_session_id = s.id AND b.tenant_id = s.tenant_id)
-      ORDER BY s.anonymized_at
-      LIMIT ${limit}`;
+    const rows = await purgeSessionCandidates(tx, tenantId, limit);
     if (rows.length === 0) return { selected: 0, sessions: 0, consents: 0, files: 0, requests: 0 };
     const ids = Prisma.join(rows.map((r) => r.id));
     // P28b (§3.3): stored_files → files → consents → sessions (anonimleştirme zaten sildi; savunma — sayı `files`'a eklenir).

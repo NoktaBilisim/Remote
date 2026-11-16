@@ -3357,6 +3357,122 @@ Ret örneği (müşteri kutuyu açmamış): `{"t":"error","code":"FORBIDDEN","me
 Metrikler: `rs_clipboard_transfer_total{direction,result}`, `rs_print_job_total{result}`,
 `rs_clip_print_denied_total{kind,reason}` (okuma ve sorun giderme: runbook §28a).
 
+## Sunucuda dosya aktarımı ve ClamAV (P28b)
+
+Kaynak: `docs/mimari-p28b.md` §4–§5 (r3), ADR-0032, `packages/contracts/src/api/fsrv.ts`, `api/clamav.ts`, `ws-fsrv.ts`
+(fikstür `fixtures/fsrv.json`). Firma **Ayarlar > Dosyalar** anahtarı açıksa (SERVER modu) yeni oturumda tüm dosya ve
+yazdırma aktarımları bu uçlardan geçer; kapalıysa (P2P) P5 DataChannel yolu aynen çalışır. Mod oturum açılışında
+`support_sessions.file_mode`'a yazılır ve oturum boyunca değişmez.
+
+Yeni hata kodları: **`STORAGE_QUOTA`** (409, "Firma depolama kotası doldu"), **`AV_NOT_READY`** (409, "Önce virüs tarama
+bağlantısını başarıyla test edin"), `HOST_NOT_ALLOWED` (400, alan hatası). Yükleme/indirme belirteçleri yalnız
+`Authorization: Bearer` başlığında gider, **URL'de asla**; bu iki uç çerez okumaz ve CSRF istemez.
+
+### PUT /api/v1/fsrv/uploads/:fid/chunks/:n
+
+- **Yetki:** WS `fsrv.upload` ile verilen yükleme belirteci (fid'e bağlı; son parçadan sonra ya da 10 dk hareketsizlikte düşer).
+- **Girdi:** `Content-Type: application/octet-stream`, gövde = `n`. parça (0'dan). Son parça hariç tam 1 048 576 bayt.
+- **Çıktı:** 200 `{next, received}`; son parçada 202 `{state:"SCANNING"}`. `n < next` → 200 (idempotent, yazmaz).
+- **Hatalar:** `n > next` → 409 `{next}` (zarf değil; istemci `next`'ten devam eder); parça boyu yanlış → 400; belirteç
+  yok/süresi dolmuş/fid uyuşmaz → 404 (IP başına dakikada 60 404'ten sonra 429); disk boş < %10 → 409 `STORAGE_QUOTA`.
+  Belirteç gövde okunmadan denetlenir.
+
+### GET /api/v1/fsrv/files/:fid/content
+
+- **Yetki:** WS `fsrv.download` ya da geçmiş link ucundan alınan indirme belirteci (≤ 5 dk; fid + firma + oturum + aktöre
+  bağlı; süre içinde tekrar kullanılabilir).
+- **Çıktı:** 200 akış, `application/octet-stream`, `Content-Disposition: attachment; filename="…"; filename*=UTF-8''…`,
+  `Content-Length`, `Cache-Control: no-store`, `X-Content-Type-Options: nosniff`,
+  `Content-Security-Policy: sandbox; default-src 'none'`, `Cross-Origin-Resource-Policy: same-origin`. Her istek
+  `file.download` audit'i üretir.
+- **Hatalar:** belirteç yok/süresi dolmuş/fid uyuşmaz/dosya temiz değil/(geçmiş belirtecinde) oturum ya da kullanıcı etkin
+  değil → 404 (IP başına 60/dk → 429).
+
+```bash
+curl -sS -H "Authorization: Bearer <indirme-belirteci>" -o dosya.bin \
+  "https://<SITE_HOST>:4450/api/v1/fsrv/files/<fid>/content"
+```
+
+### POST /api/v1/sessions/:id/stored-files/:fid/link
+
+- **Yetki:** çerez + Origin + CSRF; `session_history.view` **ve** `file_transfer.use`; geçmiş kapsamı (teknisyen yalnız
+  kendi oturumları, Admin firmanın tümü).
+- **Girdi:** yok.
+- **Çıktı:** 200 `{"fid":"01J…","token":"…","expiresAt":"2026-11-16T10:05:00.000Z"}` (5 dk; belirteç çağıranın oturumuna
+  bağlıdır, çıkış yapınca düşer).
+- **Hatalar:** başka firma/oturum, kapsam dışı ya da saklanan dosya değil (yalnız teslim edilmiş, temiz `FILE`) → 404;
+  kullanıcı başına dakikada 20 → 429.
+
+### GET /api/v1/admin/settings/clamav · PUT · POST /test (Super Admin)
+
+| Uç                                        | Yetki                 | Girdi                                  | Çıktı / hata                                                                                                                                                                                                                                                                                                     |
+| ----------------------------------------- | --------------------- | -------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `GET /api/v1/admin/settings/clamav`       | Super Admin           | —                                      | `{host, port, source:"panel"\|"env", lastTest, signatureAgeDays?, stale}`. Etkin hedef panel kaydı > env; env yalnız ilk değerdir, ilk testte panel satırı açılır (audit `settings.clamav {source:"env→panel"}`). Env'e dönüş ucu yok                                                                            |
+| `PUT /api/v1/admin/settings/clamav`       | Super Admin + step-up | `{host: ad\|IP ≤ 253, port: 1..65535}` | 200 görünüm; değişince `lastTest = null`. Host'un çözülen tüm adresleri `CLAMAV_ALLOWED_CIDR` içinde değilse 400 `HOST_NOT_ALLOWED`. Audit `settings.clamav` eski→yeni                                                                                                                                           |
+| `POST /api/v1/admin/settings/clamav/test` | Super Admin; 6/dk     | `{host?, port?}` (boşsa kayıtlı hedef) | 200 `{ok, eicarDetected, encryptedDetected, version, dbDate, signatureAgeDays, stale, message?}`. Başarı = PING `PONG` + EICAR yakalandı + şifreli zip `Heuristics.Encrypted.*`; aksi `ok:false`. Sonuç yalnız kayıtlı hedefle yapılan testte `lastTest`'e yazılır. Audit `settings.clamav.test`; 7. istek → 429 |
+
+Örnek test yanıtı:
+
+```json
+{
+  "ok": true,
+  "eicarDetected": true,
+  "encryptedDetected": true,
+  "version": "ClamAV 1.5.4",
+  "dbDate": "2026-11-16T04:12:00.000Z",
+  "signatureAgeDays": 0,
+  "stale": false
+}
+```
+
+### Mevcut uçlarda değişenler (P28b)
+
+| Uç                                 | Değişiklik                                                                                                                                                                                                                                                                                                                                         |
+| ---------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `GET/PUT /api/v1/settings/tenant`  | Ek alanlar `fileServerMode: boolean`, `fileRetentionDays: 1..7`, `consentUpdated?: true`; görünümde `storage: {usedBytes, quotaBytes}`. Kapalı→açık geçişinde son ClamAV testi başarılı değilse 409 `AV_NOT_READY` (`fields.fileServerMode`), `consentUpdated` yoksa 400 (`fields.consentUpdated`). Audit `tenant_settings.updated` + `consentAck` |
+| `PATCH /api/v1/admin/tenants/:id`  | Super Admin; ek alan `storageQuotaGb: 1..2000` (varsayılan 20). Kullanımın altına düşürülebilir (yeni yüklemeler reddedilir). Audit `tenant.storage_quota` eski→yeni                                                                                                                                                                               |
+| `GET /api/v1/sessions/:id/history` | Ek alan `storedFiles: {id, direction, purpose, name, sizeBytes, state, scanReason?, signature?, expiresAt?, canDownload}[]`; `PRINT` satırında `name` = `belge.pdf`                                                                                                                                                                                |
+| `/health` (iç)                     | Gövdeye `clamav: {configured, reachable, signatureAgeDays, stale}`; HTTP durumu değişmez, `/ready` clamd'a bakmaz                                                                                                                                                                                                                                  |
+
+### WebSocket `fsrv.*` mesajları
+
+Misafir istemci yeteneği `Sec-WebSocket-Protocol` içinde `rs.cap.fsrv1` ile bildirir (Windows 0.14.0+); tarayıcı misafiri
+yetenekli sayılır. Teknisyene `hello`/`peer.joined{guest}` yeni alan `fileMode?: "P2P"|"SERVER"` ve `guestFeatures`'ta
+`"fsrv"` taşır; misafire `hello.fileMode` yalnız yetenekli sokete gider. Gözetimsiz odada `fsrv` yoktur. `xid` istemcinin
+istek kimliği (`^[A-Za-z0-9_-]{8,26}$`), `fid` sunucunun ULID'idir.
+
+| `t`             | Yön              | Alanlar                                                                                     | Kural                                                                                                                                                                                                                                                                          |
+| --------------- | ---------------- | ------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `fsrv.init`     | gönderen→S       | `xid`, `name` (1..255), `size` (1..268435456), `sha256`, `purpose: "FILE"\|"PRINT"`, `pid?` | Kapı sırası (ilk tutan `fsrv.status{REJECTED, reason}`): `MODE`, `FORBIDDEN`, `UNSUPPORTED`, `BUSY`, `TOO_LARGE` (min(firma sınırı, 256 MiB)), `RATE_LIMITED` (20/dk/oda), `SESSION_LIMIT` (2 GiB), `QUOTA`. `PRINT`: `pid` ve `size` bekleyen P28a işiyle eşleşmeli, ≤ 20 MiB |
+| `fsrv.upload`   | S→gönderen       | `xid`, `fid`, `token`, `chunkBytes: 1048576`, `chunks`                                      | Yükleme belirteci                                                                                                                                                                                                                                                              |
+| `fsrv.status`   | S→iki taraf      | `fid?`, `xid?`, `state`, `reason?`, `signature?`, `progress?`                               | `state` ∈ `UPLOADING SCANNING CLEAN INFECTED SCAN_FAILED CORRUPT CANCELLED REJECTED DELIVERED`; `INFECTED`/`SCAN_FAILED` iki tarafa ≤ 5 sn. `SCAN_FAILED.reason` ∈ `UNAVAILABLE TIMEOUT ENCRYPTED LIMIT BUSY ERROR`                                                            |
+| `fsrv.offer`    | S→alıcı          | `fid`, `name`, `size`, `sha256`, `purpose`, `pid?`                                          | Yalnız `CLEAN` sonrası; `FILE` mevcut kabul diyaloğunu açar, `PRINT` P28a onayına gider                                                                                                                                                                                        |
+| `fsrv.accept`   | alıcı→S          | `fid`                                                                                       | Sunucu `fsrv.download` döner; fid başına en çok 3 belirteç                                                                                                                                                                                                                     |
+| `fsrv.reject`   | alıcı→S          | `fid`                                                                                       | Göndericiye `REJECTED`; dosya diskten hemen silinir                                                                                                                                                                                                                            |
+| `fsrv.download` | S→alıcı          | `fid`, `token`, `expiresAt`                                                                 | ≤ 5 dk                                                                                                                                                                                                                                                                         |
+| `fsrv.result`   | alıcı→S          | `fid`, `ok`                                                                                 | SHA-256 doğrulamasından sonra. `ok:true` → `DELIVERED` (yazdırma belgesi silinir); `ok:false` → yeniden kabul edilebilir, 3. başarısızlıkta `CANCELLED`                                                                                                                        |
+| `fsrv.cancel`   | gönderen/alıcı→S | `fid`                                                                                       | Yükleme/tarama ya da teslim edilmemiş teklif → `CANCELLED` + disk silinir                                                                                                                                                                                                      |
+
+Misafir soketinde `fsrv.*` yalnız SERVER odasında ve yetenekli sokette şemadadır; aksi bağlantı **1008** ile kapanır. SERVER
+odasında P5 `file.meta` yok sayılır, misafire giden `caps`'ten `file_transfer`/`print` çıkarılır; yeteneksiz misafire P28a
+`print.request` → `FORBIDDEN`. Oda kapanınca ve sunucu açılışında yarım/teslim edilmemiş dosyalar `CANCELLED` olur ve silinir.
+
+### Audit ve metrik (P28b)
+
+| Eylem                  | Entity / `new_value`                                                       |
+| ---------------------- | -------------------------------------------------------------------------- |
+| `settings.clamav`      | `system_settings`; eski→yeni `{host, port}` (env→panel geçişinde `source`) |
+| `settings.clamav.test` | `{ok, eicarDetected, encryptedDetected, signatureAgeDays}`                 |
+| `tenant.storage_quota` | `tenants`; eski→yeni `{storageQuotaGb}`                                    |
+| `file.upload`          | `support_sessions`; `{fid, direction, purpose, sizeBytes, ext, result}`    |
+| `file.scan`            | `{fid, result: CLEAN\|INFECTED\|SCAN_FAILED, reason?, durationMs}`         |
+| `file.infected`        | `{fid, signature, ext, sizeBytes}` (`result: fail`)                        |
+| `file.download`        | `{fid, context: session\|history, by: tech\|customer}`                     |
+| `file.expired`         | `retention`; firma başına `{count, bytes}`                                 |
+
+Dosya adı, belirteç ve içerik hiçbir olayda yoktur. Metrikler `rs_av_scan_total{result}`, `rs_av_up`, `rs_av_selftest_ok`,
+`rs_av_signature_age_seconds`, `rs_fsrv_denied_total{reason}` (alarm eşikleri: runbook §28b.4).
+
 ## Saklama ve anonimleştirme (P13a)
 
 Yeni uç yoktur. Kaynak: `docs/mimari-p13.md` §2–§3, `apps/server/src/jobs/retention.ts`.

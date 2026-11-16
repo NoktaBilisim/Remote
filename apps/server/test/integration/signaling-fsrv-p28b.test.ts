@@ -4,14 +4,20 @@
 // (ayrı iş); burada parçalar servis üzerinden (`putChunk`) sürülür.
 import { createHash } from "node:crypto";
 import { createServer, type Server } from "node:net";
+import { Writable } from "node:stream";
 import { avEicar } from "@remote/contracts/api/clamav";
+import { FSRV_AUDIT } from "@remote/contracts/audit";
+import type { PermissionKey } from "@remote/contracts/permissions";
+import pino from "pino";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import { ClamdClient } from "../../src/fsrv/clamd.ts";
 import { Scanner } from "../../src/fsrv/scan.ts";
 import { ScanQueue } from "../../src/fsrv/scan-queue.ts";
 import { createMetrics } from "../../src/ops/metrics.ts";
 import { realClock } from "../../src/signaling/types.ts";
+import { newId } from "../../src/lib/ids.ts";
 import { createTenant, createUser, loginAs, ORIGIN, testDb } from "../helpers/app.ts";
+import { FAKE_METRICS_TOKEN } from "../helpers/secrets.ts";
 import { startLive, type Live } from "../helpers/signal-flow.ts";
 import { connect, techHeaders, type WsClient } from "../helpers/ws.ts";
 
@@ -119,7 +125,7 @@ async function serverRoom(l: Live, caps: string[], opts: { serverMode?: boolean 
   tech.send({ t: "guest.admit", admitCode });
   const hello = await guest.waitFor("hello");
   const joined = await tech.waitFor("peer.joined");
-  return { tenantId: tenant.id, sessionId: created.id, tech, guest, hello, joined };
+  return { tenantId: tenant.id, userId: user.id, sessionId: created.id, tech, guest, hello, joined };
 }
 
 async function grant(tech: WsClient, guest: WsClient): Promise<void> {
@@ -260,5 +266,95 @@ describe("P28b K3 — fsrv.* akışı (sahte clamd)", () => {
       .poll(async () => (await testDb().sessionStoredFile.findUnique({ where: { id: up.fid }, select: { state: true } }))?.state)
       .toBe("CANCELLED");
     expect(live.app.fsrv.service.transfers.size).toBe(0);
+  });
+});
+
+function captureLogs(): { logger: pino.Logger; text: () => string } {
+  const lines: string[] = [];
+  const stream = new Writable({
+    write(chunk: Buffer, _enc, cb) {
+      lines.push(chunk.toString());
+      cb();
+    },
+  });
+  return { logger: pino({ level: "debug" }, stream), text: () => lines.join("") };
+}
+
+const bearer = (token: string) => ({ authorization: `Bearer ${token}` });
+
+describe("P28b §12 log taraması (AC-356, T2/T11)", () => {
+  it("AC-356 dosya adı ve yükleme/indirme belirteci tam akıştan sonra sunucu logu, audit_logs ve /metrics'te 0 eşleşme", async () => {
+    const logs = captureLogs();
+    live = await startLive({ logger: logs.logger, env: { METRICS_TOKEN: FAKE_METRICS_TOKEN } });
+    useFakeClamd(live);
+    const x = await serverRoom(live, NEW_CAPS);
+    const name = `gizli-ad-${newId()}.txt`;
+    const body = Buffer.from("log taramasi icerigi ".repeat(20));
+    x.tech.send(init("xid-log-0001", body, { name }));
+    const up = await x.tech.waitFor("fsrv.upload");
+    const putRes = await live.app.inject({
+      method: "PUT",
+      url: `/api/v1/fsrv/uploads/${up.fid}/chunks/0`,
+      headers: { ...bearer(up.token), "content-type": "application/octet-stream" },
+      payload: body,
+    });
+    expect(putRes.statusCode).toBe(202);
+    await x.guest.waitFor("fsrv.offer");
+    x.guest.send({ t: "fsrv.accept", fid: up.fid });
+    const dl = await x.guest.waitFor("fsrv.download");
+    const getRes = await live.app.inject({ method: "GET", url: `/api/v1/fsrv/files/${up.fid}/content`, headers: bearer(dl.token) });
+    expect(getRes.statusCode).toBe(200);
+    x.guest.send({ t: "fsrv.result", fid: up.fid, ok: true });
+    await expect.poll(() => x.tech.msgs.some((m) => m.t === "fsrv.status" && m.state === "DELIVERED")).toBe(true);
+    for (const action of [FSRV_AUDIT.UPLOAD, FSRV_AUDIT.SCAN, FSRV_AUDIT.DOWNLOAD])
+      await expect.poll(() => testDb().auditLog.count({ where: { entityId: x.sessionId, action } })).toBeGreaterThan(0);
+
+    // pozitif denetimler: ad DB'de (temizlenmeden) duruyor, log gerçekten yakalandı ve akışın kayıtlarını içeriyor
+    const row = await testDb().sessionStoredFile.findUniqueOrThrow({ where: { id: up.fid }, select: { fileName: true } });
+    expect(row.fileName).toBe(name);
+    const logText = logs.text();
+    expect(logText).toContain(up.fid);
+    const audit = JSON.stringify(
+      await testDb().auditLog.findMany({
+        where: { entityId: x.sessionId },
+        select: { action: true, username: true, entity: true, entityId: true, oldValue: true, newValue: true, userAgent: true },
+      }),
+    );
+    expect(audit).toContain(up.fid);
+    const metrics = (await live.app.inject({ method: "GET", url: "/metrics", headers: bearer(FAKE_METRICS_TOKEN) })).body;
+    expect(metrics).toContain("rs_fsrv_upload_total");
+
+    for (const [where, hay] of [
+      ["log", logText],
+      ["audit", audit],
+      ["metrics", metrics],
+    ] as const)
+      for (const needle of ["gizli-ad-", name, up.token, dl.token])
+        expect(hay.includes(needle), `${where}: ${needle.slice(0, 9)}`).toBe(false);
+  });
+});
+
+describe("D-P28b-K1-3 fsrv.accept güncel yetki", () => {
+  it("D-P28b-K1-3 teknisyenin file_transfer.use yetkisi düşünce önceki indirme belirteci 404, yeni fsrv.accept belirteç üretmez", async () => {
+    live = await startLive();
+    useFakeClamd(live);
+    const x = await serverRoom(live, NEW_CAPS);
+    const body = Buffer.from("musteriden teknisyene");
+    x.guest.send(init("xid-acc-0001", body));
+    const up = await x.guest.waitFor("fsrv.upload");
+    expect(await live.app.fsrv.service.putChunk(up.fid, 0, body)).toMatchObject({ status: 202 });
+    await x.tech.waitFor("fsrv.offer");
+    x.tech.send({ t: "fsrv.accept", fid: up.fid });
+    const dl = await x.tech.waitFor("fsrv.download");
+    const get = () => live?.app.inject({ method: "GET", url: `/api/v1/fsrv/files/${up.fid}/content`, headers: bearer(dl.token) });
+    expect((await get())?.statusCode).toBe(200);
+
+    const narrowed = Object.keys(PERMS).filter((k) => k !== "file_transfer.use") as PermissionKey[];
+    await live.app.rooms.applyPermChange(x.userId, narrowed);
+    expect((await get())?.statusCode).toBe(404);
+    const before = x.tech.msgs.filter((m) => m.t === "fsrv.download").length;
+    x.tech.send({ t: "fsrv.accept", fid: up.fid });
+    await new Promise((r) => setTimeout(r, 100));
+    expect(x.tech.msgs.filter((m) => m.t === "fsrv.download").length).toBe(before);
   });
 });

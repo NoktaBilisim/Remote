@@ -179,10 +179,17 @@ export function listForSession(db: DbOrTx, tenantId: string, sessionId: string, 
   });
 }
 
-/** Açılış süpürmesi / mutabakat (c) adayları: disk taşıyan durumlar ve teslim edilmemiş CLEAN. */
-export function liveRows(db: DbOrTx, take: number): Promise<StoredRow[]> {
+/**
+ * Açılış süpürmesi / mutabakat (c) adayları: disk taşıyan durumlar ve teslim edilmemiş CLEAN. `id` imleciyle sayfalı
+ * (D-P28b-K1-4: bellekte etkin satırlarla dolu bir sayfa sonraki yetimleri gizlemesin).
+ */
+export function liveRows(db: DbOrTx, take: number, after?: string): Promise<StoredRow[]> {
   return db.sessionStoredFile.findMany({
-    where: { OR: [{ state: { in: ["UPLOADING", "SCANNING"] } }, { state: "CLEAN", deliveredAt: null }] },
+    where: {
+      OR: [{ state: { in: ["UPLOADING", "SCANNING"] } }, { state: "CLEAN", deliveredAt: null }],
+      ...(after ? { id: { gt: after } } : {}),
+    },
+    orderBy: { id: "asc" },
     take,
     select: rowSelect,
   });

@@ -75,6 +75,8 @@ export async function handleFsrv(rooms: Rooms, room: Room, from: FsrvFrom, m: Fs
   const side: Side = from.side;
   switch (m.t) {
     case "fsrv.accept": {
+      // D-P28b-K1-3: teknisyen alıcıysa güncel yetki + oda caps'i yeniden denetlenir (init'ten sonra daralmış olabilir).
+      if (from.side === "tech" && !techMayFile(room, from.tech)) return;
       const actor: TokenActor = from.side === "tech" ? { kind: "TECH", userId: from.tech.userId } : { kind: "CUSTOMER" };
       return lifecycle.accept(svc, room.sessionId, m.fid, side, actor);
     }
@@ -87,11 +89,13 @@ export async function handleFsrv(rooms: Rooms, room: Room, from: FsrvFrom, m: Fs
   }
 }
 
+const techMayFile = (room: Room, tech: TechConn): boolean =>
+  room.caps.includes("file_transfer") && tech.permissions.has("file_transfer.use");
+
 /** Kapı adımı 2 (§5.2, D-P28b-3): FILE → dosya yetkisi/caps; PRINT → P28a bekleyen işle pid + boyut eşleşmesi, ≤ 20 MiB. */
 function permissionGate(room: Room, from: FsrvFrom, m: InitMsg): boolean {
   if (m.purpose === "FILE") {
-    if (!room.caps.includes("file_transfer")) return false;
-    return from.side === "guest" || from.tech.permissions.has("file_transfer.use");
+    return from.side === "guest" ? room.caps.includes("file_transfer") : techMayFile(room, from.tech);
   }
   if (from.side !== "tech" || !actorMay(room, from.tech, "print") || room.control.state !== "GRANTED") return false;
   const p = room.clipPrint.printPending;

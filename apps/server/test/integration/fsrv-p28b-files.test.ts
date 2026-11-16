@@ -5,7 +5,7 @@ import { createHash } from "node:crypto";
 import { readdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { FastifyInstance } from "fastify";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { FSRV_AUDIT } from "@remote/contracts/audit";
 import type { ServerOutbound } from "@remote/contracts/ws";
 import { FSRV_CHUNK_BYTES, FSRV_NOTFOUND_PER_MIN_IP } from "@remote/contracts/ws-fsrv";
@@ -13,6 +13,7 @@ import * as lifecycle from "../../src/fsrv/lifecycle.ts";
 import type { Side } from "../../src/fsrv/service.ts";
 import { newId } from "../../src/lib/ids.ts";
 import { startFakeClamd, type FakeClamd } from "../helpers/fake-clamd.ts";
+import { FAKE_METRICS_TOKEN } from "../helpers/secrets.ts";
 import {
   createSupportSessionRow,
   createTenant,
@@ -35,7 +36,7 @@ const ctx = { ip: "127.0.0.1", userAgent: "vitest", requestId: "r" };
 
 beforeAll(async () => {
   fake = await startFakeClamd();
-  app = makeApp({ env: fake.env(), fsrvTest: fake.test });
+  app = makeApp({ env: { ...fake.env(), METRICS_TOKEN: FAKE_METRICS_TOKEN }, fsrvTest: fake.test });
   await app.ready();
   app.fsrv.service.sink = {
     send: (sessionId, side, msg) => sent.push({ sessionId, side, msg }),
@@ -94,6 +95,13 @@ async function upload(sessionId: string, content: Buffer, o: Parameters<typeof b
   return b.fid;
 }
 
+/** AC-359: `rs_av_scan_total{result}` sayacının /metrics'teki değeri (yoksa 0). */
+async function scanCount(result: "clean" | "infected" | "failed_error"): Promise<number> {
+  const res = await app.inject({ method: "GET", url: "/metrics", headers: { authorization: `Bearer ${FAKE_METRICS_TOKEN}` } });
+  const m = new RegExp(`^rs_av_scan_total\\{result="${result}"\\} (\\d+)$`, "m").exec(res.body);
+  return Number(m?.[1] ?? 0);
+}
+
 const clean = (fid: string) => expect.poll(async () => (await row(fid)).state).toBe("CLEAN");
 
 async function downloadToken(sessionId: string, fid: string): Promise<string> {
@@ -116,8 +124,10 @@ describe("AC-356 yükleme → şifreli disk → tarama → teklif → indirme �
     const sid = await session();
     const marker = Buffer.from("GIZLI-ICERIK-ISARETI-");
     const content = Buffer.concat([marker, Buffer.alloc(2.5 * 1024 * 1024 - marker.length, 7)]);
+    const scansBefore = await scanCount("clean");
     const fid = await upload(sid, content);
     await clean(fid);
+    expect(await scanCount("clean")).toBe(scansBefore + 1); // AC-359 metrik
     const r = await row(fid);
     const disk = await readFile(join(TEST_FILES_DIR, r.storageRel ?? "x"));
     expect(disk.includes(marker)).toBe(false);
@@ -171,12 +181,43 @@ describe("AC-356 yükleme → şifreli disk → tarama → teklif → indirme �
   });
 });
 
+describe("D-P28b-K1-1 aynı parçaya eşzamanlı PUT", () => {
+  it("D-P28b-K1-1 aynı n için iki eşzamanlı farklı gövde → biri 200, diğeri 409 {next}; parça diske bir kez yazılır", async () => {
+    const sid = await session();
+    const content = Buffer.alloc(FSRV_CHUNK_BYTES * 2, 4);
+    const b = await begin(sid, content);
+    const store = app.fsrv.store;
+    const orig = store.writePart.bind(store);
+    // yazımı yavaşlat: ikinci PUT birincinin yazımı sürerken gelsin
+    const spy = vi.spyOn(store, "writePart").mockImplementation(async (...a: Parameters<typeof store.writePart>) => {
+      await new Promise((r) => setTimeout(r, 50));
+      return orig(...a);
+    });
+    try {
+      const [r1, r2] = await Promise.all([
+        put(b.fid, 0, b.token, content.subarray(0, FSRV_CHUNK_BYTES)),
+        put(b.fid, 0, b.token, Buffer.alloc(FSRV_CHUNK_BYTES, 5)),
+      ]);
+      expect([r1.statusCode, r2.statusCode].sort()).toEqual([200, 409]);
+      const conflict = r1.statusCode === 409 ? r1 : r2;
+      expect(conflict.json()).toEqual({ next: 0 });
+      const rel = (await row(b.fid)).storageRel;
+      expect(spy.mock.calls.filter((c) => c[0] === rel)).toHaveLength(1);
+    } finally {
+      spy.mockRestore();
+    }
+    await lifecycle.cancel(app.fsrv.service, sid, b.fid, "tech");
+  });
+});
+
 describe("AC-358/359 virüslü ve taranamayan dosya teslim edilmez, disk hemen silinir", () => {
   it("AC-358 virüslü dosya → INFECTED + imza iki tarafa; disk silinir; file.infected audit", async () => {
     const sid = await session();
     const before = await diskFiles();
+    const infectedBefore = await scanCount("infected");
     const fid = await upload(sid, Buffer.from("bu bir VIRUS ornegi"));
     await expect.poll(async () => (await row(fid)).state).toBe("INFECTED");
+    expect(await scanCount("infected")).toBe(infectedBefore + 1); // AC-359 metrik
     const r = await row(fid);
     expect(r.storageRel).toBeNull();
     expect(r.signature).toBe("Win.Test.Virus");
@@ -193,10 +234,12 @@ describe("AC-358/359 virüslü ve taranamayan dosya teslim edilmez, disk hemen s
 
   it("AC-359 clamd ERROR → SCAN_FAILED/ERROR (fail-closed), disk silinir; öz-sınama bayrağı varken clamd'ye gidilmez", async () => {
     const sid = await session();
+    const errorsBefore = await scanCount("failed_error");
     fake.mode = "error";
     try {
       const fid = await upload(sid, Buffer.from("normal icerik"));
       await expect.poll(async () => (await row(fid)).state).toBe("SCAN_FAILED");
+      expect(await scanCount("failed_error")).toBe(errorsBefore + 1); // AC-359 metrik
       expect((await row(fid)).scanReason).toBe("ERROR");
       expect((await row(fid)).storageRel).toBeNull();
     } finally {
@@ -208,6 +251,7 @@ describe("AC-358/359 virüslü ve taranamayan dosya teslim edilmez, disk hemen s
       const fid = await upload(sid, Buffer.from("normal icerik 2"));
       await expect.poll(async () => (await row(fid)).state).toBe("SCAN_FAILED");
       expect(fake.scans).toBe(scans);
+      expect(await scanCount("failed_error")).toBe(errorsBefore + 2); // öz-sınama bayrağı da failed_error sayar
     } finally {
       app.fsrv.scanner.misconfigured = false;
     }
@@ -357,6 +401,38 @@ describe("AC-362 kota ve oturum tavanı (kapı 7–8), disk %10", () => {
     } finally {
       app.fsrv.store.freeRatioOverride = 0.5;
     }
+    for (const tr of [...svc.transfers.values()].filter((x) => x.tenantId === t.id)) await svc.abortUpload(tr, "test");
+  });
+});
+
+describe("AC-362 eşzamanlı kota rezervasyonu (mimari §14)", () => {
+  it("AC-362 kalan kotası tek dosyalık firmada iki eşzamanlı begin → biri kabul, diğeri QUOTA (tenants FOR UPDATE)", async () => {
+    const t = await createTenant();
+    const u = await createUser({ tenantId: t.id, role: "USER" });
+    await testDb().tenant.update({ where: { id: t.id }, data: { storageQuotaGb: 1 } });
+    const svc = app.fsrv.service;
+    const big = 256 * 1024 * 1024;
+    const input = (sessionId: string) => ({
+      sessionId,
+      tenantId: t.id,
+      direction: "TO_TECH" as const,
+      purpose: "FILE" as const,
+      xid: newId().slice(0, 16),
+      name: "a.bin",
+      size: big,
+      sha256: "0".repeat(64),
+      retentionDays: 1,
+      sender: { username: "customer", ctx },
+    });
+    for (let i = 0; i < 3; i++) {
+      const s = (await createSupportSessionRow({ tenantId: t.id, technicianId: u.id, status: "ACTIVE" })).id;
+      expect(await svc.begin(input(s))).not.toHaveProperty("reject");
+    }
+    const s = (await createSupportSessionRow({ tenantId: t.id, technicianId: u.id, status: "ACTIVE" })).id;
+    const both = await Promise.all([svc.begin(input(s)), svc.begin(input(s))]);
+    expect(both.filter((r) => "reject" in r)).toEqual([{ reject: "QUOTA" }]);
+    expect(both.filter((r) => "fid" in r)).toHaveLength(1);
+    expect(await testDb().sessionStoredFile.count({ where: { tenantId: t.id, state: "UPLOADING" } })).toBe(4);
     for (const tr of [...svc.transfers.values()].filter((x) => x.tenantId === t.id)) await svc.abortUpload(tr, "test");
   });
 });

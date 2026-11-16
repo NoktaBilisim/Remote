@@ -252,8 +252,10 @@ export class RetentionJob {
       c.purgedBindings += r.bindings;
       if (r.selected < repo.PURGE_BATCH) break;
     }
+    const fsrv = this.fsrv;
+    const beforeTx = fsrv ? (ids: string[]) => removeSessionFiles(db, fsrv.store, tenantId, ids) : undefined;
     for (;;) {
-      const r = await repo.purgeSessionsBatch(db, tenantId, repo.PURGE_BATCH);
+      const r = await repo.purgeSessionsBatch(db, tenantId, repo.PURGE_BATCH, beforeTx);
       c.purgedSessions += r.sessions;
       c.purgedConsents += r.consents;
       c.purgedFiles += r.files;

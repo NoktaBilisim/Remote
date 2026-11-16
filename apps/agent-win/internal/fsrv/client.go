@@ -1,5 +1,5 @@
-// Package fsrv P28b sunucu üzerinden dosya aktarımının HTTPS istemcisidir (mimari-p28b §4, §8): sıralı 1 MiB PUT parçaları
-// ile yükleme ve ≤ 5 dk belirteçle akışlı indirme. Kurallar:
+// Package fsrv P28b sunucu üzerinden dosya aktarımının HTTPS istemcisidir (mimari-p28b §4, §8): ≤ 5 dk belirteçle akışlı
+// indirme (müşteri→teknisyen yükleme istemcide yok — QA P28b m.7; P28f/g'de eklenecek). Kurallar:
 //   - Yalnız gömülü sunucu kökü (`config.ServerURL`), internal/api ile aynı TLS/proxy taşıyıcısı; yönlendirme izlenmez.
 //   - Belirteç YALNIZ `Authorization: Bearer` başlığında; URL'de, hata metninde, logda asla (Caddy yol loglar).
 //   - İstemci düzeyinde toplam süre sınırı yok (gövde akışı uzun sürebilir); süre ctx ile (parça başına parçaZamanı,
@@ -15,11 +15,9 @@ import (
 	"io"
 	"net/http"
 	"net/url"
-	"time"
 )
 
 const (
-	uploadPath   = "/api/v1/fsrv/uploads/"
 	downloadPath = "/api/v1/fsrv/files/"
 	// errBodyMax hata zarfı okuma sınırı.
 	errBodyMax = 4096
@@ -39,8 +37,6 @@ var (
 	ErrInvalid = errors.New("fsrv: geçersiz istek")
 	// ErrTooLarge indirilen gövde beyan edilen/izin verilen boyutu aştı.
 	ErrTooLarge = errors.New("fsrv: boyut aşıldı")
-	// ErrQuota 409 STORAGE_QUOTA (firma kotası / disk %10): yeniden denenmez.
-	ErrQuota = errors.New("fsrv: depolama kotası doldu")
 )
 
 // Client fsrv uçlarının istemcisi.
@@ -48,8 +44,6 @@ type Client struct {
 	base      *url.URL
 	http      *http.Client
 	userAgent string
-	// backoff parça yeniden deneme aralıkları (1/2/4 sn; testte sıfır).
-	backoff []time.Duration
 }
 
 // New hc'nin (api.Client.HTTPClient) taşıyıcısı ve yönlendirme kuralıyla, toplam süre sınırı olmadan kurar.
@@ -58,7 +52,6 @@ func New(base *url.URL, hc *http.Client, version string) *Client {
 		base:      &url.URL{Scheme: base.Scheme, Host: base.Host},
 		http:      &http.Client{Transport: hc.Transport, CheckRedirect: hc.CheckRedirect, Jar: nil},
 		userAgent: "NoktaDestek/" + version,
-		backoff:   []time.Duration{time.Second, 2 * time.Second, 4 * time.Second},
 	}
 }
 
@@ -97,28 +90,4 @@ func httpError(resp *http.Response) *HTTPError {
 	}
 	_ = json.NewDecoder(io.LimitReader(resp.Body, errBodyMax)).Decode(&env)
 	return &HTTPError{Status: resp.StatusCode, Code: env.Error.Code}
-}
-
-// retryable yalnız ağ hatası ve 5xx (sunucu kararı verilmemiş); 4xx (400/404/409/429) kesin sonuçtur — tekrarlanan 404
-// IP sınırını (60/dk → 429) tetikler.
-func retryable(err error) bool {
-	var he *HTTPError
-	if errors.As(err, &he) {
-		return he.Status >= 500
-	}
-	return !errors.Is(err, ErrInvalid) && !errors.Is(err, ErrQuota) && !errors.Is(err, context.Canceled)
-}
-
-func sleep(ctx context.Context, d time.Duration) error {
-	if d <= 0 {
-		return ctx.Err()
-	}
-	t := time.NewTimer(d)
-	defer t.Stop()
-	select {
-	case <-ctx.Done():
-		return ctx.Err()
-	case <-t.C:
-		return nil
-	}
 }

@@ -3732,6 +3732,9 @@ up -d`, ya da tek seferlik `docker compose --profile av up -d clamav-update clam
    gelen isteği reddet" kodu yayına girene kadar UYARI'dır; girdikten sonra `STRICT_DR21=1` ile koşulur ve PASS olmalı.
 7. Super Admin → ClamAV ayarı: sunucu `clamav`, port `3310` (boş bırakılırsa env) → "Bağlantıyı Test Et": PONG + EICAR + şifreli zip +
    imza tarihi; ancak bundan sonra firmalar sunucu modunu açabilir.
+   **Kaynak geçişi:** ilk testten (ya da öz-sınamanın "yanlış yapılandırma" kaydından) sonra panel kaydı geçerlidir; ayar `source: panel`
+   olur ve audit'e `settings.clamav {host, port, source: "env→panel"}` yazılır. Bundan sonra `.env`'deki `CLAMAV_HOST`/`CLAMAV_PORT`
+   değişikliği **etkisizdir**; adres değişecekse panelden kaydedilip yeniden test edilir.
 8. nginx (prod host): `deploy/nginx/remote.noktabilisim.net.conf` kopyalanır → `nginx -t && systemctl reload nginx`. Denetim (D-P28b-4):
    `nginx -T | grep -n 'client_body_buffer_size 3m'` server bloğunda tek satır, yeni `location` yok. Gövde diske yazılmaz (yerel kanıt:
    `deploy/nginx/test-nginx.sh` "temp yazılamazken 502").

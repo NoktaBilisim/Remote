@@ -11480,3 +11480,55 @@ Ara bir tam koşuda `p27a-repo` ve `unattended-connect-k3` birer kez kırmızı 
 
 - Firma silmede `FILES_DIR` klasörünün silindiğine dair ayrı bir entegrasyon testi yok; mevcut P16 testleri adım akışını geçiyor.
 - Bağımlılık eklenmedi. Yeni env yok.
+
+## P28b K8 web — QA madde 8 (frontend-dev, 2026-11-16)
+
+- `apps/web/e2e/p28b-files.spec.ts`: konsol SERVER dosya paneli koyu tema + 390 px testi (bilgi satırı + virüslü + onay bekleyen uzun adlı satır; belge ve panel taşması yok, axe 0; koyu temanın etkin olduğu assert edilir — `data-theme="system"` + `prefers-color-scheme: dark`) ve misafir web (`/session/[token]`) SERVER akışı (AC-363: bilgi satırı birebir; teknisyen yüklemesi → kabul → SHA-256 → indirme → `fsrv.result{ok}` → "Teslim edildi"; misafir yüklemesi konsola teklif; belirteç URL'de yok; koyu tema axe 0; misafir konsolu temiz). Mock/bileşen değişikliği gerekmedi; `--repeat-each=3` kararlı.
+- Gözlem: aynı yönde bir aktarım "onay bekliyor"dayken ikinci yükleme `busy` döner ve `file-error` uyarısı ("Devam eden bir gönderim var; bitmesini bekleyin.") çizilir; koyu tema/390 px testi bunu da assert eder (danger uyarısı taramaya girer).
+
+## P28b K8 backend — QA m.1–4, 6, 7 + güvenlik D-P28b-K1-1..4 (backend-dev, 2026-11-16)
+
+**Değişen dosyalar:** `apps/server/src/jobs/{retention.ts,retention-repo.ts,retention-fsrv.ts}`, `apps/server/src/fsrv/{service.ts,repo.ts,tokens.ts}`,
+`apps/server/src/signaling/{fsrv.ts,control-revoke.ts}`, `apps/server/src/settings/clamav.ts`, `docs/runbook.md` §28b.2 m.7;
+testler `fsrv-p28b-{files,retention,settings}.test.ts`, `signaling-fsrv-p28b.test.ts`; Go `apps/agent-win/internal/fsrv/{client.go,fsrv_test.go}`,
+`upload.go` silindi.
+
+- **QA m.1 (AC-360):** `purgeAnonymized` adım 2'de `session_stored_files` satırları savunma amaçlı siliniyordu ama disk dosyası kalıyordu
+  (test önce kırmızıydı). `purgeSessionsBatch(…, beforeTx)` aday oturumların disk dosyalarını TX'ten önce siler (anonimleştirmeyle aynı yön);
+  aday sorgusu `purgeSessionCandidates` ile TX içi ve öncesi ortak. Testler: kalıcı silme sonrası satır 0 + `FILES_DIR/{tenant}` boş; firma silme
+  (`app.tenantPurge.runJob`, `files` bağlı) sonrası satır 0 + klasör `ENOENT`.
+- **QA m.2 (§12 log taraması):** `signaling-fsrv-p28b.test.ts` — gerçek WS + HTTP PUT/GET, `gizli-ad-<ulid>.txt` adı, yükleme ve indirme
+  belirteçleri; debug pino logu, oturumun audit satırları ve `/metrics` içinde 0 eşleşme. Pozitif denetimler: ad DB'de aynen, log ve audit fid'i içeriyor.
+- **QA m.3 (AC-359):** `rs_av_scan_total{result="clean|infected|failed_error"}` önce/sonra farkı /metrics'ten (öz-sınama bayrağı da `failed_error`).
+- **QA m.4 (AC-362):** 3×256 MiB doluyken aynı oturumda iki eşzamanlı 256 MiB `begin` → biri kabul, diğeri `{reject:"QUOTA"}` (HTTP'de
+  `STORAGE_QUOTA`). Test kod değişikliği olmadan geçti: `tenants … FOR UPDATE` yarışı kapatıyor, **yarış bulunmadı**.
+- **QA m.6:** yol (a). `writeLastTest` satır yoksa (env kaynağı) panel satırını açarken aynı TX'te `settings.clamav`
+  `{host, port, source:"env→panel"}` audit'i yazar; aktör elle testte Super Admin, `markMisconfigured`'da `system`. `value_json` değişmedi
+  (DB CHECK). Runbook §28b.2 m.7'ye "ilk testten sonra panel kaydı geçerli, env değişikliği etkisiz" notu eklendi.
+- **QA m.7:** `internal/fsrv/upload.go` (`Upload`, `Digest`, `putChunk`, `conflict`) ve yalnız onların kullandığı `uploadPath`, `ErrQuota`,
+  `backoff`, `retryable`, `sleep` silindi. Silinen Go testleri: `TestAC355P28bUploadSequentialChunksWithBearer`, `…UploadResumesFromServerNext`,
+  `…UploadConflictRewindsToNext`, `TestAC362P28bUploadQuotaIsTerminal`, `TestAC356P28bUploadNotFoundNotRetried`, `TestAC355P28bUploadRetriesAtMostThreeTimes`,
+  `TestAC355P28bDigestTwoPass`; `TestAC356P28bInvalidInputsNotSent` yalnız Download'a indirildi. Yükleme istemcisi P28f/g'de yeniden yazılır.
+- **D-P28b-K1-1:** `Transfer.writing` bayrağı; denetim ve bayrak aynı eşzamanlı blokta, `finally`'de kapanır. Yazım sürerken gelen PUT
+  mevcut `409 {next}` gövdesini alır (sözleşme değişmedi). Test: yavaşlatılmış `writePart` ile iki eşzamanlı farklı gövde → [200, 409], parça
+  diske bir kez yazılır (eski kodda 2 yazım; test önce kırmızıydı).
+- **D-P28b-K1-2:** `TokenTable.dropAuthSession` silindi; çıkış/pasife alma GET anında `resolveSessionById` ile reddediliyor (mevcut test).
+- **D-P28b-K1-3:** `handleFsrv` `fsrv.accept`'te teknisyen alıcıysa `room.caps ∋ file_transfer` + `file_transfer.use` yeniden denetlenir
+  (kapı 2 ile ortak `techMayFile`); `narrowCaps` `file_transfer` düşünce `fsrvSideGone(…, "TECH")` ile teknisyenin indirme belirteçlerini düşürür.
+  Test: yetki daraltılınca önceki belirteç 404, yeni accept belirteç üretmez (iki parça ayrı ayrı kırmızı doğrulandı).
+- **D-P28b-K1-4:** `liveRows` `id` imleciyle sıralı/sayfalı; `sweepOrphanRows` tüm canlı satırları gezer, bellekteki aktarımları atlar
+  (`batch` parametresi yalnız testte 1). Test sayfa boyu 1 ile: ilk sayfa bellekteki aktarım, sonraki yetim → CANCELLED + `.part` silinir.
+  Not: eski kod 500'lük sayfayla bu testi de geçerdi; test yeni sayfalama yolunu kanıtlar.
+
+**frontend-dev için:** sözleşme değişmedi. Aynı parçaya eşzamanlı ikinci PUT artık her zaman `409 {next}` alır (önceden yazım bitince
+de 409 dönebiliyordu); yetkisi daraltılan teknisyenin `fsrv.accept`'i sessizce yok sayılır (hata mesajı yok).
+
+**Test:** `pnpm --filter @remote/server run lint` + `typecheck` temiz, prettier temiz; server birim 39 dosya / 577 + 1 skip; entegrasyon
+(`rs-mysql-be28b:33329`) fsrv-p28b-files/settings/retention, signaling-fsrv-p28b, retention-p13a-job/db, retention-p16-purge,
+tenant-purge-p16, signaling-control-p7, users-p9 → **10 dosya / 152 test geçti**; Go `golang:1.26` `go test ./...` 30 paket ok,
+`GOOS=windows go vet` + `build` temiz. Tam `test:int` bu turda koşulmadı.
+
+## P28b K8 tur 2 — QA Düzeltilmeli 1 (koordinatör, 2026-11-16)
+
+- `apps/agent-win/internal/signal/fsrv.go`: kullanılmayan `FsrvInit` tipi ve `validate()` silindi (silinen `upload.go` akışının artığı; Windows istemci SERVER modunda yalnız alıcıdır). Ortak doğrulayıcılar (`validFsrvName`, `validFsrvSize`, `validPrintShape`) `fsrv.offer` çözümünde kullanılmaya devam ediyor.
+- `signal/fsrv_test.go`: fikstür eşlik testi `fsrv.init` geçerli örneklerini atlar (yalnız web misafiri gönderir); geçersiz örnekler hâlâ reddedilir. `go test ./...`, `GOOS=windows go vet/build` yeşil.

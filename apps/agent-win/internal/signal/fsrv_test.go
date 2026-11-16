@@ -42,8 +42,6 @@ func loadFsrv(t *testing.T) fsrvFixture {
 func decodeFsrvGuest(raw []byte) ([]byte, error) {
 	var m Outbound
 	switch msgType(raw) {
-	case "fsrv.init":
-		m = &FsrvInit{}
 	case "fsrv.accept":
 		m = &FsrvAccept{}
 	case "fsrv.reject":
@@ -64,6 +62,9 @@ func decodeFsrvGuest(raw []byte) ([]byte, error) {
 func TestAC355P28bInboundMessagesMatchFixture(t *testing.T) {
 	f := loadFsrv(t)
 	for _, raw := range f.Valid["inbound"] {
+		if msgType(raw) == "fsrv.init" {
+			continue // Windows istemci yükleme yapmaz (P28b K8: Upload akışı yok); fsrv.init yalnız web misafirinde
+		}
 		out, err := decodeFsrvGuest(raw)
 		if err != nil {
 			t.Errorf("geçerli mesaj reddedildi %s: %v", raw, err)

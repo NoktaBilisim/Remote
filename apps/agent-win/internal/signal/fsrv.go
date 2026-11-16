@@ -154,18 +154,6 @@ func validFsrvDownload(m *FsrvDownload) bool {
 
 // --- Misafir → sunucu (yalnız SERVER odasında ve fsrv bildiren sokette şemadadır) ---
 
-// FsrvInit yükleme isteği (ad ham; sunucu temizler).
-type FsrvInit struct {
-	T       string `json:"t"`
-	ID      string `json:"id,omitempty"`
-	XID     string `json:"xid"`
-	Name    string `json:"name"`
-	Size    int64  `json:"size"`
-	SHA256  string `json:"sha256"`
-	Purpose string `json:"purpose"`
-	PID     string `json:"pid,omitempty"`
-}
-
 // FsrvAccept teklifin alıcısı kabul etti → `fsrv.download`.
 type FsrvAccept struct {
 	T   string `json:"t"`
@@ -193,17 +181,6 @@ type FsrvCancel struct {
 	T   string `json:"t"`
 	ID  string `json:"id,omitempty"`
 	FID string `json:"fid"`
-}
-
-func (m FsrvInit) validate() error {
-	if m.T != "fsrv.init" {
-		return fail(m.T, "tip")
-	}
-	if !cpIDRe.MatchString(m.XID) || !validFsrvName(m.Name) || !validFsrvSize(m.Size) || !sha256Re.MatchString(m.SHA256) ||
-		!validPrintShape(m.Purpose, m.PID, m.Name) {
-		return fail(m.T, "alan")
-	}
-	return checkID(m.T, m.ID)
 }
 
 func validateFid(t, want, id, fid string) error {

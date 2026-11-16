@@ -1,7 +1,8 @@
 // P28b bellek içi belirteç tablosu (mimari-p28b §4 "Belirteçler", D-P28b-2, K-P28b-26; ADR-0005). 32 bayt rastgele base64url;
 // tabloda yalnız SHA-256'sı. Yükleme belirteci: fid + oturum (son parçada / iptalde düşer). İndirme belirteci: fid + oturum +
 // tenant + aktör, ≤ 5 dk, süre içinde tekrar kullanılabilir. Oda/katılımcı olaylarında `dropRoom` ile düşer; HISTORY belirteci
-// üretenin `authSessionId`'sine bağlıdır (GET anında ayrıca denetlenir).
+// üretenin `authSessionId`'sine bağlıdır; çıkış/pasife alma/şifre değişimi GET anında `resolveSessionById` ile reddedilir
+// (bellekten ayrıca düşürülmez — D-P28b-K1-2; belirteç ≤ 5 dk'da kendiliğinden düşer).
 import { FSRV_DOWNLOAD_TTL_MS } from "@remote/contracts/ws-fsrv";
 import { newSecretToken, sha256Hex } from "../lib/ids.ts";
 
@@ -63,12 +64,6 @@ export class TokenTable {
       if (e.kind === "download" && e.actor.kind === "HISTORY") continue;
       if (who === undefined || (e.kind === "download" && e.actor.kind === who)) this.map.delete(k);
     }
-  }
-
-  /** Çıkış/pasife alma: o oturumun HISTORY belirteçleri. */
-  dropAuthSession(authSessionId: string): void {
-    for (const [k, e] of this.map)
-      if (e.kind === "download" && e.actor.kind === "HISTORY" && e.actor.authSessionId === authSessionId) this.map.delete(k);
   }
 
   private sweep(): void {

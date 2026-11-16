@@ -201,3 +201,52 @@ describe("D-r2-1 av alt ağından gelen istek gövde okunmadan reddedilir", () =
     expect(AV_CIDR).toBe("10.89.0.0/24");
   });
 });
+
+describe("QA P28b m.6 ClamAV env→panel kaynak geçişi audit'e yazılır", () => {
+  const lastAuditId = async () => (await testDb().auditLog.aggregate({ _max: { id: true } }))._max.id ?? 0n;
+  const sourceAudits = async (since: bigint) =>
+    (
+      await testDb().auditLog.findMany({
+        where: { action: FSRV_AUDIT.CLAMAV_UPDATED, id: { gt: since } },
+        select: { userId: true, username: true, newValue: true },
+      })
+    ).filter((a) => (a.newValue as { source?: string } | null)?.source === "env→panel");
+
+  it("AC-353 env kaynağında ilk elle test panel satırını açar → settings.clamav {host, port, source:'env→panel'} (Super Admin); ikinci test yeni audit yazmaz", async () => {
+    await clearRow();
+    const since = await lastAuditId();
+    const s = await loginStepUp(app, await createUser({ tenantId: null, role: "SUPER_ADMIN" }));
+    const g0 = await app.inject({ method: "GET", url: "/api/v1/admin/settings/clamav", headers: s.headers });
+    expect(g0.json()).toMatchObject({ source: "env" });
+    expect((await testAv({}, s)).json().ok).toBe(true);
+    const g1 = await app.inject({ method: "GET", url: "/api/v1/admin/settings/clamav", headers: s.headers });
+    expect(g1.json()).toMatchObject({ source: "panel", host: "clamav.test", port: fake.port, lastTest: { ok: true } });
+    const a = await sourceAudits(since);
+    expect(a).toHaveLength(1);
+    expect(a[0]?.userId).not.toBeNull();
+    expect(a[0]?.newValue).toEqual({ host: "clamav.test", port: fake.port, source: "env→panel" });
+    expect((await testAv({}, s)).json().ok).toBe(true);
+    expect(await sourceAudits(since)).toHaveLength(1);
+  });
+
+  it("AC-353 env kaynağında öz-sınama yanlışlığı (markMisconfigured) panel satırını açar → sistem aktörlü settings.clamav source:'env→panel'", async () => {
+    await clearRow();
+    const since = await lastAuditId();
+    fake.mode = "noEncrypted";
+    try {
+      await app.fsrv.scanner.poll();
+      expect(app.fsrv.scanner.misconfigured).toBe(true);
+    } finally {
+      fake.mode = "ok";
+      await app.fsrv.scanner.poll();
+    }
+    const a = await sourceAudits(since);
+    expect(a).toHaveLength(1);
+    expect(a[0]).toMatchObject({
+      userId: null,
+      username: "system",
+      newValue: { host: "clamav.test", port: fake.port, source: "env→panel" },
+    });
+    await clearRow();
+  });
+});

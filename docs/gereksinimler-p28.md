@@ -261,11 +261,11 @@ ClamAV'ın sırrı yoktur (iç ağ TCP); maskeli alan gerekmez. Yeni env değiş
 
 ### Açık sorular (kullanıcı uyanınca; şimdilik varsayımla ilerlenir)
 
-| #       | Soru                                          | Varsayılan                         | Sahibi             |
-| ------- | --------------------------------------------- | ---------------------------------- | ------------------ |
-| S-P28-1 | Apple Developer hesabı açılacak mı, ne zaman? | Açılana kadar macOS yalnız staging | kullanıcı          |
-| S-P28-2 | Varsayılan depolama kotası 20 GB uygun mu?    | 20 GB                              | kullanıcı          |
-| S-P28-3 | Kayıtlar yedeğe dahil mi?                     | Mimar/devops önerir                | kullanıcı + devops |
+| #       | Soru                                          | Varsayılan                                                                         | Sahibi             |
+| ------- | --------------------------------------------- | ---------------------------------------------------------------------------------- | ------------------ |
+| S-P28-1 | Apple Developer hesabı açılacak mı, ne zaman? | Açılana kadar macOS yalnız staging                                                 | kullanıcı          |
+| S-P28-2 | Varsayılan depolama kotası 20 GB uygun mu?    | **Kapandı (2026-11-16): 20 GB onaylandı**                                          | kullanıcı          |
+| S-P28-3 | Kayıtlar yedeğe dahil mi?                     | **Kapandı (2026-11-16): dahil değil; sunucunun günlük tam yedeği ayrıca alınıyor** | kullanıcı + devops |
 
 ## 10. Kontrol listesi kararları
 
