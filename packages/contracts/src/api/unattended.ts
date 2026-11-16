@@ -2,9 +2,11 @@
 // 336, 337, 339). Tek kaynak: sunucu girdiyi bu şemalarla doğrular, web `lib/unattended/contract.ts` cephesinden alır.
 // Kayıt kodu düz hâliyle yalnız üretim yanıtında bir kez döner; listede, audit'te, logda yoktur.
 import { z } from "zod";
-import { UNATTENDED_AUDIT } from "../audit.ts";
+import { UNATTENDED_AUDIT, UNATTENDED_POLICY_AUDIT } from "../audit.ts";
 import type { ErrorCode } from "../errors.ts";
+import type { ConsentMode, DeviceUserState } from "../unattended-consent.ts";
 import { B64URL_32_PATTERN, DEVICE_SHA256_PATTERN, DEVICE_VERSION_PATTERN, deviceTextSchema } from "../ws-device.ts";
+import { UNSAFE_NAME_CHARS } from "./shared.ts";
 import { optionalPhoneSchema } from "./customers.ts";
 import { notifyEmailKey } from "./requests.ts";
 
@@ -27,6 +29,11 @@ export interface UnattendedStatus {
    * false → "Kayıt kodu oluştur" baştan pasif + `UNATTENDED_ERROR_MESSAGES.NOTIFY_CHANNEL_UNAVAILABLE`. Firma seçilmemişse false.
    */
   notifyChannel: boolean;
+  /**
+   * P28u (§5.2, AC-430): firma politikası açık ∧ çağıranda `unattended.silent` — `ConnectDialog` "İzin istemeden bağlan" kutusunu
+   * yalnız true iken çizer (sunucu zincirde yine zorlar). K3 doldurur — o zamana kadar gelmeyebilir (yoksa false).
+   */
+  silentAllowed?: boolean;
 }
 
 // ------------------------------------------------------------------------------------------- hata metinleri
@@ -40,6 +47,11 @@ export const UNATTENDED_ERROR_MESSAGES = {
   NOTIFY_CONTACT_REQUIRED: "Müşterinin bildirim adresi yok — adres yokken bu müşterinin cihazlarına bağlanılamaz",
   NOTIFY_CHANNEL_UNAVAILABLE: "Bildirim e-postası yapılandırılmamış — Ayarlar → SMTP",
   REGISTRATION_CODE_INVALID: "Kayıt kodu geçersiz, kullanılmış ya da süresi dolmuş",
+  // P28u (mimari-p28u §5).
+  DEVICE_OUTDATED: "Cihazdaki servis güncel değil — güncelleyin",
+  SILENT_DISABLED: "Firma politikası izin istemeden bağlanmaya izin vermiyor",
+  INTERVENE_PENDING: "Önceki komut henüz tamamlanmadı",
+  INTERVENE_FAILED: "Cihaz komutu uygulayamadı",
 } as const satisfies Partial<Record<ErrorCode, string>>;
 
 /** Panel bantları (§4.5, §6): mod `off` ve `unsigned` (O-P27-6). */
@@ -153,15 +165,17 @@ export type ListDevicesQuery = z.output<typeof listDevicesQuerySchema>;
 
 /**
  * `canConnect=false` iken düğme ipucunu seçer (§4.2, AC-336). Öncelik sırası sunucuda: `no_grant` (çağıranın cihaz yetkisi
- * ya da `unattended.connect`'i yok) → `unsigned` (imza kapısı) → `offline` → `local_disabled` → `no_contacts` → `smtp`.
+ * ya da `unattended.connect`'i yok) → `unsigned` (imza kapısı) → `offline` → `outdated` (P28u: soket `consent1` bildirmedi,
+ * AC-435) → `local_disabled` → `no_contacts` → `smtp`.
  * `smtp` ayrıca "Kayıt kodu oluştur" düğmesini de pasif yapar.
  */
-export const CONNECT_BLOCKED_REASONS = ["no_grant", "unsigned", "offline", "local_disabled", "no_contacts", "smtp"] as const;
+export const CONNECT_BLOCKED_REASONS = ["no_grant", "unsigned", "offline", "outdated", "local_disabled", "no_contacts", "smtp"] as const;
 export type ConnectBlockedReason = (typeof CONNECT_BLOCKED_REASONS)[number];
 export const CONNECT_BLOCKED_REASON_LABELS: Readonly<Record<ConnectBlockedReason, string>> = {
   no_grant: "Bu cihaza bağlanma yetkiniz yok",
   unsigned: UNATTENDED_ERROR_MESSAGES.UNATTENDED_DISABLED,
   offline: "Cihaz çevrimdışı",
+  outdated: UNATTENDED_ERROR_MESSAGES.DEVICE_OUTDATED,
   local_disabled: "Yerel olarak kapalı",
   no_contacts: "Adres yokken bu müşterinin cihazlarına bağlanılamaz",
   smtp: UNATTENDED_ERROR_MESSAGES.NOTIFY_CHANNEL_UNAVAILABLE,
@@ -189,6 +203,11 @@ export interface DeviceListItem {
   notifyFailed: boolean;
   /** r2 (D-P27-3): 10 dk'da > 3 kez 4409 → "Anahtar başka yerden kullanılıyor olabilir". */
   replacedAlert: boolean;
+  /**
+   * P28u (§5.4, AC-429): cihazdaki kullanıcı durumu (hub belleği); çevrimdışı / eski servis → null. Yalnız çağıranın grant'ı
+   * olan cihazda dolu; hiçbir dışa aktarım/audit'te yok (D-P28u-6). K4 doldurur — o zamana kadar gelmeyebilir.
+   */
+  userState?: DeviceUserState | null;
 }
 export interface DeviceListResponse {
   items: DeviceListItem[];
@@ -235,6 +254,83 @@ export interface UnattendedConnectResponse {
   sessionId: string;
 }
 
+// ------------------------------------------------------------------------------------------- P28u izinli / izinsiz bağlantı
+
+/** Gerekçe sınırları (kod noktası, kırpılmış) — DB `support_sessions_silent_reason_chk` ile aynı (K1). */
+export const SILENT_REASON_MIN = 20;
+export const SILENT_REASON_MAX = 500;
+export const SILENT_REASON_MESSAGE = `Gerekçe ${SILENT_REASON_MIN}–${SILENT_REASON_MAX} karakter olmalı`;
+
+/**
+ * İzinsiz bağlantı gerekçesi (§5.1, AC-437): kırpılır; 20..500 kod noktası; satır sonu yalnız `\n` (DB `\r`'yi reddeder — K1
+ * devir notu 2); kontrol (Cc), biçim (Cf, yön/görünmez), Zl/Zp, U+034F, U+180E yok. DB CHECK'inden katı (alt küme) — zod'u
+ * geçen her değer DB'ye yazılabilir.
+ */
+export const silentReasonSchema = z
+  .string()
+  .max(SILENT_REASON_MAX * 4, SILENT_REASON_MESSAGE)
+  .trim()
+  .refine((v) => !UNSAFE_NAME_CHARS.test(v.replaceAll("\n", "")), "Görünmez veya kontrol karakteri içeremez")
+  .refine((v) => {
+    const n = [...v].length;
+    return n >= SILENT_REASON_MIN && n <= SILENT_REASON_MAX;
+  }, SILENT_REASON_MESSAGE);
+
+/**
+ * POST /unattended/devices/:id/connect girdisi (§5.1): `{}` → izinli (`ask`); `{silent: true, reason}` → izinsiz. `silent` ⇔
+ * `reason`; her ihlal `fields.reason` ile 400 `VALIDATION` (K-P28u-12). Bilinmeyen alan 400.
+ */
+export const unattendedConnectInputSchema = z
+  .strictObject({ silent: z.literal(true).optional(), reason: silentReasonSchema.optional() })
+  .superRefine((v, ctx) => {
+    if (v.silent && v.reason === undefined) ctx.addIssue({ code: "custom", path: ["reason"], message: "Gerekçe zorunlu" });
+    if (!v.silent && v.reason !== undefined)
+      ctx.addIssue({ code: "custom", path: ["reason"], message: "Gerekçe yalnız izin istemeden bağlanmada girilir" });
+  });
+export type UnattendedConnectInput = z.input<typeof unattendedConnectInputSchema>;
+export type UnattendedConnectData = z.output<typeof unattendedConnectInputSchema>;
+
+/** §5.1 adım 2c: `ask` isteğinde teknisyen×cihaz başına bu kadar saniyede 1 (yalnız TX başarısında sayılır). */
+export const CONNECT_ASK_COOLDOWN_SEC = 60;
+
+/** GET /unattended/policy (`manage` ∧ `settings.view`) ve PUT yanıtı (AC-436). */
+export interface UnattendedPolicyView {
+  silentEnabled: boolean;
+  /** Aydınlatma kutusunun son işaretlendiği an (kapatınca korunur — iz). */
+  ackAt: string | null;
+  /** Son işaretleyen; kullanıcı silinmişse null. */
+  ackByName: string | null;
+}
+
+/**
+ * PUT /unattended/policy (`manage` ∧ `settings.edit`). `false→true`: `ack !== true` → 400 `fields.ack`, step-up (tüketmez)
+ * yoksa 401 `MFA_STEP_UP_REQUIRED`; `true→false` step-up istemez; aynı değer → 200, audit yok. Geçiş kuralı mevcut değere
+ * bağlı olduğundan şemada DEĞİL serviste (K3). Açarken `enabled=1, ack_at, ack_by` tek UPDATE (DB CHECK, K1 notu 4).
+ */
+export const putUnattendedPolicyInputSchema = z.strictObject({ silentEnabled: z.boolean(), ack: z.literal(true).optional() });
+export type PutUnattendedPolicyInput = z.infer<typeof putUnattendedPolicyInputSchema>;
+export const POLICY_ACK_REQUIRED_MESSAGE = "Açmak için bilgilendirme kutusunu işaretleyin";
+
+// ------------------------------------------------------------------------------------------- P28u müdahale (AC-442..444)
+
+/** POST /sessions/:id/unattended/lock — boş gövde. */
+export const interveneLockInputSchema = z.strictObject({});
+/** POST /sessions/:id/unattended/logoff — `confirm: true` zorunlu (yanlışlıkla API çağrısına karşı). */
+export const interveneLogoffInputSchema = z.strictObject({ confirm: z.literal(true, { error: "Onay gerekli" }) });
+export type InterveneLogoffInput = z.infer<typeof interveneLogoffInputSchema>;
+export interface InterveneLockResponse {
+  ok: true;
+}
+export interface InterveneLogoffResponse {
+  ok: true;
+  /** Sunucu yeniden katılım penceresini açtı (`rejoinUntil`). */
+  rejoin: boolean;
+}
+/** `intervene.result` bekleme süreleri ve oda başına kova (§5.3). */
+export const INTERVENE_LOCK_TIMEOUT_MS = 5_000;
+export const INTERVENE_LOGOFF_TIMEOUT_MS = 15_000;
+export const INTERVENE_PER_MIN = 6;
+
 // ------------------------------------------------------------------------------------------- bildirim adresleri (AC-296, 337)
 
 /** Müşteri başına en çok bildirim adresi (§3.4). */
@@ -277,6 +373,20 @@ export interface NotifyContactsResponse {
 
 // ------------------------------------------------------------------------------------------- etiketler
 
+/** P28u (§10): kip rozeti / filtre etiketleri. */
+export const CONSENT_MODE_LABELS: Readonly<Record<ConsentMode, string>> = {
+  asked: "İzinli",
+  no_user: "Kullanıcı yok",
+  silent: "İzinsiz",
+};
+
+/** P28u (§10, AC-429): cihaz listesi "Kullanıcı" sütunu (null → "—"). */
+export const DEVICE_USER_STATE_LABELS: Readonly<Record<DeviceUserState, string>> = {
+  active: "Aktif",
+  locked: "Kilitli",
+  none: "Oturum yok",
+};
+
 export const UNATTENDED_REVOKE_REASON_LABELS: Readonly<Record<UnattendedRevokeReason, string>> = {
   ADMIN: "Yönetici iptal etti",
   UNINSTALLED: "Cihazdan kaldırıldı",
@@ -298,4 +408,11 @@ export const UNATTENDED_AUDIT_LABELS: Readonly<Record<string, string>> = {
   [UNATTENDED_AUDIT.SESSION_STARTED]: "Gözetimsiz bağlantı başladı",
   [UNATTENDED_AUDIT.SESSION_ENDED]: "Gözetimsiz bağlantı bitti",
   [UNATTENDED_AUDIT.LOCAL_STATE]: "Cihazda yerel anahtar değişti",
+  [UNATTENDED_AUDIT.CONSENT]: "Gözetimsiz bağlantı onayı (cihaz kullanıcısı)",
+  [UNATTENDED_AUDIT.CONTROL_TOGGLE]: "Gözetimsiz oturumda kontrol değişti",
+  [UNATTENDED_AUDIT.LOCK]: "Uzak oturum kilitlendi",
+  [UNATTENDED_AUDIT.LOGOFF]: "Uzak kullanıcı oturumu kapatıldı",
+  [UNATTENDED_AUDIT.REJOIN]: "Gözetimsiz bağlantı yeniden kuruldu",
+  [UNATTENDED_AUDIT.SILENT_NOTIFY]: "İzinsiz bağlantı bildirimi (dört göz)",
+  [UNATTENDED_POLICY_AUDIT]: "Gözetimsiz erişim politikası değişti",
 };

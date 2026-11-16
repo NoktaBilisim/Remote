@@ -33,7 +33,9 @@
     "./audit": "./src/audit.ts",
     "./csv": "./src/csv.ts",
     "./labels": "./src/labels.ts",
-    "./holidays-tr": "./src/holidays-tr.ts"
+    "./holidays-tr": "./src/holidays-tr.ts",
+    "./rejoin-const": "./src/rejoin-const.ts",
+    "./unattended-consent": "./src/unattended-consent.ts"
   },
   "scripts": {
     "lint": "eslint .",

@@ -93,6 +93,12 @@ export const ERROR_STATUS = {
    * bağlantısını başarıyla test edin" (`AV_NOT_READY_MESSAGE`).
    */
   AV_NOT_READY: 409,
+  /** P28u (AC-435, §6.1): cihaz soketi `rs.cap.consent1` bildirmedi (servis < 0.15.0) — bağlantı/müdahale açılmaz. */
+  DEVICE_OUTDATED: 409,
+  /** P28u (AC-437, §5.1 adım 2b): firma politikası izin istemeden bağlanmaya kapalı (connect TX içinde yeniden denetlenir). */
+  SILENT_DISABLED: 409,
+  /** P28u (§5.3): bu odada yanıtı beklenen müdahale komutu var. */
+  INTERVENE_PENDING: 409,
   /** P27 (AC-273): kayıt kodu yok/kullanılmış/süresi dolmuş — tek gövde (oracle yok). */
   REGISTRATION_CODE_INVALID: 404,
   /** P12 (AC-84): yükleme 2 MB'ı aşıyor. */
@@ -115,6 +121,8 @@ export const ERROR_STATUS = {
   INTERNAL: 500,
   /** Dış servis (WhatsApp, P10: SMTP) yapılandırılmamış/güvensiz ya da ulaşılamadı (P8b AC-152, P10 AC-10/80/151). */
   UPSTREAM: 502,
+  /** P28u (§5.3): cihaz komutu uygulamadı/yanıtlamadı — `fields.reason` ∈ `INTERVENE_FAIL_REASONS` (ws-device). */
+  INTERVENE_FAILED: 502,
   /** /ready: DB'ye ulaşılamıyor veya migration uygulanmamış. */
   NOT_READY: 503,
 } as const;

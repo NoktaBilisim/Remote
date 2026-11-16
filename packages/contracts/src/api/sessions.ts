@@ -7,6 +7,7 @@ import { z } from "zod";
 import { UNSAFE_NAME_CHARS, type CustomerFirmRef } from "./shared.ts";
 import { FILE_DIRECTIONS, FILE_RESULTS, qualitySummarySchema, type QualitySummary } from "../ws.ts";
 import type { StoredFileItem } from "./fsrv.ts";
+import { CONSENT_MODES, type ConsentMode, type ConsentResultDecision } from "../unattended-consent.ts";
 
 export const SESSION_STATUSES = ["PENDING", "ACTIVE", "ENDED", "EXPIRED", "CANCELLED"] as const;
 export type SessionStatus = (typeof SESSION_STATUSES)[number];
@@ -210,6 +211,8 @@ export const listSessionsQuerySchema = z
     customerFirm: sessionCustomerFilterSchema.optional(),
     /** P27 (AC-339 cihaz ayrıntısı "son 20 gözetimsiz oturum"): `device_id` eşleşmesi; tenant/USER kapsamı aynen uygulanır. */
     deviceId: ulidSchema.optional(),
+    /** P28u (§5.4, AC-445): gözetimsiz bağlantı kipi (`consent_mode` eşitliği; kipsiz satırlar elenir). */
+    consentMode: z.enum(CONSENT_MODES).optional(),
     page: z.coerce.number().int().min(1).max(10_000).default(1),
     pageSize: z.coerce.number().int().min(1).max(SESSION_PAGE_SIZE_MAX).default(25),
     sort: z.enum(SESSION_LIST_SORTS).default("createdAt:desc"),
@@ -250,6 +253,11 @@ export interface SessionListItem extends SessionView {
    * PENDING olmayan satırda 0. Yalnız sayı (AC-311).
    */
   waitingGuests: number;
+  /**
+   * P28u (§5.4, AC-445): gözetimsiz oturumun kipi (`consent_mode`); kipsiz/gözetimsiz olmayan satırda null. K4 doldurur —
+   * o zamana kadar gelmeyebilir (`storedFiles?` kalıbı).
+   */
+  consentMode?: ConsentMode | null;
 }
 
 /** P8b (AC-158): geçmiş detayında "Destek talebi" bölümü. Anonimleştirilmiş talepte PII null. */
@@ -388,6 +396,34 @@ export interface SessionHistoryDetail extends Omit<SessionListItem, "waitingGues
   request: SessionRequestInfo | null;
   /** P28b (§4, AC-360): sunucu dosyaları (yalnız satır varsa dolu); K3 doldurur — o zamana kadar gelmeyebilir. */
   storedFiles?: StoredFileItem[];
+  /** P28u (§5.4): yalnız gözetimsiz (`mode = UNATTENDED`) oturumda; K4 doldurur — o zamana kadar gelmeyebilir. */
+  unattended?: SessionUnattendedInfo;
+}
+
+/** P28u (§5.4) gözetimsiz zaman çizelgesi olay türleri (audit satırlarından türetilir; ≤ `UNATTENDED_TIMELINE_MAX`). */
+export const UNATTENDED_TIMELINE_KINDS = ["consent", "control_on", "control_off", "lock", "logoff", "rejoin"] as const;
+export type UnattendedTimelineKind = (typeof UNATTENDED_TIMELINE_KINDS)[number];
+export const UNATTENDED_TIMELINE_MAX = 200;
+
+export interface UnattendedTimelineItem {
+  at: string;
+  kind: UnattendedTimelineKind;
+  /** lock/logoff/rejoin sonucu. */
+  result?: "success" | "fail";
+  /** Yalnız `consent`. */
+  decision?: ConsentResultDecision;
+  /** Yalnız `consent`: diyalog süresi (ms). */
+  ms?: number;
+}
+
+/**
+ * P28u (§5.4, AC-445, 446): geçmiş detayında gözetimsiz bölüm. `silentReason` yalnız `silent` kipte ve anonimleştirilmemiş
+ * oturumda dolu (anonimleştirmede DB'de NULL, K-P28u-15). `userState` hiçbir zaman yok (D-P28u-6).
+ */
+export interface SessionUnattendedInfo {
+  consentMode: ConsentMode | null;
+  silentReason?: string;
+  timeline: UnattendedTimelineItem[];
 }
 
 /** DB `quality_summary` JSON'u (t/id yok). Ayrıştırılamazsa detay `quality: null` döner. */

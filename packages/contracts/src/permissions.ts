@@ -23,7 +23,9 @@ export const PERMISSION_MODULES = [
   { key: "customers", actions: ["view", "create", "edit", "delete", "export", "import"] },
   // P27 (AC-273, 275, 293, 296; mimari-p27 §4.1): connect = yetkili olduğu cihaza bağlan (+ cihaz grant'ı + step-up);
   // manage = tüm cihazları gör, kayıt kodu üret/iptal, teknisyen–cihaz yetkisi ver/al, cihazı iptal et, bildirim adresleri.
-  { key: "unattended", actions: ["connect", "manage"] },
+  // P28u (AC-437, 446; mimari-p28u §4): silent = izin istemeden bağlan — ayrıca firma politikası + cihaz grant'ı + step-up.
+  // Müdahale (kilitle/oturumu kapat) için ayrı anahtar YOK (V-PU7): `connect` + grant + oturumun teknisyeni olmak.
+  { key: "unattended", actions: ["connect", "manage", "silent"] },
   { key: "users", actions: ["view", "create", "edit", "delete"] },
   { key: "settings", actions: ["view", "edit"] },
   { key: "audit", actions: ["view", "export"] },
@@ -72,6 +74,8 @@ export const PERMISSION_DESCRIPTIONS: Readonly<Partial<Record<PermissionKey, str
   "file_transfer.print": "Müşterinin onayıyla PDF belgeyi müşterinin varsayılan yazıcısına gönderir (yalnız Windows uygulaması).",
   "unattended.manage":
     "Tüm gözetimsiz cihazları görür; kayıt kodu üretir, teknisyenlere cihaz yetkisi verir/alır, cihazı iptal eder ve müşteri bildirim adreslerini düzenler.",
+  // P28u (§4): toggle ekranı bu açıklamayı uyarı tonuyla (`TriangleAlert`) gösterir (AC-404 kalıbı).
+  "unattended.silent": "İzin istemeden bağlanma (hassas — yalnız gerekene verin). Firma politikası, cihaz yetkisi ve 2FA ayrıca gerekir.",
 };
 
 export const ROLES = ["SUPER_ADMIN", "ADMIN", "USER"] as const;

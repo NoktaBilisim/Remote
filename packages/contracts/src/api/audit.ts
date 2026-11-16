@@ -1,6 +1,7 @@
 // P11 audit ekranı sözleşmesi (mimari §3.3, mimari-api "Yönetim"; AC-76, AC-124, G-15, G-16).
 // GET /audit (keyset sayfalı, COUNT yok), GET /audit/export.csv (akış, ≤ 50.000), PUT/PATCH/DELETE/POST → 405.
 import { z } from "zod";
+import { CONSENT_MODES } from "../unattended-consent.ts";
 
 export const AUDIT_PAGE_SIZE = 50;
 /** `from` verilmezse `to`dan (yoksa şimdiden) geriye bu kadar gün. */
@@ -52,6 +53,11 @@ export const listAuditQuerySchema = z
     action: z.preprocess(blankToUndefined, auditActionFilterSchema.optional()),
     result: z.preprocess(blankToUndefined, z.enum(AUDIT_RESULTS, { error: "Sonuç geçersiz" }).optional()),
     cursor: z.preprocess(blankToUndefined, auditCursorSchema.optional()),
+    /**
+     * P28u (§5.4, AC-445): "Bağlantı kipi" — `new_value->'$.consentMode'` eşitliği. Kipi taşıyan eylemler `UNATTENDED_AUDIT`
+     * `CONSENT_MODE_ACTIONS`; reddedilen/zaman aşımlı istekler `unattended.consent{consentMode:"asked"}` ile görünür.
+     */
+    consentMode: z.preprocess(blankToUndefined, z.enum(CONSENT_MODES, { error: "Bağlantı kipi geçersiz" }).optional()),
   })
   .superRefine((q, ctx) => {
     if (q.from && q.to && q.from > q.to) ctx.addIssue({ code: "custom", path: ["to"], message: "Bitiş tarihi başlangıçtan önce olamaz" });

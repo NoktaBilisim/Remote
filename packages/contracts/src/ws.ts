@@ -10,6 +10,7 @@
 import { z } from "zod";
 import { guestClipInbound, guestPrintInbound, serverClipPrintOutbound, techClipPrintInbound, type GuestFeature } from "./ws-clip-print.ts";
 import { FILE_MODES, fsrvInbound, PEER_FEATURES, serverFsrvOutbound } from "./ws-fsrv.ts";
+import { CONSENT_MODES } from "./unattended-consent.ts";
 
 export const WS_SUBPROTOCOL = "rs.v1";
 export const WS_TICKET_PREFIX = "rs.ticket.";
@@ -42,6 +43,11 @@ export const SESSION_ENDED_REASONS = [
   "indicator_failed",
   "device_timeout",
   "session_changed",
+  // P28u (mimari-p28u §6.2): kullanıcı onay diyaloğunu reddetti / 60 sn yanıt vermedi; `ask` odası onay sonucu olmadan
+  // `/ws/guest`'e geldi (K-P28u-3).
+  "consent_denied",
+  "consent_timeout",
+  "consent_missing",
 ] as const;
 export type SessionEndedReason = (typeof SESSION_ENDED_REASONS)[number];
 
@@ -350,7 +356,16 @@ export const serverOutboundSchema = z.discriminatedUnion("t", [
     /** Yalnız role=tech hello'sunda: misafirden gelen son paylaşım durumu (misafir ayrıldıysa "stopped"). */
     share: shareStateSchema.omit({ t: true, id: true }).optional(),
     /** P27 (§4.6): yalnız role=tech hello'sunda, gözetimsiz odada — konsol "Gözetimsiz" rozeti + cihaz adı. */
-    unattended: z.strictObject({ deviceId: ulid, deviceName: z.string().min(1).max(64) }).optional(),
+    // P28u (§6.4): `consentMode` oda kipi (yoksa henüz belli değil — `ask` odası `consent.result`'a kadar); `intervene` cihaz
+    // `consent1` bildirdi → konsol "Müdahale et"/"Kilitle"/"Oturumu kapat" düğmeleri (yoksa false, AC-352 metni).
+    unattended: z
+      .strictObject({
+        deviceId: ulid,
+        deviceName: z.string().min(1).max(64),
+        consentMode: z.enum(CONSENT_MODES).optional(),
+        intervene: z.boolean().optional(),
+      })
+      .optional(),
     /** P28a (§4.2): yalnız role=tech hello'sunda — bağlı misafirin bildirdiği özellikler (yoksa `[]`). */
     guestFeatures: guestFeatures.optional(),
     /** P28a (§4.2): yalnız role=tech hello'sunda — müşteri pano anahtarı (sunucu aynası). */

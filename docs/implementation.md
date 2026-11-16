@@ -11570,3 +11570,68 @@ Kaynak: `docs/test-raporu.md` (P28b K9) B2, B3.
   `\r\n`'yi `\n`'e çevirmeli (DB `\r`'yi 3819 ile reddeder). (3) `DEVICE_CONSENT_WINDOW_MS = 150_000` DB sınırı 155 sn.
   (4) Politika açma UPDATE'inde `enabled=1` ile `ack_at`/`ack_by` aynı ifadede (CHECK). (5) O-P28u-2 toplu iptal UPDATE'ine
   `tenant_id` koşulu.
+
+## P28u K2 (backend-dev) — sözleşmeler + `/ws/device` fikstürü (2026-11-16)
+
+**Değişen dosyalar (`packages/contracts`):** `src/permissions.ts` (`unattended.silent` + açıklama; rol varsayılanı mevcut kalıp:
+Admin açık, User kapalı), `src/errors.ts` (`DEVICE_OUTDATED`/`SILENT_DISABLED`/`INTERVENE_PENDING` 409, `INTERVENE_FAILED` 502),
+`src/audit.ts` (`UNATTENDED_AUDIT` + `CONSENT`, `CONTROL_TOGGLE`, `LOCK`, `LOGOFF`, `REJOIN`, `SILENT_NOTIFY`; ayrı
+`UNATTENDED_POLICY_AUDIT = "settings.unattended_silent"`; `CONSENT_MODE_ACTIONS`), `src/ws.ts` (`SESSION_ENDED_REASONS` +
+`consent_denied|consent_timeout|consent_missing`; `hello.unattended.consentMode?`, `intervene?`), `src/ws-device.ts`
+(`WS_DEVICE_CAP_CONSENT`, `DEVICE_FEATURES`, `connect.consent` zorunlu + `indicatorControl` silent⇔, fail reasons +
+`consent_denied|consent_timeout|protocol`, ayrı birlikler `deviceConsentInboundSchema` {device.user, consent.result,
+intervene.result} ve `deviceConsentOutboundSchema` {device.features, intervene, rejoin}, `INTERVENE_COMMANDS/FAIL_REASONS`,
+`deviceSilentIndicatorText`/`deviceControlIndicatorText`), `src/api/unattended.ts` (`silentReasonSchema`,
+`unattendedConnectInputSchema`, politika görünümü/girdisi, müdahale girdileri/yanıtları + süreler/kova, `CONNECT_ASK_COOLDOWN_SEC`,
+`outdated` engel nedeni, hata metinleri, `CONSENT_MODE_LABELS`, `DEVICE_USER_STATE_LABELS`, audit etiketleri, `status.silentAllowed?`,
+`DeviceListItem.userState?`), `src/api/sessions.ts` (liste filtresi `consentMode`, `SessionListItem.consentMode?`,
+`SessionHistoryDetail.unattended?` + `UNATTENDED_TIMELINE_KINDS/MAX`), `src/api/audit.ts` (filtre `consentMode`), `src/labels.ts`
+(`END_REASON_LABELS` + 3 consent + `protocol`), YENİ `src/unattended-consent.ts` (kip sözlükleri, `DEVICE_CONSENT_WINDOW_MS = 150_000`,
+`CONSENT_DIALOG_SEC = 60`, `CONSENT_RESULT_MS_MAX`), YENİ `src/rejoin-const.ts` (45 sn / 30 sn / 20 sn), `package.json` exports (+2),
+`fixtures/ws-device.json`, testler `test/unattended-p28u.test.ts` (yeni, 19 test), `test/unattended-p27.test.ts` (eylem listesi
+`arrayContaining`), `pt-surface` anlık görüntüsü (yalnız ekleme; fark satır satır gözden geçirildi).
+Tip uyumu için minimum: `apps/server/src/unattended/connect.ts` `consent: "ask"`; `apps/web/messages/tr.json`
+`c.reason.consent_*` (3) + `perm.a.silent`.
+
+**Tasarımdan sapmalar (gerekçeli):**
+1. Sabitler sunucu yerine contracts'ta: `rejoin-const.ts` ve `DEVICE_CONSENT_WINDOW_MS` (mimari §3.2/§7.5 sunucu dosyası der). Şema
+   (`rejoin.expiresInSec ≤ 30`) ve fikstür aynı değeri kullanmalı; tek tanım contracts. K3/K4 **içe aktarır, yeniden tanımlamaz**
+   (sunucuda `unattended/rejoin-const.ts` gerekmez; istenirse yalnız yeniden dışa aktarım).
+2. `INTERVENE_FAILED` ayrıntısı `details.reason` değil mevcut zarfın `fields.reason`'ı (projede `details` yok).
+3. Web hata metni `apps/web/lib/errors.ts` yok; metinler mevcut kalıpla `UNATTENDED_ERROR_MESSAGES`'ta (sunucu `DEFAULT_MESSAGES`'a yayılır).
+4. Politika audit eylemi `settings.*` önekli olduğundan `UNATTENDED_AUDIT` dışında (`UNATTENDED_POLICY_AUDIT`; P27 testi `unattended.`
+   önekini zorunlu tutar).
+5. Müdahale için yetki anahtarı eklenmedi (§4 V-PU7; testle sabit).
+6. `silentReasonSchema` DB CHECK'inden katı alt küme: `\r` reddedilir (normalize edilmez — devir isteği), ek olarak U+034F/U+180E
+   (`UNSAFE_NAME_CHARS`); uzunluk kırpma sonrası kod noktası. Zod'u geçen her değer DB'ye yazılır.
+7. Yeni yanıt alanları (`silentAllowed`, `userState`, `consentMode`, `unattended`) **isteğe bağlı** (`storedFiles?` kalıbı) — doldurulana
+   kadar sunucu/web derlemesi kırılmasın. Doldurduktan sonra K3/K4 zorunluya çevirebilir.
+
+**Bağımlılık:** yok.
+
+**Test:** `pnpm --filter @remote/contracts test` → 222/222; `pnpm -r run typecheck` (3 paket) temiz; `pnpm -r run lint` temiz;
+prettier dokunulan dosyalarda temiz; web vitest 446/446; server `test/unit` 583 (+1 skip). Sunucu entegrasyon testleri (DB) bu pakette
+koşulmadı (davranış değişikliği yalnız `connect` mesajına `consent:"ask"` alanı).
+
+**Devir notları:**
+- **K3:** `unattendedConnectInputSchema` (boş gövde de geçerli; ihlaller `fields.reason`); `connect.ts`'teki geçici `consent: "ask"`
+  satırını silent dalıyla değiştir (`consent:"silent"`, `indicatorText = deviceSilentIndicatorText`, `indicatorControl =
+  deviceControlIndicatorText`, PENDING 60 sn; `ask` 150 sn = `DEVICE_CONSENT_WINDOW_MS`). **Dikkat:** bu satır şimdiden tel üstünde —
+  P27 (eski) servis strict ayrıştırıcısı `connect`'i reddeder; 8a `DEVICE_OUTDATED` kapısı gelene kadar staging'de eski servise bağlantı
+  `device_timeout` ile biter. `putUnattendedPolicyInputSchema` geçiş kuralını içermez (false→true ack/step-up, aynı değer 200 serviste);
+  `POLICY_ACK_REQUIRED_MESSAGE`; `UnattendedPolicyView`; `status.silentAllowed`; `CONNECT_ASK_COOLDOWN_SEC`; audit
+  `UNATTENDED_POLICY_AUDIT`, `SILENT_NOTIFY`; `connect` audit'inde `silentReason`/`failReason` (çıplak `reason` yok).
+- **K4:** sokette belirteç → `DEVICE_FEATURE_BY_SUBPROTOCOL`; `consent1` sokette gelen mesajı önce `deviceInboundSchema`, olmazsa
+  `deviceConsentInboundSchema` ile ayrıştır (belirteçsizde ikincisi denenmez → 1008). `hub.send` için `DeviceConsentOutbound` yalnız
+  `consent1` sokete (tip ayrımı). `consoleReasonOf`: `consent_denied|consent_timeout` konsola aynı adla, `protocol` → `device_timeout`.
+  Süreler `INTERVENE_LOCK_TIMEOUT_MS`/`INTERVENE_LOGOFF_TIMEOUT_MS`/`INTERVENE_PER_MIN`, `REJOIN_*`; `hello.unattended.consentMode/intervene`;
+  `userState`, `consentMode` (liste), `unattended` (geçmiş, ≤ `UNATTENDED_TIMELINE_MAX`), audit filtresi `consentMode` +
+  `CONSENT_MODE_ACTIONS`. `/ws/guest` `session.ended` yeni nedenleri yardımcıya gidebilir — Go helper enum'u K6'da genişlemeli.
+- **K5/K6 (Go):** fikstür anahtarları: `constants` (tüm süreler + belirteç), `valid/invalid.consent1Inbound`,
+  `valid/invalid.consent1Outbound` (taban ∪ consent birliği; `device.features` sonrası). Eski `valid.deviceOutbound`'dan consent'siz
+  `connect` **çıkarıldı** (D-P28u-5 ile artık geçersiz; eski Go hâlâ kabul ettiği için `invalid`'e de konmadı) → K5'e kadar Go'da
+  `connect` kapsamı yalnız yeni anahtarlarda; `wire_test.go` mevcut anahtarlarla yeşil kalır. K5 `wire_test.go`'ya `consent1*` ve
+  `constants` testlerini eklemeli; consent'siz/bilinmeyen `consent` → `connect.result{protocol}`.
+- **K7:** `CONSENT_MODE_LABELS`, `DEVICE_USER_STATE_LABELS`, `CONNECT_BLOCKED_REASON_LABELS.outdated`, `UNATTENDED_AUDIT_LABELS` (yeni 7),
+  `SILENT_REASON_MIN/MAX/MESSAGE`, `PERMISSION_DESCRIPTIONS["unattended.silent"]`; `tr.json`'a eklenen 4 anahtar metnini gözden geçir.
+  Yoklama 15 → 8 sn (`DEVICE_POLL_MS`) contracts'ta **değiştirilmedi** (§10 `use-device-poll.ts` K7 işi).

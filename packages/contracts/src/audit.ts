@@ -287,8 +287,41 @@ export const UNATTENDED_AUDIT = {
   CODE_SENT: "unattended.code.sent",
   /** LG (AC-419, O-LG-2): public servis indirmesi — `{customerId, ua}`; kod+IP saatte 1, kod başına en çok 10 satır. */
   CODE_DOWNLOADED: "unattended.code.downloaded",
+  // P28u (mimari-p28u §9.1; AC-431, 436, 439, 441, 443–445). Entity `support_sessions` (politika: `tenant_settings`/tenantId).
+  // Alan adları (D-P28u-4, K-P28u-20): gerekçe `silentReason` YALNIZ `unattended.connect` satırında; ret kodu `failReason`;
+  // çıplak `reason` anahtarı yok. `userState` hiçbir satıra yazılmaz (D-P28u-6). `CONNECT` += `consentRequested:"ask"` ya da
+  // `consentMode:"silent"` + `silentReason`; `SESSION_STARTED`/`SESSION_ENDED` += `consentMode`.
+  /** Cihazdaki onay kararı — aktör cihaz (`user_id` NULL, `username` = `device:<id>`): `{consentMode:"asked", decision, ms, deviceId, technicianId}`. */
+  CONSENT: "unattended.consent",
+  /** Kontrol açıldı/kapandı (her kip, K-P28u-10): `{from, to: "view"|"control", consentMode}`. */
+  CONTROL_TOGGLE: "unattended.control_toggle",
+  /** `{deviceId, result, failReason?, durationMs}` (başarısız dahil). */
+  LOCK: "unattended.lock",
+  /** `{deviceId, result, failReason?, durationMs, rejoin}`. */
+  LOGOFF: "unattended.logoff",
+  /** Oturum kapatma sonrası yeniden katılım: `{result, failReason?}`. */
+  REJOIN: "unattended.rejoin",
+  /** Dört göz e-postası denemesi: `{event: "connect"|"policy", recipient(maskeli), result, attempt}`. */
+  SILENT_NOTIFY: "unattended.silent.notify",
 } as const;
 export type UnattendedAuditAction = (typeof UNATTENDED_AUDIT)[keyof typeof UNATTENDED_AUDIT];
+
+/**
+ * P28u politika değişikliği (AC-436): entity `tenant_settings`/tenantId, `{old, new, ack: true, stepUp: true}`. `settings.*`
+ * önekli (audit "Ayarlar" grubu) olduğundan `UNATTENDED_AUDIT` (`unattended.*`) dışında; etiket `UNATTENDED_AUDIT_LABELS`'ta.
+ */
+export const UNATTENDED_POLICY_AUDIT = "settings.unattended_silent";
+
+/** P28u (§5.4): `consentMode` taşıyan eylemler — audit "Bağlantı kipi" filtresi bunlarla daraltılır (`connect` yalnız silent'ta taşır). */
+export const CONSENT_MODE_ACTIONS: readonly UnattendedAuditAction[] = [
+  UNATTENDED_AUDIT.CONNECT,
+  UNATTENDED_AUDIT.CONSENT,
+  UNATTENDED_AUDIT.SESSION_STARTED,
+  UNATTENDED_AUDIT.SESSION_ENDED,
+  UNATTENDED_AUDIT.CONTROL_TOGGLE,
+  UNATTENDED_AUDIT.LOCK,
+  UNATTENDED_AUDIT.LOGOFF,
+];
 
 /**
  * P28a pano + uzaktan yazdırma (mimari-p28 §8.1; AC-347, 348, 351). Entity `support_sessions`, entity_id = sessionId. Pano

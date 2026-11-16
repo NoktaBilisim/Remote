@@ -124,6 +124,8 @@ async function afterCommit(
     techIp: ctx.ip.length >= 2 ? ctx.ip.slice(0, 45) : "bilinmiyor",
     expiresInSec: Math.max(1, Math.round((expiresAt - d.now()) / 1000)),
     indicatorText: deviceIndicatorText(auth.user.fullName, tenantName || "Destek", d.gate.mode === "unsigned"),
+    // P28u-K2 tip uyumu (sözleşmede zorunlu); silent dalı + 8a `DEVICE_OUTDATED` kapısı K3.
+    consent: "ask",
   });
   if (room && !sent) await endDeviceRoom(d.rooms, room, "device_timeout");
   else if (room) armTimeout(d, room);
