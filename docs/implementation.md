@@ -12541,3 +12541,38 @@ Kaynak: K3/K4 "açık maddeler", koordinatör listesi (1–6) ve K7 ek notu (a�
 
 - Audit `recording.start` ve `recording.stop` alt kodu artık `newValue.cause` (eskiden `code`, `"***"` görünüyordu).
 - `TenantRequestInfo` ve `WebFormInfo` içindeki `consentText` artık `ConsentTextView` tipinde; `recording?` alanı tipli, çalışma anı koruması kaldırılabilir.
+
+## P28e K8 (devops) — CI 0.16.0, kayıt alarmları, Caddy parça sınırı, runbook §28e (2026-11-16)
+
+Kaynak: mimari-p28e r2 §11, §12, §13–§14 K8. `apps/server`, `apps/web` ve Go kaynağına dokunulmadı. **Yeni env yok** (§11.4;
+`REC_REQUIRE_CLUSTER_START` contracts sabiti, `git diff main...HEAD -- .env.example apps/server/src/env.ts deploy/docker-compose*.yml` boş).
+
+| Dosya                                       | Değişiklik                                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| ------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `.github/workflows/agent-win.yml`           | `test-windows`: "P28e kayıt rızası + gösterge + servis eki testleri (-v)" adımı (P28u adımından sonra, K6s kilit adımından önce). Ad sözleşmesi — 33 test zorunlu PASS (`-run 'TestAC38[12]\|TestAC44[89]\|TestSP28e'`; api, flow, request, signal, servis, servis/helperio, unattended/helper). Onay listesine "0.16.0 → P28e + migration" ve Windows kayıt elle turu                                                                         |
+| `deploy/Caddyfile`                          | **Hata düzeltmesi:** `@recPart` (`PUT /api/v1/rec/<rid>/series/<s>/parts/<p>`) `max_size 2097152`; `@notUpload` iki `not` bloğuyla parça yolunu dışlar. Önce 2MB (SI) kuralı 2.000.001–2.097.152 baytlık parçaları 413'lüyordu (test önce kırmızıydı)                                                                                                                                                                                          |
+| `deploy/test-caddy.sh`                      | "P28e kayıt parçası": 2 MiB → 200 (tam iletildi), +1 → 413, parça dışı PUT 2 MiB → 413, parça yoluna POST → 413; `$RTOK` log maskesi listesinde                                                                                                                                                                                                                                                                                                |
+| `deploy/nginx/remote.noktabilisim.net.conf` | Yalnız yorum (2 MiB parça 3m sınırı ve bellek tamponunun altında)                                                                                                                                                                                                                                                                                                                                                                              |
+| `deploy/ops/remote-watch.sh`                | 32.–36. metrik alanı (`rs_rec_part_total` işaret + `{result=~invalid\|rate\|busy}`, `rs_rec_stop_total` + `{reason="error"}`, `rs_rec_view_throttled_total`); kontroller `rec-stop-error` (1 sa, ≥ `WATCH_REC_ERR_MIN`=3 ve > %20), `rec-part-rejected` (600 sn, > `WATCH_REC_PART_BAD_MAX`=10), `rec-view-throttled` (1 sa, > `WATCH_REC_VIEW_THROTTLE_MAX`=50). Durum anahtarı `rec_samples` (90 dk). P28e öncesi server'da değerlendirilmez |
+| `deploy/ops/test-watch.sh`                  | +12 senaryo (öncesi/temiz/eşik sınırları/pencere/budama/S14-2) + 2 ayrıştırma testi (histogram `rs_rec_part_bytes_*` ve `rs_rec_bytes_total` toplanmaz) + **ad eşlemesi** (betikteki her `rs_rec_*` adı `rec/types.ts` `REC_METRICS`'te); eski `exp` dizilerine 5 `-` alanı                                                                                                                                                                    |
+| `deploy/ops/watch.env.example`              | Üç yeni anahtarın açıklaması                                                                                                                                                                                                                                                                                                                                                                                                                   |
+| `docs/runbook.md`                           | §28e (ayar/KVKK, disk planı, yedek dışı, anahtar emekliliği, sorgulama/elle silme, alarmlar, vekil/CSP/log, Windows elle turu 21 madde + olay 1009, staging yayını, geri alma)                                                                                                                                                                                                                                                                 |
+
+Kararlar / sapmalar:
+
+1. **Sürüm 0.16.0 kodda sabit değil** (P28u K8 kalıbı): `build.sh <adres> <x.y.z>` ldflags; CI sürümü etiketten/dispatch girdisinden. K5 notundaki
+   "0.16.0 sabiti K8'e" maddesi bu yolla karşılandı; `build.sh`/`winres`/publish betikleri değişmedi.
+2. **Gözcü (`no_upload`) ayrı metrik değil:** `rs_rec_stop_total` yalnız `{reason}` taşır; gözcü durması `reason="error"` altındadır. Ayrı seri
+   eklemek server kodu gerektirirdi; alarm `rec-stop-error`, alt kod audit `recording.stop.cause`'dan okunur (runbook §28e.6).
+3. Oran alarmına en az sayı şartı (3) eklendi: tek hatalı kayıt %100 sayılıp gece alarmı üretmesin (P28b/P19 kalıbı).
+4. `rec-part-rejected` penceresi 600 sn; timer 10 dk olduğundan fiilen 10–20 dk (sayaç artışı ardışık örnek farkı).
+5. Disk için yeni kontrol yok (mimari §11.3 "aynen"): mevcut `disk:/var/lib/docker` %80; kayıt P28b kotasını paylaşır.
+6. Metrik adlarının tek kaynağı `apps/server/src/rec/types.ts` `REC_METRICS`; `packages/contracts/src`'te `rs_rec_*` adı yok (grep), ad eşlemesi testi
+   types.ts'e bakar.
+7. Caddy düzeltmesi `@notUpload` eşleştiricisini değiştirdi (iki `not` bloğu) — K9 güvenlik turunun bakması istenir.
+8. CSP `media-src 'self' blob:` uygulamadan (`apps/web/proxy.ts`, birim testi); Caddy CSP eklemez — doğrulandı, değişiklik yok.
+
+Doğrulama (yerel, 2026-11-16): `deploy/ops/test-watch.sh` → `SONUÇ: GEÇTİ`; `deploy/test-caddy.sh` → `SONUÇ: GEÇTİ` (düzeltme öncesi
+"rec 2 MiB → 413" FAIL); `deploy/nginx/test-nginx.sh` → GEÇTİ; shellcheck v0.11.0 (`-S warning`, CI digest) değişen betikler temiz;
+actionlint 1.7.8 (CI digest) temiz; prettier `agent-win.yml`, `runbook.md`, `implementation.md` temiz; linux `golang:1.26` ile
+`go test -v -run 'TestAC38[12]|TestAC44[89]|TestSP28e'` → 33/33 PASS (Windows koşusu CI'da). Staging'e yayın yapılmadı (koordinatör, §28e.9).

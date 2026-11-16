@@ -168,6 +168,18 @@ CODE="$(curl -s -o /dev/null -w '%{http_code}' -X PUT --data-binary "@$TMP/chunk
 H="$(curl -s -D - -o /dev/null -H "Authorization: Bearer $FTOK" "$B/api/v1/fsrv/files/01HFSRVTESTFID000000000000/content")"
 printf '%s' "$H" | grep -qi 'gizli-ad-fsrv' && pass "fsrv indirme Content-Disposition istemciye gider" || fail "fsrv indirme başlığı yok"
 
+echo "== P28e kayıt parçası: PUT 2 MiB (REC_PART_MAX_BYTES) geçer, +1 413; Bearer loga yazılmaz"
+head -c 2097152 /dev/urandom >"$TMP/rec2m"; head -c 2097153 /dev/urandom >"$TMP/rec2m1"
+RTOK="recbelirtec$(openssl rand -hex 8)"
+putr() { curl -s -o "$TMP/out" -w '%{http_code}' -X PUT -H 'Content-Type: video/webm' -H "Authorization: Bearer $RTOK" \
+  --data-binary "@$1" "$B/api/v1/rec/01HRECTESTRID0000000000000/series/$2/parts/$3"; }
+CODE="$(putr "$TMP/rec2m" 0 0)"; [ "$CODE" = 200 ] && grep -q '"n":2097152' "$TMP/out" && pass "rec 2 MiB parça → server'a tam gider" || fail "rec 2 MiB → $CODE $(cat "$TMP/out")"
+CODE="$(putr "$TMP/rec2m1" 0 1)"; [ "$CODE" = 413 ] && pass "rec 2 MiB + 1 → 413" || fail "rec 2 MiB + 1 → $CODE"
+CODE="$(curl -s -o /dev/null -w '%{http_code}' -X PUT --data-binary "@$TMP/rec2m" "$B/api/v1/rec/01HRECTESTRID0000000000000/series/0")"
+[ "$CODE" = 413 ] && pass "rec parça yolu dışı PUT 2 MiB → 413 (2MB sınırı korunur)" || fail "rec dışı PUT → $CODE"
+CODE="$(curl -s -o /dev/null -w '%{http_code}' -X POST --data-binary "@$TMP/rec2m" "$B/api/v1/rec/01HRECTESTRID0000000000000/series/0/parts/2")"
+[ "$CODE" = 413 ] && pass "rec parça yoluna POST 2 MiB → 413 (yalnız PUT genişler)" || fail "rec POST → $CODE"
+
 echo "== güvenlik başlıkları (mimari-p13 §7.5, AC-126; uygulama koymadığında Caddy tamamlar)"
 H="$(curl -s -D - -o /dev/null "$B/downloads/x")"
 HSTS="$(printf '%s' "$H" | tr -d '\r' | sed -n 's/^[Ss]trict-[Tt]ransport-[Ss]ecurity: //p')"
@@ -223,7 +235,7 @@ grep -q '"uri":"/downloads/NoktaDestek.exe"' "$TMP/caddy.log" && pass "kodsuz ad
 grep -q '"uri":"/api/v1/files/avatar/T1/abcdefghijklmnop.webp"' "$TMP/caddy.log" && pass "erişim logu /api/v1/files yolu sorgu dizesiz" || fail "/api/v1/files log satırı"
 grep '"logger":"http.log.access' "$TMP/caddy.log" | grep -q '"uri":"/r/\*\*\*/bekle"' && pass "P19 erişim logu /r/***/bekle" || fail "P19 erişim logu /r/*** yok"
 grep '"logger":"http.log.error' "$TMP/caddy.log" | grep -q '"uri":"/r/\*\*\*"' && pass "P19 hata logu (varsayılan logger) /r/***" || fail "P19 hata logu /r/*** yok"
-for s in "$WREF" "webref" "$REF" "$REF2" "TESTSIRRI" "utm=" "x=1" "gizlisorgu" "12345678" "DemoFirma" "IkinciFirma2" "test-only-edge-secret" "$FTOK" "gizli-ad-fsrv"; do
+for s in "$WREF" "webref" "$REF" "$REF2" "TESTSIRRI" "utm=" "x=1" "gizlisorgu" "12345678" "DemoFirma" "IkinciFirma2" "test-only-edge-secret" "$FTOK" "gizli-ad-fsrv" "$RTOK"; do
   if grep -q -- "$s" "$TMP/caddy.log"; then fail "logda '$s' var"; else pass "logda '$s' yok"; fi
 done
 
