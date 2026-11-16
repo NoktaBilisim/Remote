@@ -166,6 +166,8 @@ describe("P28u-K4 izinsiz oturum: kip, toggle, dosya kapısı, kesme", () => {
     });
     expect((await ws.waitFor("error")).code).toBe("FORBIDDEN");
     await grantControl(ws, helper);
+    // Audit yazımı GRANTED bildiriminden sonra tamamlanır; bırakmadan önce "on" satırını bekle (CI sıra yarışı).
+    await waitUntil(async () => (await auditsOf(sessionId, "unattended.control_toggle")).length === 1);
     ws.send({ t: "control.release" });
     await waitUntil(async () => (await auditsOf(sessionId, "unattended.control_toggle")).length === 2);
     const rows = await auditsOf(sessionId, "unattended.control_toggle");
