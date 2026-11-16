@@ -9,7 +9,7 @@ import type { SecretBox } from "../lib/crypto.ts";
 import type { Db } from "../lib/db.ts";
 import type { Metrics } from "../ops/metrics.ts";
 import { effectiveClamav, markMisconfigured, type ClamavDeps } from "../settings/clamav.ts";
-import type { Clock } from "../signaling/types.ts";
+import { realClock, type Clock } from "../signaling/types.ts";
 import { ClamdClient, inCidrRange, type LookupAll } from "./clamd.ts";
 import { Scanner, registerScanMetrics } from "./scan.ts";
 import { ScanQueue } from "./scan-queue.ts";
@@ -123,17 +123,59 @@ export async function refreshStorageGauges(db: Db, rt: FsrvRuntime): Promise<voi
   rt.gauges.freeRatio = await rt.store.freeRatio();
 }
 
-/** `startJobs`: açılışta ve 10 dk'da bir öz-sınama yoklaması (§7.3). Kuyruğa girmez. */
-export function startAvPolling(app: FastifyInstance, rt: FsrvRuntime): void {
-  let timer: NodeJS.Timeout | undefined;
-  const tick = async () => {
-    await rt.scanner.poll();
-    await refreshStorageGauges(app.db, rt).catch((err: unknown) => app.log.warn({ err }, "depolama göstergesi okunamadı"));
+/** K9 B3: hızlı yeniden deneme aralığı ve sayısı. 30 sn × 19 ≈ 9,5 dk < bir sonraki 10 dk turu ve `remote-watch` "ardışık 2 tur". */
+export const AV_FAST_RETRY_MS = 30_000;
+export const AV_FAST_RETRY_MAX = 19;
+
+export interface AvPollerOptions {
+  intervalMs?: number;
+  fastRetryMs?: number;
+  fastRetryMax?: number;
+}
+
+/**
+ * Öz-sınama yoklama zinciri (§7.3 + K9 B3). Turlar `setTimeout` zinciriyle kurulur (bir yoklama bitmeden yenisi başlamaz).
+ * clamd erişilemezse (açılışta imza yüklerken ya da up→down geçişinde) `fastRetryMs` aralıkla en çok `fastRetryMax` kez
+ * yeniden dener; bütçe yalnız açılışta ve başarılı bir yoklamadan sonra yenilenir -> hiç açılmayan clamd (profil kapalı)
+ * kalıcı 30 sn yoklamasına dönüşmez. Hızlı denemeler `av_down` sayacına katılmaz (Scanner.poll fastRetry).
+ */
+export function createAvPoller(tick: (fastRetry: boolean) => Promise<boolean>, clock: Clock, o: AvPollerOptions = {}) {
+  const intervalMs = o.intervalMs ?? AV_SELFTEST_INTERVAL_MS;
+  const fastMs = o.fastRetryMs ?? AV_FAST_RETRY_MS;
+  const fastMax = o.fastRetryMax ?? AV_FAST_RETRY_MAX;
+  let budget = fastMax;
+  let timer: unknown;
+  let stopped = false;
+  const run = async (fastRetry: boolean): Promise<void> => {
+    timer = undefined;
+    const up = await tick(fastRetry).catch(() => false);
+    if (stopped) return;
+    if (up) budget = fastMax;
+    const fast = !up && budget > 0;
+    if (fast) budget--;
+    timer = clock.setTimeout(() => void run(fast), fast ? fastMs : intervalMs);
   };
-  app.addHook("onReady", async () => {
-    void tick();
-    timer = setInterval(() => void tick(), AV_SELFTEST_INTERVAL_MS);
-    timer.unref();
-  });
-  app.addHook("onClose", async () => clearInterval(timer));
+  return {
+    start: (): Promise<void> => run(false),
+    stop: (): void => {
+      stopped = true;
+      if (timer !== undefined) clock.clearTimeout(timer);
+      timer = undefined;
+    },
+  };
+}
+
+/** `startJobs`: açılışta ve 10 dk'da bir öz-sınama yoklaması (§7.3); erişilemezken kısa aralıklı yeniden deneme (K9 B3). Kuyruğa girmez. */
+export function startAvPolling(app: FastifyInstance, rt: FsrvRuntime, clock: Clock = realClock, o: AvPollerOptions = {}): void {
+  const poller = createAvPoller(
+    async (fastRetry) => {
+      await rt.scanner.poll({ fastRetry });
+      await refreshStorageGauges(app.db, rt).catch((err: unknown) => app.log.warn({ err }, "depolama göstergesi okunamadı"));
+      return rt.scanner.up === 1;
+    },
+    clock,
+    o,
+  );
+  app.addHook("onReady", async () => void poller.start());
+  app.addHook("onClose", async () => poller.stop());
 }

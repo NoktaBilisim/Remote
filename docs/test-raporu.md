@@ -1,133 +1,226 @@
-# Test Raporu — P28a K9 (pano senkronu + uzaktan yazdırma)
+# Test Raporu — P28b K9 (sunucuda dosya aktarımı + ClamAV + depolama kotası)
 
-Önceki paketlerin sayfa testi raporları `docs/arsiv/*-test-raporu.md` ve `docs/test-raporu/` altındadır.
+Önceki rapor (P28a K9) `docs/arsiv/p28a-test-raporu.md` dosyasına taşındı.
 
-DURUM: GEÇTİ (web + staging duman kapsamı; Windows istemcili maddeler kullanıcının elle turunda — aşağıda ⏭)
+DURUM: DÜZELTİLMELİ. Web ve staging altyapı kapsamı geçti. Kimlikli staging dumanı ise koşulamadı: test hesapları
+kullanılamıyor (B1). AC-357 uçtan uca ölçümü bu yüzden yapılamadı. Staging clamd'si eski imza veritabanıyla çalışıyor (B2).
 
 Ortam:
 
-- Yerel: üretim derlemesi (standalone, bu tur `987b2f1` ağacından derlendi) `http://localhost:3217` + sahte API
-  `apps/web/e2e/mock-api.mjs` :4217 (sahte WS + sahte Windows istemci `e2e/fake-agent.ts`). Gerçek sunucu kullanılmadı.
-- Staging: `https://remote.noktabilisim.net`, `remote-web:987b2f1` + `remote-server:987b2f1` (sunucuda `docker ps` ile
-  salt okunur doğrulandı, ikisi de healthy). Yalnız kimliksiz GET; giriş denemesi yapılmadı (kilit/audit kirliliği yok).
-- Dal `main`, HEAD `87ca1fa` (987b2f1'e göre yalnız `docs/runbook.md` farkı; derlenen kod aynı). Tarih 2026-11-16.
-- Betikler: `docs/test-raporu/e2e/p28a-k9/` (`k9.config.ts`, `panel.spec.ts`, `tarama.spec.ts`, `staging.mjs`); ham
-  sonuçlar `panel.jsonl`, `tarama.jsonl`. Seçilmiş ekranlar `docs/img/p28a-k9/`. Betikler `apps/web` altına geçici
-  kopyalanıp koşuldu, kopya silindi; açılan süreçler kapatıldı.
+- Yerel: dal `p28b` @ `6f6f7b2`. Staging'deki `ec713f2` ile `apps/` ve `packages/` farkı yok
+  (`git diff --stat 6f6f7b2 ec713f2 -- apps packages` boş). Testler üretim derlemesiyle (standalone) koşuldu:
+  `http://localhost:3217` + sahte API `e2e/mock-api.mjs` (:4217).
+- Staging: `https://185.126.217.99:4450`, yığın `/opt/remote/deploy` (compose `remote`). `server`/`web` imajı
+  `remote-server:ec713f2`/`remote-web:ec713f2`, `clamav`/`clamav-update` 1.5.4 (digest sabit). Hepsi healthy; tur
+  sırasında yığın 08:48 UTC'de yeniden başlatılmıştı. Tarih 2026-11-16.
+- Betikler `docs/test-raporu/e2e/p28b-k9/` altında: `zz-k9-p28b.spec.ts` sayfa taraması, `av-probe.ts` clamd dumanı,
+  ham sonuç `tarama.jsonl`, ekranlar `shots/`. Geçici kopyalar silindi. Staging'de konteynere konan betik koşudan sonra
+  silindi. Staging'de ayar, firma ve kullanıcı **değiştirilmedi**; sunucu modu açılmadı, geri alınacak test ayarı yok. Tek iz B1'deki giriş denemeleri (audit).
 
 ## Özet
 
-| Ölçüt                                                 | Sonuç                                                                                                     |
-| ----------------------------------------------------- | --------------------------------------------------------------------------------------------------------- |
-| Mevcut e2e `p28a-clip-print.spec.ts`                  | 3/3 geçti (desktop); mobil 3 test spec gereği atlandı ("konsol masaüstü akışı") — geçti sayılmadı         |
-| Panel durum testi (`panel.spec.ts`)                   | 24/24 geçti: 8 panel durumu × açık/koyu × 1440/390 = 32 görünüm + kullanıcı düzenleme 4 görünüm           |
-| Genel tarama (`tarama.spec.ts`)                       | 100/100 geçti: 25 ekran/durum × açık/koyu × 1440/390                                                      |
-| Konsol / JS hatası                                    | 0 (yalnız sahte API artefaktı 404'ler, aşağıda)                                                           |
-| 4xx/5xx                                               | 5xx 0. 404: `/yok-boyle-sayfa` (beklenen) ve `usadm` senaryosunda `/api/v1/support-requests*` (sahte API) |
-| Kırık iç link (desktop açık, sayfadaki tüm `a[href]`) | 0                                                                                                         |
-| axe (wcag2a/aa/21aa)                                  | 0 ihlal (136/136 görünüm; panel durumlarında panel bölgesi, diğerlerinde tüm sayfa)                       |
-| 390 px yatay taşma                                    | 0; panel sağ kenarı her durumda görünüm genişliği içinde                                                  |
-| Yavaş sayfa                                           | yok (sahte API, her görünüm < 1,5 sn)                                                                     |
-| Staging `/login` (1440/390 × açık/koyu)               | 200, konsol 0, başarısız istek 0, taşma 0, CSP + HSTS başlığı var, favicon 3 bağlantı, logo yüklü         |
-
-Not (artefakt, bulgu değil): `usadm` (kullanıcı yönetimi) sahte senaryosu destek talebi uçlarını taklit etmiyor; yan menü
-rozeti `/api/v1/support-requests/count` 404 alıyor. Gerçek sunucuda uç var (P8b); önceki turlarda da aynı.
+| Ölçüt                                                              | Sonuç                                                                                                                                                                                                                       |
+| ------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `playwright test p28b p28a`                                        | **17/17 geçti**, 9 atlandı (spec gereği "konsol masaüstü akışı" mobilde atlanıyor; geçti sayılmadı)                                                                                                                         |
+| Sayfa taraması (3 ekran + ClamAV-yok durumu, açık/koyu × 1440/390) | 16/16 görünüm: HTTP 200, konsol hata/uyarı 0, 4xx/5xx 0, axe 0, 390 px yatay taşma 0, kırık iç link 0, her biri ≤ 1,7 sn                                                                                                    |
+| Hata durumu (API 500)                                              | **Test edilmedi**: üç ekranın verisi sunucu tarafında (SSR) çekiliyor, tarayıcı `route` ile 500'e zorlanamadı (12 "-hata" koşusu artefakt; spec'te `test.skip`). Mevcut e2e'de bu ekranlar için yükleme hatası testi de yok |
+| Staging clamd dumanı (server konteynerinden, `ClamdClient` ile)    | PONG ✅, EICAR → `INFECTED Eicar-Test-Signature` ✅, şifreli zip → `SCAN_FAILED ENCRYPTED` ✅, öz-sınama `ok`. İmza: **daily 28177, 2026-11-08 (8 gün)** ❌ (B2)                                                            |
+| 50 MB rastgele, yalnız clamd INSTREAM, 5 tekrar                    | 3,60 / 2,96 / 4,09 / 3,23 / 3,26 sn, hepsi `CLEAN`. Tarama payı ≤ 30 sn bütçesinin ~%14'ü. **Uçtan uca AC-357 değil**: yükleme ve şifre çözme dahil değil                                                                   |
+| Yalıtım (`ops/check-av-isolation.sh remote`)                       | `SONUÇ: GEÇTİ (uyarı 0)`. D-r2-1 satırı (clamav → server:3001) PASS                                                                                                                                                         |
+| Dış port taraması (operatör makinesi → `185.126.217.99:3310`)      | kapalı ✅ (AC-353)                                                                                                                                                                                                          |
+| clamd açılış limitleri                                             | `Global size limit 536870912`, `File size limit 268435456`, "Alerting of encrypted archives _and_ documents enabled" ✅ (§28b.6 madde 4)                                                                                    |
+| Host kaynak (K6 kapı 6)                                            | `free -m` available 6629 MB, clamav zaten çalışırken ölçüldü (≥ 4,5 GiB ✅); host swap 1803/4095 MB kullanımda; `/` %69 (29 GB boş)                                                                                         |
+| clamd bellek (K6 kapı 4, R-P28b-1)                                 | 5 × 50 MB taramadan sonra `remote-clamav-1` 946 MiB / 3 GiB, OOMKilled=false, yeniden başlatma 0 ✅. Eşzamanlı yük tepesi ölçülmedi                                                                                         |
+| Log kuralı (AC-361), `logs server --since 30m`                     | 416 satır. 43 karakterlik belirteç deseni ve `fileName`/`file_name` eşleşmesi 0, `fsrv` geçen satır 0. **Pencerede dosya trafiği olmadığı için kanıt değeri düşük**                                                         |
 
 ## Bulgular (öncelik sırasıyla)
 
-Yok (ENGELLEYİCİ/YÜKSEK/ORTA/DÜŞÜK bulgu çıkmadı).
+### [YÜKSEK] B1 — Staging test hesapları kullanılamıyor; kimlikli K9 dumanı engellendi
 
-Bilgi notları (iş açılmadı):
+Sayfa/akış: staging `POST /api/v1/auth/login`, `deploy/ACCESS.txt` hesapları.
 
-- **Yetki yok → panel gizli, pasif değil.** `u-p7` (kontrol var, `remote_control.clipboard` ve `file_transfer.print` yok)
-  ile "Pano ve yazdırma" bölümü hiç çizilmiyor. Görev metnindeki "yetki yok durumunda pasif + neden" beklentisinden
-  farklı, ancak mimari-p28 §6 bunu açıkça kararlaştırıyor ("yetki yok (düğme **gizli**, AC-72 kalıbı)"). AC-348 de
-  "yalnız `file_transfer.print` yetkisiyle … görünür" diyor. Tasarıma uygun, bulgu sayılmadı.
-- **Konsol açık temada da koyu.** Sahte kullanıcının tema tercihi Sistem olduğu için konsol DESIGN.md §8 "Konsol varsayılan
-  koyu" kuralıyla koyu açılıyor (`rs_theme=light` çerezi DB tercihini ezmiyor). Bu nedenle mevcut e2e'deki "390 px açık
-  temada axe 0" testi fiilen koyu konsolda koşuyor. Açık tercihli (`Açık`) konsol bu turda ayrıca denenmedi. Koyu
-  konsolda bütün durumlar axe 0.
-- **Mobilde toast panelin altını örtüyor.** 390 px'te "Müşteri kontrol izni verdi" toast'ı birkaç saniye "Uzaktan yazdır"
-  neden metninin üstünde kalıyor (`d2b-eski-istemci-izinli-mobile-light.png`). Toast geçici ve kapatılabilir; bulgu
-  sayılmadı.
+Adımlar:
+
+1. Sunucuda `ACCESS.txt`'teki SUPER_ADMIN ve ADMIN satırlarıyla `POST https://185.126.217.99:4450/api/v1/auth/login`
+   isteği atılır (`Origin` doğru).
+2. USER satırıyla aynı istek atılır.
+
+Beklenen: test hesaplarıyla giriş yapılır, ClamAV testi ve firma sunucu modu API'den denenebilir.
+
+Gerçekleşen:
+
+- SUPER_ADMIN ve ADMIN `401 UNAUTHENTICATED` döndü: dosyadaki şifreler güncel değil. Üç istek turu yapıldı; ilk ikisi kimlik doğrulamaya ulaşmadı (yanlış adres, alan adı), yalnız üçüncüsü ulaştı. Her ayrıcalıklı hesapta 1 başarısız giriş (kilit sınırı 5) ve USER'da MFA kurulumunda bekleyen 1 oturum kaldı; staging'deki tek iz bunlar. 401'in sebebi şifre değişikliği olabileceği gibi kilitli/pasif/adı değişmiş hesap da olabilir
+- USER `200` döndü ama `mfaSetupRequired: true`. TOTP kaydı test hesabının durumunu değiştireceği için yapılmadı.
+- Sonuç olarak şu adımlar koşulamadı: Super Admin "Bağlantıyı Test Et", TEST firmasında sunucu modunu açma, oturumda EICAR
+  yükleme, 50 MB uçtan uca yükleme+tarama ölçümü ve kota/uyarı metni.
+
+Ek (güvenlik): `ACCESS.txt` alanlarını maskelemek için kullandığım `sed` boşlukla ayrılmış satırlarda eşleşmedi. Bu
+yüzden üç şifre bu oturumun araç çıktısına (transkript) düştü. Repoya ya da rapora yazılmadı. **Üç hesabın şifresi de döndürülmeli** (USER'ınki hâlâ geçerli).
+
+Öneri: K9 için TOTP'si kasada tutulan ayrı bir staging Super Admin + Admin test hesabı açılmalı (ya da `staging-users.sh`
+`ACCESS.txt`'i güncel tutmalı). Ardından bu bölümdeki elle maddeler koşulmalı.
+
+Atanan: devops
+
+### [ORTA] B2 — Staging clamd 8 günlük imza veritabanıyla çalışıyor (ilk açılış yarışı)
+
+Sayfa/akış: staging `clamav` / `clamav-update`, 08:48 UTC yeniden başlatma.
+
+Adımlar:
+
+1. `docker compose logs clamav-update` → `08:48:24 daily.cld updated (version: 28185)`.
+2. `docker compose exec clamav sh -c 'printf "zVERSION\0" | nc localhost 3310'` komutu çalıştırılır.
+
+Beklenen: clamd güncel daily'yi (28185) yükler. İmza yaşı ≤ 1–2 gün olur (§28b.3).
+
+Gerçekleşen: `ClamAV 1.5.4/28177/Sun Nov 8 06:23:52 2026`. clamd 08:48:35'te imajdaki eski DB'yi yükledi; 08:58:37 SelfCheck "Database status OK" diyip yine yenisini almadı. 09:01:42 `remote-watch`: `ALERT check=av-signature-age imza yaşı 194 sa > 3 gün`. Bu, runbook §28b.3
+"ilk açılış yarışı"dır. Panelde "imza eski" görünür, `av-signature-age` alarmı (> 3 gün) çalar. Yarış her yeniden
+başlatmada tekrar edebilir.
+
+Düzeltme: geçici çözüm runbook'taki `docker compose restart clamav`. Kalıcı çözüm için `clamav`'ın ilk freshclam
+tamamlanmadan başlamaması düşünülmeli. Bu turda staging'e dokunulmadı.
+
+Atanan: devops
+
+### [DÜŞÜK] B3 — Yeniden başlatmadan sonra `av-up` ALERT (clamd erişilebilirken)
+
+Sayfa/akış: `remote-watch` + server `rs_av_up`.
+
+Adımlar:
+
+1. Yığın 08:48'de yeniden başlatılır.
+2. `journalctl -t remote-watch` çıktısına bakılır.
+
+Gerçekleşen: 08:51:37'de `ALERT check=av-up rs_av_up=0 ardışık 2 yoklama`. Oysa 08:55'te server konteynerinden clamd'ye
+PONG/EICAR/zip başarılı. Server'ın açılış yoklaması clamd imza yüklemesi (~60 sn) sırasında düştü. Sonraki yoklama 10 dk
+sonra; bu sürede `rs_av_up` 0 kalıyor ve watch alarm üretiyor. Yanlış alarm. 08:59:44'te `rs_av_up 1` oldu; 09:01:42 watch turunda `av-up` alarmı tekrarlamadı (yalnız B2 alarmı). Not: "ardışık 2 yoklama"nın ilki 08:41 (yeniden başlatma öncesi örnek) — o anki durumu gözlemlemedim; 08:41 turu "OK (41 kontrol)" demiş.
+
+Atanan: backend-dev (açılışta clamd hazır olana dek kısa aralıklı yoklama) | devops (watch eşiği)
 
 ## Akış sonuçları
 
-| Akış / durum                                                                                                                                                                                                                                                        | Sonuç | Not                                                                                                                                                                                                                                         |
-| ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Mevcut e2e: neden metinleri → kontrol izni → pano anahtarı → yazdır → yanıtsız → 30 sn bekleme; axe 0                                                                                                                                                               | ✅    | desktop                                                                                                                                                                                                                                     |
-| Mevcut e2e: PDF olmayan dosya reddi; Vazgeç → `print.cancel`; kontrol VIEW → "Kontrol izni kapandı, yazdırma iptal edildi"                                                                                                                                          | ✅    | desktop                                                                                                                                                                                                                                     |
-| Mevcut e2e: eski istemci → "destek yok" metni, 390 px axe 0                                                                                                                                                                                                         | ✅    | desktop (390 viewport)                                                                                                                                                                                                                      |
-| D1 müşteri ayrıldı                                                                                                                                                                                                                                                  | ✅    | Üç düğme pasif; pano ve yazdırma altında "Müşteri bağlı değil". Bekleme ekranında yan panel (dolayısıyla bu bölüm) hiç çizilmiyor; durum, müşteri ayrılınca görünüyor                                                                       |
-| D2 0.12 istemci (özellik belirteci yok), izin öncesi ve sonrası                                                                                                                                                                                                     | ✅    | İki durumda da iki neden "Müşterinin uygulaması bu özelliği desteklemiyor — güncel sürümü indirmesini isteyin" (`unsupported`, `noControl`'dan önce gelir). Düğmeler pasif                                                                  |
-| D3a kontrol izni yok                                                                                                                                                                                                                                                | ✅    | Pano ve yazdırma pasif; ikisinde de "Önce uzaktan kontrol izni alın"                                                                                                                                                                        |
-| D3b kısmi (kontrol izni var, müşteri pano anahtarı kapalı)                                                                                                                                                                                                          | ✅    | Pano pasif, "Müşteri pano paylaşımına izin vermedi". Yazdır etkin, neden yok, "Yalnız PDF, en çok 20 MB…" ipucu var                                                                                                                         |
-| D3c tam (anahtar açık)                                                                                                                                                                                                                                              | ✅    | Üç düğme etkin, neden metni yok, pano ipucu görünür                                                                                                                                                                                         |
-| D4 yetki yok (`u-p7`)                                                                                                                                                                                                                                               | ✅    | "Kontrol iste" görünür; "Pano ve yazdırma" bölümü yok (tasarım gereği gizli, bkz. bilgi notu)                                                                                                                                               |
-| D5 tarayıcı misafir (`join-browser` + kabul + paylaşım)                                                                                                                                                                                                             | ✅    | Pano düğmeleri pasif, "Pano yalnız müşteri uygulamasında ve kontrol izniyle kullanılır"; yazdırma bloğu ve düğmesi DOM'da yok (AC-348)                                                                                                      |
-| `aria-describedby` hedefi                                                                                                                                                                                                                                           | ✅    | Neden gösterilen her durumda `clip-push` ve `print-pick` için hedef id DOM'da, metni neden metniyle aynı                                                                                                                                    |
-| Kullanıcı düzenleme (admin `usadm` → `/users/<Can>`): "Pano paylaşımı" ve "Uzaktan yazdır" toggle'ları                                                                                                                                                              | ✅    | 1440 tablo ve 390 kart görünümünde görünür. Etiketler: "Uzaktan kontrol — Pano paylaşımı", "Dosya transferi — Uzaktan yazdır". Tıklayınca `aria-checked` false → true (kaydedilmedi). axe 0, taşma 0                                        |
-| AC-404 açıklamaları                                                                                                                                                                                                                                                 | ✅    | `PERMISSION_DESCRIPTIONS` iki metni sayfada görünüyor                                                                                                                                                                                       |
-| İkonlar (§1.8)                                                                                                                                                                                                                                                      | ✅    | Modül satırı/kartında anlamlı ikon: Uzaktan kontrol `MousePointerClick`, Dosya transferi `Paperclip` (yan menüyle aynı tek kaynak `lib/module-icons.ts`). Eylem anahtarlarında ayrı ikon yok; bu matris kalıbı tüm modüllerde aynı, tutarlı |
-| Genel tarama (25 ekran: giriş, şifremi unuttum, ana sayfa, oturumlar dolu/boş/hata, talepler, müşteriler dolu/boş, geçmiş, kullanıcılar dolu/boş, kullanıcı düzenleme, audit dolu/boş, hesabım, ayarlar ×4, firmalar, süper adminler, gözetimsiz liste/kodlar, 404) | ✅    | Tümü beklenen HTTP durumu ve h1; hata durumunda "Bir şeyler ters gitti" + "Tekrar dene"                                                                                                                                                     |
-| Staging: `/` ve korumalı URL'ler kimliksiz                                                                                                                                                                                                                          | ✅    | `/` → `/login`; `/sessions`, `/users` → 307 `/login?next=…`                                                                                                                                                                                 |
+| Akış                                                                                                     | Sonuç | Not                                                                          |
+| -------------------------------------------------------------------------------------------------------- | ----- | ---------------------------------------------------------------------------- |
+| e2e konsol: yükleme (2 parça) → tarama → müşteri onayı → teslim; belirteç URL'de yok                     | ✅    | desktop                                                                      |
+| e2e konsol: virüslü + taranamadı metinleri iki tarafa, teslim yok                                        | ✅    | desktop                                                                      |
+| e2e konsol: müşteriden gelen temiz dosya → kabul → indir + SHA-256                                       | ✅    | desktop                                                                      |
+| e2e konsol: koyu tema + 390 px SERVER dosya paneli taşmaz, axe 0 (QA madde 8)                            | ✅    | desktop projesinde 390 px viewport ile                                       |
+| e2e konsol: fsrv bildirmeyen istemci → dosya alanı kapalı + güncelleme metni                             | ✅    |                                                                              |
+| e2e ayarlar: Dosyalar onay zorunlu, kullanım göstergesi; ClamAV testi yoksa anahtar pasif; ClamAV ekranı | ✅    | desktop + mobile                                                             |
+| e2e geçmiş: sunucudaki dosyalar listesi + Bearer ile indirme                                             | ✅    | desktop + mobile                                                             |
+| e2e misafir web SERVER modu                                                                              | ✅    | desktop                                                                      |
+| p28a (pano/yazdırma) 3 test                                                                              | ✅    | regresyon yok                                                                |
+| Staging: ClamAV "Bağlantıyı Test Et" (panel/API)                                                         | ⛔    | B1. Aynı denetim (PONG + EICAR + şifreli zip + VERSION) altyapı düzeyinde ✅ |
+| Staging: TEST firmasında sunucu modu aç, EICAR yükle → INFECTED                                          | ⛔    | B1 (elle)                                                                    |
+| Staging: 50 MB yükleme + tarama ≤ 30 sn (AC-357)                                                         | ⛔    | B1. Yalnız tarama ölçüldü: en çok 4,09 sn                                    |
+| Staging: kota/uyarı metni                                                                                | ⛔    | B1. Metin yerelde doğrulandı ("Depolama kotası dolmak üzere…")               |
 
 ## Kabul kriterleri (uçtan uca)
 
-| AC                                                | Durum | Nasıl doğrulandı                                                                                                                                                                 |
-| ------------------------------------------------- | ----- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| AC-343 (pano düğmeleri etkinlik/neden)            | ✅    | Web tarafı: D1–D5 + mevcut e2e. Sunucu 403 kısmı bu turda koşulmadı (qa/entegrasyon kapsamı)                                                                                     |
-| AC-344 (istemci anahtarı varsayılan kapalı)       | ⏭     | İstemci tarafı; Windows elle tur (kullanıcı) / Go testleri                                                                                                                       |
-| AC-345 (64 KB, boş pano, SENSITIVE)               | —     | Bu turda koşulmadı (birim/Go testi kapsamı)                                                                                                                                      |
-| AC-346 (≤ 1 sn aktarım, müşteri bildirimi)        | ⏭     | Windows elle tur (kullanıcı); staging istemcisi henüz 0.12.x                                                                                                                     |
-| AC-347 (audit, içerik loglanmaz)                  | —     | Bu turda koşulmadı (entegrasyon kapsamı). Tarayıcı konsolunda işaretli içerik 0 (mevcut e2e içerik taraması)                                                                     |
-| AC-348 (yazdır görünürlük/kapı/PDF denetimi)      | ✅    | Tarayıcı modunda gizli (D5), kontrol izni yokken pasif + metin (D3a), PDF olmayan dosya alan hatası, VIEW'da iptal (mevcut e2e). Sunucu 403 entegrasyon testi bu turda koşulmadı |
-| AC-349 (müşteri diyaloğu, 60 sn)                  | ⏭     | Windows elle tur (kullanıcı). Web tarafı "Müşteri yanıt vermedi" metni mevcut e2e'de ✅                                                                                          |
-| AC-350 (yazıcıya gönderim, iz testi)              | ⏭     | Windows elle tur (kullanıcı)                                                                                                                                                     |
-| AC-351 (print.job audit)                          | —     | Bu turda koşulmadı (entegrasyon kapsamı)                                                                                                                                         |
-| AC-352 (eski istemci metni)                       | ✅    | D2 (izin öncesi/sonrası, iki tema, 1440/390). Gözetimsiz oda nedeni sahte yığında yok; yalnız birim testi (`lib/clip/clip-print-p28a.test.ts`)                                   |
-| AC-404 (toggle + açıklama, 5 durum, a11y, 390 px) | ✅    | Toggle + açıklama ekranda. Panelde iskelet/boş(neden)/hata/kısmi/başarılı: neden, kısmi ve tam bu turda; hata (alan hatası) ve iskelet mevcut e2e/birim testinde. axe 0, taşma 0 |
-| AC-289                                            | ⏭     | Windows elle tur (kullanıcı)                                                                                                                                                     |
-| D-P28a-1 enjeksiyon testi                         | ⏭     | Windows elle tur (kullanıcı)                                                                                                                                                     |
-| Müşteri diyaloğunda Enter = Reddet                | ⏭     | Windows elle tur (kullanıcı)                                                                                                                                                     |
+| AC     | Durum               | Nasıl doğrulandı                                                                                                     |
+| ------ | ------------------- | -------------------------------------------------------------------------------------------------------------------- |
+| AC-353 | ✅                  | e2e ClamAV ekranı (ağ dışı adres alan hatası). Staging 3310 dışarıya kapalı, yalıtım betiği GEÇTİ. Panel testi ⛔ B1 |
+| AC-354 | ✅ web · ⛔ staging | e2e: test yoksa anahtar pasif + neden, açarken onay. Staging'de firma anahtarı denenemedi                            |
+| AC-355 | ✅ web              | e2e yükleme → tarama → teslim                                                                                        |
+| AC-356 | ✅ web              | e2e belirteç URL'de yok, yalnız `Authorization: Bearer`                                                              |
+| AC-357 | ⛔ ölçülemedi       | Uçtan uca staging ölçümü B1 nedeniyle yok. clamd payı 50 MB'ta 2,96–4,09 sn (5 tekrar, amd64)                        |
+| AC-358 | ✅ web · altyapı ✅ | e2e virüslü metni. Staging clamd EICAR → `Eicar-Test-Signature`                                                      |
+| AC-359 | ✅ web · altyapı ✅ | e2e taranamadı metni. Şifreli zip → `ENCRYPTED`. Fail-closed staging oturumunda denenemedi                           |
+| AC-360 | ✅ web              | e2e geçmiş listesi + indirme                                                                                         |
+| AC-361 | ⚠️                  | e2e imza eski uyarısı ✅. Staging log taraması temiz ama dosya trafiği yok. Staging imzası gerçekten eski (B2)       |
+| AC-362 | ✅ web · ⛔ staging | e2e kullanım göstergesi + kota uyarı metni                                                                           |
+| AC-363 | ✅ web · ⏭ Windows  | e2e konsol/misafir bilgi satırı. Windows satırı elle                                                                 |
 
-⏭ bulgu değildir. Gerçek Windows istemcisi gerektirir; staging'de istemci exe'si henüz 0.12.x
-(runbook 2026-11-16 kaydı, S13C-13 notu).
+## Elle kalan maddeler
+
+Bunlar kullanıcıda ya da B1 düzeltilince koşulacak.
+
+- Staging (B1 sonrası):
+  - Super Admin "Bağlantıyı Test Et": PONG + EICAR + şifreli zip + imza tarihi. Önce B2 düzeltilmeli, yoksa "imza eski" çıkar.
+  - TEST firmasında sunucu modunu aç (step-up TOTP).
+  - EICAR yükle → INFECTED.
+  - 50 MB × 5 uçtan uca ≤ 30 sn (AC-357).
+  - Kota uyarı metni.
+  - Sonrasında sunucu modunu kapat. Ardından `logs server --since 30m`'i dosya adı/belirteç için yeniden tara (AC-361).
+- Windows (0.13 istemci):
+  - SERVER modunda istemcinin dosya alması (kabul → indir → SHA doğrulama).
+  - SERVER modunda uzaktan yazdırma (`belge.pdf` taranıp yazıcıya).
+  - AC-363 Windows bilgi satırı.
+  - 0.13 istemcide AC-352 metni.
+  - İz testi.
+- PR CI'nin tamamı (Windows `agent-win`, `web e2e`, `test (MySQL 8.4)`): bu turda bakılmadı.
 
 ## Görsel gözlemler (ekran görüntülerinden)
 
-- `d3a-kontrol-yok-desktop-light.png`: sağ panelde sohbetin altında ayırıcı çizgi, "Pano ve yazdırma" başlığı ve iki
-  pano düğmesi yan yana. Altında neden metni, ardından tam genişlik "Uzaktan yazdır" ve onun nedeni. Pasif düğmeler
-  soluk ama okunaklı, hizalar düzgün.
-- `d3b-kismi-desktop-light-panel.png`: pano pasif + neden; yazdır etkin (beyaz kenarlı), altında sınır ipucu. Kısmi durum
-  net ayırt ediliyor.
-- `d2b-eski-istemci-izinli-mobile-light.png`: 390 px'te düğmeler alt alta tam genişlik. Uzun "desteklemiyor — güncel
-  sürümü…" metni iki satıra düzgün kırılıyor, taşma yok. Alttaki toast bilgi notunda.
-- `d5-tarayici-misafir-mobile-dark-panel.png`: yalnız iki pano düğmesi ve tarayıcı nedeni var, yazdırma hiç yok.
-- `d4-yetki-yok-mobile-light.png`: konsol "Kontrol iste" ile normal; pano/yazdırma bölümü yok.
-- `u1-user-edit-desktop-light-toggle.png`: yetki tablosunda "Diğer" sütununda "Kullan" altında "Pano paylaşımı" ve
-  "Uzaktan yazdır". Modül ikonları (imleç-tık, ataş) satır başında.
-- `u1-user-edit-mobile-dark-toggle.png`: kart görünümü, modül başlığı ikon + "Tümü" anahtarı, alt anahtarlar etiketli.
-  Koyu temada kontrast yeterli.
-- `stg-login-390-dark.png`, `stg-login-1440-light.png`: staging giriş ekranı. Logo açık zemin kartında (koyu temada
-  okunaklı), taşma yok.
+`tarama.jsonl`'daki `dark:false` artefakt: kontrol yalnız `dark` sınıfına bakıyor; tema "Sistem" + koyu medya ile koyu açılıyor, ekranlarda doğrulandı. 8 mobil ekrandan 3'üne bakıldı (turlar idareli; kalanlar `shots/` altında). Kullanım çubuğunun renk token'ı kodda denetlenmedi (18,5/20 GB'ta yeşil, uyarı kutusu sarı — renk tutarlılığı frontend'e bilgi notu).
 
-## Test edilmeyenler
+- `shots/dosyalar-mobile-dark.png`: 390 px koyu tema. Alt sekmeler iki satıra düzgün kırılıyor ve hepsinde ikon var. Anahtar
+  "Kapalı" ve açıklama okunaklı. Kullanım çubuğu 18,5/20 GB, altında sarı uyarı kutusu ("Depolama kotası dolmak üzere…").
+  Kontrast yeterli, taşma yok. Üst sekme çubuğunda solda kaydırma oku "‹fa" kesik görünüyor; bu, yatay kaydırma kalıbının
+  beklenen hâli.
+- `shots/clamav-mobile-light.png`: "Virüs tarama henüz yapılandırılmadı" bilgi kutusu, "Yapılandırılmadı" rozeti, Sunucu boş,
+  Port 3310. "Bağlantıyı Test Et" pasif ve soluk ama okunaklı. Sekme ikonları anlamlı (kalkan = ClamAV).
+- `shots/gecmis-dosyalar-mobile-dark.png`: uzun geçmiş sayfasının sonunda "Sunucudaki dosyalar" kartları var. Durumlar
+  renkli ve metinli: "Teslim edildi — saklanıyor", "Yazdırma belgesi — saklanmaz", kırmızı "Dosya virüslü bulundu
+  (Eicar-Test-Signature)". Yalnız saklanan dosyada "İndir" düğmesi var. Taşma yok.
 
-- Windows istemcili gerçek pano/yazdırma akışı (yukarıdaki ⏭ maddeleri): kullanıcının elle turu.
-- Gerçek sunucu entegrasyonu (403 kapıları, audit, rate limit): backend/qa entegrasyon testleri kapsamında, bu turda
-  koşulmadı.
-- Staging'de kimlikli tarama: belgelenmiş yerel test hesabı yok; sırlar sunucudan çekilmedi. Kimlikli ekranlar sahte
-  yığınla tarandı.
-- Konsolun açık (`Açık` tercihli) varyantı.
+## Staging ölçüm notu
 
-## Sonuç
+Zaman çizelgesi, 2026-11-16 UTC:
 
-DURUM: GEÇTİ
+- 08:48:22 server açıldı.
+- 08:48:24 freshclam daily 28185'i indirdi.
+- 08:48:35 clamd eski daily 28177'yi yükledi.
+- 08:51:37 `remote-watch` `av-up` ALERT verdi (B3).
+- 08:55 `av-probe.ts` koşuldu: PONG, EICAR, zip ve 5 × 50 MB tamam.
+- 08:57:58 `rs_av_up 0`, `rs_av_signature_age_seconds -1`.
+- 08:58:37 clamd `SelfCheck: Database status OK`. Yeni daily'yi **görmedi**, 28177'de kaldı (B2).
+- 08:59:44 server'ın ikinci yoklamasından sonra `rs_av_up 1`, `rs_av_selftest_ok 1`,
+  `rs_av_signature_age_seconds 700470` (≈ 8,1 gün > 3 gün → `av-signature-age` alarmı beklenir).
 
-- Düzeltilecek madde yok (ENGELLEYİCİ/YÜKSEK/ORTA/DÜŞÜK 0).
-- ⏭ Windows elle tur (kullanıcı, istemci 0.13.0 ile): AC-346, AC-349, AC-350, AC-289, D-P28a-1 enjeksiyon testi,
-  müşteri diyaloğunda Enter = Reddet (ayrıca AC-344 istemci anahtarı). Atanan: kullanıcı; sonuç gelince test-operatoru
-  raporu günceller.
-- İsteğe bağlı (bulgu değil): mevcut e2e'deki "390 px açık temada" testi, kullanıcı tercihi `Açık` olan bir sahte
-  senaryoyla gerçekten açık konsolda koşturulabilir. Atanan: frontend-dev.
+B3'teki alarm bu yüzden geçici. Server'ın 10 dakikalık yoklama aralığı açılışta yanlış alarm üretiyor.
+
+- 09:01:42 `remote-watch`: `ALERT check=av-signature-age imza yaşı 194 sa > 3 gün`; `av-up` tekrarlamadı.
+
+## K9 ek — staging uçtan uca (2026-11-16, devops)
+
+B1'in ardından kullanıcı onayıyla staging'de **tek** test hesabı açıldı: `k9-test@staging.invalid`, SUPER_ADMIN, 2FA etkin.
+Hesap `deploy/ops/k9-staging-account.sh` ile oluşturuldu (audit `user.created {source:"k9-staging-test"}` 1 satır). Duman testi
+`deploy/ops/staging-smoke-p28b.sh` ile yapıldı. Kullanım runbook §28b.8'de. Kimlik yalnız staging host'unda,
+`/root/.k9-staging-test.env` (root 600) dosyasında duruyor; rapora ve araç çıktısına değer düşmedi. Mevcut SUPER_ADMIN, ADMIN ve
+USER hesaplarına dokunulmadı.
+
+| Adım                                             | Sonuç                                                                                                                                                                                                                  |
+| ------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Guard                                            | Yerelde (hostname ≠ `develop`) iki betik de "staging değil" diyerek çıktı. Staging'de `develop` + `DEPLOY_ENV=staging` olduğu için guard geçti                                                                         |
+| Hesap betiği (2 koşu)                            | 1. koşu: hesap oluşturuldu, 2FA API'den kuruldu (setup → host'ta TOTP → enable, 10 kurtarma kodu dosyada). 2. koşu: "mevcut, parola değişmedi, 2FA tohumla doğrulandı" ✅ idempotent                                   |
+| Giriş                                            | SUPER_ADMIN + TOTP, `mfa.stage=ok` ✅                                                                                                                                                                                  |
+| (a) ClamAV "Bağlantıyı Test Et"                  | `ok=true`, PONG ✅, EICAR ✅, şifreli zip ✅, `ClamAV 1.5.4/28185`, imza yaşı **0 gün**, `stale=false` (B2 sonrası güncel). Ayar kaynağı `env→panel` oldu (ilk testin beklenen ve kalıcı yan etkisi; runbook §28b.2/7) |
+| (b) Demo firmasında sunucu dosya modu            | `false → true` (`consentUpdated=true` ile), saklama süresi 1 gün ✅. Geri alma `true → false` ✅; DB'de `file_server_mode=0` doğrulandı                                                                                |
+| (c) Destek oturumu                               | **Koşulamadı**: `POST /sessions` → 403 `FORBIDDEN`. Super Admin oturum açamıyor. Kod `sessions/service.ts:73` "oturum yalnız kendi firmanızda" (tasarım gereği, hata değil)                                            |
+| (d) EICAR → INFECTED, (e) 50 MB → CLEAN + AC-357 | **Koşulamadı** (c'ye bağlı). AC-357 uçtan uca ölçümü hâlâ açık. Yalnız clamd dumanı var (yukarıda, 3–4 sn)                                                                                                             |
+| (f) Log taraması                                 | **Koşulamadı** (dosya trafiği oluşmadı)                                                                                                                                                                                |
+| (g) Temizlik                                     | Oturum açılmadı. Firma modu eski değerinde. Açık K9 oturumu yok, saklanan dosya yok, git ağacı (`/opt/remote`) temiz                                                                                                   |
+
+Kalan iş: (c)–(f) için demo firmasında teknisyen olarak ikinci bir test hesabı gerekiyor (`k9-tech@staging.invalid`, ADMIN). Bu hesap
+mevcut onayın dışında. Betikler hazır: `k9-staging-account.sh --tech` hesabı açar, `staging-smoke-p28b.sh` ise (a)–(g)'nin tamamını tek
+koşuda yapar. Bunun için kullanıcı onayı gerekiyor.
+
+### K9 ek 2 — teknisyen hesabıyla tam koşu (2026-11-16, koordinatör) — **GEÇTİ**
+
+Kullanıcının ikinci onayıyla `k9-tech@staging.invalid` (ADMIN, demo firması, 2FA) `k9-staging-account.sh --tech` ile açıldı (kimlik yalnız
+`/root/.k9-staging-test.env`). `staging-smoke-p28b.sh` ilk iki koşuda `/ws/tech` TLS el sıkışmasında `EPROTO` verdi: `ws` istemcisi SNI
+gönderiyordu, Caddy `tls internal` IP sertifikasını SNI'siz seçer. `k9-staging.mjs`'te `servername: ""` (https.request ile aynı) → düzeldi.
+Yarıda kalan koşularda geri alma çalıştı (oturum kapandı, `fileServerMode=false`).
+
+| Adım                  | Sonuç                                                                                                      |
+| --------------------- | ---------------------------------------------------------------------------------------------------------- |
+| (a) ClamAV testi      | ok, PONG, EICAR, şifreli zip, `ClamAV 1.5.4/28185`, imza yaşı 0 gün                                        |
+| (b) Sunucu dosya modu | `false → true` (aydınlatma onayı), saklama 1 gün                                                           |
+| (c) Oturum            | açıldı, misafir kabul; oda `fileMode=SERVER`, misafir fsrv yeteneği var                                    |
+| (d) EICAR             | `INFECTED`, imza `Eicar-Test-Signature`, misafire teklif **yok** ✅                                        |
+| (e) 50 MB, 50 × 1 MiB | `CLEAN`; yükleme 0,9 sn, son parça → CLEAN 3,21 sn → **AC-357 (≤ 30 sn) GEÇTİ**                            |
+| (f) Log taraması      | 12 iğne (2 dosya adı + belirteç önekleri): server 0, caddy 0 eşleşme; pozitif kontrol 51 satır ✅ (AC-361) |
+| (g) Temizlik          | oturum `ENDED`, eicar `INFECTED`, 50 MB `REJECTED` (misafir reddi → disk silindi), `fileServerMode=false`  |
+
+Bu ekle B1 kapandı; P28b K9 staging kapısı **GEÇTİ**. Elle kalan yalnız Windows istemci maddeleri (yukarıda).

@@ -371,7 +371,7 @@ teslim edilmez (tenant anahtarı açılamaz ama sonradan erişim kaybı da aynı
 
 ### 7.3 İmza yaşı ve öz-sınama yoklaması (AC-361, D-P28b-1 — r2)
 
-Sunucu 10 dk'da bir (ve açılışta) yoklar: `VERSION` → gauge `rs_av_signature_age_seconds`; ardından **EICAR** (kaynakta iki parçalı sabit, bellekte
+Sunucu 10 dk'da bir (ve açılışta) yoklar (r3, K9 B3: clamd'ye ulaşılamazsa 30 sn arayla en çok 19 hızlı yeniden deneme — `createAvPoller`; hızlı denemeler `av_down` ardışıklığına sayılmaz): `VERSION` → gauge `rs_av_signature_age_seconds`; ardından **EICAR** (kaynakta iki parçalı sabit, bellekte
 birleştirilir — host AV'si imajı karantinaya almasın) ve **şifreli zip fikstürü** (`packages/contracts` içinde küçük ZipCrypto zip, base64 sabit,
 zararsız içerik) INSTREAM ile taranır. Sonuçlar ayrı tutulur:
 

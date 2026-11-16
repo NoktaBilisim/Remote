@@ -3722,7 +3722,9 @@ alarmlar, kapasite ve geri alma. Kullanıcı ekranları kılavuzda (K10).
    ile boş bir /28 seçin (RFC 1918, ≥ /24; server açılışta doğrular — D-r2-5).
 3. Kaynak ölçümü (§28b.1 kapı 6): `free -m; swapon --show; df -h / /var/lib/docker` → değerler §8'e.
 4. `cd /opt/remote/deploy && docker compose pull clamav clamav-update && docker compose up -d` → `docker compose ps clamav clamav-update`:
-   ikisi `healthy` (clamd ilk açılışta imza yüklemesi ~60 sn; `start_period` 360 sn). server `/ready` clamd'den bağımsızdır.
+   ikisi `healthy`. Sıra: `clamav-update` önce tek seferlik ilk freshclam turunu bitirir (`timeout 300`) ve ancak o zaman sağlıklı olur
+   (`start_period` 330 sn; bu sırada `health: starting`), `clamav` `depends_on: service_healthy` ile ondan sonra açılır ve imzayı ~60 sn'de
+   yükler (imajın kendi sağlık denetimi). Ayrıntı §28b.3. server `/ready` clamd'den bağımsızdır.
 5. İkinci yığında profil: ClamAV staging katmanında `profiles: [av]` → **varsayılan kapalı**. Açma: `.env`'e `COMPOSE_PROFILES=av` + `docker compose
 up -d`, ya da tek seferlik `docker compose --profile av up -d clamav-update clamav`. Kapama: `docker compose stop clamav clamav-update`
    (profil satırını kaldırın). Kapalıyken sunucu modu fail-closed: test "ulaşılamadı", tenant anahtarı `AV_NOT_READY`, açık oturumda dosyalar
@@ -3744,9 +3746,21 @@ up -d`, ya da tek seferlik `docker compose --profile av up -d clamav-update clam
 - freshclam günde 6 kez denetler (`docker compose logs clamav-update | grep -E 'updated|up-to-date'`). Yeni DB volume'a yazılır; clamd
   `SelfCheck 600` ile en geç 10 dk'da yeniden yükler (`docker compose logs clamav | grep -i reload`). Yükleme ~8 sn (ilk açılış ~60 sn) sürer,
   bu arada clamd komut kabul etmez; server bağlantı aşamasında ≤ 15 sn yeniden dener, kullanıcıya yansımaz.
-- **İlk açılış yarışı (K6'da görüldü):** clamav-update sağlıklı olur olmaz clamd imajdaki eski daily'yi yüklemeye başlar; freshclam aynı anda yenisini
-  yazarsa clamd ilk SelfCheck'te "Database status OK" deyip eski DB'de kalabilir (imza yaşı uyarısı). Bir sonraki freshclam güncellemesi (≤ 4 sa)
-  düzeltir. Beklemeden düzeltmek: `docker compose restart clamav` (ya da sunucudaki K6 kapı 2 yedeği `zRELOAD`).
+- **İlk açılış yarışı (K6/K9 B2 — kalıcı düzeltme K9):** eskiden clamav-update "DB dosyası var" olur olmaz sağlıklı sayılıyordu; clamd imajdaki
+  eski daily'yi yüklerken freshclam yenisini yazınca clamd SelfCheck'te "Database status OK" deyip eski DB'de kalıyordu (staging 2026-11-16: 8 günlük
+  imza, `av-signature-age` alarmı). Artık `clamav-update` önce **tek seferlik** `freshclam` koşar (`timeout 300`), sonra `/tmp/first-update.done`
+  işaretini yazar, sonra daemon'a geçer; sağlık = işaret + DB dosyaları. `clamav` `depends_on: service_healthy` ile ilk güncelleme bitmeden açılmaz.
+  - `docker compose up -d` clamav'ı ilk güncelleme bitene dek bekletir (yerelde ~8 sn; üst sınır 300 sn, `start_period` 330 sn). Bu sırada
+    `docker compose ps` clamav-update'i `health: starting` gösterir.
+  - CDN/çıkış hatasında tek seferlik deneme başarısız olsa da işaret yazılır ve clamd eski DB ile açılır (bilinçli; eski imzayı `av-signature-age`
+    yakalar). Log: `docker compose logs clamav-update | grep -E 'updated|up-to-date|Update failed'`.
+  - **Kalan durum:** `depends_on` yalnız `compose up`'ta uygulanır. Host yeniden açılışında / Docker'ın `restart: unless-stopped` yeniden
+    başlatmasında iki konteyner aynı anda kalkar; yarış teorik olarak sürer (volume'da önceki güncel DB olduğundan en kötü bir daily geride kalır,
+    bir sonraki freshclam güncellemesi ≤ 4 sa'te düzeltir). Reboot sonrası ya da imza yaşı uyarısında: `docker compose restart clamav` →
+    ~60 sn sonra aşağıdaki `VERSION` güncel daily'yi göstermeli.
+- **Açılışta `av-up` (K9 B3):** server açılış yoklaması clamd imza yüklerken düşerse 30 sn arayla en çok 19 kez yeniden dener (≈ 9,5 dk;
+  `remote-watch` "ardışık 2 tur" penceresinin içinde), ulaşınca 10 dk turuna döner. Hızlı denemeler `av_down` log sayacına katılmaz. Bütçe yalnız
+  açılışta ve başarılı yoklamadan sonra yenilenir (profil kapalı staging'de kalıcı 30 sn yoklaması olmaz).
 - Elle kontrol: `docker compose exec clamav sh -c 'printf "zVERSION\0" | nc localhost 3310'` → `ClamAV 1.5.4/<daily>/<tarih>`; tarih ≤ 1–2 gün.
 - Elle güncelleme (CDN sınırı/çıkış engeli sonrası): `docker compose restart clamav-update` → log `daily.cld updated`; 10 dk sonra clamd
   `VERSION` yeni daily'yi göstermeli.
@@ -3803,3 +3817,45 @@ yanıt dizeleri"; ayar ekranı testi aynı şeyi yapar); (3) `check-av-isolation
    `stored_files` ve `clamav_db` volume'ları **otomatik silinmez**; dosyalar şifreli ve ≤ 7 gün ömürlüdür — tam temizlik için server durdurulup
    `docker volume rm <proje>_stored_files <proje>_clamav_db`.
 4. nginx `client_body_buffer_size` satırı geri alınmaz (P12 yüklemeleri için de doğru; zararsız).
+
+### 28b.8 Staging uçtan uca duman testi (K9 hesabı + `staging-smoke-p28b.sh`)
+
+**Yalnız staging** (`develop` host'u, server'da `DEPLOY_ENV=staging`; iki betik de bunu denetler, aksi halde hiçbir şey yapmadan çıkar). Prod'da
+koşulmaz. Betikler `/opt/remote` git ağacına **kopyalanmaz** (izlenmeyen dosya `git pull`'u bozar); `/root/k9/` altında tutulur:
+
+```bash
+# operatör makinesinden (repo kökü)
+ssh root@185.126.217.99 'mkdir -p /root/k9 && chmod 700 /root/k9'
+scp deploy/ops/k9-staging.mjs deploy/ops/k9-staging-account.sh deploy/ops/staging-smoke-p28b.sh root@185.126.217.99:/root/k9/
+```
+
+| Dosya                              | Ne yapar                                                                                                                                                                                                    |
+| ---------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `deploy/ops/k9-staging-account.sh` | Test hesabını oluşturur (idempotent): parola host'ta `openssl rand`, hash server'daki `hashPassword`, SQL `app` kullanıcısı, audit `user.created {source:"k9-staging-test"}`; ardından 2FA'yı API ile kurar |
+| `deploy/ops/staging-smoke-p28b.sh` | (a)–(g) uçtan uca duman; yalnız sonuç satırları basar; yarıda kalırsa `trap` oturumu kapatır ve firma modunu eski değerine alır                                                                             |
+| `deploy/ops/k9-staging.mjs`        | İkisinin HTTP/WS istemcisi; server konteynerinde stdin'den koşar (`ws`, `@remote/contracts`), Caddy'ye `caddy:4450` üzerinden Caddy yerel kökü ile TLS doğrulamalı bağlanır                                 |
+
+**Gizli değerler:** parola, TOTP tohumu, kurtarma kodları yalnız `/root/.k9-staging-test.env` (root 600) dosyasındadır; son kullanılan TOTP
+zaman adımı `/root/.k9-staging-test.state` (gizli değil; aynı adım iki kez kabul edilmediği için betik bir sonraki adımı bekler). Değerler argv'ye,
+ekrana, loga girmez; betikler `docker compose exec -e AD` ile geçirir. Dosyayı açmayın/kopyalamayın; içeriği yalnız `cut -d= -f1` ile denetleyin.
+
+1. **Super Admin hesabı** (`k9-test@staging.invalid`): `bash /root/k9/k9-staging-account.sh` → `SONUÇ: ok`. İkinci koşu "hesap: mevcut … 2FA zaten
+   etkin, tohum … doğrulandı" der. ClamAV testi ve firma ayarı için.
+2. **Teknisyen hesabı** (`k9-tech@staging.invalid`, demo firmasında ADMIN): `bash /root/k9/k9-staging-account.sh --tech`. Super Admin destek
+   oturumu **açamaz** (oturum yalnız teknisyenin kendi firmasında; `sessions/service.ts`), (c)–(e) için şarttır. Ayrı hesap olduğu için açılmadan
+   önce kullanıcı onayı alınır. Yoksa duman testi (a)'dan sonra "K9_TECH_* yok" diyerek durur (firma ayarına dokunmadan).
+3. **Duman:** `bash /root/k9/staging-smoke-p28b.sh` (~2 dk; TOTP adım beklemeleri dahil). Sonuç satırları:
+   (a) ClamAV testi `ok/EICAR/şifreli-zip/sürüm/imza yaşı/kaynak`; (b) demo firmasında `fileServerMode` önce→şimdi (aydınlatma onayı
+   `consentUpdated=true`); (c) oturum + tarayıcı misafiri, oda `fileMode=SERVER`; (d) EICAR → `INFECTED`, teklif yok; (e) 50 MB rastgele, 1 MiB
+   parça → `CLEAN`, **son parça → teklif ≤ 30 sn (AC-357)**; (g) misafir reddi (dosya hemen silinir), oturum sonu, mod eski değer; (f) test başından
+   beri `server` ve `caddy` loglarında dosya adları + belirteç/çerez önekleri 0 eşleşme, pozitif kontrol: dosya kimlikleri server logunda var.
+   Son satır `SONUÇ: GEÇTİ` / `KALDI`.
+4. **Geri alınamayan yan etki:** ilk ClamAV testi ayarın kaynağını kalıcı olarak `env→panel` çevirir (§28b.2 adım 7); (a) satırı önce→sonra'yı
+   basar. Firma modu ve oturum geri alınır; saklanan dosya kalmaz (EICAR `INFECTED`, 50 MB reddedildi).
+5. **Elle geri alma** (betik "geri alma: BAŞARISIZ" derse): Super Admin olarak panelden demo firmasına geç → Ayarlar > Dosyalar anahtarını kapat;
+   Oturumlar'da açık K9 oturumunu sonlandır.
+6. **Hesapları kaldırma:** panelde Kullanıcılar → `k9-*@staging.invalid` pasife al / sil → `rm /root/.k9-staging-test.env /root/.k9-staging-test.state`.
+   Hesap var ama dosya yoksa betik parolaya ulaşamaz ve durur (parola sıfırlanmaz); önce hesabı panelden kaldırın.
+
+Sorun giderme: `k9: login başarısız (HTTP 401 …)` → parola dosyası hesapla uyuşmuyor (6. adım); `HTTP 429` → 2FA deneme sınırı (5/5 dk), 5 dk
+bekleyin; `HTTP 403 FORBIDDEN` `sessions.create` → teknisyen yerine Super Admin kullanılıyor (2. adım); `AV_NOT_READY` → (a) başarısız, §28b.5.
