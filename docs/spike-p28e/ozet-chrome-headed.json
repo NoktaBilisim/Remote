@@ -1,0 +1,130 @@
+{
+  "browser": "chrome",
+  "version": "157.0.8103.52",
+  "smoke": false,
+  "rate": {
+    "main1080scroll": null,
+    "static1080": null,
+    "scroll720": null
+  },
+  "gaps": {
+    "main": {},
+    "shortSync": {},
+    "shortOnstop": {},
+    "scroll720": {}
+  },
+  "resize": {},
+  "background": {
+    "hiddenWindow": {
+      "from": {
+        "vis": "visible",
+        "hidden": false,
+        "drawn": 245,
+        "now": 8098.699999809265,
+        "settings": {
+          "aspectRatio": 1.7777777777777777,
+          "deviceId": "(çıkarıldı)",
+          "frameRate": 30,
+          "height": 1080,
+          "resizeMode": "none",
+          "width": 1920
+        }
+      },
+      "to": {
+        "vis": "visible",
+        "hidden": false,
+        "drawn": 609,
+        "now": 20101.900000095367,
+        "settings": {
+          "aspectRatio": 1.7777777777777777,
+          "deviceId": "(çıkarıldı)",
+          "frameRate": 30,
+          "height": 1080,
+          "resizeMode": "none",
+          "width": 1920
+        }
+      }
+    },
+    "rate": {
+      "sec": 30,
+      "MB": 4.84,
+      "mbps": 1.291,
+      "GBperHour": 0.581,
+      "GiBperHour": 0.541,
+      "chunkMaxKiB": 912,
+      "chunkMedKiB": 831.7,
+      "firstChunkKiB": [912, 847, 832],
+      "over2MiB": 0,
+      "dataIntervalMs": {
+        "n": 3,
+        "med": 4975.4,
+        "max": 4979.6,
+        "min": 4974.1
+      },
+      "timerDriftMs": [6, 1, 0],
+      "errors": []
+    },
+    "gaps": {
+      "frameGapMs": {
+        "n": 2,
+        "med": 1249.7,
+        "max": 1249.7,
+        "min": 29.7
+      },
+      "endToStartMs": {
+        "n": 2,
+        "med": 1150,
+        "max": 1150,
+        "min": 30
+      },
+      "readErr": [],
+      "raw": [1250, 30],
+      "stopCallToNextStartEvtMs": {
+        "n": 2,
+        "med": 234.4,
+        "max": 234.4,
+        "min": 25.8
+      },
+      "firstFrameAfterStartCallMs": {
+        "n": 3,
+        "med": -5.8,
+        "max": 0.4,
+        "min": -16.6
+      },
+      "bufStart": [0, 0, 0],
+      "appendErr": []
+    },
+    "drawPerSec": [
+      ["visible", 31],
+      ["visible", 30],
+      ["visible", 30],
+      ["visible", 31],
+      ["visible", 30],
+      ["visible", 30],
+      ["visible", 31],
+      ["visible", 30],
+      ["visible", 30],
+      ["visible", 30],
+      ["visible", 31],
+      ["visible", 30],
+      ["visible", 30],
+      ["visible", 31],
+      ["visible", 30],
+      ["visible", 30],
+      ["visible", 31],
+      ["visible", 30],
+      ["visible", 30],
+      ["visible", 31],
+      ["visible", 30],
+      ["visible", 30],
+      ["visible", 30],
+      ["visible", 31],
+      ["visible", 30],
+      ["visible", 30],
+      ["visible", 31],
+      ["visible", 30],
+      ["visible", 30]
+    ]
+  },
+  "consoleErr": []
+}

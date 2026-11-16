@@ -1,3 +1,153 @@
+# Güvenlik Raporu — P28e tasarım turu (K0, dal p28e, HEAD 4f5fd69, 2026-11-16)
+
+DURUM: GEÇTİ (tasarım) — Kritik 0 / Yüksek 0 / Orta 5 / Düşük 7
+
+Kapsam: `docs/mimari-p28e.md` (§2–§7, §10 T1–T14, §11, §16), `docs/adr/0034-oturum-kaydi-teknisyen-konsolunda.md`. Kod yok. Doğrulanan mevcut kod:
+`fsrv/box.ts` HKDF `deriveFileKey(ver, salt, tenantId, fid)` (tenant bağlı anahtar), `lib/logger.ts` redakte (`authorization`, `*.token`),
+`apps/web/proxy.ts` CSP (`media-src` yok → `default-src 'self'`'e düşüyor; `blob:` eklenmesi zorunlu). Orta bulgular K3/K4/K5/K7 kodlanırken
+tasarıma işlenmeli; K9 kod turunda kapanışı aranır.
+
+## Bulgular
+
+### [ORTA] S-P28e-1 Durdurma sonrası 15 sn payında yeni parça/bölüm kabul edilir — rıza geri alma bütünlüğü (A01/KVKK)
+
+Yer: mimari-p28e.md:211 (`PUT …/parts` "ACTIVE değil ve son parça payı geçti → 404"), :99-101 (§2.1 m.5), :224, :285 (§6.4)
+Sorun: Pay yalnız süreyle sınırlı. `STOPPED{REVOKED}` sonrası 15 sn boyunca yeni `s` (p=0) ve `next` parçalar kabul edilir; parçanın rızadan önceki
+görüntüyü mü sonrakini mi içerdiği denetlenmez.
+İstismar: Bozuk/değiştirilmiş konsol `rec.state{off}`'u yok sayar, 15 sn daha kaydedip yükler → müşteri "Kaydı durdur"a bastıktan sonraki ekran saklanır (AC-382).
+Düzeltme: STOPPED'da `stop_series`/`stop_next` dondurulur; payda yalnız aynı bölümde ve en çok 4 parça (3 kuyruk + 1 uçuşta) kabul; yeni bölüm (p=0) → 404;
+hesaplanan `offset_ms + duration_ms > stopped_at − started_at + 2 sn` → ret. Entegrasyon testi: revoke sonrası yeni bölüm 404, 5. parça 404. (backend-dev)
+
+### [ORTA] S-P28e-2 "Kaydı durdur" yalnız WS'e bağlı; sinyal kopukken görüntü akarsa geri alma işlemez (A04)
+
+Yer: mimari-p28e.md:260 (`rec.revoke`), :274 (§6.3 "görüntü yoksa"), :318, :333; mevcut kod `apps/server/src/signaling/rooms.ts:198-206` (misafir soketi kopunca
+yalnız `peer.left` gönderilir, RTCPeerConnection kapatılmaz), `apps/web/lib/webrtc/tech-machine.ts:179-190` (konsol yalnız `share:"unknown"` yapar)
+Sorun: WS (TCP/Caddy) koptuğunda TURN/UDP medyası bir süre akmaya devam edebilir; kaydedici iz `ended` olmadıkça bölümü kapatmaz. Bu arada
+`rec.revoke` gidemez, düğme `loading` kalır, kayıt sürer. ≤ 2 sn hedefi garanti değil. Kötü niyet gerektirmez (sıradan ağ arızası); pencere kısa
+olduğu için Orta.
+İstismar: Ağ dalgalanmasında (ya da teknisyenin WS'i değil müşteri WS'i düşmüşken) müşteri durdurur, kayıt devam eder; müşteri bunu bilemez.
+Düzeltme: Sunucu misafir ayrıkken (`guest.peer` yok) parça kabul etmez (uçuştaki 1 parça hariç; yeniden bağlanınca yeni bölüm) ve konsol
+`peer.left{guest}`'te bölümü kapatır. İstemci (Go + web) 2 sn içinde `rec.state{off}` gelmezse video gönderimini yerelde duraklatır (track `enabled=false` / yakalama durdur) ve
+"Kayıt durdurulamadı, paylaşım duraklatıldı" der; bekleyen `rec.revoke` yeniden bağlanınca `hello` sonrası ilk mesaj olarak gider (sunucu bunu kabul eder).
+Go birim + e2e (WS kesik senaryo). (backend-dev Go, frontend-dev)
+
+### [ORTA] S-P28e-3 İndirme engeli yalnız arayüzde; izleme belirteciyle tüm parçalar sınırsız çekilebilir (A01, AC-385 "indirilemez")
+
+Yer: mimari-p28e.md:214, :305-308, :353 (T6), :367-368 (KVKK beyanı "indirilemez")
+Sorun: Belirteç tarayıcı belleğinde (devtools'ta görünür). Parça GET'inde hız/hacim sınırı yok (yalnız 404 sınırı). Bölüm başı p=0 başlık içerdiğinden
+parçalar art arda eklenince oynatılabilir WebM dosyası çıkar. `recording.view` yalnız "açtı" der, ne kadar çektiğini yazmaz.
+İstismar: `view_recording` sahibi konsolda `fetch` döngüsüyle 8 saatlik kaydı saniyeler içinde diske alır; audit'te sıradan izlemeden farkı yok.
+Düzeltme: (a) belirteç başına çekiş bütçesi: oynatma hızı × 2 + seek payı (ör. son 60 sn'de ≤ 30 parça, aşım 429 + `rs_rec_view_throttled_total`);
+(b) belirteç düşerken `recording.view` ikinci satırı ya da aynı satıra `partsServed/bytesServed` özeti; (c) DATASHEET/kılavuz metni "indirilemez" yerine
+"indirme ucu ve düğmesi yoktur; izleme kayıt altına alınır; ekran/ağ yakalaması teknik olarak engellenemez" (R-PE5 ile tutarlı). (backend-dev, teknik-yazar)
+
+### [ORTA] S-P28e-4 Gözetimsiz kayıt politikası açılınca dört göz bildirimi yok (A09/KVKK — tutarlılık önerisi)
+
+Yer: mimari-p28e.md:217, :358 (T11); `docs/tasarim-kontrol.md` P28e "5. Bildirim: Kapsam dışı". Karşılaştır: AC-436 (`gereksinimler-p28u.md:74`,
+izinsiz kip politikası açma/kapatmada diğer `unattended.manage` sahiplerine ≤ 60 sn e-posta), `mimari-p28u.md:510` `event:"policy"`
+Sorun: AC-447 yalnız AC-436'nın kutusunu + step-up'ı ister, e-postayı açıkça istemez (gereksinim boşluğu değil). Ancak çalışanların kaydedilmesi en az
+izinsiz kip kadar hassastır; tek Admin + step-up ile açılır, diğer yöneticiler haberdar olmaz. P28u kalıbıyla tutarsız.
+İstismar: Ele geçirilmiş/kötü niyetli tek Admin (step-up'ı geçen) politikayı açar, kayıtları izler, sonra kapatır; audit var ama kimse bakmıyorsa fark edilmez.
+Düzeltme: `unattendedEnabled` false→true (ve true→false) olayında mevcut `unattended.silent.notify` hattı `event:"recording_policy"` ile diğer
+Admin'lere e-posta; audit `unattended.silent.notify` aynı biçim. Tek Admin uyarısı (D-P28u-K1-3) ayar ekranında da gösterilir. (backend-dev, frontend-dev)
+
+### [ORTA] S-P28e-5 Parça yükleme ucunda eşzamanlılık/oran sınırı yok; disk yazımı kota denetiminden önce (A04/DoS)
+
+Yer: mimari-p28e.md:230-234 (§5.1), :211, :355 (T8), :513 (R-PE7)
+Sorun: Belirteç başına eşzamanlı PUT sayısı sınırsız; her istek 2 MiB bellekte tamponlanır, şifrelenip `fsync`'lenir, kota/oran/disk %10 ancak sonra
+TX'te denetlenir. Oran tavanı yalnız kabul edilen baytı sayar, reddedilen yazımları değil.
+İstismar: Sızmış/kötü niyetli yükleme belirteciyle 200 eşzamanlı 2 MiB PUT → ~400 MiB RAM + sürekli disk yaz-sil + `tenants FOR UPDATE` kuyruğu
+(aynı firmadaki dosya aktarımları da bekler, R-PE7). Kota doluyken bile her istek önce diske yazar.
+Düzeltme: belirteç başına tek uçuşta PUT (ikincisi 429), belirteç başına ≤ 30 PUT/dk, süreç geneli kayıt PUT semaforu (ör. 32); TX öncesi kilitsiz ön
+denetim (kayıt ACTIVE/pay, `next`, kaba kota/oran, disk %10) — geçmezse dosya yazılmadan ret; TX'teki kesin denetim kalır. Metrik `result="busy"`. (backend-dev)
+
+### [DÜŞÜK] S-P28e-6 Yükleme belirteci bağlamı eksik yazılmış (A01)
+
+Yer: mimari-p28e.md:211, :214, :222-226; `apps/server/src/lib/logger.ts:10-40`
+Sorun: GET için "belirteç/rid uyuşmazlığı → 404" var, PUT için yok; `tenantId/sessionId`'nin yalnız belirteçten alınacağı yazılmamış. `recUpload`
+`authSessionId`'ye/kaydedici soketine bağlı değil; çıkış, kullanıcı pasifleştirme veya yetki kaybında düşmesi tanımlı değil.
+Düzeltme: PUT'ta URL `rid` ≠ belirteç `rid` → 404; tenant/oturum/yol yalnız belirteç+DB'den; belirtece `authSessionId, connId` eklenir; soket kapanışı,
+çıkış, kullanıcı pasif → belirteç düşer (15 sn pay yalnız soket kapanışında). Log: WS çerçeveleri bugün loglanmıyor (signaling'de gövde logu yok),
+ancak redakte `*.token` tek düzey eşler; iç içe `rec.state.upload.token` / `hello.rec.upload.token` kapsanmaz → `*.upload.token` eklenir, `POST /view`
+yanıt gövdesi loglanmaz kuralı yazılır. (backend-dev)
+
+### [DÜŞÜK] S-P28e-7 p>0 parçalarında içerik ve süre denetimi yok (AC-375 dinlenme hâli)
+
+Yer: mimari-p28e.md:76, :230, :235-236
+Sorun: Yalnız p=0 başlığı denetlenir; p>0 içine EBML başlıklı ikinci bir WebM (ses izli) gömülebilir → diskte ses saklanır. `X-Rec-Duration-Ms` toplamı
+duvar saatine bağlı değil → `duration_ms`/`maxUntil` şişirilebilir.
+Düzeltme: p>0 gövdesi EBML sihri `1A45DFA3` ile başlıyorsa ya da Cluster `1F43B675` ile başlamıyorsa 400 + stop{error}; `Σduration_ms ≤ now − started_at + 15 sn`. (backend-dev)
+
+### [DÜŞÜK] S-P28e-8 Saklama süresi kısaltılınca mevcut kayıtlar eski süreyle kalır (KVKK, saklama)
+
+Yer: mimari-p28e.md:143, :171-173
+Düzeltme: 03:30'da `expires_at <= now OR started_at + güncel recording_retention_days <= now` silinir (kısaltma geriye uygulanır, uzatma uygulanmaz);
+ayar ekranında "mevcut kayıtlar da kısalır" bilgisi. (backend-dev, frontend-dev)
+
+### [DÜŞÜK] S-P28e-9 Kilit sırası tanımsız (deadlock/DoS)
+
+Yer: mimari-p28e.md:232-233, :289, :171-183, :215
+Düzeltme: Ayar kapatma, elle silme, `recExpire`, anonimleştirme, firma silme aynı sırayla (`tenants` → kayıt) kilitler; `rec/service.ts`'te tek yardımcı;
+eşzamanlı PUT + ayar kapatma entegrasyon testi. (backend-dev)
+
+### [DÜŞÜK] S-P28e-10 Reddedilen rıza iz bırakmıyor; dosyası kayıp parça "süresi doldu" etiketlenir (A09)
+
+Yer: mimari-p28e.md:259, :403-404, :140
+Sorun: Müşteri kutuyu işaretlediği hâlde SHA/pencere nedeniyle kayıt başlamazsa audit yok (güvenli yön ama inceleme izi yok). Yedekten dönüş/disk kaybı
+yanlış nedenle ("süresi doldu") görünür.
+Düzeltme: `recording.start` fail `{reason:"consent_rejected", code:"sha"|"window"}`; kayıp dosya için `recording.expired` yanında `{missing:true}` ya da
+`delete_reason` CHECK'ine `MISSING`. (backend-dev, dba)
+
+### [DÜŞÜK] S-P28e-11 CSP eki dar tutulmalı
+
+Yer: mimari-p28e.md:309, `apps/web/proxy.ts:22-37`
+Sorun/Düzeltme: Bugün `media-src` yok (default-src 'self'). Yalnız `media-src 'self' blob:` eklenir; `blob:` `script-src`/`worker-src`/`default-src`'ye
+girmez; oynatıcı kapanınca `URL.revokeObjectURL`. Birim testi CSP dizesini sabitler. (frontend-dev)
+
+### [DÜŞÜK] S-P28e-12 Gösterge görünür kalmayabilir (paylaşılan pencere önde, oturum penceresi küçültülmüş)
+
+Yer: mimari-p28e.md:318, :333
+Sorun: Tarayıcı misafirde gösterge + "Kaydı durdur" misafir sekmesinde; müşteri başka pencereyi paylaşırken sekme arkadadır. Go oturum penceresi
+küçültülebilir. "Gizlenemez" sözü yalnız "kapatılamaz" anlamında tutuluyor.
+Düzeltme: web: kayıt açıkken `document.title` başına "● Kayıt — " (favicon değişmez); Go: oturum penceresi küçültülse de görünen her zaman üstte
+küçük şerit/tepsi simgesi "Kayıt yapılıyor" + tıklayınca "Kaydı durdur". Kılavuzda yazılır. (frontend-dev, backend-dev Go)
+
+## K1/K2 öncesi mimar r2'ye işlenecekler (şema/sözleşme etkili)
+
+- S-P28e-1: durma sınırı — oda belleğinde `room.rec.stopSeries/stopNext/stoppedAt` (kolon gerekmez; `stopped_at` zaten var) — §5/§6.2'ye yazılır.
+- S-P28e-6: `recUpload {rid, sessionId, tenantId, userId, authSessionId, connId}` (`rec/types.ts`, K2).
+- S-P28e-4: `unattended.silent.notify.event` enum'una `"recording_policy"` (contracts audit, K2).
+- S-P28e-10: `recording.start.reason` enum'una `"consent_rejected"`; `delete_reason` CHECK'ine `MISSING` (K1) ya da `recording.expired{missing}` (K2) — birini seç.
+- S-P28e-3: metrik `rs_rec_view_throttled_total`, `recording.view` özet alanları (K2); 429 kodu mevcut zarfta.
+- S-P28e-5: metrik `result="busy"` (K2).
+  Bunlar işlenmeden K1/K2 başlarsa DURUM GEÇTİ geçersiz sayılır.
+
+## T1–T14 değerlendirmesi (kısa)
+
+T1 yeterli (rec1+ADMITTED+30 sn+SHA, tek satır, ikinci rıza yok). T2/T3 kapsam dışı kabulü makul; S-P28e-1/7 kötü niyetli kaydedicinin rıza ve ses
+sınırını aşmasını kapatır. T4: HKDF tenant bağlı, `{tenantId}/` CHECK, her GET'te yetki yeniden — yeterli (+S-P28e-6). T5: REST'te başlıkta taşıma ve `authorization`
+redakte yeterli; WS/yanıt gövdesi için S-P28e-6. T6: S-P28e-3. T7/T14: yeterli (rewrap yok, check-retire kayıt
+`key_ver`). T8: S-P28e-5. T11: S-P28e-4. T12: gösterge sunucudan (görünürlük için S-P28e-12), eski istemci/servis kaydedilmez, ek çizilemezse bağlantı yok — yeterli; gözetimsizde
+`connect` anında kapalı politika admit'te açılamaz (yalnız kapanabilir) — doğru yön.
+
+## Otomatik tarama çıktıları
+
+Tasarım turu; yeni bağımlılık ve kod yok. Tarama K9 kod turunda.
+
+## Tasarımda vaat edilip kodda bulunmayanlar
+
+Kod yok. Tasarım ↔ mevcut kod: `proxy.ts`'te `media-src` henüz yok (beklenen, K7).
+
+## Olumlu
+
+Tek kod yolu; sunucu otorite (durum/kota/gösterge); ses izi hem akışta hem başlıkta reddi; belirteç URL'de değil; izleme belirteci `authSessionId`'ye bağlı
+ve her GET'te yetki/oturum yeniden; parça GET'inde `CSP sandbox`, `nosniff`, `no-store`, CORP; kota+disk tek TX; mutabakatın kayıt parçalarını canlı
+sayması (kritik ek) tasarımda; anahtar emekliliği 90 gün; varsayılan kapalı + işaretsiz ayrı kutu + eski SHA reddi; ayar CHECK'leri DB'de.
+
+Öneri: S-P28e-1..7 ve 12 paket içinde (K3/K4/K5/K7) kodlanır; S-P28e-8..11 paket içi tercih edilir, yetişmezse gereksinimler §9 "Sonra".
+
+---
+
 # Güvenlik Raporu — P28u kod turu 2 (K9 düzeltme doğrulaması, dal p28u, HEAD 8d17657, 2026-11-16)
 
 DURUM: GEÇTİ — Kritik 0 / Yüksek 0 / Orta 0 / Düşük 0

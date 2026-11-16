@@ -1029,7 +1029,7 @@ karantina; ClamAV dışı tarayıcı; nesne deposu; dosyaların yedeğe isteğe 
 pano/yazdırma/ses; RDP oturumları; müşteri firma bazında politika; ağ kesme/USB kilitleme; kilit açılınca / yeni oturumda yeniden onay (S-P28u-5;
 r2'de `asked`'da yeni oturum bağlantıyı bitirir, K-P28u-17); örtülme tespitinin P20 katılımlı onay penceresine taşınması (S-P28u-6).
 
-## P28e — Oturum kaydı (katılımlı rıza + gözetimsiz politika eki) (2026-11-16, r1 — güvenlik turu K0 bekler, `docs/mimari-p28e.md`, ADR-0034, AC-380..388, AC-447..450, AC-375)
+## P28e — Oturum kaydı (katılımlı rıza + gözetimsiz politika eki) (2026-11-16, r2 — K0 GEÇTİ, S-P28e-1..12 ve K0s işlendi, `docs/mimari-p28e.md`, ADR-0034, AC-380..388, AC-447..450, AC-375)
 
 | Madde                              | Karar                                                                                                                                                           |
 | ---------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -1066,7 +1066,7 @@ r2'de `asked`'da yeni oturum bağlantıyı bitirir, K-P28u-17); örtülme tespit
 | 5. Yıkıcı işlem onayı              | Kapsamda: kayıt silme onay diyaloğu (odak Vazgeç); "Kaydı durdur" onaysız (müşteri hakkı, geri alınamaz uyarısı metinde)                                        |
 | 5. Responsive / a11y               | Kapsamda: 390 px, iki tema axe 0, oynatıcı klavye, gösterge `role=status`                                                                                       |
 | 5. Yerelleştirme                   | Kapsamda: TR; `tr.json` + `messages_p28e.go`                                                                                                                    |
-| 5. Bildirim                        | Kapsam dışı: yeni e-posta/SMS yok; gösterge yeterli                                                                                                             |
+| 5. Bildirim                        | Kapsamda (r2, S-P28e-4): gözetimsiz kayıt politikası değişiminde P28u dört göz e-postası `recording_policy` (mimari §11.5); başka yeni bildirim yok             |
 | 5. Çevrimdışı / yavaş ağ           | Kapsamda: 3 parçalık kuyruk, kopmada yeni bölüm, gözcü; ≤ 10 sn kayıp                                                                                           |
 | 5. Başlık / 404                    | Kapsamda: geçmiş detayı içinde bölüm; başka tenant 404                                                                                                          |
 | 5. Token / ikon                    | Kapsamda: DESIGN.md token'ları; lucide `CircleDot`, `Video`, `Play`, `CircleStop`, `Trash2`, `Eraser`                                                           |
@@ -1089,4 +1089,5 @@ r2'de `asked`'da yeni oturum bağlantıyı bitirir, K-P28u-17); örtülme tespit
 | 9. DoD / dokümantasyon             | Kapsamda: qa + güvenlik kapısı, Windows elle listesi, kılavuz/DATASHEET/api.md/CHANGELOG/PDF (K11), ADR-0034                                                    |
 
 **P28e "Sonra" listesi:** çok teknisyende sahip değişimi kodu (P28c), Safari'de kayıt, sürekli cihaz kaydı (S-P28u-3), kayıtta arama/küçük resim,
-kayıt yedeği, kaydedici bastırmaya karşı kaynak taraflı ikinci kayıt.
+kayıt yedeği, kaydedici bastırmaya karşı kaynak taraflı ikinci kayıt, saklama süresi kısaltmasının mevcut kayıtlara geriye uygulanması
+(S-P28e-8, K-P28e-22; genişleme noktası mimari §16), çakışmalı bölüm geçişi (K-P28e-16).

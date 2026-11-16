@@ -1,0 +1,144 @@
+{
+  "browser": "chrome",
+  "version": "157.0.8103.52",
+  "smoke": false,
+  "cpu": {
+    "windowSec": 20,
+    "baseCpuSec": 3.62,
+    "recCpuSec": 13.13,
+    "deltaPctOneCore": 47.55000000000001
+  },
+  "rate": {
+    "main1080scroll": {
+      "sec": 180,
+      "MB": 29.45,
+      "mbps": 1.309,
+      "GBperHour": 0.589,
+      "GiBperHour": 0.548,
+      "chunkMaxKiB": 988,
+      "chunkMedKiB": 777.1,
+      "firstChunkKiB": [931, 851, 884],
+      "over2MiB": 0,
+      "dataIntervalMs": {
+        "n": 33,
+        "med": 5016.5,
+        "max": 5059.5,
+        "min": 4699.6
+      },
+      "timerDriftMs": [1, 1, 1],
+      "errors": []
+    },
+    "static1080": null,
+    "scroll720": null
+  },
+  "gaps": {
+    "main": {
+      "frameGapMs": {
+        "n": 2,
+        "med": -0.3,
+        "max": -0.3,
+        "min": -2.3
+      },
+      "endToStartMs": {
+        "n": 2,
+        "med": 16,
+        "max": 16,
+        "min": 11
+      },
+      "readErr": [],
+      "raw": [-2, 0],
+      "stopCallToNextStartEvtMs": {
+        "n": 2,
+        "med": 25.9,
+        "max": 25.9,
+        "min": 22.6
+      },
+      "firstFrameAfterStartCallMs": {
+        "n": 3,
+        "med": -25.3,
+        "max": -18.9,
+        "min": -30.4
+      },
+      "bufStart": [0, 0, 0],
+      "appendErr": []
+    },
+    "shortSync": {},
+    "shortOnstop": {},
+    "scroll720": {}
+  },
+  "mse": {
+    "offsets": [0, 60.001400000095366, 120.0025],
+    "abortNeeded": true,
+    "setErr": ["InvalidStateError", "InvalidStateError"],
+    "ranges": [[0, 179.9455]],
+    "seeks": [
+      {
+        "t": 30,
+        "code": 70147,
+        "vw": 1920,
+        "vh": 1080,
+        "expected": 70166,
+        "errMs": -19
+      },
+      {
+        "t": 90,
+        "code": 130140,
+        "vw": 1920,
+        "vh": 1080,
+        "expected": 130166,
+        "errMs": -26
+      },
+      {
+        "t": 150,
+        "code": 190098,
+        "vw": 1920,
+        "vh": 1080,
+        "expected": 190166,
+        "errMs": -68
+      },
+      {
+        "t": 120.2,
+        "code": 160333,
+        "vw": 1920,
+        "vh": 1080,
+        "expected": 160366,
+        "errMs": -33
+      }
+    ],
+    "plays": [
+      {
+        "boundary": 60,
+        "from": 59,
+        "reached": 62.0009,
+        "crossed": true,
+        "waiting": 0,
+        "wallMs": 3002
+      },
+      {
+        "boundary": 120,
+        "from": 119,
+        "reached": 122.0009,
+        "crossed": true,
+        "waiting": 0,
+        "wallMs": 3001
+      }
+    ]
+  },
+  "targetOnly": {
+    "off": 120.0025,
+    "ranges": [[120.0025, 179.9455]],
+    "t": 140.0025,
+    "code": 180131,
+    "vw": 1920,
+    "vh": 1080,
+    "expected": 180168,
+    "errMs": -37
+  },
+  "resize": {},
+  "background": {
+    "rate": null,
+    "gaps": {},
+    "drawPerSec": []
+  },
+  "consoleErr": []
+}

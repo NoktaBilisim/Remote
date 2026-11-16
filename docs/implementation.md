@@ -11967,3 +11967,14 @@ Kaynak: `docs/test-raporu.md` "P28u K10" bulguları. Yeni rota/bileşen yok.
 Değişen dosyalar: `apps/web/lib/audit/actions.ts`, `apps/web/lib/audit/audit.test.ts` (sözleşmedeki tüm `UNATTENDED_AUDIT` + `UNATTENDED_POLICY_AUDIT` etiketli; süzgeçte ham etiketli seçenek yok), `apps/web/messages/tr.json`, `apps/web/e2e/p28u-unattended.spec.ts` (AC-445 audit etiket/süzgeç, AC-437 step-up metni, K10 Esc, K10 375 px), `packages/contracts/src/api/audit.ts`.
 
 Doğrulama: web+contracts lint/typecheck (+server typecheck), prettier temiz; vitest web 464 + contracts 222 geçti; Playwright `p28u-unattended` 23 geçti, ilgili `lg-send`, `p14a-a4`, `p15`, `p16`, `unattended` 77 geçti.
+
+## P28e K0s — tarayıcı kayıt spike'ı (frontend-dev, 2026-11-16)
+
+Sonuç ve ölçüm tablosu: `docs/spike-p28e-k0s.md`. Spike dosyaları: `docs/spike-p28e/`. Üretim koduna dokunulmadı.
+Özet:
+
+- Chrome 157'de 16 bölüm geçişinin 4'ünde eski bölümün son 1,1–1,5 sn'si düştü. Bu olayların 3'ü ikinci sekme öndeyken (4 geçişte 3), 1'i ön planda (9 geçişte 1, kodlama hattının yavaşladığı bir dönemde) görüldü. Karar kapısı (> 200 ms) aşıldığı için **öneri: bölüm 5 dk** (mimar onayı).
+- Bit hızı ≤ 0,59 GB/sa ölçüldü, en büyük parça 1177 KiB.
+- Çözünürlük değişimi kaydı kesmiyor; tek bölüm MSE'de oynuyor.
+- MSE'de bölüm geçişinde `timestampOffset` atanmadan önce `sourceBuffer.abort()` zorunlu.
+- Arka plan, Firefox ve Edge ölçülemedi; K7 gerçek tarayıcı testine kaldı.

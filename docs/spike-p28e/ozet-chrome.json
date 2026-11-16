@@ -1,0 +1,435 @@
+{
+  "browser": "chrome",
+  "version": "157.0.8103.52",
+  "smoke": false,
+  "cpu": {
+    "windowSec": 20,
+    "baseCpuSec": 3.8099999999999996,
+    "recCpuSec": 54.91,
+    "deltaPctOneCore": 255.49999999999997
+  },
+  "rate": {
+    "main1080scroll": {
+      "sec": 180,
+      "MB": 19.99,
+      "mbps": 0.888,
+      "GBperHour": 0.4,
+      "GiBperHour": 0.372,
+      "chunkMaxKiB": 963,
+      "chunkMedKiB": 685,
+      "firstChunkKiB": [346, 235, 947],
+      "over2MiB": 0,
+      "dataIntervalMs": {
+        "n": 33,
+        "med": 5016.7,
+        "max": 5192.5,
+        "min": 4252.9
+      },
+      "timerDriftMs": [1, 1, 1],
+      "errors": []
+    },
+    "static1080": {
+      "sec": 30,
+      "MB": 4,
+      "mbps": 1.066,
+      "GBperHour": 0.48,
+      "GiBperHour": 0.447,
+      "chunkMaxKiB": 1177,
+      "chunkMedKiB": 543.3,
+      "firstChunkKiB": [1177],
+      "over2MiB": 0,
+      "dataIntervalMs": {
+        "n": 5,
+        "med": 5005.1,
+        "max": 5048.5,
+        "min": 4909.4
+      },
+      "timerDriftMs": [1],
+      "errors": []
+    },
+    "scroll720": {
+      "sec": 30,
+      "MB": 4.1,
+      "mbps": 1.095,
+      "GBperHour": 0.493,
+      "GiBperHour": 0.459,
+      "chunkMaxKiB": 756,
+      "chunkMedKiB": 671,
+      "firstChunkKiB": [756],
+      "over2MiB": 0,
+      "dataIntervalMs": {
+        "n": 5,
+        "med": 5048.7,
+        "max": 5064.9,
+        "min": 4822.3
+      },
+      "timerDriftMs": [0],
+      "errors": []
+    }
+  },
+  "gaps": {
+    "main": {
+      "frameGapMs": {
+        "n": 2,
+        "med": 1287.7,
+        "max": 1287.7,
+        "min": -2.3
+      },
+      "endToStartMs": {
+        "n": 2,
+        "med": 1196,
+        "max": 1196,
+        "min": 5
+      },
+      "readErr": [],
+      "raw": [1288, -2],
+      "stopCallToNextStartEvtMs": {
+        "n": 2,
+        "med": 354.1,
+        "max": 354.1,
+        "min": 22.3
+      },
+      "firstFrameAfterStartCallMs": {
+        "n": 3,
+        "med": -21.2,
+        "max": -11.6,
+        "min": -33.2
+      },
+      "bufStart": [0, 0, 0],
+      "appendErr": []
+    },
+    "shortSync": {
+      "frameGapMs": {
+        "n": 5,
+        "med": 32.7,
+        "max": 35.7,
+        "min": 31.7
+      },
+      "endToStartMs": {
+        "n": 5,
+        "med": 32,
+        "max": 43,
+        "min": 29
+      },
+      "readErr": [],
+      "raw": [32, 36, 34, 33, 33],
+      "stopCallToNextStartEvtMs": {
+        "n": 5,
+        "med": 24.5,
+        "max": 27.4,
+        "min": 23.7
+      },
+      "firstFrameAfterStartCallMs": {
+        "n": 6,
+        "med": -3.3,
+        "max": -1.5,
+        "min": -7.3
+      },
+      "bufStart": [0, 0, 0, 0, 0, 0],
+      "appendErr": []
+    },
+    "shortOnstop": {
+      "frameGapMs": {
+        "n": 3,
+        "med": 0.7,
+        "max": 37.7,
+        "min": -3.3
+      },
+      "endToStartMs": {
+        "n": 3,
+        "med": 52,
+        "max": 58,
+        "min": 5
+      },
+      "readErr": [],
+      "raw": [38, 1, -3],
+      "stopCallToNextStartEvtMs": {
+        "n": 3,
+        "med": 24.6,
+        "max": 32,
+        "min": 21.9
+      },
+      "firstFrameAfterStartCallMs": {
+        "n": 4,
+        "med": -20.5,
+        "max": -19.3,
+        "min": -57.2
+      },
+      "bufStart": [0, 0, 0, 0],
+      "appendErr": []
+    },
+    "scroll720": {
+      "frameGapMs": null,
+      "endToStartMs": null,
+      "readErr": [],
+      "raw": [],
+      "stopCallToNextStartEvtMs": null,
+      "firstFrameAfterStartCallMs": {
+        "n": 1,
+        "med": -1.4,
+        "max": -1.4,
+        "min": -1.4
+      },
+      "bufStart": [0],
+      "appendErr": []
+    }
+  },
+  "mse": {
+    "offsets": [0, 60.001400000095366, 120.003],
+    "abortNeeded": true,
+    "setErr": ["InvalidStateError", "InvalidStateError"],
+    "ranges": [
+      [0, 58.827],
+      [60.0014, 179.986]
+    ],
+    "seeks": [
+      {
+        "t": 30,
+        "code": 70380,
+        "vw": 1920,
+        "vh": 1080,
+        "expected": 70453,
+        "errMs": -73
+      },
+      {
+        "t": 90,
+        "code": 130439,
+        "vw": 1920,
+        "vh": 1080,
+        "expected": 130453,
+        "errMs": -14
+      },
+      {
+        "t": 150,
+        "code": 190431,
+        "vw": 1920,
+        "vh": 1080,
+        "expected": 190453,
+        "errMs": -22
+      },
+      {
+        "t": 120.2,
+        "code": 160635,
+        "vw": 1920,
+        "vh": 1080,
+        "expected": 160653,
+        "errMs": -18
+      }
+    ],
+    "plays": [
+      {
+        "boundary": 60,
+        "from": 59,
+        "reached": 62.0005,
+        "crossed": true,
+        "waiting": 0,
+        "wallMs": 3001
+      },
+      {
+        "boundary": 120,
+        "from": 119,
+        "reached": 122.0015,
+        "crossed": true,
+        "waiting": 0,
+        "wallMs": 3002
+      }
+    ]
+  },
+  "targetOnly": {
+    "off": 120.003,
+    "ranges": [[120.003, 179.986]],
+    "t": 140.003,
+    "code": 180435,
+    "vw": 1920,
+    "vh": 1080,
+    "expected": 180456,
+    "errMs": -21
+  },
+  "resize": {
+    "log": [
+      {
+        "t": 397884.80000019073,
+        "ev": "720p",
+        "r": {
+          "aspectRatio": 1.7777777777777777,
+          "deviceId": "(çıkarıldı)",
+          "frameRate": 30,
+          "height": 1080,
+          "resizeMode": "none",
+          "width": 1920
+        }
+      },
+      {
+        "t": 405885.30000019073,
+        "ev": "1440p",
+        "r": {
+          "aspectRatio": 1.7777777777777777,
+          "deviceId": "(çıkarıldı)",
+          "frameRate": 30,
+          "height": 720,
+          "resizeMode": "none",
+          "width": 1280
+        }
+      }
+    ],
+    "errors": [],
+    "chunks": [
+      [5040, 876, "recording"],
+      [10078, 755, "recording"],
+      [15105, 653, "recording"],
+      [20126, 1013, "recording"],
+      [24002, 650, "inactive"]
+    ],
+    "probe": {
+      "appendErr": null,
+      "ranges": [[0, 23.963]],
+      "out": [
+        {
+          "t": 4,
+          "code": 393878,
+          "vw": 1920,
+          "vh": 1080
+        },
+        {
+          "t": 12,
+          "code": 401865,
+          "vw": 1280,
+          "vh": 720
+        },
+        {
+          "t": 20,
+          "code": 409884,
+          "vw": 2560,
+          "vh": 1440
+        },
+        {
+          "t": 23,
+          "code": 412884,
+          "vw": 2560,
+          "vh": 1440
+        }
+      ],
+      "play": {
+        "reached": 23.8915,
+        "bufEnd": 23.963,
+        "waiting": 2,
+        "playErr": null,
+        "resizes": 6,
+        "vw": 2560
+      }
+    }
+  },
+  "background": {
+    "hiddenWindow": {
+      "from": {
+        "vis": "visible",
+        "hidden": false,
+        "drawn": 244,
+        "now": 428653.60000038147,
+        "settings": {
+          "aspectRatio": 1.7777777777777777,
+          "deviceId": "(çıkarıldı)",
+          "frameRate": 30,
+          "height": 1080,
+          "resizeMode": "none",
+          "width": 1920
+        }
+      },
+      "to": {
+        "vis": "visible",
+        "hidden": false,
+        "drawn": 607,
+        "now": 440657.2000002861,
+        "settings": {
+          "aspectRatio": 1.7777777777777777,
+          "deviceId": "(çıkarıldı)",
+          "frameRate": 30,
+          "height": 1080,
+          "resizeMode": "none",
+          "width": 1920
+        }
+      }
+    },
+    "rate": {
+      "sec": 30,
+      "MB": 3.56,
+      "mbps": 0.948,
+      "GBperHour": 0.427,
+      "GiBperHour": 0.397,
+      "chunkMaxKiB": 877,
+      "chunkMedKiB": 665.1,
+      "firstChunkKiB": [877, 231, 830],
+      "over2MiB": 0,
+      "dataIntervalMs": {
+        "n": 3,
+        "med": 4978.8,
+        "max": 4993.5,
+        "min": 4922.3
+      },
+      "timerDriftMs": [5, 5, 1],
+      "errors": []
+    },
+    "gaps": {
+      "frameGapMs": {
+        "n": 2,
+        "med": 1485.7,
+        "max": 1485.7,
+        "min": 1153.7
+      },
+      "endToStartMs": {
+        "n": 2,
+        "med": 1390,
+        "max": 1390,
+        "min": 1107
+      },
+      "readErr": [],
+      "raw": [1154, 1486],
+      "stopCallToNextStartEvtMs": {
+        "n": 2,
+        "med": 541.7,
+        "max": 541.7,
+        "min": 68.2
+      },
+      "firstFrameAfterStartCallMs": {
+        "n": 3,
+        "med": -1.2,
+        "max": 0.8,
+        "min": -12.4
+      },
+      "bufStart": [0, 0, 0],
+      "appendErr": []
+    },
+    "drawPerSec": [
+      ["visible", 30],
+      ["visible", 31],
+      ["visible", 30],
+      ["visible", 30],
+      ["visible", 30],
+      ["visible", 31],
+      ["visible", 30],
+      ["visible", 30],
+      ["visible", 31],
+      ["visible", 30],
+      ["visible", 29],
+      ["visible", 31],
+      ["visible", 30],
+      ["visible", 30],
+      ["visible", 31],
+      ["visible", 30],
+      ["visible", 30],
+      ["visible", 31],
+      ["visible", 30],
+      ["visible", 30],
+      ["visible", 30],
+      ["visible", 31],
+      ["visible", 30],
+      ["visible", 30],
+      ["visible", 31],
+      ["visible", 30],
+      ["visible", 30],
+      ["visible", 30],
+      ["visible", 31]
+    ]
+  },
+  "consoleErr": []
+}
