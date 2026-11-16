@@ -1553,13 +1553,13 @@ değişmez). Seed değişmedi (politika varsayılan kapalı; seed bu şemada ge�
 
 ### Şema
 
-| Değişiklik                     | Ayrıntı                                                                                                                                  |
-| ------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------- |
-| `tenant_settings`              | `unattended_silent_enabled` BOOLEAN DEFAULT FALSE, `unattended_silent_ack_at` DATETIME(3) NULL, `unattended_silent_ack_by` CHAR(26) NULL FK `users(id)` RESTRICT + IX; `tenant_settings_silent_ack_chk` (açık ⇒ ack_at dolu) |
-| `support_sessions.consent_mode` | VARCHAR(8) NULL; `consent_mode_chk` ikili asked/no_user/silent; `consent_mode_dev_chk` (yalnız cihaz oturumu ya da anonim satır)          |
-| `support_sessions.silent_reason` | VARCHAR(500) NULL; `silent_reason_chk`: yalnız `consent_mode='silent'`, 20..500 kod noktası, kırpılmış, kontrol/Cf/Zl/Zp yok (`\n` serbest, `\r` yasak) |
-| `support_sessions_ttl_chk`     | kod yolu 14..31 dk; talep 55..65 sn; **cihaz 55..155 sn** (ask 150, silent 60)                                                           |
-| `support_sessions_anonymized_chk` | += `silent_reason IS NULL`                                                                                                            |
+| Değişiklik                        | Ayrıntı                                                                                                                                                                                                                      |
+| --------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `tenant_settings`                 | `unattended_silent_enabled` BOOLEAN DEFAULT FALSE, `unattended_silent_ack_at` DATETIME(3) NULL, `unattended_silent_ack_by` CHAR(26) NULL FK `users(id)` RESTRICT + IX; `tenant_settings_silent_ack_chk` (açık ⇒ ack_at dolu) |
+| `support_sessions.consent_mode`   | VARCHAR(8) NULL; `consent_mode_chk` ikili asked/no_user/silent; `consent_mode_dev_chk` (yalnız cihaz oturumu ya da anonim satır)                                                                                             |
+| `support_sessions.silent_reason`  | VARCHAR(500) NULL; `silent_reason_chk`: yalnız `consent_mode='silent'`, 20..500 kod noktası, kırpılmış, kontrol/Cf/Zl/Zp yok (`\n` serbest, `\r` yasak)                                                                      |
+| `support_sessions_ttl_chk`        | kod yolu 14..31 dk; talep 55..65 sn; **cihaz 55..155 sn** (ask 150, silent 60)                                                                                                                                               |
+| `support_sessions_anonymized_chk` | += `silent_reason IS NULL`                                                                                                                                                                                                   |
 
 Sapmalar (mimari §3'e göre): (1) **TTL anonim dalı**: mimari "anonim satır kuralı aynen (55..65)" diyor, ama anonimleştirme
 `device_id`'yi NULL'lar ve `expires_at`'e dokunmaz → 150 sn'lik `ask` oturumu anonimleşirken 3819 alır, saklama işi durur. Anonim
@@ -1587,9 +1587,10 @@ tenant geçişiyle de açabilir; bileşik FK onu reddederdi).
 ### Sorgu desenleri
 
 Yeni indeks yok (mimari §3.2): geçmiş "Bağlantı kipi" filtresi mevcut `IX(tenant_id, created_at)` / `IX(tenant_id, status, created_at)`
-+ satır süzgeci; zaman çizelgesi audit `IX(tenant_id, entity, entity_id, created_at)`. O-P28u-2 iptal UPDATE'i
-(`consent_mode='silent' AND status='PENDING'`) `IX(status, expires_at)` önekini kullanır — PENDING satır sayısı küçük, `tenant_id`
-koşulu eklenmeli. Audit "Bağlantı kipi" filtresi JSON alanında — yavaşlarsa üretilmiş sütun + indeks (ayrı migration, §7a).
+
+- satır süzgeci; zaman çizelgesi audit `IX(tenant_id, entity, entity_id, created_at)`. O-P28u-2 iptal UPDATE'i
+  (`consent_mode='silent' AND status='PENDING'`) `IX(status, expires_at)` önekini kullanır — PENDING satır sayısı küçük, `tenant_id`
+  koşulu eklenmeli. Audit "Bağlantı kipi" filtresi JSON alanında — yavaşlarsa üretilmiş sütun + indeks (ayrı migration, §7a).
 
 ### Kilit ve bakım penceresi (R-P28u-6)
 

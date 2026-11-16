@@ -1,3 +1,93 @@
+# Güvenlik Raporu — P28u kod turu 1 (K9; gözetimsiz izinli/izinsiz bağlantı + müdahale, dal p28u, HEAD d42cc70, 2026-11-16)
+
+DURUM: GEÇTİ — Kritik 0 / Yüksek 0 / Orta 0 / Düşük 3
+
+Kapsam: `apps/server/src/unattended/**` (connect, connect-tx, connect-silent, policy, mail, intervene, hub, hub-intervene, device-msg,
+device-ws), `signaling/{admit-device,rejoin-device,rooms-device,unattended-control,ws-auth,handlers,active}.ts`,
+`sessions/history-unattended.ts`, `jobs/retention-repo.ts`; Go `internal/servis/{core,helperstatus,intervene,rejoin,userstate*,wire_consent}.go`,
+`helperio/p28u.go`, `internal/unattended/helper/consent*.go`, `internal/control/occlusion.go`; web bağlan diyaloğu, politika formu, geçmiş
+ayrıntısı. Tasarım turu bulguları (O-P28u-1..3, D-P28u-1..6) ve mimari-p28u §12 T1–T16 koda karşı doğrulandı.
+
+## Bulgular (öncelik sırasıyla)
+
+### [DÜŞÜK] D-P28u-K1-1 İzinsiz bağlantı gerekçesi audit'te kalıcı: `audit.view` sahibi görür, CSV'ye çıkar, anonimleştirmede silinmez — A09 / KVKK
+
+Yer: `apps/server/src/unattended/connect-tx.ts:129` (`newValue.silentReason`), `apps/server/src/audit/view.ts:58-62` (`auditValueView`
+gerekçeyi maskelemez), `apps/server/src/jobs/retention-repo.ts:56` (yalnız `support_sessions.silent_reason = NULL`).
+Sorun: T6 "geçmişte yalnız `session_history.view`; anonimleştirmede silinir" der. Oturum satırında doğru uygulanmış
+(`history-unattended.ts:65`, `retention-repo.ts:56`), ama aynı serbest metin değiştirilemez audit satırında da durur: `session_history.view`
+yetkisi olmayan ama `audit.view` olan kullanıcı Audit Log ekranında/CSV'de okur, müşteri anonimleştirildikten sonra da kalır.
+İstismar senaryosu: Teknisyen gerekçeye müşteri çalışanının adını/sağlık bilgisini yazar ("X'in bilgisayarında … tedavi dosyası"); KVKK silme
+talebinden sonra veri audit'te ve dışa aktarılmış CSV'lerde yaşamaya devam eder.
+Düzeltme (backend-dev): audit okumada `unattended.connect.silentReason`'ı `session_history.view` yoksa `***` göster; audit satırına gerekçe
+yerine yalnız uzunluk/sha256 yazıp metni tek kaynak olarak `support_sessions.silent_reason`'da tutmak daha temiz (T5 inkâr önlemi DB satırı +
+dört göz e-postasıyla korunur). Karar mimara; kılavuza (K11) "gerekçeye kişisel veri yazmayın" uyarısı.
+
+### [DÜŞÜK] D-P28u-K1-2 Yeniden katılım penceresinde cihazın `session.closed` bildirimi (`session_changed` dışı) yok sayılıyor — A04
+
+Yer: `apps/server/src/unattended/device-msg.ts:157`.
+Sorun: Servis, beklenen yardımcı ölümünde zaten `session.closed` göndermiyor (`apps/agent-win/internal/servis/core.go:197-203`
+`pending`). Sunucudaki ek süzgeç bu nedenle gereksiz ve pencere içinde gerçek bitişleri (servis durdurma `Kill`, `helper_failed`, `no_console`
+— `rejoin.go:144`, `core.go endLocked`) 45 sn'ye kadar geciktirir; oda `clearRejoinWindow` ile ancak pencere sonunda `session_changed` olur ve
+DB bitiş nedeni yanlış kalır. Yerel anahtar `device.state` yolundan ayrıca bittiği için güvenlik etkisi düşük (görüntü yok, gösterge yok).
+Düzeltme (backend-dev): süzgeci kaldırın ya da yalnız eski yardımcının `reason` boş/çıkış kodu kaynaklı kapanışına daraltın; test: pencere içinde
+`session.closed{helper_failed}` → oda hemen biter.
+
+### [DÜŞÜK] D-P28u-K1-3 Tek kişilik firmada dört göz e-postası işlemi yapanın kendisine gider — A04 (kabul edilmiş risk, belgelenmeli)
+
+Yer: `apps/server/src/unattended/mail.ts` `silentRecipients` (başka `unattended.manage` sahibi yoksa işlemi yapan + Admin'ler).
+Sorun: D-P28u-4'te istenen kılavuz notu (K11) henüz yok; ele geçirilmiş tek Admin hesabında dört göz yalnız saldırgana bildirir.
+Düzeltme (teknik-yazar K11): kılavuz + DATASHEET'te "izinsiz bağlanmayı açmadan önce en az iki yönetici tanımlayın"; isteğe bağlı olarak
+politika açma ucunda başka `manage` sahibi yoksa uyarı (backend-dev, "Sonra").
+
+## Tasarım turu bulgularının kod durumu
+
+| Bulgu    | Durum                                   | Kanıt                                                                                                                                                                                                                                                                                                                                                                                              |
+| -------- | --------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| O-P28u-1 | KAPANDI                                 | `control/occlusion.go:26-96` (Guard: örtülme/gizlenme kalkınca 1,5 sn yeniden), `helper/consent_windows.go:189` (250 ms tarama), `:216-232` (GW_HWNDPREV, okunamayan dikdörtgen = örtü, fail-closed), `helper/consent_input_windows.go:44-51` (tıklama anı tarama + `WindowAt(imleç)==grant`). Windows elle T2 (saydam katman) K6s'te elle kaldı — CI kanıtı değil. ADR-0033 sınır satırı eklendi. |
+| O-P28u-2 | KAPANDI                                 | connect TX `connect-tx.ts:63-65` (FOR SHARE + DB'den yetki), admit `admit-device.ts:83-96`, rejoin `rejoin-device.ts:114`, `policy.ts:143-161` finishSilent PENDING toplu iptal (tenant koşullu, `:155` oda tenant eşleşmesi), yetki geri alımı `rooms.ts:295` → `rooms-device.ts:92-96`, yedek `rooms-device.ts:131`.                                                                             |
+| O-P28u-3 | KAPANDI                                 | `servis/intervene.go:99-102` (`asked` → `guardLogon`), `servis/rejoin.go:112-114` (konsolda kullanıcı varsa yardımcı başlatılmaz → `session_changed`), `:162-164` (WTS_SESSION_LOGON).                                                                                                                                                                                                             |
+| D-P28u-1 | KAPANDI                                 | `servis/helperstatus.go:47-83` olay×durum tablosu, `:162-173` ihlal → `TerminateProcess` + 1004; `core.go register` control=off, `helperstatus.go:176-185` çıkışta sıfırlama; yasak liste `helper/boundary_test.go:30` (önek Ex'i kapsar) + `windows_test.go:77-79`.                                                                                                                               |
+| D-P28u-2 | KAPANDI                                 | tek tanım `contracts/rejoin-const` ↔ `servis/rejoin.go:14-18`; `rejoin-device.ts:30-50` tek temizlik yolu (`ok:false`/timeout), `intervene.ts:84-87`; servis `rejoinLocked` 45 sn'de düşer, `intervene.go:140-142`.                                                                                                                                                                                |
+| D-P28u-3 | KAPANDI                                 | `servis/intervene.go:47-51` hedef = yardımcının `WinSession()`, konsol ≠ → `no_session`.                                                                                                                                                                                                                                                                                                           |
+| D-P28u-4 | KAPANDI (bkz. D-P28u-K1-1, D-P28u-K1-3) | `failReason`/`silentReason` ayrımı `connect.ts:120`, `connect-tx.ts:129`; `session.started`'da gerekçe yok `admit-device.ts:122-128`; konu sabit `mail.ts SILENT_CONNECT_SUBJECT`, HTML `esc` `mail.ts:13,25`; pino'da gerekçe yok.                                                                                                                                                                |
+| D-P28u-5 | KAPANDI                                 | `servis/core.go Connect` `features && !connectConsent → protocol`, `wire_consent.go:113-121`; runbook §28u sürüm tablosunda gizlilik gerilemesi yazılı.                                                                                                                                                                                                                                            |
+| D-P28u-6 | KISMEN                                  | `userState` yalnız grant'lı cihazda `service.ts:117`, bellekte `hub.ts:79-82`, audit/geçmişte yok `history-unattended.ts:3`; diyalogda ayrı firma satırı `consent_windows.go:137`, kaynak sunucu `connect.ts:153` / DB `rejoin-device.ts:78`. Kılavuz/aydınlatma notu K11'e kaldı.                                                                                                                 |
+
+## Otomatik tarama çıktıları
+
+- `pnpm audit --audit-level=moderate`: `No known vulnerabilities found`.
+- Yeni npm/Go bağımlılığı yok; yeni env değişkeni yok. `git grep` gizli bilgi kalıbı P28u dosyalarında eşleşme vermedi (CI gitleaks ayrıca).
+
+## Tasarımda vaat edilip kodda bulunmayanlar
+
+- Windows elle T2 (SendInput/AutoHotkey + saydam TOPMOST katman ile fiziksel tıklama) yalnız elle test betiğinde (`servis/testdata/k6s-elle.ps1`);
+  sonuç kaydı test-operatoru turunda istenmeli.
+- Kılavuz/aydınlatma metni maddeleri (D-P28u-4 son cümle, D-P28u-6) K11 teknik-yazar işinde.
+
+## Olumlu
+
+- Connect zinciri sıra ve kapsamıyla uygulanmış: 2a/2b (`connect-silent.ts:14-17`) → kova → 2c teknisyen×cihaz (yalnız başarıda sayılır,
+  `connect.ts:112,123`) → 8a `consent1` → TX içi politika FOR SHARE + DB'den yetki + step-up koşullu tüketim; her ret `failReason` ile audit.
+- Gerekçe şeması katı (`contracts/api/unattended.ts:269-289`: kırpma, 20..500 kod noktası, Cc/Cf/yön karakteri yok, `silent ⇔ reason`,
+  strictObject) + DB CHECK aynı sınır; web'de React metin düğümü (`unattended-info.tsx:54`), `dangerouslySetInnerHTML` yok.
+- Politika: açarken `ack` + step-up (tüketmez), kapatma sürtünmesiz, FOR UPDATE + tek audit; aynı değer audit'siz.
+- Hub: `consent.result` yalnız kendi cihazının canlı, `ask`, kabul edilmemiş odasına ve bir kez (`device-msg.ts:96`); `intervene.result`
+  oda + komut kimliği + komut türü eşleşmeli (`hub-intervene.ts:44-51`); P28u mesajları yalnız `consent1` sokette ayrıştırılıyor (`device-ws.ts:142`).
+- Müdahale ucu: tenant koşullu satır → teknisyen eşleşmesi → canlı admitted gözetimsiz oda → grant → GRANTED → `consent1` → tek bekleyen →
+  6/dk; `has` denetimi ile `wait` arasında await yok (yarışsız); logoff `confirm:true`; her sonuç audit.
+- Yeniden katılım bileti: oturum başına 1 (`rejoinUsed`), gen+1, 30 sn + 45 sn pencere, guestId eşleşmesi senkron tüketiliyor; TX admit ile aynı
+  kilit sırası; eski bilet `gen` farkıyla 403.
+- Servis kip kararı fail-closed (okuma hatası/bilinmeyen = `active` → diyalog, `userstate.go:29-46`); WTS düzen doğrulaması
+  (`userstate_windows.go:63`); durum borusu satırı ≤ 512 B, `DisallowUnknownFields` + `More()` reddi.
+- Diyalog: Reddet varsayılan/odakta, Enter = Reddet, Space/Enter "İzin ver"de süzülüyor, işaretsiz `WM_COMMAND` enjekte sayılıyor, yalnız
+  `Default` masaüstü, masaüstü değişince gizlenip kilit yeniden başlıyor.
+- `silent` izleme kipinde dosya teklifi reddi (`handlers.ts silentFileBlocked`), gösterge her kipte.
+
+**"Sonra" önerisi (gereksinimler §9):** D-P28u-K1-1 (audit'te gerekçe maskesi/özeti), D-P28u-K1-3 (tek yöneticili firmada politika açma uyarısı).
+
+---
+
 # Güvenlik Raporu — P28b kod turu 1 (K9b; sunucuda dosya + ClamAV + kota, dal p28b, HEAD 1047d64, 2026-11-16)
 
 DURUM: GEÇTİ — Kritik 0 / Yüksek 0 / Orta 0 / Düşük 4
