@@ -40,7 +40,10 @@ function SourceNote({ s, compact = false }: { s: Pick<SessionListItem, "source" 
   );
 }
 
-/** P28e (§9): "Kayıt" sütunu — kayıtlı oturumda `Video` ikonu (`aria-label`), aksi boş. */
+/**
+ * P28e (§9): kayıt işareti — kayıtlı oturumda `Video` ikonu (`aria-label`), aksi boş. Tabloda ayrı sütun değil, Süre
+ * hücresinde sürenin solunda (K10: SUPER_ADMIN 1280 px'te ayrı sütun tabloyu taşırıyordu — TEST-P8-2); kartta durum rozetinin yanında.
+ */
 function RecMark({ s }: { s: Pick<SessionListItem, "hasRecording"> }) {
   if (!s.hasRecording) return null;
   return (
@@ -97,9 +100,6 @@ export function HistoryList({ items, showTechnician, showTenant }: Props) {
                 {t("h.col.duration")}
               </th>
               <th scope="col" className="px-3 py-3 font-medium">
-                {t("h.col.rec")}
-              </th>
-              <th scope="col" className="px-3 py-3 font-medium">
                 {t("h.col.ticket")}
               </th>
             </tr>
@@ -146,10 +146,10 @@ export function HistoryList({ items, showTechnician, showTenant }: Props) {
                   </div>
                 </td>
                 <td className="px-3 py-2 text-right whitespace-nowrap tabular-nums text-fg">
-                  <DurationCell s={s} />
-                </td>
-                <td className="px-3 py-2">
-                  <RecMark s={s} />
+                  <span className="inline-flex items-center justify-end gap-1.5">
+                    <RecMark s={s} />
+                    <DurationCell s={s} />
+                  </span>
                 </td>
                 <td className="max-w-32 truncate px-3 py-2 whitespace-nowrap text-fg" title={s.ticketNo ?? undefined}>
                   {s.ticketNo ?? <span className="text-fg-muted">—</span>}

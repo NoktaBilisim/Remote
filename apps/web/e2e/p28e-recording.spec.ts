@@ -1,6 +1,6 @@
 import { expect, test, type Browser, type Page } from "@playwright/test";
 import { REC_PART_MS, REC_REVOKE_ACK_MS } from "@remote/contracts/ws-rec";
-import { desktopOnly, guardConsole, newSession, scanBoth, signIn } from "./helpers";
+import { axeScan, desktopOnly, guardConsole, newSession, scanBoth, signIn } from "./helpers";
 
 // P28e-K7 (mimari-p28e r2 §7, §9) — AC-380, 381, 382, 383, 384, 385, 386, 447, 450 (UI). Sahte API e2e/mock-p28e.mjs
 // (u-p28e*; ayar, geçmiş, oynatıcı), sahte WS e2e/mock-ws.mjs (u-p28ec*: rıza → rec.state + yükleme belirteci).
@@ -97,6 +97,28 @@ test.describe("Ayarlar → Oturum kaydı (AC-380, 447)", () => {
     await expect(un).toHaveAttribute("aria-checked", "false");
   });
 
+  test("K10 D-1: saklama süresi boş/0/-5/91 → alan hatası (aria-invalid + aria-describedby), PUT gitmez", async ({ page, context }) => {
+    await signIn(context, "p28esole");
+    await page.goto("/settings/recording");
+    await expect(page.getByTestId("rec-settings-form")).toHaveAttribute("data-ready", "true");
+    let puts = 0;
+    page.on("request", (r) => r.method() === "PUT" && r.url().includes("/settings/recording") && puts++);
+    const days = page.getByTestId("rset-days");
+    for (const [v, msg] of [
+      ["", "Gün sayısı girin"],
+      ["0", "En az 1 gün"],
+      ["-5", "Gün sayısı girin"],
+      ["91", /En çok 90 gün|aşamaz/],
+    ] as const) {
+      await days.fill(v);
+      await page.getByRole("button", { name: "Kaydet" }).click();
+      await expect(days, `"${v}"`).toHaveAttribute("aria-invalid", "true");
+      await expect(days).toHaveAccessibleDescription(msg);
+      await expect(days).toBeFocused();
+    }
+    expect(puts).toBe(0);
+  });
+
   test("tek yönetici uyarısı (S-P28e-4); salt okunur kullanıcıda form pasif", async ({ page, context }) => {
     await signIn(context, "p28esole");
     await page.goto("/settings/recording");
@@ -149,6 +171,46 @@ test.describe("Geçmiş: Kayıtlı süzgeci, meta, sil, izle (AC-385, 386, 450)"
     await expect(page.getByTestId("rec-watch")).toHaveCount(0);
   });
 
+  test("K10 O-1: 'Kaydı izle' 401 → /login?reason=expired; D-3: 500'de sunucu metni değil genel metin", async ({ page, context }) => {
+    await signIn(context, "p28eadm");
+    let status = 500;
+    await page.route(/\/api\/v1\/sessions\/[^/]+\/recording\/view$/, (r) =>
+      r.fulfill({
+        status,
+        json: {
+          error: status === 500 ? { code: "INTERNAL", message: "x", requestId: "req-k10" } : { code: "UNAUTHENTICATED", message: "x" },
+        },
+      }),
+    );
+    await page.goto(`/history/${REC}`);
+    await page.getByTestId("rec-watch").click();
+    await expect(page.getByText("Beklenmeyen bir hata oluştu.")).toBeVisible();
+    await expect(page.getByText("x", { exact: true })).toHaveCount(0);
+    status = 401;
+    await context.clearCookies(); // oturum gerçekten düşmüş: giriş sayfası geçerli çerezle "/"a yönlendirmesin
+    await page.getByTestId("rec-watch").click();
+    await expect(page).toHaveURL(/\/login\?reason=expired$/);
+  });
+
+  test("K10 D-2: meta 404/403 → 'Kaydı izle' yerine kısa neden metni", async ({ page, context }) => {
+    await signIn(context, "p28eadm");
+    for (const [status, text] of [
+      [404, "Kayıt bilgisi bulunamadı; kayıt silinmiş olabilir. Sayfayı yenileyin."],
+      [403, "Bu kaydın bilgisini görme yetkiniz yok."],
+    ] as const) {
+      await page.unroute(/\/api\/v1\/sessions\/[^/]+\/recording$/);
+      await page.route(/\/api\/v1\/sessions\/[^/]+\/recording$/, (r) =>
+        r.request().method() === "GET"
+          ? r.fulfill({ status, json: { error: { code: status === 404 ? "NOT_FOUND" : "FORBIDDEN", message: "x" } } })
+          : r.fallback(),
+      );
+      await page.goto(`/history/${REC}`);
+      await expect(page.getByTestId("rec-missing")).toHaveText(text);
+      await expect(page.getByTestId("rec-missing")).toHaveAttribute("data-status", String(status));
+      await expect(page.getByTestId("rec-watch")).toHaveCount(0);
+    }
+  });
+
   test("izleme yetkisi yoksa 'Kaydı izle' ve 'Kaydı sil' yok", async ({ page, context }) => {
     await signIn(context, "p28ero");
     await page.goto(`/history/${REC}`);
@@ -192,6 +254,22 @@ test.describe("Geçmiş: Kayıtlı süzgeci, meta, sil, izle (AC-385, 386, 450)"
     await expect(player).toHaveCount(0);
   });
 });
+
+/**
+ * K10 (Y-1/Y-2): açık + koyu temada kapsamlı axe. Tema `html` sınıfıyla zorlanır (konsol "Sistem"de hep koyu açılır;
+ * `emulateMedia` açık varyantı koşturmaz) ve etkin tema doğrulanır.
+ */
+async function scanThemes(p: Page, sel: string, label: string) {
+  for (const scheme of ["light", "dark"] as const) {
+    await p.evaluate((c) => {
+      document.documentElement.classList.remove("light", "dark");
+      document.documentElement.classList.add(c);
+    }, scheme);
+    const fg = await p.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue("--rs-fg").trim());
+    expect(fg, `${label} ${scheme} teması etkin`).toBe(scheme === "light" ? "#1b2129" : "#e6ebf0");
+    expect(await axeScan(p, sel), `${label} ${scheme}`).toEqual([]);
+  }
+}
 
 async function joinWithRec(browser: Browser, link: string, consent: boolean) {
   const ctx = await browser.newContext();
@@ -280,8 +358,12 @@ test.describe("Müşteri rızası, gösterge, Kaydı durdur, konsol kaydedici (A
     await expect(g.getByTestId("rec-guest-on")).toHaveText("Kayıt yapılıyor");
     await expect(g).toHaveTitle(new RegExp(`^${PREFIX}`));
     await expect(page.getByTestId("rec-console-on")).toContainText("Kayıt yapılıyor");
+    await scanThemes(g, '[data-testid="share-strip"]', "müşteri şeridi (paylaşım öncesi)");
+    await scanThemes(page, '[data-testid="rec-console"]', "konsol kayıt rozeti");
     await g.getByTestId("share-start").click();
     await expect(page.getByTestId("stage")).toHaveAttribute("data-share", "sharing");
+    await expect(g.getByTestId("share-strip")).toHaveAttribute("data-state", "sharing");
+    await scanThemes(g, '[data-testid="share-strip"]', "müşteri şeridi (paylaşılıyor)");
     const rid = ((await (await page.request.get(`${MOCK}/__e2e/rec/${s.id}`)).json()) as { rid: string }).rid;
     const stored = async () =>
       (await (await page.request.get(`${MOCK}/__e2e/rec-parts/${rid}`)).json()) as {
@@ -348,6 +430,7 @@ test.describe("Müşteri rızası, gösterge, Kaydı durdur, konsol kaydedici (A
     expect(ms).toBeGreaterThanOrEqual(REC_REVOKE_ACK_MS - 50);
     expect(ms).toBeLessThanOrEqual(REC_REVOKE_ACK_MS + 500);
     await expect(g.getByTestId("rec-guest-paused")).toHaveText("Kayıt durdurulamadı, paylaşım duraklatıldı");
+    await scanThemes(g, '[data-testid="share-strip"]', "müşteri şeridi (duraklatıldı)");
     expect(await g.evaluate(() => (document.querySelector("video") as HTMLVideoElement | null)?.srcObject instanceof MediaStream)).toBe(
       true,
     );

@@ -36,7 +36,7 @@ export function RecIndicator({
           role="status"
           data-testid="rec-console-on"
           data-basis={v.basis ?? undefined}
-          className="inline-flex items-center gap-2 self-start rounded-full bg-danger-surface px-3 py-1 text-sm font-semibold text-control-frame"
+          className="inline-flex items-center gap-2 self-start rounded-full bg-danger-surface px-3 py-1 text-sm font-semibold text-danger"
         >
           <CircleDot aria-hidden className="size-4 shrink-0" />
           {t("rec.c.on")}

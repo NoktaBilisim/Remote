@@ -10,7 +10,7 @@ import {
   type SessionRecordingSummary,
 } from "@remote/contracts/api/recording";
 import type { SessionUnattendedInfo } from "@remote/contracts/api/sessions";
-import { Eraser, Play, Trash2 } from "lucide-react";
+import { Eraser, Info, Play, Trash2 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 import { FormError } from "@/components/form-error";
@@ -29,7 +29,12 @@ import { useHydrated } from "@/lib/use-hydrated";
 import { CONSENT_MODE_LABELS } from "@/lib/unattended/contract";
 import { RecordingPlayer } from "./recording-player";
 
-type Meta = { kind: "loading" } | { kind: "ok"; v: RecordingView } | { kind: "error" } | { kind: "none" };
+/** `none` = istek atılmadı (izleme yetkisi yok / silinmiş); `missing` = meta 403/404 (D-2: neden metniyle). */
+type Meta =
+  { kind: "loading" } | { kind: "ok"; v: RecordingView } | { kind: "error" } | { kind: "none" } | { kind: "missing"; status: 403 | 404 };
+
+const metaFailure = (e: unknown): Meta =>
+  e instanceof ApiError && (e.status === 404 || e.status === 403) ? { kind: "missing", status: e.status } : { kind: "error" };
 
 function useMeta(sessionId: string, enabled: boolean) {
   const [meta, setMeta] = useState<Meta>(enabled ? { kind: "loading" } : { kind: "none" });
@@ -40,7 +45,7 @@ function useMeta(sessionId: string, enabled: boolean) {
       setMeta({ kind: "ok", v: await api<RecordingView>("GET", `/sessions/${sessionId}/recording`) });
     } catch (e) {
       if (isUnauthenticated(e)) return router.replace(EXPIRED_LOGIN_PATH);
-      setMeta(e instanceof ApiError && (e.status === 404 || e.status === 403) ? { kind: "none" } : { kind: "error" });
+      setMeta(metaFailure(e));
     }
   }, [router, sessionId]);
   useEffect(() => {
@@ -53,7 +58,7 @@ function useMeta(sessionId: string, enabled: boolean) {
       } catch (e) {
         if (!live) return;
         if (isUnauthenticated(e)) return router.replace(EXPIRED_LOGIN_PATH);
-        setMeta(e instanceof ApiError && (e.status === 404 || e.status === 403) ? { kind: "none" } : { kind: "error" });
+        setMeta(metaFailure(e));
       }
     })();
     return () => {
@@ -155,6 +160,7 @@ function DeleteDialog({ open, sessionId, onClose }: { open: boolean; sessionId: 
 
 /** "Kaydı izle": POST /view YALNIZ tıklamada (audit `recording.view`; effect/mount'ta asla). */
 function useWatch(sessionId: string) {
+  const router = useRouter();
   const [view, setView] = useState<RecordingViewResponse | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<UiError | null>(null);
@@ -166,6 +172,10 @@ function useWatch(sessionId: string) {
       setView(v);
       return v.token;
     } catch (e) {
+      if (isUnauthenticated(e)) {
+        router.replace(EXPIRED_LOGIN_PATH);
+        return null;
+      }
       setError(toUiError(e));
       return null;
     } finally {
@@ -216,6 +226,12 @@ export function RecordingSection({
         <MetaList r={r} v={v} unattended={unattended} />
       )}
       {meta.kind === "error" && <LoadError onRetry={() => void reload()} />}
+      {meta.kind === "missing" && (
+        <p className="flex items-start gap-2 text-sm text-fg-muted" role="status" data-testid="rec-missing" data-status={meta.status}>
+          <Info aria-hidden className="mt-0.5 size-4 shrink-0" />
+          {t(meta.status === 404 ? "hr.missing" : "hr.forbidden")}
+        </p>
+      )}
       {!r.canView && (
         <p className="text-sm text-fg-muted" data-testid="rec-noperm">
           {t("hr.noPerm")}

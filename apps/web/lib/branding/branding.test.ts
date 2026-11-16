@@ -85,7 +85,7 @@ describe("P12 yükleme ön kontrolü ve kırpma (AC-83, 84)", () => {
     expect(uploadError(new ApiError(400, "INVALID_IMAGE", IMAGE_DIMENSIONS_MESSAGE)).message).toBe(IMAGE_DIMENSIONS_MESSAGE); // sunucunun mesajı
     expect(uploadError(new ApiError(400, "INVALID_IMAGE", "")).message).toBe(INVALID_IMAGE_MESSAGE);
     expect(uploadError(new ApiError(429, "RATE_LIMITED", "")).tone).toBe("locked");
-    expect(uploadError(new ApiError(500, "INTERNAL", "Sunucu hatası")).message).toBe("Sunucu hatası");
+    expect(uploadError(new ApiError(500, "INTERNAL", "Sunucu hatası")).message).toBe("Beklenmeyen bir hata oluştu."); // K10 D-3: 500 genel metin
   });
   it("varsayılan logo tanınır", () => {
     expect(isDefaultLogo("/img/logo.png")).toBe(true);

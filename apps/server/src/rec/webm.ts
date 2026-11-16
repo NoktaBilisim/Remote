@@ -85,7 +85,10 @@ function checkTracks(b: Buffer, tracks: Element): WebmVerdict {
   return entries.length === 1 ? { ok: true } : { ok: false, reason: "track_count" };
 }
 
-/** Bölümün ilk parçası (`p = 0`): EBML başlığı + Segment içinde Cluster'dan önce `Tracks` → tek video izi. */
+/**
+ * Bölümün ilk parçası (`p = 0`): EBML başlığı + Segment içinde Cluster'dan önce `Tracks` → tek video izi; `Tracks` sonrası gövde
+ * `p > 0` ile aynı bütçeli gömülü EBML/Tracks taramasından geçer (D-P28e-K3-1: ardına eklenmiş ikinci WebM).
+ */
 export function checkWebmHeader(b: Buffer): WebmVerdict {
   const ebml = readElement(b, 0);
   if (!ebml || ebml.id !== ID_EBML || ebml.size === UNKNOWN) return { ok: false, reason: "ebml" };
@@ -100,7 +103,11 @@ export function checkWebmHeader(b: Buffer): WebmVerdict {
   while (pos < end) {
     const e = readElement(b, pos);
     if (!e) return { ok: false, reason: "ebml" };
-    if (e.id === ID_TRACKS) return e.size === UNKNOWN || e.data + e.size > b.length ? { ok: false, reason: "ebml" } : checkTracks(b, e);
+    if (e.id === ID_TRACKS) {
+      if (e.size === UNKNOWN || e.data + e.size > b.length) return { ok: false, reason: "ebml" };
+      const v = checkTracks(b, e);
+      return v.ok ? scanEmbedded(b.subarray(e.data + e.size), 0) : v;
+    }
     if (e.id === ID_CLUSTER || e.size === UNKNOWN) return { ok: false, reason: "tracks" };
     pos = e.data + e.size;
   }
@@ -184,10 +191,16 @@ function anyAt(b: Buffer, magic: Buffer, want: number, budget: { left: number },
 export function checkWebmContinuation(b: Buffer, requireCluster: boolean = REC_REQUIRE_CLUSTER_START, prevTail?: Buffer): WebmVerdict {
   if (startsWith(b, ID_EBML)) return { ok: false, reason: "ebml" };
   const scan = prevTail?.length ? Buffer.concat([prevTail, b]) : b;
+  const v = scanEmbedded(scan, scan.length - b.length);
+  if (!v.ok) return v;
+  if (requireCluster && !startsWith(b, ID_CLUSTER)) return { ok: false, reason: "ebml" };
+  return { ok: true };
+}
+
+/** Gömülü EBML başlığı / TrackEntry'li `Tracks` taraması (tek bütçe, doğrusal); `p = 0`'da Tracks sonrası gövde için de (D-P28e-K3-1). */
+function scanEmbedded(scan: Buffer, tailLen: number): WebmVerdict {
   const budget = { left: SCAN_ELEMENTS };
-  const tailLen = scan.length - b.length;
   if (anyAt(scan, MAGIC_EBML, ID_DOCTYPE, budget, tailLen)) return { ok: false, reason: "ebml" };
   if (anyAt(scan, MAGIC_TRACKS, ID_TRACK_ENTRY, budget, tailLen)) return { ok: false, reason: "tracks" };
-  if (requireCluster && !startsWith(b, ID_CLUSTER)) return { ok: false, reason: "ebml" };
   return { ok: true };
 }

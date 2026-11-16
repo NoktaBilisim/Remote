@@ -2,7 +2,7 @@
 // başlık (D-P28e-K2-2). Desenler güvenlik ajanının scratchpad betiklerinden (dos.ts / dos2.ts) uyarlandı.
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
-import { SCAN_CHILDREN, SCAN_TAIL_BYTES, checkWebmContinuation } from "../../src/rec/webm.ts";
+import { SCAN_CHILDREN, SCAN_TAIL_BYTES, checkWebmContinuation, checkWebmHeader } from "../../src/rec/webm.ts";
 import { CLUSTER_PART, VIDEO_WEBM, el, track, webm } from "../helpers/rec-webm-k3.ts";
 
 const MiB2 = 2 * 1024 * 1024;
@@ -164,5 +164,30 @@ describe("D-P28e-K2-2 parça sınırında bölünmüş gömülü başlık", () =
     const p0 = full.subarray(0, tracksEnd); // yalnız başlık içeren ilk parça: Tracks son 64 baytta
     expect(p0.length - tracksAt).toBeLessThanOrEqual(SCAN_TAIL_BYTES);
     expect(checkWebmContinuation(CLUSTER_PART(), false, p0.subarray(-SCAN_TAIL_BYTES))).toEqual({ ok: true });
+  });
+});
+
+describe("D-P28e-K3-1 p=0: Tracks sonrası gövde gömülü EBML/Tracks için taranır", () => {
+  it("D-P28e-K3-1 geçerli video başlığı + ardına eklenmiş ikinci (ses izli) WebM → ret", () => {
+    expect(checkWebmHeader(Buffer.concat([VIDEO_WEBM(), webm([track(1, "A_OPUS")])]))).toMatchObject({ ok: false, reason: "ebml" });
+    expect(checkWebmHeader(Buffer.concat([VIDEO_WEBM(), el(0x1654ae6b, track(2, "A_OPUS"))]))).toMatchObject({
+      ok: false,
+      reason: "tracks",
+    });
+  });
+
+  it.each(["ebml", "tracks"] as const)("D-P28e-K3-1 p=0 sonrasında kötü niyetli 2 MiB desen (%s) → ret, < 200 ms", (m) => {
+    for (const pat of [agentPattern(MiB2, m), nearBudget(MiB2, m)]) {
+      const b = Buffer.concat([VIDEO_WEBM(), pat]);
+      const t = performance.now();
+      const v = checkWebmHeader(b);
+      expect(performance.now() - t).toBeLessThan(200);
+      expect(v).toMatchObject({ ok: false, reason: m });
+    }
+  });
+
+  it("D-P28e-K3-1 yanlış pozitif yok: gerçek Chromium p0 ve tek video WebM kabul", () => {
+    expect(checkWebmHeader(real(0))).toEqual({ ok: true });
+    expect(checkWebmHeader(VIDEO_WEBM())).toEqual({ ok: true });
   });
 });

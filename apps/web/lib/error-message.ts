@@ -21,6 +21,8 @@ export function toUiError(e: unknown, byStatus: Partial<Record<number, string>> 
     if (e.status === 429) return { message: e.message || t("login.error.rateLimited"), tone: "locked" };
     const mapped = byStatus[e.status];
     if (mapped) return { message: mapped, tone: "danger" };
+    // P28e-K10 (D-3): 500'de sunucu metni gösterilmez (iç ayrıntı sızmasın); genel Türkçe metin + istek kimliği
+    if (e.status === 500) return { message: t("err.generic"), requestId: e.requestId, tone: "danger" };
     return { message: e.message || t("err.generic"), requestId: e.requestId, tone: "danger" };
   }
   return { message: t("err.generic"), tone: "danger" };

@@ -22,7 +22,7 @@ function RecLine({ rec }: { rec: StripRec }) {
   if (rec.on)
     return (
       <div className="flex w-full flex-wrap items-center gap-x-3 gap-y-2" data-testid="rec-guest">
-        <span role="status" className="inline-flex items-center gap-2 font-semibold text-control-frame" data-testid="rec-guest-on">
+        <span role="status" className="inline-flex items-center gap-2 font-semibold text-danger" data-testid="rec-guest-on">
           <CircleDot aria-hidden className="size-4 shrink-0" />
           {t("rec.guest.on")}
         </span>

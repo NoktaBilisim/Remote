@@ -1,3 +1,89 @@
+# Güvenlik Raporu — P28e kod turu 3 (tur 2 düzeltmesi doğrulaması, dal p28e, HEAD e911537, 2026-11-16)
+
+DURUM: GEÇTİ — Kritik 0 / Yüksek 0 / Orta 0 / Düşük 1 (yeni) + kabul edilmiş kalıntılar
+
+Kapsam: `git diff e00005c..e911537` — `apps/server/src/rec/webm.ts`, `apps/server/src/rec/service.ts`, `test/unit/rec-webm-dos.test.ts`,
+`test/integration/rec-p28e-k3.test.ts` (+2), `docs/implementation.md` notu. Koşulanlar: `vitest run test/unit/rec-webm` 2 dosya / 26 test geçti;
+entegrasyon `rec-p28e-k3` (geçici `sec3-mysql`, sonunda silindi) 22/22 geçti; kendi kötü niyetli girdi betiğim (aşağıda).
+
+## Bulgular (öncelik sırasıyla)
+
+### [DÜŞÜK] D-P28e-K3-1 `p = 0` gövdesi `Tracks` sonrasında gömülü başlık için taranmıyor — A04
+
+Yer: apps/server/src/rec/webm.ts:103 (`checkWebmHeader` ilk `Tracks`'ta `checkTracks` sonucunu döndürür; gövdenin geri kalanı taranmaz)
+Sorun: Geçerli tek video izli başlığın ardına eklenmiş ikinci bir WebM (ses izli EBML + Tracks) kabul ediliyor. Kanıt (scratchpad `p0.ts`):
+`checkWebmHeader(Buffer.concat([VIDEO_WEBM(), webm([track(1, "A_OPUS")])]))` → `{ ok: true }`. `p > 0` için kapatılan K1-2 kuralı
+bölümün ilk parçasında (≤ 2 MiB) uygulanmıyor. implementation.md "kalan risk (c)" olarak zaten not edilmiş; rapora ilk kez giriyor.
+İstismar: Değiştirilmiş konsol, her bölümün `p = 0` parçasında meşru başlıktan sonra ses izli gömülü akış gönderir. Etki K2-2 ile aynı sınıf:
+yalnız yetkili teknisyen, kota içinde; sunucu kareleri çözmediğinden "ses saklanmaz" zaten kötü niyetli kaydediciye karşı tam garanti değil.
+Düzeltme: `checkTracks` `ok` döndüğünde aynı bütçeli `anyAt` taramasını (EBML/DocType ve Tracks/TrackEntry) `Tracks` bitişinden gövde
+sonuna dek koş; tamamı bu aralıkta kalan eşleşmeler yargılansın (meşru `Tracks` aralığın dışında kalır). Birim testi: yukarıdaki birleşik
+tampon → ret; gerçek `p0.webm` → kabul. Ya da gereksinimler §9 "Sonra". (atanan ajan: backend-dev)
+
+## Tur 2 bulgularının kapanışı
+
+| No          | Durum                   | Kanıt                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| ----------- | ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Y-P28e-K2-1 | Kapandı                 | Aşağıdaki karmaşıklık analizi ve ölçüm. `indexOf` tek geçiş; `readElement`/`headerShort` O(1); `probe` her çocukta `SCAN_ELEMENTS` (4096, gövde başına, EBML+Tracks taramaları ortak) bütçesini düşürür, eşleşme başı `SCAN_CHILDREN` (64); TrackEntry iç yoklaması aynı bütçeyi paylaşır; bütçe aşımı → `"over"` → ret (fail-closed). Bütçe tüketmeyen dallar (`!e`, `UNKNOWN`, kuyrukta biten, > `SCAN_SPLIT_MAX` kesik) eşleşme başına O(1) → toplam O(n + 4096). service.ts:372 `partExists` içerik denetiminden önce; dup gövde hiç taranmaz (entegrasyon testi: hazırlanmış 2 MiB yeniden PUT → 200 `{next:2}`, ACTIVE, < 2 sn) |
+| D-P28e-K2-2 | Kapandı (kalıntı kabul) | service.ts:419-431 aynı `(s, p-1)` kuyruğu (64 B kopya) ile tarama; parça sonunda kesik ≤ 512 B eşleşme ve kesik boyut vint'i → ret. Birim + entegrasyon testi (sihir sınırda bölünmüş → 400 + STOPPED{ERROR}). Kalıntılar aşağıda                                                                                                                                                                                                                                                                                                                                                                                                    |
+
+## Kendi kötü niyetli girdi ölçümüm (2 MiB, `checkWebmContinuation(b, false)`, ısınma + en iyi 3, Node 24, yerel)
+
+Betik: `/private/tmp/claude-501/-Users-mennan-Projeler-Remote/fa15848a-dcdd-4f1b-abf9-1c72703d5eac/scratchpad/k3.ts`. Hiçbiri 50 ms eşiğini aşmadı.
+
+| Desen                                                                         | Süre         | Karar        |
+| ----------------------------------------------------------------------------- | ------------ | ------------ |
+| Çıplak EBML / Tracks sihri, boyut vint'i 0x00 (bütçe tüketmez, en kötü sayı)  | 16,6 ms      | kabul        |
+| EBML + 1 baytlık bilinmeyen boyut (0xFF) tekrar                               | 16,1 ms      | kabul        |
+| EBML + 8 baytlık bilinmeyen boyut tekrar                                      | 7,5 ms       | ret          |
+| Örtüşen sihir zinciri `1A45DF 1A45DFA3 00`                                    | 16,6 ms      | kabul        |
+| Kısmi sihir `1A45DF` / `1654AE` tekrar (indexOf kötü durumu)                  | 5,1 / 5,3 ms | kabul        |
+| Sıfır uzunluklu EBML / Tracks yoğun (bütçe tükenir)                           | 0,3 ms       | ret          |
+| > 512 B kesik büyük boyutlu eşleşme                                           | 0,1 ms       | ret          |
+| Tracks > 60 TrackEntry > 63 Void (iç içe yoklama)                             | 0,1 ms       | ret          |
+| Tracks + 62 boş TrackEntry tekrar                                             | 0,3 ms       | ret          |
+| Rastgele bayt                                                                 | 0,3 ms       | kabul        |
+| `checkWebmHeader`: EBML + bilinmeyen boyutlu Segment + ~1M sıfır boyutlu Void | 10,5 ms      | ret (tracks) |
+
+Gerçek Chromium fikstürleri: `checkWebmHeader(p0)` ok; `p1` + `p0` kuyruğu ok; `p3` + `p1` kuyruğu ok (betik `fx.ts`). Birim testleri de aynı
+fikstürleri kuyruklu/kuyruksuz kabul ediyor.
+
+## Kuyruk haritası (bellek)
+
+- `tails` kayıt (rid) başına tek girdi, 64 B kopya (`Buffer.from(subarray)` — 2 MiB gövdeyi tutmuyor); `TAILS_MAX = 4096` aşılınca en eskisi
+  atılıyor (delete+set ile ekleme sırası = LRU benzeri). Üst sınır ≈ 4096 × (64 B + nesne/anahtar) < ~1–2 MiB → sınırsız büyüme yolu yok.
+- Temizlik: `afterStop` → `REC_STOP_GRACE_MS` sonra `delete(rid)`; tüm durma yolları `stop()` → `afterStop` (service.ts:244, settings/recording.ts:129).
+  Temizlenmeyen (ör. süreç içinde durması kaydedilmeyen) girdiler zaten sınırla atılıyor. Durma başına bir zamanlayıcı — sınırlı.
+- Yalnız `ok` sonucunda kuyruk yazılıyor; `tailFor` yalnız aynı `s` ve `p-1` eşleşirse kullanılıyor (p=0 → -1 asla eşleşmez).
+
+## Kalan kabul edilmiş riskler (Düşük, gerekçeli — implementation.md "P28e güvenlik tur 2 düzeltmesi")
+
+- 512 B'tan büyük (Void dolgulu) gömülü başlık sihri parça sınırından > 64 B önce başlarsa hiçbir parçada yakalanmaz (SCAN_SPLIT_MAX / kuyruk boyu
+  yanlış durdurma dengesi için).
+- Kuyruk bellekte: süreç yeniden başlarsa ya da > 4096 eşzamanlı kayıtla en eski kuyruk atılırsa ilk sınır kuyruksuz taranır (saldırgan yalnız
+  kendi kaydını etkiler).
+- Bütçe aşımında fail-closed ret: rastgele VP8 verisinde yanlış durdurma olasılığı ölçümle çok düşük (implementation.md: onlarca TB'de bir
+  mertebesi); fikstür + 300 PRNG örnek testi 0 ret.
+- Sunucu kareleri çözmez; iz bildirimi olmayan opak ses baytı tam engellenmez (webm.ts yorumu, kılavuz beyanı dürüst istemci davranışı).
+- Kod turu 1'den açık Düşükler (K1 raporu) değişmedi.
+
+## Otomatik tarama çıktıları
+
+- `pnpm audit --audit-level=moderate`: No known vulnerabilities found.
+- Gizli bilgi grep (diff e00005c..e911537): eşleşme yok. Aralıkta `.env*` commit'i yok.
+
+## Tasarımda vaat edilip kodda bulunmayanlar
+
+- S-P28e-7 / K1-2 gömülü başlık reddi `p = 0` gövdesinin `Tracks` sonrasına uygulanmıyor (D-P28e-K3-1). Diğer içerik sınırları kodda.
+
+## Olumlu
+
+Düzeltme önerilen üç maddeyi de (bütçeli doğrusal tarama, dup önce, 2 MiB < 200 ms testi) karşılıyor; bütçe aşımı fail-closed; tekrar
+gönderim yolu gövdeye hiç dokunmuyor; kuyruk 64 B kopya ve sınırlı; meşru `p=0` Tracks'ının kuyrukta yeniden yargılanmaması düşünülmüş;
+gerçek Chromium fikstürleri ve deterministik PRNG ile yanlış pozitif testi var.
+
+---
+
 # Güvenlik Raporu — P28e kod turu 2 (K9 düzeltme 1 doğrulaması, dal p28e, HEAD 265a928, 2026-11-16)
 
 DURUM: DÜZELTİLMELİ — Kritik 0 / Yüksek 1 / Orta 0 / Düşük 1

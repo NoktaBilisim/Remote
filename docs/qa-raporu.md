@@ -1,3 +1,93 @@
+# QA Raporu — P28e Tur 3
+
+DURUM: DÜZELTİLMELİ
+
+Tarih: 2026-11-16 · Dal `p28e`, HEAD `e911537` (PR #17). Hedefli tur: tur 2 madde 1 (Y-P28e-K2-1 düzeltmesi) ve madde 2 (CI).
+Kapsam `git diff e00005c..e911537` (`rec/webm.ts`, `rec/service.ts`, `rec-webm-dos.test.ts` yeni, `rec-p28e-k3.test.ts` +2, `implementation.md`). Kod değiştirilmedi.
+
+**Özet:** QA tarafında kod bulgusu yok. Y-P28e-K2-1'in üç düzeltme adımı uygulanmış ve testli; D-P28e-K2-2 de ele alınmış. Yerel lint, typecheck,
+unit ve rec entegrasyon koşuları yeşil; 13 AC'nin hiçbiri bozulmadı. Güvenlik kod turu 3 GEÇTİ: K0 / Y0 / O0 / D1. Yeni Düşük bulgu D-P28e-K3-1 (`p = 0` gövdesi `Tracks` sonrasında taranmıyor) ayrı ele alınacak.
+DÜZELTİLMELİ olmasının tek nedeni CI: `test (MySQL 8.4)` dahil 11 iş pass, ama **`web e2e (Playwright, mock API)` fail** (8m52s).
+Kırmızı test: `[desktop] e2e/p8-history.spec.ts:274` "TEST-P8-2: SUPER_ADMIN liste 1280 px — tablo kabı taşmaz, Firma/Teknisyen tek satır".
+Bu aralıkta `apps/web` hiç değişmedi (`git diff --stat e00005c..e911537 -- apps/web` boş), dolayısıyla düzeltmeden kaynaklanmıyor.
+Ancak test bilinen flaky listesinde (S-P19-T12, p9-users, p13bl, AC-261, customers-csv-p19) yok; yeniden koşuyla doğrulanmalı.
+İş yeniden koşulup yeşil gelirse durum yeni kod incelemesi gerekmeden GEÇTİ'ye çevrilebilir.
+
+## Test sonucu
+
+| Komut                                                                                                                                                  | Sonuç                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
+| ------------------------------------------------------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `pnpm --filter @remote/server run lint`                                                                                                                | temiz (EXIT 0)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
+| `pnpm --filter @remote/server run typecheck`                                                                                                           | temiz (`tsc --noEmit`)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
+| `pnpm --filter @remote/server exec vitest run test/unit`                                                                                               | 45 dosya / 631 test: **630 geçti, 1 skip**, 0 kırmızı. Skip: `fsrv-p28b.test.ts:362` `it.skipIf(!process.env.CLAMD_TEST_HOST)` "AC-353 gerçek clamd". Ortama bağlı ve P28e dışı, gerekçeli                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| `vitest run test/unit/rec-webm-dos.test.ts --reporter=verbose`                                                                                         | 13/13. Ajan deseni 2 MiB ebml/tracks 7–8 ms, bütçe sınırı deseni 2–3 ms, sık çıplak sihir (kabul) 86–94 ms                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| Geçici DB (`TEST_DB_CONTAINER=qa3-mysql TEST_DB_PORT=3418`, `test-db.sh up` → 29 migration uygulandı): `vitest run test/integration/rec test/unit/rec` | 8 dosya (integration `rec-p28e-fix`, `rec-p28e-k3`, `rec-p28e-unattended`, `rec-retention-k4` + unit/rec*) / **87 geçti**, 0 skip, 0 kırmızı. Sonunda `test-db.sh down` → `qa3-mysql` silindi; `rs-mysql-test`'e dokunulmadı                                                                                                                                                                                                                                                                                                                                                                                      |
+| `gh pr checks 17` (HEAD `e911537`, koşular 43892814339 ve 43892814168)                                                                                 | `build`, `build 1/2`, `build 2/2`, `build (+ Docker imajları)`, `lint + type-check`, `shellcheck + actionlint`, `audit + lisans + gitleaks`, `gofmt + vet + test -race + govulncheck`, `go test (Windows)`, `coturn`, `tekrarlanabilirlik + SHA256SUMS`, **`test (MySQL 8.4)`** → **pass**. **`web e2e` → FAIL**: `p8-history.spec.ts:274` TEST-P8-2 (desktop, 1,2 sn). Logda ayrıca `[WebServer] Failed to proxy …/ws/guest Error: socket hang up` görülüyor (mock API). Release/imza işleri `skipping` (etiket/onay işi, beklenen). Ayrıntılı log indirme yerelde ağ hatası verdiği için hata iletisi okunamadı |
+
+## Tur 2 maddelerinin kapanışı
+
+| #                                                      | Durum                | Kanıt                                                                                                                                                                                                                                                                                                                                                                                       |
+| ------------------------------------------------------ | -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1a Doğrusal/bütçeli tarama, bütçe aşımında fail-closed | ✅                   | `webm.ts`: `probe()` eşleşme başına ≤ `SCAN_CHILDREN = 64` çocuk, gövde başına ≤ `SCAN_ELEMENTS = 4096` element. Bütçe biterse `"over"` → ret. `indexOf` tek geçiş. Testler: "ajan deseni (ebml/tracks) 2 MiB: ret", "bütçe sınırında her eşleşme … toplam bütçe → ret", "Void dolgusu çocuk bütçesini aşarsa DocType'a varmadan ret", "ajan deseni büyümesi doğrusal: 2 MiB / 200 kB < 15" |
+| 1b `partExists` (dup) içerik denetiminden önce         | ✅                   | `service.ts` `acceptPart`: `dup` ise `content = null`, gövde taranmaz. Entegrasyon `rec-p28e-k3` "Y-P28e-K2-1 kabul edilmiş parçanın hazırlanmış 2 MiB gövdeyle yeniden PUT'u taranmaz: dup, durdurma yok, hızlı" (200 `{next:2}`, kayıt ACTIVE, `partCount: 2`, < 2000 ms)                                                                                                                 |
+| 1c 2 MiB desen hızlı karar veriyor (birim test)        | ✅ (gerekçeli sapma) | Güvenlik raporu < 50 ms istiyor, test `< 200 ms` assert ediyor. `implementation.md` bunu "CI payı" diye gerekçeliyor. Yerel ölçüm 2–8 ms, yani 50 ms'nin çok altında. Ayrıca oran testi (< 15) karesel büyümeyi zamandan bağımsız yakalıyor. Kabul                                                                                                                                          |
+| 1d Gerçek Chromium fikstürleri yanlış pozitif vermiyor | ✅                   | "yanlış pozitif yok: gerçek Chromium parçaları (kuyrukla da) ve rastgele veriye enjekte sihir": `readFileSync` ile `test/fixtures/rec-chromium/p{0,1,3}.webm` yükleniyor (dosya yoksa test düşer, sessiz geçmez). p1 ve p3 kuyruklu ve kuyruksuz `{ok:true}`. 300 × 64 KiB PRNG tampon → `rejected === 0`                                                                                   |
+| D-P28e-K2-2 (Düşük)                                    | ✅                   | `tails` kuyruğu (64 B, aynı bölüm `p-1`, ≤ 4096 kayıt, `afterStop` sonunda siliniyor). Birim D-P28e-K2-2 ×4 ve entegrasyon "parça sınırında bölünmüş gömülü başlık … → 400 + STOPPED{ERROR}". Kalıntı a/b/c `implementation.md`'de yazılı                                                                                                                                                   |
+| 2 CI yeşil                                             | ❌                   | Tabloya bakın                                                                                                                                                                                                                                                                                                                                                                               |
+
+## Kabul kriterleri
+
+Bu aralıkta yalnız `rec/webm.ts` ve `rec/service.ts` değişti. AC kanıtlarını taşıyan rec testleri (unit + integration) yeniden koşuldu ve yeşil.
+Web, Go ve sözleşme değişmedi; tur 2 kanıtları geçerli.
+
+| AC     | Durum | Kanıt                                                                                      |
+| ------ | ----- | ------------------------------------------------------------------------------------------ |
+| AC-380 | ✅    | Tur 1/2                                                                                    |
+| AC-381 | ✅    | Tur 1/2; `rec-p28e-k3` "AC-381 / AC-383 / AC-375 başlatma ve parça yükleme" tur 3'te yeşil |
+| AC-382 | ✅    | Tur 2                                                                                      |
+| AC-383 | ✅    | Tur 1; `rec-p28e-k3` tur 3'te yeşil (parça kabul yolu yeni taramayla bozulmadı)            |
+| AC-384 | ✅    | Tur 2; sunucu "AC-384 kota doluyken 409" tur 3'te yeşil                                    |
+| AC-385 | ✅    | Tur 1                                                                                      |
+| AC-386 | ✅    | Tur 1                                                                                      |
+| AC-387 | ✅    | `rec-p28e-unattended` tur 3'te yeşil                                                       |
+| AC-388 | ✅    | Tur 1                                                                                      |
+| AC-447 | ✅    | `rec-p28e-unattended` tur 3'te yeşil                                                       |
+| AC-448 | ✅    | `rec-p28e-unattended` tur 3'te yeşil                                                       |
+| AC-449 | ✅    | Tur 1; `rec-retention-k4` tur 3'te yeşil                                                   |
+| AC-450 | ✅    | Tur 1                                                                                      |
+
+## Düzeltilmeli
+
+1. [koordinatör] PR #17, koşu 43892814339: `web e2e (Playwright, mock API)` işini yeniden koştur (`gh run rerun 43892814339 --failed --repo NoktaBilisim/Remote`). Yeşil gelirse QA durumu GEÇTİ'ye çevrilir. Başka kod incelemesi gerekmez.
+2. [frontend-dev] (yalnız yeniden koşuda da kırmızıysa) `apps/web/e2e/p8-history.spec.ts:274` TEST-P8-2: 1280 px'te SUPER_ADMIN geçmiş listesinde tablo kabı taşıyor ya da Firma/Teknisyen hücresi satır kırıyor. Beklenen: kap `scrollWidth <= clientWidth` ve iki hücre tek satır. Kök neden bulunmalı (P28e'nin geçmiş listesine eklediği kayıt sütunu/rozeti olası aday). Kararsızlıksa bilinen flaky listesine gerekçeyle eklenmeli.
+
+**Elle, kullanıcıda:** tur 1/2 listesi aynen geçerli (runbook §28e Windows turu, 6+ dk arka plan sekmesi, 1 sa ≤ 1 GB, Firefox/Edge, staging uçtan uca).
+
+## Definition of Done
+
+| Madde                                      | Durum | Not                                                                                                                                                                                          |
+| ------------------------------------------ | ----- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1. AC'ler testle kanıtlı, testler yeşil    | ❌    | 13/13 AC ✅; yerel koşular yeşil. CI'da `web e2e` kırmızı (TEST-P8-2), diğer işler pass                                                                                                      |
+| 2. Lint/format/type-check temiz            | ✅    | Yerelde `lint` ve `typecheck` temiz                                                                                                                                                          |
+| 3. qa GEÇTİ; güvenlik Kritik/Yüksek 0      | ✅    | QA tarafında Y-P28e-K2-1'in düzeltme adımları uygulanmış ve testli. Güvenlik kod turu 3: K0 / Y0 / O0 / D1 (D-P28e-K3-1 ayrı ele alınacak)                                                   |
+| 4. test-operatoru taraması                 | —     | K10, qa GEÇTİ sonrası                                                                                                                                                                        |
+| 5. Migration geri alınabilir, seed güncel  | ✅    | Bu aralıkta şema değişikliği yok; 29 migration temiz DB'ye uygulandı                                                                                                                         |
+| 6. Dokümantasyon güncel                    | ✅    | API, ws ve contracts değişmedi; kullanıcıya görünen davranış aynı                                                                                                                            |
+| 7. Sapmalar implementation.md'de gerekçeli | ✅    | "P28e güvenlik tur 2 düzeltmesi": 200 ms eşik (CI payı), yanlış durdurma dengesi ölçümü, D-K2-2 kalıntısı a/b/c. Kalan risklerin kabulü güvenlik denetçisinin kararıdır. Yeni bağımlılık yok |
+
+## Öneriler (zorunlu değil)
+
+- Kuyruk tablosu (`tails`) süreç belleğinde. Çok örnekli (yatay ölçekli) dağıtımda parça başka örneğe düşerse tarama kuyruksuz yapılır (kalıntı b ile aynı sınıf). Tek süreçli mimaride sorun değil, ölçeklenirken not edilmeli.
+- Tur 2 önerileri (AC-448 politika etiketi testi, `freeRatioOverride` izlemesi) açık.
+
+## Olumlu
+
+- Fail-closed bütçe ile yanlış durdurma dengesi ölçümle gerekçelenmiş: PRNG fikstürü, 100 000 örnek ve olasılık hesabı.
+- Doğrusallık mutlak süreye ek olarak oran testiyle de korunuyor. Bu, CI'daki gürültüye dayanıklı bir regresyon kapanı.
+- Dup-önce sıralaması gerçek HTTP yolunda, 2 MiB saldırgan gövdeyle entegrasyon testinde kanıtlanmış.
+
+---
+
 # QA Raporu — P28e Tur 2
 
 DURUM: DÜZELTİLMELİ
