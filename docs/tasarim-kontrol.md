@@ -1028,3 +1028,65 @@ karantina; ClamAV dışı tarayıcı; nesne deposu; dosyaların yedeğe isteğe 
 **P28u "Sonra" listesi:** gizli izleme (kullanıcı kararı S-P28u-1); sürekli (Observe tarzı) kayıt ve olay zaman çizelgesi; gözetimsizde
 pano/yazdırma/ses; RDP oturumları; müşteri firma bazında politika; ağ kesme/USB kilitleme; kilit açılınca / yeni oturumda yeniden onay (S-P28u-5;
 r2'de `asked`'da yeni oturum bağlantıyı bitirir, K-P28u-17); örtülme tespitinin P20 katılımlı onay penceresine taşınması (S-P28u-6).
+
+## P28e — Oturum kaydı (katılımlı rıza + gözetimsiz politika eki) (2026-11-16, r1 — güvenlik turu K0 bekler, `docs/mimari-p28e.md`, ADR-0034, AC-380..388, AC-447..450, AC-375)
+
+| Madde                              | Karar                                                                                                                                                           |
+| ---------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1. Kimlik doğrulama / 2FA          | Kapsamda: gözetimsiz kayıt anahtarını açmak step-up ister; izleme/silme mevcut oturum + CSRF                                                                    |
+| 1. Şifre / kilitleme / brute-force | Kapsam dışı: değişmez; parça uçlarında IP başına 404 sınırı (P28b)                                                                                              |
+| 1. Yetkilendirme / IDOR            | Kapsamda: yeni `sessions.view_recording`; izleme historyScope; silme `session_history.edit`; Bearer belirteç rid + tenant + kullanıcıya bağlı; başka tenant 404 |
+| 1. Oturum yönetimi                 | Kapsamda: izleme belirteci `authSessionId`'ye bağlı, kayan 5 dk; yükleme belirteci stop + 15 sn sonra düşer                                                     |
+| 1. Davet / hesap silme             | Kapsamda: kullanıcı silmede `unattended_recording_ack_by` NULL; P28c sahip değişimi yalnız genişleme noktası                                                    |
+| 1. Servis hesapları / API anahtarı | Kapsam dışı: yeni anahtar yok                                                                                                                                   |
+| 2. created/updated, silme          | Kapsamda: iki yeni tablo; kayıt satırı DELETED (iz), parçalar fiziksel silinir; anonimleştirmede tümü silinir                                                   |
+| 2. Para                            | Kapsam dışı                                                                                                                                                     |
+| 2. Tarih/saat                      | Kapsamda: UTC; `offset_ms` sunucuda sınırlanır                                                                                                                  |
+| 2. Benzersizlik / indeks           | Kapsamda: `UNIQUE(session_id)`, `UNIQUE(recording_id, series_no, part_no)`, `IX(tenant_id,state)`, `IX(state,expires_at)`                                       |
+| 2. Migration / geri alma / seed    | Kapsamda: `20261125000000_p28e_recordings` expand + down/precheck; seed değişmez                                                                                |
+| 2. Audit                           | Kapsamda: `recording.start/stop/view/delete/expired`, `settings.recording` eski→yeni                                                                            |
+| 2. Multi-tenant                    | Kapsamda: tenant FK'leri, `{tenantId}/` dosya öneki, tenant ayarları                                                                                            |
+| 2. Dosya / ek                      | Kapsamda: P28b `box.ts`/`store.ts` aynen; parça ≤ 2 MiB; WebM başlık denetimi; mutabakat kayıt parçalarını canlı sayar                                          |
+| 3. API sözleşmesi / sürüm          | Kapsamda: §5 REST, §6 `rs.cap.rec1` / `rs.cap.record1`, strict şemalar + `fixtures/rec.json`; istemci/servis 0.16.0                                             |
+| 3. Hata formatı                    | Kapsamda: mevcut zarf; `STORAGE_QUOTA` yeniden kullanılır, yeni kod yok                                                                                         |
+| 3. Sayfalama / filtre              | Kapsamda: geçmiş "Kayıtlı" süzgeci; parça listesi kayıt başına (≤ 5760) meta yanıtında                                                                          |
+| 3. Rate limit / idempotency        | Kapsamda: parça PUT idempotent (s,p); view 20/dk; 404 sınırı; oran tavanı 1 GiB/sa                                                                              |
+| 3. Dış servis timeout / retry      | Kapsamda: konsol yükleme 1/2/4 sn yeniden deneme; dış servis yok                                                                                                |
+| 3. Webhook / CORS                  | Kapsam dışı: değişmez                                                                                                                                           |
+| 4. Tehdit modeli                   | Kapsamda: mimari-p28e §10 T1–T14; güvenlik tasarım turu K0                                                                                                      |
+| 4. Girdi doğrulama / XSS           | Kapsamda: zod strict, WebM EBML denetimi, başlık değerleri sınırlı                                                                                              |
+| 4. Gizli bilgi                     | Kapsamda: belirteç yalnız Authorization başlığında; yeni env yok                                                                                                |
+| 4. Hassas veri                     | Kapsamda: kayıt kişisel veri — şifreli, yedeksiz, en çok 90 gün, loga içerik yok                                                                                |
+| 4. Log maskeleme                   | Kapsamda: belirteç ve gerekçe loglanmaz; Caddy kuralı G-10 aynen                                                                                                |
+| 4. Bağımlılık taraması             | Kapsamda: yeni bağımlılık yok (MediaRecorder/MSE gömülü)                                                                                                        |
+| 4. Başlıklar / CSRF                | Kapsamda: CSP `media-src 'self' blob:`; parça GET `no-store`, `nosniff`, CORP, sandbox CSP                                                                      |
+| 4. Yönetici paneli 2FA             | Kapsamda: gözetimsiz kayıt açma step-up                                                                                                                         |
+| 5. 5 durum                         | Kapsamda: ayar bölümü, geçmiş kayıt bölümü, oynatıcı, konsol/misafir göstergeleri (§9)                                                                          |
+| 5. Form / alan hatası              | Kapsamda: `fields.consentUpdated`, `employeeNoticeAck`, `unattendedEnabled`, `retentionDays`                                                                    |
+| 5. Yıkıcı işlem onayı              | Kapsamda: kayıt silme onay diyaloğu (odak Vazgeç); "Kaydı durdur" onaysız (müşteri hakkı, geri alınamaz uyarısı metinde)                                        |
+| 5. Responsive / a11y               | Kapsamda: 390 px, iki tema axe 0, oynatıcı klavye, gösterge `role=status`                                                                                       |
+| 5. Yerelleştirme                   | Kapsamda: TR; `tr.json` + `messages_p28e.go`                                                                                                                    |
+| 5. Bildirim                        | Kapsam dışı: yeni e-posta/SMS yok; gösterge yeterli                                                                                                             |
+| 5. Çevrimdışı / yavaş ağ           | Kapsamda: 3 parçalık kuyruk, kopmada yeni bölüm, gözcü; ≤ 10 sn kayıp                                                                                           |
+| 5. Başlık / 404                    | Kapsamda: geçmiş detayı içinde bölüm; başka tenant 404                                                                                                          |
+| 5. Token / ikon                    | Kapsamda: DESIGN.md token'ları; lucide `CircleDot`, `Video`, `Play`, `CircleStop`, `Trash2`, `Eraser`                                                           |
+| 6. Yük / sorgu                     | Kapsamda: parça başına tek kısa TX (tenant kilidi, R-PE7); kota toplamı kayıt satırından                                                                        |
+| 6. Önbellek                        | Kapsam dışı: `no-store` bilinçli                                                                                                                                |
+| 6. Arka plan işi                   | Kapsamda: 03:30 `recExpire`, açılış süpürmesi, mutabakat eki                                                                                                    |
+| 6. Büyük veri / export             | Kapsam dışı: kayıt dışa aktarılamaz (V49)                                                                                                                       |
+| 6. Performans bütçesi              | Kapsamda: ≤ 1 GB/sa, durdurma ≤ 2 sn, parça ≤ 2 MiB, seek ≤ 12 parça; K0s ölçer                                                                                 |
+| 7. Log / metrik                    | Kapsamda: `rs_rec_active`, `rs_rec_part_total{result}`, `rs_rec_stop_total{reason}`, `rs_rec_bytes_total`                                                       |
+| 7. Health / alarm                  | Kapsamda: runbook §28e (stop error oranı, geçersiz parça, disk P28b)                                                                                            |
+| 7. Hata izleme / ref               | Kapsamda: mevcut log + ref kalıbı                                                                                                                               |
+| 7. Yedek                           | Kapsam dışı (bilinçli): kayıt dosyaları yedeğe girmez (K-P28e-13, S-P28-3); satırlar mysqldump'ta                                                               |
+| 7. Ortam / feature flag            | Kapsamda: tenant ayarı (varsayılan kapalı); yalnız staging (V53)                                                                                                |
+| 7. CI / rollback / migration       | Kapsamda: ayarlar kapatılır → önceki imaj; eski istemci kayıtsız; down.sql                                                                                      |
+| 7. Runbook                         | Kapsamda: §28e alarm, disk planı, anahtar emekliliği 90 gün, kayıt sorgulama                                                                                    |
+| 8. KVKK                            | Kapsamda: aydınlatma kutusu, ayrı işaretsiz rıza + geri alma, gösterge, saklama 1–90 gün, anonimleştirme, izleme audit'i, DATASHEET açık beyan                  |
+| 8. Çerez / lisans                  | Kapsam dışı: değişmez; AGPL/GPL bağımlılık yok                                                                                                                  |
+| 8. Finansal veri                   | Kapsam dışı                                                                                                                                                     |
+| 9. Kapsam dışı / AC / riskler      | Kapsamda: §1 kapsam tablosu; AC-375, 380..388, 447..450, 404 eşlendi (§15); R-PE1..7; V-PE-1..5                                                                 |
+| 9. DoD / dokümantasyon             | Kapsamda: qa + güvenlik kapısı, Windows elle listesi, kılavuz/DATASHEET/api.md/CHANGELOG/PDF (K11), ADR-0034                                                    |
+
+**P28e "Sonra" listesi:** çok teknisyende sahip değişimi kodu (P28c), Safari'de kayıt, sürekli cihaz kaydı (S-P28u-3), kayıtta arama/küçük resim,
+kayıt yedeği, kaydedici bastırmaya karşı kaynak taraflı ikinci kayıt.
