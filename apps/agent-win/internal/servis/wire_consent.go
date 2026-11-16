@@ -129,7 +129,7 @@ func validFeatures(v *Features) bool {
 	}
 	seen := map[string]bool{}
 	for _, c := range v.Caps {
-		if c != capConsent1 || seen[c] {
+		if (c != capConsent1 && c != capRecord1) || seen[c] {
 			return false
 		}
 		seen[c] = true

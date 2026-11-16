@@ -42,6 +42,8 @@ type Hello struct {
 	ClipConsent   *bool    `json:"clipConsent,omitempty"`
 	// P28b (mimari-p28b §5.1): yalnız fsrv bildiren sokete gelir; yoksa P2P. Oturum boyunca değişmez (AC-355).
 	FileMode string `json:"fileMode,omitempty"`
+	// P28e (§6.2): yalnız rec1 soketine, yeniden bağlanmada; misafir biçimi {on, reason?}.
+	Rec *RecHello `json:"rec,omitempty"`
 }
 
 type LobbyWait struct {
@@ -261,7 +263,7 @@ func validHello(m *Hello) bool {
 		validGuestKind(m.GuestKind) && validIceServers(m.IceServers) && (m.MaxEndsAt == nil || isISO(*m.MaxEndsAt)) &&
 		validMaxFileMb(m.MaxFileMb) && (m.ReconnectToken == "" || tokenRe.MatchString(m.ReconnectToken)) &&
 		(m.GuestName == nil || utf16Len(*m.GuestName) <= nameMax) && validShareSnapshot(m.Share) &&
-		validGuestFeatures(m.GuestFeatures) && validFileMode(m.FileMode)
+		validGuestFeatures(m.GuestFeatures) && validFileMode(m.FileMode) && validRecHello(m.Rec)
 }
 
 // validHelloCaps hello'da caps isteğe bağlıdır (nil geçerli); varsa yalnız bilinen yetenekler.

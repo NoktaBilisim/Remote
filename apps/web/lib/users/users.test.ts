@@ -38,6 +38,7 @@ describe("yetki matrisi (AC-71, AC-72)", () => {
     expect(s.other).toEqual([
       { key: "sessions.terminate", action: "terminate" },
       { key: "sessions.send_link", action: "send_link" },
+      { key: "sessions.view_recording", action: "view_recording" },
     ]);
     const rc = buildMatrix().find((r) => r.module === "remote_control")!;
     expect(Object.values(rc.cells).every((v) => v === null)).toBe(true);

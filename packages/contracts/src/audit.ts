@@ -301,7 +301,7 @@ export const UNATTENDED_AUDIT = {
   LOGOFF: "unattended.logoff",
   /** Oturum kapatma sonrası yeniden katılım: `{result, failReason?}`. */
   REJOIN: "unattended.rejoin",
-  /** Dört göz e-postası denemesi: `{event: "connect"|"policy", recipient(maskeli), result, attempt}`. */
+  /** Dört göz e-postası denemesi: `{event: SILENT_NOTIFY_EVENTS, recipient(maskeli), result, attempt}`. */
   SILENT_NOTIFY: "unattended.silent.notify",
 } as const;
 export type UnattendedAuditAction = (typeof UNATTENDED_AUDIT)[keyof typeof UNATTENDED_AUDIT];
@@ -311,6 +311,10 @@ export type UnattendedAuditAction = (typeof UNATTENDED_AUDIT)[keyof typeof UNATT
  * önekli (audit "Ayarlar" grubu) olduğundan `UNATTENDED_AUDIT` (`unattended.*`) dışında; etiket `UNATTENDED_AUDIT_LABELS`'ta.
  */
 export const UNATTENDED_POLICY_AUDIT = "settings.unattended_silent";
+
+/** `unattended.silent.notify.event` (P28u `connect`/`policy`; P28e S-P28e-4 `recording_policy` — gözetimsiz kayıt politikası). */
+export const SILENT_NOTIFY_EVENTS = ["connect", "policy", "recording_policy"] as const;
+export type SilentNotifyEvent = (typeof SILENT_NOTIFY_EVENTS)[number];
 
 /** P28u (§5.4): `consentMode` taşıyan eylemler — audit "Bağlantı kipi" filtresi bunlarla daraltılır (`connect` yalnız silent'ta taşır). */
 export const CONSENT_MODE_ACTIONS: readonly UnattendedAuditAction[] = [
@@ -424,6 +428,45 @@ export const P16_AUDIT_LABELS: Readonly<Record<string, string>> = {
   [UPLOADS_AUDIT.ORPHAN_SCAN]: "Yetim dosya taraması",
   [MIGRATION_AUDIT.P16_USERS_DELETE_RESET]: "Migration: kullanıcı silme yetkileri sıfırlandı",
   [ERASURE_AUDIT.REPLAYED]: "İmha defteri yeniden uygulandı",
+};
+
+/**
+ * P28e oturum kaydı (mimari-p28e §11.1; AC-381, 385, 386, 388). Entity `support_sessions` / sessionId; `recording.expired`
+ * entity `retention`. Belirteç ve içerik ASLA yazılmaz:
+ *  - START `{recordingId?, basis, consentMode?, reason?: REC_START_FAIL_REASONS, code?: REC_CONSENT_REJECT_CODES}` (açılamadı → fail;
+ *    `consent_rejected` oturum başına en çok 1). STOP `{recordingId, reason: REC_STOP_REASONS, code?: REC_STOP_ERROR_CODES, durationMs, sizeBytes}`.
+ *  - VIEW `{recordingId}` (`POST /view` başına bir kez). VIEW_END `{recordingId, partsServed, bytesServed, throttled, endReason}`.
+ *  - DELETE `{recordingId, deleteReason: "manual"|"missing", durationMs, sizeBytes, missingParts?, remainingParts?}`. EXPIRED `{count, bytes}`.
+ * Değerler tel biçiminde (küçük harf; `ws-rec.ts`). Aktör: `start{consent}`/`stop{revoked}` müşteri, `tenant_policy` teknisyen.
+ */
+export const RECORDING_AUDIT = {
+  START: "recording.start",
+  STOP: "recording.stop",
+  VIEW: "recording.view",
+  VIEW_END: "recording.view.end",
+  DELETE: "recording.delete",
+  EXPIRED: "recording.expired",
+} as const;
+export type RecordingAuditAction = (typeof RECORDING_AUDIT)[keyof typeof RECORDING_AUDIT];
+/** Kayıt ayarı değişimi (eski→yeni `{enabled, retentionDays, unattendedEnabled}` + `consentAck`/`employeeNoticeAck`). */
+export const RECORDING_SETTINGS_AUDIT = "settings.recording";
+/** Audit süzgecinde `recording.*` grubunun adı (web `AUDIT_GROUP_LABELS`'a yayılır). */
+export const RECORDING_AUDIT_GROUP_LABELS: Readonly<Record<string, string>> = { recording: "Kayıt" };
+/** P28e eylemlerinin Türkçe etiketleri (web `AUDIT_ACTION_LABELS`'a yayılır). */
+export const RECORDING_AUDIT_LABELS: Readonly<Record<string, string>> = {
+  [RECORDING_AUDIT.START]: "Oturum kaydı başladı",
+  [RECORDING_AUDIT.STOP]: "Oturum kaydı durdu",
+  [RECORDING_AUDIT.VIEW]: "Oturum kaydı izlendi",
+  [RECORDING_AUDIT.VIEW_END]: "Kayıt izleme özeti",
+  [RECORDING_AUDIT.DELETE]: "Oturum kaydı silindi",
+  [RECORDING_AUDIT.EXPIRED]: "Saklama süresi dolan kayıtlar silindi",
+  [RECORDING_SETTINGS_AUDIT]: "Oturum kaydı ayarı değişti",
+};
+/** `unattended.silent.notify.event` etiketleri (P28u gözetimsiz grubunda gösterilir). */
+export const SILENT_NOTIFY_EVENT_LABELS: Readonly<Record<SilentNotifyEvent, string>> = {
+  connect: "İzinsiz bağlantı",
+  policy: "İzinsiz bağlanma politikası değişti",
+  recording_policy: "Gözetimsiz bağlantı kayıt politikası değişti",
 };
 
 /** Audit `entity` değerleri (S16-1: maske `entity = AUDIT_ENTITY.USERS` satırlarında hedef kullanıcıya da bakar). */

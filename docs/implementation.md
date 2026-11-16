@@ -11994,3 +11994,75 @@ Sonuç ve ölçüm tablosu: `docs/spike-p28e-k0s.md`. Spike dosyaları: `docs/sp
 - `grants.sql` + `check-app-grants.sh` P28e bölümü. Ayrıca clamav probe düzeltildi (upsert; staging'de satır varken "Duplicate entry"
   FAIL'i giderildi). Seed değişmedi (varsayılanlar yeterli).
 - Test: migrate + diff boş, up/down/up döküm eşit, guard 3819, check-app-grants 873 PASS (clamav satırı yok/var), test:int 1052/1052.
+
+## P28e K2 (backend-dev) — kayıt sözleşmeleri, `fixtures/rec.json`, `rec/types.ts` (2026-11-16)
+
+Kaynak: `docs/mimari-p28e.md` r2 §4–§6, §11.1–§11.4, §14 (K2 satırı; S-P28e-1, 3, 4, 5, 6, 10). K1 sapmaları (UQ(session_id, tenant_id),
+`storage_rel` NOT NULL) tipleri etkilemedi.
+
+**Değişen / yeni dosyalar**
+
+- `packages/contracts/src/ws-rec.ts` (yeni, yaprak): belirteçler `rs.cap.rec1` / `rs.cap.record1`; `REC_CONSENT_LINE` +
+  `REC_CONSENT_LINE_SHA256` (sabit hex; test cümleden yeniden hesaplar) + `REC_UNATTENDED_LINE`; §11.4 sabitlerinin tamamı + metinden
+  türeyenler (`REC_STOP_OFFSET_SLACK_MS`, `REC_DURATION_SLACK_MS`, `REC_RECORDER_RETURN_MS`, `REC_VIEW_*`, `REC_UPLOAD_*` …);
+  sözlükler (basis, state, stop/delete/state reason, error code, stop error code, start fail, consent reject, view end) + `recToDb`/`recFromDb`;
+  mesajlar `rec.consent`, `rec.revoke`, `rec.error`, `rec.state` (birlik üst kümesi + rol biçimleri `recStateGuestSchema` /
+  `recStateTechSchema`), `hello.rec` (`recHello*Schema`), cihaz `rec.state{on}`.
+- `packages/contracts/src/api/recording.ts` (yeni): parça parametre/başlık/Bearer şemaları, `recSeriesStartValid`, yanıt tipleri,
+  `REC_PART_CONTENT_HEADERS`, meta/view/delete, ayar görünümü + PUT şeması, geçmiş özeti, `RecordingConsentOffer`, Türkçe etiket/metinler.
+- `ws.ts`: `techInbound` + `rec.error`; `guestInboundSchemaFor(features, fsrv, rec)` (bit 8; tam şema önbellek anahtarı 7 → 15);
+  `serverOutbound` + `rec.state`; `hello.rec?`, `hello.unattended.recordOutdated?`.
+- `ws-device.ts`: `DEVICE_FEATURES` + `record1`; `connect.recording: true?`; ayrı birlik `deviceRecordOutboundSchema`.
+- `permissions.ts`: `sessions.view_recording` + açıklama (Admin açık, User kapalı). `audit.ts`: `RECORDING_AUDIT`,
+  `RECORDING_SETTINGS_AUDIT`, `RECORDING_AUDIT_LABELS`, `RECORDING_AUDIT_GROUP_LABELS` ("Kayıt"), `SILENT_NOTIFY_EVENTS` (+`recording_policy`)
+  - etiketleri. `api/sessions.ts`: `CONSENT_LEVELS` + `RECORDING`, `ConsentTextView.recording?`, liste süzgeci `recorded=true`,
+    `SessionListItem.hasRecording?`, `SessionHistoryDetail.recording?`. `labels.ts`: `RECORDING` etiketi. `package.json` exports (+2).
+- `fixtures/rec.json` (yeni; TS + Go ortak). Testler: `test/rec-p28e.test.ts` (16), `test/node-crypto.d.ts` (yalnız test tipi),
+  `pt-surface` anlık görüntüsü (yalnız ekleme, 142 satır, satır satır gözden geçirildi).
+- `apps/server/src/rec/types.ts` (yeni, yalnız tip + metrik adları): `RecUploadTokenEntry`/`RecViewTokenEntry` (S-P28e-6 alanları),
+  `RoomRec` (`room.rec`), `RecService` (K3 yazar, K4 çağırır), `RecRoomPort` (K4 sağlar, K3 çağırır — FsrvSink kalıbı), `REC_METRICS`,
+  `REC_PART_RESULTS`. `lib/logger.ts` REDACT `*.upload.token`, `*.*.upload.token` (+ birim testi `test/unit/rec-p28e-k2.test.ts`).
+- Web (yalnız uyum): `messages/tr.json` `perm.a.view_recording`, `lib/users/users.test.ts` matris beklentisi.
+- Go (yalnız tip/sabit/doğrulayıcı + fikstür testi): `internal/signal/rec.go` (`FeatureRec`, rıza sabitleri, `RecRevokeAckMs`,
+  `RecConsent`/`RecRevoke`/`RecState`/`RecHello`), `inbound.go` `Hello.Rec` + doğrulama, `rec_test.go`; `internal/servis/wire_rec.go`
+  (`DeviceCapRecord`, `RecState`, `RecUnattendedLine`, `validRecording`), `wire.go` `Connect.Recording` (yalnız true),
+  `wire_consent.go` `validFeatures` `record1`'i kabul eder, `wire_rec_test.go`.
+
+**Tasarımdan sapmalar / kararlar (gerekçeli)**
+
+1. Yeni hata kodu yok (mimari §5); görev metnindeki "hata kodları" mevcut `STORAGE_QUOTA/RATE_LIMITED/CONFLICT/NOT_FOUND/VALIDATION`
+   ile karşılandı, testle sabit. Sıra dışı parça 409 gövdesi zarf değil `{next}` (P28b kalıbı); yeni bölüm kuralı ihlali 409 `CONFLICT` zarfı.
+2. Tel üstünde küçük harf (`consent`, `session_end`), DB'de büyük harf; dönüşüm yalnız `recToDb`/`recFromDb`. REST `state` de küçük harf.
+3. `rec.state` üç biçim: birlikteki üst küme yalnız ortak kuralları taşır; misafire `recStateGuestSchema`, teknisyene
+   `recStateTechSchema` (açıkken `rid` + `basis` zorunlu). Sunucu misafire `rid/basis/upload` göndermemeli (Go katı ayrıştırıcı reddeder).
+4. `hello.unattended.recordOutdated?: true` (ek): §6.1/§9 "Cihaz istemcisi eski" uyarısının taşıyıcısı tasarımda yoktu; politika
+   konsolda bilinmediği için sunucu hesaplar (politika açık ∧ cihaz `record1` yok). K4 doldurur, K7 gösterir.
+5. `REC_STOP_ERROR_CODES` = `rec.error` kodları + `no_upload`, `rate`, `invalid`, `orphan` (tasarım yalnız `no_upload`'ı adlandırıyordu).
+6. Cihaz örnekleri `ws-device.json`'a değil `rec.json` `deviceOutbound`'a kondu (P28u testi `constants`'ı tam eşitlikle denetliyor;
+   tek fikstür kayıt sözleşmesini toplar).
+7. `lib/logger.ts` mimari §13'te K3'teydi; görevle K2'de yapıldı. `*.*.upload.token` 4 düzeye kadar (`rec.state.upload.token`,
+   `hello.rec.upload.token`); daha derin iç içe nesne kapsanmaz (WS gövdesi zaten loglanmaz).
+8. `REC_CONSENT_LINE_SHA256` "derleme zamanında" yerine sabit hex: contracts web'de paketlenir, eşzamanlı SHA yok. TS ve Go testi cümleden yeniden hesaplar.
+9. Go: `rec.state` `ParseServer` tablolarına **bağlanmadı** (davranış K5/K6); test `DecodeStrict` + doğrulayıcıyla çözer. `Hello.Rec` ve
+   `Connect.Recording` alan olarak eklendi (ayrıştırma kabul eder). Dial listelerine belirteç eklenmedi (K-P28e-7).
+
+**Bağımlılık:** yok.
+
+**Test (son çıktı):** contracts vitest 240/240; web vitest 464/464; server `test/unit` 587 (+1 skip); `pnpm -r run typecheck` ve
+`pnpm -r run lint` temiz; prettier dokunulan dosyalarda temiz; Go `go test ./... && GOOS=windows go vet ./...` yeşil
+(`internal/flow` `TestK6PeerDropGrantedIdleAndMonitorPrompt` ilk koşuda bir kez zamanlama kaynaklı düştü, `-count=3` ile geçti; P28e ile ilgisiz).
+Sunucu entegrasyon testleri (DB) koşulmadı: davranış değişikliği yok.
+
+**Devir notları**
+
+- **K3:** `recPartParamsSchema` (400), `recPartHeadersSchema` + `recSeriesStartValid`, `recBearerSchema`, `REC_PART_CONTENT_HEADERS`,
+  `putRecordingSettingsInputSchema` (geçiş kuralları serviste; metinler `REC_*_MESSAGE`), `TokenTable`'a `RecUploadTokenEntry` /
+  `RecViewTokenEntry` kind'larını ekle, `RecService`'i yaz; `hasRecording`/`recording`/`recorded`/`ConsentTextView.recording` doldur.
+- **K4:** `RecRoomPort`'u sağla, `guestInboundSchemaFor(…, rec)` çağrısında `rec = peer.caps ∋ rs.cap.rec1 ∧ katılımlı oda`;
+  `deviceRecordOutboundSchema` yalnız `record1` sokete; `unattended/mail.ts` `event` tipine `SilentNotifyEvent`; `ops/metrics.ts`
+  `REC_METRICS`/`REC_PART_RESULTS`; `hello.rec`/`recordOutdated`.
+- **K5/K6 (Go):** `FeatureRec`/`DeviceCapRecord` bildirimi, `rec.state`'i `ParseServer` tablolarına ekleme, `helperio`
+  `RecordingLine`/`Recording`, `messages_p28e.go`. Fikstür anahtarları: `valid/invalid.guestInbound|guestOutbound|deviceOutbound`.
+- **K7:** `RECORDING_AUDIT_LABELS` + `RECORDING_AUDIT_GROUP_LABELS` web `AUDIT_ACTION_LABELS`/`AUDIT_GROUP_LABELS`'a,
+  `SILENT_NOTIFY_EVENT_LABELS`; etiket/metinler `api/recording.ts`; `REC_TITLE_PREFIX`, `REC_REVOKE_ACK_MS`; `perm.a.view_recording`
+  metnini ("Kayıtları izle") gözden geçir.

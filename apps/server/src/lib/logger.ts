@@ -50,6 +50,9 @@ const REDACT_PATHS = [
   "body",
   "*.body",
   "*.*.body",
+  // P28e (S-P28e-6): kayıt yükleme belirteci `rec.state.upload.token` / `hello.rec.upload.token` (savunma; WS gövdesi zaten loglanmaz).
+  "*.upload.token",
+  "*.*.upload.token",
 ];
 
 interface LoggableRequest {

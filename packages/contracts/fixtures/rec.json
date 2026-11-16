@@ -1,0 +1,230 @@
+{
+  "_doc": "P28e oturum kaydı sözleşme örnekleri (mimari-p28e r2 §4, §6, §11.4). TS (packages/contracts/test/rec-p28e.test.ts) ve Go (internal/signal/rec_test.go, internal/servis/wire_rec_test.go) aynı dosyayı okur. valid.* geçer, invalid.* reddedilir. guestInbound: rec1 misafir soketi; guestOutbound: misafire (recStateGuestSchema / hello.rec misafir biçimi); techInbound/techOutbound: konsol; deviceOutbound: record1 cihaz soketi (connect + rec.state + device.features).",
+  "subprotocols": { "rec": "rs.cap.rec1", "record": "rs.cap.record1" },
+  "consent": {
+    "line": "Oturumun görüntü kaydının alınmasına izin veriyorum",
+    "lineSha256": "367c841cafd53771a4efd842c46c744a476c9801859791434a388e1d17e39dc9",
+    "unattendedLine": "Bu bağlantının ekran kaydı alınacaktır"
+  },
+  "constants": {
+    "REC_PART_MS": 5000,
+    "REC_SERIES_MS": 300000,
+    "REC_SERIES_PARTS": 60,
+    "REC_SERIES_MAX_PART": 59,
+    "REC_SERIES_MAX": 65535,
+    "REC_STOP_GRACE_PARTS": 4,
+    "REC_STOP_GRACE_MS": 15000,
+    "REC_STOP_OFFSET_SLACK_MS": 2000,
+    "REC_REVOKE_ACK_MS": 2000,
+    "REC_PUT_PER_MIN": 30,
+    "REC_PUT_CONCURRENCY": 32,
+    "REC_VIEW_BURST_PARTS": 126,
+    "REC_VIEW_REFILL_PER_MIN": 24,
+    "REC_VIEW_BUCKET_IDLE_MS": 1800000,
+    "REC_REQUIRE_CLUSTER_START": false,
+    "REC_PART_MAX_BYTES": 2097152,
+    "REC_TARGET_BPS": 1500000,
+    "REC_MAX_BYTES_PER_HOUR": 1073741824,
+    "REC_RATE_SLACK_BYTES": 33554432,
+    "REC_CONSENT_WINDOW_MS": 30000,
+    "REC_WATCHDOG_MS": 30000,
+    "REC_RECORDER_RETURN_MS": 120000,
+    "REC_VIEW_IDLE_MS": 300000,
+    "REC_VIEW_MAX_EXTRA_MS": 1800000,
+    "REC_VIEW_MAX_MS": 28800000,
+    "REC_VIEW_PER_MIN": 20,
+    "REC_NOTFOUND_PER_MIN_IP": 60,
+    "REC_PART_DURATION_MIN_MS": 1,
+    "REC_PART_DURATION_MAX_MS": 15000,
+    "REC_DURATION_SLACK_MS": 15000,
+    "REC_UPLOAD_QUEUE_PARTS": 3,
+    "REC_UPLOAD_RETRY_MS": [1000, 2000, 4000],
+    "REC_REQUEST_DATA_WAIT_MS": 500,
+    "REC_VIEW_PREBUFFER_MS": 30000,
+    "REC_RETENTION_MIN": 1,
+    "REC_RETENTION_MAX": 90,
+    "REC_RETENTION_DEFAULT": 30,
+    "REC_MIME_TYPE": "video/webm;codecs=vp8",
+    "REC_PART_CONTENT_TYPE": "video/webm",
+    "REC_TITLE_PREFIX": "● Kayıt — ",
+    "REC_TOKEN_PATTERN": "^[A-Za-z0-9_-]{43}$",
+    "REC_RID_PATTERN": "^[0-9A-HJKMNP-TV-Z]{26}$",
+    "REC_SHA256_PATTERN": "^[0-9a-f]{64}$"
+  },
+  "sets": {
+    "bases": ["consent", "tenant_policy"],
+    "states": ["active", "stopped", "deleted"],
+    "stopReasons": ["revoked", "quota", "session_end", "error", "policy_off"],
+    "stateReasons": ["revoked", "quota", "session_end", "error", "policy_off", "unavailable"],
+    "deleteReasons": ["expired", "manual", "missing"],
+    "errorCodes": ["unsupported", "recorder_failed", "upload_failed"],
+    "deviceFeatures": ["consent1", "record1"]
+  },
+  "valid": {
+    "guestInbound": [
+      { "t": "rec.consent", "lineSha256": "367c841cafd53771a4efd842c46c744a476c9801859791434a388e1d17e39dc9" },
+      { "t": "rec.consent", "id": "1", "lineSha256": "0000000000000000000000000000000000000000000000000000000000000000" },
+      { "t": "rec.revoke" },
+      { "t": "rec.revoke", "id": "2" }
+    ],
+    "guestOutbound": [
+      { "t": "rec.state", "on": true },
+      { "t": "rec.state", "on": false, "reason": "revoked" },
+      { "t": "rec.state", "on": false, "reason": "unavailable" },
+      { "t": "rec.state", "on": false },
+      {
+        "t": "hello",
+        "role": "guest",
+        "sessionId": "01JD0000000000000000000000",
+        "peerPresent": true,
+        "iceServers": [],
+        "maxEndsAt": null,
+        "rec": { "on": true }
+      }
+    ],
+    "techInbound": [
+      { "t": "rec.error", "code": "unsupported" },
+      { "t": "rec.error", "id": "3", "code": "upload_failed" }
+    ],
+    "techOutbound": [
+      {
+        "t": "rec.state",
+        "on": true,
+        "rid": "01JD0000000000000000000001",
+        "basis": "consent",
+        "upload": { "token": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "series": 0, "nextPart": 0 }
+      },
+      { "t": "rec.state", "on": true, "rid": "01JD0000000000000000000001", "basis": "tenant_policy" },
+      { "t": "rec.state", "on": false, "reason": "quota", "rid": "01JD0000000000000000000001", "basis": "consent" },
+      {
+        "t": "hello",
+        "role": "tech",
+        "sessionId": "01JD0000000000000000000000",
+        "peerPresent": true,
+        "iceServers": [],
+        "maxEndsAt": null,
+        "rec": {
+          "on": true,
+          "rid": "01JD0000000000000000000001",
+          "basis": "consent",
+          "upload": { "token": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", "series": 3, "nextPart": 0 }
+        },
+        "unattended": { "deviceId": "01JD0000000000000000000002", "deviceName": "PC-01", "recordOutdated": true }
+      }
+    ],
+    "deviceOutbound": [
+      {
+        "t": "connect",
+        "sessionId": "01JD0000000000000000000000",
+        "ticket": "OSTHxpIxRYOEvsy1t7jssmOfVM9-lMgf5dSNuly4uso",
+        "techName": "Ayşe Teknisyen",
+        "tenantName": "Nokta",
+        "techIp": "10.0.0.1",
+        "expiresInSec": 150,
+        "indicatorText": "Uzaktan bağlantı: Ayşe Teknisyen — Nokta",
+        "consent": "ask",
+        "recording": true
+      },
+      { "t": "rec.state", "on": true },
+      { "t": "rec.state", "on": false },
+      { "t": "device.features", "caps": ["consent1", "record1"] }
+    ]
+  },
+  "invalid": {
+    "guestInbound": [
+      { "t": "rec.consent" },
+      { "t": "rec.consent", "lineSha256": "367C841CAFD53771A4EFD842C46C744A476C9801859791434A388E1D17E39DC9" },
+      { "t": "rec.consent", "lineSha256": "367c841cafd53771a4efd842c46c744a476c9801859791434a388e1d17e39dc" },
+      { "t": "rec.consent", "lineSha256": "367c841cafd53771a4efd842c46c744a476c9801859791434a388e1d17e39dc9", "line": "x" },
+      { "t": "rec.revoke", "reason": "x" },
+      { "t": "rec.error", "code": "unsupported" }
+    ],
+    "guestOutbound": [
+      { "t": "rec.state", "on": true, "reason": "revoked" },
+      { "t": "rec.state", "on": true, "rid": "01JD0000000000000000000001" },
+      { "t": "rec.state", "on": true, "basis": "consent" },
+      { "t": "rec.state", "on": false, "reason": "other" },
+      { "t": "rec.state" },
+      { "t": "rec.state", "on": "true" },
+      {
+        "t": "hello",
+        "role": "guest",
+        "sessionId": "01JD0000000000000000000000",
+        "peerPresent": true,
+        "iceServers": [],
+        "maxEndsAt": null,
+        "rec": { "on": true, "rid": "01JD0000000000000000000001" }
+      },
+      {
+        "t": "hello",
+        "role": "guest",
+        "sessionId": "01JD0000000000000000000000",
+        "peerPresent": true,
+        "iceServers": [],
+        "maxEndsAt": null,
+        "rec": {}
+      }
+    ],
+    "techInbound": [
+      { "t": "rec.error" },
+      { "t": "rec.error", "code": "no_upload" },
+      { "t": "rec.consent", "lineSha256": "367c841cafd53771a4efd842c46c744a476c9801859791434a388e1d17e39dc9" }
+    ],
+    "techOutbound": [
+      { "t": "rec.state", "on": true },
+      { "t": "rec.state", "on": true, "rid": "01JD0000000000000000000001" },
+      {
+        "t": "rec.state",
+        "on": false,
+        "rid": "01JD0000000000000000000001",
+        "upload": { "token": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "series": 0, "nextPart": 0 }
+      },
+      {
+        "t": "rec.state",
+        "on": true,
+        "rid": "01JD0000000000000000000001",
+        "basis": "consent",
+        "upload": { "token": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "series": 0, "nextPart": 60 }
+      },
+      {
+        "t": "rec.state",
+        "on": true,
+        "rid": "01JD0000000000000000000001",
+        "basis": "consent",
+        "upload": { "token": "short", "series": 0, "nextPart": 0 }
+      },
+      { "t": "rec.state", "on": true, "rid": "01JD0000000000000000000001", "basis": "other" }
+    ],
+    "deviceOutbound": [
+      {
+        "t": "connect",
+        "sessionId": "01JD0000000000000000000000",
+        "ticket": "OSTHxpIxRYOEvsy1t7jssmOfVM9-lMgf5dSNuly4uso",
+        "techName": "Ayşe Teknisyen",
+        "tenantName": "Nokta",
+        "techIp": "10.0.0.1",
+        "expiresInSec": 150,
+        "indicatorText": "Uzaktan bağlantı: Ayşe Teknisyen — Nokta",
+        "consent": "ask",
+        "recording": false
+      },
+      { "t": "rec.state", "on": true, "reason": "quota" },
+      { "t": "rec.state", "on": true, "rid": "01JD0000000000000000000001" },
+      { "t": "rec.state" },
+      { "t": "device.features", "caps": ["record1", "record1"] }
+    ]
+  },
+  "rest": {
+    "validPartParams": [
+      { "rid": "01JD0000000000000000000001", "s": "0", "p": "0" },
+      { "rid": "01JD0000000000000000000001", "s": "65535", "p": "59" }
+    ],
+    "invalidPartParams": [
+      { "rid": "01JD0000000000000000000001", "s": "65536", "p": "0" },
+      { "rid": "01JD0000000000000000000001", "s": "0", "p": "60" },
+      { "rid": "01JD0000000000000000000001", "s": "01", "p": "0" },
+      { "rid": "01JD0000000000000000000001", "s": "-1", "p": "0" },
+      { "rid": "01jd0000000000000000000001", "s": "0", "p": "0" }
+    ]
+  }
+}

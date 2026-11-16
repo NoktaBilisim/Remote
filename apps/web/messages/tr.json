@@ -1726,6 +1726,7 @@
   "perm.a.message": "Mesaj yaz",
   "perm.a.import": "İçe aktar",
   "perm.a.send_link": "Müşteriye bağlantı gönder",
+  "perm.a.view_recording": "Kayıtları izle",
   "perm.a.connect": "Bağlan",
   "perm.a.manage": "Yönet",
   "perm.a.silent": "İzin istemeden bağlan",

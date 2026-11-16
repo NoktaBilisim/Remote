@@ -340,6 +340,10 @@ Sunucu tarafında oda durumu `room.rec = {rid, basis, state, recorderConnId, ser
 sourceGone?: {at, series, next}, consentRejected?}` olarak tutulur (§5.3) ve `hello`/`peer.joined`
 bundan türetilir. Gösterge "kayıt olabilir" sürenin tamamında yanar: `ACTIVE` başladığı andan `STOPPED`'a kadar, parça gelmese bile.
 
+> **K2 notu (backend-dev, 2026-11-16; ayrıntı `docs/implementation.md` "P28e K2"):** `rec.state` rol biçimleri ayrı şema
+> (`recStateGuestSchema` / `recStateTechSchema`); "cihaz eski" uyarısı için `hello.unattended.recordOutdated?: true` eklendi;
+> `recording.stop` hata kodları `REC_STOP_ERROR_CODES` (+`rate`, `invalid`, `orphan`); cihaz örnekleri `fixtures/rec.json`'da.
+
 ### 6.3 Kaydedici değişimi, kopma, rejoin
 
 - **Teknisyen kopar:** kayıt `ACTIVE` kalır, gösterge sürer. Belirteç 15 sn pay sonrası düşer. Arada yüklenemeyen ≤ 10 sn kaybolur (AC-383).

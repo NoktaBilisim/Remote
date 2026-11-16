@@ -5,7 +5,8 @@
 export const PERMISSION_MODULES = [
   // P19 (AC-260): send_link = oturum bağlantısını müşteriye SMS/WhatsApp ile gönder (+ sessions.create). LG (V-LG3): K3 müşteri
   // bağlantıları da bu anahtarla (+ customers.view) — etiket "Müşteriye bağlantı gönder".
-  { key: "sessions", actions: ["view", "create", "edit", "delete", "terminate", "send_link"] },
+  // P28e (AC-385, 404; mimari-p28e §4): view_recording = oturum kayıtlarını izle (+ session_history.view + historyScope).
+  { key: "sessions", actions: ["view", "create", "edit", "delete", "terminate", "send_link", "view_recording"] },
   // P28a (AC-343, 348, 404; mimari-p28 §4.1): clipboard = düz metin pano gönder/al (kontrol GRANTED + müşteri izni);
   // print = PDF'i müşterinin varsayılan yazıcısına gönder — `file_transfer.use`'dan BAĞIMSIZ (yalnız Windows istemci).
   { key: "remote_control", actions: ["use", "clipboard"] },
@@ -75,6 +76,8 @@ export const PERMISSION_DESCRIPTIONS: Readonly<Partial<Record<PermissionKey, str
   "unattended.manage":
     "Tüm gözetimsiz cihazları görür; kayıt kodu üretir, teknisyenlere cihaz yetkisi verir/alır, cihazı iptal eder ve müşteri bildirim adreslerini düzenler.",
   // P28u (§4): toggle ekranı bu açıklamayı uyarı tonuyla (`TriangleAlert`) gösterir (AC-404 kalıbı).
+  // P28e (§4, V54): toggle ekranı uyarı tonuyla gösterir (AC-404 kalıbı).
+  "sessions.view_recording": "Oturum kayıtlarını izler (hassas — yalnız gerekene verin).",
   "unattended.silent": "İzin istemeden bağlanma (hassas — yalnız gerekene verin). Firma politikası, cihaz yetkisi ve 2FA ayrıca gerekir.",
 };
 
