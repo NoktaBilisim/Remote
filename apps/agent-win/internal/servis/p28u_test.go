@@ -740,8 +740,8 @@ func TestAC429UserWatchAnnounceAndDebounce(t *testing.T) {
 }
 
 func TestEventLogNoTicket(t *testing.T) {
-	e := evIntervene(CmdLogoff, "Mehmet‮", sid, InterveneTimeout)
-	if e.ID != EvLogoff || !e.Warning || strings.ContainsRune(e.Text, '‮') {
+	e := evIntervene(CmdLogoff, "Mehmet\u202e", sid, InterveneTimeout)
+	if e.ID != EvLogoff || !e.Warning || strings.ContainsRune(e.Text, '\u202e') {
 		t.Fatalf("1007 = %+v", e)
 	}
 }

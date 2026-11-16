@@ -24,7 +24,10 @@ aktarır; bu durumda teslim edilen dosyalar da seçilen süre (1–7 gün) boyun
 - **Gözetimsiz erişim** — sunucu ve kiosk gibi başında kimse olmayan müşteri bilgisayarlarına, kayıtlı servis
   programı üzerinden bağlanma; giriş ekranı, kilit ekranı ve yönetici onayı (UAC) penceresi dahil. Her bağlantı ayrı
   2FA doğrulaması ister ve müşteriye e-postayla bildirilir; cihazda kapatılamayan "Uzaktan bağlantı" göstergesi çıkar,
-  müşteri tek tıkla kapatabilir. Kod imzası alındıktan sonra canlı ortamda açılır.
+  müşteri tek tıkla kapatabilir. Bilgisayarda oturum açık bir kullanıcı varsa önce ona 60 saniyelik bir pencereyle izin
+  sorulur. Firma politikasıyla açılırsa yetkili teknisyen gerekçe yazarak izin istemeden bağlanır; bu bağlantı izleme
+  kipinde başlar, diğer yöneticilere e-postayla bildirilir ve gösterge yine görünür (gizli izleme yoktur). Teknisyen
+  gerekirse Windows oturumunu kilitler ya da kullanıcı oturumunu kapatır. Kod imzası alındıktan sonra canlı ortamda açılır.
 - **İzinli uzaktan kontrol** — her kontrol isteğini müşteri onaylar, tek tuşla geri alır; uzaktan tıklama izin sayılmaz.
 - **Pano paylaşımı ve uzaktan yazdırma** — teknisyen uzun bir komutu veya lisans anahtarını tek tıkla müşterinin panosuna
   koyar, müşterinin panosundaki metni alır; harf harf okutmaya gerek kalmaz. PDF belgeyi müşterinin yazıcısından bastırır.
@@ -80,8 +83,8 @@ aktarır; bu durumda teslim edilen dosyalar da seçilen süre (1–7 gün) boyun
 | Hızlı Destek (Windows)           | Müşteri programı: "Destek iste", "Bağlantı kodum var", 5 firmaya kadar kayıt ve firma seçimi, firma/bilgisayar unutma, beklerken sohbet, isteğe bağlı tepsi ve Windows açılışında başlatma, onay ve izin diyalogları, pano paylaşımı izni ve yazdırma onayı; yalnız bir pencereyi paylaşma, açık/koyu tema                                                                                                                                                   |
 | Destek talepleri                 | Canlı kuyruk, bildirim ve ses, kabul/ret, firma filtresi, son 30 gün geçmişi, kaynak engelleme (Engellenenler ekranı), isteğe bağlı kabul kodu, atama, öncelik ve SLA, mesai saatleri ve tatiller, web talep formu ve "Web" kaynak süzgeci                                                                                                                                                                                                                   |
 | Müşteriler                       | Müşteri firma kaydı, firma başına bağlantı ve web formu bağlantısı (kopyala, yenile, müşteriye gönder), pasife alma, talep ve oturum geçmişi, CSV dışa/içe aktarma                                                                                                                                                                                                                                                                                           |
-| Gözetimsiz cihazlar              | Kayıt kodu ile cihaz ekleme, cihaz listesi (çevrimiçi, yerel olarak kapalı, doğrulanmadı, bildirim gönderilemedi rozetleri), cihaz başına teknisyen yetkisi, bağlan, cihazı iptal et; müşteri başına bildirim adresleri                                                                                                                                                                                                                                      |
-| Gözetimsiz servis (Windows)      | Müşteri bilgisayarına yöneticiyle kurulan servis: kayıt kodu, tepside durum, "Gözetimsiz erişimi kapat", her monitörde bağlantı göstergesi, Windows "Uygulamalar"dan iz bırakmadan kaldırma                                                                                                                                                                                                                                                                  |
+| Gözetimsiz cihazlar              | Kayıt kodu ile cihaz ekleme, cihaz listesi (çevrimiçi, yerel olarak kapalı, doğrulanmadı, bildirim gönderilemedi, servis güncel değil rozetleri; cihaz kullanıcısı aktif / kilitli / oturum yok), cihaz başına teknisyen yetkisi, bağlan (izinli / kullanıcı yok / izinsiz), oturumu kilitle / kapat, cihazı iptal et; müşteri başına bildirim adresleri; firma politikası "İzin istemeden bağlanmaya izin ver"                                              |
+| Gözetimsiz servis (Windows)      | Müşteri bilgisayarına yöneticiyle kurulan servis: kayıt kodu, onay penceresi ("Reddet" varsayılan, 60 sn), tepside durum, "Gözetimsiz erişimi kapat", her monitörde bağlantı göstergesi, Windows "Uygulamalar"dan iz bırakmadan kaldırma                                                                                                                                                                                                                     |
 | Oturum geçmişi                   | Filtreli liste, ayrıntı, ticket/not, dosya doğrulama etiketi, sunucuda saklanan dosyaları süre içinde yeniden indirme, CSV                                                                                                                                                                                                                                                                                                                                   |
 | Kullanıcılar                     | Kullanıcı ekleme (tek seferlik geçici şifre), rol, yetki tablosu, pasife alma / yeniden etkinleştirme, kalıcı silme                                                                                                                                                                                                                                                                                                                                          |
 | Firmalar (Süper Yönetici)        | Firma oluşturma, düzenleme (sunucu depolama kotası dahil), pasife alma, firmalar arası geçiş, kalıcı silme (önizleme, 24 saat iptal penceresi, ilerleme)                                                                                                                                                                                                                                                                                                     |
@@ -139,12 +142,21 @@ aktarır; bu durumda teslim edilen dosyalar da seçilen süre (1–7 gün) boyun
   tarayıcı; Süper Yönetici hesaplarında yoktur. Şifre her girişte, hassas işlemlerde kod yine sorulur. Yeni cihaz
   hatırlanınca e-posta gider; kopyalanmış hatırlama bilgisi kullanılırsa tüm hatırlanan cihazlar ve açık oturumlar
   kapanır. Şifre değişimi, 2FA sıfırlama ve tüm cihazlardan çıkış hatırlamayı siler.
-- Gözetimsiz erişim: bağlantıda cihazda onay sorulmaz, bu yüzden telafi kontrolleri zorunludur — her bağlantı ayrı 2FA
-  doğrulaması ister; yeni cihazda hiçbir teknisyenin yetkisi yoktur, yönetici cihaz başına açar; her bağlantı müşterinin
+- Gözetimsiz erişim: bilgisayarda oturum açık kullanıcı varsa bağlantıdan önce ona sorulur ("Reddet" varsayılan; 60 sn
+  yanıt yoksa bağlantı açılmaz; üstü başka pencereyle örtülen ya da programla tıklanan onay geçersizdir). Kullanıcı yoksa
+  veya izin istemeden bağlanılıyorsa telafi kontrolleri zorunludur — her bağlantı ayrı 2FA doğrulaması ister; yeni cihazda hiçbir teknisyenin yetkisi yoktur, yönetici cihaz başına açar; her bağlantı müşterinin
   tanımlı adreslerine e-postayla bildirilir (firmanın SMTP ayarı yoksa özellik kullanılamaz); cihazda kapatılamayan
   gösterge vardır, çizilemezse bağlantı açılmaz; müşteri yerel anahtarla 2 saniyede keser; yönetici cihazı iptal edince
   bağlantı 10 saniyede kesilir. Olaylar denetim kaydına ve cihazın Windows olay günlüğüne yazılır. **Not:** cihazda oturum
   açmış Windows kullanıcısı yöneticiyse teknisyen yönetici onayı (UAC) verebilir; standart kullanıcı hesabı önerilir.
+- İzin istemeden bağlanma: firma politikası varsayılan kapalıdır; açmak için çalışanların yazılı bilgilendirildiğinin
+  onaylanması ve 2FA gerekir (KVKK: çalışan izleme önceden bilgilendirme ve hukuki dayanak ister; sorumluluk müşteri
+  firmadadır). Ayrıca hassas "İzin istemeden bağlan" yetkisi, cihaz yetkisi ve 20–500 karakterlik gerekçe gerekir; koşullar
+  sunucuda denetlenir. Gösterge her kipte görünür. Politika değişikliği ve her izinsiz bağlantı diğer yöneticilere e-postayla
+  bildirilir (dört göz); tek yöneticili firmada bu e-posta işlemi yapana gider, bu yüzden en az iki yönetici önerilir.
+  Politika kapatılınca açık izinsiz bağlantılar kesilir. Cihaz kullanıcısının varlık durumu (aktif / kilitli) yalnız cihaz
+  yetkisi olan teknisyene görünür, kayıtlara ve dışa aktarıma yazılmaz. Kip, gerekçe ve kilit/oturum kapatma geçmişte ve
+  denetim kaydında süzülebilir.
 - Pano ve yazdırma: yalnız kontrol izni verilmiş oturumda ve müşterinin ayrı onayıyla çalışır; pano izni her oturumda kapalı
   başlar, kontrol kapanınca kendiliğinden kapanır, uzaktan tıklamayla açılamaz. Parola yöneticisinin gizli işaretlediği
   içerik okunmaz. Her belge için müşteri onayı istenir; belge yalnız bellekte tutulur, ayrı ve kısıtlı bir süreçte işlenir,

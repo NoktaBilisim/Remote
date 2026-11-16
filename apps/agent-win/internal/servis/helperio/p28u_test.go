@@ -28,7 +28,7 @@ func TestAC431InputConsentModeCombos(t *testing.T) {
 		func(i *Input) { i.Consent = "maybe" },
 		func(i *Input) { i.Consent, i.Mode = ConsentNone, ModeSilent }, // indicatorControl eksik
 		func(i *Input) { i.Consent, i.Mode, i.IndicatorControl = ConsentAsk, ModeAsked, "x" },
-		func(i *Input) { i.Consent, i.Mode, i.IndicatorControl = ConsentNone, ModeSilent, "a‮b" },
+		func(i *Input) { i.Consent, i.Mode, i.IndicatorControl = ConsentNone, ModeSilent, "a\u202eb" },
 	}
 	for k, f := range bad {
 		in := valid()

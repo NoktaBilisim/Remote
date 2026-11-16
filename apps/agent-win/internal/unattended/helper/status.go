@@ -75,9 +75,6 @@ type stationLocker struct {
 	interval time.Duration
 }
 
-// lockWait §7.5 / AC-443: kilit ≤ 2 sn içinde görülmeli.
-const lockWait = 2 * time.Second
-
 func (l stationLocker) Lock(ctx context.Context) (bool, string) {
 	if l.lock() != nil {
 		return false, helperio.ReasonNotLocked

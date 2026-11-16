@@ -148,3 +148,105 @@ async function policyRoute(req, s, who, { ok, err, stepUp, readJson }) {
   } else s.policy = { ...s.policy, silentEnabled: p.data.silentEnabled };
   return ok(200, s.policy);
 }
+
+// AC-445 (QA P28u tur 1, madde 7): "Bağlantı kipi" filtresi için üç kipli fikstürler. Geçmiş (u-hun-*, mock-history.mjs) ve
+// audit (u-auun-*, mock-audit.mjs) bunları kullanır; her kipin satırı görünür bir işaret taşır (geçmişte ticket no, audit'te
+// teknisyen / cihaz adı). Kipsiz satırlar (katılımlı oturumlar, `consentRequested:"ask"` taşıyan connect) hiçbir kipte görünmez.
+
+/** Geçmiş seed sırası → kip + ticket no (u-hun USER: TECHS[0] + TENANTS[0] → çift sıra, < 60; ENDED satırlar). */
+export const P28U_HISTORY_MODES = new Map([
+  [0, { consentMode: "silent", ticketNo: "UN-SESSIZ-00" }],
+  [12, { consentMode: "silent", ticketNo: "UN-SESSIZ-12" }],
+  [6, { consentMode: "asked", ticketNo: "UN-IZINLI-06" }],
+  [18, { consentMode: "asked", ticketNo: "UN-IZINLI-18" }],
+  [8, { consentMode: "no_user", ticketNo: "UN-KULLANICISIZ-08" }],
+]);
+
+const AUS = { silent: "01JSSP28VAU00000000000000S", asked: "01JSSP28VAU00000000000000A", noUser: "01JSSP28VAU00000000000000N" };
+const TECH = {
+  silent: { userId: "01JMSP28VAU0000000000000S1", username: "selin@ornek.com", userFullName: "Selin Arslan" },
+  asked: { userId: "01JMSP28VAU0000000000000A1", username: "murat@ornek.com", userFullName: "Murat Çelik" },
+  noUser: { userId: "01JMSP28VAU0000000000000N1", username: "kemal@ornek.com", userFullName: "Kemal Öztürk" },
+};
+export const P28U_AUDIT_DEVICE = "01JDVP28V0000000000000000A";
+
+/** Audit satırları (mock-audit `base` ile tamamlanır; en yeni önce). `newValue.consentMode` sözleşmeyle aynı yerde (§9.1). */
+export function p28uAuditRows(base, iso) {
+  const ss = (o) => base({ entity: "support_sessions", ...o });
+  return [
+    ss({
+      id: "2012",
+      createdAt: iso(60_000),
+      action: "auth.login",
+      entity: "auth_sessions",
+      entityId: null,
+      newValue: { method: "password" },
+    }),
+    ss({
+      id: "2011",
+      createdAt: iso(120_000),
+      ...TECH.noUser,
+      action: "unattended.session.ended",
+      entityId: AUS.noUser,
+      newValue: { consentMode: "no_user" },
+    }),
+    ss({
+      id: "2010",
+      createdAt: iso(180_000),
+      ...TECH.noUser,
+      action: "unattended.session.started",
+      entityId: AUS.noUser,
+      newValue: { consentMode: "no_user" },
+    }),
+    ss({
+      id: "2009",
+      createdAt: iso(240_000),
+      ...TECH.noUser,
+      action: "unattended.connect",
+      entityId: AUS.noUser,
+      newValue: { consentRequested: "ask" },
+    }),
+    ss({
+      id: "2008",
+      createdAt: iso(300_000),
+      ...TECH.asked,
+      action: "unattended.session.started",
+      entityId: AUS.asked,
+      newValue: { consentMode: "asked" },
+    }),
+    ss({
+      id: "2007",
+      createdAt: iso(360_000),
+      userId: null,
+      username: `device:${P28U_AUDIT_DEVICE}`,
+      userFullName: null,
+      action: "unattended.consent",
+      entityId: AUS.asked,
+      newValue: { consentMode: "asked", decision: "granted", ms: 4200, deviceId: P28U_AUDIT_DEVICE, technicianId: TECH.asked.userId },
+    }),
+    ss({
+      id: "2006",
+      createdAt: iso(420_000),
+      ...TECH.asked,
+      action: "unattended.connect",
+      entityId: AUS.asked,
+      newValue: { consentRequested: "ask" },
+    }),
+    ss({
+      id: "2005",
+      createdAt: iso(480_000),
+      ...TECH.silent,
+      action: "unattended.session.started",
+      entityId: AUS.silent,
+      newValue: { consentMode: "silent" },
+    }),
+    ss({
+      id: "2004",
+      createdAt: iso(540_000),
+      ...TECH.silent,
+      action: "unattended.connect",
+      entityId: AUS.silent,
+      newValue: { consentMode: "silent", silentReason: "Gece bakım penceresinde sunucu güncellemesi" },
+    }),
+  ];
+}

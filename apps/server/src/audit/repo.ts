@@ -93,3 +93,16 @@ export async function userNames(db: Db, ids: readonly string[]): Promise<Map<str
   });
   return new Map(users.map((u) => [u.id, { fullName: u.fullName, avatarPath: u.avatarPath, status: u.status }]));
 }
+
+/**
+ * D-P28u-K1-1: izinsiz bağlantı gerekçesinin okumada açık kalabileceği oturumlar — satırı VAR ve anonimleştirilmemiş
+ * (`<tenantId>:<id>`). Satırı olmayan (temizlenmiş) oturum kümede yoktur → maske (fail-closed). Tek `IN` sorgusu.
+ */
+export async function reasonVisibleSessions(db: Db, ids: readonly string[]): Promise<Set<string>> {
+  if (ids.length === 0) return new Set();
+  const rows = await db.supportSession.findMany({
+    where: { id: { in: [...new Set(ids)] }, anonymizedAt: null },
+    select: { id: true, tenantId: true },
+  });
+  return new Set(rows.map((s) => `${s.tenantId}:${s.id}`));
+}

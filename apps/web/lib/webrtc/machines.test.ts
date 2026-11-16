@@ -109,6 +109,18 @@ describe("teknisyen durum makinesi", () => {
     expect(r).toMatchObject({ phase: "waiting", reconnectSince: 7 });
     expect(tm(r, hello({ role: "tech", maxEndsAt: null })).reconnectSince).toBeNull();
   });
+  it("P28u K4: izinli istekte cihaz onayı sonrası güncel PENDING hello kipi getirir; unattended'sız hello kipi korur; ICE kapısı açılmaz", () => {
+    const u = { deviceId: GID, deviceName: "AKTIF-PC", intervene: true };
+    const pend = (unattended?: typeof u & { consentMode?: "asked" }) =>
+      hello({ role: "tech", maxEndsAt: null, peerPresent: false, reconnectToken: undefined, ...(unattended ? { unattended } : {}) });
+    const first = tm(initialTech, pend(u));
+    expect(first).toMatchObject({ phase: "waiting", unattended: u });
+    expect(first.unattended?.consentMode).toBeUndefined();
+    const second = tm(first, pend({ ...u, consentMode: "asked" }));
+    expect(second).toMatchObject({ phase: "waiting", guest: null, unattended: { consentMode: "asked", intervene: true } });
+    expect(tm(second, pend()).unattended?.consentMode).toBe("asked");
+    expect(iceGate(initialIceGate, pend({ ...u, consentMode: "asked" }))).toEqual({ gate: { ready: false, pending: false }, start: false });
+  });
   it("ACTIVE oturuma yeniden bağlanan konsol: müşteri yoksa kopuk sayılır", () => {
     expect(tm(initialTech, hello({ role: "tech", peerPresent: false })).peerLostSince).toBe(1000);
   });

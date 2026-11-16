@@ -3,6 +3,7 @@
 // hsa (SUPER_ADMIN, firma seçmemiş), hempty (veri yok), hbroken (liste 500), hbig (CSV 400 > 50.000), hrate (CSV 429).
 import { listSessionsQuerySchema, updateSessionInputSchema } from "@remote/contracts/api/sessions";
 import { storedFilesOf } from "./mock-p28b.mjs";
+import { P28U_HISTORY_MODES } from "./mock-p28u.mjs";
 
 const P = ["sessions.view", "session_history.view", "session_history.edit", "session_history.export"];
 const TECHS = [
@@ -118,13 +119,24 @@ const istDay = (iso) => new Date(Date.parse(iso) + 3 * 3_600_000).toISOString().
 function scoped(who, cookie) {
   if (who.kind === "hempty") return [];
   const all = store(cookie);
+  if (who.kind === "hun") withConsentModes(all);
   if (who.user.role === "SUPER_ADMIN") return all;
   const own = all.filter((s) => s.tenant.id === TENANTS[0].id);
   return who.user.role === "USER" ? own.filter((s) => s.technician.id === who.user.id) : own;
 }
 
+/** P28u (AC-445): u-hun-* seed'inde üç kipli gözetimsiz oturumlar (mock-p28u.mjs); diğer satırlar kipsiz (null). */
+function withConsentModes(all) {
+  all.forEach((s, i) => {
+    const m = P28U_HISTORY_MODES.get(i);
+    s.consentMode = m?.consentMode ?? null;
+    if (m) Object.assign(s, { ticketNo: m.ticketNo, mode: "AGENT" });
+  });
+}
+
 function filter(items, q, who) {
   return items
+    .filter((s) => !q.consentMode || s.consentMode === q.consentMode)
     .filter((s) => !q.status || s.status === q.status)
     .filter((s) => !q.mode || s.mode === q.mode)
     .filter((s) => !q.source || s.source === q.source)

@@ -153,8 +153,8 @@ export async function onDeviceMessage(
       return onState(d, conn, ctx, m.localEnabled);
     case "session.closed": {
       const room = ownRoom(d, conn, m.sessionId);
-      // §8.3: yeniden katılım penceresinde eski yardımcının çıkışı odayı bitirmez (yalnız `session_changed`, K-P28u-17).
-      if (room?.unattended?.rejoinUntil !== undefined && m.reason !== "session_changed") return;
+      // D-P28u-K1-2: yeniden katılım penceresinde de süzgeç yok — servis beklenen yardımcı çıkışında (logoff kabulü) zaten
+      // `session.closed` göndermez (agent-win `core.go watch`); gelen her bildirim gerçek bitiştir ve nedeniyle hemen yazılır.
       if (room) await endDeviceRoom(d.rooms, room, m.reason === "session_changed" ? "session_changed" : "customer", m.reason);
       return;
     }

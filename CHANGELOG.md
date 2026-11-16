@@ -5,6 +5,43 @@ Biçim [Keep a Changelog](https://keepachangelog.com/tr/1.1.0/), sürümleme [Se
 
 ## [Unreleased]
 
+### Eklendi — P28u gözetimsiz cihazda izinli / izinsiz bağlantı ve müdahale, servis 0.15.0 (AC-429..446)
+
+- **Üç bağlantı kipi:** "İzinli" (cihazda oturum açık ve kilitsiz kullanıcı varsa 60 sn'lik "Uzaktan bağlantı isteği"
+  penceresi; "Reddet" varsayılan, Esc/kapatma = ret, "İzin ver" 1,5 sn sonra ve yalnız fiziksel girdiyle, pencere örtülünce
+  pasif), "Kullanıcı yok" (oturum yok/kilitli; onaysız), "İzinsiz" (aşağıda). Kipi cihaz seçer. Gizli izleme yoktur:
+  gösterge her kipte görünür, çizilemezse bağlantı açılmaz.
+- **İzin istemeden bağlanma:** yeni yetki `unattended.silent` ("İzin istemeden bağlan", hassas). Bağlan diyaloğunda kutu ve
+  20–500 karakter gerekçe yalnız firma politikası açık ve yetki varken görünür; bağlantı izleme kipinde açılır ("Uzaktan
+  izleniyor: …"), "Müdahale et" ile kontrol ("Uzaktan kontrol: …"), "İzlemeye dön". Müşteri e-postasına "İzin istenmeden
+  bağlanıldı." satırı eklenir.
+- **Ayarlar → Gözetimsiz erişim** (Admin): "İzin istemeden bağlanmaya izin ver" (varsayılan kapalı); açarken aydınlatma
+  kutusu + step-up; KVKK, "gizli izleme yoktur", kullanıcı varlık durumu ve dört göz notları. Kapatınca açık izinsiz
+  bağlantılar kesilir.
+- **Dört göz e-postası:** politika değişikliğinde ve her izinsiz bağlantıda diğer `unattended.manage` sahiplerine (yoksa işlemi
+  yapan + Admin'ler) 3 denemeli e-posta.
+- **Müdahale:** konsolda "Oturumu kilitle" ve onaylı "Kullanıcı oturumunu kapat"; oturum kapatma sonrası servis 45 sn içinde
+  aynı bağlantıya yeniden katılır (kontrol kapalı başlar). İzinli kipte ardından açılan yeni oturum bağlantıyı bitirir.
+- Cihaz listesinde "Kullanıcı" sütunu (Aktif / Kilitli / Oturum yok; yalnız cihaz yetkisi olana, audit/dışa aktarımda yok),
+  "Servis güncel değil" rozeti; liste yoklaması 15 → 8 sn. Oturum geçmişi detayında bağlantı kipi, gerekçe, müdahale zaman
+  çizelgesi; geçmiş ve audit log'da "Bağlantı kipi" süzgeci.
+- Yeni REST uçları `GET/PUT /api/v1/unattended/policy`, `POST /api/v1/sessions/:id/unattended/lock|logoff`; değişenler
+  `GET /unattended/status` (`silentAllowed`), `POST /unattended/devices/:id/connect` (`silent`, `reason`),
+  `GET /unattended/devices` (`userState`, `outdated`), `GET /sessions` ve `GET /audit` (`consentMode`),
+  `GET /sessions/:id/history` (`unattended`). Yeni hata kodları `DEVICE_OUTDATED`, `SILENT_DISABLED`, `INTERVENE_PENDING`,
+  `INTERVENE_FAILED`. `/ws/device` yetenek belirteci `rs.cap.consent1` ve yeni mesajlar (`docs/api.md` "P28u").
+- Yeni audit eylemleri `unattended.consent`, `unattended.control_toggle`, `unattended.lock`, `unattended.logoff`,
+  `unattended.rejoin`, `unattended.silent.notify`, `settings.unattended_silent`; Windows olay günlüğü 1006–1008.
+- Metrikler `rs_unattended_consent_total`, `rs_unattended_intervene_total`, `rs_unattended_silent_notify_total`,
+  `rs_unattended_rejoin_total`; alarmlar runbook §28u.
+- Migration `20261124000000_p28u_unattended_consent`; yeni env ve bağımlılık yok. Karar ADR-0033.
+
+### Değişti — P28u
+
+- Gözetimsiz bağlantı artık varsayılan olarak cihazdaki kullanıcıya izin sorar (P27'de onaysızdı). İzinli istekte oturum
+  bekleme süresi 150 sn; aynı teknisyen aynı cihaza 60 sn'de bir izin isteği gönderebilir.
+- 0.15.0 öncesi servisli cihaza bağlanılamaz (409 `DEVICE_OUTDATED`); servis "Güncelle…" ile yükseltilir.
+
 ### Eklendi — P28b sunucuda dosya aktarımı + ClamAV + depolama kotası, istemci 0.14.0 (AC-353..363, AC-284)
 
 - **Ayarlar > Dosyalar** (Admin): "Dosyaları sunucu üzerinden aktar ve virüs tara" anahtarı (varsayılan kapalı), teslim
