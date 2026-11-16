@@ -410,9 +410,13 @@ test.describe("Müşteri rızası, gösterge, Kaydı durdur, konsol kaydedici (A
     await page.getByTestId("rec-watch").click();
     const video = page.getByTestId("rec-video");
     await expect(page.getByTestId("rec-player")).toHaveAttribute("data-status", "ready", { timeout: 15_000 });
-    await expect
-      .poll(() => video.evaluate((v: HTMLVideoElement) => (v.buffered.length ? v.buffered.end(0) : 0)), { timeout: 15_000 })
-      .toBeGreaterThan(3);
+    // Toplam tamponlanmış süre: bölümler ayrı aralık olabilir (yavaş CI'da ilk bölüm kısa kalır; oynatıcı boşluğu atlar)
+    const bufferedTotal = (v: HTMLVideoElement) => {
+      let sum = 0;
+      for (let k = 0; k < v.buffered.length; k++) sum += v.buffered.end(k) - v.buffered.start(k);
+      return sum;
+    };
+    await expect.poll(() => video.evaluate(bufferedTotal), { timeout: 15_000 }).toBeGreaterThan(3);
     await page.getByTestId("rec-play").click();
     await expect.poll(() => video.evaluate((v: HTMLVideoElement) => v.currentTime), { timeout: 15_000 }).toBeGreaterThan(1);
     expect(n).toBeGreaterThanOrEqual(3);
