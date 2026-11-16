@@ -19,4 +19,6 @@ regexes = [
   '''Abc_defGhijKlmnOpqrStuvWxyz0123456789-_ABCD''',
   # P28b nginx testinde sahte Bearer değeri — gerçek değil.
   '''gizlibelirtec''',
+  # P28e K2 logger redakte testinin sahte yükleme belirteçleri (rec-p28e-k2.test.ts) — gerçek değil.
+  '''GizliYuklemeBelirteci[0-9]''',
 ]
