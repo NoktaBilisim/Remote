@@ -33,6 +33,7 @@ async function unattendedRoom(caps: string[]) {
   const res = await live.app.inject(connectReq({ s, dev }));
   expect(res.statusCode).toBe(200);
   const msg = (await device.waitFor("connect" as never)) as unknown as ConnectMsg;
+  device.send({ t: "consent.result", sessionId: msg.sessionId, mode: "no_user" }); // P28u K-P28u-3
   const helper = await connect(`${live.base}/ws/guest`, ["rs.v1", `rs.ticket.${msg.ticket}`, ...caps]);
   const helperHello = await helper.waitFor("hello");
   const console_ = await connect(`${live.base}/ws/tech?sessionId=${msg.sessionId}`, ["rs.v1"], techHeaders(s.token, ORIGIN));

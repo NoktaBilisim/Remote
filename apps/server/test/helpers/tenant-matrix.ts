@@ -19,6 +19,12 @@ export type RouteClass = "public" | "self" | "tenant" | "list" | "scoped" | "sys
 export const ROUTE_CLASSES: Record<string, RouteClass> = {
   // P27-K3: gözetimsiz bağlantı (B'nin A cihazına isteği → 404; IDOR, AC-293).
   "POST /api/v1/unattended/devices/:id/connect": "tenant",
+  // P28u-K4: müdahale (B'nin A oturumuna isteği → 404, AC-442).
+  "POST /api/v1/sessions/:id/unattended/lock": "tenant",
+  "POST /api/v1/sessions/:id/unattended/logoff": "tenant",
+  // P28u-K3: firma politikası (tenantScope'lu, kimliksiz yol).
+  "GET /api/v1/unattended/policy": "scoped",
+  "PUT /api/v1/unattended/policy": "scoped",
   // P27-K2: koleksiyon/durum uçları tenantScope'lu (liste izolasyonu: unattended-api.test.ts "AC-293"); kayıt ucu kimliksiz
   // (kayıt kodu kimliği); id'li uçlar B → A kaydı 404.
   "GET /api/v1/unattended/status": "scoped",
@@ -265,6 +271,14 @@ export interface CrossTenantCase {
 }
 
 export const CROSS_TENANT_CASES: CrossTenantCase[] = [
+  {
+    route: "POST /api/v1/sessions/:id/unattended/lock",
+    request: (fx) => ({ method: "POST", url: `/api/v1/sessions/${fx.a.sessionId}/unattended/lock`, payload: {} }),
+  },
+  {
+    route: "POST /api/v1/sessions/:id/unattended/logoff",
+    request: (fx) => ({ method: "POST", url: `/api/v1/sessions/${fx.a.sessionId}/unattended/logoff`, payload: { confirm: true } }),
+  },
   {
     route: "POST /api/v1/unattended/devices/:id/connect",
     request: (fx) => ({ method: "POST", url: `/api/v1/unattended/devices/${fx.a.deviceId}/connect`, payload: {} }),

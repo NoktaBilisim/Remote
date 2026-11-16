@@ -1,7 +1,7 @@
 // P27-K3 test yardımcıları: Ed25519 anahtarlı gerçek cihaz satırı, sahte servis istemcisi (`/ws/device`), sahte yardımcı
 // (`/ws/guest` bileti) ve hazır bağlantı fikstürü (firma + müşteri + adres + SMTP + yetkili teknisyen + çevrimiçi cihaz).
 import { generateKeyPairSync, sign } from "node:crypto";
-import { deviceAuthMessage, WS_DEVICE_SUBPROTOCOL } from "@remote/contracts/ws-device";
+import { deviceAuthMessage, WS_DEVICE_CAP_CONSENT, WS_DEVICE_SUBPROTOCOL } from "@remote/contracts/ws-device";
 import { newId } from "../../src/lib/ids.ts";
 import { createTenant, createUser, loginStepUp, ORIGIN, testDb, type Session, type TestUser } from "./app.ts";
 import { createCustomerRow } from "./requests.ts";
@@ -54,16 +54,17 @@ const authMsg = (dev: KeyedDevice, nonce: string, extra: Record<string, unknown>
   ...extra,
 });
 
-/** Ham `/ws/device` soketi (hello alınmış); `nonce` döner. */
-export async function rawDevice(live: Live, headers: Record<string, string> = {}): Promise<{ c: WsClient; nonce: string }> {
-  const c = await connect(`${live.base}/ws/device`, [WS_DEVICE_SUBPROTOCOL], headers);
+/** Ham `/ws/device` soketi (hello alınmış); `nonce` döner. P28u: `legacy` → eski (P27) servis, `rs.cap.consent1` yok. */
+export async function rawDevice(live: Live, headers: Record<string, string> = {}, legacy = false): Promise<{ c: WsClient; nonce: string }> {
+  const protos = legacy ? [WS_DEVICE_SUBPROTOCOL] : [WS_DEVICE_SUBPROTOCOL, WS_DEVICE_CAP_CONSENT];
+  const c = await connect(`${live.base}/ws/device`, protos, headers);
   const hello = (await c.waitFor("device.hello" as never)) as unknown as { nonce: string };
   return { c, nonce: hello.nonce };
 }
 
 /** Kimliği doğrulanmış cihaz soketi (`device.ready` alınmış). */
-export async function onlineDevice(live: Live, dev: KeyedDevice, extra: Record<string, unknown> = {}): Promise<WsClient> {
-  const { c, nonce } = await rawDevice(live);
+export async function onlineDevice(live: Live, dev: KeyedDevice, extra: Record<string, unknown> = {}, legacy = false): Promise<WsClient> {
+  const { c, nonce } = await rawDevice(live, {}, legacy);
   c.send(authMsg(dev, nonce, extra));
   await c.waitFor("device.ready" as never);
   return c;
@@ -129,6 +130,8 @@ export async function activeSession(live: Live, r: Ready): Promise<{ sessionId: 
   const res = await live.app.inject(connectReq(r));
   if (res.statusCode !== 200) throw new Error(`connect ${res.statusCode} ${res.body}`);
   const msg = (await r.device.waitFor("connect" as never)) as unknown as ConnectMsg;
+  // P28u (K-P28u-3): `ask` odası onay sonucu olmadan kabul edilmez — servis kullanıcısız cihaz gibi `no_user` bildirir.
+  r.device.send({ t: "consent.result", sessionId: msg.sessionId, mode: "no_user" });
   const helper = await helperGuest(live, msg.ticket);
   await helper.waitFor("hello");
   return { sessionId: msg.sessionId, helper, msg };

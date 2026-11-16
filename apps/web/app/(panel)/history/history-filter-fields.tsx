@@ -7,6 +7,7 @@ import { Combobox } from "@/components/ui/combobox";
 import { SelectField } from "@/components/ui/select-field";
 import { TextField } from "@/components/ui/text-field";
 import { t } from "@/lib/i18n";
+import { CONSENT_MODE_LABELS, CONSENT_MODES } from "@/lib/unattended/contract";
 import { rememberTenantLabel, TENANT_COMBO_DEBOUNCE_MS } from "@/lib/users/tenant-options";
 import type { FirmMode, HistoryFilterState, Opt } from "./use-history-filters";
 
@@ -57,6 +58,14 @@ export function SessionSelects({ f, all }: F & { all: Opt }) {
         value={f.draft.mode}
         onChange={f.set("mode")}
         options={[all, ...Object.entries(SESSION_MODE_LABELS).map(([value, label]) => ({ value, label }))]}
+      />
+      <SelectField
+        label={t("h.f.consentMode")}
+        name="consentMode"
+        value={f.draft.consentMode}
+        onChange={f.set("consentMode")}
+        options={[all, ...CONSENT_MODES.map((m) => ({ value: m, label: CONSENT_MODE_LABELS[m] }))]}
+        data-testid="history-consent-mode"
       />
       <SelectField
         label={t("h.f.source")}

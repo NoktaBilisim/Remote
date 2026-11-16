@@ -13,6 +13,7 @@ import {
   type ShareMethod,
 } from "@remote/contracts/ws";
 import type { FileMode, PeerFeature } from "@remote/contracts/ws-fsrv";
+import type { UnattendedInfo } from "../unattended/consent";
 import { applyMsg, type MsgOf, type MsgTable } from "./msg-table";
 
 export interface Pending {
@@ -54,8 +55,11 @@ export interface TechState {
   rejects: number;
   lastError: "ADMIT_CODE_INVALID" | "CONFLICT" | "OTHER" | null;
   end: TechEnd | null;
-  /** P27 (mimari-p27 §4.6): gözetimsiz odada sunucu `hello{unattended}` gönderir → konsol rozeti + cihaz adı. */
-  unattended: { deviceId: string; deviceName: string } | null;
+  /**
+   * P27 (mimari-p27 §4.6): gözetimsiz odada sunucu `hello{unattended}` gönderir → konsol rozeti + cihaz adı. P28u (§6.4):
+   * `consentMode` (kip; `ask` odasında karara kadar yok) ve `intervene` (cihaz `consent1` bildirdi → müdahale düğmeleri).
+   */
+  unattended: UnattendedInfo | null;
   /** P28a (§4.2): bağlı misafirin bildirdiği özellikler (`hello`/`peer.joined` `guestFeatures`; eski istemci → []). P28b: + `fsrv`. */
   guestFeatures: PeerFeature[];
   /** P28a: müşteri pano anahtarı (sunucu aynası `clip.consent`; kontrol VIEW'a dönünce / müşteri ayrılınca kapalı). */

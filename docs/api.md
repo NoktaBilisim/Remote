@@ -3021,7 +3021,8 @@ kapsamlıdır (Super Admin bir firma seçmelidir); başka firmanın kaydı 404.
 
 `DeviceListItem`: `{ id, name, customerId, customerName, online, localEnabled, signatureOk, lastSeenAt, lastSessionAt,
 grantCount, canConnect, connectBlockedReason, verified, notifyFailed, replacedAlert }`. `connectBlockedReason`:
-`no_grant` | `unsigned` | `offline` | `local_disabled` | `no_contacts` | `smtp` | `null`. Panel listeyi 15 sn'de bir yoklar.
+`no_grant` | `unsigned` | `offline` | `outdated` (P28u) | `local_disabled` | `no_contacts` | `smtp` | `null`. P28u'dan
+beri ek alan `userState` ve panel yoklaması 8 sn (bkz. "Gözetimsiz izinli / izinsiz bağlantı ve müdahale (P28u)").
 Ayrıca `GET /sessions?deviceId=` ve `GET /users/options?unattendedGrantable=1` (`manage`) eklendi. Etkin cihaz varken
 SMTP alanını değiştiren `PUT /settings/tenant` step-up ister (401 `MFA_STEP_UP_REQUIRED`). Eski SMTP kaydı varsa kayıttan
 önce firmadaki diğer `unattended.manage` / `settings.edit` sahiplerine eski ayarla bilgi e-postası gider; eski kayıt yoksa
@@ -3472,6 +3473,131 @@ odasında P5 `file.meta` yok sayılır, misafire giden `caps`'ten `file_transfer
 
 Dosya adı, belirteç ve içerik hiçbir olayda yoktur. Metrikler `rs_av_scan_total{result}`, `rs_av_up`, `rs_av_selftest_ok`,
 `rs_av_signature_age_seconds`, `rs_fsrv_denied_total{reason}` (alarm eşikleri: runbook §28b.4).
+
+## Gözetimsiz izinli / izinsiz bağlantı ve müdahale (P28u)
+
+Kaynak: `apps/server/src/unattended/{routes,connect,connect-silent,connect-tx,policy,intervene,mail}.ts`,
+`signaling/{admit-device,rejoin-device}.ts`, `packages/contracts/src/{api/unattended.ts,api/sessions.ts,api/audit.ts,
+unattended-consent.ts,ws-device.ts,errors.ts,permissions.ts,audit.ts}`. Tasarım `docs/mimari-p28u.md` (ADR-0033); operasyon
+runbook §28u. Yeni yetki `unattended.silent` ("İzin istemeden bağlan", hassas). Doğrulama hataları mevcut 400 `VALIDATION`
+zarfıyla (`fields`) döner. Servis sürümü 0.15.0 alt protokol listesine `rs.cap.consent1` ekler; bildirmeyen cihaz "eski"
+sayılır.
+
+**Kip (`consentMode`):** `asked` (cihazda aktif kullanıcı izin verdi) · `no_user` (oturum yok/kilitli, onaysız) · `silent`
+(izin istemeden). Etiketler (`CONSENT_MODE_LABELS`): "İzinli", "Kullanıcı yok", "İzinsiz". Kipi cihaz bağlantı anında seçer
+(`asked`/`no_user`); `silent` istekle belirlenir.
+
+### Yeni hata kodları
+
+| Kod                 | HTTP | Metin                                                    |
+| ------------------- | ---- | -------------------------------------------------------- |
+| `DEVICE_OUTDATED`   | 409  | Cihazdaki servis güncel değil — güncelleyin              |
+| `SILENT_DISABLED`   | 409  | Firma politikası izin istemeden bağlanmaya izin vermiyor |
+| `INTERVENE_PENDING` | 409  | Önceki komut henüz tamamlanmadı                          |
+| `INTERVENE_FAILED`  | 502  | Cihaz komutu uygulayamadı (`fields.reason`, aşağıda)     |
+
+### Uçlar
+
+| Uç                                                      | Yetki                                                                     | Girdi                                                   | Çıktı                                               | Hatalar                                                                                                           |
+| ------------------------------------------------------- | ------------------------------------------------------------------------- | ------------------------------------------------------- | --------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------- |
+| `GET /api/v1/unattended/status` (değişti)               | `connect` ∨ `manage`                                                      | —                                                       | `{ mode, available, notifyChannel, silentAllowed }` | —                                                                                                                 |
+| `POST /api/v1/unattended/devices/:id/connect` (değişti) | `connect` + cihaz yetkisi + step-up (tüketilir); `silent` için + `silent` | `{}` (izinli) ya da `{ "silent": true, "reason": "…" }` | `{ sessionId }`                                     | zincir aşağıda                                                                                                    |
+| `GET /api/v1/unattended/policy`                         | `unattended.manage` ∧ `settings.view`                                     | —                                                       | `{ silentEnabled, ackAt, ackByName }`               | 403                                                                                                               |
+| `PUT /api/v1/unattended/policy`                         | `unattended.manage` ∧ `settings.edit`; açarken step-up (tüketmez)         | `{ "silentEnabled": true, "ack": true }`                | `{ silentEnabled, ackAt, ackByName }`               | 400 `VALIDATION` (`fields.ack`: "Açmak için bilgilendirme kutusunu işaretleyin"), 401 `MFA_STEP_UP_REQUIRED`, 403 |
+| `POST /api/v1/sessions/:id/unattended/lock`             | `unattended.connect` + oturumun teknisyeni + cihaz yetkisi                | `{}`                                                    | `{ "ok": true }`                                    | 403, 404, 409 `DEVICE_OUTDATED` / `INTERVENE_PENDING`, 429, 502 `INTERVENE_FAILED`                                |
+| `POST /api/v1/sessions/:id/unattended/logoff`           | aynı                                                                      | `{ "confirm": true }`                                   | `{ "ok": true, "rejoin": true }`                    | aynı; `confirm` yoksa 400 ("Onay gerekli")                                                                        |
+
+- `silentAllowed` = firma politikası açık ∧ çağıranda `unattended.silent`. Panel "İzin istemeden bağlan" kutusunu yalnız
+  `true` iken çizer; sunucu yine zincirde denetler.
+- `reason`: kırpılır, 20–500 karakter (kod noktası), satır sonu yalnız `\n`, kontrol/görünmez karakter yok. `silent` ⇔
+  `reason`; ihlal 400 `fields.reason` ("Gerekçe zorunlu" / "Gerekçe yalnız izin istemeden bağlanmada girilir" /
+  "Gerekçe 20–500 karakter olmalı"). Bilinmeyen alan 400.
+- Politika: `false→true` için `ack: true` ve son 5 dk'da step-up gerekir; `true→false` step-up istemez ve açık izinsiz
+  oturumları (bekleyenler dahil) `CANCELLED(permission)` ile keser; aynı değer 200 döner, audit yazmaz. `ackAt`/`ackByName`
+  kapatınca korunur (iz).
+
+### Bağlantı zincirine eklenen adımlar
+
+P27 zincirine (bkz. "Bağlantı ön koşul zinciri") şu adımlar eklenir; ilk başarısız olan döner, her ret audit
+`unattended.connect{result:fail, failReason, mode}` olarak yazılır:
+
+| Yer           | Denetim                                                                             | Hata                                 |
+| ------------- | ----------------------------------------------------------------------------------- | ------------------------------------ |
+| 2'den sonra   | `silent` ise `unattended.silent`                                                    | 403 `FORBIDDEN`                      |
+| 2'den sonra   | `silent` ise firma politikası açık                                                  | 409 `SILENT_DISABLED`                |
+| kovadan sonra | `ask` ise teknisyen × cihaz başına 60 sn'de 1 istek (yalnız başarılı istek sayılır) | 429 `RATE_LIMITED` (`retryAfterSec`) |
+| 8'den sonra   | cihaz `rs.cap.consent1` bildirmiş                                                   | 409 `DEVICE_OUTDATED`                |
+| TX            | politika ve `unattended.silent` işlem içinde yeniden okunur                         | 409 / 403                            |
+
+Oturum `PENDING` süresi: `ask` 150 sn (onay penceresi 60 sn + pay), `silent` 60 sn. Kullanıcı reddederse oturum
+`CANCELLED(consent_denied)`, yanıt vermezse `CANCELLED(consent_timeout)` olur; konsol metni "Kullanıcı bağlantıyı reddetti." /
+"Kullanıcı yanıt vermedi.".
+
+Örnek istek / yanıt (izinsiz):
+
+```http
+POST /api/v1/unattended/devices/01KA0000000000000000000000/connect
+Content-Type: application/json
+X-CSRF-Token: <csrf>
+
+{ "silent": true, "reason": "Fidye yazılımı şüphesi; diskteki şifreleme işlemi durdurulacak" }
+```
+
+```json
+{ "sessionId": "01KA0000000000000000000001" }
+```
+
+Politika kapalıyken aynı istek:
+
+```json
+{ "error": { "code": "SILENT_DISABLED", "message": "Firma politikası izin istemeden bağlanmaya izin vermiyor" } }
+```
+
+### Müdahale ön koşulları
+
+Sırayla: `unattended.connect` (403) → oturum bu firmada (404) → çağıran oturumun teknisyeni (403) → oda canlı ve gözetimsiz
+(katılımlı oturum 403) → cihaz yetkisi sürüyor (404) → kontrol açık, izleme kipinde değil (403 "Önce müdahale edin (kontrol
+açık olmalı).") → cihaz `consent1` (409 `DEVICE_OUTDATED`) → bekleyen komut yok (409 `INTERVENE_PENDING`) → oda başına
+dakikada 6 komut (429). Sunucu cihaza komutu iletir ve sonucu bekler: kilit 5 sn, oturum kapatma 15 sn. Başarısız ya da
+yanıtsız komut 502 `INTERVENE_FAILED` döner; `fields.reason` ∈ `no_session` | `not_in_control` | `not_locked` | `no_user` |
+`api_error` | `timeout`.
+
+Oturum kapatmada `rejoin: true` → sunucu 45 sn'lik yeniden katılım penceresi açtı; servis yeni Windows oturumunda yardımcıyı
+başlatıp aynı oturuma katılır (kontrol kapalı başlar). Pencerede katılamazsa oturum `session_changed` ile biter. `asked`
+kipinde oturum kapatıldıktan sonra konsolda bir kullanıcı oturum açarsa oturum `session_changed` ile biter (onay taşınmaz).
+
+### Mevcut uçlarda değişenler
+
+| Uç                                       | Değişiklik                                                                                                                                                                                                                                                                             |
+| ---------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `GET /api/v1/unattended/devices`, `/:id` | `userState`: `active` \| `locked` \| `none` \| `null` (çevrimdışı ya da eski servis). Yalnız çağıranın cihaz yetkisi olan cihazda dolu; audit ve dışa aktarımda yok. `connectBlockedReason` + `outdated`                                                                               |
+| `GET /api/v1/sessions`                   | Satırda `consentMode` (`asked` \| `no_user` \| `silent` \| `null`); yeni süzgeç `consentMode=asked\|no_user\|silent` (kipsiz satırlar elenir); dışa aktarım aynı süzgeci kullanır                                                                                                      |
+| `GET /api/v1/sessions/:id/history`       | `unattended?: { consentMode, silentReason?, timeline: [{ at, kind, result?, decision?, ms? }] }`; `kind` ∈ `consent` \| `control_on` \| `control_off` \| `lock` \| `logoff` \| `rejoin` (≤ 200 satır). `silentReason` yalnız `silent` ve anonimleştirilmemiş oturumda. Başka firma 404 |
+| `GET /api/v1/audit`                      | Süzgeç `consentMode=asked\|no_user\|silent` (`new_value.consentMode` eşitliği). Reddedilen/zaman aşımlı istekler `unattended.consent` satırıyla `asked` süzgecinde görünür; geçersiz değer 400 "Bağlantı kipi geçersiz"                                                                |
+
+### Audit ve bildirim
+
+Yeni eylemler: `unattended.consent` (aktör cihaz, `username = device:<deviceId>`; `consentMode, decision, ms,
+technicianId`), `unattended.control_toggle` (`from`, `to`, `consentMode`), `unattended.lock` / `unattended.logoff`
+(`deviceId, consentMode, durationMs, failReason?`, logoff'ta `rejoin`), `unattended.rejoin`, `unattended.silent.notify`
+(`event: connect|policy`, alıcı maskeli, `result`, `attempt`), `settings.unattended_silent` (`old`, `new`, `ack`).
+`unattended.connect` ve `unattended.session.started/ended` satırlarına `consentMode` eklendi; gerekçe yalnız başarılı izinsiz
+`unattended.connect` satırında `silentReason` olarak durur, uygulama loguna yazılmaz. Audit listesi ve CSV'de gerekçe
+yalnız çağıranda `session_history.view` varsa ve oturum aynı firmada, anonimleştirilmemiş duruyorsa açık gelir; aksi her
+durumda `"***"` döner (kayıt değişmez). Kullanıcı varlık durumu hiçbir audit
+satırına yazılmaz.
+
+Dört göz e-postası (konu sabit: "İzin istenmeden bağlanıldı" / "Gözetimsiz erişim politikası değişti"): alıcı firmadaki diğer
+etkin `unattended.manage` sahipleri; yoksa işlemi yapan + etkin Admin'ler. 3 deneme (0 / 10 / 30 sn); başarısızlık bağlantıyı
+durdurmaz. Müşteri bildirimine izinsiz bağlantıda "İzin istenmeden bağlanıldı." satırı eklenir (gerekçe eklenmez).
+
+### `/ws/device` (servis protokolü, `"v":1` aynı)
+
+Sunucu `device.ready`'den sonra yalnız `rs.cap.consent1` bildiren sokete `device.features{caps:["consent1"]}` gönderir.
+S→C: `connect` (+ `consent: "ask"|"silent"`, silent'ta `indicatorControl`), `intervene{sessionId, id, cmd: lock|logoff}`,
+`rejoin{sessionId, ticket, mode, indicatorText, indicatorControl?, expiresInSec ≤ 30}`. C→S (yalnız `device.features`
+alındıktan sonra): `device.user{state}`, `consent.result{mode, decision?, ms?}`, `intervene.result{sessionId, id, cmd, ok,
+reason?}`. Şemalar `packages/contracts/src/ws-device.ts`, fikstür `fixtures/ws-device.json`.
 
 ## Saklama ve anonimleştirme (P13a)
 

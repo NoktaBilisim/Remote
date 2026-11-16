@@ -51,14 +51,43 @@ function maskIdentityKeys(v: JsonValue): JsonValue {
   return out;
 }
 
+/** D-P28u-K1-1: izinsiz bağlantı gerekçesinin audit anahtarı (`unattended.connect.newValue`). */
+export const SILENT_REASON_KEY = "silentReason";
+
+/** Değer üst düzeyde gerekçe taşıyor mu (okuma tarafında oturum sorgusu yalnız bunlar için). */
+export const carriesSilentReason = (raw: unknown): boolean =>
+  raw !== null && typeof raw === "object" && !Array.isArray(raw) && SILENT_REASON_KEY in raw;
+
+/** Gerekçe anahtarı (iç içe dahil) `"***"`; null kalır. */
+function maskSilentReason(v: JsonValue): JsonValue {
+  if (Array.isArray(v)) return v.map(maskSilentReason);
+  if (v === null || typeof v !== "object") return v;
+  const out: { [k: string]: JsonValue } = {};
+  for (const [k, inner] of Object.entries(v)) out[k] = k === SILENT_REASON_KEY ? (inner === null ? null : MASK) : maskSilentReason(inner);
+  return out;
+}
+
 /**
- * DB JSON → yanıt değeri: maske (her zaman) + `identityMasked` ise kimlik anahtarları + dış gönderimde izinli alan
- * izdüşümü (izdüşüm maskeden SONRA: `recipient` maskeli kalır).
+ * Gerekçe görünür mü (D-P28u-K1-1, T6): çağıranda `session_history.view` ∧ satır bir oturuma ait ∧ o oturum var ve
+ * anonimleştirilmemiş (`visible` = `reasonVisibleSessions`). Aksi her durumda maskeli (fail-closed).
  */
-export function auditValueView(action: string, raw: unknown, identityMasked = false): AuditJson | null {
+export function silentReasonVisible(
+  r: { entity: string; entityId: string | null; tenantId: string | null },
+  canViewHistory: boolean,
+  visible: ReadonlySet<string>,
+): boolean {
+  return canViewHistory && r.entity === "support_sessions" && r.entityId !== null && visible.has(`${r.tenantId}:${r.entityId}`);
+}
+
+/**
+ * DB JSON → yanıt değeri: maske (her zaman) + `identityMasked` ise kimlik anahtarları + `hideSilentReason` ise izinsiz
+ * bağlantı gerekçesi + dış gönderimde izinli alan izdüşümü (izdüşüm maskeden SONRA: `recipient` maskeli kalır).
+ */
+export function auditValueView(action: string, raw: unknown, identityMasked = false, hideSilentReason = true): AuditJson | null {
   if (raw === null || raw === undefined) return null;
   const base = maskValue(raw as JsonValue);
-  const masked = identityMasked ? maskIdentityKeys(base) : base;
+  const ident = identityMasked ? maskIdentityKeys(base) : base;
+  const masked = hideSilentReason ? maskSilentReason(ident) : ident;
   return isOutboundAction(action) ? projectOutbound(masked) : (masked as AuditJson);
 }
 

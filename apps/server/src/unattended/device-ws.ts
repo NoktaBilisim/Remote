@@ -9,13 +9,17 @@ import { STATUS_CODES } from "node:http";
 import type { Duplex } from "node:stream";
 import {
   DEVICE_AUTH_TIMEOUT_MS,
+  DEVICE_FEATURE_BY_SUBPROTOCOL,
   deviceAuthSchema,
+  deviceConsentInboundSchema,
   deviceInboundSchema,
   WS_DEVICE_CLOSE,
   WS_DEVICE_MAX_PAYLOAD,
   WS_DEVICE_PROTOCOL_VERSION,
   WS_DEVICE_RATE_PER_SEC,
   WS_DEVICE_SUBPROTOCOL,
+  type DeviceConsentOutbound,
+  type DeviceFeature,
   type DeviceOutbound,
 } from "@remote/contracts/ws-device";
 import type { FastifyInstance } from "fastify";
@@ -48,12 +52,24 @@ interface Ctx {
   beforeAttach?: ((deviceId: string) => Promise<void>) | undefined;
 }
 
-type Peer = ReturnType<typeof jsonPeer<DeviceOutbound>>;
+type Peer = ReturnType<typeof jsonPeer<DeviceOutbound | DeviceConsentOutbound>>;
 
 /** Soket başına kimlik durumu (open ↔ beginAuth). */
 interface SockState {
   conn: DeviceConn | undefined;
   authing: boolean;
+  /** P28u §6.1: upgrade'de bildirilen belirteçler (bilinmeyen yok sayılır; kimlik değildir). */
+  caps: ReadonlySet<DeviceFeature>;
+}
+
+/** `rs.cap.*` alt protokol belirteçleri → yetenek kümesi (P28a kalıbı). */
+function capsOf(req: IncomingMessage): ReadonlySet<DeviceFeature> {
+  const out = new Set<DeviceFeature>();
+  for (const p of offeredProtocols(req)) {
+    const f = DEVICE_FEATURE_BY_SUBPROTOCOL[p];
+    if (f) out.add(f);
+  }
+  return out;
 }
 
 function reject(socket: Duplex, status: number): void {
@@ -104,15 +120,15 @@ function upgrade(c: Ctx, req: IncomingMessage, socket: Duplex, head: Buffer, ip:
     ws.on("error", (err: Error & { code?: string }) => c.app.log.info({ role: "device", code: err.code }, "ws protokol hatası"));
     c.app.metrics.inc("rs_ws_connections_total", { role: "device" });
     const ctx: AuditContext = { ip, userAgent: String(req.headers["user-agent"] ?? "").slice(0, 300), requestId: newId() };
-    open(c, ws, ctx, release);
+    open(c, ws, ctx, release, capsOf(req));
   });
 }
 
-function open(c: Ctx, ws: WebSocket, ctx: AuditContext, release: () => void): void {
-  const peer = jsonPeer<DeviceOutbound>(ws);
+function open(c: Ctx, ws: WebSocket, ctx: AuditContext, release: () => void, caps: ReadonlySet<DeviceFeature>): void {
+  const peer = jsonPeer<DeviceOutbound | DeviceConsentOutbound>(ws);
   const nonce = randomBytes(32).toString("base64url");
   const bucket = new TokenBucket(c.app.rooms.clock, WS_DEVICE_RATE_PER_SEC);
-  const s: SockState = { conn: undefined, authing: false };
+  const s: SockState = { conn: undefined, authing: false, caps };
   const clock = c.app.rooms.clock;
   const timer = clock.setTimeout(() => {
     if (!s.conn) ws.close(WS_DEVICE_CLOSE.AUTH_FAILED, "auth_timeout");
@@ -122,9 +138,12 @@ function open(c: Ctx, ws: WebSocket, ctx: AuditContext, release: () => void): vo
     if (isBinary || !bucket.take()) return ws.close(1008, isBinary ? "binary" : "rate");
     const json = parseJson(data);
     if (!s.conn) return beginAuth(c, ws, peer, { ctx, nonce, json, s, release });
-    const m = deviceInboundSchema.safeParse(json);
+    // K2 devir: önce taban şema; `consent1` sokette olmazsa P28u birliği (belirteçsizde denenmez → 1008).
+    const base = deviceInboundSchema.safeParse(json);
+    const m = base.success ? base : s.conn.caps.has("consent1") ? deviceConsentInboundSchema.safeParse(json) : base;
     if (!m.success) return ws.close(1008, "invalid");
-    void onDeviceMessage({ rooms: c.app.rooms, hub: c.hub, now: Date.now }, s.conn, ctx, m.data).catch((err: unknown) =>
+    const deps = { rooms: c.app.rooms, hub: c.hub, now: () => c.app.rooms.clock.now() };
+    void onDeviceMessage(deps, s.conn, ctx, m.data).catch((err: unknown) =>
       c.app.log.error({ err, t: m.data.t }, "cihaz mesajı işlenemedi"),
     );
   });
@@ -145,7 +164,7 @@ function beginAuth(
   const m = deviceAuthSchema.safeParse(a.json);
   if (!m.success || a.s.authing) return ws.close(1008, "invalid");
   a.s.authing = true;
-  void authenticate(c, ws, peer, a.ctx, a.nonce, m.data)
+  void authenticate(c, ws, peer, a.ctx, a.nonce, m.data, a.s.caps)
     .then((ok) => {
       a.s.conn = ok;
       if (ok) a.release();
@@ -171,6 +190,7 @@ async function authenticate(
   ctx: AuditContext,
   nonce: string,
   m: Parameters<typeof authenticateDevice>[3],
+  caps: ReadonlySet<DeviceFeature>,
 ): Promise<DeviceConn | undefined> {
   const out = await authenticateDevice(c.auth, ctx, nonce, m);
   if (out.ok) await c.beforeAttach?.(m.deviceId);
@@ -180,9 +200,11 @@ async function authenticate(
     ws.close(out.code, out.reason);
     return undefined;
   }
-  const conn: DeviceConn = { deviceId: m.deviceId, tenantId: out.tenantId, ip: ctx.ip, send: peer.send, close: peer.close };
+  const conn: DeviceConn = { deviceId: m.deviceId, tenantId: out.tenantId, ip: ctx.ip, send: peer.send, close: peer.close, caps };
   if (!(await confirmAttached(c, ws, peer, conn))) return undefined;
   peer.send({ t: "device.ready", tenantName: out.tenantName.slice(0, 120), customerName: out.customerName.slice(0, 120) });
+  // P28u §6.1: `device.ready` değişmez; yalnız belirteci bildiren sokete hemen ardından `device.features`.
+  if (caps.size > 0) peer.send({ t: "device.features", caps: [...caps] });
   return conn;
 }
 

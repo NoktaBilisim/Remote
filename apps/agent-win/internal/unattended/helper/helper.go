@@ -2,12 +2,16 @@
 // §5.5, §5.6). Servis onu SYSTEM jetonunun kısıtlı kopyasıyla konsol oturumunda başlatır; girdi (bilet dahil) yalnız
 // devralınan borudan gelir (internal/servis/helperio). Sıra kesindir: süreç kimliği denetimi → girdi → gösterge tüm
 // monitörlerde çizilip doğrulanır → ancak sonra `/ws/guest` (mevcut flow oturumu, bilet yolu). Kullanıcı arayüzü yoktur:
-// kontrol isteği anında GRANTED{UNATTENDED}, dosya teklifi ve monitör isteği otomatik kabul. Gösterge dışında pencere,
-// diyalog, URL/e-posta açma yoktur (derleme sınırı: boundary_test.go, AC-341). Çıkış kodu bitiş nedenidir.
+// kontrol isteği anında GRANTED{UNATTENDED}, dosya teklifi ve monitör isteği otomatik kabul. Gösterge ve onay diyaloğu
+// (P28u, ADR-0033: `Consent=="ask"` ise gösterge ve `/ws/guest`'ten önce) dışında pencere, diyalog, URL/e-posta açma
+// yoktur (derleme sınırı: boundary_test.go, AC-341; pencere sınıfları windows_test.go). Çıkış kodu bitiş nedenidir.
+// P28u: giriş borusunun sonraki satırları servis komutlarıdır (kilit); durum borusuna onay/kontrol/kilit olayları yazılır.
 package helper
 
 import (
+	"bufio"
 	"context"
+	"io"
 	"sync/atomic"
 	"time"
 
@@ -42,6 +46,16 @@ type Deps struct {
 	// Flow oturum bağımlılıkları (Dial, NewPeer, Monitors, Capture, Input, DownloadDir, CheckDir, MOTW …). UI, Events,
 	// Unattended, Hotkey, Admitted ve kullanıcıya dönük alanları Run doldurur/boşaltır.
 	Flow flow.Deps
+	// AskConsent P28u onay diyaloğu (Consent=="ask"); nil → yardımcı başarısız (fail-closed).
+	AskConsent AskConsent
+	// Status durum borusunun yazma ucu (yardımcı → servis); nil → atılır (yalnız test).
+	Status io.Writer
+	// Commands giriş borusunun Input'tan sonraki kısmı (komut satırları); nil → komut yok.
+	Commands *bufio.Reader
+	// Locker kilit yolu (AC-443); nil → `lock` komutu not_locked yanıtlanır.
+	Locker Locker
+	// Now saat (test); nil → time.Now.
+	Now func() time.Time
 	// EndGrace gösterge hatasında `session.end` sonrası akışın kendiliğinden bitmesi için beklenen süre; dolarsa bağlam
 	// kesilir. 0 → DefaultEndGrace.
 	EndGrace time.Duration
@@ -55,20 +69,45 @@ const eventBuffer = 16
 
 // Run göstergeyi açar ve doğrular, sonra bilet yoluyla oturumu yürütür. Dönen değer çıkış kodudur (helperio.Exit*).
 func Run(ctx context.Context, d Deps, in helperio.Input) uint32 {
+	st := newStatusPipe(d.Status)
+	if in.Consent == "" { // P27 girdisi (eski sunucu): servis durum tablosu yok; boruya hiçbir olay yazılmaz
+		st = newStatusPipe(nil)
+	}
+	if in.Consent == helperio.ConsentAsk { // P28u AC-431: karar öncesi gösterge/katılım/kare/girdi yok
+		if d.AskConsent == nil {
+			return helperio.ExitHelperFailed
+		}
+		now := d.Now
+		if now == nil {
+			now = time.Now
+		}
+		dec, ms := runConsent(ctx, d.AskConsent, in, now)
+		if dec == decisionFailed || st.consent(dec, ms) != nil {
+			return helperio.ExitHelperFailed // servis kararı bilmeden bağlanılmaz
+		}
+		if code := consentExit(dec); code != 0 {
+			return code
+		}
+	}
 	ind, err := d.ShowIndicator(in.IndicatorText)
 	if err != nil || ind == nil {
-		return helperio.ExitIndicatorFailed // AC-294: `/ws/guest` çağrılmadı
+		return helperio.ExitIndicatorFailed // AC-294 / AC-438: `/ws/guest` çağrılmadı
 	}
-	live := newLive(ind)
+	live := newLive(ind, in.IndicatorText)
 	defer live.Close()
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	if d.Gate == nil {
 		d.Gate = desktop.NewGate()
 	}
-	follow(ctx, d, live, in.IndicatorText) // K6b: masaüstü değişiminde önce durdur → gösterge doğrula → devam
+	follow(ctx, d, live) // K6b: masaüstü değişiminde önce durdur → gösterge doğrula → devam
+	if d.Commands != nil {
+		go serveCommands(ctx, d.Commands, d.Locker, st)
+	}
 	events := make(chan flow.Event, eventBuffer)
 	ui := newHeadless(ctx, events)
+	ui.mode, ui.st, ui.live = in.Mode, st, live
+	ui.viewText, ui.controlText = in.IndicatorText, in.IndicatorControl
 	var admitted, indFailed atomic.Bool
 	fd := unattendedDeps(gatedFlow(d.Flow, d.Gate), ui, events, func() { admitted.Store(true) })
 	go watchIndicator(ctx, live.Failed(), &indFailed, ui, cancel, grace(d.EndGrace))

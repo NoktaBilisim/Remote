@@ -11,6 +11,7 @@ import { t } from "@/lib/i18n";
 import type { DeviceListResponse } from "@/lib/unattended/contract";
 import type { DeviceListParams } from "@/lib/unattended/query";
 import { CreateCodeButton } from "./code-dialog";
+import { ConnectDialog } from "./connect-dialog";
 import { DeviceRows } from "./device-rows";
 import { useConnect } from "./use-connect";
 import { useDevicePoll } from "./use-device-poll";
@@ -55,7 +56,7 @@ function MoreButton({ state, onClick }: { state: "idle" | "busy" | "error"; onCl
 }
 
 /**
- * Cihazlar sekmesi gövdesi (AC-275, 293, 336, 337, 339): 15 sn yoklamalı liste, rozetler, Bağlan. Kısmi durum: yoklama
+ * Cihazlar sekmesi gövdesi (AC-275, 293, 336, 337, 339): 8 sn yoklamalı liste, rozetler, Bağlan. Kısmi durum: yoklama
  * hatasında son veri + "durum güncellenemedi" bandı. Sayfa `key`'i filtre yoludur (filtre değişince durum sıfırlanır).
  */
 export function DeviceList({
@@ -64,15 +65,22 @@ export function DeviceList({
   available,
   manage,
   createBlock,
+  silentAllowed = false,
 }: {
   initial: DeviceListResponse;
   params: DeviceListParams;
   available: boolean;
   manage: boolean;
   createBlock: string | null;
+  /** P28u (AC-430): `status.silentAllowed` — Bağlan diyaloğunda "İzin istemeden bağlan" kutusu. */
+  silentAllowed?: boolean;
 }): ReactNode {
   const { data, stale, more, poll, loadMore } = useDevicePoll(initial, params.q, params.customerId, params.state);
-  const { connect, busyId } = useConnect(() => void poll());
+  const flow = useConnect(() => void poll());
+  const openConnect = (id: string) => {
+    const d = data.items.find((x) => x.id === id);
+    if (d) flow.open(d);
+  };
   return (
     <section className="mt-4 flex flex-col gap-4" aria-label={t("un.tab.devices")}>
       {stale && (
@@ -84,13 +92,14 @@ export function DeviceList({
         <Empty params={params} manage={manage} createBlock={createBlock} />
       ) : (
         <>
-          <DeviceRows items={data.items} available={available} busyId={busyId} onConnect={(id) => void connect(id)} />
+          <DeviceRows items={data.items} available={available} busyId={flow.busyId} onConnect={openConnect} />
           <p className="text-sm text-fg-muted tabular-nums" role="status" data-testid="un-count">
             {t(data.nextCursor ? "un.countMore" : "un.count", { n: formatNumber(data.items.length) })}
           </p>
           {data.nextCursor && <MoreButton state={more} onClick={() => void loadMore()} />}
         </>
       )}
+      <ConnectDialog flow={flow} silentAllowed={silentAllowed} />
     </section>
   );
 }

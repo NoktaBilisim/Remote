@@ -17,6 +17,7 @@ import {
 } from "./control-record.ts";
 import type { Rooms } from "./rooms.ts";
 import type { ConsentSource, Guest, Room } from "./types.ts";
+import { controlToggled } from "./unattended-control.ts";
 
 /** K8: GRANTED audit'i için istemcinin yönetici durumu; env.state hiç gelmediyse "unknown". */
 const selfElevatedOf = (room: Room): "true" | "false" | "unknown" =>
@@ -65,6 +66,7 @@ export async function onGranted(rooms: Rooms, room: Room, guest: Guest, source: 
     return;
   }
   c.state = "GRANTED";
+  controlToggled(rooms, room, true); // P28u §8.2
   room.tech?.peer.send({ t: "control.state", state: "GRANTED", source });
   rooms.metrics.inc("rs_control_total", { event: "granted" });
 }
@@ -118,6 +120,7 @@ export async function onView(rooms: Rooms, room: Room, guest: Guest, source: Con
     return;
   }
   rooms.metrics.inc("rs_control_total", { event: `revoked_${source.toLowerCase()}` });
+  controlToggled(rooms, room, false); // P28u §8.2
   // AC-111: müşteri kapattı (UI) / kısayol (HOTKEY) / istemci kendiliğinden kapattı (SYSTEM).
   const consentSource: ConsentSource = source === "HOTKEY" || source === "SYSTEM" ? source : "UI";
   await recordControl(rooms, room, "REVOKED", consentSource, guestCtx(guest), CUSTOMER, CONTROL_AUDIT.REVOKED).catch(

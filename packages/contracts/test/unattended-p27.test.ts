@@ -54,7 +54,8 @@ const register = (over: Record<string, unknown> = {}) => ({
 
 describe("P27 yetki anahtarları", () => {
   it("AC-285: unattended.connect ve unattended.manage tek tanımdan gelir; Admin açık, User kapalı başlar; açıklamalı", () => {
-    expect(PERMISSION_MODULES.find((m) => m.key === "unattended")?.actions).toEqual(["connect", "manage"]);
+    // P28u: "silent" eklendi (unattended-p28u.test.ts).
+    expect(PERMISSION_MODULES.find((m) => m.key === "unattended")?.actions).toEqual(expect.arrayContaining(["connect", "manage"]));
     expect(PERMISSION_KEYS).toContain("unattended.connect");
     expect(PERMISSION_KEYS).toContain("unattended.manage");
     expect(effectivePermissions("ADMIN", [])).toEqual(expect.arrayContaining(["unattended.connect", "unattended.manage"]));

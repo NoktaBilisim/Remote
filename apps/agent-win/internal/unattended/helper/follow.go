@@ -24,10 +24,14 @@ type liveIndicator struct {
 	failed   chan struct{}
 	failOnce sync.Once
 	closed   bool
+	text     string // geçerli etiket (P28u silent: izleme ↔ kontrol); masaüstü geçişinde yeni gösterge bununla çizilir
 }
 
-func newLive(ind Indicator) *liveIndicator {
-	l := &liveIndicator{failed: make(chan struct{})}
+// labeler etiketi yerinde değiştirebilen gösterge (Windows: yeniden çiz + doğrula; başarısızsa Failed — fail-closed).
+type labeler interface{ SetText(string) }
+
+func newLive(ind Indicator, text string) *liveIndicator {
+	l := &liveIndicator{failed: make(chan struct{}), text: text}
 	l.watch(ind)
 	return l
 }
@@ -51,8 +55,9 @@ func (l *liveIndicator) watch(ind Indicator) {
 // rebind göstergeyi o anki giriş masaüstünde yeniden kurar (show orada çizip doğrular), eskisini kapatır; bağlanılan
 // masaüstünün adını döner. Geçiş boyunca eski (artık görünmeyen) göstergenin hatası dinlenmez: kapı zaten kapalıdır,
 // sonucu izleyicinin bütçesi belirler.
-func (l *liveIndicator) rebind(show func(string) (Indicator, error), text string) (string, error) {
+func (l *liveIndicator) rebind(show func(string) (Indicator, error)) (string, error) {
 	l.detach()
+	text := l.Text()
 	n, err := show(text)
 	if err != nil {
 		return "", err
@@ -68,6 +73,13 @@ func (l *liveIndicator) rebind(show func(string) (Indicator, error), text string
 		return "", errNoIndicator
 	}
 	l.watch(n)
+	if now := l.Text(); now != text { // etiket çizim sırasında değişti
+		if lb, ok := n.(labeler); ok {
+			lb.SetText(now)
+		} else {
+			l.fail()
+		}
+	}
 	go old.Close() // eski masaüstü artık görünmüyor; kapanışı yeni göstergeyi bekletmez
 	return n.Desktop(), nil
 }
@@ -79,6 +91,30 @@ func (l *liveIndicator) detach() {
 		close(l.stop)
 		l.stop = nil
 	}
+}
+
+// Text geçerli etiket.
+func (l *liveIndicator) Text() string {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.text
+}
+
+// SetText P28u §7.6: etiketi değiştirir (aynı pencereler, ≤ 1 sn). Gösterge etiket değiştiremiyorsa başarısız sayılır.
+func (l *liveIndicator) SetText(text string) {
+	l.mu.Lock()
+	if l.text == text || l.closed {
+		l.mu.Unlock()
+		return
+	}
+	l.text = text
+	cur := l.cur
+	l.mu.Unlock()
+	if lb, ok := cur.(labeler); ok {
+		lb.SetText(text)
+		return
+	}
+	l.fail()
 }
 
 func (l *liveIndicator) fail() { l.failOnce.Do(func() { close(l.failed) }) }
@@ -104,10 +140,10 @@ func (l *liveIndicator) Close() {
 }
 
 // follow masaüstü izleyicisini başlatır; doğrulanamazsa göstergeyi başarısız sayar (oturum indicator_failed biter).
-func follow(ctx context.Context, d Deps, live *liveIndicator, text string) {
+func follow(ctx context.Context, d Deps, live *liveIndicator) {
 	f := desktop.Follower{
 		Name:     d.InputDesktop,
-		Bind:     func() (string, error) { return live.rebind(d.ShowIndicator, text) },
+		Bind:     func() (string, error) { return live.rebind(d.ShowIndicator) },
 		Resumed:  d.Resumed,
 		Gate:     d.Gate,
 		Interval: d.FollowInterval,

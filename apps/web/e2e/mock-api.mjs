@@ -12,6 +12,7 @@ import { handleP16, p16User } from "./mock-p16.mjs";
 import { handleP18, p18User } from "./mock-p18.mjs";
 import { handleP19, p19User } from "./mock-p19.mjs";
 import { handleP27, p27User } from "./mock-p27.mjs";
+import { handleP28u, p28uUser } from "./mock-p28u.mjs";
 import { handleHistory, historyUser } from "./mock-history.mjs";
 import { handleLg, lgOutbox } from "./mock-lg.mjs";
 import { handleFsrvBytes, handleP28b, handleStoredLink, p28bUser } from "./mock-p28b.mjs";
@@ -86,6 +87,8 @@ function resolveMe(session) {
   const tenant = { id: "01JTENANT", name: "Demo Firma" };
   const p27 = p27User(session);
   if (p27) return p27;
+  const p28u = p28uUser(session);
+  if (p28u) return p28u;
   const p28b = p28bUser(session);
   if (p28b) return { user: p28b.user, permissions: p28b.permissions, tenant: p28b.tenant, actingTenant: p28b.actingTenant };
   const p15 = p15User(session);
@@ -158,6 +161,8 @@ const srv = createServer(async (req, res) => {
   if (await handleBranding(req, res, { url, session, csrfOk, send, err })) return;
   // P27-K8: gözetimsiz erişim arayüzü (u-un*)
   if (await handleP27(req, res, { url, session, csrfOk, send, err, readJson })) return;
+  // P28u-K7: izinli/izinsiz bağlantı, politika (u-p28u*)
+  if (await handleP28u(req, res, { url, session, csrfOk, send, err, readJson })) return;
 
   if (req.method === "POST" && url === "/api/v1/auth/login") {
     const { login = "", password = "" } = req.__body ?? (await readJson(req));

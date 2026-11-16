@@ -27,6 +27,7 @@ import { slaBreachedAt } from "@remote/contracts/api/requests";
 import type { Db } from "../lib/db.ts";
 import type { HistoryLog } from "./history.ts";
 import * as hrepo from "./history-repo.ts";
+import { unattendedInfo } from "./history-unattended.ts";
 import {
   CONTROL_PERIOD_ACTIONS,
   actorOf,
@@ -158,6 +159,7 @@ export async function buildDetail(
     timelineTruncated,
     request: requestOf(row, anonymized, now),
     storedFiles: anonymized ? [] : stored.map((f) => storedFileItem(f, canFiles)),
+    ...(row.mode === "UNATTENDED" ? { unattended: await unattendedInfo(db, row, anonymized) } : {}),
   };
 }
 

@@ -43,10 +43,24 @@ export function sendHelloTech(rooms: Rooms, room: Room): void {
     ...(g && room.maxFileMb ? { maxFileMb: room.maxFileMb } : {}),
     ...(g ? { guestName: g.name } : {}), // QA-P4-12: yeniden bağlanan teknisyen misafiri tanır
     ...(g && room.share ? { share: room.share } : {}),
-    ...(room.unattended ? { unattended: { deviceId: room.unattended.deviceId, deviceName: room.unattended.deviceName } } : {}),
+    ...unattendedHello(rooms, room),
     ...(g ? { fileMode: fileModeOf(room) } : {}), // P28b §5.1: teknisyene her zaman (admit sonrası)
     ...clipPrintFields(room),
   });
+}
+
+/** P27 + P28u (§6.4): konsol rozeti + kip (`ask` odasında onay sonucuna kadar yok) + müdahale düğmeleri (cihaz `consent1`). */
+function unattendedHello(rooms: Rooms, room: Room) {
+  const u = room.unattended;
+  if (!u) return {};
+  return {
+    unattended: {
+      deviceId: u.deviceId,
+      deviceName: u.deviceName,
+      ...(u.consentMode ? { consentMode: u.consentMode } : {}),
+      intervene: rooms.devices?.has(u.deviceId, "consent1") ?? false,
+    },
+  };
 }
 
 /**

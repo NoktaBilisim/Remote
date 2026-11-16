@@ -31,7 +31,8 @@ func Main(cfg config.Config) int {
 	if code := verifyProcess(); code != 0 {
 		return int(code)
 	}
-	in, err := helperio.Read(os.Stdin)
+	br := helperio.NewReader(os.Stdin) // P28u §7.4: ilk satır girdi, sonraki satırlar komut (boru açık kalır)
+	in, err := helperio.ReadInput(br)
 	if err != nil {
 		return int(helperio.ExitHelperFailed)
 	}
@@ -44,7 +45,7 @@ func Main(cfg config.Config) int {
 	gate := desktop.NewGate()
 	fd, applier := flowDeps(cfg, inc, gate)
 	d := Deps{ShowIndicator: showIndicator, InputDesktop: desktop.InputName, Gate: gate, Resumed: applier.ReleaseAll,
-		Flow: fd}
+		Flow: fd, AskConsent: askConsentWin, Status: os.Stdout, Commands: br, Locker: newWinLocker()}
 	return int(Run(context.Background(), d, in))
 }
 

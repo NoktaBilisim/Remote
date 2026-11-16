@@ -76,7 +76,7 @@ func (s *session) onControlServer(ctx context.Context, m signal.Inbound) {
 	switch m := m.(type) {
 	case signal.ControlRequest:
 		// AC-99: yalnız görüntülemeden istek; kontrol zaten verilmişse veya yetenek yoksa yok sayılır.
-		if s.phase != phActive || s.granted || !s.hasCap(capRemoteControl) || !s.ctlReq.Admit(s.d.Now()) {
+		if s.phase != phActive || s.granted || !s.hasCap(capRemoteControl) || !s.admitControl() {
 			return
 		}
 		if s.d.Unattended { // P27 (mimari-p27 §5.6): arayüz yok, anında GRANTED{UNATTENDED}
@@ -93,6 +93,14 @@ func (s *session) onControlServer(ctx context.Context, m signal.Inbound) {
 	case signal.CapsUpdate:
 		s.onCapsUpdate(ctx, m.Caps)
 	}
+}
+
+// admitControl AC-116 sayacı katılımlı oturumda; gözetimsizde yalnız bekleyen istek yok (P28u K-P28u-16).
+func (s *session) admitControl() bool {
+	if s.d.Unattended {
+		return s.ctlReq.AdmitOpen()
+	}
+	return s.ctlReq.Admit(s.d.Now())
 }
 
 // onControlRelease K1/K2: durumdan bağımsız kapı ve kontrol diyaloğu kapanır; yanıt yok (sunucu zaten VIEW).

@@ -13,6 +13,7 @@ import { ipKey, netKey } from "../lib/ip.ts";
 import * as repo from "../sessions/repo.ts";
 import type { UnattendedGate } from "../unattended/gate.ts";
 import { enqueueStarted } from "../unattended/notify.ts";
+import { lockSilentPolicy, userHasSilent } from "../unattended/policy.ts";
 import { lockDevice, lockGrant } from "../unattended/repo.ts";
 import { syncDisconnect } from "./active.ts";
 import { activeTechPerms } from "./admit.ts";
@@ -28,8 +29,36 @@ export interface AdmitDeviceDeps {
 type Dev = NonNullable<Room["unattended"]>;
 type Tx = Prisma.TransactionClient;
 
+/** P28u §8.1: `ask` odasında `consent.result` henüz yoksa ≤ 3 sn beklenir (oda başına tek söz). */
+export const CONSENT_WAIT_MS = 3_000;
+
+function waitConsent(rooms: Rooms, dev: Dev): Promise<void> {
+  if (dev.consentRequest !== "ask" || dev.consentMode || dev.consentWait) return Promise.resolve();
+  return new Promise((resolve) => {
+    const done = (): void => {
+      rooms.clock.clearTimeout(timer);
+      dev.consentWait = undefined;
+      resolve();
+    };
+    const timer = rooms.clock.setTimeout(done, CONSENT_WAIT_MS);
+    dev.consentWait = done;
+  });
+}
+
+/** K-P28u-3: `ask` odası yalnız `no_user` ya da `asked`+`granted` ile kabul edilir. */
+const consentOk = (dev: Dev): boolean =>
+  dev.consentRequest !== "ask" || dev.consentMode === "no_user" || (dev.consentMode === "asked" && dev.consent?.decision === "granted");
+
+/**
+ * O-P28u-2 / K-P28u-21: `silent` oturumda (DB satırı yetkili) kapıdan sonra `tenant_settings` FOR SHARE + teknisyenin
+ * `unattended.silent`'i yeniden; değilse `permission` (connect TX'iyle aynı kilit sırası).
+ */
+export async function silentRecheck(tx: Tx, room: Room): Promise<boolean> {
+  return (await lockSilentPolicy(tx, room.tenantId)) && userHasSilent(tx, room.tenantId, room.technicianId);
+}
+
 /** §4.3 r2 (b)(c) + kapı: kilitli cihaz hâlâ uygun mu; değilse bitiş nedeni. */
-async function recheck(tx: Tx, d: AdmitDeviceDeps, room: Room, dev: Dev): Promise<SessionEndedReason | null> {
+export async function recheck(tx: Tx, d: AdmitDeviceDeps, room: Room, dev: Dev): Promise<SessionEndedReason | null> {
   const locked = await lockDevice(tx, room.tenantId, dev.deviceId);
   if (!locked || locked.revoked_at) return "device_revoked";
   if (!locked.local_enabled) return "local_disabled";
@@ -51,9 +80,25 @@ function consumeDevice(
   return rooms.db.$transaction(async (tx) => {
     const fail = await recheck(tx, d, room, dev);
     if (fail) return fail;
+    const row = await tx.supportSession.findUnique({ where: { id: room.sessionId }, select: { consentMode: true } });
+    const silent = row?.consentMode === "silent";
+    if (silent && !(await silentRecheck(tx, room))) {
+      await writeAudit(tx, ctx, {
+        tenantId: room.tenantId,
+        username: "device",
+        action: UNATTENDED_AUDIT.SESSION_STARTED,
+        entity: "support_sessions",
+        entityId: room.sessionId,
+        result: "fail",
+        newValue: { deviceId: dev.deviceId, technicianId: room.technicianId, consentMode: "silent", failReason: "permission" },
+      });
+      return "permission";
+    }
+    const consentMode = silent ? "silent" : dev.consentMode;
     const keys = { guestIpKey: ipKey(ctx.ip), guestNetKey: netKey(ctx.ip) };
     const customer = { name: dev.deviceName, email: null };
     if ((await repo.consumeForAdmit(tx, room.sessionId, now, "UNATTENDED", customer, keys)) !== 1) return "device_timeout";
+    if (!silent) await tx.supportSession.update({ where: { id: room.sessionId }, data: { consentMode: consentMode ?? null } });
     await tx.sessionConsent.create({
       data: {
         id: newId(),
@@ -74,7 +119,13 @@ function consumeDevice(
       entity: "support_sessions",
       entityId: room.sessionId,
       result: "success",
-      newValue: { deviceId: dev.deviceId, technicianId: room.technicianId, techIp: room.tech?.ctx.ip ?? null, deviceIp: ctx.ip },
+      newValue: {
+        deviceId: dev.deviceId,
+        technicianId: room.technicianId,
+        techIp: room.tech?.ctx.ip ?? null,
+        deviceIp: ctx.ip,
+        consentMode: consentMode ?? null,
+      },
     });
     await enqueueStarted(tx, d.secrets, { tenantId: room.tenantId, sessionId: room.sessionId, customerId: dev.customerId, now });
     return "ok";
@@ -101,12 +152,19 @@ export async function admitDeviceGuest(
     rooms.metrics.inc("rs_admit_total", { result: "conflict" });
     return "conflict";
   }
+  // §8.1: onay sonucu beklenirken oda `admitting` DEĞİL — bu sürede iptal/kesme PENDING yolundan (DB CANCELLED) biter.
+  await waitConsent(rooms, dev);
+  if (!rooms.live(room) || room.admitted || room.admitting) {
+    peer.close(1000, "ended");
+    return "conflict";
+  }
   room.admitting = true;
   const now = new Date(rooms.clock.now());
   let outcome: "ok" | SessionEndedReason = "permission";
   try {
     const perms = await activeTechPerms(rooms, room);
-    if (perms?.has("unattended.connect")) outcome = await consumeDevice(rooms, d, room, dev, ctx, now);
+    if (!consentOk(dev)) outcome = "consent_missing";
+    else if (perms?.has("unattended.connect")) outcome = await consumeDevice(rooms, d, room, dev, ctx, now);
   } finally {
     room.admitting = false;
   }

@@ -31,6 +31,10 @@ type Input struct {
 	TechIP        string `json:"techIp"`
 	IndicatorText string `json:"indicatorText"`
 	ExpiresInSec  int    `json:"expiresInSec"`
+	// P28u (§7.4, p28u.go): Consent "ask"|"none", Mode "asked"|"no_user"|"silent", IndicatorControl (yalnız silent).
+	Consent          string `json:"consent,omitempty"`
+	Mode             string `json:"mode,omitempty"`
+	IndicatorControl string `json:"indicatorControl,omitempty"`
 }
 
 var (
@@ -57,7 +61,7 @@ func (in Input) Validate() error {
 	case in.ExpiresInSec < 1 || in.ExpiresInSec > 300:
 		return fmt.Errorf("%w: expiresInSec", ErrInvalid)
 	}
-	return nil
+	return in.validateP28u()
 }
 
 // Text boş olmayan, en çok n karakterlik, kontrol karakteri içermeyen geçerli UTF-8 metin mi.
@@ -80,12 +84,17 @@ func Unsafe(r rune) bool {
 		unicode.Is(unicode.Zp, r) || r == 0x034F || r == 0x180E
 }
 
-// Encode doğrulayıp JSON'a çevirir (servis tarafı).
+// Encode doğrulayıp JSON'a çevirir (servis tarafı). P28u: satır '\n' ile biter — boru açık kaldığı için yardımcı
+// (ReadInput) ilk satırı yeni satırla ayırır; eski Read sondaki boşluğu kabul eder.
 func Encode(in Input) ([]byte, error) {
 	if err := in.Validate(); err != nil {
 		return nil, err
 	}
-	return json.Marshal(in)
+	b, err := json.Marshal(in)
+	if err != nil {
+		return nil, err
+	}
+	return append(b, '\n'), nil
 }
 
 // Read borudan tek girdiyi okur ve doğrular (yardımcı tarafı). Bilinmeyen alan ve MaxInput aşımı reddedilir.
@@ -139,11 +148,16 @@ func Reason(code uint32) string {
 		return ReasonNoConsole
 	case ExitSessionChanged:
 		return ReasonSessionChanged
+	case ExitConsentDenied:
+		return ReasonConsentDenied
+	case ExitConsentTimeout:
+		return ReasonConsentTimeout
 	}
 	return ReasonHelperFailed
 }
 
 // PreJoin neden yardımcı `/ws/guest`'e katılmadan oluşabilen bir ret mi (servis `connect.result{ok:false}` gönderir).
 func PreJoin(reason string) bool {
-	return reason == ReasonIndicatorFailed || reason == ReasonHelperFailed || reason == ReasonNoConsole
+	return reason == ReasonIndicatorFailed || reason == ReasonHelperFailed || reason == ReasonNoConsole ||
+		reason == ReasonConsentDenied || reason == ReasonConsentTimeout
 }

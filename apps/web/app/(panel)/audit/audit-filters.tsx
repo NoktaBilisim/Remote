@@ -6,6 +6,7 @@ import { TextField } from "@/components/ui/text-field";
 import { actionOptionGroups } from "@/lib/audit/actions";
 import { AUDIT_RESULT_LABELS, AUDIT_RESULTS } from "@/lib/audit/contract";
 import type { AuditFilters } from "@/lib/audit/query";
+import { CONSENT_MODE_LABELS, CONSENT_MODES } from "@/lib/unattended/contract";
 import { istanbulDay } from "@/lib/format";
 import { t } from "@/lib/i18n";
 import { useAuditFilters, type AuditFilterState } from "./use-audit-filters";
@@ -71,6 +72,14 @@ function EventSelects({ f, all, users, usersHint, action }: F & { all: Opt; user
         onChange={f.set("result")}
         options={[all, ...AUDIT_RESULTS.map((r) => ({ value: r, label: AUDIT_RESULT_LABELS[r] }))]}
         data-testid="audit-result"
+      />
+      <SelectField
+        label={t("au.f.consentMode")}
+        name="consentMode"
+        value={f.draft.consentMode}
+        onChange={f.set("consentMode")}
+        options={[all, ...CONSENT_MODES.map((m) => ({ value: m, label: CONSENT_MODE_LABELS[m] }))]}
+        data-testid="audit-consent-mode"
       />
     </>
   );

@@ -3,8 +3,14 @@
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState, type Dispatch, type SetStateAction } from "react";
 import { api, EXPIRED_LOGIN_PATH, isUnauthenticated } from "@/lib/api";
-import { DEVICE_POLL_MS, type DeviceListResponse, type DeviceListState } from "@/lib/unattended/contract";
+import { type DeviceListResponse, type DeviceListState } from "@/lib/unattended/contract";
 import { appendPage, devicesApiPath, mergePoll, pollLimit } from "@/lib/unattended/query";
+
+/**
+ * P28u (§10, K-P28u-6; AC-429 ≤ 10 sn): panel yoklaması 8 sn (contracts `DEVICE_POLL_MS` 15 sn P27 değeri değiştirilmedi).
+ * Yalnız sayfa açık ve sekme görünürken.
+ */
+export const UN_DEVICE_POLL_MS = 8_000;
 
 type More = "idle" | "busy" | "error";
 type Filter = { q: string | undefined; customerId: string | undefined; state: DeviceListState };
@@ -32,7 +38,7 @@ function useLoadMore(
 }
 
 /**
- * Cihaz listesi verisi: ilk sayfa sunucudan (SSR), sonra 15 sn REST yoklaması (ADR-0029 kalıbı; sekme gizliyken
+ * Cihaz listesi verisi: ilk sayfa sunucudan (SSR), sonra 8 sn REST yoklaması (ADR-0029 kalıbı; sekme gizliyken
  * yoklanmaz). Yoklama hatasında son veri kalır ve `stale` bandı görünür (kısmi durum); sonraki başarılı yoklamada kalkar.
  * "Daha fazla yükle" keyset imleciyle ekler.
  */
@@ -69,7 +75,7 @@ export function useDevicePoll(initial: DeviceListResponse, q: string | undefined
   useEffect(() => {
     const id = setInterval(() => {
       if (document.visibilityState === "visible") void poll();
-    }, DEVICE_POLL_MS);
+    }, UN_DEVICE_POLL_MS);
     return () => clearInterval(id);
   }, [poll]);
 

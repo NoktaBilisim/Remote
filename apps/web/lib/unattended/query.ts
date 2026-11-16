@@ -1,7 +1,7 @@
 /*
  * /unattended liste durumu URL'de: `q` (≤ 64), `customerId` (ULID), `state` (online | offline | all vars.). Sunucu
  * `listDevicesQuerySchema` strict olduğundan geçersiz değer API'ye hiç gönderilmez (yok sayılır). Keyset sayfalı;
- * 15 sn yoklama ilk sayfayı (en çok 100 satır) tazeler (mimari-p27 §4.2).
+ * 8 sn (P28u) yoklama ilk sayfayı (en çok 100 satır) tazeler (mimari-p27 §4.2).
  */
 import { UNSAFE_NAME_CHARS } from "@remote/contracts/api/sessions";
 import { DEVICE_LIST_STATES, DEVICE_PAGE_SIZE, DEVICE_PAGE_SIZE_MAX, type DeviceListResponse, type DeviceListState } from "./contract";

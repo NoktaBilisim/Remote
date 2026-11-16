@@ -5,7 +5,7 @@ oturumu açar; müşteri taşınabilir Windows istemcisi (tam erişim) veya tara
 Görüntü eşler arası WebRTC ile akar; sunucu sinyalizasyon ve meta veri tutar. Dosyalar varsayılan olarak eşler arası
 gider; firma isterse sunucu üzerinden, ClamAV taramalı ve şifreli saklamalı aktarır (P28b).
 
-## Şu anki durum: P1–P13a tamamlandı, P13b (prod açılışı) kodu hazır, P14a/P14b, P15, P16, P17 (istemci 0.11.0), P18 (talep iletişimi), P19 (web talep formu, SMS, müşteri bildirimi, müşteri CSV) P20 (istemci 0.12.0), P27a (2FA'da cihaz hatırlama), P27 (gözetimsiz erişim; prod'da kapalı) P28a (pano paylaşımı + uzaktan yazdırma, istemci 0.13.0) ve P28b (sunucuda dosya aktarımı + ClamAV + depolama kotası, istemci 0.14.0) kodlandı (QA sürüyor)
+## Şu anki durum: P1–P13a tamamlandı, P13b (prod açılışı) kodu hazır, P14a/P14b, P15, P16, P17 (istemci 0.11.0), P18 (talep iletişimi), P19 (web talep formu, SMS, müşteri bildirimi, müşteri CSV) P20 (istemci 0.12.0), P27a (2FA'da cihaz hatırlama), P27 (gözetimsiz erişim; prod'da kapalı) P28a (pano paylaşımı + uzaktan yazdırma, istemci 0.13.0) P28b (sunucuda dosya aktarımı + ClamAV + depolama kotası, istemci 0.14.0) ve P28u (gözetimsiz izinli / izinsiz bağlantı ve müdahale, servis 0.15.0) kodlandı (QA sürüyor)
 
 İş P1..P13 dikey paketlerle yürür (`docs/mimari.md` §10). P1–P11 ve **P12** (firma ve sistem logosu, kullanıcı profil
 resmi, kullanıcı başına tema, hesap menüsü, tasarım token lint kuralı) tamamlandı: P12 güvenlik Kritik/Yüksek 0 (doğrulama
@@ -261,6 +261,19 @@ P13c'ye kadar ayrı staging yoktur; yeni kod yerelde (`scripts/e2e-real.sh`) den
   kaldır", Ayarlar → Güvenlik'te firma anahtarı "2FA cihaz hatırlama" (**mevcut firmalarda da varsayılan açık**).
 - Yeni cihaz hatırlanınca ve çalınmış çerez şüphesinde kullanıcıya e-posta; şifre değişimi, 2FA sıfırlama, tüm cihazlardan
   çıkış gibi olaylar hatırlamayı siler. Çerez `__Secure-rs_td` (`Path=/api/v1/auth`). Migration `20261121000000_p27a_trusted_devices`; yeni env yok.
+
+**P28u — gözetimsiz cihazda izinli / izinsiz bağlantı ve müdahale, servis 0.15.0** (AC-429..446; kod tamam, QA tur 1
+DÜZELTİLMELİ maddeleri ve Windows elle testleri sürüyor; staging'e çıkar, prod P28 sonunda)
+
+- Üç kip: **İzinli** (cihazda aktif kullanıcıya 60 sn'lik onay penceresi, "Reddet" varsayılan), **Kullanıcı yok** (oturum
+  yok/kilitli, onaysız), **İzinsiz** (firma politikası + `unattended.silent` + step-up + 20–500 karakter gerekçe; izleme
+  kipinde açılır, "Müdahale et" ile kontrol). Gizli izleme yoktur: gösterge her kipte görünür.
+- Ayarlar → **Gözetimsiz erişim** politikası (varsayılan kapalı; açarken aydınlatma onayı + step-up), dört göz e-postası,
+  konsolda **Oturumu kilitle** / **Kullanıcı oturumunu kapat** (45 sn yeniden katılım), cihaz listesinde kullanıcı durumu ve
+  "Servis güncel değil" rozeti, geçmiş/audit "Bağlantı kipi" süzgeci.
+- Migration `20261124000000_p28u_unattended_consent`; yeni env ve bağımlılık yok. Uçlar `docs/api.md` "Gözetimsiz izinli /
+  izinsiz bağlantı ve müdahale (P28u)"; kullanım `docs/KULLANIM_KILAVUZU.md` "Üç bağlantı kipi"; operasyon runbook §28u;
+  karar ADR-0033.
 
 **P28b — sunucuda dosya aktarımı + ClamAV + depolama kotası, istemci 0.14.0** (AC-353..363, AC-284; kod tamam, QA tur 1
 DÜZELTİLMELİ maddeleri işleniyor; staging'e çıkar, prod P28 sonunda)
@@ -562,6 +575,7 @@ görür. `deploy/staging-users.sh` staging test hesapları için hâlâ kullanı
 | P27 (kod ✓, QA sürüyor; prod `off`)                                               | G7 gözetimsiz erişim: `NoktaDestekServis.exe`, kayıt kodu, cihaz başına yetki, bağlantı başına step-up, müşteri bildirimi, gösterge, yerel kapatma; runbook §27                                                            |
 | P28a (kod ✓, qa GEÇTİ; Windows elle turu bekliyor)                                | G8-a pano paylaşımı (düz metin ≤ 64 KB) ve uzaktan yazdırma (PDF, müşteri onayı), Windows istemci 0.13.0; runbook §28a                                                                                                     |
 | P28b (kod ✓, QA sürüyor)                                                          | G8-b sunucuda dosya aktarımı + ClamAV taraması + firma depolama kotası, Windows istemci 0.14.0; runbook §28b                                                                                                               |
+| P28u (kod ✓, QA sürüyor)                                                          | G7-u gözetimsiz izinli / izinsiz bağlantı, firma politikası, dört göz e-postası, oturumu kilitle / kapat, servis 0.15.0; runbook §28u                                                                                      |
 | P13c                                                                              | Ayrı staging (`stg.remote.noktabilisim.net`, ayrı DB/sır/yedek); E11 özelliklerinden önce                                                                                                                                  |
 
 Prod açılışının ön koşulları ve imzalı kontrol listesi: runbook §20.1–§20.3. TURN için yalnız 443/TCP'nin açık olduğu

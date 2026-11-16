@@ -1,6 +1,6 @@
 "use client";
 
-import { Lock, ShieldCheck, type LucideIcon } from "lucide-react";
+import { Lock, ShieldCheck, TriangleAlert, type LucideIcon } from "lucide-react";
 import { PERMISSION_DESCRIPTIONS } from "@remote/contracts/permissions";
 import { useId, useMemo } from "react";
 import { ToggleSwitch } from "@/components/ui/switch";
@@ -18,6 +18,8 @@ import {
   type PermModule,
   type PermState,
 } from "@/lib/users/permissions";
+/** P28u (§4, AC-446): hassas yetkiler — açıklama satırında "Hassas" rozeti (`TriangleAlert`, uyarı tonu). */
+const SENSITIVE: ReadonlySet<string> = new Set(["unattended.silent"]);
 
 /** Modül ikonları menüyle tek kaynaktan (`lib/module-icons.ts`, std. 1.8). Geçici test modülünde nötr `ShieldCheck`. */
 const ICONS: Record<string, LucideIcon> = MODULE_ICONS;
@@ -193,7 +195,18 @@ export function PermissionMatrix({ value, onChange, locked, disabled = false, mo
             {notes.map((n) => (
               <div key={n.key} className="contents">
                 <dt className="font-medium text-fg">{n.label}</dt>
-                <dd className="text-fg-muted">{n.text}</dd>
+                <dd className="text-fg-muted">
+                  {SENSITIVE.has(n.key) && (
+                    <span
+                      className="mr-2 inline-flex items-center gap-1 rounded-full bg-warning-surface px-2 py-0.5 font-medium text-warning"
+                      data-testid={`perm-sensitive-${n.key}`}
+                    >
+                      <TriangleAlert aria-hidden className="size-3.5" />
+                      {t("perm.sensitive")}
+                    </span>
+                  )}
+                  {n.text}
+                </dd>
               </div>
             ))}
           </dl>

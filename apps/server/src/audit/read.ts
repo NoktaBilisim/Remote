@@ -27,7 +27,7 @@ import type { FixedWindowCounter } from "../lib/rate.ts";
 import { avatarUrlFor, type AvatarViewer } from "../uploads/urls.ts";
 import * as repo from "./repo.ts";
 import { writeAudit, type AuditContext } from "./service.ts";
-import { auditValueView, identityUserIds, identityView } from "./view.ts";
+import { auditValueView, carriesSilentReason, identityUserIds, identityView, silentReasonVisible } from "./view.ts";
 
 const DAY_MS = 86_400_000;
 const EXPORT_BATCH = 1000;
@@ -54,6 +54,7 @@ export function resolveAuditFilter(scope: repo.AuditScope, q: ListAuditQuery, no
       ? { action: q.action.endsWith(".*") ? { value: q.action.slice(0, -1), prefix: true } : { value: q.action, prefix: false } }
       : {}),
     ...(q.result ? { result: q.result } : {}),
+    ...(q.consentMode ? { consentMode: q.consentMode } : {}),
   };
 }
 
@@ -70,12 +71,28 @@ export function decodeCursor(s: string): repo.AuditCursor {
   return { createdAt: new Date(Number(m[1])), id };
 }
 
+/** D-P28u-K1-1: izinsiz bağlantı gerekçesi görünürlüğü (sayfa/parti başına bir kez hesaplanır). */
+interface ReasonView {
+  canViewHistory: boolean;
+  visible: ReadonlySet<string>;
+}
+
+/** Yetki yoksa ya da sayfada gerekçe taşıyan satır yoksa sorgu atılmaz. */
+async function reasonViewOf(db: Db, auth: AuthContext, rows: readonly repo.AuditRow[]): Promise<ReasonView> {
+  const canViewHistory = auth.permissions.has("session_history.view");
+  const ids = canViewHistory
+    ? rows.flatMap((r) => (r.entityId && (carriesSilentReason(r.newValue) || carriesSilentReason(r.oldValue)) ? [r.entityId] : []))
+    : [];
+  return { canViewHistory, visible: await repo.reasonVisibleSessions(db, ids) };
+}
+
 /**
  * `viewer` verilirse avatar yalnız görüntüleyenin erişebildiği dosyaysa döner (başka tenant/sistem avatarı → null).
  * P16 (AC-241, S16-1): kimlik maskesi `identityView` ile (fail-closed); silinmiş aktörün avatarı yok.
  */
-function toItem(r: repo.AuditRow, names: Map<string, repo.AuditUserInfo>, viewer?: AvatarViewer): AuditItem {
+function toItem(r: repo.AuditRow, names: Map<string, repo.AuditUserInfo>, reason: ReasonView, viewer?: AvatarViewer): AuditItem {
   const id = identityView({ ...r, tenantName: r.tenant?.name ?? null }, names);
+  const hideReason = !silentReasonVisible(r, reason.canViewHistory, reason.visible);
   const u = r.userId ? names.get(r.userId) : undefined;
   const live = u && u.status !== "DELETED" ? u : undefined;
   return {
@@ -93,8 +110,8 @@ function toItem(r: repo.AuditRow, names: Map<string, repo.AuditUserInfo>, viewer
     action: r.action,
     entity: r.entity,
     entityId: r.entityId,
-    oldValue: auditValueView(r.action, r.oldValue, id.masked),
-    newValue: auditValueView(r.action, r.newValue, id.masked),
+    oldValue: auditValueView(r.action, r.oldValue, id.masked, hideReason),
+    newValue: auditValueView(r.action, r.newValue, id.masked, hideReason),
     ipAddress: r.ipAddress || null,
     userAgent: r.userAgent || null,
     result: (r.result === "fail" ? "fail" : "success") as AuditResult,
@@ -107,10 +124,11 @@ export async function listAuditItems(db: Db, auth: AuthContext, q: ListAuditQuer
   const rows = await repo.listAudit(db, scope, filter, q.cursor ? decodeCursor(q.cursor) : null, AUDIT_PAGE_SIZE + 1);
   const page = rows.slice(0, AUDIT_PAGE_SIZE);
   const names = await repo.userNames(db, identityUserIds(page));
+  const reason = await reasonViewOf(db, auth, page);
   const last = page[page.length - 1];
   const viewer: AvatarViewer = { role: auth.user.role, tenantId: auth.user.tenantId };
   return {
-    items: page.map((r) => toItem(r, names, viewer)),
+    items: page.map((r) => toItem(r, names, reason, viewer)),
     nextCursor: rows.length > AUDIT_PAGE_SIZE && last ? encodeCursor(last) : null,
   };
 }
@@ -193,7 +211,8 @@ export async function exportAuditCsv(
         const batch = await repo.listAudit(db, scope, filter, after, Math.min(EXPORT_BATCH, AUDIT_EXPORT_MAX_ROWS - written));
         if (batch.length === 0) return;
         const names = await repo.userNames(db, identityUserIds(batch));
-        yield batch.map((r) => csvRow(csvCells(toItem(r, names), withTenant))).join("");
+        const reason = await reasonViewOf(db, auth, batch);
+        yield batch.map((r) => csvRow(csvCells(toItem(r, names, reason), withTenant))).join("");
         written += batch.length;
         const last = batch[batch.length - 1];
         if (!last || batch.length < EXPORT_BATCH) return;

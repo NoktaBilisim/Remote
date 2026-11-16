@@ -4,9 +4,10 @@
 // cihazının odasına etki eder (başka cihazın sessionId'si yok sayılır).
 import { UNATTENDED_AUDIT } from "@remote/contracts/audit";
 import type { SessionEndedReason } from "@remote/contracts/ws";
-import type { DeviceConnectFailReason, DeviceInbound } from "@remote/contracts/ws-device";
+import type { DeviceConnectFailReason, DeviceConsentInbound, DeviceInbound } from "@remote/contracts/ws-device";
 import { writeAudit, type AuditContext } from "../audit/service.ts";
 import type { Rooms } from "../signaling/rooms.ts";
+import { sendHelloTech } from "../signaling/active.ts";
 import { endDeviceRoom, finishDevice } from "../signaling/rooms-device.ts";
 import type { Room } from "../signaling/types.ts";
 import type { DeviceConn, DeviceHub } from "./hub.ts";
@@ -21,9 +22,10 @@ export interface MsgDeps {
 /**
  * K3 kararı (K1 notu): `helper_failed`, `no_console`, `busy` yalnız DB bitiş nedenidir; konsola `device_timeout` ("Cihaz
  * yanıt vermedi") gider. `local_disabled` / `indicator_failed` konsolda da aynı adla görünür.
+ * P28u: `consent_denied` / `consent_timeout` konsola aynı adla; `protocol` (D-P28u-5) yalnız DB nedeni → `device_timeout`.
  */
 export function consoleReasonOf(r: DeviceConnectFailReason): SessionEndedReason {
-  return r === "local_disabled" || r === "indicator_failed" ? r : "device_timeout";
+  return r === "local_disabled" || r === "indicator_failed" || r === "consent_denied" || r === "consent_timeout" ? r : "device_timeout";
 }
 
 function ownRoom(d: MsgDeps, conn: DeviceConn, sessionId: string): Room | undefined {
@@ -76,8 +78,72 @@ async function onUnregister(d: MsgDeps, conn: DeviceConn, ctx: AuditContext): Pr
   else conn.close(1000, "unregistered");
 }
 
-export async function onDeviceMessage(d: MsgDeps, conn: DeviceConn, ctx: AuditContext, m: DeviceInbound): Promise<void> {
+/** §6.2: başka cihazın / canlı olmayan odanın mesajı ya da tekrar → yok sayılır + metrik. */
+function rejected(d: MsgDeps, t: string): void {
+  d.rooms.metrics.inc("rs_unattended_device_msg_rejected_total", { t });
+}
+
+type ConsentResult = Extract<DeviceConsentInbound, { t: "consent.result" }>;
+
+/**
+ * §8.1 (AC-431–433): yalnız bu cihazın PENDING `ask` odasına, oturum başına tek. `asked` → audit `unattended.consent` (aktör
+ * cihaz: `user_id` NULL, `username` = `device:<id>`) + metrik; `no_user` → yalnız kip. `denied`/`timeout` oda sonucu
+ * `connect.result` ile gelir. Admit'te bekleyen söz varsa çözülür.
+ */
+async function onConsent(d: MsgDeps, conn: DeviceConn, ctx: AuditContext, m: ConsentResult): Promise<void> {
+  const room = ownRoom(d, conn, m.sessionId);
+  const u = room?.unattended;
+  if (!room || !u || u.consentRequest !== "ask" || u.consentMode || room.admitted) return rejected(d, m.t);
+  u.consentMode = m.mode;
+  if (m.mode === "asked" && m.decision !== undefined && m.ms !== undefined) u.consent = { decision: m.decision, ms: m.ms };
+  u.consentWait?.();
+  // K7 devri: konsol kipi öğrensin — teknisyen bağlıysa güncel hello (`unattended.consentMode`); sözleşme değişmez.
+  if (room.tech) sendHelloTech(d.rooms, room);
+  if (!u.consent) return;
+  d.rooms.metrics.inc("rs_unattended_consent_total", { decision: u.consent.decision });
+  await writeAudit(d.rooms.db, ctx, {
+    tenantId: conn.tenantId,
+    username: `device:${conn.deviceId}`,
+    action: UNATTENDED_AUDIT.CONSENT,
+    entity: "support_sessions",
+    entityId: room.sessionId,
+    result: u.consent.decision === "granted" ? "success" : "fail",
+    newValue: {
+      consentMode: "asked",
+      decision: u.consent.decision,
+      ms: u.consent.ms,
+      deviceId: conn.deviceId,
+      technicianId: room.technicianId,
+    },
+  });
+}
+
+/** P28u yeni C→S mesajları (yalnız `consent1` soket; device-ws ayrıştırma sırası). */
+async function onConsentMessage(d: MsgDeps, conn: DeviceConn, ctx: AuditContext, m: DeviceConsentInbound): Promise<void> {
   switch (m.t) {
+    case "device.user":
+      conn.userState = m.state;
+      conn.userStateAt = d.now();
+      return;
+    case "consent.result":
+      return onConsent(d, conn, ctx, m);
+    case "intervene.result":
+      if (!ownRoom(d, conn, m.sessionId) || !d.hub.intervene.settle(m.sessionId, m)) rejected(d, m.t);
+      return;
+  }
+}
+
+export async function onDeviceMessage(
+  d: MsgDeps,
+  conn: DeviceConn,
+  ctx: AuditContext,
+  m: DeviceInbound | DeviceConsentInbound,
+): Promise<void> {
+  switch (m.t) {
+    case "device.user":
+    case "consent.result":
+    case "intervene.result":
+      return onConsentMessage(d, conn, ctx, m);
     case "connect.result": {
       const room = ownRoom(d, conn, m.sessionId);
       if (room && !m.ok && m.reason) await endDeviceRoom(d.rooms, room, consoleReasonOf(m.reason), m.reason);
@@ -87,6 +153,8 @@ export async function onDeviceMessage(d: MsgDeps, conn: DeviceConn, ctx: AuditCo
       return onState(d, conn, ctx, m.localEnabled);
     case "session.closed": {
       const room = ownRoom(d, conn, m.sessionId);
+      // D-P28u-K1-2: yeniden katılım penceresinde de süzgeç yok — servis beklenen yardımcı çıkışında (logoff kabulü) zaten
+      // `session.closed` göndermez (agent-win `core.go watch`); gelen her bildirim gerçek bitiştir ve nedeniyle hemen yazılır.
       if (room) await endDeviceRoom(d.rooms, room, m.reason === "session_changed" ? "session_changed" : "customer", m.reason);
       return;
     }

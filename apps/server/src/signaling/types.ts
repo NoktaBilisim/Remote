@@ -5,11 +5,40 @@ import type { ClipDirection, GuestFeature } from "@remote/contracts/ws-clip-prin
 import type { FileMode, FsrvDirection } from "@remote/contracts/ws-fsrv";
 import type { PermissionKey, Role } from "@remote/contracts/permissions";
 import type { ControlAuditAction } from "@remote/contracts/audit";
+import type { ConsentMode, ConsentRequest, ConsentResultDecision } from "@remote/contracts/unattended-consent";
 import { LOBBY_GUEST_MAX } from "@remote/contracts/api/sessions";
 import type { AuditContext } from "../audit/service.ts";
 import type { JsonObject } from "../audit/mask.ts";
 import type { GuestConsent } from "../public/consent.ts";
 import type { IceGrant, TurnConfig } from "./turn.ts";
+
+/**
+ * P27 gözetimsiz oda + P28u kip/onay/müdahale durumu (mimari-p28u §8.1, §8.3; bellekte). `consentRequest` connect'te
+ * istenen (`ask`|`silent`); `consentMode` gerçekleşen kip (`silent` baştan; `ask` → cihazın `consent.result`'u).
+ */
+export interface UnattendedRoom {
+  deviceId: string;
+  deviceName: string;
+  customerId: string;
+  dbEndReason?: string;
+  consentRequest: ConsentRequest;
+  consentMode?: ConsentMode;
+  consent?: { decision: ConsentResultDecision; ms: number };
+  /** admit'te `consent.result` bekleyen tek söz (≤ 3 sn). */
+  consentWait?: () => void;
+  /** Kontrol açık olarak audit'lendi mi (`unattended.control_toggle` çift yazılmasın). */
+  controlOn?: boolean;
+  /** K-P28u-16: son 60 sn'deki kontrol istekleri (oda başına 30/dk). */
+  controlReqAt?: number[];
+  /** Son 60 sn'deki müdahale komutları (oda başına 6/dk). */
+  interveneAt?: number[];
+  /** §8.3: oturum kapatma sonrası yeniden katılım penceresi sonu (ms); yokken pencere kapalı. */
+  rejoinUntil?: number;
+  rejoinTimer?: unknown;
+  /** Yeniden katılım bileti verilmiş misafir kimliği (oturum başına en çok 1). */
+  rejoinGuestId?: string;
+  rejoinUsed?: boolean;
+}
 
 /** Misafir istemci ortamı (`env.state` alanları, `t`/`id` hariç). */
 export type GuestEnv = Omit<Extract<ServerOutbound, { t: "env.state" }>, "t">;
@@ -189,7 +218,7 @@ export interface Room {
   /** P8b: talepten doğan oturum (guest.admit/guest.reject → CONFLICT; P15 `acceptCode` açıksa izinli). */
   requestId?: string;
   /** P27 (mimari-p27 §4.4, §4.6): gözetimsiz oda — cihaz; yalnız bu odada misafir `control.state{source:UNATTENDED}` kabul edilir. */
-  unattended?: { deviceId: string; deviceName: string; customerId: string; dbEndReason?: string };
+  unattended?: UnattendedRoom;
   /** P15 (AC-239): talep oturumu kabul koduyla — misafir lobiye düşer, teknisyen 4 haneli kodu girer (AC-112 kuralları). */
   acceptCode?: boolean;
   tenantId: string;

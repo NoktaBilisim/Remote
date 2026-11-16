@@ -11555,3 +11555,415 @@ Kaynak: `docs/test-raporu.md` (P28b K9) B2, B3.
   §7.3'e işlenmesi önerilir.
 - Doğrulama: server tüm testler 139 dosya / 1586 geçti (test DB `rs-mysql-dv28b`, sonra kapatıldı); eslint, tsc, prettier temiz;
   `docker compose config -q` temel + staging katmanı geçti.
+
+## P28u K1 (dba) — gözetimsiz kip/gerekçe/politika veri modeli (2026-11-16)
+
+- Migration `apps/server/prisma/migrations/20261124000000_p28u_unattended_consent/{migration,down,precheck}.sql`, `schema.prisma`
+  (`TenantSettings` +3 alan + `silentAcker` ilişkisi/IX, `User.silentPolicyAcks`, `SupportSession.consentMode/silentReason`).
+  Ayrıntı ve sapmalar: `docs/db-notlari.md` "P28u".
+- Kod: `jobs/retention-repo.ts` anonimleştirmede `silent_reason = NULL`; `users/repo.ts` `deleteUserChildren` → `ack_by = NULL`.
+- Testler: `tenant-purge-meta-p16` users FK listesi += `tenant_settings.unattended_silent_ack_by`; `session-history-p8` ikili enum
+  sayacı 67 → 68; `deploy/mysql/check-app-grants.sh` "P28u" bölümü (+21). `grants.sql` yalnız not (yeni GRANT yok).
+- Mimariden sapma: TTL CHECK'in anonim dalı 55..155 sn (aksi hâlde 150 sn'lik `ask` oturumu anonimleşemezdi);
+  `anonymized_chk += silent_reason IS NULL`; `silent_reason_chk` kırpılmış + karakter süzgeci.
+- K2'ye devir: (1) `unattended.silent` yalnız `permissions.ts`'e (DB işi yok). (2) `silentReasonSchema` `\r`'yi reddetmeli ya da
+  `\r\n`'yi `\n`'e çevirmeli (DB `\r`'yi 3819 ile reddeder). (3) `DEVICE_CONSENT_WINDOW_MS = 150_000` DB sınırı 155 sn.
+  (4) Politika açma UPDATE'inde `enabled=1` ile `ack_at`/`ack_by` aynı ifadede (CHECK). (5) O-P28u-2 toplu iptal UPDATE'ine
+  `tenant_id` koşulu.
+
+## P28u K2 (backend-dev) — sözleşmeler + `/ws/device` fikstürü (2026-11-16)
+
+**Değişen dosyalar (`packages/contracts`):** `src/permissions.ts` (`unattended.silent` + açıklama; rol varsayılanı mevcut kalıp:
+Admin açık, User kapalı), `src/errors.ts` (`DEVICE_OUTDATED`/`SILENT_DISABLED`/`INTERVENE_PENDING` 409, `INTERVENE_FAILED` 502),
+`src/audit.ts` (`UNATTENDED_AUDIT` + `CONSENT`, `CONTROL_TOGGLE`, `LOCK`, `LOGOFF`, `REJOIN`, `SILENT_NOTIFY`; ayrı
+`UNATTENDED_POLICY_AUDIT = "settings.unattended_silent"`; `CONSENT_MODE_ACTIONS`), `src/ws.ts` (`SESSION_ENDED_REASONS` +
+`consent_denied|consent_timeout|consent_missing`; `hello.unattended.consentMode?`, `intervene?`), `src/ws-device.ts`
+(`WS_DEVICE_CAP_CONSENT`, `DEVICE_FEATURES`, `connect.consent` zorunlu + `indicatorControl` silent⇔, fail reasons +
+`consent_denied|consent_timeout|protocol`, ayrı birlikler `deviceConsentInboundSchema` {device.user, consent.result,
+intervene.result} ve `deviceConsentOutboundSchema` {device.features, intervene, rejoin}, `INTERVENE_COMMANDS/FAIL_REASONS`,
+`deviceSilentIndicatorText`/`deviceControlIndicatorText`), `src/api/unattended.ts` (`silentReasonSchema`,
+`unattendedConnectInputSchema`, politika görünümü/girdisi, müdahale girdileri/yanıtları + süreler/kova, `CONNECT_ASK_COOLDOWN_SEC`,
+`outdated` engel nedeni, hata metinleri, `CONSENT_MODE_LABELS`, `DEVICE_USER_STATE_LABELS`, audit etiketleri, `status.silentAllowed?`,
+`DeviceListItem.userState?`), `src/api/sessions.ts` (liste filtresi `consentMode`, `SessionListItem.consentMode?`,
+`SessionHistoryDetail.unattended?` + `UNATTENDED_TIMELINE_KINDS/MAX`), `src/api/audit.ts` (filtre `consentMode`), `src/labels.ts`
+(`END_REASON_LABELS` + 3 consent + `protocol`), YENİ `src/unattended-consent.ts` (kip sözlükleri, `DEVICE_CONSENT_WINDOW_MS = 150_000`,
+`CONSENT_DIALOG_SEC = 60`, `CONSENT_RESULT_MS_MAX`), YENİ `src/rejoin-const.ts` (45 sn / 30 sn / 20 sn), `package.json` exports (+2),
+`fixtures/ws-device.json`, testler `test/unattended-p28u.test.ts` (yeni, 19 test), `test/unattended-p27.test.ts` (eylem listesi
+`arrayContaining`), `pt-surface` anlık görüntüsü (yalnız ekleme; fark satır satır gözden geçirildi).
+Tip uyumu için minimum: `apps/server/src/unattended/connect.ts` `consent: "ask"`; `apps/web/messages/tr.json`
+`c.reason.consent_*` (3) + `perm.a.silent`.
+
+**Tasarımdan sapmalar (gerekçeli):**
+
+1. Sabitler sunucu yerine contracts'ta: `rejoin-const.ts` ve `DEVICE_CONSENT_WINDOW_MS` (mimari §3.2/§7.5 sunucu dosyası der). Şema
+   (`rejoin.expiresInSec ≤ 30`) ve fikstür aynı değeri kullanmalı; tek tanım contracts. K3/K4 **içe aktarır, yeniden tanımlamaz**
+   (sunucuda `unattended/rejoin-const.ts` gerekmez; istenirse yalnız yeniden dışa aktarım).
+2. `INTERVENE_FAILED` ayrıntısı `details.reason` değil mevcut zarfın `fields.reason`'ı (projede `details` yok).
+3. Web hata metni `apps/web/lib/errors.ts` yok; metinler mevcut kalıpla `UNATTENDED_ERROR_MESSAGES`'ta (sunucu `DEFAULT_MESSAGES`'a yayılır).
+4. Politika audit eylemi `settings.*` önekli olduğundan `UNATTENDED_AUDIT` dışında (`UNATTENDED_POLICY_AUDIT`; P27 testi `unattended.`
+   önekini zorunlu tutar).
+5. Müdahale için yetki anahtarı eklenmedi (§4 V-PU7; testle sabit).
+6. `silentReasonSchema` DB CHECK'inden katı alt küme: `\r` reddedilir (normalize edilmez — devir isteği), ek olarak U+034F/U+180E
+   (`UNSAFE_NAME_CHARS`); uzunluk kırpma sonrası kod noktası. Zod'u geçen her değer DB'ye yazılır.
+7. Yeni yanıt alanları (`silentAllowed`, `userState`, `consentMode`, `unattended`) **isteğe bağlı** (`storedFiles?` kalıbı) — doldurulana
+   kadar sunucu/web derlemesi kırılmasın. Doldurduktan sonra K3/K4 zorunluya çevirebilir.
+
+**Bağımlılık:** yok.
+
+**Test:** `pnpm --filter @remote/contracts test` → 222/222; `pnpm -r run typecheck` (3 paket) temiz; `pnpm -r run lint` temiz;
+prettier dokunulan dosyalarda temiz; web vitest 446/446; server `test/unit` 583 (+1 skip). Sunucu entegrasyon testleri (DB) bu pakette
+koşulmadı (davranış değişikliği yalnız `connect` mesajına `consent:"ask"` alanı).
+
+**Devir notları:**
+
+- **K3:** `unattendedConnectInputSchema` (boş gövde de geçerli; ihlaller `fields.reason`); `connect.ts`'teki geçici `consent: "ask"`
+  satırını silent dalıyla değiştir (`consent:"silent"`, `indicatorText = deviceSilentIndicatorText`, `indicatorControl =
+deviceControlIndicatorText`, PENDING 60 sn; `ask` 150 sn = `DEVICE_CONSENT_WINDOW_MS`). **Dikkat:** bu satır şimdiden tel üstünde —
+  P27 (eski) servis strict ayrıştırıcısı `connect`'i reddeder; 8a `DEVICE_OUTDATED` kapısı gelene kadar staging'de eski servise bağlantı
+  `device_timeout` ile biter. `putUnattendedPolicyInputSchema` geçiş kuralını içermez (false→true ack/step-up, aynı değer 200 serviste);
+  `POLICY_ACK_REQUIRED_MESSAGE`; `UnattendedPolicyView`; `status.silentAllowed`; `CONNECT_ASK_COOLDOWN_SEC`; audit
+  `UNATTENDED_POLICY_AUDIT`, `SILENT_NOTIFY`; `connect` audit'inde `silentReason`/`failReason` (çıplak `reason` yok).
+- **K4:** sokette belirteç → `DEVICE_FEATURE_BY_SUBPROTOCOL`; `consent1` sokette gelen mesajı önce `deviceInboundSchema`, olmazsa
+  `deviceConsentInboundSchema` ile ayrıştır (belirteçsizde ikincisi denenmez → 1008). `hub.send` için `DeviceConsentOutbound` yalnız
+  `consent1` sokete (tip ayrımı). `consoleReasonOf`: `consent_denied|consent_timeout` konsola aynı adla, `protocol` → `device_timeout`.
+  Süreler `INTERVENE_LOCK_TIMEOUT_MS`/`INTERVENE_LOGOFF_TIMEOUT_MS`/`INTERVENE_PER_MIN`, `REJOIN_*`; `hello.unattended.consentMode/intervene`;
+  `userState`, `consentMode` (liste), `unattended` (geçmiş, ≤ `UNATTENDED_TIMELINE_MAX`), audit filtresi `consentMode` +
+  `CONSENT_MODE_ACTIONS`. `/ws/guest` `session.ended` yeni nedenleri yardımcıya gidebilir — Go helper enum'u K6'da genişlemeli.
+- **K5/K6 (Go):** fikstür anahtarları: `constants` (tüm süreler + belirteç), `valid/invalid.consent1Inbound`,
+  `valid/invalid.consent1Outbound` (taban ∪ consent birliği; `device.features` sonrası). Eski `valid.deviceOutbound`'dan consent'siz
+  `connect` **çıkarıldı** (D-P28u-5 ile artık geçersiz; eski Go hâlâ kabul ettiği için `invalid`'e de konmadı) → K5'e kadar Go'da
+  `connect` kapsamı yalnız yeni anahtarlarda; `wire_test.go` mevcut anahtarlarla yeşil kalır. K5 `wire_test.go`'ya `consent1*` ve
+  `constants` testlerini eklemeli; consent'siz/bilinmeyen `consent` → `connect.result{protocol}`.
+- **K7:** `CONSENT_MODE_LABELS`, `DEVICE_USER_STATE_LABELS`, `CONNECT_BLOCKED_REASON_LABELS.outdated`, `UNATTENDED_AUDIT_LABELS` (yeni 7),
+  `SILENT_REASON_MIN/MAX/MESSAGE`, `PERMISSION_DESCRIPTIONS["unattended.silent"]`; `tr.json`'a eklenen 4 anahtar metnini gözden geçir.
+  Yoklama 15 → 8 sn (`DEVICE_POLL_MS`) contracts'ta **değiştirilmedi** (§10 `use-device-poll.ts` K7 işi).
+
+## P28u K6 — yardımcı: onay diyaloğu, örtülme, durum borusu, kilit, silent etiket/dosya kapısı (backend-dev, Go)
+
+Kaynak: `docs/mimari-p28u.md` §7.1, §7.3–§7.6, §8.2a, §r2 (O-P28u-1, D-P28u-1/6), K-P28u-16/18/19/23, ADR-0033;
+AC-431, 438, 439, 443. Spike: `docs/spike-p28u-k6s.md` §2a (z-sırası taraması 5/5 örtüyü buldu, WindowFromPoint saydamı
+atladı → §7.3 aynen); kilit sorusu sonuçsuz → kilit yolu `Locker` arayüzü arkasında.
+
+### Değişen / yeni dosyalar (`apps/agent-win`)
+
+| Dosya                                                                              | İçerik                                                                                                                                                                                                                                                                                                                                                                                                        |
+| ---------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `internal/servis/helperio/p28u.go` (yeni, **ortak**)                               | `Consent*`/`Mode*`/`Decision*` sabitleri, `ExitConsentDenied 24`/`ExitConsentTimeout 25` + nedenler, `Command` (`lock`), `Status` (durum satırı), `NewReader`/`ReadInput` (ilk satır; yeni satırsız P27 girdisi de kabul), `ReadCommand`, `EncodeCommand`, `EncodeStatus` (≤ 512 B), `validateP28u` (ask⇔asked, none⇔no_user/silent, `IndicatorControl` yalnız silent'ta ve zorunlu)                          |
+| `internal/servis/helperio/helperio.go`                                             | `Input` + `Consent`, `Mode`, `IndicatorControl` (omitempty); `Validate` → `validateP28u`; `Reason`/`PreJoin` 24/25'i tanır. Eski `Read` (ReadAll) servis testleri için korundu; yardımcı artık `ReadInput` kullanır (boru açık kalır)                                                                                                                                                                         |
+| `internal/control/occlusion.go` (+test)                                            | Saf örtülme kararı `Obscured` (görünür ∧ alan > 0 ∧ kendi HWND değil ∧ keser; katmanlı/saydam dahil), `Guard` (1,5 sn + örtülme/gizlenme kalkınca kilit yeniden, `ReasonObscured`, WindowFromPoint sonucu), `ObscuredWarning`                                                                                                                                                                                 |
+| `internal/control/requests.go`, `internal/flow/control.go`                         | K-P28u-16 tek dal: gözetimsizde `AdmitOpen` (sayaç/bekleme yok, yalnız bekleyen istek yok)                                                                                                                                                                                                                                                                                                                    |
+| `internal/flow/messages_p28u.go` (yeni)                                            | Diyalog metinleri (tek tablo)                                                                                                                                                                                                                                                                                                                                                                                 |
+| `internal/unattended/helper/consent.go` (yeni)                                     | `AskConsent`, `runConsent` (60 sn, `ms` 0..65000), `consentExit`                                                                                                                                                                                                                                                                                                                                              |
+| `internal/unattended/helper/status.go` (yeni)                                      | Durum borusunun yardımcı ucu (`consent` bir kez, `control` yalnız değişimde, `lock` servis kimliğiyle), `Locker` arayüzü + `stationLocker` (LockWorkStation → ≤ 2 sn `Winlogon`, aksi `not_locked`), `serveCommands`                                                                                                                                                                                          |
+| `internal/unattended/helper/helper.go`                                             | `Run`: `Consent=="ask"` → diyalog → `ev:consent` yazılır (yazılamazsa 21) → ret 24 / zaman aşımı 25 → ancak sonra gösterge + `/ws/guest`. Komut döngüsü; paket yorumu "gösterge ve onay diyaloğu dışında"                                                                                                                                                                                                     |
+| `internal/unattended/helper/headless.go`                                           | `ControlState` → durum `control` + silent'ta etiket izleme ↔ kontrol; silent ∧ kontrol kapalı → `EvFileReject`                                                                                                                                                                                                                                                                                                |
+| `internal/unattended/helper/follow.go`                                             | `liveIndicator.SetText`/`Text`; masaüstü geçişinde güncel etiketle yeniden çizim (sabit metin yakalama giderildi)                                                                                                                                                                                                                                                                                             |
+| `internal/unattended/helper/indicator_windows.go`                                  | `SetText` (gösterge iş parçacığında yeniden çiz + doğrula; başarısızsa Failed — fail-closed); kendi HWND kümesi `ownHWNDs` (örtülme istisnası)                                                                                                                                                                                                                                                                |
+| `internal/unattended/helper/consent_windows.go`, `consent_input_windows.go` (yeni) | Diyalog `NoktaDestekOnay` (ham Win32; `internal/ui` içe aktarılmaz): yalnız `Default` masaüstü, gizlen/geri gel + kilit, birincil monitör, `PlaceAway`, TOPMOST (1 sn), Reddet varsayılan/odak, Enter/Space süzgeci, Esc/kapat = Reddet, `Alt+V`, enjekte süzgeci (`OriginInjected`/`CharInjected`), 250 ms + tıklama anı GW_HWNDPREV taraması, `WindowFromPoint` = düğme, kalan süre, firma kalın ayrı satır |
+| `internal/unattended/helper/lock_windows.go` (yeni)                                | `LockWorkStation` Default'a bağlı kısa ömürlü iş parçacığında                                                                                                                                                                                                                                                                                                                                                 |
+| `internal/unattended/helper/main_windows.go`                                       | `ReadInput`, `Status: os.Stdout`, `Commands`, `AskConsent`, `Locker`                                                                                                                                                                                                                                                                                                                                          |
+| `internal/win/p28u_windows.go` (yeni)                                              | `PrevWindow`, `Visible`, `WindowRect`, `WindowAt`, `LockWorkStation`                                                                                                                                                                                                                                                                                                                                          |
+| `internal/unattended/helper/boundary_test.go`, `windows_test.go` (yeni)            | Yasak listesine `ChangeWindowMessageFilter(Ex)`; `RegisterClass` sınıf kümesi = {Gosterge, Onay} (AST, sabit çözümlü)                                                                                                                                                                                                                                                                                         |
+| `internal/unattended/helper/p28u_test.go`, `internal/servis/helperio/p28u_test.go` | AC-431/438/439/443 testleri                                                                                                                                                                                                                                                                                                                                                                                   |
+| `internal/servis/p28u_helperpipe_test.go` (yeni, yalnız test)                      | Uçtan uca boru: servis yeni satırlı girdiyi boruyu kapatmadan + `lock` komutunu yazar; `helper.Run` (gerçek okuyucu/yazar) `consent`/`lock` olaylarını yazar; servisin gerçek `readStatusLine`/`decodeStatus`/`helperStatus.apply`'ı ihlal görmez. Servis paketinde, çünkü okuyucu dışa açık değil (K5 dosyalarına dokunulmadı)                                                                               |
+
+### Tasarımdan sapmalar / notlar (gerekçeli)
+
+- **Sayaç 60 sn** (AC-431, §7.3). Görev metnindeki "150 sn" sunucunun PENDING süresidir; diyalog sayacı değildir.
+- **Paket yolu** `internal/unattended/helper` (görevdeki `internal/helper` yok). `newConsent` (P28a) `internal/ui`'de olduğu için
+  içe aktarılamaz (AC-341 sınırı); kuralları (`control.Consent`, `PlaceAway`, `OriginInjected`/`CharInjected`, 0.8.1 uyarısı)
+  aynen ham Win32 ile uygulandı.
+- **`consent_windows.go` ≤ 250** için diyalog iki dosyaya bölündü (229 + 103 satır).
+- **Ortak helperio dosyası K6 tarafından açıldı** (`p28u.go`; K5 başladığında yoktu). K5'in `helperstatus.go`'su bu tipleri kullanıyor.
+- **Durum borusu = yardımcının stdout'u**; K5 `launch_windows.go` yazma ucunu `Stdout` olarak veriyor (uyumlu).
+- **K-P28u-16** `flow/control.go` tek dalı §8.2a gereği K6'da.
+- **Kilit:** K-P28u-5b (`--lock`) kodlanmadı; spike elle sonucu beklenir. Kilit zaten kilitliyken (`Winlogon`) başarı sayılır;
+  UAC/ekran koruyucuda `not_locked`.
+- **`helperio.Encode` artık `'\n'` ile biter** (açık boruda `ReadInput` ilk satırı yeni satırla ayırır; eski `Read` sondaki
+  boşluğu kabul eder). K5 `launch_windows.go` ek yeni satır yazarsa boş satır komut okuyucusunda atlanır.
+- **P27 girdisi (`Consent==""`, eski sunucu):** yardımcı durum borusuna hiçbir olay yazmaz (K5 olay × durum tablosu bu
+  kipte `control`'ü kabul etmez).
+- **Diyalog hiç kurulamazsa** (`RegisterClass`/`CreateWindow` hatası) `ev:consent` yazılmaz, çıkış 21 `helper_failed`
+  (sunucuda "kullanıcı yanıt vermedi" diye görünmez). Masaüstü süre boyunca `Default`'a dönmezse `timeout` (25).
+- Örtülme dikdörtgeni `GetWindowRect` (DWM çerçevesi değil: daha geniş = güvenli yön); okunamayan görünür pencere örtü sayılır.
+
+### Açık / elle test
+
+- Windows elle: saydam katman (ayrı süreç) örtüsü, cloaked ama `WS_VISIBLE` üst pencerelerin kalıcı "örtülü" yapma riski
+  (ör. UWP/sanal masaüstü pencereleri) — görülürse `DWMWA_CLOAKED` istisnası mimar kararıyla eklenir.
+- `SetForegroundWindow` SYSTEM yardımcıdan ön plan kilidi nedeniyle reddedilebilir; TOPMOST + odak Reddet yine geçerli.
+- RecordingLine kancası (P28e, AC-449) eklenmedi (§7.3: P28e'de).
+
+### Test
+
+`docker run --rm -v "$PWD:/src" -w /src/apps/agent-win golang:1.26 sh -c 'go test ./... && GOOS=windows go vet ./... && GOOS=windows go build ./...'`
+
+Son çıktı (2026-11-16, çalışma ağacı, K5 dosyaları dahil): linux `go test ./...` tüm paketler `ok` (helper, helperio,
+control ayrıca `-race` ile yeşil); `GOOS=windows go vet ./...` ve `go build ./...` hatasız; `gofmt -l` boş.
+**Windows diyalog, örtülme taraması ve kilit kodu yalnız derlendi; Windows'ta hiç koşmadı** (elle test K8/K10).
+
+## P28u K4 (backend-dev) — hub, cihaz mesajları, admit/rejoin, müdahale, toggle audit, kesme, görünümler (2026-11-16)
+
+**Değişen / yeni dosyalar (`apps/server`):** `unattended/hub.ts` (`DeviceConn.caps/userState`, `has`, `userState`, `sendConsent`,
+ended audit `endReason` + `consentMode`), YENİ `unattended/hub-intervene.ts` (oturum başına bekleyen komut, `rooms.clock`),
+`unattended/device-ws.ts` (`rs.cap.*` → caps, `device.ready` sonrası `device.features`, ayrıştırma sırası taban → consent birliği
+yalnız `consent1` sokette), `unattended/device-msg.ts` (`device.user`, `consent.result`, `intervene.result`; `consoleReasonOf` +
+`consent_*`/`protocol`; pencerede eski yardımcının `session.closed`'u yok sayılır; karar sonrası teknisyene güncel `hello`), YENİ
+`unattended/intervene.ts` (`POST /sessions/:id/unattended/{lock,logoff}`), `unattended/service.ts` (liste `userState`, engel `outdated`,
+`DeviceLink.has?/userState?`), `signaling/types.ts` (`UnattendedRoom`), `signaling/admit-device.ts` (≤ 3 sn onay beklemesi —
+`admitting` bayrağından ÖNCE, K-P28u-3 `consent_missing`, `consent_mode` yazımı, silent TX içi politika + `unattended.silent`
+yeniden okuma ve `started{result:fail, failReason:"permission"}`, started'a `consentMode`), YENİ `signaling/rejoin-device.ts`
+(45 sn pencere / 30 sn bilet, tek temizlik yolu, gen+1 bilet, yeniden katılım TX'i, `unattended.rejoin` audit), `signaling/ws-auth.ts`
+(rejoin bileti ayrı yol), YENİ `signaling/unattended-control.ts` (`control_toggle` + oda başına 30/dk kova), kancalar
+`control-grant.ts`/`control-record.ts`/`control.ts` (gözetimsiz odada AC-116 sayacı/beklemesi yok), `handlers.ts` (silent izleme
+kipinde `file.meta`/`fsrv.init` → FORBIDDEN), `active.ts` (`hello.unattended.consentMode/intervene`), `rooms.ts`
+(`applyPermChange`: silent + `unattended.silent` yok → `permission`; PENDING satırlar K3 `finishSilent`), `rooms-device.ts`
+(`preAdmitDevice` `consent?` parametresi, `ask` bileti 150 sn, `revalidateDevice` silent politika/yetki yedek yolu,
+`cancelPendingSilent` → K3 `finishSilent`), `signaling/store.ts` (`issue(value, ttlMs?)`), `sessions/history-*.ts` + YENİ
+`sessions/history-unattended.ts` (liste `consentMode` + filtre; `/:id/history` `unattended{consentMode, silentReason?, timeline}`),
+`audit/read.ts`/`repo.ts` (`consentMode` → `CONSENT_MODE_ACTIONS` ∧ JSON yolu eşitliği), `ops/metrics.ts` (consent, intervene,
+rejoin, device_msg_rejected, silent_notify; connect yardım metni), `app-routes.ts` (müdahale kaydı).
+
+**Testler:** YENİ `test/integration/unattended-consent-k4.test.ts` (15) ve `unattended-intervene-k4.test.ts` (5), yardımcı
+`test/helpers/unattended-k4.ts`; `unattended-device.ts` yardımcıları varsayılan olarak `rs.cap.consent1` sunar (`legacy=true` eski
+servis) ve `activeSession` `consent.result{no_user}` gönderir; `fakeLink.has`; `clip-print-unattended` onay sonucu; `tenant-matrix`
+(müdahale uçları `tenant` + çapraz tenant vakası, K3 politika uçları `scoped`); `pt-surface` anlık görüntüsü (yalnız 5 ekleme);
+`unattended-k3-fallback` `failReason`. Komut (izole DB `rs-mysql-k4u:33334`): `vitest run test/unit test/integration` → 1623 geçti,
+1 atlandı; 1 yük altı yarış (AC-432 testi) sıralama beklemesiyle sağlamlaştırıldı, `unattended-*` 102/102. `tsc` 0, eslint 0,
+prettier temiz. AC-261 (outbox) testi tam koşuda bir kez kırmızı, tek başına yeşil — K4 ile ilgisiz kararsızlık.
+
+**AC kapsamı (sunucu):** 429 (liste, grant'sız null, audit/CSV'de yok), 431/432/433 (onay sonucu, denied/timeout/protocol, no_user,
+consent_missing), 435 (features, eski sokette 1008, liste `outdated`), 439 (toggle audit, dosya kapısı, kontrol sayacı), 440 (admit
+TX, PENDING iptali sonrası açılmama, `applyPermChange`, 60 sn yedek yol), 442–444 (ön koşul matrisi, kilit, ok:false, logoff →
+rejoin, 5/15 sn zaman aşımı → `session_changed`), 445/446 (audit filtresi, çıplak `reason` yok, geçmiş liste/detay, başka tenant 404).
+**Eksik / sonraya:** AC-433'ün `asked` odada logoff sonrası `WTS_SESSION_LOGON` → `session_changed` yolu sunucuda mevcut
+`session.closed{session_changed}` ile işlenir, ayrı entegrasyon testi yok; rejoin'in politika kapalıyken `permission` dalı ve
+`no_user`/`asked` rejoin kipi testsiz (kod yolu silent ile ortak); 6/dk müdahale kovası ve 30/dk kontrol kovası sınırı testsiz;
+yarış testi `connect.ts` kancası yerine DB düzeyinde (satır iptali → admit reddi).
+
+**Tasarımdan sapmalar:** (1) `rejoin-const` ayrı sunucu dosyası yok — contracts'tan içe aktarılır (K2 kararı). (2) Politika yedek
+kesmesi `revalidateTech` yerine `revalidateDevice`'ta (teknisyen bağlı olmasa da `rooms.clock` ile ≤ 60 sn; yetki yarısı
+`applyPermChange` üzerinden `revalidateTech`'ten de gelir). (3) `unattended.session.ended` audit'inde P27 `reason` → `endReason`
+(D-P28u-4 "çıplak reason yok"; `unattended.*` oturum satırlarında test edilir; P27 `device.auth`/`device.revoked` satırları değişmedi).
+(4) K3'ün `admit-device.ts` `recheck`'e eklediği `silentStillAllowed` satırı kaldırıldı: aynı denetim admit TX'inde audit'li
+(`started{result:fail}`) ve rejoin TX'inde (`silentRecheck`) yapılıyor — çift okuma ve audit'siz ret olmasın. (5) K7 devri: kip
+bilgisi için sözleşme değişmedi; `consent.result` işlenince teknisyen bağlıysa güncel `hello` (`unattended.consentMode`) gönderilir.
+(6) Toggle audit aktörü `system` (kontrolü yardımcı otomatik verir/sunucu kapatır).
+
+**Bağımlılık:** yok. **Yeni env:** yok.
+
+**K3'e / devir notları:** `preAdmitDevice(..., { …, consent: "silent" })` geçilmezse oda `ask` sayılır (güvenli yön; bellek kipi
+`silent` olmaz → dosya kapısı/hello/`applyPermChange` silent dalı çalışmaz, admit TX yine DB'den doğru karar verir).
+**frontend-dev (K7):** müdahale yanıtı `rejoin: true` = bilet cihaza gönderildi (katılım henüz tamamlanmadı); 502
+`INTERVENE_FAILED.fields.reason` ∈ `INTERVENE_FAIL_REASONS` (zaman aşımı `timeout`); izleme kipinde dosya gönderimi WS `error{FORBIDDEN}`;
+gözetimsiz odada kontrol isteği 30/dk aşımında `RATE_LIMITED`; ask odasında kip `consent.result` sonrası ikinci `hello` ile gelir.
+
+## P28u K8 (devops) — CI 0.15.0, alarmlar, runbook §28u, staging yayın adımları (2026-11-16)
+
+Kaynak: mimari-p28u §9.4, §11 K8, §14.1, §16 K8, §r2 D-P28u-5. `apps/server` ve Go kaynağına dokunulmadı.
+
+| Dosya                             | Değişiklik                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| --------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `.github/workflows/agent-win.yml` | `test-windows`: "P28u onay + örtülme + müdahale testleri (-v)" adımı (K6s kilit adımından önce; koşucuyu kilitlemez). Ad sözleşmesi — zorunlu PASS: `TestAC432ConsentMissingOnConsent1SocketIsProtocol`, `TestAC435LegacyServerKeepsP27`, `TestAC431StatusTable`, `TestAC431ConsentFlowAndProtocolViolationKills`, `TestAC429UserWatchAnnounceAndDebounce`, `TestAC443LockViaHelperPipeAndEventLog`, `TestAC443LogoffThenRejoinLaunchesHelperControlOff`, `TestAC431ObscuredLayeredTransparentCountsOwnExcluded`, `TestAC431GuardRearmsAfterOcclusionAndHide`, `TestAC431AC443HelperPipeEndToEnd`, `TestAC431BoundaryForbidsMessageFilter`, `TestAC431DeniedOrTimeoutNoIndicatorNoDialNoFrames`, `TestAC443StationLockerWaitsForWinlogon`; `TestAC431HelperWindowClassesOnlyIndicatorAndConsent` SKIP → uyarı. Ad değiştiren bu listeyi de günceller. Etiket onay listesine "0.15.0 → P28u + migration" ve Windows 10/11 elle turu (saydam katman dahil) maddeleri |
+| `deploy/ops/remote-watch.sh`      | 27.–31. metrik alanı (`rs_unattended_silent_notify_total` işaret + `{result="fail"}`, `rs_unattended_connect_total{mode="silent",result="ok"}` etiket sırasından bağımsız, `rs_unattended_consent_total` + `{decision="timeout"}`); kontroller `unattended-notify-fail` (artıştan sonra 24 sa, ilk turda taban 0), `unattended-silent-volume` (1 sa artış > `WATCH_UA_SILENT_MAX`=5), `unattended-consent-timeout` (bilgi; 24 sa'te ≥ `WATCH_UA_TIMEOUT_MIN`=3 ve > %50). Durum anahtarları `ua_notify_fail`, `ua_samples` (25 sa). P28u öncesi server'da değerlendirilmez                                                                                                                                                                                                                                                                                                                                                                                         |
+| `deploy/ops/test-watch.sh`        | +15 senaryo (öncesi/temiz/fail sürer-kalkar/eşik sınırları/pencere/budama/S14-2 enjeksiyon) + 2 metrik ayrıştırma testi; eski beklenen dizilere 5 `-` alanı                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| `deploy/ops/watch.env.example`    | Yeni iki anahtarın açıklaması                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
+| `docs/runbook.md`                 | §28u (politika, izinsiz + dört göz, müdahale, olay kimlikleri 1001/1004/1006/1007/1008, `DEVICE_OUTDATED` güncelleme yolu, alarmlar, geri alma uyum matrisi + sıra, Windows elle turu + K6s spike bağlantısı, staging yayını); §27.8 durum notu                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
+
+Kararlar / sapmalar:
+
+1. **Sürüm 0.15.0 kodda/betikte sabit değil:** `build/build.sh <adres> <x.y.z>` → ldflags `config.version` + go-winres; CI sürümü etiketten
+   (`v0.15.0`) ya da dispatch `version` girdisinden alır. `build.sh`, `winres*.json`, publish betikleri değişmedi (tekrarlanabilirlik aynen).
+   Mimari §11 K8'deki "agent-win.yml (0.15.0)" onay listesindeki sürüm→sunucu eşlemesi olarak uygulandı.
+2. `unattended-notify-fail` "sıfırdan büyük" kuralı sayaç süreç ömrü boyunca kalıcı olduğundan "artıştan sonra 24 sa" olarak uygulandı
+   (P18/P19 kalıbı); aksi halde alarm server yeniden başlayana kadar kalkmazdı. Sayaç alıcı başına 3 deneme sonrası artar (`mail.ts`).
+3. Onay zaman aşımı "bilgi" düzeyi için ayrı alarm kanalı yok: aynı `WATCH_ALERT_CMD` ile gider, mesajı "BİLGİ:" ile başlar; tek yanıtsız
+   diyalog gece alarmı olmasın diye en az 3 zaman aşımı şartı eklendi.
+4. Staging istemci exe'si S13C-13 nedeniyle `--dir` ile yayınlanamaz (tek yığın, proje `remote`): test için teslim, `/downloads` Release ile.
+   Servis `publish-servis.sh --dir` ile yayınlanır; sıra **sunucu önce** (yeni servis eski sunucuda onaysız çalışır — D-P28u-5).
+
+Doğrulama (yerel, 2026-11-16): `deploy/ops/test-watch.sh` → `SONUÇ: GEÇTİ` (P28u 15 senaryo + 2 ayrıştırma PASS); shellcheck
+v0.11.0 (`-S warning`, CI ile aynı digest) `remote-watch.sh`, `test-watch.sh` temiz; actionlint 1.7.8 (CI digest'i) tüm workflow'lar temiz;
+prettier `runbook.md`, `agent-win.yml` temiz; linux `go test -v -run 'TestAC4(29|3[0-9]|4[0-6])'` (servis/unattended/control) listedeki 14
+testin hepsi PASS (Windows koşusu CI'da). Staging'e yayın yapılmadı (koordinatör, runbook §28u.9).
+
+## P28u K3 — bağlantı zinciri, politika, dört göz, müşteri şablonu (AC-430, 434, 436, 437, 438, 441)
+
+Değişen/yeni dosyalar (`apps/server/src`):
+
+- `unattended/connect.ts`: `POST /unattended/devices/:id/connect` zinciri mimari-p28u §5.1 sırasıyla: 1–2 yetki → **2a/2b** silent
+  kapısı (`connect-silent.ts`) → kullanıcı kovası 20/sa → **2c** `ask` için teknisyen×cihaz kovası 60 sn'de 1 (`FixedWindowCounter`,
+  anahtar `userId:deviceId`; 2c'de yalnız `blockedFor` okunur, `hit` TX başarısında → web'in "401 step-up → bir kez yinele" akışı
+  429'a düşmez) → 3 cihaz + grant → 4 step-up → 5–7 yerel anahtar/adres/SMTP/imza kapısı → 8 çevrimiçi → **8a** soket
+  `rs.cap.consent1` (409 `DEVICE_OUTDATED`) → 9 meşgul → 10 TX. Her ret `unattended.connect{result:fail, failReason, mode}` audit +
+  metrik; çıplak `reason` anahtarı yok (K-P28u-20). Step-up 2a–2c ve 8a'da tüketilmez.
+- `unattended/connect-silent.ts` (yeni, "dokunan böler"): 2a `unattended.silent` (403), 2b politika (409 `SILENT_DISABLED`); commit
+  sonrası dört göz e-postası (beklenmez). Gerekçe yalnız audit `silentReason` + DB `silent_reason` + e-posta gövdesinde; pino'ya
+  yazılmaz.
+- `unattended/connect-tx.ts`: TX içinde politika (`tenant_settings FOR SHARE`) ve `unattended.silent` DB'den yeniden okunur
+  (K-P28u-21, O-P28u-2 yarış kapanışı). `ask` → PENDING 150 sn, `consent_mode` NULL (admit yazar), audit `consentRequested:"ask"`;
+  `silent` → PENDING 60 sn, `consent_mode='silent'`, `silent_reason`, audit `consentMode` + `silentReason`.
+- `unattended/policy.ts` (yeni): `GET/PUT /unattended/policy` (§5.2). `false→true`: `ack !== true` → 400 `VALIDATION{fields.ack}`,
+  step-up yok → 401 (tüketmez); `true→false` step-up'sız; aynı değer 200, audit yok. TX `FOR UPDATE` → tek UPDATE (enabled, ack_at,
+  ack_by) → audit `settings.unattended_silent`. Commit sonrası kapatıldıysa `finishSilent` (PENDING silent satırları toplu
+  `CANCELLED(permission)` + canlı silent odalar) ve dört göz e-postası. `GET /unattended/status` → `silentAllowed`.
+- `unattended/mail.ts`: dört göz e-postası (sabit konu `SILENT_CONNECT_SUBJECT`, HTML `esc`), alıcılar firmadaki etkin yetkililer,
+  çağıran hariç; outbox'a girmez, en iyi çaba, her gönderim `mail.sent` audit.
+- `notify/templates.ts`: müşteri bildiriminde `consent_mode='silent'` → "İzin istenmeden bağlanıldı." satırı (gerekçe eklenmez,
+  AC-438).
+- `unattended/routes.ts`, `service.ts`: uç kayıtları ve bağımlılıklar.
+- Testler: `test/integration/unattended-silent-k3.test.ts`, `unattended-silent-race.test.ts`, `unattended-policy.test.ts`,
+  `unattended-connect-k3.test.ts`, `unattended-k3-fallback.test.ts`; fikstür `test/helpers/unattended-silent.ts`.
+
+Sapma (gerekçeli):
+
+- **`ask` zaman aşımı oranla:** `armTimeout` (`connect.ts`) `ask` için sabit 150 sn yerine
+  `round(timing.requestConnectMs × 150 / 60)` kullanır (`DEVICE_CONSENT_WINDOW_MS / DEVICE_CONNECT_WINDOW_MS`). Üretimde
+  `requestConnectMs` = 60 sn → 150 sn, tasarımla aynı. Gerekçe: testler `requestConnectMs`'i küçülttüğünde (ör. 1500 ms) iki
+  pencere arasındaki oran korunur, ayrı test ayarı gerekmez. `ask` odası bileti de PENDING ömrüyle aynı 150 sn
+  (`rooms-device.ts`, `store.ts` kayıt başına `ttlMs`).
+- Bağımlılık eklenmedi.
+
+## P28u düzeltme turu 1 (QA 4, 5, 6, 7-sunucu; güvenlik D-P28u-K1-1, D-P28u-K1-2)
+
+### Kod
+
+- **D-P28u-K1-2** `unattended/device-msg.ts`: yeniden katılım penceresinde `session_changed` dışındaki `session.closed`
+  bildirimlerini yutan süzgeç kaldırıldı. Servis, beklenen yardımcı çıkışında (logoff kabulü) bu bildirimi zaten göndermiyor
+  (agent-win `core.go watch` `pending`). Bu yüzden gelen her bildirim gerçek bitiştir ve oda hemen biter. Bitiş nedeni pencere
+  dışındakiyle aynı: konsola `customer`; kabul edilmiş odada DB `end_reason` de `customer` (P27 `rooms.finish` yolu). Yani artık
+  45 sn sonra yanlışlıkla `session_changed` yazılmıyor. Ham servis nedeni (`helper_failed` vb.) yalnız kabul öncesi bekleyen
+  odada DB'ye yazılır. Bu P27 davranışıdır, değiştirilmedi.
+- **D-P28u-K1-1** (karar: gerekçe audit'te kalır, okuma görünümünde maskelenir):
+  - `audit/view.ts`: `silentReasonVisible(row, canViewHistory, visible)` saf kararı + `auditValueView(..., hideSilentReason = true)`.
+    Varsayılan maskeli (fail-closed). `silentReason` anahtarı (iç içe dahil) `"***"` olur, `null` kalır.
+  - `audit/repo.ts`: `reasonVisibleSessions(db, ids)` satırı var ∧ `anonymized_at IS NULL` olan oturumları `tenantId:id` olarak
+    döner. Tek `IN` sorgusu. Satırı olmayan (temizlenmiş) oturum maskeli kalır.
+  - `audit/read.ts`: liste ve CSV `toItem`'a sayfa/parti başına bir kez hesaplanan `ReasonView` geçer. Sorgu yalnız çağıranda
+    `session_history.view` varsa ve sayfada gerekçe taşıyan satır varsa atılır (CSV perf etkisi yok).
+  - Gerekçe yalnız şu koşulların hepsi sağlanınca açık görünür: çağıranda `session_history.view` var, `entity='support_sessions'`,
+    oturum aynı tenant'ta duruyor ve anonimleştirilmemiş. Aksi her durumda `***`. Değiştirilemez DB satırına dokunulmadı.
+
+### Testler (yeni)
+
+- `test/integration/unattended-rejoin-k4.test.ts`:
+  - QA 4 / T15: logoff sonrası politika kapatma ve `unattended.silent` geri alma (doğrudan DB, `applyPermChange` odayı önceden
+    bitireceği için). Rejoin bileti `permission` ile biter, audit `unattended.rejoin{fail, failReason:permission}`, DB `permission`.
+  - QA 5 / T13: `asked` oda gerçek ask zinciriyle kuruldu. Pencere içinde ve rejoin sonrası `session.closed{session_changed}`
+    gelince oda `session_changed` ile biter. `rejoin.mode` asked/no_user; DB `consent_mode` korunur; yeni `unattended.consent`
+    satırı yazılmaz.
+  - K1-2: pencerede `session.closed{helper_failed}` gelince oda 5 sn içinde biter, neden `customer`, `session_changed` değil.
+- `test/integration/unattended-limits-k4.test.ts` (QA 6, sahte saat, test başına ayrı saat):
+  - Müdahale: 6 kilit sonrası 7. istek 429 `RATE_LIMITED` döner ve cihaza gitmez. +60 sn sonra yeniden kabul edilir.
+  - Kontrol: 30 grant/release sonrası 31. istek `RATE_LIMITED` döner, metrik `rs_control_total{event="unattended_rate"}` +1 artar,
+    istek yardımcıya gitmez. +60 sn sonra açılır.
+  - Not: soket mesaj kovaları da sahte saatle dolduğu için turlar arası saat 1 sn ilerletilir.
+- `test/integration/unattended-audit-modes-k4.test.ts`:
+  - QA 7: üç kip (ask→asked, ask→no_user, silent) gerçek REST connect zinciriyle açılır (`startSilentLive` + `setup`).
+    `GET /audit?consentMode=` her kipi ayrı süzer. Beklenen eylemler: silent'ta `unattended.connect` görünür; ask connect satırı
+    kip taşımaz (`consentRequested:"ask"`), bu tasarım gereği (§5.4).
+  - K1-1:
+    - ADMIN gerekçeyi görür; yalnız `audit.view`+`audit.export` sahibi kullanıcı liste ve CSV'de `***` görür.
+    - DB satırı değişmeden kalır.
+    - Oturum anonimleştirildikten sonra (`anonymizeSessionBatch`) yetkili kullanıcı da `***` görür.
+- `test/unit/audit-silent-reason-p28u.test.ts`: maske kararı birim testi. Kapsadığı durumlar: yetkisiz, satır yok/anonim, başka
+  tenant, başka entity, `entityId` null, varsayılan fail-closed.
+
+### Komutlar ve son çıktı
+
+İzole konteyner `rs-mysql-fx28u:33336`; test sonunda `down` ile silindi.
+
+- `pnpm --filter @remote/server run typecheck` → temiz.
+- `pnpm --filter @remote/server run lint` → temiz.
+- prettier → değişen dosyalar biçimlendi.
+- `vitest run test/unit` → 41 dosya, 585 geçti / 1 atlandı.
+- `vitest run test/integration` → 107 dosya, 1052/1052 geçti.
+
+### frontend-dev için
+
+- Sözleşme (`packages/contracts`) değişmedi.
+- Audit Log listesi/CSV'de `unattended.connect.newValue.silentReason` artık `"***"` gelebilir. Bu, çağıranda
+  `session_history.view` yoksa ya da oturum anonimleştirilmiş/silinmişse olur. Ekran değeri olduğu gibi göstermeli.
+
+## P28u düzeltme turu 1 (Go) — staticcheck (QA tur 1 madde 1)
+
+| Dosya                                                                     | Değişiklik                                                                                                                                                                                                              |
+| ------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `apps/agent-win/internal/servis/helperio/p28u_test.go:31`                 | Dizedeki ham U+202E `"a‮b"` kaçışıyla yazıldı (ST1018).                                                                                                                                                                 |
+| `apps/agent-win/internal/servis/p28u_test.go:743-744`                     | Dize `"Mehmet‮"` ve rune `'‮'` kaçışla yazıldı. Test anlamı değişmedi.                                                                                                                                                  |
+| `apps/agent-win/internal/unattended/helper/status.go` → `lock_windows.go` | `lockWait` (2 sn, §7.5 / AC-443) sabiti tek kullanıcısı `newWinLocker` ile birlikte `//go:build windows` dosyasına taşındı (Linux U1000). `stationLocker` platformdan bağımsız kaldı, testler `wait`'i kendisi veriyor. |
+
+Doğrulama (docker `golang:1.26`, CI ile aynı staticcheck `v0.8.2`):
+
+- `go test ./...`: 30 paket ok, rc=0
+- `GOOS=windows go vet ./...` ve `GOOS=windows go build ./...`: temiz
+- `staticcheck ./...` (linux) ve `GOOS=windows GOARCH=amd64 CGO_ENABLED=0 staticcheck ./...`: bulgu yok
+
+## P28u K5: Windows servisi (`apps/agent-win/internal/servis`)
+
+- **consent1 belirteci** (`wire_consent.go`): servis `/ws/device` alt protokol listesine `rs.cap.consent1` ekler. Sunucu `device.features{caps:[consent1]}` gönderene dek yeni C→S mesajları (`consent.result`, `device.user`, `intervene.result` vb.) yazılmaz (K-P28u-8, `wsdevice_io.go` writer filtresi). Features'tan önce gelen `intervene`/`rejoin` protokol ihlali sayılır.
+- **Kip kararı** (`core.go` `Connect`/`decideMode`, §7.2, K-P28u-2): karar cihazda verilir. `silent` → `consent:none, mode:silent`; `ask` + canlı kullanıcı durumu `active` → `ask/asked` (diyalog); kilitli/kullanıcısız → `none/no_user`. no_user'da yardımcı başlarsa `consent.result{mode:no_user}` gönderilir. Consent1 sokette `consent ∉ {ask, silent}` → `RejectProtocol`, yardımcı başlatılmaz (D-P28u-5, fail-closed). Kullanıcı durumu `userstate.go`/`userstate_windows.go` (WTS `SessionFlags` LOCK/UNLOCK, kullanıcı adı yalnız dolu/boş) ile sönümlü izlenir, değişince ve her features sonrası `device.user` gönderilir.
+- **Durum borusu** (`helperio/p28u.go`, `helperstatus.go`, §7.4, D-P28u-1, K-P28u-19): giriş borusunun ilk satırı `Input`, sonraki satırlar servis komutu (`{"cmd":"lock","id"}`). Durum borusu yardımcıdan servise tek yönlüdür, satır başına bir JSON olay gelir (≤ `MaxStatusLine`, bilinmeyen alan ret). Olay × durum tablosu: `ev:consent` yalnız ask'ta ve bir kez, `ev:control` yalnız granted/none sonrası ve değer değişiminde, `ev:lock` yalnız bekleyen kilidin id'si için kabul edilir. Diğer her şey `helper_protocol` (1004) + TerminateProcess ile sonuçlanır. Kontrol başlatmada kapalıdır.
+- **Kilit / logoff** (`intervene.go`, §7.5, AC-442..444): komut yalnız çalışan yardımcının oturumu için, kontrol açıkken ve yardımcının Windows oturumu hâlâ etkin konsoldayken uygulanır (D-P28u-3). Kilit yardımcıdadır (`Locker` arayüzü, boru komutu; servis bekleme süresi 4 sn, yardımcı ≤ 2 sn'de Winlogon'u doğrular). Oturum kapatma serviste `WTSLogoffSession` ile yapılır, beklenen süre ≤ 10 sn'dir. Servis süreleri sunucu zaman aşımlarının (5 / 15 sn) altında tutulur.
+- **Rejoin** (`rejoin.go`, K-P28u-5 r2): logoff kabulünden itibaren 45 sn `rejoinPending` açık kalır. Bu sürede yardımcı çıkışı `session.closed` üretmez ve konsol geçişi `session_changed` olarak bitmez. `rejoin` mesajı bir kez kabul edilir. Yeni konsol oturumu ≤ 20 sn beklenir, sonra yardımcı `Consent:"none"` ve kontrol kapalı olarak başlatılır (yerel anahtar yine geçerli, AC-295). asked odada logoff sonrası logon gelirse oturum `session_changed` ile biter (K-P28u-17).
+- **Olay günlüğü** (`events.go`): yeni olaylar 1006 (kilit), 1007 (oturum kapatma, başarısızlık uyarı) ve 1008 (onay kararı). 1001'e kip adı eklendi. Gerekçe, bilet, anahtar yazılmaz. Teknisyen adı kontrol karakterlerinden (U+202E dahil) arındırılıp kısaltılır.
+
+### Gerekçeli sapmalar (K5)
+
+1. **Oturum değişikliği olayında EventData okunmuyor** (`svc_windows.go:63`, `rejoin.go` `SessionEvent`). `SERVICE_CONTROL_SESSIONCHANGE` yalnız tetikleyici olarak kullanılır, olayın oturum kimliği okunmaz. Sonuç: asked odada logoff sonrası **başka bir oturumdaki** (ör. RDP) logon da bağlantıyı `session_changed` ile bitirir. Bu yanlış pozitif gizlilik yönünde güvenlidir: oturum gereğinden erken biter, hiçbir durumda onaysız devam etmez. Ayrıca `EventData` işaretçisinin (`WTSSESSION_NOTIFICATION`) güvenli olmayan çözümlemesi gerekmez. Konsol bağlantısı/kopması zaten P27 kuralıyla (K-P27-12) oturumu bitiriyordu.
+2. **Logoff onayı olayla değil yoklamayla alınıyor** (`intervene.go:111` `pollLogoff`/`logoffStep`; mimari §7.5 `WTS_SESSION_LOGOFF` olayını öngörüyordu). Hedef oturum `sessPoll` (500 ms) aralıkla `Sessions.Info` ile sorgulanır. Kullanıcı kalmadığında ok döner, 10 sn sonunda hâlâ kullanıcı varsa `timeout` olur. Gerekçe: olay yalnız tetikleyici olduğundan (madde 1) hangi oturumun kapandığı bilinemezdi. Ayrıca zorla kapatmada olay gecikebilir veya gelmeyebilir. Yoklama hedef oturuma bağlı ve süre sınırlı bir sonuç verir ve testte saatle sürülebilir.
+3. **Features gelmemiş sokette onay alanı taşıyan connect → `helper_failed`** (`core.go:123-125`). P27 (features'sız) sokette `consent`/`indicatorControl` taşıyan connect sözleşme dışıdır ve fail-closed reddedilir. `RejectProtocol` yalnız consent1 sokete ait bir neden olduğu için, eski sunucunun tanıdığı mevcut `helper_failed` nedeni kullanıldı. Yeni ret nedeni eski sunucuya gitmez (K-P28u-8).
+4. **WTS tanımları üretim koduna taşındı** (`userstate_windows.go`). K6s spike testindeki (`k6s_windows_test.go`) `wtsInfoEx`, `procWTSQuerySessionInfo`, `procWTSLogoffSession` ve `wtsState*` tanımları, üretimde kullanıcı durumu ve logoff için gerektiğinden `userstate_windows.go`'ya taşındı. Spike testi artık bunları oradan kullanıyor, tek tanım korunuyor. `WTSLogoffSession` x/sys'te olmadığından `wtsapi32.dll`'den yükleniyor. Yeni bağımlılık eklenmedi.
+
+## P28u K7 — web ekranları (mimari-p28u §10)
+
+### Ekranlar / rotalar
+
+| Rota                          | Auth / yetki                                      | Ne yapar (P28u değişikliği)                                                                                                                                                                                                                                                                                                                                                                                          |
+| ----------------------------- | ------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `/unattended`                 | Evet, `unattended.connect` / `unattended.manage`  | "Kullanıcı" sütunu (Aktif / Kilitli / Oturum yok / —), "Servis güncel değil" rozeti + Bağlan pasif. Bağlan diyaloğu (`connect-dialog.tsx`): izinli bilgi metni; politika açık + `unattended.silent` varsa "İzin istemeden bağlan" kutusu (her açılışta işaretsiz), gerekçe 20–500 + sayaç, dört göz uyarısı; step-up → konsol                                                                                        |
+| `/unattended/[id]`            | Evet, aynı                                        | Cihaz ayrıntısı; Bağlan aynı diyalogla (tek Bağlan yolu)                                                                                                                                                                                                                                                                                                                                                             |
+| `/settings/unattended`        | Evet, `settings.view` (düzenleme `settings.edit`) | Yeni sekme "Gözetimsiz erişim": izinsiz bağlanma politikası. Açarken aydınlatma kutusu zorunlu + step-up; kapatma onaysız; "Son açan" satırı; salt okunurda anahtar pasif                                                                                                                                                                                                                                            |
+| `/sessions/[id]/console`      | Evet, `sessions.view`                             | Gözetimsiz çubuk (`unattended-actions.tsx`): kip rozeti (İzinli / Kullanıcı yok / İzinsiz); izinsizde "İzleniyor" + onaylı "Müdahale et" / "İzlemeye dön"; kontrol açıkken "Oturumu kilitle" ve onaylı "Kullanıcı oturumunu kapat" (odak Vazgeç) → "Cihaz yeniden bağlanıyor…" (45 sn); `intervene:false` → iki düğme pasif + AC-352 metni. İzinli istekte kip gelene kadar "Kullanıcının onayı bekleniyor… (60 sn)" |
+| `/history`                    | Evet, `session_history.view`                      | "Bağlantı kipi" filtresi (`consentMode`, URL'de)                                                                                                                                                                                                                                                                                                                                                                     |
+| `/history/[id]`               | Evet, aynı                                        | "Gözetimsiz bağlantı" bölümü: kip, gerekçe (düz metin), müdahale zaman çizelgesi                                                                                                                                                                                                                                                                                                                                     |
+| `/audit`                      | Evet, `audit.view`                                | "Bağlantı kipi" filtresi (`consentMode`)                                                                                                                                                                                                                                                                                                                                                                             |
+| `/users/[id]` (yetki matrisi) | Evet, admin                                       | `unattended.silent` için "Hassas — yalnız gerekene verin" rozeti                                                                                                                                                                                                                                                                                                                                                     |
+
+Saf kararlar `lib/unattended/consent.ts` (+ `consent.test.ts`); `hello.unattended.{consentMode, intervene}` `lib/webrtc/tech-machine.ts`'te işlenir.
+
+### Sapmalar (gerekçeli)
+
+- **Yeni UI primitifi eklenmedi.** Mevcut `Button`, `Dialog` (alertdialog), `SelectField`, `TextField`, toast, rozet sınıfları kullanıldı; DESIGN.md değişmedi.
+- **İzinsiz kipte "Kontrol iste" boşta gizli.** Tek yol onaylı "Müdahale et" (AC-439); düğme yalnız istek sürerken / kontrol açıkken görünür (Vazgeç, özel tuşlar, bırak). `showControlButton()`.
+- **"Yeniden dene" konsoldan cihaz ayrıntısına gider** (`console-parts.tsx`, `consent_denied` / `consent_timeout` bitişlerinde). Gerekçe: yeni bağlantı yeni step-up ve kip seçimi ister (AC-432); bunun tek yeri cihazdaki Bağlan diyaloğu — konsola ikinci bir bağlan yolu eklenmedi (sadelik ilkesi: tek yol).
+- **Dosya planı farkları (mimari §11 K7):**
+  - e2e dosyası `e2e/p28u-unattended.spec.ts` (planda `unattended-p28u.spec.ts`); proje genelindeki `pNN-*.spec.ts` adlandırmasına uyuldu. Sahte API `e2e/mock-p28u.mjs`.
+  - `connect-button.tsx` değişmedi: diyalog `connect-dialog.tsx` + `use-connect.ts` ile açılıyor, düğme bileşenine iş düşmedi.
+  - `lib/errors.ts` değişmedi: P28u hata metinleri (`SILENT_DISABLED`, `DEVICE_OUTDATED`, `INTERVENE_FAILED` …) mevcut `lib/unattended/errors.ts` (`unattendedUiError`) üzerinden sözleşme metniyle gösteriliyor.
+  - Plana ek: `user-state.tsx` (Kullanıcı sütunu), `lib/unattended/consent.ts`, `components/console/stage-overlay.tsx` (onay bekleme), `components/admin/permission-matrix.tsx` (Hassas rozeti), `lib/{audit,history}/query.ts` (filtre URL'si).
+
+## QA P28u tur 1 düzeltmesi (madde 7-web, 8) + K4 ikinci `hello`
+
+| Madde               | Değişiklik                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
+| ------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 7 (AC-445)          | `mock-p28u.mjs`: `P28U_HISTORY_MODES` (u-hun geçmişinde 2 silent, 2 asked, 1 no_user; ticket no işaretli) ve `p28uAuditRows()` (yeni audit senaryosu `u-auun-*`: kip başına 2 kayıt + kipsiz `connect{consentRequested:"ask"}` ve giriş kaydı). `mock-history.mjs` / `mock-audit.mjs` artık `consentMode` ile süzüyor. Eski "URL'ye yazılır" testi yerine iki test: geçmiş ve audit için üç kip ayrı ayrı seçilir; sayı, kendi işaretleri ve diğer kiplerin işaretlerinin yokluğu doğrulanır |
+| 8 (AC-444 / AC-352) | e2e: `hello.unattended.intervene:false` + kontrol izni → "Oturumu kilitle" ve "Kullanıcı oturumunu kapat" pasif, metin "Cihazdaki servis bu özelliği desteklemiyor — güncelleyin" ve düğmelerin erişilebilir açıklaması; zorla tıklamada REST isteği/diyalog yok; axe 0                                                                                                                                                                                                                      |
+| K4 ikinci `hello`   | Sunucu cihaz onayından sonra güncel PENDING `hello` gönderir (`device-msg.ts` → `sendHelloTech`). Kod değişikliği gerekmedi (`unattended: m.unattended ?? s.unattended`). Testler: e2e (onay bekleme → ikinci `hello{consentMode:"asked"}` → rozet "İzinli", "Cihaz bağlanıyor…"; `unattended`'sız `hello` kipi korur) + birim `machines.test.ts` (ICE kapısı PENDING `hello`'da açılmaz)                                                                                                    |
+
+Değişen dosyalar: `apps/web/e2e/{mock-p28u.mjs, mock-history.mjs, mock-audit.mjs, p28u-unattended.spec.ts}`, `apps/web/lib/webrtc/machines.test.ts`. Uygulama kodu değişmedi.
+
+## P28u K10 düzeltmesi (frontend-dev)
+
+Kaynak: `docs/test-raporu.md` "P28u K10" bulguları. Yeni rota/bileşen yok.
+
+| Bulgu                                               | Durum                       | Değişiklik                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
+| --------------------------------------------------- | --------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| [ORTA] Audit'te gözetimsiz eylemler ham anahtarla   | Düzeltildi                  | `apps/web/lib/audit/actions.ts` `AUDIT_ACTION_LABELS` += `UNATTENDED_AUDIT_LABELS` (`@remote/contracts/api/unattended`; `audit.ts` üzerinden değil, döngü olmasın). `packages/contracts/src/api/audit.ts` `AUDIT_ACTION_GROUPS` += `{ prefix: "unattended.*", label: "Gözetimsiz erişim" }` — İşlem süzgecinde grup başlığı ve "— tümü" artık ham `unattended` değil. Liste yalnız web'de kullanılıyor; sunucu öneki regex'le doğruluyor, sunucu değişikliği yok. `unattended.session.*` TIMELINE etiketiyle aynı metin (çakışma yok). |
+| [DÜŞÜK] Step-up metni "hassas bir ayarı değiştirir" | Düzeltildi                  | `messages/tr.json` `su.body` → "Bu işlem ek doğrulama gerektirir. …". Step-up işleyicisi (`setStepUpHandler`) amaç parametresi almıyor; tek, nötr metin seçildi — ayar ekranlarındaki step-up da bu metni gösterir. `en.json` yok.                                                                                                                                                                                                                                                                                                     |
+| [DÜŞÜK] Logoff onayı Esc ile kapanmıyor             | Kod hatası yok; e2e eklendi | Onay `Dialog` (native `<dialog>`, `onDismiss` yok) Esc'de `onClose` → kapanıyor. Raporun ölçümü `getByTestId("un-logoff-dialog").count()` idi; kapalı `<dialog>` DOM'da kaldığından sayı 1 döner (yanlış pozitif). Yeni e2e `toBeHidden` ile hem odak Vazgeç'teyken hem raporun beklemesiz sırasıyla Esc'yi doğrular; logoff isteği 0, ajana uzak tuş gitmez, odak tetikleyiciye döner.                                                                                                                                                |
+| 375 px izinsiz Bağlan "Vazgeç"                      | Sorun yok; e2e eklendi      | Diyalog kendi içinde kayar (`max-h-[calc(100dvh-2rem)] overflow-y-auto`). Rapordaki görüntü `fullPage` çekim kırpması. e2e: 375×812 ve 375×667, açık/koyu, en uzun hâl (izinsiz + gerekçe hatası): diyalog ekran içinde, Vazgeç kaydırılınca tamamen görünür, ≥ 44 px, tıklanınca kapanır, connect POST 0.                                                                                                                                                                                                                             |
+
+Değişen dosyalar: `apps/web/lib/audit/actions.ts`, `apps/web/lib/audit/audit.test.ts` (sözleşmedeki tüm `UNATTENDED_AUDIT` + `UNATTENDED_POLICY_AUDIT` etiketli; süzgeçte ham etiketli seçenek yok), `apps/web/messages/tr.json`, `apps/web/e2e/p28u-unattended.spec.ts` (AC-445 audit etiket/süzgeç, AC-437 step-up metni, K10 Esc, K10 375 px), `packages/contracts/src/api/audit.ts`.
+
+Doğrulama: web+contracts lint/typecheck (+server typecheck), prettier temiz; vitest web 464 + contracts 222 geçti; Playwright `p28u-unattended` 23 geçti, ilgili `lg-send`, `p14a-a4`, `p15`, `p16`, `unattended` 77 geçti.

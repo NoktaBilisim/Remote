@@ -1,7 +1,7 @@
 // P27-K3 bağlantı ucu + otomatik kabul (mimari-p27 §2, §4.3 r2, §7.1; AC-273, 275, 293, 295, 296, 336, 338, 339).
 // Gerçek dinleyen sunucu + sahte servis (`/ws/device`, Ed25519) + sahte yardımcı (`/ws/guest` bileti).
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { createUser, loginAs, loginStepUp, markStepUp, testDb } from "../helpers/app.ts";
+import { createUser, loginAs, loginStepUp, testDb } from "../helpers/app.ts";
 import { startLive, type Live } from "../helpers/signal-flow.ts";
 import { UNSIGNED_ENV } from "../helpers/unattended.ts";
 import {
@@ -14,6 +14,8 @@ import {
   sessionStatus,
   waitUntil,
   type ConnectMsg,
+  type Ready,
+  UN_TECH_PERMS,
 } from "../helpers/unattended-device.ts";
 import { grantRow, setSmtp } from "../helpers/unattended.ts";
 
@@ -22,6 +24,13 @@ beforeAll(async () => {
   live = await startLive({ env: { ...UNSIGNED_ENV }, signaling: { timing: { requestConnectMs: 1500 } } });
 });
 afterAll(async () => live.close());
+
+/** P28u 2c (teknisyen×cihaz 60 sn kovası): aynı cihaza ikinci bağlantı için grant'lı ikinci teknisyen. */
+async function secondTech(r: Ready) {
+  const t2 = await createUser({ tenantId: r.tenantId, role: "USER", perms: UN_TECH_PERMS });
+  await grantRow(r.tenantId, r.dev.id, t2.id);
+  return loginStepUp(live.app, t2);
+}
 
 const audits = (entityId: string, action: string) => testDb().auditLog.findMany({ where: { entityId, action } });
 
@@ -81,7 +90,7 @@ describe("P27-K3 POST /unattended/devices/:id/connect", () => {
     await waitUntil(async () => !live.app.unattendedHub.isOnline(r.dev.id));
     expect(await code()).toBe("409 DEVICE_OFFLINE");
     const fails = await audits(r.dev.id, "unattended.connect");
-    expect(fails.map((a) => (a.newValue as { reason: string }).reason).sort()).toEqual(
+    expect(fails.map((a) => (a.newValue as { failReason: string }).failReason).sort()).toEqual(
       ["local_disabled", "no_channel", "no_contact", "not_found", "offline"].sort(),
     );
   });
@@ -112,6 +121,7 @@ describe("P27-K3 POST /unattended/devices/:id/connect", () => {
 
   it("AC-275: iptal → cihaza revoked + 4401, oda device_revoked ile biter (≤ 10 sn), sonra bağlantı 404", async () => {
     const r = await ready(live);
+    const s2 = await secondTech(r);
     const { sessionId, helper } = await activeSession(live, r);
     const admin = await createUser({ tenantId: r.tenantId, role: "ADMIN" });
     const as = await loginAs(live.app, admin);
@@ -127,8 +137,7 @@ describe("P27-K3 POST /unattended/devices/:id/connect", () => {
     expect((await r.device.closed).code).toBe(4401);
     expect(Date.now() - t0).toBeLessThan(10_000);
     await waitUntil(async () => (await sessionStatus(sessionId)).status === "ENDED");
-    await markStepUp(r.s);
-    expect((await live.app.inject(connectReq(r))).statusCode).toBe(404);
+    expect((await live.app.inject(connectReq({ s: s2, dev: r.dev }))).statusCode).toBe(404); // P28u 2c: başka teknisyen
   });
 
   it("AC-293: yetki geri alma → açık oda permission ile biter (≤ 5 sn)", async () => {
@@ -165,8 +174,9 @@ describe("P27-K3 POST /unattended/devices/:id/connect", () => {
     r.device.send({ t: "connect.result", sessionId: msg.sessionId, ok: false, reason: "indicator_failed" });
     await waitUntil(async () => (await sessionStatus(msg.sessionId)).status === "CANCELLED");
     expect((await sessionStatus(msg.sessionId)).endReason).toBe("indicator_failed");
-    await markStepUp(r.s);
-    expect((await live.app.inject(connectReq(r))).statusCode).toBe(200);
+    // P28u 2c: aynı teknisyen×cihaz 60 sn'de 1 → ikinci istek başka teknisyenden
+    const s2 = await secondTech(r);
+    expect((await live.app.inject(connectReq({ s: s2, dev: r.dev }))).statusCode).toBe(200);
     const m2 = (await r.device.waitFor("connect" as never)) as unknown as ConnectMsg;
     r.device.send({ t: "connect.result", sessionId: m2.sessionId, ok: false, reason: "helper_failed" });
     await waitUntil(async () => (await sessionStatus(m2.sessionId)).endReason === "helper_failed");

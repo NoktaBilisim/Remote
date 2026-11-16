@@ -25,7 +25,9 @@ var forbiddenPkgs = []string{
 
 // forbiddenNames başvurusu yasak tanımlayıcılar (seçici ya da yalın ad) ve dize önekleri (NewProc adları).
 var forbiddenNames = []string{"MessageBox", "OpenURL", "OpenMailto", "ShellExecute", "GetOpenFileName",
-	"GetSaveFileName", "SHBrowseForFolder", "FileOpenDialog", "FileSaveDialog", "pMessageBoxW", "pShellExecuteW"}
+	"GetSaveFileName", "SHBrowseForFolder", "FileOpenDialog", "FileSaveDialog", "pMessageBoxW", "pShellExecuteW",
+	// P28u D-P28u-1: UIPI'yi delen ileti süzgeci (önek eşleşmesi Ex sürümünü de kapsar).
+	"ChangeWindowMessageFilter"}
 
 // winDefinitions internal/win'deki izinli tanımlar (gövdeleri taranmaz; başka yerden başvuru yasak).
 var winDefinitions = map[string]bool{"MessageBox": true, "OpenURL": true, "OpenMailto": true,

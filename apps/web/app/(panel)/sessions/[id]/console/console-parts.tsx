@@ -1,4 +1,4 @@
-import { ArrowLeft, CircleX, Power } from "lucide-react";
+import { ArrowLeft, CircleX, Power, RotateCcw } from "lucide-react";
 import Link from "next/link";
 import type { RefObject } from "react";
 import type { DrawInput, DrawTool } from "@/components/collab/annot-layer";
@@ -12,9 +12,14 @@ import type { Collab } from "@/lib/dc/use-collab";
 import type { SpecialComboId } from "@/lib/control/input";
 import type { ControlState } from "@/lib/control/machine";
 import type { TechState } from "@/lib/webrtc/tech-machine";
+import { CONSENT_END_REASONS } from "@/lib/unattended/consent";
 
-/** Oturum bitti ekranı (neden + listeye dönüş). */
-export function ConsoleEnded({ end }: { end: TechState["end"] }) {
+/**
+ * Oturum bitti ekranı (neden + listeye dönüş). P28u (AC-432): gözetimsiz izinli istek reddedildi / yanıtsız kaldıysa "Yeniden dene"
+ * cihaz ayrıntısına götürür (tek Bağlan yolu; yeni step-up ister — metinde yazar).
+ */
+export function ConsoleEnded({ end, deviceId = null }: { end: TechState["end"]; deviceId?: string | null }) {
+  const retry = deviceId !== null && end !== null && CONSENT_END_REASONS.includes(end);
   return (
     <section
       role="status"
@@ -23,6 +28,18 @@ export function ConsoleEnded({ end }: { end: TechState["end"] }) {
     >
       <h2 className="text-lg font-semibold text-fg">{t("c.endedTitle")}</h2>
       <p className="text-sm text-fg-muted">{t(`c.reason.${end ?? "server"}`)}</p>
+      {retry && (
+        <div className="flex flex-col gap-1" data-testid="console-consent-retry">
+          <Link
+            href={`/unattended/${deviceId}`}
+            className="inline-flex min-h-11 items-center gap-2 text-sm font-medium text-primary hover:underline"
+          >
+            <RotateCcw aria-hidden className="size-4" />
+            {t("un.consent.retry")}
+          </Link>
+          <p className="text-xs text-fg-muted">{t("un.consent.retryNote")}</p>
+        </div>
+      )}
       <Link href="/sessions" className="inline-flex min-h-11 items-center gap-2 text-sm font-medium text-primary hover:underline">
         <ArrowLeft aria-hidden className="size-4" />
         {t("c.back")}

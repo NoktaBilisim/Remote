@@ -25,14 +25,15 @@ export class OneTimeStore<T> {
   }
 
   /** Yeni değer üretir; dolarsa süresi geçmişleri, yine doluysa en eskiyi atar. */
-  issue(value: T): { token: string; expiresAt: number } {
+  /** `ttlMs` verilirse bu kayıt için depo varsayılanı yerine (P28u `ask` odası bileti 150 sn). */
+  issue(value: T, ttlMs = this.ttlMs): { token: string; expiresAt: number } {
     if (this.items.size >= this.max) this.prune();
     if (this.items.size >= this.max) {
       const oldest = this.items.keys().next().value;
       if (oldest !== undefined) this.items.delete(oldest);
     }
     const token = newSecretToken();
-    const expiresAt = this.clock.now() + this.ttlMs;
+    const expiresAt = this.clock.now() + ttlMs;
     this.items.set(sha256Hex(token), { value, expiresAt });
     return { token, expiresAt };
   }

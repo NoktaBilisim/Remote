@@ -6,6 +6,7 @@ import type { JsonObject } from "../audit/mask.ts";
 import { newId } from "../lib/ids.ts";
 import type { Rooms } from "./rooms.ts";
 import type { Clock, CloseRecord, ConsentSource, ControlRoom, Guest, Room, TechConn } from "./types.ts";
+import { controlToggled } from "./unattended-control.ts";
 
 /** AC-111: GRANTED kaydı bu sürede yazılmazsa kontrol geri alınır (1 sn şartının içinde kalmak için pay bırakıldı). */
 export const CONTROL_AUDIT_TIMEOUT_MS = 800;
@@ -115,6 +116,7 @@ export function enqueue(rooms: Rooms, room: Room, job: () => Promise<void>): Pro
  * kayıt `interrupt` olarak bırakılır; GRANTED commit edilirse `onGranted` bu kayıtla dengeler (ilk kapatma kazanır).
  */
 export function recordClose(rooms: Rooms, room: Room, granting: boolean, rec: CloseRecord, event: string): Promise<void> {
+  controlToggled(rooms, room, false); // P28u §8.2 (açılışı commit edilmemişse no-op)
   if (granting) {
     room.control.interrupt ??= rec;
     return Promise.resolve();

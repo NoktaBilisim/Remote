@@ -67,6 +67,11 @@ export const END_REASON_LABELS: Readonly<Record<string, string>> = {
   helper_failed: "Cihazda bağlantı başlatılamadı",
   no_console: "Cihazda etkin Windows oturumu yok",
   busy: "Cihazda başka gözetimsiz bağlantı var",
+  // P28u (mimari-p28u §6.2): onay sonuçları + D-P28u-5 fail-closed (`protocol` yalnız DB nedeni).
+  consent_denied: "Kullanıcı bağlantıyı reddetti",
+  consent_timeout: "Kullanıcı yanıt vermedi",
+  consent_missing: "Cihaz onay sonucunu bildirmedi",
+  protocol: "Cihaz servisi beklenmeyen istek aldı",
 };
 
 /** P8b (AC-158): geçmiş listesi/CSV "Kaynak". */

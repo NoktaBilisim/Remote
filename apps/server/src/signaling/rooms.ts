@@ -28,7 +28,7 @@ import { newClipPrint } from "./clip-print.ts";
 import { newControl } from "./control.ts";
 import { closeControlOnEnd, narrowCaps, resetOnGuestGone, revokeOnTechChange } from "./control-revoke.ts";
 import { fsrvRoomClosed, fsrvSideGone } from "./fsrv.ts";
-import { endDeviceRoom } from "./rooms-device.ts";
+import { cancelPendingSilent, endDeviceRoom } from "./rooms-device.ts";
 import * as lobby from "./rooms-lobby.ts";
 import { pending, type RoomRow } from "./rooms-lobby.ts";
 
@@ -65,7 +65,7 @@ export class Rooms implements RoomNotifier, TechnicianLiveControl {
   /** P27: gözetimsiz oda bitti (teardown) — DeviceHub cihaza `disconnect` + audit/metrik yazar (commit sonrası, en iyi çaba). */
   deviceEnded?: (room: Room, reason: SessionEndedReason) => void;
   /** P27: DeviceHub — müşteri pasifinde iptal edilen cihazların soketi/odası (customers/service.ts, commit sonrası). */
-  devices?: { revoked(deviceId: string): void };
+  devices?: { revoked(deviceId: string): void; has(deviceId: string, feature: "consent1"): boolean };
   /** P28b: sunucu dosya servisi (`bindFsrv`, ws.ts); yoksa SERVER odasında `fsrv.init` → UNSUPPORTED. */
   fsrv?: FsrvService;
   private readonly rooms = new Map<string, Room>();
@@ -283,13 +283,16 @@ export class Rooms implements RoomNotifier, TechnicianLiveControl {
     for (const room of this.rooms.values()) {
       if (room.technicianId !== userId || room.ending) continue;
       // P27 (§4.4): `unattended.connect` düştüyse gözetimsiz oda `permission` ile biter (PENDING ise DB CANCELLED).
-      if (room.unattended && !perms.has("unattended.connect")) {
+      // P28u (§8.4, AC-440): `silent` odada `unattended.silent` düştüyse aynı yol.
+      const silentLost = room.unattended?.consentMode === "silent" && !perms.has("unattended.silent");
+      if ((room.unattended && !perms.has("unattended.connect")) || silentLost) {
         jobs.push(endDeviceRoom(this, room, "permission"));
         continue;
       }
       if (room.tech?.userId === userId) room.tech.permissions = perms;
       jobs.push(narrowCaps(this, room, perms));
     }
+    if (!perms.has("unattended.silent")) jobs.push(cancelPendingSilent(this, userId));
     await Promise.all(jobs);
   }
 

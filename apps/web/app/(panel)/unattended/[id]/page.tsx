@@ -12,6 +12,7 @@ import { getMe, serverGet } from "@/lib/server-api";
 import type { DeviceDetail, UnattendedStatus } from "@/lib/unattended/contract";
 import { gateOpen } from "@/lib/unattended/errors";
 import { DeviceBadges } from "../device-badges";
+import { UserState } from "../user-state";
 import { accessOf, gateBody, ModeBanner, type UnAccess } from "../unattended-shell";
 import { DetailConnect, RevokeButton } from "./device-actions";
 import { DeviceSessions } from "./device-sessions";
@@ -122,8 +123,11 @@ function DeviceView({ d, status, access }: { d: DeviceDetail; status: Unattended
         <div className="flex min-w-0 flex-col gap-2">
           <h1 className="text-2xl font-semibold text-fg wrap-anywhere">{d.name}</h1>
           <DeviceBadges device={d} />
+          <p className="flex flex-wrap items-center gap-2 text-sm text-fg-muted" data-testid="un-detail-user">
+            {t("un.col.user")}: <UserState state={d.userState} />
+          </p>
         </div>
-        <DetailConnect device={d} available={gateOpen(status)} />
+        <DetailConnect device={d} available={gateOpen(status)} silentAllowed={status?.silentAllowed === true} />
       </div>
       <div className="mt-4 flex max-w-3xl flex-col gap-2">
         <ModeBanner status={status} />

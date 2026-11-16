@@ -1,5 +1,17 @@
 {
-  "_doc": "/ws/device sözleşme örnekleri (mimari-p27 §4.4, P27-K1). valid.* şemadan geçmeli, invalid.* reddedilmeli. deviceAuth = kimliksiz soketin tek mesajı; deviceInbound = kimliği doğrulanmış soketten gelenler; deviceOutbound = sunucudan cihaza. Go servisi (K5, internal/servis/wsdevice.go) bu örnekleri go test ile doğrular. authMessage: deviceAuthMessage(nonce, deviceId, origin) beklenen dizesi.",
+  "_doc": "/ws/device sözleşme örnekleri (mimari-p27 §4.4, P27-K1). valid.* şemadan geçmeli, invalid.* reddedilmeli. deviceAuth = kimliksiz soketin tek mesajı; deviceInbound = kimliği doğrulanmış soketten gelenler; deviceOutbound = sunucudan cihaza. Go servisi (K5, internal/servis/wsdevice.go) bu örnekleri go test ile doğrular. authMessage: deviceAuthMessage(nonce, deviceId, origin) beklenen dizesi. P28u (mimari-p28u §6): consent1Inbound/consent1Outbound = rs.cap.consent1 bildiren sokette device.features SONRASI geçerli mesajlar (taban birlik ∪ consent birliği); eski anahtarlar yalnız P27 tabanı. connect artık yalnız consent1 cihaza gider ve consent zorunlu → örnekleri consent1Outbound'da (D-P28u-5: consent'siz connect geçersiz). constants: Go eşi (K5 rejoin.go/wire.go, K6 yardımcı) aynı değerleri doğrular.",
+  "constants": {
+    "wsDeviceCapConsent": "rs.cap.consent1",
+    "consentDialogSec": 60,
+    "consentResultMsMax": 65000,
+    "deviceConsentWindowMs": 150000,
+    "rejoinWindowSec": 45,
+    "rejoinTicketTtlSec": 30,
+    "rejoinConsoleWaitSec": 20,
+    "deviceUserDebounceMs": 500,
+    "interveneLockTimeoutMs": 5000,
+    "interveneLogoffTimeoutMs": 15000
+  },
   "authMessage": {
     "nonce": "Tzvurhrfhd0k9x-ZN1JarzZap5Ix7vMOKvclD1Y-lUE",
     "deviceId": "01JD0000000000000000000001",
@@ -20,15 +32,66 @@
       }
     ],
     "deviceInbound": [
-      { "t": "connect.result", "sessionId": "01JD0000000000000000000002", "ok": true },
-      { "t": "connect.result", "sessionId": "01JD0000000000000000000002", "ok": false, "reason": "indicator_failed" },
-      { "t": "device.state", "localEnabled": false },
-      { "t": "session.closed", "sessionId": "01JD0000000000000000000002", "reason": "session_changed" },
-      { "t": "device.unregister" }
+      {
+        "t": "connect.result",
+        "sessionId": "01JD0000000000000000000002",
+        "ok": true
+      },
+      {
+        "t": "connect.result",
+        "sessionId": "01JD0000000000000000000002",
+        "ok": false,
+        "reason": "indicator_failed"
+      },
+      {
+        "t": "device.state",
+        "localEnabled": false
+      },
+      {
+        "t": "session.closed",
+        "sessionId": "01JD0000000000000000000002",
+        "reason": "session_changed"
+      },
+      {
+        "t": "device.unregister"
+      }
     ],
     "deviceOutbound": [
-      { "t": "device.hello", "v": 1, "nonce": "2lGwFkcGYEJ_OM1wKccki4fMire12B7w7yG0o92yhB8" },
-      { "t": "device.ready", "tenantName": "Nokta Destek", "customerName": "Örnek Muhasebe Ltd." },
+      {
+        "t": "device.hello",
+        "v": 1,
+        "nonce": "2lGwFkcGYEJ_OM1wKccki4fMire12B7w7yG0o92yhB8"
+      },
+      {
+        "t": "device.ready",
+        "tenantName": "Nokta Destek",
+        "customerName": "Örnek Muhasebe Ltd."
+      },
+      {
+        "t": "disconnect",
+        "sessionId": "01JD0000000000000000000002",
+        "reason": "device_revoked"
+      },
+      {
+        "t": "revoked"
+      }
+    ],
+    "consent1Outbound": [
+      {
+        "t": "device.features",
+        "caps": ["consent1"]
+      },
+      {
+        "t": "connect",
+        "sessionId": "01JD0000000000000000000002",
+        "ticket": "OSTHxpIxRYOEvsy1t7jssmOfVM9-lMgf5dSNuly4uso",
+        "techName": "Mehmet Teknisyen",
+        "tenantName": "Nokta Destek",
+        "techIp": "203.0.113.7",
+        "expiresInSec": 150,
+        "indicatorText": "Uzaktan bağlantı: Mehmet Teknisyen — Nokta Destek",
+        "consent": "ask"
+      },
       {
         "t": "connect",
         "sessionId": "01JD0000000000000000000002",
@@ -37,10 +100,129 @@
         "tenantName": "Nokta Destek",
         "techIp": "203.0.113.7",
         "expiresInSec": 60,
-        "indicatorText": "TEST — imzasız · Uzaktan bağlantı: Mehmet Teknisyen — Nokta Destek"
+        "indicatorText": "Uzaktan izleniyor: Mehmet Teknisyen — Nokta Destek",
+        "consent": "silent",
+        "indicatorControl": "Uzaktan kontrol: Mehmet Teknisyen — Nokta Destek"
       },
-      { "t": "disconnect", "sessionId": "01JD0000000000000000000002", "reason": "device_revoked" },
-      { "t": "revoked" }
+      {
+        "t": "intervene",
+        "sessionId": "01JD0000000000000000000002",
+        "id": "01JD0000000000000000000009",
+        "cmd": "lock"
+      },
+      {
+        "t": "intervene",
+        "sessionId": "01JD0000000000000000000002",
+        "id": "01JD0000000000000000000009",
+        "cmd": "logoff"
+      },
+      {
+        "t": "rejoin",
+        "sessionId": "01JD0000000000000000000002",
+        "ticket": "OSTHxpIxRYOEvsy1t7jssmOfVM9-lMgf5dSNuly4uso",
+        "mode": "asked",
+        "indicatorText": "Uzaktan bağlantı: Mehmet Teknisyen — Nokta Destek",
+        "expiresInSec": 30
+      },
+      {
+        "t": "rejoin",
+        "sessionId": "01JD0000000000000000000002",
+        "ticket": "OSTHxpIxRYOEvsy1t7jssmOfVM9-lMgf5dSNuly4uso",
+        "mode": "no_user",
+        "indicatorText": "Uzaktan bağlantı: Mehmet Teknisyen — Nokta Destek",
+        "expiresInSec": 30
+      },
+      {
+        "t": "rejoin",
+        "sessionId": "01JD0000000000000000000002",
+        "ticket": "OSTHxpIxRYOEvsy1t7jssmOfVM9-lMgf5dSNuly4uso",
+        "mode": "silent",
+        "indicatorText": "Uzaktan izleniyor: Mehmet Teknisyen — Nokta Destek",
+        "expiresInSec": 30,
+        "indicatorControl": "Uzaktan kontrol: Mehmet Teknisyen — Nokta Destek"
+      },
+      {
+        "t": "disconnect",
+        "sessionId": "01JD0000000000000000000002",
+        "reason": "consent_missing"
+      }
+    ],
+    "consent1Inbound": [
+      {
+        "t": "device.user",
+        "state": "active"
+      },
+      {
+        "t": "device.user",
+        "state": "locked"
+      },
+      {
+        "t": "device.user",
+        "state": "none"
+      },
+      {
+        "t": "consent.result",
+        "sessionId": "01JD0000000000000000000002",
+        "mode": "asked",
+        "decision": "granted",
+        "ms": 4200
+      },
+      {
+        "t": "consent.result",
+        "sessionId": "01JD0000000000000000000002",
+        "mode": "asked",
+        "decision": "denied",
+        "ms": 0
+      },
+      {
+        "t": "consent.result",
+        "sessionId": "01JD0000000000000000000002",
+        "mode": "asked",
+        "decision": "timeout",
+        "ms": 65000
+      },
+      {
+        "t": "consent.result",
+        "sessionId": "01JD0000000000000000000002",
+        "mode": "no_user"
+      },
+      {
+        "t": "intervene.result",
+        "sessionId": "01JD0000000000000000000002",
+        "id": "01JD0000000000000000000009",
+        "cmd": "lock",
+        "ok": true
+      },
+      {
+        "t": "intervene.result",
+        "sessionId": "01JD0000000000000000000002",
+        "id": "01JD0000000000000000000009",
+        "cmd": "logoff",
+        "ok": false,
+        "reason": "not_in_control"
+      },
+      {
+        "t": "connect.result",
+        "sessionId": "01JD0000000000000000000002",
+        "ok": false,
+        "reason": "consent_denied"
+      },
+      {
+        "t": "connect.result",
+        "sessionId": "01JD0000000000000000000002",
+        "ok": false,
+        "reason": "consent_timeout"
+      },
+      {
+        "t": "connect.result",
+        "sessionId": "01JD0000000000000000000002",
+        "ok": false,
+        "reason": "protocol"
+      },
+      {
+        "t": "device.state",
+        "localEnabled": true
+      }
     ]
   },
   "invalid": {
@@ -77,18 +259,53 @@
       }
     ],
     "deviceInbound": [
-      { "t": "device.auth" },
-      { "t": "connect.result", "sessionId": "01JD0000000000000000000002", "ok": false },
-      { "t": "connect.result", "sessionId": "01JD0000000000000000000002", "ok": true, "reason": "busy" },
-      { "t": "connect.result", "sessionId": "01JD0000000000000000000002", "ok": false, "reason": "unknown" },
-      { "t": "device.state", "localEnabled": "false" },
-      { "t": "session.closed", "sessionId": "01JD0000000000000000000002", "reason": "Kullanıcı kapattı" },
-      { "t": "device.unregister", "extra": 1 }
+      {
+        "t": "device.auth"
+      },
+      {
+        "t": "connect.result",
+        "sessionId": "01JD0000000000000000000002",
+        "ok": false
+      },
+      {
+        "t": "connect.result",
+        "sessionId": "01JD0000000000000000000002",
+        "ok": true,
+        "reason": "busy"
+      },
+      {
+        "t": "connect.result",
+        "sessionId": "01JD0000000000000000000002",
+        "ok": false,
+        "reason": "unknown"
+      },
+      {
+        "t": "device.state",
+        "localEnabled": "false"
+      },
+      {
+        "t": "session.closed",
+        "sessionId": "01JD0000000000000000000002",
+        "reason": "Kullanıcı kapattı"
+      },
+      {
+        "t": "device.unregister",
+        "extra": 1
+      }
     ],
     "deviceOutbound": [
-      { "t": "device.hello", "v": 2, "nonce": "2lGwFkcGYEJ_OM1wKccki4fMire12B7w7yG0o92yhB8" },
-      { "t": "device.state", "localEnabled": true },
-      { "t": "device.enable" },
+      {
+        "t": "device.hello",
+        "v": 2,
+        "nonce": "2lGwFkcGYEJ_OM1wKccki4fMire12B7w7yG0o92yhB8"
+      },
+      {
+        "t": "device.state",
+        "localEnabled": true
+      },
+      {
+        "t": "device.enable"
+      },
       {
         "t": "connect",
         "sessionId": "01JD0000000000000000000002",
@@ -97,6 +314,227 @@
         "tenantName": "Nokta Destek",
         "techIp": "203.0.113.7",
         "expiresInSec": 60
+      }
+    ],
+    "consent1Outbound": [
+      {
+        "t": "connect",
+        "sessionId": "01JD0000000000000000000002",
+        "ticket": "OSTHxpIxRYOEvsy1t7jssmOfVM9-lMgf5dSNuly4uso",
+        "techName": "Mehmet Teknisyen",
+        "tenantName": "Nokta Destek",
+        "techIp": "203.0.113.7",
+        "expiresInSec": 150,
+        "indicatorText": "Uzaktan bağlantı: Mehmet Teknisyen — Nokta Destek"
+      },
+      {
+        "t": "connect",
+        "sessionId": "01JD0000000000000000000002",
+        "ticket": "OSTHxpIxRYOEvsy1t7jssmOfVM9-lMgf5dSNuly4uso",
+        "techName": "Mehmet Teknisyen",
+        "tenantName": "Nokta Destek",
+        "techIp": "203.0.113.7",
+        "expiresInSec": 150,
+        "indicatorText": "Uzaktan bağlantı: Mehmet Teknisyen — Nokta Destek",
+        "consent": "none"
+      },
+      {
+        "t": "connect",
+        "sessionId": "01JD0000000000000000000002",
+        "ticket": "OSTHxpIxRYOEvsy1t7jssmOfVM9-lMgf5dSNuly4uso",
+        "techName": "Mehmet Teknisyen",
+        "tenantName": "Nokta Destek",
+        "techIp": "203.0.113.7",
+        "expiresInSec": 150,
+        "indicatorText": "Uzaktan bağlantı: Mehmet Teknisyen — Nokta Destek",
+        "consent": ""
+      },
+      {
+        "t": "connect",
+        "sessionId": "01JD0000000000000000000002",
+        "ticket": "OSTHxpIxRYOEvsy1t7jssmOfVM9-lMgf5dSNuly4uso",
+        "techName": "Mehmet Teknisyen",
+        "tenantName": "Nokta Destek",
+        "techIp": "203.0.113.7",
+        "expiresInSec": 150,
+        "indicatorText": "Uzaktan bağlantı: Mehmet Teknisyen — Nokta Destek",
+        "consent": "ask",
+        "indicatorControl": "Uzaktan kontrol: X — Y"
+      },
+      {
+        "t": "connect",
+        "sessionId": "01JD0000000000000000000002",
+        "ticket": "OSTHxpIxRYOEvsy1t7jssmOfVM9-lMgf5dSNuly4uso",
+        "techName": "Mehmet Teknisyen",
+        "tenantName": "Nokta Destek",
+        "techIp": "203.0.113.7",
+        "expiresInSec": 60,
+        "indicatorText": "Uzaktan izleniyor: Mehmet Teknisyen — Nokta Destek",
+        "consent": "silent"
+      },
+      {
+        "t": "connect",
+        "sessionId": "01JD0000000000000000000002",
+        "ticket": "OSTHxpIxRYOEvsy1t7jssmOfVM9-lMgf5dSNuly4uso",
+        "techName": "Mehmet Teknisyen",
+        "tenantName": "Nokta Destek",
+        "techIp": "203.0.113.7",
+        "expiresInSec": 301,
+        "indicatorText": "Uzaktan bağlantı: Mehmet Teknisyen — Nokta Destek",
+        "consent": "ask"
+      },
+      {
+        "t": "device.features",
+        "caps": []
+      },
+      {
+        "t": "device.features",
+        "caps": ["consent1", "consent1"]
+      },
+      {
+        "t": "device.features",
+        "caps": ["consent2"]
+      },
+      {
+        "t": "device.ready",
+        "tenantName": "Nokta Destek",
+        "customerName": "Örnek",
+        "caps": ["consent1"]
+      },
+      {
+        "t": "intervene",
+        "sessionId": "01JD0000000000000000000002",
+        "id": "01JD0000000000000000000009",
+        "cmd": "shutdown"
+      },
+      {
+        "t": "intervene",
+        "sessionId": "01JD0000000000000000000002",
+        "id": "x",
+        "cmd": "lock"
+      },
+      {
+        "t": "rejoin",
+        "sessionId": "01JD0000000000000000000002",
+        "ticket": "OSTHxpIxRYOEvsy1t7jssmOfVM9-lMgf5dSNuly4uso",
+        "mode": "asked",
+        "indicatorText": "Uzaktan bağlantı: Mehmet Teknisyen — Nokta Destek",
+        "expiresInSec": 31
+      },
+      {
+        "t": "rejoin",
+        "sessionId": "01JD0000000000000000000002",
+        "ticket": "OSTHxpIxRYOEvsy1t7jssmOfVM9-lMgf5dSNuly4uso",
+        "mode": "ask",
+        "indicatorText": "Uzaktan bağlantı: Mehmet Teknisyen — Nokta Destek",
+        "expiresInSec": 30
+      },
+      {
+        "t": "rejoin",
+        "sessionId": "01JD0000000000000000000002",
+        "ticket": "OSTHxpIxRYOEvsy1t7jssmOfVM9-lMgf5dSNuly4uso",
+        "mode": "silent",
+        "indicatorText": "Uzaktan izleniyor: Mehmet Teknisyen — Nokta Destek",
+        "expiresInSec": 30
+      },
+      {
+        "t": "rejoin",
+        "sessionId": "01JD0000000000000000000002",
+        "ticket": "OSTHxpIxRYOEvsy1t7jssmOfVM9-lMgf5dSNuly4uso",
+        "mode": "asked",
+        "indicatorText": "Uzaktan bağlantı: Mehmet Teknisyen — Nokta Destek",
+        "expiresInSec": 30,
+        "indicatorControl": "Uzaktan kontrol: X — Y"
+      },
+      {
+        "t": "rejoin",
+        "sessionId": "01JD0000000000000000000002",
+        "ticket": "OSTHxpIxRYOEvsy1t7jssmOfVM9-lMgf5dSNuly4uso",
+        "mode": "asked",
+        "indicatorText": "Uzaktan bağlantı: Mehmet Teknisyen — Nokta Destek",
+        "expiresInSec": 30,
+        "extra": 1
+      }
+    ],
+    "consent1Inbound": [
+      {
+        "t": "device.user",
+        "state": "away"
+      },
+      {
+        "t": "device.user",
+        "state": "active",
+        "user": "ahmet"
+      },
+      {
+        "t": "consent.result",
+        "sessionId": "01JD0000000000000000000002",
+        "mode": "asked",
+        "decision": "granted"
+      },
+      {
+        "t": "consent.result",
+        "sessionId": "01JD0000000000000000000002",
+        "mode": "asked",
+        "ms": 100
+      },
+      {
+        "t": "consent.result",
+        "sessionId": "01JD0000000000000000000002",
+        "mode": "no_user",
+        "decision": "granted",
+        "ms": 100
+      },
+      {
+        "t": "consent.result",
+        "sessionId": "01JD0000000000000000000002",
+        "mode": "silent"
+      },
+      {
+        "t": "consent.result",
+        "sessionId": "01JD0000000000000000000002",
+        "mode": "asked",
+        "decision": "granted",
+        "ms": 65001
+      },
+      {
+        "t": "consent.result",
+        "sessionId": "01JD0000000000000000000002",
+        "mode": "asked",
+        "decision": "granted",
+        "ms": 1.5
+      },
+      {
+        "t": "intervene.result",
+        "sessionId": "01JD0000000000000000000002",
+        "id": "01JD0000000000000000000009",
+        "cmd": "lock",
+        "ok": false
+      },
+      {
+        "t": "intervene.result",
+        "sessionId": "01JD0000000000000000000002",
+        "id": "01JD0000000000000000000009",
+        "cmd": "lock",
+        "ok": true,
+        "reason": "timeout"
+      },
+      {
+        "t": "intervene.result",
+        "sessionId": "01JD0000000000000000000002",
+        "id": "01JD0000000000000000000009",
+        "cmd": "lock",
+        "ok": false,
+        "reason": "denied"
+      },
+      {
+        "t": "connect.result",
+        "sessionId": "01JD0000000000000000000002",
+        "ok": false,
+        "reason": "consent_missing"
+      },
+      {
+        "t": "device.auth"
       }
     ]
   }

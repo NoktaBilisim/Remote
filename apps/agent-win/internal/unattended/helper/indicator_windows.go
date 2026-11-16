@@ -27,6 +27,7 @@ const (
 	timerVerify    = 1
 	wmQuit         = win.WM_APP + 1
 	wmDisplay      = 0x007E // WM_DISPLAYCHANGE
+	wmRelabel      = win.WM_APP + 3
 	barThickness   = 5
 	labelHeight    = 32
 	showTimeout    = 2 * time.Second
@@ -39,10 +40,18 @@ var (
 	indClassErr  error
 	indByThread  sync.Map // iş parçacığı kimliği → *winIndicator (pencere yordamı kendi iş parçacığının göstergesini bulur)
 	errIndicator = errors.New("helper: gösterge doğrulanamadı")
+	ownHWNDs     sync.Map // P28u §7.3: yardımcının gösterge pencereleri — onay diyaloğunun örtülme istisnası (HWND kümesi)
 )
 
+// ownWindow h yardımcının kendi gösterge penceresi mi (sınıf adıyla değil, tanıtıcıyla).
+func ownWindow(h uintptr) bool {
+	_, ok := ownHWNDs.Load(h)
+	return ok
+}
+
 type winIndicator struct {
-	text     string
+	text     string // yalnız gösterge iş parçacığında; SetText next üzerinden iletir
+	next     atomic.Pointer[string]
 	host     uintptr // görünmez üst düzey pencere: zamanlayıcı + WM_DISPLAYCHANGE
 	wins     map[uintptr]shown
 	failed   chan struct{}
@@ -129,6 +138,7 @@ func (ind *winIndicator) create(mon int, r rect, label bool) {
 	win.ExcludeFromCapture(h)
 	win.ShowWindow(h, win.SW_SHOWNOACTIVATE)
 	ind.wins[h] = shown{Monitor: mon, Label: label}
+	ownHWNDs.Store(h, struct{}{})
 }
 
 // verify her pencerenin varlığını, görünürlüğünü ve konumunu ölçer (§5.5).
@@ -156,6 +166,7 @@ func (ind *winIndicator) tick() {
 		win.PostQuitMessage()
 		return
 	}
+	ind.relabel()
 	for h := range ind.wins {
 		win.SetWindowPos(h, win.HWND_TOPMOST, 0, 0, 0, 0, win.SWP_NOMOVE|win.SWP_NOSIZE|win.SWP_NOACTIVATE|win.SWP_SHOWWINDOW)
 	}
@@ -169,6 +180,7 @@ func (ind *winIndicator) fail() { ind.failOnce.Do(func() { close(ind.failed) }) 
 func (ind *winIndicator) destroyBars() {
 	for h := range ind.wins {
 		win.DestroyWindow(h)
+		ownHWNDs.Delete(h)
 	}
 	clear(ind.wins)
 }
@@ -186,6 +198,25 @@ func (ind *winIndicator) Failed() <-chan struct{} { return ind.failed }
 
 // Desktop Indicator: göstergenin çizildiği giriş masaüstü.
 func (ind *winIndicator) Desktop() string { return ind.desktop }
+
+// SetText P28u §7.6 (silent: izleme ↔ kontrol): etiket gösterge iş parçacığında değiştirilir; genişlik değiştiği için
+// pencereler yeniden çizilip doğrulanır, başarısızsa Failed (fail-closed). ≤ 1 sn (en geç sonraki doğrulama tiki).
+func (ind *winIndicator) SetText(text string) {
+	ind.next.Store(&text)
+	win.PostMessage(ind.host, wmRelabel, 0, 0)
+}
+
+// relabel bekleyen etiketi uygular (yalnız gösterge iş parçacığında; ileti başka masaüstünde kaybolursa tick uygular).
+func (ind *winIndicator) relabel() {
+	p := ind.next.Swap(nil)
+	if p == nil || *p == ind.text {
+		return
+	}
+	ind.text = *p
+	if !ind.rebuild() {
+		ind.fail()
+	}
+}
 
 // Close pencereleri kaldırır ve iş parçacığını bitirir.
 func (ind *winIndicator) Close() {
@@ -217,6 +248,9 @@ func indicatorProc(h uintptr, msg uint32, wp, lp uintptr) uintptr {
 		if !ind.rebuild() { // §5.5: monitör eklendi/çıktı → aynı doğrulama
 			ind.fail()
 		}
+		return 0
+	case msg == wmRelabel && h == ind.host:
+		ind.relabel()
 		return 0
 	case msg == wmQuit && h == ind.host:
 		ind.destroy()

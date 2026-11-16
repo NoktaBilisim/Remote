@@ -4,6 +4,7 @@
 //   auview   USER, audit.view + settings.view (CSV yok, aydınlatma metni salt okunur)
 //   aunone   USER, audit/ayar yetkisi yok (menüde Audit log yok, sayfa 403 durumu)
 //   auempty  ADMIN, audit listesi boş
+//   auun     ADMIN, P28u (AC-445) üç kipli gözetimsiz satırlar (mock-p28u.mjs `p28uAuditRows`) — "Bağlantı kipi" filtresi
 //   aubroken ADMIN, audit listesi ilk istekte 500 (sonra 200 → "Tekrar dene"); "Daha fazla yükle" ilk denemede 500
 //   ausa     SUPER_ADMIN (firma seçmemiş): firma filtresi + sistem ayarları; WhatsApp servisi env kaynaklı (P12b)
 //   ausawa0  SUPER_ADMIN, WhatsApp servisi hiç yapılandırılmamış (panel yok, env yok → url null)
@@ -17,6 +18,7 @@
 //            ikinci kullanımda 400 fields.code. MySQL kaydı panelde, requireTls=true (AC-211).
 import { PERMISSION_KEYS } from "@remote/contracts/permissions";
 import { listAuditQuerySchema } from "@remote/contracts/api/audit";
+import { p28uAuditRows } from "./mock-p28u.mjs";
 import { stepUpInputSchema } from "@remote/contracts/api/auth";
 import {
   MYSQL_PASSWORD_REQUIRED_MESSAGE,
@@ -41,7 +43,7 @@ export const AU = {
 const ALL_NO_WS = PERMISSION_KEYS.filter((k) => !k.startsWith("support_requests."));
 
 export function auditUser(cookie) {
-  const m = cookie?.match(/^u-(auadm|auview|aunone|auempty|aubroken|ausa(?:wa0|ins|iok|brk|def|su|rsv)?)-/);
+  const m = cookie?.match(/^u-(auadm|auun|auview|aunone|auempty|aubroken|ausa(?:wa0|ins|iok|brk|def|su|rsv)?)-/);
   if (!m) return null;
   const kind = m[1];
   const role = kind.startsWith("ausa") ? "SUPER_ADMIN" : kind === "auview" || kind === "aunone" ? "USER" : "ADMIN";
@@ -86,6 +88,7 @@ const base = (o) => ({
 
 function seedItems(kind) {
   if (kind === "auempty") return [];
+  if (kind === "auun") return p28uAuditRows(base, iso); // P28u AC-445: üç kipli gözetimsiz satırlar
   const items = [
     base({
       id: "1060",
@@ -365,6 +368,7 @@ export async function handleAudit(req, res, { url, session, csrfOk, send, err, r
       (a) =>
         (!q.action || (q.action.endsWith(".*") ? a.action.startsWith(q.action.slice(0, -1)) : a.action === q.action)) &&
         (!q.result || a.result === q.result) &&
+        (!q.consentMode || a.newValue?.consentMode === q.consentMode) &&
         (!q.userId || a.userId === q.userId) &&
         (!q.tenantId || !isSa || a.tenantId === q.tenantId) &&
         (!q.from || day(a.createdAt) >= q.from) &&

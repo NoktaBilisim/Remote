@@ -3,6 +3,8 @@ import type { ReactNode } from "react";
 import { CodeDisplay } from "@/components/ui/code-display";
 import { formatRemaining } from "@/lib/format";
 import { t } from "@/lib/i18n";
+import { CONSENT_DIALOG_SEC } from "@/lib/unattended/contract";
+import { awaitingConsent } from "@/lib/unattended/consent";
 import type { TechState } from "@/lib/webrtc/tech-machine";
 
 const PEER_WINDOW_MS = 120_000;
@@ -65,6 +67,17 @@ export function stageOverlay(o: OverlayInput): ReactNode {
 
 function waitingMsg({ state, verifyCode, sessionCode }: OverlayInput) {
   // P27 (mimari-p27 §4.6, K12): gözetimsiz odada müşteri yok — ACTIVE öncesi "Cihaz bağlanıyor…", kod/müşteri metni yok.
+  // P28u (§10, AC-432): izinli istekte kip karara kadar belli değil → "Kullanıcının onayı bekleniyor… (60 sn)" (role=status = polite).
+  if (awaitingConsent(state.unattended))
+    return (
+      <Msg
+        testId="stage-consent-wait"
+        icon={<Hourglass aria-hidden className="size-8" />}
+        title={t("un.consent.waitTitle", { sec: CONSENT_DIALOG_SEC })}
+      >
+        {t("un.consent.waitBody")}
+      </Msg>
+    );
   if (state.unattended)
     return (
       <Msg testId="stage-unattended-wait" icon={<MonitorCog aria-hidden className="size-8" />} title={t("un.c.connecting")}>

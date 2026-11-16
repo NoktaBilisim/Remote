@@ -9,7 +9,10 @@ import { loadTenantOptions, tenantLabelOf } from "@/lib/users/tenant-options";
 import { loadUserOptions, techOptions } from "@/lib/users/user-options";
 
 export type Opt = { value: string; label: string };
-type Draft = Record<"from" | "to" | "status" | "mode" | "source" | "technicianId" | "tenantId" | "customer" | "customerFirm", string>;
+type Draft = Record<
+  "from" | "to" | "status" | "mode" | "source" | "technicianId" | "tenantId" | "customer" | "customerFirm" | "consentMode",
+  string
+>;
 type Errors = Partial<Record<keyof Draft, string>>;
 export type FirmMode = "" | "none" | "customer";
 type TechState = "idle" | "loading" | "error";
@@ -32,6 +35,7 @@ const toDraft = (f: HistoryFilters): Draft => ({
   to: f.to ?? "",
   status: f.status ?? "",
   mode: f.mode ?? "",
+  consentMode: f.consentMode ?? "",
   source: f.source ?? "",
   technicianId: f.technicianId ?? "",
   tenantId: f.tenantId ?? "",

@@ -1,4 +1,4 @@
-import { KeyRound, MailWarning, PowerOff, ShieldAlert, ShieldQuestion, Wifi, WifiOff, type LucideIcon } from "lucide-react";
+import { CircleAlert, KeyRound, MailWarning, PowerOff, ShieldAlert, ShieldQuestion, Wifi, WifiOff, type LucideIcon } from "lucide-react";
 import type { DeviceListItem } from "@/lib/unattended/contract";
 import { t, type MessageKey } from "@/lib/i18n";
 
@@ -19,6 +19,8 @@ function flagsOf(d: DeviceListItem): Flag[] {
       ? { key: "online", Icon: Wifi, label: "un.badge.online", tone: "success" }
       : { key: "offline", Icon: WifiOff, label: "un.badge.offline", tone: "neutral" },
   ];
+  // P28u (AC-435): soket `consent1` bildirmedi → "Servis güncel değil" (Bağlan pasif, nedeni düğmenin altında).
+  if (d.connectBlockedReason === "outdated") out.push({ key: "outdated", Icon: CircleAlert, label: "un.badge.outdated", tone: "warning" });
   if (!d.localEnabled) out.push({ key: "local", Icon: PowerOff, label: "un.badge.localOff", tone: "warning" });
   if (!d.signatureOk) out.push({ key: "unsigned", Icon: ShieldAlert, label: "un.badge.unsigned", tone: "warning" });
   if (!d.verified) out.push({ key: "unverified", Icon: ShieldQuestion, label: "un.badge.unverified", tone: "warning" });

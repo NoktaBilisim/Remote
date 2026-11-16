@@ -3,6 +3,7 @@
 import type { Prisma } from "../generated/prisma/client.ts";
 import type { Db } from "../lib/db.ts";
 import { escapeLike } from "../sessions/history-repo.ts";
+import { CONSENT_MODE_ACTIONS } from "@remote/contracts/audit";
 
 export type AuditScope = { kind: "tenant"; tenantId: string } | { kind: "all" };
 
@@ -14,6 +15,8 @@ export interface AuditFilter {
   /** Tam değer; `prefix` true ise `action LIKE 'x.%'`. */
   action?: { value: string; prefix: boolean };
   result?: "success" | "fail";
+  /** P28u (§5.4, AC-445): `new_value->'$.consentMode'` eşitliği; kipi taşıyan eylemlerle daraltılır. */
+  consentMode?: string;
 }
 
 export interface AuditCursor {
@@ -28,6 +31,8 @@ function auditWhere(scope: AuditScope, f: AuditFilter, after: AuditCursor | null
   if (f.userId) and.push({ userId: f.userId });
   if (f.action) and.push(f.action.prefix ? { action: { startsWith: escapeLike(f.action.value) } } : { action: f.action.value });
   if (f.result) and.push({ result: f.result });
+  if (f.consentMode)
+    and.push({ action: { in: [...CONSENT_MODE_ACTIONS] } }, { newValue: { path: "$.consentMode", equals: f.consentMode } });
   if (after) and.push({ OR: [{ createdAt: { lt: after.createdAt } }, { createdAt: after.createdAt, id: { lt: after.id } }] });
   return { AND: and };
 }
@@ -87,4 +92,17 @@ export async function userNames(db: Db, ids: readonly string[]): Promise<Map<str
     select: { id: true, fullName: true, avatarPath: true, status: true },
   });
   return new Map(users.map((u) => [u.id, { fullName: u.fullName, avatarPath: u.avatarPath, status: u.status }]));
+}
+
+/**
+ * D-P28u-K1-1: izinsiz bağlantı gerekçesinin okumada açık kalabileceği oturumlar — satırı VAR ve anonimleştirilmemiş
+ * (`<tenantId>:<id>`). Satırı olmayan (temizlenmiş) oturum kümede yoktur → maske (fail-closed). Tek `IN` sorgusu.
+ */
+export async function reasonVisibleSessions(db: Db, ids: readonly string[]): Promise<Set<string>> {
+  if (ids.length === 0) return new Set();
+  const rows = await db.supportSession.findMany({
+    where: { id: { in: [...new Set(ids)] }, anonymizedAt: null },
+    select: { id: true, tenantId: true },
+  });
+  return new Set(rows.map((s) => `${s.tenantId}:${s.id}`));
 }

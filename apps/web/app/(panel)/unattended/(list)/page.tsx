@@ -16,7 +16,7 @@ export const metadata: Metadata = { title: t("nav.unattended") };
 type SP = Record<string, string | string[] | undefined>;
 
 /**
- * /unattended — Cihazlar sekmesi (P27-K8; AC-275, 293, 336, 337, 339, 342). İlk veri sunucuda, sonra 15 sn yoklama
+ * /unattended — Cihazlar sekmesi (P27-K8; AC-275, 293, 336, 337, 339, 342). İlk veri sunucuda, sonra 8 sn yoklama
  * (istemci). Yetki ve tenant kapsamı arka uçta da denetlenir; `manage` yoksa sunucu yalnız grant'lı cihazları döner.
  */
 export default async function UnattendedPage({ searchParams }: { searchParams: Promise<SP> }) {
@@ -48,7 +48,15 @@ export default async function UnattendedPage({ searchParams }: { searchParams: P
           <LoadError />
         </div>
       ) : (
-        <DeviceList key={path} initial={res.data} params={params} available={available} manage={access.manage} createBlock={createBlock} />
+        <DeviceList
+          key={path}
+          initial={res.data}
+          params={params}
+          available={available}
+          manage={access.manage}
+          createBlock={createBlock}
+          silentAllowed={status?.silentAllowed === true}
+        />
       )}
     </UnattendedShell>
   );

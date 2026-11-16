@@ -2,6 +2,7 @@ package servis
 
 import (
 	"errors"
+	"io"
 	"sync"
 	"time"
 
@@ -23,6 +24,12 @@ type LocalSwitch interface {
 type Process interface {
 	Wait() uint32
 	Kill() error
+	// WinSession yardımcının Windows oturum kimliği (başlatma anındaki konsol oturumu; D-P28u-3 müdahale hedefi).
+	WinSession() uint32
+	// Command giriş borusuna tek komut satırı yazar (§7.4).
+	Command(cmd helperio.Command) error
+	// StatusPipe durum borusunun okuma ucu (yardımcı → servis); süreç bitince EOF. nil olabilir.
+	StatusPipe() io.Reader
 }
 
 // Launcher yardımcıyı konsol oturumunda başlatır (Windows: launch_windows.go).
@@ -52,10 +59,20 @@ type Core struct {
 	State func() string
 	// OnUnregister kaldırma isteği (boruda yönetici); sunucuya `device.unregister` gönderir.
 	OnUnregister func() error
-	now          func() time.Time
+	// Consent1 bu sokette `device.features` alındı mı (P28u kip kararı; nil = P27 sunucusu).
+	Consent1 func() bool
+	// Sessions konsol oturumu okuma + oturum kapatma (Windows: winSessions). nil: durum `active`, müdahale `no_session`.
+	Sessions Sessions
+	// Locker oturum kilitleme yolu (nil: yardımcıya boru komutu — K-P28u-5b geri dönüş noktası).
+	Locker Locker
+	now    func() time.Time
+	tm     timing
+	users  *userWatch
 
 	mu      sync.Mutex // helperMu
 	cur     *running
+	rejoin  *rejoinState // rejoinPending (logoff kabulünden 45 sn)
+	logoff  *pendingLogoff
 	enabled bool // son bildirilen yerel değer (çift device.state/olay önlenir)
 	known   bool
 }
@@ -63,9 +80,15 @@ type Core struct {
 type running struct {
 	sessionID  string
 	techName   string
+	conn       *Connect // rejoin girdisi için teknisyen/firma/IP (rejoin mesajı taşımaz)
+	mode       string   // asked | no_user | silent
 	proc       Process
 	started    time.Time
 	killReason string
+	st         helperStatus
+	lockTimer  stopper
+	// guardLogon `asked` odada logoff kabul edildi: konsolda yeni kullanıcı oturumu = session_changed (K-P28u-17).
+	guardLogon bool
 }
 
 func (c *Core) clock() time.Time {
@@ -92,17 +115,46 @@ func (c *Core) Init() {
 func (c *Core) Connect(m *Connect) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	features := c.Consent1 != nil && c.Consent1()
+	if features && !connectConsent(m) {
+		c.reject(m.SessionID, RejectProtocol) // D-P28u-5: yardımcı başlatılmaz
+		return
+	}
+	if !features && !legacyConnect(m) {
+		c.reject(m.SessionID, helperio.ReasonHelperFailed) // features'sız sokette onay alanı: sözleşme dışı
+		return
+	}
 	if !c.LocalEnabled() {
 		c.reject(m.SessionID, RejectLocalDisabled)
 		return
 	}
-	if c.cur != nil {
+	if c.cur != nil || c.rejoinLocked() != nil {
 		c.reject(m.SessionID, RejectBusy)
 		return
 	}
+	consent, mode := c.decideMode(m)
 	in := helperio.Input{V: helperio.Version, SessionID: m.SessionID, Ticket: m.Ticket, TechName: m.TechName,
 		TenantName: m.TenantName, TechIP: m.TechIP, IndicatorText: m.IndicatorText,
-		ExpiresInSec: m.ExpiresInSec}
+		ExpiresInSec: m.ExpiresInSec, Consent: consent, Mode: mode, IndicatorControl: m.IndicatorControl}
+	if c.start(m, in) != nil && features && m.Consent == helperio.ConsentAsk && mode == helperio.ModeNoUser {
+		c.Send(&ConsentResult{SessionID: m.SessionID, Mode: helperio.ModeNoUser})
+	}
+}
+
+// decideMode kip kararı cihazdadır (§7.2, K-P28u-2): ask + canlı `active` → diyalog; locked/none → no_user;
+// silent → diyalog yok. P27 (features'sız) bağlantı no_user gibi yürür (diyalog yok, P27 göstergesi).
+func (c *Core) decideMode(m *Connect) (consent, mode string) {
+	switch {
+	case m.Consent == ConsentSilent:
+		return helperio.ConsentNone, helperio.ModeSilent
+	case m.Consent == helperio.ConsentAsk && c.userState() == UserActive:
+		return helperio.ConsentAsk, helperio.ModeAsked
+	}
+	return helperio.ConsentNone, helperio.ModeNoUser
+}
+
+// start yardımcıyı başlatır ve kaydeder (kilit altında); hata `connect.result{ok:false}` ile bildirilir.
+func (c *Core) start(m *Connect, in helperio.Input) *running {
 	proc, err := c.Launch.Launch(in)
 	if err != nil {
 		reason := helperio.ReasonHelperFailed
@@ -110,12 +162,22 @@ func (c *Core) Connect(m *Connect) {
 			reason = helperio.ReasonNoConsole
 		}
 		c.reject(m.SessionID, reason)
-		return
+		return nil
 	}
-	r := &running{sessionID: m.SessionID, techName: m.TechName, proc: proc, started: c.clock()}
+	return c.register(m, in, proc)
+}
+
+// register başlatılmış yardımcıyı kaydeder, çıkışını ve durum borusunu izler (kilit altında).
+func (c *Core) register(m *Connect, in helperio.Input, proc Process) *running {
+	r := &running{sessionID: m.SessionID, techName: m.TechName, conn: m, mode: in.Mode, proc: proc,
+		started: c.clock(), st: helperStatus{consent: in.Consent}} // control=off başlatmada (D-P28u-1)
 	c.cur = r
-	c.Events.Write(evStarted(m))
+	c.Events.Write(evStarted(m, in.Mode))
 	go c.watch(r)
+	if sp := proc.StatusPipe(); sp != nil {
+		go c.readStatus(r, sp)
+	}
+	return r
 }
 
 // reject kilit altında çağrılır.
@@ -124,7 +186,8 @@ func (c *Core) reject(sessionID, reason string) {
 	c.Events.Write(EvReject(reason, "oturum "+sessionID))
 }
 
-// watch yardımcı çıkınca kaydı temizler ve sunucuya/olay günlüğüne bildirir.
+// watch yardımcı çıkınca kaydı temizler ve sunucuya/olay günlüğüne bildirir. Logoff kabul edildiyse (rejoinPending)
+// yardımcının ölümü beklenendir: `session.closed` gönderilmez (§7.5), oda yeniden katılımı bekler.
 func (c *Core) watch(r *running) {
 	code := r.proc.Wait()
 	c.mu.Lock()
@@ -132,7 +195,13 @@ func (c *Core) watch(r *running) {
 		c.cur = nil
 	}
 	reason := r.killReason
+	c.exitedLocked(r) // control=off, bekleyen kilit no_session
+	rj := c.rejoinLocked()
+	pending := reason == "" && rj != nil && rj.sessionID == r.sessionID
 	c.mu.Unlock()
+	if pending {
+		return
+	}
 	if reason == "" {
 		reason = helperio.Reason(code)
 	}
@@ -154,6 +223,21 @@ func (c *Core) killLocked(reason string) {
 	_ = c.cur.proc.Kill()
 }
 
+// endLocked oturumu verilen nedenle bitirir: yardımcı varsa keser (watch session.closed gönderir); yalnız yeniden
+// katılım bekleniyorsa bekleyişi düşürür ve session.closed'ı kendisi gönderir (yerel anahtar her kipte geçerli, AC-295).
+func (c *Core) endLocked(reason string) {
+	rj := c.rejoin
+	c.rejoin = nil
+	if c.cur != nil {
+		c.killLocked(reason)
+		return
+	}
+	if rj != nil {
+		c.Send(&Closed{SessionID: rj.sessionID, Reason: reason})
+		c.Events.Write(evEnded(rj.sessionID, reason, 0))
+	}
+}
+
 // Disable borudan standart kullanıcı kapatması: değer yazılır, yardımcı kesilir, sunucuya ve günlüğe bildirilir.
 func (c *Core) Disable(user string) error {
 	c.mu.Lock()
@@ -161,7 +245,7 @@ func (c *Core) Disable(user string) error {
 		c.mu.Unlock()
 		return err
 	}
-	c.killLocked(KillLocalDisabled)
+	c.endLocked(KillLocalDisabled)
 	changed := !c.known || c.enabled
 	c.enabled, c.known = false, true
 	c.mu.Unlock()
@@ -177,7 +261,7 @@ func (c *Core) LocalChanged() {
 	c.mu.Lock()
 	on := c.LocalEnabled()
 	if !on {
-		c.killLocked(KillLocalDisabled)
+		c.endLocked(KillLocalDisabled)
 	}
 	changed := !c.known || c.enabled != on
 	c.enabled, c.known = on, true
@@ -195,13 +279,16 @@ func (c *Core) Disconnect(m *Disconnect) {
 	if c.cur != nil && c.cur.sessionID == m.SessionID {
 		c.killLocked(KillServer)
 	}
+	if rj := c.rejoinLocked(); rj != nil && rj.sessionID == m.SessionID {
+		c.rejoin = nil
+	}
 }
 
-// Kill etkin yardımcıyı verilen nedenle keser (iptal, konsol değişimi, servis durdurma).
+// Kill etkin yardımcıyı ve varsa yeniden katılım bekleyişini verilen nedenle bitirir (iptal, servis durdurma).
 func (c *Core) Kill(reason string) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	c.killLocked(reason)
+	c.endLocked(reason)
 }
 
 // Status boru `status`: bağlantı durumu ve varsa bağlı teknisyen.
@@ -210,6 +297,8 @@ func (c *Core) Status() (string, string) {
 	tech := ""
 	if c.cur != nil {
 		tech = c.cur.techName
+	} else if rj := c.rejoinLocked(); rj != nil {
+		tech = rj.base.TechName
 	}
 	c.mu.Unlock()
 	state := "offline"

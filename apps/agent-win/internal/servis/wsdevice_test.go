@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -21,6 +22,7 @@ type fakeHandler struct {
 	mu       sync.Mutex
 	connects []*Connect
 	kills    []string
+	features int
 }
 
 func (f *fakeHandler) Connect(m *Connect) {
@@ -31,6 +33,9 @@ func (f *fakeHandler) Connect(m *Connect) {
 func (f *fakeHandler) Disconnect(*Disconnect) {}
 func (f *fakeHandler) Kill(r string)          { f.mu.Lock(); f.kills = append(f.kills, r); f.mu.Unlock() }
 func (f *fakeHandler) LocalEnabled() bool     { return true }
+func (f *fakeHandler) Features()              { f.mu.Lock(); f.features++; f.mu.Unlock() }
+func (f *fakeHandler) Intervene(*Intervene)   {}
+func (f *fakeHandler) Rejoin(*Rejoin)         {}
 func (f *fakeHandler) count() (int, int) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -188,5 +193,73 @@ func TestBackoffJitterBounds(t *testing.T) {
 		if d < 8*time.Second || d > 12*time.Second {
 			t.Fatalf("titreşim sınır dışı: %v", d)
 		}
+	}
+}
+
+// AC-435 / K-P28u-8: belirteç alt protokol listesinde; device.features öncesi yeni C→S mesajı yazılmaz, sonra yazılır.
+func TestAC435NewMessagesOnlyAfterFeatures(t *testing.T) {
+	got := make(chan string, 4)
+	c, fs, h, _ := startDevice(t, func(ctx context.Context, ws *websocket.Conn) {
+		_, first, err := ws.Read(ctx)
+		if err != nil {
+			return
+		}
+		got <- string(first)
+		_ = ws.Write(ctx, websocket.MessageText, []byte(`{"t":"device.features","caps":["consent1"]}`))
+		_, second, err := ws.Read(ctx)
+		if err == nil {
+			got <- string(second)
+		}
+		_, _, _ = ws.Read(ctx)
+	})
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	go func() { _ = c.Run(ctx) }()
+	for c.State() != StateOnline && ctx.Err() == nil {
+		time.Sleep(5 * time.Millisecond)
+	}
+	c.Send(&DeviceUser{State: UserActive}) // features yok: düşürülmeli
+	c.Send(&State{LocalEnabled: true})
+	if m := <-got; m != `{"t":"device.state","localEnabled":true}` {
+		t.Fatalf("features öncesi yazılan: %s", m)
+	}
+	for ctx.Err() == nil {
+		h.mu.Lock()
+		n := h.features
+		h.mu.Unlock()
+		if n == 1 && c.Consent1() {
+			break
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	c.Send(&DeviceUser{State: UserLocked})
+	if m := <-got; m != `{"t":"device.user","state":"locked"}` {
+		t.Fatalf("features sonrası: %s", m)
+	}
+	hdr := <-fs.header
+	if p := hdr.Get("Sec-WebSocket-Protocol"); !strings.Contains(p, DeviceCapConsent) || !strings.Contains(p, DeviceSubprotocol) {
+		t.Fatalf("alt protokol listesi %q", p)
+	}
+}
+
+func TestAC435InterveneBeforeFeaturesIsViolation(t *testing.T) {
+	if _, err := ParseServer([]byte(`{"t":"intervene","sessionId":"01JD0000000000000000000002","id":"01JD0000000000000000000009","cmd":"lock"}`)); err != nil {
+		t.Fatalf("ayrıştırma: %v", err)
+	}
+	done := make(chan struct{})
+	c, _, _, _ := startDevice(t, func(ctx context.Context, ws *websocket.Conn) {
+		_ = ws.Write(ctx, websocket.MessageText, []byte(`{"t":"intervene","sessionId":"01JD0000000000000000000002","id":"01JD0000000000000000000009","cmd":"lock"}`))
+		_, _, err := ws.Read(ctx)
+		if websocket.CloseStatus(err) == websocket.StatusPolicyViolation {
+			close(done)
+		}
+	})
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	go func() { _ = c.Run(ctx) }()
+	select {
+	case <-done:
+	case <-ctx.Done():
+		t.Fatal("features öncesi intervene 1008 ile kapatılmadı")
 	}
 }

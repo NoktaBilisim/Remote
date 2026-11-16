@@ -29,6 +29,7 @@ const FIELD_LABEL: Record<AuditField, MessageKey> = {
   userId: "au.f.user",
   action: "au.f.action",
   result: "au.f.result",
+  consentMode: "au.f.consentMode",
 };
 
 const sortOpts = (m: Map<string, string>, selected?: string): Opt[] => {

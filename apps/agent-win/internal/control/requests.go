@@ -30,6 +30,16 @@ func (r *Requests) Admit(now time.Time) bool {
 	return true
 }
 
+// AdmitOpen gözetimsiz oda (mimari-p28u §8.2a, K-P28u-16): sayaç/bekleme uygulanmaz, yalnız bekleyen istek yok
+// denetimi (sel sunucudaki oda kovasında). Müdahale et ↔ İzlemeye dön geçişleri 5 sınırına takılmaz.
+func (r *Requests) AdmitOpen() bool {
+	if r.open {
+		return false
+	}
+	r.open = true
+	return true
+}
+
 // Granted diyalog izinle kapandı.
 func (r *Requests) Granted() { r.open = false }
 

@@ -203,6 +203,8 @@ export async function deleteUserChildren(tx: Prisma.TransactionClient, userId: s
   const resetTokens = await tx.passwordResetToken.deleteMany({ where: { userId } });
   const authSessions = await tx.authSession.deleteMany({ where: { userId } });
   const deviceGrants = await tx.unattendedDeviceGrant.deleteMany({ where: { userId } }); // P27 (mimari-p27 §3.6)
+  // P28u (mimari-p28u §3.1/§3.3): izinsiz politika aydınlatma izinin "kim" alanı NULL; an (ack_at) ve politika kalır.
+  await tx.tenantSettings.updateMany({ where: { unattendedSilentAckBy: userId }, data: { unattendedSilentAckBy: null } });
   return {
     deletedPermissions: permissions.count,
     // Anahtar adları mask.ts kara listesine (`code|token`) takılmasın diye nötr (yalnız sayı).
