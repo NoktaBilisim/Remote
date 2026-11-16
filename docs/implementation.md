@@ -11532,3 +11532,26 @@ tenant-purge-p16, signaling-control-p7, users-p9 → **10 dosya / 152 test geçt
 
 - `apps/agent-win/internal/signal/fsrv.go`: kullanılmayan `FsrvInit` tipi ve `validate()` silindi (silinen `upload.go` akışının artığı; Windows istemci SERVER modunda yalnız alıcıdır). Ortak doğrulayıcılar (`validFsrvName`, `validFsrvSize`, `validPrintShape`) `fsrv.offer` çözümünde kullanılmaya devam ediyor.
 - `signal/fsrv_test.go`: fikstür eşlik testi `fsrv.init` geçerli örneklerini atlar (yalnız web misafiri gönderir); geçersiz örnekler hâlâ reddedilir. `go test ./...`, `GOOS=windows go vet/build` yeşil.
+
+## P28b K9 düzeltme (B2/B3) (devops, 2026-11-16)
+
+Kaynak: `docs/test-raporu.md` (P28b K9) B2, B3.
+
+- **B2 — clamd ilk açılışta eski daily (kalıcı):** kök neden: clamav-update sağlığı "DB dosyası var" idi; imaj DB'si volume'a kopyalanır
+  kopyalanmaz clamd eski daily'yi yüklemeye başlıyor, freshclam yenisini yükleme sürerken yazınca clamd'nin SelfCheck durum kaydı yeni dosyayı
+  görüp "Database status OK" diyordu. `deploy/docker-compose.yml` `clamav-update`: entrypoint `sh -c` → `timeout 300 freshclam` (tek seferlik) `;`
+  `touch /tmp/first-update.done` → `exec freshclam --daemon ...`; healthcheck = işaret + DB dosyaları (interval 10s, start_period 330s).
+  `clamav`'ın mevcut `depends_on: service_healthy` artık "ilk güncelleme bitti" demek. Değişmezler aynı: clamd DB `:ro`, ağlar, `read_only`,
+  `user 100:101`; işaret `/tmp` tmpfs'inde (her başlangıçta sıfır). `;` bilinçli (çıkış/CDN hatasında clamd eski DB ile açılır, imza yaşı alarmı
+  yakalar). Kalan: host reboot / Docker restart'ında depends_on uygulanmaz (runbook §28b.3).
+  Yerel kanıt (ayrı proje `rsb2test`, boş volume): freshclam 09:09:48 daily 28177→28185 → clamav-update healthy → clamd 09:09:52 açıldı →
+  `zVERSION` = `ClamAV 1.5.4/28185/...` (restart'sız). `docker restart clamav-update` sonrası işaret yok → `starting` → tek seferlik tur → `healthy`,
+  PID 1 daemon. `--network none` ile tek seferlik tur `rc=11` verse de işaret yazıldı. Yığın `down -v` ile temizlendi.
+- **B3 — açılışta yanlış `av-up`:** `apps/server/src/fsrv/wiring.ts` `createAvPoller`: `setInterval` yerine `setTimeout` zinciri (yoklama bitmeden
+  yenisi yok). Erişilemezse 30 sn × en çok 19 (`AV_FAST_RETRY_MS/MAX`, ≈ 9,5 dk < 10 dk tur ve watch "ardışık 2 tur"); bütçe yalnız açılışta ve
+  başarılı yoklamadan sonra yenilenir (profil kapalı staging kalıcı 30 sn yoklamasına dönmez); `onClose`'da zamanlayıcı temizlenir.
+  `Scanner.poll({ fastRetry })` hızlı denemeleri `av_down` log ardışıklığına katmaz. Test: `apps/server/test/unit/fsrv-av-poller.test.ts` (6 test).
+  **Mimari sapma notu (mimar için):** mimari-p28b §7.3 "açılış + 10 dk" der; açılış/düşüş sonrası 30 sn'lik sınırlı yeniden deneme eklendi —
+  §7.3'e işlenmesi önerilir.
+- Doğrulama: server tüm testler 139 dosya / 1586 geçti (test DB `rs-mysql-dv28b`, sonra kapatıldı); eslint, tsc, prettier temiz;
+  `docker compose config -q` temel + staging katmanı geçti.

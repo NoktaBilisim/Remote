@@ -265,12 +265,23 @@ services:
     # İmajın HEALTHCHECK'i (clamdcheck.sh: PING -> localhost:3310, start_period 360 sn) aynen kullanılır.
     depends_on:
       # Volume ilk kez rw serviste bağlanır -> imajdaki DB volume'a kopyalanır; clamd DB'siz açılmaz.
+      # K9 B2: clamav-update sağlıklı = ilk freshclam turu bitti -> clamd güncel daily'yi yükler (yükleme sırasında DB değişip
+      # SelfCheck'in yeniyi "OK" sayması yarışı kapanır). Yalnız `compose up` uygular; host yeniden açılışı: runbook §28b.3.
       clamav-update: { condition: service_healthy }
     logging: *logging
 
   clamav-update:
     image: clamav/clamav:1.5.4@sha256:45fe5149fbee5a46509c9848ef20d0c354b7b2323c9369f285939a37cf33422a
-    entrypoint: ["freshclam", "--daemon", "--foreground", "--stdout", "--checks=6", "--config-file=/etc/clamav/freshclam.conf"]
+    # K9 B2 (ilk açılış yarışı): önce TEK SEFERLİK güncelleme, sonra işaret (/tmp tmpfs -> her başlangıçta sıfır), sonra daemon.
+    # Sağlık = işaret + DB dosyaları -> clamav (depends_on service_healthy) imajdaki eski daily'yi değil güncel DB'yi yükler.
+    # `;` bilinçli: CDN/çıkış hatasında da clamd eski DB ile açılır (fail-closed değil, imza yaşı alarmı yakalar); `timeout` asılmayı keser.
+    entrypoint:
+      - /bin/sh
+      - -c
+      - >-
+        timeout 300 freshclam --stdout --config-file=/etc/clamav/freshclam.conf;
+        touch /tmp/first-update.done;
+        exec freshclam --daemon --foreground --stdout --checks=6 --config-file=/etc/clamav/freshclam.conf
     restart: unless-stopped
     user: "100:101"
     read_only: true
@@ -288,12 +299,13 @@ services:
     # YALNIZ av_egress (database.clamav.net). `av`'de DEĞİL: clamd'ye ve server'a yolu yok.
     networks: [av_egress]
     healthcheck:
-      # İmajın healthcheck'i 3310'a bakar (bu konteynerde clamd yok) -> ezilir: DB dosyaları var mı.
-      test: ["CMD-SHELL", "ls /var/lib/clamav/main.c?d /var/lib/clamav/daily.c?d >/dev/null"]
-      interval: 30s
+      # İmajın healthcheck'i 3310'a bakar (bu konteynerde clamd yok) -> ezilir: ilk güncelleme denendi mi + DB dosyaları var mı.
+      # start_period > tek seferlik `timeout 300`: ilk güncelleme sürerken unhealthy sayılmaz (`up -d` "dependency failed" demez).
+      test: ["CMD-SHELL", "test -f /tmp/first-update.done && ls /var/lib/clamav/main.c?d /var/lib/clamav/daily.c?d >/dev/null"]
+      interval: 10s
       timeout: 5s
       retries: 3
-      start_period: 30s
+      start_period: 330s
     logging: *logging
 
 networks:

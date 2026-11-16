@@ -123,8 +123,11 @@ export class Scanner {
     };
   }
 
-  /** 10 dk yoklama (§7.3). Hata fırlatmaz. */
-  async poll(): Promise<void> {
+  /**
+   * 10 dk yoklama (§7.3). Hata fırlatmaz. `fastRetry`: açılış/düşüş sonrası kısa aralıklı yeniden deneme (K9 B3) —
+   * `av_down` ardışıklık sayacına KATILMAZ (sayaç yalnız 10 dk turlarını sayar; 30 sn'lik denemeler alarmı öne çekmesin).
+   */
+  async poll(opts: { fastRetry?: boolean } = {}): Promise<void> {
     const target = await this.d.target().catch(() => null);
     if (!target) {
       this.up = 0;
@@ -133,6 +136,7 @@ export class Scanner {
     const r = await this.selfTest(target).catch(() => null);
     if (!r || r.judgement === "unreachable") {
       this.up = 0;
+      if (opts.fastRetry) return;
       this.downStreak++;
       if (this.downStreak >= 2) this.d.log.error({ alarm: "av_down" }, "virüs tarama servisi art arda iki yoklamada erişilemedi");
       return;
