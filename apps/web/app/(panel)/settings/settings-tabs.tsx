@@ -11,6 +11,7 @@ import {
   MonitorCog,
   ShieldCheck,
   SlidersHorizontal,
+  Video,
 } from "lucide-react";
 import { TabNav } from "@/components/ui/tab-nav";
 import { t } from "@/lib/i18n";
@@ -28,6 +29,7 @@ export function SettingsTabs() {
         { href: "/settings/smtp", label: t("set.tab.smtp"), Icon: Mail },
         { href: "/settings/sms", label: t("set.tab.sms"), Icon: MessageSquareText },
         { href: "/settings/files", label: t("set.tab.files"), Icon: FolderLock },
+        { href: "/settings/recording", label: t("set.tab.recording"), Icon: Video },
         { href: "/settings/security", label: t("set.tab.security"), Icon: ShieldCheck },
         { href: "/settings/consent-text", label: t("set.tab.consent"), Icon: FileText },
         { href: "/settings/logo", label: t("set.tab.logo"), Icon: ImageIcon },

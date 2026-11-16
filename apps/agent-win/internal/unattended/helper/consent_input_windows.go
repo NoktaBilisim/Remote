@@ -48,6 +48,9 @@ func (c *consentWin) tryGrant() {
 		trig, hit = control.TrigClick, win.WindowAt(p.X, p.Y) == c.grant
 	}
 	now := time.Now()
+	if !c.recDrawn() { // P28e AC-449: kayıt satırı yokken izin verilemez (düğme zaten kapalı; WM_COMMAND enjeksiyonu)
+		return
+	}
 	switch c.guard.Check(now, trig, !c.cur.valid || c.cur.injected, c.obscured(), hit) {
 	case control.ReasonOK:
 		c.decide(helperio.DecisionGranted)

@@ -191,6 +191,8 @@ func ParseServer(raw []byte) (any, error) {
 		m = &Intervene{}
 	case tRejoin:
 		m = &Rejoin{}
+	case tRecState:
+		m = &RecState{}
 	default:
 		return nil, fmt.Errorf("%w: tür %q", errSchema, head.T)
 	}
@@ -221,6 +223,8 @@ func validateServer(m any) error {
 		ok = validIntervene(v)
 	case *Rejoin:
 		ok = validRejoin(v)
+	case *RecState:
+		ok = validRecState(v)
 	case *Disconnect:
 		ok = ulidRe.MatchString(v.SessionID) && sessionEndedReasons[v.Reason]
 	}

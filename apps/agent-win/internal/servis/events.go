@@ -22,6 +22,7 @@ const (
 	EvLock     uint32 = 1006 // oturum kilitlendi (P28u, AC-444)
 	EvLogoff   uint32 = 1007 // kullanıcı oturumu kapatıldı (P28u, AC-444)
 	EvConsent  uint32 = 1008 // bağlantı onayı kararı (P28u)
+	EvRecord   uint32 = 1009 // ekran kaydı başladı/durdu (P28e; sunucunun rec.state'i)
 )
 
 // 1004 nedenleri (bağlantı reddi dışındakiler servis açılış/denetim hatalarıdır).
@@ -46,10 +47,22 @@ type EventSink interface {
 	Write(e Event)
 }
 
-func evStarted(c *Connect, mode string) Event {
-	return Event{ID: EvStarted, Text: fmt.Sprintf("Gözetimsiz bağlantı başladı. Teknisyen: %s; destek firması: %s; "+
-		"teknisyen IP: %s; oturum: %s; kip: %s", clean(c.TechName, 100), clean(c.TenantName, 120), clean(c.TechIP, 45),
-		c.SessionID, modeText(mode))}
+func evStarted(c *Connect, mode string, rec bool) Event {
+	t := fmt.Sprintf("Gözetimsiz bağlantı başladı. Teknisyen: %s; destek firması: %s; teknisyen IP: %s; oturum: %s; kip: %s",
+		clean(c.TechName, 100), clean(c.TenantName, 120), clean(c.TechIP, 45), c.SessionID, modeText(mode))
+	if rec {
+		t += "; ekran kaydı: alınıyor (destek firması politikası)"
+	}
+	return Event{ID: EvStarted, Text: t}
+}
+
+// evRecord 1009: kayıt durumu değişti (P28e). Cihazda durdurma yolu yoktur; tek yol yerel anahtar (AC-295).
+func evRecord(sessionID, techName string, on bool) Event {
+	what := "Ekran kaydı durdu"
+	if on {
+		what = "Ekran kaydı başladı"
+	}
+	return Event{ID: EvRecord, Text: fmt.Sprintf("%s. Teknisyen: %s; oturum: %s", what, clean(techName, 100), sessionID)}
 }
 
 // modeText kip adı (olay günlüğü; gerekçe yazılmaz — §7.5).

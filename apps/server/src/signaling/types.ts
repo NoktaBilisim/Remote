@@ -11,6 +11,7 @@ import type { AuditContext } from "../audit/service.ts";
 import type { JsonObject } from "../audit/mask.ts";
 import type { GuestConsent } from "../public/consent.ts";
 import type { IceGrant, TurnConfig } from "./turn.ts";
+import type { RoomRec } from "../rec/types.ts";
 
 /**
  * P27 gözetimsiz oda + P28u kip/onay/müdahale durumu (mimari-p28u §8.1, §8.3; bellekte). `consentRequest` connect'te
@@ -38,6 +39,10 @@ export interface UnattendedRoom {
   /** Yeniden katılım bileti verilmiş misafir kimliği (oturum başına en çok 1). */
   rejoinGuestId?: string;
   rejoinUsed?: boolean;
+  /** P28e (§2.2): connect'te hesaplanan kayıt kararı (politika ∧ `record1` ∧ teklif edilebilir); admit TX'i yeniden okur. */
+  recording?: boolean;
+  /** P28e (§6.1): politika açık ama cihaz `record1` bildirmedi → `hello.unattended.recordOutdated` (kayıt yok). */
+  recordOutdated?: boolean;
 }
 
 /** Misafir istemci ortamı (`env.state` alanları, `t`/`id` hariç). */
@@ -59,6 +64,8 @@ export interface Peer {
    * Gözetimsiz odada hiç atanmaz. Karar yalnız `hasFsrv(room, peer)` üzerinden okunur.
    */
   fsrv?: boolean;
+  /** P28e (§6.1): soket `rs.cap.rec1` bildirdi mi (ws.ts upgrade; misafirde yalnız katılımlı odada anlamlı). */
+  rec?: boolean;
 }
 
 /** Zamanlayıcı soyutlaması: üretimde gerçek saat, testlerde elle ilerletilen sahte saat (AC-13, AC-25). */
@@ -122,6 +129,9 @@ export interface TechConn {
   /** Bağlanma anındaki rol; yeniden doğrulamada farklıysa teknisyenin tüm odaları biter (AC-115). */
   role: Role;
   ctx: AuditContext;
+  /** P28e (S-P28e-6): yükleme belirteci bağlamı — giriş oturumu ve bu soketin kimliği (ws-auth `openTech`). */
+  authSessionId?: string;
+  connId?: string;
 }
 
 /** session_consents.source CHECK kümesi (P4 + P7 `TECH`, ADR-0013). DENIED kararı UI kaynağıyla yazılır. */
@@ -274,6 +284,21 @@ export interface Room {
   /** `share`: P15 (S17-2) birleştirilmiş `share.state`'in gecikmeli iletimi. */
   timers: { disconnect?: unknown; warn?: unknown; maxEnd?: unknown; iceRefresh?: unknown; idle?: unknown; share?: unknown };
   ending: boolean;
+  /** P28e oda kayıt belleği (signaling/rec.ts; yalnız commit sonrası kurulur). */
+  rec?: RoomRec;
+  /** P28e kapı belleği (kayıt yokken de): rıza penceresi başlangıcı, tek `consent_rejected`, başlatma sürüyor, gözcü. */
+  recGate?: RecGate;
+}
+
+/** P28e kayıt kapısı + gözcü durumu (`room.rec` dışı; §6.2, §6.3). */
+export interface RecGate {
+  firstAdmitHelloAt?: number;
+  consentRejected?: boolean;
+  starting?: boolean;
+  /** Gözcü sayacı başlangıcı (son parça / kaynak dönüşü / kaydedici bağlanması). */
+  watchFrom?: number;
+  watchdog?: unknown;
+  recorderGone?: unknown;
 }
 
 /** Süreler (ms). Testler kısaltabilir; varsayılanlar mimari-protokol değerleri. */

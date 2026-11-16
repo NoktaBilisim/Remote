@@ -14,6 +14,7 @@ import {
   type CustomerFirmRef,
   type RequestPriority,
 } from "./shared.ts";
+import type { ConsentTextView } from "./sessions.ts";
 
 // ---------------------------------------------------------------------------------------------------------------
 // Enum'lar ve durum makinesi
@@ -438,7 +439,8 @@ export const tenantRefQuerySchema = z.strictObject({ ref: tenantRefSchema });
 /** GET /public/requests/tenant yanıtı (AC-133, 135, §13.4). */
 export interface TenantRequestInfo {
   tenant: { name: string; logoUrl: string | null };
-  consentText: { id: string; version: number; body: string; sha256: string };
+  /** P28e: `recording` teklifi yalnız kayıt açık ∧ kapasite uygunken (`ConsentTextView`). */
+  consentText: ConsentTextView;
   waitMinutes: number;
   abuseEmail: string | null;
   /** `MIN_AGENT_VERSION`; boşsa null (istemci açılışta karşılaştırır). */
@@ -545,7 +547,8 @@ export function notifyEmailKey(email: string): string {
 /** GET /public/web-requests/form?ref= yanıtı. Müşteri adı DÖNMEZ (S-P19-2); kanal yalnız firma açtıysa ve kullanılabilirse true. */
 export interface WebFormInfo {
   tenant: { name: string; logoUrl: string | null };
-  consentText: { id: string; version: number; body: string; sha256: string };
+  /** P28e: `recording` teklifi yalnız kayıt açık ∧ kapasite uygunken (`ConsentTextView`). */
+  consentText: ConsentTextView;
   /** `tenant_settings.retention_days` — "Sohbet mesajları kayıt altına alınır ve <N> gün saklanır" (AC-292 form satırı). */
   chatRetentionDays: number;
   channels: { sms: boolean; whatsapp: boolean; email: boolean };

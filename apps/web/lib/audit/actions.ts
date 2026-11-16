@@ -16,6 +16,8 @@ import {
   P18_AUDIT_LABELS,
   P19_NOTIFY_AUDIT_LABELS,
   P19_REQUEST_AUDIT_LABELS,
+  RECORDING_AUDIT_GROUP_LABELS,
+  RECORDING_AUDIT_LABELS,
   RETENTION_AUDIT,
   SYSTEM_AUDIT,
   TENANT_AUDIT,
@@ -112,6 +114,8 @@ const AUDIT_ACTION_LABELS: Readonly<Record<string, string>> = {
   // P27/P28u (AC-273…, 431, 436, 439, 441, 443–445): gözetimsiz kayıt/cihaz/bağlantı/onay/müdahale + politika
   // (`settings.unattended_silent`). `unattended.session.*` TIMELINE etiketiyle aynı metin.
   ...UNATTENDED_AUDIT_LABELS,
+  // P28e (mimari-p28e §11.1; AC-388): recording.start/stop/view/view.end/delete/expired + `settings.recording`
+  ...RECORDING_AUDIT_LABELS,
 };
 
 /**
@@ -135,6 +139,8 @@ export const reasonLabel = (reason: string): string => labelOf(OUTBOUND_REASON_L
 /** Grup (adın ilk bölümü) → Türkçe başlık: contracts `AUDIT_ACTION_GROUPS` (`auth.*` → "Giriş ve hesap güvenliği"). */
 const AUDIT_GROUP_LABELS: Readonly<Record<string, string>> = {
   ...Object.fromEntries(AUDIT_ACTION_GROUPS.map((g) => [g.prefix.slice(0, -2), g.label])),
+  // P28e: `recording.*` → "Kayıt" (contracts grup listesinde yok; etiket tablosundan birleştirilir)
+  ...RECORDING_AUDIT_GROUP_LABELS,
 };
 
 const groupOf = (action: string): string => action.split(".")[0] ?? action;

@@ -1,6 +1,6 @@
 import type { SessionListItem } from "@remote/contracts/api/sessions";
 import { labelOf, SESSION_MODE_LABELS, SESSION_SOURCE_LABELS } from "@remote/contracts/labels";
-import { ChevronRight } from "lucide-react";
+import { ChevronRight, Video } from "lucide-react";
 import Link from "next/link";
 import { AnonymizedBadge, StatusBadge } from "@/components/ui/badge";
 import { formatDateTime, formatDuration } from "@/lib/format";
@@ -36,6 +36,16 @@ function SourceNote({ s, compact = false }: { s: Pick<SessionListItem, "source" 
     >
       {labelOf(SESSION_SOURCE_LABELS, s.source)}
       {wait && <span className={compact ? "sr-only" : "font-normal"}>· {wait}</span>}
+    </span>
+  );
+}
+
+/** P28e (§9): "Kayıt" sütunu — kayıtlı oturumda `Video` ikonu (`aria-label`), aksi boş. */
+function RecMark({ s }: { s: Pick<SessionListItem, "hasRecording"> }) {
+  if (!s.hasRecording) return null;
+  return (
+    <span role="img" aria-label={t("h.rec.has")} title={t("h.rec.has")} data-testid="history-rec" className="inline-flex text-primary">
+      <Video aria-hidden className="size-4" />
     </span>
   );
 }
@@ -87,6 +97,9 @@ export function HistoryList({ items, showTechnician, showTenant }: Props) {
                 {t("h.col.duration")}
               </th>
               <th scope="col" className="px-3 py-3 font-medium">
+                {t("h.col.rec")}
+              </th>
+              <th scope="col" className="px-3 py-3 font-medium">
                 {t("h.col.ticket")}
               </th>
             </tr>
@@ -135,6 +148,9 @@ export function HistoryList({ items, showTechnician, showTenant }: Props) {
                 <td className="px-3 py-2 text-right whitespace-nowrap tabular-nums text-fg">
                   <DurationCell s={s} />
                 </td>
+                <td className="px-3 py-2">
+                  <RecMark s={s} />
+                </td>
                 <td className="max-w-32 truncate px-3 py-2 whitespace-nowrap text-fg" title={s.ticketNo ?? undefined}>
                   {s.ticketNo ?? <span className="text-fg-muted">—</span>}
                 </td>
@@ -155,7 +171,10 @@ export function HistoryList({ items, showTechnician, showTenant }: Props) {
               <div className="min-w-0 flex-1">
                 <div className="flex items-center justify-between gap-2">
                   <span className="truncate font-medium text-fg">{customer(s)}</span>
-                  <StatusBadge status={s.status} />
+                  <span className="flex shrink-0 items-center gap-2">
+                    <RecMark s={s} />
+                    <StatusBadge status={s.status} />
+                  </span>
                 </div>
                 {s.source === "REQUEST" && (
                   <div className="mt-1">

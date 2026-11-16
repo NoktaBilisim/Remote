@@ -12,6 +12,7 @@ import {
   type ServerOutbound,
   type TechInbound,
 } from "@remote/contracts/ws";
+import { WS_CAP_REC } from "@remote/contracts/ws-rec";
 import type { P5Outbound } from "../dc/ctl";
 
 /** Misafirin yeniden bağlanma penceresi (sunucu 120 sn sonra oturumu bitirir). */
@@ -21,9 +22,11 @@ export function wsUrl(path: string, loc: Pick<Location, "protocol" | "host"> = l
   return `${loc.protocol === "https:" ? "wss" : "ws"}://${loc.host}${path}`;
 }
 
+/** P28e (§6.1): tarayıcı misafir kayıt göstergesi + "Kaydı durdur"u çizebilir → her zaman `rs.cap.rec1` bildirir. */
 export const guestProtocols = (cred: { ticket: string } | { reconnect: string }): string[] => [
   WS_SUBPROTOCOL,
   "ticket" in cred ? WS_TICKET_PREFIX + cred.ticket : WS_RECONNECT_PREFIX + cred.reconnect,
+  WS_CAP_REC,
 ];
 
 /** Üstel geri çekilme: 1, 2, 4, 8 sn … en çok 10 sn. */

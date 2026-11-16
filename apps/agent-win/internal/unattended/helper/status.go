@@ -101,9 +101,13 @@ func (l stationLocker) Lock(ctx context.Context) (bool, string) {
 	}
 }
 
+// recorder kayıt durumunu göstergeye uygular (liveIndicator.SetRecording).
+type recorder interface{ SetRecording(on bool) }
+
 // serveCommands giriş borusunun komut satırlarını işler (tek bekleyen komut; sırayla). EOF/okuma hatası döngüyü
-// bitirir (oturum sürer); bozuk satır atlanır. Locker yoksa kilit `not_locked` yanıtlanır.
-func serveCommands(ctx context.Context, br *bufio.Reader, lk Locker, st *statusPipe) {
+// bitirir (oturum sürer); bozuk satır atlanır. Locker yoksa kilit `not_locked` yanıtlanır. P28e `rec` yanıtsızdır:
+// gösterge eki eklenir/kaldırılır (AC-448); kayıt cihazda durdurulamaz, bu yol yalnız sunucunun durumunu çizer.
+func serveCommands(ctx context.Context, br *bufio.Reader, lk Locker, st *statusPipe, rec recorder) {
 	for ctx.Err() == nil {
 		c, err := helperio.ReadCommand(br)
 		if errors.Is(err, helperio.ErrInvalid) {
@@ -111,6 +115,10 @@ func serveCommands(ctx context.Context, br *bufio.Reader, lk Locker, st *statusP
 		}
 		if err != nil {
 			return
+		}
+		if c.Cmd == helperio.CmdRec {
+			rec.SetRecording(*c.On)
+			continue
 		}
 		ok, reason := false, helperio.ReasonNotLocked
 		if lk != nil {

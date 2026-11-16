@@ -77,6 +77,8 @@ export interface RoomRec {
   sourceGone?: RoomRecSourceGone;
   /** Oturum başına en çok bir `consent_rejected` audit satırı (S-P28e-10). */
   consentRejected?: boolean;
+  /** K4 ekleme: son durma nedeni (yeniden bağlanan istemcinin `hello.rec.reason`'ı). */
+  stopReason?: RecStopReason;
 }
 
 /** Odada kayıt yokken (`room.rec` tanımsız) kapı kararları için ek bellek: rıza penceresi ilk admit `hello`'sundan başlar. */
@@ -167,6 +169,12 @@ export interface RecService {
   canOffer(tenantId: string): Promise<boolean>;
   /** Açılış süpürmesi: odası olmayan `ACTIVE` → `STOPPED{ERROR, orphan}` + audit. */
   sweepOrphans(liveSessionIds: ReadonlySet<string>): Promise<number>;
+  /**
+   * K4 ekleme: oda portu — `signaling/rec.ts bindRec` atar (FsrvSink kalıbı). Servis kendi başlattığı durmalarda (kota, oran,
+   * içerik, politika kapatma, açılış süpürmesi değil) `room?.stopped()` çağırır; signaling'in kendi `stop()` çağrılarında
+   * (revoke, rec.error, gözcü, oda kapanışı) port ÇAĞRILMAMALI ya da çağrılırsa zararsızdır (idempotent).
+   */
+  room?: RecRoomPort | null;
 }
 
 // --- K3 → K4: oda portu (parça kabulü, ayar kapatma ve oran tavanı oda belleğini okur / yayın ister) ---

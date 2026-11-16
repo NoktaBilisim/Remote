@@ -2,6 +2,7 @@
 // Metin tenant bazlı ve sürümlü; tenant başına tek `is_current` (DB fonksiyonel UQ). Onay kaydı append-only.
 import { createHash } from "node:crypto";
 import type { ConsentTextView } from "@remote/contracts/api/sessions";
+import { REC_CONSENT_LINE, REC_CONSENT_LINE_SHA256 } from "@remote/contracts/ws-rec";
 import type { Prisma } from "../generated/prisma/client.ts";
 import type { Db } from "../lib/db.ts";
 import { AppError } from "../lib/errors.ts";
@@ -53,13 +54,21 @@ export interface GuestConsent {
 }
 
 /** Resolve: tenant'ın güncel metni. Yoksa seed eksik → bilinmeyen hata (500 + referans, loglanır). */
-export async function currentConsentText(db: DbOrTx, tenantId: string): Promise<ConsentTextView> {
-  const t = await db.consentText.findFirst({
-    where: { tenantId, isCurrent: true },
-    select: { id: true, version: true, body: true, sha256: true },
-  });
+export async function currentConsentText(
+  db: DbOrTx,
+  tenantId: string,
+  rec?: { canOffer(tenantId: string): Promise<boolean> },
+): Promise<ConsentTextView> {
+  const [t, offered] = await Promise.all([
+    db.consentText.findFirst({
+      where: { tenantId, isCurrent: true },
+      select: { id: true, version: true, body: true, sha256: true },
+    }),
+    rec ? rec.canOffer(tenantId) : Promise.resolve(false),
+  ]);
   if (!t) throw new Error(`consent_text_missing tenant=${tenantId}`);
-  return t;
+  // P28e (§2.1, AC-381/384): kayıt kutusu alanı YALNIZ `offered = recording_enabled ∧ kota boş ∧ disk ≥ %10` iken eklenir.
+  return offered ? { ...t, recording: { offered: true, line: REC_CONSENT_LINE, lineSha256: REC_CONSENT_LINE_SHA256 } } : t;
 }
 
 /** Join (G-24, AC-127): id oturumun tenant'ının güncel sürümü değilse 400 (yok / eski / başka tenant ayırt edilmez). */

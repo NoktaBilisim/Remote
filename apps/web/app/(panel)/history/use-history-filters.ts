@@ -10,7 +10,7 @@ import { loadUserOptions, techOptions } from "@/lib/users/user-options";
 
 export type Opt = { value: string; label: string };
 type Draft = Record<
-  "from" | "to" | "status" | "mode" | "source" | "technicianId" | "tenantId" | "customer" | "customerFirm" | "consentMode",
+  "from" | "to" | "status" | "mode" | "source" | "technicianId" | "tenantId" | "customer" | "customerFirm" | "consentMode" | "recorded",
   string
 >;
 type Errors = Partial<Record<keyof Draft, string>>;
@@ -41,6 +41,7 @@ const toDraft = (f: HistoryFilters): Draft => ({
   tenantId: f.tenantId ?? "",
   customer: f.customer ?? "",
   customerFirm: f.customerFirm ?? "",
+  recorded: f.recorded ?? "",
 });
 
 /** Teknisyen seçenekleri; AC-225: Super Admin firma filtresini değiştirince o firmanın `/users/options?tenantId=` yanıtı. */

@@ -7,6 +7,8 @@ import type { GuestKind, SessionEndedReason } from "@remote/contracts/ws";
 import { WS_CLOSE } from "@remote/contracts/ws";
 import type { AuditContext } from "../audit/service.ts";
 import type { FsrvService } from "../fsrv/service.ts";
+import type { DeviceRecordOutbound } from "@remote/contracts/ws-device";
+import type { RecService } from "../rec/types.ts";
 import type { Db } from "../lib/db.ts";
 import type { Metrics } from "../ops/metrics.ts";
 import type { RoomNotifier } from "../sessions/service.ts";
@@ -28,6 +30,7 @@ import { newClipPrint } from "./clip-print.ts";
 import { newControl } from "./control.ts";
 import { closeControlOnEnd, narrowCaps, resetOnGuestGone, revokeOnTechChange } from "./control-revoke.ts";
 import { fsrvRoomClosed, fsrvSideGone } from "./fsrv.ts";
+import { recRoomClosed, recSourceGone, recTechAttached, recTechDetached } from "./rec.ts";
 import { cancelPendingSilent, endDeviceRoom } from "./rooms-device.ts";
 import * as lobby from "./rooms-lobby.ts";
 import { pending, type RoomRow } from "./rooms-lobby.ts";
@@ -65,7 +68,14 @@ export class Rooms implements RoomNotifier, TechnicianLiveControl {
   /** P27: gözetimsiz oda bitti (teardown) — DeviceHub cihaza `disconnect` + audit/metrik yazar (commit sonrası, en iyi çaba). */
   deviceEnded?: (room: Room, reason: SessionEndedReason) => void;
   /** P27: DeviceHub — müşteri pasifinde iptal edilen cihazların soketi/odası (customers/service.ts, commit sonrası). */
-  devices?: { revoked(deviceId: string): void; has(deviceId: string, feature: "consent1"): boolean };
+  devices?: {
+    revoked(deviceId: string): void;
+    has(deviceId: string, feature: "consent1" | "record1"): boolean;
+    /** P28e: yalnız `record1` sokete `rec.state`. */
+    sendRecord(deviceId: string, msg: DeviceRecordOutbound): boolean;
+  };
+  /** P28e: kayıt servisi (`bindRec`, signaling/rec.ts); yoksa kayıt kapısı hiçbir şey başlatmaz. */
+  rec?: RecService;
   /** P28b: sunucu dosya servisi (`bindFsrv`, ws.ts); yoksa SERVER odasında `fsrv.init` → UNSUPPORTED. */
   fsrv?: FsrvService;
   private readonly rooms = new Map<string, Room>();
@@ -175,6 +185,7 @@ export class Rooms implements RoomNotifier, TechnicianLiveControl {
     const old = room.tech;
     room.tech = conn;
     old?.peer.close(WS_CLOSE.REPLACED, "replaced");
+    recTechAttached(this, room, old); // P28e: eski kaydedici soketinin belirteci düşer
     // §3.3 K3: yeni konsol (sekme değişimi / yeniden bağlanma) yalnız görüntüleme ile başlar; misafire önce revoke{reconnect}.
     if (room.admitted) revokeOnTechChange(this, room);
     void narrowCaps(this, room, conn.permissions); // bağlanma anındaki güncel yetki (S-P3-8)
@@ -187,8 +198,10 @@ export class Rooms implements RoomNotifier, TechnicianLiveControl {
 
   detachTech(room: Room, peer: Peer): void {
     if (!this.live(room) || room.tech?.peer !== peer) return;
+    const tech = room.tech;
     room.tech = undefined;
     fsrvSideGone(this, room, "TECH"); // P28b D-P28b-2: teknisyenin indirme belirteçleri düşer
+    recTechDetached(this, room, tech); // P28e §6.3: kayıt sürer; belirteç pay sonrası düşer, 120 sn dönmezse stop
     if (room.admitted) {
       revokeOnTechChange(this, room); // AC-24, §3.3 K3: önce control.revoke{reconnect}, sonra peer.left
       room.admitted.peer?.send({ t: "peer.left", role: "tech", reason: "disconnect" });
@@ -201,6 +214,7 @@ export class Rooms implements RoomNotifier, TechnicianLiveControl {
     if (guest.state !== "ADMITTED") return this.leaveLobby(room, guest, "left");
     guest.peer = undefined;
     fsrvSideGone(this, room, "CUSTOMER"); // P28b D-P28b-2
+    recSourceGone(this, room); // P28e S-P28e-2: kaynak eş yokken yalnız uçuştaki parça
     room.share = { state: "stopped" }; // QA-P4-12: misafir yokken paylaşım sürmüyor
     resetOnGuestGone(this, room); // A4/AC-24: controlState=VIEW; yeniden bağlanan istemci kapıyı kapalı başlatır
     room.tech?.peer.send({ t: "peer.left", role: "guest", reason: "disconnect" });
@@ -261,17 +275,20 @@ export class Rooms implements RoomNotifier, TechnicianLiveControl {
     }
     if (room.unattended) this.deviceEnded?.(room, reason);
     fsrvRoomClosed(this, room); // P28b §5.2: açık aktarımlar CANCELLED/EXPIRED, belirteçler düşer
+    recRoomClosed(this, room); // P28e §6.4: STOPPED{SESSION_END}, 15 sn son parça payı
     closeControlOnEnd(this, room); // §3.3 K5-d: session.ended sonrası, en iyi çaba (beklenmez)
   }
 
   /** Yetki iptali (G-04, AC-115): teknisyenin tüm odaları `auth_revoked` ile biter. */
   async endByTechnician(userId: string): Promise<void> {
+    this.rec?.dropUploadTokens({ by: "user", userId }); // P28e S-P28e-6: kayıt yükleme belirteçleri HEMEN (oda payı beklenmez)
     const mine = [...this.rooms.values()].filter((r) => r.technicianId === userId);
     await Promise.all(mine.map((r) => this.finish(r, "auth_revoked", "SYSTEM")));
   }
 
   /** P9 (AC-70, AC-115): tenant pasife alındı — o tenant'ın tüm odaları (lobi dahil) `tenant_passive` ile biter. */
   async endByTenant(tenantId: string): Promise<void> {
+    this.rec?.dropUploadTokens({ by: "tenant", tenantId }); // P28e S-P28e-6
     const mine = [...this.rooms.values()].filter((r) => r.tenantId === tenantId);
     await Promise.all(mine.map((r) => this.finish(r, "tenant_passive", "SYSTEM")));
   }

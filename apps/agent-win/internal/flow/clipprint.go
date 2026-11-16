@@ -112,6 +112,9 @@ func Features(d Deps) []string {
 	if d.FileServer != nil && d.FileServerUI != nil {
 		f = append(f, signal.FeatureFsrv)
 	}
+	if recUI(d) != nil { // P28e: gösterge/şerit çizebilen arayüz (K-P28e-7)
+		f = append(f, signal.FeatureRec)
+	}
 	return f
 }
 

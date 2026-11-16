@@ -41,29 +41,52 @@ func (u *UI) AskCode(ctx context.Context, notice string) (string, bool) {
 
 // Welcome AC-98/125/128: teknisyen, doğrulama kodu, sunucu, dolandırıcılık uyarısı, KVKK onayı.
 func (u *UI) Welcome(ctx context.Context, w flow.Welcome) (string, bool) {
-	ch := make(chan textResult, 1)
-	u.t.Do(func() { u.welcomeForm(w, ch) })
-	r := await(ctx, ch, textResult{})
-	return r.text, r.ok
+	w.RecOffered = false
+	name, _, ok := u.WelcomeRec(ctx, w)
+	return name, ok
 }
 
-// welcomeForm karşılama penceresi: tanıtım ve aydınlatma metni (welcomeIntro), ad, onay kutusu, Bağlan/Vazgeç.
-func (u *UI) welcomeForm(w flow.Welcome, ch chan<- textResult) {
-	f := u.t.newForm(appTitle+" — Karşılama", 520, 652, false)
+// welcomeResult karşılama kararı; record P28e kayıt kutusu (yalnız w.RecOffered iken çizilir).
+type welcomeResult struct {
+	name       string
+	record, ok bool
+}
+
+// WelcomeRec flow.RecUI: Welcome + P28e kayıt rıza kutusu (AC-381; varsayılan işaretsiz, seçim yalnız bellekte).
+func (u *UI) WelcomeRec(ctx context.Context, w flow.Welcome) (string, bool, bool) {
+	ch := make(chan welcomeResult, 1)
+	u.t.Do(func() { u.welcomeForm(w, ch) })
+	r := await(ctx, ch, welcomeResult{})
+	return r.name, r.record, r.ok
+}
+
+// welcomeForm karşılama penceresi: tanıtım ve aydınlatma metni (welcomeIntro), ad, onay kutusu, (teklif varsa) kayıt
+// kutusu, Bağlan/Vazgeç.
+func (u *UI) welcomeForm(w flow.Welcome, ch chan<- welcomeResult) {
+	shift := int32(0)
+	if w.RecOffered {
+		shift = 44
+	}
+	f := u.t.newForm(appTitle+" — Karşılama", 520, 652+shift, false)
 	welcomeIntro(f, w)
 	f.label("Adınız ve soyadınız (teknisyeniniz sizi bu adla görür)", 16, 462, 488, 20, fontNormal)
 	name := f.edit(idName, 16, 484, 300, 28, win.ES_AUTOHSCROLL, 100)
 	chk := f.add("BUTTON", "Aydınlatma metnini okudum; ekran görüntümün bu oturum boyunca teknisyenle "+
 		"paylaşılmasını kabul ediyorum. Uzaktan kontrol için ayrıca onay istenir.",
 		win.WS_TABSTOP|win.BS_AUTOCHECKBOX|win.BS_MULTILINE, 0, idConsent, 16, 520, 488, 52, fontNormal)
-	connect := f.button("Bağlan", idOK, 318, 584, 90, true)
-	f.button("Vazgeç", idCancel, 414, 584, 90, false)
-	f.label(u.footer, 16, 626, 488, 20, fontNormal)
+	var rec *ctrl
+	if w.RecOffered { // P28e: ayrı, işaretsiz kutu; metin derlemedeki cümle (SHA sunucununkiyle eşleşti)
+		rec = f.add("BUTTON", flow.RecTexts.ConsentLine, win.WS_TABSTOP|win.BS_AUTOCHECKBOX|win.BS_MULTILINE, 0,
+			idRecConsent, 16, 578, 488, 36, fontNormal)
+	}
+	connect := f.button("Bağlan", idOK, 318, 584+shift, 90, true)
+	f.button("Vazgeç", idCancel, 414, 584+shift, 90, false)
+	f.label(u.footer, 16, 626+shift, 488, 20, fontNormal)
 	win.EnableWindow(connect.h, false)
 	valid := func() bool {
 		return win.SendMessage(chk.h, win.BM_GETCHECK, 0, 0) == 1 && strings.TrimSpace(win.GetText(name.h)) != ""
 	}
-	done := func(r textResult) { f.destroy(); ch <- r }
+	done := func(r welcomeResult) { f.destroy(); ch <- r }
 	f.command = func(id, code int) {
 		switch {
 		case id == idConsent || (id == idName && code == win.EN_CHANGE):
@@ -71,12 +94,12 @@ func (u *UI) welcomeForm(w flow.Welcome, ch chan<- textResult) {
 		case id == idAbuse:
 			win.OpenMailto(w.AbuseEmail)
 		case id == idOK && valid(): // AC-98: onaysız bağlantı başlamaz
-			done(textResult{strings.TrimSpace(win.GetText(name.h)), true})
+			done(welcomeResult{strings.TrimSpace(win.GetText(name.h)), rec != nil && checked(rec), true})
 		case id == idCancel:
-			done(textResult{})
+			done(welcomeResult{})
 		}
 	}
-	f.close = func() { done(textResult{}) }
+	f.close = func() { done(welcomeResult{}) }
 	f.show(win.WorkAreaAt(win.CursorPos()), true, name)
 }
 

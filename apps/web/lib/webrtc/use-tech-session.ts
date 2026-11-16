@@ -10,7 +10,8 @@
  * Parçalar: PeerConnection `use-tech-peer.ts`, kontrol `use-tech-control.ts`, ortak WS başı `use-signal-base.ts`.
  */
 import { useCallback, useEffect, useReducer, useRef, type RefObject } from "react";
-import type { ServerOutbound } from "@remote/contracts/ws";
+import { WS_SUBPROTOCOL, type ServerOutbound } from "@remote/contracts/ws";
+import { techProtocols } from "../rec/support";
 import { isUnexpectedGrant, type ControlEvent, type ControlState } from "../control/machine";
 import { backoff, RECONNECT_WINDOW_MS, Signal, wsUrl } from "./signal";
 import { iceGate, initialIceGate, initialTech, techReducer, type IceGate, type TechEvent, type TechState } from "./tech-machine";
@@ -83,7 +84,9 @@ export function useTechSession(sessionId: string) {
   );
 
   const connect = useCallback(() => {
-    sig.current = new Signal(wsUrl(`/ws/tech?sessionId=${encodeURIComponent(sessionId)}`), undefined, { onMessage, onClose });
+    // P28e (§6.1): VP8 kaydedebilen konsol `rs.cap.rec1` bildirir (alt protokol `rs.v1` + belirteç); diğerleri alt protokolsüz
+    const protocols = techProtocols(WS_SUBPROTOCOL);
+    sig.current = new Signal(wsUrl(`/ws/tech?sessionId=${encodeURIComponent(sessionId)}`), protocols, { onMessage, onClose });
   }, [onClose, onMessage, sessionId]);
 
   useEffect(() => {

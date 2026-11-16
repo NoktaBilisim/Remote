@@ -253,6 +253,8 @@ var serverParsers = map[string]func(raw []byte) (Inbound, error){
 	"fsrv.status":   check(validFsrvStatus),
 	"fsrv.offer":    check(validFsrvOffer),
 	"fsrv.download": check(validFsrvDownload),
+	// P28e (mimari-p28e §6.2): misafir biçimi {on, reason?}; teknisyen alanları (rid/basis/upload) katı çözmede red.
+	"rec.state": check(validRecState),
 	"error": check(func(m *ErrorMsg) bool {
 		return slices.Contains(wsErrorCodes, m.Code) && utf16Len(m.Message) <= errMsgMax
 	}),

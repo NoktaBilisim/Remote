@@ -4,7 +4,13 @@
 // `unattended.device.replaced` (10 dk'da ≤ 1). Oda bitişinde cihaza `disconnect` (yedek yol) + audit/metrik.
 import { UNATTENDED_AUDIT } from "@remote/contracts/audit";
 import type { DeviceUserState } from "@remote/contracts/unattended-consent";
-import { WS_DEVICE_CLOSE, type DeviceConsentOutbound, type DeviceFeature, type DeviceOutbound } from "@remote/contracts/ws-device";
+import {
+  WS_DEVICE_CLOSE,
+  type DeviceConsentOutbound,
+  type DeviceFeature,
+  type DeviceOutbound,
+  type DeviceRecordOutbound,
+} from "@remote/contracts/ws-device";
 import type { SessionEndedReason } from "@remote/contracts/ws";
 import { writeAudit, type AuditContext } from "../audit/service.ts";
 import type { Db } from "../lib/db.ts";
@@ -24,7 +30,7 @@ export interface DeviceConn {
   deviceId: string;
   tenantId: string;
   ip: string;
-  send(msg: DeviceOutbound | DeviceConsentOutbound): void;
+  send(msg: DeviceOutbound | DeviceConsentOutbound | DeviceRecordOutbound): void;
   close(code: number, reason: string): void;
   /** P28u §6.1: upgrade'de bildirilen yetenek belirteçleri (`rs.cap.consent1` → `consent1`). */
   caps: ReadonlySet<DeviceFeature>;
@@ -85,6 +91,14 @@ export class DeviceHub implements DeviceLink {
   sendConsent(deviceId: string, msg: DeviceConsentOutbound): boolean {
     const c = this.conns.get(deviceId);
     if (!c?.caps.has("consent1")) return false;
+    c.send(msg);
+    return true;
+  }
+
+  /** P28e (§6.1, K-P28e-7): yalnız `record1` sokete `rec.state` (eski servis bunu alırsa 1008 ile kapatır); gönderilemezse false. */
+  sendRecord(deviceId: string, msg: DeviceRecordOutbound): boolean {
+    const c = this.conns.get(deviceId);
+    if (!c?.caps.has("record1")) return false;
     c.send(msg);
     return true;
   }

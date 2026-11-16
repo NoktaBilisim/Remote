@@ -8,6 +8,7 @@ import (
 	"remote-support/agent-win/internal/desktop"
 	"remote-support/agent-win/internal/flow"
 	"remote-support/agent-win/internal/rtc"
+	"remote-support/agent-win/internal/servis/helperio"
 )
 
 // K6b (mimari-p27 §5.2 K-P27-1, §5.5 r2 O-P27-4): giriş masaüstü değişince önce yakalama/girdi kapısı kapanır, gösterge
@@ -24,14 +25,16 @@ type liveIndicator struct {
 	failed   chan struct{}
 	failOnce sync.Once
 	closed   bool
-	text     string // geçerli etiket (P28u silent: izleme ↔ kontrol); masaüstü geçişinde yeni gösterge bununla çizilir
+	base     string // sunucu etiketi (P28u silent: izleme ↔ kontrol)
+	rec      bool   // P28e: kayıt sürüyor → etikete helperio.RecordingSuffix (AC-448)
 }
 
 // labeler etiketi yerinde değiştirebilen gösterge (Windows: yeniden çiz + doğrula; başarısızsa Failed — fail-closed).
 type labeler interface{ SetText(string) }
 
-func newLive(ind Indicator, text string) *liveIndicator {
-	l := &liveIndicator{failed: make(chan struct{}), text: text}
+// newLive ind zaten helperio.IndicatorLabel(base, rec) ile çizilmiş olmalıdır.
+func newLive(ind Indicator, base string, rec bool) *liveIndicator {
+	l := &liveIndicator{failed: make(chan struct{}), base: base, rec: rec}
 	l.watch(ind)
 	return l
 }
@@ -93,21 +96,33 @@ func (l *liveIndicator) detach() {
 	}
 }
 
-// Text geçerli etiket.
+// Text geçerli (çizilen) etiket; masaüstü geçişinde yeni gösterge bununla çizilir.
 func (l *liveIndicator) Text() string {
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	return l.text
+	return helperio.IndicatorLabel(l.base, l.rec)
 }
 
-// SetText P28u §7.6: etiketi değiştirir (aynı pencereler, ≤ 1 sn). Gösterge etiket değiştiremiyorsa başarısız sayılır.
-func (l *liveIndicator) SetText(text string) {
+// SetText P28u §7.6: sunucu etiketini değiştirir (aynı pencereler, ≤ 1 sn); kayıt eki korunur.
+func (l *liveIndicator) SetText(base string) { l.update(func() { l.base = base }) }
+
+// SetRecording P28e `rec.state{on}`: eki ekler/kaldırır (AC-448). Ek çizilemezse gösterge başarısızdır (fail-closed).
+func (l *liveIndicator) SetRecording(on bool) { l.update(func() { l.rec = on }) }
+
+// update etiketi değiştirir ve yeniden çizdirir. Gösterge etiket değiştiremiyorsa başarısız sayılır.
+func (l *liveIndicator) update(change func()) {
 	l.mu.Lock()
-	if l.text == text || l.closed {
+	if l.closed {
 		l.mu.Unlock()
 		return
 	}
-	l.text = text
+	old := helperio.IndicatorLabel(l.base, l.rec)
+	change()
+	text := helperio.IndicatorLabel(l.base, l.rec)
+	if text == old {
+		l.mu.Unlock()
+		return
+	}
 	cur := l.cur
 	l.mu.Unlock()
 	if lb, ok := cur.(labeler); ok {

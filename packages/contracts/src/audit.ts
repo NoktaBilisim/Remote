@@ -433,11 +433,11 @@ export const P16_AUDIT_LABELS: Readonly<Record<string, string>> = {
 /**
  * P28e oturum kaydı (mimari-p28e §11.1; AC-381, 385, 386, 388). Entity `support_sessions` / sessionId; `recording.expired`
  * entity `retention`. Belirteç ve içerik ASLA yazılmaz:
- *  - START `{recordingId?, basis, consentMode?, reason?: REC_START_FAIL_REASONS, code?: REC_CONSENT_REJECT_CODES}` (açılamadı → fail;
- *    `consent_rejected` oturum başına en çok 1). STOP `{recordingId, reason: REC_STOP_REASONS, code?: REC_STOP_ERROR_CODES, durationMs, sizeBytes}`.
+ *  - START `{recordingId?, basis, consentMode?, reason?: REC_START_FAIL_REASONS, cause?: REC_CONSENT_REJECT_CODES}` (açılamadı → fail;
+ *    `consent_rejected` oturum başına en çok 1). STOP `{recordingId, reason: REC_STOP_REASONS, cause?: REC_STOP_ERROR_CODES, durationMs, sizeBytes}`.
  *  - VIEW `{recordingId}` (`POST /view` başına bir kez). VIEW_END `{recordingId, partsServed, bytesServed, throttled, endReason}`.
  *  - DELETE `{recordingId, deleteReason: "manual"|"missing", durationMs, sizeBytes, missingParts?, remainingParts?}`. EXPIRED `{count, bytes}`.
- * Değerler tel biçiminde (küçük harf; `ws-rec.ts`). Aktör: `start{consent}`/`stop{revoked}` müşteri, `tenant_policy` teknisyen.
+ * Alt kod anahtarı `cause` (`code` değil: audit maskesi `/code/i` anahtarı "***" yapar). Değerler tel biçiminde (küçük harf; `ws-rec.ts`). Aktör: `start{consent}`/`stop{revoked}` müşteri, `tenant_policy` teknisyen.
  */
 export const RECORDING_AUDIT = {
   START: "recording.start",

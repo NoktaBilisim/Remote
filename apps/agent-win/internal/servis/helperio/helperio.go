@@ -35,6 +35,9 @@ type Input struct {
 	Consent          string `json:"consent,omitempty"`
 	Mode             string `json:"mode,omitempty"`
 	IndicatorControl string `json:"indicatorControl,omitempty"`
+	// P28e (mimari-p28e §8; p28e.go): sunucu `connect.recording` gönderdi. asked'da diyalog satırı (ConsentSpec.RecordingLine),
+	// her kipte gösterge eki. Yalnız P28u girdisinde (Consent dolu) geçerlidir.
+	Recording bool `json:"recording,omitempty"`
 }
 
 var (

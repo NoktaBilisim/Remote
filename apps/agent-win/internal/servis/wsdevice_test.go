@@ -23,6 +23,7 @@ type fakeHandler struct {
 	connects []*Connect
 	kills    []string
 	features int
+	recs     []bool
 }
 
 func (f *fakeHandler) Connect(m *Connect) {
@@ -36,6 +37,7 @@ func (f *fakeHandler) LocalEnabled() bool     { return true }
 func (f *fakeHandler) Features()              { f.mu.Lock(); f.features++; f.mu.Unlock() }
 func (f *fakeHandler) Intervene(*Intervene)   {}
 func (f *fakeHandler) Rejoin(*Rejoin)         {}
+func (f *fakeHandler) RecState(on bool)       { f.mu.Lock(); f.recs = append(f.recs, on); f.mu.Unlock() }
 func (f *fakeHandler) count() (int, int) {
 	f.mu.Lock()
 	defer f.mu.Unlock()

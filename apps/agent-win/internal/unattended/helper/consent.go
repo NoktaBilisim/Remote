@@ -15,9 +15,18 @@ const ConsentTimeout = 60 * time.Second
 
 // ConsentSpec diyaloğun içeriği. Ad ve firma helperio.Input doğrulamasından geçmiştir (Text, ≤ 120, kontrol/çift
 // yönlü karakter yok). Firma sunucunun `connect.tenantName` değeridir (D-P28u-6).
+// P28e: RecordingLine ise diyalog helperio.RecordingLine satırını çizer; satır çizilip doğrulanmadan "İzin ver"
+// etkinleşmez, çizilemezse diyalog açılmaz (decisionFailed — AC-449, AC-292 kalıbı).
 type ConsentSpec struct {
 	TechName, TenantName string
 	Deadline             time.Time
+	RecordingLine        bool
+}
+
+// recordingLineDrawn "İzin ver" kapısının P28e koşulu (AC-449): satır istenmişse pencere görünür ve metni tam
+// helperio.RecordingLine olmalıdır; okunamayan/farklı/gizli satır = düğme kapalı (fail-closed).
+func recordingLineDrawn(sp ConsentSpec, text string, visible bool) bool {
+	return !sp.RecordingLine || (visible && text == helperio.RecordingLine)
 }
 
 // AskConsent diyaloğu gösterir ve karar (helperio.Decision*) ile ilk görünür olduğu anı döner (hiç görünmediyse sıfır).
@@ -34,7 +43,8 @@ func runConsent(ctx context.Context, ask AskConsent, in helperio.Input, now func
 	start := now()
 	ctx, cancel := context.WithDeadline(ctx, start.Add(ConsentTimeout))
 	defer cancel()
-	dec, shown := ask(ctx, ConsentSpec{TechName: in.TechName, TenantName: in.TenantName, Deadline: start.Add(ConsentTimeout)})
+	dec, shown := ask(ctx, ConsentSpec{TechName: in.TechName, TenantName: in.TenantName,
+		Deadline: start.Add(ConsentTimeout), RecordingLine: in.Recording})
 	switch dec {
 	case helperio.DecisionGranted, helperio.DecisionTimeout, decisionFailed:
 	default:

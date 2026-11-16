@@ -20,6 +20,9 @@ export interface TenantCounts {
   /** P28b (§3.3): anonimleştirmeyle silinen saklanan dosya satırları ve süresi dolan (EXPIRED) dosyalar. */
   storedFiles: number;
   filesExpired: number;
+  /** P28e (§3.4): anonimleştirmeyle silinen kayıtlar ve süresi dolan (`DELETED{EXPIRED}`) kayıtlar. */
+  recordings: number;
+  recordingsExpired: number;
 }
 export interface GlobalCounts {
   audit: number;
@@ -36,6 +39,8 @@ export interface GlobalCounts {
   fsrvOrphanFiles: number;
   fsrvMissing: number;
   fsrvStale: number;
+  /** P28e mutabakatı (b): dosyası eksik parça bulunan kayıt (`recording.delete{missing}`). */
+  recMissing: number;
 }
 /** `rs_retention_rows_total{kind}` etiketleri (düşük kardinalite, sabit küme). */
 export const KINDS: Record<keyof (TenantCounts & GlobalCounts), string> = {
@@ -64,6 +69,9 @@ export const KINDS: Record<keyof (TenantCounts & GlobalCounts), string> = {
   fsrvOrphanFiles: "stored_files_orphan",
   fsrvMissing: "stored_files_missing",
   fsrvStale: "stored_files_stale",
+  recordings: "recordings",
+  recordingsExpired: "recordings_expired",
+  recMissing: "recordings_missing",
 };
 
 const PURGE_KEYS = ["purgedSessions", "purgedConsents", "purgedFiles", "purgedRequests", "purgedBindings", "purgedJobs"] as const;
@@ -89,6 +97,8 @@ export const zeroTenant = (): TenantCounts => ({
   purgedMessages: 0,
   storedFiles: 0,
   filesExpired: 0,
+  recordings: 0,
+  recordingsExpired: 0,
 });
 export const zeroGlobal = (): GlobalCounts => ({
   audit: 0,
@@ -101,5 +111,6 @@ export const zeroGlobal = (): GlobalCounts => ({
   fsrvOrphanFiles: 0,
   fsrvMissing: 0,
   fsrvStale: 0,
+  recMissing: 0,
 });
 export const sum = (o: object): number => Object.values(o).reduce((a: number, b: unknown) => a + (typeof b === "number" ? b : 0), 0);

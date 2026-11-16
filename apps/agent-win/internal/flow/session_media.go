@@ -147,6 +147,9 @@ func (s *session) sendShareMsg(ctx context.Context, m signal.ShareState) {
 
 func (s *session) startStream(ctx context.Context) {
 	s.stopStream()
+	if s.rec.paused { // P28e S-P28e-2: kayıt durdurulamadı → `off` gelene kadar görüntü gönderilmez
+		return
+	}
 	cx, cancel := context.WithCancel(ctx)
 	done := make(chan struct{})
 	s.streamCx, s.streamDn = cancel, done

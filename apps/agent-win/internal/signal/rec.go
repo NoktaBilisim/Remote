@@ -2,9 +2,9 @@ package signal
 
 import "slices"
 
-// P28e oturum kaydı WS sözleşme eşi (mimari-p28e r2 §4, §6; `packages/contracts/src/ws-rec.ts`). Yalnız tip, sabit ve
-// doğrulayıcı (K2); davranış (Dial'a `rs.cap.rec1` eklemek, `rec.state` → gösterge, `rec.consent` gönderimi, ParseServer
-// tablosuna `rec.state`) K5'tedir. Uyum `packages/contracts/fixtures/rec.json` ile test edilir.
+// P28e oturum kaydı WS sözleşme eşi (mimari-p28e r2 §4, §6; `packages/contracts/src/ws-rec.ts`). Tip, sabit ve
+// doğrulayıcı (K2); `rec.state` ParseServer tablosunda, `rs.cap.rec1` Dial'ın bilinen belirteçlerinde (K5). Davranış
+// internal/flow (rec.go). Uyum `packages/contracts/fixtures/rec.json` ile test edilir.
 
 // FeatureRec `WS_CAP_REC`: Dial'ın features parametresi. Gösterge (şerit) çizilemiyorsa bildirilmez (K-P28e-7).
 const FeatureRec = "rs.cap.rec1"

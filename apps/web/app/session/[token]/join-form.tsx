@@ -4,10 +4,12 @@ import { joinSessionInputSchema, type JoinSessionResponse, type ResolveSessionRe
 import { ScreenShare } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useEffect, useId, useRef, useState, useSyncExternalStore, type FormEvent } from "react";
+import { RecordingConsent } from "@/components/consent/recording-consent";
 import { FormError } from "@/components/form-error";
 import { TextField } from "@/components/ui/text-field";
 import { api, ApiError } from "@/lib/api";
 import { toUiError, type UiError } from "@/lib/error-message";
+import { setRecConsent } from "@/lib/rec/consent-choice";
 import { t } from "@/lib/i18n";
 import type { GuestEnd } from "../guest-ui";
 import { AgentDownload } from "./agent-download";
@@ -38,6 +40,8 @@ export function JoinForm({
   const hintId = useId();
   const [name, setName] = useState("");
   const [consent, setConsent] = useState(false);
+  /** P28e (AC-381): ayrı, işaretsiz kayıt rızası — yalnız bellekte; join başarılı olunca oturuma devredilir. */
+  const [recConsent, setRecChoice] = useState(false);
   const [busy, setBusy] = useState(false);
   const [fieldErr, setFieldErr] = useState<string | undefined>();
   const [formErr, setFormErr] = useState<UiError | null>(null);
@@ -75,6 +79,7 @@ export function JoinForm({
     }
     try {
       const r = await api<JoinSessionResponse>("POST", "/public/sessions/join", parsed.data);
+      setRecConsent(recConsent);
       onJoined({ ...r, customerName: parsed.data.customerName });
     } catch (e) {
       // 400'de nonce yanar (backend P4): metin güncellendiyse yeniden resolve edilir, kullanıcı yeniden onaylar
@@ -157,6 +162,7 @@ export function JoinForm({
             <p className="pb-2 whitespace-pre-line text-fg-muted">{data.consentText.body}</p>
           </details>
         }
+        <RecordingConsent consentText={data.consentText} checked={recConsent} disabled={busy} onChange={setRecChoice} />
       </section>
 
       <section aria-labelledby="yol-t" className="flex flex-col gap-3">

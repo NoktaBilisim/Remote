@@ -59,6 +59,8 @@ type DeviceHandler interface {
 	Features()
 	Intervene(m *Intervene)
 	Rejoin(m *Rejoin)
+	// P28e (yalnız device.features{record1} alınmış sokette çağrılır).
+	RecState(on bool)
 }
 
 // DeviceClient kalıcı cihaz kanalı.
@@ -72,6 +74,7 @@ type DeviceClient struct {
 	out     chan any
 	state   atomic.Value // string
 	consent atomic.Bool  // bu sokette device.features{consent1} alındı (her bağlantıda sıfırlanır)
+	record  atomic.Bool  // P28e: bu sokette device.features caps record1 içeriyor (her bağlantıda sıfırlanır)
 	sleep   func(ctx context.Context, d time.Duration) bool
 	lastRej string
 }
@@ -192,7 +195,9 @@ func (c *DeviceClient) session(ctx context.Context) (bool, error) {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	c.consent.Store(false)
+	c.record.Store(false)
 	defer c.consent.Store(false)
+	defer c.record.Store(false)
 	ws, err := c.dial(ctx)
 	if err != nil {
 		return false, err
@@ -213,7 +218,7 @@ func (c *DeviceClient) dial(ctx context.Context) (*websocket.Conn, error) {
 	defer cancel()
 	ws, resp, err := websocket.Dial(dctx, u.String(), &websocket.DialOptions{
 		HTTPClient:   c.HTTP,
-		Subprotocols: []string{DeviceSubprotocol, DeviceCapConsent},
+		Subprotocols: []string{DeviceSubprotocol, DeviceCapConsent, DeviceCapRecord},
 	})
 	if resp != nil && resp.Body != nil {
 		_ = resp.Body.Close()
@@ -276,7 +281,7 @@ func (c *DeviceClient) readLoop(ctx context.Context, ws *websocket.Conn) error {
 			}
 			_ = ws.Close(websocket.StatusNormalClosure, "")
 			return ErrRevoked
-		case *Features, *Intervene, *Rejoin:
+		case *Features, *Intervene, *Rejoin, *RecState:
 			if err := c.consentMessage(ws, v); err != nil {
 				return err
 			}

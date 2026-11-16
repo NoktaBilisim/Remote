@@ -48,6 +48,8 @@ export async function countAllByVersion(db: Db, ver: number): Promise<Record<str
     "notification_outbox.recipient_enc": await n(
       db.$queryRaw`SELECT COUNT(*) AS n FROM notification_outbox WHERE recipient_enc IS NOT NULL AND ASCII(recipient_enc) = ${ver}`,
     ),
+    // P28e (§11.4, K-P28e-12): kayıt parçaları `key_ver` ile; `crypto:rewrap` kayıtlara dokunmaz (saklama ≤ 90 g dolunca düşer).
+    "session_recording_parts.key_ver": await db.sessionRecordingPart.count({ where: { keyVer: ver } }),
   };
 }
 

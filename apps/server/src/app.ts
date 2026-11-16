@@ -42,6 +42,7 @@ import { UploadStore } from "./uploads/store.ts";
 import { ErasureLedger } from "./ops/erasure-ledger.ts";
 import { mailLogoUrl } from "./uploads/urls.ts";
 import { addAvSourceGuard, decorateFsrv, startAvPolling, type FsrvTestOptions } from "./fsrv/wiring.ts";
+import { decorateRec } from "./rec/wiring.ts";
 
 declare module "fastify" {
   interface FastifyInstance {
@@ -253,6 +254,17 @@ export function buildApp(deps: AppDeps): FastifyInstance {
   const io = decorateIo(app, deps, core.metrics);
   const rooms = decorateRooms(app, deps, core.metrics, core.publicLimits);
   const fsrv = decorateFsrv(app, { db: deps.db, env, secrets: io.secrets, metrics: core.metrics, clock: rooms.clock, test: deps.fsrvTest });
+  // P28e (§2): kayıt servisi kök örnekte, `rooms`'tan hemen sonra — talep/resolve rıza teklifi (`rooms.rec`) ve sinyal portu
+  // rota kaydından önce hazır olur. Açılış süpürmesi yalnız `startJobs` (paylaşılan test DB'sinde kapalı).
+  decorateRec(app, {
+    db: deps.db,
+    store: fsrv.store,
+    secrets: io.secrets,
+    metrics: core.metrics,
+    clock: rooms.clock,
+    rooms,
+    sweepOnReady: deps.startJobs === true,
+  });
   const w: Wiring = { ...core, ...io, rooms };
   const r = decorateRequests(app, deps, w);
   const jobs = decorateJobs(app, deps, w, r);

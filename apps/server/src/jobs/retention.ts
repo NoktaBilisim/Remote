@@ -23,6 +23,7 @@ import * as repo from "./retention-repo.ts";
 import { fsrvExpire, reconcile, removeSessionFiles, tenantsWithExpired } from "./retention-fsrv.ts";
 import { refreshStorageGauges, type FsrvRuntime } from "../fsrv/wiring.ts";
 import { deleteOldRegistrationCodes, deleteRevokedDevices } from "./unattended-cleanup.ts";
+import { recExpire, recReconcileMissing, tenantsWithExpiredRecordings } from "./retention-rec.ts";
 import { isPurgeKey, KINDS, sum, zeroGlobal, zeroTenant, candidateName, type GlobalCounts, type TenantCounts } from "./retention-counts.ts";
 
 const DAY_MS = 86_400_000;
@@ -63,6 +64,8 @@ export class RetentionJob {
   /** P28b: saklanan dosya hattı (yoksa dosya adımları atlanır). */
   private readonly fsrv: FsrvRuntime | undefined;
   private expiring = new Set<string>();
+  /** P28e: süresi dolan `STOPPED` kaydı olan firmalar (tur başına tek sorgu). */
+  private recExpiring = new Set<string>();
 
   constructor(svc: RequestService, opts: { purgeMode?: PurgeMode; fsrv?: FsrvRuntime } = {}) {
     this.svc = svc;
@@ -121,6 +124,7 @@ export class RetentionJob {
     const tenants = await rrepo.retentionTenants(this.svc.d.db);
     // P28b: süresi dolan saklanan dosyası olan firmalar tek sorguyla (her firmada ek sorgu yok).
     this.expiring = this.fsrv ? await tenantsWithExpired(this.svc.d.db, now) : new Set();
+    this.recExpiring = this.fsrv ? await tenantsWithExpiredRecordings(this.svc.d.db, now) : new Set();
     for (const t of tenants) await this.runTenant(t, now, ctx, totals);
     if (this.fsrv) await refreshStorageGauges(this.svc.d.db, this.fsrv).catch(() => undefined);
     await this.runGlobal(now, ctx, totals);
@@ -141,6 +145,9 @@ export class RetentionJob {
     try {
       if (await this.skipTenant(t.tenantId)) return;
       if (this.fsrv && this.expiring.has(t.tenantId)) c.filesExpired += await fsrvExpire(this.svc.d.db, this.fsrv, t.tenantId, now, ctx);
+      // P28e (§3.4, AC-386): `recExpire` — süresi dolan kayıtlar (disk → parça satırları → DELETED{EXPIRED}).
+      if (this.fsrv && this.recExpiring.has(t.tenantId))
+        c.recordingsExpired += await recExpire(this.svc.d.db, this.fsrv.store, t.tenantId, now, ctx);
       await this.tenantSteps(t, now, c);
     } catch (err) {
       failed = true;
@@ -226,6 +233,7 @@ export class RetentionJob {
       c.consents += r.consents;
       c.files += r.files;
       c.storedFiles += r.storedFiles;
+      c.recordings += r.recordings;
       if (r.selected < SESSION_BATCH) break;
     }
     await this.purgeAnonymized(t.tenantId, c);
@@ -287,6 +295,8 @@ export class RetentionJob {
       g.fsrvOrphanFiles = f.orphanFiles;
       g.fsrvMissing = f.missing;
       g.fsrvStale = f.stale;
+      // P28e (§3.4 b, S-P28e-10): dosyası olmayan kayıt parçaları; parça kalmazsa DELETED{MISSING}.
+      g.recMissing = await recReconcileMissing(db, this.fsrv.store, now, { ip: "", userAgent: "retention", requestId: newId() });
     }
     g.purgedJobs = this.purgeMode === "dry" ? await repo.countOldPurgeJobs(db) : await drain((n) => repo.deleteOldPurgeJobs(db, n));
   }

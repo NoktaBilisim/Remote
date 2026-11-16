@@ -12066,3 +12066,478 @@ Sunucu entegrasyon testleri (DB) koşulmadı: davranış değişikliği yok.
 - **K7:** `RECORDING_AUDIT_LABELS` + `RECORDING_AUDIT_GROUP_LABELS` web `AUDIT_ACTION_LABELS`/`AUDIT_GROUP_LABELS`'a,
   `SILENT_NOTIFY_EVENT_LABELS`; etiket/metinler `api/recording.ts`; `REC_TITLE_PREFIX`, `REC_REVOKE_ACK_MS`; `perm.a.view_recording`
   metnini ("Kayıtları izle") gözden geçir.
+
+## P28e K3 (backend-dev): parça yükleme/izleme/silme/ayar uçları, `webm.ts`, kota, belirteçler, geçmiş alanları (2026-11-16)
+
+Kaynak: `docs/mimari-p28e.md` r2 §3–§5, §6.5, §7, §11, §13–§14 (K3 satırı; S-P28e-1 parça tarafı, 3, 5, 6, 7, 9).
+
+### Değişen / yeni dosyalar
+
+- **Yeni (`apps/server/src/rec/`):**
+  - `webm.ts`: EBML başlık ve tek video izi (VP8/VP9) denetimi, `p>0` için EBML sihri reddi ve isteğe bağlı Cluster bayrağı.
+  - `accept.ts`: saf parça kabul kararı. Kapsadığı kurallar: sıra, idempotans, yeni bölüm, ofset sınırlama, durma payı, kaynak eş yok, süre şişirme, oran tavanı.
+  - `limits.ts`: `PutGate` (tek uçuş, dakikada 30, semafor 32) ve `ViewBuckets` (126 jeton, dakikada 24 dolum).
+  - `tokens.ts`: `RecTokenTable`.
+  - `repo.ts`: `lockTenantRecording` dahil.
+  - `service.ts`: `RecServiceImpl implements RecService`; ayrıca `precheck`, `acceptPart`, `readPart`, `stopLocked` ve `afterStop` burada.
+  - `view.ts`: izleme belirteci, kayan süre, `view.end`, süpürücü.
+  - `delete.ts`: elle silme.
+  - `routes.ts`: parça uçları ve geçmiş kayıt uçları.
+  - `wiring.ts`: `decorateRec`, `app.rec`.
+- **Yeni (ayar):** `settings/recording.ts` (GET/PUT ve rotalar).
+- **Değişen:**
+  - `fsrv/usage.ts`: `storageUsage` artık DELETED olmayan kayıt toplamını da sayıyor.
+  - `app-routes.ts`: `decorateRec` ve 3 rota kaydı.
+  - `sessions/history-repo.ts`: `recorded` süzgeci (ilişki `is`/EXISTS) ve liste seçimine `recording.state` eklendi.
+  - `sessions/history.ts`, `sessions/history-view.ts`, `sessions/history-detail.ts`: `hasRecording` ve `recording` özeti (`canView`/`canDelete`).
+- **Liste dışı:** `public/consent.ts` `currentConsentText(db, tenantId, rec?)`. İsteğe bağlı parametre `offered` iken `recording` alanını ekliyor; çağıran vermezse davranış eskisiyle aynı.
+- **Testler:**
+  - `test/unit/rec-webm-k3.test.ts` (10)
+  - `test/integration/rec-p28e-k3.test.ts` (10)
+  - `test/helpers/rec-webm-k3.ts` (EBML yapıcı)
+  - `pt-surface` rota anlık görüntüsü: yalnız 10 ekleme satırı, gözden geçirildi.
+
+### Tasarımdan sapmalar (gerekçeli)
+
+1. **Ayrı `RecTokenTable`.** P28b `TokenTable` birliği genişletilmedi; `fsrv/tokens.ts` hiç değişmedi. Gerekçeler:
+   - `fsrv/routes.ts` `e.fid`'e dayanıyor, birlik genişlerse tip bozulur.
+   - `dropRoom` oda kapanışında belirteci anında siliyor; bu, 15 sn payıyla ve geçmişten izlemeyle çelişir.
+   - Tablo aynı kalıpta: 32 B, yalnız SHA-256.
+2. **`decorateRec` `app-routes.ts`'te çağrılıyor** (kök örnek, `hasDecorator` korumalı). Bu çağrı `attachSignaling`'den sonra gelir. `app.ts`'e taşıma izni yok (liste dışı, reddedildi).
+3. **Kota sonucunun audit'i.** `startConsent`/`startPolicy` kota sonucunda `recording.start` fail audit'ini kendisi yazar. K4 bu durumda `auditStartFail` çağırmamalı. Oturumda kayıt varken başlatma `unavailable` döner (yazmaz).
+4. **`room.stopped` yalnız servisin kendi durdurmalarında çağrılır:** kota, oran, içerik ve ayar kapatma. K4'ün çağırdığı `stop()` yayın yapmaz (çift yayın yok).
+5. **Yanıt kodları:**
+   - Oran tavanı aşımı: 409 `CONFLICT` zarfı.
+   - İçerik reddi: 400 `VALIDATION`.
+   - Sıra dışı parça: 409 `{next}` (zarf değil).
+   - Yeni bölüm kuralı ihlali: 409 `CONFLICT`.
+6. **`rs_rec_part_bytes` histogramı yazılmadı.** `Metrics` sınıfında histogram yok; yalnız sayaçlar (`PART_TOTAL`, `BYTES_TOTAL`, `STOP_TOTAL`, `VIEW_THROTTLED_TOTAL`) artırılıyor. Kayıt K4'te (`ops/metrics.ts`).
+7. **Ön denetim `onRequest`'te yapılıyor** (`preParsing` yerine). Gövde yine okunmadan; Fastify'da yanıt verme yolu bu hook'ta mevcut kalıpla aynı.
+8. **`canDelete` yalnız STOPPED kayıtta true.** ACTIVE kayıt silinemiyor (409).
+9. **`code` alanı audit'te maskeleniyor.** `audit/mask.ts` kara listesinde `code` var, bu yüzden `recording.stop.code` ve `consent_rejected.code` audit'te `"***"` görünüyor. Mask dosyası benim değil; aşağıdaki açık maddeye bakın.
+
+### Bitmeyen / koordinatöre kalan maddeler
+
+- **`ConsentTextView.recording` bağlantısı eksik.** `currentConsentText` hazır, ama üç çağıran `rec` geçirmiyor:
+  - `sessions/routes.ts` resolve: `app.rec.service`
+  - `sessions/public.ts` `resolvePublicSession`: yeni isteğe bağlı parametre
+  - `requests/service.ts` `requestInfo`: `rec` alanı; `decorateRec` atar
+
+  Liste dışı olduğu için düzenleme reddedildi. Bağlanana kadar kutu hiç teklif edilmiyor (güvenli yön).
+
+- **`audit/mask.ts` `code` anahtarı (yukarıdaki 9. madde).** `ALLOWED_KEYS`'e genel `code` eklemek join kodlarını açabilir. Öneri: kayıt audit'inde alan adı `errorCode`/`rejectCode` olsun (mimari + contracts değişikliği), ya da eylem bazlı izin. Mimar/güvenlik kararı gerekiyor.
+- **`refreshStorageGauges` (`fsrv/wiring.ts`) kayıtları saymıyor.** Mimari §11.2'ye göre `rs_storage_used_bytes` kayıtları da içermeli; dosya liste dışı.
+- **Henüz entegrasyon testi olmayanlar:**
+  - S-P28e-5 eşzamanlı ikinci PUT 429: yalnız birim (`PutGate`).
+  - S-P28e-9 eşzamanlı PUT + ayar kapatma + silme deadlock testi.
+  - Kova 429 (yalnız birim).
+  - Dört göz e-postası `recording_policy` (çağrı var, testi K4 hattıyla).
+
+### Bağımlılık
+
+Yok.
+
+### Test (son çıktı)
+
+- `pnpm --filter @remote/server typecheck` ve `lint` temiz; dokunulan dosyalarda prettier temiz.
+- `vitest test/unit`: 613 geçti, 1 atlandı.
+- Entegrasyon (`rs-mysql-p28ek3:33341`):
+  - `rec-p28e-k3` 10/10
+  - `sessions-history-api-p8`, `session-history-p8`, `fsrv-p28b-files`, `fsrv-p28b-settings`, `sessions-public`, `db-grants`, `pt-surface` (anlık görüntü güncellendi): 74/74
+- Konteyner sonunda silindi.
+
+### frontend-dev (K7) için sözleşme notları
+
+- Parça PUT yanıtları: 200 `{next}`, 409 `{next}` (zarfsız), 409 `CONFLICT`/`STORAGE_QUOTA` zarfı, 404 gövdesiz, 429 `Retry-After`.
+- İzleme GET: 404 → yeni `POST /view`; 429 → `Retry-After` kadar bekle.
+- Ayar GET: `maxRetentionDays = min(oturum saklama, 90)`.
+
+### Ek tur (K4 sonrası bağlama, koordinatör isteği)
+
+- **(1) Port bağlandı.** `rec/wiring.ts` `decorateRec` artık `bindRec(app.rooms, service)` çağırıyor (K4 `signaling/rec.ts`). Bu çağrı oda portunu ve `rs_rec_active` göstergesini kuruyor.
+- **(1) Açılış süpürmesi.** `deps.startJobs` iken `onReady`'de `sweepOrphans(canlı oda id'leri)` çalışıyor; `app-routes.ts` `sweepOnReady` olarak geçiriyor. Testlerde kapalı: paylaşılan test DB'de başka dosyaların kayıtlarını durdurmasın diye.
+- **(2) Ayar ucu: zaten kodluydu.** Kapatmada aynı TX'te `STOPPED{POLICY_OFF}`, commit sonrası `room.stopped(sessionId, "policy_off", now)` ve `afterStop`. Gözetimsiz anahtar iki yönde değişince `sendSilentNotice({event:"recording_policy", content: recordingPolicyMail(…)})` çağrılıyor (beklenmez).
+- **(3) Çıkış / kullanıcı / tenant pasifleştirmede `dropUploadTokens`: AÇIK, bağlanmadı.** Çağrı yerleri `auth/*`, `users/*`, `tenants/*` dosyalarında; liste dışı ve önceki liste dışı düzenlemeler reddedildi. Güvenlik etkisi sınırlı:
+  - Her PUT `onRequest`'te `resolveSessionById(authSessionId)` + kullanıcı/tenant eşleşmesini yeniden denetliyor; düşmüşse belirteç silinip 404 dönüyor (S-P28e-6 ikinci katmanı, testte "çıkış sonrası 404").
+  - Eksik olan yalnız bellekten anında silinme.
+- **(4) "kayıt açılmadı: quota" kök nedeni: disk doluluğu, kota hesabı değil.** Geliştirme makinesinin diski %99 dolu (`statfs` boş oran < %10). `capacityOk` → `DISK_MIN_FREE_RATIO` doğru davranarak reddediyor. Test `makeApp({ fsrvTest: { freeRatio: 0.5 } })` ile düzeltildi (P28b testleriyle aynı kalıp).
+  - Ek düzeltme 1: kota testinde `storageQuotaGb: 0` CHECK'e takılıyordu (`tenants_storage_quota_chk` ≥ 1). Kota artık 1 GB + başka oturumun 1 GiB'lik durmuş kaydıyla dolduruluyor.
+  - Ek düzeltme 2: kayıt tenant'ının kendi `authSessionId`'si kullanılıyor.
+- **(5) Gözetimsiz politika kaydı.** Servis + DB testi eklendi: anahtar kapalı → `unavailable`; açık → `TENANT_POLICY`, rıza satırı yok, audit `consentMode` + teknisyen aktör. WS uçtan uca (`connect.recording` → admit) testi yazılmadı; K4'ün `unattended-*-k4` testleri admit kancasını sahte servisle kapsıyor.
+- **Test (ek tur):**
+  - Entegrasyon alt kümesi, `rs-mysql-p28ek3`: `rec*` (k3 11/11 + k4), `unattended*` (16 dosya), `retention*`, `session-history*`/`sessions-history*`, `settings*`, ayrıca `signaling-fsrv-p28b`, `sessions-public`, `pt-surface` → **26 dosya, 232/232**. Konteyner silindi.
+  - unit 613 geçti (+1 atlandı); typecheck ve lint temiz.
+
+## P28e K4 (backend-dev) — kayıt sinyal kapıları, gözetimsiz kancalar, saklama/mutabakat, metrik (2026-11-16)
+
+Kaynak: `docs/mimari-p28e.md` r2 §2, §3.4, §5.3–§5.5, §6, §11; §14 K4 (S-P28e-1, 2, 4, 9, 10). K1/K2 notları esas alındı.
+Koordinatör notları uygulandı: K6 — sunucu `indicatorText`'e kayıt eki koymaz, `connect.recording` ve `rec.state` yalnız
+`record1` cihaza; K5 — `rec1` misafir soketine odada kayıt varken (açık/durmuş) `hello.rec` her zaman gider (testle sabit).
+
+**Yeni / değişen dosyalar**
+
+- `src/signaling/rec.ts` (yeni): `bindRec(rooms, svc)` (port + `rs_rec_active` göstergesi), `recRoomPort` (servis çağrı anında okunur;
+  kapanan oda belleği 15 sn yan haritada → §6.4 son parça payı), `rec.consent` kapı tablosu (§6.2 sırası: gözetimsiz → SHA →
+  30 sn pencere → var/başlatılıyor → konsol `rec1` yok = `unsupported` → servis), `rec.revoke` (yalnız consent ∧ active),
+  `rec.error` (yalnız kaydedici soketi), `stopRec`/`applyStopped` (idempotent durma belleği `stopSeries/stopNext/stoppedAt`),
+  rol başına `rec.state` kurucuları (teknisyen: rid/basis/upload; misafir: `{on, reason?}`; cihaz: `{on}`), `hello.rec` ekleri,
+  gözcü 30 sn (yalnız kaydedici + kaynak + paylaşım varken sayar), kaydedici 120 sn dönüş, `sourceGone` (S-P28e-2),
+  `recPolicyAdmitted`, `policyActor`.
+- `src/signaling/{types,rooms,active,handlers,ws,admit-device}.ts`: `Peer.rec`, `TechConn.authSessionId/connId`, `Room.rec/recGate`,
+  `UnattendedRoom.recording/recordOutdated`; rooms kancaları (teknisyen bağlandı/ayrıldı, misafir ayrıldı, oda kapandı);
+  hello ekleri + `hello.unattended.recordOutdated`; `guestInboundSchemaFor(…, rec)` (= `peer.rec ∧ katılımlı`) + dağıtım;
+  `rs.cap.rec1` ws.ts `accept`'te okunur; admit-device TX'inde `startPolicy` (kip yazılan TX), commit sonrası oda belleği.
+- `src/unattended/connect.ts`: `recordingDecision` (politika ∧ `recording_enabled` ∧ `record1` ∧ `canOffer`); eski cihaz →
+  `recordOutdated` + `recording.start` fail `device_outdated`; kota → fail `quota`; `connect.recording: true` yalnız karar true.
+- `src/unattended/mail.ts`: `RECORDING_POLICY_SUBJECT`, `recordingPolicyMail`, `SilentNotice.event: SilentNotifyEvent`.
+- `src/jobs/retention-rec.ts` (yeni): `recExpire` (tenant başına; disk → TX'te parçalar + `DELETED{EXPIRED}` sayaç 0;
+  `recording.expired{count, bytes}`), `recReconcileMissing` (mutabakat b; `DELETED{MISSING}`, `recording.delete{missing,
+missingParts, remainingParts}` aktör sistem; ACTIVE'e dokunmaz), `removeSessionRecordingFiles`.
+- `src/jobs/retention-fsrv.ts`: mutabakat (a) kayıt parçalarını canlı sayar (kritik ek); `removeSessionFiles` kayıt dosyalarını da siler
+  (anonimleştirme + kalıcı silme aynı `beforeTx`). `retention-repo.ts`: anonimleştirme ve `purgeSessionsBatch` parçalar → kayıtlar
+  DELETE (kilit §5.5). `retention.ts`: `recExpire` adımı + global `recReconcileMissing`. `retention-counts.ts`: `recordings`,
+  `recordingsExpired`, `recMissing`.
+- `src/cli/crypto.ts`: check-retire `session_recording_parts.key_ver` sayımı. `src/ops/metrics.ts`: `REC_METRICS` sayaçları +
+  küçük etiketsiz histogram desteği (`histogram/observe`; `rs_rec_part_bytes`).
+- `src/rec/types.ts` (yalnız ekleme): `RecService.room?: RecRoomPort | null` (port ataması), `RoomRec.stopReason?`.
+- Testler: `test/unit/rec-signaling-k4.test.ts` (16), `test/integration/rec-retention-k4.test.ts` (6);
+  `test/integration/p19-notify-j3.test.ts` check-retire anahtar listesi beklentisi güncellendi.
+
+**Liste dışı dokunuşlar (kaçınılmaz, tek satırlık çağrılar)**: `signaling/ws-auth.ts` (`openTech` → `authSessionId`, `connId`),
+`signaling/active.ts` (hello ekleri), `signaling/rooms.ts` (kancalar + `devices.sendRecord` tipi + `rec?: RecService`),
+`unattended/hub.ts` (`sendRecord`, yalnız `record1`) + `unattended/device-ws.ts` (gönderim birliği tipi), `jobs/retention-counts.ts`.
+
+**Sapmalar / kararlar**
+
+1. Kilit tekilleştirme: K4 işleri K3'ün `rec/repo.ts lockTenantRecording`'ini kullanır (ayrı yardımcı yazılmadı).
+2. Metrik/belirteç: `rs_rec_stop_total` ve stop sonrası belirteç düşümü K3 `stop()` (`afterStop`) içinde; K4 tekrar saymaz.
+   Kota `recording.start` fail audit'ini K3 `startConsent/startPolicy` yazar; K4 yalnız `consent_rejected`, `unsupported`,
+   `device_outdated`, connect-anı `quota` yazar.
+3. Kaynak eş gözetimsizde yardımcının `/ws/guest` soketidir (görüntü kaynağı); cihaz (`/ws/device`) yalnız gösterge alır.
+4. Konsol `rs.cap.rec1` bildirmiyorsa rıza `recording.start` fail `unsupported` ile reddedilir, misafire `off{unavailable}`.
+   Teknisyen bağlı değilken gelen rıza kabul edilir (bağlanan konsol `hello.rec.upload` alır).
+5. `hello.rec` teknisyende: bölümde parça gelmişse `series+1`, `nextPart=0` (§6.3).
+6. Purge (`purgeSessionsBatch`) silinen kayıt sayısını `files` sayacına ekler (P28b savunma kalıbı).
+
+**Entegrasyon maddeleri (koordinatör / K3)**
+
+- Wiring: K3 servisi kurulunca `bindRec(app.rooms, recService)` çağrılmalı (ws.ts `bindFsrv` kalıbı; K3 dekoratörü belli
+  olmadığından eklenmedi). Açılışta `recService.sweepOrphans(canlı oda id'leri)` çağrısı da wiring'e.
+- K3 `PUT /settings/recording`: kapatmada etkin kayıtları durdurup `room.stopped(sessionId, "policy_off", now)` çağırır (port
+  yayını teknisyen + `rec1` misafir + `record1` cihaz; testle sabit). Commit sonrası `unattendedEnabled` değiştiyse
+  `sendSilentNotice(deps, {event:"recording_policy", entity:"tenant_settings", entityId: tenantId,
+content: recordingPolicyMail({user, old, next, at})})`. `soleManager` = `silentRecipients` diğer `manage` sahibi yok.
+- Çıkış / kullanıcı / tenant pasifleştirmede `dropUploadTokens({by:"authSession"|"user"|"tenant"})` çağrısı K3 belirteç
+  tablosu + auth servislerinde (K4 dosyası değil).
+
+**Bağımlılık:** yok.
+
+**Test (son çıktı):** birim `test/unit` 613/613 (+1 skip, `rec-signaling-k4` 16 dahil); typecheck, eslint, prettier dokunulan
+dosyalarda temiz. Entegrasyon (`rs-mysql-p28ek4`, sonda `down` yapıldı): signaling/unattended/retention/fsrv/tenant-purge/p19/rec
+alt kümesi 35 dosya / 348 test → K4 kaynaklı 2 hata (`retention-p13a-job` sayaç anahtar listesi; test beklentisi
+`recordings/recordingsExpired/recMissing` ile güncellendi) düzeltildi; `unattended-connect-k3` ve `unattended-consent-k4` birer
+test toplu koşuda düştü, tek başına yeşil (zamanlama kaynaklı, rooms.rec bağlı değilken K4 yolu çalışmaz). Hedefli tekrar
+koşu 49/49. **K3'ün `rec-p28e-k3.test.ts`'i 10 testte "kayıt açılmadı: quota" ile düşüyor** (K3 sürmekte olan iş; K4 dosyası değil,
+koordinatöre bildirildi). Tam `test:int` 580 sn sınırında bitmedi.
+
+**Bitmeyen / açık maddeler**
+
+- `bindRec` + `sweepOrphans` wiring'i (K3 servisi kurulunca; yukarıda).
+- Gözetimsiz politika kaydının (connect → admit-device `startPolicy` → rejoin yeni bölüm) gerçek DB/WS entegrasyon testi yazılmadı;
+  kapsam birim testte (`recPolicyAdmitted`, cihaz yayını, politika kapatma) ve tip düzeyinde. K3 servisi bağlanınca eklenmeli.
+- §5.5 deadlock testi (eşzamanlı PUT + ayar kapatma + elle silme) K3 uçlarına bağlı; yazılmadı.
+
+## P28e K5 (backend-dev, Go istemci) — kayıt rızası, `rec1`, gösterge + şerit + Kaydı durdur (2026-11-16)
+
+Kaynak: `docs/mimari-p28e.md` r2 §2.1, §6, §8, §12 (Go birim), §13/§14 K5; S-P28e-2 (istemci tarafı), S-P28e-12; K2 notu.
+
+**Değişen / yeni dosyalar (`apps/agent-win/internal/{api, signal, flow, ui, request}` + `launch/run.go`; talep yolu koordinatör onayıyla)**
+
+- `api/api.go`: `ConsentText.Recording *RecordingOffer{Offered, Line, LineSha256}` (omitempty, katı değil) +
+  `ConsentText.RecOffered()` (offered ∧ SHA == `signal.RecConsentLineSHA256`). `TenantRequestInfo` aynı tipi taşır.
+  `api/rec_test.go` (yeni).
+- `signal/conn.go`: `knownFeatures` (+`FeatureRec`); `signal/inbound.go`: `ParseServer` tablosuna `rec.state`
+  (misafir biçimi; rid/basis/upload katı çözmede red); `rec.go` yorum; `rec_test.go` özel dal kaldırıldı (fikstür
+  artık `ParseServer`'dan geçiyor).
+- `flow/rec.go` (yeni): `RecUI` (isteğe bağlı arayüz: `WelcomeRec`, `RecState`), `RecView`, oturum kayıt durumu,
+  `recOnHello` (hello'nun ilk işi), `onRecState`, `onRecStop`, 2 sn zamanlayıcı (`peerEvent.run` + kuşak sayacı),
+  `recAckTimeout` (yayın duraklatma). `flow/messages_p28e.go` (yeni): tüm metinler tek tabloda (`RecTexts`,
+  `recOffNotes`; web `api/recording.ts` metinleriyle aynı).
+- `flow/flow.go`: `EvRecStop`, `Welcome.RecOffered`, `Deps.RecConsent` (talep yolu için hazır, bkz. açık nokta),
+  `Deps.RecAckWait` (test), `admitStage` kayıt seçimini döndürür (`welcome` yardımcısı). `session.go` (`rec` alanı,
+  `EvRecStop`), `session_server.go` (`rec.state`, `recOnHello`), `session_media.go` (`startStream` duraklamada başlatmaz),
+  `clipprint.go` `Features` (+`rs.cap.rec1` yalnız `RecUI` ∧ gözetimsiz değil).
+- `flow/rec_test.go` (yeni, 6 test), `flow/flow_test.go` (sahtelere `rec` teklifi ve `live` yayın kanalı).
+- `ui/rec_windows.go` (yeni): her monitörde üst-ortada (gösterge etiketi + bildirim satırının altında, `Top+68`) her zaman
+  üstte, odak almayan, yakalamadan hariç, **tıklanır** şerit "● Kayıt yapılıyor — durdurmak için tıklayın" (1 sn'de bir
+  en üste); `RecState`; `var _ flow.RecUI = (*UI)(nil)`. `ui/welcome_windows.go`: `WelcomeRec` — teklif varsa KVKK kutusunun
+  altında ayrı, varsayılan işaretsiz kutu (`signal.RecConsentLine`, sunucunun `line`'ı çizilmez); `Welcome` kutusuz sarar.
+  `ui/session_windows.go`: "Oturumu bitir" üstünde kayıt satırı (gösterge + "Kaydı durdur" + geri alınamaz notu / kapanış
+  bilgisi; kayıt yokken gizli, pencere +56 px). `ui/overlay_windows.go` `newBarOpt(clickThrough)`; `ui/form_windows.go`
+  `form.click`; `ui/thread_windows.go` `WM_LBUTTONUP` → `click`; `ui/ended_windows.go` şerit söküm + düğme devre dışı;
+  `ui/ui_windows.go` alanlar ve `idRecStop`/`idRecConsent`.
+- Talep yolu: `request/types.go` (`FormView.RecOffered`, `Outcome.Record`), `request/validate.go` (`Form.Record`; yalnız
+  bellekte, talep gövdesine girmez), `request/form.go` (`RecOffered` = `ConsentText.RecOffered()`), `request/wait.go`
+  (`Outcome.Record = vals.Record ∧ teklif hâlâ geçerli`), `launch/run.go` (`fd.RecConsent = res.Record`),
+  `ui/reqform_windows.go` (KVKK kutusunun altında ayrı işaretsiz kutu; form açılışında teklif yoksa kutu hiç oluşmaz,
+  alttaki denetimler +40 px), `request/rec_test.go` (yeni), `request/run_test.go` (sahte API'ye teklif alanı).
+
+**Davranış**
+
+1. Kod yolu ve talep yolu aynı kural: resolve / talep formu `consentText.recording` geçerliyse karşılamada kutu; işaretliyse ilk `hello`'nun **ilk mesajı**
+   `rec.consent{lineSha256}` (paylaşım seçimi ekranından önce → sunucunun 30 sn penceresine takılmaz). Yeniden
+   bağlanmada gönderilmez.
+2. `rec.state{on}` → oturum penceresi göstergesi + "Kaydı durdur" + şerit. `on:false` → şerit kalkar, `reason` için kısa
+   bilgi satırı (`session_end` için satır yok).
+3. "Kaydı durdur" (düğme ya da şerit; onaysız; tekrar basış etkisiz) → `rec.revoke` (soket yoksa bekler), düğme devre
+   dışı + "Kayıt durduruluyor…". 2 sn (`RecRevokeAckMs`) içinde `off` yoksa yayın goroutine'i durur
+   (`startStream` yeniden bağlanma/monitör değişiminde de başlatmaz) + "Kayıt durdurulamadı, paylaşım duraklatıldı".
+   Yeniden bağlanınca `hello` sonrası **ilk mesaj** `rec.revoke`. `off` (rec.state ya da `hello.rec{on:false}`) gelince
+   yayın kendiliğinden sürer.
+4. Yeniden bağlanmada şerit kalır (gizlemek güvensiz yön); hello'da `rec` alanı **yoksa kayıt yok sayılır** (gösterge
+   kalkar, duraklama biter). K4'e: `rec1` sokete `hello.rec` kayıt satırı olan odada (açık ya da kapalı) her zaman
+   gönderilsin; bu varsayımla tutarlıdır.
+5. `rs.cap.rec1` yalnız arayüz `flow.RecUI` uyguluyorsa ve gözetimsiz değilse bildirilir (K-P28e-7). Gözetimsiz yardımcının
+   `headless`'ı uygulamaz → değişiklik yok; `flow.UI`, `Welcome`, `RunTicket` imzaları değişmedi (K6 derlemesi etkilenmez).
+
+**Tasarımdan sapmalar / açık noktalar**
+
+1. Talep formu yolu ilk turda kapsam dışı sanılıp yapılmamıştı; koordinatör onayıyla tamamlandı (yukarıda). Talep
+   formu kutu seçimi, teklif `wait` anında da geçerliyse `RunTicket`'a taşınır.
+2. `RecUI` ayrı isteğe bağlı arayüz (flow.UI'ye metot eklenmedi): gözetimsiz yardımcı (K6) `flow.UI`'yi uyguluyor.
+3. Şerit tıklanınca doğrudan durdurur (onaysız; mimari "Kaydı durdur onaysız"). Teknisyenin uzaktan tıklaması da yalnız
+   kaydı durdurur (güvenli yön), bu yüzden enjekte girdi denetimi yok. Şerit yakalamadan hariç (gösterge kalıbı).
+4. Duraklatmada yeni `share.state` nedeni uydurulmadı (sözleşme sabit); yalnız yayın goroutine'i durur.
+5. Sürüm 0.16.0 sabiti K8'e bırakıldı.
+
+**Bağımlılık:** yok.
+
+**Test (son çıktı):** `docker run … golang:1.26 sh -c 'go test ./... && GOOS=windows go vet ./... && GOOS=windows go build ./...'`
+yeşil (tüm paketler; K6'nın o anki ağacıyla); staticcheck v0.8.2 linux + `GOOS=windows` temiz; gofmt temiz.
+`go test -race -count=10 ./internal/flow` yeşil. Yeni testler: `TestAC381ConsentTextRecordingOfferParsing`,
+`TestAC381NoConsentWithoutOfferOrCheck` (4 alt durum), `TestAC381ConsentSentOnceFirstAfterHello`,
+`TestAC382IndicatorAndStop`, `TestAC381RequestFormRecordingConsent` (4 alt durum), `TestSP28e2PauseWithoutAckThenResume`, `TestSP28e2PendingRevokeFirstAfterReconnect`,
+`TestSP28e12FeatureOnlyWithRecUI`; signal fikstür testleri artık `ParseServer` üzerinden.
+**Kararsız test:** `TestK6PeerDropGrantedIdleAndMonitorPrompt` `-race -count=30` ve paket `-count=10` ile düşmedi;
+yeniden üretilemedi, değiştirilmedi (olası neden: döngüde `s.in` ile `s.peerEv` arasındaki rastgele `select` sırası ya da
+yük altında 5 sn/100 ms süreleri; kanıtsız düzeltme yapılmadı).
+
+**Windows elle test listesi (K10 / kullanıcı)**
+
+1. Kayıt açık firmada kodla katıl: karşılamada kayıt kutusu var ve **işaretsiz**; işaretlemeden bağlan → kayıt başlamaz.
+2. Kayıt kapalı firma / kota dolu: kutu görünmez.
+3. Kutuyu işaretleyip bağlan (çok monitörde seçim ekranında 30 sn+ bekle) → konsolda kayıt başlar; müşteri oturum
+   penceresinde "● Kayıt yapılıyor" + "Kaydı durdur" + geri alınamaz notu; her monitörde üstte şerit.
+4. Oturum penceresini küçült → şerit görünür kalır; başka pencereyi en üste al → şerit 1 sn içinde yine üstte;
+   şerit teknisyen görüntüsünde görünmez.
+5. Şeride tıkla → ≤ 2 sn'de konsol kaydı durur; şerit kalkar, pencerede "Kayıt durduruldu; o ana kadarki kısım saklanır".
+   Aynı testi "Kaydı durdur" düğmesi (Alt+D) ile tekrarla. Kayıt bu oturumda yeniden başlamaz.
+6. Ağı kes (kayıt açıkken) → "Kaydı durdur" → 2 sn sonra "Kayıt durdurulamadı, paylaşım duraklatıldı", teknisyen görüntüsü
+   donar; ağı aç → yeniden bağlanınca kayıt durur ve paylaşım kendiliğinden sürer.
+7. Kayıt sürerken teknisyen tarafında kota/politika kapat → şerit kalkar, bilgi satırı nedeni yazar.
+8. Koyu/açık tema ve %150 DPI'da karşılama (kutu taşmıyor), oturum penceresi kayıt satırı ve şerit okunaklı.
+9. Talep formu: kayıt açık firmada kutu işaretsiz görünür; işaretleyip talep oluştur → teknisyen kabul edip paylaşım
+   başlayınca kayıt başlar; işaretsizse başlamaz. Kayıt kapalı firmada kutu yok, form düzeni bozulmuyor.
+
+## P28e K6 (backend-dev, Go) — gözetimsiz servis + yardımcı: `record1`, `connect.recording`, diyalog satırı, gösterge eki (2026-11-16)
+
+Kaynak: `docs/mimari-p28e.md` r2 §2.2, §6.1–§6.2, §8, §13–§14 (K6); `docs/mimari-p28u.md` §13 kancaları; AC-448, AC-449 (+ AC-295 tek
+durdurma yolu). Yalnız `apps/agent-win/internal/{servis, servis/helperio, unattended}` değişti; K5 alanına (`api`, `ui`, `signal`, `flow`)
+dokunulmadı.
+
+**Değişen / yeni dosyalar**
+
+- `internal/servis/helperio/p28e.go` (yeni): `RecordingLine` ("Bu bağlantının ekran kaydı alınacaktır"), `RecordingSuffix`
+  (" — Kayıt yapılıyor"), `CmdRec`, `IndicatorLabel(text, rec)`, `validCommand` (lock ⇒ id, on yok; rec ⇒ id yok, on zorunlu).
+- `helperio/helperio.go`: `Input.Recording bool` (`recording,omitempty`). `helperio/p28u.go`: `Command.ID` artık `omitempty`, `Command.On *bool`;
+  `ReadCommand`/`EncodeCommand` `validCommand` kullanır; `validateP28u`: `Recording` yalnız P28u girdisinde (Consent dolu).
+- `internal/servis/core_rec.go` (yeni): `Core.RecState(on)` — çalışan yardımcıya `{"cmd":"rec","on":…}`; komut yazılamaz ve `on` ise yardımcı
+  `indicator_failed` ile kesilir (ek çizdirilemeyen kayıt sürmez); oturum kapatma sonrası bekleyişte (`rejoinPending`) son durum saklanır.
+  Her değişim olay 1009.
+- `servis/core.go`: `Core.Record1`; `connect.recording` record1'siz sokette → `connect.result{protocol}` (yardımcı başlatılmaz);
+  `Input.Recording` doldurulur; `running.rec`. `wire_consent.go`: `legacyConnect` recording'i reddeder (P27 soketi → helper_failed).
+- `servis/wire.go`: `ParseServer` + `validateServer` `rec.state` (strict: `reason/rid` reddedilir). `wire_rec.go`: `RecUnattendedLine = helperio.RecordingLine`.
+- `servis/wsdevice.go` / `wsdevice_io.go`: alt protokol listesine `rs.cap.record1`; `record` bayrağı (`device.features` caps `record1`,
+  her bağlantıda sıfırlanır), `DeviceClient.Record1()`; `rec.state` record1'siz/features'sız sokette 1008. `DeviceHandler.RecState`.
+- `servis/rejoin.go`, `intervene.go`: `rejoinState.rec` → yeniden katılım yardımcısı son kayıt durumuyla (ekli/eksiz) başlar.
+- `servis/events.go`: `EvRecord = 1009` ("Ekran kaydı başladı/durdu. Teknisyen; oturum"); 1001 metnine kayıt varsa
+  "; ekran kaydı: alınıyor (destek firması politikası)". `svc_windows.go`: `core.Record1 = client.Record1`.
+- `unattended/helper/consent.go`: `ConsentSpec.RecordingLine` (`in.Recording`'den), saf kapı `recordingLineDrawn`.
+  `consent_windows.go`: satır firma satırının altına kalın çizilir (düzen 24 px aşağı kayar); oluşturulup metni geri okunamazsa diyalog
+  açılmaz (`decisionFailed` → çıkış 21, AC-292 kalıbı); her 250 ms tikte "İzin ver" yalnız `guard.Enabled ∧ satır görünür ∧ metin tam`.
+  `consent_input_windows.go`: `tryGrant` aynı koşulu yeniden sorar (WM_COMMAND enjeksiyonu).
+- `unattended/helper/follow.go`: `liveIndicator` `base` + `rec` tutar; `Text()` = `IndicatorLabel(base, rec)`; `SetText` (P28u silent izleme ↔
+  kontrol) eki korur; `SetRecording` eki ekler/kaldırır; etiketi değiştiremeyen gösterge = başarısız (fail-closed). `helper.go`: ilk gösterge
+  ekli etiketle çizilir (çizilemezse `indicator_failed`, `/ws/guest` açılmaz). `status.go`: `serveCommands` `rec` komutunu yanıtsız uygular.
+- Testler: `servis/p28e_k6_test.go` (10), `servis/helperio/p28e_test.go` (3), `unattended/helper/p28e_test.go` (7); `core_test.go` fakeProc
+  `cmdErr`, `wsdevice_test.go` fakeHandler `RecState`, `helper/p28u_test.go` `serveCommands` imzası.
+
+**Tasarımdan sapmalar (gerekçeli)**
+
+1. Mimari §8 `ConsentSpec.RecordingLine` + `IndicatorControl.Recording` der; `IndicatorControl` helperio'da metin alanı olduğundan boru
+   girdisinde tek alan `Input.Recording` kullanıldı. Yardımcı bundan iki şeyi türetir: asked'da `ConsentSpec.RecordingLine`, her kipte gösterge
+   eki. Tek kaynak, iki alan arasında tutarsızlık olasılığı yok.
+2. Gösterge ekini sunucu değil yardımcı ekler (`deviceIndicatorText` sunucuda değişmez; K4 metne ek koymamalı, yoksa ek iki kez görünür).
+   Böylece `rec.state{on}` ile ek oturum ortasında kalkıp gelebilir; silent izleme ↔ kontrol geçişinde korunur.
+3. Servis → yardımcı yeni boru komutu `{"cmd":"rec","on":bool}` (yanıtsız). `rec.state{on:true}` `connect.recording` olmadan gelse de ek
+   çizilir: sunucu kaydı açık diyorsa gösterge gösterir (K-P28e-7 güvenli yön).
+4. Yardımcı komutları sırayla işler; bekleyen `lock` (≤ lockWait 4 sn) arkasındaki `rec` gecikebilir. Pratikte `on` başlangıçta girdiyle gelir,
+   oturum ortası değişim çoğunlukla `off`'tur (gecikme güvenli yöne). Değiştirilmedi (P28u "tek bekleyen komut" kuralı).
+5. Cihazda kayıt durdurma yolu eklenmedi (AC-448); tek yol yerel anahtar (AC-295) — mevcut `Disable`/`LocalChanged` yardımcıyı keser.
+
+**Sözleşme notları (K4 / frontend için)**
+
+- Servis 0.16.0 alt protokol listesi: `rs.device.v1, rs.cap.consent1, rs.cap.record1`. `connect.recording` yalnız `device.features` caps
+  `record1` içeren sokete; aksi `connect.result{ok:false, reason:"protocol"}`. `rec.state` record1'siz sokette 1008.
+- `indicatorText`'e " — Kayıt yapılıyor" sunucu tarafından EKLENMEMELİ (yardımcı ekler). Toplam etiket ≤ 160 + 18 karakter.
+- Yeni olay günlüğü kimliği 1009 (runbook §28e olay listesine eklenmeli — K8). Sürüm numarası (0.16.0) bu pakette değiştirilmedi (K8/derleme).
+
+**Test komutu ve sonuç**
+
+`docker run --rm -v "$PWD:/src" -w /src/apps/agent-win golang:1.26 sh -c 'go test ./... && GOOS=windows go vet ./... && GOOS=windows go build ./...'`
+→ tüm paketler `ok`, vet/derleme temiz. `staticcheck@v0.8.2 ./...` (linux) ve `GOOS=windows GOARCH=amd64 staticcheck ./...` → uyarı 0.
+`gofmt -l` temiz. Ham Unicode kontrol/biçim karakteri taraması (Cc/Cf) temiz.
+
+**Windows elle test maddeleri (K10 / staging)**
+
+1. Politika açık + asked + kullanıcı aktif: diyalogda firma satırının altında kalın "Bu bağlantının ekran kaydı alınacaktır" görünür; düzen
+   kırpılmaz (100/125/150/200 % DPI); "İzin ver" 1,5 sn sonra etkinleşir.
+2. Satır kapalıyken (politika kapalı) diyalog P28u düzeninde (satır yok, yükseklik eski).
+3. Gösterge etiketi: "Uzaktan bağlantı: … — Kayıt yapılıyor" tüm monitörlerde; etiket genişliği eki tam gösterir.
+4. Silent: izleme ↔ kontrol geçişinde ek iki metinde de kalır.
+5. Konsoldan kaydı durdur / kota / politika kapatma → `rec.state{off}` → ek ≤ 1 sn içinde kalkar, bağlantı sürer; olay 1009 "durdu".
+6. Kilit (Win+L) / UAC masaüstü geçişinde gösterge ekiyle yeniden çizilir.
+7. Logoff + yeniden katılım: yeni yardımcının göstergesi son kayıt durumuyla (ekli/eksiz) gelir.
+8. Cihaz kullanıcısında kaydı durduracak hiçbir düğme/menü yok; ayar penceresinden yerel anahtarı kapatmak bağlantıyı ≤ 2 sn'de keser.
+9. Olay Görüntüleyicisi (Application, NoktaDestek): 1001 metninde "ekran kaydı: alınıyor", 1009 başladı/durdu kayıtları; bilet/kişisel veri yok.
+10. Eski sunucu (record1 göndermeyen): bağlantı kayıtsız, ek yok, diyalog satırı yok.
+
+## P28e K7 (frontend-dev) — web: kaydedici, oynatıcı, rıza, ayar, geçmiş
+
+Tarih: 2026-11-16 · Branch `p28e` · Kaynak: `docs/mimari-p28e.md` r2 §5, §7, §9, §13–14 K7; `docs/spike-p28e-k0s.md`.
+Koordinatör `docs/implementation.md`'ye taşır. Commit yapılmadı. Skill: `ui-ux-pro-max/SKILL.md` mevcut (okunmadı; proje DESIGN.md esas alındı).
+
+## Rotalar
+
+| Yol                      | Auth                                              | Ne yapar                                                                                                                                                                                                                            |
+| ------------------------ | ------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `/settings/recording`    | Evet (`settings.view`; düzenleme `settings.edit`) | **Yeni.** Oturum kaydı anahtarı (açarken aydınlatma kutusu), saklama 1–N gün (N = `maxRetentionDays`; "yalnız yeni kayıtlara" notu), Safari notu, gözetimsiz kayıt anahtarı (kutu + step-up), tek yönetici uyarısı, depolama çubuğu |
+| `/history`               | Evet                                              | Ek: "Kayıt" sütunu (`Video`, `aria-label` "Kayıtlı"), süzgeç "Kayıt: Tümü / Kayıtlı" (`?recorded=true`, CSV'ye de gider)                                                                                                            |
+| `/history/[id]`          | Evet                                              | Ek: "Oturum kaydı" bölümü (yalnız `recording` varsa): meta (süre, boyut, dayanak, kip + silent gerekçe, durum, silinme tarihi), **Kaydı izle** (MSE oynatıcı), **Kaydı sil** (onay), silinmiş kayıt nedeni                          |
+| `/session/[token]`       | Hayır (müşteri)                                   | Ek: işaretsiz kayıt rıza kutusu (yalnız teklif varsa), canlıda "Kayıt yapılıyor" + **Kaydı durdur**, sekme başlığı "● Kayıt — "                                                                                                     |
+| `/r/[ref]`               | Hayır (müşteri)                                   | Ek: web talep formunda aynı rıza kutusu; kabulden sonra oturum ekranı yukarıdaki gibi                                                                                                                                               |
+| `/sessions/[id]/console` | Evet                                              | Ek: kayıt rozeti (tüm teknisyenlerde), durma uyarıları, kaydedici + yükleyici (yalnız `upload` alan sokette), Safari "desteklemiyor", gözetimsizde "cihaz istemcisi eski"                                                           |
+
+## Dosyalar
+
+Yeni: `apps/web/lib/rec/{support,consent-choice,recorder,upload,player,settings,use-console-rec,use-guest-rec}.ts`, `lib/rec/rec-p28e.test.ts`,
+`components/console/rec-indicator.tsx`, `components/consent/recording-consent.tsx`, `app/(panel)/settings/recording/{page,recording-form}.tsx`,
+`app/(panel)/history/[id]/{recording,recording-player}.tsx`, `e2e/mock-p28e.mjs`, `e2e/p28e-recording.spec.ts`.
+Değişen: `components/guest/share-strip.tsx`, `app/session/[token]/{guest-session,join-form}.tsx`, `app/r/[ref]/web-request-form.tsx`,
+`app/(panel)/history/{history-list,history-filters,history-filter-fields,use-history-filters}.tsx|ts`, `app/(panel)/history/[id]/page.tsx`,
+`proxy.ts` (`media-src 'self' blob:`; `buildCsp` dışa aktarıldı — birim testi CSP dizesini sabitler), `lib/audit/actions.ts` (Kayıt etiketleri +
+`recording.*` grubu "Kayıt"), `messages/tr.json`, `DESIGN.md` (§4 P28e ikon satırı), `e2e/{mock-api,mock-ws,mock-sessions}.mjs`.
+
+## Sapmalar (liste dışı dosyalar — asgari, gerekçeli)
+
+1. `lib/webrtc/signal.ts`: tarayıcı misafir `guestProtocols` sonuna `rs.cap.rec1` eklendi (§6.1; aksi `rec.*` hiç gelmez). `machines.test.ts` beklentisi güncellendi.
+2. `lib/webrtc/use-tech-session.ts`: `/ws/tech` artık VP8 kaydedebilen tarayıcıda `["rs.v1","rs.cap.rec1"]` alt protokolüyle açılır (öncesi alt protokolsüz). Sunucu `handleProtocols` `rs.v1`'i seçiyor; kaydedemeyen tarayıcıda davranış değişmedi. **K4 notu:** teknisyen yeteneği bu alt protokolden okunmalı.
+3. `app/(panel)/sessions/[id]/console/console-view.tsx`: tek satır `<RecIndicator …/>` (kanca `ts.subscribe` üzerinden; makine dosyalarına girilmedi). `unattended-actions.tsx`'e dokunulmadı: "cihaz eski" uyarısı `hello.unattended.recordOutdated`'dan aynı göstergede.
+4. `app/(panel)/settings/settings-tabs.tsx`: "Oturum kaydı" sekmesi (`Video`).
+5. `lib/history/query.ts`: `recorded` süzgeci (URL ↔ API; geçersiz değer yok sayılır).
+6. Rıza seçimi prop zinciri yerine bellek modülü `lib/rec/consent-choice.ts` (join ve web talep formu yazar, oturum ilk `hello`'da bir kez tüketir; sessionStorage yok → F5'te rıza yok sayılır). Web talep akışında `web-request-flow`/`waiting-room`'a dokunulmadı.
+7. **Backend notu (K3):** `WebFormInfo.consentText` (`api/requests.ts`) satır içi tipte `recording` alanı yok; web çalışma zamanı korumasıyla okuyor (`recordingOffered`). Alan sunucuda eklenince tipe de eklenmeli. Resolve yanıtındaki `ConsentTextView.recording` tipli.
+8. `rec.revoke` yeniden bağlanmada `hello` sonrası gönderiliyor ama `use-guest-session.ts` `hello` dalında `share.state`'i abonelerden önce gönderiyor; revoke "ilk mesaj" değil "hello sonrası ikinci mesaj" olabilir. Sunucu §6.2'ye göre `ACTIVE` iken her an kabul ettiğinden işlevsel fark yok; katı "ilk mesaj" istenirse `use-guest-session.ts`'te küçük ön kanca gerekir.
+9. İzleme belirteci süresi dolarsa oynatıcı kendiliğinden yeni `POST /view` atmaz; "İzleme süresi doldu — Devam et" düğmesi (audit tıklama başına).
+
+## Kaydedici/oynatıcı kararları
+
+- Bölüm geçişi 60. `dataavailable`'da; `requestData` (≤ 500 ms) + `stop` kuyruğu bloblar 59. parçaya **birleştirilir** (p ≤ 59), yeni kaydedici aynı görevde başlar. Rıza geri alma / kota / politika / hata / `peer.left` → beklemeden `stop()`; kuyruk blobu son parça olarak yüklenir (sunucu durma payı).
+- Yükleyici: tek uçuş, FIFO, kuyruk 3; taşma/3 başarısız deneme/409 `{next<p}` → bölüm kırılır, yeni bölüm (`series+1`); `rec.error{upload_failed}` gönderilmez. 429 `Retry-After`; 404 → kuyruk boşalır, yeni `upload`/`peer.joined` beklenir; 409 `STORAGE_QUOTA`/400 → yerelde durur (sunucu `rec.state{off}` yayar).
+- Oynatıcı: `segments` kipi, bölüm değişiminde `abort()` → `timestampOffset`; önden 30 sn; seek → bölüm baştan, parça önbelleği; boşluk ve bölüm sonu kuyruk kaybında sonraki bölüme atlama; 429'da "yükleniyor"; `blob:` + `revokeObjectURL`; yerel `controls` yok (`controlsList=nodownload`, PiP kapalı, sağ tık kapalı); klavye Boşluk / ← →.
+
+## Ölçümler (gerçek tarayıcı, Playwright Chromium, macOS)
+
+- Konsol (gerçek P2P + sahte ekran) → `MediaRecorder` → PUT → sahte depo → geçmiş oynatıcısı (MSE) zinciri e2e'de çalıştı (`p28e-recording.spec.ts` "rıza → kayıt …"). Bölüm başları (`p=0`) `1a45dfa3` (EBML), başlangıç başlığı dolu.
+- **Cluster hizası (S-P28e-7):** Chromium'da `p>0` parçasının ilk 4 baytı `468e8113` çıktı (Cluster `1f43b675` DEĞİL — timeslice parçası Cluster sınırına hizalı değil). **`REC_REQUIRE_CLUSTER_START = false` kalmalı** (değiştirilmedi). Firefox/Edge ölçülmedi.
+- Elle üretilen 2 bölümlük gerçek WebM (canvas, 3 sn boşluklu) oynatıcıda iki tampon aralığı oluşturdu, boşluk atlandı, 2. bölüm oynadı (`abort()` yolu).
+
+## Testler
+
+- Vitest: `lib/rec/rec-p28e.test.ts` (kaydedici geçiş/birleştirme/kapanış kipleri, yükleyici başlık/FIFO/taşma/yanıt sınıfları/yeniden deneme, oynatıcı aralık/boşluk/seek, ayar gövdesi, rıza teklifi, sekme başlığı, `rs.cap.rec1`, CSP dizesi, audit Kayıt grubu, `recorded` süzgeci). Web toplam 52 dosya / 480 test yeşil.
+- Playwright (desktop + mobile): `p28e-recording.spec.ts` 10 test (ayar 5 durum + step-up + tek yönetici + salt okunur; 390 px iki tema axe 0; geçmiş süzgeç/meta/kip-gerekçe/sil/silindi/yetkisiz; oynatıcı 429 + 2 bölüm; rıza → gösterge + başlık + yükleme + yeni bölüm + Kaydı durdur; 2 sn duraklatma; rızasız/teklifsiz). İlgili takımlar yeşil: p4-media, p8-history, p17-console, guest, p28b, p28u, p11, p19, sessions, p10, p12, p13a, p14a, p14b, p15, p16, p18, p8b, p7, p28a, p13bl (toplam 380 geçti, 0 kırmızı).
+- `pnpm --filter @remote/web run typecheck|lint`, prettier: temiz.
+
+## Bitmeyen / elle yapılacak
+
+1. **Firefox ve Edge** gerçek tarayıcı testi yapılmadı (kurulu değil): kayıt + oynatma + seek + çözünürlük değişimi + Cluster hizası. Kapı (V-PE-5): çalışmazsa o tarayıcı `rs.cap.rec1` bildirmemeli.
+2. **Arka plan sekmesi 6+ dk elle testi** yapılmadı: kayıt sürerken konsol sekmesi arka planda → parça aralığı, 60. parçada bölüm geçişi, `stop()` kuyruk kaybı (`buffered.end` / bölüm süresi), CPU (Görev Yöneticisi). Otomasyon sayfayı `visible` tutuyor (K0s ile aynı sınır).
+3. 5 dk'lık gerçek bölüm geçişi tarayıcıda koşulmadı (vitest sahte kaydediciyle `seriesParts` küçültülerek sınandı; e2e'de ikinci bölüm yeni belirteçle üretildi).
+4. Gerçek sunucuyla (K3/K4) uçtan uca deneme yapılmadı; e2e sahte API/WS ile.
+5. `docs/KULLANIM_KILAVUZU.md` metinleri K11'de (teknik-yazar).
+
+## P28e düzeltme turu (backend-dev, koordinatör kapsamı: tüm `apps/server`) — 2026-11-16
+
+Kaynak: K3/K4 "açık maddeler", koordinatör listesi (1–6) ve K7 ek notu (a–c).
+
+**Değişen dosyalar**
+
+- `src/app.ts`, `src/app-routes.ts`, `src/rec/wiring.ts`: **(6)** `decorateRec` `buildApp`'te `decorateFsrv`'nin hemen arkasına taşındı.
+  `bindRec` artık `rooms.rec`'i talep servisinden ve rotalardan önce kuruyor. `app-routes.ts`'teki `hasDecorator("rec")` bloğu kaldırıldı.
+  Açılış süpürmesi değişmedi, yalnız `startJobs` iken çalışıyor.
+- `src/requests/service.ts`, `src/sessions/public.ts`, `src/sessions/routes.ts`: **(1)** `currentConsentText` artık kayıt servisini alıyor.
+  - `requestInfo`'da `this.d.rooms.rec` kullanılıyor; web talep formu (`webFormInfo`) da bu yoldan besleniyor.
+  - `resolvePublicSession`'a yeni isteğe bağlı parametre eklendi: `rec?: Pick<RecService, "canOffer">`. Rota `app.rec.service` geçiriyor.
+  - Teklif koşulu `canOffer` = `recording_enabled ∧ kota ∧ disk ≥ %10`.
+  - Gözetimsiz oturum bu iki uca ulaşamıyor: kodu yok, token'ı rastgele üretiliyor ve hiç dönmüyor (`unattended/connect-tx.ts`). Talep yolu her zaman katılımlı. Bu yüzden ayrı bir "gözetimsiz değil" dalı eklenmedi.
+- `src/rec/service.ts`, `packages/contracts/src/{audit,ws-rec}.ts` (yorumlar), `docs/mimari-p28e.md` §11.1: **(2)** audit alt kod anahtarı `code` yerine `cause` oldu.
+  - Etkilenen satırlar: `recording.start` fail (`consent_rejected{cause: sha|window}`, ayrıca `unsupported`/`device_outdated`) ve `recording.stop{reason:"error", cause}`.
+  - Maske (`audit/mask.ts`) gevşetilmedi.
+  - WS tel alanı `rec.error.code`, `fixtures/rec.json` ve Go tipleri değişmedi; bunlar audit değil.
+  - İç servis girdisindeki alan adı (`auditStartFail({code})`, `stop({code})`) aynı kaldı.
+- `src/signaling/rooms.ts`, `src/auth/routes.ts`: **(3)** yükleme belirteçleri bellekten anında düşürülüyor.
+  - `Rooms.endByTechnician` → `dropUploadTokens({by:"user"})`. Bu çağrı şu yolların hepsini kapsıyor: kullanıcı pasifleştirme, rol değişimi, 2FA sıfırlama, `account.endLive` (tüm cihazlardan çıkış, parola sıfırlama, SA sıfırlama, güvenilir cihaz).
+  - `Rooms.endByTenant` → `{by:"tenant"}`. Kapsadığı yollar: tenant pasifleştirme ve firma silme FENCE'i.
+  - `POST /auth/logout` → `{by:"authSession", authSessionId}`.
+  - Kullanıcı kalıcı silme önce pasif olmayı gerektirdiği için ayrı çağrı eklenmedi. İkinci katman zaten var: her PUT `resolveSessionById` ile yeniden denetleniyor.
+- `src/fsrv/wiring.ts`, `src/rec/service.ts`: **(4)** metrikler bağlandı.
+  - `refreshStorageGauges` artık silinmemiş kayıtları da sayıyor (`storageUsage` ile aynı süzgeç); gösterge yardım metni güncellendi.
+  - K4'ün histogram desteği `ops/metrics.ts`'te vardı (`_bucket` kümülatif, `+Inf`, `_sum`, `_count` doğru üretiliyor), ama `observe` hiçbir yerden çağrılmıyordu. Kabul edilen parçada `rs_rec_part_bytes` gözlemi eklendi.
+- `packages/contracts/src/api/requests.ts`: **(K7-b)** `TenantRequestInfo.consentText` ve `WebFormInfo.consentText` artık `ConsentTextView` (isteğe bağlı `recording` alanı). Web typecheck temiz.
+- **(K7-a)** Sunucu konsolun kayıt yeteneğini zaten okuyordu: `signaling/ws.ts accept` alt protokolde `rs.cap.rec1` varsa `peer.rec = true` atıyor (teknisyen ve misafir), `recorderOf` da buna bakıyor. Kod değişmedi; entegrasyon testi eklendi.
+- **(K7-c)** `rec.revoke` kapısı yalnız `basis=consent ∧ active` koşuluna bakıyor, mesaj sırasından bağımsız. `share.state` sonrası kabul testle sabitlendi.
+
+**Testler**
+
+- `test/integration/rec-p28e-fix.test.ts` (yeni, gerçek dinleyen sunucu + ws):
+  - AC-381: resolve ve `/public/requests/tenant`'ta teklif kayıt kapalıyken yok, açıkken `offered` + SHA.
+  - `rs.cap.rec1` konsol ve misafir: rıza verilince ACTIVE, kaydediciye upload belirteci gidiyor. `share.state` sonrası `rec.revoke` → `off{revoked}` + `STOPPED{REVOKED}`.
+  - `rec1` bildirmeyen konsol: misafire `off{unavailable}`, audit `unsupported`, kayıt satırı yok.
+  - `consent_rejected{sha}` audit görünümünde (`GET /audit`) `cause: "sha"` olarak okunuyor.
+- `test/integration/rec-p28e-k3.test.ts` (ekler):
+  - S-P28e-5: test bağlantısı `tenants FOR UPDATE` tutarken aynı belirteçle ikinci PUT → 429 + `Retry-After`; ilk PUT kilit bırakılınca 200.
+  - S-P28e-3: kova kapasitesi (126) kadar GET 200, sonraki istek 429.
+  - S-P28e-9: eşzamanlı PUT + ayar kapatma + elle silme, 3 tur; 500 ya da deadlock yok, son durum tutarlı.
+  - S-P28e-6: çıkış (yalnız o oturumun belirteci düşüyor), kullanıcı pasifleştirme, tenant pasifleştirme (başka tenant etkilenmiyor).
+  - Audit görünümünde `recording.stop` `cause: "orphan"` okunuyor, `code` anahtarı yok.
+  - Histogram sayacı +1; depolama göstergesi saplı DB ile dosya + kayıt toplamını veriyor. Paylaşılan DB'de eşzamanlı yazımlar nedeniyle gerçek toplam kararsız olurdu.
+
+**Bağımlılık:** yok.
+
+- `test/helpers/tenant-matrix.ts`: P28e uçları sınıflandırıldı (AC-69 "sınıfsız uç eklenemez" tam koşuda düşüyordu; K3 alt kümesinde yoktu).
+  - Parça uçları `public` (Bearer).
+  - Geçmiş kayıt uçları `tenant`, B→A 404 vakalarıyla.
+  - Ayar uçları `scoped`.
+
+**Test (son çıktı)**
+
+- `pnpm --filter @remote/server test:int` tam koşu (`rs-mysql-p28efx:33343`): **110 dosya / 1082 test geçti**. Konteyner sonunda silindi.
+  - İlk tam koşuda yalnız `tenant-isolation` AC-69 düştü (yukarıdaki sınıflandırma).
+  - `unattended-connect-k3` ve `unattended-consent-k4` iki tam koşuda da yeşil; yeniden üretilmedi. K4 notundaki düşüş, `rooms.rec` bağlı değilken (K4 yolu çalışmıyordu) eşzamanlı yük altında oluşmuş bir zamanlama durumuydu. Artık servis her app'te `buildApp`'te bağlı. Kanıtsız kod değişikliği yapılmadı.
+- Birim: 613 geçti, 1 atlandı. contracts 240/240.
+- typecheck: server, contracts, web temiz. lint: server, contracts temiz. Dokunulan dosyalarda prettier temiz.
+
+**frontend-dev (K7) için**
+
+- Audit `recording.start` ve `recording.stop` alt kodu artık `newValue.cause` (eskiden `code`, `"***"` görünüyordu).
+- `TenantRequestInfo` ve `WebFormInfo` içindeki `consentText` artık `ConsentTextView` tipinde; `recording?` alanı tipli, çalışma anı koruması kaldırılabilir.

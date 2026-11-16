@@ -14,6 +14,7 @@ import type {
 import type { ErrorCode } from "@remote/contracts/errors";
 import { writeAudit, type AuditContext } from "../audit/service.ts";
 import { abuseEmail, currentConsentText, type AbuseEmailSource } from "../public/consent.ts";
+import type { RecService } from "../rec/types.ts";
 import type { Db } from "../lib/db.ts";
 import { AppError } from "../lib/errors.ts";
 import { sha256Hex } from "../lib/ids.ts";
@@ -216,6 +217,7 @@ export async function resolvePublicSession(
   abuseSrc: AbuseEmailSource,
   minAgentVersion?: string,
   secrets?: SecretBox,
+  rec?: Pick<RecService, "canOffer">,
 ): Promise<ResolveSessionResponse> {
   limits.clientIpIsProxy.check(ctx.ip);
   // P8b r2 (§13.4): AGENT sürümü düşükse 426 (yoksa 0.0.0 sayılır — 0.8.x MIN tanımlanınca güncellemeye zorlanır).
@@ -251,7 +253,9 @@ export async function resolvePublicSession(
     throw new AppError(gone);
   }
   const [consentText, abuse, logoUrl] = await Promise.all([
-    currentConsentText(db, row.tenantId),
+    // P28e §2.1: kayıt teklifi yalnız `rec` verildiğinde (kayıt açık ∧ kapasite). Gözetimsiz oturum bu uca ulaşmaz:
+    // kodu yok, token'ı rastgele üretilip hiç dönmez (unattended/connect-tx.ts).
+    currentConsentText(db, row.tenantId, rec),
     abuseEmail(db, abuseSrc),
     effectiveLogoUrl(db, row.tenant.logoPath),
   ]);

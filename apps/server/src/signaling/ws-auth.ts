@@ -11,7 +11,7 @@ import { writeAudit, type AuditContext } from "../audit/service.ts";
 import { publicClientAllowed } from "../auth/guards.ts";
 import { findUserById } from "../auth/repo.ts";
 import { canSignIn, resolveSession, type AuthContext, type SessionPolicy } from "../auth/session.ts";
-import { sha256Hex } from "../lib/ids.ts";
+import { newId, sha256Hex } from "../lib/ids.ts";
 import { ipKey, netKey } from "../lib/ip.ts";
 import type { FixedWindowCounter } from "../lib/rate.ts";
 import { isOutdated, UNDECLARED_AGENT_VERSION } from "../lib/version.ts";
@@ -88,6 +88,8 @@ function openTech(u: UpgradeCtx, req: IncomingMessage, ws: WebSocket, peer: Peer
     permissions: auth.permissions,
     role: auth.user.role,
     ctx: u.ctxOf(req),
+    authSessionId: auth.sessionId, // P28e S-P28e-6: yükleme belirteci bağlamı
+    connId: newId(),
   };
   const room = u.rooms.attachTech(row, conn);
   const bucket = new TokenBucket(u.rooms.clock);

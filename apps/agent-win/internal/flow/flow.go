@@ -54,6 +54,8 @@ type Welcome struct {
 	Logo image.Image
 	// RememberNote AC-188 bilgi satırı ("Oturumdan sonra bu bilgisayar … için hatırlanır"); kayıt kapalıysa boş.
 	RememberNote string
+	// RecOffered P28e: kayıt rıza kutusu gösterilir (api.ConsentText.RecOffered; yalnız RecUI.WelcomeRec ile).
+	RecOffered bool
 }
 
 // BindingHandler P8c (ADR-0017, mimari-e10 §8.4): bilgisayar kaydının alınması. Uygulaması internal/launch'tadır.
@@ -125,6 +127,8 @@ const (
 	EvClipConsent  // On
 	EvPrintApprove // PID
 	EvPrintReject  // PID
+	// P28e: "Kaydı durdur" (şerit ya da oturum penceresi; onaysız, geri alınamaz).
+	EvRecStop
 )
 
 // Event kullanıcı olayı.
@@ -188,6 +192,11 @@ type Deps struct {
 	// P28b (mimari-p28b §8): sunucu üzerinden dosya. İkisi de bağlıysa ve gözetimsiz değilse `rs.cap.fsrv1` bildirilir.
 	FileServer   FileServer
 	FileServerUI FileServerUI
+	// RecConsent P28e talep yolu (RunTicket): talep formundaki kayıt kutusu işaretliydi ve teklif hâlâ geçerliydi.
+	// Kod yolunda (Run) kutu RecUI.WelcomeRec'ten gelir.
+	RecConsent bool
+	// RecAckWait `rec.revoke` sonrası onay bekleme süresi (varsayılan signal.RecRevokeAckMs; testte kısaltılır).
+	RecAckWait time.Duration
 	// Admitted P8b-2: ilk `hello` geldiğinde bir kez çağrılır (talep modu `/ws/request`'i 1000 ile ancak bundan sonra
 	// kapatır; öncesindeki 1000 sunucuda "vazgeçme" sayılır). nil olabilir.
 	Admitted func()
@@ -206,11 +215,12 @@ type Outcome struct {
 // Run akışı baştan sona yürütür. initial dosya adından okunan koddur (boşsa elle giriş istenir, AC-97).
 func Run(ctx context.Context, d Deps, initial string) Outcome {
 	d = withDefaults(d)
-	jr, res, out, ok := admitStage(ctx, d, initial)
+	jr, res, record, out, ok := admitStage(ctx, d, initial)
 	if !ok {
 		return out
 	}
 	s := &session{d: d, techName: res.Technician.Name, gate: newGate(d.Gate), pendingMon: -1}
+	s.rec.consent = record
 	return s.finish(s.run(ctx, jr))
 }
 
@@ -222,17 +232,19 @@ func Run(ctx context.Context, d Deps, initial string) Outcome {
 func RunTicket(ctx context.Context, d Deps, ticket, techName, admitCode string) Outcome {
 	d = withDefaults(d)
 	s := &session{d: d, techName: techName, gate: newGate(d.Gate), pendingMon: -1, preAdmitted: admitCode == ""}
+	s.rec.consent = d.RecConsent && recUI(d) != nil
 	return s.finish(s.run(ctx, &api.JoinResult{WsTicket: ticket, TechnicianName: techName, AdmitCode: admitCode}))
 }
 
-// admitStage kod → resolve → karşılama → join. ok=false ise out son ekrandır.
-func admitStage(ctx context.Context, d Deps, initial string) (*api.JoinResult, *api.ResolveResult, Outcome, bool) {
+// admitStage kod → resolve → karşılama → join. ok=false ise out son ekrandır. record P28e kayıt kutusu (yalnız teklif
+// geçerliyken işaretlenebilir).
+func admitStage(ctx context.Context, d Deps, initial string) (*api.JoinResult, *api.ResolveResult, bool, Outcome, bool) {
 	code, notice, welcomeNotice := initial, "", ""
 	for {
 		if code == "" {
 			c, ok := askCode(ctx, d, notice)
 			if !ok {
-				return nil, nil, Outcome{}, false
+				return nil, nil, false, Outcome{}, false
 			}
 			code = c
 		}
@@ -240,20 +252,20 @@ func admitStage(ctx context.Context, d Deps, initial string) (*api.JoinResult, *
 		if err != nil {
 			m, o := classify(err)
 			if o == outFinal {
-				return nil, nil, Outcome{Message: m}, false
+				return nil, nil, false, Outcome{Message: m}, false
 			}
 			code, notice = "", m.Title+". "+m.Body
 			continue
 		}
-		name, ok := d.UI.Welcome(ctx, welcomeData(ctx, d, res, welcomeNotice))
+		name, record, ok := welcome(ctx, d, welcomeData(ctx, d, res, welcomeNotice), res.ConsentText.RecOffered())
 		if !ok {
-			return nil, nil, Outcome{}, false
+			return nil, nil, false, Outcome{}, false
 		}
 		// AC-98: onaysız bağlantı başlamaz — UI yalnız onay kutusu işaretliyken ok döner.
 		jr, err := d.API.Join(ctx, api.JoinRequest{JoinNonce: res.JoinNonce, CustomerName: name,
 			ConsentTextID: res.ConsentText.ID, ConsentAccepted: true})
 		if err == nil {
-			return jr, res, Outcome{}, true
+			return jr, res, record, Outcome{}, true
 		}
 		m, o := classify(err)
 		switch o {
@@ -261,10 +273,21 @@ func admitStage(ctx context.Context, d Deps, initial string) (*api.JoinResult, *
 			welcomeNotice = statusNonce
 			continue // aynı kodla yeniden çöz
 		case outFinal:
-			return nil, nil, Outcome{Message: m}, false
+			return nil, nil, false, Outcome{Message: m}, false
 		}
 		code, notice = "", m.Title+". "+m.Body
 	}
+}
+
+// welcome karşılama ekranı; RecUI varsa kayıt kutulu biçim (kutu yalnız teklif geçerliyken, sonuç ona bağlı).
+func welcome(ctx context.Context, d Deps, w Welcome, offered bool) (string, bool, bool) {
+	if r := recUI(d); r != nil {
+		w.RecOffered = offered
+		name, record, ok := r.WelcomeRec(ctx, w)
+		return name, record && offered, ok
+	}
+	name, ok := d.UI.Welcome(ctx, w)
+	return name, false, ok
 }
 
 // askCode elle kod girişi (AC-97); geçersiz biçimde uyarıyla yeniden sorar. ok=false: kullanıcı vazgeçti.

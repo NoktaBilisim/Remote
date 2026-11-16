@@ -62,7 +62,8 @@ type Conn struct {
 
 // Dial `wss://<host>/ws/guest`'e (sorgu dizesi YOK) bağlanır. httpClient api.Client'ın TLS doğrulamalı istemcisidir;
 // Origin başlığı gönderilmez (sunucu Origin'siz bağlantıyı yalnız ticket.kind=AGENT ile kabul eder, ADR-0012).
-// features P28a (mimari-p28 §4.2) bildirilen özellik belirteçleri (FeatureClip, FeaturePrint; P28b FeatureFsrv); kimlik değildir. Gözetimsiz
+// features P28a (mimari-p28 §4.2) bildirilen özellik belirteçleri (FeatureClip, FeaturePrint; P28b FeatureFsrv; P28e
+// FeatureRec); kimlik değildir. Gözetimsiz
 // yardımcı nil geçer (sunucu da gözetimsiz odada okumaz, O-P28a-4). Bilinmeyen/tekrarlı belirteç hata döner.
 func Dial(ctx context.Context, httpClient *http.Client, server *url.URL, cred Credential, features []string) (*Conn, error) {
 	proto, err := cred.protocol()
@@ -92,11 +93,14 @@ func Dial(ctx context.Context, httpClient *http.Client, server *url.URL, cred Cr
 	return &Conn{ws: ws}, nil
 }
 
+// knownFeatures Dial'ın kabul ettiği özellik belirteçleri.
+var knownFeatures = []string{FeatureClip, FeaturePrint, FeatureFsrv, FeatureRec}
+
 // subprotocols `rs.v1, <kimlik>, <özellikler…>` listesi; özellik yalnız bilinen ve tekrarsız belirteç olabilir.
 func subprotocols(cred string, features []string) ([]string, error) {
 	out := []string{Subprotocol, cred}
 	for _, f := range features {
-		if (f != FeatureClip && f != FeaturePrint && f != FeatureFsrv) || slices.Contains(out, f) {
+		if !slices.Contains(knownFeatures, f) || slices.Contains(out, f) {
 			return nil, errors.New("signal: geçersiz özellik belirteci")
 		}
 		out = append(out, f)

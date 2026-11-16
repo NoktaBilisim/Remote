@@ -32,6 +32,8 @@ import { publicUnattendedRoutes } from "./unattended/public-download.ts";
 import { interveneRoutes } from "./unattended/intervene.ts";
 import { customerSendRoutes } from "./customer-send/routes.ts";
 import { fsrvRoutes, storedFileLinkRoutes } from "./fsrv/routes.ts";
+import { recPartRoutes, recordingSessionRoutes } from "./rec/routes.ts";
+import { recordingSettingsRoutes } from "./settings/recording.ts";
 
 /** CSP / başlıklar (mimari §5.4, G-19, AC-126). connect-src WS origin'i portu içerir. */
 function helmetOptions(env: Env) {
@@ -112,6 +114,10 @@ function registerAdminRoutes(app: FastifyInstance, deps: AppDeps, uploads: Uploa
   // P28b (mimari-p28b §4): bayt uçları (çerezsiz, Bearer) + geçmiş link ucu (çerez + CSRF).
   void app.register(fsrvRoutes, { prefix: "/api/v1/fsrv" });
   void app.register(storedFileLinkRoutes, { prefix: "/api/v1/sessions" });
+  // P28e (mimari-p28e §5): parça uçları (çerezsiz, Bearer) + geçmiş kayıt uçları + ayar. `app.rec` app.ts'te kurulur.
+  void app.register(recPartRoutes, { prefix: "/api/v1/rec" });
+  void app.register(recordingSessionRoutes, { prefix: "/api/v1/sessions" });
+  void app.register(recordingSettingsRoutes, { prefix: "/api/v1/settings/recording" });
 }
 
 /** Tüm eklenti ve rota kayıtları, buildApp'teki sırayla. */

@@ -55,6 +55,8 @@ type form struct {
 	timer    func(id uintptr)
 	activate func(active bool)
 	paint    func(dc uintptr, r win.RECT)
+	// click P28e kayıt şeridi: tıklanabilir (tıklama geçirgen olmayan) açılır pencerede sol düğme bırakma.
+	click func()
 	// noKey bu düğmeye gelen Enter/Space yutulur (onay diyaloğu kuralı, G-03).
 	noKey uintptr
 	// S7-5: bu forma gelen son sol düğme basışının / tuş basışının kaynağı enjekte (veya bilinmiyor) muydu.

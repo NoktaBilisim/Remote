@@ -1,8 +1,60 @@
-import { CircleStop, LoaderCircle, Power, ScreenShare, ScreenShareOff } from "lucide-react";
+import { REC_GUEST_STOPPED_MESSAGE, REC_REVOKE_PAUSED_MESSAGE, REC_STATE_REASON_LABELS } from "@remote/contracts/api/recording";
+import { CircleDot, CircleStop, Info, LoaderCircle, Power, ScreenShare, ScreenShareOff } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { t } from "@/lib/i18n";
 
 type StripState = "idle" | "sharing" | "stopped" | "reconnecting";
+
+/** P28e (§9): kayıt göstergesi girdisi (`useGuestRec`); yoksa şerit kayıtsız çizilir. */
+export interface StripRec {
+  on: boolean;
+  reason: keyof typeof REC_STATE_REASON_LABELS | null;
+  revoking: boolean;
+  paused: boolean;
+  revoke: () => void;
+}
+
+/**
+ * P28e (AC-382, S-P28e-2): "Kayıt yapılıyor" (kapatılamaz, `role=status`) + onaysız **Kaydı durdur**; durunca neden satırı.
+ * `revoked` → "Kayıt durduruldu; o ana kadarki kısım saklanır"; 2 sn'de `off` gelmezse "Kayıt durdurulamadı, paylaşım duraklatıldı".
+ */
+function RecLine({ rec }: { rec: StripRec }) {
+  if (rec.on)
+    return (
+      <div className="flex w-full flex-wrap items-center gap-x-3 gap-y-2" data-testid="rec-guest">
+        <span role="status" className="inline-flex items-center gap-2 font-semibold text-control-frame" data-testid="rec-guest-on">
+          <CircleDot aria-hidden className="size-4 shrink-0" />
+          {t("rec.guest.on")}
+        </span>
+        {rec.paused && (
+          <span role="alert" className="text-danger" data-testid="rec-guest-paused">
+            {REC_REVOKE_PAUSED_MESSAGE}
+          </span>
+        )}
+        <Button
+          variant="danger-ghost"
+          onClick={rec.revoke}
+          loading={rec.revoking}
+          aria-describedby="rec-stop-hint"
+          className="ml-auto"
+          data-testid="rec-guest-stop"
+        >
+          {!rec.revoking && <CircleStop aria-hidden className="size-4" />}
+          {t("rec.guest.stop")}
+        </Button>
+        <span id="rec-stop-hint" className="sr-only">
+          {t("rec.guest.stopHint")}
+        </span>
+      </div>
+    );
+  if (!rec.reason || rec.reason === "unavailable") return null;
+  return (
+    <p className="inline-flex w-full items-center gap-2 text-fg-muted" role="status" data-testid="rec-guest-off" data-reason={rec.reason}>
+      <Info aria-hidden className="size-4 shrink-0" />
+      {rec.reason === "revoked" ? REC_GUEST_STOPPED_MESSAGE : REC_STATE_REASON_LABELS[rec.reason]}
+    </p>
+  );
+}
 
 /** Müşteri üst şeridi (DESIGN.md §6.1): paylaşılıyor / durdu / koptu + eylemler. Yapışkan, her genişlikte görünür. */
 export function ShareStrip({
@@ -12,6 +64,7 @@ export function ShareStrip({
   onStart,
   onStop,
   onEnd,
+  rec,
 }: {
   state: StripState;
   techName: string;
@@ -19,6 +72,7 @@ export function ShareStrip({
   onStart: () => void;
   onStop: () => void;
   onEnd: () => void;
+  rec?: StripRec;
 }) {
   const warn = state !== "sharing";
   return (
@@ -62,6 +116,7 @@ export function ShareStrip({
           </Button>
         )}
       </span>
+      {rec && <RecLine rec={rec} />}
     </div>
   );
 }

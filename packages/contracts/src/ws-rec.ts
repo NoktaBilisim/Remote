@@ -127,7 +127,7 @@ export type RecStateReason = (typeof REC_STATE_REASONS)[number];
 export const REC_ERROR_CODES = ["unsupported", "recorder_failed", "upload_failed"] as const;
 export type RecErrorCode = (typeof REC_ERROR_CODES)[number];
 /**
- * Audit `recording.stop{reason:"error", code}` kodları: konsolun `rec.error` kodları + sunucunun ürettikleri — `no_upload`
+ * Audit `recording.stop{reason:"error", cause}` kodları: konsolun `rec.error` kodları + sunucunun ürettikleri — `no_upload`
  * (gözcü / kaydedici 120 sn dönmedi), `rate` (oran tavanı), `invalid` (WebM başlık / `p>0` içerik / süre denetimi), `orphan`
  * (açılış süpürmesi: çökme sonrası odasız `ACTIVE`).
  */
@@ -136,7 +136,7 @@ export type RecStopErrorCode = (typeof REC_STOP_ERROR_CODES)[number];
 /** Audit `recording.start` result=fail `reason` (V-PE-2). */
 export const REC_START_FAIL_REASONS = ["quota", "device_outdated", "unsupported", "consent_rejected"] as const;
 export type RecStartFailReason = (typeof REC_START_FAIL_REASONS)[number];
-/** `consent_rejected` alt kodu (S-P28e-10): SHA uyuşmazlığı / 30 sn penceresi aşıldı. */
+/** `consent_rejected` alt kodu (audit `cause`; S-P28e-10): SHA uyuşmazlığı / 30 sn penceresi aşıldı. */
 export const REC_CONSENT_REJECT_CODES = ["sha", "window"] as const;
 export type RecConsentRejectCode = (typeof REC_CONSENT_REJECT_CODES)[number];
 /** Audit `recording.view.end.endReason` (S-P28e-3). */

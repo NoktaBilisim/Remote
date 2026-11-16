@@ -34,6 +34,8 @@ export interface HistoryFilters {
   customerFirm?: string;
   /** P28u (AC-445): gözetimsiz bağlantı kipi (`consent_mode`). */
   consentMode?: ConsentMode;
+  /** P28e (V-PE-3): "Kayıtlı" süzgeci — yalnız silinmemiş kaydı olan oturumlar (sorgu `recorded=true`). */
+  recorded?: "true";
   page: number;
   pageSize: number;
 }
@@ -115,6 +117,11 @@ export function parseFilters(sp: SearchParams): { filters: HistoryFilters; ignor
     (v) => (f.consentMode = v as ConsentMode),
   );
   take(
+    "recorded",
+    (v) => v === "true",
+    () => (f.recorded = "true"),
+  );
+  take(
     "page",
     (v) => int(v) >= 1 && int(v) <= 10_000,
     (v) => (f.page = int(v)),
@@ -148,6 +155,7 @@ function toQuery(f: Partial<HistoryFilters>, opts: { paging?: boolean } = {}): s
   put("customer", f.customer);
   put("consentMode", f.consentMode);
   put("customerFirm", f.customerFirm);
+  put("recorded", f.recorded);
   if (opts.paging !== false) {
     if (f.page && f.page > 1) put("page", f.page);
     if (f.pageSize && f.pageSize !== DEFAULT_PAGE_SIZE) put("pageSize", f.pageSize);
@@ -177,7 +185,17 @@ export function exportApiPath(f: Partial<HistoryFilters>): string {
 
 export const hasFilters = (f: HistoryFilters) =>
   Boolean(
-    f.status || f.mode || f.source || f.from || f.to || f.technicianId || f.tenantId || f.customer || f.customerFirm || f.consentMode,
+    f.status ||
+    f.mode ||
+    f.source ||
+    f.from ||
+    f.to ||
+    f.technicianId ||
+    f.tenantId ||
+    f.customer ||
+    f.customerFirm ||
+    f.consentMode ||
+    f.recorded,
   );
 
 /** Sayfa düğmeleri için toplam sayfa (en az 1). */

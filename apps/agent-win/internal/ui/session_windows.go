@@ -58,6 +58,9 @@ func (u *UI) newSessionWin(watchText string) *sessionWin {
 		shift = 40
 	}
 	height, endY = height+shift, endY+shift
+	// P28e: "Oturumu bitir"in üstünde kayıt satırı (gösterge + Kaydı durdur + bilgi); kayıt yokken gizli.
+	recY := endY
+	height, endY = height+recRow, endY+recRow
 	f := u.t.newForm(appTitle+" — Oturum", 440, height, false)
 	s := &sessionWin{f: f}
 	s.watch = f.danger(watchText, 16, 14, 408, 22, fontBold)
@@ -81,6 +84,12 @@ func (u *UI) newSessionWin(watchText string) *sessionWin {
 	s.hotkey = f.label(hotkeyText(u.hotkeyLabel), 16, 448+shift, 408, 36, fontNormal)
 	if u.elevated {
 		f.danger(elevatedText, 16, 488+shift, 408, 48, fontNormal)
+	}
+	s.recLbl = f.danger(flow.RecTexts.Indicator, 16, recY+4, 250, 22, fontBold)
+	s.recBtn = f.button(flow.RecTexts.Stop, idRecStop, 284, recY, 140, false)
+	s.recNote = f.label("", 16, recY+30, 408, 20, fontNormal)
+	for _, c := range []*ctrl{s.recLbl, s.recBtn, s.recNote} {
+		win.ShowWindow(c.h, win.SW_HIDE)
 	}
 	s.endBtn = f.button("Oturumu bitir", idEndSession, 16, endY, 160, false)
 	win.EnableWindow(s.grantBtn.h, false)
@@ -115,6 +124,10 @@ func (u *UI) sessionCommand(s *sessionWin, id, code int) {
 		}
 	case idCtlClose:
 		u.closeControlNow()
+	case idRecStop:
+		if !s.finished {
+			u.emit(flow.Event{Kind: flow.EvRecStop})
+		}
 	case idEndSession:
 		if !s.finished {
 			u.emit(flow.Event{Kind: flow.EvEnd})

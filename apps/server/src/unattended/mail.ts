@@ -2,7 +2,7 @@
 // girmez; commit sonrası (SMTP bildiriminde kayıttan ÖNCE) en iyi çaba `mail.sendForTenant` — her gönderim `mail.sent` audit'i
 // MailService'te. Alıcı: firmadaki etkin (ACTIVE, ADMIN|USER) ve verilen yetkilerden birine sahip kullanıcılar, çağıran hariç.
 // Şablonlar burada (mail/templates.ts paralel P27a işinde; K4 isterse oraya taşır — implementation.md P27-K2).
-import { UNATTENDED_AUDIT } from "@remote/contracts/audit";
+import { type SilentNotifyEvent, UNATTENDED_AUDIT } from "@remote/contracts/audit";
 import { effectivePermissions, type PermissionKey, type Role } from "@remote/contracts/permissions";
 import { maskEmail } from "../audit/mask.ts";
 import { writeAudit, type AuditContext } from "../audit/service.ts";
@@ -137,6 +137,8 @@ export function recoveryConnectMail(o: { user: string; device: string; at: Date;
 
 export const SILENT_CONNECT_SUBJECT = "İzin istenmeden bağlanıldı";
 export const SILENT_POLICY_SUBJECT = "Gözetimsiz erişim politikası değişti";
+/** P28e (mimari-p28e §11.5, S-P28e-4): gözetimsiz kayıt politikası değişti (sabit konu; URL yok). */
+export const RECORDING_POLICY_SUBJECT = "Gözetimsiz bağlantı kayıt politikası değişti";
 /** §9.2: deneme gecikmeleri (ms; ilk deneme hemen). */
 export const SILENT_NOTICE_DELAYS_MS: readonly number[] = [0, 10_000, 30_000];
 
@@ -155,6 +157,19 @@ export function silentPolicyMail(o: { user: string; old: boolean; next: boolean;
   return content(SILENT_POLICY_SUBJECT, [
     `${o.user}, "İzin istemeden bağlanma" politikasını değiştirdi: ${label(o.old)} → ${label(o.next)} (${istanbul(o.at)}).`,
     "Bu değişiklik beklenmiyorsa gözetimsiz erişim ayarlarını hemen kontrol edin.",
+  ]);
+}
+
+/**
+ * P28e §11.5: "Gözetimsiz bağlantıları da kaydet" değişti (iki yön; `enabled=false` zinciri dahil). Gövde: değiştiren, eski → yeni,
+ * saat (Europe/Istanbul). K3 `PUT /settings/recording` commit sonrası `sendSilentNotice({event:"recording_policy",
+ * entity:"tenant_settings", entityId: tenantId, content: recordingPolicyMail(…)})` çağırır (beklenmez).
+ */
+export function recordingPolicyMail(o: { user: string; old: boolean; next: boolean; at: Date }): MailContent {
+  const label = (v: boolean): string => (v ? "açık" : "kapalı");
+  return content(RECORDING_POLICY_SUBJECT, [
+    `${o.user}, "Gözetimsiz bağlantıları da kaydet" ayarını değiştirdi: ${label(o.old)} → ${label(o.next)} (${istanbul(o.at)}).`,
+    "Bu değişiklik beklenmiyorsa oturum kaydı ayarlarını hemen kontrol edin.",
   ]);
 }
 
@@ -180,7 +195,8 @@ export interface SilentNotice {
   ctx: AuditContext;
   tenantId: string;
   actor: { userId: string; email: string };
-  event: "connect" | "policy";
+  /** P28e: `recording_policy` (gözetimsiz kayıt politikası; S-P28e-4). */
+  event: SilentNotifyEvent;
   entity: "support_sessions" | "tenant_settings";
   entityId: string;
   content: MailContent;

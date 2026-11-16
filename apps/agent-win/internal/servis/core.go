@@ -61,6 +61,8 @@ type Core struct {
 	OnUnregister func() error
 	// Consent1 bu sokette `device.features` alındı mı (P28u kip kararı; nil = P27 sunucusu).
 	Consent1 func() bool
+	// Record1 bu sokette `device.features` caps `record1` içeriyor mu (P28e; nil = kayıtsız sunucu).
+	Record1 func() bool
 	// Sessions konsol oturumu okuma + oturum kapatma (Windows: winSessions). nil: durum `active`, müdahale `no_session`.
 	Sessions Sessions
 	// Locker oturum kilitleme yolu (nil: yardımcıya boru komutu — K-P28u-5b geri dönüş noktası).
@@ -89,6 +91,8 @@ type running struct {
 	lockTimer  stopper
 	// guardLogon `asked` odada logoff kabul edildi: konsolda yeni kullanıcı oturumu = session_changed (K-P28u-17).
 	guardLogon bool
+	// rec P28e: yardımcının göstergesinde kayıt eki var mı (connect.recording, sonra rec.state{on}).
+	rec bool
 }
 
 func (c *Core) clock() time.Time {
@@ -124,6 +128,10 @@ func (c *Core) Connect(m *Connect) {
 		c.reject(m.SessionID, helperio.ReasonHelperFailed) // features'sız sokette onay alanı: sözleşme dışı
 		return
 	}
+	if m.Recording != nil && !c.record1() {
+		c.reject(m.SessionID, RejectProtocol) // K-P28e-7: record1 bildirilmemiş sokette kayıt istenemez
+		return
+	}
 	if !c.LocalEnabled() {
 		c.reject(m.SessionID, RejectLocalDisabled)
 		return
@@ -135,7 +143,8 @@ func (c *Core) Connect(m *Connect) {
 	consent, mode := c.decideMode(m)
 	in := helperio.Input{V: helperio.Version, SessionID: m.SessionID, Ticket: m.Ticket, TechName: m.TechName,
 		TenantName: m.TenantName, TechIP: m.TechIP, IndicatorText: m.IndicatorText,
-		ExpiresInSec: m.ExpiresInSec, Consent: consent, Mode: mode, IndicatorControl: m.IndicatorControl}
+		ExpiresInSec: m.ExpiresInSec, Consent: consent, Mode: mode, IndicatorControl: m.IndicatorControl,
+		Recording: m.Recording != nil && *m.Recording}
 	if c.start(m, in) != nil && features && m.Consent == helperio.ConsentAsk && mode == helperio.ModeNoUser {
 		c.Send(&ConsentResult{SessionID: m.SessionID, Mode: helperio.ModeNoUser})
 	}
@@ -170,9 +179,9 @@ func (c *Core) start(m *Connect, in helperio.Input) *running {
 // register başlatılmış yardımcıyı kaydeder, çıkışını ve durum borusunu izler (kilit altında).
 func (c *Core) register(m *Connect, in helperio.Input, proc Process) *running {
 	r := &running{sessionID: m.SessionID, techName: m.TechName, conn: m, mode: in.Mode, proc: proc,
-		started: c.clock(), st: helperStatus{consent: in.Consent}} // control=off başlatmada (D-P28u-1)
+		started: c.clock(), st: helperStatus{consent: in.Consent}, rec: in.Recording} // control=off başlatmada (D-P28u-1)
 	c.cur = r
-	c.Events.Write(evStarted(m, in.Mode))
+	c.Events.Write(evStarted(m, in.Mode, in.Recording))
 	go c.watch(r)
 	if sp := proc.StatusPipe(); sp != nil {
 		go c.readStatus(r, sp)

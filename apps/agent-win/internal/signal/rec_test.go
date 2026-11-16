@@ -49,12 +49,8 @@ func decodeRecGuest(raw []byte) ([]byte, error) {
 	return Encode(m)
 }
 
-// parseRecServer misafire gelen rec.state (K2: ParseServer tablosunda değil, K5 bağlar) ve hello.rec.
+// parseRecServer misafire gelen rec.state ve hello.rec (K5: ikisi de ParseServer tablosunda).
 func parseRecServer(raw []byte) error {
-	if msgType(raw) == "rec.state" {
-		_, err := decodeValid(raw, validRecState)
-		return err
-	}
 	_, err := ParseServer(raw)
 	return err
 }

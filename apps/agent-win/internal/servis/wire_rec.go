@@ -2,7 +2,9 @@ package servis
 
 // P28e `/ws/device` ekleri (mimari-p28e r2 §6.1–§6.2; contracts `ws-device.ts` deviceRecordOutboundSchema, fikstür
 // `rec.json` deviceOutbound). Yalnız tip/sabit/doğrulayıcı (K2); belirteci bildirmek, ParseServer'a `rec.state` eklemek ve
-// gösterge eki davranışı K6'dadır. Gösterge eki çizilemiyorsa `rs.cap.record1` bildirilmez (K-P28e-7).
+// gösterge eki davranışı K6'dadır (core_rec.go). Gösterge eki çizilemiyorsa `rs.cap.record1` bildirilmez (K-P28e-7).
+
+import "remote-support/agent-win/internal/servis/helperio"
 
 // DeviceCapRecord alt protokol yetenek belirteci (kimlik değildir).
 const DeviceCapRecord = "rs.cap.record1"
@@ -14,7 +16,7 @@ const capRecord1 = "record1"
 const tRecState = "rec.state"
 
 // RecUnattendedLine `asked` diyaloğundaki satır (AC-449; yardımcı çizer — K6).
-const RecUnattendedLine = "Bu bağlantının ekran kaydı alınacaktır"
+const RecUnattendedLine = helperio.RecordingLine
 
 // RecState `rec.state{on}`: kayıt ortada durursa gösterge eki kalkar; cihaz yanıt göndermez.
 type RecState struct {

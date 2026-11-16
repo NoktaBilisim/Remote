@@ -27,6 +27,7 @@ type fakeProc struct {
 	status io.Reader
 	cmdMu  sync.Mutex
 	cmds   []helperio.Command
+	cmdErr error
 }
 
 func (p *fakeProc) WinSession() uint32    { return p.win }
@@ -35,7 +36,7 @@ func (p *fakeProc) Command(c helperio.Command) error {
 	p.cmdMu.Lock()
 	defer p.cmdMu.Unlock()
 	p.cmds = append(p.cmds, c)
-	return nil
+	return p.cmdErr
 }
 
 func (p *fakeProc) Wait() uint32 { return <-p.done }

@@ -3,7 +3,9 @@
 import { SESSION_STATUSES } from "@remote/contracts/api/sessions";
 import { SESSION_MODE_LABELS, SESSION_SOURCE_LABELS } from "@remote/contracts/labels";
 import { CustomerCombobox } from "@/components/customer-combobox";
+import { Video } from "lucide-react";
 import { Combobox } from "@/components/ui/combobox";
+import { Segmented } from "@/components/ui/segmented";
 import { SelectField } from "@/components/ui/select-field";
 import { TextField } from "@/components/ui/text-field";
 import { t } from "@/lib/i18n";
@@ -38,6 +40,27 @@ export function DateFields({ f, today }: F & { today: string }) {
         hint={t("h.f.dateHint")}
       />
     </>
+  );
+}
+
+/** P28e (V-PE-3, §9): "Kayıtlı" süzgeci — `Segmented` (Tümü / Kayıtlı); Filtrele ile uygulanır. */
+export function RecordedFilter({ f }: F) {
+  return (
+    <div className="flex flex-col gap-1.5" data-testid="history-recorded">
+      <span aria-hidden className="text-sm font-medium text-fg">
+        {t("h.f.recorded")}
+      </span>
+      <Segmented
+        label={t("h.f.recorded")}
+        size="field"
+        value={f.draft.recorded === "true" ? "true" : "all"}
+        onChange={(v) => f.set("recorded")({ target: { value: v === "true" ? "true" : "" } })}
+        options={[
+          { value: "all", label: t("h.f.recAll") },
+          { value: "true", label: t("h.f.recOnly"), icon: <Video aria-hidden className="size-4" /> },
+        ]}
+      />
+    </div>
   );
 }
 

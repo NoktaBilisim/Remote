@@ -11,6 +11,7 @@ import { isAnonymized } from "@/lib/history/anonymized";
 import { t } from "@/lib/i18n";
 import { getMe, serverGet } from "@/lib/server-api";
 import { NoteForm } from "./note-form";
+import { RecordingSection } from "./recording";
 import { ControlPeriods } from "./control-periods";
 import { ConsentsList, Files } from "./files";
 import { Section } from "./sections";
@@ -121,6 +122,12 @@ export default async function HistoryDetailPage({ params }: { params: Promise<{ 
         {s.unattended && (
           <Section id="unattended" title={t("h.un.section")}>
             <UnattendedInfoSection u={s.unattended} />
+          </Section>
+        )}
+        {/* P28e (AC-385/386/450): yalnız kayıt satırı varsa (silinmiş kayıt da neden satırıyla görünür) */}
+        {s.recording && (
+          <Section id="recording" title={t("hr.title")}>
+            <RecordingSection sessionId={s.id} r={s.recording} unattended={s.unattended} />
           </Section>
         )}
         <Section id="consents" title={t("h.c.title")}>

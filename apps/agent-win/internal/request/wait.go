@@ -126,7 +126,8 @@ func (w *waiter) step(ctx context.Context, st Step) (bool, bool, *Outcome) {
 	if st.Share != nil {
 		w.r.d.UI.RequestWaitClose()
 		return true, false, &Outcome{Kind: OutShare, Ticket: st.Share.WsTicket, TechName: st.Share.TechnicianName,
-			AdmitCode: st.Share.AdmitCode, Release: w.release(w.cancel)}
+			AdmitCode: st.Share.AdmitCode, Release: w.release(w.cancel),
+			Record: w.r.vals.Record && w.r.info.ConsentText.RecOffered()}
 	}
 	return w.ended(w.apply(ctx, st))
 }

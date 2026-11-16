@@ -6,6 +6,7 @@ import (
 	"context"
 	"fmt"
 
+	"remote-support/agent-win/internal/flow"
 	"remote-support/agent-win/internal/request"
 	"remote-support/agent-win/internal/win"
 )
@@ -16,9 +17,11 @@ type formResult struct {
 }
 
 type reqForm struct {
-	f                            *form
-	name, phone, email, desc     *ctrl
-	consent, remember            *ctrl
+	f                        *form
+	name, phone, email, desc *ctrl
+	consent, remember        *ctrl
+	// rec P28e kayıt rıza kutusu; yalnız form açılırken teklif geçerliyse oluşturulur (yoksa nil, kayıt yok).
+	rec                          *ctrl
 	errs                         map[string]*ctrl
 	hint, notice                 *ctrl
 	submit, code, forget, closeB *ctrl
@@ -50,7 +53,11 @@ func (u *UI) RequestForm(ctx context.Context, v request.FormView) (request.FormA
 
 // newReqForm firma penceresi: başlık ve uyarı, alanlar (addFields), onay ve hatırlama (addConsent), düğmeler.
 func (u *UI) newReqForm(v request.FormView) *reqForm {
-	f := u.t.newForm(appTitle+" — "+v.Tenant, 540, 730, false)
+	shift := int32(0)
+	if v.RecOffered {
+		shift = recFormRow
+	}
+	f := u.t.newForm(appTitle+" — "+v.Tenant, 540, 730+shift, false)
 	r := &reqForm{f: f, errs: map[string]*ctrl{}, abuseEmail: v.AbuseEmail}
 	f.picture(orSystemLogo(v.Logo), 396, 8, 128, 56)
 	f.label(v.Tenant, 16, 10, 370, 32, fontBig) // yalnız sunucudan gelen firma adı (G-E9-11)
@@ -60,12 +67,12 @@ func (u *UI) newReqForm(v request.FormView) *reqForm {
 		f.button("Kötüye kullanımı bildir", idAbuse, 16, 110, 200, false)
 	}
 	r.addFields()
-	r.addConsent(v)
-	r.notice = f.danger("", 16, 614, 508, 36, fontNormal)
-	r.submit = f.button("Destek iste", idOK, 16, 656, 140, true)
-	r.code = f.button("Bağlantı kodum var", idReqCode, 164, 656, 190, false)
-	r.closeB = f.button("Kapat", idCancel, 434, 656, 90, false)
-	f.label(u.footer, 16, 700, 508, 20, fontNormal) // sunucu + sürüm + SHA-256 ilk 8 (AC-133)
+	r.addConsent(v, shift)
+	r.notice = f.danger("", 16, 614+shift, 508, 36, fontNormal)
+	r.submit = f.button("Destek iste", idOK, 16, 656+shift, 140, true)
+	r.code = f.button("Bağlantı kodum var", idReqCode, 164, 656+shift, 190, false)
+	r.closeB = f.button("Kapat", idCancel, 434, 656+shift, 90, false)
+	f.label(u.footer, 16, 700+shift, 508, 20, fontNormal) // sunucu + sürüm + SHA-256 ilk 8 (AC-133)
 	f.command = r.command
 	f.close = func() { r.reply(request.FormClose) }
 	f.show(win.WorkAreaAt(win.CursorPos()), true, r.name)
@@ -92,8 +99,12 @@ func (r *reqForm) addFields() {
 	r.errs[request.FieldDescription] = f.danger("", 150, 338, 374, 18, fontNormal)
 }
 
-// addConsent aydınlatma metni, kayıt notu (AC-188), KVKK onayı, "hatırla", "Bilgilerimi unut" ve ipucu.
-func (r *reqForm) addConsent(v request.FormView) {
+// recFormRow P28e kayıt kutusunun talep formunda kapladığı yükseklik.
+const recFormRow = 40
+
+// addConsent aydınlatma metni, kayıt notu (AC-188), KVKK onayı, (teklif varsa) P28e kayıt kutusu, "hatırla",
+// "Bilgilerimi unut" ve ipucu. shift kayıt kutusunun altındaki denetimlerin kayması.
+func (r *reqForm) addConsent(v request.FormView, shift int32) {
 	f := r.f
 	f.label(fmt.Sprintf("Aydınlatma metni (sürüm %d)", v.ConsentVersion), 16, 360, 508, 20, fontBold)
 	text := f.edit(0, 16, 382, 508, 80, win.ES_MULTILINE|win.ES_READONLY|win.ES_AUTOVSCROLL|win.WS_VSCROLL, 0)
@@ -103,10 +114,14 @@ func (r *reqForm) addConsent(v request.FormView) {
 		"Ekran paylaşımı için teknisyen bağlanırken ayrıca onay istenir.",
 		win.WS_TABSTOP|win.BS_AUTOCHECKBOX|win.BS_MULTILINE, 0, idReqConsent, 16, 506, 508, 36, fontNormal)
 	r.errs[request.FieldConsent] = f.danger("", 16, 542, 508, 18, fontNormal)
+	if v.RecOffered { // P28e AC-381: ayrı, varsayılan işaretsiz kutu; metin derlemedeki cümle
+		r.rec = f.add("BUTTON", flow.RecTexts.ConsentLine, win.WS_TABSTOP|win.BS_AUTOCHECKBOX|win.BS_MULTILINE, 0,
+			idRecConsent, 16, 562, 508, 36, fontNormal)
+	}
 	r.remember = f.add("BUTTON", "Bilgilerimi bu bilgisayarda hatırla", win.WS_TABSTOP|win.BS_AUTOCHECKBOX, 0,
-		idReqRemember, 16, 566, 300, 22, fontNormal)
-	r.forget = f.button("Bilgilerimi unut", idReqForget, 374, 563, 150, false)
-	r.hint = f.label("Bu bilgiler size ait değilse: Bilgilerimi unut", 16, 592, 508, 18, fontNormal)
+		idReqRemember, 16, 566+shift, 300, 22, fontNormal)
+	r.forget = f.button("Bilgilerimi unut", idReqForget, 374, 563+shift, 150, false)
+	r.hint = f.label("Bu bilgiler size ait değilse: Bilgilerimi unut", 16, 592+shift, 508, 18, fontNormal)
 }
 
 // reply bekleyen RequestForm çağrısına alanların o anki değerleriyle yanıt verir (gönderim sürüyorsa yok sayılır).
@@ -116,7 +131,7 @@ func (r *reqForm) reply(act request.FormAction) {
 	}
 	res := formResult{act: act, form: request.Form{Name: win.GetText(r.name.h), Phone: win.GetText(r.phone.h),
 		Email: win.GetText(r.email.h), Description: win.GetText(r.desc.h), Consent: checked(r.consent),
-		Remember: checked(r.remember), RememberChosen: r.chosen}}
+		Remember: checked(r.remember), RememberChosen: r.chosen, Record: r.rec != nil && checked(r.rec)}}
 	ch := r.pending
 	r.pending = nil
 	r.busy(true)
@@ -161,6 +176,9 @@ func (r *reqForm) update(v request.FormView, ch chan formResult) {
 	r.filling = false
 	setChecked(r.consent, v.Values.Consent)
 	setChecked(r.remember, v.Values.Remember)
+	if r.rec != nil {
+		setChecked(r.rec, v.Values.Record && v.RecOffered)
+	}
 	r.chosen = v.Values.RememberChosen
 	for k, c := range r.errs {
 		win.SetText(c.h, v.Errors[k])

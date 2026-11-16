@@ -109,6 +109,8 @@ type session struct {
 	// P28b: fileMode ilk hello'da sabitlenir (P2P|SERVER); srv yalnız SERVER modunda (files_server.go).
 	fileMode string
 	srv      *srvFiles
+	// rec P28e kayıt rızası/göstergesi/durdurma (rec.go).
+	rec recState
 }
 
 func (s *session) run(ctx context.Context, jr *api.JoinResult) Outcome {
@@ -269,6 +271,8 @@ func (s *session) onUser(ctx context.Context, ev Event) (Outcome, bool) {
 		s.onControlUser(ctx, ev)
 	case EvClipConsent, EvPrintApprove, EvPrintReject:
 		s.cp.onUser(ev)
+	case EvRecStop:
+		s.onRecStop(ctx)
 	case EvFileCancel:
 		if s.srv != nil {
 			s.cancelFsrv(ctx)

@@ -255,7 +255,7 @@ func TestAC443LockCommandsReplyWithServiceID(t *testing.T) {
 		"{\"cmd\":\"lock\",\"id\":\"01JX0000000000000000000002\"}\n"
 	st := &syncBuf{}
 	lk := &fakeLocker{ok: true}
-	serveCommands(context.Background(), bufio.NewReader(strings.NewReader(in)), lk, newStatusPipe(st))
+	serveCommands(context.Background(), bufio.NewReader(strings.NewReader(in)), lk, newStatusPipe(st), nil)
 	l := st.lines()
 	if lk.calls.Load() != 2 || len(l) != 2 ||
 		l[0] != `{"ev":"lock","id":"01JX0000000000000000000001","ok":true}` ||
@@ -264,7 +264,7 @@ func TestAC443LockCommandsReplyWithServiceID(t *testing.T) {
 	}
 	st2 := &syncBuf{}
 	serveCommands(context.Background(), bufio.NewReader(strings.NewReader(
-		"{\"cmd\":\"lock\",\"id\":\"01JX0000000000000000000003\"}\n")), nil, newStatusPipe(st2))
+		"{\"cmd\":\"lock\",\"id\":\"01JX0000000000000000000003\"}\n")), nil, newStatusPipe(st2), nil)
 	if l := st2.lines(); len(l) != 1 || !strings.Contains(l[0], `"ok":false,"reason":"not_locked"`) {
 		t.Fatalf("%v", l)
 	}
