@@ -1,3 +1,85 @@
+# QA Raporu — P28e Tur 4
+
+DURUM: GEÇTİ
+
+Tarih: 2026-11-16 · Dal `p28e`, HEAD `dd8a692` (PR #17). Hedefli tur: `git diff e911537..dd8a692`. Kapsam: test-raporu "P28e K10" bulguları Y-1, Y-2, O-1, D-1, D-2, D-3, CI'daki TEST-P8-2 (1280 px tablo taşması) ve D-P28e-K3-1 (webm `p = 0`). Kod değiştirilmedi.
+
+**Özet:** Tüm maddeler kodda karşılığını buldu ve testli. Yerel koşular yeşil. PR #17 CI'ı `dd8a692` üzerinde tamamen yeşil, yeniden koşu gerekmedi. Güvenlik kod turu 4 GEÇTİ: K0 / Y0 / O0 / D0. 13/13 AC ✅.
+
+## Test sonucu
+
+| Komut                                                                                                          | Sonuç                                                                                                                                                                                                                                                                                                                                                                                             |
+| -------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `pnpm --filter @remote/web test`                                                                               | 52 dosya / **485 test geçti**, 0 skip, 0 kırmızı                                                                                                                                                                                                                                                                                                                                                  |
+| `pnpm --filter @remote/web e2e e2e/p28e-recording.spec.ts e2e/p8-history.spec.ts` (desktop + mobile)           | **47 geçti, 19 skip, 0 kırmızı**. Skip'lerin hepsi mobil projede: `desktopOnly` (390 px tarama, MSE oynatma, 4 canlı kayıt akışı) ve p8-history'nin mobilde atlanan masaüstü testleri. Gerekçeli; aynı testler desktop'ta yeşil                                                                                                                                                                   |
+| `pnpm --filter @remote/server exec vitest run test/unit/rec-webm-dos.test.ts`                                  | **17/17** (yeni 4 test "D-P28e-K3-1" dahil)                                                                                                                                                                                                                                                                                                                                                       |
+| `gh pr checks 17` (HEAD `dd8a692`, koşular **43913808398** ve **43913808253**, ikisi de `conclusion: success`) | `web e2e (Playwright, mock API)` **pass** (9m25s), `test (MySQL 8.4)` pass, `lint + type-check` pass, `build` ×4, `audit + lisans + gitleaks`, `shellcheck + actionlint`, `coturn`, `gofmt + vet + test -race + govulncheck`, `go test (Windows)`, `tekrarlanabilirlik + SHA256SUMS` pass. Release/imza/attestation işleri `skipping` (etiket/onay işi, beklenen). Flaky yeniden koşusu gerekmedi |
+
+## Tur 3 / K10 maddelerinin kapanışı
+
+| Madde                          | Durum | Kanıt                                                                                                                                                                                                                                                                               |
+| ------------------------------ | ----- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| TEST-P8-2 (1280 px taşma)      | ✅    | `history-list.tsx`: ayrı "Kayıt" sütunu kaldırıldı, `RecMark` Süre hücresinde. `p8-history.spec.ts:274` hsa/hadm/hu için kap `scrollWidth - clientWidth <= 0` ve tek satır yüksekliği assert ediyor. Yerelde desktop ve CI'da yeşil                                                 |
+| Y-1 müşteri şeridi kontrastı   | ✅    | `share-strip.tsx` `text-control-frame` → `text-danger`. e2e `scanThemes` (html sınıfıyla açık/koyu zorlanıyor, `--rs-fg` ile etkin tema doğrulanıyor), şeridi paylaşım öncesi, paylaşılıyor ve duraklatıldı durumlarında axe'tan geçiriyor (`p28e-recording.spec.ts:361, 366, 433`) |
+| Y-2 konsol rozeti kontrastı    | ✅    | `rec-indicator.tsx` → `text-danger`; `scanThemes(page, '[data-testid="rec-console"]')` (`:362`)                                                                                                                                                                                     |
+| O-1 Kaydı izle 401             | ✅    | `useWatch` `isUnauthenticated` → `router.replace(EXPIRED_LOGIN_PATH)`; e2e "K10 O-1" (`:174`)                                                                                                                                                                                       |
+| D-1 saklama süresi doğrulaması | ✅    | Kodda değişiklik yok, test operatörünün gözlemi yeniden üretilemedi. Regresyon testi "K10 D-1" (`:100`) boş/0/-5/91 → `aria-invalid` + `aria-describedby`, PUT gitmiyor. Desktop + mobil yeşil                                                                                      |
+| D-2 meta 403/404 nedeni        | ✅    | `Meta` `missing{status}`, `rec-missing` (`Info`, `role=status`), `hr.missing` / `hr.forbidden`; e2e "K10 D-2" (`:195`)                                                                                                                                                              |
+| D-3 500'de genel metin         | ✅    | `toUiError` 500 → `err.generic` + `requestId`; `byStatus` önce. Birim `error-message.test.ts` (+2), e2e "K10 O-1" 500 ayağı                                                                                                                                                         |
+| D-P28e-K3-1 webm `p = 0`       | ✅    | `checkWebmHeader` geçerli `Tracks` sonrası gövdeyi `scanEmbedded` (aynı bütçe) ile tarıyor. Testler: eklenmiş ses izli WebM → ret, 2 MiB ebml/tracks deseni < 200 ms ret, gerçek Chromium p0 kabul                                                                                  |
+
+**Sapma değerlendirmesi (mimari-p28e §9 "Kayıt sütunu" → Süre hücresinde işaret):** Kabul. Bilgi kaybı yok: işaret 1280 px'te görünür, `role=img` + `aria-label="Kayıtlı"` ile erişilebilir. Kartta durum rozetinin yanında duruyor ve "Kayıtlı" süzgeci değişmedi. Tek yol/tek ekran ilkesiyle çelişmiyor: ek etkileşim ya da açılış yoluna göre değişen davranış yok. Gerekçe (53 px kazanç ölçümü, yalnız-ikon başlık alternatifinin yetmemesi) `implementation.md` "P28e K10 düzeltme" ve DESIGN.md §ikonlar'da yazılı. `mimari-p28e.md` §9 metni güncellenmemiş (öneri).
+
+## Kabul kriterleri
+
+| AC     | Durum | Kanıt                                                                                                                          |
+| ------ | ----- | ------------------------------------------------------------------------------------------------------------------------------ |
+| AC-380 | ✅    | Tur 1/2; ayar e2e'leri tur 4'te desktop + mobil yeşil                                                                          |
+| AC-381 | ✅    | Tur 1/2; e2e "AC-381/384 rıza işaretlenmezse kayıt yok" (desktop) yeşil                                                        |
+| AC-382 | ✅    | Tur 2; gösterge rengi değişti, iki temada axe ile kontrast kanıtlı (Y-1/Y-2). "AC-382/383" ve "S-P28e-2 2000 ms" desktop yeşil |
+| AC-383 | ✅    | Tur 1; "AC-382/383" e2e yeşil; `p = 0` taraması gerçek Chromium p0'ı kabul ediyor (yanlış pozitif yok)                         |
+| AC-384 | ✅    | Tur 2; e2e "AC-384 kota" desktop yeşil                                                                                         |
+| AC-385 | ✅    | e2e "liste 'Kayıt' işareti + 'Kayıtlı' süzgeci" (işaret yeni yerinde, `history-rec` ×2) desktop + mobil                        |
+| AC-386 | ✅    | Tur 1; meta, sil ve izle e2e'leri + K10 D-2 yeşil                                                                              |
+| AC-387 | ✅    | Tur 3 (bu aralıkta ilgili kod değişmedi); CI `test (MySQL 8.4)` yeşil                                                          |
+| AC-388 | ✅    | Tur 1; CI yeşil                                                                                                                |
+| AC-447 | ✅    | Tur 2/3; CI `test (MySQL 8.4)` yeşil; ayar e2e yeşil                                                                           |
+| AC-448 | ✅    | Tur 3; CI yeşil                                                                                                                |
+| AC-449 | ✅    | Tur 1/3; CI yeşil                                                                                                              |
+| AC-450 | ✅    | e2e "izleme yetkisi yoksa 'Kaydı izle' ve 'Kaydı sil' yok", "Kaydı izle: … indirme yok, 429" (desktop) yeşil                   |
+
+## Düzeltilmeli
+
+Yok.
+
+**Elle, kullanıcıda (QA kapsamı dışı, tur 1/2 listesi aynen geçerli):** runbook §28e Windows turu, 6+ dk arka plan sekmesi, 1 sa ≤ 1 GB, Firefox/Edge, staging uçtan uca.
+
+## Definition of Done
+
+| Madde                                      | Durum | Not                                                                                                                                                                                                                  |
+| ------------------------------------------ | ----- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1. AC'ler testle kanıtlı, testler yeşil    | ✅    | 13/13 AC ✅. Yerel web unit ve hedefli e2e yeşil; CI iki koşu `success`                                                                                                                                              |
+| 2. Lint/format/type-check temiz            | ✅    | CI `lint + type-check` pass; implementation.md `prettier --check` temiz bildiriyor                                                                                                                                   |
+| 3. qa GEÇTİ; güvenlik Kritik/Yüksek 0      | ✅    | Güvenlik kod turu 4 (HEAD `dd8a692`): K0 / Y0 / O0 / D0                                                                                                                                                              |
+| 4. test-operatoru taraması                 | —     | K10 yapıldı, bulguları bu turda kapandı. K10 raporunda koşulmamış regresyon setleri (`p17-console`, `p28u-unattended`, `unattended`) CI `web e2e` içinde yeşil. İsteğe bağlı K10 doğrulama turu koordinatörün kararı |
+| 5. Migration geri alınabilir, seed güncel  | ✅    | Bu aralıkta şema değişikliği yok                                                                                                                                                                                     |
+| 6. Dokümantasyon güncel                    | ✅    | DESIGN.md §ikonlar güncel, `tr.json` (`h.col.rec` silindi; `hr.missing`, `hr.forbidden` eklendi). API/ws/contracts değişmedi                                                                                         |
+| 7. Sapmalar implementation.md'de gerekçeli | ✅    | "P28e K10 düzeltme": Süre hücresi sapması, D-1 yeniden üretilemedi notu, D-K2-2 kalıntısı (c) kapandı. Yeni bağımlılık yok                                                                                           |
+
+## Öneriler (zorunlu değil)
+
+- [mimar] `docs/mimari-p28e.md` §9: "Kayıt sütunu" ifadesini "Süre hücresinde kayıt işareti (tabloda), kartta durum rozeti yanında" olarak güncelle; tasarım ile kod birebir kalsın.
+- `rec-missing` 403 metni ile `!r.canView` durumundaki `hr.noPerm` metni aynı anda görünebilir (izleme yetkisi yok + meta 403). Bu durumda iki yetki cümlesi art arda çıkar. Tek cümleye indirmek düşünülebilir.
+- Tur 2/3 önerileri (AC-448 politika etiketi testi, `freeRatioOverride` izlemesi, çok örnekli dağıtımda `tails`) açık.
+
+## Olumlu
+
+- Kontrast düzeltmesi, eski renge geri dönüldüğünde kırmızıya düşen (doğrulanmış) iki temalı axe testiyle korunuyor. Tema `html` sınıfıyla zorlanıyor ve etkin token ölçülüyor; "Sistem" temasındaki yanıltıcı yeşil önlenmiş.
+- 1280 px düzeltmesi ölçümle seçilmiş (53 px kazanç; alternatifin 21 px ile yetmediği yazılı).
+- D-3, `byStatus` önceliğini ve 4xx davranışını koruyan dar bir savunma katmanı; birim testli.
+
+---
+
 # QA Raporu — P28e Tur 3
 
 DURUM: DÜZELTİLMELİ

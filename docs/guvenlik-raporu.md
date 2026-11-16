@@ -1,3 +1,64 @@
+# Güvenlik Raporu — P28e kod turu 4 (tur 3 düzeltmesi doğrulaması, dal p28e, HEAD dd8a692, 2026-11-16)
+
+DURUM: GEÇTİ — Kritik 0 / Yüksek 0 / Orta 0 / Düşük 0 (yeni) + kabul edilmiş kalıntılar
+
+Kapsam: `git diff e911537..dd8a692 -- apps/server apps/web/lib/error-message.ts apps/web/app/(panel)/history/[id]/recording.tsx`
+(`apps/server/src/rec/webm.ts`, `test/unit/rec-webm-dos.test.ts`, `error-message.ts`, `recording.tsx`). Koşulanlar:
+`pnpm --filter @remote/server exec vitest run test/unit/rec-webm` → 2 dosya / 30 test geçti; tur 3 kanıt betikleri (`p0.ts`, `k3.ts`,
+`fx.ts`) ve bu tur için `k4.ts` / `k4b.ts` (scratchpad
+`/private/tmp/claude-501/-Users-mennan-Projeler-Remote/fa15848a-dcdd-4f1b-abf9-1c72703d5eac/scratchpad/`).
+
+## Bulgular (öncelik sırasıyla)
+
+Yeni bulgu yok.
+
+## Kapananlar
+
+| No                    | Durum   | Kanıt                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
+| --------------------- | ------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| D-P28e-K3-1           | Kapandı | webm.ts:106-110 (tarama çağrısı :109): `checkTracks` `ok` ise `scanEmbedded(b.subarray(e.data + e.size), 0)` — `p > 0` ile aynı fonksiyon, aynı `SCAN_ELEMENTS`/`SCAN_CHILDREN` bütçesi; meşru `Tracks` taranan aralığın dışında. `p0.ts` (video başlığı + ardına ses izli WebM) artık `{ok:false, reason:"ebml"}`; video + ikinci video WebM de ret. Gerçek Chromium `p0.webm` kabul (`fx.ts`: p0 / p1+kuyruk / p3+kuyruk `ok`). Birim testleri (ret + 2 MiB desen < 200 ms + yanlış pozitif yok) eklendi |
+| O-1 (web, kayıt izle) | Kapandı | recording.tsx `useWatch`: `isUnauthenticated(e)` → `router.replace(EXPIRED_LOGIN_PATH)`; hedef sabit `"/login?reason=expired"` (lib/api.ts:26), kullanıcı girdisi/`next` parametresi yok → açık yönlendirme yok. `isUnauthenticated` 401 `MFA_STEP_UP_REQUIRED`'ı hariç tutar (step-up iptali girişe atmaz)                                                                                                                                                                                                |
+| D-3 (web, 500 metni)  | Kapandı | error-message.ts:24-25 (koşul :25): 500'de `t("err.generic")` + yalnız `requestId`; `code`/`message`/`fields` gösterilmez. Sunucu tarafı zaten 500'de genel metin döner (apps/server/src/lib/errors.ts:106 `setErrorHandler`); bu değişiklik derinlemesine savunma. JSON olmayan 502/503 gövdesinde `message` boş → genel metin (api.ts:153). Çağıranın `byStatus[500]` eşlemesi kendi sabit metnidir, sızıntı değil                                                                                       |
+
+## Doğrusallık ölçümü — `p = 0` (geçerli video başlığı + 2 MiB kötü niyetli gövde, `checkWebmHeader`, ısınma + en iyi 15, Node 24, yerel)
+
+Betik: `k4.ts`. `p > 0` ölçümleriyle (tur 3 `k3.ts`, bu tur yeniden koşuldu: çıplak EBML/Tracks 16,4 / 16,3 ms) aynı sınıf.
+
+| Desen                                        | Süre                | Karar    |
+| -------------------------------------------- | ------------------- | -------- |
+| Çıplak EBML sihri, boyut 0x00 (en kötü sayı) | 17,0 ms             | kabul    |
+| Çıplak Tracks sihri                          | 16,3 ms             | kabul    |
+| EBML + 1 baytlık bilinmeyen boyut            | 16,5 ms             | kabul    |
+| Örtüşen sihir zinciri                        | 12,8 ms             | kabul    |
+| EBML boyut 0 (0x80), yoğun                   | 0,2 ms              | ret      |
+| Rastgele bayt                                | 0,3 ms              | kabul    |
+| Ölçek: 0,5 / 1 / 2 MiB (çıplak EBML)         | 3,7 / 7,2 / 14,8 ms | doğrusal |
+
+Sonuç: tarama `p = 0`'da da O(n + 4096), 2 MiB üst sınırda (`REC_PART_MAX_BYTES`) ~15-17 ms; birim testindeki 200 ms eşiğinin çok altında.
+
+## Bilgi (bulgu değil, kabul edilmiş kalıntı sınıfı)
+
+- `Tracks`'tan **önce** bir Segment çocuğuna (ör. `Void` 0xEC) gömülü ikinci WebM taranmaz: `k4b.ts` → `{ ok: true }`. Demuxer'lar
+  `Void` içeriğini atlar; oynatılabilir iz bildirimi oluşmaz. Bu, implementation.md'deki "yapısız opak bayt tam engellenmez" kalıntısıyla aynı
+  sınıftır (yetkili teknisyen, kota içinde, sunucu kareleri çözmez). İstenirse tarama başlangıcı `seg.data`'ya çekilip meşru `Tracks` aralığı
+  hariç tutulabilir; gereksinimler §9 "Sonra" adayı. (atanan ajan: backend-dev)
+
+## Otomatik tarama çıktıları
+
+Bu tur dar kapsam; bağımlılık değişikliği yok (`package.json`/lockfile diff'te yok). Tur 3 çıktıları geçerli.
+
+## Tasarımda vaat edilip kodda bulunmayanlar
+
+Yok (kapsam dahilinde).
+
+## Olumlu
+
+- Tek tarama fonksiyonu (`scanEmbedded`) `p = 0` ve `p > 0` için paylaşılıyor; bütçe/kuyruk mantığı kopyalanmadı.
+- `checkWebmContinuation`'da tarama, `requireCluster` denetiminden önce koşuyor; davranış değişmedi (tur 3 testleri yeşil).
+- 401 yönlendirmesi tek sabit üzerinden; meta 403/404 artık sessizce gizlenmiyor, neden metniyle gösteriliyor (sunucu bilgisi içermez).
+
+---
+
 # Güvenlik Raporu — P28e kod turu 3 (tur 2 düzeltmesi doğrulaması, dal p28e, HEAD e911537, 2026-11-16)
 
 DURUM: GEÇTİ — Kritik 0 / Yüksek 0 / Orta 0 / Düşük 1 (yeni) + kabul edilmiş kalıntılar
