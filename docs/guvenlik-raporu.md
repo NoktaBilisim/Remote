@@ -1,3 +1,74 @@
+# Güvenlik Raporu — P28e kod turu 2 (K9 düzeltme 1 doğrulaması, dal p28e, HEAD 265a928, 2026-11-16)
+
+DURUM: DÜZELTİLMELİ — Kritik 0 / Yüksek 1 / Orta 0 / Düşük 1
+
+Kapsam: `git diff 0bceec7..265a928` — `rec/accept.ts`, `rec/webm.ts`, `rec/routes.ts`, `signaling/rec.ts`, `contracts/api/recording.ts`,
+`web/messages/tr.json`, kılavuz/DATASHEET/README kayıt beyanları ve yeni testler. Birim testleri koşuldu (server `rec-webm-k3`,
+`rec-signaling-k4`: 30/30; contracts `rec-p28e`: 18/18). Entegrasyon testleri (K1-3 chunked, `rec-p28e-unattended`) okundu, koşulmadı (disk).
+
+## Bulgular (öncelik sırasıyla)
+
+### [YÜKSEK] Y-P28e-K2-1 Gömülü EBML/Tracks taraması karesel (O(n²)) — tek PUT sunucu sürecini dakikalarca kilitler — A04/DoS (K1-2 düzeltmesiyle geldi)
+
+Yer: apps/server/src/rec/webm.ts:115-128 (`anyAt` her sihir eşleşmesinde `children(b, e.data, e.data + e.size)` ile tamponun geri kalanını
+yürür), :136-137; apps/server/src/rec/service.ts:360 (`acceptPart` içerik denetimi eşzamanlı, `partExists`'ten ÖNCE).
+Sorun: Her `1A45DFA3`/`1654AE6B` eşleşmesi için çocuk ayrıştırması sınırsız; eşleşme sayısı ve toplam element sayısı için bütçe yok.
+Kanıt (scratchpad betiği; 10 baytlık birim `EC 88 1A45DFA3 1xxxxxxx` = Void içinde sihir + tamponun sonuna dek boyut, çocuklar yine
+geçerli Void zinciri): 50 kB 124 ms, 100 kB 425 ms, 200 kB 1,6 sn, 400 kB 7,2 sn, 800 kB **37 sn**; 2 MiB (izinli üst sınır) tahmini
+3–5 dk. Sonuç `{ok:true}` — gövde geçerli sayılıyor. Denetim Node olay döngüsünde; API + WS sinyalleşme aynı süreç (app.ts `attachSignaling`)
+→ tüm firmalar etkilenir.
+İstismar: `rec.record` yetkili, aktif kayıtlı oturumdaki teknisyen (değiştirilmiş konsol) daha önce kabul edilmiş bir `(s,p)`'yi hazırlanmış
+gövdeyle yeniden PUT eder: `precheck` `dup`'ta null döner (service.ts:351), gövde okunur, karesel tarama koşar, sonra `dup` → yazma/kota/oran
+tüketimi ve `invalid` durdurması yok. PutGate (tek uçuş, 30/dk, semafor 32) eşzamanlı CPU'yu sınırlamaz → dakikada 30 × dakikalar süren
+kilit; sunucu fiilen kapanır.
+Düzeltme: (1) Tarama doğrusal olmalı: eşleşme başına yalnız sabit sayıda çocuk oku (ör. EBML başlığı için ilk ≤ 8 çocuk / ≤ 64 bayt,
+Tracks için ilk çocuk `TrackEntry` mi) ya da toplam ayrıştırılan element/eşleşme için bütçe koy (ör. ≤ 256 doğrulanmış eşleşme; aşılırsa
+**ret**, fail-closed). (2) `acceptPart`'ta `partExists` (dup) denetimini içerik denetiminden önce yap. (3) Birim testi: yukarıdaki 2 MiB
+desen < 50 ms'de karar verir. (atanan ajan: backend-dev)
+
+### [DÜŞÜK] D-P28e-K2-2 Gömülü başlık parça sınırında bölünürse tarama atlanır (K1-2 kalıntısı) — A04
+
+Yer: apps/server/src/rec/webm.ts:118 (`e.data + e.size <= b.length` olmayan eşleşme yok sayılır)
+Sorun: Parça sonuna yerleştirilip kesilen gömülü EBML başlığı `{ok:true}` döner (scratchpad denemesi `hdr-straddle`); kalanı sonraki parçanın
+başına konur (ilk 4 bayt sihir değil → geçer). Birleştirilmiş akışta tam ikinci başlık oluşur. Sunucu kareleri çözmediğinden "ses saklanmaz"
+kötü niyetli kaydediciye karşı tam zorlanamıyor; webm.ts:134 yorumu bunu zaten kabul ediyor. Etki: yalnız yetkili teknisyen, kota içinde → Düşük.
+Düzeltme: Bölüm başına önceki parçanın son ~64 baytını bellekte tutup yeni parçanın başıyla birlikte tara; ya da gereksinimler §9 "Sonra"
+
+- kılavuzda "ses kaydedilmez" ifadesini "kayıt programı ses almaz" biçiminde davranış beyanı olarak bırak. (backend-dev)
+
+## Tur 1 bulgularının kapanışı
+
+| No          | Durum                                                        | Kanıt                                                                                                                                                                                                                                                                                                          |
+| ----------- | ------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| D-P28e-K1-1 | Kapandı                                                      | signaling/rec.ts:72 `sourceGone.next` artık ilerlemiyor; accept.ts:61-67 tek parça + ofset ≤ kopma + `REC_STOP_OFFSET_SLACK_MS`. Testler: signaling-k4 "next ilerlemez", webm-k3 "ikinci parça nosource, aynı parça dup", ofset 15 > 13 sn → nosource                                                          |
+| D-P28e-K1-2 | Daraltıldı, kalıntı → K2-2; düzeltme yeni Yüksek açtı → K2-1 | webm.ts:124-137 gömülü DocType'lı EBML / TrackEntry'li Tracks reddi; gerçek Chromium fikstürleri yanlış pozitif yok (p>0 element ortasından başlıyor → `REC_REQUIRE_CLUSTER_START=false` gerekçeli). Testler yalnız iyi biçimli gömülü yükü ve çıplak sihri kapsıyor; sınırda bölünme ve karmaşıklık testi yok |
+| D-P28e-K1-3 | Kapandı                                                      | recording.ts `content-length` 1..2097152 zorunlu, `transfer-encoding` yasak; routes.ts:117 `onRequest`'te (gövde öncesi) doğrulanıyor, `precheck` şemadan gelen değeri kullanıyor. Testler: contracts şema sınırları; entegrasyon chunked → 400 VALIDATION, parça satırı 0                                     |
+| D-P28e-K1-4 | Kapandı                                                      | tr.json `rset.subtitle`, `hr.noDownload` → "indirme düğmesi ve ucu yoktur; her izleme kayıt altına alınır"; kılavuz :3177/:3184, DATASHEET :55-56, README :272 aynı dil ve "başka programla kaydedilmesi engellenemez" uyarısı. Web testi "mutlak 'indirilemez' yok"                                           |
+
+## Beyan denetimi (mutlak iddia)
+
+- `g.footer` "Ekranınız yalnız izin verirseniz kaydedilir": yalnız `apps/web/app/session/guest-ui.tsx:45` (katılımlı misafir sayfası; rıza
+  kutusu zorunlu) — doğru. Gözetimsiz politika kaydı bu sayfada gösterilmiyor; kılavuz :3172 ayrımı açık yazıyor.
+- "İndirilemez" kalmadı. "Ses kaydedilmez" (tr.json :2378/:2390, kılavuz :3174, DATASHEET :51, README :270): dürüst istemci için doğru
+  davranış beyanı; kötü niyetli kaydediciye karşı tam teknik garanti değil (K2-2). Değiştirilmesi zorunlu değil, K2-2 ile birlikte ele alınmalı.
+
+## Otomatik tarama çıktıları
+
+- `pnpm audit --audit-level=moderate`: No known vulnerabilities found.
+- Gizli bilgi grep (diff 0bceec7..265a928): eşleşme yok. Aralıkta `.env*` commit'i yok.
+
+## Tasarımda vaat edilip kodda bulunmayanlar
+
+- S-P28e-7 içerik sınırı: Cluster başlangıcı ölçümle gerekçeli kapalı; yerine gelen tarama doğrusal değil (K2-1) ve sınır bölünmesine açık (K2-2).
+
+## Olumlu
+
+K1-1 düzeltmesi durma payı kuralıyla aynı biçimde (tek parça + ofset); K1-3 gövde okunmadan şemayla reddediliyor ve gerçek soket üzerinden
+chunked testi var; gerçek Chromium fikstürleriyle yanlış pozitif ölçülmüş; metin değişiklikleri tüm yüzeylerde (UI, kılavuz, DATASHEET,
+README, PDF) tutarlı ve testle korunuyor.
+
+---
+
 # Güvenlik Raporu — P28e kod turu 1 (K3–K8, dal p28e, HEAD 7c7b9dd, 2026-11-16)
 
 DURUM: GEÇTİ — Kritik 0 / Yüksek 0 / Orta 0 / Düşük 4

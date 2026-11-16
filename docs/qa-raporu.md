@@ -1,3 +1,104 @@
+# QA Raporu — P28e Tur 2
+
+DURUM: DÜZELTİLMELİ
+
+Tarih: 2026-11-16 · Dal `p28e`, HEAD `265a928` (PR #17). Kapsam: tur 1 madde 1–6 ve ⚠️ AC'ler (382, 384, 387, 447, 448) kapanışı;
+`git diff 0bceec7..265a928`, `docs/implementation.md` "P28e düzeltme turu 1" (sunucu + web). Kod değiştirilmedi.
+
+**Özet:** QA tur 1'in altı maddesinden beşi kapandı. Kapananlar: kova testi deterministik oldu, gözetimsiz zincir entegrasyonu eklendi,
+AC-447 a/b/c testleri yazıldı, AC-384 konsol uyarısı ve AC-382 süre ölçümü testlendi. Tüm AC'ler ✅, yerel hedefli koşular yeşil.
+DÜZELTİLMELİ olmasının nedenleri QA kodu değil:
+
+1. Güvenlik kod turu 2'de **Yüksek 1** var (Y-P28e-K2-1, K1-2 düzeltmesiyle gelen O(n²) tarama DoS). DoD 3 karşılanmıyor.
+2. CI'da `test (MySQL 8.4)` ve `web e2e` hâlâ pending (madde 6 açık).
+
+## Test sonucu
+
+| Komut                                                                                                                                                                                                                              | Sonuç                                                                                                                                                                                                                                             |
+| ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Sunucu (geçici `rs-mysql-qa28e2:33346`, iki koşu, ikisinde de sonunda `down`; `rs-mysql-test`'e dokunulmadı): `vitest run --reporter=verbose` integration/{rec*, unattended*, retention*, settings*, tenant-isolation} + unit/rec* | 27 dosya / 240 test: **240 geçti**, 0 kırmızı, 0 skip (iki koşuda da). Yeni `rec-p28e-unattended` 9/9; "S-P28e-3 izleme kovası (sahte saat)" ve "D-P28e-K1-3" yeşil                                                                               |
+| Go `golang:1.26` (repo kökü bağlı): `go test ./internal/... -run 'AC38\|AC44\|SP28e' -v`                                                                                                                                           | 46 PASS, tüm paketler `ok` (Go kodu bu aralıkta değişmedi)                                                                                                                                                                                        |
+| Web `playwright test p28e`                                                                                                                                                                                                         | 16 geçti, 6 atlandı (`[mobile]` `desktopOnly`, tur 1'deki gerekçeyle), 0 kırmızı                                                                                                                                                                  |
+| Web `vitest run lib/rec`                                                                                                                                                                                                           | 19/19 geçti                                                                                                                                                                                                                                       |
+| `gh pr checks 17` (HEAD 265a928)                                                                                                                                                                                                   | build, lint+type-check, shellcheck/actionlint, gitleaks/lisans, Go vet/race/govulncheck, go test (Windows), coturn, build 1/2–2/2 **pass**; `test (MySQL 8.4)`, `web e2e` **pending**; release/imza işleri `skipping` (etiket/onay işi, beklenen) |
+
+Lint ve typecheck yerelde koşulmadı. CI'daki "lint + type-check" işi pass.
+
+## Tur 1 maddelerinin kapanışı
+
+| #                          | Durum                   | Kanıt                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| -------------------------- | ----------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1 Kova testi kararsız      | ✅                      | `rec-p28e-k3.test.ts:500-515`: `vi.spyOn(clock,"now")` ile saat donduruluyor. 126×200 → 429, `Retry-After = ceil(60/24) = 3`. +2,6 sn sonra 1 jeton → 200, ardından tekrar 429. `finally` içinde `mockRestore` var.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| 2 AC-387/448 gerçek zincir | ✅                      | `rec-p28e-unattended.test.ts`: `POST connect` → cihaz WS (`record1`) → teknisyen WS → yardımcı admit. Üç kip × politika kapalı/açık senaryoları kapsanıyor: satır/audit/`connect.recording`/`rec.state`/RECORDING rızası. Eski cihaz durumu da var (`device_outdated` ve `recordOutdated`).                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| 3 AC-447 a/b/c             | ✅ (gerekçeli sapma)    | Aynı dosyada "AC-447 ana anahtar kapanınca…": GET `unattendedEnabled:false`, kayıt `STOPPED/POLICY_OFF`, iki tarafa `rec.state{off}`. Audit eski→yeni `unattendedEnabled` iki yönde doğrulanıyor. `recording_policy` e-postası iki yönde diğer yöneticiye gidiyor, değiştirene gitmiyor, notify audit'inde adres maskeli. Tek yöneticide e-postanın değiştirene gitmesi mimari-p28e.md:517-518'e uygun ("küme boşsa değiştiren + etkin Admin'ler"). Tur 1'deki "tek yöneticide gönderilmez" ifadesi tasarıma aykırıydı; sapma kabul edildi. `enabled:false ∧ unattendedEnabled:true` gövdesini zod şeması zaten reddediyor (`recording.ts:190`), bu yüzden testin iki alanı da false göndermesi doğru sözleşme.                                             |
+| 4 AC-384 konsol uyarısı    | ✅                      | e2e "AC-384: kayıt sürerken kota dolunca…" doğruluyor: metin, `role=status`, `bg-warning-surface`, `rec-console-on` yok, misafirde `data-reason=quota`, kaydedici durdu, bir parça süresinden uzun pencerede yeni PUT yok. Birim test "AC-384: parça PUT 409 STORAGE_QUOTA → kaydedici durur, yeniden başlamaz".                                                                                                                                                                                                                                                                                                                                                                                                                                            |
+| 5 AC-382 ≤ 2 sn            | ✅ (gerekçeli tolerans) | Onaylı yol katı ölçülüyor: tıklama → `rec-guest-off` ≤ 2000 ms (sayfa içi `performance.now`). Konsolda `MediaRecorder.stop` anı tıklamadan itibaren ≤ 2000 ms, sonrasında yükleme yok. Onaysız yolda bekleme 1950–2500 ms. **Değerlendirme:** kabul. AC-382'deki "kayıt ≤ 2 sn'de durur" ölçütü mimari-p28e.md:332'de "müşteri tıklamasından konsol kaydedicisinin durmasına" olarak tanımlı ve katı biçimde kanıtlı. Onaysız yol S-P28e-2'nin güvenlik ağıdır: bağlantı kopuk olduğu için kaydedici zaten parça gönderemez ve 2000 ms zamanlayıcısı yapı gereği ≥ 2000 ms sürer. Alt sınır zamanlayıcıyı sabitliyor, +500 ms üst sınır işleme payı. Birim testte de sahte saatle "AC-382: rec.state{off, revoked} → kaydedici 2000 ms sınırı içinde…" var. |
+| 6 CI yeşil                 | ❌ açık                 | `test (MySQL 8.4)` ve `web e2e` pending. Önceki pending işlerden `go test (Windows)` ve `coturn` artık pass.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
+
+## Kabul kriterleri
+
+| AC     | Durum | Kanıt (tur 2 eklemeleri; tur 1 kanıtları geçerli)                                                                                                                                                                        |
+| ------ | ----- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| AC-380 | ✅    | Tur 1                                                                                                                                                                                                                    |
+| AC-381 | ✅    | Tur 1 + "AC-381/384: rıza işaretlenmezse kayıt yok; teklif yoksa… kutu yok"                                                                                                                                              |
+| AC-382 | ✅    | e2e "AC-382/383: … Kaydı durdur ≤ 2 sn", "AC-382 / S-P28e-2: … 2000 ms'de duraklar"; birim "AC-382: rec.state{off, revoked} → kaydedici 2000 ms…"; Go `TestAC382IndicatorAndStop`, `TestSP28e2PauseWithoutAckThenResume` |
+| AC-383 | ✅    | Tur 1                                                                                                                                                                                                                    |
+| AC-384 | ✅    | e2e "AC-384: kayıt sürerken kota dolunca konsolda…"; birim "AC-384: parça PUT 409…"; sunucu "AC-384 kota doluyken 409…". 1 GB/sa ölçümü elle yapılacak                                                                   |
+| AC-385 | ✅    | Tur 1                                                                                                                                                                                                                    |
+| AC-386 | ✅    | Tur 1                                                                                                                                                                                                                    |
+| AC-387 | ✅    | `rec-p28e-unattended` "AC-387 politika kapalı (asked / no_user / silent)…"                                                                                                                                               |
+| AC-388 | ✅    | Tur 1                                                                                                                                                                                                                    |
+| AC-447 | ✅    | `rec-p28e-unattended` "AC-447 ana anahtar kapanınca…", "AC-447 tek yönetici…"; `rec-p28e-k3` step-up/kutu; e2e ayar ekranı                                                                                               |
+| AC-448 | ✅    | `rec-p28e-unattended` "AC-448 politika açık (asked / no_user / silent)…", "AC-448 … cihaz eski…"; Go AC448 testleri. Konsolda "Kayıt yapılıyor", ortak `rec-indicator` yolunda e2e ile kanıtlı (bkz. Öneriler)           |
+| AC-449 | ✅    | Tur 1                                                                                                                                                                                                                    |
+| AC-450 | ✅    | Tur 1                                                                                                                                                                                                                    |
+
+## Düzeltilmeli
+
+1. [backend-dev] `apps/server/src/rec/webm.ts:115-137` ve `apps/server/src/rec/service.ts:351-360`: `docs/guvenlik-raporu.md` kod turu 2'deki Y-P28e-K2-1 (O(n²) gömülü EBML/Tracks taraması, 2 MiB gövde dakikalarca olay döngüsünü kilitliyor). Raporun düzeltme adımları uygulanmalı:
+   - doğrusal ya da bütçeli tarama, bütçe aşılırsa fail-closed ret;
+   - `partExists` (dup) denetimi içerik denetiminden önce;
+   - 2 MiB kötü desenin < 50 ms'de karar verdiğini gösteren birim testi.
+
+   Gerçek Chromium fikstürleri (`test/fixtures/rec-chromium/`) yanlış pozitif vermemeye devam etmeli.
+
+2. [koordinatör] PR #17'de madde 1 sonrası yeni HEAD'de `test (MySQL 8.4)` ve `web e2e` dahil tüm CI işleri yeşil görülmeli. Bundan sonra QA tur 3 yalnız madde 1'in testini ve CI'yı doğrular.
+
+**Elle, kullanıcıda (tek başına DÜZELTİLMELİ nedeni değil):** tur 1 listesi aynen geçerli. Kapsamı:
+
+- runbook §28e Windows turu: rıza kutusu, gösterge, Kaydı durdur, üst şerit, `asked` diyaloğundaki kayıt satırı, `silent` eki, yerel anahtar;
+- konsol sekmesi 6+ dk arka planda;
+- 1 sa ≤ 1 GB;
+- Firefox/Edge kayıt, oynatma ve seek;
+- staging'de uçtan uca kayıt → izle → sil.
+
+## Definition of Done
+
+| Madde                                      | Durum      | Not                                                                                                                                                                                                                                                          |
+| ------------------------------------------ | ---------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| 1. AC'ler testle kanıtlı, testler yeşil    | ✅ (yerel) | 13/13 AC ✅. Hedefli koşular yeşil; CI'daki iki iş pending                                                                                                                                                                                                   |
+| 2. Lint/format/type-check temiz            | ✅         | CI "lint + type-check" pass                                                                                                                                                                                                                                  |
+| 3. qa GEÇTİ; güvenlik Kritik/Yüksek 0      | ❌         | Güvenlik kod turu 2: K0 / **Y1** / O0 / D1 (Y-P28e-K2-1)                                                                                                                                                                                                     |
+| 4. test-operatoru taraması                 | —          | K10, qa GEÇTİ sonrası                                                                                                                                                                                                                                        |
+| 5. Migration geri alınabilir, seed güncel  | ✅         | Tur 1; bu aralıkta değişiklik yok                                                                                                                                                                                                                            |
+| 6. Dokümantasyon güncel                    | ✅         | CHANGELOG "P28e oturum kaydı 0.16.0", `api.md` "Oturum kaydı (P28e)" (Content-Length zorunlu, chunked 400), KULLANIM_KILAVUZU + DATASHEET + PDF'ler güncel. Kayıtla ilgili mutlak "indirilemez" yok (`KULLANIM_KILAVUZU.md:1585` yazdırma belgesiyle ilgili) |
+| 7. Sapmalar implementation.md'de gerekçeli | ✅         | QA3 tek yönetici (mimari §11.5 ile uyumlu), onaysız yol toleransı, `freeRatioOverride`, PUT 409 yolunun e2e yerine birim testte sınanması, Content-Length için 400 `VALIDATION` (411 yerine)                                                                 |
+
+## Öneriler (zorunlu değil)
+
+- AC-448: konsoldaki politika etiketi (`rec-indicator.tsx:38-44`, `data-basis=tenant_policy` → "rec.c.policy") için web testi yok. AC metnindeki "konsolda Kayıt yapılıyor" koşulu ortak gösterge yolunda kanıtlı, ama etiket dalı için tek satırlık bir e2e/birim testi eklenmesi iyi olur.
+- `rec-p28e-unattended`, disk %10 kuralını `freeRatioOverride = 0.5` ile atlıyor. Gerçek `freeRatio` okuyan diğer testler dolu diskte kota yoluna düşebilir. CI'da izlenmeli.
+- Güvenlik D-P28e-K2-2 (parça sınırında bölünen gömülü başlık): Düşük, backend-dev ile birlikte ele alınabilir.
+
+## Olumlu
+
+- Yeni gözetimsiz entegrasyon testi gerçek zincirden geçiyor ve kontrol listesi kapsamlı: satır, audit, WS, rıza tablosu, e-posta ve maske.
+- AC-382 ölçümü Playwright yoklama gecikmesinden bağımsız, sayfa içi `performance.now` + `MutationObserver` ile yapılmış.
+- Chromium parça sınırı ölçümü (element ortasından başlama) gerçek fikstürlerle belgelenmiş ve testlenmiş.
+- p18/`check-retire` yalıtım sızıntısı kök nedeniyle bulunup düzeltilmiş.
+
+---
+
 # QA Raporu — P28e Tur 1
 
 DURUM: DÜZELTİLMELİ
