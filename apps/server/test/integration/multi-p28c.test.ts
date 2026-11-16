@@ -30,6 +30,8 @@ afterAll(async () => {
 });
 
 const STAT = { avg: 1, min: 1, max: 1 };
+/** Devir hedefinin sahip koltuğu koşulu (D-PC-K4: `POST /sessions` ile aynı yetki). */
+const TARGET_PERMS = { "sessions.create": true, "sessions.invite": true };
 const room = (id: string) => {
   const r = live.app.rooms.get(id);
   if (!r) throw new Error("oda yok");
@@ -344,7 +346,8 @@ describe("P28c AC-372 eski istemci", () => {
 describe("P28c oturum devri ve bitiş (AC-369)", () => {
   it("AC-369: session.transfer → technician_id değişir, eski sahip katılımcı; sahip kopunca 120 sn sonra tüm üyeler session.ended", async () => {
     const o = await ownerWithGuest(live);
-    const m = await inviteAndJoin(live, o, { ...MEMBER_PERMS, "sessions.invite": true, "session_history.view": true });
+    // D-PC-K4: devir hedefi sahip koltuğu için `sessions.create` taşır (TX içinde yeniden okunur)
+    const m = await inviteAndJoin(live, o, { ...MEMBER_PERMS, ...TARGET_PERMS, "session_history.view": true });
     o.ws.send({ t: "session.transfer", to: m.hello.tid });
     const r = techsRosterSchema.parse(await waitMsg(o.guest, "techs.roster", (x) => x.techs.find((t) => t.owner)?.tid === m.hello.tid));
     expect(r.techs.find((t) => t.owner)?.role).toBe("controller");
@@ -443,7 +446,7 @@ describe("P28c geri alma matrisi (Y-PC-2, O-PC-3)", () => {
     expect(live.app.rooms.live(room(o.sessionId))).toBe(true);
   });
 
-  it("gözetimsiz oda (bellek kurgusu): asked → JOIN_NOT_ALLOWED; grant'sız süpervizör listede görmez; grant/silent geri alımı → üye düşer", async () => {
+  it("gözetimsiz oda (bellek kurgusu): asked → JOIN_NOT_ALLOWED ve listede yok; grant'sız süpervizör listede görmez; grant/silent geri alımı → üye düşer", async () => {
     const live2 = await startMultiLive({ UNATTENDED_MODE: "unsigned", DEPLOY_ENV: "staging" });
     try {
       const { createCustomerRow } = await import("../helpers/requests.ts");
@@ -466,7 +469,8 @@ describe("P28c geri alma matrisi (Y-PC-2, O-PC-3)", () => {
       await grantRow(o.tenantId, deviceId, o.user.id);
       const ids = async (s: typeof sup.s) =>
         (await inject(live2, "GET", "/api/v1/sessions/active", s)).json<{ items: { id: string }[] }>().items.map((i) => i.id);
-      expect(await ids(sup.s)).toContain(o.sessionId);
+      // O-PC-K1: asked odaya katılım kapalı → grant'lı süpervizöre de listelenmez
+      expect(await ids(sup.s)).not.toContain(o.sessionId);
       expect(await ids(noGrant.s)).not.toContain(o.sessionId);
       expect(errCode(await inject(live2, "POST", `/api/v1/sessions/${o.sessionId}/supervise`, noGrant.s, {}))).toBe("403 FORBIDDEN");
       expect(errCode(await inject(live2, "POST", `/api/v1/sessions/${o.sessionId}/supervise`, sup.s, {}))).toBe("409 JOIN_NOT_ALLOWED");
@@ -593,7 +597,7 @@ describe("P28c K1c devir sınırları (AC-11, target_gone)", () => {
 
   it("O-PC-2: commit sonrası hedef gitmişse UPDATE geri alınır, bellek değişmez, transfer fail{target_gone}", async () => {
     const o = await ownerWithGuest(live);
-    const m = await inviteAndJoin(live, o);
+    const m = await inviteAndJoin(live, o, { ...MEMBER_PERMS, ...TARGET_PERMS });
     const r = room(o.sessionId);
     const db = live.app.rooms.db;
     const orig = db.$transaction.bind(db) as (fn: unknown) => Promise<unknown>;
@@ -649,5 +653,146 @@ describe("P28c geri alma matrisi — süre sınırı (Y-PC-2, sahte saat ≤ 5 /
     }
     expect(live.clock.now() - t0).toBe(0);
     expect(Date.now() - started).toBeLessThan(5_000);
+  });
+});
+
+describe("P28c düzeltme turu 1 (O-PC-K1, D-PC-K2, D-PC-K4, QA-2)", () => {
+  type Owner = Awaited<ReturnType<typeof ownerWithGuest>>;
+  type Room = NonNullable<ReturnType<MultiLive["app"]["rooms"]["get"]>>;
+  const UN = { "unattended.connect": true };
+  const SILENT = { "unattended.connect": true, "unattended.silent": true };
+  /** Sahte gözetimsiz oda (bellek kurgusu; sahip grant'lı + silent yetkili, politika açık — revalidateDevice odayı bitirmesin). */
+  async function unattendedRoom(
+    fn: (x: { live2: MultiLive; o: Owner; deviceId: string; r: Room; un: NonNullable<Room["unattended"]> }) => Promise<void>,
+  ) {
+    const live2 = await startMultiLive({ UNATTENDED_MODE: "unsigned", DEPLOY_ENV: "staging" });
+    const { createCustomerRow } = await import("../helpers/requests.ts");
+    const { createDeviceRow, grantRow } = await import("../helpers/unattended.ts");
+    let r: Room | undefined;
+    try {
+      const o = await ownerWithGuest(live2, { perms: { ...OWNER_PERMS, ...SILENT } });
+      r = live2.app.rooms.get(o.sessionId);
+      if (!r) throw new Error("oda yok");
+      const customer = await createCustomerRow(o.tenantId);
+      const deviceId = await createDeviceRow({ tenantId: o.tenantId, customerId: customer.id });
+      await grantRow(o.tenantId, deviceId, o.user.id);
+      await testDb().tenantSettings.update({
+        where: { tenantId: o.tenantId },
+        data: { unattendedSilentEnabled: true, unattendedSilentAckAt: new Date() },
+      });
+      const un: NonNullable<typeof r.unattended> = {
+        deviceId,
+        deviceName: "PC-1",
+        customerId: customer.id,
+        consentRequest: "silent",
+        consentMode: "no_user",
+      };
+      r.unattended = un;
+      await fn({ live2, o, deviceId, r, un });
+    } finally {
+      if (r) r.unattended = undefined;
+      await live2.close();
+    }
+  }
+
+  it("AC-368 O-PC-K1: /active — asked oda listelenmez; silent oda yalnız unattended.silent + grant olana (multi1'siz de)", async () => {
+    await unattendedRoom(async ({ live2, o, deviceId, r, un }) => {
+      const { grantRow } = await import("../helpers/unattended.ts");
+      const full = await newUser(live2, o.tenantId, { ...SUPERVISOR_PERMS, ...SILENT });
+      const noSilent = await newUser(live2, o.tenantId, { ...SUPERVISOR_PERMS, ...UN });
+      for (const u of [full, noSilent]) await grantRow(o.tenantId, deviceId, u.user.id);
+      const ids = async (s: typeof full.s) =>
+        (await inject(live2, "GET", "/api/v1/sessions/active", s)).json<{ items: { id: string }[] }>().items.map((i) => i.id);
+      un.consentMode = "silent";
+      expect(await ids(full.s)).toContain(o.sessionId);
+      expect(await ids(noSilent.s)).not.toContain(o.sessionId);
+      if (r.admitted?.peer) r.admitted.peer.multi = false; // multi1'siz: görünürlük yine yetkiye bağlı, bayrakla pasif
+      expect(await ids(full.s)).toContain(o.sessionId);
+      expect(await ids(noSilent.s)).not.toContain(o.sessionId);
+      if (r.admitted?.peer) r.admitted.peer.multi = true;
+      un.consentMode = "asked";
+      expect(await ids(full.s)).not.toContain(o.sessionId);
+      un.consentMode = "no_user";
+      expect(await ids(noSilent.s)).toContain(o.sessionId);
+    });
+  });
+
+  it("AC-364/AC-368 QA-2: silent oda — unattended.silent'sız davetli: davet 403 {silent}, İzle 403, kabul 403", async () => {
+    await unattendedRoom(async ({ live2, o, deviceId, un }) => {
+      const { grantRow } = await import("../helpers/unattended.ts");
+      const a = await newUser(live2, o.tenantId, { ...MEMBER_PERMS, ...UN });
+      const b = await newUser(live2, o.tenantId, { ...MEMBER_PERMS, ...UN });
+      const sup = await newUser(live2, o.tenantId, { ...SUPERVISOR_PERMS, ...UN });
+      for (const u of [a, b, sup]) await grantRow(o.tenantId, deviceId, u.user.id);
+      // no_user odada davet geçer; oda silent'a dönünce kabul 403
+      const inv = await inject(live2, "POST", `/api/v1/sessions/${o.sessionId}/invites`, o.s, { userId: a.user.id });
+      expect(inv.statusCode).toBe(201);
+      un.consentMode = "silent";
+      expect(errCode(await inject(live2, "POST", `/api/v1/sessions/${o.sessionId}/invites`, o.s, { userId: b.user.id }))).toBe(
+        "403 FORBIDDEN",
+      );
+      const reason = "Müşteri sunucusu yanıt vermiyor, ikinci göz gerekli.";
+      expect(errCode(await inject(live2, "POST", `/api/v1/sessions/${o.sessionId}/supervise`, sup.s, { reason }))).toBe("403 FORBIDDEN");
+      const { inviteId } = inv.json<{ inviteId: string }>();
+      expect(errCode(await inject(live2, "POST", `/api/v1/sessions/invites/${inviteId}/accept`, a.s, { reason }))).toBe("403 FORBIDDEN");
+      const fails = (await audits(o.sessionId, "session.invite")).filter((x) => x.result === "fail");
+      expect(fails.map((x) => (x.newValue as { failReason: string }).failReason)).toEqual(["silent"]);
+      expect((await audits(o.sessionId, "session.invite_accept")).map((x) => (x.newValue as { failReason?: string }).failReason)).toEqual([
+        "silent",
+      ]);
+    });
+  });
+
+  it("AC-364 QA-2: gözetimsiz oda — davetlide unattended.connect yok 403, grant yok 403; kabul step-up'sız 403/401, step-up ile 200", async () => {
+    await unattendedRoom(async ({ live2, o, deviceId }) => {
+      const { grantRow } = await import("../helpers/unattended.ts");
+      const { loginAs, markStepUp } = await import("../helpers/app.ts");
+      const noConnect = await newUser(live2, o.tenantId, MEMBER_PERMS);
+      await grantRow(o.tenantId, deviceId, noConnect.user.id);
+      const noGrant = await newUser(live2, o.tenantId, { ...MEMBER_PERMS, ...UN });
+      const url = `/api/v1/sessions/${o.sessionId}/invites`;
+      expect(errCode(await inject(live2, "POST", url, o.s, { userId: noConnect.user.id }))).toBe("403 FORBIDDEN");
+      expect(errCode(await inject(live2, "POST", url, o.s, { userId: noGrant.user.id }))).toBe("403 FORBIDDEN");
+      const reasons = (await audits(o.sessionId, "session.invite")).map((x) => (x.newValue as { failReason: string }).failReason);
+      expect(reasons.sort()).toEqual(["device", "permission"]);
+      const ok = await newUser(live2, o.tenantId, { ...MEMBER_PERMS, ...UN });
+      await grantRow(o.tenantId, deviceId, ok.user.id);
+      const { inviteId } = (await inject(live2, "POST", url, o.s, { userId: ok.user.id })).json<{ inviteId: string }>();
+      const acc = `/api/v1/sessions/invites/${inviteId}/accept`;
+      expect(errCode(await inject(live2, "POST", acc, ok.s, {}))).toBe("403 MFA_SETUP_REQUIRED");
+      await testDb().user.update({ where: { id: ok.user.id }, data: { totpEnabled: true, totpSecretEnc: new Uint8Array(40) } });
+      const fresh = await loginAs(live2.app, ok.user);
+      await testDb().authSession.updateMany({ where: { userId: ok.user.id }, data: { mfaPassed: true } });
+      expect(errCode(await inject(live2, "POST", acc, fresh, {}))).toBe("401 MFA_STEP_UP_REQUIRED");
+      await markStepUp(fresh);
+      expect((await inject(live2, "POST", acc, fresh, {})).statusCode).toBe(200);
+    });
+  });
+
+  it("AC-369 D-PC-K4: devir hedefinin sahip yetkisi TX içinde yeniden okunur → CONFLICT + fail audit, technician_id değişmez", async () => {
+    const o = await ownerWithGuest(live);
+    const m = await inviteAndJoin(live, o, { ...MEMBER_PERMS, ...TARGET_PERMS });
+    await testDb().userPermission.updateMany({ where: { userId: m.user.id, permKey: "sessions.create" }, data: { granted: false } });
+    o.ws.send({ t: "session.transfer", to: m.hello.tid });
+    expect(await waitMsg(o.ws, "error")).toMatchObject({ code: "CONFLICT" });
+    await until(async () => (await audits(o.sessionId, "session.transfer")).some((a) => a.result === "fail"));
+    expect((await audits(o.sessionId, "session.transfer")).find((a) => a.result === "fail")?.newValue).toMatchObject({
+      failReason: "conflict",
+    });
+    expect((await testDb().supportSession.findUnique({ where: { id: o.sessionId } }))?.technicianId).toBe(o.user.id);
+    expect(room(o.sessionId).technicianId).toBe(o.user.id);
+  });
+
+  it("AC-364 D-PC-K2: aday listesi 61., ret ve geri çekme 21. istek/dk → 429", async () => {
+    const o = await ownerWithGuest(live);
+    const u = await newUser(live, o.tenantId, MEMBER_PERMS);
+    const codes = async (n: number, method: "GET" | "POST" | "DELETE", url: string, s: typeof u.s) => {
+      let last = "";
+      for (let i = 0; i < n; i++) last = errCode(await inject(live, method, url, s));
+      return last;
+    };
+    expect(await codes(61, "GET", `/api/v1/sessions/${o.sessionId}/invite-candidates`, o.s)).toBe("429 RATE_LIMITED");
+    expect(await codes(21, "DELETE", `/api/v1/sessions/${o.sessionId}/invites/AAAAAAAAAAAAAAAAAAAAAA`, o.s)).toBe("429 RATE_LIMITED");
+    expect(await codes(21, "POST", "/api/v1/sessions/invites/AAAAAAAAAAAAAAAAAAAAAA/reject", u.s)).toBe("429 RATE_LIMITED");
   });
 });

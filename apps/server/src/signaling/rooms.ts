@@ -37,6 +37,7 @@ import { membersTeardown, revokeMember, revokeMemberEverywhere, type SilentJoinE
 import { broadcastRoster, controllerOf, newMulti, sendTechs } from "./members.ts";
 import { revokeControlFor } from "./control-revoke.ts";
 import { pending, type RoomRow } from "./rooms-lobby.ts";
+import type { UnattendedGate } from "../unattended/gate.ts";
 
 export { admitHash } from "./rooms-lobby.ts";
 
@@ -83,6 +84,8 @@ export class Rooms implements RoomNotifier, TechnicianLiveControl {
   fsrv?: FsrvService;
   /** P28c (Y-PC-1): silent odada katılım/devir dört göz e-postası (routes-multi bağlar; en iyi çaba). */
   silentNotify?: (e: SilentJoinEvent) => void;
+  /** P28c (D-PC-K4): devir TX'inde hedefin cihaz erişimi için imza kapısı (ws.ts bağlar; yoksa gözetimsiz devir reddedilir). */
+  unattendedGate?: UnattendedGate;
   private readonly rooms = new Map<string, Room>();
   readonly reconnect = new Map<string, string>(); // sha256(reconnectToken) → sessionId
 

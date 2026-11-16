@@ -207,6 +207,7 @@ export function attachSignaling(
   const missed = new WeakMap<WebSocket, number>();
   const u = upgradeCtx(app, rooms, wss, missed);
   if (app.hasDecorator("fsrv")) bindFsrv(rooms, app.fsrv.service); // P28b: wiring.ts kurar, sinyal bağlar
+  rooms.unattendedGate = createGate(app.env); // P28c D-PC-K4: devir TX'i hedefin cihaz erişimini yeniden okur
   // Etiketsiz seri: toplam; P8b `role="request"|"panel"` serileri (devops metrik adı).
   // P28c §8: bağlı üye sayısı rol başına (tenant etiketi yok).
   rooms.metrics.gauge("rs_multi_members", "Çoklu teknisyen bağlı üyeler (anlık)", () => {

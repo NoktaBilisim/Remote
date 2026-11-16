@@ -6,6 +6,7 @@ import type { ErrorCode } from "@remote/contracts/errors";
 import { effectivePermissions, type PermissionKey, type Role } from "@remote/contracts/permissions";
 import type { MemberVia } from "@remote/contracts/ws-multi";
 import type { AuthContext } from "../auth/session.ts";
+import type { Prisma } from "../generated/prisma/client.ts";
 import type { Db } from "../lib/db.ts";
 import { guestMulti, roomFull } from "../signaling/members.ts";
 import type { Rooms } from "../signaling/rooms.ts";
@@ -13,6 +14,8 @@ import type { Room } from "../signaling/types.ts";
 import { deviceAccess, type DeviceVerdict } from "../unattended/device-access.ts";
 import type { UnattendedGate } from "../unattended/gate.ts";
 import { silentPolicyEnabled } from "../unattended/policy.ts";
+
+type DbOrTx = Db | Prisma.TransactionClient;
 
 export type JoinPhase = "request" | "ws" | "revalidate";
 /** `request` evresinin alt amacı: davet oluşturma (davetli için), aday listesi, kabul, İzle. */
@@ -38,11 +41,15 @@ export interface JoinFail {
 }
 
 export interface JoinDeps {
-  db: Db;
+  /** D-PC-K4: devir TX'i içinden de çağrılır. */
+  db: DbOrTx;
   rooms: Rooms;
-  gate: UnattendedGate;
+  /** Yalnız imza kapısı kararı kullanılır (devirde kapı yoksa hep-ret verilir, D-PC-K4). */
+  gate: Pick<UnattendedGate, "allows">;
   /** Aday listesi gibi toplu çağrılarda önbellekli cihaz kararı (verilmezse tek sorgu). */
   device?: (userId: string) => Promise<DeviceVerdict>;
+  /** Toplu çağrıda önbellekli tenant silent politikası (D-PC-K2; verilmezse tek sorgu). */
+  silentPolicy?: () => Promise<boolean>;
 }
 
 export interface JoinOpts {
@@ -63,33 +70,37 @@ export const subjectOfAuth = (a: AuthContext): JoinSubject => ({
   authSessionId: a.sessionId,
 });
 
+/** Kullanıcı → özne seçimi (tek sorgu; aday listesi aynı seçimi toplu kullanır, D-PC-K2). */
+export const SUBJECT_SELECT = {
+  id: true,
+  role: true,
+  status: true,
+  deletedAt: true,
+  tenantId: true,
+  fullName: true,
+  email: true,
+  tenant: { select: { status: true } },
+  permissions: { select: { permKey: true, granted: true } },
+} as const;
+
+type SubjectRow = Prisma.UserGetPayload<{ select: typeof SUBJECT_SELECT }>;
+export type StoredSubject = JoinSubject & { fullName: string; email: string };
+
+export const toSubject = (u: SubjectRow): StoredSubject => ({
+  userId: u.id,
+  role: u.role as Role,
+  homeTenantId: u.tenantId,
+  actingTenantId: u.tenantId,
+  active: u.status === "ACTIVE" && u.deletedAt === null && (u.tenant === null || u.tenant.status === "ACTIVE"),
+  permissions: new Set(effectivePermissions(u.role as Role, u.permissions)),
+  fullName: u.fullName,
+  email: u.email,
+});
+
 /** Davetli (istek yok): DB'den rol + toggle'lar + durum. Yoksa null. */
-export async function subjectById(db: Db, userId: string): Promise<(JoinSubject & { fullName: string; email: string }) | null> {
-  const u = await db.user.findUnique({
-    where: { id: userId },
-    select: {
-      id: true,
-      role: true,
-      status: true,
-      deletedAt: true,
-      tenantId: true,
-      fullName: true,
-      email: true,
-      tenant: { select: { status: true } },
-      permissions: { select: { permKey: true, granted: true } },
-    },
-  });
-  if (!u) return null;
-  return {
-    userId: u.id,
-    role: u.role as Role,
-    homeTenantId: u.tenantId,
-    actingTenantId: u.tenantId,
-    active: u.status === "ACTIVE" && u.deletedAt === null && (u.tenant === null || u.tenant.status === "ACTIVE"),
-    permissions: new Set(effectivePermissions(u.role as Role, u.permissions)),
-    fullName: u.fullName,
-    email: u.email,
-  };
+export async function subjectById(db: DbOrTx, userId: string): Promise<StoredSubject | null> {
+  const u = await db.user.findUnique({ where: { id: userId }, select: SUBJECT_SELECT });
+  return u ? toSubject(u) : null;
 }
 
 const fail = (code: ErrorCode, failReason: string, fields?: Record<string, string>): JoinFail => ({
@@ -127,17 +138,8 @@ export async function eligibleToJoin(
   if (seat) return seat;
   if (phase !== "revalidate" && !guestMulti(room)) return fail("CLIENT_UNSUPPORTED", "client_unsupported");
   if (!s.permissions.has(via === "supervise" ? "sessions.supervise" : "sessions.view")) return fail("FORBIDDEN", "permission");
-  const u = room.unattended;
-  if (u) {
-    if (!s.permissions.has("unattended.connect")) return fail("FORBIDDEN", "permission");
-    const v = d.device ? await d.device(s.userId) : await deviceAccess(d.db, d.gate, room.tenantId, s.userId, u.deviceId);
-    if (v !== "ok") return fail("FORBIDDEN", "device");
-    const cm = u.consentMode;
-    if (phase !== "revalidate" && cm !== "silent" && cm !== "no_user") return fail("JOIN_NOT_ALLOWED", "join_not_allowed");
-    if (cm === "silent") {
-      if (!s.permissions.has("unattended.silent") || !(await silentPolicyEnabled(d.db, room.tenantId))) return fail("FORBIDDEN", "silent");
-    }
-  }
+  const un = await unattendedStep(d, s, room, phase);
+  if (un) return un;
   const r = reasonStep(room, phase, o);
   if (r) return r;
   if (phase === "request" && o.purpose !== "accept" && roomFull(room)) return fail("SESSION_FULL", "full");
@@ -145,6 +147,25 @@ export async function eligibleToJoin(
     const m = room.multi.members.get(s.userId);
     if (!m || m.authSessionId !== s.authSessionId) return fail("FORBIDDEN", "auth_session");
   }
+  return null;
+}
+
+/**
+ * Adım 6 / 6a / 6b (gözetimsiz oda): `unattended.connect` + cihaz erişimi; asked odaya katılım kapalı (revalidate hariç);
+ * silent'ta `unattended.silent` ∧ tenant politikası. Koltuk/kapasite/multi1'den bağımsız — `GET /sessions/active` görünürlüğü
+ * de bunu kullanır (O-PC-K1, tek kaynak).
+ */
+export async function unattendedStep(d: JoinDeps, s: JoinSubject, room: Room, phase: JoinPhase): Promise<JoinFail | null> {
+  const u = room.unattended;
+  if (!u) return null;
+  if (!s.permissions.has("unattended.connect")) return fail("FORBIDDEN", "permission");
+  const v = d.device ? await d.device(s.userId) : await deviceAccess(d.db, d.gate, room.tenantId, s.userId, u.deviceId);
+  if (v !== "ok") return fail("FORBIDDEN", "device");
+  const cm = u.consentMode;
+  if (phase !== "revalidate" && cm !== "silent" && cm !== "no_user") return fail("JOIN_NOT_ALLOWED", "join_not_allowed");
+  if (cm === "silent" && !s.permissions.has("unattended.silent")) return fail("FORBIDDEN", "silent");
+  if (cm === "silent" && !(await (d.silentPolicy ? d.silentPolicy() : silentPolicyEnabled(d.db, room.tenantId))))
+    return fail("FORBIDDEN", "silent");
   return null;
 }
 

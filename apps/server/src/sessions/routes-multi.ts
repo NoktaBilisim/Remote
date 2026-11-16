@@ -1,6 +1,7 @@
 // P28c REST uçları `/api/v1/sessions/...` (mimari-p28c r2 §4.1; AC-364, 365, 368, 372). Sıra: requireAuth (Origin + CSRF) →
 // requirePerm → tenantScope → hız sınırı → zod → servis (`invites.ts`) → yanıt. Statik yollar (`/invites`, `/active`) `/:id`'den
 // önce eşleşir (find-my-way). Silent odada katılım/devir dört göz e-postası kancası burada bağlanır (`rooms.silentNotify`).
+// Hız sınırı: yoklama/aday listesi `poll`, kabul/İzle/ret/geri çekme `join` (ayrı anahtar önekleri; D-PC-K2).
 import {
   createInviteInputSchema,
   inviteParamsSchema,
@@ -104,8 +105,10 @@ export async function multiSessionRoutes(app: FastifyInstance): Promise<void> {
   });
 
   app.post("/invites/:inviteId/reject", async (req, reply) => {
+    const auth = authOf(req);
     const { inviteId } = params(inviteParamsSchema, req);
-    await rejectInvite(d(), auditContext(req), authOf(req), inviteId);
+    limited(join, `rej:${auth.user.id}`);
+    await rejectInvite(d(), auditContext(req), auth, inviteId);
     return reply.status(204).send();
   });
 
@@ -128,10 +131,12 @@ export async function multiSessionRoutes(app: FastifyInstance): Promise<void> {
 
   const invitePerm = { preHandler: requirePerm("sessions.invite") };
   app.get("/:id/invite-candidates", invitePerm, async (req, reply): Promise<InviteCandidatesResponse> => {
+    const auth = authOf(req);
     const { tenantId } = tenantScope(req);
     const { id } = params(multiSessionParamsSchema, req);
+    limited(poll, `cand:${auth.user.id}`);
     void reply.header("Cache-Control", "no-store");
-    return inviteCandidates(d(), authOf(req), tenantId, id);
+    return inviteCandidates(d(), auth, tenantId, id);
   });
 
   app.post("/:id/invites", invitePerm, async (req, reply): Promise<CreateInviteResponse> => {
@@ -153,9 +158,11 @@ export async function multiSessionRoutes(app: FastifyInstance): Promise<void> {
   });
 
   app.delete("/:id/invites/:inviteId", async (req, reply) => {
+    const auth = authOf(req);
     const { tenantId } = tenantScope(req);
     const { id, inviteId } = params(sessionInviteParamsSchema, req);
-    await revokeInvite(d(), auditContext(req), authOf(req), tenantId, id, inviteId);
+    limited(join, `del:${auth.user.id}`);
+    await revokeInvite(d(), auditContext(req), auth, tenantId, id, inviteId);
     return reply.status(204).send();
   });
 }

@@ -12794,7 +12794,7 @@ Yeni bağımlılık yok.
 
 ### P28c K1/K1b/K1c — sunucu
 
-## P28c K1 — Sunucu (backend-dev, ara not, 2026-11-16) — YARIM, devredilecek
+## P28c K1 — Sunucu (backend-dev, 2026-11-16) — TAMAM (K1b/K1c ile kapandı; düzeltme turu 1 aşağıda)
 
 Kaynak: `docs/mimari-p28c.md` r2, ADR-0035, implementation.md "P28c K0". `packages/contracts` değiştirilmedi.
 
@@ -12905,7 +12905,7 @@ kontrol sahibinde dönüş süresi; kayıt yokken mesaj yok).
 **Not:** matristeki "sahip — applyPermChange" satırı yok: gözetimsiz olmayan odada sahibin yetki daralması odayı bitirmez (yalnız caps
 daralır; P3 S-P3-8 davranışı). Gözetimsiz sahip dalı mevcut "gözetimsiz oda (bellek kurgusu)" testinde.
 
-### BİTMEYEN / sıradaki ajan için
+### BİTMEYEN / sıradaki ajan için — tümü kapandı (düzeltme turu 1, 2026-11-17)
 
 1. ~~**Prettier:**~~ K1c: değişen dosyalar `prettier --write` ile biçimlendi. şu dosyalar `prettier --list-different`'te: `sessions/{eligibility,history-participants,invites,service}.ts`,
    `signaling/{member-cmds,member-life,multi-audit}.ts`, `unattended/device-access.ts`, `test/helpers/multi.ts`,
@@ -12915,8 +12915,8 @@ vitest run test/pt-surface.test.ts -u` (yalnız ekleme; koşulamadı). Bunun dı
 3. ~~**Test DB konteyneri `p28c-k1b-mysql`**~~ K1c: çalışmıyor. — `apps/server/scripts/test-db.sh down` izin reddi aldı; elle kapatılmalı.
 4. ~~Eksik testler~~ — K1c'de yazıldı (yukarı).
 5. ~~Tam koşu~~ K1c'de koşuldu (yukarı). — yalnız birim + ilgili alt küme.
-6. `docs/implementation.md` "P28c K1" bölümü bu nottan yazılmalı.
-7. Go ajanı (apps/agent-win, flow/rtc): `IceRestart.From` artık gelebilir; çoklu PC'de ilgili teknisyen bağlantısını yeniden kurmalı.
+6. ~~`docs/implementation.md` "P28c K1" bölümü bu nottan yazılmalı.~~ Bu bölüm K1 kaydıdır (QA-3, tur 1).
+7. ~~Go ajanı: `IceRestart.From`~~ — K3c'de kapandı (`TestP28cIceRestartRoutedByFrom`, `TestP28cIceRestartKeepsPeersAndSendsNothing`).
 
 ### Tasarımdan sapmalar (gerekçeli)
 
@@ -12939,6 +12939,48 @@ vitest run test/pt-surface.test.ts -u` (yalnız ekleme; koşulamadı). Bunun dı
 - **K2: geçmiş detayında participants göster** (`SessionHistoryDetail.participants`: ad, rol, katılım/ayrılma, `leaveReason`
   (`removed` = müşteri çıkardı), `transferredAt`); zaman çizelgesinde yeni `session.*` olaylarına Türkçe etiket; katılımcı aktörü `TECH`.
 - Misafir (tarayıcı, multi1): S→misafir `ice.restart` artık `from` taşıyabilir → ilgili teknisyen PC'sinde ICE yeniden başlat.
+
+### P28c düzeltme turu 1 — sunucu (backend-dev, 2026-11-17)
+
+Kaynak: `docs/guvenlik-raporu.md` "P28c kod turu 1" (O-PC-K1, D-PC-K2/K3/K4), `docs/qa-raporu.md` "P28c tur 1" (1–3). D-PC-K1 (Go) bu turda değil.
+
+- **D-PC-K1** (güvenlik, Düşük; Go ajanı): `liveIndicator.SetNames` aynı ek zaten yazılıysa doğrulama yapmadan true dönüyordu; erken dönüş kaldırıldı, ek aynı olsa da her çağrıda `Drawn` ile çizim doğrulanıyor. Test `TestP28cSetNamesSameSuffixRechecksDrawn`, `agent-win.yml` P28c zorunlu PASS listesine eklendi.
+- **Devir hedefinde `sessions.create`** (koordinatör kararı): güvenlik raporundaki "mevcut oturum açma koşulu" ifadesine dayanır; hedef kontrolü devralacağı için oturum açabilen kullanıcı olmalı.
+
+- **O-PC-K1** `sessions/eligibility.ts` → adım 6/6a/6b `unattendedStep(d, s, room, phase)` olarak ayrıldı; `eligibleToJoin` ve
+  `invites.ts unattendedVisible` ikisi de bunu çağırır (tek kaynak). `GET /sessions/active`: **asked oda hiç listelenmez**;
+  silent oda yalnız `sessions.supervise` + `unattended.connect` + cihaz grant'ı + `unattended.silent` + açık politika olana.
+  Koltuk/multi1'den bağımsız (dolu / `supported:false` oda uygun izleyiciye bayrakla görünmeye devam eder).
+- **D-PC-K2** `routes-multi.ts`: `invite-candidates` → `poll` (`cand:<userId>`, 60/dk), ret → `join` (`rej:`), DELETE davet → `join`
+  (`del:`), 20/dk; ayrı önekler kabul/İzle bütçesini yemez. Aday listesi: kullanıcı + rol + toggle'lar tek `findMany`
+  (`SUBJECT_SELECT`/`toSubject` `subjectById` ile ortak), grant'lar tek sorgu, silent politikası en çok bir kez
+  (`JoinDeps.silentPolicy`). Önce ≤ 200 + 2, şimdi ≤ 3 sorgu.
+- **D-PC-K3 (gerekçe, kod değişmedi):** `member-life.ts` gerekçeyi audit `newValue.silentReason` anahtarına yazar. P28u
+  `connect-tx.ts` (`unattended.connect`) aynı anahtarı ve aynı `entity=support_sessions`/`entity_id=sessionId` biçimini kullanır.
+  Okuma tarafı (`audit/read.ts` + `audit/view.ts SILENT_REASON_KEY`) eylem adına bakmadan, iç içe dahil bu anahtarı maskeler.
+  Metin yalnız `session_history.view` sahibine ve oturum anonimleştirilmemişse görünür (D-P28u-K1-1, fail-closed). Geçmiş zaman
+  çizelgesi izdüşümü bu anahtarı taşımaz. Yani P28u kalıbıyla birebir aynı, ayrı bir kopya yok. `reasonLen` ek alandır.
+- **D-PC-K4** `member-cmds.ts transferTx`: `lockTechnician`'dan sonra `targetMayOwn` hedefi TX içinden (`subjectById(tx)`)
+  yeniden okur. Koşullar: `sessions.create` (`POST /sessions` ile aynı sahip koşulu) ve `eligibleToJoin(..., "revalidate")`
+  (etkin kullanıcı/tenant, `sessions.view`, gözetimsizde `unattended.connect` + `deviceAccess` + silent yetki/politika).
+  Düşerse `CONFLICT` + audit `fail{conflict}`. Bunun için `Rooms.unattendedGate` eklendi (ws.ts bağlar; yoksa gözetimsiz devir
+  reddedilir). `deviceAccess`/`JoinDeps.db` TX istemcisini kabul eder, `JoinDeps.gate` yalnız `allows` ister.
+- **QA-1** `ops/metrics.ts`: `rs_multi_denied_total`, `rs_multi_invites_total` `m.counter` ile kayıtlı. Önceden `inc` kayıtsız
+  sayaçta no-op'tu, sayaçlar hiç artmıyordu. Birim testi: `test/unit/metrics-multi-p28c.test.ts`.
+  `bash deploy/ops/test-watch.sh` → `PASS ad eşlemesi: rs_multi_denied_total`, SONUÇ: GEÇTİ (UYARI yok).
+- **QA-2** `multi-p28c.test.ts` "P28c düzeltme turu 1": silent odada `unattended.silent`'sız davet 403 `{silent}`, İzle 403,
+  kabul 403 `{silent}`; gözetimsiz odada davetlide `unattended.connect` yok 403 `{permission}`, grant yok 403 `{device}`;
+  kabulde 2FA'sız 403 `MFA_SETUP_REQUIRED`, step-up'sız 401 `MFA_STEP_UP_REQUIRED`, step-up ile 200 (tasarım V-PC-2/sapma 2
+  ile uyumlu: eligibility 403 step-up'tan önce gelir). Ayrıca O-PC-K1 görünürlük, D-PC-K4 devir reddi, D-PC-K2 429 testleri var.
+  Mevcut devir testlerinin hedefi `sessions.create` taşıyor. "gözetimsiz oda" testinde asked oda artık listede değil.
+- **Sapma:** yok. D-PC-K4'teki `sessions.create` şartı tasarımda açıkça yazmıyor; güvenlik bulgusunun "mevcut oturum açma
+  koşulu" ifadesiyle uygulandı. Yeni bağımlılık, env veya migration yok.
+- **frontend-dev için:** (1) `/sessions/active` asked gözetimsiz odayı artık döndürmez. Web'in "asked → pasif" dalı ölü kalır, zararsız.
+  (2) `invite-candidates`, davet reddi ve davet DELETE 429 `RATE_LIMITED` (+ Retry-After) dönebilir.
+  (3) `session.transfer` hedefte `sessions.create` yoksa `error{CONFLICT, "Oturum devredilemedi."}` döner.
+- **Doğrulama:** `pnpm -r run lint && pnpm -r run typecheck` temiz. p28c-fix1-mysql:3426 üzerinde
+  `vitest run test/unit test/integration/multi-p28c.test.ts test/integration/pt-surface.test.ts` → 50 dosya, 680 geçti, 1 atlandı
+  (`fsrv-p28b` CLAMD). Konteyner `down` ile kapatıldı.
 
 ### P28c K2/K2b — web
 
@@ -13013,8 +13055,8 @@ bağlantı koptu → `WifiOff`, panel aç/kapa → `ChevronDown`. Yeni primitif 
 2. **Zaman çizelgesi etiketleri** (`describeTimelineEvent`, contracts labels) P28c eylemlerini bilmiyor; web geçici olarak `MULTI_AUDIT_LABELS`'a düşer. Notlar (rol/neden) için contracts eki gerekir.
 3. **Bekleyen giden davetler için GET ucu yok** ve roster'da userId yok → "Geri çek" satırları yalnız bu sekmenin 201 yanıtlarından; sayfa yenilenince kaybolur (koltuk sunucuda doğru). Roster'a aynı adla biri girince satır görüntüden kalkar (yalnız görüntü).
 4. **Konsolda misafirin `multi1` yeteneği yerel bilinmiyor** (hello/peer.joined'da alan yok) → "Davet et" pasifliği `invite-candidates` 409'undan öğrenilir (panel ilk açılışta etkin görünür). İstenirse `guestFeatures`'a `multi` değeri eklenebilir.
-5. **4403** müşteri çıkarması ile yetki düşmesini ayırmaz → tek metin.
-6. **WS `error` istek kimliği taşımaz** → devir/ayrılma hataları "son 5 sn içindeki komut" sezgisiyle toast.
+5. **4403** müşteri çıkarması ile yetki düşmesini ayırmaz → tek metin. **Sonra (kullanıcı onaylı değil, koordinatör kararı: P28c kapsamı dışı).**
+6. **WS `error` istek kimliği taşımaz** → devir/ayrılma hataları "son 5 sn içindeki komut" sezgisiyle toast. **Sonra (kullanıcı onaylı değil, koordinatör kararı: P28c kapsamı dışı).**
 7. Gözetimsiz odada Go yardımcısı/gösterge K3'te; web yalnız tarayıcı misafiri.
 
 ### Yapılmayanlar / bilinen eksikler
@@ -13057,7 +13099,7 @@ Sözleşme boşlukları 1–4 kapandı (K1c kontratı). Yalnızca `apps/web/**` 
   - Vitest: 54 dosya, 507 test.
   - Playwright tam `--project=desktop --project=mobile`: 535 geçti, 0 hata.
   - prettier temiz.
-- **Kalan:** Gerçek sunucuyla (K1) uçtan uca deneme ve iki gerçek teknisyenle tarayıcı misafiri mesh e2e yapılmadı (staging/K5). 4403 nedenlerinin ayrılması ve WS `error` istek kimliği hâlâ sözleşmede yok (boşluk 5–6).
+- **Kalan:** Gerçek sunucuyla (K1) uçtan uca deneme ve iki gerçek teknisyenle tarayıcı misafiri mesh e2e yapılmadı (staging/K5). 4403 nedenlerinin ayrılması ve WS `error` istek kimliği hâlâ sözleşmede yok (boşluk 5–6) — Sonra (kullanıcı onaylı değil, koordinatör kararı: P28c kapsamı dışı).
 
 ### P28c K3/K3b/K3c — Go istemci + yardımcı
 
@@ -13170,8 +13212,8 @@ Yeni bağımlılık yok.
   `activeRecUI` döner ve onu iletir; değilse iletmez (K-P28e-7 korunur). Diğer isteğe bağlı arayüzler (ClipPrintUI,
   FileServerUI, RosterUI) açık `flow.Deps` alanı ve sarmalanmamış `u` ile bağlı; `d.UI` üzerinde başka tür iddiası yok
   → etkilenmiyor. Test: `TestP28cP28eTrayWithActiveForwardsRecUI`.
-- **Eksik testler:** `TestP28cNamesSuffix`, `TestP28cHeadlessShowRoster`, `TestP28cLiveSetNamesDrawsSuffix` (yardımcı
-  gösterge adı yolu); `TestP28cControllerDisconnectAndReturnStatus` (roster `connected` → "koptu"/"yeniden bağlandı").
+- ~~**Eksik testler:**~~ yazıldı: `TestP28cNamesSuffix`, `TestP28cHeadlessShowRoster`, `TestP28cLiveSetNamesDrawsSuffix`
+  (`unattended/helper/p28c_test.go`), `TestP28cControllerDisconnectAndReturnStatus` (`flow/peers_test.go`); hepsi CI zorunlu PASS listesinde.
 - **768 px:** `internal/ui/session_fit.go` `chatSqueeze` — pencere birincil çalışma alanına (16 px alt payla) sığmazsa
   sohbet geçmişi kısalır (en az 64 px), altındaki denetimler kayar. Test `TestP28cSessionWindowFits768`. Gerçek ekranda
   doğrulanmadı; %125+ DPI'da 768 px ekranda tavan (132 px) yetmeyebilir.
@@ -13220,12 +13262,12 @@ Kaynak: mimari-p28c r2 §6.1, §7, §8, §12 (AC-371), §13 K4; ADR-0035. Yeni e
 - `deploy/ops/watch.env.example` → `WATCH_MULTI_DENIED_MAX` açıklaması (watch.env; uygulama env'i değil → `.env.example`/`env.ts`/compose
   değişmez).
 - `.github/workflows/agent-win.yml` → "P28c çoklu teknisyen testleri (-v)" adımı (P28e adımından sonra, K6s kilit adımından önce;
-  `-run 'P28c'`, signal/dc/rtc/flow/capture/ui/unattended); zorunlu PASS listesi şimdilik dört K0 testi. Etiket kontrol listesine
+  `-run 'P28c'`, signal/dc/rtc/flow/capture/ui/unattended); zorunlu PASS listesi dört K0 testiyle başladı; K3/K3b/K3c testleri (gösterge adı, roster durumu, `ice.restart from`) sonradan eklendi. Etiket kontrol listesine
   "0.17.0 → P28c, migration yok" ve çoklu teknisyen elle turu + AC-371 maddesi. Yeni Action yok; SHA/permissions değişmedi.
 
 ### Diğer ajanlara
 
-- **backend-dev (K1):** `apps/server/src/ops/metrics.ts`'e `m.counter("rs_multi_denied_total", …)` **etiketsiz kayıt** (render ilk
+- ~~**backend-dev (K1):**~~ düzeltme turu 1'de yapıldı (QA-1). `apps/server/src/ops/metrics.ts`'e `m.counter("rs_multi_denied_total", …)` **etiketsiz kayıt** (render ilk
   artışa kadar `rs_multi_denied_total 0` yazar → remote-watch işareti), artışta `{type}` etiketi. Tam ad değişirse
   `test-watch.sh` FAIL verir. `rs_multi_invites_total{result}`, `rs_multi_members{role}` adları da tasarımdaki gibi. Rol kapısı log
   satırında "denied" sözcüğü geçerse runbook §28c.6 grep'i çalışır.

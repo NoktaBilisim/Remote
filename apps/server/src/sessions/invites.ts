@@ -24,10 +24,21 @@ import { roomCmdLimited } from "../signaling/member-cmds.ts";
 import { auditMulti, countInvite, failAuditAllowed, MULTI_AUDIT, MULTI_SYSTEM_CTX, SYSTEM_ACTOR } from "../signaling/multi-audit.ts";
 import type { Rooms } from "../signaling/rooms.ts";
 import type { Room } from "../signaling/types.ts";
-import { deviceAccess, deviceVerdict, type DeviceVerdict } from "../unattended/device-access.ts";
+import { deviceVerdict, type DeviceVerdict } from "../unattended/device-access.ts";
+import { silentPolicyEnabled } from "../unattended/policy.ts";
 import { avatarUrlFor } from "../uploads/urls.ts";
 import type { UnattendedGate } from "../unattended/gate.ts";
-import { eligibleToJoin, joinSyncCheck, subjectById, subjectOfAuth, type JoinFail, type JoinSubject } from "./eligibility.ts";
+import {
+  eligibleToJoin,
+  joinSyncCheck,
+  subjectById,
+  subjectOfAuth,
+  SUBJECT_SELECT,
+  toSubject,
+  unattendedStep,
+  type JoinFail,
+  type JoinSubject,
+} from "./eligibility.ts";
 
 export interface MultiDeps {
   db: Db;
@@ -96,17 +107,17 @@ export async function inviteCandidates(
     where: { tenantId: room.tenantId, status: "ACTIVE", deletedAt: null, id: { not: auth.user.id } },
     orderBy: { fullName: "asc" },
     take: INVITE_CANDIDATES_MAX,
-    select: { id: true, avatarPath: true },
+    select: { ...SUBJECT_SELECT, avatarPath: true },
   });
-  const device = await deviceResolver(
-    d,
-    room,
-    users.map((u) => u.id),
-  );
+  const ids = users.map((u) => u.id);
+  // D-PC-K2: kullanıcılar (rol + toggle'lar aynı sorguda), cihaz grant'ları ve silent politikası toplu / bir kez (N+1 yok).
+  const device = await deviceResolver(d, room, ids);
+  let policy: Promise<boolean> | undefined;
+  const deps = { ...d, ...(device ? { device } : {}), silentPolicy: () => (policy ??= silentPolicyEnabled(d.db, room.tenantId)) };
   const items: InviteCandidatesResponse["items"] = [];
   for (const u of users) {
-    const s = await subjectById(d.db, u.id);
-    if (!s || (await eligibleToJoin({ ...d, device }, s, room, "invite", "request", { purpose: "candidates" }))) continue;
+    const s = toSubject(u);
+    if (await eligibleToJoin(deps, s, room, "invite", "request", { purpose: "candidates" })) continue;
     items.push({ userId: s.userId, fullName: s.fullName, avatarUrl: avatarUrlFor(u.avatarPath) });
   }
   return { items };
@@ -277,8 +288,8 @@ export async function rejectInvite(d: MultiDeps, ctx: AuditContext, auth: AuthCo
 }
 
 /**
- * GET /sessions/active (AC-368): tenant'ın canlı ACTIVE odaları. Gözetimsiz oda yalnız çağıran §4.3 adım 5–6'yı geçiyorsa
- * listelenir (O-PC-1); geçemediği oda hiç görünmez.
+ * GET /sessions/active (AC-368): tenant'ın canlı ACTIVE odaları. Gözetimsiz oda yalnız çağıran §4.3 adım 5–6b'yi geçiyorsa
+ * listelenir (O-PC-1, O-PC-K1); geçemediği oda hiç görünmez.
  */
 export async function activeSessions(d: MultiDeps, auth: AuthContext, tenantId: string): Promise<ActiveSessionsResponse> {
   const s = subjectOfAuth(auth);
@@ -304,10 +315,13 @@ export async function activeSessions(d: MultiDeps, auth: AuthContext, tenantId: 
   return { items };
 }
 
+/**
+ * O-PC-K1: gözetimsiz oda yalnız §4.3 adım 5–6b'yi (`unattendedStep`, `request`) geçen izleyiciye görünür — asked oda hiç,
+ * silent oda yalnız `unattended.silent` ∧ açık politika ∧ cihaz grant'ı olana. Koltuk/multi1 listede bayrakla gösterilir.
+ */
 async function unattendedVisible(d: MultiDeps, s: JoinSubject, room: Room): Promise<boolean> {
-  const u = room.unattended;
-  if (!u || !s.permissions.has("sessions.supervise") || !s.permissions.has("unattended.connect")) return false;
-  return (await deviceAccess(d.db, d.gate, room.tenantId, s.userId, u.deviceId)) === "ok";
+  if (!room.unattended || !s.permissions.has("sessions.supervise")) return false;
+  return (await unattendedStep(d, s, room, "request")) === null;
 }
 
 /** POST /sessions/:id/supervise (AC-368): §4.3 `request` 1–9; üye rezervasyonu (observer, 60 sn). Audit WS bağlanınca. */

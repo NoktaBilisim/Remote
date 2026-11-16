@@ -1,3 +1,134 @@
+# Güvenlik Raporu — P28c kod turu 1 (dal p28c, HEAD 64887c0, 2026-11-16)
+
+DURUM: GEÇTİ (Kritik/Yüksek 0) — Kritik 0 / Yüksek 0 / Orta 1 / Düşük 4
+
+Kapsam: `git diff main...HEAD` — `apps/server/src/sessions/{routes-multi,invites,eligibility,service}.ts`,
+`apps/server/src/signaling/{members,member-life,member-cmds,handlers,ws-auth,ws,rooms,rooms-device}.ts`,
+`packages/contracts/src/ws-multi.ts` (`ROLE_MAY`/`seatMay`), `apps/agent-win/internal/flow/{peers,session_media}.go`,
+`apps/agent-win/internal/unattended/helper/{follow,headless,indicator_windows}.go`, `apps/web/lib/webrtc/guest-peers.ts`.
+Turn bütçesi nedeniyle entegrasyon testleri bu turda koşulmadı (test-db açılmadı); bulgular elle kod okumasına dayanır.
+İncelenmeyenler ve tur 2'ye kalanlar sonda.
+
+## Bulgular
+
+### [ORTA] O-PC-K1 `GET /sessions/active` silent/asked odayı katılamayacak izleyiciye listeliyor (O-PC-1 yarım kapandı) — A01
+
+Yer: `apps/server/src/sessions/invites.ts:307-311` (`unattendedVisible`), çağrı `:288`.
+Sorun: Gözetimsiz oda listeye yalnız `sessions.supervise` + `unattended.connect` + cihaz erişimi (`deviceAccess`) ile giriyor.
+Oysa `eligibleToJoin` (`eligibility.ts:135-139`) silent odada ayrıca `unattended.silent` ve tenant silent politikasını, asked
+odada ise `JOIN_NOT_ALLOWED` kuralını uyguluyor. O-PC-1'in istediği "§4.3 adım 5–6'yı geçemediği oda hiç görünmez" kuralı
+6b (silent) ve 6a (asked) için uygulanmamış.
+İstismar senaryosu: Cihaz grant'ı olan ama `unattended.silent` yetkisi olmayan bir teknisyen, "Etkin oturumlar" ekranında
+başka birinin şu anda hangi müşterinin bilgisayarını izinsiz izlediğini (teknisyen adı, müşteri adı, başlangıç saati,
+`silent:true`) görür. Katılamaz, ama izinsiz izleme olgusu dört göz dışındaki kişiye sızar (KVKK hassas yol, R48).
+Düzeltme: `unattendedVisible` doğrudan `eligibleToJoin(d, s, room, "supervise", "request", { purpose: "candidates" })`
+sonucuna bağlansın (tek kaynak ilkesi) ya da en az silent odada `unattended.silent` + `silentPolicyEnabled`, asked odada
+"listelenmez" eklensin. Test: silent odada `unattended.silent`'sız supervisor → `items` boş. (atanan ajan: backend-dev)
+
+### [DÜŞÜK] D-PC-K1 `liveIndicator.SetNames` aynı ek geldiğinde çizimi doğrulamadan true dönüyor (K3b notu) — A04
+
+Yer: `apps/agent-win/internal/unattended/helper/follow.go:126-138` (`if l.names == suffix { return true }`).
+Sorun: İlk `SetNames` çağrısında `l.names` doğrulamadan önce yazılır. `Drawn` 2 sn içinde doğrulayamazsa false döner (eş
+kurulmaz), ama aynı roster yeniden geldiğinde ek eşit olduğu için true döner ve tid'ler `drawn` listesine girer. Gösterge
+gerçekten çizemezse `rebuild` başarısızlığı `fail()` ile oturumu bitirir; kalan pencere yalnız gösterge iş parçacığının 2 sn'den
+uzun gecikmesi. Bu durumda gizli izleyici penceresi en çok ~1 sn sürer (sonraki tik).
+Düzeltme: Eşitlik dalında da `c.Drawn(text, drawWait)` çağrılsın (zaten çizilmişse anında true döner, maliyet yok).
+`TestP28cLiveSetNamesSameSuffixUnverified` gibi bir test eklensin. (atanan ajan: backend-dev — Go istemci)
+
+### [DÜŞÜK] D-PC-K2 Aday listesi ve davet ret/geri çekme uçlarında hız sınırı yok; aday listesi kullanıcı başına N sorgu — A04
+
+Yer: `apps/server/src/sessions/routes-multi.ts:106-110` (reject), `:130-135` (invite-candidates), `:155-160` (DELETE invite);
+`invites.ts:107-111` (döngüde her kullanıcı için `subjectById`, en çok 200 ayrı sorgu).
+Sorun: `poll`/`join` sayaçları yalnız GET `/invites`, `/active`, giden davetler, kabul ve İzle'de. Aday listesi her çağrıda
+≤ 200 + 2 DB sorgusu yapar; oturum sahibi (veya oturumu ele geçirilmiş hesap) bunu sınırsız tetikleyebilir. Reject/DELETE
+başarılı yolda audit yazar; şişirme davet sayısıyla (oda 10/dk) dolaylı sınırlı, düşük risk.
+Düzeltme: `invite-candidates` `poll` sayacına (`cand:<userId>`) bağlansın; `subjectById` döngüsü tek `findMany` (rol +
+toggle'lar) ile toplu yapılsın. Reject/DELETE `join` sayacına alınsın. (atanan ajan: backend-dev)
+
+### [DÜŞÜK] D-PC-K3 Silent gerekçe metni audit `new_value`'ya düz yazılıyor — A09
+
+Yer: `apps/server/src/signaling/member-life.ts:76-82` (`silentReason` → `participant_join`/`supervise_join` new_value).
+Sorun: Tasarım turu (Y-PC-1) "audit'e `consentMode` + `reasonLen`; metin yalnız `unattended` kalıbıyla" diyordu. Gerekçe
+serbest metindir (20–500); teknisyen müşteri PII'si yazabilir ve audit ekranında tenant admin'lerine açılır. `connectDevice`
+yolu aynı metni nasıl saklıyorsa (P28u `silentReason` sütunu / audit kalıbı) bununla birebir aynı olmalı; şu an ayrı bir kopya.
+Düzeltme: P28u connect audit'iyle aynı alan adı ve maskeleme kuralı kullanılsın ya da `implementation.md`'de "P28u ile aynı
+kalıp" olduğu gerekçelendirilsin. Audit ekranı alan izin listesi (`audit-cells.tsx`) kontrol edilsin. (atanan ajan: backend-dev)
+
+### [DÜŞÜK] D-PC-K4 Oturum devrinde hedefin sahiplik yetkisi yeniden denetlenmiyor — A01
+
+Yer: `apps/server/src/signaling/member-cmds.ts:102-133` (`handleTransfer`), `:165-195` (`swapOwner`).
+Sorun: Devir hedefi yalnız "bağlı katılımcı, çıkarılmamış" diye denetlenir; katılımcı kabulü `sessions.view` ile olur. Devirden
+sonra hedef sahip koltuğu (`guest.admit`, `session.end`, davet) alır. `narrowCaps` kontrol yeteneklerini daraltır ve davet
+`sessions.invite` ister; ama hedefin `sessions.create`/oturum açma yetkisi ve (gözetimsizde) güncel cihaz grant'ı TX içinde
+yeniden okunmaz (60 sn revalidate'e kalır). Yetki düşürmeyle aynı anda yapılan devirde ≤ 60 sn sahiplik penceresi.
+Düzeltme: `transferTx` içinde hedef için `subjectById` + `eligibleToJoin(..., "revalidate")` ve sahip yetkisi (mevcut
+oturum açma koşulu) denetlensin; düşerse `conflict`. (atanan ajan: backend-dev)
+
+## Tasarım turu bulgularının koddaki durumu
+
+| Bulgu                                             | Durum                     | Kanıt                                                                                                                                                                                                                                   |
+| ------------------------------------------------- | ------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Y-PC-1 silent katılım/devir gerekçe + dört göz    | Kapandı                   | `eligibility.ts:166-173` (`reasonStep`), `member-life.ts:72-93` (`silentNotify join`), `member-cmds.ts:186-193` (transfer), `routes-multi.ts:54-78`; step-up `invites.ts:63-68` (`auth.stepUpAt`, rezervasyon `authSessionId`'ye bağlı) |
+| Y-PC-2 6 geri alma yolu üyeyi görüyor             | Kapandı                   | `rooms.ts` `applyPermChange`→`memberPermChange`, `endByTechnician`→`revokeMemberEverywhere`; `rooms-device.ts` `finishDevice` + `revalidateDeviceMembers`; `policy.ts:158`; `ws.ts` 60 sn `revalidateMember` (`ws-auth.ts`)             |
+| Y-PC-3 WS kapısı + kimlik oturumu bağlama         | Kapandı                   | `ws-auth.ts` `memberUpgrade`: `eligibleToJoin(...,"ws")` (`m.authSessionId === s.authSessionId`, `eligibility.ts:144-147`) + açılışta `joinSyncCheck`                                                                                   |
+| Y-PC-4 roster öncesi offer yok                    | Kapandı (D-PC-K1 dışında) | Sunucu `members.ts:142-145` `ensureGuestKnows` + `member-cmds.ts:224-228`; Go `peers.go:151` (`drawn`), `iceRestartPeer`; web `guest-peers.ts` `offerDecision`/`iceRestartTarget`                                                       |
+| O-PC-1 active listesi                             | Kısmen                    | bkz. O-PC-K1                                                                                                                                                                                                                            |
+| O-PC-2 TOCTOU                                     | Kapandı                   | `joinSyncCheck` her mutasyondan hemen önce senkron (`invites.ts:152,249,332`); davet kabulde haritadan silinir (tek kullanımlık); devirde koşullu UPDATE + geri alma                                                                    |
+| O-PC-3 üyenin oturumu düşünce oda bitmiyor        | Kapandı                   | `revokeMember` yalnız üyeyi çıkarır (`member-life.ts:154-157`)                                                                                                                                                                          |
+| O-PC-4 `canAccessDevice`                          | Kapandı                   | `unattended/device-access.ts` tek yardımcı; connect/revalidate/eligibility kullanıyor                                                                                                                                                   |
+| O-PC-5 asked odada katılım                        | Kapandı                   | `eligibility.ts:136` `JOIN_NOT_ALLOWED`, `invites.ts:83`                                                                                                                                                                                |
+| D-PC-1 `CLIENT_UNSUPPORTED`                       | Kapandı                   | `eligibility.ts:128`                                                                                                                                                                                                                    |
+| D-PC-2 step-up 403/401                            | Kapandı                   | `MFA_SETUP_REQUIRED` / `MFA_STEP_UP_REQUIRED` ayrı (`invites.ts:65-67`)                                                                                                                                                                 |
+| D-PC-3 başarısız deneme audit sınırı              | Kapandı                   | `failAuditAllowed` (kullanıcı, oturum, neden) 1/dk; kabul/İzle 6/dk sayaç                                                                                                                                                               |
+| D-PC-4 sohbet `by` sahteciliği                    | Kapandı                   | web `guest-peers.ts:156` (`by`'lı gelen düşer, `by` misafir tarafından tid ile damgalanır); Go `relayChat`                                                                                                                              |
+| D-PC-5 `techVerifyCode`                           | Kapandı                   | `service.ts` `getSession`: sahip olmayan üyeye `techVerifyCode: ""`                                                                                                                                                                     |
+| D-PC-6 `seatMay` varsayılan-ret + kayıt belirteci | Kapandı                   | `ws-multi.ts:160-172` (`Object.hasOwn`), `handlers.ts` her mesajda; `dropUploadTokens` attach/detach/leave/teardown'da, `setController`→`recRecorderChanged`                                                                            |
+| D-PC-7 davet geri çekme                           | Kapandı                   | `DELETE /:id/invites/:inviteId` + `ownedRoom`                                                                                                                                                                                           |
+
+## Odak sorularına yanıt (kanıtlı, bulgu yok)
+
+- **Tenant/IDOR:** `ownedRoom` (`invites.ts:71-76`) tenant + sahip; `supervise` başka tenant → 404; `tenantOk` Super Admin'i
+  yalnız İzle ve seçili tenant'ta kabul eder; kabul/ret davetin `userId`'si eşleşmezse `INVITE_GONE` (kimlik sızmaz);
+  `getSession` üye genişlemesi `isMember(sessionId, tenantId, userId)` ile.
+- **Rol yükseltme:** `ROLE_MAY` girdi/pano/yazdırma/dosya/fsrv/kayıt hatası için `controller`; devir/handover/admit/end
+  `owner`. Go `peerInput` yalnız `ctrlTid` eşinden; `ctlAllowed` kontrol sahibi dışında yalnız sohbet (izleyici hariç) + ping;
+  web `main()` dosya/işaretleme kanalı yalnız controller eşi.
+- **sdp/ice `from`/`to`:** `from` sunucuda gönderen soketten damgalanır (istemci veremez); misafirin `to`'su `userOfTid` ile
+  yalnız bu odanın sahip/üyelerine çözülür (`member-cmds.ts:234-248`), bilinmeyen düşer.
+- **"Çıkar":** sunucuda sahip çıkarılamaz, `removed` kümesi yeniden girişi engeller (`eligibility.ts:153`); Go'da gözetimsizde
+  yok, yerel girdi koşulu `roster_windows.go`.
+- **REST sahiplik uçları:** fsrv (`fsrv/routes.ts:129`), kayıt (`rec/routes.ts:55`), e-posta/link gönderimi `technicianId`
+  ya da rol kapsamı ile; üyelik bu uçlarda yeni erişim açmıyor (USER üyesi erişemez; Admin zaten tenant kapsamlı — P28c öncesi
+  ile aynı).
+
+## Otomatik tarama çıktıları
+
+- `pnpm audit --audit-level=moderate`: **No known vulnerabilities found**.
+- Diff'te gizli bilgi kalıbı (`api_key|secret|password|token = '…'`): yalnız test fikstürü `token: "YeniBelirtec"` (sahte değer).
+- `.env` dosyası: diff'te yalnız `deploy/ops/watch.env.example` (örnek, değer yok).
+- Entegrasyon testleri ve gitleaks bu turda koşulmadı (turn bütçesi).
+
+## Tasarımda vaat edilip kodda bulunmayanlar
+
+- O-PC-1'in "geçemediği oda hiç görünmez" kuralı silent/asked için (O-PC-K1).
+
+## Tur 2'ye kalanlar
+
+- `apps/server/test/integration/multi-p28c.test.ts` test DB ile koşulup 6 geri alma yolu × sahip/üye matrisinin gerçekten
+  yeşil olduğu doğrulanmalı.
+- Web konsol tarafı (`techs-panel.tsx`, `invite-dialog.tsx`, `invite-notifier.tsx`) XSS/ad gösterimi; `roster_windows.go`
+  "Çıkar" yerel girdi kanıtı (`thread.userInput`) ayrıntılı okunmadı.
+- Log satırlarında token/çerez taraması (`log.info` çağrıları yalnız `sessionId`/`type` içeriyor, örneklem temiz).
+
+## Olumlu
+
+- Uygunluk tek kaynakta (`eligibleToJoin`) ve evreli (request/ws/revalidate); senkron son denetim ayrı ve `await`'siz.
+- Opak `tid` (`randomBytes(8)`), müşteriye userId gitmiyor; roster değişmezleri Go'da `ValidRoster` ile fail-closed.
+- Kabul listesi üç istemcide (sunucu sırası, Go, web) aynı kural; `ice.restart` eş kurmuyor/kapatmıyor.
+- Üye kimlik oturumu düşünce oda değil yalnız üye çıkıyor; kayıt yükleme belirteçleri her koltuk değişiminde düşüyor.
+
+---
+
 # Güvenlik Raporu — P28c tasarım turu (dal p28c, 2026-11-16)
 
 DURUM: DÜZELTİLMELİ (tasarım) — Kritik 0 / Yüksek 4 / Orta 5 / Düşük 7

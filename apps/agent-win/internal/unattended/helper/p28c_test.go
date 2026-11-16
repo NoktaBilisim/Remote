@@ -91,3 +91,27 @@ func TestP28cLiveSetNamesDrawsSuffix(t *testing.T) {
 		t.Fatal("doğrulayamayan gösterge: eş kurulmamalı (Y-PC-4)")
 	}
 }
+
+// slowConfirm çizimi geç doğrulayan gösterge: ok false iken Drawn zaman aşımına uğrar (winIndicator.Drawn eşi).
+type slowConfirm struct {
+	labelIndicator
+	ok bool
+}
+
+func (c *slowConfirm) Drawn(text string, _ time.Duration) bool { return c.ok && c.last() == text }
+
+// D-PC-K1: önceki doğrulama zaman aşımına uğradıysa aynı ek tekrar gelince de çizim doğrulanır; doğrulanmadan true yok.
+func TestP28cSetNamesSameSuffixRechecksDrawn(t *testing.T) {
+	ind := &slowConfirm{labelIndicator: labelIndicator{fakeIndicator: fakeIndicator{failed: make(chan struct{})}}}
+	h := &headless{techName: "Ali", live: newLive(ind, "İzleme — Ali", false)}
+	if h.ShowRoster(techs("Ali", "Veli")) {
+		t.Fatal("doğrulama zaman aşımı: false olmalı")
+	}
+	if h.ShowRoster(techs("Ali", "Veli")) {
+		t.Fatal("aynı ek tekrar geldi, çizim hâlâ doğrulanmadı: false olmalı (D-PC-K1)")
+	}
+	ind.ok = true
+	if !h.ShowRoster(techs("Ali", "Veli")) {
+		t.Fatal("çizim doğrulandı: aynı ek true olmalı")
+	}
+}

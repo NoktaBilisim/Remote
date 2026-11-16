@@ -1,6 +1,7 @@
 // P28c (mimari-p28c §2, O-PC-4): gözetimsiz cihaza erişim TEK yardımcısı. `unattended_device_grants` satırı (kullanıcı + tenant)
 // ∧ cihaz iptal edilmemiş ∧ yerel anahtar açık ∧ imza kapısı. Super Admin dahil herkes için grant satırı şart (bypass yok).
 // Neden döner (bool değil): `connect.ts precheck` farklı hata kodlarını belirli sırayla verir; `revalidateDevice` bitiş nedenini seçer.
+import type { Prisma } from "../generated/prisma/client.ts";
 import type { Db } from "../lib/db.ts";
 import type { UnattendedGate } from "./gate.ts";
 
@@ -15,7 +16,7 @@ export interface DeviceAccessRow {
 }
 
 /** Saf karar (satır zaten okunmuş; `grants` bu kullanıcının bu tenant'taki grant satırları). Sıra: iptal → yerel → grant → imza. */
-export function deviceVerdict(row: DeviceAccessRow | null, gate: UnattendedGate): DeviceVerdict {
+export function deviceVerdict(row: DeviceAccessRow | null, gate: Pick<UnattendedGate, "allows">): DeviceVerdict {
   if (!row) return "not_found";
   if (row.revokedAt) return "revoked";
   if (!row.localEnabled) return "local_disabled";
@@ -25,8 +26,8 @@ export function deviceVerdict(row: DeviceAccessRow | null, gate: UnattendedGate)
 }
 
 export async function deviceAccess(
-  db: Db,
-  gate: UnattendedGate,
+  db: Db | Prisma.TransactionClient,
+  gate: Pick<UnattendedGate, "allows">,
   tenantId: string,
   userId: string,
   deviceId: string,

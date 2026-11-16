@@ -121,20 +121,17 @@ func (l *liveIndicator) Text() string {
 func (l *liveIndicator) label() string { return helperio.IndicatorLabel(l.base+l.names, l.rec) }
 
 // SetNames P28c (§6 gözetimsiz, Y-PC-4): göstergeye bağlı teknisyen adlarını yazar ve çizimin doğrulanmasını bekler.
-// Etiket zaten aynıysa (tek sahip, ad sunucu metninde) doğrudur. Ad güvensiz karakter içeriyorsa ya da gösterge
-// doğrulayamıyorsa false (eş kurulmaz); doğrulanamayan çizim ayrıca göstergeyi başarısız sayar (oturum biter).
+// Ek zaten yazılıysa da çizim yeniden doğrulanır (D-PC-K1: önceki doğrulama zaman aşımına uğramışsa aynı roster
+// doğrulamasız kabul edilmez). Gösterge doğrulayamıyorsa false (eş kurulmaz); doğrulanamayan çizim ayrıca göstergeyi
+// başarısız sayar (oturum biter).
 func (l *liveIndicator) SetNames(suffix string) bool {
 	l.mu.Lock()
 	if l.closed {
 		l.mu.Unlock()
 		return false
 	}
-	if l.names == suffix {
-		l.mu.Unlock()
-		return true
-	}
 	l.mu.Unlock()
-	l.update(func() { l.names = suffix })
+	l.update(func() { l.names = suffix }) // ek aynıysa yeniden çizim yok; doğrulama yine aşağıda
 	l.mu.Lock()
 	text, cur := l.label(), l.cur
 	l.mu.Unlock()

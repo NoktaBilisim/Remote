@@ -3,6 +3,8 @@
 import type { GuestInboundFull } from "@remote/contracts/ws";
 import { MULTI_ROOM_CMDS_PER_MIN } from "@remote/contracts/ws-multi";
 import { writeAudit } from "../audit/service.ts";
+import type { Prisma } from "../generated/prisma/client.ts";
+import { eligibleToJoin, subjectById } from "../sessions/eligibility.ts";
 import * as repo from "../sessions/repo.ts";
 import { narrowCaps } from "./control-revoke.ts";
 import { techActor } from "./control-record.ts";
@@ -132,10 +134,25 @@ export async function handleTransfer(rooms: Rooms, room: Room, seat: Seat, to: s
   }
 }
 
+/**
+ * D-PC-K4: hedef TX içinde (kilit sonrası) yeniden okunur — etkin kullanıcı + tenant, §4.3 `revalidate` (görüntüleme yetkisi,
+ * gözetimsizde `unattended.connect` + cihaz grant'ı + silent yetki/politika) ve sahip koltuğu için oturum açma yetkisi
+ * (`sessions.create`, `POST /sessions` ile aynı koşul). 60 sn yedek yola bırakılmaz.
+ */
+async function targetMayOwn(rooms: Rooms, tx: Prisma.TransactionClient, room: Room, to: string): Promise<boolean> {
+  const s = await subjectById(tx, to);
+  if (!s?.permissions.has("sessions.create")) return false;
+  const gate = rooms.unattendedGate;
+  if (room.unattended && !gate) return false;
+  const deps = { db: tx, rooms, gate: gate ?? { allows: () => false } };
+  return (await eligibleToJoin(deps, s, room, "invite", "revalidate")) === null;
+}
+
 async function transferTx(rooms: Rooms, room: Room, by: TechConn, from: string, to: string): Promise<"ok" | "conflict" | "limit"> {
   try {
     return await rooms.db.$transaction(async (tx) => {
       await repo.lockTechnician(tx, to);
+      if (!(await targetMayOwn(rooms, tx, room, to))) return "conflict" as const;
       const settings = await repo.sessionSettings(tx, room.tenantId);
       if (settings && (await repo.countOpen(tx, to, new Date(rooms.clock.now()))) >= settings.maxOpenSessions) return "limit" as const;
       const r = await tx.supportSession.updateMany({
