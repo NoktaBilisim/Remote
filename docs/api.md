@@ -3773,6 +3773,157 @@ eski; kayıt için 0.16.0 gerekli").
 `rs_rec_part_total{result}`, `rs_rec_stop_total{reason}`, `rs_rec_bytes_total`, `rs_rec_part_bytes`,
 `rs_rec_view_throttled_total`; `rs_storage_used_bytes` kayıtları da içerir. Alarmlar runbook §28e.
 
+## Çoklu teknisyen (P28c)
+
+Kaynak: `apps/server/src/sessions/{routes-multi,invites,eligibility}.ts`, `apps/server/src/signaling/members.ts`,
+`packages/contracts/src/{api/multi.ts,ws-multi.ts,errors.ts,audit.ts,permissions.ts}`. Tasarım `docs/mimari-p28c.md` r2
+(ADR-0035); operasyon runbook §28c. Migration ve yeni env yoktur: üyeler, davetler ve çıkarılanlar sunucu belleğinde tutulur,
+katılımcı geçmişi audit'ten türetilir.
+
+**Kurallar:**
+
+- Oturumda sahip dahil en çok **3 teknisyen** bulunur (`MAX_TECHS`). Bekleyen davet de bir koltuk tutar.
+- Roller: **Kontrol sahibi** (ana görüntü akışı; girdi, pano, yazdırma, dosya, işaretleme yalnız onda), **Katılımcı**
+  (düşük akış; görüntü ve sohbet), **İzleyici** (düşük akış; görüntü ve sohbeti okuma, yazamaz). Davet, kontrol devri,
+  oturum devri, oturumu bitirme ve misafir kabulü yalnız **oturum sahibindedir**.
+- Davet 2 dk geçerlidir (`INVITE_TTL_MS = 120000`). Kabul/İzle sonrası koltuk 60 sn ayrılı kalır; teknisyen bu sürede konsola
+  bağlanmazsa düşer. Kopan üyeye 120 sn dönüş payı verilir.
+- Müşteri tarafı (Windows istemci, gözetimsiz yardımcı, tarayıcı misafir) `rs.cap.multi1` bildirmiyorsa (istemci/servis
+  0.17.0 öncesi) davet ve İzle açılmaz: 409 `CLIENT_UNSUPPORTED`.
+- Gözetimsiz odada katılan kişide `unattended.connect` ve cihaz yetkisi gerekir; kabul ve İzle 2FA kurulu olmasını ve son 5 dk
+  içinde step-up yapılmasını ister. **İzinli (`asked`) gözetimsiz odaya ek teknisyen katılamaz** (409 `JOIN_NOT_ALLOWED`).
+  **İzinsiz (`silent`) odada** `unattended.silent`, açık firma politikası ve kabul/İzle gövdesinde 20–500 karakter gerekçe
+  zorunludur; katılım ve devirde dört göz e-postası gider.
+- Müşterinin çıkardığı teknisyen aynı oturuma davet, İzle ya da WS ile yeniden giremez (403).
+
+### Yetkiler
+
+| Anahtar              | Etiket (yetki ekranı)       | Anlam                                                                                     | Varsayılan              |
+| -------------------- | --------------------------- | ----------------------------------------------------------------------------------------- | ----------------------- |
+| `sessions.invite`    | Teknisyen davet et / devret | Etkin oturuma aynı firmadan teknisyen davet eder, kontrolü ve oturumu devreder (sahipken) | Admin açık, User kapalı |
+| `sessions.supervise` | Etkin oturumları izle       | Firmanın etkin oturumlarını izleyici olarak izler (hassas — yalnız gerekene verin)        | Admin açık, User kapalı |
+
+Davet edilecek kişide en az `sessions.view` bulunmalıdır. Super Admin davet edilemez; yalnız seçili firmada İzle yapabilir.
+
+### Hata kodları
+
+| Kod                  | HTTP | Metin                                                                               |
+| -------------------- | ---- | ----------------------------------------------------------------------------------- |
+| `SESSION_FULL`       | 409  | Oturum dolu                                                                         |
+| `CLIENT_UNSUPPORTED` | 409  | Müşterinin uygulaması bu özelliği desteklemiyor — güncel sürümü indirmesini isteyin |
+| `INVITE_GONE`        | 410  | Davet artık geçerli değil                                                           |
+| `JOIN_NOT_ALLOWED`   | 409  | İzinli gözetimsiz bağlantıya ek teknisyen katılamaz                                 |
+
+Yeniden kullanılanlar: `VALIDATION` (400; gerekçe eksik/fazla → `fields.reason` "Gerekçe zorunlu" / "Gerekçe yalnız izinsiz
+bağlantıda verilir"), `MFA_STEP_UP_REQUIRED` (401), `MFA_SETUP_REQUIRED` (403; konsol "Önce 2FA kurun"), `FORBIDDEN` (403),
+`NOT_FOUND` (404; başka firma ya da biçimsiz kimlik dahil), `CONFLICT` (409; oda etkin değil, kişi zaten odada ya da davetli,
+devir sürüyor), `RATE_LIMITED` (429, `retryAfterSec`).
+
+### Hız sınırları (429 `RATE_LIMITED`)
+
+| Kapsam                                                                                                              | Sınır                                |
+| ------------------------------------------------------------------------------------------------------------------- | ------------------------------------ |
+| `GET /sessions/invites`, `GET /sessions/active`, `GET /sessions/:id/invite-candidates`, `GET /sessions/:id/invites` | Kullanıcı başına her biri 60/dk      |
+| Kabul, İzle                                                                                                         | Kullanıcı başına 20/dk (ortak sayaç) |
+| Ret, davet geri çekme                                                                                               | Kullanıcı başına her biri 20/dk      |
+| Davet oluşturma + WS devir/çıkarma komutları                                                                        | Oda başına 10/dk                     |
+
+Başarısız davet/kabul/İzle `fail` audit'i aynı (kullanıcı, oturum, neden) için dakikada en çok bir kez yazılır.
+
+### Uçlar (`/api/v1/sessions`, çerez + Origin + CSRF)
+
+| Uç                                        | Yetki / kural                                                 | Girdi                                       | Çıktı                                                                                       | Hatalar                                                                                                              |
+| ----------------------------------------- | ------------------------------------------------------------- | ------------------------------------------- | ------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------- |
+| `GET /sessions/:id/invite-candidates`     | `sessions.invite` + oturum sahibi                             | —                                           | `{ items: {userId, fullName, avatarUrl}[] }` (≤ 200, ada göre)                              | 403, 404, 409 `CONFLICT` / `CLIENT_UNSUPPORTED` / `JOIN_NOT_ALLOWED`, 429                                            |
+| `POST /sessions/:id/invites`              | `sessions.invite` + oturum sahibi                             | `{ "userId": "<ULID>" }`                    | 201 `{ inviteId, expiresAt }`                                                               | 400, 403, 404, 409 `SESSION_FULL` / `CLIENT_UNSUPPORTED` / `JOIN_NOT_ALLOWED` / `CONFLICT`, 429                      |
+| `GET /sessions/:id/invites`               | Oturum sahibi                                                 | —                                           | `{ items: {inviteId, userId, inviteeName, expiresAt}[] }` (bitişe göre)                     | 403, 404, 429                                                                                                        |
+| `DELETE /sessions/:id/invites/:inviteId`  | Oturum sahibi                                                 | —                                           | 204                                                                                         | 403, 404, 429                                                                                                        |
+| `GET /sessions/invites`                   | Oturum açmış her kullanıcı; yalnız kendine gelen davetler     | —                                           | `{ items: {inviteId, sessionId, fromName, customerName, unattended, silent, expiresAt}[] }` | 429                                                                                                                  |
+| `POST /sessions/invites/:inviteId/accept` | Davet bu kullanıcıya ait; uygunluk zinciri yeniden denetlenir | `{}` ya da silent odada `{ "reason": "…" }` | `{ sessionId, consoleUrl }`                                                                 | 400 `fields.reason`, 401, 403, 409 `SESSION_FULL` / `CONFLICT`, 410 `INVITE_GONE`, 429                               |
+| `POST /sessions/invites/:inviteId/reject` | Davet bu kullanıcıya ait                                      | —                                           | 204                                                                                         | 410 `INVITE_GONE`, 429                                                                                               |
+| `GET /sessions/active`                    | `sessions.supervise`; seçili firma                            | —                                           | `{ items: ActiveSessionItem[] }`                                                            | 403, 429                                                                                                             |
+| `POST /sessions/:id/supervise`            | `sessions.supervise`; uygunluk zinciri                        | `{}` ya da silent odada `{ "reason": "…" }` | `{ sessionId, consoleUrl }`                                                                 | 400 `fields.reason`, 401, 403, 404, 409 `SESSION_FULL` / `CLIENT_UNSUPPORTED` / `JOIN_NOT_ALLOWED` / `CONFLICT`, 429 |
+
+Tüm GET yanıtları `Cache-Control: no-store`. `inviteId` 22 karakter base64url'dir; biçimsiz yol parametresi 404 döner.
+Başkasına ait ya da bilinmeyen davet kabul/ret isteği kimlik sızdırmamak için 410 döner. `consoleUrl` =
+`/sessions/<id>/console`; teknisyenin rolü konsol WS `hello` mesajından gelir.
+
+`ActiveSessionItem`: `{ id, technicianName, customerName, mode, startedAt, techCount, full, supported, unattended, silent,
+consentMode? }`. `supported: false` → İzle pasif (`CLIENT_UNSUPPORTED` metni). Gözetimsiz oda yalnız çağıran o cihaza
+bağlanabiliyorsa listelenir; izinli (`asked`) oda ve yetkisiz olunan izinsiz oda listede hiç görünmez.
+
+Örnek — davet ve kabul:
+
+```bash
+# Oturum sahibi davet eder
+curl -X POST "https://<alan>/api/v1/sessions/01JD…/invites" \
+  -H "Content-Type: application/json" -H "Origin: https://<alan>" -H "X-CSRF-Token: <csrf>" \
+  -b "<oturum çerezi>" -d '{"userId":"01JE…"}'
+# 201 {"inviteId":"Qm9vb…22kr","expiresAt":"2026-11-17T09:02:00.000Z"}
+
+# Davetli kabul eder (gözetimli oda)
+curl -X POST "https://<alan>/api/v1/sessions/invites/Qm9vb…22kr/accept" \
+  -H "Content-Type: application/json" -H "Origin: https://<alan>" -H "X-CSRF-Token: <csrf>" \
+  -b "<oturum çerezi>" -d '{}'
+# 200 {"sessionId":"01JD…","consoleUrl":"/sessions/01JD…/console"}
+# Süre dolduysa: 410 {"error":{"code":"INVITE_GONE","message":"Davet artık geçerli değil"}}
+```
+
+### Mevcut uçlarda değişenler
+
+| Uç                          | Değişiklik                                                                                                                                                                                                                                                                                                         |
+| --------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `GET /sessions/:id`         | Odanın bağlı ya da koltuğu ayrılmış üyesi de görür; sahip olmayan üyeye `techVerifyCode` boş döner                                                                                                                                                                                                                 |
+| `GET /sessions/:id/history` | `participants: { userId, name, role: "owner"\|"participant"\|"observer", joinedAt, leftAt, leaveReason, transferredAt }[]` (tek teknisyenli oturumda boş dizi); zaman çizelgesinde P28c olayları. `leaveReason`: `left`, `disconnect`, `no_show`, `session_end`, `auth_revoked` ya da müşteri çıkardıysa `removed` |
+
+Oturum devrinde `support_sessions.technician_id` yeni sahibe geçer. Geçmiş kapsamı değişmez: User yalnız sahibi olduğu
+oturumları görür, devrettiği oturumu artık "kendi oturumları"nda görmez.
+
+### WebSocket mesajları
+
+Yetenek belirteci `rs.cap.multi1` (`/ws/guest`; Windows istemci ve yardımcı 0.17.0, tarayıcı misafir). Çoklu teknisyene ait
+hiçbir alan ya da mesaj bu belirteci bildirmeyen misafire gönderilmez. Şemalar `z.strictObject`, fikstür
+`packages/contracts/fixtures/multi.json`. Müşteriye yalnız opak `tid` (11 karakter) ve ad gider; kullanıcı kimliği gitmez.
+
+| `t`                                  | Yön                                   | Alanlar                                                                                         | Kural                                                                                                                                                                             |
+| ------------------------------------ | ------------------------------------- | ----------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `hello` (ek)                         | S → teknisyen                         | `tid?`, `techRole?: owner\|participant\|observer`, `roster?`, `guestMulti?`                     | `guestMulti: false` → konsolda "Davet et"/"İzle" baştan pasif                                                                                                                     |
+| `techs.roster`                       | S → tüm teknisyenler + multi1 misafir | `techs: {tid, name (≤ 100), role: controller\|participant\|observer, owner, connected}[]` (1–3) | Her üyelik/rol/bağlantı değişiminde anında; tam bir oturum sahibi ve bir kontrol sahibi                                                                                           |
+| `control.handover`                   | teknisyen → S                         | `id?`, `to: tid`                                                                                | Oturum sahibi + `sessions.invite`; hedef bağlı katılımcı ya da kendisi (geri alma); izleyiciye verilemez. Kontrol izni VIEW'a döner, yeni kontrol sahibi müşteriden yeniden ister |
+| `session.transfer`                   | teknisyen → S                         | `id?`, `to: tid`                                                                                | Oturum sahibi + `sessions.invite`; hedef bağlı katılımcı ve sahiplik koşullarını taşımalı; eski sahip katılımcı olur                                                              |
+| `member.leave`                       | teknisyen → S                         | `id?`                                                                                           | Sahip olmayan üye; anında ayrılır, soket 1000                                                                                                                                     |
+| `tech.remove`                        | misafir → S                           | `id?`, `tid`                                                                                    | Yalnız multi1 misafir; oturum sahibi çıkarılamaz (`error{FORBIDDEN}`). Hedefin soketi 4403 "removed" ile kapanır                                                                  |
+| `sdp.offer` / `ice`                  | S → misafir                           | + `from: tid`                                                                                   | Bir teknisyenin ilk offer'ı, onu içeren `techs.roster`'dan sonra iletilir; misafir roster'da adı çizilmemiş `tid`'i kabul etmez                                                   |
+| `sdp.answer` / `ice` / `ice.restart` | misafir → S                           | + `to: tid` (multi1'de zorunlu)                                                                 | Yalnız odadaki bağlı `tid`'e iletilir                                                                                                                                             |
+
+Rol kapısı varsayılan-rettir (`ROLE_MAY`): katılımcı ve izleyici yalnız `sdp.offer`, `ice`, `ice.restart`, `member.leave`
+gönderebilir; diğer teknisyen mesajları `error{FORBIDDEN}` alır ve `rs_multi_denied_total{type}` artar. Devir sürerken
+`tech.remove`, `control.handover`, `member.leave` → `error{CONFLICT}`. Teknisyen soket kapanış kodu `4403 "removed"`:
+müşteri çıkardı ya da yetki düştü (konsol "Oturumdan çıkarıldınız" gösterir, yeniden bağlanmaz).
+
+DataChannel: `chat` mesajına isteğe bağlı `by: tid` eklenir (misafir teknisyen mesajını diğer eşlere yayar; konsol adı kendi
+roster'ından çözer). İzleyicinin sohbet mesajı misafirde düşer; `input`, dosya, pano, yazdırma ve işaretleme yalnız kontrol
+sahibinin eşinden kabul edilir.
+
+### Audit ve metrik
+
+`entity = "support_sessions"`, `entity_id = sessionId`; audit süzgecinde "Çoklu teknisyen" grubu. Sohbet içeriği yazılmaz.
+
+| Eylem (etiket)                                            | `new_value`                                                                    |
+| --------------------------------------------------------- | ------------------------------------------------------------------------------ |
+| `session.invite` (Teknisyen davet edildi)                 | `{inviteeUserId, inviteeName}`; ret `fail` + `failReason`                      |
+| `session.invite_accept` / `session.invite_reject`         | `{inviteId}`                                                                   |
+| `session.invite_expire` (Davet düştü)                     | `{inviteeUserId, reason: timeout\|session_end\|revoked}`                       |
+| `session.participant_join` (Teknisyen katıldı)            | `{userId, role, consentMode?, reasonLen?}`                                     |
+| `session.supervise_join` (Süpervizör izlemeye başladı)    | `{userId, role:"observer", consentMode?, reasonLen?}`; ret `fail`              |
+| `session.participant_leave` (Teknisyen ayrıldı)           | `{userId, role, reason: left\|disconnect\|no_show\|session_end\|auth_revoked}` |
+| `session.participant_remove` (Müşteri teknisyeni çıkardı) | `{userId, role}`, aktör müşteri                                                |
+| `session.control_handover` (Kontrol devredildi)           | `{fromUserId, toUserId, reason?: "controller_left"}`                           |
+| `session.transfer` (Oturum devredildi)                    | `{fromUserId, toUserId}`; `fail` `conflict` \| `target_gone`                   |
+
+İzinsiz odada katılım ve devir `unattended.silent.notify` (`event: join | transfer`) yazar. Metrikler
+`rs_multi_invites_total{result}`, `rs_multi_members{role}`, `rs_multi_denied_total{type}`; alarm runbook §28c.6.
+
 ## Saklama ve anonimleştirme (P13a)
 
 Yeni uç yoktur. Kaynak: `docs/mimari-p13.md` §2–§3, `apps/server/src/jobs/retention.ts`.

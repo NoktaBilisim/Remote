@@ -4252,7 +4252,8 @@ yok, yeni tablo yok** (`check-app-grants` değişmez). Sabitler `packages/contra
 | `sessions.invite`    | Etkin oturuma aynı firmadan teknisyen davet et; kontrolü / oturumu devret (sahipken)   | Admin açık, User kapalı |
 | `sessions.supervise` | Firmanın etkin oturumlarını izleyici olarak "İzle" (hassas — uyarı tonuyla gösterilir) | Admin açık, User kapalı |
 
-- Davet, kabul ve İzle için **2FA kurulu olmalı** (yoksa 403 `MFA_SETUP_REQUIRED`, konsol "Önce 2FA kurun"); kabul/İzle step-up ister.
+- **Gözetimsiz odada** kabul ve İzle için **2FA kurulu olmalı** (yoksa 403 `MFA_SETUP_REQUIRED`, konsol "Önce 2FA kurun") ve son
+  5 dk içinde step-up gerekir (`sessions/invites.ts` `requireUnattendedStepUp`); gözetimli odada ek step-up istenmez.
 - Gözetimsiz odada ek olarak cihaz yetkisi gerekir; **izinsiz (`silent`) odaya** katılan/izleyenin `unattended.silent` yetkisi de olmalı
   ve 20–500 karakter **gerekçe** yazması zorunludur (yalnız audit'te). İzinli (`asked`) gözetimsiz odada ek katılım **kapalıdır**
   (409 `JOIN_NOT_ALLOWED`, düğmeler pasif + neden).
