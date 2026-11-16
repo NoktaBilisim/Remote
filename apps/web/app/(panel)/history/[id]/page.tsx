@@ -17,6 +17,7 @@ import { Section } from "./sections";
 import { StoredFiles } from "./stored-files";
 import { RequestInfo, Summary } from "./summary";
 import { Quality, Timeline } from "./timeline";
+import { UnattendedInfoSection } from "./unattended-info";
 
 export const metadata: Metadata = { title: t("h.d.title") };
 
@@ -115,6 +116,11 @@ export default async function HistoryDetailPage({ params }: { params: Promise<{ 
         {s.request && (
           <Section id="request" title={t("h.r.title")}>
             <RequestInfo r={s.request} />
+          </Section>
+        )}
+        {s.unattended && (
+          <Section id="unattended" title={t("h.un.section")}>
+            <UnattendedInfoSection u={s.unattended} />
           </Section>
         )}
         <Section id="consents" title={t("h.c.title")}>

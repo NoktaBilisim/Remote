@@ -50,7 +50,7 @@ export const ANON_ID = "01JHXSTAN0N000000000000048";
 const ANON_I = 48;
 
 export function historyUser(cookie) {
-  const m = cookie?.match(/^u-(hu|hro|hadm|hsa|hempty|hbroken|hbig|hrate|hfs)-/);
+  const m = cookie?.match(/^u-(hu|hro|hadm|hsa|hempty|hbroken|hbig|hrate|hfs|hun)-/);
   if (!m) return null;
   const role = m[1] === "hadm" ? "ADMIN" : m[1] === "hsa" ? "SUPER_ADMIN" : "USER";
   // P28b (AC-360): u-hfs-* geçmiş + file_transfer.use → "Sunucudaki dosyalar" indirilebilir
@@ -149,6 +149,21 @@ function detail(s, who) {
   return {
     ...listItem(s, who),
     ...(rich && who.kind === "hfs" ? { storedFiles: storedFilesOf(s.id) } : {}),
+    // P28u K7 (AC-446): u-hun-* zengin oturum gözetimsiz izinsiz bağlantı bölümüyle (kip, gerekçe, müdahale zaman çizelgesi)
+    ...(rich && who.kind === "hun"
+      ? {
+          unattended: {
+            consentMode: "silent",
+            silentReason: "Gece bakım penceresinde sunucu güncellemesi <b>",
+            timeline: [
+              { at: at(1), kind: "control_on" },
+              { at: at(2), kind: "lock", result: "success" },
+              { at: at(3), kind: "logoff", result: "fail" },
+              { at: at(4), kind: "control_off" },
+            ],
+          },
+        }
+      : {}),
     customerEmail: rich ? "ayse@ornek.com" : s.customerEmail,
     note: s.note,
     terminatedBy: s.endedBy === "ADMIN" ? { id: "01JADMN0000000000000000001", name: "Yönetici Kişi" } : null,

@@ -13,6 +13,7 @@ import {
   type SessionSource,
   type SessionStatus,
 } from "@remote/contracts/api/sessions";
+import { CONSENT_MODES, type ConsentMode } from "@remote/contracts/unattended-consent";
 
 export const PAGE_SIZES = [10, 25, 50, 100] as const;
 const DEFAULT_PAGE_SIZE = 25;
@@ -31,6 +32,8 @@ export interface HistoryFilters {
   customer?: string;
   /** P8c (AC-179): müşteri FİRMA filtresi — `none` (müşterisiz) | ULID (sorgu adı `customerFirm`). */
   customerFirm?: string;
+  /** P28u (AC-445): gözetimsiz bağlantı kipi (`consent_mode`). */
+  consentMode?: ConsentMode;
   page: number;
   pageSize: number;
 }
@@ -107,6 +110,11 @@ export function parseFilters(sp: SearchParams): { filters: HistoryFilters; ignor
     (v) => (f.customerFirm = v),
   );
   take(
+    "consentMode",
+    (v) => (CONSENT_MODES as readonly string[]).includes(v),
+    (v) => (f.consentMode = v as ConsentMode),
+  );
+  take(
     "page",
     (v) => int(v) >= 1 && int(v) <= 10_000,
     (v) => (f.page = int(v)),
@@ -138,6 +146,7 @@ function toQuery(f: Partial<HistoryFilters>, opts: { paging?: boolean } = {}): s
   put("technicianId", f.technicianId);
   put("tenantId", f.tenantId);
   put("customer", f.customer);
+  put("consentMode", f.consentMode);
   put("customerFirm", f.customerFirm);
   if (opts.paging !== false) {
     if (f.page && f.page > 1) put("page", f.page);
@@ -167,7 +176,9 @@ export function exportApiPath(f: Partial<HistoryFilters>): string {
 }
 
 export const hasFilters = (f: HistoryFilters) =>
-  Boolean(f.status || f.mode || f.source || f.from || f.to || f.technicianId || f.tenantId || f.customer || f.customerFirm);
+  Boolean(
+    f.status || f.mode || f.source || f.from || f.to || f.technicianId || f.tenantId || f.customer || f.customerFirm || f.consentMode,
+  );
 
 /** Sayfa düğmeleri için toplam sayfa (en az 1). */
 export const pageCount = (total: number, pageSize: number) => Math.max(1, Math.ceil(total / pageSize));

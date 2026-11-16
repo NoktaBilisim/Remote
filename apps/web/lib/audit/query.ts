@@ -4,6 +4,7 @@
  * istemcide ekler). Geçersiz değer API'ye gönderilmez — yok sayılır ve "bazı filtreler yok sayıldı" denir (kısmi durum).
  */
 import { isCalendarDay } from "@/lib/history/query";
+import { CONSENT_MODES, type ConsentMode } from "@remote/contracts/unattended-consent";
 import { AUDIT_MAX_RANGE_DAYS, AUDIT_RESULTS, auditActionFilterSchema, type AuditResult } from "./contract";
 
 const ULID = /^[0-9A-HJKMNP-TV-Z]{26}$/;
@@ -16,6 +17,8 @@ export interface AuditFilters {
   userId?: string;
   action?: string;
   result?: AuditResult;
+  /** P28u (AC-445): gözetimsiz bağlantı kipi. */
+  consentMode?: ConsentMode;
 }
 export type AuditField = keyof AuditFilters;
 type SP = Record<string, string | string[] | undefined>;
@@ -73,6 +76,11 @@ export function parseAuditParams(sp: SP, opts: { allowTenant: boolean; today: st
     (v) => (AUDIT_RESULTS as readonly string[]).includes(v),
     (v) => (f.result = v as AuditResult),
   );
+  take(
+    "consentMode",
+    (v) => (CONSENT_MODES as readonly string[]).includes(v),
+    (v) => (f.consentMode = v as ConsentMode),
+  );
   const err = rangeError(f.from, f.to, opts.today);
   if (err === "order") {
     delete f.to;
@@ -84,7 +92,7 @@ export function parseAuditParams(sp: SP, opts: { allowTenant: boolean; today: st
   return { filters: f, ignored };
 }
 
-const ORDER: AuditField[] = ["from", "to", "tenantId", "userId", "action", "result"];
+const ORDER: AuditField[] = ["from", "to", "tenantId", "userId", "action", "result", "consentMode"];
 
 /** Filtre → sorgu dizesi (boşlar yazılmaz; sabit sıra → kararlı URL). */
 function auditQuery(f: AuditFilters): string {

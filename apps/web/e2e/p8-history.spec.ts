@@ -36,7 +36,7 @@ test("AC-60: filtreler (durum, mod, tarih, müşteri) URL'de kalır; yenilemede 
   await page.goto("/history");
   const f = page.getByTestId("history-filters");
   await f.getByLabel("Durum").selectOption("ENDED");
-  await f.getByLabel("Bağlantı").selectOption("AGENT");
+  await f.getByLabel("Bağlantı", { exact: true }).selectOption("AGENT");
   await f.getByLabel("Başlangıç tarihi").fill("2026-11-01");
   await f.getByLabel("Müşteri adı").fill("ayşe");
   await f.getByTestId("filter-apply").click();

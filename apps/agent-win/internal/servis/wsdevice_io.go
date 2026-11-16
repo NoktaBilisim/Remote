@@ -19,6 +19,9 @@ func (c *DeviceClient) writer(ctx context.Context, ws *websocket.Conn) {
 			if flush {
 				m = fm.msg
 			}
+			if consentOnly(m) && !c.consent.Load() {
+				continue // K-P28u-8: features'sız (eski/geri alınmış) sunucuya yeni mesaj yazılmaz
+			}
 			err := c.write(ctx, ws, m)
 			if flush {
 				fm.done <- err
@@ -29,6 +32,28 @@ func (c *DeviceClient) writer(ctx context.Context, ws *websocket.Conn) {
 			}
 		}
 	}
+}
+
+// Consent1 bu sokette `device.features{consent1}` alındı mı (çekirdeğin kip kararı; D-P28u-5).
+func (c *DeviceClient) Consent1() bool { return c.consent.Load() }
+
+// consentMessage P28u sunucu mesajları. intervene/rejoin features'tan önce gelirse protokol ihlalidir.
+func (c *DeviceClient) consentMessage(ws *websocket.Conn, m any) error {
+	if _, ok := m.(*Features); ok {
+		c.consent.Store(true)
+		c.Handler.Features()
+		return nil
+	}
+	if !c.consent.Load() {
+		return c.violation(ws, "device.features öncesi P28u mesajı")
+	}
+	switch v := m.(type) {
+	case *Intervene:
+		c.Handler.Intervene(v)
+	case *Rejoin:
+		c.Handler.Rejoin(v)
+	}
+	return nil
 }
 
 func (c *DeviceClient) read(ctx context.Context, ws *websocket.Conn) (any, error) {

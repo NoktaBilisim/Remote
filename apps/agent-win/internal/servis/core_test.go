@@ -2,6 +2,7 @@ package servis
 
 import (
 	"errors"
+	"io"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -20,8 +21,21 @@ func (s *memSwitch) Enabled() (bool, error) { s.mu.Lock(); defer s.mu.Unlock(); 
 func (s *memSwitch) Disable() error         { s.mu.Lock(); s.on = false; s.mu.Unlock(); return nil }
 
 type fakeProc struct {
-	done chan uint32
-	once sync.Once
+	done   chan uint32
+	once   sync.Once
+	win    uint32
+	status io.Reader
+	cmdMu  sync.Mutex
+	cmds   []helperio.Command
+}
+
+func (p *fakeProc) WinSession() uint32    { return p.win }
+func (p *fakeProc) StatusPipe() io.Reader { return p.status }
+func (p *fakeProc) Command(c helperio.Command) error {
+	p.cmdMu.Lock()
+	defer p.cmdMu.Unlock()
+	p.cmds = append(p.cmds, c)
+	return nil
 }
 
 func (p *fakeProc) Wait() uint32 { return <-p.done }
@@ -33,6 +47,8 @@ func (p *fakeProc) exit(code uint32) { p.once.Do(func() { p.done <- code }) }
 
 type fakeLauncher struct {
 	mu       sync.Mutex
+	win      uint32
+	status   func() io.Reader // nil: durum borusu yok
 	procs    []*fakeProc
 	inputs   []helperio.Input
 	err      error
@@ -43,7 +59,10 @@ func (l *fakeLauncher) Launch(in helperio.Input) (Process, error) {
 	if l.err != nil {
 		return nil, l.err
 	}
-	p := &fakeProc{done: make(chan uint32, 1)}
+	p := &fakeProc{done: make(chan uint32, 1), win: l.win}
+	if l.status != nil {
+		p.status = l.status()
+	}
 	l.mu.Lock()
 	l.procs, l.inputs = append(l.procs, p), append(l.inputs, in)
 	l.mu.Unlock()

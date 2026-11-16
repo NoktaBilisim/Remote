@@ -13,6 +13,7 @@ import type { useTechSession } from "@/lib/webrtc/use-tech-session";
 import { comboMsgs, SPECIAL_COMBOS, type SpecialComboId } from "@/lib/control/input";
 import { isCapturing, type ControlState } from "@/lib/control/machine";
 import { sendInput } from "@/lib/control/use-remote-input";
+import { showControlButton } from "@/lib/unattended/consent";
 import { annotInput, ConsoleAnnotTools, ConsoleControlBar } from "./console-parts";
 
 type Tech = ReturnType<typeof useTechSession>;
@@ -63,7 +64,7 @@ function controlBar(p: ConsoleStageProps, showing: boolean, capturing: boolean) 
   const { ts } = p;
   return (
     <ConsoleControlBar
-      canControl={p.canControl}
+      canControl={p.canControl && showControlButton(ts.state.unattended, ts.control.phase)}
       control={ts.control}
       now={p.now}
       available={showing}

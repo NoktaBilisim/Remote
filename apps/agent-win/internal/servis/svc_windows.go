@@ -26,10 +26,8 @@ import (
 
 const (
 	// StateUnsafe açılış denetimi başarısız (klasör/anahtar/kayıt).
-	StateUnsafe       = "unsafe"
-	stopWait          = 5 * time.Second
-	wtsConsoleConnect = 0x1 // WTS_CONSOLE_CONNECT
-	wtsConsoleDiscon  = 0x2 // WTS_CONSOLE_DISCONNECT
+	StateUnsafe = "unsafe"
+	stopWait    = 5 * time.Second
 )
 
 // RunService SCM'ye bağlanır; dönüş süreç çıkış kodudur.
@@ -62,9 +60,8 @@ func (h *handler) Execute(_ []string, req <-chan svc.ChangeRequest, st chan<- sv
 		case svc.Interrogate:
 			st <- c.CurrentStatus
 		case svc.SessionChange:
-			if c.EventType == wtsConsoleConnect || c.EventType == wtsConsoleDiscon {
-				core.Kill(KillSessionChanged) // K-P27-12: oturum sürmez
-			}
+			// Olay yalnız tetikleyici (EventData okunmaz): konsol geçişi K-P27-12, asked'da logon K-P28u-17, device.user.
+			core.SessionEvent(c.EventType)
 		case svc.Stop, svc.Shutdown:
 			st <- svc.Status{State: svc.StopPending}
 			core.Kill(KillServiceStop)
@@ -79,7 +76,8 @@ func (h *handler) Execute(_ []string, req <-chan svc.ChangeRequest, st chan<- sv
 
 // start çekirdeği kurar ve arka plan işlerini başlatır.
 func (h *handler) start(ctx context.Context, events *EventLog) (*Core, *sync.WaitGroup) {
-	core := &Core{Switch: RegSwitch{}, Launch: WinLauncher{Exe: h.exe}, Events: events, Send: func(any) {}}
+	core := &Core{Switch: RegSwitch{}, Launch: WinLauncher{Exe: h.exe}, Events: events, Send: func(any) {},
+		Sessions: winSessions{}}
 	core.State = func() string { return StateUnsafe }
 	wg := &sync.WaitGroup{}
 	pipe := &PipeServer{Handler: core, Events: events}
@@ -91,6 +89,7 @@ func (h *handler) start(ctx context.Context, events *EventLog) (*Core, *sync.Wai
 	}
 	client := NewDeviceClient(api.New(h.cfg.ServerURL, h.cfg.Version).HTTPClient(), h.cfg.ServerURL, id, core, events)
 	core.Send, core.State, core.OnUnregister = client.Send, client.State, client.Unregister
+	core.Consent1 = client.Consent1
 	core.Init()
 	wg.Go(func() { _ = WatchLocal(ctx, core.LocalChanged) })
 	wg.Go(func() { _ = client.Run(ctx) })

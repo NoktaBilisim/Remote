@@ -74,6 +74,9 @@ type Connect struct {
 	TechIP        string `json:"techIp"`
 	ExpiresInSec  int    `json:"expiresInSec"`
 	IndicatorText string `json:"indicatorText"`
+	// P28u: consent1 sokette zorunlu "ask"|"silent" (çekirdek denetler, connectConsent); indicatorControl yalnız silent.
+	Consent          string `json:"consent,omitempty"`
+	IndicatorControl string `json:"indicatorControl,omitempty"`
 }
 
 // Disconnect sunucu tarafı bitiş (yedek yol).
@@ -144,13 +147,15 @@ var (
 
 // connectFailReasons contracts DEVICE_CONNECT_FAIL_REASONS.
 var connectFailReasons = map[string]bool{RejectLocalDisabled: true, helperio.ReasonIndicatorFailed: true,
-	helperio.ReasonHelperFailed: true, helperio.ReasonNoConsole: true, RejectBusy: true}
+	helperio.ReasonHelperFailed: true, helperio.ReasonNoConsole: true, RejectBusy: true,
+	helperio.ReasonConsentDenied: true, helperio.ReasonConsentTimeout: true, RejectProtocol: true}
 
 // sessionEndedReasons contracts ws.ts SESSION_ENDED_REASONS (`disconnect.reason`).
 var sessionEndedReasons = map[string]bool{"tech": true, "customer": true, "timeout": true, "max_duration": true,
 	"cancelled": true, "tenant_passive": true, "server": true, "admin": true, "auth_revoked": true, "rejected": true,
 	"lobby_timeout": true, "permission": true, "device_revoked": true, "local_disabled": true, "indicator_failed": true,
-	"device_timeout": true, "session_changed": true}
+	"device_timeout": true, "session_changed": true,
+	"consent_denied": true, "consent_timeout": true, "consent_missing": true}
 
 // name contracts `z.string().min(1).max(120)` (sunucu metni; kontrol karakteri ayrıca reddedilir).
 func name(s string) bool { return helperio.Text(s, 120) }
@@ -178,6 +183,12 @@ func ParseServer(raw []byte) (any, error) {
 		m = &Disconnect{}
 	case tRevoked:
 		m = &Revoked{}
+	case tFeatures:
+		m = &Features{}
+	case tIntervene:
+		m = &Intervene{}
+	case tRejoin:
+		m = &Rejoin{}
 	default:
 		return nil, fmt.Errorf("%w: tür %q", errSchema, head.T)
 	}
@@ -200,7 +211,14 @@ func validateServer(m any) error {
 	case *Connect:
 		ok = ulidRe.MatchString(v.SessionID) && b64url32.MatchString(v.Ticket) && name(v.TechName) &&
 			name(v.TenantName) && len(v.TechIP) >= 2 && len(v.TechIP) <= 45 && v.ExpiresInSec >= 1 &&
-			v.ExpiresInSec <= 300 && helperio.Text(v.IndicatorText, 160)
+			v.ExpiresInSec <= 300 && helperio.Text(v.IndicatorText, 160) && len(v.Consent) <= 16 &&
+			(v.IndicatorControl == "" || helperio.Text(v.IndicatorControl, 160))
+	case *Features:
+		ok = validFeatures(v)
+	case *Intervene:
+		ok = validIntervene(v)
+	case *Rejoin:
+		ok = validRejoin(v)
 	case *Disconnect:
 		ok = ulidRe.MatchString(v.SessionID) && sessionEndedReasons[v.Reason]
 	}
@@ -212,6 +230,9 @@ func validateServer(m any) error {
 
 // validateClient cihaz mesajını sözleşmeye göre denetler (gönderim öncesi fail-closed; contracts ws-device.ts).
 func validateClient(m any) bool {
+	if ok, known := validConsentClient(m); known {
+		return ok
+	}
 	switch v := m.(type) {
 	case *Auth:
 		osv := strings.TrimSpace(v.OSVersion)
@@ -243,6 +264,12 @@ func encodeClient(m any) ([]byte, error) {
 		v.T = tClosed
 	case *Unregister:
 		v.T = tUnregister
+	case *DeviceUser:
+		v.T = tUser
+	case *ConsentResult:
+		v.T = tConsentResult
+	case *InterveneResult:
+		v.T = tInterveneResult
 	default:
 		return nil, fmt.Errorf("%w: istemci türü %T", errSchema, m)
 	}

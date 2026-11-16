@@ -28,40 +28,24 @@ import (
 //     helperToken ile kilit, K-P28u-5b kullanıcı jetonuyla kilit, WTSLogoffSession sonrası yeni konsol oturumu (soru 2).
 
 const (
-	k6sLockArg       = "--k6s-kilit"
-	k6sLockEnv       = "K6S_KILIT"
-	wtsSessionInfoEx = 25 // WTS_INFO_CLASS WTSSessionInfoEx
-	wtsStateLock     = 0  // WTS_SESSIONSTATE_LOCK
-	wtsStateUnlock   = 1  // WTS_SESSIONSTATE_UNLOCK
-	desktopReadObj   = 0x0001
-	uoiNameIndex     = 2
+	k6sLockArg     = "--k6s-kilit"
+	k6sLockEnv     = "K6S_KILIT"
+	desktopReadObj = 0x0001
+	uoiNameIndex   = 2
 )
 
 var (
 	k6sElle  = flag.String("k6s.elle", "", "K6s elle spike adımları: hepsi | kilit0,kilit,kilit5b,kapat (SYSTEM, Session 0)")
 	k6sCikti = flag.String("k6s.cikti", "", "K6s elle spike sonuç dosyası (satır eklenir)")
 
-	k6sWts                  = windows.NewLazySystemDLL("wtsapi32.dll")
-	k6sUser32               = windows.NewLazySystemDLL("user32.dll")
-	procWTSQuerySessionInfo = k6sWts.NewProc("WTSQuerySessionInformationW")
-	procWTSLogoffSession    = k6sWts.NewProc("WTSLogoffSession")
-	procLockWorkStation     = k6sUser32.NewProc("LockWorkStation")
-	procOpenInputDesktop    = k6sUser32.NewProc("OpenInputDesktop")
-	procCloseDesktop        = k6sUser32.NewProc("CloseDesktop")
-	procGetUserObjectInfoW  = k6sUser32.NewProc("GetUserObjectInformationW")
+	k6sUser32              = windows.NewLazySystemDLL("user32.dll")
+	procLockWorkStation    = k6sUser32.NewProc("LockWorkStation")
+	procOpenInputDesktop   = k6sUser32.NewProc("OpenInputDesktop")
+	procCloseDesktop       = k6sUser32.NewProc("CloseDesktop")
+	procGetUserObjectInfoW = k6sUser32.NewProc("GetUserObjectInformationW")
 )
 
-// wtsInfoEx WTSINFOEXW'nin başı: Level, (8 bayt hizalı birleşim) WTSINFOEX_LEVEL1_W alanları.
-type wtsInfoEx struct {
-	Level     uint32
-	_         uint32
-	SessionID uint32
-	State     int32
-	Flags     int32
-	Station   [33]uint16
-	User      [21]uint16
-	Domain    [18]uint16
-}
+// wtsInfoEx, procWTSQuerySessionInfo, procWTSLogoffSession ve wtsState* üretimde (userstate_windows.go).
 
 func TestMain(m *testing.M) {
 	if len(os.Args) > 1 && os.Args[1] == k6sLockArg {

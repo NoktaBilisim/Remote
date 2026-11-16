@@ -46,8 +46,15 @@ const header = (state: TechState) =>
   );
 
 describe("K12: gözetimsiz konsol sahnesi", () => {
-  it("bekleme: 'Cihaz bağlanıyor…', müşteri/doğrulama kodu metni yok", () => {
+  it("P28u izinli istek (kip karara kadar yok): 'Kullanıcının onayı bekleniyor… (60 sn)', kod metni yok", () => {
     const html = overlay(waiting({ unattended: UN }));
+    expect(html).toContain("Kullanıcının onayı bekleniyor… (60 sn)");
+    expect(html).toContain('data-testid="stage-consent-wait"');
+    expect(html).toContain('role="status"');
+    expect(html).not.toContain("4033");
+  });
+  it("bekleme (kip belli, ör. izinsiz): 'Cihaz bağlanıyor…', müşteri/doğrulama kodu metni yok", () => {
+    const html = overlay(waiting({ unattended: { ...UN, consentMode: "silent" } }));
     expect(html).toContain("Cihaz bağlanıyor…");
     expect(html).toContain('data-testid="stage-unattended-wait"');
     expect(html).not.toContain("Müşteri bekleniyor");

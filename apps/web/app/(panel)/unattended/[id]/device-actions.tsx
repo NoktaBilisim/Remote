@@ -12,13 +12,27 @@ import { t } from "@/lib/i18n";
 import type { DeviceListItem } from "@/lib/unattended/contract";
 import { unattendedUiError } from "@/lib/unattended/errors";
 import { ConnectButton } from "../connect-button";
+import { ConnectDialog } from "../connect-dialog";
 import { useConnect } from "../use-connect";
 
-/** Ayrıntıdaki Bağlan: hata sonrası sayfa sunucuda yeniden çizilir (güncel durum/neden). */
-export function DetailConnect({ device, available }: { device: DeviceListItem; available: boolean }) {
+/** Ayrıntıdaki Bağlan (listeyle aynı diyalog, P28u AC-430): hata sonrası sayfa sunucuda yeniden çizilir. */
+export function DetailConnect({
+  device,
+  available,
+  silentAllowed,
+}: {
+  device: DeviceListItem;
+  available: boolean;
+  silentAllowed: boolean;
+}) {
   const router = useRouter();
-  const { connect, busyId } = useConnect(() => router.refresh());
-  return <ConnectButton device={device} available={available} busy={busyId === device.id} onConnect={(id) => void connect(id)} />;
+  const flow = useConnect(() => router.refresh());
+  return (
+    <>
+      <ConnectButton device={device} available={available} busy={flow.busyId === device.id} onConnect={() => flow.open(device)} />
+      <ConnectDialog flow={flow} silentAllowed={silentAllowed} />
+    </>
+  );
 }
 
 function useRevoke(id: string, name: string) {

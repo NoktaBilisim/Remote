@@ -5,6 +5,7 @@ import { t } from "@/lib/i18n";
 import type { DeviceListItem } from "@/lib/unattended/contract";
 import { ConnectButton } from "./connect-button";
 import { DeviceBadges } from "./device-badges";
+import { UserState } from "./user-state";
 
 type RowProps = { items: DeviceListItem[]; available: boolean; busyId: string | null; onConnect: (id: string) => void };
 
@@ -37,6 +38,9 @@ function DeviceTableRow({ d, available, busy, onConnect }: RowItemProps) {
       <td className="max-w-56 truncate px-3 py-2 pt-4 text-fg" title={d.customerName}>
         {d.customerName}
       </td>
+      <td className={td}>
+        <UserState state={d.userState} />
+      </td>
       <td className={td}>{when(d.lastSeenAt)}</td>
       <td className={td}>{when(d.lastSessionAt)}</td>
       <td className={`${td} text-right`}>{formatNumber(d.grantCount)}</td>
@@ -56,6 +60,9 @@ function TableHead() {
         </th>
         <th scope="col" className={th}>
           {t("un.col.customer")}
+        </th>
+        <th scope="col" className={th}>
+          {t("un.col.user")}
         </th>
         <th scope="col" className={th}>
           {t("un.col.lastSeen")}
@@ -110,6 +117,10 @@ function DeviceCards({ items, available, busyId, onConnect }: RowProps) {
           <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-xs">
             <dt className="text-fg-muted">{t("un.col.customer")}</dt>
             <dd className="min-w-0 truncate text-fg">{d.customerName}</dd>
+            <dt className="text-fg-muted">{t("un.col.user")}</dt>
+            <dd className="text-fg">
+              <UserState state={d.userState} />
+            </dd>
             <dt className="text-fg-muted">{t("un.col.lastSeen")}</dt>
             <dd className="tabular-nums text-fg">{when(d.lastSeenAt)}</dd>
             <dt className="text-fg-muted">{t("un.col.lastSession")}</dt>

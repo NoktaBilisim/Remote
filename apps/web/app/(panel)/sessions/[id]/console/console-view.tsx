@@ -4,6 +4,7 @@ import type { SessionView } from "@remote/contracts/api/sessions";
 import { useEffect, useId, useRef, useState } from "react";
 import type { DrawTool } from "@/components/collab/annot-layer";
 import { CollabSide, type CollabTab } from "@/components/console/collab-side";
+import { UnattendedActions } from "@/components/console/unattended-actions";
 import { Alert } from "@/components/ui/alert";
 import { useToast } from "@/components/ui/toast";
 import { api } from "@/lib/api";
@@ -64,12 +65,25 @@ export function ConsoleView({
     <div className="flex flex-col gap-3" data-testid="console" data-phase={state.phase}>
       <ConsoleHeader session={session} state={state} name={name} now={now} controlHint={controlHint} onConfirm={() => setConfirm(true)} />
 
+      {state.phase !== "ended" && (
+        <UnattendedActions
+          sessionId={session.id}
+          unattended={state.unattended}
+          phase={control.phase}
+          live={live}
+          canControl={canControl}
+          now={now}
+          onIntervene={ts.requestControl}
+          onReturn={ts.releaseControl}
+        />
+      )}
+
       {state.warnEndsAt && state.phase !== "ended" && (
         <Alert tone="warning">{t("c.warning", { time: formatTime(state.warnEndsAt) })}</Alert>
       )}
 
       {state.phase === "ended" ? (
-        <ConsoleEnded end={state.end} />
+        <ConsoleEnded end={state.end} deviceId={state.unattended?.deviceId ?? null} />
       ) : (
         <div className="flex flex-col gap-3 xl:flex-row">
           <ConsoleStage
