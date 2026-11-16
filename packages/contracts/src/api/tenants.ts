@@ -4,6 +4,8 @@ import { z } from "zod";
 import type { TenantRef } from "./auth.ts";
 import { UNSAFE_NAME_CHARS } from "./sessions.ts";
 import { confirmNameSchema } from "./users.ts";
+import type { TenantStorageUsage } from "./fsrv.ts";
+import { FILE_RETENTION_DAYS_MAX, FILE_RETENTION_DAYS_MIN, STORAGE_QUOTA_GB_MAX, STORAGE_QUOTA_GB_MIN } from "../ws-fsrv.ts";
 
 // ---------------------------------------------------------------------------------------------------------------
 // Firmalar (Super Admin)
@@ -53,9 +55,20 @@ export const createTenantInputSchema = z.strictObject({ name: tenantNameSchema, 
 export type CreateTenantInput = z.input<typeof createTenantInputSchema>;
 export type CreateTenantData = z.output<typeof createTenantInputSchema>;
 
-/** PATCH /admin/tenants/:id — ad ve/veya kısa ad (en az biri). Durum yalnız deactivate/reactivate uçlarıyla. */
+const QUOTA_MESSAGE = `Kota ${STORAGE_QUOTA_GB_MIN}-${STORAGE_QUOTA_GB_MAX} GB arası olmalı`;
+/** P28b (AC-362, K-P28b-10): firma sunucu depolama kotası (GB); yalnız Super Admin. Kullanımın altına düşürülebilir. */
+export const storageQuotaGbSchema = z
+  .number({ error: QUOTA_MESSAGE })
+  .int(QUOTA_MESSAGE)
+  .min(STORAGE_QUOTA_GB_MIN, QUOTA_MESSAGE)
+  .max(STORAGE_QUOTA_GB_MAX, QUOTA_MESSAGE);
+
+/**
+ * PATCH /admin/tenants/:id — ad, kısa ad ve/veya P28b `storageQuotaGb` (en az biri; audit `tenant.storage_quota` eski→yeni).
+ * Durum yalnız deactivate/reactivate uçlarıyla.
+ */
 export const updateTenantInputSchema = z
-  .strictObject({ name: tenantNameSchema.optional(), slug: tenantSlugSchema.optional() })
+  .strictObject({ name: tenantNameSchema.optional(), slug: tenantSlugSchema.optional(), storageQuotaGb: storageQuotaGbSchema.optional() })
   .refine((o) => Object.values(o).some((v) => v !== undefined), { message: "Değiştirilecek alan yok", path: ["_"] });
 export type UpdateTenantInput = z.input<typeof updateTenantInputSchema>;
 export type UpdateTenantData = z.output<typeof updateTenantInputSchema>;
@@ -137,6 +150,9 @@ export interface TenantItem {
   passiveSince?: string | null;
   /** P16 (AC-242): açık/son silme işi rozeti ("Silinecek: <tarih>" / "Siliniyor"); iş yoksa null. G3 doldurur. */
   purge?: TenantPurgeBadge | null;
+  /** P28b (AC-362): kota (GB) ve kullanım; K3 doldurur — o zamana kadar gelmeyebilir. */
+  storageQuotaGb?: number;
+  storage?: TenantStorageUsage;
 }
 
 export interface TenantListResponse {
@@ -316,6 +332,20 @@ export const updateTenantSettingsInputSchema = z
     mfaRememberDevice: z.boolean().optional(),
     /** P10: SMTP; `null` → kaldır. Host özel/loopback IP'ye çözümlenirse 400 `HOST_NOT_ALLOWED` (AC-122). */
     smtp: smtpSettingsInputSchema.nullable().optional(),
+    /**
+     * P28b (AC-354): "Dosyaları sunucu üzerinden aktar ve virüs tara". `false→true`: son ClamAV testi başarılı değilse 409
+     * `AV_NOT_READY`, `consentUpdated !== true` ise 400 `fields.consentUpdated`. Mod yeni oturumlarda geçerli (AC-355).
+     */
+    fileServerMode: z.boolean({ error: "Açık/kapalı olmalı" }).optional(),
+    /** P28b (AC-354, AC-360): teslim edilen dosyanın saklama süresi (gün). */
+    fileRetentionDays: z
+      .number({ error: `${FILE_RETENTION_DAYS_MIN}-${FILE_RETENTION_DAYS_MAX} arası olmalı` })
+      .int(`${FILE_RETENTION_DAYS_MIN}-${FILE_RETENTION_DAYS_MAX} arası olmalı`)
+      .min(FILE_RETENTION_DAYS_MIN, `${FILE_RETENTION_DAYS_MIN}-${FILE_RETENTION_DAYS_MAX} arası olmalı`)
+      .max(FILE_RETENTION_DAYS_MAX, `${FILE_RETENTION_DAYS_MIN}-${FILE_RETENTION_DAYS_MAX} arası olmalı`)
+      .optional(),
+    /** P28b (AC-354): aydınlatma onay kutusu (yalnız açarken zorunlu; audit `consentAck`). */
+    consentUpdated: z.literal(true).optional(),
   })
   .refine((o) => Object.values(o).some((v) => v !== undefined), { message: "Değiştirilecek alan yok", path: ["_"] });
 export type UpdateTenantSettingsInput = z.input<typeof updateTenantSettingsInputSchema>;
@@ -340,6 +370,14 @@ export interface TenantSettingsView {
   mfaRememberDevice: boolean;
   /** P10: SMTP ayarı yoksa null. */
   smtp: SmtpSettingsView | null;
+  /** P28b (AC-354): dosya modu; K3 doldurur — o zamana kadar gelmeyebilir (web `?? false`). */
+  fileServerMode?: boolean;
+  /** P28b (AC-354): saklama günü (1..7). */
+  fileRetentionDays?: number;
+  /** P28b (AC-354, §9): son ClamAV testi başarılı mı (`false` → anahtar açılamaz, `AV_NOT_READY_HINT`). */
+  avReady?: boolean;
+  /** P28b (AC-362): kullanım / kota (bayt). */
+  storage?: TenantStorageUsage;
 }
 
 // ---------------------------------------------------------------------------------------------------------------

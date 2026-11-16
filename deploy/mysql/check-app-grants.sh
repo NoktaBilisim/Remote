@@ -394,8 +394,8 @@ run_root 0 "SELECT COUNT(*) FROM information_schema.REFERENTIAL_CONSTRAINTS WHER
 run_root 0 "SELECT (SELECT COUNT(*) FROM information_schema.USER_PRIVILEGES WHERE GRANTEE=\"'app'@'%'\" AND PRIVILEGE_TYPE<>'USAGE') + (SELECT COUNT(*) FROM information_schema.SCHEMA_PRIVILEGES WHERE GRANTEE=\"'app'@'%'\") + (SELECT COUNT(*) FROM information_schema.TABLE_PRIVILEGES WHERE GRANTEE=\"'app'@'%'\" AND PRIVILEGE_TYPE IN ('TRIGGER','ALTER','DROP','CREATE','INDEX','REFERENCES','GRANT OPTION'))" "app: global/DB yetkisi yok, hiçbir tabloda TRIGGER/ALTER/DROP/CREATE/INDEX yok"
 run_root 0 "SELECT COUNT(*) FROM information_schema.TABLE_PRIVILEGES WHERE GRANTEE=\"'app'@'%'\" AND TABLE_NAME='audit_logs' AND PRIVILEGE_TYPE NOT IN ('SELECT','INSERT','DELETE')" "app: audit_logs yalnız SELECT/INSERT/DELETE (DELETE P13a)"
 # P13a (K27) + P16 (ADR-0030 m.3): DELETE yetkisi tam olarak bu tablolarda; P16'nın 8 tablosunda koşul tetikleyicide.
-run_root "audit_logs,auth_sessions,business_holidays,consent_texts,customer_notify_contacts,customers,device_bindings,notification_outbox,password_reset_tokens,recovery_codes,request_blocks,request_refs,session_consents,session_files,session_messages,support_requests,support_sessions,tenant_purge_jobs,tenant_request_settings,tenant_settings,tenants,trusted_devices,unattended_device_grants,unattended_devices,unattended_registration_codes,user_permissions,users" "SELECT GROUP_CONCAT(TABLE_NAME ORDER BY CAST(TABLE_NAME AS BINARY)) FROM information_schema.TABLE_PRIVILEGES WHERE GRANTEE=\"'app'@'%'\" AND TABLE_SCHEMA=DATABASE() AND PRIVILEGE_TYPE='DELETE'" "app: DELETE yetkili tablo kümesi (K27)"
-run_root "consent_texts.is_current:UPDATE,consent_texts.updated_at:UPDATE,password_reset_tokens.updated_at:UPDATE,password_reset_tokens.used_at:UPDATE,recovery_codes.updated_at:UPDATE,recovery_codes.used_at:UPDATE,session_consents.ip:UPDATE,session_consents.user_agent:UPDATE" "SELECT GROUP_CONCAT(CONCAT(TABLE_NAME,'.',COLUMN_NAME,':',PRIVILEGE_TYPE) ORDER BY CAST(TABLE_NAME AS BINARY),CAST(COLUMN_NAME AS BINARY)) FROM information_schema.COLUMN_PRIVILEGES WHERE GRANTEE=\"'app'@'%'\" AND TABLE_SCHEMA=DATABASE()" "app: sütun düzeyi yetki kümesi (P13a session_consents ip/user_agent)"
+run_root "audit_logs,auth_sessions,business_holidays,consent_texts,customer_notify_contacts,customers,device_bindings,notification_outbox,password_reset_tokens,recovery_codes,request_blocks,request_refs,session_consents,session_files,session_messages,session_stored_files,support_requests,support_sessions,tenant_purge_jobs,tenant_request_settings,tenant_settings,tenants,trusted_devices,unattended_device_grants,unattended_devices,unattended_registration_codes,user_permissions,users" "SELECT GROUP_CONCAT(TABLE_NAME ORDER BY CAST(TABLE_NAME AS BINARY)) FROM information_schema.TABLE_PRIVILEGES WHERE GRANTEE=\"'app'@'%'\" AND TABLE_SCHEMA=DATABASE() AND PRIVILEGE_TYPE='DELETE'" "app: DELETE yetkili tablo kümesi (K27)"
+run_root "consent_texts.is_current:UPDATE,consent_texts.updated_at:UPDATE,password_reset_tokens.updated_at:UPDATE,password_reset_tokens.used_at:UPDATE,recovery_codes.updated_at:UPDATE,recovery_codes.used_at:UPDATE,session_consents.ip:UPDATE,session_consents.user_agent:UPDATE,session_stored_files.deleted_at:UPDATE,session_stored_files.delivered_at:UPDATE,session_stored_files.expires_at:UPDATE,session_stored_files.scan_reason:UPDATE,session_stored_files.scanned_at:UPDATE,session_stored_files.signature:UPDATE,session_stored_files.state:UPDATE,session_stored_files.storage_rel:UPDATE,session_stored_files.updated_at:UPDATE" "SELECT GROUP_CONCAT(CONCAT(TABLE_NAME,'.',COLUMN_NAME,':',PRIVILEGE_TYPE) ORDER BY CAST(TABLE_NAME AS BINARY),CAST(COLUMN_NAME AS BINARY)) FROM information_schema.COLUMN_PRIVILEGES WHERE GRANTEE=\"'app'@'%'\" AND TABLE_SCHEMA=DATABASE()" "app: sütun düzeyi yetki kümesi (P13a session_consents ip/user_agent)"
 run_root 0 "SELECT COUNT(*) FROM information_schema.COLUMN_PRIVILEGES WHERE GRANTEE=\"'app'@'%'\" AND TABLE_NAME='audit_logs'" "app: audit_logs sütun düzeyi UPDATE yok"
 run DENIED "DROP TRIGGER audit_logs_force_created_at" "denied"
 run DENIED "UPDATE audit_logs SET action='x' WHERE id=-1"
@@ -864,6 +864,68 @@ run DENIED "$TX $(obs 0000000000000000000GRANTO1 NULL "'0000000000000000000NOSES
 # UN_DEVICE_REGISTERED tam 20 karakter: sondaki boşluk VARCHAR(20)'de sessizce kırpılır → boşluk varyantı 18 karakterlik türle sınanır.
 enum_case notification_outbox_kind_chk UNATTENDED_STARTED unattended_started "CONCAT('UN',$AA,'TTENDED_STARTED')" "$TX $UD1; $USS; $(obs 0000000000000000000GRANTO1 NULL "$GSE" NULL @KIND@ "$H1" | sed "s/'@KIND@'/@V@/"); $R"
 run DENIED "$TX $(obs 0000000000000000000GRANTO1 NULL NULL "$GEV" un_device_registered "$H1"); $R" notification_outbox_kind_chk
+# P28b (mimari-p28b §3.1–3.4; AC-354, 355, 360, 362): session_stored_files (SELECT/INSERT/DELETE + sütun düzeyi UPDATE; tetikleyici
+# yok), support_sessions.file_mode (insert'te sabit; support_sessions_update_guard `p28b:`), tenant_settings dosya modu/saklama,
+# tenants.storage_quota_gb, system_settings `clamav`. Tümü geri alınan TX'te.
+SFC="id,tenant_id,session_id,direction,purpose,uploaded_by_user_id,file_name,ext,size_bytes,sha256,storage_rel,key_ver,state,updated_at"
+SFV="'0000000000000000000GRANTSF','$GT','00000000000000000000GRANTS','TO_CUSTOMER','FILE','00000000000000000000GRANTU','rapor.pdf','pdf',1048576,$H1,CONCAT('$GT','/',REPEAT('a',24),'.rsf'),1,'UPLOADING',NOW(3)"
+SF1="INSERT INTO session_stored_files ($SFC) VALUES ($SFV)"
+sf() { echo "INSERT INTO session_stored_files ($SFC) VALUES (${SFV/$1/$2})"; }  # $1 → $2 değiştir
+USF="UPDATE session_stored_files SET"; WSF="WHERE id='0000000000000000000GRANTSF'"
+run_val "1,0,20" "SELECT CONCAT(s.file_retention_days,',',s.file_server_mode,',',t.storage_quota_gb) FROM tenant_settings s JOIN tenants t ON t.id=s.tenant_id WHERE s.tenant_id='$GT'" "P28b varsayılanlar: saklama 1 g, mod kapalı, kota 20 GB"
+run OK     "SELECT COUNT(*) FROM session_stored_files"
+# Yaşam döngüsü: UPLOADING → SCANNING → CLEAN → teslim (expires) → EXPIRED (disk NULL) → anonimleştirme DELETE
+run OK     "$TX $ADM; $SF1; $USF state='SCANNING' $WSF; $USF state='CLEAN',scanned_at=NOW(3) $WSF; $USF delivered_at=NOW(3),expires_at=NOW(3)+INTERVAL 1 DAY $WSF; $USF state='EXPIRED',storage_rel=NULL,deleted_at=NOW(3) $WSF; DELETE FROM session_stored_files WHERE session_id='00000000000000000000GRANTS'; $R"
+run OK     "$TX $ADM; $SF1; $USF state='SCAN_FAILED',scan_reason='ENCRYPTED',storage_rel=NULL,deleted_at=NOW(3),scanned_at=NOW(3) $WSF; $R"
+run OK     "$TX $ADM; $SF1; $USF state='INFECTED',signature='Eicar-Test-Signature',storage_rel=NULL,deleted_at=NOW(3),scanned_at=NOW(3) $WSF; $R"
+run OK     "$TX $ADM; $(sf "'FILE','00000000000000000000GRANTU','rapor.pdf'" "'PRINT','00000000000000000000GRANTU','belge.pdf'"); $R"
+run OK     "$TX $ADM; $(sf "'TO_CUSTOMER','FILE','00000000000000000000GRANTU'" "'TO_TECH','FILE',NULL"); $R"   # müşteri yüklemesi
+run OK     "$TX $ADM; UPDATE support_sessions SET file_mode=file_mode,note='x' WHERE id='00000000000000000000GRANTS'; $R"   # aynı değer serbest
+run OK     "$TX $US19 file_server_mode=1,file_retention_days=7 $WT19; UPDATE tenants SET storage_quota_gb=2000 WHERE id='$GT'; $R"
+# Yetki sınırı: kimlik/boyut/sha/ad/oturum güncellenemez; DDL yok
+run DENIED "UPDATE session_stored_files SET size_bytes=1 $WSF" "command denied"
+run DENIED "UPDATE session_stored_files SET sha256=REPEAT('c',64) $WSF" "command denied"
+run DENIED "UPDATE session_stored_files SET file_name='x.exe' $WSF" "command denied"
+run DENIED "UPDATE session_stored_files SET tenant_id='00000000000000000000GRANTX' $WSF" "command denied"
+run DENIED "UPDATE session_stored_files SET key_ver=2 $WSF" "command denied"
+run DENIED "ALTER TABLE session_stored_files ADD COLUMN x INT" "denied"
+run DENIED "CREATE TRIGGER t_x BEFORE INSERT ON session_stored_files FOR EACH ROW SET @a=1" "denied"
+# file_mode insert'te sabit (AC-355)
+run DENIED "$TX $ADM; UPDATE support_sessions SET file_mode='SERVER' WHERE id='00000000000000000000GRANTS'; $R" "p28b: support_sessions.file_mode"
+run DENIED "$TX $SS ('00000000000000000000GRANTS',$T,$H1,'48291376','0427','PENDING',$E15,NULL,NOW(3),NOW(3)); UPDATE support_sessions SET file_mode='server' WHERE id='00000000000000000000GRANTS'; $R" "p28b: support_sessions.file_mode"
+run DENIED "$TX INSERT INTO support_sessions (id,tenant_id,technician_id,token_hash,active_code,tech_verify_code,status,expires_at,file_mode,updated_at) VALUES ('00000000000000000000GRANTS',$T,$H1,'48291376','0427','PENDING',$E15,'server',NOW(3)); $R" support_sessions_file_mode_chk
+# CHECK'ler
+run DENIED "$TX $ADM; $(sf "'TO_CUSTOMER','FILE'" "'to_customer','FILE'"); $R" session_stored_files_direction_chk
+run DENIED "$TX $ADM; $(sf "'UPLOADING'" "'BOGUS'"); $R" session_stored_files_state_chk
+run DENIED "$TX $ADM; $(sf 1048576 268435457); $R" session_stored_files_size_chk
+run DENIED "$TX $ADM; $(sf 1048576 0); $R" session_stored_files_size_chk
+run DENIED "$TX $ADM; $(sf "'FILE','00000000000000000000GRANTU','rapor.pdf'" "'PRINT','00000000000000000000GRANTU','gizli.pdf'"); $R" session_stored_files_file_name_chk
+run DENIED "$TX $ADM; $(sf "'rapor.pdf'" "CONCAT('fatura',CONVERT(X'E280AE' USING utf8mb4),'fdp.exe')"); $R" session_stored_files_file_name_chk
+run DENIED "$TX $ADM; $(sf "'pdf'" "'PDF'"); $R" session_stored_files_ext_chk
+run DENIED "$TX $ADM; $(sf "$H1" "UPPER($H1)"); $R" session_stored_files_sha256_chk
+run DENIED "$TX $GX; $ADM; $(sf "CONCAT('$GT'" "CONCAT('00000000000000000000GRANTX'"); $R" session_stored_files_storage_rel_chk   # öndek başka tenant
+run DENIED "$TX $ADM; $(sf "'.rsf')" "'.rs/')"); $R" session_stored_files_storage_rel_chk
+run DENIED "$TX $ADM; $SF1; $USF state='CANCELLED' $WSF; $R" session_stored_files_storage_rel_chk          # disk silinmeden son durum
+run DENIED "$TX $ADM; $SF1; $USF state='CLEAN' $WSF; $R" session_stored_files_scanned_chk                 # taranmadan CLEAN
+run DENIED "$TX $ADM; $SF1; $USF state='SCAN_FAILED',storage_rel=NULL,scanned_at=NOW(3) $WSF; $R" session_stored_files_scan_reason_chk
+run DENIED "$TX $ADM; $SF1; $USF state='CLEAN',scanned_at=NOW(3),delivered_at=NOW(3) $WSF; $R" session_stored_files_expires_chk   # teslim edilen FILE süresiz
+run DENIED "$TX $ADM; $SF1; $USF state='CLEAN',scanned_at=NOW(3),delivered_at=NOW(3),expires_at=NOW(3)+INTERVAL 8 DAY $WSF; $R" session_stored_files_expires_chk
+run DENIED "$TX $ADM; $SF1; $USF delivered_at=NOW(3) $WSF; $R" session_stored_files_delivered_chk
+run DENIED "$TX $ADM; $(sf "'TO_CUSTOMER','FILE'" "'TO_TECH','FILE'"); $R" session_stored_files_uploaded_by_chk
+run DENIED "$TX $ADM; $(sf "),1," "),0,"); $R" session_stored_files_key_ver_chk
+SFX="${SFV/CONCAT(*.rsf\')/NULL}"; OGT="'$GT'"; NGX="'00000000000000000000GRANTX'"
+run DENIED "$TX $GX; $ADM; INSERT INTO session_stored_files ($SFC) VALUES (${SFX/$OGT/$NGX}); $R" session_stored_files_session_id_tenant_id_fkey   # başka tenant'ın oturumu
+run DENIED "$TX $US19 file_retention_days=8 $WT19; $R" tenant_settings_file_retention_chk
+run DENIED "$TX $US19 file_retention_days=0 $WT19; $R" tenant_settings_file_retention_chk
+run DENIED "$TX UPDATE tenants SET storage_quota_gb=0 WHERE id='$GT'; $R" tenants_storage_quota_chk
+# system_settings clamav (Super Admin ayarı; app INSERT/UPDATE)
+CV="INSERT INTO system_settings (\`key\`,value_json,updated_at) VALUES ('clamav',"
+run OK     "$TX $CV JSON_OBJECT('host','clamav','port',3310,'lastTest',NULL),NOW(3)); UPDATE system_settings SET value_json=JSON_OBJECT('host','clamav','port',3310,'lastTest',JSON_OBJECT('ok',TRUE,'at','2026-11-16T10:00:00.000Z','version','ClamAV 1.5.4/28177','dbDate','2026-11-16')) WHERE \`key\`='clamav'; $R"
+run DENIED "$TX $CV JSON_OBJECT('host','clamav','port',70000,'lastTest',NULL),NOW(3)); $R" system_settings_clamav_chk
+run DENIED "$TX $CV JSON_OBJECT('host','clamav;rm','port',3310,'lastTest',NULL),NOW(3)); $R" system_settings_clamav_chk
+run DENIED "$TX $CV JSON_OBJECT('host','clamav','port',3310,'lastTest',NULL,'x',1),NOW(3)); $R" system_settings_clamav_chk
+run DENIED "$TX INSERT INTO system_settings (\`key\`,value_json,secret_enc,updated_at) VALUES ('clamav',JSON_OBJECT('host','clamav','port',3310,'lastTest',NULL),RANDOM_BYTES(40),NOW(3)); $R" system_settings_clamav_chk
+run DENIED "$TX $CV JSON_OBJECT('host','clamav','port',3310,'lastTest',NULL),NOW(3)); UPDATE system_settings SET \`key\`='ClamAV' WHERE \`key\`='clamav'; $R" system_settings_key_chk
 # Temizlik (FK sırasıyla)
 run_mig OK "DELETE FROM tenant_purge_jobs WHERE tenant_id IN ('00000000000000000000GRANTT','00000000000000000000GRANTW'); DELETE FROM session_consents WHERE id IN ('00000000000000000000GRANT9','0000000000000000000GRANT10'); DELETE FROM support_sessions WHERE id IN ('00000000000000000000GRANT7','00000000000000000000GRANT8'); DELETE FROM customers WHERE id='00000000000000000000GRANTY'; DELETE FROM tenants WHERE id='00000000000000000000GRANTW'; DELETE FROM users WHERE id='00000000000000000000GRANTU'; DELETE FROM tenant_settings WHERE tenant_id='00000000000000000000GRANTT'; DELETE FROM tenants WHERE id='00000000000000000000GRANTT'"  # P16: app tenant/users silemez (tetikleyici) → migrator
 # P13a `backup` kullanıcısı (mimari-p13 §4): yalnız 'backup'@'localhost'; DB'de SELECT, SHOW VIEW, TRIGGER; global yetki yok.

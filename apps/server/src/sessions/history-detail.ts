@@ -1,4 +1,14 @@
 // Oturum geçmişi detayı (history.ts `buildDetail`'den taşındı ve bölündü, PT-K12; AC-62, K-P13-3, S-P13a-1/5, P18 §8b.8).
+import type { StoredFileItem } from "@remote/contracts/api/fsrv";
+import {
+  AV_SIGNATURE_PATTERN,
+  FSRV_PRINT_FILE_NAME,
+  type AvScanReason,
+  type FsrvDirection,
+  type FsrvPurpose,
+  type StoredFileState,
+} from "@remote/contracts/ws-fsrv";
+import { listForSession, type StoredRow } from "../fsrv/repo.ts";
 import { actorLabelOf } from "../audit/view.ts";
 import {
   SESSION_HISTORY_LIST_MAX,
@@ -114,14 +124,16 @@ export async function buildDetail(
   row: hrepo.HistoryDetailRow,
   viewerId: string,
   now: number,
+  canFiles = false,
 ): Promise<SessionHistoryDetail> {
   const s = { id: row.id, tenantId: row.tenantId };
   const anonymized = row.anonymizedAt !== null;
-  const [consents, files, timelineRows, controlAudits] = await Promise.all([
+  const [consents, files, timelineRows, controlAudits, stored] = await Promise.all([
     hrepo.consentsOf(db, s, SESSION_HISTORY_LIST_MAX),
     hrepo.filesOf(db, s, SESSION_HISTORY_LIST_MAX),
     hrepo.auditsOf(db, s, TIMELINE_ACTIONS, SESSION_HISTORY_LIST_MAX + 1),
     hrepo.auditsOf(db, s, CONTROL_PERIOD_ACTIONS, 2 * SESSION_HISTORY_LIST_MAX),
+    listForSession(db, row.tenantId, row.id, SESSION_HISTORY_LIST_MAX),
   ]);
   const timelineTruncated = timelineRows.length > SESSION_HISTORY_LIST_MAX;
   const events = timelineRows.slice(0, SESSION_HISTORY_LIST_MAX);
@@ -145,5 +157,23 @@ export async function buildDetail(
     timeline,
     timelineTruncated,
     request: requestOf(row, anonymized, now),
+    storedFiles: anonymized ? [] : stored.map((f) => storedFileItem(f, canFiles)),
+  };
+}
+
+/** P28b (§4): saklanan dosya satırı; `canDownload` = saklanan dosya (FILE + CLEAN + teslim) ve iki yetki. */
+function storedFileItem(f: StoredRow, canFiles: boolean): StoredFileItem {
+  const kept = f.purpose === "FILE" && f.state === "CLEAN" && f.deliveredAt !== null;
+  return {
+    id: f.id,
+    direction: f.direction as FsrvDirection,
+    purpose: f.purpose as FsrvPurpose,
+    name: f.purpose === "PRINT" ? FSRV_PRINT_FILE_NAME : f.fileName,
+    sizeBytes: Number(f.sizeBytes),
+    state: f.state as StoredFileState,
+    ...(f.state === "SCAN_FAILED" && f.scanReason ? { scanReason: f.scanReason as AvScanReason } : {}),
+    ...(f.state === "INFECTED" && f.signature && AV_SIGNATURE_PATTERN.test(f.signature) ? { signature: f.signature } : {}),
+    ...(kept && f.expiresAt ? { expiresAt: f.expiresAt.toISOString() } : {}),
+    canDownload: kept && canFiles,
   };
 }

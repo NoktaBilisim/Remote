@@ -17,6 +17,9 @@ export interface TenantCounts {
   purgedBindings: number;
   /** P18 H3 (ADR-0025 m.3): anonimleştirmeyle aynı TX'te silinen talep mesajları (dry modda da silinir — anonimleştirme adımı). */
   purgedMessages: number;
+  /** P28b (§3.3): anonimleştirmeyle silinen saklanan dosya satırları ve süresi dolan (EXPIRED) dosyalar. */
+  storedFiles: number;
+  filesExpired: number;
 }
 export interface GlobalCounts {
   audit: number;
@@ -29,6 +32,10 @@ export interface GlobalCounts {
   /** P27 (mimari-p27 §3.6): kullanılmış/süresi dolmuş + 7 g kayıt kodları; 30 g önce iptal edilmiş, oturumsuz cihazlar. */
   unattendedRegistrations: number;
   unattendedDevices: number;
+  /** P28b mutabakatı (§3.3 a/b/c): yetim disk dosyası, dosyası olmayan satır, odası kapanmış aktarım. */
+  fsrvOrphanFiles: number;
+  fsrvMissing: number;
+  fsrvStale: number;
 }
 /** `rs_retention_rows_total{kind}` etiketleri (düşük kardinalite, sabit küme). */
 export const KINDS: Record<keyof (TenantCounts & GlobalCounts), string> = {
@@ -45,6 +52,8 @@ export const KINDS: Record<keyof (TenantCounts & GlobalCounts), string> = {
   purgedRequests: "purged_requests",
   purgedBindings: "purged_bindings",
   purgedMessages: "request_messages",
+  storedFiles: "stored_files",
+  filesExpired: "stored_files_expired",
   audit: "audit",
   authSessions: "auth_sessions",
   resetTokens: "reset_tokens",
@@ -52,6 +61,9 @@ export const KINDS: Record<keyof (TenantCounts & GlobalCounts), string> = {
   trustedDevices: "trusted_devices",
   unattendedRegistrations: "unattended_registrations",
   unattendedDevices: "unattended_devices",
+  fsrvOrphanFiles: "stored_files_orphan",
+  fsrvMissing: "stored_files_missing",
+  fsrvStale: "stored_files_stale",
 };
 
 const PURGE_KEYS = ["purgedSessions", "purgedConsents", "purgedFiles", "purgedRequests", "purgedBindings", "purgedJobs"] as const;
@@ -75,6 +87,8 @@ export const zeroTenant = (): TenantCounts => ({
   purgedRequests: 0,
   purgedBindings: 0,
   purgedMessages: 0,
+  storedFiles: 0,
+  filesExpired: 0,
 });
 export const zeroGlobal = (): GlobalCounts => ({
   audit: 0,
@@ -84,5 +98,8 @@ export const zeroGlobal = (): GlobalCounts => ({
   trustedDevices: 0,
   unattendedRegistrations: 0,
   unattendedDevices: 0,
+  fsrvOrphanFiles: 0,
+  fsrvMissing: 0,
+  fsrvStale: 0,
 });
 export const sum = (o: object): number => Object.values(o).reduce((a: number, b: unknown) => a + (typeof b === "number" ? b : 0), 0);

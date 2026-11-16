@@ -13,6 +13,11 @@ updates:
   - package-ecosystem: docker
     directories: [/apps/server, /apps/web]
     schedule: { interval: weekly }
+  # P28b K6 (R-P28b-3): compose imajları (clamav/clamav digest dahil). clamav PR'ında runbook §28b.6 "imaj güncelleme" adımları
+  # (K0 yanıt dizeleri + K6 kapı 1/3/5) koşulmadan birleştirilmez.
+  - package-ecosystem: docker-compose
+    directory: /deploy
+    schedule: { interval: weekly }
   - package-ecosystem: gomod
     directory: /apps/agent-win
     schedule: { interval: weekly }

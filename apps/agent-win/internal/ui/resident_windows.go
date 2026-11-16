@@ -32,7 +32,7 @@ func (u *UI) ResetScope(gate *control.Gate, hotkey string) {
 			f.destroy()
 		}
 		u.lobby, u.sess, u.offer, u.offerFID, u.ended, u.endNote = nil, nil, nil, "", nil, ""
-		u.ctlDlg, u.monDlg, u.granted, u.techName, u.windowShare = nil, nil, false, "", false
+		u.ctlDlg, u.monDlg, u.granted, u.techName, u.windowShare, u.fileServer = nil, nil, false, "", false, false
 		u.printDlg, u.printPID = nil, ""
 		u.reqForm, u.reqWait, u.reqAccept, u.reqAcceptKey = nil, nil, nil, acceptKey{}
 		u.gate, u.hotkeyLabel = gate, hotkey

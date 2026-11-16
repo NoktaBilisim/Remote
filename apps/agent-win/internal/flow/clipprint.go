@@ -97,16 +97,20 @@ const (
 
 // Features Dial'a verilecek özellik belirteçleri: yalnız uygulaması bağlı özellik bildirilir; gözetimsiz yardımcı hiç
 // bildirmez (onay gerektiren özellikler, O-P28a-4).
+// P28b: `rs.cap.fsrv1` yalnız FileServer + FileServerUI bağlıyken (gözetimsiz/servis yolunda hiç).
 func Features(d Deps) []string {
-	if d.Unattended || d.ClipPrintUI == nil {
+	if d.Unattended {
 		return nil
 	}
 	var f []string
-	if d.Clipboard != nil {
+	if d.ClipPrintUI != nil && d.Clipboard != nil {
 		f = append(f, signal.FeatureClip)
 	}
-	if d.Printer != nil {
+	if d.ClipPrintUI != nil && d.Printer != nil {
 		f = append(f, signal.FeaturePrint)
+	}
+	if d.FileServer != nil && d.FileServerUI != nil {
+		f = append(f, signal.FeatureFsrv)
 	}
 	return f
 }
@@ -148,13 +152,16 @@ type clipPrint struct {
 	print   *printJob
 	seenIDs []string // son 64 cid/pid (tek kullanım)
 	seenIdx []uint16 // son 64 file/print idx
-	dropped uint64   // alıcı kuralına takılıp düşen mesaj sayısı
+	// P28b: server ilk hello'da sabitlenen SERVER modu; src yazdırma bayt kaynağı (print_source.go).
+	server  bool
+	src     PrintSource
+	dropped uint64 // alıcı kuralına takılıp düşen mesaj sayısı
 }
 
 // newClipPrint features = Dial'a verilen belirteçler (Features): yalnız bildirilen özellik işlenir.
 func newClipPrint(ctx context.Context, d cpDeps, features []string) *clipPrint {
 	cx, cancel := context.WithCancel(ctx)
-	c := &clipPrint{d: d, ctx: cx, cancel: cancel}
+	c := &clipPrint{d: d, ctx: cx, cancel: cancel, src: dcPrintSource{}}
 	c.clipOK = d.ui != nil && d.clip != nil && slices.Contains(features, signal.FeatureClip)
 	c.printOK = d.ui != nil && d.printer != nil && slices.Contains(features, signal.FeaturePrint)
 	return c
@@ -182,7 +189,7 @@ func (s *session) newClipPrint(ctx context.Context) *clipPrint {
 		},
 		gateOpen:  s.gate.IsOpen,
 		hasCap:    s.hasCap,
-		filesBusy: func() bool { return s.files != nil && s.files.Busy() },
+		filesBusy: func() bool { return (s.files != nil && s.files.Busy()) || s.srv.busy() },
 		techName:  func() string { return s.techName },
 		status:    s.d.UI.Status,
 		now:       s.d.Now,
@@ -442,7 +449,7 @@ func (c *clipPrint) capsChanged() {
 		c.clipOn = false
 		c.endClip("DENIED")
 	}
-	if !c.d.hasCap(capPrint) && c.print != nil {
+	if !c.printCap() && c.print != nil {
 		c.finishPrint("CANCELLED")
 	}
 	c.syncSwitch()

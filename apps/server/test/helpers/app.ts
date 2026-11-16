@@ -18,6 +18,8 @@ export const PASSWORD = "Dogru-Sifre-123";
 /** P16: testlerin imha defteri (süreç başına). */
 export const TEST_LEDGER_PATH = join(tmpdir(), `rs-ledger-test-${process.pid}`, "erasure-ledger.jsonl");
 export const TEST_UPLOADS_DIR = join(tmpdir(), `rs-uploads-test-${process.pid}`);
+/** P28b: saklanan dosya kökü (süreç başına; testler /data'ya yazmaz). */
+export const TEST_FILES_DIR = join(tmpdir(), `rs-files-test-${process.pid}`);
 
 export function testEnv(extra: Record<string, string> = {}): Env {
   const url = process.env.TEST_DATABASE_URL;
@@ -30,6 +32,7 @@ export function testEnv(extra: Record<string, string> = {}): Env {
     LOG_LEVEL: "silent",
     WHATSAPP_SERVICE_URL: "http://127.0.0.1:9",
     UPLOADS_DIR: TEST_UPLOADS_DIR,
+    FILES_DIR: TEST_FILES_DIR,
     ...extra,
   });
 }
@@ -61,6 +64,7 @@ export function makeApp(
     signaling?: AppDeps["signaling"];
     p10?: Pick<AppDeps, "netguard" | "mailTransport" | "mfaSetupEnforcement">;
     p11?: Pick<AppDeps, "mysqlProbe">;
+    fsrvTest?: AppDeps["fsrvTest"];
   } = {},
 ): FastifyInstance {
   const env = testEnv(opts.env);
@@ -73,6 +77,7 @@ export function makeApp(
 
     ...opts.p10,
     ...opts.p11,
+    ...(opts.fsrvTest ? { fsrvTest: opts.fsrvTest } : {}),
     ...(opts.logger ? { logger: opts.logger } : {}),
     ...(opts.signaling ? { signaling: opts.signaling } : {}),
   });

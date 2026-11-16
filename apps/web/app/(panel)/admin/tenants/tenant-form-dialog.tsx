@@ -5,12 +5,13 @@ import { FormDialogActions, FormLeaveDialog } from "@/components/form-dialog-par
 import { Alert } from "@/components/ui/alert";
 import { Dialog } from "@/components/ui/dialog";
 import { TextField } from "@/components/ui/text-field";
+import { formatBytes } from "@/lib/format";
 import { t } from "@/lib/i18n";
 import { useFocusFirstError } from "@/lib/use-focus-error";
 import { TENANT_NAME_MAX, TENANT_SLUG_MAX, type TenantItem } from "@/lib/users/contract";
 import { useTenantForm } from "./use-tenant-form";
 
-function TenantFields({ f }: { f: ReturnType<typeof useTenantForm> }) {
+function TenantFields({ f, tenant }: { f: ReturnType<typeof useTenantForm>; tenant?: TenantItem }) {
   return (
     <fieldset disabled={f.busy} className="flex flex-col gap-4">
       <TextField
@@ -41,6 +42,23 @@ function TenantFields({ f }: { f: ReturnType<typeof useTenantForm> }) {
           {t("tn.f.slugEditHint")}
         </Alert>
       )}
+      {tenant && (
+        <TextField
+          label={t("tn.f.quota")}
+          value={f.quota}
+          inputMode="numeric"
+          autoComplete="off"
+          maxLength={4}
+          error={f.quotaError}
+          hint={
+            tenant.storage
+              ? t("tn.f.quotaUsage", { used: formatBytes(tenant.storage.usedBytes), quota: formatBytes(tenant.storage.quotaBytes) })
+              : t("tn.f.quotaHint")
+          }
+          data-testid="tf-quota"
+          onChange={(e) => f.setQuota(e.target.value)}
+        />
+      )}
     </fieldset>
   );
 }
@@ -66,7 +84,7 @@ export function TenantFormDialog({ tenant, onClose, onSaved }: Props) {
       >
         <form ref={formRef} onSubmit={f.submit} noValidate className="flex flex-col gap-4">
           {f.formError && <FormError error={f.formError} />}
-          <TenantFields f={f} />
+          <TenantFields f={f} tenant={tenant} />
           <FormDialogActions
             busy={f.busy}
             onCancel={f.guard.requestClose}

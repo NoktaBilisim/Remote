@@ -12,7 +12,7 @@ import {
   type SessionEndedReason,
   type ShareMethod,
 } from "@remote/contracts/ws";
-import type { GuestFeature } from "@remote/contracts/ws-clip-print";
+import type { FileMode, PeerFeature } from "@remote/contracts/ws-fsrv";
 import { applyMsg, type MsgOf, type MsgTable } from "./msg-table";
 
 export interface Pending {
@@ -56,10 +56,12 @@ export interface TechState {
   end: TechEnd | null;
   /** P27 (mimari-p27 §4.6): gözetimsiz odada sunucu `hello{unattended}` gönderir → konsol rozeti + cihaz adı. */
   unattended: { deviceId: string; deviceName: string } | null;
-  /** P28a (§4.2): bağlı misafirin bildirdiği özellikler (`hello`/`peer.joined` `guestFeatures`; eski istemci → []). */
-  guestFeatures: GuestFeature[];
+  /** P28a (§4.2): bağlı misafirin bildirdiği özellikler (`hello`/`peer.joined` `guestFeatures`; eski istemci → []). P28b: + `fsrv`. */
+  guestFeatures: PeerFeature[];
   /** P28a: müşteri pano anahtarı (sunucu aynası `clip.consent`; kontrol VIEW'a dönünce / müşteri ayrılınca kapalı). */
   clipConsent: boolean;
+  /** P28b (§5.1, AC-355): oturumun dosya modu (`hello`/`peer.joined` `fileMode`; yoksa P2P). Oturum boyunca değişmez. */
+  fileMode: FileMode;
 }
 
 export type TechEvent =
@@ -90,6 +92,7 @@ export const initialTech: TechState = {
   unattended: null,
   guestFeatures: [],
   clipConsent: false,
+  fileMode: "P2P",
 };
 
 /**
@@ -213,6 +216,7 @@ function onHello(s: TechState, m: MsgOf<"hello">, now: number): TechState {
     unattended: m.unattended ?? s.unattended,
     guestFeatures: active && m.peerPresent ? [...(m.guestFeatures ?? [])] : [],
     clipConsent: active && m.peerPresent ? (m.clipConsent ?? false) : false,
+    fileMode: m.fileMode ?? s.fileMode,
     ...helloShare(s, x, active && m.peerPresent),
   };
 }
@@ -239,6 +243,7 @@ function onPeerJoined(s: TechState, m: MsgOf<"peer.joined">): TechState {
     shareMethod: null,
     guestFeatures: [...(m.guestFeatures ?? [])],
     clipConsent: false,
+    fileMode: m.fileMode ?? s.fileMode,
     // TEST-P4-2: canlı kabulde kalan süre sayacı sunucunun bildirdiği üst sınırla başlar (opsiyonel alan)
     maxEndsAt: joinedMaxEndsAt(m) ?? s.maxEndsAt,
   };

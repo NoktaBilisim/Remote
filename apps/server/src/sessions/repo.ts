@@ -2,6 +2,7 @@
 // (technicianId) burada uygulanır (AC-61, G-22). PENDING'den çıkan her UPDATE aynı ifadede
 // activeCode=null + endedAt yazar (CHECK, db-notlari P2) ve status='PENDING' koşuluyla yarışa güvenlidir.
 import { DEFAULT_MAX_FILE_MB } from "@remote/contracts/dc";
+import type { FileMode } from "@remote/contracts/ws-fsrv";
 import type { Prisma } from "../generated/prisma/client.ts";
 import type { Db } from "../lib/db.ts";
 
@@ -59,8 +60,19 @@ export async function createdSince(db: DbOrTx, technicianId: string, since: Date
   return { count, oldest: oldest?.createdAt ?? null };
 }
 
+/**
+ * Oturum ekleme (tek nokta; üç çağıran: kod/bağlantı, talep kabulü, gözetimsiz). P28b (AC-355, K-P28b-3): `file_mode` aynı
+ * TX'te tenant ayarından BİR KEZ yazılır; açılış yolundan bağımsız, sonra değişmez (UPDATE grant'ı yok). Çağıranın değeri yok sayılır.
+ */
 export async function insertSession(db: DbOrTx, data: Prisma.SupportSessionUncheckedCreateInput): Promise<void> {
-  await db.supportSession.create({ data, select: { id: true } });
+  const s = await db.tenantSettings.findUnique({ where: { tenantId: data.tenantId }, select: { fileServerMode: true } });
+  await db.supportSession.create({ data: { ...data, fileMode: s?.fileServerMode ? "SERVER" : "P2P" }, select: { id: true } });
+}
+
+/** P28b (AC-355): admit anında odanın dosya modu — oturum satırındaki sabit değer (tenant ayarı DEĞİL). */
+export async function sessionFileMode(db: DbOrTx, id: string): Promise<FileMode> {
+  const r = await db.supportSession.findUnique({ where: { id }, select: { fileMode: true } });
+  return r?.fileMode === "SERVER" ? "SERVER" : "P2P";
 }
 
 export function findInScope(db: DbOrTx, scope: SessionScope, id: string): Promise<SessionRow | null> {

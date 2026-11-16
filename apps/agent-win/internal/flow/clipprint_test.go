@@ -609,7 +609,7 @@ func TestDP28a3NoContentOrFileNameLeaks(t *testing.T) {
 		}
 	}
 	// Kaynak sınırı: akışın P28a dosyaları log/diag/dosya/biçimli çıktı paketlerini içe aktarmaz.
-	for _, f := range []string{"clipprint.go", "clipprint_print.go", "messages_p28.go"} {
+	for _, f := range []string{"clipprint.go", "clipprint_print.go", "messages_p28.go", "files_server.go", "print_source.go"} { // + P28b
 		src, err := os.ReadFile(f)
 		if err != nil {
 			t.Fatal(err)

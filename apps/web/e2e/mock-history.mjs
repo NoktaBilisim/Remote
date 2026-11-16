@@ -2,6 +2,7 @@
 // Çerez: u-h<senaryo>-<rastgele>. Senaryolar: hu (USER, tüm P8 yetkileri), hro (USER, yalnız view), hadm (ADMIN),
 // hsa (SUPER_ADMIN, firma seçmemiş), hempty (veri yok), hbroken (liste 500), hbig (CSV 400 > 50.000), hrate (CSV 429).
 import { listSessionsQuerySchema, updateSessionInputSchema } from "@remote/contracts/api/sessions";
+import { storedFilesOf } from "./mock-p28b.mjs";
 
 const P = ["sessions.view", "session_history.view", "session_history.edit", "session_history.export"];
 const TECHS = [
@@ -49,10 +50,11 @@ export const ANON_ID = "01JHXSTAN0N000000000000048";
 const ANON_I = 48;
 
 export function historyUser(cookie) {
-  const m = cookie?.match(/^u-(hu|hro|hadm|hsa|hempty|hbroken|hbig|hrate)-/);
+  const m = cookie?.match(/^u-(hu|hro|hadm|hsa|hempty|hbroken|hbig|hrate|hfs)-/);
   if (!m) return null;
   const role = m[1] === "hadm" ? "ADMIN" : m[1] === "hsa" ? "SUPER_ADMIN" : "USER";
-  const permissions = m[1] === "hro" ? ["sessions.view", "session_history.view"] : P;
+  // P28b (AC-360): u-hfs-* geçmiş + file_transfer.use → "Sunucudaki dosyalar" indirilebilir
+  const permissions = m[1] === "hro" ? ["sessions.view", "session_history.view"] : m[1] === "hfs" ? [...P, "file_transfer.use"] : P;
   return {
     user: { id: TECHS[0].id, email: "mehmet@ornek.com", fullName: TECHS[0].name, role, mustChangePassword: false },
     permissions,
@@ -146,6 +148,7 @@ function detail(s, who) {
   const at = (min) => new Date(Date.parse(s.createdAt) + min * 60_000).toISOString();
   return {
     ...listItem(s, who),
+    ...(rich && who.kind === "hfs" ? { storedFiles: storedFilesOf(s.id) } : {}),
     customerEmail: rich ? "ayse@ornek.com" : s.customerEmail,
     note: s.note,
     terminatedBy: s.endedBy === "ADMIN" ? { id: "01JADMN0000000000000000001", name: "Yönetici Kişi" } : null,

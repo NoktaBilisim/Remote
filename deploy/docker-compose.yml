@@ -151,6 +151,15 @@ services:
       # görmez, /downloads/* public yoluna konmaz. SHA'yı deploy/agent/publish-servis.sh yazar; boş/uyuşmaz → 503.
       UNATTENDED_AGENT_PATH: /data/unattended/NoktaDestekServis.exe
       UNATTENDED_AGENT_SHA256: ${UNATTENDED_AGENT_SHA256:-}
+      # P28b (mimari-p28b §11.3, ADR-0032): sunucuda saklanan dosyalar (AES-256-GCM, {tenantId}/{rastgele}.rsf). Ayrı volume
+      # stored_files (uploads'tan ayrı: yetim taraması karışmaz); YEDEĞE GİRMEZ (K-P28b-11; backup.sh yalnız `uploads` etiketli
+      # volume'u alır). Yol sabit.
+      FILES_DIR: /data/files
+      # ClamAV (clamd) — Super Admin panel kaydı yoksa kullanılır. Hedefin TÜM çözülen adresleri CLAMAV_ALLOWED_CIDR içinde
+      # olmalı (O-P28b-1, K-P28b-16); değer `av` ağının sabit alt ağıyla AYNI kaynaktan gelir. Boş CIDR = sunucu modu çalışmaz.
+      CLAMAV_HOST: ${CLAMAV_HOST:-clamav}
+      CLAMAV_PORT: ${CLAMAV_PORT:-3310}
+      CLAMAV_ALLOWED_CIDR: ${AV_SUBNET:-172.30.2.0/28}
     volumes:
       - agent_downloads:/data/downloads:ro
       - unattended_downloads:/data/unattended:ro
@@ -159,7 +168,12 @@ services:
       # P16 (ADR-0030 m.9): imha defteri /var/lib/remote/erasure-ledger.jsonl (yalnız eklenen, 0600). Env yok, yol sabit.
       # DB dökümüne girmez; backup.sh ayrı dosya olarak yedekler (runbook §23).
       - ledger:/var/lib/remote
-    networks: [edge, db]
+      # P28b: saklanan dosyalar (yalnız server; izin imajdan node:node 0700). Caddy/web/yedek görmez.
+      - stored_files:/data/files
+    # P28b: `av` = clamd'ye giden tek yol. server clamav'a bağlantıyı kendisi açar; clamav'ın server'a istek atması gerekmez
+    # (D-r2-1: server av alt ağından gelen HTTP/WS isteğini reddeder — K3). server clamav'a depends_on ile BAĞLANMAZ:
+    # profil kapalıyken compose durmasın; /ready clamd'ye bakmaz (K-P28b-14), sunucu modu fail-closed.
+    networks: [edge, db, av]
     depends_on:
       migrate: { condition: service_completed_successfully }
     healthcheck:
@@ -222,6 +236,66 @@ services:
       web: { condition: service_healthy }
     logging: *logging
 
+  # P28b (mimari-p28b §7.1 r2, ADR-0032, Y-P28b-1): ClamAV iki servis, AYNI imaj + digest (GPL-2.0, ayrı süreç; kodumuz
+  # bağlanmaz, yalnız TCP). Düşmanca dosyayı ayrıştıran clamd internete çıkamaz ve imza DB'sini yazamaz; DB'yi yalnız
+  # freshclam yazar ve o da clamd'ye/server'a ulaşamaz. İmajın /init'i KULLANILMAZ (ro DB'de `chown -R` ile çıkar).
+  # Profil: ana dosyada profil YOK (tek yığın/prod her zaman açık); ikinci yığın (remote-stg) staging katmanı `profiles: [av]`
+  # ekler -> varsayılan kapalı, test sırasında COMPOSE_PROFILES=av ile açılır (K-P28b-18, D-r2-4; runbook §28b).
+  clamav:
+    image: clamav/clamav:1.5.4@sha256:45fe5149fbee5a46509c9848ef20d0c354b7b2323c9369f285939a37cf33422a
+    entrypoint: ["clamd", "--foreground", "--config-file=/etc/clamav/clamd.conf"]
+    restart: unless-stopped
+    user: "100:101"
+    read_only: true
+    security_opt: [no-new-privileges:true]
+    cap_drop: [ALL]
+    tmpfs:
+      # INSTREAM + arşiv açılımı düz metni; tmpfs sayfaları mem_limit'e sayılır (O-P28b-3). Boyut değişmezi: mimari §7.1.
+      - /scratch:size=1536m,uid=100,gid=101,mode=0700
+      - /run/clamav:size=1m,uid=100,gid=101,mode=0700
+      - /tmp:size=16m,uid=100,gid=101,mode=0700
+    # D-r2-4: memswap_limit = mem_limit -> kapsayıcı swap KULLANAMAZ (tmpfs düz metni diske düşmez, R-P28b-8).
+    mem_limit: 3g
+    memswap_limit: 3g
+    volumes:
+      - ./clamav/clamd.conf:/etc/clamav/clamd.conf:ro
+      - clamav_db:/var/lib/clamav:ro
+    # YALNIZ `av` (internal). Port YAYIMLANMAZ (AC-353 port taraması: host 3310 kapalı).
+    networks: [av]
+    # İmajın HEALTHCHECK'i (clamdcheck.sh: PING -> localhost:3310, start_period 360 sn) aynen kullanılır.
+    depends_on:
+      # Volume ilk kez rw serviste bağlanır -> imajdaki DB volume'a kopyalanır; clamd DB'siz açılmaz.
+      clamav-update: { condition: service_healthy }
+    logging: *logging
+
+  clamav-update:
+    image: clamav/clamav:1.5.4@sha256:45fe5149fbee5a46509c9848ef20d0c354b7b2323c9369f285939a37cf33422a
+    entrypoint: ["freshclam", "--daemon", "--foreground", "--stdout", "--checks=6", "--config-file=/etc/clamav/freshclam.conf"]
+    restart: unless-stopped
+    user: "100:101"
+    read_only: true
+    security_opt: [no-new-privileges:true]
+    cap_drop: [ALL]
+    tmpfs:
+      - /tmp:size=64m,uid=100,gid=101,mode=0700
+      - /var/log/clamav:size=1m,uid=100,gid=101,mode=0700
+    # TestDatabases yes: yeni DB yayına alınmadan belleğe yüklenip sınanır.
+    mem_limit: 1536m
+    memswap_limit: 1536m
+    volumes:
+      - ./clamav/freshclam.conf:/etc/clamav/freshclam.conf:ro
+      - clamav_db:/var/lib/clamav
+    # YALNIZ av_egress (database.clamav.net). `av`'de DEĞİL: clamd'ye ve server'a yolu yok.
+    networks: [av_egress]
+    healthcheck:
+      # İmajın healthcheck'i 3310'a bakar (bu konteynerde clamd yok) -> ezilir: DB dosyaları var mı.
+      test: ["CMD-SHELL", "ls /var/lib/clamav/main.c?d /var/lib/clamav/daily.c?d >/dev/null"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    logging: *logging
+
 networks:
   # edge: YALNIZ caddy, web, server. Bu ağa yeni servis EKLENMEZ (S-P2-1: server web'i güvenilen proxy
   # sayar; edge'deki her konteyner web:3000/server:3001'e doğrudan ulaşır). Yeni servis -> ayrı ağ.
@@ -232,6 +306,15 @@ networks:
       config: [{ subnet: "${EDGE_SUBNET:-172.30.0.0/24}", ip_range: "${EDGE_IP_RANGE:-172.30.0.128/25}" }]
   db:
     internal: true
+  # P28b av: YALNIZ server + clamav. Bu ağa servis EKLENMEZ (O-P28b-1: server bu alt ağı ClamAV hedefinin tek izinli aralığı
+  # sayar; ağdaki her konteyner izinli hedef olur). internal -> dışa çıkış yok. Alt ağ sabit ve server CLAMAV_ALLOWED_CIDR ile
+  # aynı değişkenden: prod 172.30.2.0/28, ikinci yığın (staging) AV_SUBNET=172.30.3.0/28 (iki yığının alt ağı çakışmaz).
+  av:
+    internal: true
+    ipam:
+      config: [{ subnet: "${AV_SUBNET:-172.30.2.0/28}" }]
+  # P28b av_egress: YALNIZ clamav-update (freshclam -> database.clamav.net). Bu ağa servis EKLENMEZ.
+  av_egress:
 
 volumes:
   mysql_data:
@@ -245,3 +328,8 @@ volumes:
   uploads:
   # P16: imha defteri (server yazar, migrate salt okur). SİLİNMEZ: restore sonrası silmeleri yeniden oynatmanın kaynağı.
   ledger:
+  # P28b: sunucuda saklanan şifreli dosyalar (yalnız server). YEDEKLENMEZ (K-P28b-11): ≤ 7 gün ömürlü kişisel veri; dönüşte
+  # dosyasız CLEAN satırları ilk 03:30 mutabakatında EXPIRED olur. Silinebilir değil ama kaybı veri kaybı sayılmaz.
+  stored_files:
+  # P28b: ClamAV imza DB'si (clamav-update yazar, clamav salt okur). Yedeklenmez; boş volume'a imajdaki DB kopyalanır.
+  clamav_db:

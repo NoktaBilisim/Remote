@@ -64,8 +64,10 @@ COPY --from=prod-deps /repo/apps/server ./apps/server
 # 2.36) npm'deki hazır @img/sharp-linux-{x64,arm64} ikilileriyle çalışır; apt paketi gerekmez (alpine/musl'a geçilirse
 # lockfile'daki linuxmusl paketleri kullanılır, yeniden doğrulayın: runbook §16.4).
 # P16 imha defteri dizini (`ledger` volume'u, /var/lib/remote; aynı ilk-bağlama kopyası ile node:node 0700).
-RUN mkdir -p /data/uploads /var/lib/remote && chown node:node /data/uploads /var/lib/remote \
- && chmod 0700 /data/uploads /var/lib/remote
+# P28b saklanan dosyalar (`stored_files` volume'u, FILES_DIR=/data/files; aynı kopya ile node:node 0700; tenant klasörleri
+# {tenantId}/ server tarafından 0700 açılır).
+RUN mkdir -p /data/uploads /var/lib/remote /data/files && chown node:node /data/uploads /var/lib/remote /data/files \
+ && chmod 0700 /data/uploads /var/lib/remote /data/files
 WORKDIR /app/apps/server
 USER node
 EXPOSE 3001

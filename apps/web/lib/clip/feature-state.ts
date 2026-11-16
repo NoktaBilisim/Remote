@@ -7,6 +7,7 @@
  */
 import type { GuestKind } from "@remote/contracts/ws";
 import type { GuestFeature } from "@remote/contracts/ws-clip-print";
+import type { PeerFeature } from "@remote/contracts/ws-fsrv";
 
 export type FeatureReason =
   "loading" | "noGuest" | "browser" | "unattended" | "unsupported" | "noControl" | "noConsent" | "cooldown" | "busy";
@@ -20,7 +21,8 @@ export interface FeatureInput {
   guestPresent: boolean;
   guestKind: GuestKind | null;
   unattended: boolean;
-  guestFeatures: readonly GuestFeature[];
+  /** P28b: `fsrv` de gelebilir (pano/yazdırma kararını etkilemez). */
+  guestFeatures: readonly PeerFeature[];
   /** Kontrol makinesi `granted` (sunucu `controlState=GRANTED`). */
   controlGranted: boolean;
   /** Müşteri pano anahtarı (yalnız pano için anlamlı). */
@@ -29,6 +31,8 @@ export interface FeatureInput {
   busy: boolean;
   /** Yazdırma: ret/yanıtsızlık sonrası 30 sn bekleme sürüyor. */
   cooldown?: boolean;
+  /** P28b (§5.3–5.4): SERVER modunda yazdırma sunucu yolundan → misafirde `fsrv` de gerekir. */
+  serverFiles?: boolean;
 }
 
 export interface FeatureState {
@@ -47,6 +51,7 @@ export function featureState(i: FeatureInput): FeatureState {
   if (i.guestKind !== "AGENT") return i.feature === "print" ? { visible: false, enabled: false, reason: "browser" } : off("browser");
   if (i.unattended) return off("unattended");
   if (!i.guestFeatures.includes(i.feature)) return off("unsupported");
+  if (i.feature === "print" && i.serverFiles && !i.guestFeatures.includes("fsrv")) return off("unsupported");
   if (!i.controlGranted) return off("noControl");
   if (i.feature === "clipboard" && !i.clipConsent) return off("noConsent");
   if (i.feature === "print" && i.cooldown) return off("cooldown");

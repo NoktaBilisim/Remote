@@ -11,13 +11,20 @@ const SYSTEM_SETTINGS_SERIAL = [
   ...WHATSAPP_SERIAL,
   "test/integration/p14a-a3-settings.test.ts",
   "test/integration/system-logo-p15.test.ts",
+  // P28b: `system_settings.clamav` (avReady kapısı tüm firmaları etkiler).
+  "test/integration/fsrv-p28b-settings.test.ts",
 ];
 // P13a (B4): bindings-p8c AC-192, settings-p11 ile paylaşılan `system_settings.turn` satırında yarışıyordu → ayrı proje.
 const BINDINGS_SERIAL = ["test/integration/bindings-p8c.test.ts"];
 // P13a: saklama işi tüm firmalarda + global tablolarda (audit 730 g, giriş oturumları) çalışır; başka dosyalarla eşzamanlı
 // koşarsa onların eski tarihli fikstürlerini anonimleştirir/siler → en sona, tek başına.
 // P16 (AC-240): gece kalıcı silme aynı işin parçası (global adımlar dahil) → aynı seri proje.
-const RETENTION_SERIAL = ["test/integration/retention-p13a-job.test.ts", "test/integration/retention-p16-purge.test.ts"];
+// P28b: saklanan dosya mutabakatı (global; bellekte aktarımı olmayan canlı satırları iptal eder) → aynı seri proje.
+const RETENTION_SERIAL = [
+  "test/integration/retention-p13a-job.test.ts",
+  "test/integration/retention-p16-purge.test.ts",
+  "test/integration/fsrv-p28b-retention.test.ts",
+];
 const SERIAL = [...SYSTEM_SETTINGS_SERIAL, ...BINDINGS_SERIAL, ...RETENTION_SERIAL];
 
 export default defineConfig({

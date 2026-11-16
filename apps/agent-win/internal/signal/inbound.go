@@ -40,6 +40,8 @@ type Hello struct {
 	// P28a (§4.2): yalnız role=tech hello'sunda gelir; misafir istemci kullanmaz, şema eşi için doğrulanır.
 	GuestFeatures []string `json:"guestFeatures,omitempty"`
 	ClipConsent   *bool    `json:"clipConsent,omitempty"`
+	// P28b (mimari-p28b §5.1): yalnız fsrv bildiren sokete gelir; yoksa P2P. Oturum boyunca değişmez (AC-355).
+	FileMode string `json:"fileMode,omitempty"`
 }
 
 type LobbyWait struct {
@@ -61,6 +63,8 @@ type PeerJoined struct {
 	MaxFileMb *int    `json:"maxFileMb,omitempty"`
 	// P28a (§4.2): yalnız role=guest (teknisyene giden) mesajda; şema eşi için doğrulanır.
 	GuestFeatures []string `json:"guestFeatures,omitempty"`
+	// P28b: teknisyene giden peer.joined{guest}'te; şema eşi için doğrulanır.
+	FileMode string `json:"fileMode,omitempty"`
 }
 
 type PeerLeft struct {
@@ -242,6 +246,11 @@ var serverParsers = map[string]func(raw []byte) (Inbound, error){
 	"print.request":  check(validPrintRequest),
 	"print.cancel":   check(func(m *PrintCancel) bool { return cpIDRe.MatchString(m.PID) }),
 	"binding.issued": check(validBindingIssued),
+	// P28b (mimari-p28b §5.2): sunucu üzerinden dosya; doğrulayıcılar fsrv.go.
+	"fsrv.upload":   check(validFsrvUpload),
+	"fsrv.status":   check(validFsrvStatus),
+	"fsrv.offer":    check(validFsrvOffer),
+	"fsrv.download": check(validFsrvDownload),
 	"error": check(func(m *ErrorMsg) bool {
 		return slices.Contains(wsErrorCodes, m.Code) && utf16Len(m.Message) <= errMsgMax
 	}),
@@ -252,7 +261,7 @@ func validHello(m *Hello) bool {
 		validGuestKind(m.GuestKind) && validIceServers(m.IceServers) && (m.MaxEndsAt == nil || isISO(*m.MaxEndsAt)) &&
 		validMaxFileMb(m.MaxFileMb) && (m.ReconnectToken == "" || tokenRe.MatchString(m.ReconnectToken)) &&
 		(m.GuestName == nil || utf16Len(*m.GuestName) <= nameMax) && validShareSnapshot(m.Share) &&
-		validGuestFeatures(m.GuestFeatures)
+		validGuestFeatures(m.GuestFeatures) && validFileMode(m.FileMode)
 }
 
 // validHelloCaps hello'da caps isteğe bağlıdır (nil geçerli); varsa yalnız bilinen yetenekler.
@@ -272,7 +281,7 @@ func validShareSnapshot(s *ShareSnapshot) bool {
 func validPeerJoined(m *PeerJoined) bool {
 	return slices.Contains(roles, m.Role) && validGuestKind(m.GuestKind) &&
 		(m.GuestName == nil || utf16Len(*m.GuestName) <= nameMax) && (m.MaxEndsAt == "" || isISO(m.MaxEndsAt)) &&
-		validMaxFileMb(m.MaxFileMb) && validGuestFeatures(m.GuestFeatures)
+		validMaxFileMb(m.MaxFileMb) && validGuestFeatures(m.GuestFeatures) && validFileMode(m.FileMode)
 }
 
 // parseBindingOffer zod `z.literal(true).optional()`: alan varsa yalnız `true` (null/false red).

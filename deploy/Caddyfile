@@ -198,12 +198,23 @@
 		method POST
 		path_regexp ^/api/v1/(settings/logo|admin/settings/system-logo|users/[^/]+/avatar)$
 	}
+	# P28b (mimari-p28b §4, K-P28b-4): sunucu modu dosya parçası PUT /api/v1/fsrv/uploads/<fid>/chunks/<n> en çok 1 MiB + 1
+	# (Fastify bodyLimit ile aynı). @notUpload (2MB) de bu isteğe uygulanır; iki sınırdan küçüğü geçerli. Gövde süresi
+	# `servers` read_body 30s (1 MiB / 30 sn ≥ 280 kbit/s). Belirteç yalnız Authorization başlığında (log filtresi siler);
+	# indirme yanıtının Content-Disposition'ı (dosya adı) da loga yazılmaz (resp_headers filtresi).
+	@fsrvChunk {
+		method PUT
+		path_regexp ^/api/v1/fsrv/uploads/[^/]+/chunks/[0-9]+$
+	}
 	handle /api/* {
 		request_body @upload {
 			max_size 3MiB
 		}
 		request_body @notUpload {
 			max_size 2MB
+		}
+		request_body @fsrvChunk {
+			max_size 1048577
 		}
 		reverse_proxy server:3001 {
 			header_up -X-Edge-Auth

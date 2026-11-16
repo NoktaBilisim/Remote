@@ -85,6 +85,8 @@ export function useClipPrint(ts: TechSession, collab: Collab, perms: { clip: boo
         sha256: sha256Hex,
         newId: newCpId,
         onChange: setPrint,
+        viaServer: (pid, file, sha, cb) => io.current.collab.printViaServer(pid, file, sha, cb),
+        dropServer: () => io.current.collab.dropServerPrint(),
       }),
   );
 
@@ -149,6 +151,7 @@ export function useClipPrint(ts: TechSession, collab: Collab, perms: { clip: boo
     permitted: perms.print,
     busy: printer.active,
     cooldown,
+    serverFiles: s.fileMode === "SERVER",
   });
 
   return {

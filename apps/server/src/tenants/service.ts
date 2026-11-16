@@ -25,7 +25,7 @@ import {
   TENANT_REACTIVATE_PURGE_SCHEDULED_MESSAGE,
   TENANT_SLUG_CONFLICT_MESSAGE,
 } from "@remote/contracts/api/tenants";
-import { TENANT_AUDIT } from "@remote/contracts/audit";
+import { FSRV_AUDIT, TENANT_AUDIT } from "@remote/contracts/audit";
 import { writeAudit, type AuditContext } from "../audit/service.ts";
 import type { AuthContext } from "../auth/session.ts";
 import { conflictIndex, type Db } from "../lib/db.ts";
@@ -35,7 +35,8 @@ import { createInitialConsent } from "../public/consent.ts";
 import * as purgeRepo from "../jobs/tenant-purge-repo.ts";
 import { ENTITY, actor, afterDeactivate, deactivateTx } from "./deactivate.ts";
 import * as repo from "./repo.ts";
-import { settingsTx, settingsView } from "./settings.ts";
+import { settingsTx, settingsView, withFsrv } from "./settings.ts";
+import { tenantStorage } from "../fsrv/usage.ts";
 
 const SLUG_UQ = "tenants_slug_key";
 
@@ -66,13 +67,14 @@ function toItem(r: repo.TenantRow, job: purgeRepo.JobRow | null = null): TenantI
     updatedAt: r.updatedAt.toISOString(),
     passiveSince: r.passiveAt ? r.passiveAt.toISOString() : null,
     purge: job ? { state: job.state, scheduledFor: job.scheduledFor.toISOString(), step: job.step } : null,
+    storageQuotaGb: r.storageQuotaGb,
   };
 }
 
 async function getOrThrow(db: Db, id: string): Promise<TenantItem> {
   const r = await repo.findTenant(db, id);
   if (!r) throw new AppError("NOT_FOUND");
-  return toItem(r, await purgeRepo.findOpenJob(db, id));
+  return { ...toItem(r, await purgeRepo.findOpenJob(db, id)), storage: await tenantStorage(db, id) };
 }
 
 export async function listTenants(db: Db, q: ListTenantsQuery): Promise<TenantListResponse> {
@@ -122,6 +124,21 @@ export async function updateTenant(db: Db, ctx: AuditContext, auth: AuthContext,
       const old: Record<string, string> = {};
       if (input.name !== undefined && input.name !== cur.name) [next.name, old.name] = [input.name, cur.name];
       if (input.slug !== undefined && input.slug !== cur.slug) [next.slug, old.slug] = [input.slug, cur.slug];
+      // P28b (AC-362): kota ayrı audit (`tenant.storage_quota`); kullanımın altına düşürülebilir (mevcut dosyalar silinmez).
+      const quota = input.storageQuotaGb;
+      if (quota !== undefined && quota !== Number(cur.quota)) {
+        await repo.updateTenant(tx, id, { storageQuotaGb: quota });
+        await writeAudit(tx, ctx, {
+          tenantId: id,
+          ...actor(auth),
+          action: FSRV_AUDIT.STORAGE_QUOTA,
+          entity: ENTITY,
+          entityId: id,
+          result: "success",
+          oldValue: { storageQuotaGb: Number(cur.quota) },
+          newValue: { storageQuotaGb: quota },
+        });
+      }
       if (Object.keys(next).length === 0) return;
       await repo.updateTenant(tx, id, next);
       await writeAudit(tx, ctx, {
@@ -229,7 +246,7 @@ export async function switchTenant(
 // --- tenant ayarları (AC-4; P10: AC-67 requireTech2fa, AC-78/79/122 SMTP) ---
 
 export async function getTenantSettings(db: Db, tenantId: string): Promise<TenantSettingsView> {
-  return settingsView(await repo.ensureSettings(db, tenantId));
+  return withFsrv(db, tenantId, settingsView(await repo.ensureSettings(db, tenantId)));
 }
 
 /**

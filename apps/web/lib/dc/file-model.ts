@@ -53,7 +53,13 @@ export type TransferStatus =
   | "cancelled"
   | "tooLarge"
   | "busy"
-  | "timeout"; // gönderen: teklife OFFER_TIMEOUT_MS içinde yanıt gelmedi
+  | "timeout" // gönderen: teklife OFFER_TIMEOUT_MS içinde yanıt gelmedi
+  // P28b sunucu modu (lib/fsrv/transfers.ts): yükleme, tarama, virüslü, taranamadı, sunucu kapısı reddi
+  | "uploading"
+  | "scanning"
+  | "infected"
+  | "scanFailed"
+  | "gate";
 
 export interface Transfer {
   fid: string;
@@ -69,6 +75,10 @@ export interface Transfer {
   url?: string;
   /** Otomatik ret nedeni (yetki/bekleme/meşgul). */
   auto?: "caps" | "cooldown" | "busy" | "tooLarge";
+  /** P28b: sunucunun durum metni (`describeFsrvStatus`) — varsa durum etiketinin yerine gösterilir. */
+  note?: string;
+  /** P28b: boyutu bilinmeyen gelen yüklemenin sunucu ilerlemesi (0..100). */
+  pct?: number;
 }
 
 export interface OutState {

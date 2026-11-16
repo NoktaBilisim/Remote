@@ -12,6 +12,7 @@ const tenantSelect = {
   slug: true,
   status: true,
   passiveAt: true, // P16 (AC-242)
+  storageQuotaGb: true, // P28b (AC-362)
   createdAt: true,
   updatedAt: true,
   _count: { select: { users: { where: { status: "ACTIVE", deletedAt: null } } } },
@@ -47,9 +48,9 @@ export function findTenant(db: DbOrTx, id: string): Promise<TenantRow | null> {
 export async function lockTenant(
   tx: Prisma.TransactionClient,
   id: string,
-): Promise<{ id: string; name: string; slug: string; status: string } | null> {
-  const rows = await tx.$queryRaw<{ id: string; name: string; slug: string; status: string }[]>`
-    SELECT id, name, slug, status FROM tenants WHERE id = ${id} AND deleted_at IS NULL FOR UPDATE`;
+): Promise<{ id: string; name: string; slug: string; status: string; quota: number } | null> {
+  const rows = await tx.$queryRaw<{ id: string; name: string; slug: string; status: string; quota: number }[]>`
+    SELECT id, name, slug, status, storage_quota_gb AS quota FROM tenants WHERE id = ${id} AND deleted_at IS NULL FOR UPDATE`;
   return rows[0] ?? null;
 }
 
@@ -120,6 +121,8 @@ const settingsSelect = {
   retentionDays: true,
   requireTech2fa: true,
   mfaRememberDevice: true, // P27a (AC-331)
+  fileServerMode: true, // P28b (AC-354)
+  fileRetentionDays: true,
   smtpHost: true,
   smtpPort: true,
   smtpSecurity: true,

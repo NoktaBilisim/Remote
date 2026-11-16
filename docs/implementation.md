@@ -10975,3 +10975,508 @@ Kapsam: mimari-p28 §10 K7 + r2 D-P28a-3. Uygulama kodu değişmedi (Go kaynağ�
   (`P28A-ISARET-…`, `gizli-ad-1/2.pdf`); işaretli pano metniyle "Gönder" (izinli Clipboard API) eklendi, WS'e ve DOM'a içerik
   gitmiyor. Her testte `page.on("console")` (tüm düzeyler) + `pageerror` kayıtlarında işaret 0 (`afterEach`).
 - **Doğrulama:** web `lint` + `typecheck` temiz, birim 432/432, `playwright test p28a` 3/3 (desktop; mobile atlanır), prettier temiz.
+
+## P28b K0 (devops)
+
+Ölçüm: 2026-11-16, yerel Docker Desktop 29.8 (macOS arm64). Ölçüm konteynerleri/volume'ları ve fikstürler silindi; repoya fikstür
+yazılmadı. EICAR dizesi hiçbir dosyada düz durmaz: ölçüm istemcisi onu iki parçanın birleşimiyle çalışma anında üretti; `scan.ts`
+testleri ve ayar ekranı testi de aynı yolu izler (parçalı sabit, birleştirme bellekte).
+
+### İmaj (sabitleme)
+
+| Seçenek                                                 | Digest (çok mimarili indeks)                                              | Platform              | Boyut  |
+| ------------------------------------------------------- | ------------------------------------------------------------------------- | --------------------- | ------ |
+| **`clamav/clamav:1.5.4` (Alpine 3.24, önerilen)**       | `sha256:45fe5149fbee5a46509c9848ef20d0c354b7b2323c9369f285939a37cf33422a` | yalnız `linux/amd64`  | 393 MB |
+| `clamav/clamav:1.5.4-debian13-slim` (yedek/karşılaştır) | `sha256:76a9c3b63764b78178dc68fa7efcceca0cde2c8c9d4f925a8e697cb4511f8fdc` | amd64, arm64, ppc64le | 569 MB |
+
+- 1.5.4 = güncel kararlı (`stable` = `1.5.4`, 2026-11-09). Aynı gün 1.4.6 de yayımlandı; yeni kurulumda güncel 1.5 hattı seçildi.
+- Öneri Alpine: staging/prod host amd64, imaj ~180 MB küçük; Debian varyantı yalnız arm64 geliştirme makinesinde yerel çalıştırma
+  gerekiyorsa. Compose biçimi mevcut kalıpla aynı: `image: clamav/clamav:1.5.4@sha256:45fe…422a` (indeks digest'i; `docker inspect
+RepoDigests[0]` ile aynı). Dependabot docker güncellemesinde aşağıdaki "kesin dizeler" testi tekrar koşulur (R-P28b-3).
+- İmaj imzalarla gelir (main 63, daily 28177, bytecode 339); ilk açılışta freshclam daily'yi günceller.
+
+### Konteyner sertleştirmesi (§7.1 "K0'da en az yetki") — denendi, çalışıyor
+
+`user: "100:101"` (imajdaki `clamav`), `read_only: true`, `cap_drop: [ALL]`, `no-new-privileges`, `mem_limit: 2g` ile açıldı; **ek
+`cap_add` gerekmez.** Bulgular:
+
+- `/init` root varsayar ama clamav olarak da çalışır: `chown -R clamav:clamav /var/lib/clamav` aynı sahibe no-op; `freshclam --user=clamav`
+  ve clamd `User clamav` aynı kullanıcıdayken sorunsuz.
+- `/var/lib/clamav` **volume olmak zorunda**: volume'suz salt-okunur kökte `chown: Read-only file system` → `set -e` ile konteyner çıkar
+  (kod 1). Adlı volume imajdaki DB'yi ve `clamav` sahipliğini kopyalar.
+- tmpfs: `/tmp` (uid=100,gid=101 — `clamd.sock` + freshclam geçici), `/run/clamav` (uid=100,gid=101), `/run/lock` (mode=1777; `/init`
+  `ln -f -s /run/lock /var/lock` yapıyor), `/var/log/clamav` (uid=100,gid=101; log dosyası yazılmaz, boş kaldı).
+- `/init` clamd'nin **yerel soketini** (`/tmp/clamd.sock` veya `/run/clamav/clamd.sock`) bekler; `LocalSocket` kaldırılırsa 1800 sn
+  bekleyip çıkar. `LocalSocket /tmp/clamd.sock` kalmalı (konteyner içinde, dışarı açılmaz).
+- **freshclam kontrol sayısı `freshclam.conf` `Checks` ile değil `FRESHCLAM_CHECKS` env ile belirlenir:** `/init`
+  `freshclam --checks="${FRESHCLAM_CHECKS:-1}"` çağırıyor (CLI dosyayı ezer; varsayılan **günde 1**). Compose'da
+  `FRESHCLAM_CHECKS: "6"` zorunlu (§7.1 "günde ≥ 4"). Süreç listesinde `freshclam --checks=6` doğrulandı.
+- **Healthcheck:** imajın yerleşik `HEALTHCHECK` = `clamdcheck.sh` (`echo PING | nc localhost 3310`, `StartPeriod` 360 sn). Alpine'de
+  `localhost` önce `::1`'e çözülür; `TCPAddr 0.0.0.0` verilirse clamd yalnız IPv4 dinler ve konteyner **unhealthy** olur. `TCPAddr`
+  yazılmaz (varsayılan tüm adresler) → `clamdcheck.sh` "Clamd is up", rc 0. İzolasyon ağla sağlanır (`av` internal, port yayımlanmaz).
+
+### Seçenek adları (1.5.4 `clamd.conf.sample` / `freshclam.conf.sample` + `clamconf`) ve aday değerler
+
+Tüm adlar imajdaki örnek dosyada mevcut; clamd açılış logu değerleri kırpmadan kabul etti ("File size limit set to 545259520 bytes",
+"Global size limit set to 1073741824 bytes", "Global time limit set to 55000 milliseconds", "Alerting of encrypted archives _and_ documents
+enabled", "Heuristic alerting enabled for scans that exceed set maximums").
+
+| Seçenek                                                                 | İmaj varsayılanı                      | Aday (`deploy/clamav/clamd.conf`, K6)            | Neden                                                                           |
+| ----------------------------------------------------------------------- | ------------------------------------- | ------------------------------------------------ | ------------------------------------------------------------------------------- |
+| `TCPSocket`                                                             | (imaj conf 3310)                      | `3310`                                           | `TCPAddr` yazılmaz (healthcheck)                                                |
+| `LocalSocket`                                                           | `/tmp/clamd.sock`                     | `/tmp/clamd.sock`                                | `/init` bekliyor                                                                |
+| `StreamMaxLength`                                                       | 100M                                  | `520M`                                           | 512 MiB üst sınır + pay                                                         |
+| `MaxFileSize`                                                           | 100M                                  | `520M`                                           | aynı                                                                            |
+| `MaxScanSize`                                                           | 400M                                  | `1024M`                                          | arşiv açılımı toplamı                                                           |
+| `MaxScanTime` (ms)                                                      | 120000                                | `55000`                                          | istemcinin 60 sn'sinden önce clamd kendisi `…MaxScanTime` bulgusu döner (LIMIT) |
+| `AlertExceedsMax`                                                       | no                                    | `yes`                                            | sınır aşımı sessizce temiz sayılmaz                                             |
+| `AlertEncrypted` / `AlertEncryptedArchive` / `AlertEncryptedDoc`        | no                                    | `yes`                                            | şifreli arşiv/belge bulgu olur                                                  |
+| `HeuristicAlerts`                                                       | yes                                   | `yes`                                            | açıkça yazılır                                                                  |
+| `ConcurrentDatabaseReload`                                              | yes                                   | `no`                                             | bellek iki katına çıkmaz                                                        |
+| `MaxThreads` / `MaxQueue`                                               | 10 / 100                              | `4` / `20`                                       | sunucu eşzamanlılığı 2 + test/yoklama payı                                      |
+| `ReadTimeout` / `CommandReadTimeout` / `IdleTimeout`                    | 120 / 30 / 30                         | `120` / `30` / `60`                              |                                                                                 |
+| `SelfCheck`                                                             | 600                                   | `600`                                            | freshclam bildirimi kaçarsa en geç 10 dk'da yeni DB                             |
+| `LogClean`                                                              | no                                    | `no`                                             | `LogFile` yazılmaz; `Foreground yes` → konteyner stdout                         |
+| `User`                                                                  | clamav                                | `clamav`                                         |                                                                                 |
+| freshclam `Checks` / `NotifyClamd` / `DatabaseOwner` / `DatabaseMirror` | 12 / — / clamav / database.clamav.net | `6` / `/etc/clamav/clamd.conf` / `clamav` / aynı | `Checks` CLI ile eziliyor → asıl ayar `FRESHCLAM_CHECKS` env                    |
+
+`PCREMaxFileSize` varsayılan 100M bırakıldı: daha büyük dosyalarda yalnız PCRE imzaları atlanır, **bulgu üretmez** (AlertExceedsMax
+kapsamı dışında); 512 MiB'a çıkarmak tarama süresini büyütür. Kabul edilen kalan risk (K9a'ya not).
+
+### Kesin yanıt dizeleri (TCP, `z` önekli komut, yanıt `\0` ile biter)
+
+| İstek / fikstür                    | Ham yanıt                                                        |
+| ---------------------------------- | ---------------------------------------------------------------- |
+| `zPING\0`                          | `PONG\0`                                                         |
+| `zVERSION\0`                       | `ClamAV 1.5.4/28184/Sun Nov 15 06:27:28 2026\0`                  |
+| EICAR (68 bayt, `zINSTREAM`)       | `stream: Eicar-Test-Signature FOUND\0`                           |
+| EICAR zip içinde                   | `stream: Eicar-Test-Signature FOUND\0`                           |
+| Parolalı zip (`zip -P`, ZipCrypto) | `stream: Heuristics.Encrypted.Zip FOUND\0`                       |
+| Dosya > `MaxFileSize`              | `stream: Heuristics.Limits.Exceeded.MaxFileSize FOUND\0`         |
+| Arşiv açılımı > `MaxScanSize`      | `stream: Heuristics.Limits.Exceeded.MaxScanSize FOUND\0`         |
+| Tarama > `MaxScanTime`             | `stream: Heuristics.Limits.Exceeded.MaxScanTime FOUND\0`         |
+| Akış > `StreamMaxLength`           | `INSTREAM size limit exceeded. ERROR\0` (sonra bağlantı kapanır) |
+| Temiz                              | `stream: OK\0`                                                   |
+
+- `libclamav.so.12.1.0` içindeki adlar (aynı önekler): `Heuristics.Encrypted.{Zip,RAR,7Zip,PDF,OLE2,EGG}`,
+  `Heuristics.Limits.Exceeded.{MaxFileSize,MaxScanSize,MaxScanTime,MaxRecursion,MaxFiles,Email*}`. Mimari §7.2 önekleri
+  (`Heuristics.Encrypted.`, `Heuristics.Limits.Exceeded`) **doğrulandı**; değişiklik gerekmez.
+- `VERSION` tarih biçimi C `ctime` (UTC, saat dilimi yazmaz): `Www Mmm dd hh:mm:ss yyyy`, gün < 10 ise **çift boşluk** (`Sun Nov  8
+06:23:52 2026`). Ayrıştırıcı: `/^ClamAV ([\d.]+)\/(\d+)\/(.+)$/`, tarih kısmı boşluklar tek boşluğa indirilip UTC olarak okunur.
+- **StreamMaxLength aşımında** clamd yanıtı yazıp bağlantıyı kapatır; istemci hâlâ yazıyorsa `EPIPE` ve ardından okumada
+  `ECONNRESET` alır (3/3 denemede yanıt baytları reset'ten önce okundu; Linux'ta okunmamış veri RST ile düşebilir). `scan.ts` için: (1)
+  gelen veriyi `data` olayıyla sürekli biriktir, `error`/`close`'da birikmiş yanıtı sınıflandır; (2) beyan boyutu > `StreamMaxLength`
+  ise göndermeden `SCAN_FAILED/LIMIT` (512 MiB ürün sınırı 520M'nin altında olduğundan pratikte oluşmaz); (3) yazma hatası + boş yanıt →
+  `SCAN_FAILED/ERROR`.
+- **Yeniden yükleme sırasında** (`ConcurrentDatabaseReload no`) clamd komut kabul etmez: `VERSION`/`PING` 3 sn bağlantı zaman aşımına
+  düşer. Ölçülen kesinti 8 sn (elle `RELOAD`); ilk açılıştaki ilk reload 60 sn sürdü (emülasyon). Fail-closed tasarımla uyumlu
+  (`SCAN_FAILED/UNAVAILABLE` veya `TIMEOUT`); imza yaşı yoklaması bu pencerede `rs_av_up=0` görebilir — alarm "≥ 2 ardışık yoklama"
+  ile kurulmalı (K6 runbook).
+- İlk açılışta clamd imajdaki eski daily ile başlayabilir (freshclam bildirimi soket hazır olmadan gider: "Clamd was NOT notified");
+  `SelfCheck 600` en geç 10 dk'da yeni DB'ye geçer. Staging testinde "imza yaşı" bu süre sonunda okunmalı.
+
+### Bellek ve süre
+
+| Ölçüm                                                    | amd64 (Alpine, Rosetta emülasyonu) | arm64 (Debian slim, yerli) |
+| -------------------------------------------------------- | ---------------------------------- | -------------------------- |
+| Boşta, imza yüklü (3 628 275 imza) — `docker stats`      | **976 MiB**                        | 969 MiB                    |
+| Tepe (50 MB arşiv taraması + `RELOAD`, örnekleme)        | **1,107 GiB**                      | —                          |
+| 50 MiB rastgele dosya `INSTREAM` (önbelleksiz, 3 tekrar) | 1,24–1,26 sn                       | 1,14–2,14 sn               |
+| 50 MiB stored zip (5 × 10 MiB rastgele)                  | 31,4–32,1 sn                       | 20,0 sn                    |
+| 50 MiB stored zip (tek 50 MiB rastgele üye)              | —                                  | 18,2 sn                    |
+| 50 MiB sıfır baytlık dosya                               | 4,0 sn                             | —                          |
+| 200 MiB stored zip (tek üye; > `PCREMaxFileSize`)        | —                                  | 8,6 sn                     |
+
+- clamd temiz dosya özetini önbelleğe alır: aynı 50 MiB dosyanın 2. taraması 0,24 sn. Süre ölçümlerinde her tekrar yeni rastgele
+  içerikle yapıldı; staging ölçümü (AC-357) de aynı şekilde yapılmalı.
+- Sonuç: `mem_limit: 2g` yeterli (tepe ~1,1 GiB, pay ~%45). Mimarideki "~1,2–1,6 GB" tahmini ölçümle **~1,0–1,1 GiB** olarak
+  güncellendi. İki yığın aynı anda açıkken ~2,2 GiB.
+- **Risk (AC-357, 50 MB ≤ 30 sn):** düz dosya ~1–2 sn; ancak 50 MiB arşivde tarama tek başına 18–20 sn (yerli arm64), 31–32 sn
+  (emülasyon). Yükleme süresi eklenince arşivlerde 30 sn sınırı sıkışık. Kesin ölçüm staging amd64'te (K6/K9); aşarsa çözüm
+  `MaxThreads`'e değil donanıma/çekirdek sayısına bağlıdır. 55 sn `MaxScanTime` aşan arşiv "taranamadı: tarama boyut sınırı" olur
+  (fail-closed), virüslü sayılmaz.
+
+## P28b K1 (dba) — veri modeli, migration, grant (2026-11-16)
+
+Ayrıntı: `docs/db-notlari.md` "P28b". Migration `apps/server/prisma/migrations/20261123000000_p28b_stored_files/` (`migration.sql`, `down.sql`).
+
+- Şema: `session_stored_files` (yeni), `support_sessions.file_mode`, `tenant_settings.file_server_mode` / `file_retention_days` (1..7),
+  `tenants.storage_quota_gb` (1..2000, vars. 20), `system_settings` `clamav` anahtarı + JSON şeması. r2: `REJECTED` durumu, `size_bytes`
+  1..268435456, `key_ver` (≥ 1). Prisma modeli `SessionStoredFile`; `pnpm db:generate` yapıldı.
+- Grant: `session_stored_files` SELECT/INSERT/DELETE + sütun düzeyi UPDATE (§3.4 listesi); `check-app-grants.sh` 777/777.
+- **Sapma (mimari §3.4):** `file_mode` için "UPDATE grant'ı yok" tablo düzeyi UPDATE nedeniyle uygulanamaz → mevcut
+  `support_sessions_update_guard` tetikleyicisine `p28b:` dalı (sayı 23 aynı); `deploy/mysql/audit-continuity.sql` özet sabiti
+  `0fdacca7…73e0` oldu (devops: staging/prod'a migration ile aynı sürümde gitmeli).
+- **Sapma:** indeks IX(session_id, tenant_id, created_at) (bileşik FK öneki). Mimariye ek durum ↔ alan CHECK'leri (db-notlari listesi) —
+  K3 geçişleri bunlara göre tek UPDATE'te yazmalı (`storage_rel=NULL` + `deleted_at`, `scanned_at`, `scan_reason`, `expires_at`).
+- **K3'e devir (uygulama kodu, dba kapsamı dışı):** `retention-repo.ts` anonimleştirme + `purgeAnonymized` sırasına ve
+  `tenant-purge-repo.ts` `SESSION_FILES` adımına `session_stored_files` (öneri: yeni adım yerine aynı adıma parça; DB değişikliği
+  gerektirmez). Tablo `tenants`'a FK taşımadığı için P16 meta-testi eksikliği yakalamaz → K3 testi şart.
+- Test: `test/integration/session-history-p8.test.ts` ikili CHECK sayacı 53 → 67. `test:int` diğerleri yeşil; `clip-print-ws` tam
+  koşuda audit sırası kararsız (tek başına geçiyor, P28b'den bağımsız). Seed değişmedi.
+
+## P28b K2 (backend-dev — contracts)
+
+Kaynak: `docs/mimari-p28b.md` r2 §4, §5, §7.2–7.3, §11, §13 K2.
+
+**Yeni dosyalar (packages/contracts):** `src/ws-fsrv.ts` (`./ws-fsrv`: `fsrv.init/accept/reject/result/cancel`, `fsrv.upload/status/offer/download`
+şemaları — `z.strictObject`; `FILE_MODES`, `WS_GUEST_CAP_FSRV = "rs.cap.fsrv1"`, `PEER_FEATURES`, §11.3 sabitlerinin tamamı + metinden çıkan
+ekler (`FSRV_DOWNLOAD_TOKENS_PER_FILE` 3, `FSRV_LINK_PER_MIN` 20, `AV_QUEUE_WAIT_MS`, `AV_CONNECT_TIMEOUT_MS`, `AV_CONNECT_RETRY_INTERVAL_MS`,
+`AV_SELFTEST_INTERVAL_MS`, kota/saklama aralıkları), durum/neden kümeleri, `fsrvChunkCount/Size`), `src/api/fsrv.ts` (`./api/fsrv`: parça/içerik/link
+yol şemaları, `fsrvBearerSchema`, yanıt tipleri, `StoredFileItem`, `TenantStorageUsage`, içerik güvenlik başlıkları, AC-354/362/363 metinleri),
+`src/api/clamav.ts` (`./api/clamav`: ayar/test girdi şemaları, görünüm/test yanıt tipleri, test sınıf metinleri, clamd imza önekleri, parçalı
+EICAR `avEicar()`, `AV_SELFTEST_ENCRYPTED_ZIP_B64`), `fixtures/fsrv.json` (Go K5 + server K3 için: constants, sets, valid/invalid, §5.1 `features`
+ve §5.4 `caps` tabloları), `test/fsrv-p28b.test.ts` (17 test, AC adlı).
+
+**Değişen:** `ws.ts` (teknisyen birliğine `fsrv.*` her zaman; `guestInboundSchemaFor(features, fsrv = false)` — `fsrv.*` misafir şemasına yalnız
+`fsrv=true`, şemalar önbellekli; `hello.fileMode?`, `peer.joined.fileMode?`; `guestFeatures` değer kümesi `PEER_FEATURES`), `errors.ts`
+(`STORAGE_QUOTA` 409, `AV_NOT_READY` 409), `audit.ts` (`FSRV_AUDIT` 8 eylem + `FSRV_AUDIT_LABELS`), `api/sessions.ts` (`TIMELINE_DETAIL_KEYS` +
+`file.upload/scan/infected/download`; `SessionHistoryDetail.storedFiles?`), `api/tenants.ts` (`updateTenantSettingsInputSchema` +
+`fileServerMode`, `fileRetentionDays` 1..7, `consentUpdated: true`; `updateTenantInputSchema` + `storageQuotaGb` 1..2000; `TenantSettingsView` /
+`TenantItem` opsiyonel ekler), `labels.ts` (zaman çizelgesi etiketleri + `describeFsrvStatus`, `AV_SCAN_REASON_LABELS`, `FSRV_GATE_REASON_LABELS`,
+`STORED_FILE_STATE_LABELS`), `package.json` exports (+3), `test/pt-surface.test.ts` mesaj listesine `ws-fsrv.ts`.
+Paket dışı zorunlu küçük düzeltmeler (typecheck): `apps/server/src/lib/errors.ts` `DEFAULT_MESSAGES` + 2 kod (exhaustive `Record<ErrorCode>`),
+`apps/web/lib/webrtc/tech-machine.ts` ve `lib/clip/feature-state.ts` `guestFeatures` tipi `GuestFeature[]` → `PeerFeature[]` (davranış değişmez).
+
+**Tasarımdan sapmalar / yorumlar (gerekçeli):**
+
+- `fsrv` P28a `GuestFeature`'a ve `GUEST_FEATURE_BY_SUBPROTOCOL`'a **eklenmedi**: `GuestFeature ⊆ Cap` varsayımı (server `actorMay`) kırılırdı ve
+  eşleme tablosuna girerse sunucu K3'ten önce `fsrv` bildirmeye başlardı. Üst küme `PeerFeature` yalnız tel `guestFeatures` için; K3 `hasFsrv(peer)`
+  `rs.cap.fsrv1`'i ayrı okur. `CAPS` değişmedi (SERVER odası caps'i yalnız daraltır).
+- Şema çapraz kuralları (Go eşi aynı uygulamalı; fikstürde): `fsrv.init`/`fsrv.offer` `PRINT` ⇒ `pid` zorunlu **ve** ad `belge.pdf`, `FILE` ⇒ `pid`
+  yok (K-P28b-13). `printPending` boyut/pid eşleşmesi ve 20 MiB şemada DEĞİL (kapı `FORBIDDEN`). `fsrv.status`: `fid` veya `xid` zorunlu;
+  `SCAN_FAILED` ⇒ tarama nedeni; `REJECTED` + neden ⇒ kapı nedeni (nedensiz = alıcı reddi); diğer durumlarda neden yok; `signature` yalnız `INFECTED`.
+- `TenantSettingsView.avReady?` eklendi (mimari görünümde yok): §9 "AV testi başarısızsa anahtar pasif" için web'in bilmesi gerekir.
+- 409 `n > next` gövdesi hata zarfı değil düz `{next}` (`FsrvChunkGapResponse`) — mimari §4 metnine birebir.
+- `TenantSettingsView`/`TenantItem`/`SessionHistoryDetail` ekleri **opsiyonel** (`passiveSince?` kalıbı): K3 doldurana kadar server/web kırılmasın.
+- ClamAV host şeması DB CHECK ile hizalı (`^[a-z0-9][a-z0-9.:-]{0,252}$`, kırp + küçük harf; köşeli IPv6 yok) — `smtpHostSchema` kullanılmadı.
+- Şifreli zip: `zip -X -0 -P` (ZipCrypto, K0 yöntemi), içerik `selftest.txt` = "remote-support av selftest\n" (177 bayt). EICAR tam dizesi hiçbir
+  dosyada yok (iki parça, test uzunluk/önek/sonek ile doğrular).
+- Bağımlılık eklenmedi. Yeni yetki anahtarı yok (AC-404, testte sabit).
+
+**Snapshot (`-u`, gerekçe):** `pt-surface.test.ts.snap` +141/−1: yeni export yolları ve adları, iki hata kodu, `ws-fsrv.ts` mesaj tipleri; tek silinen
+satır mesaj testinin adı (dosya listesine `ws-fsrv.ts` eklendiği için) — içerik silinmedi.
+
+**Doğrulama:** `pnpm --filter @remote/contracts test` → 22 dosya / 203 test yeşil; `pnpm --filter @remote/contracts lint` temiz; `pnpm -r run typecheck`
+3/3 Done; prettier yalnız dokunulan dosyalarda; server unit 522 ve web unit 432 test yeşil.
+
+**frontend-dev / K3 / K5 için:** WS `hello`/`peer.joined` `fileMode`, `guestFeatures` içinde `"fsrv"`; misafir şeması `guestInboundSchemaFor(features,
+room.fileMode === "SERVER" && hasFsrv(peer))`; durum metinleri `describeFsrvStatus(state, reason, signature)` ((state, reason) çiftinden — `BUSY` ve
+`REJECTED` iki anlamlı); tenant ayar/kota alanları ve `AV_NOT_READY`/`STORAGE_QUOTA` metinleri `api/fsrv.ts`; ClamAV ekranı `api/clamav.ts`. Go:
+`fixtures/fsrv.json` `valid/invalid` + `constants` + `features`/`caps` tabloları.
+
+## P28b K3 — sunucu (KISMİ; devam ediyor)
+
+**Durum:** Çekirdek modüller yazıldı ve birim testli; uygulamaya (WS, HTTP rotaları, ayar/tenant/geçmiş/saklama) **henüz bağlanmadı**. Aşağıdaki
+"Kalan" listesi bitmeden AC-353..363 karşılanmış sayılmaz.
+
+**Yazılan dosyalar (`apps/server`):**
+
+- `src/lib/crypto.ts`: `SecretBox.deriveFileKey(ver, salt, tenantId, fid)` (HKDF-SHA256, bilgi `remote-support/stored-file/v1|tenant|fid`).
+- `src/fsrv/box.ts`: RSF1 biçimi (52 B başlık; 64 KiB segment AES-256-GCM; nonce = 7×0 | segment u32 | son bayrağı; AAD = başlık). `openBox` her
+  segmenti doğrulamadan vermez; kesik/fazla bayt/başlık uyuşmazlığı → `BoxError`.
+- `src/fsrv/store.ts`: `FileStore` (`{tenant}/{24}.rsf`, `.part` → `.rsf`, konumlu yazma + fsync, yol regex + kök denetimi, `freeRatio` hata → 0 = kapalı).
+- `src/fsrv/clamd.ts`: zINSTREAM/zPING/zVERSION istemcisi, yanıt sınıflandırma, `inAllowedCidr` (ağ/ağ geçidi/yayın hariç), bağlanma evresi yeniden
+  deneme ≤ 15 sn, ilk veri baytından sonra yeniden deneme yok (fail-closed), öz test hükmü (`ok|misconfigured|unreachable`).
+- `src/fsrv/scan-queue.ts`: adil kuyruk (2 yuva, 1 büyük, tenant başına 1 etkin/≤3 bekleyen, toplam ≤20, round-robin; bekleme 30 sn / büyük 75 sn — D-r2-3).
+- `src/fsrv/scan.ts`: `Scanner` + `registerScanMetrics` (`rs_av_scan_total{result}`, süre, `rs_av_up`, `rs_av_selftest_ok`, `rs_av_queue_depth`,
+  `rs_av_signature_age_seconds`).
+- `src/fsrv/repo.ts`: kapı 7–8 + INSERT tek TX (`tenants FOR UPDATE`), koşullu geçişler (`CLEAN` kaynağı yalnız teslim edilmemiş satırı eşler;
+  `delivered:true` → saklama süresi yolu), `deliver` (+ `session_files` OK aynı TX), `insertSessionFile`, `listForSession` (tenant_id önekli), `liveRows`.
+- `src/fsrv/usage.ts`: `storageUsage` (TEK kota fonksiyonu), `tenantStorage`.
+- `src/fsrv/tokens.ts`: bellek içi belirteç tablosu (yalnız SHA-256 saklanır; upload / download TECH|CUSTOMER|HISTORY; `dropRoom`, `dropAuthSession`).
+- `src/fsrv/service.ts`: `FsrvService` — `begin` (disk %10 + rezervasyon + `.part` + yükleme belirteci), `putChunk` (n<next 200, n>next 409 `{next}`,
+  boy 400, disk 409 kota, son parçada SHA → CORRUPT ya da SCANNING + tarama), tarama hattı (CLEAN → teklif; INFECTED/SCAN_FAILED → disk silinir,
+  iki tarafa durum, PRINT'te `sink.printFailed`), 10 dk hareketsizlik iptali, audit `file.upload/scan/infected`, `registerFsrvMetrics`.
+- `src/fsrv/lifecycle.ts`: `accept` (≤3 belirteç), `reject`, `result` (3. başarısızlık → CANCELLED + `session_files` CORRUPT), `cancel`,
+  `printDone`, `roomClosed` (PRINT teklifi EXPIRED, diğerleri CANCELLED), `sideGone`, `auditDownload`.
+- `test/unit/fsrv-p28b.test.ts`: kutu, sınıflandırma, CIDR, sahte clamd TCP sunucusu (temiz/EICAR/CIDR dışı/yeniden deneme/veri sonrası kopma/zaman
+  aşımı/LIMIT/öz test), kuyruk; gerçek clamd testi `CLAMD_TEST_HOST` ile isteğe bağlı.
+
+**Kalan (sırayla):** (1) `signaling/fsrv.ts` kapı 1–6 + `handlers.ts` yönlendirme + misafir şeması, `ws-auth` `peer.fsrv`, `rooms-features`
+`hasFsrv` (ilk koşul `!room.unattended`) ve SERVER odasında caps daraltma, `active.ts` `hello.fileMode` + `guestFeatures`'ta `"fsrv"`, `collab.ts`
+`file.meta` ret + `rs_fsrv_denied_total{reason="dc_meta"}`, oda/misafir/teknisyen kancaları; (2) `insertSession` `file_mode` + admit'te `Room.fileMode`;
+(3) `fsrv/routes.ts` (PUT parça, GET içerik başlıkları, geçmiş link ucu, 404 IP sınırı, D-r2-1 onRequest + upgrade reddi); (4) `settings/clamav.ts` +
+rotalar + 10 dk yoklama + `/health` clamav + app bağlama; (5) tenant dosya ayarları/avReady/storage/kota; (6) `history-detail` `storedFiles`;
+(7) saklama `fsrvExpire` + mutabakat + anonimleştirme/purge/firma silme + açılış süpürmesi; (8) AC-353..363 entegrasyon testleri + snapshot/meta testleri.
+
+**Bağımlılık:** eklenmedi. **env:** yeni değişken gerekmedi (`FILES_DIR`, `CLAMAV_*` devops'ta mevcut).
+**Sapma (planlı, kalan işte uygulanacak):** `lastTest` JSON şeması `eicarDetected` taşımıyor; env kaynaklı ayarda lastTest için panel satırı yazılacak.
+
+**Doğrulama (bu tur):** `tsc --noEmit` temiz; `eslint src` temiz; prettier temiz; server unit 38 dosya / 558 test yeşil (1 atlanan: gerçek clamd).
+
+## P28b K5 (Go) — Windows istemci 0.14.0 (2026-11-16)
+
+**Değişen / yeni dosyalar (`apps/agent-win`):**
+
+- `internal/signal/fsrv.go` (yeni): `rs.cap.fsrv1` (`FeatureFsrv`), `fsrv.upload/status/offer/download` (sunucu→misafir, katı ayrıştırma) ve `fsrv.init/accept/reject/result/cancel` (misafir→sunucu, `Encode` doğrulaması); `printShape`, `fsrv.status` neden/imza kuralları ws-fsrv.ts ile aynı. `inbound.go`: `hello.fileMode`, `peer.joined.fileMode`; `clipprint.go`: `guestFeatures` + `fsrv` (en çok 3); `conn.go`: alt protokol listesi `rs.cap.fsrv1` kabul eder.
+- `internal/signal/fsrv_test.go`: `fixtures/fsrv.json` — valid/invalid inbound + server, sabitler, kümeler, features tablosu (AGENT/gözetimsiz satırları).
+- `internal/fsrv/{client,upload,download}.go` (yeni): aynı kök + api.Client taşıyıcısı (TLS/proxy, yönlendirme izlenmez), **istemci düzeyinde süre sınırı yok** (api.Client'ın 15 sn'si gövde okumayı da keserdi); belirteç yalnız `Authorization: Bearer`, URL/hata metnine girmez; fid/belirteç biçimi istekten önce denetlenir. Yükleme: 1 MiB sıralı PUT, parça başına 45 sn ctx, 3 yeniden deneme (1/2/4 sn; yalnız ağ/5xx — 400/404/409/429 kesin), 200 `{next}` / 409 `{next}` → sunucunun beklediği parçadan devam, 409 `STORAGE_QUOTA` → `ErrQuota`, ping-pong koruması; `Digest` (iki geçiş). İndirme: akış, Content-Length ve gövde beyan boyutunu aşarsa `ErrTooLarge` (fazla bayt yazılmaz). Testler httptest ile.
+- `internal/transfer/stream.go` (yeni): `Manager.OpenStream` → `Stream` (`.part` O_EXCL, boyut sayacı, SHA-256, `Commit`: MOTW → renameNoReplace; `Abort`). DC `Manager` davranışı değişmedi; `Manager.Limit()` eklendi.
+- `internal/flow/files_server.go` (yeni): mod ilk `hello`'da bir kez sabitlenir (yeniden bağlanma hello'su değiştiremez); SERVER modunda `fsrv.offer{FILE}` → mevcut kabul diyaloğu (temiz ad + uyarı, 30 sn ret beklemesi, tenant sınırı ∧ 256 MiB) → `fsrv.accept` → `fsrv.download` → `Downloads\*.part` akışı → `fsrv.result`; doğrulama hatasında `ok:false` + yeni `fsrv.accept` (fid başına ≤ 3), sonra CORRUPT; MOTW yazılamayan tehlikeli tür → `fsrv.cancel`. "Aktarımı iptal et" → `fsrv.cancel`; `fsrv.status{CANCELLED}` teklifi/alımı kapatır; iptal/oturum sonu/kopuşta akış goroutine'i beklenir ve `.part` döngüde silinir (`Stream.Abort`/`Commit` tek sahipli); WS kopuşunda yarım teklif/alım yerelde CANCELLED biter, fid'ler yeni hello'dan sonra `fsrv.cancel` ile bildirilir (sunucudaki yön yuvası boşalır). Durum satırı UPLOADING/SCANNING dışındaki her durumda temizlenir. DC dosyası SERVER'da reddedilir (`file.offer` → `file.reject`, `file` çerçeveleri düşer); `file.meta` gönderilmez.
+- `internal/flow/print_source.go` (yeni) + `clipprint_print.go`: `PrintSource` (`dcPrintSource`, `serverPrintSource`), kaynak ilk hello'da bir kez seçilir; ortak `acceptPDF` (boyut = yetkilenen boyut, SHA-256 sabit zamanlı karşılaştırma, `%PDF-`, tampon donar). SERVER: `print.request` → DC `print.ready` (aynen) → `fsrv.offer{PRINT}` pid + boyut (≤ 20 MiB) eşleşmezse `fsrv.reject` (+ eşleşen pid'in işi `print.report{ERROR}`) → `fsrv.accept` → yalnız belleğe indirme → `fsrv.result` → P28a inceleme/diyalog/basma aynen. DC `print.offer` SERVER'da akışta ERROR; ancak üretimde caps'te `print` olmadığından `rtc.handleCtl` `print.*`'ı akışa ulaşmadan düşürür — §5.4'teki "`print.offer` → `report{ERROR}`" fiilen "sessizce düşer" olur (iş P28a son tarihiyle ya da sunucu yoluyla biter; sapma 5).
+- `internal/flow/messages_p28.go`: AC-363 satırı, "Yükleniyor %n", "Virüs taraması yapılıyor", AC-358/359 metinleri (§7.2 neden tablosu, `BUSY`, "bilinmeyen imza"). `flow.go`: `Deps.FileServer`, `Deps.FileServerUI`; `Features`: fsrv yalnız ikisi bağlı ve gözetimsiz değilken. `session*.go`: yönlendirme.
+- `internal/ui`: `FileServerMode` (oturum penceresinde dosya alanının üstünde AC-363 satırı, denetimler 40 px kayar), `FileServerStatus` (sonuç metni sohbete "Sistem" satırı). `cmd/noktadestek/deps.go`: `fsrv.New(cfg.ServerURL, client.HTTPClient(), cfg.Version)` + `FileServerUI: u`. Gözetimsiz yardımcı (`helper/main_windows.go`) değişmedi: `features=nil`, fsrv bildirilmez.
+- Testler: `flow/files_server_test.go`, `flow/print_source_test.go`, `transfer` stream testi; `TestDP28a3…` kaynak sınırı listesine `files_server.go`, `print_source.go` eklendi (log/fmt/os/diag içe aktarmaz — dosya adı/içerik log'a gitmez).
+
+**Tasarımdan sapmalar (gerekçeli):**
+
+1. **Yetenek kuralı (tasarımda yazılı değil):** SERVER odasında sunucu misafir caps'inden `print` ve `file_transfer`'ı çıkarır (fikstür `caps`). P28a alıcı kuralı (`hasCap(print)`) olduğu gibi kalsaydı SERVER'da yazdırma hiç çalışmazdı. Kural: SERVER modunda misafir bu iki caps değerini aramaz; yetki kapısı sunucudadır (`fsrv.init` adım 2, `print.request`), misafir yalnız WS'den gelen pid/fid + boyut eşleşmesine bakar. P2P'de G-09 aynen (testli). Mimar onayına sunulur.
+2. **Yükleme UI'ı yok:** §8 "Mevcut 'Dosya gönder' düğmesi" varsayıyor; Windows istemcide müşteri→teknisyen dosya gönderme düğmesi hiç yok (P5'ten beri yalnız alıcı). Yeni dosya seçici eklemek kapsam dışı yeni özellik olurdu. `internal/fsrv.Upload` + `Digest` yazıldı ve testli (K7/sözleşme), ancak akışa bağlı değil; `fsrv.upload` misafirde yok sayılır. Gönderen tarafı metinleri (`SESSION_LIMIT`, "Alıcı reddetti") bu nedenle eklenmedi.
+3. **`PrintSource.Fetch(ctx, job)`:** DC kaynağı olay beslemeli kaldı (P28a `chunk`/`print.done`, 600+ satır test); `dcPrintSource.Fetch` toplanan tamponu engellemeden döner, `serverPrintSource.Fetch` `c.async` goroutine'inde indirir. Doğrulama iki kaynakta ortak `acceptPDF`'te (tasarımın bağlayıcı kısmı).
+4. **İndirme yeniden denemesi** HTTP katmanında değil protokolde: başarısız/bozuk indirme → `fsrv.result{ok:false}` + yeni `fsrv.accept` (fid başına ≤ 3 belirteç, §5.2).
+5. **DC `print.offer` (SERVER):** yukarıdaki rtc yetenek filtresi nedeniyle `report{ERROR}` üretilmez, çerçeve düşer. Akıştaki ERROR dalı yalnız caps'te `print` kalırsa (savunma) çalışır.
+6. **Sürüm 0.14.0:** depoda sürüm sabiti yok; `config.version` ldflags ile etiketten gelir (build.sh/CI). Kodda değişiklik gerekmedi; yayın etiketi `v0.14.0` (K7).
+
+**Bağımlılık:** eklenmedi.
+
+**Doğrulama (repo kökünden, golang:1.26):** `go test ./...` yeşil (yeni: signal fsrv 4, fsrv 12, flow P28b 14, transfer 1; `-race -count=200` P28b flow testleri yeşil); `GOOS=windows go vet ./...` + `go build ./...` temiz; `gofmt -l` boş; staticcheck v0.8.2 linux + windows/amd64 temiz.
+
+**Açık soru (K3):** PRINT yüklemesi `INFECTED`/`SCAN_FAILED` biterse misafire `print.cancel` gidiyor mu? Gitmezse Go'daki iş `psWaitOffer`'da 8 dk son tarihe kadar bekler ve bu sürede dosya tekliflerini meşgul sayar (misafir yazdırma fid'ini teklif gelmeden bilmez). Öneri: sunucu P28a `print.cancel`'ı göndersin.
+
+**frontend-dev / K3 için sözleşme notları:** Go misafir `fsrv.init` göndermez (yalnız alıcı). SERVER'da Go, `fsrv.offer{PRINT}`'i yalnız bekleyen `print.request` pid'i ve `sizeBytes` ile eşleşirse kabul eder; DC `print.ready`'yi P28a'daki gibi gönderir. İndirme başarısızsa aynı fid için `fsrv.accept` tekrar gelir (≤ 3). Teklif geri çekme için `fsrv.status{fid, CANCELLED}` bekler. **Windows elle (K9):** SERVER oturumunda AC-363 satırı ve 40 px kayan düzen, iki temada okunurluk; iz testi (indirme `Downloads\*.part`, yazdırma yalnız bellek).
+
+## P28b K6 (devops) — ClamAV konteynerleri, `av` ağı, dosya volume'u, nginx/Caddy, alarmlar, runbook §28b (2026-11-16)
+
+**Dosyalar:** `deploy/docker-compose.yml` (`clamav` + `clamav-update`, ağlar `av` internal sabit alt ağ `AV_SUBNET` + `av_egress`, volume
+`stored_files` + `clamav_db`, server: `FILES_DIR`, `CLAMAV_HOST/PORT`, `CLAMAV_ALLOWED_CIDR=${AV_SUBNET}`, `av` ağı), `deploy/docker-compose.staging.yml`
+(`profiles: [av]` — yalnız ikinci yığında varsayılan kapalı; tek yığın/prod profilsiz, prod `.env`'e satır gerekmez), `deploy/clamav/{clamd,freshclam}.conf`,
+`apps/server/Dockerfile` (`/data/files` node:node 0700), `apps/server/src/env.ts` + `test/unit/env-clamav.test.ts` (D-r2-5), `.env.example`,
+`deploy/nginx/remote.noktabilisim.net.conf` + `test-nginx.sh` (D-P28b-4), `deploy/Caddyfile` + `deploy/test-caddy.sh` (fsrv parça 1 MiB + 1),
+`deploy/ops/check-av-isolation.sh` (yeni), `deploy/ops/remote-watch.sh` + `test-watch.sh` + `watch.env.example`, `.github/dependabot.yml`
+(`docker-compose` `/deploy`), `docs/runbook.md` §28b. `backup.sh` **değişmedi**: yalnız `com.docker.compose.volume=uploads` etiketli volume'u
+arşivliyor → `stored_files`/`clamav_db` yedeğe girmez (K-P28b-11, doğrulandı).
+
+**Mimariden sapma (K6 kapı 5 yedeği, mimar §7.1'e işlemeli):** `StreamMaxLength`/`MaxFileSize` **256M** (mimari 260M), `MaxScanSize` 512M aynen.
+Gerekçe aşağıda kapı 5; değişmez artık "tarama başına akış + açılım ≤ `/scratch`/2" (256 + 512 = 768M). Değer adı `FILES_DIR` (brifteki
+`FILE_STORE_DIR` değil; mimari §11.3).
+
+**env.ts (D-r2-5):** `CLAMAV_ALLOWED_CIDR` IPv4 + RFC 1918 + önek /24../30 + ağ adresiyle yazılmış; `TRUSTED_PROXY_CIDR` ile çakışırsa açılış hatası;
+`FILES_DIR` mutlak, `UPLOADS_DIR` ile aynı/iç içe değil; `CLAMAV_HOST` `[A-Za-z0-9.-]{≤253}`, `CLAMAV_PORT` 1..65535 (vars. 3310). `EDGE_SUBNET` server'a
+verilmediği için o çakışma env.ts'te denetlenemez — Docker zaten çakışan alt ağla ağı oluşturmaz. `::ffff:`/IPv6 hedef normalleştirmesi (çözülen
+adres sınıflandırması) **K3 `settings/clamav.ts`/`scan.ts`'te** (D-r2-5 ikinci yarısı). `env-clamav.test.ts` 21 vaka yeşil.
+
+### K6 doğrulama kapısı (yerel Docker 29.8, macOS arm64; imaj yalnız amd64 → Rosetta emülasyonu; ayrı proje `remote-avk6`)
+
+| #   | Madde                                                                  | Sonuç                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| --- | ---------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1   | `clamav` ro DB + `/init`'siz komut                                     | **GEÇTİ.** `clamdcheck.sh` "Clamd is up"; `/var/lib/clamav` `touch` → Read-only; ek yazılabilir dizin gerekmedi (tmpfs `/scratch`, `/run/clamav`, `/tmp`). clamav-update `/tmp` + `/var/log/clamav` ile çalıştı                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| 2   | freshclam yeni daily → clamd ≤ 10 dk reload                            | **GEÇTİ** (yedek `zRELOAD` gerekmez). DB değişince `SelfCheck: Database modification detected. Forcing reload` → `Database correctly reloaded` 8 sn, `VERSION` 28177 → 28184. **Yan bulgu (ilk açılış yarışı):** clamd, freshclam'ın ilk açılıştaki daily değişimiyle aynı anda yüklediği için ilk SelfCheck "status OK" deyip eski daily'de kaldı; bir sonraki DB değişiminde düzeldi. Etkisi yalnız ilk açılış, ≤ 4 sa (sonraki freshclam) — runbook §28b.3'te `restart clamav`. İmza yaşı alarmı bunu yakalar                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
+| 3   | Çıkış/ağ yalıtımı                                                      | **GEÇTİ** — `check-av-isolation.sh remote-avk6`: olumlu kontroller (clamav → 127.0.0.1:3310, clamav-update → database.clamav.net:443) geçti; clamav → 1.1.1.1:443, 8.8.8.8:53, database.clamav.net:443 kurulamadı; clamav-update → clamav (ad + IP) ve server (ad + iki ağdaki IP) kurulamadı; av internal, üyeler yalnız server + clamav, port yayımı yok, host 3310 kapalı; `Memory = MemorySwap` (3g / 1536m), ro + 100:101 + cap_drop ALL. **D-r2-1:** sahte server `/ready` 200 → UYARI (K3 reddi gelene kadar; sonra `STRICT_DR21=1`)                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
+| 4   | Bellek (256 MiB stored zip + eşzamanlı 64 MiB yüksek sıkıştırmalı zip) | **Yerel gösterge, staging amd64'te tekrarlanmalı.** Emülasyonda tepe 1,06–1,56 GiB (< 3g × 0,85 = 2,55 GiB), `/scratch` tepe 102–362 MiB (< 1,5 GiB), 41–42 sn. Örnekleme 1 sn                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| 5   | ENOSPC (`/scratch` 64m)                                                | 200 MiB akış → `Error writing to temporary file ERROR` (OK değil, **GEÇTİ**). **D-r2-2 vakası: fail-open KANITLANDI.** ~19 MiB zip, içinde 150 MiB'lık deflate üye (iç zip, başında EICAR) + sonda temiz üye → log `cli_writen: No space left on device` + `cli_unzip: failed to write`, yanıt **`stream: OK`** (aynı yapının 40 MiB eşi `Eicar-Test-Signature FOUND`; iç içe bir düzey de OK). Yedek uygulandı ve ölçekli doğrulandı: gerçek oranlar 64m'ye ölçeklenip (akış 11M + açılım 21M = yarı) aynı fikstürler tek ve **eşzamanlı 2** taramada `Heuristics.Limits.Exceeded.MaxScanSize`/`FOUND`, ENOSPC yok. Gerçek yapılandırma 260 + 512 = 772M > 768M olduğundan akış/dosya sınırı 256M'ye indi (`MaxScanSize`'ı 500M'ye indirmek denenip reddedildi: 250 MiB stored zip dış 250 + üyeler 250 → LIMIT). Sınır testi: tam 268 435 456 bayt `OK`, +1 bayt `INSTREAM size limit exceeded. ERROR`, 250 MiB stored zip `OK`. Fikstürler çalışma anında üretildi (EICAR iki parçadan), repoya yazılmadı, silindi |
+| 6   | Host RAM/swap                                                          | **Staging/prod host işi — BEKLİYOR.** Kapı (D-r2-4): `free -m` available ≥ 4,5 GiB (+ ikinci yığında `av` açıksa 4,5 GiB) + mevcut tepe; `swapon --show` §8'e. Konteyner swap'i `memswap_limit` ile kapalı. Sunucuya bağlanılmadı                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
+
+**nginx (D-P28b-4):** `client_body_buffer_size 3m` server düzeyinde, yeni `location` yok. nginx geçici gövde dosyasını açar açmaz unlink ettiği için
+"dizin boş" denetimi ayırt etmiyor; `test-nginx.sh` geçici dizini 0500 yapıp 2 MiB multipart ve 1 MiB fsrv PUT'un **502** (upstream'e ulaştı)
+döndüğünü sınar. Negatif kontrol: yönerge çıkarılınca iki denetim FAIL (500). Ayrıca Bearer belirteci loga yazılmıyor.
+**Caddy:** `@fsrvChunk` (PUT `/api/v1/fsrv/uploads/<fid>/chunks/<n>`) `max_size 1048577`; 1 MiB geçer, 1 MiB + 2 → 413, fsrv dışı PUT 2MB sınırında;
+Bearer ve `Content-Disposition` (dosya adı) Caddy logunda yok (mevcut filtre). Gövde süresi `read_body 30s` (K-P28b-4).
+
+**remote-watch:** `av-up` (`rs_av_up=0` ardışık 2 tur, durum anahtarı `av_down`), `av-selftest` (anında), `av-signature-age` (> 3 gün),
+`av-scan-failed` (1 sa'te `failed_*` ≥ 5 ve > %20), `av-metrics`, `compose:clamav*`. Kapsam `WATCH_AV_CHECKS` (prod 1: P28b server'da clamav
+zorunlu; ikinci örnek auto: profil kapalıyken sessiz). Metrik sözleşmesi K3 için: `rs_av_up`, `rs_av_selftest_ok`, `rs_av_signature_age_seconds`,
+`rs_av_scan_total{result="clean|infected|failed_*"}` (mimari §11.2 adlarıyla aynı). Disk %15/%10 eşiği mevcut `disk:/var/lib/docker` %80 alarmıyla
+önceden karşılanıyor.
+
+**Doğrulama:** `docker compose config -q` (prod sahte env) + servis listeleri: prod `… clamav-update clamav`, staging katmanı profilsiz `mysql migrate server web caddy`,
+`COMPOSE_PROFILES=av` ile clamav ikisi geri; shellcheck v0.11.0 (tüm `deploy`/`scripts` `*.sh`) 0 uyarı; actionlint 1.7.8 temiz; `pnpm --filter @remote/server typecheck`
+temiz; prettier (env.ts, test, dependabot, compose, runbook) temiz; `test-caddy.sh`, `test-nginx.sh`, `test-watch.sh` GEÇTİ. Ölçüm konteynerleri,
+`remote-avk6_*` ağları/volume'u ve fikstürler silindi.
+
+**K3 / koordinatör için açık:** (1) D-r2-1 reddi (server av alt ağından gelen istek) — sonra `check-av-isolation.sh` `STRICT_DR21=1`; (2) D-r2-5 IPv6/`::ffff:`
+normalleştirme `scan.ts`'te; (3) mimar §7.1 r3: 256M değerleri + yarı değişmezi; (4) staging deploy: `deploy/mysql/audit-continuity.sql` yeni özet
+(`0fdacca7…73e0`, dba) migration ile **aynı yayında** (runbook §28b.2 m.1); kapı 4 ve 6 staging amd64'te; `remote-watch.sh install` yeniden.
+
+## P28b K4 — web (frontend-dev, 2026-11-16)
+
+Kaynak: `docs/mimari-p28b.md` r2 §4, §5, §9, K4 satırı, §r2. Tasarım skill'leri okunmadı (mevcut primitiflerle düzen; yeni token yok).
+
+### Rotalar
+
+| Yol                                               | Auth                                            | Ne yapar                                                                                                                                                |
+| ------------------------------------------------- | ----------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `/settings/files` (yeni)                          | Evet — `settings.view` (kayıt `settings.edit`)  | "Dosyaları sunucu üzerinden aktar ve virüs tara" anahtarı, saklama 1–7 gün, açarken aydınlatma onayı, kullanım/kota (AC-354, 362)                       |
+| `/admin/settings/clamav` (yeni)                   | Evet — Super Admin (PUT step-up `api()` içinde) | ClamAV sunucu/port (3310), Kaydet, "Bağlantıyı Test Et" sonuç kartı (EICAR, şifreli arşiv, sürüm, imza tarihi/yaşı), imza > 3 gün uyarısı (AC-353, 361) |
+| `/admin/tenants` (ek)                             | Super Admin                                     | Firma düzenleme diyaloğunda "Sunucu depolama kotası (GB)" + kullanım ipucu (yalnız düzenlemede; AC-362)                                                 |
+| `/history/[id]` (ek)                              | `session_history.view`                          | "Sunucudaki dosyalar" bölümü (yalnız satır varsa); "İndir" yalnız `canDownload` (AC-360)                                                                |
+| `/sessions/[id]/console`, `/session/[token]` (ek) | mevcut                                          | SERVER modunda dosya paneli sunucu yolundan; yazdırma (P28a) sunucu yolundan                                                                            |
+
+### Değişen / eklenen dosyalar (apps/web)
+
+- Yeni: `lib/fsrv/{upload.ts, download.ts, transfers.ts, settings.ts}`, birim `lib/fsrv/{fsrv-p28b,settings-p28b}.test.ts` (14 test);
+  `app/(panel)/settings/files/{page,files-form}.tsx`; `app/(panel)/admin/settings/clamav/{page,clamav-form}.tsx`;
+  `app/(panel)/history/[id]/stored-files.tsx`; `e2e/mock-p28b.mjs`; `e2e/p28b-files.spec.ts` (8 test).
+- Ek: `lib/dc/use-collab.ts` (`fsrv` seçeneği: SERVER'da `FsrvTransfers`, DC `file.offer` → meta'sız düz `file.reject`, `file` kanalı
+  dinlenmez; `fileMode`, `filesReady`, `printViaServer`), `lib/dc/file-model.ts` (durumlar `uploading|scanning|infected|scanFailed|gate`,
+  `note`, `pct`), `lib/print/print-send.ts` (`viaServer`/`dropServer`, `scanning` aşaması), `lib/clip/{use-clip-print,feature-state}.ts`
+  (SERVER'da misafirde `fsrv` yoksa yazdırma "unsupported"), `lib/webrtc/{tech-machine,use-guest-session,signal}.ts` (`fileMode`,
+  misafir `subscribe`, `GuestInboundFull`), `components/collab/{files-panel,clip-print-panel}.tsx`, `components/console/collab-side.tsx`,
+  `app/(panel)/sessions/[id]/console/console-view.tsx`, `app/session/[token]/guest-session.tsx`, `settings-tabs.tsx` (Dosyalar `FolderLock`),
+  `system-tabs.tsx` (Virüs tarama `ShieldCheck`), `admin/tenants/{tenant-form-dialog.tsx,use-tenant-form.ts}`, `history/[id]/page.tsx`,
+  `messages/tr.json` (`fsrv.*`, `fset.*`, `clam.*`, `sf.*`, `tn.f.quota*`, `p5.files.st.*` ekleri); e2e mock: `mock-api/ws/sessions/history.mjs`,
+  `fake-agent.ts` (`agentFsrv`). `DESIGN.md` §4 ikonlar + §6 files-panel SERVER satırı.
+
+### Davranış notları
+
+- Yükleme: `File.slice` 1 MiB, sıralı `PUT`, `Authorization: Bearer` + `credentials: "omit"`; 409 `{next}` → kaldığı yerden, ağ/5xx/429 →
+  parça başına 3 yeniden deneme; 409 `STORAGE_QUOTA` → "Firma depolama kotası doldu"; kalıcı hata → `fsrv.cancel`. İndirme: `fetch` akışı,
+  alınan bayt ≤ beyan, SHA-256 doğrulanınca `fsrv.result{ok:true}` (aynı belirteçle ≤ 3 deneme). Belirteç hiçbir URL'de yok (e2e denetler).
+- Sunucu modu durumu WS oturumuna bağlı (DC yeniden kurulsa yükleme sürer). Metinler contracts'tan (`describeFsrvStatus`,
+  `FSRV_SERVER_MODE_NOTICE`, `FSRV_UNATTENDED_NOTICE`, `AV_NOT_READY_HINT`, `CLAMAV_*`, `FILE_MODE_CONSENT_*`).
+- Gelen teklif: `sanitizeFileName` + tehlikeli/çift uzantı işareti, mevcut diyalog (AC-36/116; 1,5 sn kilit, odak Reddet). `PRINT` teklifi
+  tarayıcıda diyalogsuz `fsrv.reject`. Teklif öncesi alıcıya gelen UPLOADING/SCANNING/INFECTED/SCAN_FAILED → "Gelen dosya" satırı.
+- Yazdırma SERVER: DC `print.ready` → `fsrv.init{PRINT, pid, belge.pdf, aynı boyut}`; DC `print.offer`/çerçeve/`print.done` gönderilmez;
+  virüs/taranamadı metni `print.status{ERROR}`'dan önce ya da sonra gelse de iş satırına yazılır. Yazdırma belgesi dosya listesine girmez.
+- Dosyalar ayarı: `consentUpdated: true` yalnız kapalı→açık geçişte gönderilir; 409 `AV_NOT_READY`/400 alan hataları ilgili alana.
+  `avReady === false` iken anahtar yalnız açmak için pasif (açıksa kapatılabilir). View alanları K3 öncesi yoksa: anahtar kapalı, saklama 1,
+  kullanım "alınamadı" (kısmi durum).
+
+### Sapmalar / backend'e notlar
+
+- **Misafir `filesAllowed` (backend-dev):** SERVER odasında caps'ten `file_transfer` çıkarıldığı için (§5.4a) tarayıcı misafiri teknisyenin
+  `file_transfer.use` yetkisini bilemez; dosya sekmesi `hello.fileMode === "SERVER"` ile açılır, yetkisiz teknisyende sunucunun
+  `fsrv.status{REJECTED, FORBIDDEN}` metni satırda görünür. İstenirse misafir `hello`'suna ayrı bir bayrak eklenebilir (sözleşme değişikliği; yapılmadı).
+- `file` DataChannel'ı SERVER modunda da açılıyor (PeerLink ortak); yalnız dinlenmiyor ve gelen `file.offer` reddediliyor (§5.4 "açılmaz" yerine).
+- Geçmiş verisi `GET /sessions/:id/history` yanıtının `storedFiles` alanından okunur (mimari §4 "`GET /sessions/:id`" yazıyor; web P8'den beri
+  `/history` ucunu kullanıyor) — K3 alanı bu yanıta da koymalı.
+- ClamAV ekranında "ortam değerine dön" düğmesi yok (sözleşmede DELETE yok). İmza yaşı yalnız sunucunun `stale`/`signatureAgeDays`'inden.
+
+### Doğrulama
+
+- `pnpm --filter @remote/web lint` · `typecheck` temiz; vitest 50 dosya / 446 test geçti; prettier temiz.
+- `playwright test p28b` (desktop 8/8, mobilde ayar testleri dahil) + regresyon `p28a p8-history p11-admin p14b-ui p10-account p5-collab p16`:
+  496 geçti / 215 atlandı (proje filtreleri), 0 hata.
+
+### Kalan (K4 kapsamında yapılmadı)
+
+- Tarayıcı misafiri (`/session/[token]`) SERVER akışının e2e testi yok (lobi + admit + iki bağlam); misafir yolu `FsrvTransfers` birim
+  testleriyle (alıcı: teklif → kabul → indirme/doğrulama, PRINT reddi) ve konsolla aynı bileşenle kapsanıyor. Gerçek sunucuyla (K3) staging
+  dumanında elle denenmeli.
+- Konsol dosya paneli 390 px / koyu tema axe taraması ayrıca yapılmadı (konsol masaüstü akışı; panel P5 bileşeni, yeni öğe yalnız bilgi satırı).
+
+## P28b K3 — sinyal (backend-dev, 2026-11-16)
+
+"P28b K3 — sunucu (KISMİ)" kalan listesinin **madde 1 ve 2'si** (mimari-p28b r2 §5.1–5.4, D-P28b-3/5; AC-355..360).
+
+**Değişen dosyalar (`apps/server`):**
+
+- `src/signaling/fsrv.ts` (yeni): `bindFsrv(rooms, svc)` (servis çıkışı: teknisyene her zaman, misafire yalnız SERVER + `hasFsrv` soketine;
+  `printFailed` → `failPrint`), `handleFsrv` (init kapı 1–6 → `svc.begin`; accept/reject/result/cancel → `fsrv/lifecycle.ts`),
+  `fsrvRoomClosed` (teardown → `roomClosed`), `fsrvSideGone` (teknisyen/misafir ayrılması → `sideGone`). Kapı sırası §5.2 ile birebir:
+  MODE → (xid tekrarı → `error{VALIDATION}`) → FORBIDDEN → UNSUPPORTED → BUSY → TOO_LARGE → RATE_LIMITED; 7–8 `begin` TX'inde.
+  FILE kapısı: oturum caps'inde `file_transfer` + teknisyende `file_transfer.use`. PRINT kapısı: gönderen teknisyen + `actorMay(print)` +
+  kontrol GRANTED + `printPending.pid` ve `sizeBytes` eşleşmesi + ≤ 20 MiB. Çift init yarışı için yön başına senkron `starting` bayrağı;
+  `begin` sürerken oda kapanırsa aktarım `abortUpload` ile iptal (yetim satır/`.part` yok). Retler: `rs_fsrv_denied_total{reason}` + info log.
+- `src/signaling/rooms-features.ts`: `fsrvOf` (soket: !gözetimsiz ∧ (BROWSER ∨ `rs.cap.fsrv1`)), tek yardımcı `hasFsrv(room, peer)`
+  (ilk koşul `!room.unattended`), `capsFor(caps, features, fileMode)` (SERVER → `file_transfer`/`print` çıkar), `featureList(f, fsrv)`, `fileModeOf`.
+- `src/signaling/types.ts`: `Peer.fsrv?`, `Room.fileMode?` (yoksa P2P), `Room.fsrv?` (`FsrvRoom`: init zamanları, xid penceresi, `starting`).
+- `src/signaling/ws-auth.ts`: `bindGuest` `peer.fsrv` (gözetimsiz odada okunmaz).
+- `src/signaling/active.ts`: teknisyen `hello` (admit sonrası) ve `peer.joined` → `fileMode`; `guestFeatures` + `"fsrv"`; misafir `hello.caps`
+  SERVER daraltmalı, `hello.fileMode` yalnız `hasFsrv` soketine. `clipConsent` yalnız pano/yazdırma özelliği varken.
+- `src/signaling/control-revoke.ts`: `narrowCaps` `caps.update`'te `fileMode` geçirir (SERVER odasında dosya/yazdırma geri sızmaz).
+- `src/signaling/handlers.ts`: misafir şeması `guestInboundSchemaFor(features, room.fileMode==="SERVER" && hasFsrv(room, peer))`; `fsrv.*` yönlendirme
+  (teknisyende admit öncesi `CONFLICT`).
+- `src/signaling/collab.ts` + `file-meta-store.ts`: SERVER odasında `file.meta` ilk adımda yok sayılır → `"server_mode"`, `rs_fsrv_denied_total{reason="dc_meta"}` + log, audit yok.
+- `src/signaling/clip-print.ts`: `finishPrint` → SERVER odasında `lifecycle.printDone`; yeni `failPrint(rooms, room, pid)` (misafire `print.cancel`,
+  teknisyene `print.status{ERROR}`, audit `reportedBy:"server"`); `guestGate` SERVER odasında `print` için `hasFsrv` ister.
+- `src/signaling/rooms.ts`: `rooms.fsrv?`, kancalar (`detachTech`/`detachGuest` → `sideGone`, `teardown` → `roomClosed`).
+- `src/signaling/ws.ts`: `attachSignaling` içinde `app.hasDecorator("fsrv")` ise `bindFsrv(rooms, app.fsrv.service)` — `app.ts`'e dokunulmadı.
+- `src/signaling/admit.ts`, `admit-device.ts`: üç admit yolunda `room.fileMode = repo.sessionFileMode(...)` (`startActive`'ten önce).
+- `src/sessions/repo.ts`: `insertSession` `file_mode`'u aynı TX'te `tenant_settings.file_server_mode`'dan yazar (çağıranın değeri yok sayılır);
+  yeni `sessionFileMode(db, id)` (satırdaki sabit değer — AC-355 sabitleme).
+
+**Koordinatör eki (Go K5):** SERVER yazdırmada INFECTED / SCAN_FAILED (`sink.printFailed`) ve teknisyenin PRINT `fsrv.init`'i kapıda reddedilince
+(pid bekleyen işle eşleşiyorsa) ya da `begin` hata verince misafire `print.cancel{pid}` + teknisyene `print.status{ERROR}`. Kapılar tamamen sunucuda
+(yetki + caps + kontrol GRANTED + pid/boyut + 20 MiB).
+
+**Tasarımdan sapma / karar:**
+
+- SERVER odasında `print.request` (P28a) misafir `hasFsrv` değilse `FORBIDDEN` (feature metni) — tasarım yalnız caps'ten `print` çıkarmayı yazıyor;
+  Go SERVER modunda caps'e bakmadığından (K5 notu) kapı sunucuya eklendi. Entegrasyon testi 0.13 istemcide misafire `print.request` gitmediğini kanıtlar.
+- `Room.fileMode` oda kurulurken değil admit anında okunur (görev tanımı); PENDING'de `hello` `fileMode` taşımaz (= P2P, aktarım zaten yok).
+- CORRUPT / CANCELLED PRINT yüklemesi `printPending`'i kapatmaz (teknisyen aynı pid ile yeniden yükleyebilir; P28a 8 dk sınırı geçerli).
+
+**Testler:** `test/unit/signaling-fsrv-p28b.test.ts` (fikstür `features` + `caps` tabloları: `hasFsrv`, `capsFor`, `helloFileMode`, misafir şeması; 17),
+`test/integration/signaling-fsrv-p28b.test.ts` (7; gerçek WS + MySQL + sahte clamd TCP): sabitleme (açılıştan sonra ayar kapanır → oda SERVER),
+caps/hello/guestFeatures, DC `file.meta` → `session_files` 0 + metrik, eski istemci (UNSUPPORTED, `print.request` FORBIDDEN, misafir `fsrv.*` → 1008),
+P2P → MODE, uçtan uca yükle→tara→teklif→kabul→indirme belirteci→sonuç→DELIVERED + `session_files` OK + BUSY + xid tekrarı, yazdırma boyut
+uyuşmazlığı FORBIDDEN + `print.cancel` ve EICAR PDF → INFECTED + `print.cancel` + `print.status ERROR` + ad `belge.pdf`, oda kapanışı → CANCELLED.
+`consent-p4` QA-P4-12 beklentisi yeni alanlarla güncellendi (`fileMode:"P2P"`, `guestFeatures:["fsrv"]`).
+Parçalar `svc.putChunk` ile sürüldü; HTTP PUT/GET ayağı `fsrv/routes.ts` (madde 3) testlerinde.
+
+**Doğrulama:** `tsc --noEmit` temiz; eslint + prettier (değişen dosyalar) temiz; unit 39 dosya / 575 test yeşil (1 atlanan); tam entegrasyon
+(ayrı DB `rs-mysql-p28bws`, sonunda silindi) 1561 geçti / 8 kalan hata — 7'si paralel K3 işinin dosyalarında (ops-headers `/health` clamav,
+tenants-p9 ayar alanları, pt-surface rota anlık görüntüsü, tenant-isolation sınıflandırma, tenant-purge-meta, retention-p13a ×2), biri
+(consent-p4) bu turda düzeltildi; sinyal testleri (clip-print-ws, clip-print-unattended, signaling-collab-p5, signaling-ws, yeni) 37/37 yeşil.
+
+**frontend-dev / Go için sözleşme:** değişiklik yok (contracts `ws.ts`/`ws-fsrv.ts` aynen). Davranış: tarayıcı misafiri P2P odasında da
+`hello.fileMode:"P2P"` alır; teknisyene `guestFeatures` BROWSER'da `["fsrv"]` (önceden alan yoktu). **Bağımlılık:** eklenmedi. **env:** yok.
+
+## P28b K3 — sunucu dosya hattı, ClamAV, kota, saklama (backend-dev tur 2, 2026-11-16)
+
+Yukarıdaki "P28b K3 — sunucu (KISMİ)" bölümünün devamıdır. Madde 1–2'yi (sinyal: `signaling/**`, `sessions/repo.ts`) "P28b K3 — sinyal" bölümü kapsar.
+
+**Bu turda eklenen/değişen (`apps/server`):**
+
+- `src/fsrv/lifecycle.ts`: kabul (dosya başına ≤ 3 belirteç), ret, teslim (`deliver` + `session_files` OK aynı TX; PRINT → EXPIRED), 3. başarısız sonuç → CANCELLED + `session_files` CORRUPT, iptal, `printDone`, `roomClosed` (PRINT teklifi EXPIRED, diğerleri CANCELLED), `sideGone`, `auditDownload`. CANCELLED satıra geç gelen `fsrv.result` koşullu geçişte yok sayılır. Kanca imzaları sinyal ajanıyla birlikte sabit.
+- `src/fsrv/routes.ts`:
+  - `PUT /api/v1/fsrv/uploads/:fid/chunks/:n` ve `GET /api/v1/fsrv/files/:fid/content`: çerez okunmaz. Bearer belirteç `onRequest`'te gövde okunmadan denetlenir. Tek tip 404 ve IP başına 60/dk → 429. `octet-stream` ayrıştırıcısı yalnız bu eklentide, `bodyLimit` 1 MiB + 1. İçerik yanıtında RFC 5987 `Content-Disposition`, sandbox CSP, CORP, `no-store` ve `nosniff` var. GET'in HEAD karşılığı kapalı (her istek audit yazar).
+  - `POST /api/v1/sessions/:id/stored-files/:fid/link`: çerez + CSRF, iki yetki, `historyScope`, 20/dk.
+  - HISTORY belirtecinde GET anında giriş oturumu, kullanıcı, iki yetki ve kapsam yeniden denetlenir (`auth/session.ts resolveSessionById`, çerezsiz, `last_seen_at` yazmaz).
+- `src/fsrv/wiring.ts`:
+  - `app.fsrv` kurulumu: FileStore, ClamdClient, ScanQueue, Scanner, FsrvService.
+  - Metrikler `rs_av_*`, `rs_fsrv_*`, `rs_storage_used_bytes`, `rs_storage_disk_free_ratio`.
+  - `startAvPolling`: açılışta ve 10 dk'da bir; yalnız `startJobs`.
+  - **D-r2-1:** `CLAMAV_ALLOWED_CIDR` içinden gelen her TCP bağlantısı `server.on("connection")`'da kapatılır, böylece HTTP ve WS upgrade hiç okunmaz. Ek olarak ilk `onRequest` kancası 404 döner (inject ve savunma derinliği). Ağ geçidi dahil tüm alt ağ reddedilir: `clamd.ts inCidrRange`.
+- `src/settings/clamav.ts` ve `settings/routes.ts`:
+  - GET/PUT `/api/v1/admin/settings/clamav`: PUT step-up ister; çözülen tüm adresler CIDR içinde olmalı, aksi 400 `HOST_NOT_ALLOWED`; host/port değişince `lastTest = null`; audit `settings.clamav`.
+  - POST `/clamav/test`: 6/dk/kullanıcı; PING + EICAR + şifreli zip; `lastTest` yalnız etkin hedefle yazılır; audit `settings.clamav.test`.
+  - Öz-sınama yanlışlığına geçişte `lastTest = {ok:false, "Şifreli arşiv algılaması kapalı"}` yazılır.
+  - DELETE ucu yok (K4 kararı).
+- `src/ops/health.ts`: `/health` gövdesine `clamav: {configured, reachable, signatureAgeDays, stale}` eklendi. HTTP durumu değişmez; `/ready` clamd'a bakmaz.
+- Tenant tarafı:
+  - `tenants/settings.ts`, `tenants/repo.ts`, `tenants/service.ts`: `fileServerMode` ve `fileRetentionDays` eklendi. `false→true` geçişinde `lastTest.ok !== true` → 409 `AV_NOT_READY`; `consentUpdated !== true` → 400 `fields.consentUpdated`. Audit `consentAck`. Görünümde `avReady` ve `storage` var.
+  - Super Admin PATCH `storageQuotaGb` → audit `tenant.storage_quota` eski→yeni. `TenantItem.storageQuotaGb` dolduruluyor (`storage` yalnız tekil yanıtta).
+- `src/sessions/history-detail.ts` ve `history.ts`: `storedFiles` eklendi; `canDownload` = saklanan dosya + iki yetki. Bu alan **`GET /api/v1/sessions/:id/history`** yanıtındadır (frontend K4 kararı; mimari "GET /sessions/:id" diyordu).
+- Saklama ve silme:
+  - `jobs/retention-fsrv.ts` + `retention.ts`: 03:30 turunda `fsrvExpire` çalışır; adayı olan firmalar tek sorguyla bulunur; tenant başına `file.expired{count, bytes}` (entity `retention`).
+  - Global mutabakat (a) yetim dosya > 24 sa, (b) dosyası olmayan teslim edilmiş CLEAN → EXPIRED, (c) bellekte aktarımı olmayan canlı satır → CANCELLED.
+  - Sayaçlar: `storedFiles`, `filesExpired` (tenant); `fsrvOrphanFiles`, `fsrvMissing`, `fsrvStale` (global `retention.run`).
+  - `retention-repo.ts anonymizeSessionBatch`: disk dosyaları TX'ten önce (`beforeTx`), `session_stored_files` aynı TX'te silinir.
+  - `purgeSessionsBatch` sırası stored_files → files → consents → sessions (stored sayısı `files`'a eklenir).
+  - Açılış süpürmesi `addStartupJobs` → `sweepOrphanRows`.
+  - `tenant-purge-repo.ts`: `SESSION_FILES` adımına `byTenant("session_stored_files")` eklendi. `tenant-purge.ts` bu adımın başında `FILES_DIR/{tenant}` klasörünü siler.
+
+**Sapmalar (gerekçeli):**
+
+1. `lastTest` JSON CHECK'i `eicarDetected` taşımıyor. Env kaynağında test başarılı olunca aynı host/port ile panel satırı açılır (`source` "panel" olur), çünkü `lastTest`'in tek yeri burası.
+2. D-r2-1 ağ geçidi dahil tüm `av` alt ağını reddeder; clamd'nin server'a istek atması hiç gerekmez.
+3. `storedFiles` alanı `/sessions/:id/history` yanıtında (yukarıda).
+
+**Testler:**
+
+- `test/unit/fsrv-p28b.test.ts`: D-r2-5 için `::ffff:` ve köşeli/düz IPv6 literal normalleştirmesi, D-r2-1 için `inCidrRange` eklendi.
+- `test/helpers/fake-clamd.ts`: sahte clamd TCP sunucusu.
+- `test/helpers/app.ts`: `FILES_DIR` (tmp) ve `fsrvTest` eklendi. Testlerde disk oranı 0.5 alınır, çünkü geliştirici makinesinin diski %2 boştu; %10 kuralı ayrı testte `freeRatioOverride` ile sınanır.
+- `test/integration/fsrv-p28b-files.test.ts` (17): AC-356/358/359/360/362, D-P28b-2.
+- `test/integration/fsrv-p28b-settings.test.ts` (9): AC-353/354/361/362, D-P28b-1, D-r2-1. Projesi `serial-system-settings`.
+- `test/integration/fsrv-p28b-retention.test.ts` (3): AC-360 için süre dolumu, mutabakat ve anonimleştirme sonrası diskte dosya kalmaması. Projesi `serial-retention`.
+- Güncellenen testler: `ops-headers`, `tenants-p9`, `tenant-isolation`/`tenant-matrix` (yeni uç sınıfları + link ucu çapraz tenant), `tenant-purge-meta-p16` (`session_stored_files` firmaya oturum FK'siyle bağlı), `retention-p13a-job` ×2 (yeni sayaç anahtarları), `pt-surface` snapshot (yalnız +7 uç).
+
+**Doğrulama** (ayrı DB `rs-mysql-p28bk3`):
+
+| Komut                                   | Sonuç                                               |
+| --------------------------------------- | --------------------------------------------------- |
+| `pnpm --filter @remote/server test:int` | 99 dosya / 994 test yeşil                           |
+| `test` (unit)                           | 39 dosya / 577 test yeşil (1 atlandı: gerçek clamd) |
+| `lint`                                  | temiz                                               |
+| `typecheck`                             | temiz                                               |
+| prettier (dokunulan dosyalar)           | temiz                                               |
+
+Ara bir tam koşuda `p27a-repo` ve `unattended-connect-k3` birer kez kırmızı oldu, tek başına ve son tam koşuda yeşil (yük altında zamanlama).
+
+**Kalan / not:**
+
+- Firma silmede `FILES_DIR` klasörünün silindiğine dair ayrı bir entegrasyon testi yok; mevcut P16 testleri adım akışını geçiyor.
+- Bağımlılık eklenmedi. Yeni env yok.

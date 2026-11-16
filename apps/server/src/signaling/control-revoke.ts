@@ -5,7 +5,7 @@ import type { PermissionKey } from "@remote/contracts/permissions";
 import type { Cap, ControlRevokeReason } from "@remote/contracts/ws";
 import { writeAudit } from "../audit/service.ts";
 import { onCapsNarrowed, onControlClosed, onGuestGone } from "./clip-print.ts";
-import { capsFor, guestFeatures } from "./rooms-features.ts";
+import { capsFor, fileModeOf, guestFeatures } from "./rooms-features.ts";
 import { closeState, logFail, recordClose, SYSTEM, SYSTEM_CTX, systemClose } from "./control-record.ts";
 import type { Rooms } from "./rooms.ts";
 import type { Room } from "./types.ts";
@@ -104,9 +104,9 @@ export async function narrowCaps(rooms: Rooms, room: Room, perms: ReadonlySet<Pe
   if (next.length === room.caps.length) return;
   const old = room.caps;
   const features = guestFeatures(room);
-  const seen = capsFor(old, features);
+  const seen = capsFor(old, features, fileModeOf(room));
   room.caps = next;
-  const visible = capsFor(next, features);
+  const visible = capsFor(next, features, fileModeOf(room));
   if (visible.length !== seen.length) room.admitted?.peer?.send({ t: "caps.update", caps: visible });
   rooms.metrics.inc("rs_control_total", { event: "caps_narrowed" });
   onCapsNarrowed(rooms, room); // P28a: clipboard/print düştüyse izin kapanır / bekleyen yazdırma iptal

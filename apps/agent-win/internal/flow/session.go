@@ -106,6 +106,9 @@ type session struct {
 	techLost bool
 	// cp P28a pano + yazdırma (clipprint.go).
 	cp *clipPrint
+	// P28b: fileMode ilk hello'da sabitlenir (P2P|SERVER); srv yalnız SERVER modunda (files_server.go).
+	fileMode string
+	srv      *srvFiles
 }
 
 func (s *session) run(ctx context.Context, jr *api.JoinResult) Outcome {
@@ -185,6 +188,7 @@ func (s *session) onInbound(ctx context.Context, r inbound) (Outcome, bool) {
 func (s *session) startReconnect(ctx context.Context) {
 	s.closeControl(ctx, "", true) // kopuşta kapı kapanır; sunucu durumu VIEW yapar (AC-24)
 	s.cp.reset()                  // P28a O-P28a-1 m.4: bekleyen kimlikler silinir
+	s.resetFsrv()                 // P28b: yarım teklif/alım yerelde biter, fid'ler yeni sokette iptal edilir
 	// AC-250 (B-P8c2-4): yanıtı gelmemiş kayıt isteği soketle gitti; yeni soketteki teklif yeni istek doğurur.
 	s.bindingPending = false
 	s.phase = phReconnecting
@@ -250,6 +254,10 @@ func (s *session) onUser(ctx context.Context, ev Event) (Outcome, bool) {
 			s.d.UI.Status(statusChatFail)
 		}
 	case EvFileAccept, EvFileReject:
+		if s.srv != nil {
+			s.onFsrvDecide(ctx, ev.FID, ev.Kind == EvFileAccept)
+			return Outcome{}, false
+		}
 		if s.files == nil {
 			return Outcome{}, false
 		}
@@ -262,7 +270,9 @@ func (s *session) onUser(ctx context.Context, ev Event) (Outcome, bool) {
 	case EvClipConsent, EvPrintApprove, EvPrintReject:
 		s.cp.onUser(ev)
 	case EvFileCancel:
-		if s.files != nil {
+		if s.srv != nil {
+			s.cancelFsrv(ctx)
+		} else if s.files != nil {
 			if r := s.files.CancelLocal(); r != nil {
 				s.d.UI.FileResult(*r)
 			}
@@ -295,6 +305,7 @@ func chatMessage(text string, now time.Time) ([]byte, error) {
 func (s *session) cleanup() {
 	s.gate.Close()
 	s.cp.close()
+	s.closeFsrv()
 	s.dropPeer()
 	if s.src != nil {
 		_ = s.src.Close()

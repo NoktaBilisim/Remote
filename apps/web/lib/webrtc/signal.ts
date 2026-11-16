@@ -8,7 +8,7 @@ import {
   WS_RECONNECT_PREFIX,
   WS_SUBPROTOCOL,
   WS_TICKET_PREFIX,
-  type GuestInbound,
+  type GuestInboundFull,
   type ServerOutbound,
   type TechInbound,
 } from "@remote/contracts/ws";
@@ -59,7 +59,7 @@ export class Signal {
     };
     this.ws.onclose = (e: CloseEvent) => h.onClose(e.code);
   }
-  send(m: TechInbound | GuestInbound | P5Outbound): void {
+  send(m: TechInbound | GuestInboundFull | P5Outbound): void {
     if (this.ws.readyState === WebSocket.OPEN) this.ws.send(JSON.stringify(m));
   }
   /** Kendi isteğimizle kapatma: onClose tetiklenmez (yeniden bağlanma başlamaz). */

@@ -34,7 +34,9 @@ import {
   handlePrintReport,
   handlePrintRequest,
 } from "./clip-print.ts";
+import { handleFsrv } from "./fsrv.ts";
 import type { Rooms } from "./rooms.ts";
+import { hasFsrv } from "./rooms-features.ts";
 import type { Clock, Guest, Peer, Room, TechConn } from "./types.ts";
 
 export class TokenBucket {
@@ -177,6 +179,14 @@ async function techAction(rooms: Rooms, room: Room, tech: TechConn, peer: Peer, 
     case "print.cancel":
       handlePrintCancel(rooms, room, tech, m.pid);
       return;
+    case "fsrv.init":
+    case "fsrv.accept":
+    case "fsrv.reject":
+    case "fsrv.result":
+    case "fsrv.cancel":
+      if (room.admitted) await handleFsrv(rooms, room, { side: "tech", peer, tech }, m);
+      else tech.peer.send({ t: "error", code: "CONFLICT", message: "Oturum henüz başlamadı." });
+      return;
   }
 }
 
@@ -190,7 +200,8 @@ export async function onGuestMessage(
   isBinary: boolean,
 ): Promise<void> {
   if (!rooms.live(room) || guest.peer !== peer) return;
-  const schema = guestInboundSchemaFor(peer.features ?? NO_FEATURES);
+  // P28b §5.2 adım 1: `fsrv.*` yalnız SERVER odası + hasFsrv sokette şemada (aksi 1008).
+  const schema = guestInboundSchemaFor(peer.features ?? NO_FEATURES, room.fileMode === "SERVER" && hasFsrv(room, peer));
   const m = parseFrame(rooms, peer, bucket, schema, data, isBinary, (json) => {
     // P20 (protokol §6.1): zarfı geçerli `binding.request`te previousKey + previousKeys → error VALIDATION, soket açık.
     if (guest.state !== "ADMITTED" || !bindingRequestEnvelopeSchema.safeParse(json).success) return false;
@@ -248,6 +259,13 @@ async function guestAction(rooms: Rooms, room: Room, guest: Guest, peer: Peer, m
       return;
     case "print.report":
       handlePrintReport(rooms, room, m);
+      return;
+    case "fsrv.init":
+    case "fsrv.accept":
+    case "fsrv.reject":
+    case "fsrv.result":
+    case "fsrv.cancel":
+      await handleFsrv(rooms, room, { side: "guest", peer, guest }, m);
       return;
   }
 }

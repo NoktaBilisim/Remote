@@ -1,0 +1,607 @@
+{
+  "_doc": "P28b sunucu üzerinden dosya sözleşme örnekleri (mimari-p28b §5, §11.3 r2; AC-355..360). valid.inbound teknisyen (techInboundSchema) ve fsrv'li misafir (guestInboundSchemaFor(_, true)) şemasından geçmeli, invalid.inbound reddedilmeli; valid.server/invalid.server = serverOutboundSchema. features: §5.1 hasFsrv tablosu (subprotocols → bildirilen özellik). caps: §5.4 misafire giden caps (capsFor + fileMode), helloFileMode = misafire hello.fileMode gider mi, fsrvSchema = misafir şemasında fsrv.* var mı. constants: Go eşi aynı değerleri kullanmalı. Go (K5, internal/signal + internal/fsrv) bu dosyayı go test ile doğrular.",
+  "subprotocol": "rs.cap.fsrv1",
+  "constants": {
+    "FSRV_CHUNK_BYTES": 1048576,
+    "FSRV_MAX_BYTES": 268435456,
+    "FSRV_MAX_CHUNKS": 256,
+    "FSRV_SESSION_MAX_BYTES": 2147483648,
+    "FSRV_PRINT_MAX_BYTES": 20971520,
+    "FSRV_PRINT_FILE_NAME": "belge.pdf",
+    "FSRV_NOTFOUND_PER_MIN_IP": 60,
+    "FSRV_SEGMENT_BYTES": 65536,
+    "FSRV_DOWNLOAD_TTL_MS": 300000,
+    "FSRV_UPLOAD_IDLE_MS": 600000,
+    "FSRV_INIT_PER_MIN": 20,
+    "FSRV_DOWNLOAD_TOKENS_PER_FILE": 3,
+    "FSRV_LINK_PER_MIN": 20,
+    "FSRV_PROGRESS_INTERVAL_MS": 1000,
+    "AV_LARGE_BYTES": 67108864,
+    "AV_CONCURRENCY": 2,
+    "AV_QUEUE_MAX": 20,
+    "AV_TENANT_QUEUE_MAX": 3,
+    "AV_QUEUE_WAIT_MS": 30000,
+    "AV_SCAN_TIMEOUT_MS": 60000,
+    "AV_CONNECT_TIMEOUT_MS": 3000,
+    "AV_CONNECT_RETRY_INTERVAL_MS": 2000,
+    "AV_CONNECT_RETRY_MS": 15000,
+    "AV_SELFTEST_INTERVAL_MS": 600000,
+    "AV_STALE_DAYS": 3,
+    "DISK_MIN_FREE_RATIO": 0.1,
+    "DEFAULT_STORAGE_QUOTA_GB": 20,
+    "STORAGE_QUOTA_GB_MIN": 1,
+    "STORAGE_QUOTA_GB_MAX": 2000,
+    "FILE_RETENTION_DAYS_MIN": 1,
+    "FILE_RETENTION_DAYS_MAX": 7,
+    "FILE_RETENTION_DAYS_DEFAULT": 1,
+    "FSRV_XID_PATTERN": "^[A-Za-z0-9_-]{8,26}$",
+    "FSRV_FID_PATTERN": "^[0-9A-HJKMNP-TV-Z]{26}$",
+    "FSRV_TOKEN_PATTERN": "^[A-Za-z0-9_-]{43}$",
+    "SHA256_HEX_PATTERN": "^[a-f0-9]{64}$",
+    "AV_SIGNATURE_PATTERN": "^[A-Za-z0-9._:/-]{1,120}$"
+  },
+  "sets": {
+    "fileModes": ["P2P", "SERVER"],
+    "purposes": ["FILE", "PRINT"],
+    "peerFeatures": ["clipboard", "print", "fsrv"],
+    "storedStates": ["UPLOADING", "SCANNING", "CLEAN", "INFECTED", "SCAN_FAILED", "CORRUPT", "REJECTED", "CANCELLED", "EXPIRED", "DELETED"],
+    "wireStates": ["UPLOADING", "SCANNING", "CLEAN", "INFECTED", "SCAN_FAILED", "CORRUPT", "CANCELLED", "REJECTED", "DELIVERED"],
+    "gateReasons": ["MODE", "FORBIDDEN", "UNSUPPORTED", "BUSY", "TOO_LARGE", "RATE_LIMITED", "SESSION_LIMIT", "QUOTA"],
+    "scanReasons": ["UNAVAILABLE", "TIMEOUT", "ENCRYPTED", "LIMIT", "BUSY", "ERROR"]
+  },
+  "valid": {
+    "inbound": [
+      {
+        "t": "fsrv.init",
+        "xid": "aZ3_x-Q9LmN0pR7sT2uV1w",
+        "name": "rapor.xlsx",
+        "size": 1048577,
+        "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "purpose": "FILE"
+      },
+      {
+        "t": "fsrv.init",
+        "xid": "aZ3_x-Q9LmN0pR7sT2uV1w",
+        "name": "rapor.xlsx",
+        "size": 1,
+        "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "purpose": "FILE"
+      },
+      {
+        "t": "fsrv.init",
+        "xid": "aZ3_x-Q9LmN0pR7sT2uV1w",
+        "name": "rapor.xlsx",
+        "size": 268435456,
+        "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "purpose": "FILE",
+        "id": "r1"
+      },
+      {
+        "t": "fsrv.init",
+        "xid": "aZ3_x-Q9LmN0pR7sT2uV1w",
+        "name": "belge.pdf",
+        "size": 20971520,
+        "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "purpose": "PRINT",
+        "pid": "Pq8-Zx_4KdLm2Nb7Vc1Ty0"
+      },
+      {
+        "t": "fsrv.accept",
+        "fid": "01JD5ZQ8X3M4N5P6Q7R8S9T0VW"
+      },
+      {
+        "t": "fsrv.reject",
+        "fid": "01JD5ZQ8X3M4N5P6Q7R8S9T0VW"
+      },
+      {
+        "t": "fsrv.result",
+        "fid": "01JD5ZQ8X3M4N5P6Q7R8S9T0VW",
+        "ok": true
+      },
+      {
+        "t": "fsrv.result",
+        "fid": "01JD5ZQ8X3M4N5P6Q7R8S9T0VW",
+        "ok": false
+      },
+      {
+        "t": "fsrv.cancel",
+        "fid": "01JD5ZQ8X3M4N5P6Q7R8S9T0VW"
+      }
+    ],
+    "server": [
+      {
+        "t": "fsrv.upload",
+        "xid": "aZ3_x-Q9LmN0pR7sT2uV1w",
+        "fid": "01JD5ZQ8X3M4N5P6Q7R8S9T0VW",
+        "token": "Abc_defGhijKlmnOpqrStuvWxyz0123456789-_ABCD",
+        "chunkBytes": 1048576,
+        "chunks": 2
+      },
+      {
+        "t": "fsrv.status",
+        "xid": "aZ3_x-Q9LmN0pR7sT2uV1w",
+        "state": "REJECTED",
+        "reason": "SESSION_LIMIT"
+      },
+      {
+        "t": "fsrv.status",
+        "xid": "aZ3_x-Q9LmN0pR7sT2uV1w",
+        "state": "REJECTED",
+        "reason": "MODE"
+      },
+      {
+        "t": "fsrv.status",
+        "fid": "01JD5ZQ8X3M4N5P6Q7R8S9T0VW",
+        "state": "UPLOADING",
+        "progress": 40
+      },
+      {
+        "t": "fsrv.status",
+        "fid": "01JD5ZQ8X3M4N5P6Q7R8S9T0VW",
+        "state": "SCANNING"
+      },
+      {
+        "t": "fsrv.status",
+        "fid": "01JD5ZQ8X3M4N5P6Q7R8S9T0VW",
+        "state": "CLEAN"
+      },
+      {
+        "t": "fsrv.status",
+        "fid": "01JD5ZQ8X3M4N5P6Q7R8S9T0VW",
+        "state": "INFECTED",
+        "signature": "Eicar-Test-Signature"
+      },
+      {
+        "t": "fsrv.status",
+        "fid": "01JD5ZQ8X3M4N5P6Q7R8S9T0VW",
+        "state": "INFECTED"
+      },
+      {
+        "t": "fsrv.status",
+        "fid": "01JD5ZQ8X3M4N5P6Q7R8S9T0VW",
+        "state": "SCAN_FAILED",
+        "reason": "ENCRYPTED"
+      },
+      {
+        "t": "fsrv.status",
+        "fid": "01JD5ZQ8X3M4N5P6Q7R8S9T0VW",
+        "state": "SCAN_FAILED",
+        "reason": "BUSY"
+      },
+      {
+        "t": "fsrv.status",
+        "fid": "01JD5ZQ8X3M4N5P6Q7R8S9T0VW",
+        "state": "REJECTED"
+      },
+      {
+        "t": "fsrv.status",
+        "fid": "01JD5ZQ8X3M4N5P6Q7R8S9T0VW",
+        "state": "DELIVERED"
+      },
+      {
+        "t": "fsrv.status",
+        "fid": "01JD5ZQ8X3M4N5P6Q7R8S9T0VW",
+        "state": "CANCELLED"
+      },
+      {
+        "t": "fsrv.status",
+        "fid": "01JD5ZQ8X3M4N5P6Q7R8S9T0VW",
+        "state": "CORRUPT"
+      },
+      {
+        "t": "fsrv.offer",
+        "fid": "01JD5ZQ8X3M4N5P6Q7R8S9T0VW",
+        "name": "rapor.xlsx",
+        "size": 5,
+        "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "purpose": "FILE"
+      },
+      {
+        "t": "fsrv.offer",
+        "fid": "01JD5ZQ8X3M4N5P6Q7R8S9T0VW",
+        "name": "belge.pdf",
+        "size": 5,
+        "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "purpose": "PRINT",
+        "pid": "Pq8-Zx_4KdLm2Nb7Vc1Ty0"
+      },
+      {
+        "t": "fsrv.download",
+        "fid": "01JD5ZQ8X3M4N5P6Q7R8S9T0VW",
+        "token": "Abc_defGhijKlmnOpqrStuvWxyz0123456789-_ABCD",
+        "expiresAt": "2026-11-16T10:05:00.000Z"
+      },
+      {
+        "t": "hello",
+        "role": "tech",
+        "sessionId": "01JD5ZQ8X3M4N5P6Q7R8S9T0AB",
+        "peerPresent": true,
+        "iceServers": [],
+        "maxEndsAt": null,
+        "fileMode": "SERVER",
+        "guestFeatures": ["clipboard", "print", "fsrv"]
+      },
+      {
+        "t": "hello",
+        "role": "guest",
+        "sessionId": "01JD5ZQ8X3M4N5P6Q7R8S9T0AB",
+        "peerPresent": true,
+        "iceServers": [],
+        "maxEndsAt": null,
+        "caps": ["remote_control", "clipboard"],
+        "fileMode": "SERVER"
+      },
+      {
+        "t": "peer.joined",
+        "role": "guest",
+        "guestKind": "BROWSER",
+        "guestFeatures": ["fsrv"],
+        "fileMode": "SERVER"
+      }
+    ]
+  },
+  "invalid": {
+    "inbound": [
+      {
+        "t": "fsrv.init",
+        "xid": "aZ3_x-Q9LmN0pR7sT2uV1w",
+        "name": "rapor.xlsx",
+        "size": 0,
+        "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "purpose": "FILE"
+      },
+      {
+        "t": "fsrv.init",
+        "xid": "aZ3_x-Q9LmN0pR7sT2uV1w",
+        "name": "rapor.xlsx",
+        "size": 268435457,
+        "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "purpose": "FILE"
+      },
+      {
+        "t": "fsrv.init",
+        "xid": "aZ3_x-Q9LmN0pR7sT2uV1w",
+        "name": "rapor.xlsx",
+        "size": 1.5,
+        "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "purpose": "FILE"
+      },
+      {
+        "t": "fsrv.init",
+        "xid": "aZ3_x-Q9LmN0pR7sT2uV1w",
+        "name": "belge.pdf",
+        "size": 20971520,
+        "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "purpose": "PRINT"
+      },
+      {
+        "t": "fsrv.init",
+        "xid": "aZ3_x-Q9LmN0pR7sT2uV1w",
+        "name": "fatura.pdf",
+        "size": 20971520,
+        "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "purpose": "PRINT",
+        "pid": "Pq8-Zx_4KdLm2Nb7Vc1Ty0"
+      },
+      {
+        "t": "fsrv.init",
+        "xid": "aZ3_x-Q9LmN0pR7sT2uV1w",
+        "name": "rapor.xlsx",
+        "size": 1048577,
+        "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "purpose": "FILE",
+        "pid": "Pq8-Zx_4KdLm2Nb7Vc1Ty0"
+      },
+      {
+        "t": "fsrv.init",
+        "xid": "aZ3_x-Q9LmN0pR7sT2uV1w",
+        "name": "rapor.xlsx",
+        "size": 1048577,
+        "sha256": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+        "purpose": "FILE"
+      },
+      {
+        "t": "fsrv.init",
+        "xid": "kısa",
+        "name": "rapor.xlsx",
+        "size": 1048577,
+        "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "purpose": "FILE"
+      },
+      {
+        "t": "fsrv.init",
+        "xid": "aZ3_x-Q9LmN0pR7sT2uV1w",
+        "name": "",
+        "size": 1048577,
+        "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "purpose": "FILE"
+      },
+      {
+        "t": "fsrv.init",
+        "xid": "aZ3_x-Q9LmN0pR7sT2uV1w",
+        "name": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+        "size": 1048577,
+        "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "purpose": "FILE"
+      },
+      {
+        "t": "fsrv.init",
+        "xid": "aZ3_x-Q9LmN0pR7sT2uV1w",
+        "name": "rapor.xlsx",
+        "size": 1048577,
+        "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "purpose": "MOVIE"
+      },
+      {
+        "t": "fsrv.init",
+        "xid": "aZ3_x-Q9LmN0pR7sT2uV1w",
+        "name": "rapor.xlsx",
+        "size": 1048577,
+        "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "purpose": "FILE",
+        "path": "C:/x"
+      },
+      {
+        "t": "fsrv.accept",
+        "fid": "01jd5zq8x3m4n5p6q7r8s9t0vw"
+      },
+      {
+        "t": "fsrv.result",
+        "fid": "01JD5ZQ8X3M4N5P6Q7R8S9T0VW"
+      },
+      {
+        "t": "fsrv.cancel",
+        "fid": "01JD5ZQ8X3M4N5P6Q7R8S9T0VW",
+        "reason": "x"
+      }
+    ],
+    "server": [
+      {
+        "t": "fsrv.upload",
+        "xid": "aZ3_x-Q9LmN0pR7sT2uV1w",
+        "fid": "01JD5ZQ8X3M4N5P6Q7R8S9T0VW",
+        "token": "Abc_defGhijKlmnOpqrStuvWxyz0123456789-_ABCD",
+        "chunkBytes": 524288,
+        "chunks": 2
+      },
+      {
+        "t": "fsrv.upload",
+        "xid": "aZ3_x-Q9LmN0pR7sT2uV1w",
+        "fid": "01JD5ZQ8X3M4N5P6Q7R8S9T0VW",
+        "token": "Abc_defGhijKlmnOpqrStuvWxyz0123456789-_ABCD",
+        "chunkBytes": 1048576,
+        "chunks": 257
+      },
+      {
+        "t": "fsrv.status",
+        "state": "SCANNING"
+      },
+      {
+        "t": "fsrv.status",
+        "fid": "01JD5ZQ8X3M4N5P6Q7R8S9T0VW",
+        "state": "SCAN_FAILED"
+      },
+      {
+        "t": "fsrv.status",
+        "fid": "01JD5ZQ8X3M4N5P6Q7R8S9T0VW",
+        "state": "SCAN_FAILED",
+        "reason": "QUOTA"
+      },
+      {
+        "t": "fsrv.status",
+        "fid": "01JD5ZQ8X3M4N5P6Q7R8S9T0VW",
+        "state": "REJECTED",
+        "reason": "ENCRYPTED"
+      },
+      {
+        "t": "fsrv.status",
+        "fid": "01JD5ZQ8X3M4N5P6Q7R8S9T0VW",
+        "state": "CLEAN",
+        "reason": "BUSY"
+      },
+      {
+        "t": "fsrv.status",
+        "fid": "01JD5ZQ8X3M4N5P6Q7R8S9T0VW",
+        "state": "CLEAN",
+        "signature": "Eicar-Test-Signature"
+      },
+      {
+        "t": "fsrv.status",
+        "fid": "01JD5ZQ8X3M4N5P6Q7R8S9T0VW",
+        "state": "INFECTED",
+        "signature": "kötü imza"
+      },
+      {
+        "t": "fsrv.status",
+        "fid": "01JD5ZQ8X3M4N5P6Q7R8S9T0VW",
+        "state": "EXPIRED"
+      },
+      {
+        "t": "fsrv.status",
+        "fid": "01JD5ZQ8X3M4N5P6Q7R8S9T0VW",
+        "state": "UPLOADING",
+        "progress": 101
+      },
+      {
+        "t": "fsrv.offer",
+        "fid": "01JD5ZQ8X3M4N5P6Q7R8S9T0VW",
+        "name": "belge.pdf",
+        "size": 5,
+        "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "purpose": "PRINT"
+      },
+      {
+        "t": "fsrv.offer",
+        "fid": "01JD5ZQ8X3M4N5P6Q7R8S9T0VW",
+        "name": "rapor.xlsx",
+        "size": 5,
+        "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "purpose": "FILE",
+        "pid": "Pq8-Zx_4KdLm2Nb7Vc1Ty0"
+      },
+      {
+        "t": "fsrv.offer",
+        "fid": "01JD5ZQ8X3M4N5P6Q7R8S9T0VW",
+        "name": "rapor.xlsx",
+        "size": 5,
+        "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "purpose": "FILE",
+        "path": "x"
+      },
+      {
+        "t": "fsrv.download",
+        "fid": "01JD5ZQ8X3M4N5P6Q7R8S9T0VW",
+        "token": "kisa",
+        "expiresAt": "2026-11-16T10:05:00.000Z"
+      },
+      {
+        "t": "hello",
+        "role": "tech",
+        "sessionId": "01JD5ZQ8X3M4N5P6Q7R8S9T0AB",
+        "peerPresent": true,
+        "iceServers": [],
+        "maxEndsAt": null,
+        "fileMode": "S3"
+      },
+      {
+        "t": "peer.joined",
+        "role": "guest",
+        "guestFeatures": ["fsrv", "fsrv"]
+      }
+    ]
+  },
+  "features": [
+    {
+      "case": "BROWSER misafir (belirteçsiz yetenekli, K-P28b-20)",
+      "guestKind": "BROWSER",
+      "unattended": false,
+      "subprotocols": ["rs.v1"],
+      "features": ["fsrv"],
+      "hasFsrv": true
+    },
+    {
+      "case": "AGENT 0.14",
+      "guestKind": "AGENT",
+      "unattended": false,
+      "subprotocols": ["rs.v1", "rs.cap.clip1", "rs.cap.print1", "rs.cap.fsrv1"],
+      "features": ["clipboard", "print", "fsrv"],
+      "hasFsrv": true
+    },
+    {
+      "case": "AGENT ≤ 0.13",
+      "guestKind": "AGENT",
+      "unattended": false,
+      "subprotocols": ["rs.v1", "rs.cap.clip1", "rs.cap.print1"],
+      "features": ["clipboard", "print"],
+      "hasFsrv": false
+    },
+    {
+      "case": "AGENT ≤ 0.12 (belirteç yok)",
+      "guestKind": "AGENT",
+      "unattended": false,
+      "subprotocols": ["rs.v1"],
+      "features": [],
+      "hasFsrv": false
+    },
+    {
+      "case": "gözetimsiz (belirteçler okunmaz, O-P28a-4)",
+      "guestKind": "AGENT",
+      "unattended": true,
+      "subprotocols": ["rs.v1", "rs.cap.clip1", "rs.cap.print1", "rs.cap.fsrv1"],
+      "features": [],
+      "hasFsrv": false
+    }
+  ],
+  "caps": [
+    {
+      "case": "BROWSER misafir (belirteçsiz yetenekli, K-P28b-20)",
+      "fileMode": "P2P",
+      "roomCaps": ["remote_control", "file_transfer", "clipboard", "print"],
+      "features": ["fsrv"],
+      "guestCaps": ["remote_control", "file_transfer"],
+      "helloFileMode": true,
+      "fsrvSchema": false
+    },
+    {
+      "case": "BROWSER misafir (belirteçsiz yetenekli, K-P28b-20)",
+      "fileMode": "SERVER",
+      "roomCaps": ["remote_control", "file_transfer", "clipboard", "print"],
+      "features": ["fsrv"],
+      "guestCaps": ["remote_control"],
+      "helloFileMode": true,
+      "fsrvSchema": true
+    },
+    {
+      "case": "AGENT 0.14",
+      "fileMode": "P2P",
+      "roomCaps": ["remote_control", "file_transfer", "clipboard", "print"],
+      "features": ["clipboard", "print", "fsrv"],
+      "guestCaps": ["remote_control", "file_transfer", "clipboard", "print"],
+      "helloFileMode": true,
+      "fsrvSchema": false
+    },
+    {
+      "case": "AGENT 0.14",
+      "fileMode": "SERVER",
+      "roomCaps": ["remote_control", "file_transfer", "clipboard", "print"],
+      "features": ["clipboard", "print", "fsrv"],
+      "guestCaps": ["remote_control", "clipboard"],
+      "helloFileMode": true,
+      "fsrvSchema": true
+    },
+    {
+      "case": "AGENT ≤ 0.13",
+      "fileMode": "P2P",
+      "roomCaps": ["remote_control", "file_transfer", "clipboard", "print"],
+      "features": ["clipboard", "print"],
+      "guestCaps": ["remote_control", "file_transfer", "clipboard", "print"],
+      "helloFileMode": false,
+      "fsrvSchema": false
+    },
+    {
+      "case": "AGENT ≤ 0.13",
+      "fileMode": "SERVER",
+      "roomCaps": ["remote_control", "file_transfer", "clipboard", "print"],
+      "features": ["clipboard", "print"],
+      "guestCaps": ["remote_control", "clipboard"],
+      "helloFileMode": false,
+      "fsrvSchema": false
+    },
+    {
+      "case": "AGENT ≤ 0.12 (belirteç yok)",
+      "fileMode": "P2P",
+      "roomCaps": ["remote_control", "file_transfer", "clipboard", "print"],
+      "features": [],
+      "guestCaps": ["remote_control", "file_transfer"],
+      "helloFileMode": false,
+      "fsrvSchema": false
+    },
+    {
+      "case": "AGENT ≤ 0.12 (belirteç yok)",
+      "fileMode": "SERVER",
+      "roomCaps": ["remote_control", "file_transfer", "clipboard", "print"],
+      "features": [],
+      "guestCaps": ["remote_control"],
+      "helloFileMode": false,
+      "fsrvSchema": false
+    },
+    {
+      "case": "gözetimsiz (belirteçler okunmaz, O-P28a-4)",
+      "fileMode": "P2P",
+      "roomCaps": ["remote_control", "file_transfer", "clipboard", "print"],
+      "features": [],
+      "guestCaps": ["remote_control", "file_transfer"],
+      "helloFileMode": false,
+      "fsrvSchema": false
+    },
+    {
+      "case": "gözetimsiz (belirteçler okunmaz, O-P28a-4)",
+      "fileMode": "SERVER",
+      "roomCaps": ["remote_control", "file_transfer", "clipboard", "print"],
+      "features": [],
+      "guestCaps": ["remote_control"],
+      "helloFileMode": false,
+      "fsrvSchema": false
+    }
+  ]
+}

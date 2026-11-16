@@ -14,15 +14,17 @@ datasource db {
 }
 
 model Tenant {
-  id        String    @id @db.Char(26)
-  name      String    @db.VarChar(120)
-  slug      String    @unique @db.VarChar(60)
-  status    String    @default("ACTIVE") @db.VarChar(20) // ACTIVE | PASSIVE
-  logoPath  String?   @map("logo_path") @db.VarChar(200)
-  passiveAt DateTime? @map("passive_at") @db.DateTime(3) // P16 (AC-242): pasife alınma anı; tetikleyici DB saatine zorlar (tenants_passive_chk)
-  deletedAt DateTime? @map("deleted_at") @db.DateTime(3)
-  createdAt DateTime  @default(now()) @map("created_at") @db.DateTime(3)
-  updatedAt DateTime  @updatedAt @map("updated_at") @db.DateTime(3)
+  id             String    @id @db.Char(26)
+  name           String    @db.VarChar(120)
+  slug           String    @unique @db.VarChar(60)
+  status         String    @default("ACTIVE") @db.VarChar(20) // ACTIVE | PASSIVE
+  logoPath       String?   @map("logo_path") @db.VarChar(200)
+  passiveAt      DateTime? @map("passive_at") @db.DateTime(3) // P16 (AC-242): pasife alınma anı; tetikleyici DB saatine zorlar (tenants_passive_chk)
+  // P28b (mimari-p28b §3.1, K-P28b-10; AC-362): sunucu depolama kotası (GB); yalnız Super Admin düzenler. CHECK 1..2000 (elle)
+  storageQuotaGb Int       @default(20) @map("storage_quota_gb") @db.SmallInt
+  deletedAt      DateTime? @map("deleted_at") @db.DateTime(3)
+  createdAt      DateTime  @default(now()) @map("created_at") @db.DateTime(3)
+  updatedAt      DateTime  @updatedAt @map("updated_at") @db.DateTime(3)
 
   settings          TenantSettings?
   users             User[]
@@ -59,6 +61,9 @@ model TenantSettings {
   retentionDays     Int      @default(365) @map("retention_days") // 90..730
   // P27a (mimari-p27a §3.2, K-P27a-1/12; AC-331): 2FA cihaz hatırlama firma anahtarı; mevcut firmalar da TRUE (INSTANT ADD COLUMN)
   mfaRememberDevice Boolean  @default(true) @map("mfa_remember_device")
+  // P28b (mimari-p28b §3.1; AC-354): dosyaları sunucu üzerinden aktar + tara; saklama 1..7 gün (CHECK elle). Admin (settings.edit)
+  fileServerMode    Boolean  @default(false) @map("file_server_mode")
+  fileRetentionDays Int      @default(1) @map("file_retention_days") @db.TinyInt
   smtpHost          String?  @map("smtp_host") @db.VarChar(255)
   smtpPort          Int?     @map("smtp_port")
   smtpSecurity      String?  @map("smtp_security") @db.VarChar(20) // NONE | SSL | STARTTLS
@@ -299,6 +304,9 @@ model SupportSession {
   // P27 (mimari-p27 §3.5): gözetimsiz oturumun cihazı. request_id ile birlikte dolu olamaz; anonimleştirme NULL'lar (cihaz satırı
   // silinebilsin). Kod/TTL/müşteri adı CHECK'leri talep oturumu gibi (kod yok, 60 sn penceresi, customer_name = cihaz adı).
   deviceId       String?   @map("device_id") @db.Char(26)
+  // P28b (mimari-p28b §3.1, K-P28b-3; AC-355): dosya modu P2P | SERVER — insertSession TX'inde tenant_settings'ten bir kez
+  // yazılır, sonra DEĞİŞMEZ (support_sessions_update_guard; CHECK ikili elle)
+  fileMode       String    @default("P2P") @map("file_mode") @db.VarChar(10)
   createdAt      DateTime  @default(now()) @map("created_at") @db.DateTime(3)
   updatedAt      DateTime  @updatedAt @map("updated_at") @db.DateTime(3)
 
@@ -311,6 +319,7 @@ model SupportSession {
   notifications NotificationOutbox[]
   consents      SessionConsent[]
   files         SessionFile[]
+  storedFiles   SessionStoredFile[]
   bindingsFirst DeviceBinding[]      @relation("BindingFirstSession")
   bindingsLast  DeviceBinding[]      @relation("BindingLastSession")
   messages      SessionMessage[]
@@ -415,6 +424,42 @@ model SessionFile {
   @@index([sessionId, tenantId, createdAt]) // oturum detayı dosya listesi (GET /sessions/:id) + session FK
   @@index([tenantId, createdAt]) // tenant FK + retention (P13)
   @@map("session_files")
+}
+
+// P28b (mimari-p28b §3.1–3.4, ADR-0032; AC-355..362): SERVER modunda sunucuda şifreli saklanan dosya (yükleme → tarama →
+// teklif → teslim). Satır `retention_days` boyunca kalır (geçmiş + oturum tavanı); disk dosyası yalnız UPLOADING/SCANNING/CLEAN
+// iken vardır (storage_rel). `tenants`'a doğrudan FK yok — tenant tutarlılığı bileşik (session_id, tenant_id) FK ile.
+// app: SELECT/INSERT/DELETE + sütun düzeyi UPDATE (grants.sql). Elle CHECK'ler (migration.sql): ikili enum'lar, boyut 1..256 MiB,
+// sha/ext/ad/imza biçimi, storage_rel öneki = tenant_id, durum ↔ alan tutarlılığı. Ayrıntı db-notlari "P28b".
+model SessionStoredFile {
+  id               String    @id @db.Char(26) // ULID = protokoldeki fid; disk adıyla ilişkisiz
+  tenantId         String    @map("tenant_id") @db.Char(26)
+  sessionId        String    @map("session_id") @db.Char(26)
+  direction        String    @db.VarChar(12) // TO_CUSTOMER | TO_TECH
+  purpose          String    @db.VarChar(8) // FILE | PRINT
+  uploadedByUserId String?   @map("uploaded_by_user_id") @db.Char(26) // FK değil (audit_logs.user_id kalıbı); müşteri yüklemesinde NULL
+  fileName         String    @map("file_name") @db.VarChar(255) // sanitizeFileName çıktısı; PRINT'te sabit `belge.pdf`; audit/log'a girmez
+  ext              String    @db.VarChar(16) // küçük harf [a-z0-9]{0,16} (file.infected audit'i)
+  sizeBytes        BigInt    @map("size_bytes") // beyan = rezerve; 1..268435456 (256 MiB, K-P28b-12)
+  sha256           String    @db.Char(64) // beyan; sunucu tamamlanınca doğrular (uyuşmazsa CORRUPT)
+  storageRel       String?   @map("storage_rel") @db.VarChar(80) // `{tenant_id}/{rastgele24}.rsf`; disk silinince NULL
+  keyVer           Int       @map("key_ver") @db.UnsignedTinyInt // APP_ENCRYPTION_KEYS sürümü (crypto:check-retire DB'den sayar)
+  state            String    @db.VarChar(12) // UPLOADING | SCANNING | CLEAN | INFECTED | SCAN_FAILED | CORRUPT | REJECTED | CANCELLED | EXPIRED | DELETED
+  scanReason       String?   @map("scan_reason") @db.VarChar(16) // yalnız SCAN_FAILED: UNAVAILABLE | TIMEOUT | ENCRYPTED | LIMIT | BUSY | ERROR
+  signature        String?   @db.VarChar(120) // yalnız INFECTED
+  deliveredAt      DateTime? @map("delivered_at") @db.DateTime(3) // alıcı fsrv.result{ok:true}; saklama yalnız dolu satırda işler
+  expiresAt        DateTime? @map("expires_at") @db.DateTime(3) // teslim edilen FILE: delivered_at + file_retention_days
+  scannedAt        DateTime? @map("scanned_at") @db.DateTime(3)
+  deletedAt        DateTime? @map("deleted_at") @db.DateTime(3) // disk dosyasının silindiği an
+  createdAt        DateTime  @default(now()) @map("created_at") @db.DateTime(3)
+  updatedAt        DateTime  @updatedAt @map("updated_at") @db.DateTime(3)
+
+  session SupportSession @relation(fields: [sessionId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
+
+  @@index([tenantId, state]) // kota toplamı (state IN UPLOADING/SCANNING/CLEAN) + firma silme byTenant
+  @@index([sessionId, tenantId, createdAt]) // bileşik session FK öneki + geçmiş detayı + oturum tavanı SUM + anonimleştirme
+  @@index([state, expiresAt]) // 03:30 fsrvExpire (CLEAN + expires_at <= now), mutabakat ve açılış süpürmesi (state eşitliği)
+  @@map("session_stored_files")
 }
 
 // P8b-1 (mimari-e9 §3.1 + §13.6/13.8, AC-129..131, 142, 152): tenant başına talep ayarları (1-1, tembel oluşturulur).
@@ -643,8 +688,8 @@ model DeviceBinding {
 // Elle CHECK'ler (migration.sql): key kümesi (ikili, ADR-0014) `mysql` | `turn`; value_json nesne ≤ 4 KB + anahtar başına
 // JSON şeması; secret_enc 30..512 bayt; turn: turn:/turns: URL'si varken secret zorunlu. app SELECT/INSERT/UPDATE (DELETE yok).
 model SystemSetting {
-  key       String   @id @db.VarChar(60) // mysql | turn
-  valueJson Json?    @map("value_json") // mysql: {host, port, database, user}; turn: {urls: string[]}
+  key       String   @id @db.VarChar(60) // mysql | turn | system_logo | whatsapp | clamav (P28b)
+  valueJson Json?    @map("value_json") // mysql: {host, port, database, user}; turn: {urls: string[]}; clamav: {host, port, lastTest}
   secretEnc Bytes?   @map("secret_enc") @db.VarBinary(512) // mysql: şifre; turn: static-auth-secret
   updatedBy String?  @map("updated_by") @db.Char(26) // son değiştiren Super Admin (iz audit'te)
   createdAt DateTime @default(now()) @map("created_at") @db.DateTime(3)

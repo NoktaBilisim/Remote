@@ -7,7 +7,8 @@
 # komutu çalıştırılmaz; site dışı hatırlatma 7 günde bir; install/uninstall (kurulu kopya root 0755, watch.env 600);
 # P13c ikinci örnek `stg` (ayrı env/durum, [stg] alarm adı, coturn kontrolü yok, @stg birimleri yalnız stg'de sayılır);
 # P18 H5 crypto-decrypt / calendar-fallback / msg-tenant-rate / p18-metrics; P19 J6 notify-outbox-pending /
-# notify-outbox-failed / notify-volume / sms-key-unreadable / p19-metrics.
+# notify-outbox-failed / notify-volume / sms-key-unreadable / p19-metrics; P28b K6 av-up (ardışık 2) / av-selftest /
+# av-signature-age / av-scan-failed / av-metrics / compose:clamav*.
 # Kullanım: deploy/ops/test-watch.sh   Çıkış 0 = tüm beklentiler tuttu.
 set -euo pipefail
 cd "$(dirname "$0")"
@@ -371,6 +372,44 @@ bash $W run 'Stg;x' >/out/o 2>&1; [ $? = 2 ] && ok "geçersiz örnek adı -> rc 
 good; run
 
 # 6) install / uninstall (G-P13b-13)
+# P28b K6 (mimari-p28b §7.3/§11.2; runbook §28b.4): alanlar 22-26 = rs_av_up rs_av_selftest_ok imza-yaşı-sn tarama-toplam tarama-başarısız.
+pav() { echo "$((NOW - 3600)) 0 0 0 0 0 0 - $((NOW - 3600)) 0 0 0 0 - 5 10 0 3 0 0 - $1" >/scn/metrics; }
+clrav() { sed -i -E '/^(av_down|av_samples)=/d' /var/lib/rw/state; }
+avps() { printf 'clamav|running|Up 2 hours (healthy)|remote-clamav-1\nclamav-update|running|Up 2 hours (healthy)|remote-clamav-update-1\n' >>/scn/ps; }
+avs() { sed -i '/^av_samples=/d' /var/lib/rw/state; echo "av_samples=$1" >>/var/lib/rw/state; }
+good; clr; clr19; clrav; run
+! grep -q 'check="av-' /var/lib/rw/status.prom && ! grep -q 'compose:clamav' /var/lib/rw/status.prom && ok "P28b öncesi (rs_av_* yok, clamav yok) -> AV kontrolleri yok" || no "p28b öncesi: $(cat /out/o)"
+good; avps; clrav; pav "1 1 3600 10 0"; run
+p18n 'av-\|compose:clamav' && grep -q 'check="av-up"} 1' /var/lib/rw/status.prom && grep -q 'check="compose:clamav-update"} 1' /var/lib/rw/status.prom \
+  && ok "P28b temiz -> av-* ve compose:clamav* OK, alarm yok" || no "av temiz: $(cat /out/o)"
+good; avps; clrav; pav "0 1 3600 10 0"; run
+p18n av-up && ok "rs_av_up=0 tek yoklama -> alarm yok (reload penceresi)" || no "av-up 1: $(cat /out/o)"
+pav "0 1 3600 10 0"; run
+p18a av-up && grep -q 'ardışık 2 yoklama' /out/o && ok "rs_av_up=0 ardışık 2 yoklama -> ALERT av-up" || no "av-up 2: $(cat /out/o)"
+pav "1 1 3600 10 0"; run; pav "0 1 3600 10 0"; run
+p18n av-up && ok "araya rs_av_up=1 girince sayaç sıfırlandı" || no "av-up reset: $(cat /out/o)"
+good; avps; clrav; pav "1 0 3600 10 0"; run
+p18a av-selftest && ok "rs_av_selftest_ok=0 -> anında ALERT av-selftest" || no "selftest: $(cat /out/o)"
+good; avps; clrav; pav "1 1 $((3 * 86400 + 60)) 10 0"; run
+p18a av-signature-age && ok "imza yaşı > 3 gün -> ALERT av-signature-age" || no "age: $(cat /out/o)"
+good; avps; clrav; pav "1 1 $((3 * 86400)) 10 0"; run
+p18n av-signature-age && ok "imza yaşı = 3 gün -> alarm yok" || no "age 3: $(cat /out/o)"
+good; avps; clrav; avs "$((NOW - 1800)):10:0"; pav "1 1 3600 30 6"; run
+p18a av-scan-failed && grep -q 'taranamadı 6 / 20' /out/o && ok "1 sa'te taranamadı 6/20 (> %20) -> ALERT av-scan-failed" || no "scan failed: $(cat /out/o)"
+good; avps; clrav; avs "$((NOW - 1800)):10:0"; pav "1 1 3600 40 6"; run
+p18n av-scan-failed && ok "taranamadı 6/30 (= %20) -> alarm yok" || no "scan 20: $(cat /out/o)"
+good; avps; clrav; avs "$((NOW - 1800)):10:0"; pav "1 1 3600 14 4"; run
+p18n av-scan-failed && ok "taranamadı 4/4 ama < WATCH_AV_FAIL_MIN (5) -> alarm yok" || no "scan min: $(cat /out/o)"
+good; clrav; pav "1 1 3600 10 0"; run
+p18a 'compose:clamav' && ok "prod (AV_CHECKS=1): P28b metrikleri var, clamav konteyneri yok -> ALERT compose:clamav" || no "ctr yok: $(cat /out/o)"
+good; clrav; pav "0 1 3600 10 0"; WATCH_AV_CHECKS=auto run; pav "0 1 3600 10 0"; WATCH_AV_CHECKS=auto run
+p18n 'av-up\|compose:clamav' && ok "auto (staging, av profili kapalı): konteyner yok -> AV alarmı yok" || no "auto: $(cat /out/o)"
+good; avps; clrav; run
+p18a av-metrics && ok "clamav konteyneri var, rs_av_* yok -> ALERT av-metrics" || no "av-metrics: $(cat /out/o)"
+good; avps; clrav; pav "a[\$(touch /tmp/pwn20)] 1 a[\$(touch /tmp/pwn21)] 10 0"; run; avs 'a[$(touch /tmp/pwn22)]:1:1'; pav "1 1 1 10 0"; run
+ls /tmp/pwn2* >/dev/null 2>&1 && no "P28b enjeksiyon: $(ls /tmp/pwn2*)" || ok "S14-2: P28b metrik/durum alanlarında a[\$(…)] komut çalıştırmadı"
+good; clrav; run
+
 mkdir -p /src && cp /w/remote-watch.sh /w/remote-watch.service /w/remote-watch.timer /w/watch.env.example /src/
 mkdir -p /etc/systemd/system
 bash /src/remote-watch.sh install >/out/o 2>&1 && ok "install -> 0" || no "install: $(cat /out/o)"
@@ -404,7 +443,7 @@ if command -v node >/dev/null 2>&1; then
     'rs_orphan_files_total{action="deleted"} 4' 'rs_orphan_files_total{action="circuit_open"} 3' 'rs_erasure_ledger_write_failed_total 0' >"$M"
   JS="$(sed -n 's/.*node -e "\(const sum=.*\)" 2>\/dev\/null)" || rt=.*/\1/p' "$HERE/remote-watch.sh" | sed 's/\\"/"/g')"
   got="$(M="$M" node -e "globalThis.fetch=async()=>({text:async()=>require('fs').readFileSync(process.env.M,'utf8')});$JS")"
-  exp="1763000000 3 - - 1 0 1 1763000100 - 3 0 - - - - - - - - - -"
+  exp="1763000000 3 - - 1 0 1 1763000100 - 3 0 - - - - - - - - - - - - - - -"
   if [ "$got" = "$exp" ]; then echo "PASS  metrik ayrıştırma: etiketli rs_retention_failures_total toplamı 3, SCHEDULED/RUNNING, circuit_open 3, P18 serisi yok -> '-'"
   else echo "FAIL  metrik ayrıştırma: '$got' (beklenen '$exp')"; echo "SONUÇ-İÇ 1" >>"$TMP/out"; fi
   # P18 H5: decrypt (bütün table), takvim (bütün tenant), yalnız reason~tenant kova reddi, mesaj sayacı (P18 işareti).
@@ -412,7 +451,7 @@ if command -v node >/dev/null 2>&1; then
     'rs_calendar_fallback_total{tenant="t2"} 2' 'rs_request_messages_rejected_total{reason="tenant_rate"} 4' \
     'rs_request_messages_rejected_total{reason="sender_cap"} 9' 'rs_request_messages_total{sender="CUSTOMER"} 7' >>"$M"
   got="$(M="$M" node -e "globalThis.fetch=async()=>({text:async()=>require('fs').readFileSync(process.env.M,'utf8')});$JS")"
-  exp="1763000000 3 - - 1 0 1 1763000100 - 3 0 2 3 4 7 - - - - - -"
+  exp="1763000000 3 - - 1 0 1 1763000100 - 3 0 2 3 4 7 - - - - - - - - - - -"
   if [ "$got" = "$exp" ]; then echo "PASS  metrik ayrıştırma P18: decrypt 2, takvim 1+2, tenant kova 4 (sender_cap hariç), mesaj 7"
   else echo "FAIL  metrik ayrıştırma P18: '$got' (beklenen '$exp')"; echo "SONUÇ-İÇ 1" >>"$TMP/out"; fi
   # P19 J6: outbox toplam (etiketsiz 0 dahil), FAILED (result=failed/FAILED), en eski PENDING (en büyük), rate_limited toplamı,
@@ -423,9 +462,16 @@ if command -v node >/dev/null 2>&1; then
     'rs_notify_rate_limited_total{scope="wa_bucket",channel="WHATSAPP"} 3' 'rs_sms_key_unreadable_total 0' \
     'rs_notify_tenant_max_hourly{role="SMS"} 81' 'rs_notify_tenant_max_hourly{channel="WHATSAPP"} 2' >>"$M"
   got="$(M="$M" node -e "globalThis.fetch=async()=>({text:async()=>require('fs').readFileSync(process.env.M,'utf8')});$JS")"
-  exp="1763000000 3 - - 1 0 1 1763000100 - 3 0 2 3 4 7 10 3 70 7 0 SMS=81,WHATSAPP=2"
+  exp="1763000000 3 - - 1 0 1 1763000100 - 3 0 2 3 4 7 10 3 70 7 0 SMS=81,WHATSAPP=2 - - - - -"
   if [ "$got" = "$exp" ]; then echo "PASS  metrik ayrıştırma P19: outbox 10 (FAILED 3), en eski 70, rate_limited 7, anahtar 0, hacim SMS=81,WHATSAPP=2"
   else echo "FAIL  metrik ayrıştırma P19: '$got' (beklenen '$exp')"; echo "SONUÇ-İÇ 1" >>"$TMP/out"; fi
+  # P28b K6: rs_av_up, öz-sınama, imza yaşı (en büyük), tarama toplamı ve yalnız result=failed_* toplamı.
+  printf '%s\n' 'rs_av_up 1' 'rs_av_selftest_ok 1' 'rs_av_signature_age_seconds 7200.5' 'rs_av_scan_total{result="clean"} 10' \
+    'rs_av_scan_total{result="infected"} 1' 'rs_av_scan_total{result="failed_busy"} 2' 'rs_av_scan_total{result="failed_timeout"} 3' >>"$M"
+  got="$(M="$M" node -e "globalThis.fetch=async()=>({text:async()=>require('fs').readFileSync(process.env.M,'utf8')});$JS")"
+  exp="1763000000 3 - - 1 0 1 1763000100 - 3 0 2 3 4 7 10 3 70 7 0 SMS=81,WHATSAPP=2 1 1 7200.5 16 5"
+  if [ "$got" = "$exp" ]; then echo "PASS  metrik ayrıştırma P28b: av_up 1, öz-sınama 1, imza yaşı 7200.5, tarama 16 (failed_* 5)"
+  else echo "FAIL  metrik ayrıştırma P28b: '$got' (beklenen '$exp')"; echo "SONUÇ-İÇ 1" >>"$TMP/out"; fi
 else echo "UYARI: host'ta node yok — metrik ayrıştırma testi atlandı"; fi
 grep -E '^(PASS|FAIL)' "$TMP/out" || true
 n="$(sed -n 's/^SONUÇ-İÇ //p' "$TMP/out" | sort -n | tail -1)"

@@ -184,6 +184,10 @@ describe("AC-4 tenant ayarları", () => {
       requireTech2fa: true,
       mfaRememberDevice: true, // P27a (AC-331): varsayılan açık
       smtp: null,
+      fileServerMode: false, // P28b (AC-354): varsayılan P2P
+      fileRetentionDays: 1,
+      avReady: expect.any(Boolean), // serial-system-settings dışında ClamAV satırı yok → false
+      storage: { usedBytes: 0, quotaBytes: 20 * 1024 ** 3 },
     });
     for (const v of [14, 31, 20.5, "20"]) {
       const r = await call(s, "PUT", "/settings/tenant", { sessionTtlMin: v });

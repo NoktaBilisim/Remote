@@ -41,6 +41,7 @@ import { DEFAULT_LOGO_URL } from "@remote/contracts/api/branding";
 import { UploadStore } from "./uploads/store.ts";
 import { ErasureLedger } from "./ops/erasure-ledger.ts";
 import { mailLogoUrl } from "./uploads/urls.ts";
+import { addAvSourceGuard, decorateFsrv, startAvPolling, type FsrvTestOptions } from "./fsrv/wiring.ts";
 
 declare module "fastify" {
   interface FastifyInstance {
@@ -118,6 +119,8 @@ export interface AppDeps {
   mysqlProbe?: (t: ProbeTarget) => Promise<ProbeResult>;
   /** Yalnız testler: imha defteri yolu (üretimde sabit `ERASURE_LEDGER_PATH`, env yok). */
   erasureLedgerPath?: string;
+  /** Yalnız testler (P28b): sahte clamd yönlendirmesi, DNS, disk oranı, kısa süreler. */
+  fsrvTest?: FsrvTestOptions;
 }
 
 /** db/env, giriş ve public hız sınırları, metrikler, istemci ikilisi. */
@@ -245,9 +248,11 @@ export function buildApp(deps: AppDeps): FastifyInstance {
     requestIdHeader: false,
     bodyLimit: 64 * 1024,
   }) as unknown as FastifyInstance;
+  addAvSourceGuard(app, env.CLAMAV_ALLOWED_CIDR); // P28b D-r2-1: ilk onRequest kancası
   const core = decorateCore(app, deps);
   const io = decorateIo(app, deps, core.metrics);
   const rooms = decorateRooms(app, deps, core.metrics, core.publicLimits);
+  const fsrv = decorateFsrv(app, { db: deps.db, env, secrets: io.secrets, metrics: core.metrics, clock: rooms.clock, test: deps.fsrvTest });
   const w: Wiring = { ...core, ...io, rooms };
   const r = decorateRequests(app, deps, w);
   const jobs = decorateJobs(app, deps, w, r);
@@ -261,7 +266,10 @@ export function buildApp(deps: AppDeps): FastifyInstance {
   });
   const counts = () => ({ request: r.hub.requestCount, panel: r.hub.panelCount, device: devices.size });
   attachSignaling(app, rooms, sig, requestChannels(app, r.requests, sig.revalidateMs), counts, deviceChannel);
-  if (deps.startJobs) addStartupJobs(app, deps.db, { rooms, requests: r.requests, ...jobs, outbox: r.outbox });
+  if (deps.startJobs) {
+    addStartupJobs(app, deps.db, { rooms, requests: r.requests, ...jobs, outbox: r.outbox, fsrv });
+    startAvPolling(app, fsrv);
+  }
   addRequestHooks(app);
   registerRoutes(app, deps, io.uploads);
   return app;

@@ -9,9 +9,11 @@
 import { PRINT_CONSENT_TIMEOUT_MS, PRINT_DENY_COOLDOWN_MS, type PrintResult } from "@remote/contracts/ws-clip-print";
 import { pumpChunks } from "../dc/chunk-sender";
 import type { FileChannelLike } from "../dc/file-model";
+import type { PrintUploadCallbacks } from "../fsrv/transfers";
 import { checkPdf } from "./pdf-check";
 
-export type PrintPhase = "hashing" | "requested" | "sending" | "waiting" | "done";
+/** P28b (§5.3): SERVER modunda `sending` = sunucuya yükleme, ardından `scanning` (virüs taraması). */
+export type PrintPhase = "hashing" | "requested" | "sending" | "scanning" | "waiting" | "done";
 /** `VIEW` = kontrol izni kapandığı için yerelde iptal (r2 Y-P28a-1); `SERVER` = sunucu kapısı reddetti (`message`). */
 export type PrintOutcome = PrintResult | "VIEW" | "SERVER";
 
@@ -55,13 +57,20 @@ export interface PrintDeps {
   onChange: (s: PrintState) => void;
   now?: () => number;
   delayMs?: () => number;
+  /**
+   * P28b (§5.3, D-P28b-3): SERVER modunda belge DC yerine sunucu yolundan (`fsrv.init{PRINT, pid}`, ad `belge.pdf`, boyut =
+   * `print.request.sizeBytes`). true → sunucu yolu üstlendi (DC `print.offer`/çerçeve/`print.done` gönderilmez).
+   */
+  viaServer?: (pid: string, file: Blob, sha: string, cb: PrintUploadCallbacks) => boolean;
+  /** P28b: iş bitti/iptal → sunucu yüklemesi durur. */
+  dropServer?: () => void;
 }
 
 /** Sunucunun `error`'u bu süre içinde gelirse son yazdırma isteğine aittir (zarf kimliği hataya yansımaz). */
 export const PRINT_ERROR_WINDOW_MS = 5_000;
 /** Sunucu iptali ile VIEW geçişi arasında kabul edilen en uzun aralık (aynı olayın iki mesajı). */
 const VIEW_RELABEL_MS = 2_000;
-const ACTIVE = new Set<PrintPhase>(["hashing", "requested", "sending", "waiting"]);
+const ACTIVE = new Set<PrintPhase>(["hashing", "requested", "sending", "scanning", "waiting"]);
 const COOLDOWN = new Set<PrintOutcome>(["REJECTED", "TIMEOUT"]);
 
 /** Onay diyaloğunda kalan saniye (60 sn, AC-349); bekleme yoksa null. */
@@ -89,7 +98,7 @@ export class PrintJobs {
   /** Yazdırma aktarımı `file` kanalını kullanıyor / kullanacak (dosya teklifi "busy" olur). */
   get transferring(): boolean {
     const p = this.s.job?.phase;
-    return p === "hashing" || p === "requested" || p === "sending";
+    return p === "hashing" || p === "requested" || p === "sending" || p === "scanning";
   }
   get active(): boolean {
     return this.s.job !== null && ACTIVE.has(this.s.job.phase);
@@ -105,6 +114,7 @@ export class PrintJobs {
   }
   private finish(pid: string, outcome: PrintOutcome, extra: Partial<PrintView> = {}) {
     if (this.s.job?.pid !== pid || !ACTIVE.has(this.s.job.phase)) return;
+    this.d.dropServer?.();
     this.file = null;
     this.sha = "";
     const cooldownUntil = COOLDOWN.has(outcome) ? this.now() + PRINT_DENY_COOLDOWN_MS : this.s.cooldownUntil;
@@ -136,6 +146,10 @@ export class PrintJobs {
     const j = this.s.job;
     const file = this.file;
     if (!j || j.pid !== pid || j.phase !== "requested" || !file) return;
+    if (this.d.viaServer?.(pid, file, this.sha, this.serverCallbacks(pid))) {
+      this.file = null;
+      return this.patchJob(pid, { phase: "sending", sent: 0 });
+    }
     const ch = this.d.file();
     const idx = this.d.nextIdx();
     if (!ch || idx === null) return this.finish(pid, "ERROR");
@@ -152,6 +166,22 @@ export class PrintJobs {
     if (!ok || !this.d.sendCtl({ t: "print.done", pid })) return this.finish(pid, "ERROR");
     this.file = null;
     this.patchJob(pid, { phase: "waiting", waitingSince: this.now() });
+  }
+
+  /** P28b sunucu yolu aşamaları; virüs/taranamadı metni `print.status{ERROR}`'dan önce ya da sonra gelse de kazanır. */
+  private serverCallbacks(pid: string): PrintUploadCallbacks {
+    const live = () => this.s.job?.pid === pid && (this.s.job.phase === "sending" || this.s.job.phase === "scanning");
+    return {
+      onUploading: (sent) => live() && this.patchJob(pid, { phase: "sending", sent }),
+      onScanning: () => live() && this.patchJob(pid, { phase: "scanning", sent: this.s.job?.size ?? 0 }),
+      onClean: () => live() && this.patchJob(pid, { phase: "waiting", waitingSince: this.now() }),
+      onFail: (message) => {
+        const j = this.s.job;
+        if (j?.pid !== pid) return;
+        if (j.phase === "done" && j.outcome === "ERROR") return this.set({ job: { ...j, outcome: "SERVER", message } });
+        this.finish(pid, "SERVER", { message });
+      },
+    };
   }
 
   /** WS `print.status`. Bitmiş / başka iş için gelen durum yok sayılır. */

@@ -15,6 +15,7 @@ import { cidrMatcher } from "../lib/ip.ts";
 import { FixedWindowCounter } from "../lib/rate.ts";
 import { jsonPeer, type UpgradeReject } from "../lib/ws-upgrade.ts";
 import type { RequestChannels } from "../requests/ws.ts";
+import { bindFsrv } from "./fsrv.ts";
 import type { Rooms } from "./rooms.ts";
 import { createGate } from "../unattended/gate.ts";
 import { revalidateDevice } from "./rooms-device.ts";
@@ -195,6 +196,7 @@ export function attachSignaling(
   });
   const missed = new WeakMap<WebSocket, number>();
   const u = upgradeCtx(app, rooms, wss, missed);
+  if (app.hasDecorator("fsrv")) bindFsrv(rooms, app.fsrv.service); // P28b: wiring.ts kurar, sinyal bağlar
   // Etiketsiz seri: toplam; P8b `role="request"|"panel"` serileri (devops metrik adı).
   rooms.metrics.gauge("rs_ws_connections", "Açık WS bağlantıları (anlık)", () => ({
     "": wss.clients.size,

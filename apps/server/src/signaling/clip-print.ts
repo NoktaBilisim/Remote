@@ -18,10 +18,11 @@ import {
   type PrintResult,
 } from "@remote/contracts/ws-clip-print";
 import type { JsonObject } from "../audit/mask.ts";
+import { printDone } from "../fsrv/lifecycle.ts";
 import { writeAudit, type AuditContext } from "../audit/service.ts";
 import { CUSTOMER, guestCtx, logFail, SYSTEM, SYSTEM_CTX } from "./control-record.ts";
 import type { Rooms } from "./rooms.ts";
-import { guestFeatures } from "./rooms-features.ts";
+import { guestFeatures, hasFsrv } from "./rooms-features.ts";
 import type { ClipPrintActor, ClipPrintRoom, Guest, Room, TechConn } from "./types.ts";
 
 const MINUTE_MS = 60_000;
@@ -73,7 +74,9 @@ export function actorMay(room: Room, tech: TechConn, feature: GuestFeature): boo
 function guestGate(room: Room, feature: GuestFeature): Denial | null {
   const g = room.admitted;
   if (!g?.peer) return deny("CONFLICT", "no_guest", "Müşteri bağlı değil.");
-  if (g.kind !== "AGENT" || !guestFeatures(room).has(feature))
+  // P28b §5.3–5.4: SERVER odasında yazdırma yalnız sunucu yolundan — fsrv'siz (≤ 0.13) istemciye iletilmez.
+  const serverPathMissing = feature === "print" && room.fileMode === "SERVER" && !hasFsrv(room, g.peer);
+  if (g.kind !== "AGENT" || !guestFeatures(room).has(feature) || serverPathMissing)
     return deny("FORBIDDEN", "feature", "Müşterinin uygulaması bu özelliği desteklemiyor — güncel sürümü indirmesini isteyin.");
   if (room.control.state !== "GRANTED") return deny("FORBIDDEN", "control", "Önce uzaktan kontrol izni alın.");
   return null;
@@ -288,6 +291,20 @@ function finishPrint(rooms: Rooms, room: Room, o: PrintOutcome): void {
       },
     },
   );
+  // P28b §3.2/§5.3: P28a son durumu → bekleyen PRINT aktarımının diski silinir (EXPIRED).
+  const svc = rooms.fsrv;
+  if (svc && room.fileMode === "SERVER")
+    void printDone(svc, room.sessionId, p.pid).catch((err: unknown) => void logFail(rooms, room, "fsrv_print_done_failed", err));
+}
+
+/**
+ * P28b §5.3 (D-P28b-3): SERVER modunda yazdırma belgesi virüslü / taranamadı / kapıda reddedildi → misafire `print.cancel`
+ * (Go bekleyen işi kapatır), teknisyene `print.status{ERROR}`, audit `reportedBy:"server"`. Yalnız bekleyen pid.
+ */
+export function failPrint(rooms: Rooms, room: Room, pid: string): void {
+  if (room.clipPrint.printPending?.pid !== pid) return;
+  room.admitted?.peer?.send({ t: "print.cancel", pid });
+  finishPrint(rooms, room, { decision: "NONE", result: "ERROR", reportedBy: "server" });
 }
 
 /** print.report (guest → S): yalnız bekleyen pid; boyut sunucunun yetkilediği değerdir (misafir beyanı audit'e girmez). */

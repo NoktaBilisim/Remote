@@ -30,6 +30,7 @@ import type { UploadStore } from "./uploads/store.ts";
 import { unattendedRegisterRoutes, unattendedRoutes } from "./unattended/routes.ts";
 import { publicUnattendedRoutes } from "./unattended/public-download.ts";
 import { customerSendRoutes } from "./customer-send/routes.ts";
+import { fsrvRoutes, storedFileLinkRoutes } from "./fsrv/routes.ts";
 
 /** CSP / başlıklar (mimari §5.4, G-19, AC-126). connect-src WS origin'i portu içerir. */
 function helmetOptions(env: Env) {
@@ -106,6 +107,9 @@ function registerAdminRoutes(app: FastifyInstance, deps: AppDeps, uploads: Uploa
   // LG (mimari-link-gonderme §4.2): müşteriye gönderim (oturumlu) + servis indirme bağlantısı (oturumsuz, ayrı eklenti; D-LG-2).
   void app.register(customerSendRoutes, { prefix: "/api/v1/customer-send" });
   void app.register(publicUnattendedRoutes, { prefix: "/api/v1/public/unattended" });
+  // P28b (mimari-p28b §4): bayt uçları (çerezsiz, Bearer) + geçmiş link ucu (çerez + CSRF).
+  void app.register(fsrvRoutes, { prefix: "/api/v1/fsrv" });
+  void app.register(storedFileLinkRoutes, { prefix: "/api/v1/sessions" });
 }
 
 /** Tüm eklenti ve rota kayıtları, buildApp'teki sırayla. */

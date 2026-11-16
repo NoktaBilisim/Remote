@@ -35,6 +35,8 @@ func (s *session) onServer(ctx context.Context, m signal.Inbound) (Outcome, bool
 		s.onBinding(ctx, m)
 	case signal.ClipConsent, signal.ClipPush, signal.ClipPull, signal.PrintRequest, signal.PrintCancel:
 		s.cp.onServer(m)
+	case signal.FsrvUpload, signal.FsrvStatus, signal.FsrvOffer, signal.FsrvDownload:
+		s.onFsrv(ctx, m)
 	case signal.ErrorMsg:
 		s.onError(m)
 	}
@@ -106,6 +108,8 @@ func (s *session) onHello(ctx context.Context, h signal.Hello) (Outcome, bool) {
 	s.cp.reset()                  // P28a: yeni soket — önceki bekleyen kimlikler geçersiz
 	s.helloEnv(ctx)               // K8: hello'dan hemen sonra tek env.state (monitör seçimi beklenmez)
 	s.applyHello(h)
+	s.fixFileMode(h) // P28b: capsChanged'dan önce (SERVER modunda yazdırma `print` caps'ine bakmaz)
+	s.flushFsrvCancels(ctx)
 	s.cp.capsChanged()
 	s.dropPeer()
 	p, err := s.d.NewPeer(s.ice, s.caps, s.handlers(ctx))

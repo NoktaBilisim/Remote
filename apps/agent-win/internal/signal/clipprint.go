@@ -25,7 +25,7 @@ const (
 	PrintGuestTransferMs     = 480_000
 	PrintMaxPages            = 100_000
 	IDReuseWindow            = 64
-	guestFeaturesMax         = 2
+	guestFeaturesMax         = 3 // P28b: + fsrv (`PEER_FEATURES`)
 	clipPrintIDPatternString = `^[A-Za-z0-9_-]{8,26}$`
 )
 
@@ -42,7 +42,7 @@ var (
 	clipGuestResults   = []string{"OK", "EMPTY", "TOO_LARGE", "SENSITIVE", "INVALID", "DENIED", "ERROR", "TIMEOUT"}
 	printGuestResults  = []string{"PRINTED", "NO_PRINTER", "REJECTED", "TIMEOUT", "INVALID_PDF", "TOO_LARGE", "BUSY", "CANCELLED", "ERROR"}
 	printDecisions     = []string{"APPROVED", "REJECTED", "TIMEOUT", "NONE"}
-	guestFeatureValues = []string{"clipboard", "print"}
+	guestFeatureValues = []string{"clipboard", "print", "fsrv"} // P28b: + fsrv
 )
 
 // --- Sunucu → misafir ---
@@ -94,7 +94,7 @@ func validPrintRequest(m *PrintRequest) bool {
 	return cpIDRe.MatchString(m.PID) && m.SizeBytes >= PrintMinBytes && m.SizeBytes <= PrintMaxBytes
 }
 
-// validGuestFeatures hello/peer.joined `guestFeatures?`: en çok 2, bilinen ve benzersiz.
+// validGuestFeatures hello/peer.joined `guestFeatures?`: en çok 3, bilinen ve benzersiz.
 func validGuestFeatures(list []string) bool {
 	if len(list) > guestFeaturesMax {
 		return false

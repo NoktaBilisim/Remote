@@ -103,3 +103,24 @@ func (u *UI) FileResult(r transfer.Result) {
 		win.ShowWindow(u.sess.fileBtn.h, win.SW_HIDE)
 	})
 }
+
+// FileServerMode P28b (AC-363): oturumun dosya modu ilk hello'da bildirilir; oturum penceresi bu bayrakla kurulur
+// (hello pencereden önce gelir).
+func (u *UI) FileServerMode(server bool) {
+	u.t.Do(func() { u.fileServer = server })
+}
+
+// FileServerStatus P28b dosya alanı durumu ("Yükleniyor %n", "Virüs taraması yapılıyor"); final (virüs/taranamadı)
+// metin sohbet geçmişine "Sistem" satırı olarak düşer ve dosya alanı temizlenir. Dosya adı içermez.
+func (u *UI) FileServerStatus(text string, final bool) {
+	u.t.Do(func() {
+		if u.sess == nil {
+			return
+		}
+		if final {
+			appendLine(u.sess.history, "Sistem", text)
+			text = ""
+		}
+		win.SetText(u.sess.fileLbl.h, text)
+	})
+}

@@ -146,3 +146,13 @@ REVOKE IF EXISTS ALTER, DROP, INDEX, TRIGGER, REFERENCES ON unattended_registrat
 -- customer_notify_contacts: panel düzenleme (TX'te DELETE + INSERT), müşteri anonimleştirmesi ve firma silme DELETE.
 GRANT SELECT, INSERT, UPDATE, DELETE ON customer_notify_contacts TO 'app'@'%';
 REVOKE IF EXISTS ALTER, DROP, INDEX, TRIGGER, REFERENCES ON customer_notify_contacts FROM 'app'@'%';
+
+-- P28b session_stored_files (mimari-p28b §3.1–3.4; AC-355..362). INSERT (fsrv.init kota rezervasyonu TX'i), sütun düzeyi UPDATE
+-- (durum makinesi alanları; kimlik/ad/boyut/sha/key_ver/oturum/yön değiştirilemez), DELETE (anonimleştirme aynı TX, purgeAnonymized,
+-- firma silme). Tetikleyici yok; kurallar CHECK + bileşik session FK'de. DDL yok. Sütun GRANT'ı tablo düzeyi REVOKE'tan SONRA.
+-- support_sessions.file_mode: tablo düzeyi UPDATE P2'den beri var (sütun düzeyinde geri alınamaz) → değişmezlik
+-- support_sessions_update_guard'da (migration 20261123000000). tenants.storage_quota_gb: tablo düzeyi UPDATE (P1) yeterli.
+GRANT SELECT, INSERT, DELETE ON session_stored_files TO 'app'@'%';
+REVOKE IF EXISTS UPDATE, ALTER, DROP, INDEX, TRIGGER, REFERENCES ON session_stored_files FROM 'app'@'%';
+GRANT UPDATE (state, scan_reason, signature, storage_rel, delivered_at, expires_at, scanned_at, deleted_at, updated_at)
+    ON session_stored_files TO 'app'@'%';

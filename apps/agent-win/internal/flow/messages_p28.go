@@ -1,5 +1,11 @@
 package flow
 
+import (
+	"strconv"
+
+	"remote-support/agent-win/internal/signal"
+)
+
 // P28a pano + uzaktan yazdırma metinleri (mimari-p28 §5.3 "Metinler": tek tablo). Web misafir sayfası bu özellikleri
 // göstermediği için `tr.json` eşi yoktur. K5 (internal/ui) anahtar etiketini ve onay diyaloğunu buradan basar.
 
@@ -35,3 +41,50 @@ const (
 	noticePrinted       = "Belge yazıcıya gönderildi"
 	statusPrintCanceled = "Uzaktan kontrol kapandı; yazdırma iptal edildi."
 )
+
+// P28b sunucu üzerinden dosya metinleri (mimari-p28b §7.2, §8, §9; AC-358, 359, 363). Web `tr.json` ile aynı cümleler.
+// Misafir istemci yükleme başlatmadığından gönderen tarafı metinleri (SESSION_LIMIT, "Alıcı reddetti") burada yoktur.
+const (
+	// TextFileServerMode AC-363: SERVER modunda dosya alanı bilgi satırı (internal/ui).
+	TextFileServerMode   = "Dosyalar sunucuda virüs taramasından geçer; bu modda uçtan uca şifreli değildir"
+	textFsrvUploading    = "Yükleniyor %"
+	textFsrvScanning     = "Virüs taraması yapılıyor"
+	textFsrvInfected     = "Dosya virüslü bulundu ("
+	textFsrvNotDelivered = "), teslim edilmedi"
+	textFsrvUnknownSig   = "bilinmeyen imza"
+	textFsrvScanFailed   = "Dosya taranamadı, teslim edilmedi: "
+	textFsrvScannerBusy  = "Virüs tarama servisi yoğun, dosya teslim edilmedi"
+)
+
+// fsrvScanReasonTexts `SCAN_FAILED` nedenleri (§7.2 tablo).
+var fsrvScanReasonTexts = map[string]string{
+	"UNAVAILABLE": "tarama servisine ulaşılamadı",
+	"TIMEOUT":     "tarama zaman aşımı",
+	"ENCRYPTED":   "şifreli arşiv",
+	"LIMIT":       "tarama boyut sınırı",
+	"ERROR":       "tarama hatası",
+}
+
+// fsrvStatusText dosya alanı metni; final = sonuç (sohbet geçmişine de düşer). Diğer durumlar boş (gösterilmez).
+func fsrvStatusText(m signal.FsrvStatus) (string, bool) {
+	switch m.State {
+	case "UPLOADING":
+		if m.Progress != nil {
+			return textFsrvUploading + strconv.Itoa(*m.Progress), false
+		}
+	case "SCANNING":
+		return textFsrvScanning, false
+	case "INFECTED":
+		sig := m.Signature
+		if sig == "" {
+			sig = textFsrvUnknownSig
+		}
+		return textFsrvInfected + sig + textFsrvNotDelivered, true
+	case "SCAN_FAILED":
+		if m.Reason == "BUSY" {
+			return textFsrvScannerBusy, true
+		}
+		return textFsrvScanFailed + fsrvScanReasonTexts[m.Reason], true
+	}
+	return "", false
+}

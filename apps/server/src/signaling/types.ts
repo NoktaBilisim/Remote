@@ -2,6 +2,7 @@
 // bağlantısı ve saat. DB'ye yazılmaz; süreç yeniden başlarsa ACTIVE oturumlar ENDED{server} yapılır.
 import type { Cap, GuestKind, ServerOutbound, ShareSnapshot } from "@remote/contracts/ws";
 import type { ClipDirection, GuestFeature } from "@remote/contracts/ws-clip-print";
+import type { FileMode, FsrvDirection } from "@remote/contracts/ws-fsrv";
 import type { PermissionKey, Role } from "@remote/contracts/permissions";
 import type { ControlAuditAction } from "@remote/contracts/audit";
 import { LOBBY_GUEST_MAX } from "@remote/contracts/api/sessions";
@@ -24,6 +25,11 @@ export interface Peer {
    * boş). Oda özelliği bağlı ADMITTED misafirin soketinden okunur — misafir ayrılınca kendiliğinden boşalır.
    */
   features?: ReadonlySet<GuestFeature>;
+  /**
+   * P28b (mimari-p28b §5.1): soket sunucu dosya yolunu destekliyor mu (`rs.cap.fsrv1` ya da nonce türü BROWSER; ws-auth).
+   * Gözetimsiz odada hiç atanmaz. Karar yalnız `hasFsrv(room, peer)` üzerinden okunur.
+   */
+  fsrv?: boolean;
 }
 
 /** Zamanlayıcı soyutlaması: üretimde gerçek saat, testlerde elle ilerletilen sahte saat (AC-13, AC-25). */
@@ -168,6 +174,16 @@ export interface ClipPrintRoom {
   logAt?: number;
 }
 
+/** P28b WS kapı durumu (mimari-p28b §5.2 adım 4 ve 6, xid tekrar penceresi). Bellekte; içerik yok. */
+export interface FsrvRoom {
+  /** Son 60 sn'de kapı 6'yı geçen `fsrv.init` anları (≤ FSRV_INIT_PER_MIN). */
+  initTimes: number[];
+  /** İşlenmiş son ID_REUSE_WINDOW `xid` (tekrar → VALIDATION). */
+  xids: string[];
+  /** `svc.begin` sürerken yön tutulur (çift init yarışı; kapı 4). */
+  starting: Set<FsrvDirection>;
+}
+
 export interface Room {
   sessionId: string;
   /** P8b: talepten doğan oturum (guest.admit/guest.reject → CONFLICT; P15 `acceptCode` açıksa izinli). */
@@ -193,6 +209,13 @@ export interface Room {
   reconnectHash?: string;
   maxEndsAt?: number;
   caps: Cap[];
+  /**
+   * P28b (AC-355): oturumun dosya modu — admit anında `support_sessions.file_mode`'dan okunur, oturum boyunca değişmez.
+   * Yoksa (PENDING / eski literal) P2P.
+   */
+  fileMode?: FileMode;
+  /** P28b `fsrv.*` kapı durumu (signaling/fsrv.ts; ilk init'te kurulur). */
+  fsrv?: FsrvRoom;
   /** P5: tenant dosya üst sınırı (MB), admit anında okunur; hello/peer.joined ile iki tarafa (AC-53). */
   maxFileMb?: number;
   /**
