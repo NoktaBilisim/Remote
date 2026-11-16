@@ -22,7 +22,7 @@ import { handleRequests, requestUser } from "./mock-requests.mjs";
 import { handleLobby, handleSessions, lobbyHook, sessionUser } from "./mock-sessions.mjs";
 import { handleUsers, usersUser } from "./mock-users.mjs";
 import { recHook, recRid } from "./mock-ws.mjs";
-import { ageRoom, attachWs, fsrvOfferToTech, fsrvWsLog, revokeControl, strayGrant, wsLog } from "./mock-ws.mjs";
+import { ageRoom, attachWs, fsrvOfferToTech, fsrvWsLog, guestRoster, revokeControl, strayGrant, wsLog } from "./mock-ws.mjs";
 
 const PORT = Number(process.env.MOCK_API_PORT ?? 4010);
 const CSRF = "csrf-test-token";
@@ -143,6 +143,9 @@ const srv = createServer(async (req, res) => {
   // P7 e2e: canlı yetki kaldırma (AC-115) — misafire control.revoke + caps.update, teknisyene control.state{VIEW,SYSTEM}
   const revokeHit = req.method === "GET" && url.match(/^\/__e2e\/revoke\/([0-9A-Z]{26})$/);
   if (revokeHit) return send(res, revokeControl(revokeHit[1]) ? 200 : 404, {});
+  // P28c K2b: misafire iki teknisyenli roster (müşteri "Bağlı teknisyenler" + "Çıkar")
+  const grHit = req.method === "GET" && url.match(/^\/__e2e\/guest-roster\/([0-9A-Z]{26})$/);
+  if (grHit) return send(res, guestRoster(grHit[1]) ? 200 : 404, {});
   // P7 düzeltme 1 (S7-2): teknisyene istenmemiş control.state{GRANTED} (sunucu kuralını atlayan yarış/hata taklidi)
   const strayHit = req.method === "GET" && url.match(/^\/__e2e\/stray-grant\/([0-9A-Z]{26})$/);
   if (strayHit) return send(res, strayGrant(strayHit[1]) ? 200 : 404, {});

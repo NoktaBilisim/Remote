@@ -19,7 +19,7 @@ import type { AnnotColor } from "@/lib/dc/ctl";
 import { useCollab } from "@/lib/dc/use-collab";
 import { useQuality } from "@/lib/webrtc/use-quality";
 import { useTechSession } from "@/lib/webrtc/use-tech-session";
-import { MULTI_ERROR_MESSAGES } from "@remote/contracts/api/multi";
+import { inviteBlockOf } from "@/lib/multi/errors";
 import { canSend, chatAuthor, seatOf, type Seat } from "@/lib/multi/roster";
 import { ConsoleHeader } from "./console-header";
 import { ConfirmEndDialog, ConsoleEnded } from "./console-parts";
@@ -93,7 +93,14 @@ export function ConsoleView({
 
       {/* P28c (§10): teknisyenler paneli (roster, davet, devir, ayrılma) */}
       {state.phase !== "ended" && (
-        <TechsPanel ts={ts} sessionId={session.id} seat={seat} canInvite={canInvite} inviteBlock={inviteBlockOf(state)} now={now} />
+        <TechsPanel
+          ts={ts}
+          sessionId={session.id}
+          seat={seat}
+          canInvite={canInvite}
+          inviteBlock={inviteBlockOf(state.unattended?.consentMode, state.guestMulti)}
+          now={now}
+        />
       )}
 
       {/* P28e (§9): kayıt göstergesi + kaydedici (tüm teknisyenlerde gösterge; kaydedici yalnız upload alan sokette) */}
@@ -159,11 +166,6 @@ export function ConsoleView({
 function mySeat(s: ReturnType<typeof useTechSession>["state"], isOwner: boolean): Seat {
   if (!isOwner && s.tid === null && s.techRole === null) return { owner: false, controller: false, observer: false };
   return seatOf(s.roster, s.tid, s.techRole);
-}
-
-/** P28c (V-PC-5, O-PC-5): izinli (`asked`) gözetimsiz odaya ek teknisyen katılamaz — "Davet et" baştan pasif. */
-function inviteBlockOf(s: ReturnType<typeof useTechSession>["state"]): string | null {
-  return s.unattended?.consentMode === "asked" ? MULTI_ERROR_MESSAGES.JOIN_NOT_ALLOWED : null;
 }
 
 /**

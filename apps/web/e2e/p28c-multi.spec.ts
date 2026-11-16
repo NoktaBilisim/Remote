@@ -1,5 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
-import { axeScan, desktopOnly, guardConsole, noHorizontalOverflow, scanBoth, signIn } from "./helpers";
+import { axeScan, desktopOnly, guardConsole, newSession, noHorizontalOverflow, scanBoth, signIn } from "./helpers";
 
 // P28c-K2 (mimari-p28c r2 §10) — AC-364, 366, 367, 368, 369, 372 (arayüz). Sahte API: e2e/mock-p28c.mjs (u-p28c*),
 // konsol WS'i e2e/mock-ws.mjs (`multiHello` → hello tid/techRole/roster).
@@ -100,14 +100,31 @@ test("AC-364/367/369 sahip: Kontrolü ver, Oturumu devret onayı, Davet et (aram
   await expect(page.getByTestId("techs-invite")).toBeEnabled();
 });
 
-test("AC-372 misafir multi1 yok: aday listesi 409 → AC-352 metni, Davet et pasif", async ({ page, context }) => {
+test("AC-372 misafir multi1 yok (hello.guestMulti=false): Davet et baştan pasif + AC-352 metni", async ({ page, context }) => {
   await signIn(context, "p28cunsup");
   await ownConsole(page);
-  await page.getByTestId("techs-invite").click();
-  await expect(page.getByTestId("invite-blocked")).toContainText("güncel sürümü indirmesini isteyin");
-  await page.getByTestId("invite-dialog").getByRole("button", { name: "Vazgeç" }).click();
   await expect(page.getByTestId("techs-invite")).toBeDisabled();
   await expect(page.getByTestId("techs-invite-block")).toContainText("güncel sürümü indirmesini isteyin");
+  await expect(page.getByTestId("techs-invite")).toHaveAttribute("aria-describedby", /.+/);
+});
+
+test("AC-364 bekleyen giden davet sunucudan (GET …/invites): sayfa yenilenince de görünür, Geri çek", async ({ page, context }) => {
+  await signIn(context, "p28cown");
+  await ownConsole(page);
+  await expect(page.getByTestId("techs-pending")).toHaveCount(0);
+  await page.getByTestId("techs-invite").click();
+  await page.getByTestId("invite-dialog").getByRole("button", { name: "Davet et: Kerem Yardımcı" }).click();
+  await expect(page.getByTestId("techs-pending")).toContainText("Kerem Yardımcı");
+  await page.reload();
+  await expect(page.getByTestId("console")).toHaveAttribute("data-phase", "live");
+  await page.getByTestId("techs-toggle").click();
+  await expect(page.getByTestId("techs-pending")).toContainText("Kerem Yardımcı");
+  await page.getByRole("button", { name: "Daveti geri çek: Kerem Yardımcı" }).click();
+  await expect(page.getByTestId("techs-pending")).toHaveCount(0);
+  await page.reload();
+  await page.getByTestId("techs-toggle").click();
+  await expect(page.getByTestId("techs-row")).toHaveCount(2);
+  await expect(page.getByTestId("techs-pending")).toHaveCount(0);
 });
 
 test("AC-287 etkin oturumlar + davet kartı 375 px, açık/koyu: taşma yok, axe 0; konsol paneli axe", async ({
@@ -127,4 +144,56 @@ test("AC-287 etkin oturumlar + davet kartı 375 px, açık/koyu: taşma yok, axe
   await expect(page.getByTestId("techs-row")).toHaveCount(2);
   await noHorizontalOverflow(page);
   expect(await axeScan(page, '[data-testid="techs-panel"]')).toEqual([]);
+});
+
+test("AC-370 audit: 'Çoklu teknisyen' seçenek grubu → P28c eylemi süzülür, Türkçe etiket", async ({ page, context }, info) => {
+  desktopOnly(info.project.name);
+  await signIn(context, "auadm");
+  await page.goto("/audit");
+  const sel = page.getByTestId("audit-filters").getByLabel("İşlem");
+  await expect(sel.locator('optgroup[label="Çoklu teknisyen"] option')).not.toHaveCount(0);
+  await sel.selectOption("session.participant_remove");
+  await page.getByTestId("audit-filters").getByTestId("filter-apply").click();
+  await expect(page).toHaveURL(/action=session\.participant_remove/);
+  const row = page.locator('[data-testid="audit-row"], [data-testid="audit-card"]').filter({ visible: true });
+  await expect(row).toHaveCount(1);
+  await expect(row.first()).toContainText("Müşteri teknisyeni çıkardı");
+});
+
+test("AC-366 müşteri 'Bağlı teknisyenler': roster çizilir, sahipte Çıkar yok; Çıkar onaylı → tech.remove → listeden düşer", async ({
+  page,
+  browser,
+  context,
+}, info) => {
+  desktopOnly(info.project.name);
+  await signIn(context, "p5");
+  const s = await newSession(page);
+  await page.goto(`/sessions/${s.id}/console`);
+  const g = await (await browser.newContext()).newPage();
+  await g.goto(new URL(s.link).pathname);
+  await expect(g.getByTestId("join-form")).toHaveAttribute("data-ready", "true");
+  await g.getByTestId("guest-name").fill("Ali Müşteri");
+  await g.getByTestId("guest-consent").check();
+  await g.getByTestId("join-browser").click();
+  const code = ((await g.getByTestId("admit-code").getAttribute("aria-label")) ?? "").replace(/\s/g, "");
+  await page.getByTestId("admit-input").fill(code);
+  await page.getByTestId("admit-submit").click();
+  await expect(page.getByTestId("console-status")).toHaveText("Aktif");
+  expect((await page.request.get(`http://127.0.0.1:4217/__e2e/guest-roster/${s.id}`)).status()).toBe(200);
+  const list = g.getByTestId("guest-techs");
+  await expect(list.getByTestId("guest-tech")).toHaveCount(2);
+  await expect(list).toContainText("Oturum sahibi");
+  await expect(list.getByTestId("guest-tech-remove")).toHaveCount(1); // sahip çıkarılamaz
+  await list.getByRole("button", { name: "Çıkar: Burak Katılımcı" }).click();
+  const dlg = g.getByTestId("guest-remove-confirm");
+  await expect(dlg).toContainText("Burak Katılımcı oturumdan çıkarılsın mı?");
+  await expect(dlg.getByRole("button", { name: "Vazgeç" })).toBeFocused();
+  await dlg.getByRole("button", { name: "Vazgeç" }).click();
+  await expect(list.getByTestId("guest-tech")).toHaveCount(2);
+  await list.getByRole("button", { name: "Çıkar: Burak Katılımcı" }).click();
+  await dlg.getByTestId("guest-remove-ok").click();
+  await expect(list.getByTestId("guest-tech")).toHaveCount(1);
+  await expect(list).not.toContainText("Burak Katılımcı");
+  expect(await axeScan(g, '[data-testid="guest-techs"]')).toEqual([]);
+  await g.context().close();
 });

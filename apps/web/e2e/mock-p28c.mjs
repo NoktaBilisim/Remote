@@ -3,7 +3,7 @@
 //   p28cinv  USER (sessions.view): 2 gelen davet (biri silent); Katıl → üye konsolu (katılımcı roster'ı); Reddet → 204.
 //   p28csup  ADMIN (sessions.supervise): etkin oturumlar (normal / desteklemiyor / asked / silent); İzle → izleyici konsolu.
 //   p28cown  USER (sessions.invite): sahip konsolu; roster'da bağlı katılımcı; adaylar; davet 201 / geri çek 204.
-//   p28cunsup aynı (sahip) ama adaylar 409 CLIENT_UNSUPPORTED (AC-372). Sahip konsolu kimliği: GET /api/v1/__e2e/p28c-own.
+//   p28cunsup aynı (sahip) ama hello.guestMulti=false (AC-372; adaylar yine 409 CLIENT_UNSUPPORTED — yarış yolu). Sahip konsolu kimliği: GET /api/v1/__e2e/p28c-own.
 // Konsol WS'i mock-ws.mjs: kayıttaki `multiHello` teknisyen hello'suna eklenir (tid/techRole/roster).
 import { createInviteInputSchema, joinWithReasonInputSchema, MULTI_ERROR_MESSAGES } from "@remote/contracts/api/multi";
 import { techsRosterSchema } from "@remote/contracts/ws-multi";
@@ -76,13 +76,14 @@ function seed(id, ownerSelf, multiHello) {
   byId.set(id, { view, token: `p28c-${id}`, ref: `p28c-${id}`, multiHello });
 }
 const stores = new Map();
-function store(cookie) {
+function store(cookie, kind) {
   let s = stores.get(cookie);
   if (s) return s;
   const ids = { inv: ulid(), sup: ulid(), own: ulid() };
-  seed(ids.inv, false, { tid: TID.ME, techRole: "participant", roster: roster("participant") });
-  seed(ids.sup, false, { tid: TID.ME, techRole: "observer", roster: roster("observer") });
-  seed(ids.own, true, { tid: TID.ME, techRole: "owner", roster: ownerRoster() });
+  seed(ids.inv, false, { tid: TID.ME, techRole: "participant", roster: roster("participant"), guestMulti: true });
+  seed(ids.sup, false, { tid: TID.ME, techRole: "observer", roster: roster("observer"), guestMulti: true });
+  // K1c (AC-372): p28cunsup misafiri multi1 bildirmedi → hello.guestMulti=false ("Davet et" baştan pasif)
+  seed(ids.own, true, { tid: TID.ME, techRole: "owner", roster: ownerRoster(), guestMulti: kind !== "p28cunsup" });
   s = {
     ids,
     invites: [
@@ -158,6 +159,7 @@ function store(cookie) {
       },
     ],
     sent: [],
+    seq: 0,
   };
   stores.set(cookie, s);
   return s;
@@ -165,7 +167,8 @@ function store(cookie) {
 
 /** Panel kabuğu her sayfada yoklar: P28c dışı kullanıcılara boş liste. */
 export function emptyInvites(url) {
-  return url.split("?")[0] === "/api/v1/sessions/invites";
+  const path = url.split("?")[0];
+  return path === "/api/v1/sessions/invites" || /^\/api\/v1\/sessions\/[0-9A-Z]{26}\/invites$/.test(path);
 }
 
 export async function handleP28c(req, res, { url, session, csrfOk, send, err, readJson }) {
@@ -173,7 +176,7 @@ export async function handleP28c(req, res, { url, session, csrfOk, send, err, re
   if (!who) return false;
   const path = url.split("?")[0];
   const m = req.method;
-  const s = store(session);
+  const s = store(session, who.kind);
   const ok = (st, body) => (send(res, st, body), true);
   // Test kancası: çerezin sahip konsolu oturum kimliği
   if (m === "GET" && path === "/api/v1/__e2e/p28c-own") return ok(200, { id: s.ids.own });
@@ -195,18 +198,29 @@ export async function handleP28c(req, res, { url, session, csrfOk, send, err, re
       ],
     });
   }
+  // K1c: sahibin bekleyen giden davetleri (bitişe göre artan; süresi dolan düşer)
+  const out = path.match(/^\/api\/v1\/sessions\/([0-9A-Z]{26})\/invites$/);
+  if (m === "GET" && out) {
+    if (out[1] !== s.ids.own) return ok(200, { items: [] });
+    const now = Date.now();
+    return ok(200, { items: s.sent.filter((x) => Date.parse(x.expiresAt) > now) });
+  }
   if (m === "GET") return false;
   if (!csrfOk) return ok(403, err("CSRF_INVALID", "CSRF doğrulaması başarısız."));
   const inv = path.match(/^\/api\/v1\/sessions\/([0-9A-Z]{26})\/invites$/);
   if (m === "POST" && inv) {
     const p = createInviteInputSchema.safeParse(await readJson(req));
     if (!p.success) return ok(400, err("VALIDATION", "Doğrulama hatası"));
-    const r = { inviteId: `snt${String(s.sent.length).padStart(19, "0")}`, expiresAt: iso(120_000) };
-    s.sent.push(r.inviteId);
+    const r = { inviteId: `snt${String(s.seq++).padStart(19, "0")}`, expiresAt: iso(120_000) };
+    const names = { "01JKRP28C0000000000000000A": "Kerem Yardımcı", "01JKRP28C0000000000000000B": "Selin Destek" };
+    s.sent.push({ inviteId: r.inviteId, userId: p.data.userId, inviteeName: names[p.data.userId] ?? "Teknisyen", expiresAt: r.expiresAt });
     return ok(201, r);
   }
   const del = path.match(/^\/api\/v1\/sessions\/([0-9A-Z]{26})\/invites\/([\w-]{22})$/);
-  if (m === "DELETE" && del) return (send(res, 204), true);
+  if (m === "DELETE" && del) {
+    s.sent = s.sent.filter((x) => x.inviteId !== del[2]);
+    return (send(res, 204), true);
+  }
   const acc = path.match(/^\/api\/v1\/sessions\/invites\/([\w-]{22})\/(accept|reject)$/);
   if (m === "POST" && acc) {
     const i = s.invites.find((x) => x.inviteId === acc[1]);

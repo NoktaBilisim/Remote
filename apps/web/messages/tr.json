@@ -2532,7 +2532,11 @@
   "mt.h.joined": "Katılma",
   "mt.h.left": "Ayrılma",
   "mt.h.stillIn": "Oturum sonuna kadar",
-  "mt.h.role.OWNER": "Oturum sahibi",
-  "mt.h.role.PARTICIPANT": "Katılımcı",
-  "mt.h.role.OBSERVER": "İzleyici"
+  "mt.h.role.owner": "Oturum sahibi",
+  "mt.h.role.participant": "Katılımcı",
+  "mt.h.role.observer": "İzleyici",
+  "mt.h.transferred": "Devir:",
+  "mt.h.removed": "Müşteri çıkardı",
+  "mt.tl.role": "Rol: {role}",
+  "mt.tl.invitee": "Davet edilen: {name}"
 }

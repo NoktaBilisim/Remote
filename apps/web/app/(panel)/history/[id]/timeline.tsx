@@ -1,17 +1,15 @@
-import { describeTimelineEvent, labelOf, SESSION_ENDED_BY_LABELS } from "@remote/contracts/labels";
-import { MULTI_AUDIT_LABELS } from "@remote/contracts/audit";
+import { labelOf, SESSION_ENDED_BY_LABELS } from "@remote/contracts/labels";
 import { ShieldUser } from "lucide-react";
 import { formatNumber, formatTimeSeconds } from "@/lib/format";
 import { t } from "@/lib/i18n";
+import { describeEvent } from "@/lib/multi/timeline";
 import { Muted, type D } from "./sections";
 
 type Ev = D["timeline"][number];
 
 function TimelineEvent({ e }: { e: Ev }) {
-  const d = describeTimelineEvent(e);
-  // P28c (§9): çoklu teknisyen olayları contracts zaman çizelgesi etiketlerinde yoksa (K0) web etiket tablosundan
-  const multi = (MULTI_AUDIT_LABELS as Readonly<Record<string, string>>)[e.action];
-  const v = d.label === e.action && multi ? { ...d, label: multi } : d;
+  // P28c (§9): çoklu teknisyen olayları contracts etiketinde yoksa `MULTI_AUDIT_LABELS` + rol/neden notu (lib/multi/timeline)
+  const v = describeEvent(e);
   const who = `${labelOf(SESSION_ENDED_BY_LABELS, e.actor)}${e.actorName ? ` · ${e.actorName}` : ""}`;
   return (
     <li className="text-sm" data-testid="timeline-event" data-action={e.action}>

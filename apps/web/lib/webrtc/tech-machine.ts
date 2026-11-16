@@ -77,6 +77,11 @@ export interface TechState {
   techRole: TechRole | null;
   /** P28c (AC-366): sunucu roster'ı (`hello.roster` + `techs.roster`); tek teknisyenli / eski sunucuda boş. */
   roster: TechRosterEntry[];
+  /**
+   * P28c K1c (AC-372): kabul edilmiş misafir `rs.cap.multi1` bildirdi mi (`hello`/`peer.joined{guest}` `guestMulti`). null = alan
+   * yok (kabul edilmiş misafir yok / eski sunucu) → engel değil; `false` → "Davet et" baştan pasif. Kısa kopuklukta son değer kalır.
+   */
+  guestMulti: boolean | null;
 }
 
 export type TechEvent =
@@ -112,6 +117,7 @@ export const initialTech: TechState = {
   tid: null,
   techRole: null,
   roster: [],
+  guestMulti: null,
 };
 
 /**
@@ -243,6 +249,7 @@ function onHello(s: TechState, m: MsgOf<"hello">, now: number): TechState {
     tid: m.tid ?? s.tid,
     techRole: m.techRole ?? s.techRole,
     roster: m.roster ? [...m.roster] : s.roster,
+    guestMulti: m.guestMulti ?? null,
     ...helloShare(s, x, active && m.peerPresent),
   };
 }
@@ -270,6 +277,7 @@ function onPeerJoined(s: TechState, m: MsgOf<"peer.joined">): TechState {
     guestFeatures: [...(m.guestFeatures ?? [])],
     clipConsent: false,
     fileMode: m.fileMode ?? s.fileMode,
+    guestMulti: m.guestMulti ?? null,
     // TEST-P4-2: canlı kabulde kalan süre sayacı sunucunun bildirdiği üst sınırla başlar (opsiyonel alan)
     maxEndsAt: joinedMaxEndsAt(m) ?? s.maxEndsAt,
   };

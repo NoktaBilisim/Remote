@@ -103,6 +103,8 @@ export function useGuestSession(cred: GuestCred, sessionRef: string | null = nul
       } else if (m.t === "ice") {
         const { candidate, sdpMid, sdpMLineIndex } = m;
         peers.ice(m.from, { candidate, sdpMid, sdpMLineIndex });
+      } else if (m.t === "ice.restart") {
+        peers.iceRestart(m.from); // P28c: `from` ile hedef eş; roster dışı tid yok sayılır
       } else if (m.t === "ice.servers") {
         peers.setIceServers(m.iceServers);
       }

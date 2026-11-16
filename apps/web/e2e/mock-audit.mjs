@@ -181,8 +181,22 @@ function seedItems(kind) {
       result: "fail",
       newValue: { recipient: "90532*****00", result: "fail", reason: "unreachable" },
     }),
+    // P28c K2b: çoklu teknisyen olayı (aktör müşteri) — "Çoklu teknisyen" seçenek grubu e2e'si. Toplam 60 kalsın diye döngü 50.
+    base({
+      id: "1055e",
+      createdAt: iso(390_000),
+      action: "session.participant_remove",
+      userId: null,
+      username: "customer",
+      userFullName: null,
+      ipAddress: "192.0.2.0/24",
+      userAgent: null,
+      entity: "support_sessions",
+      entityId: "01JHXST0000000000000000004",
+      newValue: { userId: "01JUSER0000000000000000099", role: "participant" },
+    }),
   ];
-  for (let i = 0; i < 51; i++) {
+  for (let i = 0; i < 50; i++) {
     items.push(
       base({
         id: String(1055 - i),

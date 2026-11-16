@@ -1,54 +1,41 @@
-import { Users } from "lucide-react";
+import type { SessionParticipant } from "@remote/contracts/api/sessions";
+import { ArrowRightLeft, Users } from "lucide-react";
 import { formatTimeSeconds } from "@/lib/format";
 import { t } from "@/lib/i18n";
-import { Muted, type D } from "./sections";
+import { leaveReasonLabel, PARTICIPANT_ROLE_KEY } from "@/lib/multi/timeline";
+
+function At({ at }: { at: string | null }) {
+  return at ? <time dateTime={at}>{formatTimeSeconds(at)}</time> : <>—</>;
+}
 
 /**
- * P28c (mimari-p28c §9, AC-369): `GET /sessions/:id/history` `participants` — contracts `SessionHistoryDetail` tipinde henüz yok
- * (K2 notu); yerel tip mimari §9'a göre, alan yoksa bölüm çizilmez (eski sunucu / tek teknisyen).
+ * P28c (mimari-p28c §9, AC-369): `SessionHistoryDetail.participants` — ad, son rol, katılma–ayrılma, ayrılma nedeni
+ * (`removed` = müşteri çıkardı), devir anı. Tek teknisyenli oturumda dizi boştur; bölüm o zaman çizilmez (sayfa).
  */
-export interface Participant {
-  name: string;
-  role: "OWNER" | "PARTICIPANT" | "OBSERVER";
-  joinedAt: string;
-  leftAt: string | null;
-}
-
-const ROLES = new Set(["OWNER", "PARTICIPANT", "OBSERVER"]);
-
-/** Savunmacı okuma: biçimi bozuk satır atlanır (sunucu sözleşmesi K1'de; web uydurmaz). */
-export function participantsOf(s: D): Participant[] | null {
-  const raw = (s as { participants?: unknown }).participants;
-  if (!Array.isArray(raw)) return null;
-  return raw.filter(
-    (p): p is Participant =>
-      !!p &&
-      typeof p === "object" &&
-      typeof (p as Participant).name === "string" &&
-      ROLES.has((p as Participant).role) &&
-      typeof (p as Participant).joinedAt === "string" &&
-      ((p as Participant).leftAt === null || typeof (p as Participant).leftAt === "string"),
-  );
-}
-
-export function Participants({ items }: { items: Participant[] }) {
-  if (items.length === 0) return <Muted testId="participants-empty">{t("h.d.none")}</Muted>;
+export function Participants({ items }: { items: readonly SessionParticipant[] }) {
   return (
     <ul className="flex flex-col gap-2" data-testid="participants">
-      {items.map((p, i) => (
-        <li
-          key={`${p.name}-${p.joinedAt}-${i}`}
-          className="flex flex-wrap items-baseline gap-x-3 gap-y-1 text-sm"
-          data-testid="participant"
-        >
+      {items.map((p) => (
+        <li key={p.userId} className="flex flex-wrap items-baseline gap-x-3 gap-y-1 text-sm" data-testid="participant" data-role={p.role}>
           <Users aria-hidden className="size-4 self-center text-fg-muted" />
           <span className="font-medium text-fg">{p.name}</span>
-          <span className="text-fg-muted">{t(`mt.h.role.${p.role}`)}</span>
+          <span className="text-fg-muted">{t(PARTICIPANT_ROLE_KEY[p.role])}</span>
           <span className="tabular-nums text-fg-muted">
-            <time dateTime={p.joinedAt}>{formatTimeSeconds(p.joinedAt)}</time>
+            <At at={p.joinedAt} />
             {" – "}
-            {p.leftAt ? <time dateTime={p.leftAt}>{formatTimeSeconds(p.leftAt)}</time> : t("mt.h.stillIn")}
+            {p.leftAt ? <At at={p.leftAt} /> : t("mt.h.stillIn")}
           </span>
+          {p.leaveReason && (
+            <span className="text-fg-muted" data-testid="participant-reason">
+              {leaveReasonLabel(p.leaveReason)}
+            </span>
+          )}
+          {p.transferredAt && (
+            <span className="inline-flex items-center gap-1 text-fg-muted" data-testid="participant-transfer">
+              <ArrowRightLeft aria-hidden className="size-3.5" />
+              {t("mt.h.transferred")} <At at={p.transferredAt} />
+            </span>
+          )}
         </li>
       ))}
     </ul>

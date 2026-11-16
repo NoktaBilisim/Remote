@@ -1,6 +1,6 @@
 "use client";
 
-import type { CreateInviteResponse, InviteCandidate, InviteCandidatesResponse } from "@remote/contracts/api/multi";
+import type { CreateInviteResponse, InviteCandidate, InviteCandidatesResponse, OutgoingInvite } from "@remote/contracts/api/multi";
 import { Search, UserPlus, Users } from "lucide-react";
 import { useCallback, useEffect, useId, useState } from "react";
 import { FormError } from "@/components/form-error";
@@ -18,14 +18,11 @@ import { joinBlockedMessage, multiUiError } from "@/lib/multi/errors";
 
 type Load = { kind: "loading" } | { kind: "error" } | { kind: "blocked"; message: string } | { kind: "ok"; items: InviteCandidate[] };
 
-export interface SentInvite {
-  inviteId: string;
-  expiresAt: string;
-  name: string;
-}
-
-/** Aday listesi (`GET …/invite-candidates`): 409 `CLIENT_UNSUPPORTED` / `JOIN_NOT_ALLOWED` → kalıcı pasif neden (AC-372, V-PC-5). */
-function useCandidates(sessionId: string, open: boolean, onBlocked: (m: string) => void) {
+/**
+ * Aday listesi (`GET …/invite-candidates`). Kalıcı pasiflik (`guestMulti === false`, `asked` oda) konsolda baştan bilinir; yarış
+ * durumunda sunucunun 409 `CLIENT_UNSUPPORTED` / `JOIN_NOT_ALLOWED` yanıtı burada uyarı olarak gösterilir.
+ */
+function useCandidates(sessionId: string, open: boolean) {
   const [load, setLoad] = useState<Load>({ kind: "loading" });
   const [seenOpen, setSeenOpen] = useState(false);
   // Her açılışta yükleniyor durumundan başlar (render sırasında, efektsiz)
@@ -42,14 +39,13 @@ function useCandidates(sessionId: string, open: boolean, onBlocked: (m: string) 
       (e: unknown) => {
         if (off) return;
         const m = joinBlockedMessage(e);
-        if (m) onBlocked(m);
         setLoad(m ? { kind: "blocked", message: m } : { kind: "error" });
       },
     );
     return () => {
       off = true;
     };
-  }, [open, sessionId, onBlocked, tick]);
+  }, [open, sessionId, tick]);
   const retry = useCallback(() => {
     setLoad({ kind: "loading" });
     setTick((n) => n + 1);
@@ -66,15 +62,13 @@ export function InviteDialog({
   open,
   onClose,
   onInvited,
-  onBlocked,
 }: {
   sessionId: string;
   open: boolean;
   onClose: () => void;
-  onInvited: (i: SentInvite) => void;
-  onBlocked: (message: string) => void;
+  onInvited: (i: OutgoingInvite) => void;
 }) {
-  const { load, retry } = useCandidates(sessionId, open, onBlocked);
+  const { load, retry } = useCandidates(sessionId, open);
   const [q, setQ] = useState("");
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<UiError | null>(null);
@@ -90,12 +84,10 @@ export function InviteDialog({
     setError(null);
     try {
       const r = await api<CreateInviteResponse>("POST", `/sessions/${sessionId}/invites`, { userId: c.userId });
-      onInvited({ inviteId: r.inviteId, expiresAt: r.expiresAt, name: c.fullName });
+      onInvited({ inviteId: r.inviteId, userId: c.userId, inviteeName: c.fullName, expiresAt: r.expiresAt });
       setQ("");
       onClose();
     } catch (e) {
-      const m = joinBlockedMessage(e);
-      if (m) onBlocked(m);
       setError(multiUiError(e));
     } finally {
       setBusy(null);

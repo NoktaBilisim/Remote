@@ -32,6 +32,20 @@ export function offerDecision(
   return drawn.has(from) ? "answer" : "wait";
 }
 
+/**
+ * `ice.restart` hedef eşi (saf; Go `iceRestartPeer` ile aynı kural): roster hiç gelmediyse yalnız `from`'suz eski tek eş;
+ * roster görüldükten sonra yalnız son roster'da bağlı ve adı çizilmiş tid. Diğerleri null → yok sayılır (eş kurulmaz/kapanmaz).
+ */
+export function iceRestartTarget(
+  roster: readonly TechRosterEntry[] | null,
+  drawn: ReadonlySet<string>,
+  from: string | undefined,
+): string | null {
+  if (roster === null) return from === undefined ? LEGACY : null;
+  if (from === undefined) return null;
+  return offerDecision(roster, drawn, from) === "answer" ? from : null;
+}
+
 interface Entry {
   link: PeerLink;
   channels: Channels | null;
@@ -99,6 +113,15 @@ export class GuestPeers {
 
   ice(from: string | undefined, c: RTCIceCandidateInit): void {
     void this.peers.get(from ?? LEGACY)?.link.addIce(c);
+  }
+
+  /**
+   * `ice.restart{from?}`: yanıtlayan taraf olarak hedef eşte ek iş yok — teknisyen ardından `iceRestart`'lı yeni teklif gönderir,
+   * yeni ICE kimliği o teklifin yanıtında (aynı kabul listesiyle) uygulanır. Döner: hedef eş kurulu mu (roster dışı → false).
+   */
+  iceRestart(from: string | undefined): boolean {
+    const tid = iceRestartTarget(this.roster, this.drawn, from);
+    return tid !== null && this.peers.has(tid);
   }
 
   private answer(tid: string, sdp: string): void {

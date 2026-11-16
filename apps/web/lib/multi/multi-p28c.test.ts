@@ -9,7 +9,10 @@ import { initialTech, techReducer } from "@/lib/webrtc/tech-machine";
 import { initialGuest, guestReducer } from "@/lib/webrtc/guest-machine";
 import { watchBlock } from "@/app/(panel)/sessions/active-sessions";
 import { newInvites } from "@/components/invite-notifier";
+import { MULTI_ERROR_MESSAGES } from "@remote/contracts/api/multi";
+import { inviteBlockOf } from "./errors";
 import { canSend, chatAuthor, joinedSince, seatOf, sortedRoster } from "./roster";
+import { describeEvent, leaveReasonLabel } from "./timeline";
 
 const A = "AAAAAAAAAAA";
 const B = "BBBBBBBBBBB";
@@ -152,5 +155,56 @@ describe("P28c arayüz kararları", () => {
     expect(actionLabel(MULTI_AUDIT.TRANSFER)).toBe("Oturum devredildi");
     const session = actionOptionGroups().find((x) => x.options.some((o) => o.value === "session.*"));
     expect(session?.options.some((o) => o.value === MULTI_AUDIT.TRANSFER)).toBe(false);
+  });
+});
+
+describe("P28c K2b: guestMulti, zaman çizelgesi, katılımcılar", () => {
+  it("hello/peer.joined guestMulti üç durumlu; peer.left son değeri korur; Davet et pasifliği", () => {
+    const hello = {
+      t: "hello",
+      role: "tech",
+      sessionId: "01JSESSION0000000000000000",
+      maxEndsAt: new Date(Date.now() + 1e6).toISOString(),
+      peerPresent: true,
+      iceServers: [],
+    };
+    const now = Date.now();
+    let s = techReducer(initialTech, { type: "msg", m: { ...hello } as never, now });
+    expect(s.guestMulti).toBeNull();
+    s = techReducer(s, { type: "msg", m: { t: "peer.joined", role: "guest", guestMulti: false } as never, now });
+    expect(s.guestMulti).toBe(false);
+    s = techReducer(s, { type: "msg", m: { t: "peer.left", role: "guest" } as never, now });
+    expect(s.guestMulti).toBe(false);
+    s = techReducer(s, { type: "msg", m: { ...hello, guestMulti: true } as never, now });
+    expect(s.guestMulti).toBe(true);
+    expect(inviteBlockOf(undefined, null)).toBeNull();
+    expect(inviteBlockOf(undefined, true)).toBeNull();
+    expect(inviteBlockOf(undefined, false)).toBe(MULTI_ERROR_MESSAGES.CLIENT_UNSUPPORTED);
+    expect(inviteBlockOf("asked", true)).toBe(MULTI_ERROR_MESSAGES.JOIN_NOT_ALLOWED);
+  });
+  it("zaman çizelgesi: P28c etiketi + rol/neden notu; P28c dışı olay contracts etiketinde kalır", () => {
+    expect(describeEvent({ action: "session.participant_leave", details: { role: "observer", reason: "disconnect" } })).toEqual({
+      label: "Teknisyen ayrıldı",
+      note: "Rol: İzleyici · Bağlantı koptu",
+      warn: false,
+    });
+    expect(describeEvent({ action: "session.invite_expire", details: { reason: "revoked" } }).note).toBe("Geri çekildi");
+    expect(describeEvent({ action: "session.transfer", details: { failReason: "target_gone" } }).note).toContain("geri alındı");
+    expect(describeEvent({ action: "session.invite", details: { inviteeName: "Selin" } })).toMatchObject({
+      label: "Teknisyen davet edildi",
+      note: "Davet edilen: Selin",
+    });
+    expect(describeEvent({ action: "session.control_handover", details: {} })).toEqual({
+      label: "Kontrol devredildi",
+      note: null,
+      warn: false,
+    });
+    expect(describeEvent({ action: "session.created", details: {} }).label).toBe("Oturum oluşturuldu");
+    expect(describeEvent({ action: "x.unknown", details: {} }).label).toBe("x.unknown");
+  });
+  it("katılımcı ayrılma nedeni: removed = müşteri çıkardı", () => {
+    expect(leaveReasonLabel("removed")).toBe("Müşteri çıkardı");
+    expect(leaveReasonLabel("auth_revoked")).toBe("Yetkisi düştü");
+    expect(leaveReasonLabel("yeni")).toBe("yeni");
   });
 });

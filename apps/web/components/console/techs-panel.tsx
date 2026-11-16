@@ -1,20 +1,22 @@
 "use client";
 
+import type { OutgoingInvite, OutgoingInvitesResponse } from "@remote/contracts/api/multi";
 import type { TechRosterEntry } from "@remote/contracts/ws-multi";
-import { MAX_TECHS } from "@remote/contracts/ws-multi";
+import { INVITE_POLL_MS, MAX_TECHS } from "@remote/contracts/ws-multi";
 import { ArrowRightLeft, ChevronDown, LogOut, MousePointer2, Undo2, UserPlus, Users, WifiOff, X } from "lucide-react";
+import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useId, useRef, useState } from "react";
 import { Avatar } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { Dialog } from "@/components/ui/dialog";
 import { useToast } from "@/components/ui/toast";
-import { api, ApiError } from "@/lib/api";
+import { api, ApiError, EXPIRED_LOGIN_PATH } from "@/lib/api";
 import { formatRemaining } from "@/lib/format";
 import { t } from "@/lib/i18n";
 import { multiUiError, multiWsMessage } from "@/lib/multi/errors";
 import { ROLE_LABEL_KEY, sortedRoster, type Seat } from "@/lib/multi/roster";
 import type { useTechSession } from "@/lib/webrtc/use-tech-session";
-import { InviteDialog, type SentInvite } from "./invite-dialog";
+import { InviteDialog } from "./invite-dialog";
 
 type Tech = ReturnType<typeof useTechSession>;
 
@@ -36,15 +38,54 @@ function useActionErrors(ts: Tech) {
 }
 
 /**
- * Bekleyen davetler: yalnız bu sekmenin 201 yanıtlarından (sunucuda "bekleyen davetlerim" ucu yok — K2 notu). Süresi dolan düşer;
- * roster'a aynı adla yeni biri girince satır kalkar (görüntü temizliği; koltuk sayımı sunucuda).
+ * Bekleyen giden davetler (K1c `GET /sessions/:id/invites`, AC-364): sunucu listesi tek doğru kaynak — sayfa yenilenince de
+ * görünür, devirde yeni sahip görür. Yoklama davet bildirimiyle aynı (`INVITE_POLL_MS`, 429 → Retry-After, 403/404 → dur);
+ * 201 / geri çekme / roster değişiminde hemen yeniden okunur. Süresi dolan satır istemcide de düşer.
  */
-function usePendingInvites(roster: readonly TechRosterEntry[], now: number | null) {
-  const [pending, setPending] = useState<SentInvite[]>([]);
-  const names = new Set(roster.map((r) => r.name));
-  const live = pending.filter((p) => !names.has(p.name) && (now === null || Date.parse(p.expiresAt) > now));
-  const add = useCallback((i: SentInvite) => setPending((xs) => [...xs, i]), []);
-  const drop = useCallback((id: string) => setPending((xs) => xs.filter((x) => x.inviteId !== id)), []);
+function useOutgoingInvites(sessionId: string, enabled: boolean, rosterKey: string, now: number | null) {
+  const router = useRouter();
+  const [items, setItems] = useState<OutgoingInvite[]>([]);
+  const [tick, setTick] = useState(0);
+  useEffect(() => {
+    if (!enabled) return;
+    let stopped = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const poll = async () => {
+      let next = INVITE_POLL_MS;
+      try {
+        const r = await api<OutgoingInvitesResponse>("GET", `/sessions/${sessionId}/invites`);
+        if (stopped) return;
+        setItems(r.items);
+      } catch (e) {
+        if (stopped) return;
+        if (e instanceof ApiError && e.status === 401) {
+          stopped = true;
+          return router.replace(EXPIRED_LOGIN_PATH);
+        }
+        if (e instanceof ApiError && (e.status === 403 || e.status === 404)) {
+          stopped = true;
+          return setItems([]);
+        }
+        if (e instanceof ApiError && e.status === 429) next = Math.max((e.retryAfter ?? 0) * 1000, INVITE_POLL_MS);
+      }
+      if (!stopped) timer = setTimeout(() => void poll(), next);
+    };
+    void poll();
+    return () => {
+      stopped = true;
+      clearTimeout(timer);
+    };
+  }, [enabled, sessionId, router, rosterKey, tick]);
+  // Sahiplik düşünce (devir) eski satırlar görünmez; 403/404 yoklamayı durdurur
+  const live = enabled ? items.filter((i) => now === null || Date.parse(i.expiresAt) > now) : [];
+  const add = useCallback((i: OutgoingInvite) => {
+    setItems((xs) => (xs.some((x) => x.inviteId === i.inviteId) ? xs : [...xs, i]));
+    setTick((n) => n + 1);
+  }, []);
+  const drop = useCallback((id: string) => {
+    setItems((xs) => xs.filter((x) => x.inviteId !== id));
+    setTick((n) => n + 1);
+  }, []);
   return { live, add, drop };
 }
 
@@ -71,20 +112,20 @@ export function TechsPanel({
   const panelId = useId();
   const [open, setOpen] = useState(false);
   const [inviting, setInviting] = useState(false);
-  const [blocked, setBlocked] = useState<string | null>(null);
   const [confirm, setConfirm] = useState<{ kind: "transfer"; to: TechRosterEntry } | { kind: "leave" } | null>(null);
   const toast = useToast();
   const mark = useActionErrors(ts);
   const { roster, tid } = ts.state;
-  const inv = usePendingInvites(roster, now);
+  const live = ts.state.phase === "live";
   const list = sortedRoster(roster);
+  // Bekleyen davet satırı + "Geri çek" sahip kapısıyla (GET/DELETE yetki anahtarı istemez); "Davet et" ayrıca `sessions.invite`
+  const inv = useOutgoingInvites(sessionId, seat.owner && live, list.map((e) => e.tid).join(","), now);
   const count = Math.max(list.length, 1);
   const owner = seat.owner && canInvite;
   const full = list.length + inv.live.length >= MAX_TECHS;
-  const block = inviteBlock ?? blocked ?? (full ? t("mt.full") : null);
-  const live = ts.state.phase === "live";
+  const block = inviteBlock ?? (full ? t("mt.full") : null);
 
-  const revoke = async (i: SentInvite) => {
+  const revoke = async (i: OutgoingInvite) => {
     try {
       await api("DELETE", `/sessions/${sessionId}/invites/${i.inviteId}`);
       toast(t("mt.revoked"), "success");
@@ -133,16 +174,16 @@ export function TechsPanel({
                 onTransfer={() => setConfirm({ kind: "transfer", to: e })}
               />
             ))}
-            {owner &&
+            {seat.owner &&
               inv.live.map((i) => (
                 <li
                   key={i.inviteId}
                   className="flex items-center gap-3 rounded-md border border-dashed border-border px-2 py-1"
                   data-testid="techs-pending"
                 >
-                  <Avatar name={i.name} size="sm" />
+                  <Avatar name={i.inviteeName} size="sm" />
                   <div className="min-w-0 flex-1">
-                    <p className="truncate text-sm text-fg">{i.name}</p>
+                    <p className="truncate text-sm text-fg">{i.inviteeName}</p>
                     <p className="text-xs text-fg-muted tabular-nums">
                       {t("mt.pending", { left: now === null ? "—" : formatRemaining(Date.parse(i.expiresAt) - now) })}
                     </p>
@@ -150,7 +191,7 @@ export function TechsPanel({
                   <Button
                     variant="ghost"
                     onClick={() => void revoke(i)}
-                    aria-label={t("mt.revokeRow", { name: i.name })}
+                    aria-label={t("mt.revokeRow", { name: i.inviteeName })}
                     className="w-11 px-0"
                     data-testid="techs-revoke"
                   >
@@ -175,10 +216,9 @@ export function TechsPanel({
           sessionId={sessionId}
           open={inviting}
           onClose={() => setInviting(false)}
-          onBlocked={setBlocked}
           onInvited={(i) => {
             inv.add(i);
-            toast(t("mt.invited", { name: i.name }), "success");
+            toast(t("mt.invited", { name: i.inviteeName }), "success");
           }}
         />
       )}

@@ -31,3 +31,12 @@ export function joinBlockedMessage(e: unknown): string | null {
 
 /** Gerekçe alanı hatası (`fields.reason`). */
 export const reasonFieldError = (e: unknown): string | undefined => (e instanceof ApiError ? e.fields?.reason : undefined);
+
+/**
+ * "Davet et" baştan pasif mi (V-PC-5, O-PC-5, AC-372): izinli (`asked`) gözetimsiz oda → `JOIN_NOT_ALLOWED`; misafir `multi1`
+ * bildirmedi (`guestMulti === false`) → AC-352 metni. `guestMulti` yok (null) = kabul edilmiş misafir yok → engel değil.
+ */
+export function inviteBlockOf(consentMode: string | null | undefined, guestMulti: boolean | null): string | null {
+  if (consentMode === "asked") return MESSAGES.JOIN_NOT_ALLOWED!;
+  return guestMulti === false ? MESSAGES.CLIENT_UNSUPPORTED! : null;
+}

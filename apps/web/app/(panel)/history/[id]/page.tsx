@@ -11,7 +11,7 @@ import { isAnonymized } from "@/lib/history/anonymized";
 import { t } from "@/lib/i18n";
 import { getMe, serverGet } from "@/lib/server-api";
 import { NoteForm } from "./note-form";
-import { Participants, participantsOf } from "./participants";
+import { Participants } from "./participants";
 import { RecordingSection } from "./recording";
 import { ControlPeriods } from "./control-periods";
 import { ConsentsList, Files } from "./files";
@@ -137,9 +137,9 @@ export default async function HistoryDetailPage({ params }: { params: Promise<{ 
         <Section id="control" title={t("h.k.title")}>
           <ControlPeriods s={s} />
         </Section>
-        {participantsOf(s) && (
+        {s.participants && s.participants.length > 0 && (
           <Section id="participants" title={t("mt.h.title")}>
-            <Participants items={participantsOf(s) ?? []} />
+            <Participants items={s.participants} />
           </Section>
         )}
         <Section id="timeline" title={t("h.t.title")}>

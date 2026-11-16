@@ -45,6 +45,22 @@ const LOGGED = new Set([
 const log = (id, from, m) => LOGGED.has(m.t) && (wsLog.get(id) ?? wsLog.set(id, []).get(id)).push({ from, m });
 
 /** P7 test kancası: yetki kaldırıldı → misafire control.revoke + caps.update, teknisyene control.state{VIEW, SYSTEM}. */
+/**
+ * P28c K2b test kancası (/__e2e/guest-roster/<oturum>): misafire iki teknisyenli `techs.roster` (sahip + katılımcı) gönderir;
+ * misafirin `tech.remove{tid}`'i roster'dan düşürür (müşteri "Çıkar", AC-366). Kayıt: oda `removed` listesi.
+ */
+const GUEST_ROSTER = [
+  { tid: "OOOOOOOOOOO", name: "Ayşe Sahip", role: "controller", owner: true, connected: true },
+  { tid: "PPPPPPPPPPP", name: "Burak Katılımcı", role: "participant", owner: false, connected: true },
+];
+export function guestRoster(id) {
+  const r = rooms.get(id);
+  if (!r?.guest) return false;
+  r.guestRoster = GUEST_ROSTER.map((e) => ({ ...e }));
+  send(r.guest, { t: "techs.roster", techs: r.guestRoster });
+  return true;
+}
+
 export function revokeControl(id) {
   const r = rooms.get(id);
   if (!r) return false;
@@ -370,6 +386,11 @@ function p28Tech(r, rec, ws, m) {
 }
 
 function p28Guest(r, m) {
+  if (m.t === "tech.remove" && r.guestRoster) {
+    r.guestRoster = r.guestRoster.filter((e) => e.tid !== m.tid);
+    send(r.guest, { t: "techs.roster", techs: r.guestRoster });
+    return true;
+  }
   if (m.t === "clip.consent") {
     r.clipConsent = m.on && r.ctl?.state === "GRANTED";
     if (m.on && !r.clipConsent) send(r.guest, { t: "clip.consent", on: false });
