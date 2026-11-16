@@ -266,7 +266,7 @@ async function scanThemes(p: Page, sel: string, label: string) {
       document.documentElement.classList.add(c);
     }, scheme);
     const fg = await p.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue("--rs-fg").trim());
-    expect(fg, `${label} ${scheme} teması etkin`).toBe(scheme === "light" ? "#1b2129" : "#e6ebf0");
+    expect(fg, `${label} ${scheme} teması etkin`).toBe(scheme === "light" ? "#0f172a" : "#f1f5f9");
     expect(await axeScan(p, sel), `${label} ${scheme}`).toEqual([]);
   }
 }
@@ -410,9 +410,13 @@ test.describe("Müşteri rızası, gösterge, Kaydı durdur, konsol kaydedici (A
     await page.getByTestId("rec-watch").click();
     const video = page.getByTestId("rec-video");
     await expect(page.getByTestId("rec-player")).toHaveAttribute("data-status", "ready", { timeout: 15_000 });
-    await expect
-      .poll(() => video.evaluate((v: HTMLVideoElement) => (v.buffered.length ? v.buffered.end(0) : 0)), { timeout: 15_000 })
-      .toBeGreaterThan(3);
+    // Toplam tamponlanmış süre: bölümler ayrı aralık olabilir (yavaş CI'da ilk bölüm kısa kalır; oynatıcı boşluğu atlar)
+    const bufferedTotal = (v: HTMLVideoElement) => {
+      let sum = 0;
+      for (let k = 0; k < v.buffered.length; k++) sum += v.buffered.end(k) - v.buffered.start(k);
+      return sum;
+    };
+    await expect.poll(() => video.evaluate(bufferedTotal), { timeout: 15_000 }).toBeGreaterThan(3);
     await page.getByTestId("rec-play").click();
     await expect.poll(() => video.evaluate((v: HTMLVideoElement) => v.currentTime), { timeout: 15_000 }).toBeGreaterThan(1);
     expect(n).toBeGreaterThanOrEqual(3);

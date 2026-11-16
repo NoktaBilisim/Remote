@@ -13286,3 +13286,35 @@ Kaynak: mimari-p28c r2 §6.1, §7, §8, §12 (AC-371), §13 K4; ADR-0035. Yeni e
 - `go test -count=1 -v -run P28c ./internal/signal/... ./internal/dc/...` (golang:1.26 konteyner) → dört K0 testi PASS; `GOOS=windows go vet` temiz.
 - Prettier: `docs/runbook.md`, `agent-win.yml` temiz (runbook diff'i yalnız ekleme).
 - Denenmedi: staging yayını, Windows elle turu, AC-371 ölçümü, QoS şekillendirme.
+
+## Vitrin görsel dili (frontend-dev, 2026-11-17, dal `vitrin`)
+
+Kapsam: yalnız tasarım token'ları + yazı tipi (kullanıcı "C — Vitrin" taslağını seçti); düzen/bileşen yapısı değişmedi.
+Yeni rota yok. Tasarım skill'i `~/.claude/skills/ui-ux-pro-max/SKILL.md` mevcut; proje DESIGN.md esas alındı.
+
+**Değişen dosyalar**
+
+- `apps/web/app/globals.css` — `--rs-*` açık + iki koyu blok Vitrin değerlerine eşlendi (tablo ve türetme: DESIGN.md §2 "Vitrin görsel dili");
+  `--font-sans` / `--font-mono` Plus Jakarta Sans Variable / JetBrains Mono Variable + sistem yedeği; `@layer base` global `tabular-nums`
+  (`table`, `time`, `code`, `kbd`, `samp`, `.font-mono`). Sahne/annotation/control-frame değişmedi.
+- `apps/web/app/layout.tsx` — iki fontsource CSS içe aktarımı.
+- `apps/web/components/ui/tab-nav.tsx` — **hata düzeltmesi (önceden var olan):** Ayarlar 11 sekmeli; sm+ `flex` + `li min-w-0` ile
+  sekmeler daralıp 1280'de üst üste biniyordu (9 sekme kırpık; sistem fontunda da aynı ölçüldü, font kaynaklı değil). sm+ `li shrink-0`,
+  `ul overflow-x-auto` → şerit kendi içinde kayar, sayfa taşmaz; etkin sekme yüklemede şerit içinde görünür alana alınır (sayfa kaymaz).
+  < sm ızgara davranışı aynı.
+- `apps/web/e2e/vitrin-fonts.spec.ts` — yeni: fontlar aynı kökenden, latin-ext dosyası iner, `document.fonts.check` iki aile için
+  ğışİ ile doğru, body ailesi Plus Jakarta, `code` tabular-nums, konsol hatası yok.
+- `DESIGN.md` — §2 token tablosu + Vitrin notu, §3 tipografi/rakamlar.
+- `docs/img/vitrin/` — login, panel, oturumlar, geçmiş, ayarlar, konsol × açık/koyu (1280×800).
+- `apps/web/package.json`, `pnpm-lock.yaml` — bağımlılıklar (aşağıda). Lockfile'da pnpm'in eslint-import eş anahtarlarını kısaltması
+  (yalnız snapshot adı, sürüm değişmedi) da var.
+
+**Yeni bağımlılık (mimari §10.4 dışı, gerekçe):** `@fontsource-variable/plus-jakarta-sans@5.3.0`, `@fontsource-variable/jetbrains-mono@5.3.0`
+— lisans **OFL-1.1** (font) / MIT (paket), AGPL/GPL değil; çalışma zamanı kodu yok, yalnız CSS + woff2. `next/font/local` yerine seçildi:
+o API tek dosya/ağırlık listesi alır, alt küme başına `unicode-range` vermez; Türkçe için latin + latin-ext ayrı dosyaları ancak elle
+`@font-face` ile mümkündü. Fontsource tüm alt kümeleri `unicode-range` ile verir, tarayıcı yalnız gerekeni indirir.
+
+**CSP:** değişiklik yok. `buildCsp` `font-src` yazmaz → `default-src 'self'` fontları kapsar; dosyalar `/_next/static/media` (aynı köken).
+
+**Kontrast:** hesap (WCAG) — tüm metin token'ları canvas/surface/surface-muted üstünde ≥ 4.5 (açık warning/success yalnız surface-muted
+üstünde 4.46; kodda bu eşleşme yok, DESIGN.md'de kural olarak yazıldı); rozetler kendi zemininde ≥ 4.5; anahtar rayları ≥ 3:1.

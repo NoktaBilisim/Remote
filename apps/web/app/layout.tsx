@@ -5,6 +5,9 @@ import { connection } from "next/server";
 import { t } from "@/lib/i18n";
 import { getMe } from "@/lib/server-api";
 import { htmlThemeClass, resolveTheme, THEME_COOKIE } from "@/lib/theme";
+// Vitrin görsel dili (2026-11-17): self-host değişken fontlar (OFL-1.1) — dosyalar /_next/static altından ('self'), tüm alt kümeler unicode-range ile
+import "@fontsource-variable/plus-jakarta-sans";
+import "@fontsource-variable/jetbrains-mono";
 import "./globals.css";
 
 export const metadata: Metadata = {
