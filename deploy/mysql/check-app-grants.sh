@@ -394,8 +394,8 @@ run_root 0 "SELECT COUNT(*) FROM information_schema.REFERENTIAL_CONSTRAINTS WHER
 run_root 0 "SELECT (SELECT COUNT(*) FROM information_schema.USER_PRIVILEGES WHERE GRANTEE=\"'app'@'%'\" AND PRIVILEGE_TYPE<>'USAGE') + (SELECT COUNT(*) FROM information_schema.SCHEMA_PRIVILEGES WHERE GRANTEE=\"'app'@'%'\") + (SELECT COUNT(*) FROM information_schema.TABLE_PRIVILEGES WHERE GRANTEE=\"'app'@'%'\" AND PRIVILEGE_TYPE IN ('TRIGGER','ALTER','DROP','CREATE','INDEX','REFERENCES','GRANT OPTION'))" "app: global/DB yetkisi yok, hiçbir tabloda TRIGGER/ALTER/DROP/CREATE/INDEX yok"
 run_root 0 "SELECT COUNT(*) FROM information_schema.TABLE_PRIVILEGES WHERE GRANTEE=\"'app'@'%'\" AND TABLE_NAME='audit_logs' AND PRIVILEGE_TYPE NOT IN ('SELECT','INSERT','DELETE')" "app: audit_logs yalnız SELECT/INSERT/DELETE (DELETE P13a)"
 # P13a (K27) + P16 (ADR-0030 m.3): DELETE yetkisi tam olarak bu tablolarda; P16'nın 8 tablosunda koşul tetikleyicide.
-run_root "audit_logs,auth_sessions,business_holidays,consent_texts,customer_notify_contacts,customers,device_bindings,notification_outbox,password_reset_tokens,recovery_codes,request_blocks,request_refs,session_consents,session_files,session_messages,session_stored_files,support_requests,support_sessions,tenant_purge_jobs,tenant_request_settings,tenant_settings,tenants,trusted_devices,unattended_device_grants,unattended_devices,unattended_registration_codes,user_permissions,users" "SELECT GROUP_CONCAT(TABLE_NAME ORDER BY CAST(TABLE_NAME AS BINARY)) FROM information_schema.TABLE_PRIVILEGES WHERE GRANTEE=\"'app'@'%'\" AND TABLE_SCHEMA=DATABASE() AND PRIVILEGE_TYPE='DELETE'" "app: DELETE yetkili tablo kümesi (K27)"
-run_root "consent_texts.is_current:UPDATE,consent_texts.updated_at:UPDATE,password_reset_tokens.updated_at:UPDATE,password_reset_tokens.used_at:UPDATE,recovery_codes.updated_at:UPDATE,recovery_codes.used_at:UPDATE,session_consents.ip:UPDATE,session_consents.user_agent:UPDATE,session_stored_files.deleted_at:UPDATE,session_stored_files.delivered_at:UPDATE,session_stored_files.expires_at:UPDATE,session_stored_files.scan_reason:UPDATE,session_stored_files.scanned_at:UPDATE,session_stored_files.signature:UPDATE,session_stored_files.state:UPDATE,session_stored_files.storage_rel:UPDATE,session_stored_files.updated_at:UPDATE" "SELECT GROUP_CONCAT(CONCAT(TABLE_NAME,'.',COLUMN_NAME,':',PRIVILEGE_TYPE) ORDER BY CAST(TABLE_NAME AS BINARY),CAST(COLUMN_NAME AS BINARY)) FROM information_schema.COLUMN_PRIVILEGES WHERE GRANTEE=\"'app'@'%'\" AND TABLE_SCHEMA=DATABASE()" "app: sütun düzeyi yetki kümesi (P13a session_consents ip/user_agent)"
+run_root "audit_logs,auth_sessions,business_holidays,consent_texts,customer_notify_contacts,customers,device_bindings,notification_outbox,password_reset_tokens,recovery_codes,request_blocks,request_refs,session_consents,session_files,session_messages,session_recording_parts,session_recordings,session_stored_files,support_requests,support_sessions,tenant_purge_jobs,tenant_request_settings,tenant_settings,tenants,trusted_devices,unattended_device_grants,unattended_devices,unattended_registration_codes,user_permissions,users" "SELECT GROUP_CONCAT(TABLE_NAME ORDER BY CAST(TABLE_NAME AS BINARY)) FROM information_schema.TABLE_PRIVILEGES WHERE GRANTEE=\"'app'@'%'\" AND TABLE_SCHEMA=DATABASE() AND PRIVILEGE_TYPE='DELETE'" "app: DELETE yetkili tablo kümesi (K27)"
+run_root "consent_texts.is_current:UPDATE,consent_texts.updated_at:UPDATE,password_reset_tokens.updated_at:UPDATE,password_reset_tokens.used_at:UPDATE,recovery_codes.updated_at:UPDATE,recovery_codes.used_at:UPDATE,session_consents.ip:UPDATE,session_consents.user_agent:UPDATE,session_recordings.delete_reason:UPDATE,session_recordings.deleted_at:UPDATE,session_recordings.duration_ms:UPDATE,session_recordings.part_count:UPDATE,session_recordings.recorder_user_id:UPDATE,session_recordings.size_bytes:UPDATE,session_recordings.state:UPDATE,session_recordings.stop_reason:UPDATE,session_recordings.stopped_at:UPDATE,session_recordings.updated_at:UPDATE,session_stored_files.deleted_at:UPDATE,session_stored_files.delivered_at:UPDATE,session_stored_files.expires_at:UPDATE,session_stored_files.scan_reason:UPDATE,session_stored_files.scanned_at:UPDATE,session_stored_files.signature:UPDATE,session_stored_files.state:UPDATE,session_stored_files.storage_rel:UPDATE,session_stored_files.updated_at:UPDATE" "SELECT GROUP_CONCAT(CONCAT(TABLE_NAME,'.',COLUMN_NAME,':',PRIVILEGE_TYPE) ORDER BY CAST(TABLE_NAME AS BINARY),CAST(COLUMN_NAME AS BINARY)) FROM information_schema.COLUMN_PRIVILEGES WHERE GRANTEE=\"'app'@'%'\" AND TABLE_SCHEMA=DATABASE()" "app: sütun düzeyi yetki kümesi (P13a session_consents ip/user_agent, P28b, P28e)"
 run_root 0 "SELECT COUNT(*) FROM information_schema.COLUMN_PRIVILEGES WHERE GRANTEE=\"'app'@'%'\" AND TABLE_NAME='audit_logs'" "app: audit_logs sütun düzeyi UPDATE yok"
 run DENIED "DROP TRIGGER audit_logs_force_created_at" "denied"
 run DENIED "UPDATE audit_logs SET action='x' WHERE id=-1"
@@ -918,14 +918,17 @@ run DENIED "$TX $GX; $ADM; INSERT INTO session_stored_files ($SFC) VALUES (${SFX
 run DENIED "$TX $US19 file_retention_days=8 $WT19; $R" tenant_settings_file_retention_chk
 run DENIED "$TX $US19 file_retention_days=0 $WT19; $R" tenant_settings_file_retention_chk
 run DENIED "$TX UPDATE tenants SET storage_quota_gb=0 WHERE id='$GT'; $R" tenants_storage_quota_chk
-# system_settings clamav (Super Admin ayarı; app INSERT/UPDATE)
-CV="INSERT INTO system_settings (\`key\`,value_json,updated_at) VALUES ('clamav',"
-run OK     "$TX $CV JSON_OBJECT('host','clamav','port',3310,'lastTest',NULL),NOW(3)); UPDATE system_settings SET value_json=JSON_OBJECT('host','clamav','port',3310,'lastTest',JSON_OBJECT('ok',TRUE,'at','2026-11-16T10:00:00.000Z','version','ClamAV 1.5.4/28177','dbDate','2026-11-16')) WHERE \`key\`='clamav'; $R"
-run DENIED "$TX $CV JSON_OBJECT('host','clamav','port',70000,'lastTest',NULL),NOW(3)); $R" system_settings_clamav_chk
-run DENIED "$TX $CV JSON_OBJECT('host','clamav;rm','port',3310,'lastTest',NULL),NOW(3)); $R" system_settings_clamav_chk
-run DENIED "$TX $CV JSON_OBJECT('host','clamav','port',3310,'lastTest',NULL,'x',1),NOW(3)); $R" system_settings_clamav_chk
-run DENIED "$TX INSERT INTO system_settings (\`key\`,value_json,secret_enc,updated_at) VALUES ('clamav',JSON_OBJECT('host','clamav','port',3310,'lastTest',NULL),RANDOM_BYTES(40),NOW(3)); $R" system_settings_clamav_chk
-run DENIED "$TX $CV JSON_OBJECT('host','clamav','port',3310,'lastTest',NULL),NOW(3)); UPDATE system_settings SET \`key\`='ClamAV' WHERE \`key\`='clamav'; $R" system_settings_key_chk
+# system_settings clamav (Super Admin ayarı; app INSERT/UPDATE). Uygulama gibi upsert: satır yoksa INSERT, varsa (staging/prod'da
+# ayar kayıtlı) UPDATE yolu — iki yolda da aynı CHECK'ler sınanır ve "Duplicate entry" çıkmaz. app'in DELETE'i yok, anahtar CHECK'i
+# geçici anahtara izin vermez → tek yol budur. Tümü geri alınan TX'te; kayıtlı satır değişmez.
+cv() { echo "INSERT INTO system_settings (\`key\`,value_json,secret_enc,updated_at) VALUES ('clamav',$1,$2,NOW(3)) AS n ON DUPLICATE KEY UPDATE value_json=n.value_json,secret_enc=n.secret_enc,updated_at=n.updated_at"; }
+CVOK="JSON_OBJECT('host','clamav','port',3310,'lastTest',NULL)"
+run OK     "$TX $(cv "$CVOK" NULL); UPDATE system_settings SET value_json=JSON_OBJECT('host','clamav','port',3310,'lastTest',JSON_OBJECT('ok',TRUE,'at','2026-11-16T10:00:00.000Z','version','ClamAV 1.5.4/28177','dbDate','2026-11-16')) WHERE \`key\`='clamav'; $R"
+run DENIED "$TX $(cv "JSON_OBJECT('host','clamav','port',70000,'lastTest',NULL)" NULL); $R" system_settings_clamav_chk
+run DENIED "$TX $(cv "JSON_OBJECT('host','clamav;rm','port',3310,'lastTest',NULL)" NULL); $R" system_settings_clamav_chk
+run DENIED "$TX $(cv "JSON_OBJECT('host','clamav','port',3310,'lastTest',NULL,'x',1)" NULL); $R" system_settings_clamav_chk
+run DENIED "$TX $(cv "$CVOK" "RANDOM_BYTES(40)"); $R" system_settings_clamav_chk
+run DENIED "$TX $(cv "$CVOK" NULL); UPDATE system_settings SET \`key\`='ClamAV' WHERE \`key\`='clamav'; $R" system_settings_key_chk
 # P28u (mimari-p28u §3; AC-436, 445, 446; K-P28u-4): tenant_settings izinsiz politika + aydınlatma izi, support_sessions
 # consent_mode / silent_reason, cihaz TTL 55..155 sn, anonimleştirmede gerekçe NULL. Yeni tablo/tetikleyici yok. Tümü geri alınan TX'te.
 PR28="'Arıza tespiti için kullanıcı yokken bağlanılıyor'"
@@ -949,6 +952,94 @@ run DENIED "$TX $UD1; $USS; UPDATE support_sessions SET consent_mode='silent',si
 run DENIED "$TX $UD1; $USS; UPDATE support_sessions SET consent_mode='silent',silent_reason=CONCAT(' ',$PR28) WHERE id=$GSE; $R" support_sessions_silent_reason_chk   # kırpılmamış
 run DENIED "$TX $UD1; $USS; UPDATE support_sessions SET consent_mode='silent',silent_reason=CONCAT($PR28,CONVERT(X'E280AE' USING utf8mb4)) WHERE id=$GSE; $R" support_sessions_silent_reason_chk   # U+202E
 run DENIED "$TX $UD1; $USS; UPDATE support_sessions SET consent_mode='silent',silent_reason=CONCAT($PR28,CHAR(13),'x') WHERE id=$GSE; $R" support_sessions_silent_reason_chk   # \r
+# P28e (mimari-p28e §3; AC-380, 381, 386, 447; S-P28e-10, K-P28e-16/18/22): tenant_settings kayıt anahtarları + saklama + gözetimsiz
+# kayıt aydınlatma izi; session_consents RECORDING + line_sha256; session_recordings (SELECT/INSERT/DELETE + sütun UPDATE),
+# session_recording_parts (SELECT/INSERT/DELETE; UPDATE yok). Tetikleyici yok. Tümü geri alınan TX'te.
+RID="'0000000000000000000GRANTRC'"; WREC="WHERE id=$RID"; UREC="UPDATE session_recordings SET"
+SRC="id,tenant_id,session_id,basis,state,recorder_user_id,started_at,expires_at,updated_at"
+SRV="$RID,'$GT','00000000000000000000GRANTS','CONSENT','ACTIVE',$GU,NOW(3),NOW(3)+INTERVAL 30 DAY,NOW(3)"
+SR1="INSERT INTO session_recordings ($SRC) VALUES ($SRV)"
+sr() { echo "INSERT INTO session_recordings ($SRC) VALUES (${SRV/$1/$2})"; }  # $1 → $2 değiştir
+SPC="id,recording_id,tenant_id,series_no,part_no,offset_ms,duration_ms,size_bytes,storage_rel,key_ver"
+SPV="'0000000000000000000GRANTP1',$RID,'$GT',0,7,35000,5000,1048576,CONCAT('$GT','/',REPEAT('a',24),'.rsf'),1"
+SP1="INSERT INTO session_recording_parts ($SPC) VALUES ($SPV)"
+sp() { echo "INSERT INTO session_recording_parts ($SPC) VALUES (${SPV/$1/$2})"; }
+SP2="INSERT INTO session_recording_parts ($SPC) VALUES ('0000000000000000000GRANTP2',$RID,'$GT',1,0,40000,4000,524288,CONCAT('$GT','/',REPEAT('b',24),'.rsf'),1)"
+CNT="$UREC size_bytes=1572864,part_count=2,duration_ms=9000,updated_at=NOW(3) $WREC"
+SCL="INSERT INTO session_consents (id,session_id,tenant_id,level,decision,source,consent_text_id,consent_sha256,line_sha256) VALUES"
+scl() { echo "$SCL ('$1','00000000000000000000GRANTS','$GT',$2,$3,'UI',$4,$5)"; }   # id level decision text_id+sha line
+RCT="'00000000000000000000GRANTC',SHA2($B,256)"
+run_val "0,30,0" "SELECT CONCAT(recording_enabled,',',recording_retention_days,',',unattended_recording_enabled) FROM tenant_settings WHERE tenant_id='$GT'" "P28e varsayılanlar: kayıt kapalı, saklama 30 g, gözetimsiz kayıt kapalı"
+run OK     "SELECT COUNT(*) FROM session_recordings; SELECT COUNT(*) FROM session_recording_parts"
+# Ayar: aç (saklama 1..90) → gözetimsiz kayıt aydınlatma iziyle → ikisini aynı UPDATE'te kapat (iz kalır)
+run OK     "$TX $US19 recording_enabled=1,recording_retention_days=90 $WT19; $US19 recording_retention_days=1 $WT19; $US19 unattended_recording_enabled=1,unattended_recording_ack_at=NOW(3),unattended_recording_ack_by=$GU $WT19; $US19 recording_enabled=0,unattended_recording_enabled=0 $WT19; $R"
+run DENIED "$TX $US19 recording_retention_days=91 $WT19; $R" tenant_settings_recording_retention_chk
+run DENIED "$TX $US19 recording_retention_days=0 $WT19; $R" tenant_settings_recording_retention_chk
+run DENIED "$TX $US19 unattended_recording_enabled=1,unattended_recording_ack_at=NOW(3) $WT19; $R" tenant_settings_unattended_rec_chk   # kayıt kapalıyken
+run DENIED "$TX $US19 recording_enabled=1,unattended_recording_enabled=1,unattended_recording_ack_at=NOW(3) $WT19; $US19 recording_enabled=0 $WT19; $R" tenant_settings_unattended_rec_chk
+run DENIED "$TX $US19 recording_enabled=1,unattended_recording_enabled=1 $WT19; $R" tenant_settings_unattended_rec_ack_chk
+run DENIED "$TX $US19 unattended_recording_ack_at=NOW(3),unattended_recording_ack_by='0000000000000000000NOUSER' $WT19; $R" tenant_settings_unattended_recording_ack_by_fkey
+# Rıza (AC-381): RECORDING GRANTED oturumun VIEW metnini + cümle özetini taşır; REVOKED (müşteri durdurdu) metinsiz de olur
+run OK     "$TX $CT1; $ADM; $(scl 0000000000000000000GRANTRV "'RECORDING'" "'GRANTED'" "$RCT" "$H1"); $(scl 0000000000000000000GRANTRW "'RECORDING'" "'REVOKED'" "NULL,NULL" "$H1"); $R"
+run DENIED "$TX $ADM; $(scl 0000000000000000000GRANTRV "'RECORDING'" "'GRANTED'" "NULL,NULL" NULL); $R" session_consents_line_chk   # özet zorunlu
+run DENIED "$TX $ADM; $(scl 0000000000000000000GRANTRV "'VIEW'" "'GRANTED'" "NULL,NULL" "$H1"); $R" session_consents_line_chk        # özet yalnız RECORDING
+run DENIED "$TX $ADM; $(scl 0000000000000000000GRANTRV "'RECORDING'" "'GRANTED'" "NULL,NULL" "UPPER($H1)"); $R" session_consents_line_chk
+run DENIED "$TX $ADM; $(scl 0000000000000000000GRANTRV "'RECORDING'" "'DENIED'" "NULL,NULL" "$H1"); $R" session_consents_recording_decision_chk
+run DENIED "$TX $ADM; $(scl 0000000000000000000GRANTRV "'recording'" "'GRANTED'" "NULL,NULL" NULL); $R" session_consents_level_chk
+run DENIED "$TX $CT1; $ADM; $(scl 0000000000000000000GRANTRV "'CONTROL'" "'GRANTED'" "$RCT" NULL); $R" session_consents_text_scope_chk   # P4 kuralı aynen
+run DENIED "UPDATE session_consents SET line_sha256=NULL WHERE id='0000000000000000000GRANTRV'" "command denied"
+# Yaşam döngüsü: ACTIVE → parçalar + sayaçlar → STOPPED{REVOKED} → elle silme (parçalar → DELETED{MANUAL}) → anonimleştirme DELETE
+run OK     "$TX $ADM; $SR1; $SP1; $SP2; $CNT; $UREC state='STOPPED',stop_reason='REVOKED',stopped_at=NOW(3),updated_at=NOW(3) $WREC; DELETE FROM session_recording_parts WHERE recording_id=$RID; $UREC state='DELETED',delete_reason='MANUAL',deleted_at=NOW(3),size_bytes=0,part_count=0 $WREC; DELETE FROM session_recordings WHERE session_id='00000000000000000000GRANTS'; $R"
+# Mutabakat MISSING (S-P28e-10): dosyası olmayan parça silinir, sayaç düşer; parça kalmazsa DELETED{MISSING} (süre kalabilir)
+run OK     "$TX $ADM; $SR1; $SP1; $SP2; $CNT; $UREC state='STOPPED',stop_reason='SESSION_END',stopped_at=NOW(3) $WREC; DELETE FROM session_recording_parts WHERE id='0000000000000000000GRANTP1'; $UREC size_bytes=524288,part_count=1,duration_ms=4000 $WREC; DELETE FROM session_recording_parts WHERE id='0000000000000000000GRANTP2'; $UREC state='DELETED',delete_reason='MISSING',deleted_at=NOW(3),size_bytes=0,part_count=0 $WREC; $R"
+run OK     "$TX $ADM; $(sr "'CONSENT','ACTIVE'" "'TENANT_POLICY','ACTIVE'"); $UREC state='STOPPED',stop_reason='POLICY_OFF',stopped_at=NOW(3) $WREC; $UREC state='DELETED',delete_reason='EXPIRED',deleted_at=NOW(3) $WREC; $R"
+run OK     "$TX $ADM; $(sr "INTERVAL 30 DAY" "INTERVAL 1 DAY"); $R"
+run OK     "$TX $ADM; $(sr "INTERVAL 30 DAY" "INTERVAL 90 DAY"); $R"
+run OK     "$TX $ADM; $(sr "$GU" NULL); $R"
+# Yetki sınırı: kimlik/oturum/tenant/basis/başlangıç/süre (K-P28e-22) güncellenemez; parçalar append-only; DDL yok
+run DENIED "$UREC expires_at=NOW(3) $WREC" "command denied"
+run DENIED "$UREC started_at=NOW(3) $WREC" "command denied"
+run DENIED "$UREC basis='CONSENT' $WREC" "command denied"
+run DENIED "$UREC session_id='00000000000000000000GRANTS' $WREC" "command denied"
+run DENIED "$UREC tenant_id='00000000000000000000GRANTX' $WREC" "command denied"
+run DENIED "UPDATE session_recording_parts SET size_bytes=1 WHERE id='0000000000000000000GRANTP1'" "command denied"
+run DENIED "UPDATE session_recording_parts SET storage_rel=NULL WHERE id='0000000000000000000GRANTP1'" "command denied"
+run DENIED "ALTER TABLE session_recordings ADD COLUMN x INT" "denied"
+run DENIED "ALTER TABLE session_recording_parts ADD COLUMN x INT" "denied"
+run DENIED "CREATE TRIGGER t_x BEFORE INSERT ON session_recordings FOR EACH ROW SET @a=1" "denied"
+run DENIED "DROP TABLE session_recording_parts" "denied"
+# CHECK'ler — session_recordings
+enum_case session_recordings_basis_chk TENANT_POLICY tenant_policy "CONCAT('TEN',$AA,'NT_POLICY')" "$TX $ADM; $(sr "'CONSENT','ACTIVE'" "@V@,'ACTIVE'"); $R"
+enum_case session_recordings_state_chk STOPPED stopped "CONCAT('ST',$OA,'PPED')" "$TX $ADM; $SR1; $UREC state=@V@,stop_reason='ERROR',stopped_at=NOW(3) $WREC; $R"
+enum_case session_recordings_stop_chk SESSION_END session_end "CONCAT('S',$EA,'SSION_END')" "$TX $ADM; $SR1; $UREC state='STOPPED',stop_reason=@V@,stopped_at=NOW(3) $WREC; $R"
+enum_case session_recordings_delete_chk MISSING missing "CONCAT('M',CONVERT(X'C38D' USING utf8mb4),'SSING')" "$TX $ADM; $SR1; $UREC state='DELETED',stop_reason='ERROR',stopped_at=NOW(3),delete_reason=@V@,deleted_at=NOW(3) $WREC; $R"
+run DENIED "$TX $ADM; $SR1; $UREC state='STOPPED',stopped_at=NOW(3) $WREC; $R" session_recordings_stop_chk                     # nedensiz durma
+run DENIED "$TX $ADM; $SR1; $UREC stop_reason='ERROR' $WREC; $R" session_recordings_stop_chk                                    # ACTIVE'de neden
+run DENIED "$TX $ADM; $SR1; $UREC state='STOPPED',stop_reason='ERROR',stopped_at=NOW(3)-INTERVAL 1 HOUR $WREC; $R" session_recordings_stop_chk   # başlangıçtan önce
+run DENIED "$TX $ADM; $SR1; $UREC state='STOPPED',stop_reason='ERROR',stopped_at=NOW(3),delete_reason='MANUAL' $WREC; $R" session_recordings_delete_chk
+run DENIED "$TX $ADM; $SR1; $UREC state='DELETED',stop_reason='ERROR',stopped_at=NOW(3),delete_reason='MANUAL' $WREC; $R" session_recordings_delete_chk   # deleted_at yok
+run DENIED "$TX $ADM; $SR1; $SP1; $UREC size_bytes=1048576,part_count=1 $WREC; $UREC state='DELETED',stop_reason='ERROR',stopped_at=NOW(3),delete_reason='MANUAL',deleted_at=NOW(3) $WREC; $R" session_recordings_delete_chk   # sayaç sıfırlanmadan
+run DENIED "$TX $ADM; $SR1; $UREC part_count=1 $WREC; $R" session_recordings_counters_chk
+run DENIED "$TX $ADM; $SR1; $UREC size_bytes=-1,part_count=1 $WREC; $R" session_recordings_counters_chk
+run DENIED "$TX $ADM; $(sr "INTERVAL 30 DAY" "INTERVAL 91 DAY"); $R" session_recordings_expires_chk
+run DENIED "$TX $ADM; $(sr "INTERVAL 30 DAY" "INTERVAL 12 HOUR"); $R" session_recordings_expires_chk
+run DENIED "$TX $ADM; $(sr "$GU" "'kullanici'"); $R" session_recordings_recorder_chk
+run DENIED "$TX $ADM; $SR1; $(sr "$RID" "'0000000000000000000GRANTRD'"); $R" "Duplicate entry"                           # oturum başına tek kayıt
+run DENIED "$TX $GX; $ADM; $(sr "'$GT'" "'00000000000000000000GRANTX'"); $R" session_recordings_session_id_tenant_id_fkey   # başka tenant'ın oturumu
+run DENIED "$TX $ADM; $SR1; $SP1; DELETE FROM session_recordings $WREC; $R" session_recording_parts_recording_id_tenant_id_fkey   # silme sırası: parça → kayıt
+# CHECK'ler — session_recording_parts
+run DENIED "$TX $ADM; $SR1; $(sp "0,7,35000" "0,60,35000"); $R" session_recording_parts_part_no_chk                          # K-P28e-16: 0..59
+run DENIED "$TX $ADM; $SR1; $(sp ",5000,1048576" ",0,1048576"); $R" session_recording_parts_duration_chk
+run DENIED "$TX $ADM; $SR1; $(sp ",5000,1048576" ",15001,1048576"); $R" session_recording_parts_duration_chk
+run DENIED "$TX $ADM; $SR1; $(sp ",5000,1048576" ",5000,0"); $R" session_recording_parts_size_chk
+run DENIED "$TX $ADM; $SR1; $(sp ",5000,1048576" ",5000,2097153"); $R" session_recording_parts_size_chk
+run DENIED "$TX $ADM; $SR1; $(sp "CONCAT('$GT'" "CONCAT('00000000000000000000GRANTX'"); $R" session_recording_parts_storage_rel_chk   # öndek başka tenant
+run DENIED "$TX $ADM; $SR1; $(sp "'.rsf')" "'.rs/')"); $R" session_recording_parts_storage_rel_chk
+run DENIED "$TX $ADM; $SR1; $(sp "'.rsf'),1" "'.rsf'),0"); $R" session_recording_parts_key_ver_chk
+run DENIED "$TX $ADM; $SR1; $SP1; $(sp "GRANTP1'" "GRANTP3'" | sed "s/REPEAT('a',24)/REPEAT('c',24)/"); $R" "Duplicate entry"   # aynı (bölüm, parça)
+run DENIED "$TX $ADM; $SR1; $SP1; $(sp "GRANTP1',$RID,'$GT',0,7" "GRANTP3',$RID,'$GT',0,8"); $R" "Duplicate entry"           # aynı dosya iki satırda
+SPX="'0000000000000000000GRANTP1',$RID,'00000000000000000000GRANTX',0,7,35000,5000,1048576,CONCAT('00000000000000000000GRANTX','/',REPEAT('a',24),'.rsf'),1"
+run DENIED "$TX $GX; $ADM; $SR1; INSERT INTO session_recording_parts ($SPC) VALUES ($SPX); $R" session_recording_parts_recording_id_tenant_id_fkey   # başka tenant'ın kaydı
 # Temizlik (FK sırasıyla)
 run_mig OK "DELETE FROM tenant_purge_jobs WHERE tenant_id IN ('00000000000000000000GRANTT','00000000000000000000GRANTW'); DELETE FROM session_consents WHERE id IN ('00000000000000000000GRANT9','0000000000000000000GRANT10'); DELETE FROM support_sessions WHERE id IN ('00000000000000000000GRANT7','00000000000000000000GRANT8'); DELETE FROM customers WHERE id='00000000000000000000GRANTY'; DELETE FROM tenants WHERE id='00000000000000000000GRANTW'; DELETE FROM users WHERE id='00000000000000000000GRANTU'; DELETE FROM tenant_settings WHERE tenant_id='00000000000000000000GRANTT'; DELETE FROM tenants WHERE id='00000000000000000000GRANTT'"  # P16: app tenant/users silemez (tetikleyici) → migrator
 # P13a `backup` kullanıcısı (mimari-p13 §4): yalnız 'backup'@'localhost'; DB'de SELECT, SHOW VIEW, TRIGGER; global yetki yok.

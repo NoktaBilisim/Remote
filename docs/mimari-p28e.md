@@ -207,6 +207,11 @@ Büyüme: 5 sn parça → saatte 720 satır. 20 GB kota ≈ 30 saat ≈ 22 bin s
 - **Elle silme (AC-386):** §5 `DELETE`. Disk → parçalar → `DELETED{MANUAL}`. Audit satırı silinmez.
 - **Kilit sırası (S-P28e-9):** bu bölümdeki tüm yollar §5.5'teki tek yardımcıyla kilitler.
 
+> **K1 dba notu (sapma, 2026-11-16; ayrıntı `docs/db-notlari.md` "P28e"):** `UNIQUE(session_id)` → `UNIQUE(session_id, tenant_id)` ve parçada
+> `UNIQUE(recording_id, tenant_id, series_no, part_no)` (bileşik FK öneki; eşdeğer tekillik). Parçaya `UNIQUE(storage_rel)` eklendi
+> (mutabakat araması). `storage_rel` NOT NULL (UPDATE grant'ı yok). `session_consents_text_scope_chk` RECORDING satırında metin
+> kopyasına izin verecek şekilde genişledi; RECORDING yalnız GRANTED/REVOKED. Down guard kayıt/rıza verisi varken durur.
+
 ### 3.5 Grant (`prisma/sql/grants.sql`, `check-app-grants.sh`)
 
 `app`: `session_recordings` SELECT, INSERT, UPDATE(state, stop_reason, delete_reason, recorder_user_id, stopped_at, duration_ms, size_bytes,

@@ -24,7 +24,7 @@ const FENCE_TABLES = ["auth_sessions"];
 /** USER_CHILDREN adımında silinen ama `tenants`'a da FK veren kullanıcı alt tabloları (P27a: tenant_id NOT NULL). */
 const USER_CHILDREN_WITH_TENANT_FK = ["trusted_devices"];
 /** P28b: adımda silinen ama firmaya yalnız oturum üzerinden (FK `support_sessions(id, tenant_id)`) bağlı tablolar. */
-const STEP_TABLES_VIA_SESSION_FK = ["session_stored_files"];
+const STEP_TABLES_VIA_SESSION_FK = ["session_stored_files", "session_recordings", "session_recording_parts"]; // P28e: oturum / kayıt FK
 /** Korunan 12 tablo (koşullu DELETE tetikleyicisi; P18 += session_messages). */
 const GUARDED = [
   "session_messages",
@@ -111,6 +111,7 @@ describe("P16 G3 meta-testler (S16-11)", () => {
         "support_sessions.terminated_by",
         "system_settings.updated_by",
         "tenant_settings.unattended_silent_ack_by", // P28u: SETTINGS adımında silinir (USERS'tan önce); kullanıcı silmede NULL
+        "tenant_settings.unattended_recording_ack_by", // P28e: aynı (SETTINGS adımı; kullanıcı silmede NULL)
         "tenant_purge_jobs.cancelled_by",
         "tenant_purge_jobs.started_by",
         "trusted_devices.tenant_id", // P27a: bileşik FK (user_id, tenant_id) → users(id, tenant_id)

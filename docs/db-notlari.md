@@ -1616,3 +1616,98 @@ sonra satır saklama + 30 g kalıcı silmeye kadar kalır → pratikte geri alma
 - `pnpm db:generate`, server typecheck temiz; seed OK. İlgili entegrasyon testleri 24 dosya / 218 test geçti (tenant-purge-meta/p16,
   session-history-p8, retention-p13a-db/job, retention-p16-purge, users-delete-p16, db-grants, lg-schema, audit-immutability-p11,
   fsrv-p28b-retention, unattended-*, p18/p19-schema, security-p14a/p15-db).
+
+## P28e — oturum kaydı: session_recordings, session_recording_parts, kayıt ayarları, RECORDING rızası (K1, 2026-11-16)
+
+Migration `20261125000000_p28e_recordings` (mimari-p28e r2 §3, §5.5; ADR-0034; AC-380, 381, 386, 447; S-P28e-10, K-P28e-16/18/22).
+Veri taşıma yok; tetikleyici yok (toplam 23, audit-continuity özeti aynı). Seed gerekmez: varsayılanlar (kayıt kapalı, 30 g,
+gözetimsiz kayıt kapalı) geliştirme ortamı için yeterli; kayıt satırı ancak canlı oturumda oluşur.
+
+### Şema
+
+- `tenant_settings`: `recording_enabled`, `recording_retention_days` (TINYINT, CHECK 1..90), `unattended_recording_enabled`
+  (CHECK: yalnız `recording_enabled=1` iken), `unattended_recording_ack_at/_by` (FK users RESTRICT; CHECK açıkken `ack_at` dolu —
+  P28u kalıbı, `_by` kullanıcı silmede NULL olduğu için CHECK'te yok). Kaydı kapatan UPDATE gözetimsiz anahtarı **aynı satırda** kapatmalı.
+- `session_consents`: `level` += `RECORDING`; `line_sha256` CHAR(64) (CHECK: yalnız ve her zaman RECORDING, küçük harf hex);
+  RECORDING yalnız `GRANTED|REVOKED` (`session_consents_recording_decision_chk`); `text_scope_chk` RECORDING satırında metin
+  kopyasına izin verir (VIEW GRANTED kuralı aynen).
+- `session_recordings` (oturum başına ≤ 1): ikili enum CHECK'leri (basis/state/stop_reason/delete_reason `EXPIRED|MANUAL|MISSING`),
+  durum ↔ alan tutarlılığı (`stop_reason`/`stopped_at` ⇔ ACTIVE değil; `delete_reason`/`deleted_at` ⇔ DELETED; DELETED'da
+  `size_bytes = part_count = 0`; `part_count = 0 ⇔ size_bytes = 0`), `expires_at ∈ [started_at+1g−1dk, started_at+90g+1dk]`,
+  `recorder_user_id` ULID biçimi (FK değil). ACTIVE → STOPPED → DELETED geri dönüşsüzlüğü **kodda** (`WHERE state=…` koşullu UPDATE);
+  tetikleyici eklenmedi (mimari §3).
+- `session_recording_parts` (append-only, `updated_at` yok): `part_no ≤ 59`, `duration_ms 1..15000`, `size_bytes 1..2097152`,
+  `storage_rel` `{tenant_id}/{24}.rsf` (öndek = tenant), `key_ver ≥ 1`.
+
+### Mimariden sapmalar (mimari-p28e §3'e not düşüldü)
+
+1. `UNIQUE(session_id, tenant_id)` (mimari `UNIQUE(session_id)`) ve parçada `UNIQUE(recording_id, tenant_id, series_no, part_no)`:
+   bileşik FK'nin öneki olmalı, yoksa MySQL gizli indeks açar. `session_id`/`recording_id` tenant'ı belirlediğinden eşdeğer (P8b kalıbı).
+   Prisma bileşik anahtarı `sessionId_tenantId` (backend zaten tenant'ı bilir).
+2. `UNIQUE(storage_rel)` (ek): mutabakat (a) `storage_rel IN (…)` araması tam tarama olmasın (≈ 22 bin satır/tenant).
+3. `storage_rel NOT NULL` (mimari NULL): tabloda UPDATE grant'ı yok, NULL ara durumu yazılamaz; disk silinince satır silinir.
+4. Down guard (aşağıda) kayıt/rıza verisi varken durur — mimari §11.4'teki asıl geri alma önceki imajdır (tablolar kalır).
+
+### Yetkiler (`grants.sql`, `check-app-grants.sh` "P28e")
+
+- `session_recordings`: SELECT, INSERT, DELETE + sütun UPDATE (state, stop_reason, delete_reason, recorder_user_id, stopped_at,
+  duration_ms, size_bytes, part_count, deleted_at, updated_at). `expires_at/started_at/basis/session_id/tenant_id` değiştirilemez.
+- `session_recording_parts`: SELECT, INSERT, DELETE; UPDATE yok. `tenant_settings` (tablo UPDATE, P1) ve `session_consents` (INSERT) yeterli.
+- audit_logs yalnız-ekleme kuralı değişmedi. backup şema düzeyi SELECT ile yeni tabloları görür; migrator değişmedi.
+- `check-app-grants.sh` clamav probe düzeltmesi: `INSERT … AS n ON DUPLICATE KEY UPDATE` (geri alınan TX). Satır varken (staging)
+  "Duplicate entry" yerine aynı CHECK'ler UPDATE yolunda sınanır; app'in DELETE'i yok, anahtar CHECK'i geçici anahtara izin vermez.
+
+### Sorgu desenleri (K3/K4; EXPLAIN entegrasyon testinde sabitlenmeli)
+
+| Sorgu                                                                                                                | İndeks                                            |
+| -------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------- |
+| Kota: `SUM(size_bytes) WHERE tenant_id=? AND state IN ('ACTIVE','STOPPED')` (`fsrv/usage.ts` P28b toplamına eklenir) | `IX(tenant_id, state)`                            |
+| 03:30 `recExpire`: `state='STOPPED' AND expires_at <= ?`                                                             | `IX(state, expires_at)`                           |
+| Açılış süpürmesi: `state='ACTIVE'`                                                                                   | `IX(state, expires_at)` öneki                     |
+| Oturumun kaydı / geçmiş detayı: `session_id=? AND tenant_id=?`                                                       | `UQ(session_id, tenant_id)`                       |
+| Oynatma: `recording_id=? AND tenant_id=? ORDER BY series_no, part_no`                                                | `UQ(recording_id, tenant_id, series_no, part_no)` |
+| Mutabakat (a): `storage_rel IN (…)`                                                                                  | `UQ(storage_rel)`                                 |
+| Firma silme `byTenant`                                                                                               | `IX(tenant_id, state)` / `IX(tenant_id)`          |
+
+### Silme sırası ve kilit sırası (S-P28e-9)
+
+- Parça → kayıt (bileşik FK RESTRICT; ters sıra 1451 — check-app-grants'ta sınanır).
+- `purgeAnonymized`: `session_recording_parts` → `session_recordings` → `session_stored_files` → `session_files` → `session_consents`
+  → `support_sessions` (K4).
+- Firma silme: `DATA_STEPS.SESSION_FILES` başına `byTenant("session_recording_parts")`, `byTenant("session_recordings")` eklendi (K1;
+  meta-test güncellendi). Disk: aynı `FILES_DIR/{tenant}` klasör adımı.
+- Kullanıcı silme: `deleteUserChildren` `unattended_recording_ack_by = NULL` (K1'de kodlandı).
+- Anonimleştirme / `recExpire` / mutabakat `MISSING` / elle silme: disk → parçalar → kayıt (`DELETED` ya da DELETE) — K3/K4.
+- Kilit: `lockTenantRecording(tx, tenantId, rids?)` → `tenants WHERE id=? FOR UPDATE`, sonra `session_recordings WHERE id IN (…)
+ORDER BY id FOR UPDATE`. Parça satırları kilitlenmez (INSERT/DELETE kayıt kilidi altında). Toplu işler tenant başına bir TX.
+
+### Saklama / büyüme (R-P28e notları)
+
+- R-P28e-1: 5 sn parça → 720 satır/sa; 20 GB kota ≈ 30 sa ≈ 22 bin satır/tenant; satır ≈ 200 B → tenant başına ≈ 5 MB indeks+veri.
+  Partition gerekmez; büyüme kota ile sınırlı. Kayıt satırı DELETED olarak `retention_days` (oturum saklaması) boyunca kalır,
+  anonimleştirmede silinir.
+- R-P28e-2: disk dosyaları yedeğe girmez (K-P28b-11); geri yüklemede dosyasız parçalar mutabakatta silinir → `DELETED{MISSING}`.
+- R-P28e-3: `crypto:check-retire` `session_recording_parts.key_ver`'ı da saymalı (K4); eski anahtar en son kaydın saklaması (≤ 90 g)
+  dolmadan kaldırılmaz.
+- R-P28e-4: `storage_rel` utf8mb4_unicode_ci (büyük/küçük harf duyarsız eşleşme); rastgele 24 karakterde çakışma olasılığı ihmal
+  edilebilir, mutabakat yalnız "canlı say" yönünde etkilenir (güvenli yön).
+
+### Kilit ve bakım penceresi
+
+- Yeni tablolar boş → kilit yok. `tenant_settings` küçük (COPY). `session_consents` ADD COLUMN + CHECK → **tek COPY ALTER**;
+  tablo yeniden yazılır, süresince admit/rıza yazımı bekler. Süre tahmini: `SELECT COUNT(*) FROM session_consents` (staging küçük;
+  prod öncesi bakım penceresinde).
+
+### Geri alma
+
+`precheck.sql` (KORUMA satırları 0) → `down.sql`. Guard `p28e_down_guard_chk`: kayıt/parça satırı, RECORDING rıza satırı ya da
+kayıt anahtarı açık firma varsa 3819 ile hiçbir şey değişmeden durur (rıza satırı KVKK delili, silinmez). Down sütun yetkilerini de
+REVOKE eder (DROP TABLE `columns_priv`'i silmez).
+
+### Test (2026-11-16, geçici `rs-mysql-p28ek1`:33338, mysql 8.4.13, silindi)
+
+- `migrate deploy` + grants: tamam; `prisma migrate diff --exit-code`: fark yok.
+- Gidiş-dönüş: P28u hâli → up → down → döküm (kolon/indeks/CHECK/FK/tetikleyici/tablo+sütun yetkileri/migrations) P28u ile birebir;
+  yeniden up dökümü ilk up ile birebir. Guard: açık kayıt anahtarıyla down 3819, döküm değişmedi.
+- `check-app-grants.sh`: 873 PASS / 0 FAIL — clamav satırı yokken ve varken (satır değişmeden kaldı).
+- `pnpm -r typecheck` (server) temiz; `test:int` 107 dosya / 1052 test geçti (meta-test ve CHECK sayısı 76 güncellendi).

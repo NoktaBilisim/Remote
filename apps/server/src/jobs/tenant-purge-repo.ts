@@ -17,7 +17,13 @@ type DbOrTx = Db | Tx;
  */
 export const DATA_STEPS: Readonly<Partial<Record<TenantPurgeStep, readonly TablePart[]>>> = {
   // P28b (§3.3): saklanan dosya satırları önce (disk klasörü `SESSION_FILES` adımı başında silinir — tenant-purge.ts).
-  SESSION_FILES: [byTenant("session_stored_files"), byTenant("session_files")],
+  // P28e (mimari-p28e §3.4): kayıt parçaları → kayıtlar (bileşik FK sırası), oturum adımından önce; disk dosyaları aynı klasör adımında.
+  SESSION_FILES: [
+    byTenant("session_recording_parts"),
+    byTenant("session_recordings"),
+    byTenant("session_stored_files"),
+    byTenant("session_files"),
+  ],
   SESSION_CONSENTS: [byTenant("session_consents")],
   // P18: IX(tenant_id, created_at). P19 (§8c.1): notification_outbox aynı adımda (yeni adım yok; IX(tenant_id, channel, created_at)
   // öneki; tetikleyicisiz) — support_requests'ten (REQUESTS) önce silinmeli (bileşik FK RESTRICT).

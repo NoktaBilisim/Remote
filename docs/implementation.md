@@ -11978,3 +11978,19 @@ Sonuç ve ölçüm tablosu: `docs/spike-p28e-k0s.md`. Spike dosyaları: `docs/sp
 - Çözünürlük değişimi kaydı kesmiyor; tek bölüm MSE'de oynuyor.
 - MSE'de bölüm geçişinde `timestampOffset` atanmadan önce `sourceBuffer.abort()` zorunlu.
 - Arka plan, Firefox ve Edge ölçülemedi; K7 gerçek tarayıcı testine kaldı.
+
+## P28e K1 (dba)
+
+- Migration `apps/server/prisma/migrations/20261125000000_p28e_recordings/` (`migration.sql`, `down.sql`, `precheck.sql`), Prisma
+  modelleri `SessionRecording`, `SessionRecordingPart`, `TenantSettings` (+5 alan), `SessionConsent.lineSha256`. Ayrıntı ve sapmalar:
+  `docs/db-notlari.md` "P28e"; mimari §3'e not düşüldü.
+- **Backend için önemli:** oturumun kaydı Prisma'da `sessionId_tenantId` bileşik anahtarıyla bulunur (UQ(session_id) yerine);
+  parça idempotansı `recordingId_tenantId_seriesNo_partNo`. DELETED'a geçişte `size_bytes = part_count = 0` aynı UPDATE'te zorunlu;
+  kaydı kapatan ayar UPDATE'i gözetimsiz kaydı da aynı satırda kapatmalı (CHECK). RECORDING rıza satırı `line_sha256` zorunlu,
+  yalnız GRANTED/REVOKED.
+- K1'de kodlanan: `DATA_STEPS.SESSION_FILES` += kayıt parçaları → kayıtlar; `deleteUserChildren` `unattendedRecordingAckBy = null`;
+  meta-test ve ADR-0014 CHECK sayısı (76) güncellendi. K4'e kalan: `anonymizeSessionBatch`, `purgeAnonymized` sırası, `recExpire`,
+  mutabakat (a)/(b), `crypto:check-retire`, `lockTenantRecording`.
+- `grants.sql` + `check-app-grants.sh` P28e bölümü. Ayrıca clamav probe düzeltildi (upsert; staging'de satır varken "Duplicate entry"
+  FAIL'i giderildi). Seed değişmedi (varsayılanlar yeterli).
+- Test: migrate + diff boş, up/down/up döküm eşit, guard 3819, check-app-grants 873 PASS (clamav satırı yok/var), test:int 1052/1052.

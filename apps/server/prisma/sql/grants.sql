@@ -160,3 +160,16 @@ GRANT UPDATE (state, scan_reason, signature, storage_rel, delivered_at, expires_
 -- P28u (mimari-p28u §3; AC-436, 445, 446): yeni tablo YOK, yeni GRANT YOK. tenant_settings.unattended_silent_* ve
 -- support_sessions.consent_mode/silent_reason mevcut tablo düzeyi SELECT/INSERT/UPDATE ile yazılır (P1/P2); kurallar CHECK'te
 -- (check-app-grants.sh "P28u").
+
+-- P28e (mimari-p28e §3.5; AC-380, 381, 386, 447). session_recordings: INSERT (recording.start TX), sütun düzeyi UPDATE (durum
+-- makinesi + sayaçlar; kimlik/oturum/tenant/basis/started_at/expires_at değiştirilemez — K-P28e-22 "kısaltma geriye uygulanmaz"),
+-- DELETE (anonimleştirme, purgeAnonymized, firma silme). session_recording_parts: append-only — SELECT/INSERT/DELETE, UPDATE YOK.
+-- Tetikleyici yok; kurallar CHECK + bileşik FK'de. DDL yok. Sütun GRANT'ı tablo düzeyi REVOKE'tan SONRA.
+-- tenant_settings.recording_* / unattended_recording_*: tablo düzeyi UPDATE (P1) yeterli. session_consents RECORDING satırı +
+-- line_sha256: mevcut INSERT yeterli (ip/user_agent dışında UPDATE yok).
+GRANT SELECT, INSERT, DELETE ON session_recordings TO 'app'@'%';
+REVOKE IF EXISTS UPDATE, ALTER, DROP, INDEX, TRIGGER, REFERENCES ON session_recordings FROM 'app'@'%';
+GRANT UPDATE (state, stop_reason, delete_reason, recorder_user_id, stopped_at, duration_ms, size_bytes, part_count, deleted_at,
+    updated_at) ON session_recordings TO 'app'@'%';
+GRANT SELECT, INSERT, DELETE ON session_recording_parts TO 'app'@'%';
+REVOKE IF EXISTS UPDATE, ALTER, DROP, INDEX, TRIGGER, REFERENCES ON session_recording_parts FROM 'app'@'%';
