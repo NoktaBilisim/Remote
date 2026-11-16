@@ -128,7 +128,7 @@ Tablo §3. Her alt paket kendi Windows istemci artımını staging'e çıkarır;
 | AC-375 | Ses WebRTC (Opus, DTLS-SRTP) ile taşınır, sunucuda çözülmez; ses hiçbir yerde kaydedilmez (oturum kaydı dosyasında ses izi 0 — P28e testi).                                                                                   |
 | AC-376 | RTT < 150 ms ağda ağızdan kulağa gecikme p95 < 400 ms; kalite panelinde ses paket kaybı gösterilir.                                                                                                                           |
 | AC-377 | Tarayıcı modunda ve Windows istemcide aynı akış çalışır (tek yol).                                                                                                                                                            |
-| AC-378 | Çoklu teknisyende katılımcılar konuşabilir (her biri kendi düğmesiyle; müşteri kabulü görüşme başına bir kez); izleyici yalnız dinler, mikrofonu açılamaz (sunucu reddeder).                                                  |
+| AC-378 | Çoklu teknisyende katılımcılar konuşabilir (her biri kendi düğmesiyle; müşteri kabulü görüşme başına bir kez); izleyici yalnız dinler (yalnız `sessions.voice` yetkisi varsa — V-PD-6), mikrofonu açılamaz (sunucu reddeder). |
 | AC-379 | Audit: `voice.request`, `voice.accept`, `voice.reject`, `voice.end` (süre sn). Eski istemcide düğme pasif (AC-352 metni).                                                                                                     |
 
 ### P28e — Oturum kaydı (AC-279)
@@ -197,14 +197,14 @@ Tablo §3. Her alt paket kendi Windows istemci artımını staging'e çıkarır;
 
 ### Yetki anahtarları (tek kaynak `permissions.ts`)
 
-| Anahtar                    | Paket | Not                                                 |
-| -------------------------- | ----- | --------------------------------------------------- |
-| `remote_control.clipboard` | P28a  | Kontrol izni + müşteri pano izni ayrıca gerekir     |
-| `file_transfer.print`      | P28a  | PDF yazdırma                                        |
-| `sessions.invite`          | P28c  | Davet, kontrol devri, oturum devri                  |
-| `sessions.supervise`       | P28c  | Tenant'ın etkin oturumlarını izleyici olarak izleme |
-| `sessions.voice`           | P28d  | Sesli görüşme başlatma                              |
-| `sessions.view_recording`  | P28e  | E11'de adı belirlenmişti (AC-279)                   |
+| Anahtar                    | Paket | Not                                                      |
+| -------------------------- | ----- | -------------------------------------------------------- |
+| `remote_control.clipboard` | P28a  | Kontrol izni + müşteri pano izni ayrıca gerekir          |
+| `file_transfer.print`      | P28a  | PDF yazdırma                                             |
+| `sessions.invite`          | P28c  | Davet, kontrol devri, oturum devri                       |
+| `sessions.supervise`       | P28c  | Tenant'ın etkin oturumlarını izleyici olarak izleme      |
+| `sessions.voice`           | P28d  | Sesli görüşme başlatma, katılma ve dinleme (P28d V-PD-6) |
+| `sessions.view_recording`  | P28e  | E11'de adı belirlenmişti (AC-279)                        |
 
 Kayıt elle silme mevcut `session_history.edit`, saklanan dosya indirme mevcut `session_history.view` + `file_transfer.use` ile yapılır (yeni anahtar yok).
 
@@ -215,7 +215,7 @@ Kayıt elle silme mevcut `session_history.edit`, saklanan dosya indirme mevcut `
 | P28a   | `clipboard.transfer`, `clipboard.consent`, `print.job`                                                                                                                                |
 | P28b   | `settings.clamav` (sistem), tenant ayarı değişikliği, `tenant.storage_quota`, `file.upload`, `file.scan` (sonuç), `file.infected`, `file.download`, `file.expired` (toplu, retention) |
 | P28c   | AC-370 listesi                                                                                                                                                                        |
-| P28d   | `voice.request/accept/reject/end`                                                                                                                                                     |
+| P28d   | `voice.request/accept/reject/join/end`                                                                                                                                                |
 | P28e   | `recording.start/stop/view/delete`, kayıt ayarı değişikliği, rıza onay kaydında                                                                                                       |
 | P28f/g | yeni olay yok; istemci platformu (`os`) mevcut katılım audit'ine eklenir                                                                                                              |
 

@@ -1,3 +1,179 @@
+# Güvenlik Raporu — P28d tasarım turu (dal p28d, HEAD 111605a, 2026-11-17)
+
+DURUM: DÜZELTİLMELİ (tasarım; K0 öncesi mimari-p28d / ADR-0036'ya işlenmeli) — Kritik 0 / Yüksek 3 / Orta 4 / Düşük 5
+
+Kapsam: `docs/mimari-p28d.md` (r1), `docs/adr/0036-sesli-gorusme-opus-saf-go-wasapi-mix-minus.md`, `docs/tasarim-kontrol.md` "P28d";
+bağlam `mimari-p28c.md` §1.1/§4.3, `mimari-p28u.md`, `mimari-p28e.md`. Kod henüz yok; mevcut kodda dayanılan noktalar doğrulandı:
+`apps/web/proxy.ts:74`, `apps/server/src/app-hooks.ts:218`, `apps/web/lib/rec/recorder.ts:61-63`, `apps/server/src/signaling/rooms.ts:313-335`
+(`applyPermChange`), `member-life.ts:154` (`revokeMember`), `apps/web/lib/webrtc/guest-peers.ts:4-6,88` (roster süzgeci).
+Bağımlılık `github.com/kazzmir/opus-go@v1.6.0` modül vekilinden indirilip kaynak düzeyinde incelendi (çalıştırılmadı).
+
+## Bulgular (öncelik sırasıyla)
+
+### [YÜKSEK] Y-PD-1 Misafir mikrofonu yerel rızaya ve belirli bir görüşmeye bağlı değil — yeniden bağlanmada rızasız açılma — A01/A04
+Yer: mimari-p28d §4.2 (`voice.answer` yalnız `accept:boolean`; `voice.state` "yeniden bağlanan misafire … hemen sonra gider"), §5 m.3
+("misafir sonra mikrofonu açar"), ADR-0036 m.6.
+Sorun: Mesajlarda görüşme kimliği yok ve misafirin mikrofonu hangi olayla açacağı tanımlı değil. Uygulayıcı doğal olarak
+"`voice.state{phase:"active"}` geldi → mikrofonu aç" yazar. Tarayıcı misafir sayfası yenilenir ya da Go istemci yeniden başlar/yeniden
+bağlanırsa (30 sn pay içinde) sunucu `voice.state{active}` gönderir ve misafir **yeni bir kabul tıklaması olmadan** mikrofonu açar.
+Chrome'da köken için kalıcı izin ("bu siteyi her ziyarette izin ver") verilmişse `getUserMedia` istemsiz döner; Win32'de zaten istem yok
+(V-PD-1). Aynı şekilde DC mesajı ya da SDP'deki `sendrecv` ses m-line'ı da mikrofonu açan bir yol olarak yanlış uygulanabilir.
+İstismar senaryosu: Müşteri görüşmeyi kabul eder, sayfayı kapatıp yeniden açar ya da ağ kopar; görüşme sunucuda `active` kalır
+(30 sn pay). Misafir yeniden bağlanınca mikrofon kendiliğinden açılır; müşteri görüşmenin bittiğini sanırken teknisyenler dinler.
+Ele geçirilmiş/hatalı sunucu da `voice.state{active}` göndererek kabulsüz mikrofon açtırabilir.
+Düzeltme (mimar → backend-dev, frontend-dev, Go): (1) Sunucu her `voice.request`'te 128 bit rastgele `callId` üretir; `voice.request`,
+`voice.answer{callId,accept}`, `voice.state{callId?}`, `voice.end{callId}` taşır; eşleşmeyen `callId` düşer. (2) Tasarıma bağlayıcı kural:
+"Misafir mikrofonu **yalnız** aynı sayfa ömrü/süreç içinde, o `callId` için kullanıcının yerel 'Kabul et' tıklamasından sonra açar.
+`voice.state`, DC mesajı ya da SDP mikrofon açmaz; yalnız kapatabilir." (3) Yerel rıza kaydı olmayan misafir `voice.state{active}`
+alırsa mikrofonu açmaz, `voice.end{callId, reason:"customer"}` gönderir (ya da yeni rıza diyaloğu — sadelik için ilki). (4) Test: sayfa
+yenileme ve Go yeniden bağlanma senaryosunda `getUserMedia`/WASAPI `Initialize` çağrı sayısı 0; DC'den/SDP'den mikrofon açılamaz.
+(atanan ajan: mimar, backend-dev, frontend-dev)
+
+### [YÜKSEK] Y-PD-2 opus-go çözücüsü teknisyen kontrolündeki girdiyle panic/bellek bozulması — müşteri istemcisi çöker, `unsafe` saldırı yüzeyi — A06/A08
+Yer: ADR-0036 m.1, mimari-p28d §4.3 (Go jitter/FEC/PLC); bağımlılık kaynağı `opus-go@v1.6.0/libcshim/libcshim.go:166,197,212,264,267`
+(`Xmalloc/Xmemset/Xmemcpy too large`, `Xabort`, assert → `panic`), `opuscc/*` (`Opus_celt_fatal` çağrıları, ör. `silk_dec_api.go:20-300`),
+`opuscc` + `opusccenc` içinde 16.647 `unsafe.Pointer` kullanımı; README: "transpiling the libopus C sources … as well as using GPT 5.2 help".
+Sorun: Çevrilmiş C kodunda libopus'un `celt_assert`/`celt_fatal` yolları açık ve `panic` ile bitiyor; C'deki sınır dışı erişim Go'da
+sınır denetimsiz `unsafe` yazmaya dönüşür. Çözücü, teknisyenin tarayıcısından gelen RTP yükünü işler (DTLS-SRTP yalnız eşin kimliğini
+doğrular, içeriği değil). Tasarımda çözücünün `recover` ile yalıtılması, paket boyutu sınırı ve "önce talker kapısı, sonra çözme"
+sırası tanımlı değil. ADR'deki "doğruluk libopus'tan gelir" savı, README'deki LLM destekli düzenleme notuyla zayıflıyor.
+İstismar senaryosu: Değiştirilmiş konsollu bir katılımcı/izleyici (ya da ele geçirilmiş teknisyen hesabı) bozuk Opus çerçeveleri
+gönderir → assert `panic` → Go istemci süreci (ekran paylaşımı, kontrol dahil) çöker (DoS); daha kötüsü, denetimsiz `unsafe` yazma ile
+müşteri makinesinde bellek bozulması.
+Düzeltme: (1) `internal/voice/opus.go` sarmalayıcısında her `Decode`/`Encode` çağrısı `defer recover()` ile sarılır; panic'te o tid'in
+çözücüsü atılıp yeniden kurulur, sayaç ≥ 3 ise o eşin sesi görüşme sonuna dek düşürülür (süreç ölmez); metrik/log yalnız sayı.
+(2) Çözücüye yalnız `talkers` içindeki tid'in paketi verilir (izleyici/talkers dışı paket **çözülmeden** atılır); yük ≤ 1275 bayt
+(RFC 6716), aksi düşer; tid başına paket/sn üst sınırı (ör. 100) ve jitter üst sınırı 200 ms zaten var. (3) K0s başarı ölçütlerine
+eklenir: `go test -fuzz=FuzzDecode` (rastgele + Chrome'dan yakalanmış mutasyonlu paketler) en az 30 dk, panic sarmalayıcıdan dışarı
+kaçmamalı ve `-race` temiz; çözücü durumu her yeni görüşmede sıfırdan kurulur. (4) Fuzz başarısızsa ADR yedeğine (wazero sandbox — bellek
+WASM içinde yalıtık) geçiş ölçütü olarak yazılır. (atanan ajan: mimar, backend-dev (Go))
+
+### [YÜKSEK] Y-PD-3 Dinleme yetkiye bağlı değil: `sessions.voice` yokken ya da oturum ortasında düştüğünde teknisyen müşteriyi duymaya devam eder — A01
+Yer: mimari-p28d §1 V-PD-3, §4.2 bitiş tetikleyicileri ("`sessions.voice` düşer → ilgili tid talkers'tan çıkar"), §4.3 mix-minus
+("Misafir, teknisyen `t`'ye mikrofon + Σ…" — her eşe), ADR-0036 m.4; mevcut `rooms.ts:318-331` (`memberPermChange` / sahip yolu `narrowCaps`).
+Sorun: Misafir karışımı odadaki **her** teknisyen eşine gönderir. `sessions.voice` yalnız başlatma/katılmayı kapılar; dinleme
+yetkisiz serbesttir. Yetki oturum ortasında düşen teknisyen talkers'tan çıkar ama V-PD-3 gereği dinleyici olarak müşteri mikrofonunu
+duymaya devam eder. `sessions.supervise` sahibi bir süpervizör (P28c §4.3: İzle'de müşteri kabulü yok) etkin görüşmeye sonradan girip
+müşteriyi dinler; müşteriye "ayrı bildirim yoktur". Yönetici yetki toggle'ının "sesi kapattım" beklentisi bozulur; müşteri rızası A ile
+konuşmaya verilmişken kapsam sessizce genişler.
+İstismar senaryosu: Admin bir kullanıcıdan `sessions.voice`'ı alır; kullanıcı izleyici olarak her etkin görüşmeyi dinlemeyi sürdürür.
+Süpervizör, kabul edilmiş bir görüşmeye "İzle" ile girer; müşteri yalnız çubuktaki küçük "Dinleyen" satırının değiştiğini görebilir.
+Düzeltme: (1) Sunucu `voice.state`'e `listeners: tid[]` ekler = odada bağlı ve `sessions.voice` yetkili teknisyenler (rol fark etmez;
+izleyici dinler ama yetkisi olmalı). (2) Misafir **gönderim kapısı**: karışım yalnız `listeners ∪ talkers` eşlerine gider; diğer eşlerin
+ses gönderici izi `replaceTrack(null)` (tarayıcı) / örnek yazılmaz (Go). (3) `applyPermChange` hem üye (`memberPermChange`) hem sahip
+(`narrowCaps`) yolunda `sessions.voice` düşünce tid'i `talkers` ve `listeners`'tan çıkarıp `voice.state` yayar (iki yol da teste girer).
+(4) Etkin görüşmede `listeners` büyüdüğünde misafirde belirgin, `aria-live=assertive` bildirim: "<Ad> görüşmeyi dinlemeye başladı" +
+mevcut "Çıkar" düğmesine erişim; V-PD-3'teki "ayrı bildirim yoktur" kaldırılır. (atanan ajan: mimar, backend-dev, frontend-dev, Go)
+
+### [ORTA] O-PD-1 Misafirin WS bağlantısı koptuğunda P2P ses akmaya devam eder — çıkarılan/yetkisi düşen teknisyen dinler — A01
+Yer: mimari-p28d §4.2 (`VOICE_GUEST_GRACE_MS = 30_000`), V-PD-5 (yalnız teknisyen kopması tanımlı); `guest-peers.ts:4-6` (eş kapatma
+yalnız roster mesajıyla).
+Sorun: Medya P2P'dir; sunucu bir eşi kesemez, yalnız misafire roster/`voice.state` gönderebilir. Misafirin WS'si koparsa (ağ,
+proxy) ve bu arada bir teknisyen `revokeMember`/"Çıkar"/yetki düşmesiyle odadan alınırsa, misafir bunu öğrenemez ve o eşe mikrofon
+karışımını göndermeyi sürdürür; sunucu 30 sn sonra `endVoice(disconnect)` yazar ama misafire ulaşamaz.
+İstismar senaryosu: Çıkarılmış teknisyen, misafirin sinyal bağlantısı koptuğu sürece müşterinin ortamını dinlemeye devam eder.
+Düzeltme: Misafirde yerel kural: WS kapanınca tüm ses göndericileri **hemen** susturulur (`track.enabled=false` / Go'da sıfır örnek),
+mikrofon `VOICE_GUEST_GRACE_MS` sonunda bırakılır; yeniden bağlanınca ses yalnız `voice.state` aynı `callId` ile `active` ve yerel rıza
+kaydı varsa (Y-PD-1) ve yeni `listeners` listesine göre yeniden açılır. Test: WS kesme → ≤ 1 sn içinde giden ses enerjisi 0.
+(atanan ajan: frontend-dev, backend-dev (Go))
+
+### [ORTA] O-PD-2 Görüşmeye kimlerin katıldığı/dinlediği audit'e girmiyor — A09 (KVKK hesap verebilirlik)
+Yer: mimari-p28d §4.2 `voice.join` ("Ayrı audit yazılmaz"), §6 `voice.end.new_value = {durationSec, reason, talkers:number}`.
+Sorun: Müşteri sesini kimin duyduğu/konuştuğu sonradan kanıtlanamaz; yalnız sayı tutuluyor. Ortak standart (CLAUDE.md §1.1) kayıt
+ekleme/değişiklik olaylarında aktörü ister; KVKK şikâyetinde "görüşmeyi kim dinledi" sorusu yanıtsız kalır.
+Düzeltme: `voice.join` audit'i eklenir (actor = katılan teknisyen, `{}`), `voice.end.new_value`'ya `talkerIds: userId[]` ve
+`listenerIds: userId[]` (görüşme boyunca görülen birleşim, ≤ 3) eklenir. Ses içeriği/aygıt adı yine yazılmaz. (atanan ajan: mimar, backend-dev)
+
+### [ORTA] O-PD-3 Go istemcide istemci tarafı kapılar tanımsız: gözetimsiz kipte ses modülü ve kalıcı mikrofon göstergesi — A04
+Yer: ADR-0036 m.7 (yalnız sunucu `hasVoice`), mimari-p28d §8 "Müşteri (Go)" (görüşme çubuğu pencere içinde).
+Sorun: Gözetimsiz kapı yalnız sunucuda. `no_user` kipinde yardımcı süreç boş oturumda mikrofon açarsa ortam dinlenir; istemcide
+ikinci katman yok (P28c "sunucu + misafir kapısı" kalıbına aykırı). Ayrıca görüşme çubuğu küçültülebilir/arkada kalabilir pencerede;
+Windows 10'da masaüstü uygulaması için görev çubuğu mikrofon simgesi her sürümde görünmeyebilir.
+Düzeltme: (1) Cihaz bileti/servis/yardımcı (gözetimsiz) bağlantılarında `rs.cap.voice1` **bildirilmez** ve `internal/voice` hiç
+kurulmaz; birim testi: gözetimsiz kipte `voice.New` çağrılmaz. (2) Mikrofon aygıtı açık olduğu sürece en üstte, kapatılamaz küçük bir
+gösterge (mevcut tepsi simgesi + "Mikrofon açık/Sessizde" ipucu ve "Görüşmeyi bitir" menü öğesi) zorunlu; pencere küçültülse de görünür.
+(atanan ajan: mimar, backend-dev (Go))
+
+### [ORTA] O-PD-4 Tedarik zinciri: opus-go olgusal düzeltmeler ve izleme boşluğu — A06/A08
+Yer: ADR-0036 m.1 ve "Sonuçlar"; tasarim-kontrol "4. Bağımlılık taraması" ("govulncheck/Dependabot mevcut").
+Sorun: (a) ADR "v1.6.0 (2025-09)" diyor; modül vekilinde v1.6.0 ve v1.7.0 **aynı commit**e (`bc2aa842…`, 2026-09-25) işaret ediyor —
+sürüm etiketleri güvenilir değil. (b) Çevrilmiş taban libopus **1.6.1** (gömülü sürüm dizgisi); libopus CVE'leri Go zafiyet veritabanına
+opus-go olarak eşlenmez, govulncheck bunları yakalamaz. (c) Tek geliştirici + LLM destekli düzenleme + ~4,8 MB üretilmiş kod
+insan incelemesine kapalı. (d) BSD-3 m.2 ikili dağıtımda telif bildirimini ister (opus-go + Xiph libopus).
+Düzeltme: Sürüm commit hash'iyle `implementation.md`'ye yazılır (go.sum yeterli koruma; `GOFLAGS=-mod=readonly`, `GONOSUMDB` boş);
+Dependabot bu modül için yalnız el ile incelemeli PR (otomatik birleştirme yok) ve yükseltmede Y-PD-2 fuzz'ı yeniden koşulur; runbook'a
+"libopus güvenlik duyurularını izle, taban sürümü 1.6.1" maddesi; K0s'ta modülde `os/exec`, `net`, `syscall`, `init()` yan etkisi
+olmadığı doğrulanıp kayda geçirilir (incelemede `opus/opuscc/opusccenc/libcshim` yalnız `unsafe, reflect, fmt, os, math, sync` içe
+aktarıyor); kurulum paketine/Hakkında'ya iki BSD-3 bildirimi eklenir. (atanan ajan: mimar, devops, teknik-yazar)
+
+### [DÜŞÜK] D-PD-1 K-PD-1 `microphone=(self)` tüm sayfalarda — kabul edilebilir, sınırlar netleşmeli — A05
+Yer: mimari-p28d §7 K-PD-1, ADR-0036 m.8; mevcut `apps/web/proxy.ts:74`, `app-hooks.ts:218`.
+Değerlendirme: Gerekçe doğru: izin köken başınadır; aynı köken XSS konsolu `window.open` ile açıp orada `getUserMedia` çağırabilir, yani
+sayfa bazlı `()` gerçek bir sınır sağlamaz; `(self)` üçüncü taraf çerçeveye izin vermez, CSP nonce + `frame-ancestors` değişmez. Ek risk
+düşüktür. Öneri: politika `permissionsPolicyFor(pathname)` tek saf fonksiyonda üretilsin; `/r/` ve alt yolları `()`; Fastify `()`
+kalır (test zaten planlı); `camera=()` ve `geolocation=()` değişmediği testle sabitlensin; ileride kullanıcı içeriği gösteren herkese
+açık sayfa eklenirse varsayılanın `()` olması için kural "izin listesi değil, istisna listesi" olarak runbook/implementation.md'ye yazılsın.
+(atanan ajan: backend-dev/frontend-dev)
+
+### [DÜŞÜK] D-PD-2 İstek bombardımanı/DoS sınırları eksik kalıyor — A04
+Yer: mimari-p28d §3 (`cooldownUntil` yalnız ret/zaman aşımı), §4.2 (`requests ≤ 10` oda başına).
+Sorun: Müşteri görüşmeyi "Görüşmeyi bitir" ile kapatınca bekleme süresi yok → hemen yeni diyalog; 10 istek oda geneli olduğundan tek
+teknisyen kotayı tüketip diğerlerini engelleyebilir; `voice.join`/`voice.end` tekrarı her seferinde yayın tetikleyebilir.
+Düzeltme: `endReason ∈ {customer, device}` sonrası da 30 sn bekleme; `voice.join` zaten talker ise ve `voice.end` idle iken no-op (yayın
+yok); mevcut soket başına WS mesaj oranı sınırının voice mesajlarını kapsadığı testle gösterilsin. (atanan ajan: backend-dev)
+
+### [DÜŞÜK] D-PD-3 Tarayıcı misafirde talker kapısının uygulama ayrıntısı — A04
+Yer: mimari-p28d §4.3 ("Chrome'da uzak iz … sessiz bir `<audio>` öğesine de bağlanır"; "sessize alınır ya da atılır").
+Sorun: "ya da" belirsiz; Chrome geçici çözümündeki `<audio>` `muted` değilse talkers dışı eşin sesi doğrudan hoparlöre çıkar ve
+talker kapısı by-pass olur.
+Düzeltme: Kural: her uzak ses izi `muted=true` `<audio>`'ya bağlanır; WebAudio grafına yalnız `talkers` içindeki tid bağlanır;
+talkers'tan çıkan tid'in düğümü aynı tikte `disconnect()` edilir; birim testi graf bağlantı listesini doğrular. `voice.state.talkers`/
+`by` içinde roster'da olmayan tid yok sayılır. (atanan ajan: frontend-dev)
+
+### [DÜŞÜK] D-PD-4 WASAPI COM yaşam döngüsü ve ≤ 1 sn bırakma garantisi — A04
+Yer: ADR-0036 m.2; mimari-p28d §9 AC-374 Go birim testi.
+Öneri: Tüm COM arayüzleri (`IMMDeviceEnumerator`, `IMMDevice`, `IAudioClient(2)`, `IAudioCaptureClient`, `IAudioRenderClient`) tek
+sahip yapıda tutulup `Close()` içinde ters sırayla `Release`; yakalama goroutine'i olay + `stop` kanalıyla 200 ms zaman aşımlı durdurulur
+(`WaitForMultipleObjects`), COM çağrıları kilitli OS iş parçacığında (`runtime.LockOSThread`); `Close` bitişte, WS kopmasında (O-PD-1),
+oturum bitişinde ve süreç çıkışında (panic dahil `defer`) çağrılır. Test: sahte aygıtta her `AddRef`/`Release` sayısı eşit, `Close`
+≤ 1 sn. Aygıt adı/kimliği log'a yazılmaz. (atanan ajan: backend-dev (Go))
+
+### [DÜŞÜK] D-PD-5 Teknisyen mikrofonunun bekleme sırasında açık kalması ve sayfa kapanışı — A04
+Yer: mimari-p28d §4.3 (izin istekten önce alınır, pending'de 60 sn'ye kadar tutulur).
+Öneri: Konsolda `pagehide`, WS kapanışı, oda bitişi ve rol/üyelik kaybında `track.stop()` (tek `releaseMic()` fonksiyonu);
+e2e'de konsol sekmesi kapatılınca iz `ended`. (atanan ajan: frontend-dev)
+
+## Otomatik tarama çıktıları
+
+- Tasarım turu; kod değişikliği yok, `pnpm audit`/govulncheck bu tur koşulmadı (bu makinede `go`/`govulncheck` yok). K5 kod turunda
+  `pnpm audit --audit-level=moderate` ve `govulncheck ./...` (agent-win) zorunlu.
+- `proxy.golang.org` kaydı: `github.com/kazzmir/opus-go` sürümleri v1.0.0…v1.7.0; v1.6.0 ve v1.7.0 → commit `bc2aa842b45aaa82636296012c04c4782b8df7c3`
+  (2026-09-25). `go.mod`: `go 1.24.0`, bağımlılık yok, `go.sum` boş. Lisans BSD-3 (Jon Rafkind, 2025). Gömülü taban: "libopus 1.6.1".
+- Kaynak taraması: `unsafe.Pointer` 16.647 yer (opuscc+opusccenc); `libcshim` `abort`/assert → `panic`; ağ/süreç çalıştırma içe aktarımı yok.
+
+## Tasarımda vaat edilip kodda bulunmayanlar
+
+Tasarım turu — kod yok. Tasarımın dayandığı mevcut kod doğrulandı:
+- AC-375 kayıt: `recorder.ts:61-63` `new MediaStream([video])` — yalnız video izi; ses kayda giremez (P28e testine ses izi = 0 eklenmeli).
+- `applyPermChange` (`rooms.ts:313`) üye ve sahip için iki ayrı yol; tasarım yalnız "yetki düşer → talkers'tan çıkar" diyor, ikisi de
+  bağlanmalı (Y-PD-3 m.3).
+- Misafir roster süzgeci (`guest-peers.ts` Y-PC-4) mevcut; ses gönderim kapısı yeni yazılacak (Y-PD-3 m.2).
+
+## Olumlu
+
+- Sunucu medya taşımıyor/çözmüyor; DTLS-SRTP P2P; ses hiçbir yerde saklanmıyor; kaydedici zaten yalnız video.
+- İzleyicinin konuşması iki katmanda (sunucu `ROLE_MAY` 403 + misafir talker kapısı) engelleniyor; SDP ayrıştırmaya dayanılmıyor.
+- `hasVoice` tek yardımcı, gözetimsiz odada koşulsuz false; eski istemciye `voice.*` gitmiyor (bilinmeyen mesajla kopma riski yok).
+- Tek `endVoice` bitiş yolu, 7 nedenli tetikleyici matrisi testi; konuşan teknisyen kopunca anında talkers'tan çıkma (V-PD-5).
+- Müşteri diyaloğu AC-116 kalıbı (odak Reddet, 1,5 sn gecikme, imleç altında açılmaz); 60 sn zaman aşımı = ret.
+- Kapı retleri audit'i şişirmiyor, metrikle izleniyor; ses içeriği/aygıt adı log'a girmiyor.
+- CGO=0 ve tekrarlanabilir derleme korunuyor; yedek yol (gopus, wazero) ADR'de yazılı.
+
+Öneri (`docs/gereksinimler.md` 9. bölüm "Sonra"): Windows AEC; müşteriye "bu oturumda bir daha sorma" seçeneği; görüşme başına dinleyici
+onayı (Y-PD-3 bildirimi yeterli görülmezse).
+
+---
+
 # Güvenlik Raporu — P28c kod turu 2 (dal p28c, HEAD 65297ac, 2026-11-17)
 
 DURUM: GEÇTİ (Kritik/Yüksek 0) — Kritik 0 / Yüksek 0 / Orta 0 / Düşük 1
