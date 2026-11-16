@@ -12415,7 +12415,7 @@ dokunulmadı.
 ## P28e K7 (frontend-dev) — web: kaydedici, oynatıcı, rıza, ayar, geçmiş
 
 Tarih: 2026-11-16 · Branch `p28e` · Kaynak: `docs/mimari-p28e.md` r2 §5, §7, §9, §13–14 K7; `docs/spike-p28e-k0s.md`.
-Koordinatör `docs/implementation.md`'ye taşır. Commit yapılmadı. Skill: `ui-ux-pro-max/SKILL.md` mevcut (okunmadı; proje DESIGN.md esas alındı).
+Skill: `ui-ux-pro-max/SKILL.md` mevcut (okunmadı; proje DESIGN.md esas alındı).
 
 ## Rotalar
 
