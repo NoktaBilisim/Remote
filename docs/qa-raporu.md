@@ -6,43 +6,43 @@ Tarih: 2026-11-17 · Dal `p28c`, HEAD `65297ac` (PR #18). Kapsam: tur 1 bulgular
 
 ## Test sonucu
 
-| Komut | Sonuç |
-| --- | --- |
-| `pnpm -r run lint && pnpm -r run typecheck` | temiz (EXIT 0) |
-| Sunucu `vitest run test/unit test/integration/{multi-p28c,pt-surface,unattended-silent-k3,unattended-silent-race,unattended-intervene-k4,unattended-connect-k3}.test.ts` (p28c-qa2-mysql:3431) | 54 dosya, **708 geçti, 1 atlandı** (`fsrv-p28b` AC-353 `skipIf(!CLAMD_TEST_HOST)`, gerekçeli) |
-| Aynı DB'de `--reporter=verbose` `multi-p28c` + `metrics-multi-p28c` | 36/36; "P28c düzeltme turu 1" bloğundaki 5 yeni test ve 2 metrik testi adıyla koştu |
-| `apps/server/scripts/test-db.sh down` (ikisi de) | `silindi: p28c-qa2-mysql`; çalışan tek konteyner `rs-mysql-test`, ona dokunulmadı |
-| `bash deploy/ops/test-watch.sh` | **SONUÇ: GEÇTİ**. Tur 1'deki UYARI yerine `PASS ad eşlemesi: rs_multi_denied_total ops/metrics.ts'te` ve `PASS … P28c işareti: etiketsiz 'rs_multi_denied_total 0'` |
-| Go (golang:1.26 konteyneri) `go test -race -count=30 -run 'TestAC253GP205ScopesResetPerSession\|TestP28c' ./internal/tray ./internal/unattended/helper` | ok / ok (30 tekrarda 0 hata; `TestP28cSetNamesSameSuffixRechecksDrawn` dahil) |
-| PR #18 CI (`gh pr checks 18`, koşular 43957311072 / 43957311138, HEAD `65297ac`) | **pass:** lint + type-check, test (MySQL 8.4), go test (Windows) (P28c zorunlu PASS listesi dahil), build ×3 + Docker, coturn, audit + lisans + gitleaks, shellcheck + actionlint, tekrarlanabilirlik. **fail:** `gofmt + vet + test -race + govulncheck + lisans`: `internal/tray` `TestAC253GP205ScopesResetPerSession` → `resident_test.go:261: kapsam 2 bitmedi` (3,01 sn). **pending:** web e2e (Playwright). Release/imza/attestation `skipping` (beklenen) |
+| Komut                                                                                                                                                                                          | Sonuç                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
+| ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `pnpm -r run lint && pnpm -r run typecheck`                                                                                                                                                    | temiz (EXIT 0)                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
+| Sunucu `vitest run test/unit test/integration/{multi-p28c,pt-surface,unattended-silent-k3,unattended-silent-race,unattended-intervene-k4,unattended-connect-k3}.test.ts` (p28c-qa2-mysql:3431) | 54 dosya, **708 geçti, 1 atlandı** (`fsrv-p28b` AC-353 `skipIf(!CLAMD_TEST_HOST)`, gerekçeli)                                                                                                                                                                                                                                                                                                                                                                     |
+| Aynı DB'de `--reporter=verbose` `multi-p28c` + `metrics-multi-p28c`                                                                                                                            | 36/36; "P28c düzeltme turu 1" bloğundaki 5 yeni test ve 2 metrik testi adıyla koştu                                                                                                                                                                                                                                                                                                                                                                               |
+| `apps/server/scripts/test-db.sh down` (ikisi de)                                                                                                                                               | `silindi: p28c-qa2-mysql`; çalışan tek konteyner `rs-mysql-test`, ona dokunulmadı                                                                                                                                                                                                                                                                                                                                                                                 |
+| `bash deploy/ops/test-watch.sh`                                                                                                                                                                | **SONUÇ: GEÇTİ**. Tur 1'deki UYARI yerine `PASS ad eşlemesi: rs_multi_denied_total ops/metrics.ts'te` ve `PASS … P28c işareti: etiketsiz 'rs_multi_denied_total 0'`                                                                                                                                                                                                                                                                                               |
+| Go (golang:1.26 konteyneri) `go test -race -count=30 -run 'TestAC253GP205ScopesResetPerSession\|TestP28c' ./internal/tray ./internal/unattended/helper`                                        | ok / ok (30 tekrarda 0 hata; `TestP28cSetNamesSameSuffixRechecksDrawn` dahil)                                                                                                                                                                                                                                                                                                                                                                                     |
+| PR #18 CI (`gh pr checks 18`, koşular 43957311072 / 43957311138, HEAD `65297ac`)                                                                                                               | **pass:** lint + type-check, test (MySQL 8.4), go test (Windows) (P28c zorunlu PASS listesi dahil), build ×3 + Docker, coturn, audit + lisans + gitleaks, shellcheck + actionlint, tekrarlanabilirlik. **fail:** `gofmt + vet + test -race + govulncheck + lisans`: `internal/tray` `TestAC253GP205ScopesResetPerSession` → `resident_test.go:261: kapsam 2 bitmedi` (3,01 sn). **pending:** web e2e (Playwright). Release/imza/attestation `skipping` (beklenen) |
 
 CI kırmızısının değerlendirmesi: `internal/tray` bu düzeltme commit'inde değişmedi. Pakete son dokunuş `1249b5a` (`WithActive` → `activeRecUI`). Aynı kod `64887c0` agent-win koşusunda (43953992799) **success** verdi. Yerelde `-race -count=30` ile 30/30 geçiyor. Hata 3 sn'lik bekleme zaman aşımı biçiminde. Bu bir zamanlama kararsızlığına işaret ediyor ama test bilinen flaky listesinde (S-P19-T12, p9-users, p13bl, AC-261, customers-csv-p19) yok. Yeniden koşulup yeşil görülmeden "geçti" sayılmaz.
 
 ## Tur 1 bulgularının kapanışı
 
-| # | Durum | Kanıt |
-| --- | --- | --- |
-| 1 metrik kaydı | ✅ | `ops/metrics.ts` `m.counter("rs_multi_denied_total" …)`, `m.counter("rs_multi_invites_total" …)`. Birim testleri: `metrics-multi-p28c.test.ts` "kayıtlı; ilk olaydan önce etiketsiz 0" (`# TYPE … counter` + `rs_multi_denied_total 0`) ve "inc sonrası etiketli seri sayılır" (`{type="input"} 2`, `{result="sent"} 1`, etiketsiz 0 kalkar). test-watch'ta UYARI yok |
-| 2 negatif testler | ✅ | `multi-p28c.test.ts` "P28c düzeltme turu 1". (a) "silent oda — unattended.silent'sız davetli: davet 403 {silent}, İzle 403, kabul 403": davet `failReason` `["silent"]` ve `invite_accept` `["silent"]` audit'le doğrulanıyor. (b) "gözetimsiz oda — davetlide unattended.connect yok 403, grant yok 403": `failReason` `["device","permission"]`. (c) aynı testte kabulde 2FA'sız `403 MFA_SETUP_REQUIRED`, step-up'sız `401 MFA_STEP_UP_REQUIRED`, `markStepUp` ile 200. Sıra (eligibility 403 → step-up) tasarımdaki V-PC-2/sapma 2 ile uyumlu |
-| 3 implementation.md | ✅ | K1 başlığı "TAMAM", BİTMEYEN 6–7 üstü çizili ve gerekçeli, K3 "Eksik testler" yazıldı olarak işaretli (`p28c_test.go`, `peers_test.go`), K4 PASS listesi notu güncel, boşluk 5–6 "Sonra (koordinatör kararı)". Yeni "P28c düzeltme turu 1 — sunucu" bölümü O-PC-K1, D-PC-K1..K4 ve QA-1/2'yi doğrulama komutlarıyla anlatıyor |
-| 4 CI kaydı | ⚠️ | Bu raporda kayıtlı (yukarıda). Ancak CI yeşil değil: 1 fail, 1 pending (aşağıda madde 1) |
+| #                   | Durum | Kanıt                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
+| ------------------- | ----- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1 metrik kaydı      | ✅    | `ops/metrics.ts` `m.counter("rs_multi_denied_total" …)`, `m.counter("rs_multi_invites_total" …)`. Birim testleri: `metrics-multi-p28c.test.ts` "kayıtlı; ilk olaydan önce etiketsiz 0" (`# TYPE … counter` + `rs_multi_denied_total 0`) ve "inc sonrası etiketli seri sayılır" (`{type="input"} 2`, `{result="sent"} 1`, etiketsiz 0 kalkar). test-watch'ta UYARI yok                                                                                                                                                                             |
+| 2 negatif testler   | ✅    | `multi-p28c.test.ts` "P28c düzeltme turu 1". (a) "silent oda — unattended.silent'sız davetli: davet 403 {silent}, İzle 403, kabul 403": davet `failReason` `["silent"]` ve `invite_accept` `["silent"]` audit'le doğrulanıyor. (b) "gözetimsiz oda — davetlide unattended.connect yok 403, grant yok 403": `failReason` `["device","permission"]`. (c) aynı testte kabulde 2FA'sız `403 MFA_SETUP_REQUIRED`, step-up'sız `401 MFA_STEP_UP_REQUIRED`, `markStepUp` ile 200. Sıra (eligibility 403 → step-up) tasarımdaki V-PC-2/sapma 2 ile uyumlu |
+| 3 implementation.md | ✅    | K1 başlığı "TAMAM", BİTMEYEN 6–7 üstü çizili ve gerekçeli, K3 "Eksik testler" yazıldı olarak işaretli (`p28c_test.go`, `peers_test.go`), K4 PASS listesi notu güncel, boşluk 5–6 "Sonra (koordinatör kararı)". Yeni "P28c düzeltme turu 1 — sunucu" bölümü O-PC-K1, D-PC-K1..K4 ve QA-1/2'yi doğrulama komutlarıyla anlatıyor                                                                                                                                                                                                                     |
+| 4 CI kaydı          | ⚠️    | Bu raporda kayıtlı (yukarıda). Ancak CI yeşil değil: 1 fail, 1 pending (aşağıda madde 1)                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
 
 `sessions.create` devir şartı (koordinatör kararı) tutarlılığı: `member-cmds.ts targetMayOwn` şartı `lockTechnician` sonrasında TX içinde `subjectById(tx)` ile okuyor. Ardından `eligibleToJoin(..., "revalidate")` çağrılıyor; gözetimsiz odada kapı yoksa ret var. implementation.md'de gerekçeli. Mevcut devir testleri (AC-369, O-PC-2 target_gone) hedefe `TARGET_PERMS` veriyor. Yeni test "AC-369 D-PC-K4" yetki düşünce `CONFLICT`, `fail{conflict}` ve `technician_id`/bellek değişmedi iddiasını sınıyor. Tutarlı, bulgu yok.
 
 ## Kabul kriterleri
 
-| AC | Durum | Kanıt / eksik |
-| --- | --- | --- |
-| AC-364 | ✅ | Tur 1 kanıtları + "silent oda — unattended.silent'sız davetli…", "gözetimsiz oda — davetlide unattended.connect yok 403, grant yok 403; kabul step-up'sız 403/401, step-up ile 200", "aday listesi 61., ret ve geri çekme 21. istek/dk → 429" |
-| AC-365 | ✅ | "AC-365: … 4. davet ve İzle 409 SESSION_FULL", "yarış (O-PC-2)…" |
-| AC-366 | ✅ | Tur 1 kanıtları (sunucu + Go + e2e), yeniden koşuldu |
-| AC-367 | ✅ | "AC-367: katılımcının control.request/clip/fsrv → FORBIDDEN…"; reddin artık sayılması `metrics-multi-p28c` ile kanıtlı |
-| AC-368 | ✅ | "AC-368: İzle — yetkisiz 403…" + "AC-368 O-PC-K1: /active — asked oda listelenmez; silent oda yalnız unattended.silent + grant olana (multi1'siz de)" + silent'ta İzle 403 (P28u notu karşılandı) |
-| AC-369 | ✅ | "AC-369: session.transfer…", "AC-11…", "O-PC-2 … target_gone", "AC-369 D-PC-K4…"; geçmiş `history-participants-p28c` (birim takımında koştu) |
-| AC-370 | ✅ | 10 eylem; yeni testler `session.invite`/`invite_accept`/`transfer` fail audit'lerini `failReason` ile doğruluyor |
-| AC-371 | ⚠️ elle doğrulama bekliyor (açık madde, DÜZELTİLMELİ sebebi değil) | Kod/birim tarafı tur 1'deki gibi doğrulandı. Staging ölçümü (runbook §28c.8: kontrol sahibi ≥ 15, izleyici ≥ 5 FPS) test-operatoru/staging'de yapılacak |
-| AC-372 | ✅ | "AC-372: misafir multi1 bildirmedi → … 409 CLIENT_UNSUPPORTED", "teknisyen hello'su … guestMulti" |
-| AC-404 | ✅ | Değişiklik yok; tur 1 kanıtı geçerli |
+| AC     | Durum                                                              | Kanıt / eksik                                                                                                                                                                                                                                 |
+| ------ | ------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| AC-364 | ✅                                                                 | Tur 1 kanıtları + "silent oda — unattended.silent'sız davetli…", "gözetimsiz oda — davetlide unattended.connect yok 403, grant yok 403; kabul step-up'sız 403/401, step-up ile 200", "aday listesi 61., ret ve geri çekme 21. istek/dk → 429" |
+| AC-365 | ✅                                                                 | "AC-365: … 4. davet ve İzle 409 SESSION_FULL", "yarış (O-PC-2)…"                                                                                                                                                                              |
+| AC-366 | ✅                                                                 | Tur 1 kanıtları (sunucu + Go + e2e), yeniden koşuldu                                                                                                                                                                                          |
+| AC-367 | ✅                                                                 | "AC-367: katılımcının control.request/clip/fsrv → FORBIDDEN…"; reddin artık sayılması `metrics-multi-p28c` ile kanıtlı                                                                                                                        |
+| AC-368 | ✅                                                                 | "AC-368: İzle — yetkisiz 403…" + "AC-368 O-PC-K1: /active — asked oda listelenmez; silent oda yalnız unattended.silent + grant olana (multi1'siz de)" + silent'ta İzle 403 (P28u notu karşılandı)                                             |
+| AC-369 | ✅                                                                 | "AC-369: session.transfer…", "AC-11…", "O-PC-2 … target_gone", "AC-369 D-PC-K4…"; geçmiş `history-participants-p28c` (birim takımında koştu)                                                                                                  |
+| AC-370 | ✅                                                                 | 10 eylem; yeni testler `session.invite`/`invite_accept`/`transfer` fail audit'lerini `failReason` ile doğruluyor                                                                                                                              |
+| AC-371 | ⚠️ elle doğrulama bekliyor (açık madde, DÜZELTİLMELİ sebebi değil) | Kod/birim tarafı tur 1'deki gibi doğrulandı. Staging ölçümü (runbook §28c.8: kontrol sahibi ≥ 15, izleyici ≥ 5 FPS) test-operatoru/staging'de yapılacak                                                                                       |
+| AC-372 | ✅                                                                 | "AC-372: misafir multi1 bildirmedi → … 409 CLIENT_UNSUPPORTED", "teknisyen hello'su … guestMulti"                                                                                                                                             |
+| AC-404 | ✅                                                                 | Değişiklik yok; tur 1 kanıtı geçerli                                                                                                                                                                                                          |
 
 ## Düzeltilmeli
 
@@ -50,21 +50,21 @@ CI kırmızısının değerlendirmesi: `internal/tray` bu düzeltme commit'inde 
 
 ## Definition of Done
 
-| Madde | Durum | Not |
-| --- | --- | --- |
-| Lint / typecheck temiz | ✅ | yerel + CI |
-| Testler yeşil (yerel) | ✅ | sunucu 708/1 skip (gerekçeli), Go tray/helper 30× race |
-| CI yeşil | ❌ | race job fail (madde 1), web e2e pending |
-| Her AC'nin testi | ✅ | AC-371 yalnız staging ölçümü (açık madde) |
-| Tasarım-kod uyumu, sapmalar gerekçeli | ✅ | `sessions.create` devir şartı ve O-PC-K1 implementation.md'de |
-| Gözlemlenebilirlik (metrik/alarm) | ✅ | iki sayaç kayıtlı, test-watch PASS |
-| Audit (AC-370) | ✅ | |
-| Yetki tek kaynak (AC-404) | ✅ | |
-| 5 durum + a11y + iki tema | ✅ | web değişmedi |
-| Yeni bağımlılık / env / migration | ✅ | yok |
-| implementation.md güncel | ✅ | |
-| Runbook §28c | ✅ | |
-| Windows elle tur + AC-371 ölçümü | ⚠️ | staging (test-operatoru) |
+| Madde                                 | Durum | Not                                                           |
+| ------------------------------------- | ----- | ------------------------------------------------------------- |
+| Lint / typecheck temiz                | ✅    | yerel + CI                                                    |
+| Testler yeşil (yerel)                 | ✅    | sunucu 708/1 skip (gerekçeli), Go tray/helper 30× race        |
+| CI yeşil                              | ❌    | race job fail (madde 1), web e2e pending                      |
+| Her AC'nin testi                      | ✅    | AC-371 yalnız staging ölçümü (açık madde)                     |
+| Tasarım-kod uyumu, sapmalar gerekçeli | ✅    | `sessions.create` devir şartı ve O-PC-K1 implementation.md'de |
+| Gözlemlenebilirlik (metrik/alarm)     | ✅    | iki sayaç kayıtlı, test-watch PASS                            |
+| Audit (AC-370)                        | ✅    |                                                               |
+| Yetki tek kaynak (AC-404)             | ✅    |                                                               |
+| 5 durum + a11y + iki tema             | ✅    | web değişmedi                                                 |
+| Yeni bağımlılık / env / migration     | ✅    | yok                                                           |
+| implementation.md güncel              | ✅    |                                                               |
+| Runbook §28c                          | ✅    |                                                               |
+| Windows elle tur + AC-371 ölçümü      | ⚠️    | staging (test-operatoru)                                      |
 
 ## Öneriler (zorunlu değil)
 
