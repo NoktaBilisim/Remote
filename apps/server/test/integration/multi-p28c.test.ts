@@ -783,6 +783,28 @@ describe("P28c düzeltme turu 1 (O-PC-K1, D-PC-K2, D-PC-K4, QA-2)", () => {
     expect(room(o.sessionId).technicianId).toBe(o.user.id);
   });
 
+  it("AC-369 D-PC-K5: gözetimsiz odada devir hedefi sessions.create'siz ama unattended.connect + grant ile devralır", async () => {
+    await unattendedRoom(async ({ live2, o, deviceId }) => {
+      const { grantRow } = await import("../helpers/unattended.ts");
+      const { loginAs, markStepUp } = await import("../helpers/app.ts");
+      const m = await newUser(live2, o.tenantId, { ...MEMBER_PERMS, ...UN });
+      await grantRow(o.tenantId, deviceId, m.user.id);
+      const inv = await inject(live2, "POST", `/api/v1/sessions/${o.sessionId}/invites`, o.s, { userId: m.user.id });
+      expect(inv.statusCode).toBe(201);
+      await testDb().user.update({ where: { id: m.user.id }, data: { totpEnabled: true, totpSecretEnc: new Uint8Array(40) } });
+      const fresh = await loginAs(live2.app, m.user);
+      await testDb().authSession.updateMany({ where: { userId: m.user.id }, data: { mfaPassed: true } });
+      await markStepUp(fresh);
+      const { inviteId } = inv.json<{ inviteId: string }>();
+      expect((await inject(live2, "POST", `/api/v1/sessions/invites/${inviteId}/accept`, fresh, {})).statusCode).toBe(200);
+      const w = await memberWs(live2, o.sessionId, fresh);
+      o.ws.send({ t: "session.transfer", to: w.hello.tid });
+      await until(async () => (await testDb().supportSession.findUnique({ where: { id: o.sessionId } }))?.technicianId === m.user.id);
+      expect((await audits(o.sessionId, "session.transfer"))[0]).toMatchObject({ result: "success" });
+      w.ws.ws.close();
+    });
+  });
+
   it("AC-364 D-PC-K2: aday listesi 61., ret ve geri çekme 21. istek/dk → 429", async () => {
     const o = await ownerWithGuest(live);
     const u = await newUser(live, o.tenantId, MEMBER_PERMS);

@@ -12946,6 +12946,7 @@ Kaynak: `docs/guvenlik-raporu.md` "P28c kod turu 1" (O-PC-K1, D-PC-K2/K3/K4), `d
 
 - **D-PC-K1** (güvenlik, Düşük; Go ajanı): `liveIndicator.SetNames` aynı ek zaten yazılıysa doğrulama yapmadan true dönüyordu; erken dönüş kaldırıldı, ek aynı olsa da her çağrıda `Drawn` ile çizim doğrulanıyor. Test `TestP28cSetNamesSameSuffixRechecksDrawn`, `agent-win.yml` P28c zorunlu PASS listesine eklendi.
 - **Devir hedefinde `sessions.create`** (koordinatör kararı): güvenlik raporundaki "mevcut oturum açma koşulu" ifadesine dayanır; hedef kontrolü devralacağı için oturum açabilen kullanıcı olmalı.
+- **D-PC-K5** (güvenlik tur 2, Düşük): `targetMayOwn` gözetimsiz odada `sessions.create` aramaz; odayı açan yetki `unattended.connect` (grant/silent ile `eligibleToJoin` revalidate'te). Mimari §5.2'ye yazıldı. Test: "AC-369 D-PC-K5" (gözetimsiz devir `sessions.create`'siz başarılı) + mevcut "AC-369 D-PC-K4" (gözetimli `sessions.create`'siz CONFLICT).
 
 - **O-PC-K1** `sessions/eligibility.ts` → adım 6/6a/6b `unattendedStep(d, s, room, phase)` olarak ayrıldı; `eligibleToJoin` ve
   `invites.ts unattendedVisible` ikisi de bunu çağırır (tek kaynak). `GET /sessions/active`: **asked oda hiç listelenmez**;

@@ -1,3 +1,108 @@
+# Güvenlik Raporu — P28c kod turu 2 (dal p28c, HEAD 65297ac, 2026-11-17)
+
+DURUM: GEÇTİ (Kritik/Yüksek 0) — Kritik 0 / Yüksek 0 / Orta 0 / Düşük 1
+
+Kapsam: (1) tur 1 düzeltmeleri `git diff 64887c0..65297ac` (`eligibility.ts`, `invites.ts`, `routes-multi.ts`, `member-cmds.ts`,
+`rooms.ts`, `ws.ts`, `device-access.ts`, Go `follow.go`); (2) tur 1'de okunmayanlar: web `components/console/techs-panel.tsx`,
+`invite-dialog.tsx`, `components/invite-notifier.tsx`, `app/(panel)/sessions/active-sessions.tsx`, `components/guest/techs-list.tsx`,
+`app/session/[token]/guest-session.tsx`, `lib/webrtc/guest-peers.ts`, `lib/multi/roster.ts`; Go `internal/ui/roster_windows.go`,
+`internal/ui/thread_windows.go` (`track`/`userInput`), `internal/flow/peers.go`, `internal/flow/session_media.go` (eş olay süzgeci);
+(3) `multi-p28c.test.ts` koşuldu.
+
+## Tur 1 bulgularının kapanışı
+
+| Bulgu | Durum | Kanıt / not |
+| --- | --- | --- |
+| O-PC-K1 `/sessions/active` silent/asked sızıntısı | Kapandı | `eligibility.ts:158-170` `unattendedStep` (6/6a/6b tek kaynak) — `eligibleToJoin` (`:141`) ve `invites.ts:322-325` `unattendedVisible` aynı fonksiyonu çağırıyor. `request` evresinde asked → `JOIN_NOT_ALLOWED` (listede yok), silent → `unattended.silent` ∧ politika. Ortaklaştırma `eligibleToJoin` davranışını değiştirmedi (sıra ve ret kodları aynı; politika sorgusu yalnız `silentPolicy` verilirse önbellekli). `unattendedVisible` için `sessions.supervise` ayrıca şart. Test: "AC-368 O-PC-K1" yeşil. |
+| D-PC-K1 Go `SetNames` | Kapandı | `follow.go:127-140` erken dönüş kaldırıldı, her çağrıda `Drawn` doğrulaması; `TestP28cSetNamesSameSuffixRechecksDrawn` + `agent-win.yml` zorunlu PASS listesi. |
+| D-PC-K2 hız sınırı + N+1 | Kapandı | `routes-multi.ts:110` (`rej:`), `:137` (`cand:` poll), `:164` (`del:`). Önekli anahtarlar kabul/İzle'nin çıplak `userId` kovasıyla çakışmıyor (userId UUID, `:` içermez); sayaç `requireAuth` sonrası kullanıcı başına. Aday listesi `SUBJECT_SELECT` tek `findMany` + grant tek sorgu + politika en çok 1 kez. Yanıt yalnız `userId/fullName/avatarUrl` (seçimdeki `email`, toggle'lar sızmıyor). Test "D-PC-K2 … 429" yeşil. |
+| D-PC-K3 silent gerekçe audit | Kapandı (gerekçeli) | Kod değişmedi; `implementation.md` "D-PC-K3": anahtar P28u `connect-tx.ts:95,129` ile aynı (`silentReason`), `audit/view.ts:55,74,86` iç içe dahil `***` maskesi, yalnız `session_history.view` + anonimleştirilmemiş oturumda görünür (fail-closed). Kabul edildi. |
+| D-PC-K4 devir TX'inde hedef yeniden okuma | Kapandı | `member-cmds.ts:142-149` `targetMayOwn`: `lockTechnician` (users `FOR UPDATE`) sonrası `subjectById(tx)` + `sessions.create` + `eligibleToJoin(..., "revalidate")` (etkin kullanıcı/tenant, `removed`, `sessions.view`, gözetimsizde `unattended.connect` + `deviceAccess(tx)` + silent yetki/politika). Hata/istisna → `conflict` (TX `catch`, fail-closed). Test "AC-369 D-PC-K4" yeşil. |
+
+### Düzeltmelerin yeni açık getirip getirmediği
+
+- **`deviceAccess`'in TX istemcisi alması:** yalnız tip genişletmesi (`Db | Prisma.TransactionClient`); sorgu aynı, TX içinde okunması
+  kilit sonrası tutarlılık sağlar. Yeni yüzey yok.
+- **`Rooms.unattendedGate` yoksa reddetme:** `member-cmds.ts:146-147` gözetimsiz odada kapı yoksa `false`; kapı yoksa yedek
+  `{ allows: () => false }` — fail-closed. `ws.ts:210` `createGate(app.env)` durumsuz (`gate.ts:23-35`, yalnız env okur); REST/WS'deki
+  diğer `createGate` örnekleriyle aynı karar, ayrışma yok.
+- **`JoinDeps.gate: Pick<…,"allows">` daraltması:** yalnız `allows` kullanılıyordu; davranış değişmedi.
+- **Hedef Super Admin ise:** `tenantOk` (`eligibility.ts:117-121`) `via:"invite"` için SUPER_ADMIN'i reddeder → devir `CONFLICT`. Super
+  Admin İzle ile yalnız `observer` olur ve `handleTransfer` (`:110`) zaten yalnız `participant` hedefi kabul eder; tutarlı.
+- **`/sessions/active` politika sorgusu:** `activeSessions` her silent oda için `silentPolicyEnabled` çağırır (önbellek yok); tenant
+  oda sayısı küçük ve uç `poll` 60/dk ile sınırlı — bulgu değil, not.
+
+### Devir hedefinde `sessions.create` şartı (koordinatör kararı) — değerlendirme
+
+Güvenlik açısından doğru yönde (daha sıkı, fail-closed): yeni sahip `guest.admit`, `session.end`, davet koltuğunu alır; `POST /sessions`
+(`sessions/routes.ts:71`) ile aynı koşul. Ancak gözetimsiz odada sahibin oturumu açma koşulu `sessions.create` değil
+`unattended.connect`'tir (`unattended/connect.ts:112`). Sonuç: `unattended.connect` + grant'ı olan, odayı kendisi açabilecek bir teknisyen
+devir alamaz; tersi (yetkisiz birinin sahip olması) mümkün değil. Bu bir açık değil, tasarım boşluğu → D-PC-K5.
+
+## Bulgular
+
+### [DÜŞÜK] D-PC-K5 Devir hedefi sahiplik koşulu tasarımda yazılı değil; gözetimsiz odada oturum açma koşuluyla ayrışıyor — A04
+
+Yer: `apps/server/src/signaling/member-cmds.ts:143-144` (`if (!s?.permissions.has("sessions.create")) return false;`);
+karşılaştırma `apps/server/src/unattended/connect.ts:112`; `docs/mimari-p28c.md` §5.2'de koşul yok (`implementation.md` "Sapma: yok"
+diyor ama bu koşul tasarıma işlenmemiş).
+Sorun: Sahiplik koşulu tek yerde koddan türetilmiş; gözetimsiz odada sahibin gerçek koşulu (`unattended.connect` + grant ∧ silent'ta
+`unattended.silent`) `eligibleToJoin(revalidate)` ile zaten denetleniyor, üstüne `sessions.create` ekleniyor. Güvenlik riski yok
+(fail-closed); risk, ileride birinin "tasarımda yok" diyerek şartı kaldırması ya da gözetimsiz odalar için ayrı/gevşek bir koşul yazması.
+İstismar senaryosu: Doğrudan yok. Yalnız regresyon riski: koşul tasarımda/sözleşmede sabit olmadığı için ileride sessizce gevşetilebilir.
+Düzeltme: `mimari-p28c.md` §5.2'ye "hedef: §4.3 `revalidate` + `sessions.create` (gözetimsiz odada da)" ya da "gözetimsizde
+`unattended.connect` yeterli" kararı yazılsın (mimar); karar ne olursa testte iki durum (yetkili/ yetkisiz) sabitlensin. Kod değişikliği
+yalnız ikinci seçenek seçilirse. (atanan ajan: mimar → backend-dev)
+
+## Tur 1'de okunmayan alanlar — sonuç (bulgu yok)
+
+- **Web XSS:** `apps/web/app`, `components`, `lib` altında `dangerouslySetInnerHTML`/`innerHTML` yok (yalnız `chat-panel.tsx:12`
+  yorumu). Teknisyen adı, müşteri adı, davet eden adı her yerde React metin düğümü / `t()` enterpolasyonu (`techs-list.tsx:72`,
+  `techs-panel.tsx:243`, `invite-notifier.tsx:43,144`, `active-sessions.tsx:118-131`); `Avatar` `src`'si sunucunun `avatarUrlFor` çıktısı.
+  URL yollarındaki `inviteId`/`sessionId` sunucu verisi ve sunucuda zod ile doğrulanıyor.
+- **Ad/rol güvenilirliği (konsol):** yer yalnız sunucu roster'ındaki kendi `tid` satırından (`roster.ts:22-28`); gönderim kapısı
+  `seatMay` varsayılan-ret ve sunucu `handlers.ts` her mesajda ayrıca uyguluyor — UI kapısı yalnız UX. Sohbet yazarı yalnız roster'dan
+  çözülür (`chatAuthor`, `roster.ts:47-50`).
+- **Misafir (tarayıcı) yalnız controller'dan girdi:** tarayıcı misafiri girdi enjekte etmez; dosya/işaretleme kanalı yalnız
+  `main()` = roster'daki `controller` eşi (`guest-peers.ts:174-177`, `use-guest-session.ts:79`). Diğer eşlerden yalnız sohbet; izleyici
+  sohbeti ve `by`'lı gelen sohbet düşer (`:149-152`). Teklif kabulü yalnız son roster'da bağlı ve DOM'a basılmış (`data-tid`) tid
+  (`offerDecision :24-33`, `techs-list.tsx:46-50`); `TechsList` canlı ekranda koşulsuz çiziliyor (`guest-session.tsx:174`), gizlenen
+  kap yok.
+- **Go "Çıkar":** `confirmRemove` (`roster_windows.go:116-129`) yalnız `t.userInput(s.f)` iken — `thread_windows.go:95-119` girdi
+  kaynağını `GetCurrentInputMessageSource` ile işaretler, yalnız `IMO_HARDWARE` yerel (fail-closed); tıklamada basış/bırakmadan biri
+  enjekteyse enjekte; başka süreçten `WM_COMMAND/BM_CLICK` → `cur` boş → false. Teknisyenin `SendInput`'u düğmeyi tetikleyemez. Onay
+  `MB_DEFBUTTON2` (Vazgeç); onaydan sonra tid yeniden karşılaştırılıyor. Akış katmanı `onTechRemove` (`peers.go:268-275`) gözetimsizde
+  ve sahip için ayrıca ret; sunucu da sahip çıkarmayı reddediyor. Not: diyalog açıldıktan sonra MessageBox'a enjekte "Evet" mümkün
+  olabilir; sonuç yalnız müşterinin zaten başlattığı bir katılımcı çıkarma (erişimi azaltır) — risk yok.
+- **Go yalnız controller'dan input/clip/print/file:** girdi `peerInput` atomik `ctrlTid()==tid` (`peers.go:330-340`); ikincil eşin
+  dosya parçası `session_media.go:200-204` dalında düşer (yalnız ctl iletilir), ctl `ctlAllowed` (`peers.go:279-290`) ile controller
+  dışında yalnız sohbet (izleyici hariç) + ping. Pano/yazdırma/dosya yanıtları `mainPeer()`'e. Multi kipinde `from`'suz offer/ICE/
+  `ice.restart` düşer; eş sayısı `MaxTechs` ile sınırlı; kontrol sahibi değişince kapı kapanır (`:228-238`).
+
+## Testler
+
+`TEST_DB_CONTAINER=p28c-sec2-mysql TEST_DB_PORT=3432` (rs-mysql-test'e dokunulmadı):
+`npx vitest run test/integration/multi-p28c.test.ts` → **1 dosya, 34 test geçti** (6 geri alma yolu × sahip/üye matrisi, süre sınırı,
+O-PC-K1/D-PC-K2/D-PC-K4/QA-2 negatif testleri dahil). Konteyner `test-db.sh down` ile silindi ("silindi: p28c-sec2-mysql").
+
+## Otomatik tarama çıktıları
+
+- Diff (`64887c0..65297ac`) gizli bilgi kalıbı: yok. `.env` değişikliği yok. Yeni bağımlılık yok (`pnpm audit` tur 1: temiz;
+  lockfile değişmedi).
+
+## Tasarımda vaat edilip kodda bulunmayanlar
+
+- Yok. Ters yön: kodda olup tasarımda olmayan devir hedefi koşulu (D-PC-K5).
+
+## Olumlu
+
+- Uygunluk kuralları gerçekten tek kaynakta (`unattendedStep`), görünürlük ile katılım artık ayrışamaz.
+- Devir yeniden doğrulaması kilit altında ve her hata yolu fail-closed (`conflict`), audit `fail{conflict}`.
+- Üç istemcide (sunucu, Go, web) "yalnız çizilmiş tid'e eş" ve "yalnız controller'dan girdi/dosya" kuralı aynı ve testli.
+- "Çıkar" yerel girdi kanıtı donanım kaynağına dayanıyor; uzaktan sentetik girdiyle tetiklenemiyor.
+
+---
+
 # Güvenlik Raporu — P28c kod turu 1 (dal p28c, HEAD 64887c0, 2026-11-16)
 
 DURUM: GEÇTİ (Kritik/Yüksek 0) — Kritik 0 / Yüksek 0 / Orta 1 / Düşük 4

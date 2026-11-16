@@ -247,6 +247,7 @@ göstergeyi yeni adla yeniden çizemezse (G-17 kalıbı) o eşi kurmaz. Roster'd
 ### 5.2 Oturum devri (AC-369)
 
 `room.transferring = true` (TX süresince `tech.remove`, `control.handover`, `member.leave` → `error{CONFLICT}`, O-PC-2); hedef §4.3 adım 9 senkron denetimden geçer.
+TX içinde, hedef kullanıcı satırı kilitlendikten sonra hedef yeniden okunur (D-PC-K4): §4.3 `revalidate` evresi + sahip koltuğu için odayı açan yetki — gözetimli odada `sessions.create`, gözetimsiz odada `unattended.connect` (+ grant/silent koşulları revalidate'te) (D-PC-K5, 2026-11-17). Düşerse `error{CONFLICT}` + audit `fail{conflict}`.
 Tek TX: `UPDATE support_sessions SET technician_id=:to WHERE id=:id AND tenant_id=:t AND status='ACTIVE' AND technician_id=:from`
 (count=1 değilse `error{CONFLICT}`) + audit `session.transfer {fromUserId, toUserId}`. Commit sonrası bellekte: `room.tech` ↔ üye
 yer değiştirir (eski sahip `participant` olur), `technicianId/Name`, `ownerTid` güncellenir, `controllerId = yeni sahip` (§5.1
