@@ -441,6 +441,25 @@ jobs:
           if ($script:bad -gt 0) { exit 1 }
           Write-Output 'trace-check P28a içerik işareti öz testi: tüm beklenen sonuçlar tuttu'
           exit 0
+      # P28u K8 (mimari-p28u §11 K8, §14.2; runbook §28u.8): servis 0.15.0 onay/müdahale testleri günlükte görünür koşar (kapsam
+      # yukarıdaki `go test ./...` ile aynı; bu adım ad sözleşmesini ve PASS/SKIP'i görünür kılar). Hepsi sahte saat/sahte z-sırası/
+      # sahte kilit kullanır — koşucuyu KİLİTLEMEZ (gerçek kilit yalnız aşağıdaki K6s adımında). Yalnız Windows'a özgü pencere
+      # sınıfı testi etkileşimsiz oturumda SKIP olabilir (uyarı); diğerlerinin koşmaması (ad değişti) kırmızıdır.
+      - name: P28u onay + örtülme + müdahale testleri (-v)
+        shell: bash
+        run: |
+          out="$RUNNER_TEMP/p28u.txt"
+          GITHUB_STEP_SUMMARY='' go test -count=1 -v -run 'TestAC4(29|3[0-9]|4[0-6])' ./internal/servis/... ./internal/unattended/... ./internal/control/... | tee "$out"
+          for t in TestAC432ConsentMissingOnConsent1SocketIsProtocol TestAC435LegacyServerKeepsP27 TestAC431StatusTable \
+                   TestAC431ConsentFlowAndProtocolViolationKills TestAC429UserWatchAnnounceAndDebounce TestAC443LockViaHelperPipeAndEventLog \
+                   TestAC443LogoffThenRejoinLaunchesHelperControlOff TestAC431ObscuredLayeredTransparentCountsOwnExcluded \
+                   TestAC431GuardRearmsAfterOcclusionAndHide TestAC431AC443HelperPipeEndToEnd TestAC431BoundaryForbidsMessageFilter \
+                   TestAC431DeniedOrTimeoutNoIndicatorNoDialNoFrames TestAC443StationLockerWaitsForWinlogon; do
+            grep -q -- "--- PASS: $t" "$out" || { echo "::error::$t PASS değil / koşmadı (ad değişti mi? sözleşme: docs/implementation.md P28u K8)"; exit 1; }
+          done
+          t=TestAC431HelperWindowClassesOnlyIndicatorAndConsent
+          if grep -q -- "--- SKIP: $t" "$out"; then echo "::warning::$t SKIP (etkileşimsiz oturum): kanıt Windows VM elle turundan (runbook §28u.8)"
+          else grep -q -- "--- PASS: $t" "$out" || { echo "::error::$t koşmadı"; exit 1; }; fi
       # P28u K6s spike (mimari-p28u §7.5 soru 1, R-P28u-1; docs/spike-p28u-k6s.md): üretim yardımcısıyla aynı proclimit.Spec'le
       # başlatılan kısıtlı jetonlu çocuk LockWorkStation çağırır. Koşucu oturumunu KİLİTLER (giriş masaüstü Winlogon olur;
       # pano/WGC/yazdırma testleri bozulur), bu yüzden ayrı ve işin GERÇEK son adımıdır. Ölçümdür: sonuç step summary'de
@@ -573,7 +592,8 @@ jobs:
         run: |
           {
             echo "### Yayın ön koşulu (S17-2) — onay vermeden önce kontrol edin (runbook §24.1)"
-            echo "- [ ] İstemcinin gerektirdiği sunucu paketi prod'da (0.11.0 → P15)"
+            echo "- [ ] İstemcinin gerektirdiği sunucu paketi prod'da (0.11.0 → P15; 0.13.0 → P28a; 0.14.0 → P28b; 0.15.0 → P28u + migration 20261124000000_p28u_unattended_consent)"
+            echo "- [ ] 0.15.0 ve sonrası: Windows 10 + 11 elle turu GEÇTİ (runbook §28u.8: onay diyaloğu ≤ 3 sn, enjekte tıklama/Enter reddi, saydam katman örtüsü ayrı süreçten, kilit/oturum kapatma + 1006/1007/1008, K6s elle spike)"
             echo "- [ ] Aynı commit'ten staging exe ile duman testi GEÇTİ (runbook §24.2)"
             echo "- [ ] qa GEÇTİ, güvenlik Kritik/Yüksek 0; bekleyen eski etiket koşusu yok"
             echo

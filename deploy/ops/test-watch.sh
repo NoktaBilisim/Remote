@@ -8,7 +8,8 @@
 # P13c ikinci örnek `stg` (ayrı env/durum, [stg] alarm adı, coturn kontrolü yok, @stg birimleri yalnız stg'de sayılır);
 # P18 H5 crypto-decrypt / calendar-fallback / msg-tenant-rate / p18-metrics; P19 J6 notify-outbox-pending /
 # notify-outbox-failed / notify-volume / sms-key-unreadable / p19-metrics; P28b K6 av-up (ardışık 2) / av-selftest /
-# av-signature-age / av-scan-failed / av-metrics / compose:clamav*.
+# av-signature-age / av-scan-failed / av-metrics / compose:clamav*; P28u K8 unattended-notify-fail / unattended-silent-volume /
+# unattended-consent-timeout.
 # Kullanım: deploy/ops/test-watch.sh   Çıkış 0 = tüm beklentiler tuttu.
 set -euo pipefail
 cd "$(dirname "$0")"
@@ -410,6 +411,39 @@ good; avps; clrav; pav "a[\$(touch /tmp/pwn20)] 1 a[\$(touch /tmp/pwn21)] 10 0";
 ls /tmp/pwn2* >/dev/null 2>&1 && no "P28b enjeksiyon: $(ls /tmp/pwn2*)" || ok "S14-2: P28b metrik/durum alanlarında a[\$(…)] komut çalıştırmadı"
 good; clrav; run
 
+# P28u K8 (mimari-p28u §9.4; runbook §28u.6): alanlar 27-31 = notify-toplam(işaret) notify-fail silent-ok onay-toplam onay-timeout.
+pua() { echo "$((NOW - 3600)) 0 0 0 0 0 0 - $((NOW - 3600)) 0 0 0 0 - 5 10 0 3 0 0 - - - - - - $1" >/scn/metrics; }
+clrua() { sed -i -E '/^(ua_notify_fail|ua_samples)=/d' /var/lib/rw/state; }
+uas() { sed -i '/^ua_samples=/d' /var/lib/rw/state; echo "ua_samples=$1" >>/var/lib/rw/state; }
+good; clrua; run
+! grep -q 'check="unattended-' /var/lib/rw/status.prom && ok "P28u öncesi (rs_unattended_silent_notify_total yok) -> unattended-* kontrolleri yok" || no "p28u öncesi: $(cat /out/o)"
+good; clrua; pua "0 - - - -"; run
+p18n 'unattended-' && grep -q 'check="unattended-notify-fail"} 1' /var/lib/rw/status.prom && grep -q 'check="unattended-consent-timeout"} 1' /var/lib/rw/status.prom \
+  && ok "P28u temiz (etiketli seriler yok -> 0) -> unattended-* OK, alarm yok" || no "ua temiz: $(cat /out/o)"
+good; clrua; pua "2 1 0 0 0"; run
+p18a unattended-notify-fail && grep -q 'dört göz e-postası 3 denemede gitmedi' /out/o && ok "dört göz e-postası fail (ilk P28u turu, taban 0) -> ALERT unattended-notify-fail" || no "notify fail: $(cat /out/o)"
+pua "2 1 0 0 0"; run
+grep -q "ALERT check=unattended-notify-fail" /out/o && ok "fail artışından sonra 24 sa içinde alarm sürer (journal; tekrar bildirimi bastırılır)" || no "notify fail sürer: $(cat /out/o)"
+sed -i "s/^ua_notify_fail=.*/ua_notify_fail=1 $((NOW - 86400))/" /var/lib/rw/state; pua "2 1 0 0 0"; run
+p18n unattended-notify-fail && ok "artış yok ve 24 sa geçti -> alarm kalktı" || no "notify fail 24h: $(cat /out/o)"
+good; clrua; uas "$((NOW - 1800)):0:0:0"; pua "0 - 6 0 0"; run
+p18a unattended-silent-volume && grep -q 'izinsiz (silent) bağlantı +6' /out/o && ok "1 sa'te izinsiz bağlantı +6 (> 5) -> ALERT unattended-silent-volume" || no "silent vol: $(cat /out/o)"
+good; clrua; uas "$((NOW - 1800)):0:0:0"; pua "0 - 5 0 0"; run
+p18n unattended-silent-volume && ok "izinsiz bağlantı +5 (= eşik) -> alarm yok" || no "silent 5: $(cat /out/o)"
+good; clrua; uas "$((NOW - 7200)):0:0:0 $((NOW - 4000)):3:0:0"; pua "0 - 8 0 0"; run
+p18n unattended-silent-volume && ok "son 1 sa'te +5 (önceki saatteki +3 pencere dışında) -> alarm yok" || no "silent pencere: $(cat /out/o)"
+good; clrua; uas "$((NOW - 40000)):0:0:0"; pua "0 - 0 6 4"; run
+p18a unattended-consent-timeout && grep -q 'yanıtsız 4 / 6' /out/o && ok "24 sa'te onay zaman aşımı 4/6 (> %50) -> ALERT unattended-consent-timeout (bilgi)" || no "timeout: $(cat /out/o)"
+good; clrua; uas "$((NOW - 40000)):0:0:0"; pua "0 - 0 6 3"; run
+p18n unattended-consent-timeout && ok "zaman aşımı 3/6 (= %50) -> alarm yok" || no "timeout 50: $(cat /out/o)"
+good; clrua; uas "$((NOW - 40000)):0:0:0"; pua "0 - 0 2 2"; run
+p18n unattended-consent-timeout && ok "zaman aşımı 2/2 ama < WATCH_UA_TIMEOUT_MIN (3) -> alarm yok" || no "timeout min: $(cat /out/o)"
+good; clrua; uas "$((NOW - 100000)):0:0:0 $((NOW - 600)):0:0:0"; pua "0 - 0 0 0"; run
+! grep -q "ua_samples=.*$((NOW - 100000)):" /var/lib/rw/state && ok "25 sa'ten eski P28u örneği atıldı" || no "ua örnek budama: $(grep ua_samples /var/lib/rw/state)"
+good; clrua; pua 'a[$(touch /tmp/pwn30)] a[$(touch /tmp/pwn31)] a[$(touch /tmp/pwn32)] 0 0'; run; uas 'a[$(touch /tmp/pwn33)]:1:1:1'; pua "0 0 1 1 1"; run
+ls /tmp/pwn3* >/dev/null 2>&1 && no "P28u enjeksiyon: $(ls /tmp/pwn3*)" || ok "S14-2: P28u metrik/durum alanlarında a[\$(…)] komut çalıştırmadı"
+good; clrua; run
+
 mkdir -p /src && cp /w/remote-watch.sh /w/remote-watch.service /w/remote-watch.timer /w/watch.env.example /src/
 mkdir -p /etc/systemd/system
 bash /src/remote-watch.sh install >/out/o 2>&1 && ok "install -> 0" || no "install: $(cat /out/o)"
@@ -443,7 +477,7 @@ if command -v node >/dev/null 2>&1; then
     'rs_orphan_files_total{action="deleted"} 4' 'rs_orphan_files_total{action="circuit_open"} 3' 'rs_erasure_ledger_write_failed_total 0' >"$M"
   JS="$(sed -n 's/.*node -e "\(const sum=.*\)" 2>\/dev\/null)" || rt=.*/\1/p' "$HERE/remote-watch.sh" | sed 's/\\"/"/g')"
   got="$(M="$M" node -e "globalThis.fetch=async()=>({text:async()=>require('fs').readFileSync(process.env.M,'utf8')});$JS")"
-  exp="1763000000 3 - - 1 0 1 1763000100 - 3 0 - - - - - - - - - - - - - - -"
+  exp="1763000000 3 - - 1 0 1 1763000100 - 3 0 - - - - - - - - - - - - - - - - - - - -"
   if [ "$got" = "$exp" ]; then echo "PASS  metrik ayrıştırma: etiketli rs_retention_failures_total toplamı 3, SCHEDULED/RUNNING, circuit_open 3, P18 serisi yok -> '-'"
   else echo "FAIL  metrik ayrıştırma: '$got' (beklenen '$exp')"; echo "SONUÇ-İÇ 1" >>"$TMP/out"; fi
   # P18 H5: decrypt (bütün table), takvim (bütün tenant), yalnız reason~tenant kova reddi, mesaj sayacı (P18 işareti).
@@ -451,7 +485,7 @@ if command -v node >/dev/null 2>&1; then
     'rs_calendar_fallback_total{tenant="t2"} 2' 'rs_request_messages_rejected_total{reason="tenant_rate"} 4' \
     'rs_request_messages_rejected_total{reason="sender_cap"} 9' 'rs_request_messages_total{sender="CUSTOMER"} 7' >>"$M"
   got="$(M="$M" node -e "globalThis.fetch=async()=>({text:async()=>require('fs').readFileSync(process.env.M,'utf8')});$JS")"
-  exp="1763000000 3 - - 1 0 1 1763000100 - 3 0 2 3 4 7 - - - - - - - - - - -"
+  exp="1763000000 3 - - 1 0 1 1763000100 - 3 0 2 3 4 7 - - - - - - - - - - - - - - - -"
   if [ "$got" = "$exp" ]; then echo "PASS  metrik ayrıştırma P18: decrypt 2, takvim 1+2, tenant kova 4 (sender_cap hariç), mesaj 7"
   else echo "FAIL  metrik ayrıştırma P18: '$got' (beklenen '$exp')"; echo "SONUÇ-İÇ 1" >>"$TMP/out"; fi
   # P19 J6: outbox toplam (etiketsiz 0 dahil), FAILED (result=failed/FAILED), en eski PENDING (en büyük), rate_limited toplamı,
@@ -462,16 +496,30 @@ if command -v node >/dev/null 2>&1; then
     'rs_notify_rate_limited_total{scope="wa_bucket",channel="WHATSAPP"} 3' 'rs_sms_key_unreadable_total 0' \
     'rs_notify_tenant_max_hourly{role="SMS"} 81' 'rs_notify_tenant_max_hourly{channel="WHATSAPP"} 2' >>"$M"
   got="$(M="$M" node -e "globalThis.fetch=async()=>({text:async()=>require('fs').readFileSync(process.env.M,'utf8')});$JS")"
-  exp="1763000000 3 - - 1 0 1 1763000100 - 3 0 2 3 4 7 10 3 70 7 0 SMS=81,WHATSAPP=2 - - - - -"
+  exp="1763000000 3 - - 1 0 1 1763000100 - 3 0 2 3 4 7 10 3 70 7 0 SMS=81,WHATSAPP=2 - - - - - - - - - -"
   if [ "$got" = "$exp" ]; then echo "PASS  metrik ayrıştırma P19: outbox 10 (FAILED 3), en eski 70, rate_limited 7, anahtar 0, hacim SMS=81,WHATSAPP=2"
   else echo "FAIL  metrik ayrıştırma P19: '$got' (beklenen '$exp')"; echo "SONUÇ-İÇ 1" >>"$TMP/out"; fi
   # P28b K6: rs_av_up, öz-sınama, imza yaşı (en büyük), tarama toplamı ve yalnız result=failed_* toplamı.
   printf '%s\n' 'rs_av_up 1' 'rs_av_selftest_ok 1' 'rs_av_signature_age_seconds 7200.5' 'rs_av_scan_total{result="clean"} 10' \
     'rs_av_scan_total{result="infected"} 1' 'rs_av_scan_total{result="failed_busy"} 2' 'rs_av_scan_total{result="failed_timeout"} 3' >>"$M"
   got="$(M="$M" node -e "globalThis.fetch=async()=>({text:async()=>require('fs').readFileSync(process.env.M,'utf8')});$JS")"
-  exp="1763000000 3 - - 1 0 1 1763000100 - 3 0 2 3 4 7 10 3 70 7 0 SMS=81,WHATSAPP=2 1 1 7200.5 16 5"
+  exp="1763000000 3 - - 1 0 1 1763000100 - 3 0 2 3 4 7 10 3 70 7 0 SMS=81,WHATSAPP=2 1 1 7200.5 16 5 - - - - -"
   if [ "$got" = "$exp" ]; then echo "PASS  metrik ayrıştırma P28b: av_up 1, öz-sınama 1, imza yaşı 7200.5, tarama 16 (failed_* 5)"
   else echo "FAIL  metrik ayrıştırma P28b: '$got' (beklenen '$exp')"; echo "SONUÇ-İÇ 1" >>"$TMP/out"; fi
+  # P28u K8: notify toplam (etiketsiz 0 + etiketli), yalnız result="fail", connect mode=silent+result=ok (etiket sırası iki yönde;
+  # ask/ok ve silent/forbidden hariç), onay toplamı ve yalnız decision="timeout".
+  printf '%s\n' 'rs_unattended_silent_notify_total{result="ok"} 4' 'rs_unattended_silent_notify_total{result="fail"} 2' \
+    'rs_unattended_connect_total{mode="silent",result="ok"} 3' 'rs_unattended_connect_total{result="ok",mode="silent"} 1' \
+    'rs_unattended_connect_total{mode="ask",result="ok"} 9' 'rs_unattended_connect_total{mode="silent",result="forbidden"} 5' \
+    'rs_unattended_consent_total{decision="granted"} 5' 'rs_unattended_consent_total{decision="timeout"} 2' >>"$M"
+  got="$(M="$M" node -e "globalThis.fetch=async()=>({text:async()=>require('fs').readFileSync(process.env.M,'utf8')});$JS")"
+  exp="1763000000 3 - - 1 0 1 1763000100 - 3 0 2 3 4 7 10 3 70 7 0 SMS=81,WHATSAPP=2 1 1 7200.5 16 5 6 2 4 7 2"
+  if [ "$got" = "$exp" ]; then echo "PASS  metrik ayrıştırma P28u: notify 6 (fail 2), silent ok 4 (ask/forbidden hariç), onay 7 (timeout 2)"
+  else echo "FAIL  metrik ayrıştırma P28u: '$got' (beklenen '$exp')"; echo "SONUÇ-İÇ 1" >>"$TMP/out"; fi
+  printf '%s\n' 'rs_unattended_silent_notify_total 0' >"$M.0"; sed -n '1,10p' "$M" >>"$M.0"
+  got="$(M="$M.0" node -e "globalThis.fetch=async()=>({text:async()=>require('fs').readFileSync(process.env.M,'utf8')});$JS")"
+  case "$got" in *" 0 - - - -") echo "PASS  metrik ayrıştırma P28u işareti: etiketsiz 'rs_unattended_silent_notify_total 0' -> 0, diğerleri '-'" ;;
+    *) echo "FAIL  metrik ayrıştırma P28u işareti: '$got'"; echo "SONUÇ-İÇ 1" >>"$TMP/out" ;; esac
 else echo "UYARI: host'ta node yok — metrik ayrıştırma testi atlandı"; fi
 grep -E '^(PASS|FAIL)' "$TMP/out" || true
 n="$(sed -n 's/^SONUÇ-İÇ //p' "$TMP/out" | sort -n | tail -1)"

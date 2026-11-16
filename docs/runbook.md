@@ -3532,7 +3532,7 @@ Alarm eşikleri (mimari-p27 §7.3; `/metrics`, Bearer `METRICS_TOKEN`):
   artışta firma yeniden etkinleştirilmeyecekse cihazlar iptal edilir.
 - `rs_unattended_connect_total{result="ok"}`: mesai dışı ani artış → bilgi.
 
-**Durum:** `remote-watch` otomasyonu bu serileri henüz okumuyor (K9 açık işi). O gelene kadar elle bakılır:
+**Durum:** `remote-watch` otomasyonu bu P27 serilerini henüz okumuyor (K9 açık işi; P28u'nun üç alarmı okunur — §28u.6). O gelene kadar elle bakılır:
 `docker compose exec -T server node -e "fetch('http://127.0.0.1:3001/metrics',{headers:{authorization:'Bearer '+process.env.METRICS_TOKEN}}).then(r=>r.text()).then(t=>console.log(t.split('\n').filter(l=>l.startsWith('rs_unattended_')).join('\n')))"`
 
 ## 28a. P28a — pano senkronu + uzaktan yazdırma, istemci 0.13.0 (devops K7, 2026-11-16; mimari-p28 §8, §9, §10 K7; ADR-0031; AC-343..352)
@@ -3860,3 +3860,199 @@ ekrana, loga girmez; betikler `docker compose exec -e AD` ile geçirir. Dosyayı
 
 Sorun giderme: `k9: login başarısız (HTTP 401 …)` → parola dosyası hesapla uyuşmuyor (6. adım); `HTTP 429` → 2FA deneme sınırı (5/5 dk), 5 dk
 bekleyin; `HTTP 403 FORBIDDEN` `sessions.create` → teknisyen yerine Super Admin kullanılıyor (2. adım); `AV_NOT_READY` → (a) başarısız, §28b.5.
+
+## 28u. P28u — gözetimsiz izinli/izinsiz bağlantı + müdahale, servis/istemci 0.15.0 (devops K8, 2026-11-16; mimari-p28u §6.1, §9, §14.1, §16 K8, §r2 D-P28u-5; AC-429..446)
+
+Kapsam: gözetimsiz bağlantı artık varsayılan olarak cihazdaki kullanıcıya **onay diyaloğu** açar (izinli, `ask`); kimse yoksa doğrudan
+bağlanır (`no_user`). Firma politikası açık + `unattended.silent` yetkisi + 2FA ile **izinsiz** (izleme, `silent`) bağlantı ve kontrol
+açıkken **kilit / oturum kapatma** (müdahale) gelir. Yeni env değişkeni **yok** (mimari §14.1); migration `20261124000000_p28u_unattended_consent`
+(tek COPY ALTER, tetikleyici sayısı 23 ve audit-continuity özeti değişmez — db-notlari "P28u"). Kullanıcı ekranları kılavuzda (K11).
+
+### 28u.1 Politika açma / kapama (izinsiz bağlantı)
+
+- Yer: Ayarlar → **Gözetimsiz erişim** sekmesi (`PUT /api/v1/unattended/policy`). Yetki: `unattended.manage` **ve** `settings.edit`.
+  Varsayılan **kapalı** (seed değiştirmez).
+- Açma: aydınlatma kutusu işaretlenir (`ack`), 2FA step-up istenir (5 dk penceresi). Audit `settings.unattended_silent {old,new,ack,stepUp}`,
+  ardından dört göz e-postası "Gözetimsiz erişim politikası değişti" (§28u.2 alıcıları).
+- Kapama: anında; açık izinsiz oturumlar ≤ 5 sn'de `CANCELLED(permission)` ile biter (bekleyen izinsiz satırlar dahil, O-P28u-2).
+  Kapatmak için step-up gerekmez — **acil durumda ilk adım budur** (§28u.7).
+- İzinsiz bağlanabilmek için ayrıca kullanıcıda `unattended.silent` toggle'ı (Kullanıcılar → yetkiler; uyarı ikonlu "hassas") ve
+  firmada SMTP yapılandırması gerekir. İzinli bağlantı için politika gerekmez.
+- Denetim: Audit Log → işlem `settings.unattended_silent`; Oturum geçmişi filtresi **"İzinsiz"** (kip sütunu).
+
+### 28u.2 İzinsiz bağlantı ve dört göz e-postası
+
+- Teknisyen "Bağlan" penceresinde "İzin istemeden bağlan" kutusunu işaretler + gerekçe (20–500 karakter). Cihazda diyalog açılmaz; gösterge
+  "Uzaktan izleniyor: …" çıkar; oturum **izleme** kipinde başlar (kontrol konsoldaki düğmeyle açılır, audit `unattended.control_toggle`).
+- Gerekçe yalnız audit `unattended.connect.new_value.silentReason` ve e-posta gövdesindedir; server loguna, olay günlüğüne ve müşteri
+  bildirimine **yazılmaz** (müşteri bildirimi yalnız "İzin istenmeden bağlanıldı." satırını alır).
+- Dört göz e-postası (konu sabit: "İzin istenmeden bağlanıldı"): alıcı = firmadaki etkin `unattended.manage` sahipleri (bağlanan hariç);
+  bu küme boşsa bağlanan + firmanın etkin Admin'leri. Commit sonrası 3 deneme (0/10/30 sn). Her deneme audit `unattended.silent.notify
+{event, recipient (maskeli), result, attempt}`; son deneme de başarısızsa `rs_unattended_silent_notify_total{result="fail"}` artar →
+  alarm `unattended-notify-fail` (§28u.6). **Bağlantı sürer** (e-posta bağlantıyı kesmez).
+- Server bekleyen deneme sırasında yeniden başlarsa e-posta kaybolur (ADR-0005 kabulü): audit'te o oturum için `result: success` satırı
+  yoksa e-posta gitmemiştir — denetçi bunu görür; gerekirse Admin'e elle bildirilir.
+- **"İzinsiz bağlantı sayısı arttı" incelemesi** (`unattended-silent-volume` alarmı): Oturum geçmişi → filtre "İzinsiz", son 1 sa → kim,
+  hangi cihaz, gerekçe; Audit Log → `unattended.connect` + `consentMode:"silent"`. Beklenmeyen kullanıcıysa: o kullanıcının
+  `unattended.silent` yetkisi kapatılır (açık oturumu anında biter) ya da politika kapatılır (§28u.1); hesap şüpheliyse oturumları
+  sonlandırılır ve parolası sıfırlanır (§12 güvenlik olayı akışı).
+
+### 28u.3 Müdahale: kilit / oturum kapatma
+
+- Konsol üst çubuğu → **Kilitle** / **Oturumu kapat** (yalnız kontrol izni varken; `unattended.connect` + cihaz grant'ı + oturumun teknisyeni).
+  Oturum kapatma onay ister ("kaydedilmemiş belgeler kaybolur"). Audit `unattended.lock` / `unattended.logoff {result, failReason?, durationMs, rejoin}`.
+- Oturum kapatma başarılıysa servis 45 sn içinde yeni konsol oturumuna **yeniden katılır** (audit `unattended.rejoin`); `asked` (izinli,
+  kullanıcı onaylamış) odada yeni kullanıcı giriş yaparsa oda `session_changed` ile biter (onay aklanamaz, O-P28u-3).
+- Hata kodları (konsol metni, audit `failReason`): `no_session` (yardımcının oturumu konsol oturumu değil), `not_in_control`, `not_locked`
+  (kilit 2 sn içinde Winlogon'a geçmedi), `no_user`, `api_error`, `timeout`; 409 `INTERVENE_PENDING` = önceki komut sürüyor.
+  `not_locked` / `api_error` süregelirse §28u.8 K6s elle spike sonucuna bakılır (K-P28u-5b `--lock` geri dönüşü gerekebilir).
+
+### 28u.4 Windows olay günlüğü (Application, kaynak `NoktaDestek`)
+
+Müşteri tarafında "kim, ne zaman bağlandı / ne yaptı" sorusunun yerel kanıtı. Görüntüleme: Olay Görüntüleyicisi → Windows Günlükleri →
+Uygulama → "Geçerli günlüğü filtrele" → Olay kaynağı `NoktaDestek`. PowerShell (yönetici gerekmez):
+`Get-WinEvent -FilterHashtable @{LogName='Application'; ProviderName='NoktaDestek'; Id=1001,1004,1006,1007,1008} -MaxEvents 50 | Format-List TimeCreated,Id,LevelDisplayName,Message`
+
+| Kimlik | Düzey         | Anlam                                                                                                                                                                                |
+| ------ | ------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| 1001   | Bilgi         | Gözetimsiz bağlantı başladı — teknisyen, destek firması, teknisyen IP, oturum, **kip**: "izinli (kullanıcı onayı)" / "izinli (kullanıcı yok)" / "izinsiz (izleme)". Gerekçe yazılmaz |
+| 1004   | Uyarı         | Bağlantı reddedildi / güvenlik denetimi başarısız (`folder_acl`, `pipe_squatted`, `device_key`, `auth_rejected`, `signature_gate`, `folder_renamed`)                                 |
+| 1006   | Bilgi / Uyarı | Oturum kilitlendi (teknisyen, oturum, sonuç). Uyarı = "(uygulanmadı) … başarısız: <neden>"                                                                                           |
+| 1007   | Bilgi / Uyarı | Kullanıcı oturumu kapatıldı (aynı biçim)                                                                                                                                             |
+| 1008   | Bilgi / Uyarı | Bağlantı onayı: "izin verildi" (bilgi) / "reddedildi" / "yanıt verilmedi" (uyarı), kip, teknisyen, oturum                                                                            |
+
+Diğerleri (P27): 1002 bitti, 1003 yerel anahtar, 1005 iptal/kaldırma. Bilet, anahtar, nonce, gerekçe hiçbir olaya yazılmaz.
+
+### 28u.5 Eski servis (`DEVICE_OUTDATED`) — güncelleme yolu (R-PU7)
+
+P28u sunucusu onay yeteneği (`rs.cap.consent1`) bildirmeyen servise (≤ 0.14.x) **hiçbir** gözetimsiz bağlantı açmaz: panelde
+"Servis güncel değil" rozeti, Bağlan pasif, API 409 `DEVICE_OUTDATED`, metrik `rs_unattended_connect_total{result="outdated"}`. Bu bilerek
+fail-closed'dır (onaysız bağlantı yok). Güncelleme (cihaz başına, cihaz yöneticisi):
+
+1. Panel → Gözetimsiz cihazlar → Kayıt kodları → **Servis programını indir** → 0.15.0 `NoktaDestekServis.exe` (§28u.9 yayınından sonra;
+   SHA-256'yı §8 yayın geçmişiyle karşılaştırın).
+2. Cihazda exe'yi çalıştır → pencerede **Güncelle…** → UAC **Evet**. Kurulu servis yerinde güncellenir, **kayıt korunur** (kayıt kodu
+   gerekmez; `Install` → `Update`).
+3. Panelde ≤ 10 sn içinde rozet kalkar, "Kullanıcı" sütunu (Aktif / Kilitli / Oturum yok) dolar; Bağlan etkin.
+4. Doğrulama: izinli bağlan → cihazda onay diyaloğu ≤ 3 sn → olay günlüğü 1008 + 1001 "kip: izinli (kullanıcı onayı)".
+
+"Güncelle…" hata verirse ("Güncelleme yapılamadı") bilgisayar yeniden başlatılıp tekrar denenir; sürerse servis kaldırılıp yeni kayıt
+koduyla yeniden kurulur (§27.2 adım 7). Staging'de yalnız test VM'leri vardır; prod'da gözetimsiz erişim `off` (imza yok, §27.1).
+
+### 28u.6 Alarmlar (`remote-watch`, 10 dk; eşikler `deploy/ops/remote-watch.sh`, mimari-p28u §9.4)
+
+Server P28u öncesiyse (`rs_unattended_silent_notify_total` yok) üçü de değerlendirilmez. Betik değişti → `cd /opt/remote/deploy/ops &&
+./remote-watch.sh install` (ikinci yığında ayrıca `install stg`).
+
+| Kontrol                      | Koşul                                                                                                                 | Düzey | Eylem                                                                                                                                                                                                                                   |
+| ---------------------------- | --------------------------------------------------------------------------------------------------------------------- | ----- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `unattended-notify-fail`     | `rs_unattended_silent_notify_total{result="fail"}` arttı (alıcı başına 3 deneme sonrası); artıştan sonra 24 sa        | Uyarı | **Dört göz kontrolü çalışmıyor.** Firma SMTP testi (Ayarlar → SMTP → Test Maili), `docker compose logs server \| grep unattended_silent_notify`, Audit `unattended.silent.notify result=fail` → hangi firma/olay; alıcılara elle bildir |
+| `unattended-silent-volume`   | 1 sa'te `rs_unattended_connect_total{mode="silent",result="ok"}` artışı > 5 (`WATCH_UA_SILENT_MAX`)                   | Uyarı | §28u.2 "İzinsiz bağlantı sayısı arttı" incelemesi (R-PU2)                                                                                                                                                                               |
+| `unattended-consent-timeout` | 24 sa'te `rs_unattended_consent_total{decision="timeout"}` ≥ 3 (`WATCH_UA_TIMEOUT_MIN`) ve onay sonuçlarının > %50'si | Bilgi | Diyalog görünmüyor olabilir: bir cihazda izinli bağlan → diyalog çıkıyor mu; olay günlüğü 1008 "yanıt verilmedi"; Windows sürümü/çoklu monitör/odak; sürerse hata kaydı (backend-dev, K6)                                               |
+
+Elle bakış (alarm yok): `rs_unattended_intervene_total{result!="ok"}` ve `rs_unattended_rejoin_total{result!="ok"}` sürekli artıyorsa §28u.3;
+`rs_unattended_device_msg_rejected_total` süregelen artış = değiştirilmiş servis / başka cihazın oturumuna mesaj → güvenlik incelemesi.
+
+```bash
+docker compose exec -T server node -e "fetch('http://127.0.0.1:3001/metrics',{headers:{authorization:'Bearer '+process.env.METRICS_TOKEN}}).then(r=>r.text()).then(t=>console.log(t.split('\n').filter(l=>/^rs_unattended_(connect|consent|intervene|silent_notify|rejoin|device_msg_rejected)_total/.test(l)).join('\n')))"
+```
+
+### 28u.7 Geri alma — **gizlilik gerilemesi uyarısı** (D-P28u-5, K-P28u-22)
+
+Uyum matrisi (mimari §6.1):
+
+| Sunucu   | Servis                                             | Sonuç                                                                                                                                                    |
+| -------- | -------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| P28u     | 0.15.0                                             | Normal: onay diyaloğu / izinsiz / müdahale                                                                                                               |
+| P28u     | ≤ 0.14.x                                           | Bağlantı yok, 409 `DEVICE_OUTDATED` (fail-closed, güvenli)                                                                                               |
+| P28u     | 0.15.0, ama `connect`'te `consent` alanı yok/bozuk | Servis reddeder: `connect.result{protocol}`, yardımcı başlamaz (fail-closed; konsolda "cihaz yanıt vermedi")                                             |
+| **eski** | 0.15.0                                             | Eski sunucu `device.features` göndermez → servis **P27 davranışına döner: onay diyaloğu AÇILMAZ**, müşteri onayı olmadan bağlanılır. Gizlilik gerilemesi |
+| eski     | ≤ 0.14.x                                           | P27 (onaysız) — P28u öncesi durum                                                                                                                        |
+
+**Sıra (bağlayıcı):**
+
+1. **Önce gözetimsiz erişimi kapat** (sunucu geri alınmadan): `cd /opt/remote/deploy && sed -i 's/^UNATTENDED_MODE=.*/UNATTENDED_MODE=off/' .env
+&& docker compose up -d --no-deps server` → cihazlar 4403, bağlan 409 (§27.6). Açık gözetimsiz oturum kalmadığını panelden teyit et.
+   Kapatılamıyorsa (iş gereği gözetimsiz erişim sürmeli) geri almadan **önce** müşteri firmalara "uzaktan bağlantılarda bir süre onay
+   penceresi çıkmayacak" bildirimi yapılır ve kayda geçirilir — bu adım atlanmaz.
+2. Sunucu/web geri alma: önceki `IMAGE_TAG` → `docker compose up -d server web`.
+3. Migration geri alma yalnız gerekiyorsa: db-notlari "P28u Geri alma" (precheck KORUMA satırları 0 → `down.sql`; `consent_mode`/
+   `silent_reason` kalıcı kaybolur, audit'te kopyası var). Pratikte ileri düzeltme tercih edilir.
+4. `UNATTENDED_MODE` eski değerine (staging `unsigned`) **ancak** sunucu yeniden P28u'ya dönünce ya da müşteri bildirimi yapılmışsa alınır.
+5. Servis ikilisini geri almak (0.14.x yeniden yayınlamak) **gerekmez ve önerilmez**: 0.15.0 eski sunucuyla çalışır; yeni sunucuya
+   dönüldüğünde 0.14.x cihazlar `DEVICE_OUTDATED` olur. Yalnız servis hatası varsa: önceki ikili `publish-servis.sh --dir` ile (SHA §8'den),
+   cihazlarda "Güncelle…" ile (sürüm düşürme de aynı yoldan; kayıt korunur).
+
+Yalnız özelliği kapatmak (geri almadan): izinsiz için politika kapatılır (§28u.1, anında); müdahale için ayrı anahtar yoktur
+(`unattended.connect` yetkisi ya da `UNATTENDED_MODE=off`).
+
+### 28u.8 Windows elle turu ve K6s spike (Windows 10 + 11; CI'da koşamayanlar)
+
+CI (`agent-win.yml` → `test-windows`): "P28u onay + örtülme + müdahale testleri (-v)" adımı sahte saat/z-sırası/kilitle 13 testi
+**zorunlu PASS** koşar (ad sözleşmesi `docs/implementation.md` "P28u K8"), pencere sınıfı testi SKIP ise uyarı; işin son adımı
+"P28u K6s spike" koşucuyu gerçekten kilitler (ölçüm, kırmızı yapmaz; tablo step summary'de).
+
+Elle (staging adresli 0.15.0 servis, §28u.9; sonuç `docs/test-raporu.md`'ye, Windows sürümüyle):
+
+1. **K6s elle spike** — `docs/spike-p28u-k6s.md` §3 (ikilileri üret → yönetici PowerShell `k6s-elle.ps1` → yeniden giriş →
+   `-Sonuc`). **Oturum zorla kapatılır**, ekran üç kez kilitlenir; açık belge bırakmayın. Sonuç spike belgesinin §2 "Sonuç" sütunlarına,
+   karar §4'e göre (K-P28u-5b `--lock` gerekir mi; yeniden katılım bekleme bütçesi).
+2. Onay diyaloğu: izinli bağlan → diyalog ≤ 3 sn, firma adı kalın satırda, odak **Reddet**'te; ilk 1,5 sn tıklama/Enter işlemez;
+   60 sn yanıtsız → "yanıt verilmedi" (1008 uyarı), konsol "Kullanıcı yanıt vermedi".
+3. Enjeksiyon (T2): başka bir süreçten `SendInput` ile "İzin ver"e tıklama / Enter → kabul edilmez.
+4. **Saydam katman maddesi (O-P28u-1):** ayrı bir süreçten diyalogun üstüne `WS_EX_LAYERED|WS_EX_TRANSPARENT` (alfa 0 ve 1) TOPMOST pencere
+   aç → "İzin ver" pasif kalır; örtü kalkınca 1,5 sn kilit yeniden başlar. Cloaked/UWP pencereler yüzünden kalıcı "örtülü" görülürse
+   kaydedilir (mimar kararı: `DWMWA_CLOAKED` istisnası).
+5. Kullanıcı durumu: aktif → kilitli → oturum yok geçişleri panelde ≤ 10 sn.
+6. Müdahale: kontrol aç → Kilitle → ekran kilitli, 1006; Oturumu kapat → oturum kapanır, 1007, ≤ 45 sn yeniden katılım; izinli odada
+   yeni kullanıcı girişi → oturum `session_changed` ile biter.
+7. İzinsiz: politika aç → izinsiz bağlan → diyalog yok, gösterge "Uzaktan izleniyor", izleme kipi, dört göz e-postası ≤ 60 sn; politika
+   kapat → oturum ≤ 5 sn'de biter.
+8. İz: `trace-check.ps1 -Mode Compare … -Servis on` → `TEMİZ` (gerekçe/bilet olay günlüğünde ve ProgramData'da yok).
+
+### 28u.9 Staging yayını (koordinatör uygular; sıra bağlayıcı)
+
+Ön koşul: P28u qa GEÇTİ + güvenlik Kritik/Yüksek 0; `ci` ve `agent-win` koşuları yeşil (P28u adımı dahil). Staging tek yığın
+`/opt/remote/deploy`, gömülü adres `https://remote.noktabilisim.net`.
+
+1. **Sunucu önce** (yeni servis eski sunucuda onaysız çalışır — §28u.7; bu yüzden servis sunucudan önce yayınlanmaz): §25.2 akışı —
+   ön yedek (`git pull`'dan önce) → `git pull` → `IMAGE_TAG` → `docker compose build && docker compose up -d` →
+   `docker compose logs --since 5m migrate | grep 20261124000000_p28u_unattended_consent` (uygulandı) → `check-app-grants.sh` **798/798 PASS**
+   → `systemctl start remote-backup.service` → `audit-continuity ok` (özet değişmedi). Migration süresi: önce
+   `SELECT COUNT(*) FROM support_sessions` (staging küçük; bakım penceresi gerekmez — db-notlari R-P28u-6).
+2. İzleme: `cd ops && ./remote-watch.sh install` → `systemctl start remote-watch.service; journalctl -u remote-watch -n 5` → `OK`,
+   `status.prom`'da `check="unattended-notify-fail"} 1`.
+3. **Servis + istemci 0.15.0** (operatör makinesi, repo kökü; Go gerekmez; §28a.5 komutu, yalnız `VER=0.15.0`):
+
+   ```bash
+   SERVER='https://remote.noktabilisim.net'; VER=0.15.0
+   OUT="$(mktemp -d)"
+   for c in noktadestek noktadestek-servis; do
+     exe=$([ "$c" = noktadestek ] && echo NoktaDestek.exe || echo NoktaDestekServis.exe)
+     docker run --rm -v "$PWD:/src" -v "$OUT:/out" -w /src -e GOFLAGS=-mod=readonly -e GOTOOLCHAIN=local \
+       golang:1.26.11-bookworm@sha256:dc40a13b61304647ed7e5d581d246b86413dfc29d63c6d018310feb93cd98fc0 sh -c '
+       git config --global --add safe.directory /src; export SOURCE_DATE_EPOCH=$(git log -1 --format=%ct)
+       apps/agent-win/build/build.sh "$0" "$1" "/out/$2" "$3"' "$SERVER" "$VER" "$exe" "$c"
+   done
+   mkdir -p "$OUT/istemci" "$OUT/servis"; mv "$OUT/NoktaDestek.exe" "$OUT/istemci/"; mv "$OUT/NoktaDestekServis.exe" "$OUT/servis/"
+   (cd "$OUT/istemci" && shasum -a 256 NoktaDestek.exe > SHA256SUMS && cat SHA256SUMS)
+   (cd "$OUT/servis" && shasum -a 256 NoktaDestekServis.exe > SHA256SUMS && cat SHA256SUMS)
+   # Tekrarlanabilirlik: aynı komutu ikinci kez (yeni OUT) koşun; iki SHA da aynı olmalı (§11.6). Temiz ağaç (commit'lenmiş) şart:
+   # SOURCE_DATE_EPOCH ve VCS damgası commit'ten gelir.
+   ALLOW_UNATTESTED=staging deploy/agent/publish-servis.sh --dir "$OUT/servis" --no-attestation --ssh root@185.126.217.99 \
+     --deploy-dir /opt/remote/deploy
+   ```
+
+   Beklenen: `kontrol: server UNATTENDED_AGENT_PATH SHA-256 = UNATTENDED_AGENT_SHA256 = <sha>`.
+
+4. **İstemci exe (S13C-13):** tek yığın staging (proje `remote`) `verify-and-publish.sh --dir` yayınını reddeder (yalnız Release `vX.Y.Z`).
+   0.15.0 istemci exe'si (`$OUT/istemci`, P28u'da istemci tarafında yeni özellik yok — sürüm hizası) test için doğrudan teslim edilir;
+   `/downloads/NoktaDestek.exe` P28 sonu `v0.15.0` Release ile güncellenir (§24.4). P13c ikinci yığını kurulduysa:
+   `gh workflow run agent-win.yml --ref main -f server_url=https://stg.remote.noktabilisim.net -f version=0.15.0` +
+   `verify-and-publish.sh --stg-run <run-id>` (§24.8).
+5. `MIN_AGENT_VERSION` **yükseltilmez** (Hızlı Destek istemcisi etkilenmez). Servis için asgari sürüm kapısı `DEVICE_OUTDATED`'dir (§28u.5).
+6. Staging test VM'lerinde servis güncellemesi (§28u.5) → Windows elle turu (§28u.8) test-operatoru.
+7. §8 yayın geçmişine satır: tarih, P28u, commit, migration, servis + istemci 0.15.0 SHA-256'ları, `check-app-grants` sonucu.
+
+Prod: P28 sonu (`v0.15.0` etiketi, §24.4 onay listesi "0.15.0 → P28u" ve Windows elle turu maddeleri); prod'da `UNATTENDED_MODE=off`
+imza gelene kadar sürer (§27.1).
