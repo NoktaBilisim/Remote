@@ -137,7 +137,10 @@ async function freshCode(secret) {
 // Hesap öneki: K9_ (SUPER_ADMIN) ya da K9_TECH_ (demo firmasında ADMIN teknisyen; Super Admin oturum açamaz —
 // sessions/service.ts "oturum yalnız kendi firmanızda").
 async function login(p = "K9_") {
-  const r = await api("login", "POST", "/api/v1/auth/login", { json: { login: env(`${p}EMAIL`), password: env(`${p}PASSWORD`) }, auth: false });
+  const r = await api("login", "POST", "/api/v1/auth/login", {
+    json: { login: env(`${p}EMAIL`), password: env(`${p}PASSWORD`) },
+    auth: false,
+  });
   return r;
 }
 async function loginFull(p = "K9_", role = "SUPER_ADMIN") {
@@ -145,7 +148,8 @@ async function loginFull(p = "K9_", role = "SUPER_ADMIN") {
   const r = await login(p);
   if (r.mustChangePassword) throw new Stage("login", 200, "PASSWORD_CHANGE_REQUIRED");
   if (r.mfaSetupRequired) throw new Stage("login", 200, "MFA_SETUP_REQUIRED (önce k9-staging-account.sh)");
-  if (r.mfaRequired) await api("mfa.verify", "POST", "/api/v1/auth/mfa/verify", { json: { code: await freshCode(env(`${p}TOTP_SECRET`)) } });
+  if (r.mfaRequired)
+    await api("mfa.verify", "POST", "/api/v1/auth/mfa/verify", { json: { code: await freshCode(env(`${p}TOTP_SECRET`)) } });
   const me = await api("auth.me", "GET", "/api/v1/auth/me");
   if (me.user.role !== role || me.mfa?.stage !== "ok") throw new Stage("auth.me", 200, "ROLE_OR_STAGE");
   for (const k of ["__Host-rs_session", "__Host-rs_csrf"]) if (jar.has(k)) out(`N ${jar.get(k).slice(0, 12)}`);
@@ -185,6 +189,7 @@ function wsConnect(path, protocols, headers) {
   return new Promise((resolve, reject) => {
     const ws = new WebSocket(`wss://${EDGE.host}:${EDGE.port}${path}`, protocols, {
       ...tlsOpts,
+      servername: "", // https.request gibi SNI yok: Host bir IP; Caddy `tls internal` IP sertifikasını SNI'siz seçer ("caddy" SNI'si → EPROTO)
       headers: { host: SITE, origin: ORIGIN, ...headers },
       handshakeTimeout: 15_000,
     });
@@ -197,7 +202,7 @@ function wsConnect(path, protocols, headers) {
       waiters.splice(0).forEach((w) => w());
     });
     ws.on("unexpected-response", (_q, res) => reject(new Stage(`ws ${path.split("?")[0]}`, res.statusCode, "-")));
-    ws.on("error", () => reject(new Stage(`ws ${path.split("?")[0]}`, 0, "ERR")));
+    ws.on("error", (e) => reject(new Stage(`ws ${path.split("?")[0]}`, 0, String(e?.code ?? e?.message ?? "ERR").slice(0, 80))));
     ws.on("open", () =>
       resolve({
         ws,
@@ -268,7 +273,11 @@ async function smoke() {
   if (!process.env.K9_TECH_EMAIL) throw new Stage("(b)–(g) teknisyen hesabı", 0, "K9_TECH_* yok: k9-staging-account.sh --tech");
 
   // (b) demo firması: sunucu dosya modu (aydınlatma onayıyla)
-  const tenants = await api("tenants", "GET", `/api/v1/admin/tenants?q=${encodeURIComponent(env("K9_TENANT_SLUG"))}&status=active&page=1&pageSize=10`);
+  const tenants = await api(
+    "tenants",
+    "GET",
+    `/api/v1/admin/tenants?q=${encodeURIComponent(env("K9_TENANT_SLUG"))}&status=active&page=1&pageSize=10`,
+  );
   const tenant = (tenants.items ?? tenants.rows ?? tenants.data ?? []).find((x) => x.slug === env("K9_TENANT_SLUG"));
   if (!tenant) throw new Stage("tenant", 404, "NOT_FOUND");
   await api("switch-tenant", "POST", "/api/v1/admin/switch-tenant", { json: { tenantId: tenant.id } });
@@ -278,7 +287,9 @@ async function smoke() {
   if ((cur.maxFileMb ?? 0) < 50) throw new Stage("settings", 200, `maxFileMb<50`);
   if (!state.prior) await api("settings.put", "PUT", "/api/v1/settings/tenant", { json: { fileServerMode: true, consentUpdated: true } });
   const on = await api("settings.get", "GET", "/api/v1/settings/tenant");
-  R(`(b) sunucu dosya modu: önce=${state.prior} şimdi=${on.fileServerMode} (aydınlatma onayı consentUpdated=true) saklama=${on.fileRetentionDays} gün`);
+  R(
+    `(b) sunucu dosya modu: önce=${state.prior} şimdi=${on.fileServerMode} (aydınlatma onayı consentUpdated=true) saklama=${on.fileRetentionDays} gün`,
+  );
 
   // (c) destek oturumu + tarayıcı misafiri (BROWSER → fsrv yetenekli). Teknisyen = demo firmasındaki K9_TECH_ hesabı.
   await logout();
@@ -292,7 +303,10 @@ async function smoke() {
   const tech = await wsConnect(`/ws/tech?sessionId=${created.id}`, ["rs.v1"], { cookie });
   state.tech = tech;
   await tech.waitFor("hello", "tech hello");
-  const res = await api("public.resolve", "POST", "/api/v1/public/sessions/resolve", { json: { token: linkToken, clientKind: "BROWSER" }, auth: false });
+  const res = await api("public.resolve", "POST", "/api/v1/public/sessions/resolve", {
+    json: { token: linkToken, clientKind: "BROWSER" },
+    auth: false,
+  });
   const j = await api("public.join", "POST", "/api/v1/public/sessions/join", {
     json: { joinNonce: res.joinNonce, customerName: "K9 Test Müşteri", consentAccepted: true, consentTextId: res.consentText.id },
     auth: false,
@@ -340,9 +354,13 @@ async function smoke() {
   await api("switch-tenant", "POST", "/api/v1/admin/switch-tenant", { json: { tenantId: tenant.id } });
   if (state.prior === false) await api("settings.put(geri)", "PUT", "/api/v1/settings/tenant", { json: { fileServerMode: false } });
   state.restored = true;
-  const sf = (h.storedFiles ?? []).map((f) => `${f.id === eicar.fid ? "eicar" : "50mb"}=${f.state}${f.canDownload ? "(indirilebilir!)" : ""}`);
+  const sf = (h.storedFiles ?? []).map(
+    (f) => `${f.id === eicar.fid ? "eicar" : "50mb"}=${f.state}${f.canDownload ? "(indirilebilir!)" : ""}`,
+  );
   const s2 = await api("settings.get", "GET", "/api/v1/settings/tenant");
-  R(`(g) temizlik: oturum durumu=${h.status ?? h.session?.status ?? "-"}; saklanan dosyalar: ${sf.join(", ") || "yok"}; fileServerMode=${s2.fileServerMode} (önce ${state.prior})`);
+  R(
+    `(g) temizlik: oturum durumu=${h.status ?? h.session?.status ?? "-"}; saklanan dosyalar: ${sf.join(", ") || "yok"}; fileServerMode=${s2.fileServerMode} (önce ${state.prior})`,
+  );
   await api("switch-tenant", "POST", "/api/v1/admin/switch-tenant", { json: { tenantId: null } });
   await logout();
   out("OK");
@@ -374,7 +392,11 @@ async function restore() {
     await logout();
   }
   await loginFull();
-  const tenants = await api("tenants", "GET", `/api/v1/admin/tenants?q=${encodeURIComponent(env("K9_TENANT_SLUG"))}&status=active&page=1&pageSize=10`);
+  const tenants = await api(
+    "tenants",
+    "GET",
+    `/api/v1/admin/tenants?q=${encodeURIComponent(env("K9_TENANT_SLUG"))}&status=active&page=1&pageSize=10`,
+  );
   const tenant = (tenants.items ?? tenants.rows ?? tenants.data ?? []).find((x) => x.slug === env("K9_TENANT_SLUG"));
   if (!tenant) throw new Stage("tenant", 404, "NOT_FOUND");
   await api("switch-tenant", "POST", "/api/v1/admin/switch-tenant", { json: { tenantId: tenant.id } });
