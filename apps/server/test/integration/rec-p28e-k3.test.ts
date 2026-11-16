@@ -217,6 +217,35 @@ describe("AC-381 / AC-383 / AC-375 başlatma ve parça yükleme", () => {
     expect(await recRow(b.rid)).toMatchObject({ state: "STOPPED", stopReason: "ERROR" });
   });
 
+  it("Y-P28e-K2-1 kabul edilmiş parçanın hazırlanmış 2 MiB gövdeyle yeniden PUT'u taranmaz: dup, durdurma yok, hızlı", async () => {
+    const r = await recorded();
+    expect((await put(r.rid, r.token, 0, 0, VIDEO_WEBM())).statusCode).toBe(200);
+    expect((await put(r.rid, r.token, 0, 1, CLUSTER_PART())).statusCode).toBe(200);
+    const hostile = Buffer.alloc(2 * 1024 * 1024 - 2);
+    for (let o = 0; o < hostile.length; o += 10) {
+      const size = hostile.length - (o + 10);
+      hostile.set(
+        [0xec, 0x88, 0x1a, 0x45, 0xdf, 0xa3, 0x10 | ((size >>> 24) & 15), (size >>> 16) & 255, (size >>> 8) & 255, size & 255],
+        o,
+      );
+    }
+    const t = performance.now();
+    const res = await put(r.rid, r.token, 0, 1, hostile);
+    expect(performance.now() - t).toBeLessThan(2000);
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toEqual({ next: 2 });
+    expect(await recRow(r.rid)).toMatchObject({ state: "ACTIVE", partCount: 2 });
+  });
+
+  it("D-P28e-K2-2 parça sınırında bölünmüş gömülü başlık: önceki parçanın kuyruğuyla birlikte taranır → 400 + STOPPED{ERROR}", async () => {
+    const r = await recorded();
+    const hdr = el(0x1a45dfa3, el(0x4282, Buffer.from("webm")));
+    expect((await put(r.rid, r.token, 0, 0, VIDEO_WEBM())).statusCode).toBe(200);
+    expect((await put(r.rid, r.token, 0, 1, Buffer.concat([CLUSTER_PART(), hdr.subarray(0, 2)]))).statusCode).toBe(200);
+    expect((await put(r.rid, r.token, 0, 2, Buffer.concat([hdr.subarray(2), CLUSTER_PART()]))).statusCode).toBe(400);
+    expect(await recRow(r.rid)).toMatchObject({ state: "STOPPED", stopReason: "ERROR", partCount: 2 });
+  });
+
   it("S-P28e-6 belirteçsiz / rid uyuşmazlığı / çıkış sonrası 404; çerez okunmaz", async () => {
     const r = await recorded();
     const other = await recorded();

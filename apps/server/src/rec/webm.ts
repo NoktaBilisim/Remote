@@ -110,31 +110,84 @@ export function checkWebmHeader(b: Buffer): WebmVerdict {
 const startsWith = (b: Buffer, id: number): boolean => b.length >= 4 && b.readUInt32BE(0) === id;
 const MAGIC_EBML = Buffer.from("1a45dfa3", "hex");
 const MAGIC_TRACKS = Buffer.from("1654ae6b", "hex");
+/** Eşleşme başına en çok okunan çocuk (Y-P28e-K2-1). Rastgele VP8 verisinde 64 ardışık temiz çocuk olasılığı ~1e-6. */
+export const SCAN_CHILDREN = 64;
+/** Gövde başına toplam ayrıştırılan element (eşleşmeler + çocuklar). Aşılırsa ret (fail-closed); dürüst akışta eşleşme ~0. */
+export const SCAN_ELEMENTS = 4096;
+/** D-P28e-K2-2: sonraki parçanın taramasına eklenen önceki parça kuyruğu (sihir + kimlik/boyut vint'i ≤ 16 bayt; pay bırakıldı). */
+export const SCAN_TAIL_BYTES = 64;
+/**
+ * Parça sonunda kesik eşleşme yalnız boyu ≤ bu değerse şüpheli sayılır (gerçek EBML başlığı ~40 B, Tracks ~100 B). Daha büyük
+ * kesik eşleşme yok sayılır: rastgele VP8 verisindeki tesadüfi sihrin boyut vint'i çoğunlukla büyüktür (yanlış durdurma olmasın).
+ */
+export const SCAN_SPLIT_MAX = 512;
 
-/** `magic`'in her geçtiği yerde `hit` doğrulaması; çıplak 4 bayt eşleşmesi (opak VP8 verisinde ~2^-32/bayt) tek başına ret değil. */
-function anyAt(b: Buffer, magic: Buffer, hit: (e: Element) => boolean): boolean {
+/** Element başlığı tamponun sonunda kesik mi (bozuk değil, eksik)? */
+function headerShort(b: Buffer, pos: number): boolean {
+  const f = b[pos];
+  if (f === undefined) return true;
+  const idLen = Math.clz32(f) - 23;
+  if (idLen < 1 || idLen > 4) return false;
+  const sf = b[pos + idLen];
+  if (sf === undefined) return true;
+  const sLen = Math.clz32(sf) - 23;
+  return sLen >= 1 && sLen <= 8 && pos + idLen + sLen > b.length;
+}
+
+/**
+ * Sınırlı çocuk yürüyüşü: `want` görülürse "hit"; bozuk/aşan çocukta "miss"; çocuk ya da toplam bütçe biterse ya da element
+ * tamponun sonunda kesikken oraya dek temiz ayrışırsa "over" (çağıran reddeder — Void dolgusuyla atlatma ve parça sınırında
+ * bölme kapanır).
+ */
+function probe(b: Buffer, start: number, end: number, want: number, budget: { left: number }): "hit" | "miss" | "over" {
+  const truncated = end > b.length;
+  const lim = Math.min(end, b.length);
+  let pos = start;
+  for (let n = 0; pos < lim; n++) {
+    if (n === SCAN_CHILDREN || --budget.left < 0) return "over";
+    const e = readElement(b, pos);
+    if (!e) return truncated && headerShort(b, pos) ? "over" : "miss";
+    if (e.size === UNKNOWN || e.data + e.size > end) return "miss";
+    if (e.id === want) {
+      // Aday ebeveyne sığmalı; TrackEntry ayrıca TrackType taşımalı (tek baytlık 0xAE tesadüfi eşleşmesi tek başına ret değil).
+      if (want !== ID_TRACK_ENTRY) return "hit";
+      const inner = probe(b, e.data, e.data + e.size, ID_TRACK_TYPE, budget);
+      if (inner !== "miss") return inner;
+    }
+    pos = e.data + e.size;
+  }
+  return truncated ? "over" : "miss";
+}
+
+/** `magic`'in her geçtiği yerde sınırlı yoklama; çıplak 4 bayt eşleşmesi (opak VP8 verisinde ~2^-32/bayt) tek başına ret değil. */
+function anyAt(b: Buffer, magic: Buffer, want: number, budget: { left: number }, tailLen: number): boolean {
   for (let pos = b.indexOf(magic); pos !== -1; pos = b.indexOf(magic, pos + 1)) {
     const e = readElement(b, pos);
-    if (e && e.size !== UNKNOWN && e.data + e.size <= b.length && hit(e)) return true;
+    if (!e) {
+      if (headerShort(b, pos)) return true; // boyut vint'i parça sonunda kesik
+      continue;
+    }
+    // Tamamen önceki parçanın kuyruğunda kalan eşleşme o parçada yargılandı (ör. p=0'ın meşru Tracks'ı) → yeniden yargılanmaz.
+    if (e.size === UNKNOWN || e.data + e.size <= tailLen) continue;
+    if (e.data + e.size > b.length && e.size > SCAN_SPLIT_MAX) continue;
+    if (--budget.left < 0 || probe(b, e.data, e.data + e.size, want, budget) !== "miss") return true;
   }
   return false;
 }
 
-/** Gömülü EBML başlığı: çocukları ayrışır ve DocType taşır (ikinci WebM/Matroska akışı). */
-const embeddedHeader = (b: Buffer): boolean =>
-  anyAt(b, MAGIC_EBML, (e) => children(b, e.data, e.data + e.size)?.some((k) => k.id === ID_DOCTYPE) === true);
-/** Gömülü `Tracks`: çocukları ayrışır ve en az bir `TrackEntry` (ses/ikinci iz bildirimi). */
-const embeddedTracks = (b: Buffer): boolean =>
-  anyAt(b, MAGIC_TRACKS, (e) => children(b, e.data, e.data + e.size)?.some((k) => k.id === ID_TRACK_ENTRY) === true);
-
 /**
  * `p > 0` gövdesi (S-P28e-7, D-P28e-K1-2): EBML sihriyle başlıyorsa kesin ret; gövdede ayrışabilen gömülü EBML başlığı ya da
- * `Tracks` → ret. Cluster başlangıcı yalnız `requireCluster` (varsayılan `REC_REQUIRE_CLUSTER_START`) açıkken zorunlu.
+ * `Tracks` → ret. Tarama doğrusal ve bütçeli (Y-P28e-K2-1); `prevTail` aynı bölümün önceki parçasının son `SCAN_TAIL_BYTES`
+ * baytıdır, sınırda bölünmüş sihri yakalar (D-P28e-K2-2). Cluster başlangıcı yalnız `requireCluster` (varsayılan `REC_REQUIRE_CLUSTER_START`) açıkken zorunlu.
  * Kalan risk: sunucu kareleri çözmez; yapısız opak bayt (ör. iz bildirimi olmayan ses verisi) oynatılamaz ama tam engellenmez.
  */
-export function checkWebmContinuation(b: Buffer, requireCluster: boolean = REC_REQUIRE_CLUSTER_START): WebmVerdict {
-  if (startsWith(b, ID_EBML) || embeddedHeader(b)) return { ok: false, reason: "ebml" };
-  if (embeddedTracks(b)) return { ok: false, reason: "tracks" };
+export function checkWebmContinuation(b: Buffer, requireCluster: boolean = REC_REQUIRE_CLUSTER_START, prevTail?: Buffer): WebmVerdict {
+  if (startsWith(b, ID_EBML)) return { ok: false, reason: "ebml" };
+  const scan = prevTail?.length ? Buffer.concat([prevTail, b]) : b;
+  const budget = { left: SCAN_ELEMENTS };
+  const tailLen = scan.length - b.length;
+  if (anyAt(scan, MAGIC_EBML, ID_DOCTYPE, budget, tailLen)) return { ok: false, reason: "ebml" };
+  if (anyAt(scan, MAGIC_TRACKS, ID_TRACK_ENTRY, budget, tailLen)) return { ok: false, reason: "tracks" };
   if (requireCluster && !startsWith(b, ID_CLUSTER)) return { ok: false, reason: "ebml" };
   return { ok: true };
 }

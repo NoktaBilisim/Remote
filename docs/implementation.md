@@ -12668,3 +12668,24 @@ Kaynak: `docs/qa-raporu.md` P28e tur 1 maddeleri 4–5, `docs/guvenlik-raporu.md
 - `pnpm --filter @remote/web test`: 52 dosya / 483 test geçti.
 - `playwright test p28e`: 16 geçti, 6 atlandı (masaüstü-yalnız akışlar mobilde). `playwright test p28e history settings console`: 44 geçti, 20 atlandı.
 - `lint`, `typecheck`, `prettier --check` temiz.
+
+## P28e güvenlik tur 2 düzeltmesi (backend-dev)
+
+Kaynak: `docs/guvenlik-raporu.md` "P28e kod turu 2" — Y-P28e-K2-1 (Yüksek), D-P28e-K2-2 (Düşük). Kapsam yalnız `apps/server/src/rec/{webm.ts, service.ts}` + testler; `accept.ts` değişmedi.
+
+**Değişen dosyalar**
+
+- `apps/server/src/rec/webm.ts` — gömülü EBML/Tracks taraması `children()` yerine sınırlı `probe()` ile: eşleşme başına en çok `SCAN_CHILDREN = 64` çocuk, gövde başına toplam `SCAN_ELEMENTS = 4096` element (eşleşmeler + çocuklar). Aday ebeveyne sığan aranan kimlik → ret (DocType; TrackEntry için ayrıca içinde TrackType — tek baytlık 0xAE tesadüfi eşleşmesi tek başına ret değil); çocuk ya da toplam bütçe biterse → **ret** (fail-closed; Void dolgusuyla atlatma kapanır); bozuk çocuk → eşleşme yok sayılır. `indexOf` taraması tek geçiş → O(n). Parça sonunda kesik eşleşme: boyu ≤ `SCAN_SPLIT_MAX = 512` ve sona dek temiz ayrışıyorsa ya da sihirden sonra boyut vint'i kesikse → ret. `checkWebmContinuation(b, requireCluster, prevTail?)`: `prevTail` taramanın başına eklenir (ilk bayt EBML ve Cluster kuralları yalnız gövdede); tamamen kuyrukta kalan eşleşme yeniden yargılanmaz (yalnız başlık içeren p=0'ın meşru Tracks'ı p=1'i durdurmasın).
+- `apps/server/src/rec/service.ts` — `acceptPart`: `partExists` (dup) içerik denetiminden ÖNCE; dup ise gövde hiç taranmaz. Kabul edilen parçanın son `SCAN_TAIL_BYTES = 64` baytı (kopya) kayıt başına `tails` haritasında; yalnız aynı bölümün `p-1` kuyruğu kullanılır. Harita üst sınırı 4096 kayıt (en eskisi atılır); `afterStop` durma payı sonunda kaydı siler.
+- Testler: `apps/server/test/unit/rec-webm-dos.test.ts` (yeni), `apps/server/test/integration/rec-p28e-k3.test.ts` (+2).
+
+**Sapmalar / kalan risk (gerekçeli)**
+
+- Yanlış durdurma dengesi: rastgele VP8 verisinde 4 baytlık sihir ~1/GB mertebesinde görülür; bu yüzden eşleşme başı bütçe küçük tutulmadı (64 ardışık temiz çocuk olasılığı ~1e-6) ve büyük boyutlu kesik eşleşmeler (> 512 B) şüpheli sayılmadı. Ölçüm (256 KiB rastgele tampon, sihir + rastgele bayt): parça ortasında eşleşme başına ~3e-5 ret (100 000 örnekte 2–4), son 4 KiB içinde ~2e-3 (yalnız son 512 B penceresi etkili) → eşleşme ~1/GB ile yanlış durdurma onlarca TB'de bir mertebesi. Test: 3 Chromium fikstürü (kuyrukla da) + belirlenimci PRNG ile 300 × 64 KiB sihir enjekte tampon → 0 ret.
+- D-P28e-K2-2 kalıntısı: (a) 512 B'tan büyük Void dolgulu başlık parça sınırında bölünürse yakalanmaz; (b) kuyruk bellekte — sunucu yeniden başlarsa ilk parça kuyruksuz taranır; (c) `p = 0` gövdesinin Tracks sonrası kısmı gömülü başlık için taranmaz (önceden de böyleydi, raporda yok). Sunucu kareleri çözmediğinden "ses saklanmaz" kötü niyetli kaydediciye karşı tam teknik garanti değildir (webm.ts yorumu).
+- Yeni bağımlılık yok. Sözleşme (API/ws/contracts) değişmedi → `frontend-dev` için etkisi yok.
+
+**Doğrulama**
+
+- Ajan deseni (10 baytlık birim, Void içinde sihir, boyut tamponun sonuna dek) 2 MiB: önce dakikalar mertebesi, şimdi ilk eşleşmede `{ok:false, reason:"ebml"|"tracks"}` ~0,01 ms; bütçe sınırında her eşleşme deseni (63 temiz Void + bozuk bayt) ~0,14 ms (toplam bütçe → ret); sık çıplak sihir (kabul) ~13 ms (yerel ölçüm, en iyi 3 koşu). Testteki eşik < 200 ms (CI payı); 2 MiB / 200 kB süre oranı < 15 (ısınma + 3 koşunun en iyisi, payda ≥ 1 ms).
+- `pnpm --filter @remote/server exec vitest run test/unit` → 630 geçti, 1 atlandı. Entegrasyon (`rs-mysql-p28efx3`, sonra down) `vitest run test/integration/rec` → 4 dosya, 42/42. `typecheck`, `lint`, `prettier --check` temiz.

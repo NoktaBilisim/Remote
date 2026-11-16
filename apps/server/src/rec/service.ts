@@ -43,7 +43,7 @@ import {
   type RecUploadTokenEntry,
   type Tx,
 } from "./types.ts";
-import { checkWebmContinuation, checkWebmHeader } from "./webm.ts";
+import { checkWebmContinuation, checkWebmHeader, SCAN_TAIL_BYTES } from "./webm.ts";
 
 const DAY_MS = 86_400_000;
 const GB = 1024 ** 3;
@@ -76,6 +76,9 @@ function who(a: RecActor): { userId?: string; username: string; ctx: AuditContex
   return { username: "system", ctx: SYSTEM_CTX };
 }
 
+/** Kuyruk tablosu üst sınırı (en eskisi atılır). */
+const TAILS_MAX = 4096;
+
 const RESULT_OF: Partial<Record<PartOutcome["kind"], RecPartResult>> = {
   ok: "ok",
   dup: "dup",
@@ -91,6 +94,8 @@ export class RecServiceImpl implements RecService {
   readonly tokens = new RecTokenTable();
   /** K4 bağlar (`signaling/rec.ts`); bağlanmadan parça kabul edilmez (oda bilinmiyor → 404). */
   room: RecRoomPort | null = null;
+  /** Kayıt başına son kabul edilen parçanın kuyruğu (≤ TAILS_MAX × 64 bayt). */
+  private readonly tails = new Map<string, { s: number; p: number; tail: Buffer }>();
 
   constructor(d: RecDeps) {
     this.d = d;
@@ -248,6 +253,7 @@ export class RecServiceImpl implements RecService {
   afterStop(rid: string, reason: RecStopReason): void {
     this.d.metrics.inc(REC_METRICS.STOP_TOTAL, { reason });
     this.dropUploadTokens({ by: "rid", rid, graceMs: REC_STOP_GRACE_MS });
+    this.d.clock.setTimeout(() => this.tails.delete(rid), REC_STOP_GRACE_MS); // pay içindeki parçalar kuyruğu kullanabilsin
   }
 
   /** Servisin kendi başlattığı durma (kota, oran, içerik): stop + oda yayını. Hata fırlatmaz. */
@@ -357,18 +363,16 @@ export class RecServiceImpl implements RecService {
   /** Gövde bellekte: içerik denetimi → şifreli `.rsf` → TX (kilit, kesin denetim, INSERT). Ret → dosya silinir. */
   async acceptPart(r: PartRequest, body: Buffer): Promise<PartOutcome> {
     const e = r.entry;
-    const content = r.p === 0 ? checkWebmHeader(body) : checkWebmContinuation(body);
     const rel = this.d.store.newRel(e.tenantId);
     const fid = newId();
     const keyVer = this.d.secrets.currentVersion;
     let written = false;
     try {
+      // Y-P28e-K2-1: tekrar denetimi içerik denetiminden ÖNCE — kabul edilmiş (s,p)'nin yeniden gönderimi gövdeyi taratamaz.
       const dup = await repo.partExists(this.d.db, e.rid, e.tenantId, r.s, r.p);
-      if (!dup && !content.ok) {
-        this.d.log.warn(
-          { event: "rec_part_invalid", reason: content.ok ? "" : content.reason, sessionId: e.sessionId },
-          "kayıt parçası reddedildi",
-        );
+      const content = dup ? null : r.p === 0 ? checkWebmHeader(body) : checkWebmContinuation(body, undefined, this.tailFor(e.rid, r));
+      if (content && !content.ok) {
+        this.d.log.warn({ event: "rec_part_invalid", reason: content.reason, sessionId: e.sessionId }, "kayıt parçası reddedildi");
         return await this.settle(r, { kind: "invalid" });
       }
       if (!dup) {
@@ -402,12 +406,28 @@ export class RecServiceImpl implements RecService {
       if (out.kind === "ok") {
         written = false; // satıra bağlandı
         this.room?.partAccepted(e.sessionId, r.s, r.p, this.now());
+        this.keepTail(e.rid, r, body);
         this.d.metrics.inc(REC_METRICS.BYTES_TOTAL, {}, body.length);
         this.d.metrics.observe(REC_METRICS.PART_BYTES, body.length); // §11.2 histogram
       }
       return await this.settle(r, out);
     } finally {
       if (written) await this.d.store.remove(rel).catch(() => undefined);
+    }
+  }
+
+  /** D-P28e-K2-2: yalnız aynı bölümün hemen önceki parçasının kuyruğu (yeniden başlatmada kaybolur → kuyruksuz tarama). */
+  private tailFor(rid: string, r: PartRequest): Buffer | undefined {
+    const t = this.tails.get(rid);
+    return t && t.s === r.s && t.p === r.p - 1 ? t.tail : undefined;
+  }
+
+  private keepTail(rid: string, r: PartRequest, body: Buffer): void {
+    this.tails.delete(rid); // ekleme sırası = en eski önce
+    this.tails.set(rid, { s: r.s, p: r.p, tail: Buffer.from(body.subarray(-SCAN_TAIL_BYTES)) }); // kopya: 2 MiB'yi tutmaz
+    if (this.tails.size > TAILS_MAX) {
+      const oldest = this.tails.keys().next().value;
+      if (oldest !== undefined) this.tails.delete(oldest);
     }
   }
 
