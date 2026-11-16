@@ -8,11 +8,14 @@
 // `guestFeatures`/`clipConsent` alanları. P28b (mimari-p28b §5): `fsrv.*` tipleri `ws-fsrv.ts`'te; burada birlik bağlantısı +
 // `hello`/`peer.joined` `fileMode` + `guestFeatures` `fsrv` değeri. P28e (mimari-p28e §6): `rec.*` tipleri `ws-rec.ts`'te;
 // burada birlik bağlantısı (misafirde yalnız `rs.cap.rec1` sokette), `hello.rec`, `hello.unattended.recordOutdated`.
+// P28c (mimari-p28c §4.4): çoklu teknisyen tipleri `ws-multi.ts`'te; burada birlik bağlantısı (misafirde yalnız
+// `rs.cap.multi1` sokette: `to`'lu `sdp.answer`/`ice` + `tech.remove`), `sdp.offer`/`ice` `from`, teknisyen `hello` ekleri.
 import { z } from "zod";
 import { guestClipInbound, guestPrintInbound, serverClipPrintOutbound, techClipPrintInbound, type GuestFeature } from "./ws-clip-print.ts";
 import { FILE_MODES, fsrvInbound, PEER_FEATURES, serverFsrvOutbound } from "./ws-fsrv.ts";
 import { CONSENT_MODES } from "./unattended-consent.ts";
 import { guestRecInbound, recHelloSchema, serverRecOutbound, techRecInbound } from "./ws-rec.ts";
+import { guestMultiInbound, helloMultiFields, serverMultiOutbound, techIdSchema, techMultiInbound, WS_CLOSE_REMOVED } from "./ws-multi.ts";
 
 export const WS_SUBPROTOCOL = "rs.v1";
 export const WS_TICKET_PREFIX = "rs.ticket.";
@@ -21,7 +24,15 @@ export const WS_RECONNECT_PREFIX = "rs.reconnect.";
 export const WS_MAX_PAYLOAD = 64 * 1024;
 
 /** Kapanış kodları (RFC 6455 + uygulama). */
-export const WS_CLOSE = { NORMAL: 1000, POLICY: 1008, TOO_BIG: 1009, AUTH_REVOKED: 4401, REPLACED: 4409 } as const;
+export const WS_CLOSE = {
+  NORMAL: 1000,
+  POLICY: 1008,
+  TOO_BIG: 1009,
+  AUTH_REVOKED: 4401,
+  REPLACED: 4409,
+  /** P28c (§4.4): teknisyen soketi — müşteri çıkardı / üyenin yetkisi düştü. */
+  REMOVED: WS_CLOSE_REMOVED,
+} as const;
 
 export const GUEST_KINDS = ["BROWSER", "AGENT"] as const;
 export type GuestKind = (typeof GUEST_KINDS)[number];
@@ -248,6 +259,8 @@ export const techInboundSchema = z.discriminatedUnion("t", [
   ...fsrvInbound,
   // P28e (§6.2): `rec.error` — sunucu yalnız kaydedici soketinden işler.
   ...techRecInbound,
+  // P28c (§4.4): kontrol devri, oturum devri, üye ayrılması — rol kapısı `ROLE_MAY` (ws-multi.ts).
+  ...techMultiInbound,
 ]);
 export type TechInbound = z.infer<typeof techInboundSchema>;
 
@@ -299,12 +312,24 @@ const guestInboundBase = [
 export const guestInboundSchema = z.discriminatedUnion("t", [...guestInboundBase]);
 export type GuestInbound = z.infer<typeof guestInboundSchema>;
 
+/** P28c (§4.4): multi1 misafirde yanıt/aday hedef teknisyenin `tid`'iyle (`to` zorunlu); sunucu yalnız odadaki bağlı tid'e iletir. */
+export const sdpAnswerMultiSchema = sdpAnswerSchema.extend({ to: techIdSchema });
+export const iceMultiSchema = iceSchema.extend({ to: techIdSchema });
+/** multi1 sokette taban birlik: `sdp.answer`/`ice` yerine `to`'lu eşleri (aynı `t` iki kez olamaz — değiştirilir). */
+const guestInboundMultiBase = [
+  sdpAnswerMultiSchema,
+  iceMultiSchema,
+  ...guestInboundBase.filter((s) => s !== sdpAnswerSchema && s !== iceSchema),
+  ...guestMultiInbound,
+] as const;
+
 type GuestOption =
   | (typeof guestInboundBase)[number]
   | (typeof guestClipInbound)[number]
   | (typeof guestPrintInbound)[number]
   | (typeof fsrvInbound)[number]
-  | (typeof guestRecInbound)[number];
+  | (typeof guestRecInbound)[number]
+  | (typeof guestInboundMultiBase)[number];
 const guestFullSchema = z.discriminatedUnion("t", [
   ...guestInboundBase,
   ...guestClipInbound,
@@ -312,22 +337,38 @@ const guestFullSchema = z.discriminatedUnion("t", [
   ...fsrvInbound,
   ...guestRecInbound,
 ]);
-export type GuestInboundFull = z.infer<typeof guestFullSchema>;
+const guestFullMultiSchema = z.discriminatedUnion("t", [
+  ...guestInboundMultiBase,
+  ...guestClipInbound,
+  ...guestPrintInbound,
+  ...fsrvInbound,
+  ...guestRecInbound,
+]);
+/** Tüm soket türlerinin birleşik tipi (multi1 sokette `sdp.answer`/`ice` `to` taşır, `tech.remove` gelir). */
+export type GuestInboundFull = z.infer<typeof guestFullSchema> | z.infer<typeof guestFullMultiSchema>;
 const guestSchemaCache = new Map<number, z.ZodType<GuestInboundFull>>([
   [0, guestInboundSchema],
   [15, guestFullSchema],
+  [31, guestFullMultiSchema],
 ]);
 /**
  * P28a (§4.3, S-P18-T1 kalıbı): misafir şeması soketin bildirdiği özelliğe göre seçilir — `clip.*` yalnız `clipboard`,
  * `print.report` yalnız `print` bildiren sokette şemadadır; yeteneksiz sokette bu tipler şema dışı → 1008.
  * P28b (§5.2 adım 1): `fsrv = true` yalnız SERVER odasında ve `hasFsrv(peer)` sokette; aksi `fsrv.*` şema dışı → 1008.
  * P28e (§6.1): `rec = true` yalnız `rs.cap.rec1` bildiren katılımlı oda soketinde; aksi `rec.*` şema dışı → 1008.
+ * P28c (§4.4): `multi = true` yalnız `rs.cap.multi1` bildiren sokette (gözetimsiz oda dahil); `sdp.answer`/`ice` `to` ister,
+ * `tech.remove` şemadadır. Aksi `to` ve `tech.remove` şema dışı → 1008.
  */
-export function guestInboundSchemaFor(features: ReadonlySet<GuestFeature>, fsrv = false, rec = false): z.ZodType<GuestInboundFull> {
-  const key = (features.has("clipboard") ? 1 : 0) | (features.has("print") ? 2 : 0) | (fsrv ? 4 : 0) | (rec ? 8 : 0);
+export function guestInboundSchemaFor(
+  features: ReadonlySet<GuestFeature>,
+  fsrv = false,
+  rec = false,
+  multi = false,
+): z.ZodType<GuestInboundFull> {
+  const key = (features.has("clipboard") ? 1 : 0) | (features.has("print") ? 2 : 0) | (fsrv ? 4 : 0) | (rec ? 8 : 0) | (multi ? 16 : 0);
   const cached = guestSchemaCache.get(key);
   if (cached) return cached;
-  const options: [GuestOption, ...GuestOption[]] = [...guestInboundBase];
+  const options: [GuestOption, ...GuestOption[]] = multi ? [...guestInboundMultiBase] : [...guestInboundBase];
   if (key & 1) options.push(...guestClipInbound);
   if (key & 2) options.push(...guestPrintInbound);
   if (key & 4) options.push(...fsrvInbound);
@@ -398,6 +439,8 @@ export const serverOutboundSchema = z.discriminatedUnion("t", [
      * (`recHelloGuestSchema`); teknisyene `rec.state` gövdesi (kaydediciye yeni `upload`, `series = son + 1`).
      */
     rec: recHelloSchema.optional(),
+    /** P28c (§4.4): YALNIZ role=tech hello'sunda — `tid` (kendi), `techRole` (owner|participant|observer), `roster`. */
+    ...helloMultiFields,
   }),
   z.strictObject({ t: z.literal("lobby.wait"), expiresAt: iso }),
   z.strictObject({ t: z.literal("peer.pending"), guestId: ulid, name: z.string().max(100), guestKind: z.enum(GUEST_KINDS), since: iso }),
@@ -419,9 +462,10 @@ export const serverOutboundSchema = z.discriminatedUnion("t", [
     fileMode: z.enum(FILE_MODES).optional(),
   }),
   z.strictObject({ t: z.literal("peer.left"), role: z.enum(["tech", "guest"]), reason: z.enum(["disconnect", "ended"]).optional() }),
-  z.strictObject({ t: z.literal("sdp.offer"), sdp }),
+  /** P28c (§4.4): `from` yalnız multi1 misafire (sunucu damgalar; eski misafirde alan yok). */
+  z.strictObject({ t: z.literal("sdp.offer"), sdp, from: techIdSchema.optional() }),
   z.strictObject({ t: z.literal("sdp.answer"), sdp }),
-  iceSchema.omit({ id: true }),
+  iceSchema.omit({ id: true }).extend({ from: techIdSchema.optional() }),
   z.strictObject({ t: z.literal("ice.restart") }),
   shareStateSchema.omit({ id: true }),
   z.strictObject({ t: z.literal("session.ended"), reason: z.enum(SESSION_ENDED_REASONS) }),
@@ -461,6 +505,8 @@ export const serverOutboundSchema = z.discriminatedUnion("t", [
   ...serverFsrvOutbound,
   // P28e (§6.2): kayıt durumu (misafire yalnız `rec1` soketine, rol biçimleri `ws-rec.ts`).
   ...serverRecOutbound,
+  // P28c (§4.4): teknisyen listesi (tüm teknisyenlere + yalnız multi1 misafire).
+  ...serverMultiOutbound,
 ]);
 export type ServerOutbound = z.infer<typeof serverOutboundSchema>;
 /** Odada saklanan son paylaşım durumu (teknisyen hello `share` alanı). */

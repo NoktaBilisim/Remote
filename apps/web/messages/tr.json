@@ -1727,6 +1727,8 @@
   "perm.a.import": "İçe aktar",
   "perm.a.send_link": "Müşteriye bağlantı gönder",
   "perm.a.view_recording": "Kayıtları izle",
+  "perm.a.invite": "Teknisyen davet et / devret",
+  "perm.a.supervise": "Etkin oturumları izle",
   "perm.a.connect": "Bağlan",
   "perm.a.manage": "Yönet",
   "perm.a.silent": "İzin istemeden bağlan",

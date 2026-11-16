@@ -312,8 +312,11 @@ export type UnattendedAuditAction = (typeof UNATTENDED_AUDIT)[keyof typeof UNATT
  */
 export const UNATTENDED_POLICY_AUDIT = "settings.unattended_silent";
 
-/** `unattended.silent.notify.event` (P28u `connect`/`policy`; P28e S-P28e-4 `recording_policy` — gözetimsiz kayıt politikası). */
-export const SILENT_NOTIFY_EVENTS = ["connect", "policy", "recording_policy"] as const;
+/**
+ * `unattended.silent.notify.event` (P28u `connect`/`policy`; P28e S-P28e-4 `recording_policy` — gözetimsiz kayıt politikası;
+ * P28c Y-PC-1 `join` — silent odaya ek teknisyen katıldı, `transfer` — silent odada oturum devredildi).
+ */
+export const SILENT_NOTIFY_EVENTS = ["connect", "policy", "recording_policy", "join", "transfer"] as const;
 export type SilentNotifyEvent = (typeof SILENT_NOTIFY_EVENTS)[number];
 
 /** P28u (§5.4): `consentMode` taşıyan eylemler — audit "Bağlantı kipi" filtresi bunlarla daraltılır (`connect` yalnız silent'ta taşır). */
@@ -467,6 +470,74 @@ export const SILENT_NOTIFY_EVENT_LABELS: Readonly<Record<SilentNotifyEvent, stri
   connect: "İzinsiz bağlantı",
   policy: "İzinsiz bağlanma politikası değişti",
   recording_policy: "Gözetimsiz bağlantı kayıt politikası değişti",
+  join: "İzinsiz bağlantıya ek teknisyen katıldı",
+  transfer: "İzinsiz bağlantı başka teknisyene devredildi",
+};
+
+/**
+ * P28c çoklu teknisyen (mimari-p28c §9; AC-364..370). Entity `support_sessions` / sessionId. Sohbet içeriği ve gerekçe
+ * metni (yalnız `supervise_join`/`participant_join`'de `silentReason`, silent odada) dışında serbest metin yazılmaz:
+ *  - INVITE `{inviteeUserId, inviteeName}` (aktör sahip; 403/409 denemeleri `fail`). INVITE_ACCEPT / INVITE_REJECT `{inviteId}`.
+ *  - INVITE_EXPIRE `{inviteeUserId, reason: MULTI_INVITE_EXPIRE_REASONS}` (aktör system; geri çekmede aktör sahip, `revoked`).
+ *  - PARTICIPANT_JOIN `{userId, role:"participant", consentMode?, reasonLen?, silentReason?}`; SUPERVISE_JOIN aynı, `role:"observer"`.
+ *  - PARTICIPANT_LEAVE `{userId, role, reason: MULTI_LEAVE_REASONS}`. PARTICIPANT_REMOVE `{userId, role}` (aktör müşteri).
+ *  - CONTROL_HANDOVER `{fromUserId, toUserId, reason?: "controller_left"}`. TRANSFER `{fromUserId, toUserId, consentMode?}`.
+ * Ret alt kodu anahtarı `failReason` (çıplak `code` DEĞİL: audit maskesi `/code/i` anahtarını "***" yapar; P28u K-P28u-20 kalıbı).
+ * Ad soyad (`inviteeName`) `AUDIT_IDENTITY_KEYS`'te değildir; mezar taşında maskelenmesi gerekirse K1 ekler.
+ */
+export const MULTI_AUDIT = {
+  INVITE: "session.invite",
+  INVITE_ACCEPT: "session.invite_accept",
+  INVITE_REJECT: "session.invite_reject",
+  INVITE_EXPIRE: "session.invite_expire",
+  PARTICIPANT_JOIN: "session.participant_join",
+  PARTICIPANT_LEAVE: "session.participant_leave",
+  PARTICIPANT_REMOVE: "session.participant_remove",
+  SUPERVISE_JOIN: "session.supervise_join",
+  CONTROL_HANDOVER: "session.control_handover",
+  TRANSFER: "session.transfer",
+} as const;
+export type MultiAuditAction = (typeof MULTI_AUDIT)[keyof typeof MULTI_AUDIT];
+/** `session.invite_expire.reason`: 2 dk doldu / oturum bitti / sahip geri çekti (D-PC-7). */
+export const MULTI_INVITE_EXPIRE_REASONS = ["timeout", "session_end", "revoked"] as const;
+export type MultiInviteExpireReason = (typeof MULTI_INVITE_EXPIRE_REASONS)[number];
+/** `session.participant_leave.reason` (§5.4). */
+export const MULTI_LEAVE_REASONS = ["left", "disconnect", "no_show", "session_end", "auth_revoked"] as const;
+export type MultiLeaveReason = (typeof MULTI_LEAVE_REASONS)[number];
+/** `session.transfer` fail `failReason` (§5.2): koşullu UPDATE tutmadı / commit sonrası hedef gitti (geri alındı). */
+export const MULTI_TRANSFER_FAIL_REASONS = ["conflict", "target_gone"] as const;
+export type MultiTransferFailReason = (typeof MULTI_TRANSFER_FAIL_REASONS)[number];
+/**
+ * Audit süzgecinde "Çoklu teknisyen" grubu (§9). Eylemler `session.*` önekli olduğundan (AC-370 adları) önek grubu
+ * (`session.*` → "Oturum") bunu ayıramaz; web bu listeyle ayrı seçenek grubu kurar (tek tek eylem süzgeci).
+ */
+export const MULTI_AUDIT_GROUP = { label: "Çoklu teknisyen", actions: Object.values(MULTI_AUDIT) } as const;
+/** P28c eylemlerinin Türkçe etiketleri (web `AUDIT_ACTION_LABELS`'a ve geçmiş zaman çizelgesine yayılır). */
+export const MULTI_AUDIT_LABELS: Readonly<Record<MultiAuditAction, string>> = {
+  [MULTI_AUDIT.INVITE]: "Teknisyen davet edildi",
+  [MULTI_AUDIT.INVITE_ACCEPT]: "Davet kabul edildi",
+  [MULTI_AUDIT.INVITE_REJECT]: "Davet reddedildi",
+  [MULTI_AUDIT.INVITE_EXPIRE]: "Davet düştü",
+  [MULTI_AUDIT.PARTICIPANT_JOIN]: "Teknisyen katıldı",
+  [MULTI_AUDIT.PARTICIPANT_LEAVE]: "Teknisyen ayrıldı",
+  [MULTI_AUDIT.PARTICIPANT_REMOVE]: "Müşteri teknisyeni çıkardı",
+  [MULTI_AUDIT.SUPERVISE_JOIN]: "Süpervizör izlemeye başladı",
+  [MULTI_AUDIT.CONTROL_HANDOVER]: "Kontrol devredildi",
+  [MULTI_AUDIT.TRANSFER]: "Oturum devredildi",
+};
+/** `invite_expire.reason` etiketleri. */
+export const MULTI_INVITE_EXPIRE_REASON_LABELS: Readonly<Record<MultiInviteExpireReason, string>> = {
+  timeout: "Süre doldu",
+  session_end: "Oturum bitti",
+  revoked: "Geri çekildi",
+};
+/** `participant_leave.reason` etiketleri. */
+export const MULTI_LEAVE_REASON_LABELS: Readonly<Record<MultiLeaveReason, string>> = {
+  left: "Ayrıldı",
+  disconnect: "Bağlantı koptu",
+  no_show: "Bağlanmadı",
+  session_end: "Oturum bitti",
+  auth_revoked: "Yetkisi düştü",
 };
 
 /** Audit `entity` değerleri (S16-1: maske `entity = AUDIT_ENTITY.USERS` satırlarında hedef kullanıcıya da bakar). */

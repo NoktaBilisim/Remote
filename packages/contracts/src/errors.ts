@@ -42,6 +42,8 @@ export const ERROR_STATUS = {
   SESSION_CONSUMED: 410,
   /** Oturum iptal edilmiş (AC-8). */
   SESSION_CANCELLED: 410,
+  /** P28c (§4.1): davet süresi doldu / geri çekildi / yanıtlandı / oturum bitti — tek gövde. */
+  INVITE_GONE: 410,
   /** joinNonce süresi dolmuş/kullanılmış (P3). */
   NONCE_INVALID: 410,
   /** P10 (AC-66): şifre sıfırlama bağlantısı geçersiz, kullanılmış veya süresi dolmuş (tek yanıt). */
@@ -99,6 +101,15 @@ export const ERROR_STATUS = {
   SILENT_DISABLED: 409,
   /** P28u (§5.3): bu odada yanıtı beklenen müdahale komutu var. */
   INTERVENE_PENDING: 409,
+  /** P28c (AC-365, mimari-p28c §4): oturumda sahip dahil 3 teknisyen koltuğu dolu (bekleyen davet koltuk tutar). */
+  SESSION_FULL: 409,
+  /**
+   * P28c (AC-372, D-PC-1): misafir soketi `rs.cap.multi1` bildirmedi — davet/İzle açılmaz (AC-352 metni). P15
+   * `ACCEPT_CODE_CLIENT_UNSUPPORTED` yeniden kullanılmaz (ayrı anlam).
+   */
+  CLIENT_UNSUPPORTED: 409,
+  /** P28c (§4.1, O-PC-5): gözetimsiz `asked` odaya ek teknisyen katılamaz (§4.3 adım 6a). */
+  JOIN_NOT_ALLOWED: 409,
   /** P27 (AC-273): kayıt kodu yok/kullanılmış/süresi dolmuş — tek gövde (oracle yok). */
   REGISTRATION_CODE_INVALID: 404,
   /** P12 (AC-84): yükleme 2 MB'ı aşıyor. */

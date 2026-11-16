@@ -12703,3 +12703,89 @@ Kaynak: CI kırmızı TEST-P8-2, `docs/test-raporu.md` P28e Y-1, Y-2, O-1, D-1, 
 - **D-3:** `lib/error-message.ts` `toUiError`: HTTP 500'de sunucu `message` yerine `err.generic` ("Beklenmeyen bir hata oluştu.") + `requestId` korunur; `byStatus` eşlemesi önce gelir; 4xx/429/423/503 davranışı değişmedi (gerçek sunucunun INTERNAL metni zaten aynı cümle — bu savunma katmanı). Birim: `lib/error-message.test.ts` (+2), `lib/branding/branding.test.ts` 500 beklentisi güncellendi. e2e "K10 O-1" 500 ayağı.
 - Yeni metinler `messages/tr.json`: `hr.missing`, `hr.forbidden`. Yeni bileşen/bağımlılık/rota yok.
 - **Doğrulama:** `lint`, `typecheck` temiz; `vitest` 52 dosya / 485 test; `playwright test p8-history p28e-recording p17-console p28u-unattended unattended guest` (desktop + mobile) 124 geçti, 32 atlandı (masaüstü-yalnız akışlar); `prettier --check` temiz.
+
+## P28c K0 — Sözleşme (backend-dev, 2026-11-16)
+
+Kaynak: `docs/mimari-p28c.md` r2 (§1.1, §3.1, §4, §4.4, §4.5, §6.1, §9), ADR-0035. Sunucu davranışı yok (K1); Go davranışı yok (K3).
+
+### Değişen / eklenen dosyalar
+
+- `packages/contracts/src/ws-multi.ts` (yeni, yaprak modül): `WS_CAP_MULTI = "rs.cap.multi1"`, `MAX_TECHS`, `INVITE_TTL_MS`,
+  `MEMBER_RESERVE_MS`, `MEMBER_GRACE_MS`, `MULTI_ROOM_CMDS_PER_MIN`, `MULTI_JOIN_PER_MIN`, `MULTI_POLL_PER_MIN`, `INVITE_POLL_MS`,
+  `ACTIVE_POLL_MS`, `LOW_FPS`/`LOW_FPS_MIN`/`LOW_BPS`, `ROSTER_NAME_MAX`, `WS_CLOSE_REMOVED` (4403), `TID_PATTERN`/`techIdSchema`
+  (11 karakter base64url); sözlükler `MEMBER_ROLES`, `ROSTER_ROLES`, `TECH_ROLES`, `MEMBER_VIAS`; `techRosterSchema` (1..3, tid
+  benzersiz, tam bir `owner`, tam bir `controller`), `techsRosterSchema`, `controlHandoverSchema`, `sessionTransferSchema`,
+  `memberLeaveSchema`, `techRemoveSchema`, `helloMultiFields`; rol kapısı `ROLE_MAY` (+ `TECH_SEATS`, `seatMay(t, {owner, controller})`
+  varsayılan-ret).
+- `packages/contracts/src/ws.ts`: `techInboundSchema` += `control.handover`, `session.transfer`, `member.leave`;
+  `guestInboundSchemaFor(features, fsrv, rec, multi = false)` — multi1 sokette `sdpAnswerMultiSchema`/`iceMultiSchema` (`to` zorunlu)
+  `sdp.answer`/`ice`'nin YERİNE, + `tech.remove`; `serverOutboundSchema` `sdp.offer`/`ice` += `from?`, `techs.roster`; tech `hello` +=
+  `tid?`, `techRole?`, `roster?`; `WS_CLOSE.REMOVED = 4403`.
+- `packages/contracts/src/dc.ts`: `chatSchema.by?: tid`.
+- `packages/contracts/src/api/multi.ts` (yeni): `MULTI_ERROR_MESSAGES`, `INVITE_CANDIDATES_MAX = 200`, `INVITE_ID_PATTERN`/`inviteIdSchema`
+  (22 karakter), `multiSessionParamsSchema`, `sessionInviteParamsSchema`, `inviteParamsSchema`, `createInviteInputSchema`,
+  `joinWithReasonInputSchema` (kabul + İzle), yanıt tipleri `CreateInviteResponse`, `JoinSessionAsMemberResponse`,
+  `InviteCandidatesResponse`, `IncomingInvitesResponse`, `ActiveSessionsResponse` (+ öğe tipleri).
+- `packages/contracts/src/errors.ts`: `SESSION_FULL` 409, `CLIENT_UNSUPPORTED` 409, `JOIN_NOT_ALLOWED` 409, `INVITE_GONE` 410
+  (`MFA_SETUP_REQUIRED` 403 zaten vardı).
+- `packages/contracts/src/permissions.ts`: `sessions.invite`, `sessions.supervise` (+ açıklamalar; Admin açık / User kapalı — mevcut kural).
+- `packages/contracts/src/audit.ts`: `MULTI_AUDIT` (AC-370 on eylem), `MULTI_AUDIT_LABELS`, `MULTI_AUDIT_GROUP` ("Çoklu teknisyen" +
+  eylem listesi), `MULTI_INVITE_EXPIRE_REASONS` (+`revoked`), `MULTI_LEAVE_REASONS`, `MULTI_TRANSFER_FAIL_REASONS`, etiket tabloları;
+  `SILENT_NOTIFY_EVENTS` += `join`, `transfer` (+ etiketler).
+- `packages/contracts/package.json` exports: `./ws-multi`, `./api/multi`.
+- `packages/contracts/fixtures/multi.json` (yeni, TS + Go ortak).
+- Testler: `packages/contracts/test/multi-p28c.test.ts` (yeni); `rec-p28e.test.ts` (dört göz olay listesi `arrayContaining`);
+  `pt-surface` anlık görüntüsü güncellendi (yalnız ekleme, 87 satır).
+- `apps/server/src/lib/errors.ts`: `...MULTI_ERROR_MESSAGES` (`Record<ErrorCode,string>` tip gereği; tek satır).
+- `apps/web/messages/tr.json`: `perm.a.invite`, `perm.a.supervise`; `apps/web/lib/users/users.test.ts` sessions "Diğer" listesi
+  (yetki eklemenin doğrudan sonucu).
+- Go: `internal/signal/multi.go` (yeni: `FeatureMulti`, `MaxTechs`, `LowFPS`, `LowFPSMin`, `LowBPS`, `CloseRemoved`, `RosterEntry`,
+  `TechsRoster` + `validTechsRoster`, `TechRemove`, `validOptTid`); `inbound.go` `SdpOffer.From`, `RemoteIce.From`, `techs.roster`
+  ParseServer tablosunda; `outbound.go` `SdpAnswer.To`, `Ice.To` (omitempty, tid denetimi); `conn.go` `knownFeatures` += `FeatureMulti`.
+  Testler `internal/signal/multi_test.go`, `internal/dc/chat_multi_test.go`.
+
+### Tasarımdan sapmalar / netleştirmeler (gerekçeli)
+
+1. **`hello.role` çakışması:** §4.4 teknisyen hello'suna `role: owner|participant|observer` ister; `hello.role` zaten `tech|guest`
+   (web `use-guest-session`/`tech-machine` kullanır). Mevcut alan değiştirilmedi; yeni alan **`techRole`** (+ `tid`, `roster`).
+2. **`session.transfer` tel biçimi:** §4.4 satırı audit satırıdır (§9 ile aynı; `{fromUserId,toUserId}`); roster'da userId yok (T10),
+   konsol hedefi yalnız tid ile bilir. WS mesajı `control.handover` gibi **`{t:"session.transfer", id?, to: tid}`**.
+3. **Audit grubu:** Grup süzgeci eylemin ilk bölümüdür; AC-370 adları `session.*` olduğundan önek grubu "Çoklu teknisyen"i ayıramaz.
+   `MULTI_AUDIT_GROUP {label, actions}` dışa verildi; web (K2) ayrı seçenek grubunu bu listeden kurar ("tümü" seçeneği tek önekle
+   ifade edilemez — tek tek eylem süzgeci). `MULTI_AUDIT_LABELS` web `AUDIT_ACTION_LABELS`'a K2'de yayılmalı.
+4. **Audit ret kodu anahtarı:** §9/§5.2 `fail + code` / `fail{code:"target_gone"}` der; audit maskesi `/code/i` anahtarını `***` yapar.
+   K1 **`failReason`** kullanmalı (P28u kalıbı); devir değerleri `MULTI_TRANSFER_FAIL_REASONS = ["conflict","target_gone"]`.
+5. **`invite_expire.reason`** §9'da `timeout|session_end`; D-PC-7 geri çekme `revoked` ekler → üçü de kümede.
+6. **422 `fields.reason`:** Projede 422 kodu yok; doğrulama `VALIDATION` (400) + `fields.reason` (P28u K-P28u-12 kalıbı). Yeni kod
+   eklenmedi. Kabul/İzle gövdesi `strictObject({reason?: silentReasonSchema})`; gerekçenin silent odada zorunlu / diğerlerinde yasak
+   olması oda kipini bilen sunucuda (K1).
+7. **Roster değişmezleri** (tid benzersiz, tam bir sahip, tam bir kontrol sahibi) şemada; Go `validTechsRoster` aynı kural — ihlal Go
+   istemcide bağlantıyı koparır, sunucu (K1) bu değişmezleri her yayında korumalı.
+8. **`control.revoke` nedeni:** devirde misafire giden `control.revoke` için yeni neden eklenmedi (Go katı enum); K1 mevcut nedenlerden
+   birini kullanır, `handover` yalnız audit `extra.reason`'da.
+9. Go `dc.ParseCtl` gelen sohbette `by`'ı **reddeder** (teknisyen → misafir yönünde `by` yoktur); misafirin yaydığı `by`'lı mesajı
+   üreten kodlayıcı K3'te.
+
+### K1–K3 için adlar
+
+- Sunucu (K1): `seatMay`/`ROLE_MAY`, `WS_CLOSE.REMOVED`, `guestInboundSchemaFor(…, multi)`, `techsRosterSchema`, `helloMultiFields`,
+  `MAX_TECHS`, `INVITE_TTL_MS`, `MEMBER_RESERVE_MS`, `MEMBER_GRACE_MS`, `MULTI_*_PER_MIN`, `MULTI_AUDIT*`, `MULTI_ERROR_MESSAGES`,
+  `api/multi` şemaları, `SILENT_NOTIFY_EVENTS` `join`/`transfer`. Not: K0 sonrası teknisyen birliği yeni üç tipi şemada kabul eder;
+  `techAction` K1'e dek bunları işlemez (sessizce düşer).
+- Web (K2): `TECH_ROLES`, `ROSTER_ROLES`, `chatSchema.by`, `INVITE_POLL_MS`, `ACTIVE_POLL_MS`, `LOW_FPS`/`LOW_BPS`, yanıt tipleri,
+  `MULTI_AUDIT_GROUP`/`MULTI_AUDIT_LABELS`/`MULTI_*_REASON_LABELS`, `MULTI_ERROR_MESSAGES`.
+- Go (K3): `signal.FeatureMulti`, `TechsRoster`/`RosterEntry`, `TechRemove`, `SdpOffer.From`, `RemoteIce.From`, `SdpAnswer.To`,
+  `Ice.To`, `MaxTechs`, `LowFPS`, `LowFPSMin`, `LowBPS`, `CloseRemoved`.
+
+### Bağımlılık
+
+Yeni bağımlılık yok.
+
+### Komutlar ve son çıktı
+
+- `pnpm -r run lint` → hatasız; `pnpm -r run typecheck` → hatasız (server + web dahil).
+- `pnpm --filter @remote/contracts test` → 25 dosya, 254 test geçti.
+- `pnpm --filter @remote/web exec vitest run` → 52 dosya, 485 geçti; `pnpm --filter @remote/server exec vitest run test/unit` →
+  45 dosya, 634 geçti (1 atlandı). Sunucu entegrasyon testleri (DB) bu pakette koşulmadı (sunucu davranışı değişmedi).
+- `docker run --rm -v "$PWD:/src" -w /src/apps/agent-win golang:1.26 sh -c 'go test ./... && GOOS=windows go vet ./...'` → tüm
+  paketler ok, vet temiz; `gofmt -l` boş.

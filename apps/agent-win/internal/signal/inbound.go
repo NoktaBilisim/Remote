@@ -76,9 +76,11 @@ type PeerLeft struct {
 }
 
 // SdpOffer teknisyenin offer'ı (sunucu id'yi atarak yeniden kurar).
+// P28c: From yalnız multi1 sokette (sunucu damgalar; gönderen teknisyenin tid'i).
 type SdpOffer struct {
-	T   string `json:"t"`
-	SDP string `json:"sdp"`
+	T    string `json:"t"`
+	SDP  string `json:"sdp"`
+	From string `json:"from,omitempty"`
 }
 
 // RemoteIce karşı tarafın ICE adayı (id'siz).
@@ -87,6 +89,8 @@ type RemoteIce struct {
 	Candidate     string  `json:"candidate"`
 	SdpMid        *string `json:"sdpMid,omitempty"`
 	SdpMLineIndex *int    `json:"sdpMLineIndex,omitempty"`
+	// P28c: From yalnız multi1 sokette.
+	From string `json:"from,omitempty"`
 }
 
 type IceRestart struct {
@@ -225,9 +229,10 @@ var serverParsers = map[string]func(raw []byte) (Inbound, error){
 	"peer.left": check(func(m *PeerLeft) bool {
 		return slices.Contains(roles, m.Role) && (m.Reason == "" || m.Reason == "disconnect" || m.Reason == "ended")
 	}),
-	"sdp.offer": check(func(m *SdpOffer) bool { return m.SDP != "" && utf16Len(m.SDP) <= sdpMax }),
+	"sdp.offer": check(func(m *SdpOffer) bool { return m.SDP != "" && utf16Len(m.SDP) <= sdpMax && validOptTid(m.From) }),
 	"ice": check(func(m *RemoteIce) bool {
-		return validateIce(Ice{T: m.T, Candidate: m.Candidate, SdpMid: m.SdpMid, SdpMLineIndex: m.SdpMLineIndex}) == nil
+		return validateIce(Ice{T: m.T, Candidate: m.Candidate, SdpMid: m.SdpMid, SdpMLineIndex: m.SdpMLineIndex}) == nil &&
+			validOptTid(m.From)
 	}),
 	"ice.restart":   check(func(*IceRestart) bool { return true }),
 	"session.ended": check(func(m *SessionEnded) bool { return slices.Contains(endedReasons, m.Reason) }),
@@ -255,6 +260,8 @@ var serverParsers = map[string]func(raw []byte) (Inbound, error){
 	"fsrv.download": check(validFsrvDownload),
 	// P28e (mimari-p28e §6.2): misafir biçimi {on, reason?}; teknisyen alanları (rid/basis/upload) katı çözmede red.
 	"rec.state": check(validRecState),
+	// P28c (mimari-p28c §4.4): yalnız multi1 sokete; doğrulayıcı multi.go.
+	"techs.roster": check(validTechsRoster),
 	"error": check(func(m *ErrorMsg) bool {
 		return slices.Contains(wsErrorCodes, m.Code) && utf16Len(m.Message) <= errMsgMax
 	}),

@@ -94,7 +94,7 @@ func Dial(ctx context.Context, httpClient *http.Client, server *url.URL, cred Cr
 }
 
 // knownFeatures Dial'ın kabul ettiği özellik belirteçleri.
-var knownFeatures = []string{FeatureClip, FeaturePrint, FeatureFsrv, FeatureRec}
+var knownFeatures = []string{FeatureClip, FeaturePrint, FeatureFsrv, FeatureRec, FeatureMulti}
 
 // subprotocols `rs.v1, <kimlik>, <özellikler…>` listesi; özellik yalnız bilinen ve tekrarsız belirteç olabilir.
 func subprotocols(cred string, features []string) ([]string, error) {

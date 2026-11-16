@@ -1,0 +1,506 @@
+{
+  "_doc": "P28c çoklu teknisyen sözleşme örnekleri (mimari-p28c r2 §4.4, §4.5). TS (packages/contracts/test/multi-p28c.test.ts) ve Go (internal/signal/multi_test.go) aynı dosyayı okur. valid.* geçer, invalid.* reddedilir. guestInbound: multi1 misafir soketi (guestInboundSchemaFor(_,_,_,true)); guestOutbound: multi1 misafire giden; techInbound/techOutbound: konsol; dcChat: ctl chat (by yalnız misafir→teknisyen).",
+  "subprotocols": {
+    "multi": "rs.cap.multi1"
+  },
+  "constants": {
+    "MAX_TECHS": 3,
+    "INVITE_TTL_MS": 120000,
+    "MEMBER_RESERVE_MS": 60000,
+    "MEMBER_GRACE_MS": 120000,
+    "MULTI_ROOM_CMDS_PER_MIN": 10,
+    "MULTI_JOIN_PER_MIN": 20,
+    "MULTI_POLL_PER_MIN": 60,
+    "INVITE_POLL_MS": 5000,
+    "ACTIVE_POLL_MS": 10000,
+    "LOW_FPS": 8,
+    "LOW_FPS_MIN": 5,
+    "LOW_BPS": 1000000,
+    "ROSTER_NAME_MAX": 100,
+    "WS_CLOSE_REMOVED": 4403,
+    "TID_PATTERN": "^[A-Za-z0-9_-]{11}$"
+  },
+  "sets": {
+    "rosterRoles": ["controller", "participant", "observer"],
+    "techRoles": ["owner", "participant", "observer"],
+    "memberRoles": ["participant", "observer"]
+  },
+  "valid": {
+    "guestInbound": [
+      {
+        "t": "sdp.answer",
+        "sdp": "v=0",
+        "to": "AAAAAAAAAAA"
+      },
+      {
+        "t": "sdp.answer",
+        "id": "1",
+        "sdp": "v=0",
+        "to": "a-b_c-d_e-f"
+      },
+      {
+        "t": "ice",
+        "candidate": "candidate:1 1 udp 1 10.0.0.1 9 typ host",
+        "sdpMid": "0",
+        "sdpMLineIndex": 0,
+        "to": "BBBBBBBBBBB"
+      },
+      {
+        "t": "ice",
+        "candidate": "",
+        "to": "CCCCCCCCCCC"
+      },
+      {
+        "t": "tech.remove",
+        "tid": "BBBBBBBBBBB"
+      },
+      {
+        "t": "tech.remove",
+        "id": "2",
+        "tid": "CCCCCCCCCCC"
+      }
+    ],
+    "guestOutbound": [
+      {
+        "t": "techs.roster",
+        "techs": [
+          {
+            "tid": "AAAAAAAAAAA",
+            "name": "Ayşe Teknisyen",
+            "role": "controller",
+            "owner": true,
+            "connected": true
+          },
+          {
+            "tid": "BBBBBBBBBBB",
+            "name": "Mehmet Katılımcı",
+            "role": "participant",
+            "owner": false,
+            "connected": true
+          },
+          {
+            "tid": "CCCCCCCCCCC",
+            "name": "Zeynep Süpervizör",
+            "role": "observer",
+            "owner": false,
+            "connected": false
+          }
+        ]
+      },
+      {
+        "t": "techs.roster",
+        "techs": [
+          {
+            "tid": "AAAAAAAAAAA",
+            "name": "Ayşe",
+            "role": "controller",
+            "owner": true,
+            "connected": true
+          }
+        ]
+      },
+      {
+        "t": "techs.roster",
+        "techs": [
+          {
+            "tid": "AAAAAAAAAAA",
+            "name": "Ayşe",
+            "role": "participant",
+            "owner": true,
+            "connected": false
+          },
+          {
+            "tid": "BBBBBBBBBBB",
+            "name": "Mehmet",
+            "role": "controller",
+            "owner": false,
+            "connected": true
+          }
+        ]
+      },
+      {
+        "t": "sdp.offer",
+        "sdp": "v=0",
+        "from": "BBBBBBBBBBB"
+      },
+      {
+        "t": "ice",
+        "candidate": "candidate:1 1 udp 1 10.0.0.1 9 typ host",
+        "sdpMid": "0",
+        "from": "AAAAAAAAAAA"
+      }
+    ],
+    "techInbound": [
+      {
+        "t": "control.handover",
+        "to": "BBBBBBBBBBB"
+      },
+      {
+        "t": "control.handover",
+        "id": "3",
+        "to": "AAAAAAAAAAA"
+      },
+      {
+        "t": "session.transfer",
+        "to": "BBBBBBBBBBB"
+      },
+      {
+        "t": "member.leave"
+      },
+      {
+        "t": "member.leave",
+        "id": "4"
+      }
+    ],
+    "techOutbound": [
+      {
+        "t": "techs.roster",
+        "techs": [
+          {
+            "tid": "AAAAAAAAAAA",
+            "name": "Ayşe Teknisyen",
+            "role": "controller",
+            "owner": true,
+            "connected": true
+          },
+          {
+            "tid": "BBBBBBBBBBB",
+            "name": "Mehmet Katılımcı",
+            "role": "participant",
+            "owner": false,
+            "connected": true
+          },
+          {
+            "tid": "CCCCCCCCCCC",
+            "name": "Zeynep Süpervizör",
+            "role": "observer",
+            "owner": false,
+            "connected": false
+          }
+        ]
+      },
+      {
+        "t": "hello",
+        "role": "tech",
+        "sessionId": "01JD0000000000000000000000",
+        "peerPresent": true,
+        "iceServers": [],
+        "maxEndsAt": null,
+        "tid": "BBBBBBBBBBB",
+        "techRole": "participant",
+        "roster": [
+          {
+            "tid": "AAAAAAAAAAA",
+            "name": "Ayşe Teknisyen",
+            "role": "controller",
+            "owner": true,
+            "connected": true
+          },
+          {
+            "tid": "BBBBBBBBBBB",
+            "name": "Mehmet Katılımcı",
+            "role": "participant",
+            "owner": false,
+            "connected": true
+          },
+          {
+            "tid": "CCCCCCCCCCC",
+            "name": "Zeynep Süpervizör",
+            "role": "observer",
+            "owner": false,
+            "connected": false
+          }
+        ]
+      }
+    ],
+    "dcChat": [
+      {
+        "t": "chat",
+        "id": "m1",
+        "text": "Merhaba",
+        "ts": 1763290000000
+      },
+      {
+        "t": "chat",
+        "id": "m2",
+        "text": "B yazdı",
+        "ts": 1763290000001,
+        "by": "BBBBBBBBBBB"
+      }
+    ]
+  },
+  "invalid": {
+    "guestInbound": [
+      {
+        "t": "sdp.answer",
+        "sdp": "v=0"
+      },
+      {
+        "t": "ice",
+        "candidate": "x"
+      },
+      {
+        "t": "sdp.answer",
+        "sdp": "v=0",
+        "to": "short"
+      },
+      {
+        "t": "sdp.answer",
+        "sdp": "v=0",
+        "to": "AAAAAAAAAA="
+      },
+      {
+        "t": "tech.remove"
+      },
+      {
+        "t": "tech.remove",
+        "tid": "BBBBBBBBBBB",
+        "userId": "01JD0000000000000000000001"
+      },
+      {
+        "t": "sdp.answer",
+        "sdp": "v=0",
+        "from": "AAAAAAAAAAA",
+        "to": "BBBBBBBBBBB"
+      }
+    ],
+    "guestOutbound": [
+      {
+        "t": "techs.roster",
+        "techs": []
+      },
+      {
+        "t": "techs.roster",
+        "techs": [
+          {
+            "tid": "AAAAAAAAAAA",
+            "name": "Ayşe Teknisyen",
+            "role": "controller",
+            "owner": true,
+            "connected": true
+          },
+          {
+            "tid": "BBBBBBBBBBB",
+            "name": "Mehmet Katılımcı",
+            "role": "participant",
+            "owner": false,
+            "connected": true
+          },
+          {
+            "tid": "CCCCCCCCCCC",
+            "name": "Zeynep Süpervizör",
+            "role": "observer",
+            "owner": false,
+            "connected": false
+          },
+          {
+            "tid": "DDDDDDDDDDD",
+            "name": "Dört",
+            "role": "observer",
+            "owner": false,
+            "connected": true
+          }
+        ]
+      },
+      {
+        "t": "techs.roster",
+        "techs": [
+          {
+            "tid": "AAAAAAAAAAA",
+            "name": "Ayşe",
+            "role": "controller",
+            "owner": true,
+            "connected": true,
+            "userId": "01JD0000000000000000000001"
+          }
+        ]
+      },
+      {
+        "t": "techs.roster",
+        "techs": [
+          {
+            "tid": "AAAAAAAAAAA",
+            "name": "Ayşe",
+            "role": "owner",
+            "owner": true,
+            "connected": true
+          }
+        ]
+      },
+      {
+        "t": "techs.roster",
+        "techs": [
+          {
+            "tid": "AAAAAAAAAAA",
+            "name": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+            "role": "controller",
+            "owner": true,
+            "connected": true
+          }
+        ]
+      },
+      {
+        "t": "techs.roster",
+        "techs": [
+          {
+            "tid": "AAAAAAAAAAA",
+            "name": "",
+            "role": "controller",
+            "owner": true,
+            "connected": true
+          }
+        ]
+      },
+      {
+        "t": "techs.roster",
+        "techs": [
+          {
+            "tid": "AAAAAAAAAAA",
+            "name": "Ayşe",
+            "role": "controller",
+            "owner": true,
+            "connected": true
+          },
+          {
+            "tid": "AAAAAAAAAAA",
+            "name": "Kopya",
+            "role": "participant",
+            "owner": false,
+            "connected": true
+          }
+        ]
+      },
+      {
+        "t": "techs.roster",
+        "techs": [
+          {
+            "tid": "AAAAAAAAAAA",
+            "name": "Ayşe",
+            "role": "controller",
+            "owner": true,
+            "connected": true
+          },
+          {
+            "tid": "BBBBBBBBBBB",
+            "name": "İkinci sahip",
+            "role": "participant",
+            "owner": true,
+            "connected": true
+          }
+        ]
+      },
+      {
+        "t": "techs.roster",
+        "techs": [
+          {
+            "tid": "AAAAAAAAAAA",
+            "name": "Ayşe",
+            "role": "controller",
+            "owner": true,
+            "connected": true
+          },
+          {
+            "tid": "BBBBBBBBBBB",
+            "name": "İkinci kontrol",
+            "role": "controller",
+            "owner": false,
+            "connected": true
+          }
+        ]
+      },
+      {
+        "t": "techs.roster",
+        "techs": [
+          {
+            "tid": "AAAAAAAAAAA",
+            "name": "Ayşe",
+            "role": "participant",
+            "owner": true,
+            "connected": true
+          }
+        ]
+      },
+      {
+        "t": "techs.roster",
+        "techs": [
+          {
+            "tid": "AAAAAAAAAAA",
+            "name": "Ayşe",
+            "role": "controller",
+            "owner": true
+          }
+        ]
+      },
+      {
+        "t": "sdp.offer",
+        "sdp": "v=0",
+        "from": "bad"
+      },
+      {
+        "t": "sdp.offer",
+        "sdp": "v=0",
+        "to": "AAAAAAAAAAA"
+      }
+    ],
+    "techInbound": [
+      {
+        "t": "control.handover"
+      },
+      {
+        "t": "control.handover",
+        "to": "01JD0000000000000000000001"
+      },
+      {
+        "t": "session.transfer",
+        "toUserId": "01JD0000000000000000000001"
+      },
+      {
+        "t": "member.leave",
+        "reason": "x"
+      },
+      {
+        "t": "tech.remove",
+        "tid": "BBBBBBBBBBB"
+      }
+    ],
+    "techOutbound": [
+      {
+        "t": "hello",
+        "role": "tech",
+        "sessionId": "01JD0000000000000000000000",
+        "peerPresent": true,
+        "iceServers": [],
+        "maxEndsAt": null,
+        "techRole": "controller"
+      },
+      {
+        "t": "hello",
+        "role": "owner",
+        "sessionId": "01JD0000000000000000000000",
+        "peerPresent": true,
+        "iceServers": [],
+        "maxEndsAt": null
+      }
+    ],
+    "dcChat": [
+      {
+        "t": "chat",
+        "id": "m3",
+        "text": "x",
+        "ts": 1,
+        "by": "Ayşe"
+      },
+      {
+        "t": "chat",
+        "id": "m4",
+        "text": "x",
+        "ts": 1,
+        "byName": "Ayşe"
+      }
+    ]
+  },
+  "rest": {
+    "validInviteIds": ["AAAAAAAAAAAAAAAAAAAAAA", "abc_DEF-ghi_JKL-mno_PQ"],
+    "invalidInviteIds": ["AAAAAAAAAAAAAAAAAAAAA", "AAAAAAAAAAAAAAAAAAAAAAA", "AAAAAAAAAAAAAAAAAAAA=="]
+  }
+}
