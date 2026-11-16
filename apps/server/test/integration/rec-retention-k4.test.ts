@@ -218,5 +218,7 @@ describe("AC-386 kayıt saklama işi (K4)", () => {
     await recording({ tenantId: a.tenantId, sessionId: a.sid, parts: 1, keyVer: 7 });
     const c = await countAllByVersion(testDb(), 7);
     expect(c["session_recording_parts.key_ver"]).toBeGreaterThanOrEqual(1);
+    // v7 satırı kalırsa tam koşuda p18 `crypto:check-retire 7` (S-P18-T2) dosya sırasına bağlı kırmızı olur.
+    await testDb().sessionRecordingPart.deleteMany({ where: { tenantId: a.tenantId, keyVer: 7 } });
   });
 });

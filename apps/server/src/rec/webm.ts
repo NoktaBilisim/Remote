@@ -1,7 +1,10 @@
 // P28e WebM başlık denetimi (mimari-p28e r2 §2 `webm.ts`, §5.1; AC-375, S-P28e-7, T9/T13/T16). Sunucu medyayı ÇÖZMEZ; yalnız
 // bölümün ilk parçasındaki EBML başlığı + `Tracks` okunur: tam bir video izi (`TrackType = 1`, `V_VP8`/`V_VP9`). Ses izi, ikinci
 // iz, başka kodek, `webm` dışı DocType, `Tracks`'tan önce `Cluster` ya da bozuk EBML → ret. `p > 0` parçasında EBML sihri
-// (ikinci gömülü WebM) kesin ret; Cluster başlangıcı `REC_REQUIRE_CLUSTER_START` bayrağına bağlı (K7 ölçümü).
+// (ikinci gömülü WebM) kesin ret; gövdenin herhangi bir yerinde ayrışabilen gömülü EBML başlığı (DocType'lı) ya da TrackEntry'li
+// `Tracks` (ses/ikinci iz bildirimi) → ret (D-P28e-K1-2). Cluster başlangıcı `REC_REQUIRE_CLUSTER_START` bayrağına bağlı: gerçek
+// Chromium `timeslice` parçaları element ORTASINDAN (kimlik önceki parçada, boyut vint'i bu parçada) başlar → ilk bayt denetimi
+// yapılamaz (K7 + düzeltme turu 1 ölçümü, test/fixtures/rec-chromium/).
 import { REC_REQUIRE_CLUSTER_START } from "@remote/contracts/ws-rec";
 
 const ID_EBML = 0x1a45dfa3;
@@ -105,13 +108,33 @@ export function checkWebmHeader(b: Buffer): WebmVerdict {
 }
 
 const startsWith = (b: Buffer, id: number): boolean => b.length >= 4 && b.readUInt32BE(0) === id;
+const MAGIC_EBML = Buffer.from("1a45dfa3", "hex");
+const MAGIC_TRACKS = Buffer.from("1654ae6b", "hex");
+
+/** `magic`'in her geçtiği yerde `hit` doğrulaması; çıplak 4 bayt eşleşmesi (opak VP8 verisinde ~2^-32/bayt) tek başına ret değil. */
+function anyAt(b: Buffer, magic: Buffer, hit: (e: Element) => boolean): boolean {
+  for (let pos = b.indexOf(magic); pos !== -1; pos = b.indexOf(magic, pos + 1)) {
+    const e = readElement(b, pos);
+    if (e && e.size !== UNKNOWN && e.data + e.size <= b.length && hit(e)) return true;
+  }
+  return false;
+}
+
+/** Gömülü EBML başlığı: çocukları ayrışır ve DocType taşır (ikinci WebM/Matroska akışı). */
+const embeddedHeader = (b: Buffer): boolean =>
+  anyAt(b, MAGIC_EBML, (e) => children(b, e.data, e.data + e.size)?.some((k) => k.id === ID_DOCTYPE) === true);
+/** Gömülü `Tracks`: çocukları ayrışır ve en az bir `TrackEntry` (ses/ikinci iz bildirimi). */
+const embeddedTracks = (b: Buffer): boolean =>
+  anyAt(b, MAGIC_TRACKS, (e) => children(b, e.data, e.data + e.size)?.some((k) => k.id === ID_TRACK_ENTRY) === true);
 
 /**
- * `p > 0` gövdesi (S-P28e-7): EBML sihriyle başlıyorsa (ikinci gömülü WebM / yeni iz bildirimi) kesin ret. Cluster başlangıcı
- * yalnız `requireCluster` (varsayılan `REC_REQUIRE_CLUSTER_START`) açıkken zorunlu.
+ * `p > 0` gövdesi (S-P28e-7, D-P28e-K1-2): EBML sihriyle başlıyorsa kesin ret; gövdede ayrışabilen gömülü EBML başlığı ya da
+ * `Tracks` → ret. Cluster başlangıcı yalnız `requireCluster` (varsayılan `REC_REQUIRE_CLUSTER_START`) açıkken zorunlu.
+ * Kalan risk: sunucu kareleri çözmez; yapısız opak bayt (ör. iz bildirimi olmayan ses verisi) oynatılamaz ama tam engellenmez.
  */
 export function checkWebmContinuation(b: Buffer, requireCluster: boolean = REC_REQUIRE_CLUSTER_START): WebmVerdict {
-  if (startsWith(b, ID_EBML)) return { ok: false, reason: "ebml" };
+  if (startsWith(b, ID_EBML) || embeddedHeader(b)) return { ok: false, reason: "ebml" };
+  if (embeddedTracks(b)) return { ok: false, reason: "tracks" };
   if (requireCluster && !startsWith(b, ID_CLUSTER)) return { ok: false, reason: "ebml" };
   return { ok: true };
 }

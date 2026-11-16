@@ -278,6 +278,17 @@ describe("P28e K4 durdurma, payı ve yayın (§5.3, §6.2–§6.5)", () => {
 });
 
 describe("P28e K4 kaynak eş, gözcü, kaydedici dönüşü, hello (§5.3, §6.3)", () => {
+  it("D-P28e-K1-1 kaynak eş yokken kabul edilen parça sourceGone.next'i ilerletmez (yalnız yoldaki tek parça)", async () => {
+    const s = setup();
+    await consent(s);
+    s.port.partAccepted(s.room.sessionId, 0, 4, s.clock.t);
+    s.rooms.detachGuest(s.room, s.guest, s.guestPeer);
+    const at = s.clock.t;
+    s.clock.advance(1000);
+    s.port.partAccepted(s.room.sessionId, 0, 5, s.clock.t);
+    expect(s.room.rec?.sourceGone).toEqual({ at, series: 0, next: 5 });
+    expect(s.room.rec?.nextPart).toBe(6);
+  });
   it("S-P28e-2 misafir ayrılınca sourceGone; dönünce hello temizler ve rec1 sokete hello.rec HER ZAMAN gider (açık/durmuş)", async () => {
     const s = setup();
     await consent(s);

@@ -3599,6 +3599,180 @@ S→C: `connect` (+ `consent: "ask"|"silent"`, silent'ta `indicatorControl`), `i
 alındıktan sonra): `device.user{state}`, `consent.result{mode, decision?, ms?}`, `intervene.result{sessionId, id, cmd, ok,
 reason?}`. Şemalar `packages/contracts/src/ws-device.ts`, fikstür `fixtures/ws-device.json`.
 
+## Oturum kaydı (P28e)
+
+Kaynak: `apps/server/src/rec/{routes,service,view,delete,accept}.ts`, `apps/server/src/settings/recording.ts`,
+`packages/contracts/src/{ws-rec.ts,api/recording.ts,api/sessions.ts,audit.ts,permissions.ts}`. Tasarım
+`docs/mimari-p28e.md` (ADR-0034); operasyon runbook §28e. Yeni yetki `sessions.view_recording` ("Kayıtları izle", hassas;
+Admin açık, User kapalı). **Yeni hata kodu yoktur**: `VALIDATION` (400), `MFA_STEP_UP_REQUIRED` (401),
+`MFA_SETUP_REQUIRED` (403), `NOT_FOUND` (404), `CONFLICT` (409), `STORAGE_QUOTA` (409), `RATE_LIMITED` (429) yeniden
+kullanılır. Başka tenant, kapsam dışı ya da belirteç uyuşmazlığı her yerde **404** döner. Ses kaydı yapısal olarak
+yoktur: sunucu ses izi içeren WebM'i reddeder.
+
+**Belirteçler:** parça uçları çerez okumaz; kimlik yalnız `Authorization: Bearer <43 karakter base64url>` başlığıdır, URL'de
+asla taşınmaz. Yükleme belirteci kaydedici teknisyene WS `rec.state.upload` ile, izleme belirteci `POST …/recording/view`
+yanıtıyla gelir. İkisi de bellektedir; sunucu yeniden başlarsa düşer. Çıkış, kullanıcı/tenant pasifleştirme ve yetki
+kaybından sonraki ilk istek 404 alır.
+
+### Uçlar
+
+| Uç                                         | Kimlik / yetki                                                                               | Girdi                                                                                            | Çıktı                            |
+| ------------------------------------------ | -------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------ | -------------------------------- |
+| `PUT /api/v1/rec/:rid/series/:s/parts/:p`  | Bearer yükleme belirteci                                                                     | Gövde: WebM parçası (≤ 2 MiB); başlıklar aşağıda                                                 | 200 `{ next }`                   |
+| `GET /api/v1/rec/:rid/series/:s/parts/:p`  | Bearer izleme belirteci                                                                      | —                                                                                                | 200 düz WebM baytları            |
+| `GET /api/v1/sessions/:id/recording`       | Çerez; `session_history.view` + `sessions.view_recording` + geçmiş kapsamı                   | —                                                                                                | `RecordingView` (aşağıda)        |
+| `POST /api/v1/sessions/:id/recording/view` | Çerez + CSRF; aynı yetki; kullanıcı başına 20/dk                                             | `{}`                                                                                             | `{ token, idleTtlMs, maxUntil }` |
+| `DELETE /api/v1/sessions/:id/recording`    | Çerez + CSRF; `session_history.edit` + geçmiş kapsamı                                        | `{ "confirm": true }`                                                                            | 204                              |
+| `GET /api/v1/settings/recording`           | `settings.view`                                                                              | —                                                                                                | `RecordingSettingsView`          |
+| `PUT /api/v1/settings/recording`           | `settings.edit` + CSRF; `unattendedEnabled` false→true ise 2FA + son 5 dk step-up (tüketmez) | `{ enabled, retentionDays, unattendedEnabled, consentUpdated?: true, employeeNoticeAck?: true }` | `RecordingSettingsView`          |
+
+Geçmiş kapsamı: teknisyen (User) yalnız kendi oturumları, Admin kendi tenant'ı, Super Admin seçili tenant.
+
+### `PUT /api/v1/rec/:rid/series/:s/parts/:p` (parça yükleme)
+
+- Yol: `rid` ULID; `s` bölüm 0..65535; `p` bölüm içi parça 0..59 (5 sn parça, 5 dk bölüm). Biçim dışı → 400 `VALIDATION`.
+- Başlıklar: `Content-Type: video/webm` (zorunlu), `Content-Length` (zorunlu, 1..2097152; `Transfer-Encoding` gönderilirse 400 "Parça gövdesi Content-Length ile gönderilmeli"; eksik/aralık dışı da 400 `VALIDATION`),
+  `X-Rec-Duration-Ms` 1..15000 (zorunlu), `X-Rec-Series-Start-Ms` (epoch ms; **yalnız `p = 0`'da ve orada zorunlu**, aksi
+  400 `fields["x-rec-series-start-ms"]`).
+- Belirteç, oran ve kota ön denetimi **gövde okunmadan** yapılır. Belirteç başına aynı anda tek PUT ve dakikada en çok 30
+  PUT; süreç geneli 32 eşzamanlı PUT.
+- Aynı `(s, p)` yeniden gönderilirse 200 döner, yazılmaz (idempotent). Parça şifrelenerek (AES-256-GCM) saklanır.
+
+| Durum                                                                                         | Yanıt                                                                |
+| --------------------------------------------------------------------------------------------- | -------------------------------------------------------------------- |
+| Yazıldı / zaten vardı                                                                         | 200 `{ "next": <beklenen sonraki p> }`                               |
+| `p ≠ next`                                                                                    | 409 `{ "next": n }` (hata zarfı **değil**; istemci `next`'ten sürer) |
+| Yeni bölüm kuralı ihlali (`s ≤ son s` ya da `p ≠ 0`), oran tavanı (≤ 1 GiB/saat) aşımı        | 409 `CONFLICT` (oran aşımı kaydı `STOPPED{error}` yapar)             |
+| Kota dolu ya da disk boşluğu < %10                                                            | 409 `STORAGE_QUOTA`, kayıt `STOPPED{quota}`                          |
+| `p = 0`'da ses izi/ikinci iz/VP8-VP9 dışı kodek; `p > 0`'da EBML başlığı; süre şişirme        | 400 `VALIDATION` "Kayıt parçası geçersiz.", kayıt `STOPPED{error}`   |
+| Boş gövde                                                                                     | 400 `VALIDATION` "Gövde video/webm olmalı."                          |
+| Belirteç yok/geçersiz, `rid` uyuşmazlığı, kayıt durmuş (durma payı dışı), kaynak eş odada yok | 404 (gövdesiz)                                                       |
+| Aynı belirteçle ikinci eşzamanlı PUT, dakika sınırı, semafor dolu                             | 429 `RATE_LIMITED`, `Retry-After: 1`                                 |
+| IP başına dakikada 60'tan fazla 404                                                           | 429 `RATE_LIMITED`                                                   |
+
+Durma payı: kayıt durduktan sonra 15 sn içinde yalnız aynı bölümün en çok 4 parçası kabul edilir; yeni bölüm 404.
+
+```bash
+curl -X PUT "https://<alan>/api/v1/rec/01JD…/series/0/parts/0" \
+  -H "Authorization: Bearer <yükleme belirteci>" -H "Content-Type: video/webm" \
+  -H "X-Rec-Duration-Ms: 5000" -H "X-Rec-Series-Start-Ms: 1763300000000" \
+  --data-binary @parca-0.webm
+# 200 {"next":1}
+```
+
+### `GET /api/v1/rec/:rid/series/:s/parts/:p` (izleme)
+
+200 yanıt başlıkları: `Content-Type: video/webm`, `Cache-Control: no-store`, `X-Content-Type-Options: nosniff`,
+`Cross-Origin-Resource-Policy: same-origin`, `Content-Security-Policy: sandbox; default-src 'none'`. `Content-Disposition`
+ve `Range` desteği **yoktur**; `HEAD` açılmaz. Her GET'te kullanıcı, giriş oturumu ve izleme yetkisi yeniden denetlenir
+(düşmüşse 404). İzleme belirteci kayan sürelidir: her GET boşta süresini 5 dk uzatır; üst sınır `maxUntil`.
+
+Çekiş bütçesi (kullanıcı + kayıt başına, yeni `POST /view` sıfırlamaz): 126 parçalık kova, dakikada 24 parça dolum. Boşsa
+429 `RATE_LIMITED` + `Retry-After`; oynatıcı bekleyip sürer.
+
+### `GET /api/v1/sessions/:id/recording`
+
+```json
+{
+  "id": "01JD…",
+  "state": "stopped",
+  "basis": "consent",
+  "stopReason": "revoked",
+  "startedAt": "2026-11-16T09:00:00.000Z",
+  "stoppedAt": "2026-11-16T09:12:30.000Z",
+  "durationMs": 750000,
+  "sizeBytes": 120000000,
+  "expiresAt": "2026-12-16T09:00:00.000Z",
+  "series": [{ "s": 0, "offsetMs": 0, "parts": [{ "p": 0, "offsetMs": 0, "durationMs": 5000 }] }],
+  "canDelete": true
+}
+```
+
+- `state`: `active` | `stopped`. `basis`: `consent` | `tenant_policy`. `stopReason`: `revoked` | `quota` | `session_end` |
+  `error` | `policy_off`.
+- Gözetimsiz kayıtta `consentMode` (`asked` | `no_user` | `silent`); `silent` ve anonimleştirilmemiş oturumda `silentReason`.
+- `canDelete` yalnız `session_history.edit` varken ve kayıt `stopped` iken `true`.
+- Kayıt yok ya da silinmiş → 404 (silinmişin izi geçmiş detayındaki `recording` alanındadır).
+
+### `POST /api/v1/sessions/:id/recording/view`
+
+200 `{ "token": "…", "idleTtlMs": 300000, "maxUntil": "<ISO>" }`. `maxUntil` = en çok `şimdi + kayıt süresi + 30 dk`, her
+durumda ≤ 8 saat. Audit `recording.view` **burada**, izleme başına bir kez yazılır. Kullanıcı + kayıt başına tek etkin
+belirteç: yeni istek eskisini düşürür. Belirteç düşünce `recording.view.end` özeti yazılır. Hatalar: 403, 404, 429.
+
+### `DELETE /api/v1/sessions/:id/recording`
+
+Gövde `{ "confirm": true }` (yoksa 400 "Onay gerekli"). 204. Kayıt `active` → 409 `CONFLICT` "Oturum sürerken kayıt
+silinemez". Zaten silinmiş → 204 (idempotent). Step-up istemez. Audit `recording.delete`.
+
+### `GET` / `PUT /api/v1/settings/recording`
+
+`RecordingSettingsView`: `{ enabled, retentionDays, unattendedEnabled, unattendedAckAt?, storage: { usedBytes, quotaBytes },
+maxRetentionDays, soleManager }`. `storage` dosya + kayıt toplamıdır (tek kota). `soleManager: true` → dört göz e-postasını
+alacak başka yönetici yok.
+
+PUT kuralları (ilk tutan döner):
+
+| Koşul                                                       | Yanıt                                                                                    |
+| ----------------------------------------------------------- | ---------------------------------------------------------------------------------------- |
+| `retentionDays` 1..90 dışı, tam sayı değil                  | 400 `fields.retentionDays`                                                               |
+| `unattendedEnabled: true` ∧ `enabled: false`                | 400 `fields.unattendedEnabled` "Önce oturum kaydını açın"                                |
+| `enabled` false→true ∧ `consentUpdated ≠ true`              | 400 `fields.consentUpdated` "Açmadan önce aydınlatma metnini güncellediğinizi onaylayın" |
+| `retentionDays` > firma oturum saklama süresi               | 400 `fields.retentionDays` "Kayıt saklama süresi firma oturum saklama süresini aşamaz"   |
+| `unattendedEnabled` false→true ∧ `employeeNoticeAck ≠ true` | 400 `fields.employeeNoticeAck` "Açmak için bilgilendirme kutusunu işaretleyin"           |
+| aynı geçişte kullanıcıda 2FA yok                            | 403 `MFA_SETUP_REQUIRED`                                                                 |
+| aynı geçişte son 5 dk'da step-up yok                        | 401 `MFA_STEP_UP_REQUIRED` (panel kodu sorar, isteği bir kez tekrarlar)                  |
+
+- `enabled: false` gözetimsiz anahtarı da kapatır. Kapatma ilgili `active` kayıtları `STOPPED{policy_off}` yapar.
+- `retentionDays` yalnız **yeni** kayıtlara uygulanır; mevcut kayıtların `expiresAt`'i değişmez.
+- Gözetimsiz kayıt durumu değişirse (iki yön) commit sonrası dört göz e-postası gider ("Gözetimsiz bağlantı kayıt
+  politikası değişti"); alıcı diğer `unattended.manage` sahipleri, yoksa işlemi yapan + Admin'ler. Her deneme audit
+  `unattended.silent.notify{event:"recording_policy"}`.
+- Audit `settings.recording` eski → yeni `{enabled, retentionDays, unattendedEnabled}` + `consentAck` / `employeeNoticeAck`.
+
+### Mevcut uçlarda değişenler
+
+| Uç                                                                                          | Değişiklik                                                                                                                                                           |
+| ------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `GET /api/v1/sessions` (geçmiş listesi)                                                     | Süzgeç `recorded=true` (yalnız silinmemiş kaydı olan oturumlar); satırda `hasRecording`                                                                              |
+| `GET /api/v1/sessions/:id/history`                                                          | `recording: { state, basis, stopReason?, deleteReason?: "expired"\|"manual"\|"missing", durationMs, expiresAt, canView, canDelete } \| null`                         |
+| Onay metni yanıtları (`ConsentTextView`: kod/bağlantı çözümü, talep formu, web talep formu) | `recording?: { offered, line, lineSha256 }` — yalnız firma ayarı açık, kota ve disk uygunken eklenir. `line` = "Oturumun görüntü kaydının alınmasına izin veriyorum" |
+
+### WebSocket `rec.*` mesajları
+
+Yetenek belirteçleri: `/ws/guest` ve `/ws/tech` için `rs.cap.rec1` (Go istemci 0.16.0, tarayıcı misafir; konsolda yalnız
+`MediaRecorder` VP8 destekliyse), `/ws/device` için `rs.cap.record1` (servis 0.16.0). `rec.*` yalnız bu belirteci bildiren
+sokete gider; bildirmeyen sokette gelen `rec.*` şema hatasıdır (1008). Şemalar `z.strictObject`, fikstür `fixtures/rec.json`.
+
+| `t`            | Yön                  | Alanlar                                                                   | Not                                                                                                                                                                        |
+| -------------- | -------------------- | ------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `rec.consent`  | misafir → S          | `id`, `lineSha256` (64 hex)                                               | Kutu işaretliyse admit sonrası ilk `hello`'dan sonra bir kez, 30 sn içinde. SHA uyuşmazlığı veya geç gelme yok sayılır + audit `recording.start` fail `consent_rejected`   |
+| `rec.revoke`   | misafir → S          | `id`                                                                      | "Kaydı durdur". Geri alınamaz. Yeniden bağlanan misafirin `hello` sonrası ilk mesajı olabilir. 2 sn'de `rec.state{on:false}` gelmezse istemci paylaşımı yerelde duraklatır |
+| `rec.state`    | S → misafir          | `on`, `reason?`                                                           | Gösterge ve düğme yalnız buna göre çizilir. `reason`: `revoked`, `quota`, `session_end`, `error`, `policy_off`, `unavailable`                                              |
+| `rec.state`    | S → tüm teknisyenler | `on`, `reason?`, `rid?`, `basis?`, `upload?: { token, series, nextPart }` | `on:true` iken `rid` + `basis` zorunlu. `upload` yalnız kaydedici teknisyene. Yeniden bağlanmada `hello.rec` aynı gövdeyle gelir (yeni belirteç, yeni bölüm)               |
+| `rec.error`    | teknisyen → S        | `id`, `code`: `unsupported` \| `recorder_failed` \| `upload_failed`       | Yalnız kaydediciden; kayıt `STOPPED{error}`                                                                                                                                |
+| `connect` (ek) | S → cihaz            | `recording?: true`                                                        | Yalnız `record1` cihaza. İzinli kipte onay penceresine "Bu bağlantının ekran kaydı alınacaktır" satırı, göstergeye " — Kayıt yapılıyor" eki                                |
+| `rec.state`    | S → cihaz            | `on`                                                                      | Kayıt ortada durursa gösterge eki kalkar                                                                                                                                   |
+
+Gözetimsiz konsolda cihaz `record1` bildirmediyse teknisyen `hello.unattended.recordOutdated: true` alır ("Cihaz istemcisi
+eski; kayıt için 0.16.0 gerekli").
+
+### Audit ve metrik
+
+| Eylem                | Ne zaman / `new_value`                                                                                                                                                                                        |
+| -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `recording.start`    | Kayıt açıldı (success) / açılamadı (fail): `{recordingId?, basis, consentMode?, reason?: quota\|device_outdated\|unsupported\|consent_rejected, cause?: sha\|window}`                                         |
+| `recording.stop`     | `{recordingId, reason: revoked\|quota\|session_end\|error\|policy_off, cause?, durationMs, sizeBytes}`; `cause` ∈ `unsupported`, `recorder_failed`, `upload_failed`, `no_upload`, `rate`, `invalid`, `orphan` |
+| `recording.view`     | `POST /view`: `{recordingId}`                                                                                                                                                                                 |
+| `recording.view.end` | İzleme belirteci düştü: `{recordingId, partsServed, bytesServed, throttled, endReason: idle\|max\|replaced\|logout\|revoked}`                                                                                 |
+| `recording.delete`   | `{recordingId, deleteReason: manual\|missing, durationMs, sizeBytes, missingParts?, remainingParts?}`                                                                                                         |
+| `recording.expired`  | 03:30 turu, tenant başına `{count, bytes}` (`entity="retention"`)                                                                                                                                             |
+| `settings.recording` | Ayar değişimi (yukarıda)                                                                                                                                                                                      |
+
+`entity="support_sessions"`, `entity_id=sessionId`. Audit süzgecinde grup "Kayıt". Metrikler: `rs_rec_active`,
+`rs_rec_part_total{result}`, `rs_rec_stop_total{reason}`, `rs_rec_bytes_total`, `rs_rec_part_bytes`,
+`rs_rec_view_throttled_total`; `rs_storage_used_bytes` kayıtları da içerir. Alarmlar runbook §28e.
+
 ## Saklama ve anonimleştirme (P13a)
 
 Yeni uç yoktur. Kaynak: `docs/mimari-p13.md` §2–§3, `apps/server/src/jobs/retention.ts`.

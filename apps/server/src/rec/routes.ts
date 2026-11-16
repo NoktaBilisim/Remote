@@ -127,7 +127,7 @@ export async function recPartRoutes(app: FastifyInstance): Promise<void> {
       gate.forget(key);
       return deny(req, reply);
     }
-    const pre = await svc.precheck(r, Number(req.headers["content-length"] ?? 0));
+    const pre = await svc.precheck(r, h["content-length"]);
     return pre ? send(req, reply, pre) : undefined;
   });
 

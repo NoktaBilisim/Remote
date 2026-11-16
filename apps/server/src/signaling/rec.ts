@@ -69,7 +69,7 @@ export function recRoomPort(rooms: Rooms): RecRoomPort {
         rec.nextPart = part + 1;
       }
       rec.lastPartAt = at;
-      if (rec.sourceGone && rec.sourceGone.series === series && rec.sourceGone.next === part) rec.sourceGone.next = part + 1;
+      // D-P28e-K1-1: kaynak eş yokken `sourceGone.next` İLERLEMEZ — yalnız yoldaki tek parça (accept.ts `gate`).
       if (room && rooms.live(room)) armWatchdog(rooms, room, at);
     },
     stopped(sessionId, reason, at) {

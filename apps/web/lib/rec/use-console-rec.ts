@@ -55,7 +55,8 @@ function whenFrame(track: MediaStreamTrack, fn: () => void): () => void {
   return () => track.removeEventListener("unmute", h);
 }
 
-class Controller {
+/** Kaydedici + yükleyici denetçisi (birim testte sahte kaydedici/`fetch` ile sürülür; AC-382 / AC-384). */
+export class Controller {
   rid: string | null = null;
   nextSeries = 0;
   sourcePresent = true;
@@ -143,7 +144,7 @@ class Controller {
 }
 
 /** Gelen sunucu mesajı → görünüm + kaydedici olayı. */
-function onMsg(m: ServerOutbound, c: Controller, set: (f: (v: ConsoleRecView) => ConsoleRecView) => void, recordable: boolean) {
+export function onMsg(m: ServerOutbound, c: Controller, set: (f: (v: ConsoleRecView) => ConsoleRecView) => void, recordable: boolean) {
   let rec: RecMsg | undefined;
   if (m.t === "hello") {
     if (m.unattended?.recordOutdated) set((v) => ({ ...v, deviceOutdated: true }));

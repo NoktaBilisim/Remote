@@ -2,9 +2,10 @@
 // idempotans/şifreli disk (AC-383, AC-375), kota (AC-384), geri alma sonrası durma payı (AC-382, S-P28e-1), izleme (AC-385,
 // S-P28e-3), elle silme (AC-386), geçmiş alanları (AC-450, V-PE-3), belirteç bağlamı (S-P28e-6). Oda portu K4'ün yerine sahte.
 import { readdir, readFile } from "node:fs/promises";
+import { request as httpRequest } from "node:http";
 import { join } from "node:path";
 import type { FastifyInstance } from "fastify";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { RECORDING_AUDIT, RECORDING_SETTINGS_AUDIT } from "@remote/contracts/audit";
 import { REC_CONSENT_LINE_SHA256 } from "@remote/contracts/ws-rec";
 import { storageUsage } from "../../src/fsrv/usage.ts";
@@ -237,6 +238,47 @@ describe("AC-381 / AC-383 / AC-375 başlatma ve parça yükleme", () => {
   });
 });
 
+describe("D-P28e-K1-3 parça PUT'unda Content-Length zorunlu, chunked ret (gövde öncesi, dosya yazılmaz)", () => {
+  it("D-P28e-K1-3 Content-Length aralık dışı 400; Transfer-Encoding: chunked 400 VALIDATION; sonra aynı parça normal yüklenir", async () => {
+    const r = await recorded();
+    const big = await put(r.rid, r.token, 0, 0, VIDEO_WEBM(), { "content-length": "2097153" });
+    expect(big.statusCode).toBe(400);
+    expect(big.json().error.fields).toHaveProperty("content-length");
+    await app.listen({ port: 0, host: "127.0.0.1" });
+    const addr = app.server.address();
+    const portNo = typeof addr === "object" && addr ? addr.port : 0;
+    const chunked = await new Promise<{ status: number; body: string }>((resolve, reject) => {
+      const req = httpRequest(
+        {
+          host: "127.0.0.1",
+          port: portNo,
+          method: "PUT",
+          path: `/api/v1/rec/${r.rid}/series/0/parts/0`,
+          headers: {
+            authorization: `Bearer ${r.token}`,
+            "content-type": "video/webm",
+            "x-rec-duration-ms": "1000",
+            "x-rec-series-start-ms": String(Date.now()),
+            "transfer-encoding": "chunked",
+          },
+        },
+        (res) => {
+          let body = "";
+          res.on("data", (d: Buffer) => (body += d.toString()));
+          res.on("end", () => resolve({ status: res.statusCode ?? 0, body }));
+        },
+      );
+      req.on("error", reject);
+      req.write(VIDEO_WEBM());
+      req.end();
+    });
+    expect(chunked.status).toBe(400);
+    expect(JSON.parse(chunked.body).error.code).toBe("VALIDATION");
+    expect(await testDb().sessionRecordingPart.count({ where: { recordingId: r.rid } })).toBe(0);
+    expect((await put(r.rid, r.token, 0, 0, VIDEO_WEBM())).statusCode).toBe(200);
+  });
+});
+
 describe("AC-384 / AC-382 kota ve durma payı", () => {
   it("AC-384 kota doluyken 409 STORAGE_QUOTA + STOPPED{QUOTA}, dosya yazılmaz; teklif yok", async () => {
     const t = (await createTenant()).id;
@@ -443,8 +485,8 @@ describe("S-P28e-5 / S-P28e-3 / S-P28e-9 eşzamanlılık", () => {
     expect((await first).statusCode).toBe(200);
   });
 
-  it("S-P28e-3 izleme kovası: kapasite kadar GET 200, sonraki 429 + Retry-After", async () => {
-    const { REC_VIEW_BURST_PARTS } = await import("@remote/contracts/ws-rec");
+  it("S-P28e-3 izleme kovası (sahte saat): kapasite kadar GET 200, sonraki 429 + Retry-After; 2,6 sn sonra 1 jeton", async () => {
+    const { REC_VIEW_BURST_PARTS, REC_VIEW_REFILL_PER_MIN } = await import("@remote/contracts/ws-rec");
     const r = await recorded();
     expect((await put(r.rid, r.token, 0, 0, VIDEO_WEBM())).statusCode).toBe(200);
     const v = await app.inject({
@@ -456,10 +498,21 @@ describe("S-P28e-5 / S-P28e-3 / S-P28e-9 eşzamanlılık", () => {
     const token = v.json().token as string;
     const get = () =>
       app.inject({ method: "GET", url: `/api/v1/rec/${r.rid}/series/0/parts/0`, headers: { authorization: `Bearer ${token}` } });
-    for (let i = 0; i < REC_VIEW_BURST_PARTS; i++) expect((await get()).statusCode).toBe(200);
-    const over = await get();
-    expect(over.statusCode).toBe(429);
-    expect(Number(over.headers["retry-after"])).toBeGreaterThan(0);
+    // QA-P28e-1: kova dolumu servis saatine bağlı; gerçek saatte 126 GET 2,5 sn'yi aşınca kova doluyordu. Saat dondurulur.
+    const clock = app.rec.service.d.clock;
+    const t0 = clock.now();
+    const now = vi.spyOn(clock, "now").mockReturnValue(t0);
+    try {
+      for (let i = 0; i < REC_VIEW_BURST_PARTS; i++) expect((await get()).statusCode).toBe(200);
+      const over = await get();
+      expect(over.statusCode).toBe(429);
+      expect(Number(over.headers["retry-after"])).toBe(Math.ceil(60 / REC_VIEW_REFILL_PER_MIN));
+      now.mockReturnValue(t0 + 2_600); // 24/dk → 2,5 sn'de 1 jeton
+      expect((await get()).statusCode).toBe(200);
+      expect((await get()).statusCode).toBe(429);
+    } finally {
+      now.mockRestore();
+    }
   });
 
   it("S-P28e-9 §5.5 kilit sırası: eşzamanlı PUT + ayar kapatma + elle silme deadlock/500 üretmez", async () => {

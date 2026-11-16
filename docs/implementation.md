@@ -12576,3 +12576,95 @@ Doğrulama (yerel, 2026-11-16): `deploy/ops/test-watch.sh` → `SONUÇ: GEÇTİ`
 "rec 2 MiB → 413" FAIL); `deploy/nginx/test-nginx.sh` → GEÇTİ; shellcheck v0.11.0 (`-S warning`, CI digest) değişen betikler temiz;
 actionlint 1.7.8 (CI digest) temiz; prettier `agent-win.yml`, `runbook.md`, `implementation.md` temiz; linux `golang:1.26` ile
 `go test -v -run 'TestAC38[12]|TestAC44[89]|TestSP28e'` → 33/33 PASS (Windows koşusu CI'da). Staging'e yayın yapılmadı (koordinatör, §28e.9).
+
+# P28e düzeltme turu 1 — sunucu (backend-dev)
+
+Kapsam: `docs/qa-raporu.md` "P28e Tur 1" madde 1–3, `docs/guvenlik-raporu.md` "P28e kod turu 1" D-P28e-K1-1..3.
+Commit yok. Yalnız `apps/server` + `packages/contracts` (şema + test).
+
+## Değişen dosyalar
+
+| Dosya                                                                  | Madde       | Değişiklik                                                                                                                                                                                                                                                                                                             |
+| ---------------------------------------------------------------------- | ----------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `apps/server/src/signaling/rec.ts`                                     | D-P28e-K1-1 | `partAccepted` artık `sourceGone.next`'i ilerletmiyor.                                                                                                                                                                                                                                                                 |
+| `apps/server/src/rec/accept.ts`                                        | D-P28e-K1-1 | `gate`'in kaynak-eş-yok dalı durma payı kuralını uyguluyor: tek parça (`p === sg.next`), 15 sn içinde ve `offset + duration ≤ (sg.at − started_at) + REC_STOP_OFFSET_SLACK_MS`. Aksi `nosource` (404).                                                                                                                 |
+| `apps/server/src/rec/webm.ts`                                          | D-P28e-K1-2 | `checkWebmContinuation`: başta EBML sihri reddi korunuyor. Ek olarak gövdenin herhangi bir yerinde **ayrışabilen** gömülü EBML başlığı (DocType çocuğu olan) → `ebml`, ayrışabilen `Tracks` (TrackEntry'li) → `tracks` reddi. Bayrak `REC_REQUIRE_CLUSTER_START=false` kalıyor.                                        |
+| `packages/contracts/src/api/recording.ts`                              | D-P28e-K1-3 | `recPartHeadersSchema`: `content-length` zorunlu (1..`REC_PART_MAX_BYTES`), `transfer-encoding` yasak. Hata 400 `VALIDATION` (`fields`).                                                                                                                                                                               |
+| `apps/server/src/rec/routes.ts`                                        | D-P28e-K1-3 | `precheck` artık şemadan gelen gerçek uzunluğu kullanıyor. Başlık denetimi `gate.enter`'dan önce yapıldığı için `release` sızmıyor.                                                                                                                                                                                    |
+| `apps/server/test/integration/rec-p28e-k3.test.ts`                     | QA1, K1-3   | Kova testinde servis saati `vi.spyOn(clock,"now")` ile donduruluyor (`finally`'de geri alınıyor). 126×200, ardından 429 + `Retry-After=3`; +2,6 sn sonra 1 jeton → 200, sonra yine 429. Yeni test: aralık dışı CL 400; gerçek soket üzerinden chunked PUT 400 `VALIDATION`, parça yazılmıyor; ardından normal PUT 200. |
+| `apps/server/test/integration/rec-p28e-unattended.test.ts` (yeni)      | QA2, QA3    | Aşağıda.                                                                                                                                                                                                                                                                                                               |
+| `apps/server/test/unit/rec-webm-k3.test.ts`                            | K1-1, K1-2  | Kaynak yok + ofset sınırı, ikinci parça `nosource`, aynı parça `dup`. Gerçek Chromium parçalarıyla yanlış pozitif testi, gömülü WebM/Tracks reddi, çıplak 4 baytlık sihrin geçmesi.                                                                                                                                    |
+| `apps/server/test/unit/rec-signaling-k4.test.ts`                       | K1-1        | `partAccepted` sonrası `sourceGone.next` sabit kalıyor.                                                                                                                                                                                                                                                                |
+| `apps/server/test/fixtures/rec-chromium/p{0,1,3}.webm` (yeni, ~180 KB) | K1-2        | Gerçek Chromium MediaRecorder çıktısı. Kaynak: Playwright Chromium, canvas, `video/webm;codecs=vp8`, timeslice 1 sn. Yapay görüntü, kişisel veri yok.                                                                                                                                                                  |
+| `apps/server/test/integration/rec-retention-k4.test.ts`                | tam koşu    | K-P28e-12 testi bıraktığı `key_ver=7` parçayı siliyor (p18 check-retire sızıntısı).                                                                                                                                                                                                                                    |
+| `packages/contracts/test/rec-p28e.test.ts`                             | K1-3        | Başlık şeması için CL zorunlu / 0 / üst sınır / chunked durumları.                                                                                                                                                                                                                                                     |
+
+## D-P28e-K1-2 ölçümü ve gerekçe
+
+- Playwright Chromium (1280×720, 1,5 Mbps, timeslice 5 sn, 62 sn) ile 13 parça üretildi. p>0 parçalarının ilk baytları şöyle: `5673 a155f7 81 0651 00 …`, `53ef a1537a 81 …` vb. Bunlar element kimliği değil. Önceki parçanın **son baytında BlockGroup kimliği (`A0`)** kalıyor, sonraki parça o elementin **boyut vint'iyle** başlıyor (`0x5673` → 2 baytlık boyut), ardından `A1` (Block) geliyor.
+- K7'deki `468e8113` de aynı kalıba uyuyor. `46 8E` 2 baytlık boyut vint'i, `81` iz 1, `13..` ise blok zaman kodu. Önceki parçada kalan kimlik `A3` (SimpleBlock).
+- Sonuç: "ilk element bilinen kimlik" denetimi gerçek Chromium parçalarının **hepsini** reddederdi ve kayıt `invalid` ile dururdu. Bu yüzden uygulanmadı.
+- Çıplak `1A45DFA3` taraması da uygulanmadı. Opak VP8 verisinde bayt başına ~2⁻³² yanlış eşleşme olur; 1 GB/sa tavanında bu, saatte ~0,25 yanlış ret demek. Bunun yerine yapısal doğrulama yapılıyor: eşleşme noktasında element ayrışmalı ve DocType/TrackEntry taşımalı.
+- Doğrulama: 13 tam parça (her biri ~0,8 MB) ve 5 küçük parça `checkWebmContinuation`'dan geçti. `p0`, `checkWebmHeader`'dan geçti.
+- Kalan risk (Düşük): sunucu kareleri çözmüyor. İz bildirimi olmayan opak bayt (ör. ham ses verisi) Block içinde saklanabilir. Oynatılamaz ama tam engellenemez. Firefox/Edge parça sınırları ölçülmedi (K7 "Bitmeyen" 1).
+
+## QA2 / QA3 testleri (`rec-p28e-unattended.test.ts`, gerçek sunucu + sahte SMTP)
+
+- **AC-387** (3 kip, politika kapalı): `connect.recording` yok, `session_recordings` satırı yok, `recording.start` audit'i yok. Cihaza ve teknisyene `rec.state` gitmiyor. Yardımcının (`rs.cap.rec1`) gönderdiği `rec.consent` yok sayılıyor; RECORDING rıza satırı oluşmuyor.
+- **AC-448** (3 kip, politika açık): `connect.recording=true`, admit TX'inde `ACTIVE` + `TENANT_POLICY` kayıt (`recorderUserId` = teknisyen). Audit `recording.start{basis:"tenant_policy", consentMode:<kip>}`. Cihaza `rec.state{on:true}`, teknisyene `rec.state{on, rid, basis:"tenant_policy"}` gidiyor. Rıza satırı yok.
+- **AC-448** (eski cihaz, record1 yok): kayıt yok, `recording` yok. Audit `recording.start` fail `device_outdated`; teknisyen `hello.unattended.recordOutdated=true` alıyor.
+- **AC-447 (a)(b)(c)**: Ayar ekranından açılıyor (step-up + bilgilendirme onayı) ve gözetimsiz bağlantı ACTIVE politika kaydı açıyor. Ardından `{enabled:false, unattendedEnabled:false}` gönderiliyor. Sonuç: GET `unattendedEnabled:false`, kayıt `STOPPED/POLICY_OFF`, cihaza `rec.state{off}`, teknisyene `rec.state{off, policy_off}`. Audit eski→yeni değerlerde `unattendedEnabled` false→true ve true→false görünüyor. İki yönde de diğer yöneticiye `recording_policy` e-postası gidiyor (konu sabit; değiştirene gitmiyor). `unattended.silent.notify{event:"recording_policy"}` alıcısı maskeli.
+- **Tek yönetici:** `soleManager=true`.
+
+## Sapmalar (gerekçeli)
+
+1. **QA madde 3 "tek yöneticide gönderilmez":** Kod ve tasarım farklı diyor. Mimari §11.5 / P28u §9.2 yedek alıcıyı tanımlıyor: başka `unattended.manage` sahibi yoksa e-posta değiştirene ve Admin'lere gidiyor. Ayrıca `soleManager` ekran uyarısı var. Test tasarıma göre yazıldı: tek yöneticide e-posta **yalnız değiştirene** gidiyor, başka alıcı yok. Gözetimsiz alan değişmediğinde (yalnız saklama değiştiğinde) e-posta yok. Davranış değiştirilmedi.
+2. Yeni entegrasyon dosyasında `rec.service.d.store.freeRatioOverride = 0.5` kullanılıyor. Disk %10 kuralı, test makinesinin doluluğuna bağlı olmasın diye. Not: bu makinede disk %100 dolu (2 GB boş). `startLive` kullanan ve gerçek `freeRatio` okuyan başka testler bu ortamda kota yoluna düşebilir.
+3. Yeni bağımlılık yok. Yeni hata kodu yok (411 yerine mevcut 400 `VALIDATION`).
+
+## frontend-dev için sözleşme
+
+- `PUT /api/v1/rec/:rid/series/:s/parts/:p`: `Content-Length` zorunlu, `Transfer-Encoding: chunked` 400 `VALIDATION`. Tarayıcı `fetch` Blob/ArrayBuffer gövdesinde CL'yi kendisi koyar; değişiklik gerekmez (`ReadableStream` gövdesi kullanılmamalı).
+- Kaynak eş (müşteri/cihaz) koptuktan sonra yalnız yoldaki **tek** parça kabul ediliyor ve kopma anı + 2 sn ile sınırlı. Sonraki parçalar 404 alıyor (mevcut "404 → kuyruk boşalır" davranışı yeterli).
+
+## Test
+
+Konteyner `rs-mysql-p28efx2:33345` (`rs-mysql-test`'e dokunulmadı); iş sonunda `down` yapıldı.
+
+- Alt küme: `rec-p28e-unattended` + `rec-p28e-k3` 29/29, art arda 3 kez yeşil. `rec-p28e-fix`, `rec-retention-k4`, `tenant-isolation` + tüm unit birlikte koşuldu: 49 dosya, 662 geçti, 1 atlandı.
+- Unit (server): 44 dosya / 617 geçti, 1 atlandı. Contracts: 24 / 240 geçti.
+- typecheck, lint (server + contracts), prettier: temiz.
+- Tam `test:int` üç kez koşuldu (111 dosya / 1092 test):
+  1. 4 kırmızı: `customers-csv-p19` AC-263 süre ölçümü (39 sn > 30 sn), `p18-messages-h3` S-P18-T2/K2 (×2), `p19-notify-j3` AC-261. Bu üç dosya tek başına koşulunca 52/52 yeşil.
+  2. 2 kırmızı: `p18-messages-h3` S-P18-T2/K2. **Kök neden P28e'den önceden kalma bir yalıtım hatası:** `rec-retention-k4` "K-P28e-12" testi `key_ver=7` parça satırı bırakıyor. `crypto:check-retire 7` artık `session_recording_parts`'ı da saydığı için p18 testi dosya sırasına bağlı olarak 1 dönüyor. Düzeltme: test sonunda o satır siliniyor (`rec-retention-k4.test.ts`, yalnız test).
+  3. Düzeltmeden sonra **1091 geçti, 1 kırmızı:** `p19-notify-j3` AC-261 (SMS `PENDING`, kuyruk zamanlaması). P28e ile ilgisi yok; 2. koşuda ve tek başına yeşil. Yük altında kararsız, büyük olasılıkla disk dolu makinenin yavaşlığı. CI'da izlenmeli.
+- Konteyner `down` yapıldı.
+
+# P28e düzeltme turu 1 — web (frontend-dev, geçici not)
+
+Kaynak: `docs/qa-raporu.md` P28e tur 1 maddeleri 4–5, `docs/guvenlik-raporu.md` D-P28e-K1-4. Yalnız `apps/web`; sunucu/kılavuz değişmedi.
+
+## Değişen dosyalar
+
+- `apps/web/messages/tr.json` — `rset.subtitle`: "… yalnız yetkili kişiler izler; indirme düğmesi ve ucu yoktur, her izleme kayıt altına alınır."; `hr.noDownload`: "İndirme düğmesi ve ucu yoktur; her izleme kayıt altına alınır." `apps/web` içinde mutlak "indirilemez" kalmadı (contracts'ta da yok).
+- `apps/web/lib/rec/use-console-rec.ts` — `Controller` ve `onMsg` export edildi (birim test için; davranış değişmedi).
+- `apps/web/lib/rec/rec-p28e.test.ts` — yeni: "AC-382: rec.state{off, revoked} → kaydedici 2000 ms sınırı içinde…" (sahte saat + sahte MediaRecorder + sahte fetch; `stop()` aynı görevde, 2000 ms sonra yalnız kuyruk parçası, 15 sn boyunca yeni kaydedici/PUT yok), "AC-384: parça PUT 409 STORAGE_QUOTA → kaydedici durur, yeniden başlamaz…", "KVKK beyanı (D-P28e-K1-4)" (tr.json'da `/indirilemez/i` yok + iki metnin yeni hâli).
+- `apps/web/e2e/p28e-recording.spec.ts`
+  - "AC-382/383: rıza → kayıt … Kaydı durdur ≤ 2 sn": tıklama → `rec-guest-off` süresi sayfa içinde `performance.now()` + `MutationObserver` ile ölçülür, `≤ 2000` assert; konsolda `MediaRecorder.prototype.stop` çağrı anı (init script) tıklamadan `≤ 2000 ms`; ardından 1,5 sn + (REC_PART_MS + 1,5 sn) penceresinde yeni PUT / yeni parça yok.
+  - "AC-382 / S-P28e-2: 2 sn'de onay gelmezse paylaşım yerelde 2000 ms'de duraklar": eski `timeout: 4000` yerine sayfa içi ölçüm, `REC_REVOKE_ACK_MS - 50 ≤ ms ≤ REC_REVOKE_ACK_MS + 500`.
+  - Yeni "AC-384: kayıt sürerken kota dolunca konsolda 'Depolama kotası doldu, kayıt durdu' (uyarı)…": ilk parça PUT 200 sonrası sahte WS kancası `?off=quota` (sunucunun STOPPED{QUOTA} + `rec.state{off, quota}` yayını) → `rec-console-stopped` metni, `role=status` + `bg-warning-surface` (uyarı tonu), `rec-console-on` yok, misafirde `rec-guest-off[data-reason=quota]` ve başlık öneki kalkar, konsol kaydedicisi durur, yükleme bir parça süresinden uzun pencerede durur.
+  - Yeniden adlandırma: "AC-381/384: rıza işaretlenmezse kayıt yok; teklif yoksa (kayıt kapalı ya da oturum başında kota dolu — sunucu teklif etmez) kutu yok".
+
+## Notlar / sapmalar
+
+- **Onaysız yol toleransı:** "Kaydı durdur"da sunucu onayı gelmezse duraklatma yapı gereği `REC_REVOKE_ACK_MS = 2000` zamanlayıcısıyla olur; ölçülen süre her zaman ≥ 2000 ms'dir. Katı `≤ 2000` hep kırılacağından QA'nın izin verdiği `+500 ms` işleme payı kullanıldı (alt sınır zamanlayıcının kendisini sabitler). Onaylı yol ve konsol kaydedicisi katı `≤ 2000 ms`.
+- **PUT 409 STORAGE_QUOTA** ayağı e2e'de değil birim testte (yükleyici→denetçi zinciri); e2e sunucunun `rec.state{off, quota}` yayınını sahte WS'ten verir. Gerçek uçtan uca (sunucu 409 + yayın) sunucu `rec-p28e-k3` "AC-384 kota doluyken 409…" testinde.
+- **Oturum başında kota dolu → rıza kutusu yok:** web bunu yalnız "teklif yok" (`consentText.recording` yok) olarak görür; sözleşmede kotaya özgü alan yok, uydurulmadı. Web kanıtı "AC-381/384 … teklif yoksa … kutu yok", sunucu kanıtı `rec-p28e-k3` "AC-384 kota doluyken … teklif yok".
+- Kılavuz/DATASHEET'te aynı dil teknik-yazarın işi (bu turda dokunulmadı); `docs/KULLANIM_KILAVUZU.md:1582`'deki "indirilemez" yazdırma belgesiyle ilgili, kayıtla ilgisiz.
+- Yeni bağımlılık, yeni bileşen yok; `Alert` primitifi değişmedi.
+
+## Doğrulama
+
+- `pnpm --filter @remote/web test`: 52 dosya / 483 test geçti.
+- `playwright test p28e`: 16 geçti, 6 atlandı (masaüstü-yalnız akışlar mobilde). `playwright test p28e history settings console`: 44 geçti, 20 atlandı.
+- `lint`, `typecheck`, `prettier --check` temiz.

@@ -1,4 +1,5 @@
 import { expect, test, type Browser, type Page } from "@playwright/test";
+import { REC_PART_MS, REC_REVOKE_ACK_MS } from "@remote/contracts/ws-rec";
 import { desktopOnly, guardConsole, newSession, scanBoth, signIn } from "./helpers";
 
 // P28e-K7 (mimari-p28e r2 §7, §9) — AC-380, 381, 382, 383, 384, 385, 386, 447, 450 (UI). Sahte API e2e/mock-p28e.mjs
@@ -217,8 +218,54 @@ async function live(page: Page, browser: Browser) {
   return { s, g };
 }
 
+/** AC-382/384: konsol sayfasında her `MediaRecorder.stop()` çağrısının duvar saati (Date.now) — kaydedicinin durma anı. */
+function instrumentStops() {
+  const w = window as unknown as { __recStops: number[] };
+  w.__recStops = [];
+  const stop = MediaRecorder.prototype.stop;
+  MediaRecorder.prototype.stop = function (this: MediaRecorder) {
+    w.__recStops.push(Date.now());
+    return stop.call(this);
+  };
+}
+const recStops = (page: Page) => page.evaluate(() => (window as unknown as { __recStops: number[] }).__recStops);
+
+/**
+ * AC-382: `click` düğmesine sayfa içinde tıklanır, `show` DOM'a girene kadar geçen süre `performance.now()` ile ölçülür
+ * (Playwright bekleme/yoklama gecikmesi ölçüme girmez). `at` = tıklama anının duvar saati (konsol sayfasıyla karşılaştırma).
+ */
+function clickUntil(g: Page, click: string, show: string) {
+  return g.evaluate(
+    ([click, show]) =>
+      new Promise<{ ms: number; at: number }>((resolve, reject) => {
+        const sel = (id: string) => document.querySelector(`[data-testid="${id}"]`);
+        const obs = new MutationObserver(() => {
+          if (!sel(show)) return;
+          obs.disconnect();
+          resolve({ ms: performance.now() - t0, at });
+        });
+        obs.observe(document.body, { subtree: true, childList: true, attributes: true, attributeFilter: ["data-testid"] });
+        setTimeout(() => (obs.disconnect(), reject(new Error(`${show} 5 sn içinde görünmedi`))), 5000);
+        const at = Date.now();
+        const t0 = performance.now();
+        (sel(click) as HTMLElement).click();
+      }),
+    [click, show] as const,
+  );
+}
+
+/** Kaydedici durduktan sonra yükleme sürmez: bir parça süresinden (5 sn) uzun pencerede yeni PUT ve yeni parça yok. */
+async function expectUploadsStopped(page: Page, puts: number[], stored: () => Promise<unknown[]>) {
+  await page.waitForTimeout(1500); // `now` kapanışının kuyruk parçası yerleşsin
+  const n = (await stored()).length;
+  const k = puts.length;
+  await page.waitForTimeout(REC_PART_MS + 1500);
+  expect((await stored()).length).toBe(n);
+  expect(puts.length).toBe(k);
+}
+
 test.describe("Müşteri rızası, gösterge, Kaydı durdur, konsol kaydedici (AC-381..384)", () => {
-  test("rıza → kayıt: müşteri + konsol göstergesi, sekme başlığı, parçalar yüklenir (WebM), yeni bölüm, oynatıcıda oynar, Kaydı durdur", async ({
+  test("AC-382/383: rıza → kayıt: müşteri + konsol göstergesi, sekme başlığı, parçalar yüklenir (WebM), yeni bölüm, oynatıcıda oynar, Kaydı durdur ≤ 2 sn", async ({
     page,
     context,
     browser,
@@ -226,6 +273,9 @@ test.describe("Müşteri rızası, gösterge, Kaydı durdur, konsol kaydedici (A
     desktopOnly(info.project.name);
     test.setTimeout(90_000);
     await signIn(context, "p28ec");
+    await page.addInitScript(instrumentStops);
+    const puts: number[] = [];
+    page.on("request", (r) => r.method() === "PUT" && /\/api\/v1\/rec\//.test(r.url()) && puts.push(Date.now()));
     const { s, g } = await live(page, browser);
     await expect(g.getByTestId("rec-guest-on")).toHaveText("Kayıt yapılıyor");
     await expect(g).toHaveTitle(new RegExp(`^${PREFIX}`));
@@ -252,11 +302,19 @@ test.describe("Müşteri rızası, gösterge, Kaydı durdur, konsol kaydedici (A
     test.info().annotations.push({ type: "cluster-heads", description: tails.join(",") });
     for (const h of tails) expect(h).not.toBe("1a45dfa3"); // S-P28e-7: p>0 EBML ile başlamaz
 
-    await g.getByTestId("rec-guest-stop").click();
+    // AC-382 ≤ 2 sn: tıklama → misafir göstergesi kalkar (sayfa içi ölçüm) ve konsol kaydedicisi durur (MediaRecorder.stop anı)
+    const { ms, at } = await clickUntil(g, "rec-guest-stop", "rec-guest-off");
+    expect(ms).toBeLessThanOrEqual(2000);
+    await expect(g.getByTestId("rec-guest-on")).toHaveCount(0);
     await expect(g.getByTestId("rec-guest-off")).toHaveText("Kayıt durduruldu; o ana kadarki kısım saklanır");
     await expect(g).not.toHaveTitle(new RegExp(`^${PREFIX}`));
     await expect(page.getByTestId("rec-console-stopped")).toHaveText("Müşteri kayıt iznini geri aldı");
     await expect(page.getByTestId("rec-console-on")).toHaveCount(0);
+    const stopAt = (await recStops(page)).find((x) => x >= at);
+    expect(stopAt, "konsol kaydedicisi durmalı").toBeDefined();
+    expect(stopAt! - at).toBeLessThanOrEqual(2000);
+    test.info().annotations.push({ type: "AC-382", description: `misafir ${Math.round(ms)} ms, konsol kaydedici ${stopAt! - at} ms` });
+    await expectUploadsStopped(page, puts, stored);
     const log = (await (await page.request.get(`${MOCK}/__e2e/ws-log/${s.id}`)).json()) as { m: { t: string } }[];
     expect(log.filter((x) => x.m.t === "rec.consent")).toHaveLength(1);
 
@@ -278,14 +336,18 @@ test.describe("Müşteri rızası, gösterge, Kaydı durdur, konsol kaydedici (A
     expect(n).toBeGreaterThanOrEqual(3);
   });
 
-  test("2 sn'de onay gelmezse paylaşım yerelde duraklar (S-P28e-2)", async ({ page, context, browser }, info) => {
+  test("AC-382 / S-P28e-2: 2 sn'de onay gelmezse paylaşım yerelde 2000 ms'de duraklar", async ({ page, context, browser }, info) => {
     desktopOnly(info.project.name);
     await signIn(context, "p28ecnoack");
     const { g } = await live(page, browser);
     await g.getByTestId("share-start").click();
     await expect(g.getByTestId("rec-guest-on")).toBeVisible();
-    await g.getByTestId("rec-guest-stop").click();
-    await expect(g.getByTestId("rec-guest-paused")).toHaveText("Kayıt durdurulamadı, paylaşım duraklatıldı", { timeout: 4000 });
+    // Onaysız yol yapısı gereği REC_REVOKE_ACK_MS (2000 ms) zamanlayıcısıdır: alt sınır zamanlayıcıyı, üst sınır
+    // (+ 500 ms işleme payı, QA tur 1 madde 5) "2 sn'de durur"u sabitler. Ölçüm sayfa içinde performance.now ile.
+    const { ms } = await clickUntil(g, "rec-guest-stop", "rec-guest-paused");
+    expect(ms).toBeGreaterThanOrEqual(REC_REVOKE_ACK_MS - 50);
+    expect(ms).toBeLessThanOrEqual(REC_REVOKE_ACK_MS + 500);
+    await expect(g.getByTestId("rec-guest-paused")).toHaveText("Kayıt durdurulamadı, paylaşım duraklatıldı");
     expect(await g.evaluate(() => (document.querySelector("video") as HTMLVideoElement | null)?.srcObject instanceof MediaStream)).toBe(
       true,
     );
@@ -296,7 +358,50 @@ test.describe("Müşteri rızası, gösterge, Kaydı durdur, konsol kaydedici (A
     await g.context().close();
   });
 
-  test("rıza işaretlenmezse kayıt yok; teklif yoksa kutu yok", async ({ page, context, browser }, info) => {
+  test("AC-384: kayıt sürerken kota dolunca konsolda 'Depolama kotası doldu, kayıt durdu' (uyarı), gösterge kalkar, yükleme durur", async ({
+    page,
+    context,
+    browser,
+  }, info) => {
+    desktopOnly(info.project.name);
+    test.setTimeout(60_000);
+    await signIn(context, "p28ec");
+    await page.addInitScript(instrumentStops);
+    const puts: number[] = [];
+    page.on("request", (r) => r.method() === "PUT" && /\/api\/v1\/rec\//.test(r.url()) && puts.push(Date.now()));
+    const { s, g } = await live(page, browser);
+    await g.getByTestId("share-start").click();
+    await expect(page.getByTestId("stage")).toHaveAttribute("data-share", "sharing");
+    const first = await page.waitForResponse((r) => r.request().method() === "PUT" && /\/api\/v1\/rec\//.test(r.url()), {
+      timeout: 20_000,
+    });
+    expect(first.status()).toBe(200);
+    const rid = /\/rec\/([^/]+)\/series\//.exec(first.url())![1]!;
+    const stored = async () => (await (await page.request.get(`${MOCK}/__e2e/rec-parts/${rid}`)).json()) as unknown[];
+    await expect(page.getByTestId("rec-console-on")).toBeVisible();
+
+    // Sunucu kota dolunca kaydı STOPPED{QUOTA} yapar ve iki tarafa rec.state{off, reason: "quota"} gönderir
+    const at = Date.now();
+    expect((await page.request.get(`${MOCK}/__e2e/rec/${s.id}?off=quota`)).ok()).toBe(true);
+    const warn = page.getByTestId("rec-console-stopped");
+    await expect(warn).toHaveText("Depolama kotası doldu, kayıt durdu");
+    await expect(warn).toHaveAttribute("role", "status");
+    await expect(warn).toHaveClass(/bg-warning-surface/);
+    await expect(page.getByTestId("rec-console-on")).toHaveCount(0);
+    await expect(page.getByTestId("rec-console")).toHaveAttribute("data-on", "false");
+    await expect(g.getByTestId("rec-guest-on")).toHaveCount(0);
+    await expect(g.getByTestId("rec-guest-off")).toHaveAttribute("data-reason", "quota");
+    await expect(g).not.toHaveTitle(new RegExp(`^${PREFIX}`));
+    await expect.poll(async () => (await recStops(page)).some((x) => x >= at)).toBe(true);
+    await expectUploadsStopped(page, puts, stored);
+    await g.context().close();
+  });
+
+  test("AC-381/384: rıza işaretlenmezse kayıt yok; teklif yoksa (kayıt kapalı ya da oturum başında kota dolu — sunucu teklif etmez) kutu yok", async ({
+    page,
+    context,
+    browser,
+  }, info) => {
     desktopOnly(info.project.name);
     await signIn(context, "p28ec");
     const s = await newSession(page);

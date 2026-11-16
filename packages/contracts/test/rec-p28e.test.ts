@@ -144,12 +144,25 @@ describe("P28e REST şemaları", () => {
   });
 
   it("AC-383: başlıklar — video/webm, süre 1..15000, seri başı yalnız p=0'da", () => {
-    const h = { "content-type": "video/webm", "x-rec-duration-ms": "5000", "x-rec-series-start-ms": "1763290000000", host: "x" };
+    const h = {
+      "content-type": "video/webm",
+      "content-length": "1024",
+      "x-rec-duration-ms": "5000",
+      "x-rec-series-start-ms": "1763290000000",
+      host: "x",
+    };
     expect(recPartHeadersSchema.parse(h)).toEqual({
       "content-type": "video/webm",
+      "content-length": 1024,
       "x-rec-duration-ms": 5000,
       "x-rec-series-start-ms": 1763290000000,
     });
+    // D-P28e-K1-3: Content-Length zorunlu 1..2097152; Transfer-Encoding yasak
+    expect(ok(recPartHeadersSchema, { ...h, "content-length": undefined })).toBe(false);
+    expect(ok(recPartHeadersSchema, { ...h, "content-length": "0" })).toBe(false);
+    expect(ok(recPartHeadersSchema, { ...h, "content-length": "2097152" })).toBe(true);
+    expect(ok(recPartHeadersSchema, { ...h, "content-length": "2097153" })).toBe(false);
+    expect(ok(recPartHeadersSchema, { ...h, "transfer-encoding": "chunked" })).toBe(false);
     expect(ok(recPartHeadersSchema, { ...h, "x-rec-duration-ms": "0" })).toBe(false);
     expect(ok(recPartHeadersSchema, { ...h, "x-rec-duration-ms": "15001" })).toBe(false);
     expect(ok(recPartHeadersSchema, { ...h, "content-type": "application/octet-stream" })).toBe(false);

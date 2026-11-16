@@ -1,6 +1,7 @@
 // P28e K7 (mimari-p28e r2 §5, §7, §9; S-P28e-2/3/8/11/12; K-P28e-16/17) — saf web mantığı.
 import { REC_CONSENT_LINE_SHA256, REC_TITLE_PREFIX, REC_UPLOAD_QUEUE_PARTS } from "@remote/contracts/ws-rec";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import tr from "@/messages/tr.json";
 import { actionLabel, actionOptionGroups, groupLabel } from "../audit/actions";
 import { listApiPath, parseFilters } from "../history/query";
 import { buildCsp } from "../../proxy";
@@ -10,6 +11,7 @@ import { clampDuration, SeriesRecorder, type RecPart, type RecorderLike } from "
 import { buildRecordingBody, effectiveUnattended, isDirty } from "./settings";
 import { canPlay, canRecord, techProtocols } from "./support";
 import { classify, Uploader } from "./upload";
+import { Controller, onMsg, type ConsoleRecView } from "./use-console-rec";
 import { recTitle } from "./use-guest-rec";
 
 /** Sahte MediaRecorder: `tick()` bir timeslice parçası üretir; requestData/stop gerçek sırayla olay verir. */
@@ -292,5 +294,91 @@ describe("misafir rızası, başlık, yetenek, CSP, audit, süzgeç", () => {
     expect(listApiPath(filters)).toContain("recorded=true");
     expect(parseFilters({ recorded: "1" }).ignored).toEqual(["recorded"]);
     expect(ignored).toEqual([]);
+  });
+});
+
+/** Konsol denetçisi: sahte kaydedici + sahte `fetch` + sahte saat (AC-382 ≤ 2 sn, AC-384 kota). */
+function consoleRig(put: () => Response) {
+  vi.useFakeTimers();
+  const recs: FakeRec[] = [];
+  const puts: number[] = [];
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async () => {
+      puts.push(Date.now());
+      return put();
+    }),
+  );
+  const c = new Controller(vi.fn(), () => {
+    const f = new FakeRec();
+    recs.push(f);
+    return f;
+  });
+  let view: ConsoleRecView = { on: false, basis: null, reason: null, unsupported: false, deviceOutdated: false };
+  const msg = (m: Parameters<typeof onMsg>[0]) => onMsg(m, c, (f) => (view = f(view)), true);
+  c.setStream({ getVideoTracks: () => [{ muted: false }] } as unknown as MediaStream);
+  msg({
+    t: "rec.state",
+    on: true,
+    rid: "01JD0000000000000000000001",
+    basis: "consent",
+    upload: { token: "a".repeat(43), series: 0, nextPart: 0 },
+  });
+  return { c, recs, puts, msg, view: () => view };
+}
+
+describe("konsol kaydedici durdurma (AC-382, AC-384)", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.unstubAllGlobals();
+  });
+
+  it("AC-382: rec.state{off, revoked} → kaydedici 2000 ms sınırı içinde (aynı görevde) durur; sonra yeni parça/yükleme yok", async () => {
+    const { recs, puts, msg, view } = consoleRig(() => res(200, { next: 1 }));
+    expect(recs).toHaveLength(1);
+    expect(recs[0]!.state).toBe("recording");
+    await vi.advanceTimersByTimeAsync(5000);
+    recs[0]!.tick(10); // 1. parça (5 sn timeslice)
+    await vi.advanceTimersByTimeAsync(10);
+    expect(puts).toHaveLength(1);
+
+    const t0 = Date.now();
+    msg({ t: "rec.state", on: false, reason: "revoked" });
+    expect(recs[0]!.state).toBe("inactive"); // stop() eşzamanlı çağrıldı
+    const stoppedMs = Date.now() - t0;
+    expect(stoppedMs).toBeLessThanOrEqual(2000);
+    expect(view()).toMatchObject({ on: false, reason: "revoked" });
+
+    await vi.advanceTimersByTimeAsync(2000);
+    const afterStop = puts.length; // yalnız `now` kapanışının kuyruk parçası
+    expect(afterStop).toBeLessThanOrEqual(2);
+    expect(puts.every((at) => at - t0 <= 2000)).toBe(true);
+    await vi.advanceTimersByTimeAsync(15_000);
+    expect(recs).toHaveLength(1); // yeniden başlamaz
+    expect(puts).toHaveLength(afterStop);
+  });
+
+  it("AC-384: parça PUT 409 STORAGE_QUOTA → kaydedici durur, yeniden başlamaz; rec.state{off, quota} uyarı nedenini taşır", async () => {
+    const { c, recs, puts, msg, view } = consoleRig(() => res(409, { error: { code: "STORAGE_QUOTA", message: "Kota" } }));
+    await vi.advanceTimersByTimeAsync(5000);
+    recs[0]!.tick(10);
+    await vi.advanceTimersByTimeAsync(10);
+    expect(puts.length).toBeGreaterThanOrEqual(1);
+    expect(recs[0]!.state).toBe("inactive");
+    msg({ t: "rec.state", on: false, reason: "quota" });
+    expect(view()).toMatchObject({ on: false, reason: "quota" });
+    const n = puts.length;
+    c.source(true); // misafir yeniden katılsa da kaydedici açılmaz
+    await vi.advanceTimersByTimeAsync(15_000);
+    expect(recs).toHaveLength(1);
+    expect(puts).toHaveLength(n);
+  });
+});
+
+describe("KVKK beyanı (D-P28e-K1-4)", () => {
+  it("arayüz metinleri mutlak 'indirilemez' iddiası taşımaz; kayıt metinleri indirme ucu yok + izleme kaydı der", () => {
+    for (const v of Object.values(tr)) expect(v).not.toMatch(/indirilemez/i);
+    expect(tr["hr.noDownload"]).toBe("İndirme düğmesi ve ucu yoktur; her izleme kayıt altına alınır.");
+    expect(tr["rset.subtitle"]).toContain("indirme düğmesi ve ucu yoktur, her izleme kayıt altına alınır");
   });
 });

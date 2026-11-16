@@ -9,6 +9,7 @@ import {
   REC_PART_CONTENT_TYPE,
   REC_PART_DURATION_MAX_MS,
   REC_PART_DURATION_MIN_MS,
+  REC_PART_MAX_BYTES,
   REC_RETENTION_MAX,
   REC_RETENTION_MIN,
   REC_RID_PATTERN,
@@ -51,9 +52,12 @@ export type RecPartParams = z.output<typeof recPartParamsSchema>;
  * PUT başlıkları (Fastify küçük harfli verir; diğer başlıklar atılır). `x-rec-series-start-ms` (epoch ms) YALNIZ `p = 0`'da
  * zorunlu, `p > 0`'da yasak — kural parametreye bağlı olduğundan `recSeriesStartValid` ile rota uygular (400 `VALIDATION`,
  * `fields["x-rec-series-start-ms"]`). Sunucu değeri `clamp(start, son parça bitişi, now)` ile sınırlar (§5.1 m.4).
+ * `Content-Length` zorunlu (1..REC_PART_MAX_BYTES), `Transfer-Encoding` yasak (D-P28e-K1-3).
  */
 export const recPartHeadersSchema = z.object({
   "content-type": z.literal(REC_PART_CONTENT_TYPE, { error: "İçerik türü video/webm olmalı" }),
+  "content-length": decimal(7).pipe(z.number().int().min(1).max(REC_PART_MAX_BYTES)),
+  "transfer-encoding": z.undefined({ error: "Parça gövdesi Content-Length ile gönderilmeli" }).optional(),
   "x-rec-duration-ms": decimal(5).pipe(z.number().int().min(REC_PART_DURATION_MIN_MS).max(REC_PART_DURATION_MAX_MS)),
   "x-rec-series-start-ms": decimal(16).pipe(z.number().int().max(Number.MAX_SAFE_INTEGER)).optional(),
 });

@@ -1,6 +1,7 @@
 // P28e K3 birim: WebM başlık denetimi (AC-375, S-P28e-7), parça kabul kararı (S-P28e-1/2, §5.1, §7), sınırlar (S-P28e-3/5),
 // P28b `.rsf` biçiminin kayıt parçasıyla gidiş-dönüşü (K-P28e-6).
 import { randomBytes } from "node:crypto";
+import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { REC_PUT_CONCURRENCY, REC_PUT_PER_MIN, REC_STOP_GRACE_MS, REC_VIEW_BURST_PARTS } from "@remote/contracts/ws-rec";
 import { FSRV_CHUNK_BYTES } from "@remote/contracts/ws-fsrv";
@@ -8,7 +9,7 @@ import { BoxError, chunkOffset, makeHeader, openBox, sealChunk } from "../../src
 import { decidePart, type DecideInput } from "../../src/rec/accept.ts";
 import { PutGate, ViewBuckets } from "../../src/rec/limits.ts";
 import { checkWebmContinuation, checkWebmHeader } from "../../src/rec/webm.ts";
-import { CLUSTER_PART, VIDEO_WEBM, track, webm } from "../helpers/rec-webm-k3.ts";
+import { CLUSTER_PART, VIDEO_WEBM, el, track, webm } from "../helpers/rec-webm-k3.ts";
 import type { RoomRec } from "../../src/rec/types.ts";
 
 describe("AC-375 webm.ts başlık denetimi", () => {
@@ -33,6 +34,30 @@ describe("AC-375 webm.ts başlık denetimi", () => {
     expect(checkWebmContinuation(CLUSTER_PART())).toEqual({ ok: true });
     expect(checkWebmContinuation(randomBytes(100).fill(1, 0, 4))).toEqual({ ok: true });
     expect(checkWebmContinuation(randomBytes(100).fill(1, 0, 4), true)).toMatchObject({ ok: false });
+  });
+  // Gerçek Chromium (Playwright, `video/webm;codecs=vp8`, canvas, timeslice 1 sn) parçaları: p>0 element ortasından başlar
+  // (ör. `46e1 a1 …` = önceki parçada kalan BlockGroup kimliğinin boyut vint'i + Block) → ilk bayt kimlik denetimi yanlış ret olur.
+  const real = (n: number): Buffer => readFileSync(new URL(`../fixtures/rec-chromium/p${n}.webm`, import.meta.url));
+  it("D-P28e-K1-2 gerçek Chromium parçaları: p=0 başlık geçer, p>0 (Cluster ile başlamayan) geçer — yanlış pozitif yok", () => {
+    expect(checkWebmHeader(real(0))).toEqual({ ok: true });
+    for (const n of [1, 3]) {
+      expect(real(n).readUInt32BE(0)).not.toBe(0x1f43b675);
+      expect(checkWebmContinuation(real(n))).toEqual({ ok: true });
+    }
+  });
+  it("D-P28e-K1-2 p>0 gövdesinde gömülü WebM (ses izli) ya da Tracks reddedilir; çıplak 4 bayt sihir eşleşmesi reddedilmez", () => {
+    const audio = webm([track(1, "V_VP8"), track(2, "A_OPUS")]);
+    expect(checkWebmContinuation(Buffer.concat([Buffer.from([0x00]), audio]))).toMatchObject({ ok: false, reason: "ebml" });
+    expect(checkWebmContinuation(Buffer.concat([real(1), VIDEO_WEBM()]))).toMatchObject({ ok: false, reason: "ebml" });
+    const tracks = el(0x1654ae6b, track(2, "A_OPUS"));
+    expect(checkWebmContinuation(Buffer.concat([real(1).subarray(0, 500), tracks, real(3)]))).toMatchObject({
+      ok: false,
+      reason: "tracks",
+    });
+    const bare = Buffer.from(real(1));
+    bare.write("1a45dfa3", 1000, "hex");
+    bare.write("1654ae6b", 2000, "hex");
+    expect(checkWebmContinuation(bare)).toEqual({ ok: true });
   });
 });
 
@@ -97,8 +122,19 @@ describe("AC-383 parça kabul kararı (§5.1, §5.3)", () => {
     const last = { series: 0, count: 2, offsetMs: 0, durationMs: 10_000 };
     const rec = { state: "ACTIVE", startedAt: new Date(T0), stoppedAt: null, durationMs: 10_000, sizeBytes: 2000 };
     const r = room({ sourceGone: { at: T0 + 11_000, series: 0, next: 2 } });
-    expect(decidePart(base({ rec, room: r, last, p: 2, now: T0 + 12_000 }))).toMatchObject({ kind: "accept" });
+    const tail = { rec, room: r, last, p: 2, seriesStartMs: undefined, durationMs: 1500, now: T0 + 12_000 };
+    expect(decidePart(base(tail))).toMatchObject({ kind: "accept", offsetMs: 10_000 }); // 10 + 1,5 ≤ 11 + 2 sn
+    expect(decidePart(base({ ...tail, durationMs: 5000 }))).toEqual({ kind: "gone", result: "nosource" }); // 15 > 13 sn
+    expect(decidePart(base({ ...tail, now: T0 + 11_000 + REC_STOP_GRACE_MS + 1 }))).toEqual({ kind: "gone", result: "nosource" });
     expect(decidePart(base({ rec, room: r, last, s: 1, p: 0, now: T0 + 12_000 }))).toEqual({ kind: "gone", result: "nosource" });
+  });
+  it("D-P28e-K1-1 kaynak eş yokken (next ilerlemez) ikinci parça nosource, aynı parça dup", () => {
+    const r = room({ series: 0, nextPart: 3, sourceGone: { at: T0 + 11_000, series: 0, next: 2 } });
+    const rec = { state: "ACTIVE", startedAt: new Date(T0), stoppedAt: null, durationMs: 11_000, sizeBytes: 3000 };
+    const last = { series: 0, count: 3, offsetMs: 0, durationMs: 11_000 };
+    const next = { rec, room: r, last, seriesStartMs: undefined, durationMs: 500, now: T0 + 12_500 };
+    expect(decidePart(base({ ...next, p: 3 }))).toEqual({ kind: "gone", result: "nosource" });
+    expect(decidePart(base({ ...next, p: 2, exists: true }))).toEqual({ kind: "dup", next: 3 });
   });
   it("AC-384 oran tavanı ve S-P28e-7 süre şişirme", () => {
     const rec = { state: "ACTIVE", startedAt: new Date(T0), stoppedAt: null, durationMs: 0, sizeBytes: 33_554_000 };

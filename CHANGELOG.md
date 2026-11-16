@@ -5,6 +5,38 @@ Biçim [Keep a Changelog](https://keepachangelog.com/tr/1.1.0/), sürümleme [Se
 
 ## [Unreleased]
 
+### Eklendi — P28e oturum kaydı, istemci/servis 0.16.0 (AC-380..388, AC-447..450)
+
+- **Ayarlar → Oturum kaydı** (Admin; varsayılan kapalı): "Oturum kaydı" anahtarı (açarken "Aydınlatma metnimi bu
+  değişikliği kapsayacak şekilde güncelledim" kutusu), "Kayıt saklama süresi (gün)" 1–90 (varsayılan 30; yeni süre yalnız
+  sonraki kayıtlara uygulanır), depolama çubuğu (dosya + kayıt tek kota). "Gözetimsiz bağlantıları da kaydet" (çalışan
+  bilgilendirme kutusu + 2FA step-up; iki yönde dört göz e-postası; tek yönetici uyarısı).
+- **Müşteri rızası:** onay ekranında, Hızlı Destek "Destek iste" formunda ve web talep formunda ayrı, varsayılan
+  işaretsiz "Oturumun görüntü kaydının alınmasına izin veriyorum" kutusu; rıza `session_consents`'e metin özetiyle yazılır.
+- **Gösterge ve durdurma:** müşteride "Kayıt yapılıyor" + onaysız, geri alınamaz **Kaydı durdur** (tarayıcıda sekme başlığı
+  "● Kayıt — ", Windows'ta her zaman üstte şerit); 2 sn'de durdurma onayı gelmezse paylaşım yerelde duraklar. Konsolda tüm
+  teknisyenlere "Kayıt yapılıyor" rozeti ve durma nedeni; teknisyenin başlat/durdur düğmesi yoktur.
+- **Kayıt:** teknisyen konsolunda MediaRecorder (WebM/VP8, 5 sn parça, 5 dk bölüm), yalnız görüntü (ses izi sunucuda
+  reddedilir); sunucuda parça başına AES-256-GCM şifreli saklama, kota ve disk %10 koruması, oran tavanı 1 GiB/saat.
+  Safari'de kayıt alınmaz.
+- **Gözetimsiz:** politika açıkken her bağlantı "Firma politikası" dayanağıyla kaydedilir; onay penceresinde "Bu bağlantının
+  ekran kaydı alınacaktır" satırı, göstergede " — Kayıt yapılıyor" eki; cihaz kullanıcısı yalnız bağlantıyı kapatarak
+  durdurur. 0.16.0 öncesi servisli cihazda kayıt yapılmaz ("Cihaz istemcisi eski; kayıt için 0.16.0 gerekli").
+- **Oturum geçmişi:** "Kayıt" sütunu ve "Kayıtlı" süzgeci; ayrıntıda "Oturum kaydı" bölümü, **Kaydı izle** (MSE oynatıcı,
+  boşluklar taralı, indirme düğmesi ve ucu yok, izleme çekiş bütçesi) ve **Kaydı sil** (onay diyaloğu; süren kayıt
+  silinemez). Silinen kayıtta neden: süresi doldu / elle silindi / kayıt dosyası bulunamadı.
+- Yeni yetki `sessions.view_recording` ("Kayıtları izle", hassas; Admin açık, User kapalı).
+- Yeni uçlar `PUT|GET /api/v1/rec/:rid/series/:s/parts/:p`, `GET|DELETE /api/v1/sessions/:id/recording`,
+  `POST /api/v1/sessions/:id/recording/view`, `GET|PUT /api/v1/settings/recording`; değişenler `GET /sessions`
+  (`recorded`, `hasRecording`), `GET /sessions/:id/history` (`recording`), onay metni yanıtları (`recording`). WS
+  `rec.consent`, `rec.revoke`, `rec.state`, `rec.error`, `connect.recording`; yetenekler `rs.cap.rec1`, `rs.cap.record1`
+  (`docs/api.md` "Oturum kaydı (P28e)"). Yeni hata kodu yok.
+- Audit `recording.start/stop/view/view.end/delete/expired`, `settings.recording`, `unattended.silent.notify`
+  `recording_policy`; süzgeçte "Kayıt" grubu. Metrikler `rs_rec_*`; alarmlar runbook §28e.
+- Saklama: 03:30'da süresi dolan kayıtlar silinir; anonimleştirme, kalıcı silme ve firma silme kayıtları da siler; yetim
+  dosya mutabakatı kayıt parçalarını canlı sayar. Kayıtlar yedeğe girmez.
+- Migration `20261125000000_p28e_recordings`; yeni env ve bağımlılık yok. Karar ADR-0034.
+
 ### Eklendi — P28u gözetimsiz cihazda izinli / izinsiz bağlantı ve müdahale, servis 0.15.0 (AC-429..446)
 
 - **Üç bağlantı kipi:** "İzinli" (cihazda oturum açık ve kilitsiz kullanıcı varsa 60 sn'lik "Uzaktan bağlantı isteği"

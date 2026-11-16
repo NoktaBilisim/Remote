@@ -57,7 +57,14 @@ function gate(i: DecideInput, offsetMs: number): PartDecision | null {
   if (!room || i.rec.state === "DELETED") return { kind: "gone", result: "gone" };
   if (i.rec.state === "ACTIVE" && room.state === "active") {
     const sg = room.sourceGone;
-    if (sg && !(i.s === sg.series && i.p === sg.next && i.now - sg.at <= REC_STOP_GRACE_MS)) return { kind: "gone", result: "nosource" };
+    // D-P28e-K1-1: durma payı kuralı — en çok 1 parça (`next` ilerlemez) ve kapsadığı süre ≤ kopma anı + REC_STOP_OFFSET_SLACK_MS.
+    const inFlight =
+      sg &&
+      i.s === sg.series &&
+      i.p === sg.next &&
+      i.now - sg.at <= REC_STOP_GRACE_MS &&
+      offsetMs + i.durationMs <= sg.at - i.rec.startedAt.getTime() + REC_STOP_OFFSET_SLACK_MS;
+    if (sg && !inFlight) return { kind: "gone", result: "nosource" };
     return null;
   }
   const stoppedAt = room.stoppedAt ?? i.rec.stoppedAt?.getTime();
