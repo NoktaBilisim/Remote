@@ -10,7 +10,7 @@ import type { GuestFeature } from "@remote/contracts/ws-clip-print";
 import type { PeerFeature } from "@remote/contracts/ws-fsrv";
 
 export type FeatureReason =
-  "loading" | "noGuest" | "browser" | "unattended" | "unsupported" | "noControl" | "noConsent" | "cooldown" | "busy";
+  "notController" | "loading" | "noGuest" | "browser" | "unattended" | "unsupported" | "noControl" | "noConsent" | "cooldown" | "busy";
 
 export interface FeatureInput {
   feature: GuestFeature;
@@ -33,6 +33,8 @@ export interface FeatureInput {
   cooldown?: boolean;
   /** P28b (§5.3–5.4): SERVER modunda yazdırma sunucu yolundan → misafirde `fsrv` de gerekir. */
   serverFiles?: boolean;
+  /** P28c (§1.1, V-PC-1): bu konsol kontrol sahibi değil — yan etkili işler pasif ("Yalnız kontrol sahibi kullanabilir"). */
+  notController?: boolean;
 }
 
 export interface FeatureState {
@@ -46,6 +48,7 @@ const off = (reason: FeatureReason): FeatureState => ({ visible: true, enabled: 
 
 export function featureState(i: FeatureInput): FeatureState {
   if (!i.permitted) return { visible: false, enabled: false, reason: null };
+  if (i.notController) return off("notController");
   if (!i.ready && i.guestPresent) return off("loading");
   if (!i.guestPresent) return off("noGuest");
   if (i.guestKind !== "AGENT") return i.feature === "print" ? { visible: false, enabled: false, reason: "browser" } : off("browser");

@@ -31,6 +31,7 @@ import type { Db } from "../lib/db.ts";
 import type { HistoryLog } from "./history.ts";
 import * as hrepo from "./history-repo.ts";
 import { unattendedInfo } from "./history-unattended.ts";
+import { participantsOf } from "./history-participants.ts";
 import {
   CONTROL_PERIOD_ACTIONS,
   actorOf,
@@ -69,7 +70,13 @@ function actorNameOf(
   return ctx.isAdmittedGuest(a) ? ctx.row.customerName : null;
 }
 
-function timelineOf(events: AuditRow[], row: hrepo.HistoryDetailRow, users: Users, anonymized: boolean): TimelineEvent[] {
+function timelineOf(
+  events: AuditRow[],
+  row: hrepo.HistoryDetailRow,
+  users: Users,
+  anonymized: boolean,
+  techIds: ReadonlySet<string> = new Set(),
+): TimelineEvent[] {
   // S-P13a-1: yeni guest.* kayıtlarında ad yok; müşteri adı oturum satırından ve yalnız kabul edilen misafire (guestId
   // eşleşmesi; guestId'siz müşteri olayları = kabul edilen misafir) gösterilir. Eski kayıtların `details.name`'i önceliklidir.
   const admittedGuestId = events
@@ -80,7 +87,9 @@ function timelineOf(events: AuditRow[], row: hrepo.HistoryDetailRow, users: User
     return typeof g !== "string" || g === admittedGuestId;
   };
   return events.map((a) => {
-    const actor = actorOf(a, row.technicianId);
+    // P28c (AC-369): katılımcı/izleyici ve devreden eski sahip de teknisyendir (yönetici değil).
+    const base = actorOf(a, row.technicianId);
+    const actor: TimelineActor = base === "ADMIN" && a.userId !== null && techIds.has(a.userId) ? "TECH" : base;
     const details = projectDetails(a.action, a.oldValue, a.newValue);
     const actorName = actorNameOf(a, actor, details, { row, users, anonymized, isAdmittedGuest });
     // K-P13-3: anonim oturumda zaman çizelgesi müşteri adını taşımaz (audit 730 g append-only kalır; ad yalnız audit.view ile).
@@ -133,13 +142,14 @@ export async function buildDetail(
 ): Promise<SessionHistoryDetail> {
   const s = { id: row.id, tenantId: row.tenantId };
   const anonymized = row.anonymizedAt !== null;
-  const [consents, files, timelineRows, controlAudits, stored, rec] = await Promise.all([
+  const [consents, files, timelineRows, controlAudits, stored, rec, participants] = await Promise.all([
     hrepo.consentsOf(db, s, SESSION_HISTORY_LIST_MAX),
     hrepo.filesOf(db, s, SESSION_HISTORY_LIST_MAX),
     hrepo.auditsOf(db, s, TIMELINE_ACTIONS, SESSION_HISTORY_LIST_MAX + 1),
     hrepo.auditsOf(db, s, CONTROL_PERIOD_ACTIONS, 2 * SESSION_HISTORY_LIST_MAX),
     listForSession(db, row.tenantId, row.id, SESSION_HISTORY_LIST_MAX),
     findBySession(db, row.tenantId, row.id),
+    participantsOf(db, s),
   ]);
   const timelineTruncated = timelineRows.length > SESSION_HISTORY_LIST_MAX;
   const events = timelineRows.slice(0, SESSION_HISTORY_LIST_MAX);
@@ -148,7 +158,7 @@ export async function buildDetail(
   // P16 (AC-241, S16-1): aktör etiketi audit görünümüyle aynı kural (`actorLabelOf`): satırı yok/DELETED → "Silinmiş kullanıcı #X".
   const users = new Map((await hrepo.userNames(db, [...userIds])).map((u) => [u.id, u]));
   const quality = qualityOf(log, row);
-  const timeline = timelineOf(events, row, users, anonymized);
+  const timeline = timelineOf(events, row, users, anonymized, new Set(participants.map((p) => p.userId)));
 
   return {
     ...toListItem(row, scope, viewerId),
@@ -166,6 +176,7 @@ export async function buildDetail(
     storedFiles: anonymized ? [] : stored.map((f) => storedFileItem(f, canFiles)),
     ...(row.mode === "UNATTENDED" ? { unattended: await unattendedInfo(db, row, anonymized) } : {}),
     recording: rec ? recordingSummary(rec, recPerms) : null,
+    participants,
   };
 }
 

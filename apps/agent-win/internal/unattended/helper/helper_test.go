@@ -54,11 +54,17 @@ func (fakePeer) AddRemoteICE(signal.RemoteIce) error          { return nil }
 func (fakePeer) SetICEServers([]signal.IceServer) error       { return nil }
 func (fakePeer) SendCtl([]byte) error                         { return nil }
 func (fakePeer) SetCaps([]string)                             {}
-func (fakePeer) Stream(ctx context.Context, _ rtc.Source) error {
+func (fakePeer) SetMain(bool) error                           { return nil }
+func (fakePeer) Close() error                                 { return nil }
+
+// fakeMedia P28c paylaşılan iz çifti: yayın ctx bitene dek sürer.
+type fakeMedia struct{}
+
+func (fakeMedia) Stream(ctx context.Context, _ rtc.Source) error {
 	<-ctx.Done()
 	return ctx.Err()
 }
-func (fakePeer) Close() error { return nil }
+func (fakeMedia) SetLow(bool) {}
 
 type fakeSrc struct{}
 
@@ -100,6 +106,7 @@ func newRig(indErr error) *rig {
 				return r.conn, nil
 			},
 			NewPeer:     func([]signal.IceServer, []string, rtc.Handlers) (flow.Peer, error) { return fakePeer{}, nil },
+			Media:       fakeMedia{},
 			Monitors:    func() ([]signal.Monitor, error) { return []signal.Monitor{{ID: 0, Primary: true}}, nil },
 			Capture:     func(int) (rtc.Source, error) { return fakeSrc{}, nil },
 			DownloadDir: func() (string, error) { return "", errors.New("yok") },

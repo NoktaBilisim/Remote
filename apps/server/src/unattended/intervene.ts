@@ -45,8 +45,10 @@ const TIMEOUT_MS: Record<InterveneCommand, number> = { lock: INTERVENE_LOCK_TIME
 async function precheck(d: InterveneDeps, auth: AuthContext, tenantId: string, sessionId: string): Promise<Room> {
   const row = await d.db.supportSession.findFirst({ where: { id: sessionId, tenantId }, select: { technicianId: true } });
   if (!row) throw new AppError("NOT_FOUND");
-  if (row.technicianId !== auth.user.id) throw new AppError("FORBIDDEN");
   const room = d.rooms.get(sessionId);
+  // P28c (§6): müdahale/kilit/oturum kapatma yalnız kontrol sahibi (varsayılan oturum sahibi; devirden sonra devralan).
+  const controller = room ? room.multi.controllerId : row.technicianId;
+  if (controller !== auth.user.id) throw new AppError("FORBIDDEN");
   const u = room?.unattended;
   if (!room || !u || !d.rooms.live(room) || !room.admitted) throw new AppError("FORBIDDEN");
   const grant = await d.db.unattendedDeviceGrant.findFirst({ where: { tenantId, deviceId: u.deviceId, userId: auth.user.id } });

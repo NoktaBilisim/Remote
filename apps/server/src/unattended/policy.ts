@@ -15,6 +15,7 @@ import type { Db } from "../lib/db.ts";
 import { AppError } from "../lib/errors.ts";
 import type { Rooms } from "../signaling/rooms.ts";
 import { endDeviceRoom } from "../signaling/rooms-device.ts";
+import { revokeMemberEverywhere } from "../signaling/member-life.ts";
 
 type Tx = Prisma.TransactionClient;
 type DbOrTx = Db | Tx;
@@ -152,6 +153,9 @@ export async function finishSilent(d: PolicyDeps, tenantId: string, technicianId
       where: { ...scope, status: "PENDING" },
       data: { status: "CANCELLED", activeCode: null, endedAt: now, endedBy: "SYSTEM", endReason: "permission" },
     });
+    // P28c (§2): yetki dalında (teknisyen verildi) kullanıcının üye olduğu silent odalarda yalnız üye düşer.
+    if (technicianId)
+      revokeMemberEverywhere(d.rooms, technicianId, (r) => r.tenantId === tenantId && r.unattended?.consentMode === "silent");
     const live = open.map((s) => d.rooms.get(s.id)).filter((room) => room !== undefined && room.tenantId === tenantId);
     await Promise.all(live.map((room) => (room ? endDeviceRoom(d.rooms, room, "permission") : undefined)));
     return open.length;

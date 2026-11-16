@@ -29,6 +29,9 @@ type gatedSource struct {
 	src    rtc.Source
 	epoch  uint64 // kaynağın açıldığı dönem (kapalıyken açıldıysa açılınca dönem ilerler → yeniden açılır)
 	closed bool
+	// P28c düşük akış ayarı: yeniden açılan kaynağa da uygulanır (rtc.LowSource).
+	lowSink func(rtc.Frame)
+	lowOn   bool
 }
 
 func (s *gatedSource) NextFrame(ctx context.Context) (rtc.Frame, error) {
@@ -70,7 +73,43 @@ func (s *gatedSource) current(ep uint64) (rtc.Source, error) {
 		return nil, err
 	}
 	s.src, s.epoch = src, ep
+	if ls, ok := src.(rtc.LowSource); ok {
+		ls.SetLowSink(s.lowSink)
+		ls.EnableLow(s.lowOn)
+	}
 	return src, nil
+}
+
+// SetLowSink rtc.LowSource: alttaki (ve yeniden açılacak) kaynağa iletilir.
+func (s *gatedSource) SetLowSink(sink func(rtc.Frame)) {
+	s.mu.Lock()
+	s.lowSink = sink
+	src := s.src
+	s.mu.Unlock()
+	if ls, ok := src.(rtc.LowSource); ok {
+		ls.SetLowSink(sink)
+	}
+}
+
+// EnableLow rtc.LowSource.
+func (s *gatedSource) EnableLow(on bool) {
+	s.mu.Lock()
+	s.lowOn = on
+	src := s.src
+	s.mu.Unlock()
+	if ls, ok := src.(rtc.LowSource); ok {
+		ls.EnableLow(on)
+	}
+}
+
+// RequestLowKeyframe rtc.LowSource.
+func (s *gatedSource) RequestLowKeyframe() {
+	s.mu.Lock()
+	src := s.src
+	s.mu.Unlock()
+	if ls, ok := src.(rtc.LowSource); ok {
+		ls.RequestLowKeyframe()
+	}
 }
 
 // RequestKeyframe rtc.KeyframeRequester (alttaki kaynak destekliyorsa iletilir; yeniden açılan kaynak zaten IDR ile

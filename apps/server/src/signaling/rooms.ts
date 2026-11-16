@@ -33,6 +33,9 @@ import { fsrvRoomClosed, fsrvSideGone } from "./fsrv.ts";
 import { recRoomClosed, recSourceGone, recTechAttached, recTechDetached } from "./rec.ts";
 import { cancelPendingSilent, endDeviceRoom } from "./rooms-device.ts";
 import * as lobby from "./rooms-lobby.ts";
+import { membersTeardown, revokeMember, revokeMemberEverywhere, type SilentJoinEvent } from "./member-life.ts";
+import { broadcastRoster, controllerOf, newMulti, sendTechs } from "./members.ts";
+import { revokeControlFor } from "./control-revoke.ts";
 import { pending, type RoomRow } from "./rooms-lobby.ts";
 
 export { admitHash } from "./rooms-lobby.ts";
@@ -78,6 +81,8 @@ export class Rooms implements RoomNotifier, TechnicianLiveControl {
   rec?: RecService;
   /** P28b: sunucu dosya servisi (`bindFsrv`, ws.ts); yoksa SERVER odasında `fsrv.init` → UNSUPPORTED. */
   fsrv?: FsrvService;
+  /** P28c (Y-PC-1): silent odada katılım/devir dört göz e-postası (routes-multi bağlar; en iyi çaba). */
+  silentNotify?: (e: SilentJoinEvent) => void;
   private readonly rooms = new Map<string, Room>();
   readonly reconnect = new Map<string, string>(); // sha256(reconnectToken) → sessionId
 
@@ -132,6 +137,7 @@ export class Rooms implements RoomNotifier, TechnicianLiveControl {
         timers: {},
         ending: false,
         lobbyArrivals: 0,
+        multi: newMulti(row.technicianId),
       };
       this.rooms.set(row.id, room);
     }
@@ -187,11 +193,14 @@ export class Rooms implements RoomNotifier, TechnicianLiveControl {
     old?.peer.close(WS_CLOSE.REPLACED, "replaced");
     recTechAttached(this, room, old); // P28e: eski kaydedici soketinin belirteci düşer
     // §3.3 K3: yeni konsol (sekme değişimi / yeniden bağlanma) yalnız görüntüleme ile başlar; misafire önce revoke{reconnect}.
-    if (room.admitted) revokeOnTechChange(this, room);
+    // P28c: yalnız kontrol sahibi sahipken (üye kontrol sahibiyse sahibin soket değişimi kontrolü kapatmaz).
+    if (room.admitted && room.multi.controllerId === room.technicianId) revokeOnTechChange(this, room);
     void narrowCaps(this, room, conn.permissions); // bağlanma anındaki güncel yetki (S-P3-8)
     sendHelloTech(this, room);
     for (const g of room.lobby.values()) if (g.state === "LOBBY") conn.peer.send(pending(g));
-    if (room.admitted?.peer) room.admitted.peer.send({ t: "peer.joined", role: "tech" });
+    // P28c K-PC-7: multi1 misafire `peer.joined{tech}` yok, roster tek yol.
+    if (room.admitted?.peer && !room.admitted.peer.multi) room.admitted.peer.send({ t: "peer.joined", role: "tech" });
+    if (room.admitted) broadcastRoster(room);
     syncDisconnect(this, room);
     return room;
   }
@@ -199,12 +208,15 @@ export class Rooms implements RoomNotifier, TechnicianLiveControl {
   detachTech(room: Room, peer: Peer): void {
     if (!this.live(room) || room.tech?.peer !== peer) return;
     const tech = room.tech;
+    const wasController = room.multi.controllerId === room.technicianId;
     room.tech = undefined;
-    fsrvSideGone(this, room, "TECH"); // P28b D-P28b-2: teknisyenin indirme belirteçleri düşer
-    recTechDetached(this, room, tech); // P28e §6.3: kayıt sürer; belirteç pay sonrası düşer, 120 sn dönmezse stop
+    if (wasController) fsrvSideGone(this, room, "TECH"); // P28b D-P28b-2: teknisyenin indirme belirteçleri düşer
+    recTechDetached(this, room, tech, wasController); // P28e §6.3: kayıt sürer; belirteç pay sonrası düşer, 120 sn dönmezse stop
     if (room.admitted) {
-      revokeOnTechChange(this, room); // AC-24, §3.3 K3: önce control.revoke{reconnect}, sonra peer.left
-      room.admitted.peer?.send({ t: "peer.left", role: "tech", reason: "disconnect" });
+      if (wasController) revokeOnTechChange(this, room); // AC-24, §3.3 K3: önce control.revoke{reconnect}, sonra peer.left
+      const g = room.admitted.peer;
+      if (g && !g.multi) g.send({ t: "peer.left", role: "tech", reason: "disconnect" });
+      broadcastRoster(room);
       syncDisconnect(this, room);
     } else this.dropRoomIfIdle(room);
   }
@@ -217,7 +229,7 @@ export class Rooms implements RoomNotifier, TechnicianLiveControl {
     recSourceGone(this, room); // P28e S-P28e-2: kaynak eş yokken yalnız uçuştaki parça
     room.share = { state: "stopped" }; // QA-P4-12: misafir yokken paylaşım sürmüyor
     resetOnGuestGone(this, room); // A4/AC-24: controlState=VIEW; yeniden bağlanan istemci kapıyı kapalı başlatır
-    room.tech?.peer.send({ t: "peer.left", role: "guest", reason: "disconnect" });
+    sendTechs(room, { t: "peer.left", role: "guest", reason: "disconnect" });
     syncDisconnect(this, room);
   }
 
@@ -264,7 +276,7 @@ export class Rooms implements RoomNotifier, TechnicianLiveControl {
   private teardown(room: Room, reason: SessionEndedReason): void {
     for (const t of Object.values(room.timers)) this.clock.clearTimeout(t);
     const msg = { t: "session.ended", reason } as const;
-    const peers = [room.tech?.peer, room.admitted?.peer, ...[...room.lobby.values()].map((g) => g.peer)];
+    const peers = [room.tech?.peer, ...membersTeardown(this, room), room.admitted?.peer, ...[...room.lobby.values()].map((g) => g.peer)];
     for (const g of room.lobby.values()) this.clock.clearTimeout(g.timer);
     if (room.reconnectHash) this.reconnect.delete(room.reconnectHash);
     this.rooms.delete(room.sessionId);
@@ -282,6 +294,7 @@ export class Rooms implements RoomNotifier, TechnicianLiveControl {
   /** Yetki iptali (G-04, AC-115): teknisyenin tüm odaları `auth_revoked` ile biter. */
   async endByTechnician(userId: string): Promise<void> {
     this.rec?.dropUploadTokens({ by: "user", userId }); // P28e S-P28e-6: kayıt yükleme belirteçleri HEMEN (oda payı beklenmez)
+    revokeMemberEverywhere(this, userId); // P28c O-PC-3: üye olduğu odalar sürer, yalnız üye düşer
     const mine = [...this.rooms.values()].filter((r) => r.technicianId === userId);
     await Promise.all(mine.map((r) => this.finish(r, "auth_revoked", "SYSTEM")));
   }
@@ -298,7 +311,12 @@ export class Rooms implements RoomNotifier, TechnicianLiveControl {
     const perms: ReadonlySet<PermissionKey> = new Set(permissions);
     const jobs: Promise<void>[] = [];
     for (const room of this.rooms.values()) {
-      if (room.technicianId !== userId || room.ending) continue;
+      if (room.ending) continue;
+      if (room.multi.members.has(userId)) {
+        memberPermChange(this, room, userId, perms); // P28c Y-PC-2: üye → yalnız revokeMember
+        continue;
+      }
+      if (room.technicianId !== userId) continue;
       // P27 (§4.4): `unattended.connect` düştüyse gözetimsiz oda `permission` ile biter (PENDING ise DB CANCELLED).
       // P28u (§8.4, AC-440): `silent` odada `unattended.silent` düştüyse aynı yol.
       const silentLost = room.unattended?.consentMode === "silent" && !perms.has("unattended.silent");
@@ -313,11 +331,36 @@ export class Rooms implements RoomNotifier, TechnicianLiveControl {
     await Promise.all(jobs);
   }
 
+  /** P28c (§4.1, G-22 genişlemesi): kullanıcı bu canlı odanın bağlı ya da rezerve üyesi mi. */
+  isMember(sessionId: string, tenantId: string, userId: string): boolean {
+    const r = this.rooms.get(sessionId);
+    return r !== undefined && this.live(r) && r.tenantId === tenantId && r.multi.members.has(userId);
+  }
+
+  /** Bağlı teknisyeni (sahip ya da üye) olan odalar — 60 sn yeniden doğrulama döngüsü. */
   techRooms(): Room[] {
-    return [...this.rooms.values()].filter((r) => r.tech);
+    return [...this.rooms.values()].filter((r) => r.tech || [...r.multi.members.values()].some((m) => m.conn));
   }
 
   shutdown(): void {
     for (const room of [...this.rooms.values()]) this.closeSession(room.sessionId, "server");
   }
+}
+
+/**
+ * P28c (§4.3 `revalidate` 5, 6, 6b; Y-PC-2): üyenin yetkisi daraldı → temel yetki (`sessions.view` / `sessions.supervise`),
+ * gözetimsizde `unattended.connect`, silent'ta `unattended.silent` düştüyse `revokeMember`; aksi halde soket yetkisi tazelenir,
+ * kontrol sahibiyse `remote_control.use` düşünce açık kontrol kapanır.
+ */
+function memberPermChange(rooms: Rooms, room: Room, userId: string, perms: ReadonlySet<PermissionKey>): void {
+  const m = room.multi.members.get(userId);
+  if (!m) return;
+  const base = m.via === "supervise" ? "sessions.supervise" : "sessions.view";
+  const lost =
+    !perms.has(base) ||
+    (room.unattended !== undefined && !perms.has("unattended.connect")) ||
+    (room.unattended?.consentMode === "silent" && !perms.has("unattended.silent"));
+  if (lost) return revokeMember(rooms, room, userId);
+  if (m.conn) m.conn.permissions = perms;
+  if (controllerOf(room) === m.conn && m.conn && !perms.has("remote_control.use")) void revokeControlFor(rooms, room, "permission");
 }

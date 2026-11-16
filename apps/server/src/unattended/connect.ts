@@ -27,6 +27,7 @@ import type { Rooms } from "../signaling/rooms.ts";
 import type { Room } from "../signaling/types.ts";
 import { endDeviceRoom, preAdmitDevice } from "../signaling/rooms-device.ts";
 import { notifySilentConnect, silentPrecheck } from "./connect-silent.ts";
+import { deviceVerdict } from "./device-access.ts";
 import { DEVICE_CONNECT_WINDOW_MS, openDeviceSession, Refusal, type ConnectRequest, type Opened } from "./connect-tx.ts";
 import type { DeviceHub } from "./hub.ts";
 import { recoveryConnectMail, sendInternalNotice } from "./mail.ts";
@@ -69,14 +70,16 @@ async function auditConnect(d: ConnectDeps, ctx: AuditContext, auth: AuthContext
 async function precheck(d: ConnectDeps, auth: AuthContext, tenantId: string, id: string): Promise<repo.DeviceRow> {
   const dev = await repo.getDevice(d.db, tenantId, auth.user.id, id);
   if (!dev || dev.grants.length === 0) throw refuse("not_found", "NOT_FOUND");
+  // P28c O-PC-4: tek yardımcı (`deviceVerdict`); ret kodları ve sırası değişmez (step-up grant ile yerel anahtar arasında).
+  const verdict = deviceVerdict({ ...dev, revokedAt: null }, d.gate);
   if (!auth.totpEnabled) throw refuse("step_up", "MFA_SETUP_REQUIRED");
   const at = auth.stepUpAt?.getTime();
   if (at === undefined || d.now() - at > STEP_UP_MAX_AGE_SEC * 1000) throw refuse("step_up", "MFA_STEP_UP_REQUIRED");
-  if (!dev.localEnabled) throw refuse("local_disabled", "DEVICE_LOCAL_DISABLED");
+  if (verdict === "local_disabled") throw refuse("local_disabled", "DEVICE_LOCAL_DISABLED");
   if (((await repo.contactCounts(d.db, tenantId, [dev.customerId])).get(dev.customerId) ?? 0) === 0)
     throw refuse("no_contact", "NOTIFY_CONTACT_REQUIRED");
   if ((await d.mail.configFor(tenantId)) === null) throw refuse("no_channel", "NOTIFY_CHANNEL_UNAVAILABLE");
-  if (!d.gate.allows({ signed: dev.signed, sha256: dev.binarySha256 })) throw refuse("unsigned", "UNATTENDED_DISABLED");
+  if (verdict === "unsigned") throw refuse("unsigned", "UNATTENDED_DISABLED");
   if (!d.hub.isOnline(id)) throw refuse("offline", "DEVICE_OFFLINE");
   if (!d.consentCapable(id)) throw refuse("outdated", "DEVICE_OUTDATED");
   if ((await repo.openDeviceSessions(d.db, tenantId, id, new Date(d.now()))) > 0) throw refuse("busy", "DEVICE_BUSY");

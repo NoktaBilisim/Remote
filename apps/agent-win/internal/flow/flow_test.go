@@ -110,7 +110,8 @@ type fakePeer struct {
 	h      rtc.Handlers
 	offers chan string
 	ctl    chan []byte
-	live   chan bool // P28e: nil değilse Stream başlangıç/bitişi bildirilir
+	main   *bool // P28c: son SetMain (nil = hiç çağrılmadı → ana iz)
+	closed bool
 }
 
 func (p *fakePeer) HandleOffer(sdp string) (signal.SdpAnswer, error) {
@@ -125,15 +126,61 @@ func (p *fakePeer) SetCaps(c []string) {
 	p.caps = append([]string(nil), c...)
 	p.mu.Unlock()
 }
-func (p *fakePeer) Stream(ctx context.Context, _ rtc.Source) error {
-	if p.live != nil {
-		p.live <- true
-		defer func() { p.live <- false }()
+func (p *fakePeer) SetMain(main bool) error {
+	p.mu.Lock()
+	p.main = &main
+	p.mu.Unlock()
+	return nil
+}
+func (p *fakePeer) isMain() bool {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.main == nil || *p.main
+}
+func (p *fakePeer) Close() error {
+	p.mu.Lock()
+	p.closed = true
+	p.mu.Unlock()
+	return nil
+}
+func (p *fakePeer) isClosed() bool {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.closed
+}
+
+// fakeMedia P28c paylaşılan iz çifti: yayın (stream nil → ctx bitene dek) ve düşük kodlayıcı anahtarı.
+type fakeMedia struct {
+	mu     sync.Mutex
+	stream func(ctx context.Context, src rtc.Source) error
+	live   chan bool // P28e: nil değilse yayın başlangıç/bitişi bildirilir
+	low    bool
+}
+
+func (m *fakeMedia) Stream(ctx context.Context, src rtc.Source) error {
+	m.mu.Lock()
+	fn, live := m.stream, m.live
+	m.mu.Unlock()
+	if fn != nil {
+		return fn(ctx, src)
+	}
+	if live != nil {
+		live <- true
+		defer func() { live <- false }()
 	}
 	<-ctx.Done()
 	return ctx.Err()
 }
-func (p *fakePeer) Close() error { return nil }
+func (m *fakeMedia) SetLow(on bool) {
+	m.mu.Lock()
+	m.low = on
+	m.mu.Unlock()
+}
+func (m *fakeMedia) lowOn() bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.low
+}
 
 type fakeSrc struct{}
 
@@ -219,6 +266,7 @@ type harness struct {
 	creds  chan signal.Credential
 	peers  chan *fakePeer
 	events chan Event
+	media  *fakeMedia
 	deps   Deps
 }
 
@@ -231,9 +279,11 @@ func newHarness(t *testing.T) *harness {
 		creds:  make(chan signal.Credential, 4),
 		peers:  make(chan *fakePeer, 4),
 		events: make(chan Event, 4),
+		media:  &fakeMedia{},
 	}
 	h.deps = Deps{
-		Host: "destek.example:4450", Version: "1.0.0", Fingerprint: "abcd1234",
+		Media: h.media,
+		Host:  "destek.example:4450", Version: "1.0.0", Fingerprint: "abcd1234",
 		API: h.api,
 		Dial: func(_ context.Context, cred signal.Credential) (Conn, error) {
 			h.creds <- cred

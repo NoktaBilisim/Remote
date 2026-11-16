@@ -54,14 +54,20 @@ type peerEvent struct {
 	doneTimeout string
 	// run P28a: zamanlayıcı/goroutine sonucunun döngüde çalışacak kapanışı (clipprint).
 	run func()
+	// tid/gen P28c: olayı üreten eş (gen eşleşmezse eş kapatılmıştır; olay düşer). run/doneTimeout için boş.
+	tid string
+	gen uint64
 }
 
 type session struct {
 	d        Deps
 	techName string
 
-	conn      Conn
-	peer      Peer
+	conn Conn
+	// peers P28c teknisyen başına eş (tid → eş; eski sokette tek eş ""); multi roster durumu (peers.go).
+	peers     map[string]*techPeer
+	peerGen   uint64
+	multi     multiState
 	phase     phase
 	token     string
 	ice       []signal.IceServer
@@ -119,6 +125,8 @@ func (s *session) run(ctx context.Context, jr *api.JoinResult) Outcome {
 	s.redial = make(chan Conn, 1)
 	s.shareErr = make(chan error, 1)
 	s.cp = s.newClipPrint(ctx)
+	s.peers = map[string]*techPeer{}
+	s.setCtrl("")
 	defer s.cleanup()
 
 	conn, err := s.d.Dial(ctx, signal.Credential{Ticket: jr.WsTicket})
@@ -195,7 +203,7 @@ func (s *session) startReconnect(ctx context.Context) {
 	s.bindingPending = false
 	s.phase = phReconnecting
 	reconnectDeadline := s.d.Now().Add(s.d.ReconnectWindow)
-	s.dropPeer()
+	s.dropPeers()
 	s.conn = nil
 	s.d.UI.Status(statusReconnecting)
 	go s.reconnect(ctx, reconnectDeadline)
@@ -252,9 +260,11 @@ func (s *session) onUser(ctx context.Context, ev Event) (Outcome, bool) {
 		return Outcome{Message: msgSelfEnd}, true
 	case EvChat:
 		b, err := chatMessage(ev.Text, s.d.Now())
-		if err != nil || s.peer == nil || s.peer.SendCtl(b) != nil {
+		if err != nil || !s.sendAll(b) { // P28c: müşterinin mesajı by'sız tüm eşlere
 			s.d.UI.Status(statusChatFail)
 		}
+	case EvTechRemove:
+		s.onTechRemove(ctx, ev.TID)
 	case EvFileAccept, EvFileReject:
 		if s.srv != nil {
 			s.onFsrvDecide(ctx, ev.FID, ev.Kind == EvFileAccept)
@@ -310,7 +320,7 @@ func (s *session) cleanup() {
 	s.gate.Close()
 	s.cp.close()
 	s.closeFsrv()
-	s.dropPeer()
+	s.dropPeers()
 	if s.src != nil {
 		_ = s.src.Close()
 	}

@@ -1,4 +1,5 @@
-import { ArrowLeft, CircleX, Power, RotateCcw } from "lucide-react";
+import { ArrowLeft, CircleX, Hand, Power, RotateCcw } from "lucide-react";
+import { useId } from "react";
 import Link from "next/link";
 import type { RefObject } from "react";
 import type { DrawInput, DrawTool } from "@/components/collab/annot-layer";
@@ -108,7 +109,10 @@ export function ConsoleAnnotTools({
   onTool,
   onColor,
   capturing,
+  lock = null,
 }: {
+  /** P28c: kontrol sahibi değil — araç çubuğu pasif + neden. */
+  lock?: string | null;
   collab: Collab;
   tool: DrawTool | null;
   color: AnnotColor;
@@ -125,13 +129,15 @@ export function ConsoleAnnotTools({
       onColor={onColor}
       onUndo={() => collab.sendAnnot({ t: "annot.undo", ...(collab.annot.strokes.at(-1) ? { id: collab.annot.strokes.at(-1)?.id } : {}) })}
       onClear={() => collab.sendAnnot({ t: "annot.clear" })}
-      disabledHint={capturing ? t("p7.annotOff") : null}
+      disabledHint={lock ?? (capturing ? t("p7.annotOff") : null)}
     />
   );
 }
 
 /** P7 kontrol çubuğu (yalnız Hızlı Destek misafiri; düğme remote_control.use ile). */
 export function ConsoleControlBar(p: {
+  /** P28c (§10): kontrol sahibi değil → "Kontrol iste" pasif + neden (gizli değil). */
+  lock?: string | null;
   canControl: boolean;
   control: ControlState;
   now: number | null;
@@ -142,6 +148,7 @@ export function ConsoleControlBar(p: {
   onKeys: (id: SpecialComboId) => void;
   releaseRef: RefObject<HTMLButtonElement | null>;
 }) {
+  if (p.lock) return <SeatLockedControl lock={p.lock} />;
   return (
     <>
       {p.canControl && (
@@ -157,5 +164,21 @@ export function ConsoleControlBar(p: {
         />
       )}
     </>
+  );
+}
+
+/** P28c: katılımcı/izleyici konsolunda "Kontrol iste" pasif + "Yalnız kontrol sahibi kullanabilir". */
+function SeatLockedControl({ lock }: { lock: string }) {
+  const id = useId();
+  return (
+    <div className="flex min-w-0 items-center gap-2" data-testid="control-seat-lock">
+      <Button variant="secondary" disabled aria-describedby={id}>
+        <Hand aria-hidden className="size-4" />
+        {t("p7.request")}
+      </Button>
+      <p id={id} className="text-xs text-fg-muted">
+        {lock}
+      </p>
+    </div>
   );
 }

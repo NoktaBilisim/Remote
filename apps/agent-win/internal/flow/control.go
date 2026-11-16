@@ -132,8 +132,8 @@ func (s *session) onControlRevoke(ctx context.Context, reason string) {
 // onCapsUpdate G-09: yetenekler değişti; uzaktan kontrol yeteneği gittiyse kapı kapanır.
 func (s *session) onCapsUpdate(ctx context.Context, caps []string) {
 	s.caps = append([]string(nil), caps...)
-	if s.peer != nil {
-		s.peer.SetCaps(s.caps)
+	for _, tp := range s.peers {
+		tp.p.SetCaps(s.caps)
 	}
 	s.cp.capsChanged()
 	if !s.hasCap(capRemoteControl) {
@@ -234,7 +234,7 @@ func (s *session) switchMonitor(ctx context.Context, id int) {
 	s.src, s.monitor = src, &id
 	s.setInputMonitor()
 	s.d.UI.MonitorChanged(s.activeMonitor())
-	if s.peer != nil {
+	if s.phase == phActive {
 		s.startStream(ctx)
 	}
 	s.sendShare(ctx, "sharing")

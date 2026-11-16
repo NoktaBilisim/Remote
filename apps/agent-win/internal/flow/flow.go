@@ -31,15 +31,23 @@ type Conn interface {
 	Close() error
 }
 
-// Peer WebRTC eşi (internal/rtc.Peer).
+// Peer WebRTC eşi (internal/rtc.Peer). P28c: teknisyen başına bir tane; video izi paylaşılan Media'dan gelir.
 type Peer interface {
 	HandleOffer(sdp string) (signal.SdpAnswer, error)
 	AddRemoteICE(m signal.RemoteIce) error
 	SetICEServers(list []signal.IceServer) error
 	SendCtl(b []byte) error
 	SetCaps(caps []string)
-	Stream(ctx context.Context, src rtc.Source) error
+	// SetMain P28c: ana (kontrol sahibi) ya da düşük ize geçiş (RTPSender.ReplaceTrack + anahtar kare).
+	SetMain(main bool) error
 	Close() error
+}
+
+// Media P28c (ADR-0035) tek yakalamanın ana/düşük iz çifti (internal/rtc.Media). Yayın pompası eşten bağımsızdır.
+type Media interface {
+	Stream(ctx context.Context, src rtc.Source) error
+	// SetLow düşük kodlayıcı (≥ 1 ikincil eş varken açık).
+	SetLow(on bool)
 }
 
 // Welcome karşılama + KVKK ekranı verisi (AC-98, AC-125, AC-128).
@@ -129,6 +137,8 @@ const (
 	EvPrintReject  // PID
 	// P28e: "Kaydı durdur" (şerit ya da oturum penceresi; onaysız, geri alınamaz).
 	EvRecStop
+	// P28c AC-366: müşterinin "Çıkar"ı (onay diyaloğundan sonra; TID). Gözetimsizde yok sayılır (V-PC-5).
+	EvTechRemove
 )
 
 // Event kullanıcı olayı.
@@ -139,6 +149,7 @@ type Event struct {
 	Monitor int
 	On      bool   // EvClipConsent
 	PID     string // EvPrintApprove / EvPrintReject
+	TID     string // EvTechRemove
 }
 
 // Deps akışın bağımlılıkları.
@@ -147,10 +158,15 @@ type Deps struct {
 	API                        API
 	Dial                       func(ctx context.Context, cred signal.Credential) (Conn, error)
 	NewPeer                    func(ice []signal.IceServer, caps []string, h rtc.Handlers) (Peer, error)
-	Monitors                   func() ([]signal.Monitor, error)
-	Capture                    func(monitorID int) (rtc.Source, error)
-	DownloadDir                func() (string, error)
-	MOTW                       func(path string) error
+	// Media P28c paylaşılan ana/düşük iz çifti (NewPeer'in eşleri buna bağlıdır); nil → yayın yok (yalnız test).
+	Media Media
+	// RosterUI P28c (mimari-p28c §4.4 Y-PC-4, §11): bağlı teknisyen listesi. nil → `rs.cap.multi1` bildirilmez ve
+	// hiçbir ek teknisyenin eşi kurulmaz (çizilemeyen ad = gizli izleyici olurdu).
+	RosterUI    RosterUI
+	Monitors    func() ([]signal.Monitor, error)
+	Capture     func(monitorID int) (rtc.Source, error)
+	DownloadDir func() (string, error)
+	MOTW        func(path string) error
 	// CheckDir P27: nil değilse her dosya yazımından önce DownloadDir'in gerçek yolu denetlenir (transfer.Deps.CheckDir).
 	CheckDir func() error
 	// Logo `tenant.logoUrl`'i indirir (api.Client.Logo: yalnız gömülü sunucu kökeni, PNG/JPG, ≤ 2 MB). nil olabilir.

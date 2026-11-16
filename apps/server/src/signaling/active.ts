@@ -8,7 +8,8 @@ import { offerBinding } from "./binding.ts";
 import { capsFor, featureList, fileModeOf, guestFeatures, hasFsrv } from "./rooms-features.ts";
 import type { Rooms } from "./rooms.ts";
 import { iceServersFor, type IceGrant } from "./turn.ts";
-import type { Guest, Room } from "./types.ts";
+import type { Guest, Room, TechConn } from "./types.ts";
+import { rosterOf, sendRosterToGuest, sendTechs, techRoleOf, tidOf } from "./members.ts";
 import { recHelloGuest, recHelloTech } from "./rec.ts";
 
 const HOUR_MS = 3_600_000;
@@ -30,10 +31,14 @@ function grant(rooms: Rooms, room: Room, fresh = false): IceGrant {
   return g;
 }
 
-/** Teknisyen hello'su: PENDING'de iceServers boş + maxEndsAt null (TURN yalnız admit sonrası). */
-export function sendHelloTech(rooms: Rooms, room: Room): void {
+/**
+ * Teknisyen hello'su: PENDING'de iceServers boş + maxEndsAt null (TURN yalnız admit sonrası). P28c: `conn` verilirse o sokete
+ * (üye); `tid`, `techRole`, `roster` her teknisyene (§4.4).
+ */
+export function sendHelloTech(rooms: Rooms, room: Room, conn: TechConn | undefined = room.tech): void {
   const g = room.admitted;
-  room.tech?.peer.send({
+  if (!conn) return;
+  conn.peer.send({
     t: "hello",
     role: "tech",
     sessionId: room.sessionId,
@@ -47,7 +52,10 @@ export function sendHelloTech(rooms: Rooms, room: Room): void {
     ...unattendedHello(rooms, room),
     ...(g ? { fileMode: fileModeOf(room) } : {}), // P28b §5.1: teknisyene her zaman (admit sonrası)
     ...clipPrintFields(room),
-    ...recHelloTech(rooms, room), // P28e §6.2: kayıt durumu; kaydediciye yeni belirteç
+    ...recHelloTech(rooms, room, conn), // P28e §6.2: kayıt durumu; kaydediciye yeni belirteç
+    tid: tidOf(room, conn.userId),
+    techRole: techRoleOf(room, conn),
+    roster: rosterOf(room),
   });
 }
 
@@ -97,12 +105,14 @@ export function sendHelloGuest(rooms: Rooms, room: Room, guest: Guest): void {
     reconnectToken: token,
     ...recHelloGuest(rooms, room, guest), // P28e §6.2: rıza penceresi + `rec1` sokete kayıt durumu
   });
+  room.multi.guestMulti = guest.peer?.multi === true;
+  sendRosterToGuest(room); // P28c §4.4: multi1 misafire hello'nun hemen ardından
   offerBinding(rooms, guest);
 }
 
 /** Teknisyene misafir katıldı (admit ve misafir yeniden bağlanması): ad + ACTIVE bitiş zamanı (TEST-P4-2). */
 export function sendGuestJoined(room: Room, guest: Guest): void {
-  room.tech?.peer.send({
+  sendTechs(room, {
     t: "peer.joined",
     role: "guest",
     guestKind: guest.kind,
@@ -123,7 +133,7 @@ function scheduleIceRefresh(rooms: Rooms, room: Room): void {
     () => {
       if (!rooms.live(room)) return;
       const { iceServers } = grant(rooms, room, true);
-      room.tech?.peer.send({ t: "ice.servers", iceServers });
+      sendTechs(room, { t: "ice.servers", iceServers });
       room.admitted?.peer?.send({ t: "ice.servers", iceServers });
       scheduleIceRefresh(rooms, room);
     },
@@ -138,13 +148,14 @@ function scheduleIceRefresh(rooms: Rooms, room: Room): void {
  */
 export function scheduleActive(rooms: Rooms, room: Room, guest: Guest, consumedAt: number, maxHours: number): void {
   room.maxEndsAt = consumedAt + maxHours * HOUR_MS;
+  room.multi.startedAt = consumedAt;
   const now = rooms.clock.now();
   const warnAt = room.maxEndsAt - rooms.timing.warnBeforeMs;
   room.timers.warn = rooms.clock.setTimeout(
     () => {
       if (!rooms.live(room) || room.maxEndsAt === undefined) return;
       const msg = { t: "session.warning", kind: "max_duration_5min", endsAt: iso(room.maxEndsAt) } as const;
-      room.tech?.peer.send(msg);
+      sendTechs(room, msg);
       room.admitted?.peer?.send(msg);
     },
     Math.max(0, warnAt - now),

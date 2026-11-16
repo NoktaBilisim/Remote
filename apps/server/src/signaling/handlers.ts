@@ -14,6 +14,9 @@ import {
   WS_MAX_PAYLOAD,
 } from "@remote/contracts/ws";
 import type { z } from "zod";
+import { seatMay } from "@remote/contracts/ws-multi";
+import { handleHandover, handleMemberLeave, handleTechRemove, handleTransfer, relayGuestToTech, relayTechToGuest } from "./member-cmds.ts";
+import { controllerOf, logOnce, seatOf, sendTechs, type Seat } from "./members.ts";
 import { admitGuest, rejectGuest } from "./admit.ts";
 import { handleFileMeta, handleQualitySummary } from "./collab.ts";
 import {
@@ -108,31 +111,42 @@ export async function onTechMessage(
   data: Buffer,
   isBinary: boolean,
 ): Promise<void> {
-  const tech = room.tech;
-  if (!rooms.live(room) || tech?.peer !== peer) return;
+  const seat = rooms.live(room) ? seatOf(room, peer) : null;
+  if (!seat) return;
+  const tech = seat.conn;
   const m = parseFrame(rooms, peer, bucket, techInboundSchema, data, isBinary);
   if (!m) return;
+  // P28c (§4.4, D-PC-6): rol kapısı her teknisyen mesajından önce, varsayılan-ret.
+  if (!seatMay(m.t, { owner: seat.owner, controller: controllerOf(room) === tech })) return roleDenied(rooms, room, tech, m.t);
   if ((m.t === "guest.admit" || m.t === "guest.reject") && room.requestId && !room.acceptCode) {
     // P8b §5.2 adım 5: talep oturumunda lobi yok.
     tech.peer.send({ t: "error", code: "CONFLICT", message: "Talep oturumunda lobi yok; müşteri onayıyla otomatik bağlanır." });
     return;
   }
-  if (relayToGuest(room, m)) return;
+  if (m.t === "sdp.offer" || m.t === "ice" || m.t === "ice.restart") return relayTechToGuest(room, seat, m);
+  if (await multiAction(rooms, room, seat, m)) return;
   await techAction(rooms, room, tech, peer, m);
 }
 
-/** Teknisyen → misafir SDP/ICE iletimi (alanlar yeniden kurulur). İletim mesajı değilse false. */
-function relayToGuest(room: Room, m: TechMsg): boolean {
-  const guest = room.admitted?.peer;
+/** Rol kapısı reddi: `error{FORBIDDEN}` + `rs_multi_denied_total{type}`; log oda başına dakikada 1. */
+function roleDenied(rooms: Rooms, room: Room, tech: TechConn, type: string): void {
+  tech.peer.send({ t: "error", code: "FORBIDDEN", message: "Yalnız kontrol sahibi kullanabilir." });
+  rooms.metrics.inc("rs_multi_denied_total", { type });
+  if (logOnce(room, "denied", rooms.clock.now()))
+    rooms.log.info({ event: "multi_role_denied", type, sessionId: room.sessionId }, "rol kapısı mesajı reddetti");
+}
+
+/** P28c teknisyen komutları (§5.1–§5.4). */
+async function multiAction(rooms: Rooms, room: Room, seat: Seat, m: TechMsg): Promise<boolean> {
   switch (m.t) {
-    case "sdp.offer":
-      guest?.send({ t: "sdp.offer", sdp: m.sdp });
+    case "control.handover":
+      handleHandover(rooms, room, seat, m.to);
       return true;
-    case "ice":
-      guest?.send(iceOut(m));
+    case "session.transfer":
+      await handleTransfer(rooms, room, seat, m.to);
       return true;
-    case "ice.restart":
-      guest?.send({ t: "ice.restart" });
+    case "member.leave":
+      handleMemberLeave(rooms, room, seat);
       return true;
     default:
       return false;
@@ -222,6 +236,7 @@ export async function onGuestMessage(
     peer.features ?? NO_FEATURES,
     room.fileMode === "SERVER" && hasFsrv(room, peer),
     peer.rec === true && !room.unattended,
+    peer.multi === true, // P28c §4.4: `to`'lu sdp.answer/ice + tech.remove yalnız multi1 sokette
   );
   const m = parseFrame(rooms, peer, bucket, schema, data, isBinary, (json) => {
     // P20 (protokol §6.1): zarfı geçerli `binding.request`te previousKey + previousKeys → error VALIDATION, soket açık.
@@ -243,13 +258,13 @@ export async function onGuestMessage(
 }
 
 async function guestAction(rooms: Rooms, room: Room, guest: Guest, peer: Peer, m: GuestMsg): Promise<void> {
-  const tech = room.tech?.peer;
   switch (m.t) {
     case "sdp.answer":
-      tech?.send({ t: "sdp.answer", sdp: m.sdp });
-      return;
     case "ice":
-      tech?.send(iceOut(m));
+      relayGuestToTech(rooms, room, m);
+      return;
+    case "tech.remove":
+      handleTechRemove(rooms, room, guest, peer, m.tid);
       return;
     case "share.state":
       await onShareState(rooms, room, guest, m);
@@ -319,7 +334,7 @@ async function onShareState(rooms: Rooms, room: Room, guest: Guest, m: Extract<G
 export function relayShareState(rooms: Rooms, room: Room): void {
   const send = (): void => {
     room.shareSentAt = rooms.clock.now();
-    if (room.share) room.tech?.peer.send({ t: "share.state", ...room.share });
+    if (room.share) sendTechs(room, { t: "share.state", ...room.share });
   };
   const wait = room.shareSentAt === undefined ? 0 : room.shareSentAt + SHARE_STATE_MIN_INTERVAL_MS - rooms.clock.now();
   if (wait <= 0 && room.timers.share === undefined) return send();
@@ -332,11 +347,3 @@ export function relayShareState(rooms: Rooms, room: Room): void {
     Math.max(wait, 0),
   );
 }
-
-const iceOut = (m: { candidate: string; sdpMid?: string | undefined; sdpMLineIndex?: number | undefined }) =>
-  ({
-    t: "ice",
-    candidate: m.candidate,
-    ...(m.sdpMid !== undefined ? { sdpMid: m.sdpMid } : {}),
-    ...(m.sdpMLineIndex !== undefined ? { sdpMLineIndex: m.sdpMLineIndex } : {}),
-  }) as const;

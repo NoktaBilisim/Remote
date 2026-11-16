@@ -21,6 +21,7 @@ import type { JsonObject } from "../audit/mask.ts";
 import { printDone } from "../fsrv/lifecycle.ts";
 import { writeAudit, type AuditContext } from "../audit/service.ts";
 import { CUSTOMER, guestCtx, logFail, SYSTEM, SYSTEM_CTX } from "./control-record.ts";
+import { controllerOf, sendController } from "./members.ts";
 import type { Rooms } from "./rooms.ts";
 import { guestFeatures, hasFsrv } from "./rooms-features.ts";
 import type { ClipPrintActor, ClipPrintRoom, Guest, Room, TechConn } from "./types.ts";
@@ -67,7 +68,7 @@ function refuse(rooms: Rooms, room: Room, tech: TechConn, kind: Kind, d: Denial)
  */
 export function actorMay(room: Room, tech: TechConn, feature: GuestFeature): boolean {
   const perm = feature === "clipboard" ? "remote_control.clipboard" : "file_transfer.print";
-  return room.tech === tech && tech.permissions.has(perm) && room.caps.includes(feature);
+  return controllerOf(room) === tech && tech.permissions.has(perm) && room.caps.includes(feature);
 }
 
 /** Ortak kapı adımları (§4.3): misafir → özellik → kontrol izni. */
@@ -148,7 +149,7 @@ function finishClip(rooms: Rooms, room: Room, result: ClipResult, bytes: number,
   cp.clipPending = null;
   rooms.clock.clearTimeout(p.timer);
   rooms.metrics.inc("rs_clipboard_transfer_total", { direction: p.dir, result });
-  room.tech?.peer.send({ t: "clip.status", cid: p.cid, result, bytes });
+  sendController(room, { t: "clip.status", cid: p.cid, result, bytes });
   void audit(
     rooms,
     room,
@@ -199,7 +200,7 @@ export function handleClipConsent(rooms: Rooms, room: Room, guest: Guest, on: bo
   }
   cp.consent = on;
   cp.consentTimes.push(now);
-  room.tech?.peer.send({ t: "clip.consent", on });
+  sendController(room, { t: "clip.consent", on });
   void audit(rooms, room, guestCtx(guest), CUSTOMER, {
     action: CLIP_PRINT_AUDIT.CLIPBOARD_CONSENT,
     ok: true,
@@ -213,7 +214,7 @@ function closeConsent(rooms: Rooms, room: Room, reason: ClipConsentReason, notif
   if (!cp.consent) return;
   cp.consent = false;
   if (notifyGuest) room.admitted?.peer?.send({ t: "clip.consent", on: false });
-  room.tech?.peer.send({ t: "clip.consent", on: false });
+  sendController(room, { t: "clip.consent", on: false });
   void audit(rooms, room, SYSTEM_CTX, SYSTEM, {
     action: CLIP_PRINT_AUDIT.CLIPBOARD_CONSENT,
     ok: true,
@@ -258,7 +259,7 @@ export function handlePrintRequest(rooms: Rooms, room: Room, tech: TechConn, m: 
 /** print.cancel (tech → S → guest): yalnız bekleyen pid'e iletilir; sonucu misafirin `print.report{CANCELLED}`'ı kapatır. */
 export function handlePrintCancel(rooms: Rooms, room: Room, tech: TechConn, pid: string): void {
   const p = room.clipPrint.printPending;
-  if (room.tech !== tech || p?.pid !== pid) return noteDenied(rooms, room, "print", "unmatched_cancel");
+  if (controllerOf(room) !== tech || p?.pid !== pid) return noteDenied(rooms, room, "print", "unmatched_cancel");
   room.admitted?.peer?.send({ t: "print.cancel", pid });
 }
 
@@ -273,7 +274,7 @@ function finishPrint(rooms: Rooms, room: Room, o: PrintOutcome): void {
   rooms.clock.clearTimeout(p.timer);
   if (o.decision === "REJECTED" || o.decision === "TIMEOUT") cp.printCooldownUntil = rooms.clock.now() + PRINT_DENY_COOLDOWN_MS;
   rooms.metrics.inc("rs_print_job_total", { result: o.result });
-  room.tech?.peer.send({ t: "print.status", pid: p.pid, result: o.result, ...(o.pages !== undefined ? { pages: o.pages } : {}) });
+  sendController(room, { t: "print.status", pid: p.pid, result: o.result, ...(o.pages !== undefined ? { pages: o.pages } : {}) });
   void audit(
     rooms,
     room,

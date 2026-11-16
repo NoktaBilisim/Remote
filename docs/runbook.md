@@ -4234,3 +4234,191 @@ Olay günlüğü filtresi (1009 eklendi):
 Geri alma: ayarda kaydı kapat (açık kayıtlar `policy_off`) → önceki `IMAGE_TAG` → tablolar kalır (expand; eski sunucu kullanmaz). Migration
 down yalnız kayıt/rıza verisi yokken mümkün (guard 3819; rıza satırı KVKK delili). 0.16.0 servis/istemci eski sunucuyla kayıtsız çalışır —
 ikili geri alınmaz. Prod: P28 sonu (`v0.16.0`, §24.4 onay listesi "0.16.0 → P28e" + Windows kayıt elle turu).
+
+## 28c. P28c — çoklu teknisyen (davet, İzle, devir), istemci/yardımcı 0.17.0 (devops K4, 2026-11-16; mimari-p28c r2 §6.1, §7, §8, §9, §12, §13 K4; ADR-0035; AC-364..372)
+
+Kapsam: oturum sahibi aynı firmadan teknisyen davet eder, `sessions.supervise` sahibi etkin oturumu "İzle" ile izleyici olarak
+açar, sahip kontrolü ya da oturumu devreder; müşteri tüm teknisyenleri adıyla görür ve sahip dışındakileri "Çıkar" ile çıkarır. Mesh:
+müşteri her teknisyene ayrı akış yükler (kontrol sahibine ana, diğerlerine tavanlı düşük akış). **Yeni env değişkeni yok, migration
+yok, yeni tablo yok** (`check-app-grants` değişmez). Sabitler `packages/contracts/src/ws-multi.ts`: `MAX_TECHS = 3` (sahip dahil),
+`INVITE_TTL_MS = 120000` (davet 2 dk), `MEMBER_RESERVE_MS = 60000` (kabul/İzle sonrası koltuk 60 sn ayrılı), `MEMBER_GRACE_MS =
+120000` (kopan üyeye 120 sn dönüş), `MULTI_JOIN_PER_MIN = 20` (kabul/İzle, kullanıcı başına), `MULTI_POLL_PER_MIN = 60`,
+`MULTI_ROOM_CMDS_PER_MIN = 10`, `LOW_FPS = 8` (taban 5), `LOW_BPS = 1000000`. Değiştirmek kod değişikliği + yayın gerektirir.
+
+### 28c.1 Yeni yetkiler (Kullanıcılar → kullanıcı → "Oturumlar" grubu)
+
+| Anahtar              | Anlam                                                                                  | Varsayılan              |
+| -------------------- | -------------------------------------------------------------------------------------- | ----------------------- |
+| `sessions.invite`    | Etkin oturuma aynı firmadan teknisyen davet et; kontrolü / oturumu devret (sahipken)   | Admin açık, User kapalı |
+| `sessions.supervise` | Firmanın etkin oturumlarını izleyici olarak "İzle" (hassas — uyarı tonuyla gösterilir) | Admin açık, User kapalı |
+
+- Davet, kabul ve İzle için **2FA kurulu olmalı** (yoksa 403 `MFA_SETUP_REQUIRED`, konsol "Önce 2FA kurun"); kabul/İzle step-up ister.
+- Gözetimsiz odada ek olarak cihaz yetkisi gerekir; **izinsiz (`silent`) odaya** katılan/izleyenin `unattended.silent` yetkisi de olmalı
+  ve 20–500 karakter **gerekçe** yazması zorunludur (yalnız audit'te). İzinli (`asked`) gözetimsiz odada ek katılım **kapalıdır**
+  (409 `JOIN_NOT_ALLOWED`, düğmeler pasif + neden).
+- Yetki geri alındığında / kullanıcı pasife alındığında / şifre değiştiğinde üye odadan ≤ 5 sn (anlık) ya da ≤ 60 sn (yedek döngü)
+  içinde düşer; **oda yalnız sahip için biter**.
+- Eski istemci (0.16.x ve öncesi, `rs.cap.multi1` bildirmez): "Davet et" ve "İzle" pasif, AC-352 metniyle açıklanır (AC-372).
+
+### 28c.2 Audit (AC-370) ve sorgu
+
+Audit süzgecinde "Çoklu teknisyen" grubu: `session.invite`, `session.invite_accept`, `session.invite_reject`, `session.invite_expire`
+(`reason`: `timeout` / `session_end` / `revoked`), `session.participant_join`, `session.participant_leave`, `session.participant_remove`
+(müşteri çıkardı), `session.supervise_join`, `session.control_handover`, `session.transfer`. `entity = support_sessions`,
+`entity_id = sessionId`. Sohbet içeriği yazılmaz. Silent odaya katılımda ve devirde P28u dört göz e-postası `unattended.silent.notify`
+(`event: join | transfer`) gider; gitmezse mevcut `unattended-notify-fail` alarmı (§28u.6) çalar — yeni alarm yok.
+
+### 28c.3 Hız sınırları (429 `RATE_LIMITED`)
+
+Kabul / İzle kullanıcı başına 20/dk; davet / etkin oturum yoklaması 60/dk/kullanıcı (panel 5 sn ve 10 sn yoklar — iki sekme açık bir
+kullanıcı sınırın altında kalır); oda içi komutlar (devir, çıkarma) oda başına 10/dk. Başarısız İzle/kabul/davet `fail` audit'i aynı
+(kullanıcı, oturum, kod) için dakikada en çok 1. 429 şikâyetinde önce açık sekme sayısı ve tarayıcı eklentisi (otomatik yenileme) sorulur.
+
+### 28c.4 Davet / katılım sorun giderme
+
+| Belirti                                                 | Neden / eylem                                                                                                                           |
+| ------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
+| "Oturum dolu" (409 `SESSION_FULL`)                      | Sahip + 2 üye (ya da bekleyen davet/60 sn rezervasyon) dolu. Sahip daveti geri çeker ya da üye ayrılır; rezervasyon 60 sn'de düşer      |
+| "Davet artık geçerli değil" (410 `INVITE_GONE`)         | 2 dk doldu, sahip geri çekti ya da oturum bitti. Yeni davet istenir                                                                     |
+| Davet/İzle düğmesi pasif, "istemci desteklemiyor"       | Müşteri 0.16.x ve öncesi; istemcinin 0.17.0'a güncellenmesi (Hızlı Destek yeniden indirilir; servis "Güncelle…", §28u.5)                |
+| Davet/İzle pasif, "İzinli gözetimsiz bağlantı"          | Tasarım gereği (`asked` kipinde ek teknisyen yok)                                                                                       |
+| Kabulde gerekçe isteniyor                               | Oda izinsiz (`silent`); 20–500 karakter gerekçe zorunlu                                                                                 |
+| Teknisyen soketi 4403 "removed" ile kapandı             | Müşteri "Çıkar"a bastı ya da yetki düştü; audit `session.participant_remove` / `participant_leave{reason}`                              |
+| Üye ekranı donuk / düşük kalite                         | Beklenen: kontrol sahibi dışındakiler tavanlı düşük akış alır (≤ 8 FPS, 1 Mbit/s). Kontrol devriyle ana akış yer değiştirir             |
+| Müşteri listesinde ad yok ama teknisyen bağlı görünüyor | Olmamalı (gizli izleyici yok, Y-PC-4): misafir roster'da adı çizilmemiş teknisyenin bağlantısını kurmaz. Hata olarak güvenliğe bildirin |
+
+### 28c.5 Metrikler (`/metrics`, Bearer `METRICS_TOKEN`; tenant etiketi yok)
+
+| Metrik                                                              | Tür      | Anlam                                                                                                |
+| ------------------------------------------------------------------- | -------- | ---------------------------------------------------------------------------------------------------- |
+| `rs_multi_invites_total{result: sent\|accepted\|rejected\|expired}` | sayaç    | Davet akışı. `rejected`/`expired` oranı yüksekse davetliler bildirimi görmüyor olabilir (elle bakış) |
+| `rs_multi_members{role}`                                            | gösterge | Anlık üye sayısı (participant / observer)                                                            |
+| `rs_multi_denied_total{type}`                                       | sayaç    | Rol kapısı (varsayılan-ret) reddettiği teknisyen mesajları, mesaj tipine göre. Alarm §28c.6          |
+
+```bash
+docker compose exec -T server node -e "fetch('http://127.0.0.1:3001/metrics',{headers:{authorization:'Bearer '+process.env.METRICS_TOKEN}}).then(r=>r.text()).then(t=>console.log(t.split('\n').filter(l=>/^rs_multi_/.test(l)).join('\n')))"
+```
+
+### 28c.6 Alarm (`remote-watch`, 10 dk; eşik `deploy/ops/remote-watch.sh`)
+
+Server P28c öncesiyse (`rs_multi_denied_total` yok) değerlendirilmez. Betik değişti → `cd /opt/remote/deploy/ops && ./remote-watch.sh
+install` (ikinci yığında ayrıca `install stg`). Test: `deploy/ops/test-watch.sh` (P28c bölümü + ad eşlemesi: betikteki `rs_multi_*` adı
+`apps/server/src/ops/metrics.ts`'te birebir olmalı).
+
+| Kontrol        | Koşul                                                                                            | Düzey | Eylem                                                                                                                                                                                                                                                                                                      |
+| -------------- | ------------------------------------------------------------------------------------------------ | ----- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `multi-denied` | 1 sa'te `rs_multi_denied_total` (bütün `type`) artışı > 20 (`WATCH_MULTI_DENIED_MAX`, watch.env) | Uyarı | Konsol yetkisiz mesajı arayüzde göndermez → ret = rol yükseltme denemesi (izleyici/katılımcı girdi, dosya, pano gönderiyor) ya da web/sunucu sürüm uyuşmazlığı. Hangi `type` arttı (§28c.5 komutu) → server logu (rol kapısı reddi, oda başına 1/dk; tid/sessionId; `docker compose logs --since 1h server | grep -i denied`) → audit'ten kullanıcı. Kasıt şüphesinde kullanıcının oturumlarını sonlandır + `sessions.invite/supervise` kapat; yayın sonrası başladıysa geri alma (§28c.10) |
+
+Davet reddi/süre dolumu ve üye sayısı için alarm yoktur (kullanıcı davranışı); elle bakış §28c.5.
+
+### 28c.7 Windows elle turu (Windows 10 + 11; CI'da koşamayanlar)
+
+CI (`agent-win.yml` → `test-windows`): "P28c çoklu teknisyen testleri (-v)" adımı adında `P28c` geçen Go testlerini koşar, listedekiler
+**zorunlu PASS** (K0 sözleşme testleri; K3 kendi adlarını ekler). Elle (staging adresli 0.17.0, §28c.9; üç teknisyen hesabı: A sahip, B,
+C aynı firmada, 2FA kurulu, `sessions.invite` A'da, `sessions.supervise` C'de; sonuç `docs/test-raporu.md`'ye, Windows sürümüyle):
+
+**Hızlı Destek istemcisi (müşteri):**
+
+1. **Davet:** A oturumdayken B'yi davet eder → B panelinde ≤ 5 sn bildirim; kabul → müşteri ekranında teknisyen listesi "A — Kontrol
+   sahibi", "B — Katılımcı" ≤ 2 sn'de. Reddet → A'da "reddedildi". 2 dk beklet → davet düşer (`session.invite_expire{timeout}`).
+2. **İzle:** C "Etkin oturumlar"dan İzle → müşteride "C — İzleyici". C'nin konsolunda kontrol, sohbete yazma, dosya, pano, yazdırma,
+   işaretleme yok/pasif; DevTools'tan elle gönderilen `input` sunucuda reddedilir (`rs_multi_denied_total{type="input"}` artar).
+3. Dördüncü teknisyen (davet ya da İzle) → "Oturum dolu".
+4. **Kontrol devri:** A → B "Kontrolü devret": müşteride B "Kontrol sahibi", izin VIEW'a döner, B izni yeniden ister (AC-99). A'nın
+   görüntüsü düşük akışa geçer, B'ninki ana akışa (§28c.8 ile ölçülür). A geri alır → tersine döner.
+5. **Oturum devri:** A → B "Oturumu devret": B sahip olur; geçmişte tüm katılımcılar + devir zamanı (AC-369). A ayrılır, oda sürer.
+6. **Müşteri listesi + Çıkar:** müşteri B'yi "Çıkar" → B konsolu 4403 "removed" ile kapanır, liste ≤ 2 sn'de güncellenir; sahibin yanında
+   "Çıkar" yok. Sohbet: B'nin mesajı müşteride ve C'de B adıyla, müşterininki herkeste görünür.
+7. Sahip devretmeden "Oturumu bitir" → tüm üyeler düşer.
+8. %150 DPI ve koyu/açık tema: teknisyen listesi uzun adlarda (100 karakter) taşmıyor.
+
+**Servis + yardımcı (gözetimsiz):**
+
+9. `no_user` / `silent` cihazda İzle ve davet çalışır; **gösterge metni tüm adları listeler** ("Uzaktan izleniyor — A, C"), her monitörde;
+   yeni ad çizilmeden yeni teknisyenin görüntüsü başlamaz (iz: C'nin konsolunda görüntü, gösterge adından **sonra** gelir).
+10. **Silent odaya katılım:** kabul/İzle'de gerekçe kutusu (20–500); boş ya da 19 karakter → hata; geçerli gerekçe → katılım + **dört göz
+    e-postası** "katılım" (P28u alıcıları) gelir; oturum devrinde "devir" e-postası. Audit `unattended.silent.notify{event:"join"|"transfer"}`.
+11. **Asked odada kapalı:** izinli (`asked`) gözetimsiz oturumda "Davet et" ve "İzle" pasif + neden; API'den zorlanırsa 409 `JOIN_NOT_ALLOWED`.
+12. Cihaz kullanıcısında "Çıkar" yok (gözetimsiz); müdahale (kilit, oturum kapatma) yalnız kontrol sahibinde.
+13. Eski servis (0.16.x): Davet/İzle pasif (AC-372).
+
+### 28c.8 AC-371 elle ölçümü (staging; test-operatoru + kullanıcı Windows)
+
+Hedef: 3 teknisyenli oturumda, müşteri yüklemesi **10 Mbit/s** iken kontrol sahibinde **≥ 15 FPS** (AC-41), diğer iki teknisyende **≥ 5 FPS**;
+bant yetmezse önce izleyici kalitesi düşer. Sunucu medya taşımaz (mesh) → **şekillendirme sunucuda değil, müşteri makinesinin çıkışında**
+yapılır.
+
+**Ortam:**
+
+- Müşteri: Windows 10/11, **1920×1080**, gerçek ağ yükleme hızı ≥ 10 Mbit/s (önce speedtest ile; altındaysa ölçüm geçersiz).
+- Teknisyenler A (sahip), B (katılımcı), C (izleyici): ayrı makineler, Chrome, indirme ≥ 10 Mbit/s.
+- **Ekran içeriği sürekli hareketli** olmalı (durağan ekranda FPS anlamsız düşer): müşteride tam ekran 1080p video (ör. yerel bir mp4,
+  döngüde) ya da tarayıcıda sürekli kayan bir sayfa. Aynı içerik her turda kullanılır.
+
+**Yükleme şekillendirme (müşteri Windows, yönetici PowerShell) — DENENMEDİ, test-operatoru ilk koşuda doğrular:**
+
+```powershell
+# Hızlı Destek istemcisi için 10 Mbit/s çıkış tavanı (politika tabanlı QoS; UDP dahil uygulama yolu eşleşmesi)
+New-NetQosPolicy -Name AC371 -AppPathNameMatchCondition 'NoktaDestek.exe' -ThrottleRateActionBitsPerSecond 10000000 -PolicyStore ActiveStore
+# Tarayıcı misafir turu için aynı politikayı chrome.exe ile kurun (önce AC371'i kaldırın):
+#   New-NetQosPolicy -Name AC371 -AppPathNameMatchCondition 'chrome.exe' -ThrottleRateActionBitsPerSecond 10000000 -PolicyStore ActiveStore
+Get-NetQosPolicy -PolicyStore ActiveStore
+# Bitince:
+Remove-NetQosPolicy -Name AC371 -PolicyStore ActiveStore -Confirm:$false
+```
+
+`ActiveStore` yeniden başlatmada silinir (kalıcı iz bırakmaz). **Tavanın gerçekten uygulandığı doğrulanır:** 3 teknisyen bağlıyken
+Görev Yöneticisi → Performans → Ethernet/Wi-Fi "Gönder" ≤ ~10 Mbit/s olmalı; politikayı kaldırınca 10'u aşabilmeli (yük hem ana hem iki
+düşük akışla ≈ 6,7 Mbit/s hedefli olduğundan aşmayabilir — bu durumda tavanı 5 Mbit/s'e indirip "önce izleyici düşer" davranışı
+ayrıca gözlenir). QoS politikası çalışmazsa alternatif: müşteri ile internet arasında Linux köprü/yönlendirici üzerinde
+`tc qdisc add dev <çıkış> root tbf rate 10mbit burst 32kbit latency 50ms` (bitince `tc qdisc del dev <çıkış> root`), ya da pfSense limiter.
+
+**Ölçüm (her teknisyen tarayıcısında ayrı):**
+
+1. Oturumu kur, B'yi davet et, C İzle; hareketli içeriği başlat; **30 sn ısınma** bekle.
+2. Her teknisyende `chrome://webrtc-internals` → oturumun PeerConnection'ı → `inbound-rtp` (kind=video) → **`framesPerSecond`** grafiği;
+   **en az 60 sn** gözle, ortalama ve en düşük değeri yaz. Ek alanlar: `frameWidth`/`frameHeight`, `bytesReceived` hızı (≈ bit hızı),
+   `framesDropped`, `jitter`. Aday çift türü (`candidate-pair` seçili: `host`/`srflx`/`relay`) not edilir. Konsol kalite paneli (getStats
+   FPS) aynı değeri göstermeli — farklıysa ikisi de yazılır.
+3. Müşteri tarafı (tarayıcı misafir turunda): `chrome://webrtc-internals` → üç `outbound-rtp` video; ana gönderici sınırsız, ikinciller
+   `maxFramerate 8`, `maxBitrate 1000000` (parametreler `getParameters` ile ya da `framesPerSecond` ≤ 8).
+4. **Kontrol devri sonrası yeniden ölç:** A → B kontrol devri; 30 sn bekle; B ≥ 15 FPS, A ve C ≥ 5 FPS olmalı.
+5. Turlar: (a) Go istemci (Hızlı Destek 0.17.0), (b) tarayıcı misafir, (c) gözetimsiz servis (`no_user`). Her tur ayrı satır.
+
+**Kayıt** (`docs/test-raporu.md`, AC-371): tarih, Windows sürümü, müşteri ağı (ölçülen yükleme), tavan yöntemi ve doğrulaması, tur,
+teknisyen başına rol / ort. FPS / en düşük FPS / çözünürlük / ≈ bit hızı / aday türü, devir öncesi-sonrası. Geçme ölçütü yalnız
+AC-371'dir (sahip ≥ 15, diğerleri ≥ 5); başarısızlık R43 notuyla mimara gider (SFU/simulcast "Sonra" kararı).
+
+### 28c.9 Staging yayını (koordinatör uygular; sıra bağlayıcı)
+
+Ön koşul: P28c qa GEÇTİ + güvenlik Kritik/Yüksek 0; `ci` (test-watch, shellcheck, actionlint dahil) ve `agent-win` (P28c adımı dahil) yeşil.
+Staging tek yığın `/opt/remote/deploy`.
+
+1. **Sunucu önce** (0.17.0 istemci eski sunucuda tek teknisyenle çalışır — sunucu bilinmeyen `rs.cap.*` belirtecini yok sayar, P28e
+   kalıbı; sunucu önce gelirse davet/İzle yolu hazır olur): §25.2 akışı — ön yedek → `git pull` → `IMAGE_TAG` →
+   `docker compose build && docker compose up -d`. **Migration yok:** `docker compose logs --since 5m migrate` → "No pending migrations"
+   (yeni migration adı görünmemeli). `check-app-grants.sh` **değişmez**: P28e'deki sonuçla aynı (**873/873 PASS**, tetikleyici 23) beklenir;
+   sayı değiştiyse dur, db-notlari'na bak. `systemctl start remote-backup.service` → `audit-continuity ok`.
+2. Caddy / host nginx **değişmedi** (yeni yol yok; WS ve REST mevcut önekte) — yeniden yaratma gerekmez.
+3. İzleme: `cd ops && ./remote-watch.sh install` → `systemctl start remote-watch.service; journalctl -u remote-watch -n 5` → `OK`,
+   `status.prom`'da `check="multi-denied"} 1`.
+4. **Servis + istemci 0.17.0:** §28u.9 adım 3 komutu, yalnız `VER=0.17.0` (temiz ağaç; ikinci koşuyla SHA tekrarlanabilirliği). Servis:
+   `ALLOW_UNATTESTED=staging deploy/agent/publish-servis.sh --dir "$OUT/servis" --no-attestation --ssh root@185.126.217.99 --deploy-dir /opt/remote/deploy`
+   → `kontrol: server UNATTENDED_AGENT_PATH SHA-256 = UNATTENDED_AGENT_SHA256 = <sha>`.
+5. **İstemci exe (S13C-13):** tek yığın staging `--dir` yayınını reddeder → `$OUT/istemci/NoktaDestek.exe` test için **doğrudan teslim**
+   (0.17.0'da istemci yeniliği: `rs.cap.multi1`, eş haritası, iki kodlayıcı, teknisyen listesi + Çıkar). `/downloads/NoktaDestek.exe`
+   P28 sonu `v0.17.0` Release ile güncellenir (§24.4).
+6. `MIN_AGENT_VERSION` **yükseltilmez** (eski istemcide davet/İzle yalnız pasif). Staging test VM'lerinde servis "Güncelle…" (§28u.5) →
+   Windows elle turu (§28c.7) ve AC-371 ölçümü (§28c.8) test-operatoru.
+7. §8 yayın geçmişine satır: tarih, P28c, commit, migration "yok", servis + istemci 0.17.0 SHA-256'ları, `check-app-grants` 873/873.
+
+### 28c.10 Geri alma
+
+- **Yalnız ikili geri alma** (migration ve veri yok): önceki `IMAGE_TAG` → `docker compose up -d`. Açık çok teknisyenli odalar sunucu
+  yeniden başlarken düşer (tüm oturumlar gibi); yeniden bağlananlar tek teknisyenle sürer.
+- Hızlı kapatma (ikili değiştirmeden): ilgili kullanıcılardan `sessions.invite` ve `sessions.supervise` kapatılır — üyeler ≤ 5 sn'de düşer,
+  yeni davet/İzle yapılamaz.
+- 0.17.0 servis/istemci eski sunucuyla tek teknisyen olarak çalışır (sunucu `rs.cap.multi1`'i yok sayar, roster göndermez) — **ikili geri
+  alınmaz**. Geri almadan sonra staging'de bir Hızlı Destek + bir gözetimsiz oturum açılarak doğrulanır.
+- Audit satırları (`session.invite*`, `participant_*`) kalır; eski sunucu okumaz ama audit ekranı eylem adını ham gösterir.
+- Prod: P28 sonu (`v0.17.0`, §24.4 onay listesi "0.17.0 → P28c, migration yok" + Windows çoklu teknisyen elle turu + AC-371 ölçümü).

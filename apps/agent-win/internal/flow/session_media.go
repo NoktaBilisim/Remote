@@ -147,16 +147,16 @@ func (s *session) sendShareMsg(ctx context.Context, m signal.ShareState) {
 
 func (s *session) startStream(ctx context.Context) {
 	s.stopStream()
-	if s.rec.paused { // P28e S-P28e-2: kayıt durdurulamadı → `off` gelene kadar görüntü gönderilmez
+	if s.rec.paused || s.d.Media == nil { // P28e S-P28e-2: kayıt durdurulamadı → `off` gelene kadar görüntü gönderilmez
 		return
 	}
 	cx, cancel := context.WithCancel(ctx)
 	done := make(chan struct{})
 	s.streamCx, s.streamDn = cancel, done
-	p, src := s.peer, s.src
+	m, src := s.d.Media, s.src
 	go func() {
 		defer close(done)
-		err := p.Stream(cx, src)
+		err := m.Stream(cx, src) // P28c: yayın eşten bağımsız (ana/düşük iz; eş kapanınca durmaz)
 		if err != nil && cx.Err() == nil {
 			select {
 			case s.shareErr <- err:
@@ -175,39 +175,33 @@ func (s *session) stopStream() {
 	}
 }
 
-func (s *session) dropPeer() {
+// dropPeers yayını durdurur ve tüm eşleri kapatır (yeniden bağlanma, yeni hello, oturum sonu).
+func (s *session) dropPeers() {
 	s.stopStream()
-	if s.peer != nil {
-		_ = s.peer.Close()
-		s.peer = nil
+	for tid, tp := range s.peers {
+		_ = tp.p.Close()
+		delete(s.peers, tid)
 	}
-	if s.files != nil {
-		if r := s.files.CancelLocal(); r != nil {
-			s.d.UI.FileResult(*r)
-		}
-	}
-}
-
-func (s *session) handlers(ctx context.Context) rtc.Handlers {
-	push := func(e peerEvent) {
-		select {
-		case s.peerEv <- e:
-		case <-ctx.Done():
-		}
-	}
-	return rtc.Handlers{
-		LocalICE:  func(m signal.Ice) { push(peerEvent{ice: &m}) },
-		Ctl:       func(m dc.Ctl) { push(peerEvent{ctl: &m}) },
-		FileChunk: func(c dc.Chunk, ok bool) { push(peerEvent{chunk: &c, ok: ok}) },
-		State:     func(st string) { push(peerEvent{state: st}) },
-		Input:     s.d.Input,
-	}
+	s.updateLow()
+	s.cancelLocalFile()
 }
 
 func (s *session) onPeer(ctx context.Context, e peerEvent) {
+	if e.run == nil && e.doneTimeout == "" {
+		if tp := s.peers[e.tid]; tp == nil || tp.gen != e.gen {
+			return // kapatılmış eşin geç olayı
+		}
+	}
 	switch {
 	case e.ice != nil:
 		s.send(ctx, *e.ice)
+	case (e.state == "failed" || e.state == "closed") && e.tid != "":
+		s.closePeer(ctx, e.tid) // P28c: yalnız o eş kapanır; teknisyen yeni offer'la döner
+	case e.tid != s.ctrlTid():
+		// ikincil eşin durum değişimi kontrol kapısını etkilemez; dosya parçası/ctl aşağıda süzülür
+		if e.ctl != nil {
+			s.onCtl(e.tid, *e.ctl)
+		}
 	case e.state == "disconnected" || e.state == "failed" || e.state == "closed":
 		// PeerConnection kopması kapıyı ve diyalogları kapatır. K6: sunucu bu kopmayı bilmez (WS açık); bekleyen kontrol
 		// diyaloğu kapandıysa {VIEW, SYSTEM} ile isteği kapattırır (kapı açıktıysa closeControl zaten gönderdi).
@@ -218,7 +212,7 @@ func (s *session) onPeer(ctx context.Context, e peerEvent) {
 	case e.chunk != nil:
 		s.onChunk(*e.chunk, e.ok)
 	case e.ctl != nil:
-		s.onCtl(*e.ctl)
+		s.onCtl(e.tid, *e.ctl)
 	case e.run != nil:
 		e.run()
 	case e.doneTimeout != "":
@@ -248,18 +242,28 @@ func (s *session) onChunk(c dc.Chunk, ok bool) {
 	}
 }
 
-func (s *session) onCtl(m dc.Ctl) {
+// onCtl doğrulanmış ctl; P28c §4.5 misafir kapısı: kontrol sahibi olmayan eşten yalnız sohbet (izleyici değilse) ve
+// ping; dosya teklifi o eşe reddedilir.
+func (s *session) onCtl(tid string, m dc.Ctl) {
+	if !s.ctlAllowed(tid, m.T) {
+		if tp := s.peers[tid]; m.T == "file.offer" && tp != nil {
+			if b, err := dc.FileReply("file.reject", m.FID); err == nil {
+				_ = tp.p.SendCtl(b)
+			}
+		}
+		return
+	}
 	switch m.T {
 	case "chat":
-		s.d.UI.Chat(m.Text)
+		s.onTechChat(tid, m)
 	case "annot.stroke", "annot.laser", "annot.undo", "annot.clear":
 		s.d.UI.Annot(m)
 	case "clip.ready", "clip.data", "print.ready", "print.offer", "print.done":
 		s.cp.onCtl(m)
 	case "file.offer":
 		if s.serverMode() || !s.cp.fileIdx(*m.Idx) { // P28b: SERVER'da DC dosyası yok; P28a: etkin yazdırmanın idx'i
-			if b, err := dc.FileReply("file.reject", m.FID); err == nil && s.peer != nil {
-				_ = s.peer.SendCtl(b)
+			if b, err := dc.FileReply("file.reject", m.FID); err == nil && s.mainPeer() != nil {
+				_ = s.mainPeer().SendCtl(b)
 			}
 			return
 		}

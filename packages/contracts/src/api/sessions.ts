@@ -371,6 +371,17 @@ export const TIMELINE_DETAIL_KEYS = {
   "file.scan": ["result", "reason", "durationMs"],
   "file.infected": ["signature", "ext", "sizeBytes"],
   "file.download": ["context", "by"],
+  // P28c (mimari-p28c §9, AC-369/370): kullanıcı kimliği/gerekçe metni yok — rol, neden, sonuç gerekçesi.
+  "session.invite": ["inviteeName", "failReason"],
+  "session.invite_accept": [],
+  "session.invite_reject": [],
+  "session.invite_expire": ["reason"],
+  "session.participant_join": ["role", "consentMode"],
+  "session.supervise_join": ["role", "consentMode", "failReason"],
+  "session.participant_leave": ["role", "reason"],
+  "session.participant_remove": ["role"],
+  "session.control_handover": ["reason"],
+  "session.transfer": ["failReason"],
 } as const satisfies Record<string, readonly string[]>;
 export type TimelineAction = keyof typeof TIMELINE_DETAIL_KEYS;
 export const TIMELINE_ACTIONS = Object.keys(TIMELINE_DETAIL_KEYS) as TimelineAction[];
@@ -389,6 +400,23 @@ export interface TimelineEvent {
 
 /** Zaman çizelgesi / onay / dosya listelerinin üst sınırı (§3). */
 export const SESSION_HISTORY_LIST_MAX = 500;
+
+/**
+ * P28c (AC-369, mimari-p28c §9): oturumdaki teknisyenler — audit'ten türetilir (katılım/ayrılma/devir). `role` son durumdur
+ * (devri alan `owner`, devreden `participant`). Zamanlar ISO; bilinmiyorsa null (ör. ilk sahip katılım audit'i taşımaz).
+ */
+export const SESSION_PARTICIPANT_ROLES = ["owner", "participant", "observer"] as const;
+export interface SessionParticipant {
+  userId: string;
+  name: string;
+  role: (typeof SESSION_PARTICIPANT_ROLES)[number];
+  joinedAt: string | null;
+  leftAt: string | null;
+  /** `session.participant_leave.reason` ya da müşteri çıkardıysa `removed`. */
+  leaveReason: string | null;
+  /** Oturum devrine (session.transfer success) taraf olduysa devir anı. */
+  transferredAt: string | null;
+}
 
 /** GET /sessions/:id/history ve PATCH /sessions/:id yanıtı (§3, AC-62). */
 /** Geçmiş detayı canlı lobi durumu taşımaz (mimari-lobi §4.2). */
@@ -411,6 +439,8 @@ export interface SessionHistoryDetail extends Omit<SessionListItem, "waitingGues
   unattended?: SessionUnattendedInfo;
   /** P28e (§5, AC-385/386/450): kayıt özeti (satır yoksa null). K3 doldurur — o zamana kadar gelmeyebilir. */
   recording?: SessionRecordingSummary | null;
+  /** P28c (AC-369): çoklu teknisyen katılımcıları; tek teknisyenli oturumda boş dizi. */
+  participants?: SessionParticipant[];
 }
 
 /** P28u (§5.4) gözetimsiz zaman çizelgesi olay türleri (audit satırlarından türetilir; ≤ `UNATTENDED_TIMELINE_MAX`). */

@@ -88,7 +88,7 @@ export function FilesPanel({
   collab: Collab;
   allowed: boolean;
   peerName: string;
-  blocked?: "unsupported" | "unattended" | null;
+  blocked?: "unsupported" | "unattended" | "notController" | null;
 }) {
   const input = useRef<HTMLInputElement>(null);
   const [msg, setMsg] = useState<"tooLarge" | "busy" | "denied" | "rate" | "empty" | null>(null);
@@ -121,11 +121,13 @@ export function FilesPanel({
       )}
       {!allowed ? (
         <Alert tone="warning" testId="files-denied">
-          {blocked === "unattended"
-            ? FSRV_UNATTENDED_NOTICE
-            : blocked === "unsupported"
-              ? FSRV_GATE_REASON_LABELS.UNSUPPORTED
-              : t("p5.files.noCap")}
+          {blocked === "notController"
+            ? t("mt.onlyController")
+            : blocked === "unattended"
+              ? FSRV_UNATTENDED_NOTICE
+              : blocked === "unsupported"
+                ? FSRV_GATE_REASON_LABELS.UNSUPPORTED
+                : t("p5.files.noCap")}
         </Alert>
       ) : (
         <div className="flex flex-col gap-1">

@@ -102,10 +102,7 @@ func (u *UI) closeControlNow() {
 func (u *UI) ControlState(granted bool, hotkey string) {
 	u.t.Do(func() {
 		u.granted = granted
-		text := "Ekranınız izleniyor — " + u.techName
-		if granted {
-			text = "Uzaktan kontrol aktif — " + u.techName
-		}
+		text := u.watchText(granted)
 		if u.ind != nil {
 			u.ind.setText(text)
 		}

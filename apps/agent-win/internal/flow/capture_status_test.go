@@ -71,22 +71,11 @@ func TestCaptureOpenFailureStatusHasReason(t *testing.T) {
 	}
 }
 
-// failingPeer yayını tipli kodlama hatasıyla bitirir (kaynak NextFrame → ENCODE_FAILED, rtc.Stream bunu aynen döner).
-type failingPeer struct {
-	*fakePeer
-	err error
-}
-
-func (p *failingPeer) Stream(context.Context, rtc.Source) error { return p.err }
-
 // QA#4: yayın sırasında yakalama/kodlama hatası → share.state "stopped" + durum satırında neden kodu.
 func TestCaptureStreamFailureStatusHasReason(t *testing.T) {
 	h := newHarness(t)
-	h.deps.NewPeer = func(_ []signal.IceServer, _ []string, hd rtc.Handlers) (Peer, error) {
-		p := &failingPeer{fakePeer: &fakePeer{h: hd, offers: make(chan string, 4), ctl: make(chan []byte, 4)},
-			err: &capture.Error{Reason: capture.ReasonEncodeFailed, Op: "Encode", HR: 0xC00D36B4}}
-		h.peers <- p.fakePeer
-		return p, nil
+	h.media.stream = func(context.Context, rtc.Source) error { // yayın tipli kodlama hatasıyla biter
+		return &capture.Error{Reason: capture.ReasonEncodeFailed, Op: "Encode", HR: 0xC00D36B4}
 	}
 	out := start(h, "12345678")
 	recv(t, h.creds)

@@ -100,9 +100,11 @@ type sessionWin struct {
 	clipEnabled bool
 	// P28e kayıt göstergesi, "Kaydı durdur" ve bilgi satırı (rec_windows.go); kayıt yokken gizli.
 	recLbl, recBtn, recNote *ctrl
-	unread                  int
-	active                  bool
-	finished                bool
+	// P28c bağlı teknisyen satırları (roster_windows.go); roster gelene kadar gizli.
+	techs    [rosterRows]rosterRow
+	unread   int
+	active   bool
+	finished bool
 }
 
 // New UI iş parçacığını başlatır. footer "Hakkında" satırıdır (alan adı + sürüm + parmak izi, AC-128). gate izin

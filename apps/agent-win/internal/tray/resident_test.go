@@ -4,6 +4,7 @@ import (
 	"context"
 	"image"
 	"image/color"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -491,6 +492,50 @@ func TestAC253WithActiveForwards(t *testing.T) {
 	}
 	if WithActive(inner, nil) != flow.UI(inner) {
 		t.Fatal("kanca yoksa sarmalanmamalı")
+	}
+}
+
+// recDrawUI flow.UI + flow.RecUI (Win32 arayüzünün kayıt göstergesi çizebilen eşi).
+type recDrawUI struct {
+	recUI
+	welcomed bool
+	states   []flow.RecView
+}
+
+func (r *recDrawUI) WelcomeRec(_ context.Context, _ flow.Welcome) (string, bool, bool) {
+	r.welcomed = true
+	return "Müşteri", true, true
+}
+func (r *recDrawUI) RecState(v flow.RecView) { r.states = append(r.states, v) }
+
+// P28e hatası: tepside yerleşik kipte d.UI = WithActive(u, …); sarmalayıcı RecUI'yi iletmezse rec1 hiç bildirilmez.
+func TestP28cP28eTrayWithActiveForwardsRecUI(t *testing.T) {
+	inner := &recDrawUI{}
+	n := 0
+	wrapped := WithActive(inner, func() { n++ })
+	d := flow.Deps{UI: wrapped}
+	if !slices.Contains(flow.Features(d), signal.FeatureRec) {
+		t.Fatal("tepsi kipinde rec1 bildirilmeli")
+	}
+	r, ok := wrapped.(flow.RecUI)
+	if !ok {
+		t.Fatal("sarmalayıcı flow.RecUI'yi iletmeli")
+	}
+	if _, record, ok := r.WelcomeRec(t.Context(), flow.Welcome{RecOffered: true}); !ok || !record || !inner.welcomed {
+		t.Fatal("WelcomeRec iç arayüze ulaşmalı")
+	}
+	r.RecState(flow.RecView{On: true})
+	if len(inner.states) != 1 || !inner.states[0].On {
+		t.Fatalf("RecState iç arayüze ulaşmalı: %+v", inner.states)
+	}
+	wrapped.Active("Ayşe", signal.Monitor{})
+	if n != 1 || len(inner.active) != 1 {
+		t.Fatal("Active kancası sürmeli")
+	}
+	// Göstergesi çizilemeyen iç arayüz sarılınca rec1 bildirilmez (K-P28e-7).
+	plain := WithActive(&recUI{}, func() {})
+	if _, ok := plain.(flow.RecUI); ok || slices.Contains(flow.Features(flow.Deps{UI: plain}), signal.FeatureRec) {
+		t.Fatal("RecUI'siz iç arayüzde rec1 bildirilmemeli")
 	}
 }
 

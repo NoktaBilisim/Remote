@@ -30,6 +30,13 @@ var tidRe = regexp.MustCompile(tidPatternText)
 // rosterRoles `ROSTER_ROLES`.
 var rosterRoles = []string{"controller", "participant", "observer"}
 
+// ValidTID oda içi teknisyen kimliği biçimi (sohbet yayınının `by` alanı).
+func ValidTID(s string) bool { return tidRe.MatchString(s) }
+
+// ValidRoster roster değişmezleri (1..3 satır, tid benzersiz, tam bir sahip ve tam bir kontrol sahibi). ParseServer
+// zaten uygular; akış ikinci savunma olarak denetler ve ihlalde bağlantıyı koparır.
+func ValidRoster(m TechsRoster) bool { return validTechsRoster(&m) }
+
 // validOptTid alan yoksa (eski soket) ya da geçerli tid ise doğru.
 func validOptTid(s string) bool { return s == "" || tidRe.MatchString(s) }
 

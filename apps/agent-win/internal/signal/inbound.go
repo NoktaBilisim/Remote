@@ -95,6 +95,8 @@ type RemoteIce struct {
 
 type IceRestart struct {
 	T string `json:"t"`
+	// P28c: From yalnız multi1 sokette (yeniden kurulacak teknisyen bağlantısının tid'i).
+	From string `json:"from,omitempty"`
 }
 
 type SessionEnded struct {
@@ -234,7 +236,7 @@ var serverParsers = map[string]func(raw []byte) (Inbound, error){
 		return validateIce(Ice{T: m.T, Candidate: m.Candidate, SdpMid: m.SdpMid, SdpMLineIndex: m.SdpMLineIndex}) == nil &&
 			validOptTid(m.From)
 	}),
-	"ice.restart":   check(func(*IceRestart) bool { return true }),
+	"ice.restart":   check(func(m *IceRestart) bool { return validOptTid(m.From) }),
 	"session.ended": check(func(m *SessionEnded) bool { return slices.Contains(endedReasons, m.Reason) }),
 	"session.warning": check(func(m *SessionWarning) bool {
 		return m.Kind == "max_duration_5min" && isISO(m.EndsAt)

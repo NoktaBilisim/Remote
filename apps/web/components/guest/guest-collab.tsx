@@ -18,7 +18,10 @@ export function GuestCollab({
   filesAllowed,
   techName,
   onChatVisible,
+  authorOf,
 }: {
+  /** P28c: gelen mesajın eşi → teknisyen adı (roster). */
+  authorOf?: (by: string | undefined) => string;
   collab: Collab;
   filesAllowed: boolean;
   techName: string;
@@ -45,7 +48,7 @@ export function GuestCollab({
       </h2>
       {filesAllowed && <Segmented<Tab> label={t("p5.side")} value={cur} onChange={setTab} options={chatFilesOptions(collab.chat.unread)} />}
       {cur === "chat" ? (
-        <ChatPanel collab={collab} peerName={techName} />
+        <ChatPanel collab={collab} peerName={techName} authorOf={authorOf} />
       ) : (
         <FilesPanel collab={collab} allowed={filesAllowed} peerName={techName} />
       )}

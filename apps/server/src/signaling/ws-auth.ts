@@ -24,7 +24,10 @@ import { admitDeviceGuest } from "./admit-device.ts";
 import { onGuestMessage, onTechMessage, TokenBucket } from "./handlers.ts";
 import { featuresOf, fsrvOf } from "./rooms-features.ts";
 import type { Rooms } from "./rooms.ts";
-import type { Guest, Peer, Room } from "./types.ts";
+import type { Guest, Member, Peer, Room, TechConn } from "./types.ts";
+import { WS_CLOSE } from "@remote/contracts/ws";
+import { eligibleToJoin, joinSyncCheck, subjectOfAuth } from "../sessions/eligibility.ts";
+import { attachMember, detachMember, revokeMember } from "./member-life.ts";
 
 /** S-P4-T3-2: `reconnect.conflict` audit'i oda başına bu aralıkta en çok 1 kez. */
 const RECONNECT_CONFLICT_AUDIT_MS = 60_000;
@@ -74,13 +77,50 @@ export async function techUpgrade(
   const auth = await resolveSession(u.app.db, token, new Date(), u.policy);
   if (!auth || auth.user.mustChangePassword) return { status: 403, reason: "auth" };
   const row = await repo.findForSignal(u.app.db, sessionId);
-  if (!row || row.technicianId !== auth.user.id || !signalable(u.rooms, row)) return { status: 403, reason: "session" };
+  if (!row || !signalable(u.rooms, row)) return { status: 403, reason: "session" };
+  if (row.technicianId !== auth.user.id) return memberUpgrade(u, { req, socket, head }, sessionId, auth, token);
   u.accept(req, socket, head, "tech", (ws, peer) => openTech(u, req, ws, peer, row, auth, token));
   return null;
 }
 
-function openTech(u: UpgradeCtx, req: IncomingMessage, ws: WebSocket, peer: Peer, row: SignalRow, auth: AuthContext, token: string): void {
-  const conn = {
+const joinDeps = (u: UpgradeCtx) => ({ db: u.app.db, rooms: u.rooms, gate: createGate(u.app.env) });
+
+/**
+ * P28c (§4.3 `ws` evresi; Y-PC-3, T1): sahip olmayan kullanıcı yalnız rezervasyonlu / kopma payındaki üyeyse ve rezervasyonu
+ * alan kimlik oturumundan bağlanır. Açılışta 1, 3' senkron yeniden (adım 9).
+ */
+async function memberUpgrade(
+  u: UpgradeCtx,
+  c: { req: IncomingMessage; socket: Duplex; head: Buffer },
+  sessionId: string,
+  auth: AuthContext,
+  token: string,
+): Promise<UpgradeReject | null> {
+  const room = u.rooms.get(sessionId);
+  const m = room?.multi.members.get(auth.user.id);
+  if (!room || !m) return { status: 403, reason: "session" };
+  const f = await eligibleToJoin(joinDeps(u), subjectOfAuth(auth), room, m.via, "ws");
+  if (f) return { status: 403, reason: f.code === "FORBIDDEN" ? "member" : "member_state" };
+  u.accept(c.req, c.socket, c.head, "tech", (ws, peer) => {
+    const live = room.multi.members.get(auth.user.id);
+    if (joinSyncCheck(u.rooms, room, auth.user.id, "ws") || !live) return void ws.close(WS_CLOSE.REMOVED, "removed");
+    const conn = techConnOf(u, c.req, peer, auth, token);
+    attachMember(u.rooms, room, live, conn);
+    const bucket = new TokenBucket(u.rooms.clock);
+    ws.on(
+      "message",
+      (data: Buffer, bin) =>
+        void onTechMessage(u.rooms, room, peer, bucket, data, bin).catch((err: unknown) =>
+          u.app.log.error({ err }, "ws üye mesajı işlenemedi"),
+        ),
+    );
+    ws.on("close", () => detachSeat(u.rooms, room, auth.user.id, peer));
+  });
+  return null;
+}
+
+function techConnOf(u: UpgradeCtx, req: IncomingMessage, peer: Peer, auth: AuthContext, token: string): TechConn {
+  return {
     peer,
     userId: auth.user.id,
     username: auth.user.email,
@@ -88,9 +128,13 @@ function openTech(u: UpgradeCtx, req: IncomingMessage, ws: WebSocket, peer: Peer
     permissions: auth.permissions,
     role: auth.user.role,
     ctx: u.ctxOf(req),
-    authSessionId: auth.sessionId, // P28e S-P28e-6: yükleme belirteci bağlamı
+    authSessionId: auth.sessionId,
     connId: newId(),
   };
+}
+
+function openTech(u: UpgradeCtx, req: IncomingMessage, ws: WebSocket, peer: Peer, row: SignalRow, auth: AuthContext, token: string): void {
+  const conn = techConnOf(u, req, peer, auth, token); // P28e S-P28e-6: yükleme belirteci bağlamı (authSessionId, connId)
   const room = u.rooms.attachTech(row, conn);
   const bucket = new TokenBucket(u.rooms.clock);
   ws.on(
@@ -100,7 +144,16 @@ function openTech(u: UpgradeCtx, req: IncomingMessage, ws: WebSocket, peer: Peer
         u.app.log.error({ err }, "ws teknisyen mesajı işlenemedi"),
       ),
   );
-  ws.on("close", () => u.rooms.detachTech(room, peer));
+  ws.on("close", () => detachSeat(u.rooms, room, auth.user.id, peer));
+}
+
+/**
+ * P28c §5.2: oturum devri soketin yerini değiştirir (üye ↔ sahip); kapanış o anki yere göre işlenir. İki yol da soket
+ * kimliğiyle korunur (`room.tech.peer` / `member.conn.peer`), yalnız biri etkili olur.
+ */
+function detachSeat(rooms: Rooms, room: Room, userId: string, peer: Peer): void {
+  rooms.detachTech(room, peer);
+  detachMember(rooms, room, userId, peer);
 }
 
 /** `rs.v1` + tam olarak bir `rs.ticket.*` | `rs.reconnect.*` değeri; biçim uymazsa null. */
@@ -257,4 +310,20 @@ export async function revalidateTech(u: UpgradeCtx, room: Room, t: NonNullable<R
   const user = a ? null : await findUserById(app.db, t.userId);
   if (a || !user || !canSignIn(user)) return rooms.endByTechnician(t.userId);
   return rooms.finish(room, "auth_revoked", "SYSTEM");
+}
+
+/**
+ * P28c (§4.3 `revalidate`, Y-PC-2, O-PC-3): üyenin kimlik oturumu geçersiz / pasif kullanıcı / yetki-cihaz-politika düştü →
+ * `revokeMember` (oda bitmez); aksi halde soket yetkileri tazelenir.
+ */
+export async function revalidateMember(u: UpgradeCtx, room: Room, m: Member): Promise<void> {
+  const conn = m.conn;
+  if (!conn) return;
+  const a = await resolveSession(u.app.db, conn.authToken, new Date(), u.policy);
+  if (m.conn !== conn || !u.rooms.live(room)) return;
+  if (!a || a.user.role !== conn.role || a.sessionId !== m.authSessionId) return revokeMember(u.rooms, room, m.userId);
+  const f = await eligibleToJoin(joinDeps(u), subjectOfAuth(a), room, m.via, "revalidate");
+  if (m.conn !== conn) return;
+  if (f) return revokeMember(u.rooms, room, m.userId);
+  await u.rooms.applyPermChange(m.userId, a.permissions);
 }

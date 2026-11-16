@@ -275,6 +275,8 @@ function onTech(ws, rec) {
     ...(r.guest
       ? { guestKind: r.guestKind, ...(r.guestName ? { guestName: r.guestName } : {}), guestFeatures: r.guestFeatures ?? [] }
       : {}),
+    // P28c-K2 (mock-p28c.mjs): üye/sahip konsolu için tid/techRole/roster
+    ...(rec.multiHello ?? {}),
   });
   for (const [guestId, e] of r.lobby) send(ws, { t: "peer.pending", guestId, name: e.name, guestKind: "BROWSER", since: e.since });
   ws.on("message", (raw) => {

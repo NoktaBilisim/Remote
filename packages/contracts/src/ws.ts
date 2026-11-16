@@ -466,7 +466,8 @@ export const serverOutboundSchema = z.discriminatedUnion("t", [
   z.strictObject({ t: z.literal("sdp.offer"), sdp, from: techIdSchema.optional() }),
   z.strictObject({ t: z.literal("sdp.answer"), sdp }),
   iceSchema.omit({ id: true }).extend({ from: techIdSchema.optional() }),
-  z.strictObject({ t: z.literal("ice.restart") }),
+  /** P28c: `from` yalnız multi1 misafire (hangi teknisyen bağlantısı yeniden kurulacak). */
+  z.strictObject({ t: z.literal("ice.restart"), from: techIdSchema.optional() }),
   shareStateSchema.omit({ id: true }),
   z.strictObject({ t: z.literal("session.ended"), reason: z.enum(SESSION_ENDED_REASONS) }),
   z.strictObject({ t: z.literal("session.warning"), kind: z.literal("max_duration_5min"), endsAt: iso }),

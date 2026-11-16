@@ -35,6 +35,18 @@ interface CollabOptions {
    * (`lib/fsrv`), DC `file.offer` otomatik reddedilir, `file` kanalı kullanılmaz. Yoksa / P2P → mevcut DC yolu aynen.
    */
   fsrv?: FsrvLink;
+  /**
+   * P28c (§4.5): müşteri sayfasında sohbet tüm eşlere yayılır (`lib/webrtc/guest-chat-hub.ts`). Verilirse sohbet yalnız bu
+   * yoldan gider/gelir; `ch.ctl` üzerindeki sohbet yok sayılır (dosya/işaretleme ana eşin kanalında kalır).
+   */
+  chatHub?: ChatHub;
+}
+
+/** Çok eşli sohbet yolu (müşteri sayfası). `send` → en az bir eşe gitti mi; `subscribe` → gelen (kaynak eşin tid'iyle). */
+export interface ChatHub {
+  ready: boolean;
+  send: (m: { t: "chat"; id: string; text: string; ts: number }) => boolean;
+  subscribe: (fn: (m: { id: string; text: string; ts: number; by: string }) => void) => () => void;
 }
 
 export interface FsrvLink {
@@ -129,8 +141,10 @@ export function useCollab(ch: Channels | null, o: CollabOptions) {
     const onCtl = (e: MessageEvent) => {
       const m = parseCtl(e.data);
       if (!m || !allow(m.t)) return;
-      if (m.t === "chat") chatDispatch({ type: "in", id: m.id, text: m.text, ts: m.ts, visible: opts.current.chatVisible });
-      else if (m.t.startsWith("file.")) {
+      if (m.t === "chat") {
+        if (opts.current.chatHub) return; // P28c: sohbet çok eşli yoldan
+        chatDispatch({ type: "in", id: m.id, text: m.text, ts: m.ts, visible: opts.current.chatVisible, by: m.by });
+      } else if (m.t.startsWith("file.")) {
         if (!t) {
           if (m.t === "file.offer") dcReject(m.fid);
           return;
@@ -154,6 +168,12 @@ export function useCollab(ch: Channels | null, o: CollabOptions) {
     if (o.chatVisible) chatDispatch({ type: "read" });
   }, [o.chatVisible]);
 
+  const hub = o.chatHub;
+  useEffect(() => {
+    if (!hub) return;
+    return hub.subscribe((m) => chatDispatch({ type: "in", ...m, visible: opts.current.chatVisible }));
+  }, [hub]);
+
   const sendCtl = useCallback(
     (m: CtlMessage) => {
       if (ch?.ctl.readyState !== "open") return false;
@@ -168,13 +188,15 @@ export function useCollab(ch: Channels | null, o: CollabOptions) {
   const sendChat = useCallback(
     (text: string): ChatSendResult => {
       const item = prepareChat(text);
-      if (!item || ch?.ctl.readyState !== "open") return "error";
+      const ready = hub ? hub.ready : ch?.ctl.readyState === "open";
+      if (!item || !ready) return "error";
       if (!chatLimit.current.take()) return "rate";
-      if (!sendCtl({ t: "chat", id: item.id, text: item.text, ts: item.ts })) return "error";
+      const m = { t: "chat" as const, id: item.id, text: item.text, ts: item.ts };
+      if (!(hub ? hub.send(m) : sendCtl(m))) return "error";
       chatDispatch({ type: "out", item });
       return "sent";
     },
-    [ch, sendCtl],
+    [ch, hub, sendCtl],
   );
 
   /** Çizim gönder + yerelde uygula (geri al/temizle kendi listemizde de geçerli). */
@@ -189,6 +211,8 @@ export function useCollab(ch: Channels | null, o: CollabOptions) {
   const mb = o.maxFileMb ?? DEFAULT_MAX_FILE_MB;
   return {
     ready: ch !== null,
+    /** Sohbet gönderilebilir (P28c: müşteri sayfasında herhangi bir eşin kanalı açık). */
+    chatReady: hub ? hub.ready : ch !== null,
     /** P28b: dosyalar sunucu yolundan (SERVER modu) — arayüz bilgi satırı (AC-363) ve hazır olma buna göre. */
     fileMode: server ? ("SERVER" as const) : ("P2P" as const),
     /** Dosya yolu hazır: P2P'de DC açık, SERVER'da WS + karşı taraf. */

@@ -147,11 +147,15 @@ func (a *app) launchDeps(client *api.Client, u *ui.UI, opener capture.Opener, ga
 func (a *app) flowDeps(client *api.Client, u *ui.UI, opener capture.Opener, applier *input.Applier, gate *control.Gate,
 	hotkey string, active func()) flow.Deps {
 	cfg := a.cfg
+	media, merr := rtc.NewMedia() // P28c: kapsam başına tek ana/düşük iz çifti (tüm eşler paylaşır, ADR-0035)
 	d := flow.Deps{
 		Host: cfg.DisplayHost(), Version: cfg.Version, Fingerprint: a.fp,
 		API: client,
 		NewPeer: func(ice []signal.IceServer, caps []string, h rtc.Handlers) (flow.Peer, error) {
-			return rtc.New(ice, caps, h)
+			if merr != nil {
+				return nil, merr
+			}
+			return rtc.New(ice, caps, h, media)
 		},
 		Monitors:    capture.Monitors,
 		Capture:     opener.Open,
@@ -177,6 +181,7 @@ func (a *app) flowDeps(client *api.Client, u *ui.UI, opener capture.Opener, appl
 		EnvProbe:     env.Probe,
 		SelfElevated: a.elevated, // K8: env.state.selfElevated (GRANTED audit'i, konsol rozeti)
 		ClipPrintUI:  u,
+		RosterUI:     u,                           // P28c: teknisyen listesi + "Çıkar" (rs.cap.multi1 bildirilir)
 		Printer:      clipprint.NewPrinter(a.exe), // işleyici `exe --pdf-isleyici` (kısıtlı süreç, iş başına)
 		// P28b (mimari-p28b §8): sunucu üzerinden dosya — aynı kök + TLS/proxy taşıyıcısı, belirteç yalnız Bearer.
 		FileServer:   fsrv.New(cfg.ServerURL, client.HTTPClient(), cfg.Version),
@@ -184,6 +189,9 @@ func (a *app) flowDeps(client *api.Client, u *ui.UI, opener capture.Opener, appl
 	}
 	if c := a.clipboard(); c != nil {
 		d.Clipboard = c
+	}
+	if merr == nil {
+		d.Media = media
 	}
 	// P28a (mimari-p28 §4.2): yalnız bağlı özellikler (Clipboard/Printer + ClipPrintUI, K4/K5) bildirilir; P28b: + fsrv.
 	features := flow.Features(d)

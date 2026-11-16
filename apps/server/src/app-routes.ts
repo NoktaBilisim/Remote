@@ -30,6 +30,7 @@ import type { UploadStore } from "./uploads/store.ts";
 import { unattendedRegisterRoutes, unattendedRoutes } from "./unattended/routes.ts";
 import { publicUnattendedRoutes } from "./unattended/public-download.ts";
 import { interveneRoutes } from "./unattended/intervene.ts";
+import { multiSessionRoutes } from "./sessions/routes-multi.ts";
 import { customerSendRoutes } from "./customer-send/routes.ts";
 import { fsrvRoutes, storedFileLinkRoutes } from "./fsrv/routes.ts";
 import { recPartRoutes, recordingSessionRoutes } from "./rec/routes.ts";
@@ -74,6 +75,7 @@ function registerCoreRoutes(app: FastifyInstance, env: Env): void {
   void app.register(authRoutes, { prefix: "/api/v1/auth" });
   void app.register(sessionRoutes, { prefix: "/api/v1/sessions" });
   void app.register(interveneRoutes, { prefix: "/api/v1/sessions" });
+  void app.register(multiSessionRoutes, { prefix: "/api/v1/sessions" }); // P28c davet / İzle
   void app.register(publicSessionRoutes, { prefix: "/api/v1/public/sessions" });
   void app.register(publicAgentRoutes, { prefix: "/api/v1/public/agent" });
   void app.register(internalAgentRoutes, { prefix: "/internal" });

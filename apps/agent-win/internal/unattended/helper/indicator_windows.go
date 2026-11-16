@@ -52,7 +52,8 @@ func ownWindow(h uintptr) bool {
 type winIndicator struct {
 	text     string // yalnız gösterge iş parçacığında; SetText next üzerinden iletir
 	next     atomic.Pointer[string]
-	host     uintptr // görünmez üst düzey pencere: zamanlayıcı + WM_DISPLAYCHANGE
+	drawn    atomic.Pointer[string] // P28c: son doğrulanmış çizimin etiketi (Drawn)
+	host     uintptr                // görünmez üst düzey pencere: zamanlayıcı + WM_DISPLAYCHANGE
 	wins     map[uintptr]shown
 	failed   chan struct{}
 	failOnce sync.Once
@@ -105,6 +106,7 @@ func (ind *winIndicator) loop(ready chan<- error) {
 		return
 	}
 	win.SetTimer(ind.host, timerVerify, 1000)
+	ind.markDrawn()
 	ready <- nil
 	var m win.MSG
 	for win.GetMessage(&m) > 0 {
@@ -215,6 +217,31 @@ func (ind *winIndicator) relabel() {
 	ind.text = *p
 	if !ind.rebuild() {
 		ind.fail()
+		return
+	}
+	ind.markDrawn()
+}
+
+func (ind *winIndicator) markDrawn() {
+	t := ind.text
+	ind.drawn.Store(&t)
+}
+
+// Drawn P28c (Y-PC-4): text çizilip doğrulandı mı; en çok wait bekler (yeniden çizim gösterge iş parçacığında).
+func (ind *winIndicator) Drawn(text string, wait time.Duration) bool {
+	deadline := time.Now().Add(wait)
+	for {
+		if p := ind.drawn.Load(); p != nil && *p == text {
+			return true
+		}
+		if time.Now().After(deadline) {
+			return false
+		}
+		select {
+		case <-ind.failed:
+			return false
+		case <-time.After(20 * time.Millisecond):
+		}
 	}
 }
 

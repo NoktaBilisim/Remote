@@ -15,13 +15,14 @@ import { cidrMatcher } from "../lib/ip.ts";
 import { FixedWindowCounter } from "../lib/rate.ts";
 import { jsonPeer, offeredProtocols, type UpgradeReject } from "../lib/ws-upgrade.ts";
 import { WS_CAP_REC } from "@remote/contracts/ws-rec";
+import { WS_CAP_MULTI } from "@remote/contracts/ws-multi";
 import type { Peer } from "./types.ts";
 import type { RequestChannels } from "../requests/ws.ts";
 import { bindFsrv } from "./fsrv.ts";
 import type { Rooms } from "./rooms.ts";
 import { createGate } from "../unattended/gate.ts";
 import { revalidateDevice } from "./rooms-device.ts";
-import { guestUpgrade, revalidateTech, techUpgrade, type UpgradeCtx } from "./ws-auth.ts";
+import { guestUpgrade, revalidateMember, revalidateTech, techUpgrade, type UpgradeCtx } from "./ws-auth.ts";
 
 export interface SignalingOptions {
   pingMs?: number;
@@ -83,6 +84,8 @@ function upgradeCtx(app: FastifyInstance, rooms: Rooms, wss: WebSocketServer, mi
         const peer: Peer = jsonPeer<ServerOutbound>(ws);
         // P28e §6.1: `rs.cap.rec1` (konsol VP8 kaydedebilir / misafir gösterge çizebilir); misafirde katılımlı oda kapısı handlers/rec'te.
         if ((role === "tech" || role === "guest") && offeredProtocols(req).includes(WS_CAP_REC)) peer.rec = true;
+        // P28c §4.4: misafir `rs.cap.multi1` (gözetimsiz odada da okunur — pano/yazdırmadan farklı).
+        if (role === "guest" && offeredProtocols(req).includes(WS_CAP_MULTI)) peer.multi = true;
         onOpen(ws, peer);
       });
     },
@@ -152,8 +155,10 @@ function startTimers(u: UpgradeCtx, wss: WebSocketServer, missed: WeakMap<WebSoc
   const revalidate = setInterval(() => {
     for (const room of u.rooms.techRooms()) {
       const t = room.tech;
-      if (!t) continue;
-      void revalidateTech(u, room, t).catch((err: unknown) => u.app.log.error({ err }, "ws teknisyen yeniden doğrulama hatası"));
+      if (t) void revalidateTech(u, room, t).catch((err: unknown) => u.app.log.error({ err }, "ws teknisyen yeniden doğrulama hatası"));
+      // P28c Y-PC-2 / O-PC-3: üyelerin kimlik oturumu da 60 sn'de doğrulanır; düşerse yalnız üye çıkar (oda sürer).
+      for (const m of [...room.multi.members.values()])
+        if (m.conn) void revalidateMember(u, room, m).catch((err: unknown) => u.app.log.error({ err }, "ws üye yeniden doğrulama hatası"));
     }
   }, opts.revalidateMs ?? 60_000);
   ping.unref();
@@ -203,6 +208,12 @@ export function attachSignaling(
   const u = upgradeCtx(app, rooms, wss, missed);
   if (app.hasDecorator("fsrv")) bindFsrv(rooms, app.fsrv.service); // P28b: wiring.ts kurar, sinyal bağlar
   // Etiketsiz seri: toplam; P8b `role="request"|"panel"` serileri (devops metrik adı).
+  // P28c §8: bağlı üye sayısı rol başına (tenant etiketi yok).
+  rooms.metrics.gauge("rs_multi_members", "Çoklu teknisyen bağlı üyeler (anlık)", () => {
+    const n = { participant: 0, observer: 0 };
+    for (const r of rooms.values()) for (const m of r.multi.members.values()) if (m.conn) n[m.role] += 1;
+    return n;
+  });
   rooms.metrics.gauge("rs_ws_connections", "Açık WS bağlantıları (anlık)", () => ({
     "": wss.clients.size,
     ...(panelCount ? panelCount() : {}),

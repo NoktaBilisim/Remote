@@ -16,12 +16,15 @@ type streamErrPeer struct {
 	fail chan error
 }
 
-func (p *streamErrPeer) Stream(ctx context.Context, _ rtc.Source) error {
-	select {
-	case err := <-p.fail:
-		return err
-	case <-ctx.Done():
-		return ctx.Err()
+// streamErrMedia P28c: yayın eşten bağımsız; hata eşin fail kanalından (tüm eşler aynı kanalı paylaşır).
+func streamErrMedia(fail chan error) func(ctx context.Context, _ rtc.Source) error {
+	return func(ctx context.Context, _ rtc.Source) error {
+		select {
+		case err := <-fail:
+			return err
+		case <-ctx.Done():
+			return ctx.Err()
+		}
 	}
 }
 
@@ -36,8 +39,10 @@ func windowHarness(t *testing.T, supported bool) (*harness, *windowRec, chan *st
 	h := newHarness(t)
 	rec := &windowRec{}
 	peers := make(chan *streamErrPeer, 2)
+	fail := make(chan error, 1)
+	h.media.stream = streamErrMedia(fail)
 	h.deps.NewPeer = func(_ []signal.IceServer, _ []string, hd rtc.Handlers) (Peer, error) {
-		p := &streamErrPeer{fakePeer: &fakePeer{h: hd, offers: make(chan string, 4), ctl: make(chan []byte, 4)}, fail: make(chan error, 1)}
+		p := &streamErrPeer{fakePeer: &fakePeer{h: hd, offers: make(chan string, 4), ctl: make(chan []byte, 4)}, fail: fail}
 		peers <- p
 		return p, nil
 	}

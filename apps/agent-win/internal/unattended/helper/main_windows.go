@@ -56,15 +56,20 @@ func flowDeps(cfg config.Config, inc *incoming, desk *desktop.Gate) (flow.Deps, 
 	gate := &control.Gate{}
 	applier := input.NewApplier(gate, newDeskInjector(desk, input.SendInputInjector{}), nil)
 	opener := capture.Opener{Version: cfg.Version, Attach: attachCapture}
+	media, merr := rtc.NewMedia() // P28c: ana/düşük iz çifti (ADR-0035)
 	d := flow.Deps{
 		Host: cfg.DisplayHost(), Version: cfg.Version,
 		Dial: func(ctx context.Context, cred signal.Credential) (flow.Conn, error) {
 			dctx, cancel := context.WithTimeout(ctx, dialTimeout)
 			defer cancel()
-			return signal.Dial(dctx, client.HTTPClient(), cfg.ServerURL, cred, nil) // P28a: yardımcı özellik bildirmez (O-P28a-4)
+			// P28a: onay gerektiren özellikler bildirilmez (O-P28a-4); P28c: multi1 bildirilir (gösterge adları, AC-364).
+			return signal.Dial(dctx, client.HTTPClient(), cfg.ServerURL, cred, []string{signal.FeatureMulti})
 		},
 		NewPeer: func(ice []signal.IceServer, caps []string, h rtc.Handlers) (flow.Peer, error) {
-			return rtc.New(ice, caps, h)
+			if merr != nil {
+				return nil, merr
+			}
+			return rtc.New(ice, caps, h, media)
 		},
 		Monitors: capture.Monitors,
 		Capture:  opener.Open,
@@ -80,6 +85,9 @@ func flowDeps(cfg config.Config, inc *incoming, desk *desktop.Gate) (flow.Deps, 
 		SelfElevated: windows.GetCurrentProcessToken().IsElevated(),
 	}
 	d.DownloadDir, d.CheckDir = incomingDeps(inc)
+	if merr == nil {
+		d.Media = media
+	}
 	return d, applier
 }
 

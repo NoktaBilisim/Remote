@@ -12,6 +12,7 @@ import type { JsonObject } from "../audit/mask.ts";
 import type { GuestConsent } from "../public/consent.ts";
 import type { IceGrant, TurnConfig } from "./turn.ts";
 import type { RoomRec } from "../rec/types.ts";
+import type { MemberRole, MemberVia } from "@remote/contracts/ws-multi";
 
 /**
  * P27 gözetimsiz oda + P28u kip/onay/müdahale durumu (mimari-p28u §8.1, §8.3; bellekte). `consentRequest` connect'te
@@ -66,6 +67,8 @@ export interface Peer {
   fsrv?: boolean;
   /** P28e (§6.1): soket `rs.cap.rec1` bildirdi mi (ws.ts upgrade; misafirde yalnız katılımlı odada anlamlı). */
   rec?: boolean;
+  /** P28c (§4.4): misafir soketi `rs.cap.multi1` bildirdi mi (ws.ts upgrade; gözetimsiz odada da okunur). */
+  multi?: boolean;
 }
 
 /** Zamanlayıcı soyutlaması: üretimde gerçek saat, testlerde elle ilerletilen sahte saat (AC-13, AC-25). */
@@ -223,6 +226,62 @@ export interface FsrvRoom {
   starting: Set<FsrvDirection>;
 }
 
+/**
+ * P28c oda üyesi (mimari-p28c §3.1): oturum sahibi dışındaki teknisyen. `conn` yokken rezervasyon (60 sn) ya da kopma payı
+ * (120 sn). `silentReason` yalnız silent odada ve yalnız ilk WS katılım audit'ine dek bellekte (loglanmaz, Y-PC-1).
+ */
+export interface Member {
+  userId: string;
+  /** Audit `username` (e-posta). */
+  username: string;
+  fullName: string;
+  role: MemberRole;
+  via: MemberVia;
+  conn?: TechConn;
+  timer?: unknown;
+  /** `participant_join` / `supervise_join` ilk WS'de bir kez yazıldı (roster'a da bu andan sonra girer). */
+  joinedAudited: boolean;
+  /** Rezervasyonu alan kimlik oturumu; WS ve 120 sn dönüşü yalnız bu oturumdan (Y-PC-3). */
+  authSessionId: string;
+  reasonLen?: number;
+  silentReason?: string;
+}
+
+/** P28c bekleyen davet (§3.1; 2 dk, tek kullanımlık). */
+export interface Invite {
+  id: string;
+  userId: string;
+  fullName: string;
+  byUserId: string;
+  expiresAt: number;
+  timer: unknown;
+}
+
+/**
+ * P28c oda çoklu teknisyen durumu (mimari-p28c §3.1; bellekte). Sahip `room.tech`'te kalır; `controllerId` kontrol sahibinin
+ * userId'si (varsayılan sahip). `tids` (oturum, kullanıcı) başına sabit opak kimlik (D-PC-6).
+ */
+export interface MultiRoom {
+  tids: Map<string, string>;
+  controllerId: string;
+  members: Map<string, Member>;
+  invites: Map<string, Invite>;
+  removed: Set<string>;
+  /** Son 60 sn'deki davet/devir/çıkarma komutları (oda başına ≤ MULTI_ROOM_CMDS_PER_MIN). */
+  cmdTimes: number[];
+  /** Devir TX'i sürerken `tech.remove` / `control.handover` / `member.leave` → CONFLICT (O-PC-2). */
+  transferring: boolean;
+  /** Admit anı (ms) — `GET /sessions/active.startedAt`. */
+  startedAt?: number;
+  /** Son bağlı misafir soketi `rs.cap.multi1` bildirdi mi (misafir kısa kopukken de son değer). */
+  guestMulti: boolean;
+  /** Misafire giden son roster'daki tid'ler ve gittiği soket (Y-PC-4: offer yalnız roster'dan sonra). */
+  guestRosterTids: Set<string>;
+  guestRosterPeer?: Peer;
+  /** Oda başına dakikada 1 log (bilinmeyen `to`, rol kapısı reddi). */
+  logAt: Map<string, number>;
+}
+
 export interface Room {
   sessionId: string;
   /** P8b: talepten doğan oturum (guest.admit/guest.reject → CONFLICT; P15 `acceptCode` açıksa izinli). */
@@ -288,6 +347,8 @@ export interface Room {
   rec?: RoomRec;
   /** P28e kapı belleği (kayıt yokken de): rıza penceresi başlangıcı, tek `consent_rejected`, başlatma sürüyor, gözcü. */
   recGate?: RecGate;
+  /** P28c çoklu teknisyen (signaling/members.ts). */
+  multi: MultiRoom;
 }
 
 /** P28e kayıt kapısı + gözcü durumu (`room.rec` dışı; §6.2, §6.3). */

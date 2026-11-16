@@ -132,7 +132,7 @@ func connectInput(t *testing.T, caps []string, ctlOut chan dc.Ctl, input func([]
 		},
 		Ctl:   func(m dc.Ctl) { ctlOut <- m },
 		Input: input,
-	})
+	}, testMedia(t))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -181,7 +181,7 @@ func TestAC52SignalMappingVideoAndChat(t *testing.T) {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	go func() { _ = guest.Stream(ctx, &fakeSource{}) }()
+	go func() { _ = guest.media.Stream(ctx, &fakeSource{}) }()
 	wait(t, tech.track, "teknisyende H.264 track")
 
 	wait(t, tech.open, "ctl açılışı")
@@ -229,7 +229,7 @@ func TestAC119FileOfferRejectedWithoutCap(t *testing.T) {
 }
 
 func TestAddRemoteICEBeforeOfferIsQueued(t *testing.T) {
-	p, err := New(nil, nil, Handlers{})
+	p, err := New(nil, nil, Handlers{}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -250,7 +250,7 @@ func TestAddRemoteICEBeforeOfferIsQueued(t *testing.T) {
 
 // S6-7: offer gelmeden gelen adaylar sınırlı kuyrukta tutulur; fazlası hata vermeden düşer.
 func TestS67PendingICEBounded(t *testing.T) {
-	p, err := New(nil, nil, Handlers{})
+	p, err := New(nil, nil, Handlers{}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -295,7 +295,7 @@ func TestAC41KeyframeOnStreamStartAndPLI(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	src := &kfSource{req: make(chan struct{}, 4)}
-	go func() { _ = guest.Stream(ctx, src) }()
+	go func() { _ = guest.media.Stream(ctx, src) }()
 	wait(t, src.req, "yayın başında anahtar kare isteği")
 	wait(t, tech.track, "teknisyende H.264 track")
 	for _, pk := range []rtcp.Packet{&rtcp.PictureLossIndication{MediaSSRC: tech.ssrc.Load()},
@@ -326,5 +326,49 @@ func TestAC115InputChannelFollowsCaps(t *testing.T) {
 	case m := <-got:
 		t.Fatalf("yetenek kaldırıldıktan sonra input iletildi: %s", m)
 	case <-time.After(300 * time.Millisecond):
+	}
+}
+
+func testMedia(t *testing.T) *Media {
+	t.Helper()
+	m, err := NewMedia()
+	if err != nil {
+		t.Fatal(err)
+	}
+	return m
+}
+
+// lowKfSource ana/düşük anahtar kare isteklerini ayırır (P28c ayrı saat).
+type lowKfSource struct {
+	kfSource
+	low chan struct{}
+}
+
+func (s *lowKfSource) SetLowSink(func(Frame)) {}
+func (s *lowKfSource) EnableLow(bool)         {}
+func (s *lowKfSource) RequestLowKeyframe() {
+	select {
+	case s.low <- struct{}{}:
+	default:
+	}
+}
+
+// AC-367/AC-371: kontrol devrinde gönderici ReplaceTrack ile düşük ize geçer ve düşük kodlayıcıdan anahtar kare ister.
+func TestAC367SetMainReplacesTrack(t *testing.T) {
+	_, guest := connect(t, nil, make(chan dc.Ctl, 8))
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	src := &lowKfSource{kfSource: kfSource{req: make(chan struct{}, 4)}, low: make(chan struct{}, 4)}
+	go func() { _ = guest.media.Stream(ctx, src) }()
+	wait(t, src.req, "yayın başı anahtar kare")
+	if guest.sender == nil || guest.sender.Track() != guest.media.main {
+		t.Fatal("ilk iz ana olmalı")
+	}
+	if err := guest.SetMain(false); err != nil {
+		t.Fatal(err)
+	}
+	wait(t, src.low, "düşük anahtar kare")
+	if guest.sender.Track() != guest.media.low {
+		t.Fatal("ReplaceTrack düşük ize geçmedi")
 	}
 }
