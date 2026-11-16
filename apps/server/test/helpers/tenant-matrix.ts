@@ -170,6 +170,15 @@ export const ROUTE_CLASSES: Record<string, RouteClass> = {
   "PUT /api/v1/fsrv/uploads/:fid/chunks/:n": "public",
   "GET /api/v1/fsrv/files/:fid/content": "public",
   "POST /api/v1/sessions/:id/stored-files/:fid/link": "tenant",
+  // P28e (§5): parça uçları çerezsiz, yalnız Bearer belirteç (rid + tenant + oturum bağlı; izolasyon rec-p28e-k3 "S-P28e-6");
+  // geçmiş kayıt uçları tenant (B'nin A oturumuna isteği → 404); ayar tenantScope'lu (rec-p28e-k3 "AC-380").
+  "PUT /api/v1/rec/:rid/series/:s/parts/:p": "public",
+  "GET /api/v1/rec/:rid/series/:s/parts/:p": "public",
+  "GET /api/v1/sessions/:id/recording": "tenant",
+  "POST /api/v1/sessions/:id/recording/view": "tenant",
+  "DELETE /api/v1/sessions/:id/recording": "tenant",
+  "GET /api/v1/settings/recording": "scoped",
+  "PUT /api/v1/settings/recording": "scoped",
   "GET /api/v1/settings/consent-text": "scoped",
   "PUT /api/v1/settings/consent-text": "scoped",
   // P12 marka (izolasyon: branding-api-p12.test.ts "AC-84"); logo dosyaları ve marka ucu kimliksiz (yalnız logo)
@@ -316,6 +325,19 @@ export const CROSS_TENANT_CASES: CrossTenantCase[] = [
   {
     route: "POST /api/v1/sessions/:id/stored-files/:fid/link",
     request: (fx) => ({ method: "POST", url: `/api/v1/sessions/${fx.a.sessionId}/stored-files/${newId()}/link` }),
+  },
+  // P28e: A oturumunun kaydı B Admin'ine 404 (kayıt olsun olmasın aynı yanıt).
+  {
+    route: "GET /api/v1/sessions/:id/recording",
+    request: (fx) => ({ method: "GET", url: `/api/v1/sessions/${fx.a.sessionId}/recording` }),
+  },
+  {
+    route: "POST /api/v1/sessions/:id/recording/view",
+    request: (fx) => ({ method: "POST", url: `/api/v1/sessions/${fx.a.sessionId}/recording/view`, payload: {} }),
+  },
+  {
+    route: "DELETE /api/v1/sessions/:id/recording",
+    request: (fx) => ({ method: "DELETE", url: `/api/v1/sessions/${fx.a.sessionId}/recording`, payload: { confirm: true } }),
   },
   { route: "POST /api/v1/sessions/:id/cancel", request: (fx) => ({ method: "POST", url: `/api/v1/sessions/${fx.a.sessionId}/cancel` }) },
   {

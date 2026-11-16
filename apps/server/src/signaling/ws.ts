@@ -13,7 +13,9 @@ import { WebSocket, WebSocketServer } from "ws";
 import { newId } from "../lib/ids.ts";
 import { cidrMatcher } from "../lib/ip.ts";
 import { FixedWindowCounter } from "../lib/rate.ts";
-import { jsonPeer, type UpgradeReject } from "../lib/ws-upgrade.ts";
+import { jsonPeer, offeredProtocols, type UpgradeReject } from "../lib/ws-upgrade.ts";
+import { WS_CAP_REC } from "@remote/contracts/ws-rec";
+import type { Peer } from "./types.ts";
 import type { RequestChannels } from "../requests/ws.ts";
 import { bindFsrv } from "./fsrv.ts";
 import type { Rooms } from "./rooms.ts";
@@ -78,7 +80,10 @@ function upgradeCtx(app: FastifyInstance, rooms: Rooms, wss: WebSocketServer, mi
         // Protokol hatası (ör. > WS_MAX_PAYLOAD → 1009): ws kapanışı kendisi yapar; dinleyicisiz 'error' süreci düşürür.
         ws.on("error", (err: Error & { code?: string }) => app.log.info({ role, code: err.code }, "ws protokol hatası"));
         rooms.metrics.inc("rs_ws_connections_total", { role });
-        onOpen(ws, jsonPeer<ServerOutbound>(ws));
+        const peer: Peer = jsonPeer<ServerOutbound>(ws);
+        // P28e §6.1: `rs.cap.rec1` (konsol VP8 kaydedebilir / misafir gösterge çizebilir); misafirde katılımlı oda kapısı handlers/rec'te.
+        if ((role === "tech" || role === "guest") && offeredProtocols(req).includes(WS_CAP_REC)) peer.rec = true;
+        onOpen(ws, peer);
       });
     },
   };

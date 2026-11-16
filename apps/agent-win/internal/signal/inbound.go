@@ -42,6 +42,8 @@ type Hello struct {
 	ClipConsent   *bool    `json:"clipConsent,omitempty"`
 	// P28b (mimari-p28b §5.1): yalnız fsrv bildiren sokete gelir; yoksa P2P. Oturum boyunca değişmez (AC-355).
 	FileMode string `json:"fileMode,omitempty"`
+	// P28e (§6.2): yalnız rec1 soketine, yeniden bağlanmada; misafir biçimi {on, reason?}.
+	Rec *RecHello `json:"rec,omitempty"`
 }
 
 type LobbyWait struct {
@@ -251,6 +253,8 @@ var serverParsers = map[string]func(raw []byte) (Inbound, error){
 	"fsrv.status":   check(validFsrvStatus),
 	"fsrv.offer":    check(validFsrvOffer),
 	"fsrv.download": check(validFsrvDownload),
+	// P28e (mimari-p28e §6.2): misafir biçimi {on, reason?}; teknisyen alanları (rid/basis/upload) katı çözmede red.
+	"rec.state": check(validRecState),
 	"error": check(func(m *ErrorMsg) bool {
 		return slices.Contains(wsErrorCodes, m.Code) && utf16Len(m.Message) <= errMsgMax
 	}),
@@ -261,7 +265,7 @@ func validHello(m *Hello) bool {
 		validGuestKind(m.GuestKind) && validIceServers(m.IceServers) && (m.MaxEndsAt == nil || isISO(*m.MaxEndsAt)) &&
 		validMaxFileMb(m.MaxFileMb) && (m.ReconnectToken == "" || tokenRe.MatchString(m.ReconnectToken)) &&
 		(m.GuestName == nil || utf16Len(*m.GuestName) <= nameMax) && validShareSnapshot(m.Share) &&
-		validGuestFeatures(m.GuestFeatures) && validFileMode(m.FileMode)
+		validGuestFeatures(m.GuestFeatures) && validFileMode(m.FileMode) && validRecHello(m.Rec)
 }
 
 // validHelloCaps hello'da caps isteğe bağlıdır (nil geçerli); varsa yalnız bilinen yetenekler.

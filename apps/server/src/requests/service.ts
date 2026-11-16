@@ -213,7 +213,7 @@ export class RequestService {
   /** Public bilgi gövdesi (`TenantRequestInfo`; P8c `bindings/status` aynı şekli genişletir). */
   async requestInfo(tenantId: string, tenant: { name: string; logoPath: string | null }, waitMinutes: number): Promise<TenantRequestInfo> {
     const [consentText, abuse, logoUrl] = await Promise.all([
-      currentConsentText(this.d.db, tenantId),
+      currentConsentText(this.d.db, tenantId, this.d.rooms.rec), // P28e §2.1: teklif yalnız kayıt açık ∧ kapasite uygun (talep yolu katılımlı)
       abuseEmail(this.d.db, { fromEnv: this.d.env.ABUSE_EMAIL, superAdminFallback: this.d.env.NODE_ENV !== "production" }),
       effectiveLogoUrl(this.d.db, tenant.logoPath), // P12 (AC-81)
     ]);

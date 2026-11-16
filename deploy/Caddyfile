@@ -194,9 +194,23 @@
 		method POST
 		path_regexp ^/api/v1/(settings/logo|admin/settings/system-logo|users/[^/]+/avatar)$
 	}
-	@notUpload not {
-		method POST
-		path_regexp ^/api/v1/(settings/logo|admin/settings/system-logo|users/[^/]+/avatar)$
+	# P28e (mimari-p28e §5, §11.4): kayıt parçası PUT /api/v1/rec/<rid>/series/<s>/parts/<p> en çok REC_PART_MAX_BYTES =
+	# 2097152 (2 MiB; Fastify bodyLimit ile aynı). 2MB (SI, 2.000.000) bunu keserdi -> @notUpload bu isteği DIŞLAR (iki sınırdan
+	# küçüğü kazanırdı), @recPart kendi tavanını uygular. İki `not` bloğu VE'lenir. Gövde süresi read_body 30s (2 MiB / 30 sn ≈
+	# 560 kbit/s yükleme; hedef bit hızı 1,5 Mbit/s bunun üstünde). Belirteç yalnız Authorization başlığında (log filtresi siler).
+	@recPart {
+		method PUT
+		path_regexp ^/api/v1/rec/[^/]+/series/[0-9]+/parts/[0-9]+$
+	}
+	@notUpload {
+		not {
+			method POST
+			path_regexp ^/api/v1/(settings/logo|admin/settings/system-logo|users/[^/]+/avatar)$
+		}
+		not {
+			method PUT
+			path_regexp ^/api/v1/rec/[^/]+/series/[0-9]+/parts/[0-9]+$
+		}
 	}
 	# P28b (mimari-p28b §4, K-P28b-4): sunucu modu dosya parçası PUT /api/v1/fsrv/uploads/<fid>/chunks/<n> en çok 1 MiB + 1
 	# (Fastify bodyLimit ile aynı). @notUpload (2MB) de bu isteğe uygulanır; iki sınırdan küçüğü geçerli. Gövde süresi
@@ -215,6 +229,9 @@
 		}
 		request_body @fsrvChunk {
 			max_size 1048577
+		}
+		request_body @recPart {
+			max_size 2097152
 		}
 		reverse_proxy server:3001 {
 			header_up -X-Edge-Auth

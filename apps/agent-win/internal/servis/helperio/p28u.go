@@ -53,10 +53,11 @@ const MaxConsentMs = 65000
 // CmdLock tek komut (oturum kapatma servistedir — §7.5).
 const CmdLock = "lock"
 
-// Command giriş borusunun ikinci ve sonraki satırları.
+// Command giriş borusunun ikinci ve sonraki satırları. lock ⇒ ID dolu, On yok; rec (P28e) ⇒ ID boş, On dolu.
 type Command struct {
 	Cmd string `json:"cmd"`
-	ID  string `json:"id"`
+	ID  string `json:"id,omitempty"`
+	On  *bool  `json:"on,omitempty"`
 }
 
 // Status durum borusu olayı. Ev'e göre alanlar: consent{Decision, Ms}, control{On}, lock{ID, Ok, Reason?}.
@@ -88,6 +89,9 @@ func (in Input) validateP28u() error {
 	if in.IndicatorControl != "" && !Text(in.IndicatorControl, 160) {
 		return fmt.Errorf("%w: indicatorControl", ErrInvalid)
 	}
+	if in.Recording && in.Consent == "" { // P27 girdisi kayıt taşımaz (gösterge eki yok → kayıt yok, K-P28e-7)
+		return fmt.Errorf("%w: recording", ErrInvalid)
+	}
 	return nil
 }
 
@@ -117,7 +121,7 @@ func ReadCommand(br *bufio.Reader) (Command, error) {
 	if derr := strictDecode(line, &c); derr != nil {
 		return Command{}, derr
 	}
-	if c.Cmd != CmdLock || !cmdIDRe.MatchString(c.ID) {
+	if !validCommand(c) {
 		return Command{}, fmt.Errorf("%w: komut", ErrInvalid)
 	}
 	return c, nil
@@ -125,7 +129,7 @@ func ReadCommand(br *bufio.Reader) (Command, error) {
 
 // EncodeCommand servis tarafı: tek satır (yeni satırla).
 func EncodeCommand(c Command) ([]byte, error) {
-	if c.Cmd != CmdLock || !cmdIDRe.MatchString(c.ID) {
+	if !validCommand(c) {
 		return nil, fmt.Errorf("%w: komut", ErrInvalid)
 	}
 	b, err := json.Marshal(c)

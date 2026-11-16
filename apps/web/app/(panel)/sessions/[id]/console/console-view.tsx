@@ -4,6 +4,7 @@ import type { SessionView } from "@remote/contracts/api/sessions";
 import { useEffect, useId, useRef, useState } from "react";
 import type { DrawTool } from "@/components/collab/annot-layer";
 import { CollabSide, type CollabTab } from "@/components/console/collab-side";
+import { RecIndicator } from "@/components/console/rec-indicator";
 import { UnattendedActions } from "@/components/console/unattended-actions";
 import { Alert } from "@/components/ui/alert";
 import { useToast } from "@/components/ui/toast";
@@ -64,6 +65,9 @@ export function ConsoleView({
   return (
     <div className="flex flex-col gap-3" data-testid="console" data-phase={state.phase}>
       <ConsoleHeader session={session} state={state} name={name} now={now} controlHint={controlHint} onConfirm={() => setConfirm(true)} />
+
+      {/* P28e (§9): kayıt göstergesi + kaydedici (tüm teknisyenlerde gösterge; kaydedici yalnız upload alan sokette) */}
+      <RecIndicator subscribe={ts.subscribe} send={ts.send} stream={ts.stream} ended={state.phase === "ended"} />
 
       {state.phase !== "ended" && (
         <UnattendedActions

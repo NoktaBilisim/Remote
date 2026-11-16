@@ -1,0 +1,381 @@
+<!doctype html>
+<!--
+  P28e K0s spike sayfası (docs/mimari-p28e.md §7, §14 K0s). Üretim kodu DEĞİL; apps/web'e girmez.
+  Kaynak: sentetik canvas.captureStream (kaydırmalı metin + hareketli kutu + zaman damgası şeridi).
+  Her karenin sol üstüne 24 bitlik zaman damgası (ms, t0'dan beri) 32 px siyah/beyaz bloklarla gömülür;
+  çözülmüş karelerden okunur (bölüm geçiş boşluğu ve MSE seek doğruluğu için).
+  Sürücü: docs/spike-p28e/k0s.mjs (window.K0s API'si).
+-->
+<html lang="tr">
+  <head>
+    <meta charset="utf-8" />
+    <title>P28e K0s spike</title>
+  </head>
+  <body>
+    <div id="host"></div>
+    <script>
+      "use strict";
+      const BITS = 24;
+      const BLK = 32;
+      const t0 = performance.now();
+      const now = () => performance.now() - t0;
+      const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+      const once = (el, ev, ms = 10000) =>
+        new Promise((res, rej) => {
+          const to = setTimeout(() => rej(new Error(`zaman aşımı: ${ev}`)), ms);
+          el.addEventListener(ev, (e) => (clearTimeout(to), res(e)), { once: true });
+          if (ev !== "error") el.addEventListener("error", (e) => (clearTimeout(to), rej(new Error(`${ev}: error olayı`))), { once: true });
+        });
+
+      const S = {
+        canvas: null,
+        ctx: null,
+        track: null,
+        stream: null,
+        mode: "scroll",
+        scroll: 0,
+        drawn: 0,
+        drawLog: [], // [now, drawnSoFar] her saniye
+        segments: [],
+        worker: null,
+      };
+
+      const LINES = Array.from(
+        { length: 400 },
+        (_, i) =>
+          `${String(i).padStart(4, "0")}  Uzak destek oturumu kaydı satırı — çğıöşü İĞÜŞÖÇ — lorem ipsum dolor sit amet ${(i * 7919) % 10007}`,
+      );
+
+      function draw() {
+        const { ctx, canvas } = S;
+        const w = canvas.width,
+          h = canvas.height;
+        const t = now();
+        if (S.mode === "scroll") {
+          ctx.fillStyle = "#f4f4f4";
+          ctx.fillRect(0, 0, w, h);
+          ctx.fillStyle = "#1a1a1a";
+          ctx.font = "16px monospace";
+          S.scroll += 4;
+          const lh = 20;
+          const first = Math.floor(S.scroll / lh);
+          for (let y = -(S.scroll % lh) + 60, i = first; y < h; y += lh, i++) {
+            ctx.fillText(LINES[i % LINES.length], 20, y);
+          }
+          ctx.fillStyle = "#2a6ad8";
+          const x = (t / 4) % (w - 200);
+          ctx.fillRect(x, h / 2, 200, 120);
+        } else if (S.drawn === 0 || S.mode !== "static-drawn") {
+          // durağan: arka plan + metin bir kez; sonra yalnız saat ve şerit değişir
+          ctx.fillStyle = "#f4f4f4";
+          ctx.fillRect(0, 0, w, h);
+          ctx.fillStyle = "#1a1a1a";
+          ctx.font = "16px monospace";
+          for (let y = 60, i = 0; y < h; y += 20, i++) ctx.fillText(LINES[i], 20, y);
+          S.mode = "static-drawn";
+        }
+        if (S.mode === "static-drawn") {
+          ctx.fillStyle = "#f4f4f4";
+          ctx.fillRect(w - 260, h - 50, 240, 40);
+          ctx.fillStyle = "#1a1a1a";
+          ctx.font = "24px monospace";
+          ctx.fillText(new Date().toISOString().slice(11, 19), w - 250, h - 20);
+        }
+        // zaman damgası şeridi
+        const v = Math.round(t) & ((1 << BITS) - 1);
+        ctx.fillStyle = "#808080";
+        ctx.fillRect(0, 0, BITS * BLK + 8, BLK + 8);
+        for (let b = 0; b < BITS; b++) {
+          ctx.fillStyle = (v >> (BITS - 1 - b)) & 1 ? "#ffffff" : "#000000";
+          ctx.fillRect(4 + b * BLK, 4, BLK, BLK);
+        }
+        S.drawn++;
+      }
+
+      function readCode(source, w, h) {
+        const c = document.createElement("canvas");
+        c.width = w;
+        c.height = h;
+        const x = c.getContext("2d", { willReadFrequently: true });
+        x.drawImage(source, 0, 0, w, h);
+        const d = x.getImageData(0, 0, BITS * BLK + 8, BLK + 8).data;
+        const rowW = BITS * BLK + 8;
+        let v = 0;
+        for (let b = 0; b < BITS; b++) {
+          let sum = 0,
+            n = 0;
+          for (let yy = 12; yy < 28; yy++)
+            for (let xx = 12; xx < 28; xx++) {
+              const p = (yy * rowW + 4 + b * BLK + xx) * 4;
+              sum += 0.299 * d[p] + 0.587 * d[p + 1] + 0.114 * d[p + 2];
+              n++;
+            }
+          v = (v << 1) | (sum / n > 128 ? 1 : 0);
+        }
+        return v;
+      }
+
+      const K0s = {
+        setup(w, h, mode = "scroll") {
+          if (!S.canvas) {
+            S.canvas = document.createElement("canvas");
+            S.canvas.style.width = "480px";
+            document.getElementById("host").appendChild(S.canvas);
+            S.ctx = S.canvas.getContext("2d");
+          }
+          S.canvas.width = w;
+          S.canvas.height = h;
+          S.mode = mode;
+          S.drawn = 0;
+          draw();
+          if (!S.stream) {
+            S.stream = S.canvas.captureStream(30);
+            S.track = S.stream.getVideoTracks()[0];
+            // Çizimi Worker tick'i sürer (rAF gizli sayfada durur, setInterval kısıtlanır).
+            const src = "setInterval(() => postMessage(0), 33);";
+            S.worker = new Worker(URL.createObjectURL(new Blob([src], { type: "text/javascript" })));
+            S.worker.onmessage = () => draw();
+            setInterval(() => S.drawLog.push([Math.round(now()), S.drawn, document.visibilityState]), 1000);
+          }
+          return { w, h, settings: S.track.getSettings() };
+        },
+        resize(w, h) {
+          S.canvas.width = w;
+          S.canvas.height = h;
+          draw();
+          return S.track.getSettings();
+        },
+        state() {
+          return {
+            vis: document.visibilityState,
+            hidden: document.hidden,
+            drawn: S.drawn,
+            now: now(),
+            settings: S.track && S.track.getSettings(),
+          };
+        },
+        drawLog(since) {
+          return S.drawLog.filter((r) => r[0] >= since);
+        },
+        clear() {
+          S.segments = [];
+        },
+        /**
+         * Bölümlü kayıt. variant: "sync" (stop() ardından aynı görevde yeni start — §7) | "onstop" (onstop olayında start)
+         * events: [{atMs, fn}] kayıt sırasında çağrılacak (çözünürlük değişimi vb.)
+         */
+        async record({ segMs, segCount, timeslice = 5000, bps = 1_500_000, variant = "sync", events = [] }) {
+          S.segments = [];
+          const opts = { mimeType: "video/webm;codecs=vp8", videoBitsPerSecond: bps };
+          const ms = new MediaStream([S.track]);
+          const log = [];
+          const recStart = now();
+          for (const e of events)
+            setTimeout(() => {
+              try {
+                log.push({ t: now(), ev: e.name, r: K0s[e.fn](...e.args) });
+              } catch (err) {
+                log.push({ t: now(), ev: e.name, err: String(err) });
+              }
+            }, e.atMs);
+          return await new Promise((resolve) => {
+            const startSeg = (i) => {
+              const seg = { i, chunks: [], meta: [], startCall: now(), errors: [] };
+              S.segments.push(seg);
+              const rec = new MediaRecorder(ms, opts);
+              seg.mime = rec.mimeType;
+              rec.onstart = () => (seg.startEvt = now());
+              rec.onerror = (e) => seg.errors.push({ t: now(), e: String(e.error || e.type) });
+              rec.ondataavailable = (e) => {
+                if (e.data.size === 0) return;
+                seg.chunks.push(e.data);
+                seg.meta.push({ t: now(), size: e.data.size, state: rec.state });
+              };
+              const finish = () => {
+                seg.stopEvt = now();
+                if (variant === "onstop" && i + 1 < segCount) startSeg(i + 1);
+                if (i + 1 === segCount) resolve(K0s.summary(recStart, log));
+              };
+              rec.onstop = finish;
+              rec.start(timeslice);
+              seg.timerSet = now();
+              setTimeout(() => {
+                seg.stopCall = now();
+                seg.timerDrift = seg.stopCall - seg.timerSet - segMs;
+                rec.stop();
+                if (variant === "sync" && i + 1 < segCount) startSeg(i + 1);
+              }, segMs);
+            };
+            startSeg(0);
+          });
+        },
+        summary(recStart, log) {
+          return {
+            recStart,
+            log,
+            segments: S.segments.map((s) => ({
+              i: s.i,
+              mime: s.mime,
+              startCall: s.startCall,
+              startEvt: s.startEvt,
+              stopCall: s.stopCall,
+              stopEvt: s.stopEvt,
+              timerDrift: s.timerDrift,
+              errors: s.errors,
+              chunks: s.meta,
+              bytes: s.meta.reduce((a, m) => a + m.size, 0),
+            })),
+          };
+        },
+
+        // --- MSE yardımcıları ---
+        async _mse() {
+          const v = document.createElement("video");
+          v.muted = true;
+          v.style.width = "320px";
+          document.getElementById("host").appendChild(v);
+          const ms = new MediaSource();
+          v.src = URL.createObjectURL(ms);
+          await once(ms, "sourceopen");
+          const sb = ms.addSourceBuffer('video/webm; codecs="vp8"');
+          return { v, ms, sb };
+        },
+        async _append(sb, blob) {
+          const buf = await blob.arrayBuffer();
+          sb.appendBuffer(buf);
+          await once(sb, "updateend");
+        },
+        async _seekRead(v, t) {
+          const framed = new Promise((r) => (v.requestVideoFrameCallback ? v.requestVideoFrameCallback(() => r()) : r()));
+          v.currentTime = t;
+          await once(v, "seeked");
+          await Promise.race([framed, sleep(400)]);
+          return { t: v.currentTime, code: readCode(v, v.videoWidth, v.videoHeight), vw: v.videoWidth, vh: v.videoHeight };
+        },
+        _ranges(v) {
+          const r = [];
+          for (let k = 0; k < v.buffered.length; k++) r.push([v.buffered.start(k), v.buffered.end(k)]);
+          return r;
+        },
+        /** Her bölüm ayrı MSE'de (timestampOffset=0): buffered, ilk/son kare zaman damgası. */
+        async analyzeSegments() {
+          const out = [];
+          for (const s of S.segments) {
+            const { v, ms, sb } = await K0s._mse();
+            let appendErr = null;
+            try {
+              for (const c of s.chunks) await K0s._append(sb, c);
+              ms.endOfStream(); // yoksa son kareye seek daha fazla veri bekler (seeked gelmez)
+            } catch (e) {
+              appendErr = String(e && (e.message || e.type));
+            }
+            const ranges = K0s._ranges(v);
+            const r = { i: s.i, ranges, appendErr };
+            if (ranges.length) {
+              const a = ranges[0][0],
+                b = ranges[ranges.length - 1][1];
+              r.first = await K0s._seekRead(v, a + 0.001).catch((e) => ({ err: String(e.message) })); // currentTime zaten a ise seeked gelmez
+              r.last = await K0s._seekRead(v, Math.max(a, b - 0.02)).catch((e) => ({ err: String(e.message) }));
+            }
+            v.remove();
+            out.push(r);
+          }
+          return out;
+        },
+        /** Tek MediaSource'ta sırayla tüm bölümler, timestampOffset = (startCall_i - startCall_0)/1000. */
+        async timeline({ seekPoints = [], playAcross = [] } = {}) {
+          const { v, sb } = await K0s._mse();
+          const base = S.segments[0].startCall;
+          const res = { offsets: [], abortNeeded: false, setErr: [] };
+          for (const s of S.segments) {
+            const off = (s.startCall - base) / 1000;
+            try {
+              sb.timestampOffset = off;
+            } catch (e) {
+              res.setErr.push(String(e.name));
+              sb.abort();
+              res.abortNeeded = true;
+              sb.timestampOffset = off;
+            }
+            for (const c of s.chunks) await K0s._append(sb, c);
+            res.offsets.push(off);
+          }
+          res.ranges = K0s._ranges(v);
+          res.seeks = [];
+          for (const t of seekPoints) {
+            const r = await K0s._seekRead(v, t);
+            r.expected = Math.round(base + t * 1000);
+            r.errMs = r.code - r.expected;
+            res.seeks.push(r);
+          }
+          res.plays = [];
+          for (const tb of playAcross) {
+            await K0s._seekRead(v, tb - 1);
+            let waiting = 0;
+            const onW = () => waiting++;
+            v.addEventListener("waiting", onW);
+            const p0 = performance.now();
+            await v.play().catch((e) => res.plays.push({ playErr: String(e) }));
+            await sleep(3000);
+            v.pause();
+            v.removeEventListener("waiting", onW);
+            res.plays.push({
+              boundary: tb,
+              from: tb - 1,
+              reached: v.currentTime,
+              crossed: v.currentTime > tb + 0.5,
+              waiting,
+              wallMs: Math.round(performance.now() - p0),
+            });
+          }
+          v.remove();
+          return res;
+        },
+        /** §7 gerçek seek yolu: önceki bölümler yokken yalnız hedef bölüm kendi ofsetine eklenir. */
+        async targetOnly(idx, intoSec) {
+          const { v, sb } = await K0s._mse();
+          const base = S.segments[0].startCall;
+          const s = S.segments[idx];
+          const off = (s.startCall - base) / 1000;
+          sb.timestampOffset = off;
+          for (const c of s.chunks) await K0s._append(sb, c);
+          const ranges = K0s._ranges(v);
+          const r = await K0s._seekRead(v, off + intoSec);
+          r.expected = Math.round(base + (off + intoSec) * 1000);
+          r.errMs = r.code - r.expected;
+          v.remove();
+          return { off, ranges, ...r };
+        },
+        /** Bölüm içinde verilen medya zamanlarında boyut ve kod (çözünürlük değişimi için). */
+        async probe(idx, times) {
+          const { v, sb } = await K0s._mse();
+          let appendErr = null;
+          try {
+            for (const c of S.segments[idx].chunks) await K0s._append(sb, c);
+          } catch (e) {
+            appendErr = String(e && (e.message || e.type));
+          }
+          const ranges = K0s._ranges(v);
+          const out = [];
+          let resizes = 0;
+          v.addEventListener("resize", () => resizes++);
+          for (const t of times) out.push(await K0s._seekRead(v, t).catch((e) => ({ t, err: String(e) })));
+          // baştan oynat: çözünürlük sınırını oynatarak geçebiliyor mu
+          await K0s._seekRead(v, ranges.length ? ranges[0][0] : 0);
+          let waiting = 0;
+          v.addEventListener("waiting", () => waiting++);
+          v.playbackRate = 4;
+          const p = v.play().catch((e) => String(e));
+          const end = ranges.length ? ranges[ranges.length - 1][1] : 0;
+          await sleep(Math.min(15000, ((end + 1) / 4) * 1000));
+          v.pause();
+          const pe = await p;
+          const play = { reached: v.currentTime, bufEnd: end, waiting, playErr: typeof pe === "string" ? pe : null, resizes, vw: v.videoWidth };
+          v.remove();
+          return { appendErr, ranges, out, play };
+        },
+      };
+      window.K0s = K0s;
+    </script>
+  </body>
+</html>

@@ -77,6 +77,8 @@ type Connect struct {
 	// P28u: consent1 sokette zorunlu "ask"|"silent" (çekirdek denetler, connectConsent); indicatorControl yalnız silent.
 	Consent          string `json:"consent,omitempty"`
 	IndicatorControl string `json:"indicatorControl,omitempty"`
+	// P28e (§6.2): yalnız record1 sokete ve yalnız true (validRecording); servis → yardımcı RecordingLine/Recording (K6).
+	Recording *bool `json:"recording,omitempty"`
 }
 
 // Disconnect sunucu tarafı bitiş (yedek yol).
@@ -189,6 +191,8 @@ func ParseServer(raw []byte) (any, error) {
 		m = &Intervene{}
 	case tRejoin:
 		m = &Rejoin{}
+	case tRecState:
+		m = &RecState{}
 	default:
 		return nil, fmt.Errorf("%w: tür %q", errSchema, head.T)
 	}
@@ -212,13 +216,15 @@ func validateServer(m any) error {
 		ok = ulidRe.MatchString(v.SessionID) && b64url32.MatchString(v.Ticket) && name(v.TechName) &&
 			name(v.TenantName) && len(v.TechIP) >= 2 && len(v.TechIP) <= 45 && v.ExpiresInSec >= 1 &&
 			v.ExpiresInSec <= 300 && helperio.Text(v.IndicatorText, 160) && len(v.Consent) <= 16 &&
-			(v.IndicatorControl == "" || helperio.Text(v.IndicatorControl, 160))
+			(v.IndicatorControl == "" || helperio.Text(v.IndicatorControl, 160)) && validRecording(v.Recording)
 	case *Features:
 		ok = validFeatures(v)
 	case *Intervene:
 		ok = validIntervene(v)
 	case *Rejoin:
 		ok = validRejoin(v)
+	case *RecState:
+		ok = validRecState(v)
 	case *Disconnect:
 		ok = ulidRe.MatchString(v.SessionID) && sessionEndedReasons[v.Reason]
 	}

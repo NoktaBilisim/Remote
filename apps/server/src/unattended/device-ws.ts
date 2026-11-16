@@ -19,6 +19,7 @@ import {
   WS_DEVICE_RATE_PER_SEC,
   WS_DEVICE_SUBPROTOCOL,
   type DeviceConsentOutbound,
+  type DeviceRecordOutbound,
   type DeviceFeature,
   type DeviceOutbound,
 } from "@remote/contracts/ws-device";
@@ -52,7 +53,7 @@ interface Ctx {
   beforeAttach?: ((deviceId: string) => Promise<void>) | undefined;
 }
 
-type Peer = ReturnType<typeof jsonPeer<DeviceOutbound | DeviceConsentOutbound>>;
+type Peer = ReturnType<typeof jsonPeer<DeviceOutbound | DeviceConsentOutbound | DeviceRecordOutbound>>;
 
 /** Soket başına kimlik durumu (open ↔ beginAuth). */
 interface SockState {
@@ -125,7 +126,7 @@ function upgrade(c: Ctx, req: IncomingMessage, socket: Duplex, head: Buffer, ip:
 }
 
 function open(c: Ctx, ws: WebSocket, ctx: AuditContext, release: () => void, caps: ReadonlySet<DeviceFeature>): void {
-  const peer = jsonPeer<DeviceOutbound | DeviceConsentOutbound>(ws);
+  const peer = jsonPeer<DeviceOutbound | DeviceConsentOutbound | DeviceRecordOutbound>(ws);
   const nonce = randomBytes(32).toString("base64url");
   const bucket = new TokenBucket(c.app.rooms.clock, WS_DEVICE_RATE_PER_SEC);
   const s: SockState = { conn: undefined, authing: false, caps };

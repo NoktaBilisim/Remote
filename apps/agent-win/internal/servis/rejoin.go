@@ -64,6 +64,7 @@ type rejoinState struct {
 	oldWin    uint32
 	until     time.Time
 	msg       *Rejoin // sunucunun bileti (oturum başına bir kez)
+	rec       bool    // P28e: son bilinen kayıt durumu (yeni yardımcı eki bununla çizer; rec.state bekleyişte günceller)
 }
 
 // rejoinLocked geçerli bekleyiş; süresi dolmuşsa düşürür (kilit altında).
@@ -134,7 +135,7 @@ func (c *Core) launchRejoin(rj *rejoinState) {
 	m, b := rj.msg, rj.base
 	in := helperio.Input{V: helperio.Version, SessionID: m.SessionID, Ticket: m.Ticket, TechName: b.TechName,
 		TenantName: b.TenantName, TechIP: b.TechIP, IndicatorText: m.IndicatorText, ExpiresInSec: m.ExpiresInSec,
-		Consent: helperio.ConsentNone, Mode: m.Mode, IndicatorControl: m.IndicatorControl}
+		Consent: helperio.ConsentNone, Mode: m.Mode, IndicatorControl: m.IndicatorControl, Recording: rj.rec}
 	proc, err := c.Launch.Launch(in)
 	if err != nil {
 		reason := helperio.ReasonHelperFailed

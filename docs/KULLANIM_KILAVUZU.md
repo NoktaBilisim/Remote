@@ -19,6 +19,9 @@ geliştirilir (bkz. `README.md` "Yol haritası"); kılavuz da her paketle birlik
   yetkisi, bağlanma, cihaz rozetleri, iptal; müşteri tarafında servisi kurma, gösterge, tepsi, yerel kapatma, kaldırma);
   üç bağlantı kipi (İzinli / Kullanıcı yok / İzinsiz), cihazdaki onay penceresi, izin istemeden bağlanma politikası ve KVKK
   uyarısı, dört göz e-postası, müdahale (oturumu kilitle / kapat), eski servis güncellemesi
+- **Admin, teknisyen, müşteri ve müşteri BT için:** Oturum kaydı (Ayarlar > Oturum kaydı, saklama süresi, KVKK onayı,
+  gözetimsiz bağlantıları kaydetme ve dört göz e-postası, müşterinin kayıt izni ve **Kaydı durdur**, konsolda kayıt
+  göstergesi, oturum geçmişinde **Kaydı izle** / **Kaydı sil**, denetim kayıtları)
 - **Herkes için (teknisyen, Admin, Super Admin):** Giriş ve hesap güvenliği — iki adımlı doğrulama (2FA), kurtarma
   kodları ve kurtarma kodlarını yenileme, "Bu cihazı 30 gün hatırla" ve hatırlanan cihazlar, şifremi unuttum, Hesabım sayfası, tüm cihazlardan çıkış, kritik ayarlarda kimliğinizi yeniden doğrulama;
   hesap menüsü, profil resmi ve tema; giriş ekranında firma logosu
@@ -2295,6 +2298,8 @@ kayda yazılmaz.
 - Güvenlik gereği bekleyen bir oturumun 8 haneli kodu yalnız oturumu açan teknisyene gösterilir.
 - Kayıtlar: not/ticket değişikliği `session.updated` (not metni değil, yalnız uzunluğu), her dışa aktarma
   `session.exported` (filtreler ve satır sayısı; aranan müşteri adı değil) olarak denetim kaydına yazılır.
+- Oturum kaydını izlemek için ayrıca **Oturumlar → Kayıtları izle**, silmek için **Oturum geçmişi → Düzenle** gerekir
+  (bkz. "Oturum kaydı").
 
 ## Admin için: Ayarlar > Genel (oturum ve dosya sınırları)
 
@@ -2360,7 +2365,8 @@ anonimleştirildiğinde ya da kalıcı silindiğinde de dosyaları silinir. Sakl
 
 ### Depolama kullanımı
 
-Sekmenin altında "Kullanım: x / y" çubuğu firmanızın kullandığı alanı ve kotasını gösterir. "Depolama kotası dolmak
+Sekmenin altında "Kullanım: x / y" çubuğu firmanızın kullandığı alanı ve kotasını gösterir. Kullanıma oturum kayıtları da
+dahildir (bkz. "Oturum kaydı"). "Depolama kotası dolmak
 üzere…" uyarısı çıkarsa kota dolduğunda yeni dosyalar kabul edilmez ("Firma depolama kotası doldu"). Kotayı yalnız Super
 Admin artırır. Beklemeden yer açmak için saklama süresini 1 güne indirebilirsiniz; fazlası bir sonraki 03:30 turunda silinir.
 
@@ -3031,14 +3037,15 @@ süresi dolan verileri kendiliğinden siler veya anonimleştirir. Sizin bir şey
   uzatmak silinen bilgiyi geri getirmez.
 - Değişiklik audit log'a eski → yeni değerle yazılır.
 
-| Veri                                                    | Ne zaman                                     | Ne olur                                                                                                                                                            |
-| ------------------------------------------------------- | -------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| Bitmiş, süresi dolmuş veya iptal edilmiş destek oturumu | Oluşturulmasından saklama süresi kadar sonra | Müşteri adı, e-postası, not, onay kayıtlarındaki IP/tarayıcı ve dosya kayıtları silinir; oturum "Anonimleştirildi" olur (bkz. "Anonimleştirildi rozeti ne demek?") |
-| Destek talebi                                           | Saklama süresi dolunca                       | Ad, telefon, e-posta ve açıklama silinir                                                                                                                           |
-| Pasif müşteri                                           | Pasife alındıktan saklama süresi kadar sonra | Yetkili kişi, telefon, e-posta ve not silinir ("Anonimleştirildi")                                                                                                 |
-| Kayıtlı bilgisayar                                      | Son kullanımdan saklama süresi kadar sonra   | Kayıt geçersiz olur; müşteri yeni dosya veya kodla bağlanır                                                                                                        |
-| Audit log                                               | 730 gün (firmaya göre değişmez)              | Silinir                                                                                                                                                            |
-| Giriş oturumları ve şifre sıfırlama bağlantıları        | Süreleri bittikten 7 gün sonra               | Silinir                                                                                                                                                            |
+| Veri                                                    | Ne zaman                                                               | Ne olur                                                                                                                                                            |
+| ------------------------------------------------------- | ---------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Bitmiş, süresi dolmuş veya iptal edilmiş destek oturumu | Oluşturulmasından saklama süresi kadar sonra                           | Müşteri adı, e-postası, not, onay kayıtlarındaki IP/tarayıcı ve dosya kayıtları silinir; oturum "Anonimleştirildi" olur (bkz. "Anonimleştirildi rozeti ne demek?") |
+| Destek talebi                                           | Saklama süresi dolunca                                                 | Ad, telefon, e-posta ve açıklama silinir                                                                                                                           |
+| Pasif müşteri                                           | Pasife alındıktan saklama süresi kadar sonra                           | Yetkili kişi, telefon, e-posta ve not silinir ("Anonimleştirildi")                                                                                                 |
+| Kayıtlı bilgisayar                                      | Son kullanımdan saklama süresi kadar sonra                             | Kayıt geçersiz olur; müşteri yeni dosya veya kodla bağlanır                                                                                                        |
+| Oturum kaydı (görüntü)                                  | Kayıt saklama süresi (1–90 gün) dolunca veya oturum anonimleştirilince | Kayıt dosyaları silinir (bkz. "Oturum kaydı")                                                                                                                      |
+| Audit log                                               | 730 gün (firmaya göre değişmez)                                        | Silinir                                                                                                                                                            |
+| Giriş oturumları ve şifre sıfırlama bağlantıları        | Süreleri bittikten 7 gün sonra                                         | Silinir                                                                                                                                                            |
 
 - Onay kararları (izin verdi/reddetti) ve onaylanan aydınlatma metninin sürümü KVKK onay kanıtı olarak kalır; kişiyi
   tanıtan bilgi kalmaz.
@@ -3154,6 +3161,278 @@ Bilmeniz gerekenler:
   kurmak gerekmez.
 - Tablo bu kılavuzu müşterinin BT sorumlusuna iletmeniz için hazırlanmıştır. Görüntü gelmiyorsa önce "Teknisyen için:
   Müşterinin ekranı gelmiyorsa" bölümüne bakın.
+
+## Oturum kaydı (Admin, teknisyen, müşteri ve müşteri BT için)
+
+Oturum kaydı, destek oturumunda müşterinin ekranından gelen **görüntüyü** saklar. Sonradan "o gün ne yapıldı?" sorusunu
+cevaplamak, şikâyeti incelemek veya eğitim için kullanılır. Özet:
+
+- Varsayılan **kapalıdır**. Firmanın Admin'i **Ayarlar > Oturum kaydı**'ndan açar.
+- Katılımlı oturumda (kod, bağlantı, destek talebi) kayıt yalnız **müşteri izin kutusunu işaretlerse** alınır. Kutu
+  varsayılan olarak işaretsizdir.
+- Gözetimsiz bağlantılarda kayıt müşteri izniyle değil **firma politikasıyla** alınır ("Gözetimsiz bağlantıları da kaydet").
+- **Ses kaydedilmez.** Yalnız görüntü saklanır.
+- Kayıt sürerken müşteri ekranında ve teknisyen konsolunda **"Kayıt yapılıyor"** göstergesi görünür.
+- Kayıt sunucuda **şifreli** saklanır, seçilen süre (1–90 gün) dolunca kendiliğinden silinir.
+- Kaydı yalnız yetkili kişiler panelde izler. İndirme düğmesi ve indirme adresi yoktur. Her izleme ve izlenen miktar
+  denetim kaydına yazılır.
+
+**Kaydı kim alır?** Kaydı teknisyenin tarayıcısındaki konsol alır ve sunucuya yükler. Yani kayıt, **teknisyen tarafına ulaşan
+görüntüdür**. Teknisyenin bağlantısı koptuğu sürede kayıtta boşluk oluşur. Kayıt bu yüzden "müşterinin bilgisayarında olan
+her şey"in değil, "teknisyenin gördüğü"nün kanıtıdır.
+
+**Neler mümkün değil?** Kaydın izlenmesi engellenemeyen bir ekran görüntüsü/ekran kaydı programıyla veya ağ trafiğini
+yakalayarak kopyalanması teknik olarak önlenemez. Bu yüzden izleme yetkisini yalnız gereken kişilere verin; her izleme kim
+izledi, ne kadar izledi bilgisiyle kayıt altındadır.
+
+### Admin için: Oturum kaydını nasıl açarım?
+
+**Ayarlar > Oturum kaydı** sekmesi (kamera simgesi). Görmek için **Ayarlar → Görüntüle**, değiştirmek için **Ayarlar →
+Düzenle** yetkisi gerekir.
+
+1. **Ayarlar > Aydınlatma metni**'ni açın ve müşterilere gösterilen metne oturum kaydını ekleyin (kayıt kişisel veri
+   işler; ne kaydedildiği, ne kadar saklandığı, kimin izlediği yazılmalı).
+2. **Ayarlar > Oturum kaydı**'nı açın.
+3. **Oturum kaydı** anahtarını **Açık** yapın. Altında "Açıkken müşteri onay ekranında ayrı, işaretsiz bir kayıt izni
+   kutusu görür. Ses kaydedilmez." yazar.
+4. Çıkan **Aydınlatma metnimi bu değişikliği kapsayacak şekilde güncelledim** kutusunu işaretleyin. İşaretlemeden
+   kaydederseniz "Açmadan önce aydınlatma metnini güncellediğinizi onaylayın" hatası çıkar.
+5. **Kayıt saklama süresi (gün)** alanına 1–90 arası bir sayı yazın (varsayılan 30).
+6. Alt çubuktaki **Kaydet**'e basın. "Oturum kaydı ayarları kaydedildi" yazar.
+
+- Ayar kaydedildiği andan sonra açılan onay ekranlarında geçerli olur.
+- Sekmede "Kaydı teknisyenin tarayıcısı alır. Safari kayıt alamaz; teknisyenler Chrome, Edge veya Firefox kullanmalıdır."
+  notu durur. Teknisyenlerinize bunu iletin.
+- Kaydetmeden sayfadan ayrılmaya çalışırsanız "Kaydedilmemiş değişiklikler var" uyarısı çıkar.
+- Her değişiklik denetim kaydına "Oturum kaydı ayarı değişti" olarak eski → yeni değerle yazılır; aydınlatma onayı da
+  bu kayda eklenir.
+
+**Kapatmak için** anahtarı **Kapalı** yapıp kaydedin. Onay kutusu istenmez. O an süren kayıtlar hemen durur (konsolda
+"Firma kayıt ayarı kapatıldı, kayıt durdu"). Ana anahtar kapanınca **Gözetimsiz bağlantıları da kaydet** de kendiliğinden
+kapanır. Daha önce alınmış kayıtlar silinmez; süreleri dolunca silinir.
+
+### Admin için: Saklama süresi
+
+- **Kayıt saklama süresi (gün)** 1–90 gündür. Alanın altında "firma oturum saklama süresini aşamaz" yazar; aşarsa "Kayıt
+  saklama süresi firma oturum saklama süresini aşamaz" hatası çıkar.
+- Her kaydın silinme tarihi kayıt **başladığı anda** belirlenir ve oturum geçmişinde "Silinme tarihi" olarak görünür.
+- **Süreyi kısaltmak mevcut kayıtlara uygulanmaz.** Alanın altında da "Yeni süre yalnız bundan sonraki kayıtlara
+  uygulanır." yazar. Örnek: süreyi 90'dan 7 güne indirirseniz önceki kayıtlar yine 90 gün sonra silinir. Bir kaydı daha
+  erken silmek için oturum geçmişinden **Kaydı sil**'i kullanın (aşağıda).
+- Süresi dolan kayıtlar her gece 03:30'da (Türkiye saati) silinir. Süren bir kayıt, süresi dolsa bile oturum bitene kadar
+  silinmez.
+- Oturum anonimleştirildiğinde (bkz. "Admin için: Kişisel verilerin saklama süresi ve anonimleştirme") ve firma kalıcı
+  silindiğinde kayıtları da silinir.
+- **Kayıtlar yedeğe alınmaz.** Sunucu diski kaybolursa kayıtlar geri getirilemez.
+
+### Admin için: Depolama kotası
+
+Kayıtlar, sunucu üzerinden aktarılan dosyalarla **aynı firma kotasını** kullanır (yeni firmada varsayılan 20 GB; kotayı
+Super Admin değiştirir). Sekmenin **Depolama** bölümünde "Kullanım: x / y" çubuğu dosyalar ve kayıtların toplamını
+gösterir.
+
+- Kota doluysa müşterinin onay ekranında kayıt kutusu **hiç çıkmaz**; oturum kayıtsız sürer.
+- Kayıt sürerken kota dolarsa kayıt durur, konsolda "Depolama kotası doldu, kayıt durdu" yazar. O ana kadarki kısım
+  saklanır.
+- Sunucu diskinde boş alan %10'un altına inerse kota dolmamış olsa da kayıt başlamaz, süren kayıt durur.
+- Kabaca bir saatlik kayıt 0,6–0,7 GB yer tutar (ekran içeriğine göre değişir). Yer açmak için eski kayıtları silebilir veya
+  Super Admin'den kota artışı isteyebilirsiniz.
+
+### Admin için: Gözetimsiz bağlantıları da kaydet
+
+Bu anahtar açıkken her gözetimsiz bağlantı (İzinli, Kullanıcı yok ve İzinsiz kiplerinin hepsi) müşteriye sorulmadan,
+**firma politikası** dayanağıyla kaydedilir. Bu yüzden açmak ek adımlar ister.
+
+1. Önce **Oturum kaydı** anahtarı açık ve kaydedilmiş olmalı. Değilse anahtarın altında "Önce oturum kaydını açın" yazar.
+2. **Gözetimsiz bağlantıları da kaydet** anahtarını **Açık** yapın. Altında "Açıkken her gözetimsiz bağlantı firma
+   politikasıyla kaydedilir; cihaz göstergesinde "Kayıt yapılıyor" yazar." açıklaması durur.
+3. "Açmak için bilgilendirmeyi onaylayın; kaydederken kimliğiniz yeniden doğrulanır." notunun altındaki kutuyu işaretleyin:
+   **Cihaz kullanıcılarını (çalışanları) bağlantıların kaydedilebileceği konusunda yazılı olarak bilgilendirdik; aydınlatma
+   metnimiz bunu kapsıyor**. İşaretlemeden kaydederseniz "Açmak için bilgilendirme kutusunu işaretleyin" hatası çıkar.
+4. **Kaydet**'e basın. Son 5 dakikada kimliğinizi doğrulamadıysanız 2FA kodu sorulur. Hesabınızda 2FA kurulu değilse
+   anahtar açılamaz; önce Hesabım'dan 2FA'yı kurun.
+
+- Kutunun son onaylandığı an "Çalışan bilgilendirmesi son onay: <tarih>" olarak görünür.
+- **Dört göz e-postası:** anahtar açılınca da kapanınca da (ana anahtarı kapatmak dahil) "Gözetimsiz bağlantı kayıt
+  politikası değişti" konulu bir e-posta gider. Alıcılar, firmanızda **Gözetimsiz erişim → Yönet** yetkisi olan **diğer**
+  kişilerdir; böylece değişikliği başka biri de görür. Böyle biri yoksa e-posta işlemi yapan kişiye ve firmanın
+  Admin'lerine gider. E-posta için firmanın SMTP ayarı çalışıyor olmalıdır.
+- **Tek yönetici uyarısı:** e-postayı alacak başka yönetici yoksa sekmede "Politika değişikliği e-postası yalnız size
+  gider; en az iki yönetici tanımlayın" uyarısı çıkar. Dört göz denetiminin işlemesi için ikinci bir yöneticiye
+  **Gözetimsiz erişim → Yönet** yetkisi verin.
+- Kapatmak step-up istemez. Kapatınca süren gözetimsiz kayıtlar hemen durur.
+- Kayıt yalnız servisi **0.16.0 veya sonrası** olan cihazlarda alınır. Eski servisli cihaza bağlanınca konsolda "Cihaz
+  istemcisi eski; kayıt için 0.16.0 gerekli" uyarısı çıkar ve o bağlantı kaydedilmez.
+
+### Admin için: Kaydı izleme ve silme yetkileri
+
+| İş            | Gereken yetki (Kullanıcılar ekranındaki anahtar)                                | Kapsam                                                 |
+| ------------- | ------------------------------------------------------------------------------- | ------------------------------------------------------ |
+| Kaydı izleme  | **Oturum geçmişi → Görüntüle** ve **Oturumlar → Kayıtları izle**                | Teknisyen yalnız kendi oturumlarını, Admin tüm firmayı |
+| Kaydı silme   | **Oturum geçmişi → Düzenle**                                                    | Aynı                                                   |
+| Ayarı görme   | **Ayarlar → Görüntüle**                                                         | Firma                                                  |
+| Ayarı değişme | **Ayarlar → Düzenle** (gözetimsiz anahtarı açarken ayrıca 2FA ile kimlik onayı) | Firma                                                  |
+
+**Oturumlar → Kayıtları izle** anahtarının açıklaması "Oturum kayıtlarını izler (hassas — yalnız gerekene verin)."
+şeklindedir. Admin rolünde açık, teknisyende (User) kapalı başlar. İzleme yetkisi kaldırılırsa açık oynatıcı bir sonraki
+parçada durur.
+
+### Teknisyen için: Kayıt sırasında konsolda ne görürüm?
+
+- Kayıt başlayınca konsolun üst şeridinde **"Kayıt yapılıyor"** rozeti çıkar. Oturumdaki tüm teknisyenler görür.
+- **Kaydı teknisyen başlatmaz ve durduramaz.** Konsolda kayıt düğmesi yoktur. Müşteri izin verdiyse kayıt ilk görüntüyle
+  kendiliğinden başlar; müşteri izin vermediyse kayıt alınmaz.
+- Kayıt durunca rozet kalkar ve nedeni yazar:
+
+| Konsolda görünen                         | Anlamı                                                               |
+| ---------------------------------------- | -------------------------------------------------------------------- |
+| Müşteri kayıt iznini geri aldı           | Müşteri **Kaydı durdur**'a bastı; kayıt bu oturumda yeniden başlamaz |
+| Depolama kotası doldu, kayıt durdu       | Firma kotası doldu; Admin'e bildirin                                 |
+| Oturum bitti, kayıt durdu                | Oturum kapandı                                                       |
+| Firma kayıt ayarı kapatıldı, kayıt durdu | Admin ayarı kapattı                                                  |
+| Kayıt durdu (hata)                       | Tarayıcı kaydı sürdüremedi veya yükleme uzun süre başarısız oldu     |
+| Bu firmada oturum kaydı kapalı           | Müşteri izin verdi ama firma ayarı o sırada kapalıydı                |
+
+- **Tarayıcınız:** kaydı konsolun açık olduğu tarayıcı alır. Chrome, Edge veya Firefox kullanın. **Safari'de kayıt
+  alınamaz**; konsolda "Bu tarayıcı oturum kaydını desteklemiyor; Chrome, Edge veya Firefox kullanın" yazar ve o oturum
+  kaydedilmez.
+- **Konsolu açık tutun.** Konsol sekmesi arka planda olabilir ama kapatılmamalıdır. Bağlantınız koparsa kayıt devam eder;
+  geri dönünce kaldığı yerden sürer, aradaki süre kayıtta boşluk olarak görünür. Konsol 2 dakika içinde geri gelmezse veya
+  görüntü aktığı hâlde 30 saniye boyunca kayıt parçası yüklenmezse kayıt "Kayıt durdu (hata)" ile kapanır ve bu denetim
+  kaydına yazılır.
+- Kota doluysa müşteriye kutu gösterilmez; kayıt sürerken dolarsa kayıt durur (yukarıdaki tablo).
+- **Gözetimsiz bağlantıda** firma politikası açıksa bağlantı başından itibaren kaydedilir; aynı rozet görünür. Cihazın
+  servisi eskiyse "Cihaz istemcisi eski; kayıt için 0.16.0 gerekli" uyarısı çıkar.
+
+### Müşteri için: Kayıt izni nasıl verilir?
+
+Destek firmanız oturum kaydını açtıysa onay ekranında, aydınlatma metninin altında **ayrı bir kutu** görürsünüz:
+
+> ☐ Oturumun görüntü kaydının alınmasına izin veriyorum
+
+- Kutu **işaretsiz** gelir. İşaretlemezseniz oturum **kaydedilmez**; destek normal şekilde sürer.
+- Tarayıcıda kutunun altında "İsteğe bağlıdır. İşaretlemezseniz oturum kaydedilmez. Ses kaydedilmez; kaydı istediğiniz an
+  durdurabilirsiniz." yazar.
+- Aynı kutu bağlantı koduyla katılırken, bağlantıdan açılan onay ekranında, Hızlı Destek'teki **Destek iste** formunda ve
+  tarayıcıdaki web talep formunda çıkar.
+- Kutu çıkmıyorsa firmanız kaydı açmamıştır ya da firmanın kayıt alanı doludur; oturum kaydedilmez.
+- Windows uygulamasında kutu **Hızlı Destek 0.16.0** ve sonrasında çıkar. Eski sürümde kutu yoktur ve kayıt yapılmaz.
+- Kayıtta **ses yoktur**. Yalnız ekran görüntüsü kaydedilir.
+
+### Müşteri için: Kayıt sürerken ne görürüm, nasıl durdururum?
+
+**Tarayıcıda:**
+
+- Paylaşım şeridinde **"Kayıt yapılıyor"** göstergesi ve **Kaydı durdur** düğmesi görünür. Altında "Durdurulan kayıt bu
+  oturumda yeniden başlamaz." yazar. Gösterge kapatılamaz.
+- Kayıt sürerken tarayıcı sekmesinin başlığı "● Kayıt — " ile başlar.
+
+**Windows uygulamasında (Hızlı Destek):**
+
+- Oturum penceresinde **"● Kayıt yapılıyor"** göstergesi ve **Kaydı durdur** düğmesi vardır. "Durdurulan kayıt bu oturumda
+  yeniden başlatılamaz." notu yazar.
+- Pencereyi küçültseniz de ekranın üstünde her zaman üstte duran küçük bir şerit kalır: **"● Kayıt yapılıyor — durdurmak
+  için tıklayın"**. Şeride tıklamak da kaydı durdurur.
+
+**Kaydı durdurmak:**
+
+1. **Kaydı durdur**'a (veya Windows'ta şeride) basın. Onay sorulmaz.
+2. Kayıt genellikle 2 saniye içinde durur. Tarayıcıda "Kayıt durduruldu; o ana kadarki kısım saklanır" yazar.
+3. Durdurmak **geri alınamaz**: aynı oturumda kayıt yeniden başlamaz. Ekran paylaşımı ve destek sürer.
+
+- O ana kadar kaydedilen kısım silinmez; firmanın saklama süresi dolunca silinir. Silinmesini istiyorsanız destek
+  firmanıza başvurun.
+- Bağlantınız o anda kopuksa ve durdurma 2 saniye içinde onaylanamazsa ekran paylaşımı kendiliğinden **duraklar** ve "Kayıt
+  durdurulamadı, paylaşım duraklatıldı" yazar. Bağlantı dönünce durdurma isteği ilk iş olarak iletilir; kayıt durunca
+  paylaşım kendiliğinden devam eder.
+
+### Müşteri BT için: Gözetimsiz bağlantı kaydı
+
+Destek firması "Gözetimsiz bağlantıları da kaydet" politikasını açtıysa (ve servis 0.16.0 veya sonrasıysa):
+
+- **Onay penceresi:** bilgisayarda oturum açık bir kullanıcı varsa çıkan "Uzaktan bağlantı isteği" penceresine **"Bu
+  bağlantının ekran kaydı alınacaktır"** satırı eklenir. Satır çizilemezse pencere açılmaz ve bağlantı kurulmaz.
+- **Gösterge:** kenardaki bağlantı yazısının sonuna **" — Kayıt yapılıyor"** eklenir (ör. "Uzaktan bağlantı: <teknisyen
+  adı> — <destek firması> — Kayıt yapılıyor"). Ek çizilemezse bağlantı açılmaz. Kayıt ortada durursa ek kalkar.
+- **Durdurma:** cihaz kullanıcısına **Kaydı durdur** düğmesi verilmez; kayıt firma politikasıyla alınır. Kaydı durdurmanın
+  tek yolu tepsi menüsünden veya ayar penceresinden **Gözetimsiz erişimi kapat**'tır. Bu, bağlantıyı tamamen sonlandırır
+  (bkz. "Müşteri BT için: bağlantıyı nasıl anlarım, nasıl kapatırım?").
+- Ses kaydedilmez.
+
+### Oturum geçmişinde kayıt
+
+**Listede:** **Kayıt** sütununda kamera simgesi, kaydı olan oturumu gösterir. Yalnız kayıtlı oturumları görmek için
+filtrelerdeki **Kayıt** seçicisinde **Kayıtlı**'yı seçin.
+
+**Oturum ayrıntısında** **Oturum kaydı** bölümü çıkar (kaydı olmayan oturumda bu bölüm görünmez):
+
+| Alan           | Anlamı                                                                                |
+| -------------- | ------------------------------------------------------------------------------------- |
+| Durum          | **Kayıt sürüyor** veya **Durdu**                                                      |
+| Süre / Boyut   | Kaydedilen görüntünün toplam süresi ve kapladığı yer                                  |
+| Dayanak        | **Müşteri rızası** (katılımlı oturum) veya **Firma politikası** (gözetimsiz bağlantı) |
+| Bağlantı kipi  | Yalnız gözetimsiz kayıtta: İzinli / Kullanıcı yok / İzinsiz                           |
+| Gerekçe        | Yalnız İzinsiz bağlantıda, teknisyenin yazdığı gerekçe                                |
+| Silinme tarihi | Kaydın kendiliğinden silineceği tarih                                                 |
+
+**Kaydı nasıl izlerim?**
+
+1. **Oturum geçmişi**'nde oturumu açın.
+2. **Oturum kaydı** bölümünde **Kaydı izle**'ye basın. Oynatıcı aynı sayfada açılır.
+3. **Oynat** / **Duraklat**, **5 sn geri** / **5 sn ileri** düğmelerini ve konum çubuğunu kullanın. Klavye: Boşluk
+   oynat/duraklat, ← / → 5 sn.
+4. İşiniz bitince **Oynatıcıyı kapat**.
+
+- **Kaydı izle** düğmesi yoksa "Kaydı izleme yetkiniz yok." yazar; yetki için yukarıdaki tabloya bakın.
+- Zaman çizgisindeki **taralı alanlar** kaydın olmadığı aralıklardır (bağlantı kopması vb.); oynatma bunları atlar.
+- "Yükleniyor… (izleme hızı sınırı, kısa süre bekleniyor)" yazarsa çok hızlı ileri sarılmıştır; oynatıcı kısa süre bekleyip
+  kendiliğinden sürer.
+- Uzun süre işlem yapmazsanız "İzleme süresi doldu." yazar; **Devam et**'e basın.
+- "Bu tarayıcı kaydı oynatamıyor. Chrome, Edge veya Firefox kullanın." yazarsa başka tarayıcı kullanın.
+- Oynatıcıda **indirme düğmesi yoktur**. Her izleme denetim kaydına "Oturum kaydı izlendi" olarak, izleme bitince de
+  ne kadarının izlendiği "Kayıt izleme özeti" olarak yazılır.
+
+**Kaydı nasıl silerim?** (**Oturum geçmişi → Düzenle** yetkisi gerekir)
+
+1. Oturum ayrıntısındaki **Oturum kaydı** bölümünde **Kaydı sil**'e basın.
+2. "Kayıt silinsin mi?" penceresinde "Kayıt kalıcı olarak silinir ve geri alınamaz. Oturum geçmişi kalır." yazar.
+   **Kaydı kalıcı sil**'e basın (vazgeçmek için **Vazgeç**).
+3. "Kayıt silindi" yazar.
+
+- Süren oturumun kaydı silinemez: "Oturum sürerken kayıt silinemez". Oturum bitince tekrar deneyin.
+- Silme 2FA istemez; denetim kaydına "Oturum kaydı silindi" olarak yazılır. Denetim kaydı silinmez.
+- Silinmiş kaydın yerinde nedeni yazar: "Kayıt silindi — süresi doldu", "Kayıt silindi — elle silindi" veya "Kayıt silindi —
+  kayıt dosyası bulunamadı" (sunucudaki dosyalar kaybolduysa; sistem yöneticisine bildirin).
+
+### Denetim kaydı (Audit log)
+
+Kayıt olaylarını **Audit log** ekranında **İşlem** filtresinin **Kayıt** grubuyla bulursunuz. Görüntünün içeriği hiçbir
+denetim kaydına yazılmaz.
+
+| Görünen ad                                   | Ne zaman                                                                                                   |
+| -------------------------------------------- | ---------------------------------------------------------------------------------------------------------- |
+| Oturum kaydı başladı                         | Kayıt açıldı (dayanak: müşteri rızası / firma politikası). "Başarısız" ise kayıt açılamadı (ör. kota dolu) |
+| Oturum kaydı durdu                           | Her durma; neden (müşteri durdurdu, kota, oturum bitti, hata, ayar kapatıldı), süre ve boyutla             |
+| Oturum kaydı izlendi                         | Biri **Kaydı izle**'ye bastı                                                                               |
+| Kayıt izleme özeti                           | İzleme bitti; kaç parça ve ne kadar veri izlendiği                                                         |
+| Oturum kaydı silindi                         | Elle silindi veya sunucuda dosyası bulunamadı                                                              |
+| Saklama süresi dolan kayıtlar silindi        | Gece 03:30 turu; firma başına kaç kayıt silindiği                                                          |
+| Oturum kaydı ayarı değişti                   | **Ayarlar > Oturum kaydı** değişti (eski → yeni)                                                           |
+| Gözetimsiz bağlantı kayıt politikası değişti | Dört göz e-postası gönderim denemesi (Gözetimsiz erişim grubunda)                                          |
+
+### Sık karşılaşılan mesajlar (Oturum kaydı)
+
+| Mesaj                                                                        | Anlamı / ne yapılır                                                       |
+| ---------------------------------------------------------------------------- | ------------------------------------------------------------------------- |
+| Açmadan önce aydınlatma metnini güncellediğinizi onaylayın                   | Oturum kaydını açarken aydınlatma kutusunu işaretleyin                    |
+| Önce oturum kaydını açın                                                     | Gözetimsiz kayıt için önce ana anahtarı açıp kaydedin                     |
+| Açmak için bilgilendirme kutusunu işaretleyin                                | Gözetimsiz kaydı açarken çalışan bilgilendirme kutusunu işaretleyin       |
+| Kayıt saklama süresi firma oturum saklama süresini aşamaz                    | Daha kısa bir süre girin                                                  |
+| Bu tarayıcı oturum kaydını desteklemiyor; Chrome, Edge veya Firefox kullanın | Teknisyen Safari'de; kayıt alınmaz                                        |
+| Cihaz istemcisi eski; kayıt için 0.16.0 gerekli                              | Cihazdaki servisi güncelleyin                                             |
+| Kayıt durdurulamadı, paylaşım duraklatıldı                                   | Müşterinin bağlantısı kopuk; bağlantı dönünce kayıt durur, paylaşım sürer |
+| Oturum sürerken kayıt silinemez                                              | Oturum bitince silin                                                      |
+| Kaydı izleme yetkiniz yok.                                                   | Admin'den **Oturumlar → Kayıtları izle** yetkisi isteyin                  |
 
 ## Gözetimsiz erişim (Admin, teknisyen ve müşteri BT için)
 
@@ -3619,7 +3898,7 @@ Alanın altında firmanın güncel kullanımı yazar ("Kullanım: x / y").
 1. Firmanın satırında **Düzenle**'ye basın.
 2. Kotayı 1–2000 GB arasında girin ve kaydedin.
 
-- Kota, firmanın sunucu üzerinden aktarılan dosyalarının toplamını sınırlar. Kota dolunca yeni yüklemeler "Firma depolama
+- Kota, firmanın sunucu üzerinden aktarılan dosyalarının ve oturum kayıtlarının toplamını sınırlar. Kota dolunca yeni yüklemeler "Firma depolama
   kotası doldu" ile reddedilir.
 - Kotayı kullanımın altına düşürebilirsiniz: mevcut dosyalar silinmez, yalnız yeni dosyalar kabul edilmez.
 - Sunucunun diskinde boş alan %10'un altına inerse kota dolmamış olsa da tüm firmalarda yükleme reddedilir. Firma

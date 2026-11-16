@@ -53,7 +53,12 @@ func newIndicator(t *thread, text string) *indicator {
 
 // newBar text nil ise yalnız kenarlık; değilse etiket metni her boyamada *text'ten okunur (setText).
 func newBar(t *thread, x, y, w, h int32, text *string) *form {
-	f := t.newPopup(classBar, x, y, w, h, true)
+	return newBarOpt(t, x, y, w, h, text, true)
+}
+
+// newBarOpt newBar; clickThrough=false P28e kayıt şeridi içindir (tıklanır, odak almaz).
+func newBarOpt(t *thread, x, y, w, h int32, text *string, clickThrough bool) *form {
+	f := t.newPopup(classBar, x, y, w, h, clickThrough)
 	win.SetLayered(f.h, 0, 235, win.LWA_ALPHA)
 	win.ExcludeFromCapture(f.h)
 	f.paint = func(dc uintptr, r win.RECT) {

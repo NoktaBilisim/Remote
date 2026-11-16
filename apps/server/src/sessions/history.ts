@@ -50,6 +50,7 @@ export function resolveFilter(scope: hrepo.HistoryScope, q: ListSessionsQuery): 
     ...(q.customerFirm ? { customerFirm: q.customerFirm } : {}),
     ...(q.deviceId ? { deviceId: q.deviceId } : {}),
     ...(q.consentMode ? { consentMode: q.consentMode } : {}),
+    ...(q.recorded ? { recorded: true } : {}),
   };
 }
 
@@ -84,7 +85,11 @@ export async function getHistoryDetail(
   const row = await hrepo.findHistory(db, scope, id);
   if (!row) throw new AppError("NOT_FOUND");
   const canFiles = auth.permissions.has("session_history.view") && auth.permissions.has("file_transfer.use");
-  return buildDetail(db, log, scope, row, auth.user.id, now, canFiles);
+  const rec = {
+    view: auth.permissions.has("session_history.view") && auth.permissions.has("sessions.view_recording"),
+    del: auth.permissions.has("session_history.edit"),
+  };
+  return buildDetail(db, log, scope, row, auth.user.id, now, canFiles, rec);
 }
 
 // ---- PATCH (AC-63) ----

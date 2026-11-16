@@ -18,12 +18,14 @@ function isPublicPath(pathname: string): boolean {
   return PUBLIC_PATHS.some((p) => (p.endsWith("/") ? pathname.startsWith(p) : pathname === p || pathname.startsWith(`${p}/`)));
 }
 
-function buildCsp(nonce: string, host: string, isDev: boolean, https: boolean): string {
+export function buildCsp(nonce: string, host: string, isDev: boolean, https: boolean): string {
   return [
     "default-src 'self'",
     `script-src 'self' 'nonce-${nonce}' 'strict-dynamic'${isDev ? " 'unsafe-eval'" : ""}`,
     `style-src 'self' 'nonce-${nonce}'`,
     "img-src 'self' data: blob:",
+    // P28e (S-P28e-11): kayıt oynatıcısı MSE `blob:` adresi — YALNIZ media-src (default/script/worker-src'ye blob: girmez)
+    "media-src 'self' blob:",
     `connect-src 'self' wss://${host}${isDev ? ` ws://${host}` : ""}`,
     "worker-src 'self'",
     "manifest-src 'self'",

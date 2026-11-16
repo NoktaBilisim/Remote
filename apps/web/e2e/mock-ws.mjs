@@ -17,6 +17,7 @@ import { panelUpgrade } from "./mock-requests.mjs";
 import { p18PanelUpgrade } from "./mock-p18.mjs";
 import { p19Upgrade } from "./mock-p19.mjs";
 import { byId, tickets, ulid } from "./mock-sessions.mjs";
+import { newUploadToken } from "./mock-p28e.mjs";
 import { fsrvCreate, fsrvDownloadToken, fsrvFiles, fsrvStored, setUploadedHook } from "./mock-p28b.mjs";
 
 const wss = new WebSocketServer({ noServer: true, handleProtocols: (p) => (p.has("rs.v1") ? "rs.v1" : false) });
@@ -37,6 +38,9 @@ const LOGGED = new Set([
   "clip.pull",
   "print.request",
   "print.cancel",
+  "rec.consent",
+  "rec.revoke",
+  "rec.error",
 ]);
 const log = (id, from, m) => LOGGED.has(m.t) && (wsLog.get(id) ?? wsLog.set(id, []).get(id)).push({ from, m });
 
@@ -151,6 +155,7 @@ function admitted(r, rec, ws, kind = "BROWSER", guestName, features = []) {
     const m = JSON.parse(String(raw));
     log(rec.view.id, "guest", m);
     if (p28Guest(r, m)) return;
+    if (recGuest(r, rec, m)) return;
     if (fsrvMsg(r, rec, "guest", m)) return;
     if (m.t === "sdp.answer") send(r.tech, { t: m.t, sdp: m.sdp });
     else if (m.t === "ice") send(r.tech, { t: "ice", candidate: m.candidate, sdpMid: m.sdpMid, sdpMLineIndex: m.sdpMLineIndex });
@@ -202,6 +207,53 @@ function admitted(r, rec, ws, kind = "BROWSER", guestName, features = []) {
     send(r.tech, { t: "peer.left", role: "guest", reason: "disconnect" });
   });
 }
+
+/** P28e (§6.2) asgari taklit: rıza → kayıt açılır (teknisyene upload); revoke → (recAck) off{revoked}. */
+function recGuest(r, rec, m) {
+  if (m.t === "rec.consent") {
+    if (!rec.recOffer || r.rec) return true;
+    r.rec = { rid: ulid(), series: 0, on: true };
+    send(r.guest, { t: "rec.state", on: true });
+    send(r.tech, {
+      t: "rec.state",
+      on: true,
+      rid: r.rec.rid,
+      basis: "consent",
+      upload: { token: newUploadToken(r.rec.rid), series: 0, nextPart: 0 },
+    });
+    return true;
+  }
+  if (m.t === "rec.revoke") {
+    if (!r.rec?.on || rec.recAck === false) return true;
+    recOff(r, "revoked");
+    return true;
+  }
+  return false;
+}
+function recOff(r, reason) {
+  r.rec.on = false;
+  send(r.guest, { t: "rec.state", on: false, reason });
+  send(r.tech, { t: "rec.state", on: false, reason, rid: r.rec.rid, basis: "consent" });
+}
+/** Test kancası: teknisyene yeni yükleme belirteci + bölüm (`series`) ya da kayıt durdurma (`off=<neden>`). */
+export function recHook(id, q) {
+  const r = rooms.get(id);
+  if (!r?.rec) return null;
+  if (q.get("off")) {
+    recOff(r, q.get("off"));
+    return { rid: r.rec.rid };
+  }
+  const series = Number(q.get("series") ?? 1);
+  send(r.tech, {
+    t: "rec.state",
+    on: true,
+    rid: r.rec.rid,
+    basis: "consent",
+    upload: { token: newUploadToken(r.rec.rid), series, nextPart: 0 },
+  });
+  return { rid: r.rec.rid };
+}
+export const recRid = (id) => rooms.get(id)?.rec?.rid ?? null;
 
 function onTech(ws, rec) {
   const r = room(rec.view.id);

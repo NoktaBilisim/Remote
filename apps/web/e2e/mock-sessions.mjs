@@ -1,5 +1,6 @@
 // E2E sahte API — oturum uçları (docs/implementation.md "## Backend (P2)" sözleşmesi). Yalnız test.
 // Test izolasyonu: her test kendi oturum çerezini üretir ("u-<senaryo>-<rastgele>"); durum çerez başına tutulur.
+import { REC_CONSENT_LINE, REC_CONSENT_LINE_SHA256 } from "@remote/contracts/ws-rec";
 import { randomBytes } from "node:crypto";
 import { customerRef } from "./mock-customers.mjs";
 import { endRoom } from "./mock-ws.mjs";
@@ -234,7 +235,9 @@ export async function handleSessions(req, res, { url, session, csrfOk, send, err
       expiresAt: rec.view.expiresAt,
       joinNonce: token(),
       nonceExpiresAt: iso(60_000),
-      consentText: CONSENT,
+      consentText: rec.recOffer
+        ? { ...CONSENT, recording: { offered: true, line: REC_CONSENT_LINE, lineSha256: REC_CONSENT_LINE_SHA256 } }
+        : CONSENT,
       abuseEmail: rec.noAbuse ? null : "kotuye-kullanim@ornek.com",
     };
     nonces.set(body.joinNonce, rec);
@@ -333,6 +336,8 @@ export async function handleSessions(req, res, { url, session, csrfOk, send, err
     // P28b: u-p28b-* SERVER modu oturum (sunucu caps'ten file_transfer/print'i çıkarır, §5.4a); maxFileMb 5
     if (session.startsWith("u-p28b-"))
       Object.assign(rec, { caps: ["remote_control"], canControl: true, canPrint: true, fileMode: "SERVER", maxFileMb: 5 });
+    // P28e: u-p28ec* → kayıt teklif edilir (resolve consentText.recording); u-p28ecnoack* → sunucu revoke'a yanıt vermez
+    if (session.startsWith("u-p28ec")) Object.assign(rec, { recOffer: true, recAck: !session.startsWith("u-p28ecnoack") });
     list.push(rec);
     const v = rec.view;
     const body = {

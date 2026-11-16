@@ -28,6 +28,8 @@ const (
 	idGrant      = 41
 	idCtlClose   = 42
 	idClipSwitch = 43
+	idRecStop    = 44
+	idRecConsent = 45
 	timerTopmost = 2
 )
 
@@ -46,6 +48,8 @@ type UI struct {
 	ind      *indicator
 	ov       *overlay
 	ended    *form
+	// strip P28e kayıt şeridi (rec_windows.go; S-P28e-12).
+	strip *recStrip
 
 	// P7
 	gate     *control.Gate
@@ -94,9 +98,11 @@ type sessionWin struct {
 	clipChk     *ctrl
 	clipOn      bool
 	clipEnabled bool
-	unread      int
-	active      bool
-	finished    bool
+	// P28e kayıt göstergesi, "Kaydı durdur" ve bilgi satırı (rec_windows.go); kayıt yokken gizli.
+	recLbl, recBtn, recNote *ctrl
+	unread                  int
+	active                  bool
+	finished                bool
 }
 
 // New UI iş parçacığını başlatır. footer "Hakkında" satırıdır (alan adı + sürüm + parmak izi, AC-128). gate izin

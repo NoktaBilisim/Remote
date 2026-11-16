@@ -17,6 +17,8 @@ import (
 	"net/url"
 	"strconv"
 	"time"
+
+	"remote-support/agent-win/internal/signal"
 )
 
 const (
@@ -94,12 +96,27 @@ func newClient(serverURL *url.URL, version string, tlsCfg *tls.Config) *Client {
 // HTTPClient WS dial için aynı TLS/proxy ayarlı istemciyi paylaşır.
 func (c *Client) HTTPClient() *http.Client { return c.http }
 
-// ConsentText KVKK onay metni (AC-98); sha256 = body UTF-8 hex.
+// ConsentText KVKK onay metni (AC-98); sha256 = body UTF-8 hex. P28e: Recording yalnız kayıt teklif edilebiliyorken
+// gelir (resolve + talep formu yanıtı); katı ayrıştırma yoktur, eski sunucu alanı göndermez.
 type ConsentText struct {
-	ID      string `json:"id"`
-	Version int    `json:"version"`
-	Body    string `json:"body"`
-	SHA256  string `json:"sha256"`
+	ID        string          `json:"id"`
+	Version   int             `json:"version"`
+	Body      string          `json:"body"`
+	SHA256    string          `json:"sha256"`
+	Recording *RecordingOffer `json:"recording,omitempty"`
+}
+
+// RecordingOffer contracts `RecordingConsentOffer` (mimari-p28e §2.1 m.1, AC-381/384).
+type RecordingOffer struct {
+	Offered    bool   `json:"offered"`
+	Line       string `json:"line"`
+	LineSha256 string `json:"lineSha256"`
+}
+
+// RecOffered kayıt rıza kutusu gösterilir mi: sunucu teklif etti VE satırın SHA'sı derlemedeki cümleninki (güvenli yön:
+// farklı metin → kutu yok, rıza gönderilmez). Kutuda sunucunun Line'ı değil signal.RecConsentLine çizilir.
+func (c ConsentText) RecOffered() bool {
+	return c.Recording != nil && c.Recording.Offered && c.Recording.LineSha256 == signal.RecConsentLineSHA256
 }
 
 // ResolveResult karşılama ekranı verisi (mimari-api resolve yanıtı).

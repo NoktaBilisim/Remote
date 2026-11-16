@@ -4057,3 +4057,179 @@ Elle (staging adresli 0.15.0 servis, §28u.9; sonuç `docs/test-raporu.md`'ye, W
 
 Prod: P28 sonu (`v0.15.0` etiketi, §24.4 onay listesi "0.15.0 → P28u" ve Windows elle turu maddeleri); prod'da `UNATTENDED_MODE=off`
 imza gelene kadar sürer (§27.1).
+
+## 28e. P28e — oturum ekranı kaydı, istemci/servis 0.16.0 (devops K8, 2026-11-16; mimari-p28e r2 §11, §12, §13–§14 K8; ADR-0034; AC-375..388, 447..450)
+
+Kapsam: firma politikasıyla açılan, **müşteri rızasıyla** (gözetimsizde firma politikasıyla) alınan, sesi olmayan, sunucuda şifreli
+(`.rsf`) saklanan oturum ekranı kaydı; geçmişten izleme (indirme yok), elle silme, 03:30 saklama süresi silmesi. **Yeni env değişkeni yok**
+(mimari §11.4): sabitler `packages/contracts/src/ws-rec.ts` içinde (`REC_REQUIRE_CLUSTER_START = false`, `REC_PART_MAX_BYTES = 2097152`,
+`REC_SERIES_MS = 300000` …); değiştirmek kod değişikliği + yayın gerektirir. Migration `20261125000000_p28e_recordings` (db-notlari "P28e").
+
+### 28e.1 Ayar ve KVKK notu
+
+- Yer: Ayarlar → **Oturum kaydı** (`/settings/recording`, `PUT /api/v1/settings/recording`). Yetki: görüntüleme `settings.view`, değiştirme
+  `settings.edit`. Varsayılan **kapalı**; saklama 1–90 gün (vars. 30; yalnız yeni kayıtlara uygulanır).
+- Açarken aydınlatma kutusu (`consentAck`) zorunlu. **Gözetimsiz kayıt** ayrı anahtar: çalışan bilgilendirmesi kutusu (`employeeNoticeAck`)
+  - 2FA step-up; değişince P28u dört göz e-postası "Gözetimsiz bağlantı kayıt politikası değişti" gider (audit `unattended.silent.notify
+{event:"recording_policy"}`; gitmezse `unattended-notify-fail` alarmı, §28u.6). Audit `settings.recording`.
+- KVKK: rıza kutusu müşteride **işaretsiz** gelir; rıza satırı (`session_consents` `RECORDING`, `line_sha256`) delildir, silinmez (down
+  guard). Müşteri "Kaydı durdur" ile geri alır (≤ 2 sn), o ana kadarki kısım saklanır. Gözetimsizde dayanak firma politikasıdır; cihazda
+  diyalog satırı + gösterge eki görünür, cihaz kullanıcısında durdurma düğmesi yoktur (tek yol yerel anahtar, AC-295). Aydınlatma metni ve
+  çalışan bilgilendirmesi müşteri firmanın sorumluluğundadır — kayıt açılmadan önce firmaya hatırlatılır.
+- Acil kapatma: ayarda anahtarı kapat → açık kayıtlar `policy_off` ile durur (audit `recording.stop`), mevcut kayıtlar saklama süresince kalır.
+
+### 28e.2 Disk planı (kayıtlar P28b kotasının içindedir)
+
+- Kayıt ve dosya aynı firma kotasını paylaşır (`storage_quota_gb`, vars. **20 GB**; `rs_storage_used_bytes` ikisini birlikte sayar). Ayrı
+  kayıt kotası yoktur. 20 GB ≈ 30 sa kayıt (hedef 1,5 Mbit/s; 1 sa ≤ 1 GB tavanı `REC_MAX_BYTES_PER_HOUR`).
+- Kural §28b.1'deki gibi: **Σ(firma kotası) ≤ `/var/lib/docker` boş alanının %80'i**. Örnek: 25 firma × 20 GB = 500 GB → en az ~625 GB boş alan.
+  Kontrol:
+  ```bash
+  df -BG /var/lib/docker
+  docker compose exec -T mysql sh -c 'MYSQL_PWD="$MYSQL_ROOT_PASSWORD" mysql -uroot "$MYSQL_DATABASE"' \
+    <<<"SELECT COUNT(*) firma, SUM(storage_quota_gb) toplam_kota_gb FROM tenants WHERE deleted_at IS NULL;"  # pasif firmalar da diskte yer tutar
+  ```
+  Aşıyorsa Super Admin kotaları düşürür ya da disk büyütülür. Boş alan < %10 iken sunucu yeni parçayı reddeder ve kayıt `quota` ile durur
+  (müşteri/teknisyen görür); remote-watch `disk:/var/lib/docker` %80'de önce çalar (yeni disk alarmı yok, mimari §11.3 "aynen").
+- Satır büyümesi önemsiz (tenant başına ≈ 5 MB indeks+veri, db-notlari R-P28e-1).
+
+### 28e.3 Yedek: kayıtlar yedeğe girmez (kullanıcı kararı S-P28-3, K-P28b-11)
+
+- `.rsf` dosyaları `stored_files` volume'unda (`FILES_DIR=/data/files`); `backup.sh` bu volume'u **almaz**. Sunucunun günlük tam yedeği
+  ayrıca vardır — kayıt dosyası kurtarma gerekiyorsa oradan, ancak DB ile aynı ana ait olmalı.
+- Yedekten dönüşte (§18): DB'de olup dosyası olmayan parçalar ilk mutabakat turunda silinir; parçası kalmayan kayıt `DELETED{MISSING}` olur
+  (geçmişte "kayıt dosyası bulunamadı", audit `recording.delete deleteReason:"missing"`, aktör sistem). Bu beklenen davranıştır.
+
+### 28e.4 Anahtar emekliliği (R-P28e-3)
+
+Parçalar `APP_ENCRYPTION_KEYS` halkasının o anki sürümüyle (`key_ver`) şifrelenir; `crypto:rewrap` kayıtlara **dokunmaz**. Eski sürüm halkadan ancak:
+
+```bash
+docker compose run --rm migrate pnpm --filter @remote/server cli crypto:check-retire <ver>
+# … tablo=session_recording_parts.key_ver surum=<ver> satir=0  -> kaldırılabilir (diğer tablolar da 0 olmalı, §25)
+```
+
+`satir>0` ise **en son yazılan kaydın saklama süresi (≤ 90 gün) dolana kadar** beklenir; 03:30 işi süresi dolanı siler, sayım düşer.
+Erken kaldırmak = o sürümle yazılmış kayıtlar çözülemez, izlenemez.
+
+### 28e.5 Kayıt sorgulama ve elle silme
+
+- Panel: Oturum geçmişi → süzgeç "Kayıt: Kayıtlı" → oturum → "Oturum kaydı" bölümü (meta, **Kaydı izle**, **Kaydı sil**). İzleme
+  `sessions.view_recording`, silme `session_history.edit` yetkisi ister; her izleme `recording.view` + `recording.view.end` (sunulan parça/
+  bayt, kısıtlama) audit'e yazılır. İndirme yoktur.
+- Salt okunur SQL (destek/denetim; firma kimliğiyle süzün):
+  ```sql
+  SELECT id, session_id, state, basis, stop_reason, delete_reason, started_at, stopped_at, duration_ms,
+         ROUND(size_bytes/1048576) mb, part_count, expires_at
+  FROM session_recordings WHERE tenant_id = ? ORDER BY started_at DESC LIMIT 50;
+  SELECT tenant_id, ROUND(SUM(size_bytes)/1073741824, 2) gb FROM session_recordings
+  WHERE state IN ('ACTIVE','STOPPED') GROUP BY tenant_id ORDER BY gb DESC;
+  ```
+- **Elle silme yalnız panelden/API'den** (`DELETE /api/v1/sessions/<id>/recording`): disk → parçalar → kayıt sırası ve audit
+  `recording.delete{deleteReason:"manual"}` ancak böyle tutarlı olur. SQL ile satır ya da diskten dosya **silinmez** (yetim dosya ve audit
+  boşluğu; app kullanıcısının zaten kayıt satırında sınırlı yetkisi var).
+- Firma silme / anonimleştirme kayıtları da siler (§23; db-notlari "Silme sırası").
+
+### 28e.6 Alarmlar (`remote-watch`, 10 dk; eşikler `deploy/ops/remote-watch.sh`, mimari-p28e §11.3)
+
+Server P28e öncesiyse (`rs_rec_part_total` yok) üçü de değerlendirilmez. Betik değişti → `cd /opt/remote/deploy/ops && ./remote-watch.sh
+install` (ikinci yığında ayrıca `install stg`). Metrik adları `apps/server/src/rec/types.ts` `REC_METRICS` ile birebir (test-watch.sh denetler).
+
+| Kontrol                | Koşul                                                                                                                       | Düzey | Eylem                                                                                                                                                                                                                                              |
+| ---------------------- | --------------------------------------------------------------------------------------------------------------------------- | ----- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `rec-stop-error`       | 1 sa'te `rs_rec_stop_total{reason="error"}` artışı ≥ 3 (`WATCH_REC_ERR_MIN`) ve tüm durmaların > %20'si                     | Uyarı | Gözcü (`no_upload`: kaydedici bağlı, görüntü akıyor, 30 sn parça yok) ya da tarayıcı kaydedici hatası. Audit `recording.stop` → `cause` (`no_upload`, `rate`, `invalid`, `orphan`, tarayıcı kodları); hangi tarayıcı/firma; Caddy 413/5xx (§28e.7) |
+| `rec-part-rejected`    | 10 dk'da `rs_rec_part_total{result=~"invalid\|rate\|busy"}` artışı > 10 (`WATCH_REC_PART_BAD_MAX`; pencere fiilen 10–20 dk) | Uyarı | `invalid` = bozuk/sesli WebM ya da sürüm uyuşmazlığı; `rate` = 1 sa > 1 GB / dakikada > 30 PUT; `busy` = eşzamanlı PUT. Kasıtlı yük şüphesinde ilgili teknisyen oturumu sonlandırılır                                                              |
+| `rec-view-throttled`   | 1 sa'te `rs_rec_view_throttled_total` artışı > 50 (`WATCH_REC_VIEW_THROTTLE_MAX`)                                           | Uyarı | Toplu çekiş denemesi: Audit `recording.view.end` (`throttled`, `bytesServed`) → kullanıcı; beklenmiyorsa `sessions.view_recording` yetkisi kapatılır / oturumları sonlandırılır                                                                    |
+| `disk:/var/lib/docker` | doluluk ≥ %80 (mevcut, P28b)                                                                                                | Uyarı | §28e.2; kayıt %10 boşta kendiliğinden durur                                                                                                                                                                                                        |
+
+Elle bakış: `rs_rec_active` (anlık açık kayıt), `rs_rec_part_bytes` (parça boyu dağılımı; 2 MiB kovasında yığılma = bit hızı tavanı).
+
+```bash
+docker compose exec -T server node -e "fetch('http://127.0.0.1:3001/metrics',{headers:{authorization:'Bearer '+process.env.METRICS_TOKEN}}).then(r=>r.text()).then(t=>console.log(t.split('\n').filter(l=>/^rs_(rec_|storage_used)/.test(l)).join('\n')))"
+```
+
+### 28e.7 Ters vekil: gövde sınırı, CSP, log
+
+- Parça `PUT /api/v1/rec/<rid>/series/<s>/parts/<p>` en çok **2 MiB (2097152 bayt)**. Caddy `@recPart` bu tavanı uygular ve parça yolu
+  `@notUpload`'tan (2MB = 2.000.000 SI) dışlanır — K8'de bulunan hata: dışlanmasaydı 2.000.001–2.097.152 baytlık parçalar Caddy'de 413
+  alırdı. nginx `client_max_body_size 3m` + `client_body_buffer_size 3m` (bellekte, diske yazılmaz). `read_body 30s` → parçayı yükleyen
+  konsol (teknisyen tarayıcısı) tarafında en az ≈ 560 kbit/s yükleme gerekir (hedef bit hızı zaten 1,5 Mbit/s). Test: `deploy/test-caddy.sh` "P28e kayıt parçası".
+- Yükleme/izleme belirteci yalnız `Authorization: Bearer` başlığında; Caddy iki log bloğunda da siler (G-10; sorgu dizesi, çerez,
+  `Sec-WebSocket-Protocol` de silinir). Yoldaki `rid` gizli değildir.
+- CSP'yi uygulama üretir: `apps/web/proxy.ts` `media-src 'self' blob:` (yalnız oynatıcı MSE; `default/script/worker-src`'ye `blob:` girmez,
+  birim testi dizeyi sabitler). Caddy CSP eklemez.
+
+### 28e.8 Windows elle turu (Windows 10 + 11; CI'da koşamayanlar)
+
+CI (`agent-win.yml` → `test-windows`): "P28e kayıt rızası + gösterge + servis eki testleri (-v)" adımı 33 testi **zorunlu PASS** koşar
+(ad sözleşmesi `docs/implementation.md` "P28e K8"). Elle (staging adresli 0.16.0, §28e.9; sonuç `docs/test-raporu.md`'ye, Windows sürümüyle):
+
+**İstemci (Hızlı Destek, K5):**
+
+1. Kayıt açık firmada kodla katıl: karşılamada kayıt kutusu var ve **işaretsiz**; işaretlemeden bağlan → kayıt başlamaz.
+2. Kayıt kapalı firma / kota dolu: kutu görünmez.
+3. Kutuyu işaretleyip bağlan (çok monitörde seçim ekranında 30 sn+ bekle) → konsolda kayıt başlar; oturum penceresinde "● Kayıt yapılıyor" +
+   "Kaydı durdur" + geri alınamaz notu; her monitörde üstte şerit.
+4. Oturum penceresini küçült → şerit görünür kalır; başka pencereyi en üste al → şerit 1 sn içinde yine üstte; şerit teknisyen görüntüsünde yok.
+5. Şeride tıkla → ≤ 2 sn'de konsol kaydı durur, şerit kalkar, "Kayıt durduruldu; o ana kadarki kısım saklanır". Aynısı "Kaydı durdur" (Alt+D)
+   ile. Kayıt bu oturumda yeniden başlamaz.
+6. Ağı kes (kayıt açıkken) → "Kaydı durdur" → 2 sn sonra "Kayıt durdurulamadı, paylaşım duraklatıldı", teknisyen görüntüsü donar; ağı aç →
+   kayıt durur, paylaşım kendiliğinden sürer.
+7. Kayıt sürerken teknisyen tarafında kota/politika kapat → şerit kalkar, bilgi satırı nedeni yazar.
+8. Koyu/açık tema ve %150 DPI: karşılama kutusu taşmıyor, kayıt satırı ve şerit okunaklı.
+9. Talep formu: kutu işaretsiz; işaretli talep → kabul + paylaşımla kayıt başlar; işaretsizse başlamaz; kayıt kapalı firmada kutu yok.
+
+**Servis + yardımcı (gözetimsiz, K6):**
+
+10. Politika açık + izinli (`asked`) + kullanıcı aktif: diyalogda firma satırının altında kalın "Bu bağlantının ekran kaydı alınacaktır";
+    100/125/150/200 % DPI'da kırpılmaz; "İzin ver" 1,5 sn sonra etkin.
+11. Politika kapalıyken diyalog P28u düzeninde (satır yok).
+12. Gösterge "Uzaktan bağlantı: … — Kayıt yapılıyor" tüm monitörlerde, ek tam görünür; izinsizde izleme ↔ kontrol geçişinde ek kalır.
+13. Konsoldan kaydı durdur / kota / politika kapat → ek ≤ 1 sn'de kalkar, bağlantı sürer; olay 1009 "durdu".
+14. Kilit (Win+L) / UAC masaüstü geçişinde gösterge ekiyle yeniden çizilir; logoff + yeniden katılımda son kayıt durumuyla gelir.
+15. Cihaz kullanıcısında kaydı durduran düğme/menü yok; yerel anahtarı kapatmak bağlantıyı ≤ 2 sn'de keser.
+16. Olay günlüğü: 1001 metninde "ekran kaydı: alınıyor (destek firması politikası)", 1009 başladı/durdu; bilet/kişisel veri yok.
+17. Eski sunucu (record1 göndermeyen): bağlantı kayıtsız, ek yok, diyalog satırı yok.
+
+**Konsol tarayıcısı (K7 açıkları) ve kapasite:**
+
+18. Firefox ve Edge: kayıt + oynatma + seek + çözünürlük değişimi + `p>0` Cluster hizası ölçümü (`REC_REQUIRE_CLUSTER_START` kararı, mimari §12). Çalışmayan tarayıcı `rs.cap.rec1` bildirmemeli (V-PE-5).
+19. Konsol sekmesi **6+ dk arka planda** kayıt: parça aralığı, 60. parçada bölüm geçişi (5 dk), `stop()` kuyruk kaybı, CPU.
+20. Gerçek sunucuyla uçtan uca (staging): 11 dk kayıt (3 bölüm) → geçmişten izle, seek, boşluk atlama.
+21. **1 sa kayıt boyutu ≤ 1 GB** (AC-384): geçmiş meta "boyut" ya da §28e.5 SQL.
+
+Olay günlüğü filtresi (1009 eklendi):
+`Get-WinEvent -FilterHashtable @{LogName='Application'; ProviderName='NoktaDestek'; Id=1001,1004,1006,1007,1008,1009} -MaxEvents 50 | Format-List TimeCreated,Id,LevelDisplayName,Message`
+
+| Kimlik | Düzey | Anlam                                                                                           |
+| ------ | ----- | ----------------------------------------------------------------------------------------------- |
+| 1009   | Bilgi | Ekran kaydı başladı / durdu (teknisyen, oturum). Gözetimsiz servis; her `rec.state` değişiminde |
+
+### 28e.9 Staging yayını (koordinatör uygular; sıra bağlayıcı)
+
+Ön koşul: P28e qa GEÇTİ + güvenlik Kritik/Yüksek 0; `ci` (test-caddy, shellcheck dahil) ve `agent-win` (P28e adımı dahil) yeşil.
+
+1. **Sunucu önce** (yeni servis/istemci eski sunucuda kayıtsız çalışır, ama sunucu önce gelirse rıza/gösterge yolu hazır olur): §25.2
+   akışı — ön yedek → `git pull` → `IMAGE_TAG` → `docker compose build && docker compose up -d` →
+   `docker compose logs --since 5m migrate | grep 20261125000000_p28e_recordings` (uygulandı) → `check-app-grants.sh` **873/873 PASS** →
+   `systemctl start remote-backup.service` → `audit-continuity ok` (tetikleyici 23, özet değişmedi).
+   **Migration süresi:** `session_consents` tek COPY ALTER (tablo yeniden yazılır, süresince rıza/admit yazımı bekler). Önce
+   `SELECT COUNT(*) FROM session_consents` — staging küçük, pencere gerekmez; **prod'da bakım penceresinde** ve açık oturum yokken.
+2. Caddy (Caddyfile değişti — `@recPart`; bind mount, admin API kapalı → `reload` yok, `up -d` tek başına yeniden yaratmaz):
+   `docker compose exec caddy caddy validate --config /etc/caddy/Caddyfile` → `docker compose up -d --force-recreate caddy` (P19 kalıbı).
+   Doğrulama: konsoldan kısa bir kayıt → `docker compose logs --since 5m caddy | grep -c '"status":413'` = 0.
+   Host nginx değişmedi (yalnız yorum; isteğe bağlı `nginx -t && systemctl reload nginx`).
+3. İzleme: `cd ops && ./remote-watch.sh install` → `systemctl start remote-watch.service; journalctl -u remote-watch -n 5` → `OK`,
+   `status.prom`'da `check="rec-stop-error"} 1`.
+4. **Servis + istemci 0.16.0:** §28u.9 adım 3 komutu, yalnız `VER=0.16.0` (ikinci koşuyla SHA tekrarlanabilirliği). Servis:
+   `ALLOW_UNATTESTED=staging deploy/agent/publish-servis.sh --dir "$OUT/servis" --no-attestation --ssh root@185.126.217.99 --deploy-dir /opt/remote/deploy`
+   → `kontrol: server UNATTENDED_AGENT_PATH SHA-256 = UNATTENDED_AGENT_SHA256`.
+5. **İstemci exe (S13C-13):** tek yığın staging `--dir` yayınını reddeder → `$OUT/istemci/NoktaDestek.exe` test için **doğrudan teslim**
+   (0.16.0 istemcide gerçek yenilik var: rıza kutusu, şerit, Kaydı durdur — eski istemci kayda hiç girmez, `rs.cap.rec1` bildirmez).
+   `/downloads/NoktaDestek.exe` P28 sonu `v0.16.0` Release ile güncellenir (§24.4).
+6. `MIN_AGENT_VERSION` yükseltilmez. Staging test VM'lerinde servis "Güncelle…" (§28u.5) → Windows elle turu (§28e.8) test-operatoru.
+7. §8 yayın geçmişine satır: tarih, P28e, commit, migration, servis + istemci 0.16.0 SHA-256'ları, `check-app-grants` 873/873.
+
+Geri alma: ayarda kaydı kapat (açık kayıtlar `policy_off`) → önceki `IMAGE_TAG` → tablolar kalır (expand; eski sunucu kullanmaz). Migration
+down yalnız kayıt/rıza verisi yokken mümkün (guard 3819; rıza satırı KVKK delili). 0.16.0 servis/istemci eski sunucuyla kayıtsız çalışır —
+ikili geri alınmaz. Prod: P28 sonu (`v0.16.0`, §24.4 onay listesi "0.16.0 → P28e" + Windows kayıt elle turu).

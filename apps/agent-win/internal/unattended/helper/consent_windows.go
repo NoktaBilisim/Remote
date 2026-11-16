@@ -34,7 +34,7 @@ const (
 
 type consentWin struct {
 	sp                                    ConsentSpec
-	h, remain, warn, deny, grant          uintptr
+	h, remain, warn, deny, grant, rec     uintptr
 	guard                                 *control.Guard
 	shownAt                               time.Time
 	cur                                   inputMark
@@ -135,17 +135,25 @@ func (c *consentWin) build() bool {
 	label(tx.Title, 14, 24, 1)
 	label(fmt.Sprintf(tx.Body, c.sp.TechName, c.sp.TenantName), 44, 40, 0)
 	label(fmt.Sprintf(tx.Company, c.sp.TenantName), 86, 22, 1) // D-P28u-6: firma ayrı, kalın satır
-	c.remain = label("", 112, 22, 0)
-	c.warn = label("", 136, 40, 1)
+	dy := int32(0)
+	if c.sp.RecordingLine { // P28e AC-449: kayıt satırı; okunamazsa diyalog açılmaz (decisionFailed)
+		c.rec, dy = label(helperio.RecordingLine, 112, 22, 1), 24
+		if c.rec == 0 || win.GetText(c.rec) != helperio.RecordingLine {
+			c.destroy()
+			return false
+		}
+	}
+	c.remain = label("", 112+dy, 22, 0)
+	c.warn = label("", 136+dy, 40, 1)
 	button := func(text string, id uintptr, x, w int32, extra uint32) uintptr {
-		h := win.CreateWindow(0, "BUTTON", text, win.WS_CHILD|win.WS_VISIBLE|win.WS_TABSTOP|extra, s(x), s(184), s(w), s(30), c.h, id)
+		h := win.CreateWindow(0, "BUTTON", text, win.WS_CHILD|win.WS_VISIBLE|win.WS_TABSTOP|extra, s(x), s(184+dy), s(w), s(30), c.h, id)
 		win.SendMessage(h, win.WM_SETFONT, c.fonts[0], 1)
 		return h
 	}
 	c.deny = button(tx.Deny, win.IDOK, 216, 100, win.BS_DEFPUSHBUTTON) // Enter = Reddet
 	c.grant = button(tx.Grant, idGrant, 324, 100, 0)
 	win.EnableWindow(c.grant, false)
-	r := win.RECT{Right: s(440), Bottom: s(226)}
+	r := win.RECT{Right: s(440), Bottom: s(226 + dy)}
 	win.AdjustRect(&r, style, ex, int(dpi))
 	c.w, c.hgt = r.Right-r.Left, r.Bottom-r.Top
 	c.present()
@@ -204,13 +212,30 @@ func (c *consentWin) refresh(now time.Time) {
 	default:
 		win.SetText(c.warn, "")
 	}
-	if on := c.guard.Enabled(now); on != c.grantOn {
+	if on := c.guard.Enabled(now) && c.recDrawn(); on != c.grantOn {
 		if !on {
 			win.SetFocus(c.deny) // devre dışı kalacak düğmede odak kalmasın
 		}
 		win.EnableWindow(c.grant, on)
 		c.grantOn = on
 	}
+}
+
+// recDrawn P28e kayıt satırı (istenmişse) görünür ve metni doğru mu (AC-449; her tikte ve tıklamada).
+func (c *consentWin) recDrawn() bool {
+	if !c.sp.RecordingLine {
+		return true
+	}
+	return recordingLineDrawn(c.sp, win.GetText(c.rec), win.Visible(c.rec))
+}
+
+// destroy pencereyi ve yazı tiplerini bırakır (build başarısız).
+func (c *consentWin) destroy() {
+	win.DestroyWindow(c.h)
+	for _, f := range c.fonts {
+		win.DeleteObject(f)
+	}
+	c.fonts = nil
 }
 
 // obscured GW_HWNDPREV zinciri: diyaloğu kesen görünür pencere (katmanlı/saydam dahil; kendi gösterge HWND'leri hariç).

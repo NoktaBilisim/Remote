@@ -27,6 +27,7 @@ type fakeAPI struct {
 	joinE    []error
 	logoURL  string
 	abuse    *string
+	rec      *api.RecordingOffer // P28e
 }
 
 func (a *fakeAPI) Resolve(_ context.Context, code string) (*api.ResolveResult, error) {
@@ -43,7 +44,7 @@ func (a *fakeAPI) Resolve(_ context.Context, code string) (*api.ResolveResult, e
 	r := &api.ResolveResult{TechVerifyCode: "4821", JoinNonce: "nonce"}
 	r.Technician.Name = "Ali Teknisyen"
 	r.Tenant.Name = "Acme"
-	r.ConsentText = api.ConsentText{ID: "ct1", Version: 3, Body: "KVKK metni"}
+	r.ConsentText = api.ConsentText{ID: "ct1", Version: 3, Body: "KVKK metni", Recording: a.rec}
 	r.Tenant.LogoURL = a.logoURL
 	r.AbuseEmail = a.abuse
 	return r, nil
@@ -109,6 +110,7 @@ type fakePeer struct {
 	h      rtc.Handlers
 	offers chan string
 	ctl    chan []byte
+	live   chan bool // P28e: nil değilse Stream başlangıç/bitişi bildirilir
 }
 
 func (p *fakePeer) HandleOffer(sdp string) (signal.SdpAnswer, error) {
@@ -123,8 +125,15 @@ func (p *fakePeer) SetCaps(c []string) {
 	p.caps = append([]string(nil), c...)
 	p.mu.Unlock()
 }
-func (p *fakePeer) Stream(ctx context.Context, _ rtc.Source) error { <-ctx.Done(); return ctx.Err() }
-func (p *fakePeer) Close() error                                   { return nil }
+func (p *fakePeer) Stream(ctx context.Context, _ rtc.Source) error {
+	if p.live != nil {
+		p.live <- true
+		defer func() { p.live <- false }()
+	}
+	<-ctx.Done()
+	return ctx.Err()
+}
+func (p *fakePeer) Close() error { return nil }
 
 type fakeSrc struct{}
 

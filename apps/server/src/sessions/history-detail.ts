@@ -9,6 +9,9 @@ import {
   type StoredFileState,
 } from "@remote/contracts/ws-fsrv";
 import { listForSession, type StoredRow } from "../fsrv/repo.ts";
+import type { SessionRecordingSummary } from "@remote/contracts/api/recording";
+import { recFromDb, type RecBasis, type RecDeleteReason, type RecState, type RecStopReason } from "@remote/contracts/ws-rec";
+import { findBySession, type RecRow } from "../rec/repo.ts";
 import { actorLabelOf } from "../audit/view.ts";
 import {
   SESSION_HISTORY_LIST_MAX,
@@ -126,15 +129,17 @@ export async function buildDetail(
   viewerId: string,
   now: number,
   canFiles = false,
+  recPerms: { view: boolean; del: boolean } = { view: false, del: false },
 ): Promise<SessionHistoryDetail> {
   const s = { id: row.id, tenantId: row.tenantId };
   const anonymized = row.anonymizedAt !== null;
-  const [consents, files, timelineRows, controlAudits, stored] = await Promise.all([
+  const [consents, files, timelineRows, controlAudits, stored, rec] = await Promise.all([
     hrepo.consentsOf(db, s, SESSION_HISTORY_LIST_MAX),
     hrepo.filesOf(db, s, SESSION_HISTORY_LIST_MAX),
     hrepo.auditsOf(db, s, TIMELINE_ACTIONS, SESSION_HISTORY_LIST_MAX + 1),
     hrepo.auditsOf(db, s, CONTROL_PERIOD_ACTIONS, 2 * SESSION_HISTORY_LIST_MAX),
     listForSession(db, row.tenantId, row.id, SESSION_HISTORY_LIST_MAX),
+    findBySession(db, row.tenantId, row.id),
   ]);
   const timelineTruncated = timelineRows.length > SESSION_HISTORY_LIST_MAX;
   const events = timelineRows.slice(0, SESSION_HISTORY_LIST_MAX);
@@ -160,6 +165,22 @@ export async function buildDetail(
     request: requestOf(row, anonymized, now),
     storedFiles: anonymized ? [] : stored.map((f) => storedFileItem(f, canFiles)),
     ...(row.mode === "UNATTENDED" ? { unattended: await unattendedInfo(db, row, anonymized) } : {}),
+    recording: rec ? recordingSummary(rec, recPerms) : null,
+  };
+}
+
+/** P28e (§5, AC-385/386/450): kayıt özeti; `canView` silinmemiş kayıtta iki yetki, `canDelete` durmuş kayıtta `edit`. */
+function recordingSummary(r: RecRow, perms: { view: boolean; del: boolean }): SessionRecordingSummary {
+  const state = recFromDb(r.state) as RecState;
+  return {
+    state,
+    basis: recFromDb(r.basis) as RecBasis,
+    ...(r.stopReason ? { stopReason: recFromDb(r.stopReason) as RecStopReason } : {}),
+    ...(r.deleteReason ? { deleteReason: recFromDb(r.deleteReason) as RecDeleteReason } : {}),
+    durationMs: r.durationMs,
+    expiresAt: r.expiresAt.toISOString(),
+    canView: perms.view && state !== "deleted",
+    canDelete: perms.del && state === "stopped",
   };
 }
 

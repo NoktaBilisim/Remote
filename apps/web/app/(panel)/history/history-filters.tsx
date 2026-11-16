@@ -3,7 +3,7 @@
 import { FilterButtons } from "@/components/filter-buttons";
 import { istanbulDay } from "@/lib/format";
 import { t } from "@/lib/i18n";
-import { CustomerFields, DateFields, SessionSelects, TechSelect, TenantPicker } from "./history-filter-fields";
+import { CustomerFields, DateFields, RecordedFilter, SessionSelects, TechSelect, TenantPicker } from "./history-filter-fields";
 import { useHistoryFilters, type HistoryFilterInput, type Opt } from "./use-history-filters";
 
 interface Props extends HistoryFilterInput {
@@ -35,6 +35,7 @@ export function HistoryFiltersForm(props: Props) {
       <TechSelect f={f} all={all} showTenant={showTenant} />
       {showTenant && <TenantPicker f={f} />}
       <CustomerFields f={f} all={all} />
+      <RecordedFilter f={f} />
       <FilterButtons
         pending={f.pending}
         onClear={f.clear}

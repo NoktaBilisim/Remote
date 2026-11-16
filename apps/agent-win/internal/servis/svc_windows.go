@@ -89,7 +89,7 @@ func (h *handler) start(ctx context.Context, events *EventLog) (*Core, *sync.Wai
 	}
 	client := NewDeviceClient(api.New(h.cfg.ServerURL, h.cfg.Version).HTTPClient(), h.cfg.ServerURL, id, core, events)
 	core.Send, core.State, core.OnUnregister = client.Send, client.State, client.Unregister
-	core.Consent1 = client.Consent1
+	core.Consent1, core.Record1 = client.Consent1, client.Record1
 	core.Init()
 	wg.Go(func() { _ = WatchLocal(ctx, core.LocalChanged) })
 	wg.Go(func() { _ = client.Run(ctx) })

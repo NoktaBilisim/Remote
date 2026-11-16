@@ -17,6 +17,7 @@ import {
   DEVICE_USER_STATES,
 } from "./unattended-consent.ts";
 import { SESSION_ENDED_REASONS } from "./ws.ts";
+import { deviceRecStateSchema, WS_DEVICE_CAP_RECORD } from "./ws-rec.ts";
 
 export const WS_DEVICE_PATH = "/ws/device";
 export const WS_DEVICE_SUBPROTOCOL = "rs.device.v1";
@@ -36,10 +37,14 @@ export const DEVICE_AUTH_TIMEOUT_MS = 10_000;
  */
 export const WS_DEVICE_CAP_CONSENT = "rs.cap.consent1";
 /** `device.features.caps` / hub `DeviceConn.caps` değerleri. */
-export const DEVICE_FEATURES = ["consent1"] as const;
+export const DEVICE_FEATURES = ["consent1", "record1"] as const;
 export type DeviceFeature = (typeof DEVICE_FEATURES)[number];
 /** Belirteç → özellik (sunucu bilinmeyen `rs.cap.*` belirtecini yok sayar; P28a kalıbı). */
-export const DEVICE_FEATURE_BY_SUBPROTOCOL: Readonly<Record<string, DeviceFeature>> = { [WS_DEVICE_CAP_CONSENT]: "consent1" };
+export const DEVICE_FEATURE_BY_SUBPROTOCOL: Readonly<Record<string, DeviceFeature>> = {
+  [WS_DEVICE_CAP_CONSENT]: "consent1",
+  // P28e (§6.1, K-P28e-7): servis 0.16.0; `connect.recording` ve `rec.state` yalnız bu özellikteki sokete.
+  [WS_DEVICE_CAP_RECORD]: "record1",
+};
 /** `device.user` gönderimi değişimden sonra bu kadar ms debounce edilir (§6.2; kova `WS_DEVICE_RATE_PER_SEC` aynen). */
 export const DEVICE_USER_DEBOUNCE_MS = 500;
 
@@ -272,6 +277,11 @@ export const deviceOutboundSchema = z.discriminatedUnion("t", [
       indicatorText: indicator,
       consent: z.enum(CONSENT_REQUESTS),
       indicatorControl: indicator.optional(),
+      /**
+       * P28e (§2.2, §6.2): YALNIZ `record1` cihaza ve yalnız `true` (eski 0.15.0 katı ayrıştırıcısına alan gitmez). Servis →
+       * yardımcı `ConsentSpec.RecordingLine` (`asked`) ve `IndicatorControl.Recording` (gösterge eki, AC-448/449).
+       */
+      recording: z.literal(true).optional(),
     })
     .refine(silentHasControl, { message: "indicatorControl yalnız silent'ta ve orada zorunlu", path: ["indicatorControl"] }),
   /** Sunucu tarafı bitiş (yedek yol; asıl bitiş yardımcının `/ws/guest`'ine `session.ended`). */
@@ -314,3 +324,10 @@ export const deviceConsentOutboundSchema = z.discriminatedUnion("t", [
     .refine(silentHasControl, { message: "indicatorControl yalnız silent'ta ve orada zorunlu", path: ["indicatorControl"] }),
 ]);
 export type DeviceConsentOutbound = z.infer<typeof deviceConsentOutboundSchema>;
+
+/**
+ * P28e (§6.2): yalnız `record1` sokete giden mesajlar — ayrı birlik (P28u kalıbı; hub yetenek denetimiyle gönderir). Eski
+ * servis tanımaz. Kayıt ortada durursa (`on:false`) gösterge eki kalkar; cihaz yanıt göndermez.
+ */
+export const deviceRecordOutboundSchema = z.discriminatedUnion("t", [deviceRecStateSchema]);
+export type DeviceRecordOutbound = z.infer<typeof deviceRecordOutboundSchema>;

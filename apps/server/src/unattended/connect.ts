@@ -24,6 +24,7 @@ import { AppError } from "../lib/errors.ts";
 type ConnectMessage = Extract<DeviceOutbound, { t: "connect" }>;
 import type { FixedWindowCounter } from "../lib/rate.ts";
 import type { Rooms } from "../signaling/rooms.ts";
+import type { Room } from "../signaling/types.ts";
 import { endDeviceRoom, preAdmitDevice } from "../signaling/rooms-device.ts";
 import { notifySilentConnect, silentPrecheck } from "./connect-silent.ts";
 import { DEVICE_CONNECT_WINDOW_MS, openDeviceSession, Refusal, type ConnectRequest, type Opened } from "./connect-tx.ts";
@@ -151,10 +152,58 @@ async function afterCommit(
   });
   const room = d.rooms.get(o.sessionId);
   const tenantName = auth.actingTenant?.name ?? auth.tenant?.name ?? "";
-  const sent = d.hub.send(o.deviceId, connectMessage(d, ctx, auth, o, { ticket, expiresAt, tenantName: tenantName || "Destek" }));
+  const recording = room ? await recordingDecision(d, ctx, auth, tenantId, o, room) : false;
+  const msg = connectMessage(d, ctx, auth, o, { ticket, expiresAt, tenantName: tenantName || "Destek" });
+  const sent = d.hub.send(o.deviceId, recording ? { ...msg, recording: true } : msg);
   if (room && !sent) await endDeviceRoom(d.rooms, room, "device_timeout");
   else if (room) armTimeout(d, room, o.request.consent);
   return { sessionId: o.sessionId };
+}
+
+/**
+ * P28e §2.2 (P28u §13 kancası): `recording = unattended_recording_enabled ∧ recording_enabled ∧ cihaz record1 ∧ kota/disk`.
+ * Politika açık ama cihaz eski → kayıt yok + `hello.unattended.recordOutdated` + audit `recording.start` fail `device_outdated`
+ * (K6: eski servis `rec.state` alırsa soketi kapatır; gösterge eki yardımcıda, `indicatorText`'e ek konmaz). Kota/disk →
+ * fail `quota`. Karar bekleyen odaya yazılır; admit TX'i ayarı yeniden okur (`startPolicy`).
+ */
+async function recordingDecision(
+  d: ConnectDeps,
+  ctx: AuditContext,
+  auth: AuthContext,
+  tenantId: string,
+  o: Opened,
+  room: Room,
+): Promise<boolean> {
+  const svc = d.rooms.rec;
+  const u = room.unattended;
+  if (!svc || !u) return false;
+  const s = await d.db.tenantSettings.findUnique({
+    where: { tenantId },
+    select: { recordingEnabled: true, unattendedRecordingEnabled: true },
+  });
+  if (!s?.recordingEnabled || !s.unattendedRecordingEnabled) return false;
+  const fail = (reason: "device_outdated" | "quota") =>
+    svc
+      .auditStartFail({
+        tenantId,
+        sessionId: o.sessionId,
+        basis: "tenant_policy",
+        reason,
+        ...(o.request.consent === "silent" ? { consentMode: "silent" as const } : {}),
+        actor: { kind: "user", userId: auth.user.id, username: auth.user.email, ctx },
+      })
+      .catch((err: unknown) => d.log.error({ err }, "kayıt başlatma reddi audit'i yazılamadı"));
+  if (!d.hub.has(o.deviceId, "record1")) {
+    u.recordOutdated = true;
+    await fail("device_outdated");
+    return false;
+  }
+  if (!(await svc.canOffer(tenantId))) {
+    await fail("quota");
+    return false;
+  }
+  u.recording = true;
+  return true;
 }
 
 /** §6.2 `connect`: `ask` → P27 göstergesi; `silent` → "Uzaktan izleniyor" + kontrol açıkken gösterge (`indicatorControl`). */

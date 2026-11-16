@@ -202,6 +202,11 @@ func (f *form) callbackMsg(msg uint32, wp uintptr) (uintptr, bool) {
 			f.timer(wp)
 		}
 		return 0, true
+	case win.WM_LBUTTONUP:
+		if f.click != nil {
+			f.click()
+			return 0, true
+		}
 	case win.WM_ACTIVATE:
 		if f.activate != nil {
 			f.activate(loword(wp) != 0)

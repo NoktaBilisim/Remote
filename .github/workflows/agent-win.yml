@@ -460,6 +460,31 @@ jobs:
           t=TestAC431HelperWindowClassesOnlyIndicatorAndConsent
           if grep -q -- "--- SKIP: $t" "$out"; then echo "::warning::$t SKIP (etkileşimsiz oturum): kanıt Windows VM elle turundan (runbook §28u.8)"
           else grep -q -- "--- PASS: $t" "$out" || { echo "::error::$t koşmadı"; exit 1; }; fi
+      # P28e K8 (mimari-p28e §12 "Go birim", §13 K8; runbook §28e.8): istemci + servis 0.16.0 kayıt testleri günlükte görünür koşar
+      # (kapsam yukarıdaki `go test ./...` ile aynı; bu adım ad sözleşmesini sabitler). Hepsi platformdan bağımsız (sahte UI/boru/soket);
+      # koşucuyu kilitlemez, SKIP beklenmez. Listedeki bir testin koşmaması (ad değişti) kırmızıdır — ad değiştiren listeyi de günceller
+      # (sözleşme: docs/implementation.md "P28e K8").
+      - name: P28e kayıt rızası + gösterge + servis eki testleri (-v)
+        shell: bash
+        run: |
+          out="$RUNNER_TEMP/p28e.txt"
+          GITHUB_STEP_SUMMARY='' go test -count=1 -v -run 'TestAC38[12]|TestAC44[89]|TestSP28e' ./internal/api/... ./internal/flow/... \
+            ./internal/request/... ./internal/signal/... ./internal/servis/... ./internal/unattended/... | tee "$out"
+          for t in TestAC381ConsentTextRecordingOfferParsing TestAC381NoConsentWithoutOfferOrCheck TestAC381ConsentSentOnceFirstAfterHello \
+                   TestAC382IndicatorAndStop TestSP28e2PauseWithoutAckThenResume TestSP28e2PendingRevokeFirstAfterReconnect \
+                   TestSP28e12FeatureOnlyWithRecUI TestAC381RequestFormRecordingConsent TestAC381P28eConsentLineAndConstants \
+                   TestAC382P28eGuestInboundMatchesFixture TestAC382P28eGuestOutboundMatchesFixture \
+                   TestAC449ConnectRecordingAskedPassesRecordingLineToHelper TestAC448ConnectWithoutRecordingHasNoSuffixFlag \
+                   TestAC448RecordingOnSocketWithoutRecord1IsProtocol TestAC448LegacySocketRecordingRejected \
+                   TestAC448RecStateTogglesHelperSuffixAndLogs TestAC448RecStateOnWithoutConnectRecordingStillShown \
+                   TestAC448RecCommandFailureKillsHelper TestAC448LocalSwitchIsOnlyStopPath TestAC448RejoinCarriesLastRecordingState \
+                   TestAC448RecStateOnlyOnRecord1Socket TestAC448P28eRecordDeviceMessagesMatchFixture TestAC449P28eConnectRecordingParsed \
+                   TestAC449InputRecordingOnlyWithP28uInput TestAC448RecCommandContract TestAC448IndicatorLabel \
+                   TestAC449ConsentSpecCarriesRecordingLine TestAC449GrantNeedsDrawnRecordingLine TestAC448IndicatorDrawnWithSuffixBeforeDial \
+                   TestAC448SuffixNotDrawableNoDial TestAC448LiveSuffixFollowsRecStateAndControl TestAC448SuffixChangeOnFixedIndicatorFails \
+                   TestAC448RecCommandAppliedWithoutStatusReply; do
+            grep -q -- "--- PASS: $t" "$out" || { echo "::error::$t PASS değil / koşmadı (ad değişti mi? sözleşme: docs/implementation.md P28e K8)"; exit 1; }
+          done
       # P28u K6s spike (mimari-p28u §7.5 soru 1, R-P28u-1; docs/spike-p28u-k6s.md): üretim yardımcısıyla aynı proclimit.Spec'le
       # başlatılan kısıtlı jetonlu çocuk LockWorkStation çağırır. Koşucu oturumunu KİLİTLER (giriş masaüstü Winlogon olur;
       # pano/WGC/yazdırma testleri bozulur), bu yüzden ayrı ve işin GERÇEK son adımıdır. Ölçümdür: sonuç step summary'de
@@ -592,8 +617,9 @@ jobs:
         run: |
           {
             echo "### Yayın ön koşulu (S17-2) — onay vermeden önce kontrol edin (runbook §24.1)"
-            echo "- [ ] İstemcinin gerektirdiği sunucu paketi prod'da (0.11.0 → P15; 0.13.0 → P28a; 0.14.0 → P28b; 0.15.0 → P28u + migration 20261124000000_p28u_unattended_consent)"
+            echo "- [ ] İstemcinin gerektirdiği sunucu paketi prod'da (0.11.0 → P15; 0.13.0 → P28a; 0.14.0 → P28b; 0.15.0 → P28u + migration 20261124000000_p28u_unattended_consent; 0.16.0 → P28e + migration 20261125000000_p28e_recordings)"
             echo "- [ ] 0.15.0 ve sonrası: Windows 10 + 11 elle turu GEÇTİ (runbook §28u.8: onay diyaloğu ≤ 3 sn, enjekte tıklama/Enter reddi, saydam katman örtüsü ayrı süreçten, kilit/oturum kapatma + 1006/1007/1008, K6s elle spike)"
+            echo "- [ ] 0.16.0 ve sonrası: Windows 10 + 11 kayıt elle turu GEÇTİ (runbook §28e.8: rıza kutusu işaretsiz, şerit/gösterge + Kaydı durdur ≤ 2 sn, gözetimsiz diyalog satırı + gösterge eki, olay 1009, 1 sa kayıt ≤ 1 GB)"
             echo "- [ ] Aynı commit'ten staging exe ile duman testi GEÇTİ (runbook §24.2)"
             echo "- [ ] qa GEÇTİ, güvenlik Kritik/Yüksek 0; bekleyen eski etiket koşusu yok"
             echo

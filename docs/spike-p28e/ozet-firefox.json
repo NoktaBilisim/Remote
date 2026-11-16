@@ -1,0 +1,4 @@
+{
+  "browser": "firefox",
+  "unavailable": "browserType.launch: Executable doesn't exist at ~/Library/Caches/ms-playwright/firefox-1572/firefox/Nightly.app/Contents/MacOS/firefox"
+}

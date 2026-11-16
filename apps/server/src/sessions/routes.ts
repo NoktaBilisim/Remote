@@ -218,6 +218,7 @@ export async function publicSessionRoutes(app: FastifyInstance): Promise<void> {
       },
       app.env.MIN_AGENT_VERSION,
       app.secrets,
+      app.rec.service,
     );
     void reply.header("Cache-Control", "no-store");
     return out;

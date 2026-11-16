@@ -89,11 +89,11 @@ func Run(ctx context.Context, d Deps, in helperio.Input) uint32 {
 			return code
 		}
 	}
-	ind, err := d.ShowIndicator(in.IndicatorText)
+	ind, err := d.ShowIndicator(helperio.IndicatorLabel(in.IndicatorText, in.Recording))
 	if err != nil || ind == nil {
-		return helperio.ExitIndicatorFailed // AC-294 / AC-438: `/ws/guest` çağrılmadı
+		return helperio.ExitIndicatorFailed // AC-294 / AC-438 / AC-448 (ek çizilemedi): `/ws/guest` çağrılmadı
 	}
-	live := newLive(ind, in.IndicatorText)
+	live := newLive(ind, in.IndicatorText, in.Recording)
 	defer live.Close()
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
@@ -102,7 +102,7 @@ func Run(ctx context.Context, d Deps, in helperio.Input) uint32 {
 	}
 	follow(ctx, d, live) // K6b: masaüstü değişiminde önce durdur → gösterge doğrula → devam
 	if d.Commands != nil {
-		go serveCommands(ctx, d.Commands, d.Locker, st)
+		go serveCommands(ctx, d.Commands, d.Locker, st, live)
 	}
 	events := make(chan flow.Event, eventBuffer)
 	ui := newHeadless(ctx, events)

@@ -35,6 +35,7 @@ import {
   handlePrintRequest,
 } from "./clip-print.ts";
 import { handleFsrv } from "./fsrv.ts";
+import { handleRecConsent, handleRecError, handleRecRevoke } from "./rec.ts";
 import type { Rooms } from "./rooms.ts";
 import { hasFsrv } from "./rooms-features.ts";
 import type { Clock, Guest, Peer, Room, TechConn } from "./types.ts";
@@ -199,6 +200,9 @@ async function techAction(rooms: Rooms, room: Room, tech: TechConn, peer: Peer, 
       if (room.admitted) await handleFsrv(rooms, room, { side: "tech", peer, tech }, m);
       else tech.peer.send({ t: "error", code: "CONFLICT", message: "Oturum henüz başlamadı." });
       return;
+    case "rec.error":
+      await handleRecError(rooms, room, tech, m.code); // P28e §6.2: yalnız kaydediciden
+      return;
   }
 }
 
@@ -213,7 +217,12 @@ export async function onGuestMessage(
 ): Promise<void> {
   if (!rooms.live(room) || guest.peer !== peer) return;
   // P28b §5.2 adım 1: `fsrv.*` yalnız SERVER odası + hasFsrv sokette şemada (aksi 1008).
-  const schema = guestInboundSchemaFor(peer.features ?? NO_FEATURES, room.fileMode === "SERVER" && hasFsrv(room, peer));
+  // P28e §6.1: `rec.*` yalnız `rs.cap.rec1` bildiren katılımlı oda soketinde şemada (aksi 1008).
+  const schema = guestInboundSchemaFor(
+    peer.features ?? NO_FEATURES,
+    room.fileMode === "SERVER" && hasFsrv(room, peer),
+    peer.rec === true && !room.unattended,
+  );
   const m = parseFrame(rooms, peer, bucket, schema, data, isBinary, (json) => {
     // P20 (protokol §6.1): zarfı geçerli `binding.request`te previousKey + previousKeys → error VALIDATION, soket açık.
     if (guest.state !== "ADMITTED" || !bindingRequestEnvelopeSchema.safeParse(json).success) return false;
@@ -278,6 +287,12 @@ async function guestAction(rooms: Rooms, room: Room, guest: Guest, peer: Peer, m
     case "fsrv.result":
     case "fsrv.cancel":
       await handleFsrv(rooms, room, { side: "guest", peer, guest }, m);
+      return;
+    case "rec.consent":
+      await handleRecConsent(rooms, room, guest, peer, m.lineSha256);
+      return;
+    case "rec.revoke":
+      await handleRecRevoke(rooms, room, guest);
       return;
   }
 }

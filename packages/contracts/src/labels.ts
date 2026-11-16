@@ -153,6 +153,7 @@ export const FIRST_SEEN_SOURCE_LABEL = "İlk kez görülen kaynak — firmanın 
 export const CONSENT_LEVEL_LABELS: Readonly<Record<ConsentLevel, string>> = {
   VIEW: "Ekran görüntüleme",
   CONTROL: "Uzaktan kontrol",
+  RECORDING: "Oturum kaydı",
 };
 
 export const CONSENT_DECISION_LABELS: Readonly<Record<ConsentDecision, string>> = {

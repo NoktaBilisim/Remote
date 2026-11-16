@@ -3,6 +3,7 @@ package servis
 import (
 	"context"
 	"errors"
+	"slices"
 
 	"github.com/coder/websocket"
 )
@@ -37,10 +38,14 @@ func (c *DeviceClient) writer(ctx context.Context, ws *websocket.Conn) {
 // Consent1 bu sokette `device.features{consent1}` alındı mı (çekirdeğin kip kararı; D-P28u-5).
 func (c *DeviceClient) Consent1() bool { return c.consent.Load() }
 
-// consentMessage P28u sunucu mesajları. intervene/rejoin features'tan önce gelirse protokol ihlalidir.
+// Record1 bu sokette `device.features` caps `record1` içeriyor mu (P28e; `connect.recording` kabulü).
+func (c *DeviceClient) Record1() bool { return c.record.Load() }
+
+// consentMessage P28u/P28e sunucu mesajları. intervene/rejoin features'tan önce gelirse protokol ihlalidir.
 func (c *DeviceClient) consentMessage(ws *websocket.Conn, m any) error {
-	if _, ok := m.(*Features); ok {
+	if f, ok := m.(*Features); ok {
 		c.consent.Store(true)
+		c.record.Store(slices.Contains(f.Caps, capRecord1))
 		c.Handler.Features()
 		return nil
 	}
@@ -52,6 +57,11 @@ func (c *DeviceClient) consentMessage(ws *websocket.Conn, m any) error {
 		c.Handler.Intervene(v)
 	case *Rejoin:
 		c.Handler.Rejoin(v)
+	case *RecState:
+		if !c.record.Load() { // K-P28e-7: record1'siz sokette rec.state şema hatasıdır
+			return c.violation(ws, "record1 olmadan rec.state")
+		}
+		c.Handler.RecState(*v.On)
 	}
 	return nil
 }

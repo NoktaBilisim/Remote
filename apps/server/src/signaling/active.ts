@@ -9,6 +9,7 @@ import { capsFor, featureList, fileModeOf, guestFeatures, hasFsrv } from "./room
 import type { Rooms } from "./rooms.ts";
 import { iceServersFor, type IceGrant } from "./turn.ts";
 import type { Guest, Room } from "./types.ts";
+import { recHelloGuest, recHelloTech } from "./rec.ts";
 
 const HOUR_MS = 3_600_000;
 const iso = (ms: number): string => new Date(ms).toISOString();
@@ -46,6 +47,7 @@ export function sendHelloTech(rooms: Rooms, room: Room): void {
     ...unattendedHello(rooms, room),
     ...(g ? { fileMode: fileModeOf(room) } : {}), // P28b §5.1: teknisyene her zaman (admit sonrası)
     ...clipPrintFields(room),
+    ...recHelloTech(rooms, room), // P28e §6.2: kayıt durumu; kaydediciye yeni belirteç
   });
 }
 
@@ -59,6 +61,7 @@ function unattendedHello(rooms: Rooms, room: Room) {
       deviceName: u.deviceName,
       ...(u.consentMode ? { consentMode: u.consentMode } : {}),
       intervene: rooms.devices?.has(u.deviceId, "consent1") ?? false,
+      ...(u.recordOutdated ? { recordOutdated: true as const } : {}), // P28e §6.1: "Cihaz istemcisi eski" uyarısı
     },
   };
 }
@@ -92,6 +95,7 @@ export function sendHelloGuest(rooms: Rooms, room: Room, guest: Guest): void {
     ...(room.maxFileMb ? { maxFileMb: room.maxFileMb } : {}),
     ...(hasFsrv(room, guest.peer) ? { fileMode: fileModeOf(room) } : {}), // P28b §5.1: eski istemciye yeni alan gitmez
     reconnectToken: token,
+    ...recHelloGuest(rooms, room, guest), // P28e §6.2: rıza penceresi + `rec1` sokete kayıt durumu
   });
   offerBinding(rooms, guest);
 }

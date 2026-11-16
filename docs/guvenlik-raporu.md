@@ -1,3 +1,461 @@
+# Güvenlik Raporu — P28e kod turu 4 (tur 3 düzeltmesi doğrulaması, dal p28e, HEAD dd8a692, 2026-11-16)
+
+DURUM: GEÇTİ — Kritik 0 / Yüksek 0 / Orta 0 / Düşük 0 (yeni) + kabul edilmiş kalıntılar
+
+Kapsam: `git diff e911537..dd8a692 -- apps/server apps/web/lib/error-message.ts apps/web/app/(panel)/history/[id]/recording.tsx`
+(`apps/server/src/rec/webm.ts`, `test/unit/rec-webm-dos.test.ts`, `error-message.ts`, `recording.tsx`). Koşulanlar:
+`pnpm --filter @remote/server exec vitest run test/unit/rec-webm` → 2 dosya / 30 test geçti; tur 3 kanıt betikleri (`p0.ts`, `k3.ts`,
+`fx.ts`) ve bu tur için `k4.ts` / `k4b.ts` (scratchpad
+`/private/tmp/claude-501/-Users-mennan-Projeler-Remote/fa15848a-dcdd-4f1b-abf9-1c72703d5eac/scratchpad/`).
+
+## Bulgular (öncelik sırasıyla)
+
+Yeni bulgu yok.
+
+## Kapananlar
+
+| No                    | Durum   | Kanıt                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
+| --------------------- | ------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| D-P28e-K3-1           | Kapandı | webm.ts:106-110 (tarama çağrısı :109): `checkTracks` `ok` ise `scanEmbedded(b.subarray(e.data + e.size), 0)` — `p > 0` ile aynı fonksiyon, aynı `SCAN_ELEMENTS`/`SCAN_CHILDREN` bütçesi; meşru `Tracks` taranan aralığın dışında. `p0.ts` (video başlığı + ardına ses izli WebM) artık `{ok:false, reason:"ebml"}`; video + ikinci video WebM de ret. Gerçek Chromium `p0.webm` kabul (`fx.ts`: p0 / p1+kuyruk / p3+kuyruk `ok`). Birim testleri (ret + 2 MiB desen < 200 ms + yanlış pozitif yok) eklendi |
+| O-1 (web, kayıt izle) | Kapandı | recording.tsx `useWatch`: `isUnauthenticated(e)` → `router.replace(EXPIRED_LOGIN_PATH)`; hedef sabit `"/login?reason=expired"` (lib/api.ts:26), kullanıcı girdisi/`next` parametresi yok → açık yönlendirme yok. `isUnauthenticated` 401 `MFA_STEP_UP_REQUIRED`'ı hariç tutar (step-up iptali girişe atmaz)                                                                                                                                                                                                |
+| D-3 (web, 500 metni)  | Kapandı | error-message.ts:24-25 (koşul :25): 500'de `t("err.generic")` + yalnız `requestId`; `code`/`message`/`fields` gösterilmez. Sunucu tarafı zaten 500'de genel metin döner (apps/server/src/lib/errors.ts:106 `setErrorHandler`); bu değişiklik derinlemesine savunma. JSON olmayan 502/503 gövdesinde `message` boş → genel metin (api.ts:153). Çağıranın `byStatus[500]` eşlemesi kendi sabit metnidir, sızıntı değil                                                                                       |
+
+## Doğrusallık ölçümü — `p = 0` (geçerli video başlığı + 2 MiB kötü niyetli gövde, `checkWebmHeader`, ısınma + en iyi 15, Node 24, yerel)
+
+Betik: `k4.ts`. `p > 0` ölçümleriyle (tur 3 `k3.ts`, bu tur yeniden koşuldu: çıplak EBML/Tracks 16,4 / 16,3 ms) aynı sınıf.
+
+| Desen                                        | Süre                | Karar    |
+| -------------------------------------------- | ------------------- | -------- |
+| Çıplak EBML sihri, boyut 0x00 (en kötü sayı) | 17,0 ms             | kabul    |
+| Çıplak Tracks sihri                          | 16,3 ms             | kabul    |
+| EBML + 1 baytlık bilinmeyen boyut            | 16,5 ms             | kabul    |
+| Örtüşen sihir zinciri                        | 12,8 ms             | kabul    |
+| EBML boyut 0 (0x80), yoğun                   | 0,2 ms              | ret      |
+| Rastgele bayt                                | 0,3 ms              | kabul    |
+| Ölçek: 0,5 / 1 / 2 MiB (çıplak EBML)         | 3,7 / 7,2 / 14,8 ms | doğrusal |
+
+Sonuç: tarama `p = 0`'da da O(n + 4096), 2 MiB üst sınırda (`REC_PART_MAX_BYTES`) ~15-17 ms; birim testindeki 200 ms eşiğinin çok altında.
+
+## Bilgi (bulgu değil, kabul edilmiş kalıntı sınıfı)
+
+- `Tracks`'tan **önce** bir Segment çocuğuna (ör. `Void` 0xEC) gömülü ikinci WebM taranmaz: `k4b.ts` → `{ ok: true }`. Demuxer'lar
+  `Void` içeriğini atlar; oynatılabilir iz bildirimi oluşmaz. Bu, implementation.md'deki "yapısız opak bayt tam engellenmez" kalıntısıyla aynı
+  sınıftır (yetkili teknisyen, kota içinde, sunucu kareleri çözmez). İstenirse tarama başlangıcı `seg.data`'ya çekilip meşru `Tracks` aralığı
+  hariç tutulabilir; gereksinimler §9 "Sonra" adayı. (atanan ajan: backend-dev)
+
+## Otomatik tarama çıktıları
+
+Bu tur dar kapsam; bağımlılık değişikliği yok (`package.json`/lockfile diff'te yok). Tur 3 çıktıları geçerli.
+
+## Tasarımda vaat edilip kodda bulunmayanlar
+
+Yok (kapsam dahilinde).
+
+## Olumlu
+
+- Tek tarama fonksiyonu (`scanEmbedded`) `p = 0` ve `p > 0` için paylaşılıyor; bütçe/kuyruk mantığı kopyalanmadı.
+- `checkWebmContinuation`'da tarama, `requireCluster` denetiminden önce koşuyor; davranış değişmedi (tur 3 testleri yeşil).
+- 401 yönlendirmesi tek sabit üzerinden; meta 403/404 artık sessizce gizlenmiyor, neden metniyle gösteriliyor (sunucu bilgisi içermez).
+
+---
+
+# Güvenlik Raporu — P28e kod turu 3 (tur 2 düzeltmesi doğrulaması, dal p28e, HEAD e911537, 2026-11-16)
+
+DURUM: GEÇTİ — Kritik 0 / Yüksek 0 / Orta 0 / Düşük 1 (yeni) + kabul edilmiş kalıntılar
+
+Kapsam: `git diff e00005c..e911537` — `apps/server/src/rec/webm.ts`, `apps/server/src/rec/service.ts`, `test/unit/rec-webm-dos.test.ts`,
+`test/integration/rec-p28e-k3.test.ts` (+2), `docs/implementation.md` notu. Koşulanlar: `vitest run test/unit/rec-webm` 2 dosya / 26 test geçti;
+entegrasyon `rec-p28e-k3` (geçici `sec3-mysql`, sonunda silindi) 22/22 geçti; kendi kötü niyetli girdi betiğim (aşağıda).
+
+## Bulgular (öncelik sırasıyla)
+
+### [DÜŞÜK] D-P28e-K3-1 `p = 0` gövdesi `Tracks` sonrasında gömülü başlık için taranmıyor — A04
+
+Yer: apps/server/src/rec/webm.ts:103 (`checkWebmHeader` ilk `Tracks`'ta `checkTracks` sonucunu döndürür; gövdenin geri kalanı taranmaz)
+Sorun: Geçerli tek video izli başlığın ardına eklenmiş ikinci bir WebM (ses izli EBML + Tracks) kabul ediliyor. Kanıt (scratchpad `p0.ts`):
+`checkWebmHeader(Buffer.concat([VIDEO_WEBM(), webm([track(1, "A_OPUS")])]))` → `{ ok: true }`. `p > 0` için kapatılan K1-2 kuralı
+bölümün ilk parçasında (≤ 2 MiB) uygulanmıyor. implementation.md "kalan risk (c)" olarak zaten not edilmiş; rapora ilk kez giriyor.
+İstismar: Değiştirilmiş konsol, her bölümün `p = 0` parçasında meşru başlıktan sonra ses izli gömülü akış gönderir. Etki K2-2 ile aynı sınıf:
+yalnız yetkili teknisyen, kota içinde; sunucu kareleri çözmediğinden "ses saklanmaz" zaten kötü niyetli kaydediciye karşı tam garanti değil.
+Düzeltme: `checkTracks` `ok` döndüğünde aynı bütçeli `anyAt` taramasını (EBML/DocType ve Tracks/TrackEntry) `Tracks` bitişinden gövde
+sonuna dek koş; tamamı bu aralıkta kalan eşleşmeler yargılansın (meşru `Tracks` aralığın dışında kalır). Birim testi: yukarıdaki birleşik
+tampon → ret; gerçek `p0.webm` → kabul. Ya da gereksinimler §9 "Sonra". (atanan ajan: backend-dev)
+
+## Tur 2 bulgularının kapanışı
+
+| No          | Durum                   | Kanıt                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| ----------- | ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Y-P28e-K2-1 | Kapandı                 | Aşağıdaki karmaşıklık analizi ve ölçüm. `indexOf` tek geçiş; `readElement`/`headerShort` O(1); `probe` her çocukta `SCAN_ELEMENTS` (4096, gövde başına, EBML+Tracks taramaları ortak) bütçesini düşürür, eşleşme başı `SCAN_CHILDREN` (64); TrackEntry iç yoklaması aynı bütçeyi paylaşır; bütçe aşımı → `"over"` → ret (fail-closed). Bütçe tüketmeyen dallar (`!e`, `UNKNOWN`, kuyrukta biten, > `SCAN_SPLIT_MAX` kesik) eşleşme başına O(1) → toplam O(n + 4096). service.ts:372 `partExists` içerik denetiminden önce; dup gövde hiç taranmaz (entegrasyon testi: hazırlanmış 2 MiB yeniden PUT → 200 `{next:2}`, ACTIVE, < 2 sn) |
+| D-P28e-K2-2 | Kapandı (kalıntı kabul) | service.ts:419-431 aynı `(s, p-1)` kuyruğu (64 B kopya) ile tarama; parça sonunda kesik ≤ 512 B eşleşme ve kesik boyut vint'i → ret. Birim + entegrasyon testi (sihir sınırda bölünmüş → 400 + STOPPED{ERROR}). Kalıntılar aşağıda                                                                                                                                                                                                                                                                                                                                                                                                    |
+
+## Kendi kötü niyetli girdi ölçümüm (2 MiB, `checkWebmContinuation(b, false)`, ısınma + en iyi 3, Node 24, yerel)
+
+Betik: `/private/tmp/claude-501/-Users-mennan-Projeler-Remote/fa15848a-dcdd-4f1b-abf9-1c72703d5eac/scratchpad/k3.ts`. Hiçbiri 50 ms eşiğini aşmadı.
+
+| Desen                                                                         | Süre         | Karar        |
+| ----------------------------------------------------------------------------- | ------------ | ------------ |
+| Çıplak EBML / Tracks sihri, boyut vint'i 0x00 (bütçe tüketmez, en kötü sayı)  | 16,6 ms      | kabul        |
+| EBML + 1 baytlık bilinmeyen boyut (0xFF) tekrar                               | 16,1 ms      | kabul        |
+| EBML + 8 baytlık bilinmeyen boyut tekrar                                      | 7,5 ms       | ret          |
+| Örtüşen sihir zinciri `1A45DF 1A45DFA3 00`                                    | 16,6 ms      | kabul        |
+| Kısmi sihir `1A45DF` / `1654AE` tekrar (indexOf kötü durumu)                  | 5,1 / 5,3 ms | kabul        |
+| Sıfır uzunluklu EBML / Tracks yoğun (bütçe tükenir)                           | 0,3 ms       | ret          |
+| > 512 B kesik büyük boyutlu eşleşme                                           | 0,1 ms       | ret          |
+| Tracks > 60 TrackEntry > 63 Void (iç içe yoklama)                             | 0,1 ms       | ret          |
+| Tracks + 62 boş TrackEntry tekrar                                             | 0,3 ms       | ret          |
+| Rastgele bayt                                                                 | 0,3 ms       | kabul        |
+| `checkWebmHeader`: EBML + bilinmeyen boyutlu Segment + ~1M sıfır boyutlu Void | 10,5 ms      | ret (tracks) |
+
+Gerçek Chromium fikstürleri: `checkWebmHeader(p0)` ok; `p1` + `p0` kuyruğu ok; `p3` + `p1` kuyruğu ok (betik `fx.ts`). Birim testleri de aynı
+fikstürleri kuyruklu/kuyruksuz kabul ediyor.
+
+## Kuyruk haritası (bellek)
+
+- `tails` kayıt (rid) başına tek girdi, 64 B kopya (`Buffer.from(subarray)` — 2 MiB gövdeyi tutmuyor); `TAILS_MAX = 4096` aşılınca en eskisi
+  atılıyor (delete+set ile ekleme sırası = LRU benzeri). Üst sınır ≈ 4096 × (64 B + nesne/anahtar) < ~1–2 MiB → sınırsız büyüme yolu yok.
+- Temizlik: `afterStop` → `REC_STOP_GRACE_MS` sonra `delete(rid)`; tüm durma yolları `stop()` → `afterStop` (service.ts:244, settings/recording.ts:129).
+  Temizlenmeyen (ör. süreç içinde durması kaydedilmeyen) girdiler zaten sınırla atılıyor. Durma başına bir zamanlayıcı — sınırlı.
+- Yalnız `ok` sonucunda kuyruk yazılıyor; `tailFor` yalnız aynı `s` ve `p-1` eşleşirse kullanılıyor (p=0 → -1 asla eşleşmez).
+
+## Kalan kabul edilmiş riskler (Düşük, gerekçeli — implementation.md "P28e güvenlik tur 2 düzeltmesi")
+
+- 512 B'tan büyük (Void dolgulu) gömülü başlık sihri parça sınırından > 64 B önce başlarsa hiçbir parçada yakalanmaz (SCAN_SPLIT_MAX / kuyruk boyu
+  yanlış durdurma dengesi için).
+- Kuyruk bellekte: süreç yeniden başlarsa ya da > 4096 eşzamanlı kayıtla en eski kuyruk atılırsa ilk sınır kuyruksuz taranır (saldırgan yalnız
+  kendi kaydını etkiler).
+- Bütçe aşımında fail-closed ret: rastgele VP8 verisinde yanlış durdurma olasılığı ölçümle çok düşük (implementation.md: onlarca TB'de bir
+  mertebesi); fikstür + 300 PRNG örnek testi 0 ret.
+- Sunucu kareleri çözmez; iz bildirimi olmayan opak ses baytı tam engellenmez (webm.ts yorumu, kılavuz beyanı dürüst istemci davranışı).
+- Kod turu 1'den açık Düşükler (K1 raporu) değişmedi.
+
+## Otomatik tarama çıktıları
+
+- `pnpm audit --audit-level=moderate`: No known vulnerabilities found.
+- Gizli bilgi grep (diff e00005c..e911537): eşleşme yok. Aralıkta `.env*` commit'i yok.
+
+## Tasarımda vaat edilip kodda bulunmayanlar
+
+- S-P28e-7 / K1-2 gömülü başlık reddi `p = 0` gövdesinin `Tracks` sonrasına uygulanmıyor (D-P28e-K3-1). Diğer içerik sınırları kodda.
+
+## Olumlu
+
+Düzeltme önerilen üç maddeyi de (bütçeli doğrusal tarama, dup önce, 2 MiB < 200 ms testi) karşılıyor; bütçe aşımı fail-closed; tekrar
+gönderim yolu gövdeye hiç dokunmuyor; kuyruk 64 B kopya ve sınırlı; meşru `p=0` Tracks'ının kuyrukta yeniden yargılanmaması düşünülmüş;
+gerçek Chromium fikstürleri ve deterministik PRNG ile yanlış pozitif testi var.
+
+---
+
+# Güvenlik Raporu — P28e kod turu 2 (K9 düzeltme 1 doğrulaması, dal p28e, HEAD 265a928, 2026-11-16)
+
+DURUM: DÜZELTİLMELİ — Kritik 0 / Yüksek 1 / Orta 0 / Düşük 1
+
+Kapsam: `git diff 0bceec7..265a928` — `rec/accept.ts`, `rec/webm.ts`, `rec/routes.ts`, `signaling/rec.ts`, `contracts/api/recording.ts`,
+`web/messages/tr.json`, kılavuz/DATASHEET/README kayıt beyanları ve yeni testler. Birim testleri koşuldu (server `rec-webm-k3`,
+`rec-signaling-k4`: 30/30; contracts `rec-p28e`: 18/18). Entegrasyon testleri (K1-3 chunked, `rec-p28e-unattended`) okundu, koşulmadı (disk).
+
+## Bulgular (öncelik sırasıyla)
+
+### [YÜKSEK] Y-P28e-K2-1 Gömülü EBML/Tracks taraması karesel (O(n²)) — tek PUT sunucu sürecini dakikalarca kilitler — A04/DoS (K1-2 düzeltmesiyle geldi)
+
+Yer: apps/server/src/rec/webm.ts:115-128 (`anyAt` her sihir eşleşmesinde `children(b, e.data, e.data + e.size)` ile tamponun geri kalanını
+yürür), :136-137; apps/server/src/rec/service.ts:360 (`acceptPart` içerik denetimi eşzamanlı, `partExists`'ten ÖNCE).
+Sorun: Her `1A45DFA3`/`1654AE6B` eşleşmesi için çocuk ayrıştırması sınırsız; eşleşme sayısı ve toplam element sayısı için bütçe yok.
+Kanıt (scratchpad betiği; 10 baytlık birim `EC 88 1A45DFA3 1xxxxxxx` = Void içinde sihir + tamponun sonuna dek boyut, çocuklar yine
+geçerli Void zinciri): 50 kB 124 ms, 100 kB 425 ms, 200 kB 1,6 sn, 400 kB 7,2 sn, 800 kB **37 sn**; 2 MiB (izinli üst sınır) tahmini
+3–5 dk. Sonuç `{ok:true}` — gövde geçerli sayılıyor. Denetim Node olay döngüsünde; API + WS sinyalleşme aynı süreç (app.ts `attachSignaling`)
+→ tüm firmalar etkilenir.
+İstismar: `rec.record` yetkili, aktif kayıtlı oturumdaki teknisyen (değiştirilmiş konsol) daha önce kabul edilmiş bir `(s,p)`'yi hazırlanmış
+gövdeyle yeniden PUT eder: `precheck` `dup`'ta null döner (service.ts:351), gövde okunur, karesel tarama koşar, sonra `dup` → yazma/kota/oran
+tüketimi ve `invalid` durdurması yok. PutGate (tek uçuş, 30/dk, semafor 32) eşzamanlı CPU'yu sınırlamaz → dakikada 30 × dakikalar süren
+kilit; sunucu fiilen kapanır.
+Düzeltme: (1) Tarama doğrusal olmalı: eşleşme başına yalnız sabit sayıda çocuk oku (ör. EBML başlığı için ilk ≤ 8 çocuk / ≤ 64 bayt,
+Tracks için ilk çocuk `TrackEntry` mi) ya da toplam ayrıştırılan element/eşleşme için bütçe koy (ör. ≤ 256 doğrulanmış eşleşme; aşılırsa
+**ret**, fail-closed). (2) `acceptPart`'ta `partExists` (dup) denetimini içerik denetiminden önce yap. (3) Birim testi: yukarıdaki 2 MiB
+desen < 50 ms'de karar verir. (atanan ajan: backend-dev)
+
+### [DÜŞÜK] D-P28e-K2-2 Gömülü başlık parça sınırında bölünürse tarama atlanır (K1-2 kalıntısı) — A04
+
+Yer: apps/server/src/rec/webm.ts:118 (`e.data + e.size <= b.length` olmayan eşleşme yok sayılır)
+Sorun: Parça sonuna yerleştirilip kesilen gömülü EBML başlığı `{ok:true}` döner (scratchpad denemesi `hdr-straddle`); kalanı sonraki parçanın
+başına konur (ilk 4 bayt sihir değil → geçer). Birleştirilmiş akışta tam ikinci başlık oluşur. Sunucu kareleri çözmediğinden "ses saklanmaz"
+kötü niyetli kaydediciye karşı tam zorlanamıyor; webm.ts:134 yorumu bunu zaten kabul ediyor. Etki: yalnız yetkili teknisyen, kota içinde → Düşük.
+Düzeltme: Bölüm başına önceki parçanın son ~64 baytını bellekte tutup yeni parçanın başıyla birlikte tara; ya da gereksinimler §9 "Sonra"
+
+- kılavuzda "ses kaydedilmez" ifadesini "kayıt programı ses almaz" biçiminde davranış beyanı olarak bırak. (backend-dev)
+
+## Tur 1 bulgularının kapanışı
+
+| No          | Durum                                                        | Kanıt                                                                                                                                                                                                                                                                                                          |
+| ----------- | ------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| D-P28e-K1-1 | Kapandı                                                      | signaling/rec.ts:72 `sourceGone.next` artık ilerlemiyor; accept.ts:61-67 tek parça + ofset ≤ kopma + `REC_STOP_OFFSET_SLACK_MS`. Testler: signaling-k4 "next ilerlemez", webm-k3 "ikinci parça nosource, aynı parça dup", ofset 15 > 13 sn → nosource                                                          |
+| D-P28e-K1-2 | Daraltıldı, kalıntı → K2-2; düzeltme yeni Yüksek açtı → K2-1 | webm.ts:124-137 gömülü DocType'lı EBML / TrackEntry'li Tracks reddi; gerçek Chromium fikstürleri yanlış pozitif yok (p>0 element ortasından başlıyor → `REC_REQUIRE_CLUSTER_START=false` gerekçeli). Testler yalnız iyi biçimli gömülü yükü ve çıplak sihri kapsıyor; sınırda bölünme ve karmaşıklık testi yok |
+| D-P28e-K1-3 | Kapandı                                                      | recording.ts `content-length` 1..2097152 zorunlu, `transfer-encoding` yasak; routes.ts:117 `onRequest`'te (gövde öncesi) doğrulanıyor, `precheck` şemadan gelen değeri kullanıyor. Testler: contracts şema sınırları; entegrasyon chunked → 400 VALIDATION, parça satırı 0                                     |
+| D-P28e-K1-4 | Kapandı                                                      | tr.json `rset.subtitle`, `hr.noDownload` → "indirme düğmesi ve ucu yoktur; her izleme kayıt altına alınır"; kılavuz :3177/:3184, DATASHEET :55-56, README :272 aynı dil ve "başka programla kaydedilmesi engellenemez" uyarısı. Web testi "mutlak 'indirilemez' yok"                                           |
+
+## Beyan denetimi (mutlak iddia)
+
+- `g.footer` "Ekranınız yalnız izin verirseniz kaydedilir": yalnız `apps/web/app/session/guest-ui.tsx:45` (katılımlı misafir sayfası; rıza
+  kutusu zorunlu) — doğru. Gözetimsiz politika kaydı bu sayfada gösterilmiyor; kılavuz :3172 ayrımı açık yazıyor.
+- "İndirilemez" kalmadı. "Ses kaydedilmez" (tr.json :2378/:2390, kılavuz :3174, DATASHEET :51, README :270): dürüst istemci için doğru
+  davranış beyanı; kötü niyetli kaydediciye karşı tam teknik garanti değil (K2-2). Değiştirilmesi zorunlu değil, K2-2 ile birlikte ele alınmalı.
+
+## Otomatik tarama çıktıları
+
+- `pnpm audit --audit-level=moderate`: No known vulnerabilities found.
+- Gizli bilgi grep (diff 0bceec7..265a928): eşleşme yok. Aralıkta `.env*` commit'i yok.
+
+## Tasarımda vaat edilip kodda bulunmayanlar
+
+- S-P28e-7 içerik sınırı: Cluster başlangıcı ölçümle gerekçeli kapalı; yerine gelen tarama doğrusal değil (K2-1) ve sınır bölünmesine açık (K2-2).
+
+## Olumlu
+
+K1-1 düzeltmesi durma payı kuralıyla aynı biçimde (tek parça + ofset); K1-3 gövde okunmadan şemayla reddediliyor ve gerçek soket üzerinden
+chunked testi var; gerçek Chromium fikstürleriyle yanlış pozitif ölçülmüş; metin değişiklikleri tüm yüzeylerde (UI, kılavuz, DATASHEET,
+README, PDF) tutarlı ve testle korunuyor.
+
+---
+
+# Güvenlik Raporu — P28e kod turu 1 (K3–K8, dal p28e, HEAD 7c7b9dd, 2026-11-16)
+
+DURUM: GEÇTİ — Kritik 0 / Yüksek 0 / Orta 0 / Düşük 4
+
+Kapsam: `git diff main..p28e` — `apps/server/src/rec/*`, `signaling/rec.ts` (+ handlers/rooms/ws/ws-auth/admit-device), `settings/recording.ts`,
+`jobs/retention-*`, `fsrv/usage.ts`, `lib/logger.ts`, `deploy/Caddyfile`, `apps/web/proxy.ts`, `apps/web/lib/rec/*`, oynatıcı, Go `flow/rec.go`, `signal/rec.go`, UI kutusu.
+
+## Bulgular (öncelik sırasıyla)
+
+### [DÜŞÜK] D-P28e-K1-1 Kaynak eş ayrıkken 15 sn boyunca ardışık parça kabul ediliyor (tasarım: yalnız uçuştaki 1 parça) — A04
+
+Yer: apps/server/src/signaling/rec.ts:72 (`partAccepted` → `sourceGone.next = part + 1`), apps/server/src/rec/accept.ts:59-60
+Sorun: `sourceGone` penceresinde kabul edilen her parça `next`'i ilerletir; 15 sn içinde `p, p+1, p+2…` hepsi kabul edilir. Durma yolundaki
+gibi parça sayısı (`REC_STOP_GRACE_PARTS`) ve ofset sınırı (`offset + duration ≤ sg.at − started_at + 2 sn`) yok.
+İstismar: Değiştirilmiş konsol, müşteri WS'i düştükten sonra (TURN medyası akmaya devam ederken) ~15 sn'lik ek görüntüyü 3 parça hâlinde yükler;
+müşteri bu arada "Kaydı durdur"a basmışsa (WS kopuk, revoke gidemez) rızası geri alınmış görüntü saklanır. Pencere 15 sn ile sınırlı → Düşük.
+Düzeltme: `partAccepted`'te `sourceGone.next`'i ilerletme (yalnız `sg.next` bir kez); ya da durma payındaki sınırın aynısını uygula
+(≤ 1 parça + ofset ≤ `sg.at` + 2 sn). Birim testi: kaynak eş gidince 2. parça 404 `nosource`. (atanan ajan: backend-dev)
+
+### [DÜŞÜK] D-P28e-K1-2 `p>0` gövdesinde Cluster başlangıcı zorunlu değil (S-P28e-7 yarım) — A04
+
+Yer: packages/contracts/src/ws-rec.ts (`REC_REQUIRE_CLUSTER_START = false`), apps/server/src/rec/webm.ts:113-116
+Sorun: `p>0` için yalnız EBML sihri reddediliyor; gövde ilk 4 baytı `1A45DFA3` olmayan herhangi bir veri (≤ 2 MiB) kabul edilip saklanır.
+İstismar: Kötü niyetli kaydedici parçaya bir bayt önek + gömülü WebM (ses izli) ya da keyfi dosya koyar; kota içinde şifreli saklanır, AC-375
+"ses saklanmaz" sözü teknik olarak atlanabilir (oynatıcı çözemese de veri diskte).
+Düzeltme: K7 ölçümü tamamlanınca bayrağı `true` yap (MediaRecorder `timeslice` parçaları Cluster sınırında başlıyorsa); değilse ilk elementin
+`Cluster`/`SimpleBlock`/`Void` olmasını ve gövdede `1A45DFA3` geçmemesini denetle. (backend-dev)
+
+### [DÜŞÜK] D-P28e-K1-3 Ön denetim `Content-Length`'e güveniyor; chunked istekte kota ön denetimi boşa düşer — A04/DoS
+
+Yer: apps/server/src/rec/routes.ts:130 (`Number(req.headers["content-length"] ?? 0)`), apps/server/src/rec/service.ts:130 (`extra=0 → used < quota`)
+Sorun: `Transfer-Encoding: chunked` ile gelen PUT'ta ön denetim 0 bayt varsayar; gövde (2 MiB) okunur, şifrelenip diske yazılır, ret ancak TX'te.
+Tek uçuş + 30/dk + semafor 32 etkiyi sınırlar (S-P28e-5 kapanışı geçerli) → Düşük.
+Düzeltme: PUT'ta `Content-Length` zorunlu (yoksa 411/400, dosya yazılmadan); değer 1..2097152 aralığında. (backend-dev)
+
+### [DÜŞÜK] D-P28e-K1-4 Arayüz metni "indirilemez" diyor (S-P28e-3 (c) uygulanmamış) — A04/KVKK beyanı
+
+Yer: apps/web/messages/tr.json:2387 (`rset.subtitle`), :2433 (`hr.noDownload`)
+Sorun: Teknik engel yalnız bütçe + audit; izleme belirteciyle parçalar (126 burst + 24/dk) çekilip birleştirilebilir. "İndirilemez" yanıltıcı beyan.
+Düzeltme: "İndirme düğmesi ve ucu yoktur; her izleme kayıt altına alınır" biçimine çevir; kılavuz/DATASHEET'te aynı dil. (frontend-dev, teknik-yazar)
+
+## Tasarım turu bulgularının kod durumu
+
+| No        | Durum                                            | Kanıt                                                                                                                                                                                    |
+| --------- | ------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| S-P28e-1  | Kapandı                                          | accept.ts:63-75 (stopSeries/stopNext dondurulur, ≤ 4 parça, ofset ≤ stop+2 sn, yeni bölüm 404); signaling/rec.ts:280-288                                                                 |
+| S-P28e-2  | Kapandı (sunucu tarafı gevşek → K1-1)            | rooms.ts detachGuest → recSourceGone; web use-guest-rec.ts:80-95 (2 sn sonra `enabled=false`, revoke hello sonrası yeniden); Go flow/rec.go recOnHello                                   |
+| S-P28e-3  | (a)(b) kapandı, (c) açık → K1-4                  | limits.ts ViewBuckets (userId+rid, belirteçle sıfırlanmaz), view.ts:104-107 429 + metrik, `recording.view.end{partsServed,bytesServed,throttled}`                                        |
+| S-P28e-4  | Kapandı                                          | settings/recording.ts:148-160 iki yön `recording_policy` e-postası; `soleManager` GET'te                                                                                                 |
+| S-P28e-5  | Kapandı (K1-3 ek)                                | routes.ts:109-132 `onRequest` (gövde öncesi), PutGate tek uçuş/30 dk/32 semafor, `precheck` kilitsiz                                                                                     |
+| S-P28e-6  | Kapandı                                          | routes.ts:113-115 rid eşleşmesi, tenant/oturum yalnız belirteç+DB; `uploaderActive` her PUT; logout/endByTechnician/endByTenant/conn düşümü; logger `*.upload.token`, `*.*.upload.token` |
+| S-P28e-7  | Süre kapandı (accept.ts:89), içerik yarım → K1-2 | webm.ts p=0 tek VP8/VP9 izi, ses/ikinci iz/Cluster-önce ret                                                                                                                              |
+| S-P28e-8  | Bilinçli "Sonra" (K-P28e-22)                     | ayar ekranı metni; kabul                                                                                                                                                                 |
+| S-P28e-9  | Kapandı                                          | tek yardımcı `lockTenantRecording` (tenants → kayıtlar artan id); ayar/admit: tenant_settings → tenants; döngü yok                                                                       |
+| S-P28e-10 | Kapandı                                          | signaling/rec.ts:178-207 `consent_rejected{cause: sha                                                                                                                                    | window}`; retention-rec.ts `DELETED{MISSING}` |
+| S-P28e-11 | Kapandı                                          | proxy.ts yalnız `media-src 'self' blob:`; player.ts:124 `revokeObjectURL`                                                                                                                |
+| S-P28e-12 | Kapandı                                          | web `REC_TITLE_PREFIX` başlık; Go `ui/rec_windows.go` her zaman üstte şerit + durdur                                                                                                     |
+
+## Odak doğrulamaları (bulgu yok)
+
+- Tenant izolasyonu: geçmiş uçları `sessionInScope` (historyScope) → kapsam dışı 404; parça GET'inde her istekte oturum/yetki/kapsam yeniden (routes.ts:147-153); tenant-matrix'e satır eklenmiş.
+- rec.state rol biçimleri: misafire yalnız `{on, reason}` (rec.ts:88-90), `upload`/`rid` yalnız kaydedici teknisyene; cihaza yalnız `{on}` ve yalnız `record1`.
+- Rıza: SHA sabiti sunucu+Go eşit; 30 sn penceresi ilk admit hello'sundan; `rec.*` şeması yalnız `rs.cap.rec1` + katılımlı oda (aksi 1008); Go/web kutu varsayılan işaretsiz.
+- Eski istemci/servis: rec1 yoksa rıza gönderilemez; `record1` yoksa politika kaydı yok + `device_outdated` audit.
+- Audit maskesi: `code` yerine `cause` (service.ts:211, 225) — maske kalıbına takılmıyor; belirteç audit'e yazılmıyor.
+- Yetim temizliği: retention-fsrv kayıt parçalarını canlı sayıyor; anonimleştirme/kalıcı silme/firma silme kayıt parçalarını önce siliyor; kota `fsrv/usage.ts` kayıtları içeriyor.
+- Settings: gözetimsiz açılış = kutu + TOTP kurulu + 5 dk step-up; kapatma aynı TX'te ACTIVE kayıtları `POLICY_OFF` yapıyor.
+- Caddy: `@notUpload` yalnız tam kayıt PUT yolunu dışlıyor (`not` blokları VE); bu yol 2097152'e (önce 2.000.000) çıktı; başka yol gevşemedi; `/api/*` dışı 1MB aynı.
+- Oynatıcı/yükleyici: belirteç yalnız `Authorization` başlığında, `credentials:"omit"`; `controlsList="nodownload"`, Range/HEAD/Content-Disposition yok; parça yanıtında `REC_PART_CONTENT_HEADERS`.
+- Artık risk (bulgu değil): delete.ts disk dosyalarını TX içinde satırdan önce siler; TX düşerse mutabakat `MISSING` yapar (güvenli yön, belgelenmiş).
+
+## Otomatik tarama çıktıları
+
+- `pnpm audit --audit-level=moderate`: No known vulnerabilities found.
+- Gizli bilgi grep (diff): yalnız logger redakte testindeki sahte belirteçler (`GizliYuklemeBelirteci1..3`, gitleaks izinli). Yeni `.env` commit'i yok.
+
+## Tasarımda vaat edilip kodda bulunmayanlar
+
+- S-P28e-3 (c) metin değişikliği (K1-4). S-P28e-7 Cluster zorunluluğu bayrakla kapalı (K1-2).
+
+## Olumlu
+
+Gövde öncesi kimlik/oran kapısı ve tek tip 404 + IP 404 sınırı; durma payı hem süre hem parça hem ofsetle sınırlı; WebM başlık ayrıştırıcısı
+sınır denetimli (taşma/boyut bilinmeyen durumları ret); kilit sırası tek yardımcıda; dört göz e-postası iki yönde; izleme bütçesi belirteç
+değişimiyle sıfırlanmıyor; audit `view`/`view.end` özetli; Go ve web istemcide 2 sn yerel duraklatma.
+
+Öneri: K1-1..4 Düşük; paket içinde kapatılması tercih edilir, yetişmezse gereksinimler §9 "Sonra".
+
+---
+
+# Güvenlik Raporu — P28e tasarım turu (K0, dal p28e, HEAD 4f5fd69, 2026-11-16)
+
+DURUM: GEÇTİ (tasarım) — Kritik 0 / Yüksek 0 / Orta 5 / Düşük 7
+
+Kapsam: `docs/mimari-p28e.md` (§2–§7, §10 T1–T14, §11, §16), `docs/adr/0034-oturum-kaydi-teknisyen-konsolunda.md`. Kod yok. Doğrulanan mevcut kod:
+`fsrv/box.ts` HKDF `deriveFileKey(ver, salt, tenantId, fid)` (tenant bağlı anahtar), `lib/logger.ts` redakte (`authorization`, `*.token`),
+`apps/web/proxy.ts` CSP (`media-src` yok → `default-src 'self'`'e düşüyor; `blob:` eklenmesi zorunlu). Orta bulgular K3/K4/K5/K7 kodlanırken
+tasarıma işlenmeli; K9 kod turunda kapanışı aranır.
+
+## Bulgular
+
+### [ORTA] S-P28e-1 Durdurma sonrası 15 sn payında yeni parça/bölüm kabul edilir — rıza geri alma bütünlüğü (A01/KVKK)
+
+Yer: mimari-p28e.md:211 (`PUT …/parts` "ACTIVE değil ve son parça payı geçti → 404"), :99-101 (§2.1 m.5), :224, :285 (§6.4)
+Sorun: Pay yalnız süreyle sınırlı. `STOPPED{REVOKED}` sonrası 15 sn boyunca yeni `s` (p=0) ve `next` parçalar kabul edilir; parçanın rızadan önceki
+görüntüyü mü sonrakini mi içerdiği denetlenmez.
+İstismar: Bozuk/değiştirilmiş konsol `rec.state{off}`'u yok sayar, 15 sn daha kaydedip yükler → müşteri "Kaydı durdur"a bastıktan sonraki ekran saklanır (AC-382).
+Düzeltme: STOPPED'da `stop_series`/`stop_next` dondurulur; payda yalnız aynı bölümde ve en çok 4 parça (3 kuyruk + 1 uçuşta) kabul; yeni bölüm (p=0) → 404;
+hesaplanan `offset_ms + duration_ms > stopped_at − started_at + 2 sn` → ret. Entegrasyon testi: revoke sonrası yeni bölüm 404, 5. parça 404. (backend-dev)
+
+### [ORTA] S-P28e-2 "Kaydı durdur" yalnız WS'e bağlı; sinyal kopukken görüntü akarsa geri alma işlemez (A04)
+
+Yer: mimari-p28e.md:260 (`rec.revoke`), :274 (§6.3 "görüntü yoksa"), :318, :333; mevcut kod `apps/server/src/signaling/rooms.ts:198-206` (misafir soketi kopunca
+yalnız `peer.left` gönderilir, RTCPeerConnection kapatılmaz), `apps/web/lib/webrtc/tech-machine.ts:179-190` (konsol yalnız `share:"unknown"` yapar)
+Sorun: WS (TCP/Caddy) koptuğunda TURN/UDP medyası bir süre akmaya devam edebilir; kaydedici iz `ended` olmadıkça bölümü kapatmaz. Bu arada
+`rec.revoke` gidemez, düğme `loading` kalır, kayıt sürer. ≤ 2 sn hedefi garanti değil. Kötü niyet gerektirmez (sıradan ağ arızası); pencere kısa
+olduğu için Orta.
+İstismar: Ağ dalgalanmasında (ya da teknisyenin WS'i değil müşteri WS'i düşmüşken) müşteri durdurur, kayıt devam eder; müşteri bunu bilemez.
+Düzeltme: Sunucu misafir ayrıkken (`guest.peer` yok) parça kabul etmez (uçuştaki 1 parça hariç; yeniden bağlanınca yeni bölüm) ve konsol
+`peer.left{guest}`'te bölümü kapatır. İstemci (Go + web) 2 sn içinde `rec.state{off}` gelmezse video gönderimini yerelde duraklatır (track `enabled=false` / yakalama durdur) ve
+"Kayıt durdurulamadı, paylaşım duraklatıldı" der; bekleyen `rec.revoke` yeniden bağlanınca `hello` sonrası ilk mesaj olarak gider (sunucu bunu kabul eder).
+Go birim + e2e (WS kesik senaryo). (backend-dev Go, frontend-dev)
+
+### [ORTA] S-P28e-3 İndirme engeli yalnız arayüzde; izleme belirteciyle tüm parçalar sınırsız çekilebilir (A01, AC-385 "indirilemez")
+
+Yer: mimari-p28e.md:214, :305-308, :353 (T6), :367-368 (KVKK beyanı "indirilemez")
+Sorun: Belirteç tarayıcı belleğinde (devtools'ta görünür). Parça GET'inde hız/hacim sınırı yok (yalnız 404 sınırı). Bölüm başı p=0 başlık içerdiğinden
+parçalar art arda eklenince oynatılabilir WebM dosyası çıkar. `recording.view` yalnız "açtı" der, ne kadar çektiğini yazmaz.
+İstismar: `view_recording` sahibi konsolda `fetch` döngüsüyle 8 saatlik kaydı saniyeler içinde diske alır; audit'te sıradan izlemeden farkı yok.
+Düzeltme: (a) belirteç başına çekiş bütçesi: oynatma hızı × 2 + seek payı (ör. son 60 sn'de ≤ 30 parça, aşım 429 + `rs_rec_view_throttled_total`);
+(b) belirteç düşerken `recording.view` ikinci satırı ya da aynı satıra `partsServed/bytesServed` özeti; (c) DATASHEET/kılavuz metni "indirilemez" yerine
+"indirme ucu ve düğmesi yoktur; izleme kayıt altına alınır; ekran/ağ yakalaması teknik olarak engellenemez" (R-PE5 ile tutarlı). (backend-dev, teknik-yazar)
+
+### [ORTA] S-P28e-4 Gözetimsiz kayıt politikası açılınca dört göz bildirimi yok (A09/KVKK — tutarlılık önerisi)
+
+Yer: mimari-p28e.md:217, :358 (T11); `docs/tasarim-kontrol.md` P28e "5. Bildirim: Kapsam dışı". Karşılaştır: AC-436 (`gereksinimler-p28u.md:74`,
+izinsiz kip politikası açma/kapatmada diğer `unattended.manage` sahiplerine ≤ 60 sn e-posta), `mimari-p28u.md:510` `event:"policy"`
+Sorun: AC-447 yalnız AC-436'nın kutusunu + step-up'ı ister, e-postayı açıkça istemez (gereksinim boşluğu değil). Ancak çalışanların kaydedilmesi en az
+izinsiz kip kadar hassastır; tek Admin + step-up ile açılır, diğer yöneticiler haberdar olmaz. P28u kalıbıyla tutarsız.
+İstismar: Ele geçirilmiş/kötü niyetli tek Admin (step-up'ı geçen) politikayı açar, kayıtları izler, sonra kapatır; audit var ama kimse bakmıyorsa fark edilmez.
+Düzeltme: `unattendedEnabled` false→true (ve true→false) olayında mevcut `unattended.silent.notify` hattı `event:"recording_policy"` ile diğer
+Admin'lere e-posta; audit `unattended.silent.notify` aynı biçim. Tek Admin uyarısı (D-P28u-K1-3) ayar ekranında da gösterilir. (backend-dev, frontend-dev)
+
+### [ORTA] S-P28e-5 Parça yükleme ucunda eşzamanlılık/oran sınırı yok; disk yazımı kota denetiminden önce (A04/DoS)
+
+Yer: mimari-p28e.md:230-234 (§5.1), :211, :355 (T8), :513 (R-PE7)
+Sorun: Belirteç başına eşzamanlı PUT sayısı sınırsız; her istek 2 MiB bellekte tamponlanır, şifrelenip `fsync`'lenir, kota/oran/disk %10 ancak sonra
+TX'te denetlenir. Oran tavanı yalnız kabul edilen baytı sayar, reddedilen yazımları değil.
+İstismar: Sızmış/kötü niyetli yükleme belirteciyle 200 eşzamanlı 2 MiB PUT → ~400 MiB RAM + sürekli disk yaz-sil + `tenants FOR UPDATE` kuyruğu
+(aynı firmadaki dosya aktarımları da bekler, R-PE7). Kota doluyken bile her istek önce diske yazar.
+Düzeltme: belirteç başına tek uçuşta PUT (ikincisi 429), belirteç başına ≤ 30 PUT/dk, süreç geneli kayıt PUT semaforu (ör. 32); TX öncesi kilitsiz ön
+denetim (kayıt ACTIVE/pay, `next`, kaba kota/oran, disk %10) — geçmezse dosya yazılmadan ret; TX'teki kesin denetim kalır. Metrik `result="busy"`. (backend-dev)
+
+### [DÜŞÜK] S-P28e-6 Yükleme belirteci bağlamı eksik yazılmış (A01)
+
+Yer: mimari-p28e.md:211, :214, :222-226; `apps/server/src/lib/logger.ts:10-40`
+Sorun: GET için "belirteç/rid uyuşmazlığı → 404" var, PUT için yok; `tenantId/sessionId`'nin yalnız belirteçten alınacağı yazılmamış. `recUpload`
+`authSessionId`'ye/kaydedici soketine bağlı değil; çıkış, kullanıcı pasifleştirme veya yetki kaybında düşmesi tanımlı değil.
+Düzeltme: PUT'ta URL `rid` ≠ belirteç `rid` → 404; tenant/oturum/yol yalnız belirteç+DB'den; belirtece `authSessionId, connId` eklenir; soket kapanışı,
+çıkış, kullanıcı pasif → belirteç düşer (15 sn pay yalnız soket kapanışında). Log: WS çerçeveleri bugün loglanmıyor (signaling'de gövde logu yok),
+ancak redakte `*.token` tek düzey eşler; iç içe `rec.state.upload.token` / `hello.rec.upload.token` kapsanmaz → `*.upload.token` eklenir, `POST /view`
+yanıt gövdesi loglanmaz kuralı yazılır. (backend-dev)
+
+### [DÜŞÜK] S-P28e-7 p>0 parçalarında içerik ve süre denetimi yok (AC-375 dinlenme hâli)
+
+Yer: mimari-p28e.md:76, :230, :235-236
+Sorun: Yalnız p=0 başlığı denetlenir; p>0 içine EBML başlıklı ikinci bir WebM (ses izli) gömülebilir → diskte ses saklanır. `X-Rec-Duration-Ms` toplamı
+duvar saatine bağlı değil → `duration_ms`/`maxUntil` şişirilebilir.
+Düzeltme: p>0 gövdesi EBML sihri `1A45DFA3` ile başlıyorsa ya da Cluster `1F43B675` ile başlamıyorsa 400 + stop{error}; `Σduration_ms ≤ now − started_at + 15 sn`. (backend-dev)
+
+### [DÜŞÜK] S-P28e-8 Saklama süresi kısaltılınca mevcut kayıtlar eski süreyle kalır (KVKK, saklama)
+
+Yer: mimari-p28e.md:143, :171-173
+Düzeltme: 03:30'da `expires_at <= now OR started_at + güncel recording_retention_days <= now` silinir (kısaltma geriye uygulanır, uzatma uygulanmaz);
+ayar ekranında "mevcut kayıtlar da kısalır" bilgisi. (backend-dev, frontend-dev)
+
+### [DÜŞÜK] S-P28e-9 Kilit sırası tanımsız (deadlock/DoS)
+
+Yer: mimari-p28e.md:232-233, :289, :171-183, :215
+Düzeltme: Ayar kapatma, elle silme, `recExpire`, anonimleştirme, firma silme aynı sırayla (`tenants` → kayıt) kilitler; `rec/service.ts`'te tek yardımcı;
+eşzamanlı PUT + ayar kapatma entegrasyon testi. (backend-dev)
+
+### [DÜŞÜK] S-P28e-10 Reddedilen rıza iz bırakmıyor; dosyası kayıp parça "süresi doldu" etiketlenir (A09)
+
+Yer: mimari-p28e.md:259, :403-404, :140
+Sorun: Müşteri kutuyu işaretlediği hâlde SHA/pencere nedeniyle kayıt başlamazsa audit yok (güvenli yön ama inceleme izi yok). Yedekten dönüş/disk kaybı
+yanlış nedenle ("süresi doldu") görünür.
+Düzeltme: `recording.start` fail `{reason:"consent_rejected", code:"sha"|"window"}`; kayıp dosya için `recording.expired` yanında `{missing:true}` ya da
+`delete_reason` CHECK'ine `MISSING`. (backend-dev, dba)
+
+### [DÜŞÜK] S-P28e-11 CSP eki dar tutulmalı
+
+Yer: mimari-p28e.md:309, `apps/web/proxy.ts:22-37`
+Sorun/Düzeltme: Bugün `media-src` yok (default-src 'self'). Yalnız `media-src 'self' blob:` eklenir; `blob:` `script-src`/`worker-src`/`default-src`'ye
+girmez; oynatıcı kapanınca `URL.revokeObjectURL`. Birim testi CSP dizesini sabitler. (frontend-dev)
+
+### [DÜŞÜK] S-P28e-12 Gösterge görünür kalmayabilir (paylaşılan pencere önde, oturum penceresi küçültülmüş)
+
+Yer: mimari-p28e.md:318, :333
+Sorun: Tarayıcı misafirde gösterge + "Kaydı durdur" misafir sekmesinde; müşteri başka pencereyi paylaşırken sekme arkadadır. Go oturum penceresi
+küçültülebilir. "Gizlenemez" sözü yalnız "kapatılamaz" anlamında tutuluyor.
+Düzeltme: web: kayıt açıkken `document.title` başına "● Kayıt — " (favicon değişmez); Go: oturum penceresi küçültülse de görünen her zaman üstte
+küçük şerit/tepsi simgesi "Kayıt yapılıyor" + tıklayınca "Kaydı durdur". Kılavuzda yazılır. (frontend-dev, backend-dev Go)
+
+## K1/K2 öncesi mimar r2'ye işlenecekler (şema/sözleşme etkili)
+
+- S-P28e-1: durma sınırı — oda belleğinde `room.rec.stopSeries/stopNext/stoppedAt` (kolon gerekmez; `stopped_at` zaten var) — §5/§6.2'ye yazılır.
+- S-P28e-6: `recUpload {rid, sessionId, tenantId, userId, authSessionId, connId}` (`rec/types.ts`, K2).
+- S-P28e-4: `unattended.silent.notify.event` enum'una `"recording_policy"` (contracts audit, K2).
+- S-P28e-10: `recording.start.reason` enum'una `"consent_rejected"`; `delete_reason` CHECK'ine `MISSING` (K1) ya da `recording.expired{missing}` (K2) — birini seç.
+- S-P28e-3: metrik `rs_rec_view_throttled_total`, `recording.view` özet alanları (K2); 429 kodu mevcut zarfta.
+- S-P28e-5: metrik `result="busy"` (K2).
+  Bunlar işlenmeden K1/K2 başlarsa DURUM GEÇTİ geçersiz sayılır.
+
+## T1–T14 değerlendirmesi (kısa)
+
+T1 yeterli (rec1+ADMITTED+30 sn+SHA, tek satır, ikinci rıza yok). T2/T3 kapsam dışı kabulü makul; S-P28e-1/7 kötü niyetli kaydedicinin rıza ve ses
+sınırını aşmasını kapatır. T4: HKDF tenant bağlı, `{tenantId}/` CHECK, her GET'te yetki yeniden — yeterli (+S-P28e-6). T5: REST'te başlıkta taşıma ve `authorization`
+redakte yeterli; WS/yanıt gövdesi için S-P28e-6. T6: S-P28e-3. T7/T14: yeterli (rewrap yok, check-retire kayıt
+`key_ver`). T8: S-P28e-5. T11: S-P28e-4. T12: gösterge sunucudan (görünürlük için S-P28e-12), eski istemci/servis kaydedilmez, ek çizilemezse bağlantı yok — yeterli; gözetimsizde
+`connect` anında kapalı politika admit'te açılamaz (yalnız kapanabilir) — doğru yön.
+
+## Otomatik tarama çıktıları
+
+Tasarım turu; yeni bağımlılık ve kod yok. Tarama K9 kod turunda.
+
+## Tasarımda vaat edilip kodda bulunmayanlar
+
+Kod yok. Tasarım ↔ mevcut kod: `proxy.ts`'te `media-src` henüz yok (beklenen, K7).
+
+## Olumlu
+
+Tek kod yolu; sunucu otorite (durum/kota/gösterge); ses izi hem akışta hem başlıkta reddi; belirteç URL'de değil; izleme belirteci `authSessionId`'ye bağlı
+ve her GET'te yetki/oturum yeniden; parça GET'inde `CSP sandbox`, `nosniff`, `no-store`, CORP; kota+disk tek TX; mutabakatın kayıt parçalarını canlı
+sayması (kritik ek) tasarımda; anahtar emekliliği 90 gün; varsayılan kapalı + işaretsiz ayrı kutu + eski SHA reddi; ayar CHECK'leri DB'de.
+
+Öneri: S-P28e-1..7 ve 12 paket içinde (K3/K4/K5/K7) kodlanır; S-P28e-8..11 paket içi tercih edilir, yetişmezse gereksinimler §9 "Sonra".
+
+---
+
 # Güvenlik Raporu — P28u kod turu 2 (K9 düzeltme doğrulaması, dal p28u, HEAD 8d17657, 2026-11-16)
 
 DURUM: GEÇTİ — Kritik 0 / Yüksek 0 / Orta 0 / Düşük 0

@@ -19,6 +19,7 @@ import { syncDisconnect } from "./active.ts";
 import { activeTechPerms } from "./admit.ts";
 import type { Rooms } from "./rooms.ts";
 import { endDeviceRoom } from "./rooms-device.ts";
+import { policyActor, recPolicyAdmitted } from "./rec.ts";
 import type { Guest, Peer, Room } from "./types.ts";
 
 export interface AdmitDeviceDeps {
@@ -76,6 +77,7 @@ function consumeDevice(
   dev: Dev,
   ctx: AuditContext,
   now: Date,
+  recOut: { rid: string | null },
 ): Promise<"ok" | SessionEndedReason> {
   return rooms.db.$transaction(async (tx) => {
     const fail = await recheck(tx, d, room, dev);
@@ -128,6 +130,17 @@ function consumeDevice(
       },
     });
     await enqueueStarted(tx, d.secrets, { tenantId: room.tenantId, sessionId: room.sessionId, customerId: dev.customerId, now });
+    // P28e §2.2 (AC-448): kip yazıldığı TX'te politika kaydı (servis ayarı TX'te yeniden okur; rıza satırı yazılmaz).
+    if (dev.recording && rooms.rec) {
+      const r = await rooms.rec.startPolicy(tx, {
+        tenantId: room.tenantId,
+        sessionId: room.sessionId,
+        recorderUserId: room.technicianId,
+        consentMode: consentMode ?? "no_user",
+        actor: policyActor(room, ctx),
+      });
+      recOut.rid = r.ok ? r.rid : null;
+    }
     return "ok";
   });
 }
@@ -161,10 +174,11 @@ export async function admitDeviceGuest(
   room.admitting = true;
   const now = new Date(rooms.clock.now());
   let outcome: "ok" | SessionEndedReason = "permission";
+  const recOut: { rid: string | null } = { rid: null };
   try {
     const perms = await activeTechPerms(rooms, room);
     if (!consentOk(dev)) outcome = "consent_missing";
-    else if (perms?.has("unattended.connect")) outcome = await consumeDevice(rooms, d, room, dev, ctx, now);
+    else if (perms?.has("unattended.connect")) outcome = await consumeDevice(rooms, d, room, dev, ctx, now, recOut);
   } finally {
     room.admitting = false;
   }
@@ -175,7 +189,7 @@ export async function admitDeviceGuest(
     return "conflict";
   }
   if (!rooms.live(room)) return lateEnd(rooms, room, peer, now);
-  return activate(rooms, room, guest, peer, now);
+  return activate(rooms, room, guest, peer, now, recOut.rid);
 }
 
 /** Tüketim sürerken oda bitti (iptal/yetki/yerel kapatma): DB ACTIVE kaldı → hemen ENDED (yetkisiz ACTIVE kalmaz). */
@@ -186,7 +200,7 @@ async function lateEnd(rooms: Rooms, room: Room, peer: Peer, now: Date): Promise
   return "conflict";
 }
 
-async function activate(rooms: Rooms, room: Room, guest: Guest, peer: Peer, now: Date): Promise<"admitted"> {
+async function activate(rooms: Rooms, room: Room, guest: Guest, peer: Peer, now: Date, rid: string | null): Promise<"admitted"> {
   room.lobby.delete(guest.id);
   guest.state = "ADMITTED";
   guest.peer = peer;
@@ -200,6 +214,7 @@ async function activate(rooms: Rooms, room: Room, guest: Guest, peer: Peer, now:
   room.maxFileMb = limits.maxFileMb;
   room.fileMode = await repo.sessionFileMode(rooms.db, room.sessionId); // P28b AC-355: satırdaki sabit mod
   rooms.startActive(room, guest, now.getTime(), limits.maxActiveHours);
+  recPolicyAdmitted(rooms, room, rid); // P28e: commit sonrası oda belleği + rec.state (ya da cihaz göstergesi kalkar)
   syncDisconnect(rooms, room);
   rooms.metrics.inc("rs_admit_total", { result: "admitted" });
   if (!peer.isOpen()) rooms.detachGuest(room, guest, peer);

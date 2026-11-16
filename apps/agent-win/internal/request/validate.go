@@ -58,6 +58,8 @@ type Form struct {
 	// RememberChosen müşteri "hatırla" kutusunu bu oturumda kendisi değiştirdi (S8b2-1). Hatırlanan veriyle işaretli
 	// açılan kutu bunu true yapmaz; arayüz ad/telefon değişince (EN_CHANGE) kutuyu müşteri dokunmadıysa işaretsize çeker.
 	RememberChosen bool
+	// Record P28e kayıt rıza kutusu (yalnız FormView.RecOffered iken çizilir; yalnız bellekte, sunucuya gönderilmez).
+	Record bool
 }
 
 // Valid sunucuya gidecek normalize değerler (telefon E.164, açıklama tek satır, e-posta boşsa "").

@@ -121,7 +121,9 @@ func connectConsent(m *Connect) bool {
 }
 
 // legacyConnect P27 (features'sız) connect: onay alanı yok.
-func legacyConnect(m *Connect) bool { return m.Consent == "" && m.IndicatorControl == "" }
+func legacyConnect(m *Connect) bool {
+	return m.Consent == "" && m.IndicatorControl == "" && m.Recording == nil
+}
 
 func validFeatures(v *Features) bool {
 	if len(v.Caps) == 0 || len(v.Caps) > 8 {
@@ -129,7 +131,7 @@ func validFeatures(v *Features) bool {
 	}
 	seen := map[string]bool{}
 	for _, c := range v.Caps {
-		if c != capConsent1 || seen[c] {
+		if (c != capConsent1 && c != capRecord1) || seen[c] {
 			return false
 		}
 		seen[c] = true

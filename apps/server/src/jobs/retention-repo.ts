@@ -4,6 +4,8 @@
 import { Prisma } from "../generated/prisma/client.ts";
 import type { Db } from "../lib/db.ts";
 import { REQUEST_TX_OPTIONS, TX_OPTIONS } from "../lib/db.ts";
+import { lockTenantRecording } from "../rec/repo.ts";
+import type { Tx } from "../rec/types.ts";
 
 /** Anonimleştirilebilen (bitmiş) oturum durumları; CHECK `support_sessions_anonymized_chk` ile aynı küme. */
 const FINISHED_STATUSES = ["ENDED", "EXPIRED", "CANCELLED"] as const;
@@ -16,6 +18,27 @@ interface SessionBatchResult {
   files: number;
   /** P28b: aynı TX'te silinen `session_stored_files` satırları. */
   storedFiles: number;
+  /** P28e (§3.4, AC-386): aynı TX'te silinen kayıtlar (parçalarıyla; satır kalmaz). */
+  recordings: number;
+}
+
+/**
+ * P28e (§3.4, §5.5): oturumların kayıtları — parçalar → kayıtlar DELETE (disk `beforeTx`'te silindi). Kilit tek yardımcıyla
+ * (`tenants` → kayıtlar artan id); kayıt yoksa tenant kilidi alınmaz. Dönen: silinen kayıt sayısı.
+ */
+async function deleteSessionRecordings(tx: Tx, tenantId: string, sessionIds: string[]): Promise<number> {
+  const recs = await tx.sessionRecording.findMany({ where: { tenantId, sessionId: { in: sessionIds } }, select: { id: true } });
+  if (recs.length === 0) return 0;
+  const ids = (
+    await lockTenantRecording(
+      tx,
+      tenantId,
+      recs.map((r) => r.id),
+    )
+  ).map((r) => r.id);
+  if (ids.length === 0) return 0;
+  await tx.sessionRecordingPart.deleteMany({ where: { tenantId, recordingId: { in: ids } } });
+  return (await tx.sessionRecording.deleteMany({ where: { tenantId, id: { in: ids } } })).count;
 }
 
 /**
@@ -41,8 +64,9 @@ export async function anonymizeSessionBatch(
   if (beforeTx) await beforeTx((await db.supportSession.findMany(candidates)).map((r) => r.id));
   return db.$transaction(async (tx) => {
     const rows = await tx.supportSession.findMany(candidates);
-    if (rows.length === 0) return { selected: 0, sessions: 0, consents: 0, files: 0, storedFiles: 0 };
+    if (rows.length === 0) return { selected: 0, sessions: 0, consents: 0, files: 0, storedFiles: 0, recordings: 0 };
     const ids = rows.map((r) => r.id);
+    const recordings = await deleteSessionRecordings(tx, tenantId, ids);
     const stored = await tx.sessionStoredFile.deleteMany({ where: { tenantId, sessionId: { in: ids } } });
     const files = await tx.sessionFile.deleteMany({ where: { tenantId, sessionId: { in: ids } } });
     const consents = await tx.sessionConsent.updateMany({
@@ -56,7 +80,7 @@ export async function anonymizeSessionBatch(
           silent_reason = NULL, anonymized_at = UTC_TIMESTAMP(3)
       WHERE tenant_id = ${tenantId} AND id IN (${Prisma.join(ids)}) AND anonymized_at IS NULL
         AND status IN (${Prisma.join([...FINISHED_STATUSES])})`;
-    return { selected: rows.length, sessions, consents: consents.count, files: files.count, storedFiles: stored.count };
+    return { selected: rows.length, sessions, consents: consents.count, files: files.count, storedFiles: stored.count, recordings };
   }, REQUEST_TX_OPTIONS);
 }
 
@@ -161,8 +185,14 @@ export async function purgeSessionsBatch(
     const rows = await purgeSessionCandidates(tx, tenantId, limit);
     if (rows.length === 0) return { selected: 0, sessions: 0, consents: 0, files: 0, requests: 0 };
     const ids = Prisma.join(rows.map((r) => r.id));
+    // P28e (§3.4): recording_parts → recordings önce (anonimleştirme zaten sildi; savunma — sayı `files`'a eklenir).
+    const recs = await deleteSessionRecordings(
+      tx,
+      tenantId,
+      rows.map((r) => r.id),
+    );
     // P28b (§3.3): stored_files → files → consents → sessions (anonimleştirme zaten sildi; savunma — sayı `files`'a eklenir).
-    const stored = await tx.$executeRaw`DELETE FROM session_stored_files WHERE tenant_id = ${tenantId} AND session_id IN (${ids})`;
+    const stored = recs + (await tx.$executeRaw`DELETE FROM session_stored_files WHERE tenant_id = ${tenantId} AND session_id IN (${ids})`);
     const files = stored + (await tx.$executeRaw`DELETE FROM session_files WHERE tenant_id = ${tenantId} AND session_id IN (${ids})`);
     const consents = await tx.$executeRaw`DELETE FROM session_consents WHERE tenant_id = ${tenantId} AND session_id IN (${ids})`;
     const sessions = await tx.$executeRaw`DELETE FROM support_sessions

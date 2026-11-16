@@ -17,7 +17,8 @@ const testSecret = "SSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSS"
 
 type fakeAPI struct {
 	mu         sync.Mutex
-	tenant     string // boşsa "Demo Firma"
+	tenant     string              // boşsa "Demo Firma"
+	rec        *api.RecordingOffer // P28e
 	infoErr    []error
 	min        *string
 	createErrs []error
@@ -42,7 +43,7 @@ func (f *fakeAPI) TenantInfo(context.Context, string) (*api.TenantRequestInfo, e
 	if f.tenant != "" {
 		i.Tenant.Name = f.tenant
 	}
-	i.ConsentText = api.ConsentText{ID: "01JC0000000000000000000000", Version: 3, Body: "metin"}
+	i.ConsentText = api.ConsentText{ID: "01JC0000000000000000000000", Version: 3, Body: "metin", Recording: f.rec}
 	return i, nil
 }
 

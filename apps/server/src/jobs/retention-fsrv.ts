@@ -9,6 +9,7 @@ import * as frepo from "../fsrv/repo.ts";
 import type { FsrvRuntime } from "../fsrv/wiring.ts";
 import type { Db } from "../lib/db.ts";
 import { SYSTEM } from "../requests/service.ts";
+import { removeSessionRecordingFiles } from "./retention-rec.ts";
 
 const BATCH = 500;
 const ORPHAN_AGE_MS = 24 * 3_600_000;
@@ -91,7 +92,12 @@ export async function reconcile(db: Db, rt: FsrvRuntime, now: Date): Promise<Rec
       where: { storageRel: { in: chunk.map((f) => f.rel) }, state: { in: ["UPLOADING", "SCANNING", "CLEAN"] } },
       select: { storageRel: true },
     });
-    const keep = new Set(live.map((r) => r.storageRel));
+    // P28e (§3.4, kritik ek): kayıt parçaları da canlıdır — yoksa 24 sa'ten eski kayıt dosyaları silinirdi.
+    const recParts = await db.sessionRecordingPart.findMany({
+      where: { storageRel: { in: chunk.map((f) => f.rel) } },
+      select: { storageRel: true },
+    });
+    const keep = new Set<string | null>([...live.map((r) => r.storageRel), ...recParts.map((r) => r.storageRel)]);
     for (const f of chunk) {
       if (keep.has(f.rel) || now.getTime() - f.mtimeMs < ORPHAN_AGE_MS) continue;
       await rt.store.remove(f.rel);
@@ -118,7 +124,10 @@ export async function reconcile(db: Db, rt: FsrvRuntime, now: Date): Promise<Rec
   return { orphanFiles, missing, stale };
 }
 
-/** Anonimleştirme partisinden ÖNCE: adayların disk dosyaları (TX geri alınırsa satır CLEAN kalır → (b) EXPIRED yapar). */
+/**
+ * Anonimleştirme / kalıcı silme partisinden ÖNCE: adayların disk dosyaları (TX geri alınırsa satır CLEAN kalır → (b) EXPIRED yapar).
+ * P28e (§3.4): kayıt parçalarının dosyaları da (satır kalırsa kayıt mutabakatı (b) parçayı siler).
+ */
 export async function removeSessionFiles(db: Db, store: FsrvRuntime["store"], tenantId: string, sessionIds: string[]): Promise<void> {
   if (sessionIds.length === 0) return;
   const rows = await db.sessionStoredFile.findMany({
@@ -126,4 +135,5 @@ export async function removeSessionFiles(db: Db, store: FsrvRuntime["store"], te
     select: { storageRel: true },
   });
   for (const r of rows) if (r.storageRel) await store.remove(r.storageRel);
+  await removeSessionRecordingFiles(db, store, tenantId, sessionIds);
 }

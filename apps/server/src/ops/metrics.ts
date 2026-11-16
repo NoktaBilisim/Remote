@@ -4,6 +4,10 @@
 import type { FastifyInstance } from "fastify";
 import { AppError } from "../lib/errors.ts";
 import { safeEqual } from "../lib/ids.ts";
+import { REC_METRICS } from "../rec/types.ts";
+
+/** P28e `rs_rec_part_bytes` kova sınırları (bayt; parça ≤ 2 MiB). */
+export const REC_PART_BYTES_BUCKETS = [65_536, 262_144, 524_288, 1_048_576, 1_572_864, 2_097_152] as const;
 
 type Labels = Record<string, string>;
 
@@ -12,6 +16,23 @@ export class Metrics {
   /** Sayı ya da etiket değeri → sayı (`""` anahtarı etiketsiz seri; P8b `rs_ws_connections{role}`). */
   private readonly gauges = new Map<string, () => number | Record<string, number>>();
   private readonly help = new Map<string, string>();
+  /** Etiketsiz histogram: sınırlar, kova sayaçları (kümülatif değil), toplam, sayı. */
+  private readonly histograms = new Map<string, { le: readonly number[]; counts: number[]; sum: number; count: number }>();
+
+  histogram(name: string, help: string, le: readonly number[]): void {
+    this.help.set(name, help);
+    if (!this.histograms.has(name)) this.histograms.set(name, { le, counts: le.map(() => 0), sum: 0, count: 0 });
+  }
+
+  /** Kayıtsız ada gözlem sessizce yok sayılır (`inc` kalıbı). */
+  observe(name: string, value: number): void {
+    const h = this.histograms.get(name);
+    if (!h) return;
+    const i = h.le.findIndex((b) => value <= b);
+    if (i >= 0) h.counts[i] = (h.counts[i] ?? 0) + 1;
+    h.sum += value;
+    h.count += 1;
+  }
 
   counter(name: string, help: string): void {
     this.help.set(name, help);
@@ -38,6 +59,15 @@ export class Metrics {
       out.push(`# HELP ${name} ${this.help.get(name) ?? ""}`, `# TYPE ${name} counter`);
       if (series.size === 0) out.push(`${name} 0`);
       for (const [key, v] of series) out.push(`${name}${key ? `{${key}}` : ""} ${v}`);
+    }
+    for (const [name, h] of this.histograms) {
+      out.push(`# HELP ${name} ${this.help.get(name) ?? ""}`, `# TYPE ${name} histogram`);
+      let acc = 0;
+      h.le.forEach((b, i) => {
+        acc += h.counts[i] ?? 0;
+        out.push(`${name}_bucket{le="${b}"} ${acc}`);
+      });
+      out.push(`${name}_bucket{le="+Inf"} ${h.count}`, `${name}_sum ${h.sum}`, `${name}_count ${h.count}`);
     }
     for (const [name, read] of this.gauges) {
       out.push(`# HELP ${name} ${this.help.get(name) ?? ""}`, `# TYPE ${name} gauge`);
@@ -137,6 +167,12 @@ export function createMetrics(): Metrics {
   m.counter("rs_unattended_rejoin_total", "Oturum kapatma sonrası yeniden katılım (result: ok|<failReason>)");
   m.counter("rs_unattended_device_msg_rejected_total", "Yok sayılan cihaz mesajları — başka oda / tekrar / eşleşmeyen (t)");
   m.counter("rs_unattended_device_replaced_total", "Aynı cihazın yeniden bağlanıp eski soketi düşürmesi (4409)");
+  // P28e (mimari-p28e §11.2; tenant etiketi yok). `rs_rec_active` göstergesi sinyal katmanında (`bindRec`) kaydedilir.
+  m.counter(REC_METRICS.PART_TOTAL, "Kayıt parça yüklemeleri (result: ok|dup|order|quota|rate|invalid|gone|busy|stopped|nosource)");
+  m.counter(REC_METRICS.STOP_TOTAL, "Duran kayıtlar (reason: revoked|quota|session_end|error|policy_off)");
+  m.counter(REC_METRICS.BYTES_TOTAL, "Kabul edilen kayıt parça baytları (düz metin)");
+  m.histogram(REC_METRICS.PART_BYTES, "Kabul edilen kayıt parçası boyutu (bayt)", REC_PART_BYTES_BUCKETS);
+  m.counter(REC_METRICS.VIEW_THROTTLED_TOTAL, "İzleme çekiş bütçesi aşımları (429; S-P28e-3)");
   return m;
 }
 

@@ -1,3 +1,154 @@
+# Test Raporu — P28e K10 (oturum kaydı; web arayüzü)
+
+DURUM: DÜZELTİLMELİ. İki YÜKSEK bulgu var: "Kayıt yapılıyor" göstergesinde WCAG AA kontrast hatası (müşteri şeridi ve konsol rozeti). Ayrıca bir ORTA ve üç DÜŞÜK bulgu açık. 5xx yok (enjekte edilenler hariç), JS hatası (pageerror) yok, kırık iç link yok, 375 px'te yatay taşma yok. Staging'e dokunulmadı.
+
+Ortam: yerel üretim derlemesi (standalone) `http://localhost:3217` + sahte API/WS `e2e/mock-api.mjs` (:4217), dal `p28e` @ `e911537`, 2026-11-16, yalnız Chromium. Betik: `docs/test-raporu/e2e/p28e-k10/zz-k10-p28e.spec.ts`. Koşu için `apps/web/e2e/` altına geçici olarak kopyalandı, sonra silindi. Ham sonuç: `tarama.jsonl`. Ekranlar scratch'te (136 PNG, kalıcı değil). Başlatılan süreçler kapatıldı (3217/4217 boş).
+
+## Özet
+
+| Ölçüt                                                                                  | Sonuç                                                                                                                                                                                                                                                                                                    |
+| -------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Mevcut takım: `p28e-recording` + smoke (`auth`, `sessions`, `guest`), desktop + mobile | **119/119 geçti**, 7 atlandı. Atlananlar spec'te `desktopOnly`: mobilde 390 px tarama, Kaydı izle (MSE), 4 canlı kayıt akışı (rıza/durdur, 2 sn duraklatma, kota, teklif yok). Bir de `sessions` AC-61 testi mobilde atlandı.                                                                            |
+| Regresyon `p8-history`, `p17-console`, `p28u-unattended`, `unattended`                 | **Koşulmadı.** Koordinatörün tur sınırı nedeniyle. K11 öncesi koşulmalı.                                                                                                                                                                                                                                 |
+| Sayfa taraması: 31 görünüm × açık/koyu × 1440/375 = 124 + keşif E1–E9                  | 108 geçti, 21 kırmızı. Kırmızıların 12'si gerçek axe kontrast ihlali (aşağıda Y-1, Y-2). Kalanları, sıralı 1,2 saatlik koşuda canlı misafir/konsol akışlarındaki tarama betiği zaman aşımları (ürün hatası değil). Aynı akışlar mevcut spec'te yeşil. Bir kırmızı da E5 (O-1).                           |
+| HTTP / konsol                                                                          | 31 görünümün hepsinde 200. Konsolda yalnız beklenen kayıtlar var: step-up 401, enjekte edilen 500, oynatıcı 429 ve 401. pageerror 0.                                                                                                                                                                     |
+| axe (WCAG 2.1 AA)                                                                      | Ayarlar, geçmiş liste/detay, oynatıcı (hazır/yükleniyor/süresi doldu/hata), sil diyaloğu ve müşteri onay kutusu: 0 ihlal. **Müşteri "Kayıt yapılıyor" ve konsol rozeti: `color-contrast` ihlali.**                                                                                                       |
+| 375 px taşma                                                                           | 0 (tüm görünümler)                                                                                                                                                                                                                                                                                       |
+| İkonlar (lucide)                                                                       | Ayarlar sekmesi `Video` (aria-current=page), listedeki "Kayıt" işareti `Video` (`aria-label="Kayıtlı"`), Kaydı izle `Play`, Kaydı sil `Trash2`, silindi `Eraser`, gösterge `CircleDot`, Kaydı durdur `CircleStop`, onay kutusu `Video`. Breadcrumb'da `House` + `ChevronRight` var (DESIGN.md'ye uygun). |
+| 5 durum                                                                                | Ayarlar: yükleniyor / hata / salt okunur / doğrulama hatası / başarı ✅. Liste (`?recorded=true`): dolu / boş / hata ✅. Detay meta: yükleniyor (iskelet) / hata (Tekrar dene) / silindi / yetkisiz ✅. Oynatıcı: loading / throttled (429) / expired ("Devam et") / error / ready ✅.                   |
+
+## Bulgular
+
+### [YÜKSEK] Y-1 Müşteri şeridinde "Kayıt yapılıyor" metni AA kontrastını karşılamıyor
+
+Sayfa/akış: müşteri sayfası, rızalı kayıt sürerken (ve "Kayıt durdurulamadı, paylaşım duraklatıldı" durumunda).
+
+Adımlar:
+
+1. `p28ec` senaryosuyla oturum aç.
+2. Müşteri adı, aydınlatma ve kayıt rızasını işaretle, sonra katıl.
+3. Teknisyen kabul etsin, ardından Paylaş.
+4. axe çalıştır.
+
+Beklenen: kontrast ≥ 4.5:1 (AC-382'deki gizlenemeyen gösterge; müşteri tarafında en kritik metin).
+
+Gerçekleşen: `color-contrast: .text-control-frame` ihlali çıkıyor. Kırmızı metin açık yeşil "paylaşılıyor" şeridinin üzerinde. Sonuç açık/koyu × 1440/375 dört varyantta da aynı.
+
+Kanıt: `tarama.jsonl` id `musteri-kayit-suruyor`, `musteri-paylasim-duraklatildi`; ekran `musteri-kayit-suruyor-375-light.png` (scratch).
+
+Dosya: `apps/web/components/guest/share-strip.tsx:25` (`text-control-frame`). Token ya da zemin değişmeli.
+
+Not: mevcut e2e'nin axe taraması bu durumu kapsamıyor (yalnız ayar ve detay sayfası).
+
+Atanan: frontend-dev
+
+### [YÜKSEK] Y-2 Konsol "Kayıt yapılıyor" rozeti AA kontrastını karşılamıyor
+
+Sayfa/akış: `/sessions/:id/console`, rızalı kayıt sürerken.
+
+Adımlar: Y-1'deki 1–3. adımlar, ardından konsol sayfasında axe.
+
+Gerçekleşen: `color-contrast: .self-start` (rozet `bg-danger-surface` + `text-control-frame`; içindeki "· Müşteri rızası" `text-fg-muted`). Dört varyantta da var.
+
+Kanıt: `tarama.jsonl` id `konsol-kayit-suruyor`.
+
+Dosya: `apps/web/components/console/rec-indicator.tsx` (rozet `className`).
+
+Atanan: frontend-dev
+
+### [ORTA] O-1 "Kaydı izle" isteği 401 dönünce girişe yönlendirmiyor
+
+Adımlar:
+
+1. `/history/<REC>` sayfasını aç.
+2. `POST /sessions/:id/recording/view` isteği 401 dönsün (oturum düşmüş).
+3. "Kaydı izle"ye tıkla.
+
+Beklenen: diğer işleyiciler gibi `/login?reason=expired` yönlendirmesi.
+
+Gerçekleşen: sayfada kalınıyor ve sunucu mesajı FormError olarak gösteriliyor. `useWatch` içinde `isUnauthenticated` denetimi yok. `useMeta` ve `DeleteDialog`'da bu denetim var.
+
+Kanıt: `tarama.jsonl` E5 `urlAfter401: /history/01JSSP28E…`.
+
+Dosya: `apps/web/app/(panel)/history/[id]/recording.tsx` `useWatch.start` catch bloğu.
+
+Atanan: frontend-dev
+
+### [DÜŞÜK] D-1 Saklama süresi alanında geçersiz değer sessizce reddediliyor
+
+Adımlar:
+
+1. `p28esole` ile `/settings/recording` sayfasını aç.
+2. "Kayıt saklama süresi"ne sırayla boş, `0`, `-5`, `91` gir ve her birinde Kaydet'e bas.
+
+Beklenen: 1–90 aralığı için alan hatası (`fields.*`, mimari §9 "alan hataları").
+
+Gerçekleşen: PUT gitmiyor ama ekranda hiçbir hata metni ya da toast yok. `75` (firma süresini aşan) değeri ise doğru hata veriyor.
+
+Not: `maxLength=2` nedeniyle `<script>` ve `' OR 1=1` girdileri 2 karaktere kesiliyor ve gönderilmiyor (güvenli).
+
+Kanıt: `tarama.jsonl` E2.
+
+Dosya: `apps/web/app/(panel)/settings/recording/recording-form.tsx`.
+
+Atanan: frontend-dev
+
+### [DÜŞÜK] D-2 Meta 404/403 dönerse "Kaydı izle" açıklamasız kayboluyor
+
+Adımlar: `canView=true` olan detay sayfasında `GET /sessions/:id/recording` isteği 404 dönsün.
+
+Gerçekleşen: özet meta ve "Kaydı sil" görünüyor, ama "Kaydı izle" neden yok belli değil.
+
+Beklenen: kısa bir bilgi satırı (ör. "Kayıt bilgisi bulunamadı").
+
+Kanıt: `tarama.jsonl` E6.
+
+Atanan: frontend-dev
+
+### [DÜŞÜK] D-3 Hata metninde sunucu mesajı ham gösteriliyor (doğrulanmalı)
+
+Ayar PUT 500 ve "Kaydı izle" 500 durumlarında FormError'da sunucunun `message` alanı (testte "x") gösteriliyor. Ağ kopmasında ise Türkçe genel metin ("Sunucuya ulaşılamadı…") çıkıyor. Gerçek sunucunun 500 mesajı Türkçe ve genel ise sorun değil. `toUiError` 5xx için genel metne düşmeli mi, frontend-dev doğrulasın.
+
+Kanıt: `tarama.jsonl` E3, E5.
+
+Atanan: frontend-dev
+
+## Akış sonuçları
+
+| Akış                                                                                        | Sonuç | Not                                                               |
+| ------------------------------------------------------------------------------------------- | ----- | ----------------------------------------------------------------- |
+| Oturumsuz `/settings/recording`, `/history/:id`, `/history?recorded=true` → giriş           | ✅    | `next` parametresi korunuyor                                      |
+| Ayar: onaysız açma → hata; gözetimsiz kutu + step-up; tek yönetici uyarısı; salt okunur     | ✅    |                                                                   |
+| Ayar PUT 500 / ağ kopması                                                                   | ✅    | Hata gösteriliyor, değer korunuyor (D-3 notu)                     |
+| Liste "Kayıtlı" süzgeci: URL'ye yazılıyor, yenilemede korunuyor, geri tuşu önceki URL       | ✅    | `?recorded=xyz` sessizce yok sayılıyor (3 satır)                  |
+| Başka/olmayan kayıt `/history/<ULID>`                                                       | ✅    | "Oturum bulunamadı" + geri linki                                  |
+| Çift tıklama: Kaydı izle → 1 POST /view; sil onayı → 1 DELETE                               | ✅    | Audit çiftlenmiyor                                                |
+| Sil diyaloğu: odak Vazgeç'te; Esc kapatıyor, odak "Kaydı sil"e dönüyor                      | ✅    |                                                                   |
+| Oynatıcı: gerçek WebM, 2 bölüm + boşluk, 429 bekleme, indirme yok                           | ✅    | Mevcut spec                                                       |
+| Müşteri rıza → kayıt → Kaydı durdur ≤ 2 sn; onaysızda 2000 ms'de duraklama; kota uyarısı    | ✅    | Mevcut spec                                                       |
+| Yetkisiz (`view_recording` yok): "Kaydı izle"/"Kaydı sil" yok, "Kaydı izleme yetkiniz yok." | ✅    | Liste "Kayıt" işareti görünür (AC-385 yalnız izlemeyi kısıtlıyor) |
+| `POST /view` 401 → giriş                                                                    | ❌    | O-1                                                               |
+
+## Kabul kriterleri (uçtan uca, UI)
+
+| AC           | Sonuç | Nasıl doğrulandı                                                                                     |
+| ------------ | ----- | ---------------------------------------------------------------------------------------------------- |
+| AC-380       | ✅    | Spec + tarama (ayar ekranı 5 durum, 75 gün hatası). D-1 küçük eksik.                                 |
+| AC-381       | ✅    | Onay kutusu varsayılan işaretsiz, teklif yoksa yok                                                   |
+| AC-382       | ❌    | İşlev ✅ (≤ 2 sn, sekme başlığı, tüm teknisyenler). Gösterge AA kontrastını karşılamıyor (Y-1, Y-2). |
+| AC-383       | ✅    | Spec: parçalar WebM, p>0 EBML ile başlamıyor                                                         |
+| AC-384       | ✅    | Kota uyarısı `warning`, yükleme duruyor                                                              |
+| AC-385       | ✅    | İzleme yalnız yetkiyle, indirme yok, izleme tıklama başına. 401 davranışı O-1.                       |
+| AC-386       | ✅    | Elle silme + onay diyaloğu, silindi nedeni                                                           |
+| AC-447 / 450 | ✅    | Gözetimsiz anahtar + step-up; kip ve gerekçe detayda                                                 |
+
+## Görsel gözlemler
+
+- Müşteri şeridi (375 açık): kırmızı "Kayıt yapılıyor" metni açık yeşil zeminde soluk duruyor (Y-1). Düğmeler (Paylaşımı durdur, Oturumu bitir, Kaydı durdur) sığıyor, taşma yok.
+- Alt bilgi metni tüm müşteri ekranlarında güncel: "Paylaşımı istediğiniz an durdurabilirsiniz. Ekranınız yalnız izin verirseniz kaydedilir." Gerçek mobil cihazda "Bu cihaz desteklenmiyor" ekranında da aynı.
+- Konsol ekranları tasarım gereği iki temada da koyu (`.theme-dark`).
+- Sınırlar: yalnız sahte API ve Chromium. Safari/Firefox MSE ve gerçek sunucu kapsam dışı. Görsel incelemede yalnız seçilen birkaç ekrana bakıldı.
+
 # Test Raporu — P28u K10 (gözetimsiz izinli/izinsiz bağlantı + müdahale; web arayüzü)
 
 DURUM: GEÇTİ — engelleyici veya yüksek bulgu yok, 5xx yok, JS hatası yok. Bir ORTA bulgu açık (audit ekranında P28u eylemleri

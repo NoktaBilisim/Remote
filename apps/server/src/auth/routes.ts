@@ -203,6 +203,7 @@ function logoutRoute(app: FastifyInstance): void {
 
   app.post("/logout", { ...pendingOk, preHandler: logoutGuard }, async (req, reply) => {
     await logout(app.db, auditContext(req), authOf(req));
+    app.rec.service.dropUploadTokens({ by: "authSession", authSessionId: authOf(req).sessionId }); // P28e S-P28e-6
     // G-E9-14: bu oturumun /ws/panel soketleri anında 4401 (commit sonrası).
     const token = req.cookies[SESSION_COOKIE];
     if (token) app.requestHub.closeByAuthToken(sha256Hex(token));

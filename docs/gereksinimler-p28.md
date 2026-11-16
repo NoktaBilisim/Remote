@@ -267,6 +267,10 @@ ClamAV'ın sırrı yoktur (iç ağ TCP); maskeli alan gerekmez. Yeni env değiş
 | S-P28-2 | Varsayılan depolama kotası 20 GB uygun mu?    | **Kapandı (2026-11-16): 20 GB onaylandı**                                          | kullanıcı          |
 | S-P28-3 | Kayıtlar yedeğe dahil mi?                     | **Kapandı (2026-11-16): dahil değil; sunucunun günlük tam yedeği ayrıca alınıyor** | kullanıcı + devops |
 
+**P28e — Sonra (güvenlik tasarım turu, mimari-p28e r2):** S-P28e-8 "saklama süresi kısaltılınca mevcut kayıtlar da kısalsın" bu pakette
+yapılmaz. Kısaltma yalnız yeni kayıtlara uygulanır; ayar ekranı ve kılavuz bunu açıkça söyler; mevcut kayıt elle silinebilir (AC-386) ve
+hiçbir kayıt 90 günü aşmaz. Genişleme noktası `docs/mimari-p28e.md` K-P28e-22. S-P28e-9/10/11 paket içinde kalır.
+
 ## 10. Kontrol listesi kararları
 
 | Madde                   | Karar                                                                                                                                                                  | Gerekçe          |

@@ -5,6 +5,7 @@ import { useEffect, useRef, useState, type RefObject } from "react";
 import { ShareStrip } from "@/components/guest/share-strip";
 import { GuestCollab, PipButton, usePip } from "@/components/guest/guest-collab";
 import { useCollab } from "@/lib/dc/use-collab";
+import { useGuestRec } from "@/lib/rec/use-guest-rec";
 import { Button } from "@/components/ui/button";
 import { t } from "@/lib/i18n";
 import { useNow } from "@/lib/use-now";
@@ -91,6 +92,8 @@ export function GuestSession({ info: join, verifyCode, sessionRef, cred, storeKe
     },
   });
   const pip = usePip();
+  // P28e (§9, AC-381/382): rıza (bellek) ilk hello'da gider; gösterge + Kaydı durdur yalnız sunucu durumundan
+  const rec = useGuestRec({ subscribe: g.subscribe, send: g.send, preview: g.preview });
   const now = useNow();
   const share = useShareControls(g.startShare, g.stopShare);
   const [confirm, setConfirm] = useState(false);
@@ -115,7 +118,7 @@ export function GuestSession({ info: join, verifyCode, sessionRef, cred, storeKe
         onLeave={end}
       />
     );
-  const live = { state, now, techName: join.technicianName, share, video, collab, pip };
+  const live = { state, now, techName: join.technicianName, share, video, collab, pip, rec };
   const dialog = { confirm, onConfirm: setConfirm, onEnd: end };
   return <GuestLive {...live} {...dialog} filesAllowed={filesAllowed} onChatVisible={setChatOpen} />;
 }
@@ -128,6 +131,7 @@ interface GuestLiveProps {
   video: RefObject<HTMLVideoElement | null>;
   collab: Collab;
   pip: ReturnType<typeof usePip>;
+  rec: ReturnType<typeof useGuestRec>;
   filesAllowed: boolean;
   onChatVisible: (v: boolean) => void;
   confirm: boolean;
@@ -148,6 +152,7 @@ function GuestLive(p: GuestLiveProps) {
         onStart={share.onStart}
         onStop={share.onStop}
         onEnd={() => onConfirm(true)}
+        rec={p.rec}
       />
       <div className="flex flex-col gap-4 px-4">
         <GuestLiveAlerts state={state} now={p.now} shareErr={share.shareErr} busy={share.busy} onRetry={share.onStart} />

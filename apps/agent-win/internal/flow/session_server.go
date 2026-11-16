@@ -39,6 +39,8 @@ func (s *session) onServer(ctx context.Context, m signal.Inbound) (Outcome, bool
 		s.onFsrv(ctx, m)
 	case signal.ErrorMsg:
 		s.onError(m)
+	case signal.RecState:
+		s.onRecState(ctx, m)
 	}
 	return Outcome{}, false
 }
@@ -101,6 +103,7 @@ func (s *session) onError(m signal.ErrorMsg) {
 // onHello admit (ilk) veya yeniden bağlanma (sonraki) — her ikisinde yeni PeerConnection (AC-24).
 func (s *session) onHello(ctx context.Context, h signal.Hello) (Outcome, bool) {
 	first := s.phase == phLobby
+	s.recOnHello(ctx, h, first) // P28e: hello sonrası ilk mesaj (rec.consent / bekleyen rec.revoke)
 	if first && s.d.Admitted != nil {
 		s.d.Admitted()
 	}

@@ -52,42 +52,51 @@ model Tenant {
 }
 
 model TenantSettings {
-  tenantId                String    @id @map("tenant_id") @db.Char(26)
-  sessionTtlMin           Int       @default(15) @map("session_ttl_min") // 15..30
-  maxOpenSessions         Int       @default(3) @map("max_open_sessions") // 1..10
-  maxActiveHours          Int       @default(4) @map("max_active_hours") // 1..8
-  maxFileMb               Int       @default(100) @map("max_file_mb") // 1..2048
-  requireTech2fa          Boolean   @default(true) @map("require_tech_2fa")
-  retentionDays           Int       @default(365) @map("retention_days") // 90..730
+  tenantId                   String    @id @map("tenant_id") @db.Char(26)
+  sessionTtlMin              Int       @default(15) @map("session_ttl_min") // 15..30
+  maxOpenSessions            Int       @default(3) @map("max_open_sessions") // 1..10
+  maxActiveHours             Int       @default(4) @map("max_active_hours") // 1..8
+  maxFileMb                  Int       @default(100) @map("max_file_mb") // 1..2048
+  requireTech2fa             Boolean   @default(true) @map("require_tech_2fa")
+  retentionDays              Int       @default(365) @map("retention_days") // 90..730
   // P27a (mimari-p27a §3.2, K-P27a-1/12; AC-331): 2FA cihaz hatırlama firma anahtarı; mevcut firmalar da TRUE (INSTANT ADD COLUMN)
-  mfaRememberDevice       Boolean   @default(true) @map("mfa_remember_device")
+  mfaRememberDevice          Boolean   @default(true) @map("mfa_remember_device")
   // P28b (mimari-p28b §3.1; AC-354): dosyaları sunucu üzerinden aktar + tara; saklama 1..7 gün (CHECK elle). Admin (settings.edit)
-  fileServerMode          Boolean   @default(false) @map("file_server_mode")
-  fileRetentionDays       Int       @default(1) @map("file_retention_days") @db.TinyInt
+  fileServerMode             Boolean   @default(false) @map("file_server_mode")
+  fileRetentionDays          Int       @default(1) @map("file_retention_days") @db.TinyInt
   // P28u (mimari-p28u §3.1; AC-436): izinsiz (silent) bağlantı politikası — varsayılan kapalı; yalnız PUT /unattended/policy.
   // Açıkken aydınlatma izi zorunlu (CHECK tenant_settings_silent_ack_chk, elle); kapatınca ack_at/ack_by korunur (iz).
-  unattendedSilentEnabled Boolean   @default(false) @map("unattended_silent_enabled")
-  unattendedSilentAckAt   DateTime? @map("unattended_silent_ack_at") @db.DateTime(3)
-  unattendedSilentAckBy   String?   @map("unattended_silent_ack_by") @db.Char(26) // kullanıcı silmede NULL (users/repo deleteUserChildren)
-  smtpHost                String?   @map("smtp_host") @db.VarChar(255)
-  smtpPort                Int?      @map("smtp_port")
-  smtpSecurity            String?   @map("smtp_security") @db.VarChar(20) // NONE | SSL | STARTTLS
-  smtpUser                String?   @map("smtp_user") @db.VarChar(190)
-  smtpPassEnc             Bytes?    @map("smtp_pass_enc") @db.VarBinary(512) // AES-256-GCM, §3.2
-  smtpFromName            String?   @map("smtp_from_name") @db.VarChar(100)
-  smtpFromEmail           String?   @map("smtp_from_email") @db.VarChar(190)
+  unattendedSilentEnabled    Boolean   @default(false) @map("unattended_silent_enabled")
+  unattendedSilentAckAt      DateTime? @map("unattended_silent_ack_at") @db.DateTime(3)
+  unattendedSilentAckBy      String?   @map("unattended_silent_ack_by") @db.Char(26) // kullanıcı silmede NULL (users/repo deleteUserChildren)
+  // P28e (mimari-p28e §3.1; AC-380, 447): oturum kaydı anahtarı + saklama 1..90 g (CHECK elle). Gözetimsiz kayıt yalnız kayıt
+  // açıkken (CHECK tenant_settings_unattended_rec_chk) ve aydınlatma iziyle (tenant_settings_unattended_rec_ack_chk); P28u ack kalıbı.
+  recordingEnabled           Boolean   @default(false) @map("recording_enabled")
+  recordingRetentionDays     Int       @default(30) @map("recording_retention_days") @db.TinyInt
+  unattendedRecordingEnabled Boolean   @default(false) @map("unattended_recording_enabled")
+  unattendedRecordingAckAt   DateTime? @map("unattended_recording_ack_at") @db.DateTime(3)
+  unattendedRecordingAckBy   String?   @map("unattended_recording_ack_by") @db.Char(26) // kullanıcı silmede NULL (deleteUserChildren)
+  smtpHost                   String?   @map("smtp_host") @db.VarChar(255)
+  smtpPort                   Int?      @map("smtp_port")
+  smtpSecurity               String?   @map("smtp_security") @db.VarChar(20) // NONE | SSL | STARTTLS
+  smtpUser                   String?   @map("smtp_user") @db.VarChar(190)
+  smtpPassEnc                Bytes?    @map("smtp_pass_enc") @db.VarBinary(512) // AES-256-GCM, §3.2
+  smtpFromName               String?   @map("smtp_from_name") @db.VarChar(100)
+  smtpFromEmail              String?   @map("smtp_from_email") @db.VarChar(190)
   // P19 (mimari-e11 §8c.1, §8c.4; AC-260; S-P19-T5): smsportal. CHECK'ler migration.sql'de (elle): sms_url yalnız köken + yol
   // (userinfo `@`, sorgu `?`, parça `#`, boşluk/kontrol karakteri yok); sms_header NetGSM başlığı biçimi.
-  smsUrl                  String?   @map("sms_url") @db.VarChar(255) // NULL = sistem varsayılanı (env SMSPORTAL_URL)
-  smsApiKeyEnc            Bytes?    @map("sms_api_key_enc") @db.VarBinary(512) // AES-256-GCM, AAD `tenant_settings.sms_api_key:<tenantId>|<etkin URL kökeni>`
-  smsHeader               String?   @map("sms_header") @db.VarChar(11) // ^[A-Za-z0-9 .-]{1,11}$
-  createdAt               DateTime  @default(now()) @map("created_at") @db.DateTime(3)
-  updatedAt               DateTime  @updatedAt @map("updated_at") @db.DateTime(3)
+  smsUrl                     String?   @map("sms_url") @db.VarChar(255) // NULL = sistem varsayılanı (env SMSPORTAL_URL)
+  smsApiKeyEnc               Bytes?    @map("sms_api_key_enc") @db.VarBinary(512) // AES-256-GCM, AAD `tenant_settings.sms_api_key:<tenantId>|<etkin URL kökeni>`
+  smsHeader                  String?   @map("sms_header") @db.VarChar(11) // ^[A-Za-z0-9 .-]{1,11}$
+  createdAt                  DateTime  @default(now()) @map("created_at") @db.DateTime(3)
+  updatedAt                  DateTime  @updatedAt @map("updated_at") @db.DateTime(3)
 
   tenant      Tenant @relation(fields: [tenantId], references: [id], onDelete: Restrict, onUpdate: Restrict)
   silentAcker User?  @relation("TenantSilentAckBy", fields: [unattendedSilentAckBy], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  recAcker    User?  @relation("TenantRecordingAckBy", fields: [unattendedRecordingAckBy], references: [id], onDelete: Restrict, onUpdate: Restrict)
 
   @@index([unattendedSilentAckBy]) // FK
+  @@index([unattendedRecordingAckBy]) // FK
   @@map("tenant_settings")
 }
 
@@ -138,6 +147,7 @@ model User {
   unattendedGrants     UnattendedDeviceGrant[]      @relation("UnattendedGrantUser")
   unattendedGrantsMade UnattendedDeviceGrant[]      @relation("UnattendedGrantCreator")
   silentPolicyAcks     TenantSettings[]             @relation("TenantSilentAckBy")
+  recPolicyAcks        TenantSettings[]             @relation("TenantRecordingAckBy") // P28e
   unattendedCodes      UnattendedRegistrationCode[]
 
   @@unique([id, tenantId]) // P18 (S-P18-T5): support_requests (assigned_to, tenant_id) bileşik FK hedefi — atanan aynı tenant'ta
@@ -332,6 +342,7 @@ model SupportSession {
   consents      SessionConsent[]
   files         SessionFile[]
   storedFiles   SessionStoredFile[]
+  recording     SessionRecording? // P28e: en çok 1 (UNIQUE(session_id, tenant_id))
   bindingsFirst DeviceBinding[]      @relation("BindingFirstSession")
   bindingsLast  DeviceBinding[]      @relation("BindingLastSession")
   messages      SessionMessage[]
@@ -386,7 +397,7 @@ model SessionConsent {
   id            String   @id @db.Char(26)
   sessionId     String   @map("session_id") @db.Char(26)
   tenantId      String   @map("tenant_id") @db.Char(26)
-  level         String   @db.VarChar(20) // VIEW | CONTROL
+  level         String   @db.VarChar(20) // VIEW | CONTROL | RECORDING (P28e)
   decision      String   @db.VarChar(20) // GRANTED | DENIED | REVOKED
   source        String   @db.VarChar(20) // UI | HOTKEY | RECONNECT | SYSTEM | TECH (P7, ADR-0013) | UNATTENDED (P27)
   consentTextId String?  @map("consent_text_id") @db.Char(26) // join anında onaylanan metin (A1)
@@ -394,6 +405,7 @@ model SessionConsent {
   ip            String?  @db.VarChar(45) // SYSTEM kaynağında yok; retention'da NULL
   userAgent     String?  @map("user_agent") @db.VarChar(300)
   requestId     String?  @map("request_id") @db.Char(26) // P8b §13.3: talep oturumunun "Ekranımı paylaş" onayı → talep formundaki onaya bağ (kod yolunda NULL)
+  lineSha256    String?  @map("line_sha256") @db.Char(64) // P28e: yalnız ve her zaman RECORDING satırında; REC_CONSENT_LINE_SHA256 (CHECK elle)
   createdAt     DateTime @default(now()) @map("created_at") @db.DateTime(3)
 
   session     SupportSession  @relation(fields: [sessionId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
@@ -472,6 +484,62 @@ model SessionStoredFile {
   @@index([sessionId, tenantId, createdAt]) // bileşik session FK öneki + geçmiş detayı + oturum tavanı SUM + anonimleştirme
   @@index([state, expiresAt]) // 03:30 fsrvExpire (CLEAN + expires_at <= now), mutabakat ve açılış süpürmesi (state eşitliği)
   @@map("session_stored_files")
+}
+
+// P28e (mimari-p28e §3.2–3.4, ADR-0034; AC-380..388, 447..450): oturum kaydı (oturum başına en çok bir satır). Kota bu tablonun
+// size_bytes'ından toplanır (state ACTIVE/STOPPED). ACTIVE → STOPPED → DELETED (geri dönüş kodda; tetikleyici yok). `tenants`'a doğrudan
+// FK yok — bileşik (session_id, tenant_id) FK. app: SELECT/INSERT/DELETE + sütun düzeyi UPDATE (grants.sql). Elle CHECK'ler
+// (migration.sql): ikili enum'lar, durum ↔ neden/zaman tutarlılığı, saklama ≤ 90 g, DELETED'da sayaç 0. Ayrıntı db-notlari "P28e".
+model SessionRecording {
+  id             String    @id @db.Char(26) // ULID = protokoldeki rid
+  tenantId       String    @map("tenant_id") @db.Char(26)
+  sessionId      String    @map("session_id") @db.Char(26)
+  basis          String    @db.VarChar(14) // CONSENT | TENANT_POLICY
+  state          String    @db.VarChar(8) // ACTIVE | STOPPED | DELETED
+  stopReason     String?   @map("stop_reason") @db.VarChar(12) // REVOKED | QUOTA | SESSION_END | ERROR | POLICY_OFF (ACTIVE dışında dolu)
+  deleteReason   String?   @map("delete_reason") @db.VarChar(10) // EXPIRED | MANUAL | MISSING (yalnız DELETED; K-P28e-18)
+  recorderUserId String?   @map("recorder_user_id") @db.Char(26) // son kaydeden teknisyen; FK değil (audit_logs.user_id kalıbı)
+  startedAt      DateTime  @map("started_at") @db.DateTime(3)
+  stoppedAt      DateTime? @map("stopped_at") @db.DateTime(3)
+  expiresAt      DateTime  @map("expires_at") @db.DateTime(3) // started_at + recording_retention_days (başlangıçtaki değer; K-P28e-22)
+  durationMs     Int       @default(0) @map("duration_ms") @db.UnsignedInt
+  sizeBytes      BigInt    @default(0) @map("size_bytes") // düz metin parça toplamı (kota)
+  partCount      Int       @default(0) @map("part_count") @db.UnsignedInt
+  deletedAt      DateTime? @map("deleted_at") @db.DateTime(3)
+  createdAt      DateTime  @default(now()) @map("created_at") @db.DateTime(3)
+  updatedAt      DateTime  @updatedAt @map("updated_at") @db.DateTime(3)
+
+  session SupportSession         @relation(fields: [sessionId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
+  parts   SessionRecordingPart[]
+
+  @@unique([sessionId, tenantId]) // oturum başına tek kayıt (session_id global tekil → UQ(session_id) ile eşdeğer) + bileşik session FK öneki
+  @@unique([id, tenantId]) // session_recording_parts bileşik FK hedefi
+  @@index([tenantId, state]) // kota toplamı (state IN ACTIVE/STOPPED) + firma silme byTenant
+  @@index([state, expiresAt]) // 03:30 recExpire (STOPPED + expires_at <= now) + açılış süpürmesi (ACTIVE)
+  @@map("session_recordings")
+}
+
+// P28e (mimari-p28e §3.3): kayıt parçası (5 sn WebM, sunucuda şifreli `.rsf`). Append-only (updated_at yok; UPDATE grant'ı yok).
+// Disk dosyası silinince satır aynı TX'te silinir → storage_rel NOT NULL (mimari NULL'dan daraltma, db-notlari "P28e").
+model SessionRecordingPart {
+  id          String   @id @db.Char(26) // ULID; HKDF info'daki fid
+  recordingId String   @map("recording_id") @db.Char(26)
+  tenantId    String   @map("tenant_id") @db.Char(26)
+  seriesNo    Int      @map("series_no") @db.UnsignedSmallInt // bölüm (bir MediaRecorder çalışması)
+  partNo      Int      @map("part_no") @db.UnsignedSmallInt // bölüm içi 0..59 (K-P28e-16)
+  offsetMs    Int      @map("offset_ms") @db.UnsignedInt
+  durationMs  Int      @map("duration_ms") @db.UnsignedSmallInt // 1..15000
+  sizeBytes   Int      @map("size_bytes") @db.UnsignedInt // 1..REC_PART_MAX_BYTES (2 MiB)
+  storageRel  String   @map("storage_rel") @db.VarChar(80) // `{tenant_id}/{rastgele24}.rsf`
+  keyVer      Int      @map("key_ver") @db.UnsignedTinyInt // crypto:check-retire sayar (K-P28e-12)
+  createdAt   DateTime @default(now()) @map("created_at") @db.DateTime(3)
+
+  recording SessionRecording @relation(fields: [recordingId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
+
+  @@unique([recordingId, tenantId, seriesNo, partNo]) // idempotans + oynatma sırası + bileşik FK öneki (recording_id → tenant_id belirli)
+  @@unique([storageRel]) // mutabakat (a) `storage_rel IN (…)` araması; bir dosya tek satıra bağlı
+  @@index([tenantId]) // firma silme byTenant
+  @@map("session_recording_parts")
 }
 
 // P8b-1 (mimari-e9 §3.1 + §13.6/13.8, AC-129..131, 142, 152): tenant başına talep ayarları (1-1, tembel oluşturulur).

@@ -42,6 +42,7 @@ export function toListItem(r: hrepo.HistoryListRow, scope: hrepo.HistoryScope, v
     customerFirm: firmOf(r.customer),
     anonymized: r.anonymizedAt !== null,
     consentMode: (r.consentMode as ConsentMode | null) ?? null,
+    hasRecording: r.recording !== null && r.recording.state !== "DELETED",
   };
 }
 

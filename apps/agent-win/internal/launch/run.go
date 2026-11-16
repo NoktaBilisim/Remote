@@ -170,6 +170,7 @@ func (d Deps) runRequest(ctx context.Context, rd request.Deps) (flow.Outcome, bo
 	case request.OutShare:
 		fd := d.Flow
 		fd.Admitted = func() { res.Release(request.ReleaseAdmitted) }
+		fd.RecConsent = res.Record // P28e: talep formundaki kayıt kutusu (rec.consent ilk hello'da)
 		out := flow.RunTicket(ctx, fd, res.Ticket, res.TechName, res.AdmitCode)
 		// hello geldiyse no-op (bir kez çalışır). Gelmediyse: ağ/protokol hatası → 1001 (sunucu CONNECT_FAILED);
 		// müşteri vazgeçti/sunucu bitirdi → 1000/REST (mimari-protokol §5.1, mimari-e9 §13.3).

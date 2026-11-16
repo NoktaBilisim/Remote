@@ -336,7 +336,12 @@ describe("AC-260 SMS ayarı ve test (S-P19-5/6, T5/T6/T7)", () => {
     expect((await setKey(f.s)).statusCode).toBe(200);
     const c = await countAllByVersion(testDb(), 1);
     expect(c["tenant_settings.sms_api_key_enc"]).toBeGreaterThan(0);
-    expect(Object.keys(c)).toEqual(["session_messages", "tenant_settings.sms_api_key_enc", "notification_outbox.recipient_enc"]);
+    expect(Object.keys(c)).toEqual([
+      "session_messages",
+      "tenant_settings.sms_api_key_enc",
+      "notification_outbox.recipient_enc",
+      "session_recording_parts.key_ver",
+    ]);
   });
 });
 

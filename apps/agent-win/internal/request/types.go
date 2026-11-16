@@ -71,6 +71,8 @@ type FormView struct {
 	Remembered     bool // "Bu bilgiler size ait değilse: Bilgilerimi unut" ipucu
 	// RememberNote AC-188 bilgi satırı (KVKK onayının üstünde).
 	RememberNote string
+	// RecOffered P28e (AC-381): kayıt rıza kutusu gösterilir (api.ConsentText.RecOffered); varsayılan işaretsiz.
+	RecOffered bool
 }
 
 // FormAction form kararı.
@@ -164,6 +166,8 @@ type Outcome struct {
 	AdmitCode string
 	// Notice OutBack'te ana ekranın bilgi satırı.
 	Notice string
+	// Record P28e: OutShare'de kayıt kutusu işaretliydi ve teklif hâlâ geçerli (flow.Deps.RecConsent).
+	Record bool
 	// Release `/ws/request`'i bırakır (bkz. ReleaseKind). Bir kez çalışır; sonraki çağrılar etkisizdir.
 	Release func(ReleaseKind)
 }

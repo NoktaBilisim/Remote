@@ -106,7 +106,7 @@ export function decorateFsrv(app: FastifyInstance, w: FsrvWiring): FsrvRuntime {
   };
   registerScanMetrics(w.metrics, () => scanner);
   registerFsrvMetrics(w.metrics);
-  w.metrics.gauge("rs_storage_used_bytes", "Saklanan dosya kullanımı (bayt, tüm firmalar; P28b)", () => rt.gauges.usedBytes);
+  w.metrics.gauge("rs_storage_used_bytes", "Saklanan dosya + kayıt kullanımı (bayt, tüm firmalar; P28b, P28e)", () => rt.gauges.usedBytes);
   w.metrics.gauge("rs_storage_disk_free_ratio", "FILES_DIR diski boş oranı (P28b)", () => rt.gauges.freeRatio);
   app.decorate("fsrv", rt);
   app.addHook("onReady", async () => {
@@ -117,9 +117,13 @@ export function decorateFsrv(app: FastifyInstance, w: FsrvWiring): FsrvRuntime {
 
 /** Ölçüm tazeleme (yoklama + saklama turu). */
 export async function refreshStorageGauges(db: Db, rt: FsrvRuntime): Promise<void> {
-  const r = await db.$queryRaw<{ n: bigint | null }[]>`SELECT SUM(size_bytes) AS n FROM session_stored_files
-    WHERE state IN ('UPLOADING', 'SCANNING', 'CLEAN')`;
-  rt.gauges.usedBytes = Number(r[0]?.n ?? 0);
+  // §11.2 (P28e): kullanım = dosyalar + silinmemiş kayıtlar (`fsrv/usage.ts storageUsage` ile aynı süzgeç, tüm tenant'lar).
+  const [r, rec] = await Promise.all([
+    db.$queryRaw<{ n: bigint | null }[]>`SELECT SUM(size_bytes) AS n FROM session_stored_files
+      WHERE state IN ('UPLOADING', 'SCANNING', 'CLEAN')`,
+    db.$queryRaw<{ n: bigint | null }[]>`SELECT SUM(size_bytes) AS n FROM session_recordings WHERE state <> 'DELETED'`,
+  ]);
+  rt.gauges.usedBytes = Number(r[0]?.n ?? 0) + Number(rec[0]?.n ?? 0);
   rt.gauges.freeRatio = await rt.store.freeRatio();
 }
 

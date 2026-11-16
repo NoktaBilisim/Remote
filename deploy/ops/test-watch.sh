@@ -9,7 +9,7 @@
 # P18 H5 crypto-decrypt / calendar-fallback / msg-tenant-rate / p18-metrics; P19 J6 notify-outbox-pending /
 # notify-outbox-failed / notify-volume / sms-key-unreadable / p19-metrics; P28b K6 av-up (ardışık 2) / av-selftest /
 # av-signature-age / av-scan-failed / av-metrics / compose:clamav*; P28u K8 unattended-notify-fail / unattended-silent-volume /
-# unattended-consent-timeout.
+# unattended-consent-timeout; P28e K8 rec-stop-error / rec-part-rejected / rec-view-throttled.
 # Kullanım: deploy/ops/test-watch.sh   Çıkış 0 = tüm beklentiler tuttu.
 set -euo pipefail
 cd "$(dirname "$0")"
@@ -444,6 +444,37 @@ good; clrua; pua 'a[$(touch /tmp/pwn30)] a[$(touch /tmp/pwn31)] a[$(touch /tmp/p
 ls /tmp/pwn3* >/dev/null 2>&1 && no "P28u enjeksiyon: $(ls /tmp/pwn3*)" || ok "S14-2: P28u metrik/durum alanlarında a[\$(…)] komut çalıştırmadı"
 good; clrua; run
 
+# P28e K8 (mimari-p28e §11.3; runbook §28e.6): alanlar 32-36 = parça-toplam(işaret) parça-red stop-toplam stop-error izleme-429.
+prec() { echo "$((NOW - 3600)) 0 0 0 0 0 0 - $((NOW - 3600)) 0 0 0 0 - 5 10 0 3 0 0 - - - - - - - - - - - $1" >/scn/metrics; }
+clrrec() { sed -i '/^rec_samples=/d' /var/lib/rw/state; }
+recs() { sed -i '/^rec_samples=/d' /var/lib/rw/state; echo "rec_samples=$1" >>/var/lib/rw/state; }
+good; clrrec; run
+! grep -q 'check="rec-' /var/lib/rw/status.prom && ok "P28e öncesi (rs_rec_part_total yok) -> rec-* kontrolleri yok" || no "p28e öncesi: $(cat /out/o)"
+good; clrrec; prec "0 - - - -"; run
+p18n 'rec-' && grep -q 'check="rec-stop-error"} 1' /var/lib/rw/status.prom && grep -q 'check="rec-view-throttled"} 1' /var/lib/rw/status.prom \
+  && ok "P28e temiz (etiketli seriler yok -> 0) -> rec-* OK, alarm yok" || no "rec temiz: $(cat /out/o)"
+good; clrrec; recs "$((NOW - 1800)):0:0:0:0:0"; prec "0 0 10 3 0"; run
+p18a rec-stop-error && grep -q 'error ile durdu 3 / 10' /out/o && ok "1 sa'te error 3/10 (> %20) -> ALERT rec-stop-error" || no "stop err: $(cat /out/o)"
+good; clrrec; recs "$((NOW - 1800)):0:0:0:0:0"; prec "0 0 15 3 0"; run
+p18n rec-stop-error && ok "error 3/15 (= %20) -> alarm yok" || no "stop err 20: $(cat /out/o)"
+good; clrrec; recs "$((NOW - 1800)):0:0:0:0:0"; prec "0 0 2 2 0"; run
+p18n rec-stop-error && ok "error 2/2 ama < WATCH_REC_ERR_MIN (3) -> alarm yok" || no "stop err min: $(cat /out/o)"
+good; clrrec; recs "$((NOW - 7200)):0:0:0:0:0 $((NOW - 4000)):0:0:10:10:0"; prec "0 0 20 12 0"; run
+p18n rec-stop-error && ok "son 1 sa'te error 2/10 (önceki saatteki 10/10 pencere dışında) -> alarm yok" || no "stop err pencere: $(cat /out/o)"
+good; clrrec; recs "$((NOW - 600)):100:0:0:0:0"; prec "200 11 0 0 0"; run
+p18a rec-part-rejected && grep -q 'reddedilen kayıt parçası +11' /out/o && ok "10 dk'da reddedilen parça +11 (> 10) -> ALERT rec-part-rejected" || no "part bad: $(cat /out/o)"
+good; clrrec; recs "$((NOW - 600)):100:0:0:0:0"; prec "200 10 0 0 0"; run
+p18n rec-part-rejected && ok "reddedilen parça +10 (= eşik) -> alarm yok" || no "part bad 10: $(cat /out/o)"
+good; clrrec; recs "$((NOW - 1800)):0:0:0:0:0"; prec "0 0 0 0 51"; run
+p18a rec-view-throttled && grep -q 'çekiş bütçesi aşımı +51' /out/o && ok "1 sa'te izleme 429 +51 (> 50) -> ALERT rec-view-throttled" || no "view thr: $(cat /out/o)"
+good; clrrec; recs "$((NOW - 1800)):0:0:0:0:0"; prec "0 0 0 0 50"; run
+p18n rec-view-throttled && ok "izleme 429 +50 (= eşik) -> alarm yok" || no "view thr 50: $(cat /out/o)"
+good; clrrec; recs "$((NOW - 6000)):0:0:0:0:0 $((NOW - 600)):0:0:0:0:0"; prec "0 0 0 0 0"; run
+! grep -q "rec_samples=.*$((NOW - 6000)):" /var/lib/rw/state && ok "90 dk'dan eski P28e örneği atıldı" || no "rec örnek budama: $(grep rec_samples /var/lib/rw/state)"
+good; clrrec; prec 'a[$(touch /tmp/pwn40)] a[$(touch /tmp/pwn41)] 0 a[$(touch /tmp/pwn42)] 0'; run; recs 'a[$(touch /tmp/pwn43)]:1:1:1:1:1'; prec "0 0 1 1 1"; run
+ls /tmp/pwn4* >/dev/null 2>&1 && no "P28e enjeksiyon: $(ls /tmp/pwn4*)" || ok "S14-2: P28e metrik/durum alanlarında a[\$(…)] komut çalıştırmadı"
+good; clrrec; run
+
 mkdir -p /src && cp /w/remote-watch.sh /w/remote-watch.service /w/remote-watch.timer /w/watch.env.example /src/
 mkdir -p /etc/systemd/system
 bash /src/remote-watch.sh install >/out/o 2>&1 && ok "install -> 0" || no "install: $(cat /out/o)"
@@ -477,7 +508,7 @@ if command -v node >/dev/null 2>&1; then
     'rs_orphan_files_total{action="deleted"} 4' 'rs_orphan_files_total{action="circuit_open"} 3' 'rs_erasure_ledger_write_failed_total 0' >"$M"
   JS="$(sed -n 's/.*node -e "\(const sum=.*\)" 2>\/dev\/null)" || rt=.*/\1/p' "$HERE/remote-watch.sh" | sed 's/\\"/"/g')"
   got="$(M="$M" node -e "globalThis.fetch=async()=>({text:async()=>require('fs').readFileSync(process.env.M,'utf8')});$JS")"
-  exp="1763000000 3 - - 1 0 1 1763000100 - 3 0 - - - - - - - - - - - - - - - - - - - -"
+  exp="1763000000 3 - - 1 0 1 1763000100 - 3 0 - - - - - - - - - - - - - - - - - - - - - - - - -"
   if [ "$got" = "$exp" ]; then echo "PASS  metrik ayrıştırma: etiketli rs_retention_failures_total toplamı 3, SCHEDULED/RUNNING, circuit_open 3, P18 serisi yok -> '-'"
   else echo "FAIL  metrik ayrıştırma: '$got' (beklenen '$exp')"; echo "SONUÇ-İÇ 1" >>"$TMP/out"; fi
   # P18 H5: decrypt (bütün table), takvim (bütün tenant), yalnız reason~tenant kova reddi, mesaj sayacı (P18 işareti).
@@ -485,7 +516,7 @@ if command -v node >/dev/null 2>&1; then
     'rs_calendar_fallback_total{tenant="t2"} 2' 'rs_request_messages_rejected_total{reason="tenant_rate"} 4' \
     'rs_request_messages_rejected_total{reason="sender_cap"} 9' 'rs_request_messages_total{sender="CUSTOMER"} 7' >>"$M"
   got="$(M="$M" node -e "globalThis.fetch=async()=>({text:async()=>require('fs').readFileSync(process.env.M,'utf8')});$JS")"
-  exp="1763000000 3 - - 1 0 1 1763000100 - 3 0 2 3 4 7 - - - - - - - - - - - - - - - -"
+  exp="1763000000 3 - - 1 0 1 1763000100 - 3 0 2 3 4 7 - - - - - - - - - - - - - - - - - - - - -"
   if [ "$got" = "$exp" ]; then echo "PASS  metrik ayrıştırma P18: decrypt 2, takvim 1+2, tenant kova 4 (sender_cap hariç), mesaj 7"
   else echo "FAIL  metrik ayrıştırma P18: '$got' (beklenen '$exp')"; echo "SONUÇ-İÇ 1" >>"$TMP/out"; fi
   # P19 J6: outbox toplam (etiketsiz 0 dahil), FAILED (result=failed/FAILED), en eski PENDING (en büyük), rate_limited toplamı,
@@ -496,14 +527,14 @@ if command -v node >/dev/null 2>&1; then
     'rs_notify_rate_limited_total{scope="wa_bucket",channel="WHATSAPP"} 3' 'rs_sms_key_unreadable_total 0' \
     'rs_notify_tenant_max_hourly{role="SMS"} 81' 'rs_notify_tenant_max_hourly{channel="WHATSAPP"} 2' >>"$M"
   got="$(M="$M" node -e "globalThis.fetch=async()=>({text:async()=>require('fs').readFileSync(process.env.M,'utf8')});$JS")"
-  exp="1763000000 3 - - 1 0 1 1763000100 - 3 0 2 3 4 7 10 3 70 7 0 SMS=81,WHATSAPP=2 - - - - - - - - - -"
+  exp="1763000000 3 - - 1 0 1 1763000100 - 3 0 2 3 4 7 10 3 70 7 0 SMS=81,WHATSAPP=2 - - - - - - - - - - - - - - -"
   if [ "$got" = "$exp" ]; then echo "PASS  metrik ayrıştırma P19: outbox 10 (FAILED 3), en eski 70, rate_limited 7, anahtar 0, hacim SMS=81,WHATSAPP=2"
   else echo "FAIL  metrik ayrıştırma P19: '$got' (beklenen '$exp')"; echo "SONUÇ-İÇ 1" >>"$TMP/out"; fi
   # P28b K6: rs_av_up, öz-sınama, imza yaşı (en büyük), tarama toplamı ve yalnız result=failed_* toplamı.
   printf '%s\n' 'rs_av_up 1' 'rs_av_selftest_ok 1' 'rs_av_signature_age_seconds 7200.5' 'rs_av_scan_total{result="clean"} 10' \
     'rs_av_scan_total{result="infected"} 1' 'rs_av_scan_total{result="failed_busy"} 2' 'rs_av_scan_total{result="failed_timeout"} 3' >>"$M"
   got="$(M="$M" node -e "globalThis.fetch=async()=>({text:async()=>require('fs').readFileSync(process.env.M,'utf8')});$JS")"
-  exp="1763000000 3 - - 1 0 1 1763000100 - 3 0 2 3 4 7 10 3 70 7 0 SMS=81,WHATSAPP=2 1 1 7200.5 16 5 - - - - -"
+  exp="1763000000 3 - - 1 0 1 1763000100 - 3 0 2 3 4 7 10 3 70 7 0 SMS=81,WHATSAPP=2 1 1 7200.5 16 5 - - - - - - - - - -"
   if [ "$got" = "$exp" ]; then echo "PASS  metrik ayrıştırma P28b: av_up 1, öz-sınama 1, imza yaşı 7200.5, tarama 16 (failed_* 5)"
   else echo "FAIL  metrik ayrıştırma P28b: '$got' (beklenen '$exp')"; echo "SONUÇ-İÇ 1" >>"$TMP/out"; fi
   # P28u K8: notify toplam (etiketsiz 0 + etiketli), yalnız result="fail", connect mode=silent+result=ok (etiket sırası iki yönde;
@@ -513,13 +544,32 @@ if command -v node >/dev/null 2>&1; then
     'rs_unattended_connect_total{mode="ask",result="ok"} 9' 'rs_unattended_connect_total{mode="silent",result="forbidden"} 5' \
     'rs_unattended_consent_total{decision="granted"} 5' 'rs_unattended_consent_total{decision="timeout"} 2' >>"$M"
   got="$(M="$M" node -e "globalThis.fetch=async()=>({text:async()=>require('fs').readFileSync(process.env.M,'utf8')});$JS")"
-  exp="1763000000 3 - - 1 0 1 1763000100 - 3 0 2 3 4 7 10 3 70 7 0 SMS=81,WHATSAPP=2 1 1 7200.5 16 5 6 2 4 7 2"
+  exp="1763000000 3 - - 1 0 1 1763000100 - 3 0 2 3 4 7 10 3 70 7 0 SMS=81,WHATSAPP=2 1 1 7200.5 16 5 6 2 4 7 2 - - - - -"
   if [ "$got" = "$exp" ]; then echo "PASS  metrik ayrıştırma P28u: notify 6 (fail 2), silent ok 4 (ask/forbidden hariç), onay 7 (timeout 2)"
   else echo "FAIL  metrik ayrıştırma P28u: '$got' (beklenen '$exp')"; echo "SONUÇ-İÇ 1" >>"$TMP/out"; fi
   printf '%s\n' 'rs_unattended_silent_notify_total 0' >"$M.0"; sed -n '1,10p' "$M" >>"$M.0"
   got="$(M="$M.0" node -e "globalThis.fetch=async()=>({text:async()=>require('fs').readFileSync(process.env.M,'utf8')});$JS")"
-  case "$got" in *" 0 - - - -") echo "PASS  metrik ayrıştırma P28u işareti: etiketsiz 'rs_unattended_silent_notify_total 0' -> 0, diğerleri '-'" ;;
+  case "$got" in *" 0 - - - - - - - - -") echo "PASS  metrik ayrıştırma P28u işareti: etiketsiz 'rs_unattended_silent_notify_total 0' -> 0, diğerleri '-'" ;;
     *) echo "FAIL  metrik ayrıştırma P28u işareti: '$got'"; echo "SONUÇ-İÇ 1" >>"$TMP/out" ;; esac
+  # P28e K8: parça toplamı (histogram rs_rec_part_bytes_* ve rs_rec_bytes_total hariç), yalnız invalid|rate|busy, stop toplamı,
+  # yalnız reason="error", izleme 429.
+  printf '%s\n' 'rs_rec_part_total{result="ok"} 40' 'rs_rec_part_total{result="invalid"} 2' 'rs_rec_part_total{result="rate"} 1' \
+    'rs_rec_part_total{result="busy"} 3' 'rs_rec_part_total{result="dup"} 5' 'rs_rec_part_bytes_bucket{le="65536"} 9' \
+    'rs_rec_part_bytes_sum 123456' 'rs_rec_part_bytes_count 40' 'rs_rec_bytes_total 999999' 'rs_rec_stop_total{reason="error"} 2' \
+    'rs_rec_stop_total{reason="session_end"} 7' 'rs_rec_view_throttled_total 4' >>"$M"
+  got="$(M="$M" node -e "globalThis.fetch=async()=>({text:async()=>require('fs').readFileSync(process.env.M,'utf8')});$JS")"
+  exp="1763000000 3 - - 1 0 1 1763000100 - 3 0 2 3 4 7 10 3 70 7 0 SMS=81,WHATSAPP=2 1 1 7200.5 16 5 6 2 4 7 2 51 6 9 2 4"
+  if [ "$got" = "$exp" ]; then echo "PASS  metrik ayrıştırma P28e: parça 51 (red 6; histogram hariç), stop 9 (error 2), izleme 429 4"
+  else echo "FAIL  metrik ayrıştırma P28e: '$got' (beklenen '$exp')"; echo "SONUÇ-İÇ 1" >>"$TMP/out"; fi
+  printf '%s\n' 'rs_rec_part_total 0' 'rs_rec_stop_total 0' 'rs_rec_view_throttled_total 0' >"$M.1"
+  got="$(M="$M.1" node -e "globalThis.fetch=async()=>({text:async()=>require('fs').readFileSync(process.env.M,'utf8')});$JS")"
+  case "$got" in *" 0 - 0 - 0") echo "PASS  metrik ayrıştırma P28e işareti: etiketsiz sayaçlar 0, etiketli alt kümeler '-'" ;;
+    *) echo "FAIL  metrik ayrıştırma P28e işareti: '$got'"; echo "SONUÇ-İÇ 1" >>"$TMP/out" ;; esac
+  # Ad eşlemesi: betikteki rs_rec_* adları apps/server/src/rec/types.ts REC_METRICS ile birebir (ad değişirse alarm sessizce ölmesin).
+  for nm in $(grep -o 'rs_rec_[a-z_]*' "$HERE/remote-watch.sh" | sort -u); do
+    if grep -q "\"$nm\"" "$HERE/../../apps/server/src/rec/types.ts"; then echo "PASS  ad eşlemesi: $nm REC_METRICS'te"
+    else echo "FAIL  ad eşlemesi: $nm REC_METRICS'te yok"; echo "SONUÇ-İÇ 1" >>"$TMP/out"; fi
+  done
 else echo "UYARI: host'ta node yok — metrik ayrıştırma testi atlandı"; fi
 grep -E '^(PASS|FAIL)' "$TMP/out" || true
 n="$(sed -n 's/^SONUÇ-İÇ //p' "$TMP/out" | sort -n | tail -1)"

@@ -1,0 +1,4 @@
+{
+  "browser": "msedge",
+  "unavailable": "browserType.launch: Chromium distribution 'msedge' is not found at /Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge"
+}

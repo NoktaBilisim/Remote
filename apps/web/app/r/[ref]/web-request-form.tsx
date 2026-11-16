@@ -1,8 +1,10 @@
 "use client";
 
-import { useId } from "react";
+import { useId, useState } from "react";
+import { RecordingConsent } from "@/components/consent/recording-consent";
 import { FormError } from "@/components/form-error";
 import { t } from "@/lib/i18n";
+import { setRecConsent } from "@/lib/rec/consent-choice";
 import { ChatRetentionNotice } from "./chat-retention-notice";
 import { useWebRequestForm, type WebRequestFormProps } from "./use-web-request-form";
 import { AfterHoursNote, ConsentFields, ContactFields, NotifyChoices, SubmitButton } from "./web-request-fields";
@@ -14,7 +16,15 @@ import { AfterHoursNote, ConsentFields, ContactFields, NotifyChoices, SubmitButt
  */
 export function WebRequestForm(props: WebRequestFormProps) {
   const { info } = props;
-  const f = useWebRequestForm(props);
+  // P28e (AC-381, K-P28e-3): ayrı, işaretsiz kayıt rızası — bellekte; gönderimde depoya yazılır, kabulde oturum tüketir
+  const [recConsent, setRecChoice] = useState(false);
+  const f = useWebRequestForm({
+    ...props,
+    onCreated: (r, name) => {
+      setRecConsent(recConsent);
+      props.onCreated(r, name);
+    },
+  });
   const hintId = useId();
   const closed = !info.businessHours.openNow && info.businessHours.afterHoursMode === "REJECT";
   const ready = !f.busy && f.retentionShown && f.wait === 0;
@@ -39,6 +49,7 @@ export function WebRequestForm(props: WebRequestFormProps) {
             text={info.consentText}
             onChange={(consent) => f.set({ consent })}
           />
+          <RecordingConsent consentText={info.consentText} checked={recConsent} onChange={setRecChoice} />
         </fieldset>
         {f.retentionShown && <ChatRetentionNotice days={info.chatRetentionDays} id={hintId} />}
         <SubmitButton busy={f.busy} wait={f.wait} disabled={!ready || closed} describedBy={f.retentionShown ? hintId : undefined} />

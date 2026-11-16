@@ -13,12 +13,14 @@ import { handleP18, p18User } from "./mock-p18.mjs";
 import { handleP19, p19User } from "./mock-p19.mjs";
 import { handleP27, p27User } from "./mock-p27.mjs";
 import { handleP28u, p28uUser } from "./mock-p28u.mjs";
+import { handleP28e, handleRecBytes, p28eUser, p28eViews } from "./mock-p28e.mjs";
 import { handleHistory, historyUser } from "./mock-history.mjs";
 import { handleLg, lgOutbox } from "./mock-lg.mjs";
 import { handleFsrvBytes, handleP28b, handleStoredLink, p28bUser } from "./mock-p28b.mjs";
 import { handleRequests, requestUser } from "./mock-requests.mjs";
 import { handleLobby, handleSessions, lobbyHook, sessionUser } from "./mock-sessions.mjs";
 import { handleUsers, usersUser } from "./mock-users.mjs";
+import { recHook, recRid } from "./mock-ws.mjs";
 import { ageRoom, attachWs, fsrvOfferToTech, fsrvWsLog, revokeControl, strayGrant, wsLog } from "./mock-ws.mjs";
 
 const PORT = Number(process.env.MOCK_API_PORT ?? 4010);
@@ -89,6 +91,8 @@ function resolveMe(session) {
   if (p27) return p27;
   const p28u = p28uUser(session);
   if (p28u) return p28u;
+  const p28e = p28eUser(session);
+  if (p28e) return p28e;
   const p28b = p28bUser(session);
   if (p28b) return { user: p28b.user, permissions: p28b.permissions, tenant: p28b.tenant, actingTenant: p28b.actingTenant };
   const p15 = p15User(session);
@@ -120,6 +124,12 @@ const srv = createServer(async (req, res) => {
   const url = req.url ?? "";
   // P28b: bayt uçları çerez/CSRF/Origin okumaz (yalnız Bearer) — genel denetimlerden önce
   if (await handleFsrvBytes(req, res, { url, send, err })) return;
+  // P28e: kayıt parça uçları (yalnız Bearer) + test kancaları
+  if (await handleRecBytes(req, res, { url, send, err })) return;
+  const rh = req.method === "GET" && url.match(/^\/__e2e\/rec\/([0-9A-Z]{26})(?:\?(.*))?$/);
+  if (rh) return send(res, 200, recHook(rh[1], new URLSearchParams(rh[2] ?? "")) ?? { rid: recRid(rh[1]) });
+  const rv = req.method === "GET" && url.match(/^\/__e2e\/rec-views\/([\w-]+)$/);
+  if (rv) return send(res, 200, { views: p28eViews(rv[1]) });
   const fo = req.method === "GET" && url.match(/^\/__e2e\/fsrv-offer\/([0-9A-Z]{26})$/);
   if (fo) return send(res, fsrvOfferToTech(fo[1], "musteri-log.txt", "P28b müşteri dosyası\n") ? 200 : 404, {});
   const fw = req.method === "GET" && url.match(/^\/__e2e\/fsrv-ws\/([0-9A-Z]{26})$/);
@@ -163,6 +173,8 @@ const srv = createServer(async (req, res) => {
   if (await handleP27(req, res, { url, session, csrfOk, send, err, readJson })) return;
   // P28u-K7: izinli/izinsiz bağlantı, politika (u-p28u*)
   if (await handleP28u(req, res, { url, session, csrfOk, send, err, readJson })) return;
+  // P28e-K7: oturum kaydı ayarı, geçmiş kayıt bölümü/oynatıcı (u-p28e*)
+  if (await handleP28e(req, res, { url, session, csrfOk, send, err, readJson })) return;
 
   if (req.method === "POST" && url === "/api/v1/auth/login") {
     const { login = "", password = "" } = req.__body ?? (await readJson(req));

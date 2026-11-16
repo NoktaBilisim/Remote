@@ -31,6 +31,8 @@ export interface HistoryFilter {
   deviceId?: string;
   /** P28u (AC-445): gözetimsiz bağlantı kipi (`consent_mode`). */
   consentMode?: string;
+  /** P28e (V-PE-3): `DELETED` olmayan kaydı olan oturumlar (`EXISTS`, UQ(session_id, tenant_id)). */
+  recorded?: boolean;
 }
 
 /** Prisma 7 (MySQL) `contains` LIKE jokerlerini kaçışlamaz (db-notlari P8): `%`, `_`, `\` literal aranır. */
@@ -53,6 +55,7 @@ export function historyWhere(scope: HistoryScope, f: HistoryFilter = {}): Prisma
     ...(f.customerFirm ? { customerId: f.customerFirm === "none" ? null : f.customerFirm } : {}),
     ...(f.deviceId ? { deviceId: f.deviceId } : {}),
     ...(f.consentMode ? { consentMode: f.consentMode } : {}),
+    ...(f.recorded ? { recording: { is: { state: { not: "DELETED" } } } } : {}),
   };
 }
 
@@ -82,6 +85,8 @@ const listSelect = {
   anonymizedAt: true,
   // P28u (AC-445): gözetimsiz kip
   consentMode: true,
+  // P28e (§5): liste rozeti (tek ilişki, N+1 yok)
+  recording: { select: { state: true } },
 } as const;
 
 export type HistoryListRow = Prisma.SupportSessionGetPayload<{ select: typeof listSelect }>;

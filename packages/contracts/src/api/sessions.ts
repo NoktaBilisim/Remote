@@ -7,6 +7,7 @@ import { z } from "zod";
 import { UNSAFE_NAME_CHARS, type CustomerFirmRef } from "./shared.ts";
 import { FILE_DIRECTIONS, FILE_RESULTS, qualitySummarySchema, type QualitySummary } from "../ws.ts";
 import type { StoredFileItem } from "./fsrv.ts";
+import type { RecordingConsentOffer, SessionRecordingSummary } from "./recording.ts";
 import { CONSENT_MODES, type ConsentMode, type ConsentResultDecision } from "../unattended-consent.ts";
 
 export const SESSION_STATUSES = ["PENDING", "ACTIVE", "ENDED", "EXPIRED", "CANCELLED"] as const;
@@ -90,6 +91,8 @@ export interface ConsentTextView {
   /** Düz metin; istemci `textContent` ile basar (HTML değildir). */
   body: string;
   sha256: string;
+  /** P28e (§5, AC-381/384): yalnız kayıt teklif edilebiliyorken eklenir; eski Go istemci alanı yok sayar (katı değil). */
+  recording?: RecordingConsentOffer;
 }
 
 /** POST /public/sessions/resolve yanıtı. */
@@ -213,6 +216,11 @@ export const listSessionsQuerySchema = z
     deviceId: ulidSchema.optional(),
     /** P28u (§5.4, AC-445): gözetimsiz bağlantı kipi (`consent_mode` eşitliği; kipsiz satırlar elenir). */
     consentMode: z.enum(CONSENT_MODES).optional(),
+    /** P28e (§5, V-PE-3): "Kayıtlı" süzgeci — `DELETED` olmayan kaydı olan oturumlar (`EXISTS`, UQ(session_id, tenant_id)). */
+    recorded: z
+      .literal("true", { error: "Geçersiz süzgeç" })
+      .transform(() => true as const)
+      .optional(),
     page: z.coerce.number().int().min(1).max(10_000).default(1),
     pageSize: z.coerce.number().int().min(1).max(SESSION_PAGE_SIZE_MAX).default(25),
     sort: z.enum(SESSION_LIST_SORTS).default("createdAt:desc"),
@@ -258,6 +266,8 @@ export interface SessionListItem extends SessionView {
    * o zamana kadar gelmeyebilir (`storedFiles?` kalıbı).
    */
   consentMode?: ConsentMode | null;
+  /** P28e (§5): `DELETED` olmayan kaydı var mı. K3 doldurur — o zamana kadar gelmeyebilir. */
+  hasRecording?: boolean;
 }
 
 /** P8b (AC-158): geçmiş detayında "Destek talebi" bölümü. Anonimleştirilmiş talepte PII null. */
@@ -276,7 +286,8 @@ export interface SessionRequestInfo {
   slaBreached: boolean | null;
 }
 
-export const CONSENT_LEVELS = ["VIEW", "CONTROL"] as const;
+/** P28e (AC-381): `RECORDING` = oturum kaydı rızası (yalnız GRANTED/REVOKED, `line_sha256` dolu). */
+export const CONSENT_LEVELS = ["VIEW", "CONTROL", "RECORDING"] as const;
 export type ConsentLevel = (typeof CONSENT_LEVELS)[number];
 export const CONSENT_DECISIONS = ["GRANTED", "DENIED", "REVOKED"] as const;
 export type ConsentDecision = (typeof CONSENT_DECISIONS)[number];
@@ -398,6 +409,8 @@ export interface SessionHistoryDetail extends Omit<SessionListItem, "waitingGues
   storedFiles?: StoredFileItem[];
   /** P28u (§5.4): yalnız gözetimsiz (`mode = UNATTENDED`) oturumda; K4 doldurur — o zamana kadar gelmeyebilir. */
   unattended?: SessionUnattendedInfo;
+  /** P28e (§5, AC-385/386/450): kayıt özeti (satır yoksa null). K3 doldurur — o zamana kadar gelmeyebilir. */
+  recording?: SessionRecordingSummary | null;
 }
 
 /** P28u (§5.4) gözetimsiz zaman çizelgesi olay türleri (audit satırlarından türetilir; ≤ `UNATTENDED_TIMELINE_MAX`). */
