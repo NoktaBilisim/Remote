@@ -8,6 +8,7 @@ Kapsam: `git diff main..p28e` — `apps/server/src/rec/*`, `signaling/rec.ts` (+
 ## Bulgular (öncelik sırasıyla)
 
 ### [DÜŞÜK] D-P28e-K1-1 Kaynak eş ayrıkken 15 sn boyunca ardışık parça kabul ediliyor (tasarım: yalnız uçuştaki 1 parça) — A04
+
 Yer: apps/server/src/signaling/rec.ts:72 (`partAccepted` → `sourceGone.next = part + 1`), apps/server/src/rec/accept.ts:59-60
 Sorun: `sourceGone` penceresinde kabul edilen her parça `next`'i ilerletir; 15 sn içinde `p, p+1, p+2…` hepsi kabul edilir. Durma yolundaki
 gibi parça sayısı (`REC_STOP_GRACE_PARTS`) ve ofset sınırı (`offset + duration ≤ sg.at − started_at + 2 sn`) yok.
@@ -17,6 +18,7 @@ Düzeltme: `partAccepted`'te `sourceGone.next`'i ilerletme (yalnız `sg.next` bi
 (≤ 1 parça + ofset ≤ `sg.at` + 2 sn). Birim testi: kaynak eş gidince 2. parça 404 `nosource`. (atanan ajan: backend-dev)
 
 ### [DÜŞÜK] D-P28e-K1-2 `p>0` gövdesinde Cluster başlangıcı zorunlu değil (S-P28e-7 yarım) — A04
+
 Yer: packages/contracts/src/ws-rec.ts (`REC_REQUIRE_CLUSTER_START = false`), apps/server/src/rec/webm.ts:113-116
 Sorun: `p>0` için yalnız EBML sihri reddediliyor; gövde ilk 4 baytı `1A45DFA3` olmayan herhangi bir veri (≤ 2 MiB) kabul edilip saklanır.
 İstismar: Kötü niyetli kaydedici parçaya bir bayt önek + gömülü WebM (ses izli) ya da keyfi dosya koyar; kota içinde şifreli saklanır, AC-375
@@ -25,33 +27,37 @@ Düzeltme: K7 ölçümü tamamlanınca bayrağı `true` yap (MediaRecorder `time
 `Cluster`/`SimpleBlock`/`Void` olmasını ve gövdede `1A45DFA3` geçmemesini denetle. (backend-dev)
 
 ### [DÜŞÜK] D-P28e-K1-3 Ön denetim `Content-Length`'e güveniyor; chunked istekte kota ön denetimi boşa düşer — A04/DoS
+
 Yer: apps/server/src/rec/routes.ts:130 (`Number(req.headers["content-length"] ?? 0)`), apps/server/src/rec/service.ts:130 (`extra=0 → used < quota`)
 Sorun: `Transfer-Encoding: chunked` ile gelen PUT'ta ön denetim 0 bayt varsayar; gövde (2 MiB) okunur, şifrelenip diske yazılır, ret ancak TX'te.
 Tek uçuş + 30/dk + semafor 32 etkiyi sınırlar (S-P28e-5 kapanışı geçerli) → Düşük.
 Düzeltme: PUT'ta `Content-Length` zorunlu (yoksa 411/400, dosya yazılmadan); değer 1..2097152 aralığında. (backend-dev)
 
 ### [DÜŞÜK] D-P28e-K1-4 Arayüz metni "indirilemez" diyor (S-P28e-3 (c) uygulanmamış) — A04/KVKK beyanı
+
 Yer: apps/web/messages/tr.json:2387 (`rset.subtitle`), :2433 (`hr.noDownload`)
 Sorun: Teknik engel yalnız bütçe + audit; izleme belirteciyle parçalar (126 burst + 24/dk) çekilip birleştirilebilir. "İndirilemez" yanıltıcı beyan.
 Düzeltme: "İndirme düğmesi ve ucu yoktur; her izleme kayıt altına alınır" biçimine çevir; kılavuz/DATASHEET'te aynı dil. (frontend-dev, teknik-yazar)
 
 ## Tasarım turu bulgularının kod durumu
-| No | Durum | Kanıt |
-|---|---|---|
-| S-P28e-1 | Kapandı | accept.ts:63-75 (stopSeries/stopNext dondurulur, ≤ 4 parça, ofset ≤ stop+2 sn, yeni bölüm 404); signaling/rec.ts:280-288 |
-| S-P28e-2 | Kapandı (sunucu tarafı gevşek → K1-1) | rooms.ts detachGuest → recSourceGone; web use-guest-rec.ts:80-95 (2 sn sonra `enabled=false`, revoke hello sonrası yeniden); Go flow/rec.go recOnHello |
-| S-P28e-3 | (a)(b) kapandı, (c) açık → K1-4 | limits.ts ViewBuckets (userId+rid, belirteçle sıfırlanmaz), view.ts:104-107 429 + metrik, `recording.view.end{partsServed,bytesServed,throttled}` |
-| S-P28e-4 | Kapandı | settings/recording.ts:148-160 iki yön `recording_policy` e-postası; `soleManager` GET'te |
-| S-P28e-5 | Kapandı (K1-3 ek) | routes.ts:109-132 `onRequest` (gövde öncesi), PutGate tek uçuş/30 dk/32 semafor, `precheck` kilitsiz |
-| S-P28e-6 | Kapandı | routes.ts:113-115 rid eşleşmesi, tenant/oturum yalnız belirteç+DB; `uploaderActive` her PUT; logout/endByTechnician/endByTenant/conn düşümü; logger `*.upload.token`, `*.*.upload.token` |
-| S-P28e-7 | Süre kapandı (accept.ts:89), içerik yarım → K1-2 | webm.ts p=0 tek VP8/VP9 izi, ses/ikinci iz/Cluster-önce ret |
-| S-P28e-8 | Bilinçli "Sonra" (K-P28e-22) | ayar ekranı metni; kabul |
-| S-P28e-9 | Kapandı | tek yardımcı `lockTenantRecording` (tenants → kayıtlar artan id); ayar/admit: tenant_settings → tenants; döngü yok |
-| S-P28e-10 | Kapandı | signaling/rec.ts:178-207 `consent_rejected{cause: sha|window}`; retention-rec.ts `DELETED{MISSING}` |
-| S-P28e-11 | Kapandı | proxy.ts yalnız `media-src 'self' blob:`; player.ts:124 `revokeObjectURL` |
-| S-P28e-12 | Kapandı | web `REC_TITLE_PREFIX` başlık; Go `ui/rec_windows.go` her zaman üstte şerit + durdur |
+
+| No        | Durum                                            | Kanıt                                                                                                                                                                                    |
+| --------- | ------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| S-P28e-1  | Kapandı                                          | accept.ts:63-75 (stopSeries/stopNext dondurulur, ≤ 4 parça, ofset ≤ stop+2 sn, yeni bölüm 404); signaling/rec.ts:280-288                                                                 |
+| S-P28e-2  | Kapandı (sunucu tarafı gevşek → K1-1)            | rooms.ts detachGuest → recSourceGone; web use-guest-rec.ts:80-95 (2 sn sonra `enabled=false`, revoke hello sonrası yeniden); Go flow/rec.go recOnHello                                   |
+| S-P28e-3  | (a)(b) kapandı, (c) açık → K1-4                  | limits.ts ViewBuckets (userId+rid, belirteçle sıfırlanmaz), view.ts:104-107 429 + metrik, `recording.view.end{partsServed,bytesServed,throttled}`                                        |
+| S-P28e-4  | Kapandı                                          | settings/recording.ts:148-160 iki yön `recording_policy` e-postası; `soleManager` GET'te                                                                                                 |
+| S-P28e-5  | Kapandı (K1-3 ek)                                | routes.ts:109-132 `onRequest` (gövde öncesi), PutGate tek uçuş/30 dk/32 semafor, `precheck` kilitsiz                                                                                     |
+| S-P28e-6  | Kapandı                                          | routes.ts:113-115 rid eşleşmesi, tenant/oturum yalnız belirteç+DB; `uploaderActive` her PUT; logout/endByTechnician/endByTenant/conn düşümü; logger `*.upload.token`, `*.*.upload.token` |
+| S-P28e-7  | Süre kapandı (accept.ts:89), içerik yarım → K1-2 | webm.ts p=0 tek VP8/VP9 izi, ses/ikinci iz/Cluster-önce ret                                                                                                                              |
+| S-P28e-8  | Bilinçli "Sonra" (K-P28e-22)                     | ayar ekranı metni; kabul                                                                                                                                                                 |
+| S-P28e-9  | Kapandı                                          | tek yardımcı `lockTenantRecording` (tenants → kayıtlar artan id); ayar/admit: tenant_settings → tenants; döngü yok                                                                       |
+| S-P28e-10 | Kapandı                                          | signaling/rec.ts:178-207 `consent_rejected{cause: sha                                                                                                                                    | window}`; retention-rec.ts `DELETED{MISSING}` |
+| S-P28e-11 | Kapandı                                          | proxy.ts yalnız `media-src 'self' blob:`; player.ts:124 `revokeObjectURL`                                                                                                                |
+| S-P28e-12 | Kapandı                                          | web `REC_TITLE_PREFIX` başlık; Go `ui/rec_windows.go` her zaman üstte şerit + durdur                                                                                                     |
 
 ## Odak doğrulamaları (bulgu yok)
+
 - Tenant izolasyonu: geçmiş uçları `sessionInScope` (historyScope) → kapsam dışı 404; parça GET'inde her istekte oturum/yetki/kapsam yeniden (routes.ts:147-153); tenant-matrix'e satır eklenmiş.
 - rec.state rol biçimleri: misafire yalnız `{on, reason}` (rec.ts:88-90), `upload`/`rid` yalnız kaydedici teknisyene; cihaza yalnız `{on}` ve yalnız `record1`.
 - Rıza: SHA sabiti sunucu+Go eşit; 30 sn penceresi ilk admit hello'sundan; `rec.*` şeması yalnız `rs.cap.rec1` + katılımlı oda (aksi 1008); Go/web kutu varsayılan işaretsiz.
@@ -64,13 +70,16 @@ Düzeltme: "İndirme düğmesi ve ucu yoktur; her izleme kayıt altına alınır
 - Artık risk (bulgu değil): delete.ts disk dosyalarını TX içinde satırdan önce siler; TX düşerse mutabakat `MISSING` yapar (güvenli yön, belgelenmiş).
 
 ## Otomatik tarama çıktıları
+
 - `pnpm audit --audit-level=moderate`: No known vulnerabilities found.
 - Gizli bilgi grep (diff): yalnız logger redakte testindeki sahte belirteçler (`GizliYuklemeBelirteci1..3`, gitleaks izinli). Yeni `.env` commit'i yok.
 
 ## Tasarımda vaat edilip kodda bulunmayanlar
+
 - S-P28e-3 (c) metin değişikliği (K1-4). S-P28e-7 Cluster zorunluluğu bayrakla kapalı (K1-2).
 
 ## Olumlu
+
 Gövde öncesi kimlik/oran kapısı ve tek tip 404 + IP 404 sınırı; durma payı hem süre hem parça hem ofsetle sınırlı; WebM başlık ayrıştırıcısı
 sınır denetimli (taşma/boyut bilinmeyen durumları ret); kilit sırası tek yardımcıda; dört göz e-postası iki yönde; izleme bütçesi belirteç
 değişimiyle sıfırlanmıyor; audit `view`/`view.end` özetli; Go ve web istemcide 2 sn yerel duraklatma.
