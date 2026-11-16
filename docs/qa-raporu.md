@@ -1,6 +1,8 @@
 # QA Raporu — P28c Tur 2
 
-DURUM: DÜZELTİLMELİ
+DURUM: GEÇTİ
+
+> Kapanış (koordinatör, 2026-11-17): açık madde 1 kapandı — PR #18 CI e8cf069'da tüm işler yeşil (Go `TestAC253GP205ScopesResetPerSession` ve P28e `AC-382/383` e2e tek seferlik zaman aşımıydı, `--failed` yeniden koşuda geçti). Ara commit'ler: D-PC-K5 (c48e2da), K6 doküman (06c28fb), K5 D-1 (e8cf069). AC-371 FPS staging manuel ölçümü açık not olarak kalır.
 
 Tarih: 2026-11-17 · Dal `p28c`, HEAD `65297ac` (PR #18). Kapsam: tur 1 bulguları 1–4'ün kapanışı (`git diff 64887c0..65297ac`), AC-364..372 + AC-404 (`docs/gereksinimler-p28.md`, `docs/mimari-p28c.md` r2). Kod değiştirilmedi. Kod tarafında açık bulgu yok; DÜZELTİLMELİ sebebi yalnız PR #18 CI'sının yeşil olmaması (aşağıda madde 1).
 
