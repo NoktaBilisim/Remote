@@ -312,6 +312,41 @@ export const CLIP_PRINT_AUDIT_LABELS: Readonly<Record<ClipPrintAuditAction, stri
   [CLIP_PRINT_AUDIT.PRINT_JOB]: "Uzaktan yazdırma",
 };
 
+/**
+ * P28b sunucu üzerinden dosya + ClamAV + kota (mimari-p28b §11.1; AC-353, 358, 360, 362). Dosya adı, belirteç, içerik ASLA
+ * yazılmaz. Entity `support_sessions` / sessionId (oturum zaman çizelgesi); `file.expired` entity `retention`; ayarlar
+ * `system_settings` (clamav) / `tenants`:
+ *  - CLAMAV_UPDATED eski→yeni `{host, port}`; CLAMAV_TEST `{ok, eicarDetected, encryptedDetected, signatureAgeDays}`.
+ *  - STORAGE_QUOTA eski→yeni `{storageQuotaGb}` (Super Admin).
+ *  - UPLOAD `{fid, direction, purpose, sizeBytes, ext, result}`; SCAN `{fid, result: CLEAN|INFECTED|SCAN_FAILED, reason?, durationMs}`;
+ *    INFECTED `{fid, signature, ext, sizeBytes}` (fail); DOWNLOAD `{fid, context: session|history, by: tech|customer}`;
+ *    EXPIRED tenant başına `{count, bytes}`.
+ * Dosya modu / saklama değişimi mevcut `tenant_settings.updated` olayıyla (`{fileServerMode, fileRetentionDays}` + `consentAck`).
+ */
+export const FSRV_AUDIT = {
+  CLAMAV_UPDATED: "settings.clamav",
+  CLAMAV_TEST: "settings.clamav.test",
+  STORAGE_QUOTA: "tenant.storage_quota",
+  UPLOAD: "file.upload",
+  SCAN: "file.scan",
+  INFECTED: "file.infected",
+  DOWNLOAD: "file.download",
+  EXPIRED: "file.expired",
+} as const;
+export type FsrvAuditAction = (typeof FSRV_AUDIT)[keyof typeof FSRV_AUDIT];
+
+/** P28b eylemlerinin Türkçe etiketleri (web `AUDIT_ACTION_LABELS`'a yayılır). */
+export const FSRV_AUDIT_LABELS: Readonly<Record<FsrvAuditAction, string>> = {
+  [FSRV_AUDIT.CLAMAV_UPDATED]: "Virüs tarama (ClamAV) ayarı değişti",
+  [FSRV_AUDIT.CLAMAV_TEST]: "Virüs tarama bağlantı testi",
+  [FSRV_AUDIT.STORAGE_QUOTA]: "Firma depolama kotası değişti",
+  [FSRV_AUDIT.UPLOAD]: "Dosya sunucuya yüklendi",
+  [FSRV_AUDIT.SCAN]: "Dosya virüs taraması",
+  [FSRV_AUDIT.INFECTED]: "Virüslü dosya bulundu",
+  [FSRV_AUDIT.DOWNLOAD]: "Sunucudaki dosya indirildi",
+  [FSRV_AUDIT.EXPIRED]: "Saklama süresi dolan dosyalar silindi",
+};
+
 export const P19_NOTIFY_AUDIT_LABELS: Readonly<Record<string, string>> = {
   [NOTIFY_AUDIT.LINK_SENT]: "Oturum bağlantısı gönderildi (SMS/WhatsApp)",
   [NOTIFY_AUDIT.CUSTOMER_NOTIFY]: "Müşteriye durum bildirimi",

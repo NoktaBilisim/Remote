@@ -12,7 +12,16 @@ const FILE_META_RATE_AUDIT_MS = 60_000;
 export type Reporter = { side: "tech"; peer: Peer } | { side: "guest"; peer: Peer };
 
 export type FileMetaResult =
-  "recorded" | "sender_reported" | "duplicate" | "forbidden" | "rate_limited" | "too_large" | "rejected_by_db" | "error";
+  | "recorded"
+  | "sender_reported"
+  | "duplicate"
+  | "forbidden"
+  | "rate_limited"
+  | "too_large"
+  | "rejected_by_db"
+  | "error"
+  /** P28b §5.4 b: SERVER odasında DC `file.meta` yok sayıldı (satır/audit yok). */
+  | "server_mode";
 
 export type Actor = { userId?: string; username: string };
 

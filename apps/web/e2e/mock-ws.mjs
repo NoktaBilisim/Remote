@@ -10,13 +10,14 @@
 // CONFLICT, ret sonrası 30 sn RATE_LIMITED, zaten paylaşılan → VALIDATION — S7-15), env.state.selfElevated (K8).
 // TEST-P7-3 (sunucuyla hizalama): teknisyen hello'su misafir varken guestKind/guestName taşır (active.ts sendHelloTech);
 // yanıtsız monitör isteği 30 sn sonra düşer, bekleme `at + 30 sn`den başlar (control.ts). Test zamanı `ageRoom` ile ilerletir.
-import { randomBytes } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 import { WebSocketServer } from "ws";
 import { SESSION_COOKIE as SESSION_COOKIE_NAME } from "@remote/contracts/api/auth";
 import { panelUpgrade } from "./mock-requests.mjs";
 import { p18PanelUpgrade } from "./mock-p18.mjs";
 import { p19Upgrade } from "./mock-p19.mjs";
 import { byId, tickets, ulid } from "./mock-sessions.mjs";
+import { fsrvCreate, fsrvDownloadToken, fsrvFiles, fsrvStored, setUploadedHook } from "./mock-p28b.mjs";
 
 const wss = new WebSocketServer({ noServer: true, handleProtocols: (p) => (p.has("rs.v1") ? "rs.v1" : false) });
 const rooms = new Map();
@@ -107,6 +108,8 @@ function end(rec, reason) {
 
 function admitted(r, rec, ws, kind = "BROWSER", guestName, features = []) {
   const first = !r.maxEndsAt;
+  // P28b (§5.1): tarayıcı misafiri SERVER odasında `fsrv` yeteneklidir (K-P28b-20)
+  if (rec.fileMode === "SERVER" && kind === "BROWSER" && !features.includes("fsrv")) features = [...features, "fsrv"];
   // P28a (§4.2): misafirin bildirdiği özellikler teknisyene peer.joined/hello ile; pano anahtarı kapalı başlar
   r.guestFeatures = features;
   r.clipConsent = false;
@@ -127,6 +130,8 @@ function admitted(r, rec, ws, kind = "BROWSER", guestName, features = []) {
     reconnectToken: r.token,
     caps: rec.caps,
     maxFileMb: rec.maxFileMb,
+    // P28b (§5.1): yalnız yetenekli sokete (tarayıcı misafiri her zaman, AGENT rs.cap.fsrv1)
+    ...(rec.fileMode && (kind === "BROWSER" || features.includes("fsrv")) ? { fileMode: rec.fileMode } : {}),
   });
   // Gerçek sunucu sırası (active.ts scheduleActive): admit'te teknisyene ice.servers, peer.joined'dan ÖNCE.
   // Teknisyen ilk teklifi admit sonrası ICE listesi gelene kadar erteler (tech-machine iceGate); yeniden
@@ -140,11 +145,13 @@ function admitted(r, rec, ws, kind = "BROWSER", guestName, features = []) {
     ...(first ? { maxEndsAt: r.maxEndsAt } : {}),
     maxFileMb: rec.maxFileMb,
     guestFeatures: features,
+    ...(rec.fileMode ? { fileMode: rec.fileMode } : {}),
   });
   ws.on("message", (raw) => {
     const m = JSON.parse(String(raw));
     log(rec.view.id, "guest", m);
     if (p28Guest(r, m)) return;
+    if (fsrvMsg(r, rec, "guest", m)) return;
     if (m.t === "sdp.answer") send(r.tech, { t: m.t, sdp: m.sdp });
     else if (m.t === "ice") send(r.tech, { t: "ice", candidate: m.candidate, sdpMid: m.sdpMid, sdpMLineIndex: m.sdpMLineIndex });
     else if (m.t === "share.state") {
@@ -212,6 +219,7 @@ function onTech(ws, rec) {
     iceServers: [],
     maxEndsAt: active ? iso(8 * 3600_000) : null,
     ...(active ? { maxFileMb: rec.maxFileMb } : {}),
+    ...(rec.fileMode ? { fileMode: rec.fileMode } : {}),
     ...(r.guest
       ? { guestKind: r.guestKind, ...(r.guestName ? { guestName: r.guestName } : {}), guestFeatures: r.guestFeatures ?? [] }
       : {}),
@@ -251,6 +259,7 @@ function onTech(ws, rec) {
       techClose(r, m.t);
       p28ControlClosed(r);
     } else if (p28Tech(r, rec, ws, m)) return;
+    else if (fsrvMsg(r, rec, "tech", m)) return;
     else if (m.t === "monitor.request") {
       if (r.guestKind !== "AGENT") return send(ws, { t: "error", code: "FORBIDDEN", message: "Yalnız istemci." });
       if (r.ctl.active === m.monitorId) return send(ws, { t: "error", code: "VALIDATION", message: "Bu monitör zaten paylaşılıyor." });
@@ -334,6 +343,79 @@ function p28ControlClosed(r) {
   }
 }
 
+/*
+ * P28b (mimari-p28b §5.2) asgari taklit: fsrv.init kapısı (MODE, UNSUPPORTED, TOO_LARGE) → fsrv.upload; son parça (mock-p28b
+ * PUT) → SCANNING → ad "eicar" içeriyorsa INFECTED, "sifreli" içeriyorsa SCAN_FAILED/ENCRYPTED, aksi CLEAN + alıcıya fsrv.offer.
+ * accept → fsrv.download; result{ok} → göndericiye DELIVERED; reject → REJECTED; cancel → CANCELLED.
+ */
+const fsrvSock = (r, side) => (side === "tech" ? r.tech : r.guest);
+const other = (side) => (side === "tech" ? "guest" : "tech");
+setUploadedHook((fid) => {
+  const f = fsrvFiles.get(fid);
+  const r = f && rooms.get(f.sessionId);
+  if (!r) return;
+  const both = (m) => (send(r.tech, m), send(r.guest, m));
+  both({ t: "fsrv.status", fid, state: "SCANNING" });
+  setTimeout(() => {
+    if (/eicar/i.test(f.name)) return both({ t: "fsrv.status", fid, state: "INFECTED", signature: "Eicar-Test-Signature" });
+    if (/sifreli/i.test(f.name)) return both({ t: "fsrv.status", fid, state: "SCAN_FAILED", reason: "ENCRYPTED" });
+    f.state = "CLEAN";
+    send(fsrvSock(r, f.from), { t: "fsrv.status", fid, state: "CLEAN" });
+    send(fsrvSock(r, other(f.from)), {
+      t: "fsrv.offer",
+      fid,
+      name: f.purpose === "PRINT" ? "belge.pdf" : f.name,
+      size: f.size,
+      sha256: f.sha256,
+      purpose: f.purpose,
+      ...(f.pid ? { pid: f.pid } : {}),
+    });
+  }, 300);
+});
+
+/** Test kancası: misafirden konsola hazır temiz dosya teklifi (/__e2e/fsrv-offer/<oturum>). */
+export function fsrvOfferToTech(id, name, content) {
+  const r = rooms.get(id);
+  if (!r?.tech) return false;
+  const fid = fsrvStored(id, name, content, "guest");
+  const f = fsrvFiles.get(fid);
+  f.state = "CLEAN";
+  f.sha256 = createHash("sha256").update(Buffer.from(content)).digest("hex");
+  send(r.tech, { t: "fsrv.offer", fid, name, size: f.size, sha256: f.sha256, purpose: "FILE" });
+  return true;
+}
+
+function fsrvMsg(r, rec, side, m) {
+  if (typeof m.t !== "string" || !m.t.startsWith("fsrv.")) return false;
+  r.fsrvLog = [...(r.fsrvLog ?? []), { side, m }];
+  const me = fsrvSock(r, side);
+  if (m.t === "fsrv.init") {
+    const deny = (reason) => send(me, { t: "fsrv.status", xid: m.xid, state: "REJECTED", reason });
+    if (rec.fileMode !== "SERVER") return (deny("MODE"), true);
+    if (!r.guest || !(r.guestFeatures ?? []).includes("fsrv")) return (deny("UNSUPPORTED"), true);
+    if (m.size > (rec.maxFileMb ?? 100) * 1_048_576) return (deny("TOO_LARGE"), true);
+    if (/kota/i.test(m.name)) return (deny("QUOTA"), true);
+    const { fid, token, chunks } = fsrvCreate(rec.view.id, side, m);
+    send(me, { t: "fsrv.upload", xid: m.xid, fid, token, chunkBytes: 1_048_576, chunks });
+    return true;
+  }
+  const f = fsrvFiles.get(m.fid);
+  if (!f) return true;
+  const sender = fsrvSock(r, f.from);
+  if (m.t === "fsrv.accept") {
+    const token = fsrvDownloadToken(m.fid);
+    send(me, { t: "fsrv.download", fid: m.fid, token, expiresAt: new Date(Date.now() + 300_000).toISOString() });
+  } else if (m.t === "fsrv.result") {
+    f.result = m.ok;
+    if (m.ok) send(sender, { t: "fsrv.status", fid: m.fid, state: "DELIVERED" });
+  } else if (m.t === "fsrv.reject") send(sender, { t: "fsrv.status", fid: m.fid, state: "REJECTED" });
+  else if (m.t === "fsrv.cancel") send(fsrvSock(r, other(side)), { t: "fsrv.status", fid: m.fid, state: "CANCELLED" });
+  return true;
+}
+
+/** Test kancası: oda fsrv mesaj kaydı (/__e2e/fsrv-ws/<oturum>). */
+export const fsrvWsLog = (id) => rooms.get(id)?.fsrvLog ?? [];
+
 function onGuestTicket(ws, entry) {
   const r = room(entry.rec.view.id);
   const guestId = ulid();
@@ -382,7 +464,11 @@ export function attachWs(srv) {
       const r = rec && rooms.get(agentFor);
       if (!rec || !r?.tech || r.guest) return sock.destroy();
       Object.assign(rec.view, { status: "ACTIVE", code: null });
-      const features = [...(protos.includes("rs.cap.clip1") ? ["clipboard"] : []), ...(protos.includes("rs.cap.print1") ? ["print"] : [])];
+      const features = [
+        ...(protos.includes("rs.cap.clip1") ? ["clipboard"] : []),
+        ...(protos.includes("rs.cap.print1") ? ["print"] : []),
+        ...(protos.includes("rs.cap.fsrv1") ? ["fsrv"] : []),
+      ];
       return wss.handleUpgrade(req, sock, head, (ws) => admitted(r, rec, ws, "AGENT", "Ayşe Yılmaz", features));
     }
     const tk = protos.find((p) => p.startsWith("rs.ticket."))?.slice(10);

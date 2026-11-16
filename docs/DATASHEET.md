@@ -7,8 +7,9 @@
 
 Uzaktan destek çoğu zaman dışarıdaki bir hizmete bağlıdır; veriler ve kayıtlar başka yerde tutulur. Remote Support
 kurumun kendi sunucusunda çalışır. Teknisyen web konsolundan oturum açar; müşteri tek dosyalık Windows programıyla veya
-tarayıcıyla katılır ya da programdan kendisi destek ister. Görüntü iki taraf arasında doğrudan akar; sunucuda yalnız
-oturum bilgisi, KVKK onayları ve denetim kayıtları kalır.
+tarayıcıyla katılır ya da programdan kendisi destek ister. Görüntü iki taraf arasında doğrudan akar; sunucuda
+oturum bilgisi, KVKK onayları ve denetim kayıtları kalır. Firma isterse dosyaları sunucu üzerinden virüs taramasıyla
+aktarır; bu durumda teslim edilen dosyalar da seçilen süre (1–7 gün) boyunca sunucuda şifreli saklanır.
 
 ## Öne çıkan özellikler
 
@@ -27,12 +28,21 @@ oturum bilgisi, KVKK onayları ve denetim kayıtları kalır.
 - **İzinli uzaktan kontrol** — her kontrol isteğini müşteri onaylar, tek tuşla geri alır; uzaktan tıklama izin sayılmaz.
 - **Pano paylaşımı ve uzaktan yazdırma** — teknisyen uzun bir komutu veya lisans anahtarını tek tıkla müşterinin panosuna
   koyar, müşterinin panosundaki metni alır; harf harf okutmaya gerek kalmaz. PDF belgeyi müşterinin yazıcısından bastırır.
-  İkisi de müşterinin ayrı onayıyla ve Windows programıyla çalışır; içerik sunucudan geçmez.
+  İkisi de müşterinin ayrı onayıyla ve Windows programıyla çalışır. Pano metni sunucudan geçmez; yazdırılan belge
+  varsayılan modda doğrudan gider, firma sunucu üzerinden dosya aktarımını açtıysa sunucuda virüs taramasından geçer ve
+  yazdırıldıktan sonra silinir (saklanmaz).
 - **Zorlu donanımda da görüntü** — ekran üç farklı yöntemle okunur (HDR ve çift ekran kartlı dizüstüler dahil);
   okunamazsa müşteri ekranında kısa bir neden kodu ve ne yapacağı yazar; yeni sürüm programla neden teknisyen konsoluna
   da gelir.
-- **Sohbet, dosya, ekran üzerine işaretleme** — dosya içeriği sunucudan geçmez, her dosyayı alıcı onaylar. Geçmişte her
-  dosya "Doğrulanmış" ya da "Müşteri bildirimi" olarak ayrılır.
+- **Sohbet, dosya, ekran üzerine işaretleme** — her dosyayı alıcı onaylar. Geçmişte her dosya "Doğrulanmış" ya da
+  "Müşteri bildirimi" olarak ayrılır. Dosyalar firmanın seçtiği iki yoldan biriyle gider:
+  - **Doğrudan (varsayılan):** dosya iki taraf arasında uçtan uca şifreli akar; içerik sunucuya uğramaz, taranmaz.
+  - **Sunucu üzerinden, virüs taramalı (firma ayarı):** dosya sunucuya şifreli yüklenir, ClamAV ile taranır, yalnız temiz
+    çıkan dosya alıcıya teklif edilir. Virüslü ya da taranamayan dosya teslim edilmez. Bu modda aktarım uçtan uca şifreli
+    değildir; dosya sunucuda şifreli saklanır. Teslim edilen dosya firmanın seçtiği 1–7 gün saklanır ve oturum
+    geçmişinden yeniden indirilebilir; teslim edilmeyen dosya hemen silinir. Taranan, programın dosya gönderme ve uzaktan
+    yazdırma özellikleriyle aktarılan dosyalardır; pano metni ve uzaktan kontrol sırasında müşterinin kendi indirdikleri
+    kapsam dışıdır.
 - **Müşteri firma yönetimi** — her müşteriye ayrı kalıcı indirme ve web formu bağlantısı; talep ve oturumlar firmaya
   göre süzülür; müşteri listesi Excel uyumlu CSV olarak dışa aktarılır, CSV'den önizlemeli ve hata raporlu içe aktarılır.
 - **Kullanıcı ve yetki yönetimi** — teknisyen ekleme, modül bazlı aç/kapa yetkileri, pasife alma; değişiklik açık
@@ -63,22 +73,22 @@ oturum bilgisi, KVKK onayları ve denetim kayıtları kalır.
 
 ## Modüller
 
-| Modül                            | Ne yapar                                                                                                                                                                                                                                                                                                                                                            |
-| -------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Destek oturumları                | Tek kullanımlık link ve 8 haneli kod (panelden e-posta, WhatsApp veya SMS ile tek mesajda, Windows programı bağlantısıyla gönderilir), bekleme odası, teknisyen kabulü, iptal, zorla sonlandırma; müşteri beklerken panelin her sayfasında sayaç ve bildirim                                                                                                        |
-| Teknisyen konsolu                | Canlı ekran, uzaktan kontrol, monitör değiştirme, sohbet, dosya, işaretleme, pano gönder/al, uzaktan yazdırma (PDF), kalite paneli                                                                                                                                                                                                                                  |
-| Hızlı Destek (Windows)           | Müşteri programı: "Destek iste", "Bağlantı kodum var", 5 firmaya kadar kayıt ve firma seçimi, firma/bilgisayar unutma, beklerken sohbet, isteğe bağlı tepsi ve Windows açılışında başlatma, onay ve izin diyalogları, pano paylaşımı izni ve yazdırma onayı; yalnız bir pencereyi paylaşma, açık/koyu tema                                                          |
-| Destek talepleri                 | Canlı kuyruk, bildirim ve ses, kabul/ret, firma filtresi, son 30 gün geçmişi, kaynak engelleme (Engellenenler ekranı), isteğe bağlı kabul kodu, atama, öncelik ve SLA, mesai saatleri ve tatiller, web talep formu ve "Web" kaynak süzgeci                                                                                                                          |
-| Müşteriler                       | Müşteri firma kaydı, firma başına bağlantı ve web formu bağlantısı (kopyala, yenile, müşteriye gönder), pasife alma, talep ve oturum geçmişi, CSV dışa/içe aktarma                                                                                                                                                                                                  |
-| Gözetimsiz cihazlar              | Kayıt kodu ile cihaz ekleme, cihaz listesi (çevrimiçi, yerel olarak kapalı, doğrulanmadı, bildirim gönderilemedi rozetleri), cihaz başına teknisyen yetkisi, bağlan, cihazı iptal et; müşteri başına bildirim adresleri                                                                                                                                             |
-| Gözetimsiz servis (Windows)      | Müşteri bilgisayarına yöneticiyle kurulan servis: kayıt kodu, tepside durum, "Gözetimsiz erişimi kapat", her monitörde bağlantı göstergesi, Windows "Uygulamalar"dan iz bırakmadan kaldırma                                                                                                                                                                         |
-| Oturum geçmişi                   | Filtreli liste, ayrıntı, ticket/not, dosya doğrulama etiketi, CSV                                                                                                                                                                                                                                                                                                   |
-| Kullanıcılar                     | Kullanıcı ekleme (tek seferlik geçici şifre), rol, yetki tablosu, pasife alma / yeniden etkinleştirme, kalıcı silme                                                                                                                                                                                                                                                 |
-| Firmalar (Süper Yönetici)        | Firma oluşturma, düzenleme, pasife alma, firmalar arası geçiş, kalıcı silme (önizleme, 24 saat iptal penceresi, ilerleme)                                                                                                                                                                                                                                           |
-| Audit log                        | Salt okunur denetim kaydı: tarih, kullanıcı, işlem, sonuç ve firma filtreleri, ayrıntı, CSV                                                                                                                                                                                                                                                                         |
-| Sistem ayarları (Süper Yönetici) | MySQL bağlantı bilgisi + bağlantı testi (isteğe bağlı zorunlu TLS ve sertifika doğrulaması), TURN sunucuları ve gizli anahtar, sistem logosu (yükleme/kaldırma), Süper Yönetici şifre sıfırlama, WhatsApp servis adresi + test mesajı                                                                                                                               |
-| Hesabım                          | Profil resmi (kare kırpma), tema (Açık / Koyu / Sistem), 2FA kurulumu, kurtarma kodları ve yenilenmesi, hatırlanan cihazlar, şifre değiştirme/sıfırlama, tüm cihazlardan çıkış                                                                                                                                                                                      |
-| Ayarlar                          | Genel sınırlar (kod geçerliliği, en uzun oturum, teknisyen başına açık oturum, dosya boyutu), destek talebi bağlantısı, bekleme süresi, WhatsApp ve e-posta bildirimi + test, güvenilen ağlar, SMTP + test maili, SMS + test SMS, web talep formu aç/kapa ve müşteriye durum bildirimi kanalları, teknisyen 2FA zorunluluğu, sürümlü aydınlatma metni, firma logosu |
+| Modül                            | Ne yapar                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| -------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Destek oturumları                | Tek kullanımlık link ve 8 haneli kod (panelden e-posta, WhatsApp veya SMS ile tek mesajda, Windows programı bağlantısıyla gönderilir), bekleme odası, teknisyen kabulü, iptal, zorla sonlandırma; müşteri beklerken panelin her sayfasında sayaç ve bildirim                                                                                                                                                                                                 |
+| Teknisyen konsolu                | Canlı ekran, uzaktan kontrol, monitör değiştirme, sohbet, dosya (doğrudan ya da sunucu üzerinden virüs taramalı; tarama durumu: taranıyor, teslim edildi, virüslü, taranamadı), işaretleme, pano gönder/al, uzaktan yazdırma (PDF), kalite paneli                                                                                                                                                                                                            |
+| Hızlı Destek (Windows)           | Müşteri programı: "Destek iste", "Bağlantı kodum var", 5 firmaya kadar kayıt ve firma seçimi, firma/bilgisayar unutma, beklerken sohbet, isteğe bağlı tepsi ve Windows açılışında başlatma, onay ve izin diyalogları, pano paylaşımı izni ve yazdırma onayı; yalnız bir pencereyi paylaşma, açık/koyu tema                                                                                                                                                   |
+| Destek talepleri                 | Canlı kuyruk, bildirim ve ses, kabul/ret, firma filtresi, son 30 gün geçmişi, kaynak engelleme (Engellenenler ekranı), isteğe bağlı kabul kodu, atama, öncelik ve SLA, mesai saatleri ve tatiller, web talep formu ve "Web" kaynak süzgeci                                                                                                                                                                                                                   |
+| Müşteriler                       | Müşteri firma kaydı, firma başına bağlantı ve web formu bağlantısı (kopyala, yenile, müşteriye gönder), pasife alma, talep ve oturum geçmişi, CSV dışa/içe aktarma                                                                                                                                                                                                                                                                                           |
+| Gözetimsiz cihazlar              | Kayıt kodu ile cihaz ekleme, cihaz listesi (çevrimiçi, yerel olarak kapalı, doğrulanmadı, bildirim gönderilemedi rozetleri), cihaz başına teknisyen yetkisi, bağlan, cihazı iptal et; müşteri başına bildirim adresleri                                                                                                                                                                                                                                      |
+| Gözetimsiz servis (Windows)      | Müşteri bilgisayarına yöneticiyle kurulan servis: kayıt kodu, tepside durum, "Gözetimsiz erişimi kapat", her monitörde bağlantı göstergesi, Windows "Uygulamalar"dan iz bırakmadan kaldırma                                                                                                                                                                                                                                                                  |
+| Oturum geçmişi                   | Filtreli liste, ayrıntı, ticket/not, dosya doğrulama etiketi, sunucuda saklanan dosyaları süre içinde yeniden indirme, CSV                                                                                                                                                                                                                                                                                                                                   |
+| Kullanıcılar                     | Kullanıcı ekleme (tek seferlik geçici şifre), rol, yetki tablosu, pasife alma / yeniden etkinleştirme, kalıcı silme                                                                                                                                                                                                                                                                                                                                          |
+| Firmalar (Süper Yönetici)        | Firma oluşturma, düzenleme (sunucu depolama kotası dahil), pasife alma, firmalar arası geçiş, kalıcı silme (önizleme, 24 saat iptal penceresi, ilerleme)                                                                                                                                                                                                                                                                                                     |
+| Audit log                        | Salt okunur denetim kaydı: tarih, kullanıcı, işlem, sonuç ve firma filtreleri, ayrıntı, CSV                                                                                                                                                                                                                                                                                                                                                                  |
+| Sistem ayarları (Süper Yönetici) | MySQL bağlantı bilgisi + bağlantı testi (isteğe bağlı zorunlu TLS ve sertifika doğrulaması), TURN sunucuları ve gizli anahtar, sistem logosu (yükleme/kaldırma), Süper Yönetici şifre sıfırlama, WhatsApp servis adresi + test mesajı, virüs tarama (ClamAV) sunucusu + bağlantı testi                                                                                                                                                                       |
+| Hesabım                          | Profil resmi (kare kırpma), tema (Açık / Koyu / Sistem), 2FA kurulumu, kurtarma kodları ve yenilenmesi, hatırlanan cihazlar, şifre değiştirme/sıfırlama, tüm cihazlardan çıkış                                                                                                                                                                                                                                                                               |
+| Ayarlar                          | Genel sınırlar (kod geçerliliği, en uzun oturum, teknisyen başına açık oturum, dosya boyutu), destek talebi bağlantısı, bekleme süresi, WhatsApp ve e-posta bildirimi + test, güvenilen ağlar, SMTP + test maili, SMS + test SMS, web talep formu aç/kapa ve müşteriye durum bildirimi kanalları, teknisyen 2FA zorunluluğu, sürümlü aydınlatma metni, firma logosu, Dosyalar (sunucu üzerinden aktarım ve virüs tarama, saklama süresi, depolama kullanımı) |
 
 ## Güvenlik ve yönetim
 
@@ -140,6 +150,15 @@ oturum bilgisi, KVKK onayları ve denetim kayıtları kalır.
   içerik okunmaz. Her belge için müşteri onayı istenir; belge yalnız bellekte tutulur, ayrı ve kısıtlı bir süreçte işlenir,
   gömülü komutlar çalışmaz. Pano metni, belge içeriği ve dosya adı hiçbir kayda yazılmaz; denetim kaydında yalnız yön, boyut,
   sayfa ve sonuç bulunur. Gözetimsiz oturumda bu özellikler kapalıdır.
+- Sunucu üzerinden dosya aktarımı (firma ayarı, varsayılan kapalı): yalnız Süper Yönetici virüs tarama bağlantısını
+  başarıyla test ettikten sonra açılabilir; açarken yönetici aydınlatma metnini güncellediğini onaylar. Dosyalar sunucuda
+  dosya başına ayrı anahtarla AES-256-GCM şifreli, firma klasöründe rastgele adla saklanır; indirme bağlantısı en çok 5
+  dakika geçerlidir ve başka firma ya da oturum için çalışmaz. Tarama servisine ulaşılamazsa, süre aşılırsa ya da arşiv
+  şifreliyse dosya teslim edilmez (taranamadı). Virüs tarama servisi internete yalnız imza güncellemesi için çıkar, dışarıdan
+  erişilemez; imzalar günde birkaç kez güncellenir, 3 günden eskiyse uyarı verir. Firma başına depolama kotası (varsayılan
+  20 GB) ve disk boş alanı %10'un altına inince yeni yükleme reddedilir. Saklanan dosyalar yedeğe girmez; süre dolunca,
+  oturum anonimleştirilince ya da kalıcı silinince diskten silinir. Gözetimsiz oturumda bu modda dosya aktarımı kapalıdır.
+  Yükleme, tarama, virüs bulgusu ve her indirme denetim kaydına yazılır (dosya adı yazılmaz).
 - Müşteri programı yalnız kendi sunucusuna bağlanır; bütünlüğü SHA-256 ve tekrarlanabilir derlemeyle doğrulanır.
   Hatırlanan bilgiler Windows hesabına bağlı şifreyle (DPAPI) saklanır, tek tıkla silinir. Tanılama dosyası kişisel
   veri içermez. Windows açılışında başlatma yalnız kullanıcı seçerse açılır; program başkalarının yazabildiği klasörden
@@ -161,6 +180,8 @@ oturum bilgisi, KVKK onayları ve denetim kayıtları kalır.
 - SMS (Nokta Bilişim smsportal servisi, arka planda NetGSM): oturum bağlantısını ve talep durumunu müşteriye SMS ile
   gönderme; firma başına adres, şifreli API anahtarı, başlık ve test SMS butonu. Türkiye cep numaralarına gider.
 - WhatsApp ile müşteriye oturum bağlantısı ve talep durumu gönderimi (aynı whatsapp-bildirim servisi).
+- ClamAV (açık kaynak virüs tarayıcı): sunucu üzerinden aktarılan dosyaların taranması; aynı Docker Compose yığınında iki
+  konteyner (tarayıcı ve imza güncelleyici) olarak gelir; adres ve "Bağlantıyı Test Et" Süper Yönetici panelinde.
 
 ## Teknik özellikler
 
@@ -177,11 +198,11 @@ oturum bilgisi, KVKK onayları ve denetim kayıtları kalır.
 
 ## Sistem gereksinimleri (öneri)
 
-|           | Minimum                                                  | Önerilen                                                |
-| --------- | -------------------------------------------------------- | ------------------------------------------------------- |
-| CPU / RAM | 2 çekirdek / 4 GB                                        | 4 çekirdek / 8 GB                                       |
-| Disk      | 20 GB                                                    | 50 GB (kayıt saklama süresine ve 14 günlük yedeğe göre) |
-| Ağ        | Tek HTTPS portu; TURN için 3478/5349 ve UDP röle aralığı | Genel IP, alan adı ve genel sertifika                   |
+|           | Minimum                                                  | Önerilen                                                                                                                       |
+| --------- | -------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
+| CPU / RAM | 2 çekirdek / 4 GB                                        | 4 çekirdek / 8 GB (virüs tarama 4,5 GB'a kadar ek bellek ayırır)                                                               |
+| Disk      | 20 GB                                                    | 50 GB (kayıt saklama süresine ve 14 günlük yedeğe göre); sunucu üzerinden dosya açıksa firma kotalarının toplamı kadar ek alan |
+| Ağ        | Tek HTTPS portu; TURN için 3478/5349 ve UDP röle aralığı | Genel IP, alan adı ve genel sertifika                                                                                          |
 
 **Müşteri ve teknisyen ağında izin verilmesi gereken çıkışlar** (hedef: destek sunucusu)
 

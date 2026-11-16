@@ -23,6 +23,8 @@ const KEEP_WITHOUT_TENANT_FK = ["audit_logs", "tenant_purge_jobs"];
 const FENCE_TABLES = ["auth_sessions"];
 /** USER_CHILDREN adımında silinen ama `tenants`'a da FK veren kullanıcı alt tabloları (P27a: tenant_id NOT NULL). */
 const USER_CHILDREN_WITH_TENANT_FK = ["trusted_devices"];
+/** P28b: adımda silinen ama firmaya yalnız oturum üzerinden (FK `support_sessions(id, tenant_id)`) bağlı tablolar. */
+const STEP_TABLES_VIA_SESSION_FK = ["session_stored_files"];
 /** Korunan 12 tablo (koşullu DELETE tetikleyicisi; P18 += session_messages). */
 const GUARDED = [
   "session_messages",
@@ -74,7 +76,10 @@ describe("P16 G3 meta-testler (S16-11)", () => {
     // USER_CHILDREN tabloları firmaya değil kullanıcıya bağlıdır (user_id ile silinir; aşağıdaki users testi).
     const userChildren = new Set((DATA_STEPS.USER_CHILDREN ?? []).map((p) => p.table));
     const withTenantFk = [...FENCE_TABLES, ...USER_CHILDREN_WITH_TENANT_FK];
-    const expected = new Set([...[...stepTables()].filter((t) => !userChildren.has(t) || withTenantFk.includes(t)), ...FENCE_TABLES]);
+    const expected = new Set([
+      ...[...stepTables()].filter((t) => (!userChildren.has(t) || withTenantFk.includes(t)) && !STEP_TABLES_VIA_SESSION_FK.includes(t)),
+      ...FENCE_TABLES,
+    ]);
     expect([...referencing].sort()).toEqual([...expected].sort());
     for (const t of KEEP_WITHOUT_TENANT_FK) expect(referencing.has(t), t).toBe(false);
   });

@@ -6,6 +6,7 @@ import type { PermissionKey } from "@remote/contracts/permissions";
 import type { GuestKind, SessionEndedReason } from "@remote/contracts/ws";
 import { WS_CLOSE } from "@remote/contracts/ws";
 import type { AuditContext } from "../audit/service.ts";
+import type { FsrvService } from "../fsrv/service.ts";
 import type { Db } from "../lib/db.ts";
 import type { Metrics } from "../ops/metrics.ts";
 import type { RoomNotifier } from "../sessions/service.ts";
@@ -26,6 +27,7 @@ import { recordEnded, scheduleActive, sendGuestJoined, sendHelloGuest, sendHello
 import { newClipPrint } from "./clip-print.ts";
 import { newControl } from "./control.ts";
 import { closeControlOnEnd, narrowCaps, resetOnGuestGone, revokeOnTechChange } from "./control-revoke.ts";
+import { fsrvRoomClosed, fsrvSideGone } from "./fsrv.ts";
 import { endDeviceRoom } from "./rooms-device.ts";
 import * as lobby from "./rooms-lobby.ts";
 import { pending, type RoomRow } from "./rooms-lobby.ts";
@@ -64,6 +66,8 @@ export class Rooms implements RoomNotifier, TechnicianLiveControl {
   deviceEnded?: (room: Room, reason: SessionEndedReason) => void;
   /** P27: DeviceHub — müşteri pasifinde iptal edilen cihazların soketi/odası (customers/service.ts, commit sonrası). */
   devices?: { revoked(deviceId: string): void };
+  /** P28b: sunucu dosya servisi (`bindFsrv`, ws.ts); yoksa SERVER odasında `fsrv.init` → UNSUPPORTED. */
+  fsrv?: FsrvService;
   private readonly rooms = new Map<string, Room>();
   readonly reconnect = new Map<string, string>(); // sha256(reconnectToken) → sessionId
 
@@ -184,6 +188,7 @@ export class Rooms implements RoomNotifier, TechnicianLiveControl {
   detachTech(room: Room, peer: Peer): void {
     if (!this.live(room) || room.tech?.peer !== peer) return;
     room.tech = undefined;
+    fsrvSideGone(this, room, "TECH"); // P28b D-P28b-2: teknisyenin indirme belirteçleri düşer
     if (room.admitted) {
       revokeOnTechChange(this, room); // AC-24, §3.3 K3: önce control.revoke{reconnect}, sonra peer.left
       room.admitted.peer?.send({ t: "peer.left", role: "tech", reason: "disconnect" });
@@ -195,6 +200,7 @@ export class Rooms implements RoomNotifier, TechnicianLiveControl {
     if (!this.live(room) || guest.peer !== peer) return;
     if (guest.state !== "ADMITTED") return this.leaveLobby(room, guest, "left");
     guest.peer = undefined;
+    fsrvSideGone(this, room, "CUSTOMER"); // P28b D-P28b-2
     room.share = { state: "stopped" }; // QA-P4-12: misafir yokken paylaşım sürmüyor
     resetOnGuestGone(this, room); // A4/AC-24: controlState=VIEW; yeniden bağlanan istemci kapıyı kapalı başlatır
     room.tech?.peer.send({ t: "peer.left", role: "guest", reason: "disconnect" });
@@ -254,6 +260,7 @@ export class Rooms implements RoomNotifier, TechnicianLiveControl {
       p?.close(reason === "auth_revoked" && p === room.tech?.peer ? WS_CLOSE.AUTH_REVOKED : WS_CLOSE.NORMAL, reason);
     }
     if (room.unattended) this.deviceEnded?.(room, reason);
+    fsrvRoomClosed(this, room); // P28b §5.2: açık aktarımlar CANCELLED/EXPIRED, belirteçler düşer
     closeControlOnEnd(this, room); // §3.3 K5-d: session.ended sonrası, en iyi çaba (beklenmez)
   }
 

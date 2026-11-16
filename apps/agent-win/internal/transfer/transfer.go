@@ -325,6 +325,9 @@ func (m *Manager) CancelLocal() *Result {
 	return m.abort("CANCELLED")
 }
 
+// Limit kabul edilen en büyük dosya (tenant sınırı; indirme klasörü yoksa -1 → her teklif reddedilir).
+func (m *Manager) Limit() int64 { return m.d.MaxBytes }
+
 // Busy teklif soruluyor veya alım sürüyor (P28a: yön başına tek TO_CUSTOMER aktarım, yazdırma BUSY döner).
 func (m *Manager) Busy() bool { return m.asking != nil || m.cur != nil }
 

@@ -6,6 +6,7 @@
 import { z } from "zod";
 import { UNSAFE_NAME_CHARS, type CustomerFirmRef } from "./shared.ts";
 import { FILE_DIRECTIONS, FILE_RESULTS, qualitySummarySchema, type QualitySummary } from "../ws.ts";
+import type { StoredFileItem } from "./fsrv.ts";
 
 export const SESSION_STATUSES = ["PENDING", "ACTIVE", "ENDED", "EXPIRED", "CANCELLED"] as const;
 export type SessionStatus = (typeof SESSION_STATUSES)[number];
@@ -346,6 +347,11 @@ export const TIMELINE_DETAIL_KEYS = {
   "clipboard.consent": ["on", "by", "reason"],
   "clipboard.transfer": ["direction", "bytes", "result"],
   "print.job": ["decision", "pages", "sizeBytes", "result"],
+  // P28b (mimari-p28b §11.1): dosya adı yok — yön, amaç, boyut, uzantı, sonuç, imza (AC-358).
+  "file.upload": ["direction", "purpose", "sizeBytes", "ext", "result"],
+  "file.scan": ["result", "reason", "durationMs"],
+  "file.infected": ["signature", "ext", "sizeBytes"],
+  "file.download": ["context", "by"],
 } as const satisfies Record<string, readonly string[]>;
 export type TimelineAction = keyof typeof TIMELINE_DETAIL_KEYS;
 export const TIMELINE_ACTIONS = Object.keys(TIMELINE_DETAIL_KEYS) as TimelineAction[];
@@ -380,6 +386,8 @@ export interface SessionHistoryDetail extends Omit<SessionListItem, "waitingGues
   timelineTruncated: boolean;
   /** P8b (AC-158): talepten doğan oturumda dolu; TECH kaynağında null. */
   request: SessionRequestInfo | null;
+  /** P28b (§4, AC-360): sunucu dosyaları (yalnız satır varsa dolu); K3 doldurur — o zamana kadar gelmeyebilir. */
+  storedFiles?: StoredFileItem[];
 }
 
 /** DB `quality_summary` JSON'u (t/id yok). Ayrıştırılamazsa detay `quality: null` döner. */

@@ -1,5 +1,6 @@
 // Tipli uygulama hataları ve standart hata zarfı (mimari-api.md "Ortak kurallar").
 // Bilinmeyen hatalar loglanır, kullanıcıya yalnız 500 + requestId döner (stack/SQL sızmaz).
+import { AV_NOT_READY_MESSAGE, STORAGE_QUOTA_MESSAGE } from "@remote/contracts/api/fsrv";
 import { BINDING_INVALID_MESSAGE, BINDING_LIMIT_MESSAGE } from "@remote/contracts/api/bindings";
 import { ACCEPT_CODE_CLIENT_UNSUPPORTED_MESSAGE } from "@remote/contracts/api/requests";
 import { INVALID_IMAGE_MESSAGE, PAYLOAD_TOO_LARGE_MESSAGE } from "@remote/contracts/api/branding";
@@ -27,6 +28,9 @@ const DEFAULT_MESSAGES: Record<ErrorCode, string> = {
   NOT_FOUND: "Kayıt bulunamadı.",
   METHOD_NOT_ALLOWED: "Bu işlem bu kaynakta desteklenmiyor.",
   CONFLICT: "Kayıt bu işlem için uygun durumda değil.",
+  // P28b (AC-354, 362): metinler contracts `api/fsrv.ts` ile aynı.
+  STORAGE_QUOTA: STORAGE_QUOTA_MESSAGE,
+  AV_NOT_READY: AV_NOT_READY_MESSAGE,
   OPEN_SESSION_LIMIT: "Açık oturum sınırına ulaştınız. Yeni oturum için bekleyen bir oturumu iptal edin.",
   LOBBY_FULL: "Bu oturumda bekleyen katılımcı sınırı doldu. Lütfen teknisyeninizle görüşün.",
   SESSION_ANONYMIZED: SESSION_ANONYMIZED_MESSAGE,

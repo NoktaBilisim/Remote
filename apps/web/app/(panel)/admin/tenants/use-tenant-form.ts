@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, type FormEvent } from "react";
+import { checkQuotaGb } from "@/lib/fsrv/settings";
 import { useCloseGuard } from "@/components/form-dialog-parts";
 import { api, ApiError } from "@/lib/api";
 import { toUiError, type UiError } from "@/lib/error-message";
@@ -63,18 +64,30 @@ export function useTenantForm(
   const { base, d, setErrors } = draft;
   const [formError, setFormError] = useState<UiError | null>(null);
   const [busy, setBusy] = useState(false);
-  const guard = useCloseGuard(d.name !== base.name || d.slug !== base.slug, busy, onClose);
+  // P28b (AC-362, K-P28b-10): kota yalnız düzenlemede (oluşturma şeması strict; varsayılan 20 GB sunucuda)
+  const quotaBase = tenant?.storageQuotaGb !== undefined ? String(tenant.storageQuotaGb) : "";
+  const [quota, setQuotaRaw] = useState(quotaBase);
+  const [quotaError, setQuotaError] = useState<string>();
+  const quotaChanged = Boolean(tenant) && quota.trim() !== quotaBase;
+  const setQuota = (v: string) => {
+    setQuotaRaw(v);
+    setQuotaError(undefined);
+  };
+  const guard = useCloseGuard(d.name !== base.name || d.slug !== base.slug || quotaChanged, busy, onClose);
 
   const fail = failHandler(setErrors, setFormError, focusError);
   const submit = async (e: FormEvent) => {
     e.preventDefault();
     setFormError(null);
     const r = buildTenant(d, tenant ? base : undefined);
-    if (!r.ok) {
-      setErrors(r.errors);
+    const q = quotaChanged ? checkQuotaGb(quota) : {};
+    if (q.error) setQuotaError(q.error);
+    if (!r.ok || q.error) {
+      if (!r.ok) setErrors(r.errors);
       focusError();
       return;
     }
+    if (q.gb !== undefined) Object.assign(r.body, { storageQuotaGb: q.gb });
     if (tenant && Object.keys(r.body).length === 0) return onClose();
     setBusy(true);
     try {
@@ -84,10 +97,23 @@ export function useTenantForm(
           : await api<TenantItem>("POST", "/admin/tenants", r.body),
       );
     } catch (err) {
-      fail(err);
+      if (err instanceof ApiError && err.status === 400 && err.fields?.storageQuotaGb) {
+        setQuotaError(err.fields.storageQuotaGb);
+        focusError();
+      } else fail(err);
     } finally {
       setBusy(false);
     }
   };
-  return { ...draft, formError, busy, guard, submit, slugChanged: Boolean(tenant) && d.slug !== base.slug };
+  return {
+    ...draft,
+    formError,
+    busy,
+    guard,
+    submit,
+    slugChanged: Boolean(tenant) && d.slug !== base.slug,
+    quota,
+    setQuota,
+    quotaError,
+  };
 }

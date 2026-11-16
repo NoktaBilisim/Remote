@@ -2,6 +2,8 @@
 // açılış işleri (zamanlayıcı) ve istek ön işleme (hata zarfı, JSON ayrıştırıcı, yanıt başlıkları). Kayıt sırası
 // buildApp'teki gibidir; app.ts bu işlevleri aynı sırayla çağırır.
 import type { FastifyInstance } from "fastify";
+import { sweepOrphanRows } from "./jobs/retention-fsrv.ts";
+import type { FsrvRuntime } from "./fsrv/wiring.ts";
 import type { AppDeps } from "./app.ts";
 import type { AccountDeps } from "./auth/account.ts";
 import type { SecretBox } from "./lib/crypto.ts";
@@ -157,6 +159,7 @@ function createTenantPurge(app: FastifyInstance, deps: AppDeps, w: Wiring, hub: 
   return new TenantPurgeRunner({
     db: deps.db,
     store: w.uploads,
+    files: app.fsrv.store,
     ledger: w.erasureLedger,
     metrics: w.metrics,
     log: app.log,
@@ -192,7 +195,7 @@ export function decorateJobs(
   r: RequestWiring,
 ): { retention: RetentionJob; orphanScan: OrphanScanJob; tenantPurge: TenantPurgeRunner } {
   const { metrics } = w;
-  const retention = new RetentionJob(r.requests);
+  const retention = new RetentionJob(r.requests, { fsrv: app.fsrv });
   app.decorate("retention", retention);
   const orphanScan = new OrphanScanJob({ db: deps.db, store: w.uploads, metrics, log: app.log }); // P16 AC-243
   app.decorate("orphanScan", orphanScan);
@@ -221,6 +224,7 @@ interface StartupJobs {
   orphanScan: OrphanScanJob;
   tenantPurge: TenantPurgeRunner;
   outbox: NotifyOutbox;
+  fsrv: FsrvRuntime;
 }
 
 /** server.ts (`startJobs`): açılışta yeniden başlatma temizliği + zamanlayıcı; kapanışta zamanlayıcı durur. */
@@ -233,6 +237,9 @@ export function addStartupJobs(app: FastifyInstance, db: Db, j: StartupJobs): vo
     const armed = await armOrphanedPending(j.requests); // §3.5: 120 sn tolerans
     if (armed > 0) app.log.info({ pending: armed }, "yeniden başlatma: bekleyen talepler için kopma toleransı başlatıldı");
     j.requests.refreshCustomersGauge();
+    // P28b (§3.2): yeniden başlatmada bellekte aktarımı kalmayan yükleme/tarama/açık teklif satırları → disk sil → CANCELLED.
+    const swept = await sweepOrphanRows(db, j.fsrv, new Date());
+    if (swept > 0) app.log.warn({ cancelled: swept }, "yeniden başlatma: yarım kalan sunucu dosya aktarımları iptal edildi");
     jobs = startScheduler(db, app.log, j.rooms, undefined, j.requests, j.retention, j.orphanScan, j.tenantPurge, j.outbox);
   });
   app.addHook("onClose", async () => jobs?.stop());

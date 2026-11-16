@@ -52,6 +52,8 @@ export async function tenantFiles(store: UploadStore, tenantId: string): Promise
 interface TenantPurgeDeps {
   db: Db;
   store: UploadStore;
+  /** P28b: saklanan dosya deposu (`FILES_DIR`). */
+  files?: { removeTenant(tenantId: string): Promise<void> };
   ledger: { append(e: ErasureEntry): Promise<void> };
   metrics: Metrics;
   log: { info(o: object, m: string): void; warn(o: object, m: string): void; error(o: object, m: string): void };
@@ -172,6 +174,7 @@ export class TenantPurgeRunner {
     if (step === "FENCE") return this.fenceStep(id, tenantId);
     if (step === "TENANT_ROW") return this.tenantRowStep(id, tenantId);
     if (step === "FILES") return this.filesStep(id, tenantId);
+    if (step === "SESSION_FILES") await this.storedFilesDir(tenantId);
     const parts = repo.DATA_STEPS[step];
     if (!parts) throw new Error(`bilinmeyen adım ${step}`);
     return this.d.db.$transaction(async (tx) => {
@@ -190,6 +193,17 @@ export class TenantPurgeRunner {
       if ((await repo.advance(tx, id, step, nextStep(step))) !== 1) throw new Error("adım ilerletilemedi");
       return nextStep(step);
     });
+  }
+
+  /** P28b (§3.3): `FILES_DIR/{tenantId}` satırlardan ÖNCE silinir (yarıda kalırsa adım yeniden çalışır; `force`). */
+  private async storedFilesDir(tenantId: string): Promise<void> {
+    if (!this.d.files) return;
+    if (!TENANT_PREFIX_RE.test(tenantId)) throw new FsStepError("geçersiz firma kimliği");
+    try {
+      await this.d.files.removeTenant(tenantId);
+    } catch (err) {
+      throw new FsStepError((err as NodeJS.ErrnoException).code ?? "fs");
+    }
   }
 
   private async fenceStep(id: string, tenantId: string): Promise<TenantPurgeStep> {

@@ -96,6 +96,12 @@ function isCheckViolation(err: unknown): boolean {
 const isDuplicate = (err: unknown): boolean => typeof err === "object" && err !== null && (err as { code?: unknown }).code === "P2002";
 
 export async function handleFileMeta(rooms: Rooms, room: Room, from: Reporter, m: FileMeta): Promise<FileMetaResult> {
+  // P28b §5.4 b (AC-355): SERVER odasında DC dosya yolu yok — rapor yok sayılır (session_files'ı sunucu kendisi yazar).
+  if (room.fileMode === "SERVER") {
+    rooms.metrics.inc("rs_fsrv_denied_total", { reason: "dc_meta" });
+    rooms.log.warn({ event: "fsrv_dc_meta_ignored", sessionId: room.sessionId, side: from.side }, "SERVER odasında file.meta yok sayıldı");
+    return "server_mode";
+  }
   const refused = refuseFileMeta(rooms, room, from, m);
   if (refused) return refused;
   const tech = room.tech;

@@ -14,10 +14,11 @@ import { handleP19, p19User } from "./mock-p19.mjs";
 import { handleP27, p27User } from "./mock-p27.mjs";
 import { handleHistory, historyUser } from "./mock-history.mjs";
 import { handleLg, lgOutbox } from "./mock-lg.mjs";
+import { handleFsrvBytes, handleP28b, handleStoredLink, p28bUser } from "./mock-p28b.mjs";
 import { handleRequests, requestUser } from "./mock-requests.mjs";
 import { handleLobby, handleSessions, lobbyHook, sessionUser } from "./mock-sessions.mjs";
 import { handleUsers, usersUser } from "./mock-users.mjs";
-import { ageRoom, attachWs, revokeControl, strayGrant, wsLog } from "./mock-ws.mjs";
+import { ageRoom, attachWs, fsrvOfferToTech, fsrvWsLog, revokeControl, strayGrant, wsLog } from "./mock-ws.mjs";
 
 const PORT = Number(process.env.MOCK_API_PORT ?? 4010);
 const CSRF = "csrf-test-token";
@@ -85,6 +86,8 @@ function resolveMe(session) {
   const tenant = { id: "01JTENANT", name: "Demo Firma" };
   const p27 = p27User(session);
   if (p27) return p27;
+  const p28b = p28bUser(session);
+  if (p28b) return { user: p28b.user, permissions: p28b.permissions, tenant: p28b.tenant, actingTenant: p28b.actingTenant };
   const p15 = p15User(session);
   if (p15) return p15;
   const p16 = p16User(session);
@@ -112,6 +115,12 @@ const srv = createServer(async (req, res) => {
   const c = cookies(req);
   const session = c[SESSION_COOKIE];
   const url = req.url ?? "";
+  // P28b: bayt uçları çerez/CSRF/Origin okumaz (yalnız Bearer) — genel denetimlerden önce
+  if (await handleFsrvBytes(req, res, { url, send, err })) return;
+  const fo = req.method === "GET" && url.match(/^\/__e2e\/fsrv-offer\/([0-9A-Z]{26})$/);
+  if (fo) return send(res, fsrvOfferToTech(fo[1], "musteri-log.txt", "P28b müşteri dosyası\n") ? 200 : 404, {});
+  const fw = req.method === "GET" && url.match(/^\/__e2e\/fsrv-ws\/([0-9A-Z]{26})$/);
+  if (fw) return send(res, 200, fsrvWsLog(fw[1]));
   // P5 e2e: sahte sunucunun aldığı file.meta / quality.summary kaydı (yalnız test)
   const logHit = req.method === "GET" && url.match(/^\/__e2e\/ws-log\/([0-9A-Z]{26})$/);
   if (logHit) return send(res, 200, wsLog.get(logHit[1]) ?? []);
@@ -138,6 +147,9 @@ const srv = createServer(async (req, res) => {
   if (req.method !== "GET" && req.headers.origin !== (process.env.MOCK_ALLOWED_ORIGIN ?? "http://localhost:3217"))
     return send(res, 403, err("FORBIDDEN", "Origin reddedildi."));
 
+  // P28b: ClamAV / Dosyalar ayarı (u-fsa-*, u-fad*-*) ve geçmiş indirme bağlantısı (u-hfs-*)
+  if (await handleP28b(req, res, { url, session, csrfOk, send, err, readJson })) return;
+  if (handleStoredLink(req, res, { url, csrfOk, send, err })) return;
   // LG-3: müşteriye gönder (POST /customer-send/options, /customer-send) — oturumlu tüm sahte kullanıcılar
   if (await handleLg(req, res, { url, session, csrfOk, send, err, readJson })) return;
   // P10: hesap güvenliği / SMTP (girişte yalnız kendi hesaplarını işler, diğerlerini aşağıya bırakır)

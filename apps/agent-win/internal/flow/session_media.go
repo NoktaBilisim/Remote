@@ -230,7 +230,7 @@ func (s *session) onPeer(ctx context.Context, e peerEvent) {
 
 // onChunk dosya parçası: alım sonucu ya da (yüzde değiştikçe) ilerleme.
 func (s *session) onChunk(c dc.Chunk, ok bool) {
-	if s.cp.chunk(c, ok) || s.files == nil { // P28a: yazdırmanın idx'i dosya alıcısına gitmez (O-P28a-2 m.3)
+	if s.cp.chunk(c, ok) || s.files == nil || s.serverMode() { // P28b: SERVER'da `file` çerçeveleri düşer // P28a: yazdırmanın idx'i dosya alıcısına gitmez (O-P28a-2 m.3)
 		return
 	}
 	if r := s.files.Chunk(c, ok); r != nil {
@@ -254,7 +254,7 @@ func (s *session) onCtl(m dc.Ctl) {
 	case "clip.ready", "clip.data", "print.ready", "print.offer", "print.done":
 		s.cp.onCtl(m)
 	case "file.offer":
-		if !s.cp.fileIdx(*m.Idx) { // P28a: etkin yazdırmanın idx'i
+		if s.serverMode() || !s.cp.fileIdx(*m.Idx) { // P28b: SERVER'da DC dosyası yok; P28a: etkin yazdırmanın idx'i
 			if b, err := dc.FileReply("file.reject", m.FID); err == nil && s.peer != nil {
 				_ = s.peer.SendCtl(b)
 			}

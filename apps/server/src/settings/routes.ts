@@ -15,6 +15,12 @@ import {
   type WhatsappAdminTestResponse,
   type WhatsappSettingsView,
 } from "@remote/contracts/api/system-settings";
+import {
+  clamavSettingsInputSchema,
+  clamavTestInputSchema,
+  type ClamavSettingsView,
+  type ClamavTestResponse,
+} from "@remote/contracts/api/clamav";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import { auditContext } from "../audit/service.ts";
 import { authOf, requireAuth, requirePerm, requireStepUp, requireSuperAdmin, tenantScope } from "../auth/guards.ts";
@@ -33,6 +39,7 @@ import {
 } from "./system.ts";
 import { deleteWhatsappSettings, effectiveWhatsappTarget, getWhatsappSettings, saveWhatsappSettings, testWhatsapp } from "./whatsapp.ts";
 import type { ProbeResult, ProbeTarget } from "./mysql-probe.ts";
+import { CLAMAV_TEST_LIMIT, getClamavSettings, saveClamavSettings, testClamav } from "./clamav.ts";
 
 const noStore = async (_req: unknown, reply: { header(k: string, v: string): unknown }) => {
   void reply.header("Cache-Control", "no-store");
@@ -157,6 +164,21 @@ export async function adminSettingsRoutes(
   app.post("/whatsapp/test", async (req): Promise<WhatsappAdminTestResponse> => {
     const { phoneNumber } = parseInput(whatsappAdminTestInputSchema, req.body);
     return testWhatsapp(d, auditContext(req), authOf(req), phoneNumber, waTestLimits, app.whatsapp);
+  });
+
+  // P28b (mimari-p28b §4, AC-353): ClamAV hedefi — PUT step-up + hedef kuralı; test 6/dk/kullanıcı. DELETE yok (K4 kararı).
+  const av = app.fsrv.clamav;
+  const avTestLimit = new FixedWindowCounter(CLAMAV_TEST_LIMIT, 60_000, 60_000);
+  app.addHook("onClose", async () => avTestLimit.close());
+  app.get("/clamav", async (): Promise<ClamavSettingsView> => getClamavSettings(av));
+  app.put("/clamav", stepUp, async (req): Promise<ClamavSettingsView> => {
+    const input = parseInput(clamavSettingsInputSchema, req.body);
+    writeGuard(req);
+    return saveClamavSettings(av, auditContext(req), authOf(req), input);
+  });
+  app.post("/clamav/test", async (req): Promise<ClamavTestResponse> => {
+    const input = parseInput(clamavTestInputSchema, req.body ?? {});
+    return testClamav(av, auditContext(req), authOf(req), input, avTestLimit, () => new Date(app.fsrv.service.d.clock.now()));
   });
 }
 

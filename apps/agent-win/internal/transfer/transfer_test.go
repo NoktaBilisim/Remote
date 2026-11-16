@@ -367,3 +367,39 @@ func TestAC54FullBytesWrongSHAImmediateCorrupt(t *testing.T) {
 		t.Fatal("bayt tamken bekleme olmamalı")
 	}
 }
+
+func TestAC355P28bStreamCommitAndCorrupt(t *testing.T) {
+	dir := t.TempDir()
+	m := New(Deps{Dir: dir, MaxBytes: 100, MOTW: func(string) error { return nil }})
+	data := []byte("merhaba")
+	sum := sha256.Sum256(data)
+	s, err := m.OpenStream("a.txt", int64(len(data)), hex.EncodeToString(sum[:]))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.Write(data); err != nil {
+		t.Fatal(err)
+	}
+	if r := s.Commit(); r.Status != "OK" || r.Path != filepath.Join(dir, "a.txt") {
+		t.Fatalf("%+v", r)
+	}
+	if got, _ := os.ReadFile(filepath.Join(dir, "a.txt")); string(got) != "merhaba" {
+		t.Fatal("içerik")
+	}
+	// Bozuk SHA → CORRUPT, `.part` kalmaz; fazla bayt yazımı reddedilir.
+	s, _ = m.OpenStream("a.txt", 3, hex.EncodeToString(sum[:]))
+	if _, err := s.Write([]byte("abcd")); err == nil {
+		t.Fatal("boyut aşımı kabul edildi")
+	}
+	_, _ = s.Write([]byte("abc"))
+	if r := s.Commit(); r.Status != "CORRUPT" {
+		t.Fatalf("%+v", r)
+	}
+	ents, _ := os.ReadDir(dir)
+	if len(ents) != 1 {
+		t.Fatalf("iz kaldı: %v", ents)
+	}
+	if _, err := m.OpenStream("b.txt", 101, ""); err == nil {
+		t.Fatal("sınır üstü açıldı")
+	}
+}

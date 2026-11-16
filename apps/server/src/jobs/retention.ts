@@ -20,6 +20,8 @@ import { purgeExpiredBlocks } from "../requests/blocks.ts";
 import { deleteExpired as deleteExpiredTrustedDevices } from "../auth/trusted-device-repo.ts";
 import { REQUEST_BLOCK_EXPIRED_RETENTION_DAYS } from "@remote/contracts/api/request-blocks";
 import * as repo from "./retention-repo.ts";
+import { fsrvExpire, reconcile, removeSessionFiles, tenantsWithExpired } from "./retention-fsrv.ts";
+import { refreshStorageGauges, type FsrvRuntime } from "../fsrv/wiring.ts";
 import { deleteOldRegistrationCodes, deleteRevokedDevices } from "./unattended-cleanup.ts";
 import { isPurgeKey, KINDS, sum, zeroGlobal, zeroTenant, candidateName, type GlobalCounts, type TenantCounts } from "./retention-counts.ts";
 
@@ -58,8 +60,13 @@ export class RetentionJob {
   readonly purgeMode: PurgeMode;
 
   /** `opts.purgeMode` yalnız testler için; varsayılan env `RETENTION_PURGE_MODE` (varsayılanı `dry`). */
-  constructor(svc: RequestService, opts: { purgeMode?: PurgeMode } = {}) {
+  /** P28b: saklanan dosya hattı (yoksa dosya adımları atlanır). */
+  private readonly fsrv: FsrvRuntime | undefined;
+  private expiring = new Set<string>();
+
+  constructor(svc: RequestService, opts: { purgeMode?: PurgeMode; fsrv?: FsrvRuntime } = {}) {
     this.svc = svc;
+    this.fsrv = opts.fsrv;
     this.purgeMode = opts.purgeMode ?? svc.d.env.RETENTION_PURGE_MODE;
     const m = svc.d.metrics;
     m.gauge(
@@ -112,7 +119,10 @@ export class RetentionJob {
     const totals = { ...zeroTenant(), ...zeroGlobal() };
     this.failures = { db_signal: 0, audit: 0, other: 0 };
     const tenants = await rrepo.retentionTenants(this.svc.d.db);
+    // P28b: süresi dolan saklanan dosyası olan firmalar tek sorguyla (her firmada ek sorgu yok).
+    this.expiring = this.fsrv ? await tenantsWithExpired(this.svc.d.db, now) : new Set();
     for (const t of tenants) await this.runTenant(t, now, ctx, totals);
+    if (this.fsrv) await refreshStorageGauges(this.svc.d.db, this.fsrv).catch(() => undefined);
     await this.runGlobal(now, ctx, totals);
     const failures = this.recordMetrics(totals);
     this.svc.refreshCustomersGauge();
@@ -130,6 +140,7 @@ export class RetentionJob {
     let failed = false;
     try {
       if (await this.skipTenant(t.tenantId)) return;
+      if (this.fsrv && this.expiring.has(t.tenantId)) c.filesExpired += await fsrvExpire(this.svc.d.db, this.fsrv, t.tenantId, now, ctx);
       await this.tenantSteps(t, now, c);
     } catch (err) {
       failed = true;
@@ -208,10 +219,13 @@ export class RetentionJob {
     c.blocks += await purgeExpiredBlocks(svc.d.db, t.tenantId, new Date(now.getTime() - REQUEST_BLOCK_EXPIRED_RETENTION_DAYS * DAY_MS));
     const cutoff = new Date(now.getTime() - t.retentionDays * DAY_MS);
     for (;;) {
-      const r = await repo.anonymizeSessionBatch(svc.d.db, t.tenantId, cutoff, SESSION_BATCH);
+      const fsrv = this.fsrv;
+      const beforeTx = fsrv ? (ids: string[]) => removeSessionFiles(svc.d.db, fsrv.store, t.tenantId, ids) : undefined;
+      const r = await repo.anonymizeSessionBatch(svc.d.db, t.tenantId, cutoff, SESSION_BATCH, beforeTx);
       c.sessions += r.sessions;
       c.consents += r.consents;
       c.files += r.files;
+      c.storedFiles += r.storedFiles;
       if (r.selected < SESSION_BATCH) break;
     }
     await this.purgeAnonymized(t.tenantId, c);
@@ -238,8 +252,10 @@ export class RetentionJob {
       c.purgedBindings += r.bindings;
       if (r.selected < repo.PURGE_BATCH) break;
     }
+    const fsrv = this.fsrv;
+    const beforeTx = fsrv ? (ids: string[]) => removeSessionFiles(db, fsrv.store, tenantId, ids) : undefined;
     for (;;) {
-      const r = await repo.purgeSessionsBatch(db, tenantId, repo.PURGE_BATCH);
+      const r = await repo.purgeSessionsBatch(db, tenantId, repo.PURGE_BATCH, beforeTx);
       c.purgedSessions += r.sessions;
       c.purgedConsents += r.consents;
       c.purgedFiles += r.files;
@@ -266,6 +282,12 @@ export class RetentionJob {
     g.unattendedRegistrations = await drain((n) => deleteOldRegistrationCodes(db, now, n));
     g.unattendedDevices = await drain((n) => deleteRevokedDevices(db, now, n));
     // S16-10: DONE/CANCELLED firma silme iş satırları 730 g sonra (DB saati; tetikleyici aynı sınırı uygular).
+    if (this.fsrv) {
+      const f = await reconcile(db, this.fsrv, now);
+      g.fsrvOrphanFiles = f.orphanFiles;
+      g.fsrvMissing = f.missing;
+      g.fsrvStale = f.stale;
+    }
     g.purgedJobs = this.purgeMode === "dry" ? await repo.countOldPurgeJobs(db) : await drain((n) => repo.deleteOldPurgeJobs(db, n));
   }
 }

@@ -42,6 +42,9 @@ type printJob struct {
 	stop    func() bool
 	cancel  context.CancelFunc
 	busy    bool // goroutine tamponu kullanıyor; sıfırlama dönüş kapanışında
+	// P28b sunucu kaynağı: teklifin fid'i, indirme belirteci (yalnız bellek; loglanmaz), alınan bayt.
+	fid, token string
+	got        int64
 }
 
 func noStop() bool { return false }
@@ -61,7 +64,7 @@ func (c *clipPrint) onPrintRequest(m signal.PrintRequest) {
 	reject := func(result string) { c.dropped++; c.printReport(m.PID, "NONE", result, 0, 0) }
 	name, hasPrinter := "", false
 	switch {
-	case !c.remember(m.PID) || !c.d.hasCap(capPrint):
+	case !c.remember(m.PID) || !c.printCap():
 		reject("ERROR")
 		return
 	case c.print != nil || c.d.filesBusy(): // yön başına tek aktarım (§4.4)
@@ -95,7 +98,9 @@ func (c *clipPrint) onPrintRequest(m signal.PrintRequest) {
 func (c *clipPrint) onPrintOffer(m dc.Ctl) {
 	j := c.print
 	switch {
-	case j == nil || m.PID != j.pid:
+	case c.server && j != nil && m.PID == j.pid: // P28b §5.4: SERVER modunda DC print.offer reddedilir
+		c.finishPrint("ERROR")
+	case c.server || j == nil || m.PID != j.pid:
 		c.dropped++
 	case j.stage != psWaitOffer: // pid başına tek offer (O-P28a-2 m.1)
 		c.finishPrint("ERROR")
@@ -145,19 +150,34 @@ func (c *clipPrint) onPrintDone(pid string) {
 	case j == nil || pid != j.pid:
 		c.dropped++
 		return
-	case j.stage != psReceiving || !j.rx.Verify(j.sha):
+	case j.stage != psReceiving:
 		c.finishPrint("ERROR")
 		return
-	case !bytes.HasPrefix(j.buf, []byte(dc.PDFMagic)):
-		c.finishPrint("INVALID_PDF")
-		return
 	}
-	j.owns, j.stage = false, psInspecting
+	j.owns = false
+	buf, _ := c.src.Fetch(c.ctx, j) // DC kaynağı: toplanan tampon (engellemez)
+	c.acceptPDF(j, buf)
+}
+
+// acceptPDF ortak doğrulama (iki kaynak; mimari-p28b §8 "arayüzün arkasında değil"): boyut = yetkilenen boyut, SHA-256 =
+// teklifteki, `%PDF-` öneki. Geçerse tampon donar (inceleme, diyalog ve basma aynı dilimi kullanır) ve inceleme başlar.
+func (c *clipPrint) acceptPDF(j *printJob, buf []byte) bool {
+	j.buf, j.got = buf, int64(len(buf))
+	switch {
+	case j.got != j.size || !sha256Equal(buf, j.sha):
+		c.finishPrint("ERROR")
+		return false
+	case !bytes.HasPrefix(buf, []byte(dc.PDFMagic)):
+		c.finishPrint("INVALID_PDF")
+		return false
+	}
+	j.stage = psInspecting
 	pdf, p := j.buf, c.d.printer
 	c.async(j, func(ctx context.Context) func() {
 		pages, err := p.Inspect(ctx, pdf)
 		return func() { c.onInspected(j, pages, err) }
 	})
+	return true
 }
 
 // async op'u ayrı goroutine'de çalıştırır; sonuç kapanışı yalnız iş hâlâ güncelse uygulanır, değilse tampon sıfırlanır.
@@ -248,7 +268,7 @@ func (c *clipPrint) finishPrint(result string) {
 
 func (c *clipPrint) finishPrintAs(decision, result string, closePrompt bool) {
 	j := c.print
-	size := int64(0)
+	size := min(j.got, j.size)
 	if j.rx != nil {
 		size = min(j.rx.Bytes(), j.size)
 	}

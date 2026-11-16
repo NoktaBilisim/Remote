@@ -2,9 +2,18 @@
 // /api dışında olduğu için Caddy bu yolları dışarı açmaz (mimari-api.md "Operasyon").
 import type { FastifyInstance } from "fastify";
 import { AppError } from "../lib/errors.ts";
+import { effectiveClamav } from "../settings/clamav.ts";
 
 export async function healthRoutes(app: FastifyInstance): Promise<void> {
-  app.get("/health", async () => ({ status: "ok" }));
+  // P28b (K-P28b-14): clamd durumu yalnız gövdede; HTTP durumu değişmez, `/ready` clamd'a bakmaz.
+  app.get("/health", async () => {
+    const f = app.fsrv;
+    const configured = (await effectiveClamav(f.clamav).catch(() => null)) !== null;
+    return {
+      status: "ok",
+      clamav: { configured, reachable: f.scanner.up === 1, signatureAgeDays: f.scanner.signatureAgeDays(), stale: f.scanner.stale },
+    };
+  });
 
   app.get("/ready", async (req) => {
     let rows: { migration_name: string }[];

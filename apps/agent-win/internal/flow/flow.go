@@ -185,6 +185,9 @@ type Deps struct {
 	Clipboard   Clipboard
 	Printer     Printer
 	ClipPrintUI ClipPrintUI
+	// P28b (mimari-p28b §8): sunucu üzerinden dosya. İkisi de bağlıysa ve gözetimsiz değilse `rs.cap.fsrv1` bildirilir.
+	FileServer   FileServer
+	FileServerUI FileServerUI
 	// Admitted P8b-2: ilk `hello` geldiğinde bir kez çağrılır (talep modu `/ws/request`'i 1000 ile ancak bundan sonra
 	// kapatır; öncesindeki 1000 sunucuda "vazgeçme" sayılır). nil olabilir.
 	Admitted func()

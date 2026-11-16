@@ -44,6 +44,19 @@ head -c 2097152 /dev/urandom >"$TMP/img2m"; head -c 3200000 /dev/urandom >"$TMP/
 post443() { curl -sk $R -o /dev/null -w '%{http_code}' -X POST -F "file=@$1;type=image/png" "https://remote.noktabilisim.net:$H443$2"; }
 [ "$(post443 "$TMP/img2m" /api/v1/users/me/avatar)" = 502 ] && pass "2 MiB yükleme nginx'ten geçer" || fail "2 MiB yükleme nginx'te kesildi"
 [ "$(post443 "$TMP/img3m" /api/v1/users/me/avatar)" = 413 ] && pass "3,2 MB → 413" || fail "3,2 MB 413 değil"
+# D-P28b-4 / T14 (P28b K6): gövde host diskine yazılmaz. nginx geçici gövde dosyasını açar açmaz unlink ettiği için "dizin boş"
+# denetimi ayırt etmez; bunun yerine geçici dizin yazılamaz yapılır: gövde bellekte kalıyorsa istek upstream'e ulaşır (502),
+# diske tamponlanıyorsa nginx 500 döner. 2 MiB multipart (P12) ve 1 MiB PUT (P28b dosya parçası) denenir.
+TD="$(docker exec "$C" nginx -T 2>/dev/null | awk '$1=="client_body_temp_path"{gsub(";","",$2);print $2; exit}')"
+TD="${TD:-/var/cache/nginx/client_temp}"
+docker exec "$C" sh -c "mkdir -p '$TD' && chmod 0500 '$TD'"
+head -c 1048576 /dev/urandom >"$TMP/chunk1m"
+[ "$(post443 "$TMP/img2m" /api/v1/users/me/avatar)" = 502 ] && pass "2 MiB gövde diske yazılmadan iletildi (temp yazılamazken 502)" \
+  || fail "2 MiB gövde geçici dosyaya tamponlanıyor (client_body_buffer_size 3m server düzeyinde mi?)"
+CODE="$(curl -sk $R -o /dev/null -w '%{http_code}' -X PUT -H 'Content-Type: application/octet-stream' -H 'Authorization: Bearer gizlibelirtec' \
+  --data-binary "@$TMP/chunk1m" "https://remote.noktabilisim.net:$H443/api/v1/fsrv/uploads/01HFSRVTEST/chunks/0")"
+[ "$CODE" = 502 ] && pass "1 MiB fsrv parçası diske yazılmadan iletildi (502)" || fail "1 MiB fsrv parçası → $CODE (diske tamponlanıyor?)"
+docker exec "$C" sh -c "find '$TD' -type f | wc -l" | grep -qx 0 && pass "geçici gövde dizini boş" || fail "geçici gövde dizininde dosya var"
 sleep 0.5
 docker exec "$C" cat /var/log/nginx/remote.access.log >"$TMP/access.log"
 U="$(grep -o '"uri":"[^"]*"' "$TMP/access.log" | sort | uniq -c)"
@@ -51,7 +64,7 @@ echo "$U"
 for want in '/downloads/NoktaDestek-***' '/x/NoktaDestek-***' '/downloads/NoktaDestek.exe' '/downloads/Destek-***' '/session/***/x'; do
   grep -qF "\"uri\":\"$want\"" "$TMP/access.log" && pass "uri $want" || fail "uri $want yok"
 done
-for s in "$REF" DemoFirma Ikinci 12345678 TOKENGIZLI gizli 'x=1'; do
+for s in "$REF" DemoFirma Ikinci 12345678 TOKENGIZLI gizli 'x=1' gizlibelirtec; do
   if grep -q -- "$s" "$TMP/access.log"; then fail "logda '$s' var"; else pass "logda '$s' yok"; fi
 done
 echo

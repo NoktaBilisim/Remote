@@ -14,6 +14,8 @@ interface SessionBatchResult {
   sessions: number;
   consents: number;
   files: number;
+  /** P28b: aynı TX'te silinen `session_stored_files` satırları. */
+  storedFiles: number;
 }
 
 /**
@@ -21,16 +23,26 @@ interface SessionBatchResult {
  * kayıtlarının ip/user_agent'ı NULL → oturumun kişisel alanları NULL + anonymized_at. Son UPDATE `anonymized_at IS NULL`
  * koşullu (eşzamanlı ikinci tur 0 satır sayar). Onay kararı, seviye, kaynak, metin sürümü/özeti kalır (KVKK kanıtı).
  */
-export async function anonymizeSessionBatch(db: Db, tenantId: string, cutoff: Date, limit: number): Promise<SessionBatchResult> {
+export async function anonymizeSessionBatch(
+  db: Db,
+  tenantId: string,
+  cutoff: Date,
+  limit: number,
+  beforeTx?: (sessionIds: string[]) => Promise<void>,
+): Promise<SessionBatchResult> {
+  const candidates = {
+    where: { tenantId, anonymizedAt: null, createdAt: { lt: cutoff }, status: { in: [...FINISHED_STATUSES] } },
+    orderBy: [{ createdAt: "asc" as const }, { id: "asc" as const }],
+    take: limit,
+    select: { id: true },
+  };
+  // P28b (§3.3): saklanan dosyaların diski TX'ten ÖNCE silinir (TX geri alınırsa satır CLEAN kalır → mutabakat EXPIRED yapar).
+  if (beforeTx) await beforeTx((await db.supportSession.findMany(candidates)).map((r) => r.id));
   return db.$transaction(async (tx) => {
-    const rows = await tx.supportSession.findMany({
-      where: { tenantId, anonymizedAt: null, createdAt: { lt: cutoff }, status: { in: [...FINISHED_STATUSES] } },
-      orderBy: [{ createdAt: "asc" }, { id: "asc" }],
-      take: limit,
-      select: { id: true },
-    });
-    if (rows.length === 0) return { selected: 0, sessions: 0, consents: 0, files: 0 };
+    const rows = await tx.supportSession.findMany(candidates);
+    if (rows.length === 0) return { selected: 0, sessions: 0, consents: 0, files: 0, storedFiles: 0 };
     const ids = rows.map((r) => r.id);
+    const stored = await tx.sessionStoredFile.deleteMany({ where: { tenantId, sessionId: { in: ids } } });
     const files = await tx.sessionFile.deleteMany({ where: { tenantId, sessionId: { in: ids } } });
     const consents = await tx.sessionConsent.updateMany({
       where: { tenantId, sessionId: { in: ids }, OR: [{ ip: { not: null } }, { userAgent: { not: null } }] },
@@ -43,7 +55,7 @@ export async function anonymizeSessionBatch(db: Db, tenantId: string, cutoff: Da
           anonymized_at = UTC_TIMESTAMP(3)
       WHERE tenant_id = ${tenantId} AND id IN (${Prisma.join(ids)}) AND anonymized_at IS NULL
         AND status IN (${Prisma.join([...FINISHED_STATUSES])})`;
-    return { selected: rows.length, sessions, consents: consents.count, files: files.count };
+    return { selected: rows.length, sessions, consents: consents.count, files: files.count, storedFiles: stored.count };
   }, REQUEST_TX_OPTIONS);
 }
 
@@ -119,22 +131,38 @@ interface PurgeSessionsResult {
   requests: number;
 }
 
+type RawQuery = Pick<Db, "$queryRaw">;
+
+/** Adım 2 adayları (TX içinde ve diskin TX'ten önce silinmesi için aynı koşul). */
+function purgeSessionCandidates(q: RawQuery, tenantId: string, limit: number) {
+  return q.$queryRaw<{ id: string; request_id: string | null }[]>`SELECT s.id, s.request_id FROM support_sessions s
+    WHERE s.tenant_id = ${tenantId} AND s.anonymized_at < ${PURGE_CUT}
+      AND NOT EXISTS (SELECT 1 FROM device_bindings b WHERE b.first_session_id = s.id AND b.tenant_id = s.tenant_id)
+      AND NOT EXISTS (SELECT 1 FROM device_bindings b WHERE b.last_session_id = s.id AND b.tenant_id = s.tenant_id)
+    ORDER BY s.anonymized_at
+    LIMIT ${limit}`;
+}
+
 /**
  * Adım 2 (S*): `anonymized_at < cut` olan ve hiçbir kaydın `first/last_session_id`'si olmayan oturumlar. Sıra
  * `session_files` → `session_consents` (tetikleyici üst oturumu okur; oturumdan ÖNCE) → `support_sessions` → bağlı
  * talepler (`anonymized_at < cut`, başka oturum/onay başvurusu yok).
  */
-export async function purgeSessionsBatch(db: Db, tenantId: string, limit: number): Promise<PurgeSessionsResult> {
+export async function purgeSessionsBatch(
+  db: Db,
+  tenantId: string,
+  limit: number,
+  beforeTx?: (sessionIds: string[]) => Promise<void>,
+): Promise<PurgeSessionsResult> {
+  // P28b K8 (QA m.1): savunma amaçlı silinen saklanan dosya satırlarının diski TX'ten ÖNCE silinir (anonimleştirmeyle aynı yön).
+  if (beforeTx) await beforeTx((await purgeSessionCandidates(db, tenantId, limit)).map((r) => r.id));
   return db.$transaction(async (tx) => {
-    const rows = await tx.$queryRaw<{ id: string; request_id: string | null }[]>`SELECT s.id, s.request_id FROM support_sessions s
-      WHERE s.tenant_id = ${tenantId} AND s.anonymized_at < ${PURGE_CUT}
-        AND NOT EXISTS (SELECT 1 FROM device_bindings b WHERE b.first_session_id = s.id AND b.tenant_id = s.tenant_id)
-        AND NOT EXISTS (SELECT 1 FROM device_bindings b WHERE b.last_session_id = s.id AND b.tenant_id = s.tenant_id)
-      ORDER BY s.anonymized_at
-      LIMIT ${limit}`;
+    const rows = await purgeSessionCandidates(tx, tenantId, limit);
     if (rows.length === 0) return { selected: 0, sessions: 0, consents: 0, files: 0, requests: 0 };
     const ids = Prisma.join(rows.map((r) => r.id));
-    const files = await tx.$executeRaw`DELETE FROM session_files WHERE tenant_id = ${tenantId} AND session_id IN (${ids})`;
+    // P28b (§3.3): stored_files → files → consents → sessions (anonimleştirme zaten sildi; savunma — sayı `files`'a eklenir).
+    const stored = await tx.$executeRaw`DELETE FROM session_stored_files WHERE tenant_id = ${tenantId} AND session_id IN (${ids})`;
+    const files = stored + (await tx.$executeRaw`DELETE FROM session_files WHERE tenant_id = ${tenantId} AND session_id IN (${ids})`);
     const consents = await tx.$executeRaw`DELETE FROM session_consents WHERE tenant_id = ${tenantId} AND session_id IN (${ids})`;
     const sessions = await tx.$executeRaw`DELETE FROM support_sessions
       WHERE tenant_id = ${tenantId} AND id IN (${ids}) AND anonymized_at < ${PURGE_CUT}`;

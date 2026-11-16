@@ -18,6 +18,7 @@ import (
 	"remote-support/agent-win/internal/env"
 	"remote-support/agent-win/internal/files"
 	"remote-support/agent-win/internal/flow"
+	"remote-support/agent-win/internal/fsrv"
 	"remote-support/agent-win/internal/input"
 	"remote-support/agent-win/internal/launch"
 	"remote-support/agent-win/internal/remember"
@@ -177,11 +178,14 @@ func (a *app) flowDeps(client *api.Client, u *ui.UI, opener capture.Opener, appl
 		SelfElevated: a.elevated, // K8: env.state.selfElevated (GRANTED audit'i, konsol rozeti)
 		ClipPrintUI:  u,
 		Printer:      clipprint.NewPrinter(a.exe), // işleyici `exe --pdf-isleyici` (kısıtlı süreç, iş başına)
+		// P28b (mimari-p28b §8): sunucu üzerinden dosya — aynı kök + TLS/proxy taşıyıcısı, belirteç yalnız Bearer.
+		FileServer:   fsrv.New(cfg.ServerURL, client.HTTPClient(), cfg.Version),
+		FileServerUI: u,
 	}
 	if c := a.clipboard(); c != nil {
 		d.Clipboard = c
 	}
-	// P28a (mimari-p28 §4.2): yalnız bağlı özellikler (Clipboard/Printer + ClipPrintUI, K4/K5) bildirilir.
+	// P28a (mimari-p28 §4.2): yalnız bağlı özellikler (Clipboard/Printer + ClipPrintUI, K4/K5) bildirilir; P28b: + fsrv.
 	features := flow.Features(d)
 	d.Dial = func(ctx context.Context, cred signal.Credential) (flow.Conn, error) {
 		return signal.Dial(ctx, client.HTTPClient(), cfg.ServerURL, cred, features)

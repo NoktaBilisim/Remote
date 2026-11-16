@@ -156,6 +156,14 @@ export const ROUTE_CLASSES: Record<string, RouteClass> = {
   "PUT /api/v1/admin/settings/whatsapp": "system",
   "DELETE /api/v1/admin/settings/whatsapp": "system",
   "POST /api/v1/admin/settings/whatsapp/test": "system",
+  // P28b (AC-353): ClamAV ayarı (DELETE yok)
+  "GET /api/v1/admin/settings/clamav": "system",
+  "PUT /api/v1/admin/settings/clamav": "system",
+  "POST /api/v1/admin/settings/clamav/test": "system",
+  // P28b (§4): bayt uçları çerezsiz, yalnız Bearer belirteç (fid + tenant + oturum bağlı; izolasyon fsrv-p28b-files "D-P28b-2")
+  "PUT /api/v1/fsrv/uploads/:fid/chunks/:n": "public",
+  "GET /api/v1/fsrv/files/:fid/content": "public",
+  "POST /api/v1/sessions/:id/stored-files/:fid/link": "tenant",
   "GET /api/v1/settings/consent-text": "scoped",
   "PUT /api/v1/settings/consent-text": "scoped",
   // P12 marka (izolasyon: branding-api-p12.test.ts "AC-84"); logo dosyaları ve marka ucu kimliksiz (yalnız logo)
@@ -291,6 +299,10 @@ export const CROSS_TENANT_CASES: CrossTenantCase[] = [
     stepUp: true,
   },
   { route: "GET /api/v1/sessions/:id", request: (fx) => ({ method: "GET", url: `/api/v1/sessions/${fx.a.sessionId}` }) },
+  {
+    route: "POST /api/v1/sessions/:id/stored-files/:fid/link",
+    request: (fx) => ({ method: "POST", url: `/api/v1/sessions/${fx.a.sessionId}/stored-files/${newId()}/link` }),
+  },
   { route: "POST /api/v1/sessions/:id/cancel", request: (fx) => ({ method: "POST", url: `/api/v1/sessions/${fx.a.sessionId}/cancel` }) },
   {
     route: "POST /api/v1/sessions/:id/terminate",

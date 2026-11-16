@@ -59,6 +59,8 @@ type UI struct {
 	elevated bool
 	// windowShare AC-248: müşteri "Yalnız bir pencere" seçti (gösterge metni, işaretleme katmanı yok).
 	windowShare bool
+	// fileServer P28b: oturumun dosya modu SERVER (ilk hello'da bir kez; oturum penceresinde AC-363 satırı).
+	fileServer bool
 	// P28a yazdırma onay diyaloğu (print_windows.go) ve onun pid'i.
 	printDlg *consentDlg
 	printPID string

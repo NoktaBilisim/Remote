@@ -5,6 +5,58 @@ Biçim [Keep a Changelog](https://keepachangelog.com/tr/1.1.0/), sürümleme [Se
 
 ## [Unreleased]
 
+### Eklendi — P28b sunucuda dosya aktarımı + ClamAV + depolama kotası, istemci 0.14.0 (AC-353..363, AC-284)
+
+- **Ayarlar > Dosyalar** (Admin): "Dosyaları sunucu üzerinden aktar ve virüs tara" anahtarı (varsayılan kapalı), teslim
+  edilen dosyalar için saklama süresi 1–7 gün (varsayılan 1), açarken zorunlu "Aydınlatma metnimi … güncelledim" kutusu ve
+  "Kullanım: x / y" depolama çubuğu. Son ClamAV testi başarılı değilse anahtar açılamaz (409 `AV_NOT_READY`).
+- **Sunucu modu:** mod oturum açılışında sabitlenir. Açıkken o oturumdaki tüm dosya aktarımları ve uzaktan yazdırma sunucu
+  yolundan geçer: 1 MiB parçalı HTTPS yükleme → dosya başına anahtarla AES-256-GCM şifreli saklama → ClamAV tarama → yalnız
+  temiz dosya mevcut kabul diyaloğuyla teklif edilir. DataChannel dosya kanalı iki uçta reddedilir. Tek dosya ≤ 256 MiB,
+  oturum ≤ 2 GiB, yazdırma belgesi ≤ 20 MiB. Konsol ve müşteri dosya alanında "Dosyalar sunucuda virüs taramasından geçer; bu
+  modda uçtan uca şifreli değildir" satırı.
+- Durum metinleri: "Yükleniyor %n", "Virüs taraması yapılıyor", "Dosya virüslü bulundu (<imza>), teslim edilmedi", "Dosya
+  taranamadı, teslim edilmedi: <neden>" (şifreli arşiv, boyut sınırı, zaman aşımı, servise ulaşılamadı), "Virüs tarama servisi
+  yoğun, dosya teslim edilmedi", "Firma depolama kotası doldu", "Bu oturumda sunucu üzerinden en çok 2 GB aktarılabilir".
+- **Sistem ayarları > Virüs tarama (ClamAV)** (Super Admin): sunucu/port (step-up), "Bağlantıyı Test Et" (PING + EICAR +
+  şifreli zip + sürüm + imza tarihi), imza 3 günden eskiyse uyarı bandı. Hedef yalnız `CLAMAV_ALLOWED_CIDR` içinde olabilir
+  (`HOST_NOT_ALLOWED`).
+- **Firma depolama kotası** (Super Admin, Firmalar > Düzenle): 1–2000 GB, varsayılan 20 GB; disk boş alanı %10 altında tüm
+  yüklemeler reddedilir (`STORAGE_QUOTA`).
+- **Oturum geçmişi > Sunucudaki dosyalar:** teslim edilmiş dosyalar saklama süresi içinde ≤ 5 dk geçerli belirteçle yeniden
+  indirilir (`session_history.view` + `file_transfer.use`); yazdırma belgesi ve teslim edilmeyen dosyalar saklanmaz.
+- Yeni REST uçları `PUT /api/v1/fsrv/uploads/:fid/chunks/:n`, `GET /api/v1/fsrv/files/:fid/content`,
+  `POST /api/v1/sessions/:id/stored-files/:fid/link`, `GET/PUT /api/v1/admin/settings/clamav`,
+  `POST /api/v1/admin/settings/clamav/test`; mevcut uçlara ek alanlar (`settings/tenant`, `admin/tenants/:id`,
+  `sessions/:id/history`, `/health`). WS `fsrv.*` mesajları, yetenek belirteci `rs.cap.fsrv1` (`docs/api.md` "P28b").
+- Yeni audit eylemleri `settings.clamav`, `settings.clamav.test`, `tenant.storage_quota`, `file.upload`, `file.scan`,
+  `file.infected`, `file.download`, `file.expired`; dosya adı ve belirteç yazılmaz.
+- Metrikler `rs_av_scan_total{result}`, `rs_av_up`, `rs_av_selftest_ok`, `rs_av_signature_age_seconds`; `remote-watch`
+  alarmları `av-up`, `av-selftest`, `av-signature-age`, `av-scan-failed` (runbook §28b.4).
+- Docker Compose: yeni `clamav` (clamd, çıkışsız `av` iç ağı, port yayımlanmaz, salt okunur imza DB'si) ve `clamav-update`
+  (freshclam, günde 6 güncelleme) servisleri; volume `stored_files`, `clamav_db`; ikinci yığında `av` profili. Yeni env
+  `FILES_DIR`, `CLAMAV_HOST`, `CLAMAV_PORT`, `CLAMAV_ALLOWED_CIDR`, `AV_SUBNET`. Migration `20261123000000_p28b_stored_files`.
+- Windows istemci 0.14.0: sunucu modunda dosya ve yazdırma belgesini sunucudan indirir; bu modda yalnız alıcıdır (müşteriden
+  gönderme düğmesi yok).
+- ADR-0032 (sunucu dosya deposu + ClamAV).
+
+### Değişti — P28b
+
+- Saklama: teslim edilen dosyalar süre dolunca 03:30 işinde, oturum anonimleştirme ve kalıcı silmede diskten silinir.
+  Saklanan dosyalar yedeğe girmez (yedekten dönüşte "süresi doldu" görünür).
+- Gözetimsiz oturumda, firma sunucu modundaysa dosya aktarımı kapalıdır.
+- Sunucu modundaki firmada 0.14'ten eski Windows istemcide dosya ve yazdırma kapalıdır; teknisyen güncelleme metnini görür.
+- DATASHEET ve kılavuzdaki "dosya içeriği sunucudan geçmez" ifadesi iki moda göre düzeltildi (AC-363).
+
+### Güvenlik — P28b
+
+- Fail-closed: tarama servisi erişilemez, 60 sn aşımı, şifreli arşiv ya da boyut sınırı → dosya teslim edilmez; virüslü dosya
+  hemen silinir, iki tarafa ≤ 5 sn'de bildirilir.
+- Belirteçler yalnız `Authorization: Bearer` başlığında (URL'de değil), SHA-256 ile tutulur; indirme ≤ 5 dk, başka
+  firma/oturum/dosya → tek tip 404, IP başına dakikada 60 404'ten sonra 429. İndirme yanıtı `Content-Security-Policy: sandbox`,
+  `nosniff`, `no-store`.
+- clamd yalnız `av` iç ağında; dış ağa port açılmaz, internete yalnız güncelleyici çıkar. Tarama geçici alanı swap'a düşmez.
+
 ### Eklendi — P28a pano paylaşımı ve uzaktan yazdırma, istemci 0.13.0 (AC-343..352, AC-404)
 
 - **Pano paylaşımı:** konsolda yeni "Pano ve yazdırma" bölümü. **Panoyu gönder** teknisyenin panosundaki düz metni müşterinin

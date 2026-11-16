@@ -131,6 +131,16 @@ export class SecretBox {
     return createHmac("sha256", this.macKey(v, purpose)).update(value, "utf8").digest();
   }
 
+  /**
+   * P28b (mimari-p28b §6, K-P28b-2): saklanan dosyanın anahtarı — `HKDF-SHA256(ana anahtar[ver], salt (dosya başlığı),
+   * "remote-support/stored-file/v1|<tenantId>|<fid>", 32)`. Ana anahtar dışarı verilmez; başka satıra taşınan dosya çözülemez.
+   */
+  deriveFileKey(ver: number, salt: Uint8Array, tenantId: string, fid: string): Buffer {
+    const base = this.keys.get(ver);
+    if (!base) throw new Error("şifreleme anahtarı sürümü bilinmiyor");
+    return Buffer.from(hkdfSync("sha256", base, salt, `remote-support/stored-file/v1|${tenantId}|${fid}`, 32));
+  }
+
   /** Tüm anahtar sürümleriyle özetler (doğrulama; rotasyondan önce yazılmış kayıtlar da eşleşir). */
   macCandidates(purpose: MacPurpose, value: string): string[] {
     return [...this.keys.keys()].map((v) => createHmac("sha256", this.macKey(v, purpose)).update(value, "utf8").digest("hex"));

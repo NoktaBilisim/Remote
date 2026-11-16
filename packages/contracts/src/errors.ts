@@ -83,6 +83,16 @@ export const ERROR_STATUS = {
   NOTIFY_CONTACT_REQUIRED: 409,
   /** P27 (AC-336, Y-P27-1): tenant SMTP kaydı yok — bağlantı ve kayıt kodu açılmaz. */
   NOTIFY_CHANNEL_UNAVAILABLE: 409,
+  /**
+   * P28b (AC-362, mimari-p28b §4): firma depolama kotası dolu ya da disk boş alanı %10'un altında — "Firma depolama kotası
+   * doldu" (`api/fsrv.ts` `STORAGE_QUOTA_MESSAGE`). Parça yüklemede (disk) ve ileride kayıt (P28e) uçlarında.
+   */
+  STORAGE_QUOTA: 409,
+  /**
+   * P28b (AC-354): Dosyalar ayarı açılırken son ClamAV testi başarılı değil — `fields.fileServerMode` "Önce virüs tarama
+   * bağlantısını başarıyla test edin" (`AV_NOT_READY_MESSAGE`).
+   */
+  AV_NOT_READY: 409,
   /** P27 (AC-273): kayıt kodu yok/kullanılmış/süresi dolmuş — tek gövde (oracle yok). */
   REGISTRATION_CODE_INVALID: 404,
   /** P12 (AC-84): yükleme 2 MB'ı aşıyor. */

@@ -1452,3 +1452,95 @@ Migration `20261122000000_link_send` (mimari-link-gonderme §3; AC-419, AC-420).
 - Test (2026-11-15, geçici `rs-lg1-*`, mysql 8.4.13, `--max-connections=300`, silindi): temiz up 26 migration, `migrate diff
 --exit-code` 0; `test/integration/lg-schema.test.ts` (CHECK/UNIQUE/çoklu NULL/koşullu artış/EXPLAIN) + P27 kod testleri geçti;
   down → P27 şemasına diff 0 → yeniden up → diff 0; tetikleyici 23; `check-app-grants.sh` PASS.
+
+## P28b — sunucuda dosya saklama: session_stored_files, dosya modu, saklama, kota, ClamAV ayarı (K1, 2026-11-16)
+
+Migration `apps/server/prisma/migrations/20261123000000_p28b_stored_files/{migration.sql,down.sql}` (mimari-p28b r2 §3.1–3.4, §13 K1,
+§r2; ADR-0032). Veri taşıma yok: yeni tablo boş, mevcut oturumlar `file_mode='P2P'`, firmalar mod kapalı / 1 gün / 20 GB alır.
+Seed değişmedi (varsayılanlar yeterli; seed bu şemada sorunsuz geçti).
+
+### Şema
+
+| Değişiklik                    | Ayrıntı                                                                                                                                                                                                                                                                     |
+| ----------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `session_stored_files` (yeni) | §3.1 kolonları birebir. Bileşik FK `(session_id, tenant_id) → support_sessions` RESTRICT; `tenants`'a doğrudan FK yok (mimari)                                                                                                                                              |
+| İndeks                        | IX(tenant_id, state) kota + firma silme; **IX(session_id, tenant_id, created_at)** (sapma: FK öneki — mimarideki (session_id, created_at) FK'yi karşılamaz, MySQL gizli indeks açardı); IX(state, expires_at) 03:30                                                         |
+| `support_sessions.file_mode`  | VARCHAR(10) NOT NULL DEFAULT 'P2P', `support_sessions_file_mode_chk` ikili P2P/SERVER                                                                                                                                                                                       |
+| `tenant_settings`             | `file_server_mode` BOOLEAN DEFAULT FALSE; `file_retention_days` TINYINT DEFAULT 1 + `tenant_settings_file_retention_chk` 1..7                                                                                                                                               |
+| `tenants.storage_quota_gb`    | SMALLINT DEFAULT 20 + `tenants_storage_quota_chk` 1..2000                                                                                                                                                                                                                   |
+| `system_settings` `clamav`    | `key_chk` += clamav; `system_settings_clamav_chk`: `{host, port, lastTest}` zorunlu, ek alan yok; host 1..253 `^[A-Za-z0-9][A-Za-z0-9.:-]*`; port 1..65535 tamsayı; `lastTest` null ya da `{ok, at, version?, dbDate?, message?}` (§7.3 `message` dahil); `secret_enc` NULL |
+
+CHECK'ler (`session_stored_files_*_chk`; mimarideki + daraltmalar): direction/purpose/state/scan_reason ikili; `size` 1..268435456 ve
+PRINT ≤ 20 MiB; `file_name` P5 sanitize kalıbı (+ DEL/Zl/Zp) ve PRINT ⇒ `belge.pdf`; `ext` `^[a-z0-9]{0,16}`; sha küçük hex; `storage_rel`
+`{tenant_id}/[A-Za-z0-9_-]{24}.rsf` (öndek = satırın tenant'ı), yalnız UPLOADING/SCANNING/CLEAN'de ve `deleted_at` NULL iken; `key_ver ≥ 1`;
+**scan_reason ⇔ SCAN_FAILED**; imza yalnız INFECTED + biçim; `uploaded_by_user_id` yalnız TO_CUSTOMER (26 karakter); **CLEAN/INFECTED/
+REJECTED/EXPIRED/DELETED taranmadan (`scanned_at` NULL) olmaz**; `delivered_at` yalnız CLEAN/EXPIRED/DELETED; `expires_at` yalnız teslimden
+sonra ve ≤ teslim + 7 g + 1 dk; **teslim edilmiş FILE+CLEAN satırında `expires_at` zorunlu** (aksi 03:30 işi dosyayı hiç silmezdi).
+Tüm sabit ikili enum CHECK sayısı 53 → 67 (`session-history-p8` meta-testi güncellendi).
+
+**K3 için:** `deleted_at` = disk dosyasının silindiği an (storage_rel NULL'lanırken yazılır). Durum geçişlerinde disk silme ile
+`storage_rel = NULL` (+ `deleted_at`) aynı UPDATE'te olmalı; CANCELLED/REJECTED/INFECTED/… `storage_rel` doluyken 3819 verir. CLEAN'e
+geçişte `scanned_at` aynı UPDATE'te; SCAN_FAILED'e geçişte `scan_reason` aynı UPDATE'te. `lastTest.at` ISO metin (≤ 40).
+
+Enum/lookup: yeni lookup yok (ikili CHECK, ADR-0014). Hacim: oturum başına birkaç satır; satırlar anonimleştirmede silinir →
+partition gerekmez. Hassas veri: dosya içeriği DB'de yok (volume'da AES-256-GCM); `file_name` kişisel olabilir, audit/log'a girmez.
+
+### file_mode değişmezliği (mimari §3.4'ten sapma)
+
+Mimari "UPDATE grant'ı bu kolona verilmez" diyor; ancak app'in `support_sessions`'ta P2'den beri **tablo düzeyi** UPDATE'i var ve MySQL
+tablo yetkisinden tek sütunu düşüremez (tüm sütunları sütun düzeyine çevirmek geniş, riskli bir yetki refaktörü). Niyet mevcut
+`support_sessions_update_guard` tetikleyicisine bir dal eklenerek karşılandı: migrator/root dışında `file_mode` değişirse
+`SIGNAL 'p28b: support_sessions.file_mode is fixed at insert'`. **Tetikleyici sayısı 23 kalır** (lib.sh, backup/restore beklentisi
+değişmez); gövde değiştiği için `deploy/mysql/audit-continuity.sql` özet sabiti `f029d544…3c90` → **`0fdacca7…73e0`** (aynı commit'te;
+staging/prod'da migration ile birlikte dağıtılmalı, yoksa `backup.sh` "tetikleyici gövde özeti" hatası verir). Down eski gövdeyi geri
+yükler (özet `f029d544…` döndüğü doğrulandı).
+
+### Yetkiler (`grants.sql`, `check-app-grants.sh`)
+
+`session_stored_files`: SELECT, INSERT, DELETE + sütun düzeyi UPDATE(state, scan_reason, signature, storage_rel, delivered_at,
+expires_at, scanned_at, deleted_at, updated_at); tablo UPDATE ve DDL REVOKE → kimlik/oturum/ad/boyut/sha/key_ver değiştirilemez.
+`tenants.storage_quota_gb` için mevcut tablo UPDATE'i yeterli. DELETE yetkili tablo kümesi ve sütun yetkisi kümesi beklentileri güncellendi.
+
+### Sorgu desenleri (K3; EXPLAIN entegrasyon testinde sabitlenmeli)
+
+| Sorgu                                                                                                         | İndeks                                |
+| ------------------------------------------------------------------------------------------------------------- | ------------------------------------- |
+| Kota `SUM(size_bytes) WHERE tenant_id=? AND state IN ('UPLOADING','SCANNING','CLEAN')` (+ tenants FOR UPDATE) | IX(tenant_id, state)                  |
+| Oturum tavanı `SUM(size_bytes) WHERE session_id=? AND tenant_id=?` — **tenant_id'yi yazın**                   | IX(session_id, tenant_id, created_at) |
+| Geçmiş detayı `session_id=? AND tenant_id=? ORDER BY created_at`                                              | aynı                                  |
+| 03:30 `state='CLEAN' AND expires_at <= ?`; mutabakat (c) / açılış süpürmesi `state IN (…)`                    | IX(state, expires_at)                 |
+| Firma silme `DELETE … WHERE tenant_id=? LIMIT 500`                                                            | IX(tenant_id, state)                  |
+| check-retire `COUNT(*) WHERE key_ver=? AND state='CLEAN'` (tablo küçük; tam tarama kabul)                     | IX(state, expires_at) öneki           |
+
+### Silme yolları — K3 notları (uygulama kodu backend'de; DB tarafında ek iş yok)
+
+- **Anonimleştirme** (`jobs/retention-repo.ts` `anonymizeSessionBatch`): `session_files` silinen aynı TX'te
+  `DELETE FROM session_stored_files WHERE tenant_id=? AND session_id IN (…)`; disk dosyaları TX'ten önce.
+- **Kalıcı silme** (`purgeAnonymized`): sıra `session_stored_files` → `session_files` → `session_consents` → `support_sessions` (FK RESTRICT).
+- **Firma silme** (`tenant-purge-repo.ts DATA_STEPS`): tablonun `tenants`'a FK'si olmadığı için P16 meta-testi bunu **zorlamaz**.
+  Öneri: yeni adım yerine `SESSION_FILES: [byTenant("session_stored_files"), byTenant("session_files")]` (adım enum'u, DB
+  `tenant_purge_jobs_step_chk` ve tetikleyici FIELD() listesi değişmez); disk klasörü `FILES_DIR/{tenantId}` adım başında silinir.
+  Mimari "yeni adım `stored_files`" derse step CHECK + `tenant_purge_jobs_update_guard` + contracts + özet sabiti değişir — dba'ya dönün.
+  Eklenmezse SESSIONS adımı satır varken FK 1451 ile durur (sessiz kayıp yok).
+
+### Kilit ve bakım penceresi
+
+- Yeni tablo boş → kilit yok. `support_sessions`: ADD COLUMN + CHECK **tek COPY ALTER** (tablo yeniden yazılır, süresince oturum
+  yazımı bekler) — staging süresi ölçülmedi: deploy öncesi `SELECT COUNT(*) FROM support_sessions`; büyükse bakım penceresinde.
+  `tenant_settings`/`tenants`/`system_settings` küçük (COPY). Tetikleyici DROP+CREATE: kısa metadata kilidi, aradaki guard'sız an
+  saniyenin altı (P18 kalıbı). Ön kontrol gerekmez.
+
+### Geri alma
+
+`down.sql` (elle): `p28b_down_guard_chk` saklanan dosya satırı, SERVER oturum, `clamav` ayarı ya da modu açık firma varken hiçbir şey
+değiştirmeden 3819 verir (test edildi). Sonra REVOKE, P16 tetikleyici gövdesi, DROP TABLE, sütun/CHECK'ler, key_chk eski hâli, migration
+kaydı. **Önce P28b kodu, grants.sql ve audit-continuity sabiti geri alınmalı**; volume `stored_files` elle boşaltılır. Kalıcı kayıp:
+varsayılandan farklı saklama günü/kota.
+
+### Test (2026-11-16, geçici `rs-mysql-p28bk1`:33381, mysql 8.4.13, silindi)
+
+- Temiz up (P1→P28b, 27 migration) OK; `migrate diff --exit-code` 0; tetikleyici 23, audit-continuity `ok=true`.
+- `check-app-grants.sh` **777/777 PASS** (+~50 P28b: yaşam döngüsü, sütun yetkisi reddi, file_mode tetikleyicisi, tüm CHECK'ler, FK, clamav JSON).
+- down → HEAD şemasına diff 0, tables_priv/columns_priv 0, kayıt silindi, özet `f029d544…`; yeniden up → diff 0. Doluyken down → 3819.
+- `pnpm db:generate` + server typecheck temiz; seed OK. `test:int` 956/958 → meta sayaç (53→67) düzeltildi, tekrar geçti;
+  `clip-print-ws` AC-344 tam koşuda aynı ms audit sırası kararsızlığı (tek başına 2/2 geçti; P28b'den bağımsız).

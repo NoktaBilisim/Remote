@@ -16,6 +16,37 @@ const cidr = z.string().refine((v) => {
 
 const origin = z.url().transform((v) => new URL(v).origin);
 
+/** IPv4 noktalı yazımı → 32 bit (geçersizse null). */
+function ipv4ToInt(addr: string): number | null {
+  if (isIP(addr) !== 4) return null;
+  return addr.split(".").reduce((n, o) => n * 256 + Number(o), 0);
+}
+
+/** IPv4 CIDR → [ilk, son] (geçersizse null). */
+function ipv4Range(v: string): [number, number] | null {
+  const [addr, bits] = v.split("/");
+  const base = addr ? ipv4ToInt(addr) : null;
+  if (base === null || bits === undefined || !/^\d{1,2}$/.test(bits) || Number(bits) > 32) return null;
+  const size = 2 ** (32 - Number(bits));
+  const first = base - (base % size);
+  return [first, first + size - 1];
+}
+
+const RFC1918: [number, number][] = ["10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16"].map((c) => ipv4Range(c) as [number, number]);
+
+/**
+ * P28b D-r2-5 (O-P28b-1): ClamAV hedefinin izinli alt ağı. Geniş/yanlış değer panel hedefini yeniden "herhangi bir özel adres"
+ * yapardı → IPv4, RFC 1918 içinde, önek /24../30, ağ adresiyle yazılmış olmalı (compose `av` ağı `AV_SUBNET` ile aynı).
+ */
+const avCidr = z.string().refine((v) => {
+  const [addr, bits, ...rest] = v.split("/");
+  if (!addr || bits === undefined || rest.length > 0 || !/^\d{1,2}$/.test(bits)) return false;
+  const prefix = Number(bits);
+  const r = ipv4Range(v);
+  if (!r || prefix < 24 || prefix > 30 || ipv4ToInt(addr) !== r[0]) return false;
+  return RFC1918.some(([a, b]) => r[0] >= a && r[1] <= b);
+}, "IPv4 RFC 1918 alt ağı olmalı, önek /24../30, ağ adresiyle (ör. 172.30.2.0/28)");
+
 /** `v1:<base64 32 bayt>[,v2:...]` (mimari §3.2, §8.1). Sürüm 1..255 tekil; her anahtar tam 32 bayt. */
 export function parseEncryptionKeys(raw: string): Map<number, Buffer> | null {
   const keys = new Map<number, Buffer>();
@@ -31,6 +62,19 @@ export function parseEncryptionKeys(raw: string): Map<number, Buffer> | null {
     keys.set(ver, key);
   }
   return keys.size > 0 ? keys : null;
+}
+
+/** İki IPv4 CIDR örtüşüyor mu (IPv6 TRUSTED_PROXY_CIDR IPv4 alt ağla örtüşmez). */
+function cidrOverlap(a: string, b: string): boolean {
+  const x = ipv4Range(a);
+  const y = ipv4Range(b);
+  return x !== null && y !== null && x[0] <= y[1] && y[0] <= x[1];
+}
+
+/** a ile b aynı dizin ya da biri ötekinin altında mı (sondaki / yok sayılır). */
+function nestedPath(a: string, b: string): boolean {
+  const n = (p: string) => p.replace(/\/+$/, "") + "/";
+  return n(a).startsWith(n(b)) || n(b).startsWith(n(a));
 }
 
 /** S14-7: herkesçe bilinen/zayıf anahtar — tüm baytları aynı (CI'daki 32 sıfır bayt dahil). Production'da reddedilir. */
@@ -117,6 +161,17 @@ const schema = z
     // P12 (AC-84, T16): logo/avatar yükleme kökü; `{tenantId|system}/{rastgele}.{png|jpg|webp}` altında. Kalıcı volume,
     // `node` kullanıcısı yazabilmeli (compose/runbook: devops). Mutlak yol.
     UPLOADS_DIR: z.string().startsWith("/", "mutlak yol olmalı").default("/data/uploads"),
+    // P28b (mimari-p28b §11.3, ADR-0032): saklanan dosya kökü `{tenantId}/{rastgele}.rsf`; volume `stored_files` (yedeğe girmez).
+    FILES_DIR: z.string().startsWith("/", "mutlak yol olmalı").default("/data/files"),
+    // ClamAV (clamd) env hedefi: Super Admin panel kaydı yoksa kullanılır (compose: clamav / 3310). Boş = ayar yok (fail-closed).
+    CLAMAV_HOST: z
+      .string()
+      .max(253)
+      .regex(/^[A-Za-z0-9.-]+$/, "konak adı ya da IPv4 olmalı")
+      .optional(),
+    CLAMAV_PORT: z.coerce.number().int().min(1).max(65535).default(3310),
+    // O-P28b-1 / D-r2-5: ClamAV hedefinin izinli alt ağı (compose: AV_SUBNET). Boş = sunucu modu çalışmaz (HOST_NOT_ALLOWED).
+    CLAMAV_ALLOWED_CIDR: avCidr.optional(),
     LOG_LEVEL: z.enum(["fatal", "error", "warn", "info", "debug", "trace", "silent"]).default("info"),
     // P16 (AC-240, ADR-0030 m.6, mimari-e11 §7.7): gece kalıcı silme modu. `dry` (varsayılan) aday sayılarını audit'e yazar,
     // hiçbir satır silmez; `on` 30 g önce anonimleşmiş satırları siler. Staging `on`; prod ilk `dry` raporu kontrol edilince.
@@ -158,6 +213,14 @@ const schema = z
       message: "production'da zayıf anahtar (tüm baytları aynı) kabul edilmez; openssl rand -base64 32 ile üretin",
     },
   )
+  .refine((e) => !e.CLAMAV_ALLOWED_CIDR || !e.TRUSTED_PROXY_CIDR || !cidrOverlap(e.CLAMAV_ALLOWED_CIDR, e.TRUSTED_PROXY_CIDR), {
+    path: ["CLAMAV_ALLOWED_CIDR"],
+    message: "TRUSTED_PROXY_CIDR ile çakışmamalı (D-r2-5)",
+  })
+  .refine((e) => !nestedPath(e.FILES_DIR, e.UPLOADS_DIR), {
+    path: ["FILES_DIR"],
+    message: "UPLOADS_DIR ile aynı ya da iç içe olamaz (yetim taraması karışır)",
+  })
   .superRefine(deployEnvRules)
   .refine((e) => e.TURN_SECRET || !/(^|,)\s*turns?:/.test(e.TURN_URLS ?? ""), {
     path: ["TURN_SECRET"],

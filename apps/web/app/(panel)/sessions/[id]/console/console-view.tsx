@@ -43,7 +43,8 @@ export function ConsoleView({
   const [color, setColor] = useState<AnnotColor>("red");
   // P28a §4.4: yazdırma `file` kanalını kullanırken dosya teklifi "busy" (kanca sırası nedeniyle ref üzerinden)
   const printBusy = useRef<() => boolean>(() => false);
-  const collab = useCollab(ts.channels, { ...collabOptions(ts, canFiles, tab), printBusy: () => printBusy.current() });
+  const files = serverFiles(state, canFiles);
+  const collab = useCollab(ts.channels, { ...collabOptions(ts, files.allowed, tab), printBusy: () => printBusy.current() });
   const quality = useQuality(ts.pc, ts.send);
   const now = useNow();
   const toast = useToast();
@@ -86,7 +87,8 @@ export function ConsoleView({
               clipPrint={clipPrint}
               now={now}
               quality={quality}
-              canFiles={canFiles}
+              canFiles={files.allowed}
+              filesBlocked={files.blocked}
               peerName={name}
               tab={tab}
               onTab={setTab}
@@ -100,6 +102,17 @@ export function ConsoleView({
   );
 }
 
+/**
+ * P28b (§5.4, K-P28b-7): SERVER modunda dosya yolu misafirin `fsrv` yeteneğine bağlı; gözetimsiz odada kapalı. Yetki yoksa
+ * mevcut P5 metni ("yetki yok") — `blocked` yalnız yetkili teknisyende neden verir.
+ */
+function serverFiles(s: ReturnType<typeof useTechSession>["state"], canFiles: boolean) {
+  if (s.fileMode !== "SERVER" || !canFiles) return { allowed: canFiles, blocked: null };
+  if (s.unattended) return { allowed: false, blocked: "unattended" as const };
+  if (s.guest && s.peerLostSince === null && !s.guestFeatures.includes("fsrv")) return { allowed: false, blocked: "unsupported" as const };
+  return { allowed: true, blocked: null };
+}
+
 /** Konsol tarafı işbirliği seçenekleri (gelen yön TO_TECH; okunmamış sayacı sohbet sekmesi açıkken sıfırlanır). */
 function collabOptions(ts: ReturnType<typeof useTechSession>, canFiles: boolean, tab: CollabTab) {
   return {
@@ -109,6 +122,12 @@ function collabOptions(ts: ReturnType<typeof useTechSession>, canFiles: boolean,
     receiveAnnot: false,
     sendMeta: ts.send,
     maxFileMb: ts.maxFileMb,
+    fsrv: {
+      mode: ts.state.fileMode,
+      sendWs: ts.send,
+      subscribe: ts.subscribe,
+      ready: ts.state.phase === "live" && ts.state.peerLostSince === null && ts.state.reconnectSince === null,
+    },
   };
 }
 

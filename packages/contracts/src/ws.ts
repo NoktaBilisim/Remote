@@ -5,16 +5,11 @@
 // env.state, caps.update (mimari-protokol §3, akış A3/A5). P7 düzeltme 1 (§3.3, ADR-0013): control.release/cancel,
 // monitor.denied, kaynak `TECH`, revoke nedenleri `reconnect`/`stale`, misafir kaynak kısıtı.
 // P28a (mimari-p28 §4.2–4.3): pano/yazdırma tipleri `ws-clip-print.ts`'te; burada yalnız birlik bağlantısı + `CAPS` +
-// `guestFeatures`/`clipConsent` alanları.
+// `guestFeatures`/`clipConsent` alanları. P28b (mimari-p28b §5): `fsrv.*` tipleri `ws-fsrv.ts`'te; burada birlik bağlantısı +
+// `hello`/`peer.joined` `fileMode` + `guestFeatures` `fsrv` değeri.
 import { z } from "zod";
-import {
-  GUEST_FEATURES,
-  guestClipInbound,
-  guestPrintInbound,
-  serverClipPrintOutbound,
-  techClipPrintInbound,
-  type GuestFeature,
-} from "./ws-clip-print.ts";
+import { guestClipInbound, guestPrintInbound, serverClipPrintOutbound, techClipPrintInbound, type GuestFeature } from "./ws-clip-print.ts";
+import { FILE_MODES, fsrvInbound, PEER_FEATURES, serverFsrvOutbound } from "./ws-fsrv.ts";
 
 export const WS_SUBPROTOCOL = "rs.v1";
 export const WS_TICKET_PREFIX = "rs.ticket.";
@@ -242,6 +237,7 @@ export const techInboundSchema = z.discriminatedUnion("t", [
   controlReleaseSchema,
   controlCancelSchema,
   ...techClipPrintInbound,
+  ...fsrvInbound,
 ]);
 export type TechInbound = z.infer<typeof techInboundSchema>;
 
@@ -293,25 +289,35 @@ const guestInboundBase = [
 export const guestInboundSchema = z.discriminatedUnion("t", [...guestInboundBase]);
 export type GuestInbound = z.infer<typeof guestInboundSchema>;
 
-const guestClipSchema = z.discriminatedUnion("t", [...guestInboundBase, ...guestClipInbound]);
-const guestPrintSchema = z.discriminatedUnion("t", [...guestInboundBase, ...guestPrintInbound]);
-const guestClipPrintSchema = z.discriminatedUnion("t", [...guestInboundBase, ...guestClipInbound, ...guestPrintInbound]);
-export type GuestInboundFull = z.infer<typeof guestClipPrintSchema>;
+type GuestOption =
+  (typeof guestInboundBase)[number] | (typeof guestClipInbound)[number] | (typeof guestPrintInbound)[number] | (typeof fsrvInbound)[number];
+const guestFullSchema = z.discriminatedUnion("t", [...guestInboundBase, ...guestClipInbound, ...guestPrintInbound, ...fsrvInbound]);
+export type GuestInboundFull = z.infer<typeof guestFullSchema>;
+const guestSchemaCache = new Map<number, z.ZodType<GuestInboundFull>>([
+  [0, guestInboundSchema],
+  [7, guestFullSchema],
+]);
 /**
  * P28a (§4.3, S-P18-T1 kalıbı): misafir şeması soketin bildirdiği özelliğe göre seçilir — `clip.*` yalnız `clipboard`,
  * `print.report` yalnız `print` bildiren sokette şemadadır; yeteneksiz sokette bu tipler şema dışı → 1008.
+ * P28b (§5.2 adım 1): `fsrv = true` yalnız SERVER odasında ve `hasFsrv(peer)` sokette; aksi `fsrv.*` şema dışı → 1008.
  */
-export function guestInboundSchemaFor(features: ReadonlySet<GuestFeature>): z.ZodType<GuestInboundFull> {
-  const clip = features.has("clipboard");
-  const print = features.has("print");
-  if (clip && print) return guestClipPrintSchema;
-  if (clip) return guestClipSchema;
-  if (print) return guestPrintSchema;
-  return guestInboundSchema;
+export function guestInboundSchemaFor(features: ReadonlySet<GuestFeature>, fsrv = false): z.ZodType<GuestInboundFull> {
+  const key = (features.has("clipboard") ? 1 : 0) | (features.has("print") ? 2 : 0) | (fsrv ? 4 : 0);
+  const cached = guestSchemaCache.get(key);
+  if (cached) return cached;
+  const options: [GuestOption, ...GuestOption[]] = [...guestInboundBase];
+  if (key & 1) options.push(...guestClipInbound);
+  if (key & 2) options.push(...guestPrintInbound);
+  if (key & 4) options.push(...fsrvInbound);
+  const schema = z.discriminatedUnion("t", options);
+  guestSchemaCache.set(key, schema);
+  return schema;
 }
+/** P28a misafir özellikleri + P28b `fsrv` (teknisyene giden `guestFeatures`). */
 const guestFeatures = z
-  .array(z.enum(GUEST_FEATURES))
-  .max(GUEST_FEATURES.length)
+  .array(z.enum(PEER_FEATURES))
+  .max(PEER_FEATURES.length)
   .refine((a) => new Set(a).size === a.length, { message: "Özellikler benzersiz olmalı" });
 
 // --- Sunucu → istemci ---
@@ -349,6 +355,11 @@ export const serverOutboundSchema = z.discriminatedUnion("t", [
     guestFeatures: guestFeatures.optional(),
     /** P28a (§4.2): yalnız role=tech hello'sunda — müşteri pano anahtarı (sunucu aynası). */
     clipConsent: z.boolean().optional(),
+    /**
+     * P28b (§5.1, AC-355): oturumun dosya modu (yoksa P2P). Teknisyene her zaman; misafire YALNIZ `hasFsrv(peer)` soketine
+     * (eski Go istemcinin katı ayrıştırıcısına yeni alan gitmez).
+     */
+    fileMode: z.enum(FILE_MODES).optional(),
   }),
   z.strictObject({ t: z.literal("lobby.wait"), expiresAt: iso }),
   z.strictObject({ t: z.literal("peer.pending"), guestId: ulid, name: z.string().max(100), guestKind: z.enum(GUEST_KINDS), since: iso }),
@@ -366,6 +377,8 @@ export const serverOutboundSchema = z.discriminatedUnion("t", [
     maxFileMb: z.number().int().min(1).max(2048).optional(),
     /** P28a (§4.2): role=guest (teknisyene giden) mesajda misafirin bildirdiği özellikler (yoksa `[]`). */
     guestFeatures: guestFeatures.optional(),
+    /** P28b (§5.1): role=guest (teknisyene giden) mesajda oturumun dosya modu (yoksa P2P). */
+    fileMode: z.enum(FILE_MODES).optional(),
   }),
   z.strictObject({ t: z.literal("peer.left"), role: z.enum(["tech", "guest"]), reason: z.enum(["disconnect", "ended"]).optional() }),
   z.strictObject({ t: z.literal("sdp.offer"), sdp }),
@@ -406,6 +419,8 @@ export const serverOutboundSchema = z.discriminatedUnion("t", [
   }),
   // P28a (§4.3): pano/yazdırma iletimi (misafire) ve durum (teknisyene).
   ...serverClipPrintOutbound,
+  // P28b (§5.2): sunucu üzerinden dosya — yükleme belirteci, durum, teklif, indirme belirteci.
+  ...serverFsrvOutbound,
 ]);
 export type ServerOutbound = z.infer<typeof serverOutboundSchema>;
 /** Odada saklanan son paylaşım durumu (teknisyen hello `share` alanı). */

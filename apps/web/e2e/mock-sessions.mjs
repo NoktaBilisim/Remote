@@ -68,7 +68,9 @@ export function sessionUser(cookie) {
             ? [...ALL, "remote_control.use"]
             : cookie.startsWith("u-p28-")
               ? [...ALL, "remote_control.use", "remote_control.clipboard", "file_transfer.print"]
-              : ALL,
+              : cookie.startsWith("u-p28b-")
+                ? [...ALL, "file_transfer.use", "remote_control.use", "file_transfer.print"]
+                : ALL,
     ...(sa ? { tenant: null, actingTenant: cookie.startsWith("u-sat-") ? LOBBY_TENANT : null } : {}),
   };
 }
@@ -328,6 +330,9 @@ export async function handleSessions(req, res, { url, session, csrfOk, send, err
     // P28a: u-p28-* kontrol + pano + yazdırma yetkili (caps dört değer)
     if (session.startsWith("u-p28-"))
       Object.assign(rec, { caps: ["remote_control", "clipboard", "print"], canControl: true, canClip: true, canPrint: true });
+    // P28b: u-p28b-* SERVER modu oturum (sunucu caps'ten file_transfer/print'i çıkarır, §5.4a); maxFileMb 5
+    if (session.startsWith("u-p28b-"))
+      Object.assign(rec, { caps: ["remote_control"], canControl: true, canPrint: true, fileMode: "SERVER", maxFileMb: 5 });
     list.push(rec);
     const v = rec.view;
     const body = {

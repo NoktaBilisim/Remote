@@ -82,7 +82,8 @@ export async function getHistoryDetail(
   const scope = historyScope(auth);
   const row = await hrepo.findHistory(db, scope, id);
   if (!row) throw new AppError("NOT_FOUND");
-  return buildDetail(db, log, scope, row, auth.user.id, now);
+  const canFiles = auth.permissions.has("session_history.view") && auth.permissions.has("file_transfer.use");
+  return buildDetail(db, log, scope, row, auth.user.id, now, canFiles);
 }
 
 // ---- PATCH (AC-63) ----

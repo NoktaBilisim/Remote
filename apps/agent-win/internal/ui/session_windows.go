@@ -52,6 +52,12 @@ func (u *UI) newSessionWin(watchText string) *sessionWin {
 	if u.elevated {
 		height, endY = 584, 540
 	}
+	// P28b AC-363: SERVER modunda dosya alanının üstünde iki satırlık bilgi; alttaki denetimler kayar.
+	shift := int32(0)
+	if u.fileServer {
+		shift = 40
+	}
+	height, endY = height+shift, endY+shift
 	f := u.t.newForm(appTitle+" — Oturum", 440, height, false)
 	s := &sessionWin{f: f}
 	s.watch = f.danger(watchText, 16, 14, 408, 22, fontBold)
@@ -60,18 +66,21 @@ func (u *UI) newSessionWin(watchText string) *sessionWin {
 	s.history = f.edit(0, 16, 102, 408, 196, win.ES_MULTILINE|win.ES_READONLY|win.ES_AUTOVSCROLL|win.WS_VSCROLL, 0)
 	s.input = f.edit(idChatInput, 16, 306, 316, 28, win.ES_AUTOHSCROLL, 2000)
 	s.sendBtn = f.button("Gönder", idOK, 338, 305, 86, true)
-	s.fileLbl = f.label("", 16, 344, 260, 20, fontNormal)
-	s.fileBtn = f.button("Aktarımı iptal et", idFileCancel, 284, 340, 140, false)
+	if u.fileServer {
+		f.label(flow.TextFileServerMode, 16, 342, 408, 36, fontNormal)
+	}
+	s.fileLbl = f.label("", 16, 344+shift, 260, 20, fontNormal)
+	s.fileBtn = f.button("Aktarımı iptal et", idFileCancel, 284, 340+shift, 140, false)
 	// AC-100: "Erişime izin ver", "Kontrolü kapat", "Oturumu bitir" her zaman görünür, klavyeyle erişilir.
 	// S7-6: "Erişime izin ver" izin vermez; bekleyen kontrol diyaloğunu imleç dışında, 1,5 sn kilitle öne getirir.
 	// P28a D-P28a-1: BS_CHECKBOX (otomatik değil); yetenek gelene kadar gizli, kapı açılana kadar devre dışı, kapalı başlar.
 	s.clipChk = f.add("BUTTON", flow.ClipPrintTexts.ClipSwitch, win.WS_TABSTOP|win.BS_CHECKBOX, 0, idClipSwitch,
-		16, 380, 408, 24, fontNormal)
-	s.grantBtn = f.button("Erişime &izin ver", idGrant, 16, 412, 200, false)
-	s.closeBtn = f.button("&Kontrolü kapat", idCtlClose, 224, 412, 200, false)
-	s.hotkey = f.label(hotkeyText(u.hotkeyLabel), 16, 448, 408, 36, fontNormal)
+		16, 380+shift, 408, 24, fontNormal)
+	s.grantBtn = f.button("Erişime &izin ver", idGrant, 16, 412+shift, 200, false)
+	s.closeBtn = f.button("&Kontrolü kapat", idCtlClose, 224, 412+shift, 200, false)
+	s.hotkey = f.label(hotkeyText(u.hotkeyLabel), 16, 448+shift, 408, 36, fontNormal)
 	if u.elevated {
-		f.danger(elevatedText, 16, 488, 408, 48, fontNormal)
+		f.danger(elevatedText, 16, 488+shift, 408, 48, fontNormal)
 	}
 	s.endBtn = f.button("Oturumu bitir", idEndSession, 16, endY, 160, false)
 	win.EnableWindow(s.grantBtn.h, false)

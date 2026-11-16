@@ -3671,3 +3671,135 @@ P13c ikinci yığını kurulduysa staging exe main dalından `gh workflow run ag
   alın). Servis ikilisi için `publish-servis.sh --dir` önceki ikiliyle.
 - Sunucu/web geri alma: önceki `IMAGE_TAG` → `docker compose up -d server web` (migration yok). Yeni istemci eski sunucuda `rs.cap.*`
   görmezden gelinir, özellik görünmez.
+
+## 28b. P28b — sunucuda dosya saklama + ClamAV + depolama kotası (devops K6, 2026-11-16; mimari-p28b §7, §11, §13 K6; ADR-0032; AC-353..363)
+
+Kapsam: firma "Dosyaları sunucu üzerinden aktar ve virüs tara" ayarını açınca (SERVER modu) dosya ve yazdırma belgesi sunucuya şifreli
+yüklenir, clamd ile taranır, temizse alıcıya teklif edilir. Bu bölüm altyapıdır: iki ClamAV konteyneri, `av` iç ağı, dosya volume'u,
+alarmlar, kapasite ve geri alma. Kullanıcı ekranları kılavuzda (K10).
+
+| Parça            | Nerede                                                                                                      | Not                                                                                                                            |
+| ---------------- | ----------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
+| `clamav` (clamd) | `deploy/docker-compose.yml`, `deploy/clamav/clamd.conf`                                                     | Yalnız `av` ağı (internal, çıkış yok), imza DB'si `:ro`, `/init`'siz, `read_only`, `100:101`, `cap_drop ALL`, port yayımlanmaz |
+| `clamav-update`  | aynı dosya, `deploy/clamav/freshclam.conf`                                                                  | Yalnız `av_egress` (database.clamav.net), DB'nin tek yazanı, `--checks=6` (günde 6), `NotifyClamd` yok                         |
+| `av` ağı         | `AV_SUBNET` (vars. `172.30.2.0/28`; ikinci yığın `172.30.3.0/28`)                                           | Üyeler YALNIZ server + clamav. server `CLAMAV_ALLOWED_CIDR` = aynı değer (O-P28b-1)                                            |
+| Dosya volume'u   | `stored_files` → server `/data/files` (`FILES_DIR`), `node:node 0700`, tenant klasörleri `{tenantId}/` 0700 | **Yedeğe girmez** (K-P28b-11); `backup.sh` yalnız `uploads` etiketli volume'u arşivler (değişmedi)                             |
+| İmza DB volume'u | `clamav_db`                                                                                                 | Yedeklenmez; boş volume'a imajdaki DB kopyalanır, freshclam günceller                                                          |
+| İmaj             | `clamav/clamav:1.5.4@sha256:45fe5149…422a` (Alpine, yalnız amd64)                                           | İki servis aynı digest. Dependabot `docker-compose` (`/deploy`) PR açar → §28b.6                                               |
+
+### 28b.1 Kapasite ve değişmezler (bir değer değişirse hepsi birlikte)
+
+- **Bellek değişmezi (O-P28b-3):** `clamav` `mem_limit` (3g) ≥ imza DB tepe (~1,1 GiB) + `/scratch` tmpfs (1536m) + pay 0,4 GiB. tmpfs sayfaları
+  konteyner belleğine sayılır. `memswap_limit` = `mem_limit` (3g / 1536m; D-r2-4): konteyner swap kullanamaz, `/scratch` düz metni diske düşmez.
+  Tek yığının tavanı 3 + 1,5 = **4,5 GiB**.
+- **/scratch değişmezi (K6 kapı 5, D-r2-2 — ölçüldü):** tarama başına `StreamMaxLength` + `MaxScanSize` ≤ `/scratch` / 2
+  (256M + 512M = 768M). `/scratch` dolarsa (ENOSPC) libclamav arşiv üyesini atlar ve dosyanın kalanı temizse **`stream: OK`** döner
+  (fail-open; K6'da 64m `/scratch` ile kanıtlandı). Bu yüzden mimarideki `StreamMaxLength`/`MaxFileSize 260M` → **256M** (= ürün tavanı;
+  tam 256 MiB dosya `OK`, +1 bayt `INSTREAM size limit exceeded`), `MaxScanSize 512M` aynen (düşürülürse ~250 MiB'lık stored zip — dış +
+  üyeler ≈ 500 MiB — "boyut sınırı" olur). `/scratch` küçültülürse bu değerler de yarının altına iner; aksi halde değiştirilmez.
+- **Host bellek kapısı (K6 kapı 6, D-r2-4):** `free -m` "available" ≥ **4,5 GiB** (+ ikinci yığında `av` profili açıksa onun 4,5 GiB'ı) + mevcut
+  tepe (§21.2). Ölçüm ve `swapon --show` sonucu §8 yayın geçmişine yazılır. Yetmezse: ikinci yığında `av` profili yalnız test sırasında ve prod'da
+  tarama yükü yokken açılır; kalıcı çözüm mimari §7.1 kapı 6 yedeği (sunucu modu tavanı 128 MiB, `StreamMaxLength`/`MaxFileSize` 132M,
+  `MaxScanSize` 256M, `/scratch` 768m, `mem_limit`/`memswap_limit` 2304m — mimar onayıyla).
+- **Swap (R-P28b-8):** konteyner düzeyinde kapalı (yukarıda). Host'ta swap açıksa bile clamd/tmpfs sayfaları swap'e gitmez; MySQL vb. için host
+  swap politikası değişmez.
+- **Disk:** dosyalar `/var/lib/docker` altında (`stored_files`). Sunucu disk boş < %10 iken yeni yüklemeyi reddeder (AC-362, `QUOTA`).
+  **"Toplam kota ≤ boş disk" kuralı:** tüm firmaların `storage_quota_gb` toplamı, `/var/lib/docker`'ın boş alanının %80'ini aşmamalı
+  (`df -BG /var/lib/docker`). Varsayılan 20 GB × firma sayısı bunu aşarsa Super Admin kotaları düşürür ya da disk büyütülür; aksi halde %10
+  koruması firmalar arasında "ilk gelen alır" olur. remote-watch `disk:/var/lib/docker` alarmı %80'de (mimari "%15 uyarı / %10 kritik"ten
+  önce çalar).
+
+### 28b.2 Kurulum ve profil
+
+1. **Ön koşul:** P28b migration + grant'lar (dba, `20261123000000_p28b_stored_files`) ve P28b server imajı aynı yayında. **Tetikleyici özeti
+   değişti:** `deploy/mysql/audit-continuity.sql` beklenen sabiti `0fdacca7fc67a7b472827b603d65584803be5f749e319a70d5d008cb68a673e0`
+   (sayı 23 kalır; `support_sessions_update_guard` gövdesi genişledi). Bu dosya **migration ile aynı yayında** sunucu ağacına gelmeli: ön yedek
+   `git pull`'dan önce alınır (§25.1 notu), pull + migration sonrası ilk yedek yeni özetle `audit-continuity ok` vermeli. Ağaç çekilip migration
+   koşmazsa (ya da tersi) yedek `FAILED adım=tetikleyici`/audit-continuity alarmı verir.
+2. `deploy/.env`: tek yığında (prod / bugünkü staging `/opt/remote`) **yeni satır gerekmez** (varsayılanlar: `AV_SUBNET` 172.30.2.0/28,
+   `CLAMAV_HOST` clamav, `CLAMAV_PORT` 3310). İkinci yığın (`/opt/remote-stg`): `AV_SUBNET=172.30.3.0/28`. Alt ağ host'taki başka bir docker
+   ağıyla çakışırsa compose "Pool overlaps" der: `docker network inspect $(docker network ls -q) -f '{{.Name}} {{range .IPAM.Config}}{{.Subnet}}{{end}}'`
+   ile boş bir /28 seçin (RFC 1918, ≥ /24; server açılışta doğrular — D-r2-5).
+3. Kaynak ölçümü (§28b.1 kapı 6): `free -m; swapon --show; df -h / /var/lib/docker` → değerler §8'e.
+4. `cd /opt/remote/deploy && docker compose pull clamav clamav-update && docker compose up -d` → `docker compose ps clamav clamav-update`:
+   ikisi `healthy` (clamd ilk açılışta imza yüklemesi ~60 sn; `start_period` 360 sn). server `/ready` clamd'den bağımsızdır.
+5. İkinci yığında profil: ClamAV staging katmanında `profiles: [av]` → **varsayılan kapalı**. Açma: `.env`'e `COMPOSE_PROFILES=av` + `docker compose
+up -d`, ya da tek seferlik `docker compose --profile av up -d clamav-update clamav`. Kapama: `docker compose stop clamav clamav-update`
+   (profil satırını kaldırın). Kapalıyken sunucu modu fail-closed: test "ulaşılamadı", tenant anahtarı `AV_NOT_READY`, açık oturumda dosyalar
+   "taranamadı" (virüslü sayılmaz).
+6. **Yalıtım kapısı (K6 kapı 3, her kurulum/imaj güncellemesinde):** `deploy/ops/check-av-isolation.sh remote` (staging: `remote-stg`) →
+   `SONUÇ: GEÇTİ`. Operatör makinesinden `nc -z -w 3 <sunucu-genel-IP> 3310` başarısız olmalı (AC-353). D-r2-1 satırı K3'ün "av alt ağından
+   gelen isteği reddet" kodu yayına girene kadar UYARI'dır; girdikten sonra `STRICT_DR21=1` ile koşulur ve PASS olmalı.
+7. Super Admin → ClamAV ayarı: sunucu `clamav`, port `3310` (boş bırakılırsa env) → "Bağlantıyı Test Et": PONG + EICAR + şifreli zip +
+   imza tarihi; ancak bundan sonra firmalar sunucu modunu açabilir.
+   **Kaynak geçişi:** ilk testten (ya da öz-sınamanın "yanlış yapılandırma" kaydından) sonra panel kaydı geçerlidir; ayar `source: panel`
+   olur ve audit'e `settings.clamav {host, port, source: "env→panel"}` yazılır. Bundan sonra `.env`'deki `CLAMAV_HOST`/`CLAMAV_PORT`
+   değişikliği **etkisizdir**; adres değişecekse panelden kaydedilip yeniden test edilir.
+8. nginx (prod host): `deploy/nginx/remote.noktabilisim.net.conf` kopyalanır → `nginx -t && systemctl reload nginx`. Denetim (D-P28b-4):
+   `nginx -T | grep -n 'client_body_buffer_size 3m'` server bloğunda tek satır, yeni `location` yok. Gövde diske yazılmaz (yerel kanıt:
+   `deploy/nginx/test-nginx.sh` "temp yazılamazken 502").
+
+### 28b.3 İmza güncelleme ve yeniden yükleme penceresi
+
+- freshclam günde 6 kez denetler (`docker compose logs clamav-update | grep -E 'updated|up-to-date'`). Yeni DB volume'a yazılır; clamd
+  `SelfCheck 600` ile en geç 10 dk'da yeniden yükler (`docker compose logs clamav | grep -i reload`). Yükleme ~8 sn (ilk açılış ~60 sn) sürer,
+  bu arada clamd komut kabul etmez; server bağlantı aşamasında ≤ 15 sn yeniden dener, kullanıcıya yansımaz.
+- **İlk açılış yarışı (K6'da görüldü):** clamav-update sağlıklı olur olmaz clamd imajdaki eski daily'yi yüklemeye başlar; freshclam aynı anda yenisini
+  yazarsa clamd ilk SelfCheck'te "Database status OK" deyip eski DB'de kalabilir (imza yaşı uyarısı). Bir sonraki freshclam güncellemesi (≤ 4 sa)
+  düzeltir. Beklemeden düzeltmek: `docker compose restart clamav` (ya da sunucudaki K6 kapı 2 yedeği `zRELOAD`).
+- Elle kontrol: `docker compose exec clamav sh -c 'printf "zVERSION\0" | nc localhost 3310'` → `ClamAV 1.5.4/<daily>/<tarih>`; tarih ≤ 1–2 gün.
+- Elle güncelleme (CDN sınırı/çıkış engeli sonrası): `docker compose restart clamav-update` → log `daily.cld updated`; 10 dk sonra clamd
+  `VERSION` yeni daily'yi göstermeli.
+
+### 28b.4 Alarmlar (`remote-watch`, 10 dk; eşikler `deploy/ops/remote-watch.sh`, AC-359/361)
+
+| Kontrol                                   | Koşul                                                                                                   | Eylem                             |
+| ----------------------------------------- | ------------------------------------------------------------------------------------------------------- | --------------------------------- |
+| `compose:clamav`, `compose:clamav-update` | konteyner yok / çalışmıyor / unhealthy                                                                  | §28b.5 "servis düştü"             |
+| `av-up`                                   | `rs_av_up == 0` **ardışık 2 yoklama** (tek yoklama reload penceresine denk gelebilir)                   | §28b.5                            |
+| `av-selftest`                             | `rs_av_selftest_ok == 0` (EICAR ya da şifreli zip yanlış yanıtlandı) — **anında**                       | §28b.5 "yanlış yapılandırma"      |
+| `av-signature-age`                        | `rs_av_signature_age_seconds` > 3 gün (`WATCH_AV_STALE_DAYS`)                                           | §28b.3 elle güncelleme            |
+| `av-scan-failed`                          | 1 sa'te `rs_av_scan_total{result=failed_*}` artışı ≥ 5 (`WATCH_AV_FAIL_MIN`) ve toplam artışın > %20'si | `failed_*` etiketine bak (§28b.5) |
+| `av-metrics`                              | clamav konteyneri var ama server `rs_av_*` yayımlamıyor                                                 | server sürümü / `METRICS_TOKEN`   |
+| `disk:/var/lib/docker`                    | doluluk ≥ %80 (mevcut)                                                                                  | §28b.5 "disk dolu"                |
+
+Kapsam anahtarı `WATCH_AV_CHECKS`: prod `1` (server P28b ise clamav konteyneri **zorunlu**; yoksa alarm), ikinci örnek `auto` (yalnız clamav
+konteyneri varsa — `av` profili kapalıyken sessiz), `0` kapalı. Watch betiği değişti: `deploy/ops/remote-watch.sh install` (ve `install stg`)
+yeniden çalıştırılır.
+
+### 28b.5 Sorun giderme
+
+- **Servis düştü / `av-up`:** `docker compose ps clamav clamav-update; docker compose logs --tail 50 clamav`. OOM (`docker inspect -f
+'{{.State.OOMKilled}}' <konteyner>`) → §28b.1 bellek; "Can't allocate memory"/DB bozuk → `docker compose restart clamav-update clamav`.
+  Etki: açık sunucu modu oturumlarında dosyalar "taranamadı, teslim edilmedi" (fail-closed); P2P firmalar etkilenmez.
+- **`av-selftest` (yanlış yapılandırma):** genelde `clamd.conf`'ta `AlertEncrypted*`/`HeuristicAlerts` kapalı ya da imaj sürümünde önek değişti
+  (R-P28b-3). `docker compose exec clamav grep -E '^Alert|^Heuristic' /etc/clamav/clamd.conf` → dört satır `yes`. Düzeltilip `docker compose
+restart clamav`; bayrak sonraki iyi yoklamada kalkar, ancak firmaların yeniden açabilmesi için Super Admin **elle test** yapar (`lastTest.ok`).
+- **`av-scan-failed`:** `failed_busy` → yük (2 yuva, firma başına 1); `failed_unavailable` → clamd erişimi; `failed_timeout`/`failed_limit` →
+  büyük/derin arşivler (beklenen, virüs değil); `failed_encrypted` → şifreli arşiv (kullanıcı şifresiz göndermeli).
+- **Kota doldu (`STORAGE_QUOTA`, O-P28b-2):** Super Admin → Firmalar → firma → depolama kotası (1..2000 GB) yükseltilir; kullanım
+  ayarlar ekranında görünür. Teslim edilmemiş/reddedilmiş dosyalar zaten hemen silinir; saklananlar `file_retention_days` (1–7) sonunda 03:30'da
+  silinir. Elle dosya silme aracı yoktur (K-P28b-15) — acil durumda firma Admin'i saklama süresini 1 güne indirir; bir sonraki 03:30 turu siler.
+  Kota yükseltmeden önce §28b.1 "toplam kota ≤ boş disk".
+- **Disk dolu (boş < %10):** tüm firmalarda yeni yükleme `QUOTA` ile reddedilir. `docker system df; du -sh /var/lib/docker/volumes/*stored_files*`.
+  Eski imajları temizle (`docker image prune` — kullanılan silinmez), yedek dizinini kontrol et (§13), gerekirse kotaları düşür. Volume
+  içinden elle dosya **silinmez** (satır `CLEAN` kalır, mutabakat `EXPIRED` yapar — yine de yapmayın; uygulama silsin).
+- **Yedekten dönüş:** dosyalar yedekte yok; dönüş sonrası ilk 03:30 mutabakatı dosyası olmayan `CLEAN` satırlarını `EXPIRED` yapar (geçmişte
+  "süresi doldu"). Beklenen davranıştır.
+
+### 28b.6 ClamAV imaj güncellemesi (Dependabot PR'ı, R-P28b-3)
+
+Birleştirmeden önce staging'de (ikinci yığın `av` profili ya da tek yığın): (1) `docker compose up -d clamav-update clamav` → healthy
+(kapı 1); (2) EICAR → `Eicar-Test-Signature`, parolalı zip → `Heuristics.Encrypted.Zip`, sınır → `Heuristics.Limits.Exceeded.*` (K0 "kesin
+yanıt dizeleri"; ayar ekranı testi aynı şeyi yapar); (3) `check-av-isolation.sh` GEÇTİ (kapı 3); (4) clamd açılış logunda "Global size limit set to
+536870912 bytes" + "File size limit set to 268435456 bytes" ve "Alerting of encrypted archives _and_ documents enabled". Biri tutmazsa PR birleştirilmez.
+
+### 28b.7 Geri alma
+
+1. Firmalarda sunucu modu kapatılır (Admin → Dosyalar; yeni oturumlar P2P). Açık oturumlar modunu korur (AC-355) — bitmeleri beklenir.
+2. Önceki `IMAGE_TAG` ile `docker compose up -d server web`. Migration geri alınmaz (expand; tablo/kolon kalabilir, mimari §11.4).
+3. ClamAV'ı kaldırmak gerekiyorsa: `docker compose stop clamav clamav-update && docker compose rm -f clamav clamav-update`; compose ağacı da
+   önceki commit'e dönerse `av`/`av_egress` ağları server yeniden oluşturulunca kalkar (`docker network prune` yalnız kullanılmayanları siler).
+   `stored_files` ve `clamav_db` volume'ları **otomatik silinmez**; dosyalar şifreli ve ≤ 7 gün ömürlüdür — tam temizlik için server durdurulup
+   `docker volume rm <proje>_stored_files <proje>_clamav_db`.
+4. nginx `client_body_buffer_size` satırı geri alınmaz (P12 yüklemeleri için de doğru; zararsız).

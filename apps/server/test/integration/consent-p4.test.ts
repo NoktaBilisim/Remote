@@ -207,6 +207,8 @@ describe("P4 düzeltme turu 1", () => {
       guestName: "Ayşe Müşteri",
       maxEndsAt: expect.any(String),
       maxFileMb: 100,
+      fileMode: "P2P", // P28b §5.1
+      guestFeatures: ["fsrv"], // P28b K-P28b-20: tarayıcı misafiri belirteçsiz yetenekli
     });
 
     const share = { state: "sharing", monitors: [{ id: 0, name: "Ekran 1", w: 1920, h: 1080, primary: true }], activeMonitor: 0 } as const;

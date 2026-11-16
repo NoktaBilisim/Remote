@@ -1,3 +1,110 @@
+# Güvenlik Raporu — P28b kod turu 1 (K9b; sunucuda dosya + ClamAV + kota, dal p28b, HEAD 1047d64, 2026-11-16)
+
+DURUM: GEÇTİ — Kritik 0 / Yüksek 0 / Orta 0 / Düşük 4
+
+Kapsam: `apps/server/src/fsrv/**`, `settings/clamav.ts`, `tenants/{settings,service}.ts`, `jobs/{retention,retention-fsrv,tenant-purge}.ts`,
+`signaling/{fsrv,rooms,rooms-features,clip-print,collab,handlers}.ts`, `env.ts`, `ops/health.ts`, `apps/web/lib/fsrv/**`,
+`apps/agent-win/internal/{fsrv,transfer/stream.go,flow/print_source.go}`, `deploy/docker-compose.yml` (clamav, clamav-update, ağlar),
+`deploy/clamav/clamd.conf`, `deploy/nginx`, `.gitleaks.toml`. Kod değiştirilmedi.
+
+## Tasarım turu bulgularının (r1 + r2) kodda karşılanması
+
+| Bulgu    | Kodda | Kanıt                                                                                                                                                                                                                                |
+| -------- | ----- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Y-P28b-1 | VAR   | `docker-compose.yml:244-289`: `clamav` yalnız `av` (internal), DB `:ro`, `read_only`, `cap_drop: ALL`, `no-new-privileges`; `clamav-update` yalnız `av_egress`. İmaj digest ile sabit.                                               |
+| O-P28b-1 | VAR   | `clamd.ts:66-103` tüm çözülen adresler CIDR içinde (ağ/yayın/ağ geçidi hariç, `::ffff:` normalleşir), `connect` çözülen IP'ye (`:195-199`); `settings/clamav.ts:82-84` PUT + test `HOST_NOT_ALLOWED`; env boşsa fail-closed.         |
+| O-P28b-2 | VAR   | Ret/iptal/oda kapanışında disk + `CANCELLED/REJECTED` (`lifecycle.ts:37-99`, `service.ts:210-219`); oturum 2 GiB tavanı tüm durumlar (`repo.ts:34-50`, `FOR UPDATE`).                                                                |
+| O-P28b-3 | VAR   | `scan-queue.ts`: firma başına 1 etkin + 3 bekleyen, toplam 20, tek büyük yuva, round-robin; `/scratch` tmpfs + `mem_limit`.                                                                                                          |
+| D-P28b-1 | VAR   | `scan.ts:105-151` EICAR + şifreli zip; `selfTestJudgement` kesin yanlışı erişilemezlikten ayırıyor; `misconfigured` → yeni taramalar `ERROR`, `lastTest.ok=false`.                                                                   |
+| D-P28b-2 | VAR   | Belirteç `onRequest`'te gövde okunmadan (`routes.ts:55-64`), 404 60/dk/IP → 429; oda/taraf olaylarında düşüyor (`rooms.ts:191,203,263`); HISTORY GET anında oturum + kullanıcı + iki yetki + kapsam (`routes.ts:107-133`).           |
+| D-P28b-3 | VAR   | `signaling/fsrv.ts:96-98` pid + boyut eşleşmesi + ≤ 20 MiB + kontrol GRANTED; ad `belge.pdf` (`service.ts:145`); son durumda disk silinir (`clip-print.ts` `printDone`); Go `print_source.go:70` pid/boyut eşleşmesi.                |
+| D-P28b-4 | VAR   | `nginx …conf:76,80` server düzeyinde `client_body_buffer_size 3m`.                                                                                                                                                                   |
+| D-P28b-5 | VAR   | RFC 5987 + ASCII yedek (`routes.ts:30-34`); `FSRV_CONTENT_HEADERS` sandbox CSP + CORP + nosniff; octet-stream ayrıştırıcısı yalnız fsrv eklentisinde; çerez okunmuyor; `hasFsrv` ilk koşul `!room.unattended` (`rooms-features.ts`). |
+| D-r2-1   | VAR   | `wiring.ts:48-59` TCP `connection`'da `av` kaynaklı soket kapatılıyor + ilk `onRequest` 404 (`app.ts:251`, `req.socket.remoteAddress` — XFF değil).                                                                                  |
+| D-r2-2   | KAPI  | Kod tarafı fail-closed (`clamd.ts` `stream: OK` dışı her şey `SCAN_FAILED`); arşiv açılımı ENOSPC vakası K6 kapı 5'te staging ölçümüdür, burada doğrulanamadı.                                                                       |
+| D-r2-3   | VAR   | `scan-queue.ts:9` büyük dosya bekleme sınırı 75 sn.                                                                                                                                                                                  |
+| D-r2-4   | VAR   | `memswap_limit` = `mem_limit` (3g / 1536m).                                                                                                                                                                                          |
+| D-r2-5   | VAR   | `env.ts` `avCidr`: IPv4, RFC 1918, /24../30, ağ adresiyle; `TRUSTED_PROXY_CIDR` ile çakışma reddi.                                                                                                                                   |
+
+## Bulgular (öncelik sırasıyla)
+
+### [DÜŞÜK] D-P28b-K1-1 Aynı parçaya eşzamanlı iki PUT: ikinci yazım kontrolsüz, aynı nonce ile farklı düz metin — A04
+
+Yer: apps/server/src/fsrv/service.ts:245-256 (`n === t.next` denetimi `await writePart`'tan önce; atomik değil), store.ts:60-68.
+Sorun: Yükleyici aynı `n` için iki farklı gövdeyi eşzamanlı gönderirse ikisi de denetimi geçer ve ikisi de `.part`'a aynı ofsete yazar.
+SHA-256 ilk gelen gövdeyle güncellenir, diskte hangisinin kalacağı belirsizdir. Aynı anahtar + nonce ile iki farklı düz metin
+şifrelenir (GCM nonce tekrarı; anahtar dosya başına olduğu için yalnız yükleyicinin kendi dosyasını etkiler). Taranan ve teslim edilen
+baytlar aynı dosyadan okunduğu için tarama atlatılamaz; alıcı SHA uyuşmazlığıyla `CORRUPT` görür. Son parçada ikinci yazım
+`rename`'den sonra gelirse 500 döner.
+İstismar senaryosu: Kötü niyetli yükleyici yalnız kendi aktarımını bozar; başka firmaya ya da AV'ye etkisi yok.
+Düzeltme: `Transfer`'e `writing` bayrağı eklensin; bayrak açıkken gelen PUT 409 `{next}` alsın. Bayrak `writePart`'tan önce açılsın,
+`finally`'de kapansın. Test: aynı `n` için iki eşzamanlı farklı gövde → biri 409.
+(atanan ajan: backend-dev)
+
+### [DÜŞÜK] D-P28b-K1-2 `TokenTable.dropAuthSession` hiç çağrılmıyor — A07
+
+Yer: apps/server/src/fsrv/tokens.ts:69-72. Çağıran yok (çıkış, pasife alma, şifre değişimi).
+Sorun: Tasarımda vaat edilen "çıkışta HISTORY belirteci düşer" bellekte uygulanmıyor. Etkisi yok, çünkü GET anında
+`resolveSessionById` iptal edilmiş/süresi dolmuş oturumu ve pasif kullanıcıyı reddediyor (`routes.ts:113-114`). Sorun ölü kod ve
+yanıltıcı yorum.
+Düzeltme: Ya çıkış/oturum iptali yoluna bağlansın ya da yöntem ve yorum kaldırılıp implementation.md'ye "GET anı denetimi yeterli" yazılsın.
+(atanan ajan: backend-dev)
+
+### [DÜŞÜK] D-P28b-K1-3 `fsrv.accept` teknisyenin güncel yetkisini yeniden denetlemiyor — A01
+
+Yer: apps/server/src/fsrv/lifecycle.ts:27-34; signaling/fsrv.ts:77-80.
+Sorun: Kapı 2 yalnız `fsrv.init`'te `file_transfer.use` + `room.caps` denetliyor. Oturum sırasında yetki daraltılırsa (`narrowCaps`)
+teknisyen müşterinin önceden yüklediği açık teklifi kabul edip ≤ 5 dk'lık belirteçle indirebilir. Yetki geri alma (G-04) odayı zaten
+bitirdiği için pencere yalnız `caps` daralmasıyla sınırlı.
+Düzeltme: `accept`'te tech tarafı için `room.caps.includes("file_transfer") && tech.permissions.has("file_transfer.use")` denetlensin;
+caps daralınca `dropRoom(sessionId, "TECH")` çağrılsın.
+(atanan ajan: backend-dev)
+
+### [DÜŞÜK] D-P28b-K1-4 Yetim satır süpürmesi ilk 500 canlı satıra bakıyor — A04
+
+Yer: apps/server/src/jobs/retention-fsrv.ts:58-69, fsrv/repo.ts `liveRows` (sırasız `take`).
+Sorun: `liveRows` bellekteki aktarımları dışlamadan 500 satır döndürüyor. Bu 500 satırın hepsi bellekte etkinse döngü biter ve
+sonraki yetim satırlar (diskte düz değil, şifreli; kota tutuyor) o tur temizlenmez. Bugünkü ölçekte olası değil.
+Düzeltme: `id NOT IN (bellekteki fid'ler)` koşulu ya da `id` imleciyle sayfalama.
+(atanan ajan: backend-dev)
+
+## Odak noktaları — doğrulama özeti
+
+- **box.ts:** Dosya başına HKDF (`tenant|fid` + 32 B tuz), AAD = başlık, nonce = segment + son bayrak. Başlık sürümü ve boyutu satırla
+  eşleşmeli, her segment doğrulanmadan verilmiyor, sonda fazla bayt reddediliyor. Uygun.
+- **store.ts:** Yol yalnız sunucuda kuruluyor (regex + kök altında). `.part` `wx` 0640, fsync + rename. Mutabakat sembolik bağlantı izlemiyor. Uygun.
+- **clamd.ts:** Yalnız `stream: OK` temiz sayılıyor. Kopma, boş yanıt, zaman aşımı ve bilinmeyen yanıt `SCAN_FAILED` (fail-closed). Veri yazıldıktan sonra yeniden deneme yok. Uygun.
+- **routes.ts:** Çerez yok. Belirteç, fid ve tür `onRequest`'te denetleniyor. HEAD kapalı, tek tip 404. Satır `tenantId`/`sessionId`/`CLEAN` denetimi IDOR'u kapatıyor. Uygun.
+- **Kota:** Yalnız Super Admin değiştirebiliyor (`tenants/routes.ts` `requireSuperAdmin`), ayrı audit kaydı yazılıyor. `AV_NOT_READY` (409) ve `consentUpdated` kapısı `settingsTx` içinde kilitli satırla çalışıyor.
+- **Saklama/anonimleştirme/firma silme:** Disk dosyası satır geçişinden önce siliniyor. Firma silmede `FILES_DIR/{tenant}` `SESSION_FILES` adımında siliniyor (`TENANT_PREFIX_RE`).
+- **Sinyal:** SERVER odasında `file.meta` yok sayılıyor. Misafir caps'inden `file_transfer`/`print` çıkarılıyor. `fsrv.*` yalnız `hasFsrv` soketinde şemada. Yazdırma kapısı ve `print.cancel` doğru.
+- **/health:** Yalnız `configured/reachable/yaş/stale` bilgisi veriyor (host/port yok). Caddy dışarı açmıyor.
+- **Web:** Belirteç yalnız `Authorization`, `credentials: "omit"`. SHA + boyut doğrulanıyor. `no-console: error`.
+- **Go:** fid/belirteç biçimi doğrulanıyor, yalnız gömülü sunucu kökü kullanılıyor, yönlendirme izlenmiyor, belirteç loga yazılmıyor. `.part` `O_EXCL` 0600, boyut sayacı, SHA, MOTW yeniden adlandırmadan önce, üzerine yazmayan yerleştirme var. Yazdırmada ≤ 20 MiB ve pid/boyut eşleşmesi aranıyor.
+- **clamd.conf:** Alert\* (Encrypted/ExceedsMax/Heuristic) açık, `StreamMaxLength 256M`, `MaxScanTime 55000`, `LogClean no`.
+
+## Otomatik tarama çıktıları
+
+- `pnpm audit --audit-level=moderate`: **No known vulnerabilities found**.
+- gitleaks: yerel makinede kurulu değil (CI'da çalışıyor). Yeni `.gitleaks.toml` istisnaları: `Abc_defGhijKlmnOpqrStuvWxyz0123456789-_ABCD`
+  (test belirteci, alfabe dizisi) ve `gizlibelirtec` (nginx testi). İkisi de **sahte**, kalıp dar. Uygun.
+
+## Tasarımda vaat edilip kodda bulunmayanlar
+
+- Çıkışta HISTORY belirtecinin bellekten düşürülmesi (D-P28b-K1-2). Etkisi GET anı denetimiyle karşılanıyor.
+- D-r2-2 ENOSPC/arşiv açılımı vakası: K6 kapı 5 staging ölçümü (kodla doğrulanamaz; test-operatoru/devops kanıtı beklenir).
+
+## Olumlu
+
+- Tüm durum geçişleri koşullu `updateMany`: çift gönderim, geç sonuç ve yarışlar tek kuralla kapanıyor.
+- Kota + oturum tavanı `tenants … FOR UPDATE` ile serileşiyor.
+- D-r2-1 hem TCP hem HTTP katmanında uygulanmış. Kaynak IP `trustProxy`'den etkilenmiyor.
+- Ağ ayrımı, salt okunur imza DB'si, swap yasağı, digest'le sabit imaj.
+
+**"Sonra" önerisi (gereksinimler §9):** D-P28b-K1-1..4.
+
+---
+
 # Güvenlik Raporu — P28u tasarım turu (K0, AC-290; gözetimsiz izinli/izinsiz bağlantı + müdahale, kod öncesi, 2026-11-16)
 
 DURUM: GEÇTİ — Kritik 0 / Yüksek 0 / Orta 3 / Düşük 6 (Orta bulgular tasarım r2'de kapatılmalı; kod turunda (K9) doğrulanır)

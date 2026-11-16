@@ -16,7 +16,8 @@ type DbOrTx = Db | Tx;
  * USER_CHILDREN içinde tenants'a FK veren tek tablo `trusted_devices` (P27a).
  */
 export const DATA_STEPS: Readonly<Partial<Record<TenantPurgeStep, readonly TablePart[]>>> = {
-  SESSION_FILES: [byTenant("session_files")],
+  // P28b (§3.3): saklanan dosya satırları önce (disk klasörü `SESSION_FILES` adımı başında silinir — tenant-purge.ts).
+  SESSION_FILES: [byTenant("session_stored_files"), byTenant("session_files")],
   SESSION_CONSENTS: [byTenant("session_consents")],
   // P18: IX(tenant_id, created_at). P19 (§8c.1): notification_outbox aynı adımda (yeni adım yok; IX(tenant_id, channel, created_at)
   // öneki; tetikleyicisiz) — support_requests'ten (REQUESTS) önce silinmeli (bileşik FK RESTRICT).

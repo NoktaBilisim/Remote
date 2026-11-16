@@ -14,6 +14,7 @@ import { NoteForm } from "./note-form";
 import { ControlPeriods } from "./control-periods";
 import { ConsentsList, Files } from "./files";
 import { Section } from "./sections";
+import { StoredFiles } from "./stored-files";
 import { RequestInfo, Summary } from "./summary";
 import { Quality, Timeline } from "./timeline";
 
@@ -132,6 +133,12 @@ export default async function HistoryDetailPage({ params }: { params: Promise<{ 
         <Section id="files" title={t("h.file.title")}>
           <Files s={s} />
         </Section>
+        {/* P28b (AC-360): yalnız sunucu satırı varsa */}
+        {s.storedFiles && s.storedFiles.length > 0 && (
+          <Section id="stored-files" title={t("sf.title")}>
+            <StoredFiles sessionId={s.id} items={s.storedFiles} />
+          </Section>
+        )}
       </div>
     </>
   );

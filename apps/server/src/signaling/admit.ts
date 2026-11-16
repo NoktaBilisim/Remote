@@ -127,6 +127,7 @@ export async function admitGuest(rooms: Rooms, room: Room, tech: TechConn, code:
   if (guest.requestId) rooms.requestHooks?.admitted(guest.requestId); // P15 (AC-239): bağlanma zamanlayıcısı durur
   const limits = await repo.activeLimits(rooms.db, room.tenantId);
   room.maxFileMb = limits.maxFileMb;
+  room.fileMode = await repo.sessionFileMode(rooms.db, room.sessionId); // P28b AC-355: satırdaki sabit mod
   rooms.startActive(room, guest, now.getTime(), limits.maxActiveHours);
   rooms.metrics.inc("rs_admit_total", { result: "admitted" });
   return "admitted";
@@ -267,6 +268,7 @@ async function activateRequestGuest(
   room.caps = capsOf(perms);
   const limits = await repo.activeLimits(rooms.db, room.tenantId);
   room.maxFileMb = limits.maxFileMb;
+  room.fileMode = await repo.sessionFileMode(rooms.db, room.sessionId); // P28b AC-355: satırdaki sabit mod
   rooms.startActive(room, guest, now.getTime(), limits.maxActiveHours);
   syncDisconnect(rooms, room); // §13.2 teknisyen-yok zamanlayıcısı
   rooms.metrics.inc("rs_admit_total", { result: "admitted" });

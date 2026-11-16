@@ -6,7 +6,7 @@ import type { Prisma } from "../generated/prisma/client.ts";
 import type { Db } from "../lib/db.ts";
 import { newId, newSecretToken, sha256Hex } from "../lib/ids.ts";
 import { avatarUrlFor } from "../uploads/urls.ts";
-import { createSession, findSessionByHash, touchSession, type LoginUser } from "./repo.ts";
+import { createSession, findSessionByHash, findSessionById, touchSession, type LoginUser } from "./repo.ts";
 
 const SESSION_ABSOLUTE_MS = 8 * 60 * 60 * 1000;
 const SESSION_IDLE_MS = 30 * 60 * 1000;
@@ -114,13 +114,30 @@ export async function openSession(
  * (2FA aşaması `ok` olmayan oturumu izinli uçlar için döndürür); WS ve diğer çağıranlarda yarım oturum null (AC-67).
  */
 export async function resolveSession(db: Db, token: string, now: Date, policy: SessionPolicy): Promise<AuthContext | null> {
-  const s = await findSessionByHash(db, sha256Hex(token));
+  return contextOf(db, await findSessionByHash(db, sha256Hex(token)), now, policy, true);
+}
+
+/**
+ * P28b (D-P28b-2): `HISTORY` indirme belirtecinin GET anında yeniden denetimi — oturum kimliğiyle, çerezsiz. Kurallar
+ * `resolveSession` ile aynı; `last_seen_at` yazılmaz (indirme oturumu canlı tutmaz).
+ */
+export async function resolveSessionById(db: Db, id: string, now: Date, policy: SessionPolicy): Promise<AuthContext | null> {
+  return contextOf(db, await findSessionById(db, id), now, policy, false);
+}
+
+async function contextOf(
+  db: Db,
+  s: Awaited<ReturnType<typeof findSessionByHash>>,
+  now: Date,
+  policy: SessionPolicy,
+  touch: boolean,
+): Promise<AuthContext | null> {
   if (!s || s.revokedAt !== null || s.expiresAt <= now) return null;
   if (now.getTime() - s.lastSeenAt.getTime() > SESSION_IDLE_MS) return null;
   if (!canSignIn(s.user)) return null;
   const mfaStage = mfaStageOf(s.user, s.mfaPassed, policy.setupEnforced);
   if (mfaStage !== "ok" && !policy.allowPartial) return null;
-  if (now.getTime() - s.lastSeenAt.getTime() > TOUCH_INTERVAL_MS) await touchSession(db, s.id, now);
+  if (touch && now.getTime() - s.lastSeenAt.getTime() > TOUCH_INTERVAL_MS) await touchSession(db, s.id, now);
 
   const user = toAuthUser(s.user);
   const acting = s.user.role === "SUPER_ADMIN" && tenantActive(s.actingTenant) ? s.actingTenant : null;

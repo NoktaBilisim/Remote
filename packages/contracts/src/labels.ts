@@ -13,6 +13,7 @@ import type {
   TimelineEvent,
 } from "./api/sessions.ts";
 import type { ClipResult, PrintDecision, PrintResult } from "./ws-clip-print.ts";
+import type { AvScanReason, FsrvGateReason, FsrvWireState, StoredFileState } from "./ws-fsrv.ts";
 
 /** Bilinen değer → etiket; bilinmeyen → ham değer; null/undefined → "". */
 export function labelOf(map: Readonly<Record<string, string>>, value: string | null | undefined): string {
@@ -218,6 +219,11 @@ export const TIMELINE_ACTION_LABELS: Readonly<Record<string, string>> = {
   "clipboard.consent": "Pano izni değişti",
   "clipboard.transfer": "Pano aktarımı",
   "print.job": "Uzaktan yazdırma",
+  // P28b (mimari-p28b §11.1)
+  "file.upload": "Dosya sunucuya yüklendi",
+  "file.scan": "Dosya virüs taraması",
+  "file.infected": "Virüslü dosya bulundu",
+  "file.download": "Sunucudaki dosya indirildi",
 };
 
 /** P28a (AC-345, 346): pano sonucu — konsol durum metni ve zaman çizelgesi. */
@@ -315,8 +321,81 @@ export function describeTimelineEvent(ev: Pick<TimelineEvent, "action" | "detail
       const pages = str(d.pages);
       return plain(pages ? `${base} (${pages} sayfa)` : base, result ? labelOf(PRINT_RESULT_LABELS, result) : null);
     }
+    case "file.infected": {
+      const sig = str(d.signature);
+      return { label: base, note: `İmza: ${sig ?? FSRV_UNKNOWN_SIGNATURE}`, warn: true };
+    }
+    case "file.scan": {
+      const result = str(d.result);
+      const reason = str(d.reason);
+      if (result === "SCAN_FAILED") return plain(base, reason ? `Taranamadı: ${labelOf(AV_SCAN_REASON_LABELS, reason)}` : "Taranamadı");
+      return plain(base, result === "CLEAN" ? "Temiz" : result === "INFECTED" ? "Virüslü" : null);
+    }
+    case "file.download":
+      return plain(base, str(d.context) === "history" ? "Oturum geçmişinden" : null);
     default:
       return plain(base);
+  }
+}
+
+// --- P28b sunucu dosya durumu metinleri (mimari-p28b §7.2, §9; AC-358, 359, 362; Go `messages_p28.go` aynı metinler) ---
+export const FSRV_UNKNOWN_SIGNATURE = "bilinmeyen imza";
+/** "Dosya taranamadı, teslim edilmedi: <neden>" içindeki neden (AC-359). `BUSY` ayrı tam metindir (aşağıda). */
+export const AV_SCAN_REASON_LABELS: Readonly<Record<AvScanReason, string>> = {
+  UNAVAILABLE: "tarama servisine ulaşılamadı",
+  TIMEOUT: "tarama zaman aşımı",
+  ENCRYPTED: "şifreli arşiv",
+  LIMIT: "tarama boyut sınırı",
+  BUSY: "tarama servisi yoğun",
+  ERROR: "tarama hatası",
+};
+/** `fsrv.init` kapı reddi metinleri (`state: "REJECTED"` + neden). */
+export const FSRV_GATE_REASON_LABELS: Readonly<Record<FsrvGateReason, string>> = {
+  MODE: "Bu oturumda sunucu üzerinden dosya aktarımı kapalı",
+  FORBIDDEN: "Bu işlem için yetkiniz yok",
+  UNSUPPORTED: "Müşterinin uygulaması bu özelliği desteklemiyor — güncel sürümü indirmesini isteyin",
+  BUSY: "Başka bir dosya aktarımı sürüyor",
+  TOO_LARGE: "Dosya sunucu modunda 256 MB sınırını (ya da firma sınırını) aşıyor",
+  RATE_LIMITED: "Çok sık dosya gönderildi; biraz sonra yeniden deneyin",
+  SESSION_LIMIT: "Bu oturumda sunucu üzerinden en çok 2 GB aktarılabilir",
+  QUOTA: "Firma depolama kotası doldu",
+};
+/** Satır/tel durumu kısa etiketleri (geçmiş "Sunucudaki dosyalar" ve ilerleme). */
+export const STORED_FILE_STATE_LABELS: Readonly<Record<StoredFileState | FsrvWireState, string>> = {
+  UPLOADING: "Yükleniyor",
+  SCANNING: "Virüs taraması yapılıyor",
+  CLEAN: "Temiz",
+  INFECTED: "Virüslü bulundu",
+  SCAN_FAILED: "Taranamadı",
+  CORRUPT: "Bozuk (doğrulanamadı)",
+  REJECTED: "Teslim edilmedi — saklanmadı",
+  CANCELLED: "Teslim edilmedi — saklanmadı",
+  EXPIRED: "Süresi doldu",
+  DELETED: "Silindi",
+  DELIVERED: "Teslim edildi",
+};
+
+/**
+ * `fsrv.status` metni (iki taraf). Anlam (state, reason) çiftinden: `REJECTED` + neden = kapı reddi, `REJECTED` nedensiz =
+ * alıcı reddi; `SCAN_FAILED/BUSY` ≠ kapı `BUSY`. Metin gerektirmeyen ara durumlarda null.
+ */
+export function describeFsrvStatus(state: FsrvWireState, reason?: string | null, signature?: string | null): string | null {
+  switch (state) {
+    case "INFECTED":
+      return `Dosya virüslü bulundu (${signature ?? FSRV_UNKNOWN_SIGNATURE}), teslim edilmedi`;
+    case "SCAN_FAILED":
+      if (reason === "BUSY") return "Virüs tarama servisi yoğun, dosya teslim edilmedi";
+      return `Dosya taranamadı, teslim edilmedi: ${labelOf(AV_SCAN_REASON_LABELS, reason ?? "ERROR")}`;
+    case "REJECTED":
+      return reason ? labelOf(FSRV_GATE_REASON_LABELS, reason) : "Alıcı reddetti";
+    case "CORRUPT":
+      return "Dosya doğrulanamadı (bozuk), teslim edilmedi";
+    case "CANCELLED":
+      return "Aktarım iptal edildi";
+    case "DELIVERED":
+      return "Teslim edildi";
+    default:
+      return null;
   }
 }
 

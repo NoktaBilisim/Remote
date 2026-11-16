@@ -116,6 +116,10 @@ export function findSessionByHash(db: DbOrTx, tokenHash: string): Promise<Sessio
   return db.authSession.findUnique({ where: { tokenHash }, include: sessionInclude });
 }
 
+export function findSessionById(db: DbOrTx, id: string): Promise<SessionWithUser | null> {
+  return db.authSession.findUnique({ where: { id }, include: sessionInclude });
+}
+
 export async function touchSession(db: DbOrTx, id: string, at: Date): Promise<void> {
   await db.authSession.update({ where: { id }, data: { lastSeenAt: at } });
 }

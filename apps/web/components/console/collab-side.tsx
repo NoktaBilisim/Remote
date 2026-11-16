@@ -24,10 +24,13 @@ export function CollabSide({
   now,
   quality,
   canFiles,
+  filesBlocked = null,
   peerName,
   tab,
   onTab,
 }: {
+  /** P28b: SERVER modunda dosya alanının kapalı olma nedeni. */
+  filesBlocked?: "unsupported" | "unattended" | null;
   collab: Collab;
   clipPrint: ClipPrint;
   now: number | null;
@@ -58,7 +61,7 @@ export function CollabSide({
         ]}
       />
       {tab === "chat" && <ChatPanel collab={collab} peerName={peerName} />}
-      {tab === "files" && <FilesPanel collab={collab} allowed={canFiles} peerName={peerName} />}
+      {tab === "files" && <FilesPanel collab={collab} allowed={canFiles} blocked={filesBlocked} peerName={peerName} />}
       {tab === "quality" && <QualityPanel last={quality.last} verdict={quality.verdict} />}
       <ClipPrintPanel cp={clipPrint} now={now} />
     </aside>

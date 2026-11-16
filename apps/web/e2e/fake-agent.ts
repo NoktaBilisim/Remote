@@ -40,6 +40,7 @@ export async function startFakeAgent(browser: Browser, sessionId: string, featur
         gate: boolean;
         asked: boolean;
         p28: string[];
+        fsrv: unknown[];
       }
       const w = window as unknown as W;
       // P28a: özellik bildirimi (`rs.cap.clip1`, `rs.cap.print1`) — Windows istemci gibi
@@ -67,6 +68,7 @@ export async function startFakeAgent(browser: Browser, sessionId: string, featur
         gate: false,
         asked: false,
         p28: [],
+        fsrv: [],
         send,
       };
       const cv = document.createElement("canvas");
@@ -135,7 +137,8 @@ export async function startFakeAgent(browser: Browser, sessionId: string, featur
           w.__agent.p28.push(m.t);
           // Go istemci gibi: iptal edilen iş `print.report{CANCELLED}` ile kapanır (§4.3 print.cancel)
           if (m.t === "print.cancel") send({ t: "print.report", pid: m.pid, decision: "NONE", result: "CANCELLED", sizeBytes: 0 });
-        } else if (m.t === "caps.update") {
+        } else if (typeof m.t === "string" && m.t.startsWith("fsrv.")) w.__agent.fsrv.push(m);
+        else if (m.t === "caps.update") {
           w.__agent.caps.push(m.caps);
           if (!m.caps.includes("remote_control")) w.__agent.gate = false;
         }
@@ -154,6 +157,9 @@ export const agentSend = (a: Page, m: unknown) =>
   a.evaluate((x) => (window as unknown as { __agent: { send: (m: unknown) => void } }).__agent.send(x), m);
 /** P28a: misafire ulaşan clip.* / print.* mesaj tipleri. */
 export const agentP28 = (a: Page) => a.evaluate(() => (window as unknown as { __agent: { p28: string[] } }).__agent.p28);
+/** P28b: misafire ulaşan fsrv.* mesajları (tam gövde). */
+export const agentFsrv = (a: Page) =>
+  a.evaluate(() => (window as unknown as { __agent: { fsrv: { t: string; [k: string]: unknown }[] } }).__agent.fsrv);
 export const agentLog = (a: Page) =>
   a.evaluate(() => {
     const { inputs, controlRequests, monitorRequests, revokes, caps, closes, gate, asked } = (window as unknown as { __agent: AgentLog })

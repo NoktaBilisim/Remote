@@ -228,6 +228,8 @@ describe("P13a saklama işi — oturum anonimleştirme (AC-197)", () => {
       bindings: 0,
       blocks: 0,
       purgedMessages: 0, // P18 H3: anonimleştirmeyle aynı TX'te silinen talep mesajları (dry'da da gerçek silme)
+      storedFiles: 0, // P28b: anonimleştirmeyle silinen saklanan dosya satırları
+      filesExpired: 0, // P28b: süresi dolan saklanan dosyalar
       purgeCandidates: { sessions: 0, consents: 0, files: 0, requests: 0, bindings: 0 },
     });
   });
@@ -389,6 +391,9 @@ describe("P13a saklama işi — global silmeler (AC-198)", () => {
     expect(Object.keys(g).sort()).toEqual([
       "audit",
       "authSessions",
+      "fsrvMissing", // P28b mutabakatı
+      "fsrvOrphanFiles",
+      "fsrvStale",
       "purgeCandidates",
       "resetTokens",
       "trustedDevices",

@@ -14,3 +14,10 @@ services:
       CADDY_TRUSTED_PROXIES: ${CADDY_TRUSTED_PROXIES:?CADDY_TRUSTED_PROXIES gerekli (staging 172.30.1.128/32; runbook §21)}
       # Arama motoru dışı: her yanıta X-Robots-Tag "noindex, nofollow", /robots.txt "Disallow: /" (Caddyfile robots_1).
       ROBOTS_NOINDEX: "1"
+  # P28b (K-P28b-18, D-r2-4): ikinci yığında ClamAV varsayılan KAPALI (aynı hostta iki yığının clamd tavanı 2 × 4,5 GiB).
+  # Açma: staging .env `COMPOSE_PROFILES=av` (ya da `docker compose --profile av up -d clamav-update clamav`); runbook §28b.2.
+  # server av ağına yine katılır; clamd yokken sunucu modu fail-closed (taranamadı / AV_NOT_READY).
+  clamav:
+    profiles: [av]
+  clamav-update:
+    profiles: [av]

@@ -43,6 +43,7 @@ function printStatus(j: PrintView, now: number | null): { text: string; tone: st
   if (j.phase === "requested") return { text: t("cp.print.st.requested"), tone: "text-fg-muted" };
   if (j.phase === "sending")
     return { text: t("cp.print.st.sending", { pct: j.size ? Math.floor((j.sent / j.size) * 100) : 100 }), tone: "text-fg-muted" };
+  if (j.phase === "scanning") return { text: t("cp.print.st.scanning"), tone: "text-fg-muted" };
   if (j.phase === "waiting") return { text: t("cp.print.st.waiting", { sec: consentLeftSec(j, now) ?? 60 }), tone: "text-fg-muted" };
   const o = j.outcome ?? "ERROR";
   const text =

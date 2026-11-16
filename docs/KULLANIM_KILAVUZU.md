@@ -6,10 +6,10 @@ geliştirilir (bkz. `README.md` "Yol haritası"); kılavuz da her paketle birlik
 - **Müşteri için:** Hızlı Destek uygulaması (Windows), yalnız bir pencereyi paylaşma (0.11), "Destek iste" ile talep gönderme,
   birden çok firmaya kayıt, tepside çalıştırma ve Windows açılışında başlatma, beklerken teknisyenle yazışma (0.12),
   program indirmeden tarayıcıdan talep gönderme (web talep formu, durum bildirimi, "sohbete şifre yazmayın"), bilgisayarın hatırlanması
-  ("Bağlantı kodum var", "Bu bilgisayarı unut"), uzaktan kontrol izni, pano paylaşımı ve uzaktan yazdırma onayı (0.13), ekran görüntüsü alınamazsa ne yapılır,
+  ("Bağlantı kodum var", "Bu bilgisayarı unut"), uzaktan kontrol izni, pano paylaşımı ve uzaktan yazdırma onayı (0.13), firma dosyaları sunucuda tarıyorsa (0.14), ekran görüntüsü alınamazsa ne yapılır,
   bilgisayarda ne kalır (iz ve gizlilik)
 - **Teknisyen için:** Oturumlar ve bekleme odası ("Müşteri bekliyor" rozeti, menü sayacı, bildirim), Uzaktan kontrol
-  (konsol; "Pencere paylaşımı" rozeti dahil), Pano ve uzaktan yazdırma (konsol), Oturum geçmişi (dosyalarda "Doğrulanmış / Müşteri bildirimi", talepte SLA satırı), Destek talepleri ("Bu kaynağı engelle"; öncelik, atama,
+  (konsol; "Pencere paylaşımı" rozeti dahil), Pano ve uzaktan yazdırma (konsol), Dosyalar sunucuda taranırken (tarama durumları), Oturum geçmişi (sunucudaki dosyaları indirme dahil) (dosyalarda "Doğrulanmış / Müşteri bildirimi", talepte SLA satırı), Destek talepleri ("Bu kaynağı engelle"; öncelik, atama,
   SLA rozetleri, kabul öncesi mesajlaşma),
   Engellenenler, web formundan gelen talepler ("Web" rozeti), müşterinin ekranı gelmiyorsa (paylaşım hata nedeni)
 - **Admin ve teknisyen için:** Müşteriler (müşteri firmalar, bağlantı gönderme, web talep formu bağlantısı, kayıtlı
@@ -21,12 +21,12 @@ geliştirilir (bkz. `README.md` "Yol haritası"); kılavuz da her paketle birlik
   kodları ve kurtarma kodlarını yenileme, "Bu cihazı 30 gün hatırla" ve hatırlanan cihazlar, şifremi unuttum, Hesabım sayfası, tüm cihazlardan çıkış, kritik ayarlarda kimliğinizi yeniden doğrulama;
   hesap menüsü, profil resmi ve tema; giriş ekranında firma logosu
 - **Admin için:** Kullanıcılar ve yetkiler (2FA sıfırlama ve kullanıcıyı kalıcı silme dahil), Uzaktan kontrol yetkisi ve kayıtlar (pano paylaşımı ve uzaktan yazdırma yetkisi dahil), Oturum geçmişi
-  yetkileri, Ayarlar > Genel (oturum ve dosya sınırları), Ayarlar > Destek talepleri (web talep formu, form spam'i altında ne yapılır, müşteriye durum bildirimi, e-posta bildirimi, kabul kodu, öncelik ve SLA dahil), Ayarlar > Mesai saatleri ve Tatiller, Ayarlar > E-posta (SMTP), Ayarlar > SMS, Audit log, Ayarlar >
+  yetkileri, Ayarlar > Genel (oturum ve dosya sınırları), Ayarlar > Dosyalar (sunucu üzerinden aktarım ve virüs tarama, saklama süresi, depolama kullanımı), Ayarlar > Destek talepleri (web talep formu, form spam'i altında ne yapılır, müşteriye durum bildirimi, e-posta bildirimi, kabul kodu, öncelik ve SLA dahil), Ayarlar > Mesai saatleri ve Tatiller, Ayarlar > E-posta (SMTP), Ayarlar > SMS, Audit log, Ayarlar >
   Aydınlatma metni, Ayarlar > Güvenlik (2FA cihaz hatırlama, kullanıcının hatırlanan cihazlarını kaldırma), Ayarlar > Logo, kullanıcının profil resmi, kişisel verilerin saklama süresi ve
   anonimleştirme, kurumsal bilgisayarlarda Hızlı Destek'e izin verme (AppLocker / antivirüs), ağ gereksinimleri
   (güvenlik duvarı izin listesi)
-- **Super Admin için:** Firmalar ve aranabilir firma seçici, firmayı kalıcı silme (24 saat iptal penceresi), tüm firmaların oturum geçmişi, destek talepleri, Sistem ayarları
-  (MySQL, TURN, sistem logosunu değiştirme/kaldırma, WhatsApp servisi), başka bir Super Admin'in şifresini sıfırlama,
+- **Super Admin için:** Firmalar ve aranabilir firma seçici, firmanın sunucu depolama kotası, firmayı kalıcı silme (24 saat iptal penceresi), tüm firmaların oturum geçmişi, destek talepleri, Sistem ayarları
+  (MySQL, TURN, sistem logosunu değiştirme/kaldırma, WhatsApp servisi, virüs tarama (ClamAV)), başka bir Super Admin'in şifresini sıfırlama,
   şifre/2FA kaybı
 
 ---
@@ -508,6 +508,32 @@ Diğer durumlar:
 - "Dosya kaydedilmedi … güvenlik işareti yazılamıyor" yazarsa İndirilenler klasörünüz bir USB bellekte veya benzeri
   bir sürücüdedir; program çalıştırabilen dosyalar bu durumda kaydedilmez. Teknisyeninize söyleyin.
 - Kaydedilen dosyalar Windows'ta "internetten indirildi" olarak işaretlenir. Açarken Windows ek bir uyarı gösterebilir.
+
+### Firmanız dosyaları sunucuda tarıyorsa (Hızlı Destek 0.14 ve sonrası)
+
+Bazı firmalar dosyaları doğrudan değil, kendi sunucuları üzerinden ve virüs taramasıyla gönderir. Bu durumda dosya
+alanının üstünde şu satır görünür:
+
+> Dosyalar sunucuda virüs taramasından geçer; bu modda uçtan uca şifreli değildir
+
+Ne değişir?
+
+1. Teknisyen dosya gönderince önce "Virüs taraması yapılıyor" yazar. Bu birkaç saniye ile en çok bir dakika sürer.
+2. Dosya temiz çıkarsa her zamanki **Dosya teklifi** penceresi açılır (yukarıdaki adımlar ve uyarılar aynen geçerlidir).
+3. Dosya virüslü çıkarsa size hiç gelmez. Ekranda "Dosya virüslü bulundu (<virüs adı>), teslim edilmedi" yazar.
+4. Dosya taranamazsa yine gelmez: "Dosya taranamadı, teslim edilmedi: <neden>". Örneğin parolalı bir zip dosyası
+   taranamaz; teknisyenden dosyayı parolasız göndermesini isteyin.
+
+Bilmeniz gerekenler:
+
+- Teslim aldığınız dosya, firmanın belirlediği süre (1–7 gün) boyunca sunucuda şifreli saklanır, sonra silinir.
+  Reddettiğiniz dosya hemen silinir.
+- Windows programında bu modda **yalnız dosya alırsınız**; programdan teknisyene dosya gönderme düğmesi yoktur.
+  Tarayıcıyla bağlandıysanız dosya gönderebilirsiniz; gönderdiğiniz dosya da önce taranır, durumu satırda görünür
+  ("Yükleniyor %…", "Virüs taraması yapılıyor", "Teknisyenin onayı bekleniyor", "Teslim edildi").
+- Uzaktan yazdırılan belge de taramadan geçer; yazdırıldıktan sonra sunucuda saklanmaz.
+- Pano paylaşımındaki metin ve teknisyenin bilgisayarınızda kendisinin indirdiği dosyalar bu taramanın kapsamında değildir.
+- Programınız 0.14'ten eskiyse bu firmada dosya ve yazdırma çalışmaz. Teknisyen size güncel sürümü indirmenizi söyler.
 
 ### Tarayıcıda büyük dosya alırken (müşteri sayfası ve teknisyen konsolu)
 
@@ -1442,6 +1468,56 @@ Tarayıcıyla bağlanan müşteride **Uzaktan yazdır** düğmesi hiç görünme
 
 ---
 
+## Teknisyen için: Dosyalar sunucuda taranırken
+
+Firmanızın Admin'i **Ayarlar > Dosyalar**'da "Dosyaları sunucu üzerinden aktar ve virüs tara"yı açtıysa, bundan sonra açılan
+oturumlarda dosyalar sunucu üzerinden gider. Konsoldaki dosya panelinin üstünde "Dosyalar sunucuda virüs taramasından
+geçer; bu modda uçtan uca şifreli değildir" satırını görürsünüz. Ayar açık bir oturumun ortasında değişirse o oturum eski
+yoluyla sürer; yeni yol bir sonraki oturumda geçerli olur.
+
+### Nasıl dosya gönderirim?
+
+1. Dosya panelinde **Dosya gönder**'e basın ve dosyayı seçin. Panelde "Dosya başına en çok … MB. Dosyalar sunucu
+   üzerinden aktarılır." yazar; bu modda sınır firma sınırı ile 256 MB'tan küçük olanıdır.
+2. Satırda sırasıyla şu durumları izleyin:
+
+| Durum                                           | Anlamı                                                                 |
+| ----------------------------------------------- | ---------------------------------------------------------------------- |
+| Yükleniyor %n                                   | Dosya sunucuya şifreli olarak yükleniyor                               |
+| Virüs taraması yapılıyor                        | Dosya taranıyor (genelde saniyeler, en çok 1 dakika)                   |
+| Müşteri onayı bekleniyor                        | Dosya temiz; müşteriye teklif edildi                                   |
+| Teslim edildi                                   | Müşteri aldı ve dosyanın bozulmadığı doğrulandı                        |
+| Dosya virüslü bulundu (<imza>), teslim edilmedi | Tarayıcı virüs buldu; dosya hemen silindi, müşteri de aynı metni görür |
+| Dosya taranamadı, teslim edilmedi: <neden>      | Dosya taranamadığı için gönderilmedi (aşağıdaki nedenler)              |
+| Alıcı reddetti                                  | Müşteri reddetti; dosya hemen silindi                                  |
+
+**"Taranamadı" nedenleri:** "şifreli arşiv" (parolalı zip; parolasız gönderin), "tarama boyut sınırı" ya da "tarama zaman
+aşımı" (çok büyük veya iç içe arşiv; bölerek gönderin), "tarama servisine ulaşılamadı" ve "tarama hatası" (sistem yöneticisine
+bildirin). "Virüs tarama servisi yoğun, dosya teslim edilmedi" görürseniz biraz sonra yeniden gönderin. Taranamayan dosya
+virüslü sayılmaz, yalnız teslim edilmez.
+
+### Müşteriden dosya gelirse
+
+Tarayıcıyla bağlanan müşteri dosya gönderirse dosya önce taranır, temizse size **Gelen dosya** teklifi gelir; kabul
+ettiğinizde indirilir. Windows programındaki müşteri bu modda dosya gönderemez (yalnız alır).
+
+### Gönderilemediğinde görülen mesajlar
+
+| Mesaj                                                                               | Ne yapmalı                                                                  |
+| ----------------------------------------------------------------------------------- | --------------------------------------------------------------------------- |
+| Müşterinin uygulaması bu özelliği desteklemiyor — güncel sürümü indirmesini isteyin | Müşterinin Hızlı Destek'i 0.14'ten eski; güncel sürümü indirmesini isteyin  |
+| Başka bir dosya aktarımı sürüyor                                                    | Aynı yönde bir aktarım bitene kadar bekleyin                                |
+| Dosya sunucu modunda 256 MB sınırını (ya da firma sınırını) aşıyor                  | Dosyayı küçültün veya bölün                                                 |
+| Çok sık dosya gönderildi; biraz sonra yeniden deneyin                               | Bir dakika bekleyin                                                         |
+| Bu oturumda sunucu üzerinden en çok 2 GB aktarılabilir                              | Yeni bir oturum açın                                                        |
+| Firma depolama kotası doldu                                                         | Admin'e bildirin (kota Super Admin'de; Admin saklama süresini kısaltabilir) |
+| Bu işlem için yetkiniz yok                                                          | "Dosya aktarımı" yetkiniz kapalı; Admin'e başvurun                          |
+
+- **Gözetimsiz cihazlarda** bu firmada dosya aktarımı kapalıdır; panelde "Bu firmada dosyalar sunucuda taranır; gözetimsiz
+  oturumda dosya aktarımı kapalı" yazar.
+- **Uzaktan yazdırma** da aynı yoldan gider: "Gönderiliyor %n" → "Virüs taraması yapılıyor" → müşteri onayı. Virüs veya
+  taranamama durumunda belge basılmaz ve aynı metin görünür.
+
 ## Teknisyen için: Oturum geçmişi
 
 Kenar menüsündeki **Oturum geçmişi** biten ve süren destek oturumlarınızı listeler. Menüde göremiyorsanız hesabınızda
@@ -1490,6 +1566,22 @@ Satıra tıklayınca oturum ayrıntısı açılır:
   görünmez.
 
 "Oturum bulunamadı" görürseniz oturum sizin değildir, silinmiştir ya da bağlantı hatalıdır.
+
+### Sunucudaki dosyaları nasıl yeniden indiririm?
+
+Oturum sunucu üzerinden dosya aktarımıyla yapıldıysa ayrıntı ekranında **Sunucudaki dosyalar** bölümü çıkar (yalnız
+böyle bir dosya varsa). Sütunlar: dosya, yön, boyut, durum ve **Saklama sonu**.
+
+1. Durumu "Teslim edildi — saklanıyor" olan satırda **İndir**'e basın.
+2. Dosya tarayıcınıza indirilir. İndirme bağlantısı 5 dakika geçerlidir; her indirme denetim kaydına yazılır.
+
+- **İndir** düğmesini görmek için hem "Oturum geçmişi" hem "Dosya aktarımı" yetkiniz olmalı. Teknisyen yalnız kendi
+  oturumlarının, Admin firmanın tüm oturumlarının dosyalarını indirir.
+- "Yazdırma belgesi — saklanmaz": uzaktan yazdırılan belgeler saklanmaz, indirilemez.
+- "Teslim edilmedi — saklanmadı": reddedilen veya iptal edilen dosya hemen silinmiştir.
+- Virüslü ve taranamayan dosyalar kırmızı yazılır; bunlar hiç saklanmaz.
+- "Süresi doldu": saklama süresi bitmiş, dosya gece 03:30'da silinmiştir.
+- "Dosya indirilemedi. Saklama süresi dolmuş olabilir; sayfayı yenileyip tekrar deneyin." görürseniz sayfayı yenileyin.
 
 ### "Anonimleştirildi" rozeti ne demek?
 
@@ -2215,6 +2307,9 @@ değiştirir. Düzenleme yetkiniz yoksa alanlar soluk görünür ve değiştiril
 | Teknisyen başına açık oturum sınırı  | 1–10   | Bir teknisyenin aynı anda bekleyen veya bağlı oturum sayısı                   |
 | Dosya boyutu sınırı (MB)             | 1–2048 | Oturumda gönderilen ve alınan tek dosyanın en büyük boyutu                    |
 
+Firmanızda sunucu üzerinden dosya aktarımı açıksa (bkz. "Ayarlar > Dosyalar") bu modda tek dosya en çok 256 MB olabilir;
+girdiğiniz değer daha büyükse 256 MB uygulanır.
+
 Nasıl değiştiririm?
 
 1. **Ayarlar > Genel**'i açın.
@@ -2226,6 +2321,54 @@ Nasıl değiştiririm?
 - Her değişiklik denetim kaydına eski → yeni değerle yazılır.
 - Kaydetmeden sayfadan ayrılmaya çalışırsanız kaydedilmemiş değişiklik uyarısı çıkar.
 - Ayarlar okunamazsa sayfada hata ve **Tekrar dene** düğmesi görünür.
+
+## Admin için: Ayarlar > Dosyalar (sunucu üzerinden aktarım ve virüs tarama)
+
+**Ayarlar > Dosyalar** sekmesi (kilitli klasör simgesi) dosyaların nasıl aktarılacağını belirler. Görmek için "Ayarlar →
+Görüntüle", değiştirmek için "Ayarlar → Düzenle" yetkisi gerekir.
+
+İki yol vardır:
+
+| Yol                                   | Nasıl çalışır                                                                                                                           |
+| ------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
+| Doğrudan (anahtar kapalı, varsayılan) | Dosya teknisyen ile müşteri arasında uçtan uca şifreli gider; sunucuya uğramaz, taranmaz, saklanmaz                                     |
+| Sunucu üzerinden (anahtar açık)       | Dosya ve yazdırma belgesi sunucuya şifreli yüklenir, virüs taramasından geçer, yalnız temizse teslim edilir; uçtan uca şifreli değildir |
+
+### Nasıl açarım?
+
+1. **Ayarlar > Dosyalar**'ı açın.
+2. **Dosyaları sunucu üzerinden aktar ve virüs tara** anahtarını **Açık** yapın.
+3. Altta çıkan **Aydınlatma metnimi bu değişikliği kapsayacak şekilde güncelledim** kutusunu işaretleyin. Bu modda müşteri
+   dosyaları sunucuda geçici olarak saklandığı için önce **Ayarlar > Aydınlatma metni**'ni güncelleyin.
+4. **Teslim edilen dosyaların saklanacağı gün** alanına 1–7 arası bir değer girin (varsayılan 1).
+5. **Kaydet**'e basın; "Dosya ayarları kaydedildi" yazar.
+
+- Anahtar soluksa ve altında "Sistem yöneticisi virüs tarama bağlantısını test etmedi" yazıyorsa Super Admin henüz virüs
+  tarama bağlantısını başarıyla test etmemiştir. Super Admin'e başvurun.
+- Ayar **yeni oturumlarda** geçerli olur; açık oturumlar başladıkları yolla sürer.
+- Kapatırken onay kutusu istenmez. Kapattıktan sonra yeni oturumlar doğrudan yolu kullanır; saklanan dosyalar süreleri
+  dolunca silinir.
+- Her değişiklik denetim kaydına eski → yeni değerle yazılır.
+
+### Saklama süresi neyi etkiler?
+
+Yalnız müşteriye/teknisyene **teslim edilmiş** dosyalar saklanır. Reddedilen, iptal edilen, oturum sonunda teslim
+edilmemiş dosyalar ve yazdırma belgeleri hemen silinir. Süre dolan dosyalar her gece 03:30'da silinir. Oturum
+anonimleştirildiğinde ya da kalıcı silindiğinde de dosyaları silinir. Saklanan dosyalar yedeğe alınmaz.
+
+### Depolama kullanımı
+
+Sekmenin altında "Kullanım: x / y" çubuğu firmanızın kullandığı alanı ve kotasını gösterir. "Depolama kotası dolmak
+üzere…" uyarısı çıkarsa kota dolduğunda yeni dosyalar kabul edilmez ("Firma depolama kotası doldu"). Kotayı yalnız Super
+Admin artırır. Beklemeden yer açmak için saklama süresini 1 güne indirebilirsiniz; fazlası bir sonraki 03:30 turunda silinir.
+
+### Sık karşılaşılan mesajlar (Dosyalar)
+
+| Mesaj                                                      | Anlamı                                                           |
+| ---------------------------------------------------------- | ---------------------------------------------------------------- |
+| Önce virüs tarama bağlantısını başarıyla test edin         | Super Admin'in son ClamAV testi başarılı değil; anahtar açılamaz |
+| Açmadan önce aydınlatma metnini güncellediğinizi onaylayın | Onay kutusu işaretlenmeden açmaya çalıştınız                     |
+| Kullanım bilgisi şu an alınamadı.                          | Kota bilgisi okunamadı; sayfayı yenileyin                        |
 
 ## Admin için: Ayarlar > Destek talepleri
 
@@ -3275,6 +3418,21 @@ Süper Yönetici içindir" uyarısı çıkar.
 
 **Düzenle** ile adı ve kısa adı değiştirebilirsiniz. Kısa ad değişirse firmanın eski giriş bağlantıları çalışmaz.
 
+### Firmanın sunucu depolama kotası
+
+Düzenleme penceresinde **Sunucu depolama kotası (GB)** alanı vardır (yalnız düzenlemede; yeni firma 20 GB ile açılır).
+Alanın altında firmanın güncel kullanımı yazar ("Kullanım: x / y").
+
+1. Firmanın satırında **Düzenle**'ye basın.
+2. Kotayı 1–2000 GB arasında girin ve kaydedin.
+
+- Kota, firmanın sunucu üzerinden aktarılan dosyalarının toplamını sınırlar. Kota dolunca yeni yüklemeler "Firma depolama
+  kotası doldu" ile reddedilir.
+- Kotayı kullanımın altına düşürebilirsiniz: mevcut dosyalar silinmez, yalnız yeni dosyalar kabul edilmez.
+- Sunucunun diskinde boş alan %10'un altına inerse kota dolmamış olsa da tüm firmalarda yükleme reddedilir. Firma
+  kotalarının toplamını sunucunun boş diskine göre belirleyin.
+- Her değişiklik denetim kaydına "Firma depolama kotası değişti" olarak eski → yeni yazılır.
+
 ### Firmayı pasife alma ve yeniden etkinleştirme
 
 1. Satırdaki **Pasife al**'a tıklayın. Pencere etkileri listeler: firmanın tüm kullanıcılarının oturumu kapanır ve giriş
@@ -3386,9 +3544,10 @@ firma adı yazılarak onaylanır, 2FA kodu istenir ve silme **24 saat sonra** ba
 Kenar menüsünde **Sistem ayarları** (sunucu-dişli simgesi) yalnız Super Admin'e görünür; Admin bu adresi açarsa "Sistem
 ayarları yalnız Super Admin içindir." yazar. MySQL, TURN ve WhatsApp ayarlarını kaydederken veya ortam değerine dönerken
 son 5 dakika içinde doğrulama yapmadıysanız **Kimliğinizi doğrulayın** penceresi açılır (bkz. "Kritik bir ayarı
-değiştirirken 'Kimliğinizi doğrulayın' penceresi"). Bu ayarlar **tüm firmalar için** geçerlidir. Sayfada dört sekme vardır:
-**MySQL**, **TURN**, **Sistem logosu** (bkz. "Super Admin için: Sistem logosu") ve **WhatsApp servisi** (bkz. "Super
-Admin için: Sistem ayarları > WhatsApp servisi"). Her değişiklik audit log'a yazılır (firma alanı boş, "Sistem" kaydı olarak).
+değiştirirken 'Kimliğinizi doğrulayın' penceresi"). Bu ayarlar **tüm firmalar için** geçerlidir. Sayfada şu sekmeler vardır:
+**MySQL**, **TURN**, **Sistem logosu** (bkz. "Super Admin için: Sistem logosu"), **WhatsApp servisi** (bkz. "Super
+Admin için: Sistem ayarları > WhatsApp servisi"), **Virüs tarama (ClamAV)** (bkz. "Super Admin için: Sistem ayarları >
+Virüs tarama (ClamAV)") ve **Super Admin'ler**. Her değişiklik audit log'a yazılır (firma alanı boş, "Sistem" kaydı olarak).
 
 Kaynak rozeti: **Ortam değişkenleri (.env)** = panelde kayıt yok, sunucudaki `.env` kullanılıyor; **Panelde kayıtlı** =
 bu ekrandan kaydedilmiş değer.
@@ -3607,6 +3766,54 @@ olarak (eski → yeni adres) yazılır.
 | Çok fazla test denendi. Bir dakika sonra tekrar deneyin.                                              | Dakikalık test sınırı doldu; bir dakika bekleyin                                                                             |
 | Çok fazla istek. Lütfen biraz sonra tekrar deneyin. (kaydederken)                                     | Dakikada 10 kaydetme/geri dönme sınırı doldu; bir dakika bekleyin                                                            |
 | Kayıtlı adres yeni güvenlik kuralına uymuyor (…); kanal kullanılamıyor. Adresi yeniden kaydedin.      | Eski kayıtta kullanıcı adı, şifre veya sorgu var. Adresi yalın biçimde (`https://sunucu`) yazıp kaydedin; anahtar ayrı alana |
+
+## Super Admin için: Sistem ayarları > Virüs tarama (ClamAV)
+
+Firmalar dosyaları sunucu üzerinden aktarmak istediğinde dosyalar ClamAV ile taranır. Bu sekme (kalkan simgesi) tarayıcının
+adresini tutar ve bağlantıyı test eder. Ayar **tüm firmalar** için geçerlidir; yalnız Super Admin görür. Başarılı bir test
+olmadan hiçbir firma sunucu üzerinden dosya aktarımını açamaz.
+
+### Ekranda ne görürüm?
+
+- **Virüs tarama sunucusu:** **Sunucu** (ör. `clamav`) ve **Port** (varsayılan 3310). Kaynak rozeti **Ortam değişkeni**
+  (sunucudaki `.env`), **Panelde kayıtlı** ya da **Yapılandırılmadı** gösterir.
+- Son test sonucu: "Son test başarılı (tarih)" ya da "Son test başarısız (tarih)", imza tarihi.
+- **Bağlantı testi** bölümü ve **Bağlantıyı Test Et** düğmesi.
+
+### Bağlantıyı nasıl test ederim?
+
+1. **Bağlantıyı Test Et**'e basın.
+2. Sonuç kartında şunlara bakın: **Test imzası (EICAR) yakalandı: evet**, **Şifreli arşiv algılandı: evet**, **Sürüm**,
+   **İmza tarihi** (… gün önce).
+3. İkisi de "evet" ise test başarılıdır; firmalar artık sunucu modunu açabilir.
+
+Test, tarayıcıya ulaşılabildiğini, zararsız bir test virüsünü (EICAR) yakaladığını ve parolalı arşivi "taranamadı"
+olarak ayırdığını denetler. Dakikada en çok 6 test yapılabilir.
+
+### Adresi nasıl değiştiririm?
+
+1. **Sunucu** ve **Port** alanlarını değiştirin, **Kaydet**'e basın. Son 5 dakikada doğrulama yapmadıysanız **Kimliğinizi
+   doğrulayın** penceresi açılır.
+2. "Virüs tarama ayarı kaydedildi. Bağlantıyı yeniden test edin." yazar. Adres değişince eski test geçersiz olur; yeniden
+   test edin.
+
+- Adres yalnız virüs tarama ağındaki bir sunucu olabilir. Başka bir adres girerseniz alan altında "Adres virüs tarama
+  ağının dışında" yazar.
+- İlk testten sonra adres panelde kayıtlı hâle gelir; sunucudaki `.env` değeri değişse de etkisizdir. Adres değişecekse
+  buradan kaydedip yeniden test edin.
+
+### İmza tarihi uyarısı
+
+Virüs imzaları kendiliğinden günde birkaç kez güncellenir. İmza tarihi 3 günden eskiyse ekranda uyarı bandı çıkar. Bu
+genelde sunucunun internete çıkamadığını gösterir; sistem yöneticisine bildirin (teknik adımlar: `docs/runbook.md` §28b).
+
+### Tarama servisi çalışmazsa ne olur?
+
+Dosyalar güvenli tarafta kalır: taranamayan dosya teslim edilmez, kullanıcı "Dosya taranamadı, teslim edilmedi: tarama
+servisine ulaşılamadı" görür. Doğrudan yolu kullanan firmalar etkilenmez. Servis düzelince yeniden test edin.
+
+Ayar değişiklikleri ve testler denetim kaydına "Virüs tarama (ClamAV) ayarı değişti" ve "Virüs tarama bağlantı testi"
+olarak yazılır (firma alanı boş).
 
 ## Super Admin için: Başka bir Super Admin'in şifresini sıfırlama
 

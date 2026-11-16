@@ -174,13 +174,13 @@ Yeni dış servis veya env değişkeni yoktur.
 
 ### Açık sorular (kullanıcı uyanınca; şimdilik varsayımla ilerlenir)
 
-| #        | Soru                                                                                                                     | Varsayılan                                        | Sahibi    |
-| -------- | ------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------- | --------- |
-| S-P28u-1 | İzinsiz bağlantıda cihazdaki gösterge gizlenebilmeli mi (gizli izleme)? G-17 kararının tersine çevrilmesi anlamına gelir | Hayır, gösterge her zaman görünür (V-PU4)         | kullanıcı |
-| S-P28u-2 | Politika müşteri firma bazında mı olmalı (çalışanı bilgilendirme yükümlülüğü müşteri firmadadır)?                        | Tenant düzeyinde tek anahtar (V-PU9)              | kullanıcı |
-| S-P28u-3 | "Observe gibi ekran kaydı" teknisyen bağlı değilken de sürekli kayıt mı demek?                                           | Hayır; yalnız bağlantı süresince kayıt (P28e eki) | kullanıcı |
-| S-P28u-4 | İzinsiz bağlantı her zaman kaydedilmeli mi (kayıt zorunlu)?                                                              | Hayır; ayrı anahtar (V-PU12)                      | kullanıcı |
-| S-P28u-5 | Kilitli cihaza bağlanıldıktan sonra kullanıcı kilidi açınca izin sorulsun mu?                                            | Hayır (V-PU2, AC-433)                             | kullanıcı |
+| #        | Soru                                                                                                                     | Varsayılan                                                                        | Sahibi    |
+| -------- | ------------------------------------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------- | --------- |
+| S-P28u-1 | İzinsiz bağlantıda cihazdaki gösterge gizlenebilmeli mi (gizli izleme)? G-17 kararının tersine çevrilmesi anlamına gelir | **Kapandı (2026-11-16): gösterge her zaman görünür (V-PU4) — kullanıcı onayladı** | kullanıcı |
+| S-P28u-2 | Politika müşteri firma bazında mı olmalı (çalışanı bilgilendirme yükümlülüğü müşteri firmadadır)?                        | Tenant düzeyinde tek anahtar (V-PU9)                                              | kullanıcı |
+| S-P28u-3 | "Observe gibi ekran kaydı" teknisyen bağlı değilken de sürekli kayıt mı demek?                                           | Hayır; yalnız bağlantı süresince kayıt (P28e eki)                                 | kullanıcı |
+| S-P28u-4 | İzinsiz bağlantı her zaman kaydedilmeli mi (kayıt zorunlu)?                                                              | Hayır; ayrı anahtar (V-PU12)                                                      | kullanıcı |
+| S-P28u-5 | Kilitli cihaza bağlanıldıktan sonra kullanıcı kilidi açınca izin sorulsun mu?                                            | Hayır (V-PU2, AC-433)                                                             | kullanıcı |
 
 **Mimari r2 notları (güvenlik tasarım turu, 2026-11-16):** (1) D-P28u-6: AC-436 aydınlatma kutusu metni **değişmez**; ancak
 firmanın aydınlatma metninin, panelde cihaz kullanıcısının varlık durumunun (aktif / kilitli / oturum yok) da göründüğünü kapsaması

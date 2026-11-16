@@ -12,6 +12,7 @@ import { backoff, guestProtocols, RECONNECT_WINDOW_MS, Signal, wsUrl } from "./s
 import { guestReducer, initialGuest, resumingGuest, type GuestState } from "./guest-machine";
 import type { PublicSessionStatusResponse } from "@remote/contracts/api/sessions";
 import { WS_CLOSE, type Cap, type ServerOutbound } from "@remote/contracts/ws";
+import type { FileMode } from "@remote/contracts/ws-fsrv";
 import { api, ApiError } from "../api";
 
 /**
@@ -44,6 +45,10 @@ export function useGuestSession(cred: GuestCred, sessionRef: string | null = nul
   /** G-09: teknisyenin yetenekleri (hello.caps); yoksa ilgili DC istekleri reddedilir. */
   const [caps, setCaps] = useState<Cap[]>([]);
   const [maxFileMb, setMaxFileMb] = useState<number | undefined>(undefined);
+  /** P28b (§5.1): `hello.fileMode` (yalnız yetenekli sokete gelir; tarayıcı misafiri yeteneklidir). Yoksa P2P. */
+  const [fileMode, setFileMode] = useState<FileMode>("P2P");
+  /** P28b: `fsrv.*` gibi ayrı kancaların sunucu mesajı aboneleri. */
+  const subs = useRef(new Set<(m: ServerOutbound) => void>());
   const st = useRef<GuestState>(state);
   const sig = useRef<Signal | null>(null);
   const peer = useRef<PeerLink | null>(null);
@@ -73,6 +78,7 @@ export function useGuestSession(cred: GuestCred, sessionRef: string | null = nul
         resetPeer(); // yeni bağlantı = yeni PeerConnection (AC-24)
         setCaps(m.caps ?? []);
         setMaxFileMb(m.maxFileMb);
+        setFileMode(m.fileMode ?? "P2P");
         if (track.current) send({ t: "share.state", state: "sharing" });
       } else if (m.t === "peer.joined" || m.t === "peer.left") {
         if (m.role === "tech") resetPeer();
@@ -94,6 +100,7 @@ export function useGuestSession(cred: GuestCred, sessionRef: string | null = nul
       // onClose aynı tikte okuyabilsin (session.ended sonrası yeniden deneme olmasın)
       st.current = guestReducer(st.current, { type: "msg", m });
       dispatch({ type: "msg", m });
+      for (const fn of subs.current) fn(m);
     },
     [resetPeer, send],
   );
@@ -199,5 +206,10 @@ export function useGuestSession(cred: GuestCred, sessionRef: string | null = nul
     if (st.current.phase !== "live") dispatch({ type: "left" });
   }, [send]);
 
-  return { state, preview, channels, caps, maxFileMb, send, startShare, stopShare, end };
+  const subscribe = useCallback((fn: (m: ServerOutbound) => void) => {
+    subs.current.add(fn);
+    return () => void subs.current.delete(fn);
+  }, []);
+
+  return { state, preview, channels, caps, maxFileMb, fileMode, send, subscribe, startShare, stopShare, end };
 }

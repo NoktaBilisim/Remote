@@ -67,7 +67,9 @@ SELECT JSON_OBJECT(
                                     -- BEKLENEN SABİT: tetikleyici değiştiren migration'la birlikte güncellenir
                                     -- (20261119000000_p18_request_comms sonrası 23 tetikleyici: audit 3 + P16 19 + P18 1;
                                     -- check-app-grants da sınar. P16 sonrası 22'nin sabiti: a4a6f552…13be; P13a 3: c1ce0877…50eb).
-                                    'ok', IF(COALESCE(`g` = 'f029d544791d2ea7d925d6b9fc0e213621e2ac6147bd3945f4cc1d31d7833c90', 0),
+                                    -- 20261123000000_p28b_stored_files: sayı 23 kalır, support_sessions_update_guard gövdesi
+                                    -- genişledi (file_mode dalı) → yeni sabit; P18..P27 sabiti f029d544…3c90.
+                                    'ok', IF(COALESCE(`g` = '0fdacca7fc67a7b472827b603d65584803be5f749e319a70d5d008cb68a673e0', 0),
                                              CAST('true' AS JSON), CAST('false' AS JSON)))
                    FROM (SELECT COUNT(*) AS `c`, SHA2(GROUP_CONCAT(JSON_ARRAY(`TRIGGER_NAME`, `EVENT_OBJECT_TABLE`,
                                 `ACTION_TIMING`, `EVENT_MANIPULATION`, `ACTION_ORDER`, `ACTION_STATEMENT`, `DEFINER`)

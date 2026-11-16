@@ -6,7 +6,11 @@ import { makeApp, testEnv } from "../helpers/app.ts";
 describe("health / ready", () => {
   it("AC-89: /health 200, /ready DB + son migration ile 200", async () => {
     const app = makeApp();
-    expect((await app.inject("/health")).json()).toEqual({ status: "ok" });
+    // P28b (K-P28b-14): clamav durumu gövdede; HTTP durumu değişmez (test ortamında ayar yok).
+    expect((await app.inject("/health")).json()).toEqual({
+      status: "ok",
+      clamav: { configured: false, reachable: false, signatureAgeDays: null, stale: false },
+    });
     const ready = await app.inject("/ready");
     expect(ready.statusCode).toBe(200);
     expect(ready.json()).toEqual({ status: "ready", migration: expect.stringMatching(/^\d{14}_[a-z0-9_]+$/) });

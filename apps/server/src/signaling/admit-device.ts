@@ -140,6 +140,7 @@ async function activate(rooms: Rooms, room: Room, guest: Guest, peer: Peer, now:
   ];
   const limits = await repo.activeLimits(rooms.db, room.tenantId);
   room.maxFileMb = limits.maxFileMb;
+  room.fileMode = await repo.sessionFileMode(rooms.db, room.sessionId); // P28b AC-355: satırdaki sabit mod
   rooms.startActive(room, guest, now.getTime(), limits.maxActiveHours);
   syncDisconnect(rooms, room);
   rooms.metrics.inc("rs_admit_total", { result: "admitted" });

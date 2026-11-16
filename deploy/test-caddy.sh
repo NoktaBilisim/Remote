@@ -38,6 +38,10 @@ cat >"$TMP/mock.js" <<'JS'
 // en kötü durumu sınar: gerçek server yalnız rs.v1 seçer, burada sırlı ilk öğe geri yazılır → log filtresi silmeli.
 const http = require("node:http"), crypto = require("node:crypto"), fs = require("node:fs");
 const s = http.createServer((req, res) => {
+  if (req.url.startsWith("/api/v1/fsrv/files/")) {   // P28b indirme: dosya adı yalnız Content-Disposition'da
+    res.writeHead(200, { "content-type": "application/octet-stream", "content-disposition": "attachment; filename=\"gizli-ad-fsrv.pdf\"" });
+    return res.end("icerik");
+  }
   if (req.url.startsWith("/api/")) {   // P12: gövdeyi sonuna kadar oku, kaç bayt geldiğini döndür
     let n = 0;
     req.on("data", (c) => { n += c.length; });
@@ -152,6 +156,18 @@ CODE="$(curl -s -o /dev/null -w '%{http_code}' -X PUT --data-binary "@$TMP/img2m
 CODE="$(curl -s -o /dev/null -w '%{http_code}' "$B/api/v1/files/avatar/T1/abcdefghijklmnop.webp?v=gizlisorgu")"
 [ "$CODE" = 200 ] && pass "/api/v1/files/* server'a gider" || fail "/api/v1/files → $CODE"
 
+echo "== P28b fsrv: parça PUT 1 MiB + 1 sınırı, Bearer ve dosya adı loga yazılmaz"
+head -c 1048576 /dev/urandom >"$TMP/chunk1m"; head -c 1048578 /dev/urandom >"$TMP/chunk1m2"
+FTOK="fsrvbelirtec$(openssl rand -hex 8)"
+putc() { curl -s -o "$TMP/out" -w '%{http_code}' -X PUT -H 'Content-Type: application/octet-stream' -H "Authorization: Bearer $FTOK" \
+  --data-binary "@$1" "$B/api/v1/fsrv/uploads/01HFSRVTESTFID000000000000/chunks/$2"; }
+CODE="$(putc "$TMP/chunk1m" 0)"; [ "$CODE" = 200 ] && grep -q '"n":1048576' "$TMP/out" && pass "fsrv 1 MiB parça → server'a tam gider" || fail "fsrv 1 MiB → $CODE $(cat "$TMP/out")"
+CODE="$(putc "$TMP/chunk1m2" 1)"; [ "$CODE" = 413 ] && pass "fsrv 1 MiB + 2 → 413" || fail "fsrv 1 MiB + 2 → $CODE"
+CODE="$(curl -s -o /dev/null -w '%{http_code}' -X PUT --data-binary "@$TMP/chunk1m2" "$B/api/v1/settings/other")"
+[ "$CODE" = 200 ] && pass "fsrv dışı PUT 1 MiB + 2 (2MB sınırı) etkilenmez" || fail "fsrv dışı PUT → $CODE"
+H="$(curl -s -D - -o /dev/null -H "Authorization: Bearer $FTOK" "$B/api/v1/fsrv/files/01HFSRVTESTFID000000000000/content")"
+printf '%s' "$H" | grep -qi 'gizli-ad-fsrv' && pass "fsrv indirme Content-Disposition istemciye gider" || fail "fsrv indirme başlığı yok"
+
 echo "== güvenlik başlıkları (mimari-p13 §7.5, AC-126; uygulama koymadığında Caddy tamamlar)"
 H="$(curl -s -D - -o /dev/null "$B/downloads/x")"
 HSTS="$(printf '%s' "$H" | tr -d '\r' | sed -n 's/^[Ss]trict-[Tt]ransport-[Ss]ecurity: //p')"
@@ -207,7 +223,7 @@ grep -q '"uri":"/downloads/NoktaDestek.exe"' "$TMP/caddy.log" && pass "kodsuz ad
 grep -q '"uri":"/api/v1/files/avatar/T1/abcdefghijklmnop.webp"' "$TMP/caddy.log" && pass "erişim logu /api/v1/files yolu sorgu dizesiz" || fail "/api/v1/files log satırı"
 grep '"logger":"http.log.access' "$TMP/caddy.log" | grep -q '"uri":"/r/\*\*\*/bekle"' && pass "P19 erişim logu /r/***/bekle" || fail "P19 erişim logu /r/*** yok"
 grep '"logger":"http.log.error' "$TMP/caddy.log" | grep -q '"uri":"/r/\*\*\*"' && pass "P19 hata logu (varsayılan logger) /r/***" || fail "P19 hata logu /r/*** yok"
-for s in "$WREF" "webref" "$REF" "$REF2" "TESTSIRRI" "utm=" "x=1" "gizlisorgu" "12345678" "DemoFirma" "IkinciFirma2" "test-only-edge-secret"; do
+for s in "$WREF" "webref" "$REF" "$REF2" "TESTSIRRI" "utm=" "x=1" "gizlisorgu" "12345678" "DemoFirma" "IkinciFirma2" "test-only-edge-secret" "$FTOK" "gizli-ad-fsrv"; do
   if grep -q -- "$s" "$TMP/caddy.log"; then fail "logda '$s' var"; else pass "logda '$s' yok"; fi
 done
 

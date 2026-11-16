@@ -72,7 +72,10 @@ export function GuestSession({ info: join, verifyCode, sessionRef, cred, storeKe
   const g = useGuestSession(cred, sessionRef);
   const { state, end } = g;
   const [chatOpen, setChatOpen] = useState(true);
-  const filesAllowed = g.caps.includes("file_transfer");
+  // P28b (§5.4a): SERVER odasında sunucu caps'ten `file_transfer`'ı çıkarır; dosya yolu `hello.fileMode` ile açılır,
+  // teknisyende yetki yoksa sunucu `fsrv.status{REJECTED, FORBIDDEN}` döner (metin satırda).
+  const server = g.fileMode === "SERVER";
+  const filesAllowed = server || g.caps.includes("file_transfer");
   const collab = useCollab(g.channels, {
     inbound: "TO_CUSTOMER",
     filesAllowed,
@@ -80,6 +83,12 @@ export function GuestSession({ info: join, verifyCode, sessionRef, cred, storeKe
     receiveAnnot: true,
     sendMeta: g.send,
     maxFileMb: g.maxFileMb,
+    fsrv: {
+      mode: g.fileMode,
+      sendWs: g.send,
+      subscribe: g.subscribe,
+      ready: state.phase === "live" && state.reconnectSince === null && state.techPresent,
+    },
   });
   const pip = usePip();
   const now = useNow();
