@@ -54,6 +54,7 @@ export function resolveAuditFilter(scope: repo.AuditScope, q: ListAuditQuery, no
       ? { action: q.action.endsWith(".*") ? { value: q.action.slice(0, -1), prefix: true } : { value: q.action, prefix: false } }
       : {}),
     ...(q.result ? { result: q.result } : {}),
+    ...(q.consentMode ? { consentMode: q.consentMode } : {}),
   };
 }
 

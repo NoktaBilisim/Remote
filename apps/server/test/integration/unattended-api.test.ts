@@ -81,7 +81,12 @@ describe("P27-K2 kayıt kodu ve bağlantı ön koşulları", () => {
     expect((await statusOf(su)).notifyChannel).toBe(false);
     await setSmtp(f.tenantId);
     expect((await listOf(su)).find((d) => d.id === f.deviceId)).toMatchObject({ canConnect: true, connectBlockedReason: null });
-    expect(await statusOf(await loginAs(app, f.tech))).toEqual({ mode: "unsigned", available: true, notifyChannel: true });
+    expect(await statusOf(await loginAs(app, f.tech))).toEqual({
+      mode: "unsigned",
+      available: true,
+      notifyChannel: true,
+      silentAllowed: false,
+    });
     const g = await firm({ contact: false });
     expect(errCode(await newCode(await loginStepUp(app, g.admin), g.customerId))).toBe("409 NOTIFY_CONTACT_REQUIRED");
   });
@@ -109,6 +114,7 @@ describe("P27-K2 kayıt kodu ve bağlantı ön koşulları", () => {
       mode: "off",
       available: false,
       notifyChannel: true,
+      silentAllowed: false, // P28u K3 (AC-430)
     });
     const su = await loginStepUp(app, f.admin);
     const res = await newCode(su, f.customerId);

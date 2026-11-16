@@ -3,6 +3,7 @@
 import type { Prisma } from "../generated/prisma/client.ts";
 import type { Db } from "../lib/db.ts";
 import { escapeLike } from "../sessions/history-repo.ts";
+import { CONSENT_MODE_ACTIONS } from "@remote/contracts/audit";
 
 export type AuditScope = { kind: "tenant"; tenantId: string } | { kind: "all" };
 
@@ -14,6 +15,8 @@ export interface AuditFilter {
   /** Tam değer; `prefix` true ise `action LIKE 'x.%'`. */
   action?: { value: string; prefix: boolean };
   result?: "success" | "fail";
+  /** P28u (§5.4, AC-445): `new_value->'$.consentMode'` eşitliği; kipi taşıyan eylemlerle daraltılır. */
+  consentMode?: string;
 }
 
 export interface AuditCursor {
@@ -28,6 +31,8 @@ function auditWhere(scope: AuditScope, f: AuditFilter, after: AuditCursor | null
   if (f.userId) and.push({ userId: f.userId });
   if (f.action) and.push(f.action.prefix ? { action: { startsWith: escapeLike(f.action.value) } } : { action: f.action.value });
   if (f.result) and.push({ result: f.result });
+  if (f.consentMode)
+    and.push({ action: { in: [...CONSENT_MODE_ACTIONS] } }, { newValue: { path: "$.consentMode", equals: f.consentMode } });
   if (after) and.push({ OR: [{ createdAt: { lt: after.createdAt } }, { createdAt: after.createdAt, id: { lt: after.id } }] });
   return { AND: and };
 }

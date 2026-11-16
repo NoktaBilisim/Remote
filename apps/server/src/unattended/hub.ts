@@ -3,7 +3,8 @@
 // yetki geri alma (oda `permission`). 4409 sayacı: cihaz başına 10 dk kayan pencere; > 3 → `replacedAlert` rozeti + audit
 // `unattended.device.replaced` (10 dk'da ≤ 1). Oda bitişinde cihaza `disconnect` (yedek yol) + audit/metrik.
 import { UNATTENDED_AUDIT } from "@remote/contracts/audit";
-import { WS_DEVICE_CLOSE, type DeviceOutbound } from "@remote/contracts/ws-device";
+import type { DeviceUserState } from "@remote/contracts/unattended-consent";
+import { WS_DEVICE_CLOSE, type DeviceConsentOutbound, type DeviceFeature, type DeviceOutbound } from "@remote/contracts/ws-device";
 import type { SessionEndedReason } from "@remote/contracts/ws";
 import { writeAudit, type AuditContext } from "../audit/service.ts";
 import type { Db } from "../lib/db.ts";
@@ -11,6 +12,7 @@ import type { Metrics } from "../ops/metrics.ts";
 import type { Rooms } from "../signaling/rooms.ts";
 import { finishDevice } from "../signaling/rooms-device.ts";
 import type { Room } from "../signaling/types.ts";
+import { InterveneWaits } from "./hub-intervene.ts";
 import type { DeviceLink } from "./service.ts";
 
 export const REPLACED_WINDOW_MS = 10 * 60_000;
@@ -22,8 +24,13 @@ export interface DeviceConn {
   deviceId: string;
   tenantId: string;
   ip: string;
-  send(msg: DeviceOutbound): void;
+  send(msg: DeviceOutbound | DeviceConsentOutbound): void;
   close(code: number, reason: string): void;
+  /** P28u §6.1: upgrade'de bildirilen yetenek belirteçleri (`rs.cap.consent1` → `consent1`). */
+  caps: ReadonlySet<DeviceFeature>;
+  /** P28u §6.3 (AC-429): son `device.user` (yalnız bellek; DB/audit/dışa aktarım yok — D-P28u-6). */
+  userState?: DeviceUserState;
+  userStateAt?: number;
 }
 
 export interface HubDeps {
@@ -39,9 +46,12 @@ export class DeviceHub implements DeviceLink {
   private readonly replacedAt = new Map<string, number[]>();
   private readonly replacedAuditAt = new Map<string, number>();
   private readonly d: HubDeps;
+  /** P28u §6.3: oturum başına bekleyen müdahale komutu. */
+  readonly intervene: InterveneWaits;
 
   constructor(d: HubDeps) {
     this.d = d;
+    this.intervene = new InterveneWaits(d.rooms.clock);
     d.rooms.deviceEnded = (room, reason) => this.roomEnded(room, reason);
     d.rooms.devices = this;
     d.metrics.gauge("rs_unattended_devices_online", "Bağlı (kimliği doğrulanmış) gözetimsiz cihazlar", () => this.conns.size);
@@ -58,6 +68,25 @@ export class DeviceHub implements DeviceLink {
   }
   get(deviceId: string): DeviceConn | undefined {
     return this.conns.get(deviceId);
+  }
+
+  /** P28u §6.3: soket belirteci bildirdi mi (çevrimdışı → false). */
+  has(deviceId: string, feature: DeviceFeature): boolean {
+    return this.conns.get(deviceId)?.caps.has(feature) ?? false;
+  }
+
+  /** P28u AC-429: canlı kullanıcı durumu; çevrimdışı / eski servis / henüz bildirilmedi → null. */
+  userState(deviceId: string): DeviceUserState | null {
+    const c = this.conns.get(deviceId);
+    return c?.caps.has("consent1") ? (c.userState ?? null) : null;
+  }
+
+  /** Yalnız `consent1` sokete (eski servise yeni mesaj gitmez, §6.1); gönderilemezse false. */
+  sendConsent(deviceId: string, msg: DeviceConsentOutbound): boolean {
+    const c = this.conns.get(deviceId);
+    if (!c?.caps.has("consent1")) return false;
+    c.send(msg);
+    return true;
   }
 
   /** Son 10 dk'daki 4409 sayısı (pencere dışı kayıtlar atılır). */
@@ -157,7 +186,8 @@ export class DeviceHub implements DeviceLink {
       newValue: {
         deviceId: dev.deviceId,
         technicianId: room.technicianId,
-        reason: dbReason,
+        endReason: dbReason,
+        ...(dev.consentMode ? { consentMode: dev.consentMode } : {}),
         started: room.admitted !== undefined,
         durationSec: started === undefined ? 0 : Math.max(0, Math.round((this.d.now() - started) / 1000)),
       },

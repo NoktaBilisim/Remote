@@ -71,6 +71,7 @@ exports[`PT-K1 HTTP yüzeyi > AC-318: Fastify rota tablosu (metot + yol + schema
   "GET /api/v1/unattended/devices",
   "GET /api/v1/unattended/devices/:id",
   "GET /api/v1/unattended/download",
+  "GET /api/v1/unattended/policy",
   "GET /api/v1/unattended/registration-codes",
   "GET /api/v1/unattended/status",
   "GET /api/v1/users",
@@ -133,6 +134,7 @@ exports[`PT-K1 HTTP yüzeyi > AC-318: Fastify rota tablosu (metot + yol + schema
   "HEAD /api/v1/unattended/devices",
   "HEAD /api/v1/unattended/devices/:id",
   "HEAD /api/v1/unattended/download",
+  "HEAD /api/v1/unattended/policy",
   "HEAD /api/v1/unattended/registration-codes",
   "HEAD /api/v1/unattended/status",
   "HEAD /api/v1/users",
@@ -196,6 +198,8 @@ exports[`PT-K1 HTTP yüzeyi > AC-318: Fastify rota tablosu (metot + yol + schema
   "POST /api/v1/sessions/:id/send-link",
   "POST /api/v1/sessions/:id/stored-files/:fid/link",
   "POST /api/v1/sessions/:id/terminate",
+  "POST /api/v1/sessions/:id/unattended/lock",
+  "POST /api/v1/sessions/:id/unattended/logoff",
   "POST /api/v1/settings/holidays",
   "POST /api/v1/settings/holidays/import-tr",
   "POST /api/v1/settings/logo",
@@ -235,5 +239,6 @@ exports[`PT-K1 HTTP yüzeyi > AC-318: Fastify rota tablosu (metot + yol + schema
   "PUT /api/v1/settings/tenant",
   "PUT /api/v1/unattended/customers/:customerId/contacts",
   "PUT /api/v1/unattended/devices/:id/grants",
+  "PUT /api/v1/unattended/policy",
 ]
 `;

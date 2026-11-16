@@ -37,7 +37,14 @@ export interface OutboxContent {
 async function sessionContent(db: Db, r: OutboxRowRef, sessionId: string): Promise<OutboxContent | null> {
   const s = await db.supportSession.findFirst({
     where: { id: sessionId, tenantId: r.tenantId },
-    select: { deviceId: true, consumedAt: true, createdAt: true, customerName: true, technician: { select: { fullName: true } } },
+    select: {
+      deviceId: true,
+      consumedAt: true,
+      createdAt: true,
+      customerName: true,
+      consentMode: true,
+      technician: { select: { fullName: true } },
+    },
   });
   if (!s) return null;
   const dev = s.deviceId
@@ -48,6 +55,7 @@ async function sessionContent(db: Db, r: OutboxRowRef, sessionId: string): Promi
     device: dev?.name ?? s.customerName ?? "",
     technician: s.technician.fullName,
     at: s.consumedAt ?? s.createdAt,
+    silent: s.consentMode === "silent", // P28u AC-438 (K3)
   };
   return {
     text: startedMessage(info),

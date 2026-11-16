@@ -3,18 +3,30 @@
 // imza kapısı → çevrimiçi → meşgul. Yetkili karar TX'te: cihaz FOR UPDATE → iptal/yerel → grant FOR SHARE → meşgul → teknisyen
 // kilidi + açık oturum sınırı → PENDING satır (60 sn, kod yok) → step-up KOŞULLU tüketim (count≠1 → 401, TX geri) → audit.
 // Commit sonrası: oda + bilet + cihaza `connect`; 60 sn içinde kabul yoksa CANCELLED(device_timeout). Her ret audit'lenir.
+// P28u (mimari-p28u §5.1; AC-430, 434, 435, 437): 2a/2b silent kapısı (connect-silent.ts) → kullanıcı kovası → 2c `ask` için
+// teknisyen×cihaz kovası (60 sn'de 1; yalnız okunur, TX başarısında sayılır) → … → 8 çevrimiçi → 8a `consent1` (409
+// DEVICE_OUTDATED) → 9 meşgul → TX. Audit ret alanı `failReason` + `mode` (çıplak `reason` yok, K-P28u-20).
 import { STEP_UP_MAX_AGE_SEC } from "@remote/contracts/api/auth";
 import type { UnattendedConnectResponse } from "@remote/contracts/api/unattended";
 import { AUTH_AUDIT, UNATTENDED_AUDIT } from "@remote/contracts/audit";
-import { deviceIndicatorText } from "@remote/contracts/ws-device";
+import { DEVICE_CONSENT_WINDOW_MS } from "@remote/contracts/unattended-consent";
+import {
+  deviceControlIndicatorText,
+  deviceIndicatorText,
+  deviceSilentIndicatorText,
+  type DeviceOutbound,
+} from "@remote/contracts/ws-device";
 import { writeAudit, type AuditContext } from "../audit/service.ts";
 import type { AuthContext } from "../auth/session.ts";
 import type { ErrorCode } from "@remote/contracts/errors";
 import { AppError } from "../lib/errors.ts";
+
+type ConnectMessage = Extract<DeviceOutbound, { t: "connect" }>;
 import type { FixedWindowCounter } from "../lib/rate.ts";
 import type { Rooms } from "../signaling/rooms.ts";
 import { endDeviceRoom, preAdmitDevice } from "../signaling/rooms-device.ts";
-import { openDeviceSession, Refusal, type Opened } from "./connect-tx.ts";
+import { notifySilentConnect, silentPrecheck } from "./connect-silent.ts";
+import { DEVICE_CONNECT_WINDOW_MS, openDeviceSession, Refusal, type ConnectRequest, type Opened } from "./connect-tx.ts";
 import type { DeviceHub } from "./hub.ts";
 import { recoveryConnectMail, sendInternalNotice } from "./mail.ts";
 import * as repo from "./repo.ts";
@@ -25,7 +37,17 @@ export interface ConnectDeps extends UnattendedDeps {
   rooms: Rooms;
   metrics: { inc(name: string, labels?: Record<string, string>): void };
   limit: FixedWindowCounter;
+  /** §5.1 2c: teknisyen×cihaz kovası (`ask`; limit 1 / 60 sn). */
+  pairLimit: FixedWindowCounter;
+  /** §5.1 8a: hub'daki soket `rs.cap.consent1` bildirmiş mi (K4 hub). */
+  consentCapable(deviceId: string): boolean;
+  /** Dört göz e-postası testleri: sahte bekleme / gecikmeler (mail.ts). */
+  sleep?: (ms: number) => Promise<void>;
+  delaysMs?: readonly number[];
 }
+
+/** Yarış testi kancası (`unattended-silent-race`): TX commit'i ile oda kaydı arası. Üretimde boş. */
+export const connectTestSeams: { afterTx?: (o: Opened) => Promise<void> } = {};
 
 const refuse = (result: string, code: ErrorCode): Refusal => new Refusal(result, new AppError(code));
 
@@ -55,6 +77,7 @@ async function precheck(d: ConnectDeps, auth: AuthContext, tenantId: string, id:
   if ((await d.mail.configFor(tenantId)) === null) throw refuse("no_channel", "NOTIFY_CHANNEL_UNAVAILABLE");
   if (!d.gate.allows({ signed: dev.signed, sha256: dev.binarySha256 })) throw refuse("unsigned", "UNATTENDED_DISABLED");
   if (!d.hub.isOnline(id)) throw refuse("offline", "DEVICE_OFFLINE");
+  if (!d.consentCapable(id)) throw refuse("outdated", "DEVICE_OUTDATED");
   if ((await repo.openDeviceSessions(d.db, tenantId, id, new Date(d.now()))) > 0) throw refuse("busy", "DEVICE_BUSY");
   return dev;
 }
@@ -77,23 +100,31 @@ export async function connectDevice(
   auth: AuthContext,
   tenantId: string,
   id: string,
+  req: ConnectRequest = { consent: "ask" },
 ): Promise<UnattendedConnectResponse> {
   let opened: Opened;
+  const pair = `${auth.user.id}:${id}`;
   try {
     if (!auth.permissions.has("unattended.connect")) throw refuse("forbidden", "FORBIDDEN");
+    if (req.consent === "silent") await silentPrecheck(d, auth, tenantId);
     if (d.limit.blockedFor(auth.user.id) > 0 || d.limit.hit(auth.user.id))
       throw new Refusal("limit", new AppError("RATE_LIMITED", { retryAfterSec: d.limit.blockedFor(auth.user.id) || 3600 }));
+    const wait = req.consent === "ask" ? d.pairLimit.blockedFor(pair) : 0;
+    if (wait > 0) throw new Refusal("pair_limit", new AppError("RATE_LIMITED", { retryAfterSec: wait }));
     const dev = await precheck(d, auth, tenantId, id);
     const method = await stepUpMethod(d, auth);
-    opened = await openDeviceSession(d, ctx, auth, tenantId, dev, method);
+    opened = await openDeviceSession(d, ctx, auth, tenantId, dev, method, req);
   } catch (err) {
     if (!(err instanceof Refusal)) throw err;
-    d.metrics.inc("rs_unattended_connect_total", { result: err.result });
-    await auditConnect(d, ctx, auth, tenantId, id, { reason: err.result });
+    d.metrics.inc("rs_unattended_connect_total", { mode: req.consent, result: err.result });
+    await auditConnect(d, ctx, auth, tenantId, id, { failReason: err.result, mode: req.consent });
     throw err.err;
   }
-  d.metrics.inc("rs_unattended_connect_total", { result: "ok" });
+  if (req.consent === "ask") d.pairLimit.hit(pair);
+  d.metrics.inc("rs_unattended_connect_total", { mode: req.consent, result: "ok" });
   if (opened.method === "recovery_code") notifyRecovery(d, ctx, auth, tenantId, opened);
+  notifySilentConnect(d, ctx, auth, tenantId, opened);
+  if (connectTestSeams.afterTx) await connectTestSeams.afterTx(opened);
   return afterCommit(d, ctx, auth, tenantId, opened);
 }
 
@@ -112,32 +143,59 @@ async function afterCommit(
     technician: { fullName: auth.user.fullName },
     expiresAt: o.expiresAt,
   };
-  const { ticket, expiresAt } = preAdmitDevice(d.rooms, row, { deviceId: o.deviceId, deviceName: o.deviceName, customerId: o.customerId });
+  const { ticket, expiresAt } = preAdmitDevice(d.rooms, row, {
+    deviceId: o.deviceId,
+    deviceName: o.deviceName,
+    customerId: o.customerId,
+    consent: o.request.consent,
+  });
   const room = d.rooms.get(o.sessionId);
   const tenantName = auth.actingTenant?.name ?? auth.tenant?.name ?? "";
-  const sent = d.hub.send(o.deviceId, {
-    t: "connect",
-    sessionId: o.sessionId,
-    ticket,
-    techName: auth.user.fullName.slice(0, 120),
-    tenantName: tenantName.slice(0, 120) || "Destek",
-    techIp: ctx.ip.length >= 2 ? ctx.ip.slice(0, 45) : "bilinmiyor",
-    expiresInSec: Math.max(1, Math.round((expiresAt - d.now()) / 1000)),
-    indicatorText: deviceIndicatorText(auth.user.fullName, tenantName || "Destek", d.gate.mode === "unsigned"),
-    // P28u-K2 tip uyumu (sözleşmede zorunlu); silent dalı + 8a `DEVICE_OUTDATED` kapısı K3.
-    consent: "ask",
-  });
+  const sent = d.hub.send(o.deviceId, connectMessage(d, ctx, auth, o, { ticket, expiresAt, tenantName: tenantName || "Destek" }));
   if (room && !sent) await endDeviceRoom(d.rooms, room, "device_timeout");
-  else if (room) armTimeout(d, room);
+  else if (room) armTimeout(d, room, o.request.consent);
   return { sessionId: o.sessionId };
 }
 
-/** §2 adım 8: `timing.requestConnectMs` (60 sn) içinde kabul yoksa CANCELLED(device_timeout). */
-function armTimeout(d: ConnectDeps, room: NonNullable<ReturnType<Rooms["get"]>>): void {
+/** §6.2 `connect`: `ask` → P27 göstergesi; `silent` → "Uzaktan izleniyor" + kontrol açıkken gösterge (`indicatorControl`). */
+function connectMessage(
+  d: ConnectDeps,
+  ctx: AuditContext,
+  auth: AuthContext,
+  o: Opened,
+  t: { ticket: string; expiresAt: number; tenantName: string },
+): ConnectMessage {
+  const test = d.gate.mode === "unsigned";
+  const name = auth.user.fullName;
+  const base = {
+    t: "connect" as const,
+    sessionId: o.sessionId,
+    ticket: t.ticket,
+    techName: name.slice(0, 120),
+    tenantName: t.tenantName.slice(0, 120),
+    techIp: ctx.ip.length >= 2 ? ctx.ip.slice(0, 45) : "bilinmiyor",
+    expiresInSec: Math.max(1, Math.round((t.expiresAt - d.now()) / 1000)),
+  };
+  if (o.request.consent === "ask") return { ...base, consent: "ask", indicatorText: deviceIndicatorText(name, t.tenantName, test) };
+  return {
+    ...base,
+    consent: "silent",
+    indicatorText: deviceSilentIndicatorText(name, t.tenantName, test),
+    indicatorControl: deviceControlIndicatorText(name, t.tenantName, test),
+  };
+}
+
+/**
+ * §2 adım 8: kabul yoksa CANCELLED(device_timeout). `silent` → `timing.requestConnectMs` (60 sn); `ask` → aynı oranla 150 sn
+ * (K-P28u-4; test zamanlaması küçültüldüğünde oran korunur).
+ */
+function armTimeout(d: ConnectDeps, room: NonNullable<ReturnType<Rooms["get"]>>, consent: ConnectRequest["consent"]): void {
+  const base = d.rooms.timing.requestConnectMs;
+  const ms = consent === "ask" ? Math.round((base * DEVICE_CONSENT_WINDOW_MS) / DEVICE_CONNECT_WINDOW_MS) : base;
   d.rooms.clock.setTimeout(() => {
     if (!d.rooms.live(room) || room.admitted || room.admitting) return;
     void endDeviceRoom(d.rooms, room, "device_timeout").catch((err: unknown) => d.log.error({ err }, "cihaz zaman aşımı işlenemedi"));
-  }, d.rooms.timing.requestConnectMs);
+  }, ms);
 }
 
 /** D-P27-6 / AC-339: kurtarma koduyla gözetimsiz bağlantı → diğer `manage` sahiplerine e-posta (en iyi çaba). */

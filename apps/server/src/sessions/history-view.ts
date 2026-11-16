@@ -15,6 +15,7 @@ import type { CustomerFirmRef, CustomerStatus } from "@remote/contracts/api/cust
 import { FILE_CUSTOMER_REPORT_LABEL, FILE_VERIFIED_LABEL } from "@remote/contracts/labels";
 import type * as hrepo from "./history-repo.ts";
 import { toView } from "./service.ts";
+import type { ConsentMode } from "@remote/contracts/unattended-consent";
 
 export const durationSec = (r: { consumedAt: Date | null; endedAt: Date | null }): number | null =>
   r.consumedAt && r.endedAt ? Math.max(0, Math.floor((r.endedAt.getTime() - r.consumedAt.getTime()) / 1000)) : null;
@@ -40,6 +41,7 @@ export function toListItem(r: hrepo.HistoryListRow, scope: hrepo.HistoryScope, v
     waitSec: waitSecOf(r),
     customerFirm: firmOf(r.customer),
     anonymized: r.anonymizedAt !== null,
+    consentMode: (r.consentMode as ConsentMode | null) ?? null,
   };
 }
 

@@ -94,7 +94,8 @@ describe("P27-K3 control.state source:UNATTENDED (§4.6)", () => {
     const fx = await roomFixture(rooms, [...CTRL]);
     const g = fx.guest("203.0.113.7", "AGENT");
     expect(await admitGuest(rooms, fx.room, fx.tech, g.admitCode)).toBe("admitted");
-    if (unattended) fx.room.unattended = { deviceId: "01ARZ3NDEKTSV4RRFFQ69G5FAV", deviceName: "PC-1", customerId: "c" };
+    if (unattended)
+      fx.room.unattended = { deviceId: "01ARZ3NDEKTSV4RRFFQ69G5FAV", deviceName: "PC-1", customerId: "c", consentRequest: "ask" };
     return { rooms, fx, g };
   }
 
@@ -129,7 +130,7 @@ describe("P27-K3 connect sınırı, kurtarma e-postası, firma pasifi", () => {
     const res = await mailed.app.inject(connectReq(r));
     expect(res.statusCode).toBe(429);
     expect(res.json<{ error: { code: string } }>().error.code).toBe("RATE_LIMITED");
-    expect((await audits(r.dev.id, "unattended.connect"))[0]?.newValue).toMatchObject({ reason: "limit" });
+    expect((await audits(r.dev.id, "unattended.connect"))[0]?.newValue).toMatchObject({ failReason: "limit" });
   });
 
   it("AC-339 D-P27-6: kurtarma koduyla step-up bağlantısı → firmadaki diğer unattended.manage sahiplerine e-posta (bağlanan ve yetkisiz hariç)", async () => {

@@ -21,6 +21,7 @@ import { avatarUrlFor } from "../uploads/urls.ts";
 import type { UnattendedGate } from "./gate.ts";
 import { selfGrantMail, sendInternalNotice } from "./mail.ts";
 import * as repo from "./repo.ts";
+import type { DeviceUserState } from "@remote/contracts/unattended-consent";
 
 /** Canlı cihaz kanalı (K3 DeviceHub). Commit SONRASI çağrılır; hata fırlatmaz. */
 export interface DeviceLink {
@@ -31,6 +32,10 @@ export interface DeviceLink {
   revoked(deviceId: string): void;
   /** AC-293: yetkisi kalkan teknisyenlerin bu cihazdaki odası `permission` ile biter. */
   grantsRemoved(deviceId: string, userIds: readonly string[]): void;
+  /** P28u (AC-435): soket `rs.cap.consent1` bildirdi mi (verilmezse eski servis sayılır). */
+  has?(deviceId: string, feature: "consent1"): boolean;
+  /** P28u (AC-429): canlı kullanıcı durumu (hub belleği); yoksa null. */
+  userState?(deviceId: string): DeviceUserState | null;
 }
 
 export const OFFLINE_LINK: DeviceLink = {
@@ -53,6 +58,8 @@ export interface UnattendedDeps {
 interface Facts {
   canConnectPerm: boolean;
   online: boolean;
+  /** P28u: çevrimiçi soket `consent1` bildirdi. */
+  current: boolean;
   signatureOk: boolean;
   contacts: number;
   smtp: boolean;
@@ -63,6 +70,7 @@ export function blockedReason(r: repo.DeviceRow, f: Facts): ConnectBlockedReason
   if (!f.canConnectPerm || r.grants.length === 0) return "no_grant";
   if (!f.signatureOk) return "unsigned";
   if (!f.online) return "offline";
+  if (!f.current) return "outdated";
   if (!r.localEnabled) return "local_disabled";
   if (f.contacts === 0) return "no_contacts";
   if (!f.smtp) return "smtp";
@@ -79,7 +87,15 @@ interface ViewCtx {
 function toItem(v: ViewCtx, r: repo.DeviceRow): DeviceListItem {
   const signatureOk = v.d.gate.allows({ signed: r.signed, sha256: r.binarySha256 });
   const online = v.d.link.isOnline(r.id);
-  const facts = { canConnectPerm: v.canConnectPerm, online, signatureOk, contacts: v.contacts.get(r.customerId) ?? 0, smtp: v.smtp };
+  const current = v.d.link.has?.(r.id, "consent1") ?? false;
+  const facts = {
+    canConnectPerm: v.canConnectPerm,
+    online,
+    current,
+    signatureOk,
+    contacts: v.contacts.get(r.customerId) ?? 0,
+    smtp: v.smtp,
+  };
   const reason = blockedReason(r, facts);
   return {
     id: r.id,
@@ -97,6 +113,8 @@ function toItem(v: ViewCtx, r: repo.DeviceRow): DeviceListItem {
     verified: r.verifiedAt !== null,
     notifyFailed: r.notifyFailedAt !== null,
     replacedAlert: v.d.link.replacedAlert(r.id),
+    // D-P28u-6: yalnız çağıranın grant'ı olan cihazda (manage sahibi grant'sız cihazı görür ama durumunu görmez).
+    userState: r.grants.length > 0 ? (v.d.link.userState?.(r.id) ?? null) : null,
   };
 }
 

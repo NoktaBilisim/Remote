@@ -18,6 +18,7 @@ import { isOutdated, UNDECLARED_AGENT_VERSION } from "../lib/version.ts";
 import { cookieValue, offeredProtocols, type UpgradeReject } from "../lib/ws-upgrade.ts";
 import * as repo from "../sessions/repo.ts";
 import { createGate } from "../unattended/gate.ts";
+import { rejoinDeviceGuest } from "./rejoin-device.ts";
 import { admitRequestGuest } from "./admit.ts";
 import { admitDeviceGuest } from "./admit-device.ts";
 import { onGuestMessage, onTechMessage, TokenBucket } from "./handlers.ts";
@@ -174,10 +175,11 @@ function ticketGuest(u: UpgradeCtx, c: GuestConn, value: string): UpgradeReject 
 function deviceTicket(u: UpgradeCtx, c: GuestConn, room: Room, g: Guest, gen: number | undefined): UpgradeReject | null {
   if (gen !== g.ticketGen) return { status: 403, reason: "ticket" };
   const deps = { gate: createGate(u.app.env), secrets: u.app.secrets };
+  // P28u §8.3: oturum kapatma sonrası yeniden katılım bileti ayrı yol (oda zaten admitted).
+  const rejoin = room.unattended?.rejoinGuestId === g.id;
   openGuest(u, c, room, g, (peer) => {
-    void admitDeviceGuest(u.rooms, room, g, peer, c.ctx, deps).catch((err: unknown) =>
-      u.app.log.error({ err }, "gözetimsiz misafir kabul edilemedi"),
-    );
+    const job = rejoin ? rejoinDeviceGuest(u.rooms, room, g, peer, c.ctx, deps) : admitDeviceGuest(u.rooms, room, g, peer, c.ctx, deps);
+    void job.catch((err: unknown) => u.app.log.error({ err }, "gözetimsiz misafir kabul edilemedi"));
   });
   return null;
 }

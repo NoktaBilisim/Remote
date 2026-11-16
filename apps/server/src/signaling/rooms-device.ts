@@ -1,9 +1,11 @@
 // P27 gözetimsiz odaların Rooms eki (mimari-p27 §2 adım 2/8, §4.4 süreler; AC-275, 293, 295, 338). rooms.ts "dokunan böler"
 // sınırı (§9) nedeniyle ayrı: ön-kabullü cihaz misafiri + bilet, cihaz odasını bitirme (PENDING → DB CANCELLED, ACTIVE →
 // mevcut `finish`), cihaz / teknisyen süzgeçli toplu bitirme.
+import { DEVICE_CONSENT_WINDOW_MS, type ConsentRequest } from "@remote/contracts/unattended-consent";
 import type { SessionEndedReason } from "@remote/contracts/ws";
 import { newId } from "../lib/ids.ts";
 import type { UnattendedGate } from "../unattended/gate.ts";
+import { finishSilent, silentPolicyEnabled, userHasSilent } from "../unattended/policy.ts";
 import type { Rooms } from "./rooms.ts";
 import type { Guest, Room } from "./types.ts";
 
@@ -19,6 +21,8 @@ export interface DeviceRef {
   deviceId: string;
   deviceName: string;
   customerId: string;
+  /** P28u: istenen kip (verilmezse `ask` — güvenli yön; `silent` odası bellek kipi `silent` başlar). */
+  consent?: ConsentRequest;
 }
 
 /**
@@ -27,7 +31,14 @@ export interface DeviceRef {
  */
 export function preAdmitDevice(rooms: Rooms, row: DeviceRoomRow, dev: DeviceRef): { ticket: string; expiresAt: number } {
   const room = rooms.getOrCreate(row);
-  room.unattended = { deviceId: dev.deviceId, deviceName: dev.deviceName, customerId: dev.customerId };
+  const consentRequest = dev.consent ?? "ask";
+  room.unattended = {
+    deviceId: dev.deviceId,
+    deviceName: dev.deviceName,
+    customerId: dev.customerId,
+    consentRequest,
+    ...(consentRequest === "silent" ? { consentMode: "silent" as const } : {}),
+  };
   const now = rooms.clock.now();
   const guest: Guest = {
     id: newId(),
@@ -41,7 +52,9 @@ export function preAdmitDevice(rooms: Rooms, row: DeviceRoomRow, dev: DeviceRef)
     ticketGen: 1,
   };
   room.lobby.set(guest.id, guest);
-  const { token, expiresAt } = rooms.tickets.issue({ sessionId: row.id, guestId: guest.id, gen: 1 });
+  // K3 devri: `ask` odasında bilet 60 sn diyalog + gösterge sonrası da geçerli kalmalı → PENDING ömrüyle aynı (150 sn).
+  const ttl = consentRequest === "ask" ? Math.max(rooms.timing.ticketMs, DEVICE_CONSENT_WINDOW_MS) : rooms.timing.ticketMs;
+  const { token, expiresAt } = rooms.tickets.issue({ sessionId: row.id, guestId: guest.id, gen: 1 }, ttl);
   return { ticket: token, expiresAt };
 }
 
@@ -69,6 +82,17 @@ export async function endDeviceRoom(rooms: Rooms, room: Room, reason: SessionEnd
     rooms.log.error({ err, sessionId: room.sessionId }, "gözetimsiz bekleyen oturum iptali DB'ye yazılamadı");
   }
   rooms.closeSession(room.sessionId, reason);
+}
+
+/**
+ * P28u §8.4 (O-P28u-2): `unattended.silent` geri alınan teknisyenin `silent` oturumları — K3 `finishSilent` (PENDING satırlar
+ * tenant + teknisyen koşullu toplu iptal + canlı odalar). Teknisyenin firması DB'den; firmasız (SUPER_ADMIN) → canlı odalar
+ * `applyPermChange`'te biter, PENDING satırı admit TX'i reddeder (K-P28u-21).
+ */
+export async function cancelPendingSilent(rooms: Rooms, technicianId: string): Promise<void> {
+  const u = await rooms.db.user.findUnique({ where: { id: technicianId }, select: { tenantId: true } });
+  if (!u?.tenantId) return;
+  await finishSilent({ db: rooms.db, rooms, now: () => rooms.clock.now(), log: rooms.log }, u.tenantId, technicianId);
 }
 
 /** Bu cihazın canlı odaları (isteğe bağlı: yalnız bu teknisyenin). */
@@ -104,5 +128,14 @@ export async function revalidateDevice(rooms: Rooms, gate: UnattendedGate, room:
   if (!row || row.revokedAt) reason = "device_revoked";
   else if (!row.localEnabled) reason = "local_disabled";
   else if (row.grants.length === 0 || !gate.allows({ signed: row.signed, sha256: row.binarySha256 })) reason = "permission";
+  else if (dev.consentMode === "silent" && !(await silentStillAllowed(rooms, room))) reason = "permission";
   if (reason) await endDeviceRoom(rooms, room, reason);
+}
+
+/**
+ * P28u §8.4 yedek yol (AC-440 ≤ 60 sn): `silent` oda yalnız firma politikası açık ∧ teknisyende `unattended.silent` iken
+ * sürer. Teknisyenin bağlı olmasından bağımsız (`startDeviceRevalidation`, `rooms.clock`) — anlık `finishSilent` atlansa da.
+ */
+export async function silentStillAllowed(rooms: Rooms, room: Room): Promise<boolean> {
+  return (await silentPolicyEnabled(rooms.db, room.tenantId)) && userHasSilent(rooms.db, room.tenantId, room.technicianId);
 }

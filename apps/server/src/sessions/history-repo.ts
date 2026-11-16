@@ -29,6 +29,8 @@ export interface HistoryFilter {
   customerFirm?: string;
   /** P27: gözetimsiz cihazın oturumları (`device_id`; tenant kapsamı yine ezer). */
   deviceId?: string;
+  /** P28u (AC-445): gözetimsiz bağlantı kipi (`consent_mode`). */
+  consentMode?: string;
 }
 
 /** Prisma 7 (MySQL) `contains` LIKE jokerlerini kaçışlamaz (db-notlari P8): `%`, `_`, `\` literal aranır. */
@@ -50,6 +52,7 @@ export function historyWhere(scope: HistoryScope, f: HistoryFilter = {}): Prisma
     ...(f.customer ? { customerName: { contains: escapeLike(f.customer) } } : {}),
     ...(f.customerFirm ? { customerId: f.customerFirm === "none" ? null : f.customerFirm } : {}),
     ...(f.deviceId ? { deviceId: f.deviceId } : {}),
+    ...(f.consentMode ? { consentMode: f.consentMode } : {}),
   };
 }
 
@@ -77,6 +80,8 @@ const listSelect = {
   customer: { select: { id: true, name: true, status: true } },
   // P13a (AC-197): anonimleştirme işareti
   anonymizedAt: true,
+  // P28u (AC-445): gözetimsiz kip
+  consentMode: true,
 } as const;
 
 export type HistoryListRow = Prisma.SupportSessionGetPayload<{ select: typeof listSelect }>;
@@ -143,6 +148,7 @@ const detailSelect = {
   note: true,
   terminatedBy: true,
   qualitySummary: true,
+  silentReason: true,
   request: {
     select: {
       id: true,

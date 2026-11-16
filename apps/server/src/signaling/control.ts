@@ -12,6 +12,7 @@ import { onControlClosed } from "./clip-print.ts";
 import { onGranted, onView } from "./control-grant.ts";
 import { auditBeforeForward, CUSTOMER, enqueue, guestCtx, logFail, recordClose, techActor, unexpected } from "./control-record.ts";
 import type { Rooms } from "./rooms.ts";
+import { unattendedControlLimited } from "./unattended-control.ts";
 import type { ControlRoom, Guest, GuestEnv, Room, TechConn } from "./types.ts";
 
 export { CONTROL_AUDIT_TIMEOUT_MS } from "./control-record.ts";
@@ -55,6 +56,11 @@ function controlRefusal(rooms: Rooms, room: Room, tech: TechConn): RequestResult
   if (c.state === "REQUESTED" && !c.granting)
     return refuse(rooms, tech, "CONFLICT", "Önceki kontrol isteği müşteride bekliyor.", "conflict", "control");
   if (c.state !== "VIEW" || c.granting) return refuse(rooms, tech, "CONFLICT", "Kontrol zaten açık.", "conflict", "control");
+  // P28u K-P28u-16: gözetimsiz odada kullanıcıya diyalog yok — AC-116 sayacı/beklemesi yerine oda başına 30/dk kova.
+  if (room.unattended)
+    return unattendedControlLimited(rooms, room)
+      ? refuse(rooms, tech, "RATE_LIMITED", "Çok sık kontrol isteği; biraz sonra tekrar deneyin.", "limit", "control")
+      : null;
   const now = rooms.clock.now();
   if (c.deniedAt !== undefined && now - c.deniedAt < CONTROL_DENY_COOLDOWN_MS)
     return refuse(rooms, tech, "RATE_LIMITED", "Müşteri reddetti; 30 sn sonra tekrar isteyebilirsiniz.", "cooldown", "control");
