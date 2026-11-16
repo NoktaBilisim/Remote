@@ -503,7 +503,8 @@ jobs:
                    TestP28cChatRelayAndObserverDropped TestP28cInvalidRosterEndsSession TestAC371LowEncoderAtMost8FPS \
                    TestAC371LowEncoderOnlyWhileEnabled TestAC371LowEncoderFailureIsolated TestAC367SetMainReplacesTrack \
                    TestP28cControllerDisconnectAndReturnStatus TestP28cP28eTrayWithActiveForwardsRecUI TestP28cNamesSuffix \
-                   TestP28cHeadlessShowRoster TestP28cLiveSetNamesDrawsSuffix TestP28cSessionWindowFits768; do
+                   TestP28cHeadlessShowRoster TestP28cLiveSetNamesDrawsSuffix TestP28cSessionWindowFits768 \
+                   TestP28cIceRestartRoutedByFrom TestP28cIceRestartKeepsPeersAndSendsNothing; do
             grep -q -- "--- PASS: $t" "$out" || { echo "::error::$t PASS değil / koşmadı (ad değişti mi? sözleşme: docs/implementation.md P28c)"; exit 1; }
           done
       # P28u K6s spike (mimari-p28u §7.5 soru 1, R-P28u-1; docs/spike-p28u-k6s.md): üretim yardımcısıyla aynı proclimit.Spec'le

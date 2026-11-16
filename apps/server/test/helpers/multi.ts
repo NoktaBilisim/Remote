@@ -39,6 +39,8 @@ export interface Owner {
   sessionId: string;
   ws: WsClient;
   guest: WsClient;
+  /** Sahibin aldığı `peer.joined{guest}` (K1c `guestMulti`). */
+  joined: Extract<ServerOutbound, { t: "peer.joined" }>;
 }
 
 /** Sahip + oturum + sahip WS + kabul edilmiş tarayıcı misafiri (`multi` → `rs.cap.multi1` bildirir). */
@@ -78,8 +80,8 @@ export async function ownerWithGuest(
   await ws.waitFor("peer.pending");
   ws.send({ t: "guest.admit", admitCode });
   await guest.waitFor("hello");
-  await ws.waitFor("peer.joined");
-  return { tenantId, user, s, sessionId: created.id, ws, guest };
+  const joined = await ws.waitFor("peer.joined");
+  return { tenantId, user, s, sessionId: created.id, ws, guest, joined };
 }
 
 export async function newUser(

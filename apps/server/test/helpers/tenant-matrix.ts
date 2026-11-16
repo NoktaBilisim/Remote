@@ -17,6 +17,17 @@ import { codeRow, createDeviceRow } from "./unattended.ts";
 export type RouteClass = "public" | "self" | "tenant" | "list" | "scoped" | "system";
 
 export const ROUTE_CLASSES: Record<string, RouteClass> = {
+  // P28c çoklu teknisyen: oturum uçları B → A oturumu 404 (ownedRoom/supervise); davet kimliği uçları kullanıcının kendi
+  // daveti (başkasınınki 410 INVITE_GONE, kimlik sızmaz — multi-p28c.test.ts); aktif liste tenantScope'lu.
+  "GET /api/v1/sessions/invites": "self",
+  "POST /api/v1/sessions/invites/:inviteId/accept": "self",
+  "POST /api/v1/sessions/invites/:inviteId/reject": "self",
+  "GET /api/v1/sessions/active": "scoped",
+  "POST /api/v1/sessions/:id/supervise": "tenant",
+  "GET /api/v1/sessions/:id/invite-candidates": "tenant",
+  "POST /api/v1/sessions/:id/invites": "tenant",
+  "GET /api/v1/sessions/:id/invites": "tenant",
+  "DELETE /api/v1/sessions/:id/invites/:inviteId": "tenant",
   // P27-K3: gözetimsiz bağlantı (B'nin A cihazına isteği → 404; IDOR, AC-293).
   "POST /api/v1/unattended/devices/:id/connect": "tenant",
   // P28u-K4: müdahale (B'nin A oturumuna isteği → 404, AC-442).
@@ -280,6 +291,23 @@ export interface CrossTenantCase {
 }
 
 export const CROSS_TENANT_CASES: CrossTenantCase[] = [
+  {
+    route: "POST /api/v1/sessions/:id/supervise",
+    request: (fx) => ({ method: "POST", url: `/api/v1/sessions/${fx.a.sessionId}/supervise`, payload: {} }),
+  },
+  {
+    route: "GET /api/v1/sessions/:id/invite-candidates",
+    request: (fx) => ({ method: "GET", url: `/api/v1/sessions/${fx.a.sessionId}/invite-candidates` }),
+  },
+  {
+    route: "POST /api/v1/sessions/:id/invites",
+    request: (fx) => ({ method: "POST", url: `/api/v1/sessions/${fx.a.sessionId}/invites`, payload: { userId: fx.a.sessionId } }),
+  },
+  { route: "GET /api/v1/sessions/:id/invites", request: (fx) => ({ method: "GET", url: `/api/v1/sessions/${fx.a.sessionId}/invites` }) },
+  {
+    route: "DELETE /api/v1/sessions/:id/invites/:inviteId",
+    request: (fx) => ({ method: "DELETE", url: `/api/v1/sessions/${fx.a.sessionId}/invites/AAAAAAAAAAAAAAAAAAAAAA` }),
+  },
   {
     route: "POST /api/v1/sessions/:id/unattended/lock",
     request: (fx) => ({ method: "POST", url: `/api/v1/sessions/${fx.a.sessionId}/unattended/lock`, payload: {} }),

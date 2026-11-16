@@ -7,6 +7,7 @@ import {
   type ActiveSessionsResponse,
   type CreateInviteResponse,
   type IncomingInvitesResponse,
+  type OutgoingInvitesResponse,
   type InviteCandidatesResponse,
   type JoinSessionAsMemberResponse,
 } from "@remote/contracts/api/multi";
@@ -187,6 +188,15 @@ export async function revokeInvite(
   d.rooms.clock.clearTimeout(inv.timer);
   countInvite(d.rooms, "expired");
   await auditMulti(d.rooms, room, ctx, actorOf(auth), MULTI_AUDIT.INVITE_EXPIRE, { inviteeUserId: inv.userId, reason: "revoked" });
+}
+
+/** K1c GET /sessions/:id/invites: sahibin bekleyen giden davetleri (DELETE ile aynı kapı; koltukla sınırlı, bitişe göre). */
+export function outgoingInvites(d: MultiDeps, auth: AuthContext, tenantId: string, sessionId: string): OutgoingInvitesResponse {
+  const room = ownedRoom(d, auth, tenantId, sessionId);
+  const items = [...room.multi.invites.values()]
+    .sort((a, b) => a.expiresAt - b.expiresAt)
+    .map((inv) => ({ inviteId: inv.id, userId: inv.userId, inviteeName: inv.fullName, expiresAt: iso(inv.expiresAt) }));
+  return { items };
 }
 
 function findInvite(d: MultiDeps, inviteId: string): { room: Room; inv: NonNullable<ReturnType<Room["multi"]["invites"]["get"]>> } | null {

@@ -2,7 +2,7 @@
 // sahte (davet 2 dk, rezervasyon 60 sn, kopma payı 120 sn). Tarayıcı misafiri `rs.cap.multi1` bildirir (aksi belirtilmedikçe).
 import { MAX_TECHS, techsRosterSchema } from "@remote/contracts/ws-multi";
 import { WS_CLOSE } from "@remote/contracts/ws";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { createTenant, testDb } from "../helpers/app.ts";
 import {
   audits,
@@ -519,5 +519,135 @@ describe("P28c geri alma matrisi (Y-PC-2, O-PC-3)", () => {
     } finally {
       await live2.close();
     }
+  });
+});
+
+describe("P28c K1c sözleşme ekleri (AC-372, geri çek)", () => {
+  it("AC-372: teknisyen hello'su ve peer.joined{guest} guestMulti taşır (multi1 true, eski istemci false)", async () => {
+    const o = await ownerWithGuest(live);
+    expect(o.joined).toMatchObject({ role: "guest", guestMulti: true });
+    const m = await inviteAndJoin(live, o);
+    expect(m.hello).toMatchObject({ role: "tech", guestMulti: true });
+    m.ws.ws.close();
+    const old = await ownerWithGuest(live, { multi: false });
+    expect(old.joined).toMatchObject({ role: "guest", guestMulti: false });
+    // sahip yeniden bağlanınca hello'da da (misafir kabul edilmiş)
+    old.ws.ws.close();
+    await until(() => room(old.sessionId).tech === undefined);
+    const again = await memberWs(live, old.sessionId, old.s);
+    expect(again.hello).toMatchObject({ techRole: "owner", guestMulti: false });
+    again.ws.ws.close();
+  });
+
+  it("GET /sessions/:id/invites: sahip bekleyen davetleri görür (no-store); geri çek/kabul/süre sonrası boş; üye 403, başka tenant 404", async () => {
+    const o = await ownerWithGuest(live);
+    const url = `/api/v1/sessions/${o.sessionId}/invites`;
+    const empty = await inject(live, "GET", url, o.s);
+    expect(empty.statusCode).toBe(200);
+    expect(empty.headers["cache-control"]).toBe("no-store");
+    expect(empty.json()).toEqual({ items: [] });
+    const a = await newUser(live, o.tenantId, MEMBER_PERMS);
+    const b = await newUser(live, o.tenantId, MEMBER_PERMS);
+    const ia = (await inject(live, "POST", url, o.s, { userId: a.user.id })).json<{ inviteId: string; expiresAt: string }>();
+    live.clock.advance(1_000);
+    const ib = (await inject(live, "POST", url, o.s, { userId: b.user.id })).json<{ inviteId: string; expiresAt: string }>();
+    const list = (await inject(live, "GET", url, o.s)).json<{ items: unknown[] }>();
+    expect(list.items).toEqual([
+      { inviteId: ia.inviteId, userId: a.user.id, inviteeName: "Test Kullanıcı", expiresAt: ia.expiresAt },
+      { inviteId: ib.inviteId, userId: b.user.id, inviteeName: "Test Kullanıcı", expiresAt: ib.expiresAt },
+    ]);
+    expect((await inject(live, "DELETE", `${url}/${ia.inviteId}`, o.s)).statusCode).toBe(204);
+    expect((await inject(live, "GET", url, o.s)).json<{ items: { inviteId: string }[] }>().items.map((i) => i.inviteId)).toEqual([
+      ib.inviteId,
+    ]);
+    // kabul edilen davet listeden düşer; üye (sahip değil) 403, başka tenant 404, biçimsiz kimlik 404
+    expect((await inject(live, "POST", `/api/v1/sessions/invites/${ib.inviteId}/accept`, b.s, {})).statusCode).toBe(200);
+    expect((await inject(live, "GET", url, o.s)).json()).toEqual({ items: [] });
+    expect(errCode(await inject(live, "GET", url, b.s))).toBe("403 FORBIDDEN");
+    const other = await newUser(live, (await createTenant()).id, OWNER_PERMS);
+    expect(errCode(await inject(live, "GET", url, other.s))).toBe("404 NOT_FOUND");
+    expect(errCode(await inject(live, "GET", "/api/v1/sessions/x/invites", o.s))).toBe("404 NOT_FOUND");
+    // süre dolumu
+    const c = await newUser(live, o.tenantId, MEMBER_PERMS);
+    expect((await inject(live, "POST", url, o.s, { userId: c.user.id })).statusCode).toBe(201);
+    expect((await inject(live, "GET", url, o.s)).json<{ items: unknown[] }>().items).toHaveLength(1);
+    live.clock.advance(120_000);
+    expect((await inject(live, "GET", url, o.s)).json()).toEqual({ items: [] });
+  });
+});
+
+describe("P28c K1c devir sınırları (AC-11, target_gone)", () => {
+  it("AC-11: hedefin açık oturum sınırı dolu → CONFLICT, technician_id değişmez, transfer fail{conflict}", async () => {
+    const o = await ownerWithGuest(live);
+    const m = await inviteAndJoin(live, o, { ...MEMBER_PERMS, ...OWNER_PERMS });
+    expect((await inject(live, "POST", "/api/v1/sessions", m.s, {})).statusCode).toBe(201);
+    await testDb().tenantSettings.update({ where: { tenantId: o.tenantId }, data: { maxOpenSessions: 1 } });
+    o.ws.send({ t: "session.transfer", to: m.hello.tid });
+    expect(await waitMsg(o.ws, "error")).toMatchObject({ code: "CONFLICT", message: "Hedef teknisyenin açık oturum sınırı dolu." });
+    expect((await testDb().supportSession.findUnique({ where: { id: o.sessionId } }))?.technicianId).toBe(o.user.id);
+    expect(room(o.sessionId).technicianId).toBe(o.user.id);
+    await until(() => !room(o.sessionId).multi.transferring);
+    await until(async () => (await audits(o.sessionId, "session.transfer")).length === 1);
+    expect((await audits(o.sessionId, "session.transfer"))[0]).toMatchObject({ result: "fail", newValue: { failReason: "conflict" } });
+  });
+
+  it("O-PC-2: commit sonrası hedef gitmişse UPDATE geri alınır, bellek değişmez, transfer fail{target_gone}", async () => {
+    const o = await ownerWithGuest(live);
+    const m = await inviteAndJoin(live, o);
+    const r = room(o.sessionId);
+    const db = live.app.rooms.db;
+    const orig = db.$transaction.bind(db) as (fn: unknown) => Promise<unknown>;
+    // gerçek TX commit olur; dönmeden hedef soketi kapanır (seam yok — üretim kodu değişmedi)
+    const spy = vi.spyOn(db, "$transaction").mockImplementationOnce((async (fn: unknown) => {
+      const out = await orig(fn);
+      m.ws.ws.close();
+      await until(() => !r.multi.members.get(m.user.id)?.conn);
+      return out;
+    }) as never);
+    try {
+      o.ws.send({ t: "session.transfer", to: m.hello.tid });
+      expect(await waitMsg(o.ws, "error")).toMatchObject({ code: "CONFLICT", message: "Hedef teknisyen oturumdan ayrıldı." });
+    } finally {
+      spy.mockRestore();
+    }
+    expect((await testDb().supportSession.findUnique({ where: { id: o.sessionId } }))?.technicianId).toBe(o.user.id);
+    expect(r.technicianId).toBe(o.user.id);
+    expect(r.tech?.userId).toBe(o.user.id);
+    expect(r.multi.controllerId).toBe(o.user.id);
+    await until(() => !r.multi.transferring);
+    await until(async () => (await audits(o.sessionId, "session.transfer")).some((a) => a.result === "fail"));
+    expect((await audits(o.sessionId, "session.transfer")).find((a) => a.result === "fail")?.newValue).toMatchObject({
+      failReason: "target_gone",
+    });
+  });
+});
+
+describe("P28c geri alma matrisi — süre sınırı (Y-PC-2, sahte saat ≤ 5 / ≤ 60 sn)", () => {
+  // Anlık yollar sahte saat HİÇ ilerletilmeden etkili olur (0 ms ≤ 5 sn). Yedek döngü bir `revalidateMs` periyodunda
+  // (testte 300 ms gerçek, üretimde 60 sn varsayılan) etkili olur → sahte saat yine ilerlemez (≤ 60 sn).
+  type Path = { name: string; seat: "owner" | "member"; run: (o: Owner, m: { user: { id: string } }) => Promise<unknown> };
+  type Owner = Awaited<ReturnType<typeof ownerWithGuest>>;
+  const revokeAuth = (userId: string) => testDb().authSession.updateMany({ where: { userId }, data: { revokedAt: new Date() } });
+  const paths: Path[] = [
+    { name: "applyPermChange (anlık)", seat: "member", run: (_o, m) => live.app.rooms.applyPermChange(m.user.id, []) },
+    { name: "endByTechnician (anlık)", seat: "member", run: (_o, m) => live.app.rooms.endByTechnician(m.user.id) },
+    { name: "kimlik oturumu iptali (yedek döngü)", seat: "member", run: (_o, m) => revokeAuth(m.user.id) },
+    { name: "endByTechnician (anlık)", seat: "owner", run: (o) => live.app.rooms.endByTechnician(o.user.id) },
+    { name: "kimlik oturumu iptali (yedek döngü)", seat: "owner", run: (o) => revokeAuth(o.user.id) },
+  ];
+  it.each(paths)("Y-PC-2: $seat — $name", async ({ seat, run }) => {
+    const o = await ownerWithGuest(live);
+    const m = await inviteAndJoin(live, o);
+    const t0 = live.clock.now();
+    const started = Date.now();
+    await run(o, m);
+    if (seat === "member") {
+      expect((await m.ws.closed).code).toBe(WS_CLOSE.REMOVED);
+      expect(live.app.rooms.live(room(o.sessionId))).toBe(true);
+    } else {
+      expect(await m.ws.waitFor("session.ended")).toMatchObject({ reason: "auth_revoked" });
+    }
+    expect(live.clock.now() - t0).toBe(0);
+    expect(Date.now() - started).toBeLessThan(5_000);
   });
 });

@@ -373,6 +373,8 @@ exports[`PT-K1 contracts yüzeyi > AC-318: her exports yolunun dışa verdiği a
     "JoinSessionAsMemberResponse (tip)",
     "JoinWithReasonInput (tip)",
     "MULTI_ERROR_MESSAGES",
+    "OutgoingInvite (tip)",
+    "OutgoingInvitesResponse (tip)",
     "SILENT_REASON_MAX",
     "SILENT_REASON_MIN",
     "createInviteInputSchema",

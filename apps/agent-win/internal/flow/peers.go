@@ -179,6 +179,23 @@ func (s *session) onRemoteIce(m signal.RemoteIce) {
 	}
 }
 
+// iceRestartPeer `ice.restart`'ın hedef eşi (P28c: multi1'de `from` ile): from boşsa yalnız eski soketin tek eşi; from
+// doluysa yalnız multi kipinde, son roster'da olup adı çizilmiş (drawn yalnız son roster'dan kurulur) ve eşi kurulmuş tid.
+// Diğer durumlar nil → yok sayılır; eş kurulmaz, kapanmaz. Yanıtlayan taraf olarak hedef eşte ek iş yoktur: teknisyen
+// ardından iceRestart'lı yeni offer gönderir, yeni ICE kimliği onOffer → HandleOffer'da (aynı kabul listesiyle) uygulanır.
+func (s *session) iceRestartPeer(m signal.IceRestart) *techPeer {
+	if m.From == "" {
+		if s.multi.on {
+			return nil
+		}
+		return s.peers[""]
+	}
+	if !s.multi.on || !s.multi.drawn[m.From] {
+		return nil
+	}
+	return s.peers[m.From]
+}
+
 // onRoster `techs.roster` (§4.4): eş kapanışları, kontrol sahibi değişimi (kapı kapanır, iz takası §5.1 adım 3),
 // liste çizimi ve kabul listesi. Değişmez ihlali (signal.ValidRoster) → güvenli kopma.
 func (s *session) onRoster(ctx context.Context, m signal.TechsRoster) (Outcome, bool) {

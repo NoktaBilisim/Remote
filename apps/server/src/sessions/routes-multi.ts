@@ -12,6 +12,7 @@ import {
   type IncomingInvitesResponse,
   type InviteCandidatesResponse,
   type JoinSessionAsMemberResponse,
+  type OutgoingInvitesResponse,
 } from "@remote/contracts/api/multi";
 import { MULTI_JOIN_PER_MIN, MULTI_POLL_PER_MIN } from "@remote/contracts/ws-multi";
 import type { FastifyInstance, FastifyRequest } from "fastify";
@@ -28,6 +29,7 @@ import {
   createInvite,
   incomingInvites,
   inviteCandidates,
+  outgoingInvites,
   rejectInvite,
   revokeInvite,
   supervise,
@@ -139,6 +141,15 @@ export async function multiSessionRoutes(app: FastifyInstance): Promise<void> {
     const out = await createInvite(d(), auditContext(req), authOf(req), tenantId, id, userId);
     void reply.status(201).header("Cache-Control", "no-store");
     return out;
+  });
+
+  app.get("/:id/invites", async (req, reply): Promise<OutgoingInvitesResponse> => {
+    const auth = authOf(req);
+    const { tenantId } = tenantScope(req);
+    const { id } = params(multiSessionParamsSchema, req);
+    limited(poll, `out:${auth.user.id}`);
+    void reply.header("Cache-Control", "no-store");
+    return outgoingInvites(d(), auth, tenantId, id);
   });
 
   app.delete("/:id/invites/:inviteId", async (req, reply) => {

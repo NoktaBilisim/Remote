@@ -9,7 +9,7 @@ import { capsFor, featureList, fileModeOf, guestFeatures, hasFsrv } from "./room
 import type { Rooms } from "./rooms.ts";
 import { iceServersFor, type IceGrant } from "./turn.ts";
 import type { Guest, Room, TechConn } from "./types.ts";
-import { rosterOf, sendRosterToGuest, sendTechs, techRoleOf, tidOf } from "./members.ts";
+import { guestMulti, rosterOf, sendRosterToGuest, sendTechs, techRoleOf, tidOf } from "./members.ts";
 import { recHelloGuest, recHelloTech } from "./rec.ts";
 
 const HOUR_MS = 3_600_000;
@@ -56,6 +56,7 @@ export function sendHelloTech(rooms: Rooms, room: Room, conn: TechConn | undefin
     tid: tidOf(room, conn.userId),
     techRole: techRoleOf(room, conn),
     roster: rosterOf(room),
+    ...(g ? { guestMulti: guestMulti(room) } : {}), // K1c AC-372: konsol "Davet et"/"İzle"yi baştan pasif gösterir
   });
 }
 
@@ -121,6 +122,7 @@ export function sendGuestJoined(room: Room, guest: Guest): void {
     ...(room.maxFileMb ? { maxFileMb: room.maxFileMb } : {}),
     fileMode: fileModeOf(room), // P28b §5.1
     ...clipPrintFields(room, false),
+    guestMulti: guest.peer?.multi === true, // K1c AC-372
   });
 }
 

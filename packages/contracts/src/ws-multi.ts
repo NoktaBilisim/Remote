@@ -107,6 +107,11 @@ export const helloMultiFields = {
   tid: techIdSchema.optional(),
   techRole: z.enum(TECH_ROLES).optional(),
   roster: techRosterSchema.optional(),
+  /**
+   * K1c (AC-372): kabul edilmiş misafir `rs.cap.multi1` bildirdi mi (kısa kopuklukta son değer). Alan yok = kabul edilmiş
+   * misafir yok; `false` = desteklemiyor → konsol "Davet et"/"İzle" baştan pasif (AC-352 metni). `peer.joined{guest}`'te de var.
+   */
+  guestMulti: z.boolean().optional(),
 };
 
 // --- Rol kapısı (§1.1, §4.4; D-PC-6 varsayılan-ret) ---

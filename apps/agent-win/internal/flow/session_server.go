@@ -60,7 +60,7 @@ func (s *session) onSignaling(ctx context.Context, m signal.Inbound) {
 			_ = tp.p.SetICEServers(m.IceServers)
 		}
 	case signal.IceRestart:
-		// Teknisyen ardından iceRestart'lı yeni offer gönderir; answer HandleOffer'da üretilir.
+		_ = s.iceRestartPeer(m) // hedef eş seçimi (peers.go); yeni ICE kimliği sonraki offer'da
 	}
 }
 

@@ -2,6 +2,15 @@
 
 Kaynak: `docs/mimari-p28c.md` r2, ADR-0035, implementation.md "P28c K0". `packages/contracts` değiştirilmedi.
 
+**KONTRAT HAZIR (K1c, 2026-11-16)** — `packages/contracts` (typecheck + 254 test yeşil, pt-surface yalnız 2 ekleme):
+
+- `hello` (role=tech) ve `peer.joined{role:"guest"}` (teknisyene): `guestMulti?: boolean` — kabul edilmiş misafir
+  `rs.cap.multi1` bildirdi mi (kısa kopuklukta son değer). **Alan yok** = kabul edilmiş misafir yok; **`false`** = desteklemiyor →
+  "Davet et"/"İzle" baştan pasif + AC-352 metni (`MULTI_ERROR_MESSAGES.CLIENT_UNSUPPORTED`). Roster'a eklenmedi (misafire de gider).
+- `GET /api/v1/sessions/:id/invites` → `OutgoingInvitesResponse { items: OutgoingInvite[] }`, `OutgoingInvite { inviteId, userId,
+  inviteeName, expiresAt (ISO) }`, bitişe göre artan; `Cache-Control: no-store`. Kapı DELETE ile aynı: başka tenant/yok 404,
+  sahip değil 403 (yetki anahtarı istemez). Sayfalama yok (koltukla sınırlı, `MAX_TECHS`). Devirde davetler yaşar → yeni sahip görür.
+
 ## Durum özeti
 
 - `pnpm --filter @remote/server run lint` → temiz; `typecheck` → temiz; `vitest run test/unit` → 45 dosya, 634 geçti (1 atlandı).
@@ -70,17 +79,46 @@ iletilir (sapma 7 kapandı).
 **Yeni testler:** AC-369 geçmiş participants + zaman çizelgesi (entegrasyon), `test/unit/history-participants-p28c.test.ts` (3),
 kabul 21. istek 429, revalidateDevice üye dalı (grant silinir → yalnız üye 4403).
 
+## K1c (2026-11-16) — sözleşme ekleri + eksik testler
+
+**Değişen dosyalar:** `packages/contracts/src/{ws.ts,ws-multi.ts,api/multi.ts}` + `test/__snapshots__/pt-surface.test.ts.snap`
+(yalnız `OutgoingInvite`, `OutgoingInvitesResponse` eklendi); `apps/server/src/signaling/active.ts` (`hello`/`peer.joined`
+`guestMulti`), `src/sessions/invites.ts` (`outgoingInvites`), `src/sessions/routes-multi.ts` (`GET /:id/invites`, `poll` kovası
+`out:<user>`); testler `test/integration/multi-p28c.test.ts` (+9), `test/unit/multi-roster-rec-p28c.test.ts` (yeni, 6),
+`test/helpers/multi.ts` (`ownerWithGuest` artık `joined` = sahibin aldığı `peer.joined` döner).
+
+**Yeni testler:** AC-372 `guestMulti` (multi1 true / eski false / üye hello / sahip yeniden bağlanma); `GET /sessions/:id/invites`
+(no-store, sıra, geri çek/kabul/süre dolumu sonrası boş, üye 403, başka tenant 404, biçimsiz 404); AC-11 devir sınırı (CONFLICT,
+technician_id değişmez, `transfer fail{conflict}`); O-PC-2 `target_gone` (üretimde kanca YOK — testte `rooms.db.$transaction`
+sarılır: gerçek TX commit olur, dönmeden hedef soketi kapanır → DB geri alınır, bellek değişmez, `fail{target_gone}`); geri alma
+matrisi 5 satır (üye: applyPermChange / endByTechnician / kimlik oturumu iptali yedek döngü; sahip: endByTechnician / yedek döngü)
+sahte saat hiç ilerlemeden etkili (anlık ≤ 5 sn; yedek döngü bir `revalidateMs` periyodunda — testte 300 ms, üretim 60 sn ≤ 60 sn);
+`rosterOf` değişmezleri (tek sahip/tek kontrol sahibi, rezervasyon listede yok, kopuk sahip, ad kırpma, tid kalıcı) ve
+`recRecorderChanged` (eski belirteç hemen düşer, eskisine upload'sız `rec.state`, yenisine yeni seri + belirteç; rec1 olmayan
+kontrol sahibinde dönüş süresi; kayıt yokken mesaj yok).
+
+**Ayrıca düzeltilen (K1'den kalan kırmızılar):** `test/helpers/tenant-matrix.ts` P28c uçlarını sınıflandırmıyordu (AC-69
+"sınıfsız uç" testi düşüyordu) → 9 uç eklendi (`/:id/*` tenant + B→A 404 vakaları; `/invites`, accept/reject self; `/active` scoped).
+`consent-p4` QA-P4-12 `peer.joined` tam eşleşmesine `guestMulti:false`; sunucu `pt-surface` rota anlık görüntüsü (+GET/HEAD
+`/sessions/:id/invites`, yalnız ekleme).
+
+**Doğrulama (p28c-k1c-mysql, 3423):** tam `pnpm --filter @remote/server exec vitest run` → 159 dosya, 1765 geçti, 1 atlandı,
+1 düştü = AC-261 (`p19-notify-j3`, bilinen kararsız; tek başına 18/18 geçti). `pnpm -r run lint` / `typecheck` temiz, contracts
+254/254, prettier temiz. Test DB kapatıldı (`p28c-k1b-mysql` da artık çalışmıyor).
+
+**Not:** matristeki "sahip — applyPermChange" satırı yok: gözetimsiz olmayan odada sahibin yetki daralması odayı bitirmez (yalnız caps
+daralır; P3 S-P3-8 davranışı). Gözetimsiz sahip dalı mevcut "gözetimsiz oda (bellek kurgusu)" testinde.
+
 ## BİTMEYEN / sıradaki ajan için
 
-1. **Prettier:** şu dosyalar `prettier --list-different`'te: `sessions/{eligibility,history-participants,invites,service}.ts`,
+1. ~~**Prettier:**~~ K1c: değişen dosyalar `prettier --write` ile biçimlendi. şu dosyalar `prettier --list-different`'te: `sessions/{eligibility,history-participants,invites,service}.ts`,
    `signaling/{member-cmds,member-life,multi-audit}.ts`, `unattended/device-access.ts`, `test/helpers/multi.ts`,
    `test/integration/multi-p28c.test.ts` → `npx prettier --write` (otomatik izin reddi nedeniyle koşulamadı).
-2. **contracts `pt-surface` anlık görüntüsü:** yeni dışa aktarım `SESSION_PARTICIPANT_ROLES` → `pnpm --filter @remote/contracts exec
+2. ~~**contracts `pt-surface`**~~ K1c: güncellendi (yalnız ekleme). yeni dışa aktarım `SESSION_PARTICIPANT_ROLES` → `pnpm --filter @remote/contracts exec
 vitest run test/pt-surface.test.ts -u` (yalnız ekleme; koşulamadı). Bunun dışında contracts 253/254 geçti.
-3. **Test DB konteyneri `p28c-k1b-mysql` (port 3422) hâlâ açık** — `apps/server/scripts/test-db.sh down` izin reddi aldı; elle kapatılmalı.
-4. Eksik testler: geri alma matrisi sahte saatle ≤5/≤60 sn ölçümü; devirde commit sonrası `target_gone` geri alma (seam yok);
-   kaydedici devri (`recRecorderChanged`) ve `rosterOf` değişmezleri birim testleri; devirde AC-11 sınırı.
-5. Tam `pnpm --filter @remote/server exec vitest run` (tüm entegrasyon) koşulmadı — yalnız birim + ilgili alt küme.
+3. ~~**Test DB konteyneri `p28c-k1b-mysql`**~~ K1c: çalışmıyor. — `apps/server/scripts/test-db.sh down` izin reddi aldı; elle kapatılmalı.
+4. ~~Eksik testler~~ — K1c'de yazıldı (yukarı).
+5. ~~Tam koşu~~ K1c'de koşuldu (yukarı). — yalnız birim + ilgili alt küme.
 6. `docs/implementation.md` "P28c K1" bölümü bu nottan yazılmalı.
 7. Go ajanı (apps/agent-win, flow/rtc): `IceRestart.From` artık gelebilir; çoklu PC'de ilgili teknisyen bağlantısını yeniden kurmalı.
 

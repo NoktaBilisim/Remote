@@ -460,6 +460,8 @@ export const serverOutboundSchema = z.discriminatedUnion("t", [
     guestFeatures: guestFeatures.optional(),
     /** P28b (§5.1): role=guest (teknisyene giden) mesajda oturumun dosya modu (yoksa P2P). */
     fileMode: z.enum(FILE_MODES).optional(),
+    /** P28c K1c (AC-372): role=guest (teknisyene giden) mesajda misafir `rs.cap.multi1` bildirdi mi (`hello.guestMulti` ile aynı). */
+    guestMulti: z.boolean().optional(),
   }),
   z.strictObject({ t: z.literal("peer.left"), role: z.enum(["tech", "guest"]), reason: z.enum(["disconnect", "ended"]).optional() }),
   /** P28c (§4.4): `from` yalnız multi1 misafire (sunucu damgalar; eski misafirde alan yok). */

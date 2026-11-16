@@ -117,3 +117,21 @@ Yeni bağımlılık yok.
 - **Not (değiştirilmedi):** `liveIndicator.SetNames` aynı ek zaten yazılıysa doğrulamadan true döner; önceki çizim
   doğrulaması zaman aşımına uğramışsa sonraki aynı roster'da tid'ler doğrulamasız kabul edilir (gösterge gerçekten
   çizemezse `fail()` oturumu bitirir; risk düşük). Güvenlik incelemesine bırakıldı.
+
+### K3c
+
+- **`ice.restart` `from` yönlendirmesi** (K1b sözleşme eki; sunucu multi1 misafire `from: tid` gönderiyor):
+  `internal/flow/peers.go` `iceRestartPeer` hedef eşi seçer — `from` boş: yalnız eski soketin tek eşi (`!multi.on`,
+  `peers[""]`), multi1'de yok sayılır; `from` dolu: yalnız multi kipinde, son roster'da adı çizilmiş (`drawn`) ve eşi kurulmuş
+  tid. Roster dışı / çizilmemiş / eşi olmayan tid → yok sayılır; `ice.restart` hiçbir zaman eş kurmaz ya da kapatmaz
+  (onOffer/onRemoteIce ile aynı kabul kuralı, Y-PC-4). `session_server.go` `onSignaling` bunu çağırır.
+- **Tel davranışı değişmedi:** istemci yanıtlayan taraf; hedef eşte ek iş yok (yeni `Peer`/`rtc` yöntemi eklenmedi).
+  Teknisyen ardından iceRestart'lı yeni offer gönderir, yeni ICE kimliği `onOffer → HandleOffer`'da aynı kabul listesiyle
+  uygulanır. Yeni olan yalnız hedef seçimi/kabul kapısıdır.
+- **Testler** (`internal/flow/peers_test.go`): `TestP28cIceRestartRoutedByFrom` (eski soket from'suz → tek eş; çizilmiş tid →
+  kendi eşi; çizilmemiş / roster dışı / eşsiz tid ve multi1'de from'suz → yok say; eş haritası değişmez),
+  `TestP28cIceRestartKeepsPeersAndSendsNothing` (uçtan uca: eş kurulmaz/kapanmaz, gönderim yok, ardından gelen offer aynı eşe).
+  Kabul kapısını kaldıran mutasyonda ilk test kırmızı oldu (doğrulandı).
+- **CI:** iki test `.github/workflows/agent-win.yml` P28c adımının zorunlu PASS listesine eklendi.
+- **Doğrulama:** `go test ./...` ok, `go test -race -count=3 -run 'P28c|AC366' ./internal/flow/` ok,
+  `GOOS=windows go vet/build` temiz, staticcheck v0.8.2 linux + windows temiz, `gofmt -l .` boş. Yeni bağımlılık yok.

@@ -63,6 +63,22 @@ export interface InviteCandidatesResponse {
   items: InviteCandidate[];
 }
 
+/**
+ * K1c: GET /sessions/:id/invites — oturum sahibinin bekleyen giden davetleri (bellekten; `Cache-Control: no-store`). Kapı
+ * `DELETE /sessions/:id/invites/:inviteId` ile aynı (başka tenant/yok 404, sahip değil 403). Koltuk sayısıyla sınırlı
+ * (`MAX_TECHS`), sayfalama yok. Devirde davetler yaşar → yeni sahip görür ve geri çekebilir. Bitişe göre artan sıra.
+ */
+export interface OutgoingInvite {
+  inviteId: string;
+  userId: string;
+  inviteeName: string;
+  /** ISO; oluşturma + `INVITE_TTL_MS`. */
+  expiresAt: string;
+}
+export interface OutgoingInvitesResponse {
+  items: OutgoingInvite[];
+}
+
 /** GET /sessions/invites (yalnız kendine gelen, bellekten; `Cache-Control: no-store`). */
 export interface IncomingInvite {
   inviteId: string;

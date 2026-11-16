@@ -247,3 +247,67 @@ func TestP28cControllerDisconnectAndReturnStatus(t *testing.T) {
 		t.Fatalf("dönen kontrol sahibi: %+v", v)
 	}
 }
+
+// K3c: ice.restart `from`'a göre ilgili eşe; roster dışı / çizilmemiş tid ve multi1'de from'suz istek yok sayılır.
+func TestP28cIceRestartRoutedByFrom(t *testing.T) {
+	pa, pb := &techPeer{}, &techPeer{}
+	s := &session{peers: map[string]*techPeer{"": pa}}
+	if got := s.iceRestartPeer(signal.IceRestart{T: "ice.restart"}); got != pa {
+		t.Fatal("eski soket: from'suz ice.restart tek eşe gitmeli")
+	}
+	if got := s.iceRestartPeer(signal.IceRestart{T: "ice.restart", From: tidA}); got != nil {
+		t.Fatal("eski soket: from'lu ice.restart yok sayılmalı")
+	}
+	s.peers = map[string]*techPeer{tidA: pa, tidB: pb}
+	s.multi.on = true
+	s.multi.roster = rosterOf(tidA, [2]string{tidA, "participant"}, [2]string{tidB, "participant"},
+		[2]string{tidC, "observer"}).Techs
+	s.multi.drawn = map[string]bool{tidA: true, tidC: true}
+	cases := []struct {
+		from string
+		want *techPeer
+		why  string
+	}{
+		{tidA, pa, "çizilmiş ve eşi olan tid kendi eşine"},
+		{tidB, nil, "roster'da ama adı çizilmemiş tid"},
+		{tidC, nil, "çizilmiş ama eşi kurulmamış tid (eş kurulmaz)"},
+		{"DDDDDDDDDDD", nil, "roster'da olmayan tid"},
+		{"", nil, "multi1'de from'suz istek"},
+	}
+	for _, c := range cases {
+		if got := s.iceRestartPeer(signal.IceRestart{T: "ice.restart", From: c.from}); got != c.want {
+			t.Fatalf("%s: from=%q yanlış hedef", c.why, c.from)
+		}
+	}
+	if len(s.peers) != 2 {
+		t.Fatalf("ice.restart eş haritasını değiştirdi: %d", len(s.peers))
+	}
+}
+
+// K3c uçtan uca: ice.restart hiçbir eşi kurmaz/kapatmaz, sunucuya bir şey göndermez; ardından gelen offer aynı eşe gider.
+func TestP28cIceRestartKeepsPeersAndSendsNothing(t *testing.T) {
+	m := startMulti(t, true)
+	m.c.toClient <- rosterOf(tidA, [2]string{tidA, "participant"}, [2]string{tidB, "participant"})
+	recv(t, m.roster.views)
+	pa := m.offer(t, tidA)
+	if pa == nil {
+		t.Fatal("eş kurulmadı")
+	}
+	for _, from := range []string{tidA, tidB, tidC, ""} {
+		m.c.toClient <- signal.IceRestart{T: "ice.restart", From: from}
+	}
+	select {
+	case p := <-m.h.peers:
+		t.Fatalf("ice.restart eş kurdu: %p", p)
+	case got := <-m.c.sent:
+		t.Fatalf("ice.restart sonrası beklenmeyen gönderim: %+v", got)
+	case <-time.After(300 * time.Millisecond):
+	}
+	if pa.isClosed() {
+		t.Fatal("ice.restart eşi kapattı")
+	}
+	m.c.toClient <- signal.SdpOffer{T: "sdp.offer", SDP: "restart-" + tidA, From: tidA}
+	if sdp := recv(t, pa.offers); sdp != "restart-"+tidA {
+		t.Fatalf("yeniden başlatma offer'ı yanlış eşe: %q", sdp)
+	}
+}
