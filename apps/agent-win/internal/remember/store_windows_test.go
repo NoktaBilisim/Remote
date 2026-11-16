@@ -11,6 +11,7 @@ import (
 	"strconv"
 	"syscall"
 	"testing"
+	"time"
 
 	"golang.org/x/sys/windows"
 )
@@ -27,6 +28,10 @@ func TestGP2016HelperWorker(t *testing.T) {
 	if dir == "" {
 		t.Skip("yalnız yardımcı süreç")
 	}
+	// Test kayıp güncellemeyi ölçer, 2 sn bekleme sınırını değil: paylaşılan CI koşucusunda iki süreç × 200 DPAPI'li
+	// kilitli işlemde adil olmayan yoklama 2 sn'yi aşabiliyordu (yük altı kararsızlık). Zaman aşımı ayrıca
+	// remember_test.go'da kısa sürelerle sınanır.
+	lockWait = 60 * time.Second
 	s := &Store{Dir: dir, Protect: Protect, Unprotect: Unprotect}
 	for i := 0; i < rounds; i++ {
 		if err := s.update(incr); err != nil {
