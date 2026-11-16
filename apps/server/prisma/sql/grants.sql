@@ -156,3 +156,7 @@ GRANT SELECT, INSERT, DELETE ON session_stored_files TO 'app'@'%';
 REVOKE IF EXISTS UPDATE, ALTER, DROP, INDEX, TRIGGER, REFERENCES ON session_stored_files FROM 'app'@'%';
 GRANT UPDATE (state, scan_reason, signature, storage_rel, delivered_at, expires_at, scanned_at, deleted_at, updated_at)
     ON session_stored_files TO 'app'@'%';
+
+-- P28u (mimari-p28u §3; AC-436, 445, 446): yeni tablo YOK, yeni GRANT YOK. tenant_settings.unattended_silent_* ve
+-- support_sessions.consent_mode/silent_reason mevcut tablo düzeyi SELECT/INSERT/UPDATE ile yazılır (P1/P2); kurallar CHECK'te
+-- (check-app-grants.sh "P28u").

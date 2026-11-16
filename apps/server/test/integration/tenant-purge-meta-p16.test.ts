@@ -110,6 +110,7 @@ describe("P16 G3 meta-testler (S16-11)", () => {
         "support_sessions.technician_id",
         "support_sessions.terminated_by",
         "system_settings.updated_by",
+        "tenant_settings.unattended_silent_ack_by", // P28u: SETTINGS adımında silinir (USERS'tan önce); kullanıcı silmede NULL
         "tenant_purge_jobs.cancelled_by",
         "tenant_purge_jobs.started_by",
         "trusted_devices.tenant_id", // P27a: bileşik FK (user_id, tenant_id) → users(id, tenant_id)

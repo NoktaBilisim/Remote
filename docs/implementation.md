@@ -11555,3 +11555,18 @@ Kaynak: `docs/test-raporu.md` (P28b K9) B2, B3.
   §7.3'e işlenmesi önerilir.
 - Doğrulama: server tüm testler 139 dosya / 1586 geçti (test DB `rs-mysql-dv28b`, sonra kapatıldı); eslint, tsc, prettier temiz;
   `docker compose config -q` temel + staging katmanı geçti.
+
+## P28u K1 (dba) — gözetimsiz kip/gerekçe/politika veri modeli (2026-11-16)
+
+- Migration `apps/server/prisma/migrations/20261124000000_p28u_unattended_consent/{migration,down,precheck}.sql`, `schema.prisma`
+  (`TenantSettings` +3 alan + `silentAcker` ilişkisi/IX, `User.silentPolicyAcks`, `SupportSession.consentMode/silentReason`).
+  Ayrıntı ve sapmalar: `docs/db-notlari.md` "P28u".
+- Kod: `jobs/retention-repo.ts` anonimleştirmede `silent_reason = NULL`; `users/repo.ts` `deleteUserChildren` → `ack_by = NULL`.
+- Testler: `tenant-purge-meta-p16` users FK listesi += `tenant_settings.unattended_silent_ack_by`; `session-history-p8` ikili enum
+  sayacı 67 → 68; `deploy/mysql/check-app-grants.sh` "P28u" bölümü (+21). `grants.sql` yalnız not (yeni GRANT yok).
+- Mimariden sapma: TTL CHECK'in anonim dalı 55..155 sn (aksi hâlde 150 sn'lik `ask` oturumu anonimleşemezdi);
+  `anonymized_chk += silent_reason IS NULL`; `silent_reason_chk` kırpılmış + karakter süzgeci.
+- K2'ye devir: (1) `unattended.silent` yalnız `permissions.ts`'e (DB işi yok). (2) `silentReasonSchema` `\r`'yi reddetmeli ya da
+  `\r\n`'yi `\n`'e çevirmeli (DB `\r`'yi 3819 ile reddeder). (3) `DEVICE_CONSENT_WINDOW_MS = 150_000` DB sınırı 155 sn.
+  (4) Politika açma UPDATE'inde `enabled=1` ile `ack_at`/`ack_by` aynı ifadede (CHECK). (5) O-P28u-2 toplu iptal UPDATE'ine
+  `tenant_id` koşulu.

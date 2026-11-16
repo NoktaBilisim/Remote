@@ -1544,3 +1544,74 @@ varsayılandan farklı saklama günü/kota.
 - down → HEAD şemasına diff 0, tables_priv/columns_priv 0, kayıt silindi, özet `f029d544…`; yeniden up → diff 0. Doluyken down → 3819.
 - `pnpm db:generate` + server typecheck temiz; seed OK. `test:int` 956/958 → meta sayaç (53→67) düzeltildi, tekrar geçti;
   `clip-print-ws` AC-344 tam koşuda aynı ms audit sırası kararsızlığı (tek başına 2/2 geçti; P28b'den bağımsız).
+
+## P28u — gözetimsiz izinli/izinsiz bağlantı: politika anahtarı, oturum kipi, gerekçe, cihaz TTL (K1, 2026-11-16)
+
+Migration `apps/server/prisma/migrations/20261124000000_p28u_unattended_consent/{migration,down,precheck}.sql` (mimari-p28u r2 §3.1–3.3,
+§16 K1, §r2; AC-436, 445, 446; K-P28u-4/15/20; R-P28u-6). Veri taşıma yok; yeni tablo/tetikleyici yok (23 kalır, audit-continuity özeti
+değişmez). Seed değişmedi (politika varsayılan kapalı; seed bu şemada geçti).
+
+### Şema
+
+| Değişiklik                     | Ayrıntı                                                                                                                                  |
+| ------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------- |
+| `tenant_settings`              | `unattended_silent_enabled` BOOLEAN DEFAULT FALSE, `unattended_silent_ack_at` DATETIME(3) NULL, `unattended_silent_ack_by` CHAR(26) NULL FK `users(id)` RESTRICT + IX; `tenant_settings_silent_ack_chk` (açık ⇒ ack_at dolu) |
+| `support_sessions.consent_mode` | VARCHAR(8) NULL; `consent_mode_chk` ikili asked/no_user/silent; `consent_mode_dev_chk` (yalnız cihaz oturumu ya da anonim satır)          |
+| `support_sessions.silent_reason` | VARCHAR(500) NULL; `silent_reason_chk`: yalnız `consent_mode='silent'`, 20..500 kod noktası, kırpılmış, kontrol/Cf/Zl/Zp yok (`\n` serbest, `\r` yasak) |
+| `support_sessions_ttl_chk`     | kod yolu 14..31 dk; talep 55..65 sn; **cihaz 55..155 sn** (ask 150, silent 60)                                                           |
+| `support_sessions_anonymized_chk` | += `silent_reason IS NULL`                                                                                                            |
+
+Sapmalar (mimari §3'e göre): (1) **TTL anonim dalı**: mimari "anonim satır kuralı aynen (55..65)" diyor, ama anonimleştirme
+`device_id`'yi NULL'lar ve `expires_at`'e dokunmaz → 150 sn'lik `ask` oturumu anonimleşirken 3819 alır, saklama işi durur. Anonim
+talepsiz satırın penceresi 55..155'e genişletildi (talep oturumu anonimde de 55..65). (2) `anonymized_chk += silent_reason IS NULL`
+(§3.3 DB'de zorunlu). (3) `silent_reason_chk`'ye kırpılmışlık + karakter süzgeci (§5.1 `silentReasonSchema` ile aynı sınır; **K2:
+zod şeması `\r`'yi reddetmeli ya da `\r\n` → `\n` normalize etmeli**, aksi hâlde 3819). Enum/lookup: `consent_mode` ikili CHECK
+(ADR-0014; 3 sabit değer, lookup gereksiz). İkili enum CHECK sayısı 67 → 68 (`session-history-p8` meta-testi).
+
+### Yetki ve yazım noktaları
+
+Yeni GRANT yok (tablo düzeyi SELECT/INSERT/UPDATE P1/P2'den; `grants.sql`'e not). `unattended.silent` yetki anahtarı DB değişikliği
+istemez (`user_permissions.perm_key` serbest VARCHAR(60)) → **K2** `packages/contracts/src/permissions.ts`'e ekler. Yazım: `silent`
+kip + gerekçe connect TX'inde PENDING INSERT ile; `asked`/`no_user` admit TX'inde `UPDATE … SET consent_mode=?`; politika
+`PUT /unattended/policy` açarken `enabled=1, ack_at=now, ack_by=actor` aynı UPDATE'te (CHECK). `ack_by` tekil FK (Super Admin
+tenant geçişiyle de açabilir; bileşik FK onu reddederdi).
+
+### Silme yolları (K1'de kodlandı)
+
+- **Anonimleştirme** (`jobs/retention-repo.ts` `anonymizeSessionBatch`): aynı UPDATE'te `silent_reason = NULL`; `consent_mode` kalır.
+- **Kullanıcı silme** (`users/repo.ts` `deleteUserChildren`, mezar taşı TX'i): `tenant_settings.unattended_silent_ack_by = NULL`
+  (`ack_at` ve politika kalır). Not: kullanıcı satırı mezar taşı olarak kaldığından FK zaten kırılmazdı; NULL mimari §3.1 gereği.
+- **Firma silme**: `tenant_settings` SETTINGS adımında, USERS'tan önce silinir → FK sorunu yok (P16 meta-testine eklendi).
+- Audit kopyası (`silentReason`) 730 gün; silinmez.
+
+### Sorgu desenleri
+
+Yeni indeks yok (mimari §3.2): geçmiş "Bağlantı kipi" filtresi mevcut `IX(tenant_id, created_at)` / `IX(tenant_id, status, created_at)`
++ satır süzgeci; zaman çizelgesi audit `IX(tenant_id, entity, entity_id, created_at)`. O-P28u-2 iptal UPDATE'i
+(`consent_mode='silent' AND status='PENDING'`) `IX(status, expires_at)` önekini kullanır — PENDING satır sayısı küçük, `tenant_id`
+koşulu eklenmeli. Audit "Bağlantı kipi" filtresi JSON alanında — yavaşlarsa üretilmiş sütun + indeks (ayrı migration, §7a).
+
+### Kilit ve bakım penceresi (R-P28u-6)
+
+`support_sessions`: 2 ADD COLUMN + 3 yeni CHECK + ttl/anonymized DROP/ADD → **tek COPY ALTER** (kısıtsız ara an yok); tablo yeniden
+yazılır, süresince oturum INSERT/UPDATE bekler. Süre tablo boyutuyla doğrusal: deploy öncesi `SELECT COUNT(*) FROM support_sessions`;
+boş test DB'sinde fark edilmeyecek kadar kısa; dolu tabloda süre **ölçülmedi**. Staging küçük → pencere gerekmez; prod öncesi bakım penceresi ve
+100k+ satırda süre ölçümü (staging kopyasında) yapılmalı. `tenant_settings` firma başına 1 satır (anlık). İleri ön kontrol gerekmez.
+
+### Geri alma
+
+Önce `precheck.sql` (migrator): KORUMA satırları 0 olmalı — 65 sn'den uzun pencereli talepsiz (cihaz/anonim) oturum ya da açık
+kipli oturum varsa `down.sql` `p28u_down_guard_chk` ile hiçbir şey değiştirmeden 3819 verir (test edildi). Bir `ask` oturumu açıldıktan
+sonra satır saklama + 30 g kalıcı silmeye kadar kalır → pratikte geri alma yerine ileri düzeltme. Kalıcı kayıp (bilinçli):
+`consent_mode`/`silent_reason`/politika izi (audit'te kopya). Sıra: UNATTENDED_MODE=off → açık oturumların bitmesi → P28u kodu geri → down.
+
+### Test (2026-11-16, geçici `rs-mysql-k1u`:33332, mysql 8.4.13, silindi)
+
+- Temiz up (28 migration) OK; `migrate diff --exit-code` "No difference". `check-app-grants.sh` **798/798 PASS** (+21 P28u: politika
+  CHECK/FK, ask 150 sn → admit → anonim, silent gerekçe yaşam döngüsü, TTL sınırları, kip/gerekçe CHECK'leri, ikili enum varyantları;
+  tetikleyici 23, audit-continuity `ok=true`).
+- down → P28b (HEAD) şemasına diff 0, migration kaydı silindi; yeniden up → diff 0. 150 sn PENDING cihaz oturumu varken precheck 1,
+  down → 3819, şema değişmedi.
+- `pnpm db:generate`, server typecheck temiz; seed OK. İlgili entegrasyon testleri 24 dosya / 218 test geçti (tenant-purge-meta/p16,
+  session-history-p8, retention-p13a-db/job, retention-p16-purge, users-delete-p16, db-grants, lg-schema, audit-immutability-p11,
+  fsrv-p28b-retention, unattended-*, p18/p19-schema, security-p14a/p15-db).

@@ -393,7 +393,8 @@ jobs:
       # geçmemeli. trace-check içerik taraması gerçek Windows'ta sınanır: işaretsiz log temiz, UTF-8 / UTF-16LE içerik, %TEMP%
       # dosya adı ve olay günlüğü metni iz (çıkış 1 + "[D-P28a-3]" satırı). Gerçek istemcinin bu yerlere yazmadığının kanıtı
       # Go sınır testleri (flow/clipprint, printing/boundary_test) + Windows VM elle turu (runbook §28a.4). Olay kaynağı
-      # eventcreate ile geçici açılır ve finally'de silinir; bu adım işin SON adımıdır (olay günlükte kalır).
+      # eventcreate ile geçici açılır ve finally'de silinir; olay günlükte kalır; ardından
+      # yalnız koşucuyu kilitleyen K6s spike adımı gelir.
       - name: trace-check içerik işareti öz testi (P28a, D-P28a-3)
         shell: pwsh
         run: |
@@ -440,6 +441,16 @@ jobs:
           if ($script:bad -gt 0) { exit 1 }
           Write-Output 'trace-check P28a içerik işareti öz testi: tüm beklenen sonuçlar tuttu'
           exit 0
+      # P28u K6s spike (mimari-p28u §7.5 soru 1, R-P28u-1; docs/spike-p28u-k6s.md): üretim yardımcısıyla aynı proclimit.Spec'le
+      # başlatılan kısıtlı jetonlu çocuk LockWorkStation çağırır. Koşucu oturumunu KİLİTLER (giriş masaüstü Winlogon olur;
+      # pano/WGC/yazdırma testleri bozulur), bu yüzden ayrı ve işin GERÇEK son adımıdır. Ölçümdür: sonuç step summary'de
+      # ("P28u K6s soru 1"), işletim sistemi davranışı adımı kırmızı yapmaz.
+      - name: P28u K6s spike — kısıtlı jetonla LockWorkStation (koşucuyu kilitler; SON adım)
+        shell: bash
+        run: |
+          # Kilitten önce (-v görünür; tablolar ana `go test` adımında step summary'ye yazıldı, burada çiftlenmez):
+          GITHUB_STEP_SUMMARY='' go test -count=1 -v -run 'TestK6sOverlay|TestK6sSessionIDs' ./internal/win/ ./internal/servis/
+          K6S_KILIT=1 go test -count=1 -v -run 'TestK6sLockRestrictedToken' ./internal/servis/
 
   build:
     name: build ${{ matrix.n }}/2

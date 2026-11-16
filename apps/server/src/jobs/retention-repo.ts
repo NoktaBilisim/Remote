@@ -22,6 +22,7 @@ interface SessionBatchResult {
  * Tek parti, tek TX: aday id'ler (IX tenant_id, anonymized_at, created_at) → dosya meta satırları silinir → onay
  * kayıtlarının ip/user_agent'ı NULL → oturumun kişisel alanları NULL + anonymized_at. Son UPDATE `anonymized_at IS NULL`
  * koşullu (eşzamanlı ikinci tur 0 satır sayar). Onay kararı, seviye, kaynak, metin sürümü/özeti kalır (KVKK kanıtı).
+ * P28u (§3.3, K-P28u-15): izinsiz bağlantı gerekçesi (`silent_reason`) NULL; `consent_mode` kalır (kişisel değil; CHECK zorlar).
  */
 export async function anonymizeSessionBatch(
   db: Db,
@@ -52,7 +53,7 @@ export async function anonymizeSessionBatch(
     // saatle (`now`/`cutoff`) aday seçer, ama damga S16-3 tetikleyicisinin `[−1 g, +1 dk]` aralığında kalır.
     const sessions = await tx.$executeRaw`UPDATE support_sessions
       SET customer_name = NULL, customer_email = NULL, note = NULL, guest_net_key = NULL, guest_ip_key = NULL, device_id = NULL,
-          anonymized_at = UTC_TIMESTAMP(3)
+          silent_reason = NULL, anonymized_at = UTC_TIMESTAMP(3)
       WHERE tenant_id = ${tenantId} AND id IN (${Prisma.join(ids)}) AND anonymized_at IS NULL
         AND status IN (${Prisma.join([...FINISHED_STATUSES])})`;
     return { selected: rows.length, sessions, consents: consents.count, files: files.count, storedFiles: stored.count };

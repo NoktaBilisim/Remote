@@ -926,6 +926,29 @@ run DENIED "$TX $CV JSON_OBJECT('host','clamav;rm','port',3310,'lastTest',NULL),
 run DENIED "$TX $CV JSON_OBJECT('host','clamav','port',3310,'lastTest',NULL,'x',1),NOW(3)); $R" system_settings_clamav_chk
 run DENIED "$TX INSERT INTO system_settings (\`key\`,value_json,secret_enc,updated_at) VALUES ('clamav',JSON_OBJECT('host','clamav','port',3310,'lastTest',NULL),RANDOM_BYTES(40),NOW(3)); $R" system_settings_clamav_chk
 run DENIED "$TX $CV JSON_OBJECT('host','clamav','port',3310,'lastTest',NULL),NOW(3)); UPDATE system_settings SET \`key\`='ClamAV' WHERE \`key\`='clamav'; $R" system_settings_key_chk
+# P28u (mimari-p28u §3; AC-436, 445, 446; K-P28u-4): tenant_settings izinsiz politika + aydınlatma izi, support_sessions
+# consent_mode / silent_reason, cihaz TTL 55..155 sn, anonimleştirmede gerekçe NULL. Yeni tablo/tetikleyici yok. Tümü geri alınan TX'te.
+PR28="'Arıza tespiti için kullanıcı yokken bağlanılıyor'"
+run_val "0" "SELECT unattended_silent_enabled FROM tenant_settings WHERE tenant_id='$GT'" "P28u politika varsayılanı kapalı"
+run OK     "$TX $US19 unattended_silent_enabled=1,unattended_silent_ack_at=NOW(3),unattended_silent_ack_by=$GU $WT19; $US19 unattended_silent_enabled=0 $WT19; $R"   # kapatınca iz kalır
+run DENIED "$TX $US19 unattended_silent_enabled=1 $WT19; $R" tenant_settings_silent_ack_chk
+run DENIED "$TX $US19 unattended_silent_ack_at=NOW(3),unattended_silent_ack_by='0000000000000000000NOUSER' $WT19; $R" tenant_settings_unattended_silent_ack_by_fkey
+# ask: 150 sn PENDING → admit asked → bitiş → anonim (device_id + gerekçe NULL, 150 sn pencere anonimde geçerli)
+run OK     "$TX $UD1; $(uss "INTERVAL 60 SECOND" "INTERVAL 150 SECOND"); $UADM; UPDATE support_sessions SET consent_mode='asked' WHERE id=$GSE; $UEND; $UANON; $R"
+run OK     "$TX $UD1; $(uss "INTERVAL 60 SECOND" "INTERVAL 150 SECOND"); UPDATE support_sessions SET status='CANCELLED',ended_at=NOW(3),ended_by='SYSTEM',end_reason='device_timeout' WHERE id=$GSE; $UANON; $R"
+# silent: 60 sn, gerekçe connect TX'inde; anonimde gerekçe NULL zorunlu
+run OK     "$TX $UD1; $USS; UPDATE support_sessions SET consent_mode='silent',silent_reason=$PR28 WHERE id=$GSE; $UADM; $UEND; UPDATE support_sessions SET customer_name=NULL,device_id=NULL,silent_reason=NULL,anonymized_at=NOW(3) WHERE id=$GSE; $R"
+run OK     "$TX $UD1; $USS; UPDATE support_sessions SET consent_mode='silent',silent_reason=CONCAT($PR28,CHAR(10),'ikinci satır') WHERE id=$GSE; $R"   # \n serbest
+run DENIED "$TX $UD1; $USS; UPDATE support_sessions SET consent_mode='silent',silent_reason=$PR28 WHERE id=$GSE; $UADM; $UEND; $UANON; $R" support_sessions_anonymized_chk
+run DENIED "$TX $UD1; $(uss "INTERVAL 60 SECOND" "INTERVAL 156 SECOND"); $R" support_sessions_ttl_chk
+run DENIED "$TX $RQ; $ACC; $RSR; UPDATE support_sessions SET expires_at=created_at+INTERVAL 150 SECOND WHERE id=$GSE; $R" support_sessions_ttl_chk   # talep oturumu 55..65 kalır
+run DENIED "$TX $ADM; UPDATE support_sessions SET consent_mode='asked' WHERE id=$GSE; $R" support_sessions_consent_mode_dev_chk   # cihazsız kip
+enum_case support_sessions_consent_mode_chk no_user NO_USER "CONCAT('no',$AA,'user')" "$TX $UD1; $USS; UPDATE support_sessions SET consent_mode=@V@ WHERE id=$GSE; $R"
+run DENIED "$TX $UD1; $USS; UPDATE support_sessions SET consent_mode='asked',silent_reason=$PR28 WHERE id=$GSE; $R" support_sessions_silent_reason_chk   # gerekçe yalnız silent
+run DENIED "$TX $UD1; $USS; UPDATE support_sessions SET consent_mode='silent',silent_reason='kısa gerekçe' WHERE id=$GSE; $R" support_sessions_silent_reason_chk   # < 20
+run DENIED "$TX $UD1; $USS; UPDATE support_sessions SET consent_mode='silent',silent_reason=CONCAT(' ',$PR28) WHERE id=$GSE; $R" support_sessions_silent_reason_chk   # kırpılmamış
+run DENIED "$TX $UD1; $USS; UPDATE support_sessions SET consent_mode='silent',silent_reason=CONCAT($PR28,CONVERT(X'E280AE' USING utf8mb4)) WHERE id=$GSE; $R" support_sessions_silent_reason_chk   # U+202E
+run DENIED "$TX $UD1; $USS; UPDATE support_sessions SET consent_mode='silent',silent_reason=CONCAT($PR28,CHAR(13),'x') WHERE id=$GSE; $R" support_sessions_silent_reason_chk   # \r
 # Temizlik (FK sırasıyla)
 run_mig OK "DELETE FROM tenant_purge_jobs WHERE tenant_id IN ('00000000000000000000GRANTT','00000000000000000000GRANTW'); DELETE FROM session_consents WHERE id IN ('00000000000000000000GRANT9','0000000000000000000GRANT10'); DELETE FROM support_sessions WHERE id IN ('00000000000000000000GRANT7','00000000000000000000GRANT8'); DELETE FROM customers WHERE id='00000000000000000000GRANTY'; DELETE FROM tenants WHERE id='00000000000000000000GRANTW'; DELETE FROM users WHERE id='00000000000000000000GRANTU'; DELETE FROM tenant_settings WHERE tenant_id='00000000000000000000GRANTT'; DELETE FROM tenants WHERE id='00000000000000000000GRANTT'"  # P16: app tenant/users silemez (tetikleyici) → migrator
 # P13a `backup` kullanıcısı (mimari-p13 §4): yalnız 'backup'@'localhost'; DB'de SELECT, SHOW VIEW, TRIGGER; global yetki yok.

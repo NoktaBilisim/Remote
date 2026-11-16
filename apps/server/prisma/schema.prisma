@@ -52,35 +52,42 @@ model Tenant {
 }
 
 model TenantSettings {
-  tenantId          String   @id @map("tenant_id") @db.Char(26)
-  sessionTtlMin     Int      @default(15) @map("session_ttl_min") // 15..30
-  maxOpenSessions   Int      @default(3) @map("max_open_sessions") // 1..10
-  maxActiveHours    Int      @default(4) @map("max_active_hours") // 1..8
-  maxFileMb         Int      @default(100) @map("max_file_mb") // 1..2048
-  requireTech2fa    Boolean  @default(true) @map("require_tech_2fa")
-  retentionDays     Int      @default(365) @map("retention_days") // 90..730
+  tenantId                String    @id @map("tenant_id") @db.Char(26)
+  sessionTtlMin           Int       @default(15) @map("session_ttl_min") // 15..30
+  maxOpenSessions         Int       @default(3) @map("max_open_sessions") // 1..10
+  maxActiveHours          Int       @default(4) @map("max_active_hours") // 1..8
+  maxFileMb               Int       @default(100) @map("max_file_mb") // 1..2048
+  requireTech2fa          Boolean   @default(true) @map("require_tech_2fa")
+  retentionDays           Int       @default(365) @map("retention_days") // 90..730
   // P27a (mimari-p27a §3.2, K-P27a-1/12; AC-331): 2FA cihaz hatırlama firma anahtarı; mevcut firmalar da TRUE (INSTANT ADD COLUMN)
-  mfaRememberDevice Boolean  @default(true) @map("mfa_remember_device")
+  mfaRememberDevice       Boolean   @default(true) @map("mfa_remember_device")
   // P28b (mimari-p28b §3.1; AC-354): dosyaları sunucu üzerinden aktar + tara; saklama 1..7 gün (CHECK elle). Admin (settings.edit)
-  fileServerMode    Boolean  @default(false) @map("file_server_mode")
-  fileRetentionDays Int      @default(1) @map("file_retention_days") @db.TinyInt
-  smtpHost          String?  @map("smtp_host") @db.VarChar(255)
-  smtpPort          Int?     @map("smtp_port")
-  smtpSecurity      String?  @map("smtp_security") @db.VarChar(20) // NONE | SSL | STARTTLS
-  smtpUser          String?  @map("smtp_user") @db.VarChar(190)
-  smtpPassEnc       Bytes?   @map("smtp_pass_enc") @db.VarBinary(512) // AES-256-GCM, §3.2
-  smtpFromName      String?  @map("smtp_from_name") @db.VarChar(100)
-  smtpFromEmail     String?  @map("smtp_from_email") @db.VarChar(190)
+  fileServerMode          Boolean   @default(false) @map("file_server_mode")
+  fileRetentionDays       Int       @default(1) @map("file_retention_days") @db.TinyInt
+  // P28u (mimari-p28u §3.1; AC-436): izinsiz (silent) bağlantı politikası — varsayılan kapalı; yalnız PUT /unattended/policy.
+  // Açıkken aydınlatma izi zorunlu (CHECK tenant_settings_silent_ack_chk, elle); kapatınca ack_at/ack_by korunur (iz).
+  unattendedSilentEnabled Boolean   @default(false) @map("unattended_silent_enabled")
+  unattendedSilentAckAt   DateTime? @map("unattended_silent_ack_at") @db.DateTime(3)
+  unattendedSilentAckBy   String?   @map("unattended_silent_ack_by") @db.Char(26) // kullanıcı silmede NULL (users/repo deleteUserChildren)
+  smtpHost                String?   @map("smtp_host") @db.VarChar(255)
+  smtpPort                Int?      @map("smtp_port")
+  smtpSecurity            String?   @map("smtp_security") @db.VarChar(20) // NONE | SSL | STARTTLS
+  smtpUser                String?   @map("smtp_user") @db.VarChar(190)
+  smtpPassEnc             Bytes?    @map("smtp_pass_enc") @db.VarBinary(512) // AES-256-GCM, §3.2
+  smtpFromName            String?   @map("smtp_from_name") @db.VarChar(100)
+  smtpFromEmail           String?   @map("smtp_from_email") @db.VarChar(190)
   // P19 (mimari-e11 §8c.1, §8c.4; AC-260; S-P19-T5): smsportal. CHECK'ler migration.sql'de (elle): sms_url yalnız köken + yol
   // (userinfo `@`, sorgu `?`, parça `#`, boşluk/kontrol karakteri yok); sms_header NetGSM başlığı biçimi.
-  smsUrl            String?  @map("sms_url") @db.VarChar(255) // NULL = sistem varsayılanı (env SMSPORTAL_URL)
-  smsApiKeyEnc      Bytes?   @map("sms_api_key_enc") @db.VarBinary(512) // AES-256-GCM, AAD `tenant_settings.sms_api_key:<tenantId>|<etkin URL kökeni>`
-  smsHeader         String?  @map("sms_header") @db.VarChar(11) // ^[A-Za-z0-9 .-]{1,11}$
-  createdAt         DateTime @default(now()) @map("created_at") @db.DateTime(3)
-  updatedAt         DateTime @updatedAt @map("updated_at") @db.DateTime(3)
+  smsUrl                  String?   @map("sms_url") @db.VarChar(255) // NULL = sistem varsayılanı (env SMSPORTAL_URL)
+  smsApiKeyEnc            Bytes?    @map("sms_api_key_enc") @db.VarBinary(512) // AES-256-GCM, AAD `tenant_settings.sms_api_key:<tenantId>|<etkin URL kökeni>`
+  smsHeader               String?   @map("sms_header") @db.VarChar(11) // ^[A-Za-z0-9 .-]{1,11}$
+  createdAt               DateTime  @default(now()) @map("created_at") @db.DateTime(3)
+  updatedAt               DateTime  @updatedAt @map("updated_at") @db.DateTime(3)
 
-  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  tenant      Tenant @relation(fields: [tenantId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  silentAcker User?  @relation("TenantSilentAckBy", fields: [unattendedSilentAckBy], references: [id], onDelete: Restrict, onUpdate: Restrict)
 
+  @@index([unattendedSilentAckBy]) // FK
   @@map("tenant_settings")
 }
 
@@ -130,6 +137,7 @@ model User {
   unattendedRevoked    UnattendedDevice[]           @relation("UnattendedRevokedBy")
   unattendedGrants     UnattendedDeviceGrant[]      @relation("UnattendedGrantUser")
   unattendedGrantsMade UnattendedDeviceGrant[]      @relation("UnattendedGrantCreator")
+  silentPolicyAcks     TenantSettings[]             @relation("TenantSilentAckBy")
   unattendedCodes      UnattendedRegistrationCode[]
 
   @@unique([id, tenantId]) // P18 (S-P18-T5): support_requests (assigned_to, tenant_id) bileşik FK hedefi — atanan aynı tenant'ta
@@ -307,6 +315,10 @@ model SupportSession {
   // P28b (mimari-p28b §3.1, K-P28b-3; AC-355): dosya modu P2P | SERVER — insertSession TX'inde tenant_settings'ten bir kez
   // yazılır, sonra DEĞİŞMEZ (support_sessions_update_guard; CHECK ikili elle)
   fileMode       String    @default("P2P") @map("file_mode") @db.VarChar(10)
+  // P28u (mimari-p28u §3.2; AC-445/446): gözetimsiz bağlantı kipi asked | no_user | silent (ikili CHECK elle; cihaz oturumu ya da
+  // anonim satır). silent connect TX'inde, diğerleri admit TX'inde yazılır. silent_reason yalnız silent, 20..500; anonimleştirmede NULL.
+  consentMode    String?   @map("consent_mode") @db.VarChar(8)
+  silentReason   String?   @map("silent_reason") @db.VarChar(500)
   createdAt      DateTime  @default(now()) @map("created_at") @db.DateTime(3)
   updatedAt      DateTime  @updatedAt @map("updated_at") @db.DateTime(3)
 
