@@ -83,11 +83,13 @@ export function InviteNotifier({ enabled }: { enabled: boolean }) {
     setBusyReject(i.inviteId);
     try {
       await api("POST", `/sessions/invites/${i.inviteId}/reject`);
+      drop(i.inviteId);
     } catch (e) {
-      if (!(e instanceof ApiError && e.status === 410)) toast(multiUiError(e).message, "danger");
+      // K5 D-1: kart yalnız başarıda veya 410'da (davet zaten yok) düşer; diğer hatada kalır, kullanıcı tekrar deneyebilir.
+      if (e instanceof ApiError && e.status === 410) drop(i.inviteId);
+      else toast(multiUiError(e).message, "danger");
     } finally {
       setBusyReject(null);
-      drop(i.inviteId);
     }
   };
   const dialog = join.reasonFor && <JoinReasonDialog flow={join} />;

@@ -1,3 +1,125 @@
+# Test Raporu — P28c K5 (çoklu teknisyen; web arayüzü)
+
+DURUM: GEÇTİ. ENGELLEYİCİ, YÜKSEK ve ORTA bulgu yok, hiçbir AC ❌ değil. Tarama boyunca 5xx yok (yalnız bilerek enjekte edilenler), JS hatası (pageerror) yok, axe ihlali yok, taşma yok. İki DÜŞÜK bulgu ve birkaç gözlem var.
+
+Ortam: yerel üretim derlemesi (standalone) `http://localhost:3217` + sahte API/WS `e2e/mock-api.mjs` (:4217), dal `p28c` @ `5675c1a`, 2026-11-17, Chromium.
+
+- **Geçmiş katılımcıları için vekil:** sahte API'de katılımcı verisi yok. Sunucu tarafı istekler için geçirgen bir vekil kullanıldı (`docs/test-raporu/e2e/p28c-k5/history-proxy.mjs`, :4219). Vekil yalnız `GET /sessions/<RICH>/history` yanıtına 4 katılımcı ekler; ürün kodu değişmedi.
+- **Betik:** `docs/test-raporu/e2e/p28c-k5/zz-k5-p28c.spec.ts` + `k5.config.ts`. Koşu için `apps/web/` altına geçici kopyalandı, sonra silindi.
+- **Ham sonuç:** `tarama.jsonl`. Seçilmiş ekran görüntüleri `docs/test-raporu/e2e/p28c-k5/img/` altında.
+- **Temizlik:** başlatılan süreçler kapatıldı (3217/4217/4219 boş).
+
+## Özet
+
+| Ölçüt                                                  | Sonuç                                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| ------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Tüm web e2e (`pnpm --filter @remote/web e2e`), bir kez | **556 geçti, 0 düştü, 235 atlandı** (2,2 dk). Atlananlar `desktopOnly` / proje ayrımı. Bilinen kararsız testlerin (S-P19-T12, p9-users, p13bl, AC-261, customers-csv-p19) hiçbiri düşmedi; tekrar koşu gerekmedi. TEST-P8-2 geçti. `p28c-multi.spec.ts` desktop + mobile yeşil.                                                                                                                                                              |
+| Sayfa taraması                                         | 14 görünüm × açık/koyu × 1280/375 = **56 görünüm, 56 geçti**.                                                                                                                                                                                                                                                                                                                                                                                |
+| Durum / klavye keşifleri                               | 5 senaryonun hepsi koştu. Bulgular aşağıda.                                                                                                                                                                                                                                                                                                                                                                                                  |
+| HTTP                                                   | 4xx/5xx yalnız enjekte edilenler: `/sessions/active` 500, `invite-candidates` 500/409, davet POST 500, reddet 500. Panel kabuğunda P28c dışı kullanıcı `/sessions/active` 403 → bölüm gizli (beklenen).                                                                                                                                                                                                                                      |
+| Konsol                                                 | Hata/uyarı yalnız enjekte edilen yanıtların "Failed to load resource" kaydı. pageerror 0.                                                                                                                                                                                                                                                                                                                                                    |
+| axe (WCAG 2.1 AA)                                      | 56 görünümde bölge + sayfa taraması **0 ihlal**. Kapsananlar: koyu temada sahip rozeti `text-primary`/`bg-primary-surface`, "İzinsiz" çipi, `text-warning` pasiflik nedenleri, davet kartı, misafir listesi. Aktif liste yükleniyor/boş ve aday hata/409 durumları da 0.                                                                                                                                                                     |
+| Taşma                                                  | Belge düzeyinde 0. Bölge içinde 0: uzun müşteri/teknisyen adı + `<script>` içeren satırlar `truncate` ile kırpılıyor, 375'te kartta sarılıyor.                                                                                                                                                                                                                                                                                               |
+| İkonlar (lucide)                                       | Anlamlı ve tutarlı: Teknisyenler `Users`, Davet et `UserPlus`, Kontrolü ver `MousePointer2`, Oturumu devret `ArrowRightLeft`, Geri al `Undo2`, Ayrıl `LogOut`, Geri çek `X`, bağlantı yok `WifiOff`. Davet kartında Katıl `LogIn`, Reddet `UserX`, gözetimsiz `MonitorCog`. Etkin oturumlarda başlık/İzle `Eye`, izinsiz `EyeOff`, boş `MonitorSmartphone`. Aday arama `Search`, misafir Çıkar `UserX`, geçmişte `Users` / `ArrowRightLeft`. |
+| XSS                                                    | `<script>alert(1)</script>` içeren müşteri adı, teknisyen adı ve katılımcı adı düz metin olarak çiziliyor; betik çalışmıyor (pageerror/dialog yok).                                                                                                                                                                                                                                                                                          |
+
+## Bulgular
+
+### [DÜŞÜK] D-1 "Reddet" 500 dönünce kart kayboluyor, sonraki yoklamada geri geliyor
+
+Sayfa/akış: panel → davet bildirimi (`p28cinv`).
+
+Adımlar:
+
+1. `POST /sessions/invites/:id/reject` isteğini 500'e zorla.
+2. "Reddet: SUNUCU-01" butonuna bas.
+3. 5 sn bekle.
+
+Beklenen: hata toast'ı çıkar, kart yerinde kalır (kullanıcı tekrar deneyebilir) ya da tutarlı biçimde düşer.
+
+Gerçekleşen: "Beklenmeyen bir hata oluştu." toast'ı çıkıyor. Kart hemen düşüyor (2 → 1), sonraki yoklamada (5 sn) geri geliyor (→ 2). Kullanıcı reddettiğini sanır, kart "kendiliğinden" geri döner.
+
+Kanıt: `tarama.jsonl` id `S-reddet-500` (`afterReject:1, afterPoll:2`); `img/durum-davet-reddet-500.png`.
+
+Dosya: `apps/web/components/invite-notifier.tsx:88-90`. `finally { …; drop(i.inviteId) }` ifadesi 410 dışındaki hatalarda da kartı düşürüyor. Öneri: `drop` yalnız başarıda veya 410'da çağrılsın.
+
+Atanan: frontend-dev
+
+### [DÜŞÜK] D-2 Aynı kişiden gelen iki davet aynı toast metnini üretiyor
+
+Sayfa/akış: panel, ilk yoklama. `p28cinv` hesabının Ayşe Sahip'ten iki daveti var.
+
+Adımlar: `/sessions` sayfasını aç.
+
+Beklenen: toast'lar ayırt edilebilir olsun (müşteri adı ya da "2 yeni davet").
+
+Gerçekleşen: iki ayrı toast, ikisi de "Ayşe Sahip sizi bir oturuma davet ediyor". Kart listesi doğru, yani bilgi kaybı yok; yalnız gürültü.
+
+Kanıt: `tarama.jsonl` `S-reddet-500.toastTxt`.
+
+Dosya: `apps/web/components/invite-notifier.tsx:43` (`mt.newInvite` yalnız `from` alıyor).
+
+Atanan: frontend-dev
+
+## Akış sonuçları
+
+| Akış                                                                                                                   | Sonuç        | Not                                                                                                                  |
+| ---------------------------------------------------------------------------------------------------------------------- | ------------ | -------------------------------------------------------------------------------------------------------------------- |
+| Davet kartı → Katıl → katılımcı konsolu → panel (2 satır, sahip rozeti, Ayrıl onayı)                                   | ✅           | e2e + tarama, iki tema × iki genişlik                                                                                |
+| Davet kartı → Reddet                                                                                                   | ✅           | 500'de D-1                                                                                                           |
+| Süresi dolan davet kartı istemcide düşer                                                                               | ✅           | 3 sn'lik davet 4,5 sn sonra yok; boş bildirim alanı çizilmiyor                                                       |
+| Etkin oturumlar → İzle (silent) → gerekçe (kısa → hata) → izleyici konsolu, sohbet salt okunur                         | ✅           |                                                                                                                      |
+| Etkin oturumlar pasif nedenler: desteklemiyor / izinli gözetimsiz / dolu                                               | ✅           | `aria-describedby` neden metnine bağlı                                                                               |
+| Etkin oturumlar yükleniyor → hata → Tekrar dene → liste; boş; yetkisiz (403) → bölüm gizli                             | ✅           | `img/durum-aktif-*.png`                                                                                              |
+| Sahip: Davet et → arama → davet → bekleyen satır → koltuk dolu pasif → Geri çek                                        | ✅           |                                                                                                                      |
+| Aday diyaloğu yükleniyor / hata + Tekrar dene / boş / 409 pasif uyarı / eşleşme yok                                    | ✅           | `img/durum-aday-*.png`                                                                                               |
+| Davet POST 500 → diyalog açık kalır, FormError "Beklenmeyen bir hata oluştu."                                          | ✅           | `img/durum-davet-post-500.png`                                                                                       |
+| Oturumu devret onayı (odak Vazgeç'te, Esc → odak tetikleyiciye döner)                                                  | ✅           |                                                                                                                      |
+| Misafir "Bağlı teknisyenler": sahipte Çıkar yok, Çıkar onayı → listeden düşer                                          | ✅           | e2e (masaüstü). Tarama: iki tema × 1280/375, axe 0                                                                   |
+| Geçmiş ayrıntısı Katılımcılar: rol, saat aralığı, "Müşteri çıkardı", "Ayrıldı", "Devir"                                | ✅           | Vekil fikstürüyle. Tek teknisyenli oturumda bölüm çizilmiyor ✅                                                      |
+| Klavye: panel aç/kapa (Enter/Space), Tab ile Davet et'e erişim, diyalog odak tuzağı (8 Tab içeride), Esc + odak dönüşü | ✅           | Davet kartında Tab sırası Reddet → Katıl (kart başına)                                                               |
+| Çevrimdışı teknisyen satırı (`WifiOff`)                                                                                | ⚠ kapsanmadı | Sahte WS'te `connected:false` roster fikstürü yok. Kod incelemesinde `text-danger` + ikon var, ekranda doğrulanmadı. |
+
+## Kabul kriterleri (uçtan uca, arayüz)
+
+| AC                                                  | Durum | Nasıl doğrulandı                                                                                     |
+| --------------------------------------------------- | ----- | ---------------------------------------------------------------------------------------------------- |
+| AC-364 davet / bildirim / bekleyen davet / geri çek | ✅    | p28c-multi e2e + tarama + durum keşfi                                                                |
+| AC-365 koltuk sınırı (Davet et pasif + neden)       | ✅    | e2e + `konsol-sahip` taraması                                                                        |
+| AC-366 müşteri teknisyen listesi + Çıkar            | ✅    | e2e + `misafir-*` taraması                                                                           |
+| AC-367 kontrol ver / geri al / devret onayı         | ✅    | e2e + `devret-onay` taraması (Kontrolü geri al butonu tetiklenmedi)                                  |
+| AC-368 etkin oturumlar + İzle                       | ✅    | e2e + `aktif-*` + durumlar                                                                           |
+| AC-369 geçmiş katılımcıları                         | ✅    | Vekil fikstürüyle `gecmis-katilimcilar` (4 görünüm). Not: mevcut e2e takımında bu bölümün testi yok. |
+| AC-370 audit seçenek grubu                          | ✅    | e2e (tam takımda yeşil)                                                                              |
+| AC-372 desteklemeyen istemci / izinli oda pasifliği | ✅    | e2e + `konsol-desteksiz` taraması + aday 409 uyarısı                                                 |
+| AC-287 375 px taşma / axe                           | ✅    | 56 görünüm                                                                                           |
+
+## Görsel gözlemler (ekran görüntülerinden)
+
+- `aktif-uzun-ad-1280-dark.png`:
+  - Uzun müşteri adı tek satırda "…" ile kırpılıyor.
+  - "İzinsiz" çipi, teknisyen/başlangıç/"Teknisyen: 3/3" meta satırı ve sarı "Oturum dolu" nedeni okunaklı.
+  - İzle butonu pasif görünümde.
+  - Tablo yok (liste/kart), 1280'de taşma yok.
+- `davet-uzun-ad-375-dark.png`: uzun ad ve `<script>` metni kart içinde sarılıyor; Reddet/Katıl butonları hedef boyutunda.
+  - Gözlem: davet bildirimi breadcrumb ve h1'in **üstünde** çiziliyor (panel kabuğunda). Kasıtlı olabilir ama sayfa başlığını aşağı itiyor; mobilde ilk ekranı büyük ölçüde kaplıyor.
+- `konsol-sahip-375-dark.png`:
+  - Panel 2/3. Sahip rozeti mavi çip.
+  - Kontrolü ver / Oturumu devret 375'te alt alta.
+  - Bekleyen davet kesik çizgili satırda; geri çekme ikon butonu (`X`).
+  - Pasif Davet et altında sarı neden metni.
+  - "Kerem Yardımcı davet edildi" toast'ı panelin hemen altında; hiçbir kontrolü örtmüyor.
+- `gecmis-katilimcilar-375-light.png`:
+  - Katılımcılar bölümü düzgün sarılıyor.
+  - "Müşteri çıkardı", "Ayrıldı", "Devir: 12:25:00" etiketleri ve "Oturum sonuna kadar" metni okunuyor.
+  - Ekran görüntüsündeki ortadaki üst menü şeridi fullPage yapıştırma artefaktıdır (yapışkan başlık), ürün hatası değil.
+- Diyaloglarda ilk odak:
+  - Davet diyaloğunda kapat (X) butonunda; arama kutusunda olsa daha hızlı olurdu.
+  - Gerekçe diyaloğunda bir butonda; gerekçe alanında olsa daha hızlı olurdu.
+  - Bulgu değil, öneri.
+
+---
+
 # Test Raporu — P28e K10 (oturum kaydı; web arayüzü)
 
 DURUM: DÜZELTİLMELİ. İki YÜKSEK bulgu var: "Kayıt yapılıyor" göstergesinde WCAG AA kontrast hatası (müşteri şeridi ve konsol rozeti). Ayrıca bir ORTA ve üç DÜŞÜK bulgu açık. 5xx yok (enjekte edilenler hariç), JS hatası (pageerror) yok, kırık iç link yok, 375 px'te yatay taşma yok. Staging'e dokunulmadı.
