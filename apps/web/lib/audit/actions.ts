@@ -22,6 +22,7 @@ import {
   USER_AUDIT,
   deletedUserLabel,
 } from "@remote/contracts/audit";
+import { UNATTENDED_AUDIT_LABELS } from "@remote/contracts/api/unattended";
 import { AUDIT_ACTION_GROUPS } from "./contract";
 import { labelOf, OUTBOUND_REASON_LABELS, TIMELINE_ACTION_LABELS } from "@remote/contracts/labels";
 
@@ -108,6 +109,9 @@ const AUDIT_ACTION_LABELS: Readonly<Record<string, string>> = {
   ...LG_AUDIT_LABELS,
   // P28a (AC-347, 351): pano izni/aktarımı ve uzaktan yazdırma
   ...CLIP_PRINT_AUDIT_LABELS,
+  // P27/P28u (AC-273…, 431, 436, 439, 441, 443–445): gözetimsiz kayıt/cihaz/bağlantı/onay/müdahale + politika
+  // (`settings.unattended_silent`). `unattended.session.*` TIMELINE etiketiyle aynı metin.
+  ...UNATTENDED_AUDIT_LABELS,
 };
 
 /**

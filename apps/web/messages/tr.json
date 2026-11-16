@@ -1289,7 +1289,7 @@
   "mfa.v.remember": "Bu cihazı 30 gün hatırla",
   "mfa.v.rememberHint": "Yalnız kişisel cihazınızda işaretleyin. Hassas işlemlerde kod yine sorulur.",
   "su.title": "Kimliğinizi doğrulayın",
-  "su.body": "Bu işlem hassas bir ayarı değiştirir. Devam etmek için doğrulama uygulamanızdaki 6 haneli kodu girin. Doğrulama 5 dakika geçerlidir.",
+  "su.body": "Bu işlem ek doğrulama gerektirir. Devam etmek için doğrulama uygulamanızdaki 6 haneli kodu girin. Doğrulama 5 dakika geçerlidir.",
   "su.bodyRecovery": "Uygulamanıza erişemiyorsanız kurtarma kodlarınızdan birini girin. Kullanılan kod bir daha kullanılamaz ve hesabınıza bildirim e-postası gider.",
   "su.cancel": "Vazgeç",
   "su.locked": "Çok fazla hatalı deneme. {minutes} dakika sonra tekrar deneyin.",

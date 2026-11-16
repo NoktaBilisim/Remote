@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { UNATTENDED_AUDIT, UNATTENDED_POLICY_AUDIT } from "@remote/contracts/audit";
 import { actionLabel, actionOptionGroups, auditPayload, groupLabel, isMailAction, OUTBOUND_REASON_LABELS, reasonLabel } from "./actions";
 import { addDays, auditApiPath, auditExportPath, auditHref, parseAuditParams, rangeError } from "./query";
 
@@ -79,5 +80,24 @@ describe("P13a audit etiketleri (AC-199, T-P12b)", () => {
       expect(OUTBOUND_REASON_LABELS[k]).toBeTruthy();
     expect(reasonLabel("unreachable")).toBe("Servise ulaşılamadı");
     expect(reasonLabel("yeni_kod")).toBe("yeni_kod");
+  });
+});
+
+describe("P27/P28u gözetimsiz audit etiketleri (K10 bulgusu)", () => {
+  const all = [...Object.values(UNATTENDED_AUDIT), UNATTENDED_POLICY_AUDIT];
+  it("sözleşmedeki tüm gözetimsiz eylemler Türkçe etiketli (ham anahtar yok)", () => {
+    for (const a of all) expect(actionLabel(a), a).not.toBe(a);
+    expect(actionLabel("unattended.consent")).toBe("Gözetimsiz bağlantı onayı (cihaz kullanıcısı)");
+    expect(actionLabel("unattended.connect")).toBe("Gözetimsiz bağlantı isteği");
+    expect(actionLabel("unattended.session.started")).toBe("Gözetimsiz bağlantı başladı");
+    expect(actionLabel("settings.unattended_silent")).toBe("Gözetimsiz erişim politikası değişti");
+  });
+  it("İşlem süzgeci: 'Gözetimsiz erişim' grubu, tüm eylemler etiketiyle", () => {
+    expect(groupLabel("unattended")).toBe("Gözetimsiz erişim");
+    const groups = actionOptionGroups();
+    const g = groups.find((x) => x.label === "Gözetimsiz erişim");
+    expect(g?.options[0]).toEqual({ value: "unattended.*", label: "Gözetimsiz erişim — tümü" });
+    for (const a of Object.values(UNATTENDED_AUDIT)) expect(g?.options.find((o) => o.value === a)?.label, a).toBe(actionLabel(a));
+    expect(groups.every((x) => x.options.every((o) => o.label !== o.value))).toBe(true);
   });
 });

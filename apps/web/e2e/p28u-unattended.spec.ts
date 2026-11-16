@@ -92,6 +92,8 @@ test("AC-437 izinsiz bağlan: gerekçe 20–500 alan hatası, sonra step-up → 
   const sent = page.waitForRequest((r) => r.url().endsWith(`/unattended/devices/${D1}/connect`) && r.method() === "POST");
   await page.getByTestId("un-connect-submit").click();
   expect((await sent).postDataJSON()).toEqual({ silent: true, reason: REASON });
+  // K10 (DÜŞÜK): step-up metni işleme göre nötr ("ayarı değiştirir" değil)
+  await expect(page.getByTestId("step-up-dialog")).toContainText("Bu işlem ek doğrulama gerektirir.");
   await stepUp(page);
   await expect(page).toHaveURL(/\/sessions\/01JSSP28V0000000000000000A\/console$/);
 });
@@ -209,6 +211,14 @@ test("AC-445 audit: 'Bağlantı kipi' filtresi üç kipte yalnız o kipin kayıt
   await page.getByTestId("audit-consent-mode").selectOption("silent");
   await page.getByTestId("filter-apply").click();
   await expect(rows.filter({ hasText: "Gözetimsiz bağlantı başladı" })).toHaveCount(1);
+  // K10 (ORTA): P27/P28u eylemleri Türkçe etiketli (ham anahtar yalnız ikincil satırda, tasarım gereği)
+  await expect(rows.filter({ hasText: "Gözetimsiz bağlantı isteği" })).toHaveCount(1);
+  await page.getByTestId("audit-consent-mode").selectOption("asked");
+  await page.getByTestId("filter-apply").click();
+  await expect(rows.filter({ hasText: "Gözetimsiz bağlantı onayı (cihaz kullanıcısı)" })).toHaveCount(1);
+  const action = page.getByTestId("audit-action");
+  await expect(action.locator('option[value="unattended.*"]')).toHaveText("Gözetimsiz erişim — tümü");
+  await expect(action.locator('option[value="unattended.consent"]')).toHaveText("Gözetimsiz bağlantı onayı (cihaz kullanıcısı)");
 });
 
 test("AC-446 yetki matrisi: unattended.silent 'Hassas' rozeti", async ({ page, context }, info) => {
@@ -279,6 +289,96 @@ test("AC-439/442/443 konsol izinsiz: İzleniyor → Müdahale et (onay) → kont
   await expect(page.getByTestId("un-monitoring")).toBeVisible();
   await a.close();
 });
+
+test("K10 konsol: 'Kullanıcı oturumu kapatılsın mı?' onayı Esc ile kapanır (vazgeç), istek ve uzak tuş gitmez", async ({
+  page,
+  context,
+  browser,
+}, info) => {
+  desktopOnly(info.project.name);
+  await signIn(context, "p7");
+  await page.routeWebSocket(/\/ws\/tech/, (ws) => {
+    const server = ws.connectToServer();
+    server.onMessage((m) => {
+      const o = JSON.parse(String(m)) as { t: string; unattended?: unknown };
+      if (o.t === "hello") o.unattended = { deviceId: D1, deviceName: "AKTIF-PC", consentMode: "silent", intervene: true };
+      ws.send(JSON.stringify(o));
+    });
+    ws.onMessage((m) => server.send(m));
+  });
+  let calls = 0;
+  await page.route(/\/api\/v1\/sessions\/[0-9A-Z]{26}\/unattended\/(lock|logoff)$/, async (r) => {
+    calls++;
+    await r.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ ok: true, rejoin: true }) });
+  });
+  const { id } = await newSession(page);
+  await page.goto(`/sessions/${id}/console`);
+  await expect(page.getByTestId("un-mode-badge")).toHaveText("Bağlantı kipi: İzinsiz");
+  const a = await startFakeAgent(browser, id);
+  await expect(page.getByTestId("console-status")).toHaveText("Aktif");
+  await page.getByTestId("un-intervene").click();
+  await page.getByTestId("un-intervene-dialog-confirm").click();
+  await expect.poll(async () => (await agentLog(a)).asked).toBe(true);
+  await agentSend(a, { t: "control.state", state: "GRANTED", source: "UI" });
+  await expect(page.getByTestId("un-return")).toBeVisible();
+  const inputsBefore = (await agentLog(a)).inputs.length;
+
+  const lo = page.getByTestId("un-logoff-dialog");
+  // 1) Vazgeç odaklıyken Esc
+  await page.getByTestId("un-logoff").click();
+  await expect(lo.getByTestId("un-logoff-dialog-cancel")).toBeFocused();
+  await page.keyboard.press("Escape");
+  await expect(lo).toBeHidden();
+  await expect(page.getByTestId("un-logoff")).toBeFocused(); // odak tetikleyiciye döner
+  // 2) Test raporundaki sıra: tıklar tıklamaz (bekleme yok) Esc
+  await page.getByTestId("un-logoff").click();
+  await page.keyboard.press("Escape");
+  await expect(lo).toBeHidden();
+  // Esc ile kapandıktan sonra yeniden açılabiliyor (durum takılmadı)
+  await page.getByTestId("un-logoff").click();
+  await expect(lo).toBeVisible();
+  await lo.getByTestId("un-logoff-dialog-cancel").click();
+  await expect(lo).toBeHidden();
+  expect(calls).toBe(0);
+  expect((await agentLog(a)).inputs.length).toBe(inputsBefore); // Esc uzak ekrana tuş olarak gitmedi
+  await a.close();
+});
+
+for (const height of [812, 667]) {
+  test(`K10 Bağlan diyaloğu 375×${height} izinsiz + gerekçe hatası: 'Vazgeç' kaydırılarak görünür ve çalışır, istek yok`, async ({
+    browser,
+  }, info) => {
+    desktopOnly(info.project.name);
+    for (const scheme of ["light", "dark"] as const) {
+      const ctx = await browser.newContext({ viewport: { width: 375, height }, colorScheme: scheme, reducedMotion: "reduce" });
+      await signIn(ctx, "p28ufull");
+      const page = await ctx.newPage();
+      let posts = 0;
+      page.on("request", (r) => {
+        if (r.method() === "POST" && /\/unattended\/devices\/[0-9A-Z]{26}\/connect$/.test(r.url())) posts++;
+      });
+      await page.goto("/unattended");
+      await openConnect(page, "AKTIF-PC");
+      await page.getByTestId("un-silent").check();
+      await page.getByTestId("un-silent-reason").fill("kısa");
+      await page.getByTestId("un-connect-submit").click(); // en uzun hâl: uyarı + gerekçe + alan hatası
+      await expect(page.getByTestId("un-silent-reason-error")).toBeVisible();
+      expect(posts).toBe(0);
+      const dlg = page.getByTestId("un-connect-dialog");
+      const box = await dlg.boundingBox();
+      expect(box && box.y >= 0 && box.y + box.height <= height, `diyalog ekran içinde (${scheme})`).toBe(true);
+      const cancel = page.getByTestId("un-connect-cancel");
+      await cancel.scrollIntoViewIfNeeded();
+      await expect(cancel).toBeInViewport({ ratio: 1 });
+      const cb = await cancel.boundingBox();
+      expect(cb && cb.height >= 44, "dokunma hedefi ≥ 44 px").toBe(true);
+      await cancel.click();
+      await expect(dlg).toBeHidden();
+      expect(posts).toBe(0);
+      await ctx.close();
+    }
+  });
+}
 
 /** Teknisyen WS'sinde `hello`'ya `unattended` ekler; ilk `hello` (sunucunun gönderdiği) saklanır — testler güncel `hello`'yu yeniden gönderir. */
 async function unattendedWs(page: Page, unattended: Record<string, unknown>) {

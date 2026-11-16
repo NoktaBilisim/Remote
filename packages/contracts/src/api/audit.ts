@@ -150,6 +150,8 @@ export const AUDIT_ACTION_GROUPS: readonly { prefix: string; label: string }[] =
   { prefix: "request.*", label: "Destek talebi" },
   { prefix: "customer.*", label: "Müşteri" },
   { prefix: "binding.*", label: "Kayıtlı bilgisayar" },
+  // P27/P28u (mimari-p28u §9.1): `unattended.*` (kayıt kodu, cihaz, bağlantı, onay, müdahale)
+  { prefix: "unattended.*", label: "Gözetimsiz erişim" },
   { prefix: "mail.*", label: "E-posta" },
   { prefix: "consent_text.*", label: "Aydınlatma metni (sistem)" },
   { prefix: "audit.*", label: "Audit dışa aktarma" },
