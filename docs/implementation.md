@@ -11885,9 +11885,7 @@ Sapma (gerekçeli):
 - Audit Log listesi/CSV'de `unattended.connect.newValue.silentReason` artık `"***"` gelebilir. Bu, çağıranda
   `session_history.view` yoksa ya da oturum anonimleştirilmiş/silinmişse olur. Ekran değeri olduğu gibi göstermeli.
 
-> Geçici not dosyası; `docs/implementation.md`'ye ana ajan taşır.
-
-## QA tur 1 madde 1: staticcheck düzeltmesi
+## P28u düzeltme turu 1 (Go) — staticcheck (QA tur 1 madde 1)
 
 | Dosya                                                                     | Değişiklik                                                                                                                                                                                                              |
 | ------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -11916,8 +11914,6 @@ Doğrulama (docker `golang:1.26`, CI ile aynı staticcheck `v0.8.2`):
 2. **Logoff onayı olayla değil yoklamayla alınıyor** (`intervene.go:111` `pollLogoff`/`logoffStep`; mimari §7.5 `WTS_SESSION_LOGOFF` olayını öngörüyordu). Hedef oturum `sessPoll` (500 ms) aralıkla `Sessions.Info` ile sorgulanır. Kullanıcı kalmadığında ok döner, 10 sn sonunda hâlâ kullanıcı varsa `timeout` olur. Gerekçe: olay yalnız tetikleyici olduğundan (madde 1) hangi oturumun kapandığı bilinemezdi. Ayrıca zorla kapatmada olay gecikebilir veya gelmeyebilir. Yoklama hedef oturuma bağlı ve süre sınırlı bir sonuç verir ve testte saatle sürülebilir.
 3. **Features gelmemiş sokette onay alanı taşıyan connect → `helper_failed`** (`core.go:123-125`). P27 (features'sız) sokette `consent`/`indicatorControl` taşıyan connect sözleşme dışıdır ve fail-closed reddedilir. `RejectProtocol` yalnız consent1 sokete ait bir neden olduğu için, eski sunucunun tanıdığı mevcut `helper_failed` nedeni kullanıldı. Yeni ret nedeni eski sunucuya gitmez (K-P28u-8).
 4. **WTS tanımları üretim koduna taşındı** (`userstate_windows.go`). K6s spike testindeki (`k6s_windows_test.go`) `wtsInfoEx`, `procWTSQuerySessionInfo`, `procWTSLogoffSession` ve `wtsState*` tanımları, üretimde kullanıcı durumu ve logoff için gerektiğinden `userstate_windows.go`'ya taşındı. Spike testi artık bunları oradan kullanıyor, tek tanım korunuyor. `WTSLogoffSession` x/sys'te olmadığından `wtsapi32.dll`'den yükleniyor. Yeni bağımlılık eklenmedi.
-
-Geçici dosya: koordinatör `docs/implementation.md`'ye taşır.
 
 ## P28u K7 — web ekranları (mimari-p28u §10)
 

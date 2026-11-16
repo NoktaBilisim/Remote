@@ -1,3 +1,91 @@
+# QA Raporu — P28u Tur 2
+
+DURUM: DÜZELTİLMELİ
+
+Tarih: 2026-11-16 · Dal `p28u`, HEAD `8d17657` (push'lu). Kapsam: yalnız tur 1 madde 1–9 ve `git diff 0d9562d..8d17657`. Kod
+değiştirilmedi. Tur 1 bölümü aşağıda olduğu gibi duruyor.
+
+**Özet:** Tur 1'in 1–9. maddelerinin hepsi kapandı. DURUM yalnız şu iki nedenle DÜZELTİLMELİ: tur 1 madde 10 (Windows elle
+test) hâlâ açık ve CI henüz yeşil değil (pending).
+
+## Test sonucu
+
+| Komut                                                                                                                                     | Sonuç                                                                                                                         |
+| ----------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
+| Go `go test ./... && GOOS=windows go vet ./...` (docker golang:1.26)                                                                      | Yeşil. 30 paket `ok`, vet temiz                                                                                               |
+| Go `staticcheck` (CI v0.8.2)                                                                                                              | Yerelde koşulamadı (araç indirme izni yok). Kanıt: kod incelemesi (aşağıda) + implementation.md çıktısı. CI sonucu bekleniyor |
+| Sunucu entegrasyon + birim, izole `rs-mysql-qa28u2:33337` (`test/integration/unattended*`, `test/integration/audit*`, `test/unit/audit*`) | 20 dosya, 143/143 yeşil (3 yeni dosya dahil). Konteyner `down` ile silindi; `rs-mysql-test`'e dokunulmadı                     |
+| Sunucu birim `vitest run test/unit`                                                                                                       | 585 geçti, 1 skip (tur 1'deki gerekçeli `CLAMD_TEST_HOST`)                                                                    |
+| `typecheck` + `lint` (server, web)                                                                                                        | Temiz                                                                                                                         |
+| `prettier --check docs/ CHANGELOG.md README.md`                                                                                           | Temiz                                                                                                                         |
+| Playwright `p28u`                                                                                                                         | 20 geçti, 6 atlandı (`[mobile]`, `desktopOnly`), 0 kırmızı                                                                    |
+| Web birim `lib/webrtc/machines.test.ts`                                                                                                   | 20/20                                                                                                                         |
+| PR #16 CI (`gh pr checks 16`)                                                                                                             | `8d17657` için 11 iş **pending**, 1 geçti (shellcheck). Kırmızı yok                                                           |
+
+## Tur 1 maddelerinin durumu
+
+| #   | Durum   | Kanıt                                                                                                                                                                                                                                                                                                                                    |
+| --- | ------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1   | ✅      | İki test dosyasında ham U+202E kalmadı (grep 0), `‮` kaçışı kullanılıyor. `lockWait` `//go:build windows` dosyası `lock_windows.go`'ya taşındı, `status.go`'da yok. Windows vet temiz. staticcheck'in son kanıtı CI'dan gelecek                                                                                                          |
+| 2   | ✅      | `prettier --check docs/` temiz (`0d9562d` ile düzeltildi)                                                                                                                                                                                                                                                                                |
+| 3   | ✅      | `implementation.md`'de K3, K4, K5, K6 ve K7 bölümleri commitli. Tur 1'de istenen sapmaların hepsi gerekçeli: K5 EventData ve logoff yoklaması; K7 "Yeniden dene", e2e dosya adı, `connect-button.tsx` ve `lib/errors.ts`; K3 `ask` zaman aşımı oranı                                                                                     |
+| 4   | ✅      | `unattended-rejoin-k4.test.ts` "AC-440 T15" iki test: politika kapatma ve `unattended.silent` geri alma. Her ikisinde rejoin bileti → `permission` (konsol ve DB) + audit `unattended.rejoin{fail, failReason:permission}`                                                                                                               |
+| 5   | ✅      | Aynı dosyada "AC-433 T13" üç test: gerçek ask zinciri; pencere içinde ve rejoin sonrası `session_changed` bitişi; `rejoin.mode` asked/no_user; DB `consent_mode` korunuyor; yeni `unattended.consent` satırı yazılmıyor                                                                                                                  |
+| 6   | ✅      | `unattended-limits-k4.test.ts` (sahte saat): 7. kilit → 429 `RATE_LIMITED`, cihaza gitmiyor, 60 sn sonra kabul. 31. kontrol isteği → `RATE_LIMITED`, `rs_control_total{event="unattended_rate"}` +1, yardımcıya gitmiyor                                                                                                                 |
+| 7   | ✅      | Sunucu: `unattended-audit-modes-k4.test.ts` üç kipi gerçek REST connect zinciriyle açıyor; her kip ayrı süzülüyor, diğer iki kipte satır 0; `no_user` dahil. e2e: geçmiş ve audit testleri her kipi seçip yalnız o kipin satırlarını doğruluyor                                                                                          |
+| 8   | ✅      | e2e "AC-444/352 eski servis": iki düğme `toBeDisabled`, neden metni ve erişilebilir açıklama var, zorla tıklamada REST isteği 0, axe 0. Metin "Cihazdaki servis bu özelliği desteklemiyor — güncelleyin". Bu, AC-352 kalıbının servise uyarlanmış hâli (AC-435 / mimari §DEVICE_OUTDATED diliyle tutarlı)                                |
+| 9   | ✅      | Kılavuzda üç kip, KVKK, "Gizli izleme yoktur", Kullanıcı sütunu için kişisel veri/aydınlatma notu (D-P28u-6), tek yöneticili firma uyarısı ve "Önce kilitlemeyi deneyin" var. DATASHEET'te üç kip, KVKK, dört göz ve gizli izleme beyanı var. PDF'ler 13:58'de üretildi; metin çıkarımıyla doğrulandı (kılavuz PDF'inde üç ifade de var) |
+| 10  | ❌ açık | Windows elle test (AC-429, 431, 433, 443; `LockWorkStation` kısıtlı jeton) bu turda ele alınmadı                                                                                                                                                                                                                                         |
+
+Ek değişiklikler (güvenlik D-P28u-K1-1/K1-2) incelendi:
+
+- `device-msg.ts`: pencere süzgeci kaldırıldı. Gerekçe yazılı. `helper_failed` için ≤ 5 sn bitiş testli. P27 rejoin testleri yeşil.
+- Audit `silentReason` maskesi varsayılan maskeli (fail-closed). Liste ve CSV'de aynı. Anonimleştirme sonrası maskeli. DB satırına dokunulmuyor. Birim ve entegrasyon testi var. Sorgu sayfa başına tek `IN`.
+
+## Kabul kriterleri (tur 1'e göre değişenler)
+
+| AC                     | Durum | Kanıt / eksik                                                                       |
+| ---------------------- | ----- | ----------------------------------------------------------------------------------- |
+| AC-433                 | ⚠️    | Sunucu entegrasyonu artık tam (madde 5). Yalnız Windows elle testi eksik (madde 10) |
+| AC-440                 | ✅    | `unattended-rejoin-k4.test.ts` T15 iki dal                                          |
+| AC-444                 | ✅    | Audit + olay günlüğü (tur 1) + e2e eski servis (madde 8)                            |
+| AC-445                 | ✅    | Sunucu üç kip gerçek zincir + e2e geçmiş/audit üç kip                               |
+| AC-446                 | ✅    | Kod (tur 1) + kılavuz/DATASHEET/PDF (madde 9)                                       |
+| AC-429, AC-431, AC-443 | ⚠️    | Değişmedi: yalnız Windows elle test kanıtı eksik (madde 10)                         |
+
+Diğer AC'ler tur 1'deki gibi ✅.
+
+## Düzeltilmeli
+
+1. [devops + backend-dev, Yüksek — tur 1 madde 10, aynen] Windows elle test kanıtı yazılmalı. Kapsam: AC-429 (üç geçiş ≤ 10 sn), AC-431 (≤ 3 sn, SendInput/AutoHotkey ve saydam TOPMOST reddi), AC-433 (asked + logoff → başka kullanıcı logon → `session_changed`), AC-443 (kilit ≤ 2 sn, zorla logoff ≤ 10 sn). `LockWorkStation` kısıtlı jetonla çalışmıyorsa K-P28u-5b kodlanmalı. Sonuç `docs/test-raporu.md`'ye yazılmalı.
+2. [devops, Yüksek] PR #16'da `8d17657` için CI tamamlanmalı ve yeşil olmalı. Özellikle `gofmt + vet + … ` (staticcheck linux+windows) ve `lint + type-check`. Kırmızı çıkarsa ilgili ajana dönülür.
+
+## Definition of Done
+
+| Madde                                   | Durum | Not                                           |
+| --------------------------------------- | ----- | --------------------------------------------- |
+| Tüm AC'ler kanıtlı                      | ❌    | 4 ⚠️; hepsinde eksik yalnız Windows elle test |
+| Yerel testler yeşil                     | ✅    | Go, sunucu (ilgili), web e2e/birim            |
+| CI yeşil                                | ⚠️    | Pending, kırmızı yok                          |
+| Lint / tip / prettier                   | ✅    |                                               |
+| Tasarım-kod uyumu, sapmalar gerekçeli   | ✅    | Madde 3 kapandı                               |
+| Katman, `any`, hata yutma, PII log      | ✅    | Gerekçe maskesi fail-closed                   |
+| Yeni bağımlılık / env                   | ✅    | Yok                                           |
+| Dokümantasyon (kılavuz, DATASHEET, PDF) | ✅    |                                               |
+| Windows elle test                       | ❌    | Madde 1                                       |
+
+## Öneriler (zorunlu değil)
+
+1. `docs/implementation.md:11888` ("Geçici not dosyası; … ana ajan taşır") ve `:11920` ("Geçici dosya: koordinatör … taşır") satırları taşıma artığı. Bu iki satır silinmeli.
+2. `docs/DATASHEET.md` 8 sayfa (PDF); standart 1–2 sayfa diyor. P28u'ya özgü değil, ayrı iş olarak izlenmeli.
+
+## Olumlu
+
+- Yeni entegrasyon testleri gerçek REST/WS zincirinden geçiyor. AC'yi yalnız durum koduyla değil; DB, audit, metrik ve "cihaza gitmedi" kontrolleriyle doğruluyor.
+- Gerekçe maskesi DB'yi değiştirmiyor, yalnız okuma görünümünde uygulanıyor. Anonimleştirme ile tutarlı.
+
+---
+
 # QA Raporu — P28u (gözetimsiz izinli / izinsiz bağlantı, müdahale) Tur 1
 
 DURUM: DÜZELTİLMELİ

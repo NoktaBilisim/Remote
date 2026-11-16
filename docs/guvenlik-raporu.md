@@ -1,3 +1,50 @@
+# Güvenlik Raporu — P28u kod turu 2 (K9 düzeltme doğrulaması, dal p28u, HEAD 8d17657, 2026-11-16)
+
+DURUM: GEÇTİ — Kritik 0 / Yüksek 0 / Orta 0 / Düşük 0
+
+Kapsam: `git diff 0d9562d..8d17657` — `apps/server/src/audit/{view,repo,read}.ts`, `unattended/device-msg.ts`, yeni testler
+(`test/unit/audit-silent-reason-p28u.test.ts`, `test/integration/unattended-{audit-modes,rejoin,limits}-k4.test.ts`), `docs/{KULLANIM_KILAVUZU,api,DATASHEET}.md`.
+
+## Tur 1 bulgularının kapanışı
+
+| Bulgu | Durum | Kanıt |
+| --- | --- | --- |
+| D-P28u-K1-1 silentReason | KAPANDI | `view.ts` `silentReasonVisible` = `session_history.view` ∧ `entity==="support_sessions"` ∧ `entityId≠null` ∧ `visible.has("<audit.tenantId>:<entityId>")`; `auditValueView` varsayılanı `hideSilentReason=true` (fail-closed), iç içe anahtar da maskelenir. `repo.ts reasonVisibleSessions` yalnız `anonymizedAt:null` satırları döner (silinmiş/anonim → maske). `read.ts` liste (`listAuditItems`) ve CSV (`exportAuditCsv`, parti başına `reasonViewOf`) aynı `toItem` yolundan geçer — CSV atlaması yok. Yetki sunucuda `auth.permissions` (DB'den) ile. |
+| D-P28u-K1-2 rejoin süzgeci | KAPANDI | `device-msg.ts:154-159` süzgeç kaldırıldı; `session.closed` pencere içinde de hemen `endDeviceRoom`. Servis beklenen yardımcı çıkışında bildirim göndermediği için (`core.go` `pending`) erken bitiş riski yok. Test: `unattended-rejoin-k4.test.ts:147` (`helper_failed` → < 5 sn, neden `customer`). |
+| D-P28u-K1-3 tek yönetici | KAPANDI (belge) | `KULLANIM_KILAVUZU.md:3460` "en az iki yönetici tanımlayın", `DATASHEET.md:156`. Politika ucunda uyarı "Sonra" olarak kalır. |
+
+## Maske incelemesi (saldırgan bakışı)
+
+- Tenant/IDOR: `reasonVisibleSessions` sorgusu tenant koşulsuz `id IN (...)` ama anahtar audit satırının `tenantId`'si ile birleşik
+  karşılaştırılıyor; audit satırları zaten kapsamla (`scope`) süzülmüş. Başka firmanın oturum kimliğini taşıyan bir audit satırı
+  (olamaz; olsa da) eşleşmez → maske. Yanıta yalnız boolean karar etkiler, oturum verisi dönmez.
+- `carriesSilentReason` yalnız üst düzeye bakar; iç içe gerekçe olursa kimlik kümeye girmez → `visible` boş → maskeli (fail-closed, açık değil).
+- Anonimleştirme sonrası: yetkili Admin'e de `***` (liste + CSV) — entegrasyon testiyle kanıtlı (`unattended-audit-modes-k4.test.ts` 2. `it`).
+- Kayıt değişmez kalır (ham satırda düz metin; test ham satırı da doğruluyor) — bu tasarım kararıdır (audit değiştirilemez).
+
+## Testlerin kapsadığı yollar
+
+- Birim: yetkisiz / küme boş / başka tenant / başka entity / `entityId=null` → maskeli; varsayılan maskeli; `null` korunur. Çalıştırıldı: 2/2 geçti.
+- Entegrasyon (gerçek REST bağlantı zinciri): Admin açık görür + CSV'de var; `audit.view`+`audit.export` olan USER `***` görür, CSV'de anahtar var
+  değer yok; anonimleştirme sonrası Admin'e liste + CSV maskeli. Super Admin çapraz-firma görünümü ayrı test edilmedi (aynı karar fonksiyonu; düşük risk, bulgu değil).
+
+## Artık risk (bulgu değil, bilgi)
+
+- Ham audit satırı gerekçeyi saklama süresi (730 gün) boyunca tutar; maske yalnız okumada. Anonimleştirmeden ÖNCE yetkili kişinin
+  indirdiği CSV'ler uygulama dışında yaşar. Kılavuz/api.md bunu açıkça belirtiyor; KVKK silme talebinde ham satır silinmez (audit değiştirilemez ilkesi).
+  Daha sıkı istenirse tur 1'deki "audit'e yalnız uzunluk/sha256" seçeneği mimara bırakılır.
+
+## Otomatik tarama çıktıları
+
+- `pnpm audit --audit-level=moderate`: `No known vulnerabilities found`. Yeni bağımlılık / env değişkeni yok.
+
+## Olumlu
+
+- Maskenin varsayılanı kapalı (parametre unutulursa gizli), yetki + varlık + anonimlik üçlüsü tek saf fonksiyonda ve birim testli.
+- Sayfa/parti başına tek `IN` sorgusu; yetkisiz çağıranda sorgu hiç atılmıyor.
+
+---
+
 # Güvenlik Raporu — P28u kod turu 1 (K9; gözetimsiz izinli/izinsiz bağlantı + müdahale, dal p28u, HEAD d42cc70, 2026-11-16)
 
 DURUM: GEÇTİ — Kritik 0 / Yüksek 0 / Orta 0 / Düşük 3
