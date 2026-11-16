@@ -21,6 +21,7 @@ import type { TokenActor } from "../fsrv/tokens.ts";
 import { newId } from "../lib/ids.ts";
 import { actorMay, failPrint } from "./clip-print.ts";
 import { hasFsrv } from "./rooms-features.ts";
+import { sendController } from "./members.ts";
 import type { Rooms } from "./rooms.ts";
 import type { FsrvRoom, Guest, Peer, Room, TechConn } from "./types.ts";
 
@@ -40,7 +41,7 @@ export function bindFsrv(rooms: Rooms, svc: FsrvService): void {
     send(sessionId, side, msg) {
       const room = rooms.get(sessionId);
       if (!room || !rooms.live(room)) return;
-      if (side === "tech") return room.tech?.peer.send(msg);
+      if (side === "tech") return sendController(room, msg); // P28c: teknisyen yönü yalnız kontrol sahibi
       const p = room.admitted?.peer;
       if (p && room.fileMode === "SERVER" && hasFsrv(room, p)) p.send(msg); // eski Go katı ayrıştırır
     },

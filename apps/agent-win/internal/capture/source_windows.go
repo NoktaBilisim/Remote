@@ -14,6 +14,7 @@ import (
 
 	"remote-support/agent-win/internal/diag"
 	"remote-support/agent-win/internal/rtc"
+	"remote-support/agent-win/internal/signal"
 	"remote-support/agent-win/internal/win"
 )
 
@@ -37,6 +38,7 @@ type source struct {
 	exited chan struct{}
 	once   sync.Once
 	kc     keyClock
+	low    lowStage // P28c düşük akış (low.go)
 }
 
 type frameReq struct {
@@ -120,6 +122,11 @@ func (o Opener) attach() (func(), *Error) {
 // RequestKeyframe rtc.KeyframeRequester: yayın başı ve PLI/FIR.
 func (s *source) RequestKeyframe() { s.kc.Request() }
 
+// SetLowSink / EnableLow / RequestLowKeyframe rtc.LowSource (P28c düşük akış; low.go).
+func (s *source) SetLowSink(sink func(rtc.Frame)) { s.low.SetLowSink(sink) }
+func (s *source) EnableLow(on bool)               { s.low.EnableLow(on) }
+func (s *source) RequestLowKeyframe()             { s.low.RequestLowKeyframe() }
+
 func (s *source) NextFrame(ctx context.Context) (rtc.Frame, error) {
 	resp := make(chan frameResp, 1)
 	select {
@@ -174,7 +181,12 @@ func (s *source) run(o Opener, device string, hwnd uintptr, initErr chan<- error
 		return
 	}
 	defer func() { _, _, _ = pMFShutdown.Call() }()
-	p := &pipeline{device: device, hwnd: hwnd, kc: &s.kc, rc: newRateCtl(), fps: targetFPS}
+	p := &pipeline{device: device, hwnd: hwnd, kc: &s.kc, rc: newRateCtl(), fps: targetFPS, low: &s.low}
+	s.low.open = func(w, h int) (Encoder, error) { // P28c: ikinci kodlayıcı (donanım → yazılım yedeği, sabit 8 FPS)
+		ch, err := selectEncoder(func(hw bool) (Encoder, error) { return openEncoder(w, h, signal.LowFPS, hw) },
+			!p.hwOff, time.Now, nil)
+		return ch.enc, err
+	}
 	p.onFallback = func(fb Fallback) { // AC-245: yerel diag `encoder_fallback`; oturum sürer
 		r := rep
 		r.Event, r.Encoder, r.HWReason = eventEncoderFallback, encoderSW, string(fb.Reason)
@@ -241,6 +253,7 @@ type pipeline struct {
 	device     string
 	hwnd       uintptr // AC-248: 0 değilse pencere modu (yalnız WGC)
 	kc         *keyClock
+	low        *lowStage // P28c düşük kodlayıcı (yalnız ikincil eş varken)
 	rc         *rateCtl
 	fps        int // kodlayıcının hedef kare hızı (GDI'da gdiFPS)
 	g          grabber
@@ -423,7 +436,7 @@ func (p *pipeline) next(ctx context.Context) (rtc.Frame, error) {
 			return rtc.Frame{}, err
 		}
 		now := time.Now()
-		if !changed && !p.kc.Pending() && !p.lastEmit.IsZero() && now.Sub(p.lastEmit) < idleKeepAlive {
+		if !changed && !p.kc.Pending() && !p.low.pending() && !p.lastEmit.IsZero() && now.Sub(p.lastEmit) < idleKeepAlive {
 			continue
 		}
 		dur := p.rc.Interval()
@@ -434,7 +447,8 @@ func (p *pipeline) next(ctx context.Context) (rtc.Frame, error) {
 		if err != nil {
 			return rtc.Frame{}, tag(err, stageEncode, "Encode")
 		}
-		cost := time.Since(now) // kodlama (+ yeni karede dönüşüm): AC-41 kare hızı denetimi
+		p.low.step(p.cv.frame, now) // P28c: aynı NV12 kare, ≤ 8 FPS (maliyet ana kare hızı denetimine girmez)
+		cost := time.Since(now)     // kodlama (+ yeni karede dönüşüm): AC-41 kare hızı denetimi
 		if changed {
 			cost += p.convCost
 		}
@@ -454,6 +468,7 @@ func (p *pipeline) next(ctx context.Context) (rtc.Frame, error) {
 }
 
 func (p *pipeline) close() {
+	p.low.close()
 	if p.enc != nil {
 		p.enc.Close()
 	}

@@ -23,9 +23,51 @@ type headless struct {
 
 	mode                  string // helperio.Mode*; "" = P27
 	st                    *statusPipe
-	live                  interface{ SetText(string) }
+	live                  liveLabel
 	viewText, controlText string
+	techName              string // P28c: sunucu gösterge metnindeki ad (tek sahipte ek yazılmaz)
 	granted               atomic.Bool
+}
+
+// liveLabel göstergenin etiketi (liveIndicator).
+type liveLabel interface {
+	SetText(string)
+	SetNames(suffix string) bool
+}
+
+// ShowRoster flow.RosterUI (P28c §6, V-PC-5): göstergede bağlı teknisyen adları (silent dahil); "Çıkar" yok. Ad
+// güvensizse ya da çizim doğrulanamazsa false → o teknisyenin eşi kurulmaz (Y-PC-4).
+func (h *headless) ShowRoster(v flow.RosterView) bool {
+	if h.live == nil {
+		return false
+	}
+	suffix, ok := namesSuffix(v, h.techName)
+	return ok && h.live.SetNames(suffix)
+}
+
+// TechChat sohbet paneli yok (§5.6).
+func (h *headless) TechChat(string, string) {}
+
+// namesSuffix gösterge eki: yalnız sunucu metnindeki tek sahip bağlıysa boş; değilse " · Bağlı: A, B".
+func namesSuffix(v flow.RosterView, techName string) (string, bool) {
+	if len(v.Techs) == 1 && v.Techs[0].Name == techName {
+		return "", true
+	}
+	out := ""
+	for i, t := range v.Techs {
+		if !helperio.Text(t.Name, 100) {
+			return "", false
+		}
+		name := t.Name
+		if r := []rune(name); len(r) > nameMaxRunes {
+			name = string(r[:nameMaxRunes-1]) + "…"
+		}
+		if i > 0 {
+			out += flow.MultiTexts.NameSep
+		}
+		out += name
+	}
+	return flow.MultiTexts.IndicatorList + out, true
 }
 
 func newHeadless(ctx context.Context, events chan<- flow.Event) *headless {

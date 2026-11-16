@@ -70,15 +70,10 @@ export function UserCell({ a }: { a: AuditItem }) {
 export function ActionCell({ action }: { action: string }) {
   const label = actionLabel(action);
   return (
-    <span className="flex min-w-0 flex-col">
-      <span className="truncate text-fg" title={label}>
-        {label}
-      </span>
-      {label !== action && (
-        <span className="truncate font-mono text-xs text-fg-muted" title={action}>
-          {action}
-        </span>
-      )}
+    // Tablo hücresinde `truncate` sütunu daraltmaz; P28c uzun `session.*` adları tabloyu taşırmasın diye kap sınırlı ve satır kırılır
+    <span className="flex max-w-44 min-w-0 flex-col">
+      <span className="text-fg">{label}</span>
+      {label !== action && <span className="font-mono text-xs text-fg-muted wrap-anywhere">{action}</span>}
     </span>
   );
 }

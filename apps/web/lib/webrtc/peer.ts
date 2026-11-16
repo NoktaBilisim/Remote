@@ -8,6 +8,7 @@
  */
 import { DC_LABELS } from "@remote/contracts/dc";
 import type { IceServer } from "@remote/contracts/ws";
+import { senderEncodings } from "./sender-caps";
 
 export interface Channels {
   ctl: RTCDataChannel;
@@ -106,6 +107,19 @@ export class PeerLink {
     const a = await this.pc.createAnswer();
     await this.pc.setLocalDescription(a);
     this.send({ t: "sdp.answer", sdp: a.sdp ?? "" });
+  }
+
+  /**
+   * P28c (§6.1, AC-371): ikincil (düşük) akış tavanı — `low` → `LOW_FPS`/`LOW_BPS`, değilse tavan kaldırılır. Yalnız anlaşma
+   * sonrası (kodlama listesi dolu) etkilidir; tarayıcı reddederse sessizce geçer (ana akışın bütçesi değişmez).
+   */
+  async setSendCaps(low: boolean): Promise<void> {
+    const sender = this.videoTransceiver()?.sender;
+    if (!sender || !this.pc.remoteDescription) return;
+    const p = sender.getParameters();
+    if (!p.encodings?.length) return;
+    p.encodings = senderEncodings(p.encodings, low);
+    await sender.setParameters(p).catch(() => undefined);
   }
 
   async setTrack(track: MediaStreamTrack | null): Promise<void> {

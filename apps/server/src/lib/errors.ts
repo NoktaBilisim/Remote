@@ -1,6 +1,7 @@
 // Tipli uygulama hataları ve standart hata zarfı (mimari-api.md "Ortak kurallar").
 // Bilinmeyen hatalar loglanır, kullanıcıya yalnız 500 + requestId döner (stack/SQL sızmaz).
 import { AV_NOT_READY_MESSAGE, STORAGE_QUOTA_MESSAGE } from "@remote/contracts/api/fsrv";
+import { MULTI_ERROR_MESSAGES } from "@remote/contracts/api/multi";
 import { BINDING_INVALID_MESSAGE, BINDING_LIMIT_MESSAGE } from "@remote/contracts/api/bindings";
 import { ACCEPT_CODE_CLIENT_UNSUPPORTED_MESSAGE } from "@remote/contracts/api/requests";
 import { INVALID_IMAGE_MESSAGE, PAYLOAD_TOO_LARGE_MESSAGE } from "@remote/contracts/api/branding";
@@ -67,6 +68,8 @@ const DEFAULT_MESSAGES: Record<ErrorCode, string> = {
   RESET_TOKEN_INVALID: "Bu şifre sıfırlama bağlantısı geçersiz veya süresi dolmuş. Yeni bağlantı isteyin.",
   // P27 (mimari-p27 §4.3): metinler sözleşmeden.
   ...UNATTENDED_ERROR_MESSAGES,
+  // P28c (mimari-p28c §4): metinler sözleşmeden.
+  ...MULTI_ERROR_MESSAGES,
 };
 
 export class AppError extends Error {

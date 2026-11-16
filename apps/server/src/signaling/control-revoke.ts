@@ -8,6 +8,7 @@ import { onCapsNarrowed, onControlClosed, onGuestGone } from "./clip-print.ts";
 import { fsrvSideGone } from "./fsrv.ts";
 import { capsFor, fileModeOf, guestFeatures } from "./rooms-features.ts";
 import { closeState, logFail, recordClose, SYSTEM, SYSTEM_CTX, systemClose } from "./control-record.ts";
+import { sendController } from "./members.ts";
 import type { Rooms } from "./rooms.ts";
 import type { Room } from "./types.ts";
 
@@ -15,12 +16,12 @@ import type { Room } from "./types.ts";
  * Sunucu kaynaklı kapatma (A5, AC-115, G-04): misafire `control.revoke` (istemci kapıyı kapatır, açamaz), teknisyene
  * `control.state{VIEW, SYSTEM}`. Kontrol açıktıysa REVOKED/SYSTEM kaydı yazılır.
  */
-async function revokeControl(rooms: Rooms, room: Room, reason: ControlRevokeReason): Promise<void> {
+export async function revokeControlFor(rooms: Rooms, room: Room, reason: ControlRevokeReason): Promise<void> {
   onControlClosed(rooms, room); // P28a (Y-P28a-1): pano izni kapanır, bekleyen yazdırma iptal
   const r = closeState(room.control);
   if (!r) return;
   room.admitted?.peer?.send({ t: "control.revoke", reason });
-  room.tech?.peer.send({ t: "control.state", state: "VIEW", source: "SYSTEM" });
+  sendController(room, { t: "control.state", state: "VIEW", source: "SYSTEM" });
   rooms.metrics.inc("rs_control_total", { event: `revoke_${reason}` });
   if (r.opened) await recordClose(rooms, room, r.granting, systemClose({ reason }), "control_revoke_audit_failed");
 }
@@ -36,7 +37,7 @@ export function resetOnGuestGone(rooms: Rooms, room: Room): void {
   onGuestGone(rooms, room, "disconnect"); // P28a: izin kapanır, bekleyen pano/yazdırma DISCONNECTED
   const r = closeState(room.control);
   if (!r) return;
-  room.tech?.peer.send({ t: "control.state", state: "VIEW", source: "RECONNECT" });
+  sendController(room, { t: "control.state", state: "VIEW", source: "RECONNECT" });
   rooms.metrics.inc("rs_control_total", { event: "reset_guest_gone" });
   if (r.opened)
     void recordClose(
@@ -113,7 +114,7 @@ export async function narrowCaps(rooms: Rooms, room: Room, perms: ReadonlySet<Pe
   onCapsNarrowed(rooms, room); // P28a: clipboard/print düştüyse izin kapanır / bekleyen yazdırma iptal
   if (!next.includes("file_transfer")) fsrvSideGone(rooms, room, "TECH"); // D-P28b-K1-3: teknisyenin indirme belirteçleri
   const jobs: Promise<void>[] = [];
-  if (!next.includes("remote_control")) jobs.push(revokeControl(rooms, room, "permission"));
+  if (!next.includes("remote_control")) jobs.push(revokeControlFor(rooms, room, "permission"));
   jobs.push(
     writeAudit(rooms.db, SYSTEM_CTX, {
       tenantId: room.tenantId,

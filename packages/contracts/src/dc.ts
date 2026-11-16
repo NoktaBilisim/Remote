@@ -3,6 +3,7 @@
 // yalnız WS'den); strict şema bilinmeyen tipi/alanı reddeder (G-09).
 import { z } from "zod";
 import { CLIP_CTL_TYPES, ctlClipPrintMessages, PRINT_CTL_TYPES } from "./dc-clip-print.ts";
+import { techIdSchema } from "./ws-multi.ts";
 
 /** Teknisyen offer'da açar. `input` yalnız AGENT; BROWSER misafir bu kanalı kabul etmez/kapatır. */
 export const DC_LABELS = { CTL: "ctl", FILE: "file", INPUT: "input" } as const;
@@ -78,11 +79,17 @@ const sha256 = z.string().regex(/^[a-f0-9]{64}$/);
 /** Transfer kimliği (gönderen üretir). */
 const fid = msgId;
 
+/**
+ * P28c (mimari-p28c §4.5, D-PC-4): `by` = misafirin diğer teknisyenlere yaydığı teknisyen mesajının gönderen `tid`'i (yalnız
+ * misafir → teknisyen yönünde; ad TAŞIMAZ — konsol adı kendi sunucu roster'ından çözer, çözemezse "Müşteri"). Müşterinin
+ * kendi mesajı ve teknisyen → misafir mesajı `by`'sızdır (Go `dc.ParseCtl` gelen sohbette `by`'ı reddeder).
+ */
 export const chatSchema = z.strictObject({
   t: z.literal("chat"),
   id: msgId,
   text: z.string().min(1).max(CHAT_MAX_CHARS),
   ts: z.number().int().min(0),
+  by: techIdSchema.optional(),
 });
 export const annotStrokeSchema = z.strictObject({
   t: z.literal("annot.stroke"),

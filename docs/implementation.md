@@ -12703,3 +12703,586 @@ Kaynak: CI kırmızı TEST-P8-2, `docs/test-raporu.md` P28e Y-1, Y-2, O-1, D-1, 
 - **D-3:** `lib/error-message.ts` `toUiError`: HTTP 500'de sunucu `message` yerine `err.generic` ("Beklenmeyen bir hata oluştu.") + `requestId` korunur; `byStatus` eşlemesi önce gelir; 4xx/429/423/503 davranışı değişmedi (gerçek sunucunun INTERNAL metni zaten aynı cümle — bu savunma katmanı). Birim: `lib/error-message.test.ts` (+2), `lib/branding/branding.test.ts` 500 beklentisi güncellendi. e2e "K10 O-1" 500 ayağı.
 - Yeni metinler `messages/tr.json`: `hr.missing`, `hr.forbidden`. Yeni bileşen/bağımlılık/rota yok.
 - **Doğrulama:** `lint`, `typecheck` temiz; `vitest` 52 dosya / 485 test; `playwright test p8-history p28e-recording p17-console p28u-unattended unattended guest` (desktop + mobile) 124 geçti, 32 atlandı (masaüstü-yalnız akışlar); `prettier --check` temiz.
+
+## P28c K0 — Sözleşme (backend-dev, 2026-11-16)
+
+Kaynak: `docs/mimari-p28c.md` r2 (§1.1, §3.1, §4, §4.4, §4.5, §6.1, §9), ADR-0035. Sunucu davranışı yok (K1); Go davranışı yok (K3).
+
+### Değişen / eklenen dosyalar
+
+- `packages/contracts/src/ws-multi.ts` (yeni, yaprak modül): `WS_CAP_MULTI = "rs.cap.multi1"`, `MAX_TECHS`, `INVITE_TTL_MS`,
+  `MEMBER_RESERVE_MS`, `MEMBER_GRACE_MS`, `MULTI_ROOM_CMDS_PER_MIN`, `MULTI_JOIN_PER_MIN`, `MULTI_POLL_PER_MIN`, `INVITE_POLL_MS`,
+  `ACTIVE_POLL_MS`, `LOW_FPS`/`LOW_FPS_MIN`/`LOW_BPS`, `ROSTER_NAME_MAX`, `WS_CLOSE_REMOVED` (4403), `TID_PATTERN`/`techIdSchema`
+  (11 karakter base64url); sözlükler `MEMBER_ROLES`, `ROSTER_ROLES`, `TECH_ROLES`, `MEMBER_VIAS`; `techRosterSchema` (1..3, tid
+  benzersiz, tam bir `owner`, tam bir `controller`), `techsRosterSchema`, `controlHandoverSchema`, `sessionTransferSchema`,
+  `memberLeaveSchema`, `techRemoveSchema`, `helloMultiFields`; rol kapısı `ROLE_MAY` (+ `TECH_SEATS`, `seatMay(t, {owner, controller})`
+  varsayılan-ret).
+- `packages/contracts/src/ws.ts`: `techInboundSchema` += `control.handover`, `session.transfer`, `member.leave`;
+  `guestInboundSchemaFor(features, fsrv, rec, multi = false)` — multi1 sokette `sdpAnswerMultiSchema`/`iceMultiSchema` (`to` zorunlu)
+  `sdp.answer`/`ice`'nin YERİNE, + `tech.remove`; `serverOutboundSchema` `sdp.offer`/`ice` += `from?`, `techs.roster`; tech `hello` +=
+  `tid?`, `techRole?`, `roster?`; `WS_CLOSE.REMOVED = 4403`.
+- `packages/contracts/src/dc.ts`: `chatSchema.by?: tid`.
+- `packages/contracts/src/api/multi.ts` (yeni): `MULTI_ERROR_MESSAGES`, `INVITE_CANDIDATES_MAX = 200`, `INVITE_ID_PATTERN`/`inviteIdSchema`
+  (22 karakter), `multiSessionParamsSchema`, `sessionInviteParamsSchema`, `inviteParamsSchema`, `createInviteInputSchema`,
+  `joinWithReasonInputSchema` (kabul + İzle), yanıt tipleri `CreateInviteResponse`, `JoinSessionAsMemberResponse`,
+  `InviteCandidatesResponse`, `IncomingInvitesResponse`, `ActiveSessionsResponse` (+ öğe tipleri).
+- `packages/contracts/src/errors.ts`: `SESSION_FULL` 409, `CLIENT_UNSUPPORTED` 409, `JOIN_NOT_ALLOWED` 409, `INVITE_GONE` 410
+  (`MFA_SETUP_REQUIRED` 403 zaten vardı).
+- `packages/contracts/src/permissions.ts`: `sessions.invite`, `sessions.supervise` (+ açıklamalar; Admin açık / User kapalı — mevcut kural).
+- `packages/contracts/src/audit.ts`: `MULTI_AUDIT` (AC-370 on eylem), `MULTI_AUDIT_LABELS`, `MULTI_AUDIT_GROUP` ("Çoklu teknisyen" +
+  eylem listesi), `MULTI_INVITE_EXPIRE_REASONS` (+`revoked`), `MULTI_LEAVE_REASONS`, `MULTI_TRANSFER_FAIL_REASONS`, etiket tabloları;
+  `SILENT_NOTIFY_EVENTS` += `join`, `transfer` (+ etiketler).
+- `packages/contracts/package.json` exports: `./ws-multi`, `./api/multi`.
+- `packages/contracts/fixtures/multi.json` (yeni, TS + Go ortak).
+- Testler: `packages/contracts/test/multi-p28c.test.ts` (yeni); `rec-p28e.test.ts` (dört göz olay listesi `arrayContaining`);
+  `pt-surface` anlık görüntüsü güncellendi (yalnız ekleme, 87 satır).
+- `apps/server/src/lib/errors.ts`: `...MULTI_ERROR_MESSAGES` (`Record<ErrorCode,string>` tip gereği; tek satır).
+- `apps/web/messages/tr.json`: `perm.a.invite`, `perm.a.supervise`; `apps/web/lib/users/users.test.ts` sessions "Diğer" listesi
+  (yetki eklemenin doğrudan sonucu).
+- Go: `internal/signal/multi.go` (yeni: `FeatureMulti`, `MaxTechs`, `LowFPS`, `LowFPSMin`, `LowBPS`, `CloseRemoved`, `RosterEntry`,
+  `TechsRoster` + `validTechsRoster`, `TechRemove`, `validOptTid`); `inbound.go` `SdpOffer.From`, `RemoteIce.From`, `techs.roster`
+  ParseServer tablosunda; `outbound.go` `SdpAnswer.To`, `Ice.To` (omitempty, tid denetimi); `conn.go` `knownFeatures` += `FeatureMulti`.
+  Testler `internal/signal/multi_test.go`, `internal/dc/chat_multi_test.go`.
+
+### Tasarımdan sapmalar / netleştirmeler (gerekçeli)
+
+1. **`hello.role` çakışması:** §4.4 teknisyen hello'suna `role: owner|participant|observer` ister; `hello.role` zaten `tech|guest`
+   (web `use-guest-session`/`tech-machine` kullanır). Mevcut alan değiştirilmedi; yeni alan **`techRole`** (+ `tid`, `roster`).
+2. **`session.transfer` tel biçimi:** §4.4 satırı audit satırıdır (§9 ile aynı; `{fromUserId,toUserId}`); roster'da userId yok (T10),
+   konsol hedefi yalnız tid ile bilir. WS mesajı `control.handover` gibi **`{t:"session.transfer", id?, to: tid}`**.
+3. **Audit grubu:** Grup süzgeci eylemin ilk bölümüdür; AC-370 adları `session.*` olduğundan önek grubu "Çoklu teknisyen"i ayıramaz.
+   `MULTI_AUDIT_GROUP {label, actions}` dışa verildi; web (K2) ayrı seçenek grubunu bu listeden kurar ("tümü" seçeneği tek önekle
+   ifade edilemez — tek tek eylem süzgeci). `MULTI_AUDIT_LABELS` web `AUDIT_ACTION_LABELS`'a K2'de yayılmalı.
+4. **Audit ret kodu anahtarı:** §9/§5.2 `fail + code` / `fail{code:"target_gone"}` der; audit maskesi `/code/i` anahtarını `***` yapar.
+   K1 **`failReason`** kullanmalı (P28u kalıbı); devir değerleri `MULTI_TRANSFER_FAIL_REASONS = ["conflict","target_gone"]`.
+5. **`invite_expire.reason`** §9'da `timeout|session_end`; D-PC-7 geri çekme `revoked` ekler → üçü de kümede.
+6. **422 `fields.reason`:** Projede 422 kodu yok; doğrulama `VALIDATION` (400) + `fields.reason` (P28u K-P28u-12 kalıbı). Yeni kod
+   eklenmedi. Kabul/İzle gövdesi `strictObject({reason?: silentReasonSchema})`; gerekçenin silent odada zorunlu / diğerlerinde yasak
+   olması oda kipini bilen sunucuda (K1).
+7. **Roster değişmezleri** (tid benzersiz, tam bir sahip, tam bir kontrol sahibi) şemada; Go `validTechsRoster` aynı kural — ihlal Go
+   istemcide bağlantıyı koparır, sunucu (K1) bu değişmezleri her yayında korumalı.
+8. **`control.revoke` nedeni:** devirde misafire giden `control.revoke` için yeni neden eklenmedi (Go katı enum); K1 mevcut nedenlerden
+   birini kullanır, `handover` yalnız audit `extra.reason`'da.
+9. Go `dc.ParseCtl` gelen sohbette `by`'ı **reddeder** (teknisyen → misafir yönünde `by` yoktur); misafirin yaydığı `by`'lı mesajı
+   üreten kodlayıcı K3'te.
+
+### K1–K3 için adlar
+
+- Sunucu (K1): `seatMay`/`ROLE_MAY`, `WS_CLOSE.REMOVED`, `guestInboundSchemaFor(…, multi)`, `techsRosterSchema`, `helloMultiFields`,
+  `MAX_TECHS`, `INVITE_TTL_MS`, `MEMBER_RESERVE_MS`, `MEMBER_GRACE_MS`, `MULTI_*_PER_MIN`, `MULTI_AUDIT*`, `MULTI_ERROR_MESSAGES`,
+  `api/multi` şemaları, `SILENT_NOTIFY_EVENTS` `join`/`transfer`. Not: K0 sonrası teknisyen birliği yeni üç tipi şemada kabul eder;
+  `techAction` K1'e dek bunları işlemez (sessizce düşer).
+- Web (K2): `TECH_ROLES`, `ROSTER_ROLES`, `chatSchema.by`, `INVITE_POLL_MS`, `ACTIVE_POLL_MS`, `LOW_FPS`/`LOW_BPS`, yanıt tipleri,
+  `MULTI_AUDIT_GROUP`/`MULTI_AUDIT_LABELS`/`MULTI_*_REASON_LABELS`, `MULTI_ERROR_MESSAGES`.
+- Go (K3): `signal.FeatureMulti`, `TechsRoster`/`RosterEntry`, `TechRemove`, `SdpOffer.From`, `RemoteIce.From`, `SdpAnswer.To`,
+  `Ice.To`, `MaxTechs`, `LowFPS`, `LowFPSMin`, `LowBPS`, `CloseRemoved`.
+
+### Bağımlılık
+
+Yeni bağımlılık yok.
+
+### Komutlar ve son çıktı
+
+- `pnpm -r run lint` → hatasız; `pnpm -r run typecheck` → hatasız (server + web dahil).
+- `pnpm --filter @remote/contracts test` → 25 dosya, 254 test geçti.
+- `pnpm --filter @remote/web exec vitest run` → 52 dosya, 485 geçti; `pnpm --filter @remote/server exec vitest run test/unit` →
+  45 dosya, 634 geçti (1 atlandı). Sunucu entegrasyon testleri (DB) bu pakette koşulmadı (sunucu davranışı değişmedi).
+- `docker run --rm -v "$PWD:/src" -w /src/apps/agent-win golang:1.26 sh -c 'go test ./... && GOOS=windows go vet ./...'` → tüm
+  paketler ok, vet temiz; `gofmt -l` boş.
+
+## P28c — çoklu teknisyen (davet, İzle, kontrol/oturum devri)
+
+### P28c K1/K1b/K1c — sunucu
+
+## P28c K1 — Sunucu (backend-dev, 2026-11-16) — TAMAM (K1b/K1c ile kapandı; düzeltme turu 1 aşağıda)
+
+Kaynak: `docs/mimari-p28c.md` r2, ADR-0035, implementation.md "P28c K0". `packages/contracts` değiştirilmedi.
+
+**KONTRAT HAZIR (K1c, 2026-11-16)** — `packages/contracts` (typecheck + 254 test yeşil, pt-surface yalnız 2 ekleme):
+
+- `hello` (role=tech) ve `peer.joined{role:"guest"}` (teknisyene): `guestMulti?: boolean` — kabul edilmiş misafir
+  `rs.cap.multi1` bildirdi mi (kısa kopuklukta son değer). **Alan yok** = kabul edilmiş misafir yok; **`false`** = desteklemiyor →
+  "Davet et"/"İzle" baştan pasif + AC-352 metni (`MULTI_ERROR_MESSAGES.CLIENT_UNSUPPORTED`). Roster'a eklenmedi (misafire de gider).
+- `GET /api/v1/sessions/:id/invites` → `OutgoingInvitesResponse { items: OutgoingInvite[] }`, `OutgoingInvite { inviteId, userId,
+inviteeName, expiresAt (ISO) }`, bitişe göre artan; `Cache-Control: no-store`. Kapı DELETE ile aynı: başka tenant/yok 404,
+  sahip değil 403 (yetki anahtarı istemez). Sayfalama yok (koltukla sınırlı, `MAX_TECHS`). Devirde davetler yaşar → yeni sahip görür.
+
+### Durum özeti
+
+- `pnpm --filter @remote/server run lint` → temiz; `typecheck` → temiz; `vitest run test/unit` → 45 dosya, 634 geçti (1 atlandı).
+- Mevcut entegrasyon (signaling*/unattended*/rec*/clip-print*/sessions*/pt-surface) → 35 dosyadan 32 geçti; kalan 3: `pt-surface`
+  rota anlık görüntüsü (yeni 11 rota — `-u` ile güncellendi, diff yalnız ekleme), `unattended-connect-k3` ve `unattended-consent-k4`
+  ilk koşuda yük altında düştü, tek başına tekrar koşunca geçti (kararsız; yeniden doğrulanmalı).
+- Yeni `test/integration/multi-p28c.test.ts` (19 test): **5 geçti, 14 düştü — çoğu test fikstürü hatası** (aşağıda). Test DB kapatıldı.
+
+### BİTEN (kod yazıldı, derleniyor)
+
+| Dosya                                                            | İçerik                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
+| ---------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `signaling/types.ts`                                             | `Member`, `Invite`, `MultiRoom` (oda alanları `room.multi` altında — sapma 1), `Peer.multi`                                                                                                                                                                                                                                                                                                                                                                                                                                             |
+| `signaling/members.ts` (yeni)                                    | `newTid` (randomBytes(8) base64url), `newMulti`, `tidOf`/`userOfTid`, `controllerOf`, `seatOf`, `techConns`, `sendTechs`, `sendController`, `seatsUsed`/`roomFull`, `techRoleOf`, `rosterOf` (sahip her zaman, üye ilk WS'den sonra, tam 1 sahip/1 kontrol sahibi), `broadcastRoster`, `sendRosterToGuest`, `ensureGuestKnows` (Y-PC-4 roster→offer sırası), `logOnce`                                                                                                                                                                  |
+| `signaling/member-life.ts` (yeni)                                | `reserveMember` (60 sn → `no_show`), `attachMember` (ilk WS: `participant_join`/`supervise_join` + silent dört göz kancası, gerekçe metni sonra silinir), `detachMember` (120 sn pay → `disconnect`; kontrol sahibiyse `controllerLeft`), `leaveMember`, **`revokeMember` (tek geri alma yolu, 4403, `auth_revoked`)**, `revokeMemberEverywhere`, `setController` (kontrol kapanışı `control.revoke{reconnect}` + REVOKED/TECH `extra.reason` + `recRecorderChanged`), `membersTeardown` (`session_end` + `invite_expire{session_end}`) |
+| `signaling/member-cmds.ts` (yeni)                                | `roomCmdLimited` (oda 10/dk), `handleHandover`, `handleTransfer` (TX: `lockTechnician(hedef)` + AC-11 `countOpen` + koşullu UPDATE + audit; commit sonrası hedef gitmişse ters UPDATE + `fail{target_gone}`; `transferring` finally), `swapOwner`, `handleMemberLeave`, `handleTechRemove` (`removed`, `participant_remove`), `relayTechToGuest` (`from`), `relayGuestToTech` (`to`, bilinmeyen düşer + log 1/dk)                                                                                                                       |
+| `signaling/multi-audit.ts` (yeni)                                | `auditMulti`, `failAuditAllowed` (kullanıcı+oturum+failReason dakikada 1), `countInvite` (`rs_multi_invites_total`)                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| `signaling/handlers.ts`                                          | `seatOf` ile üye soketleri; **`seatMay` rol kapısı her teknisyen mesajından önce** (`error{FORBIDDEN}` + `rs_multi_denied_total{type}`); handover/transfer/member.leave; misafir şeması `multi`; `tech.remove`; share.state tüm teknisyenlere                                                                                                                                                                                                                                                                                           |
+| `signaling/active.ts`                                            | `sendHelloTech(rooms, room, conn)` + `tid`/`techRole`/`roster`; ice.servers, süre uyarısı, `peer.joined{guest}` tüm teknisyenlere; misafir hello sonrası roster; `multi.startedAt`                                                                                                                                                                                                                                                                                                                                                      |
+| `signaling/rooms.ts`                                             | `multi` kurulumu; sahip attach/detach'te kontrol yalnız sahip kontrol sahibiyse kapanır; multi1 misafire `peer.joined/left{tech}` yok (roster); teardown üyeleri kapsar; `endByTechnician` üyeyi `revokeMember`; `applyPermChange` üye dalı (`memberPermChange`); `techRooms` üyeli odalar; `isMember`; `silentNotify` kancası                                                                                                                                                                                                          |
+| `signaling/control*.ts`, `clip-print.ts`, `fsrv.ts`, `collab.ts` | `room.tech` → `controllerOf`/`sendController` (kontrol işleri); `revokeControlFor` dışa açıldı                                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| `signaling/rec.ts`                                               | `recorderOf = controllerOf`; `rec.state` tüm teknisyenlere (upload yalnız kaydediciye); `recHelloTech(…, conn)`; `recTechDetached(…, wasRecorder)`; **`recRecorderChanged`** (eski belirteç paysız düşer, yeni bölüm + belirteç)                                                                                                                                                                                                                                                                                                        |
+| `signaling/ws.ts`                                                | misafir `rs.cap.multi1` → `peer.multi`; `rs_multi_members{role}` göstergesi; 60 sn döngüde `revalidateMember`                                                                                                                                                                                                                                                                                                                                                                                                                           |
+| `signaling/ws-auth.ts`                                           | `/ws/tech` üye dalı `memberUpgrade` (§4.3 `ws` + açılışta `joinSyncCheck`), `techConnOf`, `revalidateMember` (oturum düştü/rol değişti/kimlik oturumu farklı/uygunluk → `revokeMember`; oda bitmez)                                                                                                                                                                                                                                                                                                                                     |
+| `signaling/rooms-device.ts`                                      | `revalidateDevice` `deviceAccess` ile + `revalidateDeviceMembers`; `finishDevice(…, technicianId)` üyeyi de düşürür (grantsRemoved yolu)                                                                                                                                                                                                                                                                                                                                                                                                |
+| `unattended/device-access.ts` (yeni)                             | `deviceVerdict`, `deviceAccess`, `deviceAccessOk` (Super Admin bypass yok)                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
+| `unattended/connect.ts`                                          | `precheck` `deviceVerdict` kullanır (ret kodu/sırası değişmedi)                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| `unattended/policy.ts`                                           | `finishSilent(…, technicianId)` üyeyi silent odalarda düşürür                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
+| `unattended/intervene.ts`                                        | kilit/oturum kapatma yalnız kontrol sahibi (`room.multi.controllerId`)                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
+| `unattended/mail.ts`                                             | `silentJoinMail` (`join`/`transfer`, sabit konu)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| `sessions/eligibility.ts` (yeni)                                 | **`eligibleToJoin(subject, room, via, phase, opts)`** (adım 1–7, 3', 6a, 6b gerekçe, 8'), `joinSyncCheck` (adım 9), `subjectOfAuth`, `subjectById`                                                                                                                                                                                                                                                                                                                                                                                      |
+| `sessions/invites.ts` (yeni)                                     | aday listesi (toplu grant sorgusu), davet oluştur/geri çek/ret/kabul, gelen davetler, etkin oturumlar (gözetimsiz oda yalnız 5–6'yı geçene), İzle; adım 8 step-up yalnız gözetimsiz odada                                                                                                                                                                                                                                                                                                                                               |
+| `sessions/routes-multi.ts` (yeni) + `app-routes.ts`              | 8 uç; yoklama 60/dk, kabul/İzle 20/dk; `rooms.silentNotify` → `sendSilentNotice` bağlama                                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| `sessions/service.ts` + `routes.ts`                              | `GET /sessions/:id` üye kapsamı; sahip olmayan üyeye `techVerifyCode: ""`                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
+| Testler                                                          | `test/helpers/multi.ts`, `test/integration/multi-p28c.test.ts`, unit fikstürleri (`clip-print`, `signaling-fsrv-p28b`: `multi: newMulti(…)`), `pt-surface` anlık görüntüsü                                                                                                                                                                                                                                                                                                                                                              |
+
+### K1b (2026-11-16) — devam
+
+**Test durumu (son koşu, p28c-k1b-mysql):** `vitest run test/unit` + `multi-p28c` + `pt-surface` + `unattended-connect-k3` +
+`unattended-consent-k4` → **50 dosya, 685 geçti, 1 atlandı, 0 düştü**. `multi-p28c.test.ts` **20/20** (gözetimsiz test 4 kez tekrar
+koşuldu, kararlı). `pnpm -r run lint` ve `pnpm -r run typecheck` temiz. Go: `go test ./internal/signal/` (golang:1.26 konteyneri) ok, gofmt temiz.
+unattended-connect-k3 / consent-k4 bu koşuda geçti → önceki düşüş yük altı kararsızlık (P28c kaynaklı değil).
+
+**Bulunan gerçek hata (düzeltildi):** oturum devri (`swapOwner`) soketin yerini değiştiriyordu ama `close` dinleyicileri açılıştaki role
+bağlıydı (sahip → `detachTech`, üye → `detachMember`). Devirden sonra yeni sahip kopunca `room.tech` hiç boşalmıyor, 120 sn bitiş
+çalışmıyordu. `ws-auth.ts` `detachSeat`: kapanışta iki yol da soket kimliğiyle korunarak çağrılır (yalnız biri etkili).
+
+**Test fikstürü düzeltmeleri (sunucu değil):** `helpers/multi.ts` her giriş/WS/genel istek ayrı IP (`nextIp`, `signIn(remoteAddress)`),
+`startMultiLive` `TRUSTED_PROXY_CIDR=127.0.0.1/32` (aksi halde XFF yok sayılıyor, `/ws/tech` 31/dk IP kovası 429 veriyordu);
+AC-364 fail audit beklentisi `["permission","tenant"]` (T8: (kullanıcı, oturum, gerekçe) dakikada 1); AC-367/368 geçersiz şemalı
+mesajlar (`clip.pull cid`, `file.meta sha256`, `print.cancel pid`, `quality.summary` stat, `fsrv.cancel` ULID) soketi kapatıyordu;
+AC-368 `supervise_join` yalnız `success` satırı; gözetimsiz kurguda sahibe grant + `unattended.*` yetkisi (yoksa revalidateDevice odayı
+haklı olarak `permission` ile bitiriyordu — kararsızlığın kaynağı).
+
+**Sözleşme ekleri (packages/contracts):**
+
+- `api/sessions.ts`: `SessionParticipant` + `SESSION_PARTICIPANT_ROLES`; `SessionHistoryDetail.participants?`; `TIMELINE_DETAIL_KEYS`'e
+  10 `session.*` P28c olayı (kimlik/gerekçe metni yok; yalnız rol, neden, `failReason`, `inviteeName`).
+- `ws.ts`: S→misafir `ice.restart` `from?: tid` (multi1). Fikstür `fixtures/multi.json` valid/invalid örnek eklendi.
+- Go `internal/signal/inbound.go`: `IceRestart.From` + `validOptTid` doğrulaması (yalnız signal paketi).
+
+**Sunucu ekleri:** `sessions/history-participants.ts` (yeni; `deriveParticipants` saf + `participantsOf`), `history-detail.ts`
+`participants` + aktör kuralı (katılımcı/izleyici/devreden → `TECH`); `member-cmds.ts` üye `ice.restart` multi1 misafire `from` ile
+iletilir (sapma 7 kapandı).
+
+**Yeni testler:** AC-369 geçmiş participants + zaman çizelgesi (entegrasyon), `test/unit/history-participants-p28c.test.ts` (3),
+kabul 21. istek 429, revalidateDevice üye dalı (grant silinir → yalnız üye 4403).
+
+### K1c (2026-11-16) — sözleşme ekleri + eksik testler
+
+**Değişen dosyalar:** `packages/contracts/src/{ws.ts,ws-multi.ts,api/multi.ts}` + `test/__snapshots__/pt-surface.test.ts.snap`
+(yalnız `OutgoingInvite`, `OutgoingInvitesResponse` eklendi); `apps/server/src/signaling/active.ts` (`hello`/`peer.joined`
+`guestMulti`), `src/sessions/invites.ts` (`outgoingInvites`), `src/sessions/routes-multi.ts` (`GET /:id/invites`, `poll` kovası
+`out:<user>`); testler `test/integration/multi-p28c.test.ts` (+9), `test/unit/multi-roster-rec-p28c.test.ts` (yeni, 6),
+`test/helpers/multi.ts` (`ownerWithGuest` artık `joined` = sahibin aldığı `peer.joined` döner).
+
+**Yeni testler:** AC-372 `guestMulti` (multi1 true / eski false / üye hello / sahip yeniden bağlanma); `GET /sessions/:id/invites`
+(no-store, sıra, geri çek/kabul/süre dolumu sonrası boş, üye 403, başka tenant 404, biçimsiz 404); AC-11 devir sınırı (CONFLICT,
+technician_id değişmez, `transfer fail{conflict}`); O-PC-2 `target_gone` (üretimde kanca YOK — testte `rooms.db.$transaction`
+sarılır: gerçek TX commit olur, dönmeden hedef soketi kapanır → DB geri alınır, bellek değişmez, `fail{target_gone}`); geri alma
+matrisi 5 satır (üye: applyPermChange / endByTechnician / kimlik oturumu iptali yedek döngü; sahip: endByTechnician / yedek döngü)
+sahte saat hiç ilerlemeden etkili (anlık ≤ 5 sn; yedek döngü bir `revalidateMs` periyodunda — testte 300 ms, üretim 60 sn ≤ 60 sn);
+`rosterOf` değişmezleri (tek sahip/tek kontrol sahibi, rezervasyon listede yok, kopuk sahip, ad kırpma, tid kalıcı) ve
+`recRecorderChanged` (eski belirteç hemen düşer, eskisine upload'sız `rec.state`, yenisine yeni seri + belirteç; rec1 olmayan
+kontrol sahibinde dönüş süresi; kayıt yokken mesaj yok).
+
+**Ayrıca düzeltilen (K1'den kalan kırmızılar):** `test/helpers/tenant-matrix.ts` P28c uçlarını sınıflandırmıyordu (AC-69
+"sınıfsız uç" testi düşüyordu) → 9 uç eklendi (`/:id/*` tenant + B→A 404 vakaları; `/invites`, accept/reject self; `/active` scoped).
+`consent-p4` QA-P4-12 `peer.joined` tam eşleşmesine `guestMulti:false`; sunucu `pt-surface` rota anlık görüntüsü (+GET/HEAD
+`/sessions/:id/invites`, yalnız ekleme).
+
+**Doğrulama (p28c-k1c-mysql, 3423):** tam `pnpm --filter @remote/server exec vitest run` → 159 dosya, 1765 geçti, 1 atlandı,
+1 düştü = AC-261 (`p19-notify-j3`, bilinen kararsız; tek başına 18/18 geçti). `pnpm -r run lint` / `typecheck` temiz, contracts
+254/254, prettier temiz. Test DB kapatıldı (`p28c-k1b-mysql` da artık çalışmıyor).
+
+**Not:** matristeki "sahip — applyPermChange" satırı yok: gözetimsiz olmayan odada sahibin yetki daralması odayı bitirmez (yalnız caps
+daralır; P3 S-P3-8 davranışı). Gözetimsiz sahip dalı mevcut "gözetimsiz oda (bellek kurgusu)" testinde.
+
+### BİTMEYEN / sıradaki ajan için — tümü kapandı (düzeltme turu 1, 2026-11-17)
+
+1. ~~**Prettier:**~~ K1c: değişen dosyalar `prettier --write` ile biçimlendi. şu dosyalar `prettier --list-different`'te: `sessions/{eligibility,history-participants,invites,service}.ts`,
+   `signaling/{member-cmds,member-life,multi-audit}.ts`, `unattended/device-access.ts`, `test/helpers/multi.ts`,
+   `test/integration/multi-p28c.test.ts` → `npx prettier --write` (otomatik izin reddi nedeniyle koşulamadı).
+2. ~~**contracts `pt-surface`**~~ K1c: güncellendi (yalnız ekleme). yeni dışa aktarım `SESSION_PARTICIPANT_ROLES` → `pnpm --filter @remote/contracts exec
+vitest run test/pt-surface.test.ts -u` (yalnız ekleme; koşulamadı). Bunun dışında contracts 253/254 geçti.
+3. ~~**Test DB konteyneri `p28c-k1b-mysql`**~~ K1c: çalışmıyor. — `apps/server/scripts/test-db.sh down` izin reddi aldı; elle kapatılmalı.
+4. ~~Eksik testler~~ — K1c'de yazıldı (yukarı).
+5. ~~Tam koşu~~ K1c'de koşuldu (yukarı). — yalnız birim + ilgili alt küme.
+6. ~~`docs/implementation.md` "P28c K1" bölümü bu nottan yazılmalı.~~ Bu bölüm K1 kaydıdır (QA-3, tur 1).
+7. ~~Go ajanı: `IceRestart.From`~~ — K3c'de kapandı (`TestP28cIceRestartRoutedByFrom`, `TestP28cIceRestartKeepsPeersAndSendsNothing`).
+
+### Tasarımdan sapmalar (gerekçeli)
+
+1. Oda alanları `room.multi` altında (`ownerTid` yerine `tidOf(room, technicianId)`; `tids` haritası (oturum, kullanıcı) başına sabit tid).
+2. Step-up (adım 8) yalnız gözetimsiz odada kabul/İzle'de — gereksinimler AC-364 + tablo satırı "gözetimsizde davetliye step-up".
+3. Kabulde başkasının/bilinmeyen davet → 410 `INVITE_GONE` (403 yerine; geçerli davet kimliği kâhini olmasın).
+4. Dört göz e-postası (`join`) üyenin **ilk WS katılımında** (audit ile aynı an, bir kez); gerekçe metni o ana dek yalnız bellekte.
+5. Teknisyen mesaj kovaları: lobi (`peer.pending`) yalnız sahip; kontrol/pano/yazdırma/env/monitör/fsrv yalnız kontrol sahibi;
+   `ice.servers`, `peer.joined/left{guest}`, `share.state`, `session.warning`, `session.ended`, `rec.state`, roster tüm teknisyenlere.
+6. Devir/kontrol devrinde misafire `control.revoke{reason:"reconnect"}` (K0 sapma 8). AC-11 sınırı aşımında da audit `failReason:"conflict"`.
+7. ~~Üye `ice.restart` iletilmez~~ — K1b: sözleşmeye `from` eklendi, multi1 misafire `from` ile iletilir.
+8. Kontrol sahibi üye `remote_control.use`'u kaybederse açık kontrol `revokeControlFor(permission)` ile kapanır (üye düşmez).
+
+### frontend-dev için
+
+- Teknisyen `hello`: `tid`, `techRole`, `roster` her zaman; rol değişimi yalnız `techs.roster` ile bildirilir (hello yeniden gönderilmez;
+  konsol kendi rolünü roster'daki kendi `tid`'inden okur). Rol reddi `error{FORBIDDEN, "Yalnız kontrol sahibi kullanabilir."}`.
+- Üye soketi kapanış: `4403 removed` (müşteri çıkardı / yetki düştü), `1000 left` (`member.leave`).
+- `GET /sessions/:id` üyeye 200 döner, `techVerifyCode: ""`.
+- **K2: geçmiş detayında participants göster** (`SessionHistoryDetail.participants`: ad, rol, katılım/ayrılma, `leaveReason`
+  (`removed` = müşteri çıkardı), `transferredAt`); zaman çizelgesinde yeni `session.*` olaylarına Türkçe etiket; katılımcı aktörü `TECH`.
+- Misafir (tarayıcı, multi1): S→misafir `ice.restart` artık `from` taşıyabilir → ilgili teknisyen PC'sinde ICE yeniden başlat.
+
+### P28c düzeltme turu 1 — sunucu (backend-dev, 2026-11-17)
+
+Kaynak: `docs/guvenlik-raporu.md` "P28c kod turu 1" (O-PC-K1, D-PC-K2/K3/K4), `docs/qa-raporu.md` "P28c tur 1" (1–3). D-PC-K1 (Go) bu turda değil.
+
+- **D-PC-K1** (güvenlik, Düşük; Go ajanı): `liveIndicator.SetNames` aynı ek zaten yazılıysa doğrulama yapmadan true dönüyordu; erken dönüş kaldırıldı, ek aynı olsa da her çağrıda `Drawn` ile çizim doğrulanıyor. Test `TestP28cSetNamesSameSuffixRechecksDrawn`, `agent-win.yml` P28c zorunlu PASS listesine eklendi.
+- **Devir hedefinde `sessions.create`** (koordinatör kararı): güvenlik raporundaki "mevcut oturum açma koşulu" ifadesine dayanır; hedef kontrolü devralacağı için oturum açabilen kullanıcı olmalı.
+- **D-PC-K5** (güvenlik tur 2, Düşük): `targetMayOwn` gözetimsiz odada `sessions.create` aramaz; odayı açan yetki `unattended.connect` (grant/silent ile `eligibleToJoin` revalidate'te). Mimari §5.2'ye yazıldı. Test: "AC-369 D-PC-K5" (gözetimsiz devir `sessions.create`'siz başarılı) + mevcut "AC-369 D-PC-K4" (gözetimli `sessions.create`'siz CONFLICT).
+
+- **O-PC-K1** `sessions/eligibility.ts` → adım 6/6a/6b `unattendedStep(d, s, room, phase)` olarak ayrıldı; `eligibleToJoin` ve
+  `invites.ts unattendedVisible` ikisi de bunu çağırır (tek kaynak). `GET /sessions/active`: **asked oda hiç listelenmez**;
+  silent oda yalnız `sessions.supervise` + `unattended.connect` + cihaz grant'ı + `unattended.silent` + açık politika olana.
+  Koltuk/multi1'den bağımsız (dolu / `supported:false` oda uygun izleyiciye bayrakla görünmeye devam eder).
+- **D-PC-K2** `routes-multi.ts`: `invite-candidates` → `poll` (`cand:<userId>`, 60/dk), ret → `join` (`rej:`), DELETE davet → `join`
+  (`del:`), 20/dk; ayrı önekler kabul/İzle bütçesini yemez. Aday listesi: kullanıcı + rol + toggle'lar tek `findMany`
+  (`SUBJECT_SELECT`/`toSubject` `subjectById` ile ortak), grant'lar tek sorgu, silent politikası en çok bir kez
+  (`JoinDeps.silentPolicy`). Önce ≤ 200 + 2, şimdi ≤ 3 sorgu.
+- **D-PC-K3 (gerekçe, kod değişmedi):** `member-life.ts` gerekçeyi audit `newValue.silentReason` anahtarına yazar. P28u
+  `connect-tx.ts` (`unattended.connect`) aynı anahtarı ve aynı `entity=support_sessions`/`entity_id=sessionId` biçimini kullanır.
+  Okuma tarafı (`audit/read.ts` + `audit/view.ts SILENT_REASON_KEY`) eylem adına bakmadan, iç içe dahil bu anahtarı maskeler.
+  Metin yalnız `session_history.view` sahibine ve oturum anonimleştirilmemişse görünür (D-P28u-K1-1, fail-closed). Geçmiş zaman
+  çizelgesi izdüşümü bu anahtarı taşımaz. Yani P28u kalıbıyla birebir aynı, ayrı bir kopya yok. `reasonLen` ek alandır.
+- **D-PC-K4** `member-cmds.ts transferTx`: `lockTechnician`'dan sonra `targetMayOwn` hedefi TX içinden (`subjectById(tx)`)
+  yeniden okur. Koşullar: `sessions.create` (`POST /sessions` ile aynı sahip koşulu) ve `eligibleToJoin(..., "revalidate")`
+  (etkin kullanıcı/tenant, `sessions.view`, gözetimsizde `unattended.connect` + `deviceAccess` + silent yetki/politika).
+  Düşerse `CONFLICT` + audit `fail{conflict}`. Bunun için `Rooms.unattendedGate` eklendi (ws.ts bağlar; yoksa gözetimsiz devir
+  reddedilir). `deviceAccess`/`JoinDeps.db` TX istemcisini kabul eder, `JoinDeps.gate` yalnız `allows` ister.
+- **QA-1** `ops/metrics.ts`: `rs_multi_denied_total`, `rs_multi_invites_total` `m.counter` ile kayıtlı. Önceden `inc` kayıtsız
+  sayaçta no-op'tu, sayaçlar hiç artmıyordu. Birim testi: `test/unit/metrics-multi-p28c.test.ts`.
+  `bash deploy/ops/test-watch.sh` → `PASS ad eşlemesi: rs_multi_denied_total`, SONUÇ: GEÇTİ (UYARI yok).
+- **QA-2** `multi-p28c.test.ts` "P28c düzeltme turu 1": silent odada `unattended.silent`'sız davet 403 `{silent}`, İzle 403,
+  kabul 403 `{silent}`; gözetimsiz odada davetlide `unattended.connect` yok 403 `{permission}`, grant yok 403 `{device}`;
+  kabulde 2FA'sız 403 `MFA_SETUP_REQUIRED`, step-up'sız 401 `MFA_STEP_UP_REQUIRED`, step-up ile 200 (tasarım V-PC-2/sapma 2
+  ile uyumlu: eligibility 403 step-up'tan önce gelir). Ayrıca O-PC-K1 görünürlük, D-PC-K4 devir reddi, D-PC-K2 429 testleri var.
+  Mevcut devir testlerinin hedefi `sessions.create` taşıyor. "gözetimsiz oda" testinde asked oda artık listede değil.
+- **Sapma:** yok. D-PC-K4'teki `sessions.create` şartı tasarımda açıkça yazmıyor; güvenlik bulgusunun "mevcut oturum açma
+  koşulu" ifadesiyle uygulandı. Yeni bağımlılık, env veya migration yok.
+- **frontend-dev için:** (1) `/sessions/active` asked gözetimsiz odayı artık döndürmez. Web'in "asked → pasif" dalı ölü kalır, zararsız.
+  (2) `invite-candidates`, davet reddi ve davet DELETE 429 `RATE_LIMITED` (+ Retry-After) dönebilir.
+  (3) `session.transfer` hedefte `sessions.create` yoksa `error{CONFLICT, "Oturum devredilemedi."}` döner.
+- **Doğrulama:** `pnpm -r run lint && pnpm -r run typecheck` temiz. p28c-fix1-mysql:3426 üzerinde
+  `vitest run test/unit test/integration/multi-p28c.test.ts test/integration/pt-surface.test.ts` → 50 dosya, 680 geçti, 1 atlandı
+  (`fsrv-p28b` CLAMD). Konteyner `down` ile kapatıldı.
+
+### P28c K2/K2b — web
+
+## P28c K2 — Web (frontend-dev, 2026-11-16)
+
+Kaynak: `docs/mimari-p28c.md` r2 §4.1, §4.4, §4.5, §5, §6.1, §9, §10; ADR-0035; K0 adları. Yalnız `apps/web/**` değişti.
+
+### Rotalar
+
+| Yol                          | Auth  | Ne yapar                                                                                                                                                                                             |
+| ---------------------------- | ----- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `/sessions`                  | evet  | + "Firmadaki etkin oturumlar" bölümü (yalnız `sessions.supervise`, firma bağlamı); satırda "İzle" (silent → gerekçe diyaloğu → step-up)                                                              |
+| `/sessions/[id]/console`     | evet  | Sahip olmayan kullanıcı ACTIVE oturuma **üye** olarak bağlanır (rol `hello`/roster'dan); üye değilse ilk `hello`'dan önce kapanış → "Bu konsol yalnız …" (`notMember`). PENDING oturum yalnız sahibe |
+| Tüm panel sayfaları          | evet  | Davet bildirimi kartı (`InviteNotifier`, 5 sn yoklama; Super Admin hariç)                                                                                                                            |
+| `/history/[id]`              | evet  | + "Katılımcılar" bölümü (sunucu `participants` gönderirse) ; çoklu teknisyen olayları zaman çizelgesinde Türkçe                                                                                      |
+| `/session/[token]` (müşteri) | hayır | + "Bağlı teknisyenler" (ad + rol, "Çıkar" onaylı), katılım bildirimi 3 sn, çok eşli sohbet                                                                                                           |
+| `/audit`                     | evet  | Eylem süzgecinde "Çoklu teknisyen" grubu (tek tek eylem; "tümü" yok)                                                                                                                                 |
+
+Yetki toggle'ları (`sessions.invite`, `sessions.supervise`): `PERMISSION_MODULES`'tan otomatik (K0 `tr.json` etiketleri); ek iş yok.
+
+### Yapılanlar
+
+- **Konsol** (`components/console/techs-panel.tsx`, `invite-dialog.tsx`): "Teknisyenler n/3" açılır paneli (ad, rol, "Oturum sahibi" rozeti,
+  bağlantı koptu); sahip + `sessions.invite`: "Davet et" (aday listesi + arama; yükleniyor/boş/hata/pasif/liste), bekleyen davet satırı +
+  "Geri çek" (`DELETE`), "Kontrolü ver" / "Kontrolü geri al" (`control.handover`), "Oturumu devret" (onay, odak Vazgeç; `session.transfer`).
+  Üye: "Oturumdan ayrıl" (onay; `member.leave` → yerel `left`, yeniden bağlanma yok). Komuttan sonra 5 sn içindeki WS `error` toast.
+- **Rol kapısı:** yer roster'daki kendi `tid` satırından (`lib/multi/roster.ts seatOf`; devirde yeni hello gerekmez). Kontrol sahibi
+  değilken "Kontrol iste", işaretleme, pano/yazdırma (`FeatureReason "notController"`), dosyalar **pasif** + "Yalnız kontrol sahibi
+  kullanabilir"; izleyicide sohbet girişi yerine "İzleyici olarak sohbete yazamazsınız". `quality.summary`, `file.meta`, `rec.error` WS
+  gönderimleri `seatMay` ile süzülür. Sahip değilse "Oturumu bitir" ve boş doğrulama kodu gösterilmez. Gözetimsiz müdahale yalnız kontrol sahibi.
+- **Kapanış kodları:** 4403 → `removed` ("müşteri sizi çıkardı ya da yetkiniz kaldırıldı" — kod ikisini ayırmaz), `left`, `notMember`.
+- **Pasif durumlar (AC-372, V-PC-5):** `asked` gözetimsiz odada "Davet et" baştan pasif + `JOIN_NOT_ALLOWED` metni; misafir `multi1`
+  yoksa aday listesi 409 `CLIENT_UNSUPPORTED` → AC-352 metni, düğme pasif; koltuk doluysa (roster + bekleyen ≥ 3) pasif + neden.
+- **Davet bildirimi** (`components/invite-notifier.tsx`): kart "<Ad> sizi <müşteri> oturumuna davet ediyor", kalan süre, Katıl/Reddet;
+  yeni davette toast; silent → gerekçe diyaloğu (`components/multi/join-reason-dialog.tsx`, P28u `ReasonField` yeniden kullanıldı);
+  step-up `lib/api` + `StepUpProvider`; `MFA_SETUP_REQUIRED` → "Önce 2FA kurun"; 401 → giriş, 403/404 → dur, 429 → Retry-After.
+- **Etkin oturumlar** (`app/(panel)/sessions/active-sessions.tsx`): 10 sn yoklama, skeleton/boş/hata/liste; dolu / desteklemiyor /
+  `asked` satırında İzle pasif + neden.
+- **Müşteri tarayıcısı:** `rs.cap.multi1` bildirilir (`guestProtocols`). `lib/webrtc/guest-peers.ts`: tid başına PeerConnection,
+  yanıt/ICE `to`, kabul listesi (yalnız son roster'da + bağlı + **DOM'a çizilmiş** tid; çizimden önce gelen teklif bekletilir; roster
+  görüldükten sonra `from`'suz/bilinmeyen teklif düşer; roster'dan düşen/kopan eş kapanır), ikincil göndericilerde `setParameters`
+  (`LOW_FPS`/`LOW_BPS`, kontrol sahibinde tavan kalkar; rol değişiminde yeniden), dosya/işaretleme yalnız kontrol sahibinin eşi,
+  sohbet yayma (müşteri → tüm eşler `by`'sız; teknisyen mesajı izleyici değilse gösterilir ve diğer eşlere `by=tid` ile iletilir;
+  teknisyenden gelen `by`'lı mesaj düşer). Teknisyen varlığı roster'dan; yeni bağlanan teknisyene `share.state` yeniden bildirilir.
+  Roster hiç gelmezse eski tek eş yolu aynen (P5 gerçek WebRTC e2e yeşil).
+- **Sohbet `by`:** konsol adı kendi roster'ından çözer, çözemezse "Müşteri" (`chatAuthor`).
+- **Audit:** `MULTI_AUDIT_LABELS` → `AUDIT_ACTION_LABELS`; `MULTI_AUDIT_GROUP` ayrı seçenek grubu.
+- **Geçmiş:** "Katılımcılar" (ad, rol, katılma–ayrılma); zaman çizelgesi etiketi contracts'ta yoksa `MULTI_AUDIT_LABELS`'tan.
+
+### Değişen / eklenen dosyalar (apps/web)
+
+Yeni: `lib/multi/{roster,errors}.ts`, `lib/multi/multi-p28c.test.ts`, `lib/webrtc/{guest-peers,sender-caps}.ts`,
+`components/console/{techs-panel,invite-dialog}.tsx`, `components/guest/techs-list.tsx`, `components/invite-notifier.tsx`,
+`components/multi/{use-join.ts,join-reason-dialog.tsx}`, `app/(panel)/sessions/active-sessions.tsx`, `app/(panel)/history/[id]/participants.tsx`,
+`e2e/mock-p28c.mjs`, `e2e/p28c-multi.spec.ts`.
+Değişen: `lib/webrtc/{tech-machine,use-tech-session,guest-machine,use-guest-session,peer,signal,machines.test}.ts`, `lib/dc/{chat,use-collab}.ts`,
+`lib/clip/{feature-state,use-clip-print}.ts`, `lib/audit/actions.ts`, `components/collab/{chat-panel,files-panel}.tsx`,
+`components/console/collab-side.tsx`, `components/guest/guest-collab.tsx`, konsol `page/console-view/console-header/console-stage/console-parts`,
+`app/(panel)/{layout,sessions/page}.tsx`, `app/(panel)/unattended/connect-dialog.tsx` (`ReasonField` export), `app/session/[token]/guest-session.tsx`,
+geçmiş `page/timeline.tsx`, `messages/tr.json` (`mt.*`, `c.reason.{removed,left,notMember}`, `cp.r.notController`), `e2e/mock-{api,ws}.mjs`.
+
+### DESIGN.md eklentileri (koordinatör ekler)
+
+İkonlar: Teknisyenler → `Users`, Davet et → `UserPlus`, Kontrolü ver → `MousePointer2`, Kontrolü geri al → `Undo2`, Oturumu devret →
+`ArrowRightLeft`, Oturumdan ayrıl → `LogOut`, Daveti geri çek → `X`, İzle → `Eye`, Katıl → `LogIn`, Reddet / Çıkar → `UserX`,
+bağlantı koptu → `WifiOff`, panel aç/kapa → `ChevronDown`. Yeni primitif yok; `Dialog`, `Button`, `EmptyState`, `Skeleton`, `Avatar`,
+`LoadError`, `FormError`, `Alert` kullanıldı.
+
+### Sapmalar / sözleşme boşlukları (backend-dev / koordinatör)
+
+1. **`SessionHistoryDetail.participants` contracts'ta yok** (mimari §9 tanımlı). Web yerel tipi savunmacı okur; alan gelmezse bölüm çizilmez. K1 tipi contracts'a eklemeli.
+2. **Zaman çizelgesi etiketleri** (`describeTimelineEvent`, contracts labels) P28c eylemlerini bilmiyor; web geçici olarak `MULTI_AUDIT_LABELS`'a düşer. Notlar (rol/neden) için contracts eki gerekir.
+3. **Bekleyen giden davetler için GET ucu yok** ve roster'da userId yok → "Geri çek" satırları yalnız bu sekmenin 201 yanıtlarından; sayfa yenilenince kaybolur (koltuk sunucuda doğru). Roster'a aynı adla biri girince satır görüntüden kalkar (yalnız görüntü).
+4. **Konsolda misafirin `multi1` yeteneği yerel bilinmiyor** (hello/peer.joined'da alan yok) → "Davet et" pasifliği `invite-candidates` 409'undan öğrenilir (panel ilk açılışta etkin görünür). İstenirse `guestFeatures`'a `multi` değeri eklenebilir.
+5. **4403** müşteri çıkarması ile yetki düşmesini ayırmaz → tek metin. **Sonra (kullanıcı onaylı değil, koordinatör kararı: P28c kapsamı dışı).**
+6. **WS `error` istek kimliği taşımaz** → devir/ayrılma hataları "son 5 sn içindeki komut" sezgisiyle toast. **Sonra (kullanıcı onaylı değil, koordinatör kararı: P28c kapsamı dışı).**
+7. Gözetimsiz odada Go yardımcısı/gösterge K3'te; web yalnız tarayıcı misafiri.
+
+### Yapılmayanlar / bilinen eksikler
+
+- **Gerçek sunucuyla (K1) uçtan uca deneme yapılmadı**; e2e sahte API/WS ile. Tarayıcı misafirinde çok eşli medya (iki teknisyen aynı
+  anda, ana/düşük akış, roster dışı `from` reddi) **e2e ile değil yalnız birim testle** (`offerDecision`, `senderEncodings`) doğrulandı;
+  AC-371 ölçümü staging'de (K5).
+- Müşteri sayfasındaki "Bağlı teknisyenler" + "Çıkar" için e2e yok (sahte WS misafire roster göndermiyor); bileşen birim testi de yok.
+- Audit sayfasında "Çoklu teknisyen" grubu e2e'de sınanmadı (birim test var).
+- Kontrol devrinde konsol tarafında ek iş yok (misafir iz takası yapar); konsol yalnız roster'la yeniden çizer.
+
+### Doğrulama
+
+- `pnpm --filter @remote/web run lint` → temiz; `typecheck` → temiz; `test` → 53 dosya, 499 test (yeni `lib/multi/multi-p28c.test.ts` 14).
+- `npx playwright test e2e/p28c-multi.spec.ts --project=desktop --project=mobile` → 9 geçti (1 masaüstü-only atlandı); 375 px açık/koyu axe 0.
+- Tam `--project=desktop --project=mobile` → 531 geçti, 0 hata; `--project=desktop-rtc` (P5 gerçek WebRTC) → 20 geçti.
+
+### K2b (frontend-dev, 2026-11-16): web entegrasyon eksikleri
+
+Sözleşme boşlukları 1–4 kapandı (K1c kontratı). Yalnızca `apps/web/**` değişti.
+
+- **`guestMulti` (AC-372):** `TechState.guestMulti: boolean | null` alanı `hello` ve `peer.joined{guest}` ile doluyor. `null` = alan yok, engel değil. `peer.left` son değeri koruyor. `lib/multi/errors.ts inviteBlockOf(consentMode, guestMulti)`: `asked` ise `JOIN_NOT_ALLOWED`, `false` ise `CLIENT_UNSUPPORTED` dönüyor ve "Davet et" baştan pasif oluyor. 409'dan öğrenilen geçici yol (`onBlocked`/`setBlocked`) kaldırıldı. Aday listesinin 409 yanıtı yalnızca yarış durumunda diyalog içi uyarı olarak gösteriliyor. "İzle" zaten sunucunun `supported` alanını okuyor, orada değişiklik yok.
+- **Bekleyen giden davetler:** `techs-panel.tsx useOutgoingInvites` `GET /sessions/:id/invites` (`OutgoingInvitesResponse`) çağırıyor. Davet bildirimiyle aynı yoklama kuralı uygulanıyor: `INVITE_POLL_MS`, 429'da Retry-After, 401'de giriş sayfası, 403/404'te durma. Liste 201, geri çekme ve roster değişiminde hemen yeniden okunuyor. Satırlar ve "Geri çek" `seat.owner` kapısıyla gösteriliyor (yetki anahtarı istemez); "Davet et" düğmesi ayrıca `sessions.invite` yetkisi istiyor. Ad eşleştirmeye dayanan sezgi kaldırıldı. `SentInvite` tipi yerine `OutgoingInvite` kullanılıyor.
+- **Geçmiş:** `participants.tsx` sözleşmedeki `SessionParticipant` tipini kullanıyor (küçük harfli rol, `joinedAt` null ise "—", `leaveReason` gösteriliyor, `removed` "Müşteri çıkardı" olarak yazılıyor, `transferredAt` "Devir:" ile gösteriliyor). Bölüm yalnızca dizi boş değilse çiziliyor; tek teknisyenli oturumda gizli. Zaman çizelgesi `lib/multi/timeline.ts describeEvent` ile yazılıyor: contracts `describeTimelineEvent` + `MULTI_AUDIT_LABELS`. Notlar `TIMELINE_DETAIL_KEYS` ayrıntılarından geliyor: rol, `MULTI_LEAVE_REASON_LABELS`/`MULTI_INVITE_EXPIRE_REASON_LABELS`, devir `failReason`, davet edilen. Devir hata etiketleri contracts'ta olmadığı için `conflict`/`target_gone` metinleri web'de tanımlandı.
+- **Misafir `ice.restart{from}`:** `guest-peers.ts iceRestartTarget` (saf işlev) ve `GuestPeers.iceRestart` Go `iceRestartPeer` ile aynı kuralı uyguluyor. Roster yoksa yalnızca `from`'suz LEGACY eş hedefleniyor. Roster varsa yalnızca roster'da bağlı ve adı çizilmiş tid hedefleniyor; diğerleri yok sayılıyor, eş kurulmuyor ya da kapatılmıyor. Misafir yanıtlayan taraf olduğu için ek iş yok: yeni ICE kimliği teknisyenin sonraki `iceRestart`'lı teklifinin yanıtında uygulanıyor.
+- **Testler:**
+  - Birim: yeni `lib/webrtc/guest-peers.test.ts` (`PeerLink` sahte). Kapsam: iki tid için iki eş, `to` damgası, düşük akış; roster dışı, `from`'suz ve bağlı olmayan teklif eş kurmuyor; çizim beklemesi; roster'dan düşen eş kapanıyor; `ice.restart` hedefi. `multi-p28c.test.ts`'e `guestMulti`, `inviteBlockOf`, `describeEvent` ve `leaveReasonLabel` testleri eklendi.
+  - e2e (`p28c-multi.spec.ts`):
+    - `guestMulti=false` olunca "Davet et" baştan pasif.
+    - Bekleyen davet sayfa yenilenince de görünüyor ve geri çekiliyor.
+    - Audit'te "Çoklu teknisyen" seçenek grubu ile süzme.
+    - Müşteri "Bağlı teknisyenler": sahipte "Çıkar" yok; onay diyaloğunda odak "Vazgeç"te; `tech.remove` sonrası satır listeden düşüyor; axe 0.
+- **Mock:**
+  - `mock-p28c.mjs`: `GET /sessions/:id/invites` tüm kullanıcılar için var (P28c dışında boş liste); `multiHello.guestMulti` eklendi; gönderilen davetler saklanıyor.
+  - `mock-ws.mjs` + `mock-api.mjs`: `/__e2e/guest-roster/<id>` kancası misafire roster gönderiyor ve `tech.remove` ile listeyi güncelliyor.
+  - `mock-audit.mjs`: bir `session.participant_remove` satırı eklendi; toplam 60 kalsın diye döngü 50'ye indirildi.
+- **Yan düzeltme (audit tablosu):** Uzun P28c eylem adı (`session.participant_remove`) 1280 px'te tabloyu 13 px taşırıyordu. `audit-cells.tsx ActionCell` içinde `truncate` kaldırıldı; kap `max-w-44` ile sınırlandı, etiket satır kırıyor, ham ad `wrap-anywhere` ile kırılıyor.
+- **Doğrulama:**
+  - lint ve typecheck temiz.
+  - Vitest: 54 dosya, 507 test.
+  - Playwright tam `--project=desktop --project=mobile`: 535 geçti, 0 hata.
+  - prettier temiz.
+- **Kalan:** Gerçek sunucuyla (K1) uçtan uca deneme ve iki gerçek teknisyenle tarayıcı misafiri mesh e2e yapılmadı (staging/K5). 4403 nedenlerinin ayrılması ve WS `error` istek kimliği hâlâ sözleşmede yok (boşluk 5–6) — Sonra (kullanıcı onaylı değil, koordinatör kararı: P28c kapsamı dışı).
+
+### P28c K3/K3b/K3c — Go istemci + yardımcı
+
+## P28c K3 — Go istemci + gözetimsiz yardımcı (backend-dev Go, 2026-11-16) — geçici not
+
+Kaynak: `docs/mimari-p28c.md` r2 (§4.4, §4.5, §5.1, §6, §6.1, §11, Y-PC-4), ADR-0035, K0 adları. Sürüm 0.17.0: kodda
+sabit sürüm yok; `build/build.sh <sunucu> 0.17.0` parametresiyle verilir.
+
+### Yapılanlar
+
+- **rtc** (`rtc.go`, yeni `media.go`): `Media`: paylaşılan `main`/`low` `TrackLocalStaticSample` + yayın pompası
+  (`Stream`), `SetLow`, `LowSource` arayüzü. `New(ice, caps, h, *Media)`. `Peer.SetMain(bool)`, `RTPSender.ReplaceTrack`
+  ile çalışır ve ardından anahtar kare ister. PLI/FIR eşin o anki izinin saatine gider. Yeni eşte ilk AddTrack'ten sonra
+  anahtar kare istenir. `Peer.Stream` kaldırıldı; yayın artık eşten bağımsız.
+- **capture** (yeni `low.go`, `source_windows.go`): ikinci kodlayıcı `lowStage`. Aynı NV12 kareyi alır; en çok
+  `signal.LowFPS` (8) kare/sn kodlar, bit hızı sabit `signal.LowBPS` (1 Mbps), ayrı `keyClock` kullanır. Yalnız
+  `EnableLow(true)` ve alıcı (sink) varken çalışır, kapanınca kodlayıcıyı da kapatır. Düşük kodlayıcı açılamaz ya da hata
+  verirse yalnız düşük akış kapanır, ana akış sürer. `source` `rtc.LowSource`'u uygular.
+- **desktop** (`gated.go`): `gatedSource` `LowSource`'u alttaki kaynağa iletir. Masaüstü değişip kaynak yeniden
+  açılınca düşük akış ayarı yeniden uygulanır.
+- **flow**
+  - Yeni `peers.go` ve `messages_p28c.go`: eş haritası `tid → eş` (en çok `MaxTechs`).
+  - Kabul listesi: offer yalnız son roster'da olan ve `RosterUI.ShowRoster` ile çizimi doğrulanmış tid'den kabul edilir;
+    çizilemeyen ad için eş kurulmaz. Multi kipinde `from`'suz offer düşer.
+  - Gönderilen `SdpAnswer.To` ve `Ice.To` alanları doldurulur.
+  - Roster'dan düşen ya da `connected:false` olan tid'in eşi hemen kapanır.
+  - Kontrol sahibi değişince kapı ve diyaloglar kapanır, yerel dosya aktarımı iptal edilir, izler takas edilir. Düşük
+    kodlayıcı yalnız en az bir ikincil eş varken açıktır.
+  - Girdi, Pion goroutine'inde atomik denetimle yalnız kontrol sahibinin eşinden geçer. Dosya parçası, `file.*`,
+    işaretleme, pano ve yazdırma DC'si de yalnız kontrol sahibinden kabul edilir. Diğer eşten gelen `file.offer` o eşe
+    `file.reject` alır.
+  - Sohbet: izleyiciden gelen düşer. Katılımcının sohbeti adıyla gösterilir (`RosterUI.TechChat`) ve diğer eşlere
+    `by=tid` ile yayılır (ad taşınmaz). Müşterinin sohbeti `by`'sız tüm eşlere gider.
+  - Kontrol izni diyaloğu ve AC-103 göstergesindeki ad roster'daki kontrol sahibinden gelir.
+  - `EvTechRemove` → `tech.remove`. Sahip ve gözetimsiz odada gönderilmez.
+  - Roster değişmezi bozulursa (`signal.ValidRoster`; ParseServer zaten 1008 ile reddeder, akış ikinci savunmadır) kapı
+    kapanır ve oturum `msgProtocol` ile biter.
+  - Multi1 sokette `peer.left/joined{tech}` gelmez; kontrol sahibinin bağlantı durumu roster'dan izlenir.
+  - Eski sokette (roster gelmezse) tek eş `""` kalır; davranış önceki gibidir.
+  - `Features`: `RosterUI` bağlıysa `rs.cap.multi1` bildirilir, gözetimsiz kipte de.
+  - `peerEvent` artık `tid` ve `gen` taşır; kapatılmış eşin geç olayları düşer.
+- **ui** (yeni `roster_windows.go`): oturum penceresinde en çok 3 satır listelenir (ad, rol etiketi, "Oturum sahibi",
+  "bağlantı koptu"). "Çıkar" yalnız gerçek yerel girdiyle çalışır (`thread.userInput`). Onay diyaloğunda varsayılan
+  düğme "Vazgeç"tir (`MB_DEFBUTTON2`). `ShowRoster` yazılan metni geri okuyarak doğrular, en çok 2 sn bekler.
+  `watchText` AC-103 metnini kontrol sahibinin adıyla kurar.
+- **helper**: `headless` `RosterUI`'yi uygular. Göstergeye `" · Bağlı: A, B"` eki yazılır; yalnız sunucu metnindeki tek
+  sahip bağlıysa ek yoktur. Bu, `no_user` ve `silent` kiplerinde geçerlidir; "Çıkar" yoktur.
+  - `liveIndicator.SetNames` çizimin doğrulanmasını bekler: `winIndicator.Drawn` son doğrulanmış etiketi en çok 2 sn
+    yoklar. Doğrulanamazsa eş kurulmaz ve mevcut fail-closed kuralıyla oturum biter.
+  - Güvensiz karakterli ad (`helperio.Text`) çizilmez. Ad 40 karakterde "…" ile kesilir.
+  - Yardımcının `Dial`'ı `rs.cap.multi1` bildirir.
+- **cmd/noktadestek/deps.go**, **helper/main_windows.go**: `rtc.NewMedia` (kapsam başına bir tane), `Deps.Media`,
+  `RosterUI: u`.
+- **signal/multi.go**: `ValidTID` ve `ValidRoster` dışa açıldı (yalnız sarmalayıcı).
+
+### Tasarımdan sapmalar ve kararlar
+
+1. **Roster arayüzü:** `RosterUI` açık bir `Deps` alanıdır, `d.UI` üzerinden tip iddiasıyla alınmaz. Gerekçe:
+   `tray.WithActive` sarmalayıcısı isteğe bağlı arayüzleri iletmiyor.
+   **Bulgu (P28e):** `recUI(d)` aynı nedenle tepside yerleşik kipte nil döner, yani kayıt özelliği bildirilmez. Bu
+   pakette düzeltilmedi; ayrı iş olarak açılmalı.
+2. **Ad çizim doğrulaması eşzamanlıdır:** `ShowRoster` en çok 2 sn bekler ve akış döngüsünü o kadar bekletebilir.
+   Gerekçe: offer çizim onayından önce işlenemez (Y-PC-4).
+3. **Sunucu roster göndermezse** (eski sunucu ya da K1 öncesi) eski tek eş yolu sürer. Multi kipi ilk roster ile açılır.
+4. **Gösterge etiketi:** sunucu metni + ad eki + kayıt eki. Sunucu metnindeki "TEST — imzasız" öneki korunur.
+5. **Düşük kodlayıcı hatası** yalnız o kaynağın düşük akışını kapatır, ana akışı düşürmez. Kaynak yeniden açılınca düşük
+   akış yeniden denenir.
+6. **Pencere yüksekliği** roster satırları için 96 px büyüdü. En kötü durumda (fsrv + yönetici uyarısı) yükseklik
+   yaklaşık 776 px; 768 px ekranlarda taşabilir. Elle kontrol edilmeli.
+7. **"Çıkar"da `userInput` denetimi** tasarımda yoktu, eklendi. Gerekçe: kontrol sahibi teknisyen `SendInput` ile
+   başka bir üyeyi çıkaramasın.
+
+### Yapılmayanlar / açık maddeler
+
+- Win32 roster UI ve `winIndicator.Drawn` Linux'ta derleme ve vet ile denetlendi; Windows'ta elle denenmedi.
+  Staging'de test-operatoru ve kullanıcı denemeli.
+- AC-371 ölçümü (10 Mbps, 3 teknisyen) yalnız staging'de elle yapılabilir; birim testi yalnız ≤ 8 FPS'i doğrular.
+- Helper'ın `ShowRoster`/`namesSuffix` yolu ve gösterge adı birim testi **yazılmadı** (kalan iş).
+- Konsoldaki kontrol sahibi `connected:false` → `true` olduğunda durum satırı metni roster'dan türetiliyor; bunun ayrı
+  bir testi yok.
+
+### Testler (agent-win.yml zorunlu listesine eklenecek adlar)
+
+- `internal/flow` (`peers_test.go`): `TestAC366OfferOnlyFromDrawnRosterTid`, `TestAC366OfferRejectedWhenNameNotDrawn`,
+  `TestAC366RemoveSendsTechRemoveAndRosterDropClosesPeer`, `TestAC366UnattendedHasNoRemove`,
+  `TestAC371AC367TracksAndFilesFollowController`, `TestAC367InputGateFollowsController`,
+  `TestP28cChatRelayAndObserverDropped`, `TestP28cInvalidRosterEndsSession`
+- `internal/capture` (`low_test.go`): `TestAC371LowEncoderAtMost8FPS`, `TestAC371LowEncoderOnlyWhileEnabled`,
+  `TestAC371LowEncoderFailureIsolated`
+- `internal/rtc`: `TestAC367SetMainReplacesTrack`
+- K0'dan gelenler: `internal/signal/multi_test.go`, `internal/dc/chat_multi_test.go`
+
+### Komutlar ve son çıktı
+
+Tümü `docker run … golang:1.26` içinde, depo kökü `/src`'ye bağlı, `-w /src/apps/agent-win` ile koşuldu.
+
+- `go test ./...` → tüm paketler ok.
+- `go test -race ./internal/flow/ ./internal/rtc/ ./internal/capture/` → ok.
+- `GOOS=windows go vet ./... && GOOS=windows go build ./...` → temiz.
+- staticcheck v0.8.2 (linux + `GOOS=windows GOARCH=amd64`) → uyarı yok.
+- `gofmt -l .` → boş.
+
+Yeni bağımlılık yok.
+
+#### K3b
+
+- **P28e hatası (tepsi kipinde rec1 yok):** kök neden `tray.WithActive` → `activeUI` yalnız `flow.UI` gömüyordu;
+  `flow.recUI` `d.UI.(RecUI)` iddiasıyla aradığı için yerleşik (tepsi) kipte kayıt yeteneği hiç bildirilmiyor, talep
+  formundaki kutu sessizce düşüyordu. Düzeltme (`internal/tray/resident.go`): iç arayüz `flow.RecUI` ise sarmalayıcı
+  `activeRecUI` döner ve onu iletir; değilse iletmez (K-P28e-7 korunur). Diğer isteğe bağlı arayüzler (ClipPrintUI,
+  FileServerUI, RosterUI) açık `flow.Deps` alanı ve sarmalanmamış `u` ile bağlı; `d.UI` üzerinde başka tür iddiası yok
+  → etkilenmiyor. Test: `TestP28cP28eTrayWithActiveForwardsRecUI`.
+- ~~**Eksik testler:**~~ yazıldı: `TestP28cNamesSuffix`, `TestP28cHeadlessShowRoster`, `TestP28cLiveSetNamesDrawsSuffix`
+  (`unattended/helper/p28c_test.go`), `TestP28cControllerDisconnectAndReturnStatus` (`flow/peers_test.go`); hepsi CI zorunlu PASS listesinde.
+- **768 px:** `internal/ui/session_fit.go` `chatSqueeze` — pencere birincil çalışma alanına (16 px alt payla) sığmazsa
+  sohbet geçmişi kısalır (en az 64 px), altındaki denetimler kayar. Test `TestP28cSessionWindowFits768`. Gerçek ekranda
+  doğrulanmadı; %125+ DPI'da 768 px ekranda tavan (132 px) yetmeyebilir.
+- **CI:** "P28c çoklu teknisyen testleri" adımı `-run 'P28c|AC366|AC367|AC371'` + `./internal/tray/...`; zorunlu PASS
+  listesine K3 ve K3b testleri eklendi (actionlint temiz).
+- **Not (değiştirilmedi):** `liveIndicator.SetNames` aynı ek zaten yazılıysa doğrulamadan true döner; önceki çizim
+  doğrulaması zaman aşımına uğramışsa sonraki aynı roster'da tid'ler doğrulamasız kabul edilir (gösterge gerçekten
+  çizemezse `fail()` oturumu bitirir; risk düşük). Güvenlik incelemesine bırakıldı.
+
+#### K3c
+
+- **`ice.restart` `from` yönlendirmesi** (K1b sözleşme eki; sunucu multi1 misafire `from: tid` gönderiyor):
+  `internal/flow/peers.go` `iceRestartPeer` hedef eşi seçer — `from` boş: yalnız eski soketin tek eşi (`!multi.on`,
+  `peers[""]`), multi1'de yok sayılır; `from` dolu: yalnız multi kipinde, son roster'da adı çizilmiş (`drawn`) ve eşi kurulmuş
+  tid. Roster dışı / çizilmemiş / eşi olmayan tid → yok sayılır; `ice.restart` hiçbir zaman eş kurmaz ya da kapatmaz
+  (onOffer/onRemoteIce ile aynı kabul kuralı, Y-PC-4). `session_server.go` `onSignaling` bunu çağırır.
+- **Tel davranışı değişmedi:** istemci yanıtlayan taraf; hedef eşte ek iş yok (yeni `Peer`/`rtc` yöntemi eklenmedi).
+  Teknisyen ardından iceRestart'lı yeni offer gönderir, yeni ICE kimliği `onOffer → HandleOffer`'da aynı kabul listesiyle
+  uygulanır. Yeni olan yalnız hedef seçimi/kabul kapısıdır.
+- **Testler** (`internal/flow/peers_test.go`): `TestP28cIceRestartRoutedByFrom` (eski soket from'suz → tek eş; çizilmiş tid →
+  kendi eşi; çizilmemiş / roster dışı / eşsiz tid ve multi1'de from'suz → yok say; eş haritası değişmez),
+  `TestP28cIceRestartKeepsPeersAndSendsNothing` (uçtan uca: eş kurulmaz/kapanmaz, gönderim yok, ardından gelen offer aynı eşe).
+  Kabul kapısını kaldıran mutasyonda ilk test kırmızı oldu (doğrulandı).
+- **CI:** iki test `.github/workflows/agent-win.yml` P28c adımının zorunlu PASS listesine eklendi.
+- **Doğrulama:** `go test ./...` ok, `go test -race -count=3 -run 'P28c|AC366' ./internal/flow/` ok,
+  `GOOS=windows go vet/build` temiz, staticcheck v0.8.2 linux + windows temiz, `gofmt -l .` boş. Yeni bağımlılık yok.
+
+### P28c K4 — devops
+
+## P28c K4 — devops notu (2026-11-16)
+
+Kaynak: mimari-p28c r2 §6.1, §7, §8, §12 (AC-371), §13 K4; ADR-0035. Yeni env yok, migration yok, yeni bağımlılık yok.
+
+### Değişen dosyalar
+
+- `docs/runbook.md` → yeni §28c (28c.1 yetkiler, 28c.2 audit, 28c.3 hız sınırları, 28c.4 sorun giderme, 28c.5 metrikler,
+  28c.6 alarm, 28c.7 Windows elle turu, 28c.8 AC-371 ölçüm prosedürü, 28c.9 staging yayını, 28c.10 geri alma).
+- `deploy/ops/remote-watch.sh` → `multi-denied` kontrolü: 37. alan `rs_multi_denied_total` (bütün `type` toplamı; etiketsiz
+  `rs_multi_denied_total 0` = P28c işareti, yoksa kontrol yok), örnekler `multi_samples` durum anahtarı (90 dk), 1 sa artışı >
+  `WATCH_MULTI_DENIED_MAX` (vars. 20) → uyarı. Davet reddi / üye sayısı için alarm yok (kullanıcı davranışı; tasarımda "üye iptal
+  hatası" metriği yok — uydurulmadı), runbook'ta elle bakış.
+- `deploy/ops/test-watch.sh` → P28c bölümü (işaret yok/var, tohumsuz iki ardışık koşu ile durum yazımı, eşik sınırı, pencere dışı,
+  sayaç sıfırlanması, 90 dk budama, `a[$(…)]` enjeksiyonu), metrik ayrıştırma (etiketli toplam + işaret), mevcut `exp=` dizileri 37.
+  alanla güncellendi; **ad eşlemesi**: `ops/metrics.ts`'te hiç `rs_multi_` yoksa UYARI + mimari-p28c'ye karşı denetim; bir tane bile
+  varsa betikteki ad birebir olmalı (FAIL).
+- `deploy/ops/watch.env.example` → `WATCH_MULTI_DENIED_MAX` açıklaması (watch.env; uygulama env'i değil → `.env.example`/`env.ts`/compose
+  değişmez).
+- `.github/workflows/agent-win.yml` → "P28c çoklu teknisyen testleri (-v)" adımı (P28e adımından sonra, K6s kilit adımından önce;
+  `-run 'P28c'`, signal/dc/rtc/flow/capture/ui/unattended); zorunlu PASS listesi dört K0 testiyle başladı; K3/K3b/K3c testleri (gösterge adı, roster durumu, `ice.restart from`) sonradan eklendi. Etiket kontrol listesine
+  "0.17.0 → P28c, migration yok" ve çoklu teknisyen elle turu + AC-371 maddesi. Yeni Action yok; SHA/permissions değişmedi.
+
+### Diğer ajanlara
+
+- ~~**backend-dev (K1):**~~ düzeltme turu 1'de yapıldı (QA-1). `apps/server/src/ops/metrics.ts`'e `m.counter("rs_multi_denied_total", …)` **etiketsiz kayıt** (render ilk
+  artışa kadar `rs_multi_denied_total 0` yazar → remote-watch işareti), artışta `{type}` etiketi. Tam ad değişirse
+  `test-watch.sh` FAIL verir. `rs_multi_invites_total{result}`, `rs_multi_members{role}` adları da tasarımdaki gibi. Rol kapısı log
+  satırında "denied" sözcüğü geçerse runbook §28c.6 grep'i çalışır.
+- **backend-dev Go (K3):** P28c Go test adlarına `P28c` koyun (ör. `TestAC371P28cLowEncoderMax8FPS`) ve agent-win.yml'deki P28c
+  adımının zorunlu listesine ekleyin. Not: yerel linux konteynerinde `-run P28c ./internal/{rtc,flow,ui,unattended}/...` o sırada
+  derlenemedi (K3 çalışırken ağaç değişiyordu / Windows'a özgü paketler); CI adımı Windows koşucusunda koşar.
+- **test-operatoru (K5):** §28c.7 + §28c.8. Windows QoS (`New-NetQosPolicy … -PolicyStore ActiveStore`) ile şekillendirme
+  **denenmedi** (macOS'tan doğrulanamaz); ilk koşuda Görev Yöneticisi "Gönder" ile tavanın uygulandığını doğrulayın, çalışmazsa
+  runbook'taki `tc tbf` / pfSense alternatifi.
+
+### Doğrulama (yerel)
+
+- `bash deploy/ops/test-watch.sh` → **SONUÇ: GEÇTİ** (P28c 8 senaryo + 2 ayrıştırma PASS; ad eşlemesi UYARI — K1 henüz kayıtlı değil).
+- shellcheck v0.11.0 (`deploy`, `scripts`, `-S warning`) → temiz; actionlint 1.7.8 → temiz.
+- `go test -count=1 -v -run P28c ./internal/signal/... ./internal/dc/...` (golang:1.26 konteyner) → dört K0 testi PASS; `GOOS=windows go vet` temiz.
+- Prettier: `docs/runbook.md`, `agent-win.yml` temiz (runbook diff'i yalnız ekleme).
+- Denenmedi: staging yayını, Windows elle turu, AC-371 ölçümü, QoS şekillendirme.

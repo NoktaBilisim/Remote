@@ -12,7 +12,19 @@ import { t } from "@/lib/i18n";
  * Sohbet (AC-35, AC-52; AC-227 gönderen hız sınırı). Mesajlar React metin düğümü olarak basılır (HTML yorumlanmaz; `dangerouslySetInnerHTML`
  * yok). Durumlar: bağlanıyor (pasif), boş, gönderim hatası, liste.
  */
-export function ChatPanel({ collab, peerName }: { collab: Collab; peerName: string }) {
+export function ChatPanel({
+  collab,
+  peerName,
+  authorOf,
+  readOnlyNote = null,
+}: {
+  collab: Collab;
+  peerName: string;
+  /** P28c (§4.5): gelen mesajın `by`'ı → ad (roster'dan; çözülemezse `peerName`). */
+  authorOf?: (by: string | undefined) => string;
+  /** P28c (§10): izleyici sohbete yazamaz — giriş yerine bu metin. */
+  readOnlyNote?: string | null;
+}) {
   const [text, setText] = useState("");
   const [err, setErr] = useState(false);
   /** AC-227: gönderen hız sınırı aşıldı — mesaj gönderilmedi, metin girişte kaldı. */
@@ -67,7 +79,8 @@ export function ChatPanel({ collab, peerName }: { collab: Collab; peerName: stri
                 className={`flex min-w-0 max-w-[85%] flex-col gap-0.5 ${m.from === "me" ? "self-end items-end" : "self-start items-start"}`}
               >
                 <span className="text-xs text-fg-muted">
-                  {m.from === "me" ? t("p5.chat.me") : peerName} · <time dateTime={new Date(m.ts).toISOString()}>{formatTime(m.ts)}</time>
+                  {m.from === "me" ? t("p5.chat.me") : (authorOf?.(m.by) ?? peerName)} ·{" "}
+                  <time dateTime={new Date(m.ts).toISOString()}>{formatTime(m.ts)}</time>
                 </span>
                 <p
                   data-testid="chat-msg"
@@ -85,31 +98,37 @@ export function ChatPanel({ collab, peerName }: { collab: Collab; peerName: stri
           {t("p5.chat.sendError")}
         </p>
       )}
-      <form onSubmit={submit} className="flex items-end gap-2">
-        <label htmlFor={inputId} className="sr-only">
-          {t("p5.chat.input")}
-        </label>
-        <textarea
-          id={inputId}
-          data-testid="chat-input"
-          rows={2}
-          maxLength={CHAT_MAX}
-          value={text}
-          disabled={!collab.ready}
-          aria-describedby={tooFast ? `${inputId}-rate` : undefined}
-          onChange={(e) => setText(e.target.value)}
-          onKeyDown={onKey}
-          placeholder={collab.ready ? t("p5.chat.placeholder") : t("p5.connecting")}
-          className="min-h-11 flex-1 resize-none rounded-md border border-border bg-surface px-3 py-2 text-base text-fg shadow-sm placeholder:text-fg-muted disabled:opacity-60 sm:text-sm"
-        />
-        <Button type="submit" aria-label={t("p5.chat.send")} disabled={!collab.ready || !text.trim()} data-testid="chat-send">
-          {collab.ready ? (
-            <Send aria-hidden className="size-4" />
-          ) : (
-            <LoaderCircle aria-hidden className="size-4 animate-spin motion-reduce:animate-none" />
-          )}
-        </Button>
-      </form>
+      {readOnlyNote ? (
+        <p className="rounded-md bg-surface-muted px-3 py-2 text-sm text-fg-muted" data-testid="chat-readonly">
+          {readOnlyNote}
+        </p>
+      ) : (
+        <form onSubmit={submit} className="flex items-end gap-2">
+          <label htmlFor={inputId} className="sr-only">
+            {t("p5.chat.input")}
+          </label>
+          <textarea
+            id={inputId}
+            data-testid="chat-input"
+            rows={2}
+            maxLength={CHAT_MAX}
+            value={text}
+            disabled={!collab.chatReady}
+            aria-describedby={tooFast ? `${inputId}-rate` : undefined}
+            onChange={(e) => setText(e.target.value)}
+            onKeyDown={onKey}
+            placeholder={collab.chatReady ? t("p5.chat.placeholder") : t("p5.connecting")}
+            className="min-h-11 flex-1 resize-none rounded-md border border-border bg-surface px-3 py-2 text-base text-fg shadow-sm placeholder:text-fg-muted disabled:opacity-60 sm:text-sm"
+          />
+          <Button type="submit" aria-label={t("p5.chat.send")} disabled={!collab.chatReady || !text.trim()} data-testid="chat-send">
+            {collab.chatReady ? (
+              <Send aria-hidden className="size-4" />
+            ) : (
+              <LoaderCircle aria-hidden className="size-4 animate-spin motion-reduce:animate-none" />
+            )}
+          </Button>
+        </form>
+      )}
       {/* AC-227: canlı bölge hep DOM'da (ekran okuyucu metin değişimini okur); metin yalnız aşımda */}
       <p id={`${inputId}-rate`} role="status" className="text-sm text-warning empty:hidden" data-testid="chat-rate">
         {tooFast ? t("p5.chat.tooFast") : ""}

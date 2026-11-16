@@ -13,6 +13,7 @@ import {
   type ShareMethod,
 } from "@remote/contracts/ws";
 import type { FileMode, PeerFeature } from "@remote/contracts/ws-fsrv";
+import type { TechRole, TechRosterEntry } from "@remote/contracts/ws-multi";
 import type { UnattendedInfo } from "../unattended/consent";
 import { applyMsg, type MsgOf, type MsgTable } from "./msg-table";
 
@@ -22,7 +23,11 @@ export interface Pending {
   guestKind: GuestKind;
   since: string;
 }
-export type TechEnd = SessionEndedReason | "replaced" | "protocol" | "lost";
+/**
+ * P28c (§4.4, §5.3, §5.4): `removed` = soket 4403 (müşteri çıkardı ya da üyenin yetkisi düştü — kod ikisini ayırmaz);
+ * `left` = üye "Oturumdan ayrıl" dedi; `notMember` = sahip olmayan konsolun ilk WS'i `hello` almadan kapandı (üye değil).
+ */
+export type TechEnd = SessionEndedReason | "replaced" | "protocol" | "lost" | "removed" | "left" | "notMember";
 /** Sunucu 5. hatalı kodda lobiyi boşaltır (mimari-protokol §3). */
 export const MAX_ADMIT_ATTEMPTS = 5;
 /** 3 retten sonra "kod sızmış olabilir" önerisi (§3.1). */
@@ -66,6 +71,17 @@ export interface TechState {
   clipConsent: boolean;
   /** P28b (§5.1, AC-355): oturumun dosya modu (`hello`/`peer.joined` `fileMode`; yoksa P2P). Oturum boyunca değişmez. */
   fileMode: FileMode;
+  /** P28c (§4.4): kendi oda içi kimliğim (`hello.tid`); eski sunucu → null. */
+  tid: string | null;
+  /** P28c: `hello.techRole` — yalnız ilk değer; yerim roster'daki kendi satırımdan türetilir (`lib/multi/roster.ts seatOf`). */
+  techRole: TechRole | null;
+  /** P28c (AC-366): sunucu roster'ı (`hello.roster` + `techs.roster`); tek teknisyenli / eski sunucuda boş. */
+  roster: TechRosterEntry[];
+  /**
+   * P28c K1c (AC-372): kabul edilmiş misafir `rs.cap.multi1` bildirdi mi (`hello`/`peer.joined{guest}` `guestMulti`). null = alan
+   * yok (kabul edilmiş misafir yok / eski sunucu) → engel değil; `false` → "Davet et" baştan pasif. Kısa kopuklukta son değer kalır.
+   */
+  guestMulti: boolean | null;
 }
 
 export type TechEvent =
@@ -74,7 +90,8 @@ export type TechEvent =
   | { type: "admit" }
   | { type: "reject" }
   | { type: "giveUp" }
-  | { type: "restoreName"; name: string | null };
+  | { type: "restoreName"; name: string | null }
+  | { type: "end"; end: TechEnd };
 
 export const initialTech: TechState = {
   phase: "connecting",
@@ -97,6 +114,10 @@ export const initialTech: TechState = {
   guestFeatures: [],
   clipConsent: false,
   fileMode: "P2P",
+  tid: null,
+  techRole: null,
+  roster: [],
+  guestMulti: null,
 };
 
 /**
@@ -151,6 +172,8 @@ export function techReducer(s: TechState, e: TechEvent): TechState {
       return { ...s, rejects: s.rejects + 1 };
     case "giveUp":
       return finish(s, "lost");
+    case "end":
+      return finish(s, e.end);
     case "restoreName":
       // Konsol yenilendiğinde protokol adı yeniden göndermez (hello/peer.joined'da ad yok); sekme belleğinden
       return s.guest && !s.guest.name && e.name ? { ...s, guest: { ...s.guest, name: e.name } } : s;
@@ -164,6 +187,7 @@ export function techReducer(s: TechState, e: TechEvent): TechState {
 function onClosed(s: TechState, code: number, now: number): TechState {
   if (code === WS_CLOSE.AUTH_REVOKED) return finish(s, "auth_revoked");
   if (code === WS_CLOSE.REPLACED) return finish(s, "replaced");
+  if (code === WS_CLOSE.REMOVED) return finish(s, "removed");
   if (code === WS_CLOSE.POLICY || code === WS_CLOSE.TOO_BIG) return finish(s, "protocol");
   return { ...s, reconnectSince: s.reconnectSince ?? now, admitBusy: false };
 }
@@ -197,6 +221,7 @@ const ON_MSG: MsgTable<TechState> = {
     shareMethod: sharingMethodOf(m.state, m.method),
   }),
   "session.warning": (s, m) => ({ ...s, warnEndsAt: m.endsAt }),
+  "techs.roster": (s, m) => ({ ...s, roster: [...m.techs] }),
   "session.ended": (s, m) => finish(s, m.reason),
   error: (s, m) => {
     if (m.code === "ADMIT_CODE_INVALID") return { ...s, admitBusy: false, wrongCodes: s.wrongCodes + 1, lastError: "ADMIT_CODE_INVALID" };
@@ -221,6 +246,10 @@ function onHello(s: TechState, m: MsgOf<"hello">, now: number): TechState {
     guestFeatures: active && m.peerPresent ? [...(m.guestFeatures ?? [])] : [],
     clipConsent: active && m.peerPresent ? (m.clipConsent ?? false) : false,
     fileMode: m.fileMode ?? s.fileMode,
+    tid: m.tid ?? s.tid,
+    techRole: m.techRole ?? s.techRole,
+    roster: m.roster ? [...m.roster] : s.roster,
+    guestMulti: m.guestMulti ?? null,
     ...helloShare(s, x, active && m.peerPresent),
   };
 }
@@ -248,6 +277,7 @@ function onPeerJoined(s: TechState, m: MsgOf<"peer.joined">): TechState {
     guestFeatures: [...(m.guestFeatures ?? [])],
     clipConsent: false,
     fileMode: m.fileMode ?? s.fileMode,
+    guestMulti: m.guestMulti ?? null,
     // TEST-P4-2: canlı kabulde kalan süre sayacı sunucunun bildirdiği üst sınırla başlar (opsiyonel alan)
     maxEndsAt: joinedMaxEndsAt(m) ?? s.maxEndsAt,
   };

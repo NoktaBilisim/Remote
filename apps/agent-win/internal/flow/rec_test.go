@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"remote-support/agent-win/internal/api"
-	"remote-support/agent-win/internal/rtc"
 	"remote-support/agent-win/internal/signal"
 )
 
@@ -55,14 +54,7 @@ func startRec(t *testing.T, offer *api.RecordingOffer, record bool) (*recRig, []
 	r := &recRig{h: h, ui: &recFakeUI{fakeUI: h.ui, record: record, offered: make(chan bool, 4)}, live: make(chan bool, 32)}
 	h.deps.UI = r.ui
 	h.deps.RecAckWait = 50 * time.Millisecond
-	newPeer := h.deps.NewPeer
-	h.deps.NewPeer = func(ice []signal.IceServer, caps []string, hd rtc.Handlers) (Peer, error) {
-		p, err := newPeer(ice, caps, hd)
-		if fp, ok := p.(*fakePeer); ok {
-			fp.live = r.live
-		}
-		return p, err
-	}
+	h.media.live = r.live
 	r.out = start(h, "12345678")
 	recv(t, h.creds)
 	r.c = recv(t, h.conns)

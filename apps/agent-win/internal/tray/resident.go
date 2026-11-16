@@ -237,11 +237,23 @@ func (r Resident) scope(ctx context.Context, ic IconAPI, first bool) bool {
 }
 
 // WithActive flow arayüzünü sarar: oturum başladığında (Active) active çağrılır (tepsi ipucu "oturum sürüyor").
+// P28e: akışın d.UI'den tür iddiasıyla aradığı isteğe bağlı arayüz (flow.RecUI) iç arayüzde varsa sarmalayıcı da
+// onu iletir; yoksa iletmez (göstergesi çizilemeyen arayüzde rec1 bildirilmez, K-P28e-7).
 func WithActive(ui flow.UI, active func()) flow.UI {
 	if active == nil {
 		return ui
 	}
-	return activeUI{UI: ui, active: active}
+	a := activeUI{UI: ui, active: active}
+	if r, ok := ui.(flow.RecUI); ok {
+		return activeRecUI{activeUI: a, RecUI: r}
+	}
+	return a
+}
+
+// activeRecUI activeUI + iç arayüzün flow.RecUI'si.
+type activeRecUI struct {
+	activeUI
+	flow.RecUI
 }
 
 type activeUI struct {

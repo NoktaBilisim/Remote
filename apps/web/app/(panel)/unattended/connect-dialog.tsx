@@ -15,7 +15,17 @@ import { UserState } from "./user-state";
 const FORM_ID = "un-connect-form";
 
 /** Gerekçe alanı (20–500 kod noktası, sayaç, alan hatası `fields.reason`). Metin alanı kalıbı `history/[id]/note-form.tsx`. */
-function ReasonField({ value, onChange, error, busy }: { value: string; onChange: (v: string) => void; error?: string; busy: boolean }) {
+export function ReasonField({
+  value,
+  onChange,
+  error,
+  busy,
+}: {
+  value: string;
+  onChange: (v: string) => void;
+  error?: string;
+  busy: boolean;
+}) {
   const id = useId();
   const n = reasonLength(value);
   const bad = Boolean(error) || reasonOver(value);

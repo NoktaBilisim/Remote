@@ -17,6 +17,7 @@ import {
   type FileMetaWrite,
   type Reporter,
 } from "./file-meta-store.ts";
+import { controllerOf } from "./members.ts";
 import type { Rooms } from "./rooms.ts";
 import type { FileMetaClass, Room } from "./types.ts";
 
@@ -104,7 +105,7 @@ export async function handleFileMeta(rooms: Rooms, room: Room, from: Reporter, m
   }
   const refused = refuseFileMeta(rooms, room, from, m);
   if (refused) return refused;
-  const tech = room.tech;
+  const tech = controllerOf(room); // P28c: file.meta yalnız kontrol sahibinden (rol kapısı)
   const actor = from.side === "tech" && tech ? { userId: tech.userId, username: tech.username } : { username: "customer" };
   const ctx = from.side === "tech" && tech ? tech.ctx : GUEST_CTX;
   const receiver = m.direction === "TO_CUSTOMER" ? "guest" : "tech";

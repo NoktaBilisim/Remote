@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"sync"
+	"time"
 
 	"remote-support/agent-win/internal/desktop"
 	"remote-support/agent-win/internal/flow"
@@ -27,7 +28,20 @@ type liveIndicator struct {
 	closed   bool
 	base     string // sunucu etiketi (P28u silent: izleme ↔ kontrol)
 	rec      bool   // P28e: kayıt sürüyor → etikete helperio.RecordingSuffix (AC-448)
+	names    string // P28c: bağlı teknisyen adları eki (flow.MultiTexts.IndicatorList + adlar); tek sahipte boş
 }
+
+// confirmer etiketin çizildiğini doğrulayabilen gösterge (Windows: yeniden çizim + doğrulama sonrası). P28c Y-PC-4:
+// yeni teknisyen adı ancak doğrulanınca eşi kurulur.
+type confirmer interface {
+	Drawn(text string, wait time.Duration) bool
+}
+
+// nameMaxRunes gösterge ekindeki bir adın en çok uzunluğu (etiket genişliği monitöre sığsın); fazlası "…".
+const nameMaxRunes = 40
+
+// drawWait yeni etiketin çizim doğrulaması için en çok bekleme.
+const drawWait = 2 * time.Second
 
 // labeler etiketi yerinde değiştirebilen gösterge (Windows: yeniden çiz + doğrula; başarısızsa Failed — fail-closed).
 type labeler interface{ SetText(string) }
@@ -100,7 +114,29 @@ func (l *liveIndicator) detach() {
 func (l *liveIndicator) Text() string {
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	return helperio.IndicatorLabel(l.base, l.rec)
+	return l.label()
+}
+
+// label etiket: sunucu metni + (P28c) adlar + (P28e) kayıt eki. l.mu tutulurken.
+func (l *liveIndicator) label() string { return helperio.IndicatorLabel(l.base+l.names, l.rec) }
+
+// SetNames P28c (§6 gözetimsiz, Y-PC-4): göstergeye bağlı teknisyen adlarını yazar ve çizimin doğrulanmasını bekler.
+// Ek zaten yazılıysa da çizim yeniden doğrulanır (D-PC-K1: önceki doğrulama zaman aşımına uğramışsa aynı roster
+// doğrulamasız kabul edilmez). Gösterge doğrulayamıyorsa false (eş kurulmaz); doğrulanamayan çizim ayrıca göstergeyi
+// başarısız sayar (oturum biter).
+func (l *liveIndicator) SetNames(suffix string) bool {
+	l.mu.Lock()
+	if l.closed {
+		l.mu.Unlock()
+		return false
+	}
+	l.mu.Unlock()
+	l.update(func() { l.names = suffix }) // ek aynıysa yeniden çizim yok; doğrulama yine aşağıda
+	l.mu.Lock()
+	text, cur := l.label(), l.cur
+	l.mu.Unlock()
+	c, ok := cur.(confirmer)
+	return ok && c.Drawn(text, drawWait)
 }
 
 // SetText P28u §7.6: sunucu etiketini değiştirir (aynı pencereler, ≤ 1 sn); kayıt eki korunur.
@@ -116,9 +152,9 @@ func (l *liveIndicator) update(change func()) {
 		l.mu.Unlock()
 		return
 	}
-	old := helperio.IndicatorLabel(l.base, l.rec)
+	old := l.label()
 	change()
-	text := helperio.IndicatorLabel(l.base, l.rec)
+	text := l.label()
 	if text == old {
 		l.mu.Unlock()
 		return

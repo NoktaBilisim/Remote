@@ -112,7 +112,7 @@ func (s *session) recOff(ctx context.Context, reason string, resume bool) {
 	recUI(s.d).RecState(RecView{Note: note})
 	if wasPaused {
 		s.d.UI.Status(note)
-		if resume && s.phase == phActive && s.peer != nil && s.src != nil {
+		if resume && s.phase == phActive && s.src != nil {
 			s.startStream(ctx)
 		}
 	}

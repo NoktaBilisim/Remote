@@ -19,6 +19,8 @@ geliştirilir (bkz. `README.md` "Yol haritası"); kılavuz da her paketle birlik
   yetkisi, bağlanma, cihaz rozetleri, iptal; müşteri tarafında servisi kurma, gösterge, tepsi, yerel kapatma, kaldırma);
   üç bağlantı kipi (İzinli / Kullanıcı yok / İzinsiz), cihazdaki onay penceresi, izin istemeden bağlanma politikası ve KVKK
   uyarısı, dört göz e-postası, müdahale (oturumu kilitle / kapat), eski servis güncellemesi
+- **Teknisyen, Admin ve müşteri için:** Çoklu teknisyen (roller, davet etme ve kabul, "İzle", kontrol ve oturum devri,
+  oturumdan ayrılma, müşterinin teknisyen listesi ve **Çıkar**, Admin için `sessions.invite` / `sessions.supervise` yetkileri)
 - **Admin, teknisyen, müşteri ve müşteri BT için:** Oturum kaydı (Ayarlar > Oturum kaydı, saklama süresi, KVKK onayı,
   gözetimsiz bağlantıları kaydetme ve dört göz e-postası, müşterinin kayıt izni ve **Kaydı durdur**, konsolda kayıt
   göstergesi, oturum geçmişinde **Kaydı izle** / **Kaydı sil**, denetim kayıtları)
@@ -3161,6 +3163,145 @@ Bilmeniz gerekenler:
   kurmak gerekmez.
 - Tablo bu kılavuzu müşterinin BT sorumlusuna iletmeniz için hazırlanmıştır. Görüntü gelmiyorsa önce "Teknisyen için:
   Müşterinin ekranı gelmiyorsa" bölümüne bakın.
+
+## Çoklu teknisyen (teknisyen, Admin ve müşteri için)
+
+Bir oturuma birden çok teknisyen katılabilir: oturumu açan teknisyen bir arkadaşını yardıma çağırır ya da bir yönetici
+süren oturumu izler. Bir oturumda oturumu açan dahil **en çok 3 teknisyen** bulunur.
+
+Bu özellik müşteri tarafında **Hızlı Destek 0.17 ve sonrası**, gözetimsiz cihazlarda **servis 0.17 ve sonrası** ya da
+tarayıcıdan katılan müşteri ister. Eski sürümde "Davet et" ve "İzle" pasiftir; tek teknisyenle oturum aynen sürer.
+
+### Roller: kim ne yapabilir?
+
+| Rol                | Görüntü                         | Sohbet        | Kontrol, pano, yazdırma, dosya, işaretleme |
+| ------------------ | ------------------------------- | ------------- | ------------------------------------------ |
+| **Kontrol sahibi** | Tam kalite                      | Okur ve yazar | Evet                                       |
+| **Katılımcı**      | Düşük kalite (en çok 8 kare/sn) | Okur ve yazar | Hayır                                      |
+| **İzleyici**       | Düşük kalite (en çok 8 kare/sn) | Yalnız okur   | Hayır                                      |
+
+- **Oturum sahibi** oturumu açan (ya da devralan) teknisyendir; adının yanında "Oturum sahibi" rozeti görünür. Davet etme,
+  kontrolü verme, oturumu devretme ve oturumu bitirme yalnız ondadır.
+- Başlangıçta kontrol sahibi oturum sahibidir. Kontrolü başkasına verirse ona tam kalite görüntü ve kontrol hakkı geçer.
+- Katılımcı ve izleyicinin konsolunda kontrol, pano, yazdırma, dosya ve işaretleme düğmeleri pasiftir: "Yalnız kontrol
+  sahibi kullanabilir". İzleyicinin sohbet kutusu yerine "İzleyici olarak sohbete yazamazsınız" yazar.
+- Bir teknisyen katılmadan önce yazılan sohbet mesajlarını görmez.
+
+### Teknisyen için: Oturuma nasıl teknisyen davet ederim?
+
+Bunun için hesabınızda **Teknisyen davet et / devret** yetkisi olmalı ve oturumun sahibi siz olmalısınız.
+
+1. Konsolun üst çubuğunda **Teknisyenler** düğmesine basın (yanındaki sayı oturumdaki teknisyen sayısıdır).
+2. Açılan "Oturumdaki teknisyenler" panelinde **Davet et**'e basın.
+3. Listeden kişiyi seçin (ada göre arayabilirsiniz). Listede yalnız yetkisi olan, etkin ve bu oturumda olmayan firma
+   kullanıcıları görünür.
+4. Davet 2 dakika geçerlidir. Panelde kişinin satırında "Davet bekliyor" ve kalan süre görünür.
+5. Vazgeçerseniz satırdaki **X** (Daveti geri çek) düğmesine basın.
+
+Bekleyen davet de bir koltuk tutar. Oturumda 3 kişi (bekleyen davet dahil) varsa yeni davet "Oturum dolu" uyarısı verir.
+
+### Teknisyen için: Bana gelen daveti nasıl kabul ederim?
+
+1. Panelin hangi sayfasında olursanız olun, birkaç saniye içinde "<Ad> sizi <müşteri> oturumuna davet ediyor" bildirimi ve
+   kalan süreyi gösteren bir kart çıkar.
+2. **Katıl**'a basın; oturumun konsolu açılır. Katılmak istemiyorsanız **Reddet**'e basın.
+3. Kartta "Gözetimsiz bağlantı" notu varsa katılırken doğrulama kodunuz (2FA) istenir. "İzinsiz bağlantı" notu varsa
+   önce en az 20, en çok 500 karakterlik bir **katılım gerekçesi** yazarsınız; firma yöneticilerine bildirim gider.
+4. Katıldıktan sonra 60 saniye içinde konsol açılmazsa yeriniz düşer; yeni davet gerekir.
+
+### Teknisyen için: Süren bir oturumu nasıl izlerim? ("İzle")
+
+Bunun için hesabınızda **Etkin oturumları izle** yetkisi olmalı.
+
+1. **Oturumlar** sayfasını açın. "Firmadaki etkin oturumlar" bölümünde süren oturumlar teknisyen, müşteri, başlangıç saati ve
+   teknisyen sayısıyla (ör. 2/3) listelenir. Liste 10 saniyede bir yenilenir.
+2. İzlemek istediğiniz satırda **İzle**'ye basın. İzleyici olarak katılırsınız: görüntüyü ve sohbeti görürsünüz, kontrol ve
+   dosya işlemi yapamazsınız.
+3. Müşteri sizi listesinde "İzleyici" olarak görür. İzleme gizli değildir.
+4. Gözetimsiz oturumu izlemek için o cihaza bağlanma yetkiniz olmalıdır; değilse oturum listede hiç görünmez. "İzinsiz"
+   rozetli oturumda önce gerekçe yazarsınız, sonra doğrulama kodu istenir.
+
+İzle düğmesi şu durumlarda pasiftir: oturum dolu, müşterinin uygulaması eski, ya da oturum "İzinli" kipte açılmış bir
+gözetimsiz bağlantı.
+
+### Teknisyen için: Kontrolü başka teknisyene nasıl veririm?
+
+1. **Teknisyenler** panelinde katılımcının satırında **Kontrolü ver**'e basın.
+2. Sizdeki uzaktan kontrol izni kapanır (görüntüleme kipine döner). Yeni kontrol sahibi müşteriden izni kendisi ister;
+   müşterinin ekranındaki diyalog ve gösterge yeni teknisyenin adını gösterir.
+3. Geri almak için kendi satırınızda **Kontrolü geri al**'a basın.
+
+İzleyiciye kontrol verilemez. Kontrol sahibi oturumdan ayrılır ya da bağlantısı koparsa kontrol oturum sahibine döner.
+
+### Teknisyen için: Oturumu başka teknisyene nasıl devrederim?
+
+1. **Teknisyenler** panelinde katılımcının satırında **Oturumu devret**'e basın.
+2. Onay penceresinde "Oturum <ad> adlı teknisyene devredilsin mi?" sorusunu onaylayın.
+3. Oturumun sahibi o kişi olur; siz katılımcı olarak kalırsınız ve **Oturumdan ayrıl** ile çıkabilirsiniz.
+
+Oturum geçmişinde tüm katılımcılar ve devir zamanı görünür. Devirden sonra oturum yeni sahibin oturumlarında listelenir;
+yalnız kendi oturumlarını görebilen teknisyen devrettiği oturumu artık görmez.
+
+Devretmeden ayrılan ya da bağlantısı 120 saniye dönmeyen oturum sahibinin oturumu biter; diğer teknisyenler de düşer.
+
+### Teknisyen için: Oturumdan nasıl ayrılırım?
+
+Oturum sahibi değilseniz **Teknisyenler** panelinde **Oturumdan ayrıl**'a basın ve onaylayın. Oturum diğer teknisyenlerle
+sürer; yeniden katılmak için yeni davet gerekir. Bağlantınız koparsa 120 saniye içinde dönerseniz yerinizi korursunuz.
+
+### Müşteri için: Oturumda kimler var? Bir teknisyeni nasıl çıkarırım?
+
+1. Hızlı Destek penceresinde (ya da tarayıcıdaki destek sayfasında) **Bağlı teknisyenler** listesi her teknisyenin adını ve
+   rolünü (Kontrol sahibi / Katılımcı / İzleyici) gösterir. Yeni biri katıldığında kısa bir bildirim çıkar.
+2. Bir teknisyenin ekranınızı görmesini istemiyorsanız satırındaki **Çıkar** düğmesine basın.
+3. Onay penceresinde çıkarmayı onaylayın (varsayılan seçim "Vazgeç"tir). Çıkarılan teknisyen ekranınızı artık göremez ve bu
+   oturuma yeniden katılamaz.
+
+Oturumu açan teknisyenin (oturum sahibi) yanında "Çıkar" yoktur; onunla görüşmeyi bitirmek için oturumu kapatın.
+
+### Müşteri BT için: Gözetimsiz cihazda birden çok teknisyen
+
+- Bağlantı göstergesi bağlı tüm teknisyenlerin adlarını yazar. Adı göstergeye yazılamayan teknisyenin görüntüsü başlamaz.
+- Gözetimsiz cihazda "Çıkar" düğmesi yoktur; bağlantıyı yerel anahtarla ("Gözetimsiz erişimi kapat") kapatabilirsiniz.
+- Cihaz kullanıcısına izin sorularak açılan ("İzinli") bağlantıya ikinci bir teknisyen katılamaz.
+
+### Admin için: Davet ve izleme yetkilerini nasıl veririm?
+
+**Kullanıcılar** → kullanıcı → yetkiler ekranında **Oturumlar** grubunda iki yeni anahtar vardır:
+
+| Anahtar (ekrandaki ad)                              | Ne sağlar                                                          |
+| --------------------------------------------------- | ------------------------------------------------------------------ |
+| **Teknisyen davet et / devret** (`sessions.invite`) | Kendi oturumuna teknisyen davet eder, kontrolü ve oturumu devreder |
+| **Etkin oturumları izle** (`sessions.supervise`)    | Firmadaki süren oturumları izleyici olarak izler                   |
+
+- Admin rolünde ikisi de açık, User (teknisyen) rolünde kapalı başlar.
+- **Etkin oturumları izle hassas bir yetkidir; yalnız gerçekten gerekene verin.** İzleyen kişi müşterinin ekranını görür.
+- Davet edilecek kişide en az **Oturumlar → Görüntüle** yetkisi olmalıdır.
+- Gözetimsiz oturuma katılmak için ayrıca **Gözetimsiz erişim → Bağlan** yetkisi ve o cihaz için teknisyen yetkisi gerekir;
+  izinsiz bağlantıya katılmak için **Gözetimsiz erişim → İzin istemeden bağlan** yetkisi ve firma politikasının açık olması
+  gerekir.
+- Bir yetkiyi kapattığınızda ya da kullanıcıyı pasife aldığınızda o kişi katıldığı oturumdan birkaç saniye içinde (en geç
+  60 saniyede) çıkarılır; oturum diğerleriyle sürer.
+
+### Geçmiş ve audit log'da çoklu teknisyen
+
+- **Oturum geçmişi** ayrıntısında "Katılımcılar" bölümü: ad, rol (Oturum sahibi / Katılımcı / İzleyici), katılma ve ayrılma
+  saati, devir zamanı; müşterinin çıkardığı kişide "Müşteri çıkardı".
+- **Audit log**'da "Çoklu teknisyen" grubu: Teknisyen davet edildi, Davet kabul edildi, Davet reddedildi, Davet düştü,
+  Teknisyen katıldı, Teknisyen ayrıldı, Müşteri teknisyeni çıkardı, Süpervizör izlemeye başladı, Kontrol devredildi,
+  Oturum devredildi. Sohbet içeriği yazılmaz.
+
+### Sık karşılaşılan mesajlar (Çoklu teknisyen)
+
+| Mesaj                                                                                    | Anlamı / ne yapmalı                                                                          |
+| ---------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------- |
+| "Oturum dolu"                                                                            | 3 koltuk dolu (bekleyen davet dahil). Bir davet geri çekilmeli ya da bir teknisyen ayrılmalı |
+| "Davet artık geçerli değil"                                                              | 2 dakika doldu, davet geri çekildi ya da oturum bitti. Yeni davet isteyin                    |
+| "Müşterinin uygulaması bu özelliği desteklemiyor — güncel sürümü indirmesini isteyin"    | Müşteri Hızlı Destek'i (ya da cihaz servisini) 0.17'ye güncellemeli                          |
+| "İzinli gözetimsiz bağlantıya ek teknisyen katılamaz"                                    | Cihaz kullanıcısından izin alınarak açılmış bağlantıya ikinci teknisyen eklenemez            |
+| "Önce 2FA kurun"                                                                         | Gözetimsiz oturuma katılmak için Hesabım > Güvenlik'ten iki adımlı doğrulamayı kurun         |
+| "Oturumdan çıkarıldınız: müşteri sizi çıkardı ya da bu oturum için yetkiniz kaldırıldı." | Bu oturuma yeniden giremezsiniz; gerekiyorsa yöneticinize başvurun                           |
+| "Davet edilebilecek kullanıcı yok"                                                       | Firmada yetkisi olan, etkin ve oturumda olmayan kullanıcı yok                                |
 
 ## Oturum kaydı (Admin, teknisyen, müşteri ve müşteri BT için)
 

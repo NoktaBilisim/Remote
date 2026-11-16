@@ -36,13 +36,14 @@ type deskIndicator struct {
 
 func (i *deskIndicator) Desktop() string { return i.desk }
 
-// streamPeer kaynaktan kare çeker ve sayar; girdi kanalı alıcısını teste verir.
-type streamPeer struct {
-	fakePeer
+// streamMedia kaynaktan kare çeker ve sayar (P28c: yayın eşten bağımsız).
+type streamMedia struct {
 	frames *atomic.Int32
 }
 
-func (p streamPeer) Stream(ctx context.Context, src rtc.Source) error {
+func (streamMedia) SetLow(bool) {}
+
+func (p streamMedia) Stream(ctx context.Context, src rtc.Source) error {
 	for {
 		if _, err := src.NextFrame(ctx); err != nil {
 			return err
@@ -98,8 +99,9 @@ func newDeskRig(rebindDelay time.Duration, timeout time.Duration) *deskRig {
 	r.d.Flow.Input = func([]byte) { r.injected.Add(1) }
 	r.d.Flow.NewPeer = func(_ []signal.IceServer, _ []string, h rtc.Handlers) (flow.Peer, error) {
 		r.handlers <- h
-		return streamPeer{frames: &r.frames}, nil
+		return fakePeer{}, nil
 	}
+	r.d.Flow.Media = streamMedia{frames: &r.frames}
 	return r
 }
 

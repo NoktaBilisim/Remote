@@ -129,7 +129,7 @@ function listRoutes(app: FastifyInstance): void {
 
 function detailRoutes(app: FastifyInstance): void {
   app.get("/:id", { preHandler: requirePerm("sessions.view") }, async (req): Promise<SessionView> => {
-    return getSession(app.db, authOf(req), idParam(req));
+    return getSession(app.db, authOf(req), idParam(req), app.rooms);
   });
 
   app.get("/:id/history", { preHandler: requirePerm("session_history.view") }, async (req, reply): Promise<SessionHistoryDetail> => {

@@ -6,7 +6,12 @@ export const PERMISSION_MODULES = [
   // P19 (AC-260): send_link = oturum bağlantısını müşteriye SMS/WhatsApp ile gönder (+ sessions.create). LG (V-LG3): K3 müşteri
   // bağlantıları da bu anahtarla (+ customers.view) — etiket "Müşteriye bağlantı gönder".
   // P28e (AC-385, 404; mimari-p28e §4): view_recording = oturum kayıtlarını izle (+ session_history.view + historyScope).
-  { key: "sessions", actions: ["view", "create", "edit", "delete", "terminate", "send_link", "view_recording"] },
+  // P28c (AC-364, 368, 404; mimari-p28c §9): invite = etkin oturuma aynı firmadan teknisyen davet et, kontrolü/oturumu devret
+  // (yalnız oturum sahibi); supervise = firmanın etkin oturumlarını izleyici olarak "İzle". Rol varsayılanı Admin açık / User kapalı.
+  {
+    key: "sessions",
+    actions: ["view", "create", "edit", "delete", "terminate", "send_link", "view_recording", "invite", "supervise"],
+  },
   // P28a (AC-343, 348, 404; mimari-p28 §4.1): clipboard = düz metin pano gönder/al (kontrol GRANTED + müşteri izni);
   // print = PDF'i müşterinin varsayılan yazıcısına gönder — `file_transfer.use`'dan BAĞIMSIZ (yalnız Windows istemci).
   { key: "remote_control", actions: ["use", "clipboard"] },
@@ -79,6 +84,9 @@ export const PERMISSION_DESCRIPTIONS: Readonly<Partial<Record<PermissionKey, str
   // P28e (§4, V54): toggle ekranı uyarı tonuyla gösterir (AC-404 kalıbı).
   "sessions.view_recording": "Oturum kayıtlarını izler (hassas — yalnız gerekene verin).",
   "unattended.silent": "İzin istemeden bağlanma (hassas — yalnız gerekene verin). Firma politikası, cihaz yetkisi ve 2FA ayrıca gerekir.",
+  // P28c (mimari-p28c §9): `supervise` toggle ekranında uyarı tonuyla (AC-404 kalıbı).
+  "sessions.invite": "Etkin oturuma aynı firmadan teknisyen davet eder, kontrolü ve oturumu devreder.",
+  "sessions.supervise": "Firmanın etkin oturumlarını izleyici olarak izler (hassas — yalnız gerekene verin).",
 };
 
 export const ROLES = ["SUPER_ADMIN", "ADMIN", "USER"] as const;

@@ -28,7 +28,10 @@ export function ConsoleHeader({
   now,
   controlHint,
   onConfirm,
+  owner = true,
 }: {
+  /** P28c: oturum sahibi değilse "Oturumu bitir" yok (üye teknisyenler panelinden ayrılır). */
+  owner?: boolean;
   session: SessionView;
   state: TechState;
   name: string;
@@ -41,7 +44,8 @@ export function ConsoleHeader({
   const until = live ? state.maxEndsAt : session.expiresAt;
   const left = until && now !== null ? formatRemaining(Date.parse(until) - now) : "—";
   // K12: gözetimsiz oturumda kod geçerliliği ve doğrulama kodu anlamsız (müşteri yok); canlıda en uzun süre kalır.
-  const codes = !state.unattended;
+  // P28c (D-PC-5): sahip olmayan üyeye doğrulama kodu boş gelir → gösterilmez
+  const codes = !state.unattended && session.techVerifyCode !== "";
   return (
     <header className="flex flex-wrap items-center gap-x-3 gap-y-2 rounded-lg xl:flex-nowrap border border-border bg-surface px-3 py-2">
       <Link
@@ -87,7 +91,7 @@ export function ConsoleHeader({
       )}
       <span className="flex-1" />
       {live && state.guest?.kind === "BROWSER" && <BrowserControlHint id={controlHint} />}
-      <HeaderActions phase={state.phase} onConfirm={onConfirm} />
+      {owner && <HeaderActions phase={state.phase} onConfirm={onConfirm} />}
     </header>
   );
 }

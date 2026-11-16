@@ -12,6 +12,8 @@ import {
   CUSTOMER_AUDIT,
   MAIL_AUDIT,
   LG_AUDIT_LABELS,
+  MULTI_AUDIT_GROUP,
+  MULTI_AUDIT_LABELS,
   P16_AUDIT_LABELS,
   P18_AUDIT_LABELS,
   P19_NOTIFY_AUDIT_LABELS,
@@ -30,6 +32,8 @@ import { labelOf, OUTBOUND_REASON_LABELS, TIMELINE_ACTION_LABELS } from "@remote
 
 const AUDIT_ACTION_LABELS: Readonly<Record<string, string>> = {
   ...TIMELINE_ACTION_LABELS,
+  // P28c (§9, AC-370): çoklu teknisyen olayları
+  ...MULTI_AUDIT_LABELS,
   "auth.login": "Giriş",
   "auth.logout": "Çıkış",
   "auth.locked": "Hesap kilitlendi",
@@ -143,9 +147,15 @@ const AUDIT_GROUP_LABELS: Readonly<Record<string, string>> = {
   ...RECORDING_AUDIT_GROUP_LABELS,
 };
 
-const groupOf = (action: string): string => action.split(".")[0] ?? action;
+/**
+ * P28c (§9; K0 sapma 3): çoklu teknisyen eylemleri `session.*` önekli olduğundan önek grubu ("Oturum") onları ayıramaz →
+ * ayrı "Çoklu teknisyen" seçenek grubu; "tümü" seçeneği yok (tek önekle ifade edilemez), yalnız tek tek eylem süzgeci.
+ */
+const MULTI_GROUP = "~multi";
+const MULTI_ACTIONS: ReadonlySet<string> = new Set(MULTI_AUDIT_GROUP.actions);
+const groupOf = (action: string): string => (MULTI_ACTIONS.has(action) ? MULTI_GROUP : (action.split(".")[0] ?? action));
 export const actionLabel = (action: string): string => labelOf(AUDIT_ACTION_LABELS, action);
-export const groupLabel = (group: string): string => labelOf(AUDIT_GROUP_LABELS, group);
+export const groupLabel = (group: string): string => (group === MULTI_GROUP ? MULTI_AUDIT_GROUP.label : labelOf(AUDIT_GROUP_LABELS, group));
 
 interface ActionOptionGroup {
   label: string;
@@ -171,7 +181,7 @@ export function actionOptionGroups(selected?: string, extra: readonly string[] =
     .map(({ g, label, acts }) => ({
       label,
       options: [
-        { value: `${g}.*`, label: `${label} — tümü` },
+        ...(g === MULTI_GROUP ? [] : [{ value: `${g}.*`, label: `${label} — tümü` }]),
         ...acts.map((a) => ({ value: a, label: actionLabel(a) })).sort((x, y) => x.label.localeCompare(y.label, "tr")),
       ],
     }));

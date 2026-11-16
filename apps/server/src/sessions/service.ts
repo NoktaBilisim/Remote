@@ -138,10 +138,20 @@ export async function createSupportSession(
 }
 
 /** GET /sessions/:id (konsol özeti, P2 şekli) — kapsam `historyScope` (§2); kapsam dışı/yok → 404. */
-export async function getSession(db: Db, auth: AuthContext, id: string): Promise<SessionView> {
-  const row = await findHistory(db, historyScope(auth), id);
+export async function getSession(db: Db, auth: AuthContext, id: string, rooms?: MemberLookup): Promise<SessionView> {
+  // P28c (§4.1 son paragraf, D-PC-5): odanın bağlı/rezerve üyesi de görür (kapsam genişler); sahip olmayan üyeye kod boş.
+  const member = auth.tenantId !== null && rooms?.isMember(id, auth.tenantId, auth.user.id) === true;
+  const row =
+    (await findHistory(db, historyScope(auth), id)) ??
+    (member && auth.tenantId ? await findHistory(db, { kind: "tenant", tenantId: auth.tenantId }, id) : null);
   if (!row) throw new AppError("NOT_FOUND");
-  return toView(row, auth.user.id);
+  const view = toView(row, auth.user.id);
+  return member && row.technician.id !== auth.user.id ? { ...view, techVerifyCode: "" } : view;
+}
+
+/** P28c: oda üyeliği sorgusu (signaling/rooms.ts). */
+export interface MemberLookup {
+  isMember(sessionId: string, tenantId: string, userId: string): boolean;
 }
 
 /** İptal (AC-8): tek koşullu UPDATE → link ve kod aynı anda geçersiz. Başka tenant/sahiplik → 404, PENDING değil → 409. */

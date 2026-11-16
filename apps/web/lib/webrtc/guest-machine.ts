@@ -103,6 +103,9 @@ function onMsg(s: GuestState, m: ServerOutbound): GuestState {
       return m.role === "tech" ? { ...s, techPresent: false } : s;
     case "ice.servers":
       return { ...s, iceServers: m.iceServers };
+    // P28c (§4.4, K-PC-7): multi1 sokete peer.joined/left{tech} gelmez; teknisyen varlığı roster'dan
+    case "techs.roster":
+      return { ...s, techPresent: m.techs.some((e) => e.connected) };
     case "session.warning":
       return { ...s, warnEndsAt: m.endsAt };
     case "session.ended":

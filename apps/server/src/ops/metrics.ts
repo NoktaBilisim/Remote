@@ -173,6 +173,10 @@ export function createMetrics(): Metrics {
   m.counter(REC_METRICS.BYTES_TOTAL, "Kabul edilen kayıt parça baytları (düz metin)");
   m.histogram(REC_METRICS.PART_BYTES, "Kabul edilen kayıt parçası boyutu (bayt)", REC_PART_BYTES_BUCKETS);
   m.counter(REC_METRICS.VIEW_THROTTLED_TOTAL, "İzleme çekiş bütçesi aşımları (429; S-P28e-3)");
+  // P28c (mimari-p28c §8; tenant etiketi yok). Etiketsiz "… 0" satırı remote-watch multi-denied alarmının işaretidir.
+  // `rs_multi_members` göstergesi sinyal katmanında (ws.ts) kaydedilir.
+  m.counter("rs_multi_denied_total", "Rol kapısı retleri (type: teknisyen mesaj tipi)");
+  m.counter("rs_multi_invites_total", "Davet sonuçları (result: sent|accepted|rejected|expired)");
   return m;
 }
 

@@ -11,10 +11,12 @@ import (
 // Outbound misafirin gönderebileceği mesaj.
 type Outbound interface{ validate() error }
 
+// SdpAnswer P28c: To = hedef teknisyenin tid'i (multi1 sokette zorunlu; eski sokette boş — omitempty).
 type SdpAnswer struct {
 	T   string `json:"t"`
 	ID  string `json:"id,omitempty"`
 	SDP string `json:"sdp"`
+	To  string `json:"to,omitempty"`
 }
 
 type Ice struct {
@@ -23,6 +25,8 @@ type Ice struct {
 	Candidate     string  `json:"candidate"`
 	SdpMid        *string `json:"sdpMid,omitempty"`
 	SdpMLineIndex *int    `json:"sdpMLineIndex,omitempty"`
+	// P28c: To hedef teknisyenin tid'i (multi1 sokette zorunlu).
+	To string `json:"to,omitempty"`
 }
 
 type Monitor struct {
@@ -74,6 +78,9 @@ func (m SdpAnswer) validate() error {
 	if m.SDP == "" || utf16Len(m.SDP) > sdpMax {
 		return fail(m.T, "sdp uzunluğu")
 	}
+	if !validOptTid(m.To) {
+		return fail(m.T, "to")
+	}
 	return checkID(m.T, m.ID)
 }
 
@@ -93,6 +100,9 @@ func validateIce(m Ice) error {
 func (m Ice) validate() error {
 	if m.T != "ice" {
 		return fail(m.T, "tip")
+	}
+	if !validOptTid(m.To) {
+		return fail(m.T, "to")
 	}
 	return validateIce(m)
 }

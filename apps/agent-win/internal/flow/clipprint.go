@@ -99,10 +99,13 @@ const (
 // bildirmez (onay gerektiren özellikler, O-P28a-4).
 // P28b: `rs.cap.fsrv1` yalnız FileServer + FileServerUI bağlıyken (gözetimsiz/servis yolunda hiç).
 func Features(d Deps) []string {
-	if d.Unattended {
-		return nil
-	}
 	var f []string
+	if d.RosterUI != nil { // P28c: liste/gösterge çizebilen arayüz (yardımcı dahil — AC-364 gözetimsizde daveti ister)
+		f = append(f, signal.FeatureMulti)
+	}
+	if d.Unattended {
+		return f
+	}
 	if d.ClipPrintUI != nil && d.Clipboard != nil {
 		f = append(f, signal.FeatureClip)
 	}
@@ -185,10 +188,11 @@ func (s *session) newClipPrint(ctx context.Context) *clipPrint {
 		spawn: func(op func() func()) { go func() { post(op()) }() },
 		send:  func(m signal.Outbound) { s.send(ctx, m) },
 		sendCtl: func(b []byte) error {
-			if s.peer == nil {
+			p := s.mainPeer() // P28c: pano/yazdırma yalnız kontrol sahibiyle
+			if p == nil {
 				return rtc.ErrNoCtl
 			}
-			return s.peer.SendCtl(b)
+			return p.SendCtl(b)
 		},
 		gateOpen:  s.gate.IsOpen,
 		hasCap:    s.hasCap,

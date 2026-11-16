@@ -42,7 +42,13 @@ class Latest<T> {
   }
 }
 
-export function useClipPrint(ts: TechSession, collab: Collab, perms: { clip: boolean; print: boolean }, toast: Toast, now: number | null) {
+export function useClipPrint(
+  ts: TechSession,
+  collab: Collab,
+  perms: { clip: boolean; print: boolean; notController?: boolean },
+  toast: Toast,
+  now: number | null,
+) {
   const [clipView, setClipView] = useState<ClipView | null>(null);
   const [print, setPrint] = useState<PrintState>({ job: null, fieldError: null, cooldownUntil: 0 });
   // Sınıflar render dışında (olay/akış) son ts/collab/toast'a erişir; kutu render'da okunmaz
@@ -142,6 +148,7 @@ export function useClipPrint(ts: TechSession, collab: Collab, perms: { clip: boo
     guestFeatures: s.guestFeatures,
     controlGranted: granted,
     clipConsent: s.clipConsent,
+    notController: perms.notController ?? false,
   };
   const clipState: FeatureState = featureState({ ...base, feature: "clipboard", permitted: perms.clip, busy: clipView !== null });
   const cooldown = now !== null && print.cooldownUntil > now;

@@ -28,9 +28,12 @@ export function CollabSide({
   peerName,
   tab,
   onTab,
+  chat,
 }: {
+  /** P28c: sohbet yazarı çözümü (roster) ve izleyici notu. */
+  chat?: { authorOf?: (by: string | undefined) => string; readOnlyNote?: string | null };
   /** P28b: SERVER modunda dosya alanının kapalı olma nedeni. */
-  filesBlocked?: "unsupported" | "unattended" | null;
+  filesBlocked?: "unsupported" | "unattended" | "notController" | null;
   collab: Collab;
   clipPrint: ClipPrint;
   now: number | null;
@@ -60,7 +63,7 @@ export function CollabSide({
           { value: "quality", label: t("p5.tab.quality"), icon: <Signal aria-hidden className="size-4" /> },
         ]}
       />
-      {tab === "chat" && <ChatPanel collab={collab} peerName={peerName} />}
+      {tab === "chat" && <ChatPanel collab={collab} peerName={peerName} {...chat} />}
       {tab === "files" && <FilesPanel collab={collab} allowed={canFiles} blocked={filesBlocked} peerName={peerName} />}
       {tab === "quality" && <QualityPanel last={quality.last} verdict={quality.verdict} />}
       <ClipPrintPanel cp={clipPrint} now={now} />

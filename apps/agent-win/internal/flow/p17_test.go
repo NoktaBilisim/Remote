@@ -177,10 +177,7 @@ func TestAC234StoppedReachesFakeServerWithin1s(t *testing.T) {
 	h.deps.Dial = func(ctx context.Context, cred signal.Credential) (Conn, error) {
 		return signal.Dial(ctx, hc, u, cred, nil)
 	}
-	h.deps.NewPeer = func(_ []signal.IceServer, _ []string, hd rtc.Handlers) (Peer, error) {
-		return &timedFailPeer{fakePeer: &fakePeer{h: hd, offers: make(chan string, 4), ctl: make(chan []byte, 4)},
-			release: release, failAt: failAt}, nil
-	}
+	h.media.stream = timedFail(release, failAt)
 	h.deps.Monitors = func() ([]signal.Monitor, error) {
 		return []signal.Monitor{{ID: 1, Name: "Ekran 1", W: 1920, H: 1080, Primary: true}}, nil
 	}
@@ -219,21 +216,17 @@ func TestAC234StoppedReachesFakeServerWithin1s(t *testing.T) {
 	recv(t, out)
 }
 
-// timedFailPeer yayını release kapanınca tipli kodlama hatasıyla bitirir ve hata anını bildirir.
-type timedFailPeer struct {
-	*fakePeer
-	release <-chan struct{}
-	failAt  chan<- time.Time
-}
-
-func (p *timedFailPeer) Stream(ctx context.Context, _ rtc.Source) error {
-	select {
-	case <-ctx.Done():
-		return ctx.Err()
-	case <-p.release:
+// timedFail yayını release kapanınca tipli kodlama hatasıyla bitirir ve hata anını bildirir.
+func timedFail(release <-chan struct{}, failAt chan<- time.Time) func(context.Context, rtc.Source) error {
+	return func(ctx context.Context, _ rtc.Source) error {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-release:
+		}
+		failAt <- time.Now()
+		return &capture.Error{Reason: capture.ReasonEncodeFailed, Op: "Encode", Method: capture.MethodGDI}
 	}
-	p.failAt <- time.Now()
-	return &capture.Error{Reason: capture.ReasonEncodeFailed, Op: "Encode", Method: capture.MethodGDI}
 }
 
 // AC-250: kayıt isteği → soket kopuşu → yeniden bağlanma + yeni teklif → tam 1 yeni istek.

@@ -19,6 +19,7 @@ import {
 import type { AuditContext } from "../audit/service.ts";
 import { newId } from "../lib/ids.ts";
 import type { RecActor, RecRoomPort, RecService, RoomRec } from "../rec/types.ts";
+import { controllerOf, techConns } from "./members.ts";
 import type { Rooms } from "./rooms.ts";
 import type { Guest, Peer, RecGate, Room, TechConn } from "./types.ts";
 
@@ -27,9 +28,10 @@ const gateOf = (room: Room): RecGate => (room.recGate ??= {});
 const customer = (g: Guest): RecActor => ({ kind: "customer", ctx: g.ctx ?? { ip: "", userAgent: "signaling", requestId: "" } });
 const techActor = (t: TechConn): RecActor => ({ kind: "user", userId: t.userId, username: t.username, ctx: t.ctx });
 
-/** P28c genişleme noktası (§6.3): bugün odadaki tek teknisyen — yalnız `rs.cap.rec1` bildirmiş konsol kaydedebilir. */
+/** P28c (K-PC-6): kaydedici = kontrol sahibi (ana akış) — yalnız `rs.cap.rec1` bildirmiş konsol kaydedebilir. */
 export function recorderOf(room: Room): TechConn | undefined {
-  return room.tech?.peer.rec ? room.tech : undefined;
+  const c = controllerOf(room);
+  return c?.peer.rec ? c : undefined;
 }
 
 /** Kapanan odaların kayıt belleği: oda kapanışında 15 sn son parça payı (§6.4) için yan harita. */
@@ -119,9 +121,9 @@ function sendDevice(rooms: Rooms, room: Room, on: boolean): void {
 function broadcast(rooms: Rooms, room: Room, reason?: RecStateReason, withUpload = false): void {
   const rec = room.rec;
   if (!rec) return;
-  const t = room.tech;
-  if (t) {
-    const upload = withUpload && recorderOf(room) === t ? uploadFor(rooms, room, rec, t) : undefined;
+  const recorder = recorderOf(room);
+  for (const t of techConns(room)) {
+    const upload = withUpload && recorder === t ? uploadFor(rooms, room, rec, t) : undefined;
     t.peer.send(techState(rec, reason, upload));
   }
   const g = room.admitted?.peer;
@@ -139,9 +141,8 @@ function withoutT<T extends { t: string }>(m: T): Omit<T, "t"> {
 }
 
 /** Teknisyen `hello.rec`: kaydediciye yeni belirteç; içinde parça gelmişse yeni bölüm (`series = son + 1`, §6.3). */
-export function recHelloTech(rooms: Rooms, room: Room): { rec?: Omit<RecStateTechMessage, "t"> } {
+export function recHelloTech(rooms: Rooms, room: Room, t: TechConn | undefined = room.tech): { rec?: Omit<RecStateTechMessage, "t"> } {
   const rec = room.rec;
-  const t = room.tech;
   if (!rec || !t) return {};
   let upload: RecStateTechMessage["upload"];
   if (rec.state === "active" && recorderOf(room) === t) {
@@ -210,7 +211,7 @@ export async function handleRecConsent(rooms: Rooms, room: Room, guest: Guest, p
   const recorder = recorderOf(room);
   gate.starting = true;
   try {
-    if (room.tech && !recorder) {
+    if (controllerOf(room) && !recorder) {
       // K-P28e-9: konsol MediaRecorder VP8 desteklemiyor → kayıt başlamaz, nedeni görünür.
       await svc.auditStartFail({
         tenantId: room.tenantId,
@@ -343,15 +344,40 @@ export function recTechAttached(rooms: Rooms, room: Room, old: TechConn | undefi
 }
 
 /** Teknisyen ayrıldı (§6.3): kayıt sürer; belirteç 15 sn pay sonrası düşer; 120 sn dönmezse `STOPPED{ERROR, no_upload}`. */
-export function recTechDetached(rooms: Rooms, room: Room, tech: TechConn): void {
+export function recTechDetached(rooms: Rooms, room: Room, tech: TechConn, wasRecorder = true): void {
   if (tech.connId) rooms.rec?.dropUploadTokens({ by: "conn", connId: tech.connId, graceMs: REC_STOP_GRACE_MS });
-  if (room.rec?.state !== "active") return;
+  if (room.rec?.state !== "active" || !wasRecorder) return;
+  armRecorderGone(rooms, room);
+}
+
+function armRecorderGone(rooms: Rooms, room: Room): void {
   const g = gateOf(room);
   clearRecorderGone(rooms, room);
   g.recorderGone = rooms.clock.setTimeout(() => {
     g.recorderGone = undefined;
     if (rooms.live(room) && !recorderOf(room)) void stopRec(rooms, room, "error", SYSTEM, "no_upload");
   }, REC_RECORDER_RETURN_MS);
+}
+
+/**
+ * P28c (§6.2, D-PC-6): kaydedici değişti (kontrol devri, oturum devri, çıkarma, ayrılma, `revokeMember`). Eski kaydedicinin
+ * yükleme belirteçleri HEMEN düşer (geç parça 401); eskisine `rec.state{on:true}` upload'sız, yenisine yeni bölüm + belirteç.
+ * Yeni kontrol sahibi kaydedemiyorsa (`rec1` yok / kopuk) kaydedici dönüş süresi işler.
+ */
+export function recRecorderChanged(rooms: Rooms, room: Room, old: TechConn | undefined): void {
+  if (old?.connId) rooms.rec?.dropUploadTokens({ by: "conn", connId: old.connId });
+  const rec = room.rec;
+  if (!rec || rec.state !== "active") return;
+  const next = recorderOf(room);
+  if (old && old !== next && techConns(room).includes(old)) old.peer.send(techState(rec));
+  if (!next) return armRecorderGone(rooms, room);
+  if (rec.nextPart > 0) {
+    rec.series += 1;
+    rec.nextPart = 0;
+  }
+  next.peer.send(techState(rec, undefined, uploadFor(rooms, room, rec, next)));
+  clearRecorderGone(rooms, room);
+  armWatchdog(rooms, room, rooms.clock.now());
 }
 
 /** Kaynak eş ayrıldı (S-P28e-2): yalnız uçuştaki tek parça kabul edilir; kayıt ACTIVE kalır. */

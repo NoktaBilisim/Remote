@@ -7,6 +7,7 @@ import { Alert } from "@/components/ui/alert";
 import { EXPIRED_LOGIN_PATH } from "@/lib/api";
 import { t } from "@/lib/i18n";
 import { getMe, serverGet } from "@/lib/server-api";
+import { ActiveSessions } from "./active-sessions";
 import { SessionsView } from "./sessions-view";
 
 export const metadata: Metadata = { title: t("nav.sessions") };
@@ -52,6 +53,8 @@ export default async function SessionsPage() {
           canPickCustomer={perms.includes("customers.view")}
         />
       )}
+      {/* P28c (AC-368): süpervizör "İzle" — firma bağlamı gerekir (tenantScope) */}
+      {!pickTenant && perms.includes("sessions.supervise") && <ActiveSessions />}
     </>
   );
 }

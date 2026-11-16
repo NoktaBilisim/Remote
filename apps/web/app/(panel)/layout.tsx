@@ -4,6 +4,7 @@ import { ToastProvider } from "@/components/ui/toast";
 import { StepUpProvider } from "@/components/account/step-up-dialog";
 import { LogoImage } from "@/components/brand-logo";
 import { LoadError } from "@/components/load-error";
+import { InviteNotifier } from "@/components/invite-notifier";
 import { LobbyNotifier } from "@/components/lobby-notifier";
 import { PurgeBanner } from "@/components/purge-banner";
 import { RequestNotifier } from "@/components/request-notifier";
@@ -90,6 +91,8 @@ export default async function PanelLayout({ children }: { children: React.ReactN
             <main id="icerik" tabIndex={-1} className="min-w-0 flex-1 px-4 py-6 focus:outline-none sm:px-6 lg:px-8">
               {notify && <RequestNotifier enabled meId={user.id} />}
               {lobby && <LobbyNotifier enabled scopeKey={`${user.id}:${(actingTenant ?? tenant)?.id ?? ""}`} />}
+              {/* P28c (AC-364): gelen teknisyen davetleri — tenant kullanıcıları (Super Admin davet alamaz, yalnız İzle) */}
+              <InviteNotifier enabled={!isSa} />
               <TabTitle />
               <SessionWatch />
               {/* P14a (AC-215): hassas uçların 401 MFA_STEP_UP_REQUIRED yanıtında kod soran tek diyalog (lib/api kaydı) */}

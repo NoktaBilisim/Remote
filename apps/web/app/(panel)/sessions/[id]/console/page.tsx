@@ -36,7 +36,10 @@ export default async function ConsolePage({ params }: { params: Promise<{ id: st
     </Link>
   );
   let blocked: string | null = null;
-  if (res.kind === "ok" && res.data.technician.id !== me.me.user.id) blocked = t("c.notOwner");
+  const isOwner = res.kind === "ok" && res.data.technician.id === me.me.user.id;
+  // P28c (§4.1): sahip olmayan kullanıcı yalnız ACTIVE odaya üye olarak bağlanabilir (sunucu WS'te §4.3 `ws` evresini uygular;
+  // üye değilse ilk `hello`'dan önce kapanış → "notMember"). PENDING oturumun konsolu yalnız sahibe.
+  if (res.kind === "ok" && !isOwner && res.data.status !== "ACTIVE") blocked = t("c.notOwner");
   else if (res.kind === "ok" && res.data.status !== "PENDING" && res.data.status !== "ACTIVE") blocked = t("c.closed");
 
   return (
@@ -59,6 +62,8 @@ export default async function ConsolePage({ params }: { params: Promise<{ id: st
           canControl={me.me.permissions.includes("remote_control.use")}
           canClip={me.me.permissions.includes("remote_control.clipboard")}
           canPrint={me.me.permissions.includes("file_transfer.print")}
+          isOwner={isOwner}
+          canInvite={me.me.permissions.includes("sessions.invite")}
         />
       )}
     </div>

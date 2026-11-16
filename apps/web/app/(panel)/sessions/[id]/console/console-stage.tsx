@@ -46,6 +46,8 @@ interface ConsoleStageProps {
   collab: Collab;
   draw: DrawState;
   canControl: boolean;
+  /** P28c (§10): kontrol sahibi değil → kontrol/işaretleme pasif + bu metin. */
+  seatLock?: string | null;
   now: number | null;
   releaseRef: RefObject<HTMLButtonElement | null>;
 }
@@ -64,7 +66,8 @@ function controlBar(p: ConsoleStageProps, showing: boolean, capturing: boolean) 
   const { ts } = p;
   return (
     <ConsoleControlBar
-      canControl={p.canControl && showControlButton(ts.state.unattended, ts.control.phase)}
+      lock={p.canControl ? (p.seatLock ?? null) : null}
+      canControl={p.canControl && !p.seatLock && showControlButton(ts.state.unattended, ts.control.phase)}
       control={ts.control}
       now={p.now}
       available={showing}
@@ -94,8 +97,8 @@ export function ConsoleStage(p: ConsoleStageProps) {
   const agent = live && state.guest?.kind === "AGENT";
   const capturing = isCapturing(control);
   const showing = live && state.share === "sharing" && state.peerLostSince === null && state.reconnectSince === null;
-  const drawTool = capturing ? null : draw.tool;
-  const tools = <ConsoleAnnotTools collab={collab} {...draw} tool={drawTool} capturing={capturing} />;
+  const drawTool = capturing || p.seatLock ? null : draw.tool;
+  const tools = <ConsoleAnnotTools collab={collab} {...draw} tool={drawTool} capturing={capturing} lock={p.seatLock ?? null} />;
   return (
     <Stage
       state={state}

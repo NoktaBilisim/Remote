@@ -58,19 +58,28 @@ func (u *UI) newSessionWin(watchText string) *sessionWin {
 		shift = 40
 	}
 	height, endY = height+shift, endY+shift
+	// P28c: teknisyen listesi (en çok 3 satır), kayıt satırının üstünde.
+	techY := endY
+	height, endY = height+rosterH, endY+rosterH
 	// P28e: "Oturumu bitir"in üstünde kayıt satırı (gösterge + Kaydı durdur + bilgi); kayıt yokken gizli.
 	recY := endY
 	height, endY = height+recRow, endY+recRow
 	f := u.t.newForm(appTitle+" — Oturum", 440, height, false)
+	// P28c: 768 px ekranda sığmazsa sohbet geçmişi kısalır, altındaki her şey yukarı kayar (chatSqueeze).
+	wa := primaryWork()
+	_, winH := f.size()
+	sq := chatSqueeze(winH, wa.Bottom-wa.Top, int32(f.dpi))
+	height, endY, techY, recY, shift = height-sq, endY-sq, techY-sq, recY-sq, shift-sq
+	f.ch = height
 	s := &sessionWin{f: f}
 	s.watch = f.danger(watchText, 16, 14, 408, 22, fontBold)
 	s.status = f.label("Bağlantı kuruluyor…", 16, 40, 408, 36, fontNormal)
 	f.label("Sohbet", 16, 80, 408, 20, fontBold)
-	s.history = f.edit(0, 16, 102, 408, 196, win.ES_MULTILINE|win.ES_READONLY|win.ES_AUTOVSCROLL|win.WS_VSCROLL, 0)
-	s.input = f.edit(idChatInput, 16, 306, 316, 28, win.ES_AUTOHSCROLL, 2000)
-	s.sendBtn = f.button("Gönder", idOK, 338, 305, 86, true)
+	s.history = f.edit(0, 16, chatHistoryY, 408, chatHistoryH-sq, win.ES_MULTILINE|win.ES_READONLY|win.ES_AUTOVSCROLL|win.WS_VSCROLL, 0)
+	s.input = f.edit(idChatInput, 16, 306-sq, 316, 28, win.ES_AUTOHSCROLL, 2000)
+	s.sendBtn = f.button("Gönder", idOK, 338, 305-sq, 86, true)
 	if u.fileServer {
-		f.label(flow.TextFileServerMode, 16, 342, 408, 36, fontNormal)
+		f.label(flow.TextFileServerMode, 16, 342-sq, 408, 36, fontNormal)
 	}
 	s.fileLbl = f.label("", 16, 344+shift, 260, 20, fontNormal)
 	s.fileBtn = f.button("Aktarımı iptal et", idFileCancel, 284, 340+shift, 140, false)
@@ -85,6 +94,7 @@ func (u *UI) newSessionWin(watchText string) *sessionWin {
 	if u.elevated {
 		f.danger(elevatedText, 16, 488+shift, 408, 48, fontNormal)
 	}
+	s.newRoster(f, techY)
 	s.recLbl = f.danger(flow.RecTexts.Indicator, 16, recY+4, 250, 22, fontBold)
 	s.recBtn = f.button(flow.RecTexts.Stop, idRecStop, 284, recY, 140, false)
 	s.recNote = f.label("", 16, recY+30, 408, 20, fontNormal)
@@ -132,6 +142,10 @@ func (u *UI) sessionCommand(s *sessionWin, id, code int) {
 		if !s.finished {
 			u.emit(flow.Event{Kind: flow.EvEnd})
 		}
+	case idTechRemove, idTechRemove + 1, idTechRemove + 2:
+		if code == win.BN_CLICKED {
+			u.confirmRemove(s, id-idTechRemove)
+		}
 	}
 }
 
@@ -164,13 +178,16 @@ func (u *UI) Status(msg string) {
 }
 
 // Chat AC-52: zaman damgalı; pencere arka plandaysa okunmamış sayacı başlıkta.
-func (u *UI) Chat(text string) {
+func (u *UI) Chat(text string) { u.chatLine("Teknisyen", text) }
+
+// chatLine sohbet satırı (P28c: multi kipinde teknisyen adıyla).
+func (u *UI) chatLine(who, text string) {
 	u.t.Do(func() {
 		s := u.sess
 		if s == nil {
 			return
 		}
-		appendLine(s.history, "Teknisyen", text)
+		appendLine(s.history, who, text)
 		if !s.active {
 			s.unread++
 			win.SetText(s.f.h, fmt.Sprintf("(%d yeni) %s — Oturum", s.unread, appTitle))

@@ -15,6 +15,7 @@ import {
   systemClose,
   unexpected,
 } from "./control-record.ts";
+import { sendController } from "./members.ts";
 import type { Rooms } from "./rooms.ts";
 import type { ConsentSource, Guest, Room } from "./types.ts";
 import { controlToggled } from "./unattended-control.ts";
@@ -67,7 +68,7 @@ export async function onGranted(rooms: Rooms, room: Room, guest: Guest, source: 
   }
   c.state = "GRANTED";
   controlToggled(rooms, room, true); // P28u §8.2
-  room.tech?.peer.send({ t: "control.state", state: "GRANTED", source });
+  sendController(room, { t: "control.state", state: "GRANTED", source });
   rooms.metrics.inc("rs_control_total", { event: "granted" });
 }
 
@@ -82,7 +83,7 @@ function grantFailed(rooms: Rooms, room: Room, guest: Guest, write: Promise<void
   c.epoch += 1;
   if (rooms.live(room)) {
     guest.peer?.send({ t: "control.revoke", reason: "audit" });
-    room.tech?.peer.send({ t: "error", code: "INTERNAL", message: `Kontrol kaydı yazılamadı; kontrol geri alındı (ref: ${ref}).` });
+    sendController(room, { t: "error", code: "INTERNAL", message: `Kontrol kaydı yazılamadı; kontrol geri alındı (ref: ${ref}).` });
   }
   if (outcome === "timeout") {
     void write
@@ -103,7 +104,7 @@ export async function onView(rooms: Rooms, room: Room, guest: Guest, source: Con
   c.state = "VIEW";
   c.epoch += 1;
   onControlClosed(rooms, room); // P28a (Y-P28a-1): müşteri kontrolü kapattı
-  room.tech?.peer.send({ t: "control.state", state: "VIEW", source });
+  sendController(room, { t: "control.state", state: "VIEW", source });
   if (was === "REQUESTED") {
     // §3.3 K6: bekleyen istek müşteri kararı olmadan istemcide kapandı (ör. PeerConnection koptu). Consent yok (müşteriye
     // ret atfedilmez), 30 sn bekleme/sayaç yok; control.requested'in kapanışı audit control.cancelled{by:"agent"} (en iyi çaba).
@@ -134,7 +135,7 @@ async function onDenied(rooms: Rooms, room: Room, guest: Guest): Promise<void> {
   c.state = "VIEW";
   c.epoch += 1;
   c.deniedAt = rooms.clock.now();
-  room.tech?.peer.send({ t: "control.state", state: "VIEW", source: "DENIED" });
+  sendController(room, { t: "control.state", state: "VIEW", source: "DENIED" });
   rooms.metrics.inc("rs_control_total", { event: "denied" });
   await recordControl(rooms, room, "DENIED", "UI", guestCtx(guest), CUSTOMER, CONTROL_AUDIT.DENIED).catch(
     (err: unknown) => void logFail(rooms, room, "control_deny_audit_failed", err),

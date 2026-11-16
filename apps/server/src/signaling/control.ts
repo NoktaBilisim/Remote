@@ -11,6 +11,7 @@ import { writeAudit } from "../audit/service.ts";
 import { onControlClosed } from "./clip-print.ts";
 import { onGranted, onView } from "./control-grant.ts";
 import { auditBeforeForward, CUSTOMER, enqueue, guestCtx, logFail, recordClose, techActor, unexpected } from "./control-record.ts";
+import { sendController } from "./members.ts";
 import type { Rooms } from "./rooms.ts";
 import { unattendedControlLimited } from "./unattended-control.ts";
 import type { ControlRoom, Guest, GuestEnv, Room, TechConn } from "./types.ts";
@@ -210,7 +211,7 @@ export async function handleMonitorDenied(rooms: Rooms, room: Room, guest: Guest
   }
   c.monitorPending = undefined;
   c.monitorDeniedAt = now;
-  room.tech?.peer.send({ t: "monitor.denied", monitorId });
+  sendController(room, { t: "monitor.denied", monitorId });
   rooms.metrics.inc("rs_control_total", { event: "monitor_denied" });
   await writeAudit(rooms.db, guestCtx(guest), {
     tenantId: room.tenantId,
@@ -255,7 +256,7 @@ export function handleEnvState(rooms: Rooms, room: Room, guest: Guest, m: GuestE
   }
   const env: GuestEnv = { elevatedForeground: m.elevatedForeground, secureDesktop: m.secureDesktop, selfElevated: m.selfElevated };
   room.guestEnv = env;
-  room.tech?.peer.send({ t: "env.state", ...env });
+  sendController(room, { t: "env.state", ...env });
 }
 /**
  * control.state (guest → S → tech): kayıt + iletim (AC-29, 50, 99, 111; §3.3). Kaynak kısıtı şemada (S7-10): GRANTED

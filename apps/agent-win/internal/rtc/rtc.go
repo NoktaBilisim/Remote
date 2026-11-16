@@ -13,7 +13,6 @@ import (
 
 	"github.com/pion/rtcp"
 	"github.com/pion/webrtc/v4"
-	"github.com/pion/webrtc/v4/pkg/media"
 
 	"remote-support/agent-win/internal/dc"
 	"remote-support/agent-win/internal/signal"
@@ -53,10 +52,11 @@ type Handlers struct {
 	State func(string)
 }
 
-// Peer tek PeerConnection. Yeniden bağlanmada (AC-24) yenisi kurulur.
+// Peer tek PeerConnection (P28c: teknisyen başına bir tane). Yeniden bağlanmada (AC-24) yenisi kurulur. Video izi
+// paylaşılan Media'dan gelir: ana ya da düşük (SetMain → RTPSender.ReplaceTrack; ADR-0035).
 type Peer struct {
 	pc    *webrtc.PeerConnection
-	track *webrtc.TrackLocalStaticSample
+	media *Media
 	h     Handlers
 
 	mu      sync.Mutex
@@ -65,7 +65,8 @@ type Peer struct {
 	pending []webrtc.ICECandidateInit // remote description gelmeden gelen adaylar
 	hasDesc bool
 	added   bool
-	kf      KeyframeRequester // yayındaki kaynak (Stream süresince)
+	main    bool              // gönderici ana izde (kontrol sahibi) mı
+	sender  *webrtc.RTPSender // ilk offer'da kurulur
 }
 
 // Option test ve ayar kancası.
@@ -100,8 +101,16 @@ func ICEConfig(list []signal.IceServer) webrtc.Configuration {
 	return webrtc.Configuration{ICEServers: servers}
 }
 
-// New eşi kurar. caps hello.caps'tir (yetenek filtresi, G-09).
-func New(iceServers []signal.IceServer, caps []string, h Handlers, opts ...Option) (*Peer, error) {
+// New eşi kurar. caps hello.caps'tir (yetenek filtresi, G-09). m paylaşılan iz çiftidir (nil → yalnız bu eşe ait
+// yeni çift); eş ana izle başlar (SetMain ile değişir).
+func New(iceServers []signal.IceServer, caps []string, h Handlers, m *Media, opts ...Option) (*Peer, error) {
+	if m == nil {
+		nm, err := NewMedia()
+		if err != nil {
+			return nil, err
+		}
+		m = nm
+	}
 	se := webrtc.SettingEngine{}
 	for _, o := range opts {
 		o(&se)
@@ -111,12 +120,7 @@ func New(iceServers []signal.IceServer, caps []string, h Handlers, opts ...Optio
 	if err != nil {
 		return nil, err
 	}
-	track, err := webrtc.NewTrackLocalStaticSample(h264, "video", "noktadestek")
-	if err != nil {
-		_ = pc.Close()
-		return nil, err
-	}
-	p := &Peer{pc: pc, track: track, h: h, caps: append([]string(nil), caps...)}
+	p := &Peer{pc: pc, media: m, h: h, caps: append([]string(nil), caps...), main: true}
 	pc.OnICECandidate(p.onLocalICE)
 	pc.OnConnectionStateChange(func(s webrtc.PeerConnectionState) {
 		if h.State == nil {
@@ -243,11 +247,18 @@ func (p *Peer) HandleOffer(sdp string) (signal.SdpAnswer, error) {
 		_ = p.pc.AddICECandidate(c)
 	}
 	if needTrack {
-		sender, err := p.pc.AddTrack(p.track)
+		p.mu.Lock()
+		track := p.media.track(p.main)
+		p.mu.Unlock()
+		sender, err := p.pc.AddTrack(track)
 		if err != nil {
 			return signal.SdpAnswer{}, err
 		}
+		p.mu.Lock()
+		p.sender = sender
+		p.mu.Unlock()
 		go p.readRTCP(sender)
+		p.requestKeyframe() // yeni eş IDR'siz başlamasın
 	}
 	answer, err := p.pc.CreateAnswer(nil)
 	if err != nil {
@@ -275,13 +286,32 @@ func (p *Peer) readRTCP(s *webrtc.RTPSender) {
 	}
 }
 
+// requestKeyframe eşin o anki izinin kodlayıcısından anahtar kare ister (PLI/FIR doğru saate gider).
 func (p *Peer) requestKeyframe() {
 	p.mu.Lock()
-	kf := p.kf
+	main := p.main
 	p.mu.Unlock()
-	if kf != nil {
-		kf.RequestKeyframe()
+	p.media.requestKeyframe(main)
+}
+
+// SetMain P28c (§6.1, AC-367): göndericiyi ana (true) ya da düşük (false) ize taşır (RTPSender.ReplaceTrack) ve yeni
+// izden anahtar kare ister. Offer'dan önce çağrılırsa ilk AddTrack seçilen izi kullanır.
+func (p *Peer) SetMain(main bool) error {
+	p.mu.Lock()
+	if p.main == main {
+		p.mu.Unlock()
+		return nil
 	}
+	p.main = main
+	sender := p.sender
+	p.mu.Unlock()
+	if sender != nil {
+		if err := sender.ReplaceTrack(p.media.track(main)); err != nil {
+			return err
+		}
+	}
+	p.media.requestKeyframe(main)
+	return nil
 }
 
 // AddRemoteICE teknisyenin adayını ekler; remote description yoksa kuyruğa alır.
@@ -312,31 +342,6 @@ func (p *Peer) SendCtl(b []byte) error {
 		return ErrNoCtl
 	}
 	return ch.SendText(string(b))
-}
-
-// Stream kaynaktan kareleri ctx bitene veya kaynak hata verene kadar track'e yazar. Kaynağı kapatmaz.
-// Kaynak KeyframeRequester ise yayın başında anahtar kare istenir (yeniden bağlanmada yeni eş IDR'siz başlamasın).
-func (p *Peer) Stream(ctx context.Context, src Source) error {
-	if kf, ok := src.(KeyframeRequester); ok {
-		p.mu.Lock()
-		p.kf = kf
-		p.mu.Unlock()
-		defer func() {
-			p.mu.Lock()
-			p.kf = nil
-			p.mu.Unlock()
-		}()
-		kf.RequestKeyframe()
-	}
-	for {
-		f, err := src.NextFrame(ctx)
-		if err != nil {
-			return err
-		}
-		if err := p.track.WriteSample(media.Sample{Data: f.Data, Duration: f.Duration}); err != nil {
-			return err
-		}
-	}
 }
 
 // Close eşi kapatır.

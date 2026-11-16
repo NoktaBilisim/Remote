@@ -106,7 +106,7 @@ func Run(ctx context.Context, d Deps, in helperio.Input) uint32 {
 	}
 	events := make(chan flow.Event, eventBuffer)
 	ui := newHeadless(ctx, events)
-	ui.mode, ui.st, ui.live = in.Mode, st, live
+	ui.mode, ui.st, ui.live, ui.techName = in.Mode, st, live, in.TechName
 	ui.viewText, ui.controlText = in.IndicatorText, in.IndicatorControl
 	var admitted, indFailed atomic.Bool
 	fd := unattendedDeps(gatedFlow(d.Flow, d.Gate), ui, events, func() { admitted.Store(true) })
@@ -118,6 +118,9 @@ func Run(ctx context.Context, d Deps, in helperio.Input) uint32 {
 // unattendedDeps akış bağımlılıklarını gözetimsiz kipe getirir: arayüz yok, kısayol yok, kayıt/logo/pencere modu yok.
 func unattendedDeps(d flow.Deps, ui flow.UI, events chan flow.Event, admitted func()) flow.Deps {
 	d.UI, d.Events, d.Unattended, d.Hotkey, d.Admitted = ui, events, true, "", admitted
+	if r, ok := ui.(flow.RosterUI); ok { // P28c: gösterge adları (multi1)
+		d.RosterUI = r
+	}
 	d.API, d.Logo, d.Binding = nil, nil, nil
 	d.WindowCapture, d.CaptureWindow, d.SetInputWindow = nil, nil, nil // birincil monitör; pencere seçimi yok
 	return d

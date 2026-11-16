@@ -4,6 +4,9 @@ import { RotateCw } from "lucide-react";
 import { useEffect, useRef, useState, type RefObject } from "react";
 import { ShareStrip } from "@/components/guest/share-strip";
 import { GuestCollab, PipButton, usePip } from "@/components/guest/guest-collab";
+import { TechsList } from "@/components/guest/techs-list";
+import type { TechRosterEntry } from "@remote/contracts/ws-multi";
+import { chatAuthor } from "@/lib/multi/roster";
 import { useCollab } from "@/lib/dc/use-collab";
 import { useGuestRec } from "@/lib/rec/use-guest-rec";
 import { Button } from "@/components/ui/button";
@@ -83,6 +86,8 @@ export function GuestSession({ info: join, verifyCode, sessionRef, cred, storeKe
     chatVisible: chatOpen,
     receiveAnnot: true,
     sendMeta: g.send,
+    // P28c (§4.5): sohbet tüm teknisyen eşlerine yayılır
+    chatHub: g.chatHub,
     maxFileMb: g.maxFileMb,
     fsrv: {
       mode: g.fileMode,
@@ -119,8 +124,9 @@ export function GuestSession({ info: join, verifyCode, sessionRef, cred, storeKe
       />
     );
   const live = { state, now, techName: join.technicianName, share, video, collab, pip, rec };
+  const multi = { roster: g.roster, onRemove: g.removeTech, onDrawn: g.markDrawn };
   const dialog = { confirm, onConfirm: setConfirm, onEnd: end };
-  return <GuestLive {...live} {...dialog} filesAllowed={filesAllowed} onChatVisible={setChatOpen} />;
+  return <GuestLive {...live} {...dialog} multi={multi} filesAllowed={filesAllowed} onChatVisible={setChatOpen} />;
 }
 
 interface GuestLiveProps {
@@ -137,6 +143,8 @@ interface GuestLiveProps {
   confirm: boolean;
   onConfirm: (v: boolean) => void;
   onEnd: () => void;
+  /** P28c: bağlı teknisyenler (multi1 roster; eski sunucuda null → liste yok). */
+  multi: { roster: TechRosterEntry[] | null; onRemove: (tid: string) => void; onDrawn: (tids: string[]) => void };
 }
 
 /** Canlı oturum: paylaşım şeridi, uyarılar, önizleme (+PiP), sohbet/dosyalar, yalnız izleme notu, bitir onayı (AC-28..33, 59). */
@@ -163,7 +171,14 @@ function GuestLive(p: GuestLiveProps) {
           <GuestPreview video={p.video} share={state.share} annot={collab.annot} pipWin={pip.win} />
           {state.share === "sharing" && <PipButton pip={pip} />}
         </section>
-        <GuestCollab collab={collab} filesAllowed={p.filesAllowed} techName={p.techName} onChatVisible={p.onChatVisible} />
+        {p.multi.roster && <TechsList roster={p.multi.roster} onRemove={p.multi.onRemove} onDrawn={p.multi.onDrawn} />}
+        <GuestCollab
+          collab={collab}
+          filesAllowed={p.filesAllowed}
+          techName={p.techName}
+          onChatVisible={p.onChatVisible}
+          authorOf={p.multi.roster ? (by) => chatAuthor(by, p.multi.roster ?? [], p.techName) : undefined}
+        />
         <ViewOnlyNote />
       </div>
       <GuestEndDialog

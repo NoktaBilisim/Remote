@@ -44,7 +44,13 @@ function useGuestNameStore(sessionId: string, guestName: string | null, phase: T
   }, [guestName, sessionId, phase]);
 }
 
-export function useTechSession(sessionId: string) {
+/**
+ * `member`: P28c — konsolu açan oturum sahibi değil (davetle / İzle ile katılan üye olabilir). Sahip olmayan ve üye de olmayan
+ * kullanıcıda sunucu WS'i kabul etmez (tarayıcıda yalnız kapanış görünür) → ilk `hello`'dan önce kapanış = `notMember` (120 sn
+ * yeniden deneme yok).
+ */
+export function useTechSession(sessionId: string, opts: { member?: boolean } = {}) {
+  const member = opts.member ?? false;
   const [state, dispatch] = useReducer(techReducer, initialTech);
   const { control, ctl, dispatchCtl } = useControlMachine();
   const st = useRef<TechState>(state);
@@ -77,10 +83,14 @@ export function useTechSession(sessionId: string) {
 
   const onClose = useCallback(
     (code: number) => {
+      if (member && st.current.phase === "connecting") {
+        sig.current = null;
+        return dispatch({ type: "end", end: "notMember" });
+      }
       const refs = { sigRef: sig, gateRef: gate, stRef: st, retryRef: retry, reconnectRef: reconnect };
       handleClose(code, refs, () => resetPeer(), dispatchCtl, dispatch);
     },
-    [dispatchCtl, resetPeer],
+    [dispatchCtl, member, resetPeer],
   );
 
   const connect = useCallback(() => {
@@ -111,6 +121,7 @@ export function useTechSession(sessionId: string) {
   }, [state.phase]);
 
   const lobby = useLobbyActions(dispatch, send);
+  const multi = useMultiActions(dispatch, send);
   const actions = useControlActions(ctl, dispatchCtl, send, link.inputRef, control.monitorPending?.at);
 
   const subscribe = useCallback((fn: (m: ServerOutbound) => void) => {
@@ -119,7 +130,21 @@ export function useTechSession(sessionId: string) {
   }, []);
 
   const { stream, channels, pc, maxFileMb, input } = link;
-  return { state, stream, channels, pc, send, subscribe, maxFileMb, ...lobby, control, input, ...actions };
+  return { state, stream, channels, pc, send, subscribe, maxFileMb, ...lobby, ...multi, control, input, ...actions };
+}
+
+/**
+ * P28c (§4.4, §5.1, §5.2): kontrol devri / oturum devri (yalnız oturum sahibi) ve üyenin ayrılması. Ayrılmada sunucu soketi 1000
+ * ile kapatır; yeniden bağlanma başlamasın diye durum önce `left` olur (kapanış `closeOnEnd` ile).
+ */
+function useMultiActions(dispatch: (e: TechEvent) => void, send: (m: Parameters<Signal["send"]>[0]) => void) {
+  const handover = useCallback((to: string) => send({ t: "control.handover", to }), [send]);
+  const transfer = useCallback((to: string) => send({ t: "session.transfer", to }), [send]);
+  const leave = useCallback(() => {
+    send({ t: "member.leave" });
+    dispatch({ type: "end", end: "left" });
+  }, [dispatch, send]);
+  return { handover, transfer, leave };
 }
 
 function useLobbyActions(dispatch: (e: { type: "admit" } | { type: "reject" }) => void, send: (m: Parameters<Signal["send"]>[0]) => void) {

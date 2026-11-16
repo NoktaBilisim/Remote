@@ -5,6 +5,7 @@ import { useEffect, useId, useRef, useState } from "react";
 import type { DrawTool } from "@/components/collab/annot-layer";
 import { CollabSide, type CollabTab } from "@/components/console/collab-side";
 import { RecIndicator } from "@/components/console/rec-indicator";
+import { TechsPanel } from "@/components/console/techs-panel";
 import { UnattendedActions } from "@/components/console/unattended-actions";
 import { Alert } from "@/components/ui/alert";
 import { useToast } from "@/components/ui/toast";
@@ -18,6 +19,8 @@ import type { AnnotColor } from "@/lib/dc/ctl";
 import { useCollab } from "@/lib/dc/use-collab";
 import { useQuality } from "@/lib/webrtc/use-quality";
 import { useTechSession } from "@/lib/webrtc/use-tech-session";
+import { inviteBlockOf } from "@/lib/multi/errors";
+import { canSend, chatAuthor, seatOf, type Seat } from "@/lib/multi/roster";
 import { ConsoleHeader } from "./console-header";
 import { ConfirmEndDialog, ConsoleEnded } from "./console-parts";
 import { ConsoleStage } from "./console-stage";
@@ -30,7 +33,13 @@ export function ConsoleView({
   canControl,
   canClip = false,
   canPrint = false,
+  isOwner = true,
+  canInvite = false,
 }: {
+  /** P28c: konsolu açan oturum sahibi mi (değilse üye olarak bağlanır; üye değilse `notMember`). */
+  isOwner?: boolean;
+  /** P28c: `sessions.invite` (davet, kontrol/oturum devri — yalnız oturum sahibinde anlamlı). */
+  canInvite?: boolean;
   session: SessionView;
   canFiles: boolean;
   canControl: boolean;
@@ -38,19 +47,27 @@ export function ConsoleView({
   canClip?: boolean;
   canPrint?: boolean;
 }) {
-  const ts = useTechSession(session.id);
+  const ts = useTechSession(session.id, { member: !isOwner });
   const { state, control } = ts;
+  const seat = mySeat(state, isOwner);
+  const notController = !seat.controller;
+  // P28c (§1.1, ROLE_MAY): kontrol sahibine özgü WS mesajları (quality.summary, file.meta, rec.error) yalnız kontrol sahibinden
+  const gatedSend = (m: Parameters<typeof ts.send>[0]) => (canSend(seat, m.t) ? ts.send(m) : undefined);
   const [tab, setTab] = useState<CollabTab>("chat");
   const [tool, setTool] = useState<DrawTool | null>(null);
   const [color, setColor] = useState<AnnotColor>("red");
   // P28a §4.4: yazdırma `file` kanalını kullanırken dosya teklifi "busy" (kanca sırası nedeniyle ref üzerinden)
   const printBusy = useRef<() => boolean>(() => false);
-  const files = serverFiles(state, canFiles);
-  const collab = useCollab(ts.channels, { ...collabOptions(ts, files.allowed, tab), printBusy: () => printBusy.current() });
-  const quality = useQuality(ts.pc, ts.send);
+  const files = notController && canFiles ? { allowed: false, blocked: "notController" as const } : serverFiles(state, canFiles);
+  const collab = useCollab(ts.channels, {
+    ...collabOptions(ts, files.allowed, tab),
+    sendMeta: gatedSend,
+    printBusy: () => printBusy.current(),
+  });
+  const quality = useQuality(ts.pc, gatedSend);
   const now = useNow();
   const toast = useToast();
-  const clipPrint = useClipPrint(ts, collab, { clip: canClip, print: canPrint }, toast, now);
+  const clipPrint = useClipPrint(ts, collab, { clip: canClip, print: canPrint, notController }, toast, now);
   useEffect(() => {
     printBusy.current = clipPrint.transferring;
   }, [clipPrint.transferring]);
@@ -64,10 +81,30 @@ export function ConsoleView({
 
   return (
     <div className="flex flex-col gap-3" data-testid="console" data-phase={state.phase}>
-      <ConsoleHeader session={session} state={state} name={name} now={now} controlHint={controlHint} onConfirm={() => setConfirm(true)} />
+      <ConsoleHeader
+        session={session}
+        state={state}
+        name={name}
+        now={now}
+        controlHint={controlHint}
+        owner={seat.owner}
+        onConfirm={() => setConfirm(true)}
+      />
+
+      {/* P28c (§10): teknisyenler paneli (roster, davet, devir, ayrılma) */}
+      {state.phase !== "ended" && (
+        <TechsPanel
+          ts={ts}
+          sessionId={session.id}
+          seat={seat}
+          canInvite={canInvite}
+          inviteBlock={inviteBlockOf(state.unattended?.consentMode, state.guestMulti)}
+          now={now}
+        />
+      )}
 
       {/* P28e (§9): kayıt göstergesi + kaydedici (tüm teknisyenlerde gösterge; kaydedici yalnız upload alan sokette) */}
-      <RecIndicator subscribe={ts.subscribe} send={ts.send} stream={ts.stream} ended={state.phase === "ended"} />
+      <RecIndicator subscribe={ts.subscribe} send={gatedSend} stream={ts.stream} ended={state.phase === "ended"} />
 
       {state.phase !== "ended" && (
         <UnattendedActions
@@ -75,7 +112,7 @@ export function ConsoleView({
           unattended={state.unattended}
           phase={control.phase}
           live={live}
-          canControl={canControl}
+          canControl={canControl && seat.controller}
           now={now}
           onIntervene={ts.requestControl}
           onReturn={ts.releaseControl}
@@ -96,6 +133,7 @@ export function ConsoleView({
             collab={collab}
             draw={{ tool, color, onTool: setTool, onColor: setColor }}
             canControl={canControl}
+            seatLock={notController ? t("mt.onlyController") : null}
             now={now}
             releaseRef={releaseRef}
           />
@@ -110,6 +148,10 @@ export function ConsoleView({
               peerName={name}
               tab={tab}
               onTab={setTab}
+              chat={{
+                authorOf: (by) => chatAuthor(by, state.roster, name),
+                readOnlyNote: seat.observer ? t("mt.observerChat") : null,
+              }}
             />
           )}
         </div>
@@ -118,6 +160,12 @@ export function ConsoleView({
       <ConfirmEndDialog open={confirm} live={live} busy={busy} onClose={() => setConfirm(false)} onConfirm={confirmEnd} />
     </div>
   );
+}
+
+/** P28c: yerim roster'dan; üye konsolunda `hello` gelmeden önce hiçbir yetki yok (sahip varsayılmaz). */
+function mySeat(s: ReturnType<typeof useTechSession>["state"], isOwner: boolean): Seat {
+  if (!isOwner && s.tid === null && s.techRole === null) return { owner: false, controller: false, observer: false };
+  return seatOf(s.roster, s.tid, s.techRole);
 }
 
 /**

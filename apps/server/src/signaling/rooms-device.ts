@@ -6,6 +6,8 @@ import type { SessionEndedReason } from "@remote/contracts/ws";
 import { newId } from "../lib/ids.ts";
 import type { UnattendedGate } from "../unattended/gate.ts";
 import { finishSilent, silentPolicyEnabled, userHasSilent } from "../unattended/policy.ts";
+import { deviceAccess } from "../unattended/device-access.ts";
+import { revokeMember, revokeMemberEverywhere } from "./member-life.ts";
 import type { Rooms } from "./rooms.ts";
 import type { Guest, Room } from "./types.ts";
 
@@ -102,8 +104,12 @@ export function deviceRooms(rooms: Rooms, deviceId: string, technicianId?: strin
   );
 }
 
-/** AC-275/293/295: cihazın (ya da teknisyen süzgeçli) tüm odaları `reason` ile biter. */
+/**
+ * AC-275/293/295: cihazın (ya da teknisyen süzgeçli) tüm odaları `reason` ile biter. P28c (§2): teknisyen süzgeci "sahip veya
+ * üye" — üye olduğu odada yalnız üye `revokeMember` ile düşer (grant geri alımı).
+ */
 export async function finishDevice(rooms: Rooms, deviceId: string, reason: SessionEndedReason, technicianId?: string): Promise<void> {
+  if (technicianId) revokeMemberEverywhere(rooms, technicianId, (r) => r.unattended?.deviceId === deviceId);
   await Promise.all(deviceRooms(rooms, deviceId, technicianId).map((r) => endDeviceRoom(rooms, r, reason)));
 }
 
@@ -114,22 +120,29 @@ export async function finishDevice(rooms: Rooms, deviceId: string, reason: Sessi
 export async function revalidateDevice(rooms: Rooms, gate: UnattendedGate, room: Room): Promise<void> {
   const dev = room.unattended;
   if (!dev || !rooms.live(room)) return;
-  const row = await rooms.db.unattendedDevice.findFirst({
-    where: { id: dev.deviceId, tenantId: room.tenantId },
-    select: {
-      revokedAt: true,
-      localEnabled: true,
-      signed: true,
-      binarySha256: true,
-      grants: { where: { userId: room.technicianId, tenantId: room.tenantId }, select: { id: true } },
-    },
-  });
+  // P28c O-PC-4: tek yardımcı `deviceAccess` (grant + iptal + yerel anahtar + imza kapısı).
+  const v = await deviceAccess(rooms.db, gate, room.tenantId, room.technicianId, dev.deviceId);
   let reason: SessionEndedReason | null = null;
-  if (!row || row.revokedAt) reason = "device_revoked";
-  else if (!row.localEnabled) reason = "local_disabled";
-  else if (row.grants.length === 0 || !gate.allows({ signed: row.signed, sha256: row.binarySha256 })) reason = "permission";
+  if (v === "not_found" || v === "revoked") reason = "device_revoked";
+  else if (v === "local_disabled") reason = "local_disabled";
+  else if (v !== "ok") reason = "permission";
   else if (dev.consentMode === "silent" && !(await silentStillAllowed(rooms, room))) reason = "permission";
-  if (reason) await endDeviceRoom(rooms, room, reason);
+  if (reason) return endDeviceRoom(rooms, room, reason);
+  await revalidateDeviceMembers(rooms, gate, room);
+}
+
+/** P28c Y-PC-2 (§4.3 `revalidate` 6, 6b): üyelerden cihaz erişimi ya da silent yetkisi düşen `revokeMember` ile çıkar. */
+async function revalidateDeviceMembers(rooms: Rooms, gate: UnattendedGate, room: Room): Promise<void> {
+  const dev = room.unattended;
+  if (!dev) return;
+  const silent = dev.consentMode === "silent";
+  const policy = silent ? await silentPolicyEnabled(rooms.db, room.tenantId) : true;
+  for (const m of [...room.multi.members.values()]) {
+    const ok =
+      (await deviceAccess(rooms.db, gate, room.tenantId, m.userId, dev.deviceId)) === "ok" &&
+      (!silent || (policy && (await userHasSilent(rooms.db, room.tenantId, m.userId))));
+    if (!ok && rooms.live(room)) revokeMember(rooms, room, m.userId);
+  }
 }
 
 /**

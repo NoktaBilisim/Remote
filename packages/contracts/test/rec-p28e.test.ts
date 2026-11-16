@@ -228,7 +228,8 @@ describe("P28e audit ve etiketler", () => {
   });
 
   it("S-P28e-4: dört göz olayı recording_policy eklendi ve etiketli", () => {
-    expect(SILENT_NOTIFY_EVENTS).toEqual(["connect", "policy", "recording_policy"]);
+    // P28c (Y-PC-1) `join`/`transfer` ekledi; P28e değeri korunur.
+    expect(SILENT_NOTIFY_EVENTS).toEqual(expect.arrayContaining(["connect", "policy", "recording_policy"]));
     for (const e of SILENT_NOTIFY_EVENTS) expect(SILENT_NOTIFY_EVENT_LABELS[e]).toBeTruthy();
   });
 

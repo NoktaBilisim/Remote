@@ -5,6 +5,50 @@ Biçim [Keep a Changelog](https://keepachangelog.com/tr/1.1.0/), sürümleme [Se
 
 ## [Unreleased]
 
+### Eklendi — P28c çoklu teknisyen, istemci/yardımcı 0.17.0 (AC-364..372)
+
+- **Davet:** oturum sahibi konsoldaki **Teknisyenler** panelinden **Davet et** ile aynı firmadan bir kullanıcıyı çağırır.
+  Davetli panelde bildirim alır (5 sn yoklama), 2 dk içinde **Katıl** / **Reddet** der; süre dolunca davet düşer. Sahip
+  bekleyen daveti geri çekebilir. Oturumda sahip dahil en çok 3 teknisyen bulunur; fazlası "Oturum dolu".
+- **İzle:** `sessions.supervise` sahibi Oturumlar ekranındaki **Firmadaki etkin oturumlar** listesinden davetsiz, izleyici
+  olarak katılır: görüntü ve sohbeti görür; kontrol, sohbete yazma, dosya, pano, yazdırma ve işaretleme yapamaz.
+- **Roller:** Kontrol sahibi / Katılımcı / İzleyici. Müşterinin bilgisayarında iz bırakan her iş (girdi, pano, yazdırma,
+  dosya, işaretleme) yalnız kontrol sahibindedir; sunucu ve müşteri tarafı diğerlerinin mesajını reddeder.
+- **Kontrol devri:** sahip **Kontrolü ver** / **Kontrolü geri al**; kontrol izni VIEW'a döner, yeni kontrol sahibi müşteriden
+  yeniden ister. Kontrol sahibi ayrılırsa kontrol oturum sahibine döner.
+- **Oturum devri:** **Oturumu devret** ile bir katılımcı oturumun sahibi olur (`support_sessions.technician_id` değişir); eski
+  sahip katılımcı olarak kalır, **Oturumdan ayrıl** ile çıkabilir. Devretmeden ayrılan sahibin oturumu bugünkü kuralla biter.
+- **Müşteri tarafı:** Hızlı Destek penceresinde ve tarayıcı müşteri sayfasında **Bağlı teknisyenler** listesi (ad + rol) ve
+  sahip dışındakiler için onaylı **Çıkar**; çıkarılan teknisyen aynı oturuma yeniden giremez. Gözetimsiz göstergede tüm
+  teknisyen adları listelenir; adı çizilmeyen teknisyenin görüntüsü başlamaz (gizli izleyici yok).
+- **Gözetimsiz oturum:** "Kullanıcı yok" ve "İzinsiz" kipte davet ve İzle çalışır (katılan kişide `unattended.connect`, cihaz
+  yetkisi ve step-up; izinsiz kipte `unattended.silent`, açık politika, 20–500 karakter gerekçe ve dört göz e-postası).
+  "İzinli" kipte ek teknisyen katılamaz.
+- **Görüntü:** müşteri her teknisyene ayrı bağlantıyla yayın yapar; kontrol sahibine ana akış, diğerlerine en çok 8 FPS /
+  1 Mbit/s düşük akış.
+- **Oturum geçmişi:** ayrıntıda **Katılımcılar** bölümü (ad, rol, katılma–ayrılma, devir) ve zaman çizelgesinde P28c olayları.
+- Yeni yetkiler `sessions.invite` ("Teknisyen davet et / devret") ve `sessions.supervise` ("Etkin oturumları izle", hassas);
+  Admin açık, User kapalı.
+- Yeni uçlar `GET /api/v1/sessions/:id/invite-candidates`, `POST|GET /api/v1/sessions/:id/invites`,
+  `DELETE /api/v1/sessions/:id/invites/:inviteId`, `GET /api/v1/sessions/invites`,
+  `POST /api/v1/sessions/invites/:inviteId/accept|reject`, `GET /api/v1/sessions/active`, `POST /api/v1/sessions/:id/supervise`;
+  değişenler `GET /sessions/:id` (üye erişimi) ve `GET /sessions/:id/history` (`participants`). WS `techs.roster`,
+  `control.handover`, `session.transfer`, `member.leave`, `tech.remove`, `sdp/ice` `from`/`to`; yetenek `rs.cap.multi1`.
+  Yeni hata kodları `SESSION_FULL`, `CLIENT_UNSUPPORTED`, `INVITE_GONE`, `JOIN_NOT_ALLOWED`. Hız sınırları: kabul/İzle 20/dk,
+  yoklamalar 60/dk, oda komutları 10/dk (`docs/api.md` "Çoklu teknisyen (P28c)").
+- Audit `session.invite`, `session.invite_accept`, `session.invite_reject`, `session.invite_expire`,
+  `session.participant_join`, `session.participant_leave`, `session.participant_remove`, `session.supervise_join`,
+  `session.control_handover`, `session.transfer`; süzgeçte "Çoklu teknisyen" grubu. Metrikler `rs_multi_*`, alarm
+  `multi-denied` (runbook §28c).
+- Migration, yeni tablo, yeni env ve yeni bağımlılık yok. Karar ADR-0035.
+
+### Değişti — P28c
+
+- 0.17.0 öncesi istemci/serviste "Davet et" ve "İzle" pasiftir ("Müşterinin uygulaması bu özelliği desteklemiyor — güncel
+  sürümü indirmesini isteyin"); tek teknisyenli kullanım aynen sürer. `MIN_AGENT_VERSION` yükseltilmedi.
+- Kayıt (P28e) artık kontrol sahibinin konsolundan alınır; kontrol ya da oturum devrinde kayıt durmadan yeni kontrol sahibine
+  geçer.
+
 ### Eklendi — P28e oturum kaydı, istemci/servis 0.16.0 (AC-380..388, AC-447..450)
 
 - **Ayarlar → Oturum kaydı** (Admin; varsayılan kapalı): "Oturum kaydı" anahtarı (açarken "Aydınlatma metnimi bu

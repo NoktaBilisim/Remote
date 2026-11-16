@@ -9,6 +9,11 @@ interface ChatItem {
   from: "me" | "peer";
   text: string;
   ts: number;
+  /**
+   * P28c (§4.5): gelen mesajın kaynağı — konsolda misafirin yaydığı teknisyen mesajının `by` tid'i, müşteri sayfasında mesajın
+   * geldiği eşin tid'i. Yoksa müşteri (konsol) / tek teknisyen (müşteri sayfası). Ad gösterimde roster'dan çözülür.
+   */
+  by?: string;
 }
 interface ChatState {
   items: ChatItem[];
@@ -20,7 +25,7 @@ export const initialChat: ChatState = { items: [], unread: 0 };
 const CHAT_KEEP = 500;
 
 type ChatAction =
-  | { type: "in"; id: string; text: string; ts: number; visible: boolean }
+  | { type: "in"; id: string; text: string; ts: number; visible: boolean; by?: string }
   | { type: "out"; item: ChatItem }
   | { type: "read" }
   | { type: "reset" };
@@ -29,7 +34,8 @@ export function chatReducer(s: ChatState, a: ChatAction): ChatState {
   switch (a.type) {
     case "in": {
       if (s.items.some((i) => i.id === a.id && i.from === "peer")) return s; // yinelenen
-      const items = [...s.items, { id: a.id, from: "peer" as const, text: a.text, ts: a.ts }].slice(-CHAT_KEEP);
+      const item: ChatItem = { id: a.id, from: "peer", text: a.text, ts: a.ts, ...(a.by ? { by: a.by } : {}) };
+      const items = [...s.items, item].slice(-CHAT_KEEP);
       return { items, unread: a.visible ? 0 : s.unread + 1 };
     }
     case "out":

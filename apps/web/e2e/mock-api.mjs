@@ -14,6 +14,7 @@ import { handleP19, p19User } from "./mock-p19.mjs";
 import { handleP27, p27User } from "./mock-p27.mjs";
 import { handleP28u, p28uUser } from "./mock-p28u.mjs";
 import { handleP28e, handleRecBytes, p28eUser, p28eViews } from "./mock-p28e.mjs";
+import { emptyInvites, handleP28c, p28cUser } from "./mock-p28c.mjs";
 import { handleHistory, historyUser } from "./mock-history.mjs";
 import { handleLg, lgOutbox } from "./mock-lg.mjs";
 import { handleFsrvBytes, handleP28b, handleStoredLink, p28bUser } from "./mock-p28b.mjs";
@@ -21,7 +22,7 @@ import { handleRequests, requestUser } from "./mock-requests.mjs";
 import { handleLobby, handleSessions, lobbyHook, sessionUser } from "./mock-sessions.mjs";
 import { handleUsers, usersUser } from "./mock-users.mjs";
 import { recHook, recRid } from "./mock-ws.mjs";
-import { ageRoom, attachWs, fsrvOfferToTech, fsrvWsLog, revokeControl, strayGrant, wsLog } from "./mock-ws.mjs";
+import { ageRoom, attachWs, fsrvOfferToTech, fsrvWsLog, guestRoster, revokeControl, strayGrant, wsLog } from "./mock-ws.mjs";
 
 const PORT = Number(process.env.MOCK_API_PORT ?? 4010);
 const CSRF = "csrf-test-token";
@@ -93,6 +94,8 @@ function resolveMe(session) {
   if (p28u) return p28u;
   const p28e = p28eUser(session);
   if (p28e) return p28e;
+  const p28c = p28cUser(session);
+  if (p28c) return p28c;
   const p28b = p28bUser(session);
   if (p28b) return { user: p28b.user, permissions: p28b.permissions, tenant: p28b.tenant, actingTenant: p28b.actingTenant };
   const p15 = p15User(session);
@@ -140,6 +143,9 @@ const srv = createServer(async (req, res) => {
   // P7 e2e: canlı yetki kaldırma (AC-115) — misafire control.revoke + caps.update, teknisyene control.state{VIEW,SYSTEM}
   const revokeHit = req.method === "GET" && url.match(/^\/__e2e\/revoke\/([0-9A-Z]{26})$/);
   if (revokeHit) return send(res, revokeControl(revokeHit[1]) ? 200 : 404, {});
+  // P28c K2b: misafire iki teknisyenli roster (müşteri "Bağlı teknisyenler" + "Çıkar")
+  const grHit = req.method === "GET" && url.match(/^\/__e2e\/guest-roster\/([0-9A-Z]{26})$/);
+  if (grHit) return send(res, guestRoster(grHit[1]) ? 200 : 404, {});
   // P7 düzeltme 1 (S7-2): teknisyene istenmemiş control.state{GRANTED} (sunucu kuralını atlayan yarış/hata taklidi)
   const strayHit = req.method === "GET" && url.match(/^\/__e2e\/stray-grant\/([0-9A-Z]{26})$/);
   if (strayHit) return send(res, strayGrant(strayHit[1]) ? 200 : 404, {});
@@ -156,6 +162,8 @@ const srv = createServer(async (req, res) => {
   if (req.method === "GET" && url.split("?")[0] === "/api/v1/sessions/waiting")
     return handleLobby(res, { session, me: resolveMe(session), send, err });
   const csrfOk = req.headers[CSRF_HEADER.toLowerCase()] === CSRF && c[CSRF_COOKIE] === CSRF;
+  // P28c: davet yoklaması panel kabuğunda her sayfada — P28c senaryosu dışındaki tüm kullanıcılara boş liste
+  if (req.method === "GET" && emptyInvites(url) && !p28cUser(session)) return send(res, resolveMe(session) ? 200 : 401, { items: [] });
   // Backend gibi: durum değiştiren isteklerde Origin allowlist'te olmalı (ADR-0008)
   if (req.method !== "GET" && req.headers.origin !== (process.env.MOCK_ALLOWED_ORIGIN ?? "http://localhost:3217"))
     return send(res, 403, err("FORBIDDEN", "Origin reddedildi."));
@@ -173,6 +181,8 @@ const srv = createServer(async (req, res) => {
   if (await handleP27(req, res, { url, session, csrfOk, send, err, readJson })) return;
   // P28u-K7: izinli/izinsiz bağlantı, politika (u-p28u*)
   if (await handleP28u(req, res, { url, session, csrfOk, send, err, readJson })) return;
+  // P28c-K2: çoklu teknisyen (u-p28c*)
+  if (await handleP28c(req, res, { url, session, csrfOk, send, err, readJson })) return;
   // P28e-K7: oturum kaydı ayarı, geçmiş kayıt bölümü/oynatıcı (u-p28e*)
   if (await handleP28e(req, res, { url, session, csrfOk, send, err, readJson })) return;
 

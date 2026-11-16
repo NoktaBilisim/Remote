@@ -151,6 +151,31 @@ export function silentConnectMail(o: { user: string; device: string; customer: s
   ]);
 }
 
+/** P28c (mimari-p28c §4.3 Y-PC-1): izinsiz odaya ek teknisyen katıldı / oturum devredildi (sabit konu; gerekçe yalnız gövdede). */
+export const SILENT_JOIN_SUBJECT = "İzinsiz gözetimsiz oturuma teknisyen katıldı";
+export const SILENT_TRANSFER_SUBJECT = "İzinsiz gözetimsiz oturum devredildi";
+const MULTI_ROLE_LABEL: Record<string, string> = { participant: "Katılımcı", observer: "İzleyici", owner: "Oturum sahibi" };
+export function silentJoinMail(o: {
+  event: "join" | "transfer";
+  user: string;
+  role: string;
+  owner: string;
+  device: string;
+  at: Date;
+  reason?: string;
+}): MailContent {
+  if (o.event === "transfer")
+    return content(SILENT_TRANSFER_SUBJECT, [
+      `${o.user}, "${o.device}" cihazındaki izinsiz gözetimsiz oturumu ${o.owner} adlı teknisyene devretti (${istanbul(o.at)}).`,
+      "Bu devir beklenmiyorsa kullanıcıların yetkilerini hemen kontrol edin.",
+    ]);
+  return content(SILENT_JOIN_SUBJECT, [
+    `${o.user}, ${o.owner} tarafından açılan "${o.device}" cihazındaki izinsiz gözetimsiz oturuma ${MULTI_ROLE_LABEL[o.role] ?? o.role} olarak katıldı (${istanbul(o.at)}).`,
+    `Gerekçe: ${o.reason ?? ""}`,
+    "Bu katılım beklenmiyorsa kullanıcının yetkilerini ve firmanın gözetimsiz erişim politikasını hemen kontrol edin.",
+  ]);
+}
+
 /** Politika değişikliği: değiştiren, eski → yeni, saat. */
 export function silentPolicyMail(o: { user: string; old: boolean; next: boolean; at: Date }): MailContent {
   const label = (v: boolean): string => (v ? "açık" : "kapalı");

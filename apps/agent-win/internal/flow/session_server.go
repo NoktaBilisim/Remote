@@ -41,6 +41,8 @@ func (s *session) onServer(ctx context.Context, m signal.Inbound) (Outcome, bool
 		s.onError(m)
 	case signal.RecState:
 		s.onRecState(ctx, m)
+	case signal.TechsRoster:
+		return s.onRoster(ctx, m)
 	}
 	return Outcome{}, false
 }
@@ -49,24 +51,16 @@ func (s *session) onServer(ctx context.Context, m signal.Inbound) (Outcome, bool
 func (s *session) onSignaling(ctx context.Context, m signal.Inbound) {
 	switch m := m.(type) {
 	case signal.SdpOffer:
-		if s.peer == nil {
-			return
-		}
-		ans, err := s.peer.HandleOffer(m.SDP)
-		if err == nil {
-			s.send(ctx, ans)
-		}
+		s.onOffer(ctx, m)
 	case signal.RemoteIce:
-		if s.peer != nil {
-			_ = s.peer.AddRemoteICE(m)
-		}
+		s.onRemoteIce(m)
 	case signal.IceServers:
 		s.ice = m.IceServers
-		if s.peer != nil {
-			_ = s.peer.SetICEServers(m.IceServers)
+		for _, tp := range s.peers {
+			_ = tp.p.SetICEServers(m.IceServers)
 		}
 	case signal.IceRestart:
-		// Teknisyen ardından iceRestart'lı yeni offer gönderir; answer HandleOffer'da üretilir.
+		_ = s.iceRestartPeer(m) // hedef eş seçimi (peers.go); yeni ICE kimliği sonraki offer'da
 	}
 }
 
@@ -114,12 +108,12 @@ func (s *session) onHello(ctx context.Context, h signal.Hello) (Outcome, bool) {
 	s.fixFileMode(h) // P28b: capsChanged'dan önce (SERVER modunda yazdırma `print` caps'ine bakmaz)
 	s.flushFsrvCancels(ctx)
 	s.cp.capsChanged()
-	s.dropPeer()
-	p, err := s.d.NewPeer(s.ice, s.caps, s.handlers(ctx))
-	if err != nil {
-		return Outcome{Message: msgError}, true
+	s.dropPeers()
+	if !s.multi.on { // eski soket (ya da multi1'de roster öncesi): tek eş ""; roster gelince kapanır (peers.go)
+		if _, err := s.newPeer(ctx, ""); err != nil {
+			return Outcome{Message: msgError}, true
+		}
 	}
-	s.peer = p
 	if s.files == nil {
 		if out, done := s.initFiles(ctx); done {
 			return out, true
@@ -166,10 +160,11 @@ func (s *session) initFiles(ctx context.Context) (Outcome, bool) {
 	s.files = transfer.New(transfer.Deps{
 		Dir: dir, MaxBytes: maxBytes,
 		SendCtl: func(b []byte) error {
-			if s.peer == nil {
+			p := s.mainPeer() // dosya yalnız kontrol sahibiyle (§6)
+			if p == nil {
 				return rtc.ErrNoCtl
 			}
-			return s.peer.SendCtl(b)
+			return p.SendCtl(b)
 		},
 		Meta:     func(m signal.FileMeta) { s.send(ctx, m) },
 		MOTW:     s.d.MOTW,
