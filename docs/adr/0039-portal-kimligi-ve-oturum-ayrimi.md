@@ -1,6 +1,6 @@
 # ADR-0039 — Portal kimliği ve oturum ayrımı
 
-Tarih: 2026-11-17 · Durum: **Önerildi r1.1** (m.7 eklendi — portal talep ucu, koordinatör kararı; K0g güvenlik tasarım turu sonrası "Kabul") · İlgili: AC-262, `docs/mimari-p21.md`,
+Tarih: 2026-11-17 · Durum: **Kabul r2** (güvenlik tasarım turu 1 GEÇTİ — S-P21-1..5 m.1, m.7, Sonuçlar'a işlendi) · r1.1: m.7 portal talep ucu (koordinatör kararı) · İlgili: AC-262, `docs/mimari-p21.md`,
 `docs/mimari-e11.md` §11 P21 satırı, ADR-0008 (opak oturum + CSRF), ADR-0022 (step-up), ADR-0030 (kalıcı silme)
 
 ## Bağlam
@@ -15,7 +15,7 @@ Tarih: 2026-11-17 · Durum: **Önerildi r1.1** (m.7 eklendi — portal talep ucu
 
 ## Karar
 
-1. **Ayrı kimlik alanı:** `portal_users` (tenant_id + customer_id zorunlu, e-posta sistem genelinde tekil) ve `portal_sessions`
+1. **Ayrı kimlik alanı:** `portal_users` (tenant_id + customer_id zorunlu; r2 S-P21-3: e-posta **firma içinde** tekil, UQ(tenant_id, email); giriş adresi firmaya bağlı `/portal/login?tenant=<slug>`) ve `portal_sessions`
    tabloları. Panel `users`/`auth_sessions` tablolarına dokunulmaz, rol eklenmez.
 2. **Ayrı çerezler:** `__Host-rs_portal` (httpOnly) ve `__Host-rs_portal_csrf`; Secure, SameSite=Strict, Path=/. CSRF başlık adı
    ortak (`x-csrf-token`), karşılaştırıldığı çerez alana özgü.
@@ -30,7 +30,7 @@ Tarih: 2026-11-17 · Durum: **Önerildi r1.1** (m.7 eklendi — portal talep ucu
 6. **Yarım oturum yok:** TOTP kodu giriş isteğinde gelir; açık TOTP'li hesapta kodsuz istek 403 `MFA_REQUIRED` döner, oturum açılmaz.
 7. **Portal kimliği talep oluşturmada bot kapısının yerini alır:** `POST /api/v1/portal/requests` mevcut `RequestService.createCore`'u
    (`source: "WEB"`) çağırır; ref ve müşteri oturumdan çözülür, form token/gizli alan yerine portal oturumu + CSRF + kullanıcı başına
-   hız sınırı vardır ve firmanın `web_form_enabled` tercihi (herkese açık `/r/` formu içindir) bu yolda uygulanmaz. Mesai, KVKK onayı,
+   hız sınırı (müşteri başına 10/sa + 3 bekleyen, r2 S-P21-4) vardır; gövde yalnız sunucuda kurulur ve çözülen müşteri beklenenle eşleşmezse talep yazılmaz (r2 S-P21-1); firmanın `web_form_enabled` tercihi (herkese açık `/r/` formu içindir) bu yolda uygulanmaz. Mesai, KVKK onayı,
    kanal/bildirim, kovalar ve bekleyen sınırları aynı koddur; web tarafında aynı form bileşeni kaynak adaptörüyle kullanılır.
 8. **Hesap yaşam döngüsü panel kalıbıyla:** Admin oluşturur (geçici şifre bir kez), ilk girişte zorunlu değişim; Admin pasife alır /
    etkinleştirir / şifre sıfırlar (TOTP'yi de sıfırlar). Pasif hesap tenant saklama süresi sonunda kalıcı silinir.
@@ -56,5 +56,6 @@ Tarih: 2026-11-17 · Durum: **Önerildi r1.1** (m.7 eklendi — portal talep ucu
 - (−) Portal kullanıcısı firmanın web formu kapalıyken de talep açabilir (bilinçli; hesabı yalnız Admin açar, kullanıcı başına hız sınırı).
 - (−) İki kimlik alanı = iki giriş/şifre değiştirme ekranı ve iki hız kovası seti (kod paylaşılır, ekran/uç ayrı).
 - (−) Audit'te portal aktörünün `user_id`'si `users` tablosunda yoktur; ayrım `portal.` eylem öneki ve `entity=portal_users` ile yapılır.
-- (−) Bir e-posta yalnız bir müşteriye bağlı (genişleme: ara tablo, `docs/mimari-p21.md` A-P21-3).
+- (−) Aynı origin: portal ile panel arasında XSS yalıtımı CSP + React bağlamasına dayanır (r2 S-P21-13, kabul); alt alan adı (alternatif D) genişleme noktası.
+- (−) Bir e-posta bir firmada yalnız bir müşteriye bağlı (genişleme: ara tablo, `docs/mimari-p21.md` A-P21-3).
 - Geri dönüş: portal kapatılmak istenirse `portal/*` eklentileri kaydedilmez ve tablolar ters migration ile düşürülür; panel etkilenmez.
