@@ -14309,11 +14309,19 @@ guvenlik-raporu "P28d — Kod turu 1" D-PD-K1-2 (web misafir tarafı). Yeni rota
 
 ### K6 durum (teknik-yazar, 2026-11-17)
 
-- Yapıldı: lisans bildirimleri (yukarıda) + `go test ./internal/ui/...` yeşil; kök `NOTICE` (Apache-2.0 NOTICE: libopus BSD-3,
-  wazero NOTICE, wasi-libc/musl/cloudlibc/compiler-rt, Go modülleri özeti); `pnpm docs:pdf` ile 3 PDF yeniden üretildi (içerik
-  P28d öncesi metinlerle); `pnpm format:check` temiz.
-- Kalan (P28d metinleri yazılmadı): README (özellik listesi, durum satırı, 0.18.0, wazero/libopus, NOTICE bağlantısı);
-  KULLANIM_KILAVUZU "Sesli görüşme" bölümü (teknisyen/müşteri/Windows tepsi "Görüşmeyi bitir"/"Lisanslar", gözetimsizde ses yok,
-  sık hatalar — tarayıcıda 5 sn "başlatılamadı" metni, Windows'ta "Sesli görüşme sona erdi"); DATASHEET; api.md WS `voice.*`
-  (`packages/contracts/src/ws-voice.ts` + `fixtures/voice.json`), audit `voice.*`, `rs_voice_*`; CHANGELOG `[Unreleased]` P28d
-  girişi; ardından PDF'ler yeniden. Runbook §28d.7 "78 test" ifadesi bayat (güncel PASS listesi 85).
+- Tamamlandı. Lisans bildirimleri ve kök `NOTICE` (yukarıda). P28d metinleri yazıldı: README (durum satırı, P28d bloğu,
+  durum tablosu satırı, `NOTICE` bağlantısı), KULLANIM_KILAVUZU "Sesli görüşme" bölümü (teknisyen, müşteri tarayıcı +
+  Windows, Admin yetkisi, Super Admin, audit, sık mesajlar; 5 sn metni iki istemcide aynı), DATASHEET (özellik + güvenlik),
+  api.md "Sesli görüşme (P28d)" (WS `voice.*`, kapı/hata kodları, Permissions-Policy, audit, `rs_voice_*`), CHANGELOG
+  `[Unreleased]` P28d girişi. PDF'ler `pnpm docs:pdf` ile yeniden üretildi; `pnpm format:check` temiz.
+- Açık (teknik-yazar kapsamı dışı): runbook §28d.7 "78 test" ifadesi bayat (güncel PASS listesi 85) — devops.
+
+### Düzeltme turu 2 (web, sayfa testi)
+
+test-raporu P28d Y-1 (1280 px başlık çakışması) ve O-1 (375 px 5 px taşma).
+
+- `app/(panel)/sessions/[id]/console/console-header.tsx`: başlık iki satıra ayrıldı. Ana satır P28d öncesiyle aynı (geri, müşteri, durum, süre, kod, "Uzaktan kontrol" + ipucu, bitir/iptal; `xl:flex-nowrap`, TEST-P4-4). Ses yuvası altta, sağa yaslı ayrı satırda (`console-voice-row`). Yalnız `<audio>` varken satır `[&:not(:has(button,p,span))]:hidden` ile gizli kalır, boş aralık bırakmaz. Yeni token/renk yok.
+- `components/console/voice-controls.tsx`: `voice-controls` sarmalayıcısındaki `shrink-0` kaldırıldı. Ayrı satırda daralabildiği için 375 px'te ipucu sarılıyor, taşma yok.
+- `e2e/p28d-voice.spec.ts`: `headerLayoutOk` (1280 ve 375 px) eklendi. Başlıktaki düğme ve bağlantı kutuları çakışmaz; her birinin ortası `elementFromPoint` ile kendisine düşer; başlık dışına taşmaz; müşteri adı ≥ 80 px; belge yatay taşmaz. micDenied, rejected ve talking durumlarında çağrılıyor. Eski düzende test düştü (`console-control × console-end`; talking'de ad 31 px), yeni düzende geçiyor.
+- Doğrulama: web lint, typecheck ve test (552) yeşil; `p28d-voice.spec.ts` 6/6; `pnpm format:check` yeşil. Tam e2e: 561 geçti, 1 düştü. Düşen `p5-collab` TEST-P5-1 (zamanlama), tek başına koşulunca 20/20 geçti; bu değişiklikle ilgisi yok.
+- Sapma: ses yuvası artık 1280 px'te de ayrı satırda. Başlık, ses görünümü varken yaklaşık 52 px daha yüksek. Tek satır hedefi ana satır için korunuyor.

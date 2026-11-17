@@ -5,7 +5,7 @@ oturumu açar; müşteri taşınabilir Windows istemcisi (tam erişim) veya tara
 Görüntü eşler arası WebRTC ile akar; sunucu sinyalizasyon ve meta veri tutar. Dosyalar varsayılan olarak eşler arası
 gider; firma isterse sunucu üzerinden, ClamAV taramalı ve şifreli saklamalı aktarır (P28b).
 
-## Şu anki durum: P1–P13a tamamlandı, P13b (prod açılışı) kodu hazır, P14a/P14b, P15, P16, P17 (istemci 0.11.0), P18 (talep iletişimi), P19 (web talep formu, SMS, müşteri bildirimi, müşteri CSV) P20 (istemci 0.12.0), P27a (2FA'da cihaz hatırlama), P27 (gözetimsiz erişim; prod'da kapalı) P28a (pano paylaşımı + uzaktan yazdırma, istemci 0.13.0) P28b (sunucuda dosya aktarımı + ClamAV + depolama kotası, istemci 0.14.0), P28u (gözetimsiz izinli / izinsiz bağlantı ve müdahale, servis 0.15.0) P28e (oturum kaydı, istemci/servis 0.16.0) ve P28c (çoklu teknisyen: davet, İzle, kontrol ve oturum devri, istemci/yardımcı 0.17.0) kodlandı (QA sürüyor)
+## Şu anki durum: P1–P13a tamamlandı, P13b (prod açılışı) kodu hazır, P14a/P14b, P15, P16, P17 (istemci 0.11.0), P18 (talep iletişimi), P19 (web talep formu, SMS, müşteri bildirimi, müşteri CSV) P20 (istemci 0.12.0), P27a (2FA'da cihaz hatırlama), P27 (gözetimsiz erişim; prod'da kapalı) P28a (pano paylaşımı + uzaktan yazdırma, istemci 0.13.0) P28b (sunucuda dosya aktarımı + ClamAV + depolama kotası, istemci 0.14.0), P28u (gözetimsiz izinli / izinsiz bağlantı ve müdahale, servis 0.15.0) P28e (oturum kaydı, istemci/servis 0.16.0) ve P28c (çoklu teknisyen: davet, İzle, kontrol ve oturum devri, istemci/yardımcı 0.17.0) ve P28d (sesli görüşme, istemci 0.18.0) kodlandı (QA sürüyor)
 
 İş P1..P13 dikey paketlerle yürür (`docs/mimari.md` §10). P1–P11 ve **P12** (firma ve sistem logosu, kullanıcı profil
 resmi, kullanıcı başına tema, hesap menüsü, tasarım token lint kuralı) tamamlandı: P12 güvenlik Kritik/Yüksek 0 (doğrulama
@@ -261,6 +261,19 @@ P13c'ye kadar ayrı staging yoktur; yeni kod yerelde (`scripts/e2e-real.sh`) den
   kaldır", Ayarlar → Güvenlik'te firma anahtarı "2FA cihaz hatırlama" (**mevcut firmalarda da varsayılan açık**).
 - Yeni cihaz hatırlanınca ve çalınmış çerez şüphesinde kullanıcıya e-posta; şifre değişimi, 2FA sıfırlama, tüm cihazlardan
   çıkış gibi olaylar hatırlamayı siler. Çerez `__Secure-rs_td` (`Path=/api/v1/auth`). Migration `20261121000000_p27a_trusted_devices`; yeni env yok.
+
+**P28d — sesli görüşme, istemci 0.18.0** (AC-373..379; kod tamam, qa tur 2 ve güvenlik kod turu 2 GEÇTİ, sayfa testi
+bulguları düzeltildi; Windows elle turu staging'de; prod P28 sonunda)
+
+- Teknisyen konsolda **Sesli görüşme** ister, müşteri (tarayıcı ya da Hızlı Destek 0.18.0) 60 sn içinde **Kabul et** /
+  **Reddet** der. Mikrofon yalnız müşterinin yerel kabul tıklamasıyla açılır. **Sessize al** / **Mikrofonu aç**,
+  **Görüşmeyi bitir**. Çoklu teknisyende sahip ve katılımcı konuşur, `sessions.voice` yetkili izleyici dinler. Ses WebRTC
+  Opus (DTLS-SRTP) ile eşler arası akar, kaydedilmez. Gözetimsiz oturumda ses yoktur.
+- Windows istemcide Opus kodlayıcı **libopus 1.6.1**, WebAssembly olarak **wazero v1.12.0** sandbox'ında koşar (içe aktarım
+  0, bellek ≤ 16 MiB). Lisans bildirimleri: kök [`NOTICE`](NOTICE) ve istemcide tepsi menüsü → **Lisanslar**.
+- Migration, yeni tablo ve yeni env yok. Yeni yetki `sessions.voice`; web sayfalarında `Permissions-Policy microphone=(self)`
+  (`/r/*` hariç). WS `voice.*` ve audit `docs/api.md` "Sesli görüşme (P28d)"; kullanım `docs/KULLANIM_KILAVUZU.md`
+  "Sesli görüşme"; operasyon runbook §28d; karar ADR-0036.
 
 **P28c — çoklu teknisyen, istemci/yardımcı 0.17.0** (AC-364..372; kod tamam, güvenlik kod turu 2 GEÇTİ, QA tur 2 yalnız
 CI yeşili bekliyor; Windows elle turu ve AC-371 ölçümü staging'de; prod P28 sonunda)
@@ -601,6 +614,7 @@ görür. `deploy/staging-users.sh` staging test hesapları için hâlâ kullanı
 | P28u (kod ✓, QA sürüyor)                                                          | G7-u gözetimsiz izinli / izinsiz bağlantı, firma politikası, dört göz e-postası, oturumu kilitle / kapat, servis 0.15.0; runbook §28u                                                                                      |
 | P28e (kod ✓, QA sürüyor)                                                          | G8-e oturum kaydı: müşteri rızası, gösterge ve Kaydı durdur, gözetimsiz politika kaydı, şifreli saklama, izleme/silme, istemci/servis 0.16.0; runbook §28e                                                                 |
 | P28c (kod ✓, QA sürüyor)                                                          | G8-c çoklu teknisyen: davet, İzle, kontrol ve oturum devri, müşterinin Çıkar'ı, istemci/yardımcı 0.17.0; runbook §28c                                                                                                      |
+| P28d (kod ✓, QA sürüyor)                                                          | G8-d sesli görüşme: teknisyen ister, müşteri yerel Kabul ile mikrofon açar, çoklu teknisyende konuşan/dinleyen, ses kaydedilmez, istemci 0.18.0 (libopus wasm + wazero); runbook §28d                                      |
 | P13c                                                                              | Ayrı staging (`stg.remote.noktabilisim.net`, ayrı DB/sır/yedek); E11 özelliklerinden önce                                                                                                                                  |
 
 Prod açılışının ön koşulları ve imzalı kontrol listesi: runbook §20.1–§20.3. TURN için yalnız 443/TCP'nin açık olduğu
@@ -1175,4 +1189,4 @@ docs/               Gereksinim, mimari, ADR, runbook, DB notları, API, denetim 
 
 ## Lisans
 
-Apache License 2.0 — bkz. [`LICENSE`](LICENSE).
+Apache License 2.0 — bkz. [`LICENSE`](LICENSE). Üçüncü taraf bileşenlerin bildirimleri (libopus, wazero, wasi-libc, compiler-rt, Go modülleri): [`NOTICE`](NOTICE).

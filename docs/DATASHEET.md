@@ -40,6 +40,9 @@ aktarır; bu durumda teslim edilen dosyalar da seçilen süre (1–7 gün) boyun
   Oturum da tümüyle başka teknisyene devredilebilir. Müşteri bağlı tüm teknisyenleri adı ve rolüyle görür, istemediğini
   tek tıkla çıkarır; adı müşteriye gösterilmeyen teknisyen ekranı göremez (gizli izleyici yoktur). Davet, katılım, devir ve
   çıkarma denetim kaydına yazılır.
+- **Sesli görüşme** — teknisyen oturum içinden müşteriyle sesli konuşur; ayrı telefon gerekmez. Müşteri kabul etmeden
+  mikrofonu açılmaz, görüşmeyi tek tıkla bitirir, kimin konuştuğunu ve dinlediğini adıyla görür. Birden çok teknisyen
+  konuşabilir; yetkili yönetici dinler. Tarayıcıda ve Windows programında (0.18) çalışır; ses kaydedilmez.
 - **Zorlu donanımda da görüntü** — ekran üç farklı yöntemle okunur (HDR ve çift ekran kartlı dizüstüler dahil);
   okunamazsa müşteri ekranında kısa bir neden kodu ve ne yapacağı yazar; yeni sürüm programla neden teknisyen konsoluna
   da gelir.
@@ -192,6 +195,11 @@ aktarır; bu durumda teslim edilen dosyalar da seçilen süre (1–7 gün) boyun
 - Logo ve profil resimleri: yalnız PNG/JPG/WEBP (dosya içeriğinden denetlenir, SVG kabul edilmez), en çok 2 MB; sunucuda
   yeniden boyutlandırılır, konum gibi gizli bilgiler (EXIF) silinir. Profil resimleri aynı firmanın kullanıcılarına görünür;
   müşteri, teknisyeninin resmini yalnız oturum sürerken, 10 dakika geçerli imzalı bir adresten görür.
+- Sesli görüşmede mikrofon yalnız müşterinin kendi bilgisayarındaki "Kabul et" tıklamasıyla açılır; teknisyen uzaktan
+  kontrolle kabul edemez. Görüşme sürerken Windows'ta her ekranda kapatılamaz bir "mikrofon açık" göstergesi durur. Ses uçtan
+  uca şifreli akar, sunucuda tutulmaz. Windows programında ses kodlayıcı yalıtılmış bir sanal ortamda (WebAssembly) çalışır;
+  bozuk ses verisi programı çökertemez. Gözetimsiz bağlantıda ses özelliği hiç yüklenmez. İstek, kabul, ret, katılım ve
+  bitiş (süre, konuşan ve dinleyenler) audit log'a yazılır.
 
 ## Entegrasyonlar
 
