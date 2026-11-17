@@ -24,7 +24,7 @@ const FENCE_TABLES = ["auth_sessions"];
 /** USER_CHILDREN adımında silinen ama `tenants`'a da FK veren kullanıcı alt tabloları (P27a: tenant_id NOT NULL). */
 const USER_CHILDREN_WITH_TENANT_FK = ["trusted_devices"];
 /** P28b: adımda silinen ama firmaya yalnız oturum üzerinden (FK `support_sessions(id, tenant_id)`) bağlı tablolar. */
-const STEP_TABLES_VIA_SESSION_FK = ["session_stored_files", "session_recordings", "session_recording_parts"]; // P28e: oturum / kayıt FK
+const STEP_TABLES_VIA_SESSION_FK = ["session_stored_files", "session_recordings", "session_recording_parts", "portal_sessions"]; // P28e: oturum / kayıt FK; P21: portal_sessions → portal_users(id, tenant_id)
 /** Korunan 12 tablo (koşullu DELETE tetikleyicisi; P18 += session_messages). */
 const GUARDED = [
   "session_messages",

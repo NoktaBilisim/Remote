@@ -15255,3 +15255,35 @@ Silinen: `TestSP28f1LocalEventRejectsOwnSynthetic` (`LocalEvent` ile; `zorunlu=`
   - `gofmt -l`: boş.
   - staticcheck 0.8.2 (darwin arm64/amd64, windows amd64/arm64): temiz.
   - actionlint bu makinede kurulu değil. YAML değişikliği yalnız `zorunlu=` dizesine eklenen adlardan ibaret.
+
+## P21 — K2 (contracts)
+
+Kaynak: `docs/mimari-p21.md` r2 §4.1, §4.4, §4.5, §11 K2. Bağımlılık eklenmedi; yeni hata kodu yok.
+
+**Dosyalar:** yeni `packages/contracts/src/api/portal.ts`, `packages/contracts/test/portal-p21.test.ts`; yalnız ekleme:
+`packages/contracts/package.json` (`./api/portal`), `src/permissions.ts` (`customers.portal` + açıklama), `src/audit.ts`
+(`PORTAL_AUDIT`, `PortalAuditAction`, `PORTAL_USERS_ENTITY`, `PORTAL_LOGIN_FAIL_REASONS`), `src/labels.ts`
+(`PORTAL_AUDIT_LABELS`, `PORTAL_AUDIT_GROUP_LABELS`), `test/__snapshots__/pt-surface.test.ts.snap` (+51 satır, silme yok),
+`apps/web/messages/tr.json` (`perm.a.portal` — web `users.test.ts` her eyleme etiket ister). `src/api/requests.ts` (S-P21-6):
+`webRequestShape` + `refineNotifyEmail` dışa aktarıldı, `webRequestInputSchema = strictObject(webRequestShape).superRefine(refineNotifyEmail)` —
+alan sırası ve davranış aynı (test kanıtlı).
+
+**Tasarımdan sapmalar (gerekçeli):**
+- `SupportRequestStatus` contracts'ta yok → `RequestStatus`; `source`/`mode` için literal yerine `RequestSource` / `SessionMode` (aynı değerler).
+- Tema şeması `branding.ts` `themeSchema` (aynı enum, Türkçe mesaj); `fullName` → `customerFirmNameSchema` ("customers ad kuralı").
+- Ek sabit/tipler: `PORTAL_TENANT_COOKIE = "rs_portal_tenant"` (sunucu K3 + `proxy.ts` K5 aynı ad), `PORTAL_PAGE_MAX`,
+  `PORTAL_PAGE_SIZE_DEFAULT`, `PORTAL_ACCOUNT_STATUSES`, `portalEmailSchema`, `portalAccountActionInputSchema` (`{}`),
+  `PortalTotpSetupResponse`, `PortalAccountItem.tempPasswordExpired: boolean` (§6 "Geçici şifre süresi doldu" rozeti için; sunucu hesaplar).
+- `portalRequestShape` yapı bozmayla değil `Object.fromEntries` filtresiyle türetilir (lint `no-unused-vars`).
+- Etiketler `labels.ts`'te (mimari §7); grup `portal.*` → "Müşteri portalı" (RECORDING kalıbı, `AUDIT_ACTION_GROUPS`'a eklenmedi).
+
+**Mimara/K4'e not:** §4.2 `POST /portal/requests` bekleyen sınırı için "409 `QUEUE_FULL`" yazıyor, ama `errors.ts`'te `QUEUE_FULL` 429.
+`errors.ts` değiştirilmedi; K4 mevcut kodu (429) kullanmalı ya da mimar düzeltmeli.
+
+**frontend-dev için:** `@remote/contracts/api/portal` (şemalar, `PortalMe`, `PortalPage<T>`, `PortalAccountItem` vb.),
+`PORTAL_AUDIT_LABELS`/`PORTAL_AUDIT_GROUP_LABELS` (`@remote/contracts/labels`) web `AUDIT_ACTION_LABELS`/`AUDIT_GROUP_LABELS`'a yayılmalı;
+`perm.a.portal` tr.json'a eklendi (yeniden eklemeyin).
+
+**Doğrulama:** `pnpm --filter @remote/contracts run typecheck|lint|test` → temiz, 28 dosya / 280 test geçti (AC-72 `permissions.test.ts`,
+AC-285 `portal-p21.test.ts`); web `lib/users/users.test.ts` 21/21; `pnpm -r run typecheck` üç paket temiz; `pnpm -r run lint` temiz;
+server birim 673 geçti. Server entegrasyon AC-72 (`permissions-ac72-p9.test.ts`) DB gerektirir; dba migration'ı sürerken koşulmadı (K3/K8'de koşulacak).

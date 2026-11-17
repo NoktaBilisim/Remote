@@ -169,6 +169,8 @@ const TENANT_TABLES = [
   "notification_outbox",
   "device_bindings",
   "support_sessions",
+  "portal_sessions", // P21: SESSIONS adımında, hesaplardan önce
+  "portal_users",
   "customer_notify_contacts", // P27: SESSIONS adımında oturumlardan sonra
   "unattended_registration_codes",
   "unattended_device_grants",

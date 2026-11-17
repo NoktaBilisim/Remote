@@ -28,7 +28,8 @@ export const PERMISSION_MODULES = [
   // tek kayıt iptali; delete = PASİFE ALMA (kalıcı silme yok — V23).
   // P19 (AC-263, S-P19-14): export = CSV indir (+ view); import = CSV önizleme (+ create + view) / uygulama (+ create,
   // güncellemede + edit). Bağımlılık toggle kaydında değil uçta zorlanır (K-P19-9).
-  { key: "customers", actions: ["view", "create", "edit", "delete", "export", "import"] },
+  // P21 (AC-262, 285; mimari-p21 §4.4): portal = müşteri portal hesaplarını yönet (+ customers.view).
+  { key: "customers", actions: ["view", "create", "edit", "delete", "export", "import", "portal"] },
   // P27 (AC-273, 275, 293, 296; mimari-p27 §4.1): connect = yetkili olduğu cihaza bağlan (+ cihaz grant'ı + step-up);
   // manage = tüm cihazları gör, kayıt kodu üret/iptal, teknisyen–cihaz yetkisi ver/al, cihazı iptal et, bildirim adresleri.
   // P28u (AC-437, 446; mimari-p28u §4): silent = izin istemeden bağlan — ayrıca firma politikası + cihaz grant'ı + step-up.
@@ -91,6 +92,9 @@ export const PERMISSION_DESCRIPTIONS: Readonly<Partial<Record<PermissionKey, str
   "sessions.supervise": "Firmanın etkin oturumlarını izleyici olarak izler (hassas — yalnız gerekene verin).",
   // P28d (mimari-p28d §7): dinlemeyi de kapsar — yetkisiz teknisyen (rol fark etmez) görüşmeyi duymaz (V-PD-6).
   "sessions.voice": "Etkin oturumda müşteriyle sesli görüşme başlatır, katılır ve görüşmeyi dinler.",
+  // P21 (mimari-p21 §4.4)
+  "customers.portal":
+    "Müşteri portal hesaplarını listeler, oluşturur, pasife alır, yeniden etkinleştirir ve şifresini sıfırlar.",
 };
 
 export const ROLES = ["SUPER_ADMIN", "ADMIN", "USER"] as const;

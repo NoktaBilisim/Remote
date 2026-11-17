@@ -32,8 +32,11 @@ export const DATA_STEPS: Readonly<Partial<Record<TenantPurgeStep, readonly Table
   BINDINGS: [byTenant("device_bindings")],
   // P27 (mimari-p27 §3.6, K0 devir notu): cihaz tabloları oturumlardan SONRA (support_sessions.device_id → devices), müşteri ve
   // kullanıcılardan ÖNCE; sıra: adresler, kodlar (device_id FK), grant'lar, cihazlar.
+  // P21 (mimari-p21 §3.4, K-P21-9): portal oturumları → portal hesapları (bileşik FK RESTRICT), customers'tan (CUSTOMERS) önce.
   SESSIONS: [
     byTenant("support_sessions"),
+    byTenant("portal_sessions"),
+    byTenant("portal_users"),
     byTenant("customer_notify_contacts"),
     byTenant("unattended_registration_codes"),
     byTenant("unattended_device_grants"),

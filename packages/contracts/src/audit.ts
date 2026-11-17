@@ -620,3 +620,39 @@ export function maskIdentity(value: string): string {
 export const deletedUserLabel = (id: string): string => `Silinmiş kullanıcı #${id.slice(-6)}`;
 /** Silinmiş (satırı olmayan) firma etiketi: "Silinmiş firma #<id son 6>". */
 export const deletedTenantLabel = (id: string): string => `Silinmiş firma #${id.slice(-6)}`;
+
+/**
+ * P21 müşteri portalı (mimari-p21 §4.5; AC-262). Her satırda `tenant_id` dolu. Aktör kuralı (K-P21-14): portal kullanıcısının
+ * kendi eylemlerinde `user_id = NULL`, `username = e-posta`, `entity = PORTAL_USERS_ENTITY`, `entity_id = portal kullanıcı id`.
+ * Geçici şifre, TOTP sırrı/kodu ASLA yazılmaz; şifre sıfırlamada `secondFactorCleared` (r2 S-P21-8: `totp` içeren anahtar maskelenir).
+ *  - LOGIN success `{}`; fail `{reason: PORTAL_LOGIN_FAIL_REASONS}`. LOCKED `{scope: "account"|"account_ip", minutes}`.
+ *  - LOGOUT `{sessionId}`. PASSWORD_CHANGE success `{revokedSessions}` / fail `{reason}`. MFA_ENABLED/MFA_DISABLED success / fail `{reason}`.
+ *  - ACCOUNT_CREATED `{customerId, email, fullName}` (Admin). ACCOUNT_DEACTIVATED/REACTIVATED `old{status}` → `new{status, revokedSessions?}`.
+ *  - ACCOUNT_PASSWORD_RESET `{revokedSessions, secondFactorCleared}`. ACCOUNT_DELETED `{reason: "retention"}` (SYSTEM; e-posta yok).
+ */
+export const PORTAL_AUDIT = {
+  LOGIN: "portal.login",
+  LOCKED: "portal.locked",
+  LOGOUT: "portal.logout",
+  PASSWORD_CHANGE: "portal.password_change",
+  MFA_ENABLED: "portal.mfa_enabled",
+  MFA_DISABLED: "portal.mfa_disabled",
+  ACCOUNT_CREATED: "portal.account_created",
+  ACCOUNT_DEACTIVATED: "portal.account_deactivated",
+  ACCOUNT_REACTIVATED: "portal.account_reactivated",
+  ACCOUNT_PASSWORD_RESET: "portal.account_password_reset",
+  ACCOUNT_DELETED: "portal.account_deleted",
+} as const;
+export type PortalAuditAction = (typeof PORTAL_AUDIT)[keyof typeof PORTAL_AUDIT];
+/** Portal audit satırlarının `entity` değeri (K-P21-14; `audit/view.ts` kimlik maskesi koşulu). */
+export const PORTAL_USERS_ENTITY = "portal_users";
+/** `portal.login` fail `reason` (§4.5 + §5.2 adım 4b `temp_password_expired`). */
+export const PORTAL_LOGIN_FAIL_REASONS = [
+  "invalid_credentials",
+  "locked",
+  "invalid_totp",
+  "replayed_totp",
+  "inactive",
+  "temp_password_expired",
+] as const;
+export type PortalLoginFailReason = (typeof PORTAL_LOGIN_FAIL_REASONS)[number];

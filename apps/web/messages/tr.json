@@ -1753,6 +1753,7 @@
   "perm.a.assign": "Ata / öncelik",
   "perm.a.message": "Mesaj yaz",
   "perm.a.import": "İçe aktar",
+  "perm.a.portal": "Portal hesapları",
   "perm.a.send_link": "Müşteriye bağlantı gönder",
   "perm.a.view_recording": "Kayıtları izle",
   "perm.a.invite": "Teknisyen davet et / devret",

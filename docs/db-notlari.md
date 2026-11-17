@@ -1711,3 +1711,93 @@ REVOKE eder (DROP TABLE `columns_priv`'i silmez).
   yeniden up dökümü ilk up ile birebir. Guard: açık kayıt anahtarıyla down 3819, döküm değişmedi.
 - `check-app-grants.sh`: 873 PASS / 0 FAIL — clamav satırı yokken ve varken (satır değişmeden kaldı).
 - `pnpm -r typecheck` (server) temiz; `test:int` 107 dosya / 1052 test geçti (meta-test ve CHECK sayısı 76 güncellendi).
+
+## P21 — müşteri portalı: portal_users, portal_sessions (K1, 2026-11-18)
+
+Migration `20261126000000_p21_customer_portal` (mimari-p21 r2 §3.1–3.4, §11 K1; ADR-0039; AC-262; K-P21-1/4/5/6/9/11/12/14;
+r2 S-P21-3, S-P21-5). İki yeni tablo; mevcut tablolarda sütun/kısıt değişikliği **yok**. Veri taşıma yok; tetikleyici yok (toplam 23,
+audit-continuity özeti aynı). Yeni env yok.
+
+**Seed:** eklenmedi. Portal hesabı yalnız Admin akışıyla açılır (K-P21-4: geçici şifre yanıtta bir kez); seed'de hesap açmak bir
+parola kaynağı (yeni env) ister, mimari §9 "yeni env yok". Geliştirmede demo firmadaki "Örnek Müşteri A.Ş." üzerinden panelden açılır.
+
+### Şema
+
+- `portal_users`: bileşik FK `(tenant_id, customer_id)` → `customers(tenant_id, id)`, `tenant_id` → `tenants` (RESTRICT).
+  `UQ(tenant_id, email)` (K-P21-6 r2), `UQ(id, tenant_id)` (oturum FK hedefi), `IX(tenant_id, customer_id, status)`,
+  `IX(status, passive_at)`. `created_by` FK değil (ULID biçim CHECK'i).
+- CHECK'ler (hepsi elle): `portal_users_email_chk` (**ikili** küçük harf + `\z` iskelet), `_full_name_chk` (customers_name_chk
+  kuralı), `_password_hash_chk` (`^$argon2id$v=N$`), `_totp_enabled_chk` / `_totp_secret_enc_chk` (≥ 30 B) / `_totp_last_step_chk`
+  (users P10 kalıbı), `_theme_chk` / `_status_chk` (ikili enum), `_passive_chk` (`PASSIVE ⇔ passive_at` dolu), `_temp_password_chk`
+  (`temp_password_expires_at` ⇒ `must_change_password=1`), `_failed_count_chk` (≥ 0), `_created_by_chk`.
+- `portal_sessions`: bileşik FK `(portal_user_id, tenant_id)` → `portal_users(id, tenant_id)` (oturumun firması = hesabın firması);
+  `UQ(token_hash)`, `IX(portal_user_id, tenant_id, revoked_at)`, `IX(expires_at)`, `IX(tenant_id)`. CHECK: `token_hash` küçük harf hex
+  64 (`\z`), TTL `(created_at, created_at + 8 sa + 1 dk]`.
+
+### Mimariden sapmalar (mimari-p21 §3'e not düşüldü)
+
+1. `portal_users` `IX(tenant_id)` **yok**: `UQ(tenant_id, email)` ve `IX(tenant_id, customer_id, status)` zaten `tenant_id` önekli;
+   tenant FK ve firma silme `WHERE tenant_id=?` bunları kullanır.
+2. `email = LOWER(email)` utf8mb4_unicode_ci'de her zaman doğrudur (etkisiz) → `CAST(… AS BINARY)` karşılaştırması (ADR-0014).
+3. Ek CHECK'ler (daraltma): full_name, password_hash argon2id, TOTP üçlüsü, failed_login_count ≥ 0, created_by ULID, oturum
+   token biçimi + TTL. **Backend'e not:** test fikstürleri `password_hash` için gerçek argon2id özeti (ya da `$argon2id$v=19$…`
+   biçiminde sahte dizge) yazmalı; `'x'` reddedilir. Geçici şifre süresi ayarlanırken `must_change_password=1` aynı UPDATE'te;
+   şifre değişiminde `must_change_password=0` ile `temp_password_expires_at=NULL` birlikte. Pasife alma/etkinleştirme `status` ile
+   `passive_at`'i birlikte yazar.
+4. E-posta tekilliği unicode_ci'dedir: büyük/küçük harf zaten ikili CHECK ile tek biçim; aksan farkı (`josé` / `jose`) aynı firmada
+   çakışma sayılır (P2002) — kabul (K-P21-6 "aynı kişi ayrı e-posta").
+
+### Yetkiler (`grants.sql`, `check-app-grants.sh` "P21")
+
+- `portal_users`: SELECT, INSERT, DELETE + sütun UPDATE (full_name, temp_password_expires_at, password_hash, must_change_password,
+  failed_login_count, failed_window_at, locked_until, totp_secret_enc, totp_enabled, totp_last_step, theme, status, passive_at,
+  last_login_at, updated_at). **`email`, `tenant_id`, `customer_id`, `created_by`, `created_at` güncellenemez** (IDOR DB emniyeti).
+- `portal_sessions`: SELECT, INSERT, DELETE + UPDATE(last_seen_at, revoked_at, updated_at). `token_hash`/`expires_at` değişmez →
+  oturum uzatılamaz. Prisma `update` her zaman `updated_at` yazar (grant'ta var).
+- `check-app-grants.sh`: DELETE tablo kümesi ve sütun yetki kümesine P21 eklendi; P21 bölümü (yaşam döngüsü, Admin sıfırlama,
+  firma silme, 8 sütun reddi, DDL reddi, UQ/çapraz firma FK/silme sırası, her CHECK). Sütun kümesi sorgusu P21 ile 1024 B
+  `group_concat_max_len` sınırını aştı → sorguda `SET SESSION group_concat_max_len=65535`.
+
+### Sorgu desenleri (K3/K4/K6)
+
+| Sorgu                                                                                            | İndeks                                      |
+| ------------------------------------------------------------------------------------------------ | ------------------------------------------- |
+| Giriş: `tenant_id=? AND email=?`                                                                 | `UQ(tenant_id, email)`                      |
+| Oturum çözümü: `token_hash=?` (+ hesap/müşteri/tenant PK join)                                   | `UQ(token_hash)`                            |
+| Hesabın oturumlarını iptal: `portal_user_id=? AND tenant_id=? AND revoked_at IS NULL`            | `IX(portal_user_id, tenant_id, revoked_at)` |
+| Panel listesi / 20 sınırı: `tenant_id=? AND customer_id=?` (`COUNT`)                             | `IX(tenant_id, customer_id, status)`        |
+| Anonimleştirme: oturumlar `portal_user_id IN (…)` → hesaplar `tenant_id=? AND customer_id=?`     | aynı iki indeks                             |
+| Saklama: oturum `expires_at < ?` / `revoked_at < ?`; hesap `status='PASSIVE' AND passive_at < ?` | `IX(expires_at)`, `IX(status, passive_at)`  |
+| Firma silme `byTenant`                                                                           | `IX(tenant_id)` / UQ öneki                  |
+
+`revoked_at < now − 7 g` saklama koşulu indekssiz (`IX(portal_user_id, tenant_id, revoked_at)` önek değil): tablo küçük (firma
+başına onlarca hesap × günde birkaç oturum, 7 g sonra silinir) — tam tarama önemsiz; büyürse `IX(revoked_at)`.
+
+### Silme sırası
+
+Oturum → hesap (bileşik FK RESTRICT; ters sıra 1451 — check-app-grants'ta sınanır). Müşteri anonimleştirme aynı TX'te
+(`deletePortalOfCustomer`), firma silme `DATA_STEPS.SESSIONS` içinde `byTenant("portal_sessions")`, `byTenant("portal_users")`
+— `customers`'tan önce (K-P21-9, backend). Hesap `customers` satırını RESTRICT ile tutar: müşteri DELETE'inden önce silinmeli.
+
+### Saklama / büyüme
+
+Firma başına onlarca hesap; oturumlar 8 sa + 7 g sonra silinir → partition/arşiv gerekmez. Pasif hesap `retention_days` sonra silinir.
+Kişisel veri: email, full_name, ip, user_agent — yedekte şifreli döküm kuralı (mevcut) geçerli; `totp_secret_enc` AES-GCM.
+
+### Kilit
+
+Yalnız yeni (boş) tablolar + FK'ler → kilit yok; `tenants`/`customers` yalnız FK hedefi (yeniden yazım yok).
+
+### Geri alma
+
+`down.sql` (elle). Guard `p21_down_guard_chk`: portal hesabı/oturumu varsa 3819 ile hiçbir şey değişmeden durur. Önce sütun ve tablo
+yetkileri REVOKE (DROP TABLE `columns_priv`'i silmez), sonra `portal_sessions` → `portal_users` DROP, `_prisma_migrations` satırı silinir.
+Asıl geri alma önceki imajdır; tablolar kalabilir (eski kod okumaz).
+
+### Test (2026-11-18, geçici `rs-p21-test`:33471, mysql 8.4.13 — sonraki ajanlar için AÇIK bırakıldı)
+
+- Temiz DB'de 30 migration + grants: tamam; `prisma migrate diff --exit-code`: 0 (drift yok); `pnpm db:generate` + server typecheck temiz.
+- Gidiş-dönüş: hesap varken down → 3819 (`p21_down_guard_chk`), satır kaldı; boşken down → tablolar, tablo/sütun yetkileri
+  (`tables_priv`/`columns_priv`) ve migration kaydı 0; yeniden `db:migrate` + drift 0.
+- `check-app-grants.sh`: 929 PASS / 0 FAIL.
+- Staging dökümünde deneme yapılmadı (yerelde döküm yok); migration yalnız yeni tablo eklediğinden mevcut veriden bağımsız.

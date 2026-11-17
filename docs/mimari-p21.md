@@ -154,6 +154,12 @@ GRANT UPDATE (last_seen_at, revoked_at, updated_at) ON portal_sessions TO 'app'@
 `email`, `tenant_id`, `customer_id` güncellenemez (hesap başka müşteriye taşınamaz → IDOR'un DB düzeyi emniyeti). E-posta değişimi
 gerekiyorsa Admin pasife alıp yeni hesap açar.
 
+**dba K1 notu (2026-11-18, `docs/db-notlari.md` "P21"):** (1) `portal_users` `IX(tenant_id)` eklenmedi — `UQ(tenant_id, email)` ve
+`IX(tenant_id, customer_id, status)` zaten `tenant_id` önekli. (2) `email = LOWER(email)` utf8mb4_unicode_ci'de etkisiz → ikili
+karşılaştırma (`CAST(… AS BINARY)`) + `\z` iskelet. (3) Ek CHECK'ler: full_name (customers adı kuralı), `password_hash` yalnız
+argon2id PHC, TOTP üçlüsü (users kalıbı), `failed_login_count ≥ 0`, `created_by` ULID, oturum `token_hash` hex + TTL.
+(4) Sütun GRANT'ı ayrıca `created_by` ve `created_at`'i de dışarıda bırakır (liste §3.3 ile aynı).
+
 ### 3.4 Silme stratejisi (K-P21-9)
 
 | Olay                                            | Etki                                                                                                                                                                                                                                        |

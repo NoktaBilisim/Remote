@@ -47,6 +47,7 @@ model Tenant {
   unattendedGrants  UnattendedDeviceGrant[]
   unattendedCodes   UnattendedRegistrationCode[]
   notifyContacts    CustomerNotifyContact[]
+  portalUsers       PortalUser[]
 
   @@map("tenants")
 }
@@ -699,6 +700,7 @@ model Customer {
   unattendedDevices UnattendedDevice[]
   unattendedCodes   UnattendedRegistrationCode[]
   notifyContacts    CustomerNotifyContact[]
+  portalUsers       PortalUser[]
 
   @@unique([tenantId, nameKey]) // ad tekilliği (pasifler dahil) + liste name_key sırası (status filtresiz)
   @@unique([tenantId, id]) // bileşik FK hedefi (request_refs, device_bindings, support_requests, support_sessions)
@@ -1051,4 +1053,71 @@ model CustomerNotifyContact {
 
   @@unique([tenantId, customerId, email]) // müşteri içinde tekil (unicode_ci → büyük/küçük harf duyarsız) + customer FK (dba sapma: sütun sırası)
   @@map("customer_notify_contacts")
+}
+
+// P21 (mimari-p21 §3.1, ADR-0039; AC-262, K-P21-1/4/5/6/9/11/12/14): müşteri portalı kimliği — panel `users`'tan TAMAMEN ayrı.
+// Kayıt firmaya ve müşteriye bağlı: bileşik FK (tenant_id, customer_id) → customers(tenant_id, id). email firma içinde tekil
+// (UQ(tenant_id, email), K-P21-6 r2); küçük harfe indirilmiş + kırpılmış (CHECK ikili karşılaştırma — unicode_ci'de `= LOWER()` boştur).
+// app: SELECT/INSERT/DELETE + sütun düzeyi UPDATE (grants.sql) — email/tenant_id/customer_id/created_by GÜNCELLENEMEZ (hesap başka
+// müşteriye taşınamaz → IDOR'un DB düzeyi emniyeti). created_by FK değil (uploaded_by_user_id kalıbı; panel kullanıcısı silinse de kalır).
+// CHECK'ler migration.sql'de (elle): email biçim/küçük harf, full_name, password_hash argon2id, TOTP üçlüsü, theme/status ikili enum,
+// PASSIVE ⇔ passive_at, geçici şifre süresi ⇒ must_change_password, failed_login_count ≥ 0, created_by ULID.
+// Silme (K-P21-9): pasif + tenant retention_days → saklama işi; müşteri anonimleştirme aynı TX; firma silme SESSIONS adımı.
+model PortalUser {
+  id                    String    @id @db.Char(26)
+  tenantId              String    @map("tenant_id") @db.Char(26)
+  customerId            String    @map("customer_id") @db.Char(26)
+  email                 String    @db.VarChar(254) // küçük harf, kırpılmış; UQ(tenant_id, email)
+  fullName              String    @map("full_name") @db.VarChar(100) // 2..100, kontrol karakteri yok (customers_name_chk kuralı)
+  passwordHash          String    @map("password_hash") @db.VarChar(255) // argon2id (mimari §5.1)
+  mustChangePassword    Boolean   @default(true) @map("must_change_password") // oluşturma ve Admin sıfırlamasında 1
+  failedLoginCount      Int       @default(0) @map("failed_login_count") // 1 sa pencere (G-23 kalıbı)
+  failedWindowAt        DateTime? @map("failed_window_at") @db.DateTime(3)
+  lockedUntil           DateTime? @map("locked_until") @db.DateTime(3) // hesap geneli kilit
+  totpSecretEnc         Bytes?    @map("totp_secret_enc") @db.VarBinary(255) // AES-256-GCM, AAD aadFor.portalTotpSecret(id) (S-P21-9)
+  totpEnabled           Boolean   @default(false) @map("totp_enabled")
+  totpLastStep          BigInt?   @map("totp_last_step") // son kabul edilen TOTP adımı (RFC 6238 §5.2 tekrar oynatma)
+  theme                 String    @default("SYSTEM") @db.VarChar(20) // LIGHT | DARK | SYSTEM
+  status                String    @default("ACTIVE") @db.VarChar(20) // ACTIVE | PASSIVE
+  passiveAt             DateTime? @map("passive_at") @db.DateTime(3) // saklama sayacı başlangıcı (K-P21-9); PASSIVE ⇔ dolu
+  lastLoginAt           DateTime? @map("last_login_at") @db.DateTime(3)
+  tempPasswordExpiresAt DateTime? @map("temp_password_expires_at") @db.DateTime(3) // r2 S-P21-5: now + 72 sa; şifre değişince NULL
+  createdBy             String?   @map("created_by") @db.Char(26) // panel kullanıcısı; FK DEĞİL
+  createdAt             DateTime  @default(now()) @map("created_at") @db.DateTime(3)
+  updatedAt             DateTime  @updatedAt @map("updated_at") @db.DateTime(3)
+
+  tenant   Tenant          @relation(fields: [tenantId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  customer Customer        @relation(fields: [tenantId, customerId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  sessions PortalSession[]
+
+  @@unique([tenantId, email]) // giriş araması (tenantSlug → tenant_id + email) + tenant FK öneki
+  @@unique([id, tenantId]) // portal_sessions (portal_user_id, tenant_id) bileşik FK hedefi
+  @@index([tenantId, customerId, status]) // customer FK öneki + panel listesi + 20 sınırı sayımı + anonimleştirmede silme
+  @@index([status, passiveAt]) // saklama işi (PASSIVE ve passive_at < now − retention_days)
+  @@map("portal_users")
+}
+
+// P21 (mimari-p21 §3.2, ADR-0039): portal oturumu (panel auth_sessions'tan ayrı tablo → bir alanın token'ı diğerinde çözülemez).
+// Düz token DB'de yok (SHA-256 hex, UQ). Bileşik FK (portal_user_id, tenant_id) → portal_users(id, tenant_id): oturumun firması
+// hesabın firmasıyla DB düzeyinde aynı. expires_at = created_at + 8 sa (CHECK ≤ 8 sa + 1 dk; uzatılamaz — grant'ta da yok).
+// app: SELECT/INSERT/DELETE + UPDATE(last_seen_at, revoked_at, updated_at). TOTP "yarım oturum" kolonu YOK (kod girişte gelir, §5.2).
+model PortalSession {
+  id           String    @id @db.Char(26)
+  portalUserId String    @map("portal_user_id") @db.Char(26)
+  tenantId     String    @map("tenant_id") @db.Char(26) // tenants'a doğrudan FK yok (bileşik FK yeter)
+  tokenHash    String    @unique @map("token_hash") @db.Char(64) // SHA-256 hex (küçük harf)
+  ip           String    @db.VarChar(45)
+  userAgent    String    @map("user_agent") @db.VarChar(300) // yalnız bilgi
+  lastSeenAt   DateTime  @map("last_seen_at") @db.DateTime(3) // 60 sn'de bir güncellenir
+  expiresAt    DateTime  @map("expires_at") @db.DateTime(3) // created_at + 8 sa; sabit
+  revokedAt    DateTime? @map("revoked_at") @db.DateTime(3)
+  createdAt    DateTime  @default(now()) @map("created_at") @db.DateTime(3)
+  updatedAt    DateTime  @updatedAt @map("updated_at") @db.DateTime(3)
+
+  portalUser PortalUser @relation(fields: [portalUserId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
+
+  @@index([portalUserId, tenantId, revokedAt]) // bileşik FK öneki + kullanıcının oturumlarını iptal
+  @@index([expiresAt]) // saklama (expires_at < now − 7 g)
+  @@index([tenantId]) // firma silme (byTenant)
+  @@map("portal_sessions")
 }
