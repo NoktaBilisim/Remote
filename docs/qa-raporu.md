@@ -1,3 +1,65 @@
+# QA Raporu — P28f Tur 3
+
+DURUM: GEÇTİ
+
+Tarih: 2026-11-17 · Dal `p28f`, HEAD `d0a1066` (PR #24). Kapsam: Tur 2 maddelerinin kapanışı ve K11 belgeleri. Kod değiştirilmedi.
+Ara commit'ler: `42b66d4` (güvenlik tur 2: Y-P28f-K1r, zorunlu liste), `52fc00c` (güvenlik raporu biçim), `d0a1066` (K11 belgeler, sayfa testi, mikrofon adımı kaldırıldı, `cl.kindAgent` nötr). Çalışma ağacı temiz.
+
+## Test sonucu
+
+| Kaynak                                         | Sonuç                                                                                                                                                               |
+| ---------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `gh pr checks 24` (HEAD d0a1066)               | **18 geçti, 0 kaldı, 6 atlandı.** Atlananlar yalnız etiket/hesap kapılı işler: GitHub Release, ONAY, SignPath, build provenance, macOS attestation, sign-mac (R39). |
+| CI "go test (Windows)", "test (MySQL 8.4)"     | Tur 2'de kırmızı olan iki kararsız test yeniden koşuda geçti.                                                                                                       |
+| CI "go test (macOS) + iz testi", "package-mac" | geçti: m.6 zorunlu liste ve görünür SKIP macos-15 üzerinde koştu; universal `.app` paketlendi.                                                                      |
+| `pnpm -s format:check`                         | temiz                                                                                                                                                               |
+
+## Tur 2 maddelerinin kapanışı
+
+| #                           | Durum        | Kanıt                                                                                                                                                                                                                                                         |
+| --------------------------- | ------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1 bayat spike yolları (m.5) | ✅ gerekçeli | `spike-p28f-k0s.md:30` "ölçüm anının kaydıdır (tarihsel; kod repoda yok)"; `implementation.md:15226` not: K1–K5'teki yol ve `--tmpfs` maskesi tarihsel, güncel komut maskesiz. Belgeler yeniden yazılmadı ama sapma gerekçeli (Tur 2 m.1'in ikinci seçeneği). |
+| 2 CI kırmızıları            | ✅           | yeniden koşuda yeşil. İki test kararsız: `rtc_test.go:159`, `rec-webm-dos.test.ts:94` (bkz. Öneriler).                                                                                                                                                        |
+| 3 bekleyen CI işleri        | ✅           | macOS testi, package-mac ve web e2e geçti                                                                                                                                                                                                                     |
+| Tur 1 m.7 belgeler (K11)    | ✅           | `KULLANIM_KILAVUZU.md` macOS bölümü: "Yine de Aç istemez" (:1165), `tccutil reset` (:1381). CHANGELOG 0.19.0, README/DATASHEET/api.md güncel; `docs/pdf/*.pdf` yeniden üretildi (17:48).                                                                      |
+| Tur 1 m.8 elle liste        | prod kapısı  | `docs/test-raporu.md` P28f: web taraması GEÇTİ. O-1 `cl.kindAgent` → "Hızlı Destek uygulaması" (`tr.json:301`). Gerçek Mac elle listesi sonuçsuz; P28f prod'a çıkmadan kapanmalı. DURUM sebebi sayılmadı (koordinatör kararı).                                |
+
+## Kabul kriterleri
+
+| AC          | Durum                     | Not                                                                                                                                                                                               |
+| ----------- | ------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| AC-389..395 | ✅ otomatik / prod kapısı | Otomatik kanıtlar Tur 1 + Tur 2 (AC-105 eklendi) ve CI macOS/package-mac yeşil. Gerçek Mac ELLE maddeleri ve imza/notarization (R39) `docs/test-raporu.md` P28f elle listesinde, **prod kapısı**. |
+| AC-396      | ✅                        | Tur 1 kanıtı, CI web e2e yeşil                                                                                                                                                                    |
+
+## Düzeltilmeli
+
+Yok.
+
+## Definition of Done
+
+| Madde                              | Durum | Not                                            |
+| ---------------------------------- | ----- | ---------------------------------------------- |
+| Testler yeşil                      | ✅    | CI 18/18; atlananlar etiket kapılı             |
+| Lint / typecheck / format          | ✅    |                                                |
+| CI yeşil                           | ✅    |                                                |
+| qa GEÇTİ, güvenlik Kritik/Yüksek 0 | ✅    | güvenlik Kod turu 3 GEÇTİ (0/0/0/0)            |
+| test-operatoru taraması            | ✅    | web GEÇTİ; gerçek Mac elle listesi prod kapısı |
+| Ölü kod yok                        | ✅    |                                                |
+| Sapmalar gerekçeli                 | ✅    | spike yolları tarihsel notla                   |
+| Dokümantasyon + PDF                | ✅    | K11                                            |
+| Yeni bağımlılık / gizli bilgi      | ✅    | yok / gitleaks geçti                           |
+
+## Öneriler (zorunlu değil)
+
+- Kararsız testler kararsız test listesine alınmalı ve kararlı hâle getirilmeli: `internal/rtc` `TestAC375P28dAnswerOpusDirection/recvonly` (ICE ajanı kapanma yarışı), `rec-webm-dos.test.ts:94` (CI'da doğrusallık oranı 18,5 > 15).
+- `elevatedForeground` konsol metni macOS'ta "Yükseltilmiş pencere" diyor; platforma göre metin düşünülebilir.
+
+## Olumlu
+
+- Tur 1'deki 8 madde ve Tur 2'deki 3 madde kapandı ya da prod kapısına gerekçeyle bağlandı; CI ilk kez tamamen yeşil (macOS paketleme dahil).
+
+---
+
 # QA Raporu — P28f Tur 2
 
 DURUM: DÜZELTİLMELİ
