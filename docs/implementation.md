@@ -15255,3 +15255,73 @@ Silinen: `TestSP28f1LocalEventRejectsOwnSynthetic` (`LocalEvent` ile; `zorunlu=`
   - `gofmt -l`: boş.
   - staticcheck 0.8.2 (darwin arm64/amd64, windows amd64/arm64): temiz.
   - actionlint bu makinede kurulu değil. YAML değişikliği yalnız `zorunlu=` dizesine eklenen adlardan ibaret.
+
+### P22-D — oturum sohbeti UQ migration'ı (dba, 2026-11-18)
+
+- Migration `apps/server/prisma/migrations/20261126000000_p22_session_chat/`: `migration.sql` ön kontrol
+  (`P22_PRECHECK dup_session_client=<n>`) + `ADD UNIQUE INDEX session_messages_session_client_key` (INPLACE, LOCK=NONE);
+  `down.sql` yalnız UQ DROP. Ayrı `precheck.sql` yok: down veri silmez, guard gerekmez.
+- `schema.prisma` `SessionMessage` += `@@unique([sessionId, sender, clientMsgId], map: "session_messages_session_client_key")`;
+  Prisma bileşik anahtar adı `sessionId_sender_clientMsgId` (P22-B yinelenen okuma için `findUnique`).
+- Grants, tetikleyici (23), check-app-grants değişmedi. Test `apps/server/test/integration/p22-schema-d.test.ts`. Ayrıntı ve EXPLAIN:
+  `docs/db-notlari.md` "P22".
+- P22-B'ye not: özet sorgusu (`GROUP BY sender, sender_user_id`) iyileştiricide yeni UQ'yu seçebilir (tek oturumla sınırlı, kabul).
+  Retention DELETE join'i mimari §3.3 biçimiyle PRIMARY `IN` aralığı + IX lookup kullanır; ek ipucu gerekmez.
+
+## P22-C — Contracts: oturum sohbeti sözleşmesi (backend-dev, 2026-11-18)
+
+Kaynak: `docs/mimari-p22.md` §4.1–4.5, §5.1–5.3, §7.1, §3.4, §10.1 P22-C, **§15 r2** (çelişkide §15 esas alındı:
+`session.chat_summary` `{tech, customer, senderUserIds, legacy}`, ret nedenlerinde `outdated`, `/ws/tech` da `rs.cap.schat1` bildirir + 4426).
+
+**Değişen / yeni dosyalar (yalnız `packages/contracts`)**
+
+- `src/chat.ts` (yeni, yaprak): P18'den taşınan `MESSAGE_SENDERS`/`MessageSender`, `MESSAGE_BODY_MAX`, `MESSAGE_LINES_MAX`,
+  `isWellFormedText`, `hasUnsafeMessageChars`, `chatBodySchema` (P18 gövde kuralı aynen); `CHAT_CONSENT_PARAGRAPH` (§3.4 r2 metni,
+  dokümandan betikle çıkarılıp karşılaştırıldı), `CHAT_CONSENT_KEY_SENTENCE`, `CHAT_RETENTION_LINE(days)`, `LEGACY_CHAT_NOTICE` (S-P22-6 metni).
+- `src/ws-chat.ts` (yeni, yaprak): `WS_CAP_SCHAT`, `WS_CLOSE_CONSOLE_OUTDATED` (4426) + `WS_CLOSE_CONSOLE_OUTDATED_REASON`
+  (`console_outdated`), `CHAT_HISTORY_MAX` (100), `CHAT_HISTORY_MAX_BYTES` (49152), `SESSION_CHAT_CAP_PER_SENDER` (2000),
+  `SESSION_CHAT_TENANT_CUSTOMER_PER_MIN` (600), `CHAT_CLIENT_MSG_ID_PATTERN` (16..36), `SESSION_CHAT_MIN_CLIENT` ("0.21.0", yalnız sabit),
+  `CHAT_REJECT_REASONS` (7, `outdated` dahil), `GUEST_CHAT_STATES`, `CHAT_STATE_REASONS`, `chatClientMsgIdSchema`, `chatSendSchema`,
+  `chatSendEnvelopeSchema` (gövde hatası → `invalid`, soket açık; S-P18-K1 kalıbı), `chatMessageSchema`, `chatHistoryItemSchema`,
+  `chatHistorySchema`, `chatStateSchema`, `chatRejectedSchema`, `techChatInbound`, `guestChatInbound`, `serverChatOutbound`,
+  `helloChatFields`; tipler `ChatSend`, `ChatMessage`, `ChatHistoryItem`, `ChatRejectReason`, `GuestChatState`, `ChatStateReason`.
+- `src/ws.ts` (ekleme): `WS_CLOSE.CONSOLE_OUTDATED`; `techInboundSchema` += `chat.send`; `guestInboundSchemaFor(…, schat = false)`
+  6. parametre (bit 64); `serverOutboundSchema` += `chat.*`; `hello` ve `peer.joined` += `guestChat`.
+- `src/ws-multi.ts`: `ROLE_MAY["chat.send"] = "talker"`. `src/ws-request.ts`: `REQUEST_HISTORY_MAX_BYTES` (49152; şemaya `more` eklenmedi).
+- `src/permissions.ts`: `sessions.view_chat` + açıklama (§5.2). `src/audit.ts`: `CHAT_AUDIT` (`session.chat_viewed|chat_summary|chat_rejected|chat_legacy`),
+  `CHAT_AUDIT_LABELS`, `CHAT_AUDIT_REJECT_REASONS` (cap/forbidden/internal/outdated), `CHAT_SUMMARY_SENDER_IDS_MAX` (10).
+- `src/api/sessions.ts`: `ResolveSessionResponse.chatRetentionDays?`, `SessionHistoryDetail.chat?: SessionChatSummary`,
+  `SessionChatSummary`, `SESSION_CHAT_PAGE_MAX` (200), `SESSION_CHAT_READS_PER_MIN` (60), `sessionChatQuerySchema`, `SessionChatItem`,
+  `SessionChatResponse`. `src/api/requests.ts`: taşınan adların yeniden ihracı (yüzey aynı; `requestMessageBodySchema === chatBodySchema`),
+  `TenantRequestInfo.chatRetentionDays?`. `src/api/system-settings.ts`: `ConsentTextSettings.chatParagraphMissing?`, `chatParagraph?`.
+- `src/dc.ts`: yalnız yorum (DC `chat` yalnız tespit + sabit bildirim). `package.json` exports += `./chat`, `./ws-chat`.
+- `fixtures/ws-session-chat.json` (yeni; `subprotocols`, `constants`, `sets`, `texts`, `valid.*`, `invalid.*` + `invalid.bodyOnly`).
+- Testler: `test/session-chat-p22.test.ts` (yeni); `test/multi-p28c.test.ts` katılımcı izinli listesine `chat.send` eklendi
+  (P28d voice kalıbı); `test/__snapshots__/pt-surface.test.ts.snap` yalnız eklemeyle güncellendi (silinen satır 0).
+
+**Tasarımdan sapmalar (gerekçeli)**
+
+- Yeni REST yanıt alanları (`chatRetentionDays`, `chat`, `chatParagraphMissing`, `chatParagraph`) **opsiyonel**: P22-B doldurana kadar
+  sunucu tip denetimi kırılmasın (P18 `businessHours?`, P28 `storedFiles?` emsali). P22-B her zaman doldurur.
+- `MESSAGE_SENDERS` da `chat.ts`'e taşındı (§4.5 yalnız gövdeyi söylüyor): `api/sessions.ts` → `api/requests.ts` importu
+  import döngüsü yaratırdı (PT-K1 testi). Adlar `api/requests.ts`'ten aynen yeniden ihraç ediliyor.
+- `chatSendEnvelopeSchema` eklendi: §4.3/§11 "1.001 kod noktası → `invalid`, soket açık" kuralı için zarf/gövde ayrımı gerekir.
+- `labels.ts` (§12 listesinde) değişmedi: dokümanda zaman çizelgesine giren sohbet eylemi tanımlı değil; etiketler `CHAT_AUDIT_LABELS`'ta.
+
+**Eklenen bağımlılık:** yok.
+
+**Komutlar ve sonuç (2026-11-18)**
+
+- `pnpm --filter @remote/contracts run lint` temiz · `typecheck` temiz · `test` 28 dosya / 286 test geçti.
+- `pnpm -r run typecheck`: contracts, server, web **temiz**.
+- `pnpm -r run test`: server 673 geçti (1 atlandı); **web 2 test kırık** — `apps/web/lib/users/users.test.ts` (yetki matrisi:
+  yeni `sessions.view_chat` için `messages/tr.json` `perm.a.view_chat` etiketi ve beklenen eylem listesi yok). P22-F işi (web koduna dokunulmadı).
+
+**frontend-dev / backend-dev için sözleşme notları**
+
+- Web: `perm.a.view_chat` etiketi + `permission-matrix.tsx` hassas yetkiler listesine `sessions.view_chat`; konsol `/ws/tech`
+  alt protokol listesine `WS_CAP_SCHAT`; 4426 (`WS_CLOSE.CONSOLE_OUTDATED`) "sayfayı yenileyin"; `serverOutboundSchema` artık `chat.*`
+  tiplerini taşır (exhaustive switch'ler); saklama satırı `CHAT_RETENTION_LINE(days)`; eski misafire yalnız `LEGACY_CHAT_NOTICE`.
+- Sunucu: `guestInboundSchemaFor` 6. parametre `hasSessionChat`; `chat.send` rol reddi `seatMay` sonrası `chat.rejected{forbidden}`
+  (genel `roleDenied` değil); tam şema başarısız + `chatSendEnvelopeSchema` geçerli → `chat.rejected{invalid}`; `CHAT_AUDIT` eylem adları;
+  yalnız `CHAT_AUDIT_REJECT_REASONS` audit'e yazılır.

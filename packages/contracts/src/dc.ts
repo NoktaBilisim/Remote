@@ -84,6 +84,10 @@ const fid = msgId;
  * misafir → teknisyen yönünde; ad TAŞIMAZ — konsol adı kendi sunucu roster'ından çözer, çözemezse "Müşteri"). Müşterinin
  * kendi mesajı ve teknisyen → misafir mesajı `by`'sızdır (Go `dc.ParseCtl` gelen sohbette `by`'ı reddeder).
  */
+// P22 (mimari-p22 §4.4–4.5): oturum sohbeti WS'e taşındı (`ws-chat.ts`). DC `chat` YALNIZ tanınır — (a) konsolda eski
+// (belirteçsiz) misafir tespiti ve `LEGACY_CHAT_NOTICE` tetiği, (b) gelen çerçeve hiç gösterilmez/sayılmaz. Yeni kodda gönderen
+// yoktur; tek istisna konsolun eski misafire gönderdiği sabit `LEGACY_CHAT_NOTICE` (metin parametresi yok). `CHAT_MAX_CHARS`
+// ve `CHAT_SEND_PER_SEC` bu tespit ve kova için kalır.
 export const chatSchema = z.strictObject({
   t: z.literal("chat"),
   id: msgId,
