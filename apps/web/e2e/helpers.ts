@@ -88,3 +88,19 @@ export async function scanBoth(browser: Browser, scenario: string, path: string,
     await ctx.close();
   }
 }
+
+/**
+ * K10 (Y-1/Y-2): açık + koyu temada kapsamlı axe. Tema `html` sınıfıyla zorlanır (konsol "Sistem"de hep koyu açılır;
+ * `emulateMedia` açık varyantı koşturmaz) ve etkin tema doğrulanır.
+ */
+export async function scanThemes(p: Page, sel: string, label: string) {
+  for (const scheme of ["light", "dark"] as const) {
+    await p.evaluate((c) => {
+      document.documentElement.classList.remove("light", "dark");
+      document.documentElement.classList.add(c);
+    }, scheme);
+    const fg = await p.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue("--rs-fg").trim());
+    expect(fg, `${label} ${scheme} teması etkin`).toBe(scheme === "light" ? "#0f172a" : "#f1f5f9");
+    expect(await axeScan(p, sel), `${label} ${scheme}`).toEqual([]);
+  }
+}

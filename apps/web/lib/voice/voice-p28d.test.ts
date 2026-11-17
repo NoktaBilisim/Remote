@@ -6,6 +6,7 @@ import { actionLabel, groupLabel } from "@/lib/audit/actions";
 import { consoleVoiceReducer, consoleVoiceView, initialConsoleVoice, micLive, micWanted, shouldListen, type VoiceCtx } from "./console";
 import { GuestVoice, type VoiceGraph } from "./guest";
 import { mixPlan } from "./mix";
+import { browserRecorder } from "../rec/recorder";
 
 const CID = "AbCdEfGhIjKlMnOpQrSt_-";
 const A = "AAAAAAAAAAA";
@@ -227,5 +228,34 @@ describe("AC-374 / K-PD-2 misafir rıza kuralı", () => {
     f.v.onRequest({ callId: CID, by: A });
     f.v.reject();
     expect(f.sent).toEqual([{ t: "voice.answer", callId: CID, accept: false }]);
+  });
+});
+
+describe("AC-375 browserRecorder: kayda yalnız video izi", () => {
+  it("ses + video akışından kaydedici MediaStream'inde ses izi 0, video izi 1", () => {
+    const video = { kind: "video", id: "v" };
+    const audio = { kind: "audio", id: "a" };
+    const made: { tracks: unknown[]; opts: unknown }[] = [];
+    class FakeStream {
+      constructor(readonly tracks: { kind: string }[]) {}
+      getVideoTracks = () => this.tracks.filter((x) => x.kind === "video");
+      getAudioTracks = () => this.tracks.filter((x) => x.kind === "audio");
+      getTracks = () => this.tracks;
+    }
+    class FakeRecorder {
+      constructor(stream: FakeStream, opts: unknown) {
+        made.push({ tracks: stream.getTracks(), opts });
+      }
+    }
+    vi.stubGlobal("MediaStream", FakeStream);
+    vi.stubGlobal("MediaRecorder", FakeRecorder);
+    try {
+      browserRecorder(new FakeStream([audio, video]) as unknown as MediaStream);
+      expect(made).toHaveLength(1);
+      expect(made[0]!.tracks).toEqual([video]);
+      expect(made[0]!.tracks.filter((x) => (x as { kind: string }).kind === "audio")).toHaveLength(0);
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 });

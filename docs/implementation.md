@@ -13453,3 +13453,157 @@ da beklenir (yarış: üyenin kopyası önce geliyordu). Eklenen beklenti: misaf
   yükte 60 sn'yi aştı (ses ile ilgisiz). İki dosya ayrı koşuda 22/22 geçti.
 - lint + typecheck (`pnpm -r`) yeşil; web birim 519 geçti (contracts `labels.ts` değişikliği web'i kırmadı).
 - `pnpm format:check`: yalnız `docs/tmp-impl-k0s.md` (başka ajanın geçici notu; dokunulmadı) uyarı veriyor.
+
+### K2 web
+
+Durum (2026-11-17): **TAMAM** — saf mantık, eş tesisatı, kancalar, konsol + müşteri arayüzü, sahte WS ses durum makinesi, e2e.
+Rotalar: yeni rota yok. Değişen sayfalar: `/sessions/[id]/console` (üst çubukta ses yuvası, auth gerekir), `/session/[token]`
+(müşteri diyaloğu + görüşme çubuğu, girişsiz). Başlık `Permissions-Policy`: `/r` ve `/r/*` `microphone=()`, diğer tüm sayfalar
+`microphone=(self)`.
+
+#### Saf mantık, politika, audit etiketleri
+
+- `apps/web/lib/voice/console.ts` (yeni): konsol saf reducer `consoleVoiceReducer` (voice.state / error / yerel aşama / mute /
+  WS kopması), `micWanted` / `micLive` / `shouldListen` (tek `releaseMic()` kararı, D-PD-5), `consoleVoiceView` (§8 görünümleri:
+  hidden/unsupported(AC-352)/unattended/noPerm(V-PD-6)/listening(izleyici)/idle(+30 sn bekleme)/waiting(geri sayım)/otherPending/
+  talking/canJoin), `namesOf`. Ret ile müşteri bitişi aynı `endReason:"customer"` ile gelir → önceki fazdan ayrılır.
+- `apps/web/lib/voice/mix.ts` (yeni): `mixPlan` (mix-minus kenar listesi + listeners gönderim kapısı), `diffEdges`.
+- `apps/web/lib/voice/guest.ts` (yeni): `GuestVoice` — K-PD-2 rıza (yalnız bellek, `accept()` tıklamasında yazılır; mikrofon
+  yalnız orada açılır), rızasız `voice.state{active}` → `voice.end{customer}` (callId başına bir kez), gUM sonrası bayat kontrol,
+  gUM hatası → `voice.end{device}`, `onWsClose` (sustur + bırak + rıza sil), talker kapısı (kaynak yalnız talkers; çıkan tid aynı
+  tikte kopar; eş yeniden kurulunca düğüm yenilenir), gönderim kapısı (listeners dışı `setAudioOut(null)`), yeni dinleyici duyurusu
+  (`announce.seq`), roster dışı `by`/tid yok sayılır. Yan etkiler enjekte (`VoiceGraph`, `VoicePeers`, `getMic`).
+- `apps/web/lib/voice/graph.ts` (yeni): tarayıcı WebAudio grafı (muted `<audio>` + MediaStreamSource, eş başına
+  MediaStreamAudioDestination, hoparlör = ctx.destination). Henüz bağlanmadı (kanca yok).
+- `apps/web/proxy.ts`: `permissionsPolicyFor(pathname)` (K-PD-1/D-PD-1): `/r` ve `/r/*` → `microphone=()`, diğer her şey
+  `microphone=(self)`; camera/geolocation `()`, display-capture `(self)` sabit. **Kural:** girişsiz/herkese açık yeni sayfa →
+  `MIC_DENY_PREFIXES` + birim testi birlikte güncellenir (runbook m.7).
+- `apps/web/lib/audit/actions.ts`: `VOICE_AUDIT_LABELS` + `VOICE_AUDIT_GROUP_LABELS` yayıldı.
+- `apps/web/lib/voice/voice-p28d.test.ts` (yeni, 12 test): policy (`/requests`, `/request-blocks`, `/reset-password` (self)
+  sabitlendi), audit etiketleri, konsol reducer/görünüm (AC-373/374/378/379, D-PD-2), mix-minus planı (D-PD-3), misafir rıza
+  kuralları (K-PD-2, WS kopması, device, roster dışı by).
+
+#### Eş tesisatı, kancalar, kalite satırı
+
+- `lib/webrtc/peer.ts`: `PeerLink` 4. kurucu argümanı `voice: "sendrecv"|"recvonly"|null`; `offer()` ses transceiver'ını bir kez,
+  videodan SONRA ekler (ICE restart'ta yeniden eklenmez); dönen akış YALNIZ video (AC-375). Misafir `answer()`: ses transceiver'ı
+  `createAnswer` öncesi `sendrecv` + `replaceTrack(audioOut)` (null başlar). Yeni: `setAudioTrack(track|null)` (yanıttan önce
+  çağrılırsa saklanır), `audioReceiverTrack()`.
+- `lib/webrtc/use-tech-peer.ts`: ref'ler `guestVoice` (hello/peer.joined `guestVoice===true`), `observer` (`hello.techRole==="observer"`;
+  P28c'de izleyici terfi edemez — handover hedefi yalnız katılımcı/sahip — bu yüzden teklif anındaki yön yeterli), `voiceTrack`;
+  `startPeer` yönü seçer, yeni eşte son izi yeniden bağlar; dönüş `remoteAudio` (state), `setVoiceTrack`.
+- `lib/webrtc/use-tech-session.ts`: dönüşe `voice: { remoteAudio, setVoiceTrack }`.
+- `lib/webrtc/tech-machine.ts`: `TechState.guestVoice: boolean|null` (hello + peer.joined; `guestMulti` kalıbı).
+- `lib/webrtc/guest-peers.ts`: `GuestPeers implements VoicePeers` (`tids/remoteAudio/setAudioOut`); `Opts.onPeers` yanıt
+  çözülünce (eş hâlâ güncelse) ve `close(tid)`'de çağrılır.
+- `lib/webrtc/use-guest-session.ts`: `usePeers` artık `{peers, voice}` döner (GuestPeers + GuestVoice tek useState içinde,
+  `onPeers → voice.peersChanged`); `openMic()` (AEC/NS/AGC); mesaj yönlendirme `voice.request → onRequest`, `voice.state → onState`,
+  roster'da `peers.onRoster` SONRA `voice.onRoster`; `onWsClose()` WS kapanışında, `phase=ended`'de, sökümde ve `pagehide`'da.
+  Dönüş: `voice` (GuestVoice: `accept/reject/end/setMuted`) + `voiceView` (`voiceTick` ile yenilenir).
+- `lib/voice/use-console-voice.ts` (yeni, BAĞLANMADI): `useConsoleVoice({subscribe, send, setVoiceTrack, me, connected, getMic?})`
+  → `{s, request, join, end, mute, ended}`. Montajda `subscribe` (voice.state / error), `connected=false` → `closed` + `releaseMic`,
+  `micWanted` düşünce bırak, `micLive` iken `setVoiceTrack(mic)` (muted → `enabled=false`), `pagehide` + söküm → `releaseMic`;
+  `withMic` gUM sonrası bayat kontrol (yerel aşama değiştiyse/koptuysa izi durdur, mesaj gitmez); `end()` sunucuyu beklemeden bırakır.
+- `lib/webrtc/stats.ts`: `Sample.audioLossPct` (yalnız paket almış audio inbound-rtp; ayrı `Prev.a` penceresi), `Issue` + `audioLoss`
+  (eşik video kaybıyla aynı); `use-quality.ts` `{c:null, a:null}`; `components/console/quality-panel.tsx` "Ses kaybı %x" satırı
+  yalnız değer varken; `tr.json` `p5.q.audioLoss`, `p5.q.issue.audioLoss`; `lib/dc/p5.test.ts` fikstürüne `audioLossPct: null`.
+
+#### Arayüz bağlama
+
+- `app/(panel)/sessions/[id]/console/console-view.tsx`: `useVoiceSlot` → `useConsoleVoice` KOŞULSUZ (`send: ts.send`; sunucu da
+  ROLE_MAY ile kapılar), `connected = live && reconnectSince===null`; görünüm `now===null` iken gizli; bitiş toast'ı
+  `lib/voice/ui.ts voiceEndToast` (yalnız `ended.mine`; ret / yanıt yok / "Sesli görüşme bitti · <formatDuration>", süre yoksa süresiz) `info`.
+  `canVoice` prop. `console-header.tsx`: `voice?: ReactNode` yuvası (spacer'dan sonra, BrowserControlHint'ten önce). `page.tsx`: `canVoice`.
+- `components/console/voice-controls.tsx` (yeni): `VoiceControls` (tüm görünümler) + `VoiceAudio` (her zaman monte `<audio>`,
+  `muted = !shouldListen`, dinlemiyorken `pause()`, `NotAllowedError` → "Sesi aç"; tüm `play()` retleri yakalanır).
+  Konuşurken Sessize al / Görüşmeyi bitir ikon-only (aria-label + title). Bekleme geri sayımında canlı bölge yok.
+- `components/guest/voice-dialog.tsx` (yeni): `VoiceRequestDialog` (alertdialog, odak Reddet, Kabul 1,5 sn callId kilidi, dinleyecekler,
+  kulaklık önerisi; Esc/X = reject). `components/guest/voice-bar.tsx` (yeni): `VoiceBar`, `useVoiceAnnounce` (görüşme yokken görülen
+  seq işaretlenir → eski duyuru yeni görüşmede okunmaz), `VoiceAnnounce` (her zaman monte sr-only assertive bölge + görünür şerit + Çıkar).
+- `app/session/[token]/guest-session.tsx`: `GuestVoiceSlot` (duyuru, çubuk, `note==="device"` uyarısı, diyalog) GuestLiveAlerts'ten sonra;
+  `TechsList` `confirmTid`/`onConfirmTid` ile kontrollü (duyurudaki Çıkar aynı onay diyaloğunu açar; sahip çıkarılamaz).
+- `lib/voice/ui.ts` (yeni, saf): `voiceEndToast`, `noticeText`, `guestBarModel` (çubuk = active VEYA mic≠off; gösterge gerçek mikrofona
+  bağlı), `freshListeners`.
+- `messages/tr.json`: `vc.*` (konsol) + `vg.*` (müşteri). `DESIGN.md` §4 "P28d ile eklenenler" ikon satırı + §6 iki bileşen satırı.
+- Testler: `vitest.config.ts` include'a `components/**/*.test.tsx` eklendi (yeni bağımlılık yok; `react-dom/server`
+  `renderToStaticMarkup`, node ortamı). `components/console/voice-controls.test.tsx`, `components/guest/voice-guest.test.tsx`,
+  `lib/voice/voice-ui.test.ts`. vitest 58 dosya / 540 test yeşil; typecheck + lint yeşil.
+- **Sapma:** mikrofon sessizden çıkarma düğmesi "Sesi aç" yerine **"Mikrofonu aç"** (konsolda otomatik oynatma yedeği "Sesi aç" ile
+  aynı ada sahip iki düğme aynı anda görünebiliyordu; müşteride de tutarlılık için aynı). Konsolda bekleyen isteği iptal düğmesi yok (§8'de yok).
+
+- e2e (regresyon): `playwright test p28c-multi p5-collab p28e-recording` komutu yapılandırma gereği 793 testlik koşu başlattı → 555 geçti, 236 atlandı, 1 koşmadı, 1 kaldı: `p8b-requests` AC-153 (yük altında); tek başına tekrar → geçti (ses arayüzüyle ilgisiz, kararsız). Ses için yeni e2e YOK (sıra 6–7).
+
+##### e2e için data-testid listesi
+
+Konsol: `voice-controls` (`data-view` = idle|waiting|otherPending|talking|canJoin|listening|noPerm|unsupported|unattended),
+`voice-call` (Sesli görüşme; idle/unsupported/unattended), `voice-join`, `voice-notice` (`data-kind` = rejected|timeout|customerEnded|
+deviceEnded|micDenied|conflict|rateLimited|forbidden; pasif görünümlerde neden metni), `voice-waiting`, `voice-other-pending`,
+`voice-mic-state` (`data-muted`), `voice-mute`, `voice-end`, `voice-listening`, `voice-no-perm`, `voice-audio` (`data-listen`), `voice-play`.
+Misafir: `voice-request` (diyalog), `voice-reject`, `voice-accept`, `voice-request-listeners`, `voice-headset`, `voice-bar`
+(`data-mic` = off|opening|on, `data-muted`), `voice-bar-mic`, `voice-bar-talkers`, `voice-bar-listeners`, `voice-bar-mute`,
+`voice-bar-end`, `voice-announce` (sr-only assertive bölge), `voice-announce-strip`, `voice-announce-remove` (→ `guest-remove-confirm`
+/ `guest-remove-ok`), `voice-device`.
+
+#### Mock + e2e (tur 4)
+
+- `e2e/mock-ws.mjs`: K1 durum makinesi taklidi (`voiceTech`/`voiceGuest`/`endVoice`/`publish`; kapı sırası yetki → misafir bağlı
+  CONFLICT → `guestVoice` CLIENT_UNSUPPORTED (AC-352 metni) → faz CONFLICT → 30 sn bekleme / 10 istek RATE_LIMITED). İstekte önce
+  misafire `voice.request{callId, by}`, sonra iki tarafa `voice.state{pending, callId, by, listeners:[by]}`; bitiş yayını
+  `idle + callId + endReason`; ret / zaman aşımı / customer / device 30 sn bekleme başlatır, misafir kopması (`disconnect`) başlatmaz;
+  eşleşmeyen `callId` sessiz düşer; değişmeyen durum yeniden gitmez. Her çıkış `voiceStateSchema` / `voiceRequestGuestSchema` /
+  `techsRosterSchema.parse`'tan geçer. `guestVoice` tüm BROWSER misafirlerin teknisyen `hello` / `peer.joined`'ında (sunucu gibi;
+  misafir hello'sunda yok); sahte Hızlı Destek istemcisi voice1 bildirmez → `false`. Yalnız `rec.voice` odasında: teknisyen hello
+  `tid/techRole/roster`, misafire hello'dan hemen sonra `techs.roster` + callId'siz `voice.state{idle}`, tech→misafir `sdp.offer`/`ice`
+  `from` damgalı. `voice.*` `LOGGED`'da. Kanca `GET /__e2e/voice/<oturum>?timeout|cool|stray` (`mock-api.mjs`): `timeout` = sahte saat
+  (60 sn dolmuş), `cool` = bekleme sıfır, `stray` = misafire rızasız `voice.state{active}`.
+- `e2e/mock-sessions.mjs`: `u-p28d-*` (sessions.voice + ses odası), `u-p28drec-*` (+ kayıt teklifi, AC-375), `u-p28dold-*` (eski
+  istemci, AC-379). `e2e/mock-p28e.mjs`: `/__e2e/rec-parts/:rid?full=1` parça baytları (b64).
+- `e2e/helpers.ts`: `scanThemes` p28e spec'inden taşındı (kopya yok).
+- `e2e/p28d-voice.spec.ts` (7 test; 6 desktop + 1 desktop-perf): AC-373 (izin reddinde `voice.request` gitmez + micDenied;
+  diyalog alertdialog, odak Reddet, kilit sayfa içi MutationObserver ile 1400–2500 ms; diyalog gUM çağırmaz; ret → toast + bildirim +
+  düğme pasif + konsol mikrofonu ended; zaman aşımı kancayla), AC-374 / AC-377 tarayıcı (iki tarafta "Mikrofon açık", Sessize al iki
+  tarafta `enabled=false`, konsol bitirince iki taraf mikrofon izi sayfa içi ölçümle ≤ 1 sn `ended`, müşteri bitirince customerEnded,
+  ws-log `voice.end` sırası; SDP `opus/48000/2` + `a=fingerprint`; axe açık/koyu konsol + çubuk; 1280/375 taşma iki sayfada),
+  K-PD-2 negatif (rızasız active → `voice.end{callId, customer}`, gUM 0, çubuk yok), AC-375 (görüşme etkinken yeni kayıt bölümü;
+  WebM EBML Tracks'te TrackType 1 = 1, TrackType 2 = 0 — asgari ayrıştırıcı spec içinde, ilk Cluster'da durur), AC-379 (sahte istemci →
+  `data-view=unsupported`, düğme pasif, AC-352 metni `aria-describedby`), D-PD-1 başlıkları, AC-376 `@perf` (müşteri mikrofonu
+  1 kHz osilatör, saniyede 100 ms darbe; konsol `voice-audio` akışı → AnalyserNode (fftSize 256, 2 ms yoklama) yükselen kenar;
+  `performance.timeOrigin + now` iki sayfada; p95 < 325 ms, en az 15 eşleşme).
+- AC-375 birim: `lib/voice/voice-p28d.test.ts` "AC-375 browserRecorder" (sahte `MediaStream`/`MediaRecorder` global'leri; ses+video
+  akışından kaydedici akışında yalnız video izi).
+- **AC-378 çoklu teknisyen ses e2e'si KAPSAM DIŞI** (koordinatör kararı; gerekçe spec başında yorum): sahte WS tek teknisyen bağlar,
+  çok eşli tarayıcı misafiri gerçek sunucu ister. Kapsam: sunucu entegrasyon (`voice-p28d.test.ts`), web birim (mix-minus, talker /
+  gönderim kapısı, duyuru), staging elle.
+
+#### Sapmalar (gerekçeli)
+
+- Mimari dosya planı `lib/webrtc/voice.ts` / `voice.spec.ts` diyor; gerçek `lib/voice/*` ve `e2e/p28d-voice.spec.ts`.
+- Mikrofon sessizden çıkarma düğmesi "Sesi aç" yerine **"Mikrofonu aç"** (konsolda otomatik oynatma yedeği "Sesi aç" ile aynı ada
+  sahip iki düğme aynı anda görünebiliyordu). Konsolda bekleyen isteği iptal düğmesi yok (§8'de yok).
+- e2e'de mikrofon izi WebAudio osilatöründen (spec içi `getUserMedia` sarmalayıcısı): macOS başsız Chromium'da sahte ses aygıtı izin
+  verilmiş olsa da `getUserMedia({audio})`'yu çözmüyor (gözlendi; `getDisplayMedia` etkilenmiyor). Mimari §9 izin reddi için
+  `permissions: []` diyordu; aynı nedenle ret `NotAllowedError` fırlatan sarmalayıcıyla. Ek tarayıcı bayrağı gerekmedi.
+- ui-ux-pro-max skill'i okundu (DESIGN.md geçerli). Bildirim (WhatsApp/Telegram) koordinatöre bırakıldı.
+
+#### K1 ile doğrulananlar / açık kalanlar
+
+- WS `error{code}` istek kimliği taşımıyor: konsol, bekleyen ses isteği varken gelen HER hatayı sese atfeder (kapalı-güvenli).
+  K1 aynı anda başka hata üretmemeli; ayrıca `CONFLICT` hâlâ `TechState.lastError`'ı da set eder (lobi paneli yalnız bekleyen
+  varken görünür — etkisiz).
+- Ret (`voice.answer{false}`) ve active'de müşteri bitirmesi ikisi de `voice.state{idle, endReason:"customer"}` → konsol önceki
+  fazdan ayırır; idle bitiş yayını `callId` taşımalı (taşımazsa yine ayrılır ama `ended` kaydı oluşmaz).
+- Misafire `voice.state{pending}` de gitmeli (listeners diyalogda "dinleyecek" bilgisi + duyuru tabanı).
+- Teknisyen `hello.tid` olmadan ses arayüzü gizlidir (eski sunucu); `hello.guestVoice` / `peer.joined.guestVoice` zorunlu yol.
+- Zaman çizelgesi: contracts `TIMELINE_DETAIL_KEYS`'te `voice.*` yok → oturum geçmişi çizelgesinde ses olayları görünmez;
+  istenirse contracts + server işi (K2 dokunmadı).
+
+Sonuç: K1 bu varsayımları karşılıyor (idle bitiş yayını `callId` taşır; misafire pending gider; hello `tid` + `guestVoice` var;
+`TIMELINE_DETAIL_KEYS` K1 devamında eklendi). WS `error` zarfının istek kimliği taşımaması kabul edilmiş sınır olarak kalır.
+
+#### Doğrulama (2026-11-17)
+
+- `pnpm --filter @remote/web lint` / `typecheck` yeşil; `vitest run` 58 dosya / 541 test yeşil.
+- `playwright test p28d-voice --project=desktop --project=desktop-perf --no-deps`: 7/7 geçti.
+- Tam web e2e (`pnpm --filter @remote/web e2e`, tek koşu): 564 geçti, 242 atlandı, 0 kaldı (bilinen kararsızlar bu koşuda düşmedi).
+  `guestVoice` artık tüm tarayıcı misafirli konsol tekliflerine ses transceiver'ı ekliyor; mevcut RTC testleri (p4/p5/p28c/p28e)
+  bununla yeşil.
