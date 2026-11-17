@@ -4861,3 +4861,40 @@ derlemenin `cmp`'i bunu da karşılaştırır); `sign-mac` 4. satır = `APPLE_TE
 gömülmez, davranış değişmez. Elle staging derlemesi (§28f.4 docker komutu) Team ID geçirmez (TEST bandı zaten görünür).
 Yerel prova: Team ID'siz iki derleme SHA eşit; uydurma sembol → ret, çıktı yok; var olan bir sembolle (geçici kopya) → kabul, değer
 ikilide; `abcde12345`, 9 karakter, `"ABCDE12345 -X a=b"`, satır sonlu değer → çıkış 2.
+
+## 28g. P28g — Linux istemcisi: CI (devops K8a, 2026-11-17; mimari-p28g §8.2, §9; ADR-0038)
+
+Yayın, attestation, Caddy ve `publish-linux.sh` bu bölüme K8b'de eklenir. Test sözleşmesi: `docs/implementation.md` "P28g K8a".
+
+### 28g.1 CI akışı (`agent-win.yml`)
+
+- `check`: linux/amd64 `CGO_ENABLED=0` vet ve staticcheck (etiketsiz ve `-tags linuxgui`), govulncheck, go-licenses. Kaynakta yasak
+  GStreamer öğe adı (`x264enc`, `decodebin`, `auto*` …) taraması.
+- `build-linux` ×2 → `reproducible-linux`: SHA eşitliği ve `build/check-linux-elf.sh` (ELF64 x86-64, NEEDED ⊆ libc/libdl/libpthread,
+  ≤ 60 MiB). Etiket: prod adres, staging/`.invalid` yok. Artifact adları:
+  - etiket: `agent-linux` (`NoktaDestek-linux-x86_64-<sürüm>`)
+  - main'den staging dispatch: `agent-linux-stg`
+  - diğer: `agent-linux-test`
+- `test-linux-gui` (22.04, 24.04): `apps/agent-win/test/linux/gui.sh <2204|2404>`. Özet koşu sayfasında görünür, günlükler
+  `test-linux-gui-<sürüm>` artifact'ındadır. Etikette `bekleyen` testler ve eksik iz betiği kırmızıdır.
+- `approve`, `reproducible-linux` ve `test-linux-gui` yeşil olmadan açılmaz.
+
+### 28g.2 Yerel prova (CI ile aynı betik)
+
+```sh
+apps/agent-win/test/linux/gui.sh 2404          # ya da 2204; çıktı apps/agent-win/bin/gui-test-2404/
+GO_IMAGE=… apps/agent-win/test/linux/gui.sh 2204 /tmp/gui   # GO_IMAGE verilmezse agent-win.yml'den okunur
+sh apps/agent-win/build/build-linux.sh https://x.example.invalid 0.0.0 /tmp/nd && sh apps/agent-win/build/check-linux-elf.sh /tmp/nd
+```
+
+- Apple Silicon'da imaj `linux/amd64` emülasyonla koşar. İmaj kurulumu yaklaşık 2 dk, test koşusu emülasyonda yavaştır.
+- Kırmızıysa `ozet-<sürüm>.md`'deki HATA satırlarına bakın:
+  - `go-test-x11-*.txt` / `go-test-wayland-*.txt`: test çıktısı.
+  - `xi2-offsets-*.txt`: K3 ofset karşılaştırması.
+- Wayland katmanı kurulamazsa yalnız uyarı verilir. Kanıt elle alınır (mimari-p28g §12.1).
+
+### 28g.3 Bakım
+
+- Taban imaj digest'leri `Dockerfile.2204/2404` dosyalarındadır ve Dependabot PR'ı açar. Go sürümü GO_IMAGE'dan gelir (tek kaynak).
+- apt paketleri sabit değildir. İmaj kaynaklı kırmızıda önce paket listesi karşılaştırılır.
+- Zorunlu test adı değişirse `test/linux/gui-tests.txt` aynı PR'da güncellenir.
