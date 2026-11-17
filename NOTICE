@@ -1,0 +1,36 @@
+Remote Support
+Copyright Nokta Bilişim Danışmanlık ve Elektronik San. Tic. Ltd. Şti.
+
+This product is licensed under the Apache License, Version 2.0 (see LICENSE).
+
+The Windows client (apps/agent-win, "Nokta Destek" / Hızlı Destek 0.18.0 and later) embeds the
+following third-party components for voice calls. Full license texts are in
+apps/agent-win/internal/ui/third_party_notices.txt and are shown in the client's tray menu
+under "Lisanslar".
+
+--------------------------------------------------------------------------------
+libopus 1.6.1 — BSD-3-Clause
+--------------------------------------------------------------------------------
+Copyright 2001-2023 Xiph.Org, Skype Limited, Octasic, Jean-Marc Valin,
+Timothy B. Terriberry, CSIRO, Gregory Maxwell, Mark Borgerding,
+Erik de Castro Lopo, Mozilla, Amazon.
+Compiled to WebAssembly and embedded as apps/agent-win/internal/voice/libopus.wasm.
+License text: apps/agent-win/internal/voice/libopus-COPYING.txt
+
+--------------------------------------------------------------------------------
+wazero v1.12.0 — Apache License 2.0
+--------------------------------------------------------------------------------
+wazero
+Copyright 2020-2023 wazero authors
+
+--------------------------------------------------------------------------------
+Linked into libopus.wasm by wasi-sdk-34
+--------------------------------------------------------------------------------
+- wasi-libc @ 2e6fb9d8ee0c — Apache-2.0 WITH LLVM-exception / Apache-2.0 / MIT (MIT chosen);
+  includes musl (MIT), cloudlibc (BSD-2-Clause, Copyright (c) 2015-2017 Nuxi and contributors)
+  and dlmalloc (CC0).
+- compiler-rt @ llvm-project 895aa2c896ad — Apache-2.0 WITH LLVM-exception.
+
+The Windows client also includes Go modules (pion/* MIT, coder/websocket ISC, golang.org/x/*
+BSD-3-Clause, google/uuid BSD-3-Clause, wlynxg/anet BSD-3-Clause) and the Go standard library
+(BSD-3-Clause); their notices are in the same third_party_notices.txt file.

@@ -14297,3 +14297,23 @@ guvenlik-raporu "P28d — Kod turu 1" D-PD-K1-2 (web misafir tarafı). Yeni rota
 | `pnpm --filter @remote/web test`           | 61 dosya / 552 geçti                                                                                                                                                                                     |
 | `npx playwright test` (tam koşu, 3 kez)    | Son koşu 563 geçti / 242 atlandı / 0 kaldı. Önceki iki koşunun her birinde 1 kararsız hata vardı; ikincisi `p5-collab` TEST-P5-1 (zamanlama), bu değişikliğe dokunmuyor. p28d testleri her koşuda geçti. |
 | `pnpm format:check`                        | temiz                                                                                                                                                                                                    |
+
+### K6 lisans bildirimleri (teknik-yazar, 2026-11-17)
+
+- `apps/agent-win/internal/ui/third_party_notices.txt`: önceden eksik olan Go bağımlılıklarının lisans bildirimleri eklendi.
+  `go.mod`'daki 24 require'ın 23'ü (wazero zaten vardı) ve Go standart kitaplığı (go1.26.11, BSD-3 + PATENTS). Lisanslar: pion/\* MIT,
+  coder/websocket ISC, golang.org/x/\* BSD-3 (+ PATENTS, aynı metin tek bölüm), google/uuid BSD-3, wlynxg/anet BSD-3. Metinler
+  `golang:1.26` içinde `go mod download -json` → `Dir` altındaki `LICENSE`/`LICENSE.txt` dosyalarından aynen alındı. Giriş listesi
+  "Go bağımlılıkları" maddesiyle genişletildi; libopus bölümü değişmedi.
+- Doğrulama: `docker run --rm -v "$PWD:/src" -w /src/apps/agent-win golang:1.26 go test ./internal/ui/...` → ok. `go.sum` değişmedi.
+
+### K6 durum (teknik-yazar, 2026-11-17)
+
+- Yapıldı: lisans bildirimleri (yukarıda) + `go test ./internal/ui/...` yeşil; kök `NOTICE` (Apache-2.0 NOTICE: libopus BSD-3,
+  wazero NOTICE, wasi-libc/musl/cloudlibc/compiler-rt, Go modülleri özeti); `pnpm docs:pdf` ile 3 PDF yeniden üretildi (içerik
+  P28d öncesi metinlerle); `pnpm format:check` temiz.
+- Kalan (P28d metinleri yazılmadı): README (özellik listesi, durum satırı, 0.18.0, wazero/libopus, NOTICE bağlantısı);
+  KULLANIM_KILAVUZU "Sesli görüşme" bölümü (teknisyen/müşteri/Windows tepsi "Görüşmeyi bitir"/"Lisanslar", gözetimsizde ses yok,
+  sık hatalar — tarayıcıda 5 sn "başlatılamadı" metni, Windows'ta "Sesli görüşme sona erdi"); DATASHEET; api.md WS `voice.*`
+  (`packages/contracts/src/ws-voice.ts` + `fixtures/voice.json`), audit `voice.*`, `rs_voice_*`; CHANGELOG `[Unreleased]` P28d
+  girişi; ardından PDF'ler yeniden. Runbook §28d.7 "78 test" ifadesi bayat (güncel PASS listesi 85).

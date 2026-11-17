@@ -4514,7 +4514,7 @@ rol yükseltme denemesi mevcut `multi-denied` alarmına (§28c.6) düşer. `remo
 ### 28d.7 Windows elle turu (Windows 10 + 11; CI'da koşamayanlar)
 
 CI (`agent-win.yml` → `test-windows`): "P28d ses testleri (-v; wazero + libopus.wasm)" adımı adında `P28d`/`Voice`/`Opus` geçen Go
-testlerini koşar; listedekiler (K0s internal/voice + K3 flow/voice/rtc/ui/tray/yardımcı sınırı, 78 test) **zorunlu PASS**, SKIP kırmızı. `libopus-wasm` işi gömülü wasm'ı yeniden üretip
+testlerini koşar; listedekiler (K0s internal/voice + K3 flow/voice/rtc/ui/tray/yardımcı sınırı, 85 test) **zorunlu PASS**, SKIP kırmızı. `libopus-wasm` işi gömülü wasm'ı yeniden üretip
 karşılaştırır (§28d.11). Elle (staging adresli 0.18.0, §28d.9; teknisyen A sahip, B, C aynı firmada, 2FA kurulu, `sessions.voice` A ve B'de,
 C'de bir turda açık bir turda kapalı, `sessions.supervise` C'de; gerçek mikrofon + kulaklık; sonuç `docs/test-raporu.md`'ye, Windows
 sürümüyle). Tüm turlar hem **Hızlı Destek 0.18.0** hem **tarayıcı müşteri sayfası** ile yapılır (AC-377):
