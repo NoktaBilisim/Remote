@@ -221,6 +221,18 @@ func (a *app) serve(trayIcon *tray.Icon, trayBalloon string) int {
 		}
 	})
 
+	// P28d O-PD-3: mikrofon açıkken tepsi ipucu "Mikrofon açık"/"Sessizde" + menüde "Görüşmeyi bitir"; yeni dinleyici
+	// balonu sabit metin (flow.VoiceTexts.Balloon, ad yok — K-P20-9). Tepsi yoksa gösterge yalnız şerit + pencere satırı.
+	u.SetVoiceTray(func(on, muted bool) {
+		if ic := current.Load(); ic != nil {
+			ic.SetVoice(on, muted)
+		}
+	}, func(text string) {
+		if ic := current.Load(); ic != nil {
+			ic.Balloon(text)
+		}
+	})
+
 	client := api.New(a.cfg.ServerURL, a.cfg.Version)
 	res := a.resident(u, client, &current)
 	if trayIcon != nil {

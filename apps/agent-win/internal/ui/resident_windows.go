@@ -21,16 +21,18 @@ func SystemLogo() image.Image { return systemLogo() }
 // kapsamın tüm pencereleri (son ekran, oturum, gösterge, işaretleme katmanı, diyaloglar) kapanır, oturuma ait UI
 // durumu (teknisyen adı, kontrol izni, pencere paylaşımı, kabul anahtarı, son ekran notu) sıfırlanır, bekleyen kullanıcı
 // olayları atılır; izin kapısı ve kapatma kısayolu etiketi bu kapsamınkiyle değişir (gate nil olabilir: kapsam sonu).
-// Süreç ömürlü olanlar (tema, sürüm satırı, yükseltilmişlik, sohbet balonu işlevi) korunur.
+// Süreç ömürlü olanlar (tema, sürüm satırı, yükseltilmişlik, sohbet balonu ve P28d ses tepsi işlevleri) korunur; "Lisanslar" penceresi de kapanır.
 func (u *UI) ResetScope(gate *control.Gate, hotkey string) {
 	done := make(chan struct{})
 	u.t.Do(func() {
 		defer close(done)
 		u.teardownSession()
+		u.resetVoice()
 		closeDlg(u.reqAccept)
 		for _, f := range u.t.forms {
 			f.destroy()
 		}
+		u.licenses = nil
 		u.lobby, u.sess, u.offer, u.offerFID, u.ended, u.endNote = nil, nil, nil, "", nil, ""
 		u.ctlDlg, u.monDlg, u.granted, u.techName, u.windowShare, u.fileServer = nil, nil, false, "", false, false
 		u.printDlg, u.printPID = nil, ""

@@ -1,5 +1,5 @@
 // Package tray bildirim alanı (tepsi) simgesidir (P20, AC-253; mimari-e11 §8d.3): simge + ipucu "Nokta Destek", menü
-// yalnız "Destek iste / Aç / Çık", gövdesiz balonlar ve kullanıcı başına tek örnek (Local\ mutex, sahip denetimi —
+// "Destek iste / Aç / Çık" (P28d: + mikrofon açıkken "Görüşmeyi bitir", "Lisanslar"), gövdesiz balonlar ve kullanıcı başına tek örnek (Local\ mutex, sahip denetimi —
 // G-P20-16). Simge ağ kullanmaz; komutları Commands kanalına verir, yerleşik döngü kararları resident.go'dadır.
 // tray.go ve resident.go platformsuzdur (Linux'ta test edilir); Win32 uygulaması tray_windows.go.
 package tray
@@ -20,6 +20,10 @@ const (
 	CmdOpen Command = iota + 1
 	// CmdExit "Çık": pencere/oturum açıksa onaydan sonra süreç biter.
 	CmdExit
+	// CmdVoiceEnd P28d (O-PD-3): "Görüşmeyi bitir" — menüde yalnız mikrofon açıkken bulunur; kapsam dışında yok sayılır.
+	CmdVoiceEnd
+	// CmdLicenses P28d (ADR-0036 m.1 c): "Lisanslar" — üçüncü taraf bildirimleri; pencere kapsamı açmaz, ağ yok.
+	CmdLicenses
 )
 
 // Kullanıcıya görünen sabit metinler. Balonlar hiçbir zaman sunucu metni (firma/teknisyen adı, mesaj gövdesi) taşımaz.
@@ -39,7 +43,42 @@ const (
 	MenuSupport = "&Destek iste"
 	MenuOpen    = "&Aç"
 	MenuExit    = "Çı&k"
+	// P28d: menüde "Görüşmeyi bitir" (yalnız mikrofon açıkken) ve "Lisanslar".
+	MenuVoiceEnd = "&Görüşmeyi bitir"
+	MenuLicenses = "&Lisanslar"
+	// TipMicOn / TipMicMuted P28d O-PD-3: mikrofon aygıtı açıkken ipucu (oturum ipucunun yerine; sabit metin).
+	TipMicOn    = "Nokta Destek — Mikrofon açık"
+	TipMicMuted = "Nokta Destek — Sessizde"
 )
+
+// VoiceTip etkin ipucu: mikrofon açıkken ses ipucu, değilse kapsamın ipucu (base: Tip / TipSession). Tek kaynak —
+// SetTip, SetVoice ve Explorer yeniden başlayınca simgenin yeniden eklenmesi aynı kuralı kullanır (O-PD-3: oturum
+// ipucu değişse de "Mikrofon açık" kaybolmaz).
+func VoiceTip(base string, on, muted bool) string {
+	switch {
+	case !on:
+		return base
+	case muted:
+		return TipMicMuted
+	}
+	return TipMicOn
+}
+
+// MenuItem tepsi menüsünün bir öğesi.
+type MenuItem struct {
+	Cmd  Command
+	Text string
+}
+
+// MenuItems menü öğeleri sırasıyla: Destek iste / Aç / [Görüşmeyi bitir] / Lisanslar / Çık. "Görüşmeyi bitir" yalnız
+// mikrofon açıkken (voice) bulunur.
+func MenuItems(voice bool) []MenuItem {
+	items := []MenuItem{{CmdOpen, MenuSupport}, {CmdOpen, MenuOpen}}
+	if voice {
+		items = append(items, MenuItem{CmdVoiceEnd, MenuVoiceEnd})
+	}
+	return append(items, MenuItem{CmdLicenses, MenuLicenses}, MenuItem{CmdExit, MenuExit})
+}
 
 // Win32 adları. ShowMessage ikinci örneğin ilkine gönderdiği "göster" iletisinin adıdır (RegisterWindowMessage);
 // veri taşımaz. UIPI filtresi gevşetilmez (G-P20-13).

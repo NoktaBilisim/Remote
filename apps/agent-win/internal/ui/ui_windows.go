@@ -51,6 +51,17 @@ type UI struct {
 	// strip P28e kayıt şeridi (rec_windows.go; S-P28e-12).
 	strip *recStrip
 
+	// P28d sesli görüşme (voice_windows.go): kabul diyaloğu ve callId'si, gösterge şeridi, son çizilen durum, tepsi
+	// göstergesi/balon işlevleri (süreç ömrü; SetVoiceTray).
+	voiceDlg     *consentDlg
+	voiceAskID   string
+	vstrip       *recStrip
+	voiceOn      bool
+	voiceMuted   bool
+	voiceTray    func(on, muted bool)
+	voiceBalloon func(text string)
+	licenses     *form
+
 	// P7
 	gate     *control.Gate
 	techName string
@@ -100,6 +111,8 @@ type sessionWin struct {
 	clipEnabled bool
 	// P28e kayıt göstergesi, "Kaydı durdur" ve bilgi satırı (rec_windows.go); kayıt yokken gizli.
 	recLbl, recBtn, recNote *ctrl
+	// P28d ses satırı (voice_windows.go); görüşme yokken gizli.
+	voiceLbl, voiceMute, voiceEnd *ctrl
 	// P28c bağlı teknisyen satırları (roster_windows.go); roster gelene kadar gizli.
 	techs    [rosterRows]rosterRow
 	unread   int

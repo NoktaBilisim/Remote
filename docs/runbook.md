@@ -4514,7 +4514,7 @@ rol yükseltme denemesi mevcut `multi-denied` alarmına (§28c.6) düşer. `remo
 ### 28d.7 Windows elle turu (Windows 10 + 11; CI'da koşamayanlar)
 
 CI (`agent-win.yml` → `test-windows`): "P28d ses testleri (-v; wazero + libopus.wasm)" adımı adında `P28d`/`Voice`/`Opus` geçen Go
-testlerini koşar; listedekiler (internal/voice) **zorunlu PASS**, SKIP kırmızı. `libopus-wasm` işi gömülü wasm'ı yeniden üretip
+testlerini koşar; listedekiler (K0s internal/voice + K3 flow/voice/rtc/ui/tray/yardımcı sınırı, 78 test) **zorunlu PASS**, SKIP kırmızı. `libopus-wasm` işi gömülü wasm'ı yeniden üretip
 karşılaştırır (§28d.11). Elle (staging adresli 0.18.0, §28d.9; teknisyen A sahip, B, C aynı firmada, 2FA kurulu, `sessions.voice` A ve B'de,
 C'de bir turda açık bir turda kapalı, `sessions.supervise` C'de; gerçek mikrofon + kulaklık; sonuç `docs/test-raporu.md`'ye, Windows
 sürümüyle). Tüm turlar hem **Hızlı Destek 0.18.0** hem **tarayıcı müşteri sayfası** ile yapılır (AC-377):
@@ -4548,6 +4548,23 @@ sürümüyle). Tüm turlar hem **Hızlı Destek 0.18.0** hem **tarayıcı müşt
 10. **İz:** görüşme sonrası `trace-check.ps1 -Mode Compare` temiz; `tanilama.log`'da aygıt adı yok. Tepsi "Lisanslar" libopus (BSD-3) ve
     wazero (Apache-2.0) bildirimlerini gösterir (O-PD-4).
 11. %150 DPI ve koyu/açık tema: diyalog ve görüşme çubuğu taşmıyor.
+12. **Uzaktan kabul reddi (K-PD-2):** kontrol izni verilmişken teknisyen kendi imleciyle (SendInput) "Kabul et"e tıklar → kabul **olmaz**,
+    diyaloğa kırmızı enjekte tıklama uyarısı eklenir, kilit 1,5 sn yeniden başlar; Enter/Space "Kabul et"i tetiklemez. Aynı şekilde
+    teknisyenin "Mikrofonu aç" tıklaması sessizden çıkarmaz ("Sessize al" ve "Görüşmeyi bitir" uzaktan da çalışır — güvenli yön).
+13. **Gösterge şeridi (O-PD-3):** her monitörde üst-ortada (kayıt şeridinin altında) "● Mikrofon açık"/"● Sessizde"; oturum penceresi
+    küçültülünce ve tepsisiz (normal açılış) kipte de görünür; teknisyen görüntüsünde görünmez (yakalamadan hariç); kayıtla birlikte
+    iki şerit üst üste binmez. Tepsiden "Çık" (onay) → oturum biter, mikrofon simgesi ≤ 1 sn söner.
+14. **768 px ekran:** yükseltilmiş + sunucu üzerinden dosya + 3 teknisyen + kayıt + görüşme açıkken oturum penceresi ekrana sığar
+    (sohbet geçmişi kısalır); ses satırında iki satırlık "Konuşan/Dinleyen" metni okunur.
+15. **Aygıt hata sınıfları (K3b):** gizlilik anahtarı kapalı → `ErrDeviceDenied` (0x80070005); mikrofonsuz makine → `ErrDeviceNotFound`
+    (0x80070490); görüşmede USB kulaklık çıkar → `ErrDeviceLost` (0x88890004); hoparlör başka aygıttayken yalnız USB mikrofonu çıkar →
+    ≤ 1–2 sn içinde aygıt bitişi (durmuş akış denetimi). Hepsinde sohbete V-PD-1 yol tarifi "Sistem" satırı, konsolda `device` bitişi.
+16. **Ses kalitesi (K3b):** sürücüde iletişim kategorisiyle OEM AEC etkin mi; çalma gecikmesi kulaktan; 10 dk görüşmede saat kayması
+    (çalma kuyruğu 200 ms'de kırpılıyor mu, çıtırtı); Chrome'un gönderdiği Opus iki yönlü çözülüyor.
+17. **SSE4.1'siz işlemci (A-PD-6):** `voice.Supported()` false olan makinede (ya da VM'de SSE4.1 maskeli) `rs.cap.voice1` bildirilmez →
+    konsolda AC-352 pasif metni; istemci çökmez.
+18. **Lisanslar:** tepsi menüsü "Lisanslar" (oturum dışında da) salt okunur pencere açar, ağ isteği yok; libopus COPYING, wazero NOTICE +
+    Apache-2.0, wasi-libc/musl/cloudlibc, compiler-rt metinleri kaydırılarak okunur; ikinci tıklamada aynı pencere öne gelir.
 
 ### 28d.8 AC-376 elle gecikme ölçümü (staging; test-operatoru + kullanıcı Windows) — DENENMEDİ, ilk koşuda doğrulanır
 

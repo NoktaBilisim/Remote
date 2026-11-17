@@ -13607,3 +13607,515 @@ Sonuç: K1 bu varsayımları karşılıyor (idle bitiş yayını `callId` taşı
 - Tam web e2e (`pnpm --filter @remote/web e2e`, tek koşu): 564 geçti, 242 atlandı, 0 kaldı (bilinen kararsızlar bu koşuda düşmedi).
   `guestVoice` artık tüm tarayıcı misafirli konsol tekliflerine ses transceiver'ı ekliyor; mevcut RTC testleri (p4/p5/p28c/p28e)
   bununla yeşil.
+
+### K3 Windows istemcisi (Hızlı Destek 0.18.0)
+
+Go istemcisi (`apps/agent-win`) dört parçada: K3a akış (`internal/flow`), K3b ses motoru (`internal/voice`), K3c eş ses izi
+(`internal/rtc`), K3d arayüz/tepsi/lisans/bağlama. K0s spike sonuçları (ölçüm tablosu, libopus/wazero hash'leri) en sonda.
+
+Bağlayıcı kurallar:
+
+- `flow` ve `rtc` `internal/voice`'u içe aktarmaz (gözetimsiz yardımcı da flow kurar; wazero servis ikilisine girmez). Arayüzler
+  flow'da (`VoiceUI`, `VoiceCall`, `VoicePeer`), bağlama yalnız `cmd/noktadestek/deps.go`; yardımcı sınır testi `internal/voice` ve
+  wazero'yu yasaklar (O-PD-3).
+- Ses arayüzü ayrı `Deps.VoiceUI` alanıdır (`tray.WithActive` sarmalayıcısı yalnız RecUI iletir); `flow.Peer` genişletilmedi.
+- FEC + Decode hız sayımı: mimari r3 §4.3 "tek paket sayılır" uygulandı (K3b sapma 1); geçici plandaki "iki sayılır" kararı geçersiz.
+- Test adı sözleşmesi: tüm P28d Go testlerinin adında `P28d`, `Voice` ya da `Opus` geçer; CI listesi K3d'de.
+
+#### K3c — internal/rtc ses (backend-dev, 2026-11-17)
+
+- Dosyalar: `apps/agent-win/internal/rtc/audio.go` (yeni), `rtc.go` (`Handlers.Audio`, `Peer.audio`, `OnTrack`, `HandleOffer`
+  ses dalı), `audio_test.go` (yeni), `rtc_test.go` (yalnız test yardımcısı `connectInput` → `dial` + `negotiate` ayrımı; davranış aynı).
+  `internal/voice` içe aktarılmaz; yeni bağımlılık yok (`pion/sdp` doğrudan içe aktarılmadı, `go.mod` değişmedi).
+- API (flow/deps için):
+  - `Handlers.Audio func(seq uint16, payload []byte)` — uzak Opus izinin RTP yükü; yük alıcıya aittir (pion her pakette yeni
+    arabellek ayırır). İz başına tek okuma goroutine'inden sırayla, farklı eşlerden eşzamanlı çağrılır; bloklamamalı. nil ise
+    paketler okunup atılır; Opus olmayan ses izi de okunup atılır (alım arabelleği birikmez). Boş yük iletilmez.
+  - `(*Peer).WriteAudio(payload []byte, dur time.Duration) error` — tek Opus çerçevesi; eşin ses izi yoksa `rtc.ErrNoAudio`
+    (sentinel, `errors.Is`); bağlantı kurulmadan yazılan örnek sessizce düşer (pion davranışı).
+- Davranış: eş başına `TrackLocalStaticSample` (Opus 48000/2, `minptime=10;useinbandfec=1`, PT 111). Yalnız ilk offer'da ve
+  teklifte **gönderilebilir** ses bölümü (port ≠ 0, yön recvonly/sendrecv; yön satırı yoksa sendrecv) varsa `AddTrack`; yanıt
+  recvonly → sendonly, sendrecv → sendrecv. Uzak sendonly/inactive ya da ses yok → iz bağlanmaz (eski konsol yolu aynen).
+  `AddTrack` yeni transceiver açarsa (teklifteki bölüm kullanılamadıysa) iz geri alınır ve hata döner. Gönderici RTCP okunup atılır.
+  ICE restart / sonraki offer'larda iz eklenmez (aynı gönderici + iz).
+- Bulunan hata (düzeltildi): `pc.RemoteDescription().Unmarshal()` pion'un iç nesnesinin önbelleğine yazıyor → race; teklif
+  `HandleOffer`'a gelen metinden yerel kopyayla ayrıştırılıyor.
+- Testler: `TestAC375P28dAnswerOpusDirection` (recvonly→sendonly, sendrecv→sendrecv, opus/48000/2, transceiver 2),
+  `TestP28dSilentOfferNoAudioLine`, `TestP28dSendonlyOfferNoGuestAudio`, `TestAC375P28dICERestartNoDuplicateTrack`,
+  `TestAC375P28dOpusBothWays` (WriteAudio → teknisyen; teknisyen replaceTrack → `Handlers.Audio`, ardışık seq),
+  `TestP28dNilAudioHandlerStillReads` (yalnız nil handler'la çökmediğini gösterir; okumanın sürdüğünü kanıtlamaz). Mevcut rtc
+  testleri yeşil. **§7 ad farkı:** aday `TestAC375P28dAnswerHasOpusSendonlyNoDup` ikiye bölündü →
+  `TestAC375P28dAnswerOpusDirection` + `TestAC375P28dICERestartNoDuplicateTrack` (zorunlu PASS listesine bu adlar girmeli).
+- Flow için: rtc sesi yetenek/`talkers`'a göre süzmez (her Opus paketi `Audio`'ya gider; Y-PD-2 kapısı flow'da). `Close`
+  sırasında geç bir `Audio` çağrısı gelebilir. `ErrNoAudio` beklenen durumdur (sessiz/eski konsol eşi), hata sayılmamalı.
+- Doğrulandı: konsol `peer.ts` ses transceiver'ını yalnız ilk offer'da ekler (implementation.md K2) → "yalnız ilk offer" kuralı uyumlu.
+- Komut çıktıları: `go test -count=10 ./internal/rtc/...` ok (arm64); `--platform linux/amd64 go test -race -count=5` ok;
+  gofmt temiz; staticcheck v0.8.2 linux + windows temiz; `GOOS=windows go vet ./internal/rtc/...` ve `GOOS=windows go build ./...` yeşil.
+
+#### K3a — internal/flow ses akışı (backend-dev, 2026-11-17)
+
+- Dosyalar: `internal/flow/voice.go` (yeni), `messages_p28d.go` (yeni), `voice_p28d_test.go` (yeni); `flow.go` (`Deps.VoiceUI`,
+  `Deps.OpenVoice`, `Event.CallID`, `EvVoiceAccept|Reject|End|Mute`), `session.go` (`session.voice`, startReconnect/cleanup
+  `voiceDrop`, onUser dalı), `session_server.go` (`voice.request|state` dalı, onHello `voiceDrop`), `peers.go` (newPeer/closePeer
+  bağlama, onRoster `voiceRoster`, `Handlers.Audio`), `session_media.go` (dropPeers `RemovePeer`, onPeer sırası — aşağıda),
+  `clipprint.go Features` (`voiceOn` → `signal.FeatureVoice`, Unattended erken dönüşünden sonra). `internal/voice` içe aktarılmaz.
+- Arayüzler (K3d bağlaması için; flow'da):
+  - `VoiceUI{VoiceAsk(VoiceAsk); VoiceAskClosed(callID string); VoiceBar(VoiceView)}` — engellemez, döngüden çağrılır.
+    `VoiceAsk{CallID, Name string; Listeners []string}` (aynı CallID ile tekrar → yerinde güncelle);
+    `VoiceView{On, Muted bool; Talkers, Listeners, Announce []string; Note string}` (Listeners = listeners − talkers; Announce
+    yalnız o güncellemede yeni dinleyen adları → çubuk satırı + `VoiceTexts.Balloon` sabit balon; On=false → şerit/tepsi kalkar,
+    Note `VoiceTexts.Ended|Device|""`). On, yerel kabulden itibaren (mikrofon açılırken dahil) true — gösterge aygıttan önce
+    yanar, aygıttan sonra söner (O-PD-3 güvenli yön).
+  - `VoiceCall{SetPeer(tid, sink func([]byte, time.Duration) error); RemovePeer(tid); SetRoles(talkers, listeners []string);
+SetMuted(bool); Push(tid string, seq uint16, payload []byte); Close() error}` — Push RTP goroutine'lerinden eşzamanlı,
+    diğerleri döngüden; SetPeer aynı tid'de değiştirir (açılış sırasında iki kez gelebilir); Close'dan sonra çağrılar etkisiz.
+    SetRoles'a verilen dilimler motora aittir (flow kopyalar).
+  - `Deps.OpenVoice func(onFail func(error)) (VoiceCall, error)` — yalnız yerel kabulde, ayrı goroutine'de; onFail görüşme
+    sırasında aygıt hatası (her goroutine'den, birden çok kez çağrılabilir; bayatlar düşer).
+  - `VoicePeer{WriteAudio([]byte, time.Duration) error}` — eşte tür iddiası (`rtc.Peer` uygular); flow.Peer genişletilmedi.
+  - `voiceOn(d) = !d.Unattended && VoiceUI != nil && OpenVoice != nil && RosterUI != nil` (A-PD-6: deps.go desteklenmiyorsa nil bırakır).
+  - Event: `EvVoiceAccept{CallID}` (yalnız yerel gerçek tıklama + 1,5 sn), `EvVoiceReject{CallID}`, `EvVoiceEnd`, `EvVoiceMute{On}`.
+- Sıra: `voiceDrop` girdi kapısından SONRA (cleanup: `gate.Close` ardından; startReconnect ve onHello: `closeControl`
+  ardından, onHello'da `recOnHello` ilk iş kalır) — Close ≤ 1 sn bekleyebilir, uzak girdi o süre açık kalmamalı.
+- Davranış: plan §1 birebir. Ek kararlar: (a) WS kopması/onHello/cleanup'ta açık diyalog da kapanır (`voiceDrop` =
+  `closeAsk` + `releaseMic` + sunucu durumunu unut) — aksi hâlde yeniden bağlandıktan sonra eski diyalogun kabulü ölü callId için
+  mikrofon açardı; (b) açılış devri `voice.mu` altında: `releaseMic` gen'i artırır, açılış dönüşünde gen değiştiyse çağrı orada
+  kapanır, değilse `live`'a yazılır ve sonraki `releaseMic` (oturum sonu cleanup dahil) kapatır → döngü çıktıktan sonra dönen
+  açılış da sızmaz; (c) `voice.end` callId başına en çok bir kez (rızasız active, kullanıcı bitirmesi, aygıt) — üst üste
+  tetikleyicide ikinci mesaj ve ikinci Close yok; (d) yeni dinleyici tabanı = pending'de diyalogda gösterilenler + isteyen.
+- **Bulunan hata (düzeltildi, P28c'den beri):** `onPeer`'de `case e.tid != s.ctrlTid()` dalı `run`/`doneTimeout`'tan önceydi;
+  multi1 sokette kontrol sahibi tid'i dolu olduğundan tid'siz `peerEvent{run}` ve `doneTimeout` YUTULUYORDU. Etkilenenler:
+  P28e `rec.revoke` onay zaman aşımı (S-P28e-2 yayın duraklatma), P28a pano/yazdırma zamanlayıcıları ve goroutine sonuçları,
+  P2P dosya `DoneTimeout` — yalnız multi1 (0.17+) oturumlarda. İki dal tid süzgecinin önüne alındı; önce kırmızı test
+  (`TestP28dRunEventsInMultiMode`) ile kanıtlandı. QA/güvenlik bilgisine: P28e/P28a multi1 senaryoları bu düzeltmeyle değişti.
+- Testler (`voice_p28d_test.go`): `TestAC374P28dNoMicWithoutLocalAccept` (yanlış/boş callId kabulü yanıt + açılış 0; answer
+  engelli açılış bitmeden telde), `TestAC374P28dStateActiveWithoutConsentSendsCustomerEndOnce`, `TestAC374P28dStateOnlyCloses`,
+  `TestAC374P28dNewRequestOtherCallReleases`, `TestAC374P28dReleaseMicOnWsDrop` (+ eski diyalog yeni sokette etkisiz),
+  `TestAC374P28dReleaseMicOnWsDropSilencesFirst`, `TestAC374P28dReleaseMicOnSessionEnd`, `TestAC374P28dReleaseMicOnIdle`,
+  `TestAC374P28dReleaseMicOnLocalEnd` (tek Close, ek voice.* yok), `TestAC374P28dDeviceErrorSendsDeviceEnd`,
+  `TestAC374P28dDeviceLostMidCallSendsDeviceEnd`, `TestAC374P28dStaleOpenClosedImmediately` (idle ve oturum sonu, açılan =
+  kapanan), `TestAC379P28dUnattendedNoFeatureNoOpen` (Features, her nil alan, Audio alıcısı yok, OpenVoice 0),
+  `TestAC378P28dNewListenerAnnounced` (+ roster dışı tid süzgeci), `TestAC374P28dMuteIsLocal`, `TestAC378P28dPeerBinding`,
+  `TestP28dAudioPushRacesRelease`, `TestP28dRunEventsInMultiMode`, `TestAC374P28dReleaseMicOnHello` (açık diyalog; satır
+  silinince kırmızı — mutasyonla doğrulandı), `TestAC374P28dHelloReleasesOpenCall`,
+  `TestAC374P28dAskClosedWhenRequesterLeavesRoster`, `TestAC374P28dLocalEndBeforeActiveThenLateActiveEndsOnce`.
+  `...SilencesFirst` Close anındaki sessiz durumunu kaydeder (sıra: atomik nil → sustur → Close).
+- Komut çıktıları: `go test ./internal/flow/...` ok (arm64); `--platform linux/amd64 go test -race ./internal/flow/...` ok;
+  `-race -count=5 -run "P28d|AC366|P28e"` ok; sıralama değişikliği sonrası tam paket `-race -count=3` ok; `GOOS=windows go vet ./internal/flow/... ./internal/unattended/... ./cmd/...` temiz;
+  gofmt temiz. staticcheck K3 sonunda toplu koşuldu (K3d: 0 bulgu).
+- K3a dışı kalanlar K3d'de yapıldı (sınır testi, deps.go bağlaması).
+
+#### K3b — internal/voice motoru + WASAPI + A-PD-6 (backend-dev, 2026-11-17; Windows donanım doğrulaması elle)
+
+Dosyalar (yalnız `apps/agent-win/internal/voice/`): yeni `jitter.go`, `mixer.go`, `voice.go`, `owner.go`, `devErr.go`,
+`supported_amd64.go`, `supported_other.go`; yeniden yazılan `wasapi_windows.go`; değişen `opus.go`, `com_windows.go`
+(`HRError` platformsuz `devErr.go`'ya taşındı); testler `jitter_test.go`, `voice_test.go`, `voice_codec_test.go`,
+`owner_test.go`, `supported_test.go`. go.mod değişmedi (`golang.org/x/sys` zaten doğrudan bağımlılık). Yeni bağımlılık yok.
+
+Dışa açık yüz (K3d `deps.go` bağlar; `flow.VoiceCall` ile birebir doğrulandı): `voice.New(open func() (Device, error),
+onFail func(error)) (*Call, error)`; `*Call`: `SetPeer/RemovePeer/SetRoles/SetMuted/Push/Close`; `voice.OpenWASAPI()
+(Device, error)` (windows); `voice.Supported() bool`. Aygıt hata sınıfları `ErrDeviceDenied` (E_ACCESSDENIED),
+`ErrDeviceNotFound` (E_NOTFOUND), `ErrDeviceLost` (AUDCLNT_E_DEVICE_INVALIDATED / RESOURCES_INVALIDATED), `ErrDevice`;
+`*HRError` `errors.Is` ile bunlara açılır. flow hepsini `voice.end{device}` sayabilir.
+
+Davranış özeti:
+
+- `New`: önce Opus çalışma zamanı (derleme) hazırlanır, sonra aygıt açılır (hata çağırana döner → `voice.end{device}`),
+  sonra döngü. `onFail` yalnız görüşme sırasındaki aygıt hatasında (ve döngü paniğinde), aygıt bırakılıp döngü bittikten
+  SONRA bir kez çağrılır; içinden `Close` çağrılabilir (kilitlenmez, testli); `Close` ile biten görüşmede çağrılmaz.
+- `step()` (mikrofon saati, 20 ms): talker başına tek çözme → hoparlör Σ talkers → listeners ∩ bağlı eşler için
+  `mixMinus` (mic + Σ talkers\{alıcı}, int32 toplam tek kırpma = doymalı, sıradan bağımsız) → eş başına Encoder → `sink(pkt, 20ms)`.
+  Kodlayıcı/çözücüler döngü goroutine'ine ait, ilk gerektiğinde kurulur, rol/eş değişiminde bir sonraki tikte kapanır.
+- Talker kapısı iki yerde: `Push` (talkers dışı/düşürülmüş tid için tampon yok → paket kopyalanmadan atılır, çözücü
+  kurulmaz) ve `step` (anlık görüntü yalnız talkers). Varış hızı ≤ 100/sn ve boyut ≤ 1275 `Push`'ta (jitter) uygulanır.
+- `ErrPeerDropped` → tid görüşme sonuna dek `dropped`; yeniden talker yapılsa da tampon/çözücü kurulmaz.
+- Jitter: 3 paket (60 ms) başlama, 10 paket (200 ms) üst sınır (taşmada en eski atılır), geç/yinelenen paket düşer,
+  `int16(seq-next)` sarma, ±100 sıçramada yeniden eşitleme (eş yeniden başladı), başlangıç tamponlamasında sıra bozukluğu
+  oynatma noktasını geri alır; kayıpta next+1 varsa FEC, yoksa PLC; 5 ardışık PLC sonrası sessizlik + tampon temizlenip
+  ilk yeni pakete yeniden eşitlenir (konuşan susup kaldığı sıradan sürdürünce paketler "geç" sayılmaz). Tik başına
+  960 örneklik FIFO (10/40/60 ms çerçeveler; FIFO üst sınırı 200 ms).
+- `Close`: `silenced` (gönderim anında durur) → `closed` (Push/SetPeer/SetRoles etkisiz) → döngüye dur → `dev.Close()`
+  (bloklu `ReadFrame`'i çözer) → döngü bitişi ≤ 500 ms beklenir. WASAPI `Close` ≤ 400 ms → toplam ≤ 0,9 sn (AC-374 ≤ 1 sn).
+- WASAPI (D-PD-4): tek `LockOSThread` goroutine'i: `CoInitializeEx(MTA)` (S_FALSE dengelenir, RPC_E_CHANGED_MODE kabul) →
+  `CoCreateInstance(enum)` → yakalama + çalma uç noktaları (eCommunications, 48 kHz mono s16 AUTOCONVERTPCM, iletişim
+  kategorisi) → Start → `WaitForMultipleObjects([capEv, renderEv, stopEv], 200 ms)` → çıkışta aynı iş parçacığında
+  `owner.releaseAll()` (ters sıra: çalma Stop → yakalama Stop → çalma servisi → istemci → olay → aygıt → yakalama servisi … → numaralandırıcı) → `CoUninitialize`.
+  Enum ve IMMDevice artık `defer` ile değil sahip yapıda tutulur. Yakalama paketleri 960'a biriktirilir (kuyruk 200 ms,
+  dolunca en eski atılır); çalma kuyruğu 200 ms. Durmuş mikrofon denetimi her uyanışta (hoparlör olayları sürerken mikrofon
+  olayı kesilebilir): 1 sn örnek yoksa yakalama sorgulanır, gerçek HRESULT (ör. ErrDeviceLost) ya da `errStalled`
+  (`errors.Is(…, ErrDevice)`) → onFail.
+  `uintptr(unsafe.Pointer(…))` yalnız `call`/`Call` argümanında; `internal/win` S6-1 testi yeşil (değiştirilmedi).
+
+Sapmalar (gerekçeli):
+
+- **Plan §2'deki "FEC+Decode iki sayılır, bütçe aşılmaz" kararı uygulanmadı**; mimari-p28d r3 §4.3 "K3 düzeltmesi: tek paket
+  sayılır" bağlayıcı. `opus.go admit(packet, count)`: `DecodeFEC` sayaç artırmaz; sınır o pencerede dolmuşsa FEC de reddedilir.
+  Gerekçe: 10 ms çerçeve gönderen eşte 100 varış/sn + FEC sınırı aşardı. `TestP28dK0sRateLimit` değişmeden geçiyor; yeni
+  `TestP28dFECAndDecodeCountAsOnePacket`, `TestP28dFlowContractPeersRolesSinkErrors` (K3a notları: SetRoles öncesi gönderim yok,
+  SetPeer yerine geçer, sink hatası — ör. rtc.ErrNoAudio — yutulur, eş düşmez, SetRoles dilimi kopyalanır; Close sonrası
+  çağrılar etkisiz ve onFail Close içinden çağrılmaz → `TestP28dReleaseWithinOneSecond`, `…DeviceFailureCallsOnFailOnceWithoutDeadlock`).
+- Close sırası "döngü durur → dev.Close" yerine "silenced → dur sinyali → dev.Close → döngüyü bekle": döngü mikrofon
+  saatinde `ReadFrame`'de bloklu olabildiği için önce beklemek kilitlenir; susturma önceliği korunur (Close döndükten sonra
+  eşe yazım yok — testli).
+- `Stream/OpenCapture/OpenRender` (K0s iskeleti) kaldırıldı; yerini paket içi `endpoint` + `wasapiDevice` aldı (kullanılmayan kod
+  kalmasın, windows staticcheck U1000).
+- Jitter sınırları paket sayısıyla (20 ms paket varsayımı, Chrome varsayılanı); FIFO örnek sayısıyla.
+
+A-PD-6: ADR r3 ve mimari §13 metninde "varsayılan" açık maddeler tablosunun sütun başlığıdır (açık kararın varsayılan
+çözümü); çalışma zamanı geçersiz kılma ayarı gerektirmez → yalnız `Supported()`: amd64'te `cpu.X86.HasSSE41`, diğer
+mimarilerde false. wazero v1.12.0 `internal/platform.compilerPlatformSupports` aynı bayrağı okur (kaynakta doğrulandı;
+`runtimeConfig` yorumuna yazıldı, `TestP28dSupportedMatchesWazeroCompilerCriterion`). `New` içinde kapı yok (arm64 testleri
+koşsun diye); kapı K3d `deps.go`'da. **SSE4.1'siz donanımda ölçülmedi; varsayılan karar uygulandı** (yorumlayıcı ≈ 22 ms/
+çerçeve rakamı K0s arm64 ölçümüdür).
+
+Testler (adlar): `TestAC378P28dMixMinusExcludesSelf`, `TestAC378P28dOnlyListenersReceive`,
+`TestAC378P28dNonTalkerPacketDroppedNoDecoder`, `TestAC378P28dPeerDroppedAfterRepeatedTraps`, `TestAC378P28dMutedSendsOthersOnly`,
+`TestAC378P28dRealCodecCallRoundTrip` (gerçek libopus), `TestP28dMixSaturates`, `TestP28dJitterStartsAt60msInOrder`,
+`…SequenceWrap`, `…LateAndDuplicateDropped`, `…OverflowDropsOldest`, `…FECThenConceal`, `…SilenceAfterFivePLCAndReanchor`,
+`…ResyncOnSequenceJump`, `…ArrivalRateLimit`, `…FIFOVariableFrames`, `TestP28dJitterLossUsesFECThenPLCInCall`,
+`TestP28dReleaseWithinOneSecond` (ReadFrame'de bloklu sahte aygıt), `TestP28dDeviceFailureCallsOnFailOnceWithoutDeadlock`,
+`TestP28dLoopPanicReleasesDevice`, `TestP28dConcurrentPushAndRoles` (race), `TestP28dHRErrorClasses`,
+`TestP28dComReleaseReverseOrderBalanced`, `TestP28dComPartialOpenReleasesAcquired`, `TestP28dSupportedMatchesWazeroCompilerCriterion`,
+`TestP28dFECAndDecodeCountAsOnePacket`, `TestP28dFlowContractPeersRolesSinkErrors` (K3a notları: SetRoles öncesi gönderim yok,
+SetPeer yerine geçer, sink hatası — ör. rtc.ErrNoAudio — yutulur, eş düşmez, SetRoles dilimi kopyalanır; Close sonrası
+çağrılar etkisiz ve onFail Close içinden çağrılmaz → `TestP28dReleaseWithinOneSecond`, `…DeviceFailureCallsOnFailOnceWithoutDeadlock`).
+
+Komut çıktıları (son düzeltmelerden sonra): görevdeki komut platform bayrağısız (arm64) `go test ./internal/voice/... && GOOS=windows go vet … && GOOS=windows go build …` ok (92 s); `--platform linux/amd64`: `go test ./internal/voice/... ./internal/win/...`
+ok, `go test -race ./internal/voice/...` ok (123 s), `GOOS=windows go vet ./internal/voice/... ./internal/win/...` temiz,
+`GOOS=windows go build ./...` ok; gofmt temiz; staticcheck v0.8.2 `./internal/voice/...` linux 0 / windows 0 bulgu.
+
+Windows elle doğrulama (K3b'ye özgü; §8'e ek): Kabul → görev çubuğunda mikrofon simgesi; Görüşmeyi bitir/WS kopması → simge
+≤ 1 sn söner; gizlilik anahtarı kapalı → `ErrDeviceDenied` (0x80070005); mikrofonsuz makine → `ErrDeviceNotFound`; görüşme
+sırasında USB kulaklık çıkar → `ErrDeviceLost` → konsolda aygıt bitişi; sürücüde iletişim kategorisiyle OEM AEC; çalma
+gecikmesi (kulaktan) ve 10 dk görüşmede saat kayması (çalma kuyruğu 200 ms'de kırpılıyor mu, çıtırtı); SSE4.1'siz (ya da
+`Supported()` false) makinede voice1 bildirilmemesi; hoparlör başka aygıttayken yalnız USB mikrofonu çıkar → ≤ 1–2 sn içinde
+aygıt bitişi (durmuş akış denetimi).
+
+#### K3d — Windows arayüzü, tepsi, lisanslar, bağlama (backend-dev, 2026-11-17)
+
+- Dosyalar: `internal/ui/voice.go` (platformsuz metinler), `voice_windows.go` (VoiceAsk/VoiceAskClosed/VoiceBar, SetVoiceTray,
+  VoiceEnd, ses satırı, şerit), `licenses_windows.go` (ShowLicenses), `notices.go` + `third_party_notices.txt` (`go:embed`),
+  `session_fit.go` (`voiceRowH`), değişen `ui_windows.go`, `session_windows.go`, `rec_windows.go` (`newStrip`), `ended_windows.go`,
+  `control_windows.go` (closePrompts), `resident_windows.go` (ResetScope → `resetVoice`); `internal/tray/tray.go` (`CmdVoiceEnd`,
+  `CmdLicenses`, `VoiceTip`, `MenuItems`), `tray_windows.go` (`Icon.SetVoice`, menü `MenuItems`'ten), `resident.go` (`VoiceEnd`,
+  `Licenses`; scope ve loop ayrı ele alır); `cmd/noktadestek/deps.go` (`voice.Supported()` kapısı, `openVoice`, Resident
+  alanları), `main.go` (`SetVoiceTray`); `internal/unattended/helper/boundary_test.go`. Yeni bağımlılık yok.
+- Diyalog: ortak `newConsent` (G-03): başlık "Nokta Destek — Sesli görüşme", "<Ad> sesli görüşme istiyor", gövde = açıklama +
+  "Görüşmeyi dinleyecekler: …" + kulaklık önerisi; odak "&Reddet", "&Kabul et" 1,5 sn kilitli (`hotkeyOK: true`), Enter/Space
+  tetiklemez, enjekte tıklama kabul edilmez (uyarı + kilit yeniden) → `EvVoiceAccept{CallID}` yalnız gerçek yerel tıklama (K-PD-2).
+  Aynı callId'de yalnız gövde metni değişir (diyalog yeniden kurulmaz); farklı callId eskisini kararsız kapatır. callId kapanışta
+  yakalanır.
+- Oturum penceresi: teknisyen listesi ile kayıt satırı arasında 36 px ses satırı (kırmızı iki satırlık etiket "● Mikrofon açık ·
+  Konuşan: … · Dinleyen: …", "Sessize al"/"Mikrofonu aç", "Görüşmeyi bitir"); görüşme yokken gizli. En kötü durum 776 → 812 px;
+  768 px ekranda taşma 131 px ≤ sıkıştırma tavanı 132 px (`TestP28dSessionWindowWithVoiceRowFits768`, 96/120/144 DPI;
+  `TestP28cSessionWindowFits768` değişmeden yeşil).
+- Gösterge şeridi (O-PD-3): `recStrip` kalıbı (`newStrip`), her monitörde üstten 102 px (kayıt şeridinin altında), tıklama geçirgen,
+  odak almaz, yakalamadan hariç, 1 sn'de bir en üste; On=true iken oturum penceresi olmasa da çizilir; tepsi olmayan kipte tek
+  garanti gösterge. Tepsi (varsa): ipucu "Nokta Destek — Mikrofon açık/Sessizde" (`VoiceTip`; kapsam ipucu `SetTip(TipSession)`
+  ve Explorer yeniden başlaması ipucunu ezmez), menüde "Görüşmeyi bitir".
+- Duyuru (Y-PD-3): sohbete "Sistem" satırı "<Ad> görüşmeyi dinlemeye başladı" + pencere ön planda değilse `FlashUntilFocus` + sabit
+  tepsi balonu `VoiceTexts.Balloon`. On=false'taki Note (bitti / V-PD-1 aygıt yol tarifi, ~230 karakter) sohbete "Sistem" satırı
+  olarak yazılır — satıra sığmaz, geçmişte tam okunur.
+- Tepsi komutları: kapsam içinde `CmdVoiceEnd` → `EvVoiceEnd`, `CmdLicenses` → lisans penceresi (ikisi de çıkış onayına düşmez);
+  kapsam dışında `CmdLicenses` kapsam/ağ/Run denetimi açmaz, bayat `CmdVoiceEnd` yok sayılır.
+- Lisanslar: `third_party_notices.txt` (42 KB) — libopus COPYING (repo dosyasıyla birebir, testli), wazero v1.12.0 NOTICE + LICENSE,
+  wasi-libc @2e6fb9d8ee0c LICENSE + LICENSE-MIT (çoklu lisanstan seçilen) + musl COPYRIGHT + cloudlibc LICENSE + dlmalloc CC0 notu,
+  llvm-project @895aa2c896ad `compiler-rt/LICENSE.TXT`. Kaynak: `raw.githubusercontent.com/{WebAssembly/wasi-libc/2e6fb9d8ee0c,
+llvm/llvm-project/895aa2c896ad, tetratelabs/wazero/v1.12.0}/…` (2026-11-17 indirildi). Salt okunur kaydırmalı EDIT, CRLF'e çevrilir;
+  ResetScope pencereyi kapatır.
+- Bağlama (A-PD-6): `deps.go` yalnız `voice.Supported()` iken `VoiceUI` ve `OpenVoice` atar, `flow.Features(d)`'den ÖNCE; hata
+  yolunda açıkça `nil, err` (nil `*voice.Call` arayüze sarılmaz). Yardımcıya bağlanmaz; `forbiddenPkgs` += `internal/voice`,
+  `github.com/tetratelabs/wazero`.
+- Sürüm 0.18.0: ağaçta sürüm sabiti yok (`build/build.sh <url> <VERSION>` argümanı); kod değişikliği gerekmedi.
+
+Sapmalar (gerekçeli):
+
+1. Tepsi balonu adsız sabit metin ("Görüşmeye yeni bir dinleyici katıldı") — mimari §8 "<Ad> görüşmeyi dinlemeye başladı" balonundan
+   sapma; K-P20-9 (balonda sunucu metni/ad yok, kilit ekranında görünür). Ad oturum penceresindeki sohbet satırında.
+2. "Mikrofonu aç" (sessizden çıkma) yalnız gerçek yerel girdiyle (`userInput`, S7-5 / `clipClicked` kalıbı); mimari §7'de açık kural
+   yok, ama sessizden çıkma ses göndermeyi yeniden başlatır — teknisyenin SendInput'u bunu yapamamalı. Sessize alma ve bitirme kapısız.
+3. Ses şeridi tıklanmaz (kayıt şeridinden farkı): metin tıklama vaat etmiyor; kaza tıklaması görüşmeyi bitirmesin.
+4. Ses satırı her zaman ayrılır (kayıt satırı gibi); görüşme yokken 36 px boşluk kalır.
+
+Testler (K3d): `TestP28dTrayVoiceEndAndLicensesInScope`, `TestP28dTrayLicensesOutsideScopeNoNetwork`, `TestP28dTrayVoiceTipAndMenu`,
+`TestP28dVoiceAskBody`, `TestP28dVoiceRowTexts`, `TestP28dSessionWindowWithVoiceRowFits768`, `TestP28dNoticesContainLibopusCopying`
+(CRLF'e dayanıklı — Windows koşucusunda checkout CRLF olabilir), `TestP28dBoundaryHelperHasNoVoice` (yardımcıda yok + müşteri
+istemcisinde var: yasak yol adı güncel). Win32 çizimi (diyalog, şerit, menü) CI'da koşamaz → runbook §28d.7 m.12–18.
+
+CI sözleşmesi: `agent-win.yml` "P28d ses testleri" zorunlu PASS listesi = adında `P28d|Voice|Opus` geçen tüm 78 `Test` işlevi (K0s 12 +
+K0/K3a/K3b/K3c/K3d 66). Ad değiştiren listeyi de günceller. Windows'ta SKIP yolu olan yalnız K0s'un `-short`/amd64-dışı testleri.
+
+Komutlar ve son çıktı (2026-11-17, `apps/agent-win`):
+
+- `docker run golang:1.26 … go test ./... && GOOS=windows go vet ./... && GOOS=windows go build ./...` → tüm paketler ok, vet temiz,
+  build ok (arm64).
+- `--platform linux/amd64 go test -race ./...` → 31 paket ok, 0 hata.
+- `gofmt -l .` boş; staticcheck v0.8.2 linux 0 / `GOOS=windows` 0 bulgu (tüm modül).
+- actionlint 1.7.8 (`agent-win.yml`, gömülü shellcheck) 0 bulgu.
+
+#### K0s — Opus arka ucu spike'ı (opus-go KALDI → wazero + libopus.wasm; tmp-impl-k0s.md'den taşındı)
+
+Tarih: 2026-11-17 · Dal: p28d (111605a + mimari r2 11377c5 ölçütleri) · Yazan: backend-dev (Go)
+
+##### Karar
+
+**opus-go v1.6.0: KALDI.** Önerilen yol, ADR-0036 revizyonu ve A-PD-1'dir. r2 sırasına göre önce **wazero + libopus.wasm**,
+sonra **gopus** denenir.
+
+Gerekçe (bağlayıcı iki ölçüt kırmızı):
+
+1. **`go test -race` temiz değil (r2 ölçütü b).** `checkptr` daha `opus.NewEncoder` çağrısında süreci düşürüyor:
+   `fatal error: checkptr: pointer arithmetic result points to invalid allocation`, `opusccenc.Opus_silk_Get_Encoder_Size`.
+   Upstream'in kendi `go test -race github.com/kazzmir/opus-go/opus` koşusu da aynı hatayla düşüyor. CI `check` job'u
+   (`go test -race -count=1 ./...`) bu bağımlılıkla kırmızı olur. Bu bir `recover` ile yakalanamaz.
+2. **Bellek güvenliği (Y-PD-2; mimari-p28d §11 K0s fuzz ölçütü).** Uzaktan gelen bozuk paketlerde çevrilmiş kod paniğe düşüyor:
+   `silk/resampler.c:193 assertion failed: inLen >= S->Fs_in_kHz` (`celt_fatal` → `libcshim.Xabort` → `panic`). Bu panik
+   **deterministik değil**: aynı 20 000 paketlik dizi aynı sırayla verildiğinde sonuç değişiyor.
+
+   | Koşul (aynı girdi dizisi)               | Yalıtılan panik / 20 000 paket (koşu başına) |
+   | --------------------------------------- | -------------------------------------------- |
+   | `GOGC=off`                              | 0 0 0 0 0 0 0 0 0 0                          |
+   | `GOGC=100` (varsayılan)                 | 0 1 1 0 0 0 0 0 1 0                          |
+   | `GOGC=1`                                | 4 2 5 3 3 1 2 2 3 4                          |
+   | `GOGC=1` + `GODEBUG=gcshrinkstackoff=1` | 0 0 0 0 0                                    |
+
+   Aynı panik paketi tek başına ya da taze bir çözücüde 2000 kez çözüldüğünde 0 panik veriyor. **Kök neden için güçlü
+   gösterge (kanıtlanmış değil):** Çevrilmiş kod adresleri `uintptr` olarak taşıyor (`opuscc` içinde 575 ham
+   `uintptr(unsafe.Pointer(&…))` eşleşmesi var; bunların bir kısmı yığın değil heap adresi). GC goroutine yığınını küçültüp taşıdığında bu adresler bayatlıyor. Kod bundan
+   sonra eski yığın belleğini okuyor; sonuç bozuk durum ve assert oluyor. Eski yığına _yazma_ doğrudan gözlenmedi. Upstream `opus/cbuf.go`
+   yorumu aynı hata sınıfını kendi API sınırında gördüğünü yazıyor. Düzeltme yalnız o sınırda yapılmış, çevrilmiş iç kodda
+   sorun duruyor. Bu yüzden `recover` belirtiyi örter ama yazmanın başka bir goroutine'in belleğine denk gelmesini
+   önleyemez.
+
+   `gcshrinkstackoff` ve `GOGC` koşuları linux/arm64'te, panik nedenini yazdıran yamalı bir kopyada yapıldı (davranış
+   aynı). Hipotez kontrolü: Shim'in `TLS.Alloc` yığın büyütmesi (yeniden ayırma) hiç tetiklenmedi; büyütmede panik atan
+   yamalı kopyada panik sayısı değişmedi. Neden o değil, yığın küçültmedir.
+
+Diğer ölçütler geçti (tablo aşağıda). opus-go'nun ikili boyutu, hızı ve tekrarlanabilir derlemesi sorunsuz. Kırmızı
+olanlar güvenlik ve CI kapısı.
+
+##### Ölçüm tablosu
+
+| Ölçüt (mimari-p28d §11 K0s, r2)                                                     | Sonuç                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  | Tür                             |
+| ----------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------- |
+| `CGO_ENABLED=0` derleme                                                             | GEÇTİ (`build.sh`, saf Go, C araç zinciri yok)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         | ölçüldü                         |
+| İki derlemede SHA eşit                                                              | GEÇTİ: a = b = `6d3700c27fa5b157fcc83802ee17820d8d382754a8fd64039b6b3df76a0c82fa`                                                                                                                                                                                                                                                                                                                                                                                                                                                      | ölçüldü                         |
+| İkili büyümesi ≤ 5 MB                                                               | GEÇTİ: 13 402 112 → 14 524 928 B, **+1 122 816 B (≈ 1,07 MiB)**                                                                                                                                                                                                                                                                                                                                                                                                                                                                        | ölçüldü                         |
+| Kodlama 20 ms mono ≤ 2 ms/çerçeve                                                   | GEÇTİ (vekil): arm64 yerel **0,19 ms**, linux/amd64 (Rosetta öykünmesi) **0,25–0,27 ms**                                                                                                                                                                                                                                                                                                                                                                                                                                               | vekil; referans Windows'ta elle |
+| Çözme 20 ms                                                                         | arm64 **0,036 ms**, amd64 öykünme **0,046 ms**                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         | vekil                           |
+| Gidiş-dönüş doğruluğu                                                               | GEÇTİ: SNR 4,6 dB (VOIP/SILK, 32k VBR, ölçülen hız 31,0 kbit/s, gecikme 303 örnek); aynı sinyalde AUDIO/CELT 17,5 dB                                                                                                                                                                                                                                                                                                                                                                                                                   | ölçüldü                         |
+| PLC (`Decode(nil)`), FEC yolu                                                       | GEÇTİ: 960 örnek döndü, hata yok, gizleme sessiz değil (rms > 100), sonraki paket çözüldü                                                                                                                                                                                                                                                                                                                                                                                                                                              | ölçüldü                         |
+| Stereo / 5–10–60 ms paket mono çözücüde                                             | GEÇTİ (opus-go kodlayıcısının ürettiği paketlerle)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     | ölçüldü                         |
+| Chrome'un gönderdiği Opus çözülüyor                                                 | **staging'de elle** (gerçek Chrome WebRTC yükü kullanılmadı)                                                                                                                                                                                                                                                                                                                                                                                                                                                                           | ertelendi                       |
+| WASAPI yakalama/çalma                                                               | İskelet var; `GOOS=windows go vet/build` ve staticcheck temiz. Donanım testi **Windows'ta elle**                                                                                                                                                                                                                                                                                                                                                                                                                                       | ertelendi                       |
+| `go test -race` temiz (r2 b)                                                        | **KALDI**: checkptr fatal (`opusccenc.Opus_silk_Get_Encoder_Size`)                                                                                                                                                                                                                                                                                                                                                                                                                                                                     | ölçüldü                         |
+| Fuzz `FuzzDecode` ≥ 30 dk (Y-PD-2)                                                  | 30 dk 1 sn, **58 403 993 çalıştırma**, 1565 korpus girdisi, `PASS`/`EXIT=0`. Anlamı: sarmalayıcıdan panik sızmadı, runtime fatal ve zaman aşımı yok. Bu "temiz" demek **değil**: hedef yalıtılmış panikleri yutar, işçi süreçlerinin stderr çıktısı da günlüğe gelmediği için kaç panik yalıtıldığı bilinmiyor (Karar 2). Koşu ilk sarmalayıcı anlık görüntüsüyle (recover + 1275 B sınırı, hız sınırı ve düşürme öncesi), linux/arm64 üzerinde yapıldı. Chrome'dan yakalanmış paket tohumu yok; tohumlar opus-go kodlayıcı paketleri. | ölçüldü                         |
+| Bozuk paket, panik yalıtımı                                                         | Sarmalayıcıdan panik sızmıyor; ancak panik GC'ye bağlı (bkz. Karar 2)                                                                                                                                                                                                                                                                                                                                                                                                                                                                  | ölçüldü                         |
+| İçe aktarım denetimi (r2, O-PD-4)                                                   | GEÇTİ: bağlanan paketler (`go list -deps`: `opus`, `opuscc`, `opusccenc`, `libcshim`, `ogg`) `os/exec`, `net`, `syscall` içe aktarmıyor ve `func init()` içermiyor. `os` yalnız `os.Stderr` için kullanılıyor (`libcshim` ve `opuscc` içinde birer kez, `celt_fatal` iletisi)                                                                                                                                                                                                                                                          | ölçüldü                         |
+| govulncheck v1.7.0 (windows/amd64 + linux)                                          | GEÇTİ: "No vulnerabilities found."                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     | ölçüldü                         |
+| go-licenses v2.0.1                                                                  | GEÇTİ (`check` çıkış kodu 0): `github.com/kazzmir/opus-go … BSD-3-Clause`                                                                                                                                                                                                                                                                                                                                                                                                                                                              | ölçüldü                         |
+| gofmt, vet (linux + windows), staticcheck v0.8.2 (linux + windows), `go test ./...` | GEÇTİ (`internal/rtc` TestAC367'de bir kez ICE kararsızlığı görüldü, 3 tekrarda geçti; bu değişiklikle ilgisiz)                                                                                                                                                                                                                                                                                                                                                                                                                        | ölçüldü                         |
+
+Ölçüm ortamı: Docker `golang:1.26.11-bookworm@sha256:dc40a13b…`, Apple Silicon (14 çekirdek). Konteyner varsayılanı
+`GOARCH=arm64`'tür. amd64 sayıları `--platform linux/amd64` ile alındı (Rosetta, cpu "VirtualApple @ 2.50GHz"). İkisi
+de Windows referansı yerine geçmez. Pay yine de geniş: ölçüt 2 ms, ölçülen değer 0,27 ms.
+
+Boyut ölçümü için `opus-go` geçici bir dosyayla ikiliye bağlandı. `cmd/noktadestek/zz_k0s_link_windows.go`,
+`NOKTA_K0S_LINK=1` koşulu altında `voice.NewEncoder/Encode/NewDecoder/Decode/Conceal/DecodeFEC` çağırdı. Bağlantı
+`go tool nm` ile doğrulandı: 554 `opusccenc.` ve 294 `opuscc.` sembolü. Dosya ölçümden sonra **silindi**. Taban (13 402 112 B),
+aynı komutla, aynı sürüm dizesiyle ve opus-go eklenmeden önceki ağaçtan derlendi.
+
+##### Modül bilgisi ve lisans
+
+- Hash kaydı (O-PD-4) şimdilik bu dosyada; K3'te `implementation.md`'ye taşınır.
+- Sabitlenen sürüm: **`github.com/kazzmir/opus-go v1.6.0`**. Commit **`bc2aa842b45aaa82636296012c04c4782b8df7c3`**
+  (go.sum `h1:MRzjz+yqAZbqSuKXY7VOknZBF28MfAweQqeA8CD+wdQ=`). `v1.7.0` aynı commit'i gösteriyor; ADR-0036'ya uyulup v1.6.0
+  seçildi. Çevrilen kaynak **libopus 1.6.1**'dir (`PACKAGE_VERSION = "1.6.1"`). Modül `go 1.24.0` istiyor; toolchain
+  1.26.11 ile sorun yok.
+- Telif bildirimleri (iki BSD-3):
+  1. opus-go: `Copyright (c) 2025, Jon Rafkind`, BSD 3-Clause (modül kökünde `LICENSE`).
+  2. libopus 1.6.1: Xiph.Org Foundation, Skype Limited, Octasic, Jean-Marc Valin, Timothy B. Terriberry, CSIRO, Gregory
+     Maxwell, Mark Borgerding, Erik de Castro Lopo. Lisans BSD 3-Clause (libopus `COPYING`). **Not:** Modülde libopus'un
+     `COPYING` dosyası yok; bildirimler yalnız çevrilmiş kaynak yorumlarında duruyor (ör. `opuscc/silk_resampler.go`
+     "Copyright (C) 2012 Xiph.Org Foundation", "Copyright (c) 2006-2011, Skype Limited"). İkili dağıtımda libopus
+     `COPYING` metni ayrıca eklenmelidir. Seçilecek yedek (wazero + libopus.wasm) için de aynı yükümlülük geçerli.
+
+##### Yazılan kod (apps/agent-win)
+
+- `internal/voice/opus.go`: Kütüphaneyi çağıran tek dosya. 48 kHz, mono, 20 ms; VOIP, 32 kbit/s VBR, karmaşıklık 5.
+  r2 sırası şöyle uygulandı: konuşma hakkı çağıranda → `admit` (yük ≤ 1275 B → ≤ 100 paket/sn → düşürülmüş eş değil) →
+  `guard` (`recover` → `ErrCodecPanic`). Panikten sonra çözücü yeniden kurulur. Aynı eşte 3. panikte `ErrPeerDropped`
+  döner ve eş kalıcı olarak düşer. Kodlayıcı paniklerse kapatılır. Yerel PLC (`Conceal`) hız sınırına sayılmaz.
+- `internal/voice/opus_test.go`: `TestP28dK0s…` testleri (SNR, PLC/FEC, stereo/çerçeve boyları, 20 000 bozuk paket,
+  1276 B reddi, hız sınırı, panik → yeniden kurulum → 3. panikte düşme [sahte codec], kapatma), `FuzzDecode`,
+  `BenchmarkP28dK0sEncode20ms`/`Decode20ms`.
+- `internal/voice/wasapi_windows.go`: WASAPI iskeleti. Hata yolunda `Close` ile istemci ve olay bırakılır. `OpenCapture`/`OpenRender` (varsayılan `eCommunications` uç
+  noktası), `IAudioClient2::SetClientProperties` (Communications kategorisi), `Initialize` (paylaşımlı kip,
+  `EVENTCALLBACK | AUTOCONVERTPCM | SRC_DEFAULT_QUALITY`, 48 kHz mono s16, 40 ms), `SetEventHandle`, `GetService`, ayrıca
+  `Start`, `Wait`, `Read`, `Write` ve `Close` (Stop + tüm Release + CloseHandle). Vtable dizinleri ve GUID'ler mingw-w64
+  10.0.0 başlıklarından alındı.
+- `internal/voice/com_windows.go`: COM yardımcıları (`comObj.call` `//go:uintptrescapes`). **Sapma:** mimari dosya planında
+  yok. Ayrı dosya olmasının nedeni, `internal/win/unsafeptr_test.go` S6-1 denetiminin `call` istisnasını ve işaret
+  zorunluluğunu yalnız `com_windows.go` adlı dosyalarda tanıması. capture/printing'deki kalıbın üçüncü eşi; ortak paket
+  K3 kararıdır.
+- `go.mod`/`go.sum`: `github.com/kazzmir/opus-go v1.6.0` (doğrudan). **KALDI kararıyla birlikte K3'te kaldırılmalı veya
+  yedekle değiştirilmeli.** Spike çıktısı olarak bırakıldı, commit yapılmadı. **Uyarı:** Ağaç bu hâliyle `go test -race ./...` adımında düşer
+  (CI `check` kırmızı olur). `go.mod`, `go.sum` ve `internal/voice/opus*.go` bu hâlleriyle commit edilmemeli.
+- K3 notu: `admit`, kayıpta `DecodeFEC(next)` ve `Decode(next)` çağrılarını iki ayrı paket sayıyor. Kayıp varken
+  100 paket/sn bütçesi fiilen yarıya düşer.
+
+##### Windows'ta elle doğrulama listesi (WASAPI, staging)
+
+1. Mikrofonlu ve hoparlörlü bir Windows 10/11 makinede `OpenCapture` → `Start` → `Wait(200)` + `Read` ile 5 sn yakala.
+   Paket başına 480–960 örnek gelmeli ve RMS konuşmada > 0 olmalı.
+2. Aygıtın yerel biçimi 44,1 kHz veya stereo olduğunda `Initialize` AUTOCONVERTPCM ile başarılı olmalı (hata
+   `0x88890008` gelmemeli).
+3. `Close` sonrasında görev çubuğundaki mikrofon göstergesi ≤ 1 sn içinde sönmeli (AC-374).
+4. `OpenRender` ile 1 kHz ton `Write` edilmeli; bozulma ve takılma olmamalı. `GetCurrentPadding` sonrası boş yer hesabı
+   doğru olmalı.
+5. Varsayılan iletişim aygıtı yoksa `GetDefaultAudioEndpoint` hatası tipli `HRError` olarak dönmeli (`0x80070490`).
+6. Varsa sürücü AEC'si: `SetClientProperties` sonrası hoparlör yankısı azalmalı (yalnız gözlem, ölçüt değil).
+7. Chrome ile iki yönlü canlı ses (teknisyen konsolu ↔ istemci): **staging'de elle.** Chrome'un `opus/48000/2` +
+   `useinbandfec=1` yükü çözülmeli. Bu ortamda yapılmadı.
+
+##### Yedek için öneri (A-PD-1, r2 sırası)
+
+- **wazero + libopus.wasm (önce):** libopus C kodu WASM sanal makinesinde koşar. Bellek doğrusal belleğe hapsolur; bozuk
+  paket en kötü durumda WASM trap üretir ve Go yığınına dokunamaz. Bu, Y-PD-2'yi yapısal olarak çözer. Gerekenler:
+  tekrarlanabilir `.wasm` derleme hattı (sabit digest'li wasi-sdk imajı, hash denetimi), `go:embed`, ikili boyutu ve
+  süre ölçümü. `internal/voice/opus.go` arayüzü (`NewEncoder/Encode/NewDecoder/Decode/Conceal/DecodeFEC/Close`, `admit`,
+  `guard`) korunur ve testlerin çoğu yeniden kullanılır. **İstisna (sapma):** `TestP28dK0sDecodesStereoAndOtherFrameSizes`
+  stereo ve 5/10/60 ms paket üretmek için opus-go'yu doğrudan içe aktarıyor. Yedekte bu test fikstür paketleriyle yeniden
+  yazılmalı; bunun için Chrome'dan yakalanmış paketler de gerekiyor.
+- **gopus (sonra):** Go ≥ 1.27.3 ve toolchain yükseltmesi gerektirir. Saf Go (çeviri değil) olduğu için aynı yığın
+  sorunu beklenmez. Yine de aynı fuzz + `-race` kapısından geçmeli.
+- Mimara bilgi: opus-go'yu `GODEBUG=gcshrinkstackoff=1` ile kurtarmak mümkün görünse de önerilmez. Süreç geneli bir
+  ayardır, -race/checkptr'ı çözmez ve yığın _büyümesinde_ de taşınma olduğu için kanıtlanmış bir güvence değildir.
+
+---
+
+#### K0s-2 (wazero) — yedek 1: wazero + libopus 1.6.1 WebAssembly
+
+Tarih: 2026-11-17 · Dal: p28d (11377c5 + çalışma ağacı) · Yazan: backend-dev (Go)
+
+##### Karar
+
+**wazero v1.12.0 + libopus.wasm: GEÇTİ** (yayın hedefi windows/amd64 için). Bağlayıcı ölçütlerin hepsi yeşil: `-race` temiz,
+fuzz ≥ 30 dk 0 tuzak ve 0 panik, iki derlemede SHA eşit, wasm tekrarlanabilir, ikili +2,54 MiB, kodlama 0,22 ms. K0s-1'in iki
+kırmızısı yapısal olarak kapandı: C kodu Go belleğine erişemiyor ve `unsafe`/checkptr çevrilmiş kodda kullanılmıyor.
+
+Mimara açık maddeler (ADR-0036 revizyonunda karara bağlanmalı):
+
+1. **arm64 JIT bulgusu.** wazero'nun arm64 derleyicisi v1.9.0–v1.12.0 sürümlerinde libopus kodlayıcısını yanlış derliyor. Bu
+   yüzden arm64'te yorumlayıcıya geçildi; yayına etkisi yok. Yine de JIT'in doğruluğu sandbox gerekçesinin parçası. Ayrıntı
+   aşağıda.
+2. **O-PD-4 içe aktarım/`init` ölçütü wazero için harfiyen sağlanmıyor.** wazero `os`, `net`, `syscall` ve `unsafe` içe aktarıyor
+   ve etkin iki `init` içeriyor. Ölçüt "modül bu yetkileri kullanmaz" olarak yeniden yazılmalı. Bunun dayanağı: WASI verilmiyor,
+   içe aktarım 0 ve bunu test denetliyor.
+3. **Lisans bildirimleri.** wazero Apache-2.0, libopus BSD-3. Bunlara ek olarak wasm içindeki wasi-libc, musl ve compiler-rt
+   bildirimleri K3'te `third_party_notices.txt`'e eklenmeli.
+4. **Fuzz kapsamı.** WASM içinde koşan kod Go fuzz kapsamına görünmüyor.
+
+##### Ölçüm tablosu
+
+| Ölçüt (mimari-p28d §11 K0s, r2)                                                                              | Sonuç                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       | Tür       |
+| ------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------- |
+| `CGO_ENABLED=0` derleme                                                                                      | GEÇTİ (`build.sh`; wazero saf Go + Go assembly, C araç zinciri yok)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         | ölçüldü   |
+| İki derlemede ikili SHA eşit                                                                                 | GEÇTİ: `scratchpad/k0s2-a` = `k0s2-b` = `d54a42f095d36375784ea549543a03f921387ea3bf15587c4e2668683f4a264d` (arada `go clean -cache`)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        | ölçüldü   |
+| libopus.wasm tekrarlanabilir                                                                                 | GEÇTİ: `715ac5d3911a76bf526267786f469fe2760fdc78a32ad736751bfa41bf7562e2` üç derlemede eşit (linux/amd64 imaj ×1, linux/arm64 imaj ×2; her biri ayrı `mktemp` dizininden). Kabuk değişmeden önceki sürüm de amd64 = arm64 idi (`8f2878…`)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   | ölçüldü   |
+| libopus tarball doğrulaması                                                                                  | GEÇTİ: `opus-1.6.1.tar.gz` SHA-256 `6ffcb593…72411a1` = Xiph `SHA256SUMS.txt` değeri; betik host'ta ve konteynerde iki kez denetler                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         | ölçüldü   |
+| WASI / içe aktarım                                                                                           | GEÇTİ: **0 içe aktarım** (IMPORT bölümü yok). Dışa aktarım yalnız `_initialize` + 7 `nk_*` + `memory`; bellek üst sınırı 256 sayfa (16 MiB), yığın 1 MiB `--stack-first`. `TestP28dK0sWasmSandboxSurface` denetler                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          | ölçüldü   |
+| İkili büyümesi ≤ 5 MB                                                                                        | GEÇTİ: 13 414 400 → 16 081 920 B, **+2 667 520 B (≈ 2,54 MiB)** (wasm 328 437 B dahil)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      | ölçüldü   |
+| Kodlama 20 ms mono ≤ 2 ms/çerçeve (amd64)                                                                    | GEÇTİ (vekil): linux/amd64 Rosetta, derleyici **0,22 ms** (3 koşu: 0,220–0,230; K0s-1 opus-go 0,25–0,27); yorumlayıcı 22,6 ms (kullanılmaz). auto = compiler → üretimde derleyici seçiliyor                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 | vekil     |
+| Çözme 20 ms                                                                                                  | amd64 Rosetta derleyici **0,041–0,048 ms**                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  | vekil     |
+| Gidiş-dönüş doğruluğu                                                                                        | GEÇTİ: SNR 4,6 dB, 31,0 kbit/s, lookahead 312 / gecikme 303 — opus-go ile birebir aynı (aynı libopus 1.6.1)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 | ölçüldü   |
+| PLC / FEC yolu                                                                                               | GEÇTİ (`TestP28dK0sPacketLossConcealment`)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  | ölçüldü   |
+| Stereo / 5–10–60 ms paket mono çözücüde                                                                      | GEÇTİ: `testdata/opus-fixtures.txt` (5 paket; opus-go v1.6.0 ile üretildi = libopus.wasm'dan bağımsız yapı; Chrome DEĞİL)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   | ölçüldü   |
+| Tuzak yalıtımı (örnek başına)                                                                                | GEÇTİ: `TestP28dK0sTrapIsolatedPerInstance` durum işaretçisini bellek dışına yöneltip gerçek WASM tuzağı üretir → `ErrCodecPanic`; kodlayıcı kapanır, çözücü yeni örnekle kurulur, komşu örnek etkilenmez                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   | ölçüldü   |
+| Derleyici = yorumlayıcı (amd64, yanlış derleme)                                                              | GEÇTİ: `TestP28dK0sCompilerMatchesInterpreter` 200 çerçeve kodlama + 400 çözme (yarısı bozuk) SHA-256 eşit                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  | ölçüldü   |
+| `go test -race ./...` (r2 b)                                                                                 | GEÇTİ: linux/amd64 (derleyici yolu) tüm paketler `ok`; linux/arm64 (yorumlayıcı yolu) `internal/voice` `-short` ile `ok` (1720 sn; fuzz ile eşzamanlı koşu). `-short`suz arm64 koşusu varsayılan 10 dk sınırını aştı (yarış raporu değil, zaman aşımı: yorumlayıcı + race yavaş)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            | ölçüldü   |
+| Fuzz `FuzzDecode` ≥ 30 dk (Y-PD-2)                                                                           | GEÇTİ (koşu 2): linux/amd64 derleyici yolu, son kod, 31 dk 0 sn, **91 304 163 çalıştırma**, `PASS`/`EXIT=0`, **0 tuzak** (`NOKTA_K0S_TRAPLOG` O_APPEND sayacı; işçi süreçlerinden bağımsız), 0 panik/fatal, crasher dosyası yok. Koşu 1 (aynı kod, 30 dk, 83 591 329 çalıştırma, 0 tuzak, 0 panik) çıkışta `--- FAIL: FuzzDecode … context deadline exceeded` ile bitti. Crasher yazılmadı ve hız sona kadar ~52 bin/sn sabit kaldı, yani takılan işçi belirtisi yok. İki 60 sn'lik koşu ve 31 dk'lık tekrar koşu temiz `PASS` verdi; bu yüzden hata Go fuzz koordinatörünün kapanıştaki bir zamanlama hatası olarak değerlendirildi, ama bu kanıtlanmadı. **Sınırlama:** libopus kodu JIT içinde koştuğu için Go kapsam ölçümü onu görmüyor ("new interesting" 9/0). Fuzz pratikte yönlendirmesiz mutasyondur (tohumlar: kodlayıcı paketleri + `f8fffe`). Kapsam güdümlü fuzz için ayrıca native libFuzzer gerekir; K3 sonrasına önerilir. | ölçüldü   |
+| 20 000 bozuk paket                                                                                           | 4067 opus hatası (`-4` vb.), **0 tuzak**, 0 panik                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           | ölçüldü   |
+| İçe aktarım / `init` denetimi (O-PD-4)                                                                       | **Bulgu (mimara):** wazero'nun bağlanan 31 paketinden bazıları `os`, `net`, `syscall`, `unsafe` içe aktarıyor (WASI/sysfs/sock katmanı; bu modüle WASI verilmediği için çağrılmıyor). `func init()`: `internal/platform/time_windows.go` (QueryPerformanceFrequency), `mmap_linux.go` (/sys hugepages okur, Windows'ta derlenmez), `wazevoapi/perfmap.go` (sabit `PerfMapEnabled=false`, yalnız `wazero_perfmap` etiketiyle açık). `os/exec` yok. opus-go'daki "hiçbiri yok" ölçütü wazero için harfiyen sağlanmaz; yürütme gücü (mmap PROT_EXEC/VirtualProtect) JIT'in doğası                                                                                                                                                                                                                                                                                                                                                              | ölçüldü   |
+| govulncheck v1.7.0 (windows/amd64 + linux)                                                                   | GEÇTİ: "No vulnerabilities found." ×2                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       | ölçüldü   |
+| go-licenses v2.0.1                                                                                           | GEÇTİ (çıkış 0): `github.com/tetratelabs/wazero` Apache-2.0. libopus.wasm'ı görmez: libopus BSD-3 (`internal/voice/libopus-COPYING.txt`), wasm içinde ayrıca wasi-libc (MIT/Apache-2.0-LLVM, musl MIT) ve compiler-rt (Apache-2.0 WITH LLVM-exception) kodu statik bağlı → bildirim metinleri K3'te `third_party_notices.txt`'e                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             | ölçüldü   |
+| gofmt, `go mod verify`, vet (linux + windows), staticcheck v0.8.2 (linux + windows), `GOOS=windows go build` | GEÇTİ                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       | ölçüldü   |
+| Chrome Opus yükü, WASAPI donanım                                                                             | **staging/Windows'ta elle** (K0s-1 listesi aynen geçerli)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   | ertelendi |
+
+Ölçüm ortamı: Docker `golang:1.26.11-bookworm@sha256:dc40a13b…`, Apple Silicon. amd64 sayıları `--platform linux/amd64`
+(Rosetta, "VirtualApple @ 2.50GHz"); Windows referansı yerine geçmez. Boyut ölçümü için `cmd/noktadestek/zz_k0s_link_windows.go`
+(`NOKTA_K0S_LINK=1` koşullu `NewEncoder/Encode/NewDecoder/Decode/Conceal/DecodeFEC`) geçici eklendi; bağlantı ikilide
+`tetratelabs/wazero` (30) ve `nk_dec_init` (2) dizgileriyle doğrulandı (taban ikilide 0/0), ölçümden sonra **silindi**. Taban
+13 414 400 B aynı komut ve sürüm dizesiyle (`build.sh https://destek.example.invalid:4450 0.17.0`) bugünkü ağaçtan alındı
+(K0s-1'deki 13 402 112 B'den farkı ağaçtaki başka değişiklikler).
+
+##### Bulgu: wazero arm64 derleyicisi (mimara, risk kaydı)
+
+- linux/arm64 (Docker, Apple Silicon) üzerinde wazero **v1.9.0, v1.10.1, v1.11.0, v1.12.0** derleyicisi (wazevo) kodlayıcının
+  ilk çerçevesinde `wasm error: out of bounds memory access` veriyor. Adlı (strip edilmemiş) derlemede yığın:
+  `silk_noise_shape_quantizer_del_dec ← silk_NSQ_del_dec_c ← silk_NSQ_wrapper_FLP ← silk_encode_frame_FLP ← silk_Encode ←
+opus_encode_frame_native ← opus_encode_native ← opus_encode ← nk_enc`.
+- Aynı wasm (`715ac5…`) arm64 **yorumlayıcıda** ve amd64 **derleyicide** doğru çalışıyor; amd64 derleyici çıktısı yorumlayıcıyla
+  bayt bayt aynı (`TestP28dK0sCompilerMatchesInterpreter`). WASM deterministik olduğundan ayrışma arm64 arka ucunda yanlış
+  derleme belirtisidir (kök neden araştırılmadı; yerel macOS/arm64'te yeniden üretilmedi).
+- Etki: yayın hedefi yalnız windows/amd64. `runtimeConfig` amd64 dışında yorumlayıcı seçer (yalnız geliştirme/test; ~22 ms/çerçeve
+  üretime uygun değil). **Sapma:** görev "compiler (amd64/arm64)" diyordu; arm64 derleyici bu bulgu yüzünden kapalı.
+- Güvenlik yorumu: Y-PD-2 sandbox gerekçesi JIT'in doğruluğuna dayanır. Bir arka uçta yanlış derleme görülmesi, amd64 arka
+  ucunda da veriye bağlı gizli hata olasılığını sıfırlamaz. Azaltımlar: derleyici = yorumlayıcı eşitlik testi CI'da (amd64),
+  fuzz amd64 derleyici yolunda, sınır dışı erişim yine tuzak olur (doğrusal bellek dışına yazma JIT hatası olmadan mümkün
+  değil). Upstream'e hata bildirimi önerilir (wasm + yeniden üretim adımı hazır).
+
+##### Yazılan / değişen dosyalar (apps/agent-win; commit yok)
+
+- `build/libopus-wasm.sh` (yeni): tekrarlanabilir libopus.wasm hattı (host'ta indir + SHA-256, konteyner `--network none`,
+  `--user`, sabit `/tmp/nkwork` yolu, `-O2 -g0 -fno-ident -ffile-prefix-map`, `SOURCE_DATE_EPOCH`, sıralı kaynak, sabit adlı
+  nesneler, `--strip-all --stack-first -z stack-size=1MiB --max-memory=16MiB`, reactor). Kaynak listesi libopus'un
+  `*_sources.mk` dosyalarından (kayan nokta yapı; x86/ARM/DNN dışarıda). Varsayılan `WASI_SDK_PLATFORM=linux/amd64`.
+- `build/libopus-wasm/nk_opus.c` (yeni): sabit imzalı kabuk. **Sapma (daha dar yüz):** `opus_*_ctl` değişken argümanlı
+  olduğundan ve host'tan `malloc/free` gerekmediğinden dışa aktarım yalnız `nk_packet_buf, nk_pcm_buf, nk_enc_init, nk_enc,
+nk_enc_lookahead, nk_dec_init, nk_dec`. Tamponlar ve durum işaretçileri tek statik yapıda (`_Static_assert` ile sabit yerleşim).
+- `internal/voice/libopus.wasm` (328 437 B, `//go:embed`), `libopus.wasm.sha256`, `libopus-COPYING.txt` (libopus BSD-3).
+- `internal/voice/opus.go`: genel API aynı (`NewEncoder/Encode/Lookahead/Close`, `NewDecoder/Decode/Conceal/DecodeFEC/Close`,
+  `admit` sırası, 1275 B, 100 paket/sn, 3 tuzakta `ErrPeerDropped`). Arka uç wazero: çalışma zamanı + derlenmiş modül süreçte
+  bir kez (`sync.Once`), kodlayıcı/çözücü başına ayrı örnek (`WithName("")`, `_initialize`), modül config'ine FS/stdout/saat
+  verilmez, içe aktarım varsa kurulum reddedilir. Tuzak → `ErrCodecPanic` (adı korundu, ileti "tuzağa düştü"); çözücüde eski
+  örnek kapatılıp yenisi kurulur, kodlayıcı kapanır. Kapalı örnek `errClosed` döner (tuzak sayılmaz, yeniden kurulum yok).
+  libopus negatif kodları tipli `opusError`. Çağrılar `CallWithStack` ile ayırmasız.
+- `internal/voice/opus_test.go`: opus-go importu kaldırıldı; stereo/çerçeve testi fikstürden; yeni `WasmDigestMatches`,
+  `WasmSandboxSurface`, `TrapIsolatedPerInstance`, `CompilerMatchesInterpreter`, `BenchmarkP28dK0sEncode20msEngine`;
+  `FuzzDecode` tuzakları `NOKTA_K0S_TRAPLOG` dosyasına O_APPEND ile sayar.
+- `internal/voice/testdata/opus-fixtures.txt` (yeni, kaynağı başlıkta).
+- `go.mod/go.sum`: `github.com/kazzmir/opus-go` çıktı (`go mod tidy`), `github.com/tetratelabs/wazero v1.12.0` girdi
+  (commit `2ab480b55fa408d6b35df97fe32a60d08bd6e201`, `h1:DuWcpNu/FzgEXgGBDp8J1Spc+CWOvvtvVyjKlaZopYU=`; tek bağımlılığı
+  `golang.org/x/sys`, zaten var). Sabitlenenler: wasi-sdk-34 imaj dizini `sha256:52595085a0ffbaf574d8d678a9aa81305f0b3af81c639291f15bc7713e42848e`
+  (amd64 manifest `sha256:9515a062…`, arm64 `sha256:c91f54df…`).
+- `wasapi_windows.go`, `com_windows.go` değişmedi.
+
+##### CI taslağı (.github/workflows/agent-win.yml — K0s taslağı; K4 ile uygulandı, güncel hâli iş akışında ve §K4 notunda)
+
+`check` job'u Go konteynerinde koşar (Docker yok); libopus.wasm yeniden üretimi ayrı bir job olmalı:
+
+```yaml
+  libopus-wasm:
+    name: libopus.wasm yeniden üret + SHA karşılaştır
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: apps/agent-win
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with: { persist-credentials: false }
+      # Betik: tarball SHA-256 (Xiph) + wasi-sdk imajı digest ile sabit, konteyner ağsız. Çıktı repo'dakiyle bayt bayt aynı olmalı.
+      - name: yeniden üret
+        run: build/libopus-wasm.sh "$RUNNER_TEMP/wasm"
+      - name: karşılaştır
+        run: |
+          cmp "$RUNNER_TEMP/wasm/libopus.wasm" internal/voice/libopus.wasm
+          cmp "$RUNNER_TEMP/wasm/libopus.wasm.sha256" internal/voice/libopus.wasm.sha256
+          cmp "$RUNNER_TEMP/wasm/libopus-COPYING.txt" internal/voice/libopus-COPYING.txt
+```
+
+Not: `go test` içindeki `TestP28dK0sWasmDigestMatches` gömülü ikilinin `.sha256` ile tutarlılığını her koşuda denetler;
+`TestP28dK0sCompilerMatchesInterpreter` `check` job'unda (amd64) derleyici doğruluğunu sınar (~9 sn Rosetta'da; CI'da daha kısa).
+`paths` filtresi istenirse `apps/agent-win/build/libopus-wasm*/**` + `internal/voice/libopus*`.

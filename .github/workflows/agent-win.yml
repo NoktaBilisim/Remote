@@ -510,7 +510,8 @@ jobs:
           done
       # P28d K4 (mimari-p28d §9, §11 K4; runbook §28d.7): istemci 0.18.0 ses testleri günlükte görünür koşar (kapsam yukarıdaki
       # `go test ./...` ile aynı; bu adım ad sözleşmesini sabitler). Ad kuralı: P28d testlerinin adında `P28d`, `Voice` ya da `Opus`
-      # geçer; -run tüm internal paketlerini süzer. Liste internal/voice (wazero + libopus.wasm) testleridir; Windows amd64'te
+      # geçer; -run tüm internal paketlerini süzer. Liste K0s internal/voice (wazero + libopus.wasm) + K3 (flow, voice motoru,
+      # rtc ses, ui/tray, yardımcı sınırı) testleridir (ad süzgecine uyan tüm Test işlevleri); Windows amd64'te
       # derleyici yolu koşar, SKIP kabul edilmez (yalnız -short ve amd64 dışı SKIP'tir). Listedeki bir testin koşmaması (ad
       # değişti) kırmızıdır — ad değiştiren listeyi de günceller (sözleşme: docs/implementation.md "P28d").
       - name: P28d ses testleri (-v; wazero + libopus.wasm)
@@ -522,7 +523,32 @@ jobs:
           for t in TestP28dK0sRoundTripSNR TestP28dK0sPacketLossConcealment TestP28dK0sDecodesStereoAndOtherFrameSizes \
                    TestP28dK0sWasmDigestMatches TestP28dK0sWasmSandboxSurface TestP28dK0sTrapIsolatedPerInstance \
                    TestP28dK0sGarbagePacketsNoPanic TestP28dK0sOversizePacketRejected TestP28dK0sRateLimit \
-                   TestP28dK0sPanicIsolatedAndPeerDroppedOnThird TestP28dK0sFrameSizeAndClose TestP28dK0sCompilerMatchesInterpreter; do
+                   TestP28dK0sPanicIsolatedAndPeerDroppedOnThird TestP28dK0sFrameSizeAndClose TestP28dK0sCompilerMatchesInterpreter \
+                   TestAC374P28dAskClosedWhenRequesterLeavesRoster TestAC374P28dDeviceErrorSendsDeviceEnd \
+                   TestAC374P28dDeviceLostMidCallSendsDeviceEnd TestAC374P28dGuestInboundMatchesFixture \
+                   TestAC374P28dHelloReleasesOpenCall TestAC374P28dLocalEndBeforeActiveThenLateActiveEndsOnce \
+                   TestAC374P28dMuteIsLocal TestAC374P28dNewRequestOtherCallReleases TestAC374P28dNoMicWithoutLocalAccept \
+                   TestAC374P28dReleaseMicOnHello TestAC374P28dReleaseMicOnIdle TestAC374P28dReleaseMicOnLocalEnd \
+                   TestAC374P28dReleaseMicOnSessionEnd TestAC374P28dReleaseMicOnWsDrop \
+                   TestAC374P28dReleaseMicOnWsDropSilencesFirst TestAC374P28dStaleOpenClosedImmediately \
+                   TestAC374P28dStateActiveWithoutConsentSendsCustomerEndOnce TestAC374P28dStateOnlyCloses \
+                   TestAC375P28dAnswerOpusDirection TestAC375P28dICERestartNoDuplicateTrack TestAC375P28dOpusBothWays \
+                   TestAC377P28dConstantsMatchFixture TestAC378P28dGuestOutboundMatchesFixture TestAC378P28dMixMinusExcludesSelf \
+                   TestAC378P28dMutedSendsOthersOnly TestAC378P28dNewListenerAnnounced \
+                   TestAC378P28dNonTalkerPacketDroppedNoDecoder TestAC378P28dOnlyListenersReceive TestAC378P28dPeerBinding \
+                   TestAC378P28dPeerDroppedAfterRepeatedTraps TestAC378P28dRealCodecCallRoundTrip \
+                   TestAC379P28dUnattendedNoFeatureNoOpen TestP28dAudioPushRacesRelease TestP28dBoundaryHelperHasNoVoice \
+                   TestP28dComPartialOpenReleasesAcquired TestP28dComReleaseReverseOrderBalanced TestP28dConcurrentPushAndRoles \
+                   TestP28dDeviceFailureCallsOnFailOnceWithoutDeadlock TestP28dFECAndDecodeCountAsOnePacket \
+                   TestP28dFlowContractPeersRolesSinkErrors TestP28dHRErrorClasses TestP28dJitterArrivalRateLimit \
+                   TestP28dJitterFECThenConceal TestP28dJitterFIFOVariableFrames TestP28dJitterLateAndDuplicateDropped \
+                   TestP28dJitterLossUsesFECThenPLCInCall TestP28dJitterOverflowDropsOldest TestP28dJitterResyncOnSequenceJump \
+                   TestP28dJitterSequenceWrap TestP28dJitterSilenceAfterFivePLCAndReanchor TestP28dJitterStartsAt60msInOrder \
+                   TestP28dLoopPanicReleasesDevice TestP28dMixSaturates TestP28dNilAudioHandlerStillReads \
+                   TestP28dNoticesContainLibopusCopying TestP28dReleaseWithinOneSecond TestP28dRunEventsInMultiMode \
+                   TestP28dSendonlyOfferNoGuestAudio TestP28dSessionWindowWithVoiceRowFits768 TestP28dSilentOfferNoAudioLine \
+                   TestP28dSupportedMatchesWazeroCompilerCriterion TestP28dTrayLicensesOutsideScopeNoNetwork \
+                   TestP28dTrayVoiceEndAndLicensesInScope TestP28dTrayVoiceTipAndMenu TestP28dVoiceAskBody TestP28dVoiceRowTexts; do
             if grep -q -- "--- PASS: $t (" "$out"; then continue; fi
             if grep -q -- "--- SKIP: $t (" "$out"; then
               echo "::error::$t SKIP: windows/amd64'te koşmalı (derleyici yolu), SKIP kabul edilmez"
@@ -543,7 +569,7 @@ jobs:
           GITHUB_STEP_SUMMARY='' go test -count=1 -v -run 'TestK6sOverlay|TestK6sSessionIDs' ./internal/win/ ./internal/servis/
           K6S_KILIT=1 go test -count=1 -v -run 'TestK6sLockRestrictedToken' ./internal/servis/
 
-  # P28d K4 (mimari-p28d §11 K4, §14 O-PD-4; docs/tmp-impl-k0s.md K0s-2; runbook §28d.11): gömülü kodlayıcı
+  # P28d K4 (mimari-p28d §11 K4, §14 O-PD-4; docs/implementation.md P28d K3 "K0s"; runbook §28d.11): gömülü kodlayıcı
   # internal/voice/libopus.wasm repo'da ikili olarak durur (go:embed). Bu iş onu kaynaktan yeniden üretir ve repo'dakiyle bayt
   # bayt karşılaştırır: incelenmemiş bir ikili gömülemez. Betik Docker ister (Go konteyneri değil, host runner). Tarball
   # SHA-256'sı burada ayrıca sabitlenir (Xiph SHA256SUMS.txt değeri, 2026-11-17 elle eşlendi): betikteki değer sessizce

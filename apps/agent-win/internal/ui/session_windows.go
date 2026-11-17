@@ -61,6 +61,9 @@ func (u *UI) newSessionWin(watchText string) *sessionWin {
 	// P28c: teknisyen listesi (en çok 3 satır), kayıt satırının üstünde.
 	techY := endY
 	height, endY = height+rosterH, endY+rosterH
+	// P28d: teknisyen listesi ile kayıt satırı arasında ses satırı; görüşme yokken gizli.
+	voiceY := endY
+	height, endY = height+voiceRowH, endY+voiceRowH
 	// P28e: "Oturumu bitir"in üstünde kayıt satırı (gösterge + Kaydı durdur + bilgi); kayıt yokken gizli.
 	recY := endY
 	height, endY = height+recRow, endY+recRow
@@ -69,7 +72,7 @@ func (u *UI) newSessionWin(watchText string) *sessionWin {
 	wa := primaryWork()
 	_, winH := f.size()
 	sq := chatSqueeze(winH, wa.Bottom-wa.Top, int32(f.dpi))
-	height, endY, techY, recY, shift = height-sq, endY-sq, techY-sq, recY-sq, shift-sq
+	height, endY, techY, voiceY, recY, shift = height-sq, endY-sq, techY-sq, voiceY-sq, recY-sq, shift-sq
 	f.ch = height
 	s := &sessionWin{f: f}
 	s.watch = f.danger(watchText, 16, 14, 408, 22, fontBold)
@@ -95,6 +98,7 @@ func (u *UI) newSessionWin(watchText string) *sessionWin {
 		f.danger(elevatedText, 16, 488+shift, 408, 48, fontNormal)
 	}
 	s.newRoster(f, techY)
+	s.newVoiceRow(f, voiceY)
 	s.recLbl = f.danger(flow.RecTexts.Indicator, 16, recY+4, 250, 22, fontBold)
 	s.recBtn = f.button(flow.RecTexts.Stop, idRecStop, 284, recY, 140, false)
 	s.recNote = f.label("", 16, recY+30, 408, 20, fontNormal)
@@ -142,6 +146,8 @@ func (u *UI) sessionCommand(s *sessionWin, id, code int) {
 		if !s.finished {
 			u.emit(flow.Event{Kind: flow.EvEnd})
 		}
+	case idVoiceMute, idVoiceEnd:
+		u.voiceCommand(s, id, code)
 	case idTechRemove, idTechRemove + 1, idTechRemove + 2:
 		if code == win.BN_CLICKED {
 			u.confirmRemove(s, id-idTechRemove)

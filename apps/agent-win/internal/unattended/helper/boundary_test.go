@@ -21,6 +21,8 @@ const module = "remote-support/agent-win/"
 var forbiddenPkgs = []string{
 	module + "internal/ui", module + "internal/tray", module + "internal/request", module + "internal/launch",
 	module + "internal/servis", module + "internal/servisui", module + "internal/autorun", "os/exec",
+	// P28d O-PD-3: gözetimsiz yardımcıda ses motoru (mikrofon/WASAPI) ve wasm çalışma zamanı kurulmaz.
+	module + "internal/voice", "github.com/tetratelabs/wazero",
 }
 
 // forbiddenNames başvurusu yasak tanımlayıcılar (seçici ya da yalın ad) ve dize önekleri (NewProc adları).
@@ -131,4 +133,31 @@ func nodes(f *ast.File, winPkg bool) []ast.Node {
 		}
 	}
 	return out
+}
+
+// P28d O-PD-3: gözetimsiz yardımcının (servis ikilisi) bağımlılık kümesinde ses motoru ve wazero yok; müşteri istemcisinde
+// var (pozitif denetim: yasak yol adı doğru — ad değişirse yasak sessizce boşa düşmesin).
+func TestP28dBoundaryHelperHasNoVoice(t *testing.T) {
+	voicePkg := module + "internal/voice"
+	for _, p := range windowsDeps(t) {
+		if p.path == voicePkg || strings.HasPrefix(p.path, "github.com/tetratelabs/wazero") {
+			t.Fatalf("yardımcıda ses motoru: %s", p.path)
+		}
+	}
+	cmd := exec.Command("go", "list", "-deps", module+"cmd/noktadestek")
+	cmd.Env = append(os.Environ(), "GOOS=windows", "GOARCH=amd64", "CGO_ENABLED=0")
+	out, err := cmd.Output()
+	if err != nil {
+		t.Fatalf("go list: %v", err)
+	}
+	deps := strings.Fields(string(out))
+	for _, must := range []string{voicePkg, "github.com/tetratelabs/wazero"} {
+		found := false
+		for _, d := range deps {
+			found = found || d == must
+		}
+		if !found {
+			t.Fatalf("müşteri istemcisinde %s yok — yasak listesindeki yol güncel mi?", must)
+		}
+	}
 }

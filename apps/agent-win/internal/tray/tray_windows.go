@@ -68,9 +68,7 @@ const (
 
 	mbSetForeground = 0x10000
 
-	idSupport = 1
-	idOpen    = 2
-	idExit    = 3
+	idMenuBase = 1 // menü öğesi kimliği = idMenuBase + MenuItems dizini
 )
 
 // notifyIconData NOTIFYICONDATAW (Vista+ tam boy: amd64 976, 386 956 bayt; tray_windows_test.go).
@@ -106,12 +104,14 @@ type Icon struct {
 	cmds chan Command
 	done chan struct{}
 
-	mu         sync.Mutex
-	hwnd       uintptr
-	hicon      uintptr
-	tip        string
-	showMsg    uint32
-	taskbarMsg uint32
+	mu    sync.Mutex
+	hwnd  uintptr
+	hicon uintptr
+	tip   string // kapsamın ipucu (Tip / TipSession); görünen ipucu VoiceTip ile
+	// P28d O-PD-3: mikrofon aygıtı açık (ipucu + menüde "Görüşmeyi bitir").
+	voice, muted bool
+	showMsg      uint32
+	taskbarMsg   uint32
 }
 
 var (
@@ -172,13 +172,28 @@ func (ic *Icon) send(c Command) {
 	}
 }
 
-// SetTip ipucunu değiştirir (sabit metinler; sunucu metni yok). Her iş parçacığından çağrılabilir.
+// SetTip kapsamın ipucunu değiştirir (sabit metinler; sunucu metni yok). Mikrofon açıkken görünen ipucu ses ipucudur
+// (VoiceTip). Her iş parçacığından çağrılabilir.
 func (ic *Icon) SetTip(text string) {
 	ic.mu.Lock()
 	defer ic.mu.Unlock()
 	ic.tip = text
+	ic.showTip()
+}
+
+// SetVoice P28d O-PD-3: mikrofon aygıtı açık/sessizde göstergesi (ipucu + menüde "Görüşmeyi bitir"); on=false kaldırır.
+// Her iş parçacığından çağrılabilir.
+func (ic *Icon) SetVoice(on, muted bool) {
+	ic.mu.Lock()
+	defer ic.mu.Unlock()
+	ic.voice, ic.muted = on, on && muted
+	ic.showTip()
+}
+
+// showTip görünen ipucunu yazar. ic.mu altında.
+func (ic *Icon) showTip() {
 	n := ic.base(nifTip | nifShowTip)
-	copy(n.szTip[:], truncate(text, len(n.szTip)))
+	copy(n.szTip[:], truncate(VoiceTip(ic.tip, ic.voice, ic.muted), len(n.szTip)))
 	notify(nimModify, &n)
 }
 
@@ -222,7 +237,7 @@ func (ic *Icon) add() {
 	n := ic.base(nifMessage | nifIcon | nifTip | nifShowTip)
 	n.uCallbackMessage = wmCallback
 	n.hIcon = ic.hicon
-	copy(n.szTip[:], truncate(ic.tip, len(n.szTip)))
+	copy(n.szTip[:], truncate(VoiceTip(ic.tip, ic.voice, ic.muted), len(n.szTip)))
 	notify(nimAdd, &n)
 	v := ic.base(0)
 	v.uVersion = nimVersion4
@@ -276,27 +291,24 @@ func dispatch(h uintptr, msg uint32, wp, lp uintptr) uintptr {
 	return win.DefWindowProc(h, msg, wp, lp)
 }
 
-// menu yalnız üç öğe: Destek iste / Aç / Çık (§8d.3).
+// menu Destek iste / Aç / Çık (§8d.3); P28d: mikrofon açıkken "Görüşmeyi bitir", her zaman "Lisanslar" (MenuItems).
 func (ic *Icon) menu(x, y int32) {
 	hm, _, _ := pCreatePopupMenu.Call()
 	if hm == 0 {
 		return
 	}
 	defer func() { _, _, _ = pDestroyMenu.Call(hm) }()
-	for _, it := range []struct {
-		id   uintptr
-		text string
-	}{{idSupport, MenuSupport}, {idOpen, MenuOpen}, {idExit, MenuExit}} {
-		_, _, _ = pAppendMenuW.Call(hm, mfString, it.id, uintptr(unsafe.Pointer(win.Str(it.text))))
+	ic.mu.Lock()
+	items := MenuItems(ic.voice)
+	ic.mu.Unlock()
+	for i, it := range items {
+		_, _, _ = pAppendMenuW.Call(hm, mfString, uintptr(idMenuBase+i), uintptr(unsafe.Pointer(win.Str(it.Text))))
 	}
 	win.SetForegroundWindow(ic.hwnd) // menü dışına tıklanınca kapansın (TrackPopupMenu kuralı)
 	r, _, _ := pTrackPopupMenu.Call(hm, tpmReturn|tpmRightBtn|tpmNoNotify, uintptr(x), uintptr(y), 0, ic.hwnd, 0)
 	win.PostMessage(ic.hwnd, wmNull, 0, 0)
-	switch r {
-	case idSupport, idOpen:
-		ic.send(CmdOpen)
-	case idExit:
-		ic.send(CmdExit)
+	if i := int(r) - idMenuBase; r != 0 && i >= 0 && i < len(items) {
+		ic.send(items[i].Cmd)
 	}
 }
 

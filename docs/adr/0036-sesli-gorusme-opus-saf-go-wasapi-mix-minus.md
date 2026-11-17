@@ -13,7 +13,7 @@ V45, ADR-0004, ADR-0009, ADR-0010, ADR-0011, ADR-0034, ADR-0035, `docs/mimari-p2
 - Mesh'te her teknisyenin PeerConnection'ı yalnız müşteriyle kurulu; teknisyenler arasında eş yok. Müşteri yalnız kendi sesini
   gönderirse katılımcılar birbirini duymaz ve izleyici konuşmanın yalnız yarısını duyar. Bu durumda AC-378 fiilen bozulur.
 - AGPL/GPL yasak. Ekipte WASM ya da cgo çapraz derleme deneyimi yok (r3: K0s spike'ı WASM hattını kurdu ve belgeledi). Kullanıcı sadelik istiyor.
-- r3 (K0s spike; ölçümler `docs/tmp-impl-k0s.md`, K3'te `docs/implementation.md`'ye taşınır): r2 kararı `kazzmir/opus-go` v1.6.0 iki
+- r3 (K0s spike; ölçümler `docs/implementation.md` "P28d → K3 Windows istemcisi → K0s"): r2 kararı `kazzmir/opus-go` v1.6.0 iki
   bağlayıcı ölçütte KALDI. (a) `go test -race` daha `NewEncoder` çağrısında `checkptr` fatal ile düşüyor
   (`opusccenc.Opus_silk_Get_Encoder_Size`; upstream'in kendi race koşusu da). Bu `recover` ile yakalanamaz, CI `check` kırmızı olur.
   (b) Bozuk paketlerde `celt_fatal` paniği GC'ye bağlı ve deterministik değil (aynı 20 000 paket: `GOGC=off` 0, `GOGC=1` 1–5 panik).

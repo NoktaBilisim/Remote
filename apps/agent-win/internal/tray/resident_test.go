@@ -582,3 +582,122 @@ func TestAC253IconPixelsSquareTransparentPadding(t *testing.T) {
 		t.Fatal("nil resim saydam, 0 boy nil")
 	}
 }
+
+// P28d O-PD-3: kapsam sürerken "Görüşmeyi bitir" ve "Lisanslar" çıkış onayına düşmez, kapsam sürer.
+func TestP28dTrayVoiceEndAndLicensesInScope(t *testing.T) {
+	f := newFixture()
+	release := make(chan struct{})
+	f.log.body = func(ctx context.Context, _ *control.Gate, active func()) flow.Outcome {
+		active()
+		select {
+		case <-release:
+		case <-ctx.Done():
+		}
+		return flow.Outcome{}
+	}
+	voiceEnds, licenses := make(chan struct{}, 4), make(chan struct{}, 4)
+	r := f.resident()
+	r.VoiceEnd = func() { voiceEnds <- struct{}{} }
+	r.Licenses = func() { licenses <- struct{}{} }
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	done := runAsync(func() { r.RunTray(ctx, f.icon, "") })
+	f.icon.cmds <- CmdOpen
+	f.icon.cmds <- CmdVoiceEnd
+	f.icon.cmds <- CmdLicenses
+	for _, ch := range []chan struct{}{voiceEnds, licenses} {
+		select {
+		case <-ch:
+		case <-time.After(3 * time.Second):
+			t.Fatal("komut kapsam içinde işlenmedi")
+		}
+	}
+	f.icon.mu.Lock()
+	confirms := f.icon.confirms
+	f.icon.mu.Unlock()
+	if confirms != 0 || len(f.ended) != 0 {
+		t.Fatalf("Görüşmeyi bitir / Lisanslar çıkış onayı açmamalı: onay %d, oturum sonu %d", confirms, len(f.ended))
+	}
+	close(release)
+	f.log.waitIdle(t, 1)
+	cancel()
+	wait(t, done)
+	if len(f.log.runs) != 1 {
+		t.Fatalf("tek kapsam beklenirdi, %d", len(f.log.runs))
+	}
+}
+
+// P28d: kapsam dışında "Lisanslar" pencere kapsamı (ağ) ve Run denetimi açmaz; bayat "Görüşmeyi bitir" yok sayılır.
+func TestP28dTrayLicensesOutsideScopeNoNetwork(t *testing.T) {
+	f := newFixture()
+	f.verify = true
+	licenses := make(chan struct{}, 4)
+	voiceEnds := 0
+	r := f.resident()
+	r.VoiceEnd = func() { voiceEnds++ }
+	r.Licenses = func() { licenses <- struct{}{} }
+	ctx, cancel := context.WithCancel(context.Background())
+	done := runAsync(func() { r.RunTray(ctx, f.icon, "") })
+	f.icon.cmds <- CmdVoiceEnd
+	f.icon.cmds <- CmdLicenses
+	select {
+	case <-licenses:
+	case <-time.After(3 * time.Second):
+		t.Fatal("Lisanslar gösterilmedi")
+	}
+	cancel()
+	wait(t, done)
+	if len(f.log.runs) != 0 || f.log.maxHot != 0 || voiceEnds != 0 {
+		t.Fatalf("kapsam açılmamalı: akış %d, kısayol %d, VoiceEnd %d", len(f.log.runs), f.log.maxHot, voiceEnds)
+	}
+	if len(f.icon.balloons) != 0 {
+		t.Fatalf("Run denetimi (Verify) yalnız pencere açılışında: balon %q", f.icon.balloons)
+	}
+}
+
+// P28d O-PD-3: mikrofon açıkken ipucu kapsam ipucunu ezer; menüde "Görüşmeyi bitir" yalnız mikrofon açıkken.
+func TestP28dTrayVoiceTipAndMenu(t *testing.T) {
+	cases := []struct {
+		base      string
+		on, muted bool
+		want      string
+	}{
+		{TipSession, false, false, TipSession},
+		{Tip, false, true, Tip},
+		{TipSession, true, false, TipMicOn},
+		{Tip, true, true, TipMicMuted},
+	}
+	for _, c := range cases {
+		if got := VoiceTip(c.base, c.on, c.muted); got != c.want {
+			t.Errorf("VoiceTip(%q, %v, %v) = %q, beklenen %q", c.base, c.on, c.muted, got, c.want)
+		}
+	}
+	if !strings.Contains(TipMicOn, "Mikrofon açık") || !strings.Contains(TipMicMuted, "Sessizde") {
+		t.Fatal("ipucu mimari §8 metnini taşımalı")
+	}
+	cmds := func(items []MenuItem) []Command {
+		var out []Command
+		for _, it := range items {
+			out = append(out, it.Cmd)
+		}
+		return out
+	}
+	if got := cmds(MenuItems(false)); !slices.Equal(got, []Command{CmdOpen, CmdOpen, CmdLicenses, CmdExit}) {
+		t.Fatalf("menü (ses yok): %v", got)
+	}
+	if got := cmds(MenuItems(true)); !slices.Equal(got, []Command{CmdOpen, CmdOpen, CmdVoiceEnd, CmdLicenses, CmdExit}) {
+		t.Fatalf("menü (mikrofon açık): %v", got)
+	}
+	seen := map[rune]bool{}
+	for _, it := range MenuItems(true) {
+		i := strings.IndexRune(it.Text, '&')
+		if i < 0 {
+			t.Fatalf("%q erişim tuşu yok", it.Text)
+		}
+		k := []rune(strings.ToLower(it.Text[i+1:]))[0]
+		if seen[k] {
+			t.Fatalf("erişim tuşu çakışması: %q", it.Text)
+		}
+		seen[k] = true
+	}
+}

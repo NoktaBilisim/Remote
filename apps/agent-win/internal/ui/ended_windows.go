@@ -24,7 +24,8 @@ func (u *UI) Ended(m flow.Message) {
 			if u.endNote != "" {
 				appendLine(s.history, "Sistem", u.endNote)
 			}
-			for _, c := range []*ctrl{s.input, s.sendBtn, s.endBtn, s.fileBtn, s.grantBtn, s.closeBtn, s.clipChk, s.recBtn} {
+			for _, c := range []*ctrl{s.input, s.sendBtn, s.endBtn, s.fileBtn, s.grantBtn, s.closeBtn, s.clipChk, s.recBtn,
+				s.voiceMute, s.voiceEnd} {
 				win.EnableWindow(c.h, false)
 			}
 			return
@@ -57,4 +58,5 @@ func (u *UI) teardownSession() {
 		u.ov = nil
 	}
 	u.dropStrip()
+	u.dropVoiceStrip()
 }
