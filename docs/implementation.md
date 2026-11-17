@@ -14353,3 +14353,233 @@ Testler (yeni):
 - `TestP28dVoiceTechToCustomerPlaysEndToEnd`: flow + gerçek libopus motoru. Teknisyen eşinin `Handlers.Audio`'sundan gelen Opus, sahte aygıtın çalma çıkışında sessiz olmayan örnek olarak çıkıyor.
 
 Kalan risk: kök neden donanımda doğrulanmadı. 0.18.1 sahada denenmeli; ses yine gelmezse `tanilama.log` istenmeli (yalnız kalıcı kipte yazılır).
+
+## P28f K7 — Web: karşılama sayfası macOS + konsol OS_PERMISSION + audit `os` (frontend-dev, 2026-11-17)
+
+Kaynak: `docs/mimari-p28f.md` §4.1–4.2, §9 (Web), §10 K7, §13 (S-P28f-8, S-P28f-15); AC-390, AC-391, AC-396 (AC-27 güncellendi).
+Yalnız `apps/web/**` + `DESIGN.md` değişti. Sözleşme tipleri K6'nın `packages/contracts` eklerinden (`AgentAvailabilityResponse`,
+`AgentDownloadOs`, `CONTROL_SOURCES` `OS_PERMISSION`, `CLIENT_OS_LABELS`, `CLIENT_OS_FIELD_LABEL`) alınır; contracts'a dokunulmadı.
+
+### Rotalar
+
+| Yol                      | Auth  | Ne yapar                                                                                                                                                                                                                                                                                                                                                                                            |
+| ------------------------ | ----- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `/session/[token]`       | hayır | macOS masaüstünde (`isMacDesktop`) Windows ile aynı düzen: birincil "Hızlı Destek uygulamasını indir" (`os=macos` → `Destek-<kod>.zip`) + macOS açılış/izin rehberi, ikincil "Uygulama çalışmıyor mu? Tarayıcıdan yalnızca görüntü paylaş". İndirme yalnız `GET /api/v1/public/agent/availability` `macos:true` iken; beklerken iskelet; `false`/hata/429/şema dışı → yalnız tarayıcı (fail-closed) |
+| `/sessions/[id]/console` | evet  | `control.state{VIEW, OS_PERMISSION}` → not satırı + bildirim "Müşteri erişilebilirlik izni vermedi. Müşteri izni verdikten sonra yeniden isteyin."; ret değil (30 sn bekleme yok, hak iade edilmez)                                                                                                                                                                                                 |
+| `/audit`                 | evet  | Ayrıntı diyaloğunda katılım satırı (`guest.pending`; sözleşmedeki adıyla `session.join`) için "İşletim sistemi (beyan)": Windows / macOS / Linux / Tarayıcı; `os` yoksa (eski satır) ya da bilinmiyorsa satır yok                                                                                                                                                                                   |
+
+Yeni rota yok; yetki değişmedi.
+
+### Yapılanlar
+
+- `lib/device-support.ts`: `isMacDesktop` (UA "Macintosh"/"Mac OS X" ya da UA-CH `platform === "macOS"`; "Windows NT" UA'sı, mobil UA, UA-CH
+  mobile ve iPad masaüstü modu `maxTouchPoints > 1` hariç; `isWindowsDesktop` ile karşılıklı dışlar) + `agentOsOf`; `readSupportEnv` `platform`,
+  `maxTouchPoints` okur.
+- `lib/agent-download.ts`: `agentDownloadUrl(ref, os)` (Windows adresi bayt bayt aynı, macOS'ta `&os=macos`), `probeAgentDownload(ref, os, fetch)`,
+  `fetchAgentAvailability` (yerel zod, çerez yok, her hata → `null`).
+- `app/session/[token]/agent-offer.tsx` (yeni): `useAgentOffer` (Windows: değişmez, hemen hazır; macOS: availability → `loading`/`ready`/`none`) +
+  `AgentSkeleton`. `guest-welcome.tsx`, `join-form.tsx` bunu kullanır (`windows` prop'u → `agent`).
+- `agent-download.tsx`: `os`, `testBuild` prop'ları; macOS'ta meta satırı, `MacGuide`, TEST uyarısı. `guide-step.tsx` (yeni, Windows/macOS ortak adım),
+  `mac-guide.tsx` (yeni): 4 adım (aç → Nokta Destek'i aç → izinler: Ekran Kaydı / Erişilebilirlik / Mikrofon → kodu ve teknisyeni doğrula; kod
+  klasör adından gelmezse elle yazma, K0s-5 açık olduğu için), prod'da "asla Yine de Aç istemez" uyarısı, doğrulama `details`'i.
+- `lib/control/machine.ts`: `OS_PERMISSION` dalı (yalnız `requested`'da; neden `osPermission`, `lastSent: null`, sayaç iade yok, bekleme yok; başka fazda
+  yok sayılır). `control-button.tsx`: bu nedende not satırı `line-clamp-3 max-w-80` (1280 px'te tam metin, e2e ile ölçülür); `use-control-toasts.ts`:
+  `info` bildirimi (tam metin).
+- `lib/audit/actions.ts` `auditClientOs` + `audit-detail-dialog.tsx` satırı (etiketler contracts `labels.ts`).
+- `messages/tr.json`: `gm.*` (macOS rehberi), `p7.end.osPermission`.
+- `vitest.config.ts`: `app/**/*.test.tsx` dahil (rehber bileşeni testi `app/session/[token]` altında).
+- E2E sahte API (`e2e/mock-sessions.mjs`): `/public/agent/availability` (varsayılan ikisi de `true`; senaryolar `page.route` ile ezilir), download `os`
+  (geçersiz → 400), `/downloads/Destek-<kod>.zip`.
+
+### Testler
+
+- Birim: `device-support.test.ts` (Mac Chrome/Safari/Firefox, UA-CH, iPad, iPhone, Windows UA + host `platform: macOS` → Windows), `agent-download.test.ts`
+  (os adresi, availability 200/false/429/500/şema/JSON değil/ağ), `machine.test.ts` (OS_PERMISSION), `audit.test.ts` (`os` etiketi),
+  `app/session/[token]/mac-guide.test.tsx` (prod/TEST metinleri, izinler, Windows değişmedi).
+- E2E: `e2e/p28f-macos.spec.ts` (AC-396 düzen + zip indirme + rehber + axe; AC-390 `false`; S-P28f-15 500/429/şema/ağ hatası; yükleniyor iskeleti; 503
+  NOT_READY; 375 px koyu + 1280 px açık axe; iPad), `p6-agent-download.spec.ts` macOS testi availability `false` senaryosuna güncellendi,
+  `p7-control.spec.ts` OS_PERMISSION (not tam görünür, bildirim, bekleme yok, axe).
+- `pnpm --filter @remote/web lint typecheck test` yeşil (584 birim). `pnpm --filter @remote/web e2e`: 573 geçti, 1 kırmızı
+  `p8b-requests.spec.ts` "AC-153 … 409" — tam paralel koşuda; tek başına 13/13 geçti (bu paketle ilgisiz, yük kaynaklı kararsızlık); bu yüzden
+  `desktop-perf` 2 test "did not run".
+
+### Sapmalar / açık noktalar
+
+1. **Staging sinyali yok → "Yine de Aç" adımı şimdilik hiç gösterilmez (fail-closed).** S-P28f-8 bu adımı yalnız staging sayfasında istiyor; ancak web
+   ortamı bilmiyor (`DEPLOY_ENV` bilinçli olarak yalnız server'da, compose yorumu) ve availability sözleşmesi yalnız `{windows, macos}`. API alanı
+   uydurulmadı. `AgentDownload`/`MacGuide` `testBuild` prop'u hazır ve birim testli; `GuestWelcome` şu an hep `false` geçer → her ortamda prod
+   metni ("Nokta Destek hiçbir zaman “Yine de Aç” istemez"). **backend-dev/mimar'a not:** staging'de doğru metin için availability'ye örn.
+   `macosTestBuild: boolean` (`DEPLOY_ENV=staging` ve imzasız zip) eklenirse web tek satırla bağlanır. O zamana kadar staging test operatörü
+   "Yine de Aç" adımını runbook/kılavuzdan izler (sayfa metni staging'de bununla çelişir — bilinen durum).
+2. Birincil düğme metni Windows ile aynı tutuldu ("Hızlı Destek uygulamasını indir"; AC-396 "Windows ile aynı düzen"); AC'deki "Uygulamayı indir"
+   kalıbı bu metnin içinde.
+3. Mimari §9 390 px diyor; görev 375 px istedi — e2e 375 px'te koşar (daha dar).
+4. Zaman çizelgesi (`/history/[id]`) `guest.pending` `os` ayrıntısını göstermez (K7 kapsamı audit ekranı); `TIMELINE_DETAIL_KEYS`'e K6 ekledi, gösterim
+   istenirse ayrı küçük iş.
+5. `ui-ux-pro-max` skill'i yüklenmedi: ekran, DESIGN.md §6/§8'de onaylı Windows rehber düzeninin aynısı (yeni görsel dil yok); DESIGN.md güncellendi
+   (§6 satırı + §4 P28f ikonları).
+
+## P28f K6 — Sunucu: clientOs, indirme `os`, availability, agent-ready platform başına, `MAC_AGENT_*`, OS_PERMISSION (backend-dev, 2026-11-17)
+
+Kaynak: `docs/mimari-p28f.md` §4.1–4.2, §8.1, §13 (S-P28f-3, -9 contracts kısmı, -15). Dal `p28f`, commit yok.
+
+### Değişen dosyalar
+
+- **contracts:** `src/api/sessions.ts` (`CLIENT_OS`, resolve iki dalda `clientOs` isteğe bağlı enum; `JOIN_AUDIT_OS`;
+  `AGENT_DOWNLOAD_OS` + `agentDownloadOsSchema` (varsayılan `windows`); `AgentAvailabilityResponse {windows, macos, macosTestBuild}`;
+  `TIMELINE_DETAIL_KEYS["guest.pending"]` += `os`), `src/ws.ts` (`CONTROL_SOURCES`/`GUEST_VIEW_SOURCES` += `OS_PERMISSION`, yalnız
+  VIEW), `src/labels.ts` (`OS_PERMISSION_CANCELLED`, `CLIENT_OS_LABELS`, `CLIENT_OS_FIELD_LABEL`; `control.cancelled{by:agent,
+source:os_permission}` zaman çizelgesi metni), `src/files.ts` (S-P28f-9: 30 macOS türü `DANGEROUS_EXT`'e; `isHiddenName` — baştaki
+  noktalı ad `dangerous`), `fixtures/file-names.json` (+13 örnek), `test/p28f-contracts.test.ts` (yeni), pt-surface snapshot (yalnız eklemeler).
+- **server:** `env.ts` (`MAC_AGENT_PATH`, `MAC_AGENT_SHA256`; `AGENT_BINARY_PATH_FIXED`/`MAC_AGENT_PATH_FIXED` production eşitliği),
+  `app.ts` (`macAgentBinary` kapısı; alarm `mac_agent_binary` yalnız missing/mismatch), `public/agent.ts` (indirme `os`, `.zip` konumu,
+  yalnız ilgili kapı; `agentAvailability`), `public/routes.ts` (`/download?os=`, `/availability`, `/internal/agent-ready/{windows,macos}`
+  - çıplak takma ad), `public/service.ts` (nonce `clientOs`, `guest.pending` `os`), `sessions/public.ts` (`availabilityIp` 30/dk,
+    nonce'a `clientOs`), `sessions/routes.ts`, `signaling/{rooms,rooms-lobby,types}.ts` (`Guest.clientOs`), `signaling/control.ts` +
+    `control-grant.ts` (OS_PERMISSION), `ops/metrics.ts` (`rs_agent_download_total{os}`, kontrol olayları).
+- **testler:** `test/integration/p28f-k6.test.ts` (yeni, 23 test), `signaling-fix1.test.ts` (`guest.pending` anahtarlarına `os`),
+  `helpers/tenant-matrix.ts` (3 yeni uç sınıflandırıldı), pt-surface rota snapshot'ı (yalnız 3 uç × GET/HEAD eklendi).
+- **deploy:** `Caddyfile` (`agent_zip_file` snippet'i, `@agentZip` → `/internal/agent-ready/macos`; `@agentExe`/`@agentExeFirm` →
+  `/internal/agent-ready/windows`), `test-caddy.sh` (zip 200 + başlıklar, kapı yolu, çapraz kapı kapalı senaryoları, biçim dışı zip
+  adları, ops 404, log maskesi), `docker-compose.yml` (server `MAC_AGENT_PATH` sabit + `MAC_AGENT_SHA256`), `.env.example`, `docs/runbook.md` env tablosu.
+- **web (koordinatör isteğiyle, yalnız `macosTestBuild` bağlantısı):** `lib/agent-download.ts` (şemaya `macosTestBuild`, eksik/geçersiz
+  → false), `app/session/[token]/agent-offer.tsx` (`ready.testBuild`), `guest-welcome.tsx` + `join-form.tsx` (`testBuild={agent.testBuild}`),
+  `lib/agent-download.test.ts`, `e2e/mock-sessions.mjs`, `e2e/p28f-macos.spec.ts` (staging TEST rehberi senaryosu).
+
+### Tasarımdan sapmalar (gerekçeli; `mimari-p28f.md` §8.1 notuna da yazıldı)
+
+1. **`MAC_AGENT_PATH` sabiti `/data/downloads/NoktaDestek-macOS.zip`** (mimari `/srv/downloads/...` yazıyor): `/srv/downloads` Caddy'nin
+   bağlama noktası; server aynı `agent_downloads` volume'unu `/data/downloads`'ta bağlar. Eşitlik denetimi (Windows dahil) yalnız
+   `NODE_ENV=production`'da — mevcut testler ve geliştirme geçici dizin kullanır.
+2. **Join audit `os` → `guest.pending`:** kodda başarılı `session.join` satırı yok (yalnız 410'da `result:fail`); başarılı join'in satırı
+   `guest.pending`. İkinci bir satır eklemek "yeni olay yok" (§3) kuralına aykırı olurdu.
+3. **`macosTestBuild`** (K7 isteği, koordinatör onayı): availability'de `DEPLOY_ENV !== "production"` ∧ `macos` → true; prod'da her zaman
+   false. Web eksik alanı false sayar (fail-safe: "Yine de Aç" rehberi asla varsayılan değil).
+4. Availability hata yanıtlarında `Cache-Control: no-store` (yalnız 200 `public, max-age=60`).
+
+### Bağımlılık
+
+Yok.
+
+### Bilinen etki (başka pakete devir)
+
+- **`apps/agent-win` Go testleri K5'e kadar kırmızı:** `TestS68DangerousExtMatchesContracts` (`files.ts` listesini Go listesiyle
+  karşılaştırır) ve fixture testi (`file-names.json` yeni macOS/gizli ad örnekleri). Görev gereği Go'ya dokunulmadı; K5 `files.go`
+  listesine aynı 30 türü + baştaki noktalı ad kuralını ekleyince yeşile döner (mimari §5.4 "contracts + Go + fixture aynı anda").
+  Yerelde `go` yok, CI'da doğrulanacak.
+
+### frontend-dev için sözleşme
+
+- `GET /api/v1/public/agent/availability` → `{ windows, macos, macosTestBuild }`; 429'da `Retry-After`, `no-store`.
+- `GET /api/v1/public/agent/download?ref=&os=macos` → 302 `/downloads/Destek-<kod>.zip`; geçersiz `os` 400 VALIDATION; mac kapısı 503 NOT_READY.
+- `control.state {VIEW, OS_PERMISSION}` teknisyene iletilir; audit `control.cancelled {by:"agent", source:"os_permission"}`.
+- `guest.pending` `newValue.os` ∈ `windows|macos|linux|browser` (etiket `CLIENT_OS_LABELS`, alan adı `CLIENT_OS_FIELD_LABEL`).
+
+### Doğrulama (2026-11-17)
+
+- Test DB `rs-p28f-k6:3417` (iş sonunda silindi).
+- `pnpm -r run lint` ve `pnpm -r run typecheck`: yeşil.
+- contracts: 27 dosya / 271 test geçti. server unit: 673 geçti, 1 atlandı. server integration (tam): 1168 testin 1167'si geçti.
+  Kalan 1 test `tenant-purge-p16` "AC-242 FAILED…", aynı DB'de iki tam koşudan sonra kırmızıya döndü; temiz DB'de tek başına 10/10
+  geçiyor. K6'yla ilgisi yok, DB durumuna bağlı. İlk tam koşuda görülen `customers-csv-p19` (60 sn zaman aşımı) ve `tenant-purge-meta-p16`
+  de tek başına geçti.
+  Değişikliğe bağlı dosyalar ayrıca koşuldu: p28f-k6, agent-download, signaling-control-p7, signaling-fix1, pt-surface, tenant-isolation,
+  lg-send, requests-p8b-4 → 125/125.
+- web: vitest 585/585; Playwright `p28f-macos` + `p6-agent-download` 19 geçti (19 atlandı, mobil projesi).
+- `deploy/test-caddy.sh`: SONUÇ GEÇTİ.
+
+## P28f K1 — Go iskeleti: uicore, darwin/objc, main_darwin, build-darwin.sh, clientOs (backend-dev Go, 2026-11-17)
+
+Kaynak: `docs/mimari-p28f.md` §2, §2.1, §5.4 (S-P28f-11), §6, §8.2, §10 K1; ADR-0037 m.1; spike `docs/spike-p28f-k0s.md`
+(spike kodu `apps/agent-win/spike/p28f/` okunup kalıpları alındı, değiştirilmedi; PR'a girmez).
+
+### Değişen / yeni dosyalar (`apps/agent-win/`)
+
+- **uicore taşıması (Windows davranışı değişmez):** `internal/ui/{accept,voice,notices,logo,session_fit,theme}.go` + testleri
+  (`contrast_test.go` dahil), `assets/nokta-kucuk.png`, `third_party_notices.txt` → `internal/ui/uicore/` (build tag'siz; `doc.go`
+  yeni). `go:embed` üst dizine çıkamadığı için gömülü dosyalar da taşındı. Tanımlayıcılar dışa açıldı (ör. `acceptKey{tech,verify}` →
+  `uicore.AcceptKey{Tech,Verify}`, `chatSqueeze` → `ChatSqueeze`, `rgb/palette` → `RGB/Palette`, `thirdPartyNotices` →
+  `ThirdPartyNotices`); yalnız kendi dosyasında kullanılanlar (`fitSize`, `sessionPad`, `chatHistoryM`, palet değişkenleri) dışa
+  açılmadı. Win32 dosyaları (`form, home, licenses, overlay, panel, reqwait, resident, session, theme, ui, voice _windows.go`) yalnız
+  `uicore.` önekiyle güncellendi; `ui.SystemLogo()` dış API'si korunur. Test adları aynı (CI ad sözleşmeleri `./internal/ui/...`
+  kapsar). Kök `NOTICE` yolu güncellendi.
+- **`internal/darwin/objc/` (yeni):** `doc.go` (S-P28f-11 kuralları 1–7 bağlayıcı paket belgesi), `handles.go` (+test, her
+  platform; C bağlamı için tamsayı tutamaç tablosu), `load_darwin.go` (izin listeli `Open`/`Framework`/`Func`; yalnız
+  `/System/Library/Frameworks/<Ad>.framework/<Ad>`, `/usr/lib/libobjc.A.dylib`, `/usr/lib/libSystem.B.dylib`), `objc_darwin.go`
+  (`GetClass` hata döner, `Responds` fail-closed, `NSString` ≤ 64 KiB + UTF-8 doğrulamalı `initWithBytes:length:encoding:`,
+  `GoString` `getCString:maxLength:encoding:` ile Go tamponuna kopya — `uintptr→unsafe.Pointer` yok, S6-1 ve vet temiz; `Pool`,
+  CG yapıları), `dispatch_darwin.go` (`purego.NewCallback` yalnız `init`'te; `dispatch_async_f` + tutamaç; ana kuyruk `_dispatch_main_q`
+  sembolü), `objc_darwin_test.go`.
+- **`cmd/noktadestek/main_darwin.go`, `deps_darwin.go` (yeni), `identity.go` (yeni, `windows || darwin`):** `identity()`
+  `main.go`'dan aynen taşındı (iki platform ortak). darwin: `init`'te `runtime.LockOSThread`; argüman okunmaz (T4); Foundation +
+  AppKit izin listeli yükleme → `config.Load` → kimlik → `ui/mac.New` → akış goroutine'de, `NSApp run` ana iş parçacığında; bitince
+  `Ended` + 2,5 sn + ana kuyrukta `terminate:` (AC-107). `flowDeps` yalnız platformdan bağımsız parçaları bağlar (API, rtc/medya,
+  fsrv, logo); kontrol (Hotkey/Input boş → G-21 izin verilemez), pano/yazdırma, ses, roster, FileServerUI bağlanmaz → `Features`
+  bildirmez.
+- **K2–K5 dikişleri (fail-closed stub, sahibi paket ve §6 dosya adıyla):** `internal/capture/source_darwin.go` (`Monitors`/`Open` →
+  `ErrUnsupported`; K2), `internal/files/quarantine_darwin.go` (`WriteQuarantine` hata → transfer uyarılı adı reddeder; K5),
+  `internal/ui/mac/ui_darwin.go` (`New` → `ErrNotImplemented`; K4). İndirme klasörü K5'e kadar hata döner → dosya teklifleri
+  otomatik reddedilir (`flow.initFiles`). Sonuç: K1 ikilisi macOS'ta açılır, çerçeveleri yükler ve `exitUI` (4) ile çıkar; arayüzsüz ya
+  da kendiliğinden onaylayan bir akış hiçbir koşulda başlamaz.
+- **`internal/api/api.go`:** resolve gövdesine `clientOs` (`windows`/`macos`/`linux`, `runtime.GOOS`'tan; bilinmeyen platformda
+  alan gönderilmez — sunucu yoksa `windows` sayar, geçersizde 400). Windows istemcisi de gönderir (0.19.0). Join değişmez.
+- **`internal/config/config.go`:** `testBuild` ldflags hedefi + `Config.TestBuild` (yalnız tam `"1"`); K4 TEST bandı için ek koşul.
+- **`internal/flow/messages_p28f.go` (+test):** `MacTexts` tek tablo — TEST bandı, Ekran Kaydı rehberi (başlık, 3 adım, düğmeler),
+  Erişilebilirlik rehberi, gizli pano uyarısı, "İzinleri kaldırma". ADR r3 gereği mikrofon metni yok.
+- **`internal/files/files.go`:** tehlikeli uzantı listesi 30 macOS türüyle contracts `DANGEROUS_EXT` ile birebir; `IsHiddenName`
+  (baştaki nokta) + `NameWarning` sırası TS ile aynı (çift uzantı → tehlikeli ya da gizli → yok). Tüm çağıranlar `NameWarning`
+  üzerinden (transfer, fsrv) — gizli ad kuralı hepsine uygulanır.
+- **`build/build-darwin.sh` (yeni):** `<sunucu> <sürüm> <arm64|amd64> [çıktı] [test]`; `GOOS=darwin CGO_ENABLED=0 -trimpath
+  -ldflags "-s -w -buildid= -X serverURL -X version [-X testBuild=1]"`, yalnız ince ikili (lipo/paket K8a). S-P28f-7 koruması: `test`
+  kipi değilse yalnız `GITHUB_REF_TYPE=tag` + `GITHUB_REF_NAME=v<sürüm>` ya da `.invalid` sunucu (iz testi derlemesi) kabul; aksi ret
+  (çıkış 2).
+- **`go.mod`/`go.sum`:** yalnız `github.com/ebitengine/purego v0.11.3` (tidy farkı başka modül içermez).
+- **Lisans:** `internal/ui/uicore/third_party_notices.txt` purego LICENSE (Apache-2.0) aynen + listede "yalnız macOS"; purego'nun
+  Go'dan türetilen kısımları (`internal/fakecgo`, `abi_*.h`) mevcut Go BSD-3-Clause metniyle kapsanır. Kök `NOTICE` güncellendi.
+  Bildirim testi purego başlığını arar.
+
+### Eklenen bağımlılık (gerekçe)
+
+`github.com/ebitengine/purego` v0.11.3 — Apache-2.0, bağımlılıksız; ADR-0037 m.1 kararı (CGO'suz AppKit/SCK/VT/CGEvent erişimi,
+Linux'ta tekrarlanabilir çapraz derleme). Yalnız darwin dosyaları içe aktarır; Windows ikilisine bağlanmaz.
+
+### Tasarımdan sapmalar / notlar
+
+1. **`ui/mac.New` imzası** `(flow.UI, <-chan flow.Event, error)` — K1'de 40+ yöntemlik ölü stub yazmamak için arayüz döner; K4
+   somut türe geçirebilir.
+2. **`identity.go`** ayrı dosya (`windows || darwin`): kopya yerine paylaşım; Linux'ta `cmd/noktadestek` yine derlenmez (main yok).
+3. **Build tag düzeni (sonraki paketler için):** mevcut `_other.go` (`!windows`) dosyaları darwin'de derlenmeye devam eder (K1'de
+   `clip_other.go`, `printer_other.go`, `autostart_other.go`, `supported_other.go` darwin'de stub sağlar). Bir paket `_darwin.go`
+   eklediğinde ilgili `_other.go` kısıtı `!windows && !darwin` yapılır. K1 dikiş dosyaları (`source_darwin.go`, `quarantine_darwin.go`,
+   `ui_darwin.go`) K2/K4/K5'te doğrudan değiştirilir.
+4. **Yerel S6-1 kırmızısı (ürün dışı):** `internal/win` `TestS61PointerConversionOnlyInsideCallArgs` modül kökünü tarar ve izlenmeyen
+   `spike/p28f/k0s2vt/main.go:455`'i yakalar. Spike PR'a girmediği için CI'da yoktur; yerelde spike dizini varken bu tek test kırmızıdır.
+   Yeni `internal/darwin/objc` kodu kuralı karşılar (dönüşüm yok).
+5. Ses (`voice.Supported()` darwin'de false) zaten bağlanmaz; ADR r3 kararıyla uyumlu.
+6. **NSData dönüşümü** (§2 `internal/darwin/objc` satırı) K1'de yok: ilk kullanıcısı pano/yakalama (K2/K5); kullanılmayan kod
+   eklenmedi. Aynı kurallarla (uzunluk sınırı, Go tamponuna kopya) ilk kullanan pakette `objc`'ye eklenir. Tipli gönderim
+   (`Send[T]`) ve `RegisterClass` doğrudan purego/objc ile yapılır; bu paket tür takma adları + yardımcıları verir.
+7. `MacTexts` rehber adımları ve Erişilebilirlik gövdesi tasarımda tam metin olarak yoktu; ifade backend-dev'in — mimar/PM onayı
+   (K4 öncesi) gerekir. Ana kuyrukta `terminate:` yolu derlenir ama K1'de çalışmaz (arayüz kurucusu her zaman hata döner).
+8. `uicore` bağımlılıkları darwin'de: `flow` (+ signal/api/rtc/…) ve `tray` (`logo.go` `tray.AreaSum`); hepsi darwin'de derleniyor.
+9. `DESIGN.md` §Win32 satırındaki tema tablosu yolu `internal/ui/uicore/theme.go` olarak düzeltildi.
+
+### Test komutları ve sonuçlar (2026-11-17)
+
+| Komut | Sonuç |
+| --- | --- |
+| `GOOS=darwin GOARCH=arm64 go vet ./...` · `GOOS=darwin GOARCH=amd64 go vet ./...` (macOS, Go 1.26.11) | yeşil |
+| `GOOS=darwin GOARCH=amd64 CGO_ENABLED=0 go build ./cmd/noktadestek` | yeşil |
+| `docker run --rm -v "$PWD:/src" --tmpfs /src/apps/agent-win/spike -w /src/apps/agent-win golang:1.26 sh -c 'go test ./... && GOOS=windows go vet ./... && GOOS=windows go build ./...'` | 33 paket ok, Windows vet + build yeşil; aynı konteynerde `GOOS=darwin` vet + amd64 build yeşil |
+| `go test ./...` (macOS yerel) | spike kaynaklı S6-1 dışında (not 4) tümü ok |
+| Görevdeki birebir komut (spike maskesiz) | `go test` yalnız `internal/win` S6-1 kırmızı (izlenmeyen spike dosyası); `&&` nedeniyle Windows vet/build bacağı bu biçimde koşmaz — maskeli koşu yukarıda yeşil |
+| `go test ./internal/darwin/...` arm64, `GOARCH=amd64` (Rosetta), `MallocScribble=1 NSZombieEnabled=YES` | ok (izin listesi, fail-closed sınıf/selector/sembol, NSString sınır + Türkçe gidiş-dönüş, dispatch sırası + tutamaç sızıntısı 0) |
+| staticcheck v0.8.2 (GO_IMAGE; linux, windows/amd64, darwin/arm64, darwin/amd64) | temiz |
+| `gofmt -l` (spike hariç) | temiz |
+| Tekrarlanabilirlik: GO_IMAGE'de `/src` ve `/baska/yol` bağlamalarıyla `build-darwin.sh … test` iki kez | arm64 `e6bb03b6…e247` = eşit (11,0 MiB); amd64 `88eb6007…5c7a` = eşit (11,7 MiB) |
+| `build-darwin.sh` prod adresi, etiket yok | ret (çıkış 2); `.invalid` sunucu kabul |
+| Linux'ta derlenen ince ikililer macOS'ta (arm64 yerel, amd64 Rosetta) | çerçeveler yüklendi, `exitUI` (4) — K1 beklenen davranış |
+
+### frontend-dev / diğer paketler için sözleşme notu
+
+Sözleşme değişikliği yok: `clientOs` K6'da sunucuya ve contracts'a zaten eklenmişti; Go istemci artık gönderiyor. Web etkilenmez.

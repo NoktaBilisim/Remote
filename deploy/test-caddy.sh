@@ -7,6 +7,8 @@
 # (NoktaDestek.exe, Destek-<8 hane>.exe) server'a maskeli gider; /ws/request ve /ws/panel yükseltilir; /internal/* 404;
 # Caddy erişim/hata logunda ref, sorgu dizesi ve WS subprotocol (talep sırrı) yok (G-10, G-E9-8, T31); P19 web talep formu
 # /r/<ref> iki log bloğunda da /r/*** (S-P19-10).
+# P28f (S-P28f-3): macOS zip'i (NoktaDestek-macOS.zip, Destek-<8 hane>.zip) forward_auth /internal/agent-ready/macos'a, .exe
+# yolları /internal/agent-ready/windows'a gider (çapraz: mac kapısı kapalıyken zip sunulmaz, exe sunulur); zip başlıkları; log maskesi.
 # P13c: ROBOTS_NOINDEX yokken (prod) X-Robots-Tag / robots.txt Disallow yok; staging katmanı değerleriyle noindex + trusted_proxies.
 # Kullanım: deploy/test-caddy.sh   ·   KEEP=1 (konteynerleri bırak)   ·   uzun WS bağlantısı (HTTP zaman aşımlarından etkilenmiyor mu, ~40 sn):
 #           CADDY_TEST_WS_HOLD=1 deploy/test-caddy.sh
@@ -32,7 +34,8 @@ WREF="webref$(openssl rand -hex 8)"   # P19 /r/<ref> (sahte; her koşuda rastgel
 SUBPROTO="rs.req.TESTSIRRI$(openssl rand -hex 16)"   # sahte talep sırrı (subprotocol), her koşuda rastgele
 mkdir -p "$TMP/dl"
 printf 'MZ-sahte-ikili-%s' "$(date +%s)" >"$TMP/dl/NoktaDestek.exe"
-chmod 0755 "$TMP" "$TMP/dl" && chmod 0644 "$TMP/dl/NoktaDestek.exe"
+printf 'PK-sahte-zip-%s' "$(date +%s)" >"$TMP/dl/NoktaDestek-macOS.zip"
+chmod 0755 "$TMP" "$TMP/dl" && chmod 0644 "$TMP/dl/NoktaDestek.exe" "$TMP/dl/NoktaDestek-macOS.zip"
 cat >"$TMP/mock.js" <<'JS'
 // Sahte server:3001 — yalnız Caddy'nin ilettiklerini kaydeder (gerçek doğrulama server'ın işi). WS yanıtında
 // en kötü durumu sınar: gerçek server yalnız rs.v1 seçer, burada sırlı ilk öğe geri yazılır → log filtresi silmeli.
@@ -51,7 +54,12 @@ const s = http.createServer((req, res) => {
   }
   if (req.url.startsWith("/internal/agent-ready")) {
     const uri = req.headers["x-forwarded-uri"] ?? "";
+    const path = req.url.split("?")[0];
     fs.appendFileSync("/tmp/fa.log", JSON.stringify({ uri, method: req.headers["x-forwarded-method"] ?? "" }) + "\n");
+    fs.appendFileSync("/tmp/fa-path.log", path + "\n");
+    // P28f: platform kapısı kapalı senaryosu (/tmp/<platform>-closed varsa 503).
+    if (path === "/internal/agent-ready/macos" && fs.existsSync("/tmp/macos-closed")) { res.writeHead(503, { "content-type": "application/json" }); return res.end('{"error":{"code":"NOT_READY"}}'); }
+    if (path === "/internal/agent-ready/windows" && fs.existsSync("/tmp/windows-closed")) { res.writeHead(503, { "content-type": "application/json" }); return res.end('{"error":{"code":"NOT_READY"}}'); }
     if (uri.includes("NoktaDestek-Yanlis-")) { res.writeHead(404, { "content-type": "application/json" }); return res.end('{"error":{"code":"REQUEST_REF_INVALID"}}'); }
     if (uri.includes("NoktaDestek-Kapali-")) { res.writeHead(503, { "content-type": "application/json" }); return res.end('{"error":{"code":"NOT_READY"}}'); }
     res.writeHead(204); return res.end();
@@ -83,6 +91,7 @@ for _ in $(seq 1 50); do curl -s -o /dev/null "$B/downloads/x" && break; sleep 0
 WANT="$(cat "$TMP/dl/NoktaDestek.exe")"
 fa_count() { docker exec "$P-server" sh -c 'cat /tmp/fa.log 2>/dev/null | wc -l' | tr -d ' '; }
 fa_last() { docker exec "$P-server" sh -c 'tail -1 /tmp/fa.log'; }
+fa_path() { docker exec "$P-server" sh -c 'tail -1 /tmp/fa-path.log'; }
 
 echo "== firma dosyası (P8b)"
 H="$(curl -s -D - -o "$TMP/out" "$B/downloads/$FIRM.exe?utm=1")"
@@ -91,6 +100,7 @@ CODE="$(printf '%s' "$H" | head -1 | awk '{print $2}')"
 printf '%s' "$H" | grep -qi "^content-disposition: attachment; filename=\"$FIRM.exe\"" && pass "Content-Disposition firma adı" || fail "Content-Disposition"
 printf '%s' "$H" | grep -qi '^cache-control: no-store' && pass "Cache-Control no-store" || fail "Cache-Control"
 [ "$(fa_last)" = "{\"uri\":\"/downloads/$FIRM.exe\",\"method\":\"GET\"}" ] && pass "forward_auth X-Forwarded-Uri = yol (sorgu dizesi yok)" || fail "forward_auth uri: $(fa_last)"
+[ "$(fa_path)" = /internal/agent-ready/windows ] && pass "firma dosyası → /internal/agent-ready/windows" || fail "firma kapı yolu: $(fa_path)"
 cp "$TMP/out" "$TMP/out1"
 FIRM2="NoktaDestek-IkinciFirma2-$REF2"
 H="$(curl -s -D - -o "$TMP/out2" "$B/downloads/$FIRM2.exe")"
@@ -108,7 +118,9 @@ echo "== biçim dışı adlar server'a gitmez (404)"
 N0="$(fa_count)"
 for bad in "NoktaDestek-ABCDEFGHIJKLMNOPQRSTU-$REF.exe" "NoktaDestek-Demo-ABCDEFGHIJKLMN27.exe" \
   "NoktaDestek-Demo-abcdefghijklmn18.exe" "NoktaDestek-Demo-abcdefghijklmn2.exe" "NoktaDestek-Demo_1-$REF.exe" \
-  "NoktaDestek--$REF.exe" "x/$FIRM.exe" "$FIRM.exe.zip" "nokta$FIRM.exe" "Destek-1234567.exe"; do
+  "NoktaDestek--$REF.exe" "x/$FIRM.exe" "$FIRM.exe.zip" "nokta$FIRM.exe" "Destek-1234567.exe" \
+  "Destek-1234567.zip" "Destek-123456789.zip" "$FIRM.zip" "NoktaDestek.zip" "NoktaDestek-macos.zip" "NoktaDestek-macOS.exe" \
+  "Destek-12345678.ZIP" "x/NoktaDestek-macOS.zip"; do
   CODE="$(curl -s -o /dev/null -w '%{http_code}' "$B/downloads/$bad")"
   [ "$CODE" = 404 ] && pass "404 $bad" || fail "$bad → $CODE"
 done
@@ -119,7 +131,36 @@ for n in NoktaDestek Destek-12345678; do
   CODE="$(curl -s -o "$TMP/out" -w '%{http_code}' "$B/downloads/$n.exe")"
   [ "$CODE" = 200 ] && [ "$(cat "$TMP/out")" = "$WANT" ] && pass "$n.exe → 200" || fail "$n.exe → $CODE"
   [ "$(fa_last)" = '{"uri":"/downloads/***","method":"GET"}' ] && pass "$n.exe: server'a ad gitmez" || fail "$n uri: $(fa_last)"
+  [ "$(fa_path)" = /internal/agent-ready/windows ] && pass "$n.exe → /internal/agent-ready/windows" || fail "$n.exe kapı yolu: $(fa_path)"
 done
+
+echo "== P28f macOS zip (S-P28f-3)"
+WANTZ="$(cat "$TMP/dl/NoktaDestek-macOS.zip")"
+for n in NoktaDestek-macOS Destek-12345678; do
+  H="$(curl -s -D - -o "$TMP/out" "$B/downloads/$n.zip?x=1")"
+  CODE="$(printf '%s' "$H" | head -1 | awk '{print $2}')"
+  [ "$CODE" = 200 ] && [ "$(cat "$TMP/out")" = "$WANTZ" ] && pass "$n.zip → 200, aynı zip" || fail "$n.zip → $CODE"
+  HL="$(printf '%s' "$H" | tr -d '\r')"
+  printf '%s' "$HL" | grep -qi "^content-disposition: attachment; filename=\"$n.zip\"$" && pass "$n.zip Content-Disposition" || fail "$n.zip Content-Disposition"
+  printf '%s' "$HL" | grep -qi '^content-type: application/zip$' && pass "$n.zip Content-Type application/zip" || fail "$n.zip Content-Type"
+  printf '%s' "$HL" | grep -qi '^cache-control: no-store$' && pass "$n.zip no-store" || fail "$n.zip Cache-Control"
+  printf '%s' "$HL" | grep -qi '^x-content-type-options: nosniff$' && pass "$n.zip nosniff" || fail "$n.zip nosniff"
+  [ "$(fa_last)" = '{"uri":"/downloads/***","method":"GET"}' ] && pass "$n.zip: server'a ad gitmez" || fail "$n.zip uri: $(fa_last)"
+  [ "$(fa_path)" = /internal/agent-ready/macos ] && pass "$n.zip → /internal/agent-ready/macos" || fail "$n.zip kapı yolu: $(fa_path)"
+done
+docker exec "$P-server" touch /tmp/macos-closed
+CODE="$(curl -s -o "$TMP/out" -w '%{http_code}' "$B/downloads/Destek-12345678.zip")"
+[ "$CODE" = 503 ] && ! grep -q PK-sahte "$TMP/out" && pass "mac kapısı 503 → zip sunulmaz" || fail "mac kapısı kapalı: $CODE"
+CODE="$(curl -s -o "$TMP/out" -w '%{http_code}' "$B/downloads/Destek-12345678.exe")"
+[ "$CODE" = 200 ] && [ "$(cat "$TMP/out")" = "$WANT" ] && pass "mac kapısı kapalıyken exe sunulur (çapraz)" || fail "mac kapalı exe: $CODE"
+docker exec "$P-server" sh -c 'rm -f /tmp/macos-closed && touch /tmp/windows-closed'
+CODE="$(curl -s -o "$TMP/out" -w '%{http_code}' "$B/downloads/Destek-12345678.exe")"
+[ "$CODE" = 503 ] && ! grep -q MZ-sahte "$TMP/out" && pass "windows kapısı 503 → exe sunulmaz" || fail "windows kapısı kapalı: $CODE"
+CODE="$(curl -s -o "$TMP/out" -w '%{http_code}' "$B/downloads/$FIRM.exe")"
+[ "$CODE" = 503 ] && ! grep -q MZ-sahte "$TMP/out" && pass "windows kapısı 503 → firma exe sunulmaz" || fail "windows kapalı firma: $CODE"
+CODE="$(curl -s -o "$TMP/out" -w '%{http_code}' "$B/downloads/NoktaDestek-macOS.zip")"
+[ "$CODE" = 200 ] && [ "$(cat "$TMP/out")" = "$WANTZ" ] && pass "windows kapısı kapalıyken zip sunulur (çapraz)" || fail "windows kapalı zip: $CODE"
+docker exec "$P-server" rm -f /tmp/windows-closed
 
 echo "== WebSocket (/ws/request, /ws/panel)"
 for w in request panel; do
@@ -189,7 +230,7 @@ printf '%s' "$H" | grep -qi '^server:' && fail "Server başlığı var" || pass 
 printf '%s' "$H" | tr -d '\r' | grep -qi '^x-content-type-options: nosniff$' && pass "X-Content-Type-Options nosniff" || fail "nosniff yok"
 
 echo "== ops uçları dışarıya kapalı"
-for u in /internal/agent-ready /metrics /ready; do
+for u in /internal/agent-ready /internal/agent-ready/windows /internal/agent-ready/macos /metrics /ready; do
   CODE="$(curl -s -o /dev/null -w '%{http_code}' -H 'X-Forwarded-Method: GET' "$B$u")"
   [ "$CODE" = 404 ] && pass "$u → 404" || fail "$u → $CODE"
 done
@@ -232,6 +273,7 @@ docker logs "$P-caddy" >"$TMP/caddy.log" 2>&1
 grep -q '"logger":"http.log.error' "$TMP/caddy.log" && pass "hata logu satırı üretildi (filtre sınanıyor)" || fail "hata logu satırı yok"
 grep -q '"uri":"/downloads/NoktaDestek-\*\*\*"' "$TMP/caddy.log" && pass "erişim logu /downloads/NoktaDestek-***" || fail "maskeli firma yolu logda yok"
 grep -q '"uri":"/downloads/NoktaDestek.exe"' "$TMP/caddy.log" && pass "kodsuz ad maskelenmez (NoktaDestek.exe)" || fail "NoktaDestek.exe logda yok"
+grep -q '"uri":"/downloads/Destek-\*\*\*"' "$TMP/caddy.log" && pass "P28f: Destek-<kod>.zip/.exe erişim logunda /downloads/Destek-***" || fail "maskeli Destek yolu logda yok"
 grep -q '"uri":"/api/v1/files/avatar/T1/abcdefghijklmnop.webp"' "$TMP/caddy.log" && pass "erişim logu /api/v1/files yolu sorgu dizesiz" || fail "/api/v1/files log satırı"
 grep '"logger":"http.log.access' "$TMP/caddy.log" | grep -q '"uri":"/r/\*\*\*/bekle"' && pass "P19 erişim logu /r/***/bekle" || fail "P19 erişim logu /r/*** yok"
 grep '"logger":"http.log.error' "$TMP/caddy.log" | grep -q '"uri":"/r/\*\*\*"' && pass "P19 hata logu (varsayılan logger) /r/***" || fail "P19 hata logu /r/*** yok"

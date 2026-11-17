@@ -1,4 +1,4 @@
-package ui
+package uicore
 
 import (
 	"bytes"
@@ -23,7 +23,7 @@ var (
 )
 
 // systemLogo gömülü logoyu bir kez çözer; çözülemezse nil (alan boş kalır).
-func systemLogo() image.Image {
+func SystemLogo() image.Image {
 	systemLogoOnce.Do(func() {
 		if img, err := png.Decode(bytes.NewReader(systemLogoPNG)); err == nil {
 			systemLogoImg = img
@@ -32,10 +32,10 @@ func systemLogo() image.Image {
 	return systemLogoImg
 }
 
-// fitBGR resmi en-boy oranını koruyarak w×h kutusuna sığdırır (alan ortalaması ile küçültme, büyütme yok), soldan
+// FitBGR resmi en-boy oranını koruyarak w×h kutusuna sığdırır (alan ortalaması ile küçültme, büyütme yok), soldan
 // hizalı ve dikeyde ortalı yerleştirir, saydam pikselleri bg üzerine karıştırır. Çıktı yukarıdan aşağı 24 bit BGR,
 // satır başına `(w*3+3)&^3` bayt (Win32 DIB düzeni).
-func fitBGR(img image.Image, w, h int, bg color.RGBA) []byte {
+func FitBGR(img image.Image, w, h int, bg color.RGBA) []byte {
 	stride := (w*3 + 3) &^ 3
 	out := make([]byte, stride*h)
 	for y := 0; y < h; y++ {

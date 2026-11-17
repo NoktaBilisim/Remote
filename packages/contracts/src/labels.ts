@@ -6,6 +6,7 @@ import type {
   ConsentDecision,
   ConsentLevel,
   ConsentRecordSource,
+  JoinAuditOs,
   SessionEndedBy,
   SessionMode,
   SessionSource,
@@ -173,6 +174,18 @@ export const CONSENT_SOURCE_LABELS: Readonly<Record<ConsentRecordSource, string>
   UNATTENDED: "Gözetimsiz erişim (otomatik)",
 };
 
+/** P28f (§4.2, AC-391): `control.cancelled{by:"agent", source:"os_permission"}` — macOS Erişilebilirlik izni yok. */
+export const OS_PERMISSION_CANCELLED = "Müşteri erişilebilirlik izni vermedi";
+
+/** P28f (§4.1, S-P28f-15): `guest.pending` `os` alanı — müşteri beyanı (doğrulanmaz). */
+export const CLIENT_OS_FIELD_LABEL = "İşletim sistemi (beyan)";
+export const CLIENT_OS_LABELS: Readonly<Record<JoinAuditOs, string>> = {
+  windows: "Windows",
+  macos: "macOS",
+  linux: "Linux",
+  browser: "Tarayıcı",
+};
+
 /** `control.revoked` (SYSTEM kaynağı) `reason` etiketi (§3 tablo). */
 export const CONTROL_REVOKE_REASON_LABELS: Readonly<Record<string, string>> = {
   permission: "Teknisyen yetkisi kaldırıldı",
@@ -308,6 +321,7 @@ export function describeTimelineEvent(ev: Pick<TimelineEvent, "action" | "detail
       return plain(reason ? labelOf(CONTROL_REVOKE_REASON_LABELS, reason) : base);
     }
     case "control.cancelled":
+      if (str(d.by) === "agent" && str(d.source) === "os_permission") return plain(OS_PERMISSION_CANCELLED);
       return plain(str(d.by) === "agent" ? "İstek müşteri tarafında bağlantı kesilince kapandı" : base);
     case "monitor.requested":
     case "monitor.granted":

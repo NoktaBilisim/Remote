@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"runtime"
 	"sync/atomic"
 	"testing"
 )
@@ -33,7 +34,8 @@ func TestAC14ResolveSendsAgentKindWithoutOrigin(t *testing.T) {
 		}
 		var body map[string]any
 		_ = json.NewDecoder(r.Body).Decode(&body)
-		if body["clientKind"] != "AGENT" || body["code"] != "12345678" || body["clientVersion"] != "1.0.0" || len(body) != 3 {
+		if body["clientKind"] != "AGENT" || body["code"] != "12345678" || body["clientVersion"] != "1.0.0" ||
+			body["clientOs"] != clientOS(runtime.GOOS) || len(body) != 4 {
 			t.Errorf("gövde %v", body)
 		}
 		_, _ = w.Write([]byte(`{"sessionRef":"r","tenant":{"name":"Nokta","logoUrl":"/l.png"},"technician":{"name":"Ali"},
@@ -47,6 +49,15 @@ func TestAC14ResolveSendsAgentKindWithoutOrigin(t *testing.T) {
 	}
 	if res.JoinNonce != "n1" || res.Technician.Name != "Ali" || res.ConsentText.Version != 2 || res.AbuseEmail != nil {
 		t.Fatalf("yanıt %+v", res)
+	}
+}
+
+// P28f (mimari-p28f §4.1): GOOS → contracts CLIENT_OS; bilinmeyen platform alan göndermez (400 yerine "windows" sayılır).
+func TestP28fResolveClientOSMapping(t *testing.T) {
+	for goos, want := range map[string]string{"windows": "windows", "darwin": "macos", "linux": "linux", "freebsd": "", "": ""} {
+		if got := clientOS(goos); got != want {
+			t.Errorf("clientOS(%q) = %q, beklenen %q", goos, got, want)
+		}
 	}
 }
 

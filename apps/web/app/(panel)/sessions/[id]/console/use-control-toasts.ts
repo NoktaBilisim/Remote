@@ -30,6 +30,8 @@ function phaseToast(p: ControlState, c: ControlState, toast: ReturnType<typeof u
   else if (p.phase !== "denied" && c.phase === "denied") toast(t("p7.toast.denied"), "danger");
   // Teknisyenin kendi bırakması/iptali bildirim üretmez (not satırında yazar)
   else if (p.phase === "granted" && c.phase !== "granted" && c.endedBy && c.endedBy !== "tech") toast(t(`p7.end.${c.endedBy}`), "danger");
+  // P28f AC-391: macOS müşteride Erişilebilirlik izni yok — not satırı dar şeritte kısalabilir, tam metin bildirimde
+  else if (p.phase === "requested" && c.phase === "ended" && c.endedBy === "osPermission") toast(t("p7.end.osPermission"), "info");
 }
 
 function monitorToast(p: ControlState, c: ControlState, toast: ReturnType<typeof useToast>) {

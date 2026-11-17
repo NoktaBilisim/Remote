@@ -8,6 +8,7 @@ import (
 	"golang.org/x/sys/windows"
 
 	"remote-support/agent-win/internal/flow"
+	"remote-support/agent-win/internal/ui/uicore"
 	"remote-support/agent-win/internal/win"
 )
 
@@ -32,7 +33,7 @@ const (
 func (u *UI) VoiceAsk(a flow.VoiceAsk) {
 	u.t.Do(func() {
 		if d := u.voiceDlg; d != nil && !d.decided && u.voiceAskID == a.CallID {
-			win.SetText(d.body.h, voiceAskBody(a))
+			win.SetText(d.body.h, uicore.VoiceAskBody(a))
 			return
 		}
 		closeDlg(u.voiceDlg)
@@ -41,7 +42,7 @@ func (u *UI) VoiceAsk(a flow.VoiceAsk) {
 		u.voiceDlg = u.newConsent(consentSpec{
 			title:     flow.VoiceTexts.DialogTitle,
 			heading:   fmt.Sprintf(flow.VoiceTexts.RequestTitle, a.Name),
-			body:      voiceAskBody(a),
+			body:      uicore.VoiceAskBody(a),
 			grantText: flow.VoiceTexts.Accept,
 			denyText:  flow.VoiceTexts.Reject,
 			hotkeyOK:  true, // kısayol koşulu yalnız kontrol diyaloğunda (G-21)
@@ -86,15 +87,15 @@ func (u *UI) VoiceBar(v flow.VoiceView) {
 		}
 		// Gösterge pencere durumundan bağımsız: oturum penceresi yoksa/bittiyse de şerit çizilir (O-PD-3 güvenli yön).
 		if u.vstrip == nil {
-			u.vstrip = newStrip(u.t, voiceIndicator(u.voiceMuted), voiceStripTop, nil)
+			u.vstrip = newStrip(u.t, uicore.VoiceIndicator(u.voiceMuted), voiceStripTop, nil)
 		} else {
-			u.vstrip.setText(voiceIndicator(u.voiceMuted))
+			u.vstrip.setText(uicore.VoiceIndicator(u.voiceMuted))
 		}
 		if live {
-			win.SetText(s.voiceLbl.h, voiceRowText(v))
-			win.SetText(s.voiceMute.h, voiceMuteText(u.voiceMuted))
+			win.SetText(s.voiceLbl.h, uicore.VoiceRowText(v))
+			win.SetText(s.voiceMute.h, uicore.VoiceMuteText(u.voiceMuted))
 			showVoiceRow(s, true)
-			for _, line := range voiceAnnouncements(v.Announce) {
+			for _, line := range uicore.VoiceAnnouncements(v.Announce) {
 				appendLine(s.history, "Sistem", line)
 			}
 		}
@@ -120,7 +121,7 @@ func (u *UI) VoiceEnd() { u.emit(flow.Event{Kind: flow.EvVoiceEnd}) }
 
 // newVoiceRow ses satırı denetimleri (gizli): iki satırlık gösterge etiketi + "Sessize al" + "Görüşmeyi bitir".
 func (s *sessionWin) newVoiceRow(f *form, y int32) {
-	s.voiceLbl = f.danger("", 16, y, 184, voiceRowH-2, fontNormal)
+	s.voiceLbl = f.danger("", 16, y, 184, uicore.VoiceRowH-2, fontNormal)
 	s.voiceMute = f.button(flow.VoiceTexts.Mute, idVoiceMute, 204, y+2, 104, false)
 	s.voiceEnd = f.button(flow.VoiceTexts.End, idVoiceEnd, 312, y+2, 112, false)
 	showVoiceRow(s, false)

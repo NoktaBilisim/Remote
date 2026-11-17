@@ -74,7 +74,7 @@ func truncate(name string) string {
 	return trimTrailing(string(cps[:NameMax-len(ext)])) + string(ext)
 }
 
-// dangerousExt AC-36 (rev.) + S-P5-7 + S6-8 listesi; contracts `DANGEROUS_EXT` ile birebir aynı
+// dangerousExt AC-36 (rev.) + S-P5-7 + S6-8 + S-P28f-9 (macOS türleri; liste platformdan bağımsız) listesi; contracts `DANGEROUS_EXT` ile birebir aynı
 // (TestS68DangerousExtMatchesContracts kaynak dosyadan karşılaştırır).
 var dangerousExt = map[string]struct{}{}
 
@@ -83,7 +83,9 @@ func init() {
 		com pif reg scf url chm iso img vhd vhdx appx msix appinstaller application xll docm xlsm
 		vbe jse ws wsh msp mst inf ps1xml psc1 psd1 settingcontent-ms library-ms
 		searchconnector-ms appref-ms gadget xbap xlam xla pptm dotm html htm mht mhtml svg
-		one onepkg wsc sct diagcab website ade adp mde mshxml jnlp cab`) {
+		one onepkg wsc sct diagcab website ade adp mde mshxml jnlp cab
+		command tool app pkg mpkg dmg scpt scptd applescript terminal webloc inetloc fileloc workflow action
+		mobileconfig kext dylib bundle plugin prefpane osax zsh bash csh ksh py rb pl saver`) {
 		dangerousExt[e] = struct{}{}
 	}
 }
@@ -124,12 +126,17 @@ const (
 	WarnDoubleExtension Warning = "double_extension"
 )
 
-// NameWarning AC-36: çift uzantı ayrıca vurgulanır.
+// IsHiddenName S-P28f-9: baştaki noktalı (gizli; `.zshrc`, `.bash_profile`) ad — kabuk başlangıç dosyası olabilir.
+func IsHiddenName(name string) bool {
+	return strings.HasPrefix(name, ".")
+}
+
+// NameWarning AC-36: çift uzantı ayrıca vurgulanır; gizli ad `dangerous` (S-P28f-9; contracts fileNameWarning eşi).
 func NameWarning(name string) Warning {
 	if IsDoubleExtension(name) {
 		return WarnDoubleExtension
 	}
-	if IsDangerousExtension(name) {
+	if IsDangerousExtension(name) || IsHiddenName(name) {
 		return WarnDangerous
 	}
 	return WarnNone

@@ -1,4 +1,4 @@
-package ui
+package uicore
 
 import (
 	"fmt"
@@ -9,9 +9,9 @@ import (
 
 // P28d sesli görüşme metinleri (platformsuz; Win32 çizimi voice_windows.go). Kaynak flow.VoiceTexts (mimari-p28d §8).
 
-// voiceAskBody kabul diyaloğu gövdesi: açıklama, (varsa) dinleyecekler, kulaklık önerisi. Aynı callId'de yerinde
+// VoiceAskBody kabul diyaloğu gövdesi: açıklama, (varsa) dinleyecekler, kulaklık önerisi. Aynı callId'de yerinde
 // güncellenir (dinleyecekler değişebilir).
-func voiceAskBody(a flow.VoiceAsk) string {
+func VoiceAskBody(a flow.VoiceAsk) string {
 	lines := []string{flow.VoiceTexts.RequestBody}
 	if len(a.Listeners) > 0 {
 		lines = append(lines, fmt.Sprintf(flow.VoiceTexts.RequestListeners, strings.Join(a.Listeners, ", ")))
@@ -20,17 +20,17 @@ func voiceAskBody(a flow.VoiceAsk) string {
 	return strings.Join(lines, "\r\n")
 }
 
-// voiceIndicator gösterge metni ("● Mikrofon açık" / "● Sessizde"): her zaman üstte şerit ve oturum penceresi satırı.
-func voiceIndicator(muted bool) string {
+// VoiceIndicator gösterge metni ("● Mikrofon açık" / "● Sessizde"): her zaman üstte şerit ve oturum penceresi satırı.
+func VoiceIndicator(muted bool) string {
 	if muted {
 		return flow.VoiceTexts.MicMuted
 	}
 	return flow.VoiceTexts.MicOn
 }
 
-// voiceRowText oturum penceresindeki ses satırı: gösterge · Konuşan: … · Dinleyen: … (dinleyen yoksa yok).
-func voiceRowText(v flow.VoiceView) string {
-	parts := []string{voiceIndicator(v.Muted)}
+// VoiceRowText oturum penceresindeki ses satırı: gösterge · Konuşan: … · Dinleyen: … (dinleyen yoksa yok).
+func VoiceRowText(v flow.VoiceView) string {
+	parts := []string{VoiceIndicator(v.Muted)}
 	if len(v.Talkers) > 0 {
 		parts = append(parts, fmt.Sprintf(flow.VoiceTexts.Talkers, strings.Join(v.Talkers, ", ")))
 	}
@@ -40,16 +40,16 @@ func voiceRowText(v flow.VoiceView) string {
 	return strings.Join(parts, " · ")
 }
 
-// voiceMuteText "Sessize al" ↔ "Mikrofonu aç" düğmesi.
-func voiceMuteText(muted bool) string {
+// VoiceMuteText "Sessize al" ↔ "Mikrofonu aç" düğmesi.
+func VoiceMuteText(muted bool) string {
 	if muted {
 		return flow.VoiceTexts.Unmute
 	}
 	return flow.VoiceTexts.Mute
 }
 
-// voiceAnnouncements Y-PD-3: yeni dinleyiciler için sohbet "Sistem" satırları ("<Ad> görüşmeyi dinlemeye başladı").
-func voiceAnnouncements(names []string) []string {
+// VoiceAnnouncements Y-PD-3: yeni dinleyiciler için sohbet "Sistem" satırları ("<Ad> görüşmeyi dinlemeye başladı").
+func VoiceAnnouncements(names []string) []string {
 	out := make([]string, 0, len(names))
 	for _, n := range names {
 		out = append(out, fmt.Sprintf(flow.VoiceTexts.NewListener, n))

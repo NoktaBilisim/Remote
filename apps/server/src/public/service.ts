@@ -2,7 +2,7 @@
 // (bellekte, aynı senkron adımda kontrol + silme) → checkPublicClient(nonce.kind) → oturum PENDING ve süresi
 // dolmamış mı (yalnız okuma — tüketim admit'te) → lobiye TICKETED misafir + wsTicket + admitCode. Audit guest.pending.
 import type { GuestKind } from "@remote/contracts/ws";
-import type { JoinSessionInput, JoinSessionResponse } from "@remote/contracts/api/sessions";
+import type { ClientOs, JoinAuditOs, JoinSessionInput, JoinSessionResponse } from "@remote/contracts/api/sessions";
 import type { ErrorCode } from "@remote/contracts/errors";
 import { writeAudit, type AuditContext } from "../audit/service.ts";
 import type { Db } from "../lib/db.ts";
@@ -22,14 +22,18 @@ const GONE: Partial<Record<string, ErrorCode>> = {
   CANCELLED: "SESSION_CANCELLED",
 };
 
+const joinAuditOs = (n: { kind: GuestKind; clientOs?: ClientOs }): JoinAuditOs =>
+  n.kind === "BROWSER" ? "browser" : (n.clientOs ?? "windows");
+
 /** Resolve başarılıysa çağrılır: 60 sn'lik, istemci türüne bağlı nonce (ADR-0012). */
 export function issueJoinNonce(
   rooms: Rooms,
   sessionId: string,
   kind: GuestKind,
-  clientVersion?: string,
+  agent?: { clientVersion: string; clientOs: ClientOs },
 ): { joinNonce: string; nonceExpiresAt: string } {
-  const { token, expiresAt } = rooms.nonces.issue({ sessionId, kind, ...(clientVersion ? { clientVersion } : {}) });
+  // P28f (§4.1): sürüm ve işletim sistemi beyanı nonce kaydında; join'de yeniden alınmaz.
+  const { token, expiresAt } = rooms.nonces.issue({ sessionId, kind, ...(agent ?? {}) });
   return { joinNonce: token, nonceExpiresAt: new Date(expiresAt).toISOString() };
 }
 
@@ -82,6 +86,7 @@ export async function joinPublicSession(
       ipKey: ip,
       netKey: netKey(ctx.ip),
       ...(nonce.clientVersion ? { clientVersion: nonce.clientVersion } : {}),
+      ...(nonce.clientOs ? { clientOs: nonce.clientOs } : {}),
       consent,
     });
   } catch (err) {
@@ -96,7 +101,14 @@ export async function joinPublicSession(
     entityId: row.id,
     result: "success",
     // S-P13a-1: ad audit'e yazılmaz (oturum satırında; saklama işiyle silinir). Zaman çizelgesi adı oturumdan alır.
-    newValue: { guestId: g.guestId, guestKind: nonce.kind, consentTextId: consent.textId, consentVersion: String(consent.version) },
+    // P28f (§4.1): `os` beyan etiketi — AGENT'ta nonce'taki clientOs (yoksa windows), BROWSER'da browser.
+    newValue: {
+      guestId: g.guestId,
+      guestKind: nonce.kind,
+      os: joinAuditOs(nonce),
+      consentTextId: consent.textId,
+      consentVersion: String(consent.version),
+    },
   });
   return { wsTicket: g.wsTicket, admitCode: g.admitCode, technicianName: row.technician.fullName };
 }

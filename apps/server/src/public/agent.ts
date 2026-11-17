@@ -1,7 +1,8 @@
-// GET /public/agent/download?ref= servis katmanı (P6, mimari-api public tablosu — bağlayıcı, P3 giriş şartı 1; AC-27,
+// GET /public/agent/download?ref=&os= ve /availability servis katmanı (P6, mimari-api public tablosu — bağlayıcı, P3 giriş şartı 1; AC-27,
 // ADR-0006). Dosya adı kodu taşıdığından süresiz sessionRef kodla eşdeğer bir gizlidir: yalnız PENDING + süresi
 // dolmamış oturumda yanıt verilir; geçersiz ref ve 410 kod yolu kovalarına (ipKey 10/dk + prefixKey 30/dk, aşımda
 // 15 dk 429) başarısız deneme sayılır; ayrıca tüm istekler ipKey 20/dk. ref ve kod loga/audit'e yazılmaz (G-10).
+import type { AgentAvailabilityResponse, AgentDownloadOs } from "@remote/contracts/api/sessions";
 import type { AuditContext } from "../audit/service.ts";
 import type { Db } from "../lib/db.ts";
 import { AppError } from "../lib/errors.ts";
@@ -13,7 +14,8 @@ import { expireSession } from "../sessions/service.ts";
 import type { AgentBinary } from "./agent-binary.ts";
 
 /** Caddy'nin tek jenerik ikiliyi `Content-Disposition: attachment` ile sunduğu sabit konum (deploy/Caddyfile). */
-export const agentDownloadLocation = (code: string): string => `/downloads/Destek-${code}.exe`;
+export const agentDownloadLocation = (code: string, os: AgentDownloadOs = "windows"): string =>
+  `/downloads/Destek-${code}.${os === "macos" ? "zip" : "exe"}`;
 
 const UNAVAILABLE = "İndirme şu anda kullanılamıyor. Biraz sonra tekrar deneyin ya da tarayıcıdan paylaşımı kullanın.";
 
@@ -21,15 +23,25 @@ interface AgentDownloadDeps {
   db: Db;
   limits: PublicLimits;
   refKey: string;
-  binary: AgentBinary;
+  /** P28f (§4.1): platform başına ikili kapısı; yalnız istenen platformunki uygulanır. */
+  binaries: Record<AgentDownloadOs, AgentBinary>;
 }
 
-/** Geçerliyse yönlendirme konumu; aksi halde tipli hata (404/410/429/503). `ref` null = biçimsiz/eksik. */
-export async function agentDownload(deps: AgentDownloadDeps, ctx: AuditContext, ref: string | null): Promise<string> {
+/**
+ * Geçerliyse yönlendirme konumu; aksi halde tipli hata (400/404/410/429/503). `ref` null = biçimsiz/eksik; `os` null =
+ * geçersiz platform → 400 VALIDATION, ref kovası tüketilmez (yalnız ipKey 20/dk; S-P28f-15).
+ */
+export async function agentDownload(
+  deps: AgentDownloadDeps,
+  ctx: AuditContext,
+  ref: string | null,
+  os: AgentDownloadOs | null,
+): Promise<{ location: string; os: AgentDownloadOs }> {
   const { db, limits } = deps;
   const ip = ipKey(ctx.ip);
   const prefix = prefixKey(ctx.ip);
   consume(limits.downloadIp, ip, 60);
+  if (os === null) throw new AppError("VALIDATION", { message: "Geçersiz işletim sistemi." });
   assertLookupAllowed(limits, ip, prefix);
   const fail = (code: "NOT_FOUND" | NonNullable<(typeof GONE)[string]>): AppError => {
     countFailedLookup(limits, ip, prefix); // eşik aşıldıysa 429 fırlatır
@@ -47,8 +59,21 @@ export async function agentDownload(deps: AgentDownloadDeps, ctx: AuditContext, 
   const gone = GONE[row.status];
   if (gone) throw fail(gone);
   if (!row.activeCode) throw fail("NOT_FOUND"); // PENDING'de kod CHECK ile dolu; savunma
-  await assertAgentReady(deps.binary);
-  return agentDownloadLocation(row.activeCode);
+  await assertAgentReady(deps.binaries[os]);
+  return { location: agentDownloadLocation(row.activeCode, os), os };
+}
+
+/** P28f (§4.1): karşılama sayfası indirme düğmesini yalnız kapı `ok` iken gösterir (AC-390). ipKey 30/dk. */
+export async function agentAvailability(
+  limits: PublicLimits,
+  ctx: AuditContext,
+  binaries: Record<AgentDownloadOs, AgentBinary>,
+  production: boolean,
+): Promise<AgentAvailabilityResponse> {
+  consume(limits.availabilityIp, ipKey(ctx.ip), 60);
+  const [windows, macos] = await Promise.all([binaries.windows.check(), binaries.macos.check()]);
+  // S-P28f-8: "Yine de Aç" rehberi yalnız staging (imzasız TEST zip'i); production'da hiçbir koşulda true değil.
+  return { windows: windows === "ok", macos: macos === "ok", macosTestBuild: !production && macos === "ok" };
 }
 
 /** Bütünlük kapısı (G-07, S6-2): ikili AGENT_SHA256 ile eşleşmiyorsa / yoksa / yapılandırılmamışsa 503 NOT_READY. */

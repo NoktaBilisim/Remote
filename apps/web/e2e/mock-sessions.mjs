@@ -260,7 +260,12 @@ export async function handleSessions(req, res, { url, session, csrfOk, send, err
     tickets.set(wsTicket, { rec, name, admitCode });
     return (send(res, 200, { wsTicket, admitCode, technicianName: rec.view.technician.name }), true);
   }
+  // P28f (AC-390): platform başına ikili kapısı. Senaryolar tarayıcıda page.route ile ezilir (false / 429 / 500).
+  if (path === "/api/v1/public/agent/availability" && req.method === "GET")
+    return (send(res, 200, { windows: true, macos: true, macosTestBuild: false }, [], { "Cache-Control": "public, max-age=60" }), true);
   if (path === "/api/v1/public/agent/download" && req.method === "GET") {
+    const os = q.get("os") ?? "windows";
+    if (os !== "windows" && os !== "macos") return (send(res, 400, err("VALIDATION", "Geçersiz istek.")), true);
     const rec = byRef.get(q.get("ref") ?? "");
     if (!rec) return (send(res, 404, err("NOT_FOUND", "Bulunamadı."), [], { "Cache-Control": "no-store" }), true);
     if (rec.agent === "notReady")
@@ -278,14 +283,19 @@ export async function handleSessions(req, res, { url, session, csrfOk, send, err
       return (send(res, 410, err("SESSION_CANCELLED", "Oturum iptal edildi.")), true);
     if (rec.view.status === "EXPIRED") return (send(res, 410, err("SESSION_EXPIRED", "Süresi doldu.")), true);
     if (rec.view.status !== "PENDING") return (send(res, 410, err("SESSION_CONSUMED", "Bu bağlantı zaten kullanıldı.")), true);
-    res.writeHead(302, { Location: `${DOWNLOAD_BASE}/downloads/Destek-${rec.view.code}.exe`, "Cache-Control": "no-store" });
+    const ext = os === "macos" ? "zip" : "exe";
+    res.writeHead(302, { Location: `${DOWNLOAD_BASE}/downloads/Destek-${rec.view.code}.${ext}`, "Cache-Control": "no-store" });
     res.end();
     return true;
   }
-  const dl = path.match(/^\/downloads\/(Destek-\d{8}\.exe)$/);
+  const dl = path.match(/^\/downloads\/(Destek-\d{8}\.(exe|zip))$/);
   if (dl && req.method === "GET") {
-    res.writeHead(200, { "Content-Type": "application/octet-stream", "Content-Disposition": `attachment; filename="${dl[1]}"` });
-    res.end("MZ-e2e");
+    const zip = dl[2] === "zip";
+    res.writeHead(200, {
+      "Content-Type": zip ? "application/zip" : "application/octet-stream",
+      "Content-Disposition": `attachment; filename="${dl[1]}"`,
+    });
+    res.end(zip ? "PK-e2e" : "MZ-e2e");
     return true;
   }
   if (path === "/api/v1/public/sessions/status" && req.method === "GET") {

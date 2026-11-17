@@ -45,3 +45,12 @@ func TestAC128FingerprintIsFirst8HexOfSHA256(t *testing.T) {
 		t.Fatalf("display %q", c.DisplayHost())
 	}
 }
+
+// P28f S-P28f-7: TEST derlemesi yalnız `-X config.testBuild=1` ile; başka değer TEST sayılmaz.
+func TestP28fTestBuildFlag(t *testing.T) {
+	for v, want := range map[string]bool{"1": true, "": false, "0": false, "true": false, " 1": false} {
+		if got := isTestBuild(v); got != want {
+			t.Errorf("isTestBuild(%q) = %v, beklenen %v", v, got, want)
+		}
+	}
+}

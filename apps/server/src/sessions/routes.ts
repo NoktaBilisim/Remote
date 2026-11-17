@@ -211,7 +211,7 @@ export async function publicSessionRoutes(app: FastifyInstance): Promise<void> {
       app.sessionRefKey,
       auditContext(req),
       input,
-      (id, kind, version) => issueJoinNonce(app.rooms, id, kind, version),
+      (id, kind, agent) => issueJoinNonce(app.rooms, id, kind, agent),
       {
         fromEnv: app.env.ABUSE_EMAIL,
         superAdminFallback: app.env.NODE_ENV !== "production", // S-P4-1

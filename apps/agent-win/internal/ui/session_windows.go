@@ -11,6 +11,7 @@ import (
 	"remote-support/agent-win/internal/dc"
 	"remote-support/agent-win/internal/flow"
 	"remote-support/agent-win/internal/signal"
+	"remote-support/agent-win/internal/ui/uicore"
 	"remote-support/agent-win/internal/win"
 )
 
@@ -63,22 +64,22 @@ func (u *UI) newSessionWin(watchText string) *sessionWin {
 	height, endY = height+rosterH, endY+rosterH
 	// P28d: teknisyen listesi ile kayıt satırı arasında ses satırı; görüşme yokken gizli.
 	voiceY := endY
-	height, endY = height+voiceRowH, endY+voiceRowH
+	height, endY = height+uicore.VoiceRowH, endY+uicore.VoiceRowH
 	// P28e: "Oturumu bitir"in üstünde kayıt satırı (gösterge + Kaydı durdur + bilgi); kayıt yokken gizli.
 	recY := endY
 	height, endY = height+recRow, endY+recRow
 	f := u.t.newForm(appTitle+" — Oturum", 440, height, false)
-	// P28c: 768 px ekranda sığmazsa sohbet geçmişi kısalır, altındaki her şey yukarı kayar (chatSqueeze).
+	// P28c: 768 px ekranda sığmazsa sohbet geçmişi kısalır, altındaki her şey yukarı kayar (uicore.ChatSqueeze).
 	wa := primaryWork()
 	_, winH := f.size()
-	sq := chatSqueeze(winH, wa.Bottom-wa.Top, int32(f.dpi))
+	sq := uicore.ChatSqueeze(winH, wa.Bottom-wa.Top, int32(f.dpi))
 	height, endY, techY, voiceY, recY, shift = height-sq, endY-sq, techY-sq, voiceY-sq, recY-sq, shift-sq
 	f.ch = height
 	s := &sessionWin{f: f}
 	s.watch = f.danger(watchText, 16, 14, 408, 22, fontBold)
 	s.status = f.label("Bağlantı kuruluyor…", 16, 40, 408, 36, fontNormal)
 	f.label("Sohbet", 16, 80, 408, 20, fontBold)
-	s.history = f.edit(0, 16, chatHistoryY, 408, chatHistoryH-sq, win.ES_MULTILINE|win.ES_READONLY|win.ES_AUTOVSCROLL|win.WS_VSCROLL, 0)
+	s.history = f.edit(0, 16, uicore.ChatHistoryY, 408, uicore.ChatHistoryH-sq, win.ES_MULTILINE|win.ES_READONLY|win.ES_AUTOVSCROLL|win.WS_VSCROLL, 0)
 	s.input = f.edit(idChatInput, 16, 306-sq, 316, 28, win.ES_AUTOHSCROLL, 2000)
 	s.sendBtn = f.button("Gönder", idOK, 338, 305-sq, 86, true)
 	if u.fileServer {

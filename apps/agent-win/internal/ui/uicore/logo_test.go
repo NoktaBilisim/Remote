@@ -1,4 +1,4 @@
-package ui
+package uicore
 
 import (
 	"image"
@@ -7,7 +7,7 @@ import (
 )
 
 func TestAC98SystemLogoEmbedded(t *testing.T) {
-	img := systemLogo()
+	img := SystemLogo()
 	if img == nil || img.Bounds().Dx() < 16 || img.Bounds().Dy() < 16 {
 		t.Fatalf("gömülü sistem logosu çözülemedi: %v", img)
 	}
@@ -23,7 +23,7 @@ func TestAC98FitBGRKeepsAspectAndBlendsAlpha(t *testing.T) {
 		}
 	}
 	w, h := 100, 40
-	out := fitBGR(src, w, h, bg)
+	out := FitBGR(src, w, h, bg)
 	stride := (w*3 + 3) &^ 3
 	if len(out) != stride*h {
 		t.Fatalf("uzunluk %d", len(out))
@@ -44,7 +44,7 @@ func TestAC98FitBGRKeepsAspectAndBlendsAlpha(t *testing.T) {
 }
 
 func TestAC98FitBGRNilAndSmall(t *testing.T) {
-	out := fitBGR(nil, 3, 2, color.RGBA{R: 1, G: 2, B: 3})
+	out := FitBGR(nil, 3, 2, color.RGBA{R: 1, G: 2, B: 3})
 	if len(out) != 12*2 || out[0] != 3 || out[2] != 1 {
 		t.Fatalf("boş logo arka planla dolmalı: %v", out)
 	}
@@ -52,7 +52,7 @@ func TestAC98FitBGRNilAndSmall(t *testing.T) {
 	for i := range small.Pix {
 		small.Pix[i] = 255
 	}
-	out = fitBGR(small, 8, 8, color.RGBA{})
+	out = FitBGR(small, 8, 8, color.RGBA{})
 	stride := (8*3 + 3) &^ 3
 	if out[3*stride] != 255 || out[3*stride+2*3] != 0 { // y=3 satırı: x=0 logo, x=2 boş
 		t.Fatalf("küçük logo büyütülmemeli")
@@ -61,7 +61,7 @@ func TestAC98FitBGRNilAndSmall(t *testing.T) {
 	for i := range tall.Pix {
 		tall.Pix[i] = 255
 	}
-	out = fitBGR(tall, 20, 20, color.RGBA{})
+	out = FitBGR(tall, 20, 20, color.RGBA{})
 	stride = (20*3 + 3) &^ 3
 	if out[19*stride] != 255 || out[19*stride+4*3] != 255 || out[19*stride+5*3] != 0 {
 		t.Fatalf("uzun logo 5 px genişliğe sığmalı")

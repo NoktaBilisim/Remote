@@ -7,11 +7,12 @@ import (
 	"time"
 
 	"remote-support/agent-win/internal/dc"
+	"remote-support/agent-win/internal/ui/uicore"
 	"remote-support/agent-win/internal/win"
 )
 
 var (
-	colorBar = colorRef(indicatorBg)
+	colorBar = colorRef(uicore.IndicatorBg)
 	colorKey = win.RGB(255, 0, 255) // işaretleme katmanında saydam renk
 	annotRGB = map[string]uint32{
 		"red": win.RGB(239, 68, 68), "yellow": win.RGB(234, 179, 8),
@@ -69,7 +70,7 @@ func newBarOpt(t *thread, x, y, w, h int32, text *string, clickThrough bool) *fo
 			ft := win.Font(f.s(-15), win.FW_SEMIBOLD)
 			old := win.SelectObject(dc, ft)
 			win.SetBkMode(dc, win.TRANSPARENT)
-			win.SetTextColor(dc, colorRef(indicatorText))
+			win.SetTextColor(dc, colorRef(uicore.IndicatorText))
 			win.DrawText(dc, *text, &r, win.DT_CENTER|win.DT_VCENTER|win.DT_SINGLELINE|win.DT_NOPREFIX)
 			win.SelectObject(dc, old)
 			win.DeleteObject(ft)

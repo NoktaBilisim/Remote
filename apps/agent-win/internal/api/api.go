@@ -15,6 +15,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"runtime"
 	"strconv"
 	"time"
 
@@ -154,15 +155,31 @@ type JoinResult struct {
 	TechnicianName string `json:"technicianName"`
 }
 
+// clientOS P28f (mimari-p28f §4.1, S-P28f-15): resolve'daki işletim sistemi beyanı (`packages/contracts` CLIENT_OS).
+// Bilinmeyen GOOS → "" (alan gönderilmez; sunucu geçersiz değeri 400 ile reddeder, yoksa "windows" sayar).
+func clientOS(goos string) string {
+	switch goos {
+	case "windows":
+		return "windows"
+	case "darwin":
+		return "macos"
+	case "linux":
+		return "linux"
+	}
+	return ""
+}
+
 // Resolve 8 haneli kodla oturumu çözer. Yalnız ağ hatası / 502-504'te yeniden dener (resolve tüketmez);
 // 4xx sunucu kararıdır, tekrar denenmez (başarısız deneme hız kovasını doldurur). r2 (G-E9-4): `clientVersion`
-// gönderilir; sunucu `MIN_AGENT_VERSION`'dan düşükse 426 CLIENT_OUTDATED döner.
+// gönderilir; sunucu `MIN_AGENT_VERSION`'dan düşükse 426 CLIENT_OUTDATED döner. P28f: `clientOs` beyanı (yalnız
+// resolve; join'de yeniden gönderilmez, sunucu nonce kaydından okur).
 func (c *Client) Resolve(ctx context.Context, code string) (*ResolveResult, error) {
 	body := struct {
 		Code          string `json:"code"`
 		ClientKind    string `json:"clientKind"`
 		ClientVersion string `json:"clientVersion"`
-	}{code, clientKindAgent, c.version}
+		ClientOS      string `json:"clientOs,omitempty"`
+	}{code, clientKindAgent, c.version, clientOS(runtime.GOOS)}
 	var out ResolveResult
 	if err := withRetry(ctx, func() error { return c.post(ctx, "resolve", body, &out) }); err != nil {
 		return nil, err

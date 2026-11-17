@@ -10,6 +10,7 @@ import (
 	"image/color"
 
 	"remote-support/agent-win/internal/control"
+	"remote-support/agent-win/internal/ui/uicore"
 	"remote-support/agent-win/internal/win"
 )
 
@@ -128,7 +129,7 @@ func (f *form) picture(img image.Image, x, y, w, z int32) *ctrl {
 // orSystemLogo img nil ise sistem logosu (firma logosu yok, indirilemedi veya reddedildi; AC-98).
 func orSystemLogo(img image.Image) image.Image {
 	if img == nil {
-		return systemLogo()
+		return uicore.SystemLogo()
 	}
 	return img
 }
@@ -137,7 +138,7 @@ func orSystemLogo(img image.Image) image.Image {
 func (f *form) setPicture(c *ctrl) {
 	w, h := f.s(c.w), f.s(c.z)
 	bg := f.t.logoBg() // COLORREF 0x00BBGGRR (AC-247: koyu modda açık logo zemini)
-	px := fitBGR(c.img, int(w), int(h), color.RGBA{R: uint8(bg), G: uint8(bg >> 8), B: uint8(bg >> 16), A: 255})
+	px := uicore.FitBGR(c.img, int(w), int(h), color.RGBA{R: uint8(bg), G: uint8(bg >> 8), B: uint8(bg >> 16), A: 255})
 	hb := win.Bitmap24(w, h, px)
 	if hb == 0 {
 		return

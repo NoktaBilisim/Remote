@@ -239,6 +239,24 @@ describe("P7 kontrol makinesi", () => {
     expect(run([req(), granted, msg({ t: "control.state", state: "VIEW", source: "SYSTEM" })]).endedBy).toBe("system");
   });
 
+  it("P28f AC-391: requested'da {VIEW, OS_PERMISSION} → iptal (ret değil), bekleme yok, sayaç iade edilmez", () => {
+    const osPerm: ServerOutbound = { t: "control.state", state: "VIEW", source: "OS_PERMISSION" };
+    const s = run([req(1000), msg(osPerm, 2000)]);
+    expect(s.phase).toBe("ended");
+    expect(s.endedBy).toBe("osPermission");
+    expect(s.endedAt).toBe(2000);
+    expect(s.deniedAt).toBeNull();
+    expect(cooldownLeft(s, 2000)).toBe(0);
+    expect(canRequest(s, 2000)).toBe(true);
+    expect(s.requests).toBe(1);
+    expect(s.lastSent).toBeNull();
+    // Bekleyen istek yokken / açık kontrolde yok sayılır
+    const idle = run([]);
+    expect(controlReducer(idle, msg(osPerm))).toBe(idle);
+    const on = run([req(), granted]);
+    expect(controlReducer(on, msg(osPerm))).toBe(on);
+  });
+
   it("K7: monitör reddi / yanıtsızlık → 30 sn + 1 sn bekleme; bekleme ve bekleyen istek varken yeni istek yok", () => {
     const withMon = run([msg({ t: "share.state", state: "sharing", monitors, activeMonitor: 0 })]);
     const p = controlReducer(withMon, { type: "monitor", id: 1, now: 1000 });

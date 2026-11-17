@@ -30,7 +30,8 @@ import {
 } from "@remote/contracts/audit";
 import { UNATTENDED_AUDIT_LABELS } from "@remote/contracts/api/unattended";
 import { AUDIT_ACTION_GROUPS } from "./contract";
-import { labelOf, OUTBOUND_REASON_LABELS, TIMELINE_ACTION_LABELS } from "@remote/contracts/labels";
+import { CLIENT_OS_FIELD_LABEL, CLIENT_OS_LABELS, labelOf, OUTBOUND_REASON_LABELS, TIMELINE_ACTION_LABELS } from "@remote/contracts/labels";
+import type { JoinAuditOs } from "@remote/contracts/api/sessions";
 
 const AUDIT_ACTION_LABELS: Readonly<Record<string, string>> = {
   ...TIMELINE_ACTION_LABELS,
@@ -222,4 +223,20 @@ const reasonOf = (v: unknown): string | null => {
 export function auditPayload(item: { action: string; oldValue: unknown; newValue: unknown }): AuditPayload {
   if (isMailAction(item.action)) return { kind: "reason", reason: reasonOf(item.newValue) ?? reasonOf(item.oldValue) };
   return { kind: "json", oldValue: pretty(item.oldValue), newValue: pretty(item.newValue) };
+}
+
+/**
+ * P28f (mimari-p28f §4.1): katılım başarı satırındaki (`guest.pending`; sözleşmede `session.join` olarak da anılır) `os`
+ * müşteri beyanıdır — etiket ve değerler contracts `CLIENT_OS_FIELD_LABEL` / `CLIENT_OS_LABELS`.
+ */
+const CLIENT_OS_ACTIONS: ReadonlySet<string> = new Set(["guest.pending", "session.join"]);
+export { CLIENT_OS_FIELD_LABEL };
+
+/** Bilinen `os` değerinin etiketi; eski satır (alan yok), başka eylem ya da bilinmeyen değer → `null` (satır gösterilmez). */
+export function auditClientOs(item: { action: string; newValue: unknown }): string | null {
+  if (!CLIENT_OS_ACTIONS.has(item.action)) return null;
+  const v = item.newValue;
+  if (!v || typeof v !== "object" || Array.isArray(v)) return null;
+  const os = (v as Record<string, unknown>).os;
+  return typeof os === "string" && Object.hasOwn(CLIENT_OS_LABELS, os) ? CLIENT_OS_LABELS[os as JoinAuditOs] : null;
 }

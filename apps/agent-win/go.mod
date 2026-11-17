@@ -6,6 +6,7 @@ toolchain go1.26.11
 
 require (
 	github.com/coder/websocket v1.8.15
+	github.com/ebitengine/purego v0.11.3
 	github.com/pion/rtcp v1.2.20
 	github.com/pion/webrtc/v4 v4.2.26
 	github.com/tetratelabs/wazero v1.12.0

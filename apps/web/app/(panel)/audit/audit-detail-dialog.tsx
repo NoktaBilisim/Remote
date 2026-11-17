@@ -5,7 +5,7 @@ import type { ReactNode } from "react";
 import { Alert } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Dialog } from "@/components/ui/dialog";
-import { actionLabel, auditPayload, reasonLabel } from "@/lib/audit/actions";
+import { actionLabel, auditClientOs, auditPayload, CLIENT_OS_FIELD_LABEL, reasonLabel } from "@/lib/audit/actions";
 import type { AuditItem } from "@/lib/audit/contract";
 import { formatDateTime, formatTimeSeconds } from "@/lib/format";
 import { t } from "@/lib/i18n";
@@ -68,6 +68,11 @@ function DetailRows({ item }: { item: AuditItem }) {
       <Row term={t("au.col.ip")}>
         <span className="font-mono text-xs">{item.ipAddress ?? "—"}</span>
       </Row>
+      {auditClientOs(item) && (
+        <Row term={CLIENT_OS_FIELD_LABEL}>
+          <span data-testid="audit-client-os">{auditClientOs(item)}</span>
+        </Row>
+      )}
       {item.userAgent && (
         <Row term={t("au.d.ua")}>
           <span className="text-xs">{item.userAgent}</span>

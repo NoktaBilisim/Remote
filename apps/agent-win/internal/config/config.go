@@ -17,6 +17,9 @@ import (
 var (
 	serverURL string
 	version   string
+	// testBuild P28f (mimari-p28f §8.2, S-P28f-7): yalnız "1" ise staging TEST derlemesi (build-darwin.sh `-t`). macOS'ta
+	// TEST bandı imzadan da türetilir (K4); bu değer yalnız ek koşuldur, bandı kapatamaz.
+	testBuild string
 )
 
 // Config doğrulanmış derleme zamanı yapılandırması.
@@ -24,6 +27,8 @@ type Config struct {
 	// ServerURL yalnız şema + host (+ port); yol, sorgu ve kullanıcı bilgisi yok.
 	ServerURL *url.URL
 	Version   string
+	// TestBuild P28f: ldflags `config.testBuild=1` ile derlendi (staging TEST sürümü).
+	TestBuild bool
 }
 
 // ErrNotConfigured: build ldflags olmadan alınmış.
@@ -31,8 +36,13 @@ var ErrNotConfigured = errors.New("config: sunucu adresi veya sürüm derlemede 
 
 // Load gömülü değerleri doğrular.
 func Load() (Config, error) {
-	return parse(serverURL, version)
+	c, err := parse(serverURL, version)
+	c.TestBuild = isTestBuild(testBuild)
+	return c, err
 }
+
+// isTestBuild yalnız tam "1" değeri TEST derlemesidir (boş ya da başka değer: değil).
+func isTestBuild(v string) bool { return v == "1" }
 
 func parse(raw, ver string) (Config, error) {
 	if raw == "" || ver == "" {

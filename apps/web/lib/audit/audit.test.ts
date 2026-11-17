@@ -1,6 +1,15 @@
 import { describe, expect, it } from "vitest";
 import { UNATTENDED_AUDIT, UNATTENDED_POLICY_AUDIT } from "@remote/contracts/audit";
-import { actionLabel, actionOptionGroups, auditPayload, groupLabel, isMailAction, OUTBOUND_REASON_LABELS, reasonLabel } from "./actions";
+import {
+  actionLabel,
+  actionOptionGroups,
+  auditClientOs,
+  auditPayload,
+  groupLabel,
+  isMailAction,
+  OUTBOUND_REASON_LABELS,
+  reasonLabel,
+} from "./actions";
 import { addDays, auditApiPath, auditExportPath, auditHref, parseAuditParams, rangeError } from "./query";
 
 const TODAY = "2026-11-12";
@@ -99,5 +108,24 @@ describe("P27/P28u gözetimsiz audit etiketleri (K10 bulgusu)", () => {
     expect(g?.options[0]).toEqual({ value: "unattended.*", label: "Gözetimsiz erişim — tümü" });
     for (const a of Object.values(UNATTENDED_AUDIT)) expect(g?.options.find((o) => o.value === a)?.label, a).toBe(actionLabel(a));
     expect(groups.every((x) => x.options.every((o) => o.label !== o.value))).toBe(true);
+  });
+});
+
+describe("P28f katılım `os` etiketi (guest.pending / session.join, mimari-p28f §4.1)", () => {
+  it("guest.pending (sunucunun başarı satırı) da etiketlenir", () =>
+    expect(auditClientOs({ action: "guest.pending", newValue: { guestKind: "AGENT", os: "macos" } })).toBe("macOS"));
+  it.each([
+    ["windows", "Windows"],
+    ["macos", "macOS"],
+    ["linux", "Linux"],
+    ["browser", "Tarayıcı"],
+  ])("%s → %s", (os, label) => expect(auditClientOs({ action: "session.join", newValue: { customerName: "x", os } })).toBe(label));
+  it("eski satır (os yok), bilinmeyen değer, başka eylem, JSON olmayan değer → null", () => {
+    expect(auditClientOs({ action: "session.join", newValue: { customerName: "x" } })).toBeNull();
+    expect(auditClientOs({ action: "session.join", newValue: { os: "toString" } })).toBeNull();
+    expect(auditClientOs({ action: "session.join", newValue: { os: "<b>x</b>" } })).toBeNull();
+    expect(auditClientOs({ action: "session.create", newValue: { os: "macos" } })).toBeNull();
+    expect(auditClientOs({ action: "session.join", newValue: null })).toBeNull();
+    expect(auditClientOs({ action: "session.join", newValue: ["macos"] })).toBeNull();
   });
 });

@@ -77,6 +77,10 @@ function nestedPath(a: string, b: string): boolean {
   return n(a).startsWith(n(b)) || n(b).startsWith(n(a));
 }
 
+/** Caddy `agent_exe_file` / `agent_zip_file` snippet'lerinin sunduğu dosyaların server konteynerindeki yolu (deploy/Caddyfile). */
+export const AGENT_BINARY_PATH_FIXED = "/data/downloads/NoktaDestek.exe";
+export const MAC_AGENT_PATH_FIXED = "/data/downloads/NoktaDestek-macOS.zip";
+
 /** S14-7: herkesçe bilinen/zayıf anahtar — tüm baytları aynı (CI'daki 32 sıfır bayt dahil). Production'da reddedilir. */
 const isWeakEncryptionKey = (key: Buffer): boolean => key.every((b) => b === key[0]);
 
@@ -122,6 +126,14 @@ const schema = z
     // attestation + SHA256SUMS doğrulamasından sonra yazdığı SHA-256. İkisi dolu ve dosya hash'i eşleşmedikçe indirme 503.
     AGENT_BINARY_PATH: z.string().startsWith("/", "mutlak yol olmalı").optional(),
     AGENT_SHA256: z
+      .string()
+      .regex(/^[0-9a-fA-F]{64}$/, "64 haneli onaltılık SHA-256 olmalı")
+      .transform((v) => v.toLowerCase())
+      .optional(),
+    // P28f (mimari-p28f §8.1, S-P28f-3): macOS istemcisi zip'i (AGENT_* kalıbı). İkisi dolu ve dosya hash'i eşleşmedikçe
+    // macOS indirmesi 503 ve availability `macos:false`. Production'da yol sabit (MAC_AGENT_PATH_FIXED; aşağıdaki refine).
+    MAC_AGENT_PATH: z.string().startsWith("/", "mutlak yol olmalı").optional(),
+    MAC_AGENT_SHA256: z
       .string()
       .regex(/^[0-9a-fA-F]{64}$/, "64 haneli onaltılık SHA-256 olmalı")
       .transform((v) => v.toLowerCase())
@@ -213,6 +225,16 @@ const schema = z
       message: "production'da zayıf anahtar (tüm baytları aynı) kabul edilmez; openssl rand -base64 32 ile üretin",
     },
   )
+  // S-P28f-3: sunucunun hash'lediği dosya = Caddy'nin sunduğu dosya (aynı `agent_downloads` volume'u; server /data/downloads,
+  // Caddy /srv/downloads). Production'da başka yol reddedilir; geliştirme/test geçici dizin kullanabilir.
+  .refine((e) => e.NODE_ENV !== "production" || !e.AGENT_BINARY_PATH || e.AGENT_BINARY_PATH === AGENT_BINARY_PATH_FIXED, {
+    path: ["AGENT_BINARY_PATH"],
+    message: `production'da yalnız ${AGENT_BINARY_PATH_FIXED} (Caddy'nin sunduğu dosya)`,
+  })
+  .refine((e) => e.NODE_ENV !== "production" || !e.MAC_AGENT_PATH || e.MAC_AGENT_PATH === MAC_AGENT_PATH_FIXED, {
+    path: ["MAC_AGENT_PATH"],
+    message: `production'da yalnız ${MAC_AGENT_PATH_FIXED} (Caddy'nin sunduğu dosya)`,
+  })
   .refine((e) => !e.CLAMAV_ALLOWED_CIDR || !e.TRUSTED_PROXY_CIDR || !cidrOverlap(e.CLAMAV_ALLOWED_CIDR, e.TRUSTED_PROXY_CIDR), {
     path: ["CLAMAV_ALLOWED_CIDR"],
     message: "TRUSTED_PROXY_CIDR ile çakışmamalı (D-r2-5)",

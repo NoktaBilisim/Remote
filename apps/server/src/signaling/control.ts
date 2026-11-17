@@ -260,7 +260,7 @@ export function handleEnvState(rooms: Rooms, room: Room, guest: Guest, m: GuestE
 }
 /**
  * control.state (guest → S → tech): kayıt + iletim (AC-29, 50, 99, 111; §3.3). Kaynak kısıtı şemada (S7-10): GRANTED
- * yalnız UI, VIEW yalnız UI|HOTKEY|DENIED|SYSTEM. Yalnız durum geçişleri kaydedilir.
+ * yalnız UI, VIEW yalnız UI|HOTKEY|DENIED|SYSTEM|OS_PERMISSION (P28f). Yalnız durum geçişleri kaydedilir.
  */
 export function handleControlState(
   rooms: Rooms,
@@ -270,6 +270,11 @@ export function handleControlState(
 ): Promise<void> {
   if (guest.kind !== "AGENT") {
     rooms.metrics.inc("rs_control_total", { event: "control_state_ignored" });
+    return Promise.resolve();
+  }
+  // P28f (§4.2, S-P28f-15): OS_PERMISSION yalnız macOS beyanlı AGENT'tan (clientOs yoksa windows sayılır); aksi yok sayılır.
+  if (m.source === "OS_PERMISSION" && (guest.clientOs ?? "windows") !== "macos") {
+    rooms.metrics.inc("rs_control_total", { event: "os_permission_ignored" });
     return Promise.resolve();
   }
   if (m.source === "UNATTENDED" && (m.state !== "GRANTED" || !room.unattended)) return unattendedSourceViolation(rooms, room, guest);

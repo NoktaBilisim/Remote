@@ -6,7 +6,7 @@ import type { FileMode, FsrvDirection } from "@remote/contracts/ws-fsrv";
 import type { PermissionKey, Role } from "@remote/contracts/permissions";
 import type { ControlAuditAction } from "@remote/contracts/audit";
 import type { ConsentMode, ConsentRequest, ConsentResultDecision } from "@remote/contracts/unattended-consent";
-import { LOBBY_GUEST_MAX } from "@remote/contracts/api/sessions";
+import { LOBBY_GUEST_MAX, type ClientOs } from "@remote/contracts/api/sessions";
 import type { AuditContext } from "../audit/service.ts";
 import type { JsonObject } from "../audit/mask.ts";
 import type { GuestConsent } from "../public/consent.ts";
@@ -112,6 +112,8 @@ export interface Guest {
   netKey?: string;
   /** P8b r2 (§13.4): AGENT sürümü (resolve/talep kaydından; /ws/guest MIN_AGENT_VERSION kontrolü). */
   clientVersion?: string;
+  /** P28f (§4.2, S-P28f-15): AGENT işletim sistemi beyanı (resolve nonce'undan); yoksa `windows`. Yalnız OS_PERMISSION kabulünde kullanılır. */
+  clientOs?: ClientOs;
   /** P8b: ön-kabullü misafir (talepten doğan oturum) — lobi/admitCode atlanır (mimari-protokol §5.2). */
   requestId?: string;
   /** P8b: geçerli ticket kuşağı; yeniden bağlanan /ws/request yeni ticket alınca eskisi geçersiz. */

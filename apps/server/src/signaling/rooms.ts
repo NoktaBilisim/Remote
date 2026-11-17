@@ -12,6 +12,7 @@ import type { RecService } from "../rec/types.ts";
 import type { Db } from "../lib/db.ts";
 import type { Metrics } from "../ops/metrics.ts";
 import type { RoomNotifier } from "../sessions/service.ts";
+import type { ClientOs } from "@remote/contracts/api/sessions";
 import { OneTimeStore } from "./store.ts";
 import type { TurnConfig } from "./turn.ts";
 import {
@@ -61,7 +62,8 @@ export class Rooms implements RoomNotifier, TechnicianLiveControl {
   readonly metrics: Metrics;
   readonly clock: Clock;
   readonly timing: Timing;
-  readonly nonces: OneTimeStore<{ sessionId: string; kind: GuestKind; clientVersion?: string }>;
+  /** P28f: `clientOs` yalnız AGENT'ta (beyan; yoksa `windows` sayılır). */
+  readonly nonces: OneTimeStore<{ sessionId: string; kind: GuestKind; clientVersion?: string; clientOs?: ClientOs }>;
   readonly tickets: OneTimeStore<{ sessionId: string; guestId: string; gen?: number }>;
   /** P8b: talep servisine geri çağrılar (admit sonrası bağlanma zamanlayıcısı iptali; yetki kaybında bağlanamadı). */
   requestHooks?: { admitted(requestId: string): void; failed(requestId: string): void };

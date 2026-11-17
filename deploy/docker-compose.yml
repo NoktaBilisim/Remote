@@ -119,6 +119,11 @@ services:
       # SHA256SUMS doğrulamasından sonra yazar; boşsa veya dosya hash'i uyuşmazsa indirme ucu 503 (fail-closed).
       AGENT_BINARY_PATH: /data/downloads/NoktaDestek.exe
       AGENT_SHA256: ${AGENT_SHA256:-}
+      # P28f (mimari-p28f §8.1, S-P28f-3): macOS istemcisi zip'i — aynı agent_downloads volume'u (Caddy agent_zip_file
+      # /srv/downloads/NoktaDestek-macOS.zip sunar). Yol sabit (production'da env.ts başka değeri reddeder). SHA'yı yayın
+      # betiği attestation + SHA256SUMS doğrulamasından sonra yazar; boşsa/uyuşmazsa macOS indirmesi 503, availability macos:false.
+      MAC_AGENT_PATH: /data/downloads/NoktaDestek-macOS.zip
+      MAC_AGENT_SHA256: ${MAC_AGENT_SHA256:-}
       # P8b (mimari-e9 §6/§8/§13.5): whatsapp-bildirim servisi (sistem düzeyi; tenant değiştiremez). deploy/.env'den gelir
       # (ör. http://<whatsapp-servis>:3000); yerleşik varsayılan YOK (G-P13b-2): boşsa ve panel kaydı yoksa kanal kapalı.
       # production'da http:// + özel olmayan adres → kanal KAPALI başlar (fail-closed, log `alarm:"whatsapp_insecure"`);

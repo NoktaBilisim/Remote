@@ -10,6 +10,7 @@ import (
 	"remote-support/agent-win/internal/control"
 	"remote-support/agent-win/internal/flow"
 	"remote-support/agent-win/internal/request"
+	"remote-support/agent-win/internal/ui/uicore"
 	"remote-support/agent-win/internal/win"
 )
 
@@ -86,7 +87,7 @@ type UI struct {
 	reqWait   *reqWait
 	reqAccept *consentDlg
 	// reqAcceptKey açık onay diyaloğunun teknisyen adı + doğrulama kodu (S8b2-3, S8b2-4).
-	reqAcceptKey acceptKey
+	reqAcceptKey uicore.AcceptKey
 	// P20 K6 talep sohbeti (chat_windows.go): "Gönder" metinleri ve tepsideyken gövdesiz balon.
 	reqChat        chan string
 	reqChatBalloon func(text string)

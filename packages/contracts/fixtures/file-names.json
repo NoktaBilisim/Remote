@@ -330,6 +330,58 @@
     {
       "name": "kabuk.mshxml",
       "warning": "dangerous"
+    },
+    {
+      "name": "Kurulum.app",
+      "warning": "dangerous"
+    },
+    {
+      "name": "Guncelleme.pkg",
+      "warning": "dangerous"
+    },
+    {
+      "name": "disk.DMG",
+      "warning": "dangerous"
+    },
+    {
+      "name": "calistir.command",
+      "warning": "dangerous"
+    },
+    {
+      "name": "ayar.mobileconfig",
+      "warning": "dangerous"
+    },
+    {
+      "name": "betik.py",
+      "warning": "dangerous"
+    },
+    {
+      "name": "site.webloc",
+      "warning": "dangerous"
+    },
+    {
+      "name": "fatura.pdf.app",
+      "warning": "double_extension"
+    },
+    {
+      "name": "rapor.pdf.command",
+      "warning": "double_extension"
+    },
+    {
+      "name": ".zshrc",
+      "warning": "dangerous"
+    },
+    {
+      "name": ".bash_profile",
+      "warning": "dangerous"
+    },
+    {
+      "name": ".gizli.txt",
+      "warning": "dangerous"
+    },
+    {
+      "name": "notlar.pages",
+      "warning": "none"
     }
   ]
 }

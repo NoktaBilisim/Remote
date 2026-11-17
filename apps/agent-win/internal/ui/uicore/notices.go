@@ -1,4 +1,4 @@
-package ui
+package uicore
 
 import _ "embed"
 
@@ -8,4 +8,4 @@ import _ "embed"
 // internal/voice/libopus-COPYING.txt ile bayt bayt aynı yer aldığı testle sabittir.
 
 //go:embed third_party_notices.txt
-var thirdPartyNotices string
+var ThirdPartyNotices string

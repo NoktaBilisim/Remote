@@ -1,4 +1,4 @@
-package ui
+package uicore
 
 import "math"
 
@@ -8,11 +8,11 @@ import "math"
 // colorPair metin/zemin çifti (kontrast tablo testi).
 type colorPair struct {
 	name   string
-	fg, bg rgb
+	fg, bg RGB
 }
 
 // textPairs paletteki her metin/zemin çifti; arayüzde başka metin rengi kullanılmaz.
-func (p palette) textPairs() []colorPair {
+func (p Palette) textPairs() []colorPair {
 	return []colorPair{
 		{"metin/zemin", p.Text, p.Window},
 		{"uyarı/zemin", p.Danger, p.Window},
@@ -29,12 +29,12 @@ func linear(c uint8) float64 {
 }
 
 // luminance WCAG 2.x göreli parlaklık.
-func luminance(c rgb) float64 {
+func luminance(c RGB) float64 {
 	return 0.2126*linear(c.R) + 0.7152*linear(c.G) + 0.0722*linear(c.B)
 }
 
 // contrastRatio WCAG 2.x kontrast oranı (1..21).
-func contrastRatio(a, b rgb) float64 {
+func contrastRatio(a, b RGB) float64 {
 	la, lb := luminance(a), luminance(b)
 	if la < lb {
 		la, lb = lb, la

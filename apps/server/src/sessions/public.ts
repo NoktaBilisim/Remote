@@ -6,6 +6,7 @@ import type { SecretBox } from "../lib/crypto.ts";
 import { techAvatarSignedUrl } from "../uploads/tech-avatar.ts";
 import type { FastifyBaseLogger } from "fastify";
 import type {
+  ClientOs,
   PublicSessionStatusResponse,
   ResolveSessionInput,
   ResolveSessionResponse,
@@ -123,6 +124,8 @@ export interface PublicLimits {
   joinIp: FixedWindowCounter;
   /** Agent indirme ucu, tüm istekler: 20/dk/ipKey (P6, mimari-api). Başarısızlar ayrıca codeIp/codePrefix'e sayılır. */
   downloadIp: FixedWindowCounter;
+  /** P28f (§4.1): `GET /public/agent/availability` 30/dk/ipKey. */
+  availabilityIp: FixedWindowCounter;
   /** Aynı oturum + 410 sebebi için 10 dk'da tek audit satırı (S-P2-6). */
   goneAudit: FixedWindowCounter;
   resolveFailed: ResolveFailedAlarm;
@@ -139,6 +142,7 @@ export const createPublicLimits = (log: FastifyBaseLogger, trustedProxyCidr?: st
   statusIp: new FixedWindowCounter(61, MIN, MIN),
   joinIp: new FixedWindowCounter(21, MIN, MIN),
   downloadIp: new FixedWindowCounter(21, MIN, MIN),
+  availabilityIp: new FixedWindowCounter(31, MIN, MIN),
   goneAudit: new FixedWindowCounter(2, 10 * MIN, 10 * MIN),
   resolveFailed: new ResolveFailedAlarm((s) => log.warn({ alarm: "resolve_failed", ...s }, "global başarısız kod eşiği aşıldı")),
   clientIpIsProxy: new ClientIpIsProxyAlarm(trustedProxyCidr, () =>
@@ -151,7 +155,7 @@ export const createPublicLimits = (log: FastifyBaseLogger, trustedProxyCidr?: st
 });
 
 export const closePublicLimits = (l: PublicLimits): void =>
-  [l.codeIp, l.codePrefix, l.tokenIp, l.statusIp, l.joinIp, l.downloadIp, l.goneAudit].forEach((c) => c.close());
+  [l.codeIp, l.codePrefix, l.tokenIp, l.statusIp, l.joinIp, l.downloadIp, l.availabilityIp, l.goneAudit].forEach((c) => c.close());
 
 const rateLimited = (sec: number) => new AppError("RATE_LIMITED", { retryAfterSec: Math.max(1, sec) });
 
@@ -212,7 +216,7 @@ export async function resolvePublicSession(
   issueNonce: (
     sessionId: string,
     kind: ResolveSessionInput["clientKind"],
-    clientVersion?: string,
+    agent?: { clientVersion: string; clientOs: ClientOs },
   ) => { joinNonce: string; nonceExpiresAt: string },
   abuseSrc: AbuseEmailSource,
   minAgentVersion?: string,
@@ -269,7 +273,12 @@ export async function resolvePublicSession(
     },
     techVerifyCode: row.techVerifyCode,
     expiresAt: row.expiresAt.toISOString(),
-    ...issueNonce(row.id, input.clientKind, input.clientKind === "AGENT" ? (input.clientVersion ?? "0.0.0") : undefined), // resolve tüketmez; nonce join içindir (P3)
+    // Resolve tüketmez; nonce join içindir (P3). P28f (§4.1): AGENT'ta `clientOs` yoksa `windows` (eski istemci); BROWSER'da yok sayılır.
+    ...issueNonce(
+      row.id,
+      input.clientKind,
+      input.clientKind === "AGENT" ? { clientVersion: input.clientVersion ?? "0.0.0", clientOs: input.clientOs ?? "windows" } : undefined,
+    ),
     consentText, // P4: karşılamada gösterilir, join'de id'si geri gelir (G-24)
     abuseEmail: abuse,
   };
