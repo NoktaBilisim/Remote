@@ -18,8 +18,15 @@ updates:
   - package-ecosystem: docker-compose
     directory: /deploy
     schedule: { interval: weekly }
+  # P28d K4 (mimari-p28d §11, §14 O-PD-4; runbook §28d.11): github.com/tetratelabs/wazero gruptan hariç → her sürümü AYRI PR.
+  # Otomatik birleştirme yok (repo'da auto-merge yapılandırması yoktur; eklenmez). wazero PR'ı el ile incelenir ve birleştirmeden
+  # önce runbook §28d.11 "wazero güncelleme" adımları koşulur: FuzzDecode ≥ 30 dk (amd64 derleyici yolu, 0 tuzak),
+  # TestP28dK0sCompilerMatchesInterpreter, -race; arm64 JIT bulgusu (K0s-2) yeni sürümde yeniden denenir. libopus (wasm) ve
+  # wasi-sdk imajı Dependabot'a görünmez — elle izlenir (runbook §28d.11).
   - package-ecosystem: gomod
     directory: /apps/agent-win
     schedule: { interval: weekly }
     groups:
-      go-minor-patch: { update-types: [minor, patch] }
+      go-minor-patch:
+        update-types: [minor, patch]
+        exclude-patterns: ["github.com/tetratelabs/wazero"]
