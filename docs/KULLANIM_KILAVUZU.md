@@ -1393,7 +1393,10 @@ tccutil reset Accessibility net.noktabilisim.destek
 >
 > Bu adım **yalnız** TEST bandı görünen paket içindir. Test paketinin kimliği farklıdır; izinlerini kaldırmak için:
 > `tccutil reset ScreenCapture net.noktabilisim.destek.stg` ve `tccutil reset Accessibility net.noktabilisim.destek.stg`.
-> Her yeni test sürümünde macOS izinleri yeniden sorar.
+> Her yeni test sürümünde macOS izinleri yeniden sorar. **Önemli:** imzasız pakette izin o derlemeye bağlıdır; daha önce
+> başka bir test sürümüne izin verilmişse Sistem Ayarları'nda anahtar "açık" görünür ama yeni sürüm izni görmez (rehber
+> ekranı tekrar gelir). Bu durumda uygulamayı kapatıp yukarıdaki iki `tccutil reset` komutunu çalıştırın, uygulamayı yeniden
+> açıp izni yeniden verin. İmzalı (canlı) sürümde bu sorun olmaz.
 
 ### Sık karşılaşılan durumlar (Mac)
 
