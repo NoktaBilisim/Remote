@@ -64,18 +64,18 @@ AC-397..403, US-72, R46, V52, ADR-0004, 0009, 0010, 0011, 0031 (r4 yazdırma), 0
 
 ## Alternatifler
 
-| Seçenek | Neden seçilmedi |
-| ------- | --------------- |
-| Saf Go X11 yakalama (xgb `GetImage`/SHM) + libvpx/openh264 wasm (wazero) | Wayland için yine PipeWire tüketimi gerekir → iki yakalama yığını. SIMD'siz wasm VP8/H.264 1080p30'da yetersiz kalabilir. Ayrıca wasm derleme hattı genişler |
-| GStreamer + çalışma anında H.264 seçimi (`vah264enc` → `openh264enc` → `x264enc`) | Test edilemeyen dal matrisi; `x264enc` GPL koda bağlanma riski; sonuç makineye göre değişir. VP8 her yerde aynı |
-| Her platformda VP8 | Windows/macOS donanım H.264 yolunu bozar; gereksiz değişiklik |
-| cgo + libgtk/gstreamer başlıkları | Tekrarlanabilir çapraz derleme ve tek derleme modeli kaybolur. Geri dönüş yolu olarak tutulur (K0s-1 FAIL) |
-| GTK native Wayland arka ucu | Pencere konumlandırma, üstte tutma, tıklama geçiren gösterge ve XTEST aygıt ayrımı kaybolur; iki UI davranışı oluşur |
-| GTK4 | 22.04'te uygulama kitaplığı olarak var, ancak override-redirect/konum API'leri kaldırıldı; GTK3 iki sürümde de kesin |
-| purego ile GIO GDBus | GVariant kurulumu ve sinyal geri çağrıları C üzerinden olur; godbus daha basit ve sahte servisle test edilebilir |
-| `jezek/xgb` (r1 kararı) | r2: XI2 GenericEvent desteklemiyor (K0s-5); XI2 için zaten libXi gerektiğinden ikinci X bağlama yolu tutulmadı. `libxtst6`/`libxi6` varsayılan (K0s-2) |
-| Flatpak / AppImage / .deb | Kurulum ya da çalışma zamanı gerektirir; AppImage FUSE ister (24.04'te varsayılan değil); .deb root ister |
-| GStreamer ile ses (pulsesrc/pulsesink) | Boru hattı + saat yönetimi; simple API daha kısa |
+| Seçenek                                                                           | Neden seçilmedi                                                                                                                                              |
+| --------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Saf Go X11 yakalama (xgb `GetImage`/SHM) + libvpx/openh264 wasm (wazero)          | Wayland için yine PipeWire tüketimi gerekir → iki yakalama yığını. SIMD'siz wasm VP8/H.264 1080p30'da yetersiz kalabilir. Ayrıca wasm derleme hattı genişler |
+| GStreamer + çalışma anında H.264 seçimi (`vah264enc` → `openh264enc` → `x264enc`) | Test edilemeyen dal matrisi; `x264enc` GPL koda bağlanma riski; sonuç makineye göre değişir. VP8 her yerde aynı                                              |
+| Her platformda VP8                                                                | Windows/macOS donanım H.264 yolunu bozar; gereksiz değişiklik                                                                                                |
+| cgo + libgtk/gstreamer başlıkları                                                 | Tekrarlanabilir çapraz derleme ve tek derleme modeli kaybolur. Geri dönüş yolu olarak tutulur (K0s-1 FAIL)                                                   |
+| GTK native Wayland arka ucu                                                       | Pencere konumlandırma, üstte tutma, tıklama geçiren gösterge ve XTEST aygıt ayrımı kaybolur; iki UI davranışı oluşur                                         |
+| GTK4                                                                              | 22.04'te uygulama kitaplığı olarak var, ancak override-redirect/konum API'leri kaldırıldı; GTK3 iki sürümde de kesin                                         |
+| purego ile GIO GDBus                                                              | GVariant kurulumu ve sinyal geri çağrıları C üzerinden olur; godbus daha basit ve sahte servisle test edilebilir                                             |
+| `jezek/xgb` (r1 kararı)                                                           | r2: XI2 GenericEvent desteklemiyor (K0s-5); XI2 için zaten libXi gerektiğinden ikinci X bağlama yolu tutulmadı. `libxtst6`/`libxi6` varsayılan (K0s-2)       |
+| Flatpak / AppImage / .deb                                                         | Kurulum ya da çalışma zamanı gerektirir; AppImage FUSE ister (24.04'te varsayılan değil); .deb root ister                                                    |
+| GStreamer ile ses (pulsesrc/pulsesink)                                            | Boru hattı + saat yönetimi; simple API daha kısa                                                                                                             |
 
 ## Sonuçlar
 
