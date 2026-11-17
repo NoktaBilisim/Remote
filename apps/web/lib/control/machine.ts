@@ -30,8 +30,10 @@ export type ControlPhase = "idle" | "requested" | "granted" | "denied" | "ended"
  * `tech` = teknisyen bıraktı (K1), `cancel` = teknisyen bekleyen isteği geri çekti (K2),
  * `agent` = bekleyen istek müşteri tarafında bağlantı kesildiği için kapandı (`requested`'da `{VIEW, SYSTEM}`, K6).
  * `osPermission` = macOS müşteride Erişilebilirlik izni yok, diyalog açılmadı (P28f AC-391, `{VIEW, OS_PERMISSION}`): ret değil.
+ * `waylandNoControl` = Linux Wayland portalı klavye/işaretçi izni vermedi (P28g AC-399, `{VIEW, WAYLAND_NO_CONTROL}`): ret değil.
  */
-export type ControlEndCause = "customer" | "hotkey" | "system" | "reconnect" | "peer" | "tech" | "cancel" | "agent" | "osPermission";
+export type ControlEndCause =
+  "customer" | "hotkey" | "system" | "reconnect" | "peer" | "tech" | "cancel" | "agent" | "osPermission" | "waylandNoControl";
 export interface Monitor {
   id: number;
   name: string;
@@ -267,6 +269,8 @@ function onControlState(s: ControlState, m: MsgOf<"control.state">, now: number)
   // P28f (mimari-p28f §4.2): sunucu bunu iptal işler — ret yok, 30 sn bekleme yok, sayaç iade edilmez. Yalnız bekleyen
   // istekte anlamlı, diğer fazda yok sayılır.
   if (m.source === "OS_PERMISSION") return s.phase === "requested" ? { ...stop(s, "osPermission", now), lastSent: null } : s;
+  // P28g (mimari-p28g §4.2, AC-399): aynı kalıp — Wayland portalı kontrol izni vermedi; yalnız bekleyen istekte anlamlı
+  if (m.source === "WAYLAND_NO_CONTROL") return s.phase === "requested" ? { ...stop(s, "waylandNoControl", now), lastSent: null } : s;
   return stop(s, m.source === "HOTKEY" ? "hotkey" : m.source === "SYSTEM" ? "system" : "customer", now);
 }
 

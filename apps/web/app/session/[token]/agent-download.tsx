@@ -9,6 +9,7 @@ import { agentDownloadUrl, probeAgentDownload } from "@/lib/agent-download";
 import { t } from "@/lib/i18n";
 import type { GuestEnd } from "../guest-ui";
 import { GuideStep as Step } from "./guide-step";
+import { LinuxGuide } from "./linux-guide";
 import { MacGuide } from "./mac-guide";
 
 type State = "idle" | "checking" | "started" | "notReady" | "rate" | "error";
@@ -16,7 +17,7 @@ type State = "idle" | "checking" | "started" | "notReady" | "rate" | "error";
 const noop = () => () => undefined;
 
 /**
- * AC-27 (Windows masaüstü) / P28f AC-396 (macOS, aynı düzen + macOS rehberi): birincil "Hızlı Destek uygulamasını indir" + aynı adımda SmartScreen rehberi (DESIGN §8:
+ * AC-27 (Windows masaüstü) / P28f AC-396 (macOS, aynı düzen + macOS rehberi) / P28g AC-403 (Linux x86_64 + Linux rehberi): birincil "Hızlı Destek uygulamasını indir" + aynı adımda SmartScreen rehberi (DESIGN §8:
  * numaralı adım + şema kutusu, ekran görüntüsüz). Tıklamada uç önce `redirect: manual` ile denenir; 302 ise indirme
  * başlar, 503 NOT_READY'de tarayıcı modu önerilir, 410/404 bitiş ekranına, 429 bekleme mesajına gider.
  */
@@ -30,7 +31,7 @@ export function AgentDownload({
 }: {
   sessionRef: string;
   verifyCode: string;
-  /** P28f (AC-396): macOS'ta indirme `os=macos` (zip) ve macOS rehberi; düzen Windows ile aynı. */
+  /** P28f (AC-396): macOS'ta indirme `os=macos` (zip) ve macOS rehberi; P28g (AC-403): Linux'ta `os=linux` + Linux rehberi. */
   os?: AgentOs;
   /** P28f (S-P28f-8): yalnız staging imzasız TEST sürümünde "Yine de Aç" adımı; varsayılan imzalı (prod) metin. */
   testBuild?: boolean;
@@ -48,6 +49,7 @@ export function AgentDownload({
   );
   const href = agentDownloadUrl(sessionRef, os);
   const mac = os === "macos";
+  const linux = os === "linux";
   const checking = state === "checking";
 
   const onClick = async (e: MouseEvent<HTMLAnchorElement>) => {
@@ -98,7 +100,7 @@ export function AgentDownload({
           </span>
         </span>
         <span className="text-sm text-fg-muted">{t("ga.downloadBody")}</span>
-        <span className="text-xs text-fg-muted">{t(mac ? "gm.downloadMeta" : "ga.downloadMeta")}</span>
+        <span className="text-xs text-fg-muted">{t(mac ? "gm.downloadMeta" : linux ? "gl.downloadMeta" : "ga.downloadMeta")}</span>
       </a>
       {mac && testBuild && (
         <Alert tone="warning" testId="mac-test-build">
@@ -140,6 +142,8 @@ export function AgentDownload({
 
       {mac ? (
         <MacGuide id={guideId} highlight={state === "started"} testBuild={testBuild} verifyCode={verifyCode} host={host} />
+      ) : linux ? (
+        <LinuxGuide id={guideId} highlight={state === "started"} verifyCode={verifyCode} host={host} />
       ) : (
         <section
           aria-labelledby={`${guideId}-t`}

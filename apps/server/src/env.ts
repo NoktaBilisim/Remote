@@ -77,9 +77,13 @@ function nestedPath(a: string, b: string): boolean {
   return n(a).startsWith(n(b)) || n(b).startsWith(n(a));
 }
 
-/** Caddy `agent_exe_file` / `agent_zip_file` snippet'lerinin sunduğu dosyaların server konteynerindeki yolu (deploy/Caddyfile). */
+/**
+ * Caddy `agent_exe_file` / `agent_zip_file` / `agent_bin_file` (P28g) snippet'lerinin sunduğu dosyaların server konteynerindeki
+ * yolu (deploy/Caddyfile).
+ */
 export const AGENT_BINARY_PATH_FIXED = "/data/downloads/NoktaDestek.exe";
 export const MAC_AGENT_PATH_FIXED = "/data/downloads/NoktaDestek-macOS.zip";
+export const LINUX_AGENT_PATH_FIXED = "/data/downloads/NoktaDestek-linux";
 
 /** S14-7: herkesçe bilinen/zayıf anahtar — tüm baytları aynı (CI'daki 32 sıfır bayt dahil). Production'da reddedilir. */
 const isWeakEncryptionKey = (key: Buffer): boolean => key.every((b) => b === key[0]);
@@ -134,6 +138,14 @@ const schema = z
     // macOS indirmesi 503 ve availability `macos:false`. Production'da yol sabit (MAC_AGENT_PATH_FIXED; aşağıdaki refine).
     MAC_AGENT_PATH: z.string().startsWith("/", "mutlak yol olmalı").optional(),
     MAC_AGENT_SHA256: z
+      .string()
+      .regex(/^[0-9a-fA-F]{64}$/, "64 haneli onaltılık SHA-256 olmalı")
+      .transform((v) => v.toLowerCase())
+      .optional(),
+    // P28g (mimari-p28g §8.1, S-P28g-12): Linux istemcisi tek ELF (MAC_AGENT_* kalıbı). İkisi dolu ve dosya hash'i eşleşmedikçe
+    // Linux indirmesi 503 ve availability `linux:false`. Production'da yol sabit (LINUX_AGENT_PATH_FIXED; aşağıdaki refine).
+    LINUX_AGENT_PATH: z.string().startsWith("/", "mutlak yol olmalı").optional(),
+    LINUX_AGENT_SHA256: z
       .string()
       .regex(/^[0-9a-fA-F]{64}$/, "64 haneli onaltılık SHA-256 olmalı")
       .transform((v) => v.toLowerCase())
@@ -234,6 +246,10 @@ const schema = z
   .refine((e) => e.NODE_ENV !== "production" || !e.MAC_AGENT_PATH || e.MAC_AGENT_PATH === MAC_AGENT_PATH_FIXED, {
     path: ["MAC_AGENT_PATH"],
     message: `production'da yalnız ${MAC_AGENT_PATH_FIXED} (Caddy'nin sunduğu dosya)`,
+  })
+  .refine((e) => e.NODE_ENV !== "production" || !e.LINUX_AGENT_PATH || e.LINUX_AGENT_PATH === LINUX_AGENT_PATH_FIXED, {
+    path: ["LINUX_AGENT_PATH"],
+    message: `production'da yalnız ${LINUX_AGENT_PATH_FIXED} (Caddy'nin sunduğu dosya)`,
   })
   .refine((e) => !e.CLAMAV_ALLOWED_CIDR || !e.TRUSTED_PROXY_CIDR || !cidrOverlap(e.CLAMAV_ALLOWED_CIDR, e.TRUSTED_PROXY_CIDR), {
     path: ["CLAMAV_ALLOWED_CIDR"],

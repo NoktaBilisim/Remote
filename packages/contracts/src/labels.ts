@@ -176,6 +176,8 @@ export const CONSENT_SOURCE_LABELS: Readonly<Record<ConsentRecordSource, string>
 
 /** P28f (§4.2, AC-391): `control.cancelled{by:"agent", source:"os_permission"}` — macOS Erişilebilirlik izni yok. */
 export const OS_PERMISSION_CANCELLED = "Müşteri erişilebilirlik izni vermedi";
+/** P28g (mimari-p28g §4.2, AC-399): `control.cancelled{by:"agent", source:"wayland_no_control"}` — AC-399 metni. */
+export const WAYLAND_NO_CONTROL_CANCELLED = "Müşterinin masaüstü uzaktan kontrole izin vermiyor (Wayland)";
 
 /** P28f (§4.1, S-P28f-15): `guest.pending` `os` alanı — müşteri beyanı (doğrulanmaz). */
 export const CLIENT_OS_FIELD_LABEL = "İşletim sistemi (beyan)";
@@ -322,6 +324,7 @@ export function describeTimelineEvent(ev: Pick<TimelineEvent, "action" | "detail
     }
     case "control.cancelled":
       if (str(d.by) === "agent" && str(d.source) === "os_permission") return plain(OS_PERMISSION_CANCELLED);
+      if (str(d.by) === "agent" && str(d.source) === "wayland_no_control") return plain(WAYLAND_NO_CONTROL_CANCELLED);
       return plain(str(d.by) === "agent" ? "İstek müşteri tarafında bağlantı kesilince kapandı" : base);
     case "monitor.requested":
     case "monitor.granted":

@@ -3,34 +3,52 @@
 import { useEffect, useState } from "react";
 import { Skeleton } from "@/components/ui/skeleton";
 import { fetchAgentAvailability } from "@/lib/agent-download";
-import type { AgentOs } from "@/lib/device-support";
+import { isLinuxDesktop, readSupportEnv, readUaArch, type AgentOs } from "@/lib/device-support";
 import { t } from "@/lib/i18n";
 
-/** İndirme seçeneği: `none` = yalnız tarayıcı, `loading` = macOS availability bekleniyor, `ready` = birincil indirme gösterilir. */
+/**
+ * İndirme seçeneği: `none` = yalnız tarayıcı, `loading` = macOS/Linux availability (Linux'ta + UA-CH mimarisi) bekleniyor,
+ * `ready` = birincil indirme gösterilir.
+ */
 export type AgentOffer = { state: "none" } | { state: "loading" } | { state: "ready"; os: AgentOs; testBuild: boolean };
+
+/** Ağ/okuma sonucu: `ok` = indirme sunulabilir; `testBuild` yalnız macOS staging. */
+type Gate = { os: AgentOs; ok: boolean; testBuild: boolean };
+
+/** P28g: Linux'ta availability `linux:true` **ve** gerçek mimari x86_64 (Chromium UA-CH; okunamazsa fail-closed). */
+async function checkGate(os: "macos" | "linux"): Promise<Gate> {
+  if (os === "macos") {
+    const r = await fetchAgentAvailability();
+    return { os, ok: r?.macos === true, testBuild: r?.macosTestBuild === true };
+  }
+  const [r, arch] = await Promise.all([fetchAgentAvailability(), readUaArch()]);
+  return { os, ok: r?.linux === true && isLinuxDesktop(readSupportEnv(), arch), testBuild: false };
+}
 
 /**
  * P28f AC-390 / S-P28f-15: macOS'ta indirme yalnız `GET /public/agent/availability` `macos: true` dönerse gösterilir;
- * hata/429/geçersiz yanıt → yalnız tarayıcı (fail-closed). Windows yolu değişmez (kapı tıklamadaki 503 NOT_READY ön kontrolü).
+ * P28g (AC-403, S-P28g-12): Linux'ta `linux: true` ve x86_64 iken. Hata/429/geçersiz yanıt → yalnız tarayıcı (fail-closed).
+ * Windows yolu değişmez (kapı tıklamadaki 503 NOT_READY ön kontrolü).
  */
 export function useAgentOffer(os: AgentOs | null): AgentOffer {
-  const [mac, setMac] = useState<{ ok: boolean; testBuild: boolean } | null>(null);
+  const [gate, setGate] = useState<Gate | null>(null);
   useEffect(() => {
-    if (os !== "macos") return;
+    if (os !== "macos" && os !== "linux") return;
     let live = true;
-    void fetchAgentAvailability().then((r) => {
-      if (live) setMac({ ok: r?.macos === true, testBuild: r?.macosTestBuild === true });
+    void checkGate(os).then((g) => {
+      if (live) setGate(g);
     });
     return () => {
       live = false;
     };
   }, [os]);
   if (os === "windows") return { state: "ready", os, testBuild: false };
-  if (os !== "macos" || mac?.ok === false) return { state: "none" };
-  return mac === null ? { state: "loading" } : { state: "ready", os, testBuild: mac.testBuild };
+  if (os === null) return { state: "none" };
+  if (gate?.os !== os) return { state: "loading" };
+  return gate.ok ? { state: "ready", os, testBuild: gate.testBuild } : { state: "none" };
 }
 
-/** macOS indirme seçeneği denetlenirken (DESIGN §7 iskelet); tarayıcı yolu bu sırada kullanılabilir kalır. */
+/** macOS/Linux indirme seçeneği denetlenirken (DESIGN §7 iskelet); tarayıcı yolu bu sırada kullanılabilir kalır. */
 export function AgentSkeleton() {
   return (
     <div

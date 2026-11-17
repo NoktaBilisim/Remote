@@ -40,7 +40,8 @@ const resolveClientVersion = z
 /**
  * P28f (mimari-p28f §4.1, S-P28f-15): istemcinin işletim sistemi **beyanı**. AGENT'ta yoksa sunucu `windows` sayar (eski
  * istemciler); BROWSER'da yok sayılır. Nonce kaydına yazılır, join'de yeniden alınmaz. Yetki/özellik kararında kullanılmaz
- * (tek istisna: `control.state` `OS_PERMISSION` yalnız `macos`). Geçersiz değer → 400 VALIDATION.
+ * (tek istisnalar: `control.state` `OS_PERMISSION` yalnız `macos`, P28g `WAYLAND_NO_CONTROL` yalnız `linux`). Geçersiz değer →
+ * 400 VALIDATION.
  */
 export const CLIENT_OS = ["windows", "macos", "linux"] as const;
 export type ClientOs = (typeof CLIENT_OS)[number];
@@ -69,9 +70,9 @@ export type JoinAuditOs = (typeof JOIN_AUDIT_OS)[number];
 
 /**
  * P28f (§4.1, S-P28f-15): `GET /public/agent/download?ref=&os=` platformu; yoksa `windows`. Geçersiz → 400 VALIDATION
- * (ref kovası tüketilmez). Linux P28g'de eklenir.
+ * (ref kovası tüketilmez). P28g (mimari-p28g §4.1): `linux` → 302 `/downloads/Destek-<kod>` (uzantısız ELF).
  */
-export const AGENT_DOWNLOAD_OS = ["windows", "macos"] as const;
+export const AGENT_DOWNLOAD_OS = ["windows", "macos", "linux"] as const;
 export type AgentDownloadOs = (typeof AGENT_DOWNLOAD_OS)[number];
 export const agentDownloadOsSchema = z.enum(AGENT_DOWNLOAD_OS).default("windows");
 
@@ -84,6 +85,11 @@ export interface AgentAvailabilityResponse {
    * zaman false. Karşılama sayfası "Yine de Aç" rehberini yalnız true iken gösterir (S-P28f-8, A-PF-5).
    */
   macosTestBuild: boolean;
+  /**
+   * P28g (mimari-p28g §4.1, S-P28g-12): Linux ELF kapısı `ok` mu. `linuxTestBuild` yok (imza/TEST bandı yok). Web eksik/geçersiz
+   * alanı `false` sayar (fail-closed, yalnız tarayıcı).
+   */
+  linux: boolean;
 }
 
 /** POST /sessions yanıtı. `link` yalnız burada döner (düz token DB'de yok, G-22). */

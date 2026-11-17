@@ -96,6 +96,7 @@ export const ROUTE_CLASSES: Record<string, RouteClass> = {
   "GET /internal/agent-ready": "public",
   "GET /internal/agent-ready/windows": "public",
   "GET /internal/agent-ready/macos": "public",
+  "GET /internal/agent-ready/linux": "public",
   // P8 oturum geçmişi (historyScope)
   "GET /api/v1/sessions/export.csv": "list",
   "GET /api/v1/sessions/:id/history": "tenant",

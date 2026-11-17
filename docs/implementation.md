@@ -15255,3 +15255,117 @@ Silinen: `TestSP28f1LocalEventRejectsOwnSynthetic` (`LocalEvent` ile; `zorunlu=`
   - `gofmt -l`: boş.
   - staticcheck 0.8.2 (darwin arm64/amd64, windows amd64/arm64): temiz.
   - actionlint bu makinede kurulu değil. YAML değişikliği yalnız `zorunlu=` dizesine eklenen adlardan ibaret.
+
+## P28g K6 — sunucu + contracts: `os=linux`, availability `linux`, `/internal/agent-ready/linux`, `LINUX_AGENT_*`, `WAYLAND_NO_CONTROL` (backend-dev, 2026-11-17)
+
+Kaynak: `docs/mimari-p28g.md` §4.1–4.2, §8.1, §13 S-P28g-12, §10 K6. P28f K6 kalıbı aynen izlendi.
+
+### Değişen dosyalar
+
+- `packages/contracts/src/api/sessions.ts`: `AGENT_DOWNLOAD_OS` += `linux`; `AgentAvailabilityResponse.linux: boolean` (`linuxTestBuild` yok); `CLIENT_OS` yorumu.
+- `packages/contracts/src/ws.ts`: `CONTROL_SOURCES` ve `GUEST_VIEW_SOURCES` += `WAYLAND_NO_CONTROL` (yalnız `VIEW` ile; `GUEST_GRANT_SOURCES` değişmedi).
+- `packages/contracts/src/labels.ts`: `WAYLAND_NO_CONTROL_CANCELLED` = "Müşterinin masaüstü uzaktan kontrole izin vermiyor (Wayland)" ve `describeTimelineEvent` `control.cancelled{by:agent, source:wayland_no_control}` dalı. §6 `labels.ts`'i listeliyor; `OS_PERMISSION_CANCELLED` kalıbının aynısı. Bu dal olmasaydı zaman çizelgesi yanlışlıkla "bağlantı kesilince kapandı" yazardı.
+- `apps/server/src/env.ts`: `LINUX_AGENT_PATH_FIXED = /data/downloads/NoktaDestek-linux`, `LINUX_AGENT_PATH` ve `LINUX_AGENT_SHA256` (64 hex, küçük harfe çevrilir). Production'da başka yol reddedilir.
+- `apps/server/src/app.ts`: `linuxAgentBinary` kapısı (decorate + `onReady` ısıtma). `unconfigured` sessiz kalır; `missing`/`mismatch` durumunda `alarm: "linux_agent_binary"`.
+- `apps/server/src/public/agent.ts`: konum tablosu `windows .exe / macos .zip / linux ""`, yani `/downloads/Destek-<kod>` uzantısız. availability `linux` alanı.
+- `apps/server/src/public/routes.ts`: `binaries()` += `linux`; `/internal/agent-ready/linux` ucu. Bu uç macOS ucuyla ortak `onlyGate` kullanır: `fromEdge` + yalnız kendi kapısı.
+- `apps/server/src/signaling/control.ts`: `WAYLAND_NO_CONTROL` yalnız `clientOs === "linux"` olan AGENT'tan kabul edilir (`clientOs ?? "windows"`). Aksi durumda yok sayılır ve `wayland_no_control_ignored` sayılır.
+- `apps/server/src/signaling/control-grant.ts`: `OS_CANCEL_SOURCES` haritası. İki kaynak da yalnız REQUESTED'de iptal eder; GRANTED/VIEW'da yok sayılır (REVOKED/consent yok). Audit `control.cancelled{by:"agent", source:"wayland_no_control"}`; metrik `cancelled_wayland_no_control`. OS_PERMISSION metrik ve audit adları değişmedi.
+- `apps/server/src/signaling/types.ts` (yorum), `apps/server/src/ops/metrics.ts` (yardım metnine iki olay adı).
+- `.env.example`: `LINUX_AGENT_SHA256=`, `LINUX_AGENT_PATH=` (boş, yorumlu).
+- `apps/web/lib/agent-download.ts`: **yalnız** `linux: z.boolean().catch(false)`. Contracts tipi değişince web typecheck kırılıyordu. Eksik alan fail-closed olarak `false` sayılır (§4.1). K7 aynı dosyada paralel çalıştığından UI'ya dokunulmadı.
+- Testler:
+  - yeni `apps/server/test/integration/p28g-k6.test.ts` (17 test) ve `packages/contracts/test/p28g-contracts.test.ts` (4 test);
+  - `p28f-k6.test.ts` ve `p28f-contracts.test.ts`'te linux'un yokluğunu doğrulayan satırlar güncellendi: geçersiz örnek `LINUX`/`/ios`, availability beklentilerine `linux:false`;
+  - `test/helpers/tenant-matrix.ts` += `GET /internal/agent-ready/linux`;
+  - iki `pt-surface` anlık görüntüsü güncellendi. Fark yalnız GET+HEAD `/internal/agent-ready/linux` ve `WAYLAND_NO_CONTROL_CANCELLED`.
+
+### Tasarımdan sapma / devir
+
+- Sapma yok. Yeni bağımlılık yok. `session.join` audit `os: "linux"` için kod değişikliği gerekmedi (`JOIN_AUDIT_OS` zaten içeriyordu); test eklendi.
+- Proje kuralı yeni env için compose + runbook ister. Görev talimatı gereği bu iş **K8b'ye (devops) devredildi**; ayrıca Caddy `@agentLinux` / `agent_bin_file` / `test-caddy.sh` de K8b'de. Yapılacaklar: `deploy/docker-compose.yml` server servisine `LINUX_AGENT_PATH: /data/downloads/NoktaDestek-linux` ve `LINUX_AGENT_SHA256: ${LINUX_AGENT_SHA256:-}`, runbook env tablosuna iki satır.
+- Go eşi (`internal/signal/outbound.go` `guestViewSources` += `WAYLAND_NO_CONTROL`) K1/K3'te yapılacak. `DANGEROUS_EXT`'e dokunulmadı (K5).
+
+### frontend-dev (K7) için sözleşme
+
+- `GET /public/agent/availability` → `{ windows, macos, macosTestBuild, linux }`.
+- `GET /public/agent/download?ref=&os=linux` → 302 `/downloads/Destek-<kod>` (uzantısız). Hata kodları aynı (400/404/410/429/503).
+- WS `control.state{state:"VIEW", source:"WAYLAND_NO_CONTROL"}` teknisyene iletilir. `apps/web/lib/control/machine.ts` bu kaynağı ele almazsa son satırdaki `stop(..., "customer")` dalına düşer ve yanlış metin gösterir. `OS_PERMISSION` gibi "requested → iptal" işlenmeli ve AC-399 metni gösterilmeli. Zaman çizelgesi metni contracts'ta: `WAYLAND_NO_CONTROL_CANCELLED`.
+
+### Test komutları ve sonuç (test DB `rs-p28g-k6`, port 33461)
+
+- `pnpm --filter @remote/contracts test`: 28 dosya / 275 test geçti.
+- `pnpm --filter @remote/server test` (unit): 49 dosya / 673 geçti, 1 atlandı.
+- `pnpm --filter @remote/server test:int`: 115 dosya / 1187 test geçti (p28g-k6 ve p28f-k6 dahil).
+- `apps/web` `lib/agent-download.test.ts`: 23 geçti.
+- `pnpm -r run lint` ve `pnpm -r run typecheck`: temiz.
+- `pnpm format:check`: K6 dosyaları temiz. Kalan uyarılar K6 dışı: K7'nin süren web dosyaları (`linux-guide*`, `machine.ts`, `device-support.ts`, `agent-download.test.ts`, `mock-sessions.mjs`) ve önceki commit'teki docs (`mimari-p28g.md`, ADR-0038, `spike-p28g-k0s.md`, `tasarim-kontrol.md`, `gereksinimler-p28.md`, `guvenlik-raporu.md`).
+
+## P28g K7 — web: Linux karşılama, rehber + kopyalanabilir komut, konsol AC-399 metni (frontend-dev, 2026-11-17)
+
+Girdi: mimari-p28g §4.1–4.3, §9 (Web satırı), §10 K7, §13 S-P28g-6 / S-P28g-12, §14 m.6 / m.8. Contracts'a dokunulmadı: K6 (backend-dev) `AGENT_DOWNLOAD_OS += linux`, `AgentAvailabilityResponse.linux`, `WAYLAND_NO_CONTROL` ve `WAYLAND_NO_CONTROL_CANCELLED` zaman çizelgesi etiketini zaten eklemişti. `lib/agent-download.ts`'teki `linux: z.boolean().catch(false)` satırı K6'nındır; K7 yalnız URL'yi ekledi.
+
+### Rotalar
+
+| Yol                                | Auth                                   | Ne yapar                                                                                                                                                                                                                                                                  |
+| ---------------------------------- | -------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `/session/<token>` (değişti)       | hayır (müşteri)                        | Linux x86_64 masaüstünde (availability `linux:true`) birincil "Hızlı Destek uygulamasını indir" (`&os=linux` → uzantısız `Destek-<kod>`) + Linux rehberi + kopyalanabilir komut. ARM Linux, ChromeOS, Android, mobil, availability hatası/`false`/eksik → yalnız tarayıcı |
+| `/sessions/<id>/console` (değişti) | evet (teknisyen, `remote_control.use`) | `control.state{VIEW, WAYLAND_NO_CONTROL}` → not satırı + bildirim "Müşterinin masaüstü uzaktan kontrole izin vermiyor (Wayland)"; ret değil, 30 sn bekleme yok                                                                                                            |
+
+Yeni rota yok.
+
+### Değişen / eklenen dosyalar (apps/web)
+
+- `lib/device-support.ts`: `isLinuxDesktop(env, arch?)` — UA'da `Linux x86_64|amd64` olmalı. Android, CrOS, `aarch64`/`armv*`/`i686`, mobil UA, UA-CH `mobile=true` ve Linux dışı UA-CH `platform` ret. `arch` verilmişse `architecture=x86` + `bitness=64` olmalı, `null` (okuma hatası) ret. `readUaArch()` UA-CH `getHighEntropyValues` sarmalayıcısı. `agentOsOf` sırası: windows → linux → macos. `isMacDesktop` artık Linux/X11/CrOS UA'sını reddediyor (yüklemler karşılıklı dışlar).
+- `lib/agent-download.ts`: `agentDownloadUrl(ref, "linux")` → `&os=linux`.
+- `lib/linux-command.ts` (yeni): `LINUX_RUN_COMMAND` (`String.raw`). §4.3 kod bloğuyla bayt bayt aynı (birim testi belgeden okuyup karşılaştırır). Baştaki tek boşluk korunur; satır sonu ve `sudo` yok. Metin `tr.json`'da değildir: `\n` JSON'da gerçek satır sonuna döner, `{8}` `t()` yer tutucusu sanılırdı.
+- `app/session/[token]/agent-offer.tsx`: `useAgentOffer` macOS + Linux. Linux'ta availability ve UA-CH mimarisi paralel okunur; ikisi de geçerse `ready`, beklerken `loading` (iskelet), aksi halde `none`.
+- `app/session/[token]/linux-guide.tsx` (yeni) ve `agent-download.tsx` (Linux dalı + meta satırı).
+  - Rehber 4 adımdır: indir → çalıştırma izni (iki yol) → Wayland izni (+ "Uzaktan etkileşime izin ver", "Durdur" metni, §14 m.6/m.8) → kod + teknisyen doğrulama.
+  - Altında SHA256SUMS + attestation `details` bulunur.
+  - 2. adımdaki iki yol: (a) Dosyalar → Özellikler → "Program olarak çalıştır" → çift tık; (b) Terminal.
+  - Terminal yolunda komut görünür `pre` içindedir; `CopyLink` ile kopyalanır.
+  - Kopyala düğmesinin hemen altında her zaman görünür `Alert warning` vardır: S-P28g-6 (2) uyarısı birebir.
+- `components/copy-link.tsx`: isteğe bağlı `manualLabel` prop'u eklendi (pano reddinde "komut seçildi" etiketi). Yeni primitif yok.
+- `lib/control/machine.ts`: `ControlEndCause += "waylandNoControl"`. `OS_PERMISSION` ile aynı kalıp: yalnız `requested` fazında iptal, diğer fazlarda yok sayılır. Ayrıca `use-control-toasts.ts` (bilgi bildirimi) ve `components/console/control-button.tsx` (3 satır kırpma) güncellendi.
+- `messages/tr.json`: `gl.*` (rehber) ve `p7.end.waylandNoControl` (AC-399 dizgisi birebir, ek cümle yok).
+- `e2e/mock-sessions.mjs`: availability `linux:true`; `os=linux` → 302 uzantısız `Destek-<kod>`; `/downloads` uzantısız adı da sunar.
+- `DESIGN.md`: agent-download satırına P28g notu, `copy-link` satırına `manualLabel`, §4'e ikonlar (`FolderOpen`, `SquareTerminal`).
+- Audit `os: linux`: kod değişikliği gerekmedi. `CLIENT_OS_LABELS.linux` ve `auditClientOs` testi (`linux → Linux`) P28f'ten beri var.
+
+### 5 durum
+
+- Yükleniyor: availability + mimari beklenirken `agent-download-loading` iskeleti; tarayıcı yolu kullanılabilir.
+- Boş / kısmi: indirme yoksa tarayıcı birincil olur.
+- Hata: availability 429/500/ağ hatası/eksik alan → yalnız tarayıcı (fail-closed). İndirme 503 → "Tarayıcıdan devam et"; 429 → bekleme mesajı; 410/404 → bitiş ekranı (mevcut `AgentDownload` durumları).
+- Pano reddi: komut salt okunur alanda odaklı ve seçili gösterilir.
+- Başarı: "İndirme başladı" + rehber vurgusu.
+
+### Sapmalar / açık noktalar
+
+- **Birincil yol sırası:** Rehberde Dosyalar yolu önce, komut "Ya da Terminal ile" olarak ikinci sırada (S-P28g-6 (4)). Ancak Nautilus çift tık davranışı K0s-9'da doğrulanmadı (spike §4 m.7, E-13 ELLE); doğrulanan yalnız komut. E-13 Dosyalar yolunu doğrulamazsa `linux-guide.tsx`'te `linux-path-files` satırı kaldırılır ya da sırası değişir (tek blok).
+- **UA-CH mimarisi:** Chromium'un indirgenmiş UA'sı ARM Linux'ta da "Linux x86_64" yazar. Gerçek mimari yalnız eşzamansız `getHighEntropyValues` ile alınır; okuma hatası fail-closed sayılır. Firefox UA-CH sunmaz; orada UA'daki `aarch64` ile ayrım yapılır.
+- E2E'de Playwright UA ezmesi `navigator.userAgentData`'yı değiştirmiyor (ana makine macOS); UA-CH `addInitScript` ile sabitlendi.
+- Skill dosyaları okunmadı: mevcut P28f düzeni ve primitifleri birebir kullanıldı. Yeni görsel dil ya da animasyon yok.
+
+### Testler
+
+- Birim:
+  - `lib/device-support.test.ts`: isLinuxDesktop tablosu (x86_64 Firefox/Ubuntu/Chrome evet; aarch64, armv7l, i686, Android, Android tablet, CrOS, Windows, macOS hayır; UA-CH mimari/platform; karşılıklı dışlama).
+  - `lib/agent-download.test.ts`: `&os=linux`, availability `linux` true/eksik/geçersiz.
+  - `lib/control/machine.test.ts`: WAYLAND_NO_CONTROL.
+  - `app/session/[token]/linux-guide.test.tsx`: komut = mimari §4.3 bayt bayt; baştaki tek boşluk; CR/LF ve sudo yok; görünen `<code>` = sabit; uyarı metni birebir ve kopyala düğmesinden sonra; `details` içinde değil.
+  - Sonuç: `apps/web` 63 dosya / 608 test geçti.
+- E2E `e2e/p28g-linux.spec.ts` (desktop 17 geçti; mobil proje masaüstü senaryolarını atlar):
+  - AC-403: düzen, `os=linux`, uzantısız indirme adı, axe.
+  - AC-397 / S-P28g-6: `textContent` = `clipboard.readText()` = sabit.
+  - Pano reddi.
+  - Firefox (UA-CH yok).
+  - ARM ve UA-CH hatası.
+  - availability `false` / eksik / 500 / 429.
+  - İskelet ve 503.
+  - 390 px koyu (taşma yok, düğme ≥ 44 px, axe 0) ve 1280 px açık axe 0.
+  - ChromeOS ve aarch64 Firefox.
+  - Konsol AC-399 metni, ret değil, bekleme yok, satır kırpması yok, axe 0.
+- Regresyon: `p28f-macos`, `p6-agent-download`, `p7-control` yeşil.
+- `pnpm --filter @remote/web lint`, `typecheck` ve `prettier --check apps/web DESIGN.md` temiz.

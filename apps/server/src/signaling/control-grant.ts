@@ -21,6 +21,15 @@ import type { ConsentSource, Guest, Room } from "./types.ts";
 import { controlToggled } from "./unattended-control.ts";
 
 /** K8: GRANTED audit'i için istemcinin yönetici durumu; env.state hiç gelmediyse "unknown". */
+/**
+ * İşletim sistemi izni yüzünden diyaloğun açılmadığı kaynaklar (P28f `OS_PERMISSION`, P28g `WAYLAND_NO_CONTROL`): yalnız bekleyen
+ * isteği iptal eder; audit `source` ve metrik adı bu değerden. Kaynak–OS eşleşmesi `handleControlState`'te denetlenir.
+ */
+const OS_CANCEL_SOURCES: Partial<Record<ControlSource, "os_permission" | "wayland_no_control">> = {
+  OS_PERMISSION: "os_permission",
+  WAYLAND_NO_CONTROL: "wayland_no_control",
+};
+
 const selfElevatedOf = (room: Room): "true" | "false" | "unknown" =>
   room.guestEnv === undefined ? "unknown" : room.guestEnv.selfElevated ? "true" : "false";
 
@@ -100,8 +109,10 @@ export async function onView(rooms: Rooms, room: Room, guest: Guest, source: Con
   if (!rooms.live(room) || room.admitted !== guest) return;
   if (source === "DENIED") return onDenied(rooms, room, guest);
   // P28f (§4.2): OS_PERMISSION yalnız bekleyen isteği iptal eder; başka fazda yok sayılır (asla REVOKED/consent kaydı olmaz).
-  if (source === "OS_PERMISSION" && c.state !== "REQUESTED") {
-    rooms.metrics.inc("rs_control_total", { event: "os_permission_ignored" });
+  // P28g (§4.2, S-P28g-12): WAYLAND_NO_CONTROL aynı kural.
+  const cancelSource = OS_CANCEL_SOURCES[source];
+  if (cancelSource && c.state !== "REQUESTED") {
+    rooms.metrics.inc("rs_control_total", { event: `${cancelSource}_ignored` });
     return;
   }
   if (c.state === "VIEW") return; // sunucu kapattıktan sonraki istemci onayı (SYSTEM) — zaten kayıtlı
@@ -113,9 +124,9 @@ export async function onView(rooms: Rooms, room: Room, guest: Guest, source: Con
   if (was === "REQUESTED") {
     // §3.3 K6: bekleyen istek müşteri kararı olmadan istemcide kapandı (ör. PeerConnection koptu). Consent yok (müşteriye
     // ret atfedilmez), 30 sn bekleme/sayaç yok; control.requested'in kapanışı audit control.cancelled{by:"agent"} (en iyi çaba).
-    // P28f (§4.2, AC-391): OS_PERMISSION = misafirde Erişilebilirlik izni yok; aynı iptal yolu, audit kaynağı `os_permission`.
-    const osPermission = source === "OS_PERMISSION";
-    rooms.metrics.inc("rs_control_total", { event: osPermission ? "cancelled_os_permission" : "cancelled_by_agent" });
+    // P28f (§4.2, AC-391): OS_PERMISSION = misafirde Erişilebilirlik izni yok; P28g (AC-399): WAYLAND_NO_CONTROL = Wayland
+    // portalında girdi izni yok. Aynı iptal yolu; audit kaynağı `os_permission` / `wayland_no_control`.
+    rooms.metrics.inc("rs_control_total", { event: cancelSource ? `cancelled_${cancelSource}` : "cancelled_by_agent" });
     void writeAudit(rooms.db, guestCtx(guest), {
       tenantId: room.tenantId,
       ...CUSTOMER,
@@ -123,7 +134,7 @@ export async function onView(rooms: Rooms, room: Room, guest: Guest, source: Con
       entity: "support_sessions",
       entityId: room.sessionId,
       result: "success",
-      newValue: { by: "agent", source: osPermission ? "os_permission" : source },
+      newValue: { by: "agent", source: cancelSource ?? source },
     }).catch((err: unknown) => void logFail(rooms, room, "control_cancel_audit_failed", err));
     return;
   }

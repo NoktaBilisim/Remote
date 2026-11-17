@@ -199,11 +199,24 @@ export type ControlState = (typeof CONTROL_STATES)[number];
  * P28f (mimari-p28f §4.2, S-P28f-15): `OS_PERMISSION` = misafirde işletim sistemi izni (macOS Erişilebilirlik) yok, kontrol
  * diyaloğu açılmadı; yalnız `VIEW` ile. Sunucu iptal gibi işler (consent yok, bekleme yok) ve yalnız AGENT + `clientOs=macos`
  * misafirden, REQUESTED fazında kabul eder; aksi yok sayılır.
+ * P28g (mimari-p28g §4.2, S-P28g-12; AC-399): `WAYLAND_NO_CONTROL` = Wayland portal oturumunda klavye/işaretçi izni yok
+ * (`devices == 0`), kontrol diyaloğu açılmadı; `OS_PERMISSION` kalıbı — yalnız `VIEW` ile, yalnız AGENT + `clientOs=linux`
+ * misafirden, REQUESTED fazında; aksi yok sayılır.
  */
-export const CONTROL_SOURCES = ["UI", "HOTKEY", "DENIED", "RECONNECT", "SYSTEM", "TECH", "UNATTENDED", "OS_PERMISSION"] as const;
+export const CONTROL_SOURCES = [
+  "UI",
+  "HOTKEY",
+  "DENIED",
+  "RECONNECT",
+  "SYSTEM",
+  "TECH",
+  "UNATTENDED",
+  "OS_PERMISSION",
+  "WAYLAND_NO_CONTROL",
+] as const;
 export type ControlSource = (typeof CONTROL_SOURCES)[number];
 /** Misafirden kabul edilen kaynaklar (§3 tablo, S7-10): GRANTED yalnız UI; VIEW yalnız bu küme. */
-export const GUEST_VIEW_SOURCES = ["UI", "HOTKEY", "DENIED", "SYSTEM", "OS_PERMISSION"] as const;
+export const GUEST_VIEW_SOURCES = ["UI", "HOTKEY", "DENIED", "SYSTEM", "OS_PERMISSION", "WAYLAND_NO_CONTROL"] as const;
 export type GuestControlSource = (typeof GUEST_VIEW_SOURCES)[number];
 /** Misafirden GRANTED kaynağı: `UI` (yerel "İzin ver"); P27 `UNATTENDED` yalnız gözetimsiz odada geçerli (oda denetimi sunucuda). */
 const GUEST_GRANT_SOURCES: readonly ControlSource[] = ["UI", "UNATTENDED"];
@@ -226,7 +239,8 @@ export const controlReleaseSchema = z.strictObject({ t: z.literal("control.relea
 /** tech → S → guest (§3.3 K2): bekleyen isteği geri çeker; GRANTED iken bırakma sayılır. */
 export const controlCancelSchema = z.strictObject({ t: z.literal("control.cancel"), id });
 /**
- * guest → S → tech. `GRANTED` yalnız `UI` (yerel "İzin ver") ya da P27 `UNATTENDED`; `VIEW` yalnız `UI|HOTKEY|DENIED|SYSTEM|OS_PERMISSION`.
+ * guest → S → tech. `GRANTED` yalnız `UI` (yerel "İzin ver") ya da P27 `UNATTENDED`; `VIEW` yalnız
+ * `UI|HOTKEY|DENIED|SYSTEM|OS_PERMISSION|WAYLAND_NO_CONTROL`.
  * `RECONNECT`/`TECH` yalnız sunucu üretir — misafirden gelirse şema hatası → 1008 (S7-10).
  */
 export const controlStateSchema = z

@@ -67,6 +67,7 @@ describe("P28f AC-396: macOS indirme adresi", () => {
     expect(agentDownloadUrl("r1", "windows")).toBe("/api/v1/public/agent/download?ref=r1");
     expect(agentDownloadUrl("a+b", "macos")).toBe("/api/v1/public/agent/download?ref=a%2Bb&os=macos");
   });
+  it("P28g: Linux'ta &os=linux", () => expect(agentDownloadUrl("r1", "linux")).toBe("/api/v1/public/agent/download?ref=r1&os=linux"));
   it("ön kontrol macOS adresine gider; 302 .zip → ok", async () => {
     let url = "";
     const f = (async (u: string) => {
@@ -89,7 +90,7 @@ describe("P28f AC-390 / S-P28f-15: fetchAgentAvailability (fail-closed)", () => 
       init = i;
       return new Response(JSON.stringify({ windows: true, macos: true, macosTestBuild: true }), { status: 200 });
     }) as unknown as typeof fetch;
-    expect(await fetchAgentAvailability(f)).toEqual({ windows: true, macos: true, macosTestBuild: true });
+    expect(await fetchAgentAvailability(f)).toEqual({ windows: true, macos: true, linux: false, macosTestBuild: true });
     expect(url).toBe(AGENT_AVAILABILITY_URL);
     expect(url).toBe("/api/v1/public/agent/availability");
     expect(init?.credentials).toBe("omit");
@@ -98,11 +99,26 @@ describe("P28f AC-390 / S-P28f-15: fetchAgentAvailability (fail-closed)", () => 
     expect(await fetchAgentAvailability(ok({ windows: true, macos: false, macosTestBuild: false }))).toEqual({
       windows: true,
       macos: false,
+      linux: false,
       macosTestBuild: false,
     }));
   it("S-P28f-8: macosTestBuild eksik/geçersiz → false (imzalı rehber; 'Yine de Aç' varsayılan değil)", async () => {
-    expect(await fetchAgentAvailability(ok({ windows: true, macos: true }))).toEqual({ windows: true, macos: true, macosTestBuild: false });
+    expect(await fetchAgentAvailability(ok({ windows: true, macos: true }))).toEqual({
+      windows: true,
+      macos: true,
+      linux: false,
+      macosTestBuild: false,
+    });
     expect((await fetchAgentAvailability(ok({ windows: true, macos: true, macosTestBuild: "evet" })))?.macosTestBuild).toBe(false);
+  });
+  it("P28g (S-P28g-12): linux:true → true; eksik (eski sunucu) / geçersiz → false, Windows/macOS etkilenmez", async () => {
+    expect((await fetchAgentAvailability(ok({ windows: true, macos: true, linux: true })))?.linux).toBe(true);
+    expect(await fetchAgentAvailability(ok({ windows: true, macos: false, linux: "evet" }))).toEqual({
+      windows: true,
+      macos: false,
+      linux: false,
+      macosTestBuild: false,
+    });
   });
   it.each([
     ["429", ok({ error: { code: "RATE_LIMITED" } }, 429)],

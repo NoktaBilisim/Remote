@@ -1261,6 +1261,7 @@ exports[`PT-K1 contracts yüzeyi > AC-318: her exports yolunun dışa verdiği a
     "TIMELINE_ACTION_LABELS",
     "TimelineText (tip)",
     "VIA_BINDING_LABEL",
+    "WAYLAND_NO_CONTROL_CANCELLED",
     "describeFsrvStatus",
     "describeShareFailure",
     "describeTimelineEvent",
