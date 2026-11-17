@@ -200,6 +200,9 @@ test.describe("P28d sesli görüşme (tarayıcı misafir)", () => {
     await expect(g.getByTestId("voice-bar-mic")).toHaveText("Mikrofon açık");
     await expect(g.getByTestId("voice-bar-talkers")).toHaveText(`Konuşan: ${TECH}`);
     expect(await gumCount(g)).toBe(1);
+    // AC-376 (§9): görüşme sürerken konsol kalite panelinde "Ses kaybı %x" satırı
+    await page.getByTestId("collab-side").getByRole("button", { name: "Kalite" }).click();
+    await expect(page.getByTestId("quality-panel")).toContainText(/Ses kaybı\s*%\d/, { timeout: 10_000 });
     // AC-375: ses WebRTC Opus + DTLS-SRTP
     expect(offers.some((x) => /a=rtpmap:\d+ opus\/48000\/2/.test(x) && /a=fingerprint:/.test(x))).toBe(true);
 

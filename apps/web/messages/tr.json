@@ -2585,5 +2585,6 @@
   "vg.end": "Görüşmeyi bitir",
   "vg.newListener": "{name} görüşmeyi dinlemeye başladı",
   "vg.ended": "Sesli görüşme sona erdi",
-  "vg.device": "Mikrofonunuz açılamadı. Mikrofonun bağlı olduğunu ve tarayıcıya izin verdiğinizi kontrol edin; teknisyen yeniden isteyebilir."
+  "vg.device": "Mikrofonunuz açılamadı. Mikrofonun bağlı olduğunu ve tarayıcıya izin verdiğinizi kontrol edin; teknisyen yeniden isteyebilir.",
+  "vg.unconfirmed": "Sesli görüşme başlatılamadı; mikrofonunuz kapatıldı. Teknisyen yeniden isteyebilir."
 }

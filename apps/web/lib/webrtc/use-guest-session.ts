@@ -302,6 +302,7 @@ function usePeers(
         for (const fn of chatSubs.current) fn(m);
       },
       onPeers: () => voice?.peersChanged(),
+      onAudioError: () => voice?.audioFailed(),
     });
     voice = new GuestVoice({
       send: (m) => send(m),

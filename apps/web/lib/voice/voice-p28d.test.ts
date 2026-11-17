@@ -4,7 +4,7 @@ import { VOICE_AUDIT } from "@remote/contracts/audit";
 import { permissionsPolicyFor } from "@/proxy";
 import { actionLabel, groupLabel } from "@/lib/audit/actions";
 import { consoleVoiceReducer, consoleVoiceView, initialConsoleVoice, micLive, micWanted, shouldListen, type VoiceCtx } from "./console";
-import { GuestVoice, type VoiceGraph } from "./guest";
+import { CONFIRM_MS, GuestVoice, type VoiceGraph } from "./guest";
 import { mixPlan } from "./mix";
 import { browserRecorder } from "../rec/recorder";
 
@@ -219,6 +219,76 @@ describe("AC-374 / K-PD-2 misafir rıza kuralı", () => {
     await Promise.resolve();
     expect(f.sent.at(-1)).toEqual({ t: "voice.end", callId: CID, reason: "device" });
     expect(f.v.view().note).toBe("device");
+  });
+
+  it("D-PD-K1-2: Kabul sonrası 5 sn içinde active gelmezse mikrofon bırakılır, bilgi notu; geç active rızasız yoldan biter", async () => {
+    vi.useFakeTimers();
+    try {
+      const f = fakeGuest();
+      f.v.onRequest({ callId: CID, by: A });
+      f.v.accept();
+      await Promise.resolve();
+      expect(f.v.view().mic).toBe("on");
+      // Aynı görüşmenin pending yayını bekçiyi kapatmaz
+      f.v.onState(st({ phase: "pending", callId: CID, by: A, listeners: [A] }));
+      vi.advanceTimersByTime(CONFIRM_MS - 1);
+      expect(f.mic.stop).not.toHaveBeenCalled();
+      vi.advanceTimersByTime(1);
+      expect(f.mic.stop).toHaveBeenCalledTimes(1);
+      expect(f.v.view()).toMatchObject({ mic: "off", active: null, note: "unconfirmed" });
+      expect(f.outs.get(A)).toBeNull();
+      expect(f.sent).toEqual([{ t: "voice.answer", callId: CID, accept: true }]);
+      // Sunucu geç başlatırsa: rıza silindi → mikrofon açılmaz, voice.end{customer} (K-PD-2)
+      f.v.onState(st({ phase: "active", callId: CID, by: A, talkers: [A], listeners: [A] }));
+      expect(f.sent.at(-1)).toEqual({ t: "voice.end", callId: CID, reason: "customer" });
+      expect(f.getMic).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("D-PD-K1-2: active zamanında gelirse bekçi kapanır; mikrofon 5 sn'yi aşınca açılırsa hemen durdurulur", async () => {
+    vi.useFakeTimers();
+    try {
+      const f = fakeGuest();
+      f.v.onRequest({ callId: CID, by: A });
+      f.v.accept();
+      await Promise.resolve();
+      f.v.onState(st({ phase: "active", callId: CID, by: A, talkers: [A], listeners: [A] }));
+      vi.advanceTimersByTime(10_000);
+      expect(f.mic.stop).not.toHaveBeenCalled();
+      expect(f.v.view().active?.callId).toBe(CID);
+
+      // Mikrofon izni 5 sn'den uzun sürer, sunucu onayı yok: geç gelen iz durdurulur
+      const g = fakeGuest();
+      let resolve: (t: MediaStreamTrack) => void = () => undefined;
+      g.getMic.mockImplementationOnce(() => new Promise<MediaStreamTrack>((r) => (resolve = r)));
+      g.v.onRequest({ callId: CID, by: A });
+      g.v.accept();
+      vi.advanceTimersByTime(CONFIRM_MS);
+      expect(g.v.view().note).toBe("unconfirmed");
+      resolve(g.mic);
+      await Promise.resolve();
+      expect(g.mic.stop).toHaveBeenCalledTimes(1);
+      expect(g.v.view().mic).toBe("off");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("ses göndericisine iz bağlanamazsa (audioFailed) mikrofon hatasıyla aynı yol: voice.end{device} + bırakma", async () => {
+    const f = fakeGuest();
+    f.v.audioFailed(); // rıza yokken etkisiz
+    expect(f.sent).toEqual([]);
+    f.v.onRequest({ callId: CID, by: A });
+    f.v.accept();
+    await Promise.resolve();
+    f.v.onState(st({ phase: "active", callId: CID, by: A, talkers: [A], listeners: [A] }));
+    f.v.audioFailed();
+    expect(f.sent.at(-1)).toEqual({ t: "voice.end", callId: CID, reason: "device" });
+    expect(f.mic.stop).toHaveBeenCalledTimes(1);
+    expect(f.outs.get(A)).toBeNull();
+    expect(f.v.view()).toMatchObject({ mic: "off", active: null, note: "device" });
   });
 
   it("roster'da olmayan by yok sayılır; Reddet → answer false", () => {

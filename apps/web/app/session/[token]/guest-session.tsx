@@ -241,6 +241,11 @@ function GuestVoiceSlot({
           {t("vg.device")}
         </Alert>
       )}
+      {view.note === "unconfirmed" && (
+        <Alert tone="info" testId="voice-unconfirmed">
+          {t("vg.unconfirmed")}
+        </Alert>
+      )}
       <VoiceRequestDialog
         request={view.request}
         listenerNames={view.request ? namesOf(view.request.listeners, roster) : []}

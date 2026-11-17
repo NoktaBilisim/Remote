@@ -36,6 +36,8 @@ export class PeerLink {
   /** P7: `input` kanalı açıldı / kapandı (null). */
   onInput: ((c: RTCDataChannel | null) => void) | null = null;
   private input: RTCDataChannel | null = null;
+  /** P28d: ses izi göndericiye bağlanamadı (`replaceTrack` reddi); gönderici susturuldu. Çağıran kendi hata yoluna bağlar. */
+  onAudioError: (() => void) | null = null;
   /** P28d misafir: yanıt öncesi istenen ses gönderici izi (transceiver yanıtta oluşur). */
   private audioOut: MediaStreamTrack | null = null;
 
@@ -150,7 +152,16 @@ export class PeerLink {
   async setAudioTrack(track: MediaStreamTrack | null): Promise<void> {
     this.audioOut = track;
     const s = this.audioTransceiver()?.sender;
-    if (s && s.track !== track) await s.replaceTrack(track).catch(() => undefined);
+    if (!s || s.track === track) return;
+    // Hata yutulmaz: iz bağlanamadıysa gönderici susturulur (ses düşer) ve çağıran haberdar edilir. `null` bağlama hatası
+    // sessiz kalır (bırakma yolunun kendisi; mikrofon izi zaten stop() edilmiştir — yeniden girişi önler).
+    const ok = await s.replaceTrack(track).then(
+      () => true,
+      () => false,
+    );
+    if (ok || track === null) return;
+    await s.replaceTrack(null).catch(() => undefined);
+    this.onAudioError?.();
   }
 
   /** P28d: uzak ses izi (karşı taraf yalnız görüşme sürerken örnek gönderir); ses m-line'ı yoksa null. */

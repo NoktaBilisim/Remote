@@ -70,6 +70,8 @@ interface Opts {
   onChat: (m: GuestChatIn) => void;
   /** P28d: eş kümesi / uzak ses izi değişti (yanıt verildi ya da eş kapandı). */
   onPeers?: () => void;
+  /** P28d: bir eşin ses göndericisine iz bağlanamadı (GuestVoice tek hata yoluna bağlar). */
+  onAudioError?: () => void;
 }
 
 export class GuestPeers implements VoicePeers {
@@ -147,6 +149,9 @@ export class GuestPeers implements VoicePeers {
       this.o.send((tid === LEGACY ? m : { ...m, to: tid }) as GuestInboundFull);
     const link = new PeerLink(this.o.ice(), send);
     const e: Entry = { link, channels: null };
+    link.onAudioError = () => {
+      if (this.peers.get(tid) === e) this.o.onAudioError?.();
+    };
     link.onChannels = (c) => {
       if (this.peers.get(tid) !== e) return;
       e.channels = c;

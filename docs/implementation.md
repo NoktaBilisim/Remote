@@ -13843,7 +13843,7 @@ Testler (K3d): `TestP28dTrayVoiceEndAndLicensesInScope`, `TestP28dTrayLicensesOu
 istemcisinde var: yasak yol adı güncel). Win32 çizimi (diyalog, şerit, menü) CI'da koşamaz → runbook §28d.7 m.12–18.
 
 CI sözleşmesi: `agent-win.yml` "P28d ses testleri" zorunlu PASS listesi = adında `P28d|Voice|Opus` geçen tüm 78 `Test` işlevi (K0s 12 +
-K0/K3a/K3b/K3c/K3d 66). Ad değiştiren listeyi de günceller. Windows'ta SKIP yolu olan yalnız K0s'un `-short`/amd64-dışı testleri.
+K0/K3a/K3b/K3c/K3d 66; düzeltme turu 1 ile 85, aşağıya bakın). Ad değiştiren listeyi de günceller. Windows'ta SKIP yolu olan yalnız K0s'un `-short`/amd64-dışı testleri.
 
 Komutlar ve son çıktı (2026-11-17, `apps/agent-win`):
 
@@ -14173,3 +14173,127 @@ karşılaştır`; §24.4 adım 2'ye libopus-wasm.
   değil) — kapsam genişlerse satıra `# shellcheck disable=SC2089,SC2090` gerekçesiyle eklenmeli. `docs/tmp-impl-k3.md` prettier.
 - **mimar:** madde 1 (mimari §10/§11 metni opus-go → wazero + libopus.wasm).
 - **test-operatoru (K5):** runbook §28d.7 Windows elle turu ve §28d.8 AC-376 ölçümü (DENENMEDİ, ilk koşuda doğrular).
+
+### Düzeltme turu 1 (Go)
+
+backend-dev (Go), 2026-11-17. Kapsam yalnız `apps/agent-win` + `.github/workflows/agent-win.yml`. Kaynak: qa-raporu "P28d Tur 1" m.2,
+guvenlik-raporu "P28d — Kod turu 1" D-PD-K1-1 ve D-PD-K1-2 (Go tarafı).
+
+#### Değişen dosyalar
+
+- `internal/voice/opus.go` — D-PD-K1-1. `withLimits` her motora bellek tavanı + `CoreFeaturesV2` + `WithCloseOnContextDone(true)` uygular
+  (`compilerEngine` / `interpreterEngine` / `runtimeConfig` artık `engineConfig{cfg, limit}` döndürür). `nk_enc` / `nk_dec` çağrıları
+  `callLimited` ile çerçeve başına `context.WithTimeout` içinde koşar. Süre dolunca wazero örneği kapatır, hata `ErrCodecPanic` olur: aynı
+  tuzak yolu çalışır (çözücü yeniden kurulur, 3. olayda `ErrPeerDropped`; kodlayıcı kapanır, `Call.send` yenisini kurar). Init/tampon
+  çağrıları (`newInstance`) sınırsız `context.Background()` ile çağrılır, çünkü uzaktan veri işlemezler.
+- `internal/voice/opus_test.go` — elle kurulan derleyici/yorumlayıcı yapılandırmaları da aynı yardımcıdan geçer (`compilerEngine()` /
+  `interpreterEngine()`).
+- `internal/voice/opus_limit_test.go` (yeni) — elle yazılmış 1 işlevli wasm (`(loop (br 0)) unreachable`, imza nk_dec ile aynı):
+  `TestP28dOpusContextCancelStopsCall` (bağlam iptali bitmeyen çağrıyı sonlandırır → `ErrCodecPanic`; auto + yorumlayıcı, amd64'te ayrıca
+  derleyici), `TestP28dOpusCallLimitTreatedAsTrap` (süre aşımı = tuzak: örnek kapanır, yenisi kurulur, 3. olayda eş düşer),
+  `TestP28dOpusCallLimitValues`.
+- `internal/flow/flow.go` + `internal/flow/voice.go` — D-PD-K1-2. Yeni alan `Deps.VoiceActiveWait` (varsayılan 5 sn). `voiceAccept`
+  zamanlayıcıyı kurar (`armVoiceActiveWait`), sonuç döngüye `peerEvent{run}` ile döner. `voiceActiveTimeout` şu koşulların hepsi
+  sağlanıyorsa tek yoldan `releaseMic(VoiceTexts.Ended)` çağırır: aynı kabul (gen) hâlâ geçerli, rıza hâlâ o callId'de ve o callId için
+  `active` görülmedi. Mesaj gönderilmez (pending'de sunucu `voice.end`'i düşürür). Geç gelen `active` rızasız sayılır ve mevcut yoldan
+  callId başına tek `voice.end{customer}` üretir.
+- `internal/flow/voice_p28d_test.go` — `startVoiceDeps` yardımcısı (Deps seçeneği; `startVoice` ona devreder).
+- `internal/flow/voice_wait_p28d_test.go` (yeni) — QA m.2: `TestP28dDoneTimeoutEventsInMultiMode`. Kontrol sahibi tid'i doluyken
+  `peerEvent{doneTimeout}` → `files.DoneTimeout` → `UI.FileResult(CORRUPT)`. `session_media.go` case sırası geçici olarak eski hâline
+  döndürülünce test **kırmızı** oldu ("doneTimeout olayı yutuldu"), dosya geri yüklendi (diff 0). D-PD-K1-2 testleri:
+  `TestAC374P28dReleaseMicWhenActiveNeverArrives`, `TestAC374P28dActiveInTimeKeepsMic`,
+  `TestAC374P28dActiveWaitDuringOpenClosesStaleOpen`.
+- `.github/workflows/agent-win.yml` — "P28d ses testleri" PASS listesine 7 yeni ad eklendi. Liste artık 85 ada sahip ve koddaki
+  `P28d|Voice|Opus` adlı Test işlevleriyle karşılaştırıldı, fark 0.
+
+#### Kararlar / sapmalar (gerekçeli)
+
+1. **Süre sınırı 200 ms (derleyici), 2 sn (yorumlayıcı). Raporun örneği 50 ms'ydi.** Sınırın amacı asılı kalan bir çağrıyı kesmek;
+   gerçek zaman bütçesini zorlamak değil. amd64 derleyicide kodlama+çözme çerçeve başına ölçümde ≤ 0,8 ms (öykünmede) sürüyor.
+   `Decoder.panics` sayacı sıfırlanmadığı için yük altındaki bir makinede zamanlayıcı/GC duraklamaları kısa bir sınırı tetikleyebilir ve
+   bu, eşin kalıcı düşmesine yol açar. 200 ms (10 çerçeve) bu yanlış pozitifi önlüyor; gerçek bir sonsuz döngü yine en geç 200 ms'de
+   kesiliyor. Yorumlayıcı yalnız arm64 geliştirme/test içindir (~22 ms/çerçeve; `-race` ve öykünmede kat kat yavaşlar), bu yüzden 2 sn.
+2. **Performans (amd64 derleyici, `--platform linux/amd64` Rosetta öykünmesi, VirtualApple 2,5 GHz).** Ölçülen, 20 ms'lik bir çerçevenin
+   kodlama+çözme süresi (geçici benchmark, `-count 3`; dosya silindi):
+
+   | Durum                                        | ns/çerçeve | ayırma       |
+   | -------------------------------------------- | ---------- | ------------ |
+   | Eski (bayrak yok)                            | ~272 000   | 0            |
+   | `WithCloseOnContextDone` + Background bağlam | ~783 000   | 6 (~380 B)   |
+   | Yeni (bayrak + çağrı başına zaman aşımı)     | ~794 000   | 16 (~1,1 KB) |
+
+   Maliyetin neredeyse tamamı derleyicinin döngü başlarına eklediği sonlandırma denetimlerinden geliyor (~2,9×). Zamanlayıcı ve wazero
+   izleme goroutine'i ihmal edilebilir. Mutlak değer 20 ms bütçenin ~%4'ü (eş başına bir kodlama + konuşan başına bir çözme). Ölçüm
+   öykünmede yapıldı, gerçek Windows amd64'te mutlak süre daha düşük olmalı. **Windows'ta CPU payı runbook §28d.8 elle ölçümüne eklenmeli
+   (test-operatoru).** Bu oran kabul edilemez çıkarsa geri dönüş yolu, bayrağı kaldırıp D-PD-K1-1'i kabul edilen risk saymaktır.
+
+3. `call` yorumundaki "ayırmasız" ifadesi kaldırıldı: sınırlı çağrı, çağrı başına bağlam ve zamanlayıcı ayırıyor. Testlerde
+   `AllocsPerRun` yok.
+4. D-PD-K1-2 için yeni UI metni eklenmedi; mevcut `VoiceTexts.Ended` kullanıldı.
+
+#### Doğrulama (2026-11-17, `apps/agent-win`)
+
+| Komut                                                                                          | Sonuç                                                           |
+| ---------------------------------------------------------------------------------------------- | --------------------------------------------------------------- |
+| `docker run golang:1.26 … go test ./... && GOOS=windows go vet ./... && GOOS=windows go build` | 31 paket ok (voice 219 s, arm64 yorumlayıcı), vet + build temiz |
+| `--platform linux/amd64` `go test -race ./internal/voice/... ./internal/flow/...`              | ok (voice 163 s, flow 14,6 s; amd64 derleyici yolu)             |
+| `gofmt -l .`                                                                                   | boş                                                             |
+| staticcheck 2026.2.2 (0.8.2) linux + `GOOS=windows`                                            | 0 bulgu                                                         |
+| actionlint (rhysd/actionlint imajı) `agent-win.yml`                                            | 0                                                               |
+| PASS listesi ↔ kod (`P28d\|Voice\|Opus` Test işlevleri)                                        | 85 = 85, fark 0                                                 |
+
+#### Frontend için sözleşme değişikliği
+
+Yok. Sunucu/web mesajları değişmedi. Go misafiri, kabulden sonra 5 sn içinde `active` gelmezse mikrofonu yalnız yerelde bırakır.
+
+### Düzeltme turu 1 (web)
+
+frontend-dev, 2026-11-17. Kapsam yalnız `apps/web`. Kaynak: qa-raporu "P28d Tur 1" m.1 + öneri (peer.ts `replaceTrack`),
+guvenlik-raporu "P28d — Kod turu 1" D-PD-K1-2 (web misafir tarafı). Yeni rota yok, bağımlılık yok, sözleşme değişmedi.
+
+#### Değişen dosyalar
+
+- `lib/webrtc/stats.ts` — ses kaybı yalnız sayaç ilerliyorsa hesaplanır. Görüşme bitip alıcı izi kaldığında `packetsReceived > 0` ama
+  fark 0 oluyordu; satır "%0" olarak kalıyordu. Artık `null` döner ve satır gizlenir (§8 "görüşme etkinken").
+- `lib/webrtc/stats.test.ts` (yeni) — QA m.1 (a): "AC-376 ses paket kaybı" — iki örnekte kayıp/alınan farkından `audioLossPct`,
+  paket yokken / ilk örnekte / sayaç donunca `null`, `evaluate` ile ≥ 3 sn eşik aşımı → `warn`/`bad` `audioLoss`, kısa sıçrama `ok`.
+- `components/console/quality-panel.test.tsx` (yeni) — QA m.1 (b): "AC-376 kalite paneli ses kaybı satırı": değerliyken
+  "Ses kaybı %x" (`formatNumber`), `null` iken satır yok, sorun rozetinde "ses kaybı yüksek".
+- `e2e/p28d-voice.spec.ts` — AC-374 testine mimari §9 doğrulaması eklendi: görüşme sürerken konsol "Kalite" panelinde
+  `Ses kaybı %n` görünür.
+- `lib/voice/guest.ts` — D-PD-K1-2. `accept()` bir onay bekçisi kurar (`CONFIRM_MS` = 5 sn). Bekçiyi yalnız iki şey kapatır: o `callId`
+  için gelen `voice.state{active}` ve `release()`. Aynı görüşmenin `pending` yayını kapatmaz. Süre dolunca rıza hâlâ o `callId`'deyse tek
+  `release()` yolu çalışır (iz `stop()`, graf kapanır, tüm ses göndericileri `null`) ve `note = "unconfirmed"` olur. Mesaj gönderilmez.
+  Geç gelen `active` mevcut rızasız yoldan `voice.end{customer}` alır (Go tarafıyla aynı karar). 5 sn dolduktan sonra açılan mikrofon
+  mevcut `consent !== id` denetimiyle hemen durdurulur. `getMic` reddi gövdesi `deviceFail(id)` olarak ayrıldı; yeni `audioFailed()` da
+  aynı yolu kullanır.
+- `lib/webrtc/peer.ts` — QA önerisi. `setAudioTrack` içinde `replaceTrack` hatası artık yutulmuyor. İz bağlanamazsa gönderici
+  `replaceTrack(null)` ile susturulur (ses düşer) ve yeni `onAudioError` geri çağrısı tetiklenir. `null` bağlama hatası sessiz kalır:
+  bırakma yolunun kendisidir ve iz zaten `stop()` edilmiştir, ayrıca yeniden girişi önler.
+- `lib/webrtc/guest-peers.ts`, `lib/webrtc/use-guest-session.ts` — `link.onAudioError` → `GuestPeers` `onAudioError` →
+  `GuestVoice.audioFailed()`, yani mikrofon hatasıyla aynı yol: `voice.end{device}` + `release()` + "Mikrofonunuz açılamadı" uyarısı.
+- `lib/webrtc/peer.test.ts` (yeni) — sahte `pc` ile ret → `[iz, null]` + `onAudioError` bir kez; `null` reddi ve başarı → bildirim yok.
+- `lib/voice/voice-p28d.test.ts` — "D-PD-K1-2" iki test (sahte saat: 4999 ms'de açık, 5000 ms'de bırakıldı; `pending` bekçiyi kapatmaz;
+  geç `active` → `voice.end{customer}`, `getMic` tekrar çağrılmaz; zamanında `active` → 10 sn sonra açık; 5 sn sonra çözülen mikrofon
+  durdurulur) ve `audioFailed` testi.
+- `messages/tr.json` `vg.unconfirmed`, `app/session/[token]/guest-session.tsx` — `note === "unconfirmed"` için mevcut `Alert`
+  (`tone="info"`, `role=status`): "Sesli görüşme başlatılamadı; mikrofonunuz kapatıldı. Teknisyen yeniden isteyebilir."
+
+#### Sapmalar (gerekçeli)
+
+1. **"Logla" yapılmadı.** Tarayıcı kodunda `console.*` lint hatası (`no-console`, D-P28aK-1) ve istemci tanı günlüğü yok. Bunun yerine
+   hata mevcut kullanıcıya görünür yola bağlandı ("ses düşür").
+2. **Teknisyen tarafında `onAudioError` bağlanmadı** (`use-tech-peer.ts`). Teknisyen `voice.end` görüşmeyi herkes için bitirir. Ret
+   durumunda konsol göndericisi yine susturulur (gizlilik ve tutarlılık için), ama durum değişmez. Gerekirse ileride `releaseMic` +
+   bildirim olarak eklenir.
+3. Misafir bekçisi için Go tarafından farklı olarak ayrı bir not metni eklendi (`unconfirmed`). "Sona erdi" demek, hiç başlamamış bir
+   görüşme için yanıltıcı olurdu.
+
+#### Doğrulama (2026-11-17)
+
+| Komut                                      | Sonuç                                                                                                                                                                                                    |
+| ------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `pnpm --filter @remote/web lint typecheck` | temiz                                                                                                                                                                                                    |
+| `pnpm --filter @remote/web test`           | 61 dosya / 552 geçti                                                                                                                                                                                     |
+| `npx playwright test` (tam koşu, 3 kez)    | Son koşu 563 geçti / 242 atlandı / 0 kaldı. Önceki iki koşunun her birinde 1 kararsız hata vardı; ikincisi `p5-collab` TEST-P5-1 (zamanlama), bu değişikliğe dokunmuyor. p28d testleri her koşuda geçti. |
+| `pnpm format:check`                        | temiz                                                                                                                                                                                                    |

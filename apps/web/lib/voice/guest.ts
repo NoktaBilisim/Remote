@@ -40,7 +40,11 @@ export interface GuestVoiceDeps {
   onChange: () => void;
 }
 
-export type GuestVoiceNote = "ended" | "device" | null;
+/** `unconfirmed`: Kabul sonrası sunucu görüşmeyi `CONFIRM_MS` içinde başlatmadı, mikrofon bırakıldı (D-PD-K1-2). */
+export type GuestVoiceNote = "ended" | "device" | "unconfirmed" | null;
+
+/** D-PD-K1-2: yerel Kabul'den sonra bu süre içinde o `callId` için `voice.state{active}` gelmezse mikrofon bırakılır. */
+export const CONFIRM_MS = 5000;
 
 export interface GuestVoiceView {
   request: { callId: string; by: string; name: string; listeners: string[] } | null;
@@ -68,6 +72,8 @@ export class GuestVoice {
   private refused = new Set<string>();
   private announce: GuestVoiceView["announce"] = null;
   private note: GuestVoiceNote = null;
+  /** D-PD-K1-2 onay bekçisi (accept'te kurulur; eşleşen active ya da release temizler). */
+  private confirm: ReturnType<typeof setTimeout> | null = null;
 
   constructor(private d: GuestVoiceDeps) {}
 
@@ -120,6 +126,7 @@ export class GuestVoice {
       return this.d.onChange();
     }
     this.call = m;
+    if (m.phase === "active" && m.callId === this.consent) this.clearConfirm();
     if (prev && prev.callId === m.callId && m.phase === "active") {
       const before = new Set(prev.listeners);
       const fresh = this.named(m.listeners).filter((t) => !before.has(t));
@@ -143,6 +150,16 @@ export class GuestVoice {
     this.consent = id;
     this.note = null;
     this.d.send({ t: "voice.answer", callId: id, accept: true });
+    this.clearConfirm();
+    this.confirm = setTimeout(() => {
+      this.confirm = null;
+      if (this.consent !== id) return;
+      // Sunucu yanıtı düşürdü (bayat callId / zaman aşımıyla yarış): ses zaten gitmez, mikrofon da açık kalmaz.
+      // Geç gelen active rızasız yoldan voice.end{customer} alır (onState).
+      this.release();
+      this.note = "unconfirmed";
+      this.d.onChange();
+    }, CONFIRM_MS);
     this.graph = this.d.createGraph();
     this.opening = true;
     this.d.onChange();
@@ -158,12 +175,30 @@ export class GuestVoice {
       () => {
         this.opening = false;
         if (this.consent !== id) return;
-        this.d.send({ t: "voice.end", callId: id, reason: "device" });
-        this.release();
-        this.note = "device";
-        this.d.onChange();
+        this.deviceFail(id);
       },
     );
+  }
+
+  /**
+   * Bir eşin ses göndericisine iz bağlanamadı (`replaceTrack` reddi, QA P28d tur 1 öneri): mikrofon açılamaması ile aynı yol —
+   * görüşme `device` nedeniyle biter, mikrofon bırakılır, kullanıcı bilgilendirilir.
+   */
+  audioFailed(): void {
+    const id = this.consent;
+    if (id) this.deviceFail(id);
+  }
+
+  private deviceFail(id: string): void {
+    this.d.send({ t: "voice.end", callId: id, reason: "device" });
+    this.release();
+    this.note = "device";
+    this.d.onChange();
+  }
+
+  private clearConfirm(): void {
+    if (this.confirm !== null) clearTimeout(this.confirm);
+    this.confirm = null;
   }
 
   reject(): void {
@@ -208,6 +243,7 @@ export class GuestVoice {
 
   /** Tek bırakma yolu: rıza silinir, mikrofon durur, graf kapanır, tüm ses göndericileri null. */
   private release(): void {
+    this.clearConfirm();
     this.consent = null;
     this.mic?.stop();
     this.mic = null;

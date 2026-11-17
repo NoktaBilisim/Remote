@@ -75,7 +75,10 @@ export function sampleFromStats(report: Iterable<Rec> | Map<string, Rec>, prev: 
   const a: Counters | null = inA
     ? { at, bytes: num(inA.bytesReceived) ?? 0, lost: num(inA.packetsLost) ?? 0, recv: num(inA.packetsReceived) ?? 0 }
     : null;
-  const audioLossPct = rates(a, prev.a ?? null).lossPct;
+  // Sayaç donduysa (görüşme bitti, alıcı izi kaldı) satır %0'da kalmasın → null (§8 "görüşme etkinken")
+  const pa = prev.a ?? null;
+  const flowing = a !== null && pa !== null && a.recv + a.lost > pa.recv + pa.lost;
+  const audioLossPct = flowing ? rates(a, pa).lossPct : null;
   prev.a = a;
   return {
     at,
