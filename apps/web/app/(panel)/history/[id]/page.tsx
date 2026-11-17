@@ -10,6 +10,7 @@ import { formatDateTime } from "@/lib/format";
 import { isAnonymized } from "@/lib/history/anonymized";
 import { t } from "@/lib/i18n";
 import { getMe, serverGet } from "@/lib/server-api";
+import { ChatSection } from "./chat";
 import { NoteForm } from "./note-form";
 import { Participants } from "./participants";
 import { RecordingSection } from "./recording";
@@ -129,6 +130,12 @@ export default async function HistoryDetailPage({ params }: { params: Promise<{ 
         {s.recording && (
           <Section id="recording" title={t("hr.title")}>
             <RecordingSection sessionId={s.id} r={s.recording} unattended={s.unattended} />
+          </Section>
+        )}
+        {/* P22 (AC-264, §8.3): yalnız `sessions.view_chat` sahibine `chat` alanı gelir; yetkisizde bölüm yok */}
+        {s.chat && (
+          <Section id="chat" title={t("p22.h.title")}>
+            <ChatSection sessionId={s.id} summary={s.chat} anonymized={anon} fromRequest={s.request !== null && s.request !== undefined} />
           </Section>
         )}
         <Section id="consents" title={t("h.c.title")}>

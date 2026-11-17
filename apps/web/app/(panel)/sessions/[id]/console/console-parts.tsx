@@ -1,4 +1,4 @@
-import { ArrowLeft, CircleX, Hand, Power, RotateCcw } from "lucide-react";
+import { ArrowLeft, CircleX, Hand, Power, RefreshCw, RotateCcw } from "lucide-react";
 import { useId } from "react";
 import Link from "next/link";
 import type { RefObject } from "react";
@@ -29,6 +29,12 @@ export function ConsoleEnded({ end, deviceId = null }: { end: TechState["end"]; 
     >
       <h2 className="text-lg font-semibold text-fg">{t("c.endedTitle")}</h2>
       <p className="text-sm text-fg-muted">{t(`c.reason.${end ?? "server"}`)}</p>
+      {end === "console_outdated" && (
+        <Button variant="secondary" onClick={() => location.reload()} data-testid="console-reload">
+          <RefreshCw aria-hidden className="size-4" />
+          {t("c.reload")}
+        </Button>
+      )}
       {retry && (
         <div className="flex flex-col gap-1" data-testid="console-consent-retry">
           <Link

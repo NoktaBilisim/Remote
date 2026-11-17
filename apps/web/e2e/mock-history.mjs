@@ -3,6 +3,7 @@
 // hsa (SUPER_ADMIN, firma seçmemiş), hempty (veri yok), hbroken (liste 500), hbig (CSV 400 > 50.000), hrate (CSV 429).
 import { listSessionsQuerySchema, updateSessionInputSchema } from "@remote/contracts/api/sessions";
 import { storedFilesOf } from "./mock-p28b.mjs";
+import { chatSummaryOf } from "./mock-p22.mjs";
 import { P28U_HISTORY_MODES } from "./mock-p28u.mjs";
 
 const P = ["sessions.view", "session_history.view", "session_history.edit", "session_history.export"];
@@ -51,11 +52,19 @@ export const ANON_ID = "01JHXSTAN0N000000000000048";
 const ANON_I = 48;
 
 export function historyUser(cookie) {
-  const m = cookie?.match(/^u-(hu|hro|hadm|hsa|hempty|hbroken|hbig|hrate|hfs|hun)-/);
+  const m = cookie?.match(/^u-(hu|hc|hro|hadm|hsa|hempty|hbroken|hbig|hrate|hfs|hun)-/);
   if (!m) return null;
   const role = m[1] === "hadm" ? "ADMIN" : m[1] === "hsa" ? "SUPER_ADMIN" : "USER";
   // P28b (AC-360): u-hfs-* geçmiş + file_transfer.use → "Sunucudaki dosyalar" indirilebilir
-  const permissions = m[1] === "hro" ? ["sessions.view", "session_history.view"] : m[1] === "hfs" ? [...P, "file_transfer.use"] : P;
+  // P22 (AC-264): u-hc-* + sessions.view_chat → detayda `chat` özeti ve sohbet bölümü
+  const permissions =
+    m[1] === "hro"
+      ? ["sessions.view", "session_history.view"]
+      : m[1] === "hfs"
+        ? [...P, "file_transfer.use"]
+        : m[1] === "hc"
+          ? [...P, "sessions.view_chat"]
+          : P;
   return {
     user: { id: TECHS[0].id, email: "mehmet@ornek.com", fullName: TECHS[0].name, role, mustChangePassword: false },
     permissions,
@@ -176,6 +185,7 @@ function detail(s, who) {
           },
         }
       : {}),
+    ...(who.permissions.includes("sessions.view_chat") ? { chat: chatSummaryOf(s.id) } : {}),
     customerEmail: rich ? "ayse@ornek.com" : s.customerEmail,
     note: s.note,
     terminatedBy: s.endedBy === "ADMIN" ? { id: "01JADMN0000000000000000001", name: "Yönetici Kişi" } : null,

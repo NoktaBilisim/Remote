@@ -7,6 +7,7 @@ import { FilesPanel } from "@/components/collab/files-panel";
 import { chatFilesOptions } from "@/components/collab/tab-options";
 import { Button } from "@/components/ui/button";
 import { Segmented } from "@/components/ui/segmented";
+import type { SessionChat } from "@/lib/chat/use-session-chat";
 import type { Collab } from "@/lib/dc/use-collab";
 import { t } from "@/lib/i18n";
 
@@ -19,10 +20,16 @@ export function GuestCollab({
   techName,
   onChatVisible,
   authorOf,
+  chat,
+  retentionDays,
 }: {
-  /** P28c: gelen mesajın eşi → teknisyen adı (roster). */
-  authorOf?: (by: string | undefined) => string;
+  /** P28c: TECH mesajının `tid`'i → teknisyen adı (roster). */
+  authorOf?: (tid: string | undefined) => string | null;
   collab: Collab;
+  /** P22: oturum sohbeti (WS). */
+  chat: SessionChat;
+  /** P22 (§8.2): sohbet başlığında AC-292 satırı tekrar (P19 bekleme sayfası kalıbı); bilinmiyorsa genel cümle. */
+  retentionDays: number | null;
   filesAllowed: boolean;
   techName: string;
   onChatVisible: (v: boolean) => void;
@@ -46,9 +53,14 @@ export function GuestCollab({
       <h2 id="iletisim-t" className="text-lg font-semibold text-fg">
         {t("p5.g.collab")}
       </h2>
-      {filesAllowed && <Segmented<Tab> label={t("p5.side")} value={cur} onChange={setTab} options={chatFilesOptions(collab.chat.unread)} />}
+      {filesAllowed && <Segmented<Tab> label={t("p5.side")} value={cur} onChange={setTab} options={chatFilesOptions(chat.model.unread)} />}
       {cur === "chat" ? (
-        <ChatPanel collab={collab} peerName={techName} authorOf={authorOf} />
+        <ChatPanel
+          chat={chat}
+          peerName={techName}
+          authorOf={authorOf}
+          retentionNote={retentionDays !== null && retentionDays >= 1 ? t("wr.retention", { days: retentionDays }) : undefined}
+        />
       ) : (
         <FilesPanel collab={collab} allowed={filesAllowed} peerName={techName} />
       )}

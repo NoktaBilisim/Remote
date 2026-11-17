@@ -1,5 +1,6 @@
 "use client";
 
+import { CHAT_CONSENT_KEY_SENTENCE, CHAT_CONSENT_PARAGRAPH } from "@remote/contracts/chat";
 import { useRouter } from "next/navigation";
 import { useState, type FormEvent, type RefObject } from "react";
 import { useToast } from "@/components/ui/toast";
@@ -13,6 +14,10 @@ import {
 import { api, ApiError, EXPIRED_LOGIN_PATH, isUnauthenticated } from "@/lib/api";
 import { toUiError, type UiError } from "@/lib/error-message";
 import { t } from "@/lib/i18n";
+
+/** K-P22-5: NFC + boşluk tekleştirilmiş gövde anahtar cümleyi içeriyor mu (sunucu `chatParagraphMissing` ile aynı ölçü). */
+export const hasChatParagraph = (body: string): boolean =>
+  body.normalize("NFC").replace(/\s+/g, " ").includes(CHAT_CONSENT_KEY_SENTENCE);
 
 /** Sunucuyla aynı sayım: CRLF → LF, uçlar kırpılmış, kod noktası. */
 const consentLength = (v: string): number => [...v.replace(/\r\n?/g, "\n").trim()].length;
@@ -47,6 +52,14 @@ function useConsentDraft(initial: ConsentTextSettings) {
   const [formError, setFormError] = useState<UiError | null>(null);
   const [confirm, setConfirm] = useState(false);
   const [busy, setBusy] = useState(false);
+  /** P22 (AC-291): kayıtlı metin sohbet paragrafını içermiyor (sunucu bayrağı; kayıttan sonra kayıtlı gövdeden yeniden). */
+  const [chatMissing, setChatMissing] = useState(initial.chatParagraphMissing ?? false);
+  const chatParagraph = initial.chatParagraph ?? CHAT_CONSENT_PARAGRAPH;
+  /** "Standart sohbet paragrafını ekle": yalnız metin alanına ekler; kaydetmez. */
+  const addChatParagraph = () => {
+    setBody((b) => (b.trim() ? `${b.trimEnd()}\n\n${chatParagraph}` : chatParagraph));
+    setError(undefined);
+  };
   const changeBody = (v: string) => {
     setBody(v);
     setError(undefined);
@@ -58,6 +71,7 @@ function useConsentDraft(initial: ConsentTextSettings) {
   return {
     ...{ data, setData, base, body, setBody, error, setError, formError, setFormError },
     ...{ confirm, setConfirm, busy, setBusy, changeBody, reset },
+    ...{ chatMissing, setChatMissing, addChatParagraph },
   };
 }
 type Draft = ReturnType<typeof useConsentDraft>;
@@ -73,6 +87,7 @@ function useConsentSave(d: Draft, areaRef: AreaRef) {
       const r = await api<ConsentTextSaveResponse>("PUT", "/settings/consent-text", { body: d.body });
       d.setData({ current: r.current, versions: r.versions });
       d.setBody(r.current?.body ?? d.body);
+      d.setChatMissing(!hasChatParagraph(r.current?.body ?? d.body));
       d.setConfirm(false);
       if (r.changed && r.current) toast(t("ct.saved", { n: r.current.version }));
       else toast(t("ct.unchanged"), "info");
@@ -111,6 +126,8 @@ export function useConsentForm(initial: ConsentTextSettings, canEdit: boolean, a
     ...d,
     ...{ submit, save, len },
     dirty: canEdit && d.body !== d.base,
+    /** Metin alanı paragrafı zaten içeriyor (düğme gizlenir; bant kayda kadar kalır). */
+    bodyHasChat: hasChatParagraph(d.body),
     outOfRange: len < CONSENT_BODY_MIN || len > CONSENT_BODY_MAX,
   };
 }

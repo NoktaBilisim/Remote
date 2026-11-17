@@ -27,6 +27,7 @@ import { p18PanelUpgrade } from "./mock-p18.mjs";
 import { p19Upgrade } from "./mock-p19.mjs";
 import { byId, tickets, ulid } from "./mock-sessions.mjs";
 import { newUploadToken } from "./mock-p28e.mjs";
+import { chatAdmit, chatGuest, chatHelloFields, chatLogOf, chatTech, chatTechHello, hasSchat } from "./mock-p22.mjs";
 import { fsrvCreate, fsrvDownloadToken, fsrvFiles, fsrvStored, setUploadedHook } from "./mock-p28b.mjs";
 
 const wss = new WebSocketServer({ noServer: true, handleProtocols: (p) => (p.has("rs.v1") ? "rs.v1" : false) });
@@ -140,7 +141,7 @@ function end(rec, reason) {
   endRoom(rec.view.id, reason);
 }
 
-function admitted(r, rec, ws, kind = "BROWSER", guestName, features = []) {
+function admitted(r, rec, ws, kind = "BROWSER", guestName, features = [], schat = false) {
   const first = !r.maxEndsAt;
   // P28b (§5.1): tarayıcı misafiri SERVER odasında `fsrv` yeteneklidir (K-P28b-20)
   if (rec.fileMode === "SERVER" && kind === "BROWSER" && !features.includes("fsrv")) features = [...features, "fsrv"];
@@ -189,10 +190,14 @@ function admitted(r, rec, ws, kind = "BROWSER", guestName, features = []) {
     guestFeatures: features,
     ...(rec.fileMode ? { fileMode: rec.fileMode } : {}),
     guestVoice: r.guestVoice,
+    guestChat: schat ? "on" : "outdated",
   });
+  // P22 (§4.1): misafir sohbeti yalnız `rs.cap.schat1` sokette; eski istemci → teknisyende `outdated`
+  chatAdmit(r, schat);
   ws.on("message", (raw) => {
     const m = JSON.parse(String(raw));
     log(rec.view.id, "guest", m);
+    if (chatGuest(r, m)) return;
     if (p28Guest(r, m)) return;
     if (voiceGuest(r, m)) return;
     if (recGuest(r, rec, m)) return;
@@ -443,7 +448,9 @@ function onTech(ws, rec) {
     ...(rec.multiHello ?? {}),
     // P28d: ses odasında sahip kimliği (tid olmadan konsol ses arayüzü gizli)
     ...(rec.voice ? { tid: VOICE_TID, techRole: "owner", roster: [voiceEntry(r)] } : {}),
+    ...chatHelloFields(r),
   });
+  chatTechHello(r, ws, active);
   if (rec.voice) {
     r.voiceRec = rec;
     send(ws, voiceStateSchema.parse(stateOf(r)));
@@ -453,6 +460,7 @@ function onTech(ws, rec) {
     const m = JSON.parse(String(raw));
     log(rec.view.id, "tech", m);
     if (typeof m.t === "string" && m.t.startsWith("voice.")) return voiceTech(r, rec, ws, m);
+    if (chatTech(r, ws, m)) return;
     if (m.t === "guest.admit") {
       const hit = [...r.lobby.entries()].find(([, e]) => e.admitCode === m.admitCode);
       if (!hit) return send(ws, { t: "error", code: "ADMIT_CODE_INVALID", message: "Kod eşleşmedi." });
@@ -463,7 +471,7 @@ function onTech(ws, rec) {
         e.ws.close(1000);
       }
       r.lobby.clear();
-      admitted(r, rec, hit[1].ws);
+      admitted(r, rec, hit[1].ws, undefined, undefined, undefined, hit[1].schat);
     } else if (m.t === "guest.reject") {
       const e = r.lobby.get(m.guestId);
       if (!e) return;
@@ -647,13 +655,16 @@ function fsrvMsg(r, rec, side, m) {
   return true;
 }
 
+/** P22 test kancası: odada saklanan sohbet mesajları (/__e2e/chat-log/<oturum>). */
+export const chatLogFor = (id) => chatLogOf(rooms.get(id));
+
 /** Test kancası: oda fsrv mesaj kaydı (/__e2e/fsrv-ws/<oturum>). */
 export const fsrvWsLog = (id) => rooms.get(id)?.fsrvLog ?? [];
 
 function onGuestTicket(ws, entry) {
   const r = room(entry.rec.view.id);
   const guestId = ulid();
-  const e = { ws, name: entry.name, admitCode: entry.admitCode, since: iso(0) };
+  const e = { ws, name: entry.name, admitCode: entry.admitCode, since: iso(0), schat: entry.schat };
   r.lobby.set(guestId, e);
   send(ws, { t: "lobby.wait", expiresAt: iso(5 * 60_000) });
   send(r.tech, { t: "peer.pending", guestId, name: e.name, guestKind: "BROWSER", since: e.since });
@@ -689,6 +700,9 @@ export function attachWs(srv) {
     if (url.pathname === "/ws/tech") {
       const rec = byId.get(url.searchParams.get("sessionId"));
       if (!rec) return sock.destroy();
+      // P22 (r2 §15.2): belirteçsiz konsol soketi 4426 ile kapanır (sayfayı yenileyin). Playwright routeWebSocket alt
+      // protokolü iletmeyebilir → boş liste yok sayılır; `rs.v1` var ama `rs.cap.schat1` yoksa eski konsol.
+      if (protos.includes("rs.v1") && !hasSchat(protos)) return wss.handleUpgrade(req, sock, head, (ws) => ws.close(4426, "console_outdated"));
       return wss.handleUpgrade(req, sock, head, (ws) => onTech(ws, rec));
     }
     if (url.pathname !== "/ws/guest" || url.search) return sock.destroy();
@@ -703,17 +717,17 @@ export function attachWs(srv) {
         ...(protos.includes("rs.cap.print1") ? ["print"] : []),
         ...(protos.includes("rs.cap.fsrv1") ? ["fsrv"] : []),
       ];
-      return wss.handleUpgrade(req, sock, head, (ws) => admitted(r, rec, ws, "AGENT", "Ayşe Yılmaz", features));
+      return wss.handleUpgrade(req, sock, head, (ws) => admitted(r, rec, ws, "AGENT", "Ayşe Yılmaz", features, hasSchat(protos)));
     }
     const tk = protos.find((p) => p.startsWith("rs.ticket."))?.slice(10);
     const rc = protos.find((p) => p.startsWith("rs.reconnect."))?.slice(13);
     const entry = tk && tickets.get(tk);
     if (entry) {
       tickets.delete(tk);
-      return wss.handleUpgrade(req, sock, head, (ws) => onGuestTicket(ws, entry));
+      return wss.handleUpgrade(req, sock, head, (ws) => onGuestTicket(ws, { ...entry, schat: hasSchat(protos) }));
     }
     const hit = rc && [...rooms.entries()].find(([, r]) => r.token === rc && !r.guest);
     if (!hit) return sock.destroy();
-    wss.handleUpgrade(req, sock, head, (ws) => admitted(hit[1], byId.get(hit[0]), ws));
+    wss.handleUpgrade(req, sock, head, (ws) => admitted(hit[1], byId.get(hit[0]), ws, undefined, undefined, undefined, hasSchat(protos)));
   });
 }

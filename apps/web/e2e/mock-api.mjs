@@ -13,6 +13,7 @@ import { handleP18, p18User } from "./mock-p18.mjs";
 import { handleP19, p19User } from "./mock-p19.mjs";
 import { handleP27, p27User } from "./mock-p27.mjs";
 import { handleP28u, p28uUser } from "./mock-p28u.mjs";
+import { handleP22, p22User } from "./mock-p22.mjs";
 import { handleP28e, handleRecBytes, p28eUser, p28eViews } from "./mock-p28e.mjs";
 import { emptyInvites, handleP28c, p28cUser } from "./mock-p28c.mjs";
 import { handleHistory, historyUser } from "./mock-history.mjs";
@@ -22,6 +23,7 @@ import { handleRequests, requestUser } from "./mock-requests.mjs";
 import { handleLobby, handleSessions, lobbyHook, sessionUser } from "./mock-sessions.mjs";
 import { handleUsers, usersUser } from "./mock-users.mjs";
 import { recHook, recRid, voiceHook } from "./mock-ws.mjs";
+import { chatLogFor } from "./mock-ws.mjs";
 import { ageRoom, attachWs, fsrvOfferToTech, fsrvWsLog, guestRoster, revokeControl, strayGrant, wsLog } from "./mock-ws.mjs";
 
 const PORT = Number(process.env.MOCK_API_PORT ?? 4010);
@@ -92,6 +94,8 @@ function resolveMe(session) {
   if (p27) return p27;
   const p28u = p28uUser(session);
   if (p28u) return p28u;
+  const p22 = p22User(session);
+  if (p22) return p22;
   const p28e = p28eUser(session);
   if (p28e) return p28e;
   const p28c = p28cUser(session);
@@ -135,6 +139,8 @@ const srv = createServer(async (req, res) => {
   if (rv) return send(res, 200, { views: p28eViews(rv[1]) });
   const fo = req.method === "GET" && url.match(/^\/__e2e\/fsrv-offer\/([0-9A-Z]{26})$/);
   if (fo) return send(res, fsrvOfferToTech(fo[1], "musteri-log.txt", "P28b müşteri dosyası\n") ? 200 : 404, {});
+  const cl = req.method === "GET" && url.match(/^\/__e2e\/chat-log\/([0-9A-Z]{26})$/);
+  if (cl) return send(res, 200, chatLogFor(cl[1]));
   const fw = req.method === "GET" && url.match(/^\/__e2e\/fsrv-ws\/([0-9A-Z]{26})$/);
   if (fw) return send(res, 200, fsrvWsLog(fw[1]));
   // P5 e2e: sahte sunucunun aldığı file.meta / quality.summary kaydı (yalnız test)
@@ -174,6 +180,8 @@ const srv = createServer(async (req, res) => {
   if (req.method !== "GET" && req.headers.origin !== (process.env.MOCK_ALLOWED_ORIGIN ?? "http://localhost:3217"))
     return send(res, 403, err("FORBIDDEN", "Origin reddedildi."));
 
+  // P22: oturum geçmişi sohbeti (u-hc-*), aydınlatma metni sohbet paragrafı (u-p22ct-*)
+  if (await handleP22(req, res, { url, session, csrfOk, send, err, readJson })) return;
   // P28b: ClamAV / Dosyalar ayarı (u-fsa-*, u-fad*-*) ve geçmiş indirme bağlantısı (u-hfs-*)
   if (await handleP28b(req, res, { url, session, csrfOk, send, err, readJson })) return;
   if (handleStoredLink(req, res, { url, csrfOk, send, err })) return;

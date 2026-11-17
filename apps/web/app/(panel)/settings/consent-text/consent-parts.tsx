@@ -1,6 +1,6 @@
 "use client";
 
-import { FileText, History, Save } from "lucide-react";
+import { FileText, History, Save, TextQuote } from "lucide-react";
 import type { ReactNode, RefObject } from "react";
 import { FormError } from "@/components/form-error";
 import { Alert } from "@/components/ui/alert";
@@ -29,6 +29,17 @@ export function ConsentAlerts({ f, canEdit }: P & { canEdit: boolean }) {
         </Alert>
       )}
       {f.formError && <FormError error={f.formError} />}
+      {f.chatMissing && f.data.current && (
+        <div className="flex flex-col items-start gap-2" data-testid="consent-chat-missing">
+          <Alert tone="warning">{t("p22.ct.missing")}</Alert>
+          {canEdit && !f.bodyHasChat && (
+            <Button variant="secondary" onClick={f.addChatParagraph} data-testid="consent-add-chat">
+              <TextQuote aria-hidden className="size-4" />
+              {t("p22.ct.add")}
+            </Button>
+          )}
+        </div>
+      )}
     </>
   );
 }

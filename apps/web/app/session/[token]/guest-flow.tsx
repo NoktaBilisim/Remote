@@ -28,7 +28,7 @@ export function GuestFlow({ data, abuseEmail }: { data: ResolveData; abuseEmail:
   if (!joined) return <GuestWelcome data={data} abuseEmail={abuseEmail} onJoined={setJoined} />;
   return (
     <GuestSession
-      info={joined}
+      info={{ ...joined, chatRetentionDays: data.chatRetentionDays ?? null }}
       verifyCode={data.techVerifyCode}
       sessionRef={data.sessionRef}
       cred={{ ticket: joined.wsTicket }}
