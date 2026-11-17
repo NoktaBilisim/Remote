@@ -105,7 +105,9 @@ var (
 )
 
 // runtimeConfig amd64'te derleyiciyi (SSE4.1 varsa; yoksa wazero yorumlayıcıya düşer), diğer mimarilerde yorumlayıcıyı
-// seçer; bellek sınırı her örneğe uygulanır. K0s-2 bulgusu: wazero v1.9.0–v1.12.0 arm64 derleyicisi libopus kodlayıcısında
+// seçer. wazero v1.12.0'ın otomatik seçim ölçütü (internal/platform.compilerPlatformSupports) amd64'te
+// golang.org/x/sys/cpu.X86.HasSSE41'dir; Supported() (supported_amd64.go) aynı bayrağı okur, böylece sesi yalnız
+// derleyicinin seçildiği makinede bildiririz (A-PD-6). wazero yükseltilirse bu eşitlik yeniden doğrulanır; bellek sınırı her örneğe uygulanır. K0s-2 bulgusu: wazero v1.9.0–v1.12.0 arm64 derleyicisi libopus kodlayıcısında
 // (silk_noise_shape_quantizer_del_dec) yanlış derleme belirtisi gösterir (sınır dışı tuzak; yorumlayıcı ve amd64 doğru).
 // Yayın hedefi yalnız windows/amd64'tür; yorumlayıcı (~22 ms/çerçeve) yalnız arm64 geliştirme/test içindir.
 func runtimeConfig() wazero.RuntimeConfig {
@@ -359,15 +361,20 @@ func NewDecoder() (*Decoder, error) {
 }
 
 // admit uzaktan gelen yük için sıra (mimari-p28d r2): boyut ≤ 1275 → hız ≤ 100 paket/sn → düşürülmüş eş değil.
-// Konuşma hakkı (talker kapısı) çağıranda denetlenir.
-func (d *Decoder) admit(packet []byte) error {
+// Konuşma hakkı (talker kapısı) çağıranda denetlenir. count=false (DecodeFEC) hız sayacını artırmaz: kayıpta
+// DecodeFEC(next) + Decode(next) aynı paketi iki kez okur ve tek paket sayılır (mimari-p28d r3 §4.3 K3 düzeltmesi);
+// sınır o pencerede zaten dolmuşsa FEC de reddedilir (ardından gelecek Decode(next) reddedileceği için).
+func (d *Decoder) admit(packet []byte, count bool) error {
 	if len(packet) > maxPacketSize {
 		return ErrPacketSize
 	}
 	if t := d.now(); t.Sub(d.winStart) >= time.Second {
 		d.winStart, d.winCount = t, 0
 	}
-	if d.winCount++; d.winCount > maxPacketRate {
+	if count {
+		d.winCount++
+	}
+	if d.winCount > maxPacketRate || (!count && d.winCount >= maxPacketRate) {
 		return ErrRateLimited
 	}
 	if d.panics >= maxPanics {
@@ -381,7 +388,7 @@ func (d *Decoder) Decode(packet []byte) ([]int16, error) {
 	if len(packet) == 0 {
 		return d.Conceal()
 	}
-	if err := d.admit(packet); err != nil {
+	if err := d.admit(packet, true); err != nil {
 		return nil, err
 	}
 	return d.decode(packet, maxFrame, false, "çözme")
@@ -417,9 +424,10 @@ func (d *Decoder) Conceal() ([]int16, error) {
 }
 
 // DecodeFEC kayıp çerçeveyi, ARDINDAN gelen paketin bant içi FEC verisinden kurar (Chrome useinbandfec=1). Pakette
-// FEC yoksa libopus PLC'ye düşer. Ardından gelen paketin kendisi ayrıca Decode ile çözülmelidir.
+// FEC yoksa libopus PLC'ye düşer. Ardından gelen paketin kendisi ayrıca Decode ile çözülmelidir; hız sınırına
+// yalnız o Decode sayılır.
 func (d *Decoder) DecodeFEC(next []byte) ([]int16, error) {
-	if err := d.admit(next); err != nil {
+	if err := d.admit(next, false); err != nil {
 		return nil, err
 	}
 	return d.decode(next, FrameSamples, true, "FEC")

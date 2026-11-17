@@ -3,7 +3,6 @@
 package voice
 
 import (
-	"fmt"
 	"syscall"
 	"unsafe"
 
@@ -15,14 +14,6 @@ import (
 type comObj struct{ vtbl *[32]uintptr }
 
 type hresult int32
-
-// HRError COM/WASAPI hatası; yalnız adım adı ve HRESULT (aygıt adı/kimliği yok).
-type HRError struct {
-	Op string
-	HR uint32
-}
-
-func (e *HRError) Error() string { return fmt.Sprintf("voice: %s hr=0x%08X", e.Op, e.HR) }
 
 func (h hresult) err(op string) error {
 	if h < 0 {
