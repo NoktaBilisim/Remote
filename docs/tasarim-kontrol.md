@@ -1289,3 +1289,69 @@ kayıt yedeği, kaydedici bastırmaya karşı kaynak taraflı ikinci kayıt, sak
 | 9. DoD                             | Kapsamda: K9 qa GEÇTİ + güvenlik Kritik/Yüksek 0; elle macOS D-listesi; CI yeşil                                                                                                                                                                                                                                                 |
 | 9. Dokümantasyon planı             | Kapsamda: kılavuz macOS bölümü (indirme, izinler, TCC kaldırma, kısayol `fn`, CUPS geçmişi, VoiceOver ödünü); "Yine de Aç" yalnız staging/runbook, müşteri kılavuzunda "asla Yine de Aç istemez" uyarısı (S-P28f-8); README, DATASHEET (yalnız yayımlanan), CHANGELOG, PDF                                                       |
 | Sonra                              | VoiceProcessingIO AEC; `SCContentSharingPicker`; `hello.guestOs` rozeti; Mac tuş eşleme anahtarı; macOS'ta P20/P27/E9; `.dmg`/otomatik güncelleme                                                                                                                                                                                |
+
+## P28g — Linux istemci (2026-11-17, r2 — güvenlik turu S-P28g-1..13 tümü kabul (mimari-p28g §13) ve K0s spike işlendi (§14); `docs/mimari-p28g.md`, ADR-0038, AC-397..403, US-72, R46, V52)
+
+| Madde                              | Karar |
+| ---------------------------------- | ----- |
+| 1. Kimlik doğrulama / 2FA          | Kapsam dışı: müşteri tarafı mevcut kod + KVKK onayı + admitCode; değişmez |
+| 1. Şifre / kilitleme / brute-force | Kapsam dışı: resolve/join/download/availability kovaları aynen |
+| 1. Yetkilendirme / IDOR            | Kapsamda: iki katmanlı kapı (ADR-0009) aynen; `localClick()` Linux tanımı (sol bırakma + yerel basış, `send_event=0`, XTEST alt aygıt **kimliği** ret (S-P28g-13), enjektör duraklatılmış + son enjeksiyondan ≥ 1,5 sn; zaman tabanlı yedek yok (S-P28g-7)); oturumda a11y bekleme tıklaması/Fare Tuşları açılırsa korunan denetim reddi (S-P28g-3); Wayland: kilit ekranı = kontrol REVOKED, kilit kısayolu koruması (S-P28g-1, kullanıcı onayı bekleniyor; tutmazsa yalnız görüntü); kilit etkinken kapı kapalı (S-P28g-2); `WAYLAND_NO_CONTROL` yalnız REQUESTED + AGENT + `clientOs=linux` (mimari-p28g §4.2, §5.2a) |
+| 1. Oturum yönetimi                 | Kapsamda: yeniden başlatma dosyası yok (§10.1); portal `persist_mode=0`, restore_token yok; portal `Closed` → oturum biter (K0s-6: 6–8 ms); portal yanıt/sinyal gönderen + değer doğrulaması (S-P28g-10); oturum penceresi ✕ = "Oturumu bitir?" (S-P28g-8); SIGHUP yok sayılır; AC-107 |
+| 1. Davet / onay / hesap silme      | Kapsamda: onay diyaloğu G-03 kuralları tek bileşende (`prompt_linux.go`) |
+| 1. Servis hesapları / API anahtarı | Kapsam dışı: imza yok, yeni sır yok (AC-403); attestation mevcut OIDC; prod yayında `--source-ref` zorunlu (S-P28g-9) |
+| 2. created/updated, silme          | Kapsam dışı: yeni tablo yok |
+| 2. Para                            | Kapsam dışı |
+| 2. Tarih/saat                      | Kapsam dışı: yeni zaman alanı yok |
+| 2. Benzersizlik / indeks           | Kapsam dışı |
+| 2. Migration / seed                | Kapsam dışı: migration yok |
+| 2. Audit                           | Kapsamda: `guest.pending.os=linux` (enum mevcut); `control.cancelled{source:"wayland_no_control"}`; yeni olay yok |
+| 2. Multi-tenant                    | Kapsam dışı: değişmez |
+| 2. Dosya / ek                      | Kapsamda: alınan dosya 0644, yürütme biti yok (MOTW karşılığı); Linux türleri `DANGEROUS_EXT`'e + `destek-` önekli alınan dosya `Dosya-` olarak yeniden adlandırılır + ELF/`#!` içerik uyarısı (S-P28g-6; contracts + Go + fikstür aynı pakette K5); ikili indirme ayrı kapı `/internal/agent-ready/linux` |
+| 3. API sözleşmesi / sürüm          | Kapsamda: download `os=linux` (302 `/downloads/Destek-<kod>`, uzantısız), availability `linux`, `control.state` `WAYLAND_NO_CONTROL`; resolve değişmez; istemci 0.20.0 |
+| 3. Hata formatı                    | Kapsamda: mevcut kodlar (400, 404, 410, 429, 503 `NOT_READY`) |
+| 3. Sayfalama / filtre              | Kapsam dışı |
+| 3. Rate limit / idempotency        | Kapsamda: mevcut download/availability kovaları aynen |
+| 3. Dış servis timeout / retry      | Kapsamda: portal yanıtı kullanıcı diyaloğuna bağlı (zaman aşımı yok, "Oturumu bitir" her zaman açık); GStreamer çekme 100 ms, veri yolu hatası → yakalama hatası yolu |
+| 3. Webhook / CORS                  | Kapsam dışı |
+| 4. Tehdit modeli                   | Kapsamda: mimari-p28g §5.1 T1–T12 + §5.2 değişmez tablosu; K0g S-P28g-n verecek |
+| 4. Girdi doğrulama / XSS           | Kapsamda: zod enum'lar; kod çapalı desen; GTK yalnız düz metin (markup yok); logo Go'da çözülür; boru hattı dizgisine yalnız `strconv` tamsayıları, `display-name` yok, öğe beyaz listesi CI + çalışma anı (S-P28g-4); ortam izin listesi + temiz yeniden çalıştırma (S-P28g-5); kopyalanan komut sabit, tek dosya, satır sonu yok (S-P28g-6) |
+| 4. Gizli bilgi                     | Kapsam dışı: yeni sır yok; gitleaks mevcut |
+| 4. Hassas veri                     | Kapsamda: yeni hassas veri yok; kod/dosya adı loglanmaz, Caddy maskesi uzantısız adı kapsar |
+| 4. Log maskeleme                   | Kapsamda: `/downloads/Destek-[^/?]+` kuralı mevcut |
+| 4. Bağımlılık taraması             | Kapsamda: yeni `godbus/dbus/v5` (BSD-2; r2: `jezek/xgb` çıkarıldı, X11 purego libX11/libXi/libXtst) — govulncheck + go-licenses linux hedefi (zorunlu job); test imajları digest'le sabit (S-P28g-9); GStreamer/GTK/libpulse LGPL sistem kitaplığı, dağıtılmaz, mutlak yoldan dlopen; GPL öğe yasak testi (T6) |
+| 4. Güvenlik başlıkları / CSRF      | Kapsamda: ikili yanıtı `attachment` + `nosniff` + `no-store`; yeni durum değiştiren uç yok |
+| 4. Yönetici paneli 2FA             | Kapsam dışı: panel değişmez |
+| 5. 5 durum                         | Kapsamda: karşılama sayfası Linux (yükleniyor, hazır, hazır değil → yalnız tarayıcı, hata, oran sınırı); istemci Wayland portal ekranı (bekliyor / reddedildi + Tekrar dene / başarılı) |
+| 5. Form doğrulama                  | Kapsamda: istemci kod alanı (AC-97 mesajları) |
+| 5. Yıkıcı işlem onayı              | Kapsamda: "Oturumu bitir", "Çıkar" onaylı (mevcut kurallar) |
+| 5. Responsive                      | Kapsamda: web 390 px; istemci GTK ölçekleme (XWayland kesirli ölçek bulanıklığı kabul, A-PG-4) |
+| 5. Erişilebilirlik                 | Kapsamda: web axe 0; istemci Tab sırası (AC-100), Orca etiketleri; korunan denetimler yalnız gerçek fareyle (kabul edilen ödün, kılavuz) |
+| 5. Yerelleştirme                   | Kapsamda: TR; Go `messages_p28g.go`, web `tr.json`; `İndirilenler` `xdg-user-dir` ile |
+| 5. Bildirim                        | Kapsamda: konsolda AC-399 metni mevcut durum alanında |
+| 5. Çevrimdışı / yavaş ağ           | Kapsam dışı: akış değişmez |
+| 5. Başlık / breadcrumb / 404       | Kapsam dışı: yeni sayfa yok (rehber mevcut sayfada bileşen) |
+| 5. Token'lar                       | Kapsamda: web DESIGN.md token'ları + `lucide-react` (`Terminal`, `Copy`, `Download`); istemci Yaru teması + `uicore/theme.go` |
+| 6. Beklenen yük                    | Kapsam dışı: sunucu yükü değişmez |
+| 6. N+1 / indeks                    | Kapsam dışı |
+| 6. Önbellek                        | Kapsamda: availability 60 sn; ikili kapısı mevcut önbellek |
+| 6. Kuyruk / arka plan işi          | Kapsam dışı |
+| 6. Büyük liste / export            | Kapsam dışı |
+| 6. Performans bütçesi              | Kapsamda: açılış ≤ 5 sn, ELF ≤ 60 MB, VP8 30 fps + p95 ≤ 33 ms + kare kaybı 0 + CPU ≤ %60; r2 (K0s-3 FAIL dalı): varsayılan uzun kenar 1280, CPU'ya göre 1600/1920 basamağı, eşik gerçek amd64'te elle (E-15); ölçülen bit hızıyla oran denetimi; ikili ≈ 15 MB |
+| 7. Log / korelasyon                | Kapsamda: sunucu mevcut logger; istemci tanılama dosyası yok; stdout/stderr'e içerik yok, GLib log sessiz (S-P28g-11) |
+| 7. Metrik / alarm                  | Kapsamda: `rs_agent_download_total{os="linux"}`; agent-watch Linux hash |
+| 7. Hata izleme                     | Kapsamda: mevcut hata ref'leri; çökme dökümü (apport) sistemindir, kılavuzda istisna |
+| 7. Yedek                           | Kapsam dışı: yeni veri yok |
+| 7. Ortamlar                        | Kapsamda: staging (`agent-linux-stg`, staging adresi, çalışma anında türetilen "TEST" metni — S-P28g-9) / prod (yalnız Release etiketi); `LINUX_AGENT_*` boş = Linux kapalı; TEST bandı yok (imza yok) |
+| 7. CI/CD / rollback                | Kapsamda: `build-linux`, `reproducible-linux`, `test-linux-gui` (22.04/24.04 imajları, Xvfb, sahte D-Bus), attest/release; `publish-linux.sh --tag/--stg-run/--withdraw`; rollback = `LINUX_AGENT_SHA256` boşalt |
+| 7. Sıfır kesintili migration       | Kapsam dışı: migration yok; sıra sunucu+web → istemci |
+| 7. Runbook                         | Kapsamda: Linux yayını, geri çekme, eksik GStreamer paketi, portal sorunları (K8b) |
+| 8. KVKK                            | Kapsamda: aydınlatma metni değişmez; iz bırakmama (AC-401), paylaşılan dosya istisnaları kılavuzda |
+| 8. Lisans                          | Kapsamda: godbus BSD-2, xgb BSD-3 → `third_party_notices.txt`; LGPL sistem kitaplıkları dağıtılmaz (not); GPL eklentilere bağlanma yok |
+| 8. Finansal                        | Kapsam dışı |
+| 9. Kapsam dışı listesi             | Kapsamda: mimari-p28g §1 (P27/P28u, P20, E9, talep, pencere paylaşımı, ARM64, Ubuntu GNOME dışı, Linux'ta H.264, Wayland global kısayol) |
+| 9. Ölçülebilir AC                  | Kapsamda: AC-397..403; AC-398 alt AC ve AC-402 P28a–e eşlemesi (mimari-p28g §11) |
+| 9. Riskler / varsayımlar           | Kapsamda: A-PG-1 (gerçek x86_64 masaüstü yok — en büyük risk), A-PG-2..7, R46, R46a (Wayland kontrol geri alma; kullanıcı onayı bekleniyor), R50; 22.04 Wayland yalnız elle (E-18) |
+| 9. DoD                             | Kapsamda: K9 qa GEÇTİ + güvenlik Kritik/Yüksek 0; E-listesi; CI yeşil |
+| 9. Dokümantasyon planı             | Kapsamda: kılavuz Linux bölümü (Özellikler yolu birincil + komut + uyarı, Wayland diyaloğunda "Uzaktan etkileşime izin ver", Super+L ile kontrolü kesme, "Durdur", AC-400 sınırı, sapmalar, no-recommends kurulumda portal/cups-client notu), README, DATASHEET (yalnız yayımlanan), CHANGELOG 0.20.0, api.md, PDF |
+| Sonra                              | Linux'ta H.264 (LGPL/BSD öğe + ADR revizyonu); native Wayland GTK; GlobalShortcuts portalı (GNOME 48+); ARM64; Flatpak; Linux'ta P20/P27/E9 |
