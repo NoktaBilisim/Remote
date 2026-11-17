@@ -344,7 +344,7 @@ func (s *session) voiceActiveTimeout(g uint64, callID string) {
 	if g != v.gen || v.consent != callID || (v.phase == "active" && v.callID == callID) {
 		return
 	}
-	s.releaseMic(VoiceTexts.Ended)
+	s.releaseMic(VoiceTexts.Unconfirmed) // web vg.unconfirmed ile aynı metin
 }
 
 // openVoice aygıtı açar (engelleyebilir). Sahiplik devri mu altında: bu arada releaseMic çalıştıysa (gen değişti) çağrı

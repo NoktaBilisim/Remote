@@ -25,6 +25,7 @@ var VoiceTexts = struct {
 	NewListener      string // %s = ad (oturum penceresi çubuğu, sohbet "Sistem" satırı)
 	Balloon          string // tepsi balonu (sabit, ad yok)
 	Ended            string
+	Unconfirmed      string // Kabul sonrası 5 sn active gelmedi (D-PD-K1-2)
 	Device           string
 	TrayMicOn        string
 	TrayMicMuted     string
@@ -47,6 +48,7 @@ var VoiceTexts = struct {
 	NewListener:      "%s görüşmeyi dinlemeye başladı",
 	Balloon:          "Görüşmeye yeni bir dinleyici katıldı",
 	Ended:            "Sesli görüşme sona erdi",
+	Unconfirmed:      "Sesli görüşme başlatılamadı; mikrofonunuz kapatıldı. Teknisyen yeniden isteyebilir.",
 	Device: "Mikrofonunuz açılamadı. Mikrofonun bağlı olduğunu ve Ayarlar > Gizlilik ve güvenlik > Mikrofon altında " +
 		"\"Masaüstü uygulamalarının mikrofonunuza erişmesine izin verin\" seçeneğinin açık olduğunu kontrol edin; " +
 		"teknisyen yeniden isteyebilir.",

@@ -21,7 +21,7 @@ func TestAC374P28dReleaseMicWhenActiveNeverArrives(t *testing.T) {
 	v := startVoiceDeps(t, nil, shortActiveWait)
 	c := v.accepted(t, call1)
 	eventually(t, "active beklemesi bırakır", func() bool { return closes(c) == 1 })
-	if b, _ := v.ui.lastBar(); b.On || b.Note != VoiceTexts.Ended {
+	if b, _ := v.ui.lastBar(); b.On || b.Note != VoiceTexts.Unconfirmed {
 		t.Fatalf("bırakma sonrası gösterge: %+v", b)
 	}
 	if n, muted, _, _, _ := c.get(); n != 1 || !muted {
@@ -71,7 +71,7 @@ func TestAC374P28dActiveWaitDuringOpenClosesStaleOpen(t *testing.T) {
 		t.Fatalf("voice.answer{true}: %+v", a)
 	}
 	recv(t, op.started)
-	eventually(t, "gösterge kapanır", func() bool { b, _ := v.ui.lastBar(); return !b.On && b.Note == VoiceTexts.Ended })
+	eventually(t, "gösterge kapanır", func() bool { b, _ := v.ui.lastBar(); return !b.On && b.Note == VoiceTexts.Unconfirmed })
 	close(op.block)
 	eventually(t, "bayat açılış kapanır", func() bool {
 		_, calls := op.count()
