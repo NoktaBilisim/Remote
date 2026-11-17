@@ -312,6 +312,39 @@ func (s *session) voiceAccept(ctx context.Context, callID string) {
 	v.mu.Unlock()
 	s.voiceApply()
 	go s.openVoice(ctx, g)
+	s.armVoiceActiveWait(ctx, g, callID)
+}
+
+// voiceActiveWait varsayılanı (D-PD-K1-2): sunucu kabulü bayat bulup düşürürse (60 sn zaman aşımıyla yarış) `active`
+// hiç gelmez; mikrofon (gönderim kapısı zaten kapalı) en geç bu süre sonra bırakılır.
+const voiceActiveWait = 5 * time.Second
+
+func (s *session) voiceActiveWait() time.Duration {
+	if s.d.VoiceActiveWait > 0 {
+		return s.d.VoiceActiveWait
+	}
+	return voiceActiveWait
+}
+
+// armVoiceActiveWait kabulden sonra `active{callId}` bekleme zamanlayıcısı; sonuç döngüye peerEvent{run} ile döner.
+func (s *session) armVoiceActiveWait(ctx context.Context, g uint64, callID string) {
+	time.AfterFunc(s.voiceActiveWait(), func() {
+		select {
+		case s.peerEv <- peerEvent{run: func() { s.voiceActiveTimeout(g, callID) }}:
+		case <-ctx.Done():
+		}
+	})
+}
+
+// voiceActiveTimeout süre doldu: aynı kabul (gen) hâlâ geçerliyse ve o callId için `active` görülmediyse mikrofon tek
+// yoldan (releaseMic) bırakılır. Mesaj gönderilmez: pending'de sunucu voice.end'i düşürür; geç gelen active rızasız
+// sayılır ve callId başına bir kez voice.end{customer} üretir (onVoiceState).
+func (s *session) voiceActiveTimeout(g uint64, callID string) {
+	v := &s.voice
+	if g != v.gen || v.consent != callID || (v.phase == "active" && v.callID == callID) {
+		return
+	}
+	s.releaseMic(VoiceTexts.Ended)
 }
 
 // openVoice aygıtı açar (engelleyebilir). Sahiplik devri mu altında: bu arada releaseMic çalıştıysa (gen değişti) çağrı

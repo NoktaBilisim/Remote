@@ -45,8 +45,8 @@ var ErrFrameSize = errors.New("voice: çerçeve 960 örnek (20 ms) olmalı")
 // ErrPacketSize çözücüye boş olmayan ve 1275 bayttan uzun yük verildi (Y-PD-2; uzaktan gelen veri).
 var ErrPacketSize = errors.New("voice: Opus yükü 1275 bayttan uzun")
 
-// ErrCodecPanic libopus WASM örneği tuzağa düştü (sınır dışı bellek, unreachable, yığın taşması) ya da çalışma zamanı
-// panikledi (Y-PD-2). Hata yalıtılır; örneğin durumu bozulmuş sayılır: çözücü yeni örnekle yeniden kurulur, kodlayıcı
+// ErrCodecPanic libopus WASM örneği tuzağa düştü (sınır dışı bellek, unreachable, yığın taşması), çalışma zamanı
+// panikledi (Y-PD-2) ya da kodlama/çözme çağrısı süre sınırını aştı (D-PD-K1-1). Hata yalıtılır; örneğin durumu bozulmuş sayılır: çözücü yeni örnekle yeniden kurulur, kodlayıcı
 // kapatılır (çağıran yenisini kurar). Ayrıntı loga yazılmaz (yük içeriği taşıyabilir).
 var ErrCodecPanic = errors.New("voice: Opus kodu tuzağa düştü")
 
@@ -94,8 +94,9 @@ func guard(f func() error) (err error) {
 
 // codecRuntime wazero çalışma zamanı + bir kez derlenmiş libopus modülü; süreç boyunca paylaşılır (eşzamanlı güvenli).
 type codecRuntime struct {
-	rt  wazero.Runtime
-	mod wazero.CompiledModule
+	rt    wazero.Runtime
+	mod   wazero.CompiledModule
+	limit time.Duration // kodlama/çözme çağrısı süre sınırı (D-PD-K1-1)
 }
 
 var (
@@ -104,23 +105,58 @@ var (
 	sharedErr  error
 )
 
+// Çerçeve başına çağrı süre sınırı (D-PD-K1-1). Sandbox bellek/yetki yalıtır ama süre sınırlamaz: bitmeyen bir
+// nk_enc/nk_dec (libopus döngü hatası ya da JIT yanlış derlemesi, A-PD-3) ses döngüsünü süresiz takardı. Çalışma zamanı
+// WithCloseOnContextDone(true) ile kurulur; süre dolunca wazero örneği kapatır ve çağrı hata döner → tuzak gibi
+// ErrCodecPanic (çözücü yeniden kurulur, 3. olayda eş düşer; kodlayıcı kapatılır, çağıran yenisini kurar).
+// Sınır asılı kalmayı sınırlamak içindir, gerçek zaman bütçesini değil: amd64 derleyicide çerçeve ~0,1–0,5 ms sürer;
+// 200 ms (10 çerçeve) bunun yüzlerce katıdır, böylece yük altındaki makinede zamanlayıcı/GC duraklaması kalıcı eş
+// düşürmesine (sayaç sıfırlanmaz) dönüşmez; gerçek bir sonsuz döngü ise en geç 200 ms'de kesilir. Yorumlayıcı
+// (~22 ms/çerçeve; yalnız arm64 geliştirme/test, -race ve öykünmede kat kat yavaşlar) için 2 sn. Örnek kurulumu ve
+// init çağrıları (newInstance) sınırsızdır: uzaktan veri işlemezler.
+const (
+	compilerCallLimit    = 200 * time.Millisecond
+	interpreterCallLimit = 2 * time.Second
+)
+
+// engineConfig çalışma zamanı yapılandırması + o motora uygun çağrı süre sınırı.
+type engineConfig struct {
+	cfg   wazero.RuntimeConfig
+	limit time.Duration
+}
+
+// withLimits her motora aynı sandbox sınırlarını uygular: bellek tavanı, çekirdek özellikler, bağlam bitince kapatma.
+func withLimits(cfg wazero.RuntimeConfig, limit time.Duration) engineConfig {
+	return engineConfig{
+		cfg:   cfg.WithMemoryLimitPages(memLimitPages).WithCoreFeatures(api.CoreFeaturesV2).WithCloseOnContextDone(true),
+		limit: limit,
+	}
+}
+
+func compilerEngine() engineConfig {
+	return withLimits(wazero.NewRuntimeConfigCompiler(), compilerCallLimit)
+}
+
+func interpreterEngine() engineConfig {
+	return withLimits(wazero.NewRuntimeConfigInterpreter(), interpreterCallLimit)
+}
+
 // runtimeConfig amd64'te derleyiciyi (SSE4.1 varsa; yoksa wazero yorumlayıcıya düşer), diğer mimarilerde yorumlayıcıyı
 // seçer. wazero v1.12.0'ın otomatik seçim ölçütü (internal/platform.compilerPlatformSupports) amd64'te
 // golang.org/x/sys/cpu.X86.HasSSE41'dir; Supported() (supported_amd64.go) aynı bayrağı okur, böylece sesi yalnız
 // derleyicinin seçildiği makinede bildiririz (A-PD-6). wazero yükseltilirse bu eşitlik yeniden doğrulanır; bellek sınırı her örneğe uygulanır. K0s-2 bulgusu: wazero v1.9.0–v1.12.0 arm64 derleyicisi libopus kodlayıcısında
 // (silk_noise_shape_quantizer_del_dec) yanlış derleme belirtisi gösterir (sınır dışı tuzak; yorumlayıcı ve amd64 doğru).
 // Yayın hedefi yalnız windows/amd64'tür; yorumlayıcı (~22 ms/çerçeve) yalnız arm64 geliştirme/test içindir.
-func runtimeConfig() wazero.RuntimeConfig {
-	cfg := wazero.NewRuntimeConfig()
+func runtimeConfig() engineConfig {
 	if runtime.GOARCH != "amd64" {
-		cfg = wazero.NewRuntimeConfigInterpreter()
+		return interpreterEngine()
 	}
-	return cfg.WithMemoryLimitPages(memLimitPages).WithCoreFeatures(api.CoreFeaturesV2)
+	return withLimits(wazero.NewRuntimeConfig(), compilerCallLimit)
 }
 
-func newCodecRuntime(cfg wazero.RuntimeConfig) (*codecRuntime, error) {
+func newCodecRuntime(ec engineConfig) (*codecRuntime, error) {
 	ctx := context.Background()
-	rt := wazero.NewRuntimeWithConfig(ctx, cfg)
+	rt := wazero.NewRuntimeWithConfig(ctx, ec.cfg)
 	mod, err := rt.CompileModule(ctx, libopusWasm)
 	if err != nil {
 		_ = rt.Close(ctx)
@@ -132,7 +168,7 @@ func newCodecRuntime(cfg wazero.RuntimeConfig) (*codecRuntime, error) {
 		_ = rt.Close(ctx)
 		return nil, errors.New("voice: libopus.wasm içe aktarım istiyor; sandbox ihlali")
 	}
-	return &codecRuntime{rt: rt, mod: mod}, nil
+	return &codecRuntime{rt: rt, mod: mod, limit: ec.limit}, nil
 }
 
 func sharedRuntime() (*codecRuntime, error) {
@@ -146,6 +182,7 @@ type instance struct {
 	mem      api.Memory
 	fns      map[string]api.Function
 	stack    [3]uint64
+	limit    time.Duration // nk_enc / nk_dec süre sınırı
 	pktOff   uint32
 	pcmOff   uint32
 	isClosed bool
@@ -160,7 +197,7 @@ func newInstance(cr *codecRuntime, initFn string, args ...uint64) (*instance, er
 	if err != nil {
 		return nil, fmt.Errorf("voice: libopus örneği: %w", err)
 	}
-	in := &instance{mod: m, mem: m.Memory(), fns: make(map[string]api.Function, len(instanceFns))}
+	in := &instance{mod: m, mem: m.Memory(), fns: make(map[string]api.Function, len(instanceFns)), limit: cr.limit}
 	for _, n := range instanceFns {
 		f := m.ExportedFunction(n)
 		if f == nil {
@@ -192,17 +229,38 @@ func newInstance(cr *codecRuntime, initFn string, args ...uint64) (*instance, er
 	return in, nil
 }
 
-// call dışa aktarılan işlevi ayırmasız çağırır; tuzak/çalışma zamanı paniği ErrCodecPanic olur.
+// call init/tampon işlevlerini süre sınırsız çağırır (uzaktan veri işlemezler); tuzak/panik ErrCodecPanic olur.
 func (in *instance) call(name string, args ...uint64) (int32, error) {
+	return in.invoke(context.Background(), name, args...)
+}
+
+// callLimited kodlama/çözme çağrısı: süre sınırlı bağlamla (D-PD-K1-1). Süre dolarsa wazero örneği kapatır ve çağrı
+// hata döner; tuzak gibi ErrCodecPanic olur. Çağrı başına bağlam + zamanlayıcı + wazero izleme goroutine'i ayrılır.
+func (in *instance) callLimited(name string, args ...uint64) (int32, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), in.limit)
+	defer cancel()
+	return in.invoke(ctx, name, args...)
+}
+
+func (in *instance) invoke(ctx context.Context, name string, args ...uint64) (int32, error) {
 	if in.isClosed {
 		return 0, errClosed
 	}
 	st := in.stack[:max(len(args), 1)]
 	copy(st, args)
-	if err := guard(func() error { return in.fns[name].CallWithStack(context.Background(), st) }); err != nil {
-		return 0, ErrCodecPanic
+	if err := callWithStack(ctx, in.fns[name], st); err != nil {
+		return 0, err
 	}
 	return api.DecodeI32(st[0]), nil
+}
+
+// callWithStack işlevi çağırır; tuzak, çalışma zamanı paniği ve bağlam süresi/iptali (WithCloseOnContextDone) aynı
+// biçimde ErrCodecPanic olur.
+func callWithStack(ctx context.Context, f api.Function, st []uint64) error {
+	if err := guard(func() error { return f.CallWithStack(ctx, st) }); err != nil {
+		return ErrCodecPanic
+	}
+	return nil
 }
 
 func (in *instance) close() error {
@@ -248,7 +306,7 @@ func (e *Encoder) Encode(pcm []int16) ([]byte, error) {
 	for i, s := range pcm {
 		binary.LittleEndian.PutUint16(view[2*i:], uint16(s))
 	}
-	n, err := e.in.call("nk_enc")
+	n, err := e.in.callLimited("nk_enc")
 	if errors.Is(err, ErrCodecPanic) {
 		_ = e.in.close()
 		return nil, err
@@ -329,7 +387,7 @@ func (w *wasmDecoder) Decode(packet []byte, pcm []int16, frameSize int, decodeFE
 	if decodeFEC {
 		fec = 1
 	}
-	n, err := w.in.call("nk_dec", api.EncodeI32(int32(len(packet))), api.EncodeI32(int32(frameSize)), fec)
+	n, err := w.in.callLimited("nk_dec", api.EncodeI32(int32(len(packet))), api.EncodeI32(int32(frameSize)), fec)
 	if err != nil {
 		return 0, err
 	}

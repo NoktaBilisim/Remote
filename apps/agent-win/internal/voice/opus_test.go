@@ -239,7 +239,7 @@ func TestP28dK0sWasmDigestMatches(t *testing.T) {
 // Sandbox: modül hiçbir şey içe aktarmaz (WASI dahil) ve yalnız beklenen yüzü dışa aktarır.
 func TestP28dK0sWasmSandboxSurface(t *testing.T) {
 	ctx := context.Background()
-	rt := wazero.NewRuntimeWithConfig(ctx, runtimeConfig())
+	rt := wazero.NewRuntimeWithConfig(ctx, runtimeConfig().cfg)
 	defer func() { _ = rt.Close(ctx) }()
 	mod, err := rt.CompileModule(ctx, libopusWasm)
 	if err != nil {
@@ -574,11 +574,11 @@ func BenchmarkP28dK0sEncode20msEngine(b *testing.B) {
 	pcm := speechLike(50, 7)
 	for _, tc := range []struct {
 		name string
-		cfg  wazero.RuntimeConfig
+		cfg  engineConfig
 	}{
 		{"auto", runtimeConfig()},
-		{"compiler", wazero.NewRuntimeConfigCompiler().WithMemoryLimitPages(memLimitPages)},
-		{"interpreter", wazero.NewRuntimeConfigInterpreter().WithMemoryLimitPages(memLimitPages)},
+		{"compiler", compilerEngine()},
+		{"interpreter", interpreterEngine()},
 	} {
 		b.Run(tc.name, func(b *testing.B) {
 			cr, err := newCodecRuntime(tc.cfg)
@@ -607,7 +607,7 @@ func TestP28dK0sCompilerMatchesInterpreter(t *testing.T) {
 	if testing.Short() {
 		t.Skip("uzun")
 	}
-	run := func(cfg wazero.RuntimeConfig) []byte {
+	run := func(cfg engineConfig) []byte {
 		cr, err := newCodecRuntime(cfg)
 		if err != nil {
 			t.Fatal(err)
@@ -645,11 +645,11 @@ func TestP28dK0sCompilerMatchesInterpreter(t *testing.T) {
 		}
 		return h.Sum(nil)
 	}
-	a := run(wazero.NewRuntimeConfigInterpreter().WithMemoryLimitPages(memLimitPages))
+	a := run(interpreterEngine())
 	if runtime.GOARCH != "amd64" {
 		t.Skipf("derleyici yalnız amd64'te kullanılır (GOARCH=%s)", runtime.GOARCH)
 	}
-	b := run(wazero.NewRuntimeConfigCompiler().WithMemoryLimitPages(memLimitPages))
+	b := run(compilerEngine())
 	if !bytes.Equal(a, b) {
 		t.Fatalf("derleyici %x ≠ yorumlayıcı %x", b, a)
 	}

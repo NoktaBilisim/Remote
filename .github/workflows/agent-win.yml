@@ -548,7 +548,10 @@ jobs:
                    TestP28dNoticesContainLibopusCopying TestP28dReleaseWithinOneSecond TestP28dRunEventsInMultiMode \
                    TestP28dSendonlyOfferNoGuestAudio TestP28dSessionWindowWithVoiceRowFits768 TestP28dSilentOfferNoAudioLine \
                    TestP28dSupportedMatchesWazeroCompilerCriterion TestP28dTrayLicensesOutsideScopeNoNetwork \
-                   TestP28dTrayVoiceEndAndLicensesInScope TestP28dTrayVoiceTipAndMenu TestP28dVoiceAskBody TestP28dVoiceRowTexts; do
+                   TestP28dTrayVoiceEndAndLicensesInScope TestP28dTrayVoiceTipAndMenu TestP28dVoiceAskBody TestP28dVoiceRowTexts \
+                   TestP28dDoneTimeoutEventsInMultiMode TestAC374P28dReleaseMicWhenActiveNeverArrives \
+                   TestAC374P28dActiveInTimeKeepsMic TestAC374P28dActiveWaitDuringOpenClosesStaleOpen \
+                   TestP28dOpusContextCancelStopsCall TestP28dOpusCallLimitTreatedAsTrap TestP28dOpusCallLimitValues; do
             if grep -q -- "--- PASS: $t (" "$out"; then continue; fi
             if grep -q -- "--- SKIP: $t (" "$out"; then
               echo "::error::$t SKIP: windows/amd64'te koşmalı (derleyici yolu), SKIP kabul edilmez"

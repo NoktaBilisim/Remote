@@ -151,7 +151,16 @@ type voiceRig struct {
 // startVoice çok teknisyenli oturum: A sahip+kontrol, B katılımcı, C izleyici; A ve B'nin eşleri kurulu.
 func startVoice(t *testing.T, op *fakeOpener) *voiceRig {
 	t.Helper()
+	return startVoiceDeps(t, op, nil)
+}
+
+// startVoiceDeps startVoice; opt nil değilse oturum başlamadan Deps'i değiştirir (ör. kısa VoiceActiveWait).
+func startVoiceDeps(t *testing.T, op *fakeOpener, opt func(*Deps)) *voiceRig {
+	t.Helper()
 	h := newHarness(t)
+	if opt != nil {
+		opt(&h.deps)
+	}
 	r := &fakeRoster{views: make(chan RosterView, 32), ok: true, chats: make(chan string, 8)}
 	h.deps.RosterUI = r
 	ui := &fakeVoiceUI{}

@@ -226,6 +226,9 @@ type Deps struct {
 	// hatası (bir kez, herhangi bir goroutine'den).
 	VoiceUI   VoiceUI
 	OpenVoice func(onFail func(error)) (VoiceCall, error)
+	// VoiceActiveWait yerel Kabul'den sonra o callId için `voice.state{active}` bekleme süresi; dolarsa mikrofon
+	// bırakılır (D-PD-K1-2; varsayılan 5 sn; testte kısaltılır).
+	VoiceActiveWait time.Duration
 	// Admitted P8b-2: ilk `hello` geldiğinde bir kez çağrılır (talep modu `/ws/request`'i 1000 ile ancak bundan sonra
 	// kapatır; öncesindeki 1000 sunucuda "vazgeçme" sayılır). nil olabilir.
 	Admitted func()
