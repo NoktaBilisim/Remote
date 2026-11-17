@@ -43,3 +43,13 @@ Yeni ADR açılmadı (ADR-0040 kullanılmadı); karar çerçevesi değişmedi, a
   **sabit** sistem bildirimidir (kullanıcı içeriği değil, saklanmaz). Müşterinin DC'den yazdığı hiçbir yerde gösterilmez.
 - **Audit:** mesaj başına audit yok (satır kendisi append-only kayıt); `session.chat_summary`, `session.chat_viewed`, `session.chat_rejected`.
 - **Sınır:** 1.000 kod noktası (DC'deki 2.000 UTF-16'dan iner), 5/sn/gönderen.
+
+### r-P22 r2 eki (2026-11-17, P22-0 güvenlik turu; `docs/mimari-p22.md` §15)
+
+- **Kabul edilmiş artık risk (S-P22-2):** eski müşteri istemcisiyle (≤ 0.20.x) DataChannel kanalı teknik olarak durur; teknisyen tarayıcı araçlarıyla
+  kayıtsız DC sohbeti gönderebilir, sunucu bunu göremez. Telafi: `session.chat_legacy` audit'i, kılavuzda teknisyen kuralı, eski konsol sekmesinin
+  `/ws/tech` belirteç kapısıyla (4426) reddi. Kapatma yolu: P22-G 0.21.0 prod yayınından 60 gün sonra `rs.cap.schat1` bildirmeyen istemcinin kabul
+  edilmemesi (K-P22-15; ayrı AC, Sonra).
+- **Kanıt bütünlüğü artık riski (S-P22-9):** AAD gönderen alanlarını bağlamaz; yalnız migrator/DB yöneticisi gönderen alanını değiştirebilir. Sonra:
+  yeni anahtar sürümüyle AAD v2 (`…|<id>|<sender>|<sender_user_id|"-">`).
+- Mesaj başına audit yokluğu (K-P22-6) ve konsolun sabit DC bildirimi (K-P22-3) güvenlik turunda koşullu onaylandı.

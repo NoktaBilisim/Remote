@@ -1356,3 +1356,12 @@ kayıt yedeği, kaydedici bastırmaya karşı kaynak taraflı ikinci kayıt, sak
 | 9. DoD                             | Kapsamda: P22-Q (sunucu+web) ve P22-GQ (Go) ayrı kapılar: qa GEÇTİ + güvenlik Kritik/Yüksek 0                                                                                                                                                           |
 | 9. Dokümantasyon planı             | Kapsamda: kılavuz, api.md, mimari-protokol §5 eki, db-notlari, runbook, CHANGELOG, DATASHEET, PDF (P22-W, P22-GQ)                                                                                                                                       |
 | Sonra                              | Oturumsuz kapalı talep yazışması görüntüleme; gözetimsiz sohbet; çok instance fan-out (Redis); sohbet arama                                                                                                                                             |
+
+**P22 r2 notu (2026-11-17, P22-0 güvenlik tasarım turu; `docs/mimari-p22.md` §15):** S-P22-1..11'in tamamı kabul edildi.
+
+- 3. Rate limit: `chat.history` ve P18 `request.messages` için 48 KiB bayt bütçesi (Go okuma sınırı 64 KiB). P18'deki mevcut hata P22-B'de düzeltilir.
+- 1. Yetkilendirme: `/ws/tech` belirteç kapısı (4426) eklendi. `seatMay "chat.send": "talker"` olarak tanımlandı. Canlı geçmiş yalnız koltuğu olan sokete gider ve katılım audit'ine `chatHistory:<n>` yazılır.
+- 6. Arka plan işi: retention mesaj silme bütçesi 20.000.
+- 2. Audit: `writeChatSummary` her bitiş yolunda çağrılır ve sayıları DB'den alır. `session.chat_legacy` kabul anında yazılır. K-P22-6 koşullu onaylandı.
+- 8. KVKK: eski istemci bildirim metni düzeltildi. Aydınlatma paragrafında koşulsuz "uçtan uca" iddiası kaldırıldı.
+- 9. Riskler: eski istemcideki DC sohbeti artık risk olarak ADR-0025'e yazıldı. Asgari istemci politikası (P22-G + 60 gün, K-P22-15) ve AAD v2 "Sonra" olarak kaldı.
