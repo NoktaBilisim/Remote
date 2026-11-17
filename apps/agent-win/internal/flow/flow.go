@@ -139,6 +139,12 @@ const (
 	EvRecStop
 	// P28c AC-366: müşterinin "Çıkar"ı (onay diyaloğundan sonra; TID). Gözetimsizde yok sayılır (V-PC-5).
 	EvTechRemove
+	// P28d (voice.go). EvVoiceAccept yalnız gerçek yerel tıklamayla ve 1,5 sn kilidinden sonra üretilir (K-PD-2; G-03
+	// kuralları UI'da); CallID diyaloğun açıldığı görüşmedir.
+	EvVoiceAccept // CallID
+	EvVoiceReject // CallID
+	EvVoiceEnd    // "Görüşmeyi bitir" (çubuk ya da tepsi menüsü)
+	EvVoiceMute   // On: sessize al (yalnız yerel; sunucuya mesaj gitmez)
 )
 
 // Event kullanıcı olayı.
@@ -150,6 +156,7 @@ type Event struct {
 	On      bool   // EvClipConsent
 	PID     string // EvPrintApprove / EvPrintReject
 	TID     string // EvTechRemove
+	CallID  string // EvVoiceAccept / EvVoiceReject
 }
 
 // Deps akışın bağımlılıkları.
@@ -213,6 +220,12 @@ type Deps struct {
 	RecConsent bool
 	// RecAckWait `rec.revoke` sonrası onay bekleme süresi (varsayılan signal.RecRevokeAckMs; testte kısaltılır).
 	RecAckWait time.Duration
+	// P28d (mimari-p28d §4.1, O-PD-3; voice.go): sesli görüşme arayüzü ve mikrofon/hoparlör motoru. Herhangi biri (ya da
+	// RosterUI) nil ise `rs.cap.voice1` bildirilmez ve `voice.*` yok sayılır. Gözetimsiz yardımcıda bağlanmaz; bağlansa da
+	// Unattended iken kullanılmaz. OpenVoice yalnız yerel "Kabul et" sonrası çağrılır; onFail görüşme sırasında aygıt
+	// hatası (bir kez, herhangi bir goroutine'den).
+	VoiceUI   VoiceUI
+	OpenVoice func(onFail func(error)) (VoiceCall, error)
 	// Admitted P8b-2: ilk `hello` geldiğinde bir kez çağrılır (talep modu `/ws/request`'i 1000 ile ancak bundan sonra
 	// kapatır; öncesindeki 1000 sunucuda "vazgeçme" sayılır). nil olabilir.
 	Admitted func()

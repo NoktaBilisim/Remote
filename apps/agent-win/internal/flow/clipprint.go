@@ -118,6 +118,9 @@ func Features(d Deps) []string {
 	if recUI(d) != nil { // P28e: gösterge/şerit çizebilen arayüz (K-P28e-7)
 		f = append(f, signal.FeatureRec)
 	}
+	if voiceOn(d) { // P28d O-PD-3: gözetimsizde yok (yukarıdaki erken dönüş + voiceOn)
+		f = append(f, signal.FeatureVoice)
+	}
 	return f
 }
 

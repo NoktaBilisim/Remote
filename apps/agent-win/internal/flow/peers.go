@@ -99,6 +99,7 @@ func (s *session) newPeer(ctx context.Context, tid string) (*techPeer, error) {
 	}
 	tp := &techPeer{p: p, main: main, gen: s.peerGen}
 	s.peers[tid] = tp
+	s.voicePeerAdded(tid, tp)
 	s.updateLow()
 	return tp, nil
 }
@@ -110,6 +111,7 @@ func (s *session) closePeer(ctx context.Context, tid string) {
 		return
 	}
 	delete(s.peers, tid)
+	s.voicePeerRemoved(tid)
 	_ = tp.p.Close()
 	if tid == s.ctrlTid() {
 		s.closeControl(ctx, "SYSTEM", true)
@@ -242,6 +244,7 @@ func (s *session) onRoster(ctx context.Context, m signal.TechsRoster) (Outcome, 
 	}
 	s.techName = name
 	s.drawRoster()
+	s.voiceRoster() // P28d D-PD-3: roster dışı tid yok sayılır; isteyen düştüyse diyalog kapanır
 	return Outcome{}, false
 }
 
@@ -368,5 +371,6 @@ func (s *session) handlers(ctx context.Context, tid string, gen uint64) rtc.Hand
 		FileChunk: func(c dc.Chunk, ok bool) { push(peerEvent{chunk: &c, ok: ok}) },
 		State:     func(st string) { push(peerEvent{state: st}) },
 		Input:     s.peerInput(tid),
+		Audio:     s.voiceAudio(tid), // P28d: yalnız canlı motora (voice.go); voice1 yoksa nil
 	}
 }

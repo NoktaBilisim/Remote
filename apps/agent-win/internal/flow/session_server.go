@@ -43,6 +43,8 @@ func (s *session) onServer(ctx context.Context, m signal.Inbound) (Outcome, bool
 		s.onRecState(ctx, m)
 	case signal.TechsRoster:
 		return s.onRoster(ctx, m)
+	case signal.VoiceRequest, signal.VoiceState:
+		s.onVoiceServer(ctx, m)
 	}
 	return Outcome{}, false
 }
@@ -102,6 +104,7 @@ func (s *session) onHello(ctx context.Context, h signal.Hello) (Outcome, bool) {
 		s.d.Admitted()
 	}
 	s.closeControl(ctx, "", true) // AC-24: her yeni PeerConnection kapı kapalı başlar
+	s.voiceDrop("")               // P28d K-PD-2: yeni soket = yeni rıza (yeniden bağlanmada startReconnect zaten bıraktı)
 	s.cp.reset()                  // P28a: yeni soket — önceki bekleyen kimlikler geçersiz
 	s.helloEnv(ctx)               // K8: hello'dan hemen sonra tek env.state (monitör seçimi beklenmez)
 	s.applyHello(h)
