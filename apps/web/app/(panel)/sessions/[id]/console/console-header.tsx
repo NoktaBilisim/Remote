@@ -32,7 +32,7 @@ export function ConsoleHeader({
   owner = true,
   voice,
 }: {
-  /** P28d (§8): sesli görüşme yuvası (`VoiceControls` + `VoiceAudio`); kontrol ipucundan önce. */
+  /** P28d (§8): sesli görüşme yuvası (`VoiceControls` + `VoiceAudio`); ana satırın altında ayrı satır (sağa yaslı). */
   voice?: ReactNode;
   /** P28c: oturum sahibi değilse "Oturumu bitir" yok (üye teknisyenler panelinden ayrılır). */
   owner?: boolean;
@@ -51,52 +51,60 @@ export function ConsoleHeader({
   // P28c (D-PC-5): sahip olmayan üyeye doğrulama kodu boş gelir → gösterilmez
   const codes = !state.unattended && session.techVerifyCode !== "";
   return (
-    <header className="flex flex-wrap items-center gap-x-3 gap-y-2 rounded-lg xl:flex-nowrap border border-border bg-surface px-3 py-2">
-      <Link
-        href="/sessions"
-        aria-label={t("c.back")}
-        className="inline-flex size-11 shrink-0 items-center justify-center rounded-md text-fg-muted hover:bg-surface-muted hover:text-fg"
-      >
-        <ArrowLeft aria-hidden className="size-5" />
-      </Link>
-      <div className="flex min-w-0 items-center gap-2">
-        <Avatar name={state.unattended?.deviceName ?? name} />
-        <div className="min-w-0">
-          <h1 className="truncate font-semibold text-fg" data-testid="console-guest">
-            {state.unattended?.deviceName ?? name}
-          </h1>
-          {state.unattended ? (
-            <p className="flex items-center gap-1 text-xs font-medium text-primary" data-testid="console-unattended">
-              <MonitorCog aria-hidden className="size-3.5" />
-              {t("un.c.badge")}
-            </p>
-          ) : (
-            <p className="text-xs text-fg-muted">{t(state.guest?.kind === "AGENT" ? "cl.kindAgent" : "c.kindBrowser")}</p>
-          )}
+    <header className="flex flex-col gap-2 rounded-lg border border-border bg-surface px-3 py-2">
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-2 xl:flex-nowrap">
+        <Link
+          href="/sessions"
+          aria-label={t("c.back")}
+          className="inline-flex size-11 shrink-0 items-center justify-center rounded-md text-fg-muted hover:bg-surface-muted hover:text-fg"
+        >
+          <ArrowLeft aria-hidden className="size-5" />
+        </Link>
+        <div className="flex min-w-0 items-center gap-2">
+          <Avatar name={state.unattended?.deviceName ?? name} />
+          <div className="min-w-0">
+            <h1 className="truncate font-semibold text-fg" data-testid="console-guest">
+              {state.unattended?.deviceName ?? name}
+            </h1>
+            {state.unattended ? (
+              <p className="flex items-center gap-1 text-xs font-medium text-primary" data-testid="console-unattended">
+                <MonitorCog aria-hidden className="size-3.5" />
+                {t("un.c.badge")}
+              </p>
+            ) : (
+              <p className="text-xs text-fg-muted">{t(state.guest?.kind === "AGENT" ? "cl.kindAgent" : "c.kindBrowser")}</p>
+            )}
+          </div>
         </div>
+        <span role="status" data-testid="console-status" className={`${pill} shrink-0 ${status.cls}`}>
+          <span aria-hidden className="size-1.5 rounded-full bg-current" />
+          {status.label}
+        </span>
+        {state.phase !== "ended" && (live || codes) && (
+          <div className="shrink-0 text-xs text-fg-muted">
+            <span className="block">{live ? t("c.maxLeft") : t("c.codeLeft")}</span>
+            <b className="text-sm tabular-nums text-fg" data-testid="console-left">
+              {left}
+            </b>
+          </div>
+        )}
+        {codes && (
+          <div className="shrink-0 text-xs text-fg-muted">
+            <span className="block">{t("cs.verify")}</span>
+            <CodeDisplay code={session.techVerifyCode} size="sm" testId="console-verify-code" />
+          </div>
+        )}
+        <span className="flex-1" />
+        {live && state.guest?.kind === "BROWSER" && <BrowserControlHint id={controlHint} />}
+        {owner && <HeaderActions phase={state.phase} onConfirm={onConfirm} />}
       </div>
-      <span role="status" data-testid="console-status" className={`${pill} shrink-0 ${status.cls}`}>
-        <span aria-hidden className="size-1.5 rounded-full bg-current" />
-        {status.label}
-      </span>
-      {state.phase !== "ended" && (live || codes) && (
-        <div className="shrink-0 text-xs text-fg-muted">
-          <span className="block">{live ? t("c.maxLeft") : t("c.codeLeft")}</span>
-          <b className="text-sm tabular-nums text-fg" data-testid="console-left">
-            {left}
-          </b>
+      {/* P28d düzeltme (test-raporu Y-1, O-1): ses yuvası kendi satırında — 1280 px'te ana satır (TEST-P4-4) ses yokkenki
+          gibi kalır, 375 px'te bildirim sarılır. Görünür öğe yokken (yalnız <audio>) satır gizli, boş aralık bırakmaz. */}
+      {voice && (
+        <div className="flex min-w-0 items-center justify-end gap-2 [&:not(:has(button,p,span))]:hidden" data-testid="console-voice-row">
+          {voice}
         </div>
       )}
-      {codes && (
-        <div className="shrink-0 text-xs text-fg-muted">
-          <span className="block">{t("cs.verify")}</span>
-          <CodeDisplay code={session.techVerifyCode} size="sm" testId="console-verify-code" />
-        </div>
-      )}
-      <span className="flex-1" />
-      {voice}
-      {live && state.guest?.kind === "BROWSER" && <BrowserControlHint id={controlHint} />}
-      {owner && <HeaderActions phase={state.phase} onConfirm={onConfirm} />}
     </header>
   );
 }

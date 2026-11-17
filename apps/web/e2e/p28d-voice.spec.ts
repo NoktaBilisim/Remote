@@ -127,6 +127,48 @@ async function accept(page: Page, g: Page) {
 }
 
 test.describe("P28d sesli görüşme (tarayıcı misafir)", () => {
+  /**
+   * Test-raporu P28d Y-1 / O-1 regresyonu: 1280 ve 375 px'te konsol başlığındaki etkileşimli öğelerin (düğme, bağlantı) kutuları
+   * çakışmaz, her birinin ortasındaki nokta kendisine düşer (`elementFromPoint` — tıklama yanlış düğmeye gitmez), müşteri adı
+   * sıkışmaz ve belge yatay taşmaz. Sonunda 1280 px'e döner.
+   */
+  async function headerLayoutOk(page: Page, label: string) {
+    for (const w of [1280, 375]) {
+      await page.setViewportSize({ width: w, height: 800 });
+      await noHorizontalOverflow(page);
+      const r = await page.evaluate(() => {
+        const header = document.querySelector("header:has([data-testid=console-guest])")!;
+        const els = [...header.querySelectorAll<HTMLElement>("button, a")].filter((e) => e.getClientRects().length > 0);
+        const boxes = els.map((e) => ({
+          id: e.dataset.testid ?? e.getAttribute("aria-label") ?? e.textContent,
+          b: e.getBoundingClientRect(),
+          e,
+        }));
+        const overlaps: string[] = [];
+        for (let i = 0; i < boxes.length; i++)
+          for (let j = i + 1; j < boxes.length; j++) {
+            const [a, b] = [boxes[i]!.b, boxes[j]!.b];
+            if (a.left < b.right - 0.5 && b.left < a.right - 0.5 && a.top < b.bottom - 0.5 && b.top < a.bottom - 0.5)
+              overlaps.push(`${boxes[i]!.id} × ${boxes[j]!.id}`);
+          }
+        const misses = boxes
+          .filter(({ b, e }) => {
+            const hit = document.elementFromPoint(b.left + b.width / 2, b.top + b.height / 2);
+            return !hit || !e.contains(hit);
+          })
+          .map((x) => x.id);
+        const name = document.querySelector("[data-testid=console-guest]")!.getBoundingClientRect().width;
+        const right = header.getBoundingClientRect().right;
+        return { overlaps, misses, name, outside: boxes.filter(({ b }) => b.right > right + 0.5).map((x) => x.id) };
+      });
+      expect(r.overlaps, `${label} ${w}: başlık düğmeleri çakışmamalı`).toEqual([]);
+      expect(r.misses, `${label} ${w}: düğme ortası kendisine tıklanmalı`).toEqual([]);
+      expect(r.outside, `${label} ${w}: düğme başlık dışına taşmamalı`).toEqual([]);
+      expect(r.name, `${label} ${w}: müşteri adı sıkışmamalı`).toBeGreaterThanOrEqual(80);
+    }
+    await page.setViewportSize({ width: 1280, height: 800 });
+  }
+
   test("AC-373: izin reddinde istek gitmez; istek → müşteri diyaloğu (odak Reddet, Kabul 1,5 sn kilitli); ret → konsol bildirimi; 60 sn zaman aşımı", async ({
     page,
     context,
@@ -140,6 +182,7 @@ test.describe("P28d sesli görüşme (tarayıcı misafir)", () => {
     await page.evaluate(() => ((window as unknown as W).__denyMic = true));
     await page.getByTestId("voice-call").click();
     await expect(page.getByTestId("voice-notice")).toHaveAttribute("data-kind", "micDenied");
+    await headerLayoutOk(page, "micDenied");
     expect((await wsLog(page, s.id)).filter((x) => x.m.t === "voice.request")).toHaveLength(0);
     await page.evaluate(() => ((window as unknown as W).__denyMic = false));
 
@@ -164,6 +207,7 @@ test.describe("P28d sesli görüşme (tarayıcı misafir)", () => {
     const notice = page.getByTestId("voice-notice");
     await expect(notice).toHaveAttribute("data-kind", "rejected");
     await expect(notice).toHaveText("Müşteri reddetti — 30 sn sonra tekrar deneyebilirsiniz");
+    await headerLayoutOk(page, "rejected");
     await expect(page.getByTestId("voice-call")).toBeDisabled();
     await expect.poll(() => page.evaluate(() => (window as unknown as W).__mics.every((t) => t.readyState === "ended"))).toBe(true);
     expect(await gumCount(g)).toBe(0);
@@ -219,6 +263,7 @@ test.describe("P28d sesli görüşme (tarayıcı misafir)", () => {
     await g.getByTestId("voice-bar-mute").click();
 
     await scanThemes(page, '[data-testid="voice-controls"]', "konsol görüşme");
+    await headerLayoutOk(page, "talking");
     await scanThemes(g, '[data-testid="voice-bar"]', "müşteri görüşme çubuğu");
     for (const [p, w] of [
       [page, 1280],

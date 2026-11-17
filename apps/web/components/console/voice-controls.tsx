@@ -26,14 +26,14 @@ export interface VoiceActions {
 
 /**
  * P28d konsol üst çubuğu sesli görüşme yuvası (mimari-p28d r2 §8; AC-373, 374, 378, 379). Görünüm kararı `consoleVoiceView`'dan;
- * bu bileşen yalnız çizer. 1280 px tek satır (TEST-P4-4): konuşurken "Sessize al" / "Görüşmeyi bitir" ikon-only (aria-label +
+ * bu bileşen yalnız çizer. Başlığın ayrı satırında (ana satır TEST-P4-4 tek satır kalır); daralabilir (375 px taşma yok). Konuşurken "Sessize al" / "Görüşmeyi bitir" ikon-only (aria-label +
  * `title` ipucu), bildirim metni `BrowserControlHint` gibi daralır. Geri sayımda canlı bölge yok (her saniye okunmaz).
  */
 export function VoiceControls({ view, unsupportedText, ...a }: { view: VoiceView; unsupportedText: string } & VoiceActions) {
   const hint = useId();
   if (view.kind === "hidden") return null;
   return (
-    <div className="flex min-w-0 shrink-0 items-center gap-2" data-testid="voice-controls" data-view={view.kind}>
+    <div className="flex min-w-0 items-center gap-2" data-testid="voice-controls" data-view={view.kind}>
       <ViewBody view={view} hint={hint} unsupportedText={unsupportedText} {...a} />
     </div>
   );
