@@ -231,3 +231,31 @@ func TestLogRefusesReparsePoints(t *testing.T) {
 		t.Fatal("mevcut log taşınmamalı")
 	}
 }
+
+// TestP28dVoiceSummaryOnlyCountersAndFormats saha düzeltmesi 1: ses özeti yalnız sabit anahtarlı sayaç/biçim satırları
+// yazar (tid, ad, aygıt adı/kimliği yok); yakalama satırları (hedef, monitör, yöntem) eklenmez.
+func TestP28dVoiceSummaryOnlyCountersAndFormats(t *testing.T) {
+	r := Report{Time: time.Date(2026, 11, 17, 9, 0, 0, 0, time.UTC), Event: EventVoiceEnd, Version: "0.18.1",
+		OS: "10.0.22631.4317", Release: "23H2", Edition: "Professional",
+		Voice: &Voice{Peers: []VoicePeer{{Rx: 1500, Gated: 0, Jitter: 2}}, Decoded: 1490, FEC: 3, PLC: 7, Written: 1510,
+			Audible: 1480, Device: true, Render: AudioFormat{Rate: 48000, Channels: 2, Bits: 32, Float: true},
+			Capture: AudioFormat{Rate: 44100, Channels: 1, Bits: 16}, RenderIsComm: 0, Rendered: 1449600}}
+	out := r.Format()
+	for _, want := range []string{"olay=ses_ozet", "istemci=0.18.1", "ses_es_sayisi=1",
+		"ses_es=1 alinan=1500 kapida_atilan=0 jitter_atilan=2", "ses_cozulen=1490 fec=3 plc=7 bozuk=0 dusen_es=0",
+		"ses_yazilan_cerceve=1510 sesli_cerceve=1480",
+		"ses_calma=48000/2/32float ses_yakalama=44100/1/16pcm calma_iletisim_ayni=0 calinan_ornek=1449600 calma_atilan_ornek=0"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("eksik %q:\n%s", want, out)
+		}
+	}
+	for _, bad := range []string{"hedef=", "monitor_sayisi=", "yontem="} {
+		if strings.Contains(out, bad) {
+			t.Errorf("ses özetinde yakalama satırı %q:\n%s", bad, out)
+		}
+	}
+	r.Voice = &Voice{}
+	if out := r.Format(); !strings.Contains(out, "ses_es_sayisi=0") || !strings.Contains(out, "ses_aygit=-") {
+		t.Errorf("aygıtsız özet:\n%s", out)
+	}
+}

@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"runtime"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"time"
 	"unsafe"
@@ -23,9 +24,11 @@ import (
 const (
 	enumGetDefaultAudioEndpoint = 4  // IMMDeviceEnumerator
 	devActivate                 = 3  // IMMDevice
+	devGetID                    = 5  //
 	acInitialize                = 3  // IAudioClient
 	acGetBufferSize             = 4  //
 	acGetCurrentPadding         = 6  //
+	acGetMixFormat              = 8  //
 	acStart                     = 10 //
 	acStop                      = 11 //
 	acSetEventHandle            = 13 //
@@ -39,7 +42,6 @@ const (
 const (
 	eRender                    = 0
 	eCapture                   = 1
-	eCommunications            = 2
 	clsctxAll                  = 0x17 // CLSCTX_ALL
 	streamFlagsEventCallback   = 0x00040000
 	streamFlagsSrcDefaultQual  = 0x08000000
@@ -48,6 +50,9 @@ const (
 	audioCategoryCommunication = 3        // AUDIO_STREAM_CATEGORY: Other, ForegroundOnlyMedia, BackgroundCapableMedia, Communications
 	bufferDuration100ns        = 40 * 1e4 // 40 ms paylaşımlı tampon (REFERENCE_TIME)
 	waveFormatPCM              = 1
+	waveFormatFloat            = 3      // WAVE_FORMAT_IEEE_FLOAT
+	waveFormatExtensible       = 0xFFFE // WAVE_FORMAT_EXTENSIBLE (SubFormat.Data1 = 1 PCM / 3 float)
+	waveFormatExSubFormatOff   = 24     // WAVEFORMATEXTENSIBLE.SubFormat: 18 + Samples(2) + ChannelMask(4)
 )
 
 var (
@@ -106,21 +111,24 @@ func (s stopper) release() { _ = s.client.call(acStop) }
 
 // endpoint bir WASAPI uç noktası (48 kHz mono s16, AUTOCONVERTPCM; yeniden örnekleyici yok). Arayüzlerin sahibi owner'dır.
 type endpoint struct {
+	dev     *comObj // IMMDevice
 	client  *comObj // IAudioClient2
 	service *comObj // IAudioCaptureClient veya IAudioRenderClient
 	event   windows.Handle
 	frames  uint32 // tampon boyu (örnek)
+	mix     Format // aygıtın karışım biçimi (tanılama; AUTOCONVERTPCM bizim 48k/1/16'mızı buna çevirir)
 }
 
-// openEndpoint varsayılan iletişim aygıtını (eCommunications) açar; edinilen her arayüz/tanıtıcı edinme sırasıyla o'ya
-// girer (hata yolunda da çağıran o.releaseAll ile bırakır).
+// openEndpoint varsayılan aygıtı açar: yakalama iletişim varsayılanında (captureRole), çalma varsayılan aygıtta
+// (renderRole; roles.go — saha düzeltmesi 1). Edinilen her arayüz/tanıtıcı edinme sırasıyla o'ya girer (hata yolunda
+// da çağıran o.releaseAll ile bırakır).
 func openEndpoint(o *owner, enum *comObj, render bool) (*endpoint, error) {
 	var dev *comObj
-	flow := uintptr(eCapture)
+	flow, role := uintptr(eCapture), uintptr(captureRole)
 	if render {
-		flow = eRender
+		flow, role = eRender, renderRole
 	}
-	if err := enum.call(enumGetDefaultAudioEndpoint, flow, eCommunications, uintptr(unsafe.Pointer(&dev))).err("GetDefaultAudioEndpoint"); err != nil {
+	if err := enum.call(enumGetDefaultAudioEndpoint, flow, role, uintptr(unsafe.Pointer(&dev))).err("GetDefaultAudioEndpoint"); err != nil {
 		return nil, err
 	}
 	o.add(dev)
@@ -129,11 +137,12 @@ func openEndpoint(o *owner, enum *comObj, render bool) (*endpoint, error) {
 		return nil, ErrDevice
 	}
 	o.add(evHandle(ev)) // istemciden önce eklenir: istemci bırakıldıktan sonra kapanır
-	e := &endpoint{event: ev}
+	e := &endpoint{dev: dev, event: ev}
 	if err := dev.call(devActivate, uintptr(unsafe.Pointer(&iidIAudioClient2)), clsctxAll, 0, uintptr(unsafe.Pointer(&e.client))).err("Activate"); err != nil {
 		return nil, err
 	}
 	o.add(e.client)
+	e.mix = mixFormat(e.client)
 	props := audioClientProperties{Category: audioCategoryCommunication}
 	props.Size = uint32(unsafe.Sizeof(props))
 	// İletişim kategorisi sürücüde varsa OEM AEC/NS'yi açar; başarısızlık ölümcül değildir (ADR-0036 m.2).
@@ -160,6 +169,50 @@ func openEndpoint(o *owner, enum *comObj, render bool) (*endpoint, error) {
 	}
 	o.add(e.service)
 	return e, nil
+}
+
+// mixFormat IAudioClient::GetMixFormat (tanılama; hata → sıfır biçim). Dönen yapı CoTaskMemFree ile bırakılır.
+func mixFormat(client *comObj) Format {
+	var wf *waveFormatEx
+	if client.call(acGetMixFormat, uintptr(unsafe.Pointer(&wf))).err("GetMixFormat") != nil || wf == nil {
+		return Format{}
+	}
+	defer windows.CoTaskMemFree(unsafe.Pointer(wf))
+	f := Format{Rate: int(wf.SamplesPerSec), Channels: int(wf.Channels), Bits: int(wf.BitsPerSample),
+		Float: wf.FormatTag == waveFormatFloat}
+	if wf.FormatTag == waveFormatExtensible && wf.Size >= 22 {
+		f.Float = *(*uint32)(unsafe.Add(unsafe.Pointer(wf), waveFormatExSubFormatOff)) == waveFormatFloat
+	}
+	return f
+}
+
+// deviceID IMMDevice::GetId (yalnız karşılaştırma için; kimlik loga/hataya yazılmaz).
+func deviceID(dev *comObj) (string, bool) {
+	var id *uint16
+	if dev.call(devGetID, uintptr(unsafe.Pointer(&id))).err("GetId") != nil || id == nil {
+		return "", false
+	}
+	defer windows.CoTaskMemFree(unsafe.Pointer(id))
+	return windows.UTF16PtrToString(id), true
+}
+
+// renderIsComm çalma aygıtı iletişim varsayılanıyla aynı mı (1/0; -1 bilinmiyor). Yalnız tanılama: iletişim çalma
+// aygıtı yoksa ya da kimlik okunamazsa -1.
+func renderIsComm(enum *comObj, spk *endpoint) int {
+	var comm *comObj
+	if enum.call(enumGetDefaultAudioEndpoint, eRender, roleCommunications, uintptr(unsafe.Pointer(&comm))).err("GetDefaultAudioEndpoint") != nil || comm == nil {
+		return -1
+	}
+	defer comm.release()
+	a, ok1 := deviceID(spk.dev)
+	b, ok2 := deviceID(comm)
+	if !ok1 || !ok2 {
+		return -1
+	}
+	if a == b {
+		return 1
+	}
+	return 0
 }
 
 // start akışı başlatır (mikrofon göstergesi yanar); durdurma owner'a girer.
@@ -226,9 +279,20 @@ type wasapiDevice struct {
 
 	rmu sync.Mutex
 	rq  []int16
+
+	info          DeviceInfo // açılışta (thread) yazılır, ready'den sonra salt okunur; sayaçlar aşağıda
+	rendered      atomic.Int64
+	renderDropped atomic.Int64
 }
 
-// OpenWASAPI varsayılan iletişim mikrofonunu ve hoparlörünü açıp başlatır. Hata HRError'dur (errors.Is ile
+// Info aygıt biçimi + çalma sayaçları (tanılama; Close'dan sonra da geçerli).
+func (d *wasapiDevice) Info() DeviceInfo {
+	i := d.info
+	i.Rendered, i.RenderDropped = d.rendered.Load(), d.renderDropped.Load()
+	return i
+}
+
+// OpenWASAPI varsayılan iletişim mikrofonunu ve varsayılan hoparlörü (roles.go) açıp başlatır. Hata HRError'dur (errors.Is ile
 // ErrDeviceDenied / ErrDeviceNotFound / ErrDeviceLost / ErrDevice).
 func OpenWASAPI() (Device, error) {
 	stopEv, err := windows.CreateEvent(nil, 1, 0, nil)
@@ -304,6 +368,7 @@ func (d *wasapiDevice) open(o *owner) (mic, spk *endpoint, err error) {
 	if spk, err = openEndpoint(o, enum, true); err != nil {
 		return nil, nil, err
 	}
+	d.info = DeviceInfo{Render: spk.mix, Capture: mic.mix, RenderIsComm: renderIsComm(enum, spk)}
 	if err = mic.start(o); err != nil {
 		return nil, nil, err
 	}
@@ -384,6 +449,7 @@ func (d *wasapiDevice) render(spk *endpoint) error {
 		return nil
 	}
 	n, err := spk.write(d.rq)
+	d.rendered.Add(int64(n))
 	d.rq = d.rq[:copy(d.rq, d.rq[n:])]
 	return err
 }
@@ -422,6 +488,7 @@ func (d *wasapiDevice) WriteFrame(pcm []int16) error {
 	defer d.rmu.Unlock()
 	d.rq = append(d.rq, pcm...)
 	if over := len(d.rq) - renderCap; over > 0 {
+		d.renderDropped.Add(int64(over))
 		d.rq = d.rq[:copy(d.rq, d.rq[over:])]
 	}
 	return nil

@@ -27,7 +27,55 @@ const (
 	EventOpenFail   = "acilis_hata"  // kaynak açılamadı (müşteri "Ekran görüntüsü alınamadı" gördü)
 	EventOpenFallbk = "acilis_yedek" // DXGI açılamadı, yedek yöntemle (DXGI1/GDI) paylaşılıyor
 	EventStreamFail = "yayin_hata"   // yayın sırasında kodlama/yakalama hatası
+	EventVoiceEnd   = "ses_ozet"     // P28d: sesli görüşme bitti (sayaçlar + aygıt biçimi; tid/aygıt adı yok)
 )
+
+// AudioFormat ses uç noktasının karışım biçimi (Rate 0 → bilinmiyor).
+type AudioFormat struct {
+	Rate, Channels, Bits int
+	Float                bool
+}
+
+// VoicePeer bir eşten gelen ses paketleri (eşler görülme sırasıyla numaralanır; tid yazılmaz).
+type VoicePeer struct{ Rx, Gated, Jitter int64 }
+
+// Voice P28d görüşme özeti (saha düzeltmesi 1): yalnız sayaçlar ve aygıt biçimi.
+type Voice struct {
+	Peers                          []VoicePeer
+	Decoded, FEC, PLC, DecodeErr   int64
+	Written, Audible, DroppedPeers int64
+	Device                         bool // aşağıdaki aygıt alanları geçerli
+	Render, Capture                AudioFormat
+	RenderIsComm                   int // 1/0; -1 bilinmiyor
+	Rendered, RenderDropped        int64
+}
+
+func (f AudioFormat) String() string {
+	if f.Rate == 0 {
+		return "-"
+	}
+	kind := "pcm"
+	if f.Float {
+		kind = "float"
+	}
+	return fmt.Sprintf("%d/%d/%d%s", f.Rate, f.Channels, f.Bits, kind)
+}
+
+// format görüşme özetini sabit anahtarlı satırlara yazar.
+func (v *Voice) format(b *strings.Builder) {
+	fmt.Fprintf(b, "ses_es_sayisi=%d\n", len(v.Peers))
+	for i, p := range v.Peers {
+		fmt.Fprintf(b, "ses_es=%d alinan=%d kapida_atilan=%d jitter_atilan=%d\n", i+1, p.Rx, p.Gated, p.Jitter)
+	}
+	fmt.Fprintf(b, "ses_cozulen=%d fec=%d plc=%d bozuk=%d dusen_es=%d\n", v.Decoded, v.FEC, v.PLC, v.DecodeErr, v.DroppedPeers)
+	fmt.Fprintf(b, "ses_yazilan_cerceve=%d sesli_cerceve=%d\n", v.Written, v.Audible)
+	if !v.Device {
+		b.WriteString("ses_aygit=-\n")
+		return
+	}
+	fmt.Fprintf(b, "ses_calma=%s ses_yakalama=%s calma_iletisim_ayni=%d calinan_ornek=%d calma_atilan_ornek=%d\n",
+		v.Render, v.Capture, v.RenderIsComm, v.Rendered, v.RenderDropped)
+}
 
 // Monitor EnumDisplayMonitors kaydı.
 type Monitor struct {
@@ -86,6 +134,7 @@ type Report struct {
 	Reason   string // sonuç neden kodu (başarılı yedekte boş)
 	Op       string
 	HR       uint32
+	Voice    *Voice // EventVoiceEnd: yalnız ses satırları yazılır
 }
 
 const maxField = 64
@@ -122,6 +171,10 @@ func (r Report) Format() string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "--- %s olay=%s\n", r.Time.UTC().Format(time.RFC3339), clean(r.Event))
 	fmt.Fprintf(&b, "istemci=%s windows=%s surum=%s edisyon=%s\n", clean(r.Version), clean(r.OS), clean(r.Release), clean(r.Edition))
+	if r.Voice != nil {
+		r.Voice.format(&b)
+		return b.String()
+	}
 	fmt.Fprintf(&b, "hedef=%s monitor_sayisi=%d\n", clean(r.Target), len(r.Monitors))
 	for i, m := range r.Monitors {
 		fmt.Fprintf(&b, "monitor=%d aygit=%s boyut=%dx%d birincil=%d\n", i+1, clean(m.Device), m.W, m.H, b01(m.Primary))

@@ -14325,3 +14325,31 @@ test-raporu P28d Y-1 (1280 px başlık çakışması) ve O-1 (375 px 5 px taşma
 - `e2e/p28d-voice.spec.ts`: `headerLayoutOk` (1280 ve 375 px) eklendi. Başlıktaki düğme ve bağlantı kutuları çakışmaz; her birinin ortası `elementFromPoint` ile kendisine düşer; başlık dışına taşmaz; müşteri adı ≥ 80 px; belge yatay taşmaz. micDenied, rejected ve talking durumlarında çağrılıyor. Eski düzende test düştü (`console-control × console-end`; talking'de ad 31 px), yeni düzende geçiyor.
 - Doğrulama: web lint, typecheck ve test (552) yeşil; `p28d-voice.spec.ts` 6/6; `pnpm format:check` yeşil. Tam e2e: 561 geçti, 1 düştü. Düşen `p5-collab` TEST-P5-1 (zamanlama), tek başına koşulunca 20/20 geçti; bu değişiklikle ilgisi yok.
 - Sapma: ses yuvası artık 1280 px'te de ayrı satırda. Başlık, ses görünümü varken yaklaşık 52 px daha yüksek. Tek satır hedefi ana satır için korunuyor.
+
+### Saha düzeltmesi 1 — teknisyen → müşteri sesi duyulmuyor (backend-dev Go, 2026-11-17)
+
+Belirti (staging, gerçek donanım): Mac Chrome konsol ↔ Windows istemci 0.18.0. Görüşme kuruluyor, müşteri → teknisyen sesi geliyor, teknisyen → müşteri sesi Windows'ta duyulmuyor.
+
+Kod okumasıyla elenen hipotezler (kanıt):
+
+- **H1 tid uyuşmazlığı: çürütüldü.** Sunucu `voice.state.talkers/listeners`'a tid yazıyor (`apps/server/src/signaling/voice.ts:74-81`). Go tarafında `SetPeer` (gönderim) ile `Push` (alım) aynı `s.peers` anahtarını ve aynı `named()` süzgecini kullanıyor. Müşteri → teknisyen yönü çalıştığına göre tid'ler uyuşuyor. Eski soketin `""` eşi ses almıyor ve göndermiyor; sahadaki çalışan yön bu kipin kullanılmadığını gösteriyor. Uçtan uca test eklendi: flow + gerçek `voice.Call` + sahte aygıt.
+- **H2 pion OnTrack: çürütüldü (olası değil).** `TestAC375P28dOpusBothWays`, SSRC'si teklifte bildirilen sendrecv transceiver'la koşuyor (pion `AddTransceiverFromKind(sendrecv)` sahte iz kurar, Chrome da izsiz sendrecv için `a=ssrc` yazar). İz sonradan `ReplaceTrack` ile bağlanıyor ve `Handlers.Audio`'ya ulaşıyor. Yanıt `sendrecv` dönüyor (müşteri izi bu transceiver'da gidiyor).
+- **H3 mixer: çürütüldü.** `step()` her tikte `mixAll(spk, Σtalkers)` → `WriteFrame`. `TestAC378P28dRealCodecCallRoundTrip` hoparlör enerjisini doğruluyor.
+- **Web: hata bulunmadı.** `micLive` (talkers ∋ ben) → `setVoiceTrack` → `replaceTrack(mic)`. Teklif yönü sahip/katılımcıda `sendrecv`.
+- **H4 WASAPI çalma: Windows dışında kanıtlanamaz.** Vtable dizinleri (Initialize 3, GetBufferSize 4, GetCurrentPadding 6, GetMixFormat 8, Start 10, GetService 14; render GetBuffer 3 / ReleaseBuffer 4), mono s16 + AUTOCONVERTPCM ve padding hesabı doğru görünüyor.
+- **H5 kök neden (olası, kanıtlanmadı):** çalma `GetDefaultAudioEndpoint(eRender, eCommunications)` ile açılıyordu. Birçok PC'de varsayılan iletişim çalma aygıtı kullanıcının dinlediği hoparlör değil: kulaklık, HDMI monitör, USB kamera ya da takılı olmayan ön panel jakı olabiliyor. Sonuçta ses başka bir uç noktaya çalıyor. Yakalama aynı rolle çalıştığı için müşteri → teknisyen yönü sağlam kalıyor; bu, tek yönlü belirtiyle uyumlu.
+
+Düzeltme: çalma artık `eConsole` (varsayılan aygıt; sistem sesleri ve diğer uygulamalar burada çalar), yakalama `eCommunications`'ta kalıyor (`internal/voice/roles.go`). Tanılama eklendi: görüşme kapanınca `tanilama.log`'a `olay=ses_ozet` kaydı yazılıyor. İçeriği: eş başına alınan, kapıda atılan ve jitter'ın attığı paket; çözülen, FEC, PLC ve bozuk paket sayısı; yazılan ve sesli çerçeve; çalma/yakalama karışım biçimi; `calma_iletisim_ayni` (eConsole = eCommunications mi); gerçekten çalınan ve kuyrukta atılan örnek sayısı. Kayıtta tid, ad ya da aygıt adı/kimliği yok. diag yalnız kalıcı kipte yazar (AC-108). Sahada tekrar olursa bu satır H1–H5'i ayırır. `kapida_atilan>0` ise talker kapısı sorunludur. `sesli_cerceve>0` ve `calinan_ornek>0` iken ses duyulmuyorsa sorun aygıt seçimindedir. `alinan=0` ise ses ağdan gelmiyordur (web/pion).
+
+Değişen dosyalar: `apps/agent-win/internal/voice/{roles.go (yeni), stats.go (yeni), voice.go, wasapi_windows.go}`, `internal/diag/diag.go` (`EventVoiceEnd`, `Voice`), `cmd/noktadestek/deps.go` (`diagCall` sarmalayıcısı, Close'da özet yazar), `.github/workflows/agent-win.yml` (PASS listesi). Yeni bağımlılık yok. Web tarafında değişiklik yok.
+
+WASAPI tarafında eklenenler: `GetMixFormat` (IAudioClient 8; EXTENSIBLE SubFormat'tan float tespiti; `CoTaskMemFree`) ve `IMMDevice::GetId` (5). GetId yalnız eConsole ile eCommunications karşılaştırması için okunuyor; kimlik hiçbir yere yazılmıyor. Bunlara ek olarak çalınan ve atılan örnek sayaçları var.
+
+Testler (yeni):
+
+- `TestP28dVoiceRenderOnDefaultDevice`: çalma eConsole, yakalama eCommunications.
+- `TestP28dVoiceStatsCountPerPeerAndPlayback`
+- `TestP28dVoiceSummaryOnlyCountersAndFormats`: diag; izinli anahtarlar, PII yok.
+- `TestP28dVoiceTechToCustomerPlaysEndToEnd`: flow + gerçek libopus motoru. Teknisyen eşinin `Handlers.Audio`'sundan gelen Opus, sahte aygıtın çalma çıkışında sessiz olmayan örnek olarak çıkıyor.
+
+Kalan risk: kök neden donanımda doğrulanmadı. 0.18.1 sahada denenmeli; ses yine gelmezse `tanilama.log` istenmeli (yalnız kalıcı kipte yazılır).

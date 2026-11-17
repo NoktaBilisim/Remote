@@ -4,6 +4,7 @@ package main
 
 import (
 	"context"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -201,7 +202,7 @@ func (a *app) flowDeps(client *api.Client, u *ui.UI, opener capture.Opener, appl
 	// yardımcıya (unattended/helper) bağlanmaz — sınır testi internal/voice'u yasaklar. Features'tan ÖNCE atanmalı.
 	if voice.Supported() {
 		d.VoiceUI = u
-		d.OpenVoice = openVoice
+		d.OpenVoice = a.openVoice
 	}
 	// P28a (mimari-p28 §4.2): yalnız bağlı özellikler (Clipboard/Printer + ClipPrintUI, K4/K5) bildirilir; P28b: + fsrv.
 	features := flow.Features(d)
@@ -213,12 +214,48 @@ func (a *app) flowDeps(client *api.Client, u *ui.UI, opener capture.Opener, appl
 
 // openVoice P28d: yalnız yerel "Kabul et"ten sonra akışın goroutine'inde çağrılır (K-PD-2): Opus çalışma zamanı +
 // WASAPI yakalama/çalma (eCommunications) + 20 ms döngü. Hata (aygıt yok/izin kapalı) açıkça nil arayüzle döner.
-func openVoice(onFail func(error)) (flow.VoiceCall, error) {
+// Saha düzeltmesi 1: görüşme kapanınca tanılama özeti (olay=ses_ozet; yalnız sayaç/biçim) yazılır.
+func (a *app) openVoice(onFail func(error)) (flow.VoiceCall, error) {
 	c, err := voice.New(voice.OpenWASAPI, onFail)
 	if err != nil {
 		return nil, err
 	}
-	return c, nil
+	return &diagCall{Call: c, log: a.diagLog, version: a.cfg.Version}, nil
+}
+
+// diagCall Close'da görüşme özetini tanılama loguna yazar (akış döngüsünü bekletmemek için goroutine'de).
+type diagCall struct {
+	*voice.Call
+	log     *diag.Log
+	version string
+	once    sync.Once
+}
+
+func (c *diagCall) Close() error {
+	err := c.Call.Close()
+	c.once.Do(func() {
+		if c.log == nil {
+			return
+		}
+		r := diag.Report{Time: time.Now(), Event: diag.EventVoiceEnd, Version: c.version, Voice: voiceSummary(c.Call.Stats())}
+		go func() { _ = c.log.Write(r) }()
+	})
+	return err
+}
+
+// voiceSummary motor sayaçlarını tanılama biçimine çevirir (tid/aygıt adı yok).
+func voiceSummary(s voice.Stats) *diag.Voice {
+	v := &diag.Voice{Decoded: s.Decoded, FEC: s.FEC, PLC: s.PLC, DecodeErr: s.DecodeErr, Written: s.Written,
+		Audible: s.Audible, DroppedPeers: s.DroppedPeers}
+	for _, p := range s.Peers {
+		v.Peers = append(v.Peers, diag.VoicePeer{Rx: p.Rx, Gated: p.Gated, Jitter: p.Jitter})
+	}
+	if d := s.Device; d != nil {
+		v.Device, v.RenderIsComm, v.Rendered, v.RenderDropped = true, d.RenderIsComm, d.Rendered, d.RenderDropped
+		v.Render = diag.AudioFormat{Rate: d.Render.Rate, Channels: d.Render.Channels, Bits: d.Render.Bits, Float: d.Render.Float}
+		v.Capture = diag.AudioFormat{Rate: d.Capture.Rate, Channels: d.Capture.Channels, Bits: d.Capture.Bits, Float: d.Capture.Float}
+	}
+	return v
 }
 
 // clipboard P28a pano iş parçacığı süreç ömründe bir kez kurulur (kapsam başına iş parçacığı açılmaz); kurulamazsa nil

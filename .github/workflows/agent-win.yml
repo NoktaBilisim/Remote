@@ -548,6 +548,8 @@ jobs:
                    TestP28dNoticesContainLibopusCopying TestP28dReleaseWithinOneSecond TestP28dRunEventsInMultiMode \
                    TestP28dSendonlyOfferNoGuestAudio TestP28dSessionWindowWithVoiceRowFits768 TestP28dSilentOfferNoAudioLine \
                    TestP28dSupportedMatchesWazeroCompilerCriterion TestP28dTrayLicensesOutsideScopeNoNetwork \
+                   TestP28dVoiceRenderOnDefaultDevice TestP28dVoiceStatsCountPerPeerAndPlayback \
+                   TestP28dVoiceSummaryOnlyCountersAndFormats TestP28dVoiceTechToCustomerPlaysEndToEnd \
                    TestP28dTrayVoiceEndAndLicensesInScope TestP28dTrayVoiceTipAndMenu TestP28dVoiceAskBody TestP28dVoiceRowTexts \
                    TestP28dDoneTimeoutEventsInMultiMode TestAC374P28dReleaseMicWhenActiveNeverArrives \
                    TestAC374P28dActiveInTimeKeepsMic TestAC374P28dActiveWaitDuringOpenClosesStaleOpen \

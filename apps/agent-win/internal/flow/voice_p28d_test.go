@@ -112,6 +112,7 @@ type fakeOpener struct {
 	err     error
 	onFail  func(error)
 	started chan struct{}
+	real    func(onFail func(error)) (VoiceCall, error) // doluysa sahte çağrı yerine bu motor açılır (uçtan uca test)
 }
 
 func (o *fakeOpener) open(onFail func(error)) (VoiceCall, error) {
@@ -126,6 +127,9 @@ func (o *fakeOpener) open(onFail func(error)) (VoiceCall, error) {
 	}
 	if err != nil {
 		return nil, err
+	}
+	if o.real != nil {
+		return o.real(onFail)
 	}
 	c := &fakeCall{peers: map[string]bool{}}
 	o.mu.Lock()
