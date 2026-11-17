@@ -5,6 +5,43 @@ Biçim [Keep a Changelog](https://keepachangelog.com/tr/1.1.0/), sürümleme [Se
 
 ## [Unreleased]
 
+### Eklendi — P28d sesli görüşme, istemci 0.18.0 (AC-373..379)
+
+- **Sesli görüşme:** teknisyen konsolda **Sesli görüşme** ister (önce kendi mikrofon izni); müşteri 60 sn içinde **Kabul et**
+  / **Reddet** der. Diyalogda düğmeler 1,5 sn kilitli, odak **Reddet**'te; kulaklık önerisi ve dinleyecek kişilerin adları
+  yazar. Mikrofon yalnız müşterinin yerel kabul tıklamasıyla açılır; kabulden sonra 5 sn içinde görüşme başlamazsa mikrofon
+  kapatılır ("Sesli görüşme başlatılamadı; mikrofonunuz kapatıldı. Teknisyen yeniden isteyebilir.").
+- **Görüşme sırasında:** **Sessize al** / **Mikrofonu aç**, **Görüşmeyi bitir** (herkes için). Müşteri çubuğunda "Konuşan" ve
+  "Dinleyen" adları; yeni dinleyici duyurulur. Konsol kalite panelinde ses kaybı satırı. Tarayıcı sesi otomatik
+  başlatmazsa **Sesi aç**.
+- **Çoklu teknisyen:** sahip ve katılımcı **Görüşmeye katıl** ile konuşur; `sessions.voice` yetkili izleyici yalnız dinler.
+  Müşteride her teknisyene diğer konuşanlarla karışık ses gider (mix-minus).
+- **Hızlı Destek 0.18.0 (Windows):** aynı akış (`rs.cap.voice1`); oturum penceresinde ses satırı, mikrofon açıkken her
+  monitörde tıklanmaz gösterge şeridi, tepsi ipucu "Mikrofon açık"/"Sessizde", tepsi menüsünde **Görüşmeyi bitir** ve
+  **Lisanslar**. **Kabul et** ve **Mikrofonu aç** yalnız gerçek yerel girdiyle çalışır.
+- **Sınırlar:** ret, zaman aşımı, müşteri bitirmesi ya da aygıt hatasından sonra 30 sn bekleme; oturumda en çok 10 istek.
+  Gözetimsiz oturumda ses yoktur. Ses kaydedilmez (oturum kaydına da girmez).
+- Yeni yetki `sessions.voice` ("Sesli görüşme"; Admin açık, User kapalı). WS `voice.request`, `voice.join`, `voice.end`,
+  `voice.answer`, `voice.state`; `hello` / `peer.joined` ek alanı `guestVoice` (`docs/api.md` "Sesli görüşme (P28d)").
+- Audit `voice.request`, `voice.accept`, `voice.reject{reason}`, `voice.join`, `voice.end{durationSec, reason, talkerIds,
+listenerIds}`; süzgeçte "Sesli görüşme" grubu. Metrikler `rs_voice_calls_total`, `rs_voice_denied_total`, `rs_voice_active`
+  (runbook §28d).
+- Migration, yeni tablo ve yeni env yok. Karar ADR-0036.
+
+### Değişti — P28d
+
+- Web sayfalarında `Permissions-Policy` `microphone=(self)` oldu; herkese açık talep formu (`/r/*`) `microphone=()` kalır.
+  API/WS yanıtları değişmedi.
+- Windows istemciye yeni bağımlılıklar: **libopus 1.6.1** (BSD-3, WebAssembly olarak gömülü) ve **wazero v1.12.0**
+  (Apache-2.0). Kök `NOTICE` dosyası ve istemcinin üçüncü taraf bildirimleri (23 Go modülü + Go standart kitaplığı) eklendi.
+
+### Güvenlik — P28d
+
+- Windows'ta Opus kodlayıcı/çözücü wazero sandbox'ında koşar (içe aktarım 0, örnek başına 16 MiB bellek, çağrı süre sınırı);
+  bozuk paket önce konuşan kapısından ve boyut/hız sınırından geçer, tuzak süreci düşürmez.
+- Gözetimsiz bağlantılarda ses modülü hiç kurulmaz; sunucu da gözetimsiz odada isteği reddeder.
+- Misafir WS koparsa mikrofon 1 sn içinde bırakılır; karışık ses yalnız yetkili dinleyicilere gider.
+
 ### Eklendi — P28c çoklu teknisyen, istemci/yardımcı 0.17.0 (AC-364..372)
 
 - **Davet:** oturum sahibi konsoldaki **Teknisyenler** panelinden **Davet et** ile aynı firmadan bir kullanıcıyı çağırır.

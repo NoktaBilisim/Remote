@@ -8,11 +8,14 @@
  *  - Sohbet yayma (§4.5): teknisyen mesajı (izleyici değilse) gösterilir ve diğer eşlere `by = gönderenin tid'i` ile iletilir;
  *    teknisyenden gelen `by`'lı mesaj düşer (yalnız misafir damgalar). Dosya/işaretleme yalnız kontrol sahibinin eşinden (`main`).
  * Roster hiç gelmediyse (eski sunucu) tek eş, `from`'suz eski yol (anahtar `LEGACY`).
+ * P28d (mimari-p28d §4.3): `VoicePeers` yüzü — eş başına uzak ses izi (`remoteAudio`) ve ses gönderici izi (`setAudioOut`;
+ * karışım yalnız listeners'a, diğerleri null). Eş yanıtlanınca / kapanınca `onPeers` (GuestVoice grafı yeniden uygular).
  */
 import type { GuestInboundFull, IceServer } from "@remote/contracts/ws";
 import type { RosterRole, TechRosterEntry } from "@remote/contracts/ws-multi";
 import { parseCtl } from "../dc/ctl";
 import { inboundLimiter } from "../dc/rate";
+import type { VoicePeers } from "../voice/guest";
 import { PeerLink, type Channels } from "./peer";
 
 export const LEGACY = "";
@@ -65,9 +68,13 @@ interface Opts {
   /** Ana eş kanalları / açık kanal kümesi değişti (React durumunu yeniler). */
   onChange: () => void;
   onChat: (m: GuestChatIn) => void;
+  /** P28d: eş kümesi / uzak ses izi değişti (yanıt verildi ya da eş kapandı). */
+  onPeers?: () => void;
+  /** P28d: bir eşin ses göndericisine iz bağlanamadı (GuestVoice tek hata yoluna bağlar). */
+  onAudioError?: () => void;
 }
 
-export class GuestPeers {
+export class GuestPeers implements VoicePeers {
   private peers = new Map<string, Entry>();
   private roster: TechRosterEntry[] | null = null;
   private drawn = new Set<string>();
@@ -130,7 +137,10 @@ export class GuestPeers {
     const link = e.link;
     void link
       .answer(sdp, this.track)
-      .then(() => link.setSendCaps(this.multi && this.roleOf(tid) !== "controller"))
+      .then(() => {
+        if (this.peers.get(tid)?.link === link) this.o.onPeers?.();
+        return link.setSendCaps(this.multi && this.roleOf(tid) !== "controller");
+      })
       .catch(() => this.close(tid));
   }
 
@@ -139,6 +149,9 @@ export class GuestPeers {
       this.o.send((tid === LEGACY ? m : { ...m, to: tid }) as GuestInboundFull);
     const link = new PeerLink(this.o.ice(), send);
     const e: Entry = { link, channels: null };
+    link.onAudioError = () => {
+      if (this.peers.get(tid) === e) this.o.onAudioError?.();
+    };
     link.onChannels = (c) => {
       if (this.peers.get(tid) !== e) return;
       e.channels = c;
@@ -196,6 +209,17 @@ export class GuestPeers {
     for (const e of this.peers.values()) e.link.setIceServers(s);
   }
 
+  // --- P28d VoicePeers ---
+  tids(): string[] {
+    return [...this.peers.keys()];
+  }
+  remoteAudio(tid: string): MediaStreamTrack | null {
+    return this.peers.get(tid)?.link.audioReceiverTrack() ?? null;
+  }
+  setAudioOut(tid: string, track: MediaStreamTrack | null): void {
+    void this.peers.get(tid)?.link.setAudioTrack(track);
+  }
+
   close(tid: string): void {
     const e = this.peers.get(tid);
     if (!e) return;
@@ -203,6 +227,7 @@ export class GuestPeers {
     e.link.close();
     this.peers.delete(tid);
     this.o.onChange();
+    this.o.onPeers?.();
   }
 
   /** Yeni WS bağlantısı (hello) / oturum sonu: tüm eşler kapanır; roster bir sonraki `techs.roster` ile yeniden kurulur. */

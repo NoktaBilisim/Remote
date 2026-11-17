@@ -3924,6 +3924,122 @@ sahibinin eşinden kabul edilir.
 İzinsiz odada katılım ve devir `unattended.silent.notify` (`event: join | transfer`) yazar. Metrikler
 `rs_multi_invites_total{result}`, `rs_multi_members{role}`, `rs_multi_denied_total{type}`; alarm runbook §28c.6.
 
+## Sesli görüşme (P28d)
+
+Etkin oturumda teknisyen ile müşteri arasında iki yönlü ses (AC-373..379; mimari `docs/mimari-p28d.md` §4, §6, §7; ADR-0036).
+**REST uç noktası eklenmedi**; yalnız WebSocket sinyal mesajları vardır. Ses (Opus) WebRTC üzerinden DTLS-SRTP ile eşler
+arası akar; sunucu sesi taşımaz, çözmez, kaydetmez. Sözleşme `packages/contracts/src/ws-voice.ts` (Go eşi
+`apps/agent-win/internal/signal/voice.go`), ortak örnekler `packages/contracts/fixtures/voice.json`. Şemalar katıdır
+(`z.strictObject`): bilinmeyen alan reddedilir.
+
+### Yetki ve yetenek
+
+- Yetki `sessions.voice` (Oturumlar grubu, "Sesli görüşme"): başlatma, katılma ve dinleme. Admin açık, User kapalı başlar.
+- Rol kapısı: `voice.request` ve `voice.join` yalnız oturum sahibi ve katılımcıda; izleyiciden gelirse `FORBIDDEN`.
+- Go misafir `/ws/guest` alt protokolüne `rs.cap.voice1` ekler (istemci 0.18.0). Tarayıcı misafir her zaman destekli sayılır.
+  `voice.*` mesajları yalnız destekli misafire gider; eski Go istemciye hiçbir `voice.*` gönderilmez.
+- Gözetimsiz odada ses yoktur: servis/yardımcı `rs.cap.voice1` bildirmez, sunucu da `voice.request`'i reddeder.
+- Teknisyene giden `hello` ve `peer.joined{role:"guest"}` iletilerine `guestVoice: boolean` eklenir (kabul edilmiş misafir
+  sesi destekliyor mu). Alan yoksa kabul edilmiş misafir yoktur; `false` → konsolda düğme pasif. Misafire giden `hello`'da yoktur.
+
+### Sabitler
+
+| Ad                           | Değer                 | Anlamı                                                                        |
+| ---------------------------- | --------------------- | ----------------------------------------------------------------------------- |
+| `VOICE_REQUEST_TIMEOUT_MS`   | 60000                 | Müşterinin yanıt süresi; dolarsa ret (`timeout`)                              |
+| `VOICE_DENY_COOLDOWN_MS`     | 30000                 | Ret, zaman aşımı ve `customer`/`device` bitişinden sonra yeni istek beklemesi |
+| `VOICE_REQUESTS_PER_SESSION` | 10                    | Oturum başına en çok `voice.request`                                          |
+| `VOICE_MAX_OPUS_BYTES`       | 1275                  | Tek Opus paketi üst sınırı (Go çözücü önünde boyut kapısı)                    |
+| `VOICE_MAX_PKT_PER_SEC`      | 100                   | Teknisyen başına saniyede en çok Opus paketi (Go)                             |
+| `CALL_ID_PATTERN`            | `^[A-Za-z0-9_-]{22}$` | Görüşme kimliği; sunucu üretir (16 rastgele bayt, base64url)                  |
+
+### Teknisyen → sunucu (`/ws/tech`)
+
+| Mesaj           | Alanlar         | Açıklama                                                                                            |
+| --------------- | --------------- | --------------------------------------------------------------------------------------------------- |
+| `voice.request` | `id?`           | Görüşme ister. `callId` sunucu üretir. Konsol önce mikrofon izni alır; izin yoksa mesaj gönderilmez |
+| `voice.join`    | `id?`, `callId` | Etkin görüşmeye konuşan olarak katılır; zaten konuşansa etkisiz                                     |
+| `voice.end`     | `id?`, `callId` | Görüşmeyi herkes için bitirir; gönderen konuşanlar içinde olmalı. Neden sunucuda `tech`             |
+
+`id` en çok 26 karakter, isteğe bağlıdır.
+
+### Misafir → sunucu (yalnız destekli misafir soketi)
+
+| Mesaj          | Alanlar                                           | Açıklama                                                                                                           |
+| -------------- | ------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------ |
+| `voice.answer` | `id?`, `callId`, `accept: boolean`                | Yerel Kabul/Reddet tıklaması. Yalnız `pending` ve eşleşen `callId` iken işlenir                                    |
+| `voice.end`    | `id?`, `callId`, `reason: "customer" \| "device"` | Yalnız `active` iken. `customer` = müşteri bitirdi; `device` = mikrofon açılamadı. İkisi de 30 sn bekleme başlatır |
+
+Eşleşmeyen `callId` ya da faza uymayan misafir mesajı yanıtsız düşer (metrik `code="stale_call"`).
+
+### Sunucu → istemci
+
+| Mesaj           | Alıcı                               | Alanlar                                                                                                        |
+| --------------- | ----------------------------------- | -------------------------------------------------------------------------------------------------------------- |
+| `voice.request` | destekli misafir                    | `callId`, `by` (isteyen teknisyenin tid'i). Diyalog açar, **mikrofon açmaz**                                   |
+| `voice.state`   | tüm teknisyenler + destekli misafir | `phase: "idle" \| "pending" \| "active"`, `callId?`, `by?`, `talkers: tid[]`, `listeners: tid[]`, `endReason?` |
+
+`voice.state` kuralları (TS şeması ve Go `validVoiceState` aynı):
+
+- `pending` ve `active`'de `callId` zorunlu. `idle`'da `callId` yalnız `endReason` ile birlikte gelir (biten görüşmenin kimliği).
+- `endReason` yalnız `idle`'da: `tech`, `customer`, `timeout`, `left`, `device`, `disconnect`, `session_ended`.
+- `talkers ⊆ listeners`; iki liste de benzersiz tid, en çok `MAX_TECHS` öğe.
+- Mikrofonu yalnız yerel "Kabul et" tıklaması açar; `voice.request` ve `voice.state` mikrofonu açamaz, yalnız kapatabilir.
+  Kabulden sonra 5 sn içinde `active` gelmezse misafir mikrofonu yerelde bırakır.
+
+### Kapılar ve hatalar (`{t:"error", code, message}`)
+
+| Durum                                                             | `code`               | `message`                                                                             | Metrik `code`        |
+| ----------------------------------------------------------------- | -------------------- | ------------------------------------------------------------------------------------- | -------------------- |
+| `sessions.voice` yok (`request` / `join`)                         | `FORBIDDEN`          | "Sesli görüşme yetkiniz yok."                                                         | `permission`         |
+| `voice.end` gönderen konuşan değil                                | `FORBIDDEN`          | "Görüşmede konuşan değilsiniz."                                                       | `not_talker`         |
+| Gözetimsiz oda                                                    | `CLIENT_UNSUPPORTED` | "Gözetimsiz oturumda sesli görüşme yapılamaz."                                        | `unattended`         |
+| Kabul edilmiş misafir yok                                         | `CONFLICT`           | "Müşteri bağlı değil."                                                                | `no_guest`           |
+| Misafir sesi desteklemiyor (eski Go istemci)                      | `CLIENT_UNSUPPORTED` | "Müşterinin uygulaması bu özelliği desteklemiyor — güncel sürümü indirmesini isteyin" | `client_unsupported` |
+| Süren görüşme var (`request`) / görüşme başlamadı (`join`, `end`) | `CONFLICT`           | "Sürmekte olan bir sesli görüşme var." / "Görüşme henüz başlamadı."                   | `conflict`           |
+| 30 sn bekleme sürüyor                                             | `RATE_LIMITED`       | "Sesli görüşme için 30 sn sonra tekrar deneyebilirsiniz."                             | `cooldown`           |
+| Oturumda 10 istek doldu                                           | `RATE_LIMITED`       | "Bu oturumda sesli görüşme isteği sınırına ulaşıldı."                                 | `limit`              |
+
+### Örnekler (`fixtures/voice.json`)
+
+```json
+{ "t": "voice.request" }
+{ "t": "voice.request", "callId": "AbCdEfGhIjKlMnOpQrSt_-", "by": "AAAAAAAAAAA" }
+{ "t": "voice.answer", "callId": "AbCdEfGhIjKlMnOpQrSt_-", "accept": true }
+{ "t": "voice.state", "phase": "active", "callId": "AbCdEfGhIjKlMnOpQrSt_-", "by": "AAAAAAAAAAA",
+  "talkers": ["AAAAAAAAAAA", "BBBBBBBBBBB"], "listeners": ["AAAAAAAAAAA", "BBBBBBBBBBB", "Ccccccccc-_"] }
+{ "t": "voice.end", "callId": "AbCdEfGhIjKlMnOpQrSt_-", "reason": "device" }
+{ "t": "voice.state", "phase": "idle", "callId": "AbCdEfGhIjKlMnOpQrSt_-", "by": "AAAAAAAAAAA",
+  "talkers": [], "listeners": [], "endReason": "tech" }
+{ "t": "peer.joined", "role": "guest", "guestKind": "BROWSER", "guestVoice": false }
+```
+
+### Permissions-Policy
+
+- Web sayfalarının başlığını `apps/web/proxy.ts` (`permissionsPolicyFor`) üretir:
+  `camera=(), microphone=(self), geolocation=(), display-capture=(self)`. Yalnız `/r` ve alt yolları (herkese açık talep
+  formu) `microphone=()` alır. Politika belge yüklenirken sabitlendiği ve konsola yumuşak geçildiği için `(self)` tüm
+  sayfalardadır.
+- Fastify'ın `/api` ve `/ws` yanıtlarında `microphone=()` değişmedi.
+- Girişsiz/herkese açık yeni bir sayfa eklenirse `permissionsPolicyFor` içindeki `()` listesine ve birim testine eklenir.
+
+### Audit ve metrik
+
+| Action          | Aktör                                | `new_value`                                                         | result  |
+| --------------- | ------------------------------------ | ------------------------------------------------------------------- | ------- |
+| `voice.request` | isteyen teknisyen                    | `{}`                                                                | success |
+| `voice.accept`  | müşteri                              | `{}`                                                                | success |
+| `voice.reject`  | müşteri / sistem                     | `{reason: "customer" \| "timeout" \| "disconnect"}`                 | fail    |
+| `voice.join`    | katılan teknisyen                    | `{}`                                                                | success |
+| `voice.end`     | bitiren teknisyen / müşteri / sistem | `{durationSec, reason, talkerIds: userId[], listenerIds: userId[]}` | success |
+
+- `talkerIds` / `listenerIds` görüşme boyunca konuşan ve dinleyenlerin birleşimidir ("görüşmeyi kim dinledi"). Oturum geçmişi
+  zaman çizelgesinde yalnız `reason` ve `durationSec` görünür; kullanıcı kimlikleri yalnız audit'te kalır.
+- Kapıdan dönen ret audit'e yazılmaz, yalnız metrik tutulur. Ses içeriği ve aygıt adı hiçbir yere yazılmaz.
+- Audit süzgecinde grup "Sesli görüşme".
+- Metrikler: `rs_voice_calls_total{result="accepted|rejected|timeout"}`, `rs_voice_denied_total{code}` (kodlar yukarıdaki
+  tablo + `stale_call`), gauge `rs_voice_active` (etkin görüşmesi olan oda sayısı). Operasyon: runbook §28d.
+
 ## Saklama ve anonimleştirme (P13a)
 
 Yeni uç yoktur. Kaynak: `docs/mimari-p13.md` §2–§3, `apps/server/src/jobs/retention.ts`.

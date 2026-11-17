@@ -40,7 +40,8 @@ import {
 import { handleFsrv } from "./fsrv.ts";
 import { handleRecConsent, handleRecError, handleRecRevoke } from "./rec.ts";
 import type { Rooms } from "./rooms.ts";
-import { hasFsrv } from "./rooms-features.ts";
+import { hasFsrv, hasVoice } from "./rooms-features.ts";
+import { handleGuestVoice, handleTechVoice } from "./voice.ts";
 import type { Clock, Guest, Peer, Room, TechConn } from "./types.ts";
 
 export class TokenBucket {
@@ -117,7 +118,8 @@ export async function onTechMessage(
   const m = parseFrame(rooms, peer, bucket, techInboundSchema, data, isBinary);
   if (!m) return;
   // P28c (§4.4, D-PC-6): rol kapısı her teknisyen mesajından önce, varsayılan-ret.
-  if (!seatMay(m.t, { owner: seat.owner, controller: controllerOf(room) === tech })) return roleDenied(rooms, room, tech, m.t);
+  const observer = seat.member?.role === "observer";
+  if (!seatMay(m.t, { owner: seat.owner, controller: controllerOf(room) === tech, observer })) return roleDenied(rooms, room, tech, m.t);
   if ((m.t === "guest.admit" || m.t === "guest.reject") && room.requestId && !room.acceptCode) {
     // P8b §5.2 adım 5: talep oturumunda lobi yok.
     tech.peer.send({ t: "error", code: "CONFLICT", message: "Talep oturumunda lobi yok; müşteri onayıyla otomatik bağlanır." });
@@ -130,7 +132,12 @@ export async function onTechMessage(
 
 /** Rol kapısı reddi: `error{FORBIDDEN}` + `rs_multi_denied_total{type}`; log oda başına dakikada 1. */
 function roleDenied(rooms: Rooms, room: Room, tech: TechConn, type: string): void {
-  tech.peer.send({ t: "error", code: "FORBIDDEN", message: "Yalnız kontrol sahibi kullanabilir." });
+  const voice = type.startsWith("voice."); // P28d AC-378: izleyici konuşamaz
+  tech.peer.send({
+    t: "error",
+    code: "FORBIDDEN",
+    message: voice ? "İzleyici sesli görüşmede konuşamaz." : "Yalnız kontrol sahibi kullanabilir.",
+  });
   rooms.metrics.inc("rs_multi_denied_total", { type });
   if (logOnce(room, "denied", rooms.clock.now()))
     rooms.log.info({ event: "multi_role_denied", type, sessionId: room.sessionId }, "rol kapısı mesajı reddetti");
@@ -147,6 +154,11 @@ async function multiAction(rooms: Rooms, room: Room, seat: Seat, m: TechMsg): Pr
       return true;
     case "member.leave":
       handleMemberLeave(rooms, room, seat);
+      return true;
+    case "voice.request":
+    case "voice.join":
+    case "voice.end":
+      handleTechVoice(rooms, room, seat.conn, m); // P28d §4.2
       return true;
     default:
       return false;
@@ -237,6 +249,7 @@ export async function onGuestMessage(
     room.fileMode === "SERVER" && hasFsrv(room, peer),
     peer.rec === true && !room.unattended,
     peer.multi === true, // P28c §4.4: `to`'lu sdp.answer/ice + tech.remove yalnız multi1 sokette
+    hasVoice(room, peer), // P28d §4.1: `voice.*` yalnız ses destekli sokette (aksi 1008)
   );
   const m = parseFrame(rooms, peer, bucket, schema, data, isBinary, (json) => {
     // P20 (protokol §6.1): zarfı geçerli `binding.request`te previousKey + previousKeys → error VALIDATION, soket açık.
@@ -308,6 +321,10 @@ async function guestAction(rooms: Rooms, room: Room, guest: Guest, peer: Peer, m
       return;
     case "rec.revoke":
       await handleRecRevoke(rooms, room, guest);
+      return;
+    case "voice.answer":
+    case "voice.end":
+      handleGuestVoice(rooms, room, guest, m); // P28d §4.2
       return;
   }
 }

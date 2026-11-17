@@ -13318,3 +13318,1010 @@ o API tek dosya/ağırlık listesi alır, alt küme başına `unicode-range` ver
 
 **Kontrast:** hesap (WCAG) — tüm metin token'ları canvas/surface/surface-muted üstünde ≥ 4.5 (açık warning/success yalnız surface-muted
 üstünde 4.46; kodda bu eşleşme yok, DESIGN.md'de kural olarak yazıldı); rozetler kendi zemininde ≥ 4.5; anahtar rayları ≥ 3:1.
+
+## P28d — sesli görüşme
+
+### K0 sözleşme
+
+#### Değişen dosyalar
+
+- `packages/contracts/src/ws-voice.ts` (yeni, yaprak; yalnız zod + `ws-multi` `techIdSchema`/`MAX_TECHS`): `WS_CAP_VOICE`,
+  sabitler (`VOICE_REQUEST_TIMEOUT_MS`, `VOICE_DENY_COOLDOWN_MS`, `VOICE_REQUESTS_PER_SESSION`, `VOICE_MAX_OPUS_BYTES`,
+  `VOICE_MAX_PKT_PER_SEC`, `CALL_ID_PATTERN`/`callIdSchema`), `VOICE_PHASES`, `VOICE_END_REASONS`, `VOICE_GUEST_END_REASONS`,
+  şemalar: tech→S `voiceRequestTechSchema {t,id?}`, `voiceJoinSchema`/`voiceEndTechSchema {t,id?,callId}`; guest→S
+  `voiceAnswerSchema {callId, accept}`, `voiceEndGuestSchema {callId, reason: customer|device}`; S→ `voiceRequestGuestSchema
+{callId, by}`, `voiceStateSchema`; `helloVoiceFields` (`guestVoice`).
+- `voice.state` değişmezleri (TS refine = Go `validVoiceState`): pending/active → `callId` zorunlu; idle → `callId` yalnız
+  `endReason` ile; `endReason` yalnız idle; `talkers`/`listeners` 0..3, tid benzersiz, `talkers ⊆ listeners`; null dizi geçersiz.
+  Bilerek eklenmeyen kurallar: pending'de `by` zorunluluğu, active'de talkers ≥ 1, idle'da boş listeler (K1 doğal olarak üretir).
+- `ws.ts`: tech birliğine `techVoiceInbound`; `guestInboundSchemaFor(features, fsrv, rec, multi, voice=false)` (bit 32);
+  `GuestInboundFull` + voice tipleri; `hello` ve `peer.joined` `guestVoice?`; `serverOutboundSchema` + `voice.request`/`voice.state`;
+  `WS_ERROR_CODES` + `CLIENT_UNSUPPORTED` (mevcut REST kodu WS zarfına eklendi — yeni kod değil; metin `MULTI_ERROR_MESSAGES.CLIENT_UNSUPPORTED`).
+- `ws-multi.ts`: yeni koltuk `talker` (sahip ya da izleyici olmayan); `ROLE_MAY` `voice.request|join|end: "talker"`;
+  `TechSeatOf.observer: boolean` ZORUNLU (eksikse `talker` kapalı, varsayılan-ret).
+- `permissions.ts`: `sessions.voice` + açıklama (§7 metni aynen). Web `tr.json` `perm.a.voice` = "Sesli görüşme", `users.test.ts`.
+- `audit.ts`: `VOICE_AUDIT` (5 eylem), `VOICE_REJECT_REASONS` (+ tip), `VOICE_AUDIT_LABELS`, `VOICE_AUDIT_GROUP_LABELS {voice}`,
+  `VOICE_REJECT_REASON_LABELS`, `VOICE_END_REASON_LABELS` (`import type` ws-voice; döngü yok).
+- `package.json` `./ws-voice` export; `pt-surface` snapshot `-u` (yalnız voice eklemeleri, gözden geçirildi).
+- `fixtures/voice.json` + `test/voice-p28d.test.ts` (AC-373..379); `test/multi-p28c.test.ts` seat'lere `observer`, katılımcıda voice.* beklentisi.
+- `apps/server/src/signaling/handlers.ts`: tek satır — `seatMay`'e `observer: seat.member?.role === "observer"` (tip zorunlu kıldı).
+- Go `internal/signal/voice.go` (yeni): `FeatureVoice`, sabitler, `ValidCallID`, `VoiceRequest`/`VoiceState` (ParseServer),
+  `VoiceAnswer`/`VoiceEnd` (Outbound, `validate`), `VoiceEndCustomer/Device`. `inbound.go` parser + `wsErrorCodes` CLIENT_UNSUPPORTED;
+  `conn.go` `knownFeatures` + `FeatureVoice`; `clipprint_test.go` "bilinmeyen belirteç" örneği `rs.cap.voice1` → `rs.cap.video1`.
+  `voice_test.go` ortak fikstür testi. `internal/voice`, `go.mod`, `go.sum` DOKUNULMADI.
+
+#### Komutlar (son çıktı)
+
+- `pnpm -r run typecheck` / `pnpm -r run lint`: yeşil.
+- contracts `pnpm test`: 26 dosya, 264 test geçti. web `vitest run`: 507 geçti. server `vitest run test/unit`: 645 geçti (entegrasyon koşulmadı — DB).
+- Go (docker golang:1.26): `go test ./internal/signal/...` ok; `GOOS=windows go vet ./internal/signal/...` ok; gofmt temiz.
+
+#### K1 (sunucu) notları
+
+- `onTechMessage` artık `voice.*`'ı ROLE_MAY'den geçiriyor (sahip/katılımcı) ama işleyici yok → K1 `voice.ts` dalını ekler.
+- Misafir şeması: `guestInboundSchemaFor(..., multi, hasVoice(room, guest))`; eski Go'ya `voice.*` gönderme.
+- Hata: `!hasVoice` → `error{code:"CLIENT_UNSUPPORTED", message: MULTI_ERROR_MESSAGES.CLIENT_UNSUPPORTED}`.
+- `voice.state` yayını yukarıdaki değişmezlere uymalı (idle'da `callId` yalnız `endReason` ile; null dizi yok). Go misafir ihlalde soketi kapatır → görüşme `disconnect` ile biter.
+- Audit `voice.end` `{durationSec, reason, talkerIds, listenerIds}`; ret alt kodu `code` anahtarıyla yazılmaz (maske).
+- `ws-auth.ts`: `rs.cap.voice1` belirtecini tanı.
+
+#### K2 (web) notları
+
+- `apps/web/lib/audit/actions.ts`: `VOICE_AUDIT_LABELS` + `VOICE_AUDIT_GROUP_LABELS` yay; zaman çizelgesine neden etiketleri.
+- Konsol `hello.guestVoice` / `peer.joined.guestVoice`; `canSend` zaten `observer`'lı Seat ile çalışıyor (voice.* izleyicide false).
+- `callId`'i yalnız `voice.state`'ten al; tarayıcı misafir `voice.answer`/`voice.end{customer|device}` gönderir.
+
+#### K3 (Go) notları
+
+- Dial features'a `signal.FeatureVoice` yalnız katılımlı oturumda (gözetimsizde değil, O-PD-3).
+- `ParseServer` `VoiceRequest`/`VoiceState` döner; rıza kaydı yoksa `VoiceState{active}` mikrofonu açmaz, `VoiceEnd{Reason: VoiceEndCustomer}` gönder.
+- Opus kapıları için `VoiceMaxOpusBytes`, `VoiceMaxPktPerSec`.
+
+### K1 sunucu
+
+Durum: kod + testler tamam. Birim, voice entegrasyonu ve WS regresyon paketleri yeşil (ayrıntı "Komutlar").
+
+#### Değişen dosyalar
+
+- `apps/server/src/signaling/voice.ts` (yeni): `newVoice`, `listenersOf` (bağlı + rol + `sessions.voice`; sıra sahip, üyeler),
+  `stateOf` (tek `voice.state` kurucusu, talkers ∩ listeners), `publish` (`sentKey` ile değişmeyen durum yeniden gitmez, D-PD-2),
+  `endVoice` (TEK bitiş: active → audit `voice.end{durationSec, reason, talkerIds, listenerIds}`, pending → `voice.reject{reason}` fail;
+  bekleme `customer|device|timeout`), `voiceSync` (her oda olayı: misafir `!hasVoice` → `disconnect`; konuşan ∩ dinleyen; active'de
+  boşsa `left`), `voiceDropTalker`, `voiceTechAttached`, `voiceGuestHello`, `voicePermChange`, `handleTechVoice`, `voiceRequest`
+  (kapı sırası: yetki → gözetimsiz → misafir bağlı → hasVoice → faz → bekleme → 10 istek), `handleGuestVoice`, `activeVoiceCount`.
+- `types.ts`: `Peer.voice`, `Room.voice: VoiceRoom`, `VoiceRoom` arayüzü.
+- `rooms-features.ts`: `voiceOf` (ws-auth; BROWSER ya da `rs.cap.voice1`, gözetimsizde false), `hasVoice` (tek yardımcı).
+- `ws-auth.ts` `bindGuest`: `peer.voice`. `handlers.ts`: misafir şemasına `hasVoice`, `multiAction` voice.* dalı, misafir
+  `voice.answer`/`voice.end`, rol reddi mesajı voice.* için "İzleyici sesli görüşmede konuşamaz.".
+- Kancalar: `rooms.ts` (getOrCreate `voice`, attachTech eski soket → drop talker + `voiceTechAttached`, detachTech/detachGuest
+  `voiceSync`, teardown başında `endVoice(session_ended)` — membersTeardown'dan önce, applyPermChange iki yolda `voicePermChange`),
+  `member-life.ts` (attachMember eski soket drop + attached, detachMember/leaveMember sync — revokeMember, tech.remove,
+  member.leave, pay dolması hepsi buradan), `member-cmds.ts` swapOwner sonrası sync (devir: tid'ler değişmez).
+- `active.ts`: teknisyen `hello.guestVoice` (`guestVoiceOf`: kısa kopuklukta son değer), `peer.joined.guestVoice`, misafir
+  hello+roster sonrası `voiceGuestHello`.
+- `multi-audit.ts`: `auditMulti` action tipi `MultiAuditAction | VoiceAuditAction` (kopya yok).
+- `ops/metrics.ts`: `rs_voice_calls_total`, `rs_voice_denied_total` `m.counter` ile kayıtlı; `ws.ts`: gauge `rs_voice_active` (etiketsiz).
+- Oturum geçmişi zaman çizelgesi (K1 devamı): `packages/contracts/src/api/sessions.ts` `TIMELINE_DETAIL_KEYS` + `voice.request|accept|join: []`,
+  `voice.reject: ["reason"]`, `voice.end: ["reason", "durationSec"]` (`talkerIds`/`listenerIds` kullanıcı kimliği olduğundan
+  zaman çizelgesine girmez — P28c deseni). `packages/contracts/src/labels.ts`: `TIMELINE_ACTION_LABELS`'a `...VOICE_AUDIT_LABELS`;
+  `describeTimelineEvent` `voice.reject` → not = ret nedeni etiketi, `voice.end` → not = "bitiş nedeni · 3 dk 12 sn". Sunucu
+  `history-view.ts` değişmedi (`primitive()` sayıyı olduğu gibi geçirir; aktör: katılımcı tid'leri `history-detail` `techIds` ile TECH).
+- Testler: `test/unit/voice-p28d.test.ts` (yeni; + zaman çizelgesi izdüşümü), `test/integration/voice-p28d.test.ts` (yeni, 16 test),
+  `test/helpers/multi.ts` (`ownerWithGuest` `kind`/`caps` seçenekleri + `guestHello` dönüşü), `clip-print.test.ts` /
+  `signaling-fsrv-p28b.test.ts` fikstürüne `voice: newVoice()`; contracts `test/voice-p28d.test.ts` zaman çizelgesi testi.
+
+#### Tasarım kararları / sapmalar (gerekçeli)
+
+1. Pending'de oturum biterse audit `voice.reject{disconnect}` (VOICE_REJECT_REASONS'ta `session_ended` yok; yeni değer eklenmedi).
+2. İsteyen pending'de koparsa / yetkisi düşerse istek sürer; kabulde konuşan olamayacağı için `voice.accept` + hemen `voice.end{left}`
+   (talkers ⊆ listeners korunur; birim testli).
+3. Misafir kopması (`disconnect`) bekleme başlatmaz (§3 yalnız ret/zaman aşımı/customer/device sayar).
+4. Misafir bağlı değilken `voice.request` → `CONFLICT` "Müşteri bağlı değil." (CLIENT_UNSUPPORTED yanıltıcı olurdu).
+5. Pending'de eşleşen callId ile `voice.join` → `CONFLICT`; `voice.join` yetki denetimi callId'den önce (FORBIDDEN gözlenebilir).
+6. Teknisyen soketi yenisiyle değişirse (sekme) eski tid konuşanlardan düşer (V-PD-5); yeni sekme "Görüşmeye katıl" ile döner.
+7. "Gözetimsiz değişim": `voiceSync` her olayda `hasVoice` denetler → oda gözetimsiz olursa `disconnect` ile biter (birim testli).
+8. `rs_voice_calls_total{result}`: accepted | rejected (müşteri ret) | timeout; pending'de kopma sayılmaz.
+9. deploy/ops/test-watch.sh eşlemesi gerekmedi: yeni alarm yok (§11 K4), remote-watch desenleri `rs_voice_*`'ı süpürmüyor.
+10. Permissions-Policy (`proxy.ts`) K2'ye ait (§7), K1'de dokunulmadı.
+11. Zaman çizelgesine `voice.*` eklenmesi mimari-p28d'de açıkça yazılı değildi (audit etiket yorumu "geçmiş zaman çizelgesine yayılır"
+    diyordu); K2 notu üzerine koordinatör isteğiyle eklendi. Yalnız neden ve süre — kimlik yok.
+
+#### Bilinen sınır
+
+- WS `error` zarfı (`packages/contracts/src/ws.ts`, `z.strictObject({t, code, message})`) istek kimliği (`id`) taşımaz; voice
+  şemalarındaki `id?` geri yansıtılmaz. Alan eklemek strict şemayı (web + Go ayrıştırıcı) kıran sözleşme değişikliği olur → eklenmedi.
+  Sonuç: web, bekleyen ses isteği varken gelen herhangi bir `error`'ı sese atfeder (kapalı-güvenli; kabul edildi).
+
+#### Entegrasyon testi düzeltmeleri (yalnız test; kod hatası çıkmadı)
+
+`waitMsg` kuyruktaki İLK eşleşen tipi tüketir ve eşleşmeyenleri atar. Misafir/teknisyen artık hello+roster sonrası callId'siz
+`voice.state{idle}` aldığından (ve önceki görüşmenin bitiş yayını kuyrukta kalabildiğinden) `phase === "idle"` yüklemi bayat mesajı
+seçiyordu. Düzeltme: bitiş beklentileri `callId` ile seçilir (zaman aşımı, müşteri reddi, müşteri bitişi, V-PD-5 `left`,
+`session_ended`) — bu aynı zamanda "bitiş yayını callId taşır"ı sabitler. D-PD-2 testinde `drain` öncesi misafirin talkers=2 kopyası
+da beklenir (yarış: üyenin kopyası önce geliyordu). Eklenen beklenti: misafire `voice.state{pending, callId, by, listeners:[by]}` gider.
+
+#### Komutlar (son çıktı)
+
+- Test DB: `TEST_DB_CONTAINER=p28d-k1b-mysql TEST_DB_PORT=3442 apps/server/scripts/test-db.sh up|down`.
+- `vitest run test/integration/voice-p28d.test.ts`: 16/16 (3 ardışık koşu, kararlı).
+- `vitest run test/integration/{multi-*,signaling-*,unattended-*,rec-*}`: 28 dosya, 292 test geçti.
+- `pnpm --filter @remote/server test` (birim): 49 dosya, 659 geçti, 1 atlandı.
+- contracts `vitest run`: 26 dosya, 265 test geçti.
+- `pnpm --filter @remote/server test:int` (tam entegrasyon, tek koşu): 113 dosya, 1143 geçti, 2 kaldı →
+  (a) `consent-p4.test.ts` QA-P4-12 `peer.joined` tam eşitliği yeni K0 alanı `guestVoice: true`'yu bilmiyordu — beklenti
+  güncellendi (sözleşme gereği, kod hatası değil); (b) `customers-csv-p19.test.ts` AC-263 5 000 satır performans testi paralel
+  yükte 60 sn'yi aştı (ses ile ilgisiz). İki dosya ayrı koşuda 22/22 geçti.
+- lint + typecheck (`pnpm -r`) yeşil; web birim 519 geçti (contracts `labels.ts` değişikliği web'i kırmadı).
+- `pnpm format:check`: yalnız `docs/tmp-impl-k0s.md` (başka ajanın geçici notu; dokunulmadı) uyarı veriyor.
+
+### K2 web
+
+Durum (2026-11-17): **TAMAM** — saf mantık, eş tesisatı, kancalar, konsol + müşteri arayüzü, sahte WS ses durum makinesi, e2e.
+Rotalar: yeni rota yok. Değişen sayfalar: `/sessions/[id]/console` (üst çubukta ses yuvası, auth gerekir), `/session/[token]`
+(müşteri diyaloğu + görüşme çubuğu, girişsiz). Başlık `Permissions-Policy`: `/r` ve `/r/*` `microphone=()`, diğer tüm sayfalar
+`microphone=(self)`.
+
+#### Saf mantık, politika, audit etiketleri
+
+- `apps/web/lib/voice/console.ts` (yeni): konsol saf reducer `consoleVoiceReducer` (voice.state / error / yerel aşama / mute /
+  WS kopması), `micWanted` / `micLive` / `shouldListen` (tek `releaseMic()` kararı, D-PD-5), `consoleVoiceView` (§8 görünümleri:
+  hidden/unsupported(AC-352)/unattended/noPerm(V-PD-6)/listening(izleyici)/idle(+30 sn bekleme)/waiting(geri sayım)/otherPending/
+  talking/canJoin), `namesOf`. Ret ile müşteri bitişi aynı `endReason:"customer"` ile gelir → önceki fazdan ayrılır.
+- `apps/web/lib/voice/mix.ts` (yeni): `mixPlan` (mix-minus kenar listesi + listeners gönderim kapısı), `diffEdges`.
+- `apps/web/lib/voice/guest.ts` (yeni): `GuestVoice` — K-PD-2 rıza (yalnız bellek, `accept()` tıklamasında yazılır; mikrofon
+  yalnız orada açılır), rızasız `voice.state{active}` → `voice.end{customer}` (callId başına bir kez), gUM sonrası bayat kontrol,
+  gUM hatası → `voice.end{device}`, `onWsClose` (sustur + bırak + rıza sil), talker kapısı (kaynak yalnız talkers; çıkan tid aynı
+  tikte kopar; eş yeniden kurulunca düğüm yenilenir), gönderim kapısı (listeners dışı `setAudioOut(null)`), yeni dinleyici duyurusu
+  (`announce.seq`), roster dışı `by`/tid yok sayılır. Yan etkiler enjekte (`VoiceGraph`, `VoicePeers`, `getMic`).
+- `apps/web/lib/voice/graph.ts` (yeni): tarayıcı WebAudio grafı (muted `<audio>` + MediaStreamSource, eş başına
+  MediaStreamAudioDestination, hoparlör = ctx.destination). Henüz bağlanmadı (kanca yok).
+- `apps/web/proxy.ts`: `permissionsPolicyFor(pathname)` (K-PD-1/D-PD-1): `/r` ve `/r/*` → `microphone=()`, diğer her şey
+  `microphone=(self)`; camera/geolocation `()`, display-capture `(self)` sabit. **Kural:** girişsiz/herkese açık yeni sayfa →
+  `MIC_DENY_PREFIXES` + birim testi birlikte güncellenir (runbook m.7).
+- `apps/web/lib/audit/actions.ts`: `VOICE_AUDIT_LABELS` + `VOICE_AUDIT_GROUP_LABELS` yayıldı.
+- `apps/web/lib/voice/voice-p28d.test.ts` (yeni, 12 test): policy (`/requests`, `/request-blocks`, `/reset-password` (self)
+  sabitlendi), audit etiketleri, konsol reducer/görünüm (AC-373/374/378/379, D-PD-2), mix-minus planı (D-PD-3), misafir rıza
+  kuralları (K-PD-2, WS kopması, device, roster dışı by).
+
+#### Eş tesisatı, kancalar, kalite satırı
+
+- `lib/webrtc/peer.ts`: `PeerLink` 4. kurucu argümanı `voice: "sendrecv"|"recvonly"|null`; `offer()` ses transceiver'ını bir kez,
+  videodan SONRA ekler (ICE restart'ta yeniden eklenmez); dönen akış YALNIZ video (AC-375). Misafir `answer()`: ses transceiver'ı
+  `createAnswer` öncesi `sendrecv` + `replaceTrack(audioOut)` (null başlar). Yeni: `setAudioTrack(track|null)` (yanıttan önce
+  çağrılırsa saklanır), `audioReceiverTrack()`.
+- `lib/webrtc/use-tech-peer.ts`: ref'ler `guestVoice` (hello/peer.joined `guestVoice===true`), `observer` (`hello.techRole==="observer"`;
+  P28c'de izleyici terfi edemez — handover hedefi yalnız katılımcı/sahip — bu yüzden teklif anındaki yön yeterli), `voiceTrack`;
+  `startPeer` yönü seçer, yeni eşte son izi yeniden bağlar; dönüş `remoteAudio` (state), `setVoiceTrack`.
+- `lib/webrtc/use-tech-session.ts`: dönüşe `voice: { remoteAudio, setVoiceTrack }`.
+- `lib/webrtc/tech-machine.ts`: `TechState.guestVoice: boolean|null` (hello + peer.joined; `guestMulti` kalıbı).
+- `lib/webrtc/guest-peers.ts`: `GuestPeers implements VoicePeers` (`tids/remoteAudio/setAudioOut`); `Opts.onPeers` yanıt
+  çözülünce (eş hâlâ güncelse) ve `close(tid)`'de çağrılır.
+- `lib/webrtc/use-guest-session.ts`: `usePeers` artık `{peers, voice}` döner (GuestPeers + GuestVoice tek useState içinde,
+  `onPeers → voice.peersChanged`); `openMic()` (AEC/NS/AGC); mesaj yönlendirme `voice.request → onRequest`, `voice.state → onState`,
+  roster'da `peers.onRoster` SONRA `voice.onRoster`; `onWsClose()` WS kapanışında, `phase=ended`'de, sökümde ve `pagehide`'da.
+  Dönüş: `voice` (GuestVoice: `accept/reject/end/setMuted`) + `voiceView` (`voiceTick` ile yenilenir).
+- `lib/voice/use-console-voice.ts` (yeni, BAĞLANMADI): `useConsoleVoice({subscribe, send, setVoiceTrack, me, connected, getMic?})`
+  → `{s, request, join, end, mute, ended}`. Montajda `subscribe` (voice.state / error), `connected=false` → `closed` + `releaseMic`,
+  `micWanted` düşünce bırak, `micLive` iken `setVoiceTrack(mic)` (muted → `enabled=false`), `pagehide` + söküm → `releaseMic`;
+  `withMic` gUM sonrası bayat kontrol (yerel aşama değiştiyse/koptuysa izi durdur, mesaj gitmez); `end()` sunucuyu beklemeden bırakır.
+- `lib/webrtc/stats.ts`: `Sample.audioLossPct` (yalnız paket almış audio inbound-rtp; ayrı `Prev.a` penceresi), `Issue` + `audioLoss`
+  (eşik video kaybıyla aynı); `use-quality.ts` `{c:null, a:null}`; `components/console/quality-panel.tsx` "Ses kaybı %x" satırı
+  yalnız değer varken; `tr.json` `p5.q.audioLoss`, `p5.q.issue.audioLoss`; `lib/dc/p5.test.ts` fikstürüne `audioLossPct: null`.
+
+#### Arayüz bağlama
+
+- `app/(panel)/sessions/[id]/console/console-view.tsx`: `useVoiceSlot` → `useConsoleVoice` KOŞULSUZ (`send: ts.send`; sunucu da
+  ROLE_MAY ile kapılar), `connected = live && reconnectSince===null`; görünüm `now===null` iken gizli; bitiş toast'ı
+  `lib/voice/ui.ts voiceEndToast` (yalnız `ended.mine`; ret / yanıt yok / "Sesli görüşme bitti · <formatDuration>", süre yoksa süresiz) `info`.
+  `canVoice` prop. `console-header.tsx`: `voice?: ReactNode` yuvası (spacer'dan sonra, BrowserControlHint'ten önce). `page.tsx`: `canVoice`.
+- `components/console/voice-controls.tsx` (yeni): `VoiceControls` (tüm görünümler) + `VoiceAudio` (her zaman monte `<audio>`,
+  `muted = !shouldListen`, dinlemiyorken `pause()`, `NotAllowedError` → "Sesi aç"; tüm `play()` retleri yakalanır).
+  Konuşurken Sessize al / Görüşmeyi bitir ikon-only (aria-label + title). Bekleme geri sayımında canlı bölge yok.
+- `components/guest/voice-dialog.tsx` (yeni): `VoiceRequestDialog` (alertdialog, odak Reddet, Kabul 1,5 sn callId kilidi, dinleyecekler,
+  kulaklık önerisi; Esc/X = reject). `components/guest/voice-bar.tsx` (yeni): `VoiceBar`, `useVoiceAnnounce` (görüşme yokken görülen
+  seq işaretlenir → eski duyuru yeni görüşmede okunmaz), `VoiceAnnounce` (her zaman monte sr-only assertive bölge + görünür şerit + Çıkar).
+- `app/session/[token]/guest-session.tsx`: `GuestVoiceSlot` (duyuru, çubuk, `note==="device"` uyarısı, diyalog) GuestLiveAlerts'ten sonra;
+  `TechsList` `confirmTid`/`onConfirmTid` ile kontrollü (duyurudaki Çıkar aynı onay diyaloğunu açar; sahip çıkarılamaz).
+- `lib/voice/ui.ts` (yeni, saf): `voiceEndToast`, `noticeText`, `guestBarModel` (çubuk = active VEYA mic≠off; gösterge gerçek mikrofona
+  bağlı), `freshListeners`.
+- `messages/tr.json`: `vc.*` (konsol) + `vg.*` (müşteri). `DESIGN.md` §4 "P28d ile eklenenler" ikon satırı + §6 iki bileşen satırı.
+- Testler: `vitest.config.ts` include'a `components/**/*.test.tsx` eklendi (yeni bağımlılık yok; `react-dom/server`
+  `renderToStaticMarkup`, node ortamı). `components/console/voice-controls.test.tsx`, `components/guest/voice-guest.test.tsx`,
+  `lib/voice/voice-ui.test.ts`. vitest 58 dosya / 540 test yeşil; typecheck + lint yeşil.
+- **Sapma:** mikrofon sessizden çıkarma düğmesi "Sesi aç" yerine **"Mikrofonu aç"** (konsolda otomatik oynatma yedeği "Sesi aç" ile
+  aynı ada sahip iki düğme aynı anda görünebiliyordu; müşteride de tutarlılık için aynı). Konsolda bekleyen isteği iptal düğmesi yok (§8'de yok).
+
+- e2e (regresyon): `playwright test p28c-multi p5-collab p28e-recording` komutu yapılandırma gereği 793 testlik koşu başlattı → 555 geçti, 236 atlandı, 1 koşmadı, 1 kaldı: `p8b-requests` AC-153 (yük altında); tek başına tekrar → geçti (ses arayüzüyle ilgisiz, kararsız). Ses için yeni e2e YOK (sıra 6–7).
+
+##### e2e için data-testid listesi
+
+Konsol: `voice-controls` (`data-view` = idle|waiting|otherPending|talking|canJoin|listening|noPerm|unsupported|unattended),
+`voice-call` (Sesli görüşme; idle/unsupported/unattended), `voice-join`, `voice-notice` (`data-kind` = rejected|timeout|customerEnded|
+deviceEnded|micDenied|conflict|rateLimited|forbidden; pasif görünümlerde neden metni), `voice-waiting`, `voice-other-pending`,
+`voice-mic-state` (`data-muted`), `voice-mute`, `voice-end`, `voice-listening`, `voice-no-perm`, `voice-audio` (`data-listen`), `voice-play`.
+Misafir: `voice-request` (diyalog), `voice-reject`, `voice-accept`, `voice-request-listeners`, `voice-headset`, `voice-bar`
+(`data-mic` = off|opening|on, `data-muted`), `voice-bar-mic`, `voice-bar-talkers`, `voice-bar-listeners`, `voice-bar-mute`,
+`voice-bar-end`, `voice-announce` (sr-only assertive bölge), `voice-announce-strip`, `voice-announce-remove` (→ `guest-remove-confirm`
+/ `guest-remove-ok`), `voice-device`.
+
+#### Mock + e2e (tur 4)
+
+- `e2e/mock-ws.mjs`: K1 durum makinesi taklidi (`voiceTech`/`voiceGuest`/`endVoice`/`publish`; kapı sırası yetki → misafir bağlı
+  CONFLICT → `guestVoice` CLIENT_UNSUPPORTED (AC-352 metni) → faz CONFLICT → 30 sn bekleme / 10 istek RATE_LIMITED). İstekte önce
+  misafire `voice.request{callId, by}`, sonra iki tarafa `voice.state{pending, callId, by, listeners:[by]}`; bitiş yayını
+  `idle + callId + endReason`; ret / zaman aşımı / customer / device 30 sn bekleme başlatır, misafir kopması (`disconnect`) başlatmaz;
+  eşleşmeyen `callId` sessiz düşer; değişmeyen durum yeniden gitmez. Her çıkış `voiceStateSchema` / `voiceRequestGuestSchema` /
+  `techsRosterSchema.parse`'tan geçer. `guestVoice` tüm BROWSER misafirlerin teknisyen `hello` / `peer.joined`'ında (sunucu gibi;
+  misafir hello'sunda yok); sahte Hızlı Destek istemcisi voice1 bildirmez → `false`. Yalnız `rec.voice` odasında: teknisyen hello
+  `tid/techRole/roster`, misafire hello'dan hemen sonra `techs.roster` + callId'siz `voice.state{idle}`, tech→misafir `sdp.offer`/`ice`
+  `from` damgalı. `voice.*` `LOGGED`'da. Kanca `GET /__e2e/voice/<oturum>?timeout|cool|stray` (`mock-api.mjs`): `timeout` = sahte saat
+  (60 sn dolmuş), `cool` = bekleme sıfır, `stray` = misafire rızasız `voice.state{active}`.
+- `e2e/mock-sessions.mjs`: `u-p28d-*` (sessions.voice + ses odası), `u-p28drec-*` (+ kayıt teklifi, AC-375), `u-p28dold-*` (eski
+  istemci, AC-379). `e2e/mock-p28e.mjs`: `/__e2e/rec-parts/:rid?full=1` parça baytları (b64).
+- `e2e/helpers.ts`: `scanThemes` p28e spec'inden taşındı (kopya yok).
+- `e2e/p28d-voice.spec.ts` (7 test; 6 desktop + 1 desktop-perf): AC-373 (izin reddinde `voice.request` gitmez + micDenied;
+  diyalog alertdialog, odak Reddet, kilit sayfa içi MutationObserver ile 1400–2500 ms; diyalog gUM çağırmaz; ret → toast + bildirim +
+  düğme pasif + konsol mikrofonu ended; zaman aşımı kancayla), AC-374 / AC-377 tarayıcı (iki tarafta "Mikrofon açık", Sessize al iki
+  tarafta `enabled=false`, konsol bitirince iki taraf mikrofon izi sayfa içi ölçümle ≤ 1 sn `ended`, müşteri bitirince customerEnded,
+  ws-log `voice.end` sırası; SDP `opus/48000/2` + `a=fingerprint`; axe açık/koyu konsol + çubuk; 1280/375 taşma iki sayfada),
+  K-PD-2 negatif (rızasız active → `voice.end{callId, customer}`, gUM 0, çubuk yok), AC-375 (görüşme etkinken yeni kayıt bölümü;
+  WebM EBML Tracks'te TrackType 1 = 1, TrackType 2 = 0 — asgari ayrıştırıcı spec içinde, ilk Cluster'da durur), AC-379 (sahte istemci →
+  `data-view=unsupported`, düğme pasif, AC-352 metni `aria-describedby`), D-PD-1 başlıkları, AC-376 `@perf` (müşteri mikrofonu
+  1 kHz osilatör, saniyede 100 ms darbe; konsol `voice-audio` akışı → AnalyserNode (fftSize 256, 2 ms yoklama) yükselen kenar;
+  `performance.timeOrigin + now` iki sayfada; p95 < 325 ms, en az 15 eşleşme).
+- AC-375 birim: `lib/voice/voice-p28d.test.ts` "AC-375 browserRecorder" (sahte `MediaStream`/`MediaRecorder` global'leri; ses+video
+  akışından kaydedici akışında yalnız video izi).
+- **AC-378 çoklu teknisyen ses e2e'si KAPSAM DIŞI** (koordinatör kararı; gerekçe spec başında yorum): sahte WS tek teknisyen bağlar,
+  çok eşli tarayıcı misafiri gerçek sunucu ister. Kapsam: sunucu entegrasyon (`voice-p28d.test.ts`), web birim (mix-minus, talker /
+  gönderim kapısı, duyuru), staging elle.
+
+#### Sapmalar (gerekçeli)
+
+- Mimari dosya planı `lib/webrtc/voice.ts` / `voice.spec.ts` diyor; gerçek `lib/voice/*` ve `e2e/p28d-voice.spec.ts`.
+- Mikrofon sessizden çıkarma düğmesi "Sesi aç" yerine **"Mikrofonu aç"** (konsolda otomatik oynatma yedeği "Sesi aç" ile aynı ada
+  sahip iki düğme aynı anda görünebiliyordu). Konsolda bekleyen isteği iptal düğmesi yok (§8'de yok).
+- e2e'de mikrofon izi WebAudio osilatöründen (spec içi `getUserMedia` sarmalayıcısı): macOS başsız Chromium'da sahte ses aygıtı izin
+  verilmiş olsa da `getUserMedia({audio})`'yu çözmüyor (gözlendi; `getDisplayMedia` etkilenmiyor). Mimari §9 izin reddi için
+  `permissions: []` diyordu; aynı nedenle ret `NotAllowedError` fırlatan sarmalayıcıyla. Ek tarayıcı bayrağı gerekmedi.
+- ui-ux-pro-max skill'i okundu (DESIGN.md geçerli). Bildirim (WhatsApp/Telegram) koordinatöre bırakıldı.
+
+#### K1 ile doğrulananlar / açık kalanlar
+
+- WS `error{code}` istek kimliği taşımıyor: konsol, bekleyen ses isteği varken gelen HER hatayı sese atfeder (kapalı-güvenli).
+  K1 aynı anda başka hata üretmemeli; ayrıca `CONFLICT` hâlâ `TechState.lastError`'ı da set eder (lobi paneli yalnız bekleyen
+  varken görünür — etkisiz).
+- Ret (`voice.answer{false}`) ve active'de müşteri bitirmesi ikisi de `voice.state{idle, endReason:"customer"}` → konsol önceki
+  fazdan ayırır; idle bitiş yayını `callId` taşımalı (taşımazsa yine ayrılır ama `ended` kaydı oluşmaz).
+- Misafire `voice.state{pending}` de gitmeli (listeners diyalogda "dinleyecek" bilgisi + duyuru tabanı).
+- Teknisyen `hello.tid` olmadan ses arayüzü gizlidir (eski sunucu); `hello.guestVoice` / `peer.joined.guestVoice` zorunlu yol.
+- Zaman çizelgesi: contracts `TIMELINE_DETAIL_KEYS`'te `voice.*` yok → oturum geçmişi çizelgesinde ses olayları görünmez;
+  istenirse contracts + server işi (K2 dokunmadı).
+
+Sonuç: K1 bu varsayımları karşılıyor (idle bitiş yayını `callId` taşır; misafire pending gider; hello `tid` + `guestVoice` var;
+`TIMELINE_DETAIL_KEYS` K1 devamında eklendi). WS `error` zarfının istek kimliği taşımaması kabul edilmiş sınır olarak kalır.
+
+#### Doğrulama (2026-11-17)
+
+- `pnpm --filter @remote/web lint` / `typecheck` yeşil; `vitest run` 58 dosya / 541 test yeşil.
+- `playwright test p28d-voice --project=desktop --project=desktop-perf --no-deps`: 7/7 geçti.
+- Tam web e2e (`pnpm --filter @remote/web e2e`, tek koşu): 564 geçti, 242 atlandı, 0 kaldı (bilinen kararsızlar bu koşuda düşmedi).
+  `guestVoice` artık tüm tarayıcı misafirli konsol tekliflerine ses transceiver'ı ekliyor; mevcut RTC testleri (p4/p5/p28c/p28e)
+  bununla yeşil.
+
+### K3 Windows istemcisi (Hızlı Destek 0.18.0)
+
+Go istemcisi (`apps/agent-win`) dört parçada: K3a akış (`internal/flow`), K3b ses motoru (`internal/voice`), K3c eş ses izi
+(`internal/rtc`), K3d arayüz/tepsi/lisans/bağlama. K0s spike sonuçları (ölçüm tablosu, libopus/wazero hash'leri) en sonda.
+
+Bağlayıcı kurallar:
+
+- `flow` ve `rtc` `internal/voice`'u içe aktarmaz (gözetimsiz yardımcı da flow kurar; wazero servis ikilisine girmez). Arayüzler
+  flow'da (`VoiceUI`, `VoiceCall`, `VoicePeer`), bağlama yalnız `cmd/noktadestek/deps.go`; yardımcı sınır testi `internal/voice` ve
+  wazero'yu yasaklar (O-PD-3).
+- Ses arayüzü ayrı `Deps.VoiceUI` alanıdır (`tray.WithActive` sarmalayıcısı yalnız RecUI iletir); `flow.Peer` genişletilmedi.
+- FEC + Decode hız sayımı: mimari r3 §4.3 "tek paket sayılır" uygulandı (K3b sapma 1); geçici plandaki "iki sayılır" kararı geçersiz.
+- Test adı sözleşmesi: tüm P28d Go testlerinin adında `P28d`, `Voice` ya da `Opus` geçer; CI listesi K3d'de.
+
+#### K3c — internal/rtc ses (backend-dev, 2026-11-17)
+
+- Dosyalar: `apps/agent-win/internal/rtc/audio.go` (yeni), `rtc.go` (`Handlers.Audio`, `Peer.audio`, `OnTrack`, `HandleOffer`
+  ses dalı), `audio_test.go` (yeni), `rtc_test.go` (yalnız test yardımcısı `connectInput` → `dial` + `negotiate` ayrımı; davranış aynı).
+  `internal/voice` içe aktarılmaz; yeni bağımlılık yok (`pion/sdp` doğrudan içe aktarılmadı, `go.mod` değişmedi).
+- API (flow/deps için):
+  - `Handlers.Audio func(seq uint16, payload []byte)` — uzak Opus izinin RTP yükü; yük alıcıya aittir (pion her pakette yeni
+    arabellek ayırır). İz başına tek okuma goroutine'inden sırayla, farklı eşlerden eşzamanlı çağrılır; bloklamamalı. nil ise
+    paketler okunup atılır; Opus olmayan ses izi de okunup atılır (alım arabelleği birikmez). Boş yük iletilmez.
+  - `(*Peer).WriteAudio(payload []byte, dur time.Duration) error` — tek Opus çerçevesi; eşin ses izi yoksa `rtc.ErrNoAudio`
+    (sentinel, `errors.Is`); bağlantı kurulmadan yazılan örnek sessizce düşer (pion davranışı).
+- Davranış: eş başına `TrackLocalStaticSample` (Opus 48000/2, `minptime=10;useinbandfec=1`, PT 111). Yalnız ilk offer'da ve
+  teklifte **gönderilebilir** ses bölümü (port ≠ 0, yön recvonly/sendrecv; yön satırı yoksa sendrecv) varsa `AddTrack`; yanıt
+  recvonly → sendonly, sendrecv → sendrecv. Uzak sendonly/inactive ya da ses yok → iz bağlanmaz (eski konsol yolu aynen).
+  `AddTrack` yeni transceiver açarsa (teklifteki bölüm kullanılamadıysa) iz geri alınır ve hata döner. Gönderici RTCP okunup atılır.
+  ICE restart / sonraki offer'larda iz eklenmez (aynı gönderici + iz).
+- Bulunan hata (düzeltildi): `pc.RemoteDescription().Unmarshal()` pion'un iç nesnesinin önbelleğine yazıyor → race; teklif
+  `HandleOffer`'a gelen metinden yerel kopyayla ayrıştırılıyor.
+- Testler: `TestAC375P28dAnswerOpusDirection` (recvonly→sendonly, sendrecv→sendrecv, opus/48000/2, transceiver 2),
+  `TestP28dSilentOfferNoAudioLine`, `TestP28dSendonlyOfferNoGuestAudio`, `TestAC375P28dICERestartNoDuplicateTrack`,
+  `TestAC375P28dOpusBothWays` (WriteAudio → teknisyen; teknisyen replaceTrack → `Handlers.Audio`, ardışık seq),
+  `TestP28dNilAudioHandlerStillReads` (yalnız nil handler'la çökmediğini gösterir; okumanın sürdüğünü kanıtlamaz). Mevcut rtc
+  testleri yeşil. **§7 ad farkı:** aday `TestAC375P28dAnswerHasOpusSendonlyNoDup` ikiye bölündü →
+  `TestAC375P28dAnswerOpusDirection` + `TestAC375P28dICERestartNoDuplicateTrack` (zorunlu PASS listesine bu adlar girmeli).
+- Flow için: rtc sesi yetenek/`talkers`'a göre süzmez (her Opus paketi `Audio`'ya gider; Y-PD-2 kapısı flow'da). `Close`
+  sırasında geç bir `Audio` çağrısı gelebilir. `ErrNoAudio` beklenen durumdur (sessiz/eski konsol eşi), hata sayılmamalı.
+- Doğrulandı: konsol `peer.ts` ses transceiver'ını yalnız ilk offer'da ekler (implementation.md K2) → "yalnız ilk offer" kuralı uyumlu.
+- Komut çıktıları: `go test -count=10 ./internal/rtc/...` ok (arm64); `--platform linux/amd64 go test -race -count=5` ok;
+  gofmt temiz; staticcheck v0.8.2 linux + windows temiz; `GOOS=windows go vet ./internal/rtc/...` ve `GOOS=windows go build ./...` yeşil.
+
+#### K3a — internal/flow ses akışı (backend-dev, 2026-11-17)
+
+- Dosyalar: `internal/flow/voice.go` (yeni), `messages_p28d.go` (yeni), `voice_p28d_test.go` (yeni); `flow.go` (`Deps.VoiceUI`,
+  `Deps.OpenVoice`, `Event.CallID`, `EvVoiceAccept|Reject|End|Mute`), `session.go` (`session.voice`, startReconnect/cleanup
+  `voiceDrop`, onUser dalı), `session_server.go` (`voice.request|state` dalı, onHello `voiceDrop`), `peers.go` (newPeer/closePeer
+  bağlama, onRoster `voiceRoster`, `Handlers.Audio`), `session_media.go` (dropPeers `RemovePeer`, onPeer sırası — aşağıda),
+  `clipprint.go Features` (`voiceOn` → `signal.FeatureVoice`, Unattended erken dönüşünden sonra). `internal/voice` içe aktarılmaz.
+- Arayüzler (K3d bağlaması için; flow'da):
+  - `VoiceUI{VoiceAsk(VoiceAsk); VoiceAskClosed(callID string); VoiceBar(VoiceView)}` — engellemez, döngüden çağrılır.
+    `VoiceAsk{CallID, Name string; Listeners []string}` (aynı CallID ile tekrar → yerinde güncelle);
+    `VoiceView{On, Muted bool; Talkers, Listeners, Announce []string; Note string}` (Listeners = listeners − talkers; Announce
+    yalnız o güncellemede yeni dinleyen adları → çubuk satırı + `VoiceTexts.Balloon` sabit balon; On=false → şerit/tepsi kalkar,
+    Note `VoiceTexts.Ended|Device|""`). On, yerel kabulden itibaren (mikrofon açılırken dahil) true — gösterge aygıttan önce
+    yanar, aygıttan sonra söner (O-PD-3 güvenli yön).
+  - `VoiceCall{SetPeer(tid, sink func([]byte, time.Duration) error); RemovePeer(tid); SetRoles(talkers, listeners []string);
+SetMuted(bool); Push(tid string, seq uint16, payload []byte); Close() error}` — Push RTP goroutine'lerinden eşzamanlı,
+    diğerleri döngüden; SetPeer aynı tid'de değiştirir (açılış sırasında iki kez gelebilir); Close'dan sonra çağrılar etkisiz.
+    SetRoles'a verilen dilimler motora aittir (flow kopyalar).
+  - `Deps.OpenVoice func(onFail func(error)) (VoiceCall, error)` — yalnız yerel kabulde, ayrı goroutine'de; onFail görüşme
+    sırasında aygıt hatası (her goroutine'den, birden çok kez çağrılabilir; bayatlar düşer).
+  - `VoicePeer{WriteAudio([]byte, time.Duration) error}` — eşte tür iddiası (`rtc.Peer` uygular); flow.Peer genişletilmedi.
+  - `voiceOn(d) = !d.Unattended && VoiceUI != nil && OpenVoice != nil && RosterUI != nil` (A-PD-6: deps.go desteklenmiyorsa nil bırakır).
+  - Event: `EvVoiceAccept{CallID}` (yalnız yerel gerçek tıklama + 1,5 sn), `EvVoiceReject{CallID}`, `EvVoiceEnd`, `EvVoiceMute{On}`.
+- Sıra: `voiceDrop` girdi kapısından SONRA (cleanup: `gate.Close` ardından; startReconnect ve onHello: `closeControl`
+  ardından, onHello'da `recOnHello` ilk iş kalır) — Close ≤ 1 sn bekleyebilir, uzak girdi o süre açık kalmamalı.
+- Davranış: plan §1 birebir. Ek kararlar: (a) WS kopması/onHello/cleanup'ta açık diyalog da kapanır (`voiceDrop` =
+  `closeAsk` + `releaseMic` + sunucu durumunu unut) — aksi hâlde yeniden bağlandıktan sonra eski diyalogun kabulü ölü callId için
+  mikrofon açardı; (b) açılış devri `voice.mu` altında: `releaseMic` gen'i artırır, açılış dönüşünde gen değiştiyse çağrı orada
+  kapanır, değilse `live`'a yazılır ve sonraki `releaseMic` (oturum sonu cleanup dahil) kapatır → döngü çıktıktan sonra dönen
+  açılış da sızmaz; (c) `voice.end` callId başına en çok bir kez (rızasız active, kullanıcı bitirmesi, aygıt) — üst üste
+  tetikleyicide ikinci mesaj ve ikinci Close yok; (d) yeni dinleyici tabanı = pending'de diyalogda gösterilenler + isteyen.
+- **Bulunan hata (düzeltildi, P28c'den beri):** `onPeer`'de `case e.tid != s.ctrlTid()` dalı `run`/`doneTimeout`'tan önceydi;
+  multi1 sokette kontrol sahibi tid'i dolu olduğundan tid'siz `peerEvent{run}` ve `doneTimeout` YUTULUYORDU. Etkilenenler:
+  P28e `rec.revoke` onay zaman aşımı (S-P28e-2 yayın duraklatma), P28a pano/yazdırma zamanlayıcıları ve goroutine sonuçları,
+  P2P dosya `DoneTimeout` — yalnız multi1 (0.17+) oturumlarda. İki dal tid süzgecinin önüne alındı; önce kırmızı test
+  (`TestP28dRunEventsInMultiMode`) ile kanıtlandı. QA/güvenlik bilgisine: P28e/P28a multi1 senaryoları bu düzeltmeyle değişti.
+- Testler (`voice_p28d_test.go`): `TestAC374P28dNoMicWithoutLocalAccept` (yanlış/boş callId kabulü yanıt + açılış 0; answer
+  engelli açılış bitmeden telde), `TestAC374P28dStateActiveWithoutConsentSendsCustomerEndOnce`, `TestAC374P28dStateOnlyCloses`,
+  `TestAC374P28dNewRequestOtherCallReleases`, `TestAC374P28dReleaseMicOnWsDrop` (+ eski diyalog yeni sokette etkisiz),
+  `TestAC374P28dReleaseMicOnWsDropSilencesFirst`, `TestAC374P28dReleaseMicOnSessionEnd`, `TestAC374P28dReleaseMicOnIdle`,
+  `TestAC374P28dReleaseMicOnLocalEnd` (tek Close, ek voice.* yok), `TestAC374P28dDeviceErrorSendsDeviceEnd`,
+  `TestAC374P28dDeviceLostMidCallSendsDeviceEnd`, `TestAC374P28dStaleOpenClosedImmediately` (idle ve oturum sonu, açılan =
+  kapanan), `TestAC379P28dUnattendedNoFeatureNoOpen` (Features, her nil alan, Audio alıcısı yok, OpenVoice 0),
+  `TestAC378P28dNewListenerAnnounced` (+ roster dışı tid süzgeci), `TestAC374P28dMuteIsLocal`, `TestAC378P28dPeerBinding`,
+  `TestP28dAudioPushRacesRelease`, `TestP28dRunEventsInMultiMode`, `TestAC374P28dReleaseMicOnHello` (açık diyalog; satır
+  silinince kırmızı — mutasyonla doğrulandı), `TestAC374P28dHelloReleasesOpenCall`,
+  `TestAC374P28dAskClosedWhenRequesterLeavesRoster`, `TestAC374P28dLocalEndBeforeActiveThenLateActiveEndsOnce`.
+  `...SilencesFirst` Close anındaki sessiz durumunu kaydeder (sıra: atomik nil → sustur → Close).
+- Komut çıktıları: `go test ./internal/flow/...` ok (arm64); `--platform linux/amd64 go test -race ./internal/flow/...` ok;
+  `-race -count=5 -run "P28d|AC366|P28e"` ok; sıralama değişikliği sonrası tam paket `-race -count=3` ok; `GOOS=windows go vet ./internal/flow/... ./internal/unattended/... ./cmd/...` temiz;
+  gofmt temiz. staticcheck K3 sonunda toplu koşuldu (K3d: 0 bulgu).
+- K3a dışı kalanlar K3d'de yapıldı (sınır testi, deps.go bağlaması).
+
+#### K3b — internal/voice motoru + WASAPI + A-PD-6 (backend-dev, 2026-11-17; Windows donanım doğrulaması elle)
+
+Dosyalar (yalnız `apps/agent-win/internal/voice/`): yeni `jitter.go`, `mixer.go`, `voice.go`, `owner.go`, `devErr.go`,
+`supported_amd64.go`, `supported_other.go`; yeniden yazılan `wasapi_windows.go`; değişen `opus.go`, `com_windows.go`
+(`HRError` platformsuz `devErr.go`'ya taşındı); testler `jitter_test.go`, `voice_test.go`, `voice_codec_test.go`,
+`owner_test.go`, `supported_test.go`. go.mod değişmedi (`golang.org/x/sys` zaten doğrudan bağımlılık). Yeni bağımlılık yok.
+
+Dışa açık yüz (K3d `deps.go` bağlar; `flow.VoiceCall` ile birebir doğrulandı): `voice.New(open func() (Device, error),
+onFail func(error)) (*Call, error)`; `*Call`: `SetPeer/RemovePeer/SetRoles/SetMuted/Push/Close`; `voice.OpenWASAPI()
+(Device, error)` (windows); `voice.Supported() bool`. Aygıt hata sınıfları `ErrDeviceDenied` (E_ACCESSDENIED),
+`ErrDeviceNotFound` (E_NOTFOUND), `ErrDeviceLost` (AUDCLNT_E_DEVICE_INVALIDATED / RESOURCES_INVALIDATED), `ErrDevice`;
+`*HRError` `errors.Is` ile bunlara açılır. flow hepsini `voice.end{device}` sayabilir.
+
+Davranış özeti:
+
+- `New`: önce Opus çalışma zamanı (derleme) hazırlanır, sonra aygıt açılır (hata çağırana döner → `voice.end{device}`),
+  sonra döngü. `onFail` yalnız görüşme sırasındaki aygıt hatasında (ve döngü paniğinde), aygıt bırakılıp döngü bittikten
+  SONRA bir kez çağrılır; içinden `Close` çağrılabilir (kilitlenmez, testli); `Close` ile biten görüşmede çağrılmaz.
+- `step()` (mikrofon saati, 20 ms): talker başına tek çözme → hoparlör Σ talkers → listeners ∩ bağlı eşler için
+  `mixMinus` (mic + Σ talkers\{alıcı}, int32 toplam tek kırpma = doymalı, sıradan bağımsız) → eş başına Encoder → `sink(pkt, 20ms)`.
+  Kodlayıcı/çözücüler döngü goroutine'ine ait, ilk gerektiğinde kurulur, rol/eş değişiminde bir sonraki tikte kapanır.
+- Talker kapısı iki yerde: `Push` (talkers dışı/düşürülmüş tid için tampon yok → paket kopyalanmadan atılır, çözücü
+  kurulmaz) ve `step` (anlık görüntü yalnız talkers). Varış hızı ≤ 100/sn ve boyut ≤ 1275 `Push`'ta (jitter) uygulanır.
+- `ErrPeerDropped` → tid görüşme sonuna dek `dropped`; yeniden talker yapılsa da tampon/çözücü kurulmaz.
+- Jitter: 3 paket (60 ms) başlama, 10 paket (200 ms) üst sınır (taşmada en eski atılır), geç/yinelenen paket düşer,
+  `int16(seq-next)` sarma, ±100 sıçramada yeniden eşitleme (eş yeniden başladı), başlangıç tamponlamasında sıra bozukluğu
+  oynatma noktasını geri alır; kayıpta next+1 varsa FEC, yoksa PLC; 5 ardışık PLC sonrası sessizlik + tampon temizlenip
+  ilk yeni pakete yeniden eşitlenir (konuşan susup kaldığı sıradan sürdürünce paketler "geç" sayılmaz). Tik başına
+  960 örneklik FIFO (10/40/60 ms çerçeveler; FIFO üst sınırı 200 ms).
+- `Close`: `silenced` (gönderim anında durur) → `closed` (Push/SetPeer/SetRoles etkisiz) → döngüye dur → `dev.Close()`
+  (bloklu `ReadFrame`'i çözer) → döngü bitişi ≤ 500 ms beklenir. WASAPI `Close` ≤ 400 ms → toplam ≤ 0,9 sn (AC-374 ≤ 1 sn).
+- WASAPI (D-PD-4): tek `LockOSThread` goroutine'i: `CoInitializeEx(MTA)` (S_FALSE dengelenir, RPC_E_CHANGED_MODE kabul) →
+  `CoCreateInstance(enum)` → yakalama + çalma uç noktaları (eCommunications, 48 kHz mono s16 AUTOCONVERTPCM, iletişim
+  kategorisi) → Start → `WaitForMultipleObjects([capEv, renderEv, stopEv], 200 ms)` → çıkışta aynı iş parçacığında
+  `owner.releaseAll()` (ters sıra: çalma Stop → yakalama Stop → çalma servisi → istemci → olay → aygıt → yakalama servisi … → numaralandırıcı) → `CoUninitialize`.
+  Enum ve IMMDevice artık `defer` ile değil sahip yapıda tutulur. Yakalama paketleri 960'a biriktirilir (kuyruk 200 ms,
+  dolunca en eski atılır); çalma kuyruğu 200 ms. Durmuş mikrofon denetimi her uyanışta (hoparlör olayları sürerken mikrofon
+  olayı kesilebilir): 1 sn örnek yoksa yakalama sorgulanır, gerçek HRESULT (ör. ErrDeviceLost) ya da `errStalled`
+  (`errors.Is(…, ErrDevice)`) → onFail.
+  `uintptr(unsafe.Pointer(…))` yalnız `call`/`Call` argümanında; `internal/win` S6-1 testi yeşil (değiştirilmedi).
+
+Sapmalar (gerekçeli):
+
+- **Plan §2'deki "FEC+Decode iki sayılır, bütçe aşılmaz" kararı uygulanmadı**; mimari-p28d r3 §4.3 "K3 düzeltmesi: tek paket
+  sayılır" bağlayıcı. `opus.go admit(packet, count)`: `DecodeFEC` sayaç artırmaz; sınır o pencerede dolmuşsa FEC de reddedilir.
+  Gerekçe: 10 ms çerçeve gönderen eşte 100 varış/sn + FEC sınırı aşardı. `TestP28dK0sRateLimit` değişmeden geçiyor; yeni
+  `TestP28dFECAndDecodeCountAsOnePacket`, `TestP28dFlowContractPeersRolesSinkErrors` (K3a notları: SetRoles öncesi gönderim yok,
+  SetPeer yerine geçer, sink hatası — ör. rtc.ErrNoAudio — yutulur, eş düşmez, SetRoles dilimi kopyalanır; Close sonrası
+  çağrılar etkisiz ve onFail Close içinden çağrılmaz → `TestP28dReleaseWithinOneSecond`, `…DeviceFailureCallsOnFailOnceWithoutDeadlock`).
+- Close sırası "döngü durur → dev.Close" yerine "silenced → dur sinyali → dev.Close → döngüyü bekle": döngü mikrofon
+  saatinde `ReadFrame`'de bloklu olabildiği için önce beklemek kilitlenir; susturma önceliği korunur (Close döndükten sonra
+  eşe yazım yok — testli).
+- `Stream/OpenCapture/OpenRender` (K0s iskeleti) kaldırıldı; yerini paket içi `endpoint` + `wasapiDevice` aldı (kullanılmayan kod
+  kalmasın, windows staticcheck U1000).
+- Jitter sınırları paket sayısıyla (20 ms paket varsayımı, Chrome varsayılanı); FIFO örnek sayısıyla.
+
+A-PD-6: ADR r3 ve mimari §13 metninde "varsayılan" açık maddeler tablosunun sütun başlığıdır (açık kararın varsayılan
+çözümü); çalışma zamanı geçersiz kılma ayarı gerektirmez → yalnız `Supported()`: amd64'te `cpu.X86.HasSSE41`, diğer
+mimarilerde false. wazero v1.12.0 `internal/platform.compilerPlatformSupports` aynı bayrağı okur (kaynakta doğrulandı;
+`runtimeConfig` yorumuna yazıldı, `TestP28dSupportedMatchesWazeroCompilerCriterion`). `New` içinde kapı yok (arm64 testleri
+koşsun diye); kapı K3d `deps.go`'da. **SSE4.1'siz donanımda ölçülmedi; varsayılan karar uygulandı** (yorumlayıcı ≈ 22 ms/
+çerçeve rakamı K0s arm64 ölçümüdür).
+
+Testler (adlar): `TestAC378P28dMixMinusExcludesSelf`, `TestAC378P28dOnlyListenersReceive`,
+`TestAC378P28dNonTalkerPacketDroppedNoDecoder`, `TestAC378P28dPeerDroppedAfterRepeatedTraps`, `TestAC378P28dMutedSendsOthersOnly`,
+`TestAC378P28dRealCodecCallRoundTrip` (gerçek libopus), `TestP28dMixSaturates`, `TestP28dJitterStartsAt60msInOrder`,
+`…SequenceWrap`, `…LateAndDuplicateDropped`, `…OverflowDropsOldest`, `…FECThenConceal`, `…SilenceAfterFivePLCAndReanchor`,
+`…ResyncOnSequenceJump`, `…ArrivalRateLimit`, `…FIFOVariableFrames`, `TestP28dJitterLossUsesFECThenPLCInCall`,
+`TestP28dReleaseWithinOneSecond` (ReadFrame'de bloklu sahte aygıt), `TestP28dDeviceFailureCallsOnFailOnceWithoutDeadlock`,
+`TestP28dLoopPanicReleasesDevice`, `TestP28dConcurrentPushAndRoles` (race), `TestP28dHRErrorClasses`,
+`TestP28dComReleaseReverseOrderBalanced`, `TestP28dComPartialOpenReleasesAcquired`, `TestP28dSupportedMatchesWazeroCompilerCriterion`,
+`TestP28dFECAndDecodeCountAsOnePacket`, `TestP28dFlowContractPeersRolesSinkErrors` (K3a notları: SetRoles öncesi gönderim yok,
+SetPeer yerine geçer, sink hatası — ör. rtc.ErrNoAudio — yutulur, eş düşmez, SetRoles dilimi kopyalanır; Close sonrası
+çağrılar etkisiz ve onFail Close içinden çağrılmaz → `TestP28dReleaseWithinOneSecond`, `…DeviceFailureCallsOnFailOnceWithoutDeadlock`).
+
+Komut çıktıları (son düzeltmelerden sonra): görevdeki komut platform bayrağısız (arm64) `go test ./internal/voice/... && GOOS=windows go vet … && GOOS=windows go build …` ok (92 s); `--platform linux/amd64`: `go test ./internal/voice/... ./internal/win/...`
+ok, `go test -race ./internal/voice/...` ok (123 s), `GOOS=windows go vet ./internal/voice/... ./internal/win/...` temiz,
+`GOOS=windows go build ./...` ok; gofmt temiz; staticcheck v0.8.2 `./internal/voice/...` linux 0 / windows 0 bulgu.
+
+Windows elle doğrulama (K3b'ye özgü; §8'e ek): Kabul → görev çubuğunda mikrofon simgesi; Görüşmeyi bitir/WS kopması → simge
+≤ 1 sn söner; gizlilik anahtarı kapalı → `ErrDeviceDenied` (0x80070005); mikrofonsuz makine → `ErrDeviceNotFound`; görüşme
+sırasında USB kulaklık çıkar → `ErrDeviceLost` → konsolda aygıt bitişi; sürücüde iletişim kategorisiyle OEM AEC; çalma
+gecikmesi (kulaktan) ve 10 dk görüşmede saat kayması (çalma kuyruğu 200 ms'de kırpılıyor mu, çıtırtı); SSE4.1'siz (ya da
+`Supported()` false) makinede voice1 bildirilmemesi; hoparlör başka aygıttayken yalnız USB mikrofonu çıkar → ≤ 1–2 sn içinde
+aygıt bitişi (durmuş akış denetimi).
+
+#### K3d — Windows arayüzü, tepsi, lisanslar, bağlama (backend-dev, 2026-11-17)
+
+- Dosyalar: `internal/ui/voice.go` (platformsuz metinler), `voice_windows.go` (VoiceAsk/VoiceAskClosed/VoiceBar, SetVoiceTray,
+  VoiceEnd, ses satırı, şerit), `licenses_windows.go` (ShowLicenses), `notices.go` + `third_party_notices.txt` (`go:embed`),
+  `session_fit.go` (`voiceRowH`), değişen `ui_windows.go`, `session_windows.go`, `rec_windows.go` (`newStrip`), `ended_windows.go`,
+  `control_windows.go` (closePrompts), `resident_windows.go` (ResetScope → `resetVoice`); `internal/tray/tray.go` (`CmdVoiceEnd`,
+  `CmdLicenses`, `VoiceTip`, `MenuItems`), `tray_windows.go` (`Icon.SetVoice`, menü `MenuItems`'ten), `resident.go` (`VoiceEnd`,
+  `Licenses`; scope ve loop ayrı ele alır); `cmd/noktadestek/deps.go` (`voice.Supported()` kapısı, `openVoice`, Resident
+  alanları), `main.go` (`SetVoiceTray`); `internal/unattended/helper/boundary_test.go`. Yeni bağımlılık yok.
+- Diyalog: ortak `newConsent` (G-03): başlık "Nokta Destek — Sesli görüşme", "<Ad> sesli görüşme istiyor", gövde = açıklama +
+  "Görüşmeyi dinleyecekler: …" + kulaklık önerisi; odak "&Reddet", "&Kabul et" 1,5 sn kilitli (`hotkeyOK: true`), Enter/Space
+  tetiklemez, enjekte tıklama kabul edilmez (uyarı + kilit yeniden) → `EvVoiceAccept{CallID}` yalnız gerçek yerel tıklama (K-PD-2).
+  Aynı callId'de yalnız gövde metni değişir (diyalog yeniden kurulmaz); farklı callId eskisini kararsız kapatır. callId kapanışta
+  yakalanır.
+- Oturum penceresi: teknisyen listesi ile kayıt satırı arasında 36 px ses satırı (kırmızı iki satırlık etiket "● Mikrofon açık ·
+  Konuşan: … · Dinleyen: …", "Sessize al"/"Mikrofonu aç", "Görüşmeyi bitir"); görüşme yokken gizli. En kötü durum 776 → 812 px;
+  768 px ekranda taşma 131 px ≤ sıkıştırma tavanı 132 px (`TestP28dSessionWindowWithVoiceRowFits768`, 96/120/144 DPI;
+  `TestP28cSessionWindowFits768` değişmeden yeşil).
+- Gösterge şeridi (O-PD-3): `recStrip` kalıbı (`newStrip`), her monitörde üstten 102 px (kayıt şeridinin altında), tıklama geçirgen,
+  odak almaz, yakalamadan hariç, 1 sn'de bir en üste; On=true iken oturum penceresi olmasa da çizilir; tepsi olmayan kipte tek
+  garanti gösterge. Tepsi (varsa): ipucu "Nokta Destek — Mikrofon açık/Sessizde" (`VoiceTip`; kapsam ipucu `SetTip(TipSession)`
+  ve Explorer yeniden başlaması ipucunu ezmez), menüde "Görüşmeyi bitir".
+- Duyuru (Y-PD-3): sohbete "Sistem" satırı "<Ad> görüşmeyi dinlemeye başladı" + pencere ön planda değilse `FlashUntilFocus` + sabit
+  tepsi balonu `VoiceTexts.Balloon`. On=false'taki Note (bitti / V-PD-1 aygıt yol tarifi, ~230 karakter) sohbete "Sistem" satırı
+  olarak yazılır — satıra sığmaz, geçmişte tam okunur.
+- Tepsi komutları: kapsam içinde `CmdVoiceEnd` → `EvVoiceEnd`, `CmdLicenses` → lisans penceresi (ikisi de çıkış onayına düşmez);
+  kapsam dışında `CmdLicenses` kapsam/ağ/Run denetimi açmaz, bayat `CmdVoiceEnd` yok sayılır.
+- Lisanslar: `third_party_notices.txt` (42 KB) — libopus COPYING (repo dosyasıyla birebir, testli), wazero v1.12.0 NOTICE + LICENSE,
+  wasi-libc @2e6fb9d8ee0c LICENSE + LICENSE-MIT (çoklu lisanstan seçilen) + musl COPYRIGHT + cloudlibc LICENSE + dlmalloc CC0 notu,
+  llvm-project @895aa2c896ad `compiler-rt/LICENSE.TXT`. Kaynak: `raw.githubusercontent.com/{WebAssembly/wasi-libc/2e6fb9d8ee0c,
+llvm/llvm-project/895aa2c896ad, tetratelabs/wazero/v1.12.0}/…` (2026-11-17 indirildi). Salt okunur kaydırmalı EDIT, CRLF'e çevrilir;
+  ResetScope pencereyi kapatır.
+- Bağlama (A-PD-6): `deps.go` yalnız `voice.Supported()` iken `VoiceUI` ve `OpenVoice` atar, `flow.Features(d)`'den ÖNCE; hata
+  yolunda açıkça `nil, err` (nil `*voice.Call` arayüze sarılmaz). Yardımcıya bağlanmaz; `forbiddenPkgs` += `internal/voice`,
+  `github.com/tetratelabs/wazero`.
+- Sürüm 0.18.0: ağaçta sürüm sabiti yok (`build/build.sh <url> <VERSION>` argümanı); kod değişikliği gerekmedi.
+
+Sapmalar (gerekçeli):
+
+1. Tepsi balonu adsız sabit metin ("Görüşmeye yeni bir dinleyici katıldı") — mimari §8 "<Ad> görüşmeyi dinlemeye başladı" balonundan
+   sapma; K-P20-9 (balonda sunucu metni/ad yok, kilit ekranında görünür). Ad oturum penceresindeki sohbet satırında.
+2. "Mikrofonu aç" (sessizden çıkma) yalnız gerçek yerel girdiyle (`userInput`, S7-5 / `clipClicked` kalıbı); mimari §7'de açık kural
+   yok, ama sessizden çıkma ses göndermeyi yeniden başlatır — teknisyenin SendInput'u bunu yapamamalı. Sessize alma ve bitirme kapısız.
+3. Ses şeridi tıklanmaz (kayıt şeridinden farkı): metin tıklama vaat etmiyor; kaza tıklaması görüşmeyi bitirmesin.
+4. Ses satırı her zaman ayrılır (kayıt satırı gibi); görüşme yokken 36 px boşluk kalır.
+
+Testler (K3d): `TestP28dTrayVoiceEndAndLicensesInScope`, `TestP28dTrayLicensesOutsideScopeNoNetwork`, `TestP28dTrayVoiceTipAndMenu`,
+`TestP28dVoiceAskBody`, `TestP28dVoiceRowTexts`, `TestP28dSessionWindowWithVoiceRowFits768`, `TestP28dNoticesContainLibopusCopying`
+(CRLF'e dayanıklı — Windows koşucusunda checkout CRLF olabilir), `TestP28dBoundaryHelperHasNoVoice` (yardımcıda yok + müşteri
+istemcisinde var: yasak yol adı güncel). Win32 çizimi (diyalog, şerit, menü) CI'da koşamaz → runbook §28d.7 m.12–18.
+
+CI sözleşmesi: `agent-win.yml` "P28d ses testleri" zorunlu PASS listesi = adında `P28d|Voice|Opus` geçen tüm 78 `Test` işlevi (K0s 12 +
+K0/K3a/K3b/K3c/K3d 66; düzeltme turu 1 ile 85, aşağıya bakın). Ad değiştiren listeyi de günceller. Windows'ta SKIP yolu olan yalnız K0s'un `-short`/amd64-dışı testleri.
+
+Komutlar ve son çıktı (2026-11-17, `apps/agent-win`):
+
+- `docker run golang:1.26 … go test ./... && GOOS=windows go vet ./... && GOOS=windows go build ./...` → tüm paketler ok, vet temiz,
+  build ok (arm64).
+- `--platform linux/amd64 go test -race ./...` → 31 paket ok, 0 hata.
+- `gofmt -l .` boş; staticcheck v0.8.2 linux 0 / `GOOS=windows` 0 bulgu (tüm modül).
+- actionlint 1.7.8 (`agent-win.yml`, gömülü shellcheck) 0 bulgu.
+
+#### K0s — Opus arka ucu spike'ı (opus-go KALDI → wazero + libopus.wasm; tmp-impl-k0s.md'den taşındı)
+
+Tarih: 2026-11-17 · Dal: p28d (111605a + mimari r2 11377c5 ölçütleri) · Yazan: backend-dev (Go)
+
+##### Karar
+
+**opus-go v1.6.0: KALDI.** Önerilen yol, ADR-0036 revizyonu ve A-PD-1'dir. r2 sırasına göre önce **wazero + libopus.wasm**,
+sonra **gopus** denenir.
+
+Gerekçe (bağlayıcı iki ölçüt kırmızı):
+
+1. **`go test -race` temiz değil (r2 ölçütü b).** `checkptr` daha `opus.NewEncoder` çağrısında süreci düşürüyor:
+   `fatal error: checkptr: pointer arithmetic result points to invalid allocation`, `opusccenc.Opus_silk_Get_Encoder_Size`.
+   Upstream'in kendi `go test -race github.com/kazzmir/opus-go/opus` koşusu da aynı hatayla düşüyor. CI `check` job'u
+   (`go test -race -count=1 ./...`) bu bağımlılıkla kırmızı olur. Bu bir `recover` ile yakalanamaz.
+2. **Bellek güvenliği (Y-PD-2; mimari-p28d §11 K0s fuzz ölçütü).** Uzaktan gelen bozuk paketlerde çevrilmiş kod paniğe düşüyor:
+   `silk/resampler.c:193 assertion failed: inLen >= S->Fs_in_kHz` (`celt_fatal` → `libcshim.Xabort` → `panic`). Bu panik
+   **deterministik değil**: aynı 20 000 paketlik dizi aynı sırayla verildiğinde sonuç değişiyor.
+
+   | Koşul (aynı girdi dizisi)               | Yalıtılan panik / 20 000 paket (koşu başına) |
+   | --------------------------------------- | -------------------------------------------- |
+   | `GOGC=off`                              | 0 0 0 0 0 0 0 0 0 0                          |
+   | `GOGC=100` (varsayılan)                 | 0 1 1 0 0 0 0 0 1 0                          |
+   | `GOGC=1`                                | 4 2 5 3 3 1 2 2 3 4                          |
+   | `GOGC=1` + `GODEBUG=gcshrinkstackoff=1` | 0 0 0 0 0                                    |
+
+   Aynı panik paketi tek başına ya da taze bir çözücüde 2000 kez çözüldüğünde 0 panik veriyor. **Kök neden için güçlü
+   gösterge (kanıtlanmış değil):** Çevrilmiş kod adresleri `uintptr` olarak taşıyor (`opuscc` içinde 575 ham
+   `uintptr(unsafe.Pointer(&…))` eşleşmesi var; bunların bir kısmı yığın değil heap adresi). GC goroutine yığınını küçültüp taşıdığında bu adresler bayatlıyor. Kod bundan
+   sonra eski yığın belleğini okuyor; sonuç bozuk durum ve assert oluyor. Eski yığına _yazma_ doğrudan gözlenmedi. Upstream `opus/cbuf.go`
+   yorumu aynı hata sınıfını kendi API sınırında gördüğünü yazıyor. Düzeltme yalnız o sınırda yapılmış, çevrilmiş iç kodda
+   sorun duruyor. Bu yüzden `recover` belirtiyi örter ama yazmanın başka bir goroutine'in belleğine denk gelmesini
+   önleyemez.
+
+   `gcshrinkstackoff` ve `GOGC` koşuları linux/arm64'te, panik nedenini yazdıran yamalı bir kopyada yapıldı (davranış
+   aynı). Hipotez kontrolü: Shim'in `TLS.Alloc` yığın büyütmesi (yeniden ayırma) hiç tetiklenmedi; büyütmede panik atan
+   yamalı kopyada panik sayısı değişmedi. Neden o değil, yığın küçültmedir.
+
+Diğer ölçütler geçti (tablo aşağıda). opus-go'nun ikili boyutu, hızı ve tekrarlanabilir derlemesi sorunsuz. Kırmızı
+olanlar güvenlik ve CI kapısı.
+
+##### Ölçüm tablosu
+
+| Ölçüt (mimari-p28d §11 K0s, r2)                                                     | Sonuç                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  | Tür                             |
+| ----------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------- |
+| `CGO_ENABLED=0` derleme                                                             | GEÇTİ (`build.sh`, saf Go, C araç zinciri yok)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         | ölçüldü                         |
+| İki derlemede SHA eşit                                                              | GEÇTİ: a = b = `6d3700c27fa5b157fcc83802ee17820d8d382754a8fd64039b6b3df76a0c82fa`                                                                                                                                                                                                                                                                                                                                                                                                                                                      | ölçüldü                         |
+| İkili büyümesi ≤ 5 MB                                                               | GEÇTİ: 13 402 112 → 14 524 928 B, **+1 122 816 B (≈ 1,07 MiB)**                                                                                                                                                                                                                                                                                                                                                                                                                                                                        | ölçüldü                         |
+| Kodlama 20 ms mono ≤ 2 ms/çerçeve                                                   | GEÇTİ (vekil): arm64 yerel **0,19 ms**, linux/amd64 (Rosetta öykünmesi) **0,25–0,27 ms**                                                                                                                                                                                                                                                                                                                                                                                                                                               | vekil; referans Windows'ta elle |
+| Çözme 20 ms                                                                         | arm64 **0,036 ms**, amd64 öykünme **0,046 ms**                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         | vekil                           |
+| Gidiş-dönüş doğruluğu                                                               | GEÇTİ: SNR 4,6 dB (VOIP/SILK, 32k VBR, ölçülen hız 31,0 kbit/s, gecikme 303 örnek); aynı sinyalde AUDIO/CELT 17,5 dB                                                                                                                                                                                                                                                                                                                                                                                                                   | ölçüldü                         |
+| PLC (`Decode(nil)`), FEC yolu                                                       | GEÇTİ: 960 örnek döndü, hata yok, gizleme sessiz değil (rms > 100), sonraki paket çözüldü                                                                                                                                                                                                                                                                                                                                                                                                                                              | ölçüldü                         |
+| Stereo / 5–10–60 ms paket mono çözücüde                                             | GEÇTİ (opus-go kodlayıcısının ürettiği paketlerle)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     | ölçüldü                         |
+| Chrome'un gönderdiği Opus çözülüyor                                                 | **staging'de elle** (gerçek Chrome WebRTC yükü kullanılmadı)                                                                                                                                                                                                                                                                                                                                                                                                                                                                           | ertelendi                       |
+| WASAPI yakalama/çalma                                                               | İskelet var; `GOOS=windows go vet/build` ve staticcheck temiz. Donanım testi **Windows'ta elle**                                                                                                                                                                                                                                                                                                                                                                                                                                       | ertelendi                       |
+| `go test -race` temiz (r2 b)                                                        | **KALDI**: checkptr fatal (`opusccenc.Opus_silk_Get_Encoder_Size`)                                                                                                                                                                                                                                                                                                                                                                                                                                                                     | ölçüldü                         |
+| Fuzz `FuzzDecode` ≥ 30 dk (Y-PD-2)                                                  | 30 dk 1 sn, **58 403 993 çalıştırma**, 1565 korpus girdisi, `PASS`/`EXIT=0`. Anlamı: sarmalayıcıdan panik sızmadı, runtime fatal ve zaman aşımı yok. Bu "temiz" demek **değil**: hedef yalıtılmış panikleri yutar, işçi süreçlerinin stderr çıktısı da günlüğe gelmediği için kaç panik yalıtıldığı bilinmiyor (Karar 2). Koşu ilk sarmalayıcı anlık görüntüsüyle (recover + 1275 B sınırı, hız sınırı ve düşürme öncesi), linux/arm64 üzerinde yapıldı. Chrome'dan yakalanmış paket tohumu yok; tohumlar opus-go kodlayıcı paketleri. | ölçüldü                         |
+| Bozuk paket, panik yalıtımı                                                         | Sarmalayıcıdan panik sızmıyor; ancak panik GC'ye bağlı (bkz. Karar 2)                                                                                                                                                                                                                                                                                                                                                                                                                                                                  | ölçüldü                         |
+| İçe aktarım denetimi (r2, O-PD-4)                                                   | GEÇTİ: bağlanan paketler (`go list -deps`: `opus`, `opuscc`, `opusccenc`, `libcshim`, `ogg`) `os/exec`, `net`, `syscall` içe aktarmıyor ve `func init()` içermiyor. `os` yalnız `os.Stderr` için kullanılıyor (`libcshim` ve `opuscc` içinde birer kez, `celt_fatal` iletisi)                                                                                                                                                                                                                                                          | ölçüldü                         |
+| govulncheck v1.7.0 (windows/amd64 + linux)                                          | GEÇTİ: "No vulnerabilities found."                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     | ölçüldü                         |
+| go-licenses v2.0.1                                                                  | GEÇTİ (`check` çıkış kodu 0): `github.com/kazzmir/opus-go … BSD-3-Clause`                                                                                                                                                                                                                                                                                                                                                                                                                                                              | ölçüldü                         |
+| gofmt, vet (linux + windows), staticcheck v0.8.2 (linux + windows), `go test ./...` | GEÇTİ (`internal/rtc` TestAC367'de bir kez ICE kararsızlığı görüldü, 3 tekrarda geçti; bu değişiklikle ilgisiz)                                                                                                                                                                                                                                                                                                                                                                                                                        | ölçüldü                         |
+
+Ölçüm ortamı: Docker `golang:1.26.11-bookworm@sha256:dc40a13b…`, Apple Silicon (14 çekirdek). Konteyner varsayılanı
+`GOARCH=arm64`'tür. amd64 sayıları `--platform linux/amd64` ile alındı (Rosetta, cpu "VirtualApple @ 2.50GHz"). İkisi
+de Windows referansı yerine geçmez. Pay yine de geniş: ölçüt 2 ms, ölçülen değer 0,27 ms.
+
+Boyut ölçümü için `opus-go` geçici bir dosyayla ikiliye bağlandı. `cmd/noktadestek/zz_k0s_link_windows.go`,
+`NOKTA_K0S_LINK=1` koşulu altında `voice.NewEncoder/Encode/NewDecoder/Decode/Conceal/DecodeFEC` çağırdı. Bağlantı
+`go tool nm` ile doğrulandı: 554 `opusccenc.` ve 294 `opuscc.` sembolü. Dosya ölçümden sonra **silindi**. Taban (13 402 112 B),
+aynı komutla, aynı sürüm dizesiyle ve opus-go eklenmeden önceki ağaçtan derlendi.
+
+##### Modül bilgisi ve lisans
+
+- Hash kaydı (O-PD-4) şimdilik bu dosyada; K3'te `implementation.md`'ye taşınır.
+- Sabitlenen sürüm: **`github.com/kazzmir/opus-go v1.6.0`**. Commit **`bc2aa842b45aaa82636296012c04c4782b8df7c3`**
+  (go.sum `h1:MRzjz+yqAZbqSuKXY7VOknZBF28MfAweQqeA8CD+wdQ=`). `v1.7.0` aynı commit'i gösteriyor; ADR-0036'ya uyulup v1.6.0
+  seçildi. Çevrilen kaynak **libopus 1.6.1**'dir (`PACKAGE_VERSION = "1.6.1"`). Modül `go 1.24.0` istiyor; toolchain
+  1.26.11 ile sorun yok.
+- Telif bildirimleri (iki BSD-3):
+  1. opus-go: `Copyright (c) 2025, Jon Rafkind`, BSD 3-Clause (modül kökünde `LICENSE`).
+  2. libopus 1.6.1: Xiph.Org Foundation, Skype Limited, Octasic, Jean-Marc Valin, Timothy B. Terriberry, CSIRO, Gregory
+     Maxwell, Mark Borgerding, Erik de Castro Lopo. Lisans BSD 3-Clause (libopus `COPYING`). **Not:** Modülde libopus'un
+     `COPYING` dosyası yok; bildirimler yalnız çevrilmiş kaynak yorumlarında duruyor (ör. `opuscc/silk_resampler.go`
+     "Copyright (C) 2012 Xiph.Org Foundation", "Copyright (c) 2006-2011, Skype Limited"). İkili dağıtımda libopus
+     `COPYING` metni ayrıca eklenmelidir. Seçilecek yedek (wazero + libopus.wasm) için de aynı yükümlülük geçerli.
+
+##### Yazılan kod (apps/agent-win)
+
+- `internal/voice/opus.go`: Kütüphaneyi çağıran tek dosya. 48 kHz, mono, 20 ms; VOIP, 32 kbit/s VBR, karmaşıklık 5.
+  r2 sırası şöyle uygulandı: konuşma hakkı çağıranda → `admit` (yük ≤ 1275 B → ≤ 100 paket/sn → düşürülmüş eş değil) →
+  `guard` (`recover` → `ErrCodecPanic`). Panikten sonra çözücü yeniden kurulur. Aynı eşte 3. panikte `ErrPeerDropped`
+  döner ve eş kalıcı olarak düşer. Kodlayıcı paniklerse kapatılır. Yerel PLC (`Conceal`) hız sınırına sayılmaz.
+- `internal/voice/opus_test.go`: `TestP28dK0s…` testleri (SNR, PLC/FEC, stereo/çerçeve boyları, 20 000 bozuk paket,
+  1276 B reddi, hız sınırı, panik → yeniden kurulum → 3. panikte düşme [sahte codec], kapatma), `FuzzDecode`,
+  `BenchmarkP28dK0sEncode20ms`/`Decode20ms`.
+- `internal/voice/wasapi_windows.go`: WASAPI iskeleti. Hata yolunda `Close` ile istemci ve olay bırakılır. `OpenCapture`/`OpenRender` (varsayılan `eCommunications` uç
+  noktası), `IAudioClient2::SetClientProperties` (Communications kategorisi), `Initialize` (paylaşımlı kip,
+  `EVENTCALLBACK | AUTOCONVERTPCM | SRC_DEFAULT_QUALITY`, 48 kHz mono s16, 40 ms), `SetEventHandle`, `GetService`, ayrıca
+  `Start`, `Wait`, `Read`, `Write` ve `Close` (Stop + tüm Release + CloseHandle). Vtable dizinleri ve GUID'ler mingw-w64
+  10.0.0 başlıklarından alındı.
+- `internal/voice/com_windows.go`: COM yardımcıları (`comObj.call` `//go:uintptrescapes`). **Sapma:** mimari dosya planında
+  yok. Ayrı dosya olmasının nedeni, `internal/win/unsafeptr_test.go` S6-1 denetiminin `call` istisnasını ve işaret
+  zorunluluğunu yalnız `com_windows.go` adlı dosyalarda tanıması. capture/printing'deki kalıbın üçüncü eşi; ortak paket
+  K3 kararıdır.
+- `go.mod`/`go.sum`: `github.com/kazzmir/opus-go v1.6.0` (doğrudan). **KALDI kararıyla birlikte K3'te kaldırılmalı veya
+  yedekle değiştirilmeli.** Spike çıktısı olarak bırakıldı, commit yapılmadı. **Uyarı:** Ağaç bu hâliyle `go test -race ./...` adımında düşer
+  (CI `check` kırmızı olur). `go.mod`, `go.sum` ve `internal/voice/opus*.go` bu hâlleriyle commit edilmemeli.
+- K3 notu: `admit`, kayıpta `DecodeFEC(next)` ve `Decode(next)` çağrılarını iki ayrı paket sayıyor. Kayıp varken
+  100 paket/sn bütçesi fiilen yarıya düşer.
+
+##### Windows'ta elle doğrulama listesi (WASAPI, staging)
+
+1. Mikrofonlu ve hoparlörlü bir Windows 10/11 makinede `OpenCapture` → `Start` → `Wait(200)` + `Read` ile 5 sn yakala.
+   Paket başına 480–960 örnek gelmeli ve RMS konuşmada > 0 olmalı.
+2. Aygıtın yerel biçimi 44,1 kHz veya stereo olduğunda `Initialize` AUTOCONVERTPCM ile başarılı olmalı (hata
+   `0x88890008` gelmemeli).
+3. `Close` sonrasında görev çubuğundaki mikrofon göstergesi ≤ 1 sn içinde sönmeli (AC-374).
+4. `OpenRender` ile 1 kHz ton `Write` edilmeli; bozulma ve takılma olmamalı. `GetCurrentPadding` sonrası boş yer hesabı
+   doğru olmalı.
+5. Varsayılan iletişim aygıtı yoksa `GetDefaultAudioEndpoint` hatası tipli `HRError` olarak dönmeli (`0x80070490`).
+6. Varsa sürücü AEC'si: `SetClientProperties` sonrası hoparlör yankısı azalmalı (yalnız gözlem, ölçüt değil).
+7. Chrome ile iki yönlü canlı ses (teknisyen konsolu ↔ istemci): **staging'de elle.** Chrome'un `opus/48000/2` +
+   `useinbandfec=1` yükü çözülmeli. Bu ortamda yapılmadı.
+
+##### Yedek için öneri (A-PD-1, r2 sırası)
+
+- **wazero + libopus.wasm (önce):** libopus C kodu WASM sanal makinesinde koşar. Bellek doğrusal belleğe hapsolur; bozuk
+  paket en kötü durumda WASM trap üretir ve Go yığınına dokunamaz. Bu, Y-PD-2'yi yapısal olarak çözer. Gerekenler:
+  tekrarlanabilir `.wasm` derleme hattı (sabit digest'li wasi-sdk imajı, hash denetimi), `go:embed`, ikili boyutu ve
+  süre ölçümü. `internal/voice/opus.go` arayüzü (`NewEncoder/Encode/NewDecoder/Decode/Conceal/DecodeFEC/Close`, `admit`,
+  `guard`) korunur ve testlerin çoğu yeniden kullanılır. **İstisna (sapma):** `TestP28dK0sDecodesStereoAndOtherFrameSizes`
+  stereo ve 5/10/60 ms paket üretmek için opus-go'yu doğrudan içe aktarıyor. Yedekte bu test fikstür paketleriyle yeniden
+  yazılmalı; bunun için Chrome'dan yakalanmış paketler de gerekiyor.
+- **gopus (sonra):** Go ≥ 1.27.3 ve toolchain yükseltmesi gerektirir. Saf Go (çeviri değil) olduğu için aynı yığın
+  sorunu beklenmez. Yine de aynı fuzz + `-race` kapısından geçmeli.
+- Mimara bilgi: opus-go'yu `GODEBUG=gcshrinkstackoff=1` ile kurtarmak mümkün görünse de önerilmez. Süreç geneli bir
+  ayardır, -race/checkptr'ı çözmez ve yığın _büyümesinde_ de taşınma olduğu için kanıtlanmış bir güvence değildir.
+
+---
+
+#### K0s-2 (wazero) — yedek 1: wazero + libopus 1.6.1 WebAssembly
+
+Tarih: 2026-11-17 · Dal: p28d (11377c5 + çalışma ağacı) · Yazan: backend-dev (Go)
+
+##### Karar
+
+**wazero v1.12.0 + libopus.wasm: GEÇTİ** (yayın hedefi windows/amd64 için). Bağlayıcı ölçütlerin hepsi yeşil: `-race` temiz,
+fuzz ≥ 30 dk 0 tuzak ve 0 panik, iki derlemede SHA eşit, wasm tekrarlanabilir, ikili +2,54 MiB, kodlama 0,22 ms. K0s-1'in iki
+kırmızısı yapısal olarak kapandı: C kodu Go belleğine erişemiyor ve `unsafe`/checkptr çevrilmiş kodda kullanılmıyor.
+
+Mimara açık maddeler (ADR-0036 revizyonunda karara bağlanmalı):
+
+1. **arm64 JIT bulgusu.** wazero'nun arm64 derleyicisi v1.9.0–v1.12.0 sürümlerinde libopus kodlayıcısını yanlış derliyor. Bu
+   yüzden arm64'te yorumlayıcıya geçildi; yayına etkisi yok. Yine de JIT'in doğruluğu sandbox gerekçesinin parçası. Ayrıntı
+   aşağıda.
+2. **O-PD-4 içe aktarım/`init` ölçütü wazero için harfiyen sağlanmıyor.** wazero `os`, `net`, `syscall` ve `unsafe` içe aktarıyor
+   ve etkin iki `init` içeriyor. Ölçüt "modül bu yetkileri kullanmaz" olarak yeniden yazılmalı. Bunun dayanağı: WASI verilmiyor,
+   içe aktarım 0 ve bunu test denetliyor.
+3. **Lisans bildirimleri.** wazero Apache-2.0, libopus BSD-3. Bunlara ek olarak wasm içindeki wasi-libc, musl ve compiler-rt
+   bildirimleri K3'te `third_party_notices.txt`'e eklenmeli.
+4. **Fuzz kapsamı.** WASM içinde koşan kod Go fuzz kapsamına görünmüyor.
+
+##### Ölçüm tablosu
+
+| Ölçüt (mimari-p28d §11 K0s, r2)                                                                              | Sonuç                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       | Tür       |
+| ------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------- |
+| `CGO_ENABLED=0` derleme                                                                                      | GEÇTİ (`build.sh`; wazero saf Go + Go assembly, C araç zinciri yok)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         | ölçüldü   |
+| İki derlemede ikili SHA eşit                                                                                 | GEÇTİ: `scratchpad/k0s2-a` = `k0s2-b` = `d54a42f095d36375784ea549543a03f921387ea3bf15587c4e2668683f4a264d` (arada `go clean -cache`)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        | ölçüldü   |
+| libopus.wasm tekrarlanabilir                                                                                 | GEÇTİ: `715ac5d3911a76bf526267786f469fe2760fdc78a32ad736751bfa41bf7562e2` üç derlemede eşit (linux/amd64 imaj ×1, linux/arm64 imaj ×2; her biri ayrı `mktemp` dizininden). Kabuk değişmeden önceki sürüm de amd64 = arm64 idi (`8f2878…`)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   | ölçüldü   |
+| libopus tarball doğrulaması                                                                                  | GEÇTİ: `opus-1.6.1.tar.gz` SHA-256 `6ffcb593…72411a1` = Xiph `SHA256SUMS.txt` değeri; betik host'ta ve konteynerde iki kez denetler                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         | ölçüldü   |
+| WASI / içe aktarım                                                                                           | GEÇTİ: **0 içe aktarım** (IMPORT bölümü yok). Dışa aktarım yalnız `_initialize` + 7 `nk_*` + `memory`; bellek üst sınırı 256 sayfa (16 MiB), yığın 1 MiB `--stack-first`. `TestP28dK0sWasmSandboxSurface` denetler                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          | ölçüldü   |
+| İkili büyümesi ≤ 5 MB                                                                                        | GEÇTİ: 13 414 400 → 16 081 920 B, **+2 667 520 B (≈ 2,54 MiB)** (wasm 328 437 B dahil)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      | ölçüldü   |
+| Kodlama 20 ms mono ≤ 2 ms/çerçeve (amd64)                                                                    | GEÇTİ (vekil): linux/amd64 Rosetta, derleyici **0,22 ms** (3 koşu: 0,220–0,230; K0s-1 opus-go 0,25–0,27); yorumlayıcı 22,6 ms (kullanılmaz). auto = compiler → üretimde derleyici seçiliyor                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 | vekil     |
+| Çözme 20 ms                                                                                                  | amd64 Rosetta derleyici **0,041–0,048 ms**                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  | vekil     |
+| Gidiş-dönüş doğruluğu                                                                                        | GEÇTİ: SNR 4,6 dB, 31,0 kbit/s, lookahead 312 / gecikme 303 — opus-go ile birebir aynı (aynı libopus 1.6.1)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 | ölçüldü   |
+| PLC / FEC yolu                                                                                               | GEÇTİ (`TestP28dK0sPacketLossConcealment`)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  | ölçüldü   |
+| Stereo / 5–10–60 ms paket mono çözücüde                                                                      | GEÇTİ: `testdata/opus-fixtures.txt` (5 paket; opus-go v1.6.0 ile üretildi = libopus.wasm'dan bağımsız yapı; Chrome DEĞİL)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   | ölçüldü   |
+| Tuzak yalıtımı (örnek başına)                                                                                | GEÇTİ: `TestP28dK0sTrapIsolatedPerInstance` durum işaretçisini bellek dışına yöneltip gerçek WASM tuzağı üretir → `ErrCodecPanic`; kodlayıcı kapanır, çözücü yeni örnekle kurulur, komşu örnek etkilenmez                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   | ölçüldü   |
+| Derleyici = yorumlayıcı (amd64, yanlış derleme)                                                              | GEÇTİ: `TestP28dK0sCompilerMatchesInterpreter` 200 çerçeve kodlama + 400 çözme (yarısı bozuk) SHA-256 eşit                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  | ölçüldü   |
+| `go test -race ./...` (r2 b)                                                                                 | GEÇTİ: linux/amd64 (derleyici yolu) tüm paketler `ok`; linux/arm64 (yorumlayıcı yolu) `internal/voice` `-short` ile `ok` (1720 sn; fuzz ile eşzamanlı koşu). `-short`suz arm64 koşusu varsayılan 10 dk sınırını aştı (yarış raporu değil, zaman aşımı: yorumlayıcı + race yavaş)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            | ölçüldü   |
+| Fuzz `FuzzDecode` ≥ 30 dk (Y-PD-2)                                                                           | GEÇTİ (koşu 2): linux/amd64 derleyici yolu, son kod, 31 dk 0 sn, **91 304 163 çalıştırma**, `PASS`/`EXIT=0`, **0 tuzak** (`NOKTA_K0S_TRAPLOG` O_APPEND sayacı; işçi süreçlerinden bağımsız), 0 panik/fatal, crasher dosyası yok. Koşu 1 (aynı kod, 30 dk, 83 591 329 çalıştırma, 0 tuzak, 0 panik) çıkışta `--- FAIL: FuzzDecode … context deadline exceeded` ile bitti. Crasher yazılmadı ve hız sona kadar ~52 bin/sn sabit kaldı, yani takılan işçi belirtisi yok. İki 60 sn'lik koşu ve 31 dk'lık tekrar koşu temiz `PASS` verdi; bu yüzden hata Go fuzz koordinatörünün kapanıştaki bir zamanlama hatası olarak değerlendirildi, ama bu kanıtlanmadı. **Sınırlama:** libopus kodu JIT içinde koştuğu için Go kapsam ölçümü onu görmüyor ("new interesting" 9/0). Fuzz pratikte yönlendirmesiz mutasyondur (tohumlar: kodlayıcı paketleri + `f8fffe`). Kapsam güdümlü fuzz için ayrıca native libFuzzer gerekir; K3 sonrasına önerilir. | ölçüldü   |
+| 20 000 bozuk paket                                                                                           | 4067 opus hatası (`-4` vb.), **0 tuzak**, 0 panik                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           | ölçüldü   |
+| İçe aktarım / `init` denetimi (O-PD-4)                                                                       | **Bulgu (mimara):** wazero'nun bağlanan 31 paketinden bazıları `os`, `net`, `syscall`, `unsafe` içe aktarıyor (WASI/sysfs/sock katmanı; bu modüle WASI verilmediği için çağrılmıyor). `func init()`: `internal/platform/time_windows.go` (QueryPerformanceFrequency), `mmap_linux.go` (/sys hugepages okur, Windows'ta derlenmez), `wazevoapi/perfmap.go` (sabit `PerfMapEnabled=false`, yalnız `wazero_perfmap` etiketiyle açık). `os/exec` yok. opus-go'daki "hiçbiri yok" ölçütü wazero için harfiyen sağlanmaz; yürütme gücü (mmap PROT_EXEC/VirtualProtect) JIT'in doğası                                                                                                                                                                                                                                                                                                                                                              | ölçüldü   |
+| govulncheck v1.7.0 (windows/amd64 + linux)                                                                   | GEÇTİ: "No vulnerabilities found." ×2                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       | ölçüldü   |
+| go-licenses v2.0.1                                                                                           | GEÇTİ (çıkış 0): `github.com/tetratelabs/wazero` Apache-2.0. libopus.wasm'ı görmez: libopus BSD-3 (`internal/voice/libopus-COPYING.txt`), wasm içinde ayrıca wasi-libc (MIT/Apache-2.0-LLVM, musl MIT) ve compiler-rt (Apache-2.0 WITH LLVM-exception) kodu statik bağlı → bildirim metinleri K3'te `third_party_notices.txt`'e                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             | ölçüldü   |
+| gofmt, `go mod verify`, vet (linux + windows), staticcheck v0.8.2 (linux + windows), `GOOS=windows go build` | GEÇTİ                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       | ölçüldü   |
+| Chrome Opus yükü, WASAPI donanım                                                                             | **staging/Windows'ta elle** (K0s-1 listesi aynen geçerli)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   | ertelendi |
+
+Ölçüm ortamı: Docker `golang:1.26.11-bookworm@sha256:dc40a13b…`, Apple Silicon. amd64 sayıları `--platform linux/amd64`
+(Rosetta, "VirtualApple @ 2.50GHz"); Windows referansı yerine geçmez. Boyut ölçümü için `cmd/noktadestek/zz_k0s_link_windows.go`
+(`NOKTA_K0S_LINK=1` koşullu `NewEncoder/Encode/NewDecoder/Decode/Conceal/DecodeFEC`) geçici eklendi; bağlantı ikilide
+`tetratelabs/wazero` (30) ve `nk_dec_init` (2) dizgileriyle doğrulandı (taban ikilide 0/0), ölçümden sonra **silindi**. Taban
+13 414 400 B aynı komut ve sürüm dizesiyle (`build.sh https://destek.example.invalid:4450 0.17.0`) bugünkü ağaçtan alındı
+(K0s-1'deki 13 402 112 B'den farkı ağaçtaki başka değişiklikler).
+
+##### Bulgu: wazero arm64 derleyicisi (mimara, risk kaydı)
+
+- linux/arm64 (Docker, Apple Silicon) üzerinde wazero **v1.9.0, v1.10.1, v1.11.0, v1.12.0** derleyicisi (wazevo) kodlayıcının
+  ilk çerçevesinde `wasm error: out of bounds memory access` veriyor. Adlı (strip edilmemiş) derlemede yığın:
+  `silk_noise_shape_quantizer_del_dec ← silk_NSQ_del_dec_c ← silk_NSQ_wrapper_FLP ← silk_encode_frame_FLP ← silk_Encode ←
+opus_encode_frame_native ← opus_encode_native ← opus_encode ← nk_enc`.
+- Aynı wasm (`715ac5…`) arm64 **yorumlayıcıda** ve amd64 **derleyicide** doğru çalışıyor; amd64 derleyici çıktısı yorumlayıcıyla
+  bayt bayt aynı (`TestP28dK0sCompilerMatchesInterpreter`). WASM deterministik olduğundan ayrışma arm64 arka ucunda yanlış
+  derleme belirtisidir (kök neden araştırılmadı; yerel macOS/arm64'te yeniden üretilmedi).
+- Etki: yayın hedefi yalnız windows/amd64. `runtimeConfig` amd64 dışında yorumlayıcı seçer (yalnız geliştirme/test; ~22 ms/çerçeve
+  üretime uygun değil). **Sapma:** görev "compiler (amd64/arm64)" diyordu; arm64 derleyici bu bulgu yüzünden kapalı.
+- Güvenlik yorumu: Y-PD-2 sandbox gerekçesi JIT'in doğruluğuna dayanır. Bir arka uçta yanlış derleme görülmesi, amd64 arka
+  ucunda da veriye bağlı gizli hata olasılığını sıfırlamaz. Azaltımlar: derleyici = yorumlayıcı eşitlik testi CI'da (amd64),
+  fuzz amd64 derleyici yolunda, sınır dışı erişim yine tuzak olur (doğrusal bellek dışına yazma JIT hatası olmadan mümkün
+  değil). Upstream'e hata bildirimi önerilir (wasm + yeniden üretim adımı hazır).
+
+##### Yazılan / değişen dosyalar (apps/agent-win; commit yok)
+
+- `build/libopus-wasm.sh` (yeni): tekrarlanabilir libopus.wasm hattı (host'ta indir + SHA-256, konteyner `--network none`,
+  `--user`, sabit `/tmp/nkwork` yolu, `-O2 -g0 -fno-ident -ffile-prefix-map`, `SOURCE_DATE_EPOCH`, sıralı kaynak, sabit adlı
+  nesneler, `--strip-all --stack-first -z stack-size=1MiB --max-memory=16MiB`, reactor). Kaynak listesi libopus'un
+  `*_sources.mk` dosyalarından (kayan nokta yapı; x86/ARM/DNN dışarıda). Varsayılan `WASI_SDK_PLATFORM=linux/amd64`.
+- `build/libopus-wasm/nk_opus.c` (yeni): sabit imzalı kabuk. **Sapma (daha dar yüz):** `opus_*_ctl` değişken argümanlı
+  olduğundan ve host'tan `malloc/free` gerekmediğinden dışa aktarım yalnız `nk_packet_buf, nk_pcm_buf, nk_enc_init, nk_enc,
+nk_enc_lookahead, nk_dec_init, nk_dec`. Tamponlar ve durum işaretçileri tek statik yapıda (`_Static_assert` ile sabit yerleşim).
+- `internal/voice/libopus.wasm` (328 437 B, `//go:embed`), `libopus.wasm.sha256`, `libopus-COPYING.txt` (libopus BSD-3).
+- `internal/voice/opus.go`: genel API aynı (`NewEncoder/Encode/Lookahead/Close`, `NewDecoder/Decode/Conceal/DecodeFEC/Close`,
+  `admit` sırası, 1275 B, 100 paket/sn, 3 tuzakta `ErrPeerDropped`). Arka uç wazero: çalışma zamanı + derlenmiş modül süreçte
+  bir kez (`sync.Once`), kodlayıcı/çözücü başına ayrı örnek (`WithName("")`, `_initialize`), modül config'ine FS/stdout/saat
+  verilmez, içe aktarım varsa kurulum reddedilir. Tuzak → `ErrCodecPanic` (adı korundu, ileti "tuzağa düştü"); çözücüde eski
+  örnek kapatılıp yenisi kurulur, kodlayıcı kapanır. Kapalı örnek `errClosed` döner (tuzak sayılmaz, yeniden kurulum yok).
+  libopus negatif kodları tipli `opusError`. Çağrılar `CallWithStack` ile ayırmasız.
+- `internal/voice/opus_test.go`: opus-go importu kaldırıldı; stereo/çerçeve testi fikstürden; yeni `WasmDigestMatches`,
+  `WasmSandboxSurface`, `TrapIsolatedPerInstance`, `CompilerMatchesInterpreter`, `BenchmarkP28dK0sEncode20msEngine`;
+  `FuzzDecode` tuzakları `NOKTA_K0S_TRAPLOG` dosyasına O_APPEND ile sayar.
+- `internal/voice/testdata/opus-fixtures.txt` (yeni, kaynağı başlıkta).
+- `go.mod/go.sum`: `github.com/kazzmir/opus-go` çıktı (`go mod tidy`), `github.com/tetratelabs/wazero v1.12.0` girdi
+  (commit `2ab480b55fa408d6b35df97fe32a60d08bd6e201`, `h1:DuWcpNu/FzgEXgGBDp8J1Spc+CWOvvtvVyjKlaZopYU=`; tek bağımlılığı
+  `golang.org/x/sys`, zaten var). Sabitlenenler: wasi-sdk-34 imaj dizini `sha256:52595085a0ffbaf574d8d678a9aa81305f0b3af81c639291f15bc7713e42848e`
+  (amd64 manifest `sha256:9515a062…`, arm64 `sha256:c91f54df…`).
+- `wasapi_windows.go`, `com_windows.go` değişmedi.
+
+##### CI taslağı (.github/workflows/agent-win.yml — K0s taslağı; K4 ile uygulandı, güncel hâli iş akışında ve §K4 notunda)
+
+`check` job'u Go konteynerinde koşar (Docker yok); libopus.wasm yeniden üretimi ayrı bir job olmalı:
+
+```yaml
+  libopus-wasm:
+    name: libopus.wasm yeniden üret + SHA karşılaştır
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: apps/agent-win
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with: { persist-credentials: false }
+      # Betik: tarball SHA-256 (Xiph) + wasi-sdk imajı digest ile sabit, konteyner ağsız. Çıktı repo'dakiyle bayt bayt aynı olmalı.
+      - name: yeniden üret
+        run: build/libopus-wasm.sh "$RUNNER_TEMP/wasm"
+      - name: karşılaştır
+        run: |
+          cmp "$RUNNER_TEMP/wasm/libopus.wasm" internal/voice/libopus.wasm
+          cmp "$RUNNER_TEMP/wasm/libopus.wasm.sha256" internal/voice/libopus.wasm.sha256
+          cmp "$RUNNER_TEMP/wasm/libopus-COPYING.txt" internal/voice/libopus-COPYING.txt
+```
+
+Not: `go test` içindeki `TestP28dK0sWasmDigestMatches` gömülü ikilinin `.sha256` ile tutarlılığını her koşuda denetler;
+`TestP28dK0sCompilerMatchesInterpreter` `check` job'unda (amd64) derleyici doğruluğunu sınar (~9 sn Rosetta'da; CI'da daha kısa).
+`paths` filtresi istenirse `apps/agent-win/build/libopus-wasm*/**` + `internal/voice/libopus*`.
+
+### K4 operasyon (devops; tmp-impl-k4.md'den taşındı)
+
+Tarih: 2026-11-17 · Dal: p28d (388dbdf + çalışma ağacı) · Yazan: devops · Commit yok
+
+#### Değişen dosyalar
+
+- `.github/workflows/agent-win.yml`
+  - Yeni iş `libopus-wasm` ("libopus.wasm yeniden üret + karşılaştır"): host runner (Docker gerekir; Go konteyneri değil), izin
+    üst düzey `contents: read`, checkout SHA sabit (v7.0.1). Adımlar: (1) betikteki `OPUS_SHA256` = iş akışındaki
+    `OPUS_SHA256_PINNED` ve `WASI_SDK_IMAGE` digest'li mi; (2) `sha256sum -c libopus.wasm.sha256`; (3)
+    `sh build/libopus-wasm.sh "$RUNNER_TEMP/wasm"` (çıktı dizini her zaman verilir); (4) `libopus.wasm`, `.sha256`,
+    `libopus-COPYING.txt` `cmp`; özet step summary'ye. `paths` süzgeci yok (atlanan iş kapıyı bozardı).
+  - `approve` işi `needs` + `if:` koşuluna `libopus-wasm` eklendi: doğrulanmamış wasm'lı etiket imzalanmaz/yayımlanmaz.
+  - `test-windows`: "P28d ses testleri (-v; wazero + libopus.wasm)" adımı, P28c adımından sonra, K6s kilit adımından (son adım) önce.
+    `go test -count=1 -v -run 'P28d|Voice|Opus' ./internal/...` (K3 testleri paket listesi değişmeden görünür). Zorunlu PASS listesi
+    `internal/voice/opus_test.go`'daki 12 `Test*` (P28a kalıbı `"--- PASS: $t ("`); SKIP kırmızı (windows-2025 amd64; SKIP yolları
+    yalnız `-short` ve amd64 dışı). K3 kendi adlarını listeye ekler.
+- `.github/dependabot.yml`: gomod `go-minor-patch` grubuna `exclude-patterns: ["github.com/tetratelabs/wazero"]` → wazero her sürümde
+  ayrı PR (Dependabot belgesi: exclude eşleşen bağımlılık gruptan çıkar, tekil PR alır). Auto-merge yapılandırması repo'da yok (grep).
+  Yorumda birleştirme öncesi koşullar (runbook §28d.11).
+- `docs/runbook.md`: yeni §28d (28d.1–28d.11); §11.1 tablosunda main koruma zorunlu kontrollerine `libopus.wasm yeniden üret +
+karşılaştır`; §24.4 adım 2'ye libopus-wasm.
+
+#### Doğrulamalar (yerel)
+
+| Ne                                                   | Sonuç                                                                                                                                                                                                                                                                                                                 |
+| ---------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `sh build/libopus-wasm.sh <scratch>` + 3 dosya `cmp` | GEÇTİ — `715ac5d3…62e2`, repo ile bayt bayt aynı (Apple Silicon, `linux/amd64` wasi-sdk imajı, ≈ 1 dk)                                                                                                                                                                                                                |
+| Xiph `SHA256SUMS.txt` ↔ sabit                        | `opus-1.6.1.tar.gz` = `6ffcb593…72411a1` (2026-11-17 elle eşlendi; CI'da canlı çekilmez — aynı köken, kararsızlık)                                                                                                                                                                                                    |
+| P28d adımı betiği (iş akışından çıkarıldı)           | Go imajı (digest), `--platform linux/amd64`, repo `:ro`: 12/12 PASS, `CompilerMatchesInterpreter` 9 sn, çıkış 0. İlk iki koşudaki "setup failed" yerel modül önbelleğinin (scratchpad bind mount) yarım açılmasındandı; Docker volume ile temiz. **Windows'ta bu testler henüz hiç koşmadı — ilk CI koşusu kanıttır** |
+| shellcheck (CI komutu, deploy + scripts)             | 0 uyarı                                                                                                                                                                                                                                                                                                               |
+| actionlint 1.7.8 (CI komutu)                         | 0                                                                                                                                                                                                                                                                                                                     |
+| `bash deploy/ops/test-watch.sh`                      | GEÇTİ (remote-watch değişmedi)                                                                                                                                                                                                                                                                                        |
+| prettier                                             | Dokunduğum 3 dosya `--write`; `pnpm format:check` yalnız `docs/tmp-impl-k3.md`'de (Go ajanının dosyası) fark gösteriyor                                                                                                                                                                                               |
+
+#### Sapmalar / kararlar
+
+1. mimari-p28d §10 "agent-win.yml (değişmez)" opus-go (saf Go) için yazılmıştı. A-PD-1 ile wazero + gömülü wasm'a geçildi; gömülü
+   ikilinin kaynaktan yeniden üretimi için `libopus-wasm` işi ve P28d ad sözleşmesi adımı eklendi (koordinatör görevi). Mimari §10 ve
+   §11 "CI" paragrafı (opus-go, `kazzmir/opus-go` Dependabot) mimar tarafından wazero'ya güncellenmeli.
+2. Tarball SHA iki yerde sabit (betik + iş akışı): betikteki değer sessizce değişirse iş kırmızı. Canlı Xiph çekimi yapılmadı.
+3. Yeni alarm yok: `remote-watch.sh` `rs_voice_*` okumuyor (denetlendi); izleyicinin `voice.*` reddi mevcut `multi-denied`'a düşer.
+4. `sessions.voice` rol varsayılanı çalışma anında (`effectivePermissions`): yayınla tüm mevcut Admin'lerde açık olur — runbook §28d.1'de yazılı.
+
+#### Açık maddeler (başkalarına)
+
+- **Repo sahibi:** main koruma kuralına zorunlu kontrol `libopus.wasm yeniden üret + karşılaştır` eklenmeli (eklenmezse PR'da kırmızı
+  olsa da birleştirme engellenmez; etiket yolunu `approve` zaten kapatıyor).
+- **Go ajanı (K3):** P28d testlerinin adları adımdaki listeye eklenir (`agent-win.yml` "P28d ses testleri"); ad kuralı `P28d|Voice|Opus`.
+  `build/libopus-wasm.sh` shellcheck SC2089/SC2090 uyarısı veriyor (`-DPACKAGE_VERSION=\"…\"` bilinçli; betik CI shellcheck kapsamında
+  değil) — kapsam genişlerse satıra `# shellcheck disable=SC2089,SC2090` gerekçesiyle eklenmeli. `docs/tmp-impl-k3.md` prettier.
+- **mimar:** madde 1 (mimari §10/§11 metni opus-go → wazero + libopus.wasm).
+- **test-operatoru (K5):** runbook §28d.7 Windows elle turu ve §28d.8 AC-376 ölçümü (DENENMEDİ, ilk koşuda doğrular).
+
+### Düzeltme turu 1 (Go)
+
+backend-dev (Go), 2026-11-17. Kapsam yalnız `apps/agent-win` + `.github/workflows/agent-win.yml`. Kaynak: qa-raporu "P28d Tur 1" m.2,
+guvenlik-raporu "P28d — Kod turu 1" D-PD-K1-1 ve D-PD-K1-2 (Go tarafı).
+
+#### Değişen dosyalar
+
+- `internal/voice/opus.go` — D-PD-K1-1. `withLimits` her motora bellek tavanı + `CoreFeaturesV2` + `WithCloseOnContextDone(true)` uygular
+  (`compilerEngine` / `interpreterEngine` / `runtimeConfig` artık `engineConfig{cfg, limit}` döndürür). `nk_enc` / `nk_dec` çağrıları
+  `callLimited` ile çerçeve başına `context.WithTimeout` içinde koşar. Süre dolunca wazero örneği kapatır, hata `ErrCodecPanic` olur: aynı
+  tuzak yolu çalışır (çözücü yeniden kurulur, 3. olayda `ErrPeerDropped`; kodlayıcı kapanır, `Call.send` yenisini kurar). Init/tampon
+  çağrıları (`newInstance`) sınırsız `context.Background()` ile çağrılır, çünkü uzaktan veri işlemezler.
+- `internal/voice/opus_test.go` — elle kurulan derleyici/yorumlayıcı yapılandırmaları da aynı yardımcıdan geçer (`compilerEngine()` /
+  `interpreterEngine()`).
+- `internal/voice/opus_limit_test.go` (yeni) — elle yazılmış 1 işlevli wasm (`(loop (br 0)) unreachable`, imza nk_dec ile aynı):
+  `TestP28dOpusContextCancelStopsCall` (bağlam iptali bitmeyen çağrıyı sonlandırır → `ErrCodecPanic`; auto + yorumlayıcı, amd64'te ayrıca
+  derleyici), `TestP28dOpusCallLimitTreatedAsTrap` (süre aşımı = tuzak: örnek kapanır, yenisi kurulur, 3. olayda eş düşer),
+  `TestP28dOpusCallLimitValues`.
+- `internal/flow/flow.go` + `internal/flow/voice.go` — D-PD-K1-2. Yeni alan `Deps.VoiceActiveWait` (varsayılan 5 sn). `voiceAccept`
+  zamanlayıcıyı kurar (`armVoiceActiveWait`), sonuç döngüye `peerEvent{run}` ile döner. `voiceActiveTimeout` şu koşulların hepsi
+  sağlanıyorsa tek yoldan `releaseMic(VoiceTexts.Ended)` çağırır: aynı kabul (gen) hâlâ geçerli, rıza hâlâ o callId'de ve o callId için
+  `active` görülmedi. Mesaj gönderilmez (pending'de sunucu `voice.end`'i düşürür). Geç gelen `active` rızasız sayılır ve mevcut yoldan
+  callId başına tek `voice.end{customer}` üretir.
+- `internal/flow/voice_p28d_test.go` — `startVoiceDeps` yardımcısı (Deps seçeneği; `startVoice` ona devreder).
+- `internal/flow/voice_wait_p28d_test.go` (yeni) — QA m.2: `TestP28dDoneTimeoutEventsInMultiMode`. Kontrol sahibi tid'i doluyken
+  `peerEvent{doneTimeout}` → `files.DoneTimeout` → `UI.FileResult(CORRUPT)`. `session_media.go` case sırası geçici olarak eski hâline
+  döndürülünce test **kırmızı** oldu ("doneTimeout olayı yutuldu"), dosya geri yüklendi (diff 0). D-PD-K1-2 testleri:
+  `TestAC374P28dReleaseMicWhenActiveNeverArrives`, `TestAC374P28dActiveInTimeKeepsMic`,
+  `TestAC374P28dActiveWaitDuringOpenClosesStaleOpen`.
+- `.github/workflows/agent-win.yml` — "P28d ses testleri" PASS listesine 7 yeni ad eklendi. Liste artık 85 ada sahip ve koddaki
+  `P28d|Voice|Opus` adlı Test işlevleriyle karşılaştırıldı, fark 0.
+
+#### Kararlar / sapmalar (gerekçeli)
+
+1. **Süre sınırı 200 ms (derleyici), 2 sn (yorumlayıcı). Raporun örneği 50 ms'ydi.** Sınırın amacı asılı kalan bir çağrıyı kesmek;
+   gerçek zaman bütçesini zorlamak değil. amd64 derleyicide kodlama+çözme çerçeve başına ölçümde ≤ 0,8 ms (öykünmede) sürüyor.
+   `Decoder.panics` sayacı sıfırlanmadığı için yük altındaki bir makinede zamanlayıcı/GC duraklamaları kısa bir sınırı tetikleyebilir ve
+   bu, eşin kalıcı düşmesine yol açar. 200 ms (10 çerçeve) bu yanlış pozitifi önlüyor; gerçek bir sonsuz döngü yine en geç 200 ms'de
+   kesiliyor. Yorumlayıcı yalnız arm64 geliştirme/test içindir (~22 ms/çerçeve; `-race` ve öykünmede kat kat yavaşlar), bu yüzden 2 sn.
+2. **Performans (amd64 derleyici, `--platform linux/amd64` Rosetta öykünmesi, VirtualApple 2,5 GHz).** Ölçülen, 20 ms'lik bir çerçevenin
+   kodlama+çözme süresi (geçici benchmark, `-count 3`; dosya silindi):
+
+   | Durum                                        | ns/çerçeve | ayırma       |
+   | -------------------------------------------- | ---------- | ------------ |
+   | Eski (bayrak yok)                            | ~272 000   | 0            |
+   | `WithCloseOnContextDone` + Background bağlam | ~783 000   | 6 (~380 B)   |
+   | Yeni (bayrak + çağrı başına zaman aşımı)     | ~794 000   | 16 (~1,1 KB) |
+
+   Maliyetin neredeyse tamamı derleyicinin döngü başlarına eklediği sonlandırma denetimlerinden geliyor (~2,9×). Zamanlayıcı ve wazero
+   izleme goroutine'i ihmal edilebilir. Mutlak değer 20 ms bütçenin ~%4'ü (eş başına bir kodlama + konuşan başına bir çözme). Ölçüm
+   öykünmede yapıldı, gerçek Windows amd64'te mutlak süre daha düşük olmalı. **Windows'ta CPU payı runbook §28d.8 elle ölçümüne eklenmeli
+   (test-operatoru).** Bu oran kabul edilemez çıkarsa geri dönüş yolu, bayrağı kaldırıp D-PD-K1-1'i kabul edilen risk saymaktır.
+
+3. `call` yorumundaki "ayırmasız" ifadesi kaldırıldı: sınırlı çağrı, çağrı başına bağlam ve zamanlayıcı ayırıyor. Testlerde
+   `AllocsPerRun` yok.
+4. D-PD-K1-2 için yeni UI metni eklenmedi; mevcut `VoiceTexts.Ended` kullanıldı.
+
+#### Doğrulama (2026-11-17, `apps/agent-win`)
+
+| Komut                                                                                          | Sonuç                                                           |
+| ---------------------------------------------------------------------------------------------- | --------------------------------------------------------------- |
+| `docker run golang:1.26 … go test ./... && GOOS=windows go vet ./... && GOOS=windows go build` | 31 paket ok (voice 219 s, arm64 yorumlayıcı), vet + build temiz |
+| `--platform linux/amd64` `go test -race ./internal/voice/... ./internal/flow/...`              | ok (voice 163 s, flow 14,6 s; amd64 derleyici yolu)             |
+| `gofmt -l .`                                                                                   | boş                                                             |
+| staticcheck 2026.2.2 (0.8.2) linux + `GOOS=windows`                                            | 0 bulgu                                                         |
+| actionlint (rhysd/actionlint imajı) `agent-win.yml`                                            | 0                                                               |
+| PASS listesi ↔ kod (`P28d\|Voice\|Opus` Test işlevleri)                                        | 85 = 85, fark 0                                                 |
+
+#### Frontend için sözleşme değişikliği
+
+Yok. Sunucu/web mesajları değişmedi. Go misafiri, kabulden sonra 5 sn içinde `active` gelmezse mikrofonu yalnız yerelde bırakır.
+
+### Düzeltme turu 1 (web)
+
+frontend-dev, 2026-11-17. Kapsam yalnız `apps/web`. Kaynak: qa-raporu "P28d Tur 1" m.1 + öneri (peer.ts `replaceTrack`),
+guvenlik-raporu "P28d — Kod turu 1" D-PD-K1-2 (web misafir tarafı). Yeni rota yok, bağımlılık yok, sözleşme değişmedi.
+
+#### Değişen dosyalar
+
+- `lib/webrtc/stats.ts` — ses kaybı yalnız sayaç ilerliyorsa hesaplanır. Görüşme bitip alıcı izi kaldığında `packetsReceived > 0` ama
+  fark 0 oluyordu; satır "%0" olarak kalıyordu. Artık `null` döner ve satır gizlenir (§8 "görüşme etkinken").
+- `lib/webrtc/stats.test.ts` (yeni) — QA m.1 (a): "AC-376 ses paket kaybı" — iki örnekte kayıp/alınan farkından `audioLossPct`,
+  paket yokken / ilk örnekte / sayaç donunca `null`, `evaluate` ile ≥ 3 sn eşik aşımı → `warn`/`bad` `audioLoss`, kısa sıçrama `ok`.
+- `components/console/quality-panel.test.tsx` (yeni) — QA m.1 (b): "AC-376 kalite paneli ses kaybı satırı": değerliyken
+  "Ses kaybı %x" (`formatNumber`), `null` iken satır yok, sorun rozetinde "ses kaybı yüksek".
+- `e2e/p28d-voice.spec.ts` — AC-374 testine mimari §9 doğrulaması eklendi: görüşme sürerken konsol "Kalite" panelinde
+  `Ses kaybı %n` görünür.
+- `lib/voice/guest.ts` — D-PD-K1-2. `accept()` bir onay bekçisi kurar (`CONFIRM_MS` = 5 sn). Bekçiyi yalnız iki şey kapatır: o `callId`
+  için gelen `voice.state{active}` ve `release()`. Aynı görüşmenin `pending` yayını kapatmaz. Süre dolunca rıza hâlâ o `callId`'deyse tek
+  `release()` yolu çalışır (iz `stop()`, graf kapanır, tüm ses göndericileri `null`) ve `note = "unconfirmed"` olur. Mesaj gönderilmez.
+  Geç gelen `active` mevcut rızasız yoldan `voice.end{customer}` alır (Go tarafıyla aynı karar). 5 sn dolduktan sonra açılan mikrofon
+  mevcut `consent !== id` denetimiyle hemen durdurulur. `getMic` reddi gövdesi `deviceFail(id)` olarak ayrıldı; yeni `audioFailed()` da
+  aynı yolu kullanır.
+- `lib/webrtc/peer.ts` — QA önerisi. `setAudioTrack` içinde `replaceTrack` hatası artık yutulmuyor. İz bağlanamazsa gönderici
+  `replaceTrack(null)` ile susturulur (ses düşer) ve yeni `onAudioError` geri çağrısı tetiklenir. `null` bağlama hatası sessiz kalır:
+  bırakma yolunun kendisidir ve iz zaten `stop()` edilmiştir, ayrıca yeniden girişi önler.
+- `lib/webrtc/guest-peers.ts`, `lib/webrtc/use-guest-session.ts` — `link.onAudioError` → `GuestPeers` `onAudioError` →
+  `GuestVoice.audioFailed()`, yani mikrofon hatasıyla aynı yol: `voice.end{device}` + `release()` + "Mikrofonunuz açılamadı" uyarısı.
+- `lib/webrtc/peer.test.ts` (yeni) — sahte `pc` ile ret → `[iz, null]` + `onAudioError` bir kez; `null` reddi ve başarı → bildirim yok.
+- `lib/voice/voice-p28d.test.ts` — "D-PD-K1-2" iki test (sahte saat: 4999 ms'de açık, 5000 ms'de bırakıldı; `pending` bekçiyi kapatmaz;
+  geç `active` → `voice.end{customer}`, `getMic` tekrar çağrılmaz; zamanında `active` → 10 sn sonra açık; 5 sn sonra çözülen mikrofon
+  durdurulur) ve `audioFailed` testi.
+- `messages/tr.json` `vg.unconfirmed`, `app/session/[token]/guest-session.tsx` — `note === "unconfirmed"` için mevcut `Alert`
+  (`tone="info"`, `role=status`): "Sesli görüşme başlatılamadı; mikrofonunuz kapatıldı. Teknisyen yeniden isteyebilir."
+
+#### Sapmalar (gerekçeli)
+
+1. **"Logla" yapılmadı.** Tarayıcı kodunda `console.*` lint hatası (`no-console`, D-P28aK-1) ve istemci tanı günlüğü yok. Bunun yerine
+   hata mevcut kullanıcıya görünür yola bağlandı ("ses düşür").
+2. **Teknisyen tarafında `onAudioError` bağlanmadı** (`use-tech-peer.ts`). Teknisyen `voice.end` görüşmeyi herkes için bitirir. Ret
+   durumunda konsol göndericisi yine susturulur (gizlilik ve tutarlılık için), ama durum değişmez. Gerekirse ileride `releaseMic` +
+   bildirim olarak eklenir.
+3. Misafir bekçisi için Go tarafından farklı olarak ayrı bir not metni eklendi (`unconfirmed`). "Sona erdi" demek, hiç başlamamış bir
+   görüşme için yanıltıcı olurdu.
+
+#### Doğrulama (2026-11-17)
+
+| Komut                                      | Sonuç                                                                                                                                                                                                    |
+| ------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `pnpm --filter @remote/web lint typecheck` | temiz                                                                                                                                                                                                    |
+| `pnpm --filter @remote/web test`           | 61 dosya / 552 geçti                                                                                                                                                                                     |
+| `npx playwright test` (tam koşu, 3 kez)    | Son koşu 563 geçti / 242 atlandı / 0 kaldı. Önceki iki koşunun her birinde 1 kararsız hata vardı; ikincisi `p5-collab` TEST-P5-1 (zamanlama), bu değişikliğe dokunmuyor. p28d testleri her koşuda geçti. |
+| `pnpm format:check`                        | temiz                                                                                                                                                                                                    |
+
+### K6 lisans bildirimleri (teknik-yazar, 2026-11-17)
+
+- `apps/agent-win/internal/ui/third_party_notices.txt`: önceden eksik olan Go bağımlılıklarının lisans bildirimleri eklendi.
+  `go.mod`'daki 24 require'ın 23'ü (wazero zaten vardı) ve Go standart kitaplığı (go1.26.11, BSD-3 + PATENTS). Lisanslar: pion/\* MIT,
+  coder/websocket ISC, golang.org/x/\* BSD-3 (+ PATENTS, aynı metin tek bölüm), google/uuid BSD-3, wlynxg/anet BSD-3. Metinler
+  `golang:1.26` içinde `go mod download -json` → `Dir` altındaki `LICENSE`/`LICENSE.txt` dosyalarından aynen alındı. Giriş listesi
+  "Go bağımlılıkları" maddesiyle genişletildi; libopus bölümü değişmedi.
+- Doğrulama: `docker run --rm -v "$PWD:/src" -w /src/apps/agent-win golang:1.26 go test ./internal/ui/...` → ok. `go.sum` değişmedi.
+
+### K6 durum (teknik-yazar, 2026-11-17)
+
+- Tamamlandı. Lisans bildirimleri ve kök `NOTICE` (yukarıda). P28d metinleri yazıldı: README (durum satırı, P28d bloğu,
+  durum tablosu satırı, `NOTICE` bağlantısı), KULLANIM_KILAVUZU "Sesli görüşme" bölümü (teknisyen, müşteri tarayıcı +
+  Windows, Admin yetkisi, Super Admin, audit, sık mesajlar; 5 sn metni iki istemcide aynı), DATASHEET (özellik + güvenlik),
+  api.md "Sesli görüşme (P28d)" (WS `voice.*`, kapı/hata kodları, Permissions-Policy, audit, `rs_voice_*`), CHANGELOG
+  `[Unreleased]` P28d girişi. PDF'ler `pnpm docs:pdf` ile yeniden üretildi; `pnpm format:check` temiz.
+- Açık (teknik-yazar kapsamı dışı): runbook §28d.7 "78 test" ifadesi bayat (güncel PASS listesi 85) — devops.
+
+### Düzeltme turu 2 (web, sayfa testi)
+
+test-raporu P28d Y-1 (1280 px başlık çakışması) ve O-1 (375 px 5 px taşma).
+
+- `app/(panel)/sessions/[id]/console/console-header.tsx`: başlık iki satıra ayrıldı. Ana satır P28d öncesiyle aynı (geri, müşteri, durum, süre, kod, "Uzaktan kontrol" + ipucu, bitir/iptal; `xl:flex-nowrap`, TEST-P4-4). Ses yuvası altta, sağa yaslı ayrı satırda (`console-voice-row`). Yalnız `<audio>` varken satır `[&:not(:has(button,p,span))]:hidden` ile gizli kalır, boş aralık bırakmaz. Yeni token/renk yok.
+- `components/console/voice-controls.tsx`: `voice-controls` sarmalayıcısındaki `shrink-0` kaldırıldı. Ayrı satırda daralabildiği için 375 px'te ipucu sarılıyor, taşma yok.
+- `e2e/p28d-voice.spec.ts`: `headerLayoutOk` (1280 ve 375 px) eklendi. Başlıktaki düğme ve bağlantı kutuları çakışmaz; her birinin ortası `elementFromPoint` ile kendisine düşer; başlık dışına taşmaz; müşteri adı ≥ 80 px; belge yatay taşmaz. micDenied, rejected ve talking durumlarında çağrılıyor. Eski düzende test düştü (`console-control × console-end`; talking'de ad 31 px), yeni düzende geçiyor.
+- Doğrulama: web lint, typecheck ve test (552) yeşil; `p28d-voice.spec.ts` 6/6; `pnpm format:check` yeşil. Tam e2e: 561 geçti, 1 düştü. Düşen `p5-collab` TEST-P5-1 (zamanlama), tek başına koşulunca 20/20 geçti; bu değişiklikle ilgisi yok.
+- Sapma: ses yuvası artık 1280 px'te de ayrı satırda. Başlık, ses görünümü varken yaklaşık 52 px daha yüksek. Tek satır hedefi ana satır için korunuyor.

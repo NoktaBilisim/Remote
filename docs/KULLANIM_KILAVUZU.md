@@ -3303,6 +3303,111 @@ Oturumu açan teknisyenin (oturum sahibi) yanında "Çıkar" yoktur; onunla gör
 | "Oturumdan çıkarıldınız: müşteri sizi çıkardı ya da bu oturum için yetkiniz kaldırıldı." | Bu oturuma yeniden giremezsiniz; gerekiyorsa yöneticinize başvurun                           |
 | "Davet edilebilecek kullanıcı yok"                                                       | Firmada yetkisi olan, etkin ve oturumda olmayan kullanıcı yok                                |
 
+## Sesli görüşme (teknisyen, Admin ve müşteri için)
+
+Teknisyen süren bir destek oturumunda müşteriyle sesli konuşabilir; telefonla ayrıca aramaya gerek kalmaz. Özet:
+
+- Görüşmeyi her zaman **teknisyen ister**, müşteri **Kabul et** ya da **Reddet** der. Müşterinin mikrofonu yalnız müşterinin
+  kendi "Kabul et" tıklamasıyla açılır.
+- Ses doğrudan bilgisayarlar arasında şifreli akar. **Ses hiçbir yerde kaydedilmez**; oturum kaydı açık olsa da kayda ses
+  girmez.
+- Müşteri tarafında **tarayıcı** ya da **Hızlı Destek 0.18 ve sonrası** gerekir. Eski sürümde düğme pasiftir: "Müşterinin
+  uygulaması bu özelliği desteklemiyor — güncel sürümü indirmesini isteyin".
+- **Gözetimsiz oturumda sesli görüşme yoktur** (bilgisayar başında kimse yokken mikrofon açılmaz). Konsolda "Gözetimsiz
+  oturumda sesli görüşme yapılamaz" yazar.
+- Yankı olmaması için iki tarafa da kulaklık önerilir.
+
+### Teknisyen için: Sesli görüşmeyi nasıl başlatırım?
+
+1. Konsolun üst çubuğunda **Sesli görüşme** düğmesine basın.
+2. Tarayıcı ilk kez mikrofon izni sorarsa **İzin ver** deyin. İzin vermezseniz istek gönderilmez.
+3. Düğmenin yerinde "Yanıt bekleniyor" ve kalan süre görünür. Müşterinin yanıt için **60 saniyesi** vardır.
+4. Müşteri kabul edince "Mikrofon açık" göstergesi çıkar; artık konuşabilirsiniz.
+
+Görüşme sırasında:
+
+- **Sessize al**: sesiniz gitmez, gösterge "Sessizde" olur. Yeniden konuşmak için **Mikrofonu aç**.
+- **Görüşmeyi bitir**: görüşme herkes için biter, mikrofonlar kapanır. Bitince "Sesli görüşme bitti" ve süre görünür.
+- Bağlantı kalite panelinde görüşme sürerken **ses kaybı** oranı da gösterilir.
+- Tarayıcı sesi kendiliğinden başlatmazsa **Sesi aç** düğmesi çıkar; basınca karşı tarafı duyarsınız.
+
+### Teknisyen için: Birden çok teknisyen varsa kim konuşur, kim dinler?
+
+- Görüşmeyi isteyen teknisyen **konuşan** olarak başlar.
+- Oturumdaki diğer teknisyen (sahip ya da katılımcı) **Görüşmeye katıl** ile konuşanlara eklenir.
+- **İzleyici** konuşamaz. "Sesli görüşme" yetkisi varsa görüşmeyi otomatik dinler ("Dinleniyor"); yetkisi yoksa
+  "Sesli görüşme sürüyor — dinleme yetkiniz yok" yazar.
+- Müşteri ekranında konuşanların ve dinleyenlerin adı görünür; yeni bir dinleyici katılınca müşteriye duyurulur.
+- Aynı anda tek görüşme olur. Başka bir teknisyenin isteği bekliyorsa "Başka bir teknisyen sesli görüşme istedi" yazar.
+
+### Teknisyen için: Hak ve bekleme kuralları
+
+- Müşteri reddederse, 60 saniye içinde yanıt vermezse, görüşmeyi kendisi bitirirse ya da mikrofonu açılamazsa **30 saniye**
+  sonra yeniden isteyebilirsiniz.
+- Bir oturumda en çok **10** görüşme isteği gönderilebilir.
+
+### Müşteri için: Tarayıcıda sesli görüşme
+
+1. Teknisyen istediğinde "<Ad> sesli görüşme istiyor" penceresi açılır. Pencerede kimlerin dinleyeceği de yazar.
+2. Yanlışlıkla onay olmasın diye düğmeler **1,5 saniye** sonra etkinleşir; seçili düğme **Reddet**'tir.
+3. **Kabul et**'e basın. Tarayıcı mikrofon izni sorarsa **İzin ver** deyin.
+4. Sayfada görüşme çubuğu çıkar: "Mikrofon açık", "Konuşan: …", varsa "Dinleyen: …".
+5. **Sessize al** ile sesinizi kesebilir, **Mikrofonu aç** ile açabilirsiniz.
+6. **Görüşmeyi bitir** ile görüşmeyi istediğiniz an kapatırsınız; mikrofonunuz hemen kapanır.
+
+Yeni biri dinlemeye başlarsa "<Ad> görüşmeyi dinlemeye başladı" uyarısı çıkar. İstemediğiniz teknisyeni **Bağlı
+teknisyenler** listesinden **Çıkar** ile oturumdan çıkarabilirsiniz.
+
+### Müşteri için: Hızlı Destek (Windows) ile sesli görüşme
+
+Akış tarayıcıdakiyle aynıdır; ek olarak:
+
+- İstek penceresinde düğmeler 1,5 saniye kilitlidir. **Kabul et** yalnız sizin farenizle ya da klavyenizle çalışır;
+  teknisyen uzaktan kontrolle sizin yerinize kabul edemez.
+- Oturum penceresinde ses satırı görünür: "● Mikrofon açık · Konuşan: … · Dinleyen: …", **Sessize al** / **Mikrofonu aç**
+  ve **Görüşmeyi bitir**. **Mikrofonu aç** da yalnız sizin girdinizle çalışır.
+- Mikrofon açık olduğu sürece her ekranın üstünde bir **gösterge şeridi** durur. Pencereyi küçültseniz de görünür.
+  Şeride tıklanmaz; görüşmeyi düğmeyle ya da tepsiden bitirin.
+- Tepsi simgesinin ipucu "Nokta Destek — Mikrofon açık" ya da "Sessizde" olur. Tepsi menüsünde **Görüşmeyi bitir** vardır.
+- Yeni biri dinlemeye başlarsa tepside "Görüşmeye yeni bir dinleyici katıldı" balonu çıkar; adı sohbette yazar.
+- Tepsi menüsündeki **Lisanslar**, programın kullandığı açık kaynak bileşenlerin lisans metinlerini gösterir.
+
+### Admin için: Sesli görüşme yetkisini nasıl veririm?
+
+**Kullanıcılar** → kullanıcı → yetkiler ekranında **Oturumlar** grubunda **Sesli görüşme** (`sessions.voice`) anahtarı
+vardır: "Etkin oturumda müşteriyle sesli görüşme başlatır, katılır ve görüşmeyi dinler."
+
+- Admin rolünde açık, User (teknisyen) rolünde kapalı başlar.
+- Anahtar kapalıysa konsolda düğme görünmez; sunucu da isteği reddeder ("Sesli görüşme yetkiniz yok.").
+- İzleyicinin görüşmeyi dinleyebilmesi de bu yetkiye bağlıdır.
+
+### Super Admin için
+
+Ayrı bir ses ayarı yoktur. Super Admin, seçtiği firmada Admin ile aynı yetki ve audit ekranlarını kullanır.
+
+### Geçmiş ve audit log'da sesli görüşme
+
+- **Audit log**'da "Sesli görüşme" grubu: Sesli görüşme istendi, Müşteri sesli görüşmeyi kabul etti, Sesli görüşme kurulmadı
+  (nedeniyle: Müşteri reddetti / Müşteri yanıt vermedi / Müşterinin bağlantısı koptu), Teknisyen sesli görüşmeye katıldı,
+  Sesli görüşme bitti (süre, bitiş nedeni, konuşan ve dinleyen kullanıcılar).
+- **Oturum geçmişi** zaman çizelgesinde aynı olaylar neden ve süreyle görünür.
+- Ses içeriği ve mikrofon aygıtının adı hiçbir yere yazılmaz.
+
+### Sık karşılaşılan mesajlar (sesli görüşme)
+
+| Mesaj                                                                                                                  | Anlamı / ne yapmalı                                                                                                                                   |
+| ---------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
+| "Mikrofon izni verilmedi — adres çubuğundaki site ayarlarından mikrofona izin verip tekrar deneyin" (teknisyen)        | Tarayıcının site ayarlarından mikrofona izin verin, düğmeye yeniden basın                                                                             |
+| "Mikrofonunuz açılamadı. Mikrofonun bağlı olduğunu ve tarayıcıya izin verdiğinizi kontrol edin; …" (müşteri, tarayıcı) | Mikrofonu takın, tarayıcıda izin verin; teknisyen yeniden ister                                                                                       |
+| "Mikrofonunuz açılamadı. … Ayarlar > Gizlilik ve güvenlik > Mikrofon …" (müşteri, Windows)                             | Windows ayarında "Masaüstü uygulamalarının mikrofonunuza erişmesine izin verin" seçeneğini açın; teknisyen yeniden ister                              |
+| "Sesli görüşme başlatılamadı; mikrofonunuz kapatıldı. Teknisyen yeniden isteyebilir." (müşteri)                        | Kabul ettiniz ama görüşme 5 saniye içinde başlamadı; güvenlik için mikrofon kapatıldı. Tarayıcıda ve Windows'ta aynı metin. Teknisyen yeniden istesin |
+| "Müşterinin mikrofonu açılamadı — 30 sn sonra tekrar deneyebilirsiniz" (teknisyen)                                     | Müşteriden mikrofonunu ve iznini kontrol etmesini isteyin                                                                                             |
+| "Müşteri reddetti / Müşteri yanıt vermedi — 30 sn sonra tekrar deneyebilirsiniz"                                       | 30 saniye bekleyin; müşteriyle sohbetten konuşun                                                                                                      |
+| "Şu anda başka bir sesli görüşme isteği var"                                                                           | Bu oturumda bekleyen bir istek var; sonucu bekleyin                                                                                                   |
+| "Bu oturumda sesli görüşme isteği sınırına ulaşıldı."                                                                  | Oturumdaki 10 istek hakkı doldu                                                                                                                       |
+| "Gözetimsiz oturumda sesli görüşme yapılamaz"                                                                          | Bu tür oturumda ses yoktur                                                                                                                            |
+| "Sesli görüşme yetkiniz yok."                                                                                          | Yöneticinizden **Sesli görüşme** yetkisini isteyin                                                                                                    |
+
 ## Oturum kaydı (Admin, teknisyen, müşteri ve müşteri BT için)
 
 Oturum kaydı, destek oturumunda müşterinin ekranından gelen **görüntüyü** saklar. Sonradan "o gün ne yapıldı?" sorusunu

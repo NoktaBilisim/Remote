@@ -1,3 +1,129 @@
+# Test Raporu — P28d (sesli görüşme; web arayüzü)
+
+DURUM: DÜZELTİLMELİ. Bir YÜKSEK bulgu var: 1280 px konsol başlığında ses yuvası "Uzaktan kontrol" ile "Oturumu bitir" düğmelerini üst üste bindiriyor. Bir ORTA bulgu var: 375 px'te ses bildirimleri 5 px yatay taşma yapıyor. 5xx yok, JS hatası (pageerror) yok, axe ihlali yok, test edilen hiçbir AC ❌ değil.
+
+Ortam: yerel üretim derlemesi (standalone) `http://localhost:3217` + sahte API/WS `e2e/mock-api.mjs` / `e2e/mock-ws.mjs` (:4217), dal `p28d` @ `68222ba`, 2026-11-17, Chromium (Playwright 1.65).
+
+- **Betikler:** `docs/test-raporu/e2e/p28d/zz-p28d-op.spec.ts` (akış + ekranlar), `zz-p28d-olcum.spec.ts` (başlık ölçümü) ve `p28d-op.config.ts`. Koşu için `apps/web/` altına geçici kopyalandı, sonra silindi.
+- **Ham sonuç:** `tarama.jsonl`, `olcum.jsonl`. Ekran görüntüleri `docs/img/p28d/` altında (11 dosya, 644 KB).
+- **Kapsam dışı:** Windows istemcisi, gerçek mikrofon ve Windows tarafındaki AC-377 elle doğrulanacak (runbook §28d.7). Çok teknisyenli ses görünümleri (`canJoin`, `listening`, `noPerm`, `otherPending`, AC-378) birim testi ve staging ile doğrulanacak; sahte WS tek teknisyen bağlıyor.
+- **Temizlik:** başlatılan süreçler kapatıldı, 3217/4217 boş. Çalışma ağacında bu turdan yalnız `docs/` altındaki dosyalar var. `apps/agent-win/.../third_party_notices.txt`, `NOTICE`, `docs/implementation.md` ve `docs/pdf/*` değişiklikleri bu tura ait değil.
+
+## Özet
+
+| Ölçüt                                    | Sonuç                                                                                                                                                                                                                                                                                               |
+| ---------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Tüm web e2e (`playwright test`), bir kez | **564 geçti, 0 düştü, 242 atlandı** (2,5 dk). `p28d-voice.spec.ts` desktop'ta 6/6 yeşil. AC-376 @perf (desktop-perf) yeşil. Mobil projede P28d testlerinin hepsi `desktopOnly` olduğu için atlandı; mobil kapsamı bu turda 375 px ile tamamlandı.                                                   |
+| Keşif turu                               | 6 senaryo (akış ×2 genişlik, onaysız/aygıt ×2, kopma, Permissions-Policy). 60 görünüm: açık/koyu × 1280/375, konsol + misafir.                                                                                                                                                                      |
+| Konsol / pageerror                       | Konsol ve misafir sayfasında hata/uyarı **0**, pageerror **0**. Tek 4xx: `/r/ornek-firma` 404 (sahte API'de ref yok; beklenen).                                                                                                                                                                     |
+| 5xx                                      | 0                                                                                                                                                                                                                                                                                                   |
+| axe (WCAG 2.1 AA, bölge)                 | 60 görünümde **0 ihlal**. Kapsananlar: konsol boşta / bekleniyor / görüşmede / sessizde / tüm bildirimler, kalite paneli, misafir diyaloğu, çubuk (açık + sessizde), onaysız ve aygıt uyarıları.                                                                                                    |
+| Taşma                                    | 375'te konsol bildirim durumlarında **5 px** (ORTA-1). 1280'de belge taşması yok, ancak başlık içinde öğeler üst üste biniyor (YÜKSEK-1).                                                                                                                                                           |
+| İkonlar                                  | Anlamlı: Sesli görüşme `Phone`, bekleniyor `PhoneOutgoing`, katıl `PhoneIncoming`, mikrofon `Mic`/`MicOff`, bitir `PhoneOff`, dinleme `Headphones`, duyuru `Ear`, kulaklık önerisi `Headphones`.                                                                                                    |
+| Permissions-Policy                       | `/r`, `/r/ornek-firma` → `microphone=()`; `/login`, `/sessions`, `/account`, konsol, misafir `/session/…` → `microphone=(self)`. `camera=()` her yerde. Gerçek gezinmede `document.featurePolicy.allowsFeature("microphone")`: konsol, `/sessions` ve misafir **true**, `/r/ornek-firma` **false**. |
+
+## Bulgular
+
+### [YÜKSEK] Y-1 1280 px konsol başlığı: ses yuvası "Uzaktan kontrol"u "Oturumu bitir"in üstüne taşıyor, müşteri adı okunmuyor
+
+Sayfa/akış: teknisyen konsolu `/sessions/<id>/console`, tarayıcı misafiri bağlı, 1280×900 (TEST-P4-4 tek satır hedefi; `xl:flex-nowrap`).
+
+Adımlar:
+
+1. Ses yetkili teknisyen (`u-p28d-*`) oturum açar ve misafiri kabul eder; durum "Aktif" olur.
+2. a) Mikrofon izni reddedilmişken "Sesli görüşme"ye basın (`micDenied` bildirimi), veya b) görüşmeyi başlatın (`talking`: "Mikrofon açık" + iki ikon düğme).
+
+Beklenen: başlık tek satır kalır, düğmeler çakışmaz, müşteri adı ve "Müşteri tarayıcı modunda…" ipucu okunur.
+
+Gerçekleşen:
+
+- (a) "Uzaktan kontrol" sarmalayıcısı 71 px'e sıkışıyor. İçindeki 162 px'lik düğme x=1008–1170 aralığına taşıyor ve "Oturumu bitir"in (x=1091–1235) üstüne çiziliyor.
+- `elementFromPoint` ile ölçüldü: "Oturumu bitir"in görünen sol yarısına (x≈1130–1154) tıklama `console-control`'e gidiyor. Bitir düğmesi soluk görünüyor.
+- Müşteri adı bloğu 33 px'e iniyor ("A…", 8 satır).
+- (b) Görüşmede "Müşteri tarayıcı modunda" ipucu "Oturumu bitir"in altında kalıyor, ad "A…" oluyor.
+- Ses yuvası olmayan aynı ekranda (`u-plain`) başlık 74 px yüksek, ad bloğu 150 px ve çakışma yok. Bu fark P28d gerilemesi.
+- Boşta durumda (yalnız "Sesli görüşme") bile ipucu 4 satıra kırılıyor ve ad "Ayşe …" diye kesiliyor. 1440 px'te çakışma yok.
+
+Kanıt: `docs/img/p28d/konsol-mikrofon-izni-yok-1280-light.png`, `docs/img/p28d/konsol-gorusmede-1280-light.png`, `docs/test-raporu/e2e/p28d/olcum.jsonl` ("1280 micDenied", "1280 plain"). Mevcut e2e yakalamıyor, çünkü yalnız belge taşmasına bakıyor (0).
+
+Atanan: frontend-dev
+
+### [ORTA] O-1 375 px'te konsol ses bildirimleri belgeyi 5 px yatay taşırıyor
+
+Sayfa/akış: konsol, 375×900.
+
+Adımlar:
+
+1. Mikrofon izni reddi, müşteri reddi, bekleme sürerken yenileme ("Çok fazla istek"), zaman aşımı veya müşteri aygıt hatası durumlarından birini oluşturun.
+2. Ardından `scrollWidth - clientWidth` değerini ölçün.
+
+Beklenen: 0.
+
+Gerçekleşen: 5 px. `voice-controls` `shrink-0`, düğme (151 px) + `min-w-20 max-w-48` ipucu = 351 px, başlık iç genişliği ~343 px (sağ kenar 380 > 375). Boşta, bekleniyor ve görüşmede durumlarında taşma yok.
+
+Kanıt: `docs/img/p28d/konsol-reddedildi-375-light.png` (ipucu sağ kenara değiyor), `tarama.jsonl` (`konsol-*-375` overflow 5).
+
+Atanan: frontend-dev
+
+### Gözlemler (bulgu değil)
+
+- Misafir zaman aşımında bilgilendirilmiyor: diyalog sessizce kapanıyor. Konsol "Müşteri yanıt vermedi" gösteriyor. Tasarım gereği görünüyor, kayda geçti.
+- Onaysız (unconfirmed) durum: Kabul sonrası sunucu yanıtı gelmezse misafir çubuğu ~5 sn "Mikrofon açık" gösteriyor. 5,4 sn'de mikrofon izi `ended` oluyor, çubuk kalkıyor, bilgi uyarısı çıkıyor (D-PD-K1-2'ye uygun). Uyarı konsol zaman aşımından sonra da kalıyor, yeni istekte kalkıyor.
+- Çift tıklamayla "Kabul et"te diyalog kapanınca ikinci tık alttaki metni seçiyor (ekranda "Teknisyen" vurgulu). Zararsız, test kaynaklı.
+
+## Akış sonuçları
+
+| Akış                                                      | Sonuç | Not                                                                            |
+| --------------------------------------------------------- | ----- | ------------------------------------------------------------------------------ |
+| İzin reddi → istek gitmez, yönerge                        | ✅    | `micDenied`; voice.request 0 (e2e)                                             |
+| İstek → misafir diyaloğu, odak Reddet, Kabul 1,5 sn kilit | ✅    | e2e kilit ölçümü; keşifte açılışta `disabled=true`, Tab ile Kabul'e geçilmiyor |
+| İkinci istekte kilit yeniden                              | ✅    | açılışta `disabled=true`                                                       |
+| Çift tıklama "Sesli görüşme"                              | ✅    | tek `voice.request` (1280 ve 375)                                              |
+| Çift tıklama "Kabul et"                                   | ✅    | tek `voice.answer`, tek `getUserMedia`                                         |
+| Kabul → iki tarafta "Mikrofon açık"                       | ✅    | konsol + misafir çubuğu                                                        |
+| Sessize al (konsol + misafir)                             | ✅    | "Sessizde", iz `enabled=false`                                                 |
+| Konsol bitirir → iki taraf mikrofon ≤ 1 sn                | ✅    | e2e; keşifte iki tarafta izler `ended`                                         |
+| Müşteri bitirir → konsol `customerEnded`                  | ✅    | e2e                                                                            |
+| Ret: Reddet / Esc / X düğmesi                             | ✅    | üçü de `rejected` bildirimi; ret mikrofon açmaz                                |
+| Zaman aşımı (60 sn, kanca)                                | ✅    | konsol `timeout`, misafir diyaloğu kapanır                                     |
+| Bekleme sürerken konsol yenileme                          | ✅    | düğme etkin; basınca sunucu `RATE_LIMITED` → "Çok fazla istek"                 |
+| Onaysız (sunucu yanıtı düşer)                             | ✅    | ~5,4 sn'de mikrofon bırakılır, `voice-unconfirmed` uyarısı                     |
+| Kabul sonrası mikrofon açılamaz                           | ✅    | misafir `voice-device` uyarısı, konsol `deviceEnded`                           |
+| Görüşmede misafir sayfayı yeniler                         | ✅    | yenileme sonrası `getUserMedia` 0, konsol boşta, konsol mikrofonu bırakıldı    |
+| Görüşmede konsol sekmesi kapanır                          | ✅    | misafir mikrofonu 8 ms'de `ended`, çubuk kalktı                                |
+| Rızasız `voice.state{active}` (K-PD-2)                    | ✅    | e2e: mikrofon açılmaz, `voice.end{customer}`                                   |
+| Eski istemci (voice1 yok)                                 | ✅    | e2e AC-379: pasif + AC-352 metni                                               |
+| Kalite paneli "Ses kaybı"                                 | ✅    | "Ses kaybı %0" (1280, açık/koyu axe 0)                                         |
+| 1280 başlık düzeni ses durumlarında                       | ❌    | Y-1                                                                            |
+| 375 bildirim durumlarında taşma                           | ❌    | O-1                                                                            |
+
+## Kabul kriterleri (uçtan uca, web tarafı; sahte API)
+
+| AC                                              | Durum       | Nasıl doğrulandı                                           |
+| ----------------------------------------------- | ----------- | ---------------------------------------------------------- |
+| AC-373 istek / diyalog / ret / zaman aşımı      | ✅          | e2e + keşif (Esc/X/çift tık/kilit yenileme)                |
+| AC-374 aktif / sessize al / bitir ≤ 1 sn        | ✅          | e2e (ölçülü) + keşif                                       |
+| AC-375 Opus + DTLS, kayıtta ses izi 0           | ✅          | e2e (SDP, WebM Tracks)                                     |
+| AC-376 gecikme p95 < 325 ms, "Ses kaybı" satırı | ✅          | e2e @perf yeşil + kalite paneli                            |
+| AC-377 (tarayıcı) mikrofon bırakma              | ✅          | e2e + kopma senaryoları; Windows yarısı elle (kapsam dışı) |
+| AC-378 çoklu teknisyen sesi                     | kapsam dışı | birim + sunucu entegrasyon + staging                       |
+| AC-379 eski istemci                             | ✅          | e2e                                                        |
+| D-PD-1 Permissions-Policy                       | ✅          | başlık + `featurePolicy` (gerçek gezinme)                  |
+
+Not: Y-1 ve O-1 AC davranışını bozmuyor, ancak 1280 tek satır (TEST-P4-4) ve 375 taşmasız standardını ihlal ediyor.
+
+## Görsel gözlemler (ekran görüntülerinden)
+
+- `konsol-mikrofon-izni-yok-1280-light.png`: "Uzaktan kontrol" düğmesi "Oturumu bitir"in üstüne biniyor, bitir düğmesi soluk. Ad "Tarayıcı · yalnız görüntü" dikey kırılıyor. İpucu başlığın sağ kenarına taşıyor (Y-1).
+- `konsol-gorusmede-1280-light.png` / koyu: ad "A…", "Müşteri tarayıcı modunda" metni bitir düğmesinin altında (Y-1). "Mikrofon açık" hapı ve ikon düğmeler iki temada okunaklı.
+- `konsol-kalite-1280-dark.png`: "Ses kaybı %0" satırı diğer satırlarla hizalı.
+- `konsol-reddedildi-375-light.png`: bildirim metni sağ kenara dayanıyor (O-1). İki toast ("Sesli görüşme bitti · 1 sn", "Müşteri sesli görüşmeyi reddetti") alt kenarda üst üste, okunaklı.
+- `misafir-diyalog-375-*.png`: diyalog ekrana sığıyor, başlık iki satır. "Kabul et" (birincil) üstte, "Reddet" altta, tam genişlik. Koyu temada kontrast yeterli (axe 0).
+- `misafir-cubuk-375-light.png`, `misafir-cubuk-1280-light.png`, `misafir-cubuk-sessizde-375-dark.png`: çubuk sayfanın üstünde, "Konuşan: Mehmet Kaya". Düğmeler 375'te alt alta tam genişlik, 1280'de yan yana. Sessizde hapı nötr renk.
+- `misafir-onaysiz-375-light.png`: bilgi uyarısı ekran paylaşımı şeridinin altında, okunaklı.
+
+---
+
 # Test Raporu — P28c K5 (çoklu teknisyen; web arayüzü)
 
 DURUM: GEÇTİ. ENGELLEYİCİ, YÜKSEK ve ORTA bulgu yok, hiçbir AC ❌ değil. Tarama boyunca 5xx yok (yalnız bilerek enjekte edilenler), JS hatası (pageerror) yok, axe ihlali yok, taşma yok. İki DÜŞÜK bulgu ve birkaç gözlem var.

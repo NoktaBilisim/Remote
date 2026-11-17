@@ -33,6 +33,7 @@ import { Rooms } from "../../src/signaling/rooms.ts";
 import { capsFor, capsOf, featuresOf } from "../../src/signaling/rooms-features.ts";
 import type { Clock, Guest, Peer, Room, TechConn } from "../../src/signaling/types.ts";
 import { newMulti } from "../../src/signaling/members.ts";
+import { newVoice } from "../../src/signaling/voice.ts";
 
 class Clk implements Clock {
   t = 1_000_000;
@@ -99,6 +100,7 @@ function setup(o: { perms?: PermissionKey[]; features?: GuestFeature[]; kind?: "
     technicianId: tech.userId,
     technicianName: "Tek",
     multi: newMulti(tech.userId),
+    voice: newVoice(),
     expiresAt: 0,
     tech,
     lobby: new Map(),

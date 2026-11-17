@@ -1,6 +1,6 @@
 // P28c audit + metrik yardımcıları (mimari-p28c §8, §9; AC-370). Tüm olaylar `entity=support_sessions`, `entity_id=sessionId`.
 // Ret alt kodu `failReason` (audit maskesi `/code/i` anahtarını gizler; K0 sapma 4). Sohbet/ad içeriği loga yazılmaz.
-import { MULTI_AUDIT, type MultiAuditAction } from "@remote/contracts/audit";
+import { MULTI_AUDIT, type MultiAuditAction, type VoiceAuditAction } from "@remote/contracts/audit";
 import { writeAudit, type AuditContext } from "../audit/service.ts";
 import type { JsonObject } from "../audit/mask.ts";
 import { newId } from "../lib/ids.ts";
@@ -19,7 +19,7 @@ export function auditMulti(
   room: Pick<Room, "tenantId" | "sessionId">,
   ctx: AuditContext,
   actor: MultiActor,
-  action: MultiAuditAction,
+  action: MultiAuditAction | VoiceAuditAction, // P28d `voice.*` aynı yol (voice.ts)
   newValue: JsonObject,
   result: "success" | "fail" = "success",
 ): Promise<void> {

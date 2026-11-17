@@ -129,6 +129,10 @@ type Resident struct {
 	// Raise açık kapsamın penceresini öne getirir; EndSession süren oturumu kullanıcı bitirmiş gibi sonlandırır.
 	Raise      func()
 	EndSession func()
+	// VoiceEnd P28d (O-PD-3) menüden "Görüşmeyi bitir": süren görüşme kullanıcı bitirmiş gibi biter (yalnız kapsamda).
+	// Licenses "Lisanslar": salt okunur üçüncü taraf bildirimleri (kapsam açmaz, ağ yok). nil ise komut yok sayılır.
+	VoiceEnd func()
+	Licenses func()
 	// Elevated yükseltilmiş süreç: tepsi yok (K-P20-8).
 	Elevated bool
 	// ExitGrace "Çık" sonrası oturumun session.end ile kapanması için beklenen süre; sonra bağlam iptal edilir.
@@ -167,8 +171,14 @@ func (r Resident) loop(ctx context.Context, ic IconAPI) {
 		case <-ctx.Done():
 			return
 		case c := <-ic.Commands():
-			if c == CmdExit {
+			switch c {
+			case CmdExit:
 				return
+			case CmdLicenses:
+				r.licenses()
+				continue
+			case CmdVoiceEnd: // kapsam yok → görüşme yok; tamponda kalmış bayat komut pencere/ağ açmaz
+				continue
 			}
 			if r.Verify != nil {
 				if b := r.Verify(); b != "" {
@@ -215,8 +225,17 @@ func (r Resident) scope(ctx context.Context, ic IconAPI, first bool) bool {
 			<-done
 			return true
 		case c := <-cmds:
-			if c == CmdOpen {
+			switch c {
+			case CmdOpen:
 				r.Raise()
+				continue
+			case CmdVoiceEnd:
+				if r.VoiceEnd != nil {
+					r.VoiceEnd()
+				}
+				continue
+			case CmdLicenses:
+				r.licenses()
 				continue
 			}
 			if !ic.Confirm(ExitConfirm) {
@@ -233,6 +252,12 @@ func (r Resident) scope(ctx context.Context, ic IconAPI, first bool) bool {
 			<-done
 			return true
 		}
+	}
+}
+
+func (r Resident) licenses() {
+	if r.Licenses != nil {
+		r.Licenses()
 	}
 }
 

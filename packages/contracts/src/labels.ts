@@ -12,6 +12,7 @@ import type {
   SessionStatus,
   TimelineEvent,
 } from "./api/sessions.ts";
+import { VOICE_AUDIT, VOICE_AUDIT_LABELS, VOICE_END_REASON_LABELS, VOICE_REJECT_REASON_LABELS } from "./audit.ts";
 import type { ClipResult, PrintDecision, PrintResult } from "./ws-clip-print.ts";
 import type { AvScanReason, FsrvGateReason, FsrvWireState, StoredFileState } from "./ws-fsrv.ts";
 
@@ -230,6 +231,8 @@ export const TIMELINE_ACTION_LABELS: Readonly<Record<string, string>> = {
   "file.scan": "Dosya virüs taraması",
   "file.infected": "Virüslü dosya bulundu",
   "file.download": "Sunucudaki dosya indirildi",
+  // P28d (mimari-p28d §6)
+  ...VOICE_AUDIT_LABELS,
 };
 
 /** P28a (AC-345, 346): pano sonucu — konsol durum metni ve zaman çizelgesi. */
@@ -277,6 +280,12 @@ export interface TimelineText {
 export const SELF_ELEVATED_WARNING = "Müşteri istemcisi yönetici olarak çalışıyordu";
 export const SELF_ELEVATED_UNKNOWN = "Yönetici durumu bilinmiyor";
 
+/** Görüşme süresi "3 dk 12 sn" / "45 sn" (zaman çizelgesi notu). */
+const voiceDuration = (sec: number): string => {
+  const m = Math.floor(sec / 60);
+  const s = sec % 60;
+  return m > 0 ? `${m} dk ${s} sn` : `${s} sn`;
+};
 const str = (v: unknown): string | null => (typeof v === "string" ? v : typeof v === "number" ? String(v) : null);
 
 /** Zaman çizelgesi satırının Türkçe metni (§3 "UI gösterimi"). Bilinmeyen action ham döner. */
@@ -339,6 +348,17 @@ export function describeTimelineEvent(ev: Pick<TimelineEvent, "action" | "detail
     }
     case "file.download":
       return plain(base, str(d.context) === "history" ? "Oturum geçmişinden" : null);
+    case VOICE_AUDIT.REJECT: {
+      const reason = str(d.reason);
+      return plain(base, reason ? labelOf(VOICE_REJECT_REASON_LABELS, reason) : null);
+    }
+    case VOICE_AUDIT.END: {
+      const reason = str(d.reason);
+      const sec = typeof d.durationSec === "number" ? d.durationSec : null;
+      const notes = [reason ? labelOf(VOICE_END_REASON_LABELS, reason) : null, sec !== null ? voiceDuration(sec) : null];
+      const note = notes.filter((n): n is string => n !== null).join(" · ");
+      return plain(base, note === "" ? null : note);
+    }
     default:
       return plain(base);
   }

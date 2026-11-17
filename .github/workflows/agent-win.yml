@@ -508,6 +508,59 @@ jobs:
                    TestP28cSetNamesSameSuffixRechecksDrawn; do
             grep -q -- "--- PASS: $t" "$out" || { echo "::error::$t PASS değil / koşmadı (ad değişti mi? sözleşme: docs/implementation.md P28c)"; exit 1; }
           done
+      # P28d K4 (mimari-p28d §9, §11 K4; runbook §28d.7): istemci 0.18.0 ses testleri günlükte görünür koşar (kapsam yukarıdaki
+      # `go test ./...` ile aynı; bu adım ad sözleşmesini sabitler). Ad kuralı: P28d testlerinin adında `P28d`, `Voice` ya da `Opus`
+      # geçer; -run tüm internal paketlerini süzer. Liste K0s internal/voice (wazero + libopus.wasm) + K3 (flow, voice motoru,
+      # rtc ses, ui/tray, yardımcı sınırı) testleridir (ad süzgecine uyan tüm Test işlevleri); Windows amd64'te
+      # derleyici yolu koşar, SKIP kabul edilmez (yalnız -short ve amd64 dışı SKIP'tir). Listedeki bir testin koşmaması (ad
+      # değişti) kırmızıdır — ad değiştiren listeyi de günceller (sözleşme: docs/implementation.md "P28d").
+      - name: P28d ses testleri (-v; wazero + libopus.wasm)
+        shell: bash
+        run: |
+          out="$RUNNER_TEMP/p28d.txt"
+          GITHUB_STEP_SUMMARY='' go test -count=1 -v -run 'P28d|Voice|Opus' ./internal/... | tee "$out"
+          bad=0
+          for t in TestP28dK0sRoundTripSNR TestP28dK0sPacketLossConcealment TestP28dK0sDecodesStereoAndOtherFrameSizes \
+                   TestP28dK0sWasmDigestMatches TestP28dK0sWasmSandboxSurface TestP28dK0sTrapIsolatedPerInstance \
+                   TestP28dK0sGarbagePacketsNoPanic TestP28dK0sOversizePacketRejected TestP28dK0sRateLimit \
+                   TestP28dK0sPanicIsolatedAndPeerDroppedOnThird TestP28dK0sFrameSizeAndClose TestP28dK0sCompilerMatchesInterpreter \
+                   TestAC374P28dAskClosedWhenRequesterLeavesRoster TestAC374P28dDeviceErrorSendsDeviceEnd \
+                   TestAC374P28dDeviceLostMidCallSendsDeviceEnd TestAC374P28dGuestInboundMatchesFixture \
+                   TestAC374P28dHelloReleasesOpenCall TestAC374P28dLocalEndBeforeActiveThenLateActiveEndsOnce \
+                   TestAC374P28dMuteIsLocal TestAC374P28dNewRequestOtherCallReleases TestAC374P28dNoMicWithoutLocalAccept \
+                   TestAC374P28dReleaseMicOnHello TestAC374P28dReleaseMicOnIdle TestAC374P28dReleaseMicOnLocalEnd \
+                   TestAC374P28dReleaseMicOnSessionEnd TestAC374P28dReleaseMicOnWsDrop \
+                   TestAC374P28dReleaseMicOnWsDropSilencesFirst TestAC374P28dStaleOpenClosedImmediately \
+                   TestAC374P28dStateActiveWithoutConsentSendsCustomerEndOnce TestAC374P28dStateOnlyCloses \
+                   TestAC375P28dAnswerOpusDirection TestAC375P28dICERestartNoDuplicateTrack TestAC375P28dOpusBothWays \
+                   TestAC377P28dConstantsMatchFixture TestAC378P28dGuestOutboundMatchesFixture TestAC378P28dMixMinusExcludesSelf \
+                   TestAC378P28dMutedSendsOthersOnly TestAC378P28dNewListenerAnnounced \
+                   TestAC378P28dNonTalkerPacketDroppedNoDecoder TestAC378P28dOnlyListenersReceive TestAC378P28dPeerBinding \
+                   TestAC378P28dPeerDroppedAfterRepeatedTraps TestAC378P28dRealCodecCallRoundTrip \
+                   TestAC379P28dUnattendedNoFeatureNoOpen TestP28dAudioPushRacesRelease TestP28dBoundaryHelperHasNoVoice \
+                   TestP28dComPartialOpenReleasesAcquired TestP28dComReleaseReverseOrderBalanced TestP28dConcurrentPushAndRoles \
+                   TestP28dDeviceFailureCallsOnFailOnceWithoutDeadlock TestP28dFECAndDecodeCountAsOnePacket \
+                   TestP28dFlowContractPeersRolesSinkErrors TestP28dHRErrorClasses TestP28dJitterArrivalRateLimit \
+                   TestP28dJitterFECThenConceal TestP28dJitterFIFOVariableFrames TestP28dJitterLateAndDuplicateDropped \
+                   TestP28dJitterLossUsesFECThenPLCInCall TestP28dJitterOverflowDropsOldest TestP28dJitterResyncOnSequenceJump \
+                   TestP28dJitterSequenceWrap TestP28dJitterSilenceAfterFivePLCAndReanchor TestP28dJitterStartsAt60msInOrder \
+                   TestP28dLoopPanicReleasesDevice TestP28dMixSaturates TestP28dNilAudioHandlerStillReads \
+                   TestP28dNoticesContainLibopusCopying TestP28dReleaseWithinOneSecond TestP28dRunEventsInMultiMode \
+                   TestP28dSendonlyOfferNoGuestAudio TestP28dSessionWindowWithVoiceRowFits768 TestP28dSilentOfferNoAudioLine \
+                   TestP28dSupportedMatchesWazeroCompilerCriterion TestP28dTrayLicensesOutsideScopeNoNetwork \
+                   TestP28dTrayVoiceEndAndLicensesInScope TestP28dTrayVoiceTipAndMenu TestP28dVoiceAskBody TestP28dVoiceRowTexts \
+                   TestP28dDoneTimeoutEventsInMultiMode TestAC374P28dReleaseMicWhenActiveNeverArrives \
+                   TestAC374P28dActiveInTimeKeepsMic TestAC374P28dActiveWaitDuringOpenClosesStaleOpen \
+                   TestP28dOpusContextCancelStopsCall TestP28dOpusCallLimitTreatedAsTrap TestP28dOpusCallLimitValues; do
+            if grep -q -- "--- PASS: $t (" "$out"; then continue; fi
+            if grep -q -- "--- SKIP: $t (" "$out"; then
+              echo "::error::$t SKIP: windows/amd64'te koşmalı (derleyici yolu), SKIP kabul edilmez"
+            else
+              echo "::error::$t PASS değil / koşmadı (ad değişti mi? sözleşme: docs/implementation.md P28d)"
+            fi
+            bad=1
+          done
+          exit "$bad"
       # P28u K6s spike (mimari-p28u §7.5 soru 1, R-P28u-1; docs/spike-p28u-k6s.md): üretim yardımcısıyla aynı proclimit.Spec'le
       # başlatılan kısıtlı jetonlu çocuk LockWorkStation çağırır. Koşucu oturumunu KİLİTLER (giriş masaüstü Winlogon olur;
       # pano/WGC/yazdırma testleri bozulur), bu yüzden ayrı ve işin GERÇEK son adımıdır. Ölçümdür: sonuç step summary'de
@@ -518,6 +571,44 @@ jobs:
           # Kilitten önce (-v görünür; tablolar ana `go test` adımında step summary'ye yazıldı, burada çiftlenmez):
           GITHUB_STEP_SUMMARY='' go test -count=1 -v -run 'TestK6sOverlay|TestK6sSessionIDs' ./internal/win/ ./internal/servis/
           K6S_KILIT=1 go test -count=1 -v -run 'TestK6sLockRestrictedToken' ./internal/servis/
+
+  # P28d K4 (mimari-p28d §11 K4, §14 O-PD-4; docs/implementation.md P28d K3 "K0s"; runbook §28d.11): gömülü kodlayıcı
+  # internal/voice/libopus.wasm repo'da ikili olarak durur (go:embed). Bu iş onu kaynaktan yeniden üretir ve repo'dakiyle bayt
+  # bayt karşılaştırır: incelenmemiş bir ikili gömülemez. Betik Docker ister (Go konteyneri değil, host runner). Tarball
+  # SHA-256'sı burada ayrıca sabitlenir (Xiph SHA256SUMS.txt değeri, 2026-11-17 elle eşlendi): betikteki değer sessizce
+  # değişirse iş kırmızı olur. libopus sürüm yükseltmesi = betik + bu değer + wasm/.sha256 aynı PR'da (runbook §28d.11).
+  libopus-wasm:
+    name: libopus.wasm yeniden üret + karşılaştır
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: apps/agent-win
+    env:
+      OPUS_SHA256_PINNED: 6ffcb593207be92584df15b32466ed64bbec99109f007c82205f0194572411a1 # opus-1.6.1.tar.gz
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with: { persist-credentials: false }
+      - name: tarball SHA-256 sabitlemesi (betik = iş akışı)
+        run: |
+          got="$(sed -n 's/^OPUS_SHA256=\([0-9a-f]\{64\}\).*/\1/p' build/libopus-wasm.sh)"
+          echo "betik OPUS_SHA256=$got"
+          [ "$got" = "$OPUS_SHA256_PINNED" ] || { echo "::error::build/libopus-wasm.sh OPUS_SHA256 ($got) iş akışındaki sabitle aynı değil"; exit 1; }
+          grep -q '^WASI_SDK_IMAGE="ghcr.io/webassembly/wasi-sdk@sha256:[0-9a-f]\{64\}"' build/libopus-wasm.sh \
+            || { echo "::error::wasi-sdk imajı digest ile sabit değil"; exit 1; }
+      - name: gömülü wasm .sha256 ile tutarlı
+        working-directory: apps/agent-win/internal/voice
+        run: sha256sum -c libopus.wasm.sha256
+      # Betik tarball'ı indirir, SHA-256'yı host'ta ve konteynerde denetler, wasi-sdk imajını digest'le ve ağsız koşturur.
+      # Çıktı dizini her zaman verilir (varsayılan internal/voice'un üzerine yazar).
+      - name: yeniden üret (wasi-sdk, ağsız konteyner)
+        run: sh build/libopus-wasm.sh "$RUNNER_TEMP/wasm"
+      - name: repo'daki ikiliyle bayt bayt karşılaştır
+        run: |
+          for f in libopus.wasm libopus.wasm.sha256 libopus-COPYING.txt; do
+            cmp "$RUNNER_TEMP/wasm/$f" "internal/voice/$f" || { echo "::error::$f yeniden üretilenle aynı değil (runbook §28d.11)"; exit 1; }
+          done
+          { echo '### libopus.wasm (yeniden üretildi = repo)'; echo '```'; cat internal/voice/libopus.wasm.sha256; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
 
   build:
     name: build ${{ matrix.n }}/2
@@ -665,8 +756,9 @@ jobs:
     # (runbook §11.1). Kontrol listesi `reproducible` işinin özetindedir.
     if: >-
       !cancelled() && github.event_name == 'push' && github.ref_type == 'tag' && needs.check.result == 'success' &&
-      needs.test-windows.result == 'success' && needs.reproducible.result == 'success'
-    needs: [check, test-windows, reproducible]
+      needs.test-windows.result == 'success' && needs.reproducible.result == 'success' &&
+      needs.libopus-wasm.result == 'success'
+    needs: [check, test-windows, reproducible, libopus-wasm]
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     environment: agent-release

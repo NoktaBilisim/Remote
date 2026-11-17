@@ -117,6 +117,8 @@ type session struct {
 	srv      *srvFiles
 	// rec P28e kayıt rızası/göstergesi/durdurma (rec.go).
 	rec recState
+	// voice P28d sesli görüşme (voice.go).
+	voice voiceState
 }
 
 func (s *session) run(ctx context.Context, jr *api.JoinResult) Outcome {
@@ -197,6 +199,7 @@ func (s *session) onInbound(ctx context.Context, r inbound) (Outcome, bool) {
 // startReconnect AC-24: kabul edilmiş misafir reconnectToken ile 120 sn içinde döner; yeni PeerConnection kurulur.
 func (s *session) startReconnect(ctx context.Context) {
 	s.closeControl(ctx, "", true) // kopuşta kapı kapanır; sunucu durumu VIEW yapar (AC-24)
+	s.voiceDrop(VoiceTexts.Ended) // P28d O-PD-1/V-PD-7: kapıdan hemen sonra; göndericiler susar, mikrofon bırakılır, rıza silinir
 	s.cp.reset()                  // P28a O-P28a-1 m.4: bekleyen kimlikler silinir
 	s.resetFsrv()                 // P28b: yarım teklif/alım yerelde biter, fid'ler yeni sokette iptal edilir
 	// AC-250 (B-P8c2-4): yanıtı gelmemiş kayıt isteği soketle gitti; yeni soketteki teklif yeni istek doğurur.
@@ -283,6 +286,8 @@ func (s *session) onUser(ctx context.Context, ev Event) (Outcome, bool) {
 		s.cp.onUser(ev)
 	case EvRecStop:
 		s.onRecStop(ctx)
+	case EvVoiceAccept, EvVoiceReject, EvVoiceEnd, EvVoiceMute:
+		s.onVoiceUser(ctx, ev)
 	case EvFileCancel:
 		if s.srv != nil {
 			s.cancelFsrv(ctx)
@@ -318,6 +323,7 @@ func chatMessage(text string, now time.Time) ([]byte, error) {
 
 func (s *session) cleanup() {
 	s.gate.Close()
+	s.voiceDrop("") // P28d D-PD-5: kapıdan hemen sonra mikrofon bırakılır (açılmakta olan da, openVoice)
 	s.cp.close()
 	s.closeFsrv()
 	s.dropPeers()

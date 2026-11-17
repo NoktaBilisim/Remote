@@ -13,6 +13,7 @@ import type { GuestConsent } from "../public/consent.ts";
 import type { IceGrant, TurnConfig } from "./turn.ts";
 import type { RoomRec } from "../rec/types.ts";
 import type { MemberRole, MemberVia } from "@remote/contracts/ws-multi";
+import type { VoicePhase } from "@remote/contracts/ws-voice";
 
 /**
  * P27 gözetimsiz oda + P28u kip/onay/müdahale durumu (mimari-p28u §8.1, §8.3; bellekte). `consentRequest` connect'te
@@ -69,6 +70,8 @@ export interface Peer {
   rec?: boolean;
   /** P28c (§4.4): misafir soketi `rs.cap.multi1` bildirdi mi (ws.ts upgrade; gözetimsiz odada da okunur). */
   multi?: boolean;
+  /** P28d (§4.1): soket sesi destekliyor mu (`rs.cap.voice1` ya da BROWSER; ws-auth). Karar yalnız `hasVoice` ile okunur. */
+  voice?: boolean;
 }
 
 /** Zamanlayıcı soyutlaması: üretimde gerçek saat, testlerde elle ilerletilen sahte saat (AC-13, AC-25). */
@@ -349,6 +352,30 @@ export interface Room {
   recGate?: RecGate;
   /** P28c çoklu teknisyen (signaling/members.ts). */
   multi: MultiRoom;
+  /** P28d sesli görüşme (signaling/voice.ts). */
+  voice: VoiceRoom;
+}
+
+/**
+ * P28d `Room.voice` (mimari-p28d r2 §3; bellekte). Oda başına tek görüşme. `talkers` tid kümesi (izleyici asla); `listeners`
+ * saklanmaz, her yayında `listenersOf` ile hesaplanır. `talkerIds`/`listenerIds` görüşme boyunca birleşim (audit, O-PD-2).
+ */
+export interface VoiceRoom {
+  phase: VoicePhase;
+  callId: string | null;
+  /** İsteyen teknisyenin tid'i. */
+  by: string | null;
+  pendingTimer?: unknown;
+  startedAt: number | null;
+  talkers: Set<string>;
+  talkerIds: Set<string>;
+  listenerIds: Set<string>;
+  cooldownUntil: number;
+  requests: number;
+  /** Son yayınlanan durumun anahtarı (değişmeyen durum yeniden yayınlanmaz, D-PD-2). */
+  sentKey: string;
+  /** Son bağlı misafirin `hasVoice` değeri (misafir kısa kopukken teknisyen hello'su için; `guestMulti` kalıbı). */
+  guestVoice: boolean;
 }
 
 /** P28e kayıt kapısı + gözcü durumu (`room.rec` dışı; §6.2, §6.3). */

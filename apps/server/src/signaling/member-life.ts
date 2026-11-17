@@ -15,6 +15,7 @@ import { auditMulti, countInvite, MULTI_AUDIT, MULTI_SYSTEM_CTX, SYSTEM_ACTOR } 
 import { recRecorderChanged } from "./rec.ts";
 import type { Rooms } from "./rooms.ts";
 import type { Member, Peer, Room, TechConn } from "./types.ts";
+import { voiceDropTalker, voiceSync, voiceTechAttached } from "./voice.ts";
 
 /** Silent odada dört göz e-postası kancası (routes-multi bağlar; `sendSilentNotice` `event: join|transfer`). */
 export interface SilentJoinEvent {
@@ -67,6 +68,7 @@ export function attachMember(rooms: Rooms, room: Room, m: Member, conn: TechConn
   m.conn = conn;
   if (old) {
     old.peer.close(WS_CLOSE.REPLACED, "replaced");
+    voiceDropTalker(room, m.userId); // P28d V-PD-5
     if (old.connId) rooms.rec?.dropUploadTokens({ by: "conn", connId: old.connId });
   }
   if (!m.joinedAudited) {
@@ -93,6 +95,7 @@ export function attachMember(rooms: Rooms, room: Room, m: Member, conn: TechConn
   }
   sendHelloTech(rooms, room, conn);
   broadcastRoster(room);
+  voiceTechAttached(rooms, room, conn); // P28d §4.2: roster'dan hemen sonra; yeni dinleyen yayınlanır (Y-PD-3)
 }
 
 /** Üye soketi kapandı: kontrol sahibiyse kontrol sahibe döner; 120 sn payda dönmezse `participant_leave{disconnect}`. */
@@ -108,6 +111,7 @@ export function detachMember(rooms: Rooms, room: Room, userId: string, peer: Pee
     if (rooms.live(room) && room.multi.members.get(userId) === m && !m.conn) leaveMember(rooms, room, userId, "disconnect");
   }, MEMBER_GRACE_MS);
   broadcastRoster(room);
+  voiceSync(rooms, room); // P28d V-PD-5: 120 sn pay üyeliği korur, sesi değil
 }
 
 /**
@@ -144,7 +148,10 @@ export function leaveMember(
         reason,
       },
     );
-  if (rooms.live(room)) broadcastRoster(room);
+  if (rooms.live(room)) {
+    broadcastRoster(room);
+    voiceSync(rooms, room); // P28d: ayrıldı / çıkarıldı / revokeMember → konuşan kalmazsa `left`
+  }
 }
 
 /**

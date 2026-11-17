@@ -10,12 +10,15 @@
 // burada birlik bağlantısı (misafirde yalnız `rs.cap.rec1` sokette), `hello.rec`, `hello.unattended.recordOutdated`.
 // P28c (mimari-p28c §4.4): çoklu teknisyen tipleri `ws-multi.ts`'te; burada birlik bağlantısı (misafirde yalnız
 // `rs.cap.multi1` sokette: `to`'lu `sdp.answer`/`ice` + `tech.remove`), `sdp.offer`/`ice` `from`, teknisyen `hello` ekleri.
+// P28d (mimari-p28d §4): sesli görüşme tipleri `ws-voice.ts`'te; burada birlik bağlantısı (misafirde yalnız `rs.cap.voice1` /
+// tarayıcı sokette), teknisyen `hello`/`peer.joined` `guestVoice`, WS hata kodu `CLIENT_UNSUPPORTED`.
 import { z } from "zod";
 import { guestClipInbound, guestPrintInbound, serverClipPrintOutbound, techClipPrintInbound, type GuestFeature } from "./ws-clip-print.ts";
 import { FILE_MODES, fsrvInbound, PEER_FEATURES, serverFsrvOutbound } from "./ws-fsrv.ts";
 import { CONSENT_MODES } from "./unattended-consent.ts";
 import { guestRecInbound, recHelloSchema, serverRecOutbound, techRecInbound } from "./ws-rec.ts";
 import { guestMultiInbound, helloMultiFields, serverMultiOutbound, techIdSchema, techMultiInbound, WS_CLOSE_REMOVED } from "./ws-multi.ts";
+import { guestVoiceInbound, helloVoiceFields, serverVoiceOutbound, techVoiceInbound } from "./ws-voice.ts";
 
 export const WS_SUBPROTOCOL = "rs.v1";
 export const WS_TICKET_PREFIX = "rs.ticket.";
@@ -75,6 +78,8 @@ export const WS_ERROR_CODES = [
   "INTERNAL",
   /** P20 (§6.1): `full: true` isteğinde oturum firmasının kaydı yok — kayıt verilmez, oturum sürer. */
   "BINDING_LIMIT",
+  /** P28d (§4.2): misafir sesi desteklemiyor (eski istemci / gözetimsiz oda) — yalnız teknisyene; metin `MULTI_ERROR_MESSAGES`. */
+  "CLIENT_UNSUPPORTED",
 ] as const;
 export type WsErrorCode = (typeof WS_ERROR_CODES)[number];
 
@@ -261,6 +266,8 @@ export const techInboundSchema = z.discriminatedUnion("t", [
   ...techRecInbound,
   // P28c (§4.4): kontrol devri, oturum devri, üye ayrılması — rol kapısı `ROLE_MAY` (ws-multi.ts).
   ...techMultiInbound,
+  // P28d (§4.2): sesli görüşme isteği/katılma/bitirme — rol kapısı `ROLE_MAY` "talker" (izleyici değil).
+  ...techVoiceInbound,
 ]);
 export type TechInbound = z.infer<typeof techInboundSchema>;
 
@@ -329,7 +336,8 @@ type GuestOption =
   | (typeof guestPrintInbound)[number]
   | (typeof fsrvInbound)[number]
   | (typeof guestRecInbound)[number]
-  | (typeof guestInboundMultiBase)[number];
+  | (typeof guestInboundMultiBase)[number]
+  | (typeof guestVoiceInbound)[number];
 const guestFullSchema = z.discriminatedUnion("t", [
   ...guestInboundBase,
   ...guestClipInbound,
@@ -344,8 +352,12 @@ const guestFullMultiSchema = z.discriminatedUnion("t", [
   ...fsrvInbound,
   ...guestRecInbound,
 ]);
-/** Tüm soket türlerinin birleşik tipi (multi1 sokette `sdp.answer`/`ice` `to` taşır, `tech.remove` gelir). */
-export type GuestInboundFull = z.infer<typeof guestFullSchema> | z.infer<typeof guestFullMultiSchema>;
+/**
+ * Tüm soket türlerinin birleşik tipi (multi1 sokette `sdp.answer`/`ice` `to` taşır, `tech.remove` gelir; voice sokette
+ * `voice.answer`/`voice.end`).
+ */
+export type GuestInboundFull =
+  z.infer<typeof guestFullSchema> | z.infer<typeof guestFullMultiSchema> | z.infer<(typeof guestVoiceInbound)[number]>;
 const guestSchemaCache = new Map<number, z.ZodType<GuestInboundFull>>([
   [0, guestInboundSchema],
   [15, guestFullSchema],
@@ -358,14 +370,23 @@ const guestSchemaCache = new Map<number, z.ZodType<GuestInboundFull>>([
  * P28e (§6.1): `rec = true` yalnız `rs.cap.rec1` bildiren katılımlı oda soketinde; aksi `rec.*` şema dışı → 1008.
  * P28c (§4.4): `multi = true` yalnız `rs.cap.multi1` bildiren sokette (gözetimsiz oda dahil); `sdp.answer`/`ice` `to` ister,
  * `tech.remove` şemadadır. Aksi `to` ve `tech.remove` şema dışı → 1008.
+ * P28d (§4.1): `voice = true` yalnız `hasVoice` soketinde (gözetimsiz değil ve `rs.cap.voice1` ya da BROWSER); aksi
+ * `voice.answer`/`voice.end` şema dışı → 1008.
  */
 export function guestInboundSchemaFor(
   features: ReadonlySet<GuestFeature>,
   fsrv = false,
   rec = false,
   multi = false,
+  voice = false,
 ): z.ZodType<GuestInboundFull> {
-  const key = (features.has("clipboard") ? 1 : 0) | (features.has("print") ? 2 : 0) | (fsrv ? 4 : 0) | (rec ? 8 : 0) | (multi ? 16 : 0);
+  const key =
+    (features.has("clipboard") ? 1 : 0) |
+    (features.has("print") ? 2 : 0) |
+    (fsrv ? 4 : 0) |
+    (rec ? 8 : 0) |
+    (multi ? 16 : 0) |
+    (voice ? 32 : 0);
   const cached = guestSchemaCache.get(key);
   if (cached) return cached;
   const options: [GuestOption, ...GuestOption[]] = multi ? [...guestInboundMultiBase] : [...guestInboundBase];
@@ -373,6 +394,7 @@ export function guestInboundSchemaFor(
   if (key & 2) options.push(...guestPrintInbound);
   if (key & 4) options.push(...fsrvInbound);
   if (key & 8) options.push(...guestRecInbound);
+  if (key & 32) options.push(...guestVoiceInbound);
   const schema = z.discriminatedUnion("t", options);
   guestSchemaCache.set(key, schema);
   return schema;
@@ -441,6 +463,8 @@ export const serverOutboundSchema = z.discriminatedUnion("t", [
     rec: recHelloSchema.optional(),
     /** P28c (§4.4): YALNIZ role=tech hello'sunda — `tid` (kendi), `techRole` (owner|participant|observer), `roster`. */
     ...helloMultiFields,
+    /** P28d (§4.1): YALNIZ role=tech hello'sunda — kabul edilmiş misafir sesi destekliyor mu (`hasVoice`). */
+    ...helloVoiceFields,
   }),
   z.strictObject({ t: z.literal("lobby.wait"), expiresAt: iso }),
   z.strictObject({ t: z.literal("peer.pending"), guestId: ulid, name: z.string().max(100), guestKind: z.enum(GUEST_KINDS), since: iso }),
@@ -462,6 +486,8 @@ export const serverOutboundSchema = z.discriminatedUnion("t", [
     fileMode: z.enum(FILE_MODES).optional(),
     /** P28c K1c (AC-372): role=guest (teknisyene giden) mesajda misafir `rs.cap.multi1` bildirdi mi (`hello.guestMulti` ile aynı). */
     guestMulti: z.boolean().optional(),
+    /** P28d (§4.1): role=guest (teknisyene giden) mesajda `hasVoice` (`hello.guestVoice` ile aynı). */
+    ...helloVoiceFields,
   }),
   z.strictObject({ t: z.literal("peer.left"), role: z.enum(["tech", "guest"]), reason: z.enum(["disconnect", "ended"]).optional() }),
   /** P28c (§4.4): `from` yalnız multi1 misafire (sunucu damgalar; eski misafirde alan yok). */
@@ -510,6 +536,8 @@ export const serverOutboundSchema = z.discriminatedUnion("t", [
   ...serverRecOutbound,
   // P28c (§4.4): teknisyen listesi (tüm teknisyenlere + yalnız multi1 misafire).
   ...serverMultiOutbound,
+  // P28d (§4.2): görüşme isteği (yalnız voice misafire) ve durum (tüm teknisyenlere + voice misafire).
+  ...serverVoiceOutbound,
 ]);
 export type ServerOutbound = z.infer<typeof serverOutboundSchema>;
 /** Odada saklanan son paylaşım durumu (teknisyen hello `share` alanı). */

@@ -129,8 +129,9 @@ export function useTechSession(sessionId: string, opts: { member?: boolean } = {
     return () => void subs.current.delete(fn);
   }, []);
 
-  const { stream, channels, pc, maxFileMb, input } = link;
-  return { state, stream, channels, pc, send, subscribe, maxFileMb, ...lobby, ...multi, control, input, ...actions };
+  const { stream, channels, pc, maxFileMb, input, remoteAudio, setVoiceTrack } = link;
+  const voice = { remoteAudio, setVoiceTrack };
+  return { state, stream, channels, pc, send, subscribe, maxFileMb, ...lobby, ...multi, control, input, ...actions, voice };
 }
 
 /**

@@ -19,11 +19,16 @@ type recStrip struct {
 }
 
 func newRecStrip(t *thread, text string, onClick func()) *recStrip {
+	return newStrip(t, text, 68, onClick)
+}
+
+// newStrip her monitörde üstten top px aşağıda şerit; onClick nil ise tıklama geçirgen (P28d ses göstergesi).
+func newStrip(t *thread, text string, top int32, onClick func()) *recStrip {
 	st := &recStrip{text: text}
 	for _, m := range win.Monitors() {
 		r := m.Rect
 		const w, h = 420, 30
-		b := newBarOpt(t, r.Left+(r.Right-r.Left-w)/2, r.Top+68, w, h, &st.text, false)
+		b := newBarOpt(t, r.Left+(r.Right-r.Left-w)/2, r.Top+top, w, h, &st.text, onClick == nil)
 		b.click = onClick
 		st.bars = append(st.bars, b)
 	}

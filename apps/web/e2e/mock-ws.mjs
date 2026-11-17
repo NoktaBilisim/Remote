@@ -12,6 +12,15 @@
 // yanıtsız monitör isteği 30 sn sonra düşer, bekleme `at + 30 sn`den başlar (control.ts). Test zamanı `ageRoom` ile ilerletir.
 import { createHash, randomBytes } from "node:crypto";
 import { WebSocketServer } from "ws";
+import { MULTI_ERROR_MESSAGES } from "@remote/contracts/api/multi";
+import { techsRosterSchema } from "@remote/contracts/ws-multi";
+import {
+  VOICE_DENY_COOLDOWN_MS,
+  VOICE_REQUEST_TIMEOUT_MS,
+  VOICE_REQUESTS_PER_SESSION,
+  voiceRequestGuestSchema,
+  voiceStateSchema,
+} from "@remote/contracts/ws-voice";
 import { SESSION_COOKIE as SESSION_COOKIE_NAME } from "@remote/contracts/api/auth";
 import { panelUpgrade } from "./mock-requests.mjs";
 import { p18PanelUpgrade } from "./mock-p18.mjs";
@@ -41,6 +50,10 @@ const LOGGED = new Set([
   "rec.consent",
   "rec.revoke",
   "rec.error",
+  "voice.request",
+  "voice.answer",
+  "voice.join",
+  "voice.end",
 ]);
 const log = (id, from, m) => LOGGED.has(m.t) && (wsLog.get(id) ?? wsLog.set(id, []).get(id)).push({ from, m });
 
@@ -108,6 +121,7 @@ function techGone(r) {
 export function endRoom(id, reason) {
   const r = rooms.get(id);
   if (!r) return;
+  endVoice(r, "session_ended");
   for (const ws of [r.tech, r.guest, ...[...r.lobby.values()].map((e) => e.ws)]) {
     send(ws, { t: "session.ended", reason });
     ws?.close(1000);
@@ -153,6 +167,14 @@ function admitted(r, rec, ws, kind = "BROWSER", guestName, features = []) {
     // P28b (§5.1): yalnız yetenekli sokete (tarayıcı misafiri her zaman, AGENT rs.cap.fsrv1)
     ...(rec.fileMode && (kind === "BROWSER" || features.includes("fsrv")) ? { fileMode: rec.fileMode } : {}),
   });
+  // P28d (K1 active.ts): ses odasında tarayıcı misafire hello'dan hemen sonra roster (teklif `from`'u buna göre), ardından
+  // callId'siz `voice.state{idle}`. Misafir hello'sunda `guestVoice` YOK (sözleşme).
+  r.guestVoice = kind === "BROWSER"; // sunucu hasVoice: BROWSER ya da rs.cap.voice1 (sahte istemci bildirmez → eski istemci)
+  if (rec.voice) r.voiceRec = rec;
+  if (voiceRoom(r, rec)) {
+    send(ws, techsRosterSchema.parse({ t: "techs.roster", techs: [voiceEntry(r)] }));
+    send(ws, voiceStateSchema.parse(stateOf(r)));
+  }
   // Gerçek sunucu sırası (active.ts scheduleActive): admit'te teknisyene ice.servers, peer.joined'dan ÖNCE.
   // Teknisyen ilk teklifi admit sonrası ICE listesi gelene kadar erteler (tech-machine iceGate); yeniden
   // bağlanmada (first=false) sunucu ice.servers göndermez, kapı aynı WS'te zaten açıktır.
@@ -166,11 +188,13 @@ function admitted(r, rec, ws, kind = "BROWSER", guestName, features = []) {
     maxFileMb: rec.maxFileMb,
     guestFeatures: features,
     ...(rec.fileMode ? { fileMode: rec.fileMode } : {}),
+    guestVoice: r.guestVoice,
   });
   ws.on("message", (raw) => {
     const m = JSON.parse(String(raw));
     log(rec.view.id, "guest", m);
     if (p28Guest(r, m)) return;
+    if (voiceGuest(r, m)) return;
     if (recGuest(r, rec, m)) return;
     if (fsrvMsg(r, rec, "guest", m)) return;
     if (m.t === "sdp.answer") send(r.tech, { t: m.t, sdp: m.sdp });
@@ -219,6 +243,7 @@ function admitted(r, rec, ws, kind = "BROWSER", guestName, features = []) {
   });
   ws.on("close", () => {
     if (r.guest !== ws) return;
+    endVoice(r, "disconnect"); // V-PD-7: misafir kopması anında biter (bekleme başlatmaz)
     r.guest = null;
     send(r.tech, { t: "peer.left", role: "guest", reason: "disconnect" });
   });
@@ -271,6 +296,124 @@ export function recHook(id, q) {
 }
 export const recRid = (id) => rooms.get(id)?.rec?.rid ?? null;
 
+/*
+ * P28d (mimari-p28d r2 §4.2; K1 apps/server/src/signaling/voice.ts) asgari taklit — yalnız `rec.voice` odası (u-p28d*):
+ * tek teknisyen (sahip, VOICE_TID) + tarayıcı misafir. Kapı sırası K1 ile aynı: yetki → misafir bağlı (CONFLICT) →
+ * hasVoice (CLIENT_UNSUPPORTED) → faz (CONFLICT) → bekleme / 10 istek (RATE_LIMITED). İstekte önce misafire
+ * `voice.request`, sonra iki tarafa `voice.state{pending, callId, by, listeners:[by]}`. Bitiş yayını `idle + callId +
+ * endReason`; ret / zaman aşımı / customer / device 30 sn bekleme başlatır, kopma başlatmaz. Eşleşmeyen `callId` sessiz düşer.
+ * Her çıkış contracts şemasından geçer. 60 sn zaman aşımı gerçek zamanlayıcı; test `/__e2e/voice/<oturum>?timeout` ile
+ * sahte saat gibi hemen doldurur.
+ */
+const VOICE_TID = "OOOOOOOOOOO";
+const voiceRoom = (r, rec) => Boolean(rec.voice) && r.guestKind === "BROWSER";
+const fromOf = (r, rec) => (voiceRoom(r, rec) ? { from: VOICE_TID } : {});
+const voiceEntry = (r) => ({ tid: VOICE_TID, name: "Mehmet Kaya", role: "controller", owner: true, connected: Boolean(r.tech) });
+const vstate = (r) =>
+  (r.voice ??= { phase: "idle", callId: null, by: null, talkers: new Set(), requests: 0, cooldownUntil: 0, timer: null, sentKey: null });
+/** K1 listenersOf: bağlı + `sessions.voice`. */
+const listenersOf = (r) => (r.tech && r.voiceRec?.canVoice ? [VOICE_TID] : []);
+
+function stateOf(r) {
+  const v = vstate(r);
+  if (v.phase === "idle" || !v.callId) return { t: "voice.state", phase: "idle", talkers: [], listeners: [] };
+  const listeners = listenersOf(r);
+  const talkers = [...v.talkers].filter((t) => listeners.includes(t));
+  return { t: "voice.state", phase: v.phase, callId: v.callId, ...(v.by ? { by: v.by } : {}), talkers, listeners };
+}
+function broadcast(r, msg) {
+  const m = voiceStateSchema.parse(msg);
+  send(r.tech, m);
+  if (r.guestVoice) send(r.guest, m);
+}
+/** Değişmeyen durum yeniden gitmez (D-PD-2). */
+function publish(r) {
+  if (!r.voiceRec) return;
+  const msg = stateOf(r);
+  const key = JSON.stringify(msg);
+  if (key === vstate(r).sentKey) return;
+  r.voice.sentKey = key;
+  broadcast(r, msg);
+}
+/** TEK bitiş yolu (K1 endVoice): idle'da no-op. */
+function endVoice(r, reason) {
+  const v = r.voice;
+  if (!v || v.phase === "idle") return;
+  clearTimeout(v.timer);
+  const callId = v.callId;
+  Object.assign(v, { phase: "idle", callId: null, by: null, talkers: new Set(), timer: null });
+  if (["customer", "device", "timeout"].includes(reason)) v.cooldownUntil = Date.now() + VOICE_DENY_COOLDOWN_MS;
+  v.sentKey = JSON.stringify(stateOf(r));
+  broadcast(r, { t: "voice.state", phase: "idle", callId, endReason: reason, talkers: [], listeners: [] });
+}
+
+function voiceTech(r, rec, ws, m) {
+  const v = vstate(r);
+  const deny = (code, message) => send(ws, { t: "error", code, message });
+  if (m.t === "voice.request") {
+    if (!rec.canVoice) return deny("FORBIDDEN", "Sesli görüşme yetkiniz yok.");
+    if (!r.guest) return deny("CONFLICT", "Müşteri bağlı değil.");
+    if (!r.guestVoice) return deny("CLIENT_UNSUPPORTED", MULTI_ERROR_MESSAGES.CLIENT_UNSUPPORTED);
+    if (v.phase !== "idle") return deny("CONFLICT", "Sürmekte olan bir sesli görüşme var.");
+    if (Date.now() < v.cooldownUntil) return deny("RATE_LIMITED", "Sesli görüşme için 30 sn sonra tekrar deneyebilirsiniz.");
+    if (v.requests >= VOICE_REQUESTS_PER_SESSION) return deny("RATE_LIMITED", "Bu oturumda sesli görüşme isteği sınırına ulaşıldı.");
+    const callId = randomBytes(16).toString("base64url");
+    Object.assign(v, { requests: v.requests + 1, phase: "pending", callId, by: VOICE_TID });
+    v.timer = setTimeout(() => v.phase === "pending" && v.callId === callId && endVoice(r, "timeout"), VOICE_REQUEST_TIMEOUT_MS);
+    send(r.guest, voiceRequestGuestSchema.parse({ t: "voice.request", callId, by: VOICE_TID }));
+    return publish(r);
+  }
+  if (m.t === "voice.join") {
+    if (!rec.canVoice) return deny("FORBIDDEN", "Sesli görüşme yetkiniz yok.");
+    if (m.callId !== v.callId) return;
+    if (v.phase !== "active") return deny("CONFLICT", "Sesli görüşme henüz başlamadı.");
+    v.talkers.add(VOICE_TID);
+    return publish(r);
+  }
+  if (m.t === "voice.end") {
+    if (m.callId !== v.callId || v.phase === "idle") return;
+    if (!v.talkers.has(VOICE_TID)) return deny("FORBIDDEN", "Görüşmede değilsiniz.");
+    endVoice(r, "tech");
+  }
+}
+
+function voiceGuest(r, m) {
+  if (m.t !== "voice.answer" && m.t !== "voice.end") return false;
+  const v = vstate(r);
+  if (!r.guestVoice || m.callId !== v.callId) return true; // bayat / sahte callId sessiz düşer
+  if (m.t === "voice.end") {
+    if (v.phase === "active") endVoice(r, m.reason);
+    return true;
+  }
+  if (v.phase !== "pending") return true;
+  if (!m.accept) return (endVoice(r, "customer"), true);
+  clearTimeout(v.timer);
+  Object.assign(v, { phase: "active", timer: null });
+  if (listenersOf(r).includes(v.by)) v.talkers.add(v.by);
+  publish(r);
+  if (v.talkers.size === 0) endVoice(r, "left"); // K1 sapma 2: isteyen artık dinleyen değil
+  return true;
+}
+
+/**
+ * Test kancası (/__e2e/voice/<oturum>?…): `timeout` bekleyen isteği 60 sn dolmuş gibi bitirir; `cool` bekleme süresini
+ * sıfırlar; `stray` misafire rızasız (isteksiz) `voice.state{active}` gönderir (K-PD-2 negatif). Dönüş: oda ses durumu.
+ */
+export function voiceHook(id, q) {
+  const r = rooms.get(id);
+  if (!r?.voiceRec) return null;
+  const v = vstate(r);
+  if (q.has("timeout") && v.phase === "pending") endVoice(r, "timeout");
+  if (q.has("cool")) v.cooldownUntil = 0;
+  if (q.has("stray")) {
+    const callId = randomBytes(16).toString("base64url");
+    const m = { t: "voice.state", phase: "active", callId, by: VOICE_TID, talkers: [VOICE_TID], listeners: [VOICE_TID] };
+    send(r.guest, voiceStateSchema.parse(m));
+    return { callId };
+  }
+  return { phase: v.phase, callId: v.callId, requests: v.requests };
+}
+
 function onTech(ws, rec) {
   const r = room(rec.view.id);
   if (r.tech) {
@@ -289,15 +432,27 @@ function onTech(ws, rec) {
     ...(active ? { maxFileMb: rec.maxFileMb } : {}),
     ...(rec.fileMode ? { fileMode: rec.fileMode } : {}),
     ...(r.guest
-      ? { guestKind: r.guestKind, ...(r.guestName ? { guestName: r.guestName } : {}), guestFeatures: r.guestFeatures ?? [] }
+      ? {
+          guestKind: r.guestKind,
+          ...(r.guestName ? { guestName: r.guestName } : {}),
+          guestFeatures: r.guestFeatures ?? [],
+          guestVoice: r.guestVoice,
+        }
       : {}),
     // P28c-K2 (mock-p28c.mjs): üye/sahip konsolu için tid/techRole/roster
     ...(rec.multiHello ?? {}),
+    // P28d: ses odasında sahip kimliği (tid olmadan konsol ses arayüzü gizli)
+    ...(rec.voice ? { tid: VOICE_TID, techRole: "owner", roster: [voiceEntry(r)] } : {}),
   });
+  if (rec.voice) {
+    r.voiceRec = rec;
+    send(ws, voiceStateSchema.parse(stateOf(r)));
+  }
   for (const [guestId, e] of r.lobby) send(ws, { t: "peer.pending", guestId, name: e.name, guestKind: "BROWSER", since: e.since });
   ws.on("message", (raw) => {
     const m = JSON.parse(String(raw));
     log(rec.view.id, "tech", m);
+    if (typeof m.t === "string" && m.t.startsWith("voice.")) return voiceTech(r, rec, ws, m);
     if (m.t === "guest.admit") {
       const hit = [...r.lobby.entries()].find(([, e]) => e.admitCode === m.admitCode);
       if (!hit) return send(ws, { t: "error", code: "ADMIT_CODE_INVALID", message: "Kod eşleşmedi." });
@@ -344,8 +499,9 @@ function onTech(ws, rec) {
       if (Date.now() - r.ctl.monDeniedAt < 30_000) return send(ws, { t: "error", code: "RATE_LIMITED", message: "Çok sık istek." });
       r.ctl.monPending = { id: m.monitorId, at: now };
       send(r.guest, { t: "monitor.request", monitorId: m.monitorId });
-    } else if (m.t === "sdp.offer") send(r.guest, { t: m.t, sdp: m.sdp });
-    else if (m.t === "ice") send(r.guest, { t: "ice", candidate: m.candidate, sdpMid: m.sdpMid, sdpMLineIndex: m.sdpMLineIndex });
+    } else if (m.t === "sdp.offer") send(r.guest, { t: m.t, sdp: m.sdp, ...fromOf(r, rec) });
+    else if (m.t === "ice")
+      send(r.guest, { t: "ice", candidate: m.candidate, sdpMid: m.sdpMid, sdpMLineIndex: m.sdpMLineIndex, ...fromOf(r, rec) });
     else if (m.t === "session.end") {
       if (rec.view.status !== "ACTIVE") return send(ws, { t: "error", code: "CONFLICT", message: "Oturum aktif değil." });
       end(rec, "tech");
@@ -355,6 +511,9 @@ function onTech(ws, rec) {
     if (r.tech !== ws) return;
     r.tech = null;
     techGone(r);
+    // K1 voiceSync: tek teknisyen gitti → dinleyen/konuşan boş; etkin görüşme `left` ile biter (pending sürer)
+    if (r.voice?.phase === "active") endVoice(r, "left");
+    else publish(r);
   });
 }
 

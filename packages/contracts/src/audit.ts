@@ -1,5 +1,6 @@
 // Uzaktan kontrol audit zaman çizelgesi action adları (P7; AC-111, AC-115, G-15). Sunucu yazar, oturum geçmişi (P8)
 // aynı adlarla okur. Önceki paketlerin action'ları kendi modüllerinde kalır; yeni zaman çizelgesi olayları buraya eklenir.
+import type { VoiceEndReason } from "./ws-voice.ts";
 
 export const CONTROL_AUDIT = {
   /** Teknisyen isteği müşteriye iletildi (oturum başına ≤ 5). */
@@ -538,6 +539,52 @@ export const MULTI_LEAVE_REASON_LABELS: Readonly<Record<MultiLeaveReason, string
   no_show: "Bağlanmadı",
   session_end: "Oturum bitti",
   auth_revoked: "Yetkisi düştü",
+};
+
+/**
+ * P28d sesli görüşme (mimari-p28d §6; AC-379). Entity `support_sessions` / sessionId. Ses içeriği ve aygıt adı ASLA yazılmaz;
+ * kapıdan dönen ret (403/409/429) audit'e yazılmaz (yalnız metrik):
+ *  - REQUEST `{}` (aktör isteyen teknisyen). ACCEPT `{}` (aktör müşteri). JOIN `{}` (aktör katılan teknisyen; O-PD-2).
+ *  - REJECT `{reason: VOICE_REJECT_REASONS}` (aktör müşteri / sistem; result `fail`).
+ *  - END `{durationSec, reason: VOICE_END_REASONS, talkerIds: userId[], listenerIds: userId[]}` (görüşme boyunca birleşim,
+ *    her biri ≤ 3; aktör bitiren teknisyen / müşteri / sistem). "Görüşmeyi kim dinledi" sorusu `listenerIds` ile yanıtlanır.
+ */
+export const VOICE_AUDIT = {
+  REQUEST: "voice.request",
+  ACCEPT: "voice.accept",
+  REJECT: "voice.reject",
+  JOIN: "voice.join",
+  END: "voice.end",
+} as const;
+export type VoiceAuditAction = (typeof VOICE_AUDIT)[keyof typeof VOICE_AUDIT];
+/** `voice.reject.reason` (§6): müşteri reddetti / 60 sn doldu / pending'de misafir koptu. */
+export const VOICE_REJECT_REASONS = ["customer", "timeout", "disconnect"] as const;
+export type VoiceRejectReason = (typeof VOICE_REJECT_REASONS)[number];
+/** Audit süzgecinde `voice.*` grubunun adı (web `AUDIT_GROUP_LABELS`'a yayılır; RECORDING kalıbı). */
+export const VOICE_AUDIT_GROUP_LABELS: Readonly<Record<string, string>> = { voice: "Sesli görüşme" };
+/** P28d eylemlerinin Türkçe etiketleri (web `AUDIT_ACTION_LABELS`'a ve geçmiş zaman çizelgesine yayılır). */
+export const VOICE_AUDIT_LABELS: Readonly<Record<VoiceAuditAction, string>> = {
+  [VOICE_AUDIT.REQUEST]: "Sesli görüşme istendi",
+  [VOICE_AUDIT.ACCEPT]: "Müşteri sesli görüşmeyi kabul etti",
+  [VOICE_AUDIT.REJECT]: "Sesli görüşme kurulmadı",
+  [VOICE_AUDIT.JOIN]: "Teknisyen sesli görüşmeye katıldı",
+  [VOICE_AUDIT.END]: "Sesli görüşme bitti",
+};
+/** `voice.reject.reason` etiketleri. */
+export const VOICE_REJECT_REASON_LABELS: Readonly<Record<VoiceRejectReason, string>> = {
+  customer: "Müşteri reddetti",
+  timeout: "Müşteri yanıt vermedi",
+  disconnect: "Müşterinin bağlantısı koptu",
+};
+/** `voice.end.reason` / `voice.state.endReason` etiketleri. */
+export const VOICE_END_REASON_LABELS: Readonly<Record<VoiceEndReason, string>> = {
+  tech: "Teknisyen bitirdi",
+  customer: "Müşteri bitirdi",
+  timeout: "Süre doldu",
+  left: "Konuşan teknisyen kalmadı",
+  device: "Mikrofon açılamadı",
+  disconnect: "Müşterinin bağlantısı koptu",
+  session_ended: "Oturum bitti",
 };
 
 /** Audit `entity` değerleri (S16-1: maske `entity = AUDIT_ENTITY.USERS` satırlarında hedef kullanıcıya da bakar). */

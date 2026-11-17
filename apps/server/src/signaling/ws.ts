@@ -22,6 +22,7 @@ import { bindFsrv } from "./fsrv.ts";
 import type { Rooms } from "./rooms.ts";
 import { createGate } from "../unattended/gate.ts";
 import { revalidateDevice } from "./rooms-device.ts";
+import { activeVoiceCount } from "./voice.ts";
 import { guestUpgrade, revalidateMember, revalidateTech, techUpgrade, type UpgradeCtx } from "./ws-auth.ts";
 
 export interface SignalingOptions {
@@ -215,6 +216,8 @@ export function attachSignaling(
     for (const r of rooms.values()) for (const m of r.multi.members.values()) if (m.conn) n[m.role] += 1;
     return n;
   });
+  // P28d §6: etkin sesli görüşme sayısı (etiketsiz).
+  rooms.metrics.gauge("rs_voice_active", "Etkin sesli görüşmeler (anlık)", () => activeVoiceCount(rooms.values()));
   rooms.metrics.gauge("rs_ws_connections", "Açık WS bağlantıları (anlık)", () => ({
     "": wss.clients.size,
     ...(panelCount ? panelCount() : {}),

@@ -27,6 +27,7 @@ import (
 	"remote-support/agent-win/internal/signal"
 	"remote-support/agent-win/internal/tray"
 	"remote-support/agent-win/internal/ui"
+	"remote-support/agent-win/internal/voice"
 )
 
 // Pencere kapsamı ve yerleşik döngü bağımlılıkları (run'ın çalıştırma adımı; PT-K8'de main.go'dan ayrıldı).
@@ -58,7 +59,9 @@ func (a *app) resident(u *ui.UI, client *api.Client, current *atomic.Pointer[tra
 		Disable:    func() { _ = autorun.New().Disable() },
 		Raise:      u.Raise,
 		EndSession: u.EndSession,
-		Elevated:   a.elevated, // firma/kod dosyasıyla açılış da aynı tepsi kurallarına tabidir (tek ekran, 2026-11-15)
+		VoiceEnd:   u.VoiceEnd,     // P28d O-PD-3: menüde "Görüşmeyi bitir"
+		Licenses:   u.ShowLicenses, // P28d: üçüncü taraf bildirimleri (ağsız)
+		Elevated:   a.elevated,     // firma/kod dosyasıyla açılış da aynı tepsi kurallarına tabidir (tek ekran, 2026-11-15)
 		ExitGrace:  exitGrace,
 	}
 }
@@ -193,12 +196,29 @@ func (a *app) flowDeps(client *api.Client, u *ui.UI, opener capture.Opener, appl
 	if merr == nil {
 		d.Media = media
 	}
+	// P28d (O-PD-3, A-PD-6): ses motoru yalnız kodlayıcının gerçek zamanlı çalıştığı işlemcide (amd64 + SSE4.1, wazero
+	// derleyici yolu) bağlanır; değilse alanlar nil kalır ve `rs.cap.voice1` bildirilmez (flow.Features). Gözetimsiz
+	// yardımcıya (unattended/helper) bağlanmaz — sınır testi internal/voice'u yasaklar. Features'tan ÖNCE atanmalı.
+	if voice.Supported() {
+		d.VoiceUI = u
+		d.OpenVoice = openVoice
+	}
 	// P28a (mimari-p28 §4.2): yalnız bağlı özellikler (Clipboard/Printer + ClipPrintUI, K4/K5) bildirilir; P28b: + fsrv.
 	features := flow.Features(d)
 	d.Dial = func(ctx context.Context, cred signal.Credential) (flow.Conn, error) {
 		return signal.Dial(ctx, client.HTTPClient(), cfg.ServerURL, cred, features)
 	}
 	return d
+}
+
+// openVoice P28d: yalnız yerel "Kabul et"ten sonra akışın goroutine'inde çağrılır (K-PD-2): Opus çalışma zamanı +
+// WASAPI yakalama/çalma (eCommunications) + 20 ms döngü. Hata (aygıt yok/izin kapalı) açıkça nil arayüzle döner.
+func openVoice(onFail func(error)) (flow.VoiceCall, error) {
+	c, err := voice.New(voice.OpenWASAPI, onFail)
+	if err != nil {
+		return nil, err
+	}
+	return c, nil
 }
 
 // clipboard P28a pano iş parçacığı süreç ömründe bir kez kurulur (kapsam başına iş parçacığı açılmaz); kurulamazsa nil

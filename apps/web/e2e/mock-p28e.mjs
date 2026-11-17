@@ -5,7 +5,7 @@
 //   p28ero    ayarlar salt okunur (settings.view), geçmiş yalnız view (izleme/silme yok).
 //   p28ebusy  p28eadm + parça GET'inde ilk istek 429 Retry-After: 1 (S-P28e-3).
 // Kayıt parçaları: konsol PUT'u (Bearer yükleme belirteci) ya da test kancası POST /__e2e/rec-seed/:rid ile depolanır;
-// oynatıcı GET'i yalnız izleme belirteciyle. /__e2e/rec-parts/:rid: depolanan parçaların özeti (ilk 4 bayt hex, süre, boyut).
+// oynatıcı GET'i yalnız izleme belirteciyle. /__e2e/rec-parts/:rid: depolanan parçaların özeti (ilk 4 bayt hex, süre, boyut; ?full=1 → b64 baytlar).
 import { stepUpInputSchema } from "@remote/contracts/api/auth";
 import {
   deleteRecordingInputSchema,
@@ -207,6 +207,8 @@ export async function handleRecBytes(req, res, { url, send, err }) {
           durationMs: v.durationMs,
           start: v.start ?? null,
           head: v.bytes.subarray(0, 4).toString("hex"),
+          // P28d AC-375: ?full=1 → parça baytları (WebM Tracks ayrıştırması)
+          ...(url.includes("full=1") ? { b64: v.bytes.toString("base64") } : {}),
         })),
       ),
       true

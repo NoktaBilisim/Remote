@@ -1,0 +1,103 @@
+{"kind":"view","name":"konsol-bosta","w":375,"theme":"light","axe":[],"overflow":0,"file":"konsol-bosta-375-light.png"}
+{"kind":"view","name":"konsol-bosta","w":1280,"theme":"light","axe":[],"overflow":0,"file":"konsol-bosta-1280-light.png"}
+{"kind":"view","name":"konsol-bosta","w":375,"theme":"dark","axe":[],"overflow":0,"file":"konsol-bosta-375-dark.png"}
+{"t":"akis-375","kind":"header","idle":262,"micDenied":266}
+{"kind":"view","name":"konsol-bosta","w":1280,"theme":"dark","axe":[],"overflow":0,"file":"konsol-bosta-1280-dark.png"}
+{"t":"akis-1280","kind":"header","idle":98,"micDenied":106}
+{"kind":"view","name":"konsol-mikrofon-izni-yok","w":375,"theme":"light","axe":[],"overflow":5,"file":"konsol-mikrofon-izni-yok-375-light.png"}
+{"kind":"view","name":"konsol-mikrofon-izni-yok","w":1280,"theme":"light","axe":[],"overflow":0,"file":"konsol-mikrofon-izni-yok-1280-light.png"}
+{"kind":"view","name":"konsol-mikrofon-izni-yok","w":375,"theme":"dark","axe":[],"overflow":5,"file":"konsol-mikrofon-izni-yok-375-dark.png"}
+{"t":"akis-375","kind":"dblclick-request","requests":1}
+{"t":"akis-375","kind":"header","waiting":250}
+{"kind":"view","name":"konsol-mikrofon-izni-yok","w":1280,"theme":"dark","axe":[],"overflow":0,"file":"konsol-mikrofon-izni-yok-1280-dark.png"}
+{"kind":"view","name":"konsol-bekleniyor","w":375,"theme":"light","axe":[],"overflow":0,"file":"konsol-bekleniyor-375-light.png"}
+{"t":"akis-1280","kind":"dblclick-request","requests":1}
+{"t":"akis-1280","kind":"header","waiting":98}
+{"kind":"view","name":"konsol-bekleniyor","w":375,"theme":"dark","axe":[],"overflow":0,"file":"konsol-bekleniyor-375-dark.png"}
+{"t":"akis-375","kind":"dialog-lock","lockedAtOpen":true,"focusAfterTab":"BUTTON"}
+{"kind":"view","name":"konsol-bekleniyor","w":1280,"theme":"light","axe":[],"overflow":0,"file":"konsol-bekleniyor-1280-light.png"}
+{"kind":"view","name":"konsol-bekleniyor","w":1280,"theme":"dark","axe":[],"overflow":0,"file":"konsol-bekleniyor-1280-dark.png"}
+{"t":"akis-1280","kind":"dialog-lock","lockedAtOpen":true,"focusAfterTab":"BUTTON"}
+{"kind":"view","name":"misafir-diyalog","w":375,"theme":"light","axe":[],"overflow":0,"file":"misafir-diyalog-375-light.png"}
+{"kind":"view","name":"misafir-diyalog","w":1280,"theme":"light","axe":[],"overflow":0,"file":"misafir-diyalog-1280-light.png"}
+{"kind":"view","name":"misafir-diyalog","w":375,"theme":"dark","axe":[],"overflow":0,"file":"misafir-diyalog-375-dark.png"}
+{"kind":"view","name":"misafir-diyalog","w":1280,"theme":"dark","axe":[],"overflow":0,"file":"misafir-diyalog-1280-dark.png"}
+{"t":"akis-375","kind":"dblclick-accept","answers":1,"gum":1}
+{"t":"akis-375","kind":"header","talking":262}
+{"t":"akis-1280","kind":"dblclick-accept","answers":1,"gum":1}
+{"t":"akis-1280","kind":"header","talking":106}
+{"kind":"view","name":"konsol-gorusmede","w":375,"theme":"light","axe":[],"overflow":0,"file":"konsol-gorusmede-375-light.png"}
+{"kind":"view","name":"konsol-gorusmede","w":375,"theme":"dark","axe":[],"overflow":0,"file":"konsol-gorusmede-375-dark.png"}
+{"kind":"view","name":"konsol-gorusmede","w":1280,"theme":"light","axe":[],"overflow":0,"file":"konsol-gorusmede-1280-light.png"}
+{"kind":"view","name":"misafir-cubuk","w":375,"theme":"light","axe":[],"overflow":0,"file":"misafir-cubuk-375-light.png"}
+{"kind":"view","name":"konsol-gorusmede","w":1280,"theme":"dark","axe":[],"overflow":0,"file":"konsol-gorusmede-1280-dark.png"}
+{"kind":"view","name":"misafir-cubuk","w":375,"theme":"dark","axe":[],"overflow":0,"file":"misafir-cubuk-375-dark.png"}
+{"kind":"view","name":"misafir-cubuk","w":1280,"theme":"light","axe":[],"overflow":0,"file":"misafir-cubuk-1280-light.png"}
+{"kind":"view","name":"konsol-sessizde","w":375,"theme":"light","axe":[],"overflow":0,"file":"konsol-sessizde-375-light.png"}
+{"kind":"view","name":"misafir-cubuk","w":1280,"theme":"dark","axe":[],"overflow":0,"file":"misafir-cubuk-1280-dark.png"}
+{"kind":"view","name":"konsol-sessizde","w":375,"theme":"dark","axe":[],"overflow":0,"file":"konsol-sessizde-375-dark.png"}
+{"kind":"view","name":"konsol-sessizde","w":1280,"theme":"light","axe":[],"overflow":0,"file":"konsol-sessizde-1280-light.png"}
+{"kind":"view","name":"misafir-cubuk-sessizde","w":375,"theme":"light","axe":[],"overflow":0,"file":"misafir-cubuk-sessizde-375-light.png"}
+{"kind":"view","name":"konsol-sessizde","w":1280,"theme":"dark","axe":[],"overflow":0,"file":"konsol-sessizde-1280-dark.png"}
+{"kind":"view","name":"misafir-cubuk-sessizde","w":375,"theme":"dark","axe":[],"overflow":0,"file":"misafir-cubuk-sessizde-375-dark.png"}
+{"kind":"view","name":"misafir-cubuk-sessizde","w":1280,"theme":"light","axe":[],"overflow":0,"file":"misafir-cubuk-sessizde-1280-light.png"}
+{"t":"akis-375","kind":"after-end","guestText":null}
+{"t":"akis-375","kind":"header","rejected":262}
+{"kind":"view","name":"misafir-cubuk-sessizde","w":1280,"theme":"dark","axe":[],"overflow":0,"file":"misafir-cubuk-sessizde-1280-dark.png"}
+{"kind":"view","name":"konsol-reddedildi","w":375,"theme":"light","axe":[],"overflow":5,"file":"konsol-reddedildi-375-light.png"}
+{"kind":"view","name":"konsol-reddedildi","w":375,"theme":"dark","axe":[],"overflow":5,"file":"konsol-reddedildi-375-dark.png"}
+{"kind":"view","name":"konsol-kalite","w":1280,"theme":"light","axe":[],"overflow":0,"file":"konsol-kalite-1280-light.png"}
+{"t":"akis-375","kind":"reload-cooldown","callDisabled":false,"notice":"rateLimited"}
+{"kind":"view","name":"konsol-kalite","w":1280,"theme":"dark","axe":[],"overflow":0,"file":"konsol-kalite-1280-dark.png"}
+{"kind":"view","name":"konsol-cok-istek","w":375,"theme":"light","axe":[],"overflow":5,"file":"konsol-cok-istek-375-light.png"}
+{"t":"akis-1280","kind":"after-end","guestText":null}
+{"t":"akis-1280","kind":"header","rejected":106}
+{"kind":"view","name":"konsol-cok-istek","w":375,"theme":"dark","axe":[],"overflow":5,"file":"konsol-cok-istek-375-dark.png"}
+{"kind":"view","name":"konsol-reddedildi","w":1280,"theme":"light","axe":[],"overflow":0,"file":"konsol-reddedildi-1280-light.png"}
+{"kind":"view","name":"konsol-reddedildi","w":1280,"theme":"dark","axe":[],"overflow":0,"file":"konsol-reddedildi-1280-dark.png"}
+{"t":"akis-1280","kind":"reload-cooldown","callDisabled":false,"notice":"rateLimited"}
+{"kind":"view","name":"konsol-yanit-yok","w":375,"theme":"light","axe":[],"overflow":5,"file":"konsol-yanit-yok-375-light.png"}
+{"kind":"view","name":"konsol-yanit-yok","w":375,"theme":"dark","axe":[],"overflow":5,"file":"konsol-yanit-yok-375-dark.png"}
+{"t":"akis-375","kind":"timeout-guest","alerts":[""],"status":["Ekranınız henüz paylaşılmıyor\nEkranımı paylaş\nOturumu bitir","Teknisyen yalnızca görebilir\nTarayıcıdan paylaşımda fareniz ve klavyeniz kullanılamaz. Bu sekmeyi kapatırsanız paylaşım durur."]}
+{"kind":"view","name":"konsol-cok-istek","w":1280,"theme":"light","axe":[],"overflow":0,"file":"konsol-cok-istek-1280-light.png"}
+{"kind":"view","name":"konsol-cok-istek","w":1280,"theme":"dark","axe":[],"overflow":0,"file":"konsol-cok-istek-1280-dark.png"}
+{"kind":"view","name":"konsol-yanit-yok","w":1280,"theme":"light","axe":[],"overflow":0,"file":"konsol-yanit-yok-1280-light.png"}
+{"kind":"view","name":"konsol-yanit-yok","w":1280,"theme":"dark","axe":[],"overflow":0,"file":"konsol-yanit-yok-1280-dark.png"}
+{"t":"akis-1280","kind":"timeout-guest","alerts":[""],"status":["Ekranınız henüz paylaşılmıyor\nEkranımı paylaş\nOturumu bitir","Teknisyen yalnızca görebilir\nTarayıcıdan paylaşımda fareniz ve klavyeniz kullanılamaz. Bu sekmeyi kapatırsanız paylaşım durur."]}
+{"t":"unconf-1280","kind":"unconfirmed","barSeen":true,"micText":"Mikrofon açık","ms":5387,"micsEnded":true,"bar":0}
+{"kind":"view","name":"misafir-onaysiz","w":1280,"theme":"light","axe":[],"overflow":0,"file":"misafir-onaysiz-1280-light.png"}
+{"kind":"view","name":"misafir-onaysiz","w":1280,"theme":"dark","axe":[],"overflow":0,"file":"misafir-onaysiz-1280-dark.png"}
+{"t":"unconf-1280","kind":"console-while-unconfirmed","view":"waiting"}
+{"t":"unconf-1280","kind":"after-timeout","unconfirmedVisible":true}
+{"t":"unconf-1280","kind":"new-request","unconfirmedVisible":false}
+{"t":"unconf-1280","kind":"device","unconfirmedStill":false,"bar":0}
+{"kind":"view","name":"misafir-aygit-hatasi","w":1280,"theme":"light","axe":[],"overflow":0,"file":"misafir-aygit-hatasi-1280-light.png"}
+{"kind":"view","name":"misafir-aygit-hatasi","w":1280,"theme":"dark","axe":[],"overflow":0,"file":"misafir-aygit-hatasi-1280-dark.png"}
+{"kind":"view","name":"konsol-aygit-hatasi","w":1280,"theme":"light","axe":[],"overflow":0,"file":"konsol-aygit-hatasi-1280-light.png"}
+{"kind":"view","name":"konsol-aygit-hatasi","w":1280,"theme":"dark","axe":[],"overflow":0,"file":"konsol-aygit-hatasi-1280-dark.png"}
+{"kind":"pp-header","path":"/login","status":307,"pp":"camera=(), microphone=(self), geolocation=(), display-capture=(self)"}
+{"kind":"pp-header","path":"/sessions","status":200,"pp":"camera=(), microphone=(self), geolocation=(), display-capture=(self)"}
+{"kind":"pp-header","path":"/sessions/01J9353733D92DF0C0AAD6E25F/console","status":200,"pp":"camera=(), microphone=(self), geolocation=(), display-capture=(self)"}
+{"kind":"pp-header","path":"/session/oxSvsXPkPhP4eMu-uIdoRjQW6jV9bWqv_wmLiRtPf88","status":200,"pp":"camera=(), microphone=(self), geolocation=(), display-capture=(self)"}
+{"kind":"pp-header","path":"/r","status":404,"pp":"camera=(), microphone=(), geolocation=(), display-capture=(self)"}
+{"kind":"pp-header","path":"/r/ornek-firma","status":404,"pp":"camera=(), microphone=(), geolocation=(), display-capture=(self)"}
+{"kind":"pp-header","path":"/account","status":200,"pp":"camera=(), microphone=(self), geolocation=(), display-capture=(self)"}
+{"kind":"pp-header","path":"/admin/users","status":404,"pp":"camera=(), microphone=(self), geolocation=(), display-capture=(self)"}
+{"kind":"pp-feature","path":"/sessions/01J9353733D92DF0C0AAD6E25F/console","url":"http://localhost:3217/sessions/01J9353733D92DF0C0AAD6E25F/console","microphone":true}
+{"kind":"pp-feature","path":"/r/ornek-firma","url":"http://localhost:3217/r/ornek-firma","microphone":false}
+{"kind":"pp-feature","path":"/sessions","url":"http://localhost:3217/sessions","microphone":true}
+{"kind":"pp-feature","path":"misafir","microphone":true}
+{"t":"pp","kind":"issues","page":"pp","v":["http 404 GET /r/ornek-firma"]}
+{"t":"kopma","kind":"guest-reload","gumAfterReload":0,"consoleView":"idle","ends":[],"guestBar":0,"consoleMicEnded":true}
+{"t":"unconf-375","kind":"unconfirmed","barSeen":true,"micText":"Mikrofon açık","ms":5375,"micsEnded":true,"bar":0}
+{"kind":"view","name":"misafir-onaysiz","w":375,"theme":"light","axe":[],"overflow":0,"file":"misafir-onaysiz-375-light.png"}
+{"kind":"view","name":"misafir-onaysiz","w":375,"theme":"dark","axe":[],"overflow":0,"file":"misafir-onaysiz-375-dark.png"}
+{"t":"unconf-375","kind":"console-while-unconfirmed","view":"waiting"}
+{"t":"unconf-375","kind":"after-timeout","unconfirmedVisible":true}
+{"t":"unconf-375","kind":"new-request","unconfirmedVisible":false}
+{"t":"kopma","kind":"console-close","guestMicEndedMs":8,"bar":0,"alerts":[""]}
+{"t":"unconf-375","kind":"device","unconfirmedStill":false,"bar":0}
+{"kind":"view","name":"misafir-aygit-hatasi","w":375,"theme":"light","axe":[],"overflow":0,"file":"misafir-aygit-hatasi-375-light.png"}
+{"kind":"view","name":"misafir-aygit-hatasi","w":375,"theme":"dark","axe":[],"overflow":0,"file":"misafir-aygit-hatasi-375-dark.png"}
+{"kind":"view","name":"konsol-aygit-hatasi","w":375,"theme":"light","axe":[],"overflow":5,"file":"konsol-aygit-hatasi-375-light.png"}
+{"kind":"view","name":"konsol-aygit-hatasi","w":375,"theme":"dark","axe":[],"overflow":5,"file":"konsol-aygit-hatasi-375-dark.png"}

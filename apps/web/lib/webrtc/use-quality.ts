@@ -23,7 +23,7 @@ export function useQuality(pc: RTCPeerConnection | null, send: (m: QualitySummar
 
   useEffect(() => {
     if (!pc) return;
-    const prev: Prev = { c: null };
+    const prev: Prev = { c: null, a: null };
     let alive = true;
     const tick = setInterval(() => {
       pc.getStats().then(

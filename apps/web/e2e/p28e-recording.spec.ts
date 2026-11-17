@@ -1,6 +1,6 @@
 import { expect, test, type Browser, type Page } from "@playwright/test";
 import { REC_PART_MS, REC_REVOKE_ACK_MS } from "@remote/contracts/ws-rec";
-import { axeScan, desktopOnly, guardConsole, newSession, scanBoth, signIn } from "./helpers";
+import { desktopOnly, guardConsole, newSession, scanBoth, scanThemes, signIn } from "./helpers";
 
 // P28e-K7 (mimari-p28e r2 §7, §9) — AC-380, 381, 382, 383, 384, 385, 386, 447, 450 (UI). Sahte API e2e/mock-p28e.mjs
 // (u-p28e*; ayar, geçmiş, oynatıcı), sahte WS e2e/mock-ws.mjs (u-p28ec*: rıza → rec.state + yükleme belirteci).
@@ -254,22 +254,6 @@ test.describe("Geçmiş: Kayıtlı süzgeci, meta, sil, izle (AC-385, 386, 450)"
     await expect(player).toHaveCount(0);
   });
 });
-
-/**
- * K10 (Y-1/Y-2): açık + koyu temada kapsamlı axe. Tema `html` sınıfıyla zorlanır (konsol "Sistem"de hep koyu açılır;
- * `emulateMedia` açık varyantı koşturmaz) ve etkin tema doğrulanır.
- */
-async function scanThemes(p: Page, sel: string, label: string) {
-  for (const scheme of ["light", "dark"] as const) {
-    await p.evaluate((c) => {
-      document.documentElement.classList.remove("light", "dark");
-      document.documentElement.classList.add(c);
-    }, scheme);
-    const fg = await p.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue("--rs-fg").trim());
-    expect(fg, `${label} ${scheme} teması etkin`).toBe(scheme === "light" ? "#0f172a" : "#f1f5f9");
-    expect(await axeScan(p, sel), `${label} ${scheme}`).toEqual([]);
-  }
-}
 
 async function joinWithRec(browser: Browser, link: string, consent: boolean) {
   const ctx = await browser.newContext();

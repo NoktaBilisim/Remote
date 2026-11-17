@@ -5,6 +5,7 @@ import type { PermissionKey } from "@remote/contracts/permissions";
 import type { Cap } from "@remote/contracts/ws";
 import { GUEST_FEATURE_BY_SUBPROTOCOL, GUEST_FEATURES, type GuestFeature } from "@remote/contracts/ws-clip-print";
 import { FSRV_FEATURE, WS_GUEST_CAP_FSRV, type FileMode, type PeerFeature } from "@remote/contracts/ws-fsrv";
+import { WS_CAP_VOICE } from "@remote/contracts/ws-voice";
 import type { Guest, Peer, Room } from "./types.ts";
 
 const NONE: ReadonlySet<GuestFeature> = new Set();
@@ -43,6 +44,20 @@ export function fsrvOf(protocols: readonly string[], room: Room, guest: Guest): 
 /** TEK yardımcı (D-P28b-5): `hello.fileMode`, misafir şeması ve `guestFeatures` yalnız bunu çağırır. İlk koşul gözetimsiz oda. */
 export function hasFsrv(room: Room, peer: Peer | undefined): boolean {
   return !room.unattended && peer?.fsrv === true;
+}
+
+/**
+ * P28d (§4.1): soketin ses yeteneği (ws-auth, soket başına). Gözetimsiz odada belirteç okunmaz (O-PD-3); tarayıcı misafiri
+ * sunucuyla aynı sürüm olduğundan destekli; AGENT yalnız `rs.cap.voice1` bildirirse.
+ */
+export function voiceOf(protocols: readonly string[], room: Room, guest: Guest): boolean {
+  if (room.unattended) return false;
+  return guest.kind === "BROWSER" || protocols.includes(WS_CAP_VOICE);
+}
+
+/** TEK yardımcı (§4.1): misafir şeması, `voice.*` yayını ve `guestVoice` yalnız bunu çağırır. İlk koşul gözetimsiz oda. */
+export function hasVoice(room: Room, peer: Peer | undefined): boolean {
+  return !room.unattended && peer?.voice === true;
 }
 
 /** Odanın dosya modu (admit öncesi / atanmamışsa P2P). */

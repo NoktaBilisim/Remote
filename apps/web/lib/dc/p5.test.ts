@@ -194,6 +194,7 @@ describe("kalite (AC-44..46)", () => {
     kbps: 1000,
     rttMs,
     lossPct: 0,
+    audioLossPct: null,
     width: 1920,
     height: 1080,
     connType: "relay",

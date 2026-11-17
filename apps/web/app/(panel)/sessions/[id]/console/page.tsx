@@ -64,6 +64,7 @@ export default async function ConsolePage({ params }: { params: Promise<{ id: st
           canPrint={me.me.permissions.includes("file_transfer.print")}
           isOwner={isOwner}
           canInvite={me.me.permissions.includes("sessions.invite")}
+          canVoice={me.me.permissions.includes("sessions.voice")}
         />
       )}
     </div>

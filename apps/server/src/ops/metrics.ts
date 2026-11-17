@@ -177,6 +177,12 @@ export function createMetrics(): Metrics {
   // `rs_multi_members` göstergesi sinyal katmanında (ws.ts) kaydedilir.
   m.counter("rs_multi_denied_total", "Rol kapısı retleri (type: teknisyen mesaj tipi)");
   m.counter("rs_multi_invites_total", "Davet sonuçları (result: sent|accepted|rejected|expired)");
+  // P28d (mimari-p28d §6; tenant etiketi yok). `rs_voice_active` göstergesi sinyal katmanında (ws.ts) kaydedilir.
+  m.counter("rs_voice_calls_total", "Sesli görüşme istek sonuçları (result: accepted|rejected|timeout)");
+  m.counter(
+    "rs_voice_denied_total",
+    "Sesli görüşme kapı retleri ve düşen mesajlar (code: permission|unattended|no_guest|client_unsupported|conflict|cooldown|limit|not_talker|stale_call)",
+  );
   return m;
 }
 

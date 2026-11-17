@@ -21,7 +21,7 @@ import { handleFsrvBytes, handleP28b, handleStoredLink, p28bUser } from "./mock-
 import { handleRequests, requestUser } from "./mock-requests.mjs";
 import { handleLobby, handleSessions, lobbyHook, sessionUser } from "./mock-sessions.mjs";
 import { handleUsers, usersUser } from "./mock-users.mjs";
-import { recHook, recRid } from "./mock-ws.mjs";
+import { recHook, recRid, voiceHook } from "./mock-ws.mjs";
 import { ageRoom, attachWs, fsrvOfferToTech, fsrvWsLog, guestRoster, revokeControl, strayGrant, wsLog } from "./mock-ws.mjs";
 
 const PORT = Number(process.env.MOCK_API_PORT ?? 4010);
@@ -149,6 +149,12 @@ const srv = createServer(async (req, res) => {
   // P7 düzeltme 1 (S7-2): teknisyene istenmemiş control.state{GRANTED} (sunucu kuralını atlayan yarış/hata taklidi)
   const strayHit = req.method === "GET" && url.match(/^\/__e2e\/stray-grant\/([0-9A-Z]{26})$/);
   if (strayHit) return send(res, strayGrant(strayHit[1]) ? 200 : 404, {});
+  // P28d: ses durumu kancası (/__e2e/voice/<oturum>?timeout|cool|stray)
+  const vh = req.method === "GET" && url.match(/^\/__e2e\/voice\/([0-9A-Z]{26})(?:\?(.*))?$/);
+  if (vh) {
+    const out = voiceHook(vh[1], new URLSearchParams(vh[2] ?? ""));
+    return send(res, out ? 200 : 404, out ?? {});
+  }
   // TEST-P7-3: oda zaman damgalarını geçmişe çek (?ms=), 30 sn kurallarını beklemeden sınamak için
   const ageHit = req.method === "GET" && url.match(/^\/__e2e\/age\/([0-9A-Z]{26})\?ms=(\d+)$/);
   if (ageHit) return send(res, ageRoom(ageHit[1], Number(ageHit[2])) ? 200 : 404, {});

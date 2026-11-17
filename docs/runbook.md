@@ -702,7 +702,7 @@ Caddy `/downloads/NoktaDestek.exe` hash kontrolü. Caddy her `/downloads/*.exe` 
 | Environment `agent-release`           | Settings → Environments: required reviewers (kendiniz), "Deployment tags": `v*`. Onay `approve` işindedir; imza, attestation ve Release onaydan SONRA koşar (S-P17-2)                                                                                      |
 | Environment `agent-sign` (S-P17-2)    | SignPath hesabı açılmadan ÖNCE: Settings → Environments → New `agent-sign`; Deployment branches and tags → "Selected" → yalnız tag kuralı `v*`; Environment secret `SIGNPATH_API_TOKEN` (repo secret DEĞİL). Ayrıntı §24.3                                 |
 | Tag ruleset                           | `v*` etiketlerini yalnız yöneticiler oluşturabilir/silebilir (AC-94 "korumalı v* etiketi")                                                                                                                                                                 |
-| Branch protection (main)              | required checks: `ci` job'ları + `agent-win` → `check`, `test-windows`, `build 1/2`, `build 2/2`, `tekrarlanabilirlik + SHA256SUMS`                                                                                                                        |
+| Branch protection (main)              | required checks: `ci` job'ları + `agent-win` → `check`, `test-windows`, `build 1/2`, `build 2/2`, `tekrarlanabilirlik + SHA256SUMS`, `libopus.wasm yeniden üret + karşılaştır` (P28d K4; repo sahibi ekler)                                                |
 | Repo değişkenleri (gözcü)             | `AGENT_WATCH_URL` = `https://<host>:4450/downloads/NoktaDestek.exe`; staging'de `AGENT_WATCH_CA_PEM` = §8'deki Caddy kök sertifikası (PEM, gizli değil)                                                                                                    |
 | SignPath (AC-252, P17; **şu an YOK**) | Hesap açılınca: repo değişkenleri `SIGNPATH_ORGANIZATION_ID`, `SIGNPATH_PROJECT_SLUG`, `SIGNPATH_SIGNING_POLICY_SLUG` + **`agent-sign` ortam secret'ı** `SIGNPATH_API_TOKEN` (§24.3). `SIGNPATH_ORGANIZATION_ID` yoksa `sign` işi atlanır, Release imzasız |
 | Görünürlük                            | **Repo public olmalı**: GitHub attestation private repoda yalnız Enterprise Cloud'da çalışır (§11.6)                                                                                                                                                       |
@@ -2950,7 +2950,7 @@ iş kırmızıdır. AC-249 testlerinden SKIP olan varsa da uyarı basılır.
 ### 24.4 Yayın (ön koşullar §24.1 tamam)
 
 1. `git tag -s v0.11.0 <P17 main commit> && git push origin v0.11.0` (yalnız yönetici; ruleset).
-2. Actions → agent-win → etiket koşusu: check, test-windows, build ×2, tekrarlanabilirlik yeşil → `approve` işi
+2. Actions → agent-win → etiket koşusu: check, test-windows, build ×2, tekrarlanabilirlik, libopus-wasm (P28d) yeşil → `approve` işi
    **"ONAY: sunucu ön koşulu prod'da mı"** adıyla `agent-release` onayı bekler. Koşu sayfasındaki "Yayın ön koşulu" özeti
    **boş kutulu** bir kontrol listesidir (S-P17-3; kanıt değil, hatırlatma). Onaylayan §24.1'i yeniden kontrol eder ve onay
    yorumuna P15 prod commit'ini yazar; herhangi biri eksikse **Reject** (etiket kalır; imza, attestation ve Release oluşmaz;
@@ -4425,3 +4425,250 @@ Staging tek yığın `/opt/remote/deploy`.
   alınmaz**. Geri almadan sonra staging'de bir Hızlı Destek + bir gözetimsiz oturum açılarak doğrulanır.
 - Audit satırları (`session.invite*`, `participant_*`) kalır; eski sunucu okumaz ama audit ekranı eylem adını ham gösterir.
 - Prod: P28 sonu (`v0.17.0`, §24.4 onay listesi "0.17.0 → P28c, migration yok" + Windows çoklu teknisyen elle turu + AC-371 ölçümü).
+
+## 28d. P28d — sesli görüşme (N katılımcı), istemci 0.18.0 (devops K4, 2026-11-17; mimari-p28d r2 §4, §6, §7, §9, §11 K4, §14 O-PD-4; ADR-0036; AC-373..379)
+
+Kapsam: teknisyen etkin oturumda "Sesli görüşme" ister, müşteri Kabul/Reddet (60 sn) eder; iki yönlü ses (WebRTC Opus, DTLS-SRTP; sunucu
+sesi taşımaz/çözmez, hiçbir yerde kaydedilmez — AC-375). Çoklu teknisyende sahip/katılımcı kendi düğmesiyle konuşur, `sessions.voice`
+yetkili izleyici yalnız dinler; müşteride mix-minus. Tarayıcı müşteri sayfası ve Windows istemci 0.18.0 (`rs.cap.voice1`) aynı akış.
+**Gözetimsiz oturumda ses yoktur** (servis/yardımcı `voice1` bildirmez, ses modülü kurulmaz). **Yeni env değişkeni yok, migration yok,
+yeni tablo yok** (`check-app-grants` değişmez), Caddy/nginx değişmez, yeni alarm yok. Sabitler `packages/contracts/src/ws-voice.ts`:
+`VOICE_REQUEST_TIMEOUT_MS = 60000`, `VOICE_DENY_COOLDOWN_MS = 30000` (ret/müşteri bitirmesi sonrası bekleme), `VOICE_REQUESTS_PER_SESSION = 10`,
+`VOICE_MAX_OPUS_BYTES = 1275`, `VOICE_MAX_PKT_PER_SEC = 100`. Değiştirmek kod değişikliği + yayın gerektirir.
+
+Go istemcide kodlayıcı: **libopus 1.6.1 → WebAssembly** (`apps/agent-win/internal/voice/libopus.wasm`, `go:embed`), **wazero v1.12.0**
+sandbox'ında koşar (WASI yok, içe aktarım 0, bellek ≤ 16 MiB). Tedarik zinciri ve güncelleme §28d.11.
+
+### 28d.1 Yetki ve Permissions-Policy
+
+| Anahtar          | Anlam                                                                          | Varsayılan              |
+| ---------------- | ------------------------------------------------------------------------------ | ----------------------- |
+| `sessions.voice` | Etkin oturumda müşteriyle sesli görüşme başlatır, katılır ve görüşmeyi dinler. | Admin açık, User kapalı |
+
+- Rol varsayılanı çalışma anında uygulanır (`permissions.ts` `effectivePermissions`; toggle satırı yoksa ADMIN = açık): **yayınla birlikte
+  tüm mevcut Admin'lerde açık olur**, User'larda kapalı. Firma istemiyorsa yayından sonra Kullanıcılar ekranından kapatılır.
+- `sessions.voice`'u olmayan teknisyen (rol fark etmez) görüşmeyi **duymaz** (V-PD-6); izleyici yetkiliyse yalnız dinler, konuşamaz (AC-378).
+- **Permissions-Policy (K-PD-1, D-PD-1):** HTML başlığını `apps/web/proxy.ts` `permissionsPolicyFor(pathname)` üretir: tüm sayfalarda
+  `microphone=(self)`, yalnız `/r` ve alt yolları (herkese açık talep formu) `microphone=()`; `camera=()`, `geolocation=()` sabit. `/api` ve
+  `/ws` (Fastify) `microphone=()` kalır. **Kural:** girişsiz/herkese açık yeni bir sayfa eklenirse `permissionsPolicyFor` içindeki `()`
+  listesine eklenir; liste ve birim testi (`apps/web/lib/voice/voice-p28d.test.ts`) birlikte güncellenir. Doğrulama (§28d.9 adım 3):
+
+```bash
+curl -sI https://remote.noktabilisim.net/login | grep -i permissions-policy     # microphone=(self) ... camera=() geolocation=()
+curl -sI https://remote.noktabilisim.net/r/x | grep -i permissions-policy       # microphone=()
+```
+
+### 28d.2 Audit (AC-379) ve sorgu
+
+Audit süzgecinde "Sesli görüşme" grubu: `voice.request` (isteyen teknisyen), `voice.accept` (müşteri), `voice.reject`
+(`reason`: `customer` / `timeout` / `disconnect`; result fail), `voice.join` (katılan teknisyen), `voice.end` (`durationSec`, `reason`,
+`talkerIds`, `listenerIds`). `entity = support_sessions`, `entity_id = sessionId`. "Görüşmeyi kim dinledi" sorusu `voice.end.listenerIds`
+ile yanıtlanır (KVKK hesap verebilirlik). Oturum geçmişi zaman çizelgesinde yalnız neden ve süre görünür, kimlikler görünmez. Kapı
+reddi (403/409/429) audit'e yazılmaz, yalnız metrik (§28d.5). Ses içeriği ve aygıt adı hiçbir yere (audit, log, tanılama) yazılmaz.
+
+`voice.end.reason` değerleri: `tech` (teknisyen bitirdi), `customer` (müşteri bitirdi ya da rıza kaydı yok), `device` (müşteri mikrofonu
+açılamadı — Windows gizlilik ayarı / aygıt yok / aygıt çıkarıldı), `left` (konuşan son teknisyen ayrıldı/koptu), `disconnect` (müşteri
+WS'si koptu — anında, pay yok), `session_ended`, `timeout`.
+
+### 28d.3 "Ses gelmiyor" teşhisi
+
+| Belirti                                                      | Neden / eylem                                                                                                                                                                                                                                                  |
+| ------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| "Sesli görüşme" düğmesi yok                                  | Teknisyende `sessions.voice` kapalı (§28d.1)                                                                                                                                                                                                                   |
+| Düğme pasif, "istemci desteklemiyor" (AC-352 metni)          | Müşteri 0.17.x ve öncesi (`rs.cap.voice1` yok). Hızlı Destek 0.18.0 yeniden indirilir                                                                                                                                                                          |
+| Düğme pasif, "Gözetimsiz oturumda sesli görüşme yapılamaz"   | Tasarım gereği (V45, ADR-0036 m.7)                                                                                                                                                                                                                             |
+| "Mikrofon izni verilmedi" (konsol)                           | Teknisyen tarayıcısı mikrofonu engelledi: adres çubuğu kilit simgesi → Mikrofon → İzin ver. Sayfa `/r/*` değilse `microphone=(self)` olmalı (§28d.1 curl)                                                                                                      |
+| "30 sn sonra tekrar deneyebilirsiniz" / "isteği sınırına..." | Müşteri reddetti ya da bitirdi (30 sn bekleme) ya da oturumda 10 istek doldu (yeni oturum açılır)                                                                                                                                                              |
+| Görüşme hemen `device` ile bitiyor (Windows müşteri)         | Ayarlar → Gizlilik ve güvenlik → Mikrofon: "Mikrofon erişimi" ve "Masaüstü uygulamalarının mikrofonunuza erişmesine izin ver" **açık** olmalı; Ses ayarlarında varsayılan kayıt aygıtı var ve devre dışı değil. Aygıt seçimi yok — varsayılan aygıt kullanılır |
+| Görüşme açık, ses yok / kesik                                | Konsol kalite paneli "Ses kaybı %x" satırı (`AudioLines`): yüksekse ağ. Aday türü `relay` ise TURN UDP 3478 erişimi; UDP kapalı ağda TCP/TLS yedeği (§9) — TCP üstünde gecikme ve kayıp artar. Müşteride "Sessize al" açık mı (gösterge "Sessizde")            |
+| İzleyici duymuyor                                            | İzleyicide `sessions.voice` yok ("dinleme yetkiniz yok") ya da tarayıcı otomatik oynatmayı engelledi → "Sesi aç" düğmesi                                                                                                                                       |
+| Yankı / çınlama                                              | Windows'ta yankı giderme yok (Sonra): müşteriye kulaklık önerilir (diyalogdaki satır). Tarayıcı müşteride Chrome yankı gidermesi açık                                                                                                                          |
+| Ağ kesintisinden sonra görüşme bitti                         | Tasarım gereği (V-PD-7): yeniden bağlanma yeni istek + yeni kabul ister                                                                                                                                                                                        |
+
+### 28d.4 Gizlilik kuralları (operatörün bilmesi gereken)
+
+- Müşteri mikrofonu yalnız o görüşme için yerel "Kabul et" tıklamasından sonra açılır (K-PD-2); WS kopunca ≤ 1 sn içinde kapanır.
+- Müşteri görüşme çubuğunda konuşanları ve dinleyenleri adıyla görür; yeni dinleyici belirgin bildirimle duyurulur.
+- Oturum kaydı (P28e) açıkken kayda **ses girmez** (AC-375; kayıtta ses izi 0).
+
+### 28d.5 Metrikler (`/metrics`, Bearer `METRICS_TOKEN`; tenant etiketi yok)
+
+| Metrik                                                      | Tür      | Anlam                                                                                                                                                                                                                                                          |
+| ----------------------------------------------------------- | -------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `rs_voice_calls_total{result: accepted, rejected, timeout}` | sayaç    | İstek sonuçları (`rejected` = müşteri reddi; pending'de kopma sayılmaz). `timeout` oranı yüksekse müşteriler diyaloğu görmüyor olabilir (elle bakış)                                                                                                           |
+| `rs_voice_active`                                           | gösterge | Anlık etkin görüşme sayısı. Yayın/yeniden başlatma öncesi bakılır (yeniden başlatma görüşmeleri düşürür)                                                                                                                                                       |
+| `rs_voice_denied_total{code}`                               | sayaç    | Sunucu kapısı reddi: `permission`, `not_talker`, `conflict`, `unattended`, `no_guest`, `client_unsupported`, `cooldown`, `limit`, `stale_call`. İzleyicinin `voice.*` reddi P28c rol kapısında: `rs_multi_denied_total{type="voice.join"}` vb. (§28c.6 alarmı) |
+
+```bash
+docker compose exec -T server node -e "fetch('http://127.0.0.1:3001/metrics',{headers:{authorization:'Bearer '+process.env.METRICS_TOKEN}}).then(r=>r.text()).then(t=>console.log(t.split('\n').filter(l=>/^rs_voice_/.test(l)).join('\n')))"
+```
+
+`permission`/`unattended`/`client_unsupported` normalde 0'a yakındır (arayüz düğmeyi göstermez/pasif yapar); artış = elle WS mesajı ya da
+web/sunucu sürüm uyuşmazlığı → server logu + audit'ten kullanıcı.
+
+### 28d.6 Alarm
+
+**Yeni alarm yok** (mimari-p28d §11 K4). `deploy/ops/remote-watch.sh` değişmedi: `rs_voice_*` adlarını okumaz (2026-11-17 denetlendi);
+rol yükseltme denemesi mevcut `multi-denied` alarmına (§28c.6) düşer. `remote-watch install` gerekmez.
+
+### 28d.7 Windows elle turu (Windows 10 + 11; CI'da koşamayanlar)
+
+CI (`agent-win.yml` → `test-windows`): "P28d ses testleri (-v; wazero + libopus.wasm)" adımı adında `P28d`/`Voice`/`Opus` geçen Go
+testlerini koşar; listedekiler (K0s internal/voice + K3 flow/voice/rtc/ui/tray/yardımcı sınırı, 85 test) **zorunlu PASS**, SKIP kırmızı. `libopus-wasm` işi gömülü wasm'ı yeniden üretip
+karşılaştırır (§28d.11). Elle (staging adresli 0.18.0, §28d.9; teknisyen A sahip, B, C aynı firmada, 2FA kurulu, `sessions.voice` A ve B'de,
+C'de bir turda açık bir turda kapalı, `sessions.supervise` C'de; gerçek mikrofon + kulaklık; sonuç `docs/test-raporu.md`'ye, Windows
+sürümüyle). Tüm turlar hem **Hızlı Destek 0.18.0** hem **tarayıcı müşteri sayfası** ile yapılır (AC-377):
+
+1. **Mikrofon gizlilik ayarı (V-PD-1):** Ayarlar → Gizlilik → Mikrofon → "Masaüstü uygulamalarının erişmesine izin ver" **kapalı** → A istek,
+   müşteri Kabul → müşteri penceresinde yol tarif eden metin, görüşme `voice.end{device}` ile biter, konsolda bitiş bildirimi; çökme yok.
+   Aynısı "Mikrofon erişimi" tümden kapalıyken ve hiç kayıt aygıtı yokken (aygıt devre dışı). Ayarı açınca 30 sn sonra yeni istek çalışır.
+2. **Kabul/Reddet (AC-373, AC-116):** diyalog "<A> sesli görüşme istiyor"; odak "Reddet"te; "Kabul et" 1,5 sn sonra etkin; diyalog imlecin
+   altında açılmaz; kulaklık önerisi satırı var. Reddet → konsolda "Müşteri sesli görüşmeyi reddetti", 30 sn bekleme metni. 60 sn yanıtsız →
+   "Müşteri yanıt vermedi", audit `voice.reject{timeout}`. Diyalog açıkken mikrofon göstergesi **yanmaz** (kabulden önce mikrofon açılmaz).
+3. **OS mikrofon göstergesi (AC-374):** kabulden sonra görev çubuğunda mikrofon simgesi yanar (Win11: bildirim alanı; Win10: bildirim alanı
+   mikrofon simgesi); "Ayarlar → Gizlilik → Mikrofon" son erişimde `NoktaDestek.exe` görünür. Bitirme yolları: (a) teknisyen "Görüşmeyi
+   bitir", (b) müşteri "Görüşmeyi bitir", (c) tepsi menüsü "Görüşmeyi bitir", (d) müşteri ağını kes (Wi-Fi kapat), (e) oturumu bitir. Her
+   birinde simge **≤ 1 sn** içinde söner — telefonla 60 fps video çekilip kare sayılarak ölçülür (tıklama karesi → simgenin kaybolduğu kare).
+   "Sessize al" iken simge **yanık kalır** (aygıt açık, V-PD-4), tepsi ipucu "Sessizde".
+4. **Tepsi göstergesi (O-PD-3):** mikrofon açıkken tepsi simgesi ipucu "Mikrofon açık"/"Sessizde", menüde "Görüşmeyi bitir"; pencere
+   küçültülünce de görünür, gizlenemez.
+5. **Kulaklık:** kulaklık (3,5 mm ve USB/Bluetooth) varsayılan aygıtken iki yönlü ses net, yankı yok. Hoparlörle yankı olabileceği not edilir.
+   Görüşme sürerken USB kulaklığı çıkar → beklenen: görüşme `device` ile biter (aygıt geçersiz) ya da sürer; gözlenen davranış rapora
+   yazılır; donma/çökme yok ve mikrofon göstergesi bitişte söner.
+6. **Çoklu teknisyen, 3 bağlam (AC-378):** A istek → kabul → B "Görüşmeye katıl" → müşteride "Konuşan: A, B"; C (İzle, `sessions.voice`
+   açık) → konsolda "Dinleniyor", konuşma düğmesi yok; müşteride "Dinleyen: C" + belirgin bildirim "C görüşmeyi dinlemeye başladı" (Go:
+   çubuk satırı + tepsi balonu). Mix-minus: A, B'yi ve müşteriyi duyar, kendi sesini geri duymaz; C herkesi duyar. C'nin DevTools'tan
+   gönderdiği `voice.join` reddedilir (`rs_multi_denied_total{type="voice.join"}` artar). C'de `sessions.voice` **kapalı** turu: C hiçbir şey
+   duymaz, "dinleme yetkiniz yok"; müşteride "Dinleyen" satırında C yok. Görüşme sürerken B'nin `sessions.voice`'u kapatılır → B ≤ 5 sn'de
+   konuşanlardan düşer. Kontrol devri (A → B) konuşanları değiştirmez. A ve B ayrılınca görüşme `left` ile biter.
+7. **Gözetimsizde ses yok (V45, O-PD-3):** servis 0.18.0 gözetimsiz oturumda konsolda "Gözetimsiz oturumda sesli görüşme yapılamaz" (pasif);
+   cihazda mikrofon göstergesi **hiç** yanmaz; DevTools'tan `voice.request` → `CLIENT_UNSUPPORTED` (`rs_voice_denied_total{code="unattended"}`).
+8. **Eski istemci:** Hızlı Destek 0.17.0 ile düğme pasif + AC-352 metni (AC-379).
+9. **Kayıt (AC-375):** görüşme sürerken P28e kaydı → indirilen kayıt sessiz (ses izi yok).
+10. **İz:** görüşme sonrası `trace-check.ps1 -Mode Compare` temiz; `tanilama.log`'da aygıt adı yok. Tepsi "Lisanslar" libopus (BSD-3) ve
+    wazero (Apache-2.0) bildirimlerini gösterir (O-PD-4).
+11. %150 DPI ve koyu/açık tema: diyalog ve görüşme çubuğu taşmıyor.
+12. **Uzaktan kabul reddi (K-PD-2):** kontrol izni verilmişken teknisyen kendi imleciyle (SendInput) "Kabul et"e tıklar → kabul **olmaz**,
+    diyaloğa kırmızı enjekte tıklama uyarısı eklenir, kilit 1,5 sn yeniden başlar; Enter/Space "Kabul et"i tetiklemez. Aynı şekilde
+    teknisyenin "Mikrofonu aç" tıklaması sessizden çıkarmaz ("Sessize al" ve "Görüşmeyi bitir" uzaktan da çalışır — güvenli yön).
+13. **Gösterge şeridi (O-PD-3):** her monitörde üst-ortada (kayıt şeridinin altında) "● Mikrofon açık"/"● Sessizde"; oturum penceresi
+    küçültülünce ve tepsisiz (normal açılış) kipte de görünür; teknisyen görüntüsünde görünmez (yakalamadan hariç); kayıtla birlikte
+    iki şerit üst üste binmez. Tepsiden "Çık" (onay) → oturum biter, mikrofon simgesi ≤ 1 sn söner.
+14. **768 px ekran:** yükseltilmiş + sunucu üzerinden dosya + 3 teknisyen + kayıt + görüşme açıkken oturum penceresi ekrana sığar
+    (sohbet geçmişi kısalır); ses satırında iki satırlık "Konuşan/Dinleyen" metni okunur.
+15. **Aygıt hata sınıfları (K3b):** gizlilik anahtarı kapalı → `ErrDeviceDenied` (0x80070005); mikrofonsuz makine → `ErrDeviceNotFound`
+    (0x80070490); görüşmede USB kulaklık çıkar → `ErrDeviceLost` (0x88890004); hoparlör başka aygıttayken yalnız USB mikrofonu çıkar →
+    ≤ 1–2 sn içinde aygıt bitişi (durmuş akış denetimi). Hepsinde sohbete V-PD-1 yol tarifi "Sistem" satırı, konsolda `device` bitişi.
+16. **Ses kalitesi (K3b):** sürücüde iletişim kategorisiyle OEM AEC etkin mi; çalma gecikmesi kulaktan; 10 dk görüşmede saat kayması
+    (çalma kuyruğu 200 ms'de kırpılıyor mu, çıtırtı); Chrome'un gönderdiği Opus iki yönlü çözülüyor.
+17. **SSE4.1'siz işlemci (A-PD-6):** `voice.Supported()` false olan makinede (ya da VM'de SSE4.1 maskeli) `rs.cap.voice1` bildirilmez →
+    konsolda AC-352 pasif metni; istemci çökmez.
+18. **Lisanslar:** tepsi menüsü "Lisanslar" (oturum dışında da) salt okunur pencere açar, ağ isteği yok; libopus COPYING, wazero NOTICE +
+    Apache-2.0, wasi-libc/musl/cloudlibc, compiler-rt metinleri kaydırılarak okunur; ikinci tıklamada aynı pencere öne gelir.
+
+### 28d.8 AC-376 elle gecikme ölçümü (staging; test-operatoru + kullanıcı Windows) — DENENMEDİ, ilk koşuda doğrulanır
+
+Hedef: RTT < 150 ms ağda ağızdan kulağa gecikme **p95 < 400 ms**. Otomatik e2e (aynı makine, p95 < 325 ms) bunu kısmen kanıtlar; gerçek
+aygıt + ağ ölçümü elledir.
+
+**Ortam:** teknisyen dizüstü (Chrome konsol) ve müşteri Windows (Hızlı Destek 0.18.0; ikinci turda tarayıcı müşteri) **aynı odada**,
+1–2 m arayla; ikisi de staging'e internetten bağlı (aynı LAN'da doğrudan `host` adayı seçilirse ölçüm iyimser olur — mümkünse müşteri
+telefon hotspot'unda). Konsol kalite panelinde **RTT < 150 ms** doğrulanır ve yazılır (aday türü de). Tek telefon, iki cihazın arasında,
+ses kaydı uygulaması (48 kHz, sıkıştırmasız/WAV tercih).
+
+**Geri besleme döngüsünü kır (zorunlu):** ölçülen yönde alıcı hoparlörden çalar, karşı tarafın mikrofonu **sessizde** olmalı ya da
+kulaklık kullanılmalı; aksi hâlde hoparlör sesi geri dönüp kaydı bozar.
+
+1. **Teknisyen → müşteri yönü:** teknisyen kulaklık takar (konsol çıkışı kulaklıkta), müşteri hoparlörü açık, müşteri "Sessize al".
+   Teknisyen mikrofonunun yanında **20 alkış**, aralarında ≥ 2 sn. Telefon hem doğrudan alkışı hem müşteri hoparlöründen gelen alkışı kaydeder.
+2. **Müşteri → teknisyen yönü:** roller ters (müşteri kulaklık, teknisyen hoparlörü açık, konsol "Sessize al"); yine 20 alkış.
+3. Audacity'de kayıt açılır; her alkış için doğrudan darbenin başlangıcı ile hoparlörden gelen darbenin başlangıcı arası (dalga formunda
+   seçim → "Seçim uzunluğu", ms) okunur. Akustik yol (≤ 2 m ≈ 6 ms) ihmal edilir.
+4. 20 değer sıralanır; **p95 = 19. değer** (en yakın sıra, ⌈0,95·20⌉). Her yön için ayrı: **p95 < 400 ms** → GEÇTİ.
+5. Kayıt dosyası ölçümden sonra silinir (yalnız alkış olsa da kişisel ses içerebilir); rapora yalnız sayılar girer.
+
+**Kayıt** (`docs/test-raporu.md`, AC-376): tarih, Windows sürümü, müşteri türü (Go/tarayıcı), ağ (hotspot/LAN), RTT, aday türü, yön
+başına 20 değer, medyan, p95, ses kaybı %. Başarısızlıkta jitter tamponu (Go 60 ms hedef) ve aday türü mimara bildirilir.
+
+### 28d.9 Staging yayını (koordinatör uygular; sıra bağlayıcı)
+
+Ön koşul: P28d qa GEÇTİ + güvenlik Kritik/Yüksek 0; `ci` (test-watch, shellcheck, actionlint dahil) ve `agent-win` (P28d adımı +
+`libopus-wasm` işi dahil) yeşil. Staging tek yığın `/opt/remote/deploy`.
+
+1. **Sunucu önce** (0.18.0 istemci eski sunucuda sessiz çalışır — sunucu bilinmeyen `rs.cap.voice1`'i yok sayar, `voice.*` göndermez;
+   sunucu önce gelirse ses yolu hazır olur). Önce `rs_voice_active` yok (eski sunucu). §25.2 akışı — ön yedek → `git pull` → `IMAGE_TAG` →
+   `docker compose build && docker compose up -d`. **Migration yok:** `docker compose logs --since 5m migrate` → "No pending migrations".
+   `check-app-grants.sh` **değişmez**: P28c ile aynı (**873/873 PASS**, tetikleyici 23); sayı değiştiyse dur, db-notlari'na bak.
+   `systemctl start remote-backup.service` → `audit-continuity ok`.
+2. Caddy / host nginx **değişmedi** (yeni yol yok; Permissions-Policy uygulamadan gelir) — yeniden yaratma gerekmez.
+3. Doğrulama: §28d.1 iki `curl` (login `microphone=(self)`, `/r/x` `microphone=()`); §28d.5 komutu → `rs_voice_active 0` ve iki sayaç
+   kayıtlı. `remote-watch` değişmedi (`install` gerekmez); `journalctl -u remote-watch -n 5` → `OK`.
+4. **Servis + istemci 0.18.0:** önce gömülü wasm tutarlılığı `(cd apps/agent-win/internal/voice && shasum -a 256 -c libopus.wasm.sha256)`
+   → `libopus.wasm: OK`. Sonra §28u.9 adım 3 komutu, yalnız `VER=0.18.0` (temiz ağaç; ikinci koşuyla SHA tekrarlanabilirliği; wasm
+   yeniden üretilmez, repo'daki gömülür — üretimini CI `libopus-wasm` işi doğrular). Servis (ses içermez ama sürüm hizası; gözetimsizde
+   `voice1` bildirmez):
+   `ALLOW_UNATTESTED=staging deploy/agent/publish-servis.sh --dir "$OUT/servis" --no-attestation --ssh root@185.126.217.99 --deploy-dir /opt/remote/deploy`
+   → `kontrol: server UNATTENDED_AGENT_PATH SHA-256 = UNATTENDED_AGENT_SHA256 = <sha>`.
+5. **İstemci exe (S13C-13):** tek yığın staging `--dir` yayınını reddeder → `$OUT/istemci/NoktaDestek.exe` test için **doğrudan teslim**
+   (0.18.0'da istemci yeniliği: `rs.cap.voice1`, Kabul/Reddet diyaloğu, görüşme çubuğu, tepsi mikrofon göstergesi, WASAPI + Opus).
+   İkili ≈ 2,5 MiB büyür (wazero + wasm; AC-96 40 MB sınırının çok altında). `/downloads/NoktaDestek.exe` P28 sonu `v0.18.0` Release ile
+   güncellenir (§24.4).
+6. `MIN_AGENT_VERSION` **yükseltilmez** (eski istemcide ses düğmesi yalnız pasif). Staging test VM'lerinde servis "Güncelle…" (§28u.5) →
+   Windows elle turu (§28d.7) ve AC-376 ölçümü (§28d.8) test-operatoru.
+7. §8 yayın geçmişine satır: tarih, P28d, commit, migration "yok", servis + istemci 0.18.0 SHA-256'ları, libopus.wasm SHA-256
+   (`715ac5d3…62e2` değiştiyse yeni değer), `check-app-grants` 873/873.
+
+### 28d.10 Geri alma
+
+- **Yalnız ikili geri alma** (migration ve veri yok): önceki `IMAGE_TAG` → `docker compose up -d`. Önce §28d.5 `rs_voice_active`'e bakılır;
+  sunucu yeniden başlarken açık görüşmeler oturumlarla birlikte düşer (müşteri mikrofonu WS kopuşuyla ≤ 1 sn'de kapanır).
+- Eski sunucu/konsol `voice1`'i yok sayar; 0.18.0 istemci eski sunucuyla sessiz çalışır — **istemci ikilisi geri alınmaz**. Geri almadan
+  sonra staging'de bir Hızlı Destek + bir tarayıcı oturumu açılıp ses düğmesinin olmadığı/pasif olduğu doğrulanır.
+- Hızlı kapatma (ikili değiştirmeden): ilgili kullanıcılardan `sessions.voice` kapatılır — konuşan/dinleyen tid'ler anında düşer, yeni
+  istek yapılamaz (Admin'lerde de elle kapatılır; varsayılan açık).
+- Kodlayıcıda güvenlik açığı (libopus/wazero) ve düzeltilmiş sürüm henüz yoksa: sunucuda `sessions.voice` tüm kullanıcılarda kapatılır
+  (müşteri istemcisine `voice.*` gitmez, çözücü hiç çalışmaz), ardından §28d.11 güncellemesiyle yeni istemci sürümü.
+- Audit satırları (`voice.*`) kalır; eski sunucu okumaz ama audit ekranı eylem adını ham gösterir.
+- Prod: P28 sonu (`v0.18.0`, §24.4 onay listesi "0.18.0 → P28d, migration yok" + Windows ses elle turu + AC-376 ölçümü).
+
+### 28d.11 Tedarik zinciri: libopus.wasm ve wazero (O-PD-4)
+
+**Ne nerede sabit:** libopus **1.6.1** Xiph tarball'ı SHA-256 `6ffcb593…72411a1` (betik `apps/agent-win/build/libopus-wasm.sh`
+`OPUS_SHA256` + `agent-win.yml` `libopus-wasm` işi `OPUS_SHA256_PINNED` — ikisi aynı olmalı); araç zinciri wasi-sdk 34 imajı digest'le
+(`WASI_SDK_IMAGE`); çıktı `internal/voice/libopus.wasm` (`715ac5d3911a76bf526267786f469fe2760fdc78a32ad736751bfa41bf7562e2`) +
+`.sha256` + `libopus-COPYING.txt`. wazero **v1.12.0** `go.mod`/`go.sum` (Dependabot ayrı PR). CI `libopus-wasm` işi her PR'da wasm'ı
+yeniden üretip bayt bayt karşılaştırır ve Release `approve` kapısının ön koşuludur. Yerel yeniden üretim (Docker gerekir; ≈ 1 dk, 2026-11-17
+Apple Silicon'da `linux/amd64` ile denendi, çıktı repo'yla aynı):
+
+```bash
+cd apps/agent-win && OUT="$(mktemp -d)" && sh build/libopus-wasm.sh "$OUT" \
+  && for f in libopus.wasm libopus.wasm.sha256 libopus-COPYING.txt; do cmp "$OUT/$f" "internal/voice/$f"; done && echo AYNI
+```
+
+(Çıktı dizini her zaman verilir; argümansız koşu `internal/voice`'un üzerine yazar.)
+
+**İzleme (aylık + duyuruda; sorumlu: devops):**
+
+- **libopus güvenlik duyuruları:** libopus wasm içinde olduğundan **govulncheck ve Dependabot görmez**; elle eşlenir. Kaynaklar:
+  https://opus-codec.org/release/ (sürüm notları), https://gitlab.xiph.org/xiph/opus/-/releases, NVD'de `libopus` /
+  `cpe:2.3:a:opus-codec:opus` araması, oss-security listesi. 1.6.1'i etkileyen bir CVE'de: (1) çözücü yolunda mı (`opus_decode`,
+  SILK/CELT çözücü) — uzaktan gelen paket yalnız çözücüye ulaşır, kodlayıcı yalnız yerel mikrofonu işler; (2) etki wazero sandbox'ıyla
+  sınırlı (doğrusal bellek dışına çıkamaz; tuzak → `ErrCodecPanic`, 3'te eş susar) ama ses içeriği bozulması/DoS mümkündür; (3) Yüksek ve
+  üstüyse §28d.10 "hızlı kapatma" + aşağıdaki güncelleme.
+- **wazero sürümleri:** https://github.com/tetratelabs/wazero/releases ve GitHub güvenlik tavsiyeleri (Go vuln DB'ye de girer →
+  `check` işindeki govulncheck yakalar). Dependabot haftalık **ayrı PR** açar (`go-minor-patch` grubundan hariç); otomatik birleştirme yok.
+- **wasi-sdk:** yalnız derleme aracıdır (ikiliye wasi-libc/compiler-rt parçaları girer); yeni sürüm zorunlu değil, libopus güncellemesinde
+  birlikte değerlendirilir.
+
+**libopus güncelleme (yeni sürüm ya da güvenlik düzeltmesi):** tek PR'da (1) `libopus-wasm.sh` `OPUS_VERSION` + `OPUS_SHA256` (değer
+Xiph `https://downloads.xiph.org/releases/opus/SHA256SUMS.txt`'ten; HTTPS + sürüm notuyla karşılaştırılır), (2) `agent-win.yml`
+`OPUS_SHA256_PINNED` aynı değer, (3) `sh build/libopus-wasm.sh` (argümansız → `internal/voice`) ile wasm + `.sha256` + COPYING yeniden
+üretilir ve commit edilir, (4) Go testleri (`TestP28dK0sWasmDigestMatches`, `WasmSandboxSurface` — içe aktarım 0) yeşil, (5) aşağıdaki
+"wazero güncelleme" doğrulama adımları, (6) yeni istemci yama sürümü (ör. 0.18.1) staging (§28d.9) → Release.
+
+**wazero güncelleme (Dependabot PR'ı; clamav kalıbı — adımlar koşulmadan birleştirilmez):** PR dalında
+(1) CI `check` (-race, govulncheck, go-licenses: Apache-2.0) ve `test-windows` P28d adımı yeşil; (2) `TestP28dK0sCompilerMatchesInterpreter`
+amd64'te PASS (derleyici = yorumlayıcı); (3) `go test -fuzz=FuzzDecode -fuzztime=30m ./internal/voice/` **linux/amd64** (Go imajı,
+`--platform linux/amd64`) ≥ 30 dk, 0 tuzak (`NOKTA_K0S_TRAPLOG` dosyası boş), 0 panik, crasher yok; (4) arm64 JIT bulgusu (K0s-2: v1.9–v1.12
+derleyicisi kodlayıcıyı yanlış derliyor) yeni sürümde yeniden denenir, sonuç `docs/implementation.md`'ye; düzelmişse bile yayın hedefi
+amd64 kalır; (5) ikili büyümesi kaydedilir. Sonuç PR açıklamasına yazılır, ardından el ile birleştirilir.

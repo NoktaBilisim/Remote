@@ -8,6 +8,9 @@ import type { Signal } from "./signal";
 /**
  * Teknisyen tarafı PeerConnection: teklif (recvonly video), AGENT misafire `input` DC, ICE listesi/yenileme ve
  * peer'e ait sunucu mesajları (`onPeerMsg`; `start` = tech-machine `iceGate` ertelenen ilk teklifi başlat dedi).
+ * P28d (mimari-p28d §4.3): `guestVoice` misafire ilk teklifte ses transceiver'ı (izleyicide `recvonly`); mikrofon izi
+ * `setVoiceTrack` ile (yalnız `talkers ∋ ben` iken — karar `useConsoleVoice`); yeni eşte son istenen iz yeniden bağlanır.
+ * `stream` YALNIZ video (kaydedici, AC-375); uzak ses izi ayrı (`remoteAudio`).
  */
 export function useTechPeer(peerRef: RefObject<PeerLink | null>, send: (m: Parameters<Signal["send"]>[0]) => void) {
   const [stream, setStream] = useState<MediaStream | null>(null);
@@ -18,6 +21,11 @@ export function useTechPeer(peerRef: RefObject<PeerLink | null>, send: (m: Param
   const inputRef = useRef<RTCDataChannel | null>(null);
   const kind = useRef<GuestKind | null>(null);
   const ice = useRef<IceServer[]>([]);
+  /** P28d: misafir sesi destekliyor mu (`hello`/`peer.joined` `guestVoice`) ve ben izleyici miyim (`hello.techRole`). */
+  const guestVoice = useRef(false);
+  const observer = useRef(false);
+  const voiceTrack = useRef<MediaStreamTrack | null>(null);
+  const [remoteAudio, setRemoteAudio] = useState<MediaStreamTrack | null>(null);
 
   const resetPeer = useCallback(() => {
     peerRef.current?.close();
@@ -26,17 +34,32 @@ export function useTechPeer(peerRef: RefObject<PeerLink | null>, send: (m: Param
     setChannels(null);
     setPc(null);
     setInput(null);
+    setRemoteAudio(null);
     inputRef.current = null;
   }, [peerRef]);
 
   const startPeer = useCallback(() => {
     resetPeer();
     // P7: input kanalı yalnız Hızlı Destek istemcisine (tarayıcı misafir kabul etmez, AC-34)
-    const p = new PeerLink(ice.current, send, kind.current === "AGENT");
+    const voice = guestVoice.current ? (observer.current ? "recvonly" : "sendrecv") : null;
+    const p = new PeerLink(ice.current, send, kind.current === "AGENT", voice);
     peerRef.current = p;
     setPc(p.pc);
     wirePeer(p, peerRef, inputRef, { setChannels, setInput, setStream });
+    if (voice) {
+      setRemoteAudio(p.audioReceiverTrack());
+      if (voiceTrack.current) void p.setAudioTrack(voiceTrack.current);
+    }
   }, [peerRef, resetPeer, send]);
+
+  /** P28d: mikrofon izini eşe bağla / çöz (null). Yeni eş kurulursa son değer `startPeer`'da uygulanır. */
+  const setVoiceTrack = useCallback(
+    (track: MediaStreamTrack | null) => {
+      voiceTrack.current = track;
+      void peerRef.current?.setAudioTrack(track);
+    },
+    [peerRef],
+  );
 
   const onIceServers = useCallback(
     (servers: IceServer[], start: boolean) => {
@@ -56,7 +79,11 @@ export function useTechPeer(peerRef: RefObject<PeerLink | null>, send: (m: Param
       if (m.t === "hello" || (m.t === "peer.joined" && m.role === "guest")) {
         // Misafir türü (input kanalı yalnız AGENT'a) ve dosya sınırı; hello ICE listesini de taşır
         kind.current = m.guestKind ?? kind.current;
-        if (m.t === "hello") ice.current = m.iceServers;
+        guestVoice.current = m.guestVoice === true;
+        if (m.t === "hello") {
+          ice.current = m.iceServers;
+          observer.current = m.techRole === "observer";
+        }
         if (m.maxFileMb) setMaxFileMb(m.maxFileMb);
         if (start) startPeer();
       } else if (m.t === "ice.servers") onIceServers(m.iceServers, start);
@@ -65,7 +92,7 @@ export function useTechPeer(peerRef: RefObject<PeerLink | null>, send: (m: Param
     [onIceServers, peerRef, resetPeer, startPeer],
   );
 
-  return { stream, channels, pc, maxFileMb, input, inputRef, resetPeer, onPeerMsg };
+  return { stream, channels, pc, maxFileMb, input, inputRef, resetPeer, onPeerMsg, remoteAudio, setVoiceTrack };
 }
 
 /** Yeni PeerLink'in olayları: yalnız güncel peer'e aitse durum güncellenir; ICE "failed" → ICE restart teklifi. */

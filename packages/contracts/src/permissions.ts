@@ -8,9 +8,11 @@ export const PERMISSION_MODULES = [
   // P28e (AC-385, 404; mimari-p28e §4): view_recording = oturum kayıtlarını izle (+ session_history.view + historyScope).
   // P28c (AC-364, 368, 404; mimari-p28c §9): invite = etkin oturuma aynı firmadan teknisyen davet et, kontrolü/oturumu devret
   // (yalnız oturum sahibi); supervise = firmanın etkin oturumlarını izleyici olarak "İzle". Rol varsayılanı Admin açık / User kapalı.
+  // P28d (AC-373, 378; mimari-p28d §7): voice = etkin oturumda müşteriyle sesli görüşme başlat, katıl ve DİNLE (izleyici de
+  // dinlemek için ister — V-PD-6). Rol varsayılanı Admin açık / User kapalı.
   {
     key: "sessions",
-    actions: ["view", "create", "edit", "delete", "terminate", "send_link", "view_recording", "invite", "supervise"],
+    actions: ["view", "create", "edit", "delete", "terminate", "send_link", "view_recording", "invite", "supervise", "voice"],
   },
   // P28a (AC-343, 348, 404; mimari-p28 §4.1): clipboard = düz metin pano gönder/al (kontrol GRANTED + müşteri izni);
   // print = PDF'i müşterinin varsayılan yazıcısına gönder — `file_transfer.use`'dan BAĞIMSIZ (yalnız Windows istemci).
@@ -87,6 +89,8 @@ export const PERMISSION_DESCRIPTIONS: Readonly<Partial<Record<PermissionKey, str
   // P28c (mimari-p28c §9): `supervise` toggle ekranında uyarı tonuyla (AC-404 kalıbı).
   "sessions.invite": "Etkin oturuma aynı firmadan teknisyen davet eder, kontrolü ve oturumu devreder.",
   "sessions.supervise": "Firmanın etkin oturumlarını izleyici olarak izler (hassas — yalnız gerekene verin).",
+  // P28d (mimari-p28d §7): dinlemeyi de kapsar — yetkisiz teknisyen (rol fark etmez) görüşmeyi duymaz (V-PD-6).
+  "sessions.voice": "Etkin oturumda müşteriyle sesli görüşme başlatır, katılır ve görüşmeyi dinler.",
 };
 
 export const ROLES = ["SUPER_ADMIN", "ADMIN", "USER"] as const;

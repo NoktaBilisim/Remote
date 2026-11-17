@@ -18,6 +18,17 @@ function isPublicPath(pathname: string): boolean {
   return PUBLIC_PATHS.some((p) => (p.endsWith("/") ? pathname.startsWith(p) : pathname === p || pathname.startsWith(`${p}/`)));
 }
 
+/**
+ * P28d (K-PD-1, D-PD-1): Permissions-Policy tek saf fonksiyondan. Politika belge yüklenirken sabitlenir ve konsola yumuşak geçilir
+ * → tüm sayfalarda `microphone=(self)`; YALNIZ `/r` ve alt yolları (herkese açık talep formu) `microphone=()`. Girişsiz/herkese açık
+ * yeni bir sayfa eklenirse bu listeye eklenir (birim testiyle birlikte). camera/geolocation kapalı, display-capture değişmez.
+ */
+const MIC_DENY_PREFIXES = ["/r"];
+export function permissionsPolicyFor(pathname: string): string {
+  const deny = MIC_DENY_PREFIXES.some((p) => pathname === p || pathname.startsWith(`${p}/`));
+  return `camera=(), microphone=${deny ? "()" : "(self)"}, geolocation=(), display-capture=(self)`;
+}
+
 export function buildCsp(nonce: string, host: string, isDev: boolean, https: boolean): string {
   return [
     "default-src 'self'",
@@ -71,7 +82,7 @@ export function proxy(req: NextRequest) {
   res.headers.set("Cross-Origin-Opener-Policy", "same-origin");
   res.headers.set("X-Content-Type-Options", "nosniff");
   res.headers.set("Referrer-Policy", "no-referrer");
-  res.headers.set("Permissions-Policy", "camera=(), microphone=(), geolocation=(), display-capture=(self)");
+  res.headers.set("Permissions-Policy", permissionsPolicyFor(pathname));
   return res;
 }
 

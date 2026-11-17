@@ -5,6 +5,12 @@ import { useEffect, useRef, useState, type RefObject } from "react";
 import { ShareStrip } from "@/components/guest/share-strip";
 import { GuestCollab, PipButton, usePip } from "@/components/guest/guest-collab";
 import { TechsList } from "@/components/guest/techs-list";
+import { useVoiceAnnounce, VoiceAnnounce, VoiceBar } from "@/components/guest/voice-bar";
+import { VoiceRequestDialog } from "@/components/guest/voice-dialog";
+import { Alert } from "@/components/ui/alert";
+import { namesOf } from "@/lib/voice/console";
+import type { GuestVoice, GuestVoiceView } from "@/lib/voice/guest";
+import { guestBarModel } from "@/lib/voice/ui";
 import type { TechRosterEntry } from "@remote/contracts/ws-multi";
 import { chatAuthor } from "@/lib/multi/roster";
 import { useCollab } from "@/lib/dc/use-collab";
@@ -126,7 +132,8 @@ export function GuestSession({ info: join, verifyCode, sessionRef, cred, storeKe
   const live = { state, now, techName: join.technicianName, share, video, collab, pip, rec };
   const multi = { roster: g.roster, onRemove: g.removeTech, onDrawn: g.markDrawn };
   const dialog = { confirm, onConfirm: setConfirm, onEnd: end };
-  return <GuestLive {...live} {...dialog} multi={multi} filesAllowed={filesAllowed} onChatVisible={setChatOpen} />;
+  const voice = { view: g.voiceView, api: g.voice };
+  return <GuestLive {...live} {...dialog} multi={multi} voice={voice} filesAllowed={filesAllowed} onChatVisible={setChatOpen} />;
 }
 
 interface GuestLiveProps {
@@ -145,12 +152,16 @@ interface GuestLiveProps {
   onEnd: () => void;
   /** P28c: bağlı teknisyenler (multi1 roster; eski sunucuda null → liste yok). */
   multi: { roster: TechRosterEntry[] | null; onRemove: (tid: string) => void; onDrawn: (tids: string[]) => void };
+  /** P28d: sesli görüşme (görünüm + `GuestVoice`; mikrofon yalnız `accept()` tıklamasında, K-PD-2). */
+  voice: { view: GuestVoiceView; api: GuestVoice };
 }
 
 /** Canlı oturum: paylaşım şeridi, uyarılar, önizleme (+PiP), sohbet/dosyalar, yalnız izleme notu, bitir onayı (AC-28..33, 59). */
 function GuestLive(p: GuestLiveProps) {
   const { state, share, collab, pip, onConfirm } = p;
   const strip = state.reconnectSince !== null ? "reconnecting" : state.share;
+  // P28d (Y-PD-3): yeni dinleyici duyurusundaki "Çıkar" teknisyen listesinin onayını açar
+  const [removeTid, setRemoveTid] = useState<string | null>(null);
   return (
     <div className="-mx-4 -mt-2 flex flex-col gap-4">
       <ShareStrip
@@ -164,6 +175,7 @@ function GuestLive(p: GuestLiveProps) {
       />
       <div className="flex flex-col gap-4 px-4">
         <GuestLiveAlerts state={state} now={p.now} shareErr={share.shareErr} busy={share.busy} onRetry={share.onStart} />
+        <GuestVoiceSlot voice={p.voice} roster={p.multi.roster ?? []} onRemove={setRemoveTid} />
         <section aria-labelledby="on-t" className="flex flex-col gap-3 rounded-lg border border-border bg-surface p-4 shadow-sm">
           <h1 id="on-t" className="text-lg font-semibold text-fg">
             {t("gs.previewTitle")}
@@ -171,7 +183,15 @@ function GuestLive(p: GuestLiveProps) {
           <GuestPreview video={p.video} share={state.share} annot={collab.annot} pipWin={pip.win} />
           {state.share === "sharing" && <PipButton pip={pip} />}
         </section>
-        {p.multi.roster && <TechsList roster={p.multi.roster} onRemove={p.multi.onRemove} onDrawn={p.multi.onDrawn} />}
+        {p.multi.roster && (
+          <TechsList
+            roster={p.multi.roster}
+            onRemove={p.multi.onRemove}
+            onDrawn={p.multi.onDrawn}
+            confirmTid={removeTid}
+            onConfirmTid={setRemoveTid}
+          />
+        )}
         <GuestCollab
           collab={collab}
           filesAllowed={p.filesAllowed}
@@ -190,6 +210,49 @@ function GuestLive(p: GuestLiveProps) {
         }}
       />
     </div>
+  );
+}
+
+/**
+ * P28d müşteri sesli görüşme: istek diyaloğu, görüşme çubuğu, yeni dinleyici duyurusu (assertive bölge her zaman monte),
+ * mikrofon açılamadı uyarısı (V-PD-1). Adlar yalnız sunucu roster'ından (D-PD-3).
+ */
+function GuestVoiceSlot({
+  voice,
+  roster,
+  onRemove,
+}: {
+  voice: GuestLiveProps["voice"];
+  roster: readonly TechRosterEntry[];
+  onRemove: (tid: string) => void;
+}) {
+  const { view, api } = voice;
+  const ann = useVoiceAnnounce(view);
+  const items = ann.tids.flatMap((tid) => {
+    const e = roster.find((x) => x.tid === tid);
+    return e ? [{ tid, name: e.name, owner: e.owner }] : [];
+  });
+  return (
+    <>
+      <VoiceAnnounce seq={ann.seq} items={items} onRemove={onRemove} />
+      <VoiceBar model={guestBarModel(view, roster)} onMute={(on) => api.setMuted(on)} onEnd={() => api.end()} />
+      {view.note === "device" && (
+        <Alert tone="warning" testId="voice-device">
+          {t("vg.device")}
+        </Alert>
+      )}
+      {view.note === "unconfirmed" && (
+        <Alert tone="info" testId="voice-unconfirmed">
+          {t("vg.unconfirmed")}
+        </Alert>
+      )}
+      <VoiceRequestDialog
+        request={view.request}
+        listenerNames={view.request ? namesOf(view.request.listeners, roster) : []}
+        onAccept={() => api.accept()}
+        onReject={() => api.reject()}
+      />
+    </>
   );
 }
 

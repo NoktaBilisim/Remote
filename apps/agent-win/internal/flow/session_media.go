@@ -179,6 +179,7 @@ func (s *session) stopStream() {
 func (s *session) dropPeers() {
 	s.stopStream()
 	for tid, tp := range s.peers {
+		s.voicePeerRemoved(tid)
 		_ = tp.p.Close()
 		delete(s.peers, tid)
 	}
@@ -193,6 +194,17 @@ func (s *session) onPeer(ctx context.Context, e peerEvent) {
 		}
 	}
 	switch {
+	// run/doneTimeout eşe bağlı değildir (tid ""): tid süzgecinden ÖNCE (P28d düzeltmesi — multi kipinde kontrol sahibi
+	// tid'i dolu olduğundan aşağıdaki `e.tid != s.ctrlTid()` dalı bunları yutuyordu).
+	case e.run != nil:
+		e.run()
+	case e.doneTimeout != "":
+		if s.files == nil {
+			return
+		}
+		if r := s.files.DoneTimeout(e.doneTimeout); r != nil {
+			s.d.UI.FileResult(*r)
+		}
 	case e.ice != nil:
 		s.send(ctx, *e.ice)
 	case (e.state == "failed" || e.state == "closed") && e.tid != "":
@@ -213,15 +225,6 @@ func (s *session) onPeer(ctx context.Context, e peerEvent) {
 		s.onChunk(*e.chunk, e.ok)
 	case e.ctl != nil:
 		s.onCtl(e.tid, *e.ctl)
-	case e.run != nil:
-		e.run()
-	case e.doneTimeout != "":
-		if s.files == nil {
-			return
-		}
-		if r := s.files.DoneTimeout(e.doneTimeout); r != nil {
-			s.d.UI.FileResult(*r)
-		}
 	}
 }
 

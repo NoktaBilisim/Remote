@@ -82,6 +82,11 @@ export interface TechState {
    * yok (kabul edilmiş misafir yok / eski sunucu) → engel değil; `false` → "Davet et" baştan pasif. Kısa kopuklukta son değer kalır.
    */
   guestMulti: boolean | null;
+  /**
+   * P28d (§4.1, AC-379): kabul edilmiş misafir sesi destekliyor mu (`hello`/`peer.joined{guest}` `guestVoice` = sunucu `hasVoice`).
+   * null = alan yok (misafir yok / eski sunucu) → ses arayüzü gizli; `false` → "Sesli görüşme" pasif + AC-352 metni.
+   */
+  guestVoice: boolean | null;
 }
 
 export type TechEvent =
@@ -118,6 +123,7 @@ export const initialTech: TechState = {
   techRole: null,
   roster: [],
   guestMulti: null,
+  guestVoice: null,
 };
 
 /**
@@ -250,6 +256,7 @@ function onHello(s: TechState, m: MsgOf<"hello">, now: number): TechState {
     techRole: m.techRole ?? s.techRole,
     roster: m.roster ? [...m.roster] : s.roster,
     guestMulti: m.guestMulti ?? null,
+    guestVoice: m.guestVoice ?? null,
     ...helloShare(s, x, active && m.peerPresent),
   };
 }
@@ -278,6 +285,7 @@ function onPeerJoined(s: TechState, m: MsgOf<"peer.joined">): TechState {
     clipConsent: false,
     fileMode: m.fileMode ?? s.fileMode,
     guestMulti: m.guestMulti ?? null,
+    guestVoice: m.guestVoice ?? null,
     // TEST-P4-2: canlı kabulde kalan süre sayacı sunucunun bildirdiği üst sınırla başlar (opsiyonel alan)
     maxEndsAt: joinedMaxEndsAt(m) ?? s.maxEndsAt,
   };

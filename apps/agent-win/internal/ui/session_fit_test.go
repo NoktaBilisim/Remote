@@ -30,3 +30,21 @@ func TestP28cSessionWindowFits768(t *testing.T) {
 		t.Fatalf("%%150 DPI: %d", got)
 	}
 }
+
+// P28d: ses satırı eklenince en kötü durum (yükseltilmiş + dosya sunucusu + 3 teknisyen + kayıt + ses) 768 px ekrana
+// sohbet geçmişi kısaltılarak sığar; sıkıştırma tavanına ulaşmaz.
+func TestP28dSessionWindowWithVoiceRowFits768(t *testing.T) {
+	const caption, work = 31, 728
+	worst := int32(584+40+3*32+56) + voiceRowH // newSessionWin: yükseltilmiş + dosya sunucusu + rosterH + recRow + ses
+	for _, dpi := range []int32{96, 120, 144} {
+		winH := worst*dpi/96 + caption*dpi/96
+		workH := work * dpi / 96
+		sq := chatSqueeze(winH, workH, dpi)
+		if sq >= chatHistoryH-chatHistoryM && winH-sq*dpi/96 > workH-sessionPad*dpi/96 {
+			t.Fatalf("%d DPI: ses satırıyla sığmıyor (kesinti %d, tavan %d)", dpi, sq, chatHistoryH-chatHistoryM)
+		}
+		if winH-sq*dpi/96 > workH-sessionPad*dpi/96 {
+			t.Fatalf("%d DPI: sıkıştırma sonrası taşıyor", dpi)
+		}
+	}
+}

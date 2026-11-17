@@ -37,6 +37,7 @@ import { membersTeardown, revokeMember, revokeMemberEverywhere, type SilentJoinE
 import { broadcastRoster, controllerOf, newMulti, sendTechs } from "./members.ts";
 import { revokeControlFor } from "./control-revoke.ts";
 import { pending, type RoomRow } from "./rooms-lobby.ts";
+import { endVoice, newVoice, voiceDropTalker, voicePermChange, voiceSync, voiceTechAttached } from "./voice.ts";
 import type { UnattendedGate } from "../unattended/gate.ts";
 
 export { admitHash } from "./rooms-lobby.ts";
@@ -141,6 +142,7 @@ export class Rooms implements RoomNotifier, TechnicianLiveControl {
         ending: false,
         lobbyArrivals: 0,
         multi: newMulti(row.technicianId),
+        voice: newVoice(),
       };
       this.rooms.set(row.id, room);
     }
@@ -194,6 +196,7 @@ export class Rooms implements RoomNotifier, TechnicianLiveControl {
     const old = room.tech;
     room.tech = conn;
     old?.peer.close(WS_CLOSE.REPLACED, "replaced");
+    if (old) voiceDropTalker(room, old.userId); // P28d V-PD-5: eski soket konuşmaz; yeni sekme "Görüşmeye katıl" ile döner
     recTechAttached(this, room, old); // P28e: eski kaydedici soketinin belirteci düşer
     // §3.3 K3: yeni konsol (sekme değişimi / yeniden bağlanma) yalnız görüntüleme ile başlar; misafire önce revoke{reconnect}.
     // P28c: yalnız kontrol sahibi sahipken (üye kontrol sahibiyse sahibin soket değişimi kontrolü kapatmaz).
@@ -204,6 +207,7 @@ export class Rooms implements RoomNotifier, TechnicianLiveControl {
     // P28c K-PC-7: multi1 misafire `peer.joined{tech}` yok, roster tek yol.
     if (room.admitted?.peer && !room.admitted.peer.multi) room.admitted.peer.send({ t: "peer.joined", role: "tech" });
     if (room.admitted) broadcastRoster(room);
+    voiceTechAttached(this, room, conn); // P28d §4.2: roster'dan hemen sonra
     syncDisconnect(this, room);
     return room;
   }
@@ -220,6 +224,7 @@ export class Rooms implements RoomNotifier, TechnicianLiveControl {
       const g = room.admitted.peer;
       if (g && !g.multi) g.send({ t: "peer.left", role: "tech", reason: "disconnect" });
       broadcastRoster(room);
+      voiceSync(this, room); // P28d V-PD-5: konuşan sahip koptu → konuşanlardan hemen çıkar
       syncDisconnect(this, room);
     } else this.dropRoomIfIdle(room);
   }
@@ -228,6 +233,7 @@ export class Rooms implements RoomNotifier, TechnicianLiveControl {
     if (!this.live(room) || guest.peer !== peer) return;
     if (guest.state !== "ADMITTED") return this.leaveLobby(room, guest, "left");
     guest.peer = undefined;
+    voiceSync(this, room); // P28d V-PD-7: misafir koptu / değişti → görüşme HEMEN `disconnect` (pending: reject{disconnect})
     fsrvSideGone(this, room, "CUSTOMER"); // P28b D-P28b-2
     recSourceGone(this, room); // P28e S-P28e-2: kaynak eş yokken yalnız uçuştaki parça
     room.share = { state: "stopped" }; // QA-P4-12: misafir yokken paylaşım sürmüyor
@@ -278,6 +284,7 @@ export class Rooms implements RoomNotifier, TechnicianLiveControl {
 
   private teardown(room: Room, reason: SessionEndedReason): void {
     for (const t of Object.values(room.timers)) this.clock.clearTimeout(t);
+    endVoice(this, room, "session_ended"); // P28d: üyeler silinmeden önce (listenerIds + yayın), session.ended'dan önce
     const msg = { t: "session.ended", reason } as const;
     const peers = [room.tech?.peer, ...membersTeardown(this, room), room.admitted?.peer, ...[...room.lobby.values()].map((g) => g.peer)];
     for (const g of room.lobby.values()) this.clock.clearTimeout(g.timer);
@@ -317,6 +324,7 @@ export class Rooms implements RoomNotifier, TechnicianLiveControl {
       if (room.ending) continue;
       if (room.multi.members.has(userId)) {
         memberPermChange(this, room, userId, perms); // P28c Y-PC-2: üye → yalnız revokeMember
+        voicePermChange(this, room, userId, perms); // P28d Y-PD-3: üye yolu
         continue;
       }
       if (room.technicianId !== userId) continue;
@@ -328,6 +336,7 @@ export class Rooms implements RoomNotifier, TechnicianLiveControl {
         continue;
       }
       if (room.tech?.userId === userId) room.tech.permissions = perms;
+      voicePermChange(this, room, userId, perms); // P28d Y-PD-3: sahip yolu (narrowCaps ile aynı noktada)
       jobs.push(narrowCaps(this, room, perms));
     }
     if (!perms.has("unattended.silent")) jobs.push(cancelPendingSilent(this, userId));
