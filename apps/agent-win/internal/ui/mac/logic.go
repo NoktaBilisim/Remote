@@ -77,10 +77,17 @@ type signInfo struct {
 	Err    error
 }
 
-// showTestBand bant her durumda gösterilir: Team ID boş, ad-hoc, imza okunamadı ya da TEST derlemesi. Yalnız Developer
-// ID imzalı (Team ID dolu, ad-hoc değil) ve TEST olmayan derlemede gizlidir.
-func showTestBand(si signInfo, testBuild bool) bool {
-	return testBuild || si.Err != nil || si.TeamID == "" || si.AdHoc
+// showTestBand bant her durumda gösterilir: Team ID boş, ad-hoc, imza okunamadı, TEST derlemesi, beklenen Team ID
+// gömülmemiş ya da imzanın Team ID'si beklenenden farklı (D-P28f-K3: başka bir Developer ID ile yeniden imzalanmış
+// paket). Yalnız beklenen Developer ID ekibiyle imzalı (ad-hoc değil) ve TEST olmayan derlemede gizlidir.
+func showTestBand(si signInfo, testBuild bool, expectedTeam string) bool {
+	return testBuild || si.Err != nil || si.TeamID == "" || si.AdHoc || expectedTeam == "" || si.TeamID != expectedTeam
+}
+
+// flipRect AppKit pencere çerçevesini (sol alt köken, y yukarı; birincil ekran yüksekliği primaryH) genel
+// CoreGraphics nokta koordinatına (sol üst köken, y aşağı) çevirir; her yönde 1 nokta dışa yuvarlanır (Y-P28f-K1).
+func flipRect(x, y, w, h, primaryH float64) input.FRect {
+	return input.FRect{X: x - 1, Y: primaryH - (y + h) - 1, W: w + 2, H: h + 2}
 }
 
 // --- metinler ve küçük biçimlendiriciler ----------------------------------------------------------------------------

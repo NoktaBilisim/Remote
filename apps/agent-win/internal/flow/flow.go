@@ -195,6 +195,9 @@ type Deps struct {
 	// (macOS: Erişilebilirlik izni + olay musluğu kurulabiliyor). false → diyalog açılmaz/kapı açılmaz,
 	// control.state{VIEW, OS_PERMISSION} gönderilir ve AccessGuide (varsa) çağrılır. nil → bugünkü davranış (Windows).
 	ControlReady func() bool
+	// ArmControl P28f D-P28f-K1: nil değilse "İzin ver"de kapı açılmadan ÖNCE çağrılır (macOS: olay musluğu kurulup
+	// doğrulanır, input.Host.Arm). false → kapı açılmaz, ControlReady false ile aynı yol (OS_PERMISSION). nil → Windows.
+	ArmControl func() bool
 	// AccessGuide ControlReady false olunca izin rehberini gösterir (macOS Erişilebilirlik; K4). nil olabilir.
 	AccessGuide func()
 	// AC-248 pencere modu: WindowCapture() true ve CaptureWindow/SetInputWindow doluysa paylaşım ekranında

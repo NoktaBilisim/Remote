@@ -298,6 +298,7 @@ func (f *form) show(focus objc.ID, away bool, level int) {
 	if focus != 0 {
 		f.win.Send(objc.Sel("makeFirstResponder:"), focus)
 	}
+	f.u.syncOwnWindows()
 }
 
 // destroy pencereyi kapatır ve geri çağrı kayıtlarını siler.
@@ -317,6 +318,7 @@ func (f *form) destroy() {
 	f.win.Send(selSetDelegate, objc.ID(0))
 	f.win.Send(selClose)
 	f.win.Send(selRelease)
+	f.u.syncOwnWindows()
 }
 
 // recolor tema değişince uyarı etiketleri.

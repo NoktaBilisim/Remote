@@ -113,12 +113,26 @@ func (s *session) controlReady(ctx context.Context) bool {
 	if s.d.ControlReady == nil || s.d.ControlReady() {
 		return true
 	}
+	s.osPermission(ctx)
+	return false
+}
+
+// armControl D-P28f-K1: kapı açılmadan önce yerel girdi önceliği (olay musluğu) kurulur; kurulamazsa OS_PERMISSION.
+func (s *session) armControl(ctx context.Context) bool {
+	if s.d.ArmControl == nil || s.d.ArmControl() {
+		return true
+	}
+	s.osPermission(ctx)
+	return false
+}
+
+// osPermission bekleyen istek iptal (ret sayılmaz), VIEW{OS_PERMISSION}, izin rehberi.
+func (s *session) osPermission(ctx context.Context) {
 	s.ctlReq.Cancel()
 	s.sendControl(ctx, "VIEW", "OS_PERMISSION")
 	if s.d.AccessGuide != nil {
 		s.d.AccessGuide()
 	}
-	return false
 }
 
 // onControlRelease K1/K2: durumdan bağımsız kapı ve kontrol diyaloğu kapanır; yanıt yok (sunucu zaten VIEW).
@@ -207,7 +221,7 @@ func (s *session) grantControl(ctx context.Context) {
 		s.ctlReq.Cancel()
 		return
 	}
-	if !s.controlReady(ctx) { // izin istekten sonra geri alınmış olabilir (son savunma)
+	if !s.controlReady(ctx) || !s.armControl(ctx) { // izin geri alınmış olabilir; musluk kapıdan ÖNCE (D-P28f-K1)
 		return
 	}
 	s.ctlReq.Granted()

@@ -20,6 +20,9 @@ var (
 	// testBuild P28f (mimari-p28f §8.2, S-P28f-7): yalnız "1" ise staging TEST derlemesi (build-darwin.sh `-t`). macOS'ta
 	// TEST bandı imzadan da türetilir (K4); bu değer yalnız ek koşuldur, bandı kapatamaz.
 	testBuild string
+	// expectedTeamID P28f D-P28f-K3: beklenen Apple Developer Team ID (build-darwin.sh EXPECTED_TEAM_ID). Boşsa ya da
+	// biçim dışıysa TEST bandı her zaman gösterilir; doluysa bant yalnız imza bu Team ID ile ise gizlenir.
+	expectedTeamID string
 )
 
 // Config doğrulanmış derleme zamanı yapılandırması.
@@ -29,6 +32,8 @@ type Config struct {
 	Version   string
 	// TestBuild P28f: ldflags `config.testBuild=1` ile derlendi (staging TEST sürümü).
 	TestBuild bool
+	// TeamID P28f D-P28f-K3: gömülü beklenen Team ID (10 karakter A-Z0-9); geçersiz/boşsa "".
+	TeamID string
 }
 
 // ErrNotConfigured: build ldflags olmadan alınmış.
@@ -38,7 +43,21 @@ var ErrNotConfigured = errors.New("config: sunucu adresi veya sürüm derlemede 
 func Load() (Config, error) {
 	c, err := parse(serverURL, version)
 	c.TestBuild = isTestBuild(testBuild)
+	c.TeamID = teamID(expectedTeamID)
 	return c, err
+}
+
+// teamID yalnız 10 karakter A-Z0-9 Apple Team ID kabul edilir; başka her değer "" (bant gösterilir).
+func teamID(v string) string {
+	if len(v) != 10 {
+		return ""
+	}
+	for _, r := range v {
+		if (r < 'A' || r > 'Z') && (r < '0' || r > '9') {
+			return ""
+		}
+	}
+	return v
 }
 
 // isTestBuild yalnız tam "1" değeri TEST derlemesidir (boş ya da başka değer: değil).

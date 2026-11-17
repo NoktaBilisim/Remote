@@ -63,13 +63,3 @@ func Uptime() time.Duration {
 }
 
 func seconds(s float64) time.Duration { return time.Duration(s * float64(time.Second)) }
-
-// LocalEvent tek CGEventRef için localClick olay koşulları (§5.2a m.2–m.4: HID durum kaynağı, PID 0, işaretimiz yok).
-// ui/mac SetLocalCheck ile ek (VE) koşul olarak bağlar; tür/basış/yaş kuralları LocalClick'tedir. Bağlanamazsa false.
-func LocalEvent(cgEvent uintptr) bool {
-	if cgEvent == 0 || bind() != nil {
-		return false
-	}
-	return localField(ClickEvent{Present: true, StateID: cg.getInt(cgEvent, fieldStateID),
-		PID: cg.getInt(cgEvent, fieldSourcePID), UserData: cg.getInt(cgEvent, fieldUserData)}, marker)
-}

@@ -13,7 +13,7 @@ import (
 
 // P28f K3 (ADR-0037 m.3, mimari-p28f §2 `input/*_darwin`): CGEvent enjeksiyonu. Çeviri inject_mac.go'da (saf, testli);
 // burada yalnız CoreGraphics çağrıları. Olaylar NULL kaynakla (kCGEventSourceStateID = 0) kurulur ve HID konumuna
-// gönderilir (spike K0s-3: ±0,00 px); her olaya kCGEventSourceUserData = Marker() yazılır (localClick m.4 ve olay
+// gönderilir (spike K0s-3: ±0,00 px); her olaya kCGEventSourceUserData = marker yazılır (localClick m.4 ve olay
 // musluğu bunu tanır). Sistem her sentetik olaya gönderenin PID'ini yazar (localClick m.3).
 //
 // FFI (S-P28f-11): semboller yalnız izin listeli mutlak yoldan (objc.Framework) ve objc.Func ile (panik yok); bağlama

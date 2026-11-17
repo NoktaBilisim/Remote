@@ -100,6 +100,8 @@ type Applier struct {
 	paused int
 	// altGrText P28f: AltRight (AltGr) basılıyken karakter Unicode gider (SetAltGrText; yalnız macOS).
 	altGrText bool
+	// host P28f Y-P28f-K1 (hostguard.go): macOS monitör kipi Fare Tuşları ve kendi pencere kuralları; Windows'ta nil.
+	host HostProbe
 }
 
 // NewApplier kapıya bağlı alıcı; kapı kapanınca basılı kalan tuş/düğmeler bırakılır.
@@ -163,9 +165,11 @@ func (a *Applier) handleLocked(m Msg) (func(string), string) {
 		return nil, ""
 	}
 	var evs []Event
-	if a.scope.on {
+	switch {
+	case a.scope.on:
 		evs = a.translateScoped(m)
-	} else {
+	case a.hostDropLocked(m): // P28f macOS (Y-P28f-K1): düştü, sayıldı
+	default:
 		evs = a.translate(m)
 	}
 	if len(evs) > 0 {
@@ -293,13 +297,21 @@ func (a *Applier) translate(m Msg) []Event {
 	return nil
 }
 
+// point normalize (0..1) → aktif monitör pikseli (macOS'ta nokta: genel CoreGraphics koordinatı). Hedef yoksa false.
+func (a *Applier) point(x, y float64) (float64, float64, bool) {
+	if !a.hasMon {
+		return 0, 0, false
+	}
+	return float64(a.mon.Left) + x*float64(a.mon.Right-a.mon.Left-1),
+		float64(a.mon.Top) + y*float64(a.mon.Bottom-a.mon.Top-1), true
+}
+
 // move normalize (0..1) → aktif monitör pikseli → sanal masaüstü mutlak (0..65535) koordinatı.
 func (a *Applier) move(x, y float64) (Event, bool) {
-	if !a.hasMon {
+	px, py, ok := a.point(x, y)
+	if !ok {
 		return Event{}, false
 	}
-	px := float64(a.mon.Left) + x*float64(a.mon.Right-a.mon.Left-1)
-	py := float64(a.mon.Top) + y*float64(a.mon.Bottom-a.mon.Top-1)
 	ax := (px - float64(a.virt.Left)) * 65535 / float64(max(1, a.virt.Right-a.virt.Left-1))
 	ay := (py - float64(a.virt.Top)) * 65535 / float64(max(1, a.virt.Bottom-a.virt.Top-1))
 	return Event{Mouse: true, DX: int32(ax + 0.5), DY: int32(ay + 0.5),

@@ -42,10 +42,10 @@ func TestSP28f1LocalClickWhitelist(t *testing.T) {
 }
 
 func TestSP28f1MarkerAndLocalInput(t *testing.T) {
-	if Marker() == 0 {
+	if marker == 0 {
 		t.Fatal("işaret üretilmeli")
 	}
-	if !LocalInput(0, 0) || LocalInput(0, Marker()) || LocalInput(777, 0) {
+	if !LocalInput(0, 0) || LocalInput(0, marker) || LocalInput(777, 0) {
 		t.Fatal("yerel girdi: PID 0 ve işaretsiz")
 	}
 }

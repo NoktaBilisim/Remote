@@ -678,14 +678,18 @@ jobs:
           SERVER: ${{ steps.meta.outputs.server }}
           VERSION: ${{ steps.meta.outputs.version }}
           MODE: ${{ steps.meta.outputs.mode }}
+          VAR_TEAM: ${{ vars.APPLE_TEAM_ID }}
         run: |
           git config --global --add safe.directory "$GITHUB_WORKSPACE"
           kip="test"; [ "$MODE" = prod ] && kip=""
+          # D-P28f-K3: beklenen Team ID yalnız prod (etiket) derlemesine ve yalnız vars.APPLE_TEAM_ID doluysa gömülür (boşsa R39:
+          # sign-mac atlanır, gömülmez). build-darwin.sh biçimi ve ikilide bulunmasını denetler; sign-mac build-meta 4. satırı = TEAM.
+          team=""; [ "$MODE" = prod ] && team="$VAR_TEAM"
           for a in arm64 amd64; do
             # kip boşsa (prod) build-darwin.sh yalnız GITHUB_REF_TYPE=tag + GITHUB_REF_NAME=v<sürüm> ile derler (S-P28f-7).
-            apps/agent-win/build/build-darwin.sh "$SERVER" "$VERSION" "$a" "$RUNNER_TEMP/out/noktadestek-$a" $kip
+            EXPECTED_TEAM_ID="$team" apps/agent-win/build/build-darwin.sh "$SERVER" "$VERSION" "$a" "$RUNNER_TEMP/out/noktadestek-$a" $kip
           done
-          printf '%s\n%s\n%s\n' "$SERVER" "$VERSION" "$MODE" > "$RUNNER_TEMP/out/build-meta.txt"
+          printf '%s\n%s\n%s\n%s\n' "$SERVER" "$VERSION" "$MODE" "$team" > "$RUNNER_TEMP/out/build-meta.txt"
           sha256sum "$RUNNER_TEMP/out/noktadestek-arm64" "$RUNNER_TEMP/out/noktadestek-amd64"
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
@@ -822,12 +826,54 @@ jobs:
         with: { persist-credentials: false }
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with: { go-version: "${{ env.GO_VERSION }}", cache: false }
-      - name: go test (darwin/arm64; MallocScribble + NSZombieEnabled)
+      # P28f düzeltme 1 (QA m.6, mimari-p28f §8.2 "görünür SKIP"): tek koşu -v; her `--- SKIP` satırı ::warning:: + step summary
+      # (annotation adım başına sınırlı, tam liste summary'de). ZORUNLU: bu runner'da izin (Ekran Kaydı / Erişilebilirlik) ya da
+      # etkin ekran gerektirmeyen, koşullu t.Skip yolu OLMAYAN testler — PASS değilse (SKIP ya da hiç koşmadı = ad değişti) kırmızı.
+      # İzin/ekran bağımlı (SCK, AX enjeksiyon/musluk, CGBind, EnvProbe, Monitors, getconf, spctl, ölçüm) SKIP'leri yalnız uyarıdır.
+      # Bir zorunlu testin adını değiştiren/kaldıran bu listeyi de günceller.
+      - name: go test (darwin/arm64; MallocScribble + NSZombieEnabled; -v, SKIP görünür, zorunlu PASS)
         env:
           MallocScribble: "1"
           NSZombieEnabled: "YES"
           CGO_ENABLED: "0"
-        run: go test -count=1 ./...
+        run: |
+          set +e -o pipefail
+          out="$RUNNER_TEMP/go-test-darwin.txt"
+          go test -count=1 -v ./... 2>&1 | tee "$out"
+          rc=$?
+          set -e
+          skips="$(grep -E -- '^[[:space:]]*--- SKIP: ' "$out" || true)"
+          if [ -n "$skips" ]; then
+            printf '%s\n' "$skips" | sed -E 's/^[[:space:]]*--- SKIP: /::warning::go test SKIP (darwin, izin\/ekran yok olabilir): /'
+            { echo "### go test (darwin) SKIP listesi"; echo '```'; printf '%s\n' "$skips"; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+          fi
+          zorunlu="TestP28fOpenAllowList TestP28fClassAndSelectorFailClosed TestP28fNSStringRoundTripAndLimits
+            TestP28fAsyncRunsOnQueueAndConsumesHandle
+            TestP28fK2AC392VTEncodeKeyframesNoLoss TestP28fK2VTRejectsWrongSize TestP28fK2VTSessionTableCleared TestP28fK2SessionLockedRule
+            TestAC393P28fClipRoundTripPlainText TestAC393P28fClipReadLimits TestSP28f12ClipSensitiveMarksNotRead
+            TestAC393P28fClipWriteMarksTransient TestAC393P28fClipWriteValidation TestAC393P28fClipClosed
+            TestAC117P28fQuarantineValue TestAC117P28fQuarantineWrittenToFile TestAC117P28fQuarantineMissingFileFails
+            TestAC394P28fRemoveTraces TestAC392P28fDownloadsDir
+            TestAC117P28fTransferPlacesQuarantinedFile TestAC117P28fStreamQuarantineFailureCorrupt
+            TestAC393P28fLPFixedArgsStdinEnv TestAC393P28fLPInputValidation TestAC393P28fLPErrors TestAC393P28fLPCancel
+            TestAC393P28fDarwinPrinterInspectAndPrint
+            TestSP28f10ControlReadyMatchesPermission TestSP28f1LocalClickWhitelist TestAC48MacKeyTable
+            TestAC48ModifierMappingCtrlToCommand TestAC48TurkishTextUnicode TestAC48AltGrTextOnMac
+            TestAC49MacCoordinatesDragAndDoubleClick TestAC101MacClosedGateNoEvents TestP28fAccessibilityShortcutsNeverInjected
+            TestP28fRestartRoundTrip TestP28fRestartRejects TestP28fRestartPurge
+            TestP28fClassifyClick TestP28fIndicatorHealth TestP28fFooterAndInputLimit TestP28fTestBand"
+          fail=0
+          for t in $zorunlu; do
+            if grep -Eq -- "^--- PASS: $t \(" "$out"; then continue; fi
+            if grep -Eq -- "^--- SKIP: $t \(" "$out"; then
+              echo "::error::$t SKIP: izin gerektirmeyen zorunlu darwin testi bu runner'da koşmalı, SKIP kabul edilmez"
+            else
+              echo "::error::$t PASS değil ya da hiç koşmadı (kaldı / ad değişti → listeyi güncelle)"
+            fi
+            fail=1
+          done
+          [ "$rc" = 0 ] || { echo "::error::go test (darwin) çıkış kodu $rc"; exit "$rc"; }
+          exit "$fail"
       - name: go test internal/darwin (x86_64, Rosetta)
         env:
           CGO_ENABLED: "0"
@@ -1175,11 +1221,14 @@ jobs:
           MODE: ${{ needs.reproducible-mac.outputs.mode }}
           TAG: ${{ github.ref_name }}
           VAR_SERVER_URL: ${{ vars.AGENT_SERVER_URL }}
+          TEAM: ${{ vars.APPLE_TEAM_ID }}
         run: |
           [ "$(shasum -a 256 "$RUNNER_TEMP/thin/noktadestek-arm64" | cut -d' ' -f1)" = "$WANT_ARM64" ] || { echo "::error::arm64 SHA uyuşmuyor"; exit 1; }
           [ "$(shasum -a 256 "$RUNNER_TEMP/thin/noktadestek-amd64" | cut -d' ' -f1)" = "$WANT_AMD64" ] || { echo "::error::amd64 SHA uyuşmuyor"; exit 1; }
           [ "$MODE" = prod ] && [ "v$VERSION" = "$TAG" ] || { echo "::error::kip/sürüm etiketle uyuşmuyor ($MODE $VERSION $TAG)"; exit 1; }
           [ "$(sed -n 1p "$RUNNER_TEMP/thin/build-meta.txt")" = "$VAR_SERVER_URL" ] || { echo "::error::gömülü adres AGENT_SERVER_URL değil"; exit 1; }
+          # D-P28f-K3: ince ikililere gömülü beklenen Team ID (build-meta 4. satır) = imzalayan ekip.
+          [ "$(sed -n 4p "$RUNNER_TEMP/thin/build-meta.txt")" = "$TEAM" ] || { echo "::error::gömülü Team ID vars.APPLE_TEAM_ID değil"; exit 1; }
       - name: ön kontrol (sırlar tanımlı mı; değer basılmaz)
         env:
           P12_SET: ${{ secrets.APPLE_DEVELOPER_ID_P12_BASE64 != '' }}

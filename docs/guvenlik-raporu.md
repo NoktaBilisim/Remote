@@ -1,3 +1,150 @@
+# Güvenlik Raporu — P28f Kod turu 1 (macOS istemci) (dal p28f, HEAD 0d52fe8, PR #24, 2026-11-17)
+
+DURUM: DÜZELTİLMELİ — Kritik 0 / Yüksek 1 / Orta 0 / Düşük 3
+
+Kapsam: tasarım turu bulguları S-P28f-1..17 ve kararlar (mimari-p28f §13 r2, §14 r3, r4 yazdırma; ADR-0037) koddaki karşılığı:
+`apps/agent-win/internal/{darwin/objc, capture/*darwin*, input/*(mac|darwin|localclick)*, ui/mac, macperm, launch/code_*,
+clip/*darwin*, files/*darwin*, transfer/motw_*, printing/{lp_unix,printer_darwin}}.go`, `cmd/noktadestek/*darwin*`,
+`build/build-darwin.sh`, `build/macos/*`, `deploy/agent/publish-mac.sh`, `.github/workflows/{agent-win,agent-watch,ci}.yml`,
+`apps/server` (clientOs, download `os`, availability, agent-ready/{windows,macos}, OS_PERMISSION), `deploy/Caddyfile`,
+`deploy/test-caddy.sh`, `apps/web` karşılama macOS.
+İncelenmeyen/yüzeysel kalan: `capture/sck_darwin.go` ve `source_darwin.go`'nun SCK temsilci akışının tamamı (yalnız tampon
+kopyalama ve sınırlar okundu), `ui/mac/session_darwin.go` sohbet/işaretleme çizim yolları (düz metin ve sınırlar okundu),
+`apps/web` e2e dosyaları. Elle (gerçek Mac) testler bu turda yapılmadı; bkz. Y-P28f-K1.
+
+## Bulgular (öncelik sırasıyla)
+
+### [YÜKSEK] Y-P28f-K1 macOS'ta "Fare Tuşları açıkken tuş takımı düşürme" kuralı yok; pano izni anahtarı yalnız doğrulanmamış birinci katmana dayanıyor — A01/A04 (S-P28f-1 kalıntısı)
+
+Yer:
+
+- `apps/agent-win/internal/input/scope_keys.go:59,83-88` — Windows'taki S-P17-7 kuralı (`DropMouseKeys`: Fare Tuşları açıkken
+  Numpad düşer) yalnız `shellShortcut` içinden, yani Windows pencere kapsamı yolunda çalışır; macOS `Applier`'ı
+  (`cmd/noktadestek/deps_darwin.go:107` `input.NewApplier(gate, inj, nil)`) bu yola girmez.
+- `apps/agent-win/internal/input/keys_mac.go:61-75` — `Numpad0..9`, `NumpadDecimal` vb. enjekte edilebilir tuş tablosunda.
+- `apps/agent-win/internal/input/inject_mac.go:209-221` — `blocked()` yalnız Option×5, ⌘F5/⌘⌥F5, ⌃⌘Q'yu engeller; Fare Tuşları
+  zaten açıksa hiçbir şey düşmez.
+- `apps/agent-win/internal/ui/mac/ui_darwin.go:131-138` + `prompt_darwin.go:84-86` — ikinci katman (enjeksiyon duraklatma) yalnız
+  korunan **diyaloglar** (`newPrompt`, `open=false`) açıkken çalışır. Oturum penceresindeki **pano izni anahtarı**
+  (`session_darwin.go:76-77, 380-386`) her zaman görünür olduğundan duraklatma onu hiç kapsamaz; tek savunma `localClick`'tir.
+- `docs/mimari-p28f.md` §14 madde 5: Fare Tuşları/HID kaynaklı sentetik tıklamanın `localClick` tarafından reddedildiği spike'ta
+  **kanıtlanmadı**, K4 elle testine bırakıldı (`docs/runbook.md:4817`); sonuç kayıtlı değil.
+
+Sorun: Option×5 kısayolunun engellenmesi Fare Tuşları'nın yalnız **kısayolla** açılmasını önler. Kontrolü olan teknisyen Sistem
+Ayarları → Erişilebilirlik → İşaretçi Denetimi → "Fare Tuşları"nı enjekte ettiği sıradan tıklamalarla açabilir (yönetici parolası
+gerekmez; `blocked()` buna dokunmaz). Bundan sonra enjekte edilen tuş takımı "5" tuşunu sistem tıklamaya çevirir. Bu tıklamayı
+bizim sürecimiz değil HID/erişilebilirlik katmanı üretir. Bu yüzden büyük olasılıkla `kCGEventSourceUnixProcessID == 0`,
+durum kaynağı HID'dir ve bizim `UserData` işaretimizi taşımaz. Yani `localField` (`localclick.go:72-74`) dört koşulun hepsini
+geçebilir. Prompt'lar açıkken duraklatma bu yolu kapatır, pano anahtarında ise duraklatma yoktur.
+
+İstismar senaryosu: Kontrol GRANTED → teknisyen Sistem Ayarları'nda Fare Tuşları'nı açar → oturum penceresi zaten ekranda (SCK
+kendi penceremizi kareden dışladığı için teknisyen görmez, ama konumu sabit: `session_darwin.go` düzeni) → imleci "Pano paylaşımı"
+anahtarına getirir, tuş takımı "5" enjekte eder → sistem tıklaması `localClick`'i geçerse `EvClipConsent{On:true}` → müşterinin
+panosu (kopyaladığı IBAN, parola yöneticisi dışı parolalar, kişisel metin) teknisyene akar; müşteri rızası yoktur.
+Aynı teknikle Windows'ta kapatılmış olan yol (S-P17-7) macOS'ta yeniden açılmış olur.
+
+Düzeltme (atanan ajan: backend-dev):
+
+1. macOS'a Fare Tuşları durumu sorgusu: `com.apple.universalaccess` `mouseDriver` (CFPreferencesCopyAppValue, 2 sn önbellek,
+   Windows `accessEvery` kalıbı). Açıkken tuş takımı rakamları, `NumpadDecimal`, `NumpadEnter`'ı düşür (Windows `DropMouseKeys`
+   eşi; kontrol kapısında bildirim). Okunamazsa açık say (fail-closed).
+2. İkinci katmanı oturum penceresine genişlet: imleç **bizim pencerelerimizden birinin çerçevesi** içindeyken (gösterge hariç, oturum
+   penceresi + diyaloglar) enjekte fare düğmesi ve tuş takımı olayları düşsün (tasarım turu S-P28f-1 m.2'deki "pencerelerimizin
+   çerçevesine düşürsün" önerisi). Basit alternatif: pano anahtarını da prompt'a bağla (anahtar → onay diyaloğu → duraklatma).
+3. K4 elle testine eklensin ve sonucu `docs/implementation.md`'ye yazılsın: (a) Fare Tuşları ayarlardan açık + tuş takımı 5 ile pano
+   anahtarı / kontrol diyaloğu → 0 kabul; (b) `localClick` alan değerleri (PID, StateID, UserData) Fare Tuşları tıklamasında loglanıp
+   kaydedilsin. (a) madde 1 ve 2 olmadan %100 ret gösterirse bu bulgu ORTA'ya iner. Yine de madde 1 Windows ile eşitlik için
+   gereklidir.
+
+### [DÜŞÜK] D-P28f-K1 Kapı açılışı ile olay musluğunun kurulması arasında yerel girdi önceliği (AC-104) yok — A04
+
+Yer: `apps/agent-win/internal/input/host_darwin.go:146-151, 189-199, 203-215`; `internal/flow/control.go` `grantControl` → `s.gate.Open()`.
+Sorun: Musluk kapı açıldıktan **sonra** ayrı iş parçacığında kurulur. `gate.Open` ile `tapEnable` arasındaki sürede (normalde
+ms düzeyi, sistem yükünde daha uzun) enjeksiyon serbesttir ama yerel hareket kapıyı askıya almaz. Kurulamazsa `lose()` kapatır,
+yani fail-closed doğrudur. Risk yalnız ilk anlardaki kısa pencerededir.
+Düzeltme (atanan ajan: backend-dev): `Applier`'da "musluk hazır" bayrağı (`curTap != 0`). Bayrak yokken enjeksiyon düşsün
+(`gate.Allow` ön koşulu) ya da `grantControl` musluğun kurulduğu sinyalini ≤ 200 ms beklesin; olmazsa kapı açılmasın.
+
+### [DÜŞÜK] D-P28f-K2 `agent-watch` gözcüsü macOS zip'ini izlemiyor — A08 (G-07 gözlenebilirlik)
+
+Yer: `.github/workflows/agent-watch.yml` (yalnız `WATCH_URL` → `NoktaDestek.exe`, `SHA256SUMS`'ta `NoktaDestek\.exe` arar);
+`deploy/Caddyfile:184-185` yorumu "NoktaDestek-macOS.zip: kodsuz ad (agent-watch)" diyor.
+Sorun: Yayındaki macOS zip'inin Release SHA'sıyla eşleştiğini dışarıdan doğrulayan günlük denetim yok. Sunucu kapısı
+(`MAC_AGENT_SHA256`) aynı volume/env'i değiştirebilen saldırgana karşı tek başına yeterli değil. Tasarımdaki gözcü vaadi yalnız
+Windows'ta yerine geliyor.
+Düzeltme (atanan ajan: devops): `AGENT_WATCH_MAC_URL` (`/downloads/NoktaDestek-macOS.zip`) için ikinci adım; eşleşme
+`^<sha>\s+\*?NoktaDestek-macOS-[0-9.]+\.zip$`. 503, Apple hesabı yokken (R39) "atlandı" sayılsın, alarm üretmesin.
+
+### [DÜŞÜK] D-P28f-K3 TEST bandı herhangi bir Developer ID ekibiyle imzalı pakette gizleniyor — A08 (AC-390)
+
+Yer: `apps/agent-win/internal/ui/mac/logic.go:82-84` (`showTestBand`), `testband_darwin.go:30-63`.
+Sorun: Bant, "Team ID dolu ve ad-hoc değil" koşulunda gizlenir; Team ID beklenen değerle karşılaştırılmıyor. Kodu alıp kendi
+Developer ID'siyle imzalayan biri (repo açık kaynak), bandsız ve "Nokta Destek" adlı bir paket dağıtabilir. Notarization ve
+Gatekeeper bunu engellemez. Etki düşük: bant zaten bir kimlik kanıtı değil, "Hakkında" parmak izi (AC-128) asıl ölçüttür.
+Düzeltme (atanan ajan: backend-dev + devops): Beklenen Team ID'yi ldflags ile göm (`config.teamID`, `sign-mac`'te
+`vars.APPLE_TEAM_ID`). Çalışma anındaki Team ID farklıysa bant gösterilsin ve kontrol izni verilmesin. Yalnız ek savunma; prod
+öncesi zorunlu değil.
+
+## Tasarım turu bulgularının koddaki durumu (kanıtlı)
+
+| Bulgu     | Durum                          | Kanıt                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
+| --------- | ------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| S-P28f-1  | **Kısmen** → Y-P28f-K1         | Beyaz liste doğru: `input/localclick.go:72-92` (sol basış+bırakma, StateID=1, PID=0, işaret yok, yaş ≤1 sn / basılı ≤10 sn), basış `runtime_darwin.go:183-187` `NKDestekDugme mouseDown:` ile, `currentEvent` yok/klavye → ret (`logic.go:36-44`, `consent.go:51-63`). Korunan denetimler `clickOf`: kontrol/monitör/dosya/yazdırma/roster prompt'ları (`prompt_darwin.go:126`), pano (`session_darwin.go:381`), roster "Çıkar" (`:499`), kayıt rızası (`screens_darwin.go:132`), "Erişime izin ver" (`session_darwin.go:83`). Duraklatma `applier.go:151,222-237` + `deps_darwin.go:134-142`. Option×5 / ⌘F5 / ⌘⌥F5 / ⌃⌘Q engeli `inject_mac.go:209-221`; işaret her olayda `cgevent_darwin.go:219`. Eksik: Fare Tuşları ayardan açıldığında tuş takımı ve pano anahtarında ikinci katman |
+| S-P28f-2  | Kapandı                        | `form_darwin.go:53-58` (yalnız Titled+Closable, `setCanHide:NO`, `hidesOnDeactivate NO`, `setRestorable NO`); gösterge/bant `testband_darwin.go:116-117`; menüde Gizle yok (`ui_darwin.go:146-170`); 1 sn tik `unhide:` + ekran başına `sync` + `occlusionState` (`ui_darwin.go:206-235`, `overlay_darwin.go:111-133`); 3 tik → `gate.Close` + `EvControlSystem`; kontrol izni `guard: !health.failed` (`session_darwin.go:310`); ekran bildirimi (`ui_darwin.go:90-91`)                                                                                                                                                                                                                                                                                                                   |
+| S-P28f-3  | Kapandı                        | `Caddyfile:184-196` ayrı `@agentZip` + `agent_zip_file` (`:86-98`), iç URI `/internal/agent-ready/{windows,macos}`, maske aynı; `routes.ts` platform başına kapı, bilinmeyen alt yol 404; `env.ts` prod'da `AGENT_BINARY_PATH`/`MAC_AGENT_PATH` sabit yol; `docker-compose.yml:120-126`; `test-caddy.sh` çapraz senaryolar + biçim dışı ad 404                                                                                                                                                                                                                                                                                                                                                                                                                                             |
+| S-P28f-4  | Kapandı                        | `build/macos/entitlements.plist` boş `<dict/>`; `package.sh:168-174` tam eşleşme denetimi; ses yok (r3)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
+| S-P28f-5  | Kapandı                        | `package.sh:90` ad-hoc `--options runtime --entitlements`; `test-macos` işi aynı paketle                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
+| S-P28f-6  | Kapandı                        | `sign-mac` (`agent-win.yml:1151-1292`): ince ikili SHA = `reproducible-mac` çıktısı, bundle/zip etiket commit'indeki `package.sh` ile **bu işte**; `environment: agent-mac-sign`, `needs: approve`; rastgele keychain parolası, `-T /usr/bin/codesign`, `set-key-partition-list`, `umask 077`, `if: always()` silme; üçüncü taraf Action'a sır yok. Ortam deployment policy/ruleset repo ayarıdır, koddan doğrulanamaz (runbook §28f.3)                                                                                                                                                                                                                                                                                                                                                    |
+| S-P28f-7  | Kapandı                        | `publish-mac.sh:202-260`: `--tag`'de `APPLE_TEAM_ID` zorunlu, ad `^NoktaDestek-macOS-X.Y.Z.zip$`, `--source-ref` + notarized predicate + `teamId`, prod hedefe yalnız `vX.Y.Z`; bant çalışma anında imzadan (`testband_darwin.go`); `sign-mac` gömülü adres = `vars.AGENT_SERVER_URL`. Ek savunma önerisi D-P28f-K3                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| S-P28f-8  | Kapandı                        | `availability.macosTestBuild` yalnız `!production` (`agent.ts`); web şeması eksikse `false` (`lib/agent-download.ts:74`); `mac-guide.test.tsx` iki kipi sınıyor                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
+| S-P28f-9  | Kapandı                        | `packages/contracts/src/files.ts` macOS türleri (command, scpt, terminal, webloc, mobileconfig…) + fikstür; `files/quarantine_darwin.go` `0083`, 0x40 yok, `XATTR_NOFOLLOW`; `transfer/motw_darwin.go` her türde zorunlu, yazılamazsa CORRUPT; `Info.plist.tmpl:33` `LSFileQuarantineEnabled`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
+| S-P28f-10 | Kapandı (küçük açık D-P28f-K1) | `host_darwin.go`: kurulamazsa `lose()`; DisabledBy* → yeniden aç, olmazsa `lose()`; 50 ms dilimde `axTrusted` yoklaması; `ControlReady` deneme musluğu → `OS_PERMISSION` (`flow/control.go` `controlReady`, grant öncesi ikinci yoklama)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
+| S-P28f-11 | Kapandı                        | `objc/load_darwin.go:17-51` mutlak yol izin listesi (regexp + iki dylib); geri çağrılar/sınıflar yalnız `init`'te (`runtime_darwin.go:79`, `host_darwin.go:62`, `vt_darwin.go` init); `NSString` `initWithBytes:length:encoding:` + 64 KiB + UTF-8 doğrulama; CVPixelBuffer `planeBytes` taşma denetimi, kilit eşli, boyut ≤16384 çift (`vt_darwin.go:283-325`, `sck_darwin.go:115-140`); sınıf/selector çözülemezse Present=false → ret                                                                                                                                                                                                                                                                                                                                                   |
+| S-P28f-12 | Kapandı                        | `form_darwin.go:188-210` `setRichText NO`, link/veri algılama kapalı, yalnız `setString:`; logo Go'da çözülüp `NSBitmapImageRep` (`:214-237`); pano yalnız `public.utf8-plain-text`, Concealed/Transient/AutoGenerated → okunmaz (`clip_darwin.go:182-195`), yazarken TransientType; mailto katı regex + `NSURLComponents` (`logic.go:163-170`, `screens_darwin.go:299+`); `openURL` yalnız paket sabitleri                                                                                                                                                                                                                                                                                                                                                                                |
+| S-P28f-13 | Kapandı                        | `macperm/restart.go` 128 bit belirteç, yalnız `--restart <32 hex>`; `restartfile_unix.go` `confstr` dizini (`tcc_darwin.go:40`), sahibi+0700, `O_EXCL                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      | O_NOFOLLOW`0600, okumada`fstat`(normal, sahip, 0600, nlink 1, ≤120 sn), içerik 8 rakam, her durumda silme; belirteçsiz açılışta`PurgeRestart`; çapalı desen `code_folder.go:12` |
+| S-P28f-14 | Kapandı                        | `info-plist-keys.txt` tam izin listesi (URL türü/AppleScript/belge türü yok), `package.sh:130`; stg bundle `.stg`; `--self-test` yok; `trace-check-mac.sh` önbellek dizini + `log show`; `files.CleanTraces` başlangıç/çıkış/SIGTERM                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| S-P28f-15 | Kapandı                        | Geçersiz `os` → 400, ref kovası tüketilmeden (`agent.ts` `consume(downloadIp)` → `os===null` → VALIDATION, `assertLookupAllowed`'dan önce); `OS_PERMISSION` yalnız `clientOs==="macos"` (`control.ts:275-279`) ve yalnız REQUESTED fazında (`control-grant.ts:102-106`); audit `os` beyan etiketi; metrik etiketi enum'dan; web availability hata → yalnız tarayıcı                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| S-P28f-16 | Kapandı                        | `lp_unix.go` mutlak `/usr/bin/lp`, sabit argüman, stdin, `LPDEST`/`PRINTER` temizliği; `-d`/`lpstat` yok; r4: `printer_darwin.go` `PagesUnknown`, sabit "Varsayılan yazıcı", ayrıştırma yok                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| S-P28f-17 | Kapandı                        | `icerik-sha256.txt` (paket içi ikili + dilim başına imzasız SHA), Release notunda `lipo -thin` + `codesign --remove-signature` + `cmp` adımı (`agent-win.yml:1461`, `package.sh compare`)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
+
+## Otomatik tarama çıktıları
+
+- `govulncheck` v1.9.0 (Go 1.26.11, `apps/agent-win`): `GOOS=darwin GOARCH=arm64` → **No vulnerabilities found.**;
+  `GOOS=darwin GOARCH=amd64` → **No vulnerabilities found.**; `GOOS=windows GOARCH=arm64` → **No vulnerabilities found.**
+- `pnpm audit --audit-level=moderate` → **No known vulnerabilities found**.
+- gitleaks: makinede kurulu değil (CI'da çalışıyor). Yerine `git grep` gizli bilgi kalıbı, kapsam `apps/agent-win`, `apps/server/src`,
+  `apps/web/{app,lib}`, `deploy`, `.github` (testler hariç) → eşleşme yok. Dalda değişen `.env*` yalnız `.env.example`
+  (`MAC_AGENT_SHA256=`, `MAC_AGENT_PATH=` boş). `.p12/.p8/.pem` dosyası yok.
+
+## Tasarımda vaat edilip kodda bulunmayanlar
+
+- §5.2a ikinci katman ("korunan denetim açıkken enjeksiyon durur") yalnız diyaloglarda var; her zaman görünür pano anahtarı için
+  karşılığı yok. Windows'taki Fare Tuşları kuralı macOS'a taşınmamış → Y-P28f-K1.
+- §14 madde 5 / runbook §28f.6 elle test listesi (Fare Tuşları, VO-Space, AXPress, HID kaynaklı sentetik; ⌘H/⌘⌥H/⌘M; TCC akışı)
+  koddan doğrulanamaz. Sonuçları `docs/implementation.md`'ye işlenmeden prod'a çıkılmamalı.
+- `agent-watch` macOS zip'i → D-P28f-K2.
+- `agent-mac-sign` ortamının deployment policy'si, zorunlu onaylayıcısı ve etiket ruleset'i repo ayarlarındadır. Koddan
+  doğrulanamaz; devops ekran ayarını runbook §28f.3'e göre teyit etmeli.
+
+## Olumlu
+
+- `localClick` platformdan bağımsız, birim testli saf karar fonksiyonu (`localclick.go`). AppKit okuma katmanı ince ve hata
+  durumunda ret döner. Prompt'larda `setRefusesFirstResponder`, varsayılan "Reddet", 1,5 sn kilit ve enjekte tıklamada tek seferlik
+  uyarı var (G-03 eşi).
+- Olay musluğu ve kısayol geri çağrıları Go işaretçisi taşımıyor (atomikler). Kısayol kapıyı atomik kapatıyor. Erişilebilirlik izni
+  oturum sırasında geri alınırsa ≤50 ms içinde kapı kapanıyor.
+- Sunucu tarafı varsayılan ret: platform başına iç uç, bilinmeyen alt yol 404, prod'da sabit yol eşitliği (Windows dahil). Hata
+  yanıtları önbelleğe alınmıyor.
+- Tedarik zinciri: ince ikililer iki kez Linux'ta derlenip SHA ile eşleniyor. İmza işi girdiyi bu SHA'larla doğruluyor ve bundle'ı
+  kendisi üretiyor. Notarized attestation ayrı predicate ile üretiliyor. Yayın betiği prod'da staging zip'ini adından, kaynak
+  ref'inden ve predicate'inden reddediyor.
+- Pano: parola yöneticisi işaretli içerik okunmuyor. Yazılan içerik Transient işaretli, `CurrentHostOnly` (Evrensel Pano'ya gitmiyor).
+- Entitlement listesi boş (JIT/ses yok). Hardened runtime staging'de de açık.
+
+Öneri (`docs/gereksinimler.md` 9. bölüm "Sonra"): D-P28f-K1..K3.
+
+---
+
 # Güvenlik Raporu — P28f Tasarım turu (macOS istemci, K0g) (dal main, HEAD c9fcaeb, 2026-11-17)
 
 DURUM: DÜZELTİLMELİ (tasarım; K1/K4 öncesi mimari-p28f / ADR-0037'ye işlenmeli) — Kritik 0 / Yüksek 3 / Orta 9 / Düşük 5
@@ -12,8 +159,10 @@ wazero v1.12.0 `internal/platform/mmap_unix.go:12-13`.
 ## Bulgular (öncelik sırasıyla)
 
 ### [YÜKSEK] S-P28f-1 Sentetik girdi reddi kara liste ("PID ≠ 0 → ret"); olaysız eylemler ve diğer korunan denetimler tanımsız — A01/A04
+
 Yer: mimari-p28f §5.1 T1/T2 (satır 143-144), §2.1 satır 83 (yalnız `prompt_darwin.go`), §5.2 satır 157; ADR-0037 m.3; K0s-4 (satır 281).
 Sorun:
+
 - Tasarım yalnız "`NSApp.currentEvent` → `kCGEventSourceUnixProcessID` 0 değilse ret" diyor. Windows eşi beyaz listedir: yalnız
   `IMO_HARDWARE` yerel, kaynak bilinmiyorsa ya da girdi mesajı yoksa (BM_CLICK/UIA) **enjekte** sayılır, basış + bırakma ikisi de
   denetlenir (`internal/ui/thread_windows.go:89-117`). macOS tasarımında `currentEvent == nil`/bayat olay, Erişilebilirlik eylemi
@@ -23,10 +172,11 @@ Sorun:
   süreci ya da 0) — "PID ≠ kendimiz / 0" denetimi bunları **yerel** sayabilir. K0s-4 yalnız kendi değiştirilmemiş CGEvent'imizi ölçüyor.
 - Windows'ta `userInput` ile korunan diğer denetimler — pano anahtarı (`session_windows.go:218`), roster "Çıkar" (`roster_windows.go:117`),
   ses sessize alma/açma (`voice_windows.go:148`) — macOS tasarımında anılmıyor; yalnız ortak onay diyaloğu var.
-İstismar senaryosu: Kontrolü olan teknisyen dosya teklifi/yazdırma/ses/monitör isteği gönderir, Fare Tuşları'nı enjekte ettiği Option×5
-ile açar, 1,5 sn sonra imleci (görüntüde görmese de konumu hesaplanabilir) "Kabul et" üstüne getirip "5"e basar; tıklama sistemden gelir,
-PID denetimi geçer → müşteri onayı olmadan dosya yazılır / yazdırılır / mikrofon açılır / pano paylaşımı açılır.
-Düzeltme (atanan ajan: mimar → backend-dev):
+  İstismar senaryosu: Kontrolü olan teknisyen dosya teklifi/yazdırma/ses/monitör isteği gönderir, Fare Tuşları'nı enjekte ettiği Option×5
+  ile açar, 1,5 sn sonra imleci (görüntüde görmese de konumu hesaplanabilir) "Kabul et" üstüne getirip "5"e basar; tıklama sistemden gelir,
+  PID denetimi geçer → müşteri onayı olmadan dosya yazılır / yazdırılır / mikrofon açılır / pano paylaşımı açılır.
+  Düzeltme (atanan ajan: mimar → backend-dev):
+
 1. Tek tanım ("yerel girdi") mimari §5.1'e yazılsın, T1/T2/§5.2/ADR m.3 buna atıf yapsın. **Beyaz liste, fail-closed:** eylem anında
    `currentEvent` mevcut, türü beklenen (sol fare bırakma; Enter/Space zaten ret), **aynı tıklamanın basışı da** yerel kaydedilmiş,
    `kCGEventSourceStateID == kCGEventSourceStateHIDSystemState`, `kCGEventSourceUnixProcessID == 0`, kendi enjekte ettiğimiz olaylara
@@ -39,6 +189,7 @@ Düzeltme (atanan ajan: mimar → backend-dev):
    VO-Space, `AXPress` (başka süreçten). GEÇTİ ölçütü: hepsi %100 ret.
 
 ### [YÜKSEK] S-P28f-2 Gizlenemeyen gösterge "Gizle / Diğerlerini Gizle", küçültme ve ekran ekleme ile kaybolabilir — A04 (G-17)
+
 Yer: mimari-p28f §2.1 satır 90 (overlay), satır 82 (oturum penceresi), §5.1 T7, K0s-4 (dört senaryo: tüm masaüstleri, tam ekran,
 Görev Kontrolü; "Gizle" yok).
 Sorun: AppKit'te uygulama gizlendiğinde (`NSApp hide:`) tüm pencereleri ekrandan çekilir; `orderFrontRegardless` gizli uygulamanın
@@ -49,6 +200,7 @@ sonradan takılan monitör) için gösterge penceresi oluşturma kuralı yok. SC
 İstismar senaryosu: Kontrol GRANTED → teknisyen Finder'a geçip ⌘⌥H → gösterge ve oturum penceresi kaybolur, ekran izlenmeye ve kontrol
 edilmeye devam eder; müşteri oturumun bittiğini sanır.
 Düzeltme (atanan ajan: mimar → backend-dev):
+
 1. Gösterge, TEST bandı ve oturum penceresinde `canHide = NO`; oturum penceresi stil maskesinde `miniaturizable` yok, `hidesOnDeactivate = NO`;
    uygulama menüsünde "Gizle"/"Diğerlerini Gizle" yok.
 2. 1 sn'lik tik: `NSApp isHidden` ise `unhide:`; her `NSScreen` için gösterge var mı denetle;
@@ -57,6 +209,7 @@ Düzeltme (atanan ajan: mimar → backend-dev):
 4. K0s-4'e senaryo: ⌘H, ⌘⌥H (başka uygulamadan), ⌘M, Görüntüleri Göster/Masaüstünü Göster, Sahne Yöneticisi, ekran takma.
 
 ### [YÜKSEK] S-P28f-3 `agent-ready` kapısı `.zip` ile `.exe`'yi ayıramaz — macOS zip'i Windows bütünlük kapısıyla sunulabilir — A08 (G-07)
+
 Yer: mimari-p28f §4.1 satır 118 ("`.zip` → `macAgent` kapısı"); mevcut `deploy/Caddyfile:159-166` (`header_up X-Forwarded-Uri
 "/downloads/***"` — uzantı da maskeleniyor), `apps/server/src/public/routes.ts:41-45` (yalnız `NoktaDestek-` önekine bakar, sonra
 `assertAgentReady(app.agentBinary)` = Windows ikilisi); §8.1 `MAC_AGENT_PATH` serbest yol, Caddy ise sabit dosyayı sunar.
@@ -67,6 +220,7 @@ değiştirilmiş/eşleşmiyor olsa bile Caddy zip'i sunar — S6-2/T13 fail-clos
 sağlam olduğundan forward_auth 204 döner, müşteri değiştirilmiş zip'i indirir (prod'da notarization Gatekeeper'da yakalayabilir; staging'de
 ad-hoc olduğundan yakalanmaz).
 Düzeltme (atanan ajan: mimar → devops + backend-dev):
+
 1. Caddy'de ayrı `@agentZip` matcher (`^/downloads/(NoktaDestek-macOS|Destek-[0-9]{8})\.zip$`) ve **ayrı iç URI**
    (`/internal/agent-ready/macos`; Windows `/internal/agent-ready/windows`); `X-Forwarded-Uri` maskesi aynen. Sunucu varsayılan-ret:
    bilinmeyen yol 404, platforma göre yalnız ilgili kapı.
@@ -76,6 +230,7 @@ Düzeltme (atanan ajan: mimar → devops + backend-dev):
 4. `deploy/test-caddy.sh`'e test: Windows ok + mac mismatch → zip 503, exe 200; mac ok + Windows mismatch → tersi.
 
 ### [ORTA] S-P28f-4 T10 ertelenmiş: wazero derleyicisi en geniş JIT entitlement'ını ister ve universal ikilinin tamamına uygulanır — A05
+
 Yer: mimari-p28f §5.1 T10; ADR-0037 m.6 (son paragraf), m.7; wazero v1.12.0 `internal/platform/mmap_unix.go:12-13`
 (`unix.Mprotect(b, PROT_READ|PROT_EXEC)` — `MAP_JIT` yok).
 Sorun: wazero RW→RX `mprotect` kullandığı için hardened runtime'da `com.apple.security.cs.allow-jit` **yetmez**;
@@ -83,6 +238,7 @@ Sorun: wazero RW→RX `mprotect` kullandığı için hardened runtime'da `com.ap
 başına olduğundan arm64 dilimi yorumlayıcı kullansa bile süreç bu yetkiyle çalışır. Süreç Ekran Kaydı + Erişilebilirlik izinli; purego/unsafe
 FFI katmanındaki bir bellek hatası bu yetkiyle kod çalıştırmaya dönüşebilir.
 Düzeltme (atanan ajan: mimar → backend-dev + devops):
+
 1. Varsayılan **yorumlayıcı, entitlement yok** (iki mimaride). K0s-6 yorumlayıcı bütçesini (kodla + 3 çöz ≤ 10 ms) her iki dilimde ölçsün;
    yalnız GEÇMEZSE derleyici + entitlement, gerekçesi ADR'ye, risk kabulü kullanıcıya.
 2. Derleyici gerekiyorsa K0s'ta dilim başına imza (ince ikilileri ayrı entitlement'la imzala → `lipo`) uygulanabilirliği denensin.
@@ -91,6 +247,7 @@ Düzeltme (atanan ajan: mimar → backend-dev + devops):
    `disable-executable-page-protection` görülürse job FAIL.
 
 ### [ORTA] S-P28f-5 Staging/test paketinde hardened runtime yok — T5 iddiası staging'de geçersiz, hardened runtime kırılması ilk kez prod'da görülür — A05
+
 Yer: mimari-p28f §8.2 satır 240 (`codesign -s -`, runtime yok) ve 242 (yalnız `sign-mac`'te `--options runtime`); §5.1 T5.
 Sorun: Ad-hoc pakette `DYLD_INSERT_LIBRARIES` vb. dikkate alınır (T5 "hardened runtime `DYLD_*`'ı yok sayar" yalnız prod'da doğru). Daha
 önemlisi wazero JIT, purego `dlopen` ve mikrofon entitlement davranışı staging'de hiç sınanmadan prod'a çıkar; prod'da çöken ses/yakalama
@@ -100,18 +257,21 @@ build/macos/entitlements.plist` ile yapsın (prod ile aynı entitlement dosyası
 "prod + staging hardened runtime" olarak düzeltilsin.
 
 ### [ORTA] S-P28f-6 `sign-mac` girdisinin bütünlüğü ve Apple sırlarının korunması eksik tanımlı — A08/A02
+
 Yer: mimari-p28f §8.1 satır 230-231, §8.2 satır 240-245, §5.1 T11; ADR-0037 m.6; mevcut desen `.github/workflows/agent-win.yml:800-806`
 (`agent-sign` deployment policy yorumu).
 Sorun:
+
 - `sign-mac`, korumalı ortam dışında koşan `package-mac` çıktısını imzalar; `package-mac` ile `reproducible-mac` ince ikilileri arasında hash
   bağı tanımlı değil (Windows `sign` job'u `sha256sum -c SHA256SUMS` ile imzasız girdiyi doğrular, satır 822).
 - "Yalnız `v*` etiketi" job `if:` koşuluyla anlatılıyor; `if:` güvenlik sınırı değildir. Sınır, `agent-mac-sign` ortamının
   deployment policy'si (yalnız `v*` etiketleri) + zorunlu onaylayıcı + etiket koruması (ruleset) olmalı; tasarımda yazılı değil.
 - Geçici keychain içe aktarımı (`security import -A` yaygın hatası tüm uygulamalara anahtar erişimi verir), `.p8`/`.p12` dosyalarının
   `if: always()` ile silinmesi, App Store Connect API anahtarının rolü ve Developer ID sertifikası sızarsa iptal prosedürü belirtilmemiş.
-İstismar senaryosu: `package-mac`'te (PR'dan değiştirilebilen betik/araç zinciri) bundle'a ek dosya/dylib konur; `sign-mac` bunu Nokta
-Bilişim Developer ID'siyle imzalayıp notarize eder → kötü amaçlı ama "Notarized Developer ID" paket.
-Düzeltme (atanan ajan: devops):
+  İstismar senaryosu: `package-mac`'te (PR'dan değiştirilebilen betik/araç zinciri) bundle'a ek dosya/dylib konur; `sign-mac` bunu Nokta
+  Bilişim Developer ID'siyle imzalayıp notarize eder → kötü amaçlı ama "Notarized Developer ID" paket.
+  Düzeltme (atanan ajan: devops):
+
 1. `sign-mac` ince ikilileri `reproducible-mac` artifact'inden alıp SHA'larını doğrulasın, `lipo` + bundle + zip'i **kendisi** (aynı
    `package.sh`, etiket commit'inden) üretsin ya da `package-mac` çıktısındaki her dosyanın hash listesini `reproducible-mac` ile eşlesin.
 2. `agent-mac-sign`: deployment policy yalnız `v*` etiketi, zorunlu onaylayıcı (kendi onayı yasak), etiket oluşturma ruleset'le kısıtlı
@@ -122,12 +282,14 @@ Düzeltme (atanan ajan: devops):
    sertifikası sızarsa Apple'dan iptal + yeni sertifika + yeni sürüm adımları.
 
 ### [ORTA] S-P28f-7 Prod yayını imzasız/staging zip'i ayırt etmiyor; TEST bandı yalnız derleme bayrağına bağlı — A08 (AC-390)
+
 Yer: mimari-p28f §8.1 satır 228-229, §8.2 satır 240/243/246, §2.1 satır 94 (`config.testBuild`); ADR-0037 m.6;
 `deploy/agent/verify-and-publish.sh:237-238` (`--source-ref` **isteğe bağlı**), `agent-win.yml:890+` (staging çıktıları da aynı iş akışıyla attest ediliyor).
 Sorun: Staging `NoktaDestek-macOS-stg-*.zip` ve imzalı zip aynı `--signer-workflow` ile attest edilir; yayın betiği `--source-ref`
 verilmezse ikisini de geçirir. "İmzasız zip prod'a ulaşamaz" (ADR m.6) yalnız operatörün doğru dosyayı seçmesine dayanır. Ayrıca TEST bandı
 `-X testBuild=1` ile açılıyor: bayrağı unutulmuş ad-hoc derleme bandsız çalışır.
 Düzeltme (atanan ajan: devops + backend-dev):
+
 1. macOS prod yayınında `--source-ref refs/tags/v<sürüm>` **zorunlu**, dosya adı `^NoktaDestek-macOS-[0-9]+\.[0-9]+\.[0-9]+\.zip$`
    (`-stg-` ret), zip içinde staple bileti (`Contents/CodeResources`) ve imzada `TeamIdentifier = vars.APPLE_TEAM_ID` denetimi
    (Linux'ta `rcodesign verify`/Mach-O CMS ayrıştırma ya da `sign-mac`'in ayrı bir "notarized" attestation predicate'i).
@@ -135,6 +297,7 @@ Düzeltme (atanan ajan: devops + backend-dev):
    (ldflag yalnız ek). Ad-hoc derlemeye gerçek prod adresi gömülemesin (build betiği: testBuild yoksa yalnız `PLACEHOLDER`/prod etiketi).
 
 ### [ORTA] S-P28f-8 Herkese açık kılavuz "Yine de Aç" ile Gatekeeper'ı aşmayı öğretiyor — A04 (sosyal mühendislik)
+
 Yer: AC-390 son cümle; mimari-p28f §2.1 satır 94, §12 A-PF-5; tasarım-kontrol P28f "9. Dokümantasyon planı".
 Sorun: Repo açık kaynak; kılavuz/PDF müşterilere dağıtılıyor. "Nokta Destek açılmazsa Gizlilik ve Güvenlik → Yine de Aç" adımı, aynı
 adla dağıtılan trojanlı bir `.app` için hazır talimattır; bir uzaktan erişim aracının adıyla Gatekeeper atlatma alışkanlığı kazandırır.
@@ -143,6 +306,7 @@ karşılama sayfasında; müşteri kılavuzu ve prod sayfası açıkça "Nokta D
 teknisyeninize bildirin" yazsın. Staging sayfası "TEST" uyarısını indirme düğmesinin yanında göstersin.
 
 ### [ORTA] S-P28f-9 Tehlikeli uzantı listesi macOS türlerini içermiyor; quarantine'in Gatekeeper etkisi sınanmıyor — A04 (AC-36, AC-117)
+
 Yer: `apps/agent-win/internal/files/files.go:81-88` (contracts `DANGEROUS_EXT` ile birebir), mimari-p28f §5.1 T8, §9 satır 264-265.
 Sorun: Listede `sh` ve `jar` dışında macOS'ta çalıştırılabilir/sistem değiştiren türler yok: `command tool app pkg mpkg dmg scpt scptd
 applescript terminal webloc inetloc fileloc workflow action mobileconfig kext dylib bundle plugin prefpane osax zsh bash csh ksh py rb pl
@@ -155,6 +319,7 @@ doğrulansın. Ek savunma: `Info.plist` `LSFileQuarantineEnabled = true` (süre�
 Not: quarantine `.part` üzerine yeniden adlandırmadan önce yazılmalı — mevcut ortak yol bunu zaten yapıyor (`transfer/stream.go:95-100`).
 
 ### [ORTA] S-P28f-10 Olay musluğu kurulamaz ya da sistem tarafından kapatılırsa AC-104 ve yerel girdi önceliği sessizce kaybolur — A04
+
 Yer: mimari-p28f §5.2 satır 157, ADR-0037 m.3, §7 "Girdi".
 Sorun: `CGEventTap` kurulamazsa (izin/Girdi İzleme) ya da geri çağrı gecikince macOS `kCGEventTapDisabledByTimeout` /
 `ByUserInput` ile musluğu kapatırsa yerel kullanıcının fareyi oynatarak kontrolü geri alması (AC-104) çalışmaz; davranış tanımsız.
@@ -162,9 +327,11 @@ Düzeltme (atanan ajan: mimar → backend-dev): musluk kurulamazsa kontrol veril
 `OS_PERMISSION`); devre dışı olayı alınınca `CGEventTapEnable` ile yeniden aç, açılamazsa kapı ≤ 100 ms içinde kapanır. darwin testi.
 
 ### [ORTA] S-P28f-11 purego/objc FFI için bellek ve hata kuralları yazılı değil — A04/A06
+
 Yer: ADR-0037 m.1 (geri çağrılar, bloklar, temsilci sınıflar), mimari-p28f §2 `internal/darwin/objc`.
 Sorun: Kuralsız el yazımı ObjC çağrısı, izinli (Ekran Kaydı + Erişilebilirlik) bir süreçte bellek bozulmasına açıktır.
 Düzeltme (atanan ajan: backend-dev): `internal/darwin/objc` paket belgesine bağlayıcı kurallar:
+
 1. C'ye saklanacak bağlam olarak Go işaretçisi verilmez — tamsayı tutamaç tablosu; geçici geçişlerde `runtime.Pinner`.
 2. `purego.NewCallback` ve `objc.RegisterClass` yalnız `init`'te bir kez (purego geri çağrı sınırı serbest bırakılmaz; oturum başına
    oluşturma sızıntı → panik/DoS).
@@ -176,6 +343,7 @@ Düzeltme (atanan ajan: backend-dev): `internal/darwin/objc` paket belgesine ba�
 7. `Dlopen` izin listesi `/System/Library/Frameworks/...` + `/usr/lib/libobjc.A.dylib`, `/usr/lib/libSystem.B.dylib` (T5 metni güncellensin).
 
 ### [ORTA] S-P28f-12 Teknisyen/sunucu kaynaklı veri AppKit'te zengin içerik olarak işlenebilir; pano gizli türleri okunabilir — A03
+
 Yer: mimari-p28f §2.1 satır 79 (welcome, mailto), 84 (chat NSTextView), §2 `clip_darwin.go`, logo (`ui/logo.go`).
 Sorun: Chat, dosya adı, teknisyen/firma adı için "düz metin" zorunluluğu yazılmamış; `NSAttributedString` HTML/RTF/markdown
 başlatıcıları WebKit/ayrıştırıcı yüzeyi açar, NSTextView veri algılayıcıları/bağlantı algılama tıklanabilir oltalama bağlantısı üretir.
@@ -186,6 +354,7 @@ algılama kapalı; logo Go'da çözülür (`api/logo.go` `DecodeLogo`) ve ham bi
 Concealed/Transient/AutoGenerated türü varsa okunmaz; mailto `api.ValidAbuseEmail` (`api/logo.go:139`) sonrası `NSURLComponents` ile.
 
 ### [DÜŞÜK] S-P28f-13 Yeniden başlatma kod dosyası: bağlamsız öncelik, `$TMPDIR` güveni, çökmede kalıntı — A04
+
 Yer: mimari-p28f §2 satır 72, §5.1 T6, §5.3 madde 3.
 Sorun: Dosya kod bulma sırasında en üstte ve süreç başlatma bağlamından bağımsız; ≤ 120 sn içindeki bayat (vazgeçilmiş/çökmüş akış) dosya,
 klasör adındaki yeni kodu ezer. `$TMPDIR` ortam değişkenine güveniliyor; denetim `stat` sonra `open` sırasıyla yazılırsa TOCTOU.
@@ -196,6 +365,7 @@ sahibi UID ve 0700 doğrulanır; `open(O_NOFOLLOW)` sonrası `fstat` (sahip, 060
 Desen `^Destek-(\d{8})(?: \(\d{1,3}\)| \d{1,3})?$` (Arşiv İzlencesi " 2" eki dahil).
 
 ### [DÜŞÜK] S-P28f-14 İz testi (AC-394) kapsamı ve `--self-test` kipi — A09/KVKK
+
 Yer: mimari-p28f §5.3 madde 5, §9 satır 241/266; §5.1 T4 ("argüman okunmaz").
 Sorun: Test `DARWIN_USER_CACHE_DIR` (`/var/folders/.../C/net.noktabilisim.destek`, Metal/CoreFoundation önbellekleri) ve birleşik logu
 (NSLog/os_log'a kod/ad yazılmaması) kapsamıyor; 5 sn'lik çalıştırma TCC rehberi, yeniden başlatma, dosya alma yollarına girmiyor.
@@ -207,8 +377,10 @@ yokluğu; Windows'taki gibi `.invalid` sunuculu ayrı derlemeyle (agent-win.yml:
 ayrı (`net.noktabilisim.destek.stg`). Oturum sonu ekranında "izinleri kaldırma" bağlantısı (kılavuz bölümü).
 
 ### [DÜŞÜK] S-P28f-15 Sunucu: `os` parametresi, `OS_PERMISSION` kaynağı ve `clientOs` beyanı — A04
+
 Yer: mimari-p28f §4.1 satır 114-117, §4.2 satır 127; `routes.ts:17-19` (şema başarısızsa ref null → başarısız arama sayılır).
 Sorun/Düzeltme (atanan ajan: backend-dev):
+
 1. Geçersiz `os` → 400 VALIDATION (ref kovasını tüketmeden) ya da açıkça "404 + başarısız arama" — tasarımda seçilsin, test edilsin.
    macOS kapısı ref doğrulamasından **sonra** (mevcut sıra) kalsın.
 2. `control.state{OS_PERMISSION}` yalnız AGENT misafirinden ve nonce'taki `clientOs == "macos"` iken kabul (BROWSER/Windows → yok sayılır).
@@ -217,12 +389,14 @@ Sorun/Düzeltme (atanan ajan: backend-dev):
 4. Web: availability hata/429 → yalnız tarayıcı modu (fail-closed), indirme düğmesi gösterilmez.
 
 ### [DÜŞÜK] S-P28f-16 Yazdırma: `lpstat` ayrıştırma gereksiz yüzey, iş başlığı ve CUPS geçmişi — A04
+
 Yer: mimari-p28f §2 satır 69, §5.1 T9.
 Düzeltme (atanan ajan: backend-dev): `-d <ad>` ve `lpstat -d` kaldırılsın (lp varsayılanı kullanır; `-` ile başlayan ad seçenek olarak
 yorumlanamaz); `/usr/bin/lp -n 1 -t "Nokta Destek" -o document-format=application/pdf -` mutlak yol, kabuk yok, ortamdan `LPDEST/PRINTER`
 temizlenir. Kılavuz: CUPS iş geçmişi sistemde kalır (AC-394 istisnası gibi).
 
 ### [DÜŞÜK] S-P28f-17 Ad-hoc paketin yeniden üretilebilirlik/doğrulama yolu tanımsız — A08
+
 Yer: mimari-p28f §8.2 satır 239-243.
 Sorun: İmzalı Mach-O ince ikililerden farklıdır; müşteri/denetçi "Hakkında" parmak izini (AC-128) tekrarlanabilir derlemeyle nasıl
 ilişkilendireceğini bilmez. Düzeltme (atanan ajan: devops): Release notuna dilim başına imzasız SHA ve `lipo -thin` +
@@ -230,21 +404,21 @@ ilişkilendireceğini bilmez. Düzeltme (atanan ajan: devops): Release notuna di
 
 ## Odak maddeleri — sonuç
 
-| Konu | Sonuç |
-| --- | --- |
-| purego/objc FFI | S-P28f-11 (Orta); dylib kaçırma: mutlak yol + hardened runtime doğru, staging'de S-P28f-5 |
-| TCC + `$TMPDIR` kod dosyası | S-P28f-13 (Düşük); kod tek başına oturuma girmez (onay + admitCode) — tasarım doğru |
-| Zip klasör adından kod | Enjeksiyon yok: yalnız 8 ASCII rakam, JSON gövdesi; çapa S-P28f-13. Klasör adında kod İndirilenler'de kalır — Windows `.exe` ile aynı, kod tek kullanımlık/süreli (bulgu yok) |
-| Sentetik girdi reddi | **S-P28f-1 (Yüksek)** |
-| Gizlenemeyen gösterge | **S-P28f-2 (Yüksek)** |
-| Hardened runtime + JIT (T10) | S-P28f-4, S-P28f-5 (Orta) |
-| Ad-hoc staging TEST | S-P28f-7, S-P28f-8 (Orta) |
-| Notarization sırları | S-P28f-6 (Orta) |
-| `com.apple.quarantine` | S-P28f-9 (Orta); `.part` üzerinde yazım mevcut ortak yolda doğru |
-| İz bırakmama (AC-394) | S-P28f-14 (Düşük) |
-| `clientOs` / audit `os` | Enum sınırlı, enjeksiyon yok; beyan etiketi S-P28f-15 |
-| `/public/agent/availability` | Yeni bilgi sızıntısı yok: kapı durumu zaten kodsuz `/downloads/NoktaDestek.exe` ile herkese açık (`Caddyfile:159-166`); hız 30/dk + 60 sn önbellek + hash önbelleği (`agent-binary.ts`) yeterli |
-| `os=macos` indirme / agent-ready | **S-P28f-3 (Yüksek)**; S-P28f-15 m.1 |
+| Konu                             | Sonuç                                                                                                                                                                                           |
+| -------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| purego/objc FFI                  | S-P28f-11 (Orta); dylib kaçırma: mutlak yol + hardened runtime doğru, staging'de S-P28f-5                                                                                                       |
+| TCC + `$TMPDIR` kod dosyası      | S-P28f-13 (Düşük); kod tek başına oturuma girmez (onay + admitCode) — tasarım doğru                                                                                                             |
+| Zip klasör adından kod           | Enjeksiyon yok: yalnız 8 ASCII rakam, JSON gövdesi; çapa S-P28f-13. Klasör adında kod İndirilenler'de kalır — Windows `.exe` ile aynı, kod tek kullanımlık/süreli (bulgu yok)                   |
+| Sentetik girdi reddi             | **S-P28f-1 (Yüksek)**                                                                                                                                                                           |
+| Gizlenemeyen gösterge            | **S-P28f-2 (Yüksek)**                                                                                                                                                                           |
+| Hardened runtime + JIT (T10)     | S-P28f-4, S-P28f-5 (Orta)                                                                                                                                                                       |
+| Ad-hoc staging TEST              | S-P28f-7, S-P28f-8 (Orta)                                                                                                                                                                       |
+| Notarization sırları             | S-P28f-6 (Orta)                                                                                                                                                                                 |
+| `com.apple.quarantine`           | S-P28f-9 (Orta); `.part` üzerinde yazım mevcut ortak yolda doğru                                                                                                                                |
+| İz bırakmama (AC-394)            | S-P28f-14 (Düşük)                                                                                                                                                                               |
+| `clientOs` / audit `os`          | Enum sınırlı, enjeksiyon yok; beyan etiketi S-P28f-15                                                                                                                                           |
+| `/public/agent/availability`     | Yeni bilgi sızıntısı yok: kapı durumu zaten kodsuz `/downloads/NoktaDestek.exe` ile herkese açık (`Caddyfile:159-166`); hız 30/dk + 60 sn önbellek + hash önbelleği (`agent-binary.ts`) yeterli |
+| `os=macos` indirme / agent-ready | **S-P28f-3 (Yüksek)**; S-P28f-15 m.1                                                                                                                                                            |
 
 ## Otomatik tarama çıktıları
 
@@ -255,6 +429,7 @@ ilişkilendireceğini bilmez. Düzeltme (atanan ajan: devops): Release notuna di
 ## Tasarımda vaat edilip kodda bulunmayanlar
 
 Kod yok. Dayanılan mevcut kod doğrulandı:
+
 - Caddy log maskesi `/downloads/Destek-[^/?]+` `.zip`'i zaten kapsıyor (`Caddyfile:30,114`) — "genişletilir" işi yalnız test.
 - `agent-ready` uzantıyı göremiyor (`Caddyfile:164`) → S-P28f-3.
 - Yayın betiğinde `--source-ref` isteğe bağlı (`verify-and-publish.sh:238`) → S-P28f-7.

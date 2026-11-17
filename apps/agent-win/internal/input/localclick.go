@@ -61,9 +61,6 @@ var marker = func() int64 {
 	return m
 }()
 
-// Marker enjekte olaylara konan işaret (0 = üretilemedi).
-func Marker() int64 { return marker }
-
 // localField tek olayın yerel donanım olayı olma koşulları (m.2–m.4).
 func localField(e ClickEvent, mark int64) bool {
 	return e.Present && e.StateID == hidSystemState && e.PID == 0 && mark != 0 && e.UserData != mark

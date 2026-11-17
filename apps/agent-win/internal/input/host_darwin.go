@@ -17,8 +17,11 @@ import (
 // P28f K3 (mimari-p28f §5.2, S-P28f-10; ADR-0037 m.3): kapatma kısayolu (Carbon RegisterEventHotKey, Control+Shift+F12,
 // yedek F11; ek izin istemez, arka planda çalışır) ve yerel girdi önceliği (AC-104) için olay musluğu.
 //
-//   - Musluk yalnız kapı açıkken kurulu (S7-7): gate.OnOpen kendi kilitli iş parçacığını uyandırır; iş parçacığı
-//     musluğu kurar ve CFRunLoop'u 50 ms dilimlerle döndürür, kapı kapanınca kaldırır.
+//   - Musluk kapı AÇILMADAN kurulur (D-P28f-K1, AC-104): akış "İzin ver"de kapıyı açmadan önce Arm'ı çağırır; musluk
+//     iş parçacığı musluğu kurar, etkin olduğunu doğrular, döngüyü döndürmeye başlar ve ancak bundan sonra Arm true
+//     döner. Arm armWait içinde kurulamazsa false → kapı açılmaz (akış OS_PERMISSION yolu). Kapı armHold içinde
+//     açılmazsa (izin vazgeçildi) musluk kaldırılır. Kapı açıkken musluk kurulu kalır ve CFRunLoop 50 ms dilimlerle
+//     döner; kapı kapanınca kaldırılır (S7-7). Arm'sız açılış (beklenmez) yine gate.OnOpen ile musluğu kurar.
 //   - Fail-closed: musluk kurulamazsa ya da sistem kapatıp (kCGEventTapDisabledBy*) yeniden açılamazsa, ya da
 //     Erişilebilirlik izni geri alınırsa kapı gate.Shut ile ATOMİK kapanır (≤ 50 ms) ve onLost çağrılır
 //     (akış control.state{VIEW, SYSTEM}). Kontrol isteğinde ControlReady aynı koşulları önceden yoklar (OS_PERMISSION).
@@ -33,6 +36,8 @@ const (
 	cgTapDisabledByTime = 0xFFFFFFFE
 	cgTapDisabledByUser = 0xFFFFFFFF
 	tapSlice            = 0.05 // sn: CFRunLoop dilimi = kapanış/izin yoklama aralığı
+	armWait             = 500 * time.Millisecond
+	armHold             = 2 * time.Second
 	carbonControlKey    = 0x1000
 	carbonShiftKey      = 0x0200
 	hotkeySig           = 0x4E4B4453 // 'NKDS'
@@ -114,6 +119,7 @@ type Host struct {
 	HotkeyErr error
 	hkRef     uintptr
 	wake      chan struct{}
+	arm       chan chan bool
 	stop      chan struct{}
 	stopped   atomic.Bool
 }
@@ -127,7 +133,7 @@ func Start(g *control.Gate, onHotkey, onLost func()) *Host {
 	hostGate.Store(g)
 	hostHotkey.Store(&onHotkey)
 	hostLost.Store(&onLost)
-	h := &Host{wake: make(chan struct{}, 1), stop: make(chan struct{})}
+	h := &Host{wake: make(chan struct{}, 1), arm: make(chan chan bool), stop: make(chan struct{})}
 	if err := bind(); err != nil {
 		h.HotkeyErr = control.ErrNoHotkey
 		return h
@@ -188,34 +194,97 @@ func (h *Host) tapLoop(g *control.Gate) {
 		select {
 		case <-h.stop:
 			return
+		case reply := <-h.arm:
+			h.runTap(g, reply)
 		case <-h.wake:
-		}
-		if g.IsOpen() {
-			h.runTap(g)
+			if g.IsOpen() {
+				h.runTap(g, nil)
+			}
 		}
 	}
 }
 
-// runTap musluğu kurar ve kapı açık kaldıkça döndürür. Kurulamazsa ya da yeniden açılamazsa kapı kapanır.
-func (h *Host) runTap(g *control.Gate) {
+// Arm D-P28f-K1: kapı açılmadan önce musluğu kurar ve doğrular (kurulu, etkin, döngü dönüyor). false → kapı
+// açılmamalı. Musluk zaten kuruluysa (kapı açık ya da önceki Arm bekliyor) hemen true. Akış goroutine'inden çağrılır.
+func (h *Host) Arm() bool {
+	if h.stopped.Load() {
+		return false
+	}
+	reply := make(chan bool, 1)
+	t := time.NewTimer(armWait)
+	defer t.Stop()
+	select {
+	case h.arm <- reply:
+	case <-t.C:
+		return false
+	}
+	select {
+	case ok := <-reply:
+		return ok
+	case <-t.C:
+		return false
+	}
+}
+
+// answerArm döngü dönerken gelen Arm isteği: musluk kurulu ve etkin.
+func (h *Host) answerArm() {
+	select {
+	case r := <-h.arm:
+		r <- true
+	default:
+	}
+}
+
+// runTap musluğu kurar. reply doluysa (Arm) sonuç oraya yazılır ve kapının açılması armHold kadar beklenir;
+// boşsa (kapı Arm'sız açıldı) kurulamazsa kapı kapanır. Musluk kapı açık kaldıkça döner.
+func (h *Host) runTap(g *control.Gate, reply chan bool) {
+	fail := func() {
+		if reply != nil {
+			reply <- false
+			return
+		}
+		lose()
+	}
 	tap := cg.tapCreate(cgSessionEventTap, cgHeadInsertTap, cgTapOptionDefault, tapMask, tapCB, 0)
 	if tap == 0 {
-		lose()
+		fail()
 		return
 	}
 	src := cg.portSource(0, tap, 0)
 	if src == 0 {
 		cg.portInvalidate(tap)
 		cg.release(tap)
-		lose()
+		fail()
 		return
 	}
 	rl := cg.rlCurrent()
 	cg.rlAddSource(rl, src, cg.defaultMode)
 	cg.tapEnable(tap, true)
+	defer func() {
+		curTap.Store(0)
+		cg.tapEnable(tap, false)
+		cg.rlRemoveSource(rl, src, cg.defaultMode)
+		cg.portInvalidate(tap)
+		cg.release(src)
+		cg.release(tap)
+	}()
+	if !cg.tapIsEnabled(tap) {
+		fail()
+		return
+	}
 	curTap.Store(tap)
+	cg.rlRunInMode(cg.defaultMode, 0, true) // döngü bir kez döner: kaynak bağlı ve olay alıyor
+	if reply != nil {
+		reply <- true
+		hold := time.Now().Add(armHold)
+		for !g.IsOpen() && !h.stopped.Load() && time.Now().Before(hold) {
+			cg.rlRunInMode(cg.defaultMode, tapSlice, false)
+			h.answerArm()
+		}
+	}
 	for g.IsOpen() && !h.stopped.Load() {
 		cg.rlRunInMode(cg.defaultMode, tapSlice, false)
+		h.answerArm()
 		if !cg.tapIsEnabled(tap) {
 			cg.tapEnable(tap, true)
 			if !cg.tapIsEnabled(tap) {
@@ -228,12 +297,6 @@ func (h *Host) runTap(g *control.Gate) {
 			break
 		}
 	}
-	curTap.Store(0)
-	cg.tapEnable(tap, false)
-	cg.rlRemoveSource(rl, src, cg.defaultMode)
-	cg.portInvalidate(tap)
-	cg.release(src)
-	cg.release(tap)
 }
 
 // Stop kısayolu kaldırır ve musluk iş parçacığını durdurur.

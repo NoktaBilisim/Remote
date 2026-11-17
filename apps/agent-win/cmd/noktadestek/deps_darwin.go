@@ -78,8 +78,10 @@ func flowDeps(cfg config.Config, fp string, client *api.Client, u flow.UI, event
 // controlDeps P28f K3 (mimari-p28f §5.2, §5.2a; ADR-0037 m.3): CGEvent enjektörü + Applier (Windows ile aynı arayüz),
 // Carbon kapatma kısayolu ve olay musluğu (input.Host), Erişilebilirlik yoklaması (OS_PERMISSION). Enjektör
 // kurulamaz ya da kısayol kaydedilemezse Input/Hotkey boş kalır → kontrol izni verilemez (G-21, fail-closed).
-// Arayüz kancaları isteğe bağlıdır (ui/mac uyguluyorsa bağlanır): kısayol etiketi, olay işareti, localClick ek koşulu,
-// korunan diyalogda enjeksiyon duraklatma, Erişilebilirlik rehberi.
+// Arayüz kancaları isteğe bağlıdır (ui/mac uyguluyorsa bağlanır): kısayol etiketi, korunan diyalogda enjeksiyon
+// duraklatma, Erişilebilirlik rehberi. localClick'in tek tanımı input.LocalClick'tir (ui/mac doğrudan çağırır).
+// P28f düzeltme 1: Applier'a macOS sorguları (Fare Tuşları, imleç; Y-P28f-K1) bağlanır, pencere çerçevelerini ui/mac
+// input.SetOwnWindows ile verir; "İzin ver"de kapı açılmadan önce olay musluğu kurulur (ArmControl, D-P28f-K1).
 func controlDeps(d *flow.Deps, u flow.UI, gate *control.Gate) {
 	if gate == nil {
 		return
@@ -105,6 +107,8 @@ func controlDeps(d *flow.Deps, u flow.UI, gate *control.Gate) {
 	}
 	applier := input.NewApplier(gate, inj, nil)
 	applier.SetAltGrText(true) // Türkçe Q: AltGr karakterleri ⌘⌥ kısayolu değil metin
+	applier.SetHostProbe(input.MacProbe())
+	d.ArmControl = host.Arm
 	d.Hotkey = host.Hotkey.Label
 	d.Input = applier.Handle
 	d.SetInputMonitor = func(id int) {
@@ -122,14 +126,6 @@ func controlDeps(d *flow.Deps, u flow.UI, gate *control.Gate) {
 	}
 	if h, ok := u.(interface{ SetHotkey(label string) }); ok {
 		h.SetHotkey(d.Hotkey)
-	}
-	if m, ok := u.(interface{ SetInjectMarker(v int64) }); ok {
-		m.SetInjectMarker(input.Marker())
-	}
-	if c, ok := u.(interface {
-		SetLocalCheck(fn func(cgEvent uintptr) bool)
-	}); ok {
-		c.SetLocalCheck(input.LocalEvent)
 	}
 	if p, ok := u.(interface{ SetInjectPause(fn func(paused bool)) }); ok {
 		p.SetInjectPause(func(paused bool) {

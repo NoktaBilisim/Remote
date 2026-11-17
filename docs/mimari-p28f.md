@@ -347,7 +347,7 @@ yine de sıra sunucu önce. Yedek: yeni veri yok.
 ## 9.1 K0s spike (backend-dev Go; zaman kutusu 2 iş günü; sonuç `docs/spike-p28f-k0s.md`)
 
 Amaç: purego yolunun (ADR-0037 m.1) gerçek donanımda çalıştığını ölçmek. Ortam: geliştirme Mac'i (Apple Silicon, macOS 26.3); x86_64
-dilim Rosetta ile. Kod `apps/agent-win/spike/p28f/` (ayrı Go modülü; **PR'a girmez**, yalnız sonuç belgesi `docs/spike-p28f-k0s.md` girer). **Sonuç: r3, §14.**
+dilim Rosetta ile. Kod repoda değildir (geliştirme makinesindeki yerel arşiv, ayrı Go modülü; **PR'a girmez**, yalnız sonuç belgesi `docs/spike-p28f-k0s.md` girer). **Sonuç: r3, §14.**
 
 | #     | Ölçüm                                                                                                                                                                                                                                                                                                                                                                                                                                             | GEÇTİ ölçütü                                                                                                                               |
 | ----- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
@@ -466,7 +466,7 @@ Bulguların tamamı kabul edildi; reddedilen yok. "Yer" sütunu bağlayıcı met
 
 ## 14. r3 — K0s spike sonucu (`docs/spike-p28f-k0s.md`, 2026-11-17)
 
-Spike kodu `apps/agent-win/spike/p28f/` ayrı modüldür, PR'a girmez. purego yolu (ADR-0037 m.1) korunur: cgo kontrolü aynı değerleri
+Spike kodu repoda değildir (yerel arşiv, ayrı modül). purego yolu (ADR-0037 m.1) korunur: cgo kontrolü aynı değerleri
 verdi (fark ≤ 0,6 ms), darwin ikilileri Linux'ta iki mimaride SHA eşit, universal zip 10,9 MiB, `~/Library` izi 0.
 
 | #   | Karar                                                                                                                                                                                                                                                                                                      | Yer                           |

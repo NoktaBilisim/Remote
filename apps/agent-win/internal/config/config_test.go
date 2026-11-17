@@ -54,3 +54,20 @@ func TestP28fTestBuildFlag(t *testing.T) {
 		}
 	}
 }
+
+// P28f D-P28f-K3: beklenen Team ID yalnız `-X config.expectedTeamID=<10 karakter A-Z0-9>` ile; başka değer yok sayılır
+// (bant gösterilir). Değişken adı build-darwin.sh TEAM_SYMBOL ile aynıdır (betik ikilide değeri denetler).
+func TestP28fExpectedTeamID(t *testing.T) {
+	for v, want := range map[string]string{"ABCDE12345": "ABCDE12345", "": "", "abcde12345": "", "ABCDE1234": "",
+		"ABCDE123456": "", "ABCDE 1234": "", "ABCDE-1234": ""} {
+		if got := teamID(v); got != want {
+			t.Errorf("teamID(%q) = %q, beklenen %q", v, got, want)
+		}
+	}
+	old := expectedTeamID
+	defer func() { expectedTeamID = old }()
+	expectedTeamID = "ABCDE12345"
+	if c, _ := Load(); c.TeamID != "ABCDE12345" {
+		t.Fatalf("Load TeamID = %q", c.TeamID)
+	}
+}

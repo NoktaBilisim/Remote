@@ -12,6 +12,7 @@ import (
 	"remote-support/agent-win/internal/control"
 	"remote-support/agent-win/internal/darwin/objc"
 	"remote-support/agent-win/internal/flow"
+	"remote-support/agent-win/internal/input"
 )
 
 // ErrNoMainQueue ana dispatch kuyruğu bağlanamadı (arayüz kurulamaz; fail-closed).
@@ -22,6 +23,8 @@ type Options struct {
 	Host, Version, Fingerprint string
 	// TestBuild config.TestBuild (S-P28f-7): TEST bandı için ek koşul; bant imzadan her durumda türetilir.
 	TestBuild bool
+	// TeamID config.TeamID (D-P28f-K3): beklenen Developer Team ID; boşsa bant her zaman gösterilir.
+	TeamID string
 	// Gate izin kapısı (flow.Deps.Gate ile aynı): "Kontrolü kapat" ve gösterge fail-closed'u kapıyı UI iş
 	// parçacığında, akışı beklemeden kapatır (AC-101, §5.2b).
 	Gate *control.Gate
@@ -58,9 +61,8 @@ type UI struct {
 	recView     flow.RecView
 	health      health
 
-	pause atomic.Pointer[func(paused bool)]
-	// SetInjectPause
-	stop chan struct{}
+	pause atomic.Pointer[func(paused bool)] // SetInjectPause
+	stop  chan struct{}
 }
 
 // New arayüzü ana iş parçacığında kurar (NSApplication, menü, TEST bandı, 1 sn gösterge tiki). Olaylar
@@ -82,9 +84,10 @@ func New(o Options) (*UI, <-chan flow.Event, error) {
 	u.app = cls("NSApplication").Send(selSharedApp)
 	u.app.Send(objc.Sel("setActivationPolicy:"), nsRegular)
 	u.dark = isDark(u.app)
-	u.band = showTestBand(signingInfo(), o.TestBuild)
+	u.band = showTestBand(signingInfo(), o.TestBuild, o.TeamID)
 	u.buildMenu()
 	screensHook = u.screensChanged
+	movedHook = u.syncOwnWindows
 	cls("NSNotificationCenter").Send(objc.Sel("defaultCenter")).Send(objc.Sel("addObserver:selector:name:object:"),
 		target, objc.Sel("ekranlarDegisti:"), nsstr("NSApplicationDidChangeScreenParametersNotification"), objc.ID(0))
 	u.syncBands()
@@ -225,9 +228,31 @@ func (u *UI) tick() {
 		}
 	}
 	u.syncBands()
+	u.syncOwnWindows()
 	if u.ind != nil {
 		u.indicatorTick()
 	}
+}
+
+// syncOwnWindows Y-P28f-K1: görünür pencerelerimizin (oturum penceresi, diyaloglar, karşılama/son ekranlar) çerçeveleri
+// enjektöre (input.SetOwnWindows) verilir; imleç bunların üstündeyken enjekte tıklama ve tuş takımı düşer. Gösterge,
+// işaretleme katmanı ve TEST bandı tıklama geçirgen olduğundan (ve ekran boyutunda olduğundan) dahil değildir.
+// Pencere açılınca/kapanınca/taşınınca (windowDidMove:) ve 1 sn tikte çağrılır; ana iş parçacığında.
+func (u *UI) syncOwnWindows() {
+	arr := cls("NSScreen").Send(objc.Sel("screens"))
+	if sendInt(arr, objc.Sel("count")) == 0 {
+		return
+	}
+	primaryH := sendRect(arr.Send(objc.Sel("objectAtIndex:"), uint(0)), objc.Sel("frame")).Size.H
+	rs := make([]input.FRect, 0, len(u.forms))
+	for f := range u.forms {
+		if f.closed || !sendBool(f.win, objc.Sel("isVisible")) {
+			continue
+		}
+		fr := sendRect(f.win, objc.Sel("frame"))
+		rs = append(rs, flipRect(fr.Origin.X, fr.Origin.Y, fr.Size.W, fr.Size.H, primaryH))
+	}
+	input.SetOwnWindows(rs)
 }
 
 func (u *UI) screensChanged() {

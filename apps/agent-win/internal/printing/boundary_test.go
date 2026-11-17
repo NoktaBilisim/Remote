@@ -212,7 +212,7 @@ func TestP28fBoundaryLPOnlyExec(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	s := string(src)
+	s := strings.ReplaceAll(string(src), "\r\n", "\n") // Windows checkout'u (autocrlf) satır sonundan bağımsız
 	if !strings.HasPrefix(s, "//go:build darwin || linux\n") {
 		t.Fatal("lp_unix.go build kısıtı darwin || linux olmalı")
 	}

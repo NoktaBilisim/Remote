@@ -22,8 +22,8 @@ func TestP28fCGBindAndEventFields(t *testing.T) {
 	defer cg.release(ev)
 	cg.setType(ev, cgFlagsChanged)
 	cg.setFlags(ev, modFlag(kvkCommand))
-	cg.setInt(ev, fieldUserData, Marker())
-	if cg.getInt(ev, fieldUserData) != Marker() || cg.getInt(ev, 9 /* keycode */) != kvkCommand {
+	cg.setInt(ev, fieldUserData, marker)
+	if cg.getInt(ev, fieldUserData) != marker || cg.getInt(ev, 9 /* keycode */) != kvkCommand {
 		t.Fatal("alan geri okunamadı")
 	}
 	// NULL kaynak: localClick m.2 sentetik olayda HID durum kaynağı değil (spike K0s-4: 0).
@@ -128,13 +128,12 @@ func TestAC104TapLifecycleAndOwnEventsNotLocal(t *testing.T) {
 	h := Start(g, nil, func() { lost <- struct{}{} })
 	defer h.Stop()
 	t.Logf("kısayol=%q hata=%v (Carbon kaydı test sürecinde)", h.Hotkey.Label, h.HotkeyErr)
-	g.Open()
-	deadline := time.Now().Add(time.Second)
-	for curTap.Load() == 0 && time.Now().Before(deadline) {
-		time.Sleep(10 * time.Millisecond)
+	if !h.Arm() || curTap.Load() == 0 || g.IsOpen() { // D-P28f-K1: musluk kapı açılmadan kurulu ve doğrulanmış
+		t.Fatal("Arm kapı açılmadan musluğu kurmalı")
 	}
+	g.Open()
 	if curTap.Load() == 0 {
-		t.Fatal("kapı açıkken musluk kurulmalı")
+		t.Fatal("kapı açıkken musluk kurulu kalmalı")
 	}
 	inj, err := NewCGInjector()
 	if err != nil {
@@ -155,7 +154,7 @@ func TestAC104TapLifecycleAndOwnEventsNotLocal(t *testing.T) {
 		t.Log("askı görüldü: ölçüm sırasında yerel fare/klavye kullanıldı olabilir (yerel girdi beklenen davranış)")
 	}
 	g.Close()
-	deadline = time.Now().Add(time.Second)
+	deadline := time.Now().Add(time.Second)
 	for curTap.Load() != 0 && time.Now().Before(deadline) {
 		time.Sleep(10 * time.Millisecond)
 	}
@@ -166,18 +165,5 @@ func TestAC104TapLifecycleAndOwnEventsNotLocal(t *testing.T) {
 	case <-lost:
 		t.Fatal("normal kapanışta onLost çağrılmamalı")
 	default:
-	}
-}
-
-// S-P28f-1 m.2–m.4: kendi sentetik olayımız (NULL kaynak, işaretli) yerel sayılmaz; 0 olay → ret.
-func TestSP28f1LocalEventRejectsOwnSynthetic(t *testing.T) {
-	if err := bind(); err != nil {
-		t.Fatal(err)
-	}
-	ev := cg.createMouse(0, cgLeftMouseUp, objc.CGPoint{}, cgButtonLeft)
-	defer cg.release(ev)
-	cg.setInt(ev, fieldUserData, Marker())
-	if LocalEvent(ev) || LocalEvent(0) {
-		t.Fatal("sentetik/boş olay yerel sayılmamalı")
 	}
 }

@@ -26,7 +26,7 @@ CI imajı `golang:1.26.11-bookworm@sha256:dc40a13b…` (`GO_IMAGE`), Apple clang
 
 ## 1. Düzenek
 
-Kod `apps/agent-win/spike/p28f/` altında. Mimari §9.1 `cmd/spike-p28f/` diyordu; görev talimatıyla bu yola alındı.
+Kod ölçüm sırasında `apps/agent-win/spike/p28f/` altındaydı; repoya girmedi (geliştirme makinesinde yerel arşiv). Mimari §9.1 `cmd/spike-p28f/` diyordu; görev talimatıyla bu yola alındı.
 Burası ayrı bir Go modülü: `module remote-support/agent-win/spike/p28f`, `replace remote-support/agent-win => ../..`.
 Modül yolu `remote-support/agent-win` önekini taşıdığı için `internal/*` paketlerini içe aktarabiliyor. Ana modülün `./...`
 kapsamına girmiyor; ana `go test`/`vet` ve CI etkilenmiyor. Her komut ayrı `package main`.

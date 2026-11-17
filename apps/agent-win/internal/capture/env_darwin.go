@@ -12,8 +12,21 @@ import (
 // EnvProbe AC-105 / AC-392 macOS karşılığı (flow.Deps.EnvProbe): kilit ekranı açıksa ya da oturum konsolda değilse
 // (hızlı kullanıcı değiştirme) SecureDesktop=true → teknisyen konsolunda mevcut "Müşteri güvenli masaüstünde"
 // iletisi. CGSessionCopyCurrentDictionary izin istemez; env.Every (500 ms) aralıkla çağrılır. Yükseltilmiş ön plan
-// penceresi (UIPI) macOS'ta yoktur.
+// penceresi (UIPI) macOS'ta yoktur; onun yerine güvenli metin girişi (parola alanı; Carbon IsSecureEventInputEnabled)
+// açıkken ElevatedForeground=true → mevcut "… kontrol edilemiyor" iletisi (mimari-p28f §11 AC-105; qa P28f m.4): bu
+// sırada olay musluğu yerel tuşları görmez (yerel öncelik çalışmaz) ve enjekte tuşlar alana güvenilir biçimde ulaşmaz.
 func EnvProbe() env.State {
+	return probeState(secureInput(), sessionState())
+}
+
+// probeState güvenli metin girişi ve oturum durumu → env.State.
+func probeState(secure bool, st env.State) env.State {
+	st.ElevatedForeground = secure
+	return st
+}
+
+// sessionState kilit ekranı / konsolda değil (SecureDesktop).
+func sessionState() env.State {
 	if fwErr != nil {
 		return env.State{}
 	}
@@ -27,6 +40,27 @@ func EnvProbe() env.State {
 	}
 	defer cfRelease(d)
 	return env.State{SecureDesktop: sessionLocked(boolKey(d, keys.locked), boolKey(d, keys.onConsole))}
+}
+
+// secureInputFn Carbon IsSecureEventInputEnabled; yakalama çerçevelerinden (fwErr) ayrı bağlanır ki eksik sembol
+// yakalamayı kapatmasın. Bağlanamazsa nil → uyarı yok (bilgi amaçlı; kontrol kapısını etkilemez).
+var secureInputFn = sync.OnceValue(func() func() bool {
+	h, err := objc.Framework("Carbon")
+	if err != nil {
+		return nil
+	}
+	var fn func() bool
+	if objc.Func(&fn, h, "IsSecureEventInputEnabled") != nil {
+		return nil
+	}
+	return fn
+})
+
+func secureInput() bool {
+	if fn := secureInputFn(); fn != nil {
+		return fn()
+	}
+	return false
 }
 
 // sessionLocked kilit anahtarı varsa ve doğruysa ya da konsol anahtarı varsa ve yanlışsa güvenli masaüstü sayılır

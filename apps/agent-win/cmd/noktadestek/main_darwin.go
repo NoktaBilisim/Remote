@@ -61,7 +61,7 @@ func run() int {
 	objc.Pool(func() {
 		gate := &control.Gate{} // arayüz ("Kontrolü kapat", gösterge fail-closed) ve akış/girdi aynı kapıyı paylaşır
 		u, events, err := mac.New(mac.Options{Host: cfg.DisplayHost(), Version: cfg.Version, Fingerprint: fp,
-			TestBuild: cfg.TestBuild, Gate: gate})
+			TestBuild: cfg.TestBuild, TeamID: cfg.TeamID, Gate: gate})
 		if err != nil {
 			code = exitUI
 			return

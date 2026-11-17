@@ -53,6 +53,7 @@ var (
 	becameKey   = map[objc.ID]func(){}
 	drawers     = map[objc.ID]func(view objc.ID){}
 	screensHook func()
+	movedHook   func() // Y-P28f-K1: pencere taşındı → çerçeveler enjektöre
 	// downs basışı localClick koşullarıyla kaydedilen düğmeler (NKDestekDugme mouseDown: sırasında dolu).
 	downs = map[objc.ID]input.ClickEvent{}
 )
@@ -93,6 +94,7 @@ func setupRuntime() error {
 		{Cmd: objc.Sel("controlTextDidChange:"), Fn: onTextChange},
 		{Cmd: objc.Sel("windowShouldClose:"), Fn: onShouldClose},
 		{Cmd: objc.Sel("windowDidBecomeKey:"), Fn: onBecameKey},
+		{Cmd: objc.Sel("windowDidMove:"), Fn: onMoved},
 		{Cmd: objc.Sel("ekranlarDegisti:"), Fn: onScreens},
 	}); err != nil {
 		return err
@@ -157,6 +159,12 @@ func onBecameKey(_ objc.ID, _ objc.SEL, note objc.ID) {
 func onScreens(objc.ID, objc.SEL, objc.ID) {
 	if screensHook != nil {
 		screensHook()
+	}
+}
+
+func onMoved(objc.ID, objc.SEL, objc.ID) {
+	if movedHook != nil {
+		movedHook()
 	}
 }
 
