@@ -1,3 +1,157 @@
+# Güvenlik Raporu — P28d — Kod turu 1 (dal p28d, HEAD 1551240, 2026-11-17)
+
+DURUM: GEÇTİ — Kritik 0 / Yüksek 0 / Orta 0 / Düşük 2
+
+Kapsam: `git diff main...p28d` (144 dosya): sunucu `signaling/voice.ts` + kancalar, sözleşme `ws-voice.ts`/`ws-multi.ts`/`permissions.ts`,
+web `lib/voice/*`, `components/guest/voice-*`, `proxy.ts`, Go `internal/{voice,flow,ui,rtc,signal}`, wasm hattı, CI/Dependabot, lisans
+bildirimleri. Tasarım: `docs/mimari-p28d.md` r3 (§14, §14.1), ADR-0036 r3, bu raporun "P28d tasarım turu" bölümü. Bu makinede `go`
+yok: Go testleri koşulmadı, kod okunarak ve wasm ikilisi Node ile incelenerek doğrulandı.
+
+## Bulgular (öncelik sırasıyla)
+
+### [DÜŞÜK] D-PD-K1-1 wazero çağrılarında CPU/süre sınırı yok — A04
+
+Yer: `apps/agent-win/internal/voice/opus.go:113-119` (`runtimeConfig`, `WithCloseOnContextDone` yok), `:122,158,202` (`context.Background()`).
+Sorun: Sandbox bellek ve yetki yalıtımı sağlıyor ama süre sınırı koymuyor. Bir çözücü çağrısı bitmezse (libopus döngü hatası ya da JIT
+yanlış derlemesi, bkz. A-PD-3) ses döngüsü goroutine'i süresiz takılır. Tuzak yolu (`ErrCodecPanic`) yalnız tuzakta devreye girer.
+İstismar senaryosu: Kuramsal. Teknisyen kontrolündeki bozuk bir paket sonsuz döngü tetiklerse müşteride ses donar (süreç ölmez; `Close`
+`closeWait` sonrası döner, mikrofon WASAPI `Close` ile yine bırakılır). libopus 1.6.1 çözücüsünde bilinen böyle bir yol yok.
+Düzeltme: `runtimeConfig()`'e `.WithCloseOnContextDone(true)` eklenir, `call()` çerçeve başına zaman aşımlı bağlam alır (ör. 50 ms).
+Aşımda `ErrCodecPanic` yolu çalışır: örnek yeniden kurulur, 3. olayda eş düşer. (atanan ajan: backend-dev (Go)) — gereksinimler §9 "Sonra" adayı.
+
+### [DÜŞÜK] D-PD-K1-2 Kabulde mikrofon sunucu onayından önce açılıyor (gönderim yok) — A04 (bilgi)
+
+Yer: `apps/web/lib/voice/guest.ts:138-167`, `apps/agent-win/internal/flow/voice.go:293-315`.
+Sorun: Tasarım gereği (§5 m.3) mikrofon tıklamanın devamında açılır. Sunucu `voice.answer`'ı bayat bulup düşürürse (60 sn zaman aşımı ile
+aynı anda tıklama), mikrofon kısa süre açık kalır; işletim sistemi göstergesi yanar. Ses gitmez: `apply()`/`voiceApply()` phase
+`active` + eşleşen `callId` olmadan gönderim kapısını kapalı tutar. Bitiş yayını `idle{callId}` gelince `release()` çalışır.
+Düzeltme: Gerekmez. İstenirse misafir ilk `voice.state{active, callId}` gelmezse 5 sn içinde mikrofonu bırakabilir. (atanan ajan: frontend-dev, backend-dev (Go)) — "Sonra".
+
+## Odak maddeleri — kanıtlı sonuç
+
+### 1. A-PD-4 / O-PD-4 gevşemesi (opus-go → libopus 1.6.1 wasm32 + wazero v1.12.0): ONAYLANDI
+
+- **Sandbox kodda var:** `opus.go:113-119` (`WithMemoryLimitPages(256)` = 16 MiB; amd64'te derleyici, diğer mimarilerde yorumlayıcı).
+  `:131-134` içe aktarılan işlev ya da bellek varsa kurulumu reddeder. `:157-193` her kodlayıcı/çözücü için ayrı `InstantiateModule`,
+  `WithName("")`, yalnız `_initialize`; FS, stdout ve saat verilmez. `:196-206` her tuzak/panik `ErrCodecPanic` olur. `:398-416`
+  çözücü örneği kapatılıp yeniden kurulur, 3. tuzakta `ErrPeerDropped` döner. `:367-384` sıra boyut ≤ 1275 → hız ≤ 100/sn → düşürülmüş eş;
+  FEC tek sayılır.
+- **Bağımsız doğrulama** (Node `WebAssembly.Module`, repo'daki ikili): içe aktarım **0**. Dışa aktarım `memory`, `_initialize` ve 7 `nk_*`.
+  Bellek min 17 / **max 256 sayfa**. SHA-256 `715ac5d3…7562e2` ve `libopus.wasm.sha256` eşit.
+- C kabuğu `build/libopus-wasm/nk_opus.c:63-67` `len`/`frame` sınırlarını wasm içinde de denetliyor (Go + C çift sınır). Tamponlar 1275 B /
+  5760 örnek; `--stack-first` olduğundan yığın taşması tuzağa dönüşüyor.
+- **Tekrarlanabilirlik:** `build/libopus-wasm.sh:15-20,61-70` tarball SHA'sını hem host'ta hem konteynerde denetliyor. wasi-sdk imajı digest
+  ile sabit, `--network none`, `SOURCE_DATE_EPOCH`, `-ffile-prefix-map`, sıralı kaynak, `--strip-all`, `--max-memory=16777216` kullanılıyor.
+  CI `agent-win.yml` `libopus-wasm` job'u: tarball SHA iş akışında ayrıca sabit, imaj digest'i regex ile denetleniyor, `.sha256` tutarlı,
+  yeniden üretim + `cmp` ile 3 dosya karşılaştırılıyor. İnsan kapısı `approve` için `needs: [..., libopus-wasm]` + `result == 'success'`
+  şartı var; böylece sign, attest ve release de bu job'a zincirleniyor. Action'lar SHA ile sabit, `persist-credentials: false`, iş akışı
+  `permissions: contents: read`.
+- **Tedarik zinciri:** `go.mod` wazero v1.12.0, `go.sum` h1 satırları mevcut, `GOFLAGS=-mod=readonly`. Dependabot `tetratelabs/wazero`'yu
+  `go-minor-patch` grubundan hariç tutuyor (ayrı PR), otomatik birleştirme yok. Runbook §28d.11 fuzz, eşitlik testi ve `init` taramasını şart koşuyor.
+- **Gevşetilen ölçüt kabul edilebilir:** wazero'nun `os`/`syscall`/`unsafe` içe aktarması ve JIT'in çalıştırılabilir bellek ayırması
+  ana makine tarafındadır; wasm modülüne hiçbir host yeteneği verilmez (0 import testle ve kurulumda iki kez denetleniyor). Kalan risk
+  JIT doğruluğudur (A-PD-3). amd64 derleyici = yorumlayıcı eşitlik testi CI PASS listesinde (`TestP28dK0sCompilerMatchesInterpreter`)
+  ve SKIP kabul edilmiyor. Bu risk opus-go'nun `unsafe` + checkptr + GC'ye bağlı panik sorunundan belirgin biçimde düşüktür.
+- **Y-PD-2 güncel değerlendirme:** KAPANDI. Bozuk Opus paketi en kötü durumda örnek içinde tuzak üretir; Go belleğine ve komşu örneğe
+  erişemez, süreç ölmez. Kalan ikinci katman riski D-PD-K1-1'dir (süre sınırı).
+- **O-PD-4 güncel değerlendirme:** KAPANDI (wazero'ya göre yeniden yazılmış ölçütle). libopus CVE izlemesi govulncheck dışında, el ile
+  (runbook); kabul edilen risk.
+
+### 2. K-PD-2 — mikrofon yalnız yerel gerçek "Kabul et" ile: DOĞRULANDI
+
+- **Go UI:** `internal/ui/voice_windows.go:41-51` ortak `newConsent` diyaloğunu kullanıyor (G-03). Odak "Reddet"te, "Kabul et" 1,5 sn
+  kilitli (`consent_windows.go:111-127`), Enter/Space tetiklemiyor (`noKey`). `tryGrant` (`:132-143`) yalnız `userInput` doğruysa kabul
+  ediyor; bu da `GetCurrentInputMessageSource` sonucu `IMO_HARDWARE` olmalı demek (`thread_windows.go:94-119`, `control/origin.go:17`
+  fail-closed). Teknisyenin `SendInput`'u ve başka süreçten `BM_CLICK` kabul edemez. Bilinen sınır (S7-12'den beri): UIAccess yetkili
+  süreç; değişmedi.
+- **"Mikrofonu aç":** `voice_windows.go:146-151`, susturmayı kaldırmak yalnız `userInput(s.f)` ile mümkün. Sessize alma, bitirme ve tepsi
+  "Görüşmeyi bitir" güvenli yön.
+- **Go akış:** `internal/flow/voice.go:176-206` `voice.state` yalnız kapatıyor. Rıza kaydı olmadan `active` gelirse mikrofon açılmıyor ve
+  callId başına bir `voice.end{customer}` gidiyor. `:293-315` kabul yalnız açık diyaloğun callId'si ve canlı soketle. Tek bırakma yolu
+  `releaseMic`/`voiceDrop` (`:374-404`); `startReconnect`, `onHello` ve `cleanup`'a bağlı. Rıza yalnız bellekte. `openVoice` (`:319-347`)
+  `gen` ile bayat açılışı kapatıyor.
+- **Web:** `lib/voice/guest.ts:111-135` aynı kural (rızasız `active` → `voice.end{customer}`). `:138-167` mikrofon yalnız `accept()`
+  içinde açılıyor. `:200-207` WS kapanınca önce `enabled=false`, sonra bırakma. Depolama kullanılmıyor. `voice-dialog.tsx:28-35,52`
+  callId başına 1,5 sn kilit, ilk odak Reddet, Esc = ret. Tarayıcı misafirinde uzaktan girdi yolu yok (uzaktan kontrol yalnız Go istemcide).
+- **SDP/DC:** `rtc/audio.go:31-76` yalnız iz bağlıyor; mikrofonu motor açar, motoru da yalnız `voiceAccept` açar.
+
+### 3. O-PD-3 — gözetimsizde ses yok, kapatılamaz gösterge: DOĞRULANDI
+
+- Sunucu: `rooms-features.ts` `voiceOf`/`hasVoice` gözetimsiz odada her zaman false. `voice.ts:214-215` `CLIENT_UNSUPPORTED`. Misafir şeması
+  `handlers.ts` `hasVoice(room, peer)` olmadan `voice.*` kabul etmiyor (1008).
+- İstemci: `flow/voice.go:78-80` `!d.Unattended`. `cmd/noktadestek/deps.go` motoru yalnız `voice.Supported()` (amd64 + SSE4.1, A-PD-6)
+  iken bağlıyor. `unattended/helper/boundary_test.go` `internal/voice` ve wazero'yu yasaklıyor; müşteri ikilisinde var olduklarını pozitif denetliyor.
+- Gösterge: `voice_windows.go:87-92` her zaman üstte, odak almayan şerit pencere durumundan bağımsız çiziliyor. Tepsi ipucu + menü
+  "Görüşmeyi bitir" (`main.go`, `tray_windows.go`). Kapanış yalnız `VoiceBar{On:false}` (mikrofon bırakılınca) ve `resetVoice` ile.
+
+### 4. Sunucu (`apps/server/src/signaling/voice.ts`): DOĞRULANDI
+
+- Yetki: `voice.request`/`voice.join` `sessions.voice` istiyor (`:193-194,213`). Rol kapısı `ROLE_MAY` `talker` önce çalışıyor
+  (`handlers.ts` `seatMay`, `observer` alanı zorunlu, varsayılan-ret). Dinleme de yetkiye bağlı: `listenersOf` (`:60-68`) yalnız
+  `sessions.voice`'u olan bağlı sahip/üye (V-PD-6).
+- `talkers ⊆ listeners`: `stateOf` (`:80`) ve `voiceSync` (`:152`). Mix-minus gönderim kapısı istemcide yalnız `listeners`'a
+  (web `mix.ts` `plan.send`, Go `SetRoles`).
+- callId: `randomBytes(16).toString("base64url")` = 22 karakter, 128 bit (`:224`). Şema `^[A-Za-z0-9_-]{22}$`. Eşleşmeyen mesaj sessiz
+  düşüyor + `stale_call` metriği.
+- Sınırlar: 60 sn zamanlayıcı callId'ye bağlı (`:227-229`). Müşteri, aygıt ve zaman aşımı sonrası 30 sn bekleme (`:29,137`). 10 istek/oturum
+  (`:222`). Tekrarlayan join no-op (`:202`), değişmeyen durum yeniden yayınlanmıyor (`publish` `sentKey`).
+- Tenant/oda izolasyonu: tüm durum `Room.voice` içinde; mesajlar yalnız kendi odasının soketlerine gidiyor (`broadcast` `techConns(room)`).
+  Yetki değişimi `applyPermChange` iki yolda da `voicePermChange` çağırıyor (`rooms.ts` üye + sahip).
+- V-PD-7: `rooms.ts` misafir kopunca `voiceSync` → `hasVoice` false → anında `endVoice("disconnect")`. Teknisyen soket değişimi ya da
+  kopması `voiceDropTalker`. Oturum bitişi `teardown` → `endVoice("session_ended")`.
+- Audit: `voice.request/accept/reject/join/end`; `end` = `{durationSec, reason, talkerIds, listenerIds}`. Ses içeriği, aygıt adı ve
+  callId yazılmıyor. Kapı retleri yalnız metrik (`rs_voice_denied_total{code}`). `rs_voice_calls_total`, `rs_voice_active`.
+
+### 5. Web Permissions-Policy ve kayıt: DOĞRULANDI
+
+- `apps/web/proxy.ts` `permissionsPolicyFor`: `/r` ve alt yolları `microphone=()`, diğer sayfalar `(self)`. `camera=()`, `geolocation=()`
+  sabit. Fastify `app-hooks.ts:218,263` `/api`/`/ws` için `microphone=()` olarak kaldı.
+- Kayıt: `lib/rec/recorder.ts:63` `new MediaStream([video])`; ses kayda giremez (AC-375).
+
+### 6. Go rtc / jitter / DoS: DOĞRULANDI
+
+- `rtc/audio.go:31-53,56-76` Opus izi yalnız teklifte gönderilebilir bir ses m-line'ı varsa bağlanıyor; bağlanamazsa iz kaldırılıyor.
+  `onTrack` (`:89-105`) yalnız ses okuyor ve boş yükü atıyor.
+- `voice/voice.go:204-215` `Push`: susturulmuş görüşme, boş ya da > 1275 B yük düşüyor. Yalnız talker tid'inin jitter'ı var
+  (`c.jit[tid]==nil` → atılır, çözücüye girmez).
+- `voice/jitter.go:60-92` tid başına varış ≤ 100/sn, en çok 10 paket (200 ms), taşmada en eskisi atılıyor; FIFO 200 ms ile sınırlı.
+  Tid başına bellek ≈ 10 × 1275 B + PCM FIFO. N ≤ 3 olduğundan sınırlı.
+
+### 7. Lisans uyumu: DOĞRULANDI
+
+- `internal/ui/third_party_notices.txt`: libopus 1.6.1 BSD-3 COPYING, wazero Apache-2.0 LICENSE + NOTICE, wasi-libc (MIT seçili; musl MIT,
+  cloudlibc BSD-2), compiler-rt Apache-2.0 WITH LLVM-exception. Tepsi "Lisanslar" ağsız (`TestP28dTrayLicensesOutsideScopeNoNetwork`).
+  "GPL" yalnız LLVM istisnası metninde (satır 777-780) geçiyor; GPL/AGPL bileşen yok. Apache-2.0 repo ile uyumlu.
+- Kök `NOTICE` K6'ya (teknik-yazar) bırakıldı; tasarımda öyle planlanmış.
+
+## Otomatik tarama çıktıları
+
+- `pnpm audit --audit-level=moderate`: **No known vulnerabilities found**.
+- `git grep` gizli bilgi kalıbı (`main..p28d`): eşleşme yok. Dalda `.env*` değişikliği yok.
+- `govulncheck` / `go test -race` / fuzz: bu makinede `go` yok, koşulmadı. CI `check` + `test-windows` (PASS listesi 78 test, SKIP kabul
+  edilmiyor) bunları zorunlu tutuyor. K0s ölçümü (implementation.md): govulncheck ve go-licenses temiz, `-race` temiz, fuzz 31 dk 0 tuzak.
+- wasm yüzeyi (Node): imports `[]`, exports 9, memory 17..256 sayfa; SHA-256 eşleşiyor.
+
+## Tasarımda vaat edilip kodda bulunmayanlar
+
+- Yok (güvenlik kapsamında). Bu denetimin dışında kalan, staging'de el ile yapılacaklar: Chrome Opus yükü + yakalanmış fuzz tohumu,
+  Windows referans süresi, WASAPI donanımı (K3/K5'e devredilmiş, ADR-0036 "Ertelenen"). Kök `NOTICE` K6'da.
+
+## Olumlu
+
+- Y-PD-1..3, O-PD-1..4, D-PD-1..5 kodda uygulanmış. Rıza kuralı iki istemcide aynı ve tek bırakma yolu var.
+- Sandbox iki katmanlı: derleme hattı (0 import, max-memory) ve çalışma zamanı (import reddi, sayfa sınırı); tuzak örnek başına yalıtık.
+- wasm ikilisi incelenmemiş haliyle yayına giremez: CI yeniden üretip karşılaştırıyor ve insan onay kapısı bu job'a bağlı.
+- Kabul diyaloğu, denetlenmiş P7 G-03/S7-12 altyapısını yeniden kullanıyor; yeni bir enjeksiyon yüzeyi eklenmedi.
+- Dinleme de yetkiye bağlı, yeni dinleyici müşteriye duyuruluyor, audit "kim dinledi" sorusunu yanıtlıyor.
+
+Öneri (`docs/gereksinimler.md` §9 "Sonra"): D-PD-K1-1 wazero çağrı süre sınırı; D-PD-K1-2 kabulden sonra `active` gelmezse 5 sn içinde
+mikrofonu bırakma; A-PD-5 kapsam güdümlü libopus fuzz'ı.
+
+Atanan ajanlar: backend-dev (Go) — D-PD-K1-1, D-PD-K1-2 (Go); frontend-dev — D-PD-K1-2 (web); teknik-yazar — kök `NOTICE` (K6).
+
+---
+
 # Güvenlik Raporu — P28d tasarım turu (dal p28d, HEAD 111605a, 2026-11-17)
 
 DURUM: DÜZELTİLMELİ (tasarım; K0 öncesi mimari-p28d / ADR-0036'ya işlenmeli) — Kritik 0 / Yüksek 3 / Orta 4 / Düşük 5

@@ -14119,3 +14119,57 @@ nk_enc_lookahead, nk_dec_init, nk_dec`. Tamponlar ve durum işaretçileri tek st
 Not: `go test` içindeki `TestP28dK0sWasmDigestMatches` gömülü ikilinin `.sha256` ile tutarlılığını her koşuda denetler;
 `TestP28dK0sCompilerMatchesInterpreter` `check` job'unda (amd64) derleyici doğruluğunu sınar (~9 sn Rosetta'da; CI'da daha kısa).
 `paths` filtresi istenirse `apps/agent-win/build/libopus-wasm*/**` + `internal/voice/libopus*`.
+
+### K4 operasyon (devops; tmp-impl-k4.md'den taşındı)
+
+Tarih: 2026-11-17 · Dal: p28d (388dbdf + çalışma ağacı) · Yazan: devops · Commit yok
+
+#### Değişen dosyalar
+
+- `.github/workflows/agent-win.yml`
+  - Yeni iş `libopus-wasm` ("libopus.wasm yeniden üret + karşılaştır"): host runner (Docker gerekir; Go konteyneri değil), izin
+    üst düzey `contents: read`, checkout SHA sabit (v7.0.1). Adımlar: (1) betikteki `OPUS_SHA256` = iş akışındaki
+    `OPUS_SHA256_PINNED` ve `WASI_SDK_IMAGE` digest'li mi; (2) `sha256sum -c libopus.wasm.sha256`; (3)
+    `sh build/libopus-wasm.sh "$RUNNER_TEMP/wasm"` (çıktı dizini her zaman verilir); (4) `libopus.wasm`, `.sha256`,
+    `libopus-COPYING.txt` `cmp`; özet step summary'ye. `paths` süzgeci yok (atlanan iş kapıyı bozardı).
+  - `approve` işi `needs` + `if:` koşuluna `libopus-wasm` eklendi: doğrulanmamış wasm'lı etiket imzalanmaz/yayımlanmaz.
+  - `test-windows`: "P28d ses testleri (-v; wazero + libopus.wasm)" adımı, P28c adımından sonra, K6s kilit adımından (son adım) önce.
+    `go test -count=1 -v -run 'P28d|Voice|Opus' ./internal/...` (K3 testleri paket listesi değişmeden görünür). Zorunlu PASS listesi
+    `internal/voice/opus_test.go`'daki 12 `Test*` (P28a kalıbı `"--- PASS: $t ("`); SKIP kırmızı (windows-2025 amd64; SKIP yolları
+    yalnız `-short` ve amd64 dışı). K3 kendi adlarını listeye ekler.
+- `.github/dependabot.yml`: gomod `go-minor-patch` grubuna `exclude-patterns: ["github.com/tetratelabs/wazero"]` → wazero her sürümde
+  ayrı PR (Dependabot belgesi: exclude eşleşen bağımlılık gruptan çıkar, tekil PR alır). Auto-merge yapılandırması repo'da yok (grep).
+  Yorumda birleştirme öncesi koşullar (runbook §28d.11).
+- `docs/runbook.md`: yeni §28d (28d.1–28d.11); §11.1 tablosunda main koruma zorunlu kontrollerine `libopus.wasm yeniden üret +
+karşılaştır`; §24.4 adım 2'ye libopus-wasm.
+
+#### Doğrulamalar (yerel)
+
+| Ne                                                   | Sonuç                                                                                                                                                                                                                                                                                                                 |
+| ---------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `sh build/libopus-wasm.sh <scratch>` + 3 dosya `cmp` | GEÇTİ — `715ac5d3…62e2`, repo ile bayt bayt aynı (Apple Silicon, `linux/amd64` wasi-sdk imajı, ≈ 1 dk)                                                                                                                                                                                                                |
+| Xiph `SHA256SUMS.txt` ↔ sabit                        | `opus-1.6.1.tar.gz` = `6ffcb593…72411a1` (2026-11-17 elle eşlendi; CI'da canlı çekilmez — aynı köken, kararsızlık)                                                                                                                                                                                                    |
+| P28d adımı betiği (iş akışından çıkarıldı)           | Go imajı (digest), `--platform linux/amd64`, repo `:ro`: 12/12 PASS, `CompilerMatchesInterpreter` 9 sn, çıkış 0. İlk iki koşudaki "setup failed" yerel modül önbelleğinin (scratchpad bind mount) yarım açılmasındandı; Docker volume ile temiz. **Windows'ta bu testler henüz hiç koşmadı — ilk CI koşusu kanıttır** |
+| shellcheck (CI komutu, deploy + scripts)             | 0 uyarı                                                                                                                                                                                                                                                                                                               |
+| actionlint 1.7.8 (CI komutu)                         | 0                                                                                                                                                                                                                                                                                                                     |
+| `bash deploy/ops/test-watch.sh`                      | GEÇTİ (remote-watch değişmedi)                                                                                                                                                                                                                                                                                        |
+| prettier                                             | Dokunduğum 3 dosya `--write`; `pnpm format:check` yalnız `docs/tmp-impl-k3.md`'de (Go ajanının dosyası) fark gösteriyor                                                                                                                                                                                               |
+
+#### Sapmalar / kararlar
+
+1. mimari-p28d §10 "agent-win.yml (değişmez)" opus-go (saf Go) için yazılmıştı. A-PD-1 ile wazero + gömülü wasm'a geçildi; gömülü
+   ikilinin kaynaktan yeniden üretimi için `libopus-wasm` işi ve P28d ad sözleşmesi adımı eklendi (koordinatör görevi). Mimari §10 ve
+   §11 "CI" paragrafı (opus-go, `kazzmir/opus-go` Dependabot) mimar tarafından wazero'ya güncellenmeli.
+2. Tarball SHA iki yerde sabit (betik + iş akışı): betikteki değer sessizce değişirse iş kırmızı. Canlı Xiph çekimi yapılmadı.
+3. Yeni alarm yok: `remote-watch.sh` `rs_voice_*` okumuyor (denetlendi); izleyicinin `voice.*` reddi mevcut `multi-denied`'a düşer.
+4. `sessions.voice` rol varsayılanı çalışma anında (`effectivePermissions`): yayınla tüm mevcut Admin'lerde açık olur — runbook §28d.1'de yazılı.
+
+#### Açık maddeler (başkalarına)
+
+- **Repo sahibi:** main koruma kuralına zorunlu kontrol `libopus.wasm yeniden üret + karşılaştır` eklenmeli (eklenmezse PR'da kırmızı
+  olsa da birleştirme engellenmez; etiket yolunu `approve` zaten kapatıyor).
+- **Go ajanı (K3):** P28d testlerinin adları adımdaki listeye eklenir (`agent-win.yml` "P28d ses testleri"); ad kuralı `P28d|Voice|Opus`.
+  `build/libopus-wasm.sh` shellcheck SC2089/SC2090 uyarısı veriyor (`-DPACKAGE_VERSION=\"…\"` bilinçli; betik CI shellcheck kapsamında
+  değil) — kapsam genişlerse satıra `# shellcheck disable=SC2089,SC2090` gerekçesiyle eklenmeli. `docs/tmp-impl-k3.md` prettier.
+- **mimar:** madde 1 (mimari §10/§11 metni opus-go → wazero + libopus.wasm).
+- **test-operatoru (K5):** runbook §28d.7 Windows elle turu ve §28d.8 AC-376 ölçümü (DENENMEDİ, ilk koşuda doğrular).
