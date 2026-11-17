@@ -1,3 +1,193 @@
+# Güvenlik Raporu — P28g Tasarım turu 2 (r2 doğrulaması, K0g) (dal main, HEAD 4b990b1, 2026-11-17)
+
+DURUM: DÜZELTİLMELİ (tasarım; yalnız metin düzeltmesi, K1 başlamadan `mimari-p28g` §13/§12.1 ve ADR-0038 m.5'e işlenmeli) — Kritik 0 / Yüksek 1 / Orta 1 / Düşük 4
+
+Kapsam: `docs/mimari-p28g.md` r2 (§5.1–5.3, §12.1, §13, §14), `docs/adr/0038-…` (Kabul r2, m.4–m.7), `docs/gereksinimler-p28.md` AC-399 notu
+(satır 173) ve R46a (satır 259), `docs/spike-p28g-k0s.md` (yalnız ilgili satırlar). Linux kodu yok; bu tur yalnız tasarım metnini denetler.
+
+## Tur 1 bulgularının durumu
+
+| Bulgu | Durum | Not |
+| ----- | ----- | --- |
+| S-P28g-1 (Yüksek) | **Kısmen kapandı → Y-P28g-T2-1** | Kilit = REVOKED, kısayol/`disable-lock-screen` izleme, uyarı metni, tek FAIL dalı, AC-399 notu + R46a: doğru. Değiştirici kuralı (m.3) düşmanca teknisyene karşı yetersiz; E-7 senaryoları eksik (aşağıda) |
+| S-P28g-2 | Kapandı | §13: kilit → REVOKED, `GetActive` hatası → kontrol yok, gönderen doğrulaması. **Ama** §12.1 E-9 hâlâ r1 metni ("kilit ekranı → Müşteri güvenli masaüstünde") → D-P28g-T2-3 |
+| S-P28g-3 | Kapandı | Ayar değişimi fail-closed, Wayland ekran ortası (yazılı sapma), aynı `Applier` + portal bırakma olayları. §2.1 satır 92 ve §5.2a satır 226-227 r1 metni → D-P28g-T2-3 |
+| S-P28g-4 | Kapandı | `display-name` yok, `DISPLAY` regex, tamsayı kuralı, iki katman beyaz liste, `S_ISSOCK` (§4.4 satır 154, T6 satır 195) |
+| S-P28g-5 | Kapandı (koşulla) | İzin listesi + argümansız tek yeniden çalıştırma, T4/T5 düzeltildi, `GDK_CORE_DEVICE_EVENTS` eklendi (spike'ın yakaladığı iyi ek). İzin listesinde kalan `DBUS_SESSION_BUS_ADDRESS` → D-P28g-T2-1; `HTTPS_PROXY` kabul (aşağıda) |
+| S-P28g-6 | Kapandı | Komut tek dosya, `[ -d ]`, `.crdownload/.part` desene uymaz, `Last-Modified` kaldırma, satır sonu/`sudo` yok, uyarı, `Dosya-` yeniden adlandırma, sihirli bayt |
+| S-P28g-7 | Kapandı | Zaman tabanlı yedek hiçbir dalda yok (§5.2 satır 210, §14) |
+| S-P28g-8 | Kapandı | keep_above + stick + deiconify + ✕ = bitir onayı + `XQueryTree` ölçütü + E-8. CSS ile görünmez kılma açığı ayrı → O-P28g-T2-1 |
+| S-P28g-9 | Kapandı | `--source-ref` zorunlu, ad/adres denetimi, çalışma anında "TEST", Release SHA256SUMS + attestation, digest sabit imajlar |
+| S-P28g-10 | Kapandı | `GetNameOwner` + `sender=` + önce abonelik + 128 bit token + değer sınırları |
+| S-P28g-11 | Kapandı | `Lstat`/sahip/0700, `MkdirTemp` yedeği, GLib log sessiz, DUMPABLE ölçüme bağlı (aşağıda değerlendirme). §5.3 satır 231-232 r1 metni → D-P28g-T2-3 |
+| S-P28g-12 | Kapandı | Kabul ifadesi `OS_PERMISSION` kalıbı, çapraz Caddy testleri, enum contracts'tan |
+| S-P28g-13 | Kapandı | Kimlik tabanlı XTEST ayrımı, GDK error trap ile eşzamanlı `BadAccess`, XWayland'de `XGrabKey` yok |
+
+## Bulgular (öncelik sırasıyla)
+
+### [YÜKSEK] Y-P28g-T2-1 Kilit telafisi tekrar basılan değiştiriciyle atlatılabilir; E-7 bunu sınamıyor (S-P28g-1 kalıntısı) — A04 (AC-102, AC-104)
+
+Yer: mimari-p28g §13 S-P28g-1 m.3 ve m.6 (satır 461), §14 r2 E-7 (satır 509); ADR-0038 m.5 ("değiştirici en çok 2 sn basılı tutulur").
+Sorun:
+
+- Tasarımın kendi varsayımı (§13 m.3 bu yüzden var; K3'te ölçülecek): mutter'da xkb değiştirici durumu koltuk (seat) geneldir; portalın sanal klavyesiyle basılı tutulan Ctrl/Shift/Alt, fiziksel klavyedeki
+  Super+L'yi Ctrl+Super+L'ye çevirir ve kilit kısayolu eşleşmez. m.3 yalnız "2 sn'den uzun basılı tutulmaz, sonra bırakılır" diyor;
+  yeniden basmayı sınırlamıyor. Teknisyen Ctrl'yi 1,9 sn basılı tutup 1 ms bırakıp yeniden basarak zamanın ≈ %99,9'unda değiştiriciyi
+  basılı tutar. Müşterinin tek kaçış yolu (Super+L) fiilen kapanır; S-P28g-1'in istismar senaryosu aynen geri gelir.
+- E-7 ölçütü (§13 m.6, §14) yalnız "60 Hz işaretçi enjeksiyonu altında Super+L"yi sınıyor; tur 1 m.1'de istenen **değiştirici basılı**
+  ve **kipli kabuk diyaloğu açıkken** senaryoları listede yok. Ek olarak kısayol engelleyici yolu yazılmamış: teknisyen tam ekran bir
+  pencerede (tarayıcı Keyboard Lock API / sanal makine görüntüleyici) mutter'ın "kısayolları engelle" iznini enjekte tıklamayla verirse
+  Super+L uygulamaya gider (çıkış Super+Esc). Bu hâliyle E-7 GEÇTİ verir, ama telafi düşmanca teknisyene karşı tutmaz (yanlış güvence).
+İstismar senaryosu: Müşteri kontrol verir; teknisyen terminalde komut yazarken bir yandan 1,9 sn'de bir Ctrl'yi yeniden basar. Müşteri
+Super+L'ye basar, ekran kilitlenmez; fare de işe yaramaz (S-P28g-1).
+Düzeltme (atanan ajan: mimar → backend-dev; test-operatoru E-7):
+
+1. §13 S-P28g-1 m.3 tutuş süresine değil **toplam bütçeye** bağlansın: Wayland enjektöründe kayan 3 sn'lik pencerede "herhangi bir
+   değiştirici basılı" toplam süresi en çok 2 sn'dir. Bütçe dolunca basılı değiştiriciler bırakılır ve bırakma hangi nedenle olursa olsun
+   (bütçe ya da teknisyenin kendi bırakması) bütçe dolmuşsa **1 sn soğuma** başlar: bu sürede gelen değiştirici basışı düşürülür, bırakma
+   geçer. Böylece kısa aralıklarla yeniden basma bütçeyi sıfırlamaz; her 3 sn'lik pencerede en az 1 sn değiştiricisiz süre olur ve müşteri
+   Super+L'yi en geç ≈ 3 sn içinde etkili basar. Kural `Applier` içinde, portal yolunda (X11'de AC-102/AC-104 zaten var). Go birim testi:
+   "1,9 sn tut / 1 ms bırak / yeniden bas" dizisi 10 sn → her 3 sn'lik pencerede değiştiricisiz toplam süre ≥ 1 sn.
+2. Uyarı metnine ek: "Super+L hemen çalışmazsa birkaç kez basın; yine olmazsa önce Super+Esc, sonra Super+L." (kılavuz + Wayland onay
+   diyaloğu + oturum penceresi).
+3. E-7 senaryoları (hepsi Wayland 24.04, kontrol açık): (a) 60 Hz işaretçi (mevcut); (b) teknisyen Ctrl'yi sürekli yeniden basıyor →
+   müşteri Super+L ≤ 3 sn içinde REVOKED; (c) kipli kabuk diyaloğu açık (Alt+F2, polkit, oturum kapatma diyaloğu) → Super+L; (d) tam ekran
+   pencere + kısayol engelleyici izni → Super+Esc, Super+L. (b) ya da (c) tutmazsa §13 m.6 FAIL dalı (Wayland yalnız görüntü) uygulanır;
+   (d) tutmazsa yalnız kılavuz notu yeter (engelleyici izni mutter diyaloğuyla görünür biçimde verilir).
+4. Kapanış koşulu: m.1-m.3 §13/ADR-0038 m.5/E-7'ye işlenmiş olmalı **ve** AC-399 notundaki sapma için kullanıcı onayı tarihli olarak
+   yazılmış olmalı (aşağıda "Prod öncesi açık koşul"; tur 1 m.4 "onay yoksa yalnız görüntü" diyordu, r2 bunu koordinatör kararıyla tersine
+   çevirdi — bunu bir ajan kapatamaz). Onay prod öncesine kadar gelebilir; gelmezse prod varsayılanı Wayland yalnız görüntü.
+5. Ön koşul ölçümü K3'te: değiştirici durumunun gerçekten koltuk genelinde olduğu (sanal Ctrl + fiziksel Super+L kilitlemiyor) gözlenir;
+   ayrı durumsa m.1 yine uygulanır (zararsız), bulgu bilgi olarak kapanır.
+
+### [ORTA] O-P28g-T2-1 Kullanıcı GTK teması / `gtk.css` gösterge ve onay diyaloğunu görünmez ya da yanıltıcı yapabilir — A04 (G-17, AC-400, G-03)
+
+Yer: mimari-p28g §2.1 satır 101-102 (tek `GtkCssProvider`, öncelik yazılmamış; renk Yaru teması/XSETTINGS'ten), ADR-0038 m.4 ("Sistem
+teması açık/koyu temayı verir"), §13 S-P28g-11 ("`XDG_CONFIG_HOME` yönlendirilmez"), §13 S-P28g-8 (görünürlük ölçütü yalnız yığın sırası).
+Sorun: GTK3, `~/.config/gtk-3.0/gtk.css` dosyasını `GTK_STYLE_PROVIDER_PRIORITY_USER` (800) ile, `APPLICATION` (600) önceliğindeki
+uygulama sağlayıcısının **üstünde** uygular; tema adı (`org.gnome.desktop.interface gtk-theme`, XSETTINGS) çalışma anında canlı değişir
+ve `~/.themes`/`~/.local/share/themes` altındaki kullanıcı temasını yükler. Kontrolü olan teknisyen (aynı oturumda, metin düzenleyici
+ya da `gsettings` ile) şunu yapabilir: gösterge penceresine `opacity: 0` → AC-400 göstergesi görünmez ama §13 S-P28g-8'deki `XQueryTree`
+ölçütü "en üstte" der (fail-closed tetiklenmez); onay diyaloğunda düğme etiketlerini `color: transparent` + `background-image` ile
+değiştirip "Kabul"ü "Reddet" gibi gösterir. `localClick` tıklamanın fiziksel olduğunu doğrular, müşterinin aldatılmasını önlemez.
+Bu, tur 1'de S-P28g-5 ile kapatılan ortam yolunun (`GTK_THEME` silindi) dosya/ayar eşidir; macOS ve Windows'ta karşılığı yoktur.
+İstismar senaryosu: Teknisyen kontrolle `gsettings set org.gnome.desktop.interface gtk-theme X` (X = az önce `~/.local/share/themes`'e
+yazdığı tema; `.noktadestek-indicator { opacity: 0 }`). Gösterge kaybolur; müşteri izlenmediğini sanır. Aynı tema bir sonraki oturumda
+onay diyaloğunun düğme görünümünü değiştirir.
+Düzeltme (atanan ajan: mimar → backend-dev):
+
+1. Süreç teması sabitlenir: `gtk_init`'ten sonra `GtkSettings` `gtk-theme-name="Adwaita"` (GTK'nın gömülü kaynağı; dosya sisteminden
+   yüklenmez), koyu/açık yalnız `gtk-application-prefer-dark-theme` ile (XSETTINGS'ten okunan değer bool olarak). `notify::gtk-theme-name`
+   gelirse yeniden "Adwaita" yazılır. `GTK_THEME` zaten izin listesi dışında.
+2. Kendi sağlayıcımız `GTK_STYLE_PROVIDER_PRIORITY_USER + 1` (ya da `G_MAXUINT`) ile **ekran** düzeyinde eklenir ve korunan bileşenler
+   (gösterge, onay diyaloğu düğmeleri/etiketleri, oturum penceresi düğmeleri) için `opacity: 1; background-image: none; color/background`
+   token değerleri; `min-height`/`font-size` alt sınırı; `-gtk-icon-*` yok — tek tanım `uicore/theme.go`.
+3. Kılavuz/DESIGN: Linux'ta pencerelerimiz Yaru değil Adwaita görünür (bilinen görsel fark). E-14'e "kullanıcı `gtk.css` + özel tema ile
+   gösterge ve onay diyaloğu değişmiyor" senaryosu.
+
+### [DÜŞÜK] D-P28g-T2-1 `DBUS_SESSION_BUS_ADDRESS` biçimi ve soket sahibi doğrulanmıyor — A05/A08 (açık nokta (b))
+
+Yer: mimari-p28g §13 S-P28g-5 (satır 465).
+Değerlendirme: Portal ve `org.gnome.ScreenSaver` için zorunlu; aynı kullanıcı kapsam dışı ilkesi kabul. Ancak artık güvenlik kararları
+(kilit = REVOKED, kilit kısayolu, a11y ayarları) bu veri yoluna bağlı. Teknisyen kontrolle `~/.bashrc`'ye kendi `dbus-daemon`'unu gösteren
+bir değer yazarsa sonraki oturumda sahte `ScreenSaver`/`Settings` telafiyi sessizce kapatır. Aynı teknisyen kalıcı kötü yazılım da
+bırakabildiği için Düşük; ama `LD_PRELOAD`'u süzüp bunu süzmemek tutarsız ve doğrulaması ucuz.
+Düzeltme (atanan ajan: backend-dev): değer tam olarak `unix:path=$XDG_RUNTIME_DIR/bus` (doğrulanmış `XDG_RUNTIME_DIR`, S-P28g-11) olmalı;
+`Lstat` soket, sahibi `getuid()`; değişken yoksa bu varsayılan kullanılır. Uymazsa görüntü çalışabilir ama **kontrol verilmez**
+(Wayland `WAYLAND_NO_CONTROL`, X11'de kilit izlenemediği için kontrol yok — fail-closed). Birim testi: `unix:abstract=…`, `tcp:…`,
+başka dizin → ret.
+
+**`HTTPS_PROXY`/`NO_PROXY` — kabul, bulgu yok.** `SSL_CERT_FILE/DIR` süzüldüğü için TLS sistem kökleriyle doğrulanır; vekil yalnız hedef
+adı görür (üst veri) ya da bağlantıyı keser (DoS). Koşullar (kod turunda doğrulanır): küçük harfli `https_proxy`/`no_proxy` için karar
+yazılsın (Go her ikisini okur; izin listesi tutarlı olmalı), `HTTP_PROXY` listede yok (yalnız https/wss); vekil URL'si (kimlik bilgisi
+içerebilir) log ve hata iletisine yazılmaz.
+
+### [DÜŞÜK] D-P28g-T2-2 purego libX11/libXi/libXtst FFI kuralları eksik — A08 (açık nokta (c))
+
+Yer: mimari-p28g §5.2 satır 210, §5.4 satır 249-251 (FFI kuralları), §14 m.1; ADR-0038 m.6, Sonuçlar (−).
+Değerlendirme: xgb'nin çıkarılması (tek X bağlama yolu) doğru; yüzey büyüdü ama yönetilebilir. Eksik kurallar:
+
+1. **Yapı düzeni:** XI2 olayları `XGetEventData` ile C belleğinde gelir. Go tarafı yalnız sabit ofsetli alanları okur (`extension`,
+   `evtype`, `deviceid`, `sourceid`, `detail`); sunucudan gelen `valuators.mask_len`/`raw_values` üzerinde yinelenmez. Ofsetler CI'da
+   başlıklardan (`gcc` ile `offsetof` yazdıran tek seferlik adım, `libxi-dev`) üretilen değerlerle karşılaştırılır. Her `XGetEventData`
+   sonrası `XFreeEventData` (hata yolunda dahil).
+2. **X hata işleyicisi süreç geneldir:** `XSetErrorHandler` Display başına değil; GDK kendi işleyicisini kurar ve bilmediği Display'in
+   hatasını Xlib varsayılanına (`exit(1)`) iletir, GDK Display'inde tuzaksız hata `g_error` → `abort()` (çekirdek dökümü). "İşleyici
+   kurulmaz" kuralı doğru; sonucu yazılsın: XI2/XTest Display'inde X hatası = süreç çıkışı = oturum biter (fail-closed, kabul). IO hata
+   işleyicisi için de aynı not.
+3. **Bellek:** `XISelectEvents` maske tamponu ve `XIQueryDevice` dönüşü yalnız çağrı süresince kullanılır (`runtime.Pinner` ya da C
+   bellek), `XIFreeDeviceInfo` çağrılır; C'ye Go işaretçisi saklatılmaz (mevcut §5.4 kuralı X için de geçerli diye yazılsın).
+4. **Kapanış:** engelleyen `XNextEvent` iş parçacığı kendi Display'ine gönderilen bir istemci olayıyla (`XSendEvent` kendi penceresine)
+   uyandırılıp sonra `XCloseDisplay` edilir; eşzamanlı kapatma yok (AC-107 kapanışında takılma/çökme olmasın).
+5. Uygulanmışsa yeterli: `XInitThreads` her Xlib çağrısından (GDK'nın `XOpenDisplay`'i dahil) önce; `dlopen` mutlak yol + izin listesi.
+
+### [DÜŞÜK] D-P28g-T2-3 r2 gövde metni §13/§14 ile çelişiyor; uygulayıcı eski kuralı okuyabilir — A04
+
+Yer ve r1 kalıntıları:
+- §2.1 satır 92: prompt "imlecin altında açılmaz" (Wayland'de ekran ortası kuralı yok).
+- §5.2a satır 226-227: Wayland'de "asıl ayırıcı m.4" — S-P28g-3 m.1 a11y ayar kuralı yok.
+- §5.3 satır 231-232: "`XDG_RUNTIME_DIR` … kullanılmaz, iz testinde sapma" — `MkdirTemp` yedeği yok.
+- §12.1 satır 451 E-9: "kilit ekranı → Müşteri güvenli masaüstünde" — REVOKED yok; E-7 hâlâ yalnız "Durdur".
+- (r1 kalıntısı değil, §14 m.7'nin bağlayıcı r2 kararı) Wayland klavye ısınması (Shift bas-bırak) "oturum başında" — kontrol onayından önce enjeksiyon olur (spike satır 238, 325).
+§13 "çelişirse bu bölüm geçerlidir" diyor ama K3/K4 geliştiricisi §2.1/§5.x tablolarından çalışır.
+Düzeltme (atanan ajan: mimar): yukarıdaki satırlar §13/§14 ile aynı metne getirilsin; E-7/E-9 §14'teki r2 E-7 ile birleştirilsin.
+Klavye ısınması yalnız kontrol **verildiği anda** (kapı açıkken) yapılsın, oturum başında değil (ön onaysız tek Shift zararsız ama
+"kapı kapalıyken girdi yok" değişmezine istisna yaratır; ayrıca Shift'i giriş kaynağı değiştirici olarak kullanan düzenlerde yan etkisi var).
+
+### [DÜŞÜK] D-P28g-T2-4 Çekirdek dökümü: `PR_SET_DUMPABLE` ölçüme bağlı, koşulsuz katman yok — A04/KVKK (açık nokta, AC-401)
+
+Yer: mimari-p28g §13 S-P28g-11 (satır 471).
+Değerlendirme: Ölçüme bağlamak doğru — `PR_SET_DUMPABLE=0` `/proc/<pid>` girdilerini root'a geçirir; xdg-desktop-portal çağıranı
+`/proc/<pid>/root` ve cgroup ile tanır, PipeWire erişim modülü de `/proc/<pid>`'i okur; erken uygulanırsa portal reddedebilir.
+Düzeltme (atanan ajan: backend-dev):
+1. Ölçüm iki noktada yapılsın: (a) açılışta; (b) portal oturumu + `OpenPipeWireRemote` + PipeWire bağlantısı kurulduktan **sonra**
+   (portal uygulama bilgisini gönderen başına önbelleğe aldığından (b) büyük olasılıkla çalışır). Hangisi çalışıyorsa o uygulanır.
+2. Ek katman: açılışta `setrlimit(RLIMIT_CORE, 0)` (portalı etkilemez). `core_pattern` apport'a boru olduğunda sınırın boru işleyicisini
+   durdurup durdurmadığı kesin değil; etkisi aşağıdaki ölçümle doğrulanır. Ubuntu'da apport paketsiz ikilinin çökmesini varsayılan
+   olarak yok sayar, systemd-coredump varsayılan kurulu değil; K2 ölçümüne "zorla çökme (`SIGSEGV`) → `/var/crash`, `coredumpctl`, cwd'de
+   `core` yok" eklensin. GDK `abort()` yolu (D-P28g-T2-2 m.2) bu ölçümle kapsanır.
+
+## Açık noktaların değerlendirmesi (§13 sonu)
+
+| # | Konu | Sonuç |
+| - | ---- | ----- |
+| (a) | Kilit telafisi gerçek GNOME'da | Mekanizma doğru, ama E-7 düşmanca değiştirici ve kipli kabuk senaryolarını sınamadıkça GEÇTİ anlamsız → **Y-P28g-T2-1** |
+| (b) | `DBUS_SESSION_BUS_ADDRESS` / `HTTPS_PROXY` | DBus: kalsın, biçim + soket sahibi doğrulansın → D-P28g-T2-1. Proxy: kabul (koşullar yukarıda) |
+| (c) | purego libX11/libXi/libXtst | Kabul; yapı ofseti, süreç geneli hata işleyicisi, bellek, kapanış kuralları → D-P28g-T2-2 |
+| (d) | Wayland diyaloğu ekran ortasında | **Kabul, bulgu yok.** "İmlecin altında" kuralının amacı müşterinin istemsiz tıklamasıdır; 1,5 sn kilit + basış ve bırakmanın aynı denetimde ve kilitten sonra olması + enjektör duraklatma bunu karşılar. Öneri (zorunlu değil): ortalama, oturum penceresinin bulunduğu monitöre göre (`gdk_display_get_monitor_at_window`); mutter yerleşimi farklıysa kural "monitör ortası" ile ölçülür, K4 elle |
+| PR_SET_DUMPABLE | | Ölçüme bağlı kalsın + `RLIMIT_CORE=0` → D-P28g-T2-4 |
+
+## Prod öncesi açık koşul (bulgu değil)
+
+- AC-399 notu "kabul edilmiş sapma — kullanıcı onayı bekleniyor (varsayılan: telafiyle kontrol)". Tur 1 önerisi onaysız varsayılanın
+  "yalnız görüntü" olmasıydı; r2 koordinatör kararıyla tersine çevrilmiş. Geliştirme için kabul (telafi + E-7 FAIL dalı yazılı). **Prod
+  açılışından önce** kullanıcının onayı `gereksinimler-p28.md` AC-399 notuna tarihli olarak yazılmalı; genel "sormadan ilerle" talimatı bu
+  sapmayı kapsıyorsa bu da açıkça not edilmeli. Onay kaydı yoksa prod varsayılanı Wayland yalnız görüntü.
+
+## Otomatik tarama çıktıları
+
+- Tasarım turu; kod değişikliği yok, tarama koşulmadı. K9 kod turunda `pnpm audit --audit-level=moderate`, `GOOS=linux govulncheck ./...`,
+  `GOOS=linux go-licenses` (godbus BSD-2; xgb artık yok) ve gitleaks zorunlu.
+
+## Tasarımda vaat edilip kodda bulunmayanlar
+
+Linux kodu yok. Tasarım metninde vaat edilip gövdede karşılığı olmayanlar D-P28g-T2-3'te listelendi.
+
+## Olumlu
+
+- 13 bulgunun tamamı kabul edildi; hiçbiri sulandırılmadan, çoğu önerilenden net biçimde (ör. `disable-lock-screen=true` ya da boş kısayol
+  → Wayland'de kontrol hiç verilmez) işlendi.
+- Spike, `GDK_CORE_DEVICE_EVENTS`'in XTEST ayrımını sildiğini bulup izin listesine ve CI pozitif kontrolüne bağladı — tur 1'in kaçırdığı bir değişken.
+- xgb'nin çıkarılmasıyla iki X bağlama yolu tutulmadı; `XGrabKey` hatası GDK tuzağıyla eşzamanlı.
+- "Uzaktan etkileşime izin ver" varsayılan kapalı (24.04) → varsayılan yalnız izleme; Notify hataları çökme değil "izin yok".
+- "Durdur" tüm portal oturumlarını 6–8 ms'de kapatıyor; FAIL dalı tek (yalnız görüntü) ve yazılı.
+- R46a ayrı risk satırı olarak Yüksek önemle eklendi; AC-399 notu sapmayı ve telafiyi açıkça yazıyor.
+
+Öneri (`docs/gereksinimler.md` 9. bölüm "Sonra"): GlobalShortcuts portalı ile Wayland AC-102; libei/`org.gnome.Mutter.RemoteDesktop`
+gözlemiyle yerel girdi önceliği (Y-P28g-T2-1'in kalıcı çözümü); D-P28g-T2-1..4.
+
+---
+
 # Güvenlik Raporu — P28g Tasarım turu (Linux istemci, K0g) (dal main, HEAD 9b1db78, 2026-11-17)
 
 DURUM: DÜZELTİLMELİ (tasarım; K1/K3/K4 öncesi mimari-p28g / ADR-0038'e işlenmeli) — Kritik 0 / Yüksek 1 / Orta 8 / Düşük 4
