@@ -2,17 +2,20 @@
 
 package ui
 
-import "remote-support/agent-win/internal/win"
+import (
+	"remote-support/agent-win/internal/ui/uicore"
+	"remote-support/agent-win/internal/win"
+)
 
 // AC-247: tema durumu UI iş parçacığındadır. Açık modda (veya yüksek karşıtlıkta) 0.10.x ile aynı sistem renkleri
-// kullanılır ve hiçbir ek tema çağrısı yapılmaz; koyu modda renkler theme.go tablosundan, başlık çubuğu DWM ile,
+// kullanılır ve hiçbir ek tema çağrısı yapılmaz; koyu modda renkler uicore/theme.go tablosundan, başlık çubuğu DWM ile,
 // düğme/metin kutusu/liste görsel stilin koyu alt sınıfıyla boyanır. WM_SETTINGCHANGE "ImmersiveColorSet" (ve yüksek
 // karşıtlık değişimi) açık pencereleri yeniden boyar.
 
 type themeState struct {
 	loaded bool
 	dark   bool
-	pal    palette
+	pal    uicore.Palette
 	window uintptr // koyu fırçalar; açık modda 0 (sistem fırçası)
 	field  uintptr
 }
@@ -41,12 +44,12 @@ func ctrlKind(class string, style uint32) int {
 	return kindStatic
 }
 
-func colorRef(c rgb) uint32 { return win.RGB(c.R, c.G, c.B) }
+func colorRef(c uicore.RGB) uint32 { return win.RGB(c.R, c.G, c.B) }
 
 // loadTheme kayıt defterini ve yüksek karşıtlığı okur; tema değiştiyse true.
 func (t *thread) loadTheme() bool {
 	v, found := win.AppsUseLightTheme()
-	dark := useDark(v, found, win.HighContrast())
+	dark := uicore.UseDark(v, found, win.HighContrast())
 	if t.theme.loaded && t.theme.dark == dark {
 		return false
 	}
@@ -55,7 +58,7 @@ func (t *thread) loadTheme() bool {
 			win.DeleteObject(b)
 		}
 	}
-	t.theme = themeState{loaded: true, dark: dark, pal: themePalette(dark)}
+	t.theme = themeState{loaded: true, dark: dark, pal: uicore.ThemePalette(dark)}
 	if dark {
 		t.theme.window = win.SolidBrush(colorRef(t.theme.pal.Window))
 		t.theme.field = win.SolidBrush(colorRef(t.theme.pal.Field))

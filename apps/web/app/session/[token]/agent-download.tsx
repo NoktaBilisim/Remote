@@ -2,29 +2,38 @@
 
 import { CircleHelp, Download, FileCheck2, LoaderCircle, ScreenShare } from "lucide-react";
 import { useId, useState, useSyncExternalStore, type MouseEvent, type ReactNode } from "react";
+import type { AgentOs } from "@/lib/device-support";
 import { Alert } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { agentDownloadUrl, probeAgentDownload } from "@/lib/agent-download";
 import { t } from "@/lib/i18n";
 import type { GuestEnd } from "../guest-ui";
+import { GuideStep as Step } from "./guide-step";
+import { MacGuide } from "./mac-guide";
 
 type State = "idle" | "checking" | "started" | "notReady" | "rate" | "error";
 
 const noop = () => () => undefined;
 
 /**
- * AC-27 (Windows masaüstü): birincil "Hızlı Destek uygulamasını indir" + aynı adımda SmartScreen rehberi (DESIGN §8:
+ * AC-27 (Windows masaüstü) / P28f AC-396 (macOS, aynı düzen + macOS rehberi): birincil "Hızlı Destek uygulamasını indir" + aynı adımda SmartScreen rehberi (DESIGN §8:
  * numaralı adım + şema kutusu, ekran görüntüsüz). Tıklamada uç önce `redirect: manual` ile denenir; 302 ise indirme
  * başlar, 503 NOT_READY'de tarayıcı modu önerilir, 410/404 bitiş ekranına, 429 bekleme mesajına gider.
  */
 export function AgentDownload({
   sessionRef,
   verifyCode,
+  os = "windows",
+  testBuild = false,
   onEnd,
   onBrowser,
 }: {
   sessionRef: string;
   verifyCode: string;
+  /** P28f (AC-396): macOS'ta indirme `os=macos` (zip) ve macOS rehberi; düzen Windows ile aynı. */
+  os?: AgentOs;
+  /** P28f (S-P28f-8): yalnız staging imzasız TEST sürümünde "Yine de Aç" adımı; varsayılan imzalı (prod) metin. */
+  testBuild?: boolean;
   onEnd: (e: GuestEnd) => void;
   /** Tarayıcı moduna geç (ad alanına / paylaş düğmesine odak). Yoksa (tarayıcı modu desteklenmiyor) düğme gösterilmez. */
   onBrowser?: () => void;
@@ -37,7 +46,8 @@ export function AgentDownload({
     () => window.location.host,
     () => "",
   );
-  const href = agentDownloadUrl(sessionRef);
+  const href = agentDownloadUrl(sessionRef, os);
+  const mac = os === "macos";
   const checking = state === "checking";
 
   const onClick = async (e: MouseEvent<HTMLAnchorElement>) => {
@@ -45,7 +55,7 @@ export function AgentDownload({
     if (checking) return;
     setState("checking");
     setDetail(undefined);
-    const r = await probeAgentDownload(sessionRef);
+    const r = await probeAgentDownload(sessionRef, os);
     switch (r.kind) {
       case "ok":
         // Caddy dosyayı `Content-Disposition: attachment` ile sunar → sayfa yerinde kalır, indirme başlar
@@ -73,6 +83,7 @@ export function AgentDownload({
         aria-describedby={guideId}
         data-testid="agent-download"
         data-state={state}
+        data-os={os}
         className="flex min-h-11 flex-col items-start gap-1 rounded-lg border-2 border-primary bg-surface p-4 text-left shadow-sm transition-[transform,opacity] duration-150 ease-out hover:bg-primary-surface active:scale-[0.99] aria-busy:cursor-progress aria-busy:opacity-80"
       >
         <span className="inline-flex flex-wrap items-center gap-2 font-semibold text-fg">
@@ -87,8 +98,14 @@ export function AgentDownload({
           </span>
         </span>
         <span className="text-sm text-fg-muted">{t("ga.downloadBody")}</span>
-        <span className="text-xs text-fg-muted">{t("ga.downloadMeta")}</span>
+        <span className="text-xs text-fg-muted">{t(mac ? "gm.downloadMeta" : "ga.downloadMeta")}</span>
       </a>
+      {mac && testBuild && (
+        <Alert tone="warning" testId="mac-test-build">
+          <p className="font-semibold">{t("gm.testTitle")}</p>
+          <p className="text-fg">{t("gm.testBody")}</p>
+        </Alert>
+      )}
 
       {state === "started" && (
         <Alert tone="success" testId="agent-started">
@@ -121,67 +138,50 @@ export function AgentDownload({
         </Alert>
       )}
 
-      <section
-        aria-labelledby={`${guideId}-t`}
-        id={guideId}
-        data-testid="smartscreen-guide"
-        className={`rounded-lg border bg-surface p-4 text-sm shadow-sm ${state === "started" ? "border-primary" : "border-border"}`}
-      >
-        <h3 id={`${guideId}-t`} className="inline-flex items-center gap-2 font-semibold text-fg">
-          <CircleHelp aria-hidden className="size-4 shrink-0 text-primary" />
-          {t("ga.guideTitle")}
-        </h3>
-        <p className="mt-1 text-fg-muted">{t("ga.guideIntro")}</p>
-        <ol className="mt-3 flex list-none flex-col gap-3">
-          <Step n={1} title={t("ga.step1")} body={t("ga.step1Body")} />
-          <Step n={2} title={t("ga.step2")} body={t("ga.step2Body")}>
-            <Schematic>
-              <span className="font-semibold">{t("ga.ssTitle")}</span>
-              <span>{t("ga.ssBody")}</span>
-              <span className="font-semibold text-primary underline">{t("ga.ssMore")}</span>
-            </Schematic>
-          </Step>
-          <Step n={3} title={t("ga.step3")} body={t("ga.step3Body")}>
-            <Schematic>
-              <span>{t("ga.ssPublisher")}</span>
-              <span className="flex flex-wrap justify-end gap-2">
-                <span className="rounded-sm border-2 border-primary px-2 py-0.5 font-semibold text-fg">{t("ga.ssRun")}</span>
-                <span className="rounded-sm border border-border px-2 py-0.5">{t("ga.ssDont")}</span>
-              </span>
-            </Schematic>
-          </Step>
-          <Step n={4} title={t("ga.step4")} body={t("ga.step4Body", { code: verifyCode, host: host || "—" })} />
-        </ol>
-        <details className="mt-3 rounded-md border border-border bg-canvas px-3 py-2" data-testid="agent-verify">
-          <summary className="min-h-11 cursor-pointer py-2 font-medium text-primary">
-            <FileCheck2 aria-hidden className="mr-1.5 inline size-4 align-[-0.1875em]" />
-            {t("ga.verifyTitle")}
-          </summary>
-          <p className="pb-2 text-fg-muted">{t("ga.verifyBody")}</p>
-        </details>
-      </section>
+      {mac ? (
+        <MacGuide id={guideId} highlight={state === "started"} testBuild={testBuild} verifyCode={verifyCode} host={host} />
+      ) : (
+        <section
+          aria-labelledby={`${guideId}-t`}
+          id={guideId}
+          data-testid="smartscreen-guide"
+          className={`rounded-lg border bg-surface p-4 text-sm shadow-sm ${state === "started" ? "border-primary" : "border-border"}`}
+        >
+          <h3 id={`${guideId}-t`} className="inline-flex items-center gap-2 font-semibold text-fg">
+            <CircleHelp aria-hidden className="size-4 shrink-0 text-primary" />
+            {t("ga.guideTitle")}
+          </h3>
+          <p className="mt-1 text-fg-muted">{t("ga.guideIntro")}</p>
+          <ol className="mt-3 flex list-none flex-col gap-3">
+            <Step n={1} title={t("ga.step1")} body={t("ga.step1Body")} />
+            <Step n={2} title={t("ga.step2")} body={t("ga.step2Body")}>
+              <Schematic>
+                <span className="font-semibold">{t("ga.ssTitle")}</span>
+                <span>{t("ga.ssBody")}</span>
+                <span className="font-semibold text-primary underline">{t("ga.ssMore")}</span>
+              </Schematic>
+            </Step>
+            <Step n={3} title={t("ga.step3")} body={t("ga.step3Body")}>
+              <Schematic>
+                <span>{t("ga.ssPublisher")}</span>
+                <span className="flex flex-wrap justify-end gap-2">
+                  <span className="rounded-sm border-2 border-primary px-2 py-0.5 font-semibold text-fg">{t("ga.ssRun")}</span>
+                  <span className="rounded-sm border border-border px-2 py-0.5">{t("ga.ssDont")}</span>
+                </span>
+              </Schematic>
+            </Step>
+            <Step n={4} title={t("ga.step4")} body={t("ga.step4Body", { code: verifyCode, host: host || "—" })} />
+          </ol>
+          <details className="mt-3 rounded-md border border-border bg-canvas px-3 py-2" data-testid="agent-verify">
+            <summary className="min-h-11 cursor-pointer py-2 font-medium text-primary">
+              <FileCheck2 aria-hidden className="mr-1.5 inline size-4 align-[-0.1875em]" />
+              {t("ga.verifyTitle")}
+            </summary>
+            <p className="pb-2 text-fg-muted">{t("ga.verifyBody")}</p>
+          </details>
+        </section>
+      )}
     </div>
-  );
-}
-
-function Step({ n, title, body, children }: { n: number; title: string; body: string; children?: ReactNode }) {
-  return (
-    <li className="flex gap-3">
-      <span
-        aria-hidden
-        className="flex size-6 shrink-0 items-center justify-center rounded-full bg-primary-surface text-xs font-semibold text-primary tabular-nums"
-      >
-        {n}
-      </span>
-      <div className="min-w-0">
-        <p className="font-medium text-fg">
-          <span className="sr-only">{n}. </span>
-          {title}
-        </p>
-        <p className="text-fg-muted">{body}</p>
-        {children}
-      </div>
-    </li>
   );
 }
 

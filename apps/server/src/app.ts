@@ -56,6 +56,8 @@ declare module "fastify" {
     unattendedHub: DeviceHub;
     metrics: Metrics;
     agentBinary: AgentBinary;
+    /** P28f (§4.1, §8.1): macOS istemcisi zip'i bütünlük kapısı (MAC_AGENT_PATH + MAC_AGENT_SHA256). */
+    macAgentBinary: AgentBinary;
     /** P8b: destek talebi servisi + bildirim merkezi. */
     requests: RequestService;
     requestHub: RequestHub;
@@ -144,8 +146,14 @@ function decorateCore(app: FastifyInstance, deps: AppDeps): Pick<Wiring, "metric
     app.log.warn({ alarm: "agent_binary", state }, "Windows istemcisi indirilemez (yapılandırma eksik, dosya yok veya SHA-256 uyuşmuyor)"),
   );
   app.decorate("agentBinary", agentBinary);
+  // P28f: macOS zip'i. `unconfigured` olağan durumdur (Apple hesabı yokken prod, R39) → alarm yalnız missing/mismatch.
+  const macAgentBinary = new AgentBinary(env.MAC_AGENT_PATH, env.MAC_AGENT_SHA256, (state) => {
+    if (state !== "unconfigured")
+      app.log.warn({ alarm: "mac_agent_binary", state }, "macOS istemcisi indirilemez (dosya yok veya SHA-256 uyuşmuyor)");
+  });
+  app.decorate("macAgentBinary", macAgentBinary);
   app.addHook("onReady", async () => {
-    await agentBinary.check();
+    await Promise.all([agentBinary.check(), macAgentBinary.check()]);
   });
   return { metrics, publicLimits };
 }

@@ -1,3 +1,238 @@
+# QA Raporu — P28f Tur 3
+
+DURUM: GEÇTİ
+
+Tarih: 2026-11-17 · Dal `p28f`, HEAD `d0a1066` (PR #24). Kapsam: Tur 2 maddelerinin kapanışı ve K11 belgeleri. Kod değiştirilmedi.
+Ara commit'ler: `42b66d4` (güvenlik tur 2: Y-P28f-K1r, zorunlu liste), `52fc00c` (güvenlik raporu biçim), `d0a1066` (K11 belgeler, sayfa testi, mikrofon adımı kaldırıldı, `cl.kindAgent` nötr). Çalışma ağacı temiz.
+
+## Test sonucu
+
+| Kaynak                                         | Sonuç                                                                                                                                                               |
+| ---------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `gh pr checks 24` (HEAD d0a1066)               | **18 geçti, 0 kaldı, 6 atlandı.** Atlananlar yalnız etiket/hesap kapılı işler: GitHub Release, ONAY, SignPath, build provenance, macOS attestation, sign-mac (R39). |
+| CI "go test (Windows)", "test (MySQL 8.4)"     | Tur 2'de kırmızı olan iki kararsız test yeniden koşuda geçti.                                                                                                       |
+| CI "go test (macOS) + iz testi", "package-mac" | geçti: m.6 zorunlu liste ve görünür SKIP macos-15 üzerinde koştu; universal `.app` paketlendi.                                                                      |
+| `pnpm -s format:check`                         | temiz                                                                                                                                                               |
+
+## Tur 2 maddelerinin kapanışı
+
+| #                           | Durum        | Kanıt                                                                                                                                                                                                                                                         |
+| --------------------------- | ------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1 bayat spike yolları (m.5) | ✅ gerekçeli | `spike-p28f-k0s.md:30` "ölçüm anının kaydıdır (tarihsel; kod repoda yok)"; `implementation.md:15226` not: K1–K5'teki yol ve `--tmpfs` maskesi tarihsel, güncel komut maskesiz. Belgeler yeniden yazılmadı ama sapma gerekçeli (Tur 2 m.1'in ikinci seçeneği). |
+| 2 CI kırmızıları            | ✅           | yeniden koşuda yeşil. İki test kararsız: `rtc_test.go:159`, `rec-webm-dos.test.ts:94` (bkz. Öneriler).                                                                                                                                                        |
+| 3 bekleyen CI işleri        | ✅           | macOS testi, package-mac ve web e2e geçti                                                                                                                                                                                                                     |
+| Tur 1 m.7 belgeler (K11)    | ✅           | `KULLANIM_KILAVUZU.md` macOS bölümü: "Yine de Aç istemez" (:1165), `tccutil reset` (:1381). CHANGELOG 0.19.0, README/DATASHEET/api.md güncel; `docs/pdf/*.pdf` yeniden üretildi (17:48).                                                                      |
+| Tur 1 m.8 elle liste        | prod kapısı  | `docs/test-raporu.md` P28f: web taraması GEÇTİ. O-1 `cl.kindAgent` → "Hızlı Destek uygulaması" (`tr.json:301`). Gerçek Mac elle listesi sonuçsuz; P28f prod'a çıkmadan kapanmalı. DURUM sebebi sayılmadı (koordinatör kararı).                                |
+
+## Kabul kriterleri
+
+| AC          | Durum                     | Not                                                                                                                                                                                               |
+| ----------- | ------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| AC-389..395 | ✅ otomatik / prod kapısı | Otomatik kanıtlar Tur 1 + Tur 2 (AC-105 eklendi) ve CI macOS/package-mac yeşil. Gerçek Mac ELLE maddeleri ve imza/notarization (R39) `docs/test-raporu.md` P28f elle listesinde, **prod kapısı**. |
+| AC-396      | ✅                        | Tur 1 kanıtı, CI web e2e yeşil                                                                                                                                                                    |
+
+## Düzeltilmeli
+
+Yok.
+
+## Definition of Done
+
+| Madde                              | Durum | Not                                            |
+| ---------------------------------- | ----- | ---------------------------------------------- |
+| Testler yeşil                      | ✅    | CI 18/18; atlananlar etiket kapılı             |
+| Lint / typecheck / format          | ✅    |                                                |
+| CI yeşil                           | ✅    |                                                |
+| qa GEÇTİ, güvenlik Kritik/Yüksek 0 | ✅    | güvenlik Kod turu 3 GEÇTİ (0/0/0/0)            |
+| test-operatoru taraması            | ✅    | web GEÇTİ; gerçek Mac elle listesi prod kapısı |
+| Ölü kod yok                        | ✅    |                                                |
+| Sapmalar gerekçeli                 | ✅    | spike yolları tarihsel notla                   |
+| Dokümantasyon + PDF                | ✅    | K11                                            |
+| Yeni bağımlılık / gizli bilgi      | ✅    | yok / gitleaks geçti                           |
+
+## Öneriler (zorunlu değil)
+
+- Kararsız testler kararsız test listesine alınmalı ve kararlı hâle getirilmeli: `internal/rtc` `TestAC375P28dAnswerOpusDirection/recvonly` (ICE ajanı kapanma yarışı), `rec-webm-dos.test.ts:94` (CI'da doğrusallık oranı 18,5 > 15).
+- `elevatedForeground` konsol metni macOS'ta "Yükseltilmiş pencere" diyor; platforma göre metin düşünülebilir.
+
+## Olumlu
+
+- Tur 1'deki 8 madde ve Tur 2'deki 3 madde kapandı ya da prod kapısına gerekçeyle bağlandı; CI ilk kez tamamen yeşil (macOS paketleme dahil).
+
+---
+
+# QA Raporu — P28f Tur 2
+
+DURUM: DÜZELTİLMELİ
+
+Tarih: 2026-11-17 · Dal `p28f`, HEAD `9bd019b` (PR #24). Kapsam: "P28f Tur 1" m.1–m.8 kapanışı; düzeltmeler implementation.md "P28f düzeltme 1 (Go)" ve "(devops)". Kod değiştirilmedi.
+Not: denetim sırasında çalışma ağacında commit'lenmemiş başka ajan değişiklikleri vardı (`input/applier.go`, `input/hostguard.go`, `hostguard_test.go`, `agent-win.yml`, `guvenlik-raporu.md`). Yerel Go koşuları bu ağaçla yapıldı, CI sonuçları HEAD `9bd019b` için geçerli.
+
+## Test sonucu
+
+| Komut                                                                                             | Sonuç                                                                                                                                                                              |
+| ------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `cd apps/agent-win && ~/sdk/go1.26.11/bin/go test ./...` (darwin/arm64)                           | tüm paketler ok                                                                                                                                                                    |
+| `go test -count=1 -v ./...` (darwin) + workflow `zorunlu=` listesi                                | 42/42 zorunlu test `--- PASS`; SKIP 4 (`TestP28fK2Measure`, `…MeasureHeavyVT`, `TestAC117P28fQuarantineSpctl`, `TestP28dK0sCompilerMatchesInterpreter`; ölçüm/izin, uyarı kapsamı) |
+| docker `golang:1.26`: `go test ./... && GOOS=windows go vet ./... && GOOS=windows go build ./...` | yeşil                                                                                                                                                                              |
+| `pnpm -s format:check`                                                                            | temiz                                                                                                                                                                              |
+| `pnpm -r run lint/typecheck/test`                                                                 | bu turda yerelde koşulmadı (commit yalnız Go, workflow, shell ve belgeleri değiştirdi), CI'ya bakıldı                                                                              |
+| `gh pr checks 24` (denetim anı)                                                                   | 13 geçti, **2 kaldı**, 3 bekliyor (`web e2e`, `package-mac`, `go test (macOS) + iz testi`)                                                                                         |
+
+CI kırmızıları (ikisi de P28f diff'i dışında, zamanlama/yarış kaynaklı görünüyor; kanıt CI yeniden koşusu olmalı):
+
+- `go test (Windows)`: `internal/rtc` `TestAC375P28dAnswerOpusDirection/recvonly`: `rtc_test.go:159: AddRemoteICE: ICEAgent does not exist`. `internal/printing` Windows'ta **ok** (m.1 kapandı).
+- `test (MySQL 8.4)`: `apps/server/test/unit/rec-webm-dos.test.ts:94` "Y-P28e-K2-1 sık çıplak sihir (tracks) … oran < 15": `expected 18.48 to be less than 15` (server 1 kaldı / 672 geçti).
+
+## Tur 1 maddelerinin kapanışı
+
+| #                                                        | Durum            | Kanıt                                                                                                                                                                                                                                                                |
+| -------------------------------------------------------- | ---------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1 CRLF `boundary_test.go`                                | ✅               | `:215` `ReplaceAll("\r\n","\n")`; CI Windows `internal/printing ok`. Sonraki denetimler (`Count`/`Contains`, `parser`) satır sonundan bağımsız.                                                                                                                      |
+| 2 format                                                 | ✅               | `pnpm -s format:check` temiz; CI "lint + type-check" geçti                                                                                                                                                                                                           |
+| 3 ölü kod `LocalEvent`/`SetInjectMarker`/`SetLocalCheck` | ✅               | `git grep` apps/agent-win'de 0 eşleşme; implementation.md:14645 "KAPANDI … tek tanım `input.LocalClick`"                                                                                                                                                             |
+| 4 AC-105 güvenli giriş                                   | ✅               | `capture/env_darwin.go:53` `IsSecureEventInputEnabled` → `ElevatedForeground`; `TestAC105P28fSecureInputMapsToElevated` eşlemeyi (true → Elevated + SecureDesktop korunur, false → boş) ve bağlanmayı doğruluyor, PASS. Gerçek parola alanı ELLE (impl. "Elle (d)"). |
+| 5 bayat spike yolları                                    | ❌ kısmi         | Yalnız `mimari-p28f.md:350` ve `spike-p28f-k0s.md:29` güncellendi. Kalanlar aşağıda Düzeltilmeli 1. Bırakmaya dair gerekçe yok (Go bölümü "bu turun kapsamında değil" diyor).                                                                                        |
+| 6 görünür SKIP + zorunlu liste                           | ✅ (yerel)       | `agent-win.yml:834–875`: `-v`, `--- SKIP` → `::warning::` + step summary, 42 ad `^--- PASS:` denetimi, SKIP/eksik → `::error::`. 42 adın hepsi yerelde PASS. macos-15 runner sonucu bekleniyor.                                                                      |
+| 7 kılavuz/README/CHANGELOG/DATASHEET                     | K11'e devredildi | DURUM sebebi sayılmadı                                                                                                                                                                                                                                               |
+| 8 elle test (test-operatoru)                             | K11'e devredildi | DURUM sebebi sayılmadı                                                                                                                                                                                                                                               |
+
+## Kabul kriterleri
+
+| AC          | Durum | Not                                                                                                                                                    |
+| ----------- | ----- | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| AC-389..395 | ⚠️    | Otomatik kanıtlar Tur 1'deki gibi, AC-392'ye AC-105 güvenli giriş eklendi (m.4). Kalan kanıtsız maddeler ELLE / imza (m.8, R39): **K11'e devredildi**. |
+| AC-396      | ✅    | Tur 1 kanıtı; bu turda değişmedi                                                                                                                       |
+
+## Düzeltilmeli
+
+1. [backend-dev] m.5 kalanı. `docs/spike-p28f-k0s.md:30, :58, :260` ve `docs/implementation.md:14494, :14556, :14573, :14680, :14751, :14819` hâlâ `apps/agent-win/spike/p28f/` ve `--tmpfs /src/apps/agent-win/spike` diyor. Beklenen: yollar "repo dışı yerel arşiv" diye düzeltilsin, üç docker komutundan `--tmpfs …/spike` kaldırılsın, `:14556` K1 not 4'e "spike repodan çıkarıldı, yerel kırmızı yok" eklensin. Değiştirilmeyecekse gerekçe implementation.md'ye yazılsın (ör. "tarihsel kayıt").
+2. [devops] PR #24'te başarısız iki iş ("go test (Windows)", "test (MySQL 8.4)") yeniden koşulsun. Yeşil gelirse bu rapora not düşülsün. Aynı test yine kalırsa: [backend-dev] `apps/agent-win/internal/rtc/rtc_test.go:159` (`TestAC375P28dAnswerOpusDirection/recvonly`, ICE ajanı kapanmadan aday ekleme yarışı) ve [backend-dev] `apps/server/test/unit/rec-webm-dos.test.ts:94` (doğrusallık oranı < 15 CI'da 18,5). Testler kararlı hâle getirilsin, eşik gevşetilecekse gerekçe yazılsın.
+3. CI'da bekleyen `go test (macOS) + iz testi` (m.6 zorunlu liste ve SKIP uyarıları, macos-15 üzerinde), `package-mac` ve `web e2e` yeşil olmadan GEÇTİ verilemez. Bu bir geliştirici maddesi değil, bekleme koşulu.
+
+## Definition of Done
+
+| Madde                          | Durum            | Not                                                                                                                                       |
+| ------------------------------ | ---------------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
+| Testler yeşil                  | ❌               | yerel yeşil; CI 2 kaldı (Düzeltilmeli 2)                                                                                                  |
+| Lint / typecheck / format      | ✅               | CI "lint + type-check" geçti, format temiz                                                                                                |
+| CI yeşil                       | ❌               | 2 kaldı, 3 bekliyor                                                                                                                       |
+| Ölü kod yok                    | ✅               | m.3                                                                                                                                       |
+| Sapmalar gerekçeli             | ⚠️               | m.5 kalanı gerekçesiz. Fare Tuşları harf kapsamı ve gösterge hariç tutma gerekçeli. "Team ID farklıysa kontrol yok" ertelendi (gerekçeli) |
+| Yeni bağımlılık                | ✅               | yok                                                                                                                                       |
+| Gizli bilgi                    | ✅               | gitleaks geçti                                                                                                                            |
+| Dokümantasyon / test-operatoru | K11'e devredildi |                                                                                                                                           |
+
+## Öneriler (zorunlu değil)
+
+- Yeni izinsiz testler (`TestYP28fK1*`, `TestP28fExpectedTeamID`, `TestAC105P28fSecureInputMapsToElevated`) `zorunlu=` listesine eklensin (implementation.md önerisi).
+- macOS'ta `elevatedForeground` konsol metni Windows'a özgü ("Yükseltilmiş pencere"); K11'de platforma göre metin düşünülmeli.
+
+## Olumlu
+
+- `hostDropLocked` Windows'ta `HostProbe` nil olduğu için davranışı değiştirmiyor; Windows testleri docker'da ve CI'da (rtc dışında) yeşil.
+- Musluk kurulamazsa kapı açılmıyor ve GRANTED gitmiyor (`TestAC104DP28fK1ArmBeforeGateOpen`). Fail-closed korunuyor.
+- `build-darwin.sh` `-X` etkisini ikilide arayıp doğruluyor, sessiz başarısızlık yok.
+
+---
+
+# QA Raporu — P28f Tur 1
+
+DURUM: DÜZELTİLMELİ
+
+Tarih: 2026-11-17 · Dal `p28f`, HEAD `0d52fe8` (`git log main..p28f`, 2 commit; PR #24). Kapsam: AC-389..396 (`docs/gereksinimler-p28.md` §P28f),
+`docs/mimari-p28f.md` r4 (§11 eşleme, §13, §14), ADR-0037, `docs/implementation.md` "P28f K1..K8", runbook §28f. Kod değiştirilmedi.
+Kabul edilmiş sapmalar (DURUM sebebi sayılmadı): macOS'ta ses yok (r3, A-PF-1 kullanıcı kararı bekliyor), AC-349 macOS'ta sayfa sayısı/yazıcı adı yok (r4).
+
+## Test sonucu
+
+| Komut                                                                                                                         | Sonuç                                                                                                                                                                                                                                                                                                                                                                |
+| ----------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `pnpm -r run lint` / `pnpm -r run typecheck`                                                                                  | temiz (EXIT 0)                                                                                                                                                                                                                                                                                                                                                       |
+| `pnpm format:check`                                                                                                           | **kırmızı**: `docs/guvenlik-raporu.md`, `docs/implementation.md`, `docs/runbook.md` (üçü de HEAD'de commit'li; CI "lint + type-check" işi bu yüzden **fail**)                                                                                                                                                                                                        |
+| `pnpm --filter @remote/contracts test`                                                                                        | 27 dosya / 271 geçti                                                                                                                                                                                                                                                                                                                                                 |
+| `pnpm --filter @remote/server test` (birim)                                                                                   | 49 dosya / 673 geçti, 1 atlandı (`fsrv-p28b` AC-353 gerçek clamd, P28b'den gerekçeli)                                                                                                                                                                                                                                                                                |
+| Sunucu tam entegrasyon, izole DB `rs-p28f-qa:3418` (iş sonunda silindi)                                                       | 114 dosya / 1167 geçti, 1 kaldı: `customers-csv-p19` AC-263 "≤ 30 sn" (30 324 ms, paralel yük). Tek başına + `p28f-k6` yeniden: 2 dosya / 35 geçti. P28f diff'i bu alana dokunmuyor                                                                                                                                                                                  |
+| `pnpm --filter @remote/web test`                                                                                              | 62 dosya / 585 geçti                                                                                                                                                                                                                                                                                                                                                 |
+| Playwright `p28f-macos` + `p6-agent-download` + `p7-control`                                                                  | 31 geçti, 31 atlandı (mobil proje `desktopOnly`), 0 kaldı                                                                                                                                                                                                                                                                                                            |
+| Go macOS yerel (arm64, Go 1.26.11) `go test -count=1 -v ./...`                                                                | tüm paketler ok (829 PASS satırı); SKIP: `TestP28fK2Measure`, `…HeavyVT` (ölçüm, `NK_K2_OLCUM` yok), `TestAC117P28fQuarantineSpctl` (K5 not 4, gerekçeli), `TestP28dK0sCompilerMatchesInterpreter` (P28d gerekçeli). SCK testleri bu makinede koştu (izin barındıran uygulama)                                                                                       |
+| `GOOS=darwin go vet ./...` arm64 + amd64                                                                                      | temiz                                                                                                                                                                                                                                                                                                                                                                |
+| `docker run golang:1.26 … go test ./... && GOOS=windows go vet && GOOS=windows go build && GOOS=darwin go vet (arm64, amd64)` | 35 paket ok, EXIT 0                                                                                                                                                                                                                                                                                                                                                  |
+| CI PR #24 (koşu sürerken okundu)                                                                                              | geçti: build-mac 1/2–2/2, tekrarlanabilirlik (darwin + exe), audit + lisans + **gitleaks**, shellcheck + actionlint, libopus, coturn. **Kırmızı:** "lint + type-check" (format, yukarıda), **"go test (Windows)"** `TestP28fBoundaryLPOnlyExec` (Düzeltilmeli m.1). Okuma anında bekleyen: test-macos + iz testi, package-mac, test (MySQL), web e2e, gofmt/vet/race |
+
+Ortamda koşamayanlar: `sign-mac`/notarization (Apple hesabı yok, R39), `attest-mac`/Release (yalnız etiket), macOS 13/14 ve gerçek Intel Mac (A-PF-3/4).
+`trace-check-mac.sh` bu turda bağımsız koşulmadı (devops yerel "SONUÇ: temiz" bildirdi; CI `test-macos` sonucu bekleniyor).
+
+## Kabul kriterleri
+
+| AC     | Durum | Kanıt veya eksik                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
+| ------ | ----- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| AC-389 | ⚠️    | Otomatik: `package.sh` `MAX_ZIP=62914560` sert sınır + reproducible-mac ince ikili ≤ 30 MiB; `Info.plist.tmpl` `LSMinimumSystemVersion 13.0`; universal (lipo) — CI `package-mac` sonucu henüz yok; yerel stg zip 9,7 MB (implementation K8). **Kanıtsız:** çift tıktan karşılamaya ≤ 5 sn, İndirilenler'den yönetici şifresiz çalışma, macOS 13/14, gerçek Intel — ELLE.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
+| AC-390 | ⚠️    | Sunucu `p28f-k6.test.ts` "AC-390: iki kapı ok…", "mac yapılandırılmamış/uyuşmaz → macos:false", "tahrif → macos:false", agent-ready platform kapıları; e2e "AC-390: availability macos:false → indirme yok", "503 NOT_READY"; Go `TestP28fTestBand` (ad-hoc / Team ID boş / imza okunamadı → bant). **Kanıtsız:** prod `spctl` "Notarized Developer ID" (sign-mac hiç koşmadı, R39); bandın gerçek pencerede gizlenemezliği ELLE; "Yine de Aç" adımı yalnız runbook §28f.6'da, kılavuzda macOS bölümü yok (m.7).                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
+| AC-391 | ⚠️    | OS_PERMISSION: sunucu "AC-391: macOS AGENT, REQUESTED → iptal…", "S-P28f-15 …yok sayılır"; e2e `p7-control` "P28f AC-391 … 'Müşteri erişilebilirlik izni vermedi', ret değil"; Go `TestAC391NoOSPermissionSendsOSPermissionWithoutCooldown`, `TestAC391PermissionRevokedBeforeGrant`; yeniden başlatma dosyası `TestP28fRestartRoundTrip/Rejects/Purge`, `TestP28fRestartToken`. **Kanıtsız:** gerçek bundle ile Ekran Kaydı rehberi → izin → `open -n --restart` → kod korunur; Erişilebilirlik rehberi çizimi — ELLE (K4 "Yapılmadı").                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
+| AC-392 | ⚠️    | Otomatik: AC-97 `TestP28fCodeFromBundlePath`; AC-48 `TestAC48MacKeyTable`, `…ModifierMappingCtrlToCommand`, `…TurkishTextUnicode`, `…AltGrTextOnMac`; AC-49 `TestAC49MacCoordinatesDragAndDoubleClick`, `TestAC49CGInjectMoveInPlace`; AC-101 `TestAC101MacClosedGateNoEvents`, `…ControlSystemCloseReportsSystem`; AC-104 `TestAC104TapLifecycleAndOwnEventsNotLocal`; AC-99/116 `TestSP28f1LocalClickWhitelist`, `TestP28fClassifyClick`; AC-103 sağlık `TestP28fIndicatorHealth`; AC-117 `TestAC117P28fQuarantine*`, `TestAC117P28fTransferPlacesQuarantinedFile`, `…StreamQuarantineFailureCorrupt`; AC-128 `TestP28fFooterAndInputLimit`. **Eksik:** AC-105 güvenli metin girişi (`IsSecureEventInputEnabled`, mimari §11) uygulanmadı (m.4). **Kanıtsız (ELLE):** AC-98/125 karşılama, AC-100 Tab/VoiceOver, AC-102 fiziksel Control+Shift+F12/F11, AC-103 ⌘H/⌘⌥H/⌘M/tam ekran/Görev Kontrolü, AC-105 kilit ekranı, AC-106 iki monitör, AC-107 ≤ 3 sn kapanış, AC-110 Retina/ölçekli, AC-117 Gatekeeper etkisi, S-P28f-1 sahte kaynak %100 ret. |
+| AC-393 | ⚠️    | P28a: `TestAC393P28fClip*`, `TestSP28f12ClipSensitiveMarksNotRead`, `TestAC393P28fLP*`, `TestAC393P28fDarwinPrinterInspectAndPrint`, `TestAC349P28fPrintPagesUnknown` (AC-349 kısmi — **kabul edilmiş sapma r4**). Arayüz uyumu derleme anında: `session_darwin.go:590–593` (`ClipPrintUI`, `FileServerUI`, `RosterUI`, `RecUI`). **Ses (P28d): kullanıcı kararı bekliyor (A-PF-1)** — macOS `rs.cap.voice1` bildirmez. **Kanıtsız:** P28b sunucu dosyası, P28c roster/Çıkar, P28e rıza kutusu + "Kaydı durdur", gerçek CUPS yazdırma — ELLE.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| AC-394 | ⚠️    | `TestAC394P28fUserCacheDirMatchesGetconf`, `TestAC394P28fRemoveTraces`; `CleanTraces` açılış + `terminate:` öncesi + SIGTERM'de (`main_darwin.go`); `trace-check-mac.sh` CI `test-macos`'ta (sonuç bekleniyor; bu turda bağımsız koşulmadı). **Eksik:** "TCC kayıtlarının nasıl kaldırılacağı kılavuzda yazılı" — `docs/KULLANIM_KILAVUZU.md`'de macOS/`tccutil` yok (m.7).                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
+| AC-395 | ⚠️    | CI'da `build-mac` ×2 + `reproducible-mac` geçti, gitleaks geçti; `agent-mac-sign` environment ve sırlar `agent-win.yml` `sign-mac`'te, repoda sır yok. **Kanıtsız:** `package-mac` (macos-15) sonucu bekleniyor; `sign-mac` + `attest-mac` + Release SHA256SUMS/attestation hiç koşmadı (yalnız etiket + Apple hesabı, R39).                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| AC-396 | ✅    | e2e `p28f-macos.spec.ts` "AC-396: macOS'ta birincil 'uygulamayı indir' + ikincil tarayıcı; indirme os=macos → Destek-<8 hane>.zip", 375 px koyu / 1280 px açık axe 0, iPad "Mac sayılmaz"; web birim `device-support.test.ts`, `agent-download.test.ts`; sunucu "AC-396, AC-27: os=macos → 302 …zip". Birincil metin "Hızlı Destek uygulamasını indir" (K7 sapma 2, gerekçeli).                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
+
+## Düzeltilmeli
+
+1. [backend-dev] `apps/agent-win/internal/printing/boundary_test.go:216` — `TestP28fBoundaryLPOnlyExec` `strings.HasPrefix(s, "//go:build darwin || linux\n")` Windows checkout'unda (CRLF) kırmızı; CI "go test (Windows)" **fail**. → Satır sonundan bağımsız denetle (ör. `strings.ReplaceAll(s, "\r\n", "\n")` sonrası ya da `go/build/constraint` ile ilk satırı ayrıştır); aynı dosyadaki dize denetimleri de CRLF'ye dayanıklı olmalı. Windows'ta (veya `unix2dos` kopyayla) yeşil olduğunu göster.
+2. [guvenlik] `docs/guvenlik-raporu.md`, [backend-dev] `docs/implementation.md`, [devops] `docs/runbook.md` — `pnpm format:check` kırmızı, CI "lint + type-check" **fail** → `pnpm exec prettier --write` ile biçimlendir; içerik değişmez.
+3. [backend-dev] `apps/agent-win/cmd/noktadestek/deps_darwin.go:126–133` ve `apps/agent-win/internal/input/click_darwin.go:67` (`LocalEvent`) — `SetInjectMarker`/`SetLocalCheck` tür denetimleri hiçbir arayüzle eşleşmiyor (K4 sapma 3 "uygulanmıyor"), `input.LocalEvent` üretimde yalnız bu ölü dalda. → İkisini ve `LocalEvent`'i (testleri dahil) kaldır ya da gerçekten bağla; implementation.md K3 sapma 3'teki "AÇIK KARAR" notunu K4 sonucuyla (karar `input.LocalClick`) kapat.
+4. [backend-dev] `apps/agent-win/internal/capture/env_darwin.go` — mimari §11 "AC-392 / AC-105: kilit ekranı / güvenli giriş (`IsSecureEventInputEnabled`)" istiyor; yalnız kilit/konsol yoklaması var (K2 sapma 1 "görevde değil" gerekçe değil). → `IsSecureEventInputEnabled` (Carbon, izin listeli) true iken konsola mevcut güvenli giriş/yükseltilmiş uyarısını üret + birim/darwin testi; ya da [mimar] bunu mimari-p28f'te sapma olarak kabul edip §11 satırını güncelle.
+5. [mimar] `docs/mimari-p28f.md:350, :469`, [backend-dev] `docs/spike-p28f-k0s.md:29, :30, :58, :260` ve `docs/implementation.md:14494, :14556, :14573, :14678, :14749, :14817, :14985` — spike kodu repodan çıkarıldı (`/Users/mennan/Projeler/.remote-spikes/p28f-spike`) ama belgeler hâlâ `apps/agent-win/spike/p28f/` ve `--tmpfs /src/apps/agent-win/spike` diyor; K1 not 4 (S6-1 yerel kırmızı) artık geçersiz. → Yolu repo dışı konumla değiştir, `--tmpfs` maskesini komutlardan kaldır, K1 not 4'e "spike repodan çıkarıldı, kırmızı yok" ekle.
+6. [devops] `.github/workflows/agent-win.yml` `test-macos` "go test (darwin/arm64 …)" adımı `go test -count=1 ./...` (`-v` yok) — mimari §8.2 "ekran izni gerektiren testler t.Skip + **görünür SKIP**"; runner'da Ekran Kaydı izni olmadığından SCK testleri (`sck_darwin_test.go`) sessizce atlanır. → Windows işlerindeki kalıpla `-v` çıktısından `--- SKIP` satırlarını `::warning::` olarak bas ve zorunlu (izinsiz koşması gereken: `internal/darwin`, `clip`, `files`, `printing`, `input` localclick/keys, VT) testlerin PASS olduğunu ad listesiyle denetle.
+7. [teknik-yazar] `docs/KULLANIM_KILAVUZU.md` (+ README, CHANGELOG, DATASHEET; K11) — macOS bölümü yok: AC-394 TCC kaldırma (`tccutil reset ScreenCapture|Accessibility net.noktabilisim.destek` ya da Sistem Ayarları "−"), müşteriye "Nokta Destek hiçbir zaman 'Yine de Aç' istemez" (S-P28f-8), AC-100 "Klavye ile gezinme" notu (K4), Ctrl→⌘ eşlemesi, fn+F12, CUPS iş geçmişi (T9), AC-349 macOS sayfa sayısı cümlesi (r4). Staging "Yine de Aç" adımı runbook §28f.6'da kalır.
+8. [test-operatoru] runbook §28f.6 + mimari §14 elle listesi (staging 0.19.0, gerçek ad-hoc bundle): aşağıdaki ELLE maddelerinin her biri sonuç (GEÇTİ/KALDI, ortam, tarih) ile `docs/test-raporu.md`'ye; sonuç gelmeden AC-389..395 ✅ olamaz.
+
+### ELLE (otomatik kanıt yok; uydurulmadı)
+
+- AC-389: Safari/Chrome indirme → çift tık → karşılama ≤ 5 sn; yönetici şifresi istenmez; macOS 13/14 (VM) ve `arch -x86_64` dilimi.
+- AC-391: Ekran Kaydı izni yok → rehber → "Sistem Ayarları'nı aç" → izin → "İzni verdim, yeniden başlat" → kod korunur (klasör adından ve elle girilmiş kodla); "Vazgeç"; Erişilebilirlik yok → müşteride rehber, teknisyende metin; izin sonradan verilince yeniden başlatmasız kontrol; yalnız Erişilebilirlik izinli bundle'da olay musluğu kurulur.
+- AC-392: AC-102 fiziksel Control+Shift+F12 / F11, uygulama arka plandayken; S-P28f-1: Fare Tuşları, VoiceOver VO-Space, başka süreçten AXPress, HID kaynaklı sentetik tıklama %100 ret, eller çekiliyken 60 sn sentetik akışta 0 kabul, gerçek tıklama kabul; S-P28f-2: ⌘H, başka uygulamadan ⌘⌥H, ⌘M, tam ekran, Görev Kontrolü, Sahne Yöneticisi, ekran takma/çıkarma → gösterge ≤ 1 sn ya da kapı kapanır; AC-105 kilit ekranı/hızlı kullanıcı değiştirme; AC-106 iki monitör + işaretleme doğru ekranda (K4 not 8); AC-107; AC-110 Retina + ölçekli çözünürlük; tekerlek yönü; Türkçe Q metin + ⌘C/⌘V gerçek uygulamada; AC-117 karantinalı dosyada Gatekeeper uyarısı; Chrome'da renk (709).
+- AC-393: pano iki yön + gizli içerik uyarısı + Evrensel Pano'ya gitmeme; gerçek CUPS yazdırma ve "yazıcı yok"; P28b sunucu dosyası + İndirilenler TCC istemi; P28c roster + "Çıkar"; P28e rıza kutusu + "Kaydı durdur".
+- AC-394: oturum sonrası `trace-check-mac.sh compare` (Metal önbelleği, `$TMPDIR` yeniden başlatma dosyası, `log show`) + `tccutil` kaldırma.
+- App Nap: arka planda 10 dk oturumda fps düşmez.
+
+## Definition of Done
+
+| Madde                                                          | Durum | Not                                                                                                                                                       |
+| -------------------------------------------------------------- | ----- | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Her AC testle kanıtlı, testler yeşil                           | ❌    | AC-389..395 ⚠️ (elle + imza/notarization yok); yerel otomatik koşular yeşil (tek kararsız P19 perf testi tek başına geçti), CI'da 2 iş kırmızı (m.1, m.2) |
+| Lint / typecheck                                               | ✅    |                                                                                                                                                           |
+| Format                                                         | ❌    | m.2                                                                                                                                                       |
+| CI yeşil                                                       | ❌    | "go test (Windows)", "lint + type-check" fail; macOS işleri bekliyor                                                                                      |
+| qa GEÇTİ, güvenlik Kritik/Yüksek 0                             | ❌    | bu rapor DÜZELTİLMELİ; güvenlik raporu ayrı                                                                                                               |
+| test-operatoru taraması                                        | ❌    | K11 (m.8)                                                                                                                                                 |
+| Migration                                                      | ✅    | yok (mimari §3)                                                                                                                                           |
+| Dokümantasyon (README / kılavuz / CHANGELOG / DATASHEET / PDF) | ❌    | K11 planlı; kılavuzda macOS yok (m.7); runbook §28f güncel                                                                                                |
+| Sapmalar implementation.md'de gerekçeli                        | ⚠️    | K1–K8 sapmaları yazılı; K3 sapma 3 "AÇIK KARAR" kapatılmamış (m.3), K2 sapma 1 AC-105 güvenli giriş gerekçesiz (m.4), spike yolları bayat (m.5)           |
+| Yeni bağımlılık gerekçeli                                      | ✅    | yalnız `github.com/ebitengine/purego v0.11.3` (Apache-2.0, ADR-0037 m.1); `actions/attest` SHA sabit; web/server/contracts'a paket yok                    |
+| Ölü kod yok                                                    | ❌    | m.3                                                                                                                                                       |
+| Audit / metrik                                                 | ✅    | `guest.pending` `os`, `control.cancelled{by:agent, source:os_permission}`, `rs_agent_download_total{os}`; yeni olay yok                                   |
+| Yetki tek kaynak                                               | ✅    | yeni yetki yok                                                                                                                                            |
+| 5 durum + a11y + iki tema (web)                                | ✅    | e2e iskelet / hata / boş (fail-closed) / 503; axe 375 px koyu + 1280 px açık                                                                              |
+| Gizli bilgi repoda yok                                         | ✅    | gitleaks CI geçti; Apple sırları yalnız `agent-mac-sign` environment                                                                                      |
+
+## Öneriler (zorunlu değil)
+
+- Dosya boyları 300 satır hedefinin üstünde: `ui/mac/session_darwin.go` 594, `capture/sck_darwin.go` 510 (ayrıca `vt_darwin.go` 392, `screens_darwin.go` 339, `form_darwin.go` 335, `inject_mac.go` 326, `source_darwin.go` 313).
+- K2: VideoToolbox bit hızı tavanı tutmuyor (bloklu içerikte ana ~%40 aşım) — staging'de gerçek video/kaydırma içeriğiyle bant genişliği ölçülmeli.
+- K5 sapma 3: karantina yazılamazsa `CORRUPT` sunucu dosyasında 3 kez yeniden indirmeyi tetikler; harici FAT/exFAT İndirilenler'de gereksiz trafik — `REJECTED` daha uygun olabilir (mimar kararı).
+- `customers-csv-p19` AC-263 "≤ 30 sn" tam paralel koşuda sınırda (30,3 sn); P28f dışı, kararsız test listesine.
+- `NO_H264_ENCODER` müşteri ipucu Windows metni; macOS'a özgü ipucu contracts + `captureHints` ile (K2 sapma 5).
+
+## Olumlu
+
+- `localClick` beyaz listesi tek yerde (`input.LocalClick`), platformdan bağımsız birim testli; korunan diyalog açıkken enjektör duraklıyor, Erişilebilirlik kısayolları süzülüyor (`TestP28fAccessibilityShortcutsNeverInjected`).
+- Fail-closed tutarlı: purego `nil` sınıf/selector, musluk kurulamaz, kısayol kaydedilemez, gösterge 3 tik görünmez → kontrol yok; availability hata → yalnız tarayıcı.
+- Sunucu `clientOs` beyanını yalnız OS_PERMISSION kabulünde kullanıyor; geçersiz `os` ref kovasını tüketmiyor — testli.
+- darwin ikilileri Linux'ta iki mimaride tekrarlanabilir (CI `reproducible-mac` geçti); entitlement listesi boş ve tam eşleşme denetimli; Info.plist anahtar izin listesi.
+- Windows davranışı korunmuş: uicore taşıması ve flow eklemeleri isteğe bağlı arayüzlerle, Windows testleri docker'da yeşil.
+
+---
+
 # QA Raporu — P28d Tur 2
 
 DURUM: GEÇTİ

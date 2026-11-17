@@ -71,6 +71,15 @@ func (a *Applier) modHeld(names ...string) bool {
 	return false
 }
 
+// shortcutHeld kısayol değiştiricisi basılı mı. altGrText (macOS) açıksa AltRight basılıyken üretilen karakter Unicode
+// gider: Windows tarayıcısı AltGr'de sahte ControlLeft da gönderir; Mac'te VK yolu ⌘⌥+tuş olurdu (Türkçe Q'da @ # $ { }).
+func (a *Applier) shortcutHeld() bool {
+	if a.altGrText && a.modHeld("AltRight") {
+		return false
+	}
+	return a.modHeld(shortcutMods...)
+}
+
 // blocked AC-48: Ctrl+Alt+Del ve Win+L iletilmez (Ctrl+Alt+Del zaten SendInput ile üretilemez; Win+L kilitler).
 func (a *Applier) blocked(code string) bool {
 	ctrl := a.modHeld("ControlLeft", "ControlRight")
@@ -98,7 +107,7 @@ func (a *Applier) key(m Msg) []Event {
 	k := heldKey{vk: vk}
 	if prev, held := a.keys[m.Code]; held {
 		k = prev // otomatik tekrar: aynı yöntemle yeniden bas
-	} else if uni := unicodeOf(m); uni != nil && charKey(m.Code) && !a.modHeld(shortcutMods...) {
+	} else if uni := unicodeOf(m); uni != nil && charKey(m.Code) && !a.shortcutHeld() {
 		k.uni = uni
 	}
 	a.keys[m.Code] = k

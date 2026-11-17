@@ -103,6 +103,7 @@ export function createMetrics(): Metrics {
   m.counter("rs_notify_suppressed_total", "Bastırılan müşteri durum bildirimleri (P19 S-P19-12; reason: pending_duplicate)");
   // P19 J3 (§8c.3, §8c.7; J6 remote-watch sözleşmesi): outbox yalnız son durumları sayar, rate_limited hariç.
   m.counter("rs_link_send_total", "Müşteriye bağlantı gönderimleri (P19 AC-260, LG; kind, channel, result: ok|<neden>)");
+  m.counter("rs_agent_download_total", "Hızlı Destek istemci indirme yönlendirmeleri (P28f §8.3; os: windows|macos)");
   m.counter("rs_unattended_download_total", "LG public servis indirme (result: ok|not_found|not_ready|rate_limited)");
   m.counter(
     "rs_sms_send_total",
@@ -143,7 +144,7 @@ export function createMetrics(): Metrics {
   m.counter("rs_sessions_ended_total", "Sinyalizasyon üzerinden biten oturumlar (reason)");
   m.counter(
     "rs_control_total",
-    "Uzaktan kontrol olayları (P7, §3.3; event: {control|monitor}_request_{forwarded|forbidden|browser|no_guest|conflict|cooldown|limit|invalid_monitor|already_active|superseded}, *_request_audit_failed, granted, denied, cancelled, cancelled_by_agent, released, released_by_cancel, {release|cancel}_ignored, revoked_{ui|hotkey|system}, revoke_{permission|audit|admin|reconnect|session_ended}, reset_guest_gone, grant_audit_{error|timeout}, grant_without_cap, control_state_unexpected, monitor_{granted|denied}, monitor_denied_{unexpected|ignored}, caps_narrowed, {control_state|env_state}_ignored)",
+    "Uzaktan kontrol olayları (P7, §3.3; event: {control|monitor}_request_{forwarded|forbidden|browser|no_guest|conflict|cooldown|limit|invalid_monitor|already_active|superseded}, *_request_audit_failed, granted, denied, cancelled, cancelled_by_agent, cancelled_os_permission, os_permission_ignored, released, released_by_cancel, {release|cancel}_ignored, revoked_{ui|hotkey|system}, revoke_{permission|audit|admin|reconnect|session_ended}, reset_guest_gone, grant_audit_{error|timeout}, grant_without_cap, control_state_unexpected, monitor_{granted|denied}, monitor_denied_{unexpected|ignored}, caps_narrowed, {control_state|env_state}_ignored)",
   );
   // P28a (mimari-p28 §8.2): pano/yazdırma — içerik/kimlik etiketi yok.
   m.counter("rs_clipboard_transfer_total", "Pano aktarımları (P28a; direction: TO_CUSTOMER|TO_TECH, result)");

@@ -5,7 +5,7 @@ This product is licensed under the Apache License, Version 2.0 (see LICENSE).
 
 The Windows client (apps/agent-win, "Nokta Destek" / Hızlı Destek 0.18.0 and later) embeds the
 following third-party components for voice calls. Full license texts are in
-apps/agent-win/internal/ui/third_party_notices.txt and are shown in the client's tray menu
+apps/agent-win/internal/ui/uicore/third_party_notices.txt and are shown in the client's tray menu
 under "Lisanslar".
 
 --------------------------------------------------------------------------------
@@ -33,4 +33,6 @@ Linked into libopus.wasm by wasi-sdk-34
 
 The Windows client also includes Go modules (pion/* MIT, coder/websocket ISC, golang.org/x/*
 BSD-3-Clause, google/uuid BSD-3-Clause, wlynxg/anet BSD-3-Clause) and the Go standard library
-(BSD-3-Clause); their notices are in the same third_party_notices.txt file.
+(BSD-3-Clause); their notices are in the same third_party_notices.txt file. The macOS client
+(P28f) additionally includes github.com/ebitengine/purego v0.11.3 (Apache License 2.0,
+Copyright The Ebitengine Authors); its license text is in the same file.

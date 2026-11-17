@@ -7,6 +7,7 @@ import (
 	"fmt"
 
 	"remote-support/agent-win/internal/launch"
+	"remote-support/agent-win/internal/ui/uicore"
 	"remote-support/agent-win/internal/win"
 )
 
@@ -44,7 +45,7 @@ func (h *firmHome) build() {
 	y := int32(10)
 	f := h.u.t.newForm(appTitle+" — Uzaktan destek", width, firmHomeHeight(h.v), false)
 	h.f = f
-	f.picture(systemLogo(), 396, 8, 128, 56)
+	f.picture(uicore.SystemLogo(), 396, 8, 128, 56)
 	f.label("Uzaktan destek", 16, y, 370, 32, fontBig)
 	y = h.addFirms(46)
 	y = h.addNotes(y)

@@ -13,6 +13,7 @@ import { setRecConsent } from "@/lib/rec/consent-choice";
 import { t } from "@/lib/i18n";
 import type { GuestEnd } from "../guest-ui";
 import { AgentDownload } from "./agent-download";
+import { AgentSkeleton, type AgentOffer } from "./agent-offer";
 
 export type ResolveData = ResolveSessionResponse;
 
@@ -27,16 +28,18 @@ const END_CODES: Record<string, GuestEnd> = { SESSION_EXPIRED: "expired", SESSIO
  */
 export function JoinForm({
   data,
-  windows = false,
+  agent = { state: "none" },
   onJoined,
   onEnd,
 }: {
   data: ResolveData;
-  windows?: boolean;
+  /** AC-27 / P28f AC-396: indirme seçeneği (Windows / macOS); `none` → tarayıcı yolu birincil. */
+  agent?: AgentOffer;
   onJoined: (r: JoinSessionResponse & { customerName: string }) => void;
   onEnd: (e: GuestEnd) => void;
 }) {
   const router = useRouter();
+  const windows = agent.state !== "none"; // indirme (ya da iskeleti) var → tarayıcı yolu ikincil
   const hintId = useId();
   const [name, setName] = useState("");
   const [consent, setConsent] = useState(false);
@@ -169,7 +172,17 @@ export function JoinForm({
         <h2 id="yol-t" className="text-lg font-semibold text-fg">
           {t("gj.howTitle")}
         </h2>
-        {windows && <AgentDownload sessionRef={data.sessionRef} verifyCode={data.techVerifyCode} onEnd={onEnd} onBrowser={toBrowser} />}
+        {agent.state === "loading" && <AgentSkeleton />}
+        {agent.state === "ready" && (
+          <AgentDownload
+            sessionRef={data.sessionRef}
+            verifyCode={data.techVerifyCode}
+            os={agent.os}
+            testBuild={agent.testBuild}
+            onEnd={onEnd}
+            onBrowser={toBrowser}
+          />
+        )}
         <button
           ref={browserRef}
           type="submit"

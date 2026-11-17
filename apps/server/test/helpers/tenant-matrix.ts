@@ -91,8 +91,11 @@ export const ROUTE_CLASSES: Record<string, RouteClass> = {
   "POST /api/v1/public/sessions/join": "public",
   // P6
   "GET /api/v1/public/agent/download": "public",
+  "GET /api/v1/public/agent/availability": "public",
   // P6 düzeltme 1 (S6-2): Caddy forward_auth iç ucu; yalnız güvenilen proxy soketinden, tenant verisi yok
   "GET /internal/agent-ready": "public",
+  "GET /internal/agent-ready/windows": "public",
+  "GET /internal/agent-ready/macos": "public",
   // P8 oturum geçmişi (historyScope)
   "GET /api/v1/sessions/export.csv": "list",
   "GET /api/v1/sessions/:id/history": "tenant",

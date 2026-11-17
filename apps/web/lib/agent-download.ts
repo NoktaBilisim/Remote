@@ -4,7 +4,10 @@
  * JSON'a götürür; bu yüzden önce `redirect: "manual"` ile denenir: opaqueredirect = yönlendirme var → indirme başlatılır.
  * Not: ön kontrol sunucunun indirme kovasından (ipKey 20/dk) bir hak harcar; asıl indirme ikinci haktır.
  */
+import type { AgentAvailabilityResponse } from "@remote/contracts/api/sessions";
+import { z } from "zod";
 import { API_BASE } from "@/lib/api";
+import type { AgentOs } from "@/lib/device-support";
 
 type AgentEnd = "expired" | "cancelled" | "consumed" | "notFound";
 
@@ -21,13 +24,21 @@ const GONE: Record<string, AgentEnd> = {
   SESSION_CONSUMED: "consumed",
 };
 
-/** İndirme ucunun adresi (aynı origin; ref opak sessionRef, kodu taşımaz). */
-export const agentDownloadUrl = (sessionRef: string): string => `${API_BASE}/public/agent/download?ref=${encodeURIComponent(sessionRef)}`;
+/**
+ * İndirme ucunun adresi (aynı origin; ref opak sessionRef, kodu taşımaz). P28f: macOS'ta `&os=macos` (302 → `.zip`);
+ * Windows adresi değişmez (sunucu varsayılanı `windows`, eski bağlantılar aynen çalışır).
+ */
+export const agentDownloadUrl = (sessionRef: string, os: AgentOs = "windows"): string =>
+  `${API_BASE}/public/agent/download?ref=${encodeURIComponent(sessionRef)}${os === "macos" ? "&os=macos" : ""}`;
 
-export async function probeAgentDownload(sessionRef: string, doFetch: typeof fetch = (...a) => fetch(...a)): Promise<AgentProbe> {
+export async function probeAgentDownload(
+  sessionRef: string,
+  os: AgentOs = "windows",
+  doFetch: typeof fetch = (...a) => fetch(...a),
+): Promise<AgentProbe> {
   let res: Response;
   try {
-    res = await doFetch(agentDownloadUrl(sessionRef), {
+    res = await doFetch(agentDownloadUrl(sessionRef, os), {
       method: "GET",
       redirect: "manual",
       credentials: "same-origin",
@@ -50,4 +61,32 @@ export async function probeAgentDownload(sessionRef: string, doFetch: typeof fet
     return { kind: "rate", retryAfter: Number.isFinite(retry) && retry > 0 ? retry : undefined };
   }
   return { kind: "error", requestId: typeof err.requestId === "string" ? err.requestId : undefined };
+}
+
+/**
+ * P28f (mimari-p28f §4.1, AC-390): `GET /public/agent/availability` → `{ windows, macos }` (contracts
+ * `AgentAvailabilityResponse`; sözleşmede yalnız tip var → yanıt burada doğrulanır, fazladan alan yok sayılır).
+ */
+// macosTestBuild eksik/geçersiz → false (imzalı rehber; "Yine de Aç" asla varsayılan değil — S-P28f-8).
+const availabilitySchema: z.ZodType<AgentAvailabilityResponse> = z.object({
+  windows: z.boolean(),
+  macos: z.boolean(),
+  macosTestBuild: z.boolean().catch(false),
+});
+export type AgentAvailability = AgentAvailabilityResponse;
+export const AGENT_AVAILABILITY_URL = `${API_BASE}/public/agent/availability`;
+
+/**
+ * Fail-closed (S-P28f-15): ağ hatası, 429, 2xx dışı yanıt ya da şemaya uymayan gövde → `null` (çağıran indirmeyi göstermez,
+ * yalnız tarayıcı modu sunar). Girdi yok, çerez gönderilmez.
+ */
+export async function fetchAgentAvailability(doFetch: typeof fetch = (...a) => fetch(...a)): Promise<AgentAvailability | null> {
+  try {
+    const res = await doFetch(AGENT_AVAILABILITY_URL, { method: "GET", credentials: "omit", headers: { Accept: "application/json" } });
+    if (!res.ok) return null;
+    const r = availabilitySchema.safeParse(await res.json());
+    return r.success ? r.data : null;
+  } catch {
+    return null;
+  }
 }

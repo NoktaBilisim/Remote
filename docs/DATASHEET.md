@@ -6,8 +6,8 @@
 ## Ne işe yarar
 
 Uzaktan destek çoğu zaman dışarıdaki bir hizmete bağlıdır; veriler ve kayıtlar başka yerde tutulur. Remote Support
-kurumun kendi sunucusunda çalışır. Teknisyen web konsolundan oturum açar; müşteri tek dosyalık Windows programıyla veya
-tarayıcıyla katılır ya da programdan kendisi destek ister. Görüntü iki taraf arasında doğrudan akar; sunucuda
+kurumun kendi sunucusunda çalışır. Teknisyen web konsolundan oturum açar; müşteri tek dosyalık Windows programıyla, Mac
+uygulamasıyla veya tarayıcıyla katılır ya da programdan kendisi destek ister. Görüntü iki taraf arasında doğrudan akar; sunucuda
 oturum bilgisi, KVKK onayları ve denetim kayıtları kalır. Firma isterse dosyaları sunucu üzerinden virüs taramasıyla
 aktarır; bu durumda teslim edilen dosyalar da seçilen süre (1–7 gün) boyunca sunucuda şifreli saklanır.
 
@@ -29,9 +29,13 @@ aktarır; bu durumda teslim edilen dosyalar da seçilen süre (1–7 gün) boyun
   kipinde başlar, diğer yöneticilere e-postayla bildirilir ve gösterge yine görünür (gizli izleme yoktur). Teknisyen
   gerekirse Windows oturumunu kilitler ya da kullanıcı oturumunu kapatır. Kod imzası alındıktan sonra canlı ortamda açılır.
 - **İzinli uzaktan kontrol** — her kontrol isteğini müşteri onaylar, tek tuşla geri alır; uzaktan tıklama izin sayılmaz.
+- **Mac desteği** — Mac kullanan müşteri de kurulumsuz Nokta Destek uygulamasıyla bağlanır: teknisyen ekranı görür, izinle
+  kontrol eder, yazışır, dosya ve belge gönderir. Uygulama Apple Silicon ve Intel Mac'lerde (macOS 13 ve üstü) çalışır,
+  gereken macOS izinlerini adım adım gösterir; onay düğmelerine yalnız Mac'in başındaki kişi basabilir. Apple imzalı ve
+  onaylı (notarize) dağıtım, Apple geliştirici hesabı açıldığında canlı ortamda yayımlanır.
 - **Pano paylaşımı ve uzaktan yazdırma** — teknisyen uzun bir komutu veya lisans anahtarını tek tıkla müşterinin panosuna
   koyar, müşterinin panosundaki metni alır; harf harf okutmaya gerek kalmaz. PDF belgeyi müşterinin yazıcısından bastırır.
-  İkisi de müşterinin ayrı onayıyla ve Windows programıyla çalışır. Pano metni sunucudan geçmez; yazdırılan belge
+  İkisi de müşterinin ayrı onayıyla, Windows programı ve Mac uygulamasıyla çalışır. Pano metni sunucudan geçmez; yazdırılan belge
   varsayılan modda doğrudan gider, firma sunucu üzerinden dosya aktarımını açtıysa sunucuda virüs taramasından geçer ve
   yazdırıldıktan sonra silinir (saklanmaz).
 - **Çoklu teknisyen** — teknisyen zor bir sorunda firmadan bir arkadaşını oturuma çağırır; yetkili yönetici süren bir
@@ -98,6 +102,7 @@ aktarır; bu durumda teslim edilen dosyalar da seçilen süre (1–7 gün) boyun
 | Destek oturumları                | Tek kullanımlık link ve 8 haneli kod (panelden e-posta, WhatsApp veya SMS ile tek mesajda, Windows programı bağlantısıyla gönderilir), bekleme odası, teknisyen kabulü, iptal, zorla sonlandırma; müşteri beklerken panelin her sayfasında sayaç ve bildirim                                                                                                                                                                                                                                                                      |
 | Teknisyen konsolu                | Canlı ekran, uzaktan kontrol, monitör değiştirme, sohbet, dosya (doğrudan ya da sunucu üzerinden virüs taramalı; tarama durumu: taranıyor, teslim edildi, virüslü, taranamadı), işaretleme, pano gönder/al, uzaktan yazdırma (PDF), kalite paneli, teknisyen davet etme, kontrolü ve oturumu devretme, etkin oturumları izleme                                                                                                                                                                                                    |
 | Hızlı Destek (Windows)           | Müşteri programı: "Destek iste", "Bağlantı kodum var", 5 firmaya kadar kayıt ve firma seçimi, firma/bilgisayar unutma, beklerken sohbet, isteğe bağlı tepsi ve Windows açılışında başlatma, onay ve izin diyalogları, pano paylaşımı izni ve yazdırma onayı, bağlı teknisyenler listesi ve "Çıkar"; yalnız bir pencereyi paylaşma, açık/koyu tema                                                                                                                                                                                 |
+| Hızlı Destek (macOS)             | Mac müşteri uygulaması (kod veya bağlantıyla): kurulumsuz, izin rehberi (Ekran Kaydı, Erişilebilirlik), onay diyalogları, uzaktan kontrol, sohbet, dosya, pano ve yazdırma onayı, bağlı teknisyenler listesi ve "Çıkar", gizlenemeyen gösterge, açık/koyu görünüm                                                                                                                                                                                                                                                                 |
 | Destek talepleri                 | Canlı kuyruk, bildirim ve ses, kabul/ret, firma filtresi, son 30 gün geçmişi, kaynak engelleme (Engellenenler ekranı), isteğe bağlı kabul kodu, atama, öncelik ve SLA, mesai saatleri ve tatiller, web talep formu ve "Web" kaynak süzgeci                                                                                                                                                                                                                                                                                        |
 | Müşteriler                       | Müşteri firma kaydı, firma başına bağlantı ve web formu bağlantısı (kopyala, yenile, müşteriye gönder), pasife alma, talep ve oturum geçmişi, CSV dışa/içe aktarma                                                                                                                                                                                                                                                                                                                                                                |
 | Gözetimsiz cihazlar              | Kayıt kodu ile cihaz ekleme, cihaz listesi (çevrimiçi, yerel olarak kapalı, doğrulanmadı, bildirim gönderilemedi, servis güncel değil rozetleri; cihaz kullanıcısı aktif / kilitli / oturum yok), cihaz başına teknisyen yetkisi, bağlan (izinli / kullanıcı yok / izinsiz), oturumu kilitle / kapat, cihazı iptal et; müşteri başına bildirim adresleri; firma politikası "İzin istemeden bağlanmaya izin ver"                                                                                                                   |
@@ -219,16 +224,16 @@ aktarır; bu durumda teslim edilen dosyalar da seçilen süre (1–7 gün) boyun
 
 ## Teknik özellikler
 
-| Başlık                  | Değer                                                                                      |
-| ----------------------- | ------------------------------------------------------------------------------------------ |
-| Çalışma şekli           | Web tabanlı teknisyen konsolu; müşteri için Windows programı veya tarayıcı                 |
-| Sunucu / veritabanı     | Node.js 22 (Fastify), Next.js arayüz / MySQL 8.4                                           |
-| Kurulum                 | Docker Compose, kurum sunucusunda; TURN ayrı compose                                       |
-| Görüntü                 | WebRTC, eşler arası; H.264, en çok 1920×1080, hedef 30 fps                                 |
-| Müşteri işletim sistemi | Windows 10 / 11 (64 bit); tarayıcı modu için ekran paylaşımı destekleyen masaüstü tarayıcı |
-| Gözetimsiz erişim       | Windows 10 / 11 (64 bit), fiziksel konsol oturumu (uzak masaüstü oturumu desteklenmez)     |
-| Teknisyen tarayıcısı    | Chrome, Edge (güncel)                                                                      |
-| Dil / tema              | Türkçe / kullanıcı başına Açık, Koyu veya Sistem                                           |
+| Başlık                  | Değer                                                                                                                                                                       |
+| ----------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Çalışma şekli           | Web tabanlı teknisyen konsolu; müşteri için Windows programı, Mac uygulaması veya tarayıcı                                                                                  |
+| Sunucu / veritabanı     | Node.js 22 (Fastify), Next.js arayüz / MySQL 8.4                                                                                                                            |
+| Kurulum                 | Docker Compose, kurum sunucusunda; TURN ayrı compose                                                                                                                        |
+| Görüntü                 | WebRTC, eşler arası; H.264, en çok 1920×1080, hedef 30 fps                                                                                                                  |
+| Müşteri işletim sistemi | Windows 10 / 11 (64 bit); macOS 13 ve üstü (Apple Silicon ve Intel; canlı dağıtım Apple imzasından sonra); tarayıcı modu için ekran paylaşımı destekleyen masaüstü tarayıcı |
+| Gözetimsiz erişim       | Windows 10 / 11 (64 bit), fiziksel konsol oturumu (uzak masaüstü oturumu desteklenmez)                                                                                      |
+| Teknisyen tarayıcısı    | Chrome, Edge (güncel)                                                                                                                                                       |
+| Dil / tema              | Türkçe / kullanıcı başına Açık, Koyu veya Sistem                                                                                                                            |
 
 ## Sistem gereksinimleri (öneri)
 

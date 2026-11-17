@@ -4,6 +4,7 @@
 import { randomInt } from "node:crypto";
 import type { GuestKind, SessionEndedReason } from "@remote/contracts/ws";
 import { WS_CLOSE } from "@remote/contracts/ws";
+import type { ClientOs } from "@remote/contracts/api/sessions";
 import { AppError } from "../lib/errors.ts";
 import { newId, sha256Hex } from "../lib/ids.ts";
 import type { GuestConsent } from "../public/consent.ts";
@@ -25,6 +26,7 @@ export interface AddGuestInput {
   ipKey: string;
   netKey?: string;
   clientVersion?: string;
+  clientOs?: ClientOs;
   consent: GuestConsent;
 }
 
@@ -65,6 +67,7 @@ export function addGuest(rooms: Rooms, row: RoomRow, g: AddGuestInput): { guestI
     ipKey: g.ipKey,
     ...(g.netKey ? { netKey: g.netKey } : {}),
     ...(g.clientVersion ? { clientVersion: g.clientVersion } : {}),
+    ...(g.clientOs ? { clientOs: g.clientOs } : {}),
     admitHash: admitHash(id, code),
     consent: g.consent,
     state: "TICKETED",

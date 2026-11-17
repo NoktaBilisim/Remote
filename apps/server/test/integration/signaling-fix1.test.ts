@@ -56,7 +56,9 @@ describe("P3 düzeltme 1 — audit", () => {
     expect(logs).toHaveLength(1);
     expect(logs[0]).toMatchObject({ result: "success", username: "customer" });
     // S-P13a-1: ad audit'e yazılmaz (oturum satırında, saklama işiyle silinir)
-    expect(Object.keys(logs[0]?.newValue as object).sort()).toEqual(["consentTextId", "consentVersion", "guestId", "guestKind"]);
+    // P28f (§4.1): `os` beyan etiketi (BROWSER → "browser").
+    expect(Object.keys(logs[0]?.newValue as object).sort()).toEqual(["consentTextId", "consentVersion", "guestId", "guestKind", "os"]);
+    expect(logs[0]?.newValue).toMatchObject({ os: "browser" });
     expect(JSON.stringify(logs, big)).not.toContain(`"${g.admitCode}"`);
   });
 

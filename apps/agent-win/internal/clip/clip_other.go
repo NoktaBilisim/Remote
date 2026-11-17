@@ -1,6 +1,6 @@
-//go:build !windows
+//go:build !windows && !darwin
 
 package clip
 
-// New bu platformda pano yoktur (P28a yalnız Windows istemci; macOS/Linux P28f/g).
+// New bu platformda pano yoktur (P28a Windows, P28f macOS; Linux P28g).
 func New() (Clipboard, error) { return nil, ErrUnsupported }

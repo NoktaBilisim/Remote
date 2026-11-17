@@ -99,6 +99,11 @@ export async function onView(rooms: Rooms, room: Room, guest: Guest, source: Con
   const c = room.control;
   if (!rooms.live(room) || room.admitted !== guest) return;
   if (source === "DENIED") return onDenied(rooms, room, guest);
+  // P28f (§4.2): OS_PERMISSION yalnız bekleyen isteği iptal eder; başka fazda yok sayılır (asla REVOKED/consent kaydı olmaz).
+  if (source === "OS_PERMISSION" && c.state !== "REQUESTED") {
+    rooms.metrics.inc("rs_control_total", { event: "os_permission_ignored" });
+    return;
+  }
   if (c.state === "VIEW") return; // sunucu kapattıktan sonraki istemci onayı (SYSTEM) — zaten kayıtlı
   const was = c.state;
   c.state = "VIEW";
@@ -108,7 +113,9 @@ export async function onView(rooms: Rooms, room: Room, guest: Guest, source: Con
   if (was === "REQUESTED") {
     // §3.3 K6: bekleyen istek müşteri kararı olmadan istemcide kapandı (ör. PeerConnection koptu). Consent yok (müşteriye
     // ret atfedilmez), 30 sn bekleme/sayaç yok; control.requested'in kapanışı audit control.cancelled{by:"agent"} (en iyi çaba).
-    rooms.metrics.inc("rs_control_total", { event: "cancelled_by_agent" });
+    // P28f (§4.2, AC-391): OS_PERMISSION = misafirde Erişilebilirlik izni yok; aynı iptal yolu, audit kaynağı `os_permission`.
+    const osPermission = source === "OS_PERMISSION";
+    rooms.metrics.inc("rs_control_total", { event: osPermission ? "cancelled_os_permission" : "cancelled_by_agent" });
     void writeAudit(rooms.db, guestCtx(guest), {
       tenantId: room.tenantId,
       ...CUSTOMER,
@@ -116,7 +123,7 @@ export async function onView(rooms: Rooms, room: Room, guest: Guest, source: Con
       entity: "support_sessions",
       entityId: room.sessionId,
       result: "success",
-      newValue: { by: "agent", source },
+      newValue: { by: "agent", source: osPermission ? "os_permission" : source },
     }).catch((err: unknown) => void logFail(rooms, room, "control_cancel_audit_failed", err));
     return;
   }

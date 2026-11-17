@@ -37,13 +37,54 @@ const resolveClientVersion = z
   .string()
   .regex(/^\d{1,3}\.\d{1,3}\.\d{1,3}$/, "Geçersiz istemci sürümü")
   .optional();
+/**
+ * P28f (mimari-p28f §4.1, S-P28f-15): istemcinin işletim sistemi **beyanı**. AGENT'ta yoksa sunucu `windows` sayar (eski
+ * istemciler); BROWSER'da yok sayılır. Nonce kaydına yazılır, join'de yeniden alınmaz. Yetki/özellik kararında kullanılmaz
+ * (tek istisna: `control.state` `OS_PERMISSION` yalnız `macos`). Geçersiz değer → 400 VALIDATION.
+ */
+export const CLIENT_OS = ["windows", "macos", "linux"] as const;
+export type ClientOs = (typeof CLIENT_OS)[number];
+const resolveClientOs = z.enum(CLIENT_OS).optional();
 export const resolveSessionInputSchema = z.union([
-  z.object({ token: sessionTokenSchema, clientKind: z.enum(["BROWSER", "AGENT"]), clientVersion: resolveClientVersion }),
-  z.object({ code: sessionCodeSchema, clientKind: z.enum(["BROWSER", "AGENT"]), clientVersion: resolveClientVersion }),
+  z.object({
+    token: sessionTokenSchema,
+    clientKind: z.enum(["BROWSER", "AGENT"]),
+    clientVersion: resolveClientVersion,
+    clientOs: resolveClientOs,
+  }),
+  z.object({
+    code: sessionCodeSchema,
+    clientKind: z.enum(["BROWSER", "AGENT"]),
+    clientVersion: resolveClientVersion,
+    clientOs: resolveClientOs,
+  }),
 ]);
 export type ResolveSessionInput = z.infer<typeof resolveSessionInputSchema>;
 
 export const sessionStatusQuerySchema = z.object({ ref: z.string().regex(/^[A-Za-z0-9_-]{43}[0-9A-HJKMNP-TV-Z]{26}$/) });
+
+/** P28f (§4.1): `session.join` başarı audit'indeki (`guest.pending`) `os` değeri — AGENT'ta nonce'taki beyan, BROWSER'da `browser`. */
+export const JOIN_AUDIT_OS = [...CLIENT_OS, "browser"] as const;
+export type JoinAuditOs = (typeof JOIN_AUDIT_OS)[number];
+
+/**
+ * P28f (§4.1, S-P28f-15): `GET /public/agent/download?ref=&os=` platformu; yoksa `windows`. Geçersiz → 400 VALIDATION
+ * (ref kovası tüketilmez). Linux P28g'de eklenir.
+ */
+export const AGENT_DOWNLOAD_OS = ["windows", "macos"] as const;
+export type AgentDownloadOs = (typeof AGENT_DOWNLOAD_OS)[number];
+export const agentDownloadOsSchema = z.enum(AGENT_DOWNLOAD_OS).default("windows");
+
+/** P28f (§4.1): `GET /public/agent/availability` — platform başına ikili kapısı `ok` mu (AC-390: kapalıysa düğme görünmez). */
+export interface AgentAvailabilityResponse {
+  windows: boolean;
+  macos: boolean;
+  /**
+   * macOS zip'i imzasız TEST derlemesi mi (staging): `DEPLOY_ENV !== "production"` ve `macos` iken true; production'da her
+   * zaman false. Karşılama sayfası "Yine de Aç" rehberini yalnız true iken gösterir (S-P28f-8, A-PF-5).
+   */
+  macosTestBuild: boolean;
+}
 
 /** POST /sessions yanıtı. `link` yalnız burada döner (düz token DB'de yok, G-22). */
 export interface CreateSessionResponse {
@@ -343,7 +384,7 @@ export type TimelineActor = (typeof TIMELINE_ACTORS)[number];
  */
 export const TIMELINE_DETAIL_KEYS = {
   "session.created": ["ttlMin"],
-  "guest.pending": ["name"],
+  "guest.pending": ["name", "os"],
   "guest.rejected": ["name"],
   "guest.admitted": ["name", "guestKind"],
   "guest.admit": ["reason"],

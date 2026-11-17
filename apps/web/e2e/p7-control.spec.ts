@@ -233,6 +233,27 @@ test("K6: bekleyen istek müşteri tarafında kapanır → 'bağlantı kesildi; 
   await a.context().close();
 });
 
+test("P28f AC-391: macOS müşteride Erişilebilirlik izni yok (OS_PERMISSION) → 'Müşteri erişilebilirlik izni vermedi', ret değil", async ({
+  page,
+  context,
+  browser,
+}) => {
+  await signIn(context, "p7");
+  const { a } = await liveAgent(page, browser);
+  await req(page).click();
+  await expect.poll(async () => (await agentLog(a)).controlRequests).toBe(1);
+  await agentSend(a, { t: "control.state", state: "VIEW", source: "OS_PERMISSION" });
+  await expect(note(page)).toContainText("Müşteri erişilebilirlik izni vermedi. Müşteri izni verdikten sonra yeniden isteyin.");
+  await expect(page.getByTestId("control-bar")).toHaveAttribute("data-phase", "ended");
+  await expect(page.getByText("Kontrol reddedildi")).toHaveCount(0);
+  await expect(req(page)).toBeEnabled(); // 30 sn bekleme yok
+  // 1280 px şeritte tam metin okunur (satır kırpması yok)
+  expect(await note(page).evaluate((el) => el.scrollHeight <= el.clientHeight + 1)).toBe(true);
+  await expect(page.getByText("Müşteri izni verdikten sonra yeniden isteyin.").first()).toBeVisible(); // bildirim
+  expect(await axeScan(page)).toEqual([]);
+  await a.context().close();
+});
+
 test("TEST-P7-1 / AC-49: %100 (kaydırılmış ve kaydırılmamış) ve Sığdır'da tık uzak piksele ±1 px", async ({ page, context, browser }) => {
   await signIn(context, "p7");
   const { a } = await liveAgent(page, browser);

@@ -128,7 +128,7 @@ export function ControlButton({
         id={noteId}
         role="status"
         data-testid="control-note"
-        className={`${s.phase === "granted" && !s.forbidden ? "sr-only" : "line-clamp-2 max-w-64 min-w-0 text-xs"} ${s.error || s.notice || s.forbidden ? "text-warning" : "text-fg-muted"}`}
+        className={`${s.phase === "granted" && !s.forbidden ? "sr-only" : `${s.endedBy === "osPermission" && s.phase === "ended" ? "line-clamp-3 max-w-80" : "line-clamp-2 max-w-64"} min-w-0 text-xs`} ${s.error || s.notice || s.forbidden ? "text-warning" : "text-fg-muted"}`}
       >
         {note.join(" · ")}
       </p>

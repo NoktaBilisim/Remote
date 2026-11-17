@@ -196,11 +196,14 @@ export type ControlState = (typeof CONTROL_STATES)[number];
  * `DENIED` = diyalogda "Reddet"; `RECONNECT` = yeniden bağlanmada sıfırlama; `SYSTEM` = `control.revoke` sonrası;
  * `TECH` = teknisyen bıraktı/iptal etti (§3.3 K1–K2). `RECONNECT` ve `TECH` yalnız sunucu üretir. P27: `UNATTENDED` =
  * gözetimsiz yardımcının otomatik GRANTED'ı (AC-273) — sunucu yalnız `room.unattended` odasında kabul eder (başka oda: hata + audit).
+ * P28f (mimari-p28f §4.2, S-P28f-15): `OS_PERMISSION` = misafirde işletim sistemi izni (macOS Erişilebilirlik) yok, kontrol
+ * diyaloğu açılmadı; yalnız `VIEW` ile. Sunucu iptal gibi işler (consent yok, bekleme yok) ve yalnız AGENT + `clientOs=macos`
+ * misafirden, REQUESTED fazında kabul eder; aksi yok sayılır.
  */
-export const CONTROL_SOURCES = ["UI", "HOTKEY", "DENIED", "RECONNECT", "SYSTEM", "TECH", "UNATTENDED"] as const;
+export const CONTROL_SOURCES = ["UI", "HOTKEY", "DENIED", "RECONNECT", "SYSTEM", "TECH", "UNATTENDED", "OS_PERMISSION"] as const;
 export type ControlSource = (typeof CONTROL_SOURCES)[number];
 /** Misafirden kabul edilen kaynaklar (§3 tablo, S7-10): GRANTED yalnız UI; VIEW yalnız bu küme. */
-export const GUEST_VIEW_SOURCES = ["UI", "HOTKEY", "DENIED", "SYSTEM"] as const;
+export const GUEST_VIEW_SOURCES = ["UI", "HOTKEY", "DENIED", "SYSTEM", "OS_PERMISSION"] as const;
 export type GuestControlSource = (typeof GUEST_VIEW_SOURCES)[number];
 /** Misafirden GRANTED kaynağı: `UI` (yerel "İzin ver"); P27 `UNATTENDED` yalnız gözetimsiz odada geçerli (oda denetimi sunucuda). */
 const GUEST_GRANT_SOURCES: readonly ControlSource[] = ["UI", "UNATTENDED"];
@@ -223,7 +226,7 @@ export const controlReleaseSchema = z.strictObject({ t: z.literal("control.relea
 /** tech → S → guest (§3.3 K2): bekleyen isteği geri çeker; GRANTED iken bırakma sayılır. */
 export const controlCancelSchema = z.strictObject({ t: z.literal("control.cancel"), id });
 /**
- * guest → S → tech. `GRANTED` yalnız `UI` (yerel "İzin ver") ya da P27 `UNATTENDED`; `VIEW` yalnız `UI|HOTKEY|DENIED|SYSTEM`.
+ * guest → S → tech. `GRANTED` yalnız `UI` (yerel "İzin ver") ya da P27 `UNATTENDED`; `VIEW` yalnız `UI|HOTKEY|DENIED|SYSTEM|OS_PERMISSION`.
  * `RECONNECT`/`TECH` yalnız sunucu üretir — misafirden gelirse şema hatası → 1008 (S7-10).
  */
 export const controlStateSchema = z

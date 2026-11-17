@@ -12,8 +12,6 @@ import (
 	"remote-support/agent-win/internal/win"
 )
 
-const maxMonitors = 16
-
 // Monitors share.state için monitör listesi (AC-106).
 func Monitors() ([]signal.Monitor, error) {
 	ms := win.Monitors()

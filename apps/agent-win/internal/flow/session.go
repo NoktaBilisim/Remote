@@ -280,7 +280,7 @@ func (s *session) onUser(ctx context.Context, ev Event) (Outcome, bool) {
 		if r != nil {
 			s.d.UI.FileResult(*r)
 		}
-	case EvControlGrant, EvControlDeny, EvControlClose, EvControlHotkey, EvMonitorAccept, EvMonitorDeny:
+	case EvControlGrant, EvControlDeny, EvControlClose, EvControlHotkey, EvControlSystem, EvMonitorAccept, EvMonitorDeny:
 		s.onControlUser(ctx, ev)
 	case EvClipConsent, EvPrintApprove, EvPrintReject:
 		s.cp.onUser(ev)

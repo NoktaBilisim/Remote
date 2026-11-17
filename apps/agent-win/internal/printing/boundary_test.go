@@ -202,6 +202,39 @@ func TestP28aBoundaryInvalidPDFKeepsWorker(t *testing.T) {
 	}
 }
 
+// lpFile P28f (mimari-p28f §2): CUPS `lp` çağrısı bu pakettedir (darwin || linux; Windows işleyici ikilisine girmez).
+const lpFile = "lp_unix.go"
+
+// P28f K5 (S-P28f-16): os/exec istisnası tek dosyada ve tek komutta — lp_unix.go'da exec yalnız lpPath/lpArgs ile çağrılır,
+// lpPath başlangıç değeri mutlak /usr/bin/lp, kabuk yok; dosya Windows'ta derlenmez.
+func TestP28fBoundaryLPOnlyExec(t *testing.T) {
+	src, err := os.ReadFile(lpFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := strings.ReplaceAll(string(src), "\r\n", "\n") // Windows checkout'u (autocrlf) satır sonundan bağımsız
+	if !strings.HasPrefix(s, "//go:build darwin || linux\n") {
+		t.Fatal("lp_unix.go build kısıtı darwin || linux olmalı")
+	}
+	if strings.Count(s, "exec.Command") != 1 || !strings.Contains(s, "exec.CommandContext(ctx, lpPath, lpArgs...)") ||
+		!strings.Contains(s, `var lpPath = "/usr/bin/lp"`) {
+		t.Fatal("lp_unix.go yalnız sabit lp komutunu çalıştırmalı")
+	}
+	f, err := parser.ParseFile(token.NewFileSet(), lpFile, src, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ast.Inspect(f, func(n ast.Node) bool { // dize sabitlerinde kabuk, lpstat, -d yok
+		if lit, ok := n.(*ast.BasicLit); ok && lit.Kind == token.STRING {
+			v, _ := strconv.Unquote(lit.Value)
+			if strings.Contains(v, "sh") && v != "-" || strings.Contains(v, "lpstat") || v == "-d" {
+				t.Errorf("lp_unix.go yasak dize: %q", v)
+			}
+		}
+		return true
+	})
+}
+
 // D-P28a-3 + §5.2: paket üretim kodunda süreç açma, dosya yazma/açma, ağ ve kabuk çağrısı yoktur (işleyici aynı
 // pakettedir). Süreç başlatma yalnız internal/proclimit üzerinden.
 func TestP28aBoundaryForbiddenSymbols(t *testing.T) {
@@ -227,6 +260,9 @@ func TestP28aBoundaryForbiddenSymbols(t *testing.T) {
 		}
 		for _, im := range f.Imports {
 			path, _ := strconv.Unquote(im.Path.Value)
+			if path == "os/exec" && p == lpFile {
+				continue // P28f K5: yalnız lp_unix.go, yalnız sabit /usr/bin/lp (TestP28fBoundaryLPOnlyExec)
+			}
 			for _, bad := range forbiddenImports {
 				if path == bad || (strings.HasSuffix(bad, "/") && strings.HasPrefix(path, bad)) {
 					t.Errorf("%s: yasak içe aktarma %s", p, path)

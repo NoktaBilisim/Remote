@@ -145,6 +145,9 @@ const (
 	EvVoiceReject // CallID
 	EvVoiceEnd    // "Görüşmeyi bitir" (çubuk ya da tepsi menüsü)
 	EvVoiceMute   // On: sessize al (yalnız yerel; sunucuya mesaj gitmez)
+	// P28f K3 (mimari-p28f §5.2, S-P28f-10): girdi altyapısı kontrolü sürdüremedi (macOS olay musluğu sistemce kapatıldı
+	// ve yeniden açılamadı ya da Erişilebilirlik izni geri alındı); input.Host kapıyı zaten kapattı → VIEW{SYSTEM}.
+	EvControlSystem
 )
 
 // Event kullanıcı olayı.
@@ -188,6 +191,15 @@ type Deps struct {
 	Input func(raw []byte)
 	// SetInputMonitor fare koordinatlarının eşleneceği monitör (AC-49).
 	SetInputMonitor func(id int)
+	// ControlReady P28f (mimari-p28f §5.2, AC-391, S-P28f-10): nil değilse her kontrol isteğinde ve "İzin ver"de yoklanır
+	// (macOS: Erişilebilirlik izni + olay musluğu kurulabiliyor). false → diyalog açılmaz/kapı açılmaz,
+	// control.state{VIEW, OS_PERMISSION} gönderilir ve AccessGuide (varsa) çağrılır. nil → bugünkü davranış (Windows).
+	ControlReady func() bool
+	// ArmControl P28f D-P28f-K1: nil değilse "İzin ver"de kapı açılmadan ÖNCE çağrılır (macOS: olay musluğu kurulup
+	// doğrulanır, input.Host.Arm). false → kapı açılmaz, ControlReady false ile aynı yol (OS_PERMISSION). nil → Windows.
+	ArmControl func() bool
+	// AccessGuide ControlReady false olunca izin rehberini gösterir (macOS Erişilebilirlik; K4). nil olabilir.
+	AccessGuide func()
 	// AC-248 pencere modu: WindowCapture() true ve CaptureWindow/SetInputWindow doluysa paylaşım ekranında
 	// "Yalnız bir pencere" sunulur. SetInputWindow girdiyi o pencereye kapsar (S17-1).
 	WindowCapture  func() bool

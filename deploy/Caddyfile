@@ -83,6 +83,20 @@
 	file_server
 }
 
+# P28f (mimari-p28f §4.1, §5.4, S-P28f-3): macOS istemcisi — volume'daki tek jenerik zip'i istenen adla sunar
+# (`agent_exe_file` kalıbı). {args[0]} = indirme adı (uzantısız).
+(agent_zip_file) {
+	root * /srv/downloads
+	rewrite * /NoktaDestek-macOS.zip
+	header {
+		Content-Disposition "attachment; filename=\"{args[0]}.zip\""
+		Content-Type "application/zip"
+		Cache-Control "no-store"
+		X-Content-Type-Options "nosniff"
+	}
+	file_server
+}
+
 # P13c (mimari-e11 §3.1): arama motoru dışı bırakma yalnız staging'de. ROBOTS_NOINDEX ayrıştırma anında okunur
 # (docker-compose.staging.yml "1" verir): robots_0 boş -> prod adapt çıktısı değişmez; 0/1 dışı değer = Caddy açılmaz.
 (robots_0) {
@@ -156,14 +170,28 @@
 	# ile karşılaştırır (önbellekli); 2xx değilse (uyuşmazlık / dosya yok / yapılandırma yok → 503, server erişilemez →
 	# 502) yanıt istemciye döner ve dosya SUNULMAZ. `route` sırayı sabitler: kapı, Content-Disposition/rewrite'tan önce.
 	# Orijinal URI (koddan oluşan ad) server'a gönderilmez.
+	# S-P28f-3: platform başına ayrı iç URI (/internal/agent-ready/{windows,macos}); her uç yalnız kendi kapısını uygular.
 	@agentExe path_regexp agentExe ^/downloads/(NoktaDestek|Destek-[0-9]{8})\.exe$
 	handle @agentExe {
 		route {
 			forward_auth server:3001 {
-				uri /internal/agent-ready
+				uri /internal/agent-ready/windows
 				header_up X-Forwarded-Uri "/downloads/***"
 			}
 			import agent_exe_file {re.agentExe.1}
+		}
+	}
+	# P28f (AC-390, AC-396): macOS zip'i. GET /api/v1/public/agent/download?ref=&os=macos yalnız PENDING oturumda buraya 302
+	# verir. NoktaDestek-macOS.zip: kodsuz ad (agent-watch). Kapı MAC_AGENT_SHA256 ile; 2xx değilse dosya SUNULMAZ.
+	# Log maskesi `/downloads/Destek-[^/?]+` .zip'i de kapsar (G-10).
+	@agentZip path_regexp agentZip ^/downloads/(NoktaDestek-macOS|Destek-[0-9]{8})\.zip$
+	handle @agentZip {
+		route {
+			forward_auth server:3001 {
+				uri /internal/agent-ready/macos
+				header_up X-Forwarded-Uri "/downloads/***"
+			}
+			import agent_zip_file {re.agentZip.1}
 		}
 	}
 	# P8b (AC-130, ADR-0006 r4, G-E9-11): firma dosyası NoktaDestek-<file_label>-<tenantRef>.exe — AYNI jenerik ikili.
@@ -175,7 +203,7 @@
 	handle @agentExeFirm {
 		route {
 			forward_auth server:3001 {
-				uri /internal/agent-ready
+				uri /internal/agent-ready/windows
 				header_up X-Forwarded-Uri "/downloads/{re.agentExeFirm.1}.exe"
 			}
 			import agent_exe_file {re.agentExeFirm.1}

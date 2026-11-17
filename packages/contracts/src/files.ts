@@ -123,6 +123,37 @@ export const DANGEROUS_EXT: ReadonlySet<string> = new Set([
   "mshxml",
   "jnlp",
   "cab",
+  // S-P28f-9 (mimari-p28f §5.4): macOS çalıştırılabilir/kurulum/betik türleri — liste platformdan bağımsız.
+  "command",
+  "tool",
+  "app",
+  "pkg",
+  "mpkg",
+  "dmg",
+  "scpt",
+  "scptd",
+  "applescript",
+  "terminal",
+  "webloc",
+  "inetloc",
+  "fileloc",
+  "workflow",
+  "action",
+  "mobileconfig",
+  "kext",
+  "dylib",
+  "bundle",
+  "plugin",
+  "prefpane",
+  "osax",
+  "zsh",
+  "bash",
+  "csh",
+  "ksh",
+  "py",
+  "rb",
+  "pl",
+  "saver",
 ]);
 
 function extensions(name: string): string[] {
@@ -144,8 +175,13 @@ export function isDoubleExtension(name: string): boolean {
 
 export type FileNameWarning = "none" | "dangerous" | "double_extension";
 
-/** Kabul diyaloğunda gösterilecek uyarı düzeyi (AC-36): çift uzantı ayrıca vurgulanır. */
+/** S-P28f-9: baştaki noktalı (gizli; `.zshrc`, `.bash_profile`) ad — kabuk başlangıç dosyası olabilir, uyarı alır. */
+export function isHiddenName(name: string): boolean {
+  return name.startsWith(".");
+}
+
+/** Kabul diyaloğunda gösterilecek uyarı düzeyi (AC-36): çift uzantı ayrıca vurgulanır; gizli ad `dangerous` (S-P28f-9). */
 export function fileNameWarning(name: string): FileNameWarning {
   if (isDoubleExtension(name)) return "double_extension";
-  return isDangerousExtension(name) ? "dangerous" : "none";
+  return isDangerousExtension(name) || isHiddenName(name) ? "dangerous" : "none";
 }

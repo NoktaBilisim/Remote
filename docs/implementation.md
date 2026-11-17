@@ -14353,3 +14353,905 @@ Testler (yeni):
 - `TestP28dVoiceTechToCustomerPlaysEndToEnd`: flow + gerçek libopus motoru. Teknisyen eşinin `Handlers.Audio`'sundan gelen Opus, sahte aygıtın çalma çıkışında sessiz olmayan örnek olarak çıkıyor.
 
 Kalan risk: kök neden donanımda doğrulanmadı. 0.18.1 sahada denenmeli; ses yine gelmezse `tanilama.log` istenmeli (yalnız kalıcı kipte yazılır).
+
+## P28f K7 — Web: karşılama sayfası macOS + konsol OS_PERMISSION + audit `os` (frontend-dev, 2026-11-17)
+
+Kaynak: `docs/mimari-p28f.md` §4.1–4.2, §9 (Web), §10 K7, §13 (S-P28f-8, S-P28f-15); AC-390, AC-391, AC-396 (AC-27 güncellendi).
+Yalnız `apps/web/**` + `DESIGN.md` değişti. Sözleşme tipleri K6'nın `packages/contracts` eklerinden (`AgentAvailabilityResponse`,
+`AgentDownloadOs`, `CONTROL_SOURCES` `OS_PERMISSION`, `CLIENT_OS_LABELS`, `CLIENT_OS_FIELD_LABEL`) alınır; contracts'a dokunulmadı.
+
+### Rotalar
+
+| Yol                      | Auth  | Ne yapar                                                                                                                                                                                                                                                                                                                                                                                            |
+| ------------------------ | ----- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `/session/[token]`       | hayır | macOS masaüstünde (`isMacDesktop`) Windows ile aynı düzen: birincil "Hızlı Destek uygulamasını indir" (`os=macos` → `Destek-<kod>.zip`) + macOS açılış/izin rehberi, ikincil "Uygulama çalışmıyor mu? Tarayıcıdan yalnızca görüntü paylaş". İndirme yalnız `GET /api/v1/public/agent/availability` `macos:true` iken; beklerken iskelet; `false`/hata/429/şema dışı → yalnız tarayıcı (fail-closed) |
+| `/sessions/[id]/console` | evet  | `control.state{VIEW, OS_PERMISSION}` → not satırı + bildirim "Müşteri erişilebilirlik izni vermedi. Müşteri izni verdikten sonra yeniden isteyin."; ret değil (30 sn bekleme yok, hak iade edilmez)                                                                                                                                                                                                 |
+| `/audit`                 | evet  | Ayrıntı diyaloğunda katılım satırı (`guest.pending`; sözleşmedeki adıyla `session.join`) için "İşletim sistemi (beyan)": Windows / macOS / Linux / Tarayıcı; `os` yoksa (eski satır) ya da bilinmiyorsa satır yok                                                                                                                                                                                   |
+
+Yeni rota yok; yetki değişmedi.
+
+### Yapılanlar
+
+- `lib/device-support.ts`: `isMacDesktop` (UA "Macintosh"/"Mac OS X" ya da UA-CH `platform === "macOS"`; "Windows NT" UA'sı, mobil UA, UA-CH
+  mobile ve iPad masaüstü modu `maxTouchPoints > 1` hariç; `isWindowsDesktop` ile karşılıklı dışlar) + `agentOsOf`; `readSupportEnv` `platform`,
+  `maxTouchPoints` okur.
+- `lib/agent-download.ts`: `agentDownloadUrl(ref, os)` (Windows adresi bayt bayt aynı, macOS'ta `&os=macos`), `probeAgentDownload(ref, os, fetch)`,
+  `fetchAgentAvailability` (yerel zod, çerez yok, her hata → `null`).
+- `app/session/[token]/agent-offer.tsx` (yeni): `useAgentOffer` (Windows: değişmez, hemen hazır; macOS: availability → `loading`/`ready`/`none`) +
+  `AgentSkeleton`. `guest-welcome.tsx`, `join-form.tsx` bunu kullanır (`windows` prop'u → `agent`).
+- `agent-download.tsx`: `os`, `testBuild` prop'ları; macOS'ta meta satırı, `MacGuide`, TEST uyarısı. `guide-step.tsx` (yeni, Windows/macOS ortak adım),
+  `mac-guide.tsx` (yeni): 4 adım (aç → Nokta Destek'i aç → izinler: Ekran Kaydı / Erişilebilirlik / Mikrofon → kodu ve teknisyeni doğrula; kod
+  klasör adından gelmezse elle yazma, K0s-5 açık olduğu için), prod'da "asla Yine de Aç istemez" uyarısı, doğrulama `details`'i.
+- `lib/control/machine.ts`: `OS_PERMISSION` dalı (yalnız `requested`'da; neden `osPermission`, `lastSent: null`, sayaç iade yok, bekleme yok; başka fazda
+  yok sayılır). `control-button.tsx`: bu nedende not satırı `line-clamp-3 max-w-80` (1280 px'te tam metin, e2e ile ölçülür); `use-control-toasts.ts`:
+  `info` bildirimi (tam metin).
+- `lib/audit/actions.ts` `auditClientOs` + `audit-detail-dialog.tsx` satırı (etiketler contracts `labels.ts`).
+- `messages/tr.json`: `gm.*` (macOS rehberi), `p7.end.osPermission`.
+- `vitest.config.ts`: `app/**/*.test.tsx` dahil (rehber bileşeni testi `app/session/[token]` altında).
+- E2E sahte API (`e2e/mock-sessions.mjs`): `/public/agent/availability` (varsayılan ikisi de `true`; senaryolar `page.route` ile ezilir), download `os`
+  (geçersiz → 400), `/downloads/Destek-<kod>.zip`.
+
+### Testler
+
+- Birim: `device-support.test.ts` (Mac Chrome/Safari/Firefox, UA-CH, iPad, iPhone, Windows UA + host `platform: macOS` → Windows), `agent-download.test.ts`
+  (os adresi, availability 200/false/429/500/şema/JSON değil/ağ), `machine.test.ts` (OS_PERMISSION), `audit.test.ts` (`os` etiketi),
+  `app/session/[token]/mac-guide.test.tsx` (prod/TEST metinleri, izinler, Windows değişmedi).
+- E2E: `e2e/p28f-macos.spec.ts` (AC-396 düzen + zip indirme + rehber + axe; AC-390 `false`; S-P28f-15 500/429/şema/ağ hatası; yükleniyor iskeleti; 503
+  NOT_READY; 375 px koyu + 1280 px açık axe; iPad), `p6-agent-download.spec.ts` macOS testi availability `false` senaryosuna güncellendi,
+  `p7-control.spec.ts` OS_PERMISSION (not tam görünür, bildirim, bekleme yok, axe).
+- `pnpm --filter @remote/web lint typecheck test` yeşil (584 birim). `pnpm --filter @remote/web e2e`: 573 geçti, 1 kırmızı
+  `p8b-requests.spec.ts` "AC-153 … 409" — tam paralel koşuda; tek başına 13/13 geçti (bu paketle ilgisiz, yük kaynaklı kararsızlık); bu yüzden
+  `desktop-perf` 2 test "did not run".
+
+### Sapmalar / açık noktalar
+
+1. **Staging sinyali yok → "Yine de Aç" adımı şimdilik hiç gösterilmez (fail-closed).** S-P28f-8 bu adımı yalnız staging sayfasında istiyor; ancak web
+   ortamı bilmiyor (`DEPLOY_ENV` bilinçli olarak yalnız server'da, compose yorumu) ve availability sözleşmesi yalnız `{windows, macos}`. API alanı
+   uydurulmadı. `AgentDownload`/`MacGuide` `testBuild` prop'u hazır ve birim testli; `GuestWelcome` şu an hep `false` geçer → her ortamda prod
+   metni ("Nokta Destek hiçbir zaman “Yine de Aç” istemez"). **backend-dev/mimar'a not:** staging'de doğru metin için availability'ye örn.
+   `macosTestBuild: boolean` (`DEPLOY_ENV=staging` ve imzasız zip) eklenirse web tek satırla bağlanır. O zamana kadar staging test operatörü
+   "Yine de Aç" adımını runbook/kılavuzdan izler (sayfa metni staging'de bununla çelişir — bilinen durum).
+2. Birincil düğme metni Windows ile aynı tutuldu ("Hızlı Destek uygulamasını indir"; AC-396 "Windows ile aynı düzen"); AC'deki "Uygulamayı indir"
+   kalıbı bu metnin içinde.
+3. Mimari §9 390 px diyor; görev 375 px istedi — e2e 375 px'te koşar (daha dar).
+4. Zaman çizelgesi (`/history/[id]`) `guest.pending` `os` ayrıntısını göstermez (K7 kapsamı audit ekranı); `TIMELINE_DETAIL_KEYS`'e K6 ekledi, gösterim
+   istenirse ayrı küçük iş.
+5. `ui-ux-pro-max` skill'i yüklenmedi: ekran, DESIGN.md §6/§8'de onaylı Windows rehber düzeninin aynısı (yeni görsel dil yok); DESIGN.md güncellendi
+   (§6 satırı + §4 P28f ikonları).
+
+## P28f K6 — Sunucu: clientOs, indirme `os`, availability, agent-ready platform başına, `MAC_AGENT_*`, OS_PERMISSION (backend-dev, 2026-11-17)
+
+Kaynak: `docs/mimari-p28f.md` §4.1–4.2, §8.1, §13 (S-P28f-3, -9 contracts kısmı, -15). Dal `p28f`, commit yok.
+
+### Değişen dosyalar
+
+- **contracts:** `src/api/sessions.ts` (`CLIENT_OS`, resolve iki dalda `clientOs` isteğe bağlı enum; `JOIN_AUDIT_OS`;
+  `AGENT_DOWNLOAD_OS` + `agentDownloadOsSchema` (varsayılan `windows`); `AgentAvailabilityResponse {windows, macos, macosTestBuild}`;
+  `TIMELINE_DETAIL_KEYS["guest.pending"]` += `os`), `src/ws.ts` (`CONTROL_SOURCES`/`GUEST_VIEW_SOURCES` += `OS_PERMISSION`, yalnız
+  VIEW), `src/labels.ts` (`OS_PERMISSION_CANCELLED`, `CLIENT_OS_LABELS`, `CLIENT_OS_FIELD_LABEL`; `control.cancelled{by:agent,
+source:os_permission}` zaman çizelgesi metni), `src/files.ts` (S-P28f-9: 30 macOS türü `DANGEROUS_EXT`'e; `isHiddenName` — baştaki
+  noktalı ad `dangerous`), `fixtures/file-names.json` (+13 örnek), `test/p28f-contracts.test.ts` (yeni), pt-surface snapshot (yalnız eklemeler).
+- **server:** `env.ts` (`MAC_AGENT_PATH`, `MAC_AGENT_SHA256`; `AGENT_BINARY_PATH_FIXED`/`MAC_AGENT_PATH_FIXED` production eşitliği),
+  `app.ts` (`macAgentBinary` kapısı; alarm `mac_agent_binary` yalnız missing/mismatch), `public/agent.ts` (indirme `os`, `.zip` konumu,
+  yalnız ilgili kapı; `agentAvailability`), `public/routes.ts` (`/download?os=`, `/availability`, `/internal/agent-ready/{windows,macos}`
+  - çıplak takma ad), `public/service.ts` (nonce `clientOs`, `guest.pending` `os`), `sessions/public.ts` (`availabilityIp` 30/dk,
+    nonce'a `clientOs`), `sessions/routes.ts`, `signaling/{rooms,rooms-lobby,types}.ts` (`Guest.clientOs`), `signaling/control.ts` +
+    `control-grant.ts` (OS_PERMISSION), `ops/metrics.ts` (`rs_agent_download_total{os}`, kontrol olayları).
+- **testler:** `test/integration/p28f-k6.test.ts` (yeni, 23 test), `signaling-fix1.test.ts` (`guest.pending` anahtarlarına `os`),
+  `helpers/tenant-matrix.ts` (3 yeni uç sınıflandırıldı), pt-surface rota snapshot'ı (yalnız 3 uç × GET/HEAD eklendi).
+- **deploy:** `Caddyfile` (`agent_zip_file` snippet'i, `@agentZip` → `/internal/agent-ready/macos`; `@agentExe`/`@agentExeFirm` →
+  `/internal/agent-ready/windows`), `test-caddy.sh` (zip 200 + başlıklar, kapı yolu, çapraz kapı kapalı senaryoları, biçim dışı zip
+  adları, ops 404, log maskesi), `docker-compose.yml` (server `MAC_AGENT_PATH` sabit + `MAC_AGENT_SHA256`), `.env.example`, `docs/runbook.md` env tablosu.
+- **web (koordinatör isteğiyle, yalnız `macosTestBuild` bağlantısı):** `lib/agent-download.ts` (şemaya `macosTestBuild`, eksik/geçersiz
+  → false), `app/session/[token]/agent-offer.tsx` (`ready.testBuild`), `guest-welcome.tsx` + `join-form.tsx` (`testBuild={agent.testBuild}`),
+  `lib/agent-download.test.ts`, `e2e/mock-sessions.mjs`, `e2e/p28f-macos.spec.ts` (staging TEST rehberi senaryosu).
+
+### Tasarımdan sapmalar (gerekçeli; `mimari-p28f.md` §8.1 notuna da yazıldı)
+
+1. **`MAC_AGENT_PATH` sabiti `/data/downloads/NoktaDestek-macOS.zip`** (mimari `/srv/downloads/...` yazıyor): `/srv/downloads` Caddy'nin
+   bağlama noktası; server aynı `agent_downloads` volume'unu `/data/downloads`'ta bağlar. Eşitlik denetimi (Windows dahil) yalnız
+   `NODE_ENV=production`'da — mevcut testler ve geliştirme geçici dizin kullanır.
+2. **Join audit `os` → `guest.pending`:** kodda başarılı `session.join` satırı yok (yalnız 410'da `result:fail`); başarılı join'in satırı
+   `guest.pending`. İkinci bir satır eklemek "yeni olay yok" (§3) kuralına aykırı olurdu.
+3. **`macosTestBuild`** (K7 isteği, koordinatör onayı): availability'de `DEPLOY_ENV !== "production"` ∧ `macos` → true; prod'da her zaman
+   false. Web eksik alanı false sayar (fail-safe: "Yine de Aç" rehberi asla varsayılan değil).
+4. Availability hata yanıtlarında `Cache-Control: no-store` (yalnız 200 `public, max-age=60`).
+
+### Bağımlılık
+
+Yok.
+
+### Bilinen etki (başka pakete devir)
+
+- **`apps/agent-win` Go testleri K5'e kadar kırmızı:** `TestS68DangerousExtMatchesContracts` (`files.ts` listesini Go listesiyle
+  karşılaştırır) ve fixture testi (`file-names.json` yeni macOS/gizli ad örnekleri). Görev gereği Go'ya dokunulmadı; K5 `files.go`
+  listesine aynı 30 türü + baştaki noktalı ad kuralını ekleyince yeşile döner (mimari §5.4 "contracts + Go + fixture aynı anda").
+  Yerelde `go` yok, CI'da doğrulanacak.
+
+### frontend-dev için sözleşme
+
+- `GET /api/v1/public/agent/availability` → `{ windows, macos, macosTestBuild }`; 429'da `Retry-After`, `no-store`.
+- `GET /api/v1/public/agent/download?ref=&os=macos` → 302 `/downloads/Destek-<kod>.zip`; geçersiz `os` 400 VALIDATION; mac kapısı 503 NOT_READY.
+- `control.state {VIEW, OS_PERMISSION}` teknisyene iletilir; audit `control.cancelled {by:"agent", source:"os_permission"}`.
+- `guest.pending` `newValue.os` ∈ `windows|macos|linux|browser` (etiket `CLIENT_OS_LABELS`, alan adı `CLIENT_OS_FIELD_LABEL`).
+
+### Doğrulama (2026-11-17)
+
+- Test DB `rs-p28f-k6:3417` (iş sonunda silindi).
+- `pnpm -r run lint` ve `pnpm -r run typecheck`: yeşil.
+- contracts: 27 dosya / 271 test geçti. server unit: 673 geçti, 1 atlandı. server integration (tam): 1168 testin 1167'si geçti.
+  Kalan 1 test `tenant-purge-p16` "AC-242 FAILED…", aynı DB'de iki tam koşudan sonra kırmızıya döndü; temiz DB'de tek başına 10/10
+  geçiyor. K6'yla ilgisi yok, DB durumuna bağlı. İlk tam koşuda görülen `customers-csv-p19` (60 sn zaman aşımı) ve `tenant-purge-meta-p16`
+  de tek başına geçti.
+  Değişikliğe bağlı dosyalar ayrıca koşuldu: p28f-k6, agent-download, signaling-control-p7, signaling-fix1, pt-surface, tenant-isolation,
+  lg-send, requests-p8b-4 → 125/125.
+- web: vitest 585/585; Playwright `p28f-macos` + `p6-agent-download` 19 geçti (19 atlandı, mobil projesi).
+- `deploy/test-caddy.sh`: SONUÇ GEÇTİ.
+
+## P28f K1 — Go iskeleti: uicore, darwin/objc, main_darwin, build-darwin.sh, clientOs (backend-dev Go, 2026-11-17)
+
+Kaynak: `docs/mimari-p28f.md` §2, §2.1, §5.4 (S-P28f-11), §6, §8.2, §10 K1; ADR-0037 m.1; spike `docs/spike-p28f-k0s.md`
+(spike kodu `apps/agent-win/spike/p28f/` okunup kalıpları alındı, değiştirilmedi; PR'a girmez).
+
+### Değişen / yeni dosyalar (`apps/agent-win/`)
+
+- **uicore taşıması (Windows davranışı değişmez):** `internal/ui/{accept,voice,notices,logo,session_fit,theme}.go` + testleri
+  (`contrast_test.go` dahil), `assets/nokta-kucuk.png`, `third_party_notices.txt` → `internal/ui/uicore/` (build tag'siz; `doc.go`
+  yeni). `go:embed` üst dizine çıkamadığı için gömülü dosyalar da taşındı. Tanımlayıcılar dışa açıldı (ör. `acceptKey{tech,verify}` →
+  `uicore.AcceptKey{Tech,Verify}`, `chatSqueeze` → `ChatSqueeze`, `rgb/palette` → `RGB/Palette`, `thirdPartyNotices` →
+  `ThirdPartyNotices`); yalnız kendi dosyasında kullanılanlar (`fitSize`, `sessionPad`, `chatHistoryM`, palet değişkenleri) dışa
+  açılmadı. Win32 dosyaları (`form, home, licenses, overlay, panel, reqwait, resident, session, theme, ui, voice _windows.go`) yalnız
+  `uicore.` önekiyle güncellendi; `ui.SystemLogo()` dış API'si korunur. Test adları aynı (CI ad sözleşmeleri `./internal/ui/...`
+  kapsar). Kök `NOTICE` yolu güncellendi.
+- **`internal/darwin/objc/` (yeni):** `doc.go` (S-P28f-11 kuralları 1–7 bağlayıcı paket belgesi), `handles.go` (+test, her
+  platform; C bağlamı için tamsayı tutamaç tablosu), `load_darwin.go` (izin listeli `Open`/`Framework`/`Func`; yalnız
+  `/System/Library/Frameworks/<Ad>.framework/<Ad>`, `/usr/lib/libobjc.A.dylib`, `/usr/lib/libSystem.B.dylib`), `objc_darwin.go`
+  (`GetClass` hata döner, `Responds` fail-closed, `NSString` ≤ 64 KiB + UTF-8 doğrulamalı `initWithBytes:length:encoding:`,
+  `GoString` `getCString:maxLength:encoding:` ile Go tamponuna kopya — `uintptr→unsafe.Pointer` yok, S6-1 ve vet temiz; `Pool`,
+  CG yapıları), `dispatch_darwin.go` (`purego.NewCallback` yalnız `init`'te; `dispatch_async_f` + tutamaç; ana kuyruk `_dispatch_main_q`
+  sembolü), `objc_darwin_test.go`.
+- **`cmd/noktadestek/main_darwin.go`, `deps_darwin.go` (yeni), `identity.go` (yeni, `windows || darwin`):** `identity()`
+  `main.go`'dan aynen taşındı (iki platform ortak). darwin: `init`'te `runtime.LockOSThread`; argüman okunmaz (T4); Foundation +
+  AppKit izin listeli yükleme → `config.Load` → kimlik → `ui/mac.New` → akış goroutine'de, `NSApp run` ana iş parçacığında; bitince
+  `Ended` + 2,5 sn + ana kuyrukta `terminate:` (AC-107). `flowDeps` yalnız platformdan bağımsız parçaları bağlar (API, rtc/medya,
+  fsrv, logo); kontrol (Hotkey/Input boş → G-21 izin verilemez), pano/yazdırma, ses, roster, FileServerUI bağlanmaz → `Features`
+  bildirmez.
+- **K2–K5 dikişleri (fail-closed stub, sahibi paket ve §6 dosya adıyla):** `internal/capture/source_darwin.go` (`Monitors`/`Open` →
+  `ErrUnsupported`; K2), `internal/files/quarantine_darwin.go` (`WriteQuarantine` hata → transfer uyarılı adı reddeder; K5),
+  `internal/ui/mac/ui_darwin.go` (`New` → `ErrNotImplemented`; K4). İndirme klasörü K5'e kadar hata döner → dosya teklifleri
+  otomatik reddedilir (`flow.initFiles`). Sonuç: K1 ikilisi macOS'ta açılır, çerçeveleri yükler ve `exitUI` (4) ile çıkar; arayüzsüz ya
+  da kendiliğinden onaylayan bir akış hiçbir koşulda başlamaz.
+- **`internal/api/api.go`:** resolve gövdesine `clientOs` (`windows`/`macos`/`linux`, `runtime.GOOS`'tan; bilinmeyen platformda
+  alan gönderilmez — sunucu yoksa `windows` sayar, geçersizde 400). Windows istemcisi de gönderir (0.19.0). Join değişmez.
+- **`internal/config/config.go`:** `testBuild` ldflags hedefi + `Config.TestBuild` (yalnız tam `"1"`); K4 TEST bandı için ek koşul.
+- **`internal/flow/messages_p28f.go` (+test):** `MacTexts` tek tablo — TEST bandı, Ekran Kaydı rehberi (başlık, 3 adım, düğmeler),
+  Erişilebilirlik rehberi, gizli pano uyarısı, "İzinleri kaldırma". ADR r3 gereği mikrofon metni yok.
+- **`internal/files/files.go`:** tehlikeli uzantı listesi 30 macOS türüyle contracts `DANGEROUS_EXT` ile birebir; `IsHiddenName`
+  (baştaki nokta) + `NameWarning` sırası TS ile aynı (çift uzantı → tehlikeli ya da gizli → yok). Tüm çağıranlar `NameWarning`
+  üzerinden (transfer, fsrv) — gizli ad kuralı hepsine uygulanır.
+- **`build/build-darwin.sh` (yeni):** `<sunucu> <sürüm> <arm64|amd64> [çıktı] [test]`; `GOOS=darwin CGO_ENABLED=0 -trimpath
+-ldflags "-s -w -buildid= -X serverURL -X version [-X testBuild=1]"`, yalnız ince ikili (lipo/paket K8a). S-P28f-7 koruması: `test`
+  kipi değilse yalnız `GITHUB_REF_TYPE=tag` + `GITHUB_REF_NAME=v<sürüm>` ya da `.invalid` sunucu (iz testi derlemesi) kabul; aksi ret
+  (çıkış 2).
+- **`go.mod`/`go.sum`:** yalnız `github.com/ebitengine/purego v0.11.3` (tidy farkı başka modül içermez).
+- **Lisans:** `internal/ui/uicore/third_party_notices.txt` purego LICENSE (Apache-2.0) aynen + listede "yalnız macOS"; purego'nun
+  Go'dan türetilen kısımları (`internal/fakecgo`, `abi_*.h`) mevcut Go BSD-3-Clause metniyle kapsanır. Kök `NOTICE` güncellendi.
+  Bildirim testi purego başlığını arar.
+
+### Eklenen bağımlılık (gerekçe)
+
+`github.com/ebitengine/purego` v0.11.3 — Apache-2.0, bağımlılıksız; ADR-0037 m.1 kararı (CGO'suz AppKit/SCK/VT/CGEvent erişimi,
+Linux'ta tekrarlanabilir çapraz derleme). Yalnız darwin dosyaları içe aktarır; Windows ikilisine bağlanmaz.
+
+### Tasarımdan sapmalar / notlar
+
+1. **`ui/mac.New` imzası** `(flow.UI, <-chan flow.Event, error)` — K1'de 40+ yöntemlik ölü stub yazmamak için arayüz döner; K4
+   somut türe geçirebilir.
+2. **`identity.go`** ayrı dosya (`windows || darwin`): kopya yerine paylaşım; Linux'ta `cmd/noktadestek` yine derlenmez (main yok).
+3. **Build tag düzeni (sonraki paketler için):** mevcut `_other.go` (`!windows`) dosyaları darwin'de derlenmeye devam eder (K1'de
+   `clip_other.go`, `printer_other.go`, `autostart_other.go`, `supported_other.go` darwin'de stub sağlar). Bir paket `_darwin.go`
+   eklediğinde ilgili `_other.go` kısıtı `!windows && !darwin` yapılır. K1 dikiş dosyaları (`source_darwin.go`, `quarantine_darwin.go`,
+   `ui_darwin.go`) K2/K4/K5'te doğrudan değiştirilir.
+4. **Yerel S6-1 kırmızısı (ürün dışı):** `internal/win` `TestS61PointerConversionOnlyInsideCallArgs` modül kökünü tarar ve izlenmeyen
+   `spike/p28f/k0s2vt/main.go:455`'i yakalar. Spike PR'a girmediği için CI'da yoktur; yerelde spike dizini varken bu tek test kırmızıdır.
+   Yeni `internal/darwin/objc` kodu kuralı karşılar (dönüşüm yok).
+5. Ses (`voice.Supported()` darwin'de false) zaten bağlanmaz; ADR r3 kararıyla uyumlu.
+6. **NSData dönüşümü** (§2 `internal/darwin/objc` satırı) K1'de yok: ilk kullanıcısı pano/yakalama (K2/K5); kullanılmayan kod
+   eklenmedi. Aynı kurallarla (uzunluk sınırı, Go tamponuna kopya) ilk kullanan pakette `objc`'ye eklenir. Tipli gönderim
+   (`Send[T]`) ve `RegisterClass` doğrudan purego/objc ile yapılır; bu paket tür takma adları + yardımcıları verir.
+7. `MacTexts` rehber adımları ve Erişilebilirlik gövdesi tasarımda tam metin olarak yoktu; ifade backend-dev'in — mimar/PM onayı
+   (K4 öncesi) gerekir. Ana kuyrukta `terminate:` yolu derlenir ama K1'de çalışmaz (arayüz kurucusu her zaman hata döner).
+8. `uicore` bağımlılıkları darwin'de: `flow` (+ signal/api/rtc/…) ve `tray` (`logo.go` `tray.AreaSum`); hepsi darwin'de derleniyor.
+9. `DESIGN.md` §Win32 satırındaki tema tablosu yolu `internal/ui/uicore/theme.go` olarak düzeltildi.
+
+### Test komutları ve sonuçlar (2026-11-17)
+
+| Komut                                                                                                                                                                                   | Sonuç                                                                                                                                                            |
+| --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `GOOS=darwin GOARCH=arm64 go vet ./...` · `GOOS=darwin GOARCH=amd64 go vet ./...` (macOS, Go 1.26.11)                                                                                   | yeşil                                                                                                                                                            |
+| `GOOS=darwin GOARCH=amd64 CGO_ENABLED=0 go build ./cmd/noktadestek`                                                                                                                     | yeşil                                                                                                                                                            |
+| `docker run --rm -v "$PWD:/src" --tmpfs /src/apps/agent-win/spike -w /src/apps/agent-win golang:1.26 sh -c 'go test ./... && GOOS=windows go vet ./... && GOOS=windows go build ./...'` | 33 paket ok, Windows vet + build yeşil; aynı konteynerde `GOOS=darwin` vet + amd64 build yeşil                                                                   |
+| `go test ./...` (macOS yerel)                                                                                                                                                           | spike kaynaklı S6-1 dışında (not 4) tümü ok                                                                                                                      |
+| Görevdeki birebir komut (spike maskesiz)                                                                                                                                                | `go test` yalnız `internal/win` S6-1 kırmızı (izlenmeyen spike dosyası); `&&` nedeniyle Windows vet/build bacağı bu biçimde koşmaz — maskeli koşu yukarıda yeşil |
+| `go test ./internal/darwin/...` arm64, `GOARCH=amd64` (Rosetta), `MallocScribble=1 NSZombieEnabled=YES`                                                                                 | ok (izin listesi, fail-closed sınıf/selector/sembol, NSString sınır + Türkçe gidiş-dönüş, dispatch sırası + tutamaç sızıntısı 0)                                 |
+| staticcheck v0.8.2 (GO_IMAGE; linux, windows/amd64, darwin/arm64, darwin/amd64)                                                                                                         | temiz                                                                                                                                                            |
+| `gofmt -l` (spike hariç)                                                                                                                                                                | temiz                                                                                                                                                            |
+| Tekrarlanabilirlik: GO_IMAGE'de `/src` ve `/baska/yol` bağlamalarıyla `build-darwin.sh … test` iki kez                                                                                  | arm64 `e6bb03b6…e247` = eşit (11,0 MiB); amd64 `88eb6007…5c7a` = eşit (11,7 MiB)                                                                                 |
+| `build-darwin.sh` prod adresi, etiket yok                                                                                                                                               | ret (çıkış 2); `.invalid` sunucu kabul                                                                                                                           |
+| Linux'ta derlenen ince ikililer macOS'ta (arm64 yerel, amd64 Rosetta)                                                                                                                   | çerçeveler yüklendi, `exitUI` (4) — K1 beklenen davranış                                                                                                         |
+
+### frontend-dev / diğer paketler için sözleşme notu
+
+Sözleşme değişikliği yok: `clientOs` K6'da sunucuya ve contracts'a zaten eklenmişti; Go istemci artık gönderiyor. Web etkilenmez.
+
+## P28f K3 — macOS girdi: CGEvent, tuş tablosu, değiştirici eşleme, olay musluğu, Carbon kısayol, OS_PERMISSION (backend-dev Go, 2026-11-17)
+
+Kaynak: `docs/mimari-p28f.md` §2, §5.1 T1/T2, §5.2, §5.2a, §10 K3, §13 S-P28f-1/-10, §14 r3; ADR-0037 m.3; spike K0s-3/4.
+
+### Değişen / yeni dosyalar (`apps/agent-win/`)
+
+| Dosya                                                                   | İş                                                                                                                                                                                                                                                                                                                               |
+| ----------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `internal/input/keys_mac.go` (yeni, etiketsiz)                          | DOM `code` → `kVK_*` tablosu (SDK `Events.h` ile doğrulandı); Ctrl→⌘, Win→Control, Alt→Option; `(VK,E0)` → kVK türetilmiş tablo; değiştirici bayrakları (genel + sol/sağ aygıt biti)                                                                                                                                             |
+| `internal/input/inject_mac.go` (yeni, etiketsiz)                        | `macTranslator`: Applier `[]Event` → CGEvent tarifi. Koordinat ters çevirme (nokta), `*MouseDragged`, tık sayısı (çift tık), Unicode birleştirme (≤ 20 birim, vekil çifti bölünmez, bayraksız), tekerlek (piksel), erişilebilirlik kısayol süzgeci (Option ×5, ⌘F5, ⌘⌥F5; "⌘ basılı" = alıcı VEYA sistem bayrağı), AC-48 eşi ⌃⌘Q |
+| `internal/input/localclick.go` (yeni, etiketsiz)                        | `localClick` saf kararı, süreç işareti `Marker()`, `LocalInput`                                                                                                                                                                                                                                                                  |
+| `internal/input/cgevent_darwin.go` (yeni)                               | purego bağlama (izin listeli çerçeveler, `objc.Func`), `CGInjector`, `VirtualScreen`, `DisplayRect`                                                                                                                                                                                                                              |
+| `internal/input/host_darwin.go` (yeni)                                  | `Host`: Carbon `RegisterEventHotKey` Control+Shift+F12 / yedek F11; olay musluğu (kapı açıkken), devre dışı → yeniden aç, olmazsa `gate.Shut` + `onLost`; `ControlReady()`                                                                                                                                                       |
+| `internal/input/click_darwin.go` (yeni)                                 | `EventClick`, `CurrentClick`, `Uptime`, `LocalEvent` (AppKit/CGEvent alan okuma)                                                                                                                                                                                                                                                 |
+| `internal/input/applier.go`                                             | `Pause()` / `Resume()` (S-P28f-1 ikinci katman; basılıları bırakır, sonra düşürür; iç içe sayaç)                                                                                                                                                                                                                                 |
+| `internal/darwin/objc/load_darwin.go`                                   | `Symbol(h, name)`: işaretçi değerli sabit sembol (ör. `kCFRunLoopDefaultMode`)                                                                                                                                                                                                                                                   |
+| `internal/flow/flow.go`, `control.go`, `session.go`, `messages_p28f.go` | `Deps.ControlReady`, `Deps.AccessGuide`, `EvControlSystem`; `MacTexts.ControlLost`                                                                                                                                                                                                                                               |
+| `internal/signal/outbound.go`                                           | misafir `VIEW` kaynaklarına `OS_PERMISSION` (contracts `GUEST_VIEW_SOURCES` ile aynı)                                                                                                                                                                                                                                            |
+| `cmd/noktadestek/deps_darwin.go`                                        | `controlDeps`: enjektör + Applier + Host + `ControlReady` + arayüz kancaları; `flowDeps`'e `gate` parametresi                                                                                                                                                                                                                    |
+| Testler                                                                 | `internal/input/mac_test.go`, `localclick_test.go`, `cgevent_darwin_test.go`; `internal/flow/control_p28f_test.go`; `internal/signal/signal_test.go`                                                                                                                                                                             |
+
+### `localClick` sözleşmesi (K4 ile paylaşılan; `internal/input`)
+
+```go
+type ClickEvent struct { Present bool; Type uint32; StateID, PID, UserData int64; At time.Duration }
+const NSLeftMouseDown, NSLeftMouseUp uint32 = 1, 2
+const ClickMaxAge = time.Second; const ClickMaxHold = 10 * time.Second
+func LocalClick(press, release ClickEvent, now time.Duration) bool // saf karar (beyaz liste, fail-closed)
+func EventClick(ev objc.ID) ClickEvent   // darwin: NSEvent → alanlar (basışı kaydetmek için)
+func CurrentClick() ClickEvent           // darwin: NSApp.currentEvent (eylem anı, ana iş parçacığı)
+func Uptime() time.Duration              // darwin: NSEvent.timestamp ile aynı taban
+func LocalEvent(cgEvent uintptr) bool    // darwin: tek CGEventRef için m.2–m.4 (ui/mac SetLocalCheck'e bağlanır)
+func Marker() int64                      // enjekte olaylara konan kCGEventSourceUserData işareti (0 = yok → kontrol yok)
+```
+
+Kurallar (§5.2a): basış ve bırakma ikisi de sol fare, `StateID == 1`, `PID == 0`, `UserData != Marker()`; bırakma ≤ 1 sn önce,
+basış bırakmadan önce ve ≤ 10 sn. Olay yok / klavye / AX eylemi / işaret üretilemedi → ret.
+
+### Arayüz (K4) kancaları — `controlDeps` isteğe bağlı arayüzle bağlar
+
+`SetHotkey(label)`, `SetInjectMarker(int64)`, `SetLocalCheck(func(cgEvent uintptr) bool)` ← `input.LocalEvent`,
+`SetInjectPause(func(paused bool))` ← `Applier.Pause/Resume`, `AccessibilityGuide()` ← `Deps.AccessGuide`. Kısayol ve musluk
+kaybı akışa `deps_darwin` içinde arayüz kanalıyla birleştirilen kanaldan gider (`EvControlHotkey`, `EvControlSystem`);
+`UI.HotkeyPressed` kullanılmaz.
+
+**main_darwin.go (K4):** `gate := &control.Gate{}` → `mac.New(mac.Options{…, Gate: gate})` ve
+`flowDeps(cfg, fp, client, u, events, gate)` — K4 uyguladı; gerçek ağaç derleniyor.
+
+### Tasarımdan sapmalar (gerekçeli)
+
+1. **Tablo dosyası adı:** mimari §6 `keys_darwin.go` diyor, §9 tablo testini Linux'ta istiyor. `_darwin.go` Linux'ta derlenmediği
+   için tablo ve çeviri `keys_mac.go` / `inject_mac.go` (etiketsiz) oldu; CGEvent'e yalnız `*_darwin.go` dokunur.
+2. **Applier değişmedi (Windows ile aynı arayüz):** macOS enjektörü Applier'ın SendInput biçimli `[]Event`'ini çevirir;
+   kVK tablosu DOM code anahtarlıdır, `(VK,E0)` → kVK eşlemesi iki tablodan türetilir (çakışma testte yakalanır).
+3. **`localClick` yeri — AÇIK KARAR:** mimari `ui/mac/local.go` diyor; koordinatör "K3 tanımlar, K4 kullanır" dedi. K3 tam
+   API'yi `internal/input`'ta tanımladı; K4 paralelde kendi `classifyClick`'ini yazdı ve bugün kararı o veriyor
+   (`input.LocalEvent` yalnız `SetLocalCheck` ile ek VE koşulu). `LocalClick`/`EventClick`/`CurrentClick`/`Uptime` üretimde
+   çağıransız. §5.2a "tek tanım" için seçim gerekir: (a) K4 `input.LocalClick`'e geçer, ya da (b) bu dördü silinir ve yalnız
+   `LocalEvent` + `Marker` kalır. **KAPANDI (P28f düzeltme 1, QA m.3): karar (a), tek tanım `input.LocalClick`.** K4
+   `ui/mac/local_darwin.go` `clickOf` zaten `input.LocalClick`/`EventClick`/`CurrentClick`/`Uptime` kullanıyor; ölü
+   `SetInjectMarker`/`SetLocalCheck` dalları, `input.LocalEvent` (ve testi) ile çağıransız kalan `input.Marker()` silindi.
+4. **Flow'a küçük ek (K3 kapsamı dışı dosya):** OS_PERMISSION ve "musluk kaybı → VIEW{SYSTEM}" flow kancası olmadan
+   gönderilemiyordu. Eklemeli: `ControlReady`/`AccessGuide` nil → bugünkü davranış (Windows etkilenmez). OS_PERMISSION dalı
+   `ctlReq.Cancel()` kullanır (ret değil: 30 sn bekleme yok). "İzin ver" anında da yeniden yoklanır.
+5. **Musluk seçeneği:** `kCGEventTapOptionDefault` (olay değiştirilmeden döner). ListenOnly Girdi İzleme izni isterdi; rehber
+   yalnız Erişilebilirlik'i anlatıyor. "Yalnız Erişilebilirlik verilmiş bundle'da musluk kuruluyor mu" elle listede.
+6. **Kapanış yoklaması:** musluk iş parçacığı CFRunLoop'u 50 ms dilimlerle döndürür; her dilimde `CGEventTapIsEnabled` ve
+   `AXIsProcessTrusted` yoklanır (izin oturumda geri alınırsa ≤ 50 ms kapanış; `kCGEventTapDisabledBy*` geri çağrıda anında).
+7. **AC-48 eşi:** ⌃⌘Q (macOS ekran kilidi; Windows'taki Win+L karşılığı) iletilmez. Windows'a özgü PrintScreen / ScrollLock /
+   Pause macOS'ta F13–F15'e (parlaklık) düşeceği için tabloda yok.
+8. **Kısayol etiketi:** macOS'ta "Control+Shift+F12" (Mac klavyesindeki ad). Dizüstünde F tuşları için fn gerekebilir —
+   kılavuz/arayüz metni K4/K11.
+9. **Tekerlek:** WHEEL_DELTA ×5/6 piksel (`CGEventCreateScrollWheelEvent2`; değişken argümanlı sürüm purego'da kullanılmadı).
+   Dikey yön Windows ile aynı, yatay ters; yön elle doğrulanacak.
+10. **AltGr (Türkçe Q):** Windows tarayıcısı AltGr'de sahte `ControlLeft` da gönderir; Applier'ın kısayol kuralı Mac'te
+    ⌘⌥+tuş üretirdi (`@ # $ { [ ] } \ |`). `Applier.SetAltGrText(true)` (yalnız macOS) AltRight basılıyken karakteri Unicode
+    gönderir; Windows davranışı değişmez.
+11. **App Nap:** K2 `capture/source_darwin.go`'da `beginActivityWithOptions:` ile yapıyor; K3'te tekrar edilmedi.
+
+### Eklenen bağımlılık
+
+Yok (purego K1'de eklendi).
+
+### Test komutları ve son çıktı (2026-11-17, Apple M4 Pro, macOS 26.3.1)
+
+- `go test ./internal/input/ ./internal/flow/ ./internal/signal/ ./internal/control/` (darwin arm64) → hepsi `ok`. Gerçek
+  enjeksiyon testleri koştu (Erişilebilirlik izni barındıran uygulamaya ait): imleç yerinde taşıma ±1,5 nokta, musluk kapı
+  açılınca kuruldu / kapanınca kalktı, kendi olayımız yerel askı başlatmadı, `ControlReady=true`, Carbon kaydı rc=0.
+- `internal/input` test ikilisinin tamamı `GOARCH=amd64` + `arch -x86_64` (Rosetta) → PASS (musluk yaşam döngüsü, Carbon
+  `hotKeyID` değerle struct argümanı, `CGEventGetLocation`/`CGDisplayBounds` struct dönüşü dahil).
+- `GOOS=darwin GOARCH={arm64,amd64} go vet ./... && go build ./...` (gerçek ağaç) → temiz.
+- staticcheck 0.8.2 `./...` linux/amd64, windows/amd64, darwin/arm64, darwin/amd64 → K3 dosyalarında 0 bulgu (kalan U1000
+  bulguları `internal/ui/mac`'te, K4'ün yarım işi). `gofmt -l` boş.
+- Windows/Linux: `docker run --rm --tmpfs /src/apps/agent-win/spike -v "$PWD:/src" -w /src/apps/agent-win golang:1.26 sh -c
+'go test ./... && GOOS=windows go vet ./... && GOOS=windows go build ./...'` → test ok, vet ok, build ok.
+
+### Elle listede kalanlar (otomatikleştirilemez)
+
+Fiziksel Control+Shift+F12 / F11, `.app` içinden, uygulama arka plandayken (sentetik tuş Carbon kısayolunu tetiklemiyor —
+spike); Fare Tuşları / VoiceOver VO-Space / AXPress / HID kaynaklı sentetik tıklama reddi (K4 ölçütü); Erişilebilirlik izni sonradan
+verilince yeniden başlatmasız kontrol; yalnız Erişilebilirlik izinli bundle'da musluk; Türkçe metin + ⌘C/⌘V gerçek uygulamada;
+tekerlek yönü; başka ölçekli çözünürlük kipleri ve harici ekran (negatif köken).
+
+### frontend-dev için sözleşme
+
+Değişiklik yok (OS_PERMISSION metni K7'de).
+
+## P28f K8a + K8b — macOS CI, paket, imza, yayın, gözcü (devops, 2026-11-17)
+
+Kaynak: `docs/mimari-p28f.md` §8.1–8.2, §10 K8a/K8b, §13 (S-P28f-3/4/5/6/7/14/17), §14; ADR-0037 r3. Ayrıntı ve komutlar: runbook §28f.
+
+### Değişen / yeni dosyalar
+
+- `apps/agent-win/build/macos/`: `package.sh` (bundle/sign/zip/check/adhoc/compare), `Info.plist.tmpl`, `info-plist-keys.txt`,
+  `entitlements.plist` (boş), `OKUBENI.txt`, `OKUBENI-stg.txt`.
+- `.github/workflows/agent-win.yml`: `check` darwin (vet, staticcheck, govulncheck, go-licenses); yeni işler `build-mac` ×2,
+  `reproducible-mac`, `package-mac`, `test-macos`, `sign-mac`, `attest-mac`; `approve` needs ve kontrol listesi; `release` macOS zip.
+  Yeni env `MAC_NOTARIZED_PREDICATE`. Yeni Action: `actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6` (v4.2.2; SHA `gh api` ile
+  etiketten çözüldü), yalnız `attest-mac`'te, `permissions` iş düzeyinde (`id-token`, `attestations: write`).
+- `.github/workflows/agent-watch.yml`: `hash-mac` işi (`vars.AGENT_WATCH_MAC_URL`); govulncheck darwin/arm64.
+- `.github/workflows/ci.yml`: shellcheck kapsamına `apps/agent-win/build/macos` eklendi. `build.sh`/`libopus-wasm.sh` mevcut uyarılar
+  (SC1007, SC2089/2090) nedeniyle kapsama alınmadı.
+- `deploy/agent/publish-mac.sh` (yeni), `deploy/agent/test-publish-mac-lock.sh` (yeni), `.env.example` (yorum), `docs/runbook.md`
+  (env tablosu + §28f).
+
+### Tasarımdan sapmalar / kararlar
+
+1. **main push'a prod adresi gömülmez** (Windows'tan farklı): ad-hoc pakete prod adresi girmesin (S-P28f-7); `build-darwin.sh` zaten reddeder.
+2. **Etikette `package-mac` yalnız denetler, zip yüklemez.** Prod adresli ad-hoc zip artifact olmaz. İmzalı zip yalnız `sign-mac`'te
+   üretilir (bundle + zip bu işte, etiket commit'indeki `package.sh` ile).
+3. `attest` işi genişletilmedi; ayrı `attest-mac` işi var. Böylece Windows attest'i macOS'a bağlanmıyor. Release ikisini de bekler.
+4. `SHA256SUMS`'taki `Contents/MacOS/noktadestek` satırı yalnız Release'teki birleşik dosyada (`sha256sum -c --ignore-missing`).
+   Artifact'lerde ayrı `icerik-sha256.txt` var; Windows tüketicileri (`verify-and-publish.sh`, agent-watch exe deseni) etkilenmez.
+5. **S-P28f-17 karşılaştırması:** `codesign --remove-signature` `__LINKEDIT` vmsize'ı geri yüklemiyor (ölçüldü), bu yüzden ham `cmp`
+   tutmaz. `package.sh compare` yalnız bu 8 baytı eşitleyip tam `cmp` yapar. İlk sürüm (bayt sayısı ≤ 8) tek bayt değişikliği
+   yakalayamadı ve düzeltildi.
+6. **Yayın kilidi:** tek yığın staging (`remote`) TEST zip'ini kabul eder; Windows `verify-and-publish.sh` reddeder. Gerekçe runbook §28f.4.
+   Prod yalnız `vX.Y.Z` + notarized predicate + `APPLE_TEAM_ID` eşleşmesi.
+7. Simge (`AppIcon.icns`) repoda değil, her paketlemede png'den üretilir (mimari §6 dosya listesinden sapma; incelenmemiş ikili yok).
+8. **İz betiği:** K5'in `apps/agent-win/test/trace-check-mac.sh` (mimari §6 yolu) betiği kullanılır (`TRACE_MAC`). test-macos sırası:
+   `snapshot` → `.invalid` + testBuild'siz prod profili ad-hoc paket `Destek-12345678/` içinden argümansız açılır → 15 sn → SIGTERM
+   (15 sn sonra KILL, uyarı) → `compare --since <açılış> --bundle <app> --marker 12345678`. Görevdeki yer tutucu
+   (`build/macos/trace-check-mac.sh`) K5 betiği gelince kaldırıldı.
+
+### Doğrulama (yerel, Apple Silicon macOS 26.3)
+
+| Komut                                                                                             | Sonuç                                                                                 |
+| ------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------- |
+| `build-darwin.sh … test` arm64 + amd64 (Go 1.26.11) → `package.sh adhoc … stg` iki farklı dizinde | check GEÇTİ; zip SHA eşit (`f640e32b…`, 9 678 780 B)                                  |
+| `codesign -dv`                                                                                    | `flags=0x10002(adhoc,runtime)`, `Identifier=…destek.stg`, universal; entitlement `{}` |
+| paket içi ikili arm64 + `arch -x86_64`                                                            | çıkış 4 (K1 beklenen)                                                                 |
+| negatif: spike entitlement'ları / `CFBundleURLTypes` / runtime'sız / stg pakete prod profili      | hepsi FAIL (beklenen)                                                                 |
+| `package.sh compare` arm64 + x86_64 / 1 bayt bozuk                                                | AYNI / FARKLI                                                                         |
+| `deploy/agent/test-publish-mac-lock.sh <gerçek stg zip>`                                          | 29/29 GEÇTİ; `test-publish-lock.sh` (Windows) GEÇTİ                                   |
+| `build-mac` meta adımı 6 olay girdisiyle; `reproducible-mac` cmp adımı Linux konteynerinde        | beklenen adres/kip/ad; etiket + test kipi ret                                         |
+| test-macos iz dizisi yerelde (K5 betiği, stg paket)                                               | `SONUÇ: temiz` (çıkış 0)                                                              |
+| actionlint 1.7.8, shellcheck 0.11.0 `-S warning` (CI imajları, CI kapsamı)                        | temiz                                                                                 |
+
+Koşulamayanlar: macos-15 runner işleri (`package-mac`, `test-macos`) ilk CI koşusunda; `sign-mac`/notarization Apple hesabı olmadan hiç
+(R39). Yerelde ikinci deneme sırasında ağaç K4'ün paralel `ui/mac` değişikliği nedeniyle derlenmiyordu (`ui_darwin.go` tanımsız
+`sessionWin`/`indicator`). K4 bitince CI darwin vet/test bunu yakalar.
+
+## P28f K2 — macOS yakalama: ScreenCaptureKit + VideoToolbox H.264, monitörler, ortam yoklaması (backend-dev Go, 2026-11-17)
+
+Kaynak: `docs/mimari-p28f.md` §2, §7, §10 K2, §14 r3 m.1/m.3; ADR-0037 r3 m.2; spike kalıpları `spike/p28f/k0s1sck`, `k0s2vt`
+(spike değiştirilmedi). Windows'la aynı platform bağımsız hat: `selectEncoder`/`fallbackEncoder` (AC-245), `rateCtl` (AC-41),
+`keyClock` (GOP 2 sn + PLI), `lowStage` (P28c düşük iz = ikinci VT oturumu, ADR-0035), `bitrateFor`, `OutputSize`.
+
+### Değişen / yeni dosyalar (`apps/agent-win/`)
+
+| Dosya                                                           | İş                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
+| --------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `internal/capture/macshared.go` (+ `_test`, **etiketsiz**)      | Taşma denetimli düzlem boyu/kopyası (FFI kuralı 4), AVCC → Annex-B (anahtar karede SPS/PPS önde, sınır denetimli), monitör sırası kuralı, kesin artan PTS. `maxMonitors` buraya taşındı (`monitors_windows.go`'dan silindi)                                                                                                                                                                                                                                   |
+| `internal/capture/fw_darwin.go`                                 | CoreFoundation/CoreMedia/CoreVideo/VideoToolbox/CoreGraphics/ScreenCaptureKit bağlama (yalnız `objc.Framework`/`objc.Func`, eksik sembol → fail-closed); CFString sabitleri sembol değeri olarak okunur (uintptr→unsafe.Pointer dönüşümü yok, S6-1)                                                                                                                                                                                                           |
+| `internal/capture/vt_darwin.go` (+ `_test`)                     | `vtEncoder` (`Encoder`): RealTime + Baseline_AutoLevel + yeniden sıralama yok + anahtar kare ≤ 2 sn + 709 renk etiketi; donanım = `RequireHardwareAcceleratedVideoEncoder`, yazılım = `EnableHardwareAcceleratedVideoEncoder=false`; `SetBitrate` = AverageBitRate + 1 sn DataRateLimits (Windows CBR karşılığı). `EnableLowLatencyRateControl` YOK. Çıktı geri çağrısı `init`'te tek `purego.NewCallback`; bağlam tamsayı anahtar (kural 1, 2)               |
+| `internal/capture/sck_darwin.go`                                | `SCStream` (tek ekran, NV12 '420v', GPU'da `OutputSize`, 30 fps tavan, imleç karede, 709/sRGB); temsilci sınıf `init`'te bir kez; örnek geri çağrısı yalnız düzlemleri Go NV12'ye kopyalar (kilit/bırak eşli) ve son-kare yuvasına bırakır; **kendi uygulamamız hariç** (`excludingApplications`), açılışta listede yoksa 1 sn'de bir yeniden sorgulanıp `updateContentFilter:` ile dışlanır; `stream:didStopWithError:` → kaynak geri çekilmeli yeniden açar |
+| `internal/capture/monitors_darwin.go`                           | `Monitors()` (CGGetActiveDisplayList; izin istemez; W/H fiziksel piksel), `MonitorRect(id) objc.CGRect` (CGDisplayBounds, nokta, sol üst köken — K3 `SetInputMonitor` kullanıyor)                                                                                                                                                                                                                                                                             |
+| `internal/capture/source_darwin.go` (K1 yer tutucusunun yerine) | `Open(int) (rtc.Source, error)` (imza aynı): ilk kare ≤ 2 sn, kodlayıcı seçimi, `NextFrame` (Windows `pipeline.next` ile aynı kurallar: idleKeepAlive, PLI, düşük iz adımı, kare hızı denetimi), akış kaybında son kareyle devam + yeniden açma; **App Nap** kaynak ömrü boyunca kapalı (`NSActivityUserInitiated                                                                                                                                             | LatencyCritical`, `Close`'da `endActivity:`) |
+| `internal/capture/env_darwin.go`                                | `EnvProbe() env.State`: `CGSessionCopyCurrentDictionary` → `CGSSessionScreenIsLocked` doğru ya da `kCGSSessionOnConsoleKey` yanlış → `SecureDesktop=true` (konsol: "Müşteri güvenli masaüstünde")                                                                                                                                                                                                                                                             |
+| `internal/capture/sck_darwin_test.go`                           | Ana iş parçacığı pompalı `TestMain`; monitör, ortam, kaynak, hariç tutma (pozitif/negatif kontrol, geç dışlama), ölçüm testleri. Ekran Kaydı izni yoksa SCK testleri **atlanır**                                                                                                                                                                                                                                                                              |
+| `cmd/noktadestek/deps_darwin.go`                                | Yalnız `EnvProbe: capture.EnvProbe` satırı (Monitors/Capture bağlantısı K1'den aynı)                                                                                                                                                                                                                                                                                                                                                                          |
+
+### Monitör kimliği kuralı (K3/K4 aynı eşlemeyi kullanır)
+
+`CGGetActiveDisplayList`; yansı ekranlar (`CGDisplayMirrorsDisplay ≠ 0`) atlanır; **ana ekran 1**, diğerleri CoreGraphics
+sırasıyla 2, 3, …; en çok 16. `Open(id)` aynı listeden `CGDirectDisplayID`'yi alıp `SCShareableContent.displays` içinde
+`displayID` eşleşmesiyle SCDisplay'i bulur.
+
+### Tasarımdan sapmalar (gerekçeli)
+
+1. **Ortam yoklaması `capture`'da:** mimari §6/§11 `internal/env/probe_darwin.go` diyor; görev kapsamı "yalnız internal/capture"
+   (paralel ajan çakışması) ve §2 tablosu kilit yoklamasını `capture/*_darwin.go` satırına koyuyor → `capture.EnvProbe`.
+   `env.State` türü aynı; ileride `env`'e taşımak tek satırlık bağlantı değişikliği. `IsSecureEventInputEnabled` (güvenli metin
+   girişi) K2 görevinde değil, uygulanmadı.
+2. **Monitör listesi CoreGraphics'ten:** mimari "SCShareableContent" diyor. SCK listesi Ekran Kaydı izni ister (izinsiz sistem
+   diyaloğu açabilir); CG listesi izinsiz gelir ve K3'ün koordinat eşlemesi de izinsiz çalışmalı. SCDisplay yalnız `Open`'da
+   `displayID` ile eşlenir.
+3. **Kodlama boyutu `OutputSize` (Windows ile aynı: uzun ≤ 1920 ve kısa ≤ 1080):** ADR r3 "uzun kenar ≤ 1920" diyor; bu kural
+   onu sağlar ve Windows ile aynı bit hızı/AC-41 tavanını korur. Bu makinede 4112×2658 → **1670×1080** (GPU'da ölçek).
+4. **Hat iki kopyalı (SCK CVPixelBuffer → Go NV12 → VT havuz tamponu):** ADR "geri çağrılar yalnız kopyala-ve-kanala-bırak" ve
+   `Encoder`/`lowStage` arayüzü `*NV12` alıyor; sıfır kopya için ortak türün değişmesi gerekirdi. 1670×1080 NV12 kopyası < 1 ms;
+   ölçüt rahat tutuyor (aşağıda).
+5. **Yeni neden kodu yok:** contracts `p17-share-reasons` testi Go `reason.go` ile etiket tablosunun birebir eşitliğini
+   istiyor. İzin yok → `OTHER` (`Op=ScreenCaptureAccess`), ekran yok → `NO_OUTPUT`, ilk kare gelmedi → `OTHER`
+   (`Op=FirstFrame`; `FIRST_FRAME_TIMEOUT` `ShareMethod()`'da DXGI'ye eşlendiği için kullanılmadı), VT oluşturulamadı →
+   `NO_H264_ENCODER`, özellik reddi → `ENCODER_CONFIG`, kodlama → `ENCODE_FAILED`. `Method` macOS'ta hep boş (SHARE_METHODS
+   yalnız Windows yolları). Not: `NO_H264_ENCODER` müşteri ipucu Windows metni ("Medya Özellik Paketi") — VideoToolbox her
+   macOS'ta olduğundan pratikte görünmez; macOS'a özgü kod/ipucu istenirse contracts + `captureHints` birlikte (K10 önerisi).
+6. **Ekran Kaydı izni:** SCK'ya dokunmadan önce `CGPreflightScreenCaptureAccess`; false → tipli hata, diyalog açılmaz (istek
+   ve rehber K4/macperm).
+7. **Tanılama logu (`internal/diag`) darwin'de bağlanmadı:** `deps_darwin.go` `capture.Open`'ı doğrudan kullanıyor (K1);
+   Windows'taki `Opener{Log}` karşılığı ayrı iş.
+8. **SCStreamOutput protokol nesnesi** çalışma zamanında yok (SCK'da benimseyen sınıf yok); temsilci protokolsüz kaydedilir,
+   SCK yöntemleri `respondsToSelector` ile çağırıyor (spike'ta da böyle çalışmıştı; testlerle doğrulandı).
+9. **App Nap K2'de** (K3 notu 10 ile uyumlu; tekrar yok).
+10. **Ana oturumda da `DataRateLimits`** (spike'ta yalnız düşük izdeydi): Windows ana iz CBR olduğu için tavanın karşılığı.
+    Ağır içerik ölçümünde (aşağıda) gecikme/kayıp etkisi yok; bloklu video benzeri içerikte tavana yaklaştırıyor.
+11. **Renk: SCK `colorMatrix` 709 + `colorSpaceName` sRGB, VT 709 VUI etiketi** (spike yapılandırmasında yoktu): çözücü
+    matrisi akıştan okusun diye. Chrome'da renk doğruluğu elle.
+
+### Test komutları ve son çıktı (2026-11-17, Apple M4 Pro, macOS 26.3.1, ekran 4112×2658; Ekran Kaydı izni bu süreçte Claude uygulamasına atfedilir)
+
+```
+cd apps/agent-win && export PATH=~/sdk/go1.26.11/bin:$PATH GOTOOLCHAIN=local CGO_ENABLED=0
+go test -count=1 -v -run P28fK2 ./internal/capture/                  # tüm paket PASS; K2: 15 PASS + 2 ölçüm SKIP (NK_K2_OLCUM yok)
+MallocScribble=1 NSZombieEnabled=YES go test -count=1 ./internal/capture/                 # ok (tüm paket)
+NK_K2_OLCUM=20 go test -count=1 -v -run HeavyVT ./internal/capture/   # ağır içerik (izin gerekmez)
+NK_K2_OLCUM=30 go test -count=1 -v -timeout 5m -run Measure ./internal/capture/       # arm64
+GOARCH=amd64 go test -c -o cap.amd64 ./internal/capture && NK_K2_OLCUM=20 arch -x86_64 ./cap.amd64 -test.run P28fK2 -test.v
+GOOS=darwin GOARCH={arm64,amd64} go vet ./... && go build ./...                            # temiz (son koşu)
+staticcheck 0.8.2 (GOOS=darwin|linux|windows) ./internal/capture/                         # 0 uyarı
+gofmt -l internal/capture cmd/noktadestek                                                  # boş
+docker run --rm --tmpfs /src/apps/agent-win/spike -v "$PWD:/src" -w /src/apps/agent-win golang:1.26 \
+  sh -c 'go test ./... && GOOS=windows go vet ./... && GOOS=windows go build ./...'          # yeşil
+```
+
+**Ölçüm** (tanımlar ölçümden önce: p95 = ana `Encode` duvar süresi; adım = ana + düşük kodlama; kare kaybı = çıktısız Encode +
+`kVTEncodeInfo_FrameDropped` + 1 sn zaman aşımı; fps = yayımlanan kare / süre). Hareket kaynağı: kendi 300×200 pencerem 60 Hz
+renk değiştirir (hariç tutma bu testte kapalı). Kodlama 1670×1080, donanım kodlayıcı.
+
+| Koşu                                | SCK Complete  | Yayımlanan fps | Encode p50 / **p95** / maks | Ana+düşük adım p95 | Kare kaybı | Ana / düşük bit hızı                    |
+| ----------------------------------- | ------------- | -------------- | --------------------------- | ------------------ | ---------- | --------------------------------------- |
+| arm64, düşük iz açık, 30 sn         | 879 (29,3/sn) | **29,3**       | 4,40 / **9,88** / 21,3 ms   | 14,06 ms           | **0**      | 0,98 / 0,69 Mbit/s (220 kare ≈ 7,3 fps) |
+| arm64, düşük iz kapalı, 30 sn       | 881 (29,4/sn) | **29,3**       | 4,67 / **6,20** / 18,0 ms   | 6,20 ms            | **0**      | 1,03 Mbit/s                             |
+| x86_64 Rosetta, düşük açık, 20 sn   | 588 (29,4/sn) | **29,3**       | 4,83 / **5,87** / 19,0 ms   | 10,37 ms           | **0**      | 1,03 / 0,71 Mbit/s                      |
+| x86_64 Rosetta, düşük kapalı, 20 sn | 587 (29,3/sn) | **29,1**       | 4,94 / **9,46** / 25,6 ms   | 9,46 ms            | **0**      | 0,97 Mbit/s                             |
+
+Ölçüt (ADR-0037 r3 m.2: 30 fps sürdürülebilir, p95 ≤ 33 ms, kare kaybı 0) dört koşuda **tuttu**; SCK teslim hızı 29,3 fps
+tavanında (yayımlanan = teslim edilen; atlanan 0). Kopyalanamayan kare 0. Sınır: içerik küçük hareketli alan; tam ekran video
+gibi ağır içerikte bit hızı/oran denetimi (spike'ta DataRateLimits tavanı tutmamıştı) burada sınanmadı → K11 elle.
+
+**Ağır içerik (izin gerektirmeyen VT koşusu, `NK_K2_OLCUM=<sn> -run HeavyVT`; 1670×1080, 30 fps tempolu, ana + düşük
+eşzamanlı, donanım):**
+
+| İçerik                                                     | Süre            | Encode p50 / **p95** / maks | Kare kaybı | Ana Mbit/s (hedef 4,06) | Düşük Mbit/s (hedef 1,00) |
+| ---------------------------------------------------------- | --------------- | --------------------------- | ---------- | ----------------------- | ------------------------- |
+| Her karede tamamı değişen gürültü                          | 20 sn, 600 kare | 4,93 / **10,33** / 28,1 ms  | **0**      | 79,3                    | 19,8                      |
+| Aynısı, `DataRateLimits` kapalı (karşılaştırma)            | 10 sn           | 5,36 / 9,22 / 31,8 ms       | 0          | 90,8                    | 25,6                      |
+| 16×16 bloklu, karede kayan (video benzeri; `NK_K2_BLOK=1`) | 10 sn           | 4,86 / **10,99** / 25,2 ms  | **0**      | 5,71                    | 1,88                      |
+
+Gecikme ve kayıp ölçütü ağır yükte de tuttu; atlanan kare (`FrameDropped`) 0. **Bit hızı tavanı tutmuyor** (spike bulgusuyla
+aynı): sıkıştırılamaz gürültüde VT hedefin ~20 katına çıkıyor; gerçekçi bloklu içerikte ~%40 (ana) / ~%90 (düşük) aşım.
+`DataRateLimits` etkisi küçük ama olumlu, bırakıldı. Bant genişliği riski K9/K11'de gerçek içerik (video, kaydırma) ile
+değerlendirilmeli; ölçüt dışı (ADR r3 ölçütü fps/p95/kayıp).
+
+Diğer otomatik kanıtlar: VT donanım + yazılım 40'ar kare, zorlanan/ilk kare IDR + SPS + PPS, istenmeyen IDR 0, atlama 0; kendi
+pencere **pozitif kontrol** (hariç tutma yok) macentayı gördü, üretim filtresi 33–49 karede 0; açılışta uygulama listede yokken
+(pencere yok) sonradan açılan pencere ≤ 1–2 sn içinde dışlandı ve sonraki karelerde görünmedi; `RequestKeyframe` IDR üretti;
+`Close` sonrası `NextFrame` hata; olmayan monitör `NO_OUTPUT` + method boş; akış durması taklidinde (`didStopWithError:`
+yolu) kaynak son kareyle sürdü, yeniden açtı ve IDR üretti; oturum sözlüğünde `kCGSSessionOnConsoleKey` bulundu ve doğru
+(pozitif kontrol). **Kilit anahtarı (`CGSSessionScreenIsLocked`) belgelenmemiş ve yalnız kilitliyken bulunur; kilit algılama
+otomatik doğrulanmadı → elle.**
+
+### Elle listede kalanlar
+
+- Kilit ekranı / hızlı kullanıcı değiştirme: `EnvProbe` → konsolda "Müşteri güvenli masaüstünde"; kilitliyken SCK davranışı
+  (durur mu, boş kare mi) ve kilit açılınca görüntünün geri gelmesi (yeniden açma yolu). Ekran kilitlemek kullanıcı ortamına
+  müdahale olduğu için otomatikleştirilmedi.
+- İkinci monitör (AC-106: sıra, `MonitorRect`, monitör değiştirme), ekran çıkarma (`didStopWithError` → yeniden açma), çözünürlük
+  kipi değişimi.
+- Annex-B'nin Chrome konsolunda çözülmesi ve 709 renk etiketinin doğru görünmesi (K0s-2 ELLE maddesi).
+- Gerçek `.app` kimliğiyle Ekran Kaydı izni (spike'ta olduğu gibi burada da izin barındıran uygulamaya atfedildi).
+- App Nap: arka planda 10 dk oturumda fps düşmez (mimari §14 elle listesi).
+
+### Bilinen durum / diğer paketlere not
+
+- **K4:** Kaynak açılmadan önce uygulamanın en az bir penceresi olmalı (oturum penceresi); yoksa ilk ≤ 1–2 sn içinde açılan
+  kendi pencerelerimiz görüntüye girebilir (sonra dışlanır).
+- **K3:** `capture.MonitorRect` monitör kimliği kuralına bağlı (yukarıda); App Nap K2'de.
+- **K8a (`test-macos`):** `internal/capture` darwin testlerinde `TestMain` ana iş parçacığını kilitleyip AppKit'i (accessory
+  NSApplication) başlatır ve olay döngüsünü pompalar; SCK testleri Ekran Kaydı izni yoksa atlanır, VT testleri izinsiz koşar
+  (donanım kodlayıcı yoksa yalnız yazılım). Ölçüm testleri yalnız `NK_K2_OLCUM` ile.
+- Son yerel koşu: `GOOS=darwin GOARCH={arm64,amd64} go vet ./...` ve `go build ./cmd/noktadestek` yeşil; staticcheck (darwin)
+  `./cmd/noktadestek ./internal/capture` 0 uyarı.
+
+### frontend-dev için sözleşme
+
+Değişiklik yok: yeni `share.state.reason` kodu ve `method` değeri eklenmedi (macOS'ta `method` gönderilmez).
+
+## P28f K5 — macOS pano, lp yazdırma, karantina, İndirilenler, iz önlemleri, iz betiği (backend-dev Go, 2026-11-17)
+
+Kaynak: `docs/mimari-p28f.md` §2, §5.1 T8/T9, §5.3 m.5, §5.4, §10 K5, §13 (S-P28f-9, -12, -13, -14, -16), §14; ADR-0037 m.8.
+Dal `p28f`, commit yok. Ses yok (ADR r3: `rs.cap.voice1` bildirilmez; `internal/voice` darwin'de bağlanmaz). Spike kodu değişmedi.
+
+### Değişen / yeni dosyalar (`apps/agent-win/`)
+
+- **`internal/clip/clip_darwin.go` (yeni, +test):** NSPasteboard, kendi kilitli iş parçacığında (AppKit ana döngüsüne bağlı değil),
+  işlem başına autorelease havuzu, 2 sn `Timeout` (Windows `do` kalıbı). Okuma yalnız `public.utf8-plain-text` **verisi**
+  (`dataForType:`; dönüştürücü `stringForType:` yok), uzunluk kopyalamadan önce; panoda `org.nspasteboard.ConcealedType`,
+  `TransientType` ya da `AutoGeneratedType` varsa okunmaz → `ErrSensitive` (S-P28f-12; görevde anılmayan AutoGenerated de §5.4
+  gereği dahil). Yazma, Windows "geçmiş/bulut dışı" sözleşmesinin karşılığı: `prepareForNewContentsWithOptions:
+NSPasteboardContentsCurrentHostOnly` (Evrensel Pano'ya gitmez) + metin ve `TransientType` **tek NSPasteboardItem**'da tek
+  `writeObjects:` (arada işaretsiz an yok); başarısızlıkta `clearContents`. Teknisyenin koyduğu metin geri okunursa
+  `ErrSensitive` (Windows ile aynı). Sınıf/selector çözülemezse `New` hata → pano bildirilmez (FFI kuralı 5).
+- **`internal/clip/clip.go`:** `validateText` (yazma kuralı, iki platform ortak; `encodeUTF16` onu kullanır) ve `decodeUTF8` (UTF-8
+  pano verisi; NUL'da kırpma, boş/64 KB/geçersiz → Windows ile aynı hata kümesi) eklendi. `clip_other.go` kısıtı `!windows && !darwin`.
+- **`internal/printing/lp_unix.go` (yeni, `darwin || linux`, +test):** `PrintLP(ctx, pdf)` — `/usr/bin/lp -n 1 -t "Nokta Destek"
+-o document-format=application/pdf -` (mutlak yol, sabit argüman, kabuk/`-d`/`lpstat` yok), PDF stdin'den, ortamdan
+  `LPDEST`/`PRINTER` silinir, `WaitDelay` 2 sn, ctx iptali → `ErrCancelled`. macOS'ta `printer_darwin.go` üzerinden bağlı (sapma 1).
+- **`internal/printing/boundary_test.go`:** `os/exec` yasağına **yalnız `lp_unix.go`** için istisna + `TestP28fBoundaryLPOnlyExec`
+  (build kısıtı `darwin || linux`, tek `exec.CommandContext(ctx, lpPath, lpArgs...)`, `lpPath` = `/usr/bin/lp`, dize sabitlerinde
+  kabuk/`lpstat`/`-d` yok). PDF işleyicisi (Windows) bu dosyayı derlemez.
+- **`internal/files/quarantine_darwin.go` (K1 yer tutucusu dolduruldu, +test):** `com.apple.quarantine` =
+  `0083;<onaltılık unix zamanı>;Nokta Destek;` (`unix.Setxattr`, cgo yok, `XATTR_NOFOLLOW`), 0x40 hiçbir zaman yok.
+- **`internal/transfer/motw_{darwin,other}.go` (yeni) + `transfer.go`, `stream.go`:** ortak `motwReject` — T8: macOS'ta karantina
+  yazılamazsa **her türde** `.part` silinir, sonuç `CORRUPT` (`MOTWFailed: true`); Windows davranışı aynen (uyarılı ad → REJECTED,
+  diğerleri uyarıyla teslim). DC (`finish`) ve sunucu dosyası (`Stream.Commit`) iki yol da aynı yardımcıdan geçer.
+  `TestS63MOTWFailure` platforma göre beklenti alır.
+- **`internal/files/downloads_darwin.go` (yeni):** `DownloadsDir()` = `~/Downloads`; son bileşen sembolik bağ olamaz, sahibi bu
+  kullanıcı (değilse `ErrNoDownloads` → teklifler otomatik reddedilir).
+- **`internal/files/traces_darwin.go` (yeni, +test):** `CleanTraces()` — `confstr(_CS_DARWIN_USER_CACHE_DIR)` (purego, izin listeli
+  libSystem; ortam değişkeni değil, NSUserDefaults yok; sonuç mutlak + bu kullanıcıya ait gerçek dizin) altında
+  `<bundle id>` (Metal önbelleği `com.apple.metalfe`) ve `~/Library/Saved Application State/<bundle id>.savedState` silinir.
+  Bundle kimliği çalışma anında okunmaz: yalnız sabit `net.noktabilisim.destek` ve `.stg` (boş/değiştirilmiş kimlikle üst dizin
+  silinemez); boş/göreli kök atlanır; bağ izlenmez; idempotent.
+- **`cmd/noktadestek/deps_darwin.go`:** `DownloadDir: files.DownloadsDir` (K1 hata yer tutucusu kalktı); pano yalnız arayüz
+  `flow.ClipPrintUI`'yi uyguluyorsa (`u.(flow.ClipPrintUI)`) ve `clipprint.NewClipboard()` kurulursa bağlanır (Features'tan önce;
+  K4 ClipPrintUI'yi tamamlayınca kendiliğinden açılır). Yazdırma aynı koşulla (`clipprint.NewPrinter("")`, r4). `MOTW:
+files.WriteQuarantine` K1'den aynen.
+- **`test/trace-check-mac.sh` (yeni) — K8a CI'ın kullandığı iz betiği (AC-394):** `snapshot <dosya>` / `compare <dosya>` / `check`;
+  `--since` (birleşik log, yalnız sayı basılır), `--marker` (yolda + logda içerik işareti; içerik basılmaz), `--bundle` (paketin
+  kendisi ve klasörü hariç). Taranan: `~/Library/{Application Support, Caches, Preferences, LaunchAgents, Saved Application State,
+HTTPStorages, WebKit, Containers, Logs, Application Scripts, Cookies}`, `getconf DARWIN_USER_CACHE_DIR` (Metal önbelleği),
+  `getconf DARWIN_USER_TEMP_DIR` (yeniden başlatma dosyası), `~/Downloads` `*.part`, `/Library/Launch{Agents,Daemons}`, `noktadestek`
+  süreci (`pgrep -x`). Salt okunur; önceden var olan iz `UYARI (önceden vardı)` olarak gösterilir ama sayılmaz. Çıkış 0/1/2.
+  K8a'nın `agent-win.yml` `test-macos` çağrısı (`snapshot` → aç → kapat → `compare --since --bundle --marker 12345678`) bu
+  arayüzle birebir uyumlu.
+
+### Tasarımdan sapmalar / açık noktalar (gerekçeli)
+
+1. **Yazdırma — mimar r4 kararı (seçenek c, mimari-p28f "K5 uygulama notu" altı, ADR-0037 m.8a) uygulandı.** Sayfa sayısı
+   istemcide hesaplanmaz (PDF bu süreçte ayrıştırılmaz, T9). `internal/printing/printer_darwin.go` (yeni, +test): `New` →
+   `Inspect` yalnız `%PDF-` + ≤ 20 MB (`checkPDF`, `lp_unix.go`'da `PrintLP` ile ortak), `Pages() = 0`, `PagesUnknown() = true`,
+   `DefaultPrinter() = "Varsayılan yazıcı"` (sabit; lpstat/NSPrintInfo yok), `Print` → `PrintLP`; lp hatası → `ErrNoPrinter` →
+   onaydan sonra mevcut `NO_PRINTER`. `printer_other.go` kısıtı `!windows && !darwin` (Linux P28g'ye kadar `noPrinter`).
+   `clipprint.Printer.PagesUnknown()` alttaki yazıcıya sorar. **flow:** yeni isteğe bağlı arayüz `flow.PagesUnknownPrinter`;
+   `onInspected` `pages ≥ 1` şartını **yalnız** bunu true bildiren yazıcıda ve `pages == 0` iken atlar (negatif/aşırı değer yine
+   INVALID_PDF); Windows yolu değişmez (Windows `Printer` arayüzü uygulamaz). Rapor (`print.report`) sayfa 0'da `pages` alanını
+   zaten göndermez (contracts/audit değişmez). `deps_darwin.go`: arayüz `ClipPrintUI` uyguluyorsa `Printer:
+clipprint.NewPrinter("")` → `rs.cap.print1` bildirilir. Test: `TestAC349P28fPrintPagesUnknown` (macOS yolu: diyalog
+   PagesUnknown + boyut + "Varsayılan yazıcı", PRINTED raporu sayfasız, lp hatası → NO_PRINTER; PagesUnknown=false + 0 sayfa,
+   −1 ve sınır üstü → INVALID_PDF; Windows diyaloğu sayfa 3), `TestAC393P28fDarwinPrinterInspectAndPrint`.
+   **K4 için sözleşme (flow→UI):** `flow.PrintPrompt` yeni alan `PagesUnknown bool` (true iken `Pages` 0). Diyalog metni K4'te:
+   "Sayfa sayısı: yazıcıda belirlenir" (PagesUnknown), boyut `PrintPrompt.Size` (bayt → MB), "Yazıcı: " + `PrintPrompt.Printer`
+   ("Varsayılan yazıcı"). Metin `ui/mac`'e K5'te dokunulmadı. AC-349 macOS'ta kısmi (r4 kabul edilmiş sapma).
+2. **lp hata sınıflandırması:** macOS `lp` hata metni sistem dilinde (Türkçe ölçüldü; `LC_ALL=C` etkisiz) → metin ayrıştırılmaz,
+   stderr okunmaz; lp'nin sıfır dışı çıkışı `ErrNoPrinter` (tasarım: "varsayılan yazıcı yoksa lp hatası → yazıcı yok"), lp
+   başlatılamazsa `ErrPrint`. Not: `~/.cups/lpoptions` kullanıcının kendi varsayılanını belirler (kullanıcı yapılandırması, kabul).
+3. **Karantina hata sonucu `CORRUPT` (T8 aynen):** sunucu dosyası yolunda `CORRUPT` yeni belirteçle en çok 3 kez yeniden indirmeyi
+   tetikler (xattr hatası APFS İndirilenler'de beklenmez; FAT/exFAT harici diskte olabilir). İstenirse `REJECTED`'e çevrilebilir.
+4. **`spctl` testi görünür SKIP:** ölçüldü — `spctl -a -t open|exec|install` imzasız dosyayı karantinalı da karantinasız da aynı
+   biçimde ("no usable signature") reddediyor; ayırt edici değil. `TestAC117P28fQuarantineSpctl` iki durumu karşılaştırır, aynıysa
+   gerekçeli SKIP; ileride ayırt ederse karantinalı dosyanın reddini doğrular. Otomatik kanıt: öznitelik gerçek dosyada yazılı,
+   yeniden adlandırmayla taşınıyor, `Manager` üzerinden yerleşen nihai dosyada var, 0x40 yok. Gatekeeper etkisi elle listede.
+5. **`CleanTraces` çağrı yerleri K4'e devredildi** (`main_darwin.go` K5 kapsamı dışı, paralel düzenleniyor): (a) açılışta bir kez
+   (önceki çökmüş/öldürülmüş oturumdan kalan), (b) `terminate:`'ten **hemen önce** ya da `applicationWillTerminate:`'te (`terminate:`
+   geri dönmez; `app.Send(run)` sonrasına konan kod çalışmaz), (c) SIGTERM işleyicisinde (CI iz testi istemciyi SIGTERM ile kapatıyor;
+   işleyici yoksa Metal önbelleği iz testinde kalır). `internal/files` içinde durması: `cmd/noktadestek` paralel K2 işi nedeniyle
+   derlenmiyordu ve paketsiz test edilebilir bir yer gerekiyordu; tek dışa açık işlev.
+6. **mailto:** K4 `internal/ui/mac/logic.go` `mailtoAddr` ile zaten yazmış (S-P28f-12); ikinci sürüm yazılmadı. `NSURLComponents`
+   ile kurulum K4'te.
+7. **İndirilenler TCC (elle listeye aday):** gerçek bundle `~/Downloads`'a ilk yazışta "Dosyalar ve Klasörler" istemi çıkarabilir;
+   terminal testleri bunu göstermez — K11 elle listesine eklenmeli (izin reddinde `.part` açılamaz → mevcut hata yolu).
+8. Pano: Evrensel Pano dışı bırakma (`CurrentHostOnly`) otomatik sınanamıyor (ikinci cihaz gerekir); elle listeye aday.
+
+### Eklenen bağımlılık
+
+Yok (`golang.org/x/sys/unix` mevcut modülden; purego K1'de eklenmişti).
+
+### Test komutları ve sonuçlar (2026-11-17)
+
+Paralel K2/K3/K4 değişiklikleri çalışma ağacında yarımken (`internal/capture` derlenmiyordu) doğrulama, **HEAD + yalnız K5
+dosyaları** olan temiz kopyada yapıldı (K5 dosyaları başka paketlere dokunmuyor).
+
+| Komut                                                                                                                                                                                                                                    | Sonuç                                                                            |
+| ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------- |
+| `GOOS=darwin GOARCH={arm64,amd64} go vet ./...` + `CGO_ENABLED=0 go build ./cmd/noktadestek` (Go 1.26.11, macOS)                                                                                                                         | yeşil                                                                            |
+| `go test ./...` (macOS arm64 yerel, spike hariç)                                                                                                                                                                                         | tümü ok; `TestAC117P28fQuarantineSpctl` gerekçeli SKIP                           |
+| `MallocScribble=1 NSZombieEnabled=YES GOARCH=amd64 go test ./internal/{clip,files,transfer,printing}/` (Rosetta)                                                                                                                         | ok                                                                               |
+| `go test -race ./internal/clip/` (arm64, MallocScribble/Zombie)                                                                                                                                                                          | ok                                                                               |
+| `docker run --rm --tmpfs /src/apps/agent-win/spike -v "$PWD:/src" -w /src/apps/agent-win golang:1.26 sh -c 'go test ./... && GOOS=windows go vet ./... && GOOS=windows go build ./...'`                                                  | Linux testleri ok (lp sahte lp ile Linux'ta da koşar), Windows vet + build yeşil |
+| `gofmt -l .`                                                                                                                                                                                                                             | temiz                                                                            |
+| staticcheck v0.8.2 (linux/amd64, windows/amd64, darwin/arm64, darwin/amd64)                                                                                                                                                              | temiz                                                                            |
+| **r4 sonrası, gerçek çalışma ağacında (K2/K3/K4 birleşik):** `GOOS=darwin` arm64/amd64 vet + build; macOS `go test ./...` (yalnız bilinen spike S6-1 kırmızısı, K1 notu 4); görevdeki docker komutu; staticcheck 0.8.2 dört hedef; gofmt | yeşil                                                                            |
+| `trace-check-mac.sh` öz testi (macOS): temiz → 0; `DARWIN_USER_CACHE_DIR/net.noktabilisim.destek.stg/com.apple.metalfe` + `~/Downloads/*.part` → 1 (3 iz); `--marker` yolda bulur; `--since` log taraması ≈ 2 sn; olmayan snapshot → 2   | beklenen                                                                         |
+
+Testler (AC adlı): `TestAC393P28fClip{RoundTripPlainText,ReadLimits,WriteMarksTransient,WriteValidation,Closed,DecodeUTF8}`,
+`TestSP28f12ClipSensitiveMarksNotRead`, `TestAC393P28fLP{FixedArgsStdinEnv,InputValidation,Errors,Cancel}` (gerçek lp hiç
+çalışmaz; `lpPath` yalnız test dikişiyle değişir), `TestP28fBoundaryLPOnlyExec`, `TestAC117P28fQuarantine{Value,WrittenToFile,
+MissingFileFails,Spctl}`, `TestAC117P28fTransferPlacesQuarantinedFile`, `TestAC117P28fStreamQuarantineFailureCorrupt`,
+`TestAC394P28f{UserCacheDirMatchesGetconf,RemoveTraces}`, `TestAC392P28fDownloadsDir`.
+
+### frontend-dev / diğer paketler için sözleşme notu
+
+Web/sunucu sözleşmesi değişmedi. K4: `flow.PrintPrompt.PagesUnknown` (sapma 1); `files.CleanTraces()` çağrı yerleri (sapma 5); pano anahtarı için arayüz `flow.ClipPrintUI`
+uygulanınca `rs.cap.clip1` kendiliğinden bildirilir. K8a: betik yolu `apps/agent-win/test/trace-check-mac.sh` (mevcut `TRACE_MAC`).
+
+## P28f K4 — macOS AppKit arayüzü `internal/ui/mac` (backend-dev Go UI, 2026-11-17)
+
+Kaynak: `docs/mimari-p28f.md` §2.1, §5.1 T6/T7, §5.2a, §5.2b, §5.3, §5.4, §10 K4, §13 (S-P28f-1/2/7/12/13/14), §14; ADR-0037.
+
+### Değişen / yeni dosyalar
+
+- `apps/agent-win/internal/ui/mac/` (yeni): `runtime_darwin.go` (çerçeveler; `init`'te kayıtlı 4 sınıf: hedef/temsilci,
+  basışı kaydeden düğme, ters çevrilmiş görünüm + çizim, anahtar olmayan gösterge penceresi; geri çağrılar gönderen ObjC
+  nesnesiyle Go tablolarından bulunur, FFI kuralı 1–2), `form_darwin.go` (pencere/denetim yardımcıları; yalnız
+  `setStringValue:`/`setString:`, zengin metin/bağlantı/veri algılama kapalı; logo Go'da çözülüp RGBA bitmap),
+  `ui_darwin.go` (`New(Options)`, menü: Hakkında/Lisanslar/Çık + Düzen; **Gizle yok**; 1 sn tik), `screens_darwin.go`
+  (kod, karşılama + KVKK + kayıt rızası, lobi, bağlanıyor, monitör seçimi, Ekran Kaydı rehberi `PermGuide`, Erişilebilirlik
+  rehberi `AccessibilityGuide`, Hakkında, Lisanslar), `prompt_darwin.go` (ortak korunan onay diyaloğu), `session_darwin.go`
+  (oturum penceresi: sohbet, dosya, pano anahtarı, kontrol düğmeleri, roster + "Çıkar", kayıt satırı, bitiş),
+  `overlay_darwin.go` (gösterge + işaretleme), `testband_darwin.go` (imzadan TEST bandı), `local_darwin.go` (localClick
+  bağlantısı), `logic.go` + `logic_test.go` (platformdan bağımsız karar mantığı; Linux/Windows CI'da da koşar).
+- `apps/agent-win/internal/ui/uicore/texts.go` (+ test): `HumanSize`, `RosterLine`, `PrintBody` Win32'den taşındı (çıktı
+  aynı); `transfer/print/roster_windows.go` bunları çağırır. `PrintBody` r4: `PagesUnknown` → "Sayfa sayısı: yazıcıda
+  belirlenir", boş yazıcı adı → "Varsayılan yazıcı" (Windows bu alanları hiç doldurmaz → davranış aynı).
+- `apps/agent-win/internal/launch/code_folder.go` (+ test, tüm platformlar) ve `code_darwin.go`: kod klasör/bundle adından,
+  çapalı `^Destek-([0-9]{8})(?: \([0-9]{1,3}\)| [0-9]{1,3})?$`; translocation `SecTranslocateCreateOriginalPathForURL`.
+- `apps/agent-win/internal/macperm/` (yeni): `restart.go` (`--restart` belirteci, 128 bit), `restartfile_unix.go` (T6 dosya
+  kuralları; `darwin || linux`, P28g yeniden kullanır), `tcc_darwin.go` (`CGPreflight/RequestScreenCaptureAccess`,
+  `confstr(_CS_DARWIN_USER_TEMP_DIR)`, `/usr/bin/open -n … --args --restart`).
+- `apps/agent-win/cmd/noktadestek/main_darwin.go`: ortak `control.Gate`, `mac.New(Options{…TestBuild, Gate})`,
+  `startCode` → `flow.Run(initial)`, `files.CleanTraces()` açılışta + `terminate:` öncesi + SIGTERM/SIGINT işleyicisinde
+  (K5 devri). `start_darwin.go` (yeni): kod sırası + Ekran Kaydı rehberi + yeniden başlatma. `deps_darwin.go`: `RosterUI`,
+  `FileServerUI` arayüz uyguluyorsa bağlanır (K5 `ClipPrintUI`, K3 kontrol kancaları ile aynı kalıp).
+- `apps/agent-win/internal/flow/messages_p28f.go`: `IndicatorFail`, `PrintPagesUnknown`, `PrintDefault` eklendi.
+
+### Tasarımdan sapmalar / kararlar
+
+1. **Dosya sınırı:** görev "yalnız ui/mac + main/deps" diyordu; mimari §6 ve `main_darwin.go` yorumu `launch/code_darwin.go` ile
+   `macperm`'i K4'e veriyor, kod/TCC akışı bunlarsız olmaz. İkisi yeni dosya, başka pakete dokunmaz.
+2. §2.1'deki dosya adları birleştirildi: `code/welcome/lobby/choose/perm` → `screens_darwin.go`; `chat/transfer/roster/rec`
+   → `session_darwin.go` (tek oturum penceresi zaten tasarımda). Ses dosyası yok (r3; `VoiceUI` uygulanmaz → `voice1` yok).
+3. **localClick:** karar K3'ün `input.LocalClick(press, release, now)`; basış `NKDestekDugme mouseDown:` içinde
+   `input.EventClick` ile kaydedilir, bırakma `input.CurrentClick()`. UI yalnız sonucu sınıflar (yerel / klavye → sessiz ret /
+   diğer → bir kez uyarı satırı). K3'ün denediği `SetInjectMarker`/`SetLocalCheck` kancaları gereksizleşti (uygulanmıyor;
+   deps'teki tür denetimleri eşleşmez, zararsız). `SetInjectPause` uygulanır: korunan diyalog sayacı 0↔1'de
+   `Applier.Pause/Resume`. Duraklatma yalnız **diyaloglar** açıkken (oturum penceresindeki sürekli görünen korunan denetimler için
+   duraklatma tüm oturumu durdururdu); bu denetimlerde koruma localClick'tir.
+4. **Gösterge fail-closed:** 3 ardışık tikte görünmezse `gate.Close()` + kontrol diyaloğu kapanır + K3'ün `EvControlSystem`'i
+   (akış `control.state{VIEW, SYSTEM}`) + oturum penceresine `IndicatorFail`. Sağlıksızken kontrol izni verilmez (`guard`).
+   Görünürlük `isVisible` + `occlusionState`; gerçek pencerede ölçüldü: `görünür=true`. Görev Kontrolü/kilit ekranında
+   occlusion görünmez dönerse kontrol kapanır (güvenli yön; K11 elle).
+5. **TEST bandı** her pencerenin en üst satırı + her ekranda menü çubuğunun altında sağ üst şerit (gösterge seviyesi,
+   `canHide=NO`). Karar `showTestBand`: Team ID boş / ad-hoc / imza okunamadı / `testBuild` → göster. Gösterge ve şerit
+   `setSharingType: NSWindowSharingNone` (Windows `ExcludeFromCapture` eşi) → ekran görüntülerinde de görünmez.
+6. **"İzinleri kaldırma"** hedef URL'si tasarımda tanımlı değil; URL uydurulmadı, düğme Sistem Ayarları Ekran Kaydı bölmesini
+   açar (uygulama 2,5 sn sonra kapansa da açık kalır). Kılavuz bölümü K11.
+7. Kod alanı kodsuz Ekran Kaydı yeniden başlatmasında boş kalır (kod yoksa dosya yazılmaz; yeni süreç kod sorar).
+8. Monitör kimliği: işaretleme katmanı `signal.Monitor.ID` = `NSScreenNumber` (CGDirectDisplayID) varsayımıyla paylaşılan ekrana
+   konur (K2 ile tutarlı olmalı; eşleşmezse yalnız işaretleme görünmez, gösterge her ekranda kalır).
+9. `Ended` boş mesajla gelirse yalnız göstergeler/diyaloglar kalkar (kullanıcı kapattı).
+
+### Doğrulama
+
+| Komut                                                                                                                                                           | Sonuç                                                                                              |
+| --------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------- |
+| `docker run … golang:1.26 sh -c 'go test ./... && GOOS=windows go vet ./... && GOOS=windows go build ./...'` + darwin arm64/amd64 `vet` + `CGO_ENABLED=0 build` | yeşil                                                                                              |
+| `staticcheck` 0.8.2 (`GOOS=linux/darwin/windows`; ui, macperm, launch, cmd)                                                                                     | temiz                                                                                              |
+| macOS yerel `go test ./internal/ui/... ./internal/macperm ./internal/launch ./internal/darwin/...` (arm64 + `GOARCH=amd64` Rosetta)                             | yeşil                                                                                              |
+| `build-darwin.sh … test` iki mimari → lipo + ad-hoc `--options runtime` `.app` (`Destek-12345678/`), `open`                                                     | açıldı: menü, TEST bandı, Ekran Kaydı rehberi (yeni ad-hoc kimliğin izni yok → beklenen ilk ekran) |
+| Geçici `-tags k4demo` koşusu (sahte veri; silindi)                                                                                                              | kod, karşılama, oturum, kontrol onayı, bitiş ekranları çizildi; gösterge görünürlüğü `true`        |
+
+Ekran görüntüleri (yerel, repoya girmez): `k4-app-tcc-rehberi.png`, `k4-kod.png`, `k4-karsilama.png`, `k4-oturum.png`,
+`k4-kontrol-onay.png`, `k4-bitis.png` (oturum scratchpad'i).
+
+### Yapılmadı / K11 elle (r3 kabul ölçütü — otomatik kanıt yok)
+
+- S-P28f-1 elle: Fare Tuşları, VoiceOver VO-Space, başka süreçten `AXPress`, HID kaynaklı sentetik tıklama %100 ret; eller
+  çekiliyken 60 sn 0 kabul; gerçek tıklama kabul (gerçek oturumla).
+- S-P28f-2 elle: ⌘H, başka uygulamadan ⌘⌥H, ⌘M, tam ekran, Görev Kontrolü, ekran takma sonrası ≤ 1 sn görünürlük.
+- TCC akışı gerçek bundle ile uçtan uca (izin ver → yeniden başlat → kod korunur), Erişilebilirlik → OS_PERMISSION, `tccutil`.
+- Karşılamanın gerçek sunucuyla görüntüsü (yerel paket `.invalid` adresli, ilk ekran izin rehberi).
+- AC-100: macOS'ta düğmelere Tab ile odak yalnız "Klavye ile gezinme" açıkken (sistem ayarı); kılavuza girmeli.
+
+### frontend-dev / diğer paketler için
+
+Sözleşme değişikliği yok (WS/REST aynı). K3: `ui/mac` `SetHotkey`, `HotkeyPressed`, `SetInjectPause`, `AccessibilityGuide`
+uygular. K2: monitör kimliği notu (madde 8). K5: `CleanTraces` üç noktada bağlandı; yazdırma diyaloğu `PagesUnknown`/boş yazıcıyı
+gösterir.
+
+## P28f düzeltme 1 (devops) — görünür SKIP, gözcü, beklenen Team ID (2026-11-17)
+
+Kaynak: QA "P28f Tur 1" m.6, güvenlik "P28f Kod turu 1" D-P28f-K2, D-P28f-K3 (devops kısmı). Go kaynağına dokunulmadı.
+
+- **QA m.6** `.github/workflows/agent-win.yml` `test-macos`: tek koşu `go test -count=1 -v ./...` (`pipefail`, çıkış kodu
+  korunur). Her `--- SKIP` için `::warning::` ve step summary'de tam liste. 42 zorunlu darwin testi (`zorunlu=`) ad listesiyle `^--- PASS:`
+  denetlenir; SKIP ya da hiç koşmama kırmızı. Listeye yalnız koşullu `t.Skip` yolu olmayanlar alındı. İzin/ekran bağımlı olanlar uyarıda
+  kalır (runbook §28f.8). `TestSP28f1LocalEventRejectsOwnSynthetic` bilerek listede yok: QA m.3 `LocalEvent`'i kaldırabilir.
+  **backend-dev:** zorunlu bir testi yeniden adlandırırsan ya da silersen listeyi de güncelle. Yerel prova: pozitif yol çıkış 0; zorunlu
+  test SKIP / silinmiş / `go test` hata → kırmızı.
+- **D-P28f-K2: değişiklik gerekmedi.** `agent-watch.yml` `hash-mac` işi HEAD 0d52fe8'de zaten var ve bulgunun istediği her şeyi yapıyor:
+  `AGENT_WATCH_MAC_URL`; Release `SHA256SUMS`'ta `^<sha>\s+\*?NoktaDestek-macOS-X.Y.Z\.zip$`; hiçbir Release'te macOS satırı
+  yoksa (R39) indirme yapılmadan `notice` + `skip` (alarm yok); 503 / uyuşmazlık / 502-504 durumunda issue açılır. Runbook §28f.1 ve §28f.7
+  bunu anlatıyor. Caddyfile:184-185 yorumu ("kodsuz ad (agent-watch)") doğru; denetim raporu yalnız `hash` işine bakmış.
+- **D-P28f-K3 (devops):** `apps/agent-win/build/build-darwin.sh` `EXPECTED_TEAM_ID` ortam değişkenini okur. Değer tam 10 karakter `A-Z0-9`
+  olmalı (`case` ile denetlenir); geçerliyse `-X remote-support/agent-win/internal/config.expectedTeamID=<TEAM>` (`TEAM_SYMBOL`). Derlemeden
+  sonra değer ikilide aranır; yoksa ikili silinir ve çıkış 2 (`-X`'in sessizce etkisiz kalmasına karşı).
+  - `build-mac` değişkeni yalnız prod (etiket) kipinde ve `vars.APPLE_TEAM_ID` doluysa geçirir. Değer `build-meta.txt` 4. satırına yazılır
+    ve `reproducible-mac` `cmp` ile karşılaştırılır. `sign-mac` girdi doğrulaması 4. satır = `vars.APPLE_TEAM_ID` ister.
+  - Diğer okuyucular (`publish-mac.sh`, `verify-and-publish.sh`) yalnız 1. satırı okuduğu için etkilenmez.
+  - **AÇIK (backend-dev):** yazıldığı anda Go tarafında `config.expectedTeamID` yok. Ad farklı olacaksa yalnız `build-darwin.sh`
+    `TEAM_SYMBOL` değişir. Değişken eklenene kadar `APPLE_TEAM_ID` tanımlanırsa etiket `build-mac` kırmızı olur (fail-closed). Bugün
+    `APPLE_TEAM_ID` boş (R39) olduğu için etkisi yok.
+- **QA m.2 (devops):** `docs/runbook.md` `prettier --write` ile biçimlendirildi.
+- **Doğrulama:** actionlint 1.7.8 temiz. shellcheck 0.11.0 temiz (`-S warning`, CI kümesi + `build-darwin.sh`; ikincisi tam seviyede de
+  temiz). Prettier `agent-win.yml` + `runbook.md` temiz. macos-15 runner'da gerçek SKIP dağılımı ilk CI koşusunda görülecek.
+
+## P28f düzeltme 1 (Go) — Fare Tuşları, kendi pencere kuralı, musluk kapıdan önce, Team ID bandı, güvenli giriş (backend-dev Go, 2026-11-17)
+
+Kaynak: güvenlik "P28f Kod turu 1" Y-P28f-K1, D-P28f-K1, D-P28f-K3 (kod kısmı); QA "P28f Tur 1" m.1, m.3, m.4. Belge yolları
+(spike, QA m.5) ve tüm dosya biçimlendirmesi (QA m.2) bu turun kapsamında değil.
+
+### Değişen dosyalar
+
+- `internal/input/hostguard.go` (yeni, etiketsiz): `HostProbe`, `SetHostProbe`, `SetOwnWindows`/`FRect`, `DropOwnWindow`,
+  `hostDropLocked`, `mouseKeysState`. `applier.go`: `host` alanı, monitör kipinde `hostDropLocked` dalı, `point` yardımcısı
+  (`move` onu kullanıyor).
+- `internal/input/access_darwin.go` (yeni): `MouseKeysOn` (CFPreferences), `cursorPos`, `MacProbe`.
+- `internal/input/host_darwin.go`: `Host.Arm`, `runTap(g, reply)`, `answerArm`; başlık açıklaması güncellendi.
+- `internal/flow/flow.go` (`Deps.ArmControl`), `internal/flow/control.go` (`armControl`, ortak `osPermission`).
+- `cmd/noktadestek/deps_darwin.go`: `SetHostProbe(input.MacProbe())`, `d.ArmControl = host.Arm`; ölü dallar silindi.
+  `main_darwin.go`: `mac.Options.TeamID`.
+- `internal/input/click_darwin.go` (`LocalEvent` silindi), `localclick.go` (`Marker()` silindi; testler `marker` okur).
+- `internal/ui/mac/{ui_darwin,runtime_darwin,form_darwin,logic}.go`: `syncOwnWindows`, `windowDidMove:` temsilcisi,
+  `flipRect`, `showTestBand(si, test, expectedTeam)`, `Options.TeamID`.
+- `internal/config/config.go`: `expectedTeamID` (ldflags), `Config.TeamID`, `teamID` doğrulaması.
+- `internal/capture/env_darwin.go`: `IsSecureEventInputEnabled` → `ElevatedForeground`.
+- `internal/printing/boundary_test.go`: CRLF bağımsız.
+- Testler: `input/hostguard_test.go`, `input/access_darwin_test.go`, `capture/env_darwin_test.go` (yeni);
+  `input/cgevent_darwin_test.go`, `flow/control_p28f_test.go`, `ui/mac/logic_test.go`, `config/config_test.go` (genişletildi).
+
+### Ne yapıldı
+
+1. **Y-P28f-K1 (a) Fare Tuşları:** Windows S-P17-7 kuralı (`scope_keys.go` `unlatchedDrop`) yalnız pencere kapsamı
+   yolunda çalışıyordu. macOS'ta kapsam olmadığından aynı karar Applier'ın monitör kipi yoluna eklendi. `HostProbe`
+   bağlıyken çalışır; Windows'ta nil olduğu için davranış değişmez. Ayar en çok `accessEvery` (2 sn) aralığında bir okunur ve
+   neden kodu aynıdır (`DropMouseKeys`).
+   - Okuma: `com.apple.universalaccess` / `mouseDriver`. Her okumadan önce `CFPreferencesAppSynchronize` çağrılır; oturum
+     ortasında açılırsa ≤ 2 sn'de görülür.
+   - Fail-closed yorum: değer okunursa değeri geçerlidir. Değer yoksa ve alan okunabiliyorsa (`CFPreferencesCopyKeyList` boş
+     değil) ayar hiç açılmamıştır, kapalı sayılır. Alan okunamıyorsa ya da bağlama hatası varsa açık sayılır.
+   - Bu ayrım şart: bu Mac'te `mouseDriver` anahtarı yok. "Yok = açık" denseydi tuş takımı neredeyse her Mac'te ölü
+     olurdu.
+   - **Kapsam genişletmesi (gerekçeli):** Fare Tuşları açıkken tuş takımının yanında tuş takımı olmayan klavyelerdeki
+     karşılıkları da düşer: `7 8 9 U I O J K L M .` (Apple: `I` tıklar). Yalnız ayar açıkken geçerlidir. Bu durumda
+     müşteri de o harfleri yerelde yazamaz. Sözlü kural "tuş takımı" diyordu; `I` tıklaması aynı saldırıyı tuş takımsız
+     açık bırakırdı.
+2. **Y-P28f-K1 (b) kendi pencereler:** İmleç pencerelerimizin çerçevesindeyken enjekte fare düğmesi basmaları (sol, sağ,
+   orta) ve tuş takımı basmaları düşer (`DropOwnWindow`).
+   - Fare için olayın düşeceği nokta denetlenir (aynı enjeksiyondaki hareketin hedefi). Tuş takımı için imlecin o anki yeri
+     denetlenir; imleç okunamazsa düşer.
+   - Bırakma ve `k.release_all` düşmez (S7-13).
+   - Çerçeveler: `ui/mac` ana iş parçacığında görünür `form` pencerelerini (oturum penceresi, tüm onay diyalogları,
+     karşılama/son/hakkında) AppKit koordinatından CG'ye çevirir (`flipRect`, birincil ekran yüksekliği, 1 nokta dışa).
+     Sonra `input.SetOwnWindows` çağrılır. Bu; pencere gösterilince, kapanınca, `windowDidMove:` olunca ve 1 sn tikte olur.
+   - Kilit: `ownWindows` kendi mutex'ine sahip. Applier onu kendi kilidi altında okur; UI Applier kilidini hiç almaz. Musluk
+     iş parçacığı ikisine de dokunmaz.
+   - Enjekte sürükleme pencereye düşemez (basma düşer), bu yüzden teknisyen pencereyi taşıyamaz.
+   - **Sapma (gerekçeli):** görev metni göstergeyi de saydı. Gösterge, işaretleme katmanı ve TEST bandı ekran boyutunda ve
+     tıklama geçirgen (`setIgnoresMouseEvents:YES`) pencereler. Dahil edilselerdi her tıklama düşerdi, korudukları bir
+     denetim de yok. Güvenlik raporundaki "gösterge hariç" ile aynı karar alındı.
+3. **D-P28f-K1 musluk kapıdan önce:** `grantControl` sırası: `controlReady` → `armControl` → `Granted` → `gate.Open`.
+   - `Host.Arm` musluk iş parçacığından musluğu kurdurur, `CGEventTapIsEnabled` ile doğrular, döngüyü bir kez döndürür ve
+     sonra true döner (≤ 500 ms).
+   - Olmazsa kapı açılmaz, GRANTED gitmez. `controlReady=false` ile aynı yol izlenir: `VIEW{OS_PERMISSION}`, ret sayılmaz,
+     rehber açılır.
+   - Kapı 2 sn içinde açılmazsa musluk kaldırılır. Kapı açıkken gelen Arm hemen true alır. Arm'sız açılış (üretimde tek
+     `Gate.Open` çağıranı `grantControl`'dür) eski `OnOpen` yolunu kullanır.
+4. **D-P28f-K3 TEST bandı:** bant yalnız şu koşulların hepsi sağlanınca gizlenir: beklenen Team ID gömülü, imza Team ID'si
+   ona eşit, ad-hoc değil, imza okunabildi ve TEST derlemesi değil.
+   - Değişken `config.expectedTeamID`; devops `build-darwin.sh` `TEAM_SYMBOL` ile aynı ad. 10 karakter A-Z0-9 dışındaki
+     değer yok sayılır (bant görünür).
+   - **Yapılmayan:** güvenlik önerisindeki "Team ID farklıysa kontrol izni verilmesin" kısmı bu turda yok, yalnız bant
+     yapıldı. Prod öncesi zorunlu değil (rapor: "yalnız ek savunma").
+5. **QA m.4 / AC-105 güvenli giriş:** Carbon `IsSecureEventInputEnabled` true iken (parola alanı) `env.state`
+   `elevatedForeground=true` gider. Konsol mevcut "Yükseltilmiş pencere — kontrol edilemiyor…" iletisini gösterir
+   (mimari-p28f §11: "mevcut konsol mesajları").
+   - Bu sırada olay musluğu yerel tuşları göremez; AC-104 yerel önceliği klavyede çalışmaz.
+   - Sembol yakalama çerçevelerinden (`fwErr`) ayrı bağlanır. Eksikse uyarı üretilmez ve yakalama etkilenmez; bilgi amaçlı
+     olduğu için kapıyı da etkilemez.
+6. **QA m.1:** `TestP28fBoundaryLPOnlyExec` kaynağı `\r\n` → `\n` normalleştirip denetliyor. Kanıt: `lp_unix.go` geçici
+   olarak CRLF'ye çevrildi (`file`: "with CRLF line terminators"), test PASS verdi, sonra dosya geri yüklendi (diff yok).
+7. **QA m.3:** yukarıdaki K3 not 3 "AÇIK KARAR" kapatıldı: tek tanım `input.LocalClick`.
+
+### Testler (AC/bulgu adlı)
+
+`TestYP28fK1MouseKeysDropsKeypad`, `TestYP28fK1OwnWindowDropsClickAndKeypad`, `TestYP28fK1NoProbeAndMouseKeysState`,
+`TestYP28fK1MacProbeReads` (darwin, gerçek CFPreferences + imleç), `TestYP28fK1FlipRect`, `TestAC104DP28fK1ArmBeforeGateOpen`
+(flow), `TestAC104TapLifecycleAndOwnEventsNotLocal` (Arm kapı açılmadan musluğu kurar; izin yoksa SKIP),
+`TestP28fTestBand` (beklenen/farklı ekip), `TestP28fExpectedTeamID`, `TestAC105P28fSecureInputMapsToElevated`.
+Silinen: `TestSP28f1LocalEventRejectsOwnSynthetic` (`LocalEvent` ile; `zorunlu=` listesinde yoktu).
+
+### Doğrulama (2026-11-17)
+
+- `~/sdk/go1.26.11/bin/go test -count=1 ./...` (darwin/arm64 yerel): tüm paketler ok.
+- `GOOS=darwin GOARCH={arm64,amd64} go vet ./... && go build ./...`: temiz.
+- `docker run golang:1.26 … go test ./... && GOOS=windows go vet ./... && GOOS=windows go build ./...`: 35 paket ok, çıkış 0.
+- `gofmt -l .`: boş. staticcheck 0.8.2: darwin/arm64, darwin/amd64, windows/amd64, windows/arm64, linux/amd64 temiz.
+
+### devops / frontend-dev için
+
+- **devops:** `TEAM_SYMBOL` (`config.expectedTeamID`) Go'da var. "AÇIK (backend-dev)" maddesi kapandı. İsteğe bağlı olarak
+  yeni izinsiz testler `zorunlu=` listesine eklenebilir: `TestYP28fK1*`, `TestP28fExpectedTeamID`,
+  `TestAC105P28fSecureInputMapsToElevated`, `TestYP28fK1MacProbeReads`. Sonuncusu runner'da CFPreferences okuyabilmeli;
+  okuyamazsa yine PASS olur, yalnız "açık" loglar.
+- **frontend-dev:** sözleşme değişmedi. macOS'ta `elevatedForeground` artık "güvenli metin girişi (parola alanı)" demek.
+  Mevcut metin Windows'a özgü ("Yükseltilmiş pencere"). İstenirse platforma göre metin K7/K11 kapsamında ele alınır.
+
+### Elle (yapılmadı; gerçek bundle, runbook §28f.6'ya eklenmeli)
+
+- (a) Sistem Ayarları'ndan Fare Tuşları oturum ortasında açılır, ardından tuş takımı 5 ve `I` enjekte edilir. Beklenen:
+  ≤ 2 sn içinde düşmeli, pano anahtarı ve kontrol diyaloğunda 0 kabul. Ayrıca imzalı/ad-hoc bundle'ın
+  `com.apple.universalaccess` alanını okuyabildiği doğrulanmalı. Okuyamazsa tuş takımı ve bu harfler sürekli düşer
+  (fail-closed); bu durum test raporuna yazılmalı.
+- (b) Fare Tuşları tıklamasında `localClick` alanları (PID, StateID, UserData) kaydedilmeli (güvenlik m.3b).
+- (c) Oturum penceresi taşınınca pano anahtarına enjekte tıklama düşmeli; pencere dışındaki tıklama geçmeli.
+- (d) Parola alanına odaklanınca konsol uyarısı ≤ 1 sn içinde görünmeli.
+
+> **P28f not (qa Tur 2 m.5):** P28f K1–K5 bölümlerinde geçen `apps/agent-win/spike/p28f` yolu ve `--tmpfs /src/apps/agent-win/spike` maskesi o anın kaydıdır; spike kodu 2026-11-17'de repodan çıkarıldı (geliştirme makinesinde yerel arşiv), maskeye artık gerek yoktur. Güncel test komutu maskesizdir.
+
+### P28f düzeltme 1 — güvenlik tur 2 (Y-P28f-K1r) (backend-dev Go, 2026-11-17)
+
+- **Kendi pencere kuralı Fare Tuşları kümesinin tamamına genişletildi** (`hostguard.go`): tuş takımı ve
+  `7 8 9 U I O J K L M .` imleç pencerelerimizin üstündeyken düşer. Bu, Fare Tuşları ayarından ve 2 sn önbellekten
+  bağımsızdır (`DropOwnWindow`). Böylece önbellek penceresi ve `mouseDriver` anahtar adı belirsizliği bu sınırda etkisiz
+  kalır. Bedeli: teknisyen pencerelerimize bu harfleri yazamaz; meşru bir kullanımı yok.
+- **Konum denetimi iki noktalı:** canlı imleç (`Cursor()`) ya da son enjekte `m.move`/`m.btn` hedefi
+  (`Applier.lastX/lastY`) pencerelerimizdeyse düşer. Gerekçe: `CGEventPost` sonrasında canlı imleç henüz güncellenmemiş
+  olabilir. İmleç okunamazsa yine düşer. `SetTarget` son hedefi sıfırlar.
+- **Testler:** `TestYP28fK1rOwnWindowDropsMouseKeysLettersWhenOff` (ayar kapalı okunmuş, imleç pencerede;
+  `KeyI`/`Digit8`/`Period`/`KeyM`/`Numpad5` → 0 enjeksiyon) ve `TestYP28fK1rLastMoveTargetOverOwnWindow` (pencereye
+  hareket + `Numpad5`/`KeyI`, canlı imleç eski konumda → düşer). `TestYP28fK1OwnWindowDropsClickAndKeypad` son hedefe göre
+  güncellendi.
+- **CI:** izinsiz koşan 10 test `agent-win.yml` `test-macos` `zorunlu=` listesine eklendi:
+  `TestYP28fK1MouseKeysDropsKeypad`, `TestYP28fK1OwnWindowDropsClickAndKeypad`, `TestYP28fK1NoProbeAndMouseKeysState`,
+  `TestYP28fK1rOwnWindowDropsMouseKeysLettersWhenOff`, `TestYP28fK1rLastMoveTargetOverOwnWindow`, `TestYP28fK1FlipRect`,
+  `TestYP28fK1MacProbeReads`, `TestAC104DP28fK1ArmBeforeGateOpen`, `TestP28fExpectedTeamID`,
+  `TestAC105P28fSecureInputMapsToElevated`.
+- **Elle (prod öncesi zorunlu, yapılmadı; sistem ayarı değiştirilmedi):**
+  - Fare Tuşları Sistem Ayarları'ndan açıkken `defaults read com.apple.universalaccess mouseDriver` = `1` olmalı.
+    Değilse `MouseKeysOn` doğru anahtara taşınmalı (ör. `History.MouseKeys` son `State`). Sonuç buraya yazılmalı.
+  - Bu Mac'te (macOS 26.3.1) anahtar yok ve alan okunabiliyor; durum geçmişi `History.MouseKeys` altında tutuluyor.
+  - Güvenlik m.4b (`localClick` alan değerleri) ve yukarıdaki "Elle" (a)–(d) maddeleri geçerli.
+- **Doğrulama:**
+  - Yerel `go test -count=1 ./...`: tüm paketler ok.
+  - darwin arm64/amd64 vet + build: temiz.
+  - Docker `go test ./... && GOOS=windows go vet && GOOS=windows go build`: çıkış 0.
+  - `gofmt -l`: boş.
+  - staticcheck 0.8.2 (darwin arm64/amd64, windows amd64/arm64): temiz.
+  - actionlint bu makinede kurulu değil. YAML değişikliği yalnız `zorunlu=` dizesine eklenen adlardan ibaret.

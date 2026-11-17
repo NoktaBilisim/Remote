@@ -5,6 +5,7 @@ package ui
 import (
 	"sync"
 
+	"remote-support/agent-win/internal/ui/uicore"
 	"remote-support/agent-win/internal/win"
 )
 
@@ -109,7 +110,7 @@ func (p *Panel) addItem(it Item) *ctrl {
 	f := p.f
 	switch it.Kind {
 	case ItemLogo:
-		return f.picture(systemLogo(), it.X, it.Y, it.W, it.H)
+		return f.picture(uicore.SystemLogo(), it.X, it.Y, it.W, it.H)
 	case ItemTitle:
 		return f.label(it.Text, it.X, it.Y, it.W, it.H, fontBold)
 	case ItemDanger:

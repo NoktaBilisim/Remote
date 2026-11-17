@@ -2,7 +2,7 @@ import { expect, test } from "@playwright/test";
 import { axeScan, guardConsole, noHorizontalOverflow } from "./helpers";
 
 // P6 · AC-27: Windows masaüstünde "Hızlı Destek uygulamasını indir" (birincil) + SmartScreen rehberi; tarayıcı ikincil.
-// macOS/Linux/mobilde yalnız tarayıcı modu. 503 NOT_READY → tarayıcı modu önerilir. Sahte API: e2e/mock-sessions.mjs (A/D/G).
+// Linux/mobilde yalnız tarayıcı modu; macOS P28f (p28f-macos.spec.ts). 503 NOT_READY → tarayıcı modu önerilir. Sahte API: e2e/mock-sessions.mjs (A/D/G).
 guardConsole();
 const tok = (ch: string) => `/session/${ch.repeat(43)}`;
 const WIN = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36";
@@ -79,7 +79,9 @@ test.describe("macOS", () => {
   test.use({ userAgent: MAC });
   test.beforeEach(({}, info) => test.skip(info.project.name === "mobile", "masaüstü senaryosu"));
 
-  test("AC-27: macOS'ta yalnız tarayıcı modu (indirme seçeneği yok)", async ({ page }) => {
+  // P28f AC-396 ile güncellendi: macOS'ta indirme availability'ye bağlı (ayrıntı e2e/p28f-macos.spec.ts)
+  test("AC-27 / AC-390: macOS indirmesi yayında değilse yalnız tarayıcı modu", async ({ page }) => {
+    await page.route("**/api/v1/public/agent/availability", (r) => r.fulfill({ json: { windows: true, macos: false } }));
     await page.goto(tok("A"));
     await expect(page.getByTestId("join-browser")).toContainText("Yalnız ekranımı tarayıcıdan paylaş");
     await expect(page.getByTestId("agent-download")).toHaveCount(0);

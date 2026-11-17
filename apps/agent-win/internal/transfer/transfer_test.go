@@ -211,11 +211,15 @@ func TestS63RenameNoReplace(t *testing.T) {
 }
 
 // S6-3: MOTW yazılamazsa tehlikeli türde dosya teslim edilmez (silinir), uyarısız türde uyarıyla teslim edilir.
+// P28f T8 (AC-117): macOS'ta karantina yazılamazsa her tür silinir, sonuç CORRUPT.
 func TestS63MOTWFailure(t *testing.T) {
 	for _, c := range []struct {
 		name, status string
 		kept         bool
-	}{{"kurulum.exe", "REJECTED", false}, {"fatura.pdf.exe", "REJECTED", false}, {"rapor.pdf", "OK", true}} {
+	}{{"kurulum.exe", motwFailStatus, false}, {"fatura.pdf.exe", motwFailStatus, false}, {"rapor.pdf", "OK", true}} {
+		if motwRequired { // P28f T8: macOS'ta karantinasız dosya hiçbir türde teslim edilmez
+			c.status, c.kept = motwFailStatus, false
+		}
 		m, r, dir := setup(t, 1<<20)
 		m.d.MOTW = func(string) error { return errors.New("ADS desteklenmiyor") }
 		data := []byte("icerik")

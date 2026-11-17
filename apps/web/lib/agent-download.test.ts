@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { agentDownloadUrl, probeAgentDownload } from "./agent-download";
+import { AGENT_AVAILABILITY_URL, agentDownloadUrl, fetchAgentAvailability, probeAgentDownload } from "./agent-download";
 
 const json = (status: number, code: string, headers: Record<string, string> = {}) =>
   new Response(JSON.stringify({ error: { code, message: "x", requestId: "01JREQ" } }), {
@@ -22,37 +22,94 @@ describe("probeAgentDownload (AC-27)", () => {
       init = i;
       return { type: "opaqueredirect", status: 0 } as Response;
     }) as unknown as typeof fetch;
-    expect(await probeAgentDownload("ref", f)).toEqual({ kind: "ok" });
+    expect(await probeAgentDownload("ref", "windows", f)).toEqual({ kind: "ok" });
     expect(init?.redirect).toBe("manual");
   });
 
   it("302 (Node fetch) → ok", async () =>
     expect(
-      await probeAgentDownload("ref", fake(new Response(null, { status: 302, headers: { Location: "/downloads/Destek-12345678.exe" } }))),
+      await probeAgentDownload(
+        "ref",
+        "windows",
+        fake(new Response(null, { status: 302, headers: { Location: "/downloads/Destek-12345678.exe" } })),
+      ),
     ).toEqual({ kind: "ok" }));
 
   it("503 NOT_READY → notReady (tarayıcı moduna öner)", async () =>
-    expect(await probeAgentDownload("ref", fake(json(503, "NOT_READY")))).toEqual({ kind: "notReady" }));
+    expect(await probeAgentDownload("ref", "windows", fake(json(503, "NOT_READY")))).toEqual({ kind: "notReady" }));
 
   it.each([
     ["SESSION_EXPIRED", "expired"],
     ["SESSION_CANCELLED", "cancelled"],
     ["SESSION_CONSUMED", "consumed"],
   ] as const)("410 %s → %s", async (code, end) =>
-    expect(await probeAgentDownload("ref", fake(json(410, code)))).toEqual({ kind: "end", end }),
+    expect(await probeAgentDownload("ref", "windows", fake(json(410, code)))).toEqual({ kind: "end", end }),
   );
 
   it("404 → notFound", async () =>
-    expect(await probeAgentDownload("ref", fake(json(404, "NOT_FOUND")))).toEqual({ kind: "end", end: "notFound" }));
+    expect(await probeAgentDownload("ref", "windows", fake(json(404, "NOT_FOUND")))).toEqual({ kind: "end", end: "notFound" }));
 
   it("429 → rate + Retry-After", async () =>
-    expect(await probeAgentDownload("ref", fake(json(429, "RATE_LIMITED", { "Retry-After": "900" })))).toEqual({
+    expect(await probeAgentDownload("ref", "windows", fake(json(429, "RATE_LIMITED", { "Retry-After": "900" })))).toEqual({
       kind: "rate",
       retryAfter: 900,
     }));
 
   it("500 → error + requestId; ağ hatası → error", async () => {
-    expect(await probeAgentDownload("ref", fake(json(500, "INTERNAL")))).toEqual({ kind: "error", requestId: "01JREQ" });
-    expect(await probeAgentDownload("ref", fake(new TypeError("net")))).toEqual({ kind: "error" });
+    expect(await probeAgentDownload("ref", "windows", fake(json(500, "INTERNAL")))).toEqual({ kind: "error", requestId: "01JREQ" });
+    expect(await probeAgentDownload("ref", "windows", fake(new TypeError("net")))).toEqual({ kind: "error" });
   });
+});
+
+describe("P28f AC-396: macOS indirme adresi", () => {
+  it("Windows adresi değişmez (os parametresi yok); macOS'ta &os=macos", () => {
+    expect(agentDownloadUrl("r1")).toBe("/api/v1/public/agent/download?ref=r1");
+    expect(agentDownloadUrl("r1", "windows")).toBe("/api/v1/public/agent/download?ref=r1");
+    expect(agentDownloadUrl("a+b", "macos")).toBe("/api/v1/public/agent/download?ref=a%2Bb&os=macos");
+  });
+  it("ön kontrol macOS adresine gider; 302 .zip → ok", async () => {
+    let url = "";
+    const f = (async (u: string) => {
+      url = u;
+      return new Response(null, { status: 302, headers: { Location: "/downloads/Destek-12345678.zip" } });
+    }) as unknown as typeof fetch;
+    expect(await probeAgentDownload("ref", "macos", f)).toEqual({ kind: "ok" });
+    expect(url).toBe("/api/v1/public/agent/download?ref=ref&os=macos");
+  });
+});
+
+describe("P28f AC-390 / S-P28f-15: fetchAgentAvailability (fail-closed)", () => {
+  const ok = (body: unknown, status = 200) =>
+    fake(new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } }));
+  it("200 { windows, macos, macosTestBuild } → değer; çerez gönderilmez", async () => {
+    let init: RequestInit | undefined;
+    let url = "";
+    const f = (async (u: string, i: RequestInit) => {
+      url = u;
+      init = i;
+      return new Response(JSON.stringify({ windows: true, macos: true, macosTestBuild: true }), { status: 200 });
+    }) as unknown as typeof fetch;
+    expect(await fetchAgentAvailability(f)).toEqual({ windows: true, macos: true, macosTestBuild: true });
+    expect(url).toBe(AGENT_AVAILABILITY_URL);
+    expect(url).toBe("/api/v1/public/agent/availability");
+    expect(init?.credentials).toBe("omit");
+  });
+  it("macos:false → değer (çağıran indirmeyi gizler)", async () =>
+    expect(await fetchAgentAvailability(ok({ windows: true, macos: false, macosTestBuild: false }))).toEqual({
+      windows: true,
+      macos: false,
+      macosTestBuild: false,
+    }));
+  it("S-P28f-8: macosTestBuild eksik/geçersiz → false (imzalı rehber; 'Yine de Aç' varsayılan değil)", async () => {
+    expect(await fetchAgentAvailability(ok({ windows: true, macos: true }))).toEqual({ windows: true, macos: true, macosTestBuild: false });
+    expect((await fetchAgentAvailability(ok({ windows: true, macos: true, macosTestBuild: "evet" })))?.macosTestBuild).toBe(false);
+  });
+  it.each([
+    ["429", ok({ error: { code: "RATE_LIMITED" } }, 429)],
+    ["500", ok({ error: { code: "INTERNAL" } }, 500)],
+    ["şema dışı", ok({ windows: "yes", macos: 1 })],
+    ["eksik alan", ok({ windows: true })],
+    ["JSON değil", fake(new Response("<html>", { status: 200 }))],
+    ["ağ hatası", fake(new TypeError("net"))],
+  ])("%s → null (yalnız tarayıcı modu)", async (_n, f) => expect(await fetchAgentAvailability(f)).toBeNull());
 });

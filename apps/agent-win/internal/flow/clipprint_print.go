@@ -200,8 +200,9 @@ func (c *clipPrint) async(j *printJob, op func(ctx context.Context) func()) {
 }
 
 func (c *clipPrint) onInspected(j *printJob, pages int, err error) {
+	unknown := pagesUnknown(c.d.printer) && pages == 0 // r4: yalnız sayfa sayısı vermeyen yazıcıda (macOS)
 	switch {
-	case errors.Is(err, ErrPrintInvalidPDF) || (err == nil && (pages < 1 || pages > signal.PrintMaxPages)):
+	case errors.Is(err, ErrPrintInvalidPDF) || (err == nil && !unknown && (pages < 1 || pages > signal.PrintMaxPages)):
 		c.finishPrint("INVALID_PDF")
 		return
 	case err != nil:
@@ -218,7 +219,7 @@ func (c *clipPrint) onInspected(j *printJob, pages int, err error) {
 			c.finishPrintAs("TIMEOUT", "TIMEOUT", true)
 		}
 	})
-	c.d.ui.PrintPrompt(PrintPrompt{PID: j.pid, TechName: c.d.techName(), FileName: j.name, Pages: pages, Size: int64(len(j.buf)),
+	c.d.ui.PrintPrompt(PrintPrompt{PID: j.pid, TechName: c.d.techName(), FileName: j.name, Pages: pages, PagesUnknown: unknown, Size: int64(len(j.buf)),
 		Printer: displayText(j.printer, ""), Deadline: c.d.now().Add(printConsentFor)})
 }
 

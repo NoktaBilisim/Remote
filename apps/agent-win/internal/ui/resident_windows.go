@@ -9,13 +9,14 @@ import (
 
 	"remote-support/agent-win/internal/control"
 	"remote-support/agent-win/internal/flow"
+	"remote-support/agent-win/internal/ui/uicore"
 	"remote-support/agent-win/internal/win"
 )
 
 const swRestore = 9
 
 // SystemLogo gömülü Nokta amblemi (tepsi simgesi; exe'de simge kaynağı yok). Çözülemezse nil.
-func SystemLogo() image.Image { return systemLogo() }
+func SystemLogo() image.Image { return uicore.SystemLogo() }
 
 // ResetScope P20 K5 (G-P20-5): yerleşik süreçte her pencere kapsamının başında ve sonunda çağrılır; bekler. Önceki
 // kapsamın tüm pencereleri (son ekran, oturum, gösterge, işaretleme katmanı, diyaloglar) kapanır, oturuma ait UI
@@ -36,7 +37,7 @@ func (u *UI) ResetScope(gate *control.Gate, hotkey string) {
 		u.lobby, u.sess, u.offer, u.offerFID, u.ended, u.endNote = nil, nil, nil, "", nil, ""
 		u.ctlDlg, u.monDlg, u.granted, u.techName, u.windowShare, u.fileServer = nil, nil, false, "", false, false
 		u.printDlg, u.printPID = nil, ""
-		u.reqForm, u.reqWait, u.reqAccept, u.reqAcceptKey = nil, nil, nil, acceptKey{}
+		u.reqForm, u.reqWait, u.reqAccept, u.reqAcceptKey = nil, nil, nil, uicore.AcceptKey{}
 		u.gate, u.hotkeyLabel = gate, hotkey
 		drain(u.events)
 		drain(u.reqEvents)

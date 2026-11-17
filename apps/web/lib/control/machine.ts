@@ -29,8 +29,9 @@ export type ControlPhase = "idle" | "requested" | "granted" | "denied" | "ended"
 /**
  * `tech` = teknisyen bıraktı (K1), `cancel` = teknisyen bekleyen isteği geri çekti (K2),
  * `agent` = bekleyen istek müşteri tarafında bağlantı kesildiği için kapandı (`requested`'da `{VIEW, SYSTEM}`, K6).
+ * `osPermission` = macOS müşteride Erişilebilirlik izni yok, diyalog açılmadı (P28f AC-391, `{VIEW, OS_PERMISSION}`): ret değil.
  */
-export type ControlEndCause = "customer" | "hotkey" | "system" | "reconnect" | "peer" | "tech" | "cancel" | "agent";
+export type ControlEndCause = "customer" | "hotkey" | "system" | "reconnect" | "peer" | "tech" | "cancel" | "agent" | "osPermission";
 export interface Monitor {
   id: number;
   name: string;
@@ -263,6 +264,9 @@ function onControlState(s: ControlState, m: MsgOf<"control.state">, now: number)
   if (m.source === "TECH") return s.phase === "requested" ? s : stop(s, "tech", now);
   // K6: bekleyen istek müşteri tarafında kapandı (PeerConnection koptu) — ret değil, bekleme yok, hemen yeniden istenebilir
   if (m.source === "SYSTEM" && s.phase === "requested") return { ...stop(s, "agent", now), lastSent: null };
+  // P28f (mimari-p28f §4.2): sunucu bunu iptal işler — ret yok, 30 sn bekleme yok, sayaç iade edilmez. Yalnız bekleyen
+  // istekte anlamlı, diğer fazda yok sayılır.
+  if (m.source === "OS_PERMISSION") return s.phase === "requested" ? { ...stop(s, "osPermission", now), lastSent: null } : s;
   return stop(s, m.source === "HOTKEY" ? "hotkey" : m.source === "SYSTEM" ? "system" : "customer", now);
 }
 

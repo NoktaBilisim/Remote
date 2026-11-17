@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"remote-support/agent-win/internal/request"
+	"remote-support/agent-win/internal/ui/uicore"
 	"remote-support/agent-win/internal/win"
 )
 
@@ -75,7 +76,7 @@ func (u *UI) newReqWait(v request.WaitView) *reqWait {
 
 func acceptBody(v request.AcceptView) string {
 	return "Teknisyen doğrulama kodu: " + v.TechVerifyCode + " (telefondaki teknisyen de bu kodu söylemeli)\r\n" +
-		"Talep kodunuz: " + codeText(v.RequestCode) + admitLine(v.AdmitCode) + "\r\n" +
+		"Talep kodunuz: " + codeText(v.RequestCode) + uicore.AdmitLine(v.AdmitCode) + "\r\n" +
 		"\"Ekranımı paylaş\" derseniz teknisyen ekranınızı görür; uzaktan kontrol için ayrıca izin istenir.\r\n" +
 		"Kalan süre: " + mmss(v.Remaining)
 }
@@ -85,12 +86,12 @@ func acceptBody(v request.AcceptView) string {
 func (u *UI) RequestAccepted(v request.AcceptView) {
 	u.t.Do(func() {
 		d := u.reqAccept
-		key := acceptKey{tech: v.TechName, verify: v.TechVerifyCode}
-		switch acceptDecision(d != nil && !d.decided, u.reqAcceptKey, key) {
-		case acceptUpdate: // yeniden bağlanmada yeni ticket, aynı teknisyen ve kod: diyalog aynı kalır
+		key := uicore.AcceptKey{Tech: v.TechName, Verify: v.TechVerifyCode}
+		switch uicore.AcceptDecision(d != nil && !d.decided, u.reqAcceptKey, key) {
+		case uicore.AcceptUpdate: // yeniden bağlanmada yeni ticket, aynı teknisyen ve kod: diyalog aynı kalır
 			win.SetText(d.body.h, acceptBody(v))
 			return
-		case acceptReopen:
+		case uicore.AcceptReopen:
 			// S8b2-3/S8b2-4: teknisyen adı veya doğrulama kodu değişti → diyalog kapatılıp yeniden açılır (1,5 sn kilit
 			// yeniden başlar); müşteri eski diyalogdaki onayını aynı adlı başka teknisyene veremez.
 			closeDlg(d)

@@ -1,0 +1,43 @@
+package uicore
+
+// AcceptKey açık onay diyaloğunun kimliği (S8b2-4): başlıktaki teknisyen adı + gövdedeki teknisyen doğrulama kodu.
+// Yalnız ad yetmez; aynı adlı iki teknisyen farklı kodla gelebilir.
+type AcceptKey struct {
+	Tech, Verify string
+}
+
+type AcceptAction int
+
+const (
+	AcceptOpen   AcceptAction = iota // açık diyalog yok: yeni aç
+	AcceptUpdate                     // aynı teknisyen + aynı kod (yeniden bağlanmada yeni ticket): gövde yerinde güncellenir
+	AcceptReopen                     // ad veya kod değişti: kapat, yeniden aç (1,5 sn kilit yeniden başlar)
+)
+
+// AcceptDecision RequestAccepted'in platformdan bağımsız kararı. open=false → karar verilmiş/kapalı diyalog yok sayılır.
+func AcceptDecision(open bool, cur, next AcceptKey) AcceptAction {
+	switch {
+	case !open:
+		return AcceptOpen
+	case cur == next:
+		return AcceptUpdate
+	}
+	return AcceptReopen
+}
+
+// AdmitLine AC-239: onay diyaloğunda talep kodu satırının sonuna eklenen kabul kodu (rakamlar aralıklı, okunur; gövde
+// yüksekliği değişmesin diye ayrı satır değil). Kod boşsa "" (eski akış). "Ekranımı paylaş"tan sonra aynı kod lobi
+// ekranında büyük yazıyla ve okuma yönergesiyle gösterilir (screens_windows.go Lobby, flow.RunTicket).
+func AdmitLine(code string) string {
+	if code == "" {
+		return ""
+	}
+	spaced := make([]byte, 0, 2*len(code))
+	for i := 0; i < len(code); i++ {
+		if i > 0 {
+			spaced = append(spaced, ' ')
+		}
+		spaced = append(spaced, code[i])
+	}
+	return "  ·  Kabul kodu: " + string(spaced)
+}

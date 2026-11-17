@@ -96,6 +96,15 @@ type Applier struct {
 	dropAt      time.Time
 	pendingDrop string
 	cur         time.Time // işlenen mesajın zamanı (handleLocked)
+	// P28f S-P28f-1 ikinci katman: korunan denetim/onay diyaloğu açıkken enjeksiyon durur (Pause/Resume sayacı).
+	paused int
+	// altGrText P28f: AltRight (AltGr) basılıyken karakter Unicode gider (SetAltGrText; yalnız macOS).
+	altGrText bool
+	// host P28f Y-P28f-K1 (hostguard.go): macOS monitör kipi Fare Tuşları ve kendi pencere kuralları; Windows'ta nil.
+	host HostProbe
+	// lastX/lastY son enjekte hareket/tıklama hedefi (Y-P28f-K1r; yalnız host bağlıyken); SetTarget sıfırlar.
+	lastX, lastY float64
+	hasLast      bool
 }
 
 // NewApplier kapıya bağlı alıcı; kapı kapanınca basılı kalan tuş/düğmeler bırakılır.
@@ -114,6 +123,7 @@ func (a *Applier) SetTarget(mon, virt Rect) {
 	a.mu.Lock()
 	a.mon, a.virt, a.hasMon = mon, virt, mon.Right > mon.Left && virt.Right > virt.Left
 	a.scope = winScope{}
+	a.hasLast = false
 	a.resetShellLocked()
 	a.shiftRun = 0
 	a.mu.Unlock()
@@ -144,6 +154,10 @@ func (a *Applier) handleLocked(m Msg) (func(string), string) {
 		a.releaseLocked()
 		return nil, ""
 	}
+	if a.paused > 0 {
+		a.gate.Drop()
+		return nil, ""
+	}
 	now := a.now()
 	a.cur = now
 	if !a.heldReleaseLocked(m) && !a.takeLocked(now) {
@@ -155,9 +169,11 @@ func (a *Applier) handleLocked(m Msg) (func(string), string) {
 		return nil, ""
 	}
 	var evs []Event
-	if a.scope.on {
+	switch {
+	case a.scope.on:
 		evs = a.translateScoped(m)
-	} else {
+	case a.hostDropLocked(m): // P28f macOS (Y-P28f-K1): düştü, sayıldı
+	default:
 		evs = a.translate(m)
 	}
 	if len(evs) > 0 {
@@ -198,6 +214,33 @@ func (a *Applier) takeLocked(now time.Time) bool {
 	}
 	a.tokens--
 	return true
+}
+
+// SetAltGrText P28f (macOS): AltGr ile üretilen karakterler kısayol değil metin olarak gönderilir (keys.go shortcutHeld).
+// Windows'ta kullanılmaz (müşteri düzeni AltGr'yi kendisi çözer).
+func (a *Applier) SetAltGrText(on bool) {
+	a.mu.Lock()
+	a.altGrText = on
+	a.mu.Unlock()
+}
+
+// Pause P28f (mimari-p28f §5.2a, S-P28f-1): korunan bir denetim ya da onay diyaloğu açıldı. Bu alıcının basılı tuttuğu
+// tuş/düğmeler HEMEN bırakılır (takılı ⌘/düğme diyaloğa taşınmasın) ve Resume'a kadar gelen her mesaj düşer
+// (k.release_all yine işlenir: yalnız bırakır, basma üretmez). İç içe çağrılabilir; her Pause bir Resume ile kapanır.
+func (a *Applier) Pause() {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.paused++
+	a.releaseLocked()
+}
+
+// Resume Pause'u kapatır; sayaç sıfıra inince enjeksiyon sürer (kapı kurallarıyla).
+func (a *Applier) Resume() {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if a.paused > 0 {
+		a.paused--
+	}
 }
 
 // ReleaseAll yalnız bu alıcının bastığı tuş/düğmeleri bırakır (odak kaybı, kapı kapanışı). Basma olayı üretmez.
@@ -258,13 +301,21 @@ func (a *Applier) translate(m Msg) []Event {
 	return nil
 }
 
+// point normalize (0..1) → aktif monitör pikseli (macOS'ta nokta: genel CoreGraphics koordinatı). Hedef yoksa false.
+func (a *Applier) point(x, y float64) (float64, float64, bool) {
+	if !a.hasMon {
+		return 0, 0, false
+	}
+	return float64(a.mon.Left) + x*float64(a.mon.Right-a.mon.Left-1),
+		float64(a.mon.Top) + y*float64(a.mon.Bottom-a.mon.Top-1), true
+}
+
 // move normalize (0..1) → aktif monitör pikseli → sanal masaüstü mutlak (0..65535) koordinatı.
 func (a *Applier) move(x, y float64) (Event, bool) {
-	if !a.hasMon {
+	px, py, ok := a.point(x, y)
+	if !ok {
 		return Event{}, false
 	}
-	px := float64(a.mon.Left) + x*float64(a.mon.Right-a.mon.Left-1)
-	py := float64(a.mon.Top) + y*float64(a.mon.Bottom-a.mon.Top-1)
 	ax := (px - float64(a.virt.Left)) * 65535 / float64(max(1, a.virt.Right-a.virt.Left-1))
 	ay := (py - float64(a.virt.Top)) * 65535 / float64(max(1, a.virt.Bottom-a.virt.Top-1))
 	return Event{Mouse: true, DX: int32(ax + 0.5), DY: int32(ay + 0.5),
