@@ -41,12 +41,17 @@ export interface Owner {
   guest: WsClient;
   /** Sahibin aldığı `peer.joined{guest}` (K1c `guestMulti`). */
   joined: Extract<ServerOutbound, { t: "peer.joined" }>;
+  /** Misafirin aldığı `hello` (P28d: yeniden bağlanma belirteci). */
+  guestHello: Extract<ServerOutbound, { t: "hello" }>;
 }
 
-/** Sahip + oturum + sahip WS + kabul edilmiş tarayıcı misafiri (`multi` → `rs.cap.multi1` bildirir). */
+/**
+ * Sahip + oturum + sahip WS + kabul edilmiş misafir (`multi` → `rs.cap.multi1` bildirir). Varsayılan tarayıcı; P28d `kind:"AGENT"`
+ * (Origin'siz) + `caps` ek `rs.cap.*` belirteçleri.
+ */
 export async function ownerWithGuest(
   live: Live,
-  o: { multi?: boolean; tenantId?: string; perms?: Record<string, boolean> } = {},
+  o: { multi?: boolean; tenantId?: string; perms?: Record<string, boolean>; kind?: "BROWSER" | "AGENT"; caps?: string[] } = {},
 ): Promise<Owner> {
   const tenantId = o.tenantId ?? (await createTenant()).id;
   const user = await createUser({ tenantId, role: "USER", perms: o.perms ?? OWNER_PERMS });
@@ -58,13 +63,15 @@ export async function ownerWithGuest(
     "x-forwarded-for": nextIp(),
   });
   await ws.waitFor("hello");
-  const headers = { origin: ORIGIN, "x-forwarded-for": nextIp() };
+  const kind = o.kind ?? "BROWSER";
+  const headers: Record<string, string> =
+    kind === "AGENT" ? { "x-forwarded-for": nextIp() } : { origin: ORIGIN, "x-forwarded-for": nextIp() };
   const token = created.link.split("/").pop() ?? "";
   const r = await live.app.inject({
     method: "POST",
     url: "/api/v1/public/sessions/resolve",
     headers,
-    payload: { token, clientKind: "BROWSER" },
+    payload: { token, clientKind: kind },
   });
   const { joinNonce, consentText } = r.json<{ joinNonce: string; consentText: { id: string } }>();
   const j = await live.app.inject({
@@ -74,14 +81,14 @@ export async function ownerWithGuest(
     payload: { joinNonce, customerName: "Ayşe Müşteri", consentAccepted: true, consentTextId: consentText.id },
   });
   const { wsTicket, admitCode } = j.json<{ wsTicket: string; admitCode: string }>();
-  const protos = ["rs.v1", `rs.ticket.${wsTicket}`, ...(o.multi === false ? [] : [WS_CAP_MULTI])];
-  const guest = await connect(`${live.base}/ws/guest`, protos, { origin: ORIGIN, "x-forwarded-for": nextIp() });
+  const protos = ["rs.v1", `rs.ticket.${wsTicket}`, ...(o.multi === false ? [] : [WS_CAP_MULTI]), ...(o.caps ?? [])];
+  const guest = await connect(`${live.base}/ws/guest`, protos, { ...headers, "x-forwarded-for": nextIp() });
   await guest.waitFor("lobby.wait");
   await ws.waitFor("peer.pending");
   ws.send({ t: "guest.admit", admitCode });
-  await guest.waitFor("hello");
+  const guestHello = await guest.waitFor("hello");
   const joined = await ws.waitFor("peer.joined");
-  return { tenantId, user, s, sessionId: created.id, ws, guest, joined };
+  return { tenantId, user, s, sessionId: created.id, ws, guest, joined, guestHello };
 }
 
 export async function newUser(

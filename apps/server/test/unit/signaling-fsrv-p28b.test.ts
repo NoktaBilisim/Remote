@@ -9,6 +9,7 @@ import { newClipPrint } from "../../src/signaling/clip-print.ts";
 import { capsFor, featureList, featuresOf, fsrvOf, hasFsrv } from "../../src/signaling/rooms-features.ts";
 import type { Guest, Peer, Room } from "../../src/signaling/types.ts";
 import { newMulti } from "../../src/signaling/members.ts";
+import { newVoice } from "../../src/signaling/voice.ts";
 
 interface FeatureRow {
   case: string;
@@ -39,6 +40,7 @@ function room(unattended: boolean, fileMode: FileMode = "P2P"): Room {
     technicianId: "U",
     technicianName: "Tek",
     multi: newMulti("U"),
+    voice: newVoice(),
     expiresAt: 0,
     lobby: new Map(),
     lobbyArrivals: 0,

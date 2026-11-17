@@ -15,6 +15,7 @@ import type { Rooms } from "./rooms.ts";
 import { syncDisconnect } from "./active.ts";
 import type { Guest, Member, Peer, Room, TechConn } from "./types.ts";
 import { WS_CLOSE } from "@remote/contracts/ws";
+import { voiceSync } from "./voice.ts";
 
 const err = (c: TechConn, code: "CONFLICT" | "FORBIDDEN" | "RATE_LIMITED", message: string): void =>
   c.peer.send({ t: "error", code, message });
@@ -212,6 +213,7 @@ function swapOwner(rooms: Rooms, room: Room, oldConn: TechConn, m: Member): void
       ctx: oldConn.ctx,
     });
   broadcastRoster(room);
+  voiceSync(rooms, room); // P28d §4.2: devirde konuşanlar (tid) değişmez; yalnız yeniden hesap
 }
 
 // --- SDP/ICE yönlendirmesi (§4.4) ---

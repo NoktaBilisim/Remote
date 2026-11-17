@@ -2,6 +2,7 @@
 import { describe, expect, it } from "vitest";
 import fx from "../fixtures/voice.json" with { type: "json" };
 import { MULTI_ERROR_MESSAGES } from "../src/api/multi.ts";
+import { TIMELINE_ACTIONS, TIMELINE_DETAIL_KEYS } from "../src/api/sessions.ts";
 import {
   VOICE_AUDIT,
   VOICE_AUDIT_GROUP_LABELS,
@@ -11,6 +12,7 @@ import {
   VOICE_REJECT_REASONS,
 } from "../src/audit.ts";
 import { ERROR_STATUS } from "../src/errors.ts";
+import { describeTimelineEvent } from "../src/labels.ts";
 import { effectivePermissions, PERMISSION_DESCRIPTIONS, PERMISSION_KEYS } from "../src/permissions.ts";
 import { ROLE_MAY, seatMay } from "../src/ws-multi.ts";
 import * as voice from "../src/ws-voice.ts";
@@ -118,5 +120,23 @@ describe("P28d audit (AC-379)", () => {
     expect(VOICE_AUDIT_GROUP_LABELS).toEqual({ voice: "Sesli görüşme" });
     for (const r of VOICE_REJECT_REASONS) expect(VOICE_REJECT_REASON_LABELS[r]).toBeTruthy();
     for (const r of voice.VOICE_END_REASONS) expect(VOICE_END_REASON_LABELS[r]).toBeTruthy();
+  });
+
+  it("AC-379: zaman çizelgesi voice.* eylemlerini taşır; ayrıntı yalnız neden + süre (kullanıcı kimliği yok); Türkçe metin", () => {
+    for (const a of Object.values(VOICE_AUDIT)) expect(TIMELINE_ACTIONS as string[]).toContain(a);
+    expect(TIMELINE_DETAIL_KEYS["voice.end"]).toEqual(["reason", "durationSec"]);
+    expect(TIMELINE_DETAIL_KEYS["voice.reject"]).toEqual(["reason"]);
+    expect(describeTimelineEvent({ action: "voice.end", details: { reason: "tech", durationSec: 192 } })).toEqual({
+      label: "Sesli görüşme bitti",
+      note: "Teknisyen bitirdi · 3 dk 12 sn",
+      warn: false,
+    });
+    expect(describeTimelineEvent({ action: "voice.end", details: { durationSec: 45 } }).note).toBe("45 sn");
+    expect(describeTimelineEvent({ action: "voice.reject", details: { reason: "timeout" } })).toEqual({
+      label: "Sesli görüşme kurulmadı",
+      note: "Müşteri yanıt vermedi",
+      warn: false,
+    });
+    expect(describeTimelineEvent({ action: "voice.join", details: {} }).label).toBe("Teknisyen sesli görüşmeye katıldı");
   });
 });

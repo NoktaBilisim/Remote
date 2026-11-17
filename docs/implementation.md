@@ -13318,3 +13318,138 @@ o API tek dosya/ağırlık listesi alır, alt küme başına `unicode-range` ver
 
 **Kontrast:** hesap (WCAG) — tüm metin token'ları canvas/surface/surface-muted üstünde ≥ 4.5 (açık warning/success yalnız surface-muted
 üstünde 4.46; kodda bu eşleşme yok, DESIGN.md'de kural olarak yazıldı); rozetler kendi zemininde ≥ 4.5; anahtar rayları ≥ 3:1.
+
+## P28d — sesli görüşme
+
+### K0 sözleşme
+
+#### Değişen dosyalar
+
+- `packages/contracts/src/ws-voice.ts` (yeni, yaprak; yalnız zod + `ws-multi` `techIdSchema`/`MAX_TECHS`): `WS_CAP_VOICE`,
+  sabitler (`VOICE_REQUEST_TIMEOUT_MS`, `VOICE_DENY_COOLDOWN_MS`, `VOICE_REQUESTS_PER_SESSION`, `VOICE_MAX_OPUS_BYTES`,
+  `VOICE_MAX_PKT_PER_SEC`, `CALL_ID_PATTERN`/`callIdSchema`), `VOICE_PHASES`, `VOICE_END_REASONS`, `VOICE_GUEST_END_REASONS`,
+  şemalar: tech→S `voiceRequestTechSchema {t,id?}`, `voiceJoinSchema`/`voiceEndTechSchema {t,id?,callId}`; guest→S
+  `voiceAnswerSchema {callId, accept}`, `voiceEndGuestSchema {callId, reason: customer|device}`; S→ `voiceRequestGuestSchema
+{callId, by}`, `voiceStateSchema`; `helloVoiceFields` (`guestVoice`).
+- `voice.state` değişmezleri (TS refine = Go `validVoiceState`): pending/active → `callId` zorunlu; idle → `callId` yalnız
+  `endReason` ile; `endReason` yalnız idle; `talkers`/`listeners` 0..3, tid benzersiz, `talkers ⊆ listeners`; null dizi geçersiz.
+  Bilerek eklenmeyen kurallar: pending'de `by` zorunluluğu, active'de talkers ≥ 1, idle'da boş listeler (K1 doğal olarak üretir).
+- `ws.ts`: tech birliğine `techVoiceInbound`; `guestInboundSchemaFor(features, fsrv, rec, multi, voice=false)` (bit 32);
+  `GuestInboundFull` + voice tipleri; `hello` ve `peer.joined` `guestVoice?`; `serverOutboundSchema` + `voice.request`/`voice.state`;
+  `WS_ERROR_CODES` + `CLIENT_UNSUPPORTED` (mevcut REST kodu WS zarfına eklendi — yeni kod değil; metin `MULTI_ERROR_MESSAGES.CLIENT_UNSUPPORTED`).
+- `ws-multi.ts`: yeni koltuk `talker` (sahip ya da izleyici olmayan); `ROLE_MAY` `voice.request|join|end: "talker"`;
+  `TechSeatOf.observer: boolean` ZORUNLU (eksikse `talker` kapalı, varsayılan-ret).
+- `permissions.ts`: `sessions.voice` + açıklama (§7 metni aynen). Web `tr.json` `perm.a.voice` = "Sesli görüşme", `users.test.ts`.
+- `audit.ts`: `VOICE_AUDIT` (5 eylem), `VOICE_REJECT_REASONS` (+ tip), `VOICE_AUDIT_LABELS`, `VOICE_AUDIT_GROUP_LABELS {voice}`,
+  `VOICE_REJECT_REASON_LABELS`, `VOICE_END_REASON_LABELS` (`import type` ws-voice; döngü yok).
+- `package.json` `./ws-voice` export; `pt-surface` snapshot `-u` (yalnız voice eklemeleri, gözden geçirildi).
+- `fixtures/voice.json` + `test/voice-p28d.test.ts` (AC-373..379); `test/multi-p28c.test.ts` seat'lere `observer`, katılımcıda voice.* beklentisi.
+- `apps/server/src/signaling/handlers.ts`: tek satır — `seatMay`'e `observer: seat.member?.role === "observer"` (tip zorunlu kıldı).
+- Go `internal/signal/voice.go` (yeni): `FeatureVoice`, sabitler, `ValidCallID`, `VoiceRequest`/`VoiceState` (ParseServer),
+  `VoiceAnswer`/`VoiceEnd` (Outbound, `validate`), `VoiceEndCustomer/Device`. `inbound.go` parser + `wsErrorCodes` CLIENT_UNSUPPORTED;
+  `conn.go` `knownFeatures` + `FeatureVoice`; `clipprint_test.go` "bilinmeyen belirteç" örneği `rs.cap.voice1` → `rs.cap.video1`.
+  `voice_test.go` ortak fikstür testi. `internal/voice`, `go.mod`, `go.sum` DOKUNULMADI.
+
+#### Komutlar (son çıktı)
+
+- `pnpm -r run typecheck` / `pnpm -r run lint`: yeşil.
+- contracts `pnpm test`: 26 dosya, 264 test geçti. web `vitest run`: 507 geçti. server `vitest run test/unit`: 645 geçti (entegrasyon koşulmadı — DB).
+- Go (docker golang:1.26): `go test ./internal/signal/...` ok; `GOOS=windows go vet ./internal/signal/...` ok; gofmt temiz.
+
+#### K1 (sunucu) notları
+
+- `onTechMessage` artık `voice.*`'ı ROLE_MAY'den geçiriyor (sahip/katılımcı) ama işleyici yok → K1 `voice.ts` dalını ekler.
+- Misafir şeması: `guestInboundSchemaFor(..., multi, hasVoice(room, guest))`; eski Go'ya `voice.*` gönderme.
+- Hata: `!hasVoice` → `error{code:"CLIENT_UNSUPPORTED", message: MULTI_ERROR_MESSAGES.CLIENT_UNSUPPORTED}`.
+- `voice.state` yayını yukarıdaki değişmezlere uymalı (idle'da `callId` yalnız `endReason` ile; null dizi yok). Go misafir ihlalde soketi kapatır → görüşme `disconnect` ile biter.
+- Audit `voice.end` `{durationSec, reason, talkerIds, listenerIds}`; ret alt kodu `code` anahtarıyla yazılmaz (maske).
+- `ws-auth.ts`: `rs.cap.voice1` belirtecini tanı.
+
+#### K2 (web) notları
+
+- `apps/web/lib/audit/actions.ts`: `VOICE_AUDIT_LABELS` + `VOICE_AUDIT_GROUP_LABELS` yay; zaman çizelgesine neden etiketleri.
+- Konsol `hello.guestVoice` / `peer.joined.guestVoice`; `canSend` zaten `observer`'lı Seat ile çalışıyor (voice.* izleyicide false).
+- `callId`'i yalnız `voice.state`'ten al; tarayıcı misafir `voice.answer`/`voice.end{customer|device}` gönderir.
+
+#### K3 (Go) notları
+
+- Dial features'a `signal.FeatureVoice` yalnız katılımlı oturumda (gözetimsizde değil, O-PD-3).
+- `ParseServer` `VoiceRequest`/`VoiceState` döner; rıza kaydı yoksa `VoiceState{active}` mikrofonu açmaz, `VoiceEnd{Reason: VoiceEndCustomer}` gönder.
+- Opus kapıları için `VoiceMaxOpusBytes`, `VoiceMaxPktPerSec`.
+
+### K1 sunucu
+
+Durum: kod + testler tamam. Birim, voice entegrasyonu ve WS regresyon paketleri yeşil (ayrıntı "Komutlar").
+
+#### Değişen dosyalar
+
+- `apps/server/src/signaling/voice.ts` (yeni): `newVoice`, `listenersOf` (bağlı + rol + `sessions.voice`; sıra sahip, üyeler),
+  `stateOf` (tek `voice.state` kurucusu, talkers ∩ listeners), `publish` (`sentKey` ile değişmeyen durum yeniden gitmez, D-PD-2),
+  `endVoice` (TEK bitiş: active → audit `voice.end{durationSec, reason, talkerIds, listenerIds}`, pending → `voice.reject{reason}` fail;
+  bekleme `customer|device|timeout`), `voiceSync` (her oda olayı: misafir `!hasVoice` → `disconnect`; konuşan ∩ dinleyen; active'de
+  boşsa `left`), `voiceDropTalker`, `voiceTechAttached`, `voiceGuestHello`, `voicePermChange`, `handleTechVoice`, `voiceRequest`
+  (kapı sırası: yetki → gözetimsiz → misafir bağlı → hasVoice → faz → bekleme → 10 istek), `handleGuestVoice`, `activeVoiceCount`.
+- `types.ts`: `Peer.voice`, `Room.voice: VoiceRoom`, `VoiceRoom` arayüzü.
+- `rooms-features.ts`: `voiceOf` (ws-auth; BROWSER ya da `rs.cap.voice1`, gözetimsizde false), `hasVoice` (tek yardımcı).
+- `ws-auth.ts` `bindGuest`: `peer.voice`. `handlers.ts`: misafir şemasına `hasVoice`, `multiAction` voice.* dalı, misafir
+  `voice.answer`/`voice.end`, rol reddi mesajı voice.* için "İzleyici sesli görüşmede konuşamaz.".
+- Kancalar: `rooms.ts` (getOrCreate `voice`, attachTech eski soket → drop talker + `voiceTechAttached`, detachTech/detachGuest
+  `voiceSync`, teardown başında `endVoice(session_ended)` — membersTeardown'dan önce, applyPermChange iki yolda `voicePermChange`),
+  `member-life.ts` (attachMember eski soket drop + attached, detachMember/leaveMember sync — revokeMember, tech.remove,
+  member.leave, pay dolması hepsi buradan), `member-cmds.ts` swapOwner sonrası sync (devir: tid'ler değişmez).
+- `active.ts`: teknisyen `hello.guestVoice` (`guestVoiceOf`: kısa kopuklukta son değer), `peer.joined.guestVoice`, misafir
+  hello+roster sonrası `voiceGuestHello`.
+- `multi-audit.ts`: `auditMulti` action tipi `MultiAuditAction | VoiceAuditAction` (kopya yok).
+- `ops/metrics.ts`: `rs_voice_calls_total`, `rs_voice_denied_total` `m.counter` ile kayıtlı; `ws.ts`: gauge `rs_voice_active` (etiketsiz).
+- Oturum geçmişi zaman çizelgesi (K1 devamı): `packages/contracts/src/api/sessions.ts` `TIMELINE_DETAIL_KEYS` + `voice.request|accept|join: []`,
+  `voice.reject: ["reason"]`, `voice.end: ["reason", "durationSec"]` (`talkerIds`/`listenerIds` kullanıcı kimliği olduğundan
+  zaman çizelgesine girmez — P28c deseni). `packages/contracts/src/labels.ts`: `TIMELINE_ACTION_LABELS`'a `...VOICE_AUDIT_LABELS`;
+  `describeTimelineEvent` `voice.reject` → not = ret nedeni etiketi, `voice.end` → not = "bitiş nedeni · 3 dk 12 sn". Sunucu
+  `history-view.ts` değişmedi (`primitive()` sayıyı olduğu gibi geçirir; aktör: katılımcı tid'leri `history-detail` `techIds` ile TECH).
+- Testler: `test/unit/voice-p28d.test.ts` (yeni; + zaman çizelgesi izdüşümü), `test/integration/voice-p28d.test.ts` (yeni, 16 test),
+  `test/helpers/multi.ts` (`ownerWithGuest` `kind`/`caps` seçenekleri + `guestHello` dönüşü), `clip-print.test.ts` /
+  `signaling-fsrv-p28b.test.ts` fikstürüne `voice: newVoice()`; contracts `test/voice-p28d.test.ts` zaman çizelgesi testi.
+
+#### Tasarım kararları / sapmalar (gerekçeli)
+
+1. Pending'de oturum biterse audit `voice.reject{disconnect}` (VOICE_REJECT_REASONS'ta `session_ended` yok; yeni değer eklenmedi).
+2. İsteyen pending'de koparsa / yetkisi düşerse istek sürer; kabulde konuşan olamayacağı için `voice.accept` + hemen `voice.end{left}`
+   (talkers ⊆ listeners korunur; birim testli).
+3. Misafir kopması (`disconnect`) bekleme başlatmaz (§3 yalnız ret/zaman aşımı/customer/device sayar).
+4. Misafir bağlı değilken `voice.request` → `CONFLICT` "Müşteri bağlı değil." (CLIENT_UNSUPPORTED yanıltıcı olurdu).
+5. Pending'de eşleşen callId ile `voice.join` → `CONFLICT`; `voice.join` yetki denetimi callId'den önce (FORBIDDEN gözlenebilir).
+6. Teknisyen soketi yenisiyle değişirse (sekme) eski tid konuşanlardan düşer (V-PD-5); yeni sekme "Görüşmeye katıl" ile döner.
+7. "Gözetimsiz değişim": `voiceSync` her olayda `hasVoice` denetler → oda gözetimsiz olursa `disconnect` ile biter (birim testli).
+8. `rs_voice_calls_total{result}`: accepted | rejected (müşteri ret) | timeout; pending'de kopma sayılmaz.
+9. deploy/ops/test-watch.sh eşlemesi gerekmedi: yeni alarm yok (§11 K4), remote-watch desenleri `rs_voice_*`'ı süpürmüyor.
+10. Permissions-Policy (`proxy.ts`) K2'ye ait (§7), K1'de dokunulmadı.
+11. Zaman çizelgesine `voice.*` eklenmesi mimari-p28d'de açıkça yazılı değildi (audit etiket yorumu "geçmiş zaman çizelgesine yayılır"
+    diyordu); K2 notu üzerine koordinatör isteğiyle eklendi. Yalnız neden ve süre — kimlik yok.
+
+#### Bilinen sınır
+
+- WS `error` zarfı (`packages/contracts/src/ws.ts`, `z.strictObject({t, code, message})`) istek kimliği (`id`) taşımaz; voice
+  şemalarındaki `id?` geri yansıtılmaz. Alan eklemek strict şemayı (web + Go ayrıştırıcı) kıran sözleşme değişikliği olur → eklenmedi.
+  Sonuç: web, bekleyen ses isteği varken gelen herhangi bir `error`'ı sese atfeder (kapalı-güvenli; kabul edildi).
+
+#### Entegrasyon testi düzeltmeleri (yalnız test; kod hatası çıkmadı)
+
+`waitMsg` kuyruktaki İLK eşleşen tipi tüketir ve eşleşmeyenleri atar. Misafir/teknisyen artık hello+roster sonrası callId'siz
+`voice.state{idle}` aldığından (ve önceki görüşmenin bitiş yayını kuyrukta kalabildiğinden) `phase === "idle"` yüklemi bayat mesajı
+seçiyordu. Düzeltme: bitiş beklentileri `callId` ile seçilir (zaman aşımı, müşteri reddi, müşteri bitişi, V-PD-5 `left`,
+`session_ended`) — bu aynı zamanda "bitiş yayını callId taşır"ı sabitler. D-PD-2 testinde `drain` öncesi misafirin talkers=2 kopyası
+da beklenir (yarış: üyenin kopyası önce geliyordu). Eklenen beklenti: misafire `voice.state{pending, callId, by, listeners:[by]}` gider.
+
+#### Komutlar (son çıktı)
+
+- Test DB: `TEST_DB_CONTAINER=p28d-k1b-mysql TEST_DB_PORT=3442 apps/server/scripts/test-db.sh up|down`.
+- `vitest run test/integration/voice-p28d.test.ts`: 16/16 (3 ardışık koşu, kararlı).
+- `vitest run test/integration/{multi-*,signaling-*,unattended-*,rec-*}`: 28 dosya, 292 test geçti.
+- `pnpm --filter @remote/server test` (birim): 49 dosya, 659 geçti, 1 atlandı.
+- contracts `vitest run`: 26 dosya, 265 test geçti.
+- `pnpm --filter @remote/server test:int` (tam entegrasyon, tek koşu): 113 dosya, 1143 geçti, 2 kaldı →
+  (a) `consent-p4.test.ts` QA-P4-12 `peer.joined` tam eşitliği yeni K0 alanı `guestVoice: true`'yu bilmiyordu — beklenti
+  güncellendi (sözleşme gereği, kod hatası değil); (b) `customers-csv-p19.test.ts` AC-263 5 000 satır performans testi paralel
+  yükte 60 sn'yi aştı (ses ile ilgisiz). İki dosya ayrı koşuda 22/22 geçti.
+- lint + typecheck (`pnpm -r`) yeşil; web birim 519 geçti (contracts `labels.ts` değişikliği web'i kırmadı).
+- `pnpm format:check`: yalnız `docs/tmp-impl-k0s.md` (başka ajanın geçici notu; dokunulmadı) uyarı veriyor.

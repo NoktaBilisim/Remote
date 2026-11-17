@@ -382,6 +382,12 @@ export const TIMELINE_DETAIL_KEYS = {
   "session.participant_remove": ["role"],
   "session.control_handover": ["reason"],
   "session.transfer": ["failReason"],
+  // P28d (mimari-p28d §6): konuşan/dinleyen kullanıcı kimlikleri (`talkerIds`/`listenerIds`) yok — neden ve süre.
+  "voice.request": [],
+  "voice.accept": [],
+  "voice.reject": ["reason"],
+  "voice.join": [],
+  "voice.end": ["reason", "durationSec"],
 } as const satisfies Record<string, readonly string[]>;
 export type TimelineAction = keyof typeof TIMELINE_DETAIL_KEYS;
 export const TIMELINE_ACTIONS = Object.keys(TIMELINE_DETAIL_KEYS) as TimelineAction[];

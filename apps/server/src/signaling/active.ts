@@ -5,12 +5,13 @@ import { writeAudit, type AuditContext } from "../audit/service.ts";
 import { newSecretToken, sha256Hex } from "../lib/ids.ts";
 import * as repo from "../sessions/repo.ts";
 import { offerBinding } from "./binding.ts";
-import { capsFor, featureList, fileModeOf, guestFeatures, hasFsrv } from "./rooms-features.ts";
+import { capsFor, featureList, fileModeOf, guestFeatures, hasFsrv, hasVoice } from "./rooms-features.ts";
 import type { Rooms } from "./rooms.ts";
 import { iceServersFor, type IceGrant } from "./turn.ts";
 import type { Guest, Room, TechConn } from "./types.ts";
 import { guestMulti, rosterOf, sendRosterToGuest, sendTechs, techRoleOf, tidOf } from "./members.ts";
 import { recHelloGuest, recHelloTech } from "./rec.ts";
+import { guestVoiceOf, voiceGuestHello } from "./voice.ts";
 
 const HOUR_MS = 3_600_000;
 const iso = (ms: number): string => new Date(ms).toISOString();
@@ -57,6 +58,7 @@ export function sendHelloTech(rooms: Rooms, room: Room, conn: TechConn | undefin
     techRole: techRoleOf(room, conn),
     roster: rosterOf(room),
     ...(g ? { guestMulti: guestMulti(room) } : {}), // K1c AC-372: konsol "Davet et"/"İzle"yi baştan pasif gösterir
+    ...(g ? { guestVoice: guestVoiceOf(room) } : {}), // P28d §4.1: transceiver + düğme durumu (eski istemci → false)
   });
 }
 
@@ -108,6 +110,7 @@ export function sendHelloGuest(rooms: Rooms, room: Room, guest: Guest): void {
   });
   room.multi.guestMulti = guest.peer?.multi === true;
   sendRosterToGuest(room); // P28c §4.4: multi1 misafire hello'nun hemen ardından
+  voiceGuestHello(room); // P28d §4.2: ses destekli misafire roster'dan hemen sonra `voice.state`
   offerBinding(rooms, guest);
 }
 
@@ -123,6 +126,7 @@ export function sendGuestJoined(room: Room, guest: Guest): void {
     fileMode: fileModeOf(room), // P28b §5.1
     ...clipPrintFields(room, false),
     guestMulti: guest.peer?.multi === true, // K1c AC-372
+    guestVoice: hasVoice(room, guest.peer), // P28d §4.1
   });
 }
 

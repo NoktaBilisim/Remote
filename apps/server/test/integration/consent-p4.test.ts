@@ -210,6 +210,7 @@ describe("P4 düzeltme turu 1", () => {
       fileMode: "P2P", // P28b §5.1
       guestFeatures: ["fsrv"], // P28b K-P28b-20: tarayıcı misafiri belirteçsiz yetenekli
       guestMulti: false, // P28c K1c AC-372: bu misafir rs.cap.multi1 bildirmiyor
+      guestVoice: true, // P28d AC-379: tarayıcı misafiri belirteçsiz sesli görüşme destekli
     });
 
     const share = { state: "sharing", monitors: [{ id: 0, name: "Ekran 1", w: 1920, h: 1080, primary: true }], activeMonitor: 0 } as const;

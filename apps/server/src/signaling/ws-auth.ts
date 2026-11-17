@@ -22,7 +22,7 @@ import { rejoinDeviceGuest } from "./rejoin-device.ts";
 import { admitRequestGuest } from "./admit.ts";
 import { admitDeviceGuest } from "./admit-device.ts";
 import { onGuestMessage, onTechMessage, TokenBucket } from "./handlers.ts";
-import { featuresOf, fsrvOf } from "./rooms-features.ts";
+import { featuresOf, fsrvOf, voiceOf } from "./rooms-features.ts";
 import type { Rooms } from "./rooms.ts";
 import type { Guest, Member, Peer, Room, TechConn } from "./types.ts";
 import { WS_CLOSE } from "@remote/contracts/ws";
@@ -287,6 +287,7 @@ function bindGuest(
   g.ctx = ctx; // P7: kontrol onayı kaydı bu bağlantının ip/user_agent'ı ile
   peer.features = featuresOf(protocols, room, g); // P28a §4.2: soket başına; gözetimsiz odada okunmaz (O-P28a-4)
   if (fsrvOf(protocols, room, g)) peer.fsrv = true; // P28b §5.1: rs.cap.fsrv1 / BROWSER; gözetimsiz odada okunmaz
+  if (voiceOf(protocols, room, g)) peer.voice = true; // P28d §4.1: rs.cap.voice1 / BROWSER; gözetimsiz odada okunmaz
   attach();
   const bucket = new TokenBucket(rooms.clock);
   ws.on(
