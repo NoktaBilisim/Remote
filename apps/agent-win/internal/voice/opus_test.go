@@ -231,7 +231,7 @@ func TestP28dK0sWasmDigestMatches(t *testing.T) {
 		t.Fatal(err)
 	}
 	sum := sha256.Sum256(libopusWasm)
-	if got := hex.EncodeToString(sum[:]) + "  libopus.wasm\n"; got != string(want) {
+	if got := hex.EncodeToString(sum[:]) + "  libopus.wasm"; got != strings.TrimSpace(string(want)) { // Windows checkout CRLF
 		t.Fatalf("libopus.wasm SHA-256 %q, dosya %q", got, want)
 	}
 }

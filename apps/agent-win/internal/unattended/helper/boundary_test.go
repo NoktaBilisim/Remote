@@ -1,6 +1,7 @@
 package helper
 
 import (
+	"errors"
 	"go/ast"
 	"go/parser"
 	"go/token"
@@ -144,10 +145,14 @@ func TestP28dBoundaryHelperHasNoVoice(t *testing.T) {
 			t.Fatalf("yardımcıda ses motoru: %s", p.path)
 		}
 	}
-	cmd := exec.Command("go", "list", "-deps", module+"cmd/noktadestek")
+	cmd := exec.Command("go", "list", "-buildvcs=false", "-deps", module+"cmd/noktadestek") // ana paket: CI konteynerinde VCS damgası (dubious ownership) go list'i düşürür
 	cmd.Env = append(os.Environ(), "GOOS=windows", "GOARCH=amd64", "CGO_ENABLED=0")
 	out, err := cmd.Output()
 	if err != nil {
+		var ee *exec.ExitError
+		if errors.As(err, &ee) {
+			t.Fatalf("go list: %v: %s", err, ee.Stderr)
+		}
 		t.Fatalf("go list: %v", err)
 	}
 	deps := strings.Fields(string(out))
