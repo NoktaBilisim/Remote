@@ -117,10 +117,11 @@ export const helloMultiFields = {
 // --- Rol kapısı (§1.1, §4.4; D-PC-6 varsayılan-ret) ---
 /**
  * Teknisyen mesajını kim gönderebilir: `any` = her teknisyen soketi; `owner` = oturum sahibi; `controller` = kontrol
- * sahibi; `member` = sahip olmayan üye. Anahtar kümesi `techInboundSchema` tiplerinin TAMAMIDIR (test: eksik/fazla
- * anahtar kırar); listede olmayan tip `seatMay` ile reddedilir.
+ * sahibi; `member` = sahip olmayan üye; `talker` = izleyici olmayan (sahip ya da katılımcı — P28d sesli görüşme, AC-378).
+ * Anahtar kümesi `techInboundSchema` tiplerinin TAMAMIDIR (test: eksik/fazla anahtar kırar); listede olmayan tip `seatMay`
+ * ile reddedilir.
  */
-export const TECH_SEATS = ["any", "owner", "controller", "member"] as const;
+export const TECH_SEATS = ["any", "owner", "controller", "member", "talker"] as const;
 export type TechSeat = (typeof TECH_SEATS)[number];
 export const ROLE_MAY = {
   "sdp.offer": "any",
@@ -148,13 +149,21 @@ export const ROLE_MAY = {
   "fsrv.result": "controller",
   "fsrv.cancel": "controller",
   "rec.error": "controller",
+  // P28d (mimari-p28d §4.2): izleyici istek yapamaz, katılamaz, bitiremez (yalnız dinler; sunucu `FORBIDDEN`).
+  "voice.request": "talker",
+  "voice.join": "talker",
+  "voice.end": "talker",
 } as const satisfies Readonly<Record<string, TechSeat>>;
 export type RoleMayType = keyof typeof ROLE_MAY;
 
-/** Soketin oturumdaki yeri: sahip mi, kontrol sahibi mi (ikisi aynı kişi olabilir). */
+/**
+ * Soketin oturumdaki yeri: sahip mi, kontrol sahibi mi (ikisi aynı kişi olabilir), izleyici mi (P28d; sahip asla izleyici
+ * değildir). `observer` zorunludur: eksik alan `talker` kapısını açmaz (varsayılan-ret).
+ */
 export interface TechSeatOf {
   owner: boolean;
   controller: boolean;
+  observer: boolean;
 }
 /** Varsayılan-ret kapı: `ROLE_MAY`'de olmayan tip hiç kimseye açık değildir. */
 export function seatMay(t: string, seat: TechSeatOf): boolean {
@@ -168,5 +177,7 @@ export function seatMay(t: string, seat: TechSeatOf): boolean {
       return seat.controller;
     case "member":
       return !seat.owner;
+    case "talker":
+      return seat.owner || seat.observer === false;
   }
 }

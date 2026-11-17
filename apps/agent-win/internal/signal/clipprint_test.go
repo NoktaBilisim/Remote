@@ -156,7 +156,7 @@ func TestAC352P28aSubprotocolFeatures(t *testing.T) {
 	if got, _ := subprotocols("rs.ticket.x", nil); !slices.Equal(got, []string{"rs.v1", "rs.ticket.x"}) {
 		t.Fatalf("özelliksiz (yardımcı): %v", got)
 	}
-	for _, bad := range [][]string{{"rs.cap.voice1"}, {FeatureClip, FeatureClip}, {"rs.ticket.y"}} {
+	for _, bad := range [][]string{{"rs.cap.video1"}, {FeatureClip, FeatureClip}, {"rs.ticket.y"}} {
 		if _, err := subprotocols("rs.ticket.x", bad); err == nil {
 			t.Errorf("kabul edilmemeliydi: %v", bad)
 		}

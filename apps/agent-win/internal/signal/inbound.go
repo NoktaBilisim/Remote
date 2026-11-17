@@ -194,11 +194,12 @@ func (m SessionWarning) Type() string { return m.T }
 func (m ErrorMsg) Type() string       { return m.T }
 
 var (
-	roles         = []string{"tech", "guest"}
-	guestKinds    = []string{"BROWSER", "AGENT"}
-	caps          = []string{"remote_control", "file_transfer", "clipboard", "print"} // P28a: + clipboard, print (G-09)
-	endedReasons  = []string{"tech", "customer", "timeout", "max_duration", "cancelled", "tenant_passive", "server", "admin", "auth_revoked", "rejected", "lobby_timeout"}
-	wsErrorCodes  = []string{"ADMIT_CODE_INVALID", "CONFLICT", "FORBIDDEN", "RATE_LIMITED", "NOT_FOUND", "VALIDATION", "INTERNAL", "BINDING_LIMIT"}
+	roles        = []string{"tech", "guest"}
+	guestKinds   = []string{"BROWSER", "AGENT"}
+	caps         = []string{"remote_control", "file_transfer", "clipboard", "print"} // P28a: + clipboard, print (G-09)
+	endedReasons = []string{"tech", "customer", "timeout", "max_duration", "cancelled", "tenant_passive", "server", "admin", "auth_revoked", "rejected", "lobby_timeout"}
+	wsErrorCodes = []string{"ADMIT_CODE_INVALID", "CONFLICT", "FORBIDDEN", "RATE_LIMITED", "NOT_FOUND", "VALIDATION", "INTERNAL", "BINDING_LIMIT",
+		"CLIENT_UNSUPPORTED"} // P28d: TS WS_ERROR_CODES eşi (yalnız teknisyene gider)
 	techOnlyTypes = []string{"peer.pending", "peer.pending.left", "sdp.answer", "share.state", "control.state", "env.state",
 		"monitor.denied", "clip.status", "print.status"}
 	revokeReasons = []string{"permission", "audit", "admin", "reconnect", "stale"}
@@ -264,6 +265,9 @@ var serverParsers = map[string]func(raw []byte) (Inbound, error){
 	"rec.state": check(validRecState),
 	// P28c (mimari-p28c §4.4): yalnız multi1 sokete; doğrulayıcı multi.go.
 	"techs.roster": check(validTechsRoster),
+	// P28d (mimari-p28d §4.2): yalnız voice1 sokete; doğrulayıcı voice.go. Mikrofon açmaz (K-PD-2).
+	"voice.request": check(validVoiceRequest),
+	"voice.state":   check(validVoiceState),
 	"error": check(func(m *ErrorMsg) bool {
 		return slices.Contains(wsErrorCodes, m.Code) && utf16Len(m.Message) <= errMsgMax
 	}),

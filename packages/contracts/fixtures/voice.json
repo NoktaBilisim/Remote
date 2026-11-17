@@ -1,0 +1,388 @@
+{
+  "_doc": "P28d sesli görüşme sözleşme örnekleri (mimari-p28d r2 §4). TS (packages/contracts/test/voice-p28d.test.ts) ve Go (internal/signal/voice_test.go) aynı dosyayı okur. valid.* geçer, invalid.* reddedilir. techInbound: /ws/tech (teknisyen → sunucu); guestInbound: voice1/tarayıcı misafir → sunucu; guestOutbound: sunucu → voice1 misafir (voice.request{callId,by} + voice.state); techOutbound: konsola (voice.state, hello/peer.joined guestVoice, error CLIENT_UNSUPPORTED — Go misafir hello/peer.joined'ı reddeder).",
+  "subprotocols": {
+    "voice": "rs.cap.voice1"
+  },
+  "constants": {
+    "VOICE_REQUEST_TIMEOUT_MS": 60000,
+    "VOICE_DENY_COOLDOWN_MS": 30000,
+    "VOICE_REQUESTS_PER_SESSION": 10,
+    "VOICE_MAX_OPUS_BYTES": 1275,
+    "VOICE_MAX_PKT_PER_SEC": 100,
+    "CALL_ID_PATTERN": "^[A-Za-z0-9_-]{22}$"
+  },
+  "sets": {
+    "phases": ["idle", "pending", "active"],
+    "endReasons": ["tech", "customer", "timeout", "left", "device", "disconnect", "session_ended"],
+    "guestEndReasons": ["customer", "device"],
+    "rejectReasons": ["customer", "timeout", "disconnect"]
+  },
+  "valid": {
+    "techInbound": [
+      {
+        "t": "voice.request"
+      },
+      {
+        "t": "voice.request",
+        "id": "r1"
+      },
+      {
+        "t": "voice.join",
+        "callId": "AbCdEfGhIjKlMnOpQrSt_-"
+      },
+      {
+        "t": "voice.join",
+        "id": "j1",
+        "callId": "AbCdEfGhIjKlMnOpQrSt_-"
+      },
+      {
+        "t": "voice.end",
+        "callId": "AbCdEfGhIjKlMnOpQrSt_-"
+      }
+    ],
+    "guestInbound": [
+      {
+        "t": "voice.answer",
+        "callId": "AbCdEfGhIjKlMnOpQrSt_-",
+        "accept": true
+      },
+      {
+        "t": "voice.answer",
+        "id": "a1",
+        "callId": "AbCdEfGhIjKlMnOpQrSt_-",
+        "accept": false
+      },
+      {
+        "t": "voice.end",
+        "callId": "AbCdEfGhIjKlMnOpQrSt_-",
+        "reason": "customer"
+      },
+      {
+        "t": "voice.end",
+        "callId": "AbCdEfGhIjKlMnOpQrSt_-",
+        "reason": "device"
+      }
+    ],
+    "guestOutbound": [
+      {
+        "t": "voice.request",
+        "callId": "AbCdEfGhIjKlMnOpQrSt_-",
+        "by": "AAAAAAAAAAA"
+      },
+      {
+        "t": "voice.state",
+        "phase": "pending",
+        "callId": "AbCdEfGhIjKlMnOpQrSt_-",
+        "by": "AAAAAAAAAAA",
+        "talkers": [],
+        "listeners": ["AAAAAAAAAAA", "Ccccccccc-_"]
+      },
+      {
+        "t": "voice.state",
+        "phase": "active",
+        "callId": "AbCdEfGhIjKlMnOpQrSt_-",
+        "by": "AAAAAAAAAAA",
+        "talkers": ["AAAAAAAAAAA"],
+        "listeners": ["AAAAAAAAAAA"]
+      },
+      {
+        "t": "voice.state",
+        "phase": "active",
+        "callId": "AbCdEfGhIjKlMnOpQrSt_-",
+        "by": "AAAAAAAAAAA",
+        "talkers": ["AAAAAAAAAAA", "BBBBBBBBBBB"],
+        "listeners": ["AAAAAAAAAAA", "BBBBBBBBBBB", "Ccccccccc-_"]
+      },
+      {
+        "t": "voice.state",
+        "phase": "active",
+        "callId": "AbCdEfGhIjKlMnOpQrSt_-",
+        "talkers": ["BBBBBBBBBBB"],
+        "listeners": ["BBBBBBBBBBB"]
+      },
+      {
+        "t": "voice.state",
+        "phase": "idle",
+        "callId": "AbCdEfGhIjKlMnOpQrSt_-",
+        "by": "AAAAAAAAAAA",
+        "talkers": [],
+        "listeners": [],
+        "endReason": "tech"
+      },
+      {
+        "t": "voice.state",
+        "phase": "idle",
+        "callId": "AbCdEfGhIjKlMnOpQrSt_-",
+        "talkers": [],
+        "listeners": [],
+        "endReason": "session_ended"
+      },
+      {
+        "t": "voice.state",
+        "phase": "idle",
+        "talkers": [],
+        "listeners": []
+      }
+    ],
+    "techOutbound": [
+      {
+        "t": "voice.state",
+        "phase": "idle",
+        "callId": "zzzzzzzzzzzzzzzzzzzzz9",
+        "talkers": [],
+        "listeners": [],
+        "endReason": "disconnect"
+      },
+      {
+        "t": "hello",
+        "role": "tech",
+        "sessionId": "01JD0000000000000000000000",
+        "peerPresent": true,
+        "guestKind": "AGENT",
+        "iceServers": [],
+        "maxEndsAt": null,
+        "guestVoice": true
+      },
+      {
+        "t": "peer.joined",
+        "role": "guest",
+        "guestKind": "BROWSER",
+        "guestVoice": false
+      },
+      {
+        "t": "error",
+        "code": "CLIENT_UNSUPPORTED",
+        "message": "Müşterinin uygulaması bu özelliği desteklemiyor — güncel sürümü indirmesini isteyin"
+      }
+    ]
+  },
+  "invalid": {
+    "techInbound": [
+      {
+        "t": "voice.request",
+        "callId": "AbCdEfGhIjKlMnOpQrSt_-"
+      },
+      {
+        "t": "voice.join"
+      },
+      {
+        "t": "voice.join",
+        "callId": "kisa"
+      },
+      {
+        "t": "voice.join",
+        "callId": "AbCdEfGhIjKlMnOpQrSt_-x"
+      },
+      {
+        "t": "voice.join",
+        "callId": "AbCdEfGhIjKlMnOpQrSt+/"
+      },
+      {
+        "t": "voice.end",
+        "callId": "AbCdEfGhIjKlMnOpQrSt_-",
+        "reason": "customer"
+      },
+      {
+        "t": "voice.answer",
+        "callId": "AbCdEfGhIjKlMnOpQrSt_-",
+        "accept": true
+      },
+      {
+        "t": "voice.state",
+        "phase": "idle",
+        "talkers": [],
+        "listeners": []
+      }
+    ],
+    "guestInbound": [
+      {
+        "t": "voice.answer",
+        "callId": "AbCdEfGhIjKlMnOpQrSt_-"
+      },
+      {
+        "t": "voice.answer",
+        "callId": "AbCdEfGhIjKlMnOpQrSt_-",
+        "accept": "true"
+      },
+      {
+        "t": "voice.answer",
+        "accept": true
+      },
+      {
+        "t": "voice.answer",
+        "callId": "AbCdEfGhIjKlMnOpQrSt_-",
+        "accept": true,
+        "by": "AAAAAAAAAAA"
+      },
+      {
+        "t": "voice.end",
+        "callId": "AbCdEfGhIjKlMnOpQrSt_-"
+      },
+      {
+        "t": "voice.end",
+        "callId": "AbCdEfGhIjKlMnOpQrSt_-",
+        "reason": "tech"
+      },
+      {
+        "t": "voice.end",
+        "callId": "AbCdEfGhIjKlMnOpQrSt_-",
+        "reason": "timeout"
+      },
+      {
+        "t": "voice.end",
+        "reason": "customer"
+      },
+      {
+        "t": "voice.request"
+      },
+      {
+        "t": "voice.join",
+        "callId": "AbCdEfGhIjKlMnOpQrSt_-"
+      }
+    ],
+    "guestOutbound": [
+      {
+        "t": "voice.request"
+      },
+      {
+        "t": "voice.request",
+        "callId": "AbCdEfGhIjKlMnOpQrSt_-"
+      },
+      {
+        "t": "voice.request",
+        "callId": "AbCdEfGhIjKlMnOpQrSt_-",
+        "by": "kisa"
+      },
+      {
+        "t": "voice.request",
+        "callId": "AbCdEfGhIjKlMnOpQrSt_-",
+        "by": "AAAAAAAAAAA",
+        "name": "Ali"
+      },
+      {
+        "t": "voice.state",
+        "phase": "active",
+        "talkers": ["AAAAAAAAAAA"],
+        "listeners": ["AAAAAAAAAAA"]
+      },
+      {
+        "t": "voice.state",
+        "phase": "pending",
+        "by": "AAAAAAAAAAA",
+        "talkers": [],
+        "listeners": []
+      },
+      {
+        "t": "voice.state",
+        "phase": "idle",
+        "callId": "AbCdEfGhIjKlMnOpQrSt_-",
+        "talkers": [],
+        "listeners": []
+      },
+      {
+        "t": "voice.state",
+        "phase": "idle",
+        "talkers": [],
+        "listeners": [],
+        "endReason": "tech"
+      },
+      {
+        "t": "voice.state",
+        "phase": "active",
+        "callId": "AbCdEfGhIjKlMnOpQrSt_-",
+        "talkers": ["AAAAAAAAAAA"],
+        "listeners": ["AAAAAAAAAAA"],
+        "endReason": "tech"
+      },
+      {
+        "t": "voice.state",
+        "phase": "active",
+        "callId": "AbCdEfGhIjKlMnOpQrSt_-",
+        "talkers": ["AAAAAAAAAAA", "BBBBBBBBBBB"],
+        "listeners": ["AAAAAAAAAAA"]
+      },
+      {
+        "t": "voice.state",
+        "phase": "active",
+        "callId": "AbCdEfGhIjKlMnOpQrSt_-",
+        "talkers": ["AAAAAAAAAAA", "AAAAAAAAAAA"],
+        "listeners": ["AAAAAAAAAAA", "AAAAAAAAAAA"]
+      },
+      {
+        "t": "voice.state",
+        "phase": "active",
+        "callId": "AbCdEfGhIjKlMnOpQrSt_-",
+        "talkers": ["AAAAAAAAAAA"],
+        "listeners": ["AAAAAAAAAAA", "BBBBBBBBBBB", "Ccccccccc-_", "DDDDDDDDDDD"]
+      },
+      {
+        "t": "voice.state",
+        "phase": "active",
+        "callId": "AbCdEfGhIjKlMnOpQrSt_-",
+        "talkers": null,
+        "listeners": ["AAAAAAAAAAA"]
+      },
+      {
+        "t": "voice.state",
+        "phase": "active",
+        "callId": "AbCdEfGhIjKlMnOpQrSt_-",
+        "talkers": ["AAAAAAAAAAA"],
+        "listeners": null
+      },
+      {
+        "t": "voice.state",
+        "phase": "active",
+        "callId": "AbCdEfGhIjKlMnOpQrSt_-",
+        "talkers": ["AAAAAAAAAAA"]
+      },
+      {
+        "t": "voice.state",
+        "phase": "active",
+        "callId": "AbCdEfGhIjKlMnOpQrSt_-",
+        "listeners": ["AAAAAAAAAAA"]
+      },
+      {
+        "t": "voice.state",
+        "phase": "ringing",
+        "callId": "AbCdEfGhIjKlMnOpQrSt_-",
+        "talkers": [],
+        "listeners": []
+      },
+      {
+        "t": "voice.state",
+        "phase": "idle",
+        "callId": "AbCdEfGhIjKlMnOpQrSt_-",
+        "talkers": [],
+        "listeners": [],
+        "endReason": "replaced"
+      },
+      {
+        "t": "voice.state",
+        "phase": "active",
+        "callId": "AbCdEfGhIjKlMnOpQrSt_-",
+        "talkers": ["kisa"],
+        "listeners": ["kisa"]
+      },
+      {
+        "t": "voice.state",
+        "phase": "active",
+        "callId": "AbCdEfGhIjKlMnOpQrSt_-",
+        "talkers": ["AAAAAAAAAAA"],
+        "listeners": ["AAAAAAAAAAA"],
+        "userId": "01JD0000000000000000000000"
+      }
+    ],
+    "techOutbound": [
+      {
+        "t": "error",
+        "code": "VOICE_UNSUPPORTED",
+        "message": "x"
+      },
+      {
+        "t": "peer.joined",
+        "role": "guest",
+        "guestVoice": "true"
+      }
+    ]
+  }
+}

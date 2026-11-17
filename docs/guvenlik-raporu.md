@@ -11,6 +11,7 @@ Bağımlılık `github.com/kazzmir/opus-go@v1.6.0` modül vekilinden indirilip k
 ## Bulgular (öncelik sırasıyla)
 
 ### [YÜKSEK] Y-PD-1 Misafir mikrofonu yerel rızaya ve belirli bir görüşmeye bağlı değil — yeniden bağlanmada rızasız açılma — A01/A04
+
 Yer: mimari-p28d §4.2 (`voice.answer` yalnız `accept:boolean`; `voice.state` "yeniden bağlanan misafire … hemen sonra gider"), §5 m.3
 ("misafir sonra mikrofonu açar"), ADR-0036 m.6.
 Sorun: Mesajlarda görüşme kimliği yok ve misafirin mikrofonu hangi olayla açacağı tanımlı değil. Uygulayıcı doğal olarak
@@ -30,6 +31,7 @@ yenileme ve Go yeniden bağlanma senaryosunda `getUserMedia`/WASAPI `Initialize`
 (atanan ajan: mimar, backend-dev, frontend-dev)
 
 ### [YÜKSEK] Y-PD-2 opus-go çözücüsü teknisyen kontrolündeki girdiyle panic/bellek bozulması — müşteri istemcisi çöker, `unsafe` saldırı yüzeyi — A06/A08
+
 Yer: ADR-0036 m.1, mimari-p28d §4.3 (Go jitter/FEC/PLC); bağımlılık kaynağı `opus-go@v1.6.0/libcshim/libcshim.go:166,197,212,264,267`
 (`Xmalloc/Xmemset/Xmemcpy too large`, `Xabort`, assert → `panic`), `opuscc/*` (`Opus_celt_fatal` çağrıları, ör. `silk_dec_api.go:20-300`),
 `opuscc` + `opusccenc` içinde 16.647 `unsafe.Pointer` kullanımı; README: "transpiling the libopus C sources … as well as using GPT 5.2 help".
@@ -49,6 +51,7 @@ kaçmamalı ve `-race` temiz; çözücü durumu her yeni görüşmede sıfırdan
 WASM içinde yalıtık) geçiş ölçütü olarak yazılır. (atanan ajan: mimar, backend-dev (Go))
 
 ### [YÜKSEK] Y-PD-3 Dinleme yetkiye bağlı değil: `sessions.voice` yokken ya da oturum ortasında düştüğünde teknisyen müşteriyi duymaya devam eder — A01
+
 Yer: mimari-p28d §1 V-PD-3, §4.2 bitiş tetikleyicileri ("`sessions.voice` düşer → ilgili tid talkers'tan çıkar"), §4.3 mix-minus
 ("Misafir, teknisyen `t`'ye mikrofon + Σ…" — her eşe), ADR-0036 m.4; mevcut `rooms.ts:318-331` (`memberPermChange` / sahip yolu `narrowCaps`).
 Sorun: Misafir karışımı odadaki **her** teknisyen eşine gönderir. `sessions.voice` yalnız başlatma/katılmayı kapılar; dinleme
@@ -66,6 +69,7 @@ ses gönderici izi `replaceTrack(null)` (tarayıcı) / örnek yazılmaz (Go). (3
 mevcut "Çıkar" düğmesine erişim; V-PD-3'teki "ayrı bildirim yoktur" kaldırılır. (atanan ajan: mimar, backend-dev, frontend-dev, Go)
 
 ### [ORTA] O-PD-1 Misafirin WS bağlantısı koptuğunda P2P ses akmaya devam eder — çıkarılan/yetkisi düşen teknisyen dinler — A01
+
 Yer: mimari-p28d §4.2 (`VOICE_GUEST_GRACE_MS = 30_000`), V-PD-5 (yalnız teknisyen kopması tanımlı); `guest-peers.ts:4-6` (eş kapatma
 yalnız roster mesajıyla).
 Sorun: Medya P2P'dir; sunucu bir eşi kesemez, yalnız misafire roster/`voice.state` gönderebilir. Misafirin WS'si koparsa (ağ,
@@ -78,6 +82,7 @@ kaydı varsa (Y-PD-1) ve yeni `listeners` listesine göre yeniden açılır. Tes
 (atanan ajan: frontend-dev, backend-dev (Go))
 
 ### [ORTA] O-PD-2 Görüşmeye kimlerin katıldığı/dinlediği audit'e girmiyor — A09 (KVKK hesap verebilirlik)
+
 Yer: mimari-p28d §4.2 `voice.join` ("Ayrı audit yazılmaz"), §6 `voice.end.new_value = {durationSec, reason, talkers:number}`.
 Sorun: Müşteri sesini kimin duyduğu/konuştuğu sonradan kanıtlanamaz; yalnız sayı tutuluyor. Ortak standart (CLAUDE.md §1.1) kayıt
 ekleme/değişiklik olaylarında aktörü ister; KVKK şikâyetinde "görüşmeyi kim dinledi" sorusu yanıtsız kalır.
@@ -85,6 +90,7 @@ Düzeltme: `voice.join` audit'i eklenir (actor = katılan teknisyen, `{}`), `voi
 `listenerIds: userId[]` (görüşme boyunca görülen birleşim, ≤ 3) eklenir. Ses içeriği/aygıt adı yine yazılmaz. (atanan ajan: mimar, backend-dev)
 
 ### [ORTA] O-PD-3 Go istemcide istemci tarafı kapılar tanımsız: gözetimsiz kipte ses modülü ve kalıcı mikrofon göstergesi — A04
+
 Yer: ADR-0036 m.7 (yalnız sunucu `hasVoice`), mimari-p28d §8 "Müşteri (Go)" (görüşme çubuğu pencere içinde).
 Sorun: Gözetimsiz kapı yalnız sunucuda. `no_user` kipinde yardımcı süreç boş oturumda mikrofon açarsa ortam dinlenir; istemcide
 ikinci katman yok (P28c "sunucu + misafir kapısı" kalıbına aykırı). Ayrıca görüşme çubuğu küçültülebilir/arkada kalabilir pencerede;
@@ -95,6 +101,7 @@ gösterge (mevcut tepsi simgesi + "Mikrofon açık/Sessizde" ipucu ve "Görüşm
 (atanan ajan: mimar, backend-dev (Go))
 
 ### [ORTA] O-PD-4 Tedarik zinciri: opus-go olgusal düzeltmeler ve izleme boşluğu — A06/A08
+
 Yer: ADR-0036 m.1 ve "Sonuçlar"; tasarim-kontrol "4. Bağımlılık taraması" ("govulncheck/Dependabot mevcut").
 Sorun: (a) ADR "v1.6.0 (2025-09)" diyor; modül vekilinde v1.6.0 ve v1.7.0 **aynı commit**e (`bc2aa842…`, 2026-09-25) işaret ediyor —
 sürüm etiketleri güvenilir değil. (b) Çevrilmiş taban libopus **1.6.1** (gömülü sürüm dizgisi); libopus CVE'leri Go zafiyet veritabanına
@@ -107,6 +114,7 @@ olmadığı doğrulanıp kayda geçirilir (incelemede `opus/opuscc/opusccenc/lib
 aktarıyor); kurulum paketine/Hakkında'ya iki BSD-3 bildirimi eklenir. (atanan ajan: mimar, devops, teknik-yazar)
 
 ### [DÜŞÜK] D-PD-1 K-PD-1 `microphone=(self)` tüm sayfalarda — kabul edilebilir, sınırlar netleşmeli — A05
+
 Yer: mimari-p28d §7 K-PD-1, ADR-0036 m.8; mevcut `apps/web/proxy.ts:74`, `app-hooks.ts:218`.
 Değerlendirme: Gerekçe doğru: izin köken başınadır; aynı köken XSS konsolu `window.open` ile açıp orada `getUserMedia` çağırabilir, yani
 sayfa bazlı `()` gerçek bir sınır sağlamaz; `(self)` üçüncü taraf çerçeveye izin vermez, CSP nonce + `frame-ancestors` değişmez. Ek risk
@@ -116,6 +124,7 @@ açık sayfa eklenirse varsayılanın `()` olması için kural "izin listesi de�
 (atanan ajan: backend-dev/frontend-dev)
 
 ### [DÜŞÜK] D-PD-2 İstek bombardımanı/DoS sınırları eksik kalıyor — A04
+
 Yer: mimari-p28d §3 (`cooldownUntil` yalnız ret/zaman aşımı), §4.2 (`requests ≤ 10` oda başına).
 Sorun: Müşteri görüşmeyi "Görüşmeyi bitir" ile kapatınca bekleme süresi yok → hemen yeni diyalog; 10 istek oda geneli olduğundan tek
 teknisyen kotayı tüketip diğerlerini engelleyebilir; `voice.join`/`voice.end` tekrarı her seferinde yayın tetikleyebilir.
@@ -123,6 +132,7 @@ Düzeltme: `endReason ∈ {customer, device}` sonrası da 30 sn bekleme; `voice.
 yok); mevcut soket başına WS mesaj oranı sınırının voice mesajlarını kapsadığı testle gösterilsin. (atanan ajan: backend-dev)
 
 ### [DÜŞÜK] D-PD-3 Tarayıcı misafirde talker kapısının uygulama ayrıntısı — A04
+
 Yer: mimari-p28d §4.3 ("Chrome'da uzak iz … sessiz bir `<audio>` öğesine de bağlanır"; "sessize alınır ya da atılır").
 Sorun: "ya da" belirsiz; Chrome geçici çözümündeki `<audio>` `muted` değilse talkers dışı eşin sesi doğrudan hoparlöre çıkar ve
 talker kapısı by-pass olur.
@@ -131,6 +141,7 @@ talkers'tan çıkan tid'in düğümü aynı tikte `disconnect()` edilir; birim t
 `by` içinde roster'da olmayan tid yok sayılır. (atanan ajan: frontend-dev)
 
 ### [DÜŞÜK] D-PD-4 WASAPI COM yaşam döngüsü ve ≤ 1 sn bırakma garantisi — A04
+
 Yer: ADR-0036 m.2; mimari-p28d §9 AC-374 Go birim testi.
 Öneri: Tüm COM arayüzleri (`IMMDeviceEnumerator`, `IMMDevice`, `IAudioClient(2)`, `IAudioCaptureClient`, `IAudioRenderClient`) tek
 sahip yapıda tutulup `Close()` içinde ters sırayla `Release`; yakalama goroutine'i olay + `stop` kanalıyla 200 ms zaman aşımlı durdurulur
@@ -139,6 +150,7 @@ oturum bitişinde ve süreç çıkışında (panic dahil `defer`) çağrılır. 
 ≤ 1 sn. Aygıt adı/kimliği log'a yazılmaz. (atanan ajan: backend-dev (Go))
 
 ### [DÜŞÜK] D-PD-5 Teknisyen mikrofonunun bekleme sırasında açık kalması ve sayfa kapanışı — A04
+
 Yer: mimari-p28d §4.3 (izin istekten önce alınır, pending'de 60 sn'ye kadar tutulur).
 Öneri: Konsolda `pagehide`, WS kapanışı, oda bitişi ve rol/üyelik kaybında `track.stop()` (tek `releaseMic()` fonksiyonu);
 e2e'de konsol sekmesi kapatılınca iz `ended`. (atanan ajan: frontend-dev)
@@ -154,6 +166,7 @@ e2e'de konsol sekmesi kapatılınca iz `ended`. (atanan ajan: frontend-dev)
 ## Tasarımda vaat edilip kodda bulunmayanlar
 
 Tasarım turu — kod yok. Tasarımın dayandığı mevcut kod doğrulandı:
+
 - AC-375 kayıt: `recorder.ts:61-63` `new MediaStream([video])` — yalnız video izi; ses kayda giremez (P28e testine ses izi = 0 eklenmeli).
 - `applyPermChange` (`rooms.ts:313`) üye ve sahip için iki ayrı yol; tasarım yalnız "yetki düşer → talkers'tan çıkar" diyor, ikisi de
   bağlanmalı (Y-PD-3 m.3).

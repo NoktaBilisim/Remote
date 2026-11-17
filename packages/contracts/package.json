@@ -31,6 +31,7 @@
     "./ws-fsrv": "./src/ws-fsrv.ts",
     "./ws-rec": "./src/ws-rec.ts",
     "./ws-multi": "./src/ws-multi.ts",
+    "./ws-voice": "./src/ws-voice.ts",
     "./dc": "./src/dc.ts",
     "./dc-clip-print": "./src/dc-clip-print.ts",
     "./files": "./src/files.ts",

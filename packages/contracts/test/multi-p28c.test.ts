@@ -118,21 +118,23 @@ describe("P28c rol kapısı ROLE_MAY (D-PC-6 varsayılan-ret)", () => {
     expectTypeOf<TechInbound["t"]>().toEqualTypeOf<multi.RoleMayType>();
   });
 
-  it("AC-367/368: izleyici/katılımcı yalnız sdp.offer, ice, ice.restart, member.leave; bilinmeyen tip herkese kapalı", () => {
-    const member = { owner: false, controller: false };
+  it("AC-367/368: izleyici/katılımcı yalnız sdp.offer, ice, ice.restart, member.leave (+ P28d: katılımcı voice.*); bilinmeyen tip herkese kapalı", () => {
+    const observer = { owner: false, controller: false, observer: true };
+    expect(techTypes.filter((t) => multi.seatMay(t, observer)).sort()).toEqual(["ice", "ice.restart", "member.leave", "sdp.offer"]);
+    const member = { owner: false, controller: false, observer: false };
     const allowed = techTypes.filter((t) => multi.seatMay(t, member));
-    expect(allowed.sort()).toEqual(["ice", "ice.restart", "member.leave", "sdp.offer"]);
-    const controllerMember = { owner: false, controller: true };
+    expect(allowed.sort()).toEqual(["ice", "ice.restart", "member.leave", "sdp.offer", "voice.end", "voice.join", "voice.request"]);
+    const controllerMember = { owner: false, controller: true, observer: false };
     expect(multi.seatMay("control.request", controllerMember)).toBe(true);
     expect(multi.seatMay("clip.push", controllerMember)).toBe(true);
     expect(multi.seatMay("control.handover", controllerMember)).toBe(false);
-    const ownerNotController = { owner: true, controller: false };
+    const ownerNotController = { owner: true, controller: false, observer: false };
     expect(multi.seatMay("control.handover", ownerNotController)).toBe(true);
     expect(multi.seatMay("session.transfer", ownerNotController)).toBe(true);
     expect(multi.seatMay("session.end", ownerNotController)).toBe(true);
     expect(multi.seatMay("control.request", ownerNotController)).toBe(false);
     expect(multi.seatMay("member.leave", ownerNotController)).toBe(false);
-    const all = { owner: true, controller: true };
+    const all = { owner: true, controller: true, observer: false };
     expect(multi.seatMay("bilinmeyen.tip", all)).toBe(false);
     expect(multi.seatMay("toString", all)).toBe(false);
   });

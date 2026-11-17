@@ -117,7 +117,8 @@ export async function onTechMessage(
   const m = parseFrame(rooms, peer, bucket, techInboundSchema, data, isBinary);
   if (!m) return;
   // P28c (§4.4, D-PC-6): rol kapısı her teknisyen mesajından önce, varsayılan-ret.
-  if (!seatMay(m.t, { owner: seat.owner, controller: controllerOf(room) === tech })) return roleDenied(rooms, room, tech, m.t);
+  const observer = seat.member?.role === "observer";
+  if (!seatMay(m.t, { owner: seat.owner, controller: controllerOf(room) === tech, observer })) return roleDenied(rooms, room, tech, m.t);
   if ((m.t === "guest.admit" || m.t === "guest.reject") && room.requestId && !room.acceptCode) {
     // P8b §5.2 adım 5: talep oturumunda lobi yok.
     tech.peer.send({ t: "error", code: "CONFLICT", message: "Talep oturumunda lobi yok; müşteri onayıyla otomatik bağlanır." });
