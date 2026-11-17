@@ -15369,3 +15369,45 @@ Yeni rota yok.
   - Konsol AC-399 metni, ret değil, bekleme yok, satır kırpması yok, axe 0.
 - Regresyon: `p28f-macos`, `p6-agent-download`, `p7-control` yeşil.
 - `pnpm --filter @remote/web lint`, `typecheck` ve `prettier --check apps/web DESIGN.md` temiz.
+
+## P28g K1 — Linux istemci iskeleti (backend-dev Go, 2026-11-17)
+
+Tasarım: `docs/mimari-p28g.md` r3 (§2, §4.2–4.4, §5.1 T4/T5, §5.3, §6, §10 K1, §13–§15), ADR-0038, `docs/spike-p28g-k0s.md` K0s-1.
+
+### Değişen / yeni dosyalar (`apps/agent-win`)
+
+- **Yeni** `internal/linux/glib/` — `doc.go` (FFI kuralları), `allow.go` (izin listesi: `/usr/lib/x86_64-linux-gnu/` + ADR-0038 m.1 soname'leri, libX11/libXi/libXtst dahil; platformdan bağımsız, her yerde test edilir), `cstr.go` (`CString`: ≤ 64 KB, UTF-8, gömülü NUL yok), `load_linux.go` (`Open`, hata dönen `Func`, `Load` = GLib+GObject, `Post` = `g_idle_add` + init'te tek kayıtlı geri çağrı + tutamaç tablosu, `Free`, `Unref`, `SignalConnect`). Paket init'inde dlopen yok.
+- **Yeni** `cmd/noktadestek/main_linux.go`, `deps_linux.go`, `env_linux.go` (+ `env_linux_test.go`). Açılış sırası: `RLIMIT_CORE=0` → ortam izin listesi (§15 hâli: `HTTPS_PROXY/https_proxy/NO_PROXY/no_proxy` var, `HTTP_PROXY/http_proxy/ALL_PROXY` yok; `PATH=/usr/bin:/bin` sabit) → liste dışı değişken ya da argüman varsa `/proc/self/exe` argümansız `syscall.Exec` ile bir kez (exec hatasında çıkış, kirli ortamla devam yok) → oturum türü (yoksa sabit stderr metni + çıkış 2) → config/kimlik → özel dizin (`$XDG_RUNTIME_DIR` Lstat/sahip/0700 → `noktadestek-*`, yedek `MkdirTemp("")`; her çıkışta ve SIGTERM/SIGINT'te silinir, SIGHUP yok sayılır) → `XDG_CACHE_HOME`, `GST_REGISTRY_1_0`, `GST_PLUGIN_SYSTEM_PATH_1_0`, `GST_PLUGIN_SCANNER_1_0` (spike değerleri), `GDK_CORE_DEVICE_EVENTS/GDK_DEBUG/GTK_DEBUG` açıkça silinir → `glib.Load` → `newUI` (K4'e kadar `errNoUI`, çıkış 6). `sessionBus` (D-P28g-T2-1): yalnız `unix:path=<doğrulanmış XDG_RUNTIME_DIR>/bus`, uid'e ait soket. K1'de yalnız değişken boşken varsayılanı ayarlar; kontrol kapısı K3'te bu işleve bağlanır.
+- `deps_linux.go`: darwin kalıbı; `rtc.NewMedia(rtc.VP8)`. Monitör/yakalama (K2), indirme dizini/MOTW (K5) açık `errNotYet` döndürür (fail-closed). Kontrol, pano, yazdırma, ses ve roster bağlı değil, bu yüzden bildirilmez.
+- `internal/rtc/media.go`, `rtc.go`: `type Codec` (`rtc.H264`, `rtc.VP8`), `NewMedia(codec)`; `rtc.New(…, nil)` varsayılanı H.264. Çağıranlar `deps.go`, `deps_darwin.go`, `unattended/helper/main_windows.go` → `rtc.H264` (davranış aynı, fmtp aynı).
+- `internal/launch/code_folder.go`: desen `^Destek-([0-9]{8})(?: ?\([0-9]{1,3}\)| [0-9]{1,3})?$` (§4.3) + `CodeFromExeName`; **yeni** `code_linux.go` `ExeCode()` (`/proc/self/exe` taban adı; " (deleted)" eşleşmez).
+- `internal/signal/outbound.go`: `guestViewSources` + `WAYLAND_NO_CONTROL` (yalnız VIEW; koordinatör notu, K6 sözleşmesi).
+- **Yeni** `internal/flow/messages_p28g.go` (`LinuxTexts` tek tablo; §5.2b m.4 r3 uyarısı, §14 m.6/m.8/m.11, S-P28g-3/8/9, D-P28g-T2-1 "Vekil sunucuya bağlanılamadı", grafik oturum yok metni).
+- `cmd/noktadestek/identity.go` etiketi `windows || darwin || linux`.
+- **Yeni** `build/build-linux.sh` (build-darwin kalıbı: amd64, CGO=0, `-trimpath -buildid=`; prod adres yalnız `v<sürüm>` etiket iş akışında ya da `.invalid`; `test` kipi `config.testBuild=1`).
+
+### Sapmalar / kararlar (gerekçeli)
+
+- `g_setenv` bağlanmadı: K0s-1 `os.Setenv`'in libc `environ`'a yansıdığını gösterdi (§5.3 koşulu).
+- Tutamaç tablosu `internal/darwin/objc.Handles` yeniden kullanıldı. Etiketsiz dosya olduğu için Linux'ta derleniyor; ortak altyapı kopyalanmadı.
+- `_other.go` etiketleri (`clip_other`, `printer_other`, `motw_other`) **daraltılmadı**: Linux uygulamaları K5'te geliyor. Şimdi daraltılsaydı `GOOS=linux go build` kırılırdı. K5 daraltacak.
+- GLib sessiz log işleyicisi (S-P28g-11) K1'de yok. `g_log` işleyicisi her C iş parçacığından çağrılabildiği için Go geri çağrısı ADR-0038 m.2'yi ihlal eder. GTK init'i de K4'te olduğundan çözüm (C geri çağrısız susturma) K4'e devredildi. K1'de süreç kendisi stdout/stderr'e yalnız sabit metin yazıyor.
+- Vekil: `flow` hiçbir hatanın metnini arayüze yazmıyor (grep ile doğrulandı), bu yüzden vekil URL'si sızmıyor. Sabit metin tabloda duruyor; vekil hatasını ayırıp bu metne eşleme K4'te arayüzle birlikte yapılacak.
+- `DISPLAY` biçim doğrulaması (S-P28g-4) ve `PR_SET_DUMPABLE` ölçümü K2'ye bırakıldı (tasarımdaki paket ataması).
+- Yeni bağımlılık yok (godbus K2'de). `go.mod`/`go.sum` değişmedi.
+
+### Testler
+
+`TestAC398P28gK1EnvAllowList` (idempotent, yinelenen anahtar, PATH, argüman → yeniden çalıştırma, `GDK_CORE_DEVICE_EVENTS/GDK_DEBUG/GTK_DEBUG/HTTP_PROXY/ALL_PROXY/SSL_CERT_FILE` süzülür), `TestAC397P28gK1SessionKind`, `TestAC401P28gK1PrivateDir`, `TestAC399P28gK1SessionBus` (`unix:abstract`, `tcp:`, başka dizin, `..`, ek `guid`, soket olmayan, başka sahip, 0755 → ret), `TestAC401P28gK1CoreDumpsDisabled`, `TestAC401P28gK1ApplyEnv`, `TestP28gK1AllowedLibraries`, `TestP28gK1CString`, `TestP28gK1PostHandleTable`, `TestP28gK1LoadSystemGLib` (kitaplık yoksa görünür SKIP), `TestAC398P28gNewMediaVP8`, `TestAC398P28gNewMediaH264Unchanged`, `TestAC398P28gCodeFromExeName`, `TestAC399P28gLinuxTextsTable`, `TestAC111ControlStateEncode` (+ WAYLAND_NO_CONTROL).
+
+### Doğrulama (2026-11-17)
+
+- `docker run --rm -v "$PWD:/src" -w /src/apps/agent-win golang:1.26 sh -c 'go test ./... && GOOS=windows go vet ./... && GOOS=windows go build ./... && GOOS=darwin go vet ./... && GOOS=linux go vet ./... && GOOS=linux go build ./...'` → tümü yeşil, `gofmt -l` boş. İlgili paketler `-race` ile de yeşil.
+- staticcheck v0.8.2: linux/amd64, windows/amd64 ve darwin/arm64 için 0 uyarı.
+- `build-linux.sh https://stg.example.invalid 0.20.0` iki kez çalıştırıldı, ikisinin SHA'sı aynı: `1398f187…31fd`. ELF 12,1 MB. `readelf -d` NEEDED yalnız `libdl.so.2`, `libpthread.so.0`, `libc.so.6`. Etiketsiz prod derlemesi çıkış 2 ile reddedildi, `test` kipi çalıştı.
+- Spike imajı `p28g-spike3:24.04-amd64` (Rosetta): glib testleri gerçek GLib ile PASS (Load dahil). ELF duman testi: `LD_PRELOAD=… GTK_MODULES=… GDK_CORE_DEVICE_EVENTS=1 … --restart x` ile DISPLAY olmadan çalıştırıldı. Bir kez yeniden çalıştı (ld.so uyarısı yalnız ilk açılışta), sabit metni yazdı, çıkış kodu 2, döngü yok. `DISPLAY=:9` ile GLib yüklendi, çıkış 6 (arayüz K4).
+
+### Diğer paketler için
+
+- K2/K3/K4/K5: `deps_linux.go` içindeki `errNotYet` alanları ve `newUI` değiştirilecek. K4, `run`'ı `gtk_main` döngüsüne taşıyacak (darwin kalıbı: akış ayrı goroutine'de, kapanış `glib.Post` ile). K3, kontrolü `sessionBus(os.Getenv("DBUS_SESSION_BUS_ADDRESS"), runtimeDir, uid)` sonucuna bağlayacak.
+- frontend-dev / sunucu: sözleşme değişikliği yok (`clientOs: "linux"` zaten gönderiliyordu; `WAYLAND_NO_CONTROL` K6 ile aynı).

@@ -122,6 +122,12 @@ func connectInput(t *testing.T, caps []string, ctlOut chan dc.Ctl, input func([]
 // teknisyene bağlanır. Dönen yanıt teknisyende uygulanmıştır.
 func dial(t *testing.T, tech *techPeer, caps []string, h Handlers) (*Peer, signal.SdpAnswer) {
 	t.Helper()
+	return dialMedia(t, tech, caps, h, testMedia(t))
+}
+
+// dialMedia dial'ın verilen iz çiftiyle kurulan biçimi (P28g: codec testi).
+func dialMedia(t *testing.T, tech *techPeer, caps []string, h Handlers, m *Media) (*Peer, signal.SdpAnswer) {
+	t.Helper()
 	var guest *Peer
 	var err error
 	h.LocalICE = func(m signal.Ice) {
@@ -137,7 +143,7 @@ func dial(t *testing.T, tech *techPeer, caps []string, h Handlers) (*Peer, signa
 		}
 		_ = tech.pc.AddICECandidate(init)
 	}
-	guest, err = New(nil, caps, h, testMedia(t))
+	guest, err = New(nil, caps, h, m)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -342,7 +348,7 @@ func TestAC115InputChannelFollowsCaps(t *testing.T) {
 
 func testMedia(t *testing.T) *Media {
 	t.Helper()
-	m, err := NewMedia()
+	m, err := NewMedia(H264)
 	if err != nil {
 		t.Fatal(err)
 	}

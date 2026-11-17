@@ -151,7 +151,7 @@ func (a *app) launchDeps(client *api.Client, u *ui.UI, opener capture.Opener, ga
 func (a *app) flowDeps(client *api.Client, u *ui.UI, opener capture.Opener, applier *input.Applier, gate *control.Gate,
 	hotkey string, active func()) flow.Deps {
 	cfg := a.cfg
-	media, merr := rtc.NewMedia() // P28c: kapsam başına tek ana/düşük iz çifti (tüm eşler paylaşır, ADR-0035)
+	media, merr := rtc.NewMedia(rtc.H264) // P28c: kapsam başına tek ana/düşük iz çifti (tüm eşler paylaşır, ADR-0035)
 	d := flow.Deps{
 		Host: cfg.DisplayHost(), Version: cfg.Version, Fingerprint: a.fp,
 		API: client,

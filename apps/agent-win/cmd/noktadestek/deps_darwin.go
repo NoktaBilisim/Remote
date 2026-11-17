@@ -28,7 +28,7 @@ import (
 // K3: gate arayüzle (mac.Options.Gate) paylaşılan izin kapısıdır; girdi bağlantısı controlDeps'te.
 func flowDeps(cfg config.Config, fp string, client *api.Client, u flow.UI, events <-chan flow.Event,
 	gate *control.Gate) flow.Deps {
-	media, merr := rtc.NewMedia() // ana/düşük iz çifti (ADR-0035)
+	media, merr := rtc.NewMedia(rtc.H264) // ana/düşük iz çifti (ADR-0035)
 	d := flow.Deps{
 		Host: cfg.DisplayHost(), Version: cfg.Version, Fingerprint: fp,
 		API: client,

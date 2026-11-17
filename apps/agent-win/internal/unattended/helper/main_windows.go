@@ -56,7 +56,7 @@ func flowDeps(cfg config.Config, inc *incoming, desk *desktop.Gate) (flow.Deps, 
 	gate := &control.Gate{}
 	applier := input.NewApplier(gate, newDeskInjector(desk, input.SendInputInjector{}), nil)
 	opener := capture.Opener{Version: cfg.Version, Attach: attachCapture}
-	media, merr := rtc.NewMedia() // P28c: ana/düşük iz çifti (ADR-0035)
+	media, merr := rtc.NewMedia(rtc.H264) // P28c: ana/düşük iz çifti (ADR-0035)
 	d := flow.Deps{
 		Host: cfg.DisplayHost(), Version: cfg.Version,
 		Dial: func(ctx context.Context, cred signal.Credential) (flow.Conn, error) {
