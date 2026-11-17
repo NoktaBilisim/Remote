@@ -53,8 +53,10 @@ type Call struct {
 	peers     map[string]func([]byte, time.Duration) error
 	talkers   []string
 	listeners []string
-	jit       map[string]*jitter // yalnız talkers (düşürülmüşler hariç); talker dışı tid'e tampon/çözücü yok
-	dropped   map[string]bool    // 3 tuzakta düşen eşler (görüşme sonuna dek)
+	jit       map[string]*jitter   // yalnız talkers (düşürülmüşler hariç); talker dışı tid'e tampon/çözücü yok
+	dropped   map[string]bool      // 3 tuzakta düşen eşler (görüşme sonuna dek)
+	rx        map[string]*peerStat // tanılama: eş başına gelen paket (Close'da silinmez)
+	st        callStats
 
 	muted     atomic.Bool
 	silenced  atomic.Bool
@@ -104,7 +106,7 @@ func New(open func() (Device, error), onFail func(error)) (*Call, error) {
 
 func newCall(dev Device, onFail func(error), newDec func() (frameDecoder, error), newEnc func() (frameEncoder, error)) *Call {
 	return &Call{dev: dev, onFail: onFail, newDec: newDec, newEnc: newEnc, now: time.Now,
-		peers: map[string]func([]byte, time.Duration) error{}, jit: map[string]*jitter{}, dropped: map[string]bool{},
+		peers: map[string]func([]byte, time.Duration) error{}, jit: map[string]*jitter{}, dropped: map[string]bool{}, rx: map[string]*peerStat{},
 		stop: make(chan struct{}), decs: map[string]frameDecoder{}, encs: map[string]frameEncoder{},
 		mic: make([]int16, FrameSamples), spk: make([]int16, FrameSamples), out: make([]int16, FrameSamples)}
 }
@@ -207,11 +209,20 @@ func (c *Call) Push(tid string, seq uint16, payload []byte) {
 	}
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	ps := c.stat(tid)
+	if ps != nil {
+		ps.s.Rx++
+	}
 	j := c.jit[tid]
 	if c.closed || j == nil {
+		if ps != nil {
+			ps.s.Gated++
+		}
 		return
 	}
-	j.push(seq, append([]byte(nil), payload...), c.now())
+	if !j.push(seq, append([]byte(nil), payload...), c.now()) && ps != nil {
+		ps.s.Jitter++
+	}
 }
 
 // Close görüşmeyi bitirir (AC-374): önce gönderim susar, döngüye dur denir, aygıt bırakılır (bloklu okuma çözülür),
@@ -280,6 +291,12 @@ func (c *Call) step() error {
 	}
 	mixAll(c.spk, c.frames)
 	devErr := c.dev.WriteFrame(c.spk)
+	if devErr == nil {
+		c.st.written.Add(1)
+		if audible(c.spk) {
+			c.st.audible.Add(1)
+		}
+	}
 	for tid, e := range c.encs {
 		if !slices.ContainsFunc(s.sends, func(t sendTo) bool { return t.tid == tid }) {
 			_ = e.Close()
@@ -325,7 +342,16 @@ func (c *Call) pull(tid string, j *jitter) ([]int16, error) {
 		default:
 			pcm, err = dec.Conceal()
 		}
+		switch {
+		case err == nil && kind == pullDecode:
+			c.st.decoded.Add(1)
+		case err == nil && kind == pullFEC:
+			c.st.fec.Add(1)
+		case err == nil:
+			c.st.plc.Add(1)
+		}
 		if err != nil && !errors.Is(err, ErrPeerDropped) && kind != pullConceal {
+			c.st.decodeErr.Add(1)
 			pcm, err = dec.Conceal() // bozuk paket/tuzak/hız: kayıp gibi gizlenir
 		}
 		if errors.Is(err, ErrPeerDropped) {
@@ -341,6 +367,7 @@ func (c *Call) pull(tid string, j *jitter) ([]int16, error) {
 
 // dropTalker 3. tuzaktan sonra eşin sesini görüşme sonuna dek düşürür (ErrPeerDropped).
 func (c *Call) dropTalker(tid string) {
+	c.st.dropped.Add(1)
 	c.mu.Lock()
 	c.dropped[tid] = true
 	delete(c.jit, tid)
