@@ -7,6 +7,7 @@ import {
   type ConsentTextVersion,
 } from "@remote/contracts/api/system-settings";
 import { SYSTEM_AUDIT } from "@remote/contracts/audit";
+import { CHAT_CONSENT_KEY_SENTENCE, CHAT_CONSENT_PARAGRAPH } from "@remote/contracts/chat";
 import { writeAudit, type AuditContext } from "../audit/service.ts";
 import type { AuthContext } from "../auth/session.ts";
 import type { Db } from "../lib/db.ts";
@@ -21,13 +22,25 @@ const toVersion = (r: Row): ConsentTextVersion => ({
   createdByName: r.creator?.fullName ?? null,
 });
 
+/** NFC + her boşluk dizisi tek boşluk (satır sonu dahil) — anahtar cümle aramasında biçim farkı yok sayılır. */
+const normalizeForSearch = (v: string): string => v.normalize("NFC").replace(/\s+/gu, " ");
+
+/** P22 (AC-291, K-P22-5): güncel metin sohbet paragrafının anahtar cümlesini içermiyor mu (metin yoksa da eksik). */
+export const chatParagraphMissing = (body: string | null | undefined): boolean =>
+  !normalizeForSearch(body ?? "").includes(normalizeForSearch(CHAT_CONSENT_KEY_SENTENCE));
+
 export async function getConsentSettings(db: Db, tenantId: string): Promise<ConsentTextSettings> {
   const select = { id: true, version: true, sha256: true, createdAt: true, creator: { select: { fullName: true } } } as const;
   const [current, versions] = await Promise.all([
     db.consentText.findFirst({ where: { tenantId, isCurrent: true }, select: { ...select, body: true } }),
     db.consentText.findMany({ where: { tenantId }, orderBy: { version: "desc" }, take: CONSENT_VERSIONS_MAX, select }),
   ]);
-  return { current: current ? { ...toVersion(current), body: current.body } : null, versions: versions.map(toVersion) };
+  return {
+    current: current ? { ...toVersion(current), body: current.body } : null,
+    versions: versions.map(toVersion),
+    chatParagraphMissing: chatParagraphMissing(current?.body),
+    chatParagraph: CHAT_CONSENT_PARAGRAPH,
+  };
 }
 
 /** Gövde güncel sürümle aynıysa yeni sürüm yok, audit yok (`changed:false`; çift gönderim güvenli). */
