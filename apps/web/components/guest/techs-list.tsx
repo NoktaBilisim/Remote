@@ -35,12 +35,24 @@ export function TechsList({
   roster,
   onRemove,
   onDrawn,
+  confirmTid,
+  onConfirmTid,
 }: {
   roster: readonly TechRosterEntry[];
   onRemove: (tid: string) => void;
   onDrawn: (tids: string[]) => void;
+  /**
+   * P28d (Y-PD-3): onay diyaloğu dışarıdan da açılabilir (yeni dinleyici duyurusundaki "Çıkar" aynı onaydan geçer).
+   * Verilmezse iç durum.
+   */
+  confirmTid?: string | null;
+  onConfirmTid?: (tid: string | null) => void;
 }) {
-  const [confirm, setConfirm] = useState<TechRosterEntry | null>(null);
+  const [ownTid, setOwnTid] = useState<string | null>(null);
+  const cTid = confirmTid !== undefined ? confirmTid : ownTid;
+  const setTid = onConfirmTid ?? setOwnTid;
+  const confirm = cTid ? (roster.find((e) => e.tid === cTid && !e.owner) ?? null) : null;
+  const setConfirm = (e: TechRosterEntry | null) => setTid(e?.tid ?? null);
   const notice = useJoinNotice(roster);
   const list = sortedRoster(roster);
   const drawnRef = useRef<HTMLUListElement>(null);

@@ -5,6 +5,10 @@
  * DataChannel'lar (P5): teknisyen ilk teklifte `ctl` + `file` açar; misafir `ondatachannel` ile alır, `input`'u
  * (tarayıcı modu, AC-34) kapatır. İki kanal da açılınca `onChannels` çağrılır.
  * P7: teknisyen AGENT misafire `input` kanalını da açar (`withInput`); açılınca `onInput` (§4.3).
+ * P28d (mimari-p28d §4.3, ADR-0036 m.5): ses destekli misafire (`guestVoice`) ilk teklife izsiz TEK ses transceiver'ı eklenir
+ * (sahip/katılımcıda `sendrecv`, izleyicide `recvonly`) — görüşme başlayınca/bitince yalnız `replaceTrack`, yeniden müzakere yok.
+ * `offer()`'ın döndürdüğü akış YALNIZ video kalır (kaydedici bu akışı alır — AC-375). Misafir yanıtta ses transceiver'ını
+ * `sendrecv` yapar, gönderici izi null başlar; mikrofon/karışım izi `setAudioTrack` ile (K-PD-2: SDP mikrofon açmaz).
  */
 import { DC_LABELS } from "@remote/contracts/dc";
 import type { IceServer } from "@remote/contracts/ws";
@@ -32,11 +36,15 @@ export class PeerLink {
   /** P7: `input` kanalı açıldı / kapandı (null). */
   onInput: ((c: RTCDataChannel | null) => void) | null = null;
   private input: RTCDataChannel | null = null;
+  /** P28d misafir: yanıt öncesi istenen ses gönderici izi (transceiver yanıtta oluşur). */
+  private audioOut: MediaStreamTrack | null = null;
 
+  /** `voice`: teknisyen teklifindeki ses transceiver yönü (null = ses yok: eski/gözetimsiz misafir). */
   constructor(
     iceServers: IceServer[],
     private send: (m: SignalOut) => void,
     private withInput = false,
+    private voice: "sendrecv" | "recvonly" | null = null,
   ) {
     this.pc = new RTCPeerConnection({ iceServers: toRtcIce(iceServers) });
     this.pc.ondatachannel = (e) => this.adopt(e.channel);
@@ -70,9 +78,15 @@ export class PeerLink {
     return this.pc.getTransceivers().find((tr) => tr.receiver.track.kind === "video");
   }
 
-  /** Teknisyen: recvonly video teklifi. Dönen akış, karşı taraf izi bağladığında kare üretir. */
+  private audioTransceiver(): RTCRtpTransceiver | undefined {
+    return this.pc.getTransceivers().find((tr) => tr.receiver.track.kind === "audio");
+  }
+
+  /** Teknisyen: recvonly video teklifi. Dönen akış (YALNIZ video, AC-375), karşı taraf izi bağladığında kare üretir. */
   async offer(iceRestart = false): Promise<MediaStream> {
     const tr = this.videoTransceiver() ?? this.pc.addTransceiver("video", { direction: "recvonly" });
+    // P28d: ICE restart'ta yeniden çağrılır → ses transceiver'ı bir kez, videodan sonra (m-line sırası sabit)
+    if (this.voice && !this.audioTransceiver()) this.pc.addTransceiver("audio", { direction: this.voice });
     if (!this.dc.ctl) {
       this.adopt(this.pc.createDataChannel(DC_LABELS.CTL, { ordered: true }));
       this.adopt(this.pc.createDataChannel(DC_LABELS.FILE, { ordered: true }));
@@ -104,6 +118,12 @@ export class PeerLink {
       tr.direction = "sendonly";
       await tr.sender.replaceTrack(track);
     }
+    // P28d: teklif ses m-line'ı taşıyorsa yanıt öncesi `sendrecv` (sonradan replaceTrack gönderebilsin); iz null başlar
+    const au = this.audioTransceiver();
+    if (au) {
+      au.direction = "sendrecv";
+      await au.sender.replaceTrack(this.audioOut);
+    }
     const a = await this.pc.createAnswer();
     await this.pc.setLocalDescription(a);
     this.send({ t: "sdp.answer", sdp: a.sdp ?? "" });
@@ -124,6 +144,18 @@ export class PeerLink {
 
   async setTrack(track: MediaStreamTrack | null): Promise<void> {
     await this.videoTransceiver()?.sender.replaceTrack(track);
+  }
+
+  /** P28d: ses gönderici izi (teknisyende mikrofon, misafirde eşe özel karışım; null = sessiz). Transceiver yoksa yanıtta uygulanır. */
+  async setAudioTrack(track: MediaStreamTrack | null): Promise<void> {
+    this.audioOut = track;
+    const s = this.audioTransceiver()?.sender;
+    if (s && s.track !== track) await s.replaceTrack(track).catch(() => undefined);
+  }
+
+  /** P28d: uzak ses izi (karşı taraf yalnız görüşme sürerken örnek gönderir); ses m-line'ı yoksa null. */
+  audioReceiverTrack(): MediaStreamTrack | null {
+    return this.audioTransceiver()?.receiver.track ?? null;
   }
 
   async addIce(c: RTCIceCandidateInit): Promise<void> {

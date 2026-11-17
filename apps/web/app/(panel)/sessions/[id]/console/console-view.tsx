@@ -7,6 +7,8 @@ import { CollabSide, type CollabTab } from "@/components/console/collab-side";
 import { RecIndicator } from "@/components/console/rec-indicator";
 import { TechsPanel } from "@/components/console/techs-panel";
 import { UnattendedActions } from "@/components/console/unattended-actions";
+import { VoiceAudio, VoiceControls } from "@/components/console/voice-controls";
+import { MULTI_ERROR_MESSAGES } from "@remote/contracts/api/multi";
 import { Alert } from "@/components/ui/alert";
 import { useToast } from "@/components/ui/toast";
 import { api } from "@/lib/api";
@@ -21,6 +23,9 @@ import { useQuality } from "@/lib/webrtc/use-quality";
 import { useTechSession } from "@/lib/webrtc/use-tech-session";
 import { inviteBlockOf } from "@/lib/multi/errors";
 import { canSend, chatAuthor, seatOf, type Seat } from "@/lib/multi/roster";
+import { consoleVoiceView, shouldListen } from "@/lib/voice/console";
+import { voiceEndToast } from "@/lib/voice/ui";
+import { useConsoleVoice } from "@/lib/voice/use-console-voice";
 import { ConsoleHeader } from "./console-header";
 import { ConfirmEndDialog, ConsoleEnded } from "./console-parts";
 import { ConsoleStage } from "./console-stage";
@@ -35,7 +40,10 @@ export function ConsoleView({
   canPrint = false,
   isOwner = true,
   canInvite = false,
+  canVoice = false,
 }: {
+  /** P28d: `sessions.voice` (sesli görüşme başlat/katıl/dinle; yoksa yalnız "dinleme yetkiniz yok" bilgisi). */
+  canVoice?: boolean;
   /** P28c: konsolu açan oturum sahibi mi (değilse üye olarak bağlanır; üye değilse `notMember`). */
   isOwner?: boolean;
   /** P28c: `sessions.invite` (davet, kontrol/oturum devri — yalnız oturum sahibinde anlamlı). */
@@ -78,6 +86,7 @@ export function ConsoleView({
 
   const releaseRef = useRef<HTMLButtonElement>(null);
   useControlToasts(control, toast);
+  const voice = useVoiceSlot(ts, seat, canVoice, now, toast);
 
   return (
     <div className="flex flex-col gap-3" data-testid="console" data-phase={state.phase}>
@@ -89,6 +98,7 @@ export function ConsoleView({
         controlHint={controlHint}
         owner={seat.owner}
         onConfirm={() => setConfirm(true)}
+        voice={voice}
       />
 
       {/* P28c (§10): teknisyenler paneli (roster, davet, devir, ayrılma) */}
@@ -159,6 +169,57 @@ export function ConsoleView({
 
       <ConfirmEndDialog open={confirm} live={live} busy={busy} onClose={() => setConfirm(false)} onConfirm={confirmEnd} />
     </div>
+  );
+}
+
+/**
+ * P28d (§4.3, §8; D-PD-5): ses kancası KOŞULSUZ (yeni katılan teknisyene `voice.state` roster'dan hemen sonra gelir); bitiş
+ * toast'ı yalnız kendi görüşmemde. `now` henüz yokken (hidrasyon) görünüm gizli — bekleme/geri sayım 0'a göre hesaplanmaz.
+ */
+function useVoiceSlot(
+  ts: ReturnType<typeof useTechSession>,
+  seat: Seat,
+  canVoice: boolean,
+  now: number | null,
+  toast: ReturnType<typeof useToast>,
+) {
+  const { state } = ts;
+  const connected = state.phase === "live" && state.reconnectSince === null;
+  const v = useConsoleVoice({
+    subscribe: ts.subscribe,
+    send: ts.send,
+    setVoiceTrack: ts.voice.setVoiceTrack,
+    me: state.tid,
+    connected,
+  });
+  useEffect(() => {
+    const m = voiceEndToast(v.ended);
+    if (m) toast(m, "info");
+  }, [v.ended, toast]);
+  const view =
+    now === null
+      ? ({ kind: "hidden" } as const)
+      : consoleVoiceView(v.s, {
+          me: state.tid,
+          observer: seat.observer,
+          canVoice,
+          guestVoice: state.guestVoice,
+          unattended: !!state.unattended,
+          live: connected && state.peerLostSince === null,
+          now,
+        });
+  return (
+    <>
+      <VoiceControls
+        view={view}
+        unsupportedText={MULTI_ERROR_MESSAGES.CLIENT_UNSUPPORTED}
+        onRequest={v.request}
+        onJoin={v.join}
+        onEnd={v.end}
+        onMute={v.mute}
+      />
+      <VoiceAudio track={ts.voice.remoteAudio} listen={shouldListen(v.s, state.tid)} />
+    </>
   );
 }
 

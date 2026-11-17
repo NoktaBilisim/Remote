@@ -1,6 +1,7 @@
 import type { SessionView } from "@remote/contracts/api/sessions";
 import { ArrowLeft, CircleX, MonitorCog, MousePointer2, Power } from "lucide-react";
 import Link from "next/link";
+import type { ReactNode } from "react";
 import { Avatar } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { CodeDisplay } from "@/components/ui/code-display";
@@ -29,7 +30,10 @@ export function ConsoleHeader({
   controlHint,
   onConfirm,
   owner = true,
+  voice,
 }: {
+  /** P28d (§8): sesli görüşme yuvası (`VoiceControls` + `VoiceAudio`); kontrol ipucundan önce. */
+  voice?: ReactNode;
   /** P28c: oturum sahibi değilse "Oturumu bitir" yok (üye teknisyenler panelinden ayrılır). */
   owner?: boolean;
   session: SessionView;
@@ -90,6 +94,7 @@ export function ConsoleHeader({
         </div>
       )}
       <span className="flex-1" />
+      {voice}
       {live && state.guest?.kind === "BROWSER" && <BrowserControlHint id={controlHint} />}
       {owner && <HeaderActions phase={state.phase} onConfirm={onConfirm} />}
     </header>

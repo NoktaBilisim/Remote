@@ -29,6 +29,8 @@ export function QualityPanel({ last, verdict }: { last: Sample | null; verdict: 
     [t("p5.q.loss"), last.lossPct === null ? "—" : `%${formatNumber(last.lossPct, 1)}`],
     [t("p5.q.res"), last.width && last.height ? `${last.width}×${last.height}` : "—"],
     [t("p5.q.conn"), last.connType ? t(`p5.q.conn.${last.connType}` as MessageKey) : "—"],
+    // P28d (§8, AC-376): görüşme etkinken (ses paketi geliyorken) ses kaybı
+    ...(last.audioLossPct !== null ? ([[t("p5.q.audioLoss"), `%${formatNumber(last.audioLossPct, 1)}`]] as [string, string][]) : []),
   ];
   return (
     <div className="flex flex-col gap-3" data-testid="quality-panel" data-level={verdict.level}>

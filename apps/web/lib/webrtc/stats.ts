@@ -13,6 +13,8 @@ export interface Sample {
   width: number | null;
   height: number | null;
   connType: ConnType | null;
+  /** P28d (AC-376): gelen ses izi paket kaybı (%); ses akmıyorsa null. */
+  audioLossPct: number | null;
 }
 interface Counters {
   at: number;
@@ -22,6 +24,8 @@ interface Counters {
 }
 export interface Prev {
   c: Counters | null;
+  /** P28d: ses sayaçları (video ile ayrı fark penceresi). */
+  a?: Counters | null;
 }
 
 type Rec = Record<string, unknown> & { type: string; id: string };
@@ -66,6 +70,13 @@ export function sampleFromStats(report: Iterable<Rec> | Map<string, Rec>, prev: 
     : null;
   const { kbps, lossPct } = rates(c, prev.c);
   prev.c = c;
+  // P28d: ses kaybı yalnız ses paketi gelmişse (görüşme dışında alıcı izi boş → null)
+  const inA = all.find((r) => r.type === "inbound-rtp" && r.kind === "audio" && (num(r.packetsReceived) ?? 0) > 0);
+  const a: Counters | null = inA
+    ? { at, bytes: num(inA.bytesReceived) ?? 0, lost: num(inA.packetsLost) ?? 0, recv: num(inA.packetsReceived) ?? 0 }
+    : null;
+  const audioLossPct = rates(a, prev.a ?? null).lossPct;
+  prev.a = a;
   return {
     at,
     fps: num(inV?.framesPerSecond) ?? (inV ? 0 : null),
@@ -75,11 +86,12 @@ export function sampleFromStats(report: Iterable<Rec> | Map<string, Rec>, prev: 
     width: num(inV?.frameWidth),
     height: num(inV?.frameHeight),
     connType,
+    audioLossPct,
   };
 }
 
 export type Level = "ok" | "warn" | "bad";
-export type Issue = "rtt" | "loss" | "fps";
+export type Issue = "rtt" | "loss" | "fps" | "audioLoss";
 const SUSTAIN_MS = 3000;
 const WARN = { rtt: 300, loss: 5, fps: 5 };
 const BAD = { rtt: 600, loss: 10, fps: 2 };
@@ -89,6 +101,8 @@ function issues(s: Sample, th: typeof WARN): Issue[] {
   if (s.rttMs !== null && s.rttMs > th.rtt) out.push("rtt");
   if (s.lossPct !== null && s.lossPct > th.loss) out.push("loss");
   if (s.fps !== null && s.fps < th.fps) out.push("fps");
+  // P28d (§8): ses kaybı eşikleri video kayıp eşikleriyle aynı (AC-45 kalıbı)
+  if (s.audioLossPct !== null && s.audioLossPct > th.loss) out.push("audioLoss");
   return out;
 }
 

@@ -5,6 +5,8 @@
  * RTCPeerConnection (teknisyenin teklifine yanıt), getDisplayMedia (yalnız kullanıcı tıklamasıyla).
  * Ticket yalnız bellekte; reconnect token'ı URL'e/loga yazılmaz — F5 dönüşü için yalnız sekme deposuna (guest-resume.ts,
  * TEST-P4-1) GuestSession yazar. Dönüşte paylaşım otomatik başlamaz (getDisplayMedia yalnız kullanıcı tıklamasıyla).
+ * P28d (mimari-p28d §4.2, §4.3; K-PD-2, V-PD-7): sesli görüşme `GuestVoice` (tek örnek, bileşen ömrü). Mikrofon yalnız "Kabul et"
+ * tıklamasında açılır; WS kapanışı / oturum sonu / söküm → `onWsClose` (göndericiler susar, mikrofon bırakılır, rıza silinir).
  */
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
 import type { TechRosterEntry } from "@remote/contracts/ws-multi";
@@ -17,6 +19,18 @@ import type { PublicSessionStatusResponse } from "@remote/contracts/api/sessions
 import { WS_CLOSE, type Cap, type ServerOutbound } from "@remote/contracts/ws";
 import type { FileMode } from "@remote/contracts/ws-fsrv";
 import { api, ApiError } from "../api";
+import { createWebAudioGraph } from "../voice/graph";
+import { GuestVoice } from "../voice/guest";
+
+/** P28d (§4.3): tarayıcı yankı/gürültü/kazanç işlemesi açık mikrofon (yalnız `GuestVoice.accept` içinden çağrılır). */
+async function openMic(): Promise<MediaStreamTrack> {
+  const s = await navigator.mediaDevices.getUserMedia({
+    audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
+  });
+  const tr = s.getAudioTracks()[0];
+  if (!tr) throw new Error("ses izi yok");
+  return tr;
+}
 
 /**
  * F5 dönüşü reddedilirse (eski soket sunucuda henüz kapanmamış → 403 = tarayıcıda 1006) aralıklı yeniden dene;
@@ -70,7 +84,8 @@ export function useGuestSession(cred: GuestCred, sessionRef: string | null = nul
   }, [state]);
 
   const send = useCallback((m: Parameters<Signal["send"]>[0]) => sig.current?.send(m), []);
-  const peers = usePeers(st, send, setPeerTick, chatSubs);
+  const [voiceTick, setVoiceTick] = useState(0);
+  const { peers, voice } = usePeers(st, send, setPeerTick, chatSubs, setVoiceTick);
 
   const resetPeer = useCallback(() => peers.closeAll(), [peers]);
 
@@ -96,6 +111,7 @@ export function useGuestSession(cred: GuestCred, sessionRef: string | null = nul
         const before = new Set((rosterRef.current ?? []).filter((e) => e.connected).map((e) => e.tid));
         rosterRef.current = m.techs;
         peers.onRoster(m.techs);
+        voice.onRoster(m.techs); // P28d: eş kapanışlarından sonra (talker/gönderim kapısı güncel eş kümesiyle)
         setRoster(m.techs);
         if (track.current && m.techs.some((e) => e.connected && !before.has(e.tid))) send({ t: "share.state", state: "sharing" });
       } else if (m.t === "sdp.offer") {
@@ -107,13 +123,17 @@ export function useGuestSession(cred: GuestCred, sessionRef: string | null = nul
         peers.iceRestart(m.from); // P28c: `from` ile hedef eş; roster dışı tid yok sayılır
       } else if (m.t === "ice.servers") {
         peers.setIceServers(m.iceServers);
+      } else if (m.t === "voice.request") {
+        voice.onRequest(m);
+      } else if (m.t === "voice.state") {
+        voice.onState(m);
       }
       // onClose aynı tikte okuyabilsin (session.ended sonrası yeniden deneme olmasın)
       st.current = guestReducer(st.current, { type: "msg", m });
       dispatch({ type: "msg", m });
       for (const fn of subs.current) fn(m);
     },
-    [peers, resetPeer, send],
+    [peers, resetPeer, send, voice],
   );
 
   const connect = useCallback(
@@ -122,6 +142,7 @@ export function useGuestSession(cred: GuestCred, sessionRef: string | null = nul
         onMessage,
         onClose: (code) => {
           sig.current = null;
+          voice.onWsClose(); // V-PD-7: göndericiler hemen susar, mikrofon bırakılır, rıza silinir
           resetPeer();
           const cur = st.current;
           const rt = resumeToken.current;
@@ -147,7 +168,7 @@ export function useGuestSession(cred: GuestCred, sessionRef: string | null = nul
         },
       });
     },
-    [onMessage, resetPeer, sessionRef],
+    [onMessage, resetPeer, sessionRef, voice],
   );
 
   // StrictMode'un çift mount'unda tek kullanımlık ticket ikinci kez harcanmasın
@@ -162,11 +183,19 @@ export function useGuestSession(cred: GuestCred, sessionRef: string | null = nul
         clearTimeout(r.timer);
         sig.current?.close();
         sig.current = null;
+        voice.onWsClose();
         resetPeer();
         track.current?.stop();
       }, 0);
     };
-  }, [connect, resetPeer, credKey]);
+  }, [connect, resetPeer, credKey, voice]);
+
+  // P28d (D-PD-5 misafir eşi): sayfa kapanırken mikrofon hemen bırakılır
+  useEffect(() => {
+    const off = () => voice.onWsClose();
+    window.addEventListener("pagehide", off);
+    return () => window.removeEventListener("pagehide", off);
+  }, [voice]);
 
   // Oturum bittiğinde paylaşım ve bağlantılar hemen kapanır (AC-107)
   useEffect(() => {
@@ -174,11 +203,12 @@ export function useGuestSession(cred: GuestCred, sessionRef: string | null = nul
     clearTimeout(retry.current.timer);
     track.current?.stop();
     track.current = null;
+    voice.onWsClose();
     resetPeer();
     const s = sig.current;
     sig.current = null;
     s?.close();
-  }, [state.phase, resetPeer]);
+  }, [state.phase, resetPeer, voice]);
 
   const stopShare = useCallback(() => {
     track.current?.stop();
@@ -226,6 +256,9 @@ export function useGuestSession(cred: GuestCred, sessionRef: string | null = nul
   /** P28c (§5.3): müşterinin "Çıkar"ı (sahip olamaz — sunucu FORBIDDEN). */
   const removeTech = useCallback((tid: string) => send({ t: "tech.remove", tid }), [send]);
   const markDrawn = useCallback((tids: string[]) => peers.markDrawn(tids), [peers]);
+  // P28d: görünüm her değişimde yeniden okunur (GuestVoice dış durumu; `voiceTick`)
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- voiceTick: GuestVoice dış durumu
+  const voiceView = useMemo(() => voice.view(), [voice, voiceTick]);
 
   return {
     state,
@@ -243,30 +276,44 @@ export function useGuestSession(cred: GuestCred, sessionRef: string | null = nul
     chatHub,
     removeTech,
     markDrawn,
+    voice,
+    voiceView,
   };
 }
 
-/** Eş haritası tek örnek (bileşen ömrü boyunca); yanıt/ICE WS'e, kanal değişimi React durumuna. */
+/**
+ * Eş haritası + P28d sesli görüşme tek örnek (bileşen ömrü boyunca); yanıt/ICE WS'e, kanal değişimi React durumuna.
+ * Eş yanıtlanınca/kapanınca ses grafı ve gönderim kapısı yeniden uygulanır (`peersChanged`).
+ */
 function usePeers(
   st: { current: GuestState },
   send: (m: Parameters<Signal["send"]>[0]) => void,
   tick: (fn: (n: number) => number) => void,
   chatSubs: { current: Set<(m: GuestChatIn) => void> },
-): GuestPeers {
-  const [peers] = useState(
-    () =>
-      new GuestPeers({
-        ice: () => st.current.iceServers,
-        send,
-        onChange: () => tick((n) => n + 1),
-        onChat: (m) => {
-          for (const fn of chatSubs.current) fn(m);
-        },
-      }),
-  );
-  return peers;
+  voiceTick: (fn: (n: number) => number) => void,
+): { peers: GuestPeers; voice: GuestVoice } {
+  const [pair] = useState(() => {
+    let voice: GuestVoice | null = null;
+    const peers = new GuestPeers({
+      ice: () => st.current.iceServers,
+      send,
+      onChange: () => tick((n) => n + 1),
+      onChat: (m) => {
+        for (const fn of chatSubs.current) fn(m);
+      },
+      onPeers: () => voice?.peersChanged(),
+    });
+    voice = new GuestVoice({
+      send: (m) => send(m),
+      peers,
+      getMic: openMic,
+      createGraph: createWebAudioGraph,
+      onChange: () => voiceTick((n) => n + 1),
+    });
+    return { peers, voice };
+  });
+  return pair;
 }
-
 /** Çok eşli sohbet yolu (`useCollab` `chatHub`): hazır = herhangi bir eşin `ctl`'i açık. */
 function useChatHub(peers: GuestPeers, peerTick: number, chatSubs: { current: Set<(m: GuestChatIn) => void> }): ChatHub {
   const ready = peers.chatReady;

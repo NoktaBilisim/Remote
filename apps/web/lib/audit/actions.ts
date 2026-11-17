@@ -21,6 +21,8 @@ import {
   RECORDING_AUDIT_GROUP_LABELS,
   RECORDING_AUDIT_LABELS,
   RETENTION_AUDIT,
+  VOICE_AUDIT_GROUP_LABELS,
+  VOICE_AUDIT_LABELS,
   SYSTEM_AUDIT,
   TENANT_AUDIT,
   USER_AUDIT,
@@ -120,6 +122,8 @@ const AUDIT_ACTION_LABELS: Readonly<Record<string, string>> = {
   ...UNATTENDED_AUDIT_LABELS,
   // P28e (mimari-p28e §11.1; AC-388): recording.start/stop/view/view.end/delete/expired + `settings.recording`
   ...RECORDING_AUDIT_LABELS,
+  // P28d (mimari-p28d §6; AC-379): voice.request/accept/reject/join/end
+  ...VOICE_AUDIT_LABELS,
 };
 
 /**
@@ -145,6 +149,8 @@ const AUDIT_GROUP_LABELS: Readonly<Record<string, string>> = {
   ...Object.fromEntries(AUDIT_ACTION_GROUPS.map((g) => [g.prefix.slice(0, -2), g.label])),
   // P28e: `recording.*` → "Kayıt" (contracts grup listesinde yok; etiket tablosundan birleştirilir)
   ...RECORDING_AUDIT_GROUP_LABELS,
+  // P28d: `voice.*` → "Sesli görüşme"
+  ...VOICE_AUDIT_GROUP_LABELS,
 };
 
 /**
