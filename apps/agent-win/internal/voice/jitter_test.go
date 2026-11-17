@@ -166,3 +166,42 @@ func TestP28dJitterFIFOVariableFrames(t *testing.T) {
 		t.Fatalf("FIFO %d; üst sınır %d", len(j.fifo), fifoCap)
 	}
 }
+
+// P28g K5 (mimari-p28g §14 m.10, K0s-10): 22.04 pulseaudio akış oranı 0,9934 — alıcı saati göndericiden ±%0,66 sapınca
+// tampon sınırlı kalır (≤ 200 ms), yeniden eşitleme fırtınası olmaz ve çerçevelerin ≥ %98'i çözülür (kalan PLC/sessizlik).
+// Alıcı hızlıysa tampon boşalınca bir PLC üretilir ve o paket sonra "geç" gelip düşer (tasarım gereği; ≈ 3 sn'de bir).
+func TestP28gJitterToleratesClockDrift(t *testing.T) {
+	for _, ratio := range []float64{0.9934, 1.0066} {
+		j := newJitter()
+		now := time.Unix(0, 0)
+		var seq uint16
+		var sent, decoded, other, late, maxPkts int
+		next := 0.0                   // tüketicinin bir sonraki tik zamanı (paket aralığı birimi)
+		for i := 0; i < 50*300; i++ { // 5 dakika, 50 paket/sn
+			now = now.Add(20 * time.Millisecond)
+			if !j.push(seq, []byte{1}, now) {
+				late++
+			}
+			seq++
+			sent++
+			for next <= float64(i) {
+				next += 1 / ratio
+				switch k, _ := j.take(); k {
+				case pullDecode:
+					decoded++
+				default:
+					other++
+				}
+			}
+			maxPkts = max(maxPkts, len(j.pkts))
+		}
+		if maxPkts > jitterCap {
+			t.Fatalf("oran %.4f: tampon %d paket", ratio, maxPkts)
+		}
+		if float64(decoded) < 0.98*float64(sent) || float64(other) > 0.02*float64(sent) || float64(late) > 0.02*float64(sent) {
+			t.Fatalf("oran %.4f: çözülen %d / %d (diğer %d, geç %d)", ratio, decoded, sent, other, late)
+		}
+		t.Logf("oran %.4f: gönderilen %d, çözülen %d, PLC/sessizlik %d, geç düşen %d, en çok tampon %d", ratio, sent, decoded,
+			other, late, maxPkts)
+	}
+}

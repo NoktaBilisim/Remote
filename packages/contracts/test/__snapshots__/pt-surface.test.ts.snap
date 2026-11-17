@@ -1207,6 +1207,7 @@ exports[`PT-K1 contracts yüzeyi > AC-318: her exports yolunun dışa verdiği a
     "isDoubleExtension",
     "isHiddenName",
     "isSanitizedFileName",
+    "receivedFileName",
     "sanitizeFileName",
   ],
   "./holidays-tr": [

@@ -8,6 +8,8 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
+
+	"remote-support/agent-win/internal/files"
 )
 
 // P28b (mimari-p28b §8 "İndirme"): SERVER modunda bayt kaynağı DataChannel değil HTTPS akışıdır. Hedef kuralları aynıdır:
@@ -39,7 +41,7 @@ func (m *Manager) OpenStream(name string, size int64, sha string) (*Stream, erro
 	if err := m.checkDir(); err != nil {
 		return nil, err
 	}
-	final, err := m.availableName(name)
+	final, err := m.availableName(files.ReceivedName(name)) // S-P28g-6 m.3 (idempotent; çağıran zaten uygular)
 	if err != nil {
 		return nil, err
 	}
@@ -95,10 +97,11 @@ func (s *Stream) Commit() Result {
 		_ = os.Remove(s.part)
 		return Result{Name: s.name, Status: motwFailStatus, MOTWFailed: true}
 	}
+	exe := execContent(s.part)
 	final, err := s.m.place(s.part, s.name)
 	if err != nil {
 		_ = os.Remove(s.part)
 		return Result{Name: s.name, Status: "CORRUPT"}
 	}
-	return Result{Name: filepath.Base(final), Path: final, Status: "OK", MOTWFailed: motwFailed}
+	return Result{Name: filepath.Base(final), Path: final, Status: "OK", MOTWFailed: motwFailed, Executable: exe}
 }

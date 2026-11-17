@@ -586,3 +586,13 @@ Tümü kabul. Gövdedeki r1 kalıntıları (§2.1 prompt, §5.2a, §5.3, §12.1 
 | Açık nokta (d)       | Kabul; öneri uygulandı: Wayland diyaloğu oturum penceresinin monitörünün ortasında                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        | §2.1 prompt satırı                                                     | K4                          |
 
 Güvenlik ikinci bakışı için açık nokta kalmadı. Kalan tek doğrulama gerçek makinededir: E-7, ve prod'da Wayland kontrolü onun GEÇTİ'sine bağlıdır.
+
+### 15.1 K5 uygulama notu (backend-dev, 2026-11-17)
+
+- **S-P28g-6 m.3 içerik uyarısı yeri:** Teklif diyaloğu (AC-36) bayt gelmeden açıldığından "ilk 4 bayttan diyalogda uyarı" bu
+  protokolde uygulanamaz. Uyarı, dosya kaydedildiğinde sonuç satırında verilir (`transfer.Result.Executable`,
+  `flow.FileTexts.ExecContent`); Linux'ta dosya zaten 0644 (yürütme biti yok) kaydedilir. Ad tabanlı uyarı (uzantı, gizli ad)
+  diyalogda kalır.
+- **Yeniden adlandırma yeri:** `sanitizeFileName` değişmedi (sunucu CHECK ve web gönderim yolu etkilenmesin); ayrı
+  `receivedFileName` / `files.ReceivedName` yalnız alıcı yolunda (Go istemci, her platform) uygulanır. `file.meta` diske yazılan adı
+  taşır (mevcut davranış: çakışmada ` (n)` ekli ad da raporlanıyordu).

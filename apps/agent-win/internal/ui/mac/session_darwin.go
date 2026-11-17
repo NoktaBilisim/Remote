@@ -44,8 +44,8 @@ func (u *UI) Active(techName string, mon signal.Monitor) {
 	u.do(func() {
 		u.closeLobby()
 		u.techName = techName
-		u.sess = u.newSessionWin(watchText(false, techName))
-		u.ind = newIndicator(u, watchText(false, techName), mon.ID)
+		u.sess = u.newSessionWin(uicore.WatchText(false, techName))
+		u.ind = newIndicator(u, uicore.WatchText(false, techName), mon.ID)
 		u.restoreQuit()
 	})
 }
@@ -57,7 +57,7 @@ func (u *UI) newSessionWin(watch string) *sessionWin {
 	}
 	const rosterH, recH = rosterRows * 32, 56
 	h := 488 + shift + rosterH + recH + 46 // son satır: "Oturumu bitir"
-	f := u.newForm(appTitle+" — Oturum", 440, h)
+	f := u.newForm(uicore.AppTitle+" — Oturum", 440, h)
 	s := &sessionWin{f: f, active: true}
 	s.watch = f.danger(watch, 16, 14, 408, 22, fontBold)
 	s.status = f.label("Bağlantı kuruluyor…", 16, 40, 408, 36, fontNormal)
@@ -87,7 +87,7 @@ func (u *UI) newSessionWin(watch string) *sessionWin {
 	s.closeBtn = f.button("Kontrolü kapat", 224, 410+shift, 200, 30, func(objc.ID) { u.closeControlNow() })
 	enable(s.grantBtn, false)
 	enable(s.closeBtn, false)
-	s.hotkey = f.label(hotkeyText(u.hotkeyLabel), 16, 446+shift, 408, 36, fontNormal)
+	s.hotkey = f.label(uicore.HotkeyText(u.hotkeyLabel), 16, 446+shift, 408, 36, fontNormal)
 	y := 488 + shift
 	for i := range s.techs {
 		ry := y + float64(i)*32
@@ -119,7 +119,7 @@ func (u *UI) newSessionWin(watch string) *sessionWin {
 	becameKey[f.win] = func() {
 		if s.unread > 0 {
 			s.unread = 0
-			f.win.Send(selSetTitle, nsstr(unreadTitle(0)))
+			f.win.Send(selSetTitle, nsstr(uicore.UnreadTitle(0)))
 		}
 	}
 	f.win.Send(objc.Sel("setAutorecalculatesKeyViewLoop:"), true)
@@ -143,7 +143,7 @@ func (u *UI) confirmEnd() {
 }
 
 func (u *UI) sendChat(s *sessionWin) {
-	text := trimRunes(strings.TrimSpace(getText(s.input)), chatInputLimit)
+	text := uicore.TrimRunes(strings.TrimSpace(getText(s.input)), uicore.ChatInputLimit)
 	if text == "" || s.finished {
 		return
 	}
@@ -153,7 +153,7 @@ func (u *UI) sendChat(s *sessionWin) {
 }
 
 func (u *UI) appendLine(s *sessionWin, who, text string) {
-	s.hist = appendChat(s.hist, time.Now(), who, text)
+	s.hist = uicore.AppendChat(s.hist, time.Now(), who, text)
 	setTextView(s.history, s.hist)
 }
 
@@ -181,7 +181,7 @@ func (u *UI) chatLine(who, text string) {
 		u.appendLine(s, who, text)
 		if !sendBool(s.f.win, objc.Sel("isKeyWindow")) {
 			s.unread++
-			s.f.win.Send(selSetTitle, nsstr(unreadTitle(s.unread)))
+			s.f.win.Send(selSetTitle, nsstr(uicore.UnreadTitle(s.unread)))
 			u.app.Send(objc.Sel("requestUserAttention:"), 10) // NSInformationalRequest
 		}
 	})
@@ -250,31 +250,10 @@ func (u *UI) FileResult(r transfer.Result) {
 		if s == nil {
 			return
 		}
-		u.appendLine(s, "Sistem", fileResultText(r))
+		u.appendLine(s, "Sistem", uicore.FileResultText(r))
 		setText(s.fileLbl, "")
 		show(s.fileBtn, false)
 	})
-}
-
-func fileResultText(r transfer.Result) string {
-	switch r.Status {
-	case "OK":
-		msg := "Dosya kaydedildi: " + r.Path
-		if r.MOTWFailed {
-			msg += " (Uyarı: güvenlik işareti yazılamadı; dosyayı açmadan önce dikkatli olun.)"
-		}
-		return msg
-	case "CORRUPT":
-		return "Dosya bozuk; silindi: " + r.Name
-	case "CANCELLED":
-		return "Dosya aktarımı iptal edildi: " + r.Name
-	case "REJECTED":
-		if r.MOTWFailed {
-			return "Dosya kaydedilmedi: " + r.Name + " (Bu klasöre güvenlik işareti yazılamıyor; " +
-				"program çalıştırabilen dosyalar işaretsiz bırakılmaz.)"
-		}
-	}
-	return "Dosya reddedildi: " + r.Name
 }
 
 // FileServerMode P28b (AC-363): oturum penceresi bu bayrakla kurulur (hello pencereden önce gelir).
@@ -303,11 +282,11 @@ func (u *UI) ControlRequest(p flow.ControlPrompt) {
 		}
 		var warns []string
 		if p.Hotkey == "" {
-			warns = append(warns, hotkeyText(""))
+			warns = append(warns, uicore.HotkeyText(""))
 		}
-		u.ctlDlg = u.newPrompt(promptSpec{title: "Uzaktan kontrol isteği", body: controlBody(p.TechName, p.Hotkey),
+		u.ctlDlg = u.newPrompt(promptSpec{title: "Uzaktan kontrol isteği", body: uicore.ControlBody(p.TechName, p.Hotkey),
 			grantText: "İzin ver", warns: warns, hotkeyOK: p.Hotkey != "", slot: &u.ctlDlg,
-			guard:   func() bool { return !u.health.failed },
+			guard:   func() bool { return !u.health.Failed },
 			onGrant: func() { u.emit(flow.Event{Kind: flow.EvControlGrant}) },
 			onDeny:  func() { u.emit(flow.Event{Kind: flow.EvControlDeny}) }})
 		enable(u.sess.grantBtn, true)
@@ -352,13 +331,13 @@ func (u *UI) closeControlNow() {
 func (u *UI) ControlState(granted bool, hotkey string) {
 	u.do(func() {
 		u.granted = granted
-		text := watchText(granted, u.techName)
+		text := uicore.WatchText(granted, u.techName)
 		if u.ind != nil {
 			u.ind.setText(text)
 		}
 		if s := u.sess; s != nil && !s.finished {
 			setText(s.watch, text)
-			setText(s.hotkey, hotkeyText(hotkey))
+			setText(s.hotkey, uicore.HotkeyText(hotkey))
 			enable(s.closeBtn, granted)
 			if granted {
 				s.f.win.Send(objc.Sel("makeFirstResponder:"), s.closeBtn)
@@ -469,7 +448,7 @@ func (u *UI) drawRoster(v flow.RosterView) bool {
 		return false
 	}
 	u.techName = v.Controller
-	text := watchText(u.granted, u.techName)
+	text := uicore.WatchText(u.granted, u.techName)
 	if u.ind != nil {
 		u.ind.setText(text)
 	}
@@ -576,7 +555,7 @@ func (u *UI) showEnded(m flow.Message) {
 		u.quit = nil
 		return
 	}
-	f := u.newForm(appTitle, 420, 140)
+	f := u.newForm(uicore.AppTitle, 420, 140)
 	f.label(m.Title, 16, 16, 388, 24, fontBold)
 	f.label(m.Body, 16, 48, 388, 50, fontNormal)
 	f.button(perms, 16, 100, 160, 30, func(objc.ID) { openURL(SettingsScreen) })

@@ -10,6 +10,7 @@ package transfer
 
 import (
 	"errors"
+	"io"
 	"os"
 	"path/filepath"
 	"time"
@@ -83,6 +84,21 @@ type Result struct {
 	// MOTWFailed NTFS dışı birimde Zone.Identifier yazılamadı. Uyarısız türde dosya teslim edilir ve kullanıcı
 	// uyarılır; tehlikeli/çift uzantılı türde dosya silinir ve Status REJECTED olur (S6-3).
 	MOTWFailed bool
+	// Executable S-P28g-6 m.3: OK'de içerik ELF ya da `#!` betiği (uzantıdan bağımsız). Teklif diyaloğu bayt gelmeden
+	// açıldığı için uyarı sonuç satırında gösterilir (flow.FileTexts.ExecContent).
+	Executable bool
+}
+
+// execContent `.part`'ın ilk 4 baytı çalıştırılabilir içerik mi (okunamazsa false; dosya zaten doğrulanmış).
+func execContent(part string) bool {
+	f, err := os.Open(part)
+	if err != nil {
+		return false
+	}
+	defer f.Close()
+	head := make([]byte, 4)
+	n, _ := io.ReadFull(f, head)
+	return files.IsExecutableContent(head[:n])
 }
 
 // New yönetici kurar.
@@ -107,7 +123,8 @@ func (m *Manager) meta(o offer, result string) {
 // Offer `file.offer`'ı değerlendirir. Diyalog gerekiyorsa Prompt döner; aksi halde otomatik reddeder
 // (meşgul, ret bekleme süresi, sınır aşımı) ve nil döner.
 func (m *Manager) Offer(c dc.Ctl) *Prompt {
-	o := offer{fid: c.FID, idx: uint16(*c.Idx), name: files.SanitizeFileName(c.Name), size: *c.Size, sha: c.SHA}
+	// S-P28g-6 m.3: ad diske yazılacak biçimiyle (`Destek-` → `Dosya-Destek-`) gösterilir ve raporlanır.
+	o := offer{fid: c.FID, idx: uint16(*c.Idx), name: files.ReceivedName(c.Name), size: *c.Size, sha: c.SHA}
 	if m.asking != nil || m.cur != nil || m.d.Now().Before(m.rejectUntil) || o.size > m.d.MaxBytes {
 		m.reply("file.reject", o.fid)
 		m.meta(o, "REJECTED")
@@ -248,6 +265,7 @@ func (m *Manager) finish(a *active) *Result {
 		m.meta(a.offer, motwFailStatus)
 		return &Result{Name: a.name, Status: motwFailStatus, MOTWFailed: true}
 	}
+	exe := execContent(a.part)
 	final, err := m.place(a.part, a.name)
 	if err != nil {
 		_ = os.Remove(a.part)
@@ -257,7 +275,7 @@ func (m *Manager) finish(a *active) *Result {
 	}
 	m.sendResult(fid, true)
 	m.meta(a.offer, "OK")
-	return &Result{Name: filepath.Base(final), Path: final, Status: "OK", MOTWFailed: motwFailed}
+	return &Result{Name: filepath.Base(final), Path: final, Status: "OK", MOTWFailed: motwFailed, Executable: exe}
 }
 
 // motwReject MOTW/karantina yazılamadıysa dosya teslim edilmez mi: uyarılı adlar her platformda, macOS'ta her dosya

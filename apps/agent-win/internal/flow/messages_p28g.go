@@ -22,6 +22,7 @@ var LinuxTexts = struct {
 	EndConfirm     string // S-P28g-8: oturum penceresi ✕ → onay
 
 	ProxyFailed string // D-P28g-T2-1: vekil hatası; vekil URL'si hiçbir metne yazılmaz
+	VoiceDevice string // K5: VoiceTexts.Device'ın Linux eşi (Windows gizlilik yolu Linux'a uymaz)
 }{
 	NoDisplay: "Nokta Destek bir masaüstü oturumunda (X11 ya da Wayland) çalıştırılmalıdır.",
 	TestBand:  "TEST",
@@ -40,4 +41,13 @@ var LinuxTexts = struct {
 	EndConfirm:    "Oturumu bitir?",
 
 	ProxyFailed: "Vekil sunucuya bağlanılamadı",
+	VoiceDevice: "Mikrofonunuz açılamadı. Mikrofonun bağlı olduğunu ve Ayarlar > Ses altında giriş aygıtı olarak " +
+		"seçildiğini kontrol edin; teknisyen yeniden isteyebilir.",
+}
+
+// FileTexts P28g alınan dosya metinleri (S-P28g-6 m.3; her platformun arayüzü dosya sonucu satırında kullanır).
+var FileTexts = struct {
+	ExecContent string // transfer.Result.Executable: içerik ELF ya da `#!` betiği (uzantıdan bağımsız)
+}{
+	ExecContent: " (Dikkat: bu dosya bir program ya da betik. Beklemediyseniz açmayın, silin.)",
 }

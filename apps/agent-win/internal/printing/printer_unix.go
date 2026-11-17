@@ -1,10 +1,10 @@
-//go:build darwin
+//go:build darwin || linux
 
 package printing
 
 import "context"
 
-// macOS yazdırma (mimari-p28f r4 "K5 uygulama notu", ADR-0037 m.8a): sayfa sayısı istemcide hesaplanmaz — PDF bu süreçte
+// macOS ve Linux yazdırma (mimari-p28g §2 printer_unix.go: r4 aynen; mimari-p28f r4 "K5 uygulama notu", ADR-0037 m.8a): sayfa sayısı istemcide hesaplanmaz — PDF bu süreçte
 // ayrıştırılmaz (T9; TCC izinli süreç), ayrıştırma cupsd filtrelerindedir. Inspect yalnız `%PDF-` + ≤ 20 MB denetler ve
 // sayfa sayısı 0 döner; PagesUnknown flow'a bunu bildirir (onay diyaloğu "Sayfa sayısı: yazıcıda belirlenir"). Yazıcı adı
 // sabit metindir: lpstat/NSPrintInfo yok (S-P28f-16), lp sistemin varsayılanını kullanır. Varsayılan yazıcı yoksa lp hatası
@@ -15,7 +15,7 @@ const DefaultPrinterLabel = "Varsayılan yazıcı"
 
 type lpPrinter struct{}
 
-// New macOS Printer'ı (argüman kullanılmaz; işleyici süreç yok).
+// New macOS/Linux Printer.ı (argüman kullanılmaz; işleyici süreç yok).
 func New(string) Printer { return lpPrinter{} }
 
 func (lpPrinter) DefaultPrinter() (string, error) { return DefaultPrinterLabel, nil }

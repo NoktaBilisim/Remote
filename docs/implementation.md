@@ -15411,3 +15411,362 @@ Tasarım: `docs/mimari-p28g.md` r3 (§2, §4.2–4.4, §5.1 T4/T5, §5.3, §6, �
 
 - K2/K3/K4/K5: `deps_linux.go` içindeki `errNotYet` alanları ve `newUI` değiştirilecek. K4, `run`'ı `gtk_main` döngüsüne taşıyacak (darwin kalıbı: akış ayrı goroutine'de, kapanış `glib.Post` ile). K3, kontrolü `sessionBus(os.Getenv("DBUS_SESSION_BUS_ADDRESS"), runtimeDir, uid)` sonucuna bağlayacak.
 - frontend-dev / sunucu: sözleşme değişikliği yok (`clientOs: "linux"` zaten gönderiliyordu; `WAYLAND_NO_CONTROL` K6 ile aynı).
+
+## P28g K2/K3 — yakalama + girdi (backend-dev Go, 2026-11-17) — DEVAM EDİYOR (devir notu; yeni ajan buradan sürdürür)
+
+Tasarım: `docs/mimari-p28g.md` r3 §4.4, §5.1–§5.2b, §5.4, §14, §15; ADR-0038. Commit yok.
+
+### Durum (2026-11-17)
+
+- Derleme: `GOOS=linux|windows|darwin go build ./...` yeşil (Docker golang:1.26). `go vet` linux yeşil. `gofmt -l` boş.
+- Testler: `./internal/portal/` ve `./internal/capture/` yeşil (`-race` ile portal da yeşil). `./internal/input/` içinde **1 test KIRMIZI**:
+  `TestAC48P28gTranslateKeys`. Belirti: `ControlLeft` basışı sink'e ulaşmıyor, bu yüzden `KeyC` Unicode (keysym) gidiyor.
+  `MetaLeft` ise geçiyor. Nedeni bulunmadı; ilk iş bunu çözmek.
+- `go.mod`/`go.sum`: `github.com/godbus/dbus/v5 v5.2.4` eklendi (BSD-2; mimari §1'deki tek yeni bağımlılık).
+  **Kalan:** `internal/ui/uicore/third_party_notices.txt` satırı güncellenmedi. K4 de lisans ekranında bu dosyaya dokunabilir; birlikte yapılmalı.
+
+### Yazılan dosyalar (`apps/agent-win`)
+
+- `internal/portal/` (linux):
+  - `bus_linux.go`: `Bus` arayüzü + godbus uyarlayıcısı. `router` sinyali yalnız birebir gönderen + yol + üye ile dağıtır (S-P28g-10).
+  - `portal_linux.go`: `Open(ctx, bus, Options{Parent, Control})` → CreateSession → SelectDevices(3, persist 0) → SelectSources(MONITOR, tek, imleç gömülü, persist 0) → Start → OpenPipeWireRemote.
+    - Belirteç 128 bit; istek ve oturum yolları karşılaştırılır.
+    - Tam 1 akış, size 1..16384, devices ⊆ {1,2}; fd soket olmalı, CLOEXEC konur.
+    - Hatalar: `ErrUnavailable/ErrCancelled/ErrDenied/ErrProtocol/ErrNotAllowed/ErrClosed`.
+    - `Closed()` kanalı, `CanControl()`, `Stream()`, `FD()`.
+  - `notify_linux.go`: Notify* çağrıları; her hata `ErrNotAllowed`'a eşlenir.
+  - `lock_linux.go`: `WatchLock` — ScreenSaver ActiveChanged (yalnız sahipten) + 1 sn GetActive; sahip değişince yeniden abonelik; okunamazsa Known=false.
+  - `settings_linux.go`: `ReadLockGuard` — media-keys `screensaver` ve lockdown `disable-lock-screen`; iç içe varyantı açar.
+    - **Eksik:** SettingChanged aboneliği yok (yalnız 1 sn yoklama düşünülüyor). GIO yedeği yok: okunamazsa kontrol yok (fail-closed). İkisi de karara bağlanacak ya da yazılacak.
+- `internal/linux/x11/` (linux):
+  - `x11_linux.go`: `InitThreads` (XInitThreads), `OnMain` (glib.Post + 2 sn sınırlı bekleme).
+  - `gdk_linux.go`: `Monitors` (GDK geometri × ölçek), `XDisplay`, `Trap` (GDK X hata tuzağı), `AddRootFilter`/`RemoveRootFilter`.
+- `internal/capture/`:
+  - `gstpipe.go` (etiketsiz, saf): `buildPipeline` (yalnız tamsayı, iki appsink `async=false`, display-name yok), `pipelineFactories`/`factoriesAllowed`, `ValidDisplay`, `vp8Key`, `fitEdge`, `lowSize` (düşük akış ana boyutun yarısı), `ladder` (1280/1600/1920), `gapStats`, `brCtl` (ölçülen bit hızı).
+  - `gst_linux.go`: purego GStreamer, çekme kipi; `elementsAllowed` (`gst_bin_iterate_recurse` + fabrika adı), `forceKey`, `setProp`.
+  - `source_linux.go`: `gstSource` = rtc.Source + KeyframeRequester + LowSource.
+    - İlk karede ve PLAYING'den sonra anahtar kare.
+    - Düşük dal ayrı goroutine'de; basamak değişince yeniden kurulur.
+    - CPU `/proc/self/stat`'tan okunur.
+  - `monitors_linux.go`: `Monitors/Open/MonitorRect`; `ConfigureWayland(bus, control, parent, onSession)`; `PortalError` (Unwrap → portal hataları, K4 "Tekrar dene" için).
+    - Wayland'de `Monitors()` portal oturumunu açar; sistem diyaloğu orada çıkar. Ardından "Ekran 1" (akış boyutu) döner.
+  - `env_linux.go`: `EnvProbe` (kilit → SecureDesktop), `SetLockSource`.
+  - `gst_linux_test.go`: entegrasyon testleri `P28G_GST_X11=1` ya da `P28G_GST_PW=1` ile koşar. Ayrıca `TestP28gDumpableMeasure` (`P28G_DUMPABLE=a|b|n`).
+- `internal/input/` (linux):
+  - `keys_linux.go`: `codeEvdev`, `linuxKey`, `modifierKey`, `keysymOf` (Türkçe harfler için eski keysym'ler).
+  - `inject_linux.go`: `linTranslator` (piksel, tekerlek birikimi, evdev/keysym).
+    - `modBudget` (§5.2b m.3): 3 sn pencere, 2 sn − 5 ms sınır, 1 sn soğuma.
+    - `LinuxInjector` (input.Injector; bütçe için zamanlayıcı) ve `linSink` arayüzü.
+  - `inject_linux_test.go`: `TestAC48P28gEvdevTable`, `TestAC48P28gKeysymTurkish`, `TestAC49P28gTranslateMouse`, `TestAC48P28gTranslateKeys` (KIRMIZI), `TestAC399P28gModifierBudget` ("1,9 sn / 1 ms / yeniden bas", tüm 3 sn pencereleri ≥ 1 sn), `TestAC399P28gModifierBudgetTimer`.
+- Portal testleri (`portal_linux_test.go`, sahte Bus):
+  - `TestAC399P28gPortalAcceptControl`, `…DevicesZeroIsViewOnly`, `…ViewOnlyNoRemoteDesktop`, `…CancelAndDeny`, `…ProtocolBounds` (iki akış, büyük ya da eksik boyut, devices=7, yanlış yol, soket olmayan fd), `…ForeignSenderIgnored`, `…Unavailable`.
+  - `TestAC102P28gPortalClosedSignal` (yabancı Closed reddedilir, ≤ 100 ms), `TestAC399P28gLockWatcher`, `TestAC399P28gLockGuard`.
+- Capture saf testleri (`gstpipe_test.go`): `TestAC398P28gPipelineX11`, `TestAC399P28gPipelineWayland`, `TestAC398P28gPipelineAllowListAndBounds`, `TestAC398P28gValidDisplay`, `TestAC398P28gVP8KeyBit`, `TestAC398P28gFitEdge`, `TestAC398P28gResolutionLadder`, `TestAC398P28gGapP95`, `TestAC398P28gMeasuredBitrate`.
+
+### Ölçüm kanıtı
+
+Ortam: spike imajı `p28g-spike3:24.04-amd64`, Rosetta; değerler vekildir. Test ikilileri `go test -c` ile amd64 derlendi.
+
+- **X11:** Xvfb 1920×1080, `P28G_GST_X11=1`, `TestAC398P28gGstX11Integration` PASS.
+  - Açılış (ilk kare dahil) 434 ms, basamak 1280.
+  - 5 sn'de 152 ana kare (≈30 fps), anahtar 3, ≈2,22 Mbit/s; düşük akış 41 kare (8 fps).
+  - Zorlanan anahtar kare 0 kare sonra geldi.
+  - Çalışma anı beyaz listesi geçti (hat başladı).
+- **§14 m.12, süreç içi pipewiresrc → vp8enc** (başsız gnome-shell 46, `TestP28gGstPipeWireInProcess` PASS).
+  - Test düzeneği: mutter ScreenCast düğümü + pipewire-0 soketi fd'si; ürün dizgisi, `pipewiresrc fd=`.
+  - Durağan ekranda 6 sn'de 180 kare (30,0 fps). **videorate son kareyi tekrarlıyor**, uygulama tarafında tekrar gerekmez.
+  - Aynı fd ile ikinci hat 3 sn'de 83 kare. pipewiresrc fd'yi kopyalıyor; basamak yeniden kurulumu çalışıyor.
+- **PR_SET_DUMPABLE (§5.3, D-P28g-T2-4):**
+  - (n) Uygulanmadığında portal Start'a kadar gidiyor (diyalog açıldı, 4 sn'de iptal edildi → `ErrCancelled`).
+  - (a) Açılışta ya da (b) pipewire bağlantısından sonra, portal çağrısından önce `dumpable=0` uygulanınca portal **reddediyor** (`ErrDenied`). pipewiresrc kareleri iki durumda da akıyor.
+  - Olası neden: xdg-desktop-portal `/proc/<pid>` okuyamıyor.
+  - **Karar önerisi:** X11'de (a) açılışta uygulanır, çünkü X11 yolu portal kullanmaz. Wayland'de uygulanmaz; yeniden deneme ve yeni oturum da portal ister. Kılavuzdaki apport istisnasına not düşülür.
+  - Henüz uygulanmadı.
+  - Docker'da `/var/crash` ve `coredumpctl` gözlenemez → ELLE.
+
+### Kalan iş (sıra)
+
+1. `TestAC48P28gTranslateKeys` kırmızısını çöz.
+2. K8a sözleşmesine uyum (`implementation.md` "P28g K8a"; build etiketi `linuxgui`, `P28G_GUI`, `gui-tests.txt`):
+   - Entegrasyon testlerini `//go:build linux && linuxgui` dosyasına taşı ve `P28G_GUI` ile koştur.
+   - Zorunlu adları ver:
+     - `TestP28gK2PipelineElementsWhitelisted` (şimdiki karşılığı `TestAC398P28gPipelineAllowListAndBounds`; ad değiştir ya da ekle)
+     - `TestP28gK2GUIRuntimeWhitelist`
+     - `TestP28gK2GUIXimagesrcVP8Frames` (şimdiki `TestAC398P28gGstX11Integration`)
+     - `TestP28gK2GUIPortalFakeDBusStates`
+     - `TestP28gK3XI2OffsetsMatchHeaders`, `TestP28gK3GUIXTestClick`, `TestP28gK3GUIXTestDeviceRejected`
+   - Sonra `gui-tests.txt` içindeki `bekleyen` sözcüklerini sil. **Durum: bu adların hiçbiri henüz yok** (hepsi bekleyen).
+3. `input/xtest_linux.go`:
+   - XTest sink ayrı Display'de, kilitli iş parçacığında çalışır. evdev+8; keysym → `XKeysymToKeycode` + düzey (Shift / ISO_Level3 0xfe03); bulunamazsa düşer.
+   - XI2 izleyici ayrı Display ve iş parçacığında: Raw 13–17 + HierarchyChanged 11. XTEST alt aygıt kimliklerini `XIQueryDevice` ile adından bul; olayları kimlikle karşılaştır; yerel → `gate.Suspend`.
+   - XI2 ofsetleri: data+36 evtype, +48 deviceid, +52 sourceid, +56 detail; XIDeviceInfo boyutu 40, name +8. Bunlar adlı sabit olacak ve `P28G_XI2_OFFSETS` ile karşılaştırılacak.
+   - Kapanış: kendi 1×1 penceresine `XSendEvent` ClientMessage gönderilir, sonra `XCloseDisplay`.
+   - Dışa açık XTEST kimlik listesi K4 `localClick` m.3 için.
+   - XGrabKey Ctrl+Shift+F12 (yedek F11): 4 varyant (Lock/NumLock); `x11.OnMain` + `x11.Trap` ile; olay `x11.AddRootFilter` geri çağrısıyla (init'te kaydedilir).
+4. `input/portal_linux.go`: Wayland sink (`portal.Session` Notify*; düğme 1/2/3 → BTN_LEFT/MIDDLE/RIGHT; bütçe açık). Klavye ısınması (Shift bas-bırak + 1 sn) yalnız `gate.OnOpen` anında yapılır.
+5. `input/host_linux.go`: `ControlReady` ve `Arm` koşulları:
+   - X11: XTEST kimlikleri var, kısayol kayıtlı, kilit Known.
+   - Wayland: `CanControl`, `ReadLockGuard().OK()`, kilit Known.
+   - İkisinde de `sessionBus` geçerli olmalı.
+   - Kilit=true (izleyici sinyali) → `gate.Shut` + `EvControlSystem`. Portal `Closed` → `gate.Shut` + `EvEnd`.
+   - Guard 1 sn yoklaması bozulursa kontrol kapanır.
+6. `internal/flow` (paylaşılan dosya, önce yeniden oku). `osPermission` sabit `OS_PERMISSION` gönderiyor ve sunucu linux'tan gelen `OS_PERMISSION`'ı yok sayıyor (control.ts:277). Gerekenler:
+   - `Deps.NoControlSource` (Linux: `WAYLAND_NO_CONTROL`).
+   - `EvControlSystem` için Linux metni (şu an `MacTexts.ControlLost`); kilit metni `messages_p28g.go`'ya eklenecek.
+   - Wayland'de `d.Hotkey` = `flow.LinuxTexts.WaylandHotkey`. Boş kalırsa `grantControl` kontrolü hiç vermez.
+7. `cmd/noktadestek`:
+   - `x11.InitThreads()` `run()` içinde `newUI`'den (gtk_init) önce çağrılmalı (K4 ile eşgüdüm).
+   - `deps_linux.go` ancak `controlDeps`-benzeri tek çağrı: `capture.Monitors/Open/EnvProbe`, `ConfigureWayland` (portal.Connect, adres `sessionBus`), `WatchLock` → `SetLockSource`, X11'de dumpable (a).
+8. Entegrasyon kanıtları (henüz koşmadı):
+   - Xvfb'de XTest tıklama ±2 px ve XTEST reddi.
+   - Başsız gnome-shell'de Notify*. Diyalog onayı gerekir; spike `portal key/click` yardımcıları kullanılır.
+   - Lock watcher gerçek gnome-shell ScreenSaver ile.
+9. `third_party_notices.txt` (godbus BSD-2). staticcheck üç GOOS. Ardından bu bölüm tamamlanır.
+
+### Tasarımdan sapmalar (şimdiye kadar, gerekçeli)
+
+- **Basamak ölçütü "kodlama p95":** C geri çağrısı ya da GstBuffer ofseti olmadan ölçülemiyor. Yerine çekilen kareler arası p95 kullanıldı (iniş > 50 ms, çıkış ≤ 40 ms). Yalnız akış sürekliyken (≥ 200 kare / 10 sn) değerlendirilir. CPU eşikleri tasarımdaki gibi. Vekil değerlerdir; E-15'te doğrulanacak.
+- **Düşük akış boyutu:** ana boyutun yarısı (CPU bütçesi). §4.4 `<Wl>×<Hl>` değerini açık bırakıyordu.
+- **Kilit yoklaması dosyası:** `capture/env_linux.go`'da (darwin deps kalıbı), §6'daki `env/probe_linux.go` yerine.
+- **Wayland monitör listesi:** `Monitors()` portal diyaloğunu açar. Ayrı seçim ekranı yok; K4 "Sistem izin penceresi açılıyor…" ekranını bu çağrıdan önce göstermeli.
+
+## P28g K8a — Linux CI: check linux, build-linux, reproducible-linux, test-linux-gui (devops, 2026-11-17)
+
+Tasarım: `docs/mimari-p28g.md` r3 §8.2, §9, §5.4 (D-P28g-T2-2), §14 m.2, T6/S-P28g-4, S-P28g-9; ADR-0038. Go kaynağına dokunulmadı.
+
+### Test etiketi sözleşmesi (K2–K5 BAĞLAYICI)
+
+- **Build etiketi `linuxgui`.** Gerçek X sunucusu, GTK, GStreamer, D-Bus ya da pipewire isteyen testler `//go:build linux && linuxgui`
+  ile işaretlenir. Bu testler yalnız `test-linux-gui` imajında derlenip koşar: `go test -tags linuxgui -count=1 -v ./...`.
+  Ekransız, saf mantık testleri (boru hattı dizgisi, sahte D-Bus olmadan durum makinesi, evdev tablosu vb.) etiketsiz
+  `//go:build linux` kalır. Bu testler `check` işinde (GO_IMAGE, kitaplık yok) de koşar. `check`, `-tags linuxgui` ile ayrıca vet
+  ve staticcheck çalıştırır, yani etiketli dosyalar her PR'da derlenir.
+- **Ad kuralı.** P28g testlerinin adında `P28g` ve paket kodu bulunur: `TestP28gK<n>…`, GUI gerektirenlerde `TestP28gK<n>GUI…`.
+  Wayland katmanı isteyen testlerin adında **`Wayland`** geçer. Koşucu fazı bu adla seçer: X11 fazında `-skip Wayland`, Wayland fazında
+  `-run Wayland`.
+- **SKIP kuralı.** İmajda adında `P28g` geçen bir testin SKIP olması kırmızıdır, çünkü imajda tüm kitaplıklar vardır.
+  `linuxgui` testi `P28G_GUI` boşsa `t.Skip` ile atlanabilir (yerel geliştirme). Koşucu bu değişkeni her zaman doldurur.
+- **Koşucunun verdiği ortam:**
+  - Ortak:
+    - `XDG_RUNTIME_DIR=/tmp/xdg-<uid>` (0700, sahibi test kullanıcısı)
+    - `DBUS_SESSION_BUS_ADDRESS=unix:path=$XDG_RUNTIME_DIR/bus` (D-P28g-T2-1 biçimi; `sessionBus` kabul eder)
+    - `HOME` boş geçici dizin
+    - root olmayan kullanıcı, `CGO_ENABLED=0`
+    - `P28G_XI2_OFFSETS=<dosya>`
+  - X11 fazı: `P28G_GUI=x11`, `DISPLAY=:99` (Xvfb 1920×1080×24; XTEST, XInputExtension, RANDR denetlenir), `XDG_SESSION_TYPE=x11`.
+  - Wayland fazı: `P28G_GUI=wayland`, `WAYLAND_DISPLAY=wayland-0`, `XDG_SESSION_TYPE=wayland`, `XDG_CURRENT_DESKTOP=GNOME`.
+    Ortamda pipewire, wireplumber, `mutter --headless --wayland --no-x11 --virtual-monitor 1280x720` ve xdg-desktop-portal(-gnome)
+    çalışır. `DISPLAY` verilmez.
+  - Portal onay diyaloğu CI'da otomatik onaylanmaz. Wayland GUI testleri diyalog beklememelidir. Durum makinesi için sahte D-Bus
+    kullanılır; gerçek diyalog elle doğrulanır (§12.1).
+- **Zorunlu liste `apps/agent-win/test/linux/gui-tests.txt`.**
+  - Satır başına bir üst düzey test adı yazılır. Satırdaki ad imajda `--- PASS` vermelidir. SKIP, FAIL ya da hiç koşmaması kırmızıdır.
+  - `Ad bekleyen` satırı henüz yazılmamış testi gösterir. Böyle bir test hiç koşmazsa dalda/PR'da `::warning::` çıkar, v* etiketinde
+    (`P28G_STRICT=1`) kırmızı olur. Testi yazan paket `bekleyen` sözcüğünü siler, yeni zorunlu adları ekler, ad değiştirirse listeyi
+    günceller.
+  - Bugünkü liste:
+    - K1: `TestP28gK1LoadSystemGLib`, `TestP28gK1PostHandleTable`, `TestAC398P28gK1EnvAllowList` (var).
+    - K2: `TestP28gK2PipelineElementsWhitelisted` (etiketsiz; şablondaki öğe adları ⊆ {ximagesrc, pipewiresrc, videorate,
+      videoconvert, videoscale, tee, queue, valve, vp8enc, appsink, capsfilter}, `decodebin`/`auto*`/`x264enc` yok, dizgiye yalnız
+      tamsayı girer), `TestP28gK2GUIRuntimeWhitelist` (gerçek boru hattında `gst_bin_iterate_*` fabrika adları listede),
+      `TestP28gK2GUIXimagesrcVP8Frames` (Xvfb'de 5 sn VP8 kare, anahtar kare biti), `TestP28gK2GUIPortalFakeDBusStates` (sahte
+      D-Bus ile kabul, ret, iptal, `devices=0`, `Closed`).
+    - K3: `TestP28gK3XI2OffsetsMatchHeaders`, `TestP28gK3GUIXTestClick` (±2 px), `TestP28gK3GUIXTestDeviceRejected` (XTEST
+      kaynaklı XI2 olayı reddedilir).
+    - K4: `TestP28gK4GUIWindowOpens`.
+- **XI2 ofset sözleşmesi (D-P28g-T2-2).** Koşucu `test/linux/xi2-offsets.c` dosyasını imajdaki libxi-dev başlıklarıyla derler ve
+  `P28G_XI2_OFFSETS` dosyasını üretir. Dosyada satır başına `Yapı.alan=ofset` ya da `sizeof.Yapı=boyut` bulunur. Anahtarlar:
+  - `XGenericEventCookie.{type,extension,evtype,cookie,data}`
+  - `XIRawEvent.{extension,evtype,deviceid,sourceid,detail}`
+  - `XIDeviceEvent.{…aynı…}`
+  - `XIEventMask.{deviceid,mask_len,mask}`
+  - `XIDeviceInfo.{deviceid,name,use,attachment,enabled}`
+  - `sizeof.{XEvent,XIEventMask,XIDeviceInfo}`
+
+  K3'ün `TestP28gK3XI2OffsetsMatchHeaders` testi kullandığı her sabiti dosyadaki anahtarla karşılaştırır. Anahtar yoksa ya da değer
+  farklıysa FAIL verir. Değişken boşsa SKIP olur (yalnız imaj dışında).
+  Yeni bir alan gerekirse `xi2-offsets.c`'ye satır eklenir; var olan anahtar adı değişmez. Koşucu ayrıca spike değerlerini
+  denetler: cookie extension 32 / evtype 36 / data 48, XIRawEvent.sourceid 52, sizeof XEvent 192.
+
+- **İz betiği arayüzü (K5, `apps/agent-win/test/trace-check-linux.sh`, bash, salt okunur):**
+  - Komutlar: `snapshot <dosya>` ve `compare <dosya> --exe <ELF yolu> [--marker <metin>]...`.
+  - Çıkış kodları: 0 temiz, 1 iz bulundu, 2 kullanım hatası.
+  - Koşucu iz testini şu sırayla yapar: boş `HOME` ve `HOME/Downloads/Destek-12345678` (`.invalid` adresli, TEST olmayan ELF) →
+    snapshot → `DISPLAY=:99` ile 15 sn çalıştırma → SIGTERM → compare `--marker 12345678`.
+  - Betik yoksa dalda uyarı verilir, etikette kırmızı olur.
+- **Ortam pozitif kontrolü (§14 m.2; koşucu sahibi, Go testi gerekmez).** ELF şu ortamla açılır: `GDK_CORE_DEVICE_EVENTS=1`,
+  `GDK_DEBUG`, `GTK_DEBUG`, `GTK_MODULES`, `GST_PLUGIN_PATH`, `LD_PRELOAD` ve fazla argüman. strace şunları doğrular:
+  - `execve("/proc/self/exe")` tam 1 kez yapılır ve argümansızdır.
+  - Bu değişkenlerin hiçbiri kalmaz; `PATH=/usr/bin:/bin` olur.
+  - Çıkış kodu 126/127 ya da çökme sinyali değildir. Bugün 6 (arayüz yok); K4'ten sonra pencere açık kaldığı için `timeout` 124 olur.
+
+  K1/K4 açılış sırasını değiştirirse bu kontrol kırmızıya dönebilir.
+
+### Değişen / yeni dosyalar
+
+- `.github/workflows/agent-win.yml`: `check` linux CGO=0 vet (+`-tags linuxgui`), staticcheck, govulncheck, go-licenses ve kaynakta
+  yasak GStreamer öğe adı taraması; yeni `build-linux` (matris 1/2), `reproducible-linux`, `test-linux-gui` (matris 2204/2404);
+  `approve` bu işlere de bağlı.
+- `apps/agent-win/build/check-linux-elf.sh` (ELF64 x86-64, yorumlayıcı, NEEDED ⊆ libc/libdl/libpthread, ≤ 60 MiB, UPX yok,
+  `--server`/`--forbid`).
+- `apps/agent-win/test/linux/{Dockerfile.2204,Dockerfile.2404,gui.sh,run-gui-tests.sh,xi2-offsets.c,gui-tests.txt}`.
+- `.github/dependabot.yml` docker dizinine `/apps/agent-win/test/linux`, `ci.yml` shellcheck kümesine yeni betikler.
+
+### K8b için iskelet (yapılmadı)
+
+- `reproducible-linux` çıktıları şunlardır: `sha`, `version`, `mode`, `file`, `artifact`.
+  - Dosya adı etikette `NoktaDestek-linux-x86_64-<sürüm>` (artifact `agent-linux`), staging dispatch'te
+    `NoktaDestek-linux-x86_64-stg-<sürüm>` (artifact `agent-linux-stg`), PR'da ve main push'ta yine `-stg-` adı (artifact
+    `agent-linux-test`) olur.
+  - Artifact içeriği: ELF, `SHA256SUMS`, `build-meta.txt` (adres, sürüm, kip).
+- K8b'nin yapacakları:
+  - `attest-linux`: needs `[reproducible-linux, approve]`; etikette yalnız approve başarılıysa, staging'de koşulsuz; `id-token` ve
+    `attestations: write`.
+  - `release`: needs listesine `attest-linux` eklenir, `SHA256SUMS`'a Linux satırı yazılır.
+  - `publish-linux.sh --stg-run` için artifact `agent-linux-stg` kullanılır.
+
+### Doğrulama (2026-11-17)
+
+- actionlint 1.7.8 ve shellcheck 0.11.0 (`-S warning`, ci.yml kümesi) temiz. `agent-win.yml`, `ci.yml`, `dependabot.yml`,
+  implementation.md ve runbook.md Prettier'dan temiz geçiyor.
+- Ubuntu taban digest'leri çok mimarili index'tir (`imagetools inspect`, linux/amd64 dahil).
+- `check-linux-elf.sh` denendi:
+  - Gerçek ELF geçti (NEEDED libc/libdl/libpthread).
+  - Kırmızı verenler: `/bin/ls` (izin dışı libselinux), sahte ELF (e_machine 0), `--forbid .invalid`, yanlış `--server`.
+- `gui.sh 2404`, HEAD kopyası üzerinde Apple Silicon'da linux/amd64 emülasyonla koşuldu. Sonuç GEÇTİ:
+  - Go sürümü uyumlu; 11 öğe LGPL / MIT/X11; x264enc yok.
+  - XI2 ofsetleri spike'la aynı (cookie 32/36/48, sourceid 52, XEvent 192).
+  - Xvfb ve oturum D-Bus hazır, ELF yüklendi (çıkış 6, arayüz henüz yok).
+  - K1 testleri imajda PASS (`TestP28gK1LoadSystemGLib` dahil).
+  - **Wayland katmanı kuruldu** (mutter başsız + portal ScreenCast).
+  - `bekleyen` adlar uyarı verdi.
+- strace parse mantığı sentetik satırla doğrulandı (pozitif + argüman/ortam negatifi). Rosetta ptrace'i desteklemediği için gerçek
+  strace yalnız CI'da (yerli amd64) koşar. Yerelde `P28G_EMULATED=1` olduğundan uyarıya düşer.
+- İlk koşuda bulunan iki hata düzeltildi: `gui.sh` çalıştırma biti eksikti; sözleşme testleri `packages/contracts` fikstürlerini
+  okuduğu için repo kökü bağlanıyor.
+
+### Kalan / açık
+
+- `gui.sh 2204` (P28G_STRICT=1) tamamlandı. Ortam adımlarının hepsi TAMAM: Wayland katmanı 22.04'te de kuruldu, X11 fazındaki
+  `go test` yeşil. Koşu beklendiği gibi KALDI; yalnız 8 bekleyen test ve eksik iz betiği katı kip hatası verdi.
+- K5'in `test/trace-check-linux.sh` betiği bu turda geldi. Arayüzü sözleşmeyle uyumlu (`snapshot` / `compare --exe --marker`), ama
+  imajda koşulmadı. İz testi Wayland süreçlerinden önceye alındı. Konteynerin `/tmp` ve `XDG_RUNTIME_DIR` gürültüsü ilk CI koşusunda
+  kontrol edilmeli; gerekirse K5 istisnası ya da ayrı `XDG_RUNTIME_DIR` kullanılır.
+- Ortam pozitif kontrolü yerel olarak denenmedi (Rosetta). İlk CI koşusu kanıt olacak.
+- K2–K5 testlerini yazdıkça `gui-tests.txt` dosyasındaki `bekleyen` sözcüklerini silmeli. Etikette (`P28G_STRICT=1`) bekleyen
+  test kırmızıdır.
+- K8b: `attest-linux`, Release bağlantısı, Caddy, `publish-linux.sh`, agent-watch ve runbook yayın bölümü.
+
+## P28g K4 — Linux GTK3 arayüzü `internal/ui/gtk` (backend-dev Go UI, 2026-11-17) — DEVAM EDİYOR (ara not)
+
+Yapılan (derleniyor; `GOOS=linux|windows|darwin go vet ./...` yeşil; `go test ./internal/ui/...` yeşil):
+
+- `internal/ui/uicore/session_text.go` (+test): `ui/mac/logic.go`'daki saf ortak mantık (gösterge sağlığı, metinler, sohbet,
+  mailto, işaretleme, BGR→RGBA, dosya sonucu satırı) uicore'a taşındı; mac oradan çağırıyor (kopya yok, davranış aynı).
+- `internal/linux/glib/gostr.go`: sınırlı, UTF-8 doğrulanmış C dizgisi okuma (`GoString`).
+- `internal/ui/gtk/`: `logic.go` (+`logic_test.go`), `ffi_linux.go`, `widgets_linux.go`, `click_linux.go`, `ui_linux.go`,
+  `code_linux.go`, `welcome_linux.go`, `lobby_linux.go`, `choose_linux.go` (+ Wayland portal ekranı), `prompt_linux.go`,
+  `session_linux.go`, `roster_linux.go`, `rec_linux.go`, `voice_linux.go`, `overlay_linux.go`, `ended_linux.go`.
+- `cmd/noktadestek/main_linux.go`: `newUI` → `gtk.New`, GTK döngüsü ana iş parçacığında, akış goroutine'de, `silenceStdio`;
+  `deps_linux.go`: RosterUI/FileServerUI satırları.
+- Xvfb + mutter (spike3 24.04 amd64) duman koşusu: 7 ekran açık/koyu görüntü alındı.
+
+Kalan: GUI testinin K8a sözleşmesine taşınması (`linuxgui`, `TestP28gK4GUIWindowOpens`), Wayland kipi görüntüsü, Docker tam
+doğrulama + staticcheck, bu bölümün son hâli.
+
+## P28g K5 — Linux pano, yazdırma, dosya, ses, iz (backend-dev Go, 2026-11-17)
+
+Tasarım: `docs/mimari-p28g.md` r3 (§2, §5.1 T8, §5.3, §5.4, §6, §10 K5, §13 S-P28g-6, §14 m.10, §15), ADR-0038, spike K0s-7/8/10.
+
+### Değişen / yeni dosyalar
+
+- **contracts (aynı değişiklikte Go + fikstür):** `packages/contracts/src/files.ts` — `DANGEROUS_EXT`'e `desktop run bin appimage deb rpm snap
+flatpak flatpakref flatpakrepo so ko service`; yeni `receivedFileName(raw)` (S-P28g-6 m.3: temiz ad `^destek-` (harf duyarsız) ise
+  `Dosya-` öneki + 255 kısaltması). `fixtures/file-names.json`: 14 yeni `warning` örneği + yeni `received` bölümü (9 örnek).
+  `test/dc-files.test.ts` (+2), `test/__snapshots__/pt-surface.test.ts.snap` (+`receivedFileName`; bilinçli yüzey eki),
+  `apps/server/test/unit/file-names.test.ts` (`received` fikstürü, idempotent, başlatma komutu desenine uymaz).
+- **`internal/files`:** `files.go` (Linux türleri, `ReceivedName`, `IsExecutableContent`); yeni `motw_linux.go` (`ClearExec`: O_NOFOLLOW,
+  normal dosya + uid, `fchmod 0644`, yeniden okuyup yürütme/setuid/setgid/sticky biti varsa `ErrExecBit`), `downloads_linux.go`
+  (`DownloadsDir`: `~/.config/user-dirs.dirs` XDG_DOWNLOAD_DIR saf Go ayrıştırma → `~/Downloads` → `$HOME`; her aday uid'e ait gerçek
+  dizin, bağ değil; `$HOME/…` ya da mutlak, kaçışlar, başka `$`, "\`", `..`, göreli → ret), `traces_linux.go` (`PulseCookieEnv`).
+- **`internal/transfer`:** `Offer` adı `files.ReceivedName`; `OpenStream` de uygular (idempotent); `finish`/`Commit` yerleştirmeden önce
+  `.part`'ın ilk 4 baytını okur → `Result.Executable`. Yeni `motw_linux.go` (`motwRequired=true`, `CORRUPT`: yürütme biti sökülemezse
+  hiçbir tür teslim edilmez — uzantısız ELF/betik de çalışabildiği için Windows'un "yalnız tehlikeli tür" ayrımı yetmez);
+  `motw_other.go` etiketi `!darwin && !linux`.
+- **`internal/flow`:** `files_server.go` (SERVER modu teklif/sonuç adları `ReceivedName`), `messages_p28g.go` (`FileTexts.ExecContent`,
+  `LinuxTexts.VoiceDevice`), yeni `messages_p28g_linux.go` (Linux'ta `VoiceTexts.Device` = GNOME ses ayarı metni; Windows gizlilik yolu
+  Linux'a uymuyordu).
+- **Arayüz metni:** `ui/uicore/session_text.go` `FileResultText` ve `ui/transfer_windows.go` — `r.Executable` ise `FileTexts.ExecContent`
+  eklenir (macOS ve GTK uicore'dan okur).
+- **`internal/clip`:** yeni `clip_linux.go` (GTK3 CLIPBOARD; `New` yalnız sembol bağlar, ana döngüye iş göndermez; her işlem `glib.Post`
+  - 2 sn; önceki işlem sürerken yenisi `ErrFailed`; okuma: TARGETS → `x-kde-passwordManagerHint` varsa `ErrSensitive` → yalnız
+    `UTF8_STRING`/`text/plain;charset=utf-8` → uzunluk kopyadan önce → `decodeUTF8`; yazma `gtk_clipboard_set_text`, `store` yok);
+    `clip_other.go` etiketi `!windows && !darwin && !linux`.
+- **`internal/printing`:** `printer_darwin.go` → `printer_unix.go`, `printer_darwin_test.go` → `printer_unix_test.go` (`darwin || linux`,
+  r4 aynen: `PagesUnknown`, "Varsayılan yazıcı", PDF ayrıştırılmaz); `printer_other.go` `!windows && !darwin && !linux`. `lp_unix.go`
+  değişmedi. (Dosyalar `mv` ile taşındı; git indeksine dokunulmadı.)
+- **`internal/voice`:** yeni `audio_linux.go` (`OpenPulse`: libpulse-simple 48 kHz mono S16LE 20 ms; okuma ve yazma kendi
+  goroutine'lerinde, her tutamaç kendi goroutine'inde serbest; `WriteFrame` bloklamaz, 200 ms kuyruk en eskiyi atar; yazıcı boş
+  kuyrukta 40 ms bekler sonra sessizlik yazar; `ReadFrame` 1 sn durma, ilk çerçevede 3 sn; hata kodları sayıyla sınıflanır
+  (`pa_strerror` libpulse.so.0'dadır, izin listesinde yok)). `supported_amd64.go` zaten GOOS'tan bağımsız → linux/amd64'te ses bildirilir.
+- **`cmd/noktadestek`:** `deps_linux.go` — `DownloadDir: files.DownloadsDir`, `MOTW: files.ClearExec`, `linuxClipPrintVoice` (pano +
+  yazdırma yalnız arayüz `ClipPrintUI` ise; ses yalnız `VoiceUI` + `voice.Supported()`); `env_linux.go` `applyEnv` — kullanıcının
+  pulse çerezi yoksa `PULSE_COOKIE=<özel dizin>/pulse-cookie`.
+- **Yeni** `test/trace-check-linux.sh` (salt okunur; K8a sözleşmesi `snapshot <dosya>` / `compare <dosya> --exe <yol> --marker <m>` /
+  `check`, `--since` journalctl; taranan: `~/.config` (autostart dahil), `~/.cache`, `~/.local/{share,state}`, HOME kökü, `/tmp`,
+  `/var/tmp`, `$XDG_RUNTIME_DIR`, İndirilenler `*.part`, süreç; belgelenmiş istisnalar "Bilgi" satırı). `test/linux/gui-tests.txt`'e
+  K5 testleri eklendi.
+
+### Sapmalar (gerekçeli; mimari-p28g §15.1'e not düşüldü)
+
+1. **ELF/`#!` uyarısı sonuç satırında:** teklif diyaloğu bayt gelmeden açılıyor; "diyalogda ilk 4 bayttan" uygulanamaz. Uyarı kayıt
+   sonucunda (`Result.Executable`). Linux'ta dosya 0644 kaydedilir.
+2. **Yeniden adlandırma ayrı işlev:** `sanitizeFileName` değişmedi (sunucu CHECK, web gönderim yolu); `receivedFileName` yalnız
+   alıcıda. Web tarayıcı alıcısı (`apps/web/lib/dc/file-receive.ts`) bağlanmadı (K7/frontend kararı; aşağıda).
+3. **Linux yazmada "geçmiş dışı" işareti yok:** `x-kde-passwordManagerHint` ile yazmak `gtk_clipboard_set_with_data` geri çağrıları
+   ister; GNOME varsayılan pano geçmişi tutmaz. Sonuç: teknisyenin koyduğu metin Linux'ta geri okununca SENSITIVE değildir (Win/mac'te
+   öyle). Okuma tarafı ipucu kuralı uygulanır.
+4. **İz önlemleri:** dconf yalnız okunur (yazım yok; `$XDG_RUNTIME_DIR/dconf` servisin), fontconfig/mesa/GStreamer kaydı K1'in
+   `XDG_CACHE_HOME`/`GST_REGISTRY_1_0` yönlendirmesiyle özel dizinde; ek olarak yalnız pulse çerezi yönlendirildi.
+5. Yeni bağımlılık yok, yeni env yok (PULSE_COOKIE dışarıdan alınmaz, istemci kendisi ayarlar; izin listesi değişmedi).
+
+### Testler
+
+Go: `TestAC398P28gReceivedNameMatchesContractsFixture`, `TestAC398P28gExecutableContent`, `TestAC36WarningMatchesContractsFixture` (+14
+Linux türü), `TestAC398P28gReceivedDestekRenamedDC`, `TestAC398P28gReceivedStreamRenameAndExecFlag`, `TestAC398P28gClearExecRemovesExecBits`,
+`TestAC398P28gParseUserDirs` (Türkçe, tırnak/kaçış, `$HOME`, son satır, `$OTHER`, `..`, `$(…)`, "\`", tırnaksız → ret),
+`TestAC398P28gDownloadsDirFallbacks` (HOME → Downloads → XDG; bağ izlenmez), `TestAC401P28gPulseCookieEnv`,
+`TestAC402P28gSensitiveTargets`, `TestAC402P28gGTKClipRoundTrip` (DISPLAY yoksa SKIP), `TestAC402P28gClassifyPulseErrors`,
+`TestAC402LinuxPulseDeviceRoundTrip` (pulse sunucusu yoksa SKIP; K8a imajında pulse sunucusu olmadığından adında `P28g` yok — "P28g SKIP
+= kırmızı" kuralı), `TestP28gJitterToleratesClockDrift` (§14 m.10), mevcut `printer_unix_test.go` artık linux'ta da koşar.
+
+**Jitter bulgusu (§14 m.10):** 5 dk, 50 paket/sn. Oran 0,9934 (alıcı yavaş; 22.04 pulseaudio durumu — mikrofon saati döngüyü sürer):
+15000 → 14900 çözüldü, 1 PLC, tampon tavanı 10 (taşmada en eski atılır, ≈ 3 sn'de bir 20 ms). Oran 1,0066 (alıcı hızlı): 14840 çözüldü,
+258 PLC/sessizlik, 160 paket "geç" düştü (tampon boşalınca PLC, paket sonra gelince geç; tasarım gereği). Ölçüt: çözülen ≥ %98,
+PLC ≤ %2, geç ≤ %2. Gerçek ses kartında E-10.
+
+### Doğrulama (2026-11-17)
+
+- `docker run … golang:1.26 sh -c 'go test ./... && GOOS={windows,darwin,linux} go vet ./... && go build ./...'` → tüm paketler ok,
+  üç GOOS vet+build yeşil (paralel paketlerin o anki hâliyle). staticcheck v0.8.2 (linux/windows/darwin; clip, files, transfer, voice,
+  printing, flow, ui/uicore, ui, cmd/noktadestek) 0 uyarı. `gofmt -l` K5 dosyalarında boş (başka paketlerin dosyaları:
+  `internal/portal/portal_linux_test.go`, `internal/ui/gtk/ffi_linux.go`, `internal/linux/x11/gdk_linux.go` — dokunulmadı).
+- `pnpm --filter @remote/contracts test` 28 dosya / 277 test, `typecheck`, `lint` temiz; server `file-names.test.ts` 119/119,
+  server `typecheck` + eslint temiz; web `vitest run lib/dc` 44/44; prettier temiz.
+- **Spike imajları (`p28g-spike3:{24.04,22.04}-amd64`, Rosetta; boş HOME, Xvfb, dbus, 24.04 pipewire-pulse / 22.04 pulseaudio null
+  sink), amd64 test ikilileri:** pano GTK gidiş-dönüşü (Türkçe, emoji, 32 KB) iki sürümde PASS; ses `OpenPulse` 250 çerçeve okuma +
+  yazma, `PULSE_COOKIE` özel dizine **zorla** yönlendirilmişken (22.04 pulseaudio SCM_CREDENTIALS ile bağlandı) PASS — 24.04 4,98 sn,
+  22.04 6,97 sn (Rosetta'da kayıt saati yavaş; spike K0s-7'de de 0,61 oran görülmüştü; ilk çerçeve için 3 sn pay bu ölçümle kondu),
+  çalma kuyruğundan atılan 0, Close < 500 ms; files Linux testleri PASS. İz: `trace-check-linux.sh snapshot` → testler → özel dizin
+  silindi → `compare` **temiz** (iki sürüm; yalnız belgelenmiş istisnalar: `$XDG_RUNTIME_DIR/{at-spi,dconf,gvfs,gvfsd}`, 22.04
+  `~/.config/pulse/*-default-{sink,source}` (pulseaudio sunucusu), 24.04 `~/.local/state/wireplumber/default-nodes`). Özel dizinde
+  yalnız `pulse-cookie` vardı.
+
+### Bitmeyen / diğer paketler için
+
+- **K4 (ui/gtk):** `FileResultText` uicore'dan okunuyorsa `Executable` uyarısı hazır; `flow.ClipPrintUI` ve `flow.VoiceUI` uygulanınca
+  pano/yazdırma/ses kendiliğinden bildirilir (deps_linux `linuxClipPrintVoice`). Pano işlemleri `gtk_main` döngüsü çalışırken yapılır.
+- **Tam ELF iz testi** (gerçek istemci akışı) K4 arayüzü gelince K8a adım 9'da; bu turda test ikilileriyle ölçüldü.
+- **frontend-dev / K7 (öneri, sözleşme değişikliği):** contracts'ta yeni `receivedFileName`; web tarayıcı alıcısı kaydettiği adı bununla
+  türetirse Linux tarayıcı modundaki müşteri de korunur (bağlanmadı). `DANGEROUS_EXT` 13 türle genişledi (web uyarıları otomatik).
+- Elle: E-10 (gerçek ses kartı, 22.04 akış oranı), E-17 (`x-kde-passwordManagerHint`), gerçek CUPS yazıcı.

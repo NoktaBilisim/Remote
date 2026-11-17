@@ -7,13 +7,12 @@
 // okunmaz (T4). Tepsi, gözetimsiz servis, kayıt ve talep Linux'ta yoktur (V52). stdout/stderr'e kod, ad, dosya adı ve
 // hata ayrıntısı yazılmaz (S-P28g-11); tek çıktı grafik oturum yokken sabit metindir.
 //
-// K1 iskeleti: GTK arayüzü (K4) henüz yok; newUI exitUI ile çıkar. Yakalama (K2), girdi (K3), pano/yazdırma/dosya/ses
+// K4: arayüz internal/ui/gtk (GTK ana döngüsü ana iş parçacığında). Yakalama (K2), girdi (K3), pano/yazdırma/dosya/ses
 // (K5) deps_linux.go'da açık "henüz yok" hatasıyla bağlıdır.
 package main
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"os"
 	"os/signal"
@@ -27,6 +26,7 @@ import (
 	"remote-support/agent-win/internal/flow"
 	"remote-support/agent-win/internal/launch"
 	"remote-support/agent-win/internal/linux/glib"
+	"remote-support/agent-win/internal/ui/gtk"
 )
 
 // GTK yalnız ana iş parçacığında çalışır: main goroutine'i init'te ana iş parçacığına kilitlenir (§2).
@@ -45,9 +45,6 @@ const (
 
 // closeDelay AC-107: son ekran gösterildikten sonra kapanış ("3 sn içinde" — pay bırakıldı).
 const closeDelay = 2500 * time.Millisecond
-
-// errNoUI K1: GTK arayüzü K4'te gelir.
-var errNoUI = errors.New("linux: arayüz henüz yok (P28g K4)")
 
 func main() { os.Exit(run()) }
 
@@ -84,20 +81,45 @@ func run() int {
 	if glib.Load() != nil {
 		return exitLibs
 	}
+	silenceStdio()          // S-P28g-11: GLib/GTK uyarıları dahil hiçbir şey stdout/stderr'e düşmez (geri çağrısız; K4)
 	gate := &control.Gate{} // arayüz, akış ve girdi aynı kapıyı paylaşır (K3/K4)
-	u, events, err := newUI(gate)
+	u, events, err := newUI(cfg, fp, sessionKind(os.Getenv) == "wayland", gate)
 	if err != nil {
 		return exitUI
 	}
 	d := flowDeps(cfg, fp, api.New(cfg.ServerURL, cfg.Version), u, events, gate)
-	out := flow.Run(context.Background(), d, launch.ExeCode())
-	u.Ended(out.Message)
-	time.Sleep(closeDelay)
+	// GTK ana iş parçacığında (init'te kilitli), akış ayrı goroutine'de (darwin kalıbı); kapanış glib.Post ile.
+	go func() {
+		out := flow.Run(context.Background(), d, launch.ExeCode())
+		u.Ended(out.Message)
+		time.Sleep(closeDelay)
+		u.Quit()
+	}()
+	u.Run()
 	return exitOK
 }
 
-// newUI K4'te GTK arayüzünü (internal/ui/gtk) kurar; K1'de arayüz yoktur.
-func newUI(*control.Gate) (flow.UI, <-chan flow.Event, error) { return nil, nil, errNoUI }
+// newUI GTK arayüzü (internal/ui/gtk): XInitThreads → x11 arka ucu → gtk_init_check → sabit tema. localClick kararı
+// (gtk.ClickGuard) K3'ün input/localclick_linux.go'su bağlanana kadar nil → korunan denetimler reddeder (fail-closed).
+func newUI(cfg config.Config, fp string, wayland bool, gate *control.Gate) (*gtk.UI, <-chan flow.Event, error) {
+	return gtk.New(gtk.Options{Host: cfg.DisplayHost(), Version: cfg.Version, Fingerprint: fp,
+		ServerURL: cfg.ServerURL.String(), TestFlag: cfg.TestBuild, Wayland: wayland, Gate: gate})
+}
+
+// silenceStdio fd 1 ve 2 /dev/null'a yönlendirilir (dup3; fd'ler kapatılmaz, boşalan numara sokete verilmez). GLib
+// varsayılan log işleyicisi stdout/stderr'e yazdığından bu, Go geri çağrısı kurmadan (ADR-0038 m.2) S-P28g-11'in
+// "sessiz işleyici" karşılığıdır. Açılamazsa olduğu gibi kalır (yalnız log sızıntısı riski; işlev etkilenmez).
+func silenceStdio() {
+	fd, err := syscall.Open("/dev/null", syscall.O_WRONLY|syscall.O_CLOEXEC, 0)
+	if err != nil {
+		return
+	}
+	_ = syscall.Dup3(fd, 1, 0)
+	_ = syscall.Dup3(fd, 2, 0)
+	if fd > 2 {
+		_ = syscall.Close(fd)
+	}
+}
 
 // watchSignals SIGHUP yok sayılır (terminal kapanınca oturum düşmez, §2); SIGTERM/SIGINT'te özel dizin silinip süreç
 // çıkar (AC-401).

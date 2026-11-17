@@ -11,6 +11,7 @@ import (
 	"strings"
 	"syscall"
 
+	"remote-support/agent-win/internal/files"
 	"remote-support/agent-win/internal/linux/glib"
 )
 
@@ -161,4 +162,9 @@ func applyEnv(priv, runtimeDir string, uid int) {
 	_ = os.Setenv("GST_REGISTRY_1_0", filepath.Join(priv, "gst-registry.bin"))
 	_ = os.Setenv("GST_PLUGIN_SYSTEM_PATH_1_0", glib.LibDir+"gstreamer-1.0")
 	_ = os.Setenv("GST_PLUGIN_SCANNER_1_0", glib.LibDir+"gstreamer1.0/gstreamer-1.0/gst-plugin-scanner")
+	if home, err := os.UserHomeDir(); err == nil { // K5 (§5.3): libpulse çerez dosyası oluşturmasın
+		if c := files.PulseCookieEnv(home, priv); c != "" {
+			_ = os.Setenv("PULSE_COOKIE", c)
+		}
+	}
 }

@@ -74,7 +74,7 @@ func truncate(name string) string {
 	return trimTrailing(string(cps[:NameMax-len(ext)])) + string(ext)
 }
 
-// dangerousExt AC-36 (rev.) + S-P5-7 + S6-8 + S-P28f-9 (macOS türleri; liste platformdan bağımsız) listesi; contracts `DANGEROUS_EXT` ile birebir aynı
+// dangerousExt AC-36 (rev.) + S-P5-7 + S6-8 + S-P28f-9 (macOS türleri) + P28g §5.4 (Linux türleri; liste platformdan bağımsız) listesi; contracts `DANGEROUS_EXT` ile birebir aynı
 // (TestS68DangerousExtMatchesContracts kaynak dosyadan karşılaştırır).
 var dangerousExt = map[string]struct{}{}
 
@@ -85,7 +85,8 @@ func init() {
 		searchconnector-ms appref-ms gadget xbap xlam xla pptm dotm html htm mht mhtml svg
 		one onepkg wsc sct diagcab website ade adp mde mshxml jnlp cab
 		command tool app pkg mpkg dmg scpt scptd applescript terminal webloc inetloc fileloc workflow action
-		mobileconfig kext dylib bundle plugin prefpane osax zsh bash csh ksh py rb pl saver`) {
+		mobileconfig kext dylib bundle plugin prefpane osax zsh bash csh ksh py rb pl saver
+		desktop run bin appimage deb rpm snap flatpak flatpakref flatpakrepo so ko service`) {
 		dangerousExt[e] = struct{}{}
 	}
 }
@@ -140,6 +141,29 @@ func NameWarning(name string) Warning {
 		return WarnDangerous
 	}
 	return WarnNone
+}
+
+// launcherPrefix S-P28g-6 m.3: Linux başlatma komutunun deseni (`Destek-<kod>`) alınan dosyaya uymasın.
+var launcherPrefix = regexp.MustCompile(`(?i)^destek-`)
+
+// RenamePrefix `destek-` önekli alınan dosyaya eklenen önek (contracts `files.ts` RECEIVED_RENAME_PREFIX).
+const RenamePrefix = "Dosya-"
+
+// ReceivedName alıcının diske yazacağı ad (contracts receivedFileName eşi; fikstür "received"): SanitizeFileName sonucu
+// `destek-` (büyük/küçük harf duyarsız) ile başlıyorsa `Dosya-` öneki eklenir ve 255 sınırı yeniden uygulanır.
+// İdempotenttir. Her platformda uygulanır (S-P28g-6: platformdan bağımsız). `file.meta` teklif edilen temiz adı taşır.
+func ReceivedName(raw string) string {
+	name := SanitizeFileName(raw)
+	if launcherPrefix.MatchString(name) {
+		return truncate(RenamePrefix + name)
+	}
+	return name
+}
+
+// IsExecutableContent S-P28g-6 m.3: içeriğin ilk baytları ELF (`\x7fELF`) ya da betik (`#!`) mi — uzantıdan bağımsız
+// tehlike uyarısı için (en çok ilk 4 bayt okunur).
+func IsExecutableContent(head []byte) bool {
+	return len(head) >= 4 && string(head[:4]) == "\x7fELF" || len(head) >= 2 && string(head[:2]) == "#!"
 }
 
 // AvailableName §4.2/2: çakışmada ` (1)`, ` (2)` … eklenir; üzerine yazma yok. `exists` hedef klasörde adın

@@ -131,13 +131,13 @@ func (f *form) danger(text string, x, y, w, h float64, k fontKind) objc.ID {
 
 // button NKDestekDugme (basış kaydı localClick için). fn ana iş parçacığında, gönderenle çağrılır.
 func (f *form) button(title string, x, y, w, h float64, fn func(sender objc.ID)) objc.ID {
-	b := objc.ID(clsButton).Send(objc.Sel("buttonWithTitle:target:action:"), nsstr(stripAccel(title)), target, selAction)
+	b := objc.ID(clsButton).Send(objc.Sel("buttonWithTitle:target:action:"), nsstr(uicore.StripAccel(title)), target, selAction)
 	return f.control(b, x, y, w, h, fn)
 }
 
 // check onay kutusu (NKDestekDugme). Durum korunan kutularda denetimden değil Go değişkeninden okunur.
 func (f *form) check(title string, x, y, w, h float64, fn func(sender objc.ID)) objc.ID {
-	b := objc.ID(clsButton).Send(objc.Sel("checkboxWithTitle:target:action:"), nsstr(stripAccel(title)), target, selAction)
+	b := objc.ID(clsButton).Send(objc.Sel("checkboxWithTitle:target:action:"), nsstr(uicore.StripAccel(title)), target, selAction)
 	return f.control(b, x, y, w, h, fn)
 }
 
@@ -216,7 +216,7 @@ func setTextView(tv objc.ID, text string) {
 func (f *form) picture(img image.Image, x, y, w, h float64) {
 	pw, ph := int(w*2), int(h*2)
 	bg := uicore.ThemePalette(f.u.dark).LogoBg
-	px := bgrToRGBA(uicore.FitBGR(img, pw, ph, color.RGBA{bg.R, bg.G, bg.B, 0xff}), pw, ph)
+	px := uicore.BGRToRGBA(uicore.FitBGR(img, pw, ph, color.RGBA{bg.R, bg.G, bg.B, 0xff}), pw, ph)
 	if px == nil {
 		return
 	}
