@@ -114,25 +114,30 @@ func connect(t *testing.T, caps []string, ctlOut chan dc.Ctl) (*techPeer, *Peer)
 func connectInput(t *testing.T, caps []string, ctlOut chan dc.Ctl, input func([]byte)) (*techPeer, *Peer) {
 	t.Helper()
 	tech := newTech(t)
+	guest, _ := dial(t, tech, caps, Handlers{Ctl: func(m dc.Ctl) { ctlOut <- m }, Input: input})
+	return tech, guest
+}
+
+// dial misafir eşini kurar ve teknisyenin offer'ını sunucu şemalarından geçirerek misafire iletir; h.LocalICE
+// teknisyene bağlanır. Dönen yanıt teknisyende uygulanmıştır.
+func dial(t *testing.T, tech *techPeer, caps []string, h Handlers) (*Peer, signal.SdpAnswer) {
+	t.Helper()
 	var guest *Peer
 	var err error
-	guest, err = New(nil, caps, Handlers{
-		LocalICE: func(m signal.Ice) {
-			// misafir → sunucu: Encode doğrular; sunucu id'siz yeniden kurup teknisyene iletir.
-			if _, err := signal.Encode(m); err != nil {
-				t.Errorf("ice encode: %v", err)
-				return
-			}
-			init := webrtc.ICECandidateInit{Candidate: m.Candidate, SDPMid: m.SdpMid}
-			if m.SdpMLineIndex != nil {
-				v := uint16(*m.SdpMLineIndex)
-				init.SDPMLineIndex = &v
-			}
-			_ = tech.pc.AddICECandidate(init)
-		},
-		Ctl:   func(m dc.Ctl) { ctlOut <- m },
-		Input: input,
-	}, testMedia(t))
+	h.LocalICE = func(m signal.Ice) {
+		// misafir → sunucu: Encode doğrular; sunucu id'siz yeniden kurup teknisyene iletir.
+		if _, err := signal.Encode(m); err != nil {
+			t.Errorf("ice encode: %v", err)
+			return
+		}
+		init := webrtc.ICECandidateInit{Candidate: m.Candidate, SDPMid: m.SdpMid}
+		if m.SdpMLineIndex != nil {
+			v := uint16(*m.SdpMLineIndex)
+			init.SDPMLineIndex = &v
+		}
+		_ = tech.pc.AddICECandidate(init)
+	}
+	guest, err = New(nil, caps, h, testMedia(t))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -154,7 +159,13 @@ func connectInput(t *testing.T, caps []string, ctlOut chan dc.Ctl, input func([]
 			t.Errorf("AddRemoteICE: %v", err)
 		}
 	})
-	offer, err := tech.pc.CreateOffer(nil)
+	return guest, negotiate(t, tech, guest, nil)
+}
+
+// negotiate teknisyenden yeni bir offer (opts: ör. ICE yeniden başlatma) üretir, misafire iletir, yanıtı uygular.
+func negotiate(t *testing.T, tech *techPeer, guest *Peer, opts *webrtc.OfferOptions) signal.SdpAnswer {
+	t.Helper()
+	offer, err := tech.pc.CreateOffer(opts)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -172,7 +183,7 @@ func connectInput(t *testing.T, caps []string, ctlOut chan dc.Ctl, input func([]
 	if err := tech.pc.SetRemoteDescription(webrtc.SessionDescription{Type: webrtc.SDPTypeAnswer, SDP: ans.SDP}); err != nil {
 		t.Fatal(err)
 	}
-	return tech, guest
+	return ans
 }
 
 func TestAC52SignalMappingVideoAndChat(t *testing.T) {

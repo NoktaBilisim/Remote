@@ -50,6 +50,10 @@ type Handlers struct {
 	Input func(raw []byte)
 	// State bağlantı durumu: "connected", "disconnected", "failed", "closed".
 	State func(string)
+	// Audio P28d: teknisyenin uzak Opus ses izinden gelen RTP yükü (seq: RTP sıra numarası). Yük alıcıya aittir
+	// (her pakette yeni arabellek). İz başına tek okuma goroutine'inden sırayla, farklı eşlerden eşzamanlı çağrılır;
+	// bloklamamalıdır. nil ise paketler okunup atılır.
+	Audio func(seq uint16, payload []byte)
 }
 
 // Peer tek PeerConnection (P28c: teknisyen başına bir tane). Yeniden bağlanmada (AC-24) yenisi kurulur. Video izi
@@ -67,6 +71,8 @@ type Peer struct {
 	added   bool
 	main    bool              // gönderici ana izde (kontrol sahibi) mı
 	sender  *webrtc.RTPSender // ilk offer'da kurulur
+
+	audio *webrtc.TrackLocalStaticSample // P28d: eşe giden Opus izi (teklifte ses yoksa nil)
 }
 
 // Option test ve ayar kancası.
@@ -133,6 +139,7 @@ func New(iceServers []signal.IceServer, caps []string, h Handlers, m *Media, opt
 		}
 	})
 	pc.OnDataChannel(p.onDataChannel)
+	pc.OnTrack(p.onTrack)
 	return p, nil
 }
 
@@ -231,7 +238,9 @@ func (p *Peer) SetICEServers(list []signal.IceServer) error {
 }
 
 // HandleOffer teknisyenin offer'ına answer üretir. Video track'i offer'daki recvonly video transceiver'ına bağlanır
-// (yerel yön sendonly). ICE yeniden başlatmada (ice.restart sonrası yeni offer) aynı yol kullanılır.
+// (yerel yön sendonly). P28d: ilk offer'da gönderilebilir ses bölümü varsa eşin Opus izi de bağlanır (yön sendonly ya da
+// sendrecv); yoksa eski konsol yolu aynen sürer. ICE yeniden başlatmada (ice.restart sonrası yeni offer) aynı yol
+// kullanılır; izler yalnız ilk offer'da eklenir, çoğalmaz.
 func (p *Peer) HandleOffer(sdp string) (signal.SdpAnswer, error) {
 	if err := p.pc.SetRemoteDescription(webrtc.SessionDescription{Type: webrtc.SDPTypeOffer, SDP: sdp}); err != nil {
 		return signal.SdpAnswer{}, err
@@ -259,6 +268,11 @@ func (p *Peer) HandleOffer(sdp string) (signal.SdpAnswer, error) {
 		p.mu.Unlock()
 		go p.readRTCP(sender)
 		p.requestKeyframe() // yeni eş IDR'siz başlamasın
+		if offerWantsAudio(sdp) {
+			if err := p.addAudio(); err != nil {
+				return signal.SdpAnswer{}, err
+			}
+		}
 	}
 	answer, err := p.pc.CreateAnswer(nil)
 	if err != nil {
