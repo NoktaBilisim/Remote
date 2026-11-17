@@ -195,6 +195,8 @@ Kapıdan dönen ret (403/409/429) audit'e yazılmaz; yalnız metrik tutulur. Ses
 "görüşmeyi kim dinledi" sorusu `voice.end.listenerIds` ile yanıtlanır).
 Metrikler: `rs_voice_calls_total{result="accepted|rejected|timeout"}`, gauge `rs_voice_active`, `rs_voice_denied_total{code}`.
 
+Oturum geçmişi zaman çizelgesi (K1 kararı 11): `voice.*` olayları `TIMELINE_DETAIL_KEYS`'e girer — `voice.reject` → `reason`, `voice.end` → `reason`, `durationSec`; `talkerIds`/`listenerIds` (kullanıcı kimliği) zaman çizelgesine yansımaz, yalnız audit'te kalır.
+
 ## 7. Yetki ve güvenlik
 
 - **Yetki:** `sessions.voice` ("Etkin oturumda müşteriyle sesli görüşme başlatır, katılır ve görüşmeyi dinler.") `permissions.ts` içine eklenir. Admin
