@@ -11721,3 +11721,23 @@ Kod henüz yazılmadı; P22-Q'da doğrulanacak.
 Orta/Düşük bulguların `docs/gereksinimler.md` §9'a "Sonra" olarak eklenmesi önerilir (özellikle S-P22-2 asgari istemci politikası, S-P22-9 AAD v2).
 
 DURUM: DÜZELTİLMELİ (tasarım)
+
+### r2 doğrulama (2026-11-17; `docs/mimari-p22.md` §15, ADR-0025 "r-P22 r2 eki")
+
+| Bulgu | r2 karşılığı | Sonuç |
+| --- | --- | --- |
+| S-P22-1 (Yüksek) | §15.1: tek yardımcı `lib/ws-budget.ts` `fitNewest`, gerçek serileştirilmiş çerçeve boyu (`Buffer.byteLength(JSON.stringify(frame))`) ≤ 49.152 bayt; `chat.history` ≤ 100 öğe + `more`; **P18 `request.messages` de aynı bütçeye alındı** (mevcut hata, P22-B), şemaya `more` eklenmedi (0.12–0.20 Go katı ayrıştırıcı uyumu doğru gerekçe). Tek öğe ≤ ~4,3 KiB → tek `chat.message` her zaman < 64 KiB; Go okuma sınırı değişmiyor; 100 × emoji ve 50 × emoji testleri tanımlı | **Kapandı** |
+| S-P22-2 (Orta) | §15.2: `/ws/tech` `rs.cap.schat1` zorunlu, yoksa **4426** `console_outdated` (kod çakışmıyor: mevcut 4401/4409; `contracts/src/ws.ts:34-35`); metrik. Artık risk ADR-0025 r2'de yazılı; K-P22-15 asgari istemci politikası (P22-G prod + 60 gün, tarihli Sonra). Not (Düşük, uygulamada): eski konsol 4426'yı bilmediği için genel yeniden bağlanma döngüsüne girebilir; mevcut geri çekilme (backoff) + genel WS kovası yeterli, P22-Q'da staging'de gözlensin | **Kapandı** (artık risk kabul) |
+| S-P22-3 (Orta) | §15.3: TX öncesi `COUNT … GROUP BY session_id`, aday listesi `SESSION_MSG_DELETE_BUDGET = 20.000` ile kısaltılıyor, en az 1 oturum; TX içi aday sorgusu aynı id listesiyle sınırlı. `MAX_TECHS = 3` (`ws-multi.ts:15`) → oturum başına ≤ 2.000 × 4 = 8.000 satır, tek oturum bütçe içinde. Sahte saat testi tanımlı | **Kapandı** |
+| S-P22-4 (Orta) | §15.4: özet DB'den `GROUP BY sender, sender_user_id`; her bitiş yolu (oda, yönetici, süre aşımı, yetim/başlangıç süpürücüsü) aynı fonksiyonu kendi TX'inde çağırır + yeniden başlatma testi; `session.chat_legacy` kabul anında; `legacy` alanı bu satırdan türetilir. K-P22-6 koşulları (a)–(e) P22-B kabul ölçütü | **Kapandı** |
+| S-P22-5 (Orta) | §15.5: geçmiş yalnız ACTIVE + `seatOf ≠ null`; `tech.remove` sonrası 0 testi; katılım audit'ine `chatHistory:<n>`; kılavuz cümlesi | **Kapandı** |
+| S-P22-6 (Orta) | §15.6: bildirim metni önerildiği gibi; AC-291 paragrafındaki koşulsuz "uçtan uca devam eder" cümlesi koşullu ifadeye çevrildi; "video kaydı tutulmaz" eski cümlesi K-P22-11 açık maddesi (proje-yöneticisi + teknik-yazar) | **Kapandı** (K-P22-11 açık madde izlenir) |
+| S-P22-7..11 (Düşük) | §15.6: `peer.schat`; `"chat.send": "talker"` + `chat.rejected{forbidden}`; AAD v2 Sonra (ADR artık risk); yinelenen kuralı; uç netleştirmeleri; okuma AAD `requestId ?? sessionId` tek `decryptRow` (P18 dahil) | **Kapandı / Sonra** |
+
+Kalan (Sonra, `docs/gereksinimler.md` §9 önerisi): K-P22-15 asgari istemci politikası (ayrı AC), S-P22-9 AAD v2, join'de `chatRetentionDays` yankısı, aydınlatma metnindeki "video kaydı tutulmaz" cümlesi (K-P22-11).
+
+P22-Q'da kodda doğrulanacaklar: 4426 kapısının yükseltme sonrası ve yalnız `/ws/tech`'te çalışması; `fitNewest`'in çerçeve zarfını da sayması; retention bütçesinin TX içi aday sorgusunu gerçekten sınırlaması; özetin tüm bitiş yollarında yazılması; P18 `messages.ts` çözmesinin `decryptRow`'a geçmesi.
+
+Özet (r2): Kritik 0 / Yüksek 0 / Orta 0 açık / Düşük 0 açık (artık riskler ADR-0025 r2'de kabul, Sonra maddeleri tarihli).
+
+DURUM: GEÇTİ

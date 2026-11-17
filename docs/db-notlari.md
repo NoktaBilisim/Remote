@@ -1711,3 +1711,62 @@ REVOKE eder (DROP TABLE `columns_priv`'i silmez).
   yeniden up dökümü ilk up ile birebir. Guard: açık kayıt anahtarıyla down 3819, döküm değişmedi.
 - `check-app-grants.sh`: 873 PASS / 0 FAIL — clamav satırı yokken ve varken (satır değişmeden kaldı).
 - `pnpm -r typecheck` (server) temiz; `test:int` 107 dosya / 1052 test geçti (meta-test ve CHECK sayısı 76 güncellendi).
+
+## P22 — oturum sohbeti: session_messages oturum idempotency UQ'su (P22-D, 2026-11-18)
+
+Migration `20261126000000_p22_session_chat` (mimari-p22 §3.1, §3.3, §15.3; ADR-0025 r-P22; AC-264). **Tek değişiklik:**
+`session_messages` += UQ `session_messages_session_client_key` (`session_id`, `sender`, `client_msg_id`). Tablo, sütun, CHECK, FK,
+tetikleyici (toplam 23; audit-continuity özeti, `backup.sh` beklenen sayı aynı) ve `grants.sql` değişmedi. Veri taşıma ve seed yok
+(aydınlatma metni sürümü P22-B seed işidir, §3.4).
+
+### Şema ve kurallar
+
+- Talep satırlarında `session_id` NULL → yeni UQ'ya girmez; P18 UQ (`request_id`, `sender`, `client_msg_id`) aynen. Oturum satırı
+  `request_id` NULL (§3.1); talep ↔ oturum aynı `client_msg_id` ile ayrı satırdır.
+- UQ `sender_user_id` içermez (CUSTOMER'da NULL): iki teknisyen aynı kimliği gönderirse ikincisi 1062/P2002 → uygulama mevcut satırı
+  okur, `sender_user_id` farklıysa `chat.rejected{invalid}` (§3.1, S-P22-10). Bu okuma UQ'nun tam eşleşmesidir (const lookup).
+- `client_msg_id` DB'de NULL'lanabilir kalır (protokol oturum sohbetinde zorunlu kılar); NULL'lar UQ'da çakışmaz.
+- Mevcut IX(`session_id`,`tenant_id`,`created_at`) kaldırılmadı (sıralı okuma + FK).
+
+### Sorgu desenleri (EXPLAIN; `test/integration/p22-schema-d.test.ts` sabitler)
+
+Test verisi: 40 oturum × 25 mesaj, oturumlar anonim, `ANALYZE TABLE` sonrası (MySQL 8.4.13).
+
+| Sorgu                                                                                    | Plan                                                                                                                                                                                               |
+| ---------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Geçmiş: `WHERE session_id=? AND tenant_id=? ORDER BY created_at DESC, id DESC LIMIT 100` | `ref` IX(`session_id`,`tenant_id`,`created_at`), _Backward index scan_, filesort yok                                                                                                               |
+| Özet (§15.4): `WHERE session_id=? AND tenant_id=? GROUP BY sender, sender_user_id`       | `ref` yeni UQ (yalnız `session_id` öneki, key_len 105) + `Using temporary`; tenant süzgeci satırda. Oturum başına ≤ ~10.000 satırla sınırlı → kabul. Test iki session önekli indeksi de kabul eder |
+| Retention bütçesi (§15.3): `WHERE tenant_id=? AND session_id IN (…) GROUP BY session_id` | `ref` IX(`session_id`,`tenant_id`,…), _Using index_ (kapsayan)                                                                                                                                     |
+| Retention DELETE join'i (§3.3)                                                           | `s`: PRIMARY üzerinde `IN` aralığı (iyileştirici `m.session_id IN` koşulunu `s.id`'ye taşır) → `m`: IX(`session_id`,`tenant_id`) lookup. İç içe döngü, parti boyutuyla sınırlı                     |
+| Yinelenen yeniden okuma: `WHERE session_id=? AND sender=? AND client_msg_id=?`           | yeni UQ (eq)                                                                                                                                                                                       |
+
+Not: firmada hiç anonim oturum yokken DELETE planında `s` için IX(`tenant_id`,`anonymized_at`,`created_at`) boş aralığı seçilir
+(0 satır; zararsız). Gerçek koşuda parti aynı TX'te anonimleşmiş olduğundan plan yukarıdaki gibidir.
+
+### Kilit ve bakım penceresi
+
+İkincil UNIQUE → `ALGORITHM=INPLACE, LOCK=NONE` (çevrimiçi; DML sürer, başta/sonda kısa metadata kilidi). P22 öncesi oturum satırı
+olmadığından indeks kurulumu yalnız talep satırlarını tarar (NULL önekli). MySQL bu kipi veremezse hata verir, COPY'ye düşmez.
+
+### Ön kontrol ve geri alma
+
+- `p22_precheck`: aynı (`session_id`,`sender`,`client_msg_id`) grubu varsa `P22_PRECHECK dup_session_client=<n>` (SQLSTATE 45000 / 1644) ile hiçbir şey değişmeden durur. Düzeltme: yinelenenleri incele (normalde 0; ancak P22 kodu UQ'suz çalıştıysa olur), fazlaları
+  migrator ile sil (`SELECT session_id, sender, client_msg_id, COUNT(*) … GROUP BY … HAVING COUNT(*) > 1`), sonra
+  `prisma migrate resolve --rolled-back 20261126000000_p22_session_chat` + `pnpm db:migrate`. Yordam SIGNAL sonrası DB'de kalır,
+  sonraki deneme ve `down.sql` siler.
+- `down.sql` (elle): yalnız UQ DROP (INPLACE, LOCK=NONE) + `_prisma_migrations` satırı. Veri silmez, guard gerekmez. Önce P22 sunucu
+  kodu geri alınmalı (UQ'suz yeniden gönderim çift satır üretir).
+
+### Test (2026-11-17/18, geçici `rs-p22-test`:33481, mysql 8.4.13 binlog açık + bayrak)
+
+- `migrate deploy` + grants: tamam; `migrate diff --from-config-datasource --exit-code`: fark yok. Prisma'nın ürettiği SQL
+  (`--from-schema` eski şema) yalnız `CREATE UNIQUE INDEX session_messages_session_client_key` — migration ile aynı ad/sütun sırası.
+- Gidiş-dönüş: up → down → döküm (indeks/sütun/CHECK/FK/tetikleyici/yordam/migrations) yalnız UQ'nun 3 satırı ve migration kaydı
+  eksik; diff exit 2 (beklenen); yeniden up dökümü ilk up ile birebir; drift 0; tetikleyici 23.
+- Ön kontrol: down sonrası yinelenen iki CUSTOMER satırı → migrate 1644 ile durdu, UQ yok, yordam kaldı; satırlar silinip
+  `resolve --rolled-back` + migrate → tamam, yordam 0.
+- `check-app-grants.sh`: 873 PASS / 0 FAIL (sayılar değişmedi).
+- `p22-schema-d.test.ts` 5/5 (3 tekrar): ikinci INSERT 1062 (UQ adıyla) / P2002; farklı teknisyen aynı kimlik 1062; farklı
+  gönderen/oturum/NULL kimlik serbest; talep satırları (P18 UQ) etkilenmedi; tetikleyici 23; app DROP INDEX reddi; EXPLAIN'ler.
+- `test:int` 115 dosya / 1173 test: 1172 geçti; `customers-csv-p19` AC-263 performans ölçümü (31,3 sn > 30 sn) tam koşu yükünde
+  aştı, tek başına 12/12 geçti (P22 ile ilgisiz; yerel yük).
