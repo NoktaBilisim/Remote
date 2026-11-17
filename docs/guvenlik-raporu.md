@@ -1,3 +1,42 @@
+# Güvenlik Raporu — P28d — Kod turu 2 (kapanış) (dal p28d, HEAD 755c254, 2026-11-17)
+
+DURUM: GEÇTİ — Kritik 0 / Yüksek 0 / Orta 0 / Düşük 0 (tur 1'in iki Düşük bulgusu KAPANDI; yeni bulgu yok)
+
+Kapsam (dar): `git show HEAD~1 HEAD` — `apps/agent-win/internal/voice/opus.go` (+`opus_limit_test.go`), `internal/flow/voice.go`,
+`flow.go`, `voice_wait_p28d_test.go`; web `lib/voice/guest.ts`, `lib/webrtc/peer.ts`, `guest-peers.ts`, `use-guest-session.ts`,
+`app/session/[token]/guest-session.tsx`. Bu makinede `go` yok: Go testleri koşulmadı, kod okunarak doğrulandı (CI PASS listesi 85).
+
+## Kapanış kontrolü
+
+| Bulgu                                         | Durum   | Kanıt                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| --------------------------------------------- | ------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| D-PD-K1-1 wazero süre sınırı                  | KAPANDI | `opus.go` `withLimits()` her motora `WithCloseOnContextDone(true)`; `nk_enc`/`nk_dec` `callLimited()` ile `context.WithTimeout` (derleyici 200 ms, yorumlayıcı 2 sn). Aşım `callWithStack` → `ErrCodecPanic` = tuzak yolu (çözücü yeniden kurulur, 3. olayda `ErrPeerDropped`; kodlayıcı kapatılır). Init/tampon çağrıları sınırsız ama uzaktan veri işlemez. Testler: `TestP28dOpusContextCancelStopsCall`, `TestP28dOpusCallLimitTreatedAsTrap`, `TestP28dOpusCallLimitValues` (iki motor). |
+| D-PD-K1-2 Kabul sonrası active yoksa mikrofon | KAPANDI | Go: `voiceAccept` → `armVoiceActiveWait` (5 sn, `peerEv` ile döngüye döner, `ctx.Done` ile sızmaz); `voiceActiveTimeout` gen + `consent` + `active{callId}` denetler, tek yol `releaseMic`. Web: `accept()` `CONFIRM_MS=5000` bekçisi; eşleşen `active` ya da `release()` temizler; zaman aşımında `release()` + `unconfirmed` notu. Testler: `TestAC374P28dReleaseMicWhenActiveNeverArrives`, `…ActiveInTimeKeepsMic`, `…ActiveWaitDuringOpenClosesStaleOpen`, `voice-p28d.test.ts`.         |
+
+## Yeni risk değerlendirmesi (kanıtlı; bulgu yok)
+
+- **200 ms sınırın gerekçesi:** Sınır gerçek zaman bütçesi değil, asılı kalma tavanıdır (amd64 çerçeve ~0,1–0,5 ms; 200 ms = 10 çerçeve).
+  Düşük sınır yük/GC duraklamasını sıfırlanmayan sayaçla kalıcı eş düşürmesine çevirirdi; 200 ms bunu önler, gerçek sonsuz döngüde ses en
+  çok ~200 ms takılır. Bedel çağrı başına bağlam + zamanlayıcı + wazero izleme goroutine'i (50 çerçeve/sn × eş): kabul edilebilir.
+  Kodlayıcı girdisi yerel mikrofon olduğundan tekrar eden kodlayıcı aşımı uzaktan tetiklenemez; her aşım 200 ms ile sınırlı kalır.
+- **Zaman aşımı → tuzak yolu:** Aşım ayrı bir hata türü üretmiyor; mevcut, denetlenmiş `ErrCodecPanic` yalıtımına bağlanıyor. Ayrıntı loga
+  yazılmıyor (yük içeriği yok). wazero örneği kendisi kapattığından `close()` ikinci kez çağrılsa da `isClosed` ile idempotent.
+- **Geç active → tek voice.end{customer}:** Zaman aşımı mesaj göndermez; `consent` silinir. Sonradan gelen `active{callId}` Go'da
+  `onVoiceState` `case v.consent != m.CallID` → `voiceEndOnce` (`refused[callId]` ile callId başına bir kez), web'de `onState`
+  `refused` kümesiyle aynı davranış. Mikrofon yeniden açılmaz (açma yalnız yerel Kabul'de). Fail-closed: sunucu yavaşsa (>5 sn) görüşme
+  müşteri adına biter — güvenli yön.
+- **replaceTrack hata yolu döngüsü:** `setAudioTrack(track)` reddinde gönderici `replaceTrack(null)` ile susturulur ve `onAudioError` bir kez
+  çağrılır; `null` bağlama hatası sessizdir, böylece `audioFailed → deviceFail → release → setAudioTrack(null)` yeniden giriş yapmaz.
+  Birden çok eş aynı anda reddederse ilkinden sonra `consent` boş olduğundan `audioFailed` no-op'tur (tek `voice.end{device}`).
+  `guest-peers.ts` yalnız güncel eş kaydı (`peers.get(tid) === e`) için bildirir.
+- **Bilgi (bulgu değil):** (a) Asenkron bir `replaceTrack` reddi, bırakma ile yeni bir Kabul arasına denk gelirse yeni görüşmeyi `device`
+  ile bitirebilir — yalnız erişilebilirlik/UX, güvenli yön. (b) Go zaman aşımında kullanıcıya `VoiceTexts.Ended` gösteriliyor, web'de
+  ayrı `unconfirmed` metni var; metin tutarlılığı qa/frontend konusudur.
+
+Atanan ajan: yok. P28d güvenlik kapısı (Kritik/Yüksek 0) açık.
+
+---
+
 # Güvenlik Raporu — P28d — Kod turu 1 (dal p28d, HEAD 1551240, 2026-11-17)
 
 DURUM: GEÇTİ — Kritik 0 / Yüksek 0 / Orta 0 / Düşük 2
@@ -9,7 +48,7 @@ yok: Go testleri koşulmadı, kod okunarak ve wasm ikilisi Node ile incelenerek 
 
 ## Bulgular (öncelik sırasıyla)
 
-### [DÜŞÜK] D-PD-K1-1 wazero çağrılarında CPU/süre sınırı yok — A04
+### [DÜŞÜK] D-PD-K1-1 wazero çağrılarında CPU/süre sınırı yok — A04 — KAPANDI (kod turu 2, 2b64d63)
 
 Yer: `apps/agent-win/internal/voice/opus.go:113-119` (`runtimeConfig`, `WithCloseOnContextDone` yok), `:122,158,202` (`context.Background()`).
 Sorun: Sandbox bellek ve yetki yalıtımı sağlıyor ama süre sınırı koymuyor. Bir çözücü çağrısı bitmezse (libopus döngü hatası ya da JIT
@@ -19,7 +58,7 @@ yanlış derlemesi, bkz. A-PD-3) ses döngüsü goroutine'i süresiz takılır. 
 Düzeltme: `runtimeConfig()`'e `.WithCloseOnContextDone(true)` eklenir, `call()` çerçeve başına zaman aşımlı bağlam alır (ör. 50 ms).
 Aşımda `ErrCodecPanic` yolu çalışır: örnek yeniden kurulur, 3. olayda eş düşer. (atanan ajan: backend-dev (Go)) — gereksinimler §9 "Sonra" adayı.
 
-### [DÜŞÜK] D-PD-K1-2 Kabulde mikrofon sunucu onayından önce açılıyor (gönderim yok) — A04 (bilgi)
+### [DÜŞÜK] D-PD-K1-2 Kabulde mikrofon sunucu onayından önce açılıyor (gönderim yok) — A04 (bilgi) — KAPANDI (kod turu 2, 2b64d63 + 755c254)
 
 Yer: `apps/web/lib/voice/guest.ts:138-167`, `apps/agent-win/internal/flow/voice.go:293-315`.
 Sorun: Tasarım gereği (§5 m.3) mikrofon tıklamanın devamında açılır. Sunucu `voice.answer`'ı bayat bulup düşürürse (60 sn zaman aşımı ile
