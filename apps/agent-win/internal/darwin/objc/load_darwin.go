@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"regexp"
 	"sync"
+	"unsafe"
 
 	"github.com/ebitengine/purego"
 )
@@ -69,4 +70,14 @@ func Func(fptr any, h uintptr, name string) error {
 	}
 	purego.RegisterFunc(fptr, sym)
 	return nil
+}
+
+// Symbol h kütüphanesindeki işaretçi değerli sabit sembolün (ör. `const CFStringRef kCFRunLoopDefaultMode`) değerini
+// okur. Sembol yoksa hata (FFI kuralı 5). Dönen değer sistemin sahip olduğu sabit nesnedir; bırakılmaz.
+func Symbol(h uintptr, name string) (uintptr, error) {
+	sym, err := purego.Dlsym(h, name)
+	if err != nil || sym == 0 {
+		return 0, fmt.Errorf("objc: %s sembolü yok: %w", name, err)
+	}
+	return **(**uintptr)(unsafe.Pointer(&sym)), nil // sym bir değişkenin adresidir (sistem belleği, taşınmaz)
 }

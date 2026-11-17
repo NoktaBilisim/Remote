@@ -1,0 +1,48 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Nokta Destek macOS paketi (ADR-0037 m.5/m.6, mimari-p28f §5.3 m.6, S-P28f-14). package.sh @BUNDLE_ID@ ve @VERSION@ yer
+  tutucularını doldurur. Anahtar kümesi info-plist-keys.txt ile TAM eşleşmelidir (package.sh check; fazlası/eksiği FAIL).
+  YASAK (izinli uygulama dışarıdan tetiklenemesin): CFBundleURLTypes, CFBundleDocumentTypes, NSAppleScriptEnabled, NSServices,
+  UTExportedTypeDeclarations. Ses kapalı (ADR r3 m.7): NSMicrophoneUsageDescription YOK — A-PF-1 sesi açarsa ADR revizyonuyla eklenir.
+-->
+<plist version="1.0">
+<dict>
+	<key>CFBundleDevelopmentRegion</key>
+	<string>tr</string>
+	<key>CFBundleDisplayName</key>
+	<string>Nokta Destek</string>
+	<key>CFBundleExecutable</key>
+	<string>noktadestek</string>
+	<key>CFBundleIconFile</key>
+	<string>AppIcon</string>
+	<key>CFBundleIdentifier</key>
+	<string>@BUNDLE_ID@</string>
+	<key>CFBundleInfoDictionaryVersion</key>
+	<string>6.0</string>
+	<key>CFBundleName</key>
+	<string>Nokta Destek</string>
+	<key>CFBundlePackageType</key>
+	<string>APPL</string>
+	<key>CFBundleShortVersionString</key>
+	<string>@VERSION@</string>
+	<key>CFBundleVersion</key>
+	<string>@VERSION@</string>
+	<key>LSApplicationCategoryType</key>
+	<string>public.app-category.utilities</string>
+	<key>LSFileQuarantineEnabled</key>
+	<true/>
+	<key>LSMinimumSystemVersion</key>
+	<string>13.0</string>
+	<key>NSHighResolutionCapable</key>
+	<true/>
+	<key>NSHumanReadableCopyright</key>
+	<string>Nokta Bilişim — Apache-2.0</string>
+	<key>NSQuitAlwaysKeepsWindows</key>
+	<false/>
+	<key>NSSupportsAutomaticTermination</key>
+	<false/>
+	<key>NSSupportsSuddenTermination</key>
+	<false/>
+</dict>
+</plist>

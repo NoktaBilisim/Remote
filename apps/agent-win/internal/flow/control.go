@@ -79,6 +79,9 @@ func (s *session) onControlServer(ctx context.Context, m signal.Inbound) {
 		if s.phase != phActive || s.granted || !s.hasCap(capRemoteControl) || !s.admitControl() {
 			return
 		}
+		if !s.controlReady(ctx) {
+			return
+		}
 		if s.d.Unattended { // P27 (mimari-p27 §5.6): arayüz yok, anında GRANTED{UNATTENDED}
 			s.grantControl(ctx)
 			return
@@ -101,6 +104,21 @@ func (s *session) admitControl() bool {
 		return s.ctlReq.AdmitOpen()
 	}
 	return s.ctlReq.Admit(s.d.Now())
+}
+
+// controlReady P28f (mimari-p28f §5.2, AC-391, S-P28f-10): işletim sistemi girdi izni ya da olay musluğu yoksa bekleyen
+// istek iptal edilir (ret sayılmaz: 30 sn bekleme yok, sayaç sunucuda iade edilmez), teknisyene
+// control.state{VIEW, OS_PERMISSION} gider ve izin rehberi açılır. ControlReady nil ise (Windows) her zaman true.
+func (s *session) controlReady(ctx context.Context) bool {
+	if s.d.ControlReady == nil || s.d.ControlReady() {
+		return true
+	}
+	s.ctlReq.Cancel()
+	s.sendControl(ctx, "VIEW", "OS_PERMISSION")
+	if s.d.AccessGuide != nil {
+		s.d.AccessGuide()
+	}
+	return false
 }
 
 // onControlRelease K1/K2: durumdan bağımsız kapı ve kontrol diyaloğu kapanır; yanıt yok (sunucu zaten VIEW).
@@ -153,6 +171,10 @@ func (s *session) onControlUser(ctx context.Context, ev Event) {
 			s.ctlReq.Denied(now)
 			s.sendControl(ctx, "VIEW", "DENIED")
 		}
+	case EvControlSystem: // P28f K3: girdi altyapısı kapıyı kapattı (musluk/izin; S-P28f-10)
+		if c := s.closeControl(ctx, "SYSTEM", false); c.granted {
+			s.d.UI.Status(MacTexts.ControlLost)
+		}
 	case EvControlClose, EvControlHotkey:
 		src := "UI"
 		if ev.Kind == EvControlHotkey {
@@ -183,6 +205,9 @@ func (s *session) onControlUser(ctx context.Context, ev Event) {
 func (s *session) grantControl(ctx context.Context) {
 	if !s.ctlReq.Pending() || s.phase != phActive || !s.hasCap(capRemoteControl) || (s.d.Hotkey == "" && !s.d.Unattended) {
 		s.ctlReq.Cancel()
+		return
+	}
+	if !s.controlReady(ctx) { // izin istekten sonra geri alınmış olabilir (son savunma)
 		return
 	}
 	s.ctlReq.Granted()

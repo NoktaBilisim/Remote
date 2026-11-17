@@ -86,7 +86,7 @@ Tarayıcı: `https://<SITE_HOST>:4450`. `tls internal` kök sertifikası test ma
 | ↳                                                                      | yalnız seed için; parola ≥ 12, ilk girişte değiştirilir; seed sonrası `.env`'den silinebilir                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
 | `ABUSE_EMAIL`                                                          | Misafir karşılama ekranındaki "Kötüye kullanımı bildir" `mailto:` adresi (AC-125, V13, S-P4-1), ör. `abuse@<alan-adı>`. **production'da boşsa bağlantı gizlenir** (Super Admin e-postasına düşülmez). Staging/prod'da doldurulması önerilir. Değişiklik: `.env` → `docker compose up -d server`. Kullanmayacaksanız boş bırakmak (`ABUSE_EMAIL=`) veya satırı silmek güvenlidir: env.ts boş/yalnız boşluk değerleri tanımsız sayar (`withoutBlanks`), server açılır ve production'da bağlantı gizlenir. Dolu ama geçersiz bir adres (ör. `abuse@`) ise env.ts doğrulamasında server'ı açtırmaz                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
 | `AGENT_SHA256`                                                         | P6 (G-07): `agent_downloads` volume'undaki `NoktaDestek.exe`'nin SHA-256'sı (64 hex). **Elle yazılmaz**: `deploy/agent/verify-and-publish.sh` attestation + `SHA256SUMS` doğrulamasından sonra yazar, ardından `docker compose up -d server`. Boşsa, dosya yoksa veya hash uyuşmazsa `GET /api/v1/public/agent/download` **503** döner (fail-closed) ve server logunda bir kez `alarm: "agent_binary"` uyarısı çıkar. `AGENT_BINARY_PATH` compose'da sabittir (`/data/downloads/NoktaDestek.exe`); `.env`'deki değer yalnız compose dışı çalıştırmada kullanılır                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
-| `MAC_AGENT_SHA256`                                                     | P28f (mimari-p28f §8.1, S-P28f-3): `agent_downloads` volume'undaki `NoktaDestek-macOS.zip`'in SHA-256'sı (64 hex). **Elle yazılmaz**: yayın betiği (K8b) attestation + `SHA256SUMS` doğrulamasından sonra yazar, ardından `docker compose up -d server`. Boş/dosya yok/uyuşmaz → `GET /api/v1/public/agent/download?os=macos` **503**, `GET /api/v1/public/agent/availability` `macos:false` (karşılama sayfası macOS düğmesini göstermez), Caddy `/downloads/*.zip` forward_auth `/internal/agent-ready/macos` 503. `unconfigured` olağan (Apple hesabı yok, R39) — alarm yok; `missing`/`mismatch` server logunda bir kez `alarm: "mac_agent_binary"`. Geri alma: değeri boşaltın                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
+| `MAC_AGENT_SHA256`                                                     | P28f (mimari-p28f §8.1, S-P28f-3): `agent_downloads` volume'undaki `NoktaDestek-macOS.zip`'in SHA-256'sı (64 hex). **Elle yazılmaz**: `deploy/agent/publish-mac.sh` (§28f.4) attestation + `SHA256SUMS` + zip yapısı doğrulamasından sonra yazar, ardından `docker compose up -d server`. Boş/dosya yok/uyuşmaz → `GET /api/v1/public/agent/download?os=macos` **503**, `GET /api/v1/public/agent/availability` `macos:false` (karşılama sayfası macOS düğmesini göstermez), Caddy `/downloads/*.zip` forward_auth `/internal/agent-ready/macos` 503. `unconfigured` olağan (Apple hesabı yok, R39) — alarm yok; `missing`/`mismatch` server logunda bir kez `alarm: "mac_agent_binary"`. Geri alma: `publish-mac.sh --withdraw` (değeri boşaltır)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
 | `MAC_AGENT_PATH`                                                       | P28f: compose'da sabit `/data/downloads/NoktaDestek-macOS.zip` (Caddy'nin `/srv/downloads/NoktaDestek-macOS.zip` olarak sunduğu dosya). `NODE_ENV=production`'da env.ts başka değeri reddeder (aynı kural `AGENT_BINARY_PATH` = `/data/downloads/NoktaDestek.exe` için de geçerli); `.env` değeri yalnız compose dışı çalıştırmada                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
 | `WHATSAPP_SERVICE_URL`                                                 | P8b: whatsapp-bildirim servisi (sistem düzeyi; tenant değiştiremez). **P12b: yalnız yedek değerdir.** Etkin adres önceliği: **Sistem ayarları → WhatsApp servisi panel kaydı > `WHATSAPP_SERVICE_URL`** (P13b, G-P13b-2: `env.ts`'te yerleşik varsayılan **yok**; ikisi de boşsa kanal yapılandırılmamış = kapalı). Açılışta panel kuralıyla doğrulanır: yalnız `http://`/`https://` (küçük harf), `kullanıcı:şifre@`, sorgu (`?`), parça (`#`), boşluk/kontrol karakteri yok, ≤ 200 karakter → **uymazsa server açılmaz** (log `env` doğrulama hatası; `env.ts` `waServiceUrlSchema`; §17.4). **production'da `http://` + özel olmayan adres → kanal kapalı başlar** (gönderim yok, log `alarm:"whatsapp_insecure"`). Güvensiz veya yapılandırılmamış adreste testler servise istek **göndermez**: Super Admin testi (`POST /api/v1/admin/settings/whatsapp/test`) **200 `{ok:false}`** + sabit mesaj, tenant testi (`POST /api/v1/settings/support-requests/whatsapp/test`) **502 `UPSTREAM`** döner; prod değeri K13'e göre `https://…` veya özel ağ adresi (§12.3). **Değişiklik yolu: panel** (Super Admin → Sistem ayarları → WhatsApp servisi → kaydet; yeniden başlatma gerekmez, çalışan sürece hemen uygulanır). Env'e dönüş: aynı ekranda "Ortam değişkenine dön". **Panel kaydı varken `.env` değişikliği etkisizdir**; env'i değiştirip `docker compose up -d server` yalnız panel kaydı yokken (ekranda kaynak rozeti "Ortam değişkeni") anlamlıdır |
 | `WHATSAPP_SERVICE_API_KEY`                                             | İsteğe bağlı. whatsapp-bildirim servisinin `x-api-key` anahtarı (sır: parola kasasında; loga, dokümana, komut satırına yazılmaz). Anahtar adresle birlikte gider: **panel adresi kayıtlıysa yalnız panel anahtarı kullanılır (bu değişken o adrese gönderilmez); panel kaydı yoksa env adresiyle bu değişken kullanılır.** Panelde adresin kökeni değişirse anahtar yeniden girilmelidir (`WA_API_KEY_REENTER`). Boşsa istek anahtarsız gider. Servis tarafında `REQUIRE_API_KEY` ile kademeli geçiş ayrı projede yürür: **servis anahtarı zorunlu hâle gelmeden ÖNCE Remote'a anahtar girilir** (panel ya da bu değişken + `docker compose up -d server`), aksi hâlde gönderimler ve test 401/502 ile düşer. Kontrol (değer basmadan): `grep -c '^WHATSAPP_SERVICE_API_KEY=.' deploy/.env` → `1` ya da panelde kaynak rozeti "Panel kaydı"                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
@@ -4676,3 +4676,159 @@ amd64'te PASS (derleyici = yorumlayıcı); (3) `go test -fuzz=FuzzDecode -fuzzti
 `--platform linux/amd64`) ≥ 30 dk, 0 tuzak (`NOKTA_K0S_TRAPLOG` dosyası boş), 0 panik, crasher yok; (4) arm64 JIT bulgusu (K0s-2: v1.9–v1.12
 derleyicisi kodlayıcıyı yanlış derliyor) yeni sürümde yeniden denenir, sonuç `docs/implementation.md`'ye; düzelmişse bile yayın hedefi
 amd64 kalır; (5) ikili büyümesi kaydedilir. Sonuç PR açıklamasına yazılır, ardından el ile birleştirilir.
+
+## 28f. P28f — macOS istemcisi: CI, paket, imza, yayın (devops K8a/K8b, 2026-11-17; mimari-p28f §8, §10 K8a/K8b, §13 S-P28f-3..7/14/17, §14; ADR-0037 r3)
+
+Özet: ince ikililer (arm64, amd64) Linux GO_IMAGE'da CGO'suz çapraz derlenir; universal `.app`, imza ve zip **yalnız macOS'ta**
+(`apps/agent-win/build/macos/package.sh`). Entitlement listesi **boş** (ses yok, r3). Hardened runtime staging'de de açıktır.
+Bundle kimliği staging'de `net.noktabilisim.destek.stg`, prod'da `net.noktabilisim.destek`. Apple hesabı yoksa (R39) prod'da
+macOS yoktur: Release'e macOS zip'i girmez, karşılama sayfasında macOS düğmesi görünmez.
+
+### 28f.1 Dosyalar
+
+| Yer | İş |
+| --- | --- |
+| `apps/agent-win/build/macos/package.sh` | `bundle` / `sign` / `zip` / `check` / `adhoc` / `compare` (kullanım başlıkta) |
+| `build/macos/Info.plist.tmpl` + `info-plist-keys.txt` | Info.plist; anahtar kümesi izin listesiyle **tam** eşleşmeli (S-P28f-14) |
+| `build/macos/entitlements.plist` | boş `<dict/>`; ad-hoc ve Developer ID aynı dosya (S-P28f-4/5) |
+| `build/macos/OKUBENI.txt`, `OKUBENI-stg.txt` | zip'teki ikinci üst öğe (prod: "asla Yine de Aç istemez"; stg: TEST metni) |
+| `apps/agent-win/test/trace-check-mac.sh` (K5) | AC-394 iz testi (`snapshot` / `compare`, salt okunur); CI test-macos çağırır |
+| `deploy/agent/publish-mac.sh` + `test-publish-mac-lock.sh` | yayın / geri alma; kilit testi |
+| `.github/workflows/agent-win.yml` | `check` darwin, `build-mac` ×2, `reproducible-mac`, `package-mac`, `test-macos`, `sign-mac`, `attest-mac`, release |
+| `.github/workflows/agent-watch.yml` | `hash-mac` (macOS zip = Release, yayımlandıysa) |
+
+Simge her paketlemede `internal/ui/uicore/assets/nokta-kucuk.png`'den üretilir (şeffaf kenarla kare, `sips` + `iconutil`); repoda
+`.icns` ikilisi yok.
+
+### 28f.2 CI akışı (`agent-win.yml`)
+
+| İş | Ne yapar | Etikette |
+| --- | --- | --- |
+| `check` | `GOOS=darwin` vet + staticcheck (arm64, amd64), govulncheck (iki mimari), go-licenses (darwin/arm64) | aynı |
+| `build-mac` 1/2, 2/2 | `build-darwin.sh` iki mimari. Adres: PR / main push / yer tutucu dispatch → `.invalid` + `test`; main dispatch staging → `STG_SERVER_URL` + `test`; `v*` etiket → `AGENT_SERVER_URL`, kipsiz (prod). main push'a prod adresi **gömülmez** | prod |
+| `reproducible-mac` | iki derleme SHA eşit (mimari başına), Mach-O 64, ≤ 30 MiB/dilim; artifact `agent-mac-thin`; çıktılar `sha_arm64/sha_amd64` | aynı |
+| `package-mac` (macos-15) | girdi SHA = reproducible-mac **çıktısı**; `package.sh adhoc` (lipo, bundle, ad-hoc + runtime, Info.plist/entitlement/dilim/runtime denetimi, sabit mtime, zip ≤ 60 MiB). Artifact `agent-mac` (PR/main) ya da `agent-mac-stg` (dispatch): zip + `SHA256SUMS` + `icerik-sha256.txt` (paket içi ikili + imzasız dilimler) + `build-meta.txt` | **yalnız denetler, yüklemez** (prod adresli ad-hoc zip artifact olmaz, S-P28f-7) |
+| `test-macos` (macos-15) | `go test ./...` (`MallocScribble=1`, `NSZombieEnabled=YES`); Rosetta varsa `GOARCH=amd64 go test ./internal/darwin/...` (yoksa uyarı); iz testi: `.invalid` + testBuild'siz ayrı derleme, prod profili ad-hoc paket, `Destek-12345678/` klasörüne açılır → `trace-check-mac.sh snapshot` → ikili argümansız açılır, 15 sn sonra SIGTERM → `compare --since --bundle --marker 12345678` | aynı |
+| `approve` | mevcut `agent-release` onayı; artık mac işleri de yeşil olmalı. Kontrol listesine 0.19.0 ve "macOS imzalı mı" maddeleri eklendi | — |
+| `sign-mac` | yalnız etiket + onay + `vars.APPLE_TEAM_ID` doluysa; yoksa **skipped** | §28f.3 |
+| `attest-mac` | etiket: yalnız sign-mac başarılıysa build provenance + `predicate-type https://noktabilisim.net/attestation/macos-notarized/v1` (predicate = `notarization.json`: teamId, notarySubmissionId, bundleId, sürüm). Etiket dışı: TEST zip'e yalnız provenance | — |
+| `release` | sign-mac `failure` ise Release yok. `APPLE_TEAM_ID` tanımlı ama imzalı zip yoksa durur. Varsa `NoktaDestek-macOS-<sürüm>.zip` eklenir; `SHA256SUMS`'a zip satırı + `Nokta Destek.app/Contents/MacOS/noktadestek` satırı (doğrulama `sha256sum -c --ignore-missing`); notta imzasız dilim SHA'ları | — |
+
+Yerelde doğrulama (2026-11-17, Apple Silicon, macOS 26.3): `package.sh adhoc` iki farklı dizinde → zip SHA **eşit** (9,2 MiB);
+`codesign -dv` → `flags=0x10002(adhoc,runtime)`, `Identifier=net.noktabilisim.destek.stg`, universal x86_64 + arm64; test-macos iz dizisi (snapshot → aç → kapat → compare) yerelde "SONUÇ: temiz"; paket içi ikili
+arm64 ve `arch -x86_64` ile açıldı (K1 beklenen çıkış 4). Negatif denetimler FAIL verdi: spike entitlement'larıyla imza, Info.plist'e
+`CFBundleURLTypes`, runtime'sız imza, stg paketi prod profiliyle. actionlint 1.7.8 + shellcheck 0.11.0 (CI imajları) temiz.
+**macOS runner işleri (package-mac, test-macos, sign-mac) ilk gerçek CI koşusunda doğrulanır**; sign-mac hiç koşmadı (Apple hesabı yok).
+
+### 28f.3 İmza kurulumu (Apple Developer hesabı açılınca; kullanıcı + devops)
+
+1. Apple Developer Program (kuruluş, D-U-N-S). Sertifika: **Developer ID Application** (Certificates → +). Anahtar CSR ile bu Mac'te
+   üretilir; Anahtar Zinciri'nden `.p12` dışa aktarılır (güçlü parola). `base64 -i imza.p12 | pbcopy`.
+2. App Store Connect → Users and Access → Integrations → **Team Keys** → yeni anahtar, rol **Developer** (Admin değil; S-P28f-6).
+   `.p8` bir kez indirilebilir; Key ID ve Issuer ID not edilir.
+3. GitHub → Settings → Environments → **`agent-mac-sign`**: Deployment branches and tags = Selected → yalnız **Tag `v*`** kuralı
+   (dal kuralı yok); **Required reviewers** = en az bir kişi, "Prevent self-review" açık. Environment secrets:
+   `APPLE_DEVELOPER_ID_P12_BASE64`, `APPLE_DEVELOPER_ID_P12_PASSWORD`, `APPLE_NOTARY_KEY_P8` (dosya içeriği aynen),
+   `APPLE_NOTARY_KEY_ID`, `APPLE_NOTARY_ISSUER_ID`. Bunlar **repo secret'ı yapılmaz** (dal push'undaki değiştirilmiş iş akışı okuyabilir).
+4. Etiket ruleset'i (§24.3 m.1 ile aynı): `refs/tags/v*` oluşturma/silme yalnız yöneticiler.
+5. **En son** repo değişkeni `APPLE_TEAM_ID` (10 karakter). Tanımlandığı an sign-mac etkinleşir ve Release macOS zip'i zorunlu olur.
+6. Doğrulama: bir sonraki etikette sign-mac üstünde "agent-mac-sign" ortamı + onay bekler. Dalda `environment: agent-mac-sign`
+   deneyen iş "not allowed to deploy" ile durmalı.
+
+sign-mac adımları: girdi SHA'ları reproducible-mac çıktısı + build-meta adres/sürüm → sırların varlığı (değer basılmaz) → geçici keychain
+(rastgele parola, `-T /usr/bin/codesign`, `set-key-partition-list -S apple-tool:,apple:`), tek "Developer ID Application (TEAM)" kimliği →
+`package.sh bundle/sign/check` (runtime + `--timestamp` + boş entitlement, TeamIdentifier) → zip → `notarytool submit --wait --timeout 30m`
+(Accepted değilse `notarytool log` + kırmızı) → `stapler staple` + `validate` → `spctl -a -vv -t exec` "source=Notarized Developer ID" →
+son zip açılıp yeniden `check` + `stapler validate` → `SHA256SUMS`, `icerik-sha256.txt`, `notarization.json` → artifact (1 gün).
+`.p12`/`.p8`/keychain `if: always()` ile silinir.
+
+### 28f.4 Yayın (`deploy/agent/publish-mac.sh`)
+
+Ortam kilidi (sunucuda, `.env` `DEPLOY_ENV`, fail-closed):
+
+| Hedef | Kabul | Ret |
+| --- | --- | --- |
+| production | yalnız `--tag vX.Y.Z` (Release, notarize) | `dir-*`, `stg-*`, proje ≠ `remote`, PUBLIC_BASE_URL/SITE_HOST `stg.*` |
+| staging (ikinci yığın veya tek yığın `remote`) | `stg-*`, `dir-*` (ad-hoc TEST), `vX.Y.Z` | diğer etiketler; proje `remote` + genel ad `stg.*` (S13C-15) |
+| development | hepsi | — |
+| boş / bilinmeyen | — | hepsi |
+
+Windows'tan fark: tek yığın staging TEST zip'ini **kabul eder**. Gerekçe: zip yalnız `MAC_AGENT_SHA256` eşleşirse sunulur. Yanlış kurulmuş
+ikinci yığın S13C-15 ile durur. Prod `.env` değişmediği için prod TEST zip'ini sunmaz (503).
+
+Operatör tarafı: `SHA256SUMS` tek satır, `PK`, ≤ 60 MiB, yol kaçışı yok, tam iki üst öğe, `Contents/MacOS/noktadestek` +
+`_CodeSignature`, bundle kimliği (stg yollarında `.stg`, Release'te `.stg` yok). Ad: Release `^NoktaDestek-macOS-X.Y.Z.zip$`
+(`-stg-` ret), staging `NoktaDestek-macOS-stg-X.Y.Z.zip`. `--tag`: `--source-ref refs/tags/<etiket>` + notarized predicate (teamId =
+`APPLE_TEAM_ID` ortam değişkeni, zorunlu); macOS'ta ayrıca `codesign` TeamIdentifier + `spctl`. Sunucu tarafı: ağsız yardımcı konteynerle
+`agent_downloads/NoktaDestek-macOS.zip`'e atomik yazım, `.env` `MAC_AGENT_SHA256` (yedek `.env.bak.mac.*`, son 5), `PUBLISHED.log`
+`mac` satırı, server yeniden yaratılır, Caddy'den `/downloads/NoktaDestek-macOS.zip` SHA kontrolü.
+
+**Staging TEST paketi (bugünkü yol; Go'yu docker, paketlemeyi operatör Mac'i yapar):** temiz ağaç (commit'lenmiş), repo kökü:
+
+```bash
+SERVER='https://remote.noktabilisim.net'; VER=0.19.0      # tek yığın staging'in gömülü adresi (§28u.9)
+OUT="$(mktemp -d)"
+for a in arm64 amd64; do
+  docker run --rm -v "$PWD:/src" -v "$OUT:/out" -w /src -e GOFLAGS=-mod=readonly -e GOTOOLCHAIN=local \
+    golang:1.26.11-bookworm@sha256:dc40a13b61304647ed7e5d581d246b86413dfc29d63c6d018310feb93cd98fc0 sh -c '
+    git config --global --add safe.directory /src
+    apps/agent-win/build/build-darwin.sh "$0" "$1" "$2" "/out/noktadestek-$2" test' "$SERVER" "$VER" "$a"
+done
+shasum -a 256 "$OUT"/noktadestek-*        # ikinci koşuda (yeni OUT) aynı olmalı
+SOURCE_DATE_EPOCH="$(git log -1 --format=%ct)" apps/agent-win/build/macos/package.sh adhoc \
+  "$OUT/noktadestek-arm64" "$OUT/noktadestek-amd64" "$VER" stg "$OUT/pkg" "NoktaDestek-macOS-stg-$VER.zip"
+mkdir "$OUT/yayin" && cp "$OUT/pkg/NoktaDestek-macOS-stg-$VER.zip" "$OUT/yayin/"
+(cd "$OUT/yayin" && shasum -a 256 "NoktaDestek-macOS-stg-$VER.zip" > SHA256SUMS)
+ALLOW_UNATTESTED=staging deploy/agent/publish-mac.sh --dir "$OUT/yayin" --no-attestation --dry-run
+ALLOW_UNATTESTED=staging deploy/agent/publish-mac.sh --dir "$OUT/yayin" --no-attestation --ssh root@185.126.217.99 \
+  --deploy-dir /opt/remote/deploy
+```
+
+Beklenen: `yayınlandı: agent_downloads/NoktaDestek-macOS.zip (dir-…-unattested, <sha>)` ve
+`kontrol: <host>/downloads/NoktaDestek-macOS.zip SHA-256 = MAC_AGENT_SHA256 = <sha>`. Sonra `curl -sk https://<host>/api/v1/public/agent/availability`
+→ `"macos":true,"macosTestBuild":true`. İkinci yığın (`/opt/remote-stg`) kurulduysa CI yolu:
+`gh workflow run agent-win.yml --ref main -f server_url=https://stg.remote.noktabilisim.net -f version=0.19.0` →
+`publish-mac.sh --stg-run <run-id> --ssh root@185.126.217.99`.
+
+**Prod (yalnız Apple hesabı + imzalı Release sonrası):** `APPLE_TEAM_ID=<TEAM> deploy/agent/publish-mac.sh --tag v0.19.0 --dry-run`, sonra
+`--ssh root@<prod>`. Release'te macOS zip yoksa betik durur. Bu beklenen durumdur (R39), prod'da macOS görünmez.
+
+Kilit testi: `deploy/agent/test-publish-mac-lock.sh [<stg zip klasörü>]` → `SONUÇ: GEÇTİ` (2026-11-17: 29/29, gerçek ad-hoc paketle).
+
+### 28f.5 Geri alma ve tekrarlanabilirlik karşılaştırması (S-P28f-17)
+
+- **macOS indirmesini kapat** (sunucu/web geri alınmadan): `deploy/agent/publish-mac.sh --withdraw --ssh root@<sunucu> [--deploy-dir …]`
+  → `MAC_AGENT_SHA256=` + server yeniden + `/downloads/NoktaDestek-macOS.zip` **503** kontrolü. Karşılama sayfası tarayıcı moduna döner.
+- Önceki sürüme dönüş: `publish-mac.sh --tag v<önceki>` (Release'te zip varsa).
+- Release'teki imzalı paketin dilimini kaynakla karşılaştırma: aynı etiketten ince ikililer (GO_IMAGE, `build-darwin.sh` — etiket dışında
+  prod adresiyle derlemek için CI koşusunun `agent-mac-thin` artifact'i ya da `GITHUB_REF_TYPE=tag GITHUB_REF_NAME=v<sürüm>` ortamı) →
+  zip açılır → `apps/agent-win/build/macos/package.sh compare "Nokta Destek.app" noktadestek-arm64 arm64` (ve `x86_64` / `noktadestek-amd64`).
+  `codesign --remove-signature` `__LINKEDIT` vmsize alanını geri yüklemez; betik yalnız bu 8 baytı eşitleyip kalan dosyayı bayt bayt
+  karşılaştırır (yerelde: ad-hoc paket = ince ikili AYNI; 1 bayt değiştirilmiş ikili FARKLI).
+
+### 28f.6 "Yine de Aç" yalnız staging (S-P28f-8) ve elle test listesi
+
+- Staging TEST paketi ad-hoc'tur. Gatekeeper reddeder → Sistem Ayarları → Gizlilik ve Güvenlik → **Yine de Aç** (macOS 15+ parola
+  isteyebilir). Bu adım **yalnız** staging karşılama sayfasında (`macosTestBuild:true`), bu runbook'ta ve test raporunda geçer. Prod paketi
+  notarize ve staple'lıdır, bu adımı istemez. Müşteri kılavuzu: "macOS uyarı verirse açmayın".
+- Ad-hoc imzada her sürüm yeni TCC kimliği alır (A-PF-6). Test makinesinde eski kaydı temizleyin:
+  `tccutil reset ScreenCapture net.noktabilisim.destek.stg; tccutil reset Accessibility net.noktabilisim.destek.stg`.
+- Elle liste (test-operatoru, K11; mimari §14): fiziksel Control+Shift+F12/F11 arka planda; S-P28f-1 sahte kaynak senaryoları
+  (Fare Tuşları, VO-Space, AXPress, HID kaynaklı sentetik; eller çekiliyken 60 sn 0 kabul); S-P28f-2 gösterge (⌘H, ⌘⌥H, ⌘M, tam ekran,
+  Görev Kontrolü, ekran takma ≤ 1 sn); TCC Ekran Kaydı → yeniden başlatma → kod korunur; Erişilebilirlik yok → teknisyende
+  "Müşteri erişilebilirlik izni vermedi"; `tccutil reset`; iz testi (Metal önbelleği dahil); App Nap 10 dk; `arch -x86_64` ile x86_64 dilim.
+
+### 28f.7 Sertifika / anahtar rotasyonu ve iptal (S-P28f-6)
+
+- **Gözcü:** repo değişkeni `AGENT_WATCH_MAC_URL=https://<prod host>/downloads/NoktaDestek-macOS.zip` (yalnız macOS Release yayımlanınca).
+  Hiçbir Release'te macOS satırı yoksa iş "notice" ile geçer (alarm yok). Varsa 503, uyuşmazlık ve erişilemezlik `agent-watch` issue'su
+  açar → §11.7 ile aynı müdahale. Kapatma yolu `--withdraw`.
+- **Developer ID sertifikası süresi dolmadan (5 yıl) ya da sızıntı şüphesinde:** yeni CSR → yeni Developer ID Application → `.p12` →
+  `agent-mac-sign` secret'ları güncellenir. Eski imzalı paketler zaman damgalı olduğu için çalışmaya devam eder. Sızıntıda Apple Developer
+  hesabından sertifika **Revoke** edilir; bu, o sertifikayla imzalı tüm paketleri Gatekeeper'da geçersiz kılar. Önce yeni sertifikayla yeni yama
+  sürümü (`v0.19.x`) çıkarılır ve yayınlanır (`publish-mac.sh --tag`), sonra revoke edilir. Arada `--withdraw` uygulanır.
+- **Notary API anahtarı (.p8):** App Store Connect'te yeni anahtar → secret'lar güncellenir → eski anahtar **Revoke**. Sızıntıda hemen
+  revoke edilir (anahtar imzalamaz, yalnız notarize gönderir; etkisi sınırlı).
+- **Team ID değişirse:** `APPLE_TEAM_ID` güncellenir. TCC kayıtları bundle + Team'e bağlı olduğundan kullanıcılar izinleri yeniden verir
+  (kılavuza not).
+- Rotasyondan sonra `agent-mac-sign` ortamında yalnız yeni secret'ların bulunduğu ve eski `.p12`'nin hiçbir makinede kalmadığı kontrol edilir.

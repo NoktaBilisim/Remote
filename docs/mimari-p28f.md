@@ -481,3 +481,30 @@ verdi (fark ≤ 0,6 ms), darwin ikilileri Linux'ta iki mimaride SHA eşit, unive
 Elle test listesi (test-operatoru, K11; runbook'a da girer): fiziksel Control+Shift+F12/F11 arka planda; S-P28f-1 senaryoları; S-P28f-2
 senaryoları; TCC Ekran Kaydı → yeniden başlatma → kod korunur; Erişilebilirlik yok → teknisyende "Müşteri erişilebilirlik izni vermedi";
 TCC kaldırma (`tccutil reset`); iz testi (Metal önbelleği dahil); App Nap: uygulama arka planda 10 dk oturumda fps düşmez.
+
+**K5 uygulama notu (backend-dev, 2026-11-17) — mimar + güvenlik kararı gerekli:** macOS yazdırma bağlanmadı (`Printer` nil →
+`rs.cap.print1` bildirilmez). `flow` onaydan önce **sayfa sayısı ≥ 1** (AC-349, `onInspected`) ve boş olmayan **yazıcı adı**
+(`clipprint.DefaultPrinter`) ister; bu belge ise `lpstat`'ı yasaklar (S-P28f-16) ve PDF ayrıştırmayı cupsd'ye bırakır (T9) —
+macOS'ta ikisinin kaynağı tanımsız. Seçenekler: (a) sayfa sayısı CoreGraphics `CGPDFDocument` ile **süreç içinde** (Ekran
+Kaydı + Erişilebilirlik izinli süreçte ayrıştırıcı yüzeyi; T9'a aykırı), (b) ayrı yalıtılmış süreç (T4 "tek argüman `--restart`"
+ile çelişir), (c) macOS'ta diyalog sayfa sayısız + `flow` istisnası (AC-349 sapması); yazıcı adı için `NSPrintInfo
+defaultPrinter` (AppKit, alt süreç yok) ya da sabit "Varsayılan yazıcı". `printing/lp_unix.go` (`PrintLP`, sabit argümanlar,
+stdin, LPDEST/PRINTER temizliği) hazır ve sahte lp ile sınanmış; karar gelince yalnız `printing.New` darwin uygulaması +
+`deps_darwin.go` bağlantısı kalır. Diğer K5 sapmaları `docs/implementation.md` "P28f K5".
+
+**r4 karar (mimar, 2026-11-17) — seçenek (c): macOS'ta sayfa sayısı istemcide hesaplanmaz.**
+
+- **Neden (a)/(b) değil:** (a) TCC izinli süreçte PDF ayrıştırır (T9'a aykırı). (b) macOS'ta alt süreç TCC'de "sorumlu süreç" olarak
+  bizim uygulamaya bağlanır; yani işçi süreç de Ekran Kaydı/Erişilebilirlik yetkisini fiilen devralır. Sandbox profili olmadan
+  (`sandbox_init` kullanımdan kalktı) gerçek yalıtım sağlamaz. Üstelik yeni bir argüman yüzeyi açar (T4). Bedeli yüksek, kazancı düşük.
+  (c) ayrıştırmayı tamamen cupsd'ye bırakır (T9 korunur), en sade yoldur.
+- **Uygulama:** `printing.New` (darwin) `Inspect` adımında yalnız mevcut `%PDF-` + ≤ 20 MB denetimini yapar. `Info{Pages: 0,
+PagesUnknown: true, Printer: "Varsayılan yazıcı"}` döner. `flow` (`onInspected`) `pages ≥ 1` şartını yalnız `PagesUnknown`
+  bildiren yazıcıda atlar; bu bildirim yalnız darwin `Printer` uygulamasındadır, Windows yolu değişmez. Yazıcı adı sabit metindir;
+  `lpstat` ve `NSPrintInfo` yoktur (S-P28f-16; gösterilen ad ile `lp`'nin kullandığı varsayılan ayrışmaz). Varsayılan yazıcı yoksa
+  `lp` hatası mevcut "yazıcı yok" sonucuna eşlenir (onaydan sonra).
+- **Diyalog:** "Sayfa sayısı: yazıcıda belirlenir" + dosya boyutu (MB) + "Yazıcı: Varsayılan yazıcı". G-03 kuralları aynen geçerli.
+- **Protokol/audit:** Değişiklik yok (contracts sayfa sayısı taşımıyor). `print.job` audit'i aynı.
+- **AC etkisi:** AC-349 macOS'ta **kısmi**: sayfa sayısı ve yazıcının gerçek adı gösterilmez. Teknisyen adı, dosya adı, Yazdır/Reddet,
+  AC-116 ve 60 sn kuralı geçer. AC-393 (P28a yazdırma) bu sapmayla geçer. qa raporunda "kabul edilmiş sapma (r4)" olarak işlenir;
+  kılavuza bir cümle eklenir. Genişleme noktası (Sonra): sandbox'lı yardımcı ya da `lp -o page-ranges` ile sayfa üst sınırı.

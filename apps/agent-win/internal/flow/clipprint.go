@@ -47,6 +47,19 @@ type Printer interface {
 	Print(ctx context.Context, pdf []byte, pages int) error
 }
 
+// PagesUnknownPrinter r4 (mimari-p28f "K5 uygulama notu", ADR-0037 m.8a): Printer bunu uygulayıp true dönerse Inspect
+// sayfa sayısı vermez (0) ve onInspected `pages ≥ 1` şartını atlar; diyalog "Sayfa sayısı: yazıcıda belirlenir" gösterir.
+// Yalnız macOS lp yazıcısı bildirir; Windows yolu değişmez.
+type PagesUnknownPrinter interface {
+	PagesUnknown() bool
+}
+
+// pagesUnknown p sayfa sayısını hesaplamayan yazıcı mı.
+func pagesUnknown(p Printer) bool {
+	u, ok := p.(PagesUnknownPrinter)
+	return ok && u.PagesUnknown()
+}
+
 // ClipPrintUI K5 (`internal/ui`) uygular; çağrılar engellemez (UI iş parçacığına iletilir). Kullanıcı kararları Event
 // olarak döner: EvClipConsent{On} (yalnız gerçek yerel girdiyle, D-P28a-1), EvPrintApprove/EvPrintReject{PID}
 // (G-03 kuralları: Reddet varsayılan, Yazdır 1,5 sn kilitli, enjekte tıklama yok sayılır).
@@ -72,9 +85,11 @@ type PrintPrompt struct {
 	TechName string
 	FileName string
 	Pages    int
-	Size     int64 // alınan bayt (diyalogda "Boyut")
-	Printer  string
-	Deadline time.Time
+	// PagesUnknown r4 (macOS): sayfa sayısı istemcide hesaplanmadı (Pages 0); UI "Sayfa sayısı: yazıcıda belirlenir" yazar.
+	PagesUnknown bool
+	Size         int64 // alınan bayt (diyalogda "Boyut")
+	Printer      string
+	Deadline     time.Time
 }
 
 // Akışa dönen tipli hatalar (K4 uygulamaları sarmalayabilir; errors.Is ile sınıflandırılır).

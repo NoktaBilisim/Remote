@@ -116,20 +116,48 @@ func decodeUTF16(units []uint16) (string, error) {
 	return string(utf16.Decode(units)), nil
 }
 
-// encodeUTF16 yazılacak metni doğrular (boş değil, geçerli UTF-8, U+0000 yok, ≤ MaxBytes) ve NUL sonlu UTF-16 döner.
-func encodeUTF16(s string) ([]uint16, error) {
+// validateText yazılacak metnin ortak kuralı (her platform): boş değil, ≤ MaxBytes, geçerli UTF-8, U+0000 yok.
+func validateText(s string) error {
 	switch {
 	case s == "":
-		return nil, ErrInvalid
+		return ErrInvalid
 	case len(s) > MaxBytes:
-		return nil, ErrTooLarge
+		return ErrTooLarge
 	case !utf8.ValidString(s):
-		return nil, ErrInvalid
+		return ErrInvalid
 	}
 	for i := 0; i < len(s); i++ {
 		if s[i] == 0 {
-			return nil, ErrInvalid
+			return ErrInvalid
 		}
 	}
+	return nil
+}
+
+// encodeUTF16 yazılacak metni doğrular (validateText) ve NUL sonlu UTF-16 döner.
+func encodeUTF16(s string) ([]uint16, error) {
+	if err := validateText(s); err != nil {
+		return nil, err
+	}
 	return append(utf16.Encode([]rune(s)), 0), nil
+}
+
+// decodeUTF8 UTF-8 pano verisini (macOS `public.utf8-plain-text`) ilk NUL'a kadar doğrular: boşsa ErrEmpty, > MaxBytes
+// ErrTooLarge, geçersiz UTF-8 ErrInvalid (Windows decodeUTF16 ile aynı sonuç kümesi).
+func decodeUTF8(b []byte) (string, error) {
+	for i, c := range b {
+		if c == 0 {
+			b = b[:i]
+			break
+		}
+	}
+	switch {
+	case len(b) == 0:
+		return "", ErrEmpty
+	case len(b) > MaxBytes:
+		return "", ErrTooLarge
+	case !utf8.Valid(b):
+		return "", ErrInvalid
+	}
+	return string(b), nil
 }

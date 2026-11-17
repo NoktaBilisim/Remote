@@ -1,0 +1,13 @@
+Nokta Destek — uzaktan destek istemcisi (macOS 13 ve üstü)
+
+1. Bu klasördeki "Nokta Destek" uygulamasını çift tıklayın. Kurulum gerekmez.
+2. Ekrandaki adımları izleyin. Ekranınızı paylaşmak için macOS "Ekran Kaydı" izni ister;
+   teknisyenin farenizi kullanabilmesi için "Erişilebilirlik" izni gerekir. Bu izinleri
+   yalnız siz verirsiniz ve oturum boyunca her işlem sizin onayınızla yapılır.
+3. Oturum bitince uygulama kendiliğinden kapanır. Bu klasörü silebilirsiniz.
+
+Nokta Destek hiçbir zaman "Yine de Aç" istemez. macOS uygulamanın açılamayacağını
+söylerse uygulamayı AÇMAYIN ve teknisyeninize bildirin.
+
+Verilen izinleri kaldırmak: Sistem Ayarları > Gizlilik ve Güvenlik > Ekran Kaydı /
+Erişilebilirlik listesinden "Nokta Destek"i seçip "−" düğmesine basın.

@@ -1,0 +1,12 @@
+Nokta Destek — TEST SÜRÜMÜ (imzasız; yalnız test ortamı içindir)
+
+Bu paket Apple tarafından onaylanmamıştır ve gerçek müşterilere verilmez.
+
+1. Bu klasördeki "Nokta Destek" uygulamasını çift tıklayın. macOS "doğrulanamadı" uyarısı
+   verirse: Sistem Ayarları > Gizlilik ve Güvenlik > "Yine de Aç" (yalnız bu TEST paketi için).
+2. Ekran Kaydı ve Erişilebilirlik izinlerini verin; uygulamanın üstünde gizlenemeyen
+   "TEST SÜRÜMÜ" bandı görünür.
+3. Oturum bitince uygulama kendiliğinden kapanır.
+
+İzinleri kaldırmak: tccutil reset ScreenCapture net.noktabilisim.destek.stg
+                    tccutil reset Accessibility net.noktabilisim.destek.stg

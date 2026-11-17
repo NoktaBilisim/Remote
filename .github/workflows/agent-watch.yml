@@ -4,6 +4,9 @@
 # issue (etiket agent-watch) + kırmızı koşu (GitHub bildirim e-postası). Ayrıca günlük govulncheck (kod değişmeden yeni çıkan Go zafiyetleri).
 # Yapılandırma (repo değişkenleri, gizli değil): AGENT_WATCH_URL (ör. https://<host>:4450/downloads/NoktaDestek.exe),
 # AGENT_WATCH_CA_PEM (staging `tls internal` kök sertifikası; gerçek CA'lı ortamda boş). Runbook §11.5.
+# P28f K8b (mimari-p28f §8.2, AC-128): hash-mac işi macOS zip'i için aynısını yapar (AGENT_WATCH_MAC_URL, ör.
+# https://<host>/downloads/NoktaDestek-macOS.zip). Hiçbir Release'te macOS zip satırı yoksa (Apple hesabı yok, R39) zip
+# denetlenmez — staging TEST zip'i ya da 503 "unconfigured" alarm DEĞİLDİR. Runbook §28f.7.
 name: agent-watch
 on:
   schedule:
@@ -81,6 +84,74 @@ jobs:
           else gh issue create --repo "$REPO" --label agent-watch --title "$title" --body "$body"; fi
           echo "::error::$DETAIL"; exit 1
 
+  hash-mac:
+    name: macOS zip hash'i = Release (yayımlandıysa)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      issues: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      REPO: ${{ github.repository }}
+      WATCH_URL: ${{ vars.AGENT_WATCH_MAC_URL }}
+      WATCH_CA_PEM: ${{ vars.AGENT_WATCH_CA_PEM }}
+    steps:
+      - name: indir + karşılaştır
+        id: cmp
+        run: |
+          set -u
+          if [ -z "$WATCH_URL" ]; then
+            echo "::notice::AGENT_WATCH_MAC_URL tanımlı değil; macOS gözcüsü atlandı (runbook §28f.7)"; echo "result=skip" >> "$GITHUB_OUTPUT"; exit 0
+          fi
+          # Release'lerdeki macOS satırları (ad sürümlü: NoktaDestek-macOS-X.Y.Z.zip; sunulan ad sürümsüz).
+          : > mac-sums.txt
+          for tag in $(gh release list --repo "$REPO" --limit 100 --exclude-drafts --json tagName --jq '.[].tagName'); do
+            mkdir -p "sums/$tag"
+            gh release download "$tag" --repo "$REPO" -p SHA256SUMS -D "sums/$tag" --clobber 2>/dev/null || continue
+            grep -E '^[0-9a-f]{64}[[:space:]]+\*?NoktaDestek-macOS-[0-9]+\.[0-9]+\.[0-9]+\.zip$' "sums/$tag/SHA256SUMS" \
+              | sed "s/\$/ $tag/" >> mac-sums.txt || true
+          done
+          if [ ! -s mac-sums.txt ]; then
+            echo "::notice::Hiçbir Release'te macOS zip'i yok (R39: Apple hesabı tanımlı değil) — denetim yok"; echo "result=skip" >> "$GITHUB_OUTPUT"; exit 0
+          fi
+          ca=(); if [ -n "$WATCH_CA_PEM" ]; then printf '%s\n' "$WATCH_CA_PEM" > ca.pem; ca=(--cacert ca.pem); fi
+          code=$(curl -sS "${ca[@]}" --proto '=https' --max-time 120 --max-filesize 62914560 -o agent.zip -w '%{http_code}' "$WATCH_URL") || {
+            echo "::error::indirme ağı/TLS hatası"; exit 1; }
+          case "$code" in
+            503) echo "result=server503" >> "$GITHUB_OUTPUT"
+                 echo "detail=sunucu 503: macOS zip'i yok ya da SHA-256'sı MAC_AGENT_SHA256 ile uyuşmuyor (forward_auth /internal/agent-ready/macos)" >> "$GITHUB_OUTPUT"; exit 0 ;;
+            502|504) echo "result=unreachable" >> "$GITHUB_OUTPUT"
+                 echo "detail=sunucu erişilemez: HTTP $code" >> "$GITHUB_OUTPUT"; exit 0 ;;
+          esac
+          [ "$code" = 200 ] || { echo "::error::HTTP $code"; exit 1; }
+          got=$(sha256sum agent.zip | cut -d' ' -f1)
+          echo "indirilen sha256=$got"
+          match=$(awk -v h="$got" '$1 == h {print $3; exit}' mac-sums.txt)
+          if [ -z "$match" ]; then
+            echo "result=mismatch" >> "$GITHUB_OUTPUT"; echo "detail=macOS zip sha256 $got hiçbir Release SHA256SUMS'ında yok" >> "$GITHUB_OUTPUT"; exit 0
+          fi
+          echo "result=ok" >> "$GITHUB_OUTPUT"
+          echo "macOS zip eşleşen Release: $match" | tee -a "$GITHUB_STEP_SUMMARY"
+      - name: alarm (issue)
+        if: contains(fromJSON('["mismatch","server503","unreachable"]'), steps.cmp.outputs.result)
+        env:
+          RESULT: ${{ steps.cmp.outputs.result }}
+          DETAIL: ${{ steps.cmp.outputs.detail }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          if [ "$RESULT" = unreachable ]; then
+            title="ALARM: istemci indirme sunucusu erişilemez (agent-watch)"
+          else
+            title="ALARM: istemci indirme bütünlüğü (agent-watch)"
+          fi
+          body="agent-watch (macOS): $DETAIL. URL: $WATCH_URL. Koşu: $RUN_URL. Runbook §28f.7 ve §11.7."
+          gh label create agent-watch --repo "$REPO" --color B60205 --description "İstemci bütünlük alarmı (G-07)" --force
+          num=$(gh issue list --repo "$REPO" --label agent-watch --state open --json number --jq '.[0].number // empty')
+          if [ -n "$num" ]; then gh issue comment "$num" --repo "$REPO" --body "$body"
+          else gh issue create --repo "$REPO" --label agent-watch --title "$title" --body "$body"; fi
+          echo "::error::$DETAIL"; exit 1
+
   govulncheck:
     name: govulncheck (günlük)
     runs-on: ubuntu-24.04
@@ -98,3 +169,4 @@ jobs:
         with: { persist-credentials: false }
       - run: GOFLAGS='' go install golang.org/x/vuln/cmd/govulncheck@v1.7.0
       - run: GOOS=windows GOARCH=amd64 govulncheck ./...
+      - run: GOOS=darwin GOARCH=arm64 CGO_ENABLED=0 govulncheck ./...

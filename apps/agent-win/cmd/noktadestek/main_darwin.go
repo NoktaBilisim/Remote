@@ -3,19 +3,23 @@
 // Command noktadestek macOS Hızlı Destek istemcisidir (P28f, mimari-p28f §2, ADR-0037): gömülü yapılandırma ve kimlik →
 // sistem çerçeveleri (izin listeli mutlak yol) → AppKit arayüzü (internal/ui/mac) → kod akışı (internal/flow, Windows
 // ile aynı) → son ekran ve en geç 3 sn içinde çıkış (AC-107). Ana goroutine ana iş parçacığına kilitlidir ve
-// NSApplication döngüsünü çalıştırır; akış ayrı goroutine'dedir. Komut satırı argümanı okunmaz (T4; `--restart` K4'te
-// launch/code_darwin.go'da). Tepsi, gözetimsiz servis, kayıt ve talep macOS'ta yoktur (V52).
+// NSApplication döngüsünü çalıştırır; akış ayrı goroutine'dedir. Tek okunan argüman `--restart <belirteç>`tir (T4, §5.3;
+// start_darwin.go). Tepsi, gözetimsiz servis, kayıt ve talep macOS'ta yoktur (V52).
 package main
 
 import (
 	"context"
 	"os"
+	"os/signal"
 	"runtime"
+	"syscall"
 	"time"
 
 	"remote-support/agent-win/internal/api"
 	"remote-support/agent-win/internal/config"
+	"remote-support/agent-win/internal/control"
 	"remote-support/agent-win/internal/darwin/objc"
+	"remote-support/agent-win/internal/files"
 	"remote-support/agent-win/internal/flow"
 	"remote-support/agent-win/internal/ui/mac"
 )
@@ -51,16 +55,26 @@ func run() int {
 	if err != nil {
 		return exitIdentity
 	}
+	_ = files.CleanTraces() // AC-394: önceki (çökmüş) oturumdan kalan izler
+	watchSignals()
 	code := exitOK
 	objc.Pool(func() {
-		u, events, err := mac.New(cfg.DisplayHost(), cfg.Version, fp)
+		gate := &control.Gate{} // arayüz ("Kontrolü kapat", gösterge fail-closed) ve akış/girdi aynı kapıyı paylaşır
+		u, events, err := mac.New(mac.Options{Host: cfg.DisplayHost(), Version: cfg.Version, Fingerprint: fp,
+			TestBuild: cfg.TestBuild, Gate: gate})
 		if err != nil {
 			code = exitUI
 			return
 		}
-		d := flowDeps(cfg, fp, api.New(cfg.ServerURL, cfg.Version), u, events)
+		d := flowDeps(cfg, fp, api.New(cfg.ServerURL, cfg.Version), u, events, gate)
 		go func() {
-			out := flow.Run(context.Background(), d, "") // K4: kod klasör adından (launch/code_darwin.go)
+			ctx := context.Background()
+			initial, ok := startCode(ctx, u) // K4: yeniden başlatma dosyası / klasör adı + Ekran Kaydı rehberi
+			if !ok {
+				terminate(app)
+				return
+			}
+			out := flow.Run(ctx, d, initial)
 			u.Ended(out.Message)
 			time.Sleep(closeDelay)
 			terminate(app)
@@ -84,8 +98,20 @@ func startApp() (objc.ID, error) {
 	return objc.ID(c).Send(objc.Sel("sharedApplication")), nil
 }
 
+// watchSignals SIGTERM/SIGINT'te izler temizlenip süreç çıkar (CI iz testi uygulamayı SIGTERM ile kapatır; AC-394).
+func watchSignals() {
+	ch := make(chan os.Signal, 1)
+	signal.Notify(ch, syscall.SIGTERM, syscall.SIGINT)
+	go func() {
+		<-ch
+		_ = files.CleanTraces()
+		os.Exit(exitOK)
+	}()
+}
+
 // terminate NSApp'i ana kuyrukta sonlandırır (süreç çıkar). Kuyruk bağlanamazsa süreç doğrudan çıkar (AC-107).
 func terminate(app objc.ID) {
+	_ = files.CleanTraces() // AC-394: terminate:'ten hemen önce (Saved Application State, Metal önbelleği vb.)
 	q, err := objc.MainQueue()
 	if err == nil {
 		err = objc.Async(q, func() { app.Send(objc.Sel("terminate:"), objc.ID(0)) })

@@ -96,6 +96,10 @@ type Applier struct {
 	dropAt      time.Time
 	pendingDrop string
 	cur         time.Time // işlenen mesajın zamanı (handleLocked)
+	// P28f S-P28f-1 ikinci katman: korunan denetim/onay diyaloğu açıkken enjeksiyon durur (Pause/Resume sayacı).
+	paused int
+	// altGrText P28f: AltRight (AltGr) basılıyken karakter Unicode gider (SetAltGrText; yalnız macOS).
+	altGrText bool
 }
 
 // NewApplier kapıya bağlı alıcı; kapı kapanınca basılı kalan tuş/düğmeler bırakılır.
@@ -142,6 +146,10 @@ func (a *Applier) handleLocked(m Msg) (func(string), string) {
 	defer a.mu.Unlock()
 	if m.T == "k.release_all" {
 		a.releaseLocked()
+		return nil, ""
+	}
+	if a.paused > 0 {
+		a.gate.Drop()
 		return nil, ""
 	}
 	now := a.now()
@@ -198,6 +206,33 @@ func (a *Applier) takeLocked(now time.Time) bool {
 	}
 	a.tokens--
 	return true
+}
+
+// SetAltGrText P28f (macOS): AltGr ile üretilen karakterler kısayol değil metin olarak gönderilir (keys.go shortcutHeld).
+// Windows'ta kullanılmaz (müşteri düzeni AltGr'yi kendisi çözer).
+func (a *Applier) SetAltGrText(on bool) {
+	a.mu.Lock()
+	a.altGrText = on
+	a.mu.Unlock()
+}
+
+// Pause P28f (mimari-p28f §5.2a, S-P28f-1): korunan bir denetim ya da onay diyaloğu açıldı. Bu alıcının basılı tuttuğu
+// tuş/düğmeler HEMEN bırakılır (takılı ⌘/düğme diyaloğa taşınmasın) ve Resume'a kadar gelen her mesaj düşer
+// (k.release_all yine işlenir: yalnız bırakır, basma üretmez). İç içe çağrılabilir; her Pause bir Resume ile kapanır.
+func (a *Applier) Pause() {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.paused++
+	a.releaseLocked()
+}
+
+// Resume Pause'u kapatır; sayaç sıfıra inince enjeksiyon sürer (kapı kurallarıyla).
+func (a *Applier) Resume() {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if a.paused > 0 {
+		a.paused--
+	}
 }
 
 // ReleaseAll yalnız bu alıcının bastığı tuş/düğmeleri bırakır (odak kaybı, kapı kapanışı). Basma olayı üretmez.

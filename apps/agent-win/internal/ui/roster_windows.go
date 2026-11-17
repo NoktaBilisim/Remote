@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"remote-support/agent-win/internal/flow"
+	"remote-support/agent-win/internal/ui/uicore"
 	"remote-support/agent-win/internal/win"
 )
 
@@ -40,18 +41,6 @@ func (s *sessionWin) newRoster(f *form, y int32) {
 		win.ShowWindow(s.techs[i].lbl.h, win.SW_HIDE)
 		win.ShowWindow(s.techs[i].btn.h, win.SW_HIDE)
 	}
-}
-
-// rosterLine satır metni: "Ad — Rol · Oturum sahibi (bağlantı koptu)".
-func rosterLine(t flow.RosterTech) string {
-	line := t.Name + " — " + t.Role
-	if t.Owner {
-		line += " · " + flow.MultiTexts.OwnerBadge
-	}
-	if !t.Connected {
-		line += " (" + flow.MultiTexts.Disconnected + ")"
-	}
-	return line
 }
 
 // ShowRoster flow.RosterUI: listeyi çizer ve doğrular (≤ rosterWait; UI iş parçacığı yanıt vermezse false → yeni eş yok).
@@ -89,7 +78,7 @@ func (u *UI) drawRoster(v flow.RosterView) bool {
 			continue
 		}
 		t := v.Techs[i]
-		line := rosterLine(t)
+		line := uicore.RosterLine(t)
 		r.tid, r.name = t.TID, t.Name
 		win.SetText(r.lbl.h, line)
 		win.ShowWindow(r.lbl.h, win.SW_SHOWNOACTIVATE)

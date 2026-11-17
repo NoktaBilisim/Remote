@@ -16,6 +16,12 @@ var MacTexts = struct {
 
 	AccessTitle string // AC-391: kontrol isteğinde Erişilebilirlik izni yok (control.state OS_PERMISSION)
 	AccessBody  string
+	ControlLost string // S-P28f-10: olay musluğu sistemce kapatıldı / izin geri alındı → kapı kapandı (durum satırı)
+
+	PrintPagesUnknown string // r4 (ADR-0037 m.8a): yazdırma onayında sayfa sayısı istemcide hesaplanmaz
+	PrintDefault      string // yazıcı adı okunmaz (S-P28f-16)
+
+	IndicatorFail string // §5.2b: gösterge 3 sn görünür kılınamadı, kontrol kapısı kapandı (oturum penceresi durum satırı)
 
 	ClipConcealed string // S-P28f-12: panoda gizli/geçici içerik işareti var, okunmadı
 	RemovePerms   string // oturum sonu: kılavuzdaki "İzinleri kaldırma" bölümüne bağlantı (AC-394)
@@ -34,6 +40,13 @@ var MacTexts = struct {
 	AccessBody: "Teknisyen bilgisayarınızı kontrol etmek istiyor; bunun için Erişilebilirlik izni gerekir.\n" +
 		"Sistem Ayarları → Gizlilik ve Güvenlik → Erişilebilirlik bölümünde \"Nokta Destek\"i açın, sonra teknisyenden " +
 		"yeniden istemesini isteyin. Ekran paylaşımı, sohbet ve dosya bu sırada çalışmaya devam eder.",
+
+	ControlLost: "Uzaktan kontrol kapatıldı: macOS girdi iznini ya da izlemesini durdurdu.",
+
+	PrintPagesUnknown: "Sayfa sayısı: yazıcıda belirlenir",
+	PrintDefault:      "Varsayılan yazıcı",
+
+	IndicatorFail: "Oturum göstergesi ekranda gösterilemediği için uzaktan kontrol kapatıldı.",
 
 	ClipConcealed: "Pano gizli içerik taşıyor, gönderilmedi",
 	RemovePerms:   "İzinleri kaldırma",

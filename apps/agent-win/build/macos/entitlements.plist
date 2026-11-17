@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  ADR-0037 r3 m.6/m.7, S-P28f-4/5: entitlement listesi BOŞ (ses yok). Staging ad-hoc ve prod Developer ID imzası AYNI dosyayı
+  hardened runtime ile kullanır. package.sh check imzalı paketteki entitlement'ları bu dosyayla TAM eşleşmeyle denetler.
+  Ekleme (device.audio-input, cs.allow-unsigned-executable-memory) yalnız A-PF-1 kullanıcı kararı + ADR revizyonu + güvenlik onayıyla.
+-->
+<plist version="1.0">
+<dict/>
+</plist>

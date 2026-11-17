@@ -4,23 +4,13 @@ package ui
 
 import (
 	"fmt"
-	"strings"
 
 	"remote-support/agent-win/internal/files"
 	"remote-support/agent-win/internal/flow"
 	"remote-support/agent-win/internal/transfer"
+	"remote-support/agent-win/internal/ui/uicore"
 	"remote-support/agent-win/internal/win"
 )
-
-func humanSize(n int64) string {
-	switch {
-	case n >= 1<<20:
-		return strings.Replace(fmt.Sprintf("%.1f MB", float64(n)/(1<<20)), ".", ",", 1)
-	case n >= 1<<10:
-		return strings.Replace(fmt.Sprintf("%.1f KB", float64(n)/(1<<10)), ".", ",", 1)
-	}
-	return fmt.Sprintf("%d bayt", n)
-}
 
 // FileOffer AC-36 + G-03 (ortak izin diyaloğu, S7-5): "Reddet" varsayılan ve odakta; "Kabul et" 1,5 sn kilitli,
 // Enter/Space ile ve enjekte tıklamayla tetiklenmez (teknisyen kendi gönderdiği dosyayı kabul edemez); diyalog
@@ -35,7 +25,7 @@ func (u *UI) FileOffer(p transfer.Prompt) {
 		case files.WarnDangerous:
 			warns = append(warns, "Dikkat: Bu dosya türü bilgisayarınızda program çalıştırabilir. Yalnız beklediğiniz bir dosyaysa kabul edin.")
 		}
-		body := "Teknisyen size bir dosya göndermek istiyor:\r\n" + p.Name + "\r\nBoyut: " + humanSize(p.Size) +
+		body := "Teknisyen size bir dosya göndermek istiyor:\r\n" + p.Name + "\r\nBoyut: " + uicore.HumanSize(p.Size) +
 			"  ·  İndirilenler klasörüne kaydedilir"
 		fid := p.FID
 		decide := func(kind flow.EventKind) func() {

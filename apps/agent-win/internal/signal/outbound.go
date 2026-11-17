@@ -208,7 +208,8 @@ type MonitorDenied struct {
 }
 
 // guestViewSources misafirin gönderebileceği VIEW kaynakları (mimari-protokol §3; RECONNECT/TECH yalnız sunucu üretir).
-var guestViewSources = []string{"UI", "HOTKEY", "DENIED", "SYSTEM"}
+// OS_PERMISSION P28f (mimari-p28f §4.2; contracts GUEST_VIEW_SOURCES): macOS Erişilebilirlik izni yok.
+var guestViewSources = []string{"UI", "HOTKEY", "DENIED", "SYSTEM", "OS_PERMISSION"}
 
 func (m ControlState) validate() error {
 	if m.T != "control.state" {

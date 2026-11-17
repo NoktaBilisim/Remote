@@ -108,6 +108,9 @@ ADR-0011 (lisans), ADR-0031 (yazdırma), ADR-0035 (ana/düşük iz), ADR-0036 (s
    akar (diske yazılmaz). Kapanışta `~/Library/Saved Application State/net.noktabilisim.destek.savedState` varsa silinir (emniyet).
    Tek istisna TCC kayıtları (kılavuzda `tccutil reset ScreenCapture net.noktabilisim.destek` vb.).
 
+8a. **r4 — Yazdırma:** macOS'ta PDF istemcide ayrıştırılmaz; onay diyaloğunda sayfa sayısı "yazıcıda belirlenir", yazıcı "Varsayılan
+yazıcı" olarak gösterilir (AC-349 macOS'ta kısmi; alt süreç TCC yetkisini devraldığı için yalıtım sağlamaz) — mimari-p28f K5 r4 notu.
+
 9. **Kapsam dışı (macOS):** gözetimsiz servis (`internal/servis`, P27), tepsi/otomatik başlatma/çoklu firma kaydı (P20), "Bilgilerimi
    hatırla" (E9), firma dosyası ve destek talebi (E9/P19), pencere paylaşımı (AC-248), LG doğrudan indirme bağlantısı (V52).
 

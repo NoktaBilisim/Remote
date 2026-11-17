@@ -242,11 +242,11 @@ func (m *Manager) finish(a *active) *Result {
 	m.cur = nil
 	// S6-3: MOTW yeniden adlandırmadan önce `.part`'a yazılır; nihai ad hiçbir an işaretsiz görünmez.
 	motwFailed := m.d.MOTW(a.part) != nil
-	if motwFailed && files.NameWarning(a.name) != files.WarnNone {
+	if motwReject(a.name, motwFailed) {
 		_ = os.Remove(a.part)
 		m.sendResult(fid, false)
-		m.meta(a.offer, "REJECTED")
-		return &Result{Name: a.name, Status: "REJECTED", MOTWFailed: true}
+		m.meta(a.offer, motwFailStatus)
+		return &Result{Name: a.name, Status: motwFailStatus, MOTWFailed: true}
 	}
 	final, err := m.place(a.part, a.name)
 	if err != nil {
@@ -258,6 +258,12 @@ func (m *Manager) finish(a *active) *Result {
 	m.sendResult(fid, true)
 	m.meta(a.offer, "OK")
 	return &Result{Name: filepath.Base(final), Path: final, Status: "OK", MOTWFailed: motwFailed}
+}
+
+// motwReject MOTW/karantina yazılamadıysa dosya teslim edilmez mi: uyarılı adlar her platformda, macOS'ta her dosya
+// (motwRequired, T8). Durum motwFailStatus.
+func motwReject(name string, failed bool) bool {
+	return failed && (motwRequired || files.NameWarning(name) != files.WarnNone)
 }
 
 // errExists hedef ad dolu (renameNoReplace).

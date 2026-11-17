@@ -1,10 +1,10 @@
-//go:build !windows
+//go:build !windows && !darwin
 
 package printing
 
 import "context"
 
-// Yazdırma yalnız Windows istemcidedir (mimari-p28 §5.1); macOS/Linux P28f/g'de CUPS ile aynı arayüzü uygular.
+// Yazdırma Windows (mimari-p28 §5.1) ve macOS (printer_darwin.go, P28f) istemcisindedir; Linux P28g'de lp_unix.go ile.
 
 type noPrinter struct{}
 

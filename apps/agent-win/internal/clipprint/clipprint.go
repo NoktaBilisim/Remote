@@ -72,6 +72,14 @@ func (a *Printer) DefaultPrinter() (string, bool) {
 	return name, err == nil && name != ""
 }
 
+// PagesUnknown flow.PagesUnknownPrinter: alttaki yazıcı sayfa sayısını hesaplamıyor mu (macOS lp, mimari-p28f r4).
+func (a *Printer) PagesUnknown() bool {
+	u, ok := a.p.(interface{ PagesUnknown() bool })
+	return ok && u.PagesUnknown()
+}
+
+var _ flow.PagesUnknownPrinter = (*Printer)(nil)
+
 // Inspect sayfa sayısı (1..100000); bozuk/parola korumalı/çok büyük belge flow.ErrPrintInvalidPDF.
 func (a *Printer) Inspect(ctx context.Context, pdf []byte) (int, error) {
 	job, err := a.p.Inspect(ctx, pdf)

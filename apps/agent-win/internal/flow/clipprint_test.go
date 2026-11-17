@@ -44,7 +44,10 @@ type fakePrinter struct {
 	printE    error
 	seen      [][]byte // Inspect/Print'e verilen dilimler (sıfırlama denetimi)
 	cancelled int
+	unknown   bool // r4: PagesUnknownPrinter (macOS lp)
 }
+
+func (p *fakePrinter) PagesUnknown() bool { return p.unknown }
 
 func (p *fakePrinter) DefaultPrinter() (string, bool) { return p.name, p.name != "" }
 func (p *fakePrinter) Inspect(ctx context.Context, pdf []byte) (int, error) {
@@ -619,5 +622,56 @@ func TestDP28a3NoContentOrFileNameLeaks(t *testing.T) {
 				t.Errorf("%s %s içe aktarmamalı", f, banned)
 			}
 		}
+	}
+}
+
+// r4 (mimari-p28f K5 notu, AC-349 macOS kısmi): sayfa sayısı vermeyen yazıcıda (PagesUnknown) sayfa 0 kabul edilir, diyalog
+// PagesUnknown + boyutla açılır, rapor sayfa taşımaz; Windows yolunda (PagesUnknown false) sayfa 0 hâlâ INVALID_PDF.
+func TestAC349P28fPrintPagesUnknown(t *testing.T) {
+	pdf := []byte("%PDF-1.7 mac belgesi")
+	h := newCP(t)
+	h.printer.pages, h.printer.unknown, h.printer.name = 0, true, "Varsayılan yazıcı"
+	h.startPrint(pid1, pdf)
+	h.runAsync()
+	if len(h.ui.prompts) != 1 {
+		t.Fatal("onay diyaloğu açılmalı")
+	}
+	p := h.ui.prompts[0]
+	if !p.PagesUnknown || p.Pages != 0 || p.Size != int64(len(pdf)) || p.Printer != "Varsayılan yazıcı" {
+		t.Fatalf("diyalog %+v", p)
+	}
+	h.c.onUser(Event{Kind: EvPrintApprove, PID: pid1})
+	h.runAsync()
+	if r := h.lastPrint("APPROVED", "PRINTED"); r.Pages != nil {
+		t.Fatalf("rapor sayfa taşımamalı: %+v", r)
+	}
+	// lp hatası (varsayılan yazıcı yok) onaydan sonra NO_PRINTER.
+	h = newCP(t)
+	h.printer.pages, h.printer.unknown, h.printer.printE = 0, true, ErrNoPrinter
+	h.startPrint(pid1, pdf)
+	h.runAsync()
+	h.c.onUser(Event{Kind: EvPrintApprove, PID: pid1})
+	h.runAsync()
+	h.lastPrint("APPROVED", "NO_PRINTER")
+
+	for _, c := range []struct {
+		unknown bool
+		pages   int
+	}{{false, 0}, {true, -1}, {true, signal.PrintMaxPages + 1}} {
+		h = newCP(t)
+		h.printer.pages, h.printer.unknown = c.pages, c.unknown
+		h.startPrint(pid1, pdf)
+		h.runAsync()
+		h.lastPrint("NONE", "INVALID_PDF")
+		if len(h.ui.prompts) != 0 {
+			t.Fatalf("%+v: diyalog açılmamalı", c)
+		}
+	}
+	// Windows yolu: bilinen sayfa sayısı PagesUnknown=false ile gider.
+	h = newCP(t)
+	h.startPrint(pid1, pdf)
+	h.runAsync()
+	if p := h.ui.prompts[0]; p.PagesUnknown || p.Pages != 3 {
+		t.Fatalf("Windows diyaloğu %+v", p)
 	}
 }
