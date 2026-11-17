@@ -29,3 +29,17 @@ session_messages --from <ver> [--dry]` yalnız `migrate` servisinde migrator ba�
   AAD ile güncel anahtar sürümüne taşır ve `crypto.rewrap` audit'i yazar. Emeklilik ön koşulu `cli crypto:check-retire <ver>`
   = 0 (runbook §25.5). Talep mesajlarının AAD'si `session_messages.body:<tenant>|<request_id>|<id>` (P22 oturum satırında
   `session_id`).
+
+## Ek r-P22 (2026-11-17, `docs/mimari-p22.md`)
+
+Yeni ADR açılmadı (ADR-0040 kullanılmadı); karar çerçevesi değişmedi, aşağıdaki ayrıntılar eklendi:
+
+- **m.1 gerçekleme:** oturum sohbeti `/ws/tech` + `/ws/guest` üzerinden `chat.send` → koşullu INSERT (oturum ACTIVE) → commit → fan-out.
+  Yetenek belirteci `rs.cap.schat1`; tarayıcı misafir de açıkça bildirir. Çoklu teknisyende yayma Go misafirden sunucuya geçer (P28c §4.5 genişleme noktası).
+- **Şema:** yeni tablo/sütun/tetikleyici/grant yok; yalnız idempotency için UQ (`session_id`,`sender`,`client_msg_id`). Oturum satırında
+  `request_id` NULL (iki bağlı satır üretilmez). AAD üst bağı `session_id`.
+- **m.3 gerçekleme:** `anonymizeSessionBatch` TX'inde `anonymized_at` UPDATE'inden **sonra**, anonim oturumlara join'li DELETE.
+- **m.4 netleştirme:** eski istemci (≤ 0.20.x, Windows/macOS/Linux) ile sohbet kapalı; müşteri tarafındaki "güncelleyin" metni konsolun DC'den gönderdiği
+  **sabit** sistem bildirimidir (kullanıcı içeriği değil, saklanmaz). Müşterinin DC'den yazdığı hiçbir yerde gösterilmez.
+- **Audit:** mesaj başına audit yok (satır kendisi append-only kayıt); `session.chat_summary`, `session.chat_viewed`, `session.chat_rejected`.
+- **Sınır:** 1.000 kod noktası (DC'deki 2.000 UTF-16'dan iner), 5/sn/gönderen.
