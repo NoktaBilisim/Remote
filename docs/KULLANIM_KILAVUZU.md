@@ -3,7 +3,8 @@
 Bu kılavuz Nokta Bilişim uzaktan destek platformunun kullanıcıya dönük ekranlarını anlatır. Platform paketler hâlinde
 geliştirilir (bkz. `README.md` "Yol haritası"); kılavuz da her paketle birlikte büyür. Bu sürümde yer alan bölümler:
 
-- **Müşteri için:** Hızlı Destek uygulaması (Windows), yalnız bir pencereyi paylaşma (0.11), "Destek iste" ile talep gönderme,
+- **Müşteri için:** Hızlı Destek uygulaması (Windows) ve **Hızlı Destek uygulaması (macOS, 0.19)** (indirme ve açma, Ekran
+  Kaydı / Erişilebilirlik izinleri, "Yine de Aç" uyarısı, korunan düğmeler, yazdırma, izinleri kaldırma), yalnız bir pencereyi paylaşma (0.11), "Destek iste" ile talep gönderme,
   birden çok firmaya kayıt, tepside çalıştırma ve Windows açılışında başlatma, beklerken teknisyenle yazışma (0.12),
   program indirmeden tarayıcıdan talep gönderme (web talep formu, durum bildirimi, "sohbete şifre yazmayın"), bilgisayarın hatırlanması
   ("Bağlantı kodum var", "Bu bilgisayarı unut"), uzaktan kontrol izni, pano paylaşımı ve uzaktan yazdırma onayı (0.13), firma dosyaları sunucuda tarıyorsa (0.14), ekran görüntüsü alınamazsa ne yapılır,
@@ -360,7 +361,8 @@ Destek simgesi her zaman görünür.
 
 Düğme görünmüyorsa:
 
-- Bağlantıyı telefon, tablet, Mac veya Linux bilgisayarda açmış olabilirsiniz. Hızlı Destek yalnız Windows'ta çalışır.
+- Bağlantıyı telefon, tablet veya Linux bilgisayarda açmış olabilirsiniz. Hızlı Destek Windows'ta ve Mac'te çalışır
+  (Mac için bkz. "Müşteri için: Hızlı Destek uygulaması (macOS)").
 - Sayfada "Hızlı Destek şu anda indirilemiyor" yazıyorsa **Tarayıcıdan devam et** düğmesiyle devam edin. Bu yolda
   teknisyen ekranınızı yine görür.
 - "Çok fazla indirme denemesi yapıldı" yazıyorsa belirtilen süre kadar bekleyin.
@@ -1143,6 +1145,271 @@ ve destek talebi bu sırada çalışmaya devam eder.
 - **Silmek için:** ana ekranda **Bu bilgisayarı unut**'a tıklayın; ayar ve kilit dosyaları, tanılama dosyası, boş kalan
   klasör ve Windows açılışı kaydı silinir. Kayıt yokken **Bilgilerimi unut** da aynı şekilde her şeyi siler.
 
+## Müşteri için: Hızlı Destek uygulaması (macOS)
+
+Hızlı Destek'in Mac sürümü (0.19 ve sonrası), Windows sürümüyle aynı işi yapar: teknisyen ekranınızı görür, izin
+verirseniz farenizi ve klavyenizi kullanır, sizinle yazışır, size dosya gönderir. Kurulum gerektirmez, yönetici parolası
+sormaz. Oturum bitince uygulama kendiliğinden kapanır ve arkada çalışan bir parçası kalmaz.
+
+**Ne gerekir?**
+
+- macOS 13 (Ventura) veya daha yeni bir Mac. Apple işlemcili (M1, M2, M3, M4) ve Intel işlemcili Mac'lerde aynı dosya çalışır.
+- İnternet bağlantısı.
+- Teknisyeninizin gönderdiği **destek bağlantısı** ya da **8 haneli destek kodu**.
+- Telefonda teknisyeninizle görüşüyor olmanız (kodları birbirinize okuyacaksınız).
+
+**Ne zaman kullanılabilir?** Mac sürümü yalnız Apple'ın onayladığı (imzalı ve "notarize" edilmiş) paket olarak dağıtılır.
+Bu paket yayımlanana kadar destek sayfasında Mac için indirme düğmesi **görünmez**; sayfa sizi tarayıcıdan ekran
+paylaşımına yönlendirir. Bu durumda teknisyen ekranınızı görür ama farenizi kullanamaz.
+
+> **Nokta Destek hiçbir zaman "Yine de Aç" istemez.** macOS uygulamanın açılamayacağını, doğrulanamadığını ya da
+> zararlı olabileceğini söylerse uygulamayı **açmayın**. Sistem Ayarları'ndaki "Yine de Aç" düğmesine basmayın ve
+> teknisyeninize bildirin. Gerçek Nokta Destek uygulaması bu uyarıyı hiç göstermez.
+
+**Mac sürümünde olmayanlar** (Windows sürümünde var):
+
+- Yalnız bir pencereyi paylaşma (Mac'te her zaman bir ekranın tamamı paylaşılır).
+- Sesli görüşme (şimdilik yok; teknisyenle telefonda konuşun).
+- "Destek iste", firma kaydı, "Bilgilerimi hatırla", tepside çalışma ve açılışta başlatma. Mac'te yalnız teknisyenin
+  verdiği bağlantı ya da kodla bağlanılır.
+- Gözetimsiz erişim (başında kimse yokken bağlanma).
+
+### Mac'te nasıl indirir ve açarım?
+
+1. Teknisyeninizin gönderdiği destek bağlantısını Mac'inizde Safari, Chrome ya da Firefox ile açın.
+2. Sayfa Mac'inizi tanır. **Hızlı Destek uygulamasını indir** düğmesine tıklayın. Düğmenin altında "macOS 13 veya üstü ·
+   Apple Silicon ve Intel" yazar.
+3. Tarayıcı `Destek-` ile başlayan bir zip dosyası indirir (ör. `Destek-48291376.zip`). Dosya adındaki 8 rakam destek
+   kodunuzdur.
+4. Safari zip dosyasını kendiliğinden açar. Açmadıysa **Finder → İndirilenler** klasöründe zip dosyasına çift tıklayın.
+   Aynı adla bir klasör oluşur (ör. `Destek-48291376`). Aynı dosyayı ikinci kez indirdiyseniz klasörün adı
+   `Destek-48291376 (1)` olabilir; bu da çalışır.
+5. Klasörün içinde iki şey vardır: **Nokta Destek** uygulaması ve kısa bir `OKUBENI.txt`. **Nokta Destek**'e çift tıklayın.
+6. macOS "İnternetten indirilmiş bir uygulama. Açmak istediğinizden emin misiniz?" diye sorarsa **Aç**'a tıklayın. Bu
+   normal bir sorudur. Bunun dışındaki bir uyarıda (ör. "açılamıyor", "doğrulanamadı") uygulamayı açmayın.
+
+**Destek kodu nereden gelir?** Uygulama kodu, içinde bulunduğu klasörün adından (`Destek-48291376`) okur; sizden
+istemez. Klasörü yeniden adlandırdıysanız ya da uygulamayı başka bir yere taşıdıysanız kod okunamaz. O zaman uygulama
+8 haneli kodu sorar: teknisyeninizden alıp yazın ve **Devam**'a tıklayın.
+
+### Ekran Kaydı izni (ilk açılışta)
+
+macOS, bir uygulamanın ekranı görebilmesi için sizin **Ekran Kaydı** izninizi ister. İzin olmadan teknisyen ekranınızı
+göremez. Uygulama ilk açılışta bunu kontrol eder ve **Ekran Kaydı izni gerekli** penceresini gösterir.
+
+1. **Sistem Ayarları'nı aç** düğmesine tıklayın. Sistem Ayarları, **Gizlilik ve Güvenlik → Ekran Kaydı** bölümünde açılır
+   (yeni macOS sürümlerinde bölümün adı "Ekran ve Sistem Sesi Kaydı" olabilir).
+2. Listede **Nokta Destek**'in yanındaki anahtarı açın. macOS Mac parolanızı ya da Touch ID'nizi isteyebilir.
+3. macOS uygulamayı yeniden açmayı önerirse onun yerine Nokta Destek penceresindeki düğmeyi kullanın: kod yalnız bu yolla
+   korunur.
+4. Nokta Destek penceresine dönün ve **İzni verdim, yeniden başlat**'a tıklayın. Uygulama kapanıp yeniden açılır;
+   **destek kodunuz korunur**, yeniden yazmanız gerekmez.
+
+Vazgeçmek isterseniz **Vazgeç**'e tıklayın; ekranınız paylaşılmaz.
+
+Bilmeniz gerekenler:
+
+- İzin yalnız bu Mac'te ve yalnız Nokta Destek için geçerlidir. Oturum bittikten sonra da Sistem Ayarları'nda kalır;
+  istediğiniz an kaldırabilirsiniz (bkz. "Mac'te verdiğim izinleri nasıl kaldırırım?").
+- macOS 15 ve sonrası, ekran kaydı izni olan uygulamalar için zaman zaman "… ekranınıza erişmeye devam etsin mi?"
+  hatırlatması gösterebilir. Destek sürerken izne devam etmeyi seçin; izni kapatırsanız teknisyen ekranınızı göremez.
+
+### Karşılama, KVKK onayı ve teknisyen kabulü
+
+Bu adımlar Windows sürümüyle aynıdır:
+
+- **Karşılama penceresi:** teknisyenin adı, **teknisyen doğrulama kodu**, bağlanılan sunucu adresi ve firma logosu görünür.
+  Kontrolleri "Doğru programla mı bağlanıyorum?" bölümündeki gibi yapın. Sizi biz aramadıysak devam etmeyin.
+- **KVKK onayı:** aydınlatma metnini okuyun, adınızı yazın, onay kutusunu işaretleyip **Bağlan**'a tıklayın. Firma
+  oturum kaydı açtıysa kayıt için ayrı bir kutu çıkar; işaretlemezseniz kayıt alınmaz.
+- **Bekleme odası:** ekrandaki 4 haneli kabul kodunu telefonda teknisyene okuyun.
+- **Ekran seçimi:** birden fazla ekranınız varsa paylaşılacak ekranı seçersiniz.
+
+Uygulama menüsünde (**Nokta Destek**) **Hakkında** ve **Lisanslar** bulunur. **Hakkında** penceresinde sürüm, sunucu
+adresi ve **parmak izi** (uygulama dosyasının özetinin ilk 8 karakteri) yazar. Şirketinizin BT sorumlusu bunu GitHub
+sürüm sayfasındaki `SHA256SUMS` dosyasıyla karşılaştırabilir.
+
+### Oturum sırasında ne görürüm?
+
+- Her ekranınızın kenarında **kırmızı çerçeve** ve üstte **"Ekranınız izleniyor — <teknisyen adı>"** yazısı bulunur
+  (kontrol izni verdiyseniz **"Uzaktan kontrol aktif — <teknisyen adı>"**). Bu gösterge gizlenemez: uygulamayı gizleseniz (⌘H), küçültmeye çalışsanız ya da başka bir masaüstüne
+  geçseniz de görünür kalır. Yeni bir ekran takarsanız gösterge oraya da gelir.
+- Gösterge herhangi bir nedenle ekranda gösterilemezse uzaktan kontrol güvenlik için kendiliğinden kapanır ve oturum
+  penceresinde "Oturum göstergesi ekranda gösterilemediği için uzaktan kontrol kapatıldı." yazar.
+- **Nokta Destek — Oturum** penceresinde bağlantı durumu, sohbet, dosya aktarımları, bağlı teknisyenler ve **Erişime izin
+  ver**, **Kontrolü kapat**, **Oturumu bitir** düğmeleri bulunur. Bu pencere küçültülemez.
+- Pencereler Mac'inizin açık/koyu görünümüne kendiliğinden uyar.
+
+### Teknisyen Mac'imi kullanmak isterse (Erişilebilirlik izni)
+
+macOS, bir uygulamanın fareyi ve klavyeyi yönetebilmesi için **Erişilebilirlik** izni ister. Bu izin yalnız teknisyen
+kontrol istediğinde gerekir; yalnız ekran paylaşımı için gerekmez.
+
+**İzin yoksa:** teknisyen kontrol istediğinde **Kontrol için Erişilebilirlik izni gerekli** penceresi açılır.
+
+1. **Sistem Ayarları → Gizlilik ve Güvenlik → Erişilebilirlik** bölümünü açın.
+2. Listede **Nokta Destek**'in anahtarını açın (Mac parolanız ya da Touch ID istenebilir).
+3. Teknisyene "izni verdim" deyin; teknisyen kontrolü **yeniden** ister.
+
+Bu sırada ekran paylaşımı, sohbet ve dosya aktarımı çalışmaya devam eder. Teknisyen konsolunda "Müşteri erişilebilirlik
+izni vermedi. Müşteri izni verdikten sonra yeniden isteyin." yazar; bu bir ret sayılmaz, teknisyen hemen yeniden
+isteyebilir. Uygulamayı yeniden başlatmanız gerekmez. İzin verdiğiniz hâlde kontrol açılmıyorsa **Oturumu bitir** ile
+çıkıp uygulamayı yeniden açın ve teknisyenden yeni bağlantı isteyin.
+
+**İzin varsa:** ekranınızda **Uzaktan kontrol isteği** penceresi açılır. Kurallar Windows sürümüyle aynıdır, şu
+farklarla:
+
+- **İzin ver**'e yalnız **kendi farenizle ya da izleme dörtgeninizle (trackpad)** tıklayabilirsiniz. Klavyeyle izin
+  verilemez: Enter ve Boşluk tuşu isteği **reddeder**.
+- Düğme ilk **1,5 saniye** çalışmaz; pencere imlecinizin hemen altında açılmaz.
+- Teknisyenin uzaktan yaptığı tıklama sayılmaz; böyle bir tıklamada pencere açık kalır.
+
+**Kontrolü geri almak için** (istediğiniz an):
+
+- Oturum penceresinde **Kontrolü kapat**'a tıklayın, **veya**
+- Klavyede **Control+Shift+F12**'ye basın. Hangi uygulama önde olursa olsun çalışır. Bu kısayolu başka bir uygulama
+  kullanıyorsa yerine **Control+Shift+F11** atanır; geçerli olanı oturum penceresinde yazar.
+- **Dizüstü Mac'te** F tuşları genellikle parlaklık ve ses tuşu olarak çalışır. O zaman **fn** tuşunu da basılı tutun:
+  **fn+Control+Shift+F12**.
+- Kendi farenizi ya da klavyenizi kullandığınızda teknisyenin hareketi yaklaşık 1 saniye durur. Mac her zaman önce sizi
+  dinler.
+
+Kısayol hiç kaydedilemezse (iki kombinasyonu da başka uygulamalar kullanıyorsa) güvenliğiniz için kontrol izni verilemez;
+teknisyen yalnız ekranı görür.
+
+**Şunları bilin:**
+
+- Mac'iniz kilitliyken ya da başka bir kullanıcıya geçildiğinde teknisyen konsolunda "Müşteri güvenli masaüstünde" yazar.
+  Kilidi siz açarsınız.
+- Bir **parola alanına** tıkladığınızda macOS klavye girişini korumaya alır. Bu sırada teknisyen o alana yazamaz;
+  parolanızı siz yazın. Teknisyenlerimiz parolanızı hiçbir zaman sormaz.
+- Teknisyen kısayolu ile Mac'inizin ekranını kilitleyemez (Control+⌘+Q iletilmez).
+
+### Klavyesiz kullanım, VoiceOver ve Fare Tuşları
+
+Güvenliğiniz için bazı düğmeler **yalnız gerçek bir fare ya da izleme dörtgeni tıklamasıyla** çalışır. Böylece ne
+teknisyen ne de bilgisayardaki başka bir program bu düğmelere sizin yerinize basabilir. Korunan düğmeler:
+
+- Uzaktan kontrol ve ekran değiştirme isteğinde **İzin ver**, oturum penceresindeki **Erişime izin ver**
+- Dosya teklifinde **Kabul et**, yazdırma isteğinde **Yazdır**
+- **Pano paylaşımına izin ver** kutusu
+- Bağlı teknisyenler listesindeki **Çıkar** ve onayı
+- Oturum kaydı izin kutusu
+
+Bu düğmeler **VoiceOver**, **Fare Tuşları**, Sesle Denetim, Anahtar Denetimi ya da klavye ile **çalışmaz**. Bu bir hata
+değil, bilinçli bir güvenlik önlemidir. Bu araçlarla çalışıyorsanız bu onaylar için gerçek bir fare ya da izleme dörtgeni
+kullanın veya yanınızdaki birinden yardım isteyin.
+
+Güvenli yöne işleyen düğmeler klavyeyle de çalışır: **Kontrolü kapat**, **Oturumu bitir**, **Kaydı durdur**.
+
+**Klavye ile gezinme:** macOS'ta Tab tuşu düğmeler arasında yalnız **Sistem Ayarları → Klavye → Klavye ile gezinme**
+açıkken dolaşır. Kapalıysa Tab yalnız metin kutuları arasında geçer.
+
+**Fare Tuşları açıksa:** Fare Tuşları (Sistem Ayarları → Erişilebilirlik → İşaretçi Denetimi) açıkken teknisyen sayısal tuş
+takımını ve `7 8 9 U I O J K L M .` tuşlarını kullanamaz; bu tuşlar macOS'ta fareyi oynatır ve tıklar. Teknisyen ayrıca
+Nokta Destek pencerelerinin üzerinde bu tuşlara hiç basamaz. Bu harfleri yazmak gerekiyorsa siz yazın.
+
+### Pano paylaşımı (Mac)
+
+Windows sürümündeki gibi çalışır (bkz. "Teknisyenle pano paylaşımı"), şu farklarla:
+
+- **Pano paylaşımına izin ver** kutusunu yalnız **kendi farenizle** işaretleyebilirsiniz; Boşluk tuşu çalışmaz.
+- Teknisyenin panonuza koyduğu metin yalnız bu Mac'te kalır; iPhone'unuza ya da diğer Apple aygıtlarınıza (Evrensel Pano)
+  geçmez.
+- Parola yöneticinizin gizli ya da geçici olarak işaretlediği içerik okunmaz; ekranda "Pano gizli içerik taşıyor,
+  gönderilmedi" yazar.
+
+### Teknisyen belge yazdırmak isterse (Mac)
+
+Teknisyen bir PDF belgeyi Mac'inizin **varsayılan yazıcısından** bastırabilir. Her belge için onayınız istenir.
+
+1. **Uzaktan yazdırma** penceresinde teknisyenin adı, dosya adı, dosya boyutu, **"Sayfa sayısı: yazıcıda belirlenir"** ve
+   **"Yazıcı: Varsayılan yazıcı"** yazar. Mac sürümü belgeyi açıp sayfalarını saymaz ve yazıcınızın adını göstermez; bu
+   güvenlik gereğidir. Kaç sayfa olduğunu merak ediyorsanız teknisyene sorun.
+2. Beklemiyorsanız **Reddet**'e tıklayın (Enter ve Boşluk da reddeder). Bekliyorsanız **kendi farenizle** **Yazdır**'a
+   tıklayın (ilk 1,5 saniye çalışmaz).
+3. Belge varsayılan yazıcınıza tek kopya gider. Varsayılan yazıcı **Sistem Ayarları → Yazıcılar ve Tarayıcılar →
+   Varsayılan yazıcı** bölümünde seçilir.
+
+Diğer durumlar:
+
+- Mac'inizde varsayılan yazıcı yoksa pencere yine açılır; **Yazdır**'a bastıktan sonra belge gönderilemez ve teknisyen
+  "Müşterinin varsayılan yazıcısı yok" görür.
+- 60 saniye yanıt vermezseniz istek reddedilmiş sayılır. Uzaktan kontrolü kapatırsanız bekleyen yazdırma iptal olur.
+- Belge diskinize kaydedilmez. Ancak macOS yazdırma sistemi (CUPS) işi **"Nokta Destek"** adıyla kendi yazdırma geçmişinde
+  tutar (yazıcının kuyruk penceresinde ya da `lpstat -W completed` komutuyla görünür). Bu kaydı macOS tutar; uygulama
+  silemez.
+
+### Teknisyen dosya gönderirse (Mac)
+
+- Kabul ettiğiniz dosya **İndirilenler** klasörünüze kaydedilir. macOS ilk seferde "Nokta Destek, İndirilenler
+  klasörünüzdeki dosyalara erişmek istiyor" diye sorabilir; dosyayı almak için **İzin Ver**'i seçin.
+- Gelen her dosya "internetten indirildi" olarak işaretlenir. Bir uygulama ya da betik dosyasını açtığınızda macOS sizi
+  uyarır. Dosyayı beklemiyorsanız açmayın; teknisyene sorun.
+- Uygulama paketleri, kurulum dosyaları (`.pkg`, `.dmg`), betikler (`.command`, `.sh` vb.) ve adı nokta ile başlayan
+  gizli dosyalar ek uyarıyla gelir.
+
+### Oturumu kapatma (Mac)
+
+- **Oturumu bitir**'e tıklayın. Teknisyen ekranınızı artık göremez; uygulama birkaç saniye içinde kendiliğinden kapanır.
+- Teknisyen oturumu bitirdiğinde de "Destek oturumu sona erdi" yazar ve uygulama kapanır.
+- Bitiş ekranındaki **İzinleri kaldırma** düğmesi Sistem Ayarları'nın Ekran Kaydı bölümünü açar.
+- İsterseniz `Destek-…` klasörünü ve zip dosyasını İndirilenler'den çöp sepetine atabilirsiniz; bir sonraki destekte yeni
+  bağlantıyla yeniden indirilir.
+
+### Mac'imde ne kalır ve verdiğim izinleri nasıl kaldırırım?
+
+Uygulama kapanınca Mac'inizde şunlar **kalmaz**: ayar dosyası, tanılama dosyası, önbellek, pencere geri yükleme bilgisi,
+yeniden başlatma için kullanılan geçici kod dosyası. Mac sürümü tanılama dosyası hiç yazmaz.
+
+Kalanlar:
+
+- İndirdiğiniz `Destek-….zip` ve `Destek-…` klasörü (siz silersiniz).
+- Teknisyenden aldığınız dosyalar (İndirilenler'de).
+- Verdiğiniz **Ekran Kaydı** ve **Erişilebilirlik** izinleri (macOS tutar).
+- Yazdırma yaptıysanız macOS'un yazdırma geçmişindeki iş kaydı.
+
+**İzinleri kaldırmak için (önerilen yol):**
+
+1. **Sistem Ayarları → Gizlilik ve Güvenlik → Ekran Kaydı** (yeni sürümlerde "Ekran ve Sistem Sesi Kaydı") bölümünü açın.
+2. Listede **Nokta Destek**'i seçin ve alttaki **−** düğmesine basın (macOS sürümünüzde düğme yoksa anahtarı kapatın).
+3. Aynısını **Gizlilik ve Güvenlik → Erişilebilirlik** bölümünde yapın.
+
+**Terminal ile (BT sorumlusu için):**
+
+```bash
+tccutil reset ScreenCapture net.noktabilisim.destek
+tccutil reset Accessibility net.noktabilisim.destek
+```
+
+İzinleri kaldırdıktan sonra Nokta Destek'i yeniden kullanırsanız macOS izinleri yeniden sorar.
+
+> **Yalnız test ortamı için (gerçek müşterilere verilmez).** Test sunucusundan indirilen Mac paketi Apple onaylı
+> değildir; tüm pencerelerde ve ekranın üstünde gizlenemeyen **"TEST SÜRÜMÜ — imzasız"** bandı görünür ve destek
+> sayfasında da "TEST SÜRÜMÜ" uyarısı çıkar. macOS bu paketi ilk açılışta engeller:
+>
+> 1. Nokta Destek'e çift tıklayın; "açılamadı" uyarısında **Bitti**'yi seçin.
+> 2. **Sistem Ayarları → Gizlilik ve Güvenlik** bölümünün altında **Yine de Aç**'a tıklayın (macOS parola isteyebilir).
+>
+> Bu adım **yalnız** TEST bandı görünen paket içindir. Test paketinin kimliği farklıdır; izinlerini kaldırmak için:
+> `tccutil reset ScreenCapture net.noktabilisim.destek.stg` ve `tccutil reset Accessibility net.noktabilisim.destek.stg`.
+> Her yeni test sürümünde macOS izinleri yeniden sorar.
+
+### Sık karşılaşılan durumlar (Mac)
+
+| Durum                                                                      | Ne yapmalı                                                                                                                                           |
+| -------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Destek sayfasında Mac için indirme düğmesi yok                             | Mac sürümü bu sunucuda henüz yayımlanmamış. **Tarayıcıdan** ekranınızı paylaşın.                                                                     |
+| macOS "açılamıyor" / "doğrulanamadı" / "zararlı olabilir" diyor            | Uygulamayı açmayın, "Yine de Aç"a basmayın, teknisyeninize bildirin.                                                                                 |
+| Uygulama kodu soruyor                                                      | Klasör adı değişmiş ya da uygulama taşınmış. Teknisyeninizden 8 haneli kodu alıp yazın.                                                              |
+| "Ekran Kaydı izni gerekli" ekranı tekrar tekrar geliyor                    | Sistem Ayarları'nda Nokta Destek anahtarının açık olduğunu kontrol edip **İzni verdim, yeniden başlat**'a tıklayın.                                  |
+| "Kontrol için Erişilebilirlik izni gerekli"                                | Erişilebilirlik listesinde Nokta Destek'i açın; teknisyenden kontrolü yeniden istemesini isteyin.                                                    |
+| "Uzaktan kontrol kapatıldı: macOS girdi iznini ya da izlemesini durdurdu." | Erişilebilirlik izni kaldırılmış ya da macOS denetimi durdurmuş. İzni kontrol edin; teknisyen kontrolü yeniden ister.                                |
+| **İzin ver** / **Yazdır** / pano kutusu tepki vermiyor                     | 1,5 saniye bekleyin, sonra gerçek fare ya da izleme dörtgeniyle tıklayın. VoiceOver, Fare Tuşları ve klavye bu düğmelerde çalışmaz.                  |
+| Control+Shift+F12 çalışmıyor                                               | Dizüstünde **fn** ile birlikte basın. Oturum penceresinde F11 yazıyorsa Control+Shift+F11 kullanın. Her zaman **Kontrolü kapat** düğmesi de çalışır. |
+| Teknisyen bazı harfleri yazamıyor                                          | Fare Tuşları açık olabilir. Kapatın ya da o harfleri siz yazın.                                                                                      |
+| Teknisyen sesli görüşme başlatamıyor                                       | Mac sürümünde sesli görüşme yoktur; telefonda konuşun.                                                                                               |
+
 ---
 
 ## Teknisyen için: Oturumlar ve bekleme odası
@@ -1348,15 +1615,16 @@ Hızlı Destek 0.11 ve sonrasında müşteri tüm ekran yerine tek bir pencere p
 
 ### Kontrolün kendiliğinden kapandığı durumlar
 
-| Konsolda gördüğünüz                                    | Ne oldu                                                | Ne yapmalı                                                          |
-| ------------------------------------------------------ | ------------------------------------------------------ | ------------------------------------------------------------------- |
-| Kontrol müşteri tarafından kapatıldı                   | Müşteri "Kontrolü kapat"a tıkladı                      | Müşteriyle konuşun; gerekirse yeniden isteyin                       |
-| Kontrol müşteri tarafından kısayolla kapatıldı         | Müşteri Ctrl+Shift+F12 (veya F11) bastı                | Aynı                                                                |
-| Kontrol sistem tarafından kapatıldı (yetki veya kayıt) | Yetkiniz kaldırıldı veya izin kaydı yazılamadı         | Yetkiniz varsa yeniden deneyin; tekrarlıyorsa yöneticinize bildirin |
-| Uzaktan kontrol yetkiniz yok; kontrol istenemez        | Hesabınızda yetki yok veya oturum sırasında kaldırıldı | Yöneticinizden yetki isteyin; yeni oturumda geçerli olur            |
-| Müşteri bağlantısı koptu; kontrol kapandı              | Müşterinin interneti gitti                             | Yeniden bağlanınca yeniden isteyin                                  |
-| Bağlantı yenilendi; kontrol yeniden istenmeli          | Sizin bağlantınız koptu veya sekmeyi yenilediniz       | Yeniden isteyin                                                     |
-| Müşteri tarafında bağlantı kesildi; istek kapandı      | İstek beklerken müşterinin görüntü bağlantısı koptu    | Ret sayılmaz; hemen yeniden isteyebilirsiniz                        |
+| Konsolda gördüğünüz                                                                 | Ne oldu                                                                     | Ne yapmalı                                                                                                                                                          |
+| ----------------------------------------------------------------------------------- | --------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Kontrol müşteri tarafından kapatıldı                                                | Müşteri "Kontrolü kapat"a tıkladı                                           | Müşteriyle konuşun; gerekirse yeniden isteyin                                                                                                                       |
+| Kontrol müşteri tarafından kısayolla kapatıldı                                      | Müşteri Ctrl+Shift+F12 (veya F11) bastı                                     | Aynı                                                                                                                                                                |
+| Kontrol sistem tarafından kapatıldı (yetki veya kayıt)                              | Yetkiniz kaldırıldı veya izin kaydı yazılamadı                              | Yetkiniz varsa yeniden deneyin; tekrarlıyorsa yöneticinize bildirin                                                                                                 |
+| Uzaktan kontrol yetkiniz yok; kontrol istenemez                                     | Hesabınızda yetki yok veya oturum sırasında kaldırıldı                      | Yöneticinizden yetki isteyin; yeni oturumda geçerli olur                                                                                                            |
+| Müşteri bağlantısı koptu; kontrol kapandı                                           | Müşterinin interneti gitti                                                  | Yeniden bağlanınca yeniden isteyin                                                                                                                                  |
+| Bağlantı yenilendi; kontrol yeniden istenmeli                                       | Sizin bağlantınız koptu veya sekmeyi yenilediniz                            | Yeniden isteyin                                                                                                                                                     |
+| Müşteri tarafında bağlantı kesildi; istek kapandı                                   | İstek beklerken müşterinin görüntü bağlantısı koptu                         | Ret sayılmaz; hemen yeniden isteyebilirsiniz                                                                                                                        |
+| Müşteri erişilebilirlik izni vermedi. Müşteri izni verdikten sonra yeniden isteyin. | Mac müşterisinde macOS Erişilebilirlik izni yok; kontrol penceresi açılmadı | Müşteriden izni vermesini isteyin (Sistem Ayarları → Gizlilik ve Güvenlik → Erişilebilirlik → Nokta Destek). Ret sayılmaz, 30 sn bekleme yok, hemen yeniden isteyin |
 
 ### Uyarılar
 
@@ -1367,6 +1635,26 @@ Hızlı Destek 0.11 ve sonrasında müşteri tüm ekran yerine tek bir pencere p
 - **"Müşteri istemcisi yönetici olarak çalışıyor — yükseltilmiş pencereler ve UAC ekranı denetlenebilir"** Müşteri
   Hızlı Destek'i yönetici olarak açmış. Kontrol engellenmez; müşteri de ekranında bir uyarı görür. Gerekmiyorsa
   müşteriden programı normal açmasını isteyin.
+
+### Müşteri Mac kullanıyorsa (Hızlı Destek macOS)
+
+- **Tuş eşlemesi:** konsoldaki klavyeniz Windows düzenine göre Mac'e çevrilir: **Ctrl → ⌘ (Command)**, **Windows tuşu →
+  Control**, **Alt → Option**. Yani Mac'te kopyalamak için Ctrl+C'ye basarsınız (Mac'te ⌘C olur). AltGr ile yazılan
+  karakterler (`@ # { [ ] } \ |`) olduğu gibi gider. Ekran kilidi kısayolu (Control+⌘+Q) iletilmez. Teknisyen Mac
+  kullanıyorsa da eşleme aynıdır: ⌘ yerine Ctrl kullanın.
+- **Erişilebilirlik izni:** müşteri izni vermediyse kontrol isteğiniz "Müşteri erişilebilirlik izni vermedi…" ile
+  kapanır. Bu ret değildir; müşteri izni verince hemen yeniden isteyin.
+- **"Yükseltilmiş pencere — kontrol edilemiyor"** uyarısı Mac'te, müşterinin bir **parola alanında** olduğu anlamına
+  gelir (macOS klavye girişini korumaya alır). Parolayı müşteri yazar. Kilit ekranında "Müşteri güvenli masaüstünde"
+  görünür.
+- **Fare Tuşları:** müşterinin Mac'inde Fare Tuşları açıksa sayısal tuş takımı ve `7 8 9 U I O J K L M .` tuşları
+  iletilmez. Nokta Destek pencerelerinin üzerindeyken bu tuşlar her durumda iletilmez; bu pencerelere tıklamalarınız da
+  düşer (onay düğmelerine yalnız müşteri basabilir).
+- **Olmayanlar:** pencere paylaşımı (her zaman tam ekran), sesli görüşme (düğme pasif; bkz. "Sesli görüşme").
+- **Yazdırma:** müşterinin onay penceresinde sayfa sayısı ve yazıcı adı yazmaz ("Sayfa sayısı: yazıcıda belirlenir",
+  "Varsayılan yazıcı"). Müşterinin varsayılan yazıcısı yoksa bunu müşteri onayladıktan sonra görürsünüz.
+- Audit log'da katılım satırının ayrıntısında **İşletim sistemi (beyan)**: Windows / macOS / Tarayıcı yazar. Bu bilgi
+  müşteri programının kendi beyanıdır; yetki kararlarında kullanılmaz.
 
 ### Sohbette "Çok hızlı yazıyorsunuz" uyarısı
 
@@ -3313,6 +3601,8 @@ Teknisyen süren bir destek oturumunda müşteriyle sesli konuşabilir; telefonl
   girmez.
 - Müşteri tarafında **tarayıcı** ya da **Hızlı Destek 0.18 ve sonrası** gerekir. Eski sürümde düğme pasiftir: "Müşterinin
   uygulaması bu özelliği desteklemiyor — güncel sürümü indirmesini isteyin".
+- **Hızlı Destek macOS'ta sesli görüşme şimdilik yoktur.** Mac müşterisinde düğme aynı iletiyle pasiftir; güncel sürümü
+  indirmek bunu çözmez. Telefonla konuşun.
 - **Gözetimsiz oturumda sesli görüşme yoktur** (bilgisayar başında kimse yokken mikrofon açılmaz). Konsolda "Gözetimsiz
   oturumda sesli görüşme yapılamaz" yazar.
 - Yankı olmaması için iki tarafa da kulaklık önerilir.

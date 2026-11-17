@@ -1,4 +1,4 @@
-import { CircleHelp, FileCheck2, Mic, MousePointerClick, ScreenShare, type LucideIcon } from "lucide-react";
+import { CircleHelp, FileCheck2, MousePointerClick, ScreenShare, type LucideIcon } from "lucide-react";
 import { Alert } from "@/components/ui/alert";
 import { t, type MessageKey } from "@/lib/i18n";
 import { GuideStep } from "./guide-step";
@@ -6,7 +6,6 @@ import { GuideStep } from "./guide-step";
 const PERMS: readonly { Icon: LucideIcon; title: MessageKey; body: MessageKey; testId: string }[] = [
   { Icon: ScreenShare, title: "gm.permScreen", body: "gm.permScreenBody", testId: "mac-perm-screen" },
   { Icon: MousePointerClick, title: "gm.permAx", body: "gm.permAxBody", testId: "mac-perm-ax" },
-  { Icon: Mic, title: "gm.permMic", body: "gm.permMicBody", testId: "mac-perm-mic" },
 ];
 
 /**

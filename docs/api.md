@@ -150,97 +150,99 @@ stack, SQL veya iç ayrıntı içermez.
 
 ## Uçlar
 
-| Metot                       | Yol                                                                               | Yetki                                                                     | Başarı                |
-| --------------------------- | --------------------------------------------------------------------------------- | ------------------------------------------------------------------------- | --------------------- |
-| POST                        | `/api/v1/auth/login`                                                              | Public (Origin)                                                           | 200 + iki çerez       |
-| POST                        | `/api/v1/auth/logout`                                                             | Oturum + CSRF                                                             | 204, çerezler silinir |
-| GET                         | `/api/v1/auth/me`                                                                 | Oturum                                                                    | 200                   |
-| POST                        | `/api/v1/auth/password/change`                                                    | Oturum + CSRF                                                             | 204 + yeni çerezler   |
-| POST                        | `/api/v1/auth/mfa/setup` (P10)                                                    | Oturum + CSRF, aşama `setup` veya `ok`                                    | 200                   |
-| POST                        | `/api/v1/auth/mfa/enable` (P10)                                                   | Oturum + CSRF, aşama `setup` veya `ok`                                    | 200                   |
-| POST                        | `/api/v1/auth/mfa/verify` (P10)                                                   | Oturum (aşama `verify`) + CSRF                                            | 200 + yeni çerezler   |
-| POST                        | `/api/v1/auth/step-up` (P14a)                                                     | Oturum (aşama `ok`) + CSRF, TOTP kurulu                                   | 200                   |
-| POST                        | `/api/v1/auth/mfa/recovery-codes` (P15)                                           | Oturum + CSRF, TOTP kurulu                                                | 200                   |
-| POST                        | `/api/v1/auth/logout-all` (P10)                                                   | Oturum + CSRF                                                             | 200                   |
-| POST                        | `/api/v1/auth/password/forgot` (P10)                                              | Public (Origin)                                                           | 202                   |
-| POST                        | `/api/v1/auth/password/reset` (P10)                                               | Public (Origin)                                                           | 204                   |
-| POST                        | `/api/v1/settings/smtp/test` (P10)                                                | Oturum + CSRF, `settings.edit`, firma bağlamı                             | 200                   |
-| POST                        | `/api/v1/settings/support-requests/email/test` (P10)                              | Oturum + CSRF, `settings.edit`                                            | 200                   |
-| POST                        | `/api/v1/sessions/:id/email` (P10)                                                | Oturum + CSRF, `sessions.create`, oturumun teknisyeni                     | 200                   |
-| POST                        | `/api/v1/users/:id/reset-mfa` (P10)                                               | Oturum + CSRF, `users.edit`                                               | 204                   |
-| POST                        | `/api/v1/sessions`                                                                | Oturum + CSRF, `sessions.create`                                          | 201                   |
-| GET                         | `/api/v1/sessions`                                                                | Oturum, `sessions.view` **veya** `session_history.view`                   | 200                   |
-| GET                         | `/api/v1/sessions/waiting` (P13b-L)                                               | Oturum, `sessions.view`, firma bağlamı                                    | 200                   |
-| GET                         | `/api/v1/sessions/export.csv` (P8)                                                | Oturum, `session_history.export`                                          | 200 (CSV akışı)       |
-| GET                         | `/api/v1/sessions/:id`                                                            | Oturum, `sessions.view`                                                   | 200                   |
-| GET                         | `/api/v1/sessions/:id/history` (P8)                                               | Oturum, `session_history.view`                                            | 200                   |
-| PATCH                       | `/api/v1/sessions/:id` (P8)                                                       | Oturum + CSRF, `session_history.edit`                                     | 200                   |
-| POST                        | `/api/v1/sessions/:id/cancel`                                                     | Oturum + CSRF, `sessions.delete`                                          | 200                   |
-| POST                        | `/api/v1/sessions/:id/terminate`                                                  | Oturum + CSRF, `sessions.terminate`                                       | 200                   |
-| POST                        | `/api/v1/public/sessions/resolve`                                                 | Public (Origin veya AGENT)                                                | 200                   |
-| POST                        | `/api/v1/public/sessions/join`                                                    | Public (Origin veya AGENT)                                                | 200                   |
-| GET                         | `/api/v1/public/sessions/status`                                                  | Public                                                                    | 200                   |
-| GET                         | `/api/v1/public/agent/download` (P6)                                              | Public                                                                    | 302                   |
-| GET                         | `/downloads/NoktaDestek.exe`, `/downloads/Destek-<8 hane>.exe` (P6, Caddy statik) | Public, server bütünlük kapısı                                            | 200                   |
-| GET                         | `/health`, `/ready`                                                               | Yalnız iç ağ                                                              | 200                   |
-| GET                         | `/metrics`                                                                        | Yalnız iç ağ + `METRICS_TOKEN` (Bearer)                                   | 200                   |
-| GET                         | `/internal/agent-ready` (P6)                                                      | Yalnız Caddy `forward_auth`; dışarıya kapalı                              | 204                   |
-| WS                          | `/ws/tech?sessionId=<id>`                                                         | Oturum çerezi + Origin, oturumun teknisyeni                               | 101                   |
-| WS                          | `/ws/guest`                                                                       | Subprotocol'de `wsTicket` veya `reconnectToken`                           | 101                   |
-| GET                         | `/api/v1/public/requests/tenant?ref=` (P8b)                                       | Public                                                                    | 200                   |
-| POST                        | `/api/v1/public/requests` (P8b)                                                   | Public (yalnız AGENT: Origin ve `Sec-Fetch-*` yok)                        | 201                   |
-| POST                        | `/api/v1/public/requests/cancel` (P8b)                                            | Public (yalnız AGENT)                                                     | 204                   |
-| GET                         | `/api/v1/public/agent/request-download?ref=` (P8b)                                | Public                                                                    | 302                   |
-| GET                         | `/downloads/NoktaDestek-<firma>-<ref>.exe` (P8b, Caddy statik)                    | Public, server ref + bütünlük kapısı                                      | 200                   |
-| GET                         | `/api/v1/support-requests` (P8b)                                                  | Oturum, `support_requests.view`                                           | 200                   |
-| GET                         | `/api/v1/support-requests/count` (P8b)                                            | Oturum, `support_requests.view`                                           | 200                   |
-| GET                         | `/api/v1/support-requests/:id` (P8b)                                              | Oturum, `support_requests.view`                                           | 200                   |
-| POST                        | `/api/v1/support-requests/:id/accept` (P8b)                                       | Oturum + CSRF, `support_requests.view` + `accept`                         | 200                   |
-| POST                        | `/api/v1/support-requests/:id/reject` (P8b)                                       | Oturum + CSRF, `support_requests.view` + `accept`                         | 204                   |
-| GET                         | `/api/v1/settings/support-requests` (P8b)                                         | Oturum, `settings.edit`                                                   | 200                   |
-| PUT                         | `/api/v1/settings/support-requests` (P8b)                                         | Oturum + CSRF, `settings.edit`                                            | 200                   |
-| POST                        | `/api/v1/settings/support-requests/rotate-ref` (P8b)                              | Oturum + CSRF, `settings.edit`                                            | 200                   |
-| POST                        | `/api/v1/settings/support-requests/whatsapp/test` (P8b)                           | Oturum + CSRF, `settings.edit`                                            | 200                   |
-| WS                          | `/ws/request` (P8b)                                                               | Subprotocol `rs.v1, rs.req.<requestSecret>`; Origin yok                   | 101                   |
-| WS                          | `/ws/panel` (P8b)                                                                 | Oturum çerezi + Origin, `support_requests.view`, tenant bağlamı           | 101                   |
-| GET                         | `/api/v1/users` (P9)                                                              | Oturum, `users.view`, firma bağlamı                                       | 200                   |
-| POST                        | `/api/v1/users` (P9)                                                              | Oturum + CSRF, `users.create`, firma bağlamı                              | 201                   |
-| GET                         | `/api/v1/users/options?tenantId=` (P14b)                                          | Oturum, `session_history.view` \| `support_requests.view` \| `users.view` | 200                   |
-| GET                         | `/api/v1/users/:id` (P9; P14a `ETag`)                                             | Oturum, `users.view`                                                      | 200 + `ETag`          |
-| PATCH                       | `/api/v1/users/:id` (P9; P14a `If-Match` zorunlu)                                 | Oturum + CSRF, `users.edit`                                               | 200 + `ETag`          |
-| POST                        | `/api/v1/users/:id/deactivate` · `/reactivate` (P9)                               | Oturum + CSRF, `users.edit`                                               | 204                   |
-| DELETE                      | `/api/v1/users/:id` (P16)                                                         | Oturum + CSRF, `users.delete`, step-up, `If-Match`                        | 204                   |
-| GET                         | `/api/v1/settings/tenant` (P9)                                                    | Oturum, `settings.view`, firma bağlamı                                    | 200                   |
-| PUT                         | `/api/v1/settings/tenant` (P9)                                                    | Oturum + CSRF, `settings.edit`, firma bağlamı                             | 200                   |
-| GET · POST                  | `/api/v1/admin/tenants` (P9)                                                      | Oturum (+ CSRF), yalnız SUPER_ADMIN                                       | 200 · 201             |
-| GET                         | `/api/v1/admin/tenants/options` (P14b)                                            | Oturum, yalnız SUPER_ADMIN                                                | 200                   |
-| GET · PATCH                 | `/api/v1/admin/tenants/:id` (P9)                                                  | Oturum (+ CSRF), yalnız SUPER_ADMIN                                       | 200                   |
-| POST                        | `/api/v1/admin/tenants/:id/deactivate` · `/reactivate` (P9)                       | Oturum + CSRF, yalnız SUPER_ADMIN                                         | 200                   |
-| POST · DELETE · GET         | `/api/v1/admin/tenants/:id/purge` (P16)                                           | Oturum (+ CSRF), yalnız SUPER_ADMIN; step-up `dryRun:false` ve DELETE     | 200 · 202 · 200       |
-| GET                         | `/api/v1/admin/purge-jobs?open=1` (P16)                                           | Oturum, yalnız SUPER_ADMIN                                                | 200                   |
-| POST                        | `/api/v1/admin/switch-tenant` (P9)                                                | Oturum + CSRF, yalnız SUPER_ADMIN                                         | 200                   |
-| GET                         | `/api/v1/audit` · `/api/v1/audit/export.csv` (P11)                                | Oturum, `audit.view` · `audit.export`                                     | 200                   |
-| POST · PUT · PATCH · DELETE | `/api/v1/audit`, `/audit/export.csv`, `/audit/:id` (P11)                          | —                                                                         | 405                   |
-| GET · PUT                   | `/api/v1/admin/settings/mysql` (P11; P14a PUT step-up)                            | Oturum (+ CSRF), yalnız SUPER_ADMIN                                       | 200                   |
-| POST                        | `/api/v1/admin/settings/mysql/test` (P11)                                         | Oturum + CSRF, yalnız SUPER_ADMIN                                         | 200                   |
-| GET · PUT · DELETE          | `/api/v1/admin/settings/turn` (P11; P14a PUT/DELETE step-up)                      | Oturum (+ CSRF), yalnız SUPER_ADMIN                                       | 200                   |
-| GET · PUT · DELETE          | `/api/v1/admin/settings/whatsapp` (P12b; P14a PUT/DELETE step-up)                 | Oturum (+ CSRF), yalnız SUPER_ADMIN                                       | 200                   |
-| POST                        | `/api/v1/admin/settings/whatsapp/test` (P12b)                                     | Oturum + CSRF, yalnız SUPER_ADMIN                                         | 200                   |
-| GET · PUT                   | `/api/v1/settings/consent-text` (P11)                                             | Oturum (+ CSRF), `settings.view` · `settings.edit`, firma bağlamı         | 200                   |
-| PATCH                       | `/api/v1/auth/me/preferences` (P12)                                               | Oturum + CSRF (şifre değişimi / 2FA kurulumu aşamasında da)               | 200 + `rs_theme`      |
-| POST · DELETE               | `/api/v1/settings/logo` (P12)                                                     | Oturum + CSRF, `settings.edit`, firma bağlamı                             | 200                   |
-| POST · DELETE               | `/api/v1/users/:id/avatar` (P12; `:id` = `me` olabilir)                           | Oturum + CSRF; kendi hesabı serbest, başkası `users.edit`                 | 200                   |
-| POST · DELETE               | `/api/v1/admin/settings/system-logo` (P12; P15 DELETE)                            | Oturum + CSRF, yalnız SUPER_ADMIN                                         | 200                   |
-| GET                         | `/api/v1/admin/superadmins` (P15)                                                 | Oturum, yalnız SUPER_ADMIN                                                | 200                   |
-| POST                        | `/api/v1/admin/superadmins/:id/reset-password` (P15)                              | Oturum + CSRF, yalnız SUPER_ADMIN, step-up                                | 200                   |
-| GET · POST · DELETE         | `/api/v1/request-blocks` · `/api/v1/request-blocks/:id` (P15)                     | Oturum (+ CSRF), `support_requests.block`, firma bağlamı                  | 200 · 201 · 204       |
-| GET                         | `/api/v1/public/sessions/:sessionId/tech-avatar?exp=&sig=` (P15)                  | Public, imzalı URL (≤ 10 dk)                                              | 200 (WEBP)            |
-| GET                         | `/api/v1/files/logo/:tenantId/:file`, `/api/v1/files/system-logo/:file` (P12)     | Public                                                                    | 200 (PNG)             |
-| GET                         | `/api/v1/files/avatar/:tenantId/:file` (P12)                                      | Oturum (aynı firma veya Super Admin)                                      | 200 (WEBP)            |
-| GET                         | `/api/v1/public/branding?tenant=<slug>` (P12)                                     | Public                                                                    | 200                   |
-| POST                        | `/api/v1/customer-send/options` (LG)                                              | Oturum + CSRF, hedefe göre (aşağıda), firma bağlamı                       | 200                   |
-| POST                        | `/api/v1/customer-send` (LG)                                                      | Oturum + CSRF, hedefe ve kanala göre (aşağıda), firma bağlamı             | 200                   |
-| GET                         | `/api/v1/public/unattended/download?t=` (LG)                                      | Public, oturumsuz; süreli belirteç                                        | 200 (exe)             |
+| Metot                       | Yol                                                                                | Yetki                                                                     | Başarı                |
+| --------------------------- | ---------------------------------------------------------------------------------- | ------------------------------------------------------------------------- | --------------------- |
+| POST                        | `/api/v1/auth/login`                                                               | Public (Origin)                                                           | 200 + iki çerez       |
+| POST                        | `/api/v1/auth/logout`                                                              | Oturum + CSRF                                                             | 204, çerezler silinir |
+| GET                         | `/api/v1/auth/me`                                                                  | Oturum                                                                    | 200                   |
+| POST                        | `/api/v1/auth/password/change`                                                     | Oturum + CSRF                                                             | 204 + yeni çerezler   |
+| POST                        | `/api/v1/auth/mfa/setup` (P10)                                                     | Oturum + CSRF, aşama `setup` veya `ok`                                    | 200                   |
+| POST                        | `/api/v1/auth/mfa/enable` (P10)                                                    | Oturum + CSRF, aşama `setup` veya `ok`                                    | 200                   |
+| POST                        | `/api/v1/auth/mfa/verify` (P10)                                                    | Oturum (aşama `verify`) + CSRF                                            | 200 + yeni çerezler   |
+| POST                        | `/api/v1/auth/step-up` (P14a)                                                      | Oturum (aşama `ok`) + CSRF, TOTP kurulu                                   | 200                   |
+| POST                        | `/api/v1/auth/mfa/recovery-codes` (P15)                                            | Oturum + CSRF, TOTP kurulu                                                | 200                   |
+| POST                        | `/api/v1/auth/logout-all` (P10)                                                    | Oturum + CSRF                                                             | 200                   |
+| POST                        | `/api/v1/auth/password/forgot` (P10)                                               | Public (Origin)                                                           | 202                   |
+| POST                        | `/api/v1/auth/password/reset` (P10)                                                | Public (Origin)                                                           | 204                   |
+| POST                        | `/api/v1/settings/smtp/test` (P10)                                                 | Oturum + CSRF, `settings.edit`, firma bağlamı                             | 200                   |
+| POST                        | `/api/v1/settings/support-requests/email/test` (P10)                               | Oturum + CSRF, `settings.edit`                                            | 200                   |
+| POST                        | `/api/v1/sessions/:id/email` (P10)                                                 | Oturum + CSRF, `sessions.create`, oturumun teknisyeni                     | 200                   |
+| POST                        | `/api/v1/users/:id/reset-mfa` (P10)                                                | Oturum + CSRF, `users.edit`                                               | 204                   |
+| POST                        | `/api/v1/sessions`                                                                 | Oturum + CSRF, `sessions.create`                                          | 201                   |
+| GET                         | `/api/v1/sessions`                                                                 | Oturum, `sessions.view` **veya** `session_history.view`                   | 200                   |
+| GET                         | `/api/v1/sessions/waiting` (P13b-L)                                                | Oturum, `sessions.view`, firma bağlamı                                    | 200                   |
+| GET                         | `/api/v1/sessions/export.csv` (P8)                                                 | Oturum, `session_history.export`                                          | 200 (CSV akışı)       |
+| GET                         | `/api/v1/sessions/:id`                                                             | Oturum, `sessions.view`                                                   | 200                   |
+| GET                         | `/api/v1/sessions/:id/history` (P8)                                                | Oturum, `session_history.view`                                            | 200                   |
+| PATCH                       | `/api/v1/sessions/:id` (P8)                                                        | Oturum + CSRF, `session_history.edit`                                     | 200                   |
+| POST                        | `/api/v1/sessions/:id/cancel`                                                      | Oturum + CSRF, `sessions.delete`                                          | 200                   |
+| POST                        | `/api/v1/sessions/:id/terminate`                                                   | Oturum + CSRF, `sessions.terminate`                                       | 200                   |
+| POST                        | `/api/v1/public/sessions/resolve`                                                  | Public (Origin veya AGENT)                                                | 200                   |
+| POST                        | `/api/v1/public/sessions/join`                                                     | Public (Origin veya AGENT)                                                | 200                   |
+| GET                         | `/api/v1/public/sessions/status`                                                   | Public                                                                    | 200                   |
+| GET                         | `/api/v1/public/agent/download` (P6; `?os=windows\|macos` P28f)                    | Public                                                                    | 302                   |
+| GET                         | `/api/v1/public/agent/availability` (P28f)                                         | Public                                                                    | 200                   |
+| GET                         | `/downloads/NoktaDestek.exe`, `/downloads/Destek-<8 hane>.exe` (P6, Caddy statik)  | Public, server bütünlük kapısı                                            | 200                   |
+| GET                         | `/downloads/NoktaDestek-macOS.zip`, `/downloads/Destek-<8 hane>.zip` (P28f, Caddy) | Public, server macOS bütünlük kapısı                                      | 200                   |
+| GET                         | `/health`, `/ready`                                                                | Yalnız iç ağ                                                              | 200                   |
+| GET                         | `/metrics`                                                                         | Yalnız iç ağ + `METRICS_TOKEN` (Bearer)                                   | 200                   |
+| GET                         | `/internal/agent-ready`, `/internal/agent-ready/{windows,macos}` (P6, P28f)        | Yalnız Caddy `forward_auth`; dışarıya kapalı                              | 204                   |
+| WS                          | `/ws/tech?sessionId=<id>`                                                          | Oturum çerezi + Origin, oturumun teknisyeni                               | 101                   |
+| WS                          | `/ws/guest`                                                                        | Subprotocol'de `wsTicket` veya `reconnectToken`                           | 101                   |
+| GET                         | `/api/v1/public/requests/tenant?ref=` (P8b)                                        | Public                                                                    | 200                   |
+| POST                        | `/api/v1/public/requests` (P8b)                                                    | Public (yalnız AGENT: Origin ve `Sec-Fetch-*` yok)                        | 201                   |
+| POST                        | `/api/v1/public/requests/cancel` (P8b)                                             | Public (yalnız AGENT)                                                     | 204                   |
+| GET                         | `/api/v1/public/agent/request-download?ref=` (P8b)                                 | Public                                                                    | 302                   |
+| GET                         | `/downloads/NoktaDestek-<firma>-<ref>.exe` (P8b, Caddy statik)                     | Public, server ref + bütünlük kapısı                                      | 200                   |
+| GET                         | `/api/v1/support-requests` (P8b)                                                   | Oturum, `support_requests.view`                                           | 200                   |
+| GET                         | `/api/v1/support-requests/count` (P8b)                                             | Oturum, `support_requests.view`                                           | 200                   |
+| GET                         | `/api/v1/support-requests/:id` (P8b)                                               | Oturum, `support_requests.view`                                           | 200                   |
+| POST                        | `/api/v1/support-requests/:id/accept` (P8b)                                        | Oturum + CSRF, `support_requests.view` + `accept`                         | 200                   |
+| POST                        | `/api/v1/support-requests/:id/reject` (P8b)                                        | Oturum + CSRF, `support_requests.view` + `accept`                         | 204                   |
+| GET                         | `/api/v1/settings/support-requests` (P8b)                                          | Oturum, `settings.edit`                                                   | 200                   |
+| PUT                         | `/api/v1/settings/support-requests` (P8b)                                          | Oturum + CSRF, `settings.edit`                                            | 200                   |
+| POST                        | `/api/v1/settings/support-requests/rotate-ref` (P8b)                               | Oturum + CSRF, `settings.edit`                                            | 200                   |
+| POST                        | `/api/v1/settings/support-requests/whatsapp/test` (P8b)                            | Oturum + CSRF, `settings.edit`                                            | 200                   |
+| WS                          | `/ws/request` (P8b)                                                                | Subprotocol `rs.v1, rs.req.<requestSecret>`; Origin yok                   | 101                   |
+| WS                          | `/ws/panel` (P8b)                                                                  | Oturum çerezi + Origin, `support_requests.view`, tenant bağlamı           | 101                   |
+| GET                         | `/api/v1/users` (P9)                                                               | Oturum, `users.view`, firma bağlamı                                       | 200                   |
+| POST                        | `/api/v1/users` (P9)                                                               | Oturum + CSRF, `users.create`, firma bağlamı                              | 201                   |
+| GET                         | `/api/v1/users/options?tenantId=` (P14b)                                           | Oturum, `session_history.view` \| `support_requests.view` \| `users.view` | 200                   |
+| GET                         | `/api/v1/users/:id` (P9; P14a `ETag`)                                              | Oturum, `users.view`                                                      | 200 + `ETag`          |
+| PATCH                       | `/api/v1/users/:id` (P9; P14a `If-Match` zorunlu)                                  | Oturum + CSRF, `users.edit`                                               | 200 + `ETag`          |
+| POST                        | `/api/v1/users/:id/deactivate` · `/reactivate` (P9)                                | Oturum + CSRF, `users.edit`                                               | 204                   |
+| DELETE                      | `/api/v1/users/:id` (P16)                                                          | Oturum + CSRF, `users.delete`, step-up, `If-Match`                        | 204                   |
+| GET                         | `/api/v1/settings/tenant` (P9)                                                     | Oturum, `settings.view`, firma bağlamı                                    | 200                   |
+| PUT                         | `/api/v1/settings/tenant` (P9)                                                     | Oturum + CSRF, `settings.edit`, firma bağlamı                             | 200                   |
+| GET · POST                  | `/api/v1/admin/tenants` (P9)                                                       | Oturum (+ CSRF), yalnız SUPER_ADMIN                                       | 200 · 201             |
+| GET                         | `/api/v1/admin/tenants/options` (P14b)                                             | Oturum, yalnız SUPER_ADMIN                                                | 200                   |
+| GET · PATCH                 | `/api/v1/admin/tenants/:id` (P9)                                                   | Oturum (+ CSRF), yalnız SUPER_ADMIN                                       | 200                   |
+| POST                        | `/api/v1/admin/tenants/:id/deactivate` · `/reactivate` (P9)                        | Oturum + CSRF, yalnız SUPER_ADMIN                                         | 200                   |
+| POST · DELETE · GET         | `/api/v1/admin/tenants/:id/purge` (P16)                                            | Oturum (+ CSRF), yalnız SUPER_ADMIN; step-up `dryRun:false` ve DELETE     | 200 · 202 · 200       |
+| GET                         | `/api/v1/admin/purge-jobs?open=1` (P16)                                            | Oturum, yalnız SUPER_ADMIN                                                | 200                   |
+| POST                        | `/api/v1/admin/switch-tenant` (P9)                                                 | Oturum + CSRF, yalnız SUPER_ADMIN                                         | 200                   |
+| GET                         | `/api/v1/audit` · `/api/v1/audit/export.csv` (P11)                                 | Oturum, `audit.view` · `audit.export`                                     | 200                   |
+| POST · PUT · PATCH · DELETE | `/api/v1/audit`, `/audit/export.csv`, `/audit/:id` (P11)                           | —                                                                         | 405                   |
+| GET · PUT                   | `/api/v1/admin/settings/mysql` (P11; P14a PUT step-up)                             | Oturum (+ CSRF), yalnız SUPER_ADMIN                                       | 200                   |
+| POST                        | `/api/v1/admin/settings/mysql/test` (P11)                                          | Oturum + CSRF, yalnız SUPER_ADMIN                                         | 200                   |
+| GET · PUT · DELETE          | `/api/v1/admin/settings/turn` (P11; P14a PUT/DELETE step-up)                       | Oturum (+ CSRF), yalnız SUPER_ADMIN                                       | 200                   |
+| GET · PUT · DELETE          | `/api/v1/admin/settings/whatsapp` (P12b; P14a PUT/DELETE step-up)                  | Oturum (+ CSRF), yalnız SUPER_ADMIN                                       | 200                   |
+| POST                        | `/api/v1/admin/settings/whatsapp/test` (P12b)                                      | Oturum + CSRF, yalnız SUPER_ADMIN                                         | 200                   |
+| GET · PUT                   | `/api/v1/settings/consent-text` (P11)                                              | Oturum (+ CSRF), `settings.view` · `settings.edit`, firma bağlamı         | 200                   |
+| PATCH                       | `/api/v1/auth/me/preferences` (P12)                                                | Oturum + CSRF (şifre değişimi / 2FA kurulumu aşamasında da)               | 200 + `rs_theme`      |
+| POST · DELETE               | `/api/v1/settings/logo` (P12)                                                      | Oturum + CSRF, `settings.edit`, firma bağlamı                             | 200                   |
+| POST · DELETE               | `/api/v1/users/:id/avatar` (P12; `:id` = `me` olabilir)                            | Oturum + CSRF; kendi hesabı serbest, başkası `users.edit`                 | 200                   |
+| POST · DELETE               | `/api/v1/admin/settings/system-logo` (P12; P15 DELETE)                             | Oturum + CSRF, yalnız SUPER_ADMIN                                         | 200                   |
+| GET                         | `/api/v1/admin/superadmins` (P15)                                                  | Oturum, yalnız SUPER_ADMIN                                                | 200                   |
+| POST                        | `/api/v1/admin/superadmins/:id/reset-password` (P15)                               | Oturum + CSRF, yalnız SUPER_ADMIN, step-up                                | 200                   |
+| GET · POST · DELETE         | `/api/v1/request-blocks` · `/api/v1/request-blocks/:id` (P15)                      | Oturum (+ CSRF), `support_requests.block`, firma bağlamı                  | 200 · 201 · 204       |
+| GET                         | `/api/v1/public/sessions/:sessionId/tech-avatar?exp=&sig=` (P15)                   | Public, imzalı URL (≤ 10 dk)                                              | 200 (WEBP)            |
+| GET                         | `/api/v1/files/logo/:tenantId/:file`, `/api/v1/files/system-logo/:file` (P12)      | Public                                                                    | 200 (PNG)             |
+| GET                         | `/api/v1/files/avatar/:tenantId/:file` (P12)                                       | Oturum (aynı firma veya Super Admin)                                      | 200 (WEBP)            |
+| GET                         | `/api/v1/public/branding?tenant=<slug>` (P12)                                      | Public                                                                    | 200                   |
+| POST                        | `/api/v1/customer-send/options` (LG)                                               | Oturum + CSRF, hedefe göre (aşağıda), firma bağlamı                       | 200                   |
+| POST                        | `/api/v1/customer-send` (LG)                                                       | Oturum + CSRF, hedefe ve kanala göre (aşağıda), firma bağlamı             | 200                   |
+| GET                         | `/api/v1/public/unattended/download?t=` (LG)                                       | Public, oturumsuz; süreli belirteç                                        | 200 (exe)             |
 
 ### POST /api/v1/auth/login
 
@@ -773,6 +775,10 @@ Girdi (biri): `{ "token": "<43-karakter-token>", "clientKind": "BROWSER" }` veya
 `{ "code": "<8-hane>", "clientKind": "BROWSER" }`. `clientKind`: `BROWSER` (Origin zorunlu) | `AGENT` (Origin'siz,
 ADR-0012). `X-CSRF-Token` gerekmez. Resolve oturumu **tüketmez**.
 
+P28f: iki biçime de isteğe bağlı `"clientOs": "windows"|"macos"|"linux"` eklenebilir. `AGENT`'ta alan yoksa sunucu
+`windows` sayar (eski istemciler); `BROWSER`'da yok sayılır; başka değer 400 `VALIDATION`. Değer `joinNonce` kaydına yazılır,
+join'de yeniden sorulmaz; yanıt şeması değişmez. Ayrıntı: "macOS istemci (P28f)".
+
 ```bash
 curl -sk -X POST https://localhost:4450/api/v1/public/sessions/resolve \
   -H 'Content-Type: application/json' -H 'Origin: https://localhost:4450' \
@@ -859,7 +865,8 @@ Yanıt 200 (`Cache-Control: no-store`):
 - `wsTicket`: `/ws/guest` bağlantısı için, 60 sn, tek kullanımlık. `iceServers` ve `reconnectToken` burada **yoktur**;
   yalnız kabul (admit) sonrası `hello` mesajında gelir.
 - `admitCode`: yalnız bu misafire gösterilir; müşteri telefonda teknisyene okur.
-- Audit `guest.pending` (misafir kimliği, ad, istemci türü, KVKK metin kimliği ve sürümü; kod yazılmaz).
+- Audit `guest.pending` (misafir kimliği, ad, istemci türü, KVKK metin kimliği ve sürümü, P28f'ten itibaren `os`; kod
+  yazılmaz).
 - Onay kaydı join'de değil, teknisyen kabul ettiğinde (`guest.admit`) oturum tüketimiyle aynı işlemde yazılır
   (`session_consents`: metin kimliği + SHA-256, join anındaki zaman, IP, User-Agent). İstemcinin ek çağrısı yoktur.
 
@@ -887,7 +894,7 @@ reddetti); 409 `LOBBY_FULL` (lobide 3 misafir var); 410 `NONCE_INVALID` veya `SE
 `consentTextId` hatası `joinNonce`'u yakar (nonce tek kullanımlıktır). İstemci yeniden resolve edip güncel metni
 göstermeli ve onayı yeniden almalıdır.
 
-### GET /api/v1/public/agent/download?ref=<sessionRef> (P6)
+### GET /api/v1/public/agent/download?ref=<sessionRef>[&os=windows|macos] (P6, P28f)
 
 Müşteri karşılama sayfasındaki "Hızlı Destek uygulamasını indir" bağlantısıdır. Çerez, kimlik ve `Origin` istemez
 (GET, durum değiştirmez). `ref` resolve yanıtındaki `sessionRef`'tir. Oturumu tüketmez. **Her yanıtta (hatalar dahil)
@@ -905,6 +912,8 @@ location: /downloads/Destek-48291376.exe
 cache-control: no-store
 ```
 
+- P28f: `os` yoksa `windows`. `os=macos` → `location: /downloads/Destek-<kod>.zip` ve yalnız macOS bütünlük kapısı
+  uygulanır; geçersiz `os` → 400 `VALIDATION` ("Geçersiz işletim sistemi."), ref kovası tüketilmez (yalnız IP başına 20/dk).
 - Hedef yol 8 haneli oturum kodunu taşır; Windows istemcisi kodu dosya adından okur. Tarayıcılar 3xx yanıtındaki
   `Content-Disposition`'ı yok saydığı için dosya adı son yanıttan gelir; 302'de bu başlık yoktur.
 - Yalnız oturum **PENDING ve süresi dolmamışsa** 302 döner. Süresi dolmuş PENDING aynı istekte EXPIRED yapılır
@@ -918,6 +927,7 @@ cache-control: no-store
 | 404  | `NOT_FOUND`                                                  | `ref` eksik, biçimsiz, HMAC'i tutmuyor veya oturum yok                                                                                                                                                                      |
 | 410  | `SESSION_EXPIRED` / `SESSION_CONSUMED` / `SESSION_CANCELLED` | Oturum süresi dolmuş, kabul edilmiş (ACTIVE/ENDED) veya iptal                                                                                                                                                               |
 | 429  | `RATE_LIMITED`                                               | Hız sınırı veya başarısız deneme kilidi; `Retry-After` (saniye)                                                                                                                                                             |
+| 400  | `VALIDATION`                                                 | `os` `windows` ya da `macos` değil (P28f)                                                                                                                                                                                   |
 | 503  | `NOT_READY`                                                  | İkili yapılandırılmamış (`AGENT_SHA256`/`AGENT_BINARY_PATH` boş), dosya yok veya SHA-256 uyuşmuyor (fail-closed). Mesaj: "İndirme şu anda kullanılamıyor. Biraz sonra tekrar deneyin ya da tarayıcıdan paylaşımı kullanın." |
 
 Hız sınırları (resolve kod yoluyla **ortak** kovalar):
@@ -977,7 +987,7 @@ Seriler (etiketlerde IP, oturum kimliği veya kod yok): sayaçlar `rs_ws_connect
 `rs_resolve_failed`. Alarm eşikleri: `docs/runbook.md` §9.8 (P5: `rate(rs_file_meta_rate_limited_total{class="sender"}[5m]) > 0`
 uyarı — olası audit şişirme veya değiştirilmiş istemci).
 
-### GET /internal/agent-ready (P6, iç uç — dışarıya kapalı)
+### GET /internal/agent-ready[/windows|/macos] (P6, P28f; iç uç — dışarıya kapalı)
 
 Yalnız Caddy `forward_auth` içindir; dışarıdan erişilemez. İki katmanda kapalıdır:
 
@@ -1207,17 +1217,17 @@ daralır; yetki eklenirse yeni oturumda geçerli olur.
 
 ### WS mesajları
 
-| `t`               | Yön                              | Alanlar                                                                        | Ne olur                                                                                                                                                                                                                                       |
-| ----------------- | -------------------------------- | ------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `control.request` | teknisyen→S→misafir              | —                                                                              | Kontrol isteği. Süzgeç aşağıda. Geçerse oda `REQUESTED`, sayaç +1, audit `control.requested` (iletimden önce yazılır), misafire iletilir                                                                                                      |
-| `control.cancel`  | teknisyen→S→misafir              | —                                                                              | "Vazgeç". `REQUESTED` → `VIEW`, misafire `control.cancel`, teknisyene `control.state{VIEW, TECH}`, audit `control.cancelled`. `GRANTED` iken `control.release` ile aynı. `VIEW` iken yok sayılır. Sayaç geri verilmez; 30 sn bekleme başlamaz |
-| `control.release` | teknisyen→S→misafir              | —                                                                              | "Kontrolü bırak". Yalnız `GRANTED` iken: misafire `control.release`, teknisyene `{VIEW, TECH}` (DB beklenmez), sonra consent `REVOKED/TECH` + audit `control.released`. `REQUESTED` iken = cancel; `VIEW` iken yok sayılır                    |
-| `control.state`   | misafir→S→teknisyen; S→teknisyen | `state: VIEW\|GRANTED`, `source: UI\|HOTKEY\|DENIED\|RECONNECT\|SYSTEM\|TECH`  | Misafirden: `GRANTED` yalnız `UI`; `VIEW` yalnız `UI\|HOTKEY\|DENIED\|SYSTEM` (diğerleri şema hatası → 1008). `RECONNECT` ve `TECH` yalnız sunucu üretir. Ayrıntı: durum tablosu                                                              |
-| `control.revoke`  | S→misafir                        | `reason: permission\|audit\|admin\|reconnect\|stale`                           | İstemci her nedende kapıyı ve açık izin diyaloglarını kapatır; kapı açıktıysa `control.state{VIEW, SYSTEM}` döner                                                                                                                             |
-| `caps.update`     | S→misafir                        | `caps: ("remote_control"\|"file_transfer")[]`                                  | Teknisyen yetkisi daraldı. `remote_control` düştüyse ardından `control.revoke{permission}` gelir                                                                                                                                              |
-| `monitor.request` | teknisyen→S→misafir              | `monitorId: 0..64`                                                             | Paylaşılan ekranı değiştirme isteği (yalnız Hızlı Destek). Süzgeç aşağıda. Audit `monitor.requested`                                                                                                                                          |
-| `monitor.denied`  | misafir→S→teknisyen              | `monitorId: 0..64`                                                             | Müşteri reddetti (Reddet, Esc, pencereyi kapatma). Yalnız bekleyen istekle aynı kimlik işlenir; 30 sn bekleme başlar; audit `monitor.denied`                                                                                                  |
-| `env.state`       | misafir→S→teknisyen              | `elevatedForeground`, `secureDesktop`, `selfElevated` (üçü de zorunlu boolean) | İstemci her `hello`'dan hemen sonra bir kez, sonra yalnız değişimde gönderir. Sunucu son değeri saklar, alanları yeniden kurarak iletir; `selfElevated` GRANTED audit'ine yazılır                                                             |
+| `t`               | Yön                              | Alanlar                                                                                      | Ne olur                                                                                                                                                                                                                                            |
+| ----------------- | -------------------------------- | -------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `control.request` | teknisyen→S→misafir              | —                                                                                            | Kontrol isteği. Süzgeç aşağıda. Geçerse oda `REQUESTED`, sayaç +1, audit `control.requested` (iletimden önce yazılır), misafire iletilir                                                                                                           |
+| `control.cancel`  | teknisyen→S→misafir              | —                                                                                            | "Vazgeç". `REQUESTED` → `VIEW`, misafire `control.cancel`, teknisyene `control.state{VIEW, TECH}`, audit `control.cancelled`. `GRANTED` iken `control.release` ile aynı. `VIEW` iken yok sayılır. Sayaç geri verilmez; 30 sn bekleme başlamaz      |
+| `control.release` | teknisyen→S→misafir              | —                                                                                            | "Kontrolü bırak". Yalnız `GRANTED` iken: misafire `control.release`, teknisyene `{VIEW, TECH}` (DB beklenmez), sonra consent `REVOKED/TECH` + audit `control.released`. `REQUESTED` iken = cancel; `VIEW` iken yok sayılır                         |
+| `control.state`   | misafir→S→teknisyen; S→teknisyen | `state: VIEW\|GRANTED`, `source: UI\|HOTKEY\|DENIED\|RECONNECT\|SYSTEM\|TECH\|OS_PERMISSION` | Misafirden: `GRANTED` yalnız `UI`; `VIEW` yalnız `UI\|HOTKEY\|DENIED\|SYSTEM\|OS_PERMISSION` (diğerleri şema hatası → 1008; `OS_PERMISSION` P28f, bkz. "macOS istemci (P28f)"). `RECONNECT` ve `TECH` yalnız sunucu üretir. Ayrıntı: durum tablosu |
+| `control.revoke`  | S→misafir                        | `reason: permission\|audit\|admin\|reconnect\|stale`                                         | İstemci her nedende kapıyı ve açık izin diyaloglarını kapatır; kapı açıktıysa `control.state{VIEW, SYSTEM}` döner                                                                                                                                  |
+| `caps.update`     | S→misafir                        | `caps: ("remote_control"\|"file_transfer")[]`                                                | Teknisyen yetkisi daraldı. `remote_control` düştüyse ardından `control.revoke{permission}` gelir                                                                                                                                                   |
+| `monitor.request` | teknisyen→S→misafir              | `monitorId: 0..64`                                                                           | Paylaşılan ekranı değiştirme isteği (yalnız Hızlı Destek). Süzgeç aşağıda. Audit `monitor.requested`                                                                                                                                               |
+| `monitor.denied`  | misafir→S→teknisyen              | `monitorId: 0..64`                                                                           | Müşteri reddetti (Reddet, Esc, pencereyi kapatma). Yalnız bekleyen istekle aynı kimlik işlenir; 30 sn bekleme başlar; audit `monitor.denied`                                                                                                       |
+| `env.state`       | misafir→S→teknisyen              | `elevatedForeground`, `secureDesktop`, `selfElevated` (üçü de zorunlu boolean)               | İstemci her `hello`'dan hemen sonra bir kez, sonra yalnız değişimde gönderir. Sunucu son değeri saklar, alanları yeniden kurarak iletir; `selfElevated` GRANTED audit'ine yazılır                                                                  |
 
 Monitör onayı ayrı mesajla gelmez: isteğin iletildiği **aynı misafir bağlantısından** gelen `share.state.activeMonitor ===
 monitorId` onaydır (audit `monitor.granted`). Yanıtsız istek 30 sn sonra ret gibi düşer (mesaj ve audit yok).
@@ -1248,18 +1258,19 @@ monitorId` onaydır (audit `monitor.granted`). Yanıtsız istek 30 sn sonra ret 
 
 ### Durum tablosu (özet; tam hali mimari-protokol §3.3)
 
-| Olay                                                        | Oda durumu                                  | Misafire                                                                | Teknisyene              | Kayıt (consent / audit)                                       |
-| ----------------------------------------------------------- | ------------------------------------------- | ----------------------------------------------------------------------- | ----------------------- | ------------------------------------------------------------- |
-| `control.state{GRANTED, UI}`                                | `REQUESTED` → `GRANTED` (TX commit sonrası) | —                                                                       | `{GRANTED, UI}`         | `GRANTED/UI` / `control.granted` (`selfElevated`)             |
-| Aynı, TX hata veya > 800 ms                                 | `VIEW`                                      | `control.revoke{audit}`                                                 | `error{INTERNAL}`       | log + ref                                                     |
-| `control.state{GRANTED}` beklenmedik (`VIEW`)               | değişmez                                    | `control.revoke{stale}`                                                 | —                       | yok (metrik)                                                  |
-| `control.state{VIEW, DENIED}`                               | `REQUESTED` → `VIEW`, 30 sn bekleme         | —                                                                       | `{VIEW, DENIED}`        | `DENIED/UI` / `control.denied`                                |
-| `control.state{VIEW, UI\|HOTKEY\|SYSTEM}` (kontrol açıkken) | → `VIEW`                                    | —                                                                       | aynı kaynak             | `REVOKED/<kaynak>` / `control.revoked`                        |
-| Aynı, istek bekliyorken (istemci diyaloğu kendisi kapattı)  | → `VIEW`, bekleme yok                       | —                                                                       | aynı kaynak             | consent yok / `control.cancelled{by:"agent"}`                 |
-| Yetki daralması                                             | → `VIEW`                                    | `caps.update` + `control.revoke{permission}`                            | `{VIEW, SYSTEM}`        | `REVOKED/SYSTEM` / `control.revoked` + `session.caps_changed` |
-| Misafir kopması                                             | → `VIEW`                                    | —                                                                       | `{VIEW, RECONNECT}`     | `REVOKED/RECONNECT`                                           |
-| Teknisyen kopması / sekme değişimi                          | → `VIEW`                                    | önce `control.revoke{reconnect}`, sonra `peer.left`/`peer.joined{tech}` | (yeni `hello` VIEW ile) | `REVOKED/RECONNECT` (`side: "tech"`)                          |
-| Oturum sonu (kontrol açık)                                  | —                                           | `session.ended`                                                         | `session.ended`         | en iyi çabayla `REVOKED/SYSTEM` (`reason: "session_ended"`)   |
+| Olay                                                                                                       | Oda durumu                                  | Misafire                                                                | Teknisyene              | Kayıt (consent / audit)                                               |
+| ---------------------------------------------------------------------------------------------------------- | ------------------------------------------- | ----------------------------------------------------------------------- | ----------------------- | --------------------------------------------------------------------- |
+| `control.state{GRANTED, UI}`                                                                               | `REQUESTED` → `GRANTED` (TX commit sonrası) | —                                                                       | `{GRANTED, UI}`         | `GRANTED/UI` / `control.granted` (`selfElevated`)                     |
+| Aynı, TX hata veya > 800 ms                                                                                | `VIEW`                                      | `control.revoke{audit}`                                                 | `error{INTERNAL}`       | log + ref                                                             |
+| `control.state{GRANTED}` beklenmedik (`VIEW`)                                                              | değişmez                                    | `control.revoke{stale}`                                                 | —                       | yok (metrik)                                                          |
+| `control.state{VIEW, DENIED}`                                                                              | `REQUESTED` → `VIEW`, 30 sn bekleme         | —                                                                       | `{VIEW, DENIED}`        | `DENIED/UI` / `control.denied`                                        |
+| `control.state{VIEW, UI\|HOTKEY\|SYSTEM}` (kontrol açıkken)                                                | → `VIEW`                                    | —                                                                       | aynı kaynak             | `REVOKED/<kaynak>` / `control.revoked`                                |
+| Aynı, istek bekliyorken (istemci diyaloğu kendisi kapattı)                                                 | → `VIEW`, bekleme yok                       | —                                                                       | aynı kaynak             | consent yok / `control.cancelled{by:"agent"}`                         |
+| `control.state{VIEW, OS_PERMISSION}` (P28f; yalnız `REQUESTED`, AGENT, `clientOs=macos`; aksi yok sayılır) | → `VIEW`, bekleme yok, sayaç iade edilmez   | —                                                                       | `{VIEW, OS_PERMISSION}` | consent yok / `control.cancelled{by:"agent", source:"os_permission"}` |
+| Yetki daralması                                                                                            | → `VIEW`                                    | `caps.update` + `control.revoke{permission}`                            | `{VIEW, SYSTEM}`        | `REVOKED/SYSTEM` / `control.revoked` + `session.caps_changed`         |
+| Misafir kopması                                                                                            | → `VIEW`                                    | —                                                                       | `{VIEW, RECONNECT}`     | `REVOKED/RECONNECT`                                                   |
+| Teknisyen kopması / sekme değişimi                                                                         | → `VIEW`                                    | önce `control.revoke{reconnect}`, sonra `peer.left`/`peer.joined{tech}` | (yeni `hello` VIEW ile) | `REVOKED/RECONNECT` (`side: "tech"`)                                  |
+| Oturum sonu (kontrol açık)                                                                                 | —                                           | `session.ended`                                                         | `session.ended`         | en iyi çabayla `REVOKED/SYSTEM` (`reason: "session_ended"`)           |
 
 `error{INTERNAL}` yalnız sunucunun kendi hatasında gelir; mesaj genel metin + log referansıdır
 (`"Kontrol kaydı yazılamadı; kontrol geri alındı (ref: <ref>)."`), ayrıntı içermez.
@@ -4039,6 +4050,98 @@ Eşleşmeyen `callId` ya da faza uymayan misafir mesajı yanıtsız düşer (met
 - Audit süzgecinde grup "Sesli görüşme".
 - Metrikler: `rs_voice_calls_total{result="accepted|rejected|timeout"}`, `rs_voice_denied_total{code}` (kodlar yukarıdaki
   tablo + `stale_call`), gauge `rs_voice_active` (etkin görüşmesi olan oda sayısı). Operasyon: runbook §28d.
+
+## macOS istemci (P28f)
+
+Hızlı Destek'in macOS sürümü (istemci 0.19.0) Windows ile aynı REST/WS/DataChannel sözleşmesini kullanır. Yeni WS mesajı,
+yeni tablo, migration ve yeni yetki yok. Eklenenler: resolve'da `clientOs`, indirme ucunda `os`, yeni
+`/public/agent/availability`, `control.state` kaynağına `OS_PERMISSION`, katılım audit'inde `os`. Kaynak:
+`docs/mimari-p28f.md` §4, `packages/contracts/src/api/sessions.ts`, `apps/server/src/public/{agent,routes}.ts`.
+
+### `clientOs` (resolve)
+
+| Alan       | Kural                                                                                                                                                                                                      |
+| ---------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `clientOs` | İsteğe bağlı, `windows` \| `macos` \| `linux`. `AGENT`'ta yoksa `windows` sayılır; `BROWSER`'da yok sayılır. Geçersiz değer → 400 `VALIDATION`. Değer `joinNonce` kaydına yazılır; join'de yeniden alınmaz |
+
+```bash
+curl -sk -X POST https://localhost:4450/api/v1/public/sessions/resolve \
+  -H 'Content-Type: application/json' \
+  -d '{"code":"<8-hane>","clientKind":"AGENT","clientOs":"macos"}'
+```
+
+Yanıt resolve ile aynıdır (şema değişmez). `clientOs` **müşteri beyanıdır**: yetki ya da özellik kararında kullanılmaz.
+Tek istisna aşağıdaki `OS_PERMISSION` kabul koşuludur. Windows istemci 0.19.0'dan itibaren `"windows"` gönderir.
+
+Join başarısında audit `guest.pending` `newValue.os` ∈ `windows` \| `macos` \| `linux` \| `browser` (arayüz etiketi
+"İşletim sistemi (beyan)"; eski satırlarda alan yok).
+
+### GET /api/v1/public/agent/availability
+
+Karşılama sayfası indirme düğmesini göstermeden önce çağırır. Girdi, `ref` ve çerez yok.
+
+```bash
+curl -sk https://localhost:4450/api/v1/public/agent/availability
+```
+
+Yanıt 200 (`Cache-Control: public, max-age=60`):
+
+```json
+{ "windows": true, "macos": false, "macosTestBuild": false }
+```
+
+| Alan             | Anlamı                                                                                                                                          |
+| ---------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
+| `windows`        | Windows ikilisi bütünlük kapısından geçiyor (`AGENT_SHA256` dolu ve dosya eşleşiyor)                                                            |
+| `macos`          | macOS zip'i kapıdan geçiyor (`MAC_AGENT_SHA256` dolu ve `/data/downloads/NoktaDestek-macOS.zip` eşleşiyor)                                      |
+| `macosTestBuild` | `DEPLOY_ENV` `production` değil **ve** `macos` true → sayfa imzasız TEST rehberini ("Yine de Aç" adımı) gösterir. Production'da her zaman false |
+
+Hatalar: 429 `RATE_LIMITED` (IP başına 30/dk, `Retry-After`, `Cache-Control: no-store`). Web her hata, 429 ya da şema dışı
+yanıtta indirme düğmesini göstermez, yalnız tarayıcı modunu sunar (fail-closed).
+
+### İndirme (`os=macos`)
+
+```bash
+curl -sk -i "https://localhost:4450/api/v1/public/agent/download?ref=$REF&os=macos"
+```
+
+```
+HTTP/2 302
+location: /downloads/Destek-48291376.zip
+cache-control: no-store
+```
+
+Kurallar Windows ile aynıdır (PENDING + süresi dolmamış, aynı hız kovaları). Yalnız istenen platformun kapısı uygulanır;
+macOS zip'i hazır değilse 503 `NOT_READY`. Geçersiz `os` → 400 `VALIDATION`, ref kovası tüketilmez. Metrik
+`rs_agent_download_total{os}`.
+
+**Caddy (`deploy/Caddyfile` `@agentZip`):** `^/downloads/(NoktaDestek-macOS|Destek-[0-9]{8})\.zip$` aynı zip'i sunar
+(`Content-Type: application/zip`, `Content-Disposition: attachment`, `X-Content-Type-Options: nosniff`,
+`Cache-Control: no-store`). Sunmadan önce `forward_auth` ile `/internal/agent-ready/macos`'a sorar; `.exe` yolları
+`/internal/agent-ready/windows`'a (çıplak `/internal/agent-ready` geçiş süresince Windows takma adıdır). Her iç uç yalnız
+kendi kapısını uygular; bilinmeyen alt yol 404. Logda yol `Destek-***` olarak maskelenir.
+
+### `control.state{VIEW, OS_PERMISSION}`
+
+Mac müşterisinde macOS **Erişilebilirlik** izni yoksa (ya da olay musluğu kurulamazsa) istemci kontrol diyaloğunu açmaz,
+izin rehberini gösterir ve şunu gönderir:
+
+```json
+{ "t": "control.state", "state": "VIEW", "source": "OS_PERMISSION" }
+```
+
+- Yalnız `VIEW` ile, yalnız `REQUESTED` fazında, yalnız AGENT misafirden ve nonce'taki `clientOs` `macos` iken geçerlidir;
+  aksi halde yok sayılır (metrik `rs_control_total{event="os_permission_ignored"}`).
+- **İptal** gibi işlenir, ret değil: `session_consents` satırı yazılmaz, 30 sn bekleme başlamaz, istek sayacı iade edilmez.
+- Teknisyene `control.state{VIEW, OS_PERMISSION}` iletilir; konsol "Müşteri erişilebilirlik izni vermedi. Müşteri izni
+  verdikten sonra yeniden isteyin." gösterir.
+- Audit `control.cancelled{by:"agent", source:"os_permission"}`; metrik `rs_control_total{event="cancelled_os_permission"}`.
+
+### Yetenekler ve sınırlar
+
+macOS istemci Windows ile aynı `rs.cap.*` listesini bildirir; **`rs.cap.voice1` bildirmez** (macOS'ta ses yok, ADR-0037
+r3) ve pencere paylaşımı yoktur. Yazdırmada sayfa sayısı istemcide hesaplanmaz: `print.report` sayfa alanı taşımaz
+(contracts değişmedi). macOS'ta parola alanı (güvenli metin girişi) `env.state` `elevatedForeground=true` olarak bildirilir.
 
 ## Saklama ve anonimleştirme (P13a)
 

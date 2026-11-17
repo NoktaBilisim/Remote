@@ -1,11 +1,12 @@
 # Remote Support — Nokta Bilişim uzaktan destek platformu
 
 Self-hosted, çok kiracılı (multi-tenant) uzaktan destek platformu. Teknisyen web konsolundan bir destek
-oturumu açar; müşteri taşınabilir Windows istemcisi (tam erişim) veya tarayıcı (yalnız görüntü) ile katılır.
+oturumu açar; müşteri taşınabilir Windows ya da macOS istemcisi (tam erişim; macOS P28f) veya tarayıcı (yalnız görüntü) ile
+katılır.
 Görüntü eşler arası WebRTC ile akar; sunucu sinyalizasyon ve meta veri tutar. Dosyalar varsayılan olarak eşler arası
 gider; firma isterse sunucu üzerinden, ClamAV taramalı ve şifreli saklamalı aktarır (P28b).
 
-## Şu anki durum: P1–P13a tamamlandı, P13b (prod açılışı) kodu hazır, P14a/P14b, P15, P16, P17 (istemci 0.11.0), P18 (talep iletişimi), P19 (web talep formu, SMS, müşteri bildirimi, müşteri CSV) P20 (istemci 0.12.0), P27a (2FA'da cihaz hatırlama), P27 (gözetimsiz erişim; prod'da kapalı) P28a (pano paylaşımı + uzaktan yazdırma, istemci 0.13.0) P28b (sunucuda dosya aktarımı + ClamAV + depolama kotası, istemci 0.14.0), P28u (gözetimsiz izinli / izinsiz bağlantı ve müdahale, servis 0.15.0) P28e (oturum kaydı, istemci/servis 0.16.0) ve P28c (çoklu teknisyen: davet, İzle, kontrol ve oturum devri, istemci/yardımcı 0.17.0) ve P28d (sesli görüşme, istemci 0.18.0) kodlandı (QA sürüyor)
+## Şu anki durum: P1–P13a tamamlandı, P13b (prod açılışı) kodu hazır, P14a/P14b, P15, P16, P17 (istemci 0.11.0), P18 (talep iletişimi), P19 (web talep formu, SMS, müşteri bildirimi, müşteri CSV) P20 (istemci 0.12.0), P27a (2FA'da cihaz hatırlama), P27 (gözetimsiz erişim; prod'da kapalı) P28a (pano paylaşımı + uzaktan yazdırma, istemci 0.13.0) P28b (sunucuda dosya aktarımı + ClamAV + depolama kotası, istemci 0.14.0), P28u (gözetimsiz izinli / izinsiz bağlantı ve müdahale, servis 0.15.0) P28e (oturum kaydı, istemci/servis 0.16.0) ve P28c (çoklu teknisyen: davet, İzle, kontrol ve oturum devri, istemci/yardımcı 0.17.0) ve P28d (sesli görüşme, istemci 0.18.0) ve P28f (macOS istemci, istemci 0.19.0; prod'da Apple imzası gelene kadar yok) kodlandı (QA sürüyor)
 
 İş P1..P13 dikey paketlerle yürür (`docs/mimari.md` §10). P1–P11 ve **P12** (firma ve sistem logosu, kullanıcı profil
 resmi, kullanıcı başına tema, hesap menüsü, tasarım token lint kuralı) tamamlandı: P12 güvenlik Kritik/Yüksek 0 (doğrulama
@@ -104,7 +105,7 @@ P13c'ye kadar ayrı staging yoktur; yeni kod yerelde (`scripts/e2e-real.sh`) den
 - Tek dosyalık, kurulumsuz Windows 10/11 programı (Go, CGO'suz, `asInvoker`: yönetici yetkisi istemez). Sunucu adresi
   ve sürüm derlemede ikiliye gömülür; başka bir sunucuya bağlanamaz. İmzasızdır (ADR-0010): bütünlük SHA-256,
   tekrarlanabilir derleme ve GitHub build attestation ile kanıtlanır.
-- Müşteri web karşılama sayfasından (`/session/<token>`, yalnız Windows masaüstünde) "Hızlı Destek uygulamasını indir"
+- Müşteri web karşılama sayfasından (`/session/<token>`, Windows masaüstünde; P28f'ten itibaren Mac'te `Destek-<8 hane>.zip`) "Hızlı Destek uygulamasını indir"
   ile `Destek-<8 hane>.exe` dosyasını indirir; program kodu dosya adından okur. Ad değişmişse 8 haneli kodu sorar.
   Sayfada SmartScreen ("Ek bilgi → Yine de çalıştır") rehberi bulunur.
 - Akış: karşılama (firma, teknisyen adı, teknisyen doğrulama kodu, bağlanılan sunucu, dolandırıcılık uyarısı,
@@ -261,6 +262,23 @@ P13c'ye kadar ayrı staging yoktur; yeni kod yerelde (`scripts/e2e-real.sh`) den
   kaldır", Ayarlar → Güvenlik'te firma anahtarı "2FA cihaz hatırlama" (**mevcut firmalarda da varsayılan açık**).
 - Yeni cihaz hatırlanınca ve çalınmış çerez şüphesinde kullanıcıya e-posta; şifre değişimi, 2FA sıfırlama, tüm cihazlardan
   çıkış gibi olaylar hatırlamayı siler. Çerez `__Secure-rs_td` (`Path=/api/v1/auth`). Migration `20261121000000_p27a_trusted_devices`; yeni env yok.
+
+**P28f — macOS istemci, istemci 0.19.0** (AC-389..396; kod tamam, güvenlik kod turu 3 GEÇTİ (Kritik/Yüksek/Orta/Düşük 0; prod öncesi
+elle şart: Fare Tuşları ayar anahtarı ve `localClick` alan ölçümü), QA tur 2 DÜZELTİLMELİ; macOS elle turu staging'de; **prod'da macOS yok** — Apple Developer hesabı açılıp imzalı + notarize zip
+yayımlanana kadar)
+
+- Hızlı Destek'in macOS 13+ sürümü: tek universal `.app` (Apple Silicon + Intel), `Destek-<kod>.zip` içinde, kurulumsuz.
+  Kod zip'in açıldığı klasör adından okunur. Görüntü ScreenCaptureKit + VideoToolbox, kontrol CGEvent; sohbet, dosya
+  (karantina işaretli), işaretleme, pano, yazdırma (`/usr/bin/lp`, sayfa sayısı yazıcıda), çoklu teknisyen, kayıt rızası.
+  Ses, pencere paylaşımı, "Destek iste", tepsi ve gözetimsiz erişim macOS'ta yok.
+- Ekran Kaydı / Erişilebilirlik izin rehberi (kodu koruyarak yeniden başlatma); izin yoksa teknisyene `OS_PERMISSION`.
+  Korunan düğmeler yalnız gerçek yerel fare tıklamasıyla çalışır. İmzasız pakette gizlenemeyen "TEST SÜRÜMÜ" bandı.
+- Go kodu CGO'suz kalır: Apple çerçevelerine `github.com/ebitengine/purego` v0.11.3 (Apache-2.0) ile bağlanılır (ADR-0037).
+  İnce ikililer Linux'ta tekrarlanabilir derlenir; `.app`, imza ve zip yalnız macOS'ta üretilir.
+- Sunucu: resolve `clientOs`, `download?os=macos`, `GET /public/agent/availability`, `/internal/agent-ready/{windows,macos}`;
+  audit `guest.pending` `os`. Yeni env `MAC_AGENT_SHA256`, `MAC_AGENT_PATH`; migration ve yeni yetki yok. API
+  `docs/api.md` "macOS istemci (P28f)"; kullanım `docs/KULLANIM_KILAVUZU.md` "Hızlı Destek uygulaması (macOS)"; operasyon
+  runbook §28f.
 
 **P28d — sesli görüşme, istemci 0.18.0** (AC-373..379; kod tamam, qa tur 2 ve güvenlik kod turu 2 GEÇTİ, sayfa testi
 bulguları düzeltildi; Windows elle turu staging'de; prod P28 sonunda)
@@ -615,6 +633,7 @@ görür. `deploy/staging-users.sh` staging test hesapları için hâlâ kullanı
 | P28e (kod ✓, QA sürüyor)                                                          | G8-e oturum kaydı: müşteri rızası, gösterge ve Kaydı durdur, gözetimsiz politika kaydı, şifreli saklama, izleme/silme, istemci/servis 0.16.0; runbook §28e                                                                 |
 | P28c (kod ✓, QA sürüyor)                                                          | G8-c çoklu teknisyen: davet, İzle, kontrol ve oturum devri, müşterinin Çıkar'ı, istemci/yardımcı 0.17.0; runbook §28c                                                                                                      |
 | P28d (kod ✓, QA sürüyor)                                                          | G8-d sesli görüşme: teknisyen ister, müşteri yerel Kabul ile mikrofon açar, çoklu teknisyende konuşan/dinleyen, ses kaydedilmez, istemci 0.18.0 (libopus wasm + wazero); runbook §28d                                      |
+| P28f (kod ✓, QA sürüyor; prod Apple imzasından sonra)                             | macOS istemci 0.19.0: universal `.app` (zip), TCC izin rehberi, korunan düğmeler, purego (CGO'suz); runbook §28f                                                                                                           |
 | P13c                                                                              | Ayrı staging (`stg.remote.noktabilisim.net`, ayrı DB/sır/yedek); E11 özelliklerinden önce                                                                                                                                  |
 
 Prod açılışının ön koşulları ve imzalı kontrol listesi: runbook §20.1–§20.3. TURN için yalnız 443/TCP'nin açık olduğu
@@ -631,6 +650,7 @@ müşteri ağları desteklenmez (ADR-0018 risk kabulü); gereken portlar kullan�
 | Giriş                | Caddy 2.11 (TLS, ters vekil, log filtresi)                                                                                                            |
 | Sinyalizasyon / TURN | `ws` 8.21 (Fastify sunucusunda), coturn 4.18 (ayrı compose)                                                                                           |
 | Windows istemci      | Go 1.26 (CGO'suz), Pion WebRTC v4, `coder/websocket`, `golang.org/x/sys`; Win32 arayüz                                                                |
+| macOS istemci        | Aynı Go kodu (CGO'suz), `ebitengine/purego` v0.11.3 ile AppKit, ScreenCaptureKit, VideoToolbox, CGEvent; macOS 13+ universal `.app`                   |
 | Test                 | Vitest, Playwright + axe, `go test -race`                                                                                                             |
 | Paket yöneticisi     | pnpm 9 (corepack), monorepo                                                                                                                           |
 
@@ -641,6 +661,10 @@ müşteri ağları desteklenmez (ADR-0018 risk kabulü); gereken portlar kullan�
 - MySQL 8.4 (compose içinde gelir; ayrı kurulum gerekmez).
 - Windows istemciyi derlemek için Go kurulumu gerekmez; derleme Docker'daki `golang` imajında yapılır.
 - Müşteri tarafı: Windows 10 / 11 (64 bit). Windows N sürümlerinde Media Feature Pack gerekir; yoksa görüntü gönderilemez.
+  macOS istemci: macOS 13+ (Apple Silicon ve Intel). macOS 13/14 ve gerçek Intel Mac'te elle test yapılmadı (Intel dilimi
+  Rosetta ile denendi).
+- macOS paketini (`.app`, imza, zip) üretmek için Xcode komut satırı araçları olan bir Mac gerekir; ince ikililer yine
+  Docker'da derlenir.
 
 ## Kurulum (geliştirme)
 
@@ -692,6 +716,8 @@ hesabın şifresi ezilmez. `NODE_ENV` production değilse `demo` adlı bir örne
 | `METRICS_TOKEN`                                                                  | Hayır         | `/metrics` Bearer token'ı, ≥ 16 karakter; boşsa `/metrics` 404                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
 | `AGENT_SHA256`                                                                   | İndirme için  | Yayındaki `NoktaDestek.exe`'nin SHA-256'sı (64 hex). Elle yazılmaz; `deploy/agent/verify-and-publish.sh` doğrulamadan sonra yazar. Boşsa istemci indirmesi 503 döner, server yine açılır                                                                                                                                                                                                                                                                                                                                                                                                                      |
 | `AGENT_BINARY_PATH`                                                              | Compose dışı  | İkilinin mutlak yolu. Compose `/data/downloads/NoktaDestek.exe` verir; yalnız yerel `pnpm` çalıştırmada gerekir                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
+| `MAC_AGENT_SHA256`                                                               | macOS için    | P28f: yayındaki `NoktaDestek-macOS.zip`'in SHA-256'sı. Elle yazılmaz; `deploy/agent/publish-mac.sh` yazar (`--withdraw` boşaltır). Boşsa macOS indirmesi 503 ve karşılama sayfasında Mac düğmesi görünmez (runbook §28f.4)                                                                                                                                                                                                                                                                                                                                                                                    |
+| `MAC_AGENT_PATH`                                                                 | Compose dışı  | P28f: zip'in mutlak yolu. Compose `/data/downloads/NoktaDestek-macOS.zip` verir; production'da yalnız bu değer kabul edilir                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
 | `UNATTENDED_MODE`                                                                | Hayır         | P27 imza kapısı: boş = `off` (kayıt kodu, kayıt ve bağlantı 409 `UNATTENDED_DISABLED`), `unsigned` (**yalnız** `DEPLOY_ENV=staging`; aksi halde server açılmaz; panelde "TEST ortamı — imzasız servis" bandı), `signed` (servis imzalı ve SHA'sı listede). Prod: `off` (runbook §27.1, §27.5)                                                                                                                                                                                                                                                                                                                 |
 | `UNATTENDED_SIGNED_SHA256`                                                       | `signed` iken | P27: izin verilen `NoktaDestekServis.exe` SHA-256 değerleri, virgülle ayrılmış 64 hex. `signed` modda boşsa server açılmaz (runbook §27.5)                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
 | `UNATTENDED_AGENT_SHA256`                                                        | İndirme için  | P27: yayındaki `NoktaDestekServis.exe`'nin SHA-256'sı. Elle yazılmaz; `deploy/agent/publish-servis.sh` yazar. Boş ya da dosya farklıysa panel "Servis programını indir" 503 döner. Yol compose'da sabit (`/data/unattended/NoktaDestekServis.exe`) (runbook §27.3)                                                                                                                                                                                                                                                                                                                                            |
@@ -1064,6 +1090,36 @@ içindeki `AGENT_SHA256`'yı yazar, server'ı yeniden başlatır ve Caddy üzeri
 
 - Günlük işlemler, loglar, sorun giderme: [`docs/runbook.md`](docs/runbook.md).
 
+### macOS istemciyi derleme ve yayınlama (runbook §28f)
+
+**İnce ikililer (Linux/Docker, CGO'suz)** — `apps/agent-win/build/build-darwin.sh <https://alan-adı[:port]> <x.y.z>
+<arm64|amd64> [çıktı] [test]`. 5. argüman `test` staging TEST derlemesidir. Prod derlemesi (5. argümansız) yalnız
+`v<sürüm>` etiket iş akışında ya da `.invalid` adresle (iz testi) çalışır; ad-hoc pakete prod adresi gömülemez. Staging
+için temiz ağaçta, repo kökünden:
+
+```bash
+IMG=golang:1.26.11-bookworm@sha256:dc40a13b61304647ed7e5d581d246b86413dfc29d63c6d018310feb93cd98fc0
+OUT="$(mktemp -d)"
+for a in arm64 amd64; do
+  docker run --rm -v "$PWD:/src" -v "$OUT:/out" -w /src -e GOFLAGS=-mod=readonly -e GOTOOLCHAIN=local $IMG sh -c '
+    git config --global --add safe.directory /src
+    apps/agent-win/build/build-darwin.sh "$0" "$1" "$2" "/out/noktadestek-$2" test' https://<staging-adresi> 0.19.0 "$a"
+done
+```
+
+**Paket (yalnız macOS)** — `apps/agent-win/build/macos/package.sh` lipo ile universal ikili, `.app`, hardened runtime imza
+(ad-hoc ya da Developer ID, aynı boş entitlement dosyası), sabit zaman damgalı zip (≤ 60 MiB) ve denetim yapar:
+
+```bash
+SOURCE_DATE_EPOCH="$(git log -1 --format=%ct)" apps/agent-win/build/macos/package.sh adhoc \
+  "$OUT/noktadestek-arm64" "$OUT/noktadestek-amd64" 0.19.0 stg "$OUT/pkg" NoktaDestek-macOS-stg-0.19.0.zip
+```
+
+Profil `stg` bundle kimliği `net.noktabilisim.destek.stg` (TEST), `prod` `net.noktabilisim.destek`. CI (`agent-win.yml`)
+`build-mac`, `reproducible-mac`, `package-mac`, `test-macos` işlerini koşar; `sign-mac` (Developer ID + notarization) yalnız
+`vars.APPLE_TEAM_ID` tanımlıysa etkinleşir. Sunucuya yayın: `deploy/agent/publish-mac.sh` (staging `--dir`, prod `--tag
+vX.Y.Z`; önce `--dry-run`), geri alma `--withdraw`. İmza kurulumu, yayın kilidi ve elle test listesi: runbook §28f.3–§28f.6.
+
 ### Prod işletim araçları (P13b; runbook §20)
 
 Hepsi host'ta root ile kurulur; kurulu kopya git ağacından değil kendi yerinden çalışır. Betik değişince `install` yeniden
@@ -1096,13 +1152,15 @@ WhatsApp müşteri mesajları (P19) aynı whatsapp-bildirim servisini kullanır.
 apps/server/        Fastify API (src/), Prisma şeması ve migration'lar (prisma/), testler (test/)
 apps/web/           Next.js arayüzü (app/, components/, lib/), e2e testleri (e2e/)
 packages/contracts/ Ortak zod şemaları, yetki listesi, hata kodları
-apps/agent-win/     Windows istemci (Go): cmd/noktadestek (NoktaDestek.exe), cmd/noktadestek-servis (P27 gözetimsiz
-                    erişim servisi NoktaDestekServis.exe), internal/ (api, flow, rtc, capture, ui, transfer, control,
-                    input, env, servis, servisui, unattended, desktop…),
-                    build/ (build.sh, winres.json, winres-servis.json), test/trace-check.ps1 (-Servis profili)
+apps/agent-win/     Windows ve macOS istemci (Go): cmd/noktadestek (NoktaDestek.exe; main_darwin.go → Nokta Destek.app),
+                    cmd/noktadestek-servis (P27 gözetimsiz erişim servisi NoktaDestekServis.exe), internal/ (api, flow,
+                    rtc, capture, ui, ui/uicore, ui/mac, darwin/objc, macperm, launch, transfer, control, input, env,
+                    servis, servisui, unattended, desktop…), build/ (build.sh, build-darwin.sh, macos/ package.sh +
+                    Info.plist.tmpl + entitlements.plist + OKUBENI, winres.json, winres-servis.json),
+                    test/trace-check.ps1 (-Servis profili), test/trace-check-mac.sh
 deploy/             docker-compose.yml, Caddyfile, mysql/ (kullanıcı init + yetki kontrol betiği),
                     turn/ (coturn compose, başlatıcı, güvenlik duvarı ve test betikleri),
-                    agent/ (verify-and-publish.sh: istemci yayını),
+                    agent/ (verify-and-publish.sh: Windows istemci yayını, publish-mac.sh: macOS zip yayını),
                     backup/ (backup.sh, restore.sh, lib*.sh, systemd birimleri, backup.env.example, test-backup.sh),
                     ops/ (remote-watch, proxy-guard, systemd birimleri, watch.env.example, testler),
                     turn/cert-deploy-hook.sh (TURN sertifika kancası),

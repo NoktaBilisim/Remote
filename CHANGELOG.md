@@ -5,6 +5,64 @@ Biçim [Keep a Changelog](https://keepachangelog.com/tr/1.1.0/), sürümleme [Se
 
 ## [Unreleased]
 
+### Eklendi — P28f macOS istemci, istemci 0.19.0 (AC-389..396)
+
+- **Hızlı Destek macOS:** macOS 13+ için tek universal `.app` (Apple Silicon + Intel), zip içinde, kurulumsuz. Kod/bağlantı
+  ile Hızlı Destek akışı Windows ile aynı: karşılama (teknisyen doğrulama kodu, sunucu, KVKK, kayıt rızası), bekleme odası,
+  monitör seçimi, görüntü (ScreenCaptureKit + VideoToolbox H.264), uzaktan kontrol (CGEvent), sohbet, dosya, işaretleme,
+  gizlenemeyen gösterge, pano, yazdırma, sunucuda dosya, çoklu teknisyen listesi ve **Çıkar**, oturum kaydı rızası.
+- **Kod klasör adından:** `Destek-<kod>.zip` açılınca oluşan `Destek-<kod>/` (ya da `Destek-<kod> (1)`) klasör adından okunur;
+  okunamazsa kod alanı açılır.
+- **TCC rehberi:** Ekran Kaydı izni yoksa açılışta rehber + **Sistem Ayarları'nı aç** + **İzni verdim, yeniden başlat** (kod
+  korunur). Erişilebilirlik izni yoksa kontrol isteğinde rehber açılır, teknisyene "Müşteri erişilebilirlik izni vermedi…"
+  gider (ret sayılmaz, bekleme yok).
+- **Korunan düğmeler** (İzin ver, Erişime izin ver, dosya Kabul et, Yazdır, pano kutusu, Çıkar, kayıt rızası) yalnız gerçek
+  yerel fare tıklamasıyla çalışır; klavye, VoiceOver, Fare Tuşları ve sentetik olay reddedilir. Onay diyaloğu açıkken
+  uzaktan girdi duraklar; Erişilebilirlik kısayolları enjekte edilmez.
+- Kısayol **Control+Shift+F12** (yedek F11). Tuş eşlemesi Ctrl→⌘, Win→Control, Alt→Option; AltGr karakterleri metin olarak
+  gider; Control+⌘+Q iletilmez.
+- **TEST bandı:** imzasız/ad-hoc ya da beklenen Team ID'yle imzalanmamış pakette gizlenemeyen "TEST SÜRÜMÜ — imzasız" bandı.
+- **Sunucu:** resolve `clientOs` (isteğe bağlı; AGENT'ta yoksa `windows`), `GET /public/agent/download?os=macos` →
+  `/downloads/Destek-<kod>.zip`, yeni `GET /public/agent/availability` (`{windows, macos, macosTestBuild}`, 30/dk),
+  `/internal/agent-ready/{windows,macos}`, `control.state` kaynağı `OS_PERMISSION`, katılım audit'inde (`guest.pending`)
+  `os`, metrik `rs_agent_download_total{os}` (`docs/api.md` "macOS istemci (P28f)").
+- **Web:** karşılama sayfası Mac'i tanır; indirme düğmesi yalnız availability `macos:true` iken. macOS açılış ve izin
+  rehberi; prod'da "Nokta Destek hiçbir zaman 'Yine de Aç' istemez" uyarısı, staging'de TEST uyarısı ve "Yine de Aç" adımı.
+  Audit ayrıntısında "İşletim sistemi (beyan)".
+- **CI ve paketleme:** Linux'ta CGO'suz tekrarlanabilir ince ikililer (`build/build-darwin.sh`), macOS çalıştırıcısında
+  lipo + `.app` + hardened runtime imza + zip (`build/macos/package.sh`), darwin testleri ve iz testi
+  (`test/trace-check-mac.sh`), koşullu Developer ID imza + notarization (`sign-mac`), yayın betiği `deploy/agent/publish-mac.sh`
+  (runbook §28f).
+- Yeni env `MAC_AGENT_SHA256`, `MAC_AGENT_PATH`. Yeni Go bağımlılığı `github.com/ebitengine/purego` v0.11.3 (Apache-2.0).
+  Migration, yeni tablo ve yeni yetki yok. Karar ADR-0037.
+
+### Değişti — P28f
+
+- Windows istemci 0.19.0 resolve'da `clientOs: "windows"` gönderir; başka davranış değişikliği yok.
+- Tehlikeli dosya uzantıları listesine 30 macOS türü (`app`, `pkg`, `dmg`, `command`, `scpt` vb.) ve baştaki noktalı gizli
+  adlar eklendi (Windows ve web uyarıları da bunları gösterir).
+- `AGENT_BINARY_PATH` production'da yalnız `/data/downloads/NoktaDestek.exe` kabul eder (Caddy'nin sunduğu dosyayla eşitlik).
+
+### Güvenlik — P28f
+
+- Alınan dosyaya `com.apple.quarantine` yazılır; yazılamazsa dosya teslim edilmez. Pano okumada parola yöneticisinin
+  gizli/geçici işaretli içeriği okunmaz; teknisyenin koyduğu metin Evrensel Pano'ya gitmez.
+- Fare Tuşları açıkken ve Nokta Destek pencereleri üzerindeyken tuş takımı ve Fare Tuşları harfleri iletilmez; kendi
+  pencerelerimize enjekte tıklama düşer. Gösterge görünür kılınamazsa kontrol kapanır.
+- Uygulama kapanışta önbellek ve pencere durumu izlerini siler; tanılama dosyası yazmaz.
+
+### Bilinen sınırlamalar — P28f
+
+- **Prod'da macOS yok:** Apple Developer hesabı açılıp `sign-mac` imzalı ve notarize zip ürettiğinde yayımlanır. O zamana
+  kadar yalnız staging TEST paketi (ad-hoc) vardır; karşılama sayfası prod'da macOS düğmesi göstermez.
+- macOS'ta sesli görüşme, pencere paylaşımı, "Destek iste", firma kaydı, tepsi ve gözetimsiz erişim yok.
+- Yazdırma onayında sayfa sayısı ve yazıcı adı gösterilmez ("Sayfa sayısı: yazıcıda belirlenir", "Varsayılan yazıcı");
+  CUPS iş geçmişi macOS'ta kalır.
+- Korunan düğmeler VoiceOver ve klavyeyle kullanılamaz (güvenlik ödünü). Tab ile odak yalnız macOS "Klavye ile gezinme"
+  açıkken.
+- Gerçek Intel Mac'te test yok (Rosetta ile x86_64 dilimi denendi). macOS elle test turu (runbook §28f.6) staging'de
+  bekliyor.
+
 ### Eklendi — P28d sesli görüşme, istemci 0.18.0 (AC-373..379)
 
 - **Sesli görüşme:** teknisyen konsolda **Sesli görüşme** ister (önce kendi mikrofon izni); müşteri 60 sn içinde **Kabul et**

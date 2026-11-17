@@ -1,3 +1,38 @@
+# Güvenlik Raporu — P28f Kod turu 3 (Y-P28f-K1r doğrulaması) (dal p28f, HEAD 52fc00c, 2026-11-17)
+
+DURUM: GEÇTİ — Kritik 0 / Yüksek 0 / Orta 0 / Düşük 0
+
+Kapsam: yalnız 42b66d4 (`internal/input/{hostguard,applier}.go`, `hostguard_test.go`, `agent-win.yml` zorunlu test listesi).
+
+## Y-P28f-K1r — Kapandı
+
+- Kendi pencere kuralı artık `mouseKeysKey` kümesinin tamamını kapsıyor ve Fare Tuşları ayarından ve önbelleğinden bağımsız
+  çalışıyor (`hostguard.go:118-120`). Tur 2'deki `J` → ayarı aç → `I` zinciri bu kuralla kesiliyor. `mouseDriver` anahtar adı
+  belirsizliği de pencerelerimizin sınırında etkisiz kalıyor.
+- Son enjekte hedef denetimi şöyle çalışıyor (`hostguard.go:98-104`, `cursorOverOwnLocked` `:131-137`):
+  - `m.move` ve `m.btn` hedefi, olay düşse de saklanıyor.
+  - Tuşta hem son hedef hem canlı imleç denetleniyor; biri pencerede ise tuş düşüyor. İmleç okunamazsa da düşüyor.
+  - `SetTarget` saklanan hedefi sıfırlıyor.
+  - Hedef bayatsa yalnız daha fazla tuş düşer; yön güvenli.
+  - `m.move`/`m.btn` için `x`/`y` şemada zorunlu ve 0..1 aralığında (`messages.go:39-40, 98-101`). Nil işaretçi riski yok.
+- Windows'ta `host == nil` olduğu için ilk satırda çıkılıyor; davranış değişmedi.
+- Testler (darwin/arm64, Go 1.26.11): `TestYP28fK1*` (4) ve iki yeni `TestYP28fK1r*` → PASS. `GOOS=windows go vet` temiz. Yeni
+  testler CI `zorunlu=` listesinde.
+
+## Prod öncesi elle şart (bulgu değil, açık koşul)
+
+- Elle test (a): gerçek bundle'da Fare Tuşları açıkken `defaults read com.apple.universalaccess mouseDriver` = 1 olmalı. Bu Mac'te
+  (26.3.1) anahtar yok; `History.MouseKeys` yapısı var. Anahtar doğrulanmazsa pencere dışındaki birinci katman
+  (`DropMouseKeys`) fail-open olabilir. Kendi pencere sınırı bundan etkilenmez. Sonuç `docs/implementation.md`'ye yazılmalı.
+- Elle test (b): Fare Tuşları tıklamasında `localClick` alan değerleri (PID, StateID, UserData) kaydedilmeli. Sistem ayarı bu
+  turda değiştirilmedi.
+
+## Otomatik tarama çıktıları
+
+`go.mod`/`go.sum` değişmedi. Diff'te gizli bilgi kalıbı yok.
+
+---
+
 # Güvenlik Raporu — P28f Kod turu 2 (düzeltme 1 doğrulaması) (dal p28f, HEAD 9bd019b, 2026-11-17)
 
 DURUM: DÜZELTİLMELİ — Kritik 0 / Yüksek 1 / Orta 0 / Düşük 0

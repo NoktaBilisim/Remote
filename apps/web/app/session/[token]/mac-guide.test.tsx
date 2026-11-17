@@ -22,11 +22,11 @@ describe("P28f MacGuide (AC-391, AC-396, S-P28f-8)", () => {
     expect(html).not.toContain('data-testid="mac-never-open-anyway"');
     expect(html).toContain('data-build="test"');
   });
-  it("üç izin (Ekran Kaydı / Erişilebilirlik / Mikrofon) ve doğrulama kodu + sunucu", () => {
+  it("iki izin (Ekran Kaydı / Erişilebilirlik; ses yok r3) ve doğrulama kodu + sunucu", () => {
     const html = guide(false);
     expect(html).toContain("Ekran Kaydı (gerekli)");
     expect(html).toContain("Erişilebilirlik (yalnız kontrol için)");
-    expect(html).toContain("Mikrofon (yalnız sesli görüşme için)");
+    expect(html).not.toContain("Mikrofon");
     expect(html).toContain("İzni verdim, yeniden başlat");
     expect(html).toContain("doğrulama kodu 4821, sunucu adresi destek.ornek.com");
     expect(html).toContain("klasör adındaki 8 haneli kodu yazın");
