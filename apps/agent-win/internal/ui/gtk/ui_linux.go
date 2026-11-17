@@ -174,6 +174,9 @@ func (u *UI) applyTheme() error {
 	return u.loadCSS()
 }
 
+// themeName sabit tema: GTK'nın gömülü kaynağı (dosya sisteminden yüklenmez; O-P28g-T2-1).
+const themeName = "Adwaita"
+
 var cssProvider uintptr
 
 func (u *UI) loadCSS() error {

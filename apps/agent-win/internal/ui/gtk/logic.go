@@ -78,9 +78,6 @@ func clean(s string) string {
 
 // --- tema (O-P28g-T2-1) -----------------------------------------------------------------------------------------------
 
-// themeName sabit tema: GTK'nın gömülü kaynağı (dosya sisteminden yüklenmez).
-const themeName = "Adwaita"
-
 // darkFrom XSETTINGS'ten okunan değerlerden yalnız bir bool türetir. GNOME 42/46 gsd-xsettings koyu tercihi GTK3'e
 // `Gtk/ApplicationPreferDarkTheme` olarak değil, yalnız `Net/ThemeName` ("Yaru-dark", "Adwaita-dark") olarak verir
 // (imajda doğrulandı); bu yüzden ad yalnız "-dark" son ekiyle bool'a çevrilir, tema içeriği asla yüklenmez.

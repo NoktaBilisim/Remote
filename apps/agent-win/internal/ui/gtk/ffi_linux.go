@@ -141,6 +141,7 @@ var (
 	gdkWindowGetState         func(w uintptr) uint32
 	gdkEventGetSourceDevice   func(ev uintptr) uintptr
 	gdkX11DeviceGetID         func(dev uintptr) int32
+	gdkX11WindowGetXID        func(w uintptr) uint64
 
 	cairoSetSourceRGBA  func(cr uintptr, r, g, b, a float64)
 	cairoSetOperator    func(cr uintptr, op int32)
@@ -176,10 +177,7 @@ var (
 )
 
 // gvalue GValue (GType + 2×8 bayt birlik); yalnız çağrı süresince Go belleğinde.
-type gvalue struct {
-	typ  uintptr
-	data [2]uint64
-}
+type gvalue [3]uint64
 
 const (
 	gTypeBoolean = 5 << 2
@@ -300,7 +298,7 @@ func gdkSyms() []sym {
 		{&gdkMonitorGetWorkarea, "gdk_monitor_get_workarea"}, {&gdkMonitorIsPrimary, "gdk_monitor_is_primary"},
 		{&gdkWindowRaise, "gdk_window_raise"}, {&gdkWindowIsViewable, "gdk_window_is_viewable"},
 		{&gdkWindowGetState, "gdk_window_get_state"}, {&gdkEventGetSourceDevice, "gdk_event_get_source_device"},
-		{&gdkX11DeviceGetID, "gdk_x11_device_get_id"},
+		{&gdkX11DeviceGetID, "gdk_x11_device_get_id"}, {&gdkX11WindowGetXID, "gdk_x11_window_get_xid"},
 	}
 }
 

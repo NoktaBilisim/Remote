@@ -4,6 +4,8 @@ package gtk
 
 import (
 	"context"
+	"fmt"
+	"time"
 
 	"remote-support/agent-win/internal/flow"
 	"remote-support/agent-win/internal/signal"
@@ -132,5 +134,54 @@ func (u *UI) closePortal() {
 	if u.portal != nil {
 		u.portal.destroy()
 		u.portal = nil
+	}
+}
+
+// PortalMonitors Wayland monitör listesi (K2 capture.Monitors portal diyaloğunu açar): önce "Sistem izin penceresi
+// açılıyor…" gösterilir, sonra open çağrılır. classify portal hatasını ayırır (capture.PortalError; missing =
+// portal.ErrUnavailable → A-PG-2 metni). Portal hatasında "Tekrar dene" döngüsü; "Oturumu bitir" → hata döner (akış
+// EvEnd'i de alır). Akış goroutine'inden çağrılır (engeller). Bağlama cmd/noktadestek'tedir.
+func (u *UI) PortalMonitors(ctx context.Context, open func() ([]signal.Monitor, error),
+	classify func(error) (isPortal, missing bool)) ([]signal.Monitor, error) {
+	for {
+		u.PortalOpening()
+		mons, err := open()
+		if err == nil {
+			u.PortalDone()
+			return mons, nil
+		}
+		isPortal, missing := classify(err)
+		if !isPortal || !u.PortalFailed(ctx, missing) {
+			u.PortalDone()
+			return nil, err
+		}
+	}
+}
+
+// PortalParent portal diyaloğunun üst penceresi ("x11:<XID>"; capture.ConfigureWayland'e verilir). Portal ekranı
+// yoksa oturum penceresi, o da yoksa "" (üst pencere yok). Ana döngü dışından çağrılır; en çok 2 sn bekler.
+func (u *UI) PortalParent() string {
+	ch := make(chan string, 1)
+	u.do(func() {
+		var w uintptr
+		switch {
+		case u.portal != nil && !u.portal.closed:
+			w = u.portal.win
+		case u.sess != nil && !u.sess.finished:
+			w = u.sess.f.win
+		}
+		id := ""
+		if gw := gtkWidgetGetWindow(w); w != 0 && gw != 0 {
+			if xid := gdkX11WindowGetXID(gw); xid != 0 {
+				id = fmt.Sprintf("x11:%x", xid)
+			}
+		}
+		ch <- id
+	})
+	select {
+	case id := <-ch:
+		return id
+	case <-time.After(2 * time.Second):
+		return ""
 	}
 }
