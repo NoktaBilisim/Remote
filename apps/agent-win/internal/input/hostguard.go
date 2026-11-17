@@ -15,10 +15,11 @@ import (
 //     Fare Tuşları'nın imlece çevirdiği tuşların basması düşer: tuş takımı (Numpad*, NumLock = Clear) ve tuş takımı
 //     olmayan klavyelerdeki karşılıkları (7 8 9 U I O J K L M .). Neden: DropMouseKeys.
 //   - İmleç bu sürecin pencerelerinden birinin (oturum penceresi, onay diyalogları; tıklama geçirgen gösterge ve TEST
-//     bandı hariç) çerçevesindeyken enjekte fare düğmesi basması ve tuş takımı basması düşer (ikinci katmanın pano
-//     anahtarı gibi her zaman görünen denetimlere genişletilmesi). Fare düğmesinde olayın düşeceği nokta (aynı
-//     enjeksiyondaki hareketin hedefi), tuş takımında imlecin o anki yeri denetlenir; imleç okunamazsa düşer.
-//     Neden: DropOwnWindow.
+//     bandı hariç) çerçevesindeyken enjekte fare düğmesi basması ve Fare Tuşları tuşlarının (yukarıdaki küme) basması
+//     ayar durumundan bağımsız düşer (ikinci katmanın pano anahtarı gibi her zaman görünen denetimlere genişletilmesi;
+//     Y-P28f-K1r: ayar önbelleği ve anahtar adı belirsizliği bu sınırda etkisiz). Fare düğmesinde olayın düşeceği
+//     nokta (aynı enjeksiyondaki hareketin hedefi), tuşlarda canlı imleç VE son enjekte hareket/tıklama hedefi
+//     denetlenir (biri pencerede ise düşer); imleç okunamazsa düşer. Neden: DropOwnWindow.
 //
 // Bırakmalar (bu alıcının basılı tuttuğu tuş/düğme) ve k.release_all hiç düşmez (S7-13).
 
@@ -89,24 +90,34 @@ func mouseKeysKey(code string) bool {
 }
 
 // hostDropLocked monitör kipinde HostProbe kuralları; düşerse nedeni sayar ve true döner. a.mu altında.
+// Hareket/tıklama hedefi son enjekte konum olarak saklanır (CGEventPost sonrası canlı imleç henüz güncellenmemiş olabilir).
 func (a *Applier) hostDropLocked(m Msg) bool {
-	if a.host == nil || m.Down == nil || !*m.Down {
+	if a.host == nil {
+		return false
+	}
+	var tx, ty float64
+	var tok bool
+	if m.T == "m.move" || m.T == "m.btn" {
+		if tx, ty, tok = a.point(*m.X, *m.Y); tok {
+			a.lastX, a.lastY, a.hasLast = tx, ty, true // düşse de saklanır (yalnız daha çok düşürür)
+		}
+	}
+	if m.Down == nil || !*m.Down {
 		return false
 	}
 	why := ""
 	switch m.T {
 	case "m.btn":
-		if x, y, ok := a.point(*m.X, *m.Y); ok && overOwnWindow(x, y) {
+		if tok && overOwnWindow(tx, ty) {
 			why = DropOwnWindow
 		}
 	case "k":
 		switch {
 		case mouseKeysKey(m.Code) && a.hostMouseKeysLocked():
 			why = DropMouseKeys
-		case keypadKey(m.Code):
-			if x, y, ok := a.host.Cursor(); !ok || overOwnWindow(x, y) {
-				why = DropOwnWindow
-			}
+		case mouseKeysKey(m.Code) && a.cursorOverOwnLocked():
+			// Y-P28f-K1r: ayar durumundan ve önbellekten bağımsız; pencerelerimizde bu tuşların meşru kullanımı yok.
+			why = DropOwnWindow
 		}
 	}
 	if why == "" {
@@ -114,6 +125,15 @@ func (a *Applier) hostDropLocked(m Msg) bool {
 	}
 	a.dropLocked(why)
 	return true
+}
+
+// cursorOverOwnLocked canlı imleç ya da son enjekte hedef pencerelerimizden birinde mi; imleç okunamazsa true. a.mu altında.
+func (a *Applier) cursorOverOwnLocked() bool {
+	if a.hasLast && overOwnWindow(a.lastX, a.lastY) {
+		return true
+	}
+	x, y, ok := a.host.Cursor()
+	return !ok || overOwnWindow(x, y)
 }
 
 // hostMouseKeysLocked Fare Tuşları durumu; en çok accessEvery'de bir okunur (Windows accessibility() kalıbı). a.mu altında.

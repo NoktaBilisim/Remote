@@ -102,6 +102,9 @@ type Applier struct {
 	altGrText bool
 	// host P28f Y-P28f-K1 (hostguard.go): macOS monitör kipi Fare Tuşları ve kendi pencere kuralları; Windows'ta nil.
 	host HostProbe
+	// lastX/lastY son enjekte hareket/tıklama hedefi (Y-P28f-K1r; yalnız host bağlıyken); SetTarget sıfırlar.
+	lastX, lastY float64
+	hasLast      bool
 }
 
 // NewApplier kapıya bağlı alıcı; kapı kapanınca basılı kalan tuş/düğmeler bırakılır.
@@ -120,6 +123,7 @@ func (a *Applier) SetTarget(mon, virt Rect) {
 	a.mu.Lock()
 	a.mon, a.virt, a.hasMon = mon, virt, mon.Right > mon.Left && virt.Right > virt.Left
 	a.scope = winScope{}
+	a.hasLast = false
 	a.resetShellLocked()
 	a.shiftRun = 0
 	a.mu.Unlock()

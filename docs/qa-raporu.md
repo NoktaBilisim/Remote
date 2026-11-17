@@ -1,3 +1,78 @@
+# QA Raporu — P28f Tur 2
+
+DURUM: DÜZELTİLMELİ
+
+Tarih: 2026-11-17 · Dal `p28f`, HEAD `9bd019b` (PR #24). Kapsam: "P28f Tur 1" m.1–m.8 kapanışı; düzeltmeler implementation.md "P28f düzeltme 1 (Go)" ve "(devops)". Kod değiştirilmedi.
+Not: denetim sırasında çalışma ağacında commit'lenmemiş başka ajan değişiklikleri vardı (`input/applier.go`, `input/hostguard.go`, `hostguard_test.go`, `agent-win.yml`, `guvenlik-raporu.md`). Yerel Go koşuları bu ağaçla yapıldı, CI sonuçları HEAD `9bd019b` için geçerli.
+
+## Test sonucu
+
+| Komut                                                                                             | Sonuç                                                                                                                                                                              |
+| ------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `cd apps/agent-win && ~/sdk/go1.26.11/bin/go test ./...` (darwin/arm64)                           | tüm paketler ok                                                                                                                                                                    |
+| `go test -count=1 -v ./...` (darwin) + workflow `zorunlu=` listesi                                | 42/42 zorunlu test `--- PASS`; SKIP 4 (`TestP28fK2Measure`, `…MeasureHeavyVT`, `TestAC117P28fQuarantineSpctl`, `TestP28dK0sCompilerMatchesInterpreter`; ölçüm/izin, uyarı kapsamı) |
+| docker `golang:1.26`: `go test ./... && GOOS=windows go vet ./... && GOOS=windows go build ./...` | yeşil                                                                                                                                                                              |
+| `pnpm -s format:check`                                                                            | temiz                                                                                                                                                                              |
+| `pnpm -r run lint/typecheck/test`                                                                 | bu turda yerelde koşulmadı (commit yalnız Go, workflow, shell ve belgeleri değiştirdi), CI'ya bakıldı                                                                              |
+| `gh pr checks 24` (denetim anı)                                                                   | 13 geçti, **2 kaldı**, 3 bekliyor (`web e2e`, `package-mac`, `go test (macOS) + iz testi`)                                                                                         |
+
+CI kırmızıları (ikisi de P28f diff'i dışında, zamanlama/yarış kaynaklı görünüyor; kanıt CI yeniden koşusu olmalı):
+
+- `go test (Windows)`: `internal/rtc` `TestAC375P28dAnswerOpusDirection/recvonly`: `rtc_test.go:159: AddRemoteICE: ICEAgent does not exist`. `internal/printing` Windows'ta **ok** (m.1 kapandı).
+- `test (MySQL 8.4)`: `apps/server/test/unit/rec-webm-dos.test.ts:94` "Y-P28e-K2-1 sık çıplak sihir (tracks) … oran < 15": `expected 18.48 to be less than 15` (server 1 kaldı / 672 geçti).
+
+## Tur 1 maddelerinin kapanışı
+
+| #                                                        | Durum            | Kanıt                                                                                                                                                                                                                                                                |
+| -------------------------------------------------------- | ---------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1 CRLF `boundary_test.go`                                | ✅               | `:215` `ReplaceAll("\r\n","\n")`; CI Windows `internal/printing ok`. Sonraki denetimler (`Count`/`Contains`, `parser`) satır sonundan bağımsız.                                                                                                                      |
+| 2 format                                                 | ✅               | `pnpm -s format:check` temiz; CI "lint + type-check" geçti                                                                                                                                                                                                           |
+| 3 ölü kod `LocalEvent`/`SetInjectMarker`/`SetLocalCheck` | ✅               | `git grep` apps/agent-win'de 0 eşleşme; implementation.md:14645 "KAPANDI … tek tanım `input.LocalClick`"                                                                                                                                                             |
+| 4 AC-105 güvenli giriş                                   | ✅               | `capture/env_darwin.go:53` `IsSecureEventInputEnabled` → `ElevatedForeground`; `TestAC105P28fSecureInputMapsToElevated` eşlemeyi (true → Elevated + SecureDesktop korunur, false → boş) ve bağlanmayı doğruluyor, PASS. Gerçek parola alanı ELLE (impl. "Elle (d)"). |
+| 5 bayat spike yolları                                    | ❌ kısmi         | Yalnız `mimari-p28f.md:350` ve `spike-p28f-k0s.md:29` güncellendi. Kalanlar aşağıda Düzeltilmeli 1. Bırakmaya dair gerekçe yok (Go bölümü "bu turun kapsamında değil" diyor).                                                                                        |
+| 6 görünür SKIP + zorunlu liste                           | ✅ (yerel)       | `agent-win.yml:834–875`: `-v`, `--- SKIP` → `::warning::` + step summary, 42 ad `^--- PASS:` denetimi, SKIP/eksik → `::error::`. 42 adın hepsi yerelde PASS. macos-15 runner sonucu bekleniyor.                                                                      |
+| 7 kılavuz/README/CHANGELOG/DATASHEET                     | K11'e devredildi | DURUM sebebi sayılmadı                                                                                                                                                                                                                                               |
+| 8 elle test (test-operatoru)                             | K11'e devredildi | DURUM sebebi sayılmadı                                                                                                                                                                                                                                               |
+
+## Kabul kriterleri
+
+| AC          | Durum | Not                                                                                                                                                    |
+| ----------- | ----- | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| AC-389..395 | ⚠️    | Otomatik kanıtlar Tur 1'deki gibi, AC-392'ye AC-105 güvenli giriş eklendi (m.4). Kalan kanıtsız maddeler ELLE / imza (m.8, R39): **K11'e devredildi**. |
+| AC-396      | ✅    | Tur 1 kanıtı; bu turda değişmedi                                                                                                                       |
+
+## Düzeltilmeli
+
+1. [backend-dev] m.5 kalanı. `docs/spike-p28f-k0s.md:30, :58, :260` ve `docs/implementation.md:14494, :14556, :14573, :14680, :14751, :14819` hâlâ `apps/agent-win/spike/p28f/` ve `--tmpfs /src/apps/agent-win/spike` diyor. Beklenen: yollar "repo dışı yerel arşiv" diye düzeltilsin, üç docker komutundan `--tmpfs …/spike` kaldırılsın, `:14556` K1 not 4'e "spike repodan çıkarıldı, yerel kırmızı yok" eklensin. Değiştirilmeyecekse gerekçe implementation.md'ye yazılsın (ör. "tarihsel kayıt").
+2. [devops] PR #24'te başarısız iki iş ("go test (Windows)", "test (MySQL 8.4)") yeniden koşulsun. Yeşil gelirse bu rapora not düşülsün. Aynı test yine kalırsa: [backend-dev] `apps/agent-win/internal/rtc/rtc_test.go:159` (`TestAC375P28dAnswerOpusDirection/recvonly`, ICE ajanı kapanmadan aday ekleme yarışı) ve [backend-dev] `apps/server/test/unit/rec-webm-dos.test.ts:94` (doğrusallık oranı < 15 CI'da 18,5). Testler kararlı hâle getirilsin, eşik gevşetilecekse gerekçe yazılsın.
+3. CI'da bekleyen `go test (macOS) + iz testi` (m.6 zorunlu liste ve SKIP uyarıları, macos-15 üzerinde), `package-mac` ve `web e2e` yeşil olmadan GEÇTİ verilemez. Bu bir geliştirici maddesi değil, bekleme koşulu.
+
+## Definition of Done
+
+| Madde                          | Durum            | Not                                                                                                                                       |
+| ------------------------------ | ---------------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
+| Testler yeşil                  | ❌               | yerel yeşil; CI 2 kaldı (Düzeltilmeli 2)                                                                                                  |
+| Lint / typecheck / format      | ✅               | CI "lint + type-check" geçti, format temiz                                                                                                |
+| CI yeşil                       | ❌               | 2 kaldı, 3 bekliyor                                                                                                                       |
+| Ölü kod yok                    | ✅               | m.3                                                                                                                                       |
+| Sapmalar gerekçeli             | ⚠️               | m.5 kalanı gerekçesiz. Fare Tuşları harf kapsamı ve gösterge hariç tutma gerekçeli. "Team ID farklıysa kontrol yok" ertelendi (gerekçeli) |
+| Yeni bağımlılık                | ✅               | yok                                                                                                                                       |
+| Gizli bilgi                    | ✅               | gitleaks geçti                                                                                                                            |
+| Dokümantasyon / test-operatoru | K11'e devredildi |                                                                                                                                           |
+
+## Öneriler (zorunlu değil)
+
+- Yeni izinsiz testler (`TestYP28fK1*`, `TestP28fExpectedTeamID`, `TestAC105P28fSecureInputMapsToElevated`) `zorunlu=` listesine eklensin (implementation.md önerisi).
+- macOS'ta `elevatedForeground` konsol metni Windows'a özgü ("Yükseltilmiş pencere"); K11'de platforma göre metin düşünülmeli.
+
+## Olumlu
+
+- `hostDropLocked` Windows'ta `HostProbe` nil olduğu için davranışı değiştirmiyor; Windows testleri docker'da ve CI'da (rtc dışında) yeşil.
+- Musluk kurulamazsa kapı açılmıyor ve GRANTED gitmiyor (`TestAC104DP28fK1ArmBeforeGateOpen`). Fail-closed korunuyor.
+- `build-darwin.sh` `-X` etkisini ikilide arayıp doğruluyor, sessiz başarısızlık yok.
+
+---
+
 # QA Raporu — P28f Tur 1
 
 DURUM: DÜZELTİLMELİ

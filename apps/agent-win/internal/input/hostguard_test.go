@@ -86,6 +86,7 @@ func TestYP28fK1OwnWindowDropsClickAndKeypad(t *testing.T) {
 		t.Fatal("basılı düğmenin bırakılması düşmemeli")
 	}
 	p.x, p.y = 600, 600
+	a.Handle([]byte(`{"t":"m.move","x":0.6,"y":0.6}`)) // son enjekte hedef de dışarıda
 	before := int(inj.n.Load())
 	a.Handle([]byte(`{"t":"k","code":"Numpad5","down":true}`))
 	if int(inj.n.Load()) == before {
@@ -129,5 +130,45 @@ func TestYP28fK1NoProbeAndMouseKeysState(t *testing.T) {
 		if got := mouseKeysState(c.readable, c.set, c.val); got != c.want {
 			t.Errorf("%+v → %v", c, got)
 		}
+	}
+}
+
+// Y-P28f-K1r (1): Fare Tuşları "kapalı" okunmuş olsa da (önbellek / anahtar adı belirsizliği) imleç pencerelerimizdeyken
+// Fare Tuşları harfleri (I = tıkla, 8, .) ve tuş takımı düşer; dışarıda harfler geçer.
+func TestYP28fK1rOwnWindowDropsMouseKeysLettersWhenOff(t *testing.T) {
+	p := &fakeProbe{mouseKeys: false, cursorOK: true, x: 150, y: 150}
+	a, inj, _ := hostApplier(t, p)
+	SetOwnWindows([]FRect{{X: 100, Y: 100, W: 200, H: 200}})
+	for _, c := range []string{"KeyI", "Digit8", "Period", "KeyM", "Numpad5"} {
+		a.Handle([]byte(`{"t":"k","code":"` + c + `","down":true}`))
+	}
+	if n := inj.n.Load(); n != 0 {
+		t.Fatalf("kendi pencerede %d olay enjekte edildi", n)
+	}
+	if p.reads != 1 || a.scopeDropped.Load() != 5 {
+		t.Fatalf("okuma=%d düşen=%d", p.reads, a.scopeDropped.Load())
+	}
+	p.x, p.y = 600, 600
+	a.Handle([]byte(`{"t":"k","code":"KeyI","key":"i","down":true}`))
+	if inj.n.Load() == 0 {
+		t.Fatal("imleç dışarıdayken harf geçmeli")
+	}
+}
+
+// Y-P28f-K1r (2): pencereye enjekte hareket + hemen Numpad5; canlı imleç henüz eski (dış) konumda → son hedef pencerede,
+// düşer.
+func TestYP28fK1rLastMoveTargetOverOwnWindow(t *testing.T) {
+	p := &fakeProbe{cursorOK: true, x: 600, y: 600}
+	a, inj, _ := hostApplier(t, p)
+	SetOwnWindows([]FRect{{X: 100, Y: 100, W: 200, H: 200}})
+	a.Handle([]byte(`{"t":"m.move","x":0.15,"y":0.15}`))
+	moved := inj.n.Load()
+	if moved == 0 {
+		t.Fatal("hareket enjekte edilmeli")
+	}
+	a.Handle([]byte(`{"t":"k","code":"Numpad5","down":true}`))
+	a.Handle([]byte(`{"t":"k","code":"KeyI","key":"i","down":true}`))
+	if inj.n.Load() != moved {
+		t.Fatal("son enjekte hedef pencerede: tuş takımı/Fare Tuşları harfi düşmeli")
 	}
 }

@@ -1,3 +1,94 @@
+# Güvenlik Raporu — P28f Kod turu 2 (düzeltme 1 doğrulaması) (dal p28f, HEAD 9bd019b, 2026-11-17)
+
+DURUM: DÜZELTİLMELİ — Kritik 0 / Yüksek 1 / Orta 0 / Düşük 0
+
+Kapsam: yalnız 9bd019b'deki değişiklik (Kod turu 1 bulguları Y-P28f-K1, D-P28f-K1..K3). Okunan: `internal/input/{hostguard,
+access_darwin,applier,host_darwin}.go`, `internal/flow/{control,flow}.go`, `cmd/noktadestek/{deps,main}_darwin.go`,
+`internal/ui/mac/{ui,runtime,form}_darwin.go`, `logic.go`, `internal/config/config.go`, `internal/capture/env_darwin.go`,
+`build/build-darwin.sh`, `.github/workflows/{agent-win,agent-watch}.yml` (ilgili satırlar).
+
+## Kod turu 1 bulgularının durumu
+
+| Bulgu     | Durum                     | Kanıt / not |
+| --------- | ------------------------- | ----------- |
+| Y-P28f-K1 | **Daraldı, kapanmadı** → Y-P28f-K1r | Fare Tuşları kuralı (`hostguard.go:102-105`, `access_darwin.go:75-101`) ve kendi pencere kuralı (`hostguard.go:98-110`, `ui_darwin.go:237-256`) eklendi; Applier'a bağlı (`deps_darwin.go:110`), Windows'ta `host=nil`. Açık kalan yol aşağıda |
+| D-P28f-K1 | Kapandı                   | `control.go:224` `controlReady → armControl → Granted → gate.Open`; `Host.Arm` musluğu kurar, `tapIsEnabled` ile doğrular, döngüyü bir kez döndürür, sonra true (`host_darwin.go:209-287`); zaman aşımında false → kapı açılmaz, OS_PERMISSION. Arm sonrası 2 sn içinde kapı açılmazsa musluk kalkar; geç açılışta `OnOpen` wake yolu yeniden kurar. `TestAC104TapLifecycleAndOwnEventsNotLocal` bu makinede **PASS** (SKIP değil). Not: bekleme döngüsünde (`:281-285`) `tapIsEnabled` yoklanmıyor; kapı açılınca ana döngü ilk dilimde yokladığından etkisi ≤ 50 ms, bulgu değil |
+| D-P28f-K2 | **Kapandı — Tur 1 bulgusu hatalıydı** | `agent-watch.yml` `hash-mac` işi (`:87-153`) 0d52fe8'de zaten vardı (`git log` dosyanın son değişikliği 0d52fe8): `AGENT_WATCH_MAC_URL`, `^[0-9a-f]{64}\s+\*?NoktaDestek-macOS-X.Y.Z\.zip$`, Release'te macOS satırı yoksa indirmeden `skip`, 503/uyuşmazlık/502-504 → issue. Tur 1 yalnız `hash` işine bakmıştı; devops değerlendirmesi doğru |
+| D-P28f-K3 | Kapandı (bant)            | `logic.go:83-85` bant: beklenen Team ID boş/farklı → görünür; `config.go:50-61` 10 karakter A-Z0-9; `build-darwin.sh:31-44` `case` doğrulaması + ikilide değer denetimi (yoksa sil, çıkış 2); `agent-win.yml:681-690` yalnız etikette + `vars.APPLE_TEAM_ID`; `sign-mac:1231` `build-meta` 4. satır = `APPLE_TEAM_ID`. "Team ID farklıysa kontrol izni verilmesin" kısmı yapılmadı; tur 1'de isteğe bağlıydı, bulgu değil |
+
+Ek (QA m.4) `env_darwin.go` `IsSecureEventInputEnabled` → `ElevatedForeground`: yalnız `env.state` bildirimi (`flow/control.go:329`),
+kapıyı/girdiyi etkilemiyor; sembol bağlanamazsa false (bilgi amaçlı, yakalamayı kapatmıyor). Güvenlik açısından sorun yok.
+
+## Bulgular
+
+### [YÜKSEK] Y-P28f-K1r Fare Tuşları önbellek penceresi + harf karşılıkları kendi pencere kuralının dışında — A01/A04 (Y-P28f-K1 kalıntısı)
+
+Yer:
+
+- `apps/agent-win/internal/input/hostguard.go:120-126` — `hostMouseKeysLocked` ayarı en çok 2 sn'de bir (`accessEvery`) ve
+  yalnız bir `mouseKeysKey` basmasında okur; arada ayar değişirse eski "kapalı" değer kullanılır.
+- `hostguard.go:103-110` — kendi pencere dalı yalnız `keypadKey` için çalışır. `KeyI` (Fare Tuşları: tıkla), `KeyM`, `Period`,
+  `Digit7..9`, `U O J K L` imleç pencerelerimizin üstündeyken **düşmez**. (`hostguard_test.go:41` KeyI'yi yalnız "Fare Tuşları
+  açık" durumunda sınıyor; "kapalı okunmuş + imleç kendi pencerede + KeyI" senaryosu test edilmiyor.)
+- `hostguard.go:107` — tuş takımı dalı canlı `Cursor()` okur, son enjekte hareket hedefini değil. Hareket `CGEventPost`
+  (`cgevent_darwin.go:220`) ile gider; "m.move → hemen Numpad5" sırasında imleç konumu henüz güncellenmemiş olabilir.
+
+İstismar senaryosu (kontrol GRANTED): teknisyen zararsız `J` gönderir → önbellek "kapalı" (t0) → enjekte tıklamalarla Sistem
+Ayarları'nda Fare Tuşları'nı açar → imleci (SCK'da görünmeyen ama konumu sabit) oturum penceresindeki pano anahtarına taşır →
+t0+2 sn dolmadan `I` gönderir. `I` ne Fare Tuşları kuralına (önbellek kapalı) ne kendi pencere kuralına (yalnız tuş takımı) takılır;
+Fare Tuşları sistem tıklaması üretir. Bu tıklamanın `localClick`'i geçip geçmediği hâlâ elle doğrulanmadı (tur 1 ile aynı
+belirsizlik). Geçerse `EvClipConsent{On:true}` ve müşteri panosu teknisyene akar. Tur 1'deki zincir daraldı ama kapanmadı.
+
+Ek koşul ("mouseDriver yoksa kapalı" kararı): yorum (`hostguard.go:128-135`) mantık olarak doğru ve fail-closed dalı da var
+(alan okunamazsa açık sayılır). Ancak tek başına güvenli değildir; anahtarın macOS 26'da Fare Tuşları açılınca gerçekten
+yazıldığı doğrulanmadı. Bu Mac'te (26.3.1) `mouseDriver` yok, alan okunabiliyor (164 satır). Durum geçmişi ise ayrı bir yapıda
+tutuluyor: `History.MouseKeys` (`State`, `Reason` kayıtları). Apple durumu başka anahtara taşıdıysa birinci katman sessizce
+"kapalı" der (fail-open). Bu durumda tek savunma kendi pencere kuralı kalır, o da yukarıdaki harf açığını taşır.
+
+Düzeltme (atanan ajan: backend-dev):
+
+1. Kendi pencere dalını tüm `mouseKeysKey` kümesine genişletin (`hostguard.go:106`: `keypadKey` → `mouseKeysKey`). Böylece
+   imleç pencerelerimizin üstündeyken Fare Tuşları tuşları ayar durumundan ve önbellekten bağımsız düşer. Pencerelerimizde
+   teknisyenin bu harfleri yazmasının meşru bir kullanımı yoktur. Bu tek değişiklik hem önbellek penceresini hem anahtar adı
+   riskini kendi pencere sınırında kapatır.
+2. Konum denetiminde canlı imlecin yanında son enjekte hareket hedefini de kullanın (`a.point` ile son `m.move`/`m.btn`
+   hedefi). İkisinden biri pencerede ise düşsün.
+3. Test: "MouseKeys=false, imleç kendi pencerede, KeyI/Digit8/Period → 0 enjeksiyon" ve "move(pencere) + Numpad5, Cursor()
+   eski konum → düşer".
+4. Elle test (a) (implementation "Elle" listesi) prod öncesi koşulsun. Fare Tuşları açıkken `defaults read
+   com.apple.universalaccess mouseDriver` = 1 olmalı. Değilse `MouseKeysOn` doğru anahtara (ör. `History.MouseKeys` son `State`
+   değeri veya güncel anahtar) taşınsın. Sonuç `docs/implementation.md`'ye yazılsın. (b) `localClick` alan değerleri
+   kaydedilsin. Madde 1-3 yapılırsa ve (a) anahtarı doğrularsa bulgu kapanır.
+
+## Otomatik tarama çıktıları
+
+- `go.mod`/`go.sum` 0d52fe8..9bd019b arasında değişmedi; tur 1 `govulncheck`/`pnpm audit` sonuçları geçerli.
+- Diff üzerinde gizli bilgi kalıbı (`api_key|secret|password|token = '…'`) → eşleşme yok.
+- `go test` (darwin/arm64, Go 1.26.11): `TestYP28fK1*` (4), `TestYP28fK1FlipRect`, `TestP28fTestBand`, `TestP28fExpectedTeamID`,
+  `TestAC105P28fSecureInputMapsToElevated`, `TestAC104DP28fK1ArmBeforeGateOpen`, `TestAC104TapLifecycleAndOwnEventsNotLocal` →
+  PASS. `TestYP28fK1MacProbeReads`: "Fare Tuşları açık=false".
+
+## Tasarımda vaat edilip kodda bulunmayanlar
+
+- Fare Tuşları / `localClick` elle testleri (implementation "Elle" (a)-(d), runbook §28f.6) hâlâ yapılmadı → Y-P28f-K1r m.4.
+
+## Olumlu
+
+- Kendi pencere çerçeveleri `u.forms` üzerinden tek yerde toplanıyor. Korunan tüm denetimler `form` pencerelerinde; tek `form`
+  dışı pencere tıklama geçirgen TEST bandı/gösterge paneli (`testband_darwin.go:109`), bu yüzden hariç tutulması doğru.
+  Göstergenin hariç tutulması da doğru: ekran boyunda ve tıklama geçirgen, koruduğu bir denetim yok. Çerçeveler gösterme,
+  kapanma, taşınma ve 1 sn tikte güncelleniyor. Kilit sırası tek yönlü (UI Applier kilidini almıyor).
+- `m.btn` her zaman önce `(x,y)`'ye taşıyıp basıyor (`applier.go:271-284`). Fare için olayın düşeceği noktanın denetlenmesi
+  bu yüzden doğru ve yarışsız. Bırakmalar ve `release_all` düşmüyor (S7-13).
+- Fare Tuşları okumasında her bağlama veya okuma hatası "açık" sayılıyor (fail-closed). Her okumadan önce
+  `CFPreferencesAppSynchronize` çağrılıyor.
+- Musluk kapıdan önce kuruluyor, kurulamazsa kapı hiç açılmıyor. `build-darwin.sh` `-X`'in sessizce etkisiz kalmasına karşı
+  ikilide değeri denetliyor.
+
+Öneri (`docs/gereksinimler.md` 9. bölüm "Sonra"): D-P28f-K3'ün "Team ID farklıysa kontrol izni verilmesin" kısmı.
+
+---
+
 # Güvenlik Raporu — P28f Kod turu 1 (macOS istemci) (dal p28f, HEAD 0d52fe8, PR #24, 2026-11-17)
 
 DURUM: DÜZELTİLMELİ — Kritik 0 / Yüksek 1 / Orta 0 / Düşük 3

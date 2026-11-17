@@ -15222,3 +15222,36 @@ Silinen: `TestSP28f1LocalEventRejectsOwnSynthetic` (`LocalEvent` ile; `zorunlu=`
 - (b) Fare Tuşları tıklamasında `localClick` alanları (PID, StateID, UserData) kaydedilmeli (güvenlik m.3b).
 - (c) Oturum penceresi taşınınca pano anahtarına enjekte tıklama düşmeli; pencere dışındaki tıklama geçmeli.
 - (d) Parola alanına odaklanınca konsol uyarısı ≤ 1 sn içinde görünmeli.
+
+> **P28f not (qa Tur 2 m.5):** P28f K1–K5 bölümlerinde geçen `apps/agent-win/spike/p28f` yolu ve `--tmpfs /src/apps/agent-win/spike` maskesi o anın kaydıdır; spike kodu 2026-11-17'de repodan çıkarıldı (geliştirme makinesinde yerel arşiv), maskeye artık gerek yoktur. Güncel test komutu maskesizdir.
+
+### P28f düzeltme 1 — güvenlik tur 2 (Y-P28f-K1r) (backend-dev Go, 2026-11-17)
+
+- **Kendi pencere kuralı Fare Tuşları kümesinin tamamına genişletildi** (`hostguard.go`): tuş takımı ve
+  `7 8 9 U I O J K L M .` imleç pencerelerimizin üstündeyken düşer. Bu, Fare Tuşları ayarından ve 2 sn önbellekten
+  bağımsızdır (`DropOwnWindow`). Böylece önbellek penceresi ve `mouseDriver` anahtar adı belirsizliği bu sınırda etkisiz
+  kalır. Bedeli: teknisyen pencerelerimize bu harfleri yazamaz; meşru bir kullanımı yok.
+- **Konum denetimi iki noktalı:** canlı imleç (`Cursor()`) ya da son enjekte `m.move`/`m.btn` hedefi
+  (`Applier.lastX/lastY`) pencerelerimizdeyse düşer. Gerekçe: `CGEventPost` sonrasında canlı imleç henüz güncellenmemiş
+  olabilir. İmleç okunamazsa yine düşer. `SetTarget` son hedefi sıfırlar.
+- **Testler:** `TestYP28fK1rOwnWindowDropsMouseKeysLettersWhenOff` (ayar kapalı okunmuş, imleç pencerede;
+  `KeyI`/`Digit8`/`Period`/`KeyM`/`Numpad5` → 0 enjeksiyon) ve `TestYP28fK1rLastMoveTargetOverOwnWindow` (pencereye
+  hareket + `Numpad5`/`KeyI`, canlı imleç eski konumda → düşer). `TestYP28fK1OwnWindowDropsClickAndKeypad` son hedefe göre
+  güncellendi.
+- **CI:** izinsiz koşan 10 test `agent-win.yml` `test-macos` `zorunlu=` listesine eklendi:
+  `TestYP28fK1MouseKeysDropsKeypad`, `TestYP28fK1OwnWindowDropsClickAndKeypad`, `TestYP28fK1NoProbeAndMouseKeysState`,
+  `TestYP28fK1rOwnWindowDropsMouseKeysLettersWhenOff`, `TestYP28fK1rLastMoveTargetOverOwnWindow`, `TestYP28fK1FlipRect`,
+  `TestYP28fK1MacProbeReads`, `TestAC104DP28fK1ArmBeforeGateOpen`, `TestP28fExpectedTeamID`,
+  `TestAC105P28fSecureInputMapsToElevated`.
+- **Elle (prod öncesi zorunlu, yapılmadı; sistem ayarı değiştirilmedi):**
+  - Fare Tuşları Sistem Ayarları'ndan açıkken `defaults read com.apple.universalaccess mouseDriver` = `1` olmalı.
+    Değilse `MouseKeysOn` doğru anahtara taşınmalı (ör. `History.MouseKeys` son `State`). Sonuç buraya yazılmalı.
+  - Bu Mac'te (macOS 26.3.1) anahtar yok ve alan okunabiliyor; durum geçmişi `History.MouseKeys` altında tutuluyor.
+  - Güvenlik m.4b (`localClick` alan değerleri) ve yukarıdaki "Elle" (a)–(d) maddeleri geçerli.
+- **Doğrulama:**
+  - Yerel `go test -count=1 ./...`: tüm paketler ok.
+  - darwin arm64/amd64 vet + build: temiz.
+  - Docker `go test ./... && GOOS=windows go vet && GOOS=windows go build`: çıkış 0.
+  - `gofmt -l`: boş.
+  - staticcheck 0.8.2 (darwin arm64/amd64, windows amd64/arm64): temiz.
+  - actionlint bu makinede kurulu değil. YAML değişikliği yalnız `zorunlu=` dizesine eklenen adlardan ibaret.
