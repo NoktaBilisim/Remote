@@ -596,3 +596,19 @@ Güvenlik ikinci bakışı için açık nokta kalmadı. Kalan tek doğrulama ger
 - **Yeniden adlandırma yeri:** `sanitizeFileName` değişmedi (sunucu CHECK ve web gönderim yolu etkilenmesin); ayrı
   `receivedFileName` / `files.ReceivedName` yalnız alıcı yolunda (Go istemci, her platform) uygulanır. `file.meta` diske yazılan adı
   taşır (mevcut davranış: çakışmada ` (n)` ekli ad da raporlanıyordu).
+
+### 15.2 K2/K3 uygulama notu (backend-dev, 2026-11-18)
+
+Ayrıntı ve gerekçe `implementation.md` "P28g K2/K3" sapmalar listesindedir; tasarıma etkisi olanlar:
+
+- **D-P28g-T2-4 kararı:** `PR_SET_DUMPABLE=0` yalnız X11'de açılışta (a). Wayland'de (a) ve (b) portal isteğini reddettiriyor
+  (`ErrDenied`) → uygulanmaz; `RLIMIT_CORE=0` kalır, apport istisnası kılavuza (K11).
+- **S-P28g-1 m.2 / §5.2a m.5:** `SettingChanged` aboneliği yerine kapı açıkken 1 sn yoklama. Portal Settings yoksa libgio yedeği
+  (şema önce `g_settings_schema_source_lookup` ile denetlenir). Başlangıç a11y durumu okunamazsa m.5 ret üretmez (X11'de m.3 asıl
+  ayırıcı).
+- **S-P28g-12:** Linux'ta her "kontrol koşulu yok" durumu (X11 dahil) `WAYLAND_NO_CONTROL` ile bildirilir; X11 için ayrı kaynak
+  K10'da değerlendirilecek.
+- **§5.2a m.3 Wayland:** XTEST kimlikleri XWayland'den açılışta bir kez okunur (XI2 izleyici yalnız X11'de çalışır).
+- **§5.2a m.4:** "enjektör duraklatılmış" = arayüz duraklatması (korunan diyalog açık) VEYA kapı kapalı (Applier enjekte
+  etmez). Kapı açıkken diyalog dışı korunan denetim (pano anahtarı, "Mikrofonu aç") yerel tıklamayla da reddedilir.
+- **Açık (mimar):** Linux'ta `SetAltGrText` bağlanmadı; Windows tarayıcısının sahte Ctrl'li AltGr dizisi kısayol yolundan gider.

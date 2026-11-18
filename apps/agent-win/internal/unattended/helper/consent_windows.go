@@ -47,6 +47,9 @@ type consentWin struct {
 }
 
 var (
+	// consentLabel sürüm etiketi (flow.VersionLabel(config.Version); 2026-11-18): pencere başlığının sonunda. Main bir
+	// kez, diyalog açılmadan önce yazar. ui/uicore bu pakete yasak (AC-341), biçim flow'dan gelir.
+	consentLabel  string
 	consentProcCB uintptr
 	consentCur    *consentWin // yalnız diyalog iş parçacığında (süreç başına tek diyalog)
 )
@@ -121,7 +124,7 @@ func (c *consentWin) build() bool {
 	tx := flow.UnattendedConsentTexts
 	style := uint32(win.WS_POPUP | win.WS_CAPTION | win.WS_SYSMENU)
 	ex := uint32(win.WS_EX_TOPMOST | win.WS_EX_CONTROLPARENT)
-	if c.h = win.CreateWindow(ex, consentClass, tx.Title, style, 0, 0, 10, 10, 0, 0); c.h == 0 {
+	if c.h = win.CreateWindow(ex, consentClass, consentTitle(tx.Title, consentLabel), style, 0, 0, 10, 10, 0, 0); c.h == 0 {
 		return false
 	}
 	dpi := int32(win.DPI(c.h))

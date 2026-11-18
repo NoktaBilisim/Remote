@@ -200,6 +200,11 @@ type Deps struct {
 	ArmControl func() bool
 	// AccessGuide ControlReady false olunca izin rehberini gösterir (macOS Erişilebilirlik; K4). nil olabilir.
 	AccessGuide func()
+	// NoControlSource P28g (mimari-p28g §4.2, S-P28g-12): ControlReady/ArmControl false olunca gönderilen VIEW kaynağı.
+	// Boş → "OS_PERMISSION" (macOS). Linux "WAYLAND_NO_CONTROL" verir (sunucu Linux'tan OS_PERMISSION'ı yok sayar).
+	NoControlSource string
+	// ControlLostText EvControlSystem'de durum satırı. Boş → MacTexts.ControlLost (macOS); Linux kilit/izin metni verir.
+	ControlLostText string
 	// AC-248 pencere modu: WindowCapture() true ve CaptureWindow/SetInputWindow doluysa paylaşım ekranında
 	// "Yalnız bir pencere" sunulur. SetInputWindow girdiyi o pencereye kapsar (S17-1).
 	WindowCapture  func() bool

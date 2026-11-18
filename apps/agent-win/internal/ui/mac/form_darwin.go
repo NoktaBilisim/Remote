@@ -43,7 +43,8 @@ var (
 )
 
 // newForm başlıklı, kapatılabilir (küçültülemez, boyutlanamaz; §5.2b) pencere. TEST bandı gerekiyorsa en üstte
-// kırmızı satır olarak eklenir ve içerik aşağı kayar (AC-390: her pencerenin üstünde).
+// kırmızı satır olarak eklenir ve içerik aşağı kayar (AC-390: her pencerenin üstünde). Başlıkta uygulama adının
+// yanında sürüm görünür (uicore.VersionedTitle, 2026-11-18); TEST bandı pencere içinde ayrı satırdır.
 func (u *UI) newForm(title string, w, h float64) *form {
 	top := 0.0
 	if u.band {
@@ -56,7 +57,7 @@ func (u *UI) newForm(title string, w, h float64) *form {
 	win.Send(objc.Sel("setReleasedWhenClosed:"), false)
 	win.Send(objc.Sel("setCanHide:"), false) // §5.2b
 	win.Send(objc.Sel("setHidesOnDeactivate:"), false)
-	win.Send(selSetTitle, nsstr(title))
+	win.Send(selSetTitle, nsstr(uicore.VersionedTitle(title, u.version)))
 	view := objc.ID(clsView).Send(selAlloc).Send(objc.Sel("initWithFrame:"), objc.CGRect{Size: objc.CGSize{W: w, H: h + top}})
 	win.Send(selSetContentView, view)
 	view.Send(selRelease)

@@ -29,6 +29,9 @@ type thread struct {
 	forms  map[uintptr]*form
 	done   chan struct{}
 	theme  themeState // AC-247; yalnız UI iş parçacığında
+	// version config.Version: newForm başlıklarında uygulama adının yanında gösterilir (uicore.VersionedTitle). Panel
+	// iş parçacığında boştur; servisui başlığı kendisi sürümler.
+	version string
 }
 
 var (
@@ -38,8 +41,8 @@ var (
 )
 
 // startThread UI iş parçacığını başlatır ve hazır olmasını bekler.
-func startThread() (*thread, error) {
-	t := &thread{forms: map[uintptr]*form{}, done: make(chan struct{})}
+func startThread(version string) (*thread, error) {
+	t := &thread{forms: map[uintptr]*form{}, done: make(chan struct{}), version: version}
 	theThread = t
 	ready := make(chan error, 1)
 	go func() {

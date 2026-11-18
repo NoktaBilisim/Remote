@@ -40,7 +40,7 @@ type form struct {
 
 func (u *UI) newForm(t string, width int32) *form {
 	f := &form{u: u, win: gtkWindowNew(gtkWindowToplevel)}
-	gtkWindowSetTitle(f.win, cstr(title(t, u.test, testText())))
+	gtkWindowSetTitle(f.win, cstr(u.winTitle(t)))
 	gtkWindowSetResizable(f.win, false)
 	gtkWidgetSetSizeRequest(f.win, width, -1)
 	gtkContainerSetBorderWidth(f.win, 16)

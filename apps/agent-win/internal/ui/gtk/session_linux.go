@@ -158,7 +158,7 @@ func (u *UI) sessionTick(s *sessionWin) {
 	}
 	if s.unread > 0 && gtkWindowIsActive(s.f.win) {
 		s.unread = 0
-		gtkWindowSetTitle(s.f.win, cstr(title(uicore.UnreadTitle(0), u.test, testText())))
+		gtkWindowSetTitle(s.f.win, cstr(u.winTitle(uicore.UnreadTitle(0))))
 		gtkWindowSetUrgencyHint(s.f.win, false)
 	}
 }
@@ -228,7 +228,7 @@ func (u *UI) chatLine(who, text string) {
 		u.appendLine(s, who, text)
 		if !gtkWindowIsActive(s.f.win) {
 			s.unread++
-			gtkWindowSetTitle(s.f.win, cstr(title(uicore.UnreadTitle(s.unread), u.test, testText())))
+			gtkWindowSetTitle(s.f.win, cstr(u.winTitle(uicore.UnreadTitle(s.unread))))
 			gtkWindowSetUrgencyHint(s.f.win, true)
 		}
 	})

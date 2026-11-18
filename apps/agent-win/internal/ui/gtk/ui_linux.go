@@ -38,6 +38,7 @@ type Options struct {
 type UI struct {
 	events  chan flow.Event
 	footer  string
+	version string // config.Version: pencere başlıklarında (uicore.VersionedTitle, 2026-11-18)
 	gate    *control.Gate
 	guard   ClickGuard
 	test    bool
@@ -86,7 +87,7 @@ func New(o Options) (*UI, <-chan flow.Event, error) {
 		gate = &control.Gate{}
 	}
 	u := &UI{events: make(chan flow.Event, 16), footer: uicore.FooterText(o.Host, o.Version, o.Fingerprint),
-		gate: gate, guard: o.Guard, test: testBuild(o.ServerURL, o.TestFlag), wayland: o.Wayland,
+		version: o.Version, gate: gate, guard: o.Guard, test: testBuild(o.ServerURL, o.TestFlag), wayland: o.Wayland,
 		forms: map[*form]bool{}, stop: make(chan struct{})}
 	if err := u.applyTheme(); err != nil {
 		return nil, nil, errors.Join(ErrNoGTK, err)
@@ -105,6 +106,11 @@ func (u *UI) Quit() {
 }
 
 func testText() string { return flow.LinuxTexts.TestBand }
+
+// winTitle pencere başlığı: uygulama adının yanında sürüm (2026-11-18), TEST derlemesinde sonda " — TEST".
+func (u *UI) winTitle(t string) string {
+	return title(uicore.VersionedTitle(t, u.version), u.test, testText())
+}
 
 // Events kullanıcı olayları (flow.Deps.Events).
 func (u *UI) Events() <-chan flow.Event { return u.events }

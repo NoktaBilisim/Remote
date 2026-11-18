@@ -67,3 +67,12 @@ func consentExit(dec string) uint32 {
 	}
 	return helperio.ExitConsentDenied
 }
+
+// consentTitle onay penceresinin başlığı (2026-11-18): diyalog başlığı + " — " + sürüm etiketi (flow.VersionLabel);
+// etiket boşsa başlık aynen. uicore.VersionedTitle'ın uygulama adı içermeyen başlık kuralıyla aynı çıktı.
+func consentTitle(title, label string) string {
+	if label == "" {
+		return title
+	}
+	return title + " — " + label
+}

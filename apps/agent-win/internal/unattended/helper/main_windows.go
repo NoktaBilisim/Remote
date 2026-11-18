@@ -42,6 +42,7 @@ func Main(cfg config.Config) int {
 	} else {
 		inc = nil
 	}
+	consentLabel = flow.VersionLabel(cfg.Version)
 	gate := desktop.NewGate()
 	fd, applier := flowDeps(cfg, inc, gate)
 	d := Deps{ShowIndicator: showIndicator, InputDesktop: desktop.InputName, Gate: gate, Resumed: applier.ReleaseAll,

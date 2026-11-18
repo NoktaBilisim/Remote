@@ -44,5 +44,12 @@ int main(void) {
     OFF(XIDeviceInfo, use);
     OFF(XIDeviceInfo, attachment);
     OFF(XIDeviceInfo, enabled);
+
+    /* K3 ekleri: XI2 izleyici kapanışı (ClientMessage) ve kapatma kısayolu GDK süzgeci (XKeyEvent). */
+    OFF(XClientMessageEvent, window);
+    OFF(XClientMessageEvent, format);
+    OFF(XKeyEvent, type);
+    OFF(XKeyEvent, state);
+    OFF(XKeyEvent, keycode);
     return 0;
 }

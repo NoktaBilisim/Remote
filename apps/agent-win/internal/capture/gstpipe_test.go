@@ -41,7 +41,8 @@ func TestAC399P28gPipelineWayland(t *testing.T) {
 }
 
 // T6 / S-P28g-4: şablondaki tüm öğeler beyaz listede; GPL/otomatik seçici yok; her yer tutucu sınırlı tamsayı.
-func TestAC398P28gPipelineAllowListAndBounds(t *testing.T) {
+// AC-398 / T6 / S-P28g-4 (K8a zorunlu adı): şablondaki öğeler beyaz listede, yasak öğe yok, dizgiye yalnız sınırlı tamsayı.
+func TestP28gK2PipelineElementsWhitelisted(t *testing.T) {
 	for _, s := range []pipeSpec{x11Spec(), {Wayland: true, FD: 3, Node: 1, OutW: 16, OutH: 16, BPS: 100_000, LowW: 16, LowH: 16}} {
 		d, err := buildPipeline(s)
 		if err != nil {
@@ -188,5 +189,15 @@ func TestAC398P28gMeasuredBitrate(t *testing.T) {
 	z := newBrCtl(2_000_000, t0)
 	if tg, _ := z.Add(10_000_000, t0.Add(time.Second)); tg != brFloor {
 		t.Fatalf("taban: %d", tg)
+	}
+}
+
+// §4.4 düşük akış: ana boyutun yarısı, çift ve alt sınırlı.
+func TestAC398P28gLowSize(t *testing.T) {
+	if w, h := lowSize(1280, 720); w != 640 || h != 360 {
+		t.Fatalf("%d×%d", w, h)
+	}
+	if w, h := lowSize(1, 1); w != minOutEdge || h != minOutEdge {
+		t.Fatalf("alt sınır %d×%d", w, h)
 	}
 }

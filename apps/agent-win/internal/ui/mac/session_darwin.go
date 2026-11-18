@@ -119,7 +119,7 @@ func (u *UI) newSessionWin(watch string) *sessionWin {
 	becameKey[f.win] = func() {
 		if s.unread > 0 {
 			s.unread = 0
-			f.win.Send(selSetTitle, nsstr(uicore.UnreadTitle(0)))
+			f.win.Send(selSetTitle, nsstr(uicore.VersionedTitle(uicore.UnreadTitle(0), u.version)))
 		}
 	}
 	f.win.Send(objc.Sel("setAutorecalculatesKeyViewLoop:"), true)
@@ -181,7 +181,7 @@ func (u *UI) chatLine(who, text string) {
 		u.appendLine(s, who, text)
 		if !sendBool(s.f.win, objc.Sel("isKeyWindow")) {
 			s.unread++
-			s.f.win.Send(selSetTitle, nsstr(uicore.UnreadTitle(s.unread)))
+			s.f.win.Send(selSetTitle, nsstr(uicore.VersionedTitle(uicore.UnreadTitle(s.unread), u.version)))
 			u.app.Send(objc.Sel("requestUserAttention:"), 10) // NSInformationalRequest
 		}
 	})

@@ -28,6 +28,7 @@ import (
 	"remote-support/agent-win/internal/signal"
 	"remote-support/agent-win/internal/tray"
 	"remote-support/agent-win/internal/ui"
+	"remote-support/agent-win/internal/ui/uicore"
 	"remote-support/agent-win/internal/voice"
 )
 
@@ -45,7 +46,7 @@ func (a *app) resident(u *ui.UI, client *api.Client, current *atomic.Pointer[tra
 			return a.store.LoadState()
 		},
 		StartTray: func() (tray.IconAPI, bool) { // G-P20-13: X ile tepsiye inen süreç de mutex'i almak zorunda
-			icon, lock, ok := acquireTray(a.writeDiag)
+			icon, lock, ok := acquireTray(a.writeDiag, a.cfg.Version)
 			if !ok {
 				return nil, false
 			}
@@ -106,7 +107,7 @@ func (a *app) scope(u *ui.UI, client *api.Client) tray.Scope {
 
 // acquireTray tek örnek mutex'i (G-P20-16 sahip denetimi) + simge. Başka sahipli mutex yok sayılır (diag; kilit nil).
 // Dönen kilidi çağıran süreç ömrü boyunca tutar ve çıkışta bırakır (S-P20-K3); simge eklenemezse kilit bırakılır.
-func acquireTray(writeDiag func(event, reason string)) (*tray.Icon, *tray.Lock, bool) {
+func acquireTray(writeDiag func(event, reason string), version string) (*tray.Icon, *tray.Lock, bool) {
 	lock, r := tray.Acquire()
 	switch r {
 	case tray.LockTaken:
@@ -114,7 +115,7 @@ func acquireTray(writeDiag func(event, reason string)) (*tray.Icon, *tray.Lock, 
 	case tray.LockForeign:
 		writeDiag(eventTrayMutexForeign, "")
 	}
-	icon, err := tray.Start(ui.SystemLogo())
+	icon, err := tray.Start(ui.SystemLogo(), uicore.VersionLabel(version))
 	if err != nil {
 		lock.Release()
 		return nil, nil, false

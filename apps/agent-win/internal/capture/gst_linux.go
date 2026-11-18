@@ -32,14 +32,14 @@ const (
 
 // mapInfo GstMapInfo (gstmemory.h): memory, flags, data, size, maxsize, user_data[4], _gst_reserved[4].
 type mapInfo struct {
-	memory  uintptr
-	flags   int32
-	_       int32
-	data    uintptr
-	size    uint64
-	maxsize uint64
-	user    [4]uintptr
-	res     [4]uintptr
+	_    uintptr // memory
+	_    int32   // flags
+	_    int32
+	data uintptr
+	size uint64
+	_    uint64     // maxsize
+	_    [4]uintptr // user_data
+	_    [4]uintptr // _gst_reserved
 }
 
 // gValue GValue (GType + 2 × 8 bayt veri); G_VALUE_INIT = sıfır.

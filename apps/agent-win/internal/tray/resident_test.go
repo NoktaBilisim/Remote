@@ -701,3 +701,25 @@ func TestP28dTrayVoiceTipAndMenu(t *testing.T) {
 		seen[k] = true
 	}
 }
+
+// Sürüm gösterimi (2026-11-18): ipucunda uygulama adının yerine sürüm etiketi; ses ipucu da etiketlenir.
+func TestShownTipVersionLabel(t *testing.T) {
+	const label = "Nokta Destek 0.20.0"
+	cases := []struct {
+		base      string
+		on, muted bool
+		label     string
+		want      string
+	}{
+		{Tip, false, false, label, "Nokta Destek 0.20.0"},
+		{TipSession, false, false, label, "Nokta Destek 0.20.0 — oturum sürüyor"},
+		{TipSession, true, false, label, "Nokta Destek 0.20.0 — Mikrofon açık"},
+		{Tip, true, true, label, "Nokta Destek 0.20.0 — Sessizde"},
+		{TipSession, false, false, "", TipSession},
+	}
+	for _, c := range cases {
+		if got := ShownTip(c.base, c.on, c.muted, c.label); got != c.want {
+			t.Errorf("ShownTip(%q, %v, %v, %q) = %q, beklenen %q", c.base, c.on, c.muted, c.label, got, c.want)
+		}
+	}
+}

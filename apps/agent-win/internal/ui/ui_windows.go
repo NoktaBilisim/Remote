@@ -124,7 +124,7 @@ type sessionWin struct {
 // New UI iş parçacığını başlatır. footer "Hakkında" satırıdır (alan adı + sürüm + parmak izi, AC-128). gate izin
 // kapısıdır: "Kontrolü kapat" onu UI iş parçacığında, akışı beklemeden kapatır (AC-101).
 func New(host, version, fingerprint string, gate *control.Gate) (*UI, error) {
-	t, err := startThread()
+	t, err := startThread(version)
 	if err != nil {
 		return nil, err
 	}

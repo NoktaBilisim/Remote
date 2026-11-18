@@ -4,9 +4,9 @@ package main
 
 import (
 	"context"
-	"errors"
 
 	"remote-support/agent-win/internal/api"
+	"remote-support/agent-win/internal/capture"
 	"remote-support/agent-win/internal/clipprint"
 	"remote-support/agent-win/internal/config"
 	"remote-support/agent-win/internal/control"
@@ -18,16 +18,9 @@ import (
 	"remote-support/agent-win/internal/voice"
 )
 
-// errNotYet K1 iskeleti: yeteneğin Linux uygulaması sonraki pakette (K2 yakalama, K5 dosya). Akış bunu mevcut hata
-// yolundan işler (yakalama hatası / dosya reddi); sessiz başarı yoktur.
-var errNotYet = errors.New("linux: bu yetenek henüz yok")
-
-func notYet() error { return errNotYet }
-
 // flowDeps Linux kod akışının bağımlılıkları (mimari-p28g §2; darwin kalıbı). Video VP8'dir (ADR-0038 m.3). K1'de
-// bağlanmayan özellikler bildirilmez (flow.Features): kontrol (Input/Hotkey boş → izin verilemez, G-21; K3),
-// roster/sunucu dosyası arayüzü (K4). Monitör/yakalama (K2) açık hata döner. Pano, yazdırma, ses, indirme dizini ve
-// MOTW karşılığı K5'te bağlandı (linuxClipPrintVoice).
+// bağlanmayan özellikler bildirilmez (flow.Features). K2 yakalama (capture), K3 girdi/kontrol (control_linux.go
+// linuxControl), K4 roster/sunucu dosyası arayüzü, K5 pano/yazdırma/ses/indirme dizini/MOTW (linuxClipPrintVoice).
 func flowDeps(cfg config.Config, fp string, client *api.Client, u flow.UI, events <-chan flow.Event,
 	gate *control.Gate) flow.Deps {
 	media, merr := rtc.NewMedia(rtc.VP8) // ana/düşük iz çifti (ADR-0035), Linux'ta VP8
@@ -40,8 +33,9 @@ func flowDeps(cfg config.Config, fp string, client *api.Client, u flow.UI, event
 			}
 			return rtc.New(ice, caps, h, media)
 		},
-		Monitors:    func() ([]signal.Monitor, error) { return nil, notYet() },
-		Capture:     func(int) (rtc.Source, error) { return nil, notYet() },
+		Monitors:    capture.Monitors, // K2: X11 GDK monitörleri; Wayland'de linuxControl portal ekranıyla sarar
+		Capture:     capture.Open,
+		EnvProbe:    capture.EnvProbe,   // K2: kilit ekranı → "Müşteri güvenli masaüstünde" (AC-105)
 		DownloadDir: files.DownloadsDir, // K5: XDG_DOWNLOAD_DIR → ~/Downloads → $HOME (saf Go)
 		MOTW:        files.ClearExec,    // K5 (T8): MOTW yok; 0644, yürütme biti yok, yoksa teslim edilmez
 		Logo:        client.Logo,        // AC-98: yalnız gömülü sunucu kökeni, PNG/JPG ≤ 2 MB
@@ -61,6 +55,7 @@ func flowDeps(cfg config.Config, fp string, client *api.Client, u flow.UI, event
 		d.FileServerUI = fs
 	}
 	linuxClipPrintVoice(&d, u) // K5: Features'tan ÖNCE
+	linuxControl(&d, u, gate)  // K3: Features'tan ÖNCE (Input/Hotkey boşsa kontrol bildirilmez)
 	features := flow.Features(d)
 	d.Dial = func(ctx context.Context, cred signal.Credential) (flow.Conn, error) {
 		return signal.Dial(ctx, client.HTTPClient(), cfg.ServerURL, cred, features)

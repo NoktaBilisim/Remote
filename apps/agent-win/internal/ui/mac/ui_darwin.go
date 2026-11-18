@@ -38,11 +38,13 @@ type UI struct {
 	app    objc.ID
 	events chan flow.Event
 	footer string
-	gate   *control.Gate
-	band   bool
-	dark   bool
-	forms  map[*form]bool
-	quit   func() // ön plandaki ekranın kapatma yolu (Cmd+Q, uygulama menüsü)
+	// version config.Version: pencere başlıklarında uygulama adının yanında (uicore.VersionedTitle, 2026-11-18).
+	version string
+	gate    *control.Gate
+	band    bool
+	dark    bool
+	forms   map[*form]bool
+	quit    func() // ön plandaki ekranın kapatma yolu (Cmd+Q, uygulama menüsü)
 
 	lobby, ended, licenses, about *form
 	sess                          *sessionWin
@@ -81,7 +83,7 @@ func New(o Options) (*UI, <-chan flow.Event, error) {
 		gate = &control.Gate{}
 	}
 	u := &UI{q: q, events: make(chan flow.Event, 16), footer: uicore.FooterText(o.Host, o.Version, o.Fingerprint),
-		gate: gate, forms: map[*form]bool{}, stop: make(chan struct{})}
+		version: o.Version, gate: gate, forms: map[*form]bool{}, stop: make(chan struct{})}
 	u.app = cls("NSApplication").Send(selSharedApp)
 	u.app.Send(objc.Sel("setActivationPolicy:"), nsRegular)
 	u.dark = isDark(u.app)

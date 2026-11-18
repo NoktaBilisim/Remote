@@ -4,6 +4,7 @@ package input
 
 import (
 	"sync"
+	"sync/atomic"
 	"time"
 	"unicode/utf16"
 	"unicode/utf8"
@@ -274,8 +275,12 @@ func (i *LinuxInjector) Inject(evs []Event) error {
 	if len(ops) == 0 {
 		return nil
 	}
+	lastInject.Store(time.Now().UnixNano())
 	return i.sink.apply(ops)
 }
+
+// lastInject son enjeksiyon anı (UnixNano; 0 = hiç). localClick m.4 (≥ 1,5 sn) okur.
+var lastInject atomic.Int64
 
 // scheduleLocked bütçe dolma anına zamanlayıcı kurar. i.mu altında.
 func (i *LinuxInjector) scheduleLocked(now time.Time) {

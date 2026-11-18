@@ -107,7 +107,8 @@ type Icon struct {
 	mu    sync.Mutex
 	hwnd  uintptr
 	hicon uintptr
-	tip   string // kapsamın ipucu (Tip / TipSession); görünen ipucu VoiceTip ile
+	tip   string // kapsamın ipucu (Tip / TipSession); görünen ipucu ShownTip ile
+	label string // sürüm etiketi (uicore.VersionLabel; 2026-11-18): ipucunun başındaki uygulama adının yerine
 	// P28d O-PD-3: mikrofon aygıtı açık (ipucu + menüde "Görüşmeyi bitir").
 	voice, muted bool
 	showMsg      uint32
@@ -122,9 +123,10 @@ var (
 )
 
 // Start simgeyi ekler. img simge resmidir (exe'de simge kaynağı yok; gömülü Nokta amblemi), nil ise Windows'un
-// varsayılan uygulama simgesi. Explorer henüz hazır değilse (oturum açılışı) simge TaskbarCreated ile eklenir.
-func Start(img image.Image) (*Icon, error) {
-	ic := &Icon{cmds: make(chan Command, 4), done: make(chan struct{}), tip: Tip}
+// varsayılan uygulama simgesi. label sürüm etiketidir (uicore.VersionLabel(config.Version)); ipucunda uygulama adının
+// yerine gösterilir. Explorer henüz hazır değilse (oturum açılışı) simge TaskbarCreated ile eklenir.
+func Start(img image.Image, label string) (*Icon, error) {
+	ic := &Icon{cmds: make(chan Command, 4), done: make(chan struct{}), tip: Tip, label: label}
 	ready := make(chan error, 1)
 	go func() {
 		runtime.LockOSThread()
@@ -193,7 +195,7 @@ func (ic *Icon) SetVoice(on, muted bool) {
 // showTip görünen ipucunu yazar. ic.mu altında.
 func (ic *Icon) showTip() {
 	n := ic.base(nifTip | nifShowTip)
-	copy(n.szTip[:], truncate(VoiceTip(ic.tip, ic.voice, ic.muted), len(n.szTip)))
+	copy(n.szTip[:], truncate(ShownTip(ic.tip, ic.voice, ic.muted, ic.label), len(n.szTip)))
 	notify(nimModify, &n)
 }
 
@@ -237,7 +239,7 @@ func (ic *Icon) add() {
 	n := ic.base(nifMessage | nifIcon | nifTip | nifShowTip)
 	n.uCallbackMessage = wmCallback
 	n.hIcon = ic.hicon
-	copy(n.szTip[:], truncate(VoiceTip(ic.tip, ic.voice, ic.muted), len(n.szTip)))
+	copy(n.szTip[:], truncate(ShownTip(ic.tip, ic.voice, ic.muted, ic.label), len(n.szTip)))
 	notify(nimAdd, &n)
 	v := ic.base(0)
 	v.uVersion = nimVersion4

@@ -20,6 +20,7 @@ var LinuxTexts = struct {
 	StopEnds       string // §14 m.8: Durdur paylaşımı ve oturumu bitirir
 	A11yChanged    string // §5.2a m.5 / S-P28g-3: a11y tıklama ayarı oturumda açıldı → korunan denetim reddeder
 	EndConfirm     string // S-P28g-8: oturum penceresi ✕ → onay
+	ControlLost    string // §5.2b m.1–2: kilit ekranı / kilit kısayolu koruması / portal izni → kontrol kapandı (EvControlSystem)
 
 	ProxyFailed string // D-P28g-T2-1: vekil hatası; vekil URL'si hiçbir metne yazılmaz
 	VoiceDevice string // K5: VoiceTexts.Device'ın Linux eşi (Windows gizlilik yolu Linux'a uymaz)
@@ -39,6 +40,7 @@ var LinuxTexts = struct {
 	StopEnds:      "Üst çubuktaki ekran paylaşımı simgesinden Durdur, paylaşımı ve oturumu bitirir",
 	A11yChanged:   "Erişilebilirlik ayarı oturum sırasında değişti; onay için oturumu yeniden başlatın",
 	EndConfirm:    "Oturumu bitir?",
+	ControlLost:   "Uzaktan kontrol kapatıldı: ekran kilitlendi ya da masaüstü kontrol iznini kaldırdı.",
 
 	ProxyFailed: "Vekil sunucuya bağlanılamadı",
 	VoiceDevice: "Mikrofonunuz açılamadı. Mikrofonun bağlı olduğunu ve Ayarlar > Ses altında giriş aygıtı olarak " +

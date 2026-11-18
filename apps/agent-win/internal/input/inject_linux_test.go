@@ -85,7 +85,8 @@ func TestAC49P28gTranslateMouse(t *testing.T) {
 	}
 }
 
-// AC-48: kısayol tuşları evdev, metin keysym; Win+L iletilmez.
+// AC-48: kısayol tuşları evdev, metin keysym; Win+L iletilmez. (`key` en çok 4 UTF-16 birimi: messages.go keyMaxU16;
+// değiştiricilerde konsol `key` göndermez.)
 func TestAC48P28gTranslateKeys(t *testing.T) {
 	g := &control.Gate{}
 	sink := &recSink{}
@@ -93,8 +94,8 @@ func TestAC48P28gTranslateKeys(t *testing.T) {
 	a.SetTarget(Rect{Right: 100, Bottom: 100}, Rect{Right: 100, Bottom: 100})
 	g.Open()
 	for _, m := range []string{`{"t":"k","code":"KeyS","key":"ş","down":true}`, `{"t":"k","code":"KeyS","key":"ş","down":false}`,
-		`{"t":"k","code":"ControlLeft","key":"Control","down":true}`, `{"t":"k","code":"KeyC","key":"c","down":true}`,
-		`{"t":"k","code":"KeyC","key":"c","down":false}`, `{"t":"k","code":"ControlLeft","key":"Control","down":false}`,
+		`{"t":"k","code":"ControlLeft","down":true}`, `{"t":"k","code":"KeyC","key":"c","down":true}`,
+		`{"t":"k","code":"KeyC","key":"c","down":false}`, `{"t":"k","code":"ControlLeft","down":false}`,
 		`{"t":"k","code":"MetaLeft","key":"Meta","down":true}`, `{"t":"k","code":"KeyL","key":"l","down":true}`} {
 		a.Handle([]byte(m))
 	}

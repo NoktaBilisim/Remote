@@ -16,15 +16,15 @@ TestP28gK1PostHandleTable
 TestAC398P28gK1EnvAllowList
 
 # K2 — yakalama (GStreamer, T6 / S-P28g-4 beyaz liste iki katman)
-TestP28gK2PipelineElementsWhitelisted bekleyen
-TestP28gK2GUIRuntimeWhitelist bekleyen
-TestP28gK2GUIXimagesrcVP8Frames bekleyen
-TestP28gK2GUIPortalFakeDBusStates bekleyen
+TestP28gK2PipelineElementsWhitelisted
+TestP28gK2GUIRuntimeWhitelist
+TestP28gK2GUIXimagesrcVP8Frames
+TestP28gK2GUIPortalFakeDBusStates
 
 # K3 — girdi (XTest, XI2, D-P28g-T2-2 ofsetler)
-TestP28gK3XI2OffsetsMatchHeaders bekleyen
-TestP28gK3GUIXTestClick bekleyen
-TestP28gK3GUIXTestDeviceRejected bekleyen
+TestP28gK3XI2OffsetsMatchHeaders
+TestP28gK3GUIXTestClick
+TestP28gK3GUIXTestDeviceRejected
 
 # K4 — arayüz
 TestP28gK4GUIWindowOpens

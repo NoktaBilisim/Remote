@@ -77,6 +77,9 @@ func run() int {
 	cleanup := func() { _ = os.RemoveAll(priv) }
 	defer cleanup()
 	applyEnv(priv, runtimeDir, uid)
+	if sessionKind(os.Getenv) == "x11" {
+		_ = disableDumpable() // §5.3 D-P28g-T2-4 (a): yalnız X11 (Wayland'de portal reddediyor; implementation.md)
+	}
 	watchSignals(cleanup)
 	if glib.Load() != nil {
 		return exitLibs
@@ -100,10 +103,11 @@ func run() int {
 }
 
 // newUI GTK arayüzü (internal/ui/gtk): XInitThreads → x11 arka ucu → gtk_init_check → sabit tema. localClick kararı
-// (gtk.ClickGuard) K3'ün input/localclick_linux.go'su bağlanana kadar nil → korunan denetimler reddeder (fail-closed).
+// (gtk.ClickGuard) K3'ün input.LinuxClickGuard'ıdır (gtkGuard uyarlayıcısı).
 func newUI(cfg config.Config, fp string, wayland bool, gate *control.Gate) (*gtk.UI, <-chan flow.Event, error) {
 	return gtk.New(gtk.Options{Host: cfg.DisplayHost(), Version: cfg.Version, Fingerprint: fp,
-		ServerURL: cfg.ServerURL.String(), TestFlag: cfg.TestBuild, Wayland: wayland, Gate: gate})
+		ServerURL: cfg.ServerURL.String(), TestFlag: cfg.TestBuild, Wayland: wayland, Gate: gate,
+		Guard: gtkGuard{clickGuard}}) // §5.2a m.3–m.5 (K3, control_linux.go)
 }
 
 // silenceStdio fd 1 ve 2 /dev/null'a yönlendirilir (dup3; fd'ler kapatılmaz, boşalan numara sokete verilmez). GLib

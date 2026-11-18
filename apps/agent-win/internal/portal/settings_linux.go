@@ -35,17 +35,72 @@ type LockGuard struct {
 func (g LockGuard) OK() bool { return g.Known && g.Shortcut && !g.Disabled }
 
 // ReadLockGuard iki ayarı portal üzerinden okur.
-func ReadLockGuard(b Bus) LockGuard {
-	owner, err := b.Owner(desktopName)
-	if err != nil || owner == "" {
-		return LockGuard{}
+func ReadLockGuard(b Bus) LockGuard { return ReadLockGuardWith(PortalReader(b)) }
+
+// Reader tek GSettings değerini okur (portal Settings.Read ya da libgio yedeği). Değer []string, string ya da bool.
+type Reader func(ns, key string) (any, error)
+
+// PortalReader portal Settings.Read okuyucusu (sahip her çağrıda yeniden sorulur).
+func PortalReader(b Bus) Reader {
+	return func(ns, key string) (any, error) {
+		owner, err := b.Owner(desktopName)
+		if err != nil || owner == "" {
+			return nil, errSetting
+		}
+		return readSetting(b, owner, ns, key)
 	}
-	keys, err1 := readSetting(b, owner, nsMediaKeys, keyLock)
-	off, err2 := readSetting(b, owner, nsLockdown, keyNoLock)
+}
+
+// Fallback ilk başarılı okuyucunun değeri (S-P28g-1 m.2: portal, şema sunulmuyorsa libgio). nil okuyucular atlanır.
+func Fallback(rs ...Reader) Reader {
+	return func(ns, key string) (any, error) {
+		for _, r := range rs {
+			if r == nil {
+				continue
+			}
+			if v, err := r(ns, key); err == nil {
+				return v, nil
+			}
+		}
+		return nil, errSetting
+	}
+}
+
+// ReadLockGuardWith iki ayarı r ile okur; biri okunamazsa Known=false (fail-closed).
+func ReadLockGuardWith(r Reader) LockGuard {
+	keys, err1 := r(nsMediaKeys, keyLock)
+	off, err2 := r(nsLockdown, keyNoLock)
 	if err1 != nil || err2 != nil {
 		return LockGuard{}
 	}
 	return lockGuardOf(keys, off)
+}
+
+// Erişilebilirlik tıklama ayarları (§5.2a m.5, S-P28g-3 m.1).
+const (
+	nsA11yMouse    = "org.gnome.desktop.a11y.mouse"
+	keyDwell       = "dwell-click-enabled"
+	nsA11yKeyboard = "org.gnome.desktop.a11y.keyboard"
+	keyMouseKeys   = "mousekeys-enable"
+)
+
+// A11yState bekleme tıklaması / Fare Tuşları durumu.
+type A11yState struct {
+	Known     bool
+	On        bool // ikisinden biri açık
+	MouseKeys bool // Fare Tuşları açık (Applier HostProbe)
+}
+
+// ReadA11y iki ayarı r ile okur.
+func ReadA11y(r Reader) A11yState {
+	a, err1 := r(nsA11yMouse, keyDwell)
+	b, err2 := r(nsA11yKeyboard, keyMouseKeys)
+	ab, ok1 := a.(bool)
+	bb, ok2 := b.(bool)
+	if err1 != nil || err2 != nil || !ok1 || !ok2 {
+		return A11yState{}
+	}
+	return A11yState{Known: true, On: ab || bb, MouseKeys: bb}
 }
 
 // lockGuardOf ayar değerlerinin yorumu: kısayol `as` (GNOME 42+) ya da eski `s`; lockdown `b`.

@@ -68,8 +68,10 @@ type form struct {
 	dark   bool
 }
 
-// newForm başlık çubuklu, boyutu değişmeyen pencere; görünür olmadan önce add + show çağrılır.
+// newForm başlık çubuklu, boyutu değişmeyen pencere; görünür olmadan önce add + show çağrılır. Başlıkta uygulama adının
+// yanında sürüm görünür (uicore.VersionedTitle, 2026-11-18).
 func (t *thread) newForm(title string, cw, ch int32, topmost bool) *form {
+	title = uicore.VersionedTitle(title, t.version)
 	f := &form{t: t, style: win.WS_CAPTION | win.WS_SYSMENU | win.WS_MINIMIZEBOX, ex: win.WS_EX_CONTROLPARENT, cw: cw, ch: ch}
 	if topmost {
 		f.ex |= win.WS_EX_TOPMOST

@@ -16,7 +16,7 @@ import (
 // ui/mac/logic.go'dan taşındı; davranış ve çıktı aynı). Satır sonu "\n".
 
 // AppTitle pencere başlıklarının ortak kökü.
-const AppTitle = "Nokta Destek"
+const AppTitle = flow.AppName
 
 // --- gösterge sağlığı (S-P28f-2, S-P28g-8) ---------------------------------------------------------------------------
 

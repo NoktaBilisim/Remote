@@ -211,10 +211,10 @@ func rgb(c uicore.RGB) (float64, float64, float64) {
 	return float64(c.R) / 255, float64(c.G) / 255, float64(c.B) / 255
 }
 
-// sharedHere paylaşılan monitör bu pencere mi. signal.Monitor.ID GDK monitör sırasıdır (x11.Monitors sırası, K2);
-// aralık dışı ya da Wayland (portaldan tek akış) → ilk monitör.
+// sharedHere paylaşılan monitör bu pencere mi. signal.Monitor.ID 1 tabanlı GDK monitör sırasıdır (capture.Monitors:
+// ID = x11.Monitors dizini + 1, K2); aralık dışı ya da Wayland (portaldan tek akış) → ilk monitör.
 func (ind *indicator) sharedHere(o *overlay) bool {
-	i := ind.shared.ID
+	i := ind.shared.ID - 1
 	if ind.shared.W == 0 || i < 0 || i >= len(ind.list) {
 		i = 0
 	}

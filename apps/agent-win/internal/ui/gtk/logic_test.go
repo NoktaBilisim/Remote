@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"remote-support/agent-win/internal/flow"
+	"remote-support/agent-win/internal/ui/uicore"
 )
 
 type fakeGuard struct{ ok, a11y bool }
@@ -152,5 +153,13 @@ func TestAC399P28gK4HotkeyAndClean(t *testing.T) {
 	}
 	if monitorLabel("DP-1", 1920, 1080, true) != "DP-1 — 1920×1080 (birincil)" {
 		t.Fatal("monitör")
+	}
+}
+
+// Sürüm gösterimi (2026-11-18): sürüm uygulama adının yanında, TEST eki sonda (çakışmaz).
+func TestVersionTitleWithTest(t *testing.T) {
+	got := title(uicore.VersionedTitle(uicore.UnreadTitle(2), "0.20.0"), true, flow.LinuxTexts.TestBand)
+	if got != "(2 yeni) Nokta Destek 0.20.0 — Oturum — "+flow.LinuxTexts.TestBand {
+		t.Fatalf("başlık %q", got)
 	}
 }

@@ -69,9 +69,19 @@ func reexec() error {
 	return syscall.Exec("/proc/self/exe", []string{argv0}, filterEnv(os.Environ()))
 }
 
-// disableCoreDumps D-P28g-T2-4: RLIMIT_CORE=0 koşulsuz (exec'te korunur). PR_SET_DUMPABLE ölçümü K2'de.
+// disableCoreDumps D-P28g-T2-4: RLIMIT_CORE=0 koşulsuz (exec'te korunur). PR_SET_DUMPABLE: disableDumpable.
 func disableCoreDumps() error {
 	return syscall.Setrlimit(syscall.RLIMIT_CORE, &syscall.Rlimit{})
+}
+
+// disableDumpable prctl(PR_SET_DUMPABLE, 0) (§5.3, D-P28g-T2-4 ölçümü (a)): yalnız X11 oturumunda açılışta. Wayland'de
+// xdg-desktop-portal `/proc/<pid>` okuyamadığından portal isteği reddediyor (ErrDenied) → orada uygulanmaz.
+func disableDumpable() error {
+	const prSetDumpable = 4
+	if _, _, e := syscall.RawSyscall(syscall.SYS_PRCTL, prSetDumpable, 0, 0); e != 0 {
+		return e
+	}
+	return nil
 }
 
 // sessionKind oturum türü (§2): WAYLAND_DISPLAY doluysa Wayland, değilse DISPLAY ile X11, ikisi de yoksa "".

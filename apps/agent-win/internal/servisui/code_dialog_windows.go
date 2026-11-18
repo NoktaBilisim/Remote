@@ -8,6 +8,7 @@ import (
 
 	"remote-support/agent-win/internal/servis"
 	"remote-support/agent-win/internal/ui"
+	"remote-support/agent-win/internal/ui/uicore"
 	"remote-support/agent-win/internal/win"
 )
 
@@ -34,6 +35,8 @@ type InstallDialog struct {
 	p    *ui.Panel
 	res  chan codeResult
 	busy atomic.Bool // kayıt sürüyor: düğmeler ve kapatma yok sayılır
+	// Version config.Version: pencere başlığında uygulama adının yanında (uicore.VersionedTitle, 2026-11-18).
+	Version string
 }
 
 // AskCode kayıt kodunu sorar; prev önceki denemenin hata metnidir. false: vazgeçildi.
@@ -63,7 +66,7 @@ func (d *InstallDialog) open() error {
 			p.Close()
 		}
 	}
-	p, err := ui.OpenPanel(ui.PanelSpec{Title: Title, W: 460, H: 236, Focus: idCode, Items: codeItems(),
+	p, err := ui.OpenPanel(ui.PanelSpec{Title: uicore.VersionedTitle(Title, d.Version), W: 460, H: 236, Focus: idCode, Items: codeItems(),
 		OnCommand: func(p *ui.Panel, id int) {
 			switch {
 			case d.busy.Load():
