@@ -15556,3 +15556,9 @@ süzgeçli → sohbet satırı imkânsız (yukarıdaki tablo).
   `crypto-decrypt` alarmı bütün `table` serilerini toplar.
 - **Açık (yapılmadı, tur sınırı):** `remote-watch.sh` `session-chat-internal` kontrolü (mimari §7.2 alarm kuralı) + `test-watch.sh`;
   tasarım runbook §29.7'de. `test-watch.sh` mevcut hâliyle yerelde GEÇTİ (değişiklik yok). Staging seed + alarm provası DENENMEDİ.
+- **P22-O ek (alarm):** `deploy/ops/remote-watch.sh` `session-chat-internal` — alan 38 bütün `rs_session_chat_rejected_total` (P22
+  işareti), alan 39 `{reason="internal"}`; `bump` ile son turdan beri artış → artıştan sonra 1 sa alarm (tasarımdaki "5 dk" timer 10 dk
+  olduğundan bir tur; sapma bilinçli), ilk turda taban 0, durum anahtarı `chat_internal`, eşik ayarı yok. `deploy/ops/test-watch.sh`:
+  P22 senaryoları (öncesi/temiz/kullanıcı reddi/ilk artış/1 sa sürme ve kalkma/yeniden başlama/S14-2 enjeksiyon), ayrıştırma
+  beklentileri (+2 alan), `rs_session_chat_*` ad eşlemesi `ops/metrics.ts`'e karşı. Yerel `test-watch.sh` GEÇTİ, shellcheck (CI
+  komutu, `-S warning`) temiz. Runbook §29.5/§29.7 güncellendi; prova ana oturum dağıtımında (DENENMEDİ).

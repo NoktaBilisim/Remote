@@ -11741,3 +11741,113 @@ P22-Q'da kodda doğrulanacaklar: 4426 kapısının yükseltme sonrası ve yalnı
 Özet (r2): Kritik 0 / Yüksek 0 / Orta 0 açık / Düşük 0 açık (artık riskler ADR-0025 r2'de kabul, Sonra maddeleri tarihli).
 
 DURUM: GEÇTİ
+
+## P22-Q — Kod güvenlik denetimi Tur 1 (2026-11-18)
+
+Kapsam: `git diff main...HEAD` (dal `claude/p22-06bd24`, HEAD 7039378): `apps/server` (signaling/chat.ts, sessions/chat.ts,
+history-chat.ts, ws-auth.ts, handlers.ts, active.ts, member-life.ts, retention-repo.ts, requests/messages.ts, lib/ws-budget.ts),
+`apps/web` (sohbet paneli, geçmiş sohbeti, legacy-notice, use-collab), `packages/contracts` (ws-chat, chat, ws, permissions,
+ws-multi), migration `20261126000000_p22_session_chat`. Go istemci (P22-G) bu turda yok.
+
+Özet: Kritik 0 / Yüksek 0 / Orta 0 / Düşük 3
+
+### P22-0 / r2'de "kodda doğrulanacaklar"
+
+| Madde | Kanıt | Sonuç |
+| --- | --- | --- |
+| 4426 yalnız `/ws/tech`, yükseltmeden sonra | `ws-auth.ts:142-147` `consoleOutdated`; çağrı yalnız `openTech` (`:150`) ve `memberUpgrade` accept geri çağrısında (`:106`, odaya bağlanmadan ve `joinSyncCheck`'ten önce → canlı sekme REPLACED ile düşmez, rezervasyon tüketilmez). `/ws/guest`, `/ws/request`, `/ws/panel` yollarında yok (`grep CONSOLE_OUTDATED`). Web her konsol soketinde `rs.cap.schat1` gönderir (`lib/rec/support.ts:37`) | Doğrulandı |
+| `fitNewest` çerçeve zarfını sayar | `lib/ws-budget.ts:15` zarf = boş çerçevenin `more` true/false en büyüğü; öğe + virgül; `:26` gerçek çerçeveyle son doğrulama. `peer.send` = `JSON.stringify(m)` (`lib/ws-upgrade.ts:12`) → ölçülen = gönderilen. `chat.ts:424-425` aynı `frame` biçimi; P18 `messages.ts` `request.messages` aynı yardımcı. Birim testi `ws-budget-p22.test.ts` 4/4 geçti | Doğrulandı |
+| Retention bütçesi TX içi aday sorgusunu sınırlar | `retention-repo.ts:97-106`: TX öncesi `COUNT … GROUP BY session_id`, `trimByMessageBudget` (en az 1); TX içi `findMany({ where: { ...where, id: { in: picked } } })`; `beforeTx` de yalnız `picked`; DELETE `anonymized_at IS NOT NULL` join'li ve UPDATE'ten sonra; döngü `more` ile sürer (`retention.ts:238`) | Doğrulandı |
+| Özet tüm bitiş yollarında | ACTIVE→bitiş yolları: `rooms.finish`→`recordEnded` (`active.ts:212-229`, `chatSettled` beklenir; `endByTechnician`, `endByTenant`, cihaz `endDeviceRoom` hepsi `finish`'ten geçer), yönetici `terminateSession` (`sessions/service.ts:253`), başlangıç süpürücüsü `endOrphanedActive` (`:262-272`, oturum başına TX). Diğer CANCELLED/EXPIRED yolları (`requests/cancel.ts`, `tenants/repo.ts:73`, `users/repo.ts:160`, `rooms-device.ts:66`, `unattended/policy.ts:152`) yalnız PENDING'e dokunur — PENDING'de sohbet satırı olamaz (INSERT `status='ACTIVE'` koşullu). `admit-device.ts:198` `lateEnd` gözetimsiz odadır (sohbet yok). `writeChatSummary` tekrar yazmaz | Doğrulandı (S-P22-Q-2 küçük yarış) |
+| P18 okuma `decryptRow`'a geçti | `requests/messages.ts` `decrypt` → `sessions/chat.ts:51` `decryptRow` (AAD `requestId ?? sessionId`); `rowSelect` += `sessionId`; eski `r.requestId ?? ""` kaldırıldı | Doğrulandı |
+
+### Bulgular
+
+### [DÜŞÜK] S-P22-Q-1 Üye katılım audit'i sohbet geçmişi DB okumasına ertelendi — A09 Logging Failures
+Yer: `apps/server/src/signaling/member-life.ts:89,101-104` (`joinAudit` → `history.then(joinAudit)`), `signaling/chat.ts:414-428`.
+Sorun: P28c'de senkron yazılan `session.participant_join` / `session.supervise_join` audit'i artık odanın sohbet zincirindeki geçmiş
+okumasından sonra yazılıyor. Zincir önceki bir INSERT/DB çağrısında asılı kalırsa (Prisma sorgu zaman aşımı yok) katılım izi gecikir;
+bu arada süreç çökerse **hiç yazılmaz** — izleyici/davetli oturumu izlemiş ama audit'te yok (özellikle `silent` kipte dört göz kanıtı).
+İstismar senaryosu: kasıtlı değil; yoğun DB veya kilit beklemesi anında süpervizör katılır, süreç yeniden başlar → katılım kaydı kayıp.
+Düzeltme: katılım audit'ini eskisi gibi hemen (senkron, `chatHistory` olmadan) yaz; geçmiş gönderildikten sonra sayıyı ayrı gövdesiz
+satırla (`session.chat_history_sent {n}`, üye başına 1) ya da audit `new_value`'ya `chatHistory: null` + ayrı satırla ekle. En azından
+`history` sözüne zaman sınırı (ör. 5 sn → `chatHistory: -1`) konsun. Test: zincire asılı iş enjekte → katılım audit'i yine anında var.
+(atanan: backend-dev)
+
+### [DÜŞÜK] S-P22-Q-2 Yönetici sonlandırmada özet, uçuştaki `session.chat_legacy` audit'ini beklemiyor — A09
+Yer: `apps/server/src/sessions/service.ts:238-255` (`terminateSession`; `chatSettled` yok), karşılaştır `signaling/active.ts:212`.
+Sorun: `session.chat_legacy` kabul anında oda zincirinde (`chat.ts:372-382`) yazılır. Admin kabulden hemen sonra sonlandırırsa özet TX'i
+bu satırı görmeden `legacy:false` (mesaj yoksa hiç) yazar; `writeChatSummary` ikinci kez yazmadığı için düzeltilmez. Oturum detayı
+`legacy`'yi `chat_legacy` satırından türettiği için (`history-detail.ts:189`) asıl kanıt kaybolmaz; yalnız özet tutarsız kalır.
+Düzeltme: `terminateSession` TX'inden önce `rooms?.settleChat(id)` (oda varsa `chatSettled(room)`) beklensin; ya da özetin `legacy`
+alanı her okumada `chat_legacy`'den türetildiği için özetten kaldırılsın. Test: kabul + anında admin sonlandırma → özet `legacy:true`.
+(atanan: backend-dev)
+
+### [DÜŞÜK] S-P22-Q-3 Oturum mesaj tavanı TECH **kullanıcı** başına → oturum başına toplam sınırsız; retention "tek oturum ≤ ~10.000" varsayımı — A04
+Yer: `signaling/chat.ts:134,258` (`tech:<userId>` anahtarı, 2.000), `jobs/retention-repo.ts:38-48` (`trimByMessageBudget` ilk oturumu
+bütçeyi aşsa da alır).
+Sorun: `MAX_TECHS` eşzamanlı üye sayısını sınırlar; devir (`transfer`) ve üye çık/gir ile oturum ömrü boyunca farklı kullanıcılar
+katılabilir, her biri 2.000 mesaj. Firma içi kötü niyetli kullanıcılar (birden çok hesap) tek oturuma on binlerce satır yazabilir →
+o oturumun anonimleştirme TX'i tek başına 10 sn sınırını aşar, aynı oturum her gece başa döner (S-P22-3'ün tek-oturum biçimi).
+Gerçekçi risk düşük (firma içi, çok hesap, oturum ≤ azami süre, 5/sn kova → kullanıcı başına ~7 dk).
+Düzeltme: oturum başına toplam tavan (ör. `SESSION_CHAT_CAP_TOTAL = 10_000`, tüm gönderenler; `seedCounts` toplamı) → `cap`; ya da
+retention'da bütçeyi aşan tek oturumun mesajları TX'ten önce ayrı partilerle (`DELETE … LIMIT 5000` döngüsü, `anonymized_at` sonrası
+tetikleyici izni gerektirir → dba) silinsin. İlki daha basit. (atanan: backend-dev; dba bilgi)
+
+### Değerlendirilen ve sorun bulunmayanlar
+
+- **IDOR (REST):** `GET /sessions/:id/chat` (`routes.ts:150-157`): `requireAuth` (plugin `preHandler`, `:66`) → `session_history.view` +
+  `sessions.view_chat` → `historyScope` (USER = kendi `technicianId`, tenant zorunlu; SA yalnız tenant'sız oturumda `all`) →
+  `findFirst({...historyWhere(scope), id})` yoksa 404. Satırlar `sessionId + tenantId + requestId:null`; `after` aynı oturum+tenant'ta
+  aranır, yoksa yok sayılır (`chat.ts:111-113`). Talep bölümü `tenantId + anonymizedAt:null` (`history-chat.ts:73`). Yanıtta
+  `senderUserId` yok. `Cache-Control: no-store`, 60/dk/kullanıcı, `chat_viewed` audit gövdesiz. Detayda `chat` alanı yalnız `view_chat`
+  sahibine (`history.ts:93`).
+- **Sender sahteciliği / başka oturuma yazım:** `chat.send` şeması `z.strictObject{t, clientMsgId, body}`; `sender`, `senderUserId`,
+  `sessionId`, `tenantId` soket/koltuktan (`techWho`/`guestWho`); INSERT `… FROM support_sessions WHERE id AND tenant_id AND status='ACTIVE'`
+  parametreli `$executeRaw` (enjeksiyon yok). TECH yinelenende `sender_user_id` farklıysa `invalid` (`sessions/chat.ts:223`).
+- **Yetenek belirteci düşürme:** misafir `schat1` bildirmezse `chat.send` şema dışı → 1008 (bit 64, `ws.ts` `guestInboundSchemaFor`),
+  oda `guestChat="outdated"` → teknisyen `chat.send` `outdated`, satır 0, yayın 0 (`chat.ts:243`); `chat.*` yalnız `hasSessionChat`
+  misafire (`fanOut`, `reject`, `chatRoomClosed`). Gözetimsiz odada `schatOf` atanmaz, kapı `forbidden`. Konsol düşürmesi 4426.
+- **Rol kapısı:** `ROLE_MAY["chat.send"] = "talker"` (`ws-multi.ts:157`), izleyici → `chat.rejected{forbidden}` soket açık
+  (`handlers.ts:137-141`); lobi misafiri `forbidden` (`:293-295`); kabul edilmemiş misafirin diğer tipleri 1008 aynen. Geçmiş yalnız
+  `seatOf ≠ null` teknisyene ve `admitted.peer === peer` misafire, okuma sonrası yeniden denetimle (`chat.ts:351,365,419-421`).
+- **Gövde doğrulama / XSS:** `chatBodySchema` (`contracts/chat.ts:33-41`) Cc/Cf/Zl/Zp (bidi, U+2028/2029) yasak, NFC, isWellFormed,
+  ≤ 1.000 kod noktası, ≤ 20 satır, ham ≤ 4.000. Web diff'inde `dangerouslySetInnerHTML`/`innerHTML` yok; gövde metin düğümü +
+  `whitespace-pre-wrap` (`chat-panel.tsx:127-129`, `history/[id]/chat.tsx:156`), otomatik bağlantı yok. `senderName` `displayName`
+  süzgeci ≤ 100.
+- **Hız/DoS:** genel soket kovası + boyut önce (`handlers.ts:98-100`), gönderen 5/sn kayan, firma müşteri 600/dk, gönderen tavanı
+  DB'den tohumlanır, oda zinciri seri. Geçmiş ≤ 48 KiB. P18 `request.messages` artık ≤ 48 KiB (mevcut hata kapandı).
+- **Şifreleme AAD:** yazım `aadFor.sessionMessage(tenant, sessionId, id)`, okuma `requestId ?? sessionId` — oturum satırında
+  `request_id` NULL olduğundan eşit; çözme hatası `null` + metrik + gövdesiz alarm logu.
+- **Retention + tetikleyici:** DELETE aynı TX'te UPDATE'ten sonra, join `anonymized_at IS NOT NULL` → tetikleyici koşulu sağlanır;
+  migration yalnız UQ (INPLACE/LOCK=NONE, ön kontrol, tetikleyici/grant değişmez).
+- **Log/metrik/audit sızıntısı:** hata logları `sessionId, chars, code`; metrik etiketleri `sender`/`reason`; audit `new_value`
+  yalnız sayı/neden/kimlik (`chat_rejected {reason,sender}`, `chat_summary {tech,customer,senderUserIds,legacy}`, `chat_legacy {}`).
+- **K-P22-3 eski konsol DC bildirimi:** `legacy-notice.ts:12-23` sabit `LEGACY_CHAT_NOTICE`, metin parametresi yok, 60 sn'de en çok 1;
+  yalnız `seat.owner && guestChat==="outdated" && !unattended` (`console-view.tsx:76`). Gelen DC `chat` gösterilmez. Artık risk
+  (devtools ile kayıtsız DC) ADR-0025 r2'de kabul edildiği gibi.
+- **CSP/başlık:** yeni HTTP yüzeyi yalnız JSON GET; CSP/başlık üretimi değişmedi; yeni dış kaynak yok.
+
+### Otomatik tarama çıktıları
+
+- `pnpm audit --prod --audit-level=moderate`: **No known vulnerabilities found**.
+- Gizli bilgi `git grep -nE "(api[_-]?key|secret|password|token)\s*[:=]\s*['\"][^'\"]{8,}"` (diff'teki eklenen/değişen dosyalar,
+  test/e2e/fikstür/md hariç): eşleşme yok. `gitleaks` yerelde kurulu değil (CI'da çalışır).
+- `.env` geçmişi: git geçmişinde yalnız `.env.example`.
+- `apps/server` `test/unit/ws-budget-p22.test.ts`: 4/4 geçti. DB'li entegrasyon testleri bu turda yeniden koşulmadı (P22-B/D raporları).
+
+### Tasarımda vaat edilip kodda bulunmayanlar
+
+Yok. Kalan (Sonra, değişmedi): K-P22-15 asgari istemci politikası, S-P22-9 AAD v2, join'de `chatRetentionDays` yankısı, eski konsolun
+4426'da genel yeniden bağlanma döngüsü (staging'de gözlensin; IP kovası + geri çekilme sınırlar).
+
+### Olumlu
+
+- Önce-kaydet-sonra-ilet ve oda zinciri sıralaması temiz; INSERT hatasında iletim yok.
+- Tek karar noktaları (`hasSessionChat`, `decryptRow`, `fitNewest`, `writeChatSummary`) tasarımla birebir; P18'deki mevcut iki hata
+  (64 KiB aşımı, oturum satırı AAD) da kapatıldı.
+- 4426 kapısı odaya bağlanmadan çalışıyor — eski sekme canlı konsolu düşüremiyor.
+
+Orta/Düşük bulguların (S-P22-Q-1..3) `docs/gereksinimler.md` §9'a "Sonra" olarak eklenmesi önerilir.
+
+DURUM: GEÇTİ

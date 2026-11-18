@@ -4865,7 +4865,7 @@ ikilide; `abcde12345`, 9 karakter, `"ABCDE12345 -X a=b"`, satır sonlu değer �
 ## 29. P22 — oturum sohbeti (sunucu + web; istemci 0.21.0 = P22-G ayrı) (devops P22-O, 2026-11-18; mimari-p22 §7.2, §10.2, §13, §15.2/§15.3/§15.7; ADR-0025 r-P22; AC-264, AC-291)
 
 Bu bölüm yayın **talimatıdır**; P22-O'da staging/prod'a dokunulmadı. **DENENMEDİ:** staging seed provası ve alarm provası
-(§10.1 P22-O kabulü) ilk staging yayınında koordinatör tarafından yapılır ve §8 yayın geçmişine yazılır.
+(§10.1 P22-O kabulü) **ana oturum dağıtımında** yapılır (§29.5 "Prova") ve §8 yayın geçmişine yazılır.
 
 **Yeni env yok** (`git diff main -- apps/server/src/env.ts` boş; `.env.example` / compose değişmez). Caddy / host nginx değişmez
 (sohbet mevcut `/ws/tech` ve `/ws/guest` üzerinden; yeni REST yolu `GET /api/sessions/:id/chat` mevcut önekte).
@@ -4946,11 +4946,25 @@ Sayaçlar süreç yeniden başlayınca sıfırlanır; uzun dönem oran için §2
 
 ### 29.5 Alarmlar ve izleme
 
-| Kontrol                          | Koşul                                                                                                          | Düzey  | Eylem                                                                                                                                                                                                                                                                                                                                              |
-| -------------------------------- | -------------------------------------------------------------------------------------------------------------- | ------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| sohbet `internal` (mimari §7.2)  | `rs_session_chat_rejected_total{reason="internal"}` artışı > 0 (`remote-watch`'a eklenmesi **açık iş**, §29.7) | Uyarı  | Mesaj saklanamadı → **iletilmedi** (önce kaydet sonra ilet); kullanıcı "gönderilemedi, tekrar dene" görür. `docker compose logs --since 1h server \| grep session_chat_store` (gövde yok: `sessionId`, `chars`, `code`). DB erişimi / disk (`df`, §13 "DB dolu") / `session_messages` INSERT yetkisi (`check-app-grants.sh`). Süreklilik → backend |
-| `crypto-decrypt` (mevcut, §25.4) | `rs_crypto_decrypt_failures_total` > 0 (bütün `table`)                                                         | Kritik | §25.4 aynen; oturum satırları da `session_messages` tablosundadır                                                                                                                                                                                                                                                                                  |
-| `retention` (mevcut, §18.6)      | `rs_retention_failures_total` son 24 sa'te arttı / 26 sa başarılı tur yok                                      | mevcut | **P22 yolu kapsanır (kodda doğrulandı):** oturum mesaj sayımı ve join'li DELETE `anonymizeSessionBatch` içinde, firma adımı `try/catch`'inde → `rs_retention_failures_total{class}` artar, audit `retention.run {result:"fail"}`. Ayrıca `rs_retention_rows_total{kind="session_messages"}` silinen satırı sayar                                   |
+| Kontrol                               | Koşul                                                                                                                                                              | Düzey  | Eylem                                                                                                                                                                                                                                                                                                                                              |
+| ------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `session-chat-internal` (mimari §7.2) | `rs_session_chat_rejected_total{reason="internal"}` son turdan beri arttı → artıştan sonra 1 sa (`remote-watch`, 10 dk; Prometheus eşdeğeri `increase(…[1h]) > 0`) | Uyarı  | Mesaj saklanamadı → **iletilmedi** (önce kaydet sonra ilet); kullanıcı "gönderilemedi, tekrar dene" görür. `docker compose logs --since 1h server \| grep session_chat_store` (gövde yok: `sessionId`, `chars`, `code`). DB erişimi / disk (`df`, §13 "DB dolu") / `session_messages` INSERT yetkisi (`check-app-grants.sh`). Süreklilik → backend |
+| `crypto-decrypt` (mevcut, §25.4)      | `rs_crypto_decrypt_failures_total` > 0 (bütün `table`)                                                                                                             | Kritik | §25.4 aynen; oturum satırları da `session_messages` tablosundadır                                                                                                                                                                                                                                                                                  |
+| `retention` (mevcut, §18.6)           | `rs_retention_failures_total` son 24 sa'te arttı / 26 sa başarılı tur yok                                                                                          | mevcut | **P22 yolu kapsanır (kodda doğrulandı):** oturum mesaj sayımı ve join'li DELETE `anonymizeSessionBatch` içinde, firma adımı `try/catch`'inde → `rs_retention_failures_total{class}` artar, audit `retention.run {result:"fail"}`. Ayrıca `rs_retention_rows_total{kind="session_messages"}` silinen satırı sayar                                   |
+
+`session-chat-internal` ayrıntısı (`deploy/ops/remote-watch.sh`): alan 38 = bütün `rs_session_chat_rejected_total` serileri (etiketsiz
+sayaç ilk retten önce `… 0` yazar → **P22 server işareti**; yoksa server P22 öncesidir, kontrol yok), alan 39 = `{reason="internal"}`
+(seri yoksa 0). Tasarımdaki "5 dk'da > 0" timer 10 dk olduğu için "son turdan beri artış" olur; alarm artıştan sonra 1 sa sürer (ilk
+P22 turunda taban 0 → açılıştan beri birikmiş hata da alarm verir; sayaç yeniden başlamada sıfırlanır). Durum: `state` dosyasında
+`chat_internal=<son değer> <artış anı>`. Eşik ayarı yok (> 0). Betik değişti → `cd /opt/remote/deploy/ops && ./remote-watch.sh install`
+(ikinci yığında ayrıca `install stg`). Yerel test: `deploy/ops/test-watch.sh` (P22 senaryoları + ayrıştırma + `rs_session_chat_*` ad
+eşlemesi `apps/server/src/ops/metrics.ts`'e karşı).
+
+**Prova (ana oturum dağıtımında; DENENMEDİ):** (1) `install` sonrası `systemctl start remote-watch.service` → `status.prom`'da
+`check="session-chat-internal"} 1`. (2) Gerçek hata üretmeden betik yolu: `sed -i '/^chat_internal=/d' /var/lib/remote-watch/state;
+echo "chat_internal=0 $(( $(date +%s) - 60 ))" >> /var/lib/remote-watch/state` → servis koşusu `ALERT check=session-chat-internal`
+ve alarm komutu (WhatsApp/e-posta) gelir → satırı `chat_internal=0 0` yapıp yeniden koş → `DUZELDI session-chat-internal`.
+İkinci yığında durum dizini `/var/lib/remote-watch/stg/`.
 
 **Legacy oranı (eski istemci izleme; P22-G yayınından sonra haftalık, K-P22-15 tarihine kadar).** Audit tabanlı (yeniden başlamada
 sıfırlanmaz); payda AGENT (yerel istemci) modunda kabul edilen oturumlar:
@@ -4992,8 +5006,4 @@ pnpm --filter @remote/server exec prisma migrate resolve --rolled-back 202611260
 session_messages WHERE ASCII(body_enc) = <ver>` — `request_id`/`session_id` süzgeci yok). `crypto:rewrap session_messages` oturum
   satırlarını da taşır (AAD `request_id ?? session_id`). §25.5 prosedürü aynen geçerlidir; ek adım yok.
 - Yedek: yeni tablo yok; sohbet mevcut şifreli DB yedeğinde, geri yüklemede anahtar halkası gerekir (§25.5, §18.4).
-- **Açık iş (P22-O'da yapılmadı):** `deploy/ops/remote-watch.sh`'e `session-chat-internal` kontrolü (alan 38 = bütün
-  `rs_session_chat_rejected_total` serileri — P22 işareti, alan 39 = `{reason="internal"}`; `bump` ile ilk turda taban 0, artıştan sonra
-  1 sa alarm; timer 10 dk olduğundan tasarımdaki "5 dk" bir tur penceresi olur) + `test-watch.sh` senaryoları, ayrıştırma beklentileri
-  (bütün `exp` dizileri 2 alan uzar) ve `rs_session_chat_*` ad eşlemesi. O gelene kadar §29.4 komutu ile elle bakılır.
-- **DENENMEDİ:** §29.1 adım 4 seed provası (ikinci koşu 0) ve alarm provası — ilk staging yayınında.
+- **DENENMEDİ (ana oturum dağıtımında prova):** §29.1 adım 4 seed provası (ikinci koşu 0) ve §29.5 alarm provası.
