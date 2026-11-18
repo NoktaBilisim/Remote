@@ -3,7 +3,14 @@ import Link from "next/link";
 import { t } from "@/lib/i18n";
 
 /** Panel breadcrumb (tasarim-kontrol §5). Son öğe geçerli sayfadır (aria-current). */
-export function Breadcrumb({ items }: { items: { label: string; href?: string }[] }) {
+export function Breadcrumb({
+  items,
+  home = { href: "/", label: t("panel.home") },
+}: {
+  items: { label: string; href?: string }[];
+  /** P21: kök öğe (portal: `/portal`, "Portal"); varsayılan panel Ana sayfa. */
+  home?: { href: string; label: string };
+}) {
   return (
     <nav aria-label={t("panel.breadcrumb")} className="mb-4 text-sm text-fg-muted">
       <ol className="flex flex-wrap items-center gap-1.5">
@@ -11,11 +18,11 @@ export function Breadcrumb({ items }: { items: { label: string; href?: string }[
           <House aria-hidden className="size-4" />
           {items.length === 0 ? (
             <span aria-current="page" className="text-fg">
-              {t("panel.home")}
+              {home.label}
             </span>
           ) : (
-            <Link href="/" className="hover:text-fg">
-              {t("panel.home")}
+            <Link href={home.href} className="hover:text-fg">
+              {home.label}
             </Link>
           )}
         </li>

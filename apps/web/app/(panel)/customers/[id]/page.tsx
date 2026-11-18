@@ -15,6 +15,7 @@ import { CustomerStatusBadge } from "../customer-list";
 import { CustomerActions } from "./customer-actions";
 import { CustomerTabs } from "./customer-tabs";
 import { NotifyContacts } from "./notify-contacts";
+import { PortalAccounts } from "./portal-accounts";
 
 export const metadata: Metadata = { title: t("cu.detailTitle") };
 const ULID = /^[0-9A-HJKMNP-TV-Z]{26}$/;
@@ -185,6 +186,8 @@ export default async function CustomerPage({ params }: { params: Promise<{ id: s
         </section>
         {/* P27 (AC-296, 337): gözetimsiz bildirim adresleri — yalnız `unattended.manage` */}
         {perms.includes("unattended.manage") && <NotifyContacts customerId={c.id} />}
+        {/* P21 (AC-262): müşteri portal hesapları — yalnız `customers.portal` (uç da 403) */}
+        {perms.includes("customers.portal") && <PortalAccounts customerId={c.id} customerActive={c.status === "ACTIVE" && !anon} />}
       </div>
 
       <CustomerTabs

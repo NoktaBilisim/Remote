@@ -12,7 +12,7 @@ import { AcceptedCard, ClosedScreen, LostBanner, WaitingCard } from "./waiting-p
 
 interface WaitingRoomProps {
   request: StoredRequest;
-  tenantRef: string;
+  downloadHref: string;
   retentionDays: number | null;
   onFinished: () => void;
   onNewRequest: () => void;
@@ -23,7 +23,7 @@ interface WaitingRoomProps {
  * kodu (+ kabul kodu) → "Ekranımı paylaş" → `GuestSession` (tarayıcı modu); kapanış ekranları; bağlantı koptu bandı
  * (üstel 1→30 sn; 4xxx/1008'de durur).
  */
-export function WaitingRoom({ request, tenantRef, retentionDays, onFinished, onNewRequest }: WaitingRoomProps) {
+export function WaitingRoom({ request, downloadHref, retentionDays, onFinished, onNewRequest }: WaitingRoomProps) {
   const w = useWaitingRoom(request, onFinished);
   const { phase } = w;
   const newBtn = (
@@ -47,7 +47,7 @@ export function WaitingRoom({ request, tenantRef, retentionDays, onFinished, onN
   if (phase.kind === "closed") return <ClosedScreen phase={phase} action={newBtn} />;
   if (phase.kind === "accepted")
     return (
-      <AcceptedCard phase={phase} tenantRef={tenantRef} onShare={() => w.setPhase({ ...phase, kind: "sharing" })} onDecline={w.decline} />
+      <AcceptedCard phase={phase} downloadHref={downloadHref} onShare={() => w.setPhase({ ...phase, kind: "sharing" })} onDecline={w.decline} />
     );
   return (
     <div className="flex flex-col gap-4">

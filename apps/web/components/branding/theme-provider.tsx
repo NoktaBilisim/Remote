@@ -21,7 +21,19 @@ const themeOptions = () => THEMES.map((v) => ({ value: v, label: t(`theme.${v}`)
  * yüklenir ve toast'la söylenir. Açılışta çerez DB'den farklıysa (ör. başka cihazda değişti) çerez eşitlenir → çıkıştan
  * sonra giriş ekranı da son tercihe uyar.
  */
-export function ThemeProvider({ initial, children }: { initial: Theme; children: ReactNode }) {
+export function ThemeProvider({
+  initial,
+  children,
+  save = (theme) => api<PreferencesResponse>("PATCH", "/auth/me/preferences", { theme }),
+  expiredPath = () => EXPIRED_LOGIN_PATH,
+}: {
+  initial: Theme;
+  children: ReactNode;
+  /** P21: kaydetme ucu (portal `PATCH /portal/me`); varsayılan panel tercihi. */
+  save?: (theme: Theme) => Promise<unknown>;
+  /** P21: oturum düşünce gidilecek giriş adresi (portal girişi); varsayılan panel. */
+  expiredPath?: () => string;
+}) {
   const router = useRouter();
   const toast = useToast();
   const [theme, setState] = useState<Theme>(initial);
@@ -40,10 +52,10 @@ export function ThemeProvider({ initial, children }: { initial: Theme; children:
       setState(next);
       applyThemeToDocument(next);
       setPending(true);
-      api<PreferencesResponse>("PATCH", "/auth/me/preferences", { theme: next })
+      save(next)
         .catch((e: unknown) => {
           if (my !== seq.current) return; // daha yeni bir seçim var; o karar verir
-          if (isUnauthenticated(e)) return router.replace(EXPIRED_LOGIN_PATH);
+          if (isUnauthenticated(e)) return router.replace(expiredPath());
           setState(prev);
           applyThemeToDocument(prev);
           toast(t("theme.saveFailed"), "danger");
@@ -52,7 +64,7 @@ export function ThemeProvider({ initial, children }: { initial: Theme; children:
           if (my === seq.current) setPending(false);
         });
     },
-    [theme, router, toast],
+    [theme, router, toast, save, expiredPath],
   );
 
   return <ThemeCtx.Provider value={{ theme, setTheme, pending }}>{children}</ThemeCtx.Provider>;

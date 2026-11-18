@@ -1,9 +1,12 @@
 import { SESSION_COOKIE } from "@remote/contracts/api/auth";
 import type { Metadata, Viewport } from "next";
-import { cookies } from "next/headers";
+import { PORTAL_SESSION_COOKIE } from "@remote/contracts/api/portal";
+import { cookies, headers } from "next/headers";
 import { connection } from "next/server";
 import { t } from "@/lib/i18n";
 import { getMe } from "@/lib/server-api";
+import { PORTAL_AREA_HEADER } from "@/lib/portal/paths";
+import { getPortalMe } from "@/lib/portal/server";
 import { htmlThemeClass, resolveTheme, THEME_COOKIE } from "@/lib/theme";
 // Vitrin görsel dili (2026-11-17): self-host değişken fontlar (OFL-1.1) — dosyalar /_next/static altından ('self'), tüm alt kümeler unicode-range ile
 import "@fontsource-variable/plus-jakarta-sans";
@@ -39,6 +42,11 @@ export default async function RootLayout({ children }: { children: React.ReactNo
   if (jar.has(SESSION_COOKIE)) {
     const me = await getMe();
     if (me.kind === "ok") userTheme = me.me.user.theme;
+  }
+  // P21: portal alanında tercih portal kullanıcısının kaydından (`portal_users.theme`; panel oturumu aynı tarayıcıda olsa da)
+  if ((await headers()).get(PORTAL_AREA_HEADER) === "1" && jar.has(PORTAL_SESSION_COOKIE)) {
+    const pm = await getPortalMe();
+    if (pm.kind === "ok") userTheme = pm.me.user.theme;
   }
   const theme = resolveTheme({ user: userTheme, cookie: jar.get(THEME_COOKIE)?.value });
   return (
