@@ -19,7 +19,15 @@ import { anonymizeCustomersOf } from "../../src/customers/service.ts";
 import { newId } from "../../src/lib/ids.ts";
 import { purgePassivePortalAccounts, deleteOldPortalSessions } from "../../src/portal/retention.ts";
 import { createSupportSessionRow, createTenant, createUser, loginAs, makeApp, testDb, type Session } from "../helpers/app.ts";
-import { createPortalUser, enableTotpRow, PORTAL_ENV, portalLoginAs, portalLoginReq, type PortalSession, type TestPortalUser } from "../helpers/portal.ts";
+import {
+  createPortalUser,
+  enableTotpRow,
+  PORTAL_ENV,
+  portalLoginAs,
+  portalLoginReq,
+  type PortalSession,
+  type TestPortalUser,
+} from "../helpers/portal.ts";
 import { createCustomerRow, createRequestRow, createRequestSettings } from "../helpers/requests.ts";
 
 let app: FastifyInstance;
@@ -55,8 +63,16 @@ async function side(): Promise<Side> {
     return r.id;
   };
   const mkSes = async (customerId: string, createdAt?: Date) => {
-    const s = await createSupportSessionRow({ tenantId: t.id, technicianId: tech.id, status: "ENDED", ...(createdAt ? { createdAt } : {}) });
-    await db().supportSession.update({ where: { id: s.id }, data: { customerId, ticketNo: "ITSM-1", note: "gizli not", customerName: "Mehmet K." } });
+    const s = await createSupportSessionRow({
+      tenantId: t.id,
+      technicianId: tech.id,
+      status: "ENDED",
+      ...(createdAt ? { createdAt } : {}),
+    });
+    await db().supportSession.update({
+      where: { id: s.id },
+      data: { customerId, ticketNo: "ITSM-1", note: "gizli not", customerName: "Mehmet K." },
+    });
     return s.id;
   };
   const base = Date.now() - 3_600_000;
@@ -178,7 +194,13 @@ describe("AC-262 Admin portal hesapları", () => {
     const r = await post(accounts(A), A.admin, { email: email.toUpperCase(), fullName: "Yeni Kişi" });
     expect(r.statusCode, r.body).toBe(201);
     const out = r.json<PortalAccountCreateResponse>();
-    expect(out.account).toMatchObject({ email, status: "ACTIVE", mustChangePassword: true, tempPasswordExpired: false, totpEnabled: false });
+    expect(out.account).toMatchObject({
+      email,
+      status: "ACTIVE",
+      mustChangePassword: true,
+      tempPasswordExpired: false,
+      totpEnabled: false,
+    });
     expect(out.temporaryPassword).toHaveLength(16);
     const list = await get(accounts(A), A.admin);
     expect(list.statusCode).toBe(200);
@@ -214,11 +236,17 @@ describe("AC-262 Admin portal hesapları", () => {
     const admin = await loginAs(app, await createUser({ tenantId: t.id, role: "ADMIN" }));
     const c = (await createCustomerRow(t.id)).id;
     for (let i = 0; i < 20; i++) await createPortalUser({ tenantId: t.id, slug: t.slug, customerId: c });
-    const r = await post(`/api/v1/customers/${c}/portal-accounts`, admin, { email: `k21-${newId().toLowerCase()}@example.test`, fullName: "Yirmibir" });
+    const r = await post(`/api/v1/customers/${c}/portal-accounts`, admin, {
+      email: `k21-${newId().toLowerCase()}@example.test`,
+      fullName: "Yirmibir",
+    });
     expect(r.statusCode).toBe(409);
     const passive = (await createCustomerRow(t.id)).id;
     await db().customer.update({ where: { id: passive }, data: { status: "PASSIVE", passiveAt: new Date() } });
-    const p = await post(`/api/v1/customers/${passive}/portal-accounts`, admin, { email: `pas-${newId().toLowerCase()}@example.test`, fullName: "Pasif Müşteri" });
+    const p = await post(`/api/v1/customers/${passive}/portal-accounts`, admin, {
+      email: `pas-${newId().toLowerCase()}@example.test`,
+      fullName: "Pasif Müşteri",
+    });
     expect(p.statusCode).toBe(409);
   });
 
@@ -261,7 +289,13 @@ describe("AC-262 Admin portal hesapları", () => {
     expect(r.statusCode, r.body).toBe(200);
     const { temporaryPassword } = r.json<PortalPasswordResetResponse>();
     const row = await db().portalUser.findUniqueOrThrow({ where: { id: u.id } });
-    expect(row).toMatchObject({ totpEnabled: false, totpSecretEnc: null, totpLastStep: null, mustChangePassword: true, failedLoginCount: 0 });
+    expect(row).toMatchObject({
+      totpEnabled: false,
+      totpSecretEnc: null,
+      totpLastStep: null,
+      mustChangePassword: true,
+      failedLoginCount: 0,
+    });
     const a = await db().auditLog.findFirstOrThrow({ where: { entityId: u.id, action: PORTAL_AUDIT.ACCOUNT_PASSWORD_RESET } });
     expect(a.newValue).toEqual({ revokedSessions: before, secondFactorCleared: true });
     expect(JSON.stringify([a.oldValue, a.newValue])).not.toContain(temporaryPassword);
@@ -297,7 +331,13 @@ describe("AC-262 K-P21-9 silme yolları + K-P21-14 audit kimlik maskesi", () => 
   it("AC-262: pasif hesap retention_days sonra silinir (oturumları dahil) + portal.account_deleted (SYSTEM, e-posta yok)", async () => {
     const t = await createTenant();
     const c = (await createCustomerRow(t.id)).id;
-    const old = await createPortalUser({ tenantId: t.id, slug: t.slug, customerId: c, status: "PASSIVE", passiveAt: new Date(Date.now() - 400 * 86_400_000) });
+    const old = await createPortalUser({
+      tenantId: t.id,
+      slug: t.slug,
+      customerId: c,
+      status: "PASSIVE",
+      passiveAt: new Date(Date.now() - 400 * 86_400_000),
+    });
     const recent = await createPortalUser({ tenantId: t.id, slug: t.slug, customerId: c, status: "PASSIVE", passiveAt: new Date() });
     await db().portalSession.create({
       data: {
@@ -312,7 +352,12 @@ describe("AC-262 K-P21-9 silme yolları + K-P21-14 audit kimlik maskesi", () => 
         createdAt: new Date(),
       },
     });
-    const n = await purgePassivePortalAccounts(db(), { ip: "", userAgent: "retention", requestId: newId() }, { tenantId: t.id, retentionDays: 365 }, new Date());
+    const n = await purgePassivePortalAccounts(
+      db(),
+      { ip: "", userAgent: "retention", requestId: newId() },
+      { tenantId: t.id, retentionDays: 365 },
+      new Date(),
+    );
     expect(n).toBe(1);
     expect(await db().portalUser.findUnique({ where: { id: old.id } })).toBeNull();
     expect(await db().portalUser.findUnique({ where: { id: recent.id } })).not.toBeNull();
@@ -328,7 +373,20 @@ describe("AC-262 K-P21-9 silme yolları + K-P21-14 audit kimlik maskesi", () => 
     const created = new Date(Date.now() - 9 * 86_400_000);
     const id = newId();
     await db().portalSession.create({
-      data: { id, portalUserId: u.id, tenantId: t.id, tokenHash: newId().toLowerCase().padEnd(64, "0").replace(/[^0-9a-f]/g, "0"), ip: "10.0.0.1", userAgent: "x", lastSeenAt: created, expiresAt: new Date(created.getTime() + 3_600_000), createdAt: created },
+      data: {
+        id,
+        portalUserId: u.id,
+        tenantId: t.id,
+        tokenHash: newId()
+          .toLowerCase()
+          .padEnd(64, "0")
+          .replace(/[^0-9a-f]/g, "0"),
+        ip: "10.0.0.1",
+        userAgent: "x",
+        lastSeenAt: created,
+        expiresAt: new Date(created.getTime() + 3_600_000),
+        createdAt: created,
+      },
     });
     expect(await deleteOldPortalSessions(db(), new Date(), 5000)).toBeGreaterThanOrEqual(1);
     expect(await db().portalSession.findUnique({ where: { id } })).toBeNull();

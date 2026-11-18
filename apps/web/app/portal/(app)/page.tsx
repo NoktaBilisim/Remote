@@ -15,8 +15,7 @@ export const metadata: Metadata = { title: t("portal.home.title") };
 
 type Search = Promise<{ tab?: string; page?: string }>;
 
-const listPath = (kind: "requests" | "sessions", page: number, pageSize: number) =>
-  `/portal/${kind}?page=${page}&pageSize=${pageSize}`;
+const listPath = (kind: "requests" | "sessions", page: number, pageSize: number) => `/portal/${kind}?page=${page}&pageSize=${pageSize}`;
 
 /** Oturum kapısı: 401 → giriş, 403 şifre değişimi → zorunlu ekran (iki listeden biri yeter). */
 async function gate(...rs: ServerResult<unknown>[]) {
@@ -48,7 +47,12 @@ export default async function PortalHome({ searchParams }: { searchParams: Searc
       <h1 className="text-2xl font-semibold text-fg">{t("portal.home.welcome", { name: user.fullName })}</h1>
       <p className="mt-1 text-sm text-fg-muted">{t("portal.home.intro", { customer: customer.name })}</p>
       <div className="mt-6 grid grid-cols-1 gap-3 sm:grid-cols-2">
-        <a href={links.downloadUrl} className={actionCls} data-testid="portal-download" aria-label={t("portal.download.aria", { file: links.fileName })}>
+        <a
+          href={links.downloadUrl}
+          className={actionCls}
+          data-testid="portal-download"
+          aria-label={t("portal.download.aria", { file: links.fileName })}
+        >
           <Download aria-hidden className="mt-0.5 size-5 shrink-0 text-primary" />
           <span className="flex min-w-0 flex-col gap-1">
             <span className="font-semibold text-fg">{t("portal.download.title")}</span>

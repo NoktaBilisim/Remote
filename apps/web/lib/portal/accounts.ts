@@ -35,7 +35,9 @@ export function createState(customerActive: boolean, count: number): { enabled: 
 export type AccountBadge = "mfa" | "mustChange" | "tempExpired";
 
 /** Satır rozetleri: 2FA açık; geçici şifre süresi doldu (r2 S-P21-5) "değişim bekliyor"un yerine geçer; pasif hesapta yok. */
-export function accountBadges(a: Pick<PortalAccountItem, "status" | "totpEnabled" | "mustChangePassword" | "tempPasswordExpired">): AccountBadge[] {
+export function accountBadges(
+  a: Pick<PortalAccountItem, "status" | "totpEnabled" | "mustChangePassword" | "tempPasswordExpired">,
+): AccountBadge[] {
   const out: AccountBadge[] = [];
   if (a.totpEnabled) out.push("mfa");
   if (a.status === "ACTIVE" && a.tempPasswordExpired) out.push("tempExpired");

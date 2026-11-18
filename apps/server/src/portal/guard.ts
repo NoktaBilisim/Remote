@@ -51,8 +51,7 @@ export async function requirePortal(req: FastifyRequest, reply: FastifyReply): P
     throw new AppError("UNAUTHENTICATED");
   }
   if (UNSAFE_METHODS.has(req.method)) checkPortalCsrf(req);
-  if (ctx.user.mustChangePassword && !req.routeOptions.config.allowPasswordChangePending)
-    throw new AppError("PASSWORD_CHANGE_REQUIRED");
+  if (ctx.user.mustChangePassword && !req.routeOptions.config.allowPasswordChangePending) throw new AppError("PASSWORD_CHANGE_REQUIRED");
   req.portal = ctx;
 }
 

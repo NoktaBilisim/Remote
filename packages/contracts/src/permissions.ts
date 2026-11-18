@@ -93,8 +93,7 @@ export const PERMISSION_DESCRIPTIONS: Readonly<Partial<Record<PermissionKey, str
   // P28d (mimari-p28d §7): dinlemeyi de kapsar — yetkisiz teknisyen (rol fark etmez) görüşmeyi duymaz (V-PD-6).
   "sessions.voice": "Etkin oturumda müşteriyle sesli görüşme başlatır, katılır ve görüşmeyi dinler.",
   // P21 (mimari-p21 §4.4)
-  "customers.portal":
-    "Müşteri portal hesaplarını listeler, oluşturur, pasife alır, yeniden etkinleştirir ve şifresini sıfırlar.",
+  "customers.portal": "Müşteri portal hesaplarını listeler, oluşturur, pasife alır, yeniden etkinleştirir ve şifresini sıfırlar.",
 };
 
 export const ROLES = ["SUPER_ADMIN", "ADMIN", "USER"] as const;

@@ -25,6 +25,7 @@ import {
   type Session,
   type TestUser,
 } from "../helpers/app.ts";
+import { retryNotReady } from "../helpers/requests.ts";
 import { auditDigest, backdatePassive, makeDue, makeEligible, seedPurgeTenant, tenantRowCounts } from "../helpers/tenant-purge.ts";
 
 let app: FastifyInstance;
@@ -34,8 +35,18 @@ let superAdmin: TestUser;
 const url = (id: string) => `/api/v1/admin/tenants/${id}/purge`;
 const preview = async (id: string, s: Session = sa) =>
   app.inject({ method: "POST", url: url(id), headers: s.headers, payload: { dryRun: true } });
+/**
+ * Q-P21-3: zamanlama TX'i `lockOpenJob` (tenant_id dizininde boşluk kilidi) + INSERT yapar; başka dosyadaki eşzamanlı zamanlama
+ * aynı boşluğa INSERT ederken InnoDB deadlock'u (1213) → tasarlanmış 503 NOT_READY + Retry-After (TX geri alındı, önizleme
+ * tüketilmedi). Belgelenmiş yeniden deneme: en çok 2 ek deneme, yalnız 503'te.
+ */
 const schedule = (id: string, previewId: string, confirmName: string, s: Session = sa) =>
-  app.inject({ method: "POST", url: url(id), headers: s.headers, payload: { dryRun: false, previewId, confirmName } });
+  retryNotReady(
+    () => app.inject({ method: "POST", url: url(id), headers: s.headers, payload: { dryRun: false, previewId, confirmName } }),
+    {
+      attempts: 3,
+    },
+  );
 const runner = (afterBatch?: (step: string) => Promise<void>) =>
   new TenantPurgeRunner({
     db: testDb(),
@@ -110,6 +121,19 @@ describe("P16 G3 firma kalıcı silme (AC-242)", () => {
     ] as const)
       expect(pv.counts[k], k).toBeGreaterThan(0);
     expect(pv.auditRetained).toBeGreaterThan(0);
+    // Q-P21-2 (mimari-p21 §10 "Silme yolları"): portal hesabı + oturumu SESSIONS sayısına dahil
+    const pre = await tenantRowCounts(f.tenantId);
+    expect([pre.portal_users, pre.portal_sessions]).toEqual([1, 1]);
+    const sessionsStep = [
+      "support_sessions",
+      "portal_sessions",
+      "portal_users",
+      "customer_notify_contacts",
+      "unattended_registration_codes",
+      "unattended_device_grants",
+      "unattended_devices",
+    ];
+    expect(pv.counts.SESSIONS).toBe(sessionsStep.reduce((sum, t) => sum + (pre[t] ?? 0), 0));
 
     // Ad onayı (400, önizleme tüketilmez) → zamanlama
     expect((await schedule(f.tenantId, pv.previewId, "Yanlış Ad")).statusCode).toBe(400);
@@ -173,7 +197,7 @@ describe("P16 G3 firma kalıcı silme (AC-242)", () => {
     for (const path of [`/api/v1/audit?tenantId=${f.tenantId}`, `/api/v1/audit/export.csv?tenantId=${f.tenantId}`]) {
       const res = await app.inject({ method: "GET", url: path, headers: sa.headers });
       expect(res.statusCode, path).toBe(200);
-      for (const needle of [f.admin.email, f.user.email, f.admin.username, f.tenantName])
+      for (const needle of [f.admin.email, f.user.email, f.admin.username, f.tenantName, f.portalEmail])
         expect(res.body, `${path} ${needle}`).not.toContain(needle);
     }
 

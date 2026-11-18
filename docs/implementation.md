@@ -15269,6 +15269,7 @@ Kaynak: `docs/mimari-p21.md` r2 §4.1, §4.4, §4.5, §11 K2. Bağımlılık ekl
 alan sırası ve davranış aynı (test kanıtlı).
 
 **Tasarımdan sapmalar (gerekçeli):**
+
 - `SupportRequestStatus` contracts'ta yok → `RequestStatus`; `source`/`mode` için literal yerine `RequestSource` / `SessionMode` (aynı değerler).
 - Tema şeması `branding.ts` `themeSchema` (aynı enum, Türkçe mesaj); `fullName` → `customerFirmNameSchema` ("customers ad kuralı").
 - Ek sabit/tipler: `PORTAL_TENANT_COOKIE = "rs_portal_tenant"` (sunucu K3 + `proxy.ts` K5 aynı ad), `PORTAL_PAGE_MAX`,
@@ -15295,16 +15296,16 @@ Tasarım: DESIGN.md Vitrin tokenları, `lucide-react`; `ui-ux-pro-max` SKILL.md 
 
 ### Rotalar
 
-| Yol | Auth | Ne yapar |
-| --- | --- | --- |
-| `/portal/login?tenant=<slug>` | Hayır | Portal girişi (e-posta + şifre, gizli `tenantSlug`); `MFA_REQUIRED` → aynı formda 6 haneli kod; 401 sunucu metni (geçici şifre süresi doldu dahil), 423 kalan süre, 429. Slug yok/geçersiz → "Giriş bağlantısını destek sağlayıcınızdan isteyin" (form yok). `reason=expired/logout` bandı. Oturum varsa `/portal` |
-| `/portal/change-password` | Portal oturumu | İlk giriş / Admin sıfırlaması sonrası zorunlu şifre değişimi; zorunlu değilse `/portal` |
-| `/portal` | Portal oturumu (+ şifre değişmiş) | Firma dosyasını indir (`PortalMe.links`), Yeni destek talebi; Talepler / Oturumlar sekmeleri (`?tab=sessions&page=N`, 25/sayfa, masaüstü tablo, < md kart). Boş, hata + Tekrar dene, kısmi (bir sekme "yüklenemedi"), iskelet (`loading.tsx`) |
-| `/portal/requests/[id]` | Portal oturumu | Talep meta (K-P21-7) + bağlı oturum bağlantısı; başkasının/olmayan/bozuk id → aynı "Kayıt bulunamadı" ekranı |
-| `/portal/sessions/[id]` | Portal oturumu | Oturum meta (teknisyen, süre, mod, ticket, kişi) |
-| `/portal/account` | Portal oturumu | Ad/e-posta/firma salt okunur; şifre değiştir (toast); 2FA aç (QR sunucudan + kod) / kapat (şifre + kod); tema Açık/Koyu/Sistem (`PATCH /portal/me`) |
-| `/portal/new-request` | Portal oturumu | P19 form + bekleme odası aynen, portal kaynak adaptörü (`/portal/request-form`, `POST /portal/requests`); ad/e-posta `PortalMe`'den dolu |
-| Panel `/customers/[id]` | Panel + `customers.view` + `customers.portal` | Yeni bölüm "Portal hesapları" (`KeyRound`) — aşağıda K6 |
+| Yol                           | Auth                                          | Ne yapar                                                                                                                                                                                                                                                                                                           |
+| ----------------------------- | --------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `/portal/login?tenant=<slug>` | Hayır                                         | Portal girişi (e-posta + şifre, gizli `tenantSlug`); `MFA_REQUIRED` → aynı formda 6 haneli kod; 401 sunucu metni (geçici şifre süresi doldu dahil), 423 kalan süre, 429. Slug yok/geçersiz → "Giriş bağlantısını destek sağlayıcınızdan isteyin" (form yok). `reason=expired/logout` bandı. Oturum varsa `/portal` |
+| `/portal/change-password`     | Portal oturumu                                | İlk giriş / Admin sıfırlaması sonrası zorunlu şifre değişimi; zorunlu değilse `/portal`                                                                                                                                                                                                                            |
+| `/portal`                     | Portal oturumu (+ şifre değişmiş)             | Firma dosyasını indir (`PortalMe.links`), Yeni destek talebi; Talepler / Oturumlar sekmeleri (`?tab=sessions&page=N`, 25/sayfa, masaüstü tablo, < md kart). Boş, hata + Tekrar dene, kısmi (bir sekme "yüklenemedi"), iskelet (`loading.tsx`)                                                                      |
+| `/portal/requests/[id]`       | Portal oturumu                                | Talep meta (K-P21-7) + bağlı oturum bağlantısı; başkasının/olmayan/bozuk id → aynı "Kayıt bulunamadı" ekranı                                                                                                                                                                                                       |
+| `/portal/sessions/[id]`       | Portal oturumu                                | Oturum meta (teknisyen, süre, mod, ticket, kişi)                                                                                                                                                                                                                                                                   |
+| `/portal/account`             | Portal oturumu                                | Ad/e-posta/firma salt okunur; şifre değiştir (toast); 2FA aç (QR sunucudan + kod) / kapat (şifre + kod); tema Açık/Koyu/Sistem (`PATCH /portal/me`)                                                                                                                                                                |
+| `/portal/new-request`         | Portal oturumu                                | P19 form + bekleme odası aynen, portal kaynak adaptörü (`/portal/request-form`, `POST /portal/requests`); ad/e-posta `PortalMe`'den dolu                                                                                                                                                                           |
+| Panel `/customers/[id]`       | Panel + `customers.view` + `customers.portal` | Yeni bölüm "Portal hesapları" (`KeyRound`) — aşağıda K6                                                                                                                                                                                                                                                            |
 
 ### Dosyalar
 
@@ -15356,7 +15357,7 @@ Durumlar: iskelet, boş ("Portal hesabı yok"), hata + Tekrar dene, başarı.
   yazılmadı (bilinmeyen alt yol kök 404'e düşer; kayıt bulunamaması sayfa içi ekran).
 - `rs_portal_tenant` çerezini sunucu yazıyor (`apps/server/src/portal/routes.ts setTenantCookie`); web yalnız okur (proxy + istemci doğrulamasıyla).
 - Tema: kök layout, proxy'nin yazdığı `x-rs-portal` başlığı + portal çerezi varsa temayı `portal_users.theme`'den basar (flaş yok); sunucu `GET/PATCH
-  /portal/me`'de `rs_theme` çerezini de yazar.
+/portal/me`'de `rs_theme` çerezini de yazar.
 - Ana sayfa listeleri sunucuda alınır (veri çekme sunucuda); etkin olmayan sekme yalnız sayaç için `pageSize=1` ile çağrılır.
 - Toast: projenin `ui/toast` primitifi (Sonner CSP nedeniyle kullanılmıyor — mevcut karar).
 
@@ -15381,6 +15382,7 @@ Durum: tamam (2026-11-18). Kapsam: mimari-p21 r2 §7 devops satırı, §8–§9,
 `apps/web`) değiştirilmedi.
 
 **Yapılanlar**
+
 - `deploy/ops/remote-watch.sh`: P21 alanları 38–41 (`rs_portal_login_total` bütün seriler = P21 server işareti, `{result="fail"}`,
   `rs_portal_locked_total`, `rs_portal_requests_total{result="rate_limited"|"queue_full"}`), üç kontrol: `portal-login-fail`
   (600 sn penceresinde artış **≥ 200**, mimari §9), `portal-locked` (1 sa > 10), `portal-request-reject` (1 sa > 20); durum anahtarı
@@ -15413,6 +15415,7 @@ boş tabloda `down.sql` başarılı: tablolar 0, `tables_priv`/`columns_priv` po
 → temiz (`remote-watch.sh`, `test-watch.sh`).
 
 **backend-dev'e notlar (kod değiştirmedim)**
+
 1. `crypto:check-retire` (`cli/crypto.ts` `countAllByVersion`) `portal_users.totp_secret_enc`'i saymıyor (P10 `users.totp_secret_enc`
    de sayılmıyor). Runbook §29.8 elle SQL verir; sayıma eklenirse o adım kalkar.
 2. `rs_portal_requests_total{result}` bugün `created|rate_limited`; bekleyen sınırı (`QUEUE_FULL`) metrik yazmıyor. Eklenecekse
@@ -15447,6 +15450,7 @@ müşteri başına 3 bekleyen tavanı, audit `via:"portal"` + `portalUserId`; `r
 `POST /api/v1/customers/:id/portal-accounts/:accountId/deactivate|reactivate|reset-password`.
 
 **Tasarımdan sapmalar / kararlar (gerekçeli):**
+
 - Bekleyen talep tavanı aşımı **429 `QUEUE_FULL`** (koordinatör kararı; `errors.ts` durumu). `mimari-p21.md` §4.2 ve §10 buna göre düzeltildi.
 - Bekleyen tavanı reddi `rs_portal_requests_total{result="queue_full"}` yazar (K7 devops notu 2; gözcü bu etiketi zaten sayıyor).
   Giriş metriği `rs_portal_login_total{result,reason}` (result: success|fail|locked|mfa_required).
@@ -15476,3 +15480,59 @@ Mevcut testlere ekleme: `retention-p13a-job.test.ts` (saklama audit'inde yeni `p
 server birim 49 dosya / 673 geçti (1 atlandı); `vitest run test/integration` **117 dosya / 1213 test geçti** (tenant-isolation AC-69,
 permissions-ac72, audit, retention, p19 dahil). İlk tam koşuda yük altında `p19-notify-j3` (2) ve `requests-p8b` AC-143 zamanlama
 testleri düştü; tek başına ve ikinci tam koşuda geçtiler (P21 değişikliğiyle ilgisiz zamanlama).
+
+### P21 — Düzeltme turu 1 (backend-dev, 2026-11-18)
+
+Kaynak: `docs/qa-raporu.md` "P21 — Tur 1" (Q-P21-1..5) ve `docs/guvenlik-raporu.md` "P21 — kod turu 1" (S-P21-K-1, S-P21-K-4).
+Bağımlılık eklenmedi; şema/migration/env değişmedi.
+
+- **Q-P21-1 (format):** `prettier --write` yalnız biçim farkı olan 25 dosyaya (P21 sunucu/contracts/web/e2e dosyaları + `docs/{implementation,
+mimari-p21,qa-raporu,guvenlik-raporu}.md`; içerik değişmedi). CI `prettier --check .` tüm depoyu tarar → `pnpm format:check` yeşil.
+- **Q-P21-2 (firma silme):** `test/helpers/tenant-purge.ts` `seedPurgeTenant` artık firma müşterisine portal hesabı + açık portal oturumu +
+  portal aktörlü `portal.login` audit satırı ekler (`PurgeFixture.portalEmail`). `tenant-purge-p16` AC-242: önizlemede iki tablo 1'er satır
+  ve `counts.SESSIONS` = SESSIONS adımındaki 7 tablonun toplamı; yürütmeden sonra `portal_users`/`portal_sessions` 0 (FK RESTRICT'e
+  takılmadan); silme sonrası audit listesi/CSV'de portal e-postası yok (S-P21-2 maskesi). Fikstürü kullanan diğer dosyalar
+  (`tenant-purge-meta-p16`, `retention-p16-purge`, `p18-messages-h3`, `session-history-p8`, `p27a-auth`, `fsrv-p28b-retention`) yeşil.
+- **Q-P21-3 (AC-242 aralıklı 503) — kök neden bulundu, P21 kaynaklı değil:** `schedulePurge` TX'i `lockOpenJob`
+  (`SELECT … FROM tenant_purge_jobs WHERE tenant_id = ? … FOR UPDATE`) ile `tenant_purge_jobs_tenant_id_idx` üzerinde boşluk (next-key)
+  kilidi alır, sonra aynı boşluğa INSERT eder. ULID firma kimlikleri artan olduğundan yeni firmaların hepsi dizinin sonuna (supremum
+  boşluğu) düşer → farklı firmalar için eşzamanlı iki zamanlama birbirinin insert-intention kilidini bekler → InnoDB deadlock 1213 →
+  tasarlanmış 503 `NOT_READY` + Retry-After (TX geri alınır, önizleme tüketilmez). Kanıt: geçici stres testi (20 eşzamanlı zamanlama, ayrı
+  Super Admin/firma) 3 koşuda 20'den 15–17'si 503; `SHOW ENGINE INNODB STATUS` "LATEST DETECTED DEADLOCK": iki `INSERT INTO
+tenant_purge_jobs`, `index tenant_purge_jobs_tenant_id_idx … lock_mode X insert intention waiting`. Zamanlama yolu (`src/tenants/`,
+  `audit/service.ts`) `main...HEAD` diff'inde yok — P21'in tek değişikliği SESSIONS adımına 2 tablo (yalnız önizleme sayımı + yürütücü);
+  aynı davranış main'de de var. Tam koşuda `p18-messages-h3` (P16 silme senaryosu) ile çakışınca biri kaybediyordu.
+  **Düzeltme (en küçük, yalnız test):** QA'nın izin verdiği belgelenmiş yeniden deneme — `tenant-purge-p16` `schedule` yardımcısı ve
+  `p18-messages-h3` zamanlama çağrısı `retryNotReady(..., { attempts: 3 })` (yalnız 503 + Retry-After'da). Üretim kodu değişmedi:
+  iki Super Admin'in aynı anda farklı firma silme zamanlaması nadirdir ve sonuç tasarlanmış, yeniden denenebilir 503'tür.
+  **Sonra (mimar/backend önerisi):** `lockOpenJob` boşluk kilidi yerine kilitsiz okuma + PK ile `FOR UPDATE` (firma satırı kilidi zaten
+  aynı firmayı sıralar; `tenant_purge_jobs_one_open_uq` yinelenen açık işi engeller) — P16 kodu, bu paketin kapsamı dışında.
+- **Q-P21-4:** `docs/mimari-api.md` sonuna "Müşteri portalı (P21)" bölümü: şema/tip kaynağı (`@remote/contracts/api/portal`), 14 portal +
+  5 panel ucu, hata kodları (`MFA_REQUIRED`, `ACCOUNT_LOCKED`, `QUEUE_FULL` 429, ref yenilendi 409 dahil), `mimari-p21.md` §4 bağlantısı,
+  sapmalar.
+- **Q-P21-5:** `portal-p21-requests`'e iki test: (a) Admin `rotate-ref` sonrası açık portal oturumuyla talep yeni ref'le aynı müşteriye
+  201; eşzamanlı (`Promise.all`) yenileme + talep 3 turda yalnız 201 veya 409 "Talep bağlantınız yenilendi…", hiçbir talep başka müşteriye
+  yazılmaz; (b) oturum çözüldükten sonra ref yenilenirse (bayat bağlam, `createPortalRequest` doğrudan) 409 `CONFLICT`, talep yazılmaz.
+- **S-P21-K-1:** `portalTotpEnable` TX'i `repo.revokeOtherPortalSessions` ile hesabın mevcut oturum dışındaki açık portal oturumlarını
+  iptal eder (panel `auth/account.ts` kalıbı: kilitsiz okuma + PK ile UPDATE, boşluk kilidi yok); audit `newValue.revokedSessions`.
+  Mevcut oturum çerezi değişmez. Test: üç oturum + aynı müşterinin başka hesabı → etkinleştirmeden sonra diğer iki oturum 401, mevcut ve
+  başka hesap 200, audit `revokedSessions: 2`.
+- **S-P21-K-4:** `lib/logger.ts` `REDACT_PATHS`'ten `*.code` kaldırıldı (hata nesnelerinin `code`'u — P2002, ECONNREFUSED — yeniden
+  görünür). TOTP enable/disable `code` yalnız istek gövdesinde gelir ve `body`/`*.body` zaten redakte. Mimari-p21 §14 ek notundaki
+  "`*.code` eklenir" kararından sapma; `mimari-api.md` P21 sapmalarına işlendi. Test `test/unit/logger-p21.test.ts` (2).
+
+**Sözleşme notu (frontend-dev):** TOTP etkinleştirildiğinde hesabın diğer cihazlardaki portal oturumları düşer (sonraki istekte 401 →
+giriş ekranı); etkinleştiren oturum devam eder. Başka sözleşme değişikliği yok.
+
+**Not (QA'nın gözlemi, P21 dışı):** `p19-notify-j3` AC-261 "ret → seçili kanallar" bir tam koşuda `PENDING` kaldı: `outbox.claim` küresel
+(`ORDER BY next_at LIMIT 20 SKIP LOCKED`); aynı DB'de birikmiş başka dosyaların PENDING satırları (ör. silme fikstürü) partiyi doldurabilir.
+Temiz DB'de tekrar etmedi; P19'a ait, değiştirilmedi.
+
+**Doğrulama (temiz `rs-p21-test`, MySQL 8.4.13):** `pnpm format:check` yeşil; `pnpm -r run typecheck` ve `pnpm -r run lint` temiz; birim:
+contracts 280, web 605, server 675 geçti + 1 atlandı (`rec-webm-dos` zaman bütçesi testi ilk paralel koşuda makine yükünde düştü, tek
+başına yeşil). Server `vitest run test/integration`: koşu 1 makine yükü ~35 (başka çalışma ağaçlarının test DB'leri) altında 6 zamanlama/yük
+testi kırmızı (`customers-csv-p19` ≤ 30 sn, `db-busy-p8b` AC-143, `multi-p28c` AC-364, `p18-messages-h3` 3 test — reddetme ucu 500; hiçbiri
+P21 yolunda değil), ardından **koşu 2 ve koşu 3 ardışık 117 dosya / 1216 test yeşil**. Web e2e `portal-p21 p19`: 56 geçti, 12 atlandı
+(`desktopOnly`), 0 hata. Değişen dosyalar: `src/portal/{auth,repo}.ts`, `src/lib/logger.ts`, `test/helpers/tenant-purge.ts`,
+`test/integration/{tenant-purge-p16,p18-messages-h3,portal-p21-auth,portal-p21-requests}.test.ts`, `test/unit/logger-p21.test.ts` (yeni),
+`docs/mimari-api.md`, bu bölüm + Q-P21-1 biçim dosyaları.

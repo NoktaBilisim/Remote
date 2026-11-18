@@ -102,7 +102,11 @@ export function PortalLoginForm({ tenantSlug }: { tenantSlug: string }) {
       />
       {needCode && (
         <>
-          <p role="status" className="flex items-start gap-2 rounded-md bg-primary-surface p-3 text-sm text-fg" data-testid="portal-code-needed">
+          <p
+            role="status"
+            className="flex items-start gap-2 rounded-md bg-primary-surface p-3 text-sm text-fg"
+            data-testid="portal-code-needed"
+          >
             <Info aria-hidden className="mt-0.5 size-4 shrink-0 text-primary" />
             {t("portal.login.codeNeeded")}
           </p>

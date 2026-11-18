@@ -28,8 +28,7 @@ const HOUR = 60 * MIN;
 const LOCK_MS = PORTAL_LOCK_MIN * MIN;
 const BAD_CREDENTIALS = "E-posta veya şifre hatalı.";
 const BAD_CODE = "Kod hatalı.";
-const TEMP_PASSWORD_EXPIRED =
-  "Geçici şifrenin süresi doldu (72 saat). Destek sağlayıcınızdan yeniden sıfırlama isteyin.";
+const TEMP_PASSWORD_EXPIRED = "Geçici şifrenin süresi doldu (72 saat). Destek sağlayıcınızdan yeniden sıfırlama isteyin.";
 
 export interface PortalDeps {
   db: Db;
@@ -381,7 +380,9 @@ export async function portalTotpEnable(d: PortalDeps, ctx: AuditContext, p: Port
       data: { totpEnabled: true, totpLastStep: BigInt(step) },
     });
     if (r.count === 0) throw conflict("Kurulum değişti veya iki adımlı doğrulama zaten etkin; sayfayı yenileyin.");
-    await writeAudit(tx, ctx, { ...base, result: "success" });
+    // S-P21-K-1 (panel MFA etkinleştirme kalıbı): parolası ele geçmiş hesapta açık kalan diğer oturumlar düşer; mevcut oturum kalır.
+    const revoked = await repo.revokeOtherPortalSessions(tx, p.scope.tenantId, p.user.id, p.sessionId, portalNow(d));
+    await writeAudit(tx, ctx, { ...base, result: "success", newValue: { revokedSessions: revoked } });
   });
   d.limits.totpAccount.reset(p.user.id);
 }

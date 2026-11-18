@@ -93,7 +93,17 @@ type Act = { kind: "deactivate" | "reset"; account: PortalAccountItem };
 const itemCls =
   "flex min-h-11 w-full cursor-pointer items-center gap-2 rounded-sm px-3 text-left text-sm text-fg hover:bg-surface-muted disabled:cursor-not-allowed disabled:opacity-60";
 
-function RowMenu({ a, busy, onAct, onReactivate }: { a: PortalAccountItem; busy: boolean; onAct: (x: Act) => void; onReactivate: () => void }) {
+function RowMenu({
+  a,
+  busy,
+  onAct,
+  onReactivate,
+}: {
+  a: PortalAccountItem;
+  busy: boolean;
+  onAct: (x: Act) => void;
+  onReactivate: () => void;
+}) {
   const pick = (e: React.MouseEvent<HTMLButtonElement>, fn: () => void) => {
     closeMenu(e.currentTarget);
     fn();
@@ -109,7 +119,13 @@ function RowMenu({ a, busy, onAct, onReactivate }: { a: PortalAccountItem; busy:
     >
       {a.status === "ACTIVE" ? (
         <>
-          <button type="button" className={itemCls} disabled={busy} onClick={(e) => pick(e, () => onAct({ kind: "reset", account: a }))} data-testid="pa-reset">
+          <button
+            type="button"
+            className={itemCls}
+            disabled={busy}
+            onClick={(e) => pick(e, () => onAct({ kind: "reset", account: a }))}
+            data-testid="pa-reset"
+          >
             <KeyRound aria-hidden className="size-4" />
             {t("pa.reset")}
           </button>
@@ -134,7 +150,17 @@ function RowMenu({ a, busy, onAct, onReactivate }: { a: PortalAccountItem; busy:
   );
 }
 
-function AccountList({ items, busy, onAct, onReactivate }: { items: PortalAccountItem[]; busy: boolean; onAct: (x: Act) => void; onReactivate: (a: PortalAccountItem) => void }) {
+function AccountList({
+  items,
+  busy,
+  onAct,
+  onReactivate,
+}: {
+  items: PortalAccountItem[];
+  busy: boolean;
+  onAct: (x: Act) => void;
+  onReactivate: (a: PortalAccountItem) => void;
+}) {
   return (
     <ul className="flex flex-col divide-y divide-border rounded-lg border border-border bg-surface" data-testid="pa-list">
       {items.map((a) => (
@@ -157,7 +183,15 @@ function AccountList({ items, busy, onAct, onReactivate }: { items: PortalAccoun
   );
 }
 
-function CreateDialog({ customerId, onClose, onCreated }: { customerId: string; onClose: () => void; onCreated: (r: PortalAccountCreateResponse) => void }) {
+function CreateDialog({
+  customerId,
+  onClose,
+  onCreated,
+}: {
+  customerId: string;
+  onClose: () => void;
+  onCreated: (r: PortalAccountCreateResponse) => void;
+}) {
   const router = useRouter();
   const [v, setV] = useState({ fullName: "", email: "" });
   const [errors, setErrors] = useState<Record<string, string>>({});
@@ -190,20 +224,60 @@ function CreateDialog({ customerId, onClose, onCreated }: { customerId: string; 
   });
   return (
     <>
-      <Dialog open onClose={guard.requestClose} onDismiss={guard.requestClose} title={t("pa.createTitle")} description={t("pa.createDesc")} testId="pa-create-dialog">
+      <Dialog
+        open
+        onClose={guard.requestClose}
+        onDismiss={guard.requestClose}
+        title={t("pa.createTitle")}
+        description={t("pa.createDesc")}
+        testId="pa-create-dialog"
+      >
         <form noValidate onSubmit={(e) => void submit(e)} className="flex flex-col gap-4">
           <FormError error={failure} />
           <TextField label={t("pa.f.fullName")} autoComplete="off" required data-autofocus {...field("fullName")} data-testid="pa-f-name" />
-          <TextField label={t("pa.f.email")} type="email" autoComplete="off" autoCapitalize="none" spellCheck={false} required {...field("email")} data-testid="pa-f-email" />
-          <FormDialogActions busy={busy} onCancel={guard.requestClose} submitLabel={t("pa.create")} submitTestId="pa-create-submit" Icon={UserPlus} />
+          <TextField
+            label={t("pa.f.email")}
+            type="email"
+            autoComplete="off"
+            autoCapitalize="none"
+            spellCheck={false}
+            required
+            {...field("email")}
+            data-testid="pa-f-email"
+          />
+          <FormDialogActions
+            busy={busy}
+            onCancel={guard.requestClose}
+            submitLabel={t("pa.create")}
+            submitTestId="pa-create-submit"
+            Icon={UserPlus}
+          />
         </form>
       </Dialog>
-      <FormLeaveDialog guard={guard} testId="pa-create-leave" title={t("pa.createTitle")} body={t("pa.leaveBody")} stayLabel={t("pa.leaveStay")} />
+      <FormLeaveDialog
+        guard={guard}
+        testId="pa-create-leave"
+        title={t("pa.createTitle")}
+        body={t("pa.leaveBody")}
+        stayLabel={t("pa.leaveStay")}
+      />
     </>
   );
 }
 
-function ConfirmDialog({ act, busy, error, onClose, onConfirm }: { act: Act | null; busy: boolean; error: UiError | null; onClose: () => void; onConfirm: () => void }) {
+function ConfirmDialog({
+  act,
+  busy,
+  error,
+  onClose,
+  onConfirm,
+}: {
+  act: Act | null;
+  busy: boolean;
+  error: UiError | null;
+  onClose: () => void;
+  onConfirm: () => void;
+}) {
   const deact = act?.kind === "deactivate";
   const name = act?.account.fullName ?? "";
   return (
@@ -310,7 +384,13 @@ function Header({ loginUrl, create, onCreate }: { loginUrl: string; create: Retu
         <CopyLink url={loginUrl} srLabel={t("pa.copyUrl")} testId="pa-login-url-copy" />
       </div>
       <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
-        <Button onClick={onCreate} disabled={!create.enabled} className="self-start" data-testid="pa-create" aria-describedby={create.reason ? "pa-create-reason" : undefined}>
+        <Button
+          onClick={onCreate}
+          disabled={!create.enabled}
+          className="self-start"
+          data-testid="pa-create"
+          aria-describedby={create.reason ? "pa-create-reason" : undefined}
+        >
           <UserPlus aria-hidden className="size-4" />
           {t("pa.create")}
         </Button>
@@ -338,7 +418,12 @@ export function PortalAccounts({ customerId, customerActive }: { customerId: str
   const items = load.kind === "ok" ? load.data.items : [];
   const create = createState(customerActive, items.length);
   return (
-    <section id="portal-hesaplari" aria-labelledby="portal-hesaplari-h" className="flex flex-col gap-3 border-t border-border pt-6" data-testid="portal-accounts">
+    <section
+      id="portal-hesaplari"
+      aria-labelledby="portal-hesaplari-h"
+      className="flex flex-col gap-3 border-t border-border pt-6"
+      data-testid="portal-accounts"
+    >
       <h2 id="portal-hesaplari-h" className="flex items-center gap-2 text-lg font-semibold text-fg">
         <KeyRound aria-hidden className="size-5 text-primary" />
         {t("pa.title")}

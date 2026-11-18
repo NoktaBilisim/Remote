@@ -26,7 +26,17 @@ export function PasswordSection() {
 type Mfa = { kind: "idle" } | { kind: "starting" } | { kind: "scan"; data: PortalTotpSetupResponse } | { kind: "disabling" };
 
 /** Kod alanı: yalnız rakam, 6 hane, mono. */
-function CodeField({ value, onChange, error, disabled }: { value: string; onChange: (v: string) => void; error?: string; disabled: boolean }) {
+function CodeField({
+  value,
+  onChange,
+  error,
+  disabled,
+}: {
+  value: string;
+  onChange: (v: string) => void;
+  error?: string;
+  disabled: boolean;
+}) {
   return (
     <TextField
       name="code"
@@ -116,7 +126,13 @@ function SetupForm({ data, a, onCancel }: { data: PortalTotpSetupResponse; a: Re
           >
             {groupSecret(secret)}
           </code>
-          <Button type="button" variant="secondary" aria-label={t("mfa.s.copyKey")} className="shrink-0 px-3" onClick={async () => setCopied(await copyText(secret))}>
+          <Button
+            type="button"
+            variant="secondary"
+            aria-label={t("mfa.s.copyKey")}
+            className="shrink-0 px-3"
+            onClick={async () => setCopied(await copyText(secret))}
+          >
             {copied ? <Check aria-hidden className="size-4" /> : <Copy aria-hidden className="size-4" />}
           </Button>
         </div>
@@ -220,7 +236,12 @@ export function MfaSection({ enabled }: { enabled: boolean }) {
         <>
           <FormError error={a.err} />
           {enabled ? (
-            <Button variant="danger-ghost" className="self-start" onClick={() => setMfa({ kind: "disabling" })} data-testid="portal-mfa-off">
+            <Button
+              variant="danger-ghost"
+              className="self-start"
+              onClick={() => setMfa({ kind: "disabling" })}
+              data-testid="portal-mfa-off"
+            >
               <ShieldOff aria-hidden className="size-4" />
               {t("portal.acc.mfaDisable")}
             </Button>

@@ -3,7 +3,10 @@
 import type { FastifyInstance } from "fastify";
 import { newId, newSecretToken, sha256Hex } from "../../src/lib/ids.ts";
 import { writeAudit } from "../../src/audit/service.ts";
+import { PORTAL_AUDIT } from "@remote/contracts/audit";
+import { portalWho } from "../../src/portal/auth.ts";
 import { createSupportSessionRow, createTenant, createUser, testDb, testFixtureDb, type Session, type TestUser } from "./app.ts";
+import { createPortalUser } from "./portal.ts";
 import { createCustomerRow, createRequestRow, createRequestSettings } from "./requests.ts";
 import { contactRow, createDeviceRow, deviceSessionRow, grantRow } from "./unattended.ts";
 
@@ -13,6 +16,8 @@ export interface PurgeFixture {
   admin: TestUser;
   user: TestUser;
   fileRel: string;
+  /** P21 (Q-P21-2): firmanın portal hesabı (SESSIONS adımı) — audit'te kimlik maskesi kontrolü için. */
+  portalEmail: string;
 }
 
 /** Firma + her adım tablosunda en az bir satır + yüklenmiş dosya + firma kullanıcılarının giriş audit'i. */
@@ -142,8 +147,28 @@ export async function seedPurgeTenant(app: FastifyInstance): Promise<PurgeFixtur
       deviceId,
     },
   });
+  // P21 (Q-P21-2; mimari-p21 §3.4, §10 "Silme yolları"): portal hesabı + açık oturumu (SESSIONS adımı, customers'tan önce) ve portal
+  // aktörlü giriş audit'i (entity = portal_users; hesap silinince maskelenir).
+  const portal = await createPortalUser({ tenantId: t.id, slug: t.slug, customerId: customer.id });
+  await db.portalSession.create({
+    data: {
+      id: newId(),
+      portalUserId: portal.id,
+      tenantId: t.id,
+      tokenHash: sha256Hex(newSecretToken()),
+      ip: "203.0.113.9",
+      userAgent: "test",
+      lastSeenAt: new Date(),
+      expiresAt: new Date(Date.now() + 3_600_000),
+    },
+  });
+  await writeAudit(
+    db,
+    { ip: "203.0.113.9", userAgent: "test", requestId: newId() },
+    { ...portalWho(t.id, portal.id, portal.email), action: PORTAL_AUDIT.LOGIN, result: "success" },
+  );
   const fileRel = await app.uploads.save(t.id, "png", Buffer.from("not-really-a-png"));
-  return { tenantId: t.id, tenantName: t.name, admin, user, fileRel };
+  return { tenantId: t.id, tenantName: t.name, admin, user, fileRel, portalEmail: portal.email };
 }
 
 /** Pasife al (API ile, Super Admin) ve `passive_at`'ı 31 gün geriye çek (migrator; tetikleyiciden muaf). */

@@ -1,16 +1,25 @@
 // P21 K4 — portaldan destek talebi (mimari-p21 §4.2 POST /portal/requests, GET /portal/request-form; K-P21-2; r2 S-P21-1/S-P21-4).
 // Gövde yalnız sunucuda kurulur (ref = oturumdaki müşterinin ref'i); firma web formu tercihi portal yolunu etkilemez.
-import type { PortalPage, PortalRequestFormInfo, PortalRequestItem } from "@remote/contracts/api/portal";
+import {
+  portalRequestInputSchema,
+  type PortalPage,
+  type PortalRequestFormInfo,
+  type PortalRequestItem,
+} from "@remote/contracts/api/portal";
 import type { CreateRequestResponse } from "@remote/contracts/api/requests";
 import type { FastifyInstance } from "fastify";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { AppError } from "../../src/lib/errors.ts";
 import { newId, newSecretToken } from "../../src/lib/ids.ts";
-import { createConsentText, createTenant, createUser, currentConsentId, makeApp, ORIGIN, testDb } from "../helpers/app.ts";
+import { createPortalRequest } from "../../src/portal/data.ts";
+import { resolvePortalSession } from "../../src/portal/session.ts";
+import { createConsentText, createTenant, createUser, currentConsentId, loginAs, makeApp, ORIGIN, testDb } from "../helpers/app.ts";
 import { createPortalUser, PORTAL_ENV, portalLoginAs, type PortalSession, type TestPortalUser } from "../helpers/portal.ts";
 import { createCustomerRow, createRequestSettings } from "../helpers/requests.ts";
 
 let app: FastifyInstance;
 const db = testDb;
+const PORTAL_REF_CHANGED = "Talep bağlantınız yenilendi, sayfayı yenileyin.";
 const errOf = (r: { json: <T>() => T }) => r.json<{ error: { code: string; message: string; fields?: Record<string, string> } }>().error;
 
 beforeAll(async () => {
@@ -78,11 +87,17 @@ describe("AC-262 K-P21-2 portaldan talep", () => {
       const a = await db().auditLog.findFirstOrThrow({ where: { entityId: out.requestId, action: "request.created" } });
       expect(a.newValue).toMatchObject({ via: "portal", portalUserId: f.user.id, customerId: f.customerId, source: "WEB" });
       expect(JSON.stringify(a.newValue)).not.toContain(f.ref);
-      const list = (await app.inject({ method: "GET", url: "/api/v1/portal/requests", headers: f.s.headers })).json<PortalPage<PortalRequestItem>>();
+      const list = (await app.inject({ method: "GET", url: "/api/v1/portal/requests", headers: f.s.headers })).json<
+        PortalPage<PortalRequestItem>
+      >();
       expect(list.items.map((i) => i.id)).toContain(out.requestId);
       if (!formEnabled) {
         // Firma web formu kapalı: /r/<ref> (genel form) 404 kalır, portal yolu çalışır.
-        const form = await app.inject({ method: "GET", url: `/api/v1/public/web-requests/form?ref=${f.ref}`, headers: { "x-forwarded-for": freshIp() } });
+        const form = await app.inject({
+          method: "GET",
+          url: `/api/v1/public/web-requests/form?ref=${f.ref}`,
+          headers: { "x-forwarded-for": freshIp() },
+        });
         expect(form.statusCode).toBe(404);
       }
     }
@@ -154,7 +169,11 @@ describe("AC-262 K-P21-2 portaldan talep", () => {
     const localDay = (d: number) => new Date(Date.now() + 3 * 3_600_000 + d * 86_400_000).toISOString().slice(0, 10);
     await db().tenantRequestSettings.update({
       where: { tenantId: f.tenantId },
-      data: { hoursEnabled: true, afterHoursMode: "REJECT", businessHours: [0, 1, 2, 3, 4, 5, 6].map(() => [{ from: "00:00", to: "24:00" }]) },
+      data: {
+        hoursEnabled: true,
+        afterHoursMode: "REJECT",
+        businessHours: [0, 1, 2, 3, 4, 5, 6].map(() => [{ from: "00:00", to: "24:00" }]),
+      },
     });
     for (const d of [0, 1])
       await db().businessHoliday.create({
@@ -213,6 +232,56 @@ describe("AC-262 K-P21-2 portaldan talep", () => {
       { expectedTenantId: newId(), expectedCustomerId: f.customerId },
     ])
       await expect(app.requests.createPortal(ctx, core, { via: "portal", portalUserId: f.user.id, ...expected })).rejects.toThrow();
+    expect(await count(f.customerId)).toBe(0);
+  });
+
+  it("AC-262 Q-P21-5: Admin ref yenilemesinden sonra açık portal oturumuyla talep yeni ref'le AYNI müşteriye yazılır; eşzamanlı yenilemede 201 ya da 409", async () => {
+    const f = await fixture({ formEnabled: true });
+    const admin = await loginAs(app, await createUser({ tenantId: f.tenantId, role: "ADMIN" }));
+    const rotate = () =>
+      app.inject({ method: "POST", url: `/api/v1/customers/${f.customerId}/rotate-ref`, headers: admin.headers, payload: {} });
+    expect((await rotate()).statusCode).toBe(200);
+    const newRef = (await db().customer.findUniqueOrThrow({ where: { id: f.customerId } })).requestRef;
+    expect(newRef).not.toBe(f.ref);
+    const r = await postReq(f.s, await body(f.tenantId));
+    expect(r.statusCode, r.body).toBe(201);
+    const row = await db().supportRequest.findUniqueOrThrow({ where: { id: r.json<CreateRequestResponse>().requestId } });
+    expect(row).toMatchObject({ tenantId: f.tenantId, customerId: f.customerId });
+    await expireAll(f.customerId);
+
+    // Eşzamanlı: yenileme ile talep aynı anda → talep ya yazılır (aynı müşteri) ya da 409 "bağlantı yenilendi"; başka sonuç yok.
+    for (let i = 0; i < 3; i++) {
+      const [rot, req] = await Promise.all([rotate(), postReq(f.s, await body(f.tenantId))]);
+      expect(rot.statusCode).toBe(200);
+      expect([201, 409], req.body).toContain(req.statusCode);
+      if (req.statusCode === 409) expect(errOf(req)).toMatchObject({ code: "CONFLICT", message: PORTAL_REF_CHANGED });
+      await expireAll(f.customerId);
+    }
+    const all = await db().supportRequest.findMany({ where: { tenantId: f.tenantId }, select: { customerId: true } });
+    expect(all.every((x) => x.customerId === f.customerId)).toBe(true);
+  });
+
+  it("AC-262 Q-P21-5: oturum çözüldükten sonra ref yenilenirse (eski ref çözülemez) 409 CONFLICT, talep yazılmaz", async () => {
+    const f = await fixture({ formEnabled: true });
+    const stale = await resolvePortalSession(app.db, f.s.token, new Date());
+    if (!stale) throw new Error("portal oturumu çözülemedi");
+    expect(stale.customer.requestRef).toBe(f.ref);
+    const admin = await loginAs(app, await createUser({ tenantId: f.tenantId, role: "ADMIN" }));
+    const rot = await app.inject({
+      method: "POST",
+      url: `/api/v1/customers/${f.customerId}/rotate-ref`,
+      headers: admin.headers,
+      payload: {},
+    });
+    expect(rot.statusCode).toBe(200);
+    const input = portalRequestInputSchema.parse(await body(f.tenantId));
+    const ctx = { ip: freshIp(), userAgent: "test", requestId: newId() };
+    const err = await createPortalRequest(app.requests, app.portalLimits, ctx, stale, input).then(
+      () => null,
+      (e: unknown) => e,
+    );
+    expect(err).toBeInstanceOf(AppError);
+    expect(err).toMatchObject({ code: "CONFLICT", message: PORTAL_REF_CHANGED });
     expect(await count(f.customerId)).toBe(0);
   });
 });

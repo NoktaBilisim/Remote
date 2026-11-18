@@ -26,7 +26,7 @@ import {
   type TestUser,
 } from "../helpers/app.ts";
 import { sessionOf } from "../helpers/auth.ts";
-import { createRequestRow, createRequestSettings, requestClient, waitMsg } from "../helpers/requests.ts";
+import { createRequestRow, createRequestSettings, requestClient, retryNotReady, waitMsg } from "../helpers/requests.ts";
 import { startLive, type Live } from "../helpers/signal-flow.ts";
 import { makeDue, makeEligible, seedPurgeTenant, tenantRowCounts } from "../helpers/tenant-purge.ts";
 import { connect, FakeClock, type WsClient } from "../helpers/ws.ts";
@@ -491,12 +491,17 @@ describe("AC-255 → AC-264 retention ve firma silme", () => {
     expect(p.statusCode, p.body).toBe(200);
     const pv = p.json<TenantPurgePreviewResponse>();
     expect(pv.counts.MESSAGES).toBe(2); // P19: fikstür mesajı + notification_outbox satırı (aynı adım)
-    const sc = await live.app.inject({
-      method: "POST",
-      url,
-      headers: sa.headers,
-      payload: { dryRun: false, previewId: pv.previewId, confirmName: f.tenantName },
-    });
+    // Q-P21-3: eşzamanlı başka zamanlamayla InnoDB boşluk kilidi deadlock'u → tasarlanmış 503 + Retry-After; belgelenmiş yeniden deneme.
+    const sc = await retryNotReady(
+      () =>
+        live.app.inject({
+          method: "POST",
+          url,
+          headers: sa.headers,
+          payload: { dryRun: false, previewId: pv.previewId, confirmName: f.tenantName },
+        }),
+      { attempts: 3 },
+    );
     expect(sc.statusCode, sc.body).toBe(202);
     const jobId = sc.json<TenantPurgeScheduledResponse>().jobId;
     await makeDue(jobId);

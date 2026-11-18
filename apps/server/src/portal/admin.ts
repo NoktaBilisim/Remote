@@ -100,7 +100,8 @@ export async function createPortalAccount(
   input: { email: string; fullName: string },
 ): Promise<PortalAccountCreateResponse> {
   const wait = d.createLimit.blockedFor(tenantId);
-  if (wait > 0 || d.createLimit.hit(tenantId)) throw new AppError("RATE_LIMITED", { retryAfterSec: wait || d.createLimit.blockedFor(tenantId) || 60 });
+  if (wait > 0 || d.createLimit.hit(tenantId))
+    throw new AppError("RATE_LIMITED", { retryAfterSec: wait || d.createLimit.blockedFor(tenantId) || 60 });
   const customer = await customerOf(d.db, tenantId, customerId);
   if (customer.anonymizedAt !== null) throw customerUnusable();
   const temporaryPassword = newTemporaryPassword(TEMPORARY_PASSWORD_LENGTH);
@@ -111,7 +112,9 @@ export async function createPortalAccount(
     await d.db.$transaction(async (tx) => {
       if ((await crepo.shareStatus(tx, tenantId, customerId)) !== "ACTIVE") throw customerUnusable();
       if ((await repo.countAccounts(tx, tenantId, customerId)) >= PORTAL_ACCOUNTS_PER_CUSTOMER_MAX)
-        throw new AppError("CONFLICT", { message: `Bir müşteri için en çok ${PORTAL_ACCOUNTS_PER_CUSTOMER_MAX} portal hesabı açılabilir.` });
+        throw new AppError("CONFLICT", {
+          message: `Bir müşteri için en çok ${PORTAL_ACCOUNTS_PER_CUSTOMER_MAX} portal hesabı açılabilir.`,
+        });
       await tx.portalUser.create({
         data: {
           id,
@@ -136,7 +139,8 @@ export async function createPortalAccount(
       });
     });
   } catch (err) {
-    if (conflictIndex(err) === EMAIL_UQ) throw new AppError("CONFLICT", { message: EMAIL_UNAVAILABLE, fields: { email: EMAIL_UNAVAILABLE } });
+    if (conflictIndex(err) === EMAIL_UQ)
+      throw new AppError("CONFLICT", { message: EMAIL_UNAVAILABLE, fields: { email: EMAIL_UNAVAILABLE } });
     throw err;
   }
   return { account: accountItem(await accountOrThrow(d.db, tenantId, customerId, id), now), temporaryPassword };

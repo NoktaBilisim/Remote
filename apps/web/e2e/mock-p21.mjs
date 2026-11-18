@@ -60,7 +60,10 @@ const me = (s) => ({
   },
   customer: { name: "Acme Lojistik A.Ş." },
   provider: { name: "Demo Firma", logoUrl: "/img/logo.png" },
-  links: { downloadUrl: `${BASE}/api/v1/public/agent/request-download?ref=webformz${s.suffix}`, fileName: `NoktaDestek-Acme-webformz${s.suffix}.exe` },
+  links: {
+    downloadUrl: `${BASE}/api/v1/public/agent/request-download?ref=webformz${s.suffix}`,
+    fileName: `NoktaDestek-Acme-webformz${s.suffix}.exe`,
+  },
 });
 
 const rqItem = (id, i = 0) => ({
@@ -86,7 +89,10 @@ const ssItem = (id, i = 0) => ({
   endedAt: iso(-(i + 1) * 3_600_000 + 1_765_000),
   durationSec: 1705,
 });
-const OWN_RQS = [rqItem(P21.OWN_RQ, 0), ...Array.from({ length: 29 }, (_, i) => rqItem(`01JP21RQ0000000000000${String(i + 10).padStart(5, "0")}`, i + 1))];
+const OWN_RQS = [
+  rqItem(P21.OWN_RQ, 0),
+  ...Array.from({ length: 29 }, (_, i) => rqItem(`01JP21RQ0000000000000${String(i + 10).padStart(5, "0")}`, i + 1)),
+];
 const OWN_SSS = [ssItem(P21.OWN_SS, 0), ssItem("01JP21SS000000000000000002", 1)];
 
 const portalCookies = (token) => [
@@ -114,7 +120,11 @@ async function handleLogin(req, res, { send, err, readJson }) {
   if (acc?.locked) return send(res, 423, err("ACCOUNT_LOCKED", "Hesap geçici olarak kilitlendi."), [], { "Retry-After": "878" });
   if (!acc || acc.password !== password) return send(res, 401, err("UNAUTHENTICATED", "E-posta veya şifre hatalı."));
   if (acc.expired)
-    return send(res, 401, err("UNAUTHENTICATED", "Geçici şifrenin süresi doldu (72 saat). Destek sağlayıcınızdan yeniden sıfırlama isteyin."));
+    return send(
+      res,
+      401,
+      err("UNAUTHENTICATED", "Geçici şifrenin süresi doldu (72 saat). Destek sağlayıcınızdan yeniden sıfırlama isteyin."),
+    );
   if (acc.scen === "mfa" && !totpCode) return send(res, 403, err("MFA_REQUIRED", "Doğrulama kodu gerekli."));
   if (acc.scen === "mfa" && totpCode !== "123456") return send(res, 401, err("UNAUTHENTICATED", "Kod hatalı."));
   const token = `p-${acc.scen}-${rnd()}`;
@@ -141,7 +151,8 @@ async function handlePortal(req, res, ctx) {
     s.theme = r.data.theme;
     return (send(res, 200, me(s)), true);
   }
-  if (k === "POST /api/v1/portal/auth/logout") return (portalState.delete(cookies[PORTAL_SESSION_COOKIE]), send(res, 204, undefined, clearPortal), true);
+  if (k === "POST /api/v1/portal/auth/logout")
+    return (portalState.delete(cookies[PORTAL_SESSION_COOKIE]), send(res, 204, undefined, clearPortal), true);
   if (k === "POST /api/v1/portal/account/password") {
     const r = passwordChangeInputSchema.safeParse(await readJson(req));
     if (!r.success) return (send(res, 400, err("VALIDATION", "Doğrulama hatası", { fields: fieldsOf(r.error) })), true);
@@ -218,7 +229,13 @@ export function p21User(cookie) {
   const m = cookie?.match(PANEL);
   if (!m) return null;
   return {
-    user: { id: "01JP21ADM00000000000000001", email: "admin@demo.com", fullName: "Deniz Admin", role: m[1] === "p21ro" ? "USER" : "ADMIN", mustChangePassword: false },
+    user: {
+      id: "01JP21ADM00000000000000001",
+      email: "admin@demo.com",
+      fullName: "Deniz Admin",
+      role: m[1] === "p21ro" ? "USER" : "ADMIN",
+      mustChangePassword: false,
+    },
     permissions: m[1] === "p21ro" ? ["customers.view"] : ["customers.view", "customers.edit", "customers.portal"],
     tenant: { id: "01JP21TENANT00000000000001", name: "Demo Firma" },
     actingTenant: null,
@@ -240,7 +257,13 @@ const account = (o) => ({
 function accounts(cookie) {
   if (!accStores.has(cookie))
     accStores.set(cookie, [
-      account({ email: "ali@acme.com", fullName: "Ali Müşteri", mustChangePassword: false, totpEnabled: true, lastLoginAt: iso(-3_600_000) }),
+      account({
+        email: "ali@acme.com",
+        fullName: "Ali Müşteri",
+        mustChangePassword: false,
+        totpEnabled: true,
+        lastLoginAt: iso(-3_600_000),
+      }),
       account({ email: "eski@acme.com", fullName: "Eski Çalışan", tempPasswordExpired: true }),
     ]);
   return accStores.get(cookie);
@@ -272,8 +295,11 @@ async function handlePanel(req, res, { url, session, csrfOk, send, err, readJson
   const m = session?.match(PANEL);
   if (!m) return false;
   const path = url.split("?")[0];
-  if (req.method === "GET" && path === `/api/v1/customers/${P21.CUSTOMER}`) return (send(res, 200, customerDetail(m[1] === "p21pas")), true);
-  const pa = path.match(/^\/api\/v1\/customers\/([0-9A-Z]{26})\/portal-accounts(?:\/([0-9A-Z]{26})\/(deactivate|reactivate|reset-password))?$/);
+  if (req.method === "GET" && path === `/api/v1/customers/${P21.CUSTOMER}`)
+    return (send(res, 200, customerDetail(m[1] === "p21pas")), true);
+  const pa = path.match(
+    /^\/api\/v1\/customers\/([0-9A-Z]{26})\/portal-accounts(?:\/([0-9A-Z]{26})\/(deactivate|reactivate|reset-password))?$/,
+  );
   if (!pa) return false;
   if (m[1] === "p21ro") return (send(res, 403, err("FORBIDDEN", "Yetkiniz yok.")), true);
   if (pa[1] !== P21.CUSTOMER) return (send(res, 404, err("NOT_FOUND", "Kayıt bulunamadı.")), true);
@@ -284,7 +310,16 @@ async function handlePanel(req, res, { url, session, csrfOk, send, err, readJson
     const r = portalAccountCreateInputSchema.safeParse(await readJson(req));
     if (!r.success) return (send(res, 400, err("VALIDATION", "Doğrulama hatası", { fields: fieldsOf(r.error) })), true);
     if (list.some((a) => a.email === r.data.email))
-      return (send(res, 409, err("CONFLICT", "Bu e-posta adresiyle portal hesabı açılamaz.", { fields: { email: "Bu e-posta adresiyle portal hesabı açılamaz." } })), true);
+      return (
+        send(
+          res,
+          409,
+          err("CONFLICT", "Bu e-posta adresiyle portal hesabı açılamaz.", {
+            fields: { email: "Bu e-posta adresiyle portal hesabı açılamaz." },
+          }),
+        ),
+        true
+      );
     const a = account({ ...r.data, createdAt: iso() });
     list.push(a);
     return (send(res, 201, { account: a, temporaryPassword: "Gecici-Sifre-7Kq2xZ" }), true);

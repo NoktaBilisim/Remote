@@ -93,7 +93,11 @@ export function sessionOf(res: LightMyRequestResponse): PortalSession {
   return {
     token,
     csrf,
-    headers: { cookie: `${PORTAL_SESSION_COOKIE}=${token}; ${PORTAL_CSRF_COOKIE}=${csrf}`, [CSRF_HEADER]: csrf, origin: ORIGIN } as PortalSession["headers"],
+    headers: {
+      cookie: `${PORTAL_SESSION_COOKIE}=${token}; ${PORTAL_CSRF_COOKIE}=${csrf}`,
+      [CSRF_HEADER]: csrf,
+      origin: ORIGIN,
+    } as PortalSession["headers"],
   };
 }
 

@@ -269,7 +269,9 @@ describe("AC-262 ilk girişte şifre değişimi", () => {
     expect(r.json<PortalMe>().user.theme).toBe("DARK");
     expect(r.cookies.find((x) => x.name === "rs_theme")?.value).toBe("dark");
     expect((await db().portalUser.findUniqueOrThrow({ where: { id: u.id } })).theme).toBe("DARK");
-    expect((await app.inject({ method: "PATCH", url: "/api/v1/portal/me", headers: s.headers, payload: { theme: "X" } })).statusCode).toBe(400);
+    expect((await app.inject({ method: "PATCH", url: "/api/v1/portal/me", headers: s.headers, payload: { theme: "X" } })).statusCode).toBe(
+      400,
+    );
   });
 });
 
@@ -291,7 +293,12 @@ describe("AC-262 isteğe bağlı TOTP", () => {
     });
     expect(badEnable.statusCode).toBe(400);
     expect(errOf(badEnable).fields?.code).toBeDefined();
-    const en = await app.inject({ method: "POST", url: "/api/v1/portal/account/totp/enable", headers: s.headers, payload: { code: totpAt(secret) } });
+    const en = await app.inject({
+      method: "POST",
+      url: "/api/v1/portal/account/totp/enable",
+      headers: s.headers,
+      payload: { code: totpAt(secret) },
+    });
     expect(en.statusCode, en.body).toBe(204);
     expect((await lastAudit(u.id, PORTAL_AUDIT.MFA_ENABLED))?.result).toBe("success");
     const again = await app.inject({ method: "POST", url: "/api/v1/portal/account/totp/setup", headers: s.headers, payload: {} });
@@ -322,7 +329,12 @@ describe("AC-262 isteğe bağlı TOTP", () => {
     });
     expect(noPass.statusCode).toBe(400);
     expect(errOf(noPass).fields?.password).toBeDefined();
-    const missing = await app.inject({ method: "POST", url: "/api/v1/portal/account/totp/disable", headers: s2.headers, payload: { password: u.password } });
+    const missing = await app.inject({
+      method: "POST",
+      url: "/api/v1/portal/account/totp/disable",
+      headers: s2.headers,
+      payload: { password: u.password },
+    });
     expect(missing.statusCode).toBe(400);
     // Kod tüketimi: t+1 kullanıldı → disable için yeniden kullanılamaz; güncel adım (t) da t+1'den eski → reddedilir.
     const stale = await app.inject({
@@ -344,6 +356,33 @@ describe("AC-262 isteğe bağlı TOTP", () => {
     const row = await db().portalUser.findUniqueOrThrow({ where: { id: u.id } });
     expect(row).toMatchObject({ totpEnabled: false, totpSecretEnc: null, totpLastStep: null });
     expect((await lastAudit(u.id, PORTAL_AUDIT.MFA_DISABLED))?.result).toBe("success");
+  });
+
+  it("AC-262 S-P21-K-1: TOTP etkinleştirme aynı işlemde hesabın diğer portal oturumlarını iptal eder (mevcut kalır); sayı audit'te", async () => {
+    const { t, c, u } = await fixture();
+    const other = await fixture({ tenantId: t.id, slug: t.slug, customerId: c.id }); // aynı müşterinin başka hesabı etkilenmez
+    const s1 = await portalLoginAs(app, u);
+    const s2 = await portalLoginAs(app, u);
+    const s3 = await portalLoginAs(app, u);
+    const so = await portalLoginAs(app, other.u);
+    const me = (s: { headers: Record<string, string> }) => app.inject({ method: "GET", url: "/api/v1/portal/me", headers: s.headers });
+    expect((await me(s2)).statusCode).toBe(200);
+    const setup = await app.inject({ method: "POST", url: "/api/v1/portal/account/totp/setup", headers: s1.headers, payload: {} });
+    const { secret } = setup.json<{ secret: string }>();
+    const en = await app.inject({
+      method: "POST",
+      url: "/api/v1/portal/account/totp/enable",
+      headers: s1.headers,
+      payload: { code: totpAt(secret) },
+    });
+    expect(en.statusCode, en.body).toBe(204);
+    expect((await me(s1)).statusCode).toBe(200);
+    expect((await me(s2)).statusCode).toBe(401);
+    expect((await me(s3)).statusCode).toBe(401);
+    expect((await me(so)).statusCode).toBe(200);
+    const a = await lastAudit(u.id, PORTAL_AUDIT.MFA_ENABLED);
+    expect(a).toMatchObject({ result: "success", newValue: { revokedSessions: 2 } });
+    expect(await db().portalSession.count({ where: { portalUserId: u.id, revokedAt: null } })).toBe(1);
   });
 
   it("AC-262 r2 S-P21-7: kodlu 16. hatalı deneme/15 dk → 429 (portalMfaUser); hatalı kod DB sayacını artırır", async () => {
@@ -374,7 +413,11 @@ describe("AC-262 ADR-0039 panel ↔ portal çerez ayrımı", () => {
     const panelUser = await createUser({ tenantId: t.id, role: "ADMIN" });
     const panel = await loginAs(app, panelUser);
     const portal = await portalLoginAs(app, u);
-    const r1 = await app.inject({ method: "GET", url: "/api/v1/portal/me", headers: { cookie: `${PORTAL_SESSION_COOKIE}=${panel.token}` } });
+    const r1 = await app.inject({
+      method: "GET",
+      url: "/api/v1/portal/me",
+      headers: { cookie: `${PORTAL_SESSION_COOKIE}=${panel.token}` },
+    });
     expect(r1.statusCode).toBe(401);
     const r2 = await app.inject({ method: "GET", url: "/api/v1/auth/me", headers: { cookie: `${SESSION_COOKIE}=${portal.token}` } });
     expect(r2.statusCode).toBe(401);
@@ -391,7 +434,11 @@ describe("AC-262 ADR-0039 panel ↔ portal çerez ayrımı", () => {
     const p1 = await app.inject({
       method: "PATCH",
       url: "/api/v1/auth/me/preferences",
-      headers: { cookie: `${SESSION_COOKIE}=${panel.token}; ${PORTAL_CSRF_COOKIE}=${portal.csrf}`, "x-csrf-token": portal.csrf, origin: ORIGIN },
+      headers: {
+        cookie: `${SESSION_COOKIE}=${panel.token}; ${PORTAL_CSRF_COOKIE}=${portal.csrf}`,
+        "x-csrf-token": portal.csrf,
+        origin: ORIGIN,
+      },
       payload: { theme: "DARK" },
     });
     expect(p1.statusCode).toBe(403);
@@ -400,7 +447,11 @@ describe("AC-262 ADR-0039 panel ↔ portal çerez ayrımı", () => {
     const p2 = await app.inject({
       method: "PATCH",
       url: "/api/v1/portal/me",
-      headers: { cookie: `${PORTAL_SESSION_COOKIE}=${portal.token}; ${CSRF_COOKIE}=${panelCsrf}`, "x-csrf-token": panelCsrf, origin: ORIGIN },
+      headers: {
+        cookie: `${PORTAL_SESSION_COOKIE}=${portal.token}; ${CSRF_COOKIE}=${panelCsrf}`,
+        "x-csrf-token": panelCsrf,
+        origin: ORIGIN,
+      },
       payload: { theme: "DARK" },
     });
     expect(p2.statusCode).toBe(403);

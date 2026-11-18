@@ -25,7 +25,9 @@ const rq = (p: Partial<PortalRequestItem> = {}): PortalRequestItem => ({
 
 describe("P21 portal geçmişi bileşenleri (5 durum)", () => {
   it("kısmi: oturumlar hata → sekmede 'yüklenemedi', talepler sayacı görünür; etkin sekme aria-current", () => {
-    const html = renderToStaticMarkup(<PortalTabs tab="requests" rq={ok([rq()], 30)} ss={fail as ServerResult<PortalPage<PortalSessionItem>>} />);
+    const html = renderToStaticMarkup(
+      <PortalTabs tab="requests" rq={ok([rq()], 30)} ss={fail as ServerResult<PortalPage<PortalSessionItem>>} />,
+    );
     expect(html).toContain("Talepler (30)");
     expect(html).toContain("Oturumlar (yüklenemedi)");
     expect(html).toMatch(/aria-current="page"[^>]*data-testid="portal-tab-requests"/);

@@ -108,6 +108,26 @@ export async function revokePortalUserSessions(db: DbOrTx, tenantId: string, por
   return r.count;
 }
 
+/**
+ * Hesabın mevcut oturum DIŞINDAKİ açık oturumları (S-P21-K-1, TOTP etkinleştirme). Panel `auth/account.ts` kalıbı: kilitsiz okuma +
+ * PK ile güncelleme yalnız kayıt kilidi alır (aralık UPDATE'inin boşluk kilidi eşzamanlı giriş INSERT'üyle kilitlenmesin).
+ */
+export async function revokeOtherPortalSessions(
+  tx: Prisma.TransactionClient,
+  tenantId: string,
+  portalUserId: string,
+  keepSessionId: string,
+  at: Date,
+): Promise<number> {
+  const others = await tx.portalSession.findMany({
+    where: { portalUserId, tenantId, revokedAt: null, id: { not: keepSessionId } },
+    select: { id: true },
+  });
+  if (others.length === 0) return 0;
+  const r = await tx.portalSession.updateMany({ where: { id: { in: others.map((o) => o.id) }, revokedAt: null }, data: { revokedAt: at } });
+  return r.count;
+}
+
 // ------------------------------------------------------------------ kapsamlı veri (K-P21-7 dar seçimler)
 
 export const requestItemSelect = {

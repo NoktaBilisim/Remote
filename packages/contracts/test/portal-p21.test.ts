@@ -41,12 +41,12 @@ describe("P21 portal sözleşmesi", () => {
     expect(ok.email).toBe("ali@firma.com");
     expect(portalLoginInputSchema.safeParse({ email: "ali@firma.com", password: "x" }).success).toBe(false);
     expect(portalLoginInputSchema.safeParse({ email: "ali@firma.com", tenantSlug: "Nokta!", password: "x" }).success).toBe(false);
-    expect(
-      portalLoginInputSchema.safeParse({ email: "ali@firma.com", tenantSlug: "nokta", password: "x", tenantId: ULID }).success,
-    ).toBe(false);
-    expect(portalLoginInputSchema.safeParse({ email: "ali@firma.com", tenantSlug: "nokta", password: "x", totpCode: "12a456" }).success).toBe(
+    expect(portalLoginInputSchema.safeParse({ email: "ali@firma.com", tenantSlug: "nokta", password: "x", tenantId: ULID }).success).toBe(
       false,
     );
+    expect(
+      portalLoginInputSchema.safeParse({ email: "ali@firma.com", tenantSlug: "nokta", password: "x", totpCode: "12a456" }).success,
+    ).toBe(false);
   });
 
   it("AC-262: liste sorgusu — varsayılan, string zorlama, sınırlar (S-P21-11), customerId → 400", () => {

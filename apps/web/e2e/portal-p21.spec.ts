@@ -140,7 +140,10 @@ test.describe("AC-262 geçmiş (meta) ve IDOR", () => {
     await portalIn(context, "empty");
     await page.goto("/portal");
     await expect(page.getByTestId("portal-requests-empty")).toContainText("Henüz talep yok");
-    await expect(page.getByTestId("portal-requests-empty").getByRole("link", { name: /Yeni destek talebi/ })).toHaveAttribute("href", "/portal/new-request");
+    await expect(page.getByTestId("portal-requests-empty").getByRole("link", { name: /Yeni destek talebi/ })).toHaveAttribute(
+      "href",
+      "/portal/new-request",
+    );
     await context.clearCookies();
     await portalIn(context, "partial");
     await page.goto("/portal");
@@ -183,7 +186,10 @@ test.describe("AC-262 hesap ve yeni talep", () => {
     await expect(page.getByTestId("toast").filter({ hasText: "Şifreniz değiştirildi." })).toBeVisible();
   });
 
-  test("yeni talep: P19 formu portal kaynağıyla — ad/e-posta dolu, gövdede ref/token yok, bekleme odası, kabulde firma dosyası", async ({ page, context }, info) => {
+  test("yeni talep: P19 formu portal kaynağıyla — ad/e-posta dolu, gövdede ref/token yok, bekleme odası, kabulde firma dosyası", async ({
+    page,
+    context,
+  }, info) => {
     desktopOnly(info.project.name, ONLY);
     const token = await portalIn(context);
     const ref = `webformz${token.slice(-8)}`;
@@ -210,11 +216,23 @@ test.describe("AC-262 hesap ve yeni talep", () => {
     expect(home.headers()["permissions-policy"]).toContain("display-capture=()");
     // Gerçek yol: /portal'dan tıklayarak gelinir → belge yeniden yüklenmeli, ekran yakalama izinli olmalı
     await page.goto("/portal");
-    expect(await page.evaluate(() => (document as unknown as { featurePolicy: { allowsFeature: (f: string) => boolean } }).featurePolicy.allowsFeature("display-capture"))).toBe(false);
+    expect(
+      await page.evaluate(() =>
+        (document as unknown as { featurePolicy: { allowsFeature: (f: string) => boolean } }).featurePolicy.allowsFeature(
+          "display-capture",
+        ),
+      ),
+    ).toBe(false);
     await page.getByTestId("portal-new-request").click();
     await expect(page).toHaveURL(/\/portal\/new-request$/);
     await expect(page.getByTestId("wr-accepted").or(page.getByTestId("wr-waiting")).or(page.getByTestId("wr-form")).first()).toBeVisible();
-    expect(await page.evaluate(() => (document as unknown as { featurePolicy: { allowsFeature: (f: string) => boolean } }).featurePolicy.allowsFeature("display-capture"))).toBe(true);
+    expect(
+      await page.evaluate(() =>
+        (document as unknown as { featurePolicy: { allowsFeature: (f: string) => boolean } }).featurePolicy.allowsFeature(
+          "display-capture",
+        ),
+      ),
+    ).toBe(true);
   });
 });
 
@@ -256,7 +274,10 @@ const room = () => Math.random().toString(36).slice(2, 10);
 const CUSTOMER_URL = `/customers/${IDS.CUSTOMER}`;
 
 test.describe("AC-262 Admin: portal hesapları", () => {
-  test("oluştur → geçici şifre bir kez; pasife al (onay + bağlantı notu); etkinleştir; şifre sıfırla; rozetler", async ({ page, context }, info) => {
+  test("oluştur → geçici şifre bir kez; pasife al (onay + bağlantı notu); etkinleştir; şifre sıfırla; rozetler", async ({
+    page,
+    context,
+  }, info) => {
     desktopOnly(info.project.name, ONLY);
     await sessionCookies(context, `u-p21adm-${room()}`);
     await page.goto(CUSTOMER_URL);

@@ -27,14 +27,7 @@ import type { FixedWindowCounter } from "../lib/rate.ts";
 import { avatarUrlFor, type AvatarViewer } from "../uploads/urls.ts";
 import * as repo from "./repo.ts";
 import { writeAudit, type AuditContext } from "./service.ts";
-import {
-  auditValueView,
-  carriesSilentReason,
-  identityPortalUserIds,
-  identityUserIds,
-  identityView,
-  silentReasonVisible,
-} from "./view.ts";
+import { auditValueView, carriesSilentReason, identityPortalUserIds, identityUserIds, identityView, silentReasonVisible } from "./view.ts";
 
 const DAY_MS = 86_400_000;
 const EXPORT_BATCH = 1000;

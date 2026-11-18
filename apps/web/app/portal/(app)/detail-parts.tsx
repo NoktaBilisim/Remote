@@ -27,7 +27,14 @@ const back = (
 /** 404 (başka müşteri/firma ya da yok — ayrım yapılmaz, mimari-p21 §5.3): aynı ekran. */
 export function PortalNotFound() {
   return (
-    <EmptyState Icon={SearchX} title={t("portal.notFound")} body={t("portal.notFoundBody")} testId="portal-not-found" headingLevel={1} action={back} />
+    <EmptyState
+      Icon={SearchX}
+      title={t("portal.notFound")}
+      body={t("portal.notFoundBody")}
+      testId="portal-not-found"
+      headingLevel={1}
+      action={back}
+    />
   );
 }
 

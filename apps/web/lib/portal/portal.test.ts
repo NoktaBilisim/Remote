@@ -52,24 +52,39 @@ describe("P21 portalApi (ADR-0039 çerez ayrımı)", () => {
     new Response(body === undefined ? null : JSON.stringify(body), { status, headers });
   it("yazmada CSRF portal çerezinden; panel çerezi kullanılmaz", async () => {
     let seen: RequestInit | undefined;
-    await portalApi("POST", "/portal/requests", { a: 1 }, {
-      fetch: async (_u, init) => ((seen = init), res(201, {})),
-      cookie: () => `__Host-rs_csrf=panel; ${PORTAL_CSRF_COOKIE}=portal`,
-    });
+    await portalApi(
+      "POST",
+      "/portal/requests",
+      { a: 1 },
+      {
+        fetch: async (_u, init) => ((seen = init), res(201, {})),
+        cookie: () => `__Host-rs_csrf=panel; ${PORTAL_CSRF_COOKIE}=portal`,
+      },
+    );
     expect((seen?.headers as Record<string, string>)[CSRF_HEADER]).toBe("portal");
   });
   it("403 MFA_REQUIRED panel 2FA ekranına yönlendirmez, ApiError olarak döner; ağ hatası NetworkError", async () => {
-    const e = await portalApi("POST", "/portal/auth/login", {}, {
-      fetch: async () => res(403, { error: { code: "MFA_REQUIRED", message: "Kod gerekli." } }),
-      cookie: () => "",
-    }).catch((x: unknown) => x);
+    const e = await portalApi(
+      "POST",
+      "/portal/auth/login",
+      {},
+      {
+        fetch: async () => res(403, { error: { code: "MFA_REQUIRED", message: "Kod gerekli." } }),
+        cookie: () => "",
+      },
+    ).catch((x: unknown) => x);
     expect(e).toBeInstanceOf(ApiError);
     expect((e as ApiError).code).toBe("MFA_REQUIRED");
-    const n = await portalApi("GET", "/portal/me", undefined, { fetch: async () => Promise.reject(new Error("x")), cookie: () => "" }).catch((x: unknown) => x);
+    const n = await portalApi("GET", "/portal/me", undefined, {
+      fetch: async () => Promise.reject(new Error("x")),
+      cookie: () => "",
+    }).catch((x: unknown) => x);
     expect(n).toBeInstanceOf(NetworkError);
   });
   it("kapı hataları: 401 → girişe (slug çerezden), 403 PASSWORD_CHANGE_REQUIRED → şifre ekranı", () => {
-    expect(portalGateTarget(new ApiError(401, "UNAUTHENTICATED", ""), `${PORTAL_TENANT_COOKIE}=acme`)).toBe("/portal/login?tenant=acme&reason=expired");
+    expect(portalGateTarget(new ApiError(401, "UNAUTHENTICATED", ""), `${PORTAL_TENANT_COOKIE}=acme`)).toBe(
+      "/portal/login?tenant=acme&reason=expired",
+    );
     expect(portalGateTarget(new ApiError(403, "PASSWORD_CHANGE_REQUIRED", ""), "")).toBe("/portal/change-password");
     expect(portalGateTarget(new ApiError(409, "QUEUE_FULL", ""), "")).toBeNull();
   });
@@ -90,7 +105,12 @@ describe("P21 K-P21-2 talep kaynağı adaptörü", () => {
     expect(r.errors).toEqual({});
     for (const k of ["ref", "formToken", "website", "customerId", "tenantId"]) expect(r.body).not.toHaveProperty(k);
     expect((r.body as unknown as { notify: unknown }).notify).toEqual({ sms: true, whatsapp: false, email: false });
-    const w = buildWebRequest(draft, { ref: "abcdefghijklmnop", formToken: "t".repeat(43), clientInstanceId: "AbCdEfGhIjKlMnOpQrSt_-", info: info as never });
+    const w = buildWebRequest(draft, {
+      ref: "abcdefghijklmnop",
+      formToken: "t".repeat(43),
+      clientInstanceId: "AbCdEfGhIjKlMnOpQrSt_-",
+      info: info as never,
+    });
     expect(Object.keys(w.body ?? {})).toContain("ref");
   });
   it("e-posta bildirimi e-postasız → fields.email (S-P21-6); onaysız → consent", () => {
@@ -135,11 +155,32 @@ describe("P21 portal geçmiş görünümü (K-P21-7)", () => {
     expect(portalHref("sessions", 2)).toBe("/portal?tab=sessions&page=2");
   });
   it("meta: anonim kişi adı '—', süre biçimli, mod etiketi", () => {
-    const r = requestFacts({ id: ULID, requestCode: "T-1", status: "PENDING", source: "WEB", priority: "HIGH", requesterName: null, createdAt: "2026-11-20T09:01:12.000Z", closedAt: null, sessionId: null });
+    const r = requestFacts({
+      id: ULID,
+      requestCode: "T-1",
+      status: "PENDING",
+      source: "WEB",
+      priority: "HIGH",
+      requesterName: null,
+      createdAt: "2026-11-20T09:01:12.000Z",
+      closedAt: null,
+      sessionId: null,
+    });
     expect(r.requester).toBe("—");
     expect(r.closed).toBe("—");
     expect(r.priority).toBe("Yüksek");
-    const s = sessionFacts({ id: ULID, status: "ENDED", mode: "AGENT", technicianName: "Ayşe", customerName: null, ticketNo: null, createdAt: "2026-11-20T09:01:12.000Z", startedAt: null, endedAt: null, durationSec: 1705 });
+    const s = sessionFacts({
+      id: ULID,
+      status: "ENDED",
+      mode: "AGENT",
+      technicianName: "Ayşe",
+      customerName: null,
+      ticketNo: null,
+      createdAt: "2026-11-20T09:01:12.000Z",
+      startedAt: null,
+      endedAt: null,
+      durationSec: 1705,
+    });
     expect(s.contact).toBe("—");
     expect(s.mode).toBe("İstemci");
     expect(s.duration).not.toBe("—");
@@ -148,8 +189,17 @@ describe("P21 portal geçmiş görünümü (K-P21-7)", () => {
 
 describe("P21 K6 portal hesapları", () => {
   const acc = (p: Partial<PortalAccountItem>): PortalAccountItem => ({
-    id: ULID, email: "a@b.co", fullName: "Ali", status: "ACTIVE", totpEnabled: false, mustChangePassword: false,
-    tempPasswordExpired: false, lastLoginAt: null, createdAt: "2026-11-20T09:01:12.000Z", passiveAt: null, ...p,
+    id: ULID,
+    email: "a@b.co",
+    fullName: "Ali",
+    status: "ACTIVE",
+    totpEnabled: false,
+    mustChangePassword: false,
+    tempPasswordExpired: false,
+    lastLoginAt: null,
+    createdAt: "2026-11-20T09:01:12.000Z",
+    passiveAt: null,
+    ...p,
   });
   it("oluşturma: müşteri pasif/anonim veya 20 hesap → kapalı + neden", () => {
     expect(createState(true, 0)).toEqual({ enabled: true, reason: null });
@@ -157,8 +207,14 @@ describe("P21 K6 portal hesapları", () => {
     expect(createState(true, 20).reason).toContain("20");
   });
   it("doğrulama: boş alan zorunlu, e-posta küçük harfe", () => {
-    expect(validateAccount({ email: "", fullName: "" }).errors).toMatchObject({ email: "Bu alan zorunludur.", fullName: "Bu alan zorunludur." });
-    expect(validateAccount({ email: " Ali@Ornek.COM ", fullName: "Ali Veli" }).body).toEqual({ email: "ali@ornek.com", fullName: "Ali Veli" });
+    expect(validateAccount({ email: "", fullName: "" }).errors).toMatchObject({
+      email: "Bu alan zorunludur.",
+      fullName: "Bu alan zorunludur.",
+    });
+    expect(validateAccount({ email: " Ali@Ornek.COM ", fullName: "Ali Veli" }).body).toEqual({
+      email: "ali@ornek.com",
+      fullName: "Ali Veli",
+    });
   });
   it("rozetler: süre doldu 'bekliyor'un yerine; pasifte şifre rozetleri yok", () => {
     expect(accountBadges(acc({ mustChangePassword: true }))).toEqual(["mustChange"]);

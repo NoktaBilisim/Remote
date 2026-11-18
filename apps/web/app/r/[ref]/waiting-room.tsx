@@ -47,7 +47,12 @@ export function WaitingRoom({ request, downloadHref, retentionDays, onFinished, 
   if (phase.kind === "closed") return <ClosedScreen phase={phase} action={newBtn} />;
   if (phase.kind === "accepted")
     return (
-      <AcceptedCard phase={phase} downloadHref={downloadHref} onShare={() => w.setPhase({ ...phase, kind: "sharing" })} onDecline={w.decline} />
+      <AcceptedCard
+        phase={phase}
+        downloadHref={downloadHref}
+        onShare={() => w.setPhase({ ...phase, kind: "sharing" })}
+        onDecline={w.decline}
+      />
     );
   return (
     <div className="flex flex-col gap-4">
