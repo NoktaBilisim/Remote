@@ -91,19 +91,22 @@ export function UnattendedActions({
   unattended,
   phase,
   live,
+  controller,
   now,
 }: {
   sessionId: string;
   unattended: UnattendedInfo | null;
   phase: ControlPhase;
   live: boolean;
+  /** P28c: bu konsol kontrol sahibi mi (S-P28u-r3-8). */
+  controller: boolean;
   now: number | null;
 }) {
   const [ask, setAsk] = useState(false);
   const [rejoinUntil, setRejoinUntil] = useState<number | null>(null);
   const reasonId = useId();
   const cmd = useCommands(sessionId, () => setRejoinUntil(Date.now() + REJOIN_WINDOW_SEC * 1000));
-  const v = interveneView(unattended, phase, live);
+  const v = interveneView(unattended, phase, live, controller);
   if (!v) return null;
   const rejoining = rejoinUntil !== null && now !== null && now < rejoinUntil;
   if (!v.showCommands && !rejoining) return null;

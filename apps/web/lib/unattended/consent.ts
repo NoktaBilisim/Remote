@@ -24,9 +24,10 @@ export interface InterveneView {
  * Konsol müdahale görünümü (AC-442 r3). Katılımlı oturumda null (bileşen çizilmez). Kilit / oturum kapatma yalnız canlı oturumda
  * kontrol `granted` iken; kontrol kapalıyken ve istek sürerken görünmez.
  */
-export function interveneView(u: UnattendedInfo | null, phase: ControlPhase, live: boolean): InterveneView | null {
+export function interveneView(u: UnattendedInfo | null, phase: ControlPhase, live: boolean, controller = true): InterveneView | null {
   if (!u) return null;
-  return { showCommands: live && phase === "granted", commandsDisabled: u.intervene !== true };
+  // S-P28u-r3-8: çok teknisyenli odada yalnız kontrol sahibi (sunucu zaten 403 döner; gereksiz istek/audit gürültüsü yok).
+  return { showCommands: live && controller && phase === "granted", commandsDisabled: u.intervene !== true };
 }
 
 /** Otomatik kontrol kararının girdisi (konsol durumundan). */

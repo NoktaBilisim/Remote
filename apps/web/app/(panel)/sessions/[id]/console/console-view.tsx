@@ -119,7 +119,14 @@ export function ConsoleView({
       <RecIndicator subscribe={ts.subscribe} send={gatedSend} stream={ts.stream} ended={state.phase === "ended"} />
 
       {state.phase !== "ended" && (
-        <UnattendedActions sessionId={session.id} unattended={state.unattended} phase={control.phase} live={live} now={now} />
+        <UnattendedActions
+          sessionId={session.id}
+          unattended={state.unattended}
+          phase={control.phase}
+          live={live}
+          controller={seat.controller}
+          now={now}
+        />
       )}
 
       {state.warnEndsAt && state.phase !== "ended" && (

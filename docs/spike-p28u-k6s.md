@@ -1,5 +1,7 @@
 # P28u K6s — Windows spike (sonuç ve karar önerileri)
 
+> **r3 (2026-11-18):** onay diyaloğu ve örtülme kuralı kaldırıldı (mimari-p28u §r3); `k6s_overlay_windows_test.go` / `TestK6sOverlay*` ve `k6s-win.test.exe` artık yok. Kilit / oturum kimliği soruları (`TestK6sSessionIDs`) geçerli.
+
 Tarih: 2026-11-16 · Branch: `p28u` · Kaynak: `docs/mimari-p28u.md` §7.3 (örtülme kuralı, O-P28u-1), §7.5 "Doğrulama",
 R-P28u-1/2, K-P28u-5b, ADR-0033 · Sahip: backend-dev (Go)
 
@@ -92,7 +94,7 @@ imzasız olduğundan SmartScreen/Defender uyarı verebilir.
 1. İkilileri üret (bu repoda, macOS/linux; çıktı git-ignored `apps/agent-win/bin/k6s/`):
 
    ```sh
-   docker run --rm -v "$PWD:/src" -w /src/apps/agent-win -e GOOS=windows -e GOARCH=amd64 golang:1.26 sh -c 'mkdir -p bin/k6s && go test -c -o bin/k6s/k6s-servis.test.exe ./internal/servis && go test -c -o bin/k6s/k6s-win.test.exe ./internal/win && cp internal/servis/testdata/k6s-elle.ps1 bin/k6s/'
+   docker run --rm -v "$PWD:/src" -w /src/apps/agent-win -e GOOS=windows -e GOARCH=amd64 golang:1.26 sh -c 'mkdir -p bin/k6s && go test -c -o bin/k6s/k6s-servis.test.exe ./internal/servis && cp internal/servis/testdata/k6s-elle.ps1 bin/k6s/'
    ```
 
 2. `bin/k6s/` klasörünü Windows makinesine kopyala; o klasörde **yönetici PowerShell**'de tek komut:

@@ -25,6 +25,10 @@ describe("interveneView (AC-442 r3)", () => {
     expect(interveneView({ ...U, intervene: true }, "granted", false)?.showCommands).toBe(false);
     expect(interveneView(U, "granted", true)).toEqual({ showCommands: true, commandsDisabled: true });
   });
+  it("S-P28u-r3-8: kontrol sahibi olmayan (katılımcı) konsolda komutlar görünmez", () => {
+    expect(interveneView({ ...U, intervene: true }, "granted", true, false)?.showCommands).toBe(false);
+    expect(interveneView({ ...U, intervene: true }, "granted", true, true)?.showCommands).toBe(true);
+  });
 });
 
 describe("autoControlDecision (K-P28u-r3-6, S-P28u-r3-2)", () => {
