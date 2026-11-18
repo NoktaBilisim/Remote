@@ -1240,6 +1240,7 @@ exports[`PT-K1 contracts yüzeyi > AC-318: her exports yolunun dışa verdiği a
     "FSRV_UNKNOWN_SIGNATURE",
     "GENERAL_CUSTOMER_LABEL",
     "KNOWN_DEVICE_LABEL",
+    "LINUX_NO_CONTROL_CANCELLED",
     "NETWORK_MATCH_LABELS",
     "OS_PERMISSION_CANCELLED",
     "OUTBOUND_REASON_LABELS",

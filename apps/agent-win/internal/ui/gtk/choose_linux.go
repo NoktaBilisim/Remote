@@ -81,7 +81,9 @@ func (u *UI) PortalOpening() {
 		t := flow.LinuxTexts
 		f := u.newForm(uicore.AppTitle+" — Ekran paylaşımı", 460)
 		f.heading(t.PortalOpening)
-		f.label(t.AllowControl)
+		if !u.viewOnly {
+			f.label(t.AllowControl)
+		}
 		f.onX = func() {} // sistem diyaloğu sonucu beklenir; kapatma yolu yok (iptal sistem diyaloğundadır)
 		f.show(0)
 		u.portal = f
@@ -111,7 +113,9 @@ func (u *UI) PortalFailed(ctx context.Context, missing bool) bool {
 			f.heading(t.PortalMissing)
 		} else {
 			f.heading(t.ShareNotStarted)
-			f.label(t.AllowControl)
+			if !u.viewOnly {
+				f.label(t.AllowControl)
+			}
 		}
 		b := f.row()
 		if !missing {

@@ -29,7 +29,8 @@ export type ControlPhase = "idle" | "requested" | "granted" | "denied" | "ended"
 /**
  * `tech` = teknisyen bıraktı (K1), `cancel` = teknisyen bekleyen isteği geri çekti (K2),
  * `agent` = bekleyen istek müşteri tarafında bağlantı kesildiği için kapandı (`requested`'da `{VIEW, SYSTEM}`, K6).
- * `osPermission` = macOS müşteride Erişilebilirlik izni yok, diyalog açılmadı (P28f AC-391, `{VIEW, OS_PERMISSION}`): ret değil.
+ * `osPermission` = müşteri bilgisayarı kontrole izin vermiyor, diyalog açılmadı (`{VIEW, OS_PERMISSION}`): macOS'ta Erişilebilirlik
+ *   izni yok (P28f AC-391), Linux X11'de kontrol koşulu yok (P28g K10, D-P28g-K1-2); konsol misafir OS'unu bilmez → nötr metin. Ret değil.
  * `waylandNoControl` = Linux Wayland portalı klavye/işaretçi izni vermedi (P28g AC-399, `{VIEW, WAYLAND_NO_CONTROL}`): ret değil.
  */
 export type ControlEndCause =

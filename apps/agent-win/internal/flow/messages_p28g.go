@@ -22,8 +22,9 @@ var LinuxTexts = struct {
 	EndConfirm     string // S-P28g-8: oturum penceresi ✕ → onay
 	ControlLost    string // §5.2b m.1–2: kilit ekranı / kilit kısayolu koruması / portal izni → kontrol kapandı (EvControlSystem)
 
-	ProxyFailed string // D-P28g-T2-1: vekil hatası; vekil URL'si hiçbir metne yazılmaz
-	VoiceDevice string // K5: VoiceTexts.Device'ın Linux eşi (Windows gizlilik yolu Linux'a uymaz)
+	ProxyFailed     string // D-P28g-T2-1: vekil hatası başlığı; vekil URL'si hiçbir metne yazılmaz
+	ProxyFailedBody string // K10: vekil hatası açıklaması (sabit)
+	VoiceDevice     string // K5: VoiceTexts.Device'ın Linux eşi (Windows gizlilik yolu Linux'a uymaz)
 }{
 	NoDisplay: "Nokta Destek bir masaüstü oturumunda (X11 ya da Wayland) çalıştırılmalıdır.",
 	TestBand:  "TEST",
@@ -42,7 +43,8 @@ var LinuxTexts = struct {
 	EndConfirm:    "Oturumu bitir?",
 	ControlLost:   "Uzaktan kontrol kapatıldı: ekran kilitlendi ya da masaüstü kontrol iznini kaldırdı.",
 
-	ProxyFailed: "Vekil sunucuya bağlanılamadı",
+	ProxyFailed:     "Vekil sunucuya bağlanılamadı",
+	ProxyFailedBody: "Bilgisayarınızın vekil sunucu (proxy) ayarını kontrol edin ya da ağ yöneticinize danışın, sonra tekrar deneyin.",
 	VoiceDevice: "Mikrofonunuz açılamadı. Mikrofonun bağlı olduğunu ve Ayarlar > Ses altında giriş aygıtı olarak " +
 		"seçildiğini kontrol edin; teknisyen yeniden isteyebilir.",
 }

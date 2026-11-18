@@ -22,7 +22,8 @@ import (
 //  4. Enjektör duraklatılmış durumdadır (korunan denetim açıkken arayüz SetInjectPause(true) çağırır; enjektör hiç
 //     kurulmadıysa zaten enjeksiyon yoktur) ve son enjeksiyondan bu yana ≥ 1,5 sn geçmiştir.
 //  5. Bekleme tıklaması / Fare Tuşları oturum sırasında kapalıdan açığa geçmemiştir (A11yChanged; başta açıksa kabul).
-//     Başlangıç durumu okunamadıysa geçiş saptanamaz: X11'de m.3 asıl ayırıcıdır (sapma, implementation.md).
+//     Başlangıç durumu okunamadıysa "kapalı" varsayılır (D-P28g-K1-1, fail-closed): sonraki ilk bilinen "açık" okuma
+//     geçiş sayılır ve mandal kurulur (başta gerçekten açık idiyse korunan denetim bu oturumda reddeder; müşteri yeniden başlatır).
 //
 // Zaman tabanlı yedek yoktur (S-P28g-7): m.4'teki süre yalnız ek koşuldur, tek başına kabul üretmez.
 
@@ -124,9 +125,9 @@ func (g *LinuxClickGuard) setMouseKeys(st portal.A11yState) {
 	}
 }
 
-// a11yTurnedOn başta bilinen kapalı → şimdi bilinen açık.
+// a11yTurnedOn başta kapalı ya da bilinmiyor (D-P28g-K1-1: bilinmeyen = kapalı) → şimdi bilinen açık.
 func a11yTurnedOn(base, cur portal.A11yState) bool {
-	return base.Known && !base.On && cur.Known && cur.On
+	return (!base.Known || !base.On) && cur.Known && cur.On
 }
 
 // queryXTestIDs XWayland/X11'de XTEST alt aygıt kimliklerini tek seferlik okur (Wayland'de XI2 izleyici çalışmaz;

@@ -1,7 +1,7 @@
 // P28g K6 contracts (mimari-p28g §4.1–4.2, §13 S-P28g-12; AC-399, AC-403).
 import { describe, expect, it } from "vitest";
 import { AGENT_DOWNLOAD_OS, agentDownloadOsSchema, CLIENT_OS, JOIN_AUDIT_OS } from "../src/api/sessions.ts";
-import { describeTimelineEvent, OS_PERMISSION_CANCELLED, WAYLAND_NO_CONTROL_CANCELLED } from "../src/labels.ts";
+import { describeTimelineEvent, LINUX_NO_CONTROL_CANCELLED, OS_PERMISSION_CANCELLED, WAYLAND_NO_CONTROL_CANCELLED } from "../src/labels.ts";
 import { CONTROL_SOURCES, controlStateSchema, GUEST_VIEW_SOURCES, serverOutboundSchema } from "../src/ws.ts";
 
 describe("P28g indirme os ve clientOs (§3, §4.1)", () => {
@@ -36,5 +36,13 @@ describe("P28g control.state WAYLAND_NO_CONTROL (§4.2)", () => {
     expect(describeTimelineEvent({ action: "control.cancelled", details: { by: "agent", source: "os_permission" } }).label).toBe(
       OS_PERMISSION_CANCELLED,
     );
+  });
+
+  it("P28g K10 (D-P28g-K1-2): control.cancelled{by:agent, source:linux_no_control} Linux metni; macOS AC-391 metni değişmez", () => {
+    expect(LINUX_NO_CONTROL_CANCELLED).toBe("Müşterinin masaüstü uzaktan kontrole izin vermiyor (Linux)");
+    expect(describeTimelineEvent({ action: "control.cancelled", details: { by: "agent", source: "linux_no_control" } }).label).toBe(
+      LINUX_NO_CONTROL_CANCELLED,
+    );
+    expect(OS_PERMISSION_CANCELLED).toBe("Müşteri erişilebilirlik izni vermedi");
   });
 });

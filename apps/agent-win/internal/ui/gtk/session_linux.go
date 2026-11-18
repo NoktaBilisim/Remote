@@ -92,7 +92,9 @@ func (u *UI) newSessionWin(watch string) *sessionWin {
 	enable(s.closeBtn, false)
 	s.hotkey = f.label(hotkeyLine(u.hotkeyLabel, u.wayland, flow.LinuxTexts.WaylandHotkey))
 	if u.wayland {
-		f.danger(flow.LinuxTexts.WaylandWarning)
+		if !u.viewOnly { // K10: yalnız görüntüde kontrol yok → §5.2b uyarısı gereksiz
+			f.danger(flow.LinuxTexts.WaylandWarning)
+		}
 		f.label(flow.LinuxTexts.StopEnds)
 	}
 	for i := range s.techs {
@@ -144,10 +146,7 @@ func (u *UI) newSessionWin(watch string) *sessionWin {
 // sessionTick S-P28g-8: küçültülmüş/eşlenmemiş oturum penceresi geri getirilir; 3 ardışık tikte getirilemezse kapı
 // kapanır (fail-closed). Okunmamış sayacı pencere etkinse sıfırlanır.
 func (u *UI) sessionTick(s *sessionWin) {
-	visible := false
-	if gw := gtkWidgetGetWindow(s.f.win); gw != 0 && gtkWidgetGetMapped(s.f.win) {
-		visible = gdkWindowGetState(gw)&stateIconified == 0 && gdkWindowIsViewable(gw)
-	}
+	visible := sessionShown(s)
 	if !visible {
 		gtkWindowDeiconify(s.f.win)
 		gtkWidgetShowAll(s.f.win)
@@ -161,6 +160,15 @@ func (u *UI) sessionTick(s *sessionWin) {
 		gtkWindowSetTitle(s.f.win, cstr(u.winTitle(uicore.UnreadTitle(0))))
 		gtkWindowSetUrgencyHint(s.f.win, false)
 	}
+}
+
+// sessionShown oturum penceresi eşlenmiş, küçültülmemiş ve görüntülenebilir mi. Ana iş parçacığında.
+func sessionShown(s *sessionWin) bool {
+	if s == nil {
+		return false
+	}
+	gw := gtkWidgetGetWindow(s.f.win)
+	return gw != 0 && gtkWidgetGetMapped(s.f.win) && gdkWindowGetState(gw)&stateIconified == 0 && gdkWindowIsViewable(gw)
 }
 
 // failClosed gösterge ya da oturum penceresi görünür kılınamadı: kapı kapanır, kontrol diyaloğu kapanır, akışa
@@ -337,7 +345,10 @@ func (u *UI) ControlRequest(p flow.ControlPrompt) {
 		}
 		u.ctlDlg = u.newPrompt(promptSpec{title: "Uzaktan kontrol isteği", body: uicore.ControlBody(p.TechName, p.Hotkey),
 			grantText: "İzin ver", warns: warns, hotkeyOK: hotkeyOK, slot: &u.ctlDlg,
-			guard:   func() bool { return !u.health.Failed && !u.sessHealth.Failed },
+			// D-P28g-K2-2: tik sağlığına (3 sn) ek olarak "İzin ver" anında gösterge ve oturum penceresi görünür olmalı.
+			guard: func() bool {
+				return controlGuardOK(u.indicatorShown(), sessionShown(u.sess), u.health.Failed, u.sessHealth.Failed)
+			},
 			onGrant: func() { u.emit(flow.Event{Kind: flow.EvControlGrant}) },
 			onDeny:  func() { u.emit(flow.Event{Kind: flow.EvControlDeny}) }})
 		enable(u.sess.grantBtn, true)

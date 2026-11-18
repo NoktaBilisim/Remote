@@ -28,7 +28,11 @@ describe("P28g LINUX_RUN_COMMAND (S-P28g-6, mimari-p28g §4.3)", () => {
     expect(LINUX_RUN_COMMAND.startsWith("  ")).toBe(false);
     expect(/[\r\n]/.test(LINUX_RUN_COMMAND)).toBe(false);
     expect(LINUX_RUN_COMMAND).not.toMatch(/sudo/);
-    expect(LINUX_RUN_COMMAND).toContain(String.raw`-printf '%T@ %f\n'`);
+    expect(LINUX_RUN_COMMAND).toContain(String.raw`-printf '%f\n'`);
+    // K10 (D-P28g-K2-1): 10 dk pencere; eşleşme tam 1 değilse durur (en yeni seçimi yok)
+    expect(LINUX_RUN_COMMAND).toContain("-mmin -10 ");
+    expect(LINUX_RUN_COMMAND).toContain(String.raw`[ "$(printf '%s\n' "$f" | wc -l)" -eq 1 ] ||`);
+    expect(LINUX_RUN_COMMAND).not.toMatch(/sort|head -n/);
     expect(LINUX_RUN_COMMAND).toContain('chmod u+x -- "$f"');
     expect(LINUX_RUN_COMMAND.endsWith('./"$f"')).toBe(true);
   });

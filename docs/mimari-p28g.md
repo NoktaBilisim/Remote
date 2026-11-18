@@ -140,10 +140,10 @@ Yayın sırası: sunucu + web (K6/K7) önce, istemci sonra.
 - `launch/code_folder.go` deseni Firefox'un çift indirme adını (`Destek-12345678(1)`) da kapsayacak biçimde genişletilir:
   `^Destek-([0-9]{8})(?: ?\([0-9]{1,3}\)| [0-9]{1,3})?$`. macOS davranışı korunur; eski örnekler testte kalır.
 - Karşılama sayfası kodu bilmez (ref opaktır, G-22). Bu yüzden kopyalanan komut **sabit metindir** ve sunucu verisi içermez
-  (enjeksiyon yüzeyi yok). **r2 (S-P28g-6, bağlayıcı metin; kopyalanan bayt dizisi budur, sonda satır sonu yok):** son 30 dk'daki, `folderCode` desenine uyan en yeni normal dosyayı seçer ve yalnız ona `u+x` verir:
+  (enjeksiyon yüzeyi yok). **r2 (S-P28g-6, bağlayıcı metin; kopyalanan bayt dizisi budur, sonda satır sonu yok):** son 30 dk'daki, `folderCode` desenine uyan en yeni normal dosyayı seçer ve yalnız ona `u+x` verir. **K10 (D-P28g-K2-1, güvenlik Kod turu 2):** pencere 10 dk; eşleşen dosya **tam 1** değilse komut durur (birden fazlaysa "İndirilenler'deki eski Destek-* dosyalarını silip yeniden indirin" yazar) — sonradan ekilmiş bir `Destek-NNNNNNNN` "en yeni" diye seçilip çalıştırılamaz. Güncel metin:
 
   ```
-   d="$(xdg-user-dir DOWNLOAD)" && [ -d "$d" ] && cd "$d" && f="$(find . -maxdepth 1 -type f -mmin -30 -regextype posix-extended -regex './Destek-[0-9]{8}( ?\([0-9]{1,3}\))?' -printf '%T@ %f\n' | sort -nr | head -n 1 | cut -d' ' -f2-)" && [ -n "$f" ] && chmod u+x -- "$f" && ./"$f"
+   d="$(xdg-user-dir DOWNLOAD)" && [ -d "$d" ] && cd "$d" && f="$(find . -maxdepth 1 -type f -mmin -10 -regextype posix-extended -regex './Destek-[0-9]{8}( ?\([0-9]{1,3}\))?' -printf '%f\n')" && [ -n "$f" ] && { [ "$(printf '%s\n' "$f" | wc -l)" -eq 1 ] || { echo "İndirilenler'deki eski Destek-* dosyalarını silip yeniden indirin"; false; }; } && chmod u+x -- "$f" && ./"$f"
   ```
 
   Baştaki boşluk, Ubuntu'nun varsayılan `HISTCONTROL=ignoreboth` ayarıyla komutun geçmişe yazılmamasını sağlar (en iyi çaba).

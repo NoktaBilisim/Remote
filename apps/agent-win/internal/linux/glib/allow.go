@@ -2,7 +2,7 @@ package glib
 
 import (
 	"errors"
-	"path/filepath"
+	"path"
 	"strings"
 )
 
@@ -35,10 +35,11 @@ var allowed = map[string]bool{
 // ErrNotAllowed yol izin listesinde değil.
 var ErrNotAllowed = errors.New("glib: kütüphane yolu izin listesinde değil")
 
-// Allowed yol izin listesinde mi: tam olarak LibDir + izinli soname (temizlenmiş, mutlak, alt dizin yok).
-func Allowed(path string) bool {
-	name, ok := strings.CutPrefix(path, LibDir)
-	return ok && filepath.Clean(path) == path && allowed[name]
+// Allowed yol izin listesinde mi: tam olarak LibDir + izinli soname (temizlenmiş, mutlak, alt dizin yok). Yol POSIX
+// yoludur: path.Clean (filepath.Clean Windows'ta "/" → "\\" çevirir; K10 qa m.1).
+func Allowed(p string) bool {
+	name, ok := strings.CutPrefix(p, LibDir)
+	return ok && path.Clean(p) == p && allowed[name]
 }
 
 // Path izinli soname'in mutlak yolu.

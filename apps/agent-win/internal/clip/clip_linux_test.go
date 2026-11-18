@@ -6,8 +6,10 @@ import (
 	"errors"
 	"os"
 	"runtime"
+	"slices"
 	"strings"
 	"testing"
+	"unsafe"
 
 	"remote-support/agent-win/internal/linux/glib"
 )
@@ -94,5 +96,61 @@ func TestAC402P28gGTKClipRoundTrip(t *testing.T) {
 	}
 	if err := c.WriteText("a\x00b"); !errors.Is(err, ErrInvalid) {
 		t.Fatalf("NUL: %v", err)
+	}
+}
+
+// K10 (D-P28g-K2-3): yazdığımız metin parola yöneticisi ipucunu ("secret") da sunar; kendi yazımımız geri okunurken
+// SENSITIVE sayılmaz (yukarıdaki gidiş-dönüş), sahiplik başkasına geçince ipucu kararı yeniden uygulanır.
+func TestAC402P28gGTKClipSecretHint(t *testing.T) {
+	if !gtkReady {
+		t.Skip("DISPLAY ya da sistem GTK3 yok (gerçek pano spike/GUI imajında)")
+	}
+	c, err := New()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.Close()
+	if err := c.WriteText("gizli-parola"); err != nil {
+		t.Fatal(err)
+	}
+	var names []string
+	var hint string
+	g := c.(*gtkClip)
+	if err := g.do(func() error {
+		cb, err := clipboard()
+		if err != nil {
+			return err
+		}
+		var targets unsafe.Pointer
+		var n int32
+		if !gtkClipboardWaitForTargets(cb, &targets, &n) || targets == nil {
+			return ErrEmpty
+		}
+		atoms := slices.Clone(unsafe.Slice((*uintptr)(targets), int(n)))
+		glib.Free(uintptr(targets))
+		for _, a := range atoms {
+			p := gdkAtomName(a)
+			name := cName(p, atomNameMax)
+			glib.Free(uintptr(p))
+			names = append(names, name)
+			if name == targetHint {
+				sd := gtkClipboardWaitForContents(cb, a)
+				if sd != 0 {
+					var l int32
+					d := gtkSelectionDataGetDataWithLen(sd, &l)
+					hint = string(unsafe.Slice((*byte)(d), int(l)))
+					gtkSelectionDataFree(sd)
+				}
+			}
+		}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Contains(names, targetHint) || !slices.Contains(names, targetUTF8) || hint != hintSecret {
+		t.Fatalf("hedefler %v, ipucu %q", names, hint)
+	}
+	if got, err := c.ReadText(); err != nil || got != "gizli-parola" {
+		t.Fatalf("kendi yazımımız geri okunamadı: %v", err)
 	}
 }

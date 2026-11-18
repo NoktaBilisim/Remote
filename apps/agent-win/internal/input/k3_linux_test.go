@@ -4,6 +4,7 @@ package input
 
 import (
 	"bufio"
+	"context"
 	"errors"
 	"os"
 	"strconv"
@@ -201,8 +202,37 @@ func TestAC399P28gK3LocalClickGuard(t *testing.T) {
 	}
 	lastInject.Store(0)
 	off, on := portal.A11yState{Known: true}, portal.A11yState{Known: true, On: true}
-	if !a11yTurnedOn(off, on) || a11yTurnedOn(on, on) || a11yTurnedOn(portal.A11yState{}, on) || a11yTurnedOn(off, portal.A11yState{}) {
+	if !a11yTurnedOn(off, on) || a11yTurnedOn(on, on) || a11yTurnedOn(off, portal.A11yState{}) {
 		t.Fatal("a11y geçişi")
+	}
+}
+
+// D-P28g-K1-1 (§5.2a m.5, fail-closed): başlangıç okunamadıysa kapalı varsayılır; sonraki bilinen "açık" okuma mandalı
+// kurar (Wayland'de m.3 portal enjeksiyonunu ayıramaz, m.5 asıl ayırıcıdır).
+func TestP28gK10A11yUnknownBaseFailClosed(t *testing.T) {
+	unknown, off, on := portal.A11yState{}, portal.A11yState{Known: true}, portal.A11yState{Known: true, On: true}
+	if !a11yTurnedOn(unknown, on) {
+		t.Fatal("bilinmeyen başlangıç + açık → mandal kurulmalı")
+	}
+	if a11yTurnedOn(unknown, off) || a11yTurnedOn(unknown, unknown) {
+		t.Fatal("bilinmeyen başlangıç + kapalı/bilinmeyen → mandal yok")
+	}
+	g := NewLinuxClickGuard(func() []int32 { return []int32{4} })
+	var n atomic.Int32
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	g.WatchA11y(ctx, func() portal.A11yState {
+		if n.Add(1) == 1 {
+			return unknown // başlangıç okunamadı
+		}
+		return on
+	})
+	deadline := time.Now().Add(5 * a11yPoll)
+	for !g.A11yChanged() && time.Now().Before(deadline) {
+		time.Sleep(50 * time.Millisecond)
+	}
+	if !g.A11yChanged() {
+		t.Fatal("başlangıç bilinmiyorken açılan a11y mandalı kurmadı")
 	}
 }
 

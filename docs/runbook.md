@@ -4982,10 +4982,11 @@ Kilit testi: `deploy/agent/test-publish-linux-lock.sh [<stg klasörü>]` → `SO
       `@agentLinux` ve compose `LINUX_AGENT_*` prod'da (yoksa yayın betiği Caddy kontrolünde durur).
 - [ ] K9 qa GEÇTİ, güvenlik Kritik/Yüksek 0; mimari-p28g §12.1 E-listesi staging TEST ikilisiyle GEÇTİ.
 - [ ] **Wayland kontrolü (mimari-p28g §5.2b m.7):** E-7 **(b)** (teknisyen Ctrl'yi sürekli yeniden basarken Super+L ≤ 3 sn REVOKED) ve
-      **(c)** (kipli kabuk diyaloğu açıkken Super+L) **gerçek GNOME Wayland makinesinde (24.04 + 22.04) GEÇTİ**. Bu ikili Wayland'de kontrolü
-      telafiyle açar; kodda "yalnız görüntü" anahtarı yoktur. E-7 (b)/(c) geçmediyse etiket `approve`'da **Reject** edilir ve yayın
-      yapılmaz; yalnız görüntü dalı (RemoteDesktop istenmez, kontrol isteğine `WAYLAND_NO_CONTROL`) backend-dev'in kod değişikliğiyle yeni
-      etikette gelir. (d) tutmazsa yalnız kılavuz notu.
+      **(c)** (kipli kabuk diyaloğu açıkken Super+L) gerçek GNOME Wayland makinesinde (24.04 + 22.04) GEÇTİ ise anahtar **on** kalır.
+      **E-7 (b)/(c) geçmezse `WAYLAND_CONTROL=off` ile derle:** repo değişkeni `LINUX_WAYLAND_CONTROL=off` (tanımsız → on), yeni etiket.
+      off ikili Wayland'de yalnız görüntüdür (RemoteDesktop istenmez, kontrol isteğine `WAYLAND_NO_CONTROL`); X11 etkilenmez. Değer
+      `reproducible-linux` özetinde ("Wayland kontrolü: on|off") ve build-meta 4. satırında; iki derleme aynı değeri kullanmak zorunda
+      (build-meta `cmp`). Yerelde: `WAYLAND_CONTROL=off build/build-linux.sh …`. (d) tutmazsa yalnız kılavuz notu.
 - [ ] Release'te `NoktaDestek-linux-x86_64-<sürüm>` ve SHA256SUMS satırı var; `gh attestation verify … --source-ref refs/tags/<etiket>` geçti.
 
 ### 28g.7 Sıra ve geri alma

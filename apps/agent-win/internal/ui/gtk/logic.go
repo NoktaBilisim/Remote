@@ -206,3 +206,49 @@ func monitorLabel(name string, w, h int, primary bool) string {
 	}
 	return l
 }
+
+// --- S-P28g-8 gösterge yığın sırası (X11; K10) --------------------------------------------------------------------
+
+// serverOwnedXID X sunucusunun kendi kimliği mi (FakeClientID → SERVER_BIT 1<<30; ör. bileştirici örtü penceresi COW).
+// İstemci XID'lerinde üst 3 bit sıfırdır; bu pencereler yığın denetiminde sayılmaz (bileştirici sahnesi tüm normal
+// pencerelerin üstündedir ve göstergemiz onun içinde çizilir).
+func serverOwnedXID(id uint64) bool { return id >= 1<<29 }
+
+// indicatorOnTop S-P28g-8 X11 görünürlük ölçütü: kök çocuk listesi (XQueryTree, alttan üste) içinde göstergemizin
+// pencerelerinin hepsi vardır ve en alttakinin üstünde bizim olmayan (sunucuya ait olmayan) hiçbir pencere yoktur.
+// Fail-closed: liste okunamadı (ok=false), gösterge penceresi yok ya da listede değilse false. Eşlenmiş olma durumu
+// ayrıca sorgulanmaz (daha sıkı): sorgu, aynı bağlantıdaki gdk_window_raise'in hemen ardından yapılır.
+func indicatorOnTop(children []uint64, ok bool, ours []uint64) bool {
+	if !ok || len(ours) == 0 {
+		return false
+	}
+	own := make(map[uint64]bool, len(ours))
+	for _, id := range ours {
+		if id == 0 {
+			return false
+		}
+		own[id] = true
+	}
+	lowest := -1
+	seen := 0
+	for i, id := range children {
+		if own[id] {
+			if lowest < 0 {
+				lowest = i
+			}
+			seen++
+			continue
+		}
+		if lowest >= 0 && !serverOwnedXID(id) {
+			return false // göstergemizin üstünde başka pencere
+		}
+	}
+	return seen == len(own)
+}
+
+// controlGuardOK kontrol izni koruması (D-P28g-K2-2, K10): tik sağlığı (3 ardışık başarısız tikte Failed) tek başına
+// yetmez; "İzin ver" anında gösterge (S-P28g-8 ölçütüyle) ve oturum penceresi görünür olmalıdır. Hiç kurulamamış
+// (bileştiricisiz) gösterge ilk 3 sn'de de izni engeller.
+func controlGuardOK(indicatorShown, sessionShown, indicatorFailed, sessionFailed bool) bool {
+	return indicatorShown && sessionShown && !indicatorFailed && !sessionFailed
+}

@@ -82,7 +82,9 @@ done
 
 step "3 XI2 ofsetleri (D-P28g-T2-2)"
 XI2="$OUT/xi2-offsets-$REL.txt"
-if gcc -O0 -o /tmp/xi2-offsets test/linux/xi2-offsets.c && /tmp/xi2-offsets > "$XI2"; then
+# K10 (D-P28g-K2-4): GDK olay yapıları için gtk+-3.0 başlıkları (libgtk-3-dev); pkg-config bayrakları bilerek bölünür.
+# shellcheck disable=SC2046
+if gcc -O0 $(pkg-config --cflags gtk+-3.0) -o /tmp/xi2-offsets test/linux/xi2-offsets.c && /tmp/xi2-offsets > "$XI2"; then
   cat "$XI2"
   # Spike K0s-5 probunun okuduğu değerler (amd64 LP64): yapı başlığı aynı kalmalı.
   for kv in XGenericEventCookie.extension=32 XGenericEventCookie.evtype=36 XGenericEventCookie.data=48 XIRawEvent.sourceid=52 sizeof.XEvent=192; do

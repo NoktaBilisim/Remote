@@ -274,12 +274,14 @@ export function handleControlState(
     return Promise.resolve();
   }
   // P28f (§4.2, S-P28f-15): OS_PERMISSION yalnız macOS beyanlı AGENT'tan (clientOs yoksa windows sayılır); aksi yok sayılır.
-  if (m.source === "OS_PERMISSION" && (guest.clientOs ?? "windows") !== "macos") {
+  // P28g K10 (D-P28g-K1-2): Linux X11'de kontrol koşulu yoksa istemci OS_PERMISSION gönderir → linux da kabul (Windows hâlâ yok sayılır).
+  const os = guest.clientOs ?? "windows";
+  if (m.source === "OS_PERMISSION" && os !== "macos" && os !== "linux") {
     rooms.metrics.inc("rs_control_total", { event: "os_permission_ignored" });
     return Promise.resolve();
   }
   // P28g (§4.2, S-P28g-12): WAYLAND_NO_CONTROL aynı kalıp — yalnız Linux beyanlı AGENT'tan; aksi yok sayılır.
-  if (m.source === "WAYLAND_NO_CONTROL" && (guest.clientOs ?? "windows") !== "linux") {
+  if (m.source === "WAYLAND_NO_CONTROL" && os !== "linux") {
     rooms.metrics.inc("rs_control_total", { event: "wayland_no_control_ignored" });
     return Promise.resolve();
   }

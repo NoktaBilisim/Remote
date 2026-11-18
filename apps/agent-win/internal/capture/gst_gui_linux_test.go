@@ -98,22 +98,43 @@ func TestP28gK2GUIXimagesrcVP8Frames(t *testing.T) {
 	if n < 100 || lows.Load() < 20 {
 		t.Fatalf("kare az: ana %d düşük %d", n, lows.Load())
 	}
+	// K10 (qa m.2 kök nedeni): NextFrame zorlamayı son anahtar kareden keyMinGap (500 ms) sonraya erteler (§7 PLI seli).
+	// 22.04'te doğal anahtar kare istekten ~80 ms önce geldiğinde test bu ertelemeyi "gelmedi" sanıyordu. Önce aralık
+	// dolana kadar kare tüketilir; böylece §7 "≤ 2 kare" ölçütü zorlamanın kendisini sınar.
+	drain, dcancel := context.WithTimeout(context.Background(), 3*time.Second)
+	for time.Since(s.lastKey) < keyMinGap+50*time.Millisecond {
+		if _, err := s.NextFrame(drain); err != nil {
+			dcancel()
+			t.Fatalf("aralık beklenirken kare yok: %v", err)
+		}
+	}
+	dcancel()
+	if got := forcedKeyAfter(t, s, 10); got < 0 || got > 2 {
+		t.Fatalf("anahtar kare ≤ 2 karede gelmedi: %d", got)
+	}
+	// Kötü durum (22.04'teki CI koşusu): istek doğal/zorlanmış anahtar kareden hemen sonra. Zorlama ertelenir ama
+	// kaybolmaz: keyMinGap + 2 kare içinde gelir.
+	if got := forcedKeyAfter(t, s, int(keyMinGap/frameInterval)+gstFPS/2); got < 0 {
+		t.Fatal("ertelenen anahtar kare isteği kayboldu")
+	}
+}
+
+// forcedKeyAfter anahtar kare ister ve kaçıncı karede geldiğini döner (en çok n kare / 2 sn; gelmezse -1).
+func forcedKeyAfter(t *testing.T, s *gstSource, n int) int {
+	t.Helper()
 	s.RequestKeyframe()
-	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
-	got := -1
-	for i := range 10 {
+	for i := range n {
 		f, err := s.NextFrame(ctx)
 		if err != nil {
 			break
 		}
 		if vp8Key(f.Data) {
-			got = i
-			break
+			t.Logf("zorlanan anahtar kare %d kare sonra", i)
+			return i
 		}
 	}
-	t.Logf("zorlanan anahtar kare %d kare sonra", got)
-	if got < 0 || got > 2 {
-		t.Fatalf("anahtar kare ≤ 2 karede gelmedi: %d", got)
-	}
+	t.Logf("zorlanan anahtar kare %d karede gelmedi", n)
+	return -1
 }

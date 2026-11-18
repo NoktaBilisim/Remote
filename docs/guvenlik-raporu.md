@@ -1,3 +1,298 @@
+# Güvenlik Raporu — P28g Kod turu 2 (Linux istemci, K9; Kod turu 1 kapsam dışı alanları) (dal p28g, HEAD 2fd8e16, 2026-11-18)
+
+DURUM: GEÇTİ (incelenen kapsam için; kısmi tur) — Kritik 0 / Yüksek 0 / Orta 0 / Düşük 4
+
+Not: Tur sınırı nedeniyle kısmi tur; "İncelenemeyenler" listesi aşağıda. Paralel K10 düzeltmeleri (glib `allow.go`, capture,
+localclick, control_linux, overlay) sürerken okundu; satır numaraları 2fd8e16 + çalışma ağacı anına göredir. Testler koşturulmadı.
+
+İncelenen: `internal/ui/gtk/{click,prompt,logic,ui,widgets(protected/protectedCheck),session(kontrol/monitör diyaloğu, tik),overlay(sync/tick)}`,
+`internal/capture/{gstpipe.go,gst_linux.go(startPipe/elementsAllowed/pull),monitors_linux.go(DISPLAY),env_linux.go}`,
+`internal/input/{xlib_linux.go(ofsetler),xtest_linux.go(grabHotkey/filterCB/isLocalSource)}`, `internal/linux/x11/{gdk,x11}_linux.go`
+(Trap, XDisplay, InitThreads), `internal/portal/{settings,gio}_linux.go` (yüzeysel), `internal/clip/clip_linux.go`,
+`internal/files/{files.go DANGEROUS_EXT, downloads_linux.go}`, `voice/audio_linux.go` (sunucu adresi), `apps/web` `linux-command.ts`,
+`linux-guide.tsx`, `device-support.ts`, `deploy/test-caddy.sh` (Linux senaryoları), `test/linux/{gui.sh,run-gui-tests.sh,xi2-offsets.c}`.
+
+## Bulgular (öncelik sırasıyla)
+
+### [DÜŞÜK] D-P28g-K2-1 Başlatma komutu ekilmiş bir `Destek-NNNNNNNN` dosyasını çalıştırabilir (sürücüsüz indirme) — A08 Yazılım bütünlüğü
+Yer: `apps/web/lib/linux-command.ts` (`LINUX_RUN_COMMAND`: `find … -mmin -30 -regex './Destek-[0-9]{8}…' | sort -nr | head -n 1`).
+Sorun: Komut İndirilenler'deki son 30 dakikanın **en yeni** eşleşen dosyasını seçip `u+x` verir ve çalıştırır. Chromium varsayılanında
+indirme sorusuz yapılır ve ad `Content-Disposition`'dan gelir; desen herkesçe bilinir (açık kaynak).
+İstismar senaryosu: Müşteri destek sayfasıyla aynı yarım saatte saldırganın sayfasını (reklam, e-posta bağlantısı) açar; sayfa
+`Destek-00000000` adlı ELF'i sessizce indirir. Gerçek ikiliden sonra indirildiyse komut saldırganın dosyasını çalıştırır: "indirildi" →
+"müşterinin kendi eliyle çalıştırıldı" yükselmesi. Saldırganın programı adım 4'teki doğrulama kodunu da taklit edebilir. Ön koşul
+hedefli zamanlama ister → Düşük.
+Düzeltme: Komut sabit kalarak: eşleşme sayısı tam 1 değilse dur (`[ "$(… | wc -l)" -eq 1 ]`, birden fazlaysa "İndirilenler'deki eski
+Destek-* dosyalarını silin" metni) ve `-mmin` penceresini daralt (ör. 10). İsteğe bağlı: rehber sayfası beklenen tam adı
+(`Destek-<folderCode>`) gösterir, müşteri `ls` çıktısıyla karşılaştırır. §4.3 bağlayıcı metin olduğundan mimar onayıyla birlikte.
+(atanan ajan: frontend-dev; metin değişikliği mimar §4.3 + teknik-yazar kılavuz)
+
+### [DÜŞÜK] D-P28g-K2-2 Kontrol izni korumasının gösterge koşulu yalnız 3 tik sonra devreye giriyor — A04 Güvensiz tasarım
+Yer: `apps/agent-win/internal/ui/gtk/session_linux.go:340` (`guard: !u.health.Failed && !u.sessHealth.Failed`),
+`overlay_linux.go:86-88` (`broken` → hiç pencere kurulmaz), `:134-144`, `uicore/session_text.go:34-45` (`Failed` 3. başarısız tikte).
+Sorun: Gösterge hiç kurulamadığında (RGBA görsel/bileştirici yok) ya da görünmezken `Failed` ilk 3 sn false'tur; kontrol diyaloğu 1,5 sn
+sonra etkinleşir. Bu aralıkta "İzin ver" göstergesiz kontrol verir; 3. tikte `failClosed` kapıyı kapatır.
+İstismar senaryosu: Oturum başında hemen kontrol isteği → müşteri ≈1,5–3 sn arasında izin verir → teknisyen ≤ 1,5 sn göstergesiz kontrol
+(G-17 kısa süreli ihlal). Kendiliğinden kapanır; etki sınırlı.
+Düzeltme: `guard`'da anlık durum: `u.ind != nil && u.ind.visible() && !u.health.Failed && !u.sessHealth.Failed` (+ oturum penceresi
+görünürlüğü). Birim testi (broken gösterge → izin yok). Overlay paralel K10 düzenlemesinde ise orada birleştirilsin. (atanan ajan: backend-dev)
+
+### [DÜŞÜK] D-P28g-K2-3 K5 sapması doğrulandı: panoya yazılan metne geçmiş/parola işareti yok — A02/A04 Hassas veri
+Yer: `apps/agent-win/internal/clip/clip_linux.go:24-27` (sapma notu), `:197-212` (`gtk_clipboard_set_text`).
+Sorun: Teknisyenin müşteri panosuna koyduğu metin (ör. parola, lisans anahtarı) GPaste / "Clipboard Indicator" gibi pano geçmişi
+uzantılarında kalıcı olarak kalabilir; Windows'taki `ExcludeClipboardContentFromMonitorProcessing` eşi kullanılmıyor. GNOME varsayılanında
+geçmiş yok (nota katılıyorum), ancak bu uzantılar Ubuntu'da yaygın.
+İstismar senaryosu: Oturum sonrası müşterinin makinesine erişen üçüncü kişi geçmişten teknisyenin yapıştırdığı gizli bilgiyi okur.
+Düzeltme: `gtk_clipboard_set_with_data` ile `UTF8_STRING`/`text/plain;charset=utf-8` yanında `x-kde-passwordManagerHint`=`secret` hedefi
+sunulması (Klipper ve bu ipucunu tanıyan geçmiş yöneticileri kaydetmez); geri okumada kendi yazımızın ErrSensitive olması kabul edilebilir
+(ya da sahiplik süreçteyse işareti atla). Yapılamıyorsa kılavuza "pano geçmişi uzantısı varsa teknisyenin gönderdiği metin geçmişte
+kalabilir" notu. (atanan ajan: backend-dev; kılavuz: teknik-yazar)
+
+### [DÜŞÜK] D-P28g-K2-4 GdkEventButton/GdkEventKey sabit ofsetleri CI'da başlıkla karşılaştırılmıyor — A04 / FFI
+Yer: `apps/agent-win/internal/ui/gtk/click_linux.go:7, 25-30` (`send_event` 16, `time` 20, `x/y` 24/32, `button` 52),
+`prompt_linux.go:77` (`GdkEventKey.keyval` 28); karşılaştırma yalnız XI2 yapıları için var (`test/linux/xi2-offsets.c`,
+`k3_linux_test.go:273`).
+Sorun: §5.2a m.2 (`send_event == 0`) ve m.1 (sol düğme) bu ofsetlere dayanır; tek dayanak K0s-5 spike'ı. Elle doğrulamam (gdkevents.h,
+LP64): değerler **doğru**. Ancak bir sapma (ör. farklı derleme ABI'si) m.2'yi sessizce ya fail-open ya da fail-closed yapar; XI2 için kurulan
+güvence burada yok.
+İstismar senaryosu: Doğrudan yok (GTK3 ABI donmuş); savunma derinliği eksikliği.
+Düzeltme: `xi2-offsets.c`'ye (libgtk-3-dev başlıklarıyla) `OFF(GdkEventButton, send_event/time/x/y/button)` ve `OFF(GdkEventKey, keyval)`
+eklenip Go sabitleriyle aynı testte karşılaştırılsın. (atanan ajan: devops + backend-dev)
+
+## Bilgi (bulgu değil)
+
+- GTK3, XSETTINGS `Gtk/Modules` değerindeki mutlak yollu modülü yükler (gtkmodules.c). Değeri yalnız aynı kullanıcı (dconf
+  xsettings overrides) değiştirebilir; T5 gereği kapsam dışı. Ortamdan `GTK_MODULES`/`GTK_PATH` süzülüyor (Kod turu 1).
+- `isLocalSource` kimlik listesi boşken "yerel" der (`xtest_linux.go:276`) → AC-104 askıya alma (güvenli yön); kimlik kaybı `onLost` ile kapıyı
+  kapatıyor (`:359-364`). Uygun.
+
+## Tasarım denetimlerinin koddaki durumu (bu turda incelenen)
+
+- §5.2a m.1–m.2 arayüz tarafı: `classifyClick` aynı denetimde sol basış + sol bırakma, ikisi de `send_event==0`, bırakma denetim içinde,
+  basış kaydı yoksa ret, `nil` guard ret (`logic.go:52-64`, `click_linux.go:42-62`). Korunan düğme `can-focus=false`, `clicked` bağlı değil;
+  onay kutusunda GTK'nın kendi geçişi `toggled`'da geri alınıyor (`widgets_linux.go:160-188`). "Reddet" varsayılan/odakta, Esc ve ✕ ret,
+  1,5 sn kilit her `present`'te yeniden (`prompt_linux.go:61-117`). Korunan diyalog sayacı enjektörü duraklatıyor (`ui_linux.go:152-158`).
+  Etiketler markup/mnemonic kapalı; C'ye giden her metin `clean` (UTF-8, NUL, 64 KiB) (`ffi_linux.go:319`). **Uygulandı.**
+- Diyalog konumu S-P28g-3 m.3: Wayland'de oturum penceresinin monitörü, X11'de imleç altında değil (`prompt_linux.go:194-223`,
+  `logic.go:166-189`). **Uygulandı.**
+- O-P28g-T2-1 tema: `gtk-theme-name` sabit "Adwaita" ve `notify` ile geri yazılıyor; GTK 3.24 adlı temada önce gömülü kaynağı
+  (`/org/gtk/libgtk/theme/Adwaita`) yüklediği için dosya sistemindeki aynı adlı tema kullanılmaz; sağlayıcı ekran düzeyinde 801
+  (`ui_linux.go:162-199`, `widgets_linux.go:29`); koyu tercih yalnız bool. **Uygulandı.**
+- S-P28g-8 / T7: oturum penceresi ve gösterge 1 sn tikte geri getirilir/yükseltilir, 3 tikte `failClosed` (kapı + kontrol diyaloğu)
+  (`session_linux.go:146-175`, `overlay_linux.go:134-144`); gösterge `GTK_WINDOW_POPUP`, boş giriş şekli. **Uygulandı** (erken pencere → D-P28g-K2-2).
+- S-P28g-4: dizgi yalnız `strconv` tamsayıları, tüm yer tutucular sınır denetimli (`gstpipe.go:65-111`), `display-name` yok, DISPLAY
+  `^:[0-9]{1,3}(\.[0-9]{1,2})?$` (`monitors_linux.go:111`); `gst_parse_launch` kurtarılabilir hata da ret; PLAYING'den **önce**
+  `gst_bin_iterate_recurse` ile her öğenin fabrika adı beyaz listede, fabrikasız öğe ret, üst sınır (`gst_linux.go:128-206`); kare
+  boyutu ≤ 64 MiB kopyalanır. GStreamer eklenti yolu/tarayıcı/kayıt sabit (`cmd/noktadestek/env_linux.go:172-174`). **Uygulandı.**
+- S-P28g-13 m.2: `XGrabKey` dört kilit varyantıyla GDK bağlantısında `gdk_x11_display_error_trap_push/pop` (GdkDisplay argümanı doğru;
+  pop eşzamanlar) içinde; hata olursa tüm varyantlar geri alınır, `HotkeyErr` (`xtest_linux.go:459-491`, `x11/gdk_linux.go:117-130`).
+  Kısayol süzgeci yalnız kapatma yönünde (sahte olay yalnız kontrolü kapatır). **Uygulandı.**
+- §5.4 m.5: `XInitThreads` `gtk_init_check`'ten önce (`ui_linux.go:80-86`). XI2 ofsetleri `xi2-offsets.c` + `k3_linux_test.go` ile başlıktan
+  karşılaştırılıyor, `run-gui-tests.sh:84-96` beklenmeyen ABI'de hata. **Uygulandı.**
+- K5 pano: parola ipucu hedefi içerik okunmadan ret, yalnız UTF-8 hedefi, uzunluk kopyalamadan önce, `gtk_clipboard_store` yok
+  (`clip_linux.go:147-195`). Geçmiş işareti → D-P28g-K2-3.
+- T8 / §5.4: contracts `DANGEROUS_EXT` ile Go `dangerousExt` **114 = 114, fark yok**; §5.4'teki 14 Linux türünün tamamı iki listede;
+  `TestS68DangerousExtMatchesContracts` kaynak dosyadan karşılaştırıyor. **Uygulandı.**
+- `DownloadsDir`: alt süreç yok, `user-dirs.dirs` boyut sınırlı ve kaçış denetimli, aday dizin `Lstat` + sahiplik (`downloads_linux.go`).
+  Ses: `PULSE_SERVER` ortamdan alınmıyor, varsayılan sunucu (`audio_linux.go:21`). **Uygulandı.**
+- Web: komut sabit, sunucu verisi yok; rehberde `dangerouslySetInnerHTML` yok, kod/host React metni olarak basılıyor; `isLinuxDesktop`
+  ARM/ChromeOS/Android'i dışlıyor ve Mac/Windows yüklemleriyle karşılıklı dışlayıcı. `test-caddy.sh` Linux biçim dışı adlar ve çapraz
+  kapı (Linux kapalı → 503, ELF sunulmaz) senaryolarını içeriyor. **Uygulandı** (komut → D-P28g-K2-1).
+
+## Otomatik tarama çıktıları
+
+- Bu turda yeni tarama koşulmadı (kod değişikliği Kod turu 1 ile aynı HEAD); Kod turu 1 çıktıları geçerli. DANGEROUS_EXT eşitliği betikle
+  (node) karşılaştırıldı: ts 114 / go 114, iki yönde fark boş.
+
+## Tasarımda vaat edilip kodda bulunmayanlar
+
+- Yok (bu kapsamda). K5 geçmiş işareti zaten belgelenmiş sapma → D-P28g-K2-3.
+
+## İncelenemeyenler (sonraki tur / K10 sonrası)
+
+- `internal/printing/printer_unix.go` (sabit `lp` argümanları, stdin), `internal/transfer/motw_linux.go`, `internal/files/traces_linux.go`.
+- `internal/portal/notify_linux.go`; `settings_linux.go`/`gio_linux.go` ayrıntısı (yalnız `Known`/fail-closed yapısı görüldü).
+- `voice/audio_linux.go` akış/tampon sınırları; `ui/gtk/{choose,welcome,code,ended,roster,voice,rec}_linux.go`; gösterge `draw`.
+- XWayland'de `XGrabKey` denenmediği (S-P28g-13 m.3) çağıran tarafta doğrulanmadı; XI2 `XIHierarchyChanged` sonrası kimlik yenileme ayrıntısı.
+- `implementation.md` ölçüm kayıtları (`RLIMIT_CORE`/`PR_SET_DUMPABLE`, E-7); birim/GUI testleri koşturulmadı.
+- K10 paralel değişiklikleri (glib `allow.go`, capture, localclick, control_linux, overlay) bu turda yeniden okunmadı.
+
+## Olumlu
+
+- Korunan denetim tasarımı GTK'nın tüm etkinleştirme yollarını (klavye, mnemonic, AT-SPI) yapısal olarak dışarıda bırakıyor; karar tek yerde.
+- GStreamer hattı iki katmanlı beyaz liste ve tamsayı-yalnız dizgiyle eklenti/komut enjeksiyon yüzeyi bırakmıyor.
+- X hata tuzağı ve kısayol geri alma tasarımla birebir; ofset güvencesi XI2 için CI'a bağlı.
+- Tehlikeli uzantı listesi iki dilde birebir ve testle kilitli.
+
+---
+
+# Güvenlik Raporu — P28g Kod turu 1 (Linux istemci, K9) (dal p28g, HEAD 2fd8e16, 2026-11-18)
+
+DURUM: GEÇTİ (incelenen kapsam için; kısmi tur) — Kritik 0 / Yüksek 0 / Orta 1 / Düşük 3
+
+Not: Tur sınırı nedeniyle kısmi tur. Aşağıdaki "Kapsam dışı kaldı" listesindeki alanlar ayrı turda (Kod turu 2) incelenecek;
+GEÇTİ kararı yalnız incelenen alanlar içindir, P28g'nin tamamı için değildir.
+
+İncelenen: `cmd/noktadestek/{main,env,control,deps}_linux.go`, `internal/input/{host,inject,keys,localclick,portal}_linux.go`,
+`internal/input/xtest_linux.go` (XI2 döngüsü), `internal/portal/{portal,bus,lock}_linux.go` (istek/eşleme/aygıt/fd),
+`internal/linux/glib/{allow,load_linux,cstr}.go`, `internal/files/files.go` (`ReceivedName`), `internal/files/motw_linux.go`,
+`apps/server` (`env.ts`, `public/routes.ts` agent-ready/linux, `signaling/control.ts` + `control-grant.ts` WAYLAND_NO_CONTROL),
+`apps/web` `linux-command.ts`, `deploy/Caddyfile` (`@agentLinux`, `agent_bin_file`), `deploy/agent/publish-linux.sh`,
+`.github/workflows/agent-win.yml` (SHA sabitleme, permissions, linux/attest işleri, onay listesi), sürüm başlığı değişikliği
+(e892627: gözetimsiz yardımcı onay penceresi, tray ipucu, uicore/flow sürüm etiketi).
+
+## Bulgular (öncelik sırasıyla)
+
+### [ORTA] O-P28g-K1-1 Wayland "yalnız görüntü" FAIL dalı kodda yok; prod koruması yalnız elle onay kutusu — A04 Güvensiz tasarım
+Yer: `apps/agent-win/cmd/noktadestek/control_linux.go:59-170` (Wayland'de kontrol yalnız portal `devices` + kilit/koruma
+koşuluna bağlı; kapatma anahtarı yok), `.github/workflows/agent-win.yml:1215` (onay listesi maddesi), mimari-p28g §5.2b m.7.
+Sorun: Tasarımın tek FAIL dalı (E-7 (b)/(c) tutmazsa Wayland yalnız görüntü: RemoteDesktop istenmez, kontrol isteğine
+`WAYLAND_NO_CONTROL`) kodlanmamış. Prod kuralı yalnız Release onayındaki elle işaretlenen kutuyla korunuyor ve madde zaten
+"Geçmediyse Reject — kod değişikliği ister" diyor. Prod'a çıkmış bir sürümde E-7 sonradan (ör. 22.04 ya da GNOME güncellemesiyle)
+bozulursa Wayland kontrolünü kapatmanın yolu yalnız yeni sürüm ya da `publish-linux.sh --withdraw` (Linux indirmesinin tamamı) olur.
+İstismar senaryosu: Telafi (Super+L → REVOKED, değiştirici bütçesi) gerçek GNOME'da tutmuyorsa, müşteri Wayland'de teknisyenin
+girdisini durduramaz (AC-104 yok, global kısayol yok); kötü niyetli ya da ele geçirilmiş teknisyen hesabı kontrolü müşterinin
+kesemeyeceği biçimde sürdürür. Kontrol için hızlı geri dönüş yolu yok.
+Düzeltme: Derleme zamanı (ldflags, `config` gömülü alan) ya da sunucu tarafı bayrakla "Wayland yalnız görüntü" anahtarı: açıkken
+RemoteDesktop istenmez (yalnız ScreenCast), `ControlReady` Wayland'de false, kontrol isteğine `WAYLAND_NO_CONTROL`. Varsayılan prod
+değeri E-7 GEÇTİ kaydına bağlanır; tercihen sunucu tarafı (availability/`resolve` yanıtı) bayrağı ile yeni sürüm gerekmeden
+kapatılabilsin. Birim testi + runbook §28g.6. (atanan ajan: backend-dev; runbook: devops)
+
+### [DÜŞÜK] D-P28g-K1-1 a11y başlangıç durumu okunamazsa m.5 mandalı hiç kurulmuyor (Wayland'de asıl ayırıcı) — A04
+Yer: `apps/agent-win/internal/input/localclick_linux.go:96`, `:127-130` (`a11yTurnedOn` `base.Known` şartı).
+Sorun: Başlangıç okuması `Known=false` dönerse (portal Settings + libgio yedeği ikisi de başarısız) oturum sırasında bekleme
+tıklaması/Fare Tuşları açılsa bile `changed` mandalı kurulmaz. X11'de m.3 (XTEST kimliği) asıl ayırıcıdır ama Wayland'de m.3
+portal enjeksiyonunu ayıramaz (§5.2a); orada kalan ayırıcı m.4 + m.5'tir.
+İstismar senaryosu: Teknisyen kontrolde iken GNOME Ayarlar'dan bekleme tıklamasını açar ve imleci korunan denetimin açılacağı
+konuma bırakır; diyalog açıldığında enjektör durur, ancak mutter'ın bekleme tıklaması çekirdek olay olarak gelir ve m.5 mandalı
+yoksa kabul edilebilir. Ön koşul (başlangıç okumasının başarısız olması) nadir; sonuç onay atlatmadır.
+Düzeltme: Başlangıç bilinmiyorsa "kapalı" varsay (fail-closed): `(!base.Known || !base.On) && cur.Known && cur.On` → mandal;
+başta bilinmeyen + ilk bilinen okumada açıksa da korunan denetim reddeder (müşteri oturumu yeniden başlatır). Birim testi.
+(atanan ajan: backend-dev)
+
+### [DÜŞÜK] D-P28g-K1-2 X11'de de `WAYLAND_NO_CONTROL` kaynağı: audit ve konsol metni yanıltıcı — A09 Loglama
+Yer: `apps/agent-win/cmd/noktadestek/control_linux.go:59` (koşulsuz `d.NoControlSource = "WAYLAND_NO_CONTROL"`),
+`apps/server/src/signaling/control-grant.ts:30` (audit kaynağı `wayland_no_control`).
+Sorun: X11'de kontrol koşulu sağlanmadığında (XI2/XTest/kısayol/DBus/kilit izlenemiyor) da kaynak Wayland diye bildirilir; audit
+kaydı ve teknisyen konsolu "Wayland" der. Güvenlik kararı doğru (kontrol verilmez), olay kaydı yanlış.
+İstismar senaryosu: Doğrudan istismar yok; olay incelemesinde X11'de kilit izleyicisinin ya da kısayolun neden çalışmadığı
+ayırt edilemez (ör. DBus adresi uymayan ortam).
+Düzeltme: K10'da ayrı kaynak (`LINUX_NO_CONTROL` ya da `OS_PERMISSION` + `reason`); contracts enum + sunucu `clientOs==="linux"`
+kalıbı + `tr.json` metni. (atanan ajan: backend-dev)
+
+### [DÜŞÜK] D-P28g-K1-3 Geliştirme bağımlılığında picomatch ReDoS (yaması yok) — A06
+Yer: `pnpm-lock.yaml` (apps/server > vitest > vite > picomatch@4.0.7; apps/web > eslint-config-next > micromatch > picomatch@2.3.2).
+Sorun: GHSA-fc5q-39xc-vjpf (Yüksek), yamalı sürüm yok. Yalnız test/lint araç zinciri; `pnpm audit --prod` temiz.
+İstismar senaryosu: Prod yüzeyi yok; CI'da saldırgan kontrollü glob deseni yok.
+Düzeltme: Yama yayınlanınca Dependabot ile güncelle; şimdilik kabul. (atanan ajan: devops)
+
+## Bilinen sapmaların değerlendirmesi
+
+| Sapma | Değerlendirme |
+| --- | --- |
+| Wayland "yalnız görüntü" anahtarı kodda yok | O-P28g-K1-1 |
+| a11y ayarı başlangıçta okunamazsa geçiş saptanmıyor | D-P28g-K1-1 |
+| K3: X11'de de `WAYLAND_NO_CONTROL` | D-P28g-K1-2 |
+| K4: stdout/stderr `/dev/null` (S-P28g-11 sapması) | **Kabul.** `main_linux.go:116-127` `dup3` ile fd 1/2 `gtk_init`'ten önce (satır 87) yönlendirilir; Go geri çağrısı gerektirmez, GLib dışındaki C kitaplıklarının çıktısını da kapsar — boş log işleyicisinden daha geniş. Açılamazsa sessizce devam eder (yalnız log sızıntısı riski); kabul |
+| K5: Linux'ta panoya yazarken geçmiş işareti yok | `clip_linux.go` bu turda okunmadı (kapsam dışı). Tasarım düzeyinde: teknisyenin gönderdiği metin GNOME pano geçmişi uzantılarında kalabilir; Windows'taki `ExcludeClipboardContentFromMonitorProcessing` eşi Linux'ta standart değil. Kod turu 2'de doğrulanacak; ön değerlendirme Düşük + kılavuz notu |
+| AltGr Linux'ta bağlanmadı | Güvenlik etkisi yok: sahte Ctrl+Alt dizisi kısayol yolundan `modifierKey` (`keys_linux.go:72-78`, AltRight=100 dahil) bütçesine tabidir. İşlevsel konu (mimar) |
+
+## Tasarım turu denetimlerinin koddaki durumu (incelenen kısım)
+
+- S-P28g-5 / D-P28g-T2-1 ortam izin listesi: `env_linux.go:23-31` §15'teki listeyle birebir (`https_proxy`/`no_proxy` dahil,
+  `HTTP_PROXY`/`ALL_PROXY`/`TMPDIR`/`GDK_*`/`GST_*`/`LD_*` yok); `PATH` sabit; argüman ya da liste dışı değişkende `/proc/self/exe`
+  argümansız tek `Exec`, hata yolunda çıkış (`main_linux.go:55-58`); idempotent süzgeç → döngü yok. Kod `/proc/self/exe` adından
+  (`launch/code_linux.go:13`), `argv[0]`'dan değil. **Uygulandı.**
+- D-P28g-T2-1 DBus: `sessionBus` tam `unix:path=<doğrulanmış runtime>/bus` + `Lstat` soket + uid (`env_linux.go:134-150`); uymazsa
+  `busOK=false` → `ControlReady` false (`host_linux.go:141`). **Uygulandı.** Proxy URL'si incelenen kodda hiçbir çıktıya yazılmıyor.
+- S-P28g-11 / D-P28g-T2-4: `XDG_RUNTIME_DIR` doğrulaması + `MkdirTemp` + yeniden doğrulama + yedek (`env_linux.go:107-128`);
+  `RLIMIT_CORE=0` ilk iş; `PR_SET_DUMPABLE` yalnız X11 (§15.2 kararı). **Uygulandı.**
+- §5.2b m.3 değiştirici bütçesi: `inject_linux.go:126-224` kayan 3 sn / 2 sn (−5 ms pay) / 1 sn soğuma, bırakma geçer, basılı
+  tutulmayan bırakma düşer, zamanlayıcı ile kendiliğinden bırakma; yalnız Wayland enjektöründe (`host_linux.go:84`). **Uygulandı**
+  (birim testi `inject_linux_test.go` mevcut; koşturulmadı).
+- §5.2b m.1/m.2/m.5: kilit = REVOKED (`host_linux.go:121-125`), bilinmeyen kilit durumu → kontrol yok; koruma kapı açıkken 1 sn
+  yoklama (`host_linux.go:158-177`); ısınma yalnız `gate.OnOpen`'da (`host_linux.go:85`, `portal_linux.go:56-68`). **Uygulandı.**
+- §5.2a m.3/m.4: kimlik listesi boş ya da aygıt −1 → ret; kapı açık ve duraklatılmamışsa ret; son enjeksiyondan < 1,5 sn ret
+  (`localclick_linux.go:72-84`); zaman tek başına kabul üretmiyor. **Uygulandı** (m.5 → D-P28g-K1-1).
+- S-P28g-10: Response/Closed/ActiveChanged eşlemesi gönderen benzersiz adla ve çağrıdan önce (`portal_linux.go:197`, `:268`,
+  `lock_linux.go:68`; boş gönderen reddi `bus_linux.go:94,160`); dönen istek yolu karşılaştırması; tam 1 akış, boyut 1..16384,
+  `devices ⊆ {1,2}`, `devices` yoksa 0 (fail-closed); fd `S_ISSOCK` + `CloseOnExec` (`portal_linux.go:290-337`); `persist_mode=0`.
+  **Uygulandı.**
+- D-P28g-T2-2 XI2: `XGetEventData` sonrası her yolda `XFreeEventData`, yalnız sabit ofsetli alan (`xtest_linux.go:349-358`),
+  `runtime.Pinner` ile maske (`:373-394`), kapanış ClientMessage + `closed` bayrağı. **Uygulandı** (CI ofset karşılaştırması
+  `test-linux-gui` betiğinde olduğu bildiriliyor; betik bu turda okunmadı).
+- FFI `dlopen`: yalnız `/usr/lib/x86_64-linux-gnu/` + izinli soname, mutlak yol (`glib/allow.go:10-45`); C'ye dizgi 64 KiB, UTF-8,
+  NUL yok (`glib/cstr.go`). **Uygulandı.**
+- S-P28g-6 m.3 / T8: `ReceivedName` `(?i)^destek-` → `Dosya-` (`files.go:147-161`); `ClearExec` `O_NOFOLLOW`, normal dosya, uid,
+  0644, yürütme/setuid/setgid/sticky biti yok doğrulaması (`motw_linux.go:22-42`). Komut metni §4.3 ile aynı, sabit, sunucu verisi
+  yok (`linux-command.ts`). **Uygulandı.**
+- S-P28g-12: sunucu `WAYLAND_NO_CONTROL`'ü yalnız `clientOs==="linux"` AGENT'tan ve yalnız REQUESTED'da kabul ediyor
+  (`control.ts:282`, `control-grant.ts:112-116`); `/internal/agent-ready/linux` yalnız kenardan + `LINUX_AGENT_SHA256` kapısı
+  (`routes.ts:80-94`); Caddy `@agentLinux` `/downloads/*` 404'ünden önce, `forward_auth` URI maskeli, `agent_bin_file`
+  octet-stream + attachment + nosniff + no-store + `-Last-Modified` (`Caddyfile:103-114, 216-225`). prod'da `LINUX_AGENT_PATH`
+  sabit (`env.ts` refine). **Uygulandı.**
+- S-P28g-9: `publish-linux.sh` prod yalnız `--tag vX.Y.Z`, ad deseni `-stg-` ret, SHA256SUMS tek satır, ELF başlığı/UPX, prod adresi
+  var + staging/`.invalid` yok, `gh attestation verify --signer-workflow --source-ref refs/tags/<etiket> --deny-self-hosted-runners`;
+  hedef `DEPLOY_ENV=production`'da yalnız `v*` etiketi (satır 74); `--no-attestation` yalnız `--dir` ve `-unattested` etiketiyle.
+  **Uygulandı.**
+- CI: tüm `uses:` commit SHA ile; varsayılan `contents: read`; yazma izinleri yalnız `attest-*` (`id-token`, `attestations`) ve
+  `release` (`contents`). Linux işlerinde vet/staticcheck/govulncheck/go-licenses. **Uygulandı.**
+
+## Sürüm gösterimi regresyonu (e892627)
+
+Regresyon yok. Gözetimsiz yardımcı onay penceresi başlığı yalnız `consentTitle(tx.Title, consentLabel)` ile değişti
+(`consent_windows.go:127`); başlıkla pencere arayan kod yok (`FindWindowExW` yalnız sınıf adıyla, `tray_windows.go:371`); etiket
+`config.Version`'dan (gömülü, ağ verisi değil); uicore yasağı (AC-341) korunuyor (biçim `flow.VersionLabel`'dan). Tray ipucu
+`truncate` ile sınırlı. `osPermission`/`EvControlSystem` değişikliği macOS'ta `NoControlSource`/`ControlLostText` boş olduğundan
+eski davranışı korur.
+
+## Otomatik tarama çıktıları
+
+- `GOOS=linux govulncheck ./...` (Docker golang:1.26, apps/agent-win): **No vulnerabilities found.**
+- `GOOS=linux go-licenses report`: üçüncü taraf 26 modül — MIT 16, BSD-3 6, Apache-2.0 2 (purego, wazero), BSD-2 1 (godbus), ISC 1;
+  GPL/AGPL yok. "Unknown" 41 kayıt yalnız repo içi paketler (`remote-support/agent-win/*`, LICENSE repo kökünde; CI `--ignore` ile
+  aynı). `check --disallowed_types=forbidden,restricted` rc=0.
+- `pnpm audit --audit-level=moderate`: 2 Yüksek (picomatch ReDoS, dev zinciri, yama yok) → D-P28g-K1-3. `pnpm audit --prod`: temiz.
+- Gizli bilgi `git grep` (apps/agent-win, deploy, .github): eşleşme yok. `.env` geçmişi: yalnız `.env.example` (boş anahtarlar
+  `LINUX_AGENT_SHA256=`, `LINUX_AGENT_PATH=`).
+- gitleaks bu turda yerelde koşulmadı (CI'da var).
+
+## Tasarımda vaat edilip kodda bulunmayanlar
+
+- §5.2b m.7 Wayland yalnız görüntü dalı → O-P28g-K1-1.
+- S-P28g-1 m.2 `SettingChanged` aboneliği yerine kapı açıkken 1 sn yoklama (§15.2'de yazılı sapma; koruma kapı açıkken sürüyor,
+  kabul).
+- S-P28g-12 X11 için ayrı kaynak → D-P28g-K1-2 (K10).
+
+## Kapsam dışı kaldı (Kod turu 2'de incelenecek)
+
+- `internal/ui/gtk/*` (prompt/overlay/session/click: §5.2a m.1–m.2 `classifyClick`, `send_event`, korunan denetim duraklatma
+  çağrıları, Wayland diyaloğu konumu, ✕/iconify, gösterge yükseltme; tema sabitleme + `PRIORITY_USER + 1` sağlayıcı, E-14; ağdan
+  gelen metinlerin uzunluk/UTF-8 sınırları; TEST başlığı).
+- `internal/capture/*linux*`, `gstpipe.go` (S-P28g-4: dizgi yalnız `strconv`, `display-name` yok, çalışma anı öğe beyaz listesi,
+  `pipewiresrc fd` denetimi, çözünürlük basamağı).
+- `internal/input/xlib_linux.go` ofset sabitlerinin tamamı, `xtest_linux.go` XTest yolu ve `XGrabKey`/GDK error trap kısayolu,
+  `isLocalSource`, hiyerarşi değişiminde kimlik kaybı → `onLost`.
+- `internal/portal/{settings,gio,notify}_linux.go` (Settings.Read, libgio yedeği, a11y/koruma okuması).
+- `internal/clip/clip_linux.go` (K5 geçmiş işareti, `x-kde-passwordManagerHint`, boyut sınırları), `internal/voice/audio_linux.go`,
+  `printing/printer_unix.go`, `internal/files/*linux*` (DownloadsDir, PulseCookieEnv), `internal/transfer/motw_linux.go`.
+- `apps/web` karşılama Linux rehberi bileşeni ve `device-support.ts`; `packages/contracts` `files.ts DANGEROUS_EXT` ile Go listesi
+  ve fikstür eşitliği, `ws.ts`.
+- `deploy/test-caddy.sh` çapraz senaryoları; `test/linux/gui.sh` (ortam pozitif kontrolü, XI2 ofset adımı); `implementation.md`
+  ölçüm kayıtları (`RLIMIT_CORE`/`PR_SET_DUMPABLE`, E-7 sonucu).
+- Birim/GUI testleri bu turda koşturulmadı.
+
+## Olumlu
+
+- Açılış sertleştirmesi (core dump → ortam süzme + argümansız yeniden çalıştırma → özel dizin → sabit GStreamer yolları) tasarım
+  sırasıyla ve fail-closed çıkış kodlarıyla uygulanmış.
+- Kontrol koşulları tek yerde (`ControlReady`/`Arm`), her istekte ve "İzin ver"de yeniden yoklanıyor; bilinmeyen durumlar ret.
+- D-Bus eşlemelerinde gönderensiz kural kurulamıyor; portal yanıtları sıkı doğrulanıyor.
+- Sunucu, Caddy ve yayın betiği macOS kalıbının (S-P28f-3/15) birebir eşi; prod yayın zinciri attestation + etiket ref'ine bağlı.
+- Sürüm başlığı değişikliği güvenlik kontrollerine dokunmadan, AC-341 sınırına uyarak yapılmış.
+
+---
+
 # Güvenlik Raporu — P28g Tasarım turu 3 (r3 doğrulaması, K0g) (dal main, HEAD 038cea9, 2026-11-17)
 
 DURUM: GEÇTİ (tasarım) — Kritik 0 / Yüksek 0 / Orta 0 / Düşük 0 (yeni bulgu yok; 1 bilgi notu)

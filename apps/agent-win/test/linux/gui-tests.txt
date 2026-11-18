@@ -28,9 +28,11 @@ TestP28gK3GUIXTestDeviceRejected
 
 # K4 — arayüz
 TestP28gK4GUIWindowOpens
+TestP28gK10GdkEventOffsets
 
 # K5 — pano (GTK CLIPBOARD gerçek gidiş-dönüş, Xvfb) ve saf karar testleri
 TestAC402P28gGTKClipRoundTrip
+TestAC402P28gGTKClipSecretHint
 TestAC402P28gSensitiveTargets
 TestAC398P28gClearExecRemovesExecBits
 TestAC398P28gDownloadsDirFallbacks

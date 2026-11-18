@@ -27,6 +27,9 @@ type Options struct {
 	TestFlag  bool
 	// Wayland oturum türü (GTK yine X11 arka ucuyla, XWayland üzerinde çalışır; §1 kısıtlar).
 	Wayland bool
+	// WaylandViewOnly K10 (§5.2b m.7): Wayland kontrol anahtarı kapalı; "Uzaktan etkileşime izin ver" ipucu ve §5.2b
+	// kontrol uyarısı gösterilmez (kontrol hiç verilmez).
+	WaylandViewOnly bool
 	// Gate izin kapısı (flow.Deps.Gate ile aynı).
 	Gate *control.Gate
 	// Guard §5.2a kararı (K3). nil → korunan denetimler reddeder.
@@ -36,15 +39,16 @@ type Options struct {
 // UI flow.UI'nin GTK3 uygulaması. Akış goroutine'inden gelen çağrılar glib.Post ile ana döngüye iletilir; engelleyen
 // çağrılar (AskCode, Welcome(Rec), ChooseShare, PortalFailed, ShowRoster) sonucu kanaldan bekler.
 type UI struct {
-	events  chan flow.Event
-	footer  string
-	version string // config.Version: pencere başlıklarında (uicore.VersionedTitle, 2026-11-18)
-	gate    *control.Gate
-	guard   ClickGuard
-	test    bool
-	wayland bool
-	dark    bool
-	forms   map[*form]bool
+	events   chan flow.Event
+	footer   string
+	version  string // config.Version: pencere başlıklarında (uicore.VersionedTitle, 2026-11-18)
+	gate     *control.Gate
+	guard    ClickGuard
+	test     bool
+	wayland  bool
+	viewOnly bool // K10: Wayland yalnız görüntü
+	dark     bool
+	forms    map[*form]bool
 
 	lobby, ended, licenses, about, portal *form
 	sess                                  *sessionWin
@@ -88,7 +92,7 @@ func New(o Options) (*UI, <-chan flow.Event, error) {
 	}
 	u := &UI{events: make(chan flow.Event, 16), footer: uicore.FooterText(o.Host, o.Version, o.Fingerprint),
 		version: o.Version, gate: gate, guard: o.Guard, test: testBuild(o.ServerURL, o.TestFlag), wayland: o.Wayland,
-		forms: map[*form]bool{}, stop: make(chan struct{})}
+		viewOnly: o.Wayland && o.WaylandViewOnly, forms: map[*form]bool{}, stop: make(chan struct{})}
 	if err := u.applyTheme(); err != nil {
 		return nil, nil, errors.Join(ErrNoGTK, err)
 	}

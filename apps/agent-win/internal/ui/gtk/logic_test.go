@@ -163,3 +163,48 @@ func TestVersionTitleWithTest(t *testing.T) {
 		t.Fatalf("başlık %q", got)
 	}
 }
+
+// S-P28g-8 (K10): XQueryTree yığın ölçütü; okunamazsa / göstergemiz en üstte değilse fail-closed.
+func TestP28gK10IndicatorOnTop(t *testing.T) {
+	const a, b, other, cow = 0x2400003, 0x2400007, 0x1e00011, 0x40000001
+	cases := []struct {
+		name     string
+		children []uint64
+		ok       bool
+		ours     []uint64
+		want     bool
+	}{
+		{"en üstte", []uint64{other, a, b}, true, []uint64{a, b}, true},
+		{"bileştirici örtü penceresi üstte sayılmaz", []uint64{other, a, b, cow}, true, []uint64{a, b}, true},
+		{"aramızda başka pencere", []uint64{a, other, b}, true, []uint64{a, b}, false},
+		{"üstte başka pencere", []uint64{a, b, other}, true, []uint64{a, b}, false},
+		{"birimiz listede yok", []uint64{other, a}, true, []uint64{a, b}, false},
+		{"okunamadı", []uint64{a, b}, false, []uint64{a, b}, false},
+		{"gösterge yok", []uint64{other}, true, nil, false},
+		{"XID 0", []uint64{a}, true, []uint64{0}, false},
+		{"boş liste", nil, true, []uint64{a}, false},
+	}
+	for _, c := range cases {
+		if got := indicatorOnTop(c.children, c.ok, c.ours); got != c.want {
+			t.Errorf("%s: %v, beklenen %v", c.name, got, c.want)
+		}
+	}
+}
+
+// D-P28g-K2-2 (K10): gösterge kurulamadı/görünmüyor ya da oturum penceresi görünmüyorsa, tik sağlığı henüz düşmemiş
+// olsa bile kontrol izni verilmez.
+func TestP28gK10ControlGuardInstant(t *testing.T) {
+	if !controlGuardOK(true, true, false, false) {
+		t.Fatal("her şey görünürken izin reddedildi")
+	}
+	for _, c := range [][4]bool{
+		{false, true, false, false}, // gösterge kurulamadı (broken), Failed henüz false
+		{true, false, false, false}, // oturum penceresi küçültülmüş
+		{true, true, true, false},
+		{true, true, false, true},
+	} {
+		if controlGuardOK(c[0], c[1], c[2], c[3]) {
+			t.Fatalf("izin verilmemeliydi: %v", c)
+		}
+	}
+}

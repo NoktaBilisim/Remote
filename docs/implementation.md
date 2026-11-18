@@ -15960,3 +15960,72 @@ Tasarım: `docs/mimari-p28g.md` §8, §10 K8b, §13 S-P28g-6/9/12, §5.2b m.7. U
   Rosetta amd64 konteynerde (emülasyonda `/proc/<pid>/exe` yorumlayıcıyı gösterdiği için argv[0] da bakılıyor).
 - actionlint 1.7.8, shellcheck 0.11.0 (`-S warning`, ci.yml kümesi), Prettier 3.10.1 temiz.
 - **Koşulmadı:** staging `--ssh` yayını (sunucu K6 staging'de değil), `attest-linux`/`release` gerçek etiket koşusu, `hash-linux` gerçek koşu.
+
+## P28g K10 tur 1 — qa "P28g Tur 1" + güvenlik "Kod turu 1/2" düzeltmeleri (backend-dev, 2026-11-18)
+
+Kaynak: `docs/qa-raporu.md` "P28g Tur 1" m.1–m.5, m.7 (Go/sunucu kısmı), `docs/guvenlik-raporu.md` "Kod turu 1" (O-P28g-K1-1,
+D-P28g-K1-1, D-P28g-K1-2) ve "Kod turu 2" (D-P28g-K2-1..4). Commit yok.
+
+| #                  | Madde                                                        | Durum                  | Dosyalar                                                                                                                                                                                                                                                                                                                                                                        | Test                                                                                                                   |
+| ------------------ | ------------------------------------------------------------ | ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
+| qa 1               | `glib/allow.go` `filepath.Clean` → `path.Clean` (Windows CI) | YAPILDI                | `internal/linux/glib/allow.go` (parametre `p`, `path` paketi gölgelenmez)                                                                                                                                                                                                                                                                                                       | `TestP28gK1AllowedLibraries` PASS (linux); GOOS=windows vet+build temiz                                                |
+| qa 2               | 22.04 zorlanan VP8 anahtar kare                              | YAPILDI (test)         | `internal/capture/gst_gui_linux_test.go`                                                                                                                                                                                                                                                                                                                                        | Kök neden aşağıda. GUI imajında yeniden koşulmadı (CI'da görülmeli)                                                    |
+| qa 3 / O-P28g-K1-1 | Wayland kontrol anahtarı                                     | YAPILDI                | `internal/config/config.go` (`waylandControl`, `Config.WaylandControl`), `cmd/noktadestek/{control,deps,main}_linux.go` (`controlPlan`), `internal/ui/gtk/{ui,choose,session}_linux.go` (`WaylandViewOnly`), `build/build-linux.sh` (`WAYLAND_CONTROL=on\|off`), `.github/workflows/agent-win.yml`, `docs/runbook.md` §28g.6                                                    | `TestP28gK10WaylandControlSwitch`, `TestP28gK10ControlPlan` PASS                                                       |
+| qa 4 / S-P28g-8    | `XQueryTree` yığın denetimi                                  | YAPILDI                | `internal/linux/x11/gdk_linux.go` (`RootChildren`), `internal/ui/gtk/overlay_linux.go` (`indicatorShown`), `internal/ui/gtk/logic.go` (`indicatorOnTop`)                                                                                                                                                                                                                        | `TestP28gK10IndicatorOnTop` PASS. Gerçek WM/bileştiricide elle (E-8); Xvfb'de gösterge zaten `broken`                  |
+| qa 5 / D-P28g-T2-1 | Vekil hatası sabit metni                                     | YAPILDI                | `internal/api/api.go` (`Error.Proxy`, `OnProxyConnectResponse`, `proxyFromEnvironment`), `internal/flow/messages.go` (`classifyFor`), `internal/flow/messages_p28g.go` (`ProxyFailedBody`)                                                                                                                                                                                      | `TestP28gK10ProxyErrorClassified` (gerçek transport: kapalı porta vekil + CONNECT 407), `TestP28gK10ProxyMessage` PASS |
+| qa 6               | E-7 maddesi + CI anahtarı                                    | YAPILDI (backend payı) | runbook §28g.6, `agent-win.yml` approve özeti; picomatch audit devops'ta                                                                                                                                                                                                                                                                                                        | —                                                                                                                      |
+| qa 7               | CI tamamı yeşil                                              | KALDI (CI koşusu)      | —                                                                                                                                                                                                                                                                                                                                                                               | Yerel Go/web/sunucu yeşil (aşağıda); push/CI koordinatörde                                                             |
+| D-P28g-K1-1        | a11y başlangıcı bilinmiyorsa kapalı varsay                   | YAPILDI                | `internal/input/localclick_linux.go` (`a11yTurnedOn`), `k3_linux_test.go`                                                                                                                                                                                                                                                                                                       | `TestP28gK10A11yUnknownBaseFailClosed` PASS                                                                            |
+| D-P28g-K1-2        | X11'de `OS_PERMISSION`                                       | YAPILDI                | Go `control_linux.go` (X11 kaynağı `OS_PERMISSION`); sunucu `signaling/control.ts` (macos\|linux), `control-grant.ts` (Linux audit kaynağı `linux_no_control`), `ops/metrics.ts`; contracts `labels.ts` (`LINUX_NO_CONTROL_CANCELLED`), `ws.ts`/`api/sessions.ts` yorumları; web `tr.json` `p7.end.osPermission` nötr, `lib/control/machine.ts` yorum, `e2e/p7-control.spec.ts` | sunucu `p28g-k6` (yeni K10 testi) + `p28f-k6` 42/42; contracts 278/278 (snapshot +1 ad)                                |
+| D-P28g-K2-1        | Komut: tam 1 eşleşme, `-mmin -10`                            | YAPILDI                | `apps/web/lib/linux-command.ts`, `docs/mimari-p28g.md` §4.3 (blok + not), `linux-guide.test.tsx`, `e2e/p28g-linux.spec.ts`                                                                                                                                                                                                                                                      | web birim 608/608; komut Docker bash+GNU find ile 0/1/2 eşleşme/eski dosya senaryoları doğrulandı                      |
+| D-P28g-K2-2        | İzin korumasında anlık gösterge/pencere denetimi             | YAPILDI                | `internal/ui/gtk/session_linux.go` (`sessionShown`, guard), `logic.go` (`controlGuardOK`)                                                                                                                                                                                                                                                                                       | `TestP28gK10ControlGuardInstant` PASS                                                                                  |
+| D-P28g-K2-3        | Pano parola ipucu                                            | YAPILDI                | `internal/clip/clip_linux.go` (`gtk_clipboard_set_with_data`; UTF8_STRING + text/plain;charset=utf-8 + `x-kde-passwordManagerHint`=secret; kendi sahipliğimizde geri okuma SENSITIVE değil)                                                                                                                                                                                     | `TestAC402P28gGTKClipSecretHint` (GUI imajı; zorunlu listeye eklendi) — yerelde koşmadı                                |
+| D-P28g-K2-4        | GdkEvent ofsetleri CI'da                                     | YAPILDI                | `internal/ui/gtk/click_linux.go` (adlı sabitler), `prompt_linux.go`, `offsets_linux_test.go`, `test/linux/xi2-offsets.c`, `run-gui-tests.sh` (`pkg-config --cflags gtk+-3.0`), `Dockerfile.2204/2404` (+`libgtk-3-dev pkg-config`), `gui-tests.txt`                                                                                                                             | `TestP28gK10GdkEventOffsets` imaj dışında SKIP; GUI imajında zorunlu                                                   |
+
+### Kök neden (qa m.2)
+
+CI run 44261008765: 22.04'te 5 sn'de 122 kare, doğal anahtar kareler 0/60/120. karede; 120. kare `RequestKeyframe`'den ~80 ms önce
+geldi. `NextFrame` PLI selinden korunmak için zorlamayı son anahtar kareden `keyMinGap` (500 ms) sonraya erteliyor (§7); test yalnız 10
+kare (~0,4 sn) baktığı için "-1". 24.04'te 143 kare, son doğal anahtar ~0,8 sn önce → hemen (0 kare). GStreamer 1.20 `force-key-unit`
+sorunsuz; ürün davranışı değişmedi. Test önce aralık dolana kadar kare tüketir (≤ 2 kare ölçütü zorlamanın kendisini sınar) ve kötü
+durumu ayrıca sınar (anahtar kareden hemen sonraki istek kaybolmaz, keyMinGap + birkaç karede gelir).
+
+### Sapmalar (gerekçeli)
+
+1. **AC-391 konsol metni (D-P28g-K1-2):** konsol misafirin OS'unu bilmez; Linux X11 de `OS_PERMISSION` gönderdiği için
+   `p7.end.osPermission` nötrleşti: "Müşterinin bilgisayarı uzaktan kontrole izin vermiyor (Mac'te erişilebilirlik izni). Müşteri izni
+   verdikten sonra yeniden isteyin." AC-391'in "Müşteri erişilebilirlik izni vermedi" metni audit etiketinde (`OS_PERMISSION_CANCELLED`,
+   yalnız macOS) aynen kalır; Linux audit'i `linux_no_control` → "Müşterinin masaüstü uzaktan kontrole izin vermiyor (Linux)". Bayat
+   kalan belgeler (teknik-yazar K11): `docs/KULLANIM_KILAVUZU.md:1630,1648`, `docs/api.md:4136`, `docs/mimari-p28f.md:130` (tarihsel).
+   Mimar/proje-yöneticisi AC-391 metin notunu onaylamalı.
+2. **S-P28g-8 ölçütü tasarımdan sıkı:** "üstünde eşlenmiş override-redirect" yerine göstergemizin en altındakinin üstünde bizim olmayan
+   **herhangi** bir kök çocuk = görünmez (eşlenme sorgusu yok, ek ofset yok). Sorgu, aynı GDK bağlantısında `gdk_window_raise`'in hemen
+   ardından yapıldığından yalnız gerçekten öne geçen pencereler sayılır; 3 tikte fail-closed. Sunucu XID'leri (`>= 1<<29`,
+   FakeClientID/SERVER_BIT; bileştiricinin örtü penceresi COW) sayılmaz. Wayland (XWayland) atlanır (not korundu). Gerçek GNOME X11'de
+   E-8 sırasında doğrulanmalı (COW varsayımı burada sınanır).
+3. **Wayland anahtarı derleme zamanı:** güvenlik raporu sunucu bayrağını "tercihen" önerdi; qa/koordinatör ldflags istedi →
+   `config.waylandControl` (boş/"on" açık, başka her değer kapalı). Kapalıyken `ControlReady` hep false → her istekte
+   VIEW{WAYLAND_NO_CONTROL}, portal yalnız ScreenCast, arayüzde "Uzaktan etkileşime izin ver" ipucu ve §5.2b uyarısı yok.
+4. **Vekil sınıfı yalnız Linux'ta** (`classifyFor(err, runtime.GOOS=="linux")`); Windows/macOS aynı hatada eski "Sunucuya ulaşılamıyor".
+   `api.Error.Error()` vekil hatasında adres içermez (her platform). WS dial hataları zaten sabit metinli (`msgLost`/yeniden bağlanma).
+5. **Pano ipucu standart dışı:** yalnız ipucunu tanıyan geçmiş yöneticileri (Klipper vb.) etkiler; GPaste/Clipboard Indicator'ın
+   desteği doğrulanmadı → kılavuz notu (teknik-yazar K11) yine önerilir.
+
+### Doğrulama (son koşular, 2026-11-18)
+
+- Docker `golang:1.26` (apps/agent-win): `gofmt -l` boş; `GOOS=linux|windows|darwin go vet ./... && go build ./...` temiz;
+  `GOOS=linux go vet -tags linuxgui ./...` temiz; `staticcheck@v0.8.2` linux/amd64, windows/amd64, darwin/arm64 ve `-tags linuxgui` temiz;
+  `go test ./...` FAIL yok (yeni K10 testleri PASS, `TestP28gK10GdkEventOffsets` imaj dışında SKIP).
+- `@remote/web` vitest 608/608; `@remote/contracts` 278/278; `@remote/server` unit 696 + 1 skip; entegrasyon `p28g-k6` + `p28f-k6`
+  42/42 (test DB `rs-p28g-k10:33463`, sonra `down`). `pnpm -r lint` + web/server/contracts `typecheck` temiz. Komut (D-P28g-K2-1) Docker
+  bash + GNU find ile sınandı.
+- **Koşulmadı:** `test/linux/gui.sh 2204/2404` (VP8 testi, pano ipucu, GdkEvent ofsetleri, `libgtk-3-dev` imaj değişikliği) ve web e2e —
+  CI'da görülmeli. `pnpm format:check`: `docs/implementation.md` biçimlendirildi; `docs/guvenlik-raporu.md`/`qa-raporu.md` bu işte
+  değişmedi (denetçilerin dosyası).
+
+### frontend-dev / sözleşme
+
+- `control.state{VIEW, OS_PERMISSION}` artık Linux AGENT'tan da gelir; enum değişmedi. Konsol metni `p7.end.osPermission` nötr.
+- Audit `control.cancelled.source` yeni değer: `linux_no_control` (contracts `LINUX_NO_CONTROL_CANCELLED`).
+- `LINUX_RUN_COMMAND` değişti (§4.3); kılavuzdaki komut kopyası varsa teknik-yazar günceller.
+- Yeni bağımlılık yok. Yeni env yok; yeni repo değişkeni `LINUX_WAYLAND_CONTROL` (on|off, tanımsız → on; devops/runbook).

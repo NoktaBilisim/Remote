@@ -1,3 +1,83 @@
+# QA Raporu — P28g Tur 1
+
+DURUM: DÜZELTİLMELİ
+
+Kapsam: dal `p28g`, HEAD `2fd8e16` (PR #25). Girdiler: gereksinimler-p28 AC-397..404 (+ kullanıcı isteği: üç platformda sürüm),
+mimari-p28g r3 (§10, §11, §13–§15; çelişkide §15), ADR-0038, implementation.md P28g K1–K8b + "Sürüm gösterimi".
+Not: Bu tur koordinatörün tur sınırı uyarısıyla kesildi. Aşağıda "doğrulanamadı" yazan satırlar bu turda kanıtlanamadı. Bunlar GEÇTİ sayılmaz.
+
+## Test sonucu
+
+| Komut | Sonuç |
+| --- | --- |
+| Docker `golang:1.26`: `go test ./...` | 39 paket ok, FAIL yok (yerel arm64; linuxgui testleri bu komutta derlenmez) |
+| `GOOS=windows/darwin/linux go vet ./...`, `GOOS=linux go vet -tags linuxgui ./...` | dördü de 0 |
+| `pnpm -r run lint` / `pnpm -r run typecheck` | temiz / temiz |
+| `pnpm format:check` | Takip edilen dosyalar temiz (`git ls-files` + `--ignore-unknown`). Uyarıların tamamı izlenmeyen `.claude/worktrees/` altında |
+| `@remote/contracts test` | 27 dosya / 271 test geçti |
+| `@remote/web test` | 63 dosya / 608 test geçti |
+| `@remote/server test` (unit) | 696 geçti, 1 skip (K6'dan önce de vardı, P28g dışı) |
+| `@remote/server test:int` (rs-p28g-qa:33462) | 1186/1187. Tek kırmızı `customers-csv-p19` AC-263 süre testi: eşzamanlı Docker yükü altında 45 sn > 30 sn. Tek başına koşulunca `p28g-k6` ile birlikte 31/31 geçti. P28g dışı, yük kaynaklı |
+| `pnpm --filter @remote/web e2e` p28g-linux | **Koşulamadı.** 4217 portunu başka bir süreç tutuyordu (`mock-api.mjs`, başka ajan); kapatılmadı. Doğrulanamadı |
+| CI agent-win (run 44261008765, HEAD) | **KIRMIZI:** `go test (Windows)` → `TestP28gK1AllowedLibraries`; `test-linux-gui (Ubuntu 2204)` → `TestP28gK2GUIXimagesrcVP8Frames` ("zorlanan anahtar kare -1 kare sonra"). Yeşil: build, build-linux 1/2–2/2, build-mac, tekrarlanabilirlik linux/darwin/win, package-mac, libopus. Rapor yazılırken sürüyordu: 2404 GUI, macOS, gofmt+race+govulncheck |
+| CI ci (run 44261008771) | **KIRMIZI:** `audit + lisans + gitleaks` → pnpm audit high, picomatch GHSA-fc5q-39xc-vjpf (`apps/server > @vitest/coverage-v8 > vitest`, yamalı sürüm yok). Yeşil: lint+type-check, build, shellcheck. Sürüyordu: MySQL test, web e2e, coturn |
+| Önceki koşu (e892627) | 2404'te `TestP28gK3GUIXTestDeviceRejected` FAIL vardı. HEAD'deki 2404 sonucu görülmedi, doğrulanamadı |
+
+## Kabul kriterleri
+
+| AC | Durum | Kanıt veya eksik |
+| --- | --- | --- |
+| AC-397 | ⚠️ kanıtsız | Var: CI build-linux ve tekrarlanabilirlik yeşil (≤ 60 MiB, NEEDED ⊆ libc/libdl/libpthread: `check-linux-elf.sh`), `TestAC397P28gK1SessionKind`, `linux-guide.test.tsx` (komut = §4.3, bayt bayt). Eksik: e2e bu turda koşulamadı; 22.04/24.04 gerçek masaüstü E-1/E-2 yapılmadı (K11) |
+| AC-398 | ⚠️ | Birim testleri yeşil (evdev/keysym, localClick, değiştirici, ReceivedName, ClearExec, NewMedia VP8). Kırmızılar: 22.04 GUI'de zorlanan anahtar kare gelmiyor (§7 "≤ 2 kare"), Windows CI'da glib izin listesi testi. S-P28g-8 `XQueryTree` yığın denetimi yok (aşağıda m.4). E-3/E-4/E-5 elle yapılmadı |
+| AC-399 | ⚠️ | Sunucu `p28g-k6` (WAYLAND_NO_CONTROL yalnız linux+AGENT+REQUESTED, audit) ve web `machine.test` WAYLAND_NO_CONTROL yeşil. Go: sahte D-Bus portal testleri, `TestAC399P28gK3HostConditions`, `ModifierBudget`. Eksik: e2e konsol metni bu turda görülmedi; E-6/E-7 gerçek GNOME'da yapılmadı; §5.2b m.7 yalnız görüntü anahtarı yok (m.3) |
+| AC-400 | ⚠️ | `overlay_linux.go` var (fail-closed `health.Failed`, K4 GUI testi). Kılavuzda Wayland sınır metni yok: KULLANIM_KILAVUZU hâlâ "Windows'ta ve Mac'te çalışır" diyor (K11 işi) |
+| AC-401 | ⚠️ | Birim: `TestAC401P28gK1PrivateDir`, `CoreDumpsDisabled`, `PulseCookieEnv`. `trace-check-linux.sh` CI harness'ında; 22.04 harness KALDI olduğu için iz adımının sonucu bu turda görülmedi. E-12 elle |
+| AC-402 | ⚠️ | Pano/yazdırma/ses birim testleri yeşil, `printer_unix` linux'ta koşuyor. CI imajında `TestAC402LinuxPulseDeviceRoundTrip` SKIP (pulse sunucusu yok; adında `P28g` yok, gerekçe implementation K5'te). E-10 elle |
+| AC-403 | ⚠️ | `attest-linux`/`release` işleri yazılı; gerçek etiket koşusu yok (K8b "koşulmadı"). Web Linux algılama birim testi yeşil (`device-support.test`); e2e bu turda görülmedi. `test-caddy.sh` bu turda yeniden koşulmadı (implementation: 156 PASS) |
+| AC-404 | ⚠️ | Yeni yetki yok. Yeni Go metinleri `messages_p28g.go` dosyasında (`TestAC399P28gLinuxTextsTable`), web metinleri `tr.json`'da. AC-287 (axe, iki tema, 390 px) yalnız e2e ile kanıtlanıyor ve bu turda görülmedi |
+| Sürüm gösterimi (kullanıcı isteği) | ✅ (kod/test) | `TestVersionLabel`, `TestVersionedTitle`, `TestShownTipVersionLabel`, `TestTipShowsVersion`, `TestConsentTitleVersion`, gtk `TestVersionTitleWithTest` yerel go test'te yeşil. Gerçek pencerede gözle kontrol yok (K11) |
+
+## Düzeltilmeli
+
+1. [backend-dev] `apps/agent-win/internal/linux/glib/allow.go:41`: `filepath.Clean(path) == path` Windows'ta `/` karakterini `\` yapıyor. Bu yüzden CI `go test (Windows)` `TestP28gK1AllowedLibraries` kırmızı. Beklenen: `path.Clean` kullanılsın (izin listesi POSIX yolu); test üç GOOS'ta da yeşil olsun.
+2. [backend-dev] `TestP28gK2GUIXimagesrcVP8Frames`, Ubuntu 22.04 imajı (`gst_gui_linux_test.go:115-117`): zorlanan anahtar kare hiç gelmiyor ("-1 kare sonra"). Beklenen: §4.4/§7'ye göre `force-key-unit` 22.04'teki GStreamer 1.20 vp8enc ile ≤ 2 karede anahtar kare üretsin. Gerekirse olay `vp8enc`'e ya da kaynak pad'e gönderilsin. Kök neden implementation.md'ye yazılsın. İki imajda da PASS olmalı.
+3. [backend-dev] §5.2b m.7 / §13 S-P28g-1 m.6, Wayland "yalnız görüntü" anahtarı. Mekanizma var ama onu seçen bir anahtar yok: `portal.Options.Control=false` → yalnız ScreenCast, `capture.ConfigureWayland(bus, control, …)`, `NoControlSource=WAYLAND_NO_CONTROL`. Bugün `control_linux.go`'da `busOK` doğrudan geçiliyor. K8b'nin "E-7 geçmezse etiketi reddet" yolu, Wayland kuralı yüzünden X11 yayınını da durduruyor ve tasarımdaki "E-7 geçmeden prod'da Wayland yalnız görüntü" davranışını sağlamıyor. Bu yüzden tasarım gereği sayılmadı. Beklenen: tek bir derleme anahtarı (ldflags, ör. `config.waylandControl`). Açık değilse Wayland'de `ConfigureWayland(bus, false, …)` çağrılsın ve kontrol isteğine `WAYLAND_NO_CONTROL` gitsin. Birim testi eklensin. devops bu anahtarı E-7 GEÇTİ'ye bağlar (madde 6).
+4. [backend-dev] S-P28g-8 (§13'te bağlayıcı): `overlay_linux.go` tikinde `XQueryTree` kök yığın sırası denetimi yok (K4 ve K2/K3 "K10'a" diye bıraktı). Beklenen: gösterge kök çocuk sırasında en üstte değilse yeniden yükseltilsin, 3 tikte olmazsa kapı kapansın (fail-closed). libX11 bağlamaları `internal/input/xlib_linux.go` dosyasında zaten var.
+5. [backend-dev] D-P28g-T2-1 (§15'te bağlayıcı): vekil hatası "Vekil sunucuya bağlanılamadı" sabit metnine eşlenmiyor (K4 "yapılmadı"). Beklenen: Linux'ta vekil bağlantı hatası bu sabit metinle gösterilsin, vekil URL'si hiçbir metne ya da loga girmesin. Windows/macOS metni değişmesin (GOOS dalı ya da `Deps` alanı). Birim testi eklensin.
+6. [devops] CI `audit + lisans + gitleaks` kırmızı: picomatch ≤ 4.0.7 (GHSA-fc5q-39xc-vjpf, high, yamalı sürüm yok), yalnız dev yolunda (`@vitest/coverage-v8 > vitest`). Beklenen: `pnpm.overrides` ile yamasız sürümden kaçınılsın; olmuyorsa audit istisnası tarihli ve gerekçeli olarak implementation.md'ye yazılsın, iş yeşile dönsün. Ayrıca madde 3 gelince yayın kontrol listesindeki E-7 maddesi "etiketi reddet" yerine "Wayland kontrol anahtarı yalnız E-7 GEÇTİ ise açık" olarak güncellensin.
+7. [backend-dev + devops] Madde 1–2'den sonra CI'ın tamamı yeşil görülmeli. Özellikle `test-linux-gui (Ubuntu 2404)`: önceki koşuda `TestP28gK3GUIXTestDeviceRejected` FAIL'di, HEAD sonucu görülmedi. Ayrıca macOS, `gofmt+race+govulncheck`, `test (MySQL 8.4)` ve `web e2e` yeşil görülmeli. Kırmızı kalırsa kök neden implementation.md'ye yazılsın.
+
+## Definition of Done
+
+| Madde | Durum | Not |
+| --- | --- | --- |
+| Testler yeşil (yerel + CI) | ❌ | CI'da 3 iş kırmızı (Windows go test, 22.04 GUI, audit); 4 iş sonuçlanmadı |
+| Lint / typecheck / format | ✅ | Yerel temiz; CI lint+type-check yeşil |
+| Her AC'nin testi var ve gerçekten AC'yi doğruluyor | ⚠️ | Birim testleri doğru noktayı sınıyor. Elle doğrulama gerektiren AC'ler (E-listesi) K11'de; e2e bu turda görülmedi |
+| Tasarım-kod uyumu, sapmalar gerekçeli | ⚠️ | Sapmaların çoğu implementation.md'de gerekçeli (dumpable, yoklama, m.4, X11 için WAYLAND_NO_CONTROL). Gerekçesiz açıklar: S-P28g-8, D-P28g-T2-1 vekil metni, §5.2b m.7 anahtarı |
+| Yeni bağımlılık gerekçeli, lisans uygun | ✅ | Tek bağımlılık `godbus/dbus/v5` v5.2.4, BSD-2; mimari §1'de var; third_party_notices güncel |
+| Env kuralı (.env.example + env.ts + compose + runbook) | ✅ | `LINUX_AGENT_PATH/SHA256`: dördünde de var (K6+K8b) |
+| implementation.md güncel | ✅ | K1–K8b + Sürüm bölümleri |
+| Kullanıcı dokümanı (kılavuz/README/DATASHEET/CHANGELOG/PDF) | ❌ | K11'e bırakılmış; AC-400 kılavuz metnini şart koşuyor |
+| Elle test (E-1..E-19) | ❌ | K11, henüz yapılmadı |
+
+## Öneriler (zorunlu değil)
+
+- GTK ekranlarındaki eski metinler (karşılama, lobi, kod; ör. "Sizi biz aramadıysak devam etmeyin") Windows ve macOS dosyalarındakinin üçüncü kopyası, yani mevcut kalıp sürüyor. AC-404 yeni metinler için sağlanıyor, ama P23 öncesinde bu metinler `flow` tablosuna taşınabilir.
+- Linux'ta X11 için kontrol koşulu yoksa konsol "(Wayland)" diyor (K2/K3 sapma 3). Mimar X11 için ayrı bir kaynak ya da nötr metin kararı vermeli.
+- Koyu tema bool'unun `Net/ThemeName` "-dark" sonekinden türetilmesi (K4) mimar onayı bekliyor.
+- AltGr (`SetAltGrText`) Linux'ta bağlı değil, Türkçe Q'da `@` riski var. E-3'te özellikle bakılsın.
+- Caddy log maskesinin `/Destek-[^/?]+` olarak genişletilmesi güvenliğe sorulsun (K8b açık maddesi).
+
+## Olumlu
+
+- Kontrol yokluğunun yolu uçtan uca tutarlı: sunucu linux nonce + AGENT + REQUESTED süzgeci, audit, web makine durumu ve Go `NoControlSource`.
+- Portal katmanında S-P28g-10 kuralları (gönderen + yol eşleşmesi, 128 bit belirteç, değer sınırları) ve FAIL dalı için gereken `Control=false` mekanizması zaten var. Madde 3 yalnız bir anahtar istiyor.
+- İzin listesi + temiz yeniden çalıştırma, D-P28g-T2-1 veri yolu doğrulaması ve değiştirici bütçesi birim testli.
+- Dört GOOS/etiket kombinasyonunda vet temiz. Tekrarlanabilir Linux derlemesi CI'da yeşil.
+
+---
+
 # QA Raporu — P28f Tur 3
 
 DURUM: GEÇTİ

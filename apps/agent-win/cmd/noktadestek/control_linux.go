@@ -23,7 +23,10 @@ import (
 //   - Kilit izleyicisi (ScreenSaver) → host.LockChanged (REVOKED) ve capture.EnvProbe (AC-105).
 //   - Wayland: portal oturumu capture.Monitors ile (K4 portal ekranı PortalMonitors sarar; üst pencere PortalParent);
 //     yeni oturum host.OnSession'a verilir (Notify* enjektörü, Closed → EvEnd).
-//   - Koşul sağlanmazsa VIEW{WAYLAND_NO_CONTROL} (sunucu Linux'tan OS_PERMISSION'ı yok sayar, S-P28g-12).
+//   - Koşul sağlanmazsa Wayland'de VIEW{WAYLAND_NO_CONTROL}, X11'de VIEW{OS_PERMISSION} (K10, D-P28g-K1-2: sunucu
+//     OS_PERMISSION'ı macos ve linux AGENT'tan kabul eder; konsol Linux için nötr metin gösterir).
+//   - K10 (§5.2b m.7, O-P28g-K1-1): derleme anahtarı config.waylandControl kapalıysa Wayland'de yalnız ScreenCast
+//     istenir (RemoteDesktop yok) ve her kontrol isteğine VIEW{WAYLAND_NO_CONTROL} gider. X11 etkilenmez.
 //   - localClick (§5.2a m.3–m.5) tek karar: clickGuard; arayüze gtkGuard uyarlayıcısıyla verilir (newUI).
 
 // clickGuard §5.2a kararı; newUI'de arayüze, linuxControl'de enjektöre bağlanır (süreçte tek).
@@ -53,10 +56,9 @@ func classifyPortal(err error) (isPortal, missing bool) {
 
 // linuxControl girdi + kontrol koşulları + Wayland portal bağlaması. Ana iş parçacığında, GTK döngüsünden önce
 // (X11 kısayolu GDK bağlantısında burada yakalanır).
-func linuxControl(d *flow.Deps, u flow.UI, gate *control.Gate) {
+func linuxControl(d *flow.Deps, u flow.UI, gate *control.Gate, waylandControl bool) {
 	ctx := context.Background()
 	wayland := sessionKind(os.Getenv) == "wayland"
-	d.NoControlSource = "WAYLAND_NO_CONTROL"
 	d.ControlLostText = flow.LinuxTexts.ControlLost
 	envAddr := os.Getenv("DBUS_SESSION_BUS_ADDRESS")
 	addr, busOK := sessionBus(envAddr, os.Getenv("XDG_RUNTIME_DIR"), os.Getuid())
@@ -71,6 +73,8 @@ func linuxControl(d *flow.Deps, u flow.UI, gate *control.Gate) {
 			busOK = false
 		}
 	}
+	portalControl, viewOnly, source := controlPlan(wayland, waylandControl, busOK)
+	d.NoControlSource = source
 	// Host olayları akışa doğrudan girer (arayüzün olay kanalıyla birleştirilir; darwin kalıbı).
 	merged := make(chan flow.Event, 16)
 	go func(in <-chan flow.Event) {
@@ -106,9 +110,13 @@ func linuxControl(d *flow.Deps, u flow.UI, gate *control.Gate) {
 			parent = p.PortalParent
 			d.Monitors = func() ([]signal.Monitor, error) { return p.PortalMonitors(ctx, capture.Monitors, classifyPortal) }
 		}
-		capture.ConfigureWayland(bus, busOK, parent, host.OnSession)
+		capture.ConfigureWayland(bus, portalControl, parent, host.OnSession)
 	}
 	clickGuard.WatchA11y(ctx, func() portal.A11yState { return portal.ReadA11y(settingsReader(bus)) })
+	if viewOnly {
+		d.ControlReady = func() bool { return false } // her istek → VIEW{WAYLAND_NO_CONTROL} (iptal, ret değil)
+		return
+	}
 	inj := host.Injector()
 	if inj == nil || (!wayland && host.HotkeyErr != nil) {
 		return // kontrol bildirilmez (G-21)
@@ -151,6 +159,16 @@ func linuxControl(d *flow.Deps, u flow.UI, gate *control.Gate) {
 			}
 		})
 	}
+}
+
+// controlPlan K10: portalControl = Wayland portalından RemoteDesktop (klavye/işaretçi) istenir mi; viewOnly = Wayland
+// kontrol anahtarı kapalı (§5.2b m.7: yalnız görüntü, kontrol hiç bağlanmaz); source = kontrol verilemediğinde
+// gönderilen VIEW kaynağı (D-P28g-K1-2: X11'de OS_PERMISSION, Wayland'de WAYLAND_NO_CONTROL).
+func controlPlan(wayland, waylandControl, busOK bool) (portalControl, viewOnly bool, source string) {
+	if !wayland {
+		return false, false, "OS_PERMISSION"
+	}
+	return busOK && waylandControl, !waylandControl, "WAYLAND_NO_CONTROL"
 }
 
 // settingsReader portal Settings.Read, şema sunulmuyorsa libgio (ana iş parçacığında).

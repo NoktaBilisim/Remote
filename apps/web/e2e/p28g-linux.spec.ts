@@ -9,7 +9,7 @@ guardConsole(/^Failed to load resource: (the server responded with a status of (
 const tok = (ch: string) => `/session/${ch.repeat(43)}`;
 const LINUX = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36";
 const AVAIL = "**/api/v1/public/agent/availability";
-const COMMAND = String.raw` d="$(xdg-user-dir DOWNLOAD)" && [ -d "$d" ] && cd "$d" && f="$(find . -maxdepth 1 -type f -mmin -30 -regextype posix-extended -regex './Destek-[0-9]{8}( ?\([0-9]{1,3}\))?' -printf '%T@ %f\n' | sort -nr | head -n 1 | cut -d' ' -f2-)" && [ -n "$f" ] && chmod u+x -- "$f" && ./"$f"`;
+const COMMAND = String.raw` d="$(xdg-user-dir DOWNLOAD)" && [ -d "$d" ] && cd "$d" && f="$(find . -maxdepth 1 -type f -mmin -10 -regextype posix-extended -regex './Destek-[0-9]{8}( ?\([0-9]{1,3}\))?' -printf '%f\n')" && [ -n "$f" ] && { [ "$(printf '%s\n' "$f" | wc -l)" -eq 1 ] || { echo "İndirilenler'deki eski Destek-* dosyalarını silip yeniden indirin"; false; }; } && chmod u+x -- "$f" && ./"$f"`;
 const NEVER =
   "Nokta Destek size bundan başka komut vermez; bu komutu yalnız bu sayfadan kopyalayın — sohbet, e-posta ya da telefonla verilen komutu çalıştırmayın.";
 

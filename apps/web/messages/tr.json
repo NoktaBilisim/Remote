@@ -492,7 +492,7 @@
   "p7.end.tech": "Kontrolü bıraktınız; devam etmek için müşteri yeniden onaylamalı",
   "p7.end.cancel": "Kontrol isteğini geri çektiniz",
   "p7.end.agent": "Müşteri tarafında bağlantı kesildi; istek kapandı",
-  "p7.end.osPermission": "Müşteri erişilebilirlik izni vermedi. Müşteri izni verdikten sonra yeniden isteyin.",
+  "p7.end.osPermission": "Müşterinin bilgisayarı uzaktan kontrole izin vermiyor (Mac'te erişilebilirlik izni). Müşteri izni verdikten sonra yeniden isteyin.",
   "p7.end.waylandNoControl": "Müşterinin masaüstü uzaktan kontrole izin vermiyor (Wayland)",
   "p7.forbidden": "Uzaktan kontrol yetkiniz yok; kontrol istenemez",
   "p7.rate": "Çok sık istek gönderildi; biraz sonra tekrar deneyin",

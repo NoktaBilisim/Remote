@@ -374,14 +374,22 @@ describe("P28g control.state WAYLAND_NO_CONTROL (§4.2, S-P28g-12)", () => {
     }
   });
 
-  it("S-P28g-12: OS_PERMISSION Linux AGENT'tan da yok sayılır (macOS'a bağlı kalır)", async () => {
+  it("P28g K10 (D-P28g-K1-2): Linux X11 AGENT'tan OS_PERMISSION kabul — iptal, teknisyene {VIEW, OS_PERMISSION}; audit source linux_no_control (macOS erişilebilirlik kaydı değil)", async () => {
     const rooms = makeRooms();
     const fx = await agentRoom(rooms, "linux");
     expect(await handleControlRequest(rooms, fx.room, fx.tech)).toBe("forwarded");
     await handleControlState(rooms, fx.room, fx.g.entry, { state: "VIEW", source: "OS_PERMISSION" });
-    expect(fx.room.control.state).toBe("REQUESTED");
-    expect(fx.techPeer.of("control.state")).toHaveLength(0);
-    expect(await audits(fx.session.id, CONTROL_AUDIT.CANCELLED)).toHaveLength(0);
+    expect(fx.room.control.state).toBe("VIEW");
+    expect(fx.techPeer.of("control.state").at(-1)).toEqual({ t: "control.state", state: "VIEW", source: "OS_PERMISSION" });
+    expect(fx.room.control.deniedAt).toBeUndefined();
+    await expect
+      .poll(() => audits(fx.session.id, CONTROL_AUDIT.CANCELLED))
+      .toMatchObject([{ username: "customer", result: "success", newValue: { by: "agent", source: "linux_no_control" } }]);
+    expect(await consents(fx.session.id)).toHaveLength(0);
+    expect(await handleControlRequest(rooms, fx.room, fx.tech)).toBe("forwarded"); // 30 sn bekleme yok
+    const m = rooms.metrics.render();
+    expect(m).toContain('rs_control_total{event="cancelled_linux_no_control"} 1');
+    expect(m).not.toContain('rs_control_total{event="cancelled_os_permission"}');
   });
 
   it("S-P28g-12: REQUESTED dışındaki fazda yok sayılır — VIEW'da ve GRANTED'de kayıt/iletim yok, kontrol açık kalır (REVOKED/consent yok)", async () => {

@@ -74,7 +74,7 @@ func (u *UI) newPrompt(sp promptSpec) *prompt {
 		u.protectedDelta(1)
 	}
 	onEvent(f.win, sigKey, func(ev uintptr) bool {
-		if *(*uint32)(ptrAt(cptr(ev), 28)) == keyEscape {
+		if *(*uint32)(ptrAt(cptr(ev), offKeyKeyval)) == keyEscape {
 			d.deny()
 			return true
 		}

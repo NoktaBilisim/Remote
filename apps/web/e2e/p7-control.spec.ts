@@ -233,7 +233,7 @@ test("K6: bekleyen istek müşteri tarafında kapanır → 'bağlantı kesildi; 
   await a.context().close();
 });
 
-test("P28f AC-391: macOS müşteride Erişilebilirlik izni yok (OS_PERMISSION) → 'Müşteri erişilebilirlik izni vermedi', ret değil", async ({
+test("P28f AC-391: macOS müşteride Erişilebilirlik izni yok (OS_PERMISSION) → nötr 'uzaktan kontrole izin vermiyor (Mac'te erişilebilirlik izni)', ret değil", async ({
   page,
   context,
   browser,
@@ -243,7 +243,10 @@ test("P28f AC-391: macOS müşteride Erişilebilirlik izni yok (OS_PERMISSION) �
   await req(page).click();
   await expect.poll(async () => (await agentLog(a)).controlRequests).toBe(1);
   await agentSend(a, { t: "control.state", state: "VIEW", source: "OS_PERMISSION" });
-  await expect(note(page)).toContainText("Müşteri erişilebilirlik izni vermedi. Müşteri izni verdikten sonra yeniden isteyin.");
+  // P28g K10 (D-P28g-K1-2): metin nötr (Linux X11 de OS_PERMISSION gönderir; konsol misafir OS'unu bilmez).
+  await expect(note(page)).toContainText(
+    "Müşterinin bilgisayarı uzaktan kontrole izin vermiyor (Mac'te erişilebilirlik izni). Müşteri izni verdikten sonra yeniden isteyin.",
+  );
   await expect(page.getByTestId("control-bar")).toHaveAttribute("data-phase", "ended");
   await expect(page.getByText("Kontrol reddedildi")).toHaveCount(0);
   await expect(req(page)).toBeEnabled(); // 30 sn bekleme yok

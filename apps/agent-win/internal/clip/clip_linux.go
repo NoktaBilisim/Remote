@@ -10,6 +10,8 @@ import (
 	"time"
 	"unsafe"
 
+	"github.com/ebitengine/purego"
+
 	"remote-support/agent-win/internal/linux/glib"
 )
 
@@ -22,9 +24,11 @@ import (
 //     (ErrSensitive, S-P28f-12 karşılığı; değeri okunmaz). Sonra yalnız UTF-8 hedefi (`UTF8_STRING`, yoksa
 //     `text/plain;charset=utf-8`; dönüştürücü yok — macOS `public.utf8-plain-text` kuralı). Uzunluk kopyalamadan önce
 //     denetlenir, sonra decodeUTF8.
-//   - Yazma: gtk_clipboard_set_text (sahiplik süreçtedir; gtk_clipboard_store çağrılmaz — süreç kapanınca metin panoda
-//     kalmaz, iz yok). Linux'ta geçmiş/bulut dışı bırakma biçimi yoktur (GNOME varsayılan pano geçmişi tutmaz; sapma,
-//     implementation.md "P28g K5"); bu yüzden teknisyenin koyduğu metin geri okununca SENSITIVE değildir.
+//   - Yazma (K10, D-P28g-K2-3): gtk_clipboard_set_with_data; hedefler UTF8_STRING + text/plain;charset=utf-8 + parola
+//     yöneticisi ipucu `x-kde-passwordManagerHint`="secret" (Klipper ve bu ipucunu tanıyan pano geçmişi yöneticileri
+//     kaydetmez; standart dışı, en iyi çaba). Sahiplik süreçtedir; gtk_clipboard_store çağrılmaz — süreç kapanınca metin
+//     panoda kalmaz. Metin yalnız ana iş parçacığında tutulur, sahiplik bitince (clear) sıfırlanır. Kendi yazımımız geri
+//     okunurken ipucu SENSITIVE sayılmaz (sahiplik bizdeyse içerik teknisyenden gelmiştir).
 
 const (
 	targetHint     = "x-kde-passwordManagerHint"
@@ -45,8 +49,65 @@ var (
 	gtkClipboardWaitForContents    func(cb, target uintptr) uintptr
 	gtkSelectionDataGetDataWithLen func(sd uintptr, length *int32) unsafe.Pointer
 	gtkSelectionDataFree           func(sd uintptr)
-	gtkClipboardSetText            func(cb uintptr, text *byte, n int32)
+	gtkClipboardSetWithData        func(cb uintptr, targets unsafe.Pointer, n uint32, get, clr, ud uintptr) bool
+	gtkSelectionDataSet            func(sd, typ uintptr, format int32, data unsafe.Pointer, n int32)
+	gtkSelectionDataGetTarget      func(sd uintptr) uintptr
 )
+
+// targetEntry GtkTargetEntry (gchar *target; guint flags; guint info). GTK hedef adlarını atoma çevirip kopyalar.
+type targetEntry struct {
+	target *byte
+	flags  uint32
+	info   uint32
+}
+
+const (
+	infoText   = 0
+	infoHint   = 1
+	hintSecret = "secret"
+)
+
+// Yazma durumu: yalnız ana iş parçacığında (GTK geri çağrıları ve do içindeki işler) okunur/yazılır.
+var (
+	cbOnce   sync.Once
+	getCB    uintptr
+	clearCB  uintptr
+	entries  []targetEntry
+	owned    []byte // sahip olduğumuz pano metni (UTF-8)
+	ownsClip bool   // CLIPBOARD sahipliği bizde (clear geri çağrısı false yapar)
+	secret   = []byte(hintSecret)
+)
+
+// setupWrite geri çağrıları (süreçte bir kez; NewCallback sınırlı kaynak) ve hedef listesini hazırlar.
+func setupWrite() bool {
+	cbOnce.Do(func() {
+		names := []string{targetUTF8, targetMimeUTF8, targetHint}
+		infos := []uint32{infoText, infoText, infoHint}
+		for i, n := range names {
+			cs, err := glib.CString(n)
+			if err != nil {
+				return
+			}
+			entries = append(entries, targetEntry{target: cs, info: infos[i]})
+		}
+		getCB = purego.NewCallback(func(_, sd, info, _ uintptr) uintptr {
+			data := owned
+			if uint32(info) == infoHint {
+				data = secret
+			}
+			if sd != 0 && len(data) > 0 {
+				gtkSelectionDataSet(sd, gtkSelectionDataGetTarget(sd), 8, unsafe.Pointer(&data[0]), int32(len(data)))
+			}
+			return 0
+		})
+		clearCB = purego.NewCallback(func(_, _ uintptr) uintptr {
+			clear(owned)
+			owned, ownsClip = nil, false
+			return 0
+		})
+	})
+	return len(entries) == 3 && getCB != 0 && clearCB != 0
+}
 
 // bind GTK/GDK pano sembollerini izin listeli mutlak yoldan bağlar (bir kez; FFI kuralı 4: eksik sembol → hata).
 func bind() error {
@@ -72,7 +133,9 @@ func bind() error {
 			glib.Func(&gtkClipboardWaitForContents, gtk, "gtk_clipboard_wait_for_contents"),
 			glib.Func(&gtkSelectionDataGetDataWithLen, gtk, "gtk_selection_data_get_data_with_length"),
 			glib.Func(&gtkSelectionDataFree, gtk, "gtk_selection_data_free"),
-			glib.Func(&gtkClipboardSetText, gtk, "gtk_clipboard_set_text"))
+			glib.Func(&gtkClipboardSetWithData, gtk, "gtk_clipboard_set_with_data"),
+			glib.Func(&gtkSelectionDataSet, gtk, "gtk_selection_data_set"),
+			glib.Func(&gtkSelectionDataGetTarget, gtk, "gtk_selection_data_get_target"))
 	})
 	return bindErr
 }
@@ -168,7 +231,7 @@ func read() (string, error) {
 		names = append(names, cName(p, atomNameMax))
 		glib.Free(uintptr(p))
 	}
-	if sensitiveTargets(names) {
+	if sensitiveTargets(names) && !ownsClip {
 		return "", ErrSensitive
 	}
 	i, ok := textTarget(names)
@@ -198,16 +261,19 @@ func (c *gtkClip) WriteText(s string) error {
 	if err := validateText(s); err != nil {
 		return err
 	}
-	cs, err := glib.CString(s) // ≤ 64 KB, UTF-8, NUL yok (validateText ile aynı sınır)
-	if err != nil {
-		return ErrInvalid
-	}
+	data := []byte(s)
 	return c.do(func() error {
 		cb, err := clipboard()
-		if err != nil {
-			return err
+		if err != nil || !setupWrite() {
+			clear(data)
+			return ErrFailed
 		}
-		gtkClipboardSetText(cb, cs, int32(len(s)))
+		// Önceki sahipliğin clear geri çağrısı bu çağrının içinde çalışır; yeni metin çağrıdan sonra atanır.
+		if !gtkClipboardSetWithData(cb, unsafe.Pointer(&entries[0]), uint32(len(entries)), getCB, clearCB, 0) {
+			clear(data)
+			return ErrFailed
+		}
+		owned, ownsClip = data, true
 		return nil
 	})
 }

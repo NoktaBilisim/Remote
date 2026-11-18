@@ -8,6 +8,7 @@ import (
 
 	"remote-support/agent-win/internal/dc"
 	"remote-support/agent-win/internal/flow"
+	"remote-support/agent-win/internal/linux/x11"
 	"remote-support/agent-win/internal/signal"
 	"remote-support/agent-win/internal/ui/uicore"
 )
@@ -18,6 +19,11 @@ import (
 // çizilir (GtkLabel yok → kullanıcı CSS'i dokunamaz). 1 sn tik: gdk_window_raise + görünürlük denetimi; RGBA görsel
 // ya da bileştirici yoksa ya da 3 tikte görünür kılınamazsa kapı kapanır (fail-closed). Yakalamadan hariç tutma yoktur
 // (§5.4: çizim videoya girer). Wayland'de (XWayland) en iyi çaba (AC-400).
+// S-P28g-8 (K10): X11'de tikte öne almanın hemen ardından GDK'nın kendi bağlantısında XQueryTree ile kök yığın sırası
+// denetlenir (indicatorOnTop): göstergemizin üstünde başka pencere varsa ya da sıra okunamazsa o tik görünmez sayılır;
+// bir sonraki tik yeniden yükseltir, 3 tikte olmazsa kapı kapanır. Bileştiricinin örtü penceresi (sunucu XID'i) sayılmaz.
+// Wayland'de (XWayland) yığın ölçülemez (yerel Wayland pencereleri XQueryTree'de yok; AC-400, kılavuz) → yalnız
+// eşlenmiş/görüntülenebilir denetimi.
 
 type overlay struct {
 	win, area uintptr
@@ -138,9 +144,26 @@ func (u *UI) indicatorTick() {
 			gdkWindowRaise(gw)
 		}
 	}
-	if u.health.Observe(u.ind.visible()) {
+	if u.health.Observe(u.indicatorShown()) {
 		u.failClosed()
 	}
+}
+
+// indicatorShown gösterge şu an görünür mü: eşlenmiş/görüntülenebilir ve X11'de kök yığının en üstünde (S-P28g-8).
+// Hem tik hem kontrol izni koruması (D-P28g-K2-2: anlık) bunu kullanır. Ana iş parçacığında.
+func (u *UI) indicatorShown() bool {
+	if u.ind == nil || !u.ind.visible() {
+		return false
+	}
+	if u.wayland {
+		return true // XWayland: yığın ölçülemez (en iyi çaba)
+	}
+	ours := make([]uint64, 0, len(u.ind.list))
+	for _, o := range u.ind.list {
+		ours = append(ours, gdkX11WindowGetXID(gtkWidgetGetWindow(o.win)))
+	}
+	children, ok := x11.RootChildren()
+	return indicatorOnTop(children, ok, ours)
 }
 
 func (ind *indicator) redraw() {

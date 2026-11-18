@@ -40,7 +40,7 @@ const resolveClientVersion = z
 /**
  * P28f (mimari-p28f §4.1, S-P28f-15): istemcinin işletim sistemi **beyanı**. AGENT'ta yoksa sunucu `windows` sayar (eski
  * istemciler); BROWSER'da yok sayılır. Nonce kaydına yazılır, join'de yeniden alınmaz. Yetki/özellik kararında kullanılmaz
- * (tek istisnalar: `control.state` `OS_PERMISSION` yalnız `macos`, P28g `WAYLAND_NO_CONTROL` yalnız `linux`). Geçersiz değer →
+ * (tek istisnalar: `control.state` `OS_PERMISSION` yalnız `macos`/`linux` (P28g K10), P28g `WAYLAND_NO_CONTROL` yalnız `linux`). Geçersiz değer →
  * 400 VALIDATION.
  */
 export const CLIENT_OS = ["windows", "macos", "linux"] as const;

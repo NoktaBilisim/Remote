@@ -107,7 +107,8 @@ func run() int {
 func newUI(cfg config.Config, fp string, wayland bool, gate *control.Gate) (*gtk.UI, <-chan flow.Event, error) {
 	return gtk.New(gtk.Options{Host: cfg.DisplayHost(), Version: cfg.Version, Fingerprint: fp,
 		ServerURL: cfg.ServerURL.String(), TestFlag: cfg.TestBuild, Wayland: wayland, Gate: gate,
-		Guard: gtkGuard{clickGuard}}) // §5.2a m.3–m.5 (K3, control_linux.go)
+		WaylandViewOnly: wayland && !cfg.WaylandControl, // K10 §5.2b m.7
+		Guard:           gtkGuard{clickGuard}})          // §5.2a m.3–m.5 (K3, control_linux.go)
 }
 
 // silenceStdio fd 1 ve 2 /dev/null'a yönlendirilir (dup3; fd'ler kapatılmaz, boşalan numara sokete verilmez). GLib

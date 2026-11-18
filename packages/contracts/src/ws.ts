@@ -198,7 +198,8 @@ export type ControlState = (typeof CONTROL_STATES)[number];
  * gözetimsiz yardımcının otomatik GRANTED'ı (AC-273) — sunucu yalnız `room.unattended` odasında kabul eder (başka oda: hata + audit).
  * P28f (mimari-p28f §4.2, S-P28f-15): `OS_PERMISSION` = misafirde işletim sistemi izni (macOS Erişilebilirlik) yok, kontrol
  * diyaloğu açılmadı; yalnız `VIEW` ile. Sunucu iptal gibi işler (consent yok, bekleme yok) ve yalnız AGENT + `clientOs=macos`
- * misafirden, REQUESTED fazında kabul eder; aksi yok sayılır.
+ * misafirden, REQUESTED fazında kabul eder; aksi yok sayılır. P28g K10 (D-P28g-K1-2): `clientOs=linux` de kabul (X11'de kontrol
+ * koşulu yok: XTest/XI2/kısayol/kilit izleyicisi); audit kaynağı `linux_no_control`.
  * P28g (mimari-p28g §4.2, S-P28g-12; AC-399): `WAYLAND_NO_CONTROL` = Wayland portal oturumunda klavye/işaretçi izni yok
  * (`devices == 0`), kontrol diyaloğu açılmadı; `OS_PERMISSION` kalıbı — yalnız `VIEW` ile, yalnız AGENT + `clientOs=linux`
  * misafirden, REQUESTED fazında; aksi yok sayılır.

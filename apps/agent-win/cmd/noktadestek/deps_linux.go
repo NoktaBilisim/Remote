@@ -54,8 +54,8 @@ func flowDeps(cfg config.Config, fp string, client *api.Client, u flow.UI, event
 	if fs, ok := u.(flow.FileServerUI); ok {
 		d.FileServerUI = fs
 	}
-	linuxClipPrintVoice(&d, u) // K5: Features'tan ÖNCE
-	linuxControl(&d, u, gate)  // K3: Features'tan ÖNCE (Input/Hotkey boşsa kontrol bildirilmez)
+	linuxClipPrintVoice(&d, u)                    // K5: Features'tan ÖNCE
+	linuxControl(&d, u, gate, cfg.WaylandControl) // K3: Features'tan ÖNCE (Input/Hotkey boşsa kontrol bildirilmez)
 	features := flow.Features(d)
 	d.Dial = func(ctx context.Context, cred signal.Credential) (flow.Conn, error) {
 		return signal.Dial(ctx, client.HTTPClient(), cfg.ServerURL, cred, features)

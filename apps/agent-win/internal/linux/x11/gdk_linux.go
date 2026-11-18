@@ -5,6 +5,7 @@ package x11
 import (
 	"errors"
 	"sync"
+	"unsafe"
 
 	"remote-support/agent-win/internal/linux/glib"
 )
@@ -144,4 +145,63 @@ func RemoveRootFilter(fn uintptr) {
 	if bindGDK() == nil {
 		gdk.removeFilter(0, fn, 0)
 	}
+}
+
+// Xlib yığın sorgusu (S-P28g-8, K10): XQueryTree + XFree, GDK'nın kendi Display'inde (gdk_window_raise ile aynı
+// bağlantı → istek sırası garanti). Hata işleyicisi yok; X hatası GDK tuzağıyla alınır.
+var xq struct {
+	once  sync.Once
+	err   error
+	root  func(d uintptr) uint64
+	query func(d uintptr, w uint64, root, parent *uint64, children *uintptr, n *uint32) int32
+	free  func(p uintptr) int32
+}
+
+func bindXQ() error {
+	xq.once.Do(func() {
+		h, err := glib.Open(glib.Path(glib.LibX11))
+		if err != nil {
+			xq.err = err
+			return
+		}
+		xq.err = errors.Join(glib.Func(&xq.root, h, "XDefaultRootWindow"), glib.Func(&xq.query, h, "XQueryTree"),
+			glib.Func(&xq.free, h, "XFree"))
+	})
+	return xq.err
+}
+
+// maxRootChildren kök çocuk sayısı üst sınırı (aşılırsa okunamadı sayılır; fail-closed).
+const maxRootChildren = 1 << 16
+
+// RootChildren GDK Display'inde kök pencerenin doğrudan çocukları, alttan üste yığın sırasıyla (XQueryTree). Okunamazsa
+// (bağlama, görüntü yok, dönüş 0, X hatası, sınır aşımı) ok=false. Ana iş parçacığında.
+func RootChildren() (ids []uint64, ok bool) {
+	if bindXQ() != nil {
+		return nil, false
+	}
+	d := XDisplay()
+	if d == 0 {
+		return nil, false
+	}
+	var st int32
+	var children uintptr
+	var n uint32
+	if Trap(func() {
+		var r, p uint64
+		st = xq.query(d, xq.root(d), &r, &p, &children, &n)
+	}) != 0 || st == 0 {
+		if children != 0 {
+			xq.free(children)
+		}
+		return nil, false
+	}
+	if children == 0 {
+		return nil, n == 0
+	}
+	defer xq.free(children)
+	if n > maxRootChildren {
+		return nil, false
+	}
+	base := *(*unsafe.Pointer)(unsafe.Pointer(&children)) // C belleği (XFree öncesi kopyalanır)
+	return append([]uint64(nil), unsafe.Slice((*uint64)(base), int(n))...), true
 }

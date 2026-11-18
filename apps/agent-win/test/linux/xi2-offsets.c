@@ -9,6 +9,7 @@
 #include <stdio.h>
 #include <X11/Xlib.h>
 #include <X11/extensions/XInput2.h>
+#include <gdk/gdk.h> /* K10 (D-P28g-K2-4): GdkEventButton / GdkEventKey; derleme `pkg-config --cflags gtk+-3.0` ile */
 
 #define OFF(T, f) printf("%s.%s=%zu\n", #T, #f, offsetof(T, f))
 #define SIZE(T) printf("sizeof.%s=%zu\n", #T, sizeof(T))
@@ -51,5 +52,14 @@ int main(void) {
     OFF(XKeyEvent, type);
     OFF(XKeyEvent, state);
     OFF(XKeyEvent, keycode);
+
+    /* K10 (D-P28g-K2-4): §5.2a localClick ve onay diyaloğu Esc kararının okuduğu GDK olay alanları. */
+    OFF(GdkEventButton, type);
+    OFF(GdkEventButton, send_event);
+    OFF(GdkEventButton, time);
+    OFF(GdkEventButton, x);
+    OFF(GdkEventButton, y);
+    OFF(GdkEventButton, button);
+    OFF(GdkEventKey, keyval);
     return 0;
 }
