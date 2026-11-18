@@ -6,16 +6,13 @@
 // Go eşi `internal/servis/wsdevice.go` (K5); ortak örnekler `fixtures/ws-device.json` (valid.* geçer, invalid.* reddedilir).
 // P28u (mimari-p28u §6): yetenek belirteci `rs.cap.consent1`; yeni mesajlar AYRI birliklerde (`deviceConsent*Schema`) — yalnız
 // belirteci bildiren sokette geçerli (S-P18-T1 / `rs.cap.chat1` kalıbı). Fikstürde `consent1*` anahtarları.
+// r3 (mimari-p28u §r3.3, K-P28u-r3-2..5): onaysız tek yol. Yeni belirteç `rs.cap.direct1` (yalnız sunucu `DeviceConn.caps`'ine
+// girer, `device.features.caps`'e girmez); `connect.consent` yalnız `ask`, `consent.result.mode` ve `rejoin.mode` yalnız
+// `no_user`; `indicatorControl` ve izleme/kontrol gösterge metinleri kaldırıldı.
 import { z } from "zod";
 import { UNSAFE_NAME_CHARS } from "./api/shared.ts";
 import { REJOIN_TICKET_TTL_SEC } from "./rejoin-const.ts";
-import {
-  CONSENT_MODES,
-  CONSENT_REQUESTS,
-  CONSENT_RESULT_DECISIONS,
-  CONSENT_RESULT_MS_MAX,
-  DEVICE_USER_STATES,
-} from "./unattended-consent.ts";
+import { CONSENT_REQUESTS, DEVICE_USER_STATES } from "./unattended-consent.ts";
 import { SESSION_ENDED_REASONS } from "./ws.ts";
 import { deviceRecStateSchema, WS_DEVICE_CAP_RECORD } from "./ws-rec.ts";
 
@@ -36,14 +33,27 @@ export const DEVICE_AUTH_TIMEOUT_MS = 10_000;
  * 409 `DEVICE_OUTDATED` (AC-435). Tek belirteç onay + müdahale + yeniden katılımı kapsar.
  */
 export const WS_DEVICE_CAP_CONSENT = "rs.cap.consent1";
-/** `device.features.caps` / hub `DeviceConn.caps` değerleri. */
-export const DEVICE_FEATURES = ["consent1", "record1"] as const;
+/**
+ * r3 (K-P28u-r3-2, AC-435): onaysız yolu bilen servis (yardımcıda onay diyaloğu yok; `connect.consent="ask"` → sormadan açar +
+ * `consent.result{no_user}`). Sunucu gözetimsiz bağlantıyı YALNIZ bunu bildiren sokete açar, aksi 409 `DEVICE_OUTDATED`.
+ * `consent1` ile birlikte gönderilir (`device.features`, `device.user`, `intervene`, `rejoin` hâlâ `consent1`'e bağlı).
+ */
+export const DEVICE_CAP_DIRECT = "rs.cap.direct1";
+/** Hub `DeviceConn.caps` değerleri (soketin bildirdiği belirteçlerden). */
+export const DEVICE_FEATURES = ["consent1", "record1", "direct1"] as const;
 export type DeviceFeature = (typeof DEVICE_FEATURES)[number];
+/**
+ * `device.features.caps`'e girebilen özellikler — `direct1` BİLİNÇLİ OLARAK yok (r3.3): 0.15–0.19 Go `validFeatures` bilinmeyen
+ * değeri reddeder; sunucu `caps`'i bu kümeye süzerek gönderir.
+ */
+export const DEVICE_ANNOUNCED_FEATURES = ["consent1", "record1"] as const satisfies readonly DeviceFeature[];
+export type DeviceAnnouncedFeature = (typeof DEVICE_ANNOUNCED_FEATURES)[number];
 /** Belirteç → özellik (sunucu bilinmeyen `rs.cap.*` belirtecini yok sayar; P28a kalıbı). */
 export const DEVICE_FEATURE_BY_SUBPROTOCOL: Readonly<Record<string, DeviceFeature>> = {
   [WS_DEVICE_CAP_CONSENT]: "consent1",
   // P28e (§6.1, K-P28e-7): servis 0.16.0; `connect.recording` ve `rec.state` yalnız bu özellikteki sokete.
   [WS_DEVICE_CAP_RECORD]: "record1",
+  [DEVICE_CAP_DIRECT]: "direct1",
 };
 /** `device.user` gönderimi değişimden sonra bu kadar ms debounce edilir (§6.2; kova `WS_DEVICE_RATE_PER_SEC` aynen). */
 export const DEVICE_USER_DEBOUNCE_MS = 500;
@@ -88,9 +98,10 @@ export const deviceTextSchema = z
  * `connect.result.reason` (§4.4): servis bağlantıyı açamadı → oturum `CANCELLED(<reason>)`. `local_disabled` yerel anahtar
  * kapalı; `indicator_failed` gösterge çizilemedi (AC-294 fail-closed); `helper_failed` yardımcı başlatılamadı; `no_console`
  * fiziksel konsol oturumu yok; `busy` cihazda başka gözetimsiz oturum var.
- * P28u (§6.2): `consent_denied` / `consent_timeout` kullanıcı reddetti / yanıt vermedi (konsola aynı adla gider);
- * `protocol` `consent1` sokette `connect.consent ∉ {ask, silent}` (D-P28u-5 fail-closed) — yalnız DB bitiş nedeni, konsola
- * `device_timeout` (P27 K3 `helper_failed` kalıbı).
+ * P28u (§6.2): `consent_denied` / `consent_timeout` kullanıcı reddetti / yanıt vermedi — r3: cihaz artık göndermez, yalnız eski
+ * DB kayıtlarını okumak için bu dizide kalır (K-P28u-r3-12); tel şeması `DEVICE_CONNECT_RESULT_REASONS`'ı kullanır.
+ * `protocol` `consent1` sokette geçersiz `connect` (ör. eski sunucunun `silent`'ı, D-P28u-5 fail-closed) — yalnız DB bitiş
+ * nedeni, konsola `device_timeout` (P27 K3 `helper_failed` kalıbı).
  */
 export const DEVICE_CONNECT_FAIL_REASONS = [
   "local_disabled",
@@ -103,6 +114,15 @@ export const DEVICE_CONNECT_FAIL_REASONS = [
   "protocol",
 ] as const;
 export type DeviceConnectFailReason = (typeof DEVICE_CONNECT_FAIL_REASONS)[number];
+/** r3: `connect.result.reason` tel değerleri — `consent_*` yok (cihazda onay diyaloğu yok; Go eşi aynı kümeyi gönderir). */
+export const DEVICE_CONNECT_RESULT_REASONS = [
+  "local_disabled",
+  "indicator_failed",
+  "helper_failed",
+  "no_console",
+  "busy",
+  "protocol",
+] as const satisfies readonly DeviceConnectFailReason[];
 
 /**
  * `session.closed.reason`: yardımcının çıkış nedeni (bilgi; oda zaten bitmiş olabilir). Enum DEĞİL — yeni servis sürümünün
@@ -132,7 +152,7 @@ export const deviceConnectResultSchema = z
     t: z.literal("connect.result"),
     sessionId: ulid,
     ok: z.boolean(),
-    reason: z.enum(DEVICE_CONNECT_FAIL_REASONS).optional(),
+    reason: z.enum(DEVICE_CONNECT_RESULT_REASONS).optional(),
   })
   .refine((m) => (m.ok ? m.reason === undefined : m.reason !== undefined), {
     message: "ok:false iken reason zorunlu, ok:true iken yasak",
@@ -163,21 +183,15 @@ export type DeviceInbound = z.infer<typeof deviceInboundSchema>;
 export const deviceUserSchema = z.strictObject({ t: z.literal("device.user"), state: z.enum(DEVICE_USER_STATES) });
 
 /**
- * Onay sonucu (§2 adım 4–5, AC-431–433): `asked` ⇔ `decision` + `ms` zorunlu; `no_user` ⇔ ikisi de yok. Oturum başına tek;
- * sunucu ikincisini ve bu cihazın canlı odası olmayan `sessionId`'yi yok sayar (+ `rs_unattended_device_msg_rejected_total`).
+ * Bağlantı açıldı bildirimi (K-P28u-r3-4, AC-433): cihaz sormadan açar ve yalnız `{mode:"no_user"}` gönderir (`asked` →
+ * şema dışı). Sunucu `ask` odasında bunu bekler (yoksa `consent_missing`, K-P28u-3). Oturum başına tek; sunucu ikincisini ve
+ * bu cihazın canlı odası olmayan `sessionId`'yi yok sayar (+ `rs_unattended_device_msg_rejected_total`).
  */
-export const deviceConsentResultSchema = z
-  .strictObject({
-    t: z.literal("consent.result"),
-    sessionId: ulid,
-    mode: z.enum(["asked", "no_user"]),
-    decision: z.enum(CONSENT_RESULT_DECISIONS).optional(),
-    ms: z.number().int().min(0).max(CONSENT_RESULT_MS_MAX).optional(),
-  })
-  .refine((m) => (m.mode === "asked" ? m.decision !== undefined && m.ms !== undefined : m.decision === undefined && m.ms === undefined), {
-    message: "asked iken decision ve ms zorunlu, no_user iken yasak",
-    path: ["decision"],
-  });
+export const deviceConsentResultSchema = z.strictObject({
+  t: z.literal("consent.result"),
+  sessionId: ulid,
+  mode: z.literal("no_user"),
+});
 
 /** Müdahale komutları (§5.3, AC-442–444). */
 export const INTERVENE_COMMANDS = ["lock", "logoff"] as const;
@@ -227,23 +241,10 @@ export const DEVICE_INDICATOR_TEST_PREFIX = "TEST — imzasız · ";
 /**
  * AC-294 gösterge metni: `Uzaktan bağlantı: <teknisyen> — <destek firması>`; `test` (mod `unsigned`) iken `TEST — imzasız · `
  * önekli. Metin sunucuda üretilir ve `connect.indicatorText` ile yardımcıya gider (§4.5 r2); üst sınırı aşan kısım kesilir.
+ * r3 (K-P28u-r3-7): tek metin — `connect` ve `rejoin` aynı metni taşır.
  */
 export function deviceIndicatorText(techName: string, tenantName: string, test: boolean): string {
-  return indicatorWith("Uzaktan bağlantı", techName, tenantName, test);
-}
-
-/** P28u §7.6 (AC-439): `silent` odada izleme kipi göstergesi (`connect.indicatorText` / `rejoin.indicatorText`). */
-export function deviceSilentIndicatorText(techName: string, tenantName: string, test: boolean): string {
-  return indicatorWith("Uzaktan izleniyor", techName, tenantName, test);
-}
-
-/** P28u §7.6: `silent` odada kontrol açıkken gösterge (`indicatorControl`; yardımcı ≤ 1 sn'de etiketi değiştirir). */
-export function deviceControlIndicatorText(techName: string, tenantName: string, test: boolean): string {
-  return indicatorWith("Uzaktan kontrol", techName, tenantName, test);
-}
-
-function indicatorWith(label: string, techName: string, tenantName: string, test: boolean): string {
-  const text = `${test ? DEVICE_INDICATOR_TEST_PREFIX : ""}${label}: ${techName} — ${tenantName}`;
+  const text = `${test ? DEVICE_INDICATOR_TEST_PREFIX : ""}Uzaktan bağlantı: ${techName} — ${tenantName}`;
   return [...text].slice(0, DEVICE_INDICATOR_TEXT_MAX).join("");
 }
 
@@ -251,39 +252,31 @@ const name = z.string().min(1).max(120);
 const ticket = z.string().regex(/^[A-Za-z0-9_-]{43}$/);
 const indicator = z.string().min(1).max(DEVICE_INDICATOR_TEXT_MAX);
 
-/** `indicatorControl` yalnız `silent`'ta ve orada zorunlu (§6.2). */
-const silentHasControl = (m: { consent?: string; mode?: string; indicatorControl?: string | undefined }): boolean =>
-  (m.consent === "silent" || m.mode === "silent") === (m.indicatorControl !== undefined);
-
 export const deviceOutboundSchema = z.discriminatedUnion("t", [
   /** Açılış meydan okuması; `nonce` 32 bayt rastgele, soket başına tek. */
   z.strictObject({ t: z.literal("device.hello"), v: z.literal(WS_DEVICE_PROTOCOL_VERSION), nonce: z.string().regex(B64URL_32_PATTERN) }),
   z.strictObject({ t: z.literal("device.ready"), tenantName: name, customerName: name }),
   /**
    * Bağlantı isteği (§2 adım 2). `ticket` yardımcının `/ws/guest` bileti (`rs.ticket.` + ticket); yalnız boruyla aktarılır.
-   * P28u (§6.2): yalnız `consent1` cihaza gider → `consent` ZORUNLU (eksik/başka değer şema dışı; servis `protocol`, D-P28u-5);
-   * `indicatorControl` yalnız `silent`'ta ve orada zorunlu; `silent`'ta `indicatorText` = `deviceSilentIndicatorText`.
-   * `tenantName` sunucunun `tenants.name`'i — onay diyaloğundaki firma adı (K-P28u-23).
+   * P28u (§6.2): yalnız `consent1` cihaza gider → `consent` ZORUNLU (eksik/başka değer şema dışı; servis `protocol`, D-P28u-5).
+   * r3 (K-P28u-r3-3): `consent` tek değer `ask` (cihaz sormaz); `indicatorControl` yok (bilinmeyen alan → şema dışı).
    */
-  z
-    .strictObject({
-      t: z.literal("connect"),
-      sessionId: ulid,
-      ticket,
-      techName: name,
-      tenantName: name,
-      techIp: z.string().min(2).max(45),
-      expiresInSec: z.number().int().min(1).max(300),
-      indicatorText: indicator,
-      consent: z.enum(CONSENT_REQUESTS),
-      indicatorControl: indicator.optional(),
-      /**
-       * P28e (§2.2, §6.2): YALNIZ `record1` cihaza ve yalnız `true` (eski 0.15.0 katı ayrıştırıcısına alan gitmez). Servis →
-       * yardımcı `ConsentSpec.RecordingLine` (`asked`) ve `IndicatorControl.Recording` (gösterge eki, AC-448/449).
-       */
-      recording: z.literal(true).optional(),
-    })
-    .refine(silentHasControl, { message: "indicatorControl yalnız silent'ta ve orada zorunlu", path: ["indicatorControl"] }),
+  z.strictObject({
+    t: z.literal("connect"),
+    sessionId: ulid,
+    ticket,
+    techName: name,
+    tenantName: name,
+    techIp: z.string().min(2).max(45),
+    expiresInSec: z.number().int().min(1).max(300),
+    indicatorText: indicator,
+    consent: z.enum(CONSENT_REQUESTS),
+    /**
+     * P28e (§2.2, §6.2): YALNIZ `record1` cihaza ve yalnız `true` (eski 0.15.0 katı ayrıştırıcısına alan gitmez). Servis →
+     * yardımcı gösterge eki " — Kayıt yapılıyor" (AC-448).
+     */
+    recording: z.literal(true).optional(),
+  }),
   /** Sunucu tarafı bitiş (yedek yol; asıl bitiş yardımcının `/ws/guest`'ine `session.ended`). */
   z.strictObject({ t: z.literal("disconnect"), sessionId: ulid, reason: z.enum(SESSION_ENDED_REASONS) }),
   /** Admin iptali (AC-275); ardından 4401. Servis "İptal edildi" olur ve yeniden bağlanmayı bırakır. */
@@ -296,32 +289,29 @@ export type DeviceOutbound = z.infer<typeof deviceOutboundSchema>;
  * denetimiyle gönderir). Eski servis (`ParseServer` strict) bunları tanımaz; bu yüzden fikstürde ayrı anahtarlar (`consent1*`).
  */
 export const deviceConsentOutboundSchema = z.discriminatedUnion("t", [
-  /** `device.ready`'den hemen sonra, soket başına bir kez (§6.1). `device.ready` şeması DEĞİŞMEZ. */
+  /** `device.ready`'den hemen sonra, soket başına bir kez (§6.1). `device.ready` şeması DEĞİŞMEZ. `direct1` girmez (r3.3). */
   z.strictObject({
     t: z.literal("device.features"),
     caps: z
-      .array(z.enum(DEVICE_FEATURES))
+      .array(z.enum(DEVICE_ANNOUNCED_FEATURES))
       .min(1)
-      .max(DEVICE_FEATURES.length)
+      .max(DEVICE_ANNOUNCED_FEATURES.length)
       .refine((a) => new Set(a).size === a.length, "Yinelenen yetenek"),
   }),
   /** Müdahale (§5.3): kilit 5 sn, oturum kapatma 15 sn içinde `intervene.result` beklenir. */
   z.strictObject({ t: z.literal("intervene"), sessionId: ulid, id: ulid, cmd: z.enum(INTERVENE_COMMANDS) }),
   /**
    * Yeniden katılım (§7.5, §8.3): yalnız başarılı `intervene{logoff}` sonucundan sonra, oturum başına en çok 1. `ticket` tek
-   * kullanımlık (gen+1); `mode` oturumun kipi korunur, kontrol kapalı başlar; `indicatorControl` yalnız `silent`'ta ve zorunlu.
+   * kullanımlık (gen+1); kontrol kapalı başlar. r3: `mode` her zaman `no_user`, `indicatorControl` yok.
    */
-  z
-    .strictObject({
-      t: z.literal("rejoin"),
-      sessionId: ulid,
-      ticket,
-      mode: z.enum(CONSENT_MODES),
-      indicatorText: indicator,
-      indicatorControl: indicator.optional(),
-      expiresInSec: z.number().int().min(1).max(REJOIN_TICKET_TTL_SEC),
-    })
-    .refine(silentHasControl, { message: "indicatorControl yalnız silent'ta ve orada zorunlu", path: ["indicatorControl"] }),
+  z.strictObject({
+    t: z.literal("rejoin"),
+    sessionId: ulid,
+    ticket,
+    mode: z.literal("no_user"),
+    indicatorText: indicator,
+    expiresInSec: z.number().int().min(1).max(REJOIN_TICKET_TTL_SEC),
+  }),
 ]);
 export type DeviceConsentOutbound = z.infer<typeof deviceConsentOutboundSchema>;
 

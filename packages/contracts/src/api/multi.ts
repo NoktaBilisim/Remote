@@ -4,7 +4,6 @@ import { z } from "zod";
 import type { ErrorCode } from "../errors.ts";
 import type { ConsentMode } from "../unattended-consent.ts";
 import type { SessionMode } from "./sessions.ts";
-import { silentReasonSchema } from "./unattended.ts";
 
 /** P28c hata kodlarının Türkçe metni (sunucu zarf `message`'ı ve web aynı metni kullanır). */
 export const MULTI_ERROR_MESSAGES = {
@@ -17,8 +16,6 @@ export const MULTI_ERROR_MESSAGES = {
 
 /** `GET /sessions/:id/invite-candidates` en çok satır (ada göre sıralı). */
 export const INVITE_CANDIDATES_MAX = 200;
-/** Gerekçe sınırları `api/unattended.ts` `silentReasonSchema` ile aynı (AC-437 şeması). */
-export { SILENT_REASON_MAX, SILENT_REASON_MIN } from "./unattended.ts";
 
 const ulid = z.string().regex(/^[0-9A-HJKMNP-TV-Z]{26}$/);
 /** Davet kimliği: 128 bit rastgele → base64url (dolgusuz) = 22 karakter (T4). */
@@ -42,10 +39,10 @@ export interface CreateInviteResponse {
 }
 
 /**
- * POST /sessions/invites/:inviteId/accept ve POST /sessions/:id/supervise girdisi: silent odada `{reason}` (20–500) zorunlu,
- * diğerlerinde `{}`. Oda kipini yalnız sunucu bilir: eksik/fazla gerekçe sunucuda `VALIDATION` + `fields.reason`.
+ * POST /sessions/invites/:inviteId/accept ve POST /sessions/:id/supervise girdisi: boş nesne. r3 (K-P28u-r3-9): silent oda
+ * yok → gerekçe alanı kaldırıldı; bilinmeyen alan (ör. eski `reason`) 400 `VALIDATION`. Ad geriye uyum için korunur.
  */
-export const joinWithReasonInputSchema = z.strictObject({ reason: silentReasonSchema.optional() });
+export const joinWithReasonInputSchema = z.strictObject({});
 export type JoinWithReasonInput = z.input<typeof joinWithReasonInputSchema>;
 export interface JoinSessionAsMemberResponse {
   sessionId: string;

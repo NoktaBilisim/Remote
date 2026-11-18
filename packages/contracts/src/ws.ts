@@ -60,7 +60,8 @@ export const SESSION_ENDED_REASONS = [
   "device_timeout",
   "session_changed",
   // P28u (mimari-p28u §6.2): kullanıcı onay diyaloğunu reddetti / 60 sn yanıt vermedi; `ask` odası onay sonucu olmadan
-  // `/ws/guest`'e geldi (K-P28u-3).
+  // `/ws/guest`'e geldi (K-P28u-3). r3 (K-P28u-r3-12): `consent_denied`/`consent_timeout` artık oluşmaz — eski kayıt okuma
+  // ve DB uyumu için kalır; `consent_missing` yazılmaya devam eder.
   "consent_denied",
   "consent_timeout",
   "consent_missing",
@@ -438,7 +439,8 @@ export const serverOutboundSchema = z.discriminatedUnion("t", [
     /** Yalnız role=tech hello'sunda: misafirden gelen son paylaşım durumu (misafir ayrıldıysa "stopped"). */
     share: shareStateSchema.omit({ t: true, id: true }).optional(),
     /** P27 (§4.6): yalnız role=tech hello'sunda, gözetimsiz odada — konsol "Gözetimsiz" rozeti + cihaz adı. */
-    // P28u (§6.4): `consentMode` oda kipi (yoksa henüz belli değil — `ask` odası `consent.result`'a kadar); `intervene` cihaz
+    // P28u (§6.4): `consentMode` oda kipi (yoksa henüz belli değil — `ask` odası `consent.result`'a kadar; r3: yalnız `no_user`
+    // gönderilir, enum eski kayıt uyumu için üç değerli); `intervene` cihaz
     // `consent1` bildirdi → konsol "Müdahale et"/"Kilitle"/"Oturumu kapat" düğmeleri (yoksa false, AC-352 metni).
     unattended: z
       .strictObject({

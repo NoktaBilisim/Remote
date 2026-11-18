@@ -150,13 +150,10 @@ describe("P28c REST şemaları", () => {
     expect(ok(sessionInviteParamsSchema, { id: "01JD0000000000000000000000", inviteId: fx.rest.validInviteIds[0] })).toBe(true);
   });
 
-  it("AC-368 (Y-PC-1): kabul/İzle gövdesi {} ya da gerekçe 20–500; kısa/uzun/görünmez karakterli gerekçe reddedilir", () => {
+  it("AC-368 (r3 K-P28u-r3-9): kabul/İzle gövdesi yalnız {}; eski gerekçe alanı ve bilinmeyen alan reddedilir", () => {
     expect(ok(joinWithReasonInputSchema, {})).toBe(true);
-    expect(ok(joinWithReasonInputSchema, { reason: "Müşteri arızası için ikinci görüş gerekiyor" })).toBe(true);
-    expect(ok(joinWithReasonInputSchema, { reason: "kısa" })).toBe(false);
-    expect(ok(joinWithReasonInputSchema, { reason: "x".repeat(501) })).toBe(false);
-    expect(ok(joinWithReasonInputSchema, { reason: `${"a".repeat(25)}‮` })).toBe(false);
-    expect(ok(joinWithReasonInputSchema, { reason: "a".repeat(25), silent: true })).toBe(false);
+    expect(ok(joinWithReasonInputSchema, { reason: "Müşteri arızası için ikinci görüş gerekiyor" })).toBe(false);
+    expect(ok(joinWithReasonInputSchema, { silent: true })).toBe(false);
   });
 });
 

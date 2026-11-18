@@ -11598,3 +11598,98 @@ Düzeltme (backend-dev):
 - **S16-12 (Orta, açık):** `WATCH_ALERT_CMD` dış kanalı kurulup staging'de "SCHEDULED iş → ≤ 10 dk mesaj" kanıtlanmadan prod'da firma silme açılmamalı. Bu adım kullanıcıda.
 
 Sonra (`docs/gereksinimler.md` §9): S16-19, S16-20.
+
+---
+
+# P28u r3 tasarım turu (2026-11-18)
+
+DURUM: GEÇTİ (tasarım) · Kapsam: `docs/mimari-p28u.md` §r3 (+ §6–§9, §12, §r2), `docs/gereksinimler-p28u.md` §5r3, ADR-0033 "yerine geçildi" notu.
+Öncül (kullanıcı kararı, tartışılmaz): gözetimsiz bağlantıda cihaz kullanıcısına sorulmaz. Bu kendi başına bulgu sayılmadı;
+yalnız telafi edici kontrollerin tasarımda korunup korunmadığı değerlendirildi. Kod değiştirilmedi; iddialar koddaki mevcut
+yollarla karşılaştırıldı.
+
+## Doğrulanan telafi edici kontroller (olumlu)
+
+- **Gösterge fail-closed:** `apps/agent-win/internal/unattended/helper/helper.go:92-95` göstergeyi `/ws/guest`'ten önce çizer,
+  hata → `ExitIndicatorFailed`; `watchIndicator` oturum içinde doğrulama düşerse oturumu bitirir. Bu yol onay bloğundan
+  (`helper.go:75-90`) bağımsızdır; r3'te bloğun silinmesi göstergeyi etkilemez. Yeniden katılım da yardımcıyı aynı `Run` ile
+  (`Consent:"none"`) başlattığı için gösterge önce çizilir. K-P28u-r3-7 tek metin + P28e kayıt eki aynen.
+- **Sunucu tarafı yetki:** `unattended.connect` (`connect.ts:111`), cihaz grant'ı, step-up koşullu tüketimi TX'te, 20/sa, `DEVICE_BUSY`
+  aynen. 8a (`direct1`) TX'ten önce → step-up tüketilmez (AC-435 doğru).
+- **Müdahale:** `intervene.ts:56` kontrol `GRANTED` değilse 403 — r3'ün "kontrol GRANTED değil → 403" iddiası kodda mevcut.
+- **Hoşgörülü yetki okuma (K-P28u-r3-8) doğrulandı:** `packages/contracts/src/permissions.ts:109-122` yalnız `PERMISSION_KEYS`
+  süzer; `apps/server/src/users/guard.ts:71-82 normalizeRows` tanımsız mevcut satırı düşürür; `users/view.ts:27-28` yanıt yalnız
+  `PERMISSION_KEYS`'ten üretilir (web ham anahtarı hiç görmez, geri göndermez → `permissionMapSchema` 400 riski yok);
+  `exceeding`/`diffKeys` tanım listesi üzerinden çalışır. Saklı satır yetki yükseltme veya "sahip olmadığın yetkiyi verme" (AC-73)
+  denetimini atlatma yolu açmaz.
+- **Eski sürüm matrisi fail-closed:** 0.15–0.19 servis (`consent1`) ve ≤0.14 → 409 `DEVICE_OUTDATED`; yeni servis + eski sunucu
+  `silent` → `connect.result{protocol}` (eski sunucunun izleme kipi taklit edilmez). Yeni servis + eski sunucu `ask` → sormadan açar
+  ve `consent.result{no_user}` bildirir; eski sunucu kaydı doğru (`no_user`) yazar — kip yalanı yok.
+- **Admit el sıkışması korunuyor (K-P28u-r3-4):** `consent.result{no_user}` gelmezse `consent_missing` — cihazın r3 yolunda olduğunu
+  oda düzeyinde de doğrular.
+- **Audit:** `unattended.connect`, `session.started/ended{consentMode, durationSec}`, `control_toggle` (otomatik kontrol dahil),
+  `lock`, `logoff`, `rejoin` yazılmaya devam eder; eski eylem/etiketler okuma için sözleşmede kalır (AC-451).
+- **Gizli süpervizör yasağı:** P28c gösterge ad listesi (roster) değişmiyor; katılım `unattended.connect` + grant + davet step-up'ı
+  (`sessions/invites.ts:77-78`) ile.
+- Kaldırılan örtülme kuralı / onay diyaloğu yalnız diyaloğu korumak içindi; diyalog yokken boşluk bırakmaz. Yardımcı pencere
+  sınıfı kümesinin {`NoktaDestekGosterge`}'e daraltılması saldırı yüzeyini küçültür.
+
+## Bulgular
+
+### S-P28u-r3-1 [DÜŞÜK] `connect` gönderiminde `direct1` yalnız 8a'da denetleniyor (TOCTOU) — A04 Güvensiz Tasarım
+Yer: `apps/server/src/unattended/connect.ts` `afterCommit` → `d.hub.send(o.deviceId, msg)`; `unattended/hub.ts:157` (`send` yetenek denetlemez).
+Sorun: 8a ile commit sonrası gönderim arasında cihaz soketi yeniden bağlanırsa (servis geri alındı / eski sürüm yeniden kuruldu)
+`connect{consent:"ask"}` `direct1` bildirmeyen sokete gider.
+İstismar senaryosu: saldırgan değil, yarış. 0.15–0.19 servis diyalog açar (gizlilik yönünde güvenli), sonra `consent.result{asked}`
+→ r3 şeması reddeder → `consent_missing`. Sonuç fail-closed ama kullanıcıya anlamsız diyalog ve yanıltıcı bitiş.
+Düzeltme (tasarım r3.4): `connect`/`rejoin` gönderimi `hub.sendIf(deviceId, "direct1", msg)` biçiminde gönderim anında yeteneği
+yeniden denetlesin; yoksa oda `device_timeout` yerine `DEVICE_OUTDATED` anlamlı bitişle kapansın. (backend-dev)
+
+### S-P28u-r3-2 [DÜŞÜK] Konsolun otomatik `control.request`'i kontrol sahibine bağlanmamış — A04
+Yer: `docs/mimari-p28u.md` K-P28u-r3-6, r3.6 ("misafir katıldığında bir kez"); P28c rol tablosu (`mimari-p28c.md` §… "control.request yalnız kontrol sahibi").
+Sorun: P28c çok teknisyenli gözetimsiz odada katılımcı/izleyici konsolları da etkiyi çalıştırırsa sunucudan 403 + gereksiz audit/metrik
+gürültüsü ve konsolda hata metni oluşur. Sunucu reddettiği için yetki ihlali yok.
+Düzeltme: koşul tasarıma yazılsın: yalnız `controllerId === ben` ∧ `room.unattended` ∧ kontrol `VIEW` ∧ bu misafir/yeniden katılım için
+henüz gönderilmedi. Devirde (P28c handover) yeni sahip otomatik istemez (bilinçli tıklama). Birim testi: katılımcı konsolunda istek 0. (frontend-dev)
+
+### S-P28u-r3-3 [DÜŞÜK] Saklı `unattended.silent` satırları ve politika sütunu yeniden etkinleşebilir (geri alma / ad yeniden kullanımı) — A01 / A05
+Yer: K-P28u-r3-8, K-P28u-r3-10; `user_permissions.perm_key='unattended.silent'`, `tenant_settings.unattended_silent_enabled=1` (staging).
+Sorun: Satırlar yalnız kullanıcı kaydedilince silinir; bugün etkisiz. Ancak (a) sunucu P28u..P28f imajına geri alınırsa eski politika
+`1` ve saklı yetki satırları anında `silent` yolunu yeniden açar (henüz güncellenmemiş 0.15–0.19 servislerde izleme kipi); (b) ileride aynı
+anahtar adı yeniden tanımlanırsa USER'lardaki eski `granted=true` satırları kendiliğinden yetki verir.
+Düzeltme: `permissions.ts`'de silinen anahtarlar için "yeniden kullanılmaz" mezar listesi yorumu (+ birim test: `PERMISSION_KEYS` ∩
+`RETIRED_PERMISSION_KEYS` = ∅); runbook §28u geri alma notu: "r3 öncesi imaja dönülürse politika sütunu 0'a çekilir". Veri temizliği
+(`DELETE … perm_key='unattended.silent'`, `UPDATE tenant_settings SET unattended_silent_enabled=0`) bir sonraki planlı migration'a
+"Sonra" olarak eklenebilir; expand-only kuralı nedeniyle zorunlu değil. (backend-dev, devops, dba-Sonra)
+
+### S-P28u-r3-4 [BİLGİ] Katılım uygunluğunda "kip yok / bilinmeyen kip" reddi korunmalı
+Yer: `apps/server/src/sessions/eligibility.ts:165` (`cm !== "silent" && cm !== "no_user"` → `JOIN_NOT_ALLOWED`).
+Sorun değil, uyarı: K-P28u-r3-9 sadeleştirmesinde koşul `cm !== "no_user"` olarak kalmalı; `consentMode` henüz yazılmamış (admit öncesi)
+ya da eski `asked` odaya katılım açılmamalı. `reasonStep` silinince `api/multi.ts` katılım şeması `strictObject` kalmalı (eski `reason` → 400).
+Düzeltme: R2 testine "admit öncesi odaya İzle/kabul → JOIN_NOT_ALLOWED" vakası. (backend-dev)
+
+### S-P28u-r3-5 [BİLGİ] `device.features` yankısı `direct1`'i içermemeli — sözleşme tutarlılığı
+Yer: `apps/server/src/unattended/device-ws.ts:208` (`caps` kümesinin tamamı yankılanır), `ws-device.ts:40 DEVICE_FEATURES`.
+Sorun: r3.3 "`direct1` gönderilmez" der; `direct1` `DEVICE_FEATURE_BY_SUBPROTOCOL`'a eklenirse mevcut kod onu yankılar ve
+`device.features` şeması (`z.enum(DEVICE_FEATURES)`) ile çelişir. Güvenlik etkisi yok (yalnız `direct1` bildiren yeni servis alır).
+Düzeltme: yankı `caps ∩ {consent1, record1}`; `direct1` yalnız `DeviceConn.caps`'te. Fikstür testi. (backend-dev)
+
+### S-P28u-r3-6 [BİLGİ] Teknisyen×cihaz "dakikada 1" sınırının kalkması
+Diyalog seli tehdidi (T8) konusuz. Bağlantı başına step-up tüketimi, 20/sa, `DEVICE_BUSY` ve her bağlantıda müşteri bildirimi
+(AC-296) kötüye kullanımı yeterince sınırlar. Ek önlem gerekmez.
+
+### S-P28u-r3-7 [BİLGİ] KVKK yükü tamamen firmaya geçti
+Teknik gösterge + yerel anahtar + bildirim korunuyor; hukuki aydınlatma artık yalnız kılavuz/DATASHEET uyarısı (r3.8). Tasarım
+doğru; teknik-yazar r3.8 metnindeki "gizli izleme yoktur / gösterge her zaman görünür / yerel anahtar" üçlüsünün eksiksiz yazıldığı
+qa'da denetlensin.
+
+## Tasarımda vaat edilip doğrulanması kod aşamasına kalanlar
+- R4 sadeleştirmesinde `helper.go` gösterge → `/ws/guest` sırası ve `ExitIndicatorFailed` dalı aynen kalmalı (Go birim: gösterge hatası →
+  `RunTicket` çağrı sayısı 0).
+- `wire_consent.go`: `connect.consent` eksik/bilinmeyen/`silent` → `protocol` (D-P28u-5 fail-closed) r3'te de korunmalı.
+- Eski kayıt etiketleri (AC-451) ve saklı yetki satırıyla giriş + kullanıcı kaydetme entegrasyon testi.
+
+## Sonuç
+Kritik **0** / Yüksek **0** / Orta **0** / Düşük **3** (S-P28u-r3-1, 2, 3) / Bilgi **4** (S-P28u-r3-4..7).
+Kritik/Yüksek bulgu yok → tasarım güvenlik kapısı **GEÇTİ**. Düşük bulgular tasarıma küçük ekleme olarak işlenebilir; S-P28u-r3-3'ün
+veri temizliği kısmı `docs/gereksinimler.md` §9'a "Sonra" önerisidir.
