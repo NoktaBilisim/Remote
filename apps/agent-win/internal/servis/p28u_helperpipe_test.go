@@ -15,7 +15,7 @@ import (
 )
 
 // P28u K6 (mimari-p28u §7.4, D-P28u-1): uçtan uca boru — servis girdiyi (yeni satırlı, boru KAPATILMADAN) ve `lock`
-// komutunu yazar; yardımcı (helper.Run, gerçek okuyucu/yazar) onay kararını ve kilit sonucunu durum borusuna yazar;
+// komutunu yazar; yardımcı (helper.Run, gerçek okuyucu/yazar) kilit sonucunu durum borusuna yazar (r3: onay olayı yok);
 // servisin gerçek satır okuyucusu + olay × durum tablosu hiçbirini ihlal saymaz. (Test K6'ya aittir; servis paketinde
 // çünkü okuyucu dışa açık değildir.)
 
@@ -36,7 +36,7 @@ func TestAC431AC443HelperPipeEndToEnd(t *testing.T) {
 	in := helperio.Input{V: helperio.Version, SessionID: "01JX0000000000000000000000",
 		Ticket: "tabcdefghijklmnopqrstuvwxyz0123456789ABCDEF", TechName: "Ali", TenantName: "Acme",
 		IndicatorText: "Uzaktan bağlantı: Ali — Acme", ExpiresInSec: 60,
-		Consent: helperio.ConsentAsk, Mode: helperio.ModeAsked}
+		Consent: helperio.ConsentNone, Mode: helperio.ModeNoUser}
 	done := make(chan uint32, 1)
 	go func() {
 		br := helperio.NewReader(inR)
@@ -48,10 +48,7 @@ func TestAC431AC443HelperPipeEndToEnd(t *testing.T) {
 		d := helper.Deps{
 			ShowIndicator: func(string) (helper.Indicator, error) { return e2eInd{failed: make(chan struct{})}, nil },
 			InputDesktop:  func() (string, error) { return "Default", nil },
-			AskConsent: func(context.Context, helper.ConsentSpec) (string, time.Time) {
-				return helperio.DecisionGranted, time.Now()
-			},
-			Status: stW, Commands: br, Locker: e2eLocker{},
+			Status:        stW, Commands: br, Locker: e2eLocker{},
 			Flow: flow.Deps{Dial: func(ctx context.Context, _ signal.Credential) (flow.Conn, error) {
 				<-release
 				return nil, errors.New("test bitti")
@@ -67,7 +64,7 @@ func TestAC431AC443HelperPipeEndToEnd(t *testing.T) {
 	if _, err := inW.Write(b); err != nil { // servis boruyu kapatmaz
 		t.Fatal(err)
 	}
-	st := &helperStatus{consent: in.Consent}
+	st := &helperStatus{}
 	br := bufio.NewReader(stR)
 	next := func() helperio.Status {
 		t.Helper()
@@ -83,9 +80,6 @@ func TestAC431AC443HelperPipeEndToEnd(t *testing.T) {
 			t.Fatalf("tablo ihlali %+v: %v", s, err)
 		}
 		return s
-	}
-	if s := next(); s.Ev != "consent" || s.Decision != helperio.DecisionGranted {
-		t.Fatalf("%+v", s)
 	}
 	const id = "01JX0000000000000000000009"
 	st.pendingLock = id // servis komutu gönderirken bekleyeni kaydeder

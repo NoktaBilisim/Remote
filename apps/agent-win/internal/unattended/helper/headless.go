@@ -15,27 +15,24 @@ import (
 // döner. Dosya teklifi → kabul (hedef `Gelen`), monitör isteği → kabul, paylaşım seçimi → birincil monitör. Kontrol
 // isteği akışta (flow.Deps.Unattended) doğrudan GRANTED{UNATTENDED} olur; buraya düşerse fail-closed ret.
 // Sohbet ve işaretleme gösterilmez (sohbet paneli yok — §5.6).
-// P28u (mimari-p28u §7.5, §7.6): kontrol her açılıp kapandığında durum borusuna `control` yazılır; silent kipte
-// gösterge etiketi izleme ↔ kontrol metni arasında değişir ve kontrol kapalıyken dosya teklifi reddedilir.
+// P28u (mimari-p28u §7.5): kontrol her açılıp kapandığında durum borusuna `control` yazılır (müdahale koşulu). r3: tek
+// kip; gösterge etiketi kontrolle değişmez, dosya teklifi her zaman kabul (P27).
 type headless struct {
 	ctx    context.Context
 	events chan<- flow.Event
 
-	mode                  string // helperio.Mode*; "" = P27
-	st                    *statusPipe
-	live                  liveLabel
-	viewText, controlText string
-	techName              string // P28c: sunucu gösterge metnindeki ad (tek sahipte ek yazılmaz)
-	granted               atomic.Bool
+	st       *statusPipe
+	live     rosterLabel
+	techName string // P28c: sunucu gösterge metnindeki ad (tek sahipte ek yazılmaz)
+	granted  atomic.Bool
 }
 
-// liveLabel göstergenin etiketi (liveIndicator).
-type liveLabel interface {
-	SetText(string)
+// rosterLabel göstergenin ad eki (liveIndicator).
+type rosterLabel interface {
 	SetNames(suffix string) bool
 }
 
-// ShowRoster flow.RosterUI (P28c §6, V-PC-5): göstergede bağlı teknisyen adları (silent dahil); "Çıkar" yok. Ad
+// ShowRoster flow.RosterUI (P28c §6, V-PC-5): göstergede bağlı teknisyen adları; "Çıkar" yok. Ad
 // güvensizse ya da çizim doğrulanamazsa false → o teknisyenin eşi kurulmaz (Y-PC-4).
 func (h *headless) ShowRoster(v flow.RosterView) bool {
 	if h.live == nil {
@@ -100,7 +97,6 @@ func (h *headless) Ended(flow.Message)                                   {}
 func (h *headless) ControlPromptClosed()                                 {}
 func (h *headless) MonitorPromptClosed()                                 {}
 func (h *headless) MonitorChanged(signal.Monitor)                        {}
-func (h *headless) silent() bool                                         { return h.mode == helperio.ModeSilent }
 
 // ControlState kontrol açıldı/kapandı (akış döngüsünden).
 func (h *headless) ControlState(granted bool, _ string) {
@@ -110,21 +106,10 @@ func (h *headless) ControlState(granted bool, _ string) {
 	if h.st != nil {
 		h.st.setControl(granted)
 	}
-	if h.silent() && h.live != nil {
-		text := h.viewText
-		if granted {
-			text = h.controlText
-		}
-		h.live.SetText(text)
-	}
 }
 
-// FileOffer P27: kabul (hedef `Gelen`). P28u silent ∧ kontrol kapalı (izleme kipi, AC-439) → ret.
+// FileOffer P27: kabul (hedef `Gelen`).
 func (h *headless) FileOffer(p transfer.Prompt) {
-	if h.silent() && !h.granted.Load() {
-		h.push(flow.Event{Kind: flow.EvFileReject, FID: p.FID})
-		return
-	}
 	h.push(flow.Event{Kind: flow.EvFileAccept, FID: p.FID})
 }
 func (h *headless) MonitorRequest(m signal.Monitor) {

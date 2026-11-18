@@ -5,8 +5,6 @@ import { axeScan, desktopOnly, guardConsole, newSession, noHorizontalOverflow, s
 // konsol WS'i e2e/mock-ws.mjs (`multiHello` → hello tid/techRole/roster).
 guardConsole();
 
-const REASON = "Gece bakım penceresinde sunucu güncellemesini izliyorum";
-
 async function ownConsole(page: Page) {
   const r = await page.request.get("/api/v1/__e2e/p28c-own");
   const { id } = (await r.json()) as { id: string };
@@ -15,7 +13,7 @@ async function ownConsole(page: Page) {
   await page.getByTestId("techs-toggle").click();
 }
 
-test("AC-364 davet bildirimi: kart, silent notu, Reddet; Katıl → katılımcı konsolu, Oturumu bitir yok, Ayrıl", async ({
+test("AC-364 davet bildirimi: kart, gözetimsiz notu, Reddet; Katıl → katılımcı konsolu, Oturumu bitir yok, Ayrıl", async ({
   page,
   context,
 }) => {
@@ -23,7 +21,9 @@ test("AC-364 davet bildirimi: kart, silent notu, Reddet; Katıl → katılımcı
   await page.goto("/sessions");
   const cards = page.getByTestId("invite-card");
   await expect(cards).toHaveCount(2);
-  await expect(cards.filter({ hasText: "SUNUCU-01" })).toContainText("gerekçe");
+  // P28u r3 (K-P28u-r3-9): gözetimsiz davette gerekçe notu yok, genel gözetimsiz notu var
+  await expect(cards.filter({ hasText: "SUNUCU-01" })).toContainText("Gözetimsiz bağlantı");
+  await expect(cards.filter({ hasText: "SUNUCU-01" })).not.toContainText("gerekçe");
   await page.getByRole("button", { name: "Reddet: SUNUCU-01" }).click();
   await expect(cards).toHaveCount(1);
   await page.getByRole("button", { name: "Katıl: Ali Müşteri" }).click();
@@ -43,29 +43,24 @@ test("AC-364 davet bildirimi: kart, silent notu, Reddet; Katıl → katılımcı
   await expect(page.getByTestId("console-ended")).toContainText("Oturumdan ayrıldınız");
 });
 
-test("AC-368/372 etkin oturumlar: pasif nedenler; silent İzle gerekçe ister → izleyici konsolu, sohbete yazamaz", async ({
+test("AC-368/372 etkin oturumlar: pasif nedenler; gözetimsiz İzle gerekçesiz (gövde {}) → izleyici konsolu, sohbete yazamaz", async ({
   page,
   context,
 }) => {
   await signIn(context, "p28csup");
   await page.goto("/sessions");
   const sec = page.getByTestId("active-sessions");
-  await expect(sec.getByTestId("active-row")).toHaveCount(4);
+  await expect(sec.getByTestId("active-row")).toHaveCount(3);
   const old = sec.getByTestId("active-row").filter({ hasText: "Eski İstemci" });
   await expect(old.getByTestId("active-watch")).toBeDisabled();
   await expect(old.getByTestId("active-block")).toContainText("güncel sürümü indirmesini isteyin");
-  const asked = sec.getByTestId("active-row").filter({ hasText: "IZINLI-PC" });
-  await expect(asked.getByTestId("active-watch")).toBeDisabled();
-  await expect(asked.getByTestId("active-block")).toHaveText("İzinli gözetimsiz bağlantıya ek teknisyen katılamaz");
+  const un = sec.getByTestId("active-row").filter({ hasText: "SUNUCU-01" });
+  await expect(un).toContainText("Gözetimsiz");
+  await expect(un.getByTestId("active-watch")).toBeEnabled();
+  const sent = page.waitForRequest((r) => /\/sessions\/[0-9A-Z]{26}\/supervise$/.test(r.url()) && r.method() === "POST");
   await page.getByRole("button", { name: "İzle: SUNUCU-01" }).click();
-  const dlg = page.getByTestId("mt-reason-dialog");
-  await expect(dlg).toBeVisible();
-  await expect(dlg.getByTestId("mt-reason-notify")).toHaveText("Firma yöneticilerine bildirim gider.");
-  await dlg.getByTestId("un-silent-reason").fill("kısa");
-  await dlg.getByTestId("mt-reason-submit").click();
-  await expect(dlg.getByTestId("un-silent-reason-error")).toBeVisible();
-  await dlg.getByTestId("un-silent-reason").fill(REASON);
-  await dlg.getByTestId("mt-reason-submit").click();
+  expect((await sent).postDataJSON()).toEqual({});
+  await expect(page.getByTestId("mt-reason-dialog")).toHaveCount(0);
   await expect(page).toHaveURL(/\/sessions\/[0-9A-Z]{26}\/console$/);
   await expect(page.getByTestId("chat-readonly")).toHaveText("İzleyici olarak sohbete yazamazsınız");
   await expect(page.getByTestId("chat-input")).toHaveCount(0);

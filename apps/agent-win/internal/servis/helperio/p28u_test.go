@@ -8,27 +8,22 @@ import (
 	"testing"
 )
 
-func TestAC431InputConsentModeCombos(t *testing.T) {
-	ok := []Input{valid()}
-	a := valid()
-	a.Consent, a.Mode = ConsentAsk, ModeAsked
+func TestAC433InputConsentModeCombos(t *testing.T) {
 	n := valid()
 	n.Consent, n.Mode = ConsentNone, ModeNoUser
-	s := valid()
-	s.Consent, s.Mode, s.IndicatorControl = ConsentNone, ModeSilent, "Uzaktan kontrol: Mehmet — Nokta"
-	ok = append(ok, a, n, s)
-	for _, in := range ok {
+	for _, in := range []Input{valid(), n} {
 		if err := in.Validate(); err != nil {
 			t.Errorf("%+v: %v", in, err)
 		}
 	}
+	// r3: onay diyaloğu ve izleme kipi yok — eski değerler yardımcıya hiç ulaşmaz (fail-closed).
 	bad := []func(*Input){
-		func(i *Input) { i.Consent, i.Mode = ConsentAsk, ModeSilent },
-		func(i *Input) { i.Consent, i.Mode = ConsentNone, ModeAsked },
-		func(i *Input) { i.Consent = "maybe" },
-		func(i *Input) { i.Consent, i.Mode = ConsentNone, ModeSilent }, // indicatorControl eksik
-		func(i *Input) { i.Consent, i.Mode, i.IndicatorControl = ConsentAsk, ModeAsked, "x" },
-		func(i *Input) { i.Consent, i.Mode, i.IndicatorControl = ConsentNone, ModeSilent, "a\u202eb" },
+		func(i *Input) { i.Consent, i.Mode = "ask", "asked" },
+		func(i *Input) { i.Consent, i.Mode = ConsentNone, "asked" },
+		func(i *Input) { i.Consent, i.Mode = ConsentNone, "silent" },
+		func(i *Input) { i.Consent, i.Mode = "maybe", ModeNoUser },
+		func(i *Input) { i.Consent = ConsentNone },
+		func(i *Input) { i.Mode = ModeNoUser },
 	}
 	for k, f := range bad {
 		in := valid()
@@ -37,11 +32,14 @@ func TestAC431InputConsentModeCombos(t *testing.T) {
 			t.Errorf("%d kabul edildi", k)
 		}
 	}
+	if _, err := Read(strings.NewReader(`{"v":1,"sessionId":"01JD0000000000000000000002","ticket":"OSTHxpIxRYOEvsy1t7jssmOfVM9-lMgf5dSNuly4uso","techName":"M","tenantName":"N","techIp":"1.2.3.4","indicatorText":"U","expiresInSec":30,"consent":"none","mode":"no_user","indicatorControl":"x"}`)); err == nil {
+		t.Fatal("indicatorControl alanı kabul edildi (r3: alan yok)")
+	}
 }
 
 func TestAC443InputLineThenCommands(t *testing.T) {
 	in := valid()
-	in.Consent, in.Mode = ConsentAsk, ModeAsked
+	in.Consent, in.Mode = ConsentNone, ModeNoUser
 	b, _ := Encode(in)
 	c1, _ := EncodeCommand(Command{Cmd: CmdLock, ID: "01JD0000000000000000000003"})
 	if b[len(b)-1] != '\n' {
@@ -74,16 +72,17 @@ func TestAC443InputLineThenCommands(t *testing.T) {
 }
 
 func TestAC431StatusLineAndReasons(t *testing.T) {
-	ms := 1200
-	b, err := EncodeStatus(Status{Ev: "consent", Decision: DecisionGranted, Ms: &ms})
-	if err != nil || string(b) != "{\"ev\":\"consent\",\"decision\":\"granted\",\"ms\":1200}\n" {
+	on := true
+	b, err := EncodeStatus(Status{Ev: "control", On: &on})
+	if err != nil || string(b) != "{\"ev\":\"control\",\"on\":true}\n" {
 		t.Fatalf("%s %v", b, err)
 	}
 	if _, err := EncodeStatus(Status{Ev: "lock", ID: strings.Repeat("x", MaxStatusLine)}); err == nil {
 		t.Fatal("512 B aşımı kabul edildi")
 	}
-	if Reason(ExitConsentDenied) != ReasonConsentDenied || Reason(ExitConsentTimeout) != ReasonConsentTimeout ||
-		!PreJoin(ReasonConsentDenied) || !PreJoin(ReasonConsentTimeout) {
-		t.Fatal("onay çıkış kodları")
+	// r3: eski onay çıkış kodları (24/25) tanımsız kod gibi helper_failed; consent_* katılım öncesi ret değildir.
+	if Reason(24) != ReasonHelperFailed || Reason(25) != ReasonHelperFailed || PreJoin("consent_denied") ||
+		PreJoin("consent_timeout") {
+		t.Fatal("eski onay çıkış kodları")
 	}
 }

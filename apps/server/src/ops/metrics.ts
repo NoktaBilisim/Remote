@@ -156,14 +156,14 @@ export function createMetrics(): Metrics {
   // P27 (mimari-p27 §7.3): gözetimsiz erişim sayaçları (tenant etiketi yok). Çevrimiçi göstergesi hub ile (K3) kaydedilir.
   m.counter(
     "rs_unattended_connect_total",
-    "Gözetimsiz bağlantı istekleri (mode: ask|silent; result: ok|forbidden|silent_disabled|pair_limit|not_found|step_up|local_disabled|no_contact|no_channel|unsigned|offline|outdated|busy|limit)",
+    "Gözetimsiz bağlantı istekleri (mode: ask — r3 tek kip; result: ok|forbidden|not_found|step_up|local_disabled|no_contact|no_channel|unsigned|offline|outdated|busy|limit)",
   );
   m.counter("rs_unattended_device_auth_total", "Cihaz kimlik doğrulamaları (result; unauth_cap dahil)");
   m.counter("rs_unattended_register_total", "Cihaz kayıt denemeleri (result: ok|invalid_code|cap|disabled|rate)");
   m.counter("rs_unattended_sessions_ended_total", "Biten gözetimsiz oturumlar (reason)");
   // P28u (mimari-p28u §9.4; tenant etiketi yok)
-  m.counter("rs_unattended_silent_notify_total", "Dört göz e-postası denemeleri (result: ok|fail)");
-  m.counter("rs_unattended_consent_total", "Cihazdaki onay diyaloğu sonuçları (decision: granted|denied|timeout)");
+  // r3: `rs_unattended_consent_total` kaldırıldı (onay diyaloğu yok). Dört göz sayacı yalnız P28e `recording_policy` e-postası için.
+  m.counter("rs_unattended_silent_notify_total", "Dört göz e-postası denemeleri — P28e kayıt politikası (result: ok|fail)");
   m.counter("rs_unattended_intervene_total", "Müdahale komutları (cmd: lock|logoff, result: ok|<failReason>)");
   m.counter("rs_unattended_rejoin_total", "Oturum kapatma sonrası yeniden katılım (result: ok|<failReason>)");
   m.counter("rs_unattended_device_msg_rejected_total", "Yok sayılan cihaz mesajları — başka oda / tekrar / eşleşmeyen (t)");

@@ -7,9 +7,7 @@ import {
   listDevicesQuerySchema,
   putDeviceGrantsInputSchema,
   putNotifyContactsInputSchema,
-  putUnattendedPolicyInputSchema,
   unattendedConnectInputSchema,
-  CONNECT_ASK_COOLDOWN_SEC,
   registerDeviceInputSchema,
   type CreatedRegistrationCode,
   type DeviceDetail,
@@ -19,7 +17,6 @@ import {
   type RegisterDeviceResponse,
   type RegistrationCodeListResponse,
   type UnattendedConnectResponse,
-  type UnattendedPolicyView,
   type UnattendedStatus,
 } from "@remote/contracts/api/unattended";
 import type { FastifyInstance, FastifyRequest } from "fastify";
@@ -29,9 +26,6 @@ import { authOf, requireAnyPerm, requireAuth, requirePerm, requireStepUp, tenant
 import { AppError, parseInput } from "../lib/errors.ts";
 import { FixedWindowCounter } from "../lib/rate.ts";
 import { connectDevice } from "./connect.ts";
-import type { ConnectRequest } from "./connect-tx.ts";
-import { sendSilentNotice, silentPolicyMail } from "./mail.ts";
-import { getPolicy, putPolicy, silentAllowedFor } from "./policy.ts";
 import { putContacts, getContacts } from "./contacts.ts";
 import { sendServiceBinary } from "./download.ts";
 import { createGate, unattendedStatus } from "./gate.ts";
@@ -77,12 +71,6 @@ interface Panel {
   d: () => RegistrationDeps;
   stepUp: ReturnType<typeof requireStepUp>;
   connectLimit: FixedWindowCounter;
-  pairLimit: FixedWindowCounter;
-}
-
-function connectRequest(body: unknown): ConnectRequest {
-  const v = parseInput(unattendedConnectInputSchema, body ?? {});
-  return v.silent && v.reason !== undefined ? { consent: "silent", reason: v.reason } : { consent: "ask" };
 }
 
 const anyPerm = () => ({ preHandler: requireAnyPerm("unattended.connect", "unattended.manage") });
@@ -92,11 +80,9 @@ const manageStepUp = (p: Panel) => ({ preHandler: [requirePerm("unattended.manag
 /** Durum + cihaz uçları (liste, ayrıntı, yetkiler, iptal, bağlan). */
 function deviceRoutes(p: Panel): void {
   const { app, d } = p;
-  app.get("/status", anyPerm(), async (req): Promise<UnattendedStatus> => {
-    const auth = authOf(req);
-    const base = await unattendedStatus(d().gate, app.mail, auth.tenantId);
-    return { ...base, silentAllowed: await silentAllowedFor(app.db, auth, auth.tenantId) };
-  });
+  app.get("/status", anyPerm(), async (req): Promise<UnattendedStatus> =>
+    unattendedStatus(d().gate, app.mail, authOf(req).tenantId),
+  );
   app.get("/devices", anyPerm(), async (req): Promise<DeviceListResponse> =>
     listDevices(d(), authOf(req), tenantScope(req).tenantId, parseInput(listDevicesQuerySchema, req.query)),
   );
@@ -117,49 +103,9 @@ function deviceRoutes(p: Panel): void {
   app.post("/devices/:id/connect", async (req): Promise<UnattendedConnectResponse> => {
     const { tenantId } = tenantScope(req);
     const id = idParam(req);
-    const input = connectRequest(req.body);
-    const hub = app.unattendedHub;
-    const c = {
-      ...d(),
-      hub,
-      rooms: app.rooms,
-      metrics: app.metrics,
-      limit: p.connectLimit,
-      pairLimit: p.pairLimit,
-      consentCapable: (deviceId: string) => hub.has(deviceId, "consent1"), // §5.1 8a
-    };
-    return connectDevice(c, auditContext(req), authOf(req), tenantId, id, input);
-  });
-}
-
-/** §5.2 politika (AC-436): `manage` ∧ `settings.view|edit`; açma step-up'ı serviste (tüketmez). */
-function policyRoutes(p: Panel): void {
-  const { app } = p;
-  const view = { preHandler: [requirePerm("unattended.manage"), requirePerm("settings.view")] };
-  const edit = { preHandler: [requirePerm("unattended.manage"), requirePerm("settings.edit")] };
-  app.get("/policy", view, async (req): Promise<UnattendedPolicyView> => getPolicy(app.db, tenantScope(req).tenantId));
-  app.put("/policy", edit, async (req): Promise<UnattendedPolicyView> => {
-    const { tenantId } = tenantScope(req);
-    const input = parseInput(putUnattendedPolicyInputSchema, req.body);
-    const auth = authOf(req);
-    const ctx = auditContext(req);
-    const r = await putPolicy({ db: app.db, rooms: app.rooms, now: Date.now, log: app.log }, ctx, auth, tenantId, input);
-    if (r.changed) {
-      const content = silentPolicyMail({ user: auth.user.fullName, old: r.old, next: input.silentEnabled, at: new Date() });
-      void sendSilentNotice(
-        { db: app.db, mail: app.mail, metrics: app.metrics, log: app.log },
-        {
-          ctx,
-          tenantId,
-          actor: { userId: auth.user.id, email: auth.user.email },
-          event: "policy",
-          entity: "tenant_settings",
-          entityId: tenantId,
-          content,
-        },
-      );
-    }
-    return r.view;
+    parseInput(unattendedConnectInputSchema, req.body ?? {}); // AC-430: boş nesne; bilinmeyen alan 400
+    const c = { ...d(), hub: app.unattendedHub, rooms: app.rooms, metrics: app.metrics, limit: p.connectLimit };
+    return connectDevice(c, auditContext(req), authOf(req), tenantId, id);
   });
 }
 
@@ -200,15 +146,10 @@ export async function unattendedRoutes(app: FastifyInstance, opts: UnattendedRou
   });
   writeLimit(app);
   const connectLimit = new FixedWindowCounter(CONNECTS_PER_HOUR + 1, 3_600_000, 3_600_000);
-  const pairLimit = new FixedWindowCounter(1, CONNECT_ASK_COOLDOWN_SEC * 1000, CONNECT_ASK_COOLDOWN_SEC * 1000);
-  app.addHook("onClose", async () => {
-    connectLimit.close();
-    pairLimit.close();
-  });
+  app.addHook("onClose", async () => connectLimit.close());
   const link = opts.link ?? app.unattendedHub ?? OFFLINE_LINK;
-  const p: Panel = { app, d: depsOf(app, link), stepUp: requireStepUp(), connectLimit, pairLimit };
+  const p: Panel = { app, d: depsOf(app, link), stepUp: requireStepUp(), connectLimit };
   deviceRoutes(p);
-  policyRoutes(p);
   codeAndContactRoutes(p);
   downloadRoute(app);
 }

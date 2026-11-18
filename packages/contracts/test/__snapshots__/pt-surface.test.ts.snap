@@ -1262,6 +1262,7 @@ exports[`PT-K1 contracts yüzeyi > AC-318: her exports yolunun dışa verdiği a
     "PERMISSION_MODULES",
     "PermissionKey (tip)",
     "PermissionOverride (tip)",
+    "RETIRED_PERMISSION_KEYS",
     "ROLES",
     "Role (tip)",
     "effectivePermissions",

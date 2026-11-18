@@ -9,51 +9,97 @@ import { UnattendedInfoSection } from "@/app/(panel)/history/[id]/unattended-inf
 import { parseAuditParams, auditHref } from "@/lib/audit/query";
 import { parseFilters } from "@/lib/history/query";
 import type { DeviceListItem } from "./contract";
-import { awaitingConsent, buildConnectBody, interveneView, reasonLength, showControlButton, type UnattendedInfo } from "./consent";
+import { initialTech, techReducer } from "@/lib/webrtc/tech-machine";
+import { autoControlDecision, interveneView, type AutoControlInput, type UnattendedInfo } from "./consent";
 
-// P28u K7 (mimari-p28u §10; AC-429, 430, 435, 437, 439, 442, 445, 446).
+// P28u K7 + r3 (mimari-p28u §r3 r3.6, K-P28u-r3-6, S-P28u-r3-2; AC-429, 433, 435, 442, 445, 446, 451).
 const U: UnattendedInfo = { deviceId: "01JDVP2700000000000000000A", deviceName: "PC" };
 const R20 = "Sunucu bakım penceresi";
 
-describe("buildConnectBody (AC-430, 437)", () => {
-  it("kutu işaretsiz → {} (izinli istek; gerekçe yok sayılır)", () => {
-    expect(buildConnectBody(false, "x")).toEqual({ body: {} });
-  });
-  it("işaretli: gerekçe 20–500 kod noktası, kırpılır", () => {
-    expect(buildConnectBody(true, "  kısa  ")).toEqual({ error: "Gerekçe 20–500 karakter olmalı" });
-    expect(buildConnectBody(true, `  ${R20}  `)).toEqual({ body: { silent: true, reason: R20 } });
-    expect("error" in buildConnectBody(true, "a".repeat(501))).toBe(true);
-    expect("error" in buildConnectBody(true, `${R20}‮`)).toBe(true);
-  });
-  it("sayaç kırpılmış kod noktası sayar", () => {
-    expect(reasonLength("  ab😀 ")).toBe(3);
+describe("interveneView (AC-442 r3)", () => {
+  it("katılımlı oturum → null", () => expect(interveneView(null, "idle", true)).toBeNull());
+  it("komutlar yalnız canlı + kontrol açıkken; intervene yok → pasif", () => {
+    expect(interveneView({ ...U, intervene: true }, "idle", true)).toEqual({ showCommands: false, commandsDisabled: false });
+    expect(interveneView({ ...U, intervene: true }, "requested", true)?.showCommands).toBe(false);
+    expect(interveneView({ ...U, intervene: true }, "granted", true)).toEqual({ showCommands: true, commandsDisabled: false });
+    expect(interveneView({ ...U, intervene: true }, "granted", false)?.showCommands).toBe(false);
+    expect(interveneView(U, "granted", true)).toEqual({ showCommands: true, commandsDisabled: true });
   });
 });
 
-describe("interveneView / showControlButton (AC-439, 442)", () => {
-  it("katılımlı oturum → null", () => expect(interveneView(null, "idle", true)).toBeNull());
-  it("silent + kontrol yok → izleniyor; kontrol açık → İzlemeye dön + komutlar", () => {
-    const s = { ...U, consentMode: "silent" as const, intervene: true };
-    expect(interveneView(s, "idle", true)).toMatchObject({ monitoring: true, canReturn: false, showCommands: false });
-    expect(interveneView(s, "granted", true)).toMatchObject({
-      monitoring: false,
-      canReturn: true,
-      showCommands: true,
-      commandsDisabled: false,
-    });
-    expect(showControlButton(s, "idle")).toBe(false);
-    expect(showControlButton(s, "granted")).toBe(true);
+describe("autoControlDecision (K-P28u-r3-6, S-P28u-r3-2)", () => {
+  const base: AutoControlInput = { joins: 1, unattended: true, controller: true, canControl: true, phase: "idle" };
+  /** Konsol kancasının yaptığını taklit eder: sıralı girdilerde kaç istek gider. */
+  const run = (steps: AutoControlInput[]): number => {
+    let seen = 0;
+    let n = 0;
+    for (const i of steps) {
+      const r = autoControlDecision(seen, i);
+      seen = r.seen;
+      if (r.fire) n++;
+    }
+    return n;
+  };
+  it("katılım yok → istek yok", () => expect(run([{ ...base, joins: 0 }])).toBe(0));
+  it("kontrol sahibi: katılımda tam 1 istek; yeniden çizim / faz değişimi ikinci istek üretmez", () => {
+    expect(run([base, base, { ...base, phase: "requested" }, { ...base, phase: "granted" }, { ...base, phase: "idle" }])).toBe(1);
   });
-  it("asked/no_user: izleme yok; komutlar yalnız kontrol açıkken; intervene yok → pasif", () => {
-    const a = { ...U, consentMode: "asked" as const };
-    expect(interveneView(a, "idle", true)).toMatchObject({ monitoring: false, showCommands: false });
-    expect(interveneView(a, "granted", true)).toMatchObject({ showCommands: true, commandsDisabled: true, canReturn: false });
-    expect(showControlButton(a, "idle")).toBe(true);
+  it("katılımcı / izleyici (kontrol sahibi değil) → 0", () => {
+    expect(run([{ ...base, controller: false }])).toBe(0);
   });
-  it("kip yoksa onay bekleniyor", () => {
-    expect(awaitingConsent(U)).toBe(true);
-    expect(awaitingConsent({ ...U, consentMode: "no_user" })).toBe(false);
-    expect(awaitingConsent(null)).toBe(false);
+  it("devir: katılımda sahip değildi, sonra kontrol sahibi oldu → 0 (bilinçli tıklama)", () => {
+    expect(
+      run([
+        { ...base, controller: false },
+        { ...base, controller: true },
+        { ...base, controller: true },
+      ]),
+    ).toBe(0);
+  });
+  it("misafir ayrılıp yeniden katılınca (sayaç artar) 1 istek daha", () => {
+    expect(run([base, { ...base, phase: "granted" }, { ...base, phase: "ended" }, { ...base, joins: 2, phase: "ended" }])).toBe(2);
+  });
+  it("katılımlı oturum, yetki yok ya da kontrol zaten istenmiş/açık → 0", () => {
+    expect(run([{ ...base, unattended: false }])).toBe(0);
+    expect(run([{ ...base, canControl: false }])).toBe(0);
+    expect(run([{ ...base, phase: "requested" }])).toBe(0);
+    expect(run([{ ...base, phase: "granted" }])).toBe(0);
+  });
+});
+
+describe("tech-machine guestJoins (K-P28u-r3-6)", () => {
+  const now = 1_000;
+  const msg = (m: Record<string, unknown>) => ({ type: "msg", m: m as never, now }) as const;
+  const hello = (peerPresent: boolean, active = true) => ({
+    t: "hello",
+    role: "tech",
+    sessionId: "01JSESSION0000000000000000",
+    maxEndsAt: active ? "2026-11-18T20:00:00.000Z" : null,
+    peerPresent,
+    iceServers: [],
+    unattended: U,
+  });
+  it("PENDING hello → 0; peer.joined → 1; ayrılıp yeniden katılım → 2", () => {
+    let s = techReducer(initialTech, msg(hello(false, false)));
+    expect(s.guestJoins).toBe(0);
+    s = techReducer(s, msg({ t: "peer.joined", role: "guest", guestKind: "AGENT" }));
+    expect(s.guestJoins).toBe(1);
+    s = techReducer(s, msg({ t: "peer.left", role: "guest" }));
+    s = techReducer(s, msg({ t: "peer.joined", role: "guest", guestKind: "AGENT" }));
+    expect(s.guestJoins).toBe(2);
+  });
+  it("konsol açılmadan kabul edilmiş cihaz (ACTIVE + peerPresent hello) → 1; misafir bağlıyken kendi WS yeniden bağlanınca artmaz", () => {
+    let s = techReducer(initialTech, msg(hello(true)));
+    expect(s.guestJoins).toBe(1);
+    s = techReducer(s, { type: "closed", code: 1006, now });
+    s = techReducer(s, msg(hello(true)));
+    expect(s.guestJoins).toBe(1);
+  });
+  it("koparken misafir kayboldu ve geri geldi (peerLostSince) → hello ile artar", () => {
+    let s = techReducer(initialTech, msg(hello(true)));
+    s = techReducer(s, msg({ t: "peer.left", role: "guest" }));
+    s = techReducer(s, msg(hello(true)));
+    expect(s.guestJoins).toBe(2);
   });
 });
 
@@ -79,13 +125,12 @@ describe("liste: kullanıcı durumu + outdated (AC-429, 435), yoklama 8 sn", () 
   it("yoklama ≤ 10 sn", () => expect(UN_DEVICE_POLL_MS).toBe(8_000));
 });
 
-describe("konsol bitişi: consent_denied/timeout → Yeniden dene (AC-432)", () => {
-  it("cihaz ayrıntısına bağlantı + step-up notu", () => {
-    const html = renderToStaticMarkup(createElement(ConsoleEnded, { end: "consent_denied", deviceId: U.deviceId }));
+describe("konsol bitişi: eski onay nedenleri metinle kalır, 'Yeniden dene' yok (r3)", () => {
+  it("consent_denied etiketi + yalnız listeye dönüş", () => {
+    const html = renderToStaticMarkup(createElement(ConsoleEnded, { end: "consent_denied" }));
     expect(html).toContain("Kullanıcı bağlantıyı reddetti.");
-    expect(html).toContain(`/unattended/${U.deviceId}`);
-    expect(html).toContain("step-up");
-    expect(renderToStaticMarkup(createElement(ConsoleEnded, { end: "tech", deviceId: U.deviceId }))).not.toContain("Yeniden dene");
+    expect(html).not.toContain("Yeniden dene");
+    expect(html).not.toContain("/unattended/");
   });
 });
 
@@ -96,7 +141,7 @@ describe("geçmiş: gözetimsiz bölüm (AC-446)", () => {
         u: { consentMode: "silent", silentReason: R20, timeline: [{ at: "2026-11-16T10:00:00.000Z", kind: "lock", result: "success" }] },
       }),
     );
-    expect(html).toContain("İzinsiz");
+    expect(html).toContain("İzinsiz (eski)");
     expect(html).toContain(R20);
     expect(html).toContain("Oturum kilitlendi");
     const empty = renderToStaticMarkup(

@@ -60,7 +60,7 @@ func (h *handler) Execute(_ []string, req <-chan svc.ChangeRequest, st chan<- sv
 		case svc.Interrogate:
 			st <- c.CurrentStatus
 		case svc.SessionChange:
-			// Olay yalnız tetikleyici (EventData okunmaz): konsol geçişi K-P27-12, asked'da logon K-P28u-17, device.user.
+			// Olay yalnız tetikleyici (EventData okunmaz): konsol geçişi K-P27-12, device.user (r3: logon bitirmez).
 			core.SessionEvent(c.EventType)
 		case svc.Stop, svc.Shutdown:
 			st <- svc.Status{State: svc.StopPending}

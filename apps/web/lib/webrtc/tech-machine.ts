@@ -62,9 +62,15 @@ export interface TechState {
   end: TechEnd | null;
   /**
    * P27 (mimari-p27 §4.6): gözetimsiz odada sunucu `hello{unattended}` gönderir → konsol rozeti + cihaz adı. P28u (§6.4):
-   * `consentMode` (kip; `ask` odasında karara kadar yok) ve `intervene` (cihaz `consent1` bildirdi → müdahale düğmeleri).
+   * `intervene` (cihaz `consent1` bildirdi → müdahale düğmeleri); `consentMode` r3'te yalnız `no_user` (konsol kullanmaz).
    */
   unattended: UnattendedInfo | null;
+  /**
+   * P28u r3 (K-P28u-r3-6): misafir katılım sayacı — `peer.joined{guest}` ve misafir yokken gelen ACTIVE+`peerPresent` `hello`
+   * (konsol açılmadan önce kabul edilmiş cihaz / koparken yeniden katılan misafir) artırır. Kendi WS'imiz yeniden bağlandığında
+   * misafir zaten bağlıysa artmaz. Konsolun otomatik kontrol isteği bu sayaç değişince bir kez karar verir.
+   */
+  guestJoins: number;
   /** P28a (§4.2): bağlı misafirin bildirdiği özellikler (`hello`/`peer.joined` `guestFeatures`; eski istemci → []). P28b: + `fsrv`. */
   guestFeatures: PeerFeature[];
   /** P28a: müşteri pano anahtarı (sunucu aynası `clip.consent`; kontrol VIEW'a dönünce / müşteri ayrılınca kapalı). */
@@ -116,6 +122,7 @@ export const initialTech: TechState = {
   lastError: null,
   end: null,
   unattended: null,
+  guestJoins: 0,
   guestFeatures: [],
   clipConsent: false,
   fileMode: "P2P",
@@ -241,6 +248,7 @@ function onHello(s: TechState, m: MsgOf<"hello">, now: number): TechState {
   const active = m.maxEndsAt !== null;
   const x = extras(m);
   const prev = s.guest ?? { name: null, kind: m.guestKind ?? null };
+  const guestHere = s.phase === "live" && s.peerLostSince === null;
   return {
     ...s,
     phase: active ? "live" : "waiting",
@@ -249,6 +257,7 @@ function onHello(s: TechState, m: MsgOf<"hello">, now: number): TechState {
     guest: active ? { ...prev, name: x.guestName ?? prev.name } : null,
     peerLostSince: active && !m.peerPresent ? (s.peerLostSince ?? now) : null,
     unattended: m.unattended ?? s.unattended,
+    guestJoins: active && m.peerPresent && !guestHere ? s.guestJoins + 1 : s.guestJoins,
     guestFeatures: active && m.peerPresent ? [...(m.guestFeatures ?? [])] : [],
     clipConsent: active && m.peerPresent ? (m.clipConsent ?? false) : false,
     fileMode: m.fileMode ?? s.fileMode,
@@ -278,6 +287,7 @@ function onPeerJoined(s: TechState, m: MsgOf<"peer.joined">): TechState {
     // Ad önce sunucudan; yoksa yalnız tek bekleyen varken kabul edilenin adı (tahmin yok), yoksa "Müşteri"
     guest: { name: extras(m).guestName ?? s.guest?.name ?? s.admitName, kind: m.guestKind ?? s.guest?.kind ?? null },
     peerLostSince: null,
+    guestJoins: s.guestJoins + 1,
     share: "unknown",
     shareFail: null,
     shareMethod: null,

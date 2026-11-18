@@ -40,14 +40,7 @@ var (
 	indClassErr  error
 	indByThread  sync.Map // iş parçacığı kimliği → *winIndicator (pencere yordamı kendi iş parçacığının göstergesini bulur)
 	errIndicator = errors.New("helper: gösterge doğrulanamadı")
-	ownHWNDs     sync.Map // P28u §7.3: yardımcının gösterge pencereleri — onay diyaloğunun örtülme istisnası (HWND kümesi)
 )
-
-// ownWindow h yardımcının kendi gösterge penceresi mi (sınıf adıyla değil, tanıtıcıyla).
-func ownWindow(h uintptr) bool {
-	_, ok := ownHWNDs.Load(h)
-	return ok
-}
 
 type winIndicator struct {
 	text     string // yalnız gösterge iş parçacığında; SetText next üzerinden iletir
@@ -140,7 +133,6 @@ func (ind *winIndicator) create(mon int, r rect, label bool) {
 	win.ExcludeFromCapture(h)
 	win.ShowWindow(h, win.SW_SHOWNOACTIVATE)
 	ind.wins[h] = shown{Monitor: mon, Label: label}
-	ownHWNDs.Store(h, struct{}{})
 }
 
 // verify her pencerenin varlığını, görünürlüğünü ve konumunu ölçer (§5.5).
@@ -182,7 +174,6 @@ func (ind *winIndicator) fail() { ind.failOnce.Do(func() { close(ind.failed) }) 
 func (ind *winIndicator) destroyBars() {
 	for h := range ind.wins {
 		win.DestroyWindow(h)
-		ownHWNDs.Delete(h)
 	}
 	clear(ind.wins)
 }
@@ -201,7 +192,7 @@ func (ind *winIndicator) Failed() <-chan struct{} { return ind.failed }
 // Desktop Indicator: göstergenin çizildiği giriş masaüstü.
 func (ind *winIndicator) Desktop() string { return ind.desktop }
 
-// SetText P28u §7.6 (silent: izleme ↔ kontrol): etiket gösterge iş parçacığında değiştirilir; genişlik değiştiği için
+// SetText etiketi (P28c ad eki, P28e kayıt eki) gösterge iş parçacığında değiştirir; genişlik değiştiği için
 // pencereler yeniden çizilip doğrulanır, başarısızsa Failed (fail-closed). ≤ 1 sn (en geç sonraki doğrulama tiki).
 func (ind *winIndicator) SetText(text string) {
 	ind.next.Store(&text)

@@ -83,8 +83,6 @@ export interface IncomingInvite {
   fromName: string;
   customerName: string;
   unattended: boolean;
-  /** Silent odada kabul gerekçe ister. */
-  silent: boolean;
   expiresAt: string;
 }
 export interface IncomingInvitesResponse {
@@ -103,7 +101,6 @@ export interface ActiveSessionItem {
   /** Misafir `rs.cap.multi1` bildirdi (false → İzle pasif + AC-352 metni). */
   supported: boolean;
   unattended: boolean;
-  silent: boolean;
   /** Gözetimsiz oda kipi (`asked` → İzle pasif, `JOIN_NOT_ALLOWED` metni). Gözetimsiz değilse yok. */
   consentMode?: ConsentMode;
 }

@@ -53,6 +53,14 @@ export function permissionKeysOf(modules: readonly { key: string; actions: reado
 export const PERMISSION_KEYS: readonly PermissionKey[] = permissionKeysOf(PERMISSION_MODULES);
 
 /**
+ * Mezar listesi (S-P28u-r3-3): kaldırılmış yetki anahtarları — bu adlar YENİDEN KULLANILMAZ. `user_permissions`'ta saklı
+ * `granted=true` satırları kalmış olabilir (expand-only; satır kullanıcı kaydında silinir, K-P28u-r3-8); aynı ad yeniden
+ * tanımlanırsa eski satırlar kendiliğinden yetki verirdi. Birim test: `PERMISSION_KEYS` ile kesişim boş.
+ * `unattended.silent`: P28u r3 (K-P28u-r3-7) — izinsiz (silent) kip kaldırıldı.
+ */
+export const RETIRED_PERMISSION_KEYS: readonly string[] = ["unattended.silent"];
+
+/**
  * P9 (mimari-e9 §13.2): toggle ekranında alt yetki açıklaması — yalnız davranışı adından anlaşılmayan anahtarlar.
  * Etiketler web sözlüğündedir; açıklama yoksa ekran yalnız etiketi gösterir.
  */

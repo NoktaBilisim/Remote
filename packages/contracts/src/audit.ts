@@ -292,8 +292,8 @@ export const UNATTENDED_AUDIT = {
   // Alan adları (D-P28u-4, K-P28u-20): gerekçe `silentReason` YALNIZ `unattended.connect` satırında; ret kodu `failReason`;
   // çıplak `reason` anahtarı yok. `userState` hiçbir satıra yazılmaz (D-P28u-6). `CONNECT` += `consentRequested:"ask"` ya da
   // `consentMode:"silent"` + `silentReason`; `SESSION_STARTED`/`SESSION_ENDED` += `consentMode`.
-  // r3 (K-P28u-r3-12): `CONSENT`, `SILENT_NOTIFY`, `UNATTENDED_POLICY_AUDIT` ve `SILENT_NOTIFY_EVENTS` artık YAZILMAZ — eski satırları
-  // okumak/etiketlemek için sözleşmede kalır. `CONTROL_TOGGLE` yazılmaya devam eder; yeni satırlarda `consentMode` yalnız `no_user`.
+  // r3 (K-P28u-r3-12): `CONSENT` ve `UNATTENDED_POLICY_AUDIT` artık YAZILMAZ; `SILENT_NOTIFY` yalnız `event:"recording_policy"`
+  // (P28e kayıt politikası e-postası, S-P28e-4) için yazılır — diğer olay değerleri eski satırları okumak/etiketlemek için kalır. `CONTROL_TOGGLE` yazılmaya devam eder; yeni satırlarda `consentMode` yalnız `no_user`.
   /** Cihazdaki onay kararı — aktör cihaz (`user_id` NULL, `username` = `device:<id>`): `{consentMode:"asked", decision, ms, deviceId, technicianId}`. */
   CONSENT: "unattended.consent",
   /** Kontrol açıldı/kapandı (her kip, K-P28u-10): `{from, to: "view"|"control", consentMode}`. */

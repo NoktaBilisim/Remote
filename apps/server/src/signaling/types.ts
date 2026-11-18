@@ -5,7 +5,7 @@ import type { ClipDirection, GuestFeature } from "@remote/contracts/ws-clip-prin
 import type { FileMode, FsrvDirection } from "@remote/contracts/ws-fsrv";
 import type { PermissionKey, Role } from "@remote/contracts/permissions";
 import type { ControlAuditAction } from "@remote/contracts/audit";
-import type { ConsentMode, ConsentRequest, ConsentResultDecision } from "@remote/contracts/unattended-consent";
+import type { ConsentMode } from "@remote/contracts/unattended-consent";
 import { LOBBY_GUEST_MAX, type ClientOs } from "@remote/contracts/api/sessions";
 import type { AuditContext } from "../audit/service.ts";
 import type { JsonObject } from "../audit/mask.ts";
@@ -16,17 +16,15 @@ import type { MemberRole, MemberVia } from "@remote/contracts/ws-multi";
 import type { VoicePhase } from "@remote/contracts/ws-voice";
 
 /**
- * P27 gözetimsiz oda + P28u kip/onay/müdahale durumu (mimari-p28u §8.1, §8.3; bellekte). `consentRequest` connect'te
- * istenen (`ask`|`silent`); `consentMode` gerçekleşen kip (`silent` baştan; `ask` → cihazın `consent.result`'u).
+ * P27 gözetimsiz oda + P28u kip/müdahale durumu (mimari-p28u §8.1, §8.3, §r3; bellekte). `consentMode` cihazın
+ * `consent.result{no_user}`'ı ile yazılır (admit öncesi yok — K-P28u-r3-4).
  */
 export interface UnattendedRoom {
   deviceId: string;
   deviceName: string;
   customerId: string;
   dbEndReason?: string;
-  consentRequest: ConsentRequest;
   consentMode?: ConsentMode;
-  consent?: { decision: ConsentResultDecision; ms: number };
   /** admit'te `consent.result` bekleyen tek söz (≤ 3 sn). */
   consentWait?: () => void;
   /** Kontrol açık olarak audit'lendi mi (`unattended.control_toggle` çift yazılmasın). */
@@ -233,7 +231,7 @@ export interface FsrvRoom {
 
 /**
  * P28c oda üyesi (mimari-p28c §3.1): oturum sahibi dışındaki teknisyen. `conn` yokken rezervasyon (60 sn) ya da kopma payı
- * (120 sn). `silentReason` yalnız silent odada ve yalnız ilk WS katılım audit'ine dek bellekte (loglanmaz, Y-PC-1).
+ * (120 sn).
  */
 export interface Member {
   userId: string;
@@ -248,8 +246,6 @@ export interface Member {
   joinedAudited: boolean;
   /** Rezervasyonu alan kimlik oturumu; WS ve 120 sn dönüşü yalnız bu oturumdan (Y-PC-3). */
   authSessionId: string;
-  reasonLen?: number;
-  silentReason?: string;
 }
 
 /** P28c bekleyen davet (§3.1; 2 dk, tek kullanımlık). */

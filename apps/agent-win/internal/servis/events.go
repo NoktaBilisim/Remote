@@ -10,7 +10,8 @@ import (
 )
 
 // Olay günlüğü (mimari-p27 §5.7): kaynak `NoktaDestek`, Application. Bilet, anahtar, nonce, imza yazılmaz; serbest
-// metin alanları (teknisyen/firma adı, kullanıcı adı) kontrol karakterlerinden arındırılıp kısaltılır.
+// metin alanları (teknisyen/firma adı, kullanıcı adı) kontrol karakterlerinden arındırılıp kısaltılır. 1008 (P28u onay
+// kararı) r3'te yazılmaz (onay diyaloğu yok; mimari-p28u §r3.2); numara yeniden kullanılmaz.
 const (
 	EventSource = "NoktaDestek"
 
@@ -21,7 +22,6 @@ const (
 	EvRevoked  uint32 = 1005 // cihaz iptal edildi / kayıt kaldırıldı
 	EvLock     uint32 = 1006 // oturum kilitlendi (P28u, AC-444)
 	EvLogoff   uint32 = 1007 // kullanıcı oturumu kapatıldı (P28u, AC-444)
-	EvConsent  uint32 = 1008 // bağlantı onayı kararı (P28u)
 	EvRecord   uint32 = 1009 // ekran kaydı başladı/durdu (P28e; sunucunun rec.state'i)
 )
 
@@ -47,9 +47,10 @@ type EventSink interface {
 	Write(e Event)
 }
 
-func evStarted(c *Connect, mode string, rec bool) Event {
+// evStarted 1001. r3 (K-P28u-r3-1): tek kip "onaysız" (cihaz kullanıcısına sorulmadan açıldı).
+func evStarted(c *Connect, rec bool) Event {
 	t := fmt.Sprintf("Gözetimsiz bağlantı başladı. Teknisyen: %s; destek firması: %s; teknisyen IP: %s; oturum: %s; kip: %s",
-		clean(c.TechName, 100), clean(c.TenantName, 120), clean(c.TechIP, 45), c.SessionID, modeText(mode))
+		clean(c.TechName, 100), clean(c.TenantName, 120), clean(c.TechIP, 45), c.SessionID, modeNoUserText)
 	if rec {
 		t += "; ekran kaydı: alınıyor (destek firması politikası)"
 	}
@@ -65,24 +66,8 @@ func evRecord(sessionID, techName string, on bool) Event {
 	return Event{ID: EvRecord, Text: fmt.Sprintf("%s. Teknisyen: %s; oturum: %s", what, clean(techName, 100), sessionID)}
 }
 
-// modeText kip adı (olay günlüğü; gerekçe yazılmaz — §7.5).
-func modeText(mode string) string {
-	switch mode {
-	case helperio.ModeAsked:
-		return "izinli (kullanıcı onayı)"
-	case helperio.ModeSilent:
-		return "izinsiz (izleme)"
-	}
-	return "izinli (kullanıcı yok)"
-}
-
-// evConsent 1008: onay diyaloğu kararı.
-func evConsent(r *running, decision string) Event {
-	d := map[string]string{helperio.DecisionGranted: "izin verildi", helperio.DecisionDenied: "reddedildi",
-		helperio.DecisionTimeout: "yanıt verilmedi"}[decision]
-	return Event{ID: EvConsent, Warning: decision != helperio.DecisionGranted, Text: fmt.Sprintf(
-		"Bağlantı onayı: %s. Kip: %s; teknisyen: %s; oturum: %s", d, modeText(r.mode), clean(r.techName, 100), r.sessionID)}
-}
+// modeNoUserText 1001 kip metni (olay günlüğü; gerekçe yazılmaz — §7.5).
+const modeNoUserText = "onaysız"
 
 // evIntervene 1006 (kilit) / 1007 (oturum kapatma). reason "" = başarılı.
 func evIntervene(cmd, techName, sessionID, reason string) Event {

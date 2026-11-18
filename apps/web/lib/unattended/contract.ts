@@ -6,8 +6,6 @@ export {
   CONNECT_BLOCKED_REASON_LABELS,
   CONSENT_MODE_LABELS,
   DEVICE_USER_STATE_LABELS,
-  SILENT_REASON_MAX,
-  SILENT_REASON_MIN,
   DEVICE_LIST_STATES,
   DEVICE_PAGE_SIZE,
   DEVICE_PAGE_SIZE_MAX,
@@ -36,8 +34,7 @@ export type {
   InterveneLogoffResponse,
   UnattendedConnectInput,
   UnattendedConnectResponse,
-  UnattendedPolicyView,
   UnattendedStatus,
 } from "@remote/contracts/api/unattended";
-export { CONSENT_MODES, CONSENT_DIALOG_SEC, type ConsentMode, type DeviceUserState } from "@remote/contracts/unattended-consent";
+export { CONSENT_MODES, type ConsentMode, type DeviceUserState } from "@remote/contracts/unattended-consent";
 export { REJOIN_WINDOW_SEC } from "@remote/contracts/rejoin-const";

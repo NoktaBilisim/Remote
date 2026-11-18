@@ -11,10 +11,10 @@ import (
 	"testing"
 )
 
-// mimari-p28u §7.1 (ADR-0033, AC-341): yardımcının pencere sınıfları yalnız gösterge ve onay diyaloğudur. Paketin tüm
+// AC-341 (mimari-p28u §r3.7): yardımcının tek pencere sınıfı göstergedir (r3: onay diyaloğu kaldırıldı). Paketin tüm
 // dosyalarında (Windows dahil, test hariç) RegisterClass çağrılarının sınıf adı kümesi AST'den çözülür; üçüncü bir
 // pencere sınıfı eklenemez. Sınıf adı değişmez/sabit dışı bir ifadeyse test kırmızıdır.
-func TestAC431HelperWindowClassesOnlyIndicatorAndConsent(t *testing.T) {
+func TestAC431HelperWindowClassesOnlyIndicator(t *testing.T) {
 	files, err := filepath.Glob("*.go")
 	if err != nil {
 		t.Fatal(err)
@@ -69,8 +69,8 @@ func TestAC431HelperWindowClassesOnlyIndicatorAndConsent(t *testing.T) {
 		got = append(got, s)
 	}
 	sort.Strings(got)
-	if strings.Join(got, ",") != "NoktaDestekGosterge,NoktaDestekOnay" {
-		t.Fatalf("pencere sınıfları %v; beklenen yalnız NoktaDestekGosterge, NoktaDestekOnay", got)
+	if strings.Join(got, ",") != "NoktaDestekGosterge" {
+		t.Fatalf("pencere sınıfları %v; beklenen yalnız NoktaDestekGosterge", got)
 	}
 }
 

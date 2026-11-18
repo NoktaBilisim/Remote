@@ -74,10 +74,11 @@ type Connect struct {
 	TechIP        string `json:"techIp"`
 	ExpiresInSec  int    `json:"expiresInSec"`
 	IndicatorText string `json:"indicatorText"`
-	// P28u: consent1 sokette zorunlu "ask"|"silent" (çekirdek denetler, connectConsent); indicatorControl yalnız silent.
+	// P28u: consent1 sokette zorunlu "ask" (çekirdek denetler, connectConsent). IndicatorControl yalnız eski sunucunun
+	// silent connect'ini ayrıştırmak için kalır (r3: kullanılmaz; doluysa connect.result{protocol} — K-P28u-r3-5).
 	Consent          string `json:"consent,omitempty"`
 	IndicatorControl string `json:"indicatorControl,omitempty"`
-	// P28e (§6.2): yalnız record1 sokete ve yalnız true (validRecording); servis → yardımcı RecordingLine/Recording (K6).
+	// P28e (§6.2): yalnız record1 sokete ve yalnız true (validRecording); servis → yardımcı Recording (gösterge eki, K6).
 	Recording *bool `json:"recording,omitempty"`
 }
 
@@ -147,10 +148,10 @@ var (
 	errSchema = errors.New("servis: sözleşme dışı mesaj")
 )
 
-// connectFailReasons contracts DEVICE_CONNECT_FAIL_REASONS.
+// connectFailReasons contracts DEVICE_CONNECT_FAIL_REASONS'ın cihazın gönderebileceği kısmı (r3: consent_* yalnız sunucu
+// kaydı/okuma içindir, cihaz göndermez).
 var connectFailReasons = map[string]bool{RejectLocalDisabled: true, helperio.ReasonIndicatorFailed: true,
-	helperio.ReasonHelperFailed: true, helperio.ReasonNoConsole: true, RejectBusy: true,
-	helperio.ReasonConsentDenied: true, helperio.ReasonConsentTimeout: true, RejectProtocol: true}
+	helperio.ReasonHelperFailed: true, helperio.ReasonNoConsole: true, RejectBusy: true, RejectProtocol: true}
 
 // sessionEndedReasons contracts ws.ts SESSION_ENDED_REASONS (`disconnect.reason`).
 var sessionEndedReasons = map[string]bool{"tech": true, "customer": true, "timeout": true, "max_duration": true,
