@@ -38,7 +38,7 @@ import { membersTeardown, revokeMember, revokeMemberEverywhere, type SilentJoinE
 import { broadcastRoster, controllerOf, newMulti, sendTechs } from "./members.ts";
 import { revokeControlFor } from "./control-revoke.ts";
 import { pending, type RoomRow } from "./rooms-lobby.ts";
-import { chatRoomClosed } from "./chat.ts";
+import { chatRoomClosed, chatSettled } from "./chat.ts";
 import { endVoice, newVoice, voiceDropTalker, voicePermChange, voiceSync, voiceTechAttached } from "./voice.ts";
 import type { UnattendedGate } from "../unattended/gate.ts";
 
@@ -275,6 +275,12 @@ export class Rooms implements RoomNotifier, TechnicianLiveControl {
     room.ending = true;
     if (room.admitted) await recordEnded(this, room, reason, endedBy, ctx);
     this.teardown(room, reason);
+  }
+
+  /** P22 (S-P22-Q-2): zorla sonlandırma TX'inden önce odanın sohbet zinciri beklenir (oda yoksa hemen). */
+  settleChat(sessionId: string): Promise<void> {
+    const room = this.rooms.get(sessionId);
+    return room ? chatSettled(room) : Promise.resolve();
   }
 
   /** DB'yi başka katman güncelledi (iptal, zorla sonlandırma): yalnız bildir ve kapat. */

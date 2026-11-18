@@ -30,6 +30,11 @@ export const CHAT_HISTORY_MAX = 100;
 export const CHAT_HISTORY_MAX_BYTES = 49_152;
 /** Oturum başına gönderen tavanı: TECH kullanıcı başına ve CUSTOMER için ayrı ayrı (aşım → `cap`). */
 export const SESSION_CHAT_CAP_PER_SENDER = 2000;
+/**
+ * Güvenlik P22-Q S-P22-Q-3: oturum başına TOPLAM mesaj tavanı (tüm gönderenler; aşım → `cap`). Gönderen tavanı kullanıcı başına
+ * olduğundan devir/üye değişimiyle oturum sınırsız büyüyemesin; retention "tek oturum ≤ ~10.000 satır" varsayımı (r2 §15.3) korunur.
+ */
+export const SESSION_CHAT_CAP_TOTAL = 10_000;
 /** Firma başına müşteri oturum sohbeti kovası (dakikada; talep kovasından ayrı anahtar; aşım → `rate`). */
 export const SESSION_CHAT_TENANT_CUSTOMER_PER_MIN = 600;
 /** İstemci mesaj kimliği (yeniden gönderim tekilliği; UQ(session_id, sender, client_msg_id)). */

@@ -16,6 +16,7 @@ import {
   CHAT_HISTORY_MAX,
   CHAT_HISTORY_MAX_BYTES,
   SESSION_CHAT_CAP_PER_SENDER,
+  SESSION_CHAT_CAP_TOTAL,
   SESSION_CHAT_TENANT_CUSTOMER_PER_MIN,
   type ChatHistoryItem,
   type ChatRejectReason,
@@ -255,7 +256,8 @@ async function storeAndDeliver(rooms: Rooms, room: Room, b: ChatBinding, who: Wh
   let out: StoreChatResult;
   try {
     c.counts ??= await seedCounts(rooms.db, room);
-    if ((c.counts.get(key) ?? 0) >= SESSION_CHAT_CAP_PER_SENDER) {
+    // Gönderen tavanı (2.000) ya da oturum toplam tavanı (10.000; güvenlik P22-Q S-P22-Q-3).
+    if ((c.counts.get(key) ?? 0) >= SESSION_CHAT_CAP_PER_SENDER || totalOf(c.counts) >= SESSION_CHAT_CAP_TOTAL) {
       // Tavanda bile zaten saklanmış mesajın yeniden gönderimi idempotent yankı alır (S-P22-10), `cap` değil.
       const prev = await findByClientMsgId(rooms.db, room.tenantId, room.sessionId, who.sender, m.clientMsgId);
       if (prev && prev.senderUserId === who.userId)
@@ -299,6 +301,8 @@ async function storeAndDeliver(rooms: Rooms, room: Room, b: ChatBinding, who: Wh
       fanOut(rooms, room, b, out.row, who.peer, m.clientMsgId);
   }
 }
+
+const totalOf = (counts: Map<string, number>): number => [...counts.values()].reduce((a, b) => a + b, 0);
 
 /** Oturum gönderen sayaçlarını DB'den tohumlar (süreç ömrü boyunca bellekte artar). */
 async function seedCounts(db: DbOrTx, room: Room): Promise<Map<string, number>> {
@@ -380,6 +384,29 @@ export function chatGuestHello(rooms: Rooms, room: Room, guest: Guest): void {
       newValue: {},
     }),
   );
+}
+
+/**
+ * Güvenlik P22-Q S-P22-Q-1 (r2 §15.5): üyeye ilk katılımında gönderilen geçmiş sayısı — katılım audit'inden ayrı, gövdesiz satır
+ * (`n > 0` iken, üye başına 1; çağıran yalnız ilk katılımda çağırır). En iyi çaba (hata loglanır).
+ */
+export function auditHistorySent(rooms: Rooms, room: Room, conn: TechConn, n: number): Promise<void> {
+  if (n <= 0) return Promise.resolve();
+  return writeAudit(rooms.db, conn.ctx, {
+    tenantId: room.tenantId,
+    userId: conn.userId,
+    username: conn.username,
+    action: CHAT_AUDIT.HISTORY_SENT,
+    entity: "support_sessions",
+    entityId: room.sessionId,
+    result: "success",
+    newValue: { userId: conn.userId, n },
+  }).catch((err: unknown) => {
+    rooms.log.error(
+      { ref: newId(), event: "session_chat_audit_failed", sessionId: room.sessionId, code: errCode(err) },
+      "sohbet geçmiş audit'i yazılamadı",
+    );
+  });
 }
 
 /** Kabul anında teknisyenlere `chat.state{true}` (önceki hello'da `not_active` almışlardı). */

@@ -220,6 +220,8 @@ export async function expireDue(db: Db, ctx: AuditContext, now: Date, rooms?: Ro
 /** Oda bildirimi (signaling/rooms.ts); servis yalnız bu dar arayüzü bilir. */
 export interface RoomNotifier {
   closeSession(sessionId: string, reason: "cancelled" | "admin" | "timeout"): void;
+  /** P22 (güvenlik P22-Q S-P22-Q-2): odanın sohbet zinciri (uçuştaki INSERT / `chat_legacy`) bitene dek bekler; oda yoksa hemen. */
+  settleChat?(sessionId: string): Promise<void>;
 }
 
 /**
@@ -235,6 +237,7 @@ export async function terminateSession(
   reason: string | undefined,
   rooms?: RoomNotifier,
 ): Promise<void> {
+  await rooms?.settleChat?.(id); // S-P22-Q-2: özet uçuştaki sohbet satırlarını / chat_legacy'yi görsün
   await db.$transaction(async (tx) => {
     const now = new Date();
     if ((await repo.terminateActive(tx, tenantId, id, now, auth.user.id)) === 0) {

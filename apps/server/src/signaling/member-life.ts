@@ -16,7 +16,7 @@ import { recRecorderChanged } from "./rec.ts";
 import type { Rooms } from "./rooms.ts";
 import type { Member, Peer, Room, TechConn } from "./types.ts";
 import { voiceDropTalker, voiceSync, voiceTechAttached } from "./voice.ts";
-import { chatTechHello } from "./chat.ts";
+import { auditHistorySent, chatTechHello } from "./chat.ts";
 
 /** Silent odada dört göz e-postası kancası (routes-multi bağlar; `sendSilentNotice` `event: join|transfer`). */
 export interface SilentJoinEvent {
@@ -72,21 +72,26 @@ export function attachMember(rooms: Rooms, room: Room, m: Member, conn: TechConn
     voiceDropTalker(room, m.userId); // P28d V-PD-5
     if (old.connId) rooms.rec?.dropUploadTokens({ by: "conn", connId: old.connId });
   }
-  let joinAudit: ((n: number) => Promise<void>) | undefined;
+  const first = !m.joinedAudited;
   if (!m.joinedAudited) {
     m.joinedAudited = true;
     const cm = consentModeOf(room);
     const silent = cm === "silent";
-    const join = {
-      userId: m.userId,
-      role: m.role,
-      ...(cm ? { consentMode: cm } : {}),
-      ...(silent && m.reasonLen !== undefined ? { reasonLen: m.reasonLen } : {}),
-      ...(silent && m.silentReason !== undefined ? { silentReason: m.silentReason } : {}),
-    };
-    const action = m.via === "supervise" ? MULTI_AUDIT.SUPERVISE_JOIN : MULTI_AUDIT.PARTICIPANT_JOIN;
-    // P22 (r2 §15.5, K-P22-7): ilk katılım audit'i, gönderilen geçmiş sayısıyla (`chatHistory:<n>`, gövdesiz) yazılır.
-    joinAudit = (n) => auditMulti(rooms, room, conn.ctx, techActor(conn), action, { ...join, chatHistory: n });
+    // Güvenlik P22-Q S-P22-Q-1: katılım audit'i HEMEN (geçmiş okumasını beklemez); geçmiş sayısı ayrı satır (`chat_history_sent`).
+    void auditMulti(
+      rooms,
+      room,
+      conn.ctx,
+      techActor(conn),
+      m.via === "supervise" ? MULTI_AUDIT.SUPERVISE_JOIN : MULTI_AUDIT.PARTICIPANT_JOIN,
+      {
+        userId: m.userId,
+        role: m.role,
+        ...(cm ? { consentMode: cm } : {}),
+        ...(silent && m.reasonLen !== undefined ? { reasonLen: m.reasonLen } : {}),
+        ...(silent && m.silentReason !== undefined ? { silentReason: m.silentReason } : {}),
+      },
+    );
     if (silent)
       rooms.silentNotify?.({
         event: "join",
@@ -99,14 +104,14 @@ export function attachMember(rooms: Rooms, room: Room, m: Member, conn: TechConn
     delete m.silentReason; // gerekçe metni yalnız audit'te kalır
   }
   sendHelloTech(rooms, room, conn, false);
-  // Yeniden bağlanmada geçmiş yeniden gider, yeni audit satırı yok.
+  // P22 r2 §15.5: ilk katılımda gönderilen geçmiş sayısı ayrı satır (n > 0); yeniden bağlanmada geçmiş yeniden gider, satır yok.
   const history = chatJoin(rooms, room, conn);
-  if (joinAudit) void history.then(joinAudit);
+  if (first) void history.then((n) => auditHistorySent(rooms, room, conn, n));
   broadcastRoster(room);
   voiceTechAttached(rooms, room, conn); // P28d §4.2: roster'dan hemen sonra; yeni dinleyen yayınlanır (Y-PD-3)
 }
 
-/** P22: hello sonrası `chat.state` + `chat.history`; hata → 0 (audit yine yazılır). */
+/** P22: hello sonrası `chat.state` + `chat.history`; hata → 0. */
 const chatJoin = (rooms: Rooms, room: Room, conn: TechConn): Promise<number> => chatTechHello(rooms, room, conn).catch(() => 0);
 
 /** Üye soketi kapandı: kontrol sahibiyse kontrol sahibe döner; 120 sn payda dönmezse `participant_leave{disconnect}`. */

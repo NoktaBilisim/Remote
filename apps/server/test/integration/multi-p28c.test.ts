@@ -66,7 +66,7 @@ describe("P28c davet (AC-364, 365, 370)", () => {
     // AC-370: alanlar ve tekillik
     await until(async () => (await audits(o.sessionId, "session.participant_join")).length === 1);
     const join = await audits(o.sessionId, "session.participant_join");
-    expect(join[0]?.newValue).toEqual({ userId: m.user.id, role: "participant", chatHistory: 0 }); // P22 r2 §15.5
+    expect(join[0]?.newValue).toEqual({ userId: m.user.id, role: "participant" });
     expect((await audits(o.sessionId, "session.invite"))[0]?.newValue).toMatchObject({ inviteeUserId: m.user.id });
     expect(await audits(o.sessionId, "session.invite_accept")).toHaveLength(1);
     // D-PC-5: sahip olmayan üyeye doğrulama kodu boş; sahip görür
@@ -264,7 +264,7 @@ describe("P28c roster, çıkarma, rol kapısı (AC-366, 367, 368)", () => {
     // reddedilen İzle (400 gerekçe) `fail`; kabul edilen tek `success`
     const ok = async () => (await audits(o.sessionId, "session.supervise_join")).filter((a) => a.result === "success");
     await until(async () => (await ok()).length === 1);
-    expect((await ok())[0]?.newValue).toEqual({ userId: sup.user.id, role: "observer", chatHistory: 0 }); // P22 r2 §15.5
+    expect((await ok())[0]?.newValue).toEqual({ userId: sup.user.id, role: "observer" });
   });
 
   it("Y-PC-3 / T1: rezervasyon başka kimlik oturumundan WS → 403; rezervasyon 60 sn'de dolmazsa no_show", async () => {

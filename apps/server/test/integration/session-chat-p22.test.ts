@@ -284,7 +284,7 @@ describe("P22 rol kapısı ve çoklu teknisyen (T-P22-4, P28c)", () => {
     ws.ws.close();
   });
 
-  it("AC-264 P28c: sahip + 2 katılımcı + misafir hepsi alır, clientMsgId yalnız gönderende; sonradan katılan geçmiş alır + chatHistory audit", async () => {
+  it("AC-264 P28c: sahip + 2 katılımcı + misafir hepsi alır, clientMsgId yalnız gönderende; sonradan katılan geçmiş alır + chat_history_sent audit (S-P22-Q-1)", async () => {
     const o = await schatGuest();
     const m1 = await inviteAndJoin(live, o);
     o.ws.send({ t: "chat.send", clientMsgId: cid(), body: "önce" });
@@ -294,7 +294,10 @@ describe("P22 rol kapısı ve çoklu teknisyen (T-P22-4, P28c)", () => {
     expect(h.items.map((i) => i.body)).toEqual(["önce"]);
     await until(async () => (await audits(o.sessionId, "session.participant_join")).length === 2);
     const joins = await audits(o.sessionId, "session.participant_join");
-    expect(joins.map((j) => (j.newValue as { chatHistory: number }).chatHistory)).toEqual([0, 1]);
+    expect(joins.every((j) => !("chatHistory" in (j.newValue as object)))).toBe(true);
+    await until(async () => (await audits(o.sessionId, CHAT_AUDIT.HISTORY_SENT)).length === 1);
+    const sent = await audits(o.sessionId, CHAT_AUDIT.HISTORY_SENT);
+    expect(sent.map((x) => [x.userId, x.newValue])).toEqual([[m2.user.id, { userId: m2.user.id, n: 1 }]]);
     const a = cid();
     m1.ws.send({ t: "chat.send", clientMsgId: a, body: "katılımcıdan" });
     const own = await message(m1.ws, (x) => x.body === "katılımcıdan");
@@ -458,5 +461,70 @@ describe("P22 geçmiş bütçesi ve özet (S-P22-1, S-P22-4)", () => {
     await waitMsg(o.ws, "session.ended");
     await tick(200);
     expect(await audits(o.sessionId, CHAT_AUDIT.SUMMARY)).toHaveLength(0);
+  });
+});
+
+describe("P22 güvenlik P22-Q Tur 1 düzeltmesi", () => {
+  it("S-P22-Q-1: sohbet zinciri asılıyken katılan üyenin participant_join audit'i yine hemen yazılır", async () => {
+    const o = await schatGuest();
+    const room = live.app.rooms.get(o.sessionId);
+    const chat = room?.chat;
+    if (!chat) throw new Error("sohbet durumu yok");
+    let release = (): void => undefined;
+    const gate = new Promise<void>((r) => (release = r));
+    chat.chain = chat.chain.then(() => gate);
+    try {
+      const m = await inviteAndJoin(live, o);
+      await until(async () => (await audits(o.sessionId, "session.participant_join")).length === 1, 3000);
+      expect((await audits(o.sessionId, "session.participant_join"))[0]?.newValue).toEqual({ userId: m.user.id, role: "participant" });
+      expect(m.ws.msgs.some((x) => x.t === "chat.history")).toBe(false);
+    } finally {
+      release();
+    }
+  });
+
+  it("S-P22-Q-2: yönetici sonlandırması özetten önce sohbet zincirini bekler (uçuştaki satır özete girer)", async () => {
+    const o = await schatGuest();
+    const chat = live.app.rooms.get(o.sessionId)?.chat;
+    if (!chat) throw new Error("sohbet durumu yok");
+    chat.chain = chat.chain.then(async () => {
+      await tick(300);
+      await storeChat(
+        { db: testDb(), secrets: live.app.secrets },
+        {
+          tenantId: o.tenantId,
+          sessionId: o.sessionId,
+          sender: "CUSTOMER",
+          senderUserId: null,
+          clientMsgId: cid(),
+          body: "geç",
+          now: new Date(),
+        },
+      );
+    });
+    const admin = await newUser(live, o.tenantId, { "sessions.terminate": true, "sessions.view": true }, "ADMIN");
+    const res = await inject(live, "POST", `/api/v1/sessions/${o.sessionId}/terminate`, admin.s, {});
+    expect(res.statusCode).toBe(200);
+    expect((await audits(o.sessionId, CHAT_AUDIT.SUMMARY))[0]?.newValue).toEqual({
+      tech: 0,
+      customer: 1,
+      senderUserIds: [],
+      legacy: false,
+    });
+  });
+
+  it("S-P22-Q-3: oturum toplam tavanı 10.000 (tüm gönderenler) → cap, satır yok", async () => {
+    const o = await schatGuest();
+    o.ws.send({ t: "chat.send", clientMsgId: cid(), body: "ilk" });
+    await message(o.ws);
+    const counts = live.app.rooms.get(o.sessionId)?.chat?.counts;
+    if (!counts) throw new Error("sayaç yok");
+    counts.set("customer", 1999);
+    for (let i = 0; i < 5; i++) counts.set(`tech:eski-${i}`, 1600);
+    live.clock.advance(1000);
+    const b = cid();
+    o.ws.send({ t: "chat.send", clientMsgId: b, body: "fazla" });
+    expect(await rejected(o.ws)).toEqual({ t: "chat.rejected", clientMsgId: b, reason: "cap" });
+    expect(await rows(o.sessionId)).toHaveLength(1);
   });
 });

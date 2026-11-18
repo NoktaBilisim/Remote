@@ -15543,6 +15543,23 @@ değiştirmedi (B2 retention DELETE'i) — plan veri istatistiğine bağlı, dba
 **Doğrulama notu:** EXPIRED/CANCELLED yazan tüm yollar (`cancelPending`, `expireOne`, `cancelPendingDevice`, `cancelTenantPending`) `status: "PENDING"`
 süzgeçli → sohbet satırı imkânsız (yukarıdaki tablo).
 
+### P22-B1 — Güvenlik Tur 1 düzeltmesi (backend-dev, 2026-11-18; kaynak `docs/guvenlik-raporu.md` P22-Q Tur 1, Düşük ×3)
+
+- **S-P22-Q-1** (`signaling/member-life.ts`): üye katılım audit'i (`session.participant_join` / `supervise_join`) yeniden **hemen** ve
+  `chatHistory`'siz yazılıyor (P28c biçimi; `multi-p28c` beklentileri eski haline döndü). r2 §15.5'teki geçmiş sayısı ayrı gövdesiz satıra
+  taşındı: yeni eylem `session.chat_history_sent {userId, n}` (contracts `CHAT_AUDIT.HISTORY_SENT` + etiket; yalnız ilk katılımda, `n > 0`
+  iken, üye başına 1; `signaling/chat.ts` `auditHistorySent`). Sohbet zinciri asılı kalsa da katılım izi kaybolmaz.
+- **S-P22-Q-2** (`sessions/service.ts`, `signaling/rooms.ts`): `RoomNotifier.settleChat?(sessionId)` eklendi; `terminateSession` TX'inden
+  önce odanın sohbet zincirini (uçuştaki INSERT, `chat_legacy`) bekler → özet tutarlı. B1 bölümündeki "kabul edilen artık yarış" maddesi
+  bununla kapandı.
+- **S-P22-Q-3** (`contracts/ws-chat.ts` yalnız ekleme `SESSION_CHAT_CAP_TOTAL = 10_000`; `signaling/chat.ts`): oturum başına toplam mesaj
+  tavanı (tüm gönderenler, `seedCounts` toplamı) → `chat.rejected{cap}` (+ `chat_rejected{cap}` audit'i, mevcut pencere). Tavanda da
+  zaten saklanmış mesajın yeniden gönderimi idempotent yankı alır. Contracts `pt-surface` anlık görüntüsü yalnız eklemeyle güncellendi.
+- **Web etkisi:** yok (yeni audit eylemi `CHAT_AUDIT_LABELS` üzerinden etiketli; `chat.rejected{cap}` mevcut neden).
+- **Testler:** `session-chat-p22.test.ts` += "S-P22-Q-1" (zincir asılıyken katılım audit'i hemen var, geçmiş gitmedi), "S-P22-Q-2"
+  (zincirde gecikmeli satır → terminate özeti `customer:1`), "S-P22-Q-3" (toplam 10.000 → `cap`, satır yok); P28c testi `chat_history_sent`
+  satırını doğrular. Contracts `session-chat-p22.test.ts` beş eylem.
+
 ## P22-O — operasyon: runbook §29 (devops, 2026-11-18)
 
 - `docs/runbook.md` §29 eklendi (yalnız ekleme; staging/prod'a dokunulmadı): yayın sırası (ön yedek → migration
@@ -15562,3 +15579,18 @@ süzgeçli → sohbet satırı imkânsız (yukarıdaki tablo).
   P22 senaryoları (öncesi/temiz/kullanıcı reddi/ilk artış/1 sa sürme ve kalkma/yeniden başlama/S14-2 enjeksiyon), ayrıştırma
   beklentileri (+2 alan), `rs_session_chat_*` ad eşlemesi `ops/metrics.ts`'e karşı. Yerel `test-watch.sh` GEÇTİ, shellcheck (CI
   komutu, `-S warning`) temiz. Runbook §29.5/§29.7 güncellendi; prova ana oturum dağıtımında (DENENMEDİ).
+
+### P22-F — QA Tur 1 düzeltmesi (frontend-dev, 2026-11-18)
+
+- **AC-287 (DÜZELTİLMELİ):** `e2e/p22-chat.spec.ts`'te axe taraması artık her yerde açık + koyu tema ile yapılıyor (`helpers.scanThemes`; tema `html` sınıfıyla zorlanır ve etkin tema doğrulanır). Kapsanan durumlar:
+  - konsol sohbet paneli: dolu, gönderilemedi, eski istemci, gözetimsiz;
+  - misafir sohbeti;
+  - aydınlatma bandı ve genel ayarlar bandı;
+  - oturum detayı sohbet bölümü (`emulateMedia` döngüsü yerine).
+
+  390 px'te `noHorizontalOverflow` eklendi: konsol sohbet paneli (dolu + eski istemci), misafir, aydınlatma bandı.
+- **Öneri uygulandı:** AC-292 satır metni tek kaynak oldu. `components/kvkk/chat-retention-notice.tsx` ve misafir sohbet başlığı artık contracts `CHAT_RETENTION_LINE(days)` kullanıyor; satır sonundaki nokta kalktı, Go istemciyle aynı metin. `tr.json` `wr.retention` anahtarı silinmedi (ortak dosya, yalnız ekleme kuralı); kodda artık kullanılmıyor.
+- **Koşu:**
+  - `npx playwright test e2e/p22-chat.spec.ts`: 10 geçti.
+  - `e2e/p19-j5.spec.ts` (desktop): 19 geçti (talep formu satırı gerilemesi yok).
+  - lint / typecheck temiz; birim testler 591 geçti.

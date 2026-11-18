@@ -160,12 +160,13 @@ describe("P22 rol kapısı ROLE_MAY (S-P22-8)", () => {
 });
 
 describe("P22 audit (§7.1, r2 §15.4)", () => {
-  it("AC-264: dört eylem session.chat_* önekli ve etiketli; ret nedenleri CHAT_REJECT_REASONS alt kümesi (+ outdated)", () => {
+  it("AC-264: beş eylem (S-P22-Q-1 history_sent dahil) session.chat_* önekli ve etiketli; ret nedenleri CHAT_REJECT_REASONS alt kümesi (+ outdated)", () => {
     expect(Object.values(CHAT_AUDIT)).toEqual([
       "session.chat_viewed",
       "session.chat_summary",
       "session.chat_rejected",
       "session.chat_legacy",
+      "session.chat_history_sent",
     ]);
     for (const a of Object.values(CHAT_AUDIT)) expect(CHAT_AUDIT_LABELS[a]).toBeTruthy();
     expect(CHAT_AUDIT_REJECT_REASONS).toEqual(["cap", "forbidden", "internal", "outdated"]);

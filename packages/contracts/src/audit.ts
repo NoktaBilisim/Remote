@@ -597,13 +597,16 @@ export const VOICE_END_REASON_LABELS: Readonly<Record<VoiceEndReason, string>> =
  *  - REJECTED `{reason: CHAT_AUDIT_REJECT_REASONS, sender: MessageSender}` — neden + gönderen başına oturumda 1 (pencere).
  *  - LEGACY `{}` — belirteçsiz AGENT misafir kabul edildiği anda, oturum başına 1; `GET /sessions/:id/history` `chat.legacy`
  *    bu satırdan türetilir.
- * Katılım audit'i (`session.participant_join` / `session.supervise_join`) ilk geçmiş gönderiminde `chatHistory:<n>` taşır (§15.5).
+ *  - HISTORY_SENT `{userId, n}` — üyeye (katılımcı/izleyici) ilk katılımında `n > 0` geçmiş mesaj gönderildi; üye başına 1.
+ *    Güvenlik P22-Q S-P22-Q-1: katılım audit'i (`session.participant_join` / `session.supervise_join`) eskisi gibi HEMEN yazılır
+ *    (geçmiş okumasını beklemez); r2 §15.5'teki `chatHistory:<n>` sayısı bu ayrı satıra taşındı.
  */
 export const CHAT_AUDIT = {
   VIEWED: "session.chat_viewed",
   SUMMARY: "session.chat_summary",
   REJECTED: "session.chat_rejected",
   LEGACY: "session.chat_legacy",
+  HISTORY_SENT: "session.chat_history_sent",
 } as const;
 export type ChatAuditAction = (typeof CHAT_AUDIT)[keyof typeof CHAT_AUDIT];
 /** `session.chat_rejected.reason` (r2 §15.4 (b)): audit'e yalnız bu nedenler yazılır (`rate`/`invalid`/`not_active` yalnız metrik). */
@@ -617,6 +620,7 @@ export const CHAT_AUDIT_LABELS: Readonly<Record<ChatAuditAction, string>> = {
   [CHAT_AUDIT.SUMMARY]: "Oturum sohbeti özeti",
   [CHAT_AUDIT.REJECTED]: "Sohbet mesajı reddedildi",
   [CHAT_AUDIT.LEGACY]: "Müşteri istemcisi eski — sohbet kapalı",
+  [CHAT_AUDIT.HISTORY_SENT]: "Katılan teknisyene önceki sohbet mesajları gösterildi",
 };
 
 /** Audit `entity` değerleri (S16-1: maske `entity = AUDIT_ENTITY.USERS` satırlarında hedef kullanıcıya da bakar). */

@@ -1410,6 +1410,7 @@ exports[`PT-K1 contracts yüzeyi > AC-318: her exports yolunun dışa verdiği a
     "GUEST_CHAT_STATES",
     "GuestChatState (tip)",
     "SESSION_CHAT_CAP_PER_SENDER",
+    "SESSION_CHAT_CAP_TOTAL",
     "SESSION_CHAT_MIN_CLIENT",
     "SESSION_CHAT_TENANT_CUSTOMER_PER_MIN",
     "WS_CAP_SCHAT",
