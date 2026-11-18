@@ -974,3 +974,84 @@ Not: ilk entegrasyon koşusu, önceki ajandan kalan `rs-p21-test` konteyneri ned
 - K7 runbook provası (down.sql guard, KVKK elle silme, yeniden ileri migration) gerçek DB'de yapılmış.
 
 DURUM: DÜZELTİLMELİ
+
+---
+
+## P21 — Tur 2
+
+Tarih: 2026-11-18 · Denetçi: qa-denetci · Commit: `41c78e4` ("P21 — Düzeltme turu 1", `docs/implementation.md`) · Kod değiştirilmedi.
+Makine yükü bu turda yüksekti (load average 17–28, başka çalışma ağaçlarının testleri). Zamanlamaya bağlı kırmızılar aşağıda ayrı değerlendirildi.
+
+### Test sonucu
+
+| Komut | Sonuç |
+| --- | --- |
+| `pnpm format:check` | ✅ "All matched files use Prettier code style!" (Q-P21-1 kapandı) |
+| `pnpm -r run typecheck` / `pnpm -r run lint` | ✅ temiz, uyarı yok |
+| `pnpm -r run test` | contracts 280/280 ve web 605/605 geçti. Server: 674 geçti, 1 atlandı (gerekçeli, `CLAMD_TEST_HOST`), **1 kaldı**: `rec-webm-dos` "Y-P28e-K2-1 … oran < 15" (iki tam koşuda 24,4 çıktı). Tek başına 17/17 yeşil. Bu, P28e'nin CPU zaman bütçesi testi; P21 diff'inde yok |
+| Server `test:int`, temiz `rs-p21-test`, koşu 1 | 1216 testten 1215 geçti. Kalan: `unattended-consent-k4` AC-445 (P28u audit sıra yarışı). Tek başına 3/3 yeşil |
+| Server `test:int`, koşu 2 | ✅ 117 dosya / 1216 test yeşil |
+| Server `test:int`, koşu 3 | 1216 testten 1214 geçti. Kalanlar: (a) `customers-csv-p19` "5 000 satır ≤ 30 sn" 41,8 sn sürdü (yük); (b) `db-grants` AC-123, aşağıdaki not |
+| Kalanlar + P21 dosyaları tek başına (`db-grants`, `customers-csv-p19`, `portal-p21-{auth,data,requests}`, `tenant-purge-p16`) | ✅ 6 dosya / 71 test |
+| Web e2e `portal-p21 p19` | ✅ 56 geçti, 12 atlandı (`desktopOnly`, gerekçeli), 0 hata |
+
+**Kırmızıların değerlendirmesi:**
+- Üç tam koşunun hiçbirinde P21 test dosyası kırmızı değildi.
+- Kırmızı dört test de `main...HEAD` diff'inde **değişmeyen** dosyalarda ve P21 kod yolunda değil. Hepsi tek başına yeşil.
+- Üçünün nedeni zaman/yük: P28e CPU bütçesi, P19 30 sn ölçümü, P28u audit sırası.
+- `db-grants` AC-123'ün kök nedeni tespit edildi ve test hatası: `/1295|not supported…/` regex'i hata metnindeki **bağlantı numarasına** (`conn:1295`) denk geldi; gerçek hata doğru olan 1142 "INSERT command denied". Bu P11'den beri var olan gizli bir sahte kırmızı.
+- Kapanış koşulum olan "art arda iki tam yeşil" bu makinede sağlanamadı (yalnız koşu 2 yeşil). backend-dev aynı commit'te art arda iki yeşil koşu raporladı (implementation.md "Doğrulama"). Kırmızılar P21 dışı olduğu ve kanıtla açıklandığı için P21 kapanışını engellemez kabul edildi. Takip maddeleri Öneriler'de.
+
+### Tur 1 bulgularının kapanışı
+
+| Bulgu | Durum | Kanıt |
+| --- | --- | --- |
+| Q-P21-1 format | ✅ Kapandı | `format:check` yeşil |
+| Q-P21-2 firma silmede portal satırı | ✅ Kapandı | `tenant-purge.ts` fikstürü portal hesabı + oturum + portal audit satırı ekliyor. `tenant-purge-p16` AC-242 şunları doğruluyor: önizlemede iki tabloda 1'er satır, `counts.SESSIONS` = adım tablolarının toplamı, yürütme sonrası 0, silme sonrası audit/CSV'de portal e-postası yok. Testi okudum |
+| Q-P21-3 AC-242 aralıklı 503 | ✅ Kapandı (gerekçeli) | Kök neden: `tenant_purge_jobs_tenant_id_idx` boşluk kilidi + INSERT deadlock 1213, P16 kodu ve P21 dışı (implementation.md kanıtı: INNODB STATUS). Testte yalnız 503'te en çok 3 deneme (`retryNotReady`). Üç tam koşuda AC-242 yeşil |
+| Q-P21-4 `mimari-api.md` P21 bölümü | ✅ Kapandı | `docs/mimari-api.md:404` "Müşteri portalı (P21)" |
+| Q-P21-5 ref yenileme testleri | ✅ Kapandı | `portal-p21-requests` iki yeni test: yenileme sonrası talep aynı müşteriye 201; eşzamanlı yenilemede yalnız 201 veya 409 "Talep bağlantınız yenilendi…"; bayat bağlamda 409 ve talep yazılmıyor |
+| Q-P21-6 `display-capture` istisnası | ✅ Kapandı | Güvenlik kod turu 1, S-P21-K-3 olarak kabul etti (`docs/guvenlik-raporu.md`) |
+
+### Güvenlik düzeltmeleri (kontrol)
+
+- **S-P21-K-1:** `portal/auth.ts` `portalTotpEnable` aynı TX'te `repo.revokeOtherPortalSessions` çağırıyor. Bu fonksiyon kilitsiz okuma yapıp PK ile UPDATE ediyor; mevcut oturum hariç ve yalnız aynı `tenantId` + `portalUserId` kapsamında. Audit'e `revokedSessions` yazılıyor. Test "AC-262 S-P21-K-1" şunları doğruluyor: diğer iki oturum 401, mevcut oturum ve aynı müşterinin başka hesabı 200, `revokedSessions: 2`, açık oturum sayısı 1. ✅
+- **S-P21-K-4:** `lib/logger.ts` `REDACT_PATHS`'ten `*.code` kaldırıldı; `*.totpCode` ve `*.temporaryPassword` kaldı. Yeni `test/unit/logger-p21.test.ts` iki şeyi kanıtlıyor: hata nesnelerindeki `code` (P2002, ECONNREFUSED) logda görünüyor; TOTP kodu, geçici şifre ve `body.code` / `request.body.code` gizli. Mimari §14 ek notundan sapma `mimari-api.md`'de gerekçeli. ✅
+
+### Kabul kriterleri
+
+| AC | Durum | Kanıt |
+| --- | --- | --- |
+| AC-262 (giriş + TOTP, kendi geçmişi/meta, yeni talep, firma dosyası, Admin oluştur/pasife al, IDOR 404) | ✅ | Tur 1 kanıtları + Q-P21-2/5 testleri + S-P21-K-1 testi; üç tam koşuda P21 dosyaları yeşil; e2e yeşil |
+| AC-285 | ✅ | `customers.portal`, AC-72 testi yeşil |
+| AC-286 | Uygulanamaz | Yeni dış servis yok |
+| AC-287 | ✅ | e2e "AC-287" portal ekranları ve panel bölümü: iki tema axe 0, 390 px |
+| AC-288 | ⚠️ K10'a bağlı | Plan gereği K9'dan sonra teknik-yazar yapacak; paketin son kapısıdır, qa kod turunu engellemez |
+| AC-289 | Uygulanamaz | İstemci değişmedi |
+| AC-290 | ✅ (qa + güvenlik kod turu) | Güvenlik kod turu 1 GEÇTİ (Kritik 0 / Yüksek 0); bu qa turu GEÇTİ |
+
+### Definition of Done
+
+| Madde | Durum | Not |
+| --- | --- | --- |
+| Lint / tip / format | ✅ | |
+| P21 testleri yeşil (birim, entegrasyon, e2e) | ✅ | Üç tam koşu + tek başına koşu |
+| Tüm depo testleri yeşil | ⚠️ | P21 dışı, yük kaynaklı ve tek başına yeşil 4 test (yukarıda) |
+| AC kanıtları | ✅ | AC-288 hariç (K10) |
+| Tasarım-kod uyumu, sapmalar gerekçeli | ✅ | `*.code` sapması ve Q-P21-3 kararı gerekçeli |
+| Tenant izolasyonu, grants, env, ortak dosyalarda yalnız ekleme, audit, sayfalama | ✅ | Tur 1'den değişmedi |
+| Dokümantasyon (AC-288) | ⏳ | K10 |
+
+### Öneriler (zorunlu değil, P21 dışı; ilgili paket sahibine)
+
+1. [backend-dev] `apps/server/test/integration/db-grants.test.ts:22`: `/1295|…/` regex'i bağlantı numarasıyla (`conn:1295`) eşleşebiliyor. Hata kodu `errno=1295` / `no: 1295` biçiminde aranmalı.
+2. [backend-dev] P16 `lockOpenJob` boşluk kilidi yerine kilitsiz okuma + PK `FOR UPDATE` (implementation.md "Sonra" notu).
+3. [backend-dev] Yük altında kırmızıya dönen ölçüm testleri: `rec-webm-dos` oran < 15, `customers-csv-p19` ≤ 30 sn, `unattended-consent-k4` AC-445 audit sırası. CI'da kararlılık izlenmeli; yerel paralel koşularda bütçeler gevşetilebilir ya da `waitUntil` eklenebilir.
+4. [devops] `test-db.sh up` var olan konteynerde hata verip boş çıktı ile devam ediyor (Tur 1 notu); hâlâ geçerli.
+
+### Olumlu
+
+- Düzeltmeler küçük ve hedefli: üretim kodunda yalnız `portal/{auth,repo}.ts` ve `lib/logger.ts` değişti. Q-P21-3 için kök neden kanıtla bulundu, üretim kodu gereksiz yere değiştirilmedi.
+- S-P21-K-1 iptal sorgusu panel kalıbıyla aynı şekilde boşluk kilidinden kaçınıyor.
+
+DURUM: GEÇTİ
