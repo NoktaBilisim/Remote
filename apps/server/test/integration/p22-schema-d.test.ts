@@ -129,8 +129,7 @@ describe("P22-D session_messages UQ (session_id, sender, client_msg_id) — AC-2
         Array.from({ length: 25 }, (_, k) => row(t.id, { sessionId: sid, clientMsgId: cmid(), ...(k % 2 ? { techId: u.id } : {}) })),
       ),
     });
-    // Retention anındaki gerçek hâl: parti aynı TX'te anonimleşmiş ve firmada PURGE_CUT'a kadar başka anonim oturumlar var.
-    // (Anonim oturum yokken iyileştirici IX(tenant_id, anonymized_at, created_at) boş aralığını seçer — 0 satır, zararsız.)
+    // Retention anındaki gerçek hâl: parti aynı TX'te anonimleşmiş (firmada PURGE_CUT'a kadar başka anonim oturumlar da olabilir).
     await testFixtureDb().$executeRaw`UPDATE support_sessions SET anonymized_at = UTC_TIMESTAMP(3) WHERE tenant_id = ${t.id}`;
     await testFixtureDb().$executeRawUnsafe("ANALYZE TABLE session_messages, support_sessions");
     const plan = async (sql: string, ...args: unknown[]) =>
@@ -173,7 +172,13 @@ describe("P22-D session_messages UQ (session_id, sender, client_msg_id) — AC-2
       t.id,
       ...part,
     );
-    expect(del).toContain(`m:${IX}`);
-    expect(del.find((x) => x.startsWith("s:"))).toMatch(/^s:(PRIMARY|support_sessions_id_tenant_id_key)$/);
+    // `m`: oturum önekli iki indeksten biri (IX ya da yeni UQ, ikisi de `session_id = s.id` lookup; tek oturumun satırları).
+    expect([`m:${IX}`, `m:${UQ}`]).toContain(del.find((x) => x.startsWith("m:")));
+    // `s` için iki aralıktan küçüğü seçilir (db-notlari "P22"): parti `IN` listesi (PRIMARY / UQ(id, tenant_id)) ya da firmanın
+    // anonim oturumları (kapsayan IX(tenant_id, anonymized_at, created_at)). İkisi de parti ya da anonim sayısıyla sınırlı; tam
+    // tarama / tenant indeksi kabul edilmez. 2.040 anonim oturumda PRIMARY seçildiği elle doğrulandı.
+    expect(del.find((x) => x.startsWith("s:"))).toMatch(
+      /^s:(PRIMARY|support_sessions_id_tenant_id_key|support_sessions_tenant_id_anonymized_at_created_at_idx)$/,
+    );
   });
 });

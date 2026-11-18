@@ -1737,11 +1737,24 @@ Test verisi: 40 oturum × 25 mesaj, oturumlar anonim, `ANALYZE TABLE` sonrası (
 | Geçmiş: `WHERE session_id=? AND tenant_id=? ORDER BY created_at DESC, id DESC LIMIT 100` | `ref` IX(`session_id`,`tenant_id`,`created_at`), _Backward index scan_, filesort yok                                                                                                               |
 | Özet (§15.4): `WHERE session_id=? AND tenant_id=? GROUP BY sender, sender_user_id`       | `ref` yeni UQ (yalnız `session_id` öneki, key_len 105) + `Using temporary`; tenant süzgeci satırda. Oturum başına ≤ ~10.000 satırla sınırlı → kabul. Test iki session önekli indeksi de kabul eder |
 | Retention bütçesi (§15.3): `WHERE tenant_id=? AND session_id IN (…) GROUP BY session_id` | `ref` IX(`session_id`,`tenant_id`,…), _Using index_ (kapsayan)                                                                                                                                     |
-| Retention DELETE join'i (§3.3)                                                           | `s`: PRIMARY üzerinde `IN` aralığı (iyileştirici `m.session_id IN` koşulunu `s.id`'ye taşır) → `m`: IX(`session_id`,`tenant_id`) lookup. İç içe döngü, parti boyutuyla sınırlı                     |
+| Retention DELETE join'i (§3.3)                                                           | `s`: iki aralıktan küçüğü (aşağıdaki not) → `m`: IX(`session_id`,`tenant_id`) lookup. İç içe döngü; parti ya da firmanın anonim oturum sayısıyla sınırlı                                           |
 | Yinelenen yeniden okuma: `WHERE session_id=? AND sender=? AND client_msg_id=?`           | yeni UQ (eq)                                                                                                                                                                                       |
 
-Not: firmada hiç anonim oturum yokken DELETE planında `s` için IX(`tenant_id`,`anonymized_at`,`created_at`) boş aralığı seçilir
-(0 satır; zararsız). Gerçek koşuda parti aynı TX'te anonimleşmiş olduğundan plan yukarıdaki gibidir.
+DELETE join'inde `s` planı (P22-B2 `retention-repo.ts` `anonymizeSessionBatch`, sorgu §3.3 ile birebir; 2026-11-18 yeniden
+incelendi): iyileştirici `m.session_id IN (…)` koşulunu `s.id`'ye taşır ve iki aralığı karşılaştırır — (a) PRIMARY üzerinde
+parti `IN` aralığı (≤ `SESSION_BATCH` = 1000 satır), (b) kapsayan IX(`tenant_id`,`anonymized_at`,`created_at`) üzerinde firmanın
+anonim oturumları (`anonymized_at IS NOT NULL`, PURGE_CUT'a kadar kalanlar). Index dive ile küçük olanı seçer:
+
+- Firmada az anonim oturum (test: 40 anonim, parti 10; 28 bin oturumlu DB) → (b), 40 satır kapsayan tarama, maliyet 9,07.
+- Aynı firmada 2.040 anonim oturum (TX içinde eklenip geri alındı) → (a), PRIMARY 10 aralık.
+- Hiç anonim oturum yok → (b) boş aralık (0 satır).
+
+İki plan da parti ya da anonim sayısıyla sınırlı, tam tarama yok → **kabul**; sorgu/indeks değişikliği ve ipucu gerekmez.
+Not: `IN` listesi > `eq_range_index_dive_limit` (200) olduğunda (a) istatistikle (değer başına ~1 satır) tahmin edilir; (b) yine dive
+ile sayılır, karşılaştırma doğru yönde kalır.
+`m` tarafında iyileştirici IX(`session_id`,`tenant_id`,`created_at`) ya da yeni UQ'yu (`session_id` öneki; tenant süzgeci
+satırda) seçebilir — ikisi de `session_id = s.id` lookup, tek oturumun satırları; fark yok. Test (`p22-schema-d`) `m` için bu iki
+indeksten birini, `s` için yukarıdaki üç anahtardan birini doğrular.
 
 ### Kilit ve bakım penceresi
 
