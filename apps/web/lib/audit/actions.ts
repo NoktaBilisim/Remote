@@ -23,6 +23,7 @@ import {
   RETENTION_AUDIT,
   VOICE_AUDIT_GROUP_LABELS,
   VOICE_AUDIT_LABELS,
+  CHAT_AUDIT_LABELS,
   SYSTEM_AUDIT,
   TENANT_AUDIT,
   USER_AUDIT,
@@ -125,6 +126,8 @@ const AUDIT_ACTION_LABELS: Readonly<Record<string, string>> = {
   ...RECORDING_AUDIT_LABELS,
   // P28d (mimari-p28d §6; AC-379): voice.request/accept/reject/join/end
   ...VOICE_AUDIT_LABELS,
+  // P22 (mimari-p22 §7.1; test-raporu D-1): oturum sohbeti görüntüleme/özet/ret/eski istemci/geçmiş gönderimi
+  ...CHAT_AUDIT_LABELS,
 };
 
 /**

@@ -160,6 +160,21 @@ test("K-P22-8 gözetimsiz oda: sohbet sekmesi pasif bilgi", async ({ page, conte
   await a.context().close();
 });
 
+test("S-P22-2 (D-2): 4426 kapanışında başlık/rozet 'Konsol sürümü eski' + Sayfayı yenile; 'Bitti' yok", async ({ page, context }, info) => {
+  desktopOnly(info.project.name);
+  await signIn(context, "p7");
+  await page.routeWebSocket(/\/ws\/tech/, (ws) => void ws.close({ code: 4426, reason: "console_outdated" }));
+  const { id } = await newSession(page);
+  await page.goto(`/sessions/${id}/console`);
+  await expect(page.getByTestId("console-status")).toHaveText("Konsol sürümü eski");
+  const box = page.getByTestId("console-ended");
+  await expect(box.getByRole("heading")).toHaveText("Konsol sürümü eski");
+  await expect(box).toContainText("sayfayı yenileyin");
+  await expect(page.getByTestId("console-reload")).toBeVisible();
+  await expect(page.getByTestId("console-status")).not.toHaveText("Bitti");
+  await scanThemes(page, '[data-testid="console"]', "konsol 4426");
+});
+
 async function historyAs(context: BrowserContext, page: Page, scenario: string, id: string) {
   await signIn(context, scenario);
   await page.goto(`/history/${id}`);

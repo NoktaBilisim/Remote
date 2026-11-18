@@ -15594,3 +15594,19 @@ süzgeçli → sohbet satırı imkânsız (yukarıdaki tablo).
   - `npx playwright test e2e/p22-chat.spec.ts`: 10 geçti.
   - `e2e/p19-j5.spec.ts` (desktop): 19 geçti (talep formu satırı gerilemesi yok).
   - lint / typecheck temiz; birim testler 591 geçti.
+
+### P22-F — test-operatörü D-1 / D-2 düzeltmesi (frontend-dev, 2026-11-18)
+
+- **D-1:** Audit ekranında P22 eylemleri artık Türkçe etiketle görünüyor. Kapsanan eylemler: `session.chat_viewed`, `chat_summary`, `chat_rejected`, `chat_legacy`, `chat_history_sent`. Değişiklik:
+  - `packages/contracts/src/labels.ts` `TIMELINE_ACTION_LABELS` += `...CHAT_AUDIT_LABELS` (yalnız ekleme);
+  - `apps/web/lib/audit/actions.ts` `AUDIT_ACTION_LABELS` += `...CHAT_AUDIT_LABELS`.
+
+  `pt-surface` snapshot'ı yalnız export adlarını listeliyor, yeni export olmadığı için değişmedi. Contracts testleri 286 geçti.
+- **D-2:** 4426 kapanışında konsol başlığı ve rozeti artık "Konsol sürümü eski" gösteriyor (uyarı tonu); "Oturum sona erdi" ve "Bitti" görünmüyor. Neden metni: "Oturum sürüyor, ancak bu sekme eski konsol sürümüyle açık — sayfayı yenileyin." + "Sayfayı yenile" düğmesi. `tr.json`'a `c.st.outdated` ve `c.outdatedTitle` eklendi; bu paketin kendi anahtarı `c.reason.console_outdated` metni güncellendi.
+- **Testler:**
+  - Birim: `lib/chat/chat-p22.test.ts` → "S-P22-2 konsol kapısı (4426)" (4426 → `console_outdated`, yeniden bağlanma yok).
+  - e2e: `p22-chat.spec.ts` → "S-P22-2 (D-2)" (`routeWebSocket` 4426; rozet, başlık, düğme, iki tema axe).
+- **Koşu:**
+  - web lint / typecheck temiz; birim testler 592 geçti.
+  - `npx playwright test e2e/p22-chat.spec.ts`: 11 geçti.
+  - contracts lint / typecheck temiz; server typecheck temiz.

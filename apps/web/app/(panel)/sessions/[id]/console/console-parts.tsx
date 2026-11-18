@@ -27,7 +27,7 @@ export function ConsoleEnded({ end, deviceId = null }: { end: TechState["end"]; 
       data-testid="console-ended"
       className="flex flex-col items-start gap-3 rounded-lg border border-border bg-surface p-6"
     >
-      <h2 className="text-lg font-semibold text-fg">{t("c.endedTitle")}</h2>
+      <h2 className="text-lg font-semibold text-fg">{t(end === "console_outdated" ? "c.outdatedTitle" : "c.endedTitle")}</h2>
       <p className="text-sm text-fg-muted">{t(`c.reason.${end ?? "server"}`)}</p>
       {end === "console_outdated" && (
         <Button variant="secondary" onClick={() => location.reload()} data-testid="console-reload">

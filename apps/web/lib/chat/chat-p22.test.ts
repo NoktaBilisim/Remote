@@ -4,6 +4,7 @@ import { CHAT_CLIENT_MSG_ID_PATTERN } from "@remote/contracts/ws-chat";
 import { LEGACY_CHAT_NOTICE } from "@remote/contracts/chat";
 import { chatModelReducer, clipCodePoints, initialChatModel, isMine, newClientMsgId, type ChatModel } from "./model";
 import { legacyNotifier, LEGACY_NOTICE_INTERVAL_MS } from "./legacy-notice";
+import { initialTech, techReducer } from "../webrtc/tech-machine";
 
 // P22 (mimari-p22 §4.2, §8.1; AC-264) — oturum sohbeti modeli ve K-P22-3 sabit bildirimi.
 const fx = JSON.parse(readFileSync(new URL("../../../../packages/contracts/fixtures/ws-session-chat.json", import.meta.url), "utf8")) as {
@@ -117,5 +118,16 @@ describe("K-P22-3 eski istemci sabit bildirimi", () => {
     }
     // gönderim fonksiyonu metin parametresi almaz
     expect(n.length).toBe(1);
+  });
+});
+
+describe("S-P22-2 konsol kapısı (4426)", () => {
+  it("4426 → console_outdated (oturum bitti sayılmaz, yeniden bağlanma denenmez)", () => {
+    const live = { ...initialTech, phase: "live" as const };
+    const s = techReducer(live, { type: "closed", code: 4426, now: 1 });
+    expect(s.end).toBe("console_outdated");
+    expect(s.reconnectSince).toBeNull();
+    // diğer kapanış kodları etkilenmez
+    expect(techReducer(live, { type: "closed", code: 1006, now: 1 }).reconnectSince).toBe(1);
   });
 });
