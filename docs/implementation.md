@@ -15266,7 +15266,8 @@ Silinen: `TestSP28f1LocalEventRejectsOwnSynthetic` (`LocalEvent` ile; `zorunlu=`
 - Grants, tetikleyici (23), check-app-grants değişmedi. Test `apps/server/test/integration/p22-schema-d.test.ts`. Ayrıntı ve EXPLAIN:
   `docs/db-notlari.md` "P22".
 - P22-B'ye not: özet sorgusu (`GROUP BY sender, sender_user_id`) iyileştiricide yeni UQ'yu seçebilir (tek oturumla sınırlı, kabul).
-  Retention DELETE join'i mimari §3.3 biçimiyle PRIMARY `IN` aralığı + IX lookup kullanır; ek ipucu gerekmez.
+  Retention DELETE join'i (§3.3 biçimi) `s` için PRIMARY `IN` aralığı ya da kapsayan IX(`tenant_id`,`anonymized_at`,`created_at`)
+  seçer (küçük olanı; db-notlari "P22"); `m` IX lookup. İki plan da sınırlı, ek ipucu gerekmez.
 
 ## P22-C — Contracts: oturum sohbeti sözleşmesi (backend-dev, 2026-11-18)
 
@@ -15541,3 +15542,17 @@ değiştirmedi (B2 retention DELETE'i) — plan veri istatistiğine bağlı, dba
 
 **Doğrulama notu:** EXPIRED/CANCELLED yazan tüm yollar (`cancelPending`, `expireOne`, `cancelPendingDevice`, `cancelTenantPending`) `status: "PENDING"`
 süzgeçli → sohbet satırı imkânsız (yukarıdaki tablo).
+
+## P22-O — operasyon: runbook §29 (devops, 2026-11-18)
+
+- `docs/runbook.md` §29 eklendi (yalnız ekleme; staging/prod'a dokunulmadı): yayın sırası (ön yedek → migration
+  `20261126000000_p22_session_chat` → imaj → düşük trafikte `docker compose --profile setup run --rm seed`; AC-127 400 etkisi, idempotent
+  ikinci koşu `consentTextsCreated=0`), Admin metinli firmalar sorgusu, §10.2 geçiş kuralı + yayın kararı satırı, K-P22-15 tarih
+  satırları (P22-G prod + 60 gün; doldurulacak), P22 metrikleri, `rs_ws_tech_outdated_total`, audit tabanlı legacy oranı sorgusu,
+  geri alma (FK RESTRICT notu), anahtar emekliliği.
+- **Kodda doğrulandı:** yeni env yok (`git diff main -- apps/server/src/env.ts` boş); `crypto:check-retire` `session_messages`'ı
+  süzgeçsiz sayar → oturum satırları dahil, `rewrap` AAD `request_id ?? session_id`; P22 retention yolu (`anonymizeSessionBatch`
+  mesaj sayımı + join'li DELETE) firma adımı `try/catch`'inde → `rs_retention_failures_total` → mevcut `retention` alarmı kapsar;
+  `crypto-decrypt` alarmı bütün `table` serilerini toplar.
+- **Açık (yapılmadı, tur sınırı):** `remote-watch.sh` `session-chat-internal` kontrolü (mimari §7.2 alarm kuralı) + `test-watch.sh`;
+  tasarım runbook §29.7'de. `test-watch.sh` mevcut hâliyle yerelde GEÇTİ (değişiklik yok). Staging seed + alarm provası DENENMEDİ.

@@ -4861,3 +4861,139 @@ derlemenin `cmp`'i bunu da karşılaştırır); `sign-mac` 4. satır = `APPLE_TE
 gömülmez, davranış değişmez. Elle staging derlemesi (§28f.4 docker komutu) Team ID geçirmez (TEST bandı zaten görünür).
 Yerel prova: Team ID'siz iki derleme SHA eşit; uydurma sembol → ret, çıktı yok; var olan bir sembolle (geçici kopya) → kabul, değer
 ikilide; `abcde12345`, 9 karakter, `"ABCDE12345 -X a=b"`, satır sonlu değer → çıkış 2.
+
+## 29. P22 — oturum sohbeti (sunucu + web; istemci 0.21.0 = P22-G ayrı) (devops P22-O, 2026-11-18; mimari-p22 §7.2, §10.2, §13, §15.2/§15.3/§15.7; ADR-0025 r-P22; AC-264, AC-291)
+
+Bu bölüm yayın **talimatıdır**; P22-O'da staging/prod'a dokunulmadı. **DENENMEDİ:** staging seed provası ve alarm provası
+(§10.1 P22-O kabulü) ilk staging yayınında koordinatör tarafından yapılır ve §8 yayın geçmişine yazılır.
+
+**Yeni env yok** (`git diff main -- apps/server/src/env.ts` boş; `.env.example` / compose değişmez). Caddy / host nginx değişmez
+(sohbet mevcut `/ws/tech` ve `/ws/guest` üzerinden; yeni REST yolu `GET /api/sessions/:id/chat` mevcut önekte).
+
+### 29.1 Yayın sırası (staging; prod aynı, §29.3 kararıyla)
+
+| #   | Komut (sunucu, root, `/opt/remote/deploy`; ikinci yığın `/opt/remote-stg/deploy`)                                                               | Beklenen                                                                                                                                                                                 |
+| --- | ----------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1   | Ön yedek, `git pull`'dan ÖNCE: `systemctl start remote-backup.service; journalctl -u remote-backup -n 5 --no-pager \| grep -E 'OK run\|FAILED'` | `remote-backup: OK … tetikleyici=23`                                                                                                                                                     |
+| 2   | §25.2 akışı: `git pull` → `.env` `IMAGE_TAG` → `docker compose build && docker compose up -d` → `docker compose logs --since 5m migrate`        | `20261126000000_p22_session_chat` uygulandı (yalnız UQ indeks, INPLACE / LOCK=NONE; çevrimiçi). Server/web healthy. `P22_PRECHECK dup_session_client=<n>` ile durursa §29.6              |
+| 3   | `check-app-grants.sh` (§6 yöntemi)                                                                                                              | **873/873 PASS**, tetikleyici 23 (db-notlari "P22": grants ve tetikleyici değişmedi). Farklıysa dur, dba                                                                                 |
+| 4   | **Düşük trafik anında** (müşteri karşılama sayfası açık değilken; mesai dışı): `docker compose --profile setup run --rm seed`                   | `seed: … consentTextsCreated=<n> …` — n = sistem metnini kullanan firma sayısı (ilk koşu); **ikinci koşu `consentTextsCreated=0`** (idempotent: gövde özeti aynıysa yeni sürüm yazılmaz) |
+| 5   | Admin metinli firmalar (§29.2 sorgusu)                                                                                                          | Listelenen firmalar seed'den etkilenmez; Admin'e "Standart paragrafı ekle" duyurusu                                                                                                      |
+| 6   | `cd ops && ./remote-watch.sh install` (+ `install stg`) → `systemctl start remote-watch.service; journalctl -u remote-watch -n 5`               | `OK (<n> kontrol)`; P22 metrikleri §29.4 komutuyla görünür                                                                                                                               |
+| 7   | Duman: konsoldan bir Hızlı Destek, misafir **tarayıcı** ile katılır, iki yönlü mesaj; oturum bitince Geçmiş → oturum → Sohbet                   | Mesajlar canlı görünür, geçmişte aynı sırada; audit'te `session.chat_summary` (sayı = mesaj sayısı)                                                                                      |
+| 8   | §8 yayın geçmişine satır (commit, migration adı, seed çıktısı `consentTextsCreated=<n>`, grants 873/873, §29.3 kararı)                          | —                                                                                                                                                                                        |
+
+**AC-127 etkisi (seed, adım 4):** seed sistem metinli her firmada aydınlatma metninin yeni sürümünü (max+1) yayımlar ve eskisini
+`is_current=0` yapar. O anda **eski sürümle açık karşılama sayfaları join'de 400** alır (müşteri "sayfayı yenileyin" görür); sayfa
+yenilenince güncel metin gelir ve katılım çalışır. Bu yüzden düşük trafikte çalıştırılır. Audit: `consent_text.created {source:"seed"}`.
+Sırayla `up -d`'den sonra çalıştırılır (yeni metin paragrafı yeni imajdaki `defaultConsentBody`'den gelir).
+
+**Yayın sonrası açık konsol sekmeleri:** yeni sunucu `rs.cap.schat1` bildirmeyen `/ws/tech` soketini **4426** ile kapatır; eski
+derlemeyle açık konsol bağlanamaz, "sayfayı yenileyin" (eski sekme genel yeniden bağlanma hatası gösterebilir) — yenileme düzeltir.
+Sayı: `rs_ws_tech_outdated_total` (§29.4). Yayından sonraki ilk saatlerde artması normaldir; günler sonra hâlâ artıyorsa bir
+web derlemesi önbellekte kalmıştır (host nginx/CDN önbelleği, kiosk tarayıcı).
+
+### 29.2 Admin'in yazdığı aydınlatma metni (K-P22-5)
+
+Seed Admin'in yazdığı güncel metne (`created_by` dolu) **dokunmaz**; o firmalarda sohbet paragrafı yoktur, ayar ekranında uyarı bandı
+ve "Standart paragrafı ekle" çıkar (`chatParagraphMissing`). Listesi (salt okuma, migrator ya da app):
+
+```bash
+docker compose exec -T mysql sh -c 'MYSQL_PWD="$MYSQL_MIGRATOR_PASSWORD" mysql -umigrator -NB "$MYSQL_DATABASE" -e "SELECT c.tenant_id, t.name, c.version, c.created_at FROM consent_texts c JOIN tenants t ON t.id = c.tenant_id WHERE c.is_current = 1 AND c.created_by IS NOT NULL ORDER BY t.name"'
+```
+
+Çekirdek sorgu: `SELECT tenant_id FROM consent_texts WHERE is_current=1 AND created_by IS NOT NULL`. Çıkan firmaların Admin'lerine
+duyuru: Ayarlar → Aydınlatma metni → "Standart paragrafı ekle" → Kaydet (yeni sürüm; o anda o firmada açık karşılama sayfaları
+da AC-127 ile 400 alır — Admin'e düşük trafikte yapması söylenir).
+
+### 29.3 Geçiş kuralı (mimari-p22 §10.2, K-P22-12) ve yayın kararı
+
+- **Sunucu+web P22-G'siz yayımlanabilir.** Yeni sunucu + ≤ 0.20.x yerel istemci (Windows/macOS/Linux, kayıtlı/tepsi dahil): oturum
+  sohbeti iki tarafta **kapalı** — konsolda "Müşterinin istemcisi eski…", istemcide sabit bildirim "Bu sürümde sohbet kapalıdır…
+  lütfen sohbet için programı güncelleyin." Görüntü, kontrol, dosya, ses, kayıt ve talep sohbeti (`/ws/request`) etkilenmez.
+  Tarayıcı modu tam çalışır: teknisyen gerekirse müşteriyi tarayıcıya ya da telefona yönlendirir. Audit: `session.chat_legacy`.
+- **Öneri:** staging'e sunucu+web bağımsız çıkar; **prod'a P22-G 0.21.0 ile aynı bakım penceresinde** çıkar (eski istemcide sohbetin
+  kapalı kaldığı süre ~0). P22-G gecikirse prod yayını yine yapılabilir (yukarıdaki bozulma kabul edilmiştir).
+- **Sıra kuralı:** yeni istemci (0.21.0) + eski sunucu = onay düğmesi pasif → istemci kullanılamaz. **Sunucu önce**, istemci sonra;
+  P22-G yayımlandıktan sonra sunucu **geri alınmaz**, ileri düzeltilir (§29.6).
+- Karar (yayın günü doldurulur): `Prod yayını: [ ] P22-G ile aynı pencere  [ ] P22-G'siz (gerekçe: …)  — tarih: …, karar veren: …`
+
+**Asgari istemci politikası (K-P22-15, Sonra — tarihli):** P22-G 0.21.0 **prod** yayınından **60 gün sonra** `schat1` bildirmeyen
+AGENT misafiri kabul edilmeyecek ("Programı güncelleyin"; contracts sabiti `SESSION_CHAT_MIN_CLIENT`, env değil). Uygulama ayrı küçük
+paket (AC gerekir → proje-yöneticisi, gereksinimler §9 Sonra). Yayın günü doldurulur:
+
+- P22-G 0.21.0 prod yayın tarihi: `…` → politika devreye alma tarihi (= +60 gün): `…`
+- O tarihten önce §29.5 legacy oranı düşük olmalı (öneri < %5); değilse kullanıcıyla tarih ertelenir.
+
+### 29.4 Metrikler (`/metrics`, Bearer `METRICS_TOKEN`; tenant etiketi yok; `apps/server/src/ops/metrics.ts`)
+
+| Metrik                                                       | Tür       | Anlam / izleme                                                                                                                      |
+| ------------------------------------------------------------ | --------- | ----------------------------------------------------------------------------------------------------------------------------------- |
+| `rs_session_chat_messages_total{sender}`                     | sayaç     | Saklanıp iletilen mesajlar (`TECH` / `CUSTOMER`). Yinelenen (aynı `clientMsgId`) sayılmaz                                           |
+| `rs_session_chat_rejected_total{reason}`                     | sayaç     | `rate`/`cap`/`invalid`/`forbidden`/`not_active`/`outdated`: kullanıcı/istemci kaynaklı. **`internal`: DB yazımı başarısız** — §29.5 |
+| `rs_session_chat_legacy_sessions_total`                      | sayaç     | `rs.cap.schat1` bildirmeyen misafirle kabul edilen oturumlar (eski istemci ya da yayından önce açık tarayıcı sekmesi)               |
+| `rs_session_chat_reads_total`                                | sayaç     | Oturum geçmişinden sohbet okuması (`GET /sessions/:id/chat`; audit `session.chat_viewed` 10 dk penceresiyle)                        |
+| `rs_session_chat_store_seconds`                              | histogram | Mesaj INSERT süresi. p95 > 0,25 sn sürekli ise DB yükü (§13 "DB yavaş")                                                             |
+| `rs_ws_tech_outdated_total`                                  | sayaç     | 4426 ile kapatılan eski konsol soketleri (§29.1 son paragraf)                                                                       |
+| `rs_retention_rows_total{kind="session_messages"}`           | sayaç     | Anonimleştirmede silinen oturum sohbeti satırları                                                                                   |
+| `rs_crypto_decrypt_failures_total{table="session_messages"}` | sayaç     | Çözülemeyen mesaj ("Mesaj okunamadı"); mevcut `crypto-decrypt` alarmı (§25.4) bütün `table` serilerini toplar → **P22 kapsanır**    |
+
+```bash
+docker compose exec -T server node -e "fetch('http://127.0.0.1:3001/metrics',{headers:{authorization:'Bearer '+process.env.METRICS_TOKEN}}).then(r=>r.text()).then(t=>console.log(t.split('\n').filter(l=>/^rs_(session_chat_|ws_tech_outdated)/.test(l)||/kind=\"session_messages\"|table=\"session_messages\"/.test(l)).join('\n')))"
+```
+
+Sayaçlar süreç yeniden başlayınca sıfırlanır; uzun dönem oran için §29.5 audit sorgusu esastır.
+
+### 29.5 Alarmlar ve izleme
+
+| Kontrol                          | Koşul                                                                                                          | Düzey  | Eylem                                                                                                                                                                                                                                                                                                                                              |
+| -------------------------------- | -------------------------------------------------------------------------------------------------------------- | ------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| sohbet `internal` (mimari §7.2)  | `rs_session_chat_rejected_total{reason="internal"}` artışı > 0 (`remote-watch`'a eklenmesi **açık iş**, §29.7) | Uyarı  | Mesaj saklanamadı → **iletilmedi** (önce kaydet sonra ilet); kullanıcı "gönderilemedi, tekrar dene" görür. `docker compose logs --since 1h server \| grep session_chat_store` (gövde yok: `sessionId`, `chars`, `code`). DB erişimi / disk (`df`, §13 "DB dolu") / `session_messages` INSERT yetkisi (`check-app-grants.sh`). Süreklilik → backend |
+| `crypto-decrypt` (mevcut, §25.4) | `rs_crypto_decrypt_failures_total` > 0 (bütün `table`)                                                         | Kritik | §25.4 aynen; oturum satırları da `session_messages` tablosundadır                                                                                                                                                                                                                                                                                  |
+| `retention` (mevcut, §18.6)      | `rs_retention_failures_total` son 24 sa'te arttı / 26 sa başarılı tur yok                                      | mevcut | **P22 yolu kapsanır (kodda doğrulandı):** oturum mesaj sayımı ve join'li DELETE `anonymizeSessionBatch` içinde, firma adımı `try/catch`'inde → `rs_retention_failures_total{class}` artar, audit `retention.run {result:"fail"}`. Ayrıca `rs_retention_rows_total{kind="session_messages"}` silinen satırı sayar                                   |
+
+**Legacy oranı (eski istemci izleme; P22-G yayınından sonra haftalık, K-P22-15 tarihine kadar).** Audit tabanlı (yeniden başlamada
+sıfırlanmaz); payda AGENT (yerel istemci) modunda kabul edilen oturumlar:
+
+```bash
+docker compose exec -T mysql sh -c 'MYSQL_PWD="$MYSQL_MIGRATOR_PASSWORD" mysql -umigrator -t "$MYSQL_DATABASE" -e "
+SELECT DATE(s.created_at) AS gun, COUNT(*) AS agent_oturum, COUNT(a.entity_id) AS eski_istemci,
+       ROUND(100 * COUNT(a.entity_id) / COUNT(*), 1) AS yuzde
+FROM support_sessions s
+LEFT JOIN (SELECT DISTINCT tenant_id, entity_id FROM audit_logs
+           WHERE action = \"session.chat_legacy\" AND created_at >= UTC_TIMESTAMP() - INTERVAL 15 DAY) a
+  ON a.tenant_id = s.tenant_id AND a.entity_id = s.id
+WHERE s.mode = \"AGENT\" AND s.created_at >= UTC_TIMESTAMP() - INTERVAL 14 DAY
+GROUP BY gun ORDER BY gun"'
+```
+
+Beklenen: P22-G yayınından sonra yüzde hızla düşer (yeni indirmeler 0.21.0); kalıcı yüksek oran → kayıtlı/tepsi istemcileri
+(P20, kendini güncellemez) — firmalara güncelleme duyurusu. Hızlı bakış: `rs_session_chat_legacy_sessions_total` artışı /
+aynı dönemdeki kabul edilen oturumlar.
+
+### 29.6 Migration durdu, geri alma
+
+- **`P22_PRECHECK dup_session_client=<n>`** (adım 2): hiçbir şey değişmemiştir. Normalde 0 (P22 öncesi oturum satırı yok). Düzeltme
+  db-notlari "P22 → Ön kontrol ve geri alma" (yinelenenleri incele, fazlaları migrator ile sil) → `docker compose run --rm migrate
+pnpm --filter @remote/server exec prisma migrate resolve --rolled-back 20261126000000_p22_session_chat` → `docker compose up -d`.
+- **Tercih sırası:** ileri düzeltme > yalnız imaj > imaj + `down.sql`. **P22-G (0.21.0) yayımlandıysa sunucu geri alınmaz** (yeni
+  istemci eski sunucuda onay satırı bulamaz → kullanılamaz); ileri düzeltilir.
+- **Yalnız imaj** (`IMAGE_TAG=<önceki>` → `up -d`): eski kod UQ'lu şemada çalışır. **Dikkat:** oturum sohbeti satırı yazılmışsa eski
+  saklama kodu anonimleştirmede bu satırları **silmez**; `session_messages.(session_id, tenant_id)` FK'si RESTRICT olduğundan P16
+  kalıcı silme bu oturumlarda FK ile reddedilir (`retention` alarmı). Geri alma birkaç günü aşacaksa ileri düzeltme tercih edilir.
+  Yayımlanmış aydınlatma metni sürümü kalır (eski kod da güncel sürümü okur; metin paragrafı eski kodda da doğru bilgi verir).
+- **İmaj + `down.sql`:** önce imaj geri alınır (UQ'suz P22 kodu yeniden gönderimde çift satır üretir), sonra
+  `docker compose run --rm migrate pnpm --filter @remote/server exec prisma db execute --file prisma/migrations/20261126000000_p22_session_chat/down.sql`
+  — yalnız UQ DROP (INPLACE), veri silinmez.
+
+### 29.7 Anahtar emekliliği ve açık işler
+
+- **`crypto:check-retire <ver>` oturum satırlarını da sayar** (kodda doğrulandı: `apps/server/src/cli/crypto.ts` `SELECT COUNT(*) FROM
+session_messages WHERE ASCII(body_enc) = <ver>` — `request_id`/`session_id` süzgeci yok). `crypto:rewrap session_messages` oturum
+  satırlarını da taşır (AAD `request_id ?? session_id`). §25.5 prosedürü aynen geçerlidir; ek adım yok.
+- Yedek: yeni tablo yok; sohbet mevcut şifreli DB yedeğinde, geri yüklemede anahtar halkası gerekir (§25.5, §18.4).
+- **Açık iş (P22-O'da yapılmadı):** `deploy/ops/remote-watch.sh`'e `session-chat-internal` kontrolü (alan 38 = bütün
+  `rs_session_chat_rejected_total` serileri — P22 işareti, alan 39 = `{reason="internal"}`; `bump` ile ilk turda taban 0, artıştan sonra
+  1 sa alarm; timer 10 dk olduğundan tasarımdaki "5 dk" bir tur penceresi olur) + `test-watch.sh` senaryoları, ayrıştırma beklentileri
+  (bütün `exp` dizileri 2 alan uzar) ve `rs_session_chat_*` ad eşlemesi. O gelene kadar §29.4 komutu ile elle bakılır.
+- **DENENMEDİ:** §29.1 adım 4 seed provası (ikinci koşu 0) ve alarm provası — ilk staging yayınında.
