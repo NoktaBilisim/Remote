@@ -322,7 +322,7 @@ Zincir: `requireAuth` → `requirePerm` → `tenantScope`/`historyScope` → zod
 - `session.chat_viewed` — `entity: support_sessions`, `entity_id: <oturum>`, `new_value: {messages:<n>, requestMessages:<m>}` (gövde yok).
   Yalnız `after` **verilmeyen** ilk çağrıda yazılır (sayfa açılışı); aynı kullanıcı + oturum için 10 dk içinde tekrar yazılmaz (bellek
   penceresi; metrik `rs_session_chat_reads_total` her çağrıda artar).
-- Yetkisiz deneme (403) mevcut `auth.forbidden` yoluna düşer.
+- Yetkisiz deneme (403) audit'e yazılmaz (kodda `auth.forbidden` eylemi yok; mevcut yetki kapısının genel davranışı — P22-T doğrulaması, 2026-11-18). Gövde dönmez; sohbet içeriği sızmaz.
 - **Genişleme noktası (Sonra):** oturuma dönüşmemiş kapalı talebin yazışması → `GET /support-requests/:id/messages` PENDING dışı durumda
   `sessions.view_chat` + `request.chat_viewed` audit ile açılır (aynı `sessions/chat.ts` okuma fonksiyonu).
 
