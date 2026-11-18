@@ -109,7 +109,27 @@ if [ -n "$found" ]; then
   traces=$(printf '%s\n' "$found" | wc -l | tr -d ' ')
 fi
 
-if pgrep -f 'noktadestek|/Destek-[0-9]{8}' >/dev/null 2>&1 || { [ -n "$exe" ] && pgrep -f -- "$exe" >/dev/null 2>&1; }; then
+# K8b: süreç komut satırına göre değil çalıştırılan dosyaya göre aranır. `pgrep -f` bu betiğin KENDİ komut satırını
+# (`compare … --exe …/Destek-12345678`) eşleyip yanlış pozitif veriyordu. /proc/<pid>/exe = istemci ELF'i (yeniden çalıştırma
+# /proc/self/exe ile aynı dosya) ya da argv[0]; ad deseni veya --exe yolu ("(deleted)" eki dahil). Okunamayan süreç atlanır.
+client_running() {
+  local p t want=""
+  [ -z "$exe" ] || want=$(readlink -f -- "$exe" 2>/dev/null || printf '%s' "$exe")
+  for p in /proc/[0-9]*; do
+    [ "${p#/proc/}" != "$$" ] || continue
+    # exe bağlantısı (yerli) ve argv[0] (yalnız ilk alan; emülasyonda — Rosetta/qemu — exe yorumlayıcıyı gösterir). Betiğin kendi
+    # argv[0]'ı "bash"tır; --exe argümanı ilk alanda olmadığı için eşleşmez.
+    for t in "$(readlink "$p/exe" 2>/dev/null)" "$(tr '\0' '\n' < "$p/cmdline" 2>/dev/null | head -n 1)"; do
+      [ -n "$t" ] || continue
+      t=${t% (deleted)}
+      case "${t##*/}" in noktadestek|noktadestek-*) return 0 ;; esac
+      [[ "${t##*/}" =~ ^Destek-[0-9]{8}( ?\([0-9]{1,3}\))?$ ]] && return 0
+      [ -n "$want" ] && [ "$t" = "$want" ] && return 0
+    done
+  done
+  return 1
+}
+if client_running; then
   echo "İZ: Process	istemci süreci hâlâ çalışıyor"; traces=$((traces + 1))
 fi
 

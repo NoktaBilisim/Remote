@@ -9,6 +9,9 @@
 # /r/<ref> iki log bloğunda da /r/*** (S-P19-10).
 # P28f (S-P28f-3): macOS zip'i (NoktaDestek-macOS.zip, Destek-<8 hane>.zip) forward_auth /internal/agent-ready/macos'a, .exe
 # yolları /internal/agent-ready/windows'a gider (çapraz: mac kapısı kapalıyken zip sunulmaz, exe sunulur); zip başlıkları; log maskesi.
+# P28g (S-P28g-6/12): Linux ELF'i (NoktaDestek-linux, Destek-<8 hane>, uzantısız) /internal/agent-ready/linux'a gider; başlıklar
+# (octet-stream, attachment uzantısız ad, nosniff, no-store, Last-Modified YOK); çapraz kapı senaryoları (Windows açık + Linux kapalı,
+# macOS açık + Linux kapalı, Linux açık + diğerleri kapalı); biçim dışı adlar (Destek-12345678.sh, NoktaDestek-linux/) server'a gitmez.
 # P13c: ROBOTS_NOINDEX yokken (prod) X-Robots-Tag / robots.txt Disallow yok; staging katmanı değerleriyle noindex + trusted_proxies.
 # Kullanım: deploy/test-caddy.sh   ·   KEEP=1 (konteynerleri bırak)   ·   uzun WS bağlantısı (HTTP zaman aşımlarından etkilenmiyor mu, ~40 sn):
 #           CADDY_TEST_WS_HOLD=1 deploy/test-caddy.sh
@@ -35,7 +38,9 @@ SUBPROTO="rs.req.TESTSIRRI$(openssl rand -hex 16)"   # sahte talep sırrı (subp
 mkdir -p "$TMP/dl"
 printf 'MZ-sahte-ikili-%s' "$(date +%s)" >"$TMP/dl/NoktaDestek.exe"
 printf 'PK-sahte-zip-%s' "$(date +%s)" >"$TMP/dl/NoktaDestek-macOS.zip"
-chmod 0755 "$TMP" "$TMP/dl" && chmod 0644 "$TMP/dl/NoktaDestek.exe" "$TMP/dl/NoktaDestek-macOS.zip"
+printf '\177ELF-sahte-linux-%s' "$(date +%s)" >"$TMP/dl/NoktaDestek-linux"
+touch -t 202001010000 "$TMP/dl/NoktaDestek-linux"   # eski mtime: Last-Modified sızarsa açıkça görünür
+chmod 0755 "$TMP" "$TMP/dl" && chmod 0644 "$TMP/dl/NoktaDestek.exe" "$TMP/dl/NoktaDestek-macOS.zip" "$TMP/dl/NoktaDestek-linux"
 cat >"$TMP/mock.js" <<'JS'
 // Sahte server:3001 — yalnız Caddy'nin ilettiklerini kaydeder (gerçek doğrulama server'ın işi). WS yanıtında
 // en kötü durumu sınar: gerçek server yalnız rs.v1 seçer, burada sırlı ilk öğe geri yazılır → log filtresi silmeli.
@@ -60,6 +65,8 @@ const s = http.createServer((req, res) => {
     // P28f: platform kapısı kapalı senaryosu (/tmp/<platform>-closed varsa 503).
     if (path === "/internal/agent-ready/macos" && fs.existsSync("/tmp/macos-closed")) { res.writeHead(503, { "content-type": "application/json" }); return res.end('{"error":{"code":"NOT_READY"}}'); }
     if (path === "/internal/agent-ready/windows" && fs.existsSync("/tmp/windows-closed")) { res.writeHead(503, { "content-type": "application/json" }); return res.end('{"error":{"code":"NOT_READY"}}'); }
+    // P28g: /tmp/linux-closed = LINUX_AGENT_SHA256 uyuşmaz / dosya yok (server 503 NOT_READY).
+    if (path === "/internal/agent-ready/linux" && fs.existsSync("/tmp/linux-closed")) { res.writeHead(503, { "content-type": "application/json" }); return res.end('{"error":{"code":"NOT_READY"}}'); }
     if (uri.includes("NoktaDestek-Yanlis-")) { res.writeHead(404, { "content-type": "application/json" }); return res.end('{"error":{"code":"REQUEST_REF_INVALID"}}'); }
     if (uri.includes("NoktaDestek-Kapali-")) { res.writeHead(503, { "content-type": "application/json" }); return res.end('{"error":{"code":"NOT_READY"}}'); }
     res.writeHead(204); return res.end();
@@ -120,7 +127,10 @@ for bad in "NoktaDestek-ABCDEFGHIJKLMNOPQRSTU-$REF.exe" "NoktaDestek-Demo-ABCDEF
   "NoktaDestek-Demo-abcdefghijklmn18.exe" "NoktaDestek-Demo-abcdefghijklmn2.exe" "NoktaDestek-Demo_1-$REF.exe" \
   "NoktaDestek--$REF.exe" "x/$FIRM.exe" "$FIRM.exe.zip" "nokta$FIRM.exe" "Destek-1234567.exe" \
   "Destek-1234567.zip" "Destek-123456789.zip" "$FIRM.zip" "NoktaDestek.zip" "NoktaDestek-macos.zip" "NoktaDestek-macOS.exe" \
-  "Destek-12345678.ZIP" "x/NoktaDestek-macOS.zip"; do
+  "Destek-12345678.ZIP" "x/NoktaDestek-macOS.zip" \
+  "Destek-12345678.sh" "NoktaDestek-linux/" "Destek-12345678/" "NoktaDestek-Linux" "NoktaDestek-linux.exe" "NoktaDestek-linux.zip" \
+  "NoktaDestek-linux-x86_64-0.20.0" "Destek-1234567" "Destek-123456789" "destek-98765432" "x/NoktaDestek-linux" \
+  "Destek-12345678(1)" "NoktaDestek-linuxx"; do
   CODE="$(curl -s -o /dev/null -w '%{http_code}' "$B/downloads/$bad")"
   [ "$CODE" = 404 ] && pass "404 $bad" || fail "$bad → $CODE"
 done
@@ -161,6 +171,43 @@ CODE="$(curl -s -o "$TMP/out" -w '%{http_code}' "$B/downloads/$FIRM.exe")"
 CODE="$(curl -s -o "$TMP/out" -w '%{http_code}' "$B/downloads/NoktaDestek-macOS.zip")"
 [ "$CODE" = 200 ] && [ "$(cat "$TMP/out")" = "$WANTZ" ] && pass "windows kapısı kapalıyken zip sunulur (çapraz)" || fail "windows kapalı zip: $CODE"
 docker exec "$P-server" rm -f /tmp/windows-closed
+
+echo "== P28g Linux ELF (S-P28g-6/12): uzantısız, octet-stream, Last-Modified yok"
+WANTL="$(cat "$TMP/dl/NoktaDestek-linux")"
+for n in NoktaDestek-linux Destek-12345678; do
+  H="$(curl -s -D - -o "$TMP/out" "$B/downloads/$n?x=1")"
+  CODE="$(printf '%s' "$H" | head -1 | awk '{print $2}')"
+  [ "$CODE" = 200 ] && [ "$(cat "$TMP/out")" = "$WANTL" ] && pass "$n → 200, aynı ELF" || fail "$n → $CODE"
+  HL="$(printf '%s' "$H" | tr -d '\r')"
+  printf '%s' "$HL" | grep -qi "^content-disposition: attachment; filename=\"$n\"$" && pass "$n Content-Disposition uzantısız" || fail "$n Content-Disposition: $(printf '%s' "$HL" | grep -i '^content-disposition')"
+  printf '%s' "$HL" | grep -qi '^content-type: application/octet-stream$' && pass "$n Content-Type application/octet-stream" || fail "$n Content-Type"
+  printf '%s' "$HL" | grep -qi '^cache-control: no-store$' && pass "$n no-store" || fail "$n Cache-Control"
+  printf '%s' "$HL" | grep -qi '^x-content-type-options: nosniff$' && pass "$n nosniff" || fail "$n nosniff"
+  printf '%s' "$HL" | grep -qi '^last-modified:' && fail "$n Last-Modified gönderildi (S-P28g-6)" || pass "$n Last-Modified yok"
+  [ "$(fa_last)" = '{"uri":"/downloads/***","method":"GET"}' ] && pass "$n: server'a ad gitmez" || fail "$n uri: $(fa_last)"
+  [ "$(fa_path)" = /internal/agent-ready/linux ] && pass "$n → /internal/agent-ready/linux" || fail "$n kapı yolu: $(fa_path)"
+done
+# HEAD de aynı kapıdan geçer ve Last-Modified taşımaz.
+HL="$(curl -s -I "$B/downloads/Destek-12345678" | tr -d '\r')"
+printf '%s' "$HL" | head -1 | grep -q ' 200' && ! printf '%s' "$HL" | grep -qi '^last-modified:' && pass "HEAD Destek-12345678 → 200, Last-Modified yok" || fail "HEAD: $(printf '%s' "$HL" | head -1)"
+echo "== P28g çapraz kapılar (S-P28g-12 m.3)"
+docker exec "$P-server" touch /tmp/linux-closed   # Linux uyuşmaz; Windows ve macOS açık
+CODE="$(curl -s -o "$TMP/out" -w '%{http_code}' "$B/downloads/Destek-12345678")"
+[ "$CODE" = 503 ] && ! grep -q 'ELF-sahte' "$TMP/out" && pass "Windows ok + Linux uyuşmaz → Destek-<kod> 503, ELF sunulmaz" || fail "Linux kapalı Destek-<kod>: $CODE"
+CODE="$(curl -s -o "$TMP/out" -w '%{http_code}' "$B/downloads/NoktaDestek-linux")"
+[ "$CODE" = 503 ] && ! grep -q 'ELF-sahte' "$TMP/out" && pass "Linux uyuşmaz → NoktaDestek-linux 503" || fail "Linux kapalı NoktaDestek-linux: $CODE"
+CODE="$(curl -s -o "$TMP/out" -w '%{http_code}' "$B/downloads/Destek-12345678.exe")"
+[ "$CODE" = 200 ] && [ "$(cat "$TMP/out")" = "$WANT" ] && pass "Windows ok + Linux uyuşmaz → Destek-<kod>.exe 200" || fail "Linux kapalı exe: $CODE"
+CODE="$(curl -s -o "$TMP/out" -w '%{http_code}' "$B/downloads/Destek-12345678.zip")"
+[ "$CODE" = 200 ] && [ "$(cat "$TMP/out")" = "$WANTZ" ] && pass "macOS ok + Linux yok → .zip 200" || fail "Linux kapalı zip: $CODE"
+docker exec "$P-server" sh -c 'rm -f /tmp/linux-closed && touch /tmp/windows-closed /tmp/macos-closed'
+CODE="$(curl -s -o "$TMP/out" -w '%{http_code}' "$B/downloads/Destek-12345678")"
+[ "$CODE" = 200 ] && [ "$(cat "$TMP/out")" = "$WANTL" ] && pass "Linux ok + Windows/macOS kapalı → Destek-<kod> 200" || fail "diğerleri kapalı Linux: $CODE"
+for n in Destek-12345678.exe Destek-12345678.zip; do
+  CODE="$(curl -s -o "$TMP/out" -w '%{http_code}' "$B/downloads/$n")"
+  [ "$CODE" = 503 ] && ! grep -q 'ELF-sahte' "$TMP/out" && pass "Linux ok + kapı kapalı → $n 503 (ELF'e düşmez)" || fail "$n: $CODE"
+done
+docker exec "$P-server" rm -f /tmp/windows-closed /tmp/macos-closed
 
 echo "== WebSocket (/ws/request, /ws/panel)"
 for w in request panel; do
@@ -230,7 +277,7 @@ printf '%s' "$H" | grep -qi '^server:' && fail "Server başlığı var" || pass 
 printf '%s' "$H" | tr -d '\r' | grep -qi '^x-content-type-options: nosniff$' && pass "X-Content-Type-Options nosniff" || fail "nosniff yok"
 
 echo "== ops uçları dışarıya kapalı"
-for u in /internal/agent-ready /internal/agent-ready/windows /internal/agent-ready/macos /metrics /ready; do
+for u in /internal/agent-ready /internal/agent-ready/windows /internal/agent-ready/macos /internal/agent-ready/linux /metrics /ready; do
   CODE="$(curl -s -o /dev/null -w '%{http_code}' -H 'X-Forwarded-Method: GET' "$B$u")"
   [ "$CODE" = 404 ] && pass "$u → 404" || fail "$u → $CODE"
 done

@@ -117,7 +117,10 @@ step "5 ELF (.invalid, TEST değil) + bu dağıtımda yükleme"
 ELFDIR="$(mktemp -d /tmp/elf.XXXXXX)"
 ELF="$ELFDIR/Destek-12345678"
 PLACEHOLDER=https://destek.example.invalid:4450
-if sh build/build-linux.sh "$PLACEHOLDER" 0.0.0 "$ELF" && sh build/check-linux-elf.sh "$ELF" --server "$PLACEHOLDER"; then
+# K8b: repo kökü farklı uid'li bağlama → git "dubious ownership" → go "error obtaining VCS status". Yalnız bu iz testi ELF'inde VCS
+# damgası kapatılır (-buildvcs=false); `git config --global` boş test HOME'una yazıp iz testini kirletirdi. Yayın derlemeleri
+# (build-linux işi, safe.directory) değişmez.
+if GOFLAGS="${GOFLAGS:+$GOFLAGS }-buildvcs=false" sh build/build-linux.sh "$PLACEHOLDER" 0.0.0 "$ELF" && sh build/check-linux-elf.sh "$ELF" --server "$PLACEHOLDER"; then
   ok "ELF derlendi ve denetlendi"
 else
   err "build-linux.sh / check-linux-elf.sh başarısız"

@@ -15883,14 +15883,14 @@ Oturum", "(2 yeni) Nokta Destek 0.20.0 — Oturum"); adı içermeyen başlıkta 
 
 **Nerede görünür**
 
-| İstemci | Yer |
-| --- | --- |
-| Windows Hızlı Destek (`internal/ui`) | Tek geçit `thread.newForm`: kod girişi, karşılama, lobi/bağlanıyor, ekran seçimi, oturum, izin diyalogları, talep formu/bekleme, ana ekran (kayıtlı mod), lisanslar, bitti — tüm pencere başlıkları. Oturum penceresinin okunmamış sayılı başlığı (`SetText`) da sürümlü. |
-| Windows tepsi (`internal/tray`) | İpucu `ShownTip`: "Nokta Destek 0.20.0", "… — oturum sürüyor", "… — Mikrofon açık/Sessizde" (`showTip` ve Explorer yeniden ekleme). Etiket `cmd/noktadestek/deps.go` `acquireTray`'den gelir (uicore tray'i içe aktardığından tray uicore'u içe aktaramaz). |
-| Gözetimsiz (`internal/servisui`) | Ayar penceresi ve kurulum kodu kutusu başlığı "Nokta Destek 0.20.0 — Gözetimsiz Erişim"; tepsi ipucu "Gözetimsiz erişim: Açık — Nokta Destek 0.20.0" (`Compute`, `Snapshot.SelfVersion`; her dal). `InstallDialog.Version` `cmd/noktadestek-servis` kurulum dalında atanır. |
-| Gözetimsiz yardımcı onay penceresi | Başlık "Uzaktan bağlantı isteği — Nokta Destek 0.20.0" (`consentTitle`; ui/uicore yardımcıya yasak — AC-341 sınır testi — bu yüzden biçim `flow.VersionLabel`'dan). Gösterge değişmedi. |
-| macOS (`internal/ui/mac`) | `newForm` + oturum okunmamış başlığı. TEST bandı pencere içi ayrı satır; çakışma yok. |
-| Linux GTK (`internal/ui/gtk`) | `winTitle` (newForm + oturum başlıkları): "Nokta Destek 0.20.0 — Oturum — TEST" (TEST eki sürümün arkasında). |
+| İstemci                              | Yer                                                                                                                                                                                                                                                                         |
+| ------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Windows Hızlı Destek (`internal/ui`) | Tek geçit `thread.newForm`: kod girişi, karşılama, lobi/bağlanıyor, ekran seçimi, oturum, izin diyalogları, talep formu/bekleme, ana ekran (kayıtlı mod), lisanslar, bitti — tüm pencere başlıkları. Oturum penceresinin okunmamış sayılı başlığı (`SetText`) da sürümlü.   |
+| Windows tepsi (`internal/tray`)      | İpucu `ShownTip`: "Nokta Destek 0.20.0", "… — oturum sürüyor", "… — Mikrofon açık/Sessizde" (`showTip` ve Explorer yeniden ekleme). Etiket `cmd/noktadestek/deps.go` `acquireTray`'den gelir (uicore tray'i içe aktardığından tray uicore'u içe aktaramaz).                 |
+| Gözetimsiz (`internal/servisui`)     | Ayar penceresi ve kurulum kodu kutusu başlığı "Nokta Destek 0.20.0 — Gözetimsiz Erişim"; tepsi ipucu "Gözetimsiz erişim: Açık — Nokta Destek 0.20.0" (`Compute`, `Snapshot.SelfVersion`; her dal). `InstallDialog.Version` `cmd/noktadestek-servis` kurulum dalında atanır. |
+| Gözetimsiz yardımcı onay penceresi   | Başlık "Uzaktan bağlantı isteği — Nokta Destek 0.20.0" (`consentTitle`; ui/uicore yardımcıya yasak — AC-341 sınır testi — bu yüzden biçim `flow.VersionLabel`'dan). Gösterge değişmedi.                                                                                     |
+| macOS (`internal/ui/mac`)            | `newForm` + oturum okunmamış başlığı. TEST bandı pencere içi ayrı satır; çakışma yok.                                                                                                                                                                                       |
+| Linux GTK (`internal/ui/gtk`)        | `winTitle` (newForm + oturum başlıkları): "Nokta Destek 0.20.0 — Oturum — TEST" (TEST eki sürümün arkasında).                                                                                                                                                               |
 
 Değişmeyenler: "Hakkında" satırı/penceresi (sunucu · sürüm · parmak izi), gösterge/işaretleme katmanı (sürüm yok), ileti kutuları
 (MessageBox) ve gizli pencere adları (`tray.Tip`, `servisui.Title` sabitleri tek örnek/sınıf araması için aynen).
@@ -15909,3 +15909,54 @@ gözetimsiz yardımcı `internal/ui/...` içe aktaramaz (AC-341), metin tablolar
 `TestShownTipVersionLabel`, `TestTipShowsVersion`, `TestConsentTitleVersion`, gtk `TestVersionTitleWithTest`);
 `GOOS={windows,darwin,linux} go vet ./... && CGO_ENABLED=0 go build ./...` yeşil; `GOOS=linux go vet -tags linuxgui ./internal/ui/gtk/`
 yeşil; `gofmt -l .` boş. Windows/macOS/Linux GUI'de gözle kontrol yapılmadı (başlık metni birim testli; gerçek pencerede elle bakılmalı).
+
+## P28g K8b — Linux yayın: attest/Release, Caddy, compose, publish-linux.sh, agent-watch, runbook (devops, 2026-11-18)
+
+Tasarım: `docs/mimari-p28g.md` §8, §10 K8b, §13 S-P28g-6/9/12, §5.2b m.7. Uygulama kodu değişmedi (K6 `env.ts`, `.env.example` hazırdı).
+
+### Değişen / yeni dosyalar
+
+- `.github/workflows/agent-win.yml`: yeni `attest-linux` (needs `reproducible-linux`, `approve`; etikette yalnız onaydan sonra; artifact
+  adı + SHA256SUMS + reproducible-linux SHA denetimi); `release` Linux ELF'ini **zorunlu** ekler (artifact `agent-linux`, ad = etiket
+  sürümü, SHA = reproducible-linux, build-meta prod + `AGENT_SERVER_URL`, SHA256SUMS satırı, `sha256sum -c --ignore-missing` mac'ten
+  bağımsız); onay kontrol listesine E-7 (b)/(c) maddesi; `reproducible-linux` etiket denetiminde `--forbid .invalid` →
+  `--forbid "$PLACEHOLDER_SERVER_URL"` (aşağıda).
+- `.github/workflows/agent-watch.yml`: `hash-linux` (`AGENT_WATCH_LINUX_URL`; Release'te Linux satırı yoksa notice), govulncheck `GOOS=linux`.
+- `deploy/Caddyfile`: `agent_bin_file` snippet (uzantısız ad, octet-stream, attachment, nosniff, no-store, `-Last-Modified`) ve
+  `@agentLinux` → `/internal/agent-ready/linux`, `handle /downloads/*` 404'ünden önce.
+- `deploy/test-caddy.sh`: Linux başlıkları (Last-Modified yokluğu gerçek yanıtta, HEAD dahil), çapraz kapılar (Windows ok + Linux uyuşmaz →
+  `Destek-<kod>` 503 / `.exe` 200; macOS ok + Linux yok → `.zip` 200; Linux ok + diğerleri kapalı → ELF 200, `.exe`/`.zip` 503), biçim dışı
+  adlar (`Destek-12345678.sh`, `NoktaDestek-linux/`, `Destek-12345678/`, `(1)` eki …) server'a gitmeden 404, `/internal/agent-ready/linux` 404.
+- `deploy/docker-compose.yml` server: `LINUX_AGENT_PATH=/data/downloads/NoktaDestek-linux`, `LINUX_AGENT_SHA256=${LINUX_AGENT_SHA256:-}`.
+- Yeni `deploy/agent/publish-linux.sh` (publish-mac.sh kalıbı) + `deploy/agent/test-publish-linux-lock.sh`.
+- Harness: `apps/agent-win/test/linux/run-gui-tests.sh` iz testi ELF'i `GOFLAGS=-buildvcs=false` ile (VCS hatası; yayın derlemeleri
+  değişmez, `git config --global` test HOME'unu kirletirdi); `apps/agent-win/test/trace-check-linux.sh` süreç denetimi `pgrep -f` yerine
+  `/proc/<pid>/exe` + argv[0] (kendi komut satırı yanlış pozitifi).
+- `docs/runbook.md` §28g.3 (harness notu), §28g.4–§28g.7.
+
+### Kararlar
+
+- **Prod adres kaynağı (S-P28g-9):** operatörde `AGENT_SERVER_URL` ortam değişkeni `--tag` için zorunlu (repo değişkeniyle aynı; tahmin
+  edilmez); sunucuda hedef `.env` `PUBLIC_BASE_URL` şemasıyla ELF'te aranır (staging dahil). Tek yığın staging prod adını
+  (`remote.noktabilisim.net`) gömdüğünden staging yolu `stg.` adres istemez; ayrım `-stg-` adı, build-meta `test` kipi ve ortam kilidiyle.
+- **`.invalid` yanlış pozitifi:** gerçek ELF'te (build-linux.sh, `test`, `https://remote.noktabilisim.net`) düz `.invalid` metni Go
+  sembollerinde (`net/http.(*http2…Frame).invalidate`, `pion/ice …invalidatePendingBindingReq`) 27 kez geçiyor. K8a'daki
+  `--forbid .invalid` ilk etikette Release'i durdururdu; CI'da tam yer tutucu adres, betikte `https://<host>.invalid` deseni aranır.
+- Linux Release'te "skipped" yolu yok (imza adımı yok). Kodda Wayland "yalnız görüntü" anahtarı yok: E-7 (b)/(c) geçmezse tek uygulanabilir
+  sonuç etiketin Reject edilmesidir; **backend-dev'e not:** FAIL dalı gerekirse ayrı kod değişikliği (RemoteDesktop istenmez, kontrol
+  isteğine `WAYLAND_NO_CONTROL`).
+- `test-caddy.sh`'ta `x/Destek-12345678` denenmedi: Caddy log maskesi `/downloads/Destek-` önekine bağlı, `/downloads/x/Destek-<kod>`
+  maskelenmiyor (sunucu böyle yol üretmez, 404; önceden de böyleydi). Açık madde: maskeyi `/Destek-[^/?]+` genişletmek güvenliğe sorulabilir.
+
+### Doğrulama (2026-11-18)
+
+- `deploy/test-caddy.sh` (Docker, compose'daki Caddy imajı): 156 PASS, `SONUÇ: GEÇTİ`.
+- `deploy/agent/test-publish-linux-lock.sh <gerçek TEST ELF klasörü>`: 43/43 GEÇTİ (sahte `gh` ile `--tag`: attestation argümanları
+  `--signer-workflow …/agent-win.yml --deny-self-hosted-runners --source-ref refs/tags/v0.20.0`; AGENT_SERVER_URL yok/staging, prod adres
+  yok, prod+staging, `.invalid`, `-stg-` Release adı → ret). Gerçek ELF `AGENT_PUBLISH_RESTART=0 --apply` (tek yığın staging) → yazıldı.
+- VCS: farklı uid ile bağlı repoda `build-linux.sh` "error obtaining VCS status" yeniden üretildi; `-buildvcs=false` ile iki derleme aynı
+  SHA (`47cf6242…`).
+- `trace-check-linux.sh`: çalışan `Destek-12345678` → "İZ: Process", kapandıktan sonra `--exe …/Destek-12345678` ile temiz; yerli arm64 ve
+  Rosetta amd64 konteynerde (emülasyonda `/proc/<pid>/exe` yorumlayıcıyı gösterdiği için argv[0] da bakılıyor).
+- actionlint 1.7.8, shellcheck 0.11.0 (`-S warning`, ci.yml kümesi), Prettier 3.10.1 temiz.
+- **Koşulmadı:** staging `--ssh` yayını (sunucu K6 staging'de değil), `attest-linux`/`release` gerçek etiket koşusu, `hash-linux` gerçek koşu.

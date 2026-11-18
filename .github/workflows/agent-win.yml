@@ -17,7 +17,8 @@
 # P28g K8a (mimari-p28g §8.2, ADR-0038): Linux istemcisi. Tek ELF GO_IMAGE'da CGO'suz derlenir (build-linux ×2 →
 # reproducible-linux SHA eşitliği + check-linux-elf.sh), test-linux-gui Ubuntu 22.04/24.04 imajlarında Xvfb + başsız mutter ile
 # `go test -tags linuxgui` + ortam pozitif kontrolü + XI2 ofsetleri + iz testi (sözleşme: docs/implementation.md "P28g K8a").
-# İmza yok (AC-403); attest-linux / Release K8b'de, approve Linux işlerini zaten bekler.
+# İmza yok (AC-403). P28g K8b: attest-linux (etikette approve'dan sonra) → Release'e NoktaDestek-linux-x86_64-<sürüm> + SHA256SUMS
+# satırı ZORUNLU (Linux'ta "skipped" yolu yok); staging dispatch'te agent-linux-stg attest edilir (publish-linux.sh --stg-run).
 name: agent-win
 on:
   pull_request:
@@ -998,7 +999,7 @@ jobs:
           retention-days: 7
 
   # P28g K8a (§8.2 reproducible-linux; S-P28g-9): iki derleme aynı SHA + ELF denetimi (prod: adres = AGENT_SERVER_URL, staging ve
-  # .invalid yok) + adlandırma. Çıktılar K8b'nin attest-linux / release / publish-linux.sh işleri içindir (docs/implementation.md
+  # yer tutucu .invalid adresi yok — düz ".invalid" Go sembollerinde (http2…invalidate) geçtiğinden tam adres aranır, K8b) + adlandırma. Çıktılar K8b'nin attest-linux / release / publish-linux.sh işleri içindir (docs/implementation.md
   # "P28g K8a" iskelet). Release'e bağlama K8b'de; approve bu işi bekler.
   reproducible-linux:
     name: tekrarlanabilirlik (linux x86_64)
@@ -1031,7 +1032,7 @@ jobs:
           server="$(sed -n 1p "$meta")"; ver="$(sed -n 2p "$meta")"; mode="$(sed -n 3p "$meta")"
           if [ "$REF_TYPE" = tag ]; then
             [ "$mode" = prod ] && [ "$server" = "$VAR_SERVER_URL" ] || { echo "::error::etiket derlemesi prod kipinde ve AGENT_SERVER_URL adresli olmalı"; exit 1; }
-            apps/agent-win/build/check-linux-elf.sh "$f1" --server "$server" --forbid "$STG_SERVER_URL" --forbid .invalid
+            apps/agent-win/build/check-linux-elf.sh "$f1" --server "$server" --forbid "$STG_SERVER_URL" --forbid "$PLACEHOLDER_SERVER_URL"
             file="NoktaDestek-linux-x86_64-$ver"; artifact=agent-linux
           else
             [ "$mode" = test ] || { echo "::error::etiket dışı derleme test kipinde olmalı (S-P28g-9)"; exit 1; }
@@ -1211,6 +1212,7 @@ jobs:
             echo "- [ ] 0.17.0 ve sonrası: Windows çoklu teknisyen elle turu + AC-371 ölçümü GEÇTİ (runbook §28c.7/§28c.8: roster adları, Çıkar, devir, gözetimsiz göstergede adlar, silent katılım gerekçe + dört göz e-postası; kontrol sahibi ≥ 15 FPS, diğerleri ≥ 5 FPS)"
             echo "- [ ] 0.19.0 ve sonrası: sunucu P28f prod'da (clientOs, availability, OS_PERMISSION; migration yok) — eski sunucu clientOs'u yok sayar"
             echo "- [ ] 0.20.0 ve sonrası: sunucu P28g prod'da (os=linux, availability linux, WAYLAND_NO_CONTROL; migration yok); Linux elle E-listesi (mimari-p28g §12.1) staging TEST ikilisiyle GEÇTİ"
+            echo "- [ ] 0.20.0 ve sonrası (mimari-p28g §5.2b m.7): Wayland kontrolü bu ikilide AÇIK. E-7 (b) ve (c) gerçek GNOME Wayland makinesinde (24.04 + 22.04) GEÇTİ mi? Geçmediyse **Reject** — Wayland yalnız görüntü dalı kod değişikliği ister (backend-dev), bu etiket prod'a çıkamaz (runbook §28g.6)"
             echo "- [ ] macOS: repo değişkeni APPLE_TEAM_ID tanımlı mı? Tanımsızsa sign-mac ATLANIR ve Release'te macOS zip'i OLMAZ (beklenen, R39). Tanımlıysa macOS elle D-listesi (runbook §28f.6) staging TEST paketiyle GEÇTİ"
             echo "- [ ] Aynı commit'ten staging exe ile duman testi GEÇTİ (runbook §24.2)"
             echo "- [ ] qa GEÇTİ, güvenlik Kritik/Yüksek 0; bekleyen eski etiket koşusu yok"
@@ -1571,6 +1573,38 @@ jobs:
           predicate-type: ${{ env.MAC_NOTARIZED_PREDICATE }}
           predicate-path: dist/notarization.json
 
+  # P28g K8b (mimari-p28g §8.2, S-P28g-9): Linux ELF attestation'ı. Etiket: yalnız agent-release onayından sonra (Reject edilen etiket
+  # attest edilmez); etiket dışı (main push → agent-linux-test, staging dispatch → agent-linux-stg) koşulsuz. PR'da yok (id-token yok).
+  # publish-linux.sh --tag `--source-ref refs/tags/<etiket> --signer-workflow agent-win.yml` ile doğrular (iş akışı = etiket iş akışı).
+  attest-linux:
+    name: Linux attestation
+    if: >-
+      !cancelled() && github.event_name != 'pull_request' && needs.reproducible-linux.result == 'success' &&
+      (github.ref_type != 'tag' || needs.approve.result == 'success')
+    needs: [reproducible-linux, approve]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with: { name: "${{ needs.reproducible-linux.outputs.artifact }}", path: dist }
+      - name: artifact + SHA256SUMS + reproducible-linux SHA
+        env:
+          REF_TYPE: ${{ github.ref_type }}
+          ART: ${{ needs.reproducible-linux.outputs.artifact }}
+          FILE: ${{ needs.reproducible-linux.outputs.file }}
+          SHA: ${{ needs.reproducible-linux.outputs.sha }}
+        run: |
+          case "$REF_TYPE:$ART" in tag:agent-linux|branch:agent-linux-stg|branch:agent-linux-test) ;; *) echo "::error::artifact $ART ($REF_TYPE)"; exit 1 ;; esac
+          cd dist && sha256sum -c SHA256SUMS
+          [ "$(sha256sum "$FILE" | cut -d' ' -f1)" = "$SHA" ] || { echo "::error::$FILE SHA'sı reproducible-linux çıktısı değil"; exit 1; }
+      - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: dist/${{ needs.reproducible-linux.outputs.file }}
+
   attest:
     name: build provenance attestation
     # Fork PR'larında id-token yok; yalnız main/etiket push'u ve elle tetikleme. GitHub, attestation'ı private
@@ -1616,8 +1650,10 @@ jobs:
     if: >-
       !cancelled() && github.event_name == 'push' && github.ref_type == 'tag' && needs.approve.result == 'success' &&
       needs.attest.result == 'success' && (needs.sign-mac.result == 'success' || needs.sign-mac.result == 'skipped') &&
-      (needs.attest-mac.result == 'success' || needs.attest-mac.result == 'skipped')
-    needs: [reproducible, approve, attest, reproducible-mac, sign-mac, attest-mac]
+      (needs.attest-mac.result == 'success' || needs.attest-mac.result == 'skipped') &&
+      needs.reproducible-linux.result == 'success' && needs.attest-linux.result == 'success'
+    # P28g K8b: Linux ELF'i her Release'te ZORUNLU (imza adımı yok, "skipped" kabul edilmez); attest-linux başarısızsa Release yok.
+    needs: [reproducible, approve, attest, reproducible-mac, sign-mac, attest-mac, reproducible-linux, attest-linux]
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions:
@@ -1628,7 +1664,9 @@ jobs:
       - if: needs.attest-mac.result == 'success'
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with: { name: agent-mac-signed, path: distmac }
-      - name: Release oluştur (exe + [macOS zip] + SHA256SUMS)
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with: { name: agent-linux, path: distlinux }
+      - name: Release oluştur (exe + [macOS zip] + Linux ELF + SHA256SUMS)
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ github.ref_name }}
@@ -1639,6 +1677,10 @@ jobs:
           APPLE_TEAM: ${{ vars.APPLE_TEAM_ID }}
           MAC_ART: ${{ needs.attest-mac.outputs.artifact }}
           MAC_ZIP: ${{ needs.reproducible-mac.outputs.zip }}
+          LINUX_ART: ${{ needs.reproducible-linux.outputs.artifact }}
+          LINUX_FILE: ${{ needs.reproducible-linux.outputs.file }}
+          LINUX_SHA: ${{ needs.reproducible-linux.outputs.sha }}
+          VAR_SERVER_URL: ${{ vars.AGENT_SERVER_URL }}
         run: |
           case "$ART" in agent-win|agent-win-signed) ;; *) echo "::error::Release artifact'i $ART olamaz"; exit 1 ;; esac
           # P28f (AC-390, S-P28f-7): Release'e yalnız Developer ID + notarize edilmiş zip; APPLE_TEAM_ID varken zip yoksa dur.
@@ -1661,6 +1703,19 @@ jobs:
             sig="imzasız (ADR-0010)"
           fi
           files=(NoktaDestek.exe "$SERVIS_EXE")
+          # P28g (AC-403, S-P28g-9): Linux ELF — artifact agent-linux, ad etiketle aynı sürüm, SHA = reproducible-linux, build-meta prod +
+          # AGENT_SERVER_URL. SHA256SUMS satırı mac olsun olmasın her zaman eklenir ve aşağıda doğrulanır.
+          L="$GITHUB_WORKSPACE/distlinux"
+          [ "$LINUX_ART" = agent-linux ] || { echo "::error::Linux artifact'i $LINUX_ART (agent-linux olmalı)"; exit 1; }
+          [ "$LINUX_FILE" = "NoktaDestek-linux-x86_64-${TAG#v}" ] || { echo "::error::Linux dosya adı $LINUX_FILE etiketle uyuşmuyor"; exit 1; }
+          [ "$(sed -n 3p "$L/build-meta.txt")" = prod ] && [ "$(sed -n 1p "$L/build-meta.txt")" = "$VAR_SERVER_URL" ] \
+            || { echo "::error::Linux build-meta prod/AGENT_SERVER_URL değil"; exit 1; }
+          (cd "$L" && sha256sum -c SHA256SUMS)
+          [ "$(sha256sum "$L/$LINUX_FILE" | cut -d' ' -f1)" = "$LINUX_SHA" ] || { echo "::error::Linux SHA reproducible-linux çıktısı değil"; exit 1; }
+          cp "$L/$LINUX_FILE" .
+          awk -v f="$LINUX_FILE" '$2 == f' "$L/SHA256SUMS" | grep -q . || { echo "::error::Linux SHA256SUMS'ta $LINUX_FILE yok"; exit 1; }
+          awk -v f="$LINUX_FILE" '$2 == f' "$L/SHA256SUMS" >> SHA256SUMS
+          files+=("$LINUX_FILE")
           if [ "$mac" = 1 ]; then
             cp "$M/$MAC_ZIP" .
             # SHA256SUMS: zip satırı + paket içi ikili satırı (Hakkında parmak izi, AC-128). Paket içi satırın dosyası Release'te
@@ -1671,6 +1726,8 @@ jobs:
             sha256sum -c --ignore-missing SHA256SUMS
             files+=("$MAC_ZIP")
           fi
+          sha256sum -c --ignore-missing SHA256SUMS
+          for x in "${files[@]}"; do grep -Eq "^[0-9a-f]{64}  $x\$" SHA256SUMS || { echo "::error::SHA256SUMS'ta $x satırı yok"; exit 1; }; done
           {
             echo "Nokta Destek Windows istemcisi ve gözetimsiz erişim servisi ($SERVIS_EXE) $TAG ($sig). Sunucu: $server"
             if [ "$mac" = 1 ]; then
@@ -1680,6 +1737,8 @@ jobs:
               echo
               echo "macOS istemcisi bu sürümde YOK (Apple Developer hesabı tanımlı değil — R39)."
             fi
+            echo
+            echo "Linux istemcisi $LINUX_FILE: x86_64, imzasız (AC-403); Ubuntu 22.04 / 24.04 (GNOME, X11 ve Wayland). Bütünlük bu Release'teki SHA256SUMS ve attestation ile doğrulanır; indirme sayfasındaki SHA yalnız kolaylıktır."
             echo
             echo '```'; cat SHA256SUMS; echo '```'
             if [ "$mac" = 1 ]; then

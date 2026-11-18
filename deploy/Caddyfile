@@ -97,6 +97,22 @@
 	file_server
 }
 
+# P28g (mimari-p28g §4.1, §4.3, S-P28g-6/12): Linux istemcisi — volume'daki tek jenerik ELF'i istenen adla, UZANTISIZ sunar
+# (`agent_zip_file` kalıbı). {args[0]} = indirme adı. Last-Modified GÖNDERİLMEZ: tarayıcı dosya mtime'ını ondan alırsa kılavuzdaki
+# `find -mmin -30` komutu eski tarihli dosyayı görmez (S-P28g-6 m.1); silme başlığı yanıt yazılırken uygulanır (file_server'dan sonra).
+(agent_bin_file) {
+	root * /srv/downloads
+	rewrite * /NoktaDestek-linux
+	header {
+		Content-Disposition "attachment; filename=\"{args[0]}\""
+		Content-Type "application/octet-stream"
+		Cache-Control "no-store"
+		X-Content-Type-Options "nosniff"
+		-Last-Modified
+	}
+	file_server
+}
+
 # P13c (mimari-e11 §3.1): arama motoru dışı bırakma yalnız staging'de. ROBOTS_NOINDEX ayrıştırma anında okunur
 # (docker-compose.staging.yml "1" verir): robots_0 boş -> prod adapt çıktısı değişmez; 0/1 dışı değer = Caddy açılmaz.
 (robots_0) {
@@ -170,7 +186,7 @@
 	# ile karşılaştırır (önbellekli); 2xx değilse (uyuşmazlık / dosya yok / yapılandırma yok → 503, server erişilemez →
 	# 502) yanıt istemciye döner ve dosya SUNULMAZ. `route` sırayı sabitler: kapı, Content-Disposition/rewrite'tan önce.
 	# Orijinal URI (koddan oluşan ad) server'a gönderilmez.
-	# S-P28f-3: platform başına ayrı iç URI (/internal/agent-ready/{windows,macos}); her uç yalnız kendi kapısını uygular.
+	# S-P28f-3: platform başına ayrı iç URI (/internal/agent-ready/{windows,macos,linux}); her uç yalnız kendi kapısını uygular.
 	@agentExe path_regexp agentExe ^/downloads/(NoktaDestek|Destek-[0-9]{8})\.exe$
 	handle @agentExe {
 		route {
@@ -192,6 +208,19 @@
 				header_up X-Forwarded-Uri "/downloads/***"
 			}
 			import agent_zip_file {re.agentZip.1}
+		}
+	}
+	# P28g (AC-403, S-P28g-12): Linux ELF'i, uzantısız. GET /api/v1/public/agent/download?ref=&os=linux yalnız PENDING oturumda buraya
+	# 302 verir. NoktaDestek-linux: kodsuz ad (agent-watch). Kapı /internal/agent-ready/linux (yalnız LINUX_AGENT_SHA256); 2xx değilse
+	# dosya SUNULMAZ. `handle /downloads/*` 404'ünden ÖNCE. Log maskesi `/downloads/Destek-[^/?]+` uzantısız adı da kapsar (G-10).
+	@agentLinux path_regexp agentLinux ^/downloads/(NoktaDestek-linux|Destek-[0-9]{8})$
+	handle @agentLinux {
+		route {
+			forward_auth server:3001 {
+				uri /internal/agent-ready/linux
+				header_up X-Forwarded-Uri "/downloads/***"
+			}
+			import agent_bin_file {re.agentLinux.1}
 		}
 	}
 	# P8b (AC-130, ADR-0006 r4, G-E9-11): firma dosyası NoktaDestek-<file_label>-<tenantRef>.exe — AYNI jenerik ikili.
