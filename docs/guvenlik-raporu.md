@@ -11851,3 +11851,28 @@ Yok. Kalan (Sonra, değişmedi): K-P22-15 asgari istemci politikası, S-P22-9 AA
 Orta/Düşük bulguların (S-P22-Q-1..3) `docs/gereksinimler.md` §9'a "Sonra" olarak eklenmesi önerilir.
 
 DURUM: GEÇTİ
+
+## P22-Q — Tur 2 (2026-11-18)
+
+Kapsam: yalnız `9556399` (S-P22-Q-1/2/3 düzeltmeleri) ve gerileme kontrolü: `signaling/{chat,member-life,rooms}.ts`,
+`sessions/service.ts`, `contracts/{audit,ws-chat}.ts`, testler.
+
+| Bulgu | Düzeltme (kanıt) | Sonuç |
+| --- | --- | --- |
+| S-P22-Q-1 | `member-life.ts:75-94` katılım audit'i (`participant_join`/`supervise_join`) yine hemen ve geçmiş okumasından bağımsız yazılıyor; geçmiş sayısı ayrı gövdesiz satır `session.chat_history_sent {userId, n}` (`chat.ts` `auditHistorySent`, yalnız ilk katılım ve `n > 0`, hata loglanır, gövde yok). Test: "sohbet zinciri asılıyken … participant_join yine hemen" | **Kapandı** |
+| S-P22-Q-2 | `sessions/service.ts:240` TX'ten önce `rooms?.settleChat?.(id)`; `rooms.ts:280-284` oda yoksa hemen döner; tek çağıran `routes.ts:217` `app.rooms` geçiriyor. Test: uçuştaki satır özete giriyor | **Kapandı** |
+| S-P22-Q-3 | `SESSION_CHAT_CAP_TOTAL = 10_000` (`ws-chat.ts`), `chat.ts:260` gönderen VEYA toplam tavan → `cap` (yinelenen idempotent yankı korunuyor); sayaç DB'den tohumlu → süreç yeniden başlamasında da geçerli; retention tek oturum ≤ 10.000 < bütçe 20.000 | **Kapandı** |
+
+Gerileme kontrolü:
+- Audit gövdesiz; `CHAT_AUDIT_LABELS` yeni eylemi kapsıyor (`Record<ChatAuditAction,…>` tip zorlaması). Kişisel veri yok (`userId`, sayı).
+- `settleChat` yalnız sohbet zincirini bekler; zincirdeki iş hata verse de `enqueue` yakaladığı için sonlandırma kilitlenmez
+  (Prisma sorgusu tamamlanana/hata verene dek bekler — kabul).
+- Toplam tavan müşteri dahil tüm gönderenlerde ortak; kötüye kullanımda yalnız o oturumun sohbeti kapanır (`cap`, soket açık) — beklenen.
+- Rol kapısı, şema, 4426, geçmiş bütçesi, retention ve REST yollarına dokunulmamış (diff yalnız yukarıdaki dosyalar).
+
+Testler (test DB): `session-chat-p22.test.ts` + `multi-p28c.test.ts` ikinci koşuda **55/55 geçti**; ilk koşuda 1 test başarısızdı ve
+çıktı kesildiği için hangisi olduğu görülemedi, tekrarda geçti → olası kararsız (flaky) test. QA/backend tekrar koşusunda izlesin (güvenlik bulgusu değil).
+
+Özet: Kritik 0 / Yüksek 0 / Orta 0 / Düşük 0 açık.
+
+DURUM: GEÇTİ

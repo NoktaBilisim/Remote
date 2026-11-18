@@ -980,3 +980,69 @@ Not: `pnpm --filter @remote/web e2e -- p22-chat` dosya filtresini iletmiyor (tam
 - Yetki tek tanımdan, rol varsayılanı ve historyScope IDOR testleri eksiksiz; audit'lerde gövde yok.
 
 DURUM: DÜZELTİLMELİ
+
+---
+
+## P22 — QA Tur 2 (2026-11-18)
+
+Kapsam: Tur 1 sonrası commit'ler — d100e47 (P22-O alarm + raporlar), d7fa5a2 (P22-F QA Tur 1 düzeltmesi), 9556399 (P22-B1 güvenlik Tur 1
+Düşük ×3). Yalnız bu değişiklikler ve gerileme denetlendi.
+
+### Test sonucu
+
+| Komut | Sonuç |
+| --- | --- |
+| `pnpm -r run lint` / `typecheck` | temiz |
+| `pnpm -r run test` | contracts 286 ✓ · web 591 ✓ · server 677 ✓ / 1 skip (clamd, gerekçeli). Not: entegrasyonla eşzamanlı ilk koşuda `rec-webm-dos` (P28e, değişmedi) 2 zaman testi kırıldı; tek başına koşuda 50/50 dosya yeşil — yük kaynaklı, P22 dışı |
+| Entegrasyon (rs-p22-test): `session-chat-p22` (+3 yeni S-P22-Q testi), `session-chat-p22-b2`, `session-chat-orphan-p22`, `multi-p28c`, `p22-schema-d`, `consent-p4`, `retention-p13a-job`, `p18-messages-h3` | 130 testten 127 ✓ ilk koşuda; `p18-messages-h3`'ün 3 zaman ölçümlü testi birim koşusuyla eşzamanlı yükte kırıldı, **tek başına 23/23 ✓** (P22 değişiklikleri bu dosyanın yoluna dokunmuyor) |
+| `npx playwright test e2e/p22-chat.spec.ts e2e/p19-j5.spec.ts --project=desktop` | **27/27 ✓** (p22-chat 10, p19-j5 talep formu satırı gerilemesi yok) |
+
+### Tur 1 bulgusunun doğrulanması
+
+| Bulgu | Durum | Kanıt |
+| --- | --- | --- |
+| Düzeltilmeli 1 — AC-287 iki tema axe + 390 px | ✅ kapandı | `p22-chat.spec.ts` `scanThemes` (mevcut `helpers.ts` yardımcısı; `html` sınıfıyla temayı zorlar ve `--rs-fg` ile etkin temayı doğrular) — konsol sohbet dolu + gönderilemedi, eski istemci, gözetimsiz, misafir sohbeti, oturum detayı, genel ayarlar bandı, aydınlatma bandı; 390 px `noHorizontalOverflow` konsol paneli (dolu + eski istemci), misafir, aydınlatma bandı |
+| Öneri — AC-292 satırı tek kaynak | ✅ uygulandı | `components/kvkk/chat-retention-notice.tsx` ve `guest-collab.tsx` contracts `CHAT_RETENTION_LINE(days)` kullanıyor; e2e metni AC ile birebir ("… 90 gün saklanır"); `wr.retention` kodda kullanılmıyor (tr.json yalnız ekleme kuralı gereği kaldı — gerekçeli) |
+| DoD — operasyon alarmı (Tur 1'de commit edilmemiş) | ✅ commit'li (d100e47) | `remote-watch.sh` `session-chat-internal` + `test-watch.sh` senaryoları; "5 dk → bir tur" sapması implementation.md'de gerekçeli. Staging provası P22-T/dağıtımda (bloklamaz) |
+
+### Güvenlik Tur 1 düzeltmeleri (gerileme ve tasarım uyumu)
+
+| Madde | Durum | Not |
+| --- | --- | --- |
+| S-P22-Q-1 katılım audit'i hemen; geçmiş sayısı ayrı `session.chat_history_sent {userId, n}` | ✅ | Test "S-P22-Q-1: zincir asılıyken participant_join yine hemen"; P28c testi yeni satırı doğruluyor. Mimari r2 §15.5'teki "katılım audit'ine `chatHistory:<n>`" kuralından sapma güvenlik raporu kaynaklı ve implementation.md'de gerekçeli; contracts eylem + etiket tek tanımda |
+| S-P22-Q-2 `terminateSession` önce `settleChat` | ✅ | Test "yönetici sonlandırması özetten önce sohbet zincirini bekler"; Tur 1'deki "kabul edilen artık yarış" kapandı. `RoomNotifier.settleChat?` opsiyonel → oda yoksa beklemez |
+| S-P22-Q-3 `SESSION_CHAT_CAP_TOTAL = 10.000` | ✅ | Test "oturum toplam tavanı 10.000 → cap, satır yok"; tavanda yinelenen yine idempotent yankı; pt-surface yalnız ekleme |
+
+Yeni bağımlılık / env yok. Kod incelemesinde yeni `any`, hata yutma ya da gövde içeren log/audit yok (`auditHistorySent` hatası loglanıyor, gövdesiz).
+
+### Kabul kriterleri (Tur 2 güncel)
+
+| AC | Durum |
+| --- | --- |
+| AC-264 (sunucu + web + tarayıcı) | ✅ |
+| AC-264 (Go) | P22-G'de |
+| AC-291 | ✅ |
+| AC-292 (tarayıcı karşılama + web talep formu) | ✅ |
+| AC-292 (Win/macOS/Linux karşılama + talep formu, istemci birim testi) | P22-G'de |
+| AC-285 | ✅ |
+| AC-286 | N/A |
+| AC-287 | ✅ |
+| AC-288 | P22-W sırasında (bloklamaz) |
+| AC-289 | P22-G'de |
+| AC-290 | qa bu tur GEÇTİ; güvenlik P22-Q Tur 1 GEÇTİ (Kritik/Yüksek 0) |
+
+### Düzeltilmeli
+
+Yok.
+
+### Definition of Done
+
+Tur 1'deki ❌ (AC-287) ve ⚠️ (alarm commit'i) kapandı; diğer maddeler değişmedi (✅). Açık kalanlar sıra gereği sonraki paketlerde:
+P22-T staging (seed + alarm provası, 0.19/0.20 istemciyle "güncelleyin" iki tarafta), P22-W doküman/PDF, P22-G Go istemci.
+
+### Öneriler (zorunlu değil)
+
+- `p18-messages-h3` ve `rec-webm-dos` zaman ölçümlü testleri eşzamanlı yükte kırılıyor (P22 öncesi bilinen kalıp); CI'da seri koşu ya da süre payı.
+- `tr.json` `wr.retention` artık kullanılmıyor; ortak dosya kuralı izin verdiğinde temizlenebilir.
+
+DURUM: GEÇTİ
