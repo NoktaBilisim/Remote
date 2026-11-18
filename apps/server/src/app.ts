@@ -43,6 +43,7 @@ import { ErasureLedger } from "./ops/erasure-ledger.ts";
 import { mailLogoUrl } from "./uploads/urls.ts";
 import { addAvSourceGuard, decorateFsrv, startAvPolling, type FsrvTestOptions } from "./fsrv/wiring.ts";
 import { decorateRec } from "./rec/wiring.ts";
+import type { PortalLimits } from "./portal/limits.ts";
 
 declare module "fastify" {
   interface FastifyInstance {
@@ -87,6 +88,8 @@ declare module "fastify" {
     erasureLedger: ErasureLedger;
     /** P10 (AC-67): zorunlu 2FA kurulum aşaması uygulanıyor mu (production'da her zaman true, B-P10-3). */
     mfaSetupEnforced: boolean;
+    /** P21 (mimari-p21 §5.1): portal hız kovaları (panel kovalarından ayrı örnekler; app-routes.ts kurar). */
+    portalLimits: PortalLimits;
   }
   interface FastifyRequest {
     auth: AuthContext | null;

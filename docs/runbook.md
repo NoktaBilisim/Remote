@@ -4861,3 +4861,220 @@ derlemenin `cmp`'i bunu da karşılaştırır); `sign-mac` 4. satır = `APPLE_TE
 gömülmez, davranış değişmez. Elle staging derlemesi (§28f.4 docker komutu) Team ID geçirmez (TEST bandı zaten görünür).
 Yerel prova: Team ID'siz iki derleme SHA eşit; uydurma sembol → ret, çıktı yok; var olan bir sembolle (geçici kopya) → kabul, değer
 ikilide; `abcde12345`, 9 karakter, `"ABCDE12345 -X a=b"`, satır sonlu değer → çıkış 2.
+
+## 29. P21 — müşteri portalı (devops K7, 2026-11-18; mimari-p21 r2 §7, §8, §9, §11 K7, §13 R-P21-6/7, §14 S-P21-4; ADR-0039; AC-262)
+
+Kapsam: Admin, müşteri firması kişisine **portal hesabı** açar (geçici şifre 72 sa, ilk girişte değişim, isteğe bağlı TOTP). Portal
+kullanıcısı `/portal/login?tenant=<slug>` ile girer, kendi müşterisinin taleplerini/oturumlarını görür, yeni talep açar (P19 web talep
+akışının aynısı; firma web formu kapalı olsa da çalışır — R-P21-1), firma dosyasını indirir. Kimlik panelden **tamamen ayrıdır**:
+`portal_users`, `portal_sessions`, çerezler `__Host-rs_portal` / `__Host-rs_portal_csrf` / `rs_portal_tenant` (yalnız slug).
+
+**Yeni env değişkeni yok** (`.env.example`, `env.ts`, compose değişmedi): bağlantılar `PUBLIC_BASE_URL`, TOTP sırrı
+`APP_ENCRYPTION_KEYS`, Origin denetimi `ALLOWED_ORIGINS` (mevcut). **Yeni bağımlılık yok.** Migration: `20261126000000_p21_customer_portal`
+(yalnız ekleyen; iki tablo, mevcut tablolarda sütun değişikliği yok, tetikleyici yok — toplam 23). Sabitler
+`packages/contracts/src/api/portal.ts`: müşteri başına en çok 20 hesap, müşteri başına 10 talep/sa (tüm hesaplar), portal yolunda müşteri
+başına en çok 3 bekleyen talep, geçici şifre 72 sa, oturum 8 sa. Değiştirmek kod değişikliği + yayın gerektirir.
+
+### 29.1 Ters vekil ve CSP — değerlendirildi, değişiklik yok
+
+- **Caddy:** `/portal/*` sayfaları "diğer her şey → web", `/api/v1/portal/*` mevcut `handle /api/*` → server yolundadır; yeni `handle`,
+  gövde sınırı ya da yol gerekmez (portal talebi 8 KB `bodyLimit` server'da; Caddy `@notUpload` 2 MB üst sınırı yeter).
+- **Log (G-10):** iki log bloğu sorgu dizesini siler (`?tenant=<slug>` loga girmez), `Cookie` başlığını siler (portal çerezleri dahil).
+  Portal yollarında sır taşıyan yol parçası yok (`/portal/requests/<id>` kimlik, sır değil) → yeni maske gerekmez.
+- **CSP / Permissions-Policy:** uygulama üretir (`apps/web/proxy.ts`; r2 S-P21-12 `/portal` için `display-capture=()`). Caddy başlıklara
+  dokunmaz (`?` ile yalnız eksikse tamamlar). Host nginx (`location /` tek blok) değişmez. `deploy/test-caddy.sh` değişmedi.
+
+### 29.2 Migration uygulama (staging/prod yayını)
+
+Sıra §8 / §25.2 akışıdır (ön yedek → `git pull` → `IMAGE_TAG` → `docker compose build && docker compose up -d`). `migrate` servisi
+`migrator` ile `prisma migrate deploy` + `prisma/sql/grants.sql` çalıştırır; başarısızsa server başlamaz.
+
+```bash
+cd /opt/remote/deploy                                  # ikinci yığın: /opt/remote-stg/deploy
+docker compose logs --since 10m migrate | grep -E 'p21_customer_portal|All migrations|No pending'
+# beklenen: "Applying migration `20261126000000_p21_customer_portal`" ve "All migrations have been successfully applied."
+docker compose exec -T mysql sh -c 'MYSQL_PWD="$MYSQL_MIGRATOR_PASSWORD" mysql -umigrator -N "$MYSQL_DATABASE" -e "SELECT COUNT(*) FROM information_schema.TABLES WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME IN (\"portal_users\",\"portal_sessions\")"'
+# beklenen: 2
+```
+
+Kilit yok (yalnız yeni boş tablolar + FK; `tenants`/`customers` yeniden yazılmaz) → bakım penceresi gerekmez.
+
+**grants.sql'i yeniden yüklemek** (yetki sapması şüphesinde ya da elle `down.sql` sonrası yeniden ileri gidişte; idempotent):
+
+```bash
+docker compose run --rm migrate pnpm --filter @remote/server exec prisma db execute --file prisma/sql/grants.sql
+```
+
+**Yetki sınırı denetimi** (§6; parola komut satırına/ekrana yazılmaz, alt kabukta okunur):
+
+```bash
+( set -a; . ./.env; set +a; APP_PW=$MYSQL_APP_PASSWORD CONTAINER=$(docker compose ps -q mysql) DB=$MYSQL_DATABASE bash mysql/check-app-grants.sh ) | tail -3
+# beklenen: FAILED=0. P21 ile PASS sayısı 873 -> 929 (56 yeni denetim: portal yaşam döngüsü, Admin sıfırlama, firma silme,
+# 8 sütun reddi, DDL reddi, UQ / çapraz firma FK / silme sırası, her CHECK). Sayı farklıysa dur, docs/db-notlari.md "P21"e bak.
+```
+
+Not: staging'de panelden kaydedilmiş `system_settings.clamav` satırı varsa 2 ortamsal FAIL (`Duplicate entry`) görülebilir (§8 P28u
+satırı) — yetki ihlali değildir; başka FAIL varsa yayın durdurulur.
+
+### 29.3 Staging doğrulama (koordinatör uygular; sıra bağlayıcı)
+
+Ön koşul: P21 qa GEÇTİ + güvenlik Kritik/Yüksek 0; `ci` yeşil (test-watch dahil). Hesaplar: K9 staging Admin (ACCESS.txt), demo firma.
+
+1. §29.2 migration + `check-app-grants` (929, `FAILED=0`) + `systemctl start remote-backup.service` → `audit-continuity ok`.
+2. İzleme: `cd /opt/remote/deploy/ops && ./remote-watch.sh install` (ikinci yığında ayrıca `install stg`) →
+   `systemctl start remote-watch.service; journalctl -u remote-watch -n 5` → `OK`; `grep portal /var/lib/remote-watch/status.prom` →
+   `check="portal-login-fail"} 1`, `portal-locked`, `portal-request-reject` (üçü de 1).
+3. Metrik sözleşmesi (server P21 kodu yayında):
+   ```bash
+   docker compose exec -T server node -e "fetch('http://127.0.0.1:3001/metrics',{headers:{authorization:'Bearer '+process.env.METRICS_TOKEN}}).then(r=>r.text()).then(t=>console.log(t.split('\n').filter(l=>/^rs_portal_/.test(l)).join('\n')))"
+   ```
+   → `rs_portal_login_total` (ilk girişten önce etiketsiz `… 0`), `rs_portal_locked_total`, `rs_portal_requests_total`,
+   `rs_portal_sessions_active`. Biri yoksa portal alarmları sessiz kalır → backend'e bildir (§29.5 sözleşme).
+4. Panel (Admin) → Müşteriler → bir müşteri → "Portal hesapları" → hesap aç (ad, e-posta) → geçici şifre **bir kez** gösterilir;
+   audit `portal.account_created`. Liste "İlk girişte şifre değişecek" + 72 sa rozeti.
+5. Gizli pencerede `https://<host>/portal/login?tenant=<firma-slug>` → firma logosu; geçici şifreyle giriş → zorunlu şifre değişimi →
+   portal ana sayfası. Çerezler (DevTools → Application): `__Host-rs_portal` (HttpOnly, Secure, Path=/), `__Host-rs_portal_csrf`,
+   `rs_portal_tenant`; **`__Host-rs_session` yok**. Slugsuz `/portal/login` → "bağlantıyı firmanızdan isteyin" metni.
+6. Başlıklar: `curl -sk -D- -o /dev/null "https://<host>/portal/login?tenant=<slug>" | grep -iE 'content-security-policy|permissions-policy|cache-control'`
+   → CSP var, Permissions-Policy içinde `display-capture=()`, `no-store`.
+7. Yeni talep (portal "Yeni talep") → 201 → bekleme odası; panelde talep `source=WEB`, audit `request.created` `via:"portal"`.
+   Firmanın web formu **kapalıyken** de çalışır; `/r/<ref>` o sırada 404 kalır.
+8. Çapraz kabul yok: portal çereziyle `GET /api/v1/auth/me` → 401; panel oturumuyla `/api/v1/portal/me` → 401.
+9. Kilit: yanlış şifreyle 5 deneme (aynı e-posta+IP) → 6.'da 423 / genel hata; `rs_portal_login_total{result="fail"}` arttı,
+   audit `portal.login` `fail`. 15 dk sonra (ya da Admin "Şifreyi sıfırla") açılır.
+10. TOTP: portal "Hesabım" → TOTP kur (QR sunucuda üretilir) → etkinleştir → çıkış → giriş kod ister (403 `MFA_REQUIRED` → kod alanı).
+11. Admin "Pasife al" → portal oturumu bir sonraki istekte 401; "Etkinleştir" ile geri. Admin "Şifreyi sıfırla" → TOTP kapanır,
+    tüm portal oturumları iptal, yeni geçici şifre.
+12. Caddy log: `docker compose logs --since 15m caddy | grep -c 'tenant='` → **0** (sorgu dizesi yok).
+13. §8 yayın geçmişine satır: tarih, P21, commit, migration `20261126000000_p21_customer_portal` uygulandı, env "yok",
+    `check-app-grants` 929/929.
+
+### 29.4 Portal hesabı sorun giderme (Admin işlemleri)
+
+| Belirti                                                  | Neden / eylem                                                                                                             |
+| -------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------- |
+| "Hesap geçici olarak kilitlendi" (423)                   | 1 sa'te 20 hatalı → 15 dk kilit (ya da e-posta+IP 15 dk'da 5). Bekle ya da Admin "Şifreyi sıfırla" (yeni geçici şifre)    |
+| "Geçici şifrenizin süresi doldu" (401)                   | 72 sa geçti (S-P21-5); panelde "süre doldu" rozeti → Admin "Şifreyi sıfırla"                                              |
+| TOTP cihazı kayboldu                                     | Kurtarma kodu yok (K-P21-5). Admin "Şifreyi sıfırla" = yeni geçici şifre + TOTP kapatma + tüm portal oturumlarının iptali |
+| E-posta değişmeli                                        | E-posta güncellenemez (DB yetkisi de yok). Eski hesap pasife alınır, yeni e-postayla yeni hesap açılır                    |
+| "Bu e-posta bu firmada kullanılıyor" ama hesap pasif     | Pasif hesap `retention_days` boyunca adresi tutar (R-P21-7): aynı kişi için "Etkinleştir"; anında silme gerekiyorsa §29.7 |
+| Giriş sayfası "bağlantıyı isteyin" diyor                 | URL'de `?tenant=<slug>` yok; Admin portal bağlantısını (panelde kopyala) müşteriye iletir                                 |
+| Portal talebi "Bekleyen talepleriniz var" (`QUEUE_FULL`) | Müşterinin 3 bekleyen talebi var (`QUEUE_FULL`); teknisyen kabul edince açılır                                            |
+| Portal talebi 429                                        | Müşteri başına 10 talep/sa (tüm hesaplar toplamı). Tekrarlıyorsa kötüye kullanım → §29.5 `portal-request-reject`          |
+
+### 29.5 Metrikler ve alarmlar (`remote-watch`, 10 dk; eşikler `deploy/ops/remote-watch.sh`, mimari-p21 §9)
+
+| Metrik                                                                      | Tür      | Anlam                                                        |
+| --------------------------------------------------------------------------- | -------- | ------------------------------------------------------------ |
+| `rs_portal_login_total{result="success"\|"fail"\|"locked"\|"mfa_required"}` | sayaç    | Portal giriş sonuçları (mimari §9)                           |
+| `rs_portal_locked_total`                                                    | sayaç    | Hesap/ikili kilide düşen girişler                            |
+| `rs_portal_requests_total{result}`                                          | sayaç    | Portal talep ucu sonuçları (S-P21-4)                         |
+| `rs_portal_sessions_active`                                                 | gösterge | Etkin portal oturumu (saklama işinde güncellenir); alarm yok |
+
+**Sözleşme (backend K3 — betik bu değerlere bakar):** sayaçlar `apps/server/src/app-routes.ts`'te etiketsiz kayıtlıdır
+(`app.metrics.counter(...)`; ilk olaydan önce `… 0` yazılır — alarmların "P21 server" işareti `rs_portal_login_total`'dır), gösterge
+`jobs/retention.ts`'te. `rs_portal_login_total` etiketleri `result` (+ fail'de `reason`); betik `result="fail"`'i etiket sırasından
+bağımsız sayar. `rs_portal_requests_total{result}` bugün `created` ve `rate_limited` (müşteri kovası 429) yazar; betik `rate_limited` ve
+ileride eklenirse `queue_full`'u (`QUEUE_FULL`) sayar. Başka ad kullanılırsa `portal-request-reject` sessiz kalır.
+`deploy/ops/test-watch.sh` ad eşlemesi betikteki her `rs_portal_*` adının `apps/server/src`'de `counter("…")`/`gauge("…")` ile kayıtlı
+olmasını zorunlu kılar (etiket değerini denetlemez).
+
+Server P21 öncesiyse (`rs_portal_login_total` yok) üç kontrol de değerlendirilmez. Betik değişti → `cd /opt/remote/deploy/ops &&
+./remote-watch.sh install` (ikinci yığında `install stg`). Eşikler watch.env'den (`watch.env.example`).
+
+| Kontrol                 | Koşul                                                                                                                                       | Düzey  | Eylem                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- | ------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `portal-login-fail`     | 10 dk'da `rs_portal_login_total{result="fail"}` artışı **≥ 200** (`WATCH_PORTAL_LOGIN_FAIL_MAX`; mimari §9 "dağıtık doldurma")              | Yüksek | Kimlik doldurma saldırısı. `docker compose logs --since 30m server \| grep portal_login` → `reason` dağılımı ve IP'ler (log; e-posta yazılmaz). Audit süzgeci `portal.login` + `fail` → hedef firma/hesaplar. Tek IP/önek → `request_blocks` / pfSense'te engel; çok firmaya yayılıyorsa ilgili firmaların Admin'ine bildirim + hesap sahiplerine TOTP önerisi. Kovalar (IP 20/dk, hesap 20/sa) çalışıyor olmalı — 429/423 oranı düşükse güvenliğe bildir |
+| `portal-locked`         | 1 sa'te `rs_portal_locked_total` artışı **> 10** (`WATCH_PORTAL_LOCKED_MAX`; devops varsayılanı, mimaride sayı yok)                         | Uyarı  | Hedefli kaba kuvvet ya da müşterinin şifreyi unutması. Audit `portal.locked` → hangi hesaplar/firma. Aynı hesap tekrar tekrar → Admin'e "Şifreyi sıfırla" + TOTP önerisi; çok hesap → `portal-login-fail` ile birlikte değerlendir                                                                                                                                                                                                                        |
+| `portal-request-reject` | 1 sa'te `rs_portal_requests_total{result="rate_limited"\|"queue_full"}` artışı **> 20** (`WATCH_PORTAL_REQ_REJECT_MAX`; devops varsayılanı) | Uyarı  | Ele geçirilmiş / kötü niyetli portal hesabıyla kuyruk doldurma (P12). Audit `request.created` `via:"portal"` + `rateAudit` → hesap; firma Admin'i hesabı **pasife alır** (oturumlar anında iptal). Tekrarında güvenliğe bildir                                                                                                                                                                                                                            |
+
+Bu üç sayaç süreç yeniden başlayınca sıfırlanır; betik düşüşü yeni değer kadar artış sayar (diğer P2x alarmlarıyla aynı).
+
+### 29.6 Geri alma (R-P21-6 — sıra bağlayıcı)
+
+**Neden sıra önemli:** eski (P21 öncesi) kod portal tablolarını bilmez; firma silme (P16) eski kodda `portal_*` satırlarına FK RESTRICT
+ile takılır (1451 → silme işi `FAILED`). `down.sql` ise tablolarda satır varken hiçbir şey değiştirmeden **3819**
+(`p21_down_guard_chk`) ile durur. Bu yüzden: P21 kodu durur → portal satırları (karar kaydıyla) boşaltılır → ters migration → eski imaj.
+
+1. **Ön yedek** (§18; `systemctl start remote-backup.service` → `audit-continuity ok`) + `.env` yedeği.
+2. **P21 kodunu durdur** (yeni portal hesabı/oturumu yazılmasın): `docker compose stop server web`. (Kesinti başlar.)
+3. **Portal verisi kararı.** Sayım: `docker compose exec -T mysql sh -c 'MYSQL_PWD="$MYSQL_MIGRATOR_PASSWORD" mysql -umigrator -N "$MYSQL_DATABASE" -e "SELECT (SELECT COUNT(*) FROM portal_users),(SELECT COUNT(*) FROM portal_sessions)"'`.
+   İkisi de 0 → adım 4. Değilse: hesaplar müşteriye ait kişisel veri + erişim hakkıdır, **sessizce silinmez** — karar (kim, neden, tarih)
+   yayın geçmişine yazılır; ardından:
+   `docker compose exec -T mysql sh -c 'MYSQL_PWD="$MYSQL_MIGRATOR_PASSWORD" mysql -umigrator "$MYSQL_DATABASE" -e "DELETE FROM portal_sessions; DELETE FROM portal_users;"'`
+   (sıra: oturum → hesap; ters sıra 1451). Audit izi (`portal.*`, `entity=portal_users`) `audit_logs`'ta 730 gün kalır; yedekte hesaplar durur.
+4. **Ters migration** (migrator; grants REVOKE + iki tablo DROP + `_prisma_migrations` satırı):
+   `docker compose run --rm migrate pnpm --filter @remote/server exec prisma db execute --file prisma/migrations/20261126000000_p21_customer_portal/down.sql`
+   → "Script executed successfully". 3819 görülürse adım 3 eksik kaldı (P21 kodu durdurulmadan yeni satır mı yazıldı?), hiçbir şey değişmedi.
+5. **Eski imaj:** `.env` `IMAGE_TAG=<P21 öncesi>` → `docker compose up -d` (eski `migrate` eski `grants.sql`'i yükler — portal satırı içermez).
+6. Doğrula: `check-app-grants.sh` → P21 öncesi sayı (873), `FAILED=0`; `/login` 200; bir panel girişi; `remote-watch` → `OK`
+   (portal kontrolleri kaybolur — server işareti yok).
+
+**Hızlı kapatma (geri almadan):** ilgili firmalarda Admin portal hesaplarını pasife alır (oturumlar anında iptal). Kod yerinde kalır.
+
+**Tablolar kalsın yolu (yalnız acil):** P21 kodu geri alınır, `down.sql` çalıştırılmaz. Yalnız portal tabloları **boşsa** güvenli;
+satır varsa eski kodda o firmaların silinmesi `FAILED` olur (önce adım 3). Eski imajın `migrate deploy`'u veritabanında bilinmeyen
+uygulanmış kayıtla karşılaşır — bu yol **DENENMEDİ**; ana yol (1–6) tercih edilir.
+
+**Prova (2026-11-18, yerel `rs-p21-test`, mysql 8.4.13):** dolu tabloda `down.sql` → 3819, tablolar kaldı; hesap oturumdan önce silinince
+1451; tablolar boşken `down.sql` → tablolar, `tables_priv`/`columns_priv` portal satırları ve migration kaydı 0; ardından `db:migrate`
+(migration + grants.sql) ile yeniden ileri gidiş ve `check-app-grants.sh` (sonuç `docs/implementation.md` "P21 — K7"). Staging dökümünde
+denenmedi.
+
+### 29.7 KVKK anlık silme talebi — tek portal hesabı (R-P21-7; elle SQL)
+
+Panelde portal hesabı silme düğmesi **yok** (pasif hesap `retention_days` sonra 03:30 saklama işiyle silinir). İlgili kişi KVKK m.7
+kapsamında **anında** silme isterse:
+
+1. Talep yazılı alınır, kimlik doğrulanır, talep numarası verilir (`<TALEP_NO>`).
+2. Firma Admin'i panelden hesabı **Pasife al**ır (oturumlar iptal). Super Admin hesabın `<TENANT_ID>` ve `<PORTAL_USER_ID>` değerlerini
+   panelden (müşteri → Portal hesapları; adres çubuğu/ayrıntı) ya da aşağıdaki salt okunur sorguyla bulur:
+   `SELECT id, tenant_id, status, passive_at FROM portal_users WHERE tenant_id='<TENANT_ID>' AND email='<e-posta küçük harf>';`
+3. Ön yedek (§18). Aşağıdaki blok `app` kullanıcısıyla çalıştırılır (yetkisi yalnız SELECT/INSERT/DELETE; tek işlem). Yalnız **PASSIVE**
+   hesabı siler (aktif hesapta 0 satır, audit yazılmaz); oturum → hesap sırası; audit `portal.account_deleted` (`username=system:runbook`,
+   `new_value.reason=kvkk_manual`) aynı işlemde yazılır:
+
+```sql
+-- KVKK-BASLA (runbook §29.7; <TENANT_ID>, <PORTAL_USER_ID>, <TALEP_NO> değiştirilir)
+START TRANSACTION;
+SELECT id, status FROM portal_users WHERE id = '<PORTAL_USER_ID>' AND tenant_id = '<TENANT_ID>' FOR UPDATE;
+DELETE s FROM portal_sessions s JOIN portal_users u ON u.id = s.portal_user_id AND u.tenant_id = s.tenant_id
+ WHERE u.id = '<PORTAL_USER_ID>' AND u.tenant_id = '<TENANT_ID>' AND u.status = 'PASSIVE';
+DELETE FROM portal_users WHERE id = '<PORTAL_USER_ID>' AND tenant_id = '<TENANT_ID>' AND status = 'PASSIVE';
+SET @p21_kvkk_n = ROW_COUNT();
+INSERT INTO audit_logs (tenant_id, user_id, username, action, entity, entity_id, new_value, result)
+SELECT '<TENANT_ID>', NULL, 'system:runbook', 'portal.account_deleted', 'portal_users', '<PORTAL_USER_ID>',
+       JSON_OBJECT('reason', 'kvkk_manual', 'ticket', '<TALEP_NO>'), 'success' FROM DUAL WHERE @p21_kvkk_n = 1;
+SELECT @p21_kvkk_n AS silinen_hesap;
+COMMIT;
+-- KVKK-BITIR
+```
+
+Çalıştırma (`deploy/` içinde; blok bir dosyaya kaydedilip yer tutucular doldurulur, parola konteyner ortamından):
+`docker compose exec -T mysql sh -c 'MYSQL_PWD="$MYSQL_APP_PASSWORD" mysql -uapp "$MYSQL_DATABASE"' < kvkk-portal.sql` →
+`silinen_hesap 1`. `0` ise hesap aktif ya da kimlikler yanlış — hiçbir şey silinmedi.
+
+4. **Kalanlar (kişiye bildirilir):** `audit_logs` satırları (`username` = e-posta, 730 gün; değiştirilemez — ADR-0025) ve gece yedekleri
+   (14 g + site dışı) saklama süresince kalır; açılan talepler müşteri firmasının kaydıdır (müşteri anonimleştirmesi ayrı süreç, §23).
+   `audit_logs`'a elle UPDATE/DELETE yapılmaz (tetikleyici reddeder).
+5. Aynı e-posta artık o firmada yeniden kullanılabilir.
+
+### 29.8 Anahtar emekliliği — portal TOTP sırrı (`crypto:check-retire` kapsam dışı)
+
+`portal_users.totp_secret_enc`, `APP_ENCRYPTION_KEYS` halkasının o anki sürümüyle (ilk bayt = sürüm) ve ayrı AAD etiketiyle (S-P21-9)
+şifrelenir. `crypto:check-retire <ver>` bugün bu sütunu **saymaz** (panel `users.totp_secret_enc` gibi; §14 P10 "Anahtar rotasyonu").
+Bir sürümü halkadan çıkarmadan önce §25.5 adım 1'e **ek olarak**:
+
+```bash
+docker compose exec -T mysql sh -c 'MYSQL_PWD="$MYSQL_MIGRATOR_PASSWORD" mysql -umigrator -N "$MYSQL_DATABASE" -e "SELECT COUNT(*) FROM portal_users WHERE totp_secret_enc IS NOT NULL AND ASCII(totp_secret_enc) = <ver>"'
+# 0 olmalı. >0 ise sürüm çıkarılmaz: ilgili portal kullanıcıları TOTP'yi kapatıp yeniden kurar ya da Admin "Şifreyi sıfırla" (TOTP sıfırlanır).
+```
+
+Rewrap yoktur. Erken çıkarılırsa o portal kullanıcıları TOTP'li giriş yapamaz (Admin "Şifreyi sıfırla" ile kurtarılır).
+**backend-dev notu:** `apps/server/src/cli/crypto.ts` `countAllByVersion`'a `"portal_users.totp_secret_enc"` sayımı eklenirse bu elle
+adım kaldırılır (P10 `users.totp_secret_enc` için de aynı açık var).
+
+### 29.9 Yedek
+
+Mevcut gece yedeği iki tabloyu kapsar (şifreli döküm; kişisel veri: e-posta, ad, IP, user agent; `totp_secret_enc` AES-GCM).
+Geri yükleme provası değişmez; geri yüklenen DB'de portal oturumları 8 sa içinde kendiliğinden düşer.

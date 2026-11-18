@@ -14,7 +14,9 @@ import { codeRow, createDeviceRow } from "./unattended.ts";
 // P8b: "scoped" = tenantScope'lu koleksiyon/ayar ucu (id'siz); izolasyonu requests-p8b.test.ts ("AC-147/148") ve
 // requests-p8b-5.test.ts ("AC-147", "AC-148: Super Admin", "AC-129") test eder.
 // P9: "system" = yalnız SUPER_ADMIN (/admin/*); tenant kullanıcısı (ADMIN dahil) → 403 (tenant-isolation.test.ts).
-export type RouteClass = "public" | "self" | "tenant" | "list" | "scoped" | "system";
+// P21: "portal" = portal oturumlu uç (`requirePortal`; kapsam oturumdaki müşteri). Panel oturumu bu uçlarda 401; izolasyon
+// (iki firma × iki müşteri IDOR → 404, liste yalnız kendi müşterisi) portal-p21-data.test.ts.
+export type RouteClass = "public" | "self" | "tenant" | "list" | "scoped" | "system" | "portal";
 
 export const ROUTE_CLASSES: Record<string, RouteClass> = {
   // P28c çoklu teknisyen: oturum uçları B → A oturumu 404 (ownedRoom/supervise); davet kimliği uçları kullanıcının kendi
@@ -248,6 +250,27 @@ export const ROUTE_CLASSES: Record<string, RouteClass> = {
   "GET /api/v1/settings/sms": "scoped",
   "PUT /api/v1/settings/sms": "scoped",
   "POST /api/v1/settings/sms/test": "scoped",
+  // P21 (mimari-p21 §4.2–4.3): portal girişi kimliksiz (Origin + kovalar); portal uçları portal oturumu; panel hesap
+  // yönetimi müşteri kaydı hedefler (B Admin → A müşterisi 404).
+  "POST /api/v1/portal/auth/login": "public",
+  "POST /api/v1/portal/auth/logout": "portal",
+  "GET /api/v1/portal/me": "portal",
+  "PATCH /api/v1/portal/me": "portal",
+  "POST /api/v1/portal/account/password": "portal",
+  "POST /api/v1/portal/account/totp/setup": "portal",
+  "POST /api/v1/portal/account/totp/enable": "portal",
+  "POST /api/v1/portal/account/totp/disable": "portal",
+  "GET /api/v1/portal/request-form": "portal",
+  "POST /api/v1/portal/requests": "portal",
+  "GET /api/v1/portal/requests": "portal",
+  "GET /api/v1/portal/requests/:id": "portal",
+  "GET /api/v1/portal/sessions": "portal",
+  "GET /api/v1/portal/sessions/:id": "portal",
+  "GET /api/v1/customers/:id/portal-accounts": "tenant",
+  "POST /api/v1/customers/:id/portal-accounts": "tenant",
+  "POST /api/v1/customers/:id/portal-accounts/:accountId/deactivate": "tenant",
+  "POST /api/v1/customers/:id/portal-accounts/:accountId/reactivate": "tenant",
+  "POST /api/v1/customers/:id/portal-accounts/:accountId/reset-password": "tenant",
 };
 
 export interface TwoTenants {
@@ -483,6 +506,27 @@ export const CROSS_TENANT_CASES: CrossTenantCase[] = [
       payload: { body: "Merhaba", clientMsgId: "m-1" },
     }),
   },
+  // P21: A müşterisinin portal hesapları B Admin'ine 404 (hesap kimliği olsun olmasın aynı).
+  {
+    route: "GET /api/v1/customers/:id/portal-accounts",
+    request: (fx) => ({ method: "GET", url: `/api/v1/customers/${fx.a.customerId}/portal-accounts` }),
+  },
+  {
+    route: "POST /api/v1/customers/:id/portal-accounts",
+    request: (fx) => ({
+      method: "POST",
+      url: `/api/v1/customers/${fx.a.customerId}/portal-accounts`,
+      payload: { email: `p-${fx.b.tenantId.toLowerCase()}@example.test`, fullName: "Portal Kişi" },
+    }),
+  },
+  ...(["deactivate", "reactivate", "reset-password"] as const).map((a) => ({
+    route: `POST /api/v1/customers/:id/portal-accounts/:accountId/${a}`,
+    request: (fx: TwoTenants): InjectOptions => ({
+      method: "POST",
+      url: `/api/v1/customers/${fx.a.customerId}/portal-accounts/${newId()}/${a}`,
+      payload: {},
+    }),
+  })),
   {
     route: "DELETE /api/v1/settings/holidays/:id",
     request: (fx) => ({ method: "DELETE", url: `/api/v1/settings/holidays/${fx.a.holidayId}` }),

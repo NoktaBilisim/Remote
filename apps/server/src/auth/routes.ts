@@ -60,7 +60,7 @@ function setSessionCookies(reply: FastifyReply, s: { token: string; csrfToken: s
  * P12 (AC-85): flaşsız tema çerezi — web kök layout'u sunucuda okur. HttpOnly değil (istemci de okur; gizli değil),
  * SameSite=Lax (dış bağlantıyla gelişte de tema doğru), production'da Secure. Çıkışta silinmez.
  */
-function setThemeCookie(reply: FastifyReply, theme: ThemeValue): void {
+export function setThemeCookie(reply: FastifyReply, theme: ThemeValue): void {
   const secure = reply.server.env.NODE_ENV === "production";
   void reply.setCookie(THEME_COOKIE, themeCookieValue(theme), {
     path: "/",

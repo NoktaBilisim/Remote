@@ -107,7 +107,11 @@ export const jsonStrings = (v: Prisma.JsonValue): string[] => (Array.isArray(v) 
  * indeksi): örnek/IP/önek/tenant sayıları + kullanılan kodlar. QA-P8b-1: ayar kilidi altında 5 ayrı sorgu (4 sayım +
  * kodlar) yerine 1 gidiş-dönüş — seri kuyrukta TX süresini ve havuz beklemesini kısaltır.
  */
-export async function pendingSnapshot(tx: DbOrTx, tenantId: string, k: { clientInstance: string; ipKey: string; netKey: string }) {
+export async function pendingSnapshot(
+  tx: DbOrTx,
+  tenantId: string,
+  k: { clientInstance: string; ipKey: string; netKey: string; customerId?: string | null },
+) {
   const rows = await tx.supportRequest.findMany({
     where: { tenantId, status: "PENDING" },
     select: {
@@ -119,6 +123,7 @@ export async function pendingSnapshot(tx: DbOrTx, tenantId: string, k: { clientI
       source: true,
       customerPhone: true,
       customerEmail: true,
+      customerId: true,
     },
   });
   const web = rows.filter((r) => r.source === "WEB");
@@ -134,6 +139,8 @@ export async function pendingSnapshot(tx: DbOrTx, tenantId: string, k: { clientI
     web: web.length,
     /** P19 (S-P19-12): bekleyen WEB taleplerinin alıcıları (≤ 30; bildirim bastırma karşılaştırması). */
     webContacts: web.map((r) => ({ phone: r.customerPhone, email: r.customerEmail })),
+    /** P21 (r2 S-P21-4): müşterinin bekleyen talepleri (kaynak fark etmez; yalnız portal yolunda sınır). */
+    customer: k.customerId ? rows.filter((r) => r.customerId === k.customerId).length : 0,
   };
 }
 

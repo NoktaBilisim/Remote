@@ -9,7 +9,8 @@
 # P18 H5 crypto-decrypt / calendar-fallback / msg-tenant-rate / p18-metrics; P19 J6 notify-outbox-pending /
 # notify-outbox-failed / notify-volume / sms-key-unreadable / p19-metrics; P28b K6 av-up (ardışık 2) / av-selftest /
 # av-signature-age / av-scan-failed / av-metrics / compose:clamav*; P28u K8 unattended-notify-fail / unattended-silent-volume /
-# unattended-consent-timeout; P28e K8 rec-stop-error / rec-part-rejected / rec-view-throttled; P28c K4 multi-denied.
+# unattended-consent-timeout; P28e K8 rec-stop-error / rec-part-rejected / rec-view-throttled; P28c K4 multi-denied;
+# P21 K7 portal-login-fail / portal-locked / portal-request-reject.
 # Kullanım: deploy/ops/test-watch.sh   Çıkış 0 = tüm beklentiler tuttu.
 set -euo pipefail
 cd "$(dirname "$0")"
@@ -500,6 +501,39 @@ good; clrmd; pmd 'a[$(touch /tmp/pwn50)]'; run; mds 'a[$(touch /tmp/pwn51)]:1'; 
 ls /tmp/pwn5* >/dev/null 2>&1 && no "P28c enjeksiyon: $(ls /tmp/pwn5*)" || ok "S14-2: P28c metrik/durum alanlarında a[\$(…)] komut çalıştırmadı"
 good; clrmd; run
 
+# P21 K7 (mimari-p21 §9; runbook §29.5): alanlar 38-41 = giriş-toplam(işaret) giriş-fail kilit talep-ret(rate_limited|queue_full).
+ppt() { echo "$((NOW - 3600)) 0 0 0 0 0 0 - $((NOW - 3600)) 0 0 0 0 - 5 10 0 3 0 0 - - - - - - - - - - - - - - - - - $1" >/scn/metrics; }
+clrpt() { sed -i '/^portal_samples=/d' /var/lib/rw/state; }
+pts() { sed -i '/^portal_samples=/d' /var/lib/rw/state; echo "portal_samples=$1" >>/var/lib/rw/state; }
+good; clrpt; run
+! grep -q 'check="portal-' /var/lib/rw/status.prom && ok "P21 öncesi (rs_portal_login_total yok) -> portal-* kontrolleri yok" || no "p21 öncesi: $(cat /out/o)"
+good; clrpt; ppt "0 - - -"; run
+p18n 'portal-' && grep -q 'check="portal-login-fail"} 1' /var/lib/rw/status.prom && grep -q 'check="portal-request-reject"} 1' /var/lib/rw/status.prom \
+  && ok "P21 temiz (etiketsiz 0, etiketli seriler yok -> 0) -> portal-* OK" || no "pt temiz: $(cat /out/o)"
+good; clrpt; ppt "0 0 0 0"; run; grep -q "^portal_samples=[0-9]*:0:0:0$" /var/lib/rw/state && ok "portal_samples durum anahtarına yazıldı" \
+  || no "pt durum: $(grep portal_samples /var/lib/rw/state)"
+ppt "300 200 0 0"; run
+p18a portal-login-fail && grep -q 'portal giriş hatası +200' /out/o && ok "tohumsuz taban 0 -> giriş hatası +200 (>= 200) -> ALERT portal-login-fail" || no "pt fail: $(cat /out/o)"
+good; clrpt; pts "$((NOW - 600)):1000:0:0"; ppt "1300 1199 0 0"; run
+p18n portal-login-fail && ok "10 dk'da giriş hatası +199 (< 200) -> alarm yok" || no "pt fail 199: $(cat /out/o)"
+good; clrpt; pts "$((NOW - 1500)):0:0:0 $((NOW - 1200)):500:0:0"; ppt "600 510 0 0"; run
+p18n portal-login-fail && ok "son pencerede +10 (önceki +500 pencere dışında) -> alarm yok" || no "pt fail pencere: $(cat /out/o)"
+good; clrpt; pts "$((NOW - 1800)):0:0:0"; ppt "20 0 11 0"; run
+p18a portal-locked && grep -q 'kilitlenen portal hesabı +11' /out/o && ok "1 sa'te kilit +11 (> 10) -> ALERT portal-locked" || no "pt lock: $(cat /out/o)"
+good; clrpt; pts "$((NOW - 1800)):0:0:0"; ppt "20 0 10 0"; run
+p18n portal-locked && ok "kilit +10 (= eşik) -> alarm yok" || no "pt lock 10: $(cat /out/o)"
+good; clrpt; pts "$((NOW - 1800)):0:0:0"; ppt "5 0 0 21"; run
+p18a portal-request-reject && grep -q 'portal talep reddi +21' /out/o && ok "1 sa'te talep reddi +21 (> 20) -> ALERT portal-request-reject" || no "pt req: $(cat /out/o)"
+good; clrpt; pts "$((NOW - 1800)):0:0:0"; ppt "5 0 0 20"; run
+p18n portal-request-reject && ok "talep reddi +20 (= eşik) -> alarm yok" || no "pt req 20: $(cat /out/o)"
+good; clrpt; pts "$((NOW - 1800)):500:0:0"; ppt "300 250 0 0"; WATCH_PORTAL_LOGIN_FAIL_MAX=300 run
+p18n portal-login-fail && ok "sayaç düştü -> +250, WATCH_PORTAL_LOGIN_FAIL_MAX=300 -> alarm yok (eşik ortamdan)" || no "pt eşik env: $(cat /out/o)"
+good; clrpt; pts "$((NOW - 6000)):0:0:0 $((NOW - 600)):0:0:0"; ppt "0 0 0 0"; run
+! grep -q "portal_samples=.*$((NOW - 6000)):" /var/lib/rw/state && ok "90 dk'dan eski P21 örneği atıldı" || no "pt budama: $(grep portal_samples /var/lib/rw/state)"
+good; clrpt; ppt 'a[$(touch /tmp/pwn60)] a[$(touch /tmp/pwn61)] a[$(touch /tmp/pwn62)] a[$(touch /tmp/pwn63)]'; run; pts 'a[$(touch /tmp/pwn64)]:1:1:1'; ppt "1 1 1 1"; run
+ls /tmp/pwn6* >/dev/null 2>&1 && no "P21 enjeksiyon: $(ls /tmp/pwn6*)" || ok "S14-2: P21 metrik/durum alanlarında a[\$(…)] komut çalıştırmadı"
+good; clrpt; run
+
 mkdir -p /src && cp /w/remote-watch.sh /w/remote-watch.service /w/remote-watch.timer /w/watch.env.example /src/
 mkdir -p /etc/systemd/system
 bash /src/remote-watch.sh install >/out/o 2>&1 && ok "install -> 0" || no "install: $(cat /out/o)"
@@ -533,7 +567,7 @@ if command -v node >/dev/null 2>&1; then
     'rs_orphan_files_total{action="deleted"} 4' 'rs_orphan_files_total{action="circuit_open"} 3' 'rs_erasure_ledger_write_failed_total 0' >"$M"
   JS="$(sed -n 's/.*node -e "\(const sum=.*\)" 2>\/dev\/null)" || rt=.*/\1/p' "$HERE/remote-watch.sh" | sed 's/\\"/"/g')"
   got="$(M="$M" node -e "globalThis.fetch=async()=>({text:async()=>require('fs').readFileSync(process.env.M,'utf8')});$JS")"
-  exp="1763000000 3 - - 1 0 1 1763000100 - 3 0 - - - - - - - - - - - - - - - - - - - - - - - - - -"
+  exp="1763000000 3 - - 1 0 1 1763000100 - 3 0 - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
   if [ "$got" = "$exp" ]; then echo "PASS  metrik ayrıştırma: etiketli rs_retention_failures_total toplamı 3, SCHEDULED/RUNNING, circuit_open 3, P18 serisi yok -> '-'"
   else echo "FAIL  metrik ayrıştırma: '$got' (beklenen '$exp')"; echo "SONUÇ-İÇ 1" >>"$TMP/out"; fi
   # P18 H5: decrypt (bütün table), takvim (bütün tenant), yalnız reason~tenant kova reddi, mesaj sayacı (P18 işareti).
@@ -541,7 +575,7 @@ if command -v node >/dev/null 2>&1; then
     'rs_calendar_fallback_total{tenant="t2"} 2' 'rs_request_messages_rejected_total{reason="tenant_rate"} 4' \
     'rs_request_messages_rejected_total{reason="sender_cap"} 9' 'rs_request_messages_total{sender="CUSTOMER"} 7' >>"$M"
   got="$(M="$M" node -e "globalThis.fetch=async()=>({text:async()=>require('fs').readFileSync(process.env.M,'utf8')});$JS")"
-  exp="1763000000 3 - - 1 0 1 1763000100 - 3 0 2 3 4 7 - - - - - - - - - - - - - - - - - - - - - -"
+  exp="1763000000 3 - - 1 0 1 1763000100 - 3 0 2 3 4 7 - - - - - - - - - - - - - - - - - - - - - - - - - -"
   if [ "$got" = "$exp" ]; then echo "PASS  metrik ayrıştırma P18: decrypt 2, takvim 1+2, tenant kova 4 (sender_cap hariç), mesaj 7"
   else echo "FAIL  metrik ayrıştırma P18: '$got' (beklenen '$exp')"; echo "SONUÇ-İÇ 1" >>"$TMP/out"; fi
   # P19 J6: outbox toplam (etiketsiz 0 dahil), FAILED (result=failed/FAILED), en eski PENDING (en büyük), rate_limited toplamı,
@@ -552,14 +586,14 @@ if command -v node >/dev/null 2>&1; then
     'rs_notify_rate_limited_total{scope="wa_bucket",channel="WHATSAPP"} 3' 'rs_sms_key_unreadable_total 0' \
     'rs_notify_tenant_max_hourly{role="SMS"} 81' 'rs_notify_tenant_max_hourly{channel="WHATSAPP"} 2' >>"$M"
   got="$(M="$M" node -e "globalThis.fetch=async()=>({text:async()=>require('fs').readFileSync(process.env.M,'utf8')});$JS")"
-  exp="1763000000 3 - - 1 0 1 1763000100 - 3 0 2 3 4 7 10 3 70 7 0 SMS=81,WHATSAPP=2 - - - - - - - - - - - - - - - -"
+  exp="1763000000 3 - - 1 0 1 1763000100 - 3 0 2 3 4 7 10 3 70 7 0 SMS=81,WHATSAPP=2 - - - - - - - - - - - - - - - - - - - -"
   if [ "$got" = "$exp" ]; then echo "PASS  metrik ayrıştırma P19: outbox 10 (FAILED 3), en eski 70, rate_limited 7, anahtar 0, hacim SMS=81,WHATSAPP=2"
   else echo "FAIL  metrik ayrıştırma P19: '$got' (beklenen '$exp')"; echo "SONUÇ-İÇ 1" >>"$TMP/out"; fi
   # P28b K6: rs_av_up, öz-sınama, imza yaşı (en büyük), tarama toplamı ve yalnız result=failed_* toplamı.
   printf '%s\n' 'rs_av_up 1' 'rs_av_selftest_ok 1' 'rs_av_signature_age_seconds 7200.5' 'rs_av_scan_total{result="clean"} 10' \
     'rs_av_scan_total{result="infected"} 1' 'rs_av_scan_total{result="failed_busy"} 2' 'rs_av_scan_total{result="failed_timeout"} 3' >>"$M"
   got="$(M="$M" node -e "globalThis.fetch=async()=>({text:async()=>require('fs').readFileSync(process.env.M,'utf8')});$JS")"
-  exp="1763000000 3 - - 1 0 1 1763000100 - 3 0 2 3 4 7 10 3 70 7 0 SMS=81,WHATSAPP=2 1 1 7200.5 16 5 - - - - - - - - - - -"
+  exp="1763000000 3 - - 1 0 1 1763000100 - 3 0 2 3 4 7 10 3 70 7 0 SMS=81,WHATSAPP=2 1 1 7200.5 16 5 - - - - - - - - - - - - - - -"
   if [ "$got" = "$exp" ]; then echo "PASS  metrik ayrıştırma P28b: av_up 1, öz-sınama 1, imza yaşı 7200.5, tarama 16 (failed_* 5)"
   else echo "FAIL  metrik ayrıştırma P28b: '$got' (beklenen '$exp')"; echo "SONUÇ-İÇ 1" >>"$TMP/out"; fi
   # P28u K8: notify toplam (etiketsiz 0 + etiketli), yalnız result="fail", connect mode=silent+result=ok (etiket sırası iki yönde;
@@ -569,12 +603,12 @@ if command -v node >/dev/null 2>&1; then
     'rs_unattended_connect_total{mode="ask",result="ok"} 9' 'rs_unattended_connect_total{mode="silent",result="forbidden"} 5' \
     'rs_unattended_consent_total{decision="granted"} 5' 'rs_unattended_consent_total{decision="timeout"} 2' >>"$M"
   got="$(M="$M" node -e "globalThis.fetch=async()=>({text:async()=>require('fs').readFileSync(process.env.M,'utf8')});$JS")"
-  exp="1763000000 3 - - 1 0 1 1763000100 - 3 0 2 3 4 7 10 3 70 7 0 SMS=81,WHATSAPP=2 1 1 7200.5 16 5 6 2 4 7 2 - - - - - -"
+  exp="1763000000 3 - - 1 0 1 1763000100 - 3 0 2 3 4 7 10 3 70 7 0 SMS=81,WHATSAPP=2 1 1 7200.5 16 5 6 2 4 7 2 - - - - - - - - - -"
   if [ "$got" = "$exp" ]; then echo "PASS  metrik ayrıştırma P28u: notify 6 (fail 2), silent ok 4 (ask/forbidden hariç), onay 7 (timeout 2)"
   else echo "FAIL  metrik ayrıştırma P28u: '$got' (beklenen '$exp')"; echo "SONUÇ-İÇ 1" >>"$TMP/out"; fi
   printf '%s\n' 'rs_unattended_silent_notify_total 0' >"$M.0"; sed -n '1,10p' "$M" >>"$M.0"
   got="$(M="$M.0" node -e "globalThis.fetch=async()=>({text:async()=>require('fs').readFileSync(process.env.M,'utf8')});$JS")"
-  case "$got" in *" 0 - - - - - - - - - -") echo "PASS  metrik ayrıştırma P28u işareti: etiketsiz 'rs_unattended_silent_notify_total 0' -> 0, diğerleri '-'" ;;
+  case "$got" in *" 0 - - - - - - - - - - - - - -") echo "PASS  metrik ayrıştırma P28u işareti: etiketsiz 'rs_unattended_silent_notify_total 0' -> 0, diğerleri '-'" ;;
     *) echo "FAIL  metrik ayrıştırma P28u işareti: '$got'"; echo "SONUÇ-İÇ 1" >>"$TMP/out" ;; esac
   # P28e K8: parça toplamı (histogram rs_rec_part_bytes_* ve rs_rec_bytes_total hariç), yalnız invalid|rate|busy, stop toplamı,
   # yalnız reason="error", izleme 429.
@@ -583,23 +617,23 @@ if command -v node >/dev/null 2>&1; then
     'rs_rec_part_bytes_sum 123456' 'rs_rec_part_bytes_count 40' 'rs_rec_bytes_total 999999' 'rs_rec_stop_total{reason="error"} 2' \
     'rs_rec_stop_total{reason="session_end"} 7' 'rs_rec_view_throttled_total 4' >>"$M"
   got="$(M="$M" node -e "globalThis.fetch=async()=>({text:async()=>require('fs').readFileSync(process.env.M,'utf8')});$JS")"
-  exp="1763000000 3 - - 1 0 1 1763000100 - 3 0 2 3 4 7 10 3 70 7 0 SMS=81,WHATSAPP=2 1 1 7200.5 16 5 6 2 4 7 2 51 6 9 2 4 -"
+  exp="1763000000 3 - - 1 0 1 1763000100 - 3 0 2 3 4 7 10 3 70 7 0 SMS=81,WHATSAPP=2 1 1 7200.5 16 5 6 2 4 7 2 51 6 9 2 4 - - - - -"
   if [ "$got" = "$exp" ]; then echo "PASS  metrik ayrıştırma P28e: parça 51 (red 6; histogram hariç), stop 9 (error 2), izleme 429 4"
   else echo "FAIL  metrik ayrıştırma P28e: '$got' (beklenen '$exp')"; echo "SONUÇ-İÇ 1" >>"$TMP/out"; fi
   printf '%s\n' 'rs_rec_part_total 0' 'rs_rec_stop_total 0' 'rs_rec_view_throttled_total 0' >"$M.1"
   got="$(M="$M.1" node -e "globalThis.fetch=async()=>({text:async()=>require('fs').readFileSync(process.env.M,'utf8')});$JS")"
-  case "$got" in *" 0 - 0 - 0 -") echo "PASS  metrik ayrıştırma P28e işareti: etiketsiz sayaçlar 0, etiketli alt kümeler '-'" ;;
+  case "$got" in *" 0 - 0 - 0 - - - - -") echo "PASS  metrik ayrıştırma P28e işareti: etiketsiz sayaçlar 0, etiketli alt kümeler '-'" ;;
     *) echo "FAIL  metrik ayrıştırma P28e işareti: '$got'"; echo "SONUÇ-İÇ 1" >>"$TMP/out" ;; esac
   # P28c K4: rol kapısı reddi toplamı (bütün type); rs_multi_invites_total / rs_multi_members (gauge) toplanmaz.
   printf '%s\n' 'rs_multi_denied_total{type="input"} 3' 'rs_multi_denied_total{type="file.offer"} 2' \
     'rs_multi_invites_total{result="rejected"} 9' 'rs_multi_members{role="observer"} 1' >>"$M"
   got="$(M="$M" node -e "globalThis.fetch=async()=>({text:async()=>require('fs').readFileSync(process.env.M,'utf8')});$JS")"
-  exp="1763000000 3 - - 1 0 1 1763000100 - 3 0 2 3 4 7 10 3 70 7 0 SMS=81,WHATSAPP=2 1 1 7200.5 16 5 6 2 4 7 2 51 6 9 2 4 5"
+  exp="1763000000 3 - - 1 0 1 1763000100 - 3 0 2 3 4 7 10 3 70 7 0 SMS=81,WHATSAPP=2 1 1 7200.5 16 5 6 2 4 7 2 51 6 9 2 4 5 - - - -"
   if [ "$got" = "$exp" ]; then echo "PASS  metrik ayrıştırma P28c: rol kapısı reddi 5 (bütün type; davet/üye sayılmaz)"
   else echo "FAIL  metrik ayrıştırma P28c: '$got' (beklenen '$exp')"; echo "SONUÇ-İÇ 1" >>"$TMP/out"; fi
   printf '%s\n' 'rs_multi_denied_total 0' >"$M.2"
   got="$(M="$M.2" node -e "globalThis.fetch=async()=>({text:async()=>require('fs').readFileSync(process.env.M,'utf8')});$JS")"
-  case "$got" in *" - - - - - 0") echo "PASS  metrik ayrıştırma P28c işareti: etiketsiz 'rs_multi_denied_total 0' -> 0" ;;
+  case "$got" in *" - - - - - 0 - - - -") echo "PASS  metrik ayrıştırma P28c işareti: etiketsiz 'rs_multi_denied_total 0' -> 0" ;;
     *) echo "FAIL  metrik ayrıştırma P28c işareti: '$got'"; echo "SONUÇ-İÇ 1" >>"$TMP/out" ;; esac
   # Ad eşlemesi P28c: K1 (sunucu) paralel yazılırken ops/metrics.ts'te hiç rs_multi_ yoksa UYARI + tasarıma (mimari-p28c §8) karşı
   # denetim; bir tanesi bile varsa betiğin kullandığı ad orada birebir olmalı (ad değişirse alarm sessizce ölmesin).
@@ -611,6 +645,32 @@ if command -v node >/dev/null 2>&1; then
     elif grep -q "$nm" "$HERE/../../docs/mimari-p28c.md"; then
       echo "UYARI: $nm henüz ops/metrics.ts'te kayıtlı değil (P28c K1); tasarımda var (mimari-p28c §8)"
     else echo "FAIL  ad eşlemesi: $nm ne ops/metrics.ts'te ne mimari-p28c.md'de"; echo "SONUÇ-İÇ 1" >>"$TMP/out"; fi
+  done
+  # P21 K7: giriş toplamı (etiketsiz/etiketli), yalnız result="fail", kilit, yalnız rate_limited|queue_full; created ve
+  # rs_portal_sessions_active (gösterge) sayılmaz.
+  printf '%s\n' 'rs_portal_login_total{result="success"} 7' 'rs_portal_login_total{result="fail"} 4' \
+    'rs_portal_login_total{result="locked"} 2' 'rs_portal_login_total{result="mfa_required"} 1' 'rs_portal_locked_total 3' \
+    'rs_portal_requests_total{result="created"} 9' 'rs_portal_requests_total{result="rate_limited"} 2' \
+    'rs_portal_requests_total{result="queue_full"} 1' 'rs_portal_sessions_active 5' >>"$M"
+  got="$(M="$M" node -e "globalThis.fetch=async()=>({text:async()=>require('fs').readFileSync(process.env.M,'utf8')});$JS")"
+  exp="1763000000 3 - - 1 0 1 1763000100 - 3 0 2 3 4 7 10 3 70 7 0 SMS=81,WHATSAPP=2 1 1 7200.5 16 5 6 2 4 7 2 51 6 9 2 4 5 14 4 3 3"
+  if [ "$got" = "$exp" ]; then echo "PASS  metrik ayrıştırma P21: giriş 14 (fail 4), kilit 3, talep reddi 3 (created/gösterge sayılmaz)"
+  else echo "FAIL  metrik ayrıştırma P21: '$got' (beklenen '$exp')"; echo "SONUÇ-İÇ 1" >>"$TMP/out"; fi
+  printf '%s\n' 'rs_portal_login_total 0' 'rs_portal_locked_total 0' >"$M.3"
+  got="$(M="$M.3" node -e "globalThis.fetch=async()=>({text:async()=>require('fs').readFileSync(process.env.M,'utf8')});$JS")"
+  case "$got" in *" - 0 - 0 -") echo "PASS  metrik ayrıştırma P21 işareti: etiketsiz 'rs_portal_login_total 0' -> 0, etiketli alt kümeler '-'" ;;
+    *) echo "FAIL  metrik ayrıştırma P21 işareti: '$got'"; echo "SONUÇ-İÇ 1" >>"$TMP/out" ;; esac
+  # Ad eşlemesi P21: sayaçlar app-routes.ts'te kaydedilir (P19 kalıbı) -> apps/server/src altında aranır. K3 paralel yazılırken
+  # hiç m.counter("rs_portal_…") yoksa UYARI + tasarıma (mimari-p21) karşı; bir tanesi bile varsa betiğin kullandığı her ad
+  # sunucuda birebir kayıtlı olmalı (ad değişirse alarm sessizce ölmesin). Etiket değeri (rate_limited) denetlenmez.
+  SRC="$HERE/../../apps/server/src"
+  for nm in $(grep -o 'rs_portal_[a-z_]*' "$HERE/remote-watch.sh" | sort -u); do
+    if grep -rqE 'counter\("rs_portal_' "$SRC"; then
+      if grep -rqE "(counter|gauge)\(\"$nm\"" "$SRC"; then echo "PASS  ad eşlemesi: $nm sunucuda kayıtlı"
+      else echo "FAIL  ad eşlemesi: $nm sunucuda kayıtlı değil"; echo "SONUÇ-İÇ 1" >>"$TMP/out"; fi
+    elif grep -q "$nm" "$HERE/../../docs/mimari-p21.md"; then
+      echo "UYARI: $nm henüz ops/metrics.ts'te kayıtlı değil (P21 K3); tasarımda var (mimari-p21 §9/§14)"
+    else echo "FAIL  ad eşlemesi: $nm ne ops/metrics.ts'te ne mimari-p21.md'de"; echo "SONUÇ-İÇ 1" >>"$TMP/out"; fi
   done
   # Ad eşlemesi: betikteki rs_rec_* adları apps/server/src/rec/types.ts REC_METRICS ile birebir (ad değişirse alarm sessizce ölmesin).
   for nm in $(grep -o 'rs_rec_[a-z_]*' "$HERE/remote-watch.sh" | sort -u); do

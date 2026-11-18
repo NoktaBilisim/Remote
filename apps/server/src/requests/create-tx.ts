@@ -19,6 +19,7 @@ import { AppError } from "../lib/errors.ts";
 import { newRequestCode, sha256Hex } from "../lib/ids.ts";
 import { addBusinessMinutes } from "./calendar.ts";
 import type { openState, TenantCalendar } from "./hours.ts";
+import { PORTAL_PENDING_PER_CUSTOMER_MAX } from "@remote/contracts/api/portal";
 import { WEB_PENDING_MAX } from "./limits.ts";
 import * as repo from "./repo.ts";
 import { CUSTOMER, type CreateCoreInput, type RequestService } from "./service.ts";
@@ -36,6 +37,17 @@ const isUniqueConflict = (err: unknown, index: string): boolean => {
   const e = err as PrismaLikeError | null;
   return typeof e === "object" && e !== null && e.code === "P2002" && e.meta?.driverAdapterError?.cause?.constraint?.index === index;
 };
+
+/**
+ * P21 (K-P21-2, r2 S-P21-1/S-P21-4): portal talebi seçeneği. `web_form_enabled` denetimi atlanır; çözülen firma/müşteri
+ * beklenenle eşit olmazsa talep yazılmaz (fail-closed 500); TX'te müşterinin bekleyen talepleri sınırlanır; audit'e eklenir.
+ */
+export interface PortalCreateOptions {
+  via: "portal";
+  portalUserId: string;
+  expectedTenantId: string;
+  expectedCustomerId: string;
+}
 
 /** TX öncesi adımların (create-steps.ts) ürettiği, TX'e ve commit sonrasına giden değerler. */
 export interface CreatePlan {
@@ -61,6 +73,8 @@ export interface CreatePlan {
   secret: string;
   id: string;
   expiresAt: Date;
+  /** P21: portal yolu (yoksa null — AGENT/WEB davranışı değişmez). */
+  portal: PortalCreateOptions | null;
 }
 
 export interface Created {
@@ -73,7 +87,7 @@ export interface Created {
 }
 
 /** Hangi bekleyen sınırı aştı (audit kovası/anahtar türü ayrımı): IP başına 3 ya da önek (net_key) başına 10. */
-type PendingHit = { bucket: string; keyType: "ip" | "prefix" | "tenant"; key: string };
+type PendingHit = { bucket: string; keyType: "ip" | "prefix" | "tenant" | "customer"; key: string };
 type Snapshot = Awaited<ReturnType<typeof repo.pendingSnapshot>>;
 
 /** Kod çakışmasında (UQ bekleyen kod) en çok 5 deneme; bekleyen sınırı reddinde `request.rate_limited` audit'i. */
@@ -95,7 +109,12 @@ export async function insertWithRetry(svc: RequestService, p: CreatePlan): Promi
 
 async function createTx(svc: RequestService, tx: Prisma.TransactionClient, p: CreatePlan, hit: { pending?: PendingHit }) {
   await lockAndRecheck(svc, tx, p);
-  const c = await repo.pendingSnapshot(tx, p.tenantId, { clientInstance: p.input.clientInstanceId, ipKey: p.ip, netKey: p.net });
+  const c = await repo.pendingSnapshot(tx, p.tenantId, {
+    clientInstance: p.input.clientInstanceId,
+    ipKey: p.ip,
+    netKey: p.net,
+    customerId: p.portal ? p.customerId : null,
+  });
   checkPending(p, c, hit);
   const { notify, suppressed } = notifyFlags(p.input, c);
   // P18 (AC-257, §8b.2): öncelik/SLA müşteri ?? firma varsayılanı (kilitli ayar satırıyla); değerler dondurulur.
@@ -119,7 +138,8 @@ async function createTx(svc: RequestService, tx: Prisma.TransactionClient, p: Cr
     result: "success",
     newValue: {
       clientVersion: p.input.clientVersion,
-      via: p.via,
+      via: p.portal ? p.portal.via : p.via,
+      ...(p.portal ? { portalUserId: p.portal.portalUserId } : {}),
       customerId: p.customerId,
       source: p.input.source,
       notify,
@@ -151,6 +171,11 @@ async function lockAndRecheck(svc: RequestService, tx: Prisma.TransactionClient,
 /** Bekleyen sınırları (kilit altında): örnek 1, IP 3, önek 10, tenant 50 / bilinmeyen 40, WEB 30. */
 function checkPending(p: CreatePlan, c: Snapshot, hit: { pending?: PendingHit }): void {
   if (c.instance >= 1) throw new AppError("REQUEST_PENDING");
+  // P21 (r2 S-P21-4): portal yolunda müşteri başına en çok 3 bekleyen (kaynak fark etmez) → 429 QUEUE_FULL (errors.ts durumu).
+  if (p.portal && c.customer >= PORTAL_PENDING_PER_CUSTOMER_MAX) {
+    hit.pending = { bucket: "pending.portal_customer", keyType: "customer", key: p.portal.expectedCustomerId };
+    throw new AppError("QUEUE_FULL", { message: REQUEST_BUSY_MESSAGE });
+  }
   if (!p.trusted && c.ip >= PENDING_PER_IP) {
     hit.pending = { bucket: "pending.ip", keyType: "ip", key: p.ip };
     throw new AppError("RATE_LIMITED", { message: REQUEST_BUSY_MESSAGE, retryAfterSec: 60 });

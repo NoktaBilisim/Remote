@@ -12,6 +12,7 @@ import type { JsonObject } from "../audit/mask.ts";
 import { isP16Signal } from "../lib/db.ts";
 import { expireIdleBindingsOf } from "../bindings/service.ts";
 import { anonymizeCustomersOf } from "../customers/service.ts";
+import { countActivePortalSessions, deleteOldPortalSessions, purgePassivePortalAccounts } from "../portal/retention.ts";
 import { newId } from "../lib/ids.ts";
 import { anonymizeRequestsOf } from "../requests/jobs.ts";
 import * as rrepo from "../requests/repo.ts";
@@ -66,6 +67,8 @@ export class RetentionJob {
   private expiring = new Set<string>();
   /** P28e: süresi dolan `STOPPED` kaydı olan firmalar (tur başına tek sorgu). */
   private recExpiring = new Set<string>();
+  /** P21 `rs_portal_sessions_active` (saklama turunda güncellenir). */
+  private portalSessionsActive = 0;
 
   constructor(svc: RequestService, opts: { purgeMode?: PurgeMode; fsrv?: FsrvRuntime } = {}) {
     this.svc = svc;
@@ -77,6 +80,7 @@ export class RetentionJob {
       "Saklama işinin son hatasız turunun bitişi (unix sn; P13a AC-199)",
       () => this.lastSuccessSeconds,
     );
+    m.gauge("rs_portal_sessions_active", "Açık portal oturumları (P21; saklama turunda güncellenir)", () => this.portalSessionsActive);
   }
 
   get isRunning(): boolean {
@@ -222,6 +226,8 @@ export class RetentionJob {
       c.purgedMessages += msgs.messages;
     }
     c.customers += await anonymizeCustomersOf(svc, t, now);
+    // P21 (K-P21-9): pasif portal hesapları `retention_days` sonra kalıcı silinir (SYSTEM audit `portal.account_deleted`).
+    c.portalAccounts += await purgePassivePortalAccounts(svc.d.db, { ip: "", userAgent: "retention", requestId: newId() }, t, now);
     c.bindings += await expireIdleBindingsOf(svc, t, now);
     c.blocks += await purgeExpiredBlocks(svc.d.db, t.tenantId, new Date(now.getTime() - REQUEST_BLOCK_EXPIRED_RETENTION_DAYS * DAY_MS));
     const cutoff = new Date(now.getTime() - t.retentionDays * DAY_MS);
@@ -286,6 +292,9 @@ export class RetentionJob {
     g.resetTokens = await drain((n) => repo.deleteOldResetTokens(db, graceCutoff, n));
     // P27a (AC-334, mimari-p27a §3.3): süresi dolan hatırlanan cihazlar (kayan süre yok; `expires_at < now`).
     g.trustedDevices = await drain((n) => deleteExpiredTrustedDevices(db, now, n));
+    // P21 (§3.4): portal oturumları süresi/iptali + 7 g.
+    g.portalSessions = await drain((n) => deleteOldPortalSessions(db, now, n));
+    this.portalSessionsActive = await countActivePortalSessions(db, now);
     // P27 (mimari-p27 §3.6): kayıt kodları (+7 g) önce (cihaz FK'si), sonra 30 g önce iptal edilmiş cihazlar.
     g.unattendedRegistrations = await drain((n) => deleteOldRegistrationCodes(db, now, n));
     g.unattendedDevices = await drain((n) => deleteRevokedDevices(db, now, n));

@@ -29,6 +29,8 @@ export const aadFor = {
   smsApiKey: (tenantId: string, origin: string): string => `tenant_settings.sms_api_key:${tenantId}|${origin}`,
   /** P19 (§8c.3): outbox alıcısı satıra bağlı. */
   outboxRecipient: (tenantId: string, id: string): string => `notification_outbox.recipient:${tenantId}|${id}`,
+  /** P21 (r2 S-P21-9): portal kullanıcısı TOTP sırrı — panel `totpSecret` etiketinden ayrı (panel sırrı portal satırında çözülemez). */
+  portalTotpSecret: (portalUserId: string): string => `portal_users.totp_secret_enc:${portalUserId}`,
 } as const;
 
 /**

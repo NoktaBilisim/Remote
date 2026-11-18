@@ -12,11 +12,14 @@ import { compareVersions, isOutdated } from "../lib/version.ts";
 import { outdated } from "../sessions/public.ts";
 import type { RequestSource } from "@remote/contracts/api/requests";
 import { outsideHoursMessage } from "./calendar.ts";
-import { insertWithRetry, type Created, type CreatePlan } from "./create-tx.ts";
+import { insertWithRetry, type Created, type CreatePlan, type PortalCreateOptions } from "./create-tx.ts";
 import { openState, type TenantCalendar } from "./hours.ts";
 import { rateLimited, RATE_BLOCK_SEC, TENANT_KNOWN_PER_HOUR, TENANT_UNKNOWN_PER_HOUR, TENANT_WEB_PER_HOUR } from "./limits.ts";
 import * as repo from "./repo.ts";
 import { CUSTOMER, tenantActive, type CreateCoreInput, type RequestService } from "./service.ts";
+
+/** P21: portal talebinde müşterinin ref'i ön bakışta çözülemedi (yenileme yarışı). */
+const PORTAL_REF_CHANGED_MESSAGE = "Talep bağlantınız yenilendi, sayfayı yenileyin.";
 
 /** S-P18-T7: `request.created fail {reason:"outside_hours"}` audit'i tenant başına bu pencerede en çok 1 satır. */
 const OUTSIDE_AUDIT_WINDOW_MS = 60_000;
@@ -32,12 +35,20 @@ interface Peek {
   peekedBinding: Awaited<ReturnType<typeof resolveUsable>>;
   peeked: repo.SettingsRow | null;
   trusted: boolean;
+  /** P21: portal yolu (K-P21-2); null → AGENT/WEB davranışı aynen. */
+  portal: PortalCreateOptions | null;
 }
 
 /** TX'e kadar geçen talep + TX sonucu (commit sonrası adımlar için). */
 export type Admitted = CreatePlan & { created: Created };
 
-export async function peekCreate(svc: RequestService, ctx: AuditContext, body: unknown, source: RequestSource): Promise<Peek> {
+export async function peekCreate(
+  svc: RequestService,
+  ctx: AuditContext,
+  body: unknown,
+  source: RequestSource,
+  portal: PortalCreateOptions | null = null,
+): Promise<Peek> {
   const ip = ipKey(ctx.ip);
   const prefix = prefixKey(ctx.ip);
   const net = netKey(ctx.ip);
@@ -49,10 +60,12 @@ export async function peekCreate(svc: RequestService, ctx: AuditContext, body: u
   const peekedBinding = peekObj.bindingKey !== undefined ? await resolveUsable(svc, peekObj.bindingKey) : null;
   const bs = peekedBinding ? await repo.settingsByTenant(svc.d.db, peekedBinding.row.tenantId) : null;
   // P19 (§8c.2 m.2, S-P19-2): geçersiz ref, pasif müşteri, form kapalı → aynı 404 (aynı gövde, kova/TX'e varılmaz).
-  if (web && (!peekedRef || !peekedRef.s.webFormEnabled)) throw svc.refInvalid(ip);
+  // P21 (K-P21-2): portal yolunda firma web formu tercihi uygulanmaz; ref'i (oturumdaki müşterinin) çözülemezse 409.
+  if (portal && !peekedRef) throw new AppError("CONFLICT", { message: PORTAL_REF_CHANGED_MESSAGE });
+  if (web && (!peekedRef || (!peekedRef.s.webFormEnabled && !portal))) throw svc.refInvalid(ip);
   const peeked = peekedRef?.s ?? (bs && tenantActive(bs.tenant) ? bs : null);
   const trusted = peeked ? cidrListMatcher(repo.jsonStrings(peeked.trustedCidrs))(ctx.ip) : false;
-  return { ip, prefix, net, web, peekObj, peekedRef, peekedBinding, peeked, trusted };
+  return { ip, prefix, net, web, peekObj, peekedRef, peekedBinding, peeked, trusted, portal };
 }
 
 /** Kapı içi (eski `admit` kapanışı): kovalar → zod → sürüm → kaynak → engel/mesai/kanal/onay → tenant kovası → TX. */
@@ -89,6 +102,7 @@ export async function admitCreate(
     secret,
     id,
     expiresAt,
+    portal: p.portal,
     ...src,
     ...gates,
     ...known,
@@ -122,6 +136,11 @@ async function resolveSource(svc: RequestService, ctx: AuditContext, p: Peek, in
     customerId = p.peekedRef.customer?.id ?? null;
   }
   const tenantId = s.tenantId;
+  // P21 (r2 S-P21-1): çözülen firma/müşteri oturumun kapsamıyla aynı olmalı; değilse talep yazılmaz (fail-closed 500 + alarm).
+  if (p.portal && (s.tenantId !== p.portal.expectedTenantId || customerId !== p.portal.expectedCustomerId)) {
+    svc.d.log.error({ alarm: "portal_request_scope_mismatch", portalUserId: p.portal.portalUserId }, "portal talebi kapsamı uyuşmadı");
+    throw new Error("portal talebi kapsamı uyuşmadı");
+  }
   const via = binding ? "binding" : "ref";
   const deviceHash = input.deviceKey ? sha256Hex(`${tenantId}${input.deviceKey}`) : null;
   return { s, tenantId, customerId, binding, via, deviceHash };
