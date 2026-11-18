@@ -1,7 +1,7 @@
 import { LEGACY_CHAT_NOTICE } from "@remote/contracts/chat";
 import { expect, test, type Browser, type BrowserContext, type Page } from "@playwright/test";
 import { agentCtl, agentCtlSend, startFakeAgent } from "./fake-agent";
-import { axeScan, desktopOnly, guardConsole, newSession, noHorizontalOverflow, signIn } from "./helpers";
+import { axeScan, desktopOnly, guardConsole, newSession, noHorizontalOverflow, scanThemes, signIn } from "./helpers";
 
 // P22 oturum sohbeti (mimari-p22 §8; AC-264, AC-291, AC-292). Sahte API + sahte WS (e2e/mock-p22.mjs, mock-ws.mjs).
 guardConsole();
@@ -28,7 +28,7 @@ for (const scheme of ["light", "dark"] as const) {
     await page.goto(tok("A"));
     await fillJoin(page);
     const line = page.getByTestId("chat-retention-notice");
-    await expect(line).toHaveText("Sohbet mesajları kayıt altına alınır ve 90 gün saklanır.");
+    await expect(line).toHaveText("Sohbet mesajları kayıt altına alınır ve 90 gün saklanır");
     const prevIsLine = await page
       .getByTestId("join-browser")
       .evaluate((b) => b.previousElementSibling?.getAttribute("data-testid") === "chat-retention-notice");
@@ -91,16 +91,20 @@ test("AC-264: tarayıcı misafir ↔ konsol sohbeti sunucudan (WS); ret → Tekr
   await page.getByTestId("chat-input").fill("Bu #reddet mesajı");
   await page.keyboard.press("Enter");
   await expect(page.getByTestId("chat-failed")).toBeVisible();
+  await scanThemes(page, '[data-testid="chat-panel"]', "konsol sohbet gönderilemedi");
   await page.getByTestId("chat-retry").click();
   await expect(page.getByTestId("chat-failed")).toHaveCount(0);
   await expect(g.getByTestId("chat-msg")).toHaveCount(3);
   const log = (await (await page.request.get(`${MOCK}/__e2e/chat-log/${id}`)).json()) as { sender: string }[];
   expect(log.map((x) => x.sender)).toEqual(["TECH", "CUSTOMER", "TECH"]);
 
-  expect(await axeScan(page, '[data-testid="chat-panel"]')).toEqual([]);
+  await scanThemes(page, '[data-testid="chat-panel"]', "konsol sohbet dolu");
+  await page.setViewportSize({ width: 390, height: 860 });
+  await expect(page.getByTestId("chat-panel")).toBeVisible();
+  await noHorizontalOverflow(page);
   await g.setViewportSize({ width: 390, height: 860 });
   await noHorizontalOverflow(g);
-  expect(await axeScan(g, '[data-testid="guest-collab"]')).toEqual([]);
+  await scanThemes(g, '[data-testid="guest-collab"]', "misafir sohbet");
   await ctx.close();
 });
 
@@ -127,7 +131,9 @@ test("AC-264 eski istemci: konsolda 'istemci eski' + giriş pasif; DC chat göst
   await page.waitForTimeout(800);
   await expect(page.getByTestId("chat-msg")).toHaveCount(0);
   expect((await agentCtl(a)).filter((m) => m.t === "chat")).toHaveLength(1);
-  expect(await axeScan(page, '[data-testid="collab-side"]')).toEqual([]);
+  await scanThemes(page, '[data-testid="collab-side"]', "konsol eski istemci");
+  await page.setViewportSize({ width: 390, height: 860 });
+  await noHorizontalOverflow(page);
   await a.context().close();
 });
 
@@ -150,6 +156,7 @@ test("K-P22-8 gözetimsiz oda: sohbet sekmesi pasif bilgi", async ({ page, conte
   await expect(page.getByTestId("console-status")).toHaveText("Aktif");
   await expect(page.getByTestId("chat-unattended")).toHaveText("Gözetimsiz bağlantıda sohbet yoktur.");
   await expect(page.getByTestId("chat-input")).toHaveCount(0);
+  await scanThemes(page, '[data-testid="collab-side"]', "konsol gözetimsiz");
   await a.context().close();
 });
 
@@ -175,10 +182,7 @@ test("AC-264 oturum detayı: yetkili sohbeti açar (audit tıklamayla), okunamay
   await expect(sec.getByTestId("hchat-msg")).toHaveCount(4);
   await expect(sec.getByTestId("hchat-more")).toHaveCount(0);
   expect(await views(cookie)).toBe(1); // `after` çağrısı audit yok
-  for (const scheme of ["light", "dark"] as const) {
-    await page.emulateMedia({ colorScheme: scheme });
-    expect(await axeScan(page, '[data-testid="section-chat"]'), scheme).toEqual([]);
-  }
+  await scanThemes(page, '[data-testid="section-chat"]', "oturum detayı sohbet");
 
   // Hata → Tekrar dene
   await page.goto(`/history/${ERROR_ID}`);
@@ -208,11 +212,15 @@ test("AC-291: aydınlatma bandı → standart paragrafı ekle → kaydet → ban
   await signIn(context, "p22ct");
   await page.goto("/settings/general");
   await expect(page.getByTestId("general-chat-missing")).toBeVisible();
+  await scanThemes(page, '[data-testid="general-chat-missing"]', "genel ayarlar bandı");
   await page.goto("/settings/consent-text");
   await expect(page.getByTestId("consent-form")).toHaveAttribute("data-ready", "true");
   const band = page.getByTestId("consent-chat-missing");
   await expect(band).toContainText("uçtan uca şifreli olmadığını belirtmiyor");
-  expect(await axeScan(page, '[data-testid="consent-chat-missing"]')).toEqual([]);
+  await scanThemes(page, '[data-testid="consent-chat-missing"]', "aydınlatma bandı");
+  await page.setViewportSize({ width: 390, height: 860 });
+  await noHorizontalOverflow(page);
+  await page.setViewportSize({ width: 1280, height: 900 });
   await band.getByTestId("consent-add-chat").click();
   await expect(page.getByTestId("consent-body")).toHaveValue(/Sohbet uçtan uca şifreli değildir/);
   await expect(band.getByTestId("consent-add-chat")).toHaveCount(0);

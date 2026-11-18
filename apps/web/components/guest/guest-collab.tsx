@@ -7,6 +7,7 @@ import { FilesPanel } from "@/components/collab/files-panel";
 import { chatFilesOptions } from "@/components/collab/tab-options";
 import { Button } from "@/components/ui/button";
 import { Segmented } from "@/components/ui/segmented";
+import { CHAT_RETENTION_LINE } from "@remote/contracts/chat";
 import type { SessionChat } from "@/lib/chat/use-session-chat";
 import type { Collab } from "@/lib/dc/use-collab";
 import { t } from "@/lib/i18n";
@@ -59,7 +60,7 @@ export function GuestCollab({
           chat={chat}
           peerName={techName}
           authorOf={authorOf}
-          retentionNote={retentionDays !== null && retentionDays >= 1 ? t("wr.retention", { days: retentionDays }) : undefined}
+          retentionNote={retentionDays !== null && retentionDays >= 1 ? CHAT_RETENTION_LINE(retentionDays) : undefined}
         />
       ) : (
         <FilesPanel collab={collab} allowed={filesAllowed} peerName={techName} />
