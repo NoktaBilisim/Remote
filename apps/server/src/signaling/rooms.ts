@@ -38,6 +38,7 @@ import { membersTeardown, revokeMember, revokeMemberEverywhere, type SilentJoinE
 import { broadcastRoster, controllerOf, newMulti, sendTechs } from "./members.ts";
 import { revokeControlFor } from "./control-revoke.ts";
 import { pending, type RoomRow } from "./rooms-lobby.ts";
+import { chatRoomClosed } from "./chat.ts";
 import { endVoice, newVoice, voiceDropTalker, voicePermChange, voiceSync, voiceTechAttached } from "./voice.ts";
 import type { UnattendedGate } from "../unattended/gate.ts";
 
@@ -287,6 +288,7 @@ export class Rooms implements RoomNotifier, TechnicianLiveControl {
   private teardown(room: Room, reason: SessionEndedReason): void {
     for (const t of Object.values(room.timers)) this.clock.clearTimeout(t);
     endVoice(this, room, "session_ended"); // P28d: üyeler silinmeden önce (listenerIds + yayın), session.ended'dan önce
+    chatRoomClosed(room); // P22 §4.2: chat.state{false, ended} — üyeler silinmeden ve session.ended'dan önce
     const msg = { t: "session.ended", reason } as const;
     const peers = [room.tech?.peer, ...membersTeardown(this, room), room.admitted?.peer, ...[...room.lobby.values()].map((g) => g.peer)];
     for (const g of room.lobby.values()) this.clock.clearTimeout(g.timer);

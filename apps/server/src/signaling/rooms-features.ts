@@ -6,6 +6,7 @@ import type { Cap } from "@remote/contracts/ws";
 import { GUEST_FEATURE_BY_SUBPROTOCOL, GUEST_FEATURES, type GuestFeature } from "@remote/contracts/ws-clip-print";
 import { FSRV_FEATURE, WS_GUEST_CAP_FSRV, type FileMode, type PeerFeature } from "@remote/contracts/ws-fsrv";
 import { WS_CAP_VOICE } from "@remote/contracts/ws-voice";
+import { WS_CAP_SCHAT } from "@remote/contracts/ws-chat";
 import type { Guest, Peer, Room } from "./types.ts";
 
 const NONE: ReadonlySet<GuestFeature> = new Set();
@@ -58,6 +59,19 @@ export function voiceOf(protocols: readonly string[], room: Room, guest: Guest):
 /** TEK yardımcı (§4.1): misafir şeması, `voice.*` yayını ve `guestVoice` yalnız bunu çağırır. İlk koşul gözetimsiz oda. */
 export function hasVoice(room: Room, peer: Peer | undefined): boolean {
   return !room.unattended && peer?.voice === true;
+}
+
+/**
+ * P22 (mimari-p22 r2 §4.1, S-P22-7, K-P22-10): soketin oturum sohbeti yeteneği (ws-auth, soket başına). Gözetimsiz odada
+ * belirteç okunmaz; tarayıcı istisnası YOK (yayından önce açık eski sekme DC'ye düşmesin) — yalnız `rs.cap.schat1`.
+ */
+export function schatOf(protocols: readonly string[], room: Room): boolean {
+  return !room.unattended && protocols.includes(WS_CAP_SCHAT);
+}
+
+/** TEK karar noktası (§4.1): misafir şeması (bit 64), `chat.*` gönderimi ve `guestChat` yalnız bunu çağırır. */
+export function hasSessionChat(room: Room, peer: Peer | undefined): boolean {
+  return !room.unattended && peer?.schat === true;
 }
 
 /** Odanın dosya modu (admit öncesi / atanmamışsa P2P). */

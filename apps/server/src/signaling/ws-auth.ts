@@ -22,10 +22,11 @@ import { rejoinDeviceGuest } from "./rejoin-device.ts";
 import { admitRequestGuest } from "./admit.ts";
 import { admitDeviceGuest } from "./admit-device.ts";
 import { onGuestMessage, onTechMessage, TokenBucket } from "./handlers.ts";
-import { featuresOf, fsrvOf, voiceOf } from "./rooms-features.ts";
+import { featuresOf, fsrvOf, schatOf, voiceOf } from "./rooms-features.ts";
 import type { Rooms } from "./rooms.ts";
 import type { Guest, Member, Peer, Room, TechConn } from "./types.ts";
 import { WS_CLOSE } from "@remote/contracts/ws";
+import { WS_CAP_SCHAT, WS_CLOSE_CONSOLE_OUTDATED_REASON } from "@remote/contracts/ws-chat";
 import { eligibleToJoin, joinSyncCheck, subjectOfAuth } from "../sessions/eligibility.ts";
 import { attachMember, detachMember, revokeMember } from "./member-life.ts";
 
@@ -102,6 +103,7 @@ async function memberUpgrade(
   const f = await eligibleToJoin(joinDeps(u), subjectOfAuth(auth), room, m.via, "ws");
   if (f) return { status: 403, reason: f.code === "FORBIDDEN" ? "member" : "member_state" };
   u.accept(c.req, c.socket, c.head, "tech", (ws, peer) => {
+    if (consoleOutdated(u, c.req, ws)) return;
     const live = room.multi.members.get(auth.user.id);
     if (joinSyncCheck(u.rooms, room, auth.user.id, "ws") || !live) return void ws.close(WS_CLOSE.REMOVED, "removed");
     const conn = techConnOf(u, c.req, peer, auth, token);
@@ -133,7 +135,19 @@ function techConnOf(u: UpgradeCtx, req: IncomingMessage, peer: Peer, auth: AuthC
   };
 }
 
+/**
+ * P22 (r2 §15.2, S-P22-2): `rs.cap.schat1` bildirmeyen konsol soketi (yayından önce açık eski sekme) yükseltmeden sonra 4426 ile
+ * kapanır — odaya BAĞLANMADAN (canlı sekmeyi REPLACED ile düşürmesin). Tek satır kapı; sahip ve üye dalı aynı.
+ */
+function consoleOutdated(u: UpgradeCtx, req: IncomingMessage, ws: WebSocket): boolean {
+  if (offeredProtocols(req).includes(WS_CAP_SCHAT)) return false;
+  u.rooms.metrics.inc("rs_ws_tech_outdated_total");
+  ws.close(WS_CLOSE.CONSOLE_OUTDATED, WS_CLOSE_CONSOLE_OUTDATED_REASON);
+  return true;
+}
+
 function openTech(u: UpgradeCtx, req: IncomingMessage, ws: WebSocket, peer: Peer, row: SignalRow, auth: AuthContext, token: string): void {
+  if (consoleOutdated(u, req, ws)) return;
   const conn = techConnOf(u, req, peer, auth, token); // P28e S-P28e-6: yükleme belirteci bağlamı (authSessionId, connId)
   const room = u.rooms.attachTech(row, conn);
   const bucket = new TokenBucket(u.rooms.clock);
@@ -288,6 +302,7 @@ function bindGuest(
   peer.features = featuresOf(protocols, room, g); // P28a §4.2: soket başına; gözetimsiz odada okunmaz (O-P28a-4)
   if (fsrvOf(protocols, room, g)) peer.fsrv = true; // P28b §5.1: rs.cap.fsrv1 / BROWSER; gözetimsiz odada okunmaz
   if (voiceOf(protocols, room, g)) peer.voice = true; // P28d §4.1: rs.cap.voice1 / BROWSER; gözetimsiz odada okunmaz
+  if (schatOf(protocols, room)) peer.schat = true; // P22 §4.1: rs.cap.schat1 (tarayıcı istisnası yok); gözetimsiz odada okunmaz
   attach();
   const bucket = new TokenBucket(rooms.clock);
   ws.on(

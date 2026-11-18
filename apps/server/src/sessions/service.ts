@@ -11,6 +11,7 @@ import { newId, sha256Hex } from "../lib/ids.ts";
 import { isActiveCodeConflict, newSessionCode, newSessionToken, newTechVerifyCode } from "./codes.ts";
 import { findHistory, type AllTenantsScope, type HistoryScope } from "./history-repo.ts";
 import * as repo from "./repo.ts";
+import { writeChatSummary } from "./chat.ts";
 
 const HOUR_MS = 60 * 60 * 1000;
 const HOURLY_CREATE_LIMIT = 20; // AC-12
@@ -249,11 +250,24 @@ export async function terminateSession(
       oldValue: { status: "ACTIVE" },
       newValue: { status: "ENDED", endedBy: "ADMIN", ...(reason ? { reason } : {}) },
     });
+    await writeChatSummary(tx, tenantId, id); // P22 S-P22-4: oturumu bitiren her yol
   });
   rooms?.closeSession(id, "admin");
 }
 
-/** Açılış: bellekteki odası kaybolan ACTIVE oturumlar ENDED{server} (mimari §3.5). Dönen: sayı. */
+/**
+ * Açılış: bellekteki odası kaybolan ACTIVE oturumlar ENDED{server} (mimari §3.5). Dönen: sayı. P22 (S-P22-4): her oturum kendi
+ * TX'inde kapanır ve `session.chat_summary` DB'den sayılarak yazılır (oda belleği süreçle birlikte kayboldu).
+ */
 export async function endOrphanedActive(db: Db, now: Date): Promise<number> {
-  return repo.endAllActive(db, now);
+  const rows = await db.supportSession.findMany({ where: { status: "ACTIVE" }, select: { id: true, tenantId: true } });
+  let n = 0;
+  for (const r of rows) {
+    n += await db.$transaction(async (tx) => {
+      const c = await repo.endActive(tx, r.id, now, "SYSTEM", "server");
+      if (c > 0) await writeChatSummary(tx, r.tenantId, r.id);
+      return c;
+    });
+  }
+  return n;
 }
