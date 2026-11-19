@@ -233,6 +233,7 @@ describe("P13a saklama işi — oturum anonimleştirme (AC-197)", () => {
       filesExpired: 0, // P28b: süresi dolan saklanan dosyalar
       recordings: 0, // P28e: anonimleştirmeyle silinen kayıtlar
       recordingsExpired: 0, // P28e: süresi dolan kayıtlar
+      portalAccounts: 0, // P21: retention_days'i dolan pasif portal hesapları
       sessionMessages: 0, // P22: anonimleştirmeyle aynı TX'te silinen oturum sohbeti satırları
       purgeCandidates: { sessions: 0, consents: 0, files: 0, requests: 0, bindings: 0 },
     });
@@ -398,6 +399,7 @@ describe("P13a saklama işi — global silmeler (AC-198)", () => {
       "fsrvMissing", // P28b mutabakatı
       "fsrvOrphanFiles",
       "fsrvStale",
+      "portalSessions", // P21: süresi/iptali 7 g önce biten portal oturumları
       "purgeCandidates",
       "recMissing", // P28e mutabakatı (b)
       "resetTokens",

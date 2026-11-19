@@ -986,6 +986,89 @@ P28u QA raporları (Tur 1, Tur 2): `docs/arsiv/p28u-qa-raporu.md`.
 
 ---
 
+## P21 — Tur 1
+
+Tarih: 2026-11-18 · Denetçi: qa-denetci (K8) · Dal: `claude/p21-c5b21a` (f7b4395..07d256d, `git diff main...HEAD`) · Kod değiştirilmedi.
+Kaynaklar: AC-262 + ortak AC-285..290 (`docs/gereksinimler-kabul-kriterleri-e11-b.md`), `docs/mimari-p21.md` r2 (§4, §5, §7, §10, §12, §14),
+ADR-0039, `docs/implementation.md` "P21 — K2", "K5/K6", "K7", "K3/K4", kalite standartları, proje CLAUDE.md.
+
+### Test sonucu
+
+| Komut                                                                                                   | Sonuç                                                                                                                                                                                                                                                                                                                          |
+| ------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `pnpm -r run typecheck`                                                                                 | Geçti (contracts, server, web)                                                                                                                                                                                                                                                                                                 |
+| `pnpm -r run lint`                                                                                      | Geçti, uyarı yok                                                                                                                                                                                                                                                                                                               |
+| `pnpm format:check` (CI `ci.yml` 3. adım, ADR-0024)                                                     | **KALDI — 24 dosya**, hepsi P21 diff'inde (liste Q-P21-1)                                                                                                                                                                                                                                                                      |
+| `pnpm -r run test`                                                                                      | contracts 280/280, web 605/605, server birim 673 geçti + 1 atlandı (`fsrv-p28b` AC-353 `skipIf(!CLAMD_TEST_HOST)` — gerekçeli, P21 dışı)                                                                                                                                                                                       |
+| Server entegrasyon `vitest run test/integration` (`rs-p21-test`, MySQL 8.4.13, temiz DB + 30 migration) | 117 dosya / 1213 test: **1212 geçti, 1 kaldı** — `tenant-purge-p16` AC-242 uçtan uca, `schedule` 503 `NOT_READY` (geçici DB çekişmesi). Tek başına 3 koşuda 1 kez daha kaldı (aralıklı; Q-P21-3). P21'in 3 dosyası (auth 19, data 17, requests 9) ve AC-69 tenant matrisi, AC-72 yetki, audit, retention dahil diğerleri yeşil |
+| Web e2e `pnpm --filter @remote/web e2e portal-p21 p19`                                                  | 56 geçti, 12 atlandı (masaüstü/mobil tek-proje `desktopOnly` — gerekçeli), 0 hata                                                                                                                                                                                                                                              |
+
+Not: ilk entegrasyon koşusu, önceki ajandan kalan `rs-p21-test` konteyneri nedeniyle DB'siz başladı (test-db `up` ad çakışması); konteyner `down` + `up` ile yeniden kuruldu, sonuçlar ikinci koşudandır.
+
+### Kabul kriterleri
+
+| AC                                                         | Durum       | Kanıt / eksik                                                                                                                                                                                                                                                                                                                                                                                       |
+| ---------------------------------------------------------- | ----------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| AC-262 giriş e-posta + şifre                               | ✅          | `portal-p21-auth`: "doğru → 200 PortalMe + iki __Host- çerezi…", "yanlış şifre / olmayan e-posta / bilinmeyen kısa ad → aynı 401", "Origin yok → 403", "21. deneme/dk → 429", "ikili 5. hatada 423", "hesap 20/sa → 423 + locked_until", "aynı e-posta iki firmada", "geçici şifre 72 sa"; e2e "hatalı şifre / kilit / süre doldu"                                                                  |
+| AC-262 isteğe bağlı TOTP                                   | ✅          | "setup (qrDataUrl, no-store) → enable → kodsuz 403 MFA_REQUIRED ve oturum açılmaz → doğru kod 200 → aynı adım 401 → disable şifre+kod", "kodlu 16. hatalı → 429", "panel AAD'siyle sır çözülemez"; e2e TOTP girişi + 2FA aç/kapat                                                                                                                                                                   |
+| AC-262 yalnız kendi firmasının talep/oturum geçmişi (meta) | ✅          | `portal-p21-data`: "A1 talep listesi yalnız A1, total, DESC, sayfalama", "A1 oturum listesi…", "K-P21-7 yanıt anahtar kümesi sözleşmeye EŞİT; anonim satırda null"; kapsam her istekte DB'deki `portal_users.customer_id`'den (`session.ts` `portalContextOf`)                                                                                                                                      |
+| AC-262 yeni talep açar                                     | ✅          | `portal-p21-requests`: form açık ve KAPALI firmada 201 + `source=WEB` + audit `via:portal`; gövdede ref/customerId/tenantId/bindingKey/formToken → 400; S-P21-1 uyuşmazlıkta yazmaz; S-P21-4 3 bekleyen → 429 `QUEUE_FULL`, müşteri kovası 10/sa; KVKK, mesai; e2e yeni talep (gövdede ref yok, bekleme odası). Eksik test: §10 "ref yenilemesiyle eşzamanlı talep / ref çözülemezse 409" (Q-P21-5) |
+| AC-262 firma dosyasını indirir                             | ✅          | "K-P21-3: PortalMe.links panel müşteri detayındakiyle aynı"; e2e "firma dosyası bağlantısı", kabulde firma dosyası                                                                                                                                                                                                                                                                                  |
+| AC-262 Admin oluşturur / pasife alır                       | ✅          | "oluşturma 201 + geçici şifre bir kez (listede/audit'te yok)", "customers.portal yoksa 403", "21. hesap → 409", "pasife alma → açık portal isteği 401 + audit; idempotent; etkinleştirme", "şifre sıfırlama → TOTP kapalı, oturumlar iptal, secondFactorCleared"; e2e Admin akışı                                                                                                                   |
+| AC-262 başka müşterinin verisi 404 (IDOR)                  | ✅          | "§5.3 IDOR: A1 oturumuyla A2/B1/B2 id'leri → 404, gövde olmayan id ile AYNI; ?customerId/?tenantId → 400", "IDOR (Admin) … → 404"; AC-69 tenant matrisi (`portal` sınıfı + 5 admin ucu) yeşil; grants: `email/tenant_id/customer_id` UPDATE yok                                                                                                                                                     |
+| AC-285 yetki tek tanımdan + toggle                         | ✅          | `permissions.ts` `customers.portal` (yalnız ekleme), `portal-p21.test.ts`, AC-72 `permissions-ac72-p9` entegrasyon yeşil, `perm.a.portal` etiketi                                                                                                                                                                                                                                                   |
+| AC-286 dış servis                                          | Uygulanamaz | Yeni dış servis yok (mimari §12)                                                                                                                                                                                                                                                                                                                                                                    |
+| AC-287 5 durum, iki tema axe 0, 390 px, ikon               | ✅          | e2e "AC-287: portal ekranları iki temada axe 0, 390 px" (9 portal ekranı) + "panel bölümü iki temada axe 0"; boş/kısmi/hata/iskelet: `history.test.tsx` + e2e; ikonlar `lucide-react`, DESIGN.md §4'e işlendi; ham renk/px yok (tarama)                                                                                                                                                             |
+| AC-288 dokümantasyon                                       | ⚠️ kanıtsız | K10 (teknik-yazar) henüz yapılmadı — plan gereği K9 sonrası; paket kapanmadan zorunlu                                                                                                                                                                                                                                                                                                               |
+| AC-289 iz testi                                            | Uygulanamaz | İstemci değişmedi                                                                                                                                                                                                                                                                                                                                                                                   |
+| AC-290 qa GEÇTİ + güvenlik K/Y 0                           | ⚠️          | K0g tasarım turu GEÇTİ; bu qa turu DÜZELTİLMELİ; K8 güvenlik kod denetimi sonucu bu raporda değerlendirilmedi                                                                                                                                                                                                                                                                                       |
+
+### Bulgular (Düzeltilmeli)
+
+1. **Q-P21-1 [Yüksek — CI kırmızı] [backend-dev + frontend-dev]** `pnpm format:check` 24 dosyada fark veriyor; CI'nın ilk kalite adımı bu dalda kırılır. Sunucu/contracts/doküman (backend-dev): `apps/server/src/audit/read.ts`, `src/portal/{admin,auth,guard}.ts`, `test/helpers/portal.ts`, `test/integration/portal-p21-{auth,data,requests}.test.ts`, `packages/contracts/src/permissions.ts`, `packages/contracts/test/portal-p21.test.ts`, `docs/implementation.md`, `docs/mimari-p21.md`, `docs/guvenlik-raporu.md`. Web (frontend-dev): `app/(panel)/customers/[id]/portal-accounts.tsx`, `app/portal/(app)/{account/account-sections.tsx,detail-parts.tsx,history.test.tsx,page.tsx}`, `app/portal/(auth)/login/portal-login-form.tsx`, `app/r/[ref]/waiting-room.tsx`, `e2e/{mock-p21.mjs,portal-p21.spec.ts}`, `lib/portal/{accounts.ts,portal.test.ts}`. Beklenen: `pnpm exec prettier --write <dosyalar>` → `pnpm format:check` 0 fark; ardından lint/typecheck/test yeniden.
+2. **Q-P21-2 [Orta] [backend-dev]** Firma silmede portal satırları çalışma zamanında test edilmiyor. `jobs/tenant-purge-repo.ts` `SESSIONS` adımına `portal_sessions`/`portal_users` eklendi, ama `test/helpers/tenant-purge.ts` fikstürü portal hesabı/oturumu **oluşturmuyor** (yalnız `TENANT_TABLES` listesine eklendi); `tenant-purge-p16` önizleme/yürütme portal satırı olmadan geçiyor. Mimari §10 "Silme yolları": "firma silme önizlemesinde `SESSIONS` sayısına portal satırları dahil, yürütmede 0". implementation.md K3/K4 "K1/K2 tenant-purge testlerine bırakıldı" diyor; yapılmamış. Beklenen: fikstüre en az 1 portal hesabı + 1 oturum (+ portal aktörlü audit satırı) eklenip AC-242 testinde önizleme sayısının bunları içerdiği, yürütmeden sonra iki tabloda firma satırının 0 olduğu ve FK RESTRICT'e takılmadığı doğrulansın.
+3. **Q-P21-3 [Orta — test kırmızı, aralıklı] [backend-dev]** `test/integration/tenant-purge-p16.test.ts:117` "AC-242 uçtan uca" tam koşuda ve tek başına 3 koşunun 1'inde `schedule` → 503 `NOT_READY` ("Sunucu şu an yoğun", `lib/errors.ts` `isTransientDbError` dalı). Main'de aynı oranda kalıp kalmadığı bu turda ölçülmedi; P21 aynı dosyanın `SESSIONS` adımını değiştirdiği için ilişkisi dışlanamaz. Beklenen: hangi DB hatasının (kilit bekleme/deadlock) döndüğü loglanıp kök neden bulunsun; P21 kaynaklı değilse main'de yeniden üretilip implementation.md'ye gerekçeyle yazılsın; testte ya çekişme giderilsin ya da 503+Retry-After için belgelenmiş tek yeniden deneme eklensin. Tam entegrasyon koşusu 2 ardışık koşuda yeşil olmalı.
+4. **Q-P21-4 [Düşük] [backend-dev]** Mimari §7 backend satırı `docs/mimari-api.md`'ye "Müşteri portalı (P21)" bölümü (§4 özeti + bağlantı) ister; `docs/mimari-api.md`'de P21/portal geçmiyor ve sapma gerekçesi implementation.md'de yok. Beklenen: bölüm eklensin (uç listesi, hata kodları — `QUEUE_FULL` 429 dahil — ve `mimari-p21.md` §4 bağlantısı).
+5. **Q-P21-5 [Düşük] [backend-dev]** §10 "Yeni talep" satırındaki iki ölçüt testsiz: (a) müşterinin `request_ref`'i çözülemezse 409 `CONFLICT` "Talep bağlantınız yenilendi…", (b) ref yenilemesiyle eşzamanlı talep yine aynı müşteriye yazılır. Beklenen: `portal-p21-requests.test.ts`'e Admin "bağlantıyı yenile" sonrası (oturum açıkken) talebin yeni ref ile aynı müşteriye yazıldığı ve ref çözülemeyen durumda 409 döndüğü testleri.
+6. **Q-P21-6 [Bilgi — güvenlik onayı gerekli] [frontend-dev / guvenlik]** S-P21-12 sapması: `/portal/new-request`'te `display-capture=(self)` kalıyor; buradan istemci içi gezinmeyle dönülen portal sayfaları o belgede `(self)` taşır (implementation.md K5/K6 "Kalan risk"). Kod değişikliği istenmiyor; K8 güvenlik raporunda kabul/ret kararı yazılmadan AC-290 kapanmaz.
+
+### Öneriler (zorunlu değil)
+
+- `portal/data.ts` `portalRequestForm`/`createPortalRequest` `svc.d.db`/`svc.d.metrics` ile `RequestService` iç bağımlılıklarına uzanıyor; servis üzerinden bir yöntem (ör. `svc.settingsOf(tenantId)`) katman sınırını netleştirir.
+- `portalSetTheme(d, p, theme: string)` parametresi `Theme` tipinde olmalı (zod zaten doğruluyor, tip güvenliği için).
+- TOTP etkinleştirmede diğer portal oturumlarının iptal edilmemesi (implementation.md notu) güvenlik raporunda karara bağlansın.
+- `crypto:check-retire` portal (ve panel) TOTP sırlarını saymıyor (K7 notu) — runbook §30.8 elle SQL; ileride sayıma eklenmesi.
+- Q-P21-3 sırasında görülen: `test-db.sh up` var olan konteynerde `docker run` hatası verip boş çıktı ile 0 döndürüyor (`eval` sessizce DB'siz devam ediyor); `up` var olan konteyneri tanıyıp hata kodu vermeli (devops).
+
+### Definition of Done
+
+| Madde                                                     | Durum | Not                                                                                                                                                          |
+| --------------------------------------------------------- | ----- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Testler yeşil (birim + entegrasyon + e2e)                 | ❌    | Entegrasyonda 1 aralıklı kırmızı (Q-P21-3)                                                                                                                   |
+| Lint / type-check temiz                                   | ✅    |                                                                                                                                                              |
+| Format kontrolü (CI)                                      | ❌    | Q-P21-1                                                                                                                                                      |
+| Her AC'ye test kanıtı                                     | ⚠️    | AC-262 ✅; AC-288/290 açık; §10 alt ölçütlerinde eksik testler (Q-P21-2, Q-P21-5)                                                                            |
+| Tasarım-kod uyumu, sapmalar gerekçeli                     | ⚠️    | Sapmalar implementation.md'de gerekçeli (QUEUE_FULL 429, AAD yeri, `display-capture` istisnası, `not-found.tsx` yok); `mimari-api.md` bölümü eksik (Q-P21-4) |
+| Tenant izolasyonu her sorguda arka uçta                   | ✅    | `PortalScope` + admin üçlü arama, AC-69 matris, IDOR testleri, sütun GRANT'ları                                                                              |
+| Yeni tablo → `grants.sql`                                 | ✅    | `portal_users`/`portal_sessions` sütun düzeyi UPDATE; K7 provası `check-app-grants.sh` 929 PASS                                                              |
+| Yeni env yok / env kuralı                                 | ✅    | Uygulama env'i eklenmedi; watch eşikleri `watch.env.example`'da                                                                                              |
+| Ortak dosyalarda yalnız ekleme                            | ✅    | `permissions.ts`, `proxy.ts`, `tr.json`, `labels.ts` diff'leri dizi/import genişletmesi                                                                      |
+| Audit (giriş/çıkış/başarısız, hesap işlemleri, maskeleme) | ✅    | PORTAL_AUDIT olayları, geçici şifre audit'te yok, silinen hesapta kimlik maskesi testli                                                                      |
+| Liste uçları sayfalı                                      | ✅    | portal listeleri ≤ 100, page ≤ 10 000; admin listesi ≤ 20 (K-P21-11)                                                                                         |
+| Hata yutma / `any` / PII log                              | ✅    | Tarama temiz; logger `*.totpCode`, `*.temporaryPassword`, `*.code` redakte                                                                                   |
+| 5 durum, a11y, tema, ikon (frontend)                      | ✅    | AC-287 e2e                                                                                                                                                   |
+| Yeni bağımlılık                                           | ✅    | Yok                                                                                                                                                          |
+| Dokümantasyon (AC-288)                                    | ❌    | K10 bekliyor                                                                                                                                                 |
+| Güvenlik K8 Kritik/Yüksek 0                               | ⚠️    | Bu raporda değerlendirilmedi                                                                                                                                 |
+
+### Olumlu
+
+- Kimlik alanı ayrımı (ayrı tablo, çerez, guard, CSRF çerezi) hem kodda hem çapraz testlerde (panel ↔ portal 401/403) kanıtlı.
+- IDOR testi gerçekten iki firma × iki müşteri ile tüm `:id` uçlarını geziyor ve 404 gövdesinin "olmayan id" ile aynı olduğunu karşılaştırıyor.
+- Portal talebinde gövde yalnız sunucuda kuruluyor; `createPortal` beklenen firma/müşteri uyuşmazlığında yazmadığı ayrıca test edilmiş (S-P21-1).
+- §14'te K8'e devredilen 5 madde kodda doğrulandı: kapsam her istekte `portal_users.customer_id`'den; `totp_last_step` koşullu UPDATE (yarışta "replay"); pasif hesapta doğru şifreyle `MFA_REQUIRED` değil 401 (testli); olmayan hesap eşiği `ghostAccount` 20/sa (DB eşiğiyle aynı); giriş sonrası hedef sabit `/portal`.
+- K7 runbook provası (down.sql guard, KVKK elle silme, yeniden ileri migration) gerçek DB'de yapılmış.
+
 ## P22 — QA Tur 1 (2026-11-18)
 
 Kapsam: `git diff main...HEAD` (dal `claude/p22-06bd24`, 7039378; 10 commit). AC-264, AC-291, AC-292 (+ AC-264 revizyon notu K-P22-4),
@@ -1078,6 +1161,84 @@ Not: `pnpm --filter @remote/web e2e -- p22-chat` dosya filtresini iletmiyor (tam
 DURUM: DÜZELTİLMELİ
 
 ---
+
+## P21 — Tur 2
+
+Tarih: 2026-11-18 · Denetçi: qa-denetci · Commit: `41c78e4` ("P21 — Düzeltme turu 1", `docs/implementation.md`) · Kod değiştirilmedi.
+Makine yükü bu turda yüksekti (load average 17–28, başka çalışma ağaçlarının testleri). Zamanlamaya bağlı kırmızılar aşağıda ayrı değerlendirildi.
+
+### Test sonucu
+
+| Komut                                                                                                                         | Sonuç                                                                                                                                                                                                                                                                   |
+| ----------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `pnpm format:check`                                                                                                           | ✅ "All matched files use Prettier code style!" (Q-P21-1 kapandı)                                                                                                                                                                                                       |
+| `pnpm -r run typecheck` / `pnpm -r run lint`                                                                                  | ✅ temiz, uyarı yok                                                                                                                                                                                                                                                     |
+| `pnpm -r run test`                                                                                                            | contracts 280/280 ve web 605/605 geçti. Server: 674 geçti, 1 atlandı (gerekçeli, `CLAMD_TEST_HOST`), **1 kaldı**: `rec-webm-dos` "Y-P28e-K2-1 … oran < 15" (iki tam koşuda 24,4 çıktı). Tek başına 17/17 yeşil. Bu, P28e'nin CPU zaman bütçesi testi; P21 diff'inde yok |
+| Server `test:int`, temiz `rs-p21-test`, koşu 1                                                                                | 1216 testten 1215 geçti. Kalan: `unattended-consent-k4` AC-445 (P28u audit sıra yarışı). Tek başına 3/3 yeşil                                                                                                                                                           |
+| Server `test:int`, koşu 2                                                                                                     | ✅ 117 dosya / 1216 test yeşil                                                                                                                                                                                                                                          |
+| Server `test:int`, koşu 3                                                                                                     | 1216 testten 1214 geçti. Kalanlar: (a) `customers-csv-p19` "5 000 satır ≤ 30 sn" 41,8 sn sürdü (yük); (b) `db-grants` AC-123, aşağıdaki not                                                                                                                             |
+| Kalanlar + P21 dosyaları tek başına (`db-grants`, `customers-csv-p19`, `portal-p21-{auth,data,requests}`, `tenant-purge-p16`) | ✅ 6 dosya / 71 test                                                                                                                                                                                                                                                    |
+| Web e2e `portal-p21 p19`                                                                                                      | ✅ 56 geçti, 12 atlandı (`desktopOnly`, gerekçeli), 0 hata                                                                                                                                                                                                              |
+
+**Kırmızıların değerlendirmesi:**
+
+- Üç tam koşunun hiçbirinde P21 test dosyası kırmızı değildi.
+- Kırmızı dört test de `main...HEAD` diff'inde **değişmeyen** dosyalarda ve P21 kod yolunda değil. Hepsi tek başına yeşil.
+- Üçünün nedeni zaman/yük: P28e CPU bütçesi, P19 30 sn ölçümü, P28u audit sırası.
+- `db-grants` AC-123'ün kök nedeni tespit edildi ve test hatası: `/1295|not supported…/` regex'i hata metnindeki **bağlantı numarasına** (`conn:1295`) denk geldi; gerçek hata doğru olan 1142 "INSERT command denied". Bu P11'den beri var olan gizli bir sahte kırmızı.
+- Kapanış koşulum olan "art arda iki tam yeşil" bu makinede sağlanamadı (yalnız koşu 2 yeşil). backend-dev aynı commit'te art arda iki yeşil koşu raporladı (implementation.md "Doğrulama"). Kırmızılar P21 dışı olduğu ve kanıtla açıklandığı için P21 kapanışını engellemez kabul edildi. Takip maddeleri Öneriler'de.
+
+### Tur 1 bulgularının kapanışı
+
+| Bulgu                               | Durum                  | Kanıt                                                                                                                                                                                                                                                                                             |
+| ----------------------------------- | ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Q-P21-1 format                      | ✅ Kapandı             | `format:check` yeşil                                                                                                                                                                                                                                                                              |
+| Q-P21-2 firma silmede portal satırı | ✅ Kapandı             | `tenant-purge.ts` fikstürü portal hesabı + oturum + portal audit satırı ekliyor. `tenant-purge-p16` AC-242 şunları doğruluyor: önizlemede iki tabloda 1'er satır, `counts.SESSIONS` = adım tablolarının toplamı, yürütme sonrası 0, silme sonrası audit/CSV'de portal e-postası yok. Testi okudum |
+| Q-P21-3 AC-242 aralıklı 503         | ✅ Kapandı (gerekçeli) | Kök neden: `tenant_purge_jobs_tenant_id_idx` boşluk kilidi + INSERT deadlock 1213, P16 kodu ve P21 dışı (implementation.md kanıtı: INNODB STATUS). Testte yalnız 503'te en çok 3 deneme (`retryNotReady`). Üç tam koşuda AC-242 yeşil                                                             |
+| Q-P21-4 `mimari-api.md` P21 bölümü  | ✅ Kapandı             | `docs/mimari-api.md:404` "Müşteri portalı (P21)"                                                                                                                                                                                                                                                  |
+| Q-P21-5 ref yenileme testleri       | ✅ Kapandı             | `portal-p21-requests` iki yeni test: yenileme sonrası talep aynı müşteriye 201; eşzamanlı yenilemede yalnız 201 veya 409 "Talep bağlantınız yenilendi…"; bayat bağlamda 409 ve talep yazılmıyor                                                                                                   |
+| Q-P21-6 `display-capture` istisnası | ✅ Kapandı             | Güvenlik kod turu 1, S-P21-K-3 olarak kabul etti (`docs/guvenlik-raporu.md`)                                                                                                                                                                                                                      |
+
+### Güvenlik düzeltmeleri (kontrol)
+
+- **S-P21-K-1:** `portal/auth.ts` `portalTotpEnable` aynı TX'te `repo.revokeOtherPortalSessions` çağırıyor. Bu fonksiyon kilitsiz okuma yapıp PK ile UPDATE ediyor; mevcut oturum hariç ve yalnız aynı `tenantId` + `portalUserId` kapsamında. Audit'e `revokedSessions` yazılıyor. Test "AC-262 S-P21-K-1" şunları doğruluyor: diğer iki oturum 401, mevcut oturum ve aynı müşterinin başka hesabı 200, `revokedSessions: 2`, açık oturum sayısı 1. ✅
+- **S-P21-K-4:** `lib/logger.ts` `REDACT_PATHS`'ten `*.code` kaldırıldı; `*.totpCode` ve `*.temporaryPassword` kaldı. Yeni `test/unit/logger-p21.test.ts` iki şeyi kanıtlıyor: hata nesnelerindeki `code` (P2002, ECONNREFUSED) logda görünüyor; TOTP kodu, geçici şifre ve `body.code` / `request.body.code` gizli. Mimari §14 ek notundan sapma `mimari-api.md`'de gerekçeli. ✅
+
+### Kabul kriterleri
+
+| AC                                                                                                      | Durum                       | Kanıt                                                                                                |
+| ------------------------------------------------------------------------------------------------------- | --------------------------- | ---------------------------------------------------------------------------------------------------- |
+| AC-262 (giriş + TOTP, kendi geçmişi/meta, yeni talep, firma dosyası, Admin oluştur/pasife al, IDOR 404) | ✅                          | Tur 1 kanıtları + Q-P21-2/5 testleri + S-P21-K-1 testi; üç tam koşuda P21 dosyaları yeşil; e2e yeşil |
+| AC-285                                                                                                  | ✅                          | `customers.portal`, AC-72 testi yeşil                                                                |
+| AC-286                                                                                                  | Uygulanamaz                 | Yeni dış servis yok                                                                                  |
+| AC-287                                                                                                  | ✅                          | e2e "AC-287" portal ekranları ve panel bölümü: iki tema axe 0, 390 px                                |
+| AC-288                                                                                                  | ⚠️ K10'a bağlı              | Plan gereği K9'dan sonra teknik-yazar yapacak; paketin son kapısıdır, qa kod turunu engellemez       |
+| AC-289                                                                                                  | Uygulanamaz                 | İstemci değişmedi                                                                                    |
+| AC-290                                                                                                  | ✅ (qa + güvenlik kod turu) | Güvenlik kod turu 1 GEÇTİ (Kritik 0 / Yüksek 0); bu qa turu GEÇTİ                                    |
+
+### Definition of Done
+
+| Madde                                                                            | Durum | Not                                                          |
+| -------------------------------------------------------------------------------- | ----- | ------------------------------------------------------------ |
+| Lint / tip / format                                                              | ✅    |                                                              |
+| P21 testleri yeşil (birim, entegrasyon, e2e)                                     | ✅    | Üç tam koşu + tek başına koşu                                |
+| Tüm depo testleri yeşil                                                          | ⚠️    | P21 dışı, yük kaynaklı ve tek başına yeşil 4 test (yukarıda) |
+| AC kanıtları                                                                     | ✅    | AC-288 hariç (K10)                                           |
+| Tasarım-kod uyumu, sapmalar gerekçeli                                            | ✅    | `*.code` sapması ve Q-P21-3 kararı gerekçeli                 |
+| Tenant izolasyonu, grants, env, ortak dosyalarda yalnız ekleme, audit, sayfalama | ✅    | Tur 1'den değişmedi                                          |
+| Dokümantasyon (AC-288)                                                           | ⏳    | K10                                                          |
+
+### Öneriler (zorunlu değil, P21 dışı; ilgili paket sahibine)
+
+1. [backend-dev] `apps/server/test/integration/db-grants.test.ts:22`: `/1295|…/` regex'i bağlantı numarasıyla (`conn:1295`) eşleşebiliyor. Hata kodu `errno=1295` / `no: 1295` biçiminde aranmalı.
+2. [backend-dev] P16 `lockOpenJob` boşluk kilidi yerine kilitsiz okuma + PK `FOR UPDATE` (implementation.md "Sonra" notu).
+3. [backend-dev] Yük altında kırmızıya dönen ölçüm testleri: `rec-webm-dos` oran < 15, `customers-csv-p19` ≤ 30 sn, `unattended-consent-k4` AC-445 audit sırası. CI'da kararlılık izlenmeli; yerel paralel koşularda bütçeler gevşetilebilir ya da `waitUntil` eklenebilir.
+4. [devops] `test-db.sh up` var olan konteynerde hata verip boş çıktı ile devam ediyor (Tur 1 notu); hâlâ geçerli.
+
+### Olumlu
+
+- Düzeltmeler küçük ve hedefli: üretim kodunda yalnız `portal/{auth,repo}.ts` ve `lib/logger.ts` değişti. Q-P21-3 için kök neden kanıtla bulundu, üretim kodu gereksiz yere değiştirilmedi.
+- S-P21-K-1 iptal sorgusu panel kalıbıyla aynı şekilde boşluk kilidinden kaçınıyor.
 
 ## P22 — QA Tur 2 (2026-11-18)
 

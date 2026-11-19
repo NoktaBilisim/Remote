@@ -11599,6 +11599,284 @@ Düzeltme (backend-dev):
 
 Sonra (`docs/gereksinimler.md` §9): S16-19, S16-20.
 
+## P21 — Tasarım turu 1
+
+Tarih: 2026-11-17 · Kapsam: `docs/mimari-p21.md` r1.1, ADR-0039 r1.1, `docs/tasarim-kontrol.md` "P21" (K0g, AC-290).
+Bağlam kodu okundu: `auth/{session,guards,service,routes,account,password,mfa}.ts`, `requests/{service,create-steps,web-form,web-routes}.ts`,
+`customers/service.ts` (anonimleştirme), `users/purge.ts`, `audit/{mask,view}.ts`, `lib/logger.ts`, `apps/web/proxy.ts`, `prisma/sql/grants.sql`,
+`packages/contracts/src/api/requests.ts`. Kod yok (tasarım turu); otomatik tarama bu turda uygulanamaz (yeni bağımlılık yok).
+
+Özet: Kritik 0 / Yüksek 0 / Orta 5 / Düşük 8
+
+### Doğrulanan tasarım kontrolleri (olumlu)
+
+- **Oturum ayrımı / çapraz kabul:** panel `requireAuth` yalnız `SESSION_COOKIE` + `auth_sessions` (guards.ts:47-51, session.ts:111-113); portal ayrı
+  çerez + ayrı tablo + ayrı guard → token diğer alanda yapısal olarak çözülemez. CSRF double-submit alana özgü çerezle karşılaştırılır; `__Host-`
+  öneki alt alan adından çerez enjeksiyonunu engeller. Login CSRF için Origin allowlist (panel `checkOrigin` kalıbı). Doğru.
+- **Oturum sabitleme:** girişte önceki portal çerezinin oturumu iptal + yeni token; şifre değişiminde tüm oturumlar iptal + yeni token (panel
+  `changePassword` kalıbı, service.ts:268-279). Doğru.
+- **Kimlik doğrulama:** argon2id (password.ts), olmayan hesapta sahte hash (sabit maliyet), IP/ikili/hesap kovaları + DB kilidi + ghost kovası
+  (service.ts kalıbı), ayrı kova örnekleri (portal saldırısı panel girişini kilitlemez), yarım oturum yok, `totp_last_step` tekrar oynatma reddi.
+- **IDOR:** kapsam yalnız oturumdan, `strictObject` sorgular, tekil kayıtta `(id, tenantId, customerId)` + tek tip 404, Admin uçlarında üçlü arama,
+  `tenant_id`/`customer_id`/`email` sütun düzeyi grant ile güncellenemez, bileşik FK `(portal_user_id, tenant_id)`. Test planı (2×2 fikstür) yeterli.
+- **Pasifleştirme:** her istekte kullanıcı/müşteri/tenant durumu DB'den; pasife alma ve Admin sıfırlamasında oturum iptali aynı TX.
+- **Veri ifşası:** ayrı dar DTO + sabit `select`, anahtar kümesi eşitliği testi; teknisyen adı JOIN'i kalıcı silinmiş kullanıcıda mezar taşı etiketini
+  döndürür (users/purge.ts `tombstone` → `deletedUserLabel`) — ad sızmaz.
+- **Başlıklar:** mevcut nonce CSP (`frame-ancestors 'none'`, `connect-src 'self'`, `img-src 'self' data: blob:` → TOTP QR'ı dış servise gidemez),
+  `Referrer-Policy: no-referrer`, COOP/CORP; `/portal` `MIC_DENY_PREFIXES`'e ekleniyor. Logger gövdeyi zaten tümden redakte eder (`body`, `*.body`).
+- **Sır:** yeni env/sır yok; TOTP sırrı SecretBox (AES-256-GCM); geçici şifre audit'e yazılmaz.
+
+### [ORTA] S-P21-1 Portal talebinde müşteri `createCore` ön bakışındaki `body.ref`'ten çözülür — gövde sunucuda kurulmalı ve müşteri eşleşmesi doğrulanmalı — A01 Broken Access Control
+
+Konum: `apps/server/src/requests/create-steps.ts:47-56` (`peekCreate`: `peekObj.ref` → `resolveRef`), `:107-123` (`resolveSource` müşteriyi
+`p.peekedRef`'ten alır, parse çıktısından değil); mimari-p21 §4.2 `POST /portal/requests` satırı.
+Risk: `createCore`'un müşteri/tenant kararı parse edilmiş girdiden değil, `body` argümanının ham `ref` alanının ön bakışından gelir. Portal ucu
+`req.body`'yi `body` olarak geçirip ref'i yalnız `parse` kapanışında enjekte ederse (ör. strict olmayan bir parse ile) istemcinin gönderdiği başka
+bir müşterinin/firmanın ref'i ön bakışta çözülür ve talep **başka müşteriye** (çapraz tenant dahil) yazılır, `via:"portal"` ile `web_form_enabled`
+denetimi de atlanır. Tasarım metni doğru (`createCore(ctx, { ...input, ref: müşterinin request_ref'i … })`) ama tek güvence uygulama disiplinidir.
+Öneri: (1) portal ucu `body` olarak **yalnız sunucuda kurulmuş** nesneyi verir (zod sonrası `{...input, ref: scope müşterisinin ref'i}`);
+(2) `via:"portal"` seçeneği `expectedCustomerId`/`expectedTenantId` taşır ve `resolveSource` sonrası `customerId === scope.customerId &&
+tenantId === scope.tenantId` değilse 500/iç hata (fail-closed); (3) müşterinin `request_ref`'i NULL/biçim dışıysa 404 değil 409 (net mesaj);
+(4) test: gövdeye başka müşterinin `ref`'i/`bindingKey` → 400 ve talep yazılmaz; ref döndürülürken (Admin "Bağlantıyı yenile") eşzamanlı talep
+eski/yeni ref'le yine aynı müşteriye yazılır. (atanan ajan: backend-dev; mimar §4.2'ye (2)'yi ekler)
+
+### [ORTA] S-P21-2 `portal.logout` audit satırı kimlik maskesinden kaçar (KVKK) — A09 / KVKK
+
+Konum: mimari-p21 §4.5 (`portal.logout` → `entity=portal_sessions`, `entity_id=oturum id`, `username=e-posta`) ve K-P21-14 maske koşulu
+("`entity = portal_users` ve `entity_id` `portal_users`'ta yok"); `apps/server/src/audit/view.ts` `identityView`.
+Risk: hesap saklama/anonimleştirme/firma silmeyle silindikten sonra `portal.logout` satırlarının `username`'indeki e-posta 730 gün açık kalır
+(oturum satırları da silindiğinden başka bağ yok). Aynı durum `user_id` NULL ve `entity_id` NULL olan `portal.login fail` satırları için
+belirsiz (olmayan e-posta denemesi — maskelenip maskelenmeyeceği tanımsız). K-P21-14'ün amacıyla çelişir.
+Öneri: portal aktörlü **tüm** satırlarda `entity = portal_users`, `entity_id = portal kullanıcı id` (oturum id'si `new_value.sessionId`); maske
+koşulu böylece tek kalır. Olmayan hesap denemesinde (`entity_id` NULL) davranışı açıkça yaz (öneri: panel `auth.login` ghost satırıyla aynı —
+maskelenmez; saldırgan girdisidir). Test: hesap silinince o hesabın login/logout/password_change/mfa satırlarının hepsi maskeli. (atanan ajan: mimar → backend-dev)
+
+### [ORTA] S-P21-3 Sistem geneli `UQ(email)` → firmalar arası e-posta işgali ve varlık sorgusu — A04 Insecure Design
+
+Konum: K-P21-6, §3.1 `UQ(email)`, §4.3 `POST …/portal-accounts` 409 (`fields.email`), R-P21-2, R-P21-7.
+Risk: Firma A'nın `customers.portal` yetkili herhangi bir kullanıcısı (Admin toggle'ıyla User da olabilir), Firma B'nin müşteri yetkilisinin
+e-postasıyla kendi müşterisine hesap açarak B'nin o kişiye portal hesabı açmasını engeller; e-posta güncellenemez ve pasif hesap
+`retention_days` boyunca adresi tutar (R-P21-7) → B'nin elinde çözüm yok, yalnız Super Admin elle SQL. Ayrıca 409 yanıtı, bir e-postanın
+**başka bir firmada** müşteri yetkilisi olduğunu (rakip istihbaratı) 30/sa hızla sorgulatır (R-P21-2 panel `users.email`'le eşdeğer sayılmış,
+ama panel kullanıcısı yalnız Super Admin/Admin'in kendi çalışanıdır; portal hesabı üçüncü kişiye aittir).
+Öneri (tercih sırasıyla): (a) tekillik `UQ(tenant_id, email)`; giriş zaten `loginUrl = …/portal/login?tenant=<slug>` ile firmaya özgü →
+slug giriş isteğine gizli alan olarak taşınır (form görünümü değişmez, sadelik korunur); `?tenant` yoksa "bağlantıyı sağlayıcınızdan isteyin";
+(b) (a) seçilmezse: R-P21-7 genişleme noktası (`DELETE …/portal-accounts/:accountId`, yalnız PASSIVE) bu pakete alınır ve Super Admin'e
+"e-posta işgali" runbook adımı yazılır; 409 metni olduğu gibi kalır. Karar mimar/proje-yöneticisi; Orta (engelleyici değil). (atanan ajan: mimar)
+
+### [ORTA] S-P21-4 Tek portal hesabı firmanın ortak WEB kovasını/bekleyen tavanını doldurabilir — A04 / DoS
+
+Konum: §4.2 `POST /portal/requests`, §5.4 P12; `create-steps.ts:224-245` (`tenantWebAll` 60/sa firma geneli), WEB bekleyen tavanı 30.
+Risk: kullanıcı başına 10/sa; müşteri başına 20 hesap → tek müşteri 200/sa üretebilir, firmanın ortak WEB kovası (60/sa) ve bekleyen tavanı (30)
+paylaşıldığı için **diğer tüm müşterilerin** hem portal hem `/r/` taleplerini 429/`QUEUE_FULL`'a düşürür. Bot kapısı yok; kimlik doğrulanmış
+olması kötü niyetli/ele geçirilmiş hesabı engellemez. Ayrıca her talep firma WhatsApp/e-posta bildirimini tetikler (bildirim yorgunluğu).
+Öneri: müşteri başına ek kova (ör. 10/sa, tüm portal hesapları toplamı, `PORTAL_REQUESTS_PER_CUSTOMER_HOUR`) ve müşteri başına açık bekleyen
+portal talebi tavanı (ör. 3; aşımda mevcut `REQUEST_BUSY_MESSAGE`). Kova aşımı audit (`rateAudit`, `via:"portal"`, portalUserId) + metrik
+`rs_portal_requests_total{result}`; alarm devops K7. Test: aynı müşterinin 2 hesabıyla 11. talep → 429; başka müşteri etkilenmez. (atanan ajan: backend-dev; mimar §4.1 sabit ekler)
+
+### [ORTA] S-P21-5 Geçici şifrenin süresi yok (kanal dışı iletim, dış kişi) — A07 Identification and Authentication Failures
+
+Konum: K-P21-4, §4.3 oluşturma/`reset-password`, R-P21-4. Karşılaştırma: Super Admin geçici şifresi 24 sa (`auth/service.ts:186-196`).
+Risk: geçici şifre telefon/e-posta ile iletilir (R-P21-4 "zayıf kanal"); hesap hiç kullanılmazsa şifre süresiz geçerli kalır. İletinin sonradan
+ele geçirilmesi (e-posta kutusu, iletilen sohbet) → saldırgan ilk girişte kendi şifresini belirler ve hesabı devralır; gerçek kullanıcı "şifre
+hatalı" görür, Admin sıfırlayana kadar fark edilmez.
+Öneri: `must_change_password=1` iken geçici şifre **7 gün** (veya 72 sa) geçerli; süre dolunca giriş 401 + "Geçici şifrenin süresi doldu,
+sağlayıcınızdan yeniden sıfırlama isteyin" (şifreyi bilen kişiye özel mesaj — panel G-P13b-10 kalıbı). Kolon: `temp_password_expires_at
+DATETIME(3) NULL` (grants UPDATE listesine) ya da `updated_at`'e bağlanmamalı (tema değişimi uzatır) — ayrı kolon önerilir. Panelde hesap
+listesinde "Geçici şifre süresi doldu" rozeti. (atanan ajan: mimar → dba, backend-dev, frontend-dev)
+
+### [DÜŞÜK] S-P21-6 `portalRequestInputSchema` tanımı zod 4.6.7'de yükleme anında hata verir; düzeltirken refine kaybolmamalı
+
+Konum: mimari-p21 §4.1 `webRequestInputSchema.omit({…}).strict()`; `packages/contracts/src/api/requests.ts:513-530` (`strictObject(...).superRefine`);
+`node_modules/.pnpm/zod@4.6.7/.../v4/core/util.js:442` (`.omit() cannot be used on object schemas containing refinements`).
+Risk: modül yüklenemez (derleme/başlatma hatası). Hızlı "düzeltme" olarak refine'ı atlayan bir şema yazılırsa `notify.email=true` + e-posta yok
+kombinasyonu doğrulanmadan çekirdeğe gider.
+Öneri: `webRequestShape` (düz şekil) + ortak `refineNotifyEmail` işlevi dışa aktarılır; iki şema da `z.strictObject(shape).superRefine(fn)` ile
+kurulur (tek tanım ilkesi korunur). Test: portal şemasında `notify.email` + e-posta yok → 400 `fields.email`. (atanan ajan: backend-dev)
+
+### [DÜŞÜK] S-P21-7 Giriş ucunda TOTP tahmini yalnız parola kovalarıyla sınırlı
+
+Konum: §5.2 adım 4 ve §5.1 Kilit/hız; panel karşılığı `auth/account.ts:24-41` (`mfaPair` 5/5 dk, `mfaUser` 15/15 dk).
+Risk: parolayı bilen dağıtık saldırgan için üst sınır hesap kovasıdır: 20 hata → 15 dk kilit → pencere sıfırlanır (`bumpAccountFailures`
+`failed_window_at = NULL`) → ~80 kod/sa (±1 adımla deneme başına 3e-6) — panelin 60/sa'sından biraz yüksek; ayrıca parola doğrulandıktan sonra
+kod hatası parola hatasıyla aynı kovayı tükettiğinden olay ayrışmaz.
+Öneri: giriş isteğinde kod geldiğinde (parola doğruysa) panel `mfaPair`/`mfaUser` eşdeğeri **ayrı portal kovaları** (`portalMfaPair`,
+`portalMfaUser` 15/15 dk) de sayılır; aşım 429. Metrik `rs_portal_login_total{result="invalid_totp"}`. (atanan ajan: backend-dev)
+
+### [DÜŞÜK] S-P21-8 `portal.account_password_reset` audit değeri `totpCleared` maskeye takılır
+
+Konum: §4.5; `apps/server/src/audit/mask.ts:44` (`MASKED_KEY` `/…|totp|…/i`).
+Risk: denetim izinde TOTP'nin sıfırlanıp sıfırlanmadığı `***` görünür (sır sızmaz; kanıt kaybı). Aynı şekilde ileride `mustChangePassword`
+dışındaki `pass`/`code` içeren bayraklar.
+Öneri: anahtar adı `secondFactorCleared` olarak değiştirilir ya da `totpCleared` `ALLOWED_KEYS`'e (boolean bayrak gerekçesiyle) eklenir. (atanan ajan: backend-dev)
+
+### [DÜŞÜK] S-P21-9 TOTP sırrı AAD'si portal alanına özgü olmalı; QR sunucuda üretilmeli
+
+Konum: §3.1 `totp_secret_enc`, §4.2 `totp/setup` (`{ secret, otpauthUrl }`); panel `aadFor.totpSecret(userId)` (`auth/account.ts:69`).
+Risk: panel ile aynı AAD kurgusu kullanılırsa iki tablonun şifreli değerleri birbirine taşınabilir (DB yazma erişimi gerekir; derinlik savunması).
+`otpauthUrl` istemcide dış bir QR servisine verilirse sır üçüncü tarafa gider (bugün CSP engeller; CSP gevşerse risk).
+Öneri: `aadFor.portalTotpSecret(id)` (ayrı etiket); setup yanıtı panel gibi `qrDataUrl`'i sunucuda üretir (mevcut `qrcode` bağımlılığı); yanıt
+`no-store`. `crypto:check-retire` / anahtar emekliliği runbook adımına `portal_users` (devops K7 — tasarımda var). (atanan ajan: backend-dev)
+
+### [DÜŞÜK] S-P21-10 Hesap pasifleştirme ref'i geri almaz
+
+Konum: K-P21-3, §5.4 P10.
+Risk: pasife alınan (ör. işten ayrılan) yetkili, portalda gördüğü indirme bağlantısındaki ref ile firma dosyasını indirmeye, `/r/` açıksa web
+formundan ve exe'den talep açmaya devam eder. Kabul edilmiş tasarım (ref gizli değil) ama Admin'in bunu bilmesi gerekir.
+Öneri: pasife alma onay diyaloğunda ve kılavuz "Admin için"de "Kişi kötü niyetliyse müşteri bağlantısını da yenileyin" notu; ek kod yok. (atanan ajan: frontend-dev, teknik-yazar)
+
+### [DÜŞÜK] S-P21-11 Liste uçlarında `page` üst sınırı yok
+
+Konum: §4.1 `portalListQuerySchema.page` (`min(1)` yalnız).
+Risk: çok büyük `page` → büyük OFFSET sorgusu (müşteri başına veri az olduğundan etkisi küçük; ucuz DoS yüzeyi).
+Öneri: `page.max(10_000)` ya da `page > ceil(total/pageSize)` iken sorgusuz boş sayfa. (atanan ajan: backend-dev)
+
+### [DÜŞÜK] S-P21-12 `/portal` için Permissions-Policy daraltılmalı
+
+Konum: `apps/web/proxy.ts:26-29` (`display-capture=(self)` tüm sayfalarda).
+Risk: portal ekranlarının ekran yakalama ihtiyacı yok; XSS durumunda yüzey. Mikrofon zaten `MIC_DENY_PREFIXES` ile kapatılıyor.
+Öneri: `/portal` (ve `/r`) için `display-capture=()` — P19 bekleme odası tarayıcı oturumuna geçişte `/session/` yolunu kullandığı doğrulanarak.
+Birim testi `permissionsPolicyFor`. (atanan ajan: frontend-dev)
+
+### [DÜŞÜK] S-P21-13 Aynı origin: portal ↔ panel XSS yalıtımı yoktur (kabul edilen tasarım, ADR-0039 alternatif D)
+
+Konum: ADR-0039 Alternatifler D; §5.1 Çerezler.
+Risk: ayrı çerez/tablo, oturum karışmasını önler ama aynı origin'de bir sayfadaki XSS diğer alanın CSRF çerezini okuyup aynı tarayıcıdaki açık
+oturumla istek atabilir. Portal yeni kullanıcı girdisi yüzeyi açmıyor (yalnız mevcut P19 form alanları), bu yüzden düşük.
+Öneri: kabul; ADR-0039 Sonuçlar'a "(−) aynı origin: XSS yalıtımı CSP + React bağlamasına dayanır; alt alan adı genişleme noktası" satırı;
+portal bileşenlerinde `dangerouslySetInnerHTML` lint yasağının `apps/web/app/portal/**`'u kapsadığı doğrulanır. (atanan ajan: mimar)
+
+### Ek notlar (bulgu değil, K8 denetiminde bakılacak)
+
+- **Step-up yok (tasarım-kontrol "K0g değerlendirir"):** portal hesabı oluşturma/sıfırlama yalnız meta veriye dış erişim verir ve `users`
+  oluşturma ile aynı düzeydedir → step-up gerekmez; ancak Admin sıfırlaması = hesabı devralma olduğundan audit (`portal.account_password_reset`)
+  ve kılavuz uyarısı yeterli. Kabul.
+- **R-P21-1 (form kapalıyken portal talebi), R-P21-3 (`MFA_REQUIRED` parola oracle'ı):** kabul; S-P21-4 kovaları uygulanırsa R-P21-1 kalan riski düşer.
+- **KVKK anlık silme (R-P21-7):** elle SQL runbook adımı kabul edilebilir; S-P21-3 (b) seçilirse panel düğmesiyle kapanır.
+- `REDACT_PATHS`'e `*.totpCode`, `*.temporaryPassword`, ayrıca `*.code` önerilir (gövde zaten tümden redakte; savunma).
+- `PATCH /portal/me` `rs_theme` çerezini panel ile paylaşır (aynı tarayıcıda panel temasını değiştirir) — güvenlik etkisi yok.
+- Uygulama turunda (K8) doğrulanacak: `resolvePortalSession` müşteri kapsamını her istekte `portal_users.customer_id`'den türetir (oturumda
+  önbelleklenmez); giriş TX'inde `totp_last_step` koşullu UPDATE ile paralel aynı kodla iki girişten yalnız biri; pasif hesap + doğru parola +
+  TOTP açıkken `MFA_REQUIRED` değil 401; olmayan e-postada 423 eşiği var olanla aynı; `/portal/login` sonrası yönlendirme sabit hedef (açık yönlendirme yok).
+
+DURUM: GEÇTİ (Kritik 0 / Yüksek 0). Orta S-P21-1..5 mimar r2'de karara bağlanmalı; S-P21-1 ve S-P21-4 uygulamada K8 için zorunlu test
+olarak izlenir. Düşük bulgular `docs/gereksinimler.md` §9'a "Sonra" olarak önerilir (S-P21-6 ve S-P21-8 K2/K4'te maliyetsiz kapatılabilir).
+
+## P21 — kod turu 1
+
+Tarih: 2026-11-18 · Dal `claude/p21-c5b21a` (`git diff main...HEAD`, 07d256d). Kapsam: `apps/server/src/portal/*`, `requests/{create-steps,
+create-tx,repo,service,web-form}.ts`, `audit/{view,read}.ts`, `customers/service.ts`, `jobs/{retention,retention-counts,tenant-purge-repo}.ts`,
+`lib/{crypto,logger}.ts`, `auth/routes.ts`, `app-routes.ts`; migration `20261127000000_p21_customer_portal` + `grants.sql`;
+`packages/contracts/src/api/{portal,requests}.ts`; `apps/web/{proxy.ts,app/layout.tsx,eslint.config.mjs}`, `app/portal/**`, `lib/portal/*`,
+`app/(panel)/customers/[id]/portal-accounts.tsx`; `deploy/ops/*`.
+
+Özet: Kritik 0 / Yüksek 0 / Orta 0 / Düşük 4
+
+### Tasarım turu bulgularının (S-P21-1..13) doğrulaması
+
+| Bulgu                                     | Durum                                                   | Kanıt                                                                                                                                                                                                                                                                                                                                                       |
+| ----------------------------------------- | ------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| S-P21-1 gövde sunucuda, müşteri eşleşmesi | KAPANDI                                                 | `portal/data.ts:130-147` gövde yalnız zod çıktısından + `ref: p.customer.requestRef`; `portalRequestInputSchema` strict (`ref`/`bindingKey`/`customerId` → 400, contracts `portal.ts:99-103`); `create-steps.ts:139-143` firma/müşteri ≠ beklenen → iç hata + `portal_request_scope_mismatch` alarmı; ref çözülemezse 409 (`:64`)                           |
+| S-P21-2 audit maske                       | KAPANDI                                                 | tüm portal aktörlü satırlar `entity=portal_users`, `entity_id`=hesap (`auth.ts:47-57`, logout `sessionId` new_value'da `:299`); `view.ts:151` hesap yoksa maskeli, `read.ts:101-106` canlı hesap kümesi; Admin `account_created` `{email, fullName}` maskeli satırda `auditValueView` ile maskelenir; ghost (`entity_id` NULL) maskelenmez (kararla uyumlu) |
+| S-P21-3 e-posta işgali                    | KAPANDI (a)                                             | `UQ(tenant_id, email)` (migration), giriş `tenantSlug` ile (`auth.ts:216-223`), 409 metni müşteri söylemez (`admin.ts:139`)                                                                                                                                                                                                                                 |
+| S-P21-4 müşteri kovası + bekleyen tavanı  | KAPANDI                                                 | `limits.ts:48` 10/sa müşteri toplamı, aşımda `rateAudit` + metrik (`data.ts:123-129`); TX içinde müşteri başına 3 bekleyen → `QUEUE_FULL` (`create-tx.ts:174-178`, `repo.ts:142`)                                                                                                                                                                           |
+| S-P21-5 geçici şifre 72 sa                | KAPANDI                                                 | `temp_password_expires_at` + CHECK; oluşturma/sıfırlamada set (`admin.ts:124,233`), girişte doğru parola sonrası özel 401 (`auth.ts:234-243`), değişimde NULL (`:333`); panel rozeti `tempPasswordExpired`                                                                                                                                                  |
+| S-P21-6 zod omit                          | KAPANDI                                                 | `webRequestShape` + `refineNotifyEmail` ortak (requests.ts), portal şeması `strictObject(...).superRefine`                                                                                                                                                                                                                                                  |
+| S-P21-7 TOTP kovaları                     | KAPANDI                                                 | `hitLoginMfa` (`auth.ts:185-193`) 5/5 dk çift + 15/15 dk hesap, panel eşikleriyle aynı (`account.ts:39-40`)                                                                                                                                                                                                                                                 |
+| S-P21-8 `totpCleared`                     | KAPANDI                                                 | `secondFactorCleared` (`admin.ts:249`)                                                                                                                                                                                                                                                                                                                      |
+| S-P21-9 AAD + QR                          | KAPANDI                                                 | `aadFor.portalTotpSecret` (`crypto.ts:33`), QR sunucuda (`auth.ts:362`), yanıt `no-store` (`routes.ts:79-81`)                                                                                                                                                                                                                                               |
+| S-P21-10 pasifleştirme ref                | Kılavuz/teknik-yazar işi (kod gerekmez) — K9'da izlenir |
+| S-P21-11 `page` üst sınırı                | KAPANDI                                                 | `portalListQuerySchema.page.max(10_000)`                                                                                                                                                                                                                                                                                                                    |
+| S-P21-12 display-capture                  | KISMEN (kabul edilen sapma)                             | `proxy.ts` `/portal/**` `display-capture=()`, `/portal/new-request` hariç — bkz. S-P21-K-3                                                                                                                                                                                                                                                                  |
+| S-P21-13 aynı origin                      | KAPANDI                                                 | `react/no-danger` lint kuralı `app/portal/**`, `lib/portal/**`, `portal-accounts.tsx` (eslint.config.mjs); `dangerouslySetInnerHTML` yok                                                                                                                                                                                                                    |
+
+### Ek notlardaki K8 doğrulamaları
+
+- **Panel ↔ portal çapraz kabul yok:** `requirePortal` yalnız `__Host-rs_portal` okur, hash yalnız `portal_sessions`'ta aranır (`session.ts:89`,
+  `repo.ts:89-91`); CSRF başlığı `__Host-rs_portal_csrf` ile karşılaştırılır (`guard.ts:34-39`), panel CSRF çerezi kabul edilmez. Panel
+  `requireAuth` değişmedi. Portal admin uçları panel `requireAuth` + `customers.view` + `customers.portal` + `tenantScope` (`admin-routes.ts:32-34`).
+- **CSRF:** tüm durum değiştiren portal uçları `requirePortal` (Origin + double-submit); giriş `checkOrigin` (`routes.ts:93`); çerezler
+  `__Host-`, Secure, SameSite=Strict, oturum httpOnly (`guard.ts:22-27`).
+- **Kapsam her istekte DB'den:** `resolvePortalSession` oturum + hesap + müşteri + firma tek sorgu; `portalActive` hesap/müşteri/anonim/firma
+  durumunu her istekte denetler (`session.ts:26-34,88-95`); kapsam önbelleklenmez.
+- **IDOR:** liste ve tekil sorgular `(tenantId, customerId)` (+ `id`) ile, başka müşteri/firma/olmayan kayıt aynı `null` → aynı 404
+  (`repo.ts:141-169`, `data.ts:82-101`); id biçimi dışı → 404; Admin uçları `(tenantId, customerId, accountId)` üçlüsü (`repo.ts:196-198`).
+  DB düzeyi: `email/tenant_id/customer_id/created_by` ve `token_hash/expires_at` için UPDATE grant'ı yok; bileşik FK'ler. 2×2 fikstür testleri
+  `portal-p21-data.test.ts`'te.
+- **Kimlik:** argon2id (CHECK yalnız `$argon2id$`), olmayan hesapta sahte hash, IP 20/dk + ikili 5/15 dk + hesap 20/sa (DB atomik, yedek bellek
+  kovası fail-closed) + ghost kovası (eşik var olanla aynı: 20); kilitli dalda argon2 yine çalışır. Pasif hesap + doğru parola + TOTP açık →
+  `MFA_REQUIRED` değil 401 (`auth.ts:230-231` TOTP dalından önce). TOTP tüketimi koşullu UPDATE (`totp_last_step < step`) → aynı kodla paralel
+  iki girişten biri `replay` (`auth.ts:171-182`). Girişte önceki portal oturumu iptal (fixation), şifre değişiminde tüm oturumlar iptal +
+  yeni token (mutlak bitiş korunur; CHECK `expires_at ≤ created_at+8 sa`). Admin pasife alma/sıfırlama oturumları aynı TX'te keser.
+  İlk girişte şifre kapısı yalnız `GET /me`, logout, `/account/password`'e izin verir (`guard.ts:54`).
+- **Yönlendirme:** girişten sonra sabit hedef (`/portal` / `/portal/change-password`), `next` parametresi yok; `rs_portal_tenant` ve `?tenant`
+  yalnız `tenantSlugSchema`'dan geçerse kullanılır (`lib/portal/paths.ts:19-35`). `x-rs-portal` başlığı dışarıdan gelirse silinir (`proxy.ts`).
+- **Veri ifşası:** dar sabit `select`'ler (açıklama, not, sohbet, IP, cihaz yok); teknisyen adı mezar taşı etiketiyle; anonim satırda kişi adı null.
+- **KVKK silme:** müşteri anonimleştirmede hesap + oturumlar aynı TX (`customers/service.ts:190`); pasif hesap `retention_days` sonra SYSTEM
+  audit'le silinir; oturumlar +7 g; firma silmede SESSIONS adımı (`tenant-purge-repo.ts`). Audit'te geçici şifre/TOTP yok; logger
+  `*.temporaryPassword`, `*.totpCode` redakte.
+- **Sırlar:** yeni env/sır yok; diff'teki şifre benzeri dizgeler yalnız test/mock fikstürleri (`e2e/mock-p21.mjs`, integration testleri).
+  `watch.env.example` yalnız eşik açıklaması.
+
+### [DÜŞÜK] S-P21-K-1 TOTP etkinleştirme diğer portal oturumlarını kapatmıyor; portalda "tüm oturumlardan çık" yok — A07
+
+Konum: `apps/server/src/portal/auth.ts:378-385` (`portalTotpEnable` TX'i yalnız bayrak + audit). Karşılaştırma: panel `auth/account.ts:152-161`
+(MFA etkinleştirmede diğer oturumlar iptal, audit `revokedSessions`).
+Sorun / istismar: parolası ele geçmiş kullanıcı, şüphelenip 2FA'yı açtığında saldırganın zaten açık oturumu (8 sa'e kadar, 30 dk boşta) sürer;
+kullanıcının elinde saldırganı düşürecek "tüm oturumlardan çık" düğmesi de yok. Etki: yalnız meta veri + müşteri adına talep açma; şifre
+değişimi oturumları zaten kapattığından düşük.
+Düzeltme: `portalTotpEnable` TX'inde `revokePortalUserSessions(tx, tenantId, userId, now)` mevcut oturum hariç (ya da hepsini iptal edip mevcut
+oturumu `openPortalSession(..., p.expiresAt)` ile yenileyip çerez yazmak — şifre değişimi kalıbı); audit `newValue.revokedSessions`. Test: iki
+oturum, birinde enable → diğeri 401. (atanan ajan: backend-dev)
+
+### [DÜŞÜK] S-P21-K-2 `GET /portal/request-form` ayrı hız sınırı yok — A04 (kabul edilebilir)
+
+Konum: `apps/server/src/portal/routes.ts:159`, `data.ts:104-108` (ayar + `requestInfo` + `tenantSettings` + `channelAvailability` → SMTP/SMS
+yapılandırma okumaları).
+Değerlendirme: uç kimlik doğrulamalı (portal oturumu, kapsam oturumdan), yalnız okuma; bekleyen/kova durumu değiştirmez; diğer kimlikli GET
+uçlarıyla (liste/detay) aynı düzeyde. Geçerli oturumu olan kötü niyetli bir hesabın döngüsel çağrısı DB'ye ~5 sorgu/istek yük bindirir —
+panelde de kimlikli GET'lerde ayrı kova yok. Engelleyici değil.
+Düzeltme (Sonra): istenirse portal kullanıcısı başına genel GET kovası (ör. 120/dk, tüm `/portal/*` GET'leri) ya da `channelAvailability`
+sonucunun kısa (30 sn) önbelleği. (atanan ajan: backend-dev)
+
+### [DÜŞÜK] S-P21-K-3 `/portal/new-request`'te `display-capture=(self)` kalıyor (S-P21-12 sapması) — A05 (kabul)
+
+Konum: `apps/web/proxy.ts` `permissionsPolicyFor` (`noCapture = isPortalPath && !underPrefix(PORTAL_NEW_REQUEST)`); gerekçe implementation.md.
+Değerlendirme: P19 bekleme odası kabulde ekran paylaşımını (`getDisplayMedia`) aynı belgede başlatır; kapatmak işlevi kırar. Tarayıcı
+`getDisplayMedia`'yı yine kullanıcı jesti + izin diyaloğuna bağlar; nonce CSP + `react/no-danger` XSS yüzeyini daraltır; `/r/` ile eşdeğer
+yüzey. Sapma kabul edilir. Öneri: birim testinde `/portal`, `/portal/account` için `()`, `/portal/new-request` için `(self)` beklentisi
+korunmalı (regresyon). (atanan ajan: frontend-dev — yalnız test doğrulaması)
+
+### [DÜŞÜK] S-P21-K-4 Logger'a eklenen `*.code` redaksiyonu hata nesnelerinin `code` alanını da gizler — A09 (gözlemlenebilirlik)
+
+Konum: `apps/server/src/lib/logger.ts` REDACT_PATHS `"*.code"`; sunucuda ~88 `log.*({ err ... })` çağrısı.
+Sorun: pino `err` serileştirmesi `code` özelliğini taşır (Prisma `P2002`/`P1001`, `ECONNREFUSED`, `ETIMEDOUT` …); `*.code` bunları
+`[Redacted]` yapar → olay incelemesi/alarm ayrımı zorlaşır. Güvenlik kazancı yok: istek gövdesi zaten tümden redakte (`body`, `*.body`),
+TOTP kodu servis log'una yazılmıyor. (Üst düzey `{ code: errCode(err) }` alanları etkilenmez.)
+Düzeltme: `"*.code"` yerine dar yollar (`"*.body.code"` zaten kapsanıyor; gerekirse `"req.body.code"`) — ya da satırı kaldırıp `*.totpCode`,
+`*.temporaryPassword` ile yetinmek. Test: `log.warn({ err: Object.assign(new Error("x"), { code: "P2002" }) })` çıktısında `code` görünür.
+(atanan ajan: backend-dev)
+
+### Otomatik tarama çıktıları
+
+- `pnpm audit --audit-level=moderate`: 2 high — `picomatch <=4.0.7` ReDoS (GHSA-fc5q-39xc-vjpf), yol `apps/web > eslint-config-next@16.4.6 > …`
+  (yalnız geliştirme/lint zinciri, yamalı sürüm yok). P21'de `pnpm-lock.yaml` değişmedi; bulgu P21 kaynaklı değil, mevcut Dependabot izleminde.
+- Yeni bağımlılık yok (contracts `package.json` yalnız `./api/portal` export'u).
+- Gizli bilgi taraması (`git diff main...HEAD` üzerinde anahtar/şifre deseni): yalnız test/mock fikstürleri; `.env` dosyası eklenmedi.
+
+### Tasarımda vaat edilip kodda bulunmayanlar
+
+- Yok (S-P21-10 kılavuz notu teknik-yazar/K9 işi; S-P21-12 kabul edilmiş sapma).
+
+### Olumlu
+
+- Portal kimliği panelden yapısal olarak ayrı (çerez, tablo, guard, CSRF çerezi, kova örnekleri); fail-closed kapsam denetimi talep çekirdeğinde.
+- DB savunma derinliği: sütun düzeyi grant'lar, argon2id/token hash/TTL/temp şifre CHECK'leri, bileşik FK'ler.
+- Audit kimlik maskesi tek kural (`entity=portal_users`) ile liste + CSV'de; Admin satırlarındaki e-posta/ad da maskelenir.
+- Kilit/hız mantığı panel kalıbının birebir ayrı örneği; olmayan hesap/bilinmeyen firma aynı dal (oracle yok).
+
+DURUM: GEÇTİ (Kritik 0 / Yüksek 0 / Orta 0 / Düşük 4). S-P21-K-1 ve S-P21-K-4 maliyetsiz; düzeltme turunda kapatılması önerilir. Düşük
+bulgular `docs/gereksinimler.md` §9'a "Sonra" olarak önerilir.
 ---
 
 # P28u r3 tasarım turu (2026-11-18)

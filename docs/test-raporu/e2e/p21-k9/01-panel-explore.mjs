@@ -1,0 +1,14 @@
+import fs from "node:fs";
+import { chromium, BASE, panelCookies, watch, scan } from "./k9lib.mjs";
+const sec = JSON.parse(fs.readFileSync(process.env.K9_TOTP));
+const b = await chromium.launch();
+const ctx = await b.newContext({ viewport: { width: 1280, height: 900 } });
+await ctx.addCookies(await panelCookies("admin-a@p21.invalid", process.env.ADMIN_PW, sec["admin-a@p21.invalid"]));
+await ctx.storageState({ path: process.env.K9_DIR + "/admin-a.json" });
+const p = await ctx.newPage(); const w = watch(p, "panel-a");
+await p.goto(BASE + "/customers/" + process.argv[2]);
+await p.waitForLoadState("networkidle");
+await scan(p, "explore-panel");
+console.log(await p.locator("main").innerText().then((t) => t.slice(0, 2500)));
+console.log(JSON.stringify(w));
+await b.close();

@@ -12,6 +12,7 @@ import type { AuthContext } from "../auth/session.ts";
 import { countRevoked } from "../bindings/service.ts";
 import { conflictIndex, isTransientDbError } from "../lib/db.ts";
 import { newId } from "../lib/ids.ts";
+import { deletePortalOfCustomer } from "../portal/retention.ts";
 import { ensureSettings } from "../requests/panel.ts";
 import * as rrepo from "../requests/repo.ts";
 import { SYSTEM, SYSTEM_CTX, type RequestService } from "../requests/service.ts";
@@ -186,6 +187,8 @@ export async function anonymizeCustomersOf(
       );
       if (n === 0) return false;
       const contacts = await tx.customerNotifyContact.deleteMany({ where: { tenantId: t.tenantId, customerId: c.id } });
+      // P21 (K-P21-9): müşterinin portal hesapları + oturumları aynı TX'te silinir.
+      const portalAccounts = await deletePortalOfCustomer(tx, t.tenantId, c.id);
       await writeAudit(tx, SYSTEM_CTX, {
         tenantId: t.tenantId,
         ...SYSTEM,
@@ -193,7 +196,11 @@ export async function anonymizeCustomersOf(
         entity: ENTITY,
         entityId: c.id,
         result: "success",
-        newValue: { fields: [...PII], ...(contacts.count > 0 ? { notifyContacts: contacts.count } : {}) },
+        newValue: {
+          fields: [...PII],
+          ...(contacts.count > 0 ? { notifyContacts: contacts.count } : {}),
+          ...(portalAccounts > 0 ? { portalAccounts } : {}),
+        },
       });
       return true;
     });

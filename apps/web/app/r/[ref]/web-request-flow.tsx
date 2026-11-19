@@ -1,13 +1,14 @@
 "use client";
 
 import type { CreateRequestResponse, WebFormInfo } from "@remote/contracts/api/requests";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
-import { api, ApiError } from "@/lib/api";
+import { ApiError } from "@/lib/api";
 import { t } from "@/lib/i18n";
 import { useHydrated } from "@/lib/use-hydrated";
-import { readStored, storeKeyOf, type StoredRequest } from "@/lib/web-request/flow";
+import { readStoredAt, type StoredRequest } from "@/lib/web-request/flow";
+import { publicRequestSource, type WebRequestSource } from "@/lib/web-request/source";
 import { GuestEndScreen, GuestShell } from "../../session/guest-ui";
 import { WaitingRoom } from "./waiting-room";
 import { WebRequestForm } from "./web-request-form";
@@ -15,11 +16,13 @@ import { WebRequestForm } from "./web-request-form";
 type Load =
   { kind: "loading" } | { kind: "ok"; info: WebFormInfo; issuedAt: number } | { kind: "notFound" } | { kind: "rate" } | { kind: "error" };
 
-async function loadInfo(ref: string): Promise<Load> {
+async function loadInfo(source: WebRequestSource): Promise<Load> {
   try {
-    const info = await api<WebFormInfo>("GET", `/public/web-requests/form?ref=${encodeURIComponent(ref)}`);
+    const info = await source.loadInfo();
     return { kind: "ok", info, issuedAt: Date.now() };
   } catch (e) {
+    // P21: portal oturumu düştü / şifre değişimi gerekli → yönlendirildi; o arada iskelet kalır
+    if (source.onGateError?.(e)) return { kind: "loading" };
     if (e instanceof ApiError && (e.status === 404 || e.status === 400)) return { kind: "notFound" };
     if (e instanceof ApiError && e.status === 429) return { kind: "rate" };
     return { kind: "error" };
@@ -34,50 +37,51 @@ const session = (): Storage | null => {
   }
 };
 
-const saveStored = (tenantRef: string, stored: StoredRequest) => {
+const saveStored = (key: string, stored: StoredRequest) => {
   try {
-    session()?.setItem(storeKeyOf(tenantRef), JSON.stringify(stored));
+    session()?.setItem(key, JSON.stringify(stored));
   } catch {
     /* sekme depolaması kapalı: F5 dönüşü olmaz, akış sürer */
   }
 };
 
-const clearStored = (tenantRef: string) => {
+const clearStored = (key: string) => {
   try {
-    session()?.removeItem(storeKeyOf(tenantRef));
+    session()?.removeItem(key);
   } catch {
     /* yok sayılır */
   }
 };
 
 /** Form bilgisi + talep (F5'te sekme deposundan) durumu ve geçişleri. */
-function useWebRequestFlow(tenantRef: string) {
+function useWebRequestFlow(source: WebRequestSource) {
+  const key = source.storeKey;
   const [load, setLoad] = useState<Load>({ kind: "loading" });
   // undefined = kullanıcı henüz seçim yapmadı → sekme deposundaki kayıt (F5 dönüşü); hidrasyondan önce bilinmez
   const [override, setReq] = useState<StoredRequest | null | undefined>(undefined);
   const hydrated = useHydrated();
-  const req = override !== undefined ? override : hydrated ? readStored(tenantRef, session()) : undefined;
+  const req = override !== undefined ? override : hydrated ? readStoredAt(key, session()) : undefined;
 
   const fetchInfo = useCallback(async () => {
-    const l = await loadInfo(tenantRef);
+    const l = await loadInfo(source);
     setLoad(l);
     return l.kind === "ok" ? l.info : null;
-  }, [tenantRef]);
+  }, [source]);
 
   useEffect(() => {
     let live = true;
-    void loadInfo(tenantRef).then((l) => live && setLoad(l));
+    void loadInfo(source).then((l) => live && setLoad(l));
     return () => {
       live = false;
     };
-  }, [tenantRef]);
+  }, [source]);
 
   const onCreated = (r: CreateRequestResponse, customerName: string) => {
     const stored = { requestSecret: r.requestSecret, requestCode: r.requestCode, customerName };
-    saveStored(tenantRef, stored);
+    saveStored(key, stored);
     setReq(stored);
   };
-  const onFinished = () => clearStored(tenantRef);
+  const onFinished = () => clearStored(key);
   const reload = () => {
     setLoad({ kind: "loading" });
     void fetchInfo();
@@ -106,13 +110,13 @@ function FlowLoading() {
 type Flow = ReturnType<typeof useWebRequestFlow>;
 
 /** Gövde seçimi (öncelik: talep → bulunamadı → yükleniyor → hız sınırı/hata → form). */
-function flowBody(tenantRef: string, f: Flow) {
+function flowBody(source: WebRequestSource, f: Flow) {
   const { load, req } = f;
   if (req)
     return (
       <WaitingRoom
         request={req}
-        tenantRef={tenantRef}
+        downloadHref={source.downloadHref}
         retentionDays={load.kind === "ok" ? load.info.chatRetentionDays : null}
         onFinished={f.onFinished}
         onNewRequest={f.newRequest}
@@ -133,7 +137,7 @@ function flowBody(tenantRef: string, f: Flow) {
     );
   return (
     <WebRequestForm
-      tenantRef={tenantRef}
+      source={source}
       info={load.info}
       issuedAt={load.issuedAt}
       refreshInfo={f.fetchInfo}
@@ -148,7 +152,17 @@ function flowBody(tenantRef: string, f: Flow) {
  * Tenant bilgisi (logo) yalnız form bilgisinden gelir; bekleme ekranında aynı çerçeve kullanılır.
  */
 export function WebRequestFlow({ tenantRef }: { tenantRef: string }) {
-  const f = useWebRequestFlow(tenantRef);
+  const source = useMemo(() => publicRequestSource(tenantRef), [tenantRef]);
+  return <WebRequestFlowWith source={source} />;
+}
+
+/**
+ * P21 K-P21-2: aynı akış, verilen kaynak adaptörüyle. `framed=false` (portal) → müşteri çerçevesi yok; çağıranın kabuğu
+ * (`<main>`) kullanılır. `source` kararlı olmalı (useMemo) — değişirse form bilgisi yeniden alınır.
+ */
+export function WebRequestFlowWith({ source }: { source: WebRequestSource }) {
+  const f = useWebRequestFlow(source);
+  if (!source.framed) return flowBody(source, f);
   const tenant = f.load.kind === "ok" ? f.load.info.tenant : undefined;
-  return <GuestShell tenant={tenant}>{flowBody(tenantRef, f)}</GuestShell>;
+  return <GuestShell tenant={tenant}>{flowBody(source, f)}</GuestShell>;
 }

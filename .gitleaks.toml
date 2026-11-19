@@ -21,4 +21,7 @@ regexes = [
   '''gizlibelirtec''',
   # P28e K2 logger redakte testinin sahte yükleme belirteçleri (rec-p28e-k2.test.ts) — gerçek değil.
   '''GizliYuklemeBelirteci[0-9]''',
+  # P21 portal testlerinin sahte şifreleri (portal-p21-*.test.ts yanlış şifre, e2e mock-p21.mjs geçici şifre) — gerçek değil.
+  '''Yanlis-Sifre-123''',
+  '''Gecici-Sifre-7Kq2xZ''',
 ]

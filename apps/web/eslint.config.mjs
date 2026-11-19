@@ -25,6 +25,12 @@ const config = [
     ignores: ["lib/startup-check.ts"], // sunucu açılış hatası (Node günlüğü, tarayıcıya gitmez)
     rules: { "no-console": "error" },
   },
+  {
+    // P21 r2 S-P21-13 (mimari-p21 §5.4 P6): müşteri portalında dış kişinin gördüğü adlar (müşteri, kişi, teknisyen, ticket)
+    // yalnız React metin bağlamasıyla basılır — `dangerouslySetInnerHTML` yasak. (Proje genelinde böyle bir kural yoktu.)
+    files: ["app/portal/**/*.{ts,tsx}", "lib/portal/**/*.{ts,tsx}", "app/(panel)/customers/[[]id]/portal-accounts.tsx"],
+    rules: { "react/no-danger": "error" },
+  },
 ];
 
 export default config;

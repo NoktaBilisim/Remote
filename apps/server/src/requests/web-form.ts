@@ -7,6 +7,7 @@ import { writeAudit, type AuditContext } from "../audit/service.ts";
 import { AppError, parseInput } from "../lib/errors.ts";
 import { ipKey, isIPv6Key, netKey, prefixKey } from "../lib/ip.ts";
 import { blocked, rateLimited } from "./limits.ts";
+import type { SettingsRow } from "./repo.ts";
 import { CUSTOMER, type CreateCoreInput, type RequestService } from "./service.ts";
 
 /** GET /public/web-requests/form?ref= — geçersiz ref, pasif müşteri, form kapalı → aynı 404 (S-P19-2). */
@@ -23,9 +24,21 @@ export async function webFormInfoOf(svc: RequestService, ctx: AuditContext, ref:
     await svc.limit(ctx, r.s.tenantId, "webFormPrefix", "req.web_form.prefix", "prefix", prefixKey(ctx.ip));
     await svc.limit(ctx, r.s.tenantId, "webFormNet48", "req.web_form.net48", "net48", net);
   }
-  const tenantId = r.s.tenantId;
+  return {
+    ...(await requestFormInfo(svc, r.s)),
+    formToken: svc.formTokens.issue(ref as string, r.s.tenantId), // resolveRef biçimi doğruladı; token bu ref'e + firma bölmesine bağlı
+    minDelayMs: WEB_FORM_MIN_DELAY_MS,
+  };
+}
+
+/**
+ * Form bilgisinin token'sız ortak parçası (P21 K-P21-2): `/r/` web formu ve portal talep sayfası aynı gövdeyi alır
+ * (firma, KVKK metni, sohbet saklama süresi, açık kanallar, mesai). Form token'ı ve `web_form_enabled` denetimi çağıranda.
+ */
+export async function requestFormInfo(svc: RequestService, s: SettingsRow): Promise<Omit<WebFormInfo, "formToken" | "minDelayMs">> {
+  const tenantId = s.tenantId;
   const [info, ts, avail] = await Promise.all([
-    svc.requestInfo(tenantId, r.s.tenant, r.s.waitMinutes),
+    svc.requestInfo(tenantId, s.tenant, s.waitMinutes),
     svc.d.db.tenantSettings.findUnique({ where: { tenantId }, select: { retentionDays: true } }),
     svc.channelAvailability(tenantId),
   ]);
@@ -34,10 +47,8 @@ export async function webFormInfoOf(svc: RequestService, ctx: AuditContext, ref:
     tenant: info.tenant,
     consentText: info.consentText,
     chatRetentionDays: ts.retentionDays,
-    channels: svc.channelsOf(r.s, avail),
+    channels: svc.channelsOf(s, avail),
     businessHours: info.businessHours,
-    formToken: svc.formTokens.issue(ref as string, tenantId), // resolveRef biçimi doğruladı; token bu ref'e + firma bölmesine bağlı
-    minDelayMs: WEB_FORM_MIN_DELAY_MS,
   };
 }
 

@@ -8,7 +8,8 @@ geliştirilir (bkz. `README.md` "Yol haritası"); kılavuz da her paketle birlik
   birden çok firmaya kayıt, tepside çalıştırma ve Windows açılışında başlatma, beklerken teknisyenle yazışma (0.12),
   program indirmeden tarayıcıdan talep gönderme (web talep formu, durum bildirimi, "sohbete şifre yazmayın"), bilgisayarın hatırlanması
   ("Bağlantı kodum var", "Bu bilgisayarı unut"), uzaktan kontrol izni, pano paylaşımı ve uzaktan yazdırma onayı (0.13), firma dosyaları sunucuda tarıyorsa (0.14), ekran görüntüsü alınamazsa ne yapılır,
-  bilgisayarda ne kalır (iz ve gizlilik)
+  bilgisayarda ne kalır (iz ve gizlilik); **Müşteri portalı** (giriş bağlantısı, ilk girişte şifre değiştirme, talep ve
+  oturum geçmişi, portaldan yeni talep, firma dosyası, isteğe bağlı 2FA)
 - **Teknisyen için:** Oturumlar ve bekleme odası ("Müşteri bekliyor" rozeti, menü sayacı, bildirim), Uzaktan kontrol
   (konsol; "Pencere paylaşımı" rozeti dahil), Pano ve uzaktan yazdırma (konsol), Dosyalar sunucuda taranırken (tarama durumları), Oturum geçmişi (sunucudaki dosyaları indirme dahil) (dosyalarda "Doğrulanmış / Müşteri bildirimi", talepte SLA satırı), Destek talepleri ("Bu kaynağı engelle"; öncelik, atama,
   SLA rozetleri, kabul öncesi mesajlaşma),
@@ -16,6 +17,8 @@ geliştirilir (bkz. `README.md` "Yol haritası"); kılavuz da her paketle birlik
 - **Admin ve teknisyen için:** Müşteriler (müşteri firmalar, bağlantı gönderme, web talep formu bağlantısı, kayıtlı
   bilgisayarlar, CSV dışa/içe aktarma); **Müşteriye gönder** (oturum bağlantısı, kayıt kodu ve müşteri bağlantılarını
   e-posta, WhatsApp ya da SMS ile gönderme)
+- **Admin için (Müşteriler):** Müşteri portal hesapları (oluşturma, geçici şifreyi iletme, pasife alma ve bağlantı
+  yenileme, şifre sıfırlama, `customers.portal` yetkisi, hesap ve talep sınırları)
 - **Admin, teknisyen ve müşteri BT için:** Gözetimsiz erişim (SMTP ön koşulu, bildirim adresleri, kayıt kodu, teknisyen
   yetkisi, bağlanma, cihaz rozetleri, iptal; müşteri tarafında servisi kurma, gösterge, tepsi, yerel kapatma, kaldırma);
   cihaz kullanıcısına sorulmadan açılan tek bağlantı yolu, gösterge ve KVKK uyarısı, müdahale (oturumu kilitle / kapat),
@@ -1419,6 +1422,151 @@ tccutil reset Accessibility net.noktabilisim.destek
 
 ---
 
+## Müşteri için: Müşteri portalı
+
+**Müşteri portalı**, destek aldığınız firmanın size açtığı kişisel bir web sayfasıdır. Portalda şunları yaparsınız:
+
+- Firmanız adına açılmış **destek taleplerini** ve teknisyenlerin size bağlandığı **destek oturumlarını** görürsünüz.
+- Program indirmeden **yeni destek talebi** açarsınız.
+- Firmanıza özel destek programını (**firma dosyası**) indirirsiniz.
+
+Portal hesabını destek sağlayıcınız açar; kendiniz kayıt olamazsınız. Aynı firmadaki her çalışanın ayrı hesabı olabilir;
+hepsi firmanın tüm talep ve oturumlarını görür.
+
+**Portalda neler görünmez?** Sohbet yazışmaları, talep açıklaması, teknisyen notu, IP adresi, bilgisayar bilgisi, dosya
+listesi ve oturum kaydı portalda gösterilmez. Yalnız tarih, durum, talep kodu, kaynak, öncelik, teknisyen adı, süre ve
+ticket numarası görünür.
+
+### Portala nasıl girerim?
+
+1. Destek sağlayıcınız size iki şey verir: **portal adresi** (`https://<destek adresi>/portal/login?tenant=<firma>`
+   biçiminde) ve **geçici şifre**. Bu adresi tarayıcınızın yer imlerine ekleyin; adres firmanıza özeldir.
+2. Adresi açın. Sayfada destek sağlayıcınızın logosu ve "Müşteri portalı" başlığı görünür.
+3. **E-posta** ve **Şifre** alanlarını doldurup **Giriş yap**'a basın.
+4. İlk girişte **Şifrenizi değiştirin** ekranı açılır (bkz. aşağıdaki bölüm).
+
+Adresin sonundaki `?tenant=…` kısmı silinirse sayfa giriş formu yerine "Bu sayfaya firmanıza özel giriş bağlantısıyla
+gelinmelidir. Giriş bağlantısını destek sağlayıcınızdan isteyin." yazar. Bir kez giriş yaptıktan sonra tarayıcı firmanızı
+hatırlar; oturum düştüğünde sizi doğru giriş sayfasına götürür.
+
+Şifrenizi unuttuysanız portalda kendiniz sıfırlayamazsınız. Destek sağlayıcınızı arayın; size yeni bir geçici şifre verir.
+
+### İlk girişte şifre değiştirme
+
+Geçici şifreyle ilk girişte (ve destek sağlayıcınız şifrenizi sıfırladığında) yeni şifre belirlemeden portalı
+kullanamazsınız.
+
+1. **Mevcut şifre** alanına size verilen geçici şifreyi yazın.
+2. **Yeni şifre** ve **Yeni şifre (tekrar)** alanlarına yeni şifrenizi yazın. Şifre **en az 12 karakter** olmalıdır; uzun
+   bir parola cümlesi tercih edin.
+3. **Şifreyi değiştir**'e basın. "Şifreniz değiştirildi." yazar ve portal ana sayfası açılır.
+
+**Geçici şifre 72 saat geçerlidir.** Bu süre içinde giriş yapıp şifrenizi değiştirmezseniz giriş ekranı "Geçici şifrenin
+süresi doldu (72 saat). Destek sağlayıcınızdan yeniden sıfırlama isteyin." yazar. Destek sağlayıcınızdan yeni geçici şifre
+isteyin.
+
+Şifre değiştirince başka cihazlardaki portal oturumlarınız kapanır; bulunduğunuz cihazda oturumunuz devam eder.
+
+### Ana sayfa: talepler ve oturumlar
+
+Giriş yapınca **Destek portalı** sayfası açılır. Üstte "Merhaba <adınız>" ve firmanızın adı yazar.
+
+- **Firma dosyasını indir:** destek almak için bilgisayarınıza kaydedeceğiniz, size özel programı indirir. Programın
+  kullanımı "Hızlı Destek uygulaması (Windows)" bölümünde anlatılır.
+- **Yeni destek talebi:** program indirmeden talep açar (bkz. "Portaldan nasıl yeni talep açarım?").
+- **Geçmiş** iki sekmedir:
+  - **Talepler (N):** talep kodu, tarih, durum, kaynak, öncelik, talep eden, kapanış.
+  - **Oturumlar (N):** tarih, teknisyen, bağlantı türü, süre, ticket numarası, görüşülen kişi.
+
+Liste sayfada 25 kayıt gösterir; altta "Toplam N kayıt" ve sayfa geçişi bulunur. Telefonda tablo yerine kartlar görünür.
+Bir satıra tıklayınca ayrıntı açılır. Talep ayrıntısında talebe bağlı bir oturum varsa **Bağlı oturumu görüntüle**
+düğmesi çıkar. **Portala dön** ile ana sayfaya dönersiniz.
+
+Bir sekme yüklenemezse sekme adında "(yüklenemedi)" yazar; **Tekrar dene**'ye basın. Henüz kayıt yoksa "Henüz talep yok"
+ya da "Henüz oturum yok" yazar.
+
+### Portaldan nasıl yeni talep açarım?
+
+1. Ana sayfada **Yeni destek talebi**'ne tıklayın.
+2. Form açılır. Adınız ve e-posta adresiniz hesabınızdan dolu gelir. **Telefon** ve **Sorununuzu kısaca anlatın** (en az
+   10, en çok 500 karakter) alanlarını doldurun.
+3. İsterseniz **Talebimin durumunu bana bildir** altında SMS, WhatsApp veya e-posta kutusunu işaretleyin. Yalnız firmanızın
+   açtığı kanallar görünür.
+4. Aydınlatma metnini okuyup onay kutusunu işaretleyin ve **Talep gönder**'e basın.
+5. **Talebiniz alındı** ekranı açılır: talep kodu, sıranız ve kalan süre. Beklerken teknisyenle yazışabilirsiniz;
+   **sohbete şifre veya kart bilgisi yazmayın.**
+6. Teknisyen talebi kabul edince doğrulama kodu görünür; telefondaki teknisyen aynı kodu söylemeli. Doğruysa **Ekranımı
+   paylaş**'a basın. Kabul ekranında firma dosyasının indirme bağlantısı da bulunur; uzaktan kontrol gerekiyorsa bu programı
+   kullanın.
+
+Bu akış web talep formuyla aynıdır (bkz. "Program indirmeden tarayıcıdan destek isteyebilir miyim?"); fark şudur: portal
+girişi yaptığınız için form bağlantısı gerekmez ve firmanız web talep formunu kapatmış olsa da portaldan talep
+açabilirsiniz. Mesai saatleri ve tatiller portal talebi için de geçerlidir.
+
+**Sınırlar:** Firmanızın tüm portal hesaplarından toplam **saatte en çok 10 talep** açılabilir. Firmanızın aynı anda en çok
+**3 bekleyen talebi** olabilir (programdan ya da formdan açılanlar dahil); biri kabul edilince ya da kapanınca yenisi
+açılır.
+
+### İki adımlı doğrulama (2FA): nasıl açarım, nasıl kapatırım?
+
+İki adımlı doğrulama portalda **isteğe bağlıdır**. Açarsanız girişte şifrenize ek olarak telefonunuzdaki doğrulama
+uygulamasının 6 haneli kodu istenir.
+
+**Açmak için:**
+
+1. Sağ üstteki hesap menüsünden **Hesabım**'ı açın.
+2. **İki adımlı doğrulama** bölümünde **İki adımlı doğrulamayı aç**'a basın.
+3. Telefonunuza bir doğrulama uygulaması kurun (Google Authenticator, Microsoft Authenticator vb.).
+4. Uygulamada yeni hesap ekleyip ekrandaki QR kodu okutun. Okutamıyorsanız anahtarı **Anahtarı kopyala** ile alıp elle
+   girin.
+5. Uygulamanın gösterdiği 6 haneli kodu yazıp **Doğrula ve aç**'a basın. "İki adımlı doğrulama açıldı." yazar.
+
+**Önemli:** 2FA açıldığında **başka cihazlardaki portal oturumlarınız kapanır**; o cihazlarda bir sonraki tıklamada giriş
+ekranı açılır ve yeniden giriş (bu kez kodla) gerekir. Bulunduğunuz cihazda oturumunuz devam eder.
+
+**Girişte kod:** E-posta ve şifreyi yazıp **Giriş yap**'a basınca formda **Doğrulama kodu (6 haneli)** alanı açılır.
+Uygulamadaki kodu yazıp yeniden **Giriş yap**'a basın.
+
+**Kapatmak için:** **Hesabım** → **İki adımlı doğrulamayı kapat** → şifrenizi ve uygulamadaki güncel kodu girin. "İki
+adımlı doğrulama kapatıldı." yazar.
+
+**Telefonunuzu kaybettiyseniz:** portalda kurtarma kodu yoktur. Destek sağlayıcınızdan şifrenizi sıfırlamasını isteyin;
+sıfırlama 2FA'yı da kapatır ve size yeni geçici şifre verilir.
+
+### Hesabım sayfası
+
+- **Hesap bilgileri:** ad soyad, e-posta ve firma salt okunurdur. Değiştirmek için destek sağlayıcınıza başvurun.
+- **Şifre değiştir:** mevcut şifre, yeni şifre (en az 12 karakter) ve tekrarı. Mevcut şifreyi 5 kez yanlış girerseniz
+  oturumunuz kapanır ve yeniden giriş yapmanız gerekir.
+- **İki adımlı doğrulama:** Açık / Kapalı durumu ve aç/kapat düğmesi.
+- **Görünüm:** Açık / Koyu / Sistem. Seçiminiz hesabınıza kaydedilir; başka cihazdan girişte de aynı tema gelir.
+
+**Çıkış:** hesap menüsünden **Çıkış yap**. Giriş ekranında "Çıkış yaptınız." yazar.
+
+**Oturum süresi:** 30 dakika işlem yapmazsanız ya da girişten 8 saat geçerse oturum kapanır; giriş ekranında "Oturumunuzun
+süresi doldu. Lütfen yeniden giriş yapın." yazar.
+
+### Sık karşılaşılan mesajlar (müşteri portalı)
+
+| Mesaj                                                                                     | Ne yapmalı                                                                                                              |
+| ----------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
+| Bu sayfaya firmanıza özel giriş bağlantısıyla gelinmelidir…                               | Adreste `?tenant=…` eksik. Destek sağlayıcınızdan portal adresini isteyin                                               |
+| E-posta veya şifre hatalı.                                                                | Bilgileri kontrol edin. Hesabınız ya da firmanızın kaydı pasife alınmışsa da bu mesaj çıkar; destek sağlayıcınıza sorun |
+| Kod hatalı.                                                                               | Girişte yazdığınız 2FA kodu yanlış. Uygulamadaki güncel kodu yazın                                                      |
+| Geçici şifrenin süresi doldu (72 saat)…                                                   | Destek sağlayıcınızdan yeni geçici şifre isteyin                                                                        |
+| Çok sayıda hatalı deneme yapıldı. Hesap geçici olarak kilitlendi; N dakika sonra…         | Belirtilen süre (en çok 15 dakika) kadar bekleyin ya da destek sağlayıcınızdan şifre sıfırlaması isteyin                |
+| Çok fazla istek. Lütfen biraz sonra tekrar deneyin.                                       | Kısa sürede çok deneme yapıldı ya da firmanızın saatlik talep sınırı doldu; bir süre bekleyin                           |
+| Hesabınızda iki adımlı doğrulama açık. Uygulamadaki 6 haneli kodu girip yeniden gönderin. | Açılan **Doğrulama kodu** alanına uygulamadaki kodu yazın                                                               |
+| Kod hatalı veya süresi geçmiş.                                                            | Telefonunuzun saatinin doğru olduğunu kontrol edin, uygulamadaki yeni kodu yazın                                        |
+| Şu an çok yoğunuz, lütfen firmanızı telefonla arayın.                                     | Firmanızın 3 bekleyen talebi var ya da kuyruk dolu. Bekleyen talep kabul edilene kadar bekleyin veya arayın             |
+| Şu an mesai dışındayız ve talep alınmıyor. Sonraki açılış: …                              | Belirtilen saatte tekrar deneyin ya da firmanızı arayın                                                                 |
+| Talep bağlantınız yenilendi, sayfayı yenileyin.                                           | Sayfayı yenileyip talebi yeniden gönderin                                                                               |
+| Destek talebi şu an açılamıyor; destek sağlayıcınıza başvurun.                            | Destek sağlayıcınızı arayın                                                                                             |
+| Kayıt bulunamadı                                                                          | Kayıt yok ya da size ait değil. **Portala dön**                                                                         |
+| Oturumunuzun süresi doldu. Lütfen yeniden giriş yapın.                                    | Yeniden giriş yapın. 2FA'yı başka bir cihazda yeni açtıysanız da bu ekran çıkar                                         |
+
+---
+
 ## Teknisyen için: Oturumlar ve bekleme odası
 
 **Oturumlar** ekranı (menüde "Oturumlar") açtığınız destek oturumlarını listeler. Liste 10 saniyede bir kendiliğinden
@@ -2360,6 +2508,116 @@ saatte en çok 10 önizleme yapılır. Her eklenen/güncellenen müşteri ve öz
 
 ---
 
+## Admin için: Müşteri portal hesapları
+
+Müşteri firmasının çalışanlarına **portal hesabı** açarsınız. Hesap sahibi portalda o müşterinin talep ve oturum
+geçmişini görür, yeni talep açar ve firma dosyasını indirir (bkz. "Müşteri için: Müşteri portalı"). Portal kullanıcısı
+panel kullanıcısı değildir: panele giremez, yetki tablosu yoktur ve yalnız kendi müşterisinin kayıtlarını görür.
+
+**Kim yönetir?** "Müşteriler → Görüntüle" ve **"Müşteriler → Portal hesapları"** (`customers.portal`) yetkisi gerekir.
+Admin'de varsayılan açık, teknisyende (User) kapalıdır; kullanıcı düzenleme ekranındaki yetki tablosundan açılır. Yetki
+yoksa müşteri detayında bölüm hiç görünmez. Super Admin önce firmayı seçer.
+
+### Portal hesapları bölümü nerede?
+
+**Müşteriler** → müşterinin adı → detay sayfasındaki **Portal hesapları** bölümü (anahtar simgesi). Bölümde:
+
+- **Portal adresi:** `https://<destek adresi>/portal/login?tenant=<firma kısa adı>`. Adres firmanıza özeldir, tüm
+  müşterileriniz için aynıdır. **Portal adresini kopyala** ile alın.
+- **Hesap oluştur** düğmesi.
+- Hesap listesi: ad soyad, e-posta, durum (**Aktif** / **Pasif**), son giriş ("Hiç giriş yapmadı") ve rozetler:
+  - **2FA açık:** kullanıcı iki adımlı doğrulamayı açmış.
+  - **Şifre değişimi bekliyor:** kullanıcı geçici şifreyle henüz giriş yapıp şifresini değiştirmemiş.
+  - **Geçici şifre süresi doldu:** geçici şifre 72 saat içinde kullanılmamış; **Şifreyi sıfırla** ile yenisini verin.
+- Her satırın sonundaki **İşlemler** menüsü (üç nokta).
+
+### Nasıl portal hesabı oluştururum?
+
+1. Müşteri detayında **Portal hesapları** → **Hesap oluştur**'a basın.
+2. **Ad soyad** (2–100 karakter) ve **E-posta** yazın. Pencerenin altındaki **Hesap oluştur**'a basın.
+3. **Geçici şifre** penceresi açılır. Şifre **yalnız bu pencerede, bir kez** görünür; pencereyi kapatınca bir daha
+   gösterilmez. Şifreyi kopyalayın.
+4. Geçici şifreyi ve portal adresini müşteriye **güvenli bir kanaldan** iletin: örneğin şifreyi telefonla söyleyin,
+   adresi e-postayla gönderin. İkisini aynı e-postaya yazmayın. Geçici şifre **72 saat** geçerlidir.
+5. Kullanıcı ilk girişte şifresini değiştirir; o zamana kadar listede "Şifre değişimi bekliyor" yazar.
+
+Kurallar:
+
+- Bir müşteri için **en çok 20 portal hesabı** (aktif + pasif) açılabilir. Sınıra ulaşınca düğme kapanır ve "Bu müşteri
+  için en çok 20 portal hesabı açılabilir." yazar.
+- Pasif ya da anonimleştirilmiş müşteriye hesap açılamaz ("Müşteri pasif ya da anonimleştirilmiş; yeni portal hesabı
+  açılamaz.").
+- Aynı e-posta firmanızda ikinci kez kullanılamaz. Pasif hesap da adresi tutar; aynı kişi için yeni hesap yerine eski
+  hesabı **Etkinleştir**in.
+- E-posta sonradan değiştirilemez. Kişinin adresi değiştiyse eski hesabı pasife alın, yeni adresle yeni hesap açın.
+- Firmanızda saatte en çok 30 portal hesabı açılabilir.
+
+### Hesabı pasife alma ve etkinleştirme
+
+**Pasife al:** **İşlemler** → **Pasife al** → onay penceresinde **Pasife al**. Hesabın açık portal oturumları hemen
+kapanır ve kullanıcı giriş yapamaz. Hesap silinmez; daha sonra etkinleştirilebilir.
+
+**Kişi kötü niyetliyse ya da işten ayrıldıysa müşterinin bağlantısını da yenileyin.** Portal hesabını kapatmak, kişinin
+daha önce indirdiği firma dosyasını ve web formu bağlantısını geçersiz kılmaz; bunlar müşterinin bağlantı anahtarını
+kullanır. Müşteri detayında **Bağlantıyı yenile**'ye basın (bkz. "Bağlantıyı ne zaman yenilerim?") ve yeni bağlantıyı
+diğer çalışanlara gönderin. Portal hesapları bağlantı yenilemesinden etkilenmez; portal yeni dosyayı kendiliğinden verir.
+
+**Etkinleştir:** **İşlemler** → **Etkinleştir**. Onay istenmez; kullanıcı mevcut şifresiyle yeniden giriş yapabilir.
+Müşteri pasifse hesap etkinleştirilemez.
+
+Müşteriyi pasife alırsanız ya da müşteri anonimleştirilirse o müşterinin portal hesapları giriş yapamaz. Pasif portal
+hesapları, firmanızın kişisel veri saklama süresi dolunca kendiliğinden silinir (denetim kaydında "Portal hesabı silindi
+(saklama süresi)").
+
+### Şifreyi sıfırlama (unutulan şifre, kaybolan telefon, kilitlenen hesap)
+
+1. **İşlemler** → **Şifreyi sıfırla**.
+2. Onay penceresini okuyun: yeni bir geçici şifre üretilir, **iki adımlı doğrulama kapatılır** ve hesabın **açık portal
+   oturumları kapanır**. **Sıfırla**'ya basın.
+3. Yeni geçici şifre bir kez gösterilir. Müşteriye güvenli bir kanaldan iletin; 72 saat geçerlidir ve ilk girişte
+   değiştirilir.
+
+Pasif hesabın şifresi sıfırlanamaz ("Pasif hesabın şifresi sıfırlanamaz; önce etkinleştirin.").
+
+Sıfırlama şu durumlarda kullanılır: kullanıcı şifresini unuttu (portalda "Şifremi unuttum" yoktur), 2FA telefonunu
+kaybetti (portalda kurtarma kodu yoktur), geçici şifrenin süresi doldu ya da çok sayıda hatalı denemeden sonra hesap
+kilitlendi ve beklemek istemiyor.
+
+### Portal talepleri ve sınırlar
+
+- Portaldan açılan talep **Talepler** kuyruğuna o müşterinin adıyla, **Web** kaynağıyla düşer; kabul, ret, mesajlaşma ve
+  bildirim web talep formuyla aynıdır. Talebin oluşturma denetim kaydı, talebin portaldan hangi hesapla açıldığını da tutar.
+- Firmanızın web talep formu kapalı olsa da portal kullanıcıları talep açabilir. Mesai saatleri ve tatiller uygulanır.
+- Bir müşterinin tüm portal hesaplarından toplam **saatte en çok 10 talep** açılabilir.
+- Bir müşterinin aynı anda en çok **3 bekleyen talebi** olabilir (kaynak fark etmez); fazlası "Şu an çok yoğunuz…"
+  mesajıyla reddedilir.
+- Giriş koruması: aynı e-posta ve ağdan 15 dakikada 5 hatalı denemede, hesapta 1 saatte 20 hatalı denemede giriş 15 dakika
+  kilitlenir. Portal denemeleri panel hesaplarını kilitlemez.
+
+Bir portal hesabıyla kuyruğun sürekli doldurulduğunu görürseniz hesabı **pasife alın** (oturumlar hemen kapanır) ve
+gerekirse müşterinin bağlantısını yenileyin.
+
+### Denetim kayıtları (portal)
+
+**Audit log** ekranında "Müşteri portalı" grubunda şu işlemler görünür: Portal girişi (başarılı / başarısız), Portal
+hesabı kilitlendi, Portal çıkışı, Portal şifresi değiştirildi, Portal 2FA etkinleştirildi / kapatıldı, Portal hesabı
+oluşturuldu / pasife alındı / yeniden etkinleştirildi, Portal hesabı şifresi sıfırlandı, Portal hesabı silindi (saklama
+süresi). Geçici şifreler ve doğrulama kodları kayda yazılmaz.
+
+### Sık karşılaşılan mesajlar (Portal hesapları)
+
+| Mesaj                                                               | Ne yapmalı                                                                                        |
+| ------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------- |
+| Bu e-posta adresiyle portal hesabı açılamaz.                        | Adres firmanızda başka bir portal hesabında (pasif olabilir) kayıtlı. Pasifse etkinleştirin       |
+| Bu müşteri için en çok 20 portal hesabı açılabilir.                 | Kullanılmayan bir hesabı pasife almak sayıyı düşürmez; pasif hesap saklama süresi sonunda silinir |
+| Müşteri pasif ya da anonimleştirilmiş; yeni portal hesabı açılamaz. | Önce müşteriyi **Yeniden aktif et**                                                               |
+| Pasif hesabın şifresi sıfırlanamaz; önce etkinleştirin.             | **Etkinleştir**, sonra **Şifreyi sıfırla**                                                        |
+| İşlem yapılamadı; liste yenilendi.                                  | Başka biri aynı anda değiştirmiş olabilir; listeye bakıp yeniden deneyin                          |
+| Müşteri "Geçici şifrenin süresi doldu" diyor                        | Listede "Geçici şifre süresi doldu" rozeti vardır; **Şifreyi sıfırla**                            |
+| Müşteri "bağlantıyı isteyin" yazısı görüyor                         | Adreste `?tenant=…` eksik; **Portal adresini kopyala** ile tam adresi gönderin                    |
+
+---
+
 ## Admin için: Kullanıcılar ve yetkiler
 
 Menüde **Kullanıcılar** (kişi simgesi) yalnız "Kullanıcılar → Görüntüle" yetkisi olanlara görünür. Burada firmanızdaki
@@ -2401,7 +2659,7 @@ bkz. "Herkes için: Giriş ve hesap güvenliği"). 2FA sorunu için bkz. "Admin 
 1. Listeden kullanıcıya tıklayın. Sağda **Yetkiler** tablosu açılır: her satır bir modül (Oturumlar, Uzaktan kontrol,
    Dosya transferi, Oturum geçmişi, Destek talepleri, Müşteriler, Kullanıcılar, Ayarlar, Audit log), sütunlar alt
    yetkiler (Görüntüle, Ekle, Düzenle, Sil, Dışa aktar; "Diğer" sütununda Zorla sonlandır, Kullan, Kabul / ret,
-   Pano paylaşımı, Uzaktan yazdır).
+   Pano paylaşımı, Uzaktan yazdır; Müşteriler satırında Portal hesapları).
 2. Anahtarları açıp kapatın. **Tümü** sütunundaki anahtar o modülün tüm alt yetkilerini birlikte açar veya kapatır;
    bir kısmı açıksa yarım görünür. Anlamı adından anlaşılmayan yetkilerin açıklaması ekrandaki "Yetki
    açıklamaları" bölümündedir. "Uygulanmaz" yazan hücrede o modülün böyle bir yetkisi yoktur.

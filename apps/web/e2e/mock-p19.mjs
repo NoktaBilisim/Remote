@@ -450,3 +450,10 @@ export async function handleP19(req, res, { url, session, csrfOk, send, err, rea
   }
   return false;
 }
+
+/** P21 (yalnız test): portal talebi aynı sahte /ws/request'i kullansın — ref'e talep sırrı atar (bekleme odası + accept kancası). */
+export function p19AdoptSecret(ref) {
+  const s = st(ref);
+  s.secret = `S${ref}`.padEnd(43, "s");
+  return s.secret;
+}

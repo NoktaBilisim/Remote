@@ -5,6 +5,47 @@ Biçim [Keep a Changelog](https://keepachangelog.com/tr/1.1.0/), sürümleme [Se
 
 ## [Unreleased]
 
+### Eklendi — P21 müşteri portalı — yayımlanmadı, sürüm birleştirmede belirlenecek (AC-262, ADR-0039)
+
+- **Müşteri portalı (`/portal`):** müşteri firmasının çalışanı firmaya özel adresle (`/portal/login?tenant=<firma>`) e-posta
+  ve şifreyle girer; kendi müşterisinin talep ve oturum geçmişini (yalnız meta: tarih, durum, kod, kaynak, öncelik, teknisyen,
+  süre, ticket) görür, ayrıntıya bakar, program indirmeden **yeni destek talebi** açar (P19 web talep akışının aynısı; firma
+  web formu kapalıyken de çalışır) ve **firma dosyasını** indirir. Sohbet, açıklama, not, IP, cihaz, dosya ve kayıt gösterilmez.
+- **Hesap güvenliği:** geçici şifre 72 saat geçerli, ilk girişte zorunlu şifre değişimi (en az 12 karakter); isteğe bağlı
+  TOTP 2FA (Hesabım'dan aç/kapat, QR sunucuda üretilir); oturum 8 sa mutlak / 30 dk boşta; tema Açık/Koyu/Sistem hesaba kayıtlı.
+- **Panel "Portal hesapları"** (müşteri detayı): portal adresi + kopyala, hesap oluştur (geçici şifre bir kez gösterilir),
+  pasife al (oturumlar hemen kapanır; "müşterinin bağlantısını da yenileyin" notu), etkinleştir, şifreyi sıfırla (yeni geçici
+  şifre + 2FA kapatma + oturum iptali); "2FA açık", "Şifre değişimi bekliyor", "Geçici şifre süresi doldu" rozetleri.
+- **Yeni yetki** `customers.portal` ("Portal hesapları"; Admin açık, teknisyen kapalı).
+- **Sınırlar:** müşteri başına 20 portal hesabı; müşterinin tüm hesaplarından saatte 10 talep; portal yolunda müşteri başına en
+  çok 3 bekleyen talep (429 `QUEUE_FULL`); firma başına saatte 30 hesap oluşturma.
+- **Sunucu:** `/api/v1/portal/*` (14 uç) ve `/api/v1/customers/:id/portal-accounts` (5 uç) (`docs/api.md` "Müşteri portalı
+  (P21)"); audit grubu "Müşteri portalı" (`portal.*`), `request.created` `via:"portal"`; metrikler `rs_portal_login_total`,
+  `rs_portal_locked_total`, `rs_portal_requests_total`, `rs_portal_sessions_active`; saklama işi pasif hesapları firmanın saklama
+  süresi sonunda, eski portal oturumlarını 7 gün sonra siler; müşteri anonimleştirme ve firma silme portal verisini de siler.
+- **Operasyon:** `remote-watch` alarmları `portal-login-fail`, `portal-locked`, `portal-request-reject`; runbook §30 (migration,
+  doğrulama, sorun giderme, geri alma sırası, KVKK tek hesap silme).
+- Migration `20261127000000_p21_customer_portal` (`portal_users`, `portal_sessions`; yalnız ekleyen) + `grants.sql`
+  (`check-app-grants` 873 → 929). Yeni env ve bağımlılık yok; istemci değişmedi.
+
+### Güvenlik — P21
+
+- Portal kimliği panelden tamamen ayrı: ayrı tablolar ve çerezler (`__Host-rs_portal`, `__Host-rs_portal_csrf`); panel çerezi
+  portalda, portal çerezi panelde geçmez. Kapsam her istekte oturumun DB satırından türetilir; istekte `tenantId` / `customerId` /
+  `ref` kabul edilmez, başka müşterinin kaydı 404.
+- Giriş: tek genel hata metni, IP / e-posta+IP / hesap kovaları ve 15 dk kilit (panel kovalarından ayrı); TOTP etkinleşince
+  hesabın diğer portal oturumları iptal; şifre değişiminde diğer oturumlar iptal.
+- Geçici şifre ve TOTP kodu loga/audit'e yazılmaz; TOTP sırrı şifreli saklanır. Silinmiş portal hesabının kimliği audit
+  ekranında ve CSV'de maskelenir. Portal sayfalarında `display-capture=()` (yeni talep sayfası hariç), `no-store`,
+  `react/no-danger` lint kuralı.
+
+### Bilinen sınırlamalar — P21
+
+- Portalda "Şifremi unuttum", e-posta daveti, kurtarma kodu ve "cihazı hatırla" yok; kayıp şifre/telefon için Admin "Şifreyi
+  sıfırla" kullanılır. Portal kullanıcısının e-postası değiştirilemez (pasife al + yeni hesap).
+- Portal hesabını pasife almak kişinin elindeki firma dosyasını ve web formu bağlantısını geçersiz kılmaz; gerekirse müşterinin
+  bağlantısı ayrıca yenilenir.
+
 ### Değişti — P28u r3: gözetimsiz bağlantı onaysız tek yol (kullanıcı kararı 2026-11-18; AC-429..451, mimari-p28u §r3)
 
 - **Tek yol:** gözetimsiz bağlantı her zaman cihaz kullanıcısına sorulmadan açılır; kullanıcı durumu (aktif / kilitli /
