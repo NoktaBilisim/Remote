@@ -875,3 +875,114 @@ Yarıda kalan koşularda geri alma çalıştı (oturum kapandı, `fileServerMode
 | (g) Temizlik          | oturum `ENDED`, eicar `INFECTED`, 50 MB `REJECTED` (misafir reddi → disk silindi), `fileServerMode=false`  |
 
 Bu ekle B1 kapandı; P28b K9 staging kapısı **GEÇTİ**. Elle kalan yalnız Windows istemci maddeleri (yukarıda).
+
+## P21
+
+# Test Raporu — P21 K9 (Müşteri portalı; yerel gerçek yığın)
+
+DURUM: GEÇTİ
+
+Ortam: yerel **gerçek** sunucu (sahte API yok). Web `next build` standalone `http://localhost:3413` → `apps/server` `:3412` (NODE_ENV=development) → MySQL 8.4 test konteyneri `rs-p21-test` (127.0.0.1:33471, `test-db.sh` ile sıfırdan; migrate son göç `20261126000000_p21_customer_portal`). Dal `claude/p21-c5b21a` @ `21b1074`, 2026-11-19, Chromium (Playwright 1.65), axe 4.14.
+Veri: seed (Super Admin + `demo`) + geçici kurulum betiği (iş sonunda silindi) ile `beta` firması (web formu **kapalı**), iki Admin (`demo`, `beta`; panel MFA zorunlu, TOTP API ile kuruldu), müşteriler A1 Örnek Müşteri / A2 İkinci Müşteri (`demo`), B1/B2 (`beta`), her müşteriye 3 bitmiş oturum (not alanına "GİZLİ NOT" yazıldı, portalda görünmemeli). Portal hesapları **panel arayüzünden** açıldı. Gizli değerler rastgele üretildi, yalnız scratch'te kaldı; repoya yazılmadı. Staging'e bağlanılmadı (mimari §11 K9 "staging" → görev gereği yerel).
+
+- Betikler: `docs/test-raporu/e2e/p21-k9/` (`k9lib.mjs` + `01..11-*.mjs`, düz Playwright betikleri), ham sonuç `tarama.jsonl` (166 satır).
+- Ekran görüntüleri: `docs/test-raporu/p21/` (62 dosya; portal 7 ekran × 1280/390 × açık/koyu, panel bölümü 1280/390 × açık/koyu, diyaloglar, hata durumları).
+- `tarama.jsonl`'daki 5 `ok:false` satırı betik hatası, ürün hatası değil. Ayrıntı:
+  - "TOTP kapat": girişte kullanılan kod aynı adımda tekrar verildi, sunucu doğru olarak reddetti; 07'de doğrulandı.
+  - "panel 2FA rozeti": kontrol, liste yüklenmeden yapıldı; ekran görüntüsünde rozet var.
+  - "/r/ 404": belge istemci tarafında çiziliyor, API 404 veriyor; 08'de doğrulandı.
+  - "beta talep listede": metin eşleşmesi tutmadı; ekranda "Talepler (1)" görünüyor.
+  - "ikinci GET'te şifre yok": regex alan adlarını da yakaladı; şifre alanı yok.
+- Temizlik: server (:3412) ve web (:3413) kapatıldı; `apps/server/zz-k9-setup.ts` silindi. `rs-p21-test` konteyneri çalışır bırakıldı (görev konteyneri; bu turun verisini taşıyor). Ürün kodu değişmedi.
+
+### Özet
+
+| Ölçüt                                | Sonuç                                                                                                                                                                                                                 |
+| ------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Taranan görünüm                      | 51 tam sayfa/diyalog taraması (axe + taşma + link) + 4 bekletilmiş diyalog taraması                                                                                                                                   |
+| JS hatası (pageerror)                | **0**                                                                                                                                                                                                                 |
+| Konsol hatası                        | Yalnız beklenen ağ kayıtları: 401 yanlış şifre / pasif hesap, 403 `MFA_REQUIRED` ve `PASSWORD_CHANGE_REQUIRED`, 404 IDOR denemeleri, 400 `?customerId=`, 409 e-posta çakışması, 400 hatalı TOTP. Beklenmeyen hata yok |
+| 5xx                                  | **0** (yalnız bilerek `route.fulfill` ile üretilen 500)                                                                                                                                                               |
+| Kırık link                           | **0** (portal 5 sayfasındaki tüm `href`'ler)                                                                                                                                                                          |
+| axe (proje kapısı `wcag2a/2aa/21aa`) | **0 ihlal**. İlk taramada 2 diyalogda color-contrast çıktı; 1,5 sn bekletilerek (açık+koyu) tekrar tarandı → 0 (açılış animasyonu sırasında alınmıştı)                                                                |
+| axe `wcag21a` (proje kapısı dışında) | `label-content-name-mismatch` → T-P21-1                                                                                                                                                                               |
+| Mobil (390 px) yatay taşma           | **0** (tüm portal ekranları + panel müşteri detayı, açık/koyu)                                                                                                                                                        |
+
+### Bulgular
+
+#### T-P21-1 [DÜŞÜK] Erişilebilir ad görünen metinle başlamıyor (WCAG 2.5.3)
+
+Sayfa: tüm portal sayfaları (üst çubuk avatar menüsü), `/portal` (firma dosyası kartı), `/portal/new-request` (`.size-11` düğmesi, sohbet/gönder).
+Adımlar: 1. Portala gir. 2. axe'yi `wcag21a` etiketiyle koştur.
+Beklenen: Görünen metin erişilebilir adın içinde geçsin (sesle komut kullananlar "AP"/"Firma dosyasını indir" diyerek tıklayabilsin).
+Gerçekleşen: `summary` görünen "AP", aria-label "Hesap menüsü: Ali Portal". İndirme bağlantısının aria-label'ı "Firma dosyasını indir: <dosya>", görünen metin açıklamayı da içeriyor. Kural axe'de "experimental" ve proje kapısı (`wcag21aa`) dışında, bu yüzden engellemez.
+Kanıt: `tarama.jsonl` (`portal-home-*`), `docs/test-raporu/p21/portal-home-1280-light.png`.
+Öneri: aria-label görünen metinle başlasın (ör. "AP — Hesap menüsü: Ali Portal") ya da aria-label kaldırılıp `sr-only` ek metin kullanılsın.
+Atanan: frontend-dev
+
+#### T-P21-2 [DÜŞÜK] "Kayıt bulunamadı" ekranı HTTP 200 dönüyor (soft 404)
+
+Sayfa: `/portal/requests/<başkasının id'si>`, `/portal/sessions/<…>`.
+Adımlar: 1. A1 kullanıcısıyla gir. 2. A2'nin veya B1'in oturum id'siyle `/portal/sessions/<id>` aç.
+Beklenen/Gerçekleşen: Ekran doğru ("Kayıt bulunamadı" + Portala dön) ve sızıntı yok; API 404 dönüyor ve gövdesi olmayan id ile aynı. Yalnız belge HTTP 200 dönüyor. Tasarım §6 bunu "sayfa içi ekran" olarak tanımladığı için hata değil, bilgi notu. Arama motoru indekslemesi yok (noindex). İstenirse `notFound()` ile 404 verilebilir.
+Atanan: frontend-dev (isteğe bağlı)
+
+Engelleyici, yüksek ya da orta bulgu yok.
+
+### Akış sonuçları
+
+| Akış                                                      | Sonuç | Not                                                                                                                                                                                                                                                                                                                      |
+| --------------------------------------------------------- | ----- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Panel: Portal adresi                                      | ✅    | `http://localhost:3413/portal/login?tenant=demo`, Kopyala                                                                                                                                                                                                                                                                |
+| Panel: hesap oluştur                                      | ✅    | Geçici şifre diyalogda bir kez görünüyor. Liste GET'inde şifre alanı yok (anahtarlar: id, email, fullName, status, totpEnabled, mustChangePassword, tempPasswordExpired, lastLoginAt, createdAt, passiveAt)                                                                                                              |
+| Panel: geçersiz girdi                                     | ✅    | Boş → "Bu alan zorunludur". `' OR 1=1 --` e-posta → "E-posta adresi geçersiz". 150 karakterlik ad → "Ad en çok 100 karakter olabilir"                                                                                                                                                                                    |
+| Panel: aynı firmada aynı e-posta (büyük harfle)           | ✅    | 409 alanın yanında: "Bu e-posta adresiyle portal hesabı açılamaz."                                                                                                                                                                                                                                                       |
+| Panel: farklı firmada aynı e-posta                        | ✅    | `beta`'da `ali@a1.invalid` açıldı. `demo` şifresiyle `?tenant=beta` girişi → 401                                                                                                                                                                                                                                         |
+| Panel: çift tıklama                                       | ✅    | Tek hesap                                                                                                                                                                                                                                                                                                                |
+| Panel: pasife al                                          | ✅    | Onay diyaloğunda S-P21-10 notu var. Açık portal oturumu bir sonraki istekte **401** (17 ms). Sayfa yenilenince `/portal/login?tenant=demo`                                                                                                                                                                               |
+| Panel: pasif hesapla giriş                                | ✅    | 401 "E-posta veya şifre hatalı." (MFA ipucu yok)                                                                                                                                                                                                                                                                         |
+| Panel: etkinleştir                                        | ✅    | Giriş geri geliyor                                                                                                                                                                                                                                                                                                       |
+| Panel: şifre sıfırla                                      | ✅    | Diyalogda "iki adımlı doğrulama kapatılır" yazıyor. Yeni geçici şifre veriliyor. "2FA açık" rozeti kalkıyor. Audit `portal.account_password_reset` `secondFactorCleared:true`. Yeni şifreyle kodsuz giriş → zorunlu değişim                                                                                              |
+| Panel: Admin B → A1 müşteri sayfası / portal-accounts API | ✅    | Sayfa 404 "Müşteri bulunamadı". `GET …/A1/portal-accounts` 404. B1 yolu + A hesap id'si ile deactivate → 404                                                                                                                                                                                                             |
+| Portal: `/portal/login` slugsuz                           | ✅    | Yönerge görünüyor, form yok                                                                                                                                                                                                                                                                                              |
+| Portal: `?tenant=yokboyle`                                | ✅    | Form görünüyor (firma varlığını ele vermiyor)                                                                                                                                                                                                                                                                            |
+| Portal: boş giriş / yanlış şifre                          | ✅    | Alan hataları / "E-posta veya şifre hatalı."                                                                                                                                                                                                                                                                             |
+| Portal: ilk girişte zorunlu şifre değişimi                | ✅    | Giriş sonrası `/portal/change-password`. `/portal`'a gidilince kapıya dönüyor. API `GET /portal/requests` → 403. Değişimden sonra `/portal`                                                                                                                                                                              |
+| Portal: ana sayfa                                         | ✅    | Müşteri adı, firma dosyası kartı (dosya adı), Yeni talep kartı, Talepler/Oturumlar sekmeleri                                                                                                                                                                                                                             |
+| Portal: geçmiş + meta                                     | ✅    | Oturumlar (3), teknisyen, süre, ticket. Not ("GİZLİ NOT") ve IP **görünmüyor**. Talep detayında açıklama yok (yalnız kod, tarih, durum, kaynak, öncelik, talep eden)                                                                                                                                                     |
+| Portal: IDOR                                              | ✅    | A2 (aynı firma), B1 (başka firma), olmayan ULID, bozuk id (`abc' OR 1=1`) → talep ve oturum için aynı "Kayıt bulunamadı" ekranı. API 404 gövdesi olmayan id ile birebir aynı. `?customerId=` → 400                                                                                                                       |
+| Portal: firma dosyası                                     | ✅    | `request-download?ref=<A1 ref>` → 302 `/downloads/NoktaDestek-OrnekMusteri-<ref>.exe`. Panel müşteri detayındakiyle aynı                                                                                                                                                                                                 |
+| Portal: yeni talep (web formu açık, `demo`)               | ✅    | Ad/e-posta dolu geliyor. Boş gönderim → doğrulama. `<script>…' OR 1=1` açıklama + çift tıklama → **tek** talep, bekleme odası açılıyor. DB'de `source=WEB`, `customer_id=A1`. Audit `request.created` `via:"portal"`, `portalUserId`. Panelde talep düz metin, alert yok. `display-capture` bu sayfada izinli (S-P21-12) |
+| Portal: yeni talep (web formu **kapalı**, `beta`)         | ✅    | Form açılıyor, talep oluşuyor, listede "Talepler (1)". `/r/<beta ref>` hâlâ "Bağlantı geçersiz" (API 404), değişmedi                                                                                                                                                                                                     |
+| Portal: yeni talep ağ hatası / 500                        | ✅    | abort → "Bağlantınızı kontrol edip tekrar deneyin.", form korunuyor. 500 → sunucu mesajı form üstünde                                                                                                                                                                                                                    |
+| Portal: bekleme odasından ayrılınca                       | bilgi | Talep `CANCELLED/DISCONNECTED` (P19 davranışı, değişmedi)                                                                                                                                                                                                                                                                |
+| Portal: TOTP kur                                          | ✅    | QR + anahtar. Yanlış kod → "Kod hatalı veya süresi geçmiş." Doğru kodla açılıyor. Panelde "2FA açık" rozeti var                                                                                                                                                                                                          |
+| Portal: TOTP ile giriş                                    | ✅    | Kodsuz → 403 `MFA_REQUIRED`, aynı formda kod alanı açılıyor. Kodla `/portal`                                                                                                                                                                                                                                             |
+| Portal: TOTP kapat                                        | ✅    | Şifre + kod gerekiyor. Girişte kullanılan kod aynı 30 sn adımında tekrar verilince reddediliyor (tekrar oynatma koruması, audit `mfa_disabled fail invalid_code`). Sonraki adımın koduyla kapanıyor                                                                                                                      |
+| Portal: tema                                              | ✅    | Hesabım ve avatar menüsünde Açık/Koyu/Sistem seçimi var. Koyu tema yenilemede kalıyor (sunucudan basılıyor, yanıp sönme yok)                                                                                                                                                                                             |
+| Portal: çıkış                                             | ✅    | `/portal/login?tenant=demo&reason=logout`. Korumalı URL → `/portal/login?tenant=demo` (slug `rs_portal_tenant` çerezinden). Geri tuşu korumalı içerik göstermiyor                                                                                                                                                        |
+| Çerez ayrımı (aynı tarayıcı)                              | ✅    | Panel ve portal aynı anda açık (`__Host-rs_session` / `__Host-rs_portal` + ayrı CSRF). Yalnız portal çereziyle panel → `/login`, `/auth/me` 401. Yalnız panel çereziyle `/portal` → portal girişi, `/portal/me` 401. Panel token'ı `__Host-rs_portal` adıyla → 401, tersi → 401. Portal çıkışı paneli kapatmıyor         |
+| API kapalıyken portal                                     | ✅    | `/portal`, `/portal/account` → "Bir şeyler ters gitti" + "Tekrar dene". Giriş ekranı açılıyor                                                                                                                                                                                                                            |
+
+### Kabul kriterleri (uçtan uca)
+
+| AC                               | Durum | Nasıl doğrulandı                                                                                             |
+| -------------------------------- | ----- | ------------------------------------------------------------------------------------------------------------ |
+| AC-262 giriş (+TOTP)             | ✅    | Slug'lı/slugsuz giriş, zorunlu değişim, TOTP kur, kodlu giriş, kapat (gerçek sunucu)                         |
+| AC-262 kendi geçmişi (meta)      | ✅    | Liste ve detayda not, IP ve açıklama yok. Yalnız kendi müşterisinin 3 oturumu                                |
+| AC-262 yeni talep                | ✅    | Form açık (`demo`) ve kapalı (`beta`) firmada talep açıldı. `via:portal`, doğru `customer_id`                |
+| AC-262 firma dosyası             | ✅    | 302 → müşteriye özel `.exe` adı                                                                              |
+| AC-262 Admin oluştur / pasife al | ✅    | Panel arayüzünden oluştur, pasife al, etkinleştir, sıfırla. Açık oturum anında düşüyor                       |
+| AC-262 IDOR 404                  | ✅    | 4 id türü × 2 uç, aynı gövde. Admin çapraz firma 404                                                         |
+| AC-287 ekranlar                  | ✅    | 7 portal ekranı + panel bölümü. Açık/koyu, 1280/390. axe (proje kapısı) 0, taşma 0, ikonlar anlamlı (lucide) |
+
+### Görsel gözlemler (ekran görüntülerinden)
+
+- Giriş ekranı: logo açık zemin kartında, başlık "Müşteri portalı", şifre göster/gizle düğmesi ve "Şifrenizi mi unuttunuz?" metni var (`portal-login-1280-light.png`). Slugsuz ekranda yalnız yönerge var.
+- Ana sayfa: iki eylem kartı eşit yükseklikte. İndirme kartında dosya adı mono yazıyla. Sekme sayaçları doğru. Mobilde tablo yerine kart düzeni, uzun dosya adı satır kırıyor, taşma yok (`portal-home-390-dark.png`).
+- Koyu tema: kontrast iyi, logo beyaz kart zeminde okunuyor. Hesabım ekranında 2FA durumu yeşil kutuda, tema seçici segmentli (`portal-hesabim-390-dark.png`).
+- Avatar menüsü: Hesabım, Tema (Açık/Koyu/Sistem), Çıkış yap. Hepsinin ikonu var (`portal-menu-acik-390-light.png`).
+- Panel "Portal hesapları": Portal adresi kutusu, Hesap oluştur, satırlarda Aktif / "2FA açık" / "Şifre değişimi bekliyor" rozetleri ve son giriş zamanı. Pasife al diyaloğunda S-P21-10 sarı uyarısı var (`panel-pasife-al-diyalog.png`, `panel-portal-hesaplari-rozetler-1280-light.png`).
+- Tam sayfa ekran görüntülerinde yapışkan üst çubuk sayfanın ortasında görünüyor (`panel-portal-hesaplari-rozetler…`). Bu, kaydırarak tam sayfa yakalamanın yan etkisi, ürün hatası değil.
+
+DURUM: GEÇTİ
