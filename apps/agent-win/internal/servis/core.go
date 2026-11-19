@@ -77,6 +77,10 @@ type Core struct {
 	logoff  *pendingLogoff
 	enabled bool // son bildirilen yerel değer (çift device.state/olay önlenir)
 	known   bool
+	// upd P29 kurulum kapısı (update_svc.go): bekliyor (2 sn; connect gelirse iptal) / kuruluyor (connect → busy).
+	upd updGate
+	// Version çalışan servis sürümü (boru `status` yanıtı; K-P29-21 tepsi sürüm farkı).
+	Version string
 }
 
 type running struct {
@@ -116,6 +120,10 @@ func (c *Core) Init() {
 func (c *Core) Connect(m *Connect) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	if c.updateConnectLocked() {
+		c.reject(m.SessionID, RejectBusy) // P29: gözetmen kuruluyor (sunucu zaten DEVICE_UPDATING verir)
+		return
+	}
 	features := c.Consent1 != nil && c.Consent1()
 	if features && !connectConsent(m) {
 		c.reject(m.SessionID, RejectProtocol) // D-P28u-5: yardımcı başlatılmaz

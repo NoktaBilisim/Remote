@@ -194,6 +194,12 @@ func ParseServer(raw []byte) (any, error) {
 		m = &Rejoin{}
 	case tRecState:
 		m = &RecState{}
+	case tUpdateOffer:
+		m = &UpdateOffer{}
+	case tUpdateNone:
+		m = &UpdateNone{}
+	case tUpdateToken:
+		m = &UpdateToken{}
 	default:
 		return nil, fmt.Errorf("%w: tür %q", errSchema, head.T)
 	}
@@ -208,6 +214,9 @@ func ParseServer(raw []byte) (any, error) {
 
 func validateServer(m any) error {
 	ok := true
+	if u, known := validUpdateServer(m); known {
+		ok = u
+	}
 	switch v := m.(type) {
 	case *Hello:
 		ok = v.V == ProtocolVersion && b64url32.MatchString(v.Nonce)
@@ -238,6 +247,9 @@ func validateServer(m any) error {
 // validateClient cihaz mesajını sözleşmeye göre denetler (gönderim öncesi fail-closed; contracts ws-device.ts).
 func validateClient(m any) bool {
 	if ok, known := validConsentClient(m); known {
+		return ok
+	}
+	if ok, known := validUpdateClient(m); known {
 		return ok
 	}
 	switch v := m.(type) {
@@ -278,7 +290,9 @@ func encodeClient(m any) ([]byte, error) {
 	case *InterveneResult:
 		v.T = tInterveneResult
 	default:
-		return nil, fmt.Errorf("%w: istemci türü %T", errSchema, m)
+		if !encodeUpdateClient(m) {
+			return nil, fmt.Errorf("%w: istemci türü %T", errSchema, m)
+		}
 	}
 	if !validateClient(m) {
 		return nil, fmt.Errorf("%w: istemci alanı", errSchema)

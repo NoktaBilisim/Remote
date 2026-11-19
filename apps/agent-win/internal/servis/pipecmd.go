@@ -45,6 +45,8 @@ type PipeResponse struct {
 	State    string `json:"state,omitempty"`
 	TechName string `json:"techName,omitempty"`
 	Error    string `json:"error,omitempty"`
+	// Version P29 (K-P29-21, yalnız ekleme): çalışan servis sürümü; tepsi kendi sürümünden farklıysa yeniden başlar.
+	Version string `json:"version,omitempty"`
 }
 
 // ParsePipeRequest tek satırı strict çözer; yalnız status/disable/unregister.
@@ -107,5 +109,9 @@ func HandlePipe(h PipeHandler, line []byte, user string, elevated bool) PipeResp
 		return PipeResponse{Error: fmt.Sprintf("%s_failed", cmd)}
 	}
 	state, tech := h.Status()
-	return PipeResponse{OK: true, State: state, TechName: tech}
+	resp := PipeResponse{OK: true, State: state, TechName: tech}
+	if v, ok := h.(interface{ ServiceVersion() string }); ok {
+		resp.Version = v.ServiceVersion()
+	}
+	return resp
 }

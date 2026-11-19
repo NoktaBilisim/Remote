@@ -44,6 +44,12 @@ func main() {
 }
 
 func run(mode servis.Mode) int {
+	switch mode { // P29: yapılandırmadan ve arayüzden önce (oturum 0, LocalSystem; hata → sessiz çıkış)
+	case servis.ModeUpdateApply:
+		return servis.RunUpdateApply()
+	case servis.ModeUpdateRecover:
+		return servis.RunUpdateRecover()
+	}
 	cfg, err := config.Load()
 	if err != nil {
 		if mode != servis.ModeService && mode != servis.ModeHelper {

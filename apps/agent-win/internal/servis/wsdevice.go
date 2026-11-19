@@ -75,6 +75,10 @@ type DeviceClient struct {
 	state   atomic.Value // string
 	consent atomic.Bool  // bu sokette device.features{consent1} alındı (her bağlantıda sıfırlanır)
 	record  atomic.Bool  // P28e: bu sokette device.features caps record1 içeriyor (her bağlantıda sıfırlanır)
+	// P29: bu sokette update.offer/none alındı (her bağlantıda sıfırlanır; AC-493 eski sunucu kapısı).
+	updateSeen atomic.Bool
+	// Update P29 servis güncelleyicisi (nil = güncelleme kapalı; alt protokol yine bildirilir).
+	Update  UpdateHandler
 	sleep   func(ctx context.Context, d time.Duration) bool
 	lastRej string
 }
@@ -196,8 +200,10 @@ func (c *DeviceClient) session(ctx context.Context) (bool, error) {
 	defer cancel()
 	c.consent.Store(false)
 	c.record.Store(false)
+	c.updateSeen.Store(false)
 	defer c.consent.Store(false)
 	defer c.record.Store(false)
+	defer c.updateSeen.Store(false)
 	ws, err := c.dial(ctx)
 	if err != nil {
 		return false, err
@@ -208,6 +214,9 @@ func (c *DeviceClient) session(ctx context.Context) (bool, error) {
 	}
 	c.state.Store(StateOnline)
 	c.lastRej = ""
+	if c.Update != nil {
+		c.Update.Ready()
+	}
 	go c.writer(ctx, ws)
 	return true, c.readLoop(ctx, ws)
 }
@@ -218,7 +227,7 @@ func (c *DeviceClient) dial(ctx context.Context) (*websocket.Conn, error) {
 	defer cancel()
 	ws, resp, err := websocket.Dial(dctx, u.String(), &websocket.DialOptions{
 		HTTPClient:   c.HTTP,
-		Subprotocols: []string{DeviceSubprotocol, DeviceCapConsent, DeviceCapRecord, DeviceCapDirect},
+		Subprotocols: []string{DeviceSubprotocol, DeviceCapConsent, DeviceCapRecord, DeviceCapDirect, DeviceCapUpdate},
 	})
 	if resp != nil && resp.Body != nil {
 		_ = resp.Body.Close()
@@ -285,6 +294,8 @@ func (c *DeviceClient) readLoop(ctx context.Context, ws *websocket.Conn) error {
 			if err := c.consentMessage(ws, v); err != nil {
 				return err
 			}
+		case *UpdateOffer, *UpdateNone, *UpdateToken:
+			c.updateMessage(v)
 		default: // hello/ready yalnız el sıkışmada
 			return c.violation(ws, "beklenmeyen mesaj")
 		}
