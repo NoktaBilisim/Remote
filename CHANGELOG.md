@@ -5,6 +5,47 @@ Biçim [Keep a Changelog](https://keepachangelog.com/tr/1.1.0/), sürümleme [Se
 
 ## [Unreleased]
 
+### Değişti — P28u r3: gözetimsiz bağlantı onaysız tek yol (kullanıcı kararı 2026-11-18; AC-429..451, mimari-p28u §r3)
+
+- **Tek yol:** gözetimsiz bağlantı her zaman cihaz kullanıcısına sorulmadan açılır; kullanıcı durumu (aktif / kilitli /
+  oturum yok) yalnız bilgidir. Yeni oturumlarda `consentMode` her zaman `no_user` ("Onaysız").
+- **Doğrudan kontrol:** bağlantı açılınca (ve oturum kapatma sonrası yeniden katılımda) konsol bir kez otomatik kontrol
+  ister, cihaz hemen verir; teknisyen ek tıklama olmadan görüntü + kontrol alır. Yalnız kontrol sahibi ve
+  `remote_control.use` ile; devirde otomatik istek yok.
+- **Bağlan diyaloğu:** kutu, gerekçe ve kip seçimi yok; bilgi satırı "Bağlantı cihaz kullanıcısına sorulmadan açılır.
+  Cihazda bağlantı göstergesi görünür." `POST /unattended/devices/:id/connect` gövdesi `{}`; bilinmeyen alan 400.
+- **Servis yeteneği `rs.cap.direct1`:** sunucu bağlanmayı yalnız bunu bildiren servise açar. 0.15–0.19 servisler 409
+  `DEVICE_OUTDATED` alır ("Servis güncel değil" rozeti, Bağlan pasif, step-up tüketilmez); **bir sonraki servis sürümü**
+  gerekir ve sunucuyla aynı pencerede yayımlanır (runbook §28u). Yeni servis eski sunucudan `consent:"ask"` alırsa yine
+  sormadan açar, `"silent"` alırsa bağlanmaz.
+- Gösterge tek metin: "Uzaktan bağlantı: <ad> — <firma>" (P28e " — Kayıt yapılıyor" eki aynen). Cihaz PENDING süresi 60 sn.
+- Müdahale (Oturumu kilitle / Kullanıcı oturumunu kapat) yalnız kontrol açıkken ve yalnız kontrol sahibinde görünür
+  (S-P28u-r3-8).
+- Çoklu teknisyen: gözetimsiz odaya katılım/İzle gövdesi `{}`; kipi `no_user` olmayan odaya katılım 409 `JOIN_NOT_ALLOWED`.
+- Geçmiş, audit ve kayıt ekranlarında "Bağlantı kipi" etiketleri: "Onaysız", "Kullanıcı onayıyla (eski)", "İzinsiz (eski)";
+  r3 öncesi kayıtlar (gerekçe, onay kararı, politika ve dört göz satırları) okunur kalır (AC-451).
+- Windows olay günlüğünde 1001 kip metni "onaysız"; 1008 (onay kararı) yazılmaz.
+- Migration, yeni env ve yeni bağımlılık yok.
+
+### Kaldırıldı — P28u r3
+
+- Cihazdaki "Uzaktan bağlantı isteği" onay penceresi, "İzinli" / "İzinsiz" kip ayrımı, "İzin istemeden bağlan" kutusu ve
+  gerekçe alanı.
+- Firma politikası (Ayarlar → Gözetimsiz erişim sekmesi; `GET/PUT /api/v1/unattended/policy` artık 404) ve
+  `status.silentAllowed`.
+- `unattended.silent` yetkisi ("Hassas" rozeti dahil); kullanıcıda saklı kalan satır etkisizdir, sonraki kayıtta silinir.
+- Hata kodu `SILENT_DISABLED`; teknisyen × cihaz "60 sn'de 1" bağlantı sınırı (kullanıcı başına 20/sa kalır).
+- İzinsiz bağlantı, politika, katılım ve devir dört göz e-postaları; müşteri bildirimindeki "İzin istenmeden bağlanıldı."
+  satırı. P28e kayıt politikası dört göz e-postası **kalır**.
+- İzleme kipi, "Müdahale et" / "İzlemeye dön", konsol kip rozeti, "Kullanıcının onayı bekleniyor…" ve "Yeniden dene";
+  P28c süpervizör/katılım gerekçe diyaloğu.
+- Metrik `rs_unattended_consent_total`; `remote-watch` alarmları `unattended-silent-volume`, `unattended-consent-timeout`.
+
+### Değişti — P28u (r3 notu)
+
+- Aşağıdaki "Eklendi — P28u … servis 0.15.0" girdisindeki üç kip, politika, gerekçe, dört göz ve izleme/müdahale geçişi
+  P28u r3 ile kaldırıldı (yukarıya bakın).
+
 ### Eklendi — P28f macOS istemci, istemci 0.19.0 (AC-389..396)
 
 - **Hızlı Destek macOS:** macOS 13+ için tek universal `.app` (Apple Silicon + Intel), zip içinde, kurulumsuz. Kod/bağlantı

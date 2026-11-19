@@ -52,7 +52,7 @@ describe("P28c yetkiler ve hata kodları", () => {
     expect(MULTI_ERROR_MESSAGES.SESSION_FULL).toBe("Oturum dolu");
     expect(MULTI_ERROR_MESSAGES.CLIENT_UNSUPPORTED).toBe(FSRV_GATE_REASON_LABELS.UNSUPPORTED);
     expect(MULTI_ERROR_MESSAGES.INVITE_GONE).toBe("Davet artık geçerli değil");
-    expect(MULTI_ERROR_MESSAGES.JOIN_NOT_ALLOWED).toBe("İzinli gözetimsiz bağlantıya ek teknisyen katılamaz");
+    expect(MULTI_ERROR_MESSAGES.JOIN_NOT_ALLOWED).toBe("Bu gözetimsiz bağlantıya ek teknisyen katılamaz");
   });
 });
 

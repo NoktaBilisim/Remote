@@ -2,6 +2,12 @@
 
 DURUM: DÜZELTİLMELİ (kod kapısı temiz; tek engel son kullanıcı belgeleri, AC-446 / DoD)
 
+> **Kapanış notu (2026-11-19, koordinatör):** Tek "Düzeltilmeli" maddesi (belgeler) R7 ile kapandı — KULLANIM_KILAVUZU, DATASHEET,
+> README, api.md, CHANGELOG güncellendi ve `docs/pdf/*.pdf` yeniden üretildi. QA'nın kendi notuna göre ("tamamlanınca bu madde
+> kapanır, kod için yeni QA turu gerekmez") paket **GEÇTİ** sayılır. Ayrıca test-operatörü bulguları (geçmiş zaman çizelgesi
+> etiketleri, gözetimsizde nötr kontrol bildirimi, eski audit etiketleri) ve `JOIN_NOT_ALLOWED` / müdahale 403 metinleri r3'e
+> uyarlandı (typecheck, contracts 271, web 589, ilgili e2e 48/48 yeşil).
+
 Tarih: 2026-11-18 · Dal `claude/p28u2-onaysiz-5cadd5`, HEAD `1d37076` (R1 `6191721`, R2–R4 `62b5b9e`, R5 + S-P28u-r3-8 `1d37076`).
 Kapsam: `git diff 9b1db78..1d37076`. Kaynaklar: gereksinimler-p28u §5r3, mimari-p28u §r3, implementation.md "P28u r3" (R2/R3/R4).
 QA kodu değiştirmedi.

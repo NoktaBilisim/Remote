@@ -11,7 +11,7 @@ export const MULTI_ERROR_MESSAGES = {
   /** AC-372: AC-352 metni (labels `UNSUPPORTED` ile aynı cümle). */
   CLIENT_UNSUPPORTED: "Müşterinin uygulaması bu özelliği desteklemiyor — güncel sürümü indirmesini isteyin",
   INVITE_GONE: "Davet artık geçerli değil",
-  JOIN_NOT_ALLOWED: "İzinli gözetimsiz bağlantıya ek teknisyen katılamaz",
+  JOIN_NOT_ALLOWED: "Bu gözetimsiz bağlantıya ek teknisyen katılamaz",
 } as const satisfies Partial<Record<ErrorCode, string>>;
 
 /** `GET /sessions/:id/invite-candidates` en çok satır (ada göre sıralı). */
