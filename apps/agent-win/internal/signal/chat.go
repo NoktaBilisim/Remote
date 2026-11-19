@@ -125,8 +125,10 @@ func validChatItem(it ChatItem) bool {
 	if it.Sender == ChatSenderCustomer {
 		return it.TID == nil && it.SenderName == nil
 	}
+	// senderName: sunucu `displayName` ≤ 100 KOD NOKTASI keser (zod `max(100)` UTF-16 sayar); emoji adlı teknisyende
+	// geçmiş her yeniden bağlanmada 1008 olmasın diye Go kod noktası sayar (şemanın üst kümesi, ≤ 200 UTF-16).
 	return (it.TID == nil || tidRe.MatchString(*it.TID)) &&
-		(it.SenderName == nil || (*it.SenderName != "" && utf16Len(*it.SenderName) <= chatSenderNameMax))
+		(it.SenderName == nil || (*it.SenderName != "" && utf8.RuneCountInString(*it.SenderName) <= chatSenderNameMax))
 }
 
 func validChatMessage(m *ChatMessage) bool {

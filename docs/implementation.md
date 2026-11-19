@@ -16900,6 +16900,10 @@ Yeni bağımlılık yok. Yeni dosya/kayıt/ağ ucu yok (iz testi etkilenmez).
 - **macOS/Linux sistem satırları** (dosya sonucu, ses notu, oturum sonu notu) eskiden sohbetle aynı geçmişe tarih sırasıyla ekleniyordu; artık geçmiş flow'un sohbet metninden yeniden yazıldığı için sistem satırları sohbet bloğunun altında toplanır (`uicore.ChatComposite`, toplam 48 KiB, baştan kırpılır). Windows'ta dosya sonucu ayrı satırdadır, fark yok.
 - **headless.go** dokunulmadı; `Chat`/`TechChat` boş metotları artık hiçbir arayüzün parçası değil (ölü ama zararsız; dosyayı değiştirmeme kuralı gereği bırakıldı).
 - **Sohbet durum satırı** geçmiş kutusunun altında (Windows/macOS'ta geçmiş 22 px kısaldı; 768 px sığdırma kuralı `ChatSqueeze` değişmedi).
+- **`senderName` sınırı kod noktasıyla** ölçülür (≤ 100): sunucu `displayName` 100 kod noktasında keser, zod `max(100)` UTF-16
+  sayar; emoji adlı teknisyende katı UTF-16 denetimi her `chat.history`'de 1008 → oturum kaybı demekti. Go şemanın üst
+  kümesini kabul eder (test). Kayıtlı istemci yolu (`/public/bindings/status`) aynı `requestInfo` gövdesini döndüğü için
+  `chatRetentionDays` gömülü `TenantRequestInfo` ile gelir (doğrulandı).
 - `gtk/ffi_linux.go`'ya `gtk_text_buffer_get_start_iter` / `get_text` bağlaması eklendi (yalnız GUI duman testinde düz metin geri okuma için).
 
 ### Testler (adlar AC / bulgu no taşır)

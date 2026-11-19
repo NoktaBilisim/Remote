@@ -144,6 +144,8 @@ func TestAC264P22GChatStateAndItems(t *testing.T) {
 		{`{"t":"chat.message","id":"01JC5Z8X4N2M7Q9R3T6V0W1Y2A","sender":"TECH","senderName":"","body":"x","createdAt":"2026-11-17T10:00:00.000Z"}`, false},
 		{`{"t":"chat.message","id":"01JC5Z8X4N2M7Q9R3T6V0W1Y2A","sender":"TECH","tid":"kısa","body":"x","createdAt":"2026-11-17T10:00:00.000Z"}`, false},
 		{`{"t":"chat.message","id":"01JC5Z8X4N2M7Q9R3T6V0W1Y2A","sender":"CUSTOMER","body":"x","createdAt":"2026-11-17T10:00:00.000Z","clientMsgId":"cm_0123456789abcd"}`, true},
+		{`{"t":"chat.message","id":"01JC5Z8X4N2M7Q9R3T6V0W1Y2A","sender":"TECH","senderName":"` + strings.Repeat("😀", 100) + `","body":"x","createdAt":"2026-11-17T10:00:00.000Z"}`, true},
+		{`{"t":"chat.message","id":"01JC5Z8X4N2M7Q9R3T6V0W1Y2A","sender":"TECH","senderName":"` + strings.Repeat("a", 101) + `","body":"x","createdAt":"2026-11-17T10:00:00.000Z"}`, false},
 		{`{"t":"chat.message","id":"01JC5Z8X4N2M7Q9R3T6V0W1Y2A","sender":"CUSTOMER","Body":"x","createdAt":"2026-11-17T10:00:00.000Z"}`, false},
 	}
 	for _, c := range cases {
