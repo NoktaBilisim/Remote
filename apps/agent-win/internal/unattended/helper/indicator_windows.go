@@ -74,7 +74,8 @@ type winIndicator struct {
 	desktop  string      // bağlandığı giriş masaüstü (K6b)
 	quit     atomic.Bool // Close: başka masaüstündeki iş parçacığına ileti gitmezse zamanlayıcı görür
 
-	lastTick atomic.Int64 // P30 güvenlik turu: son doğrulama turunun zamanı (UnixNano; gözcü okur)
+	born     time.Time    // iş parçacığı başlangıcı (monoton saat tabanı; ready'den önce yazılır)
+	lastTick atomic.Int64 // P30 güvenlik turu: son doğrulama turu, born'dan bu yana ns (monoton; gözcü okur)
 
 	// P30 işaretleme katmanı (yalnız gösterge iş parçacığında; layer testte okunur).
 	annNext   atomic.Pointer[annotSnap] // Paint → iş parçacığı (ileti başka masaüstünde kaybolursa tick uygular)
@@ -135,7 +136,8 @@ func (ind *winIndicator) loop(ready chan<- error) {
 		return
 	}
 	win.SetTimer(ind.host, timerVerify, 1000)
-	ind.lastTick.Store(time.Now().UnixNano())
+	ind.born = time.Now()
+	ind.markTick()
 	ind.markDrawn()
 	ready <- nil
 	var m win.MSG
@@ -206,11 +208,16 @@ func (ind *winIndicator) tick() {
 		ind.fail()
 		return
 	}
-	ind.lastTick.Store(time.Now().UnixNano())
+	ind.markTick()
 }
 
-// tickedAt son başarılı doğrulama turu (gözcü; herhangi bir iş parçacığından).
-func (ind *winIndicator) tickedAt() time.Time { return time.Unix(0, ind.lastTick.Load()) }
+// markTick doğrulama turunu monoton saatle damgalar (duvar saati geri/ileri alınması gözcüyü yanıltmaz).
+func (ind *winIndicator) markTick() { ind.lastTick.Store(int64(time.Since(ind.born))) }
+
+// tickedAt son başarılı doğrulama turu (gözcü; herhangi bir iş parçacığından; monoton okuma taşır).
+func (ind *winIndicator) tickedAt() time.Time {
+	return ind.born.Add(time.Duration(ind.lastTick.Load()))
+}
 
 // raise K-P30-3: önce katman, sonra gösterge pencereleri en üste (gösterge çizimin üstünde kalır).
 func (ind *winIndicator) raise() {
@@ -392,13 +399,13 @@ func (ind *winIndicator) placeLayer() {
 		}
 		// AC-495: yakalamadan hariç tutulamıyorsa (Win10 2004 öncesi, reddeden masaüstü) katman gösterilmez — çizim
 		// teknisyen görüntüsüne ve kayda girmez; yalnız cihazda görünmez, oturum sürer (K-P30-2).
+		win.SetLayered(h, annot.ColorKey, 0, win.LWA_COLORKEY) // diğer çağrı yerleriyle aynı sıra: önce katmanlı
 		if !win.ExcludeFromCapture(h) || win.DisplayAffinity(h) != win.WDA_EXCLUDEFROMCAP {
 			win.DestroyWindow(h)
 			ind.layerOff = true
 			return
 		}
 		ind.layer.Store(h) // boyama yordamı katmanı tanısın (kırmızı zemin boyanmaz)
-		win.SetLayered(h, annot.ColorKey, 0, win.LWA_COLORKEY)
 		win.ShowWindow(h, win.SW_SHOWNOACTIVATE)
 	case r != ind.layerRect:
 		win.SetWindowPos(l, win.HWND_TOPMOST, r.Left, r.Top, r.Right-r.Left, r.Bottom-r.Top, win.SWP_NOACTIVATE)
