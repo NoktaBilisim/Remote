@@ -1,8 +1,12 @@
 package config
 
 import (
+	"crypto/ed25519"
+	"crypto/sha256"
 	"strings"
 	"testing"
+
+	"remote-support/agent-win/internal/update"
 )
 
 func TestAC109ParseAcceptsHTTPSOnly(t *testing.T) {
@@ -88,5 +92,22 @@ func TestP28gK10WaylandControlSwitch(t *testing.T) {
 	waylandControl = ""
 	if c, _ := Load(); !c.WaylandControl {
 		t.Fatal("Load: varsayılan kapalı")
+	}
+}
+
+// AC-472 / K-P29-1: güncelleme kökü ldflags'ten; boş (PR/yer tutucu) ya da bozuksa güncelleyici kapalı, Load hata dönmez.
+func TestAC472UpdateTrustFailClosed(t *testing.T) {
+	seed := sha256.Sum256([]byte("rs-update-test-key-config"))
+	pub := update.EncodePublicKey(ed25519.NewKeyFromSeed(seed[:]).Public().(ed25519.PublicKey))
+	if tr := updateTrust("prod", pub+","+pub); !tr.Enabled() || tr.Env != "prod" || len(tr.Keys) != 2 {
+		t.Fatalf("geçerli kök kapalı: %+v", tr)
+	}
+	for _, c := range [][2]string{{"", ""}, {"prod", ""}, {"", pub}, {"dev", pub}, {"prod", pub + "," + pub + "," + pub}, {"prod", pub[:40]}} {
+		if updateTrust(c[0], c[1]).Enabled() {
+			t.Errorf("%q/%q açık olmamalı", c[0], c[1])
+		}
+	}
+	if c, _ := Load(); c.Update.Enabled() {
+		t.Fatal("ldflags'siz test derlemesinde güncelleyici kapalı olmalı")
 	}
 }

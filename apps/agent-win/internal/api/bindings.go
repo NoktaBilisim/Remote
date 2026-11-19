@@ -22,6 +22,9 @@ type BindingInfo struct {
 	Customer *struct {
 		Name string `json:"name"`
 	} `json:"customer"`
+	// AutoUpdate P29 (K-P29-7, AC-485): tenant'ın otomatik güncelleme politikası; eski sunucu göndermez (nil → auto).
+	// Birden çok kayıtta update.MergePolicy (kapalı kazanır).
+	AutoUpdate *bool `json:"autoUpdate,omitempty"`
 }
 
 // BindingStatus açılışta kaydın geçerliliği ve firma bilgisi (AC-182, AC-185). `last_used_at`'i değiştirmez (K21),
