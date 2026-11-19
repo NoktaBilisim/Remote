@@ -2,6 +2,42 @@
 
 DURUM: DÜZELTİLMELİ (tasarım r2) — Kritik 0 / Yüksek 1 / Orta 4 / Düşük 7
 
+## r2 yeniden kontrol (2026-11-19) — DURUM: GEÇTİ (Kritik 0 / Yüksek 0 açık / Orta 0 / Düşük 3 yeni not)
+
+Okunan: `docs/mimari-p29.md` §14 (bağlayıcı) + §4.4 r2, ADR-0040 r2 (Durum satırı, Karar 1, Sonuçlar:87), `docs/gereksinimler-p29.md`
+R-P29-1 ve AC-490. Kod değişmedi.
+
+| Bulgu    | r2 durumu                       | Kanıt / not                                                                                                                                                                                                                                                                                            |
+| -------- | ------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| T-1      | **Kapandı — kabul edilen risk** | Raporun izin verdiği 2. yol: kullanıcı yazılı kabulü ADR-0040 Sonuçlar, R-P29-1 ve §14.1'de; zorunlu sertleştirmeler §14.1 m.1–6 (bypass kapalı, ruleset, attestation kimliği, `source="device"` alarmı, staging-önce 24 sa). 2-of-2 genişleme noktası tanımlı. Kalan risk Kritik olarak kayıtlı kalır |
+| T-2      | Kapandı (tasarım)               | §14.2: stdin tohum, anahtarsız işte stdlib-only derleme, sparse checkout, önbellek yok, resign iki iş + alan eşitliği, bilinen değerle log taraması, SHA sabitleme                                                                                                                                     |
+| T-3      | Kapandı (tasarım, K0s'a bağlı)  | §14.3 m.3–5: `PendingFileRenameOperations` geri dönüşte yok; SCM `RUN_COMMAND` → `--update-recover`; yedek ONSTART görevi yalnız spike olumsuzsa; WRITE_THROUGH + `phase=swapping` önce                                                                                                                |
+| T-4      | Kapandı                         | §14.3 m.1–2: mutex (DACL SY) + çift nonce + servis çıkmaz                                                                                                                                                                                                                                              |
+| T-5      | Kapandı                         | §14.4: `source` sunucuda kimlik kanalından, istemci beyan etmez; alarm yalnız `device` ≥ 1; istek kovası + ≤ 5 anahtar                                                                                                                                                                                 |
+| T-6      | Kapandı                         | §14.3 m.6                                                                                                                                                                                                                                                                                              |
+| T-7, T-9 | Kabul (gerekçeli)               | §14.5; istemci manifesti ≤ 30 g, açıklı sürüm yeniden imzalanmaz + `MIN_AGENT_VERSION`                                                                                                                                                                                                                 |
+| T-8      | Kapandı                         | §14.7, K-P29-9 r2                                                                                                                                                                                                                                                                                      |
+| T-10     | Kapandı                         | §4.4 başlığı r2 (`Authorization: Bearer`, sorgu reddi), §14.8                                                                                                                                                                                                                                          |
+| T-11     | Kapandı                         | §14.6 kanonik bayt + ortak fikstür (iki dil)                                                                                                                                                                                                                                                           |
+| T-12     | Kapandı / donma kabul           | §14.7 (`--signer-workflow`, `--source-ref`, `--cert-oidc-issuer`; 400 yansıtmaz; Linux `O_NOFOLLOW`)                                                                                                                                                                                                   |
+| Diğer    | Kapandı                         | saat kayması, kök sabitleme yok, kardinalite ≤ 50, AC-490 metni ("yanıtta yok; scope=all 403")                                                                                                                                                                                                         |
+
+Yeni notlar (Düşük, K7/K4/K12'de uygulanır; kararı değiştirmez):
+
+- **R2-1 FailureActions öz-onarımı:** gözetmen `phase=done` yazdıktan sonra ama eski `FailureActions`'ı geri yüklemeden ölürse SCM'nin ilk
+  eylemi `exe.eski --update-recover` olarak kalır; servis açılışında `exe.eski` silindiği için ilk çökmede SCM yeniden başlatma yerine olmayan
+  komutu dener. Düzeltme (K7): servis açılışında `phase ∈ {done, rolled_back}` ise önce `durum.json` yedeğinden `FailureActions`'ı geri yükler,
+  **sonra** `exe.eski`'yi siler; Windows birim testi.
+- **R2-2 Sunucu süre kapısı bileşene göre:** §14.8 "istemci ≤ 30 g, servis ≤ 90 g" kuralı yalnız doğrulayıcıda yazılı; `manifest-store.ts`
+  (K-P29-5) aynı bileşen sınırını uygulamalı, aksi halde 90 g'lük istemci manifesti sunulur ve istemcide `EXPIRED` olarak reddedilir
+  (sahte bildirim). K4 testi.
+- **R2-3 Doküman tutarlılığı:** `docs/gereksinimler-p29.md:210` (kontrol listesi kararları) hâlâ "başka tenant 404" diyor; AC-490 r2 ile
+  eşitlenmeli (proje-yöneticisi). Aylık `update-resign` ortam onayı gerektirir; kaçırılırsa istemci güncellemesi fail-closed durur — runbook
+  §31'e "< 14 g alarmı = resign zamanı" notu (devops).
+
+Karar: P29 tasarım güvenlik kapısı **GEÇTİ**. K3/K6/K7 kodlanabilir; K0s spike sonucu (RUN_COMMAND hesabı, `exe` yokken SCM davranışı,
+POSIX rename) `docs/implementation.md`'ye yazılmalı ve K9 kod turunda denetlenir.
+
 Kapsam: `docs/gereksinimler-p29.md`, `docs/mimari-p29.md` r1, ADR-0040, `docs/tasarim-kontrol.md` P29; mevcut kodla karşılaştırma
 (`.github/workflows/agent-win.yml`, `deploy/Caddyfile`, `internal/servis/mode.go`, `internal/proclimit`, `unattended/device-ws.ts`). Kod yok,
 otomatik tarama bu turda anlamsız (yeni bağımlılık yok). Karar: S-P29-T-1 (Yüksek) mimari r2'de 2-of-2 imza ile ya da kullanıcının yazılı
