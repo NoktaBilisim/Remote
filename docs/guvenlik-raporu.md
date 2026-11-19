@@ -1,3 +1,66 @@
+# Güvenlik Raporu — P30 kod turu 2 (dal p30-gozetimsiz-cizim, HEAD f713f54, 2026-11-20)
+
+DURUM: GEÇTİ — Kritik 0 / Yüksek 0 / Orta 0 / Düşük 2
+
+Kapsam: `git diff 2a64ff2...HEAD -- apps/agent-win .github/workflows/agent-win.yml` (96eacdf, 4fa151e, f713f54),
+`docs/implementation.md` "P30 düzeltme turu". Tur 1 bulguları kodda doğrulandı. Yeni gözcü ve hız sınırının kendisi
+yanlış pozitif, yarış durumu ve atlatma açısından incelendi.
+
+## Tur 1 bulgularının kapanışı
+| Tur 1 | Durum | Kanıt |
+| --- | --- | --- |
+| YÜKSEK: çizim seli `tick`i aç bırakır (fail-open) | **Kapandı** | 1) Kuyrukta en çok bir bekleyen `wmAnnot` var (`indicator_windows.go` `Paint`, `annPosted` CAS); anlık görüntüler birleşiyor. 2) Uygulama ve boyama ≈ 30 Hz ile sınırlı; boyama son boyamanın *bitişinden* sonra 33 ms erteleniyor (`annotMsg`, `redraw`, `paintLayer` sonunda `lastPaint`). İki boyama arasında kuyruk boşaldığı için `WM_TIMER` üretilebiliyor. 3) Toplam nokta bütçesi `annot.MaxPoints = 20000` (`annot.go` `trimPoints`); bir boyamanın iş yükü 250k'dan 20k noktaya indi. 4) İş parçacığı dışında gözcü var (`checks.go` `watchdog`, `showIndicator`'da başlatılıyor). Son başarılı `tick` 3 sn'den eskiyse `fail()` çağrılıyor, oturum `indicator_failed` ile bitiyor; bu fail-closed davranış AC-342 ile tutarlı. Testler: `TestAC342P30WatchdogFailsOnStaleTick` (tüm platform, PASS) ve `TestAC342P30TickUnderAnnotFlood` (Windows CI, SKIP kabul edilmiyor). |
+| ORTA: `WDA_EXCLUDEFROMCAPTURE` sonucu denetlenmiyor | **Kapandı** | `win.ExcludeFromCapture` artık `bool` dönüyor. Katman `SetLayered` sonrası hem dönüşü hem `GetWindowDisplayAffinity` değerini denetliyor; başarısızlıkta pencere gösterilmeden yok ediliyor ve `layerOff` ile aynı göstergede yeniden denenmiyor. Yeni masaüstündeki gösterge yeniden deniyor. Oturum sürüyor (K-P30-2). |
+| DÜŞÜK: sahip değişince eski çizimler kalıyor | **Kapandı** | `headless.controllerChanged` roster'daki `controller` rolünün tid'i değişince `annot.clear` uyguluyor. Bu rol sunucu roster'ının oturum kontrol sahibidir, girdi izni değildir (`flow/messages_p28c.go:36-38`); `ctlAllowed` ile aynı kaynaktan gelir. Kontrol bırakılıp yeniden alınınca silme olmaz. İşlem akış döngüsünde sıralı yürüyor. Test: `TestAC498ControllerChangeClearsStrokes`. |
+| DÜŞÜK: katman testleri CI'da SKIP görünmez | **Kapandı** | `agent-win.yml` yeni adımı üç testi `-v` ile koşturuyor; her testin PASS olması gerekiyor, SKIP ya da eksik test adımı kırmızı yapıyor. |
+| DÜŞÜK: her boyamada tam ekran bitmap | **Kapandı** | `annot.Canvas` arka tamponu boyut değişene kadar yeniden kullanıyor. `SelectClipRgn(mem,0)` önceki kırpmayı sıfırlıyor, böylece kırpma bölgeleri birikmiyor. Tampon `destroyLayer` ve Hızlı Destek `overlay.close` sırasında `Release` ile bırakılıyor. |
+
+## Yeni kodun incelemesi
+- **Gözcü yarışı:** `born` ready'den önce yazılıp `ready` kanalıyla yayınlanıyor, gözcü ondan sonra başlıyor (happens-before);
+  `lastTick` atomik. Monoton saat kullanıldığı için duvar saatinin değiştirilmesi yanlış pozitif üretmiyor. Gösterge kapanınca
+  (`done`) gözcü çıkıyor. Masaüstü değişiminde `rebind` önce `detach` ettiği için eski göstergenin gözcü hatası oturumu
+  bitirmiyor. `go test -race` (annot, helper, flow) PASS.
+- **Hız sınırını atlatma:** `Paint` → `applyAnnot` sırası (`annPosted=false` önce, `Swap` sonra) güncelleme kaybettirmiyor.
+  Ertelenen yolda `annPosted` true kaldığı için Paint yeni ileti göndermiyor ve kuyruk dolmuyor. Başka masaüstünde kaybolan
+  iletiyi `tick` uyguluyor.
+- **Teknisyenin gözcüyü tetiklemesi:** 20k nokta bütçesiyle tek boyamanın 3 sn sürmesi beklenmiyor (Windows CI testi en uzun
+  aralığı günlüğe yazıyor). Tetiklense bile sonuç oturumun bitmesi olur, yani fail-closed. Kontrol sahibi oturumu zaten
+  bitirebildiği için bu yeni bir yetki değil.
+- Girdi doğrulama, AC-498 kapısı, kırpma, tıklama geçirgenliği ve shatter açısından tur 1'deki olumlu tespitler değişmedi.
+
+## Bulgular
+### [DÜŞÜK] Uyku/hazırda bekletme dönüşünde gözcü yanlış pozitif verebilir — A04 (kullanılabilirlik)
+Yer: `apps/agent-win/internal/unattended/helper/checks.go` `watchdog`; `indicator_windows.go` `tickLimit`, `tickedAt`.
+Sorun: Go'nun Windows'taki monoton saati askıda geçen süreyi de sayar (interrupt time). Cihaz uyandığında gözcünün ticker'ı
+göstergenin `WM_TIMER`'ından önce çalışırsa `time.Since(last) > 3 sn` koşulu sağlanır ve oturum `indicator_failed` ile biter.
+Güvenlik açığı değil (fail-closed). Ancak çıkış kodu ve olay yanıltıcı olur: gösterge hatası gibi görünür. Ağ uykuda zaten
+koptuğu için pratik etki küçük. Windows'ta denenmedi.
+Düzeltme (backend-dev, Sonra): Gözcü "iki ardışık gecikmiş ölçüm" kuralıyla çalışsın; ya da `WM_POWERBROADCAST`
+(`PBT_APMRESUMEAUTOMATIC`) gelince `markTick` çağrılsın.
+
+### [DÜŞÜK] Hızlı Destek katmanı ve gösterge pencereleri yakalama dışlama sonucunu hâlâ yok sayıyor (P30 öncesi davranış)
+Yer: `apps/agent-win/internal/ui/overlay_windows.go:59, 138`; `internal/unattended/helper/indicator_windows.go:174`.
+Sorun: Bu P30'un getirdiği bir gerileme değil. Windows 10 2004 öncesinde Hızlı Destek çizimleri teknisyen görüntüsüne ve
+kayda girer. Gösterge çubuğunun yakalamaya girmesi zararsızdır.
+Düzeltme (backend-dev, Sonra): Hızlı Destek katmanına gözetimsizdeki `layerOff` kuralı uygulansın.
+
+## Otomatik tarama çıktıları
+- `go test -count=1 -race ./internal/annot/ ./internal/unattended/helper/ ./internal/flow/` (darwin, go1.26.11): tümü `ok`.
+- `GOOS=windows go vet` (annot, unattended/..., ui, win): temiz. `GOOS=windows go test -c ./internal/unattended/helper/`: derleniyor.
+- Yeni bağımlılık yok. Diff'te gizli bilgi yok.
+
+## Tasarımda vaat edilip kodda bulunmayanlar
+- Yok. `MaxPoints` (20k) AC-494'e not olarak eklendi (f713f54). Cihaz eski çizimleri bu bütçe yüzünden düşürürken konsol
+  göstermeye devam eder; bu işlevsel bir fark, güvenlik açısından kabul edilebilir.
+- Windows'ta çalışma zamanı kanıtı CI "P30 katman testleri" adımına bağlı (bu turda koşulamadı). Adım kırmızıysa bu rapor
+  yeniden açılır.
+
+## Sonuç
+Kritik/Yüksek 0, P30 güvenlik açısından GEÇTİ. Koşul: PR #35'te CI "P30 katman testleri" adımı üç testte de PASS olmalı.
+İki Düşük bulgunun `docs/gereksinimler.md` 9. bölüme "Sonra" olarak eklenmesi önerilir.
+
+---
+
 # Güvenlik Raporu — P30 kod turu (dal p30-gozetimsiz-cizim, HEAD 2a64ff2, 2026-11-19)
 
 DURUM: DÜZELTİLMELİ — Kritik 0 / Yüksek 1 / Orta 1 / Düşük 3
