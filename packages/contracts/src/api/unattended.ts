@@ -359,6 +359,6 @@ export const UNATTENDED_AUDIT_LABELS: Readonly<Record<string, string>> = {
   [UNATTENDED_AUDIT.LOCK]: "Uzak oturum kilitlendi",
   [UNATTENDED_AUDIT.LOGOFF]: "Uzak kullanıcı oturumu kapatıldı",
   [UNATTENDED_AUDIT.REJOIN]: "Gözetimsiz bağlantı yeniden kuruldu",
-  [UNATTENDED_AUDIT.SILENT_NOTIFY]: "İzinsiz bağlantı bildirimi (dört göz)",
-  [UNATTENDED_POLICY_AUDIT]: "Gözetimsiz erişim politikası değişti",
+  [UNATTENDED_AUDIT.SILENT_NOTIFY]: "Dört göz e-posta bildirimi",
+  [UNATTENDED_POLICY_AUDIT]: "Gözetimsiz erişim politikası değişti (eski)",
 };

@@ -86,7 +86,7 @@ export function ConsoleView({
   const name = state.guest?.name ?? t("c.customer");
 
   const releaseRef = useRef<HTMLButtonElement>(null);
-  useControlToasts(control, toast);
+  useControlToasts(control, toast, state.unattended !== null);
   useAutoControl(ts, seat.controller, canControl);
   const voice = useVoiceSlot(ts, seat, canVoice, now, toast);
 
