@@ -4,7 +4,6 @@ package ui
 
 import (
 	"fmt"
-	"strings"
 	"time"
 
 	"remote-support/agent-win/internal/capture"
@@ -78,10 +77,7 @@ func (u *UI) newSessionWin(watchText string) *sessionWin {
 	s := &sessionWin{f: f}
 	s.watch = f.danger(watchText, 16, 14, 408, 22, fontBold)
 	s.status = f.label("Bağlantı kuruluyor…", 16, 40, 408, 36, fontNormal)
-	f.label("Sohbet", 16, 80, 408, 20, fontBold)
-	s.history = f.edit(0, 16, uicore.ChatHistoryY, 408, uicore.ChatHistoryH-sq, win.ES_MULTILINE|win.ES_READONLY|win.ES_AUTOVSCROLL|win.WS_VSCROLL, 0)
-	s.input = f.edit(idChatInput, 16, 306-sq, 316, 28, win.ES_AUTOHSCROLL, 2000)
-	s.sendBtn = f.button("Gönder", idOK, 338, 305-sq, 86, true)
+	s.newChat(f, sq) // P22-G (chat_windows.go)
 	if u.fileServer {
 		f.label(flow.TextFileServerMode, 16, 342-sq, 408, 36, fontNormal)
 	}
@@ -125,12 +121,7 @@ func (u *UI) sessionCommand(s *sessionWin, id, code int) {
 			u.clipClicked(s)
 		}
 	case idOK:
-		text := strings.TrimSpace(win.GetText(s.input.h))
-		if text != "" && !s.finished {
-			u.emit(flow.Event{Kind: flow.EvChat, Text: text})
-			appendLine(s.history, "Siz", text)
-			win.SetText(s.input.h, "")
-		}
+		u.sessionChatSubmit(s)
 	case idFileCancel:
 		u.emit(flow.Event{Kind: flow.EvFileCancel})
 	case idGrant:
@@ -180,25 +171,6 @@ func (u *UI) Status(msg string) {
 	u.t.Do(func() {
 		if u.sess != nil && !u.sess.finished {
 			win.SetText(u.sess.status.h, msg)
-		}
-	})
-}
-
-// Chat AC-52: zaman damgalı; pencere arka plandaysa okunmamış sayacı başlıkta.
-func (u *UI) Chat(text string) { u.chatLine("Teknisyen", text) }
-
-// chatLine sohbet satırı (P28c: multi kipinde teknisyen adıyla).
-func (u *UI) chatLine(who, text string) {
-	u.t.Do(func() {
-		s := u.sess
-		if s == nil {
-			return
-		}
-		appendLine(s.history, who, text)
-		if !s.active {
-			s.unread++
-			win.SetText(s.f.h, uicore.VersionedTitle(uicore.UnreadTitle(s.unread), u.t.version))
-			win.FlashWindow(s.f.h)
 		}
 	})
 }

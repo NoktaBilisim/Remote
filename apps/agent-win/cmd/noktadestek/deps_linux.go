@@ -51,6 +51,9 @@ func flowDeps(cfg config.Config, fp string, client *api.Client, u flow.UI, event
 	if r, ok := u.(flow.RosterUI); ok {
 		d.RosterUI = r
 	}
+	if c, ok := u.(flow.ChatUI); ok { // P22-G: oturum sohbeti bölümü (rs.cap.schat1)
+		d.ChatUI = c
+	}
 	if fs, ok := u.(flow.FileServerUI); ok {
 		d.FileServerUI = fs
 	}

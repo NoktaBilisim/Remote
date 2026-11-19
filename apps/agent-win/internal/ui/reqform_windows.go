@@ -31,6 +31,8 @@ type reqForm struct {
 	chosen, filling bool
 	// abuseEmail "Kötüye kullanımı bildir" adresi (FormView.AbuseEmail; boşsa düğme yok).
 	abuseEmail string
+	// ready P22 AC-292: saklama satırı çizildi ve gün geçerli (uicore.ConsentReady); değilse "Destek iste" hep pasif.
+	ready bool
 }
 
 // RequestForm AC-133..137, 164: firma penceresi + form. Tab sırası oluşturma sırasıdır ((varsa) kötüye kullanımı
@@ -57,7 +59,7 @@ func (u *UI) newReqForm(v request.FormView) *reqForm {
 	if v.RecOffered {
 		shift = recFormRow
 	}
-	f := u.t.newForm(appTitle+" — "+v.Tenant, 540, 730+shift, false)
+	f := u.t.newForm(appTitle+" — "+v.Tenant, 540, 730+shift+retentionRow, false)
 	r := &reqForm{f: f, errs: map[string]*ctrl{}, abuseEmail: v.AbuseEmail}
 	f.picture(orSystemLogo(v.Logo), 396, 8, 128, 56)
 	f.label(v.Tenant, 16, 10, 370, 32, fontBig) // yalnız sunucudan gelen firma adı (G-E9-11)
@@ -69,6 +71,9 @@ func (u *UI) newReqForm(v request.FormView) *reqForm {
 	r.addFields()
 	r.addConsent(v, shift)
 	r.notice = f.danger("", 16, 614+shift, 508, 36, fontNormal)
+	// AC-292: gönder düğmesinin hemen üstünde saklama satırı (P22, K-P22-9).
+	r.ready = retentionLine(f, v.ChatRetentionDays, 16, 652+shift, 508)
+	shift += retentionRow
 	r.submit = f.button("Destek iste", idOK, 16, 656+shift, 140, true)
 	r.code = f.button("Bağlantı kodum var", idReqCode, 164, 656+shift, 190, false)
 	r.closeB = f.button("Kapat", idCancel, 434, 656+shift, 90, false)
@@ -149,7 +154,9 @@ func (r *reqForm) command(id, code int) {
 			r.chosen = true
 		}
 	case idOK:
-		r.reply(request.FormSubmit)
+		if r.ready { // AC-292: Enter yolu da düğme durumundan bağımsız denetlenir
+			r.reply(request.FormSubmit)
+		}
 	case idReqForget:
 		r.reply(request.FormForget)
 	case idReqCode:
@@ -165,6 +172,7 @@ func (r *reqForm) busy(on bool) {
 	for _, c := range []*ctrl{r.submit, r.code, r.forget} {
 		win.EnableWindow(c.h, !on)
 	}
+	win.EnableWindow(r.submit.h, !on && r.ready)
 }
 
 func (r *reqForm) update(v request.FormView, ch chan formResult) {

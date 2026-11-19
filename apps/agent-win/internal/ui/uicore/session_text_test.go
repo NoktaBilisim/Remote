@@ -150,3 +150,14 @@ func TestP28fFileResultText(t *testing.T) {
 		t.Fatal("FileResultText")
 	}
 }
+
+func TestAC264P22GChatComposite(t *testing.T) {
+	if got := ChatComposite("[10:00] Siz:\n    <b>a</b>\n", "[10:01] Sistem: x\n"); got != "[10:00] Siz:\n    <b>a</b>\n[10:01] Sistem: x\n" {
+		t.Fatalf("%q", got)
+	}
+	big := strings.Repeat("satır\n", ChatLimit/6+10)
+	got := ChatComposite(big, "[10:01] Sistem: son\n")
+	if len(got) > ChatLimit || !strings.HasSuffix(got, "[10:01] Sistem: son\n") || !strings.HasPrefix(got, "satır\n") {
+		t.Fatalf("kırpma: %d", len(got))
+	}
+}
