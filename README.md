@@ -6,7 +6,7 @@ katılır.
 Görüntü eşler arası WebRTC ile akar; sunucu sinyalizasyon ve meta veri tutar. Dosyalar varsayılan olarak eşler arası
 gider; firma isterse sunucu üzerinden, ClamAV taramalı ve şifreli saklamalı aktarır (P28b).
 
-## Şu anki durum: P1–P13a tamamlandı, P13b (prod açılışı) kodu hazır, P14a/P14b, P15, P16, P17 (istemci 0.11.0), P18 (talep iletişimi), P19 (web talep formu, SMS, müşteri bildirimi, müşteri CSV) P20 (istemci 0.12.0), P27a (2FA'da cihaz hatırlama), P27 (gözetimsiz erişim; prod'da kapalı) P28a (pano paylaşımı + uzaktan yazdırma, istemci 0.13.0) P28b (sunucuda dosya aktarımı + ClamAV + depolama kotası, istemci 0.14.0), P28u (gözetimsiz izinli / izinsiz bağlantı ve müdahale, servis 0.15.0) P28e (oturum kaydı, istemci/servis 0.16.0) ve P28c (çoklu teknisyen: davet, İzle, kontrol ve oturum devri, istemci/yardımcı 0.17.0) ve P28d (sesli görüşme, istemci 0.18.0) ve P28f (macOS istemci, istemci 0.19.0; prod'da Apple imzası gelene kadar yok) kodlandı (QA sürüyor)
+## Şu anki durum: P1–P13a tamamlandı, P13b (prod açılışı) kodu hazır, P14a/P14b, P15, P16, P17 (istemci 0.11.0), P18 (talep iletişimi), P19 (web talep formu, SMS, müşteri bildirimi, müşteri CSV) P20 (istemci 0.12.0), P27a (2FA'da cihaz hatırlama), P27 (gözetimsiz erişim; prod'da kapalı) P28a (pano paylaşımı + uzaktan yazdırma, istemci 0.13.0) P28b (sunucuda dosya aktarımı + ClamAV + depolama kotası, istemci 0.14.0), P28u (gözetimsiz izinli / izinsiz bağlantı ve müdahale, servis 0.15.0) P28e (oturum kaydı, istemci/servis 0.16.0) ve P28c (çoklu teknisyen: davet, İzle, kontrol ve oturum devri, istemci/yardımcı 0.17.0) ve P28d (sesli görüşme, istemci 0.18.0) ve P28f (macOS istemci, istemci 0.19.0; prod'da Apple imzası gelene kadar yok) ve P21 (müşteri portalı, sürüm 0.20.0) kodlandı (QA sürüyor)
 
 İş P1..P13 dikey paketlerle yürür (`docs/mimari.md` §10). P1–P11 ve **P12** (firma ve sistem logosu, kullanıcı profil
 resmi, kullanıcı başına tema, hesap menüsü, tasarım token lint kuralı) tamamlandı: P12 güvenlik Kritik/Yüksek 0 (doğrulama
@@ -262,6 +262,20 @@ P13c'ye kadar ayrı staging yoktur; yeni kod yerelde (`scripts/e2e-real.sh`) den
   kaldır", Ayarlar → Güvenlik'te firma anahtarı "2FA cihaz hatırlama" (**mevcut firmalarda da varsayılan açık**).
 - Yeni cihaz hatırlanınca ve çalınmış çerez şüphesinde kullanıcıya e-posta; şifre değişimi, 2FA sıfırlama, tüm cihazlardan
   çıkış gibi olaylar hatırlamayı siler. Çerez `__Secure-rs_td` (`Path=/api/v1/auth`). Migration `20261121000000_p27a_trusted_devices`; yeni env yok.
+
+**P21 — müşteri portalı, sürüm 0.20.0** (AC-262, ADR-0039; kod tamam, güvenlik kod turu 1 GEÇTİ (Kritik/Yüksek/Orta 0),
+QA tur 2 GEÇTİ; staging doğrulaması runbook §29.3)
+
+- Müşteri firmasının çalışanı firmaya özel adresle (`/portal/login?tenant=<firma>`) girer; kendi müşterisinin talep ve
+  oturum geçmişini (yalnız meta) görür, program indirmeden yeni destek talebi açar (P19 web talep akışı; firma web formu
+  kapalıyken de çalışır) ve firma dosyasını indirir. Geçici şifre 72 sa, ilk girişte zorunlu şifre değişimi, isteğe bağlı TOTP
+  2FA (açılınca diğer portal oturumları kapanır), Hesabım'da tema.
+- Panel: müşteri detayında **Portal hesapları** (oluştur, pasife al, etkinleştir, şifreyi sıfırla; portal adresi kopyala).
+  Yeni yetki `customers.portal`. Sınırlar: müşteri başına 20 hesap, 10 talep/sa, 3 bekleyen talep.
+- Kimlik panelden ayrı: `portal_users`, `portal_sessions`, çerezler `__Host-rs_portal` / `__Host-rs_portal_csrf` /
+  `rs_portal_tenant`. Migration `20261126000000_p21_customer_portal`; yeni env ve bağımlılık yok. API `docs/api.md` "Müşteri
+  portalı (P21)"; kullanım `docs/KULLANIM_KILAVUZU.md` "Müşteri için: Müşteri portalı" ve "Admin için: Müşteri portal
+  hesapları"; operasyon runbook §29.
 
 **P28f — macOS istemci, istemci 0.19.0** (AC-389..396; kod tamam, güvenlik kod turu 3 GEÇTİ (Kritik/Yüksek/Orta/Düşük 0; prod öncesi
 elle şart: Fare Tuşları ayar anahtarı ve `localClick` alan ölçümü), QA tur 2 DÜZELTİLMELİ; macOS elle turu staging'de; **prod'da macOS yok** — Apple Developer hesabı açılıp imzalı + notarize zip
@@ -634,6 +648,7 @@ görür. `deploy/staging-users.sh` staging test hesapları için hâlâ kullanı
 | P28c (kod ✓, QA sürüyor)                                                          | G8-c çoklu teknisyen: davet, İzle, kontrol ve oturum devri, müşterinin Çıkar'ı, istemci/yardımcı 0.17.0; runbook §28c                                                                                                      |
 | P28d (kod ✓, QA sürüyor)                                                          | G8-d sesli görüşme: teknisyen ister, müşteri yerel Kabul ile mikrofon açar, çoklu teknisyende konuşan/dinleyen, ses kaydedilmez, istemci 0.18.0 (libopus wasm + wazero); runbook §28d                                      |
 | P28f (kod ✓, QA sürüyor; prod Apple imzasından sonra)                             | macOS istemci 0.19.0: universal `.app` (zip), TCC izin rehberi, korunan düğmeler, purego (CGO'suz); runbook §28f                                                                                                           |
+| P21 (kod ✓, qa tur 2 GEÇTİ; staging doğrulaması bekliyor)                         | G6 müşteri portalı (sürüm 0.20.0): portal girişi, talep/oturum geçmişi, portaldan talep, firma dosyası, isteğe bağlı 2FA; panel Portal hesapları; runbook §29                                                              |
 | P13c                                                                              | Ayrı staging (`stg.remote.noktabilisim.net`, ayrı DB/sır/yedek); E11 özelliklerinden önce                                                                                                                                  |
 
 Prod açılışının ön koşulları ve imzalı kontrol listesi: runbook §20.1–§20.3. TURN için yalnız 443/TCP'nin açık olduğu
@@ -1150,7 +1165,9 @@ WhatsApp müşteri mesajları (P19) aynı whatsapp-bildirim servisini kullanır.
 
 ```
 apps/server/        Fastify API (src/), Prisma şeması ve migration'lar (prisma/), testler (test/)
+                    (müşteri portalı: src/portal/)
 apps/web/           Next.js arayüzü (app/, components/, lib/), e2e testleri (e2e/)
+                    (müşteri portalı: app/portal/, lib/portal/)
 packages/contracts/ Ortak zod şemaları, yetki listesi, hata kodları
 apps/agent-win/     Windows ve macOS istemci (Go): cmd/noktadestek (NoktaDestek.exe; main_darwin.go → Nokta Destek.app),
                     cmd/noktadestek-servis (P27 gözetimsiz erişim servisi NoktaDestekServis.exe), internal/ (api, flow,

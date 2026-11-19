@@ -1,4 +1,4 @@
-# API Dokümanı — Remote Support (P1–P8, P8b-1, P8c, P9, P10, P11, P12, P12b, P13a, P13b, P13b-L, P14a, P14b, P15, P16, P18, P19, P20, P27a, P27)
+# API Dokümanı — Remote Support (P1–P8, P8b-1, P8c, P9, P10, P11, P12, P12b, P13a, P13b, P13b-L, P14a, P14b, P15, P16, P18, P19, P20, P27a, P27, P21)
 
 Bu belge P1–P8, P8b-1, P8c-1, P9, P10, P11, P12, P12b, P13a, P13b ve P13b-L'de **kodda var olan** uçları anlatır. Sonraki paketlerin bağlayıcı sözleşmesi
 `docs/mimari-api.md`'dedir. Kaynak: `apps/server/src/auth/routes.ts`, `auth/guards.ts`, `lib/errors.ts`,
@@ -41,6 +41,8 @@ api/requests.ts,api/sessions.ts,api/customers.ts}`. Özet: "Talep iletişimi (P1
 P20: `signaling/{binding,handlers,rooms,types}.ts`, `bindings/{service,repo}.ts`, `lib/{logger,db,errors}.ts`, `ops/metrics.ts`,
 `packages/contracts/src/{ws.ts,errors.ts,api/bindings.ts}`, `fixtures/bindings.json` (`multi`). Özet: "Çoklu firma kaydı (P20)"
 (bölüm "WebSocket `/ws/guest` — kayıt mesajları" altında). REST uç değişikliği yok.
+P21: `portal/{routes,guard,auth,session,data,admin,admin-routes,limits,retention}.ts`, `requests/{service,create-tx,create-steps}.ts`,
+`packages/contracts/src/{api/portal.ts,permissions.ts,audit.ts,labels.ts}`. Özet: "Müşteri portalı (P21)" bölümü.
 
 ## Genel kurallar
 
@@ -4143,6 +4145,185 @@ macOS istemci Windows ile aynı `rs.cap.*` listesini bildirir; **`rs.cap.voice1`
 r3) ve pencere paylaşımı yoktur. Yazdırmada sayfa sayısı istemcide hesaplanmaz: `print.report` sayfa alanı taşımaz
 (contracts değişmedi). macOS'ta parola alanı (güvenli metin girişi) `env.state` `elevatedForeground=true` olarak bildirilir.
 
+## Müşteri portalı (P21)
+
+AC-262, ADR-0039; tasarım `docs/mimari-p21.md` r2 §4–§5, sözleşme özeti `docs/mimari-api.md` "Müşteri portalı (P21)". Kaynak:
+`apps/server/src/portal/{routes,guard,auth,session,data,admin,admin-routes,limits,retention}.ts`,
+`requests/{service,create-tx,create-steps}.ts` (`createPortal`), `packages/contracts/src/api/portal.ts`
+(`@remote/contracts/api/portal`), `permissions.ts` (`customers.portal`), `audit.ts` (`PORTAL_AUDIT`), `labels.ts`.
+Yeni hata kodu, env ve bağımlılık yok. Migration `20261126000000_p21_customer_portal` (`portal_users`, `portal_sessions`).
+
+**Kimlik alanı ayrıdır.** Portal kullanıcısı (`portal_users`) panel kullanıcısı değildir; rolü ve yetki toggle'ı yoktur.
+Kapsam (firma + müşteri) her istekte oturumun DB satırından türetilir; istekte `tenantId` / `customerId` / `ref` kabul edilmez
+(strict şemalar → 400). Panel çerezi portal uçlarında, portal çerezi panel uçlarında geçmez (401).
+
+| Çerez                   | Özellik                                         | İçerik                                                        |
+| ----------------------- | ----------------------------------------------- | ------------------------------------------------------------- |
+| `__Host-rs_portal`      | httpOnly, Secure, SameSite=Strict, Path=/       | Opak portal oturumu (8 sa mutlak, 30 dk boşta)                |
+| `__Host-rs_portal_csrf` | httpOnly değil, Secure, SameSite=Strict, Path=/ | Double-submit CSRF; yazma isteklerinde `x-csrf-token` başlığı |
+| `rs_portal_tenant`      | Gizli değil, SameSite=Lax, 365 gün              | Yalnız firma kısa adı (oturum düşünce doğru giriş sayfası)    |
+
+**Ortak kurallar:** `/api/v1/portal/*` yanıtları `Cache-Control: no-store`, gövde ≤ 8 KB. Giriş hariç her uç `requirePortal`
+zincirinden geçer: çerez → oturum (hesap, müşteri ve firma aktif) → `Origin` + CSRF (yazma) → ilk giriş şifre kapısı.
+Şifre değişimi bekleyen oturumda yalnız `GET /portal/me`, `POST /portal/account/password` ve `POST /portal/auth/logout` açıktır;
+diğerleri 403 `PASSWORD_CHANGE_REQUIRED`.
+
+### Sabitler (`packages/contracts/src/api/portal.ts`)
+
+| Sabit                               | Değer    | Anlam                                                                |
+| ----------------------------------- | -------- | -------------------------------------------------------------------- |
+| `PORTAL_ACCOUNTS_PER_CUSTOMER_MAX`  | 20       | Müşteri başına portal hesabı (aktif + pasif)                         |
+| `PORTAL_TEMP_PASSWORD_TTL_HOURS`    | 72       | Geçici şifre geçerliliği (oluşturma ve Admin sıfırlaması)            |
+| `PORTAL_REQUESTS_PER_CUSTOMER_HOUR` | 10       | Müşterinin tüm portal hesaplarından saatlik talep                    |
+| `PORTAL_PENDING_PER_CUSTOMER_MAX`   | 3        | Portal yolunda müşterinin en çok bekleyen talebi (kaynak fark etmez) |
+| `PORTAL_PAGE_SIZE_DEFAULT` / `_MAX` | 25 / 100 | Liste sayfa boyutu; `page` ≤ 10 000                                  |
+
+Giriş hız sınırları (`portal/limits.ts`, panel kovalarından ayrı): IP başına 20/dk (21. → 429); (firma kısa adı + e-posta) + IP
+15 dk'da 5 deneme → 15 dk kilit (423); hesapta 1 sa'te 20 hatalı → 15 dk kilit (423, DB sayacı); 2FA kodu e-posta+IP 5/5 dk ve
+hesap 15/15 dk; TOTP kur/aç/kapat kullanıcı başına 5/5 dk; mevcut şifre oturum başına 5 hatalı → oturum iptal.
+
+### POST /api/v1/portal/auth/login
+
+Kimlik yok; `Origin` `ALLOWED_ORIGINS`'te olmalı (yoksa 403 `CSRF_INVALID`). `tenantSlug` giriş adresindeki `?tenant=`'tan gelir.
+
+```http
+POST /api/v1/portal/auth/login
+Content-Type: application/json
+Origin: https://remote.example.com
+
+{ "email": "ayse@musteri.com", "tenantSlug": "acme", "password": "…" }
+```
+
+200 → `PortalMe` + üç çerez (`__Host-rs_portal`, `__Host-rs_portal_csrf`, `rs_portal_tenant`):
+
+```json
+{ "user": { "id": "01K…", "email": "ayse@musteri.com", "fullName": "Ayşe Yılmaz", "theme": "SYSTEM",
+            "mustChangePassword": true, "totpEnabled": false },
+  "customer": { "name": "Müşteri A.Ş." },
+  "provider": { "name": "Acme BT", "logoUrl": "/api/v1/files/logo/01K…/…webp" },
+  "links": { "downloadUrl": "https://remote.example.com/api/v1/public/agent/request-download?ref=…", "fileName": "NoktaDestek-<etiket>-<ref>.exe" } }
+```
+
+Hatalar: 400 `VALIDATION`; 401 `UNAUTHENTICATED` "E-posta veya şifre hatalı." (olmayan hesap, yanlış şifre, pasif hesap /
+müşteri / firma — tek metin); 401 "Geçici şifrenin süresi doldu (72 saat). Destek sağlayıcınızdan yeniden sıfırlama isteyin."
+(yalnız şifre doğruysa); 401 "Kod hatalı." (yanlış ya da tekrar kullanılan TOTP); 403 `MFA_REQUIRED` (hesapta TOTP açık,
+`totpCode` yok → aynı gövde + `"totpCode": "123456"` ile tekrar); 423 `ACCOUNT_LOCKED` (+ `Retry-After`); 429 `RATE_LIMITED`.
+
+### POST /api/v1/portal/auth/logout · GET /api/v1/portal/me · PATCH /api/v1/portal/me
+
+- `logout`: 204, çerezler silinir (`rs_portal_tenant` kalır). 401, 403 `CSRF_INVALID`.
+- `GET /me`: `PortalMe`. 401. `rs_theme` çerezini de yazar.
+- `PATCH /me`: gövde `{ "theme": "LIGHT" | "DARK" | "SYSTEM" }` → `PortalMe`. 400, 401, 403 `PASSWORD_CHANGE_REQUIRED`.
+
+### POST /api/v1/portal/account/password
+
+Gövde panelle aynı (`passwordChangeInputSchema`: `{ "current": "…", "next": "…" }`, yeni şifre ≥ 12). 204 + yeni çerezler;
+hesabın diğer portal oturumları iptal. 400 `fields.current` "Mevcut şifre hatalı."; oturum başına 5. hatada 401 "Çok fazla
+hatalı deneme. Lütfen yeniden giriş yapın." (oturum iptal).
+
+### POST /api/v1/portal/account/totp/setup · /enable · /disable
+
+| Uç        | Gövde                                   | Başarı                                                               | Hatalar                                                                                  |
+| --------- | --------------------------------------- | -------------------------------------------------------------------- | ---------------------------------------------------------------------------------------- |
+| `setup`   | —                                       | 200 `{ secret, otpauthUrl, qrDataUrl }` (QR sunucuda üretilir)       | 401, 403, 409 "İki adımlı doğrulama zaten etkin.", 429                                   |
+| `enable`  | `{ "code": "123456" }`                  | 204; **hesabın diğer portal oturumları iptal** (mevcut oturum kalır) | 400 `fields.code` "Kod hatalı veya süresi geçmiş.", 409 (kurulum yok / zaten etkin), 429 |
+| `disable` | `{ "password": "…", "code": "123456" }` | 204                                                                  | 400 `fields.password` / `fields.code`, 409 "İki adımlı doğrulama zaten kapalı.", 429     |
+
+TOTP sırrı `APP_ENCRYPTION_KEYS` ile şifreli saklanır (AAD `portalTotpSecret`). Portalda kurtarma kodu ve "cihazı hatırla" yoktur;
+kayıp cihazda Admin "Şifreyi sıfırla" TOTP'yi kapatır.
+
+### GET /api/v1/portal/requests · /requests/:id · /sessions · /sessions/:id
+
+Sorgu `?page=&pageSize=` (strict; başka parametre → 400). Yanıt `PortalPage<T>` `{ items, page, pageSize, total }`. Yalnız
+oturumun müşterisine ait kayıtlar döner; başka müşteri/firma, olmayan ya da bozuk `:id` → aynı gövdeyle 404.
+
+```json
+{ "items": [ { "id": "01K…", "requestCode": "482913", "status": "ACCEPTED", "source": "WEB", "priority": "NORMAL",
+               "requesterName": "Ayşe Yılmaz", "createdAt": "2026-11-18T09:12:00.000Z",
+               "closedAt": "2026-11-18T09:40:00.000Z", "sessionId": "01K…" } ],
+  "page": 1, "pageSize": 25, "total": 1 }
+```
+
+`PortalSessionItem`: `id, status, mode, technicianName, customerName, ticketNo, createdAt, startedAt, endedAt, durationSec`.
+Sohbet, talep açıklaması, teknisyen notu, IP, cihaz, dosya listesi, kayıt ve kalite özeti **dönmez**.
+
+### GET /api/v1/portal/request-form · POST /api/v1/portal/requests
+
+`request-form` → `PortalRequestFormInfo` (P19 `WebFormInfo`'nun `formToken` ve `minDelayMs`'siz hâli: firma adı/logosu,
+aydınlatma metni, sohbet saklama süresi, kanallar, mesai durumu). 401, 403 `PASSWORD_CHANGE_REQUIRED`.
+
+`POST /requests` gövdesi P19 web formunun alanlarıdır; `ref`, `formToken`, `website` yoktur (gelirse 400). Firma web talep formu
+kapalı olsa da çalışır; bot kapısı yerine portal oturumu + CSRF + hız sınırı uygulanır.
+
+```http
+POST /api/v1/portal/requests
+Content-Type: application/json
+Origin: https://remote.example.com
+x-csrf-token: <__Host-rs_portal_csrf değeri>
+
+{ "clientInstanceId": "…", "customerName": "Ayşe Yılmaz", "phone": "0532 000 00 00", "email": "ayse@musteri.com",
+  "description": "Yazıcı çıktı vermiyor", "consentTextId": "01K…", "consentAccepted": true,
+  "notify": { "sms": false, "whatsapp": false, "email": true } }
+```
+
+201 → `CreateRequestResponse` `{ requestId, requestSecret, requestCode, expiresAt, position }` (talep `source=WEB`; bekleme odası
+ve `/ws/request` P19 ile aynı). Audit `request.created` `via: "portal"` + `portalUserId`.
+
+Hatalar: 400 `VALIDATION` (kullanılamaz bildirim kanalı `fields["notify.<kanal>"]`); 401; 403 `CSRF_INVALID` /
+`PASSWORD_CHANGE_REQUIRED`; 409 `OUTSIDE_HOURS` (mesai dışı, `fields.nextOpeningAt`); 409 `CONFLICT` "Talep bağlantınız
+yenilendi, sayfayı yenileyin." (müşteri bağlantısı aynı anda yenilendi) ya da "Destek talebi şu an açılamıyor; destek
+sağlayıcınıza başvurun."; 429 `RATE_LIMITED` (müşteri başına 10/sa, `Retry-After` var); 429 `QUEUE_FULL` "Şu an çok yoğunuz,
+lütfen firmanızı telefonla arayın." (müşterinin 3 bekleyen talebi var ya da firma kuyruğu dolu; `Retry-After` yok).
+
+### Panel: /api/v1/customers/:id/portal-accounts
+
+Panel oturumu + CSRF (yazma) + `customers.view` + **`customers.portal`** + `tenantScope`. Super Admin önce firma seçer. Müşteri
+`(tenantId, :id)`, hesap `(tenantId, :id, :accountId)` ile aranır; bulunamazsa 404. Yetkisizse 403 (web bölümü gizler).
+
+| Uç                                                 | Gövde                     | Başarı                                            | Hatalar                                                                                                                                      |
+| -------------------------------------------------- | ------------------------- | ------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
+| `GET …/portal-accounts`                            | —                         | `{ items: PortalAccountItem[], loginUrl }`        | 401, 403, 404                                                                                                                                |
+| `POST …/portal-accounts`                           | `{ "email", "fullName" }` | 201 `{ account, temporaryPassword }`              | 400, 403, 404, 409 (müşteri pasif/anonim; 20 hesap sınırı; `fields.email` "Bu e-posta adresiyle portal hesabı açılamaz."), 429 (firma 30/sa) |
+| `POST …/portal-accounts/:accountId/deactivate`     | `{}`                      | `PortalAccountItem` (idempotent; oturumlar iptal) | 403, 404                                                                                                                                     |
+| `POST …/portal-accounts/:accountId/reactivate`     | `{}`                      | `PortalAccountItem`                               | 403, 404, 409 (müşteri pasif/anonim)                                                                                                         |
+| `POST …/portal-accounts/:accountId/reset-password` | `{}`                      | `{ temporaryPassword }`                           | 403, 404, 409 "Pasif hesabın şifresi sıfırlanamaz; önce etkinleştirin."                                                                      |
+
+`loginUrl = PUBLIC_BASE_URL + /portal/login?tenant=<firma kısa adı>`. `PortalAccountItem`: `id, email, fullName, status
+(ACTIVE|PASSIVE), totpEnabled, mustChangePassword, tempPasswordExpired, lastLoginAt, createdAt, passiveAt`. Geçici şifre yalnız
+oluşturma ve sıfırlama yanıtında bir kez döner; loga ve audit'e yazılmaz. Sıfırlama: yeni geçici şifre (72 sa), TOTP kapanır,
+hesabın tüm portal oturumları iptal. E-posta güncellenemez (uç yok).
+
+Örnek:
+
+```http
+POST /api/v1/customers/01K…/portal-accounts
+Content-Type: application/json
+x-csrf-token: <panel CSRF>
+
+{ "email": "ayse@musteri.com", "fullName": "Ayşe Yılmaz" }
+```
+
+```json
+{ "account": { "id": "01K…", "email": "ayse@musteri.com", "fullName": "Ayşe Yılmaz", "status": "ACTIVE",
+               "totpEnabled": false, "mustChangePassword": true, "tempPasswordExpired": false,
+               "lastLoginAt": null, "createdAt": "2026-11-18T09:00:00.000Z", "passiveAt": null },
+  "temporaryPassword": "…" }
+```
+
+### Audit ve metrikler (P21)
+
+Grup "Müşteri portalı": `portal.login` (başarısızda `reason`: `invalid_credentials`, `inactive`, `invalid_totp`, `replayed_totp`,
+`temp_password_expired` …), `portal.locked`, `portal.logout`, `portal.password_change`, `portal.mfa_enabled`
+(`revokedSessions`), `portal.mfa_disabled`, `portal.account_created`, `portal.account_deactivated`,
+`portal.account_reactivated`, `portal.account_password_reset`, `portal.account_deleted` (saklama işi; kullanıcı `system`).
+Entity `portal_users`. Silinmiş portal hesabının kimliği audit listesinde ve CSV'de maskelenir. Geçici şifre ve TOTP kodu yazılmaz.
+
+Metrikler: `rs_portal_login_total{result,reason}`, `rs_portal_locked_total`, `rs_portal_requests_total{result}`
+(`created` | `rate_limited` | `queue_full`), `rs_portal_sessions_active`. Alarmlar runbook §29.5.
+
+Saklama: süresi dolmuş/iptal portal oturumları 7 gün sonra, pasif hesaplar firmanın `retention_days` süresi sonra silinir;
+müşteri anonimleştirilince portal hesapları ve oturumları aynı işlemde silinir.
+
 ## Saklama ve anonimleştirme (P13a)
 
 Yeni uç yoktur. Kaynak: `docs/mimari-p13.md` §2–§3, `apps/server/src/jobs/retention.ts`.
@@ -4252,5 +4433,7 @@ P15: `mfa.recovery_regenerated` (`{ count }`; kod yazılmaz), `auth.superadmin_r
 `session_files` (+ `reportedBy`).
 P28a: `clipboard.consent`, `clipboard.transfer`, `print.job` (gruplar "Pano paylaşımı", "Uzaktan yazdırma"); pano metni,
 belge içeriği, dosya adı ve SHA-256 yazılmaz (ayrıntı "Pano ve uzaktan yazdırma (P28a)").
+P21: `portal.*` (grup "Müşteri portalı"; giriş/kilit/çıkış, şifre, 2FA, Admin hesap işlemleri, saklama silmesi),
+`request.created` `via: "portal"`; geçici şifre ve TOTP kodu yazılmaz (ayrıntı "Müşteri portalı (P21)").
 Şifre, token ve çerez değerleri `***` olarak maskelenir. Kayıtlar Audit log ekranında (`/audit`) ve
 `GET /api/v1/audit` ile okunur; değiştirilemez.
