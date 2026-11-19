@@ -296,7 +296,11 @@ func (p *Portable) commitLocked() string {
 	p.staged, p.stagedVer = nil, ""
 	from := p.d.Running.Version.String()
 	if err := st.Commit(); err != nil {
-		p.q.Add(NewEvent(EventFailed, v, from, ReasonInstall, p.d.Now()))
+		reason := ReasonInstall
+		if errors.Is(err, ErrPlatformSignature) { // AC-476/489: güvenlik olayı
+			reason = ReasonPlatformSignature
+		}
+		p.q.Add(NewEvent(EventFailed, v, from, reason, p.d.Now()))
 		return ""
 	}
 	p.installed = true

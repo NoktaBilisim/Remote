@@ -20,6 +20,9 @@ var (
 	ErrNotWritable = errors.New("update: konum yazılamıyor")
 	// ErrManualOnly yerinde değiştirme bu platformda/imzada yapılmaz (macOS, K-P29-10) → skipped(MANUAL_ONLY) + bilgi.
 	ErrManualOnly = errors.New("update: yalnız elle güncelleme")
+	// ErrPlatformSignature çalışan ikili platform imzalıyken yeni ikili aynı yayıncıyla geçerli imzalı değil (K-P29-13,
+	// AC-476) → failed(PLATFORM_SIGNATURE), güvenlik olayı; kurulum yok.
+	ErrPlatformSignature = errors.New("update: platform imzası uyuşmuyor")
 	// ErrBusy aynı dosyanın başka bir örneği hazırlık yapıyor (tepsi + çift tık): sessizce geçilir, olay yok.
 	ErrBusy = errors.New("update: başka örnek güncelliyor")
 )
@@ -76,6 +79,9 @@ type WinFS interface {
 type WindowsReplacer struct {
 	Exe string
 	FS  WinFS
+	// PlatformSig K-P29-13: çalışan imzasızsa nil; imzalıysa yeni dosya aynı yayıncıyla geçerli imzalı değilse hata.
+	// nil ise kapı yok sayılır DEĞİL: Prepare reddeder (fail-closed; cmd her zaman bağlar).
+	PlatformSig func(cur, next string) error
 }
 
 // CleanupPrevious açılışta önceki güncellemenin artıkları (`<ad>.eski`, bayat `<ad>.yeni`) silinir; silinemezse (başka
@@ -87,6 +93,9 @@ func (r WindowsReplacer) CleanupPrevious() {
 
 // Prepare sabit disk denetimi → bayat `.yeni` silinir → CREATE_NEW share=0.
 func (r WindowsReplacer) Prepare() (Staging, error) {
+	if r.PlatformSig == nil {
+		return nil, ErrPlatformSignature
+	}
 	if r.Exe == "" || !r.FS.FixedLocal(r.Exe) {
 		return nil, ErrNotWritable
 	}
@@ -96,19 +105,20 @@ func (r WindowsReplacer) Prepare() (Staging, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &winStaging{fs: r.FS, exe: r.Exe, tmp: tmp, f: f}, nil
+	return &winStaging{fs: r.FS, exe: r.Exe, tmp: tmp, f: f, sig: r.PlatformSig}, nil
 }
 
 type winStaging struct {
 	fs       WinFS
 	exe, tmp string
 	f        WinFile
+	sig      func(cur, next string) error
 	done     bool
 }
 
 func (s *winStaging) Write(p []byte) (int, error) { return s.f.Write(p) }
 
-// Commit FlushFileBuffers → kapat → MOTW kopyala → `<ad>` → `<ad>.eski` → `<ad>.yeni` → `<ad>` (ikincisi başarısızsa ilki
+// Commit FlushFileBuffers → kapat → platform imzası (K-P29-13) → MOTW kopyala → `<ad>` → `<ad>.eski` → `<ad>.yeni` → `<ad>` (ikincisi başarısızsa ilki
 // geri alınır). Tutamaç kapatıldıktan hemen sonra yeniden adlandırılır (TOCTOU §5.1; sınır aynı kullanıcı).
 func (s *winStaging) Commit() error {
 	if s.done {
@@ -118,6 +128,11 @@ func (s *winStaging) Commit() error {
 	if err := errors.Join(s.f.Sync(), s.f.Close()); err != nil {
 		_ = s.fs.Remove(s.tmp)
 		return err
+	}
+	// §5.1 adım 9: platform imzası tutamaç kapandıktan sonra (WinVerifyTrust dosyayı okur), yer değiştirmeden önce.
+	if err := s.sig(s.exe, s.tmp); err != nil {
+		_ = s.fs.Remove(s.tmp)
+		return errors.Join(ErrPlatformSignature, err)
 	}
 	if err := s.copyZone(); err != nil {
 		_ = s.fs.Remove(s.tmp)

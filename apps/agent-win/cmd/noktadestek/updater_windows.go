@@ -13,6 +13,7 @@ import (
 	"remote-support/agent-win/internal/api"
 	"remote-support/agent-win/internal/pairing"
 	"remote-support/agent-win/internal/remember"
+	"remote-support/agent-win/internal/servis"
 	"remote-support/agent-win/internal/update"
 )
 
@@ -21,7 +22,21 @@ import (
 
 // winReplacer çalışan exe için yer değiştirici.
 func winReplacer(exe string) update.WindowsReplacer {
-	return update.WindowsReplacer{Exe: exe, FS: update.NewWindowsFS(moveWriteThrough, fixedLocal)}
+	return update.WindowsReplacer{Exe: exe, FS: update.NewWindowsFS(moveWriteThrough, fixedLocal),
+		PlatformSig: platformSignature}
+}
+
+// errPlatformUnverified çalışan exe Authenticode imzalıyken yayıncı karşılaştırması bu derlemede yapılamıyor.
+var errPlatformUnverified = errors.New("platform imzası doğrulanamadı")
+
+// platformSignature K-P29-13 / AC-476: çalışan exe imzasızsa (bugün tüm derlemeler) kapı atlanır. İmzalıysa yeni exe
+// aynı yayıncıyla imzalı olmalı; yayıncı özeti karşılaştırması K7'nin internal/servis/update_sign_windows.go'sundaki
+// (dışa açık değil) işlevle yapılacak — o dışa açılana kadar imzalı çalışan exe'de güncelleme reddedilir (fail-closed).
+func platformSignature(cur, _ string) error {
+	if !servis.SelfSigned(cur) {
+		return nil
+	}
+	return errPlatformUnverified
 }
 
 // moveWriteThrough MoveFileEx(REPLACE_EXISTING | WRITE_THROUGH).
@@ -60,9 +75,8 @@ func (a *app) startUpdater(client *api.Client, notify func(string) bool) {
 	a.upd = newUpdater(a.cfg, client, rep, ref, a.updatePolicy(client), notify)
 }
 
-// updatePolicy kayıtlı bilgisayar politikası (K-P29-7): gömülü kökenin her kaydı için bindings/status `autoUpdate`,
-// kapalı kazanır; anahtarlar olay kimliğidir (≤ 5). BINDING_INVALID kayıt hesaptan düşer; dosya okunamıyorsa ya da başka
-// hata varsa bu dönem karar verilmez (tenant kapatmış olabilir, AC-485).
+// updatePolicy kayıtlı bilgisayar politikası (K-P29-7, K-P29-19): gömülü kökenin her kaydı için bindings/status;
+// birleştirme kuralı mergeBindingPolicies. Kayıt dosyası okunamıyorsa bu dönem karar verilmez (AC-485).
 func (a *app) updatePolicy(client *api.Client) func(context.Context) (update.Policy, []string, error) {
 	return func(ctx context.Context) (update.Policy, []string, error) {
 		if a.store == nil || a.origin == "" {
@@ -75,20 +89,14 @@ func (a *app) updatePolicy(client *api.Client) func(context.Context) (update.Pol
 		case remember.StatusAbsent:
 			return update.PolicyAuto, nil, nil
 		}
-		pol := update.PolicyAuto
-		var keys []string
+		var rs []bindingStatus
 		for _, b := range st.Data.ForOrigin(a.origin) {
 			info, err := client.BindingStatus(ctx, b.Key)
-			var ae *api.Error
-			switch {
-			case err == nil:
-				pol = update.MergePolicy(pol, update.PolicyFromBinding(info.AutoUpdate))
-				keys = append(keys, b.Key)
-			case errors.As(err, &ae) && ae.Code == "BINDING_INVALID":
-			default:
-				return "", nil, err
+			rs = append(rs, bindingStatus{key: b.Key, info: info, err: err})
+			if err != nil && !errors.As(err, new(*api.Error)) {
+				return "", nil, err // ağ/TLS: kalanları sorma
 			}
 		}
-		return pol, keys, nil
+		return mergeBindingPolicies(rs)
 	}
 }

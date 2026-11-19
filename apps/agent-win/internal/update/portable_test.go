@@ -503,3 +503,13 @@ func TestMessageAvailableLink(t *testing.T) {
 		t.Fatal("bağlantılı")
 	}
 }
+
+func TestAC476PlatformSignatureFailureEvent(t *testing.T) {
+	h := newHarness(t, "0.22.1")
+	h.rep.commitErr = errors.Join(ErrPlatformSignature, errors.New("yayıncı farklı"))
+	p := h.portable(t)
+	p.check(context.Background())
+	if got := h.events(); !eq(got, "available", "failed/PLATFORM_SIGNATURE") || !ReasonPlatformSignature.Security() {
+		t.Fatalf("olaylar: %v", got)
+	}
+}

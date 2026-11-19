@@ -106,11 +106,14 @@ func (w *fakeWinFile) Close() error {
 	return nil
 }
 
+// unsignedRunning çalışan exe imzasız (bugünkü durum): kapı atlanır (AC-476).
+func unsignedRunning(string, string) error { return nil }
+
 const winExe = `C:\Users\u\Downloads\NoktaDestek-firma-abcdefghijklmnop.exe`
 
 func stageWin(t *testing.T, fsys *fakeWinFS, body string) Staging {
 	t.Helper()
-	st, err := WindowsReplacer{Exe: winExe, FS: fsys}.Prepare()
+	st, err := WindowsReplacer{Exe: winExe, FS: fsys, PlatformSig: unsignedRunning}.Prepare()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -212,7 +215,7 @@ func TestAC482WindowsMOTWCopied(t *testing.T) {
 func TestAC483WindowsNotWritableAndBusy(t *testing.T) {
 	fsys := newFakeWinFS(winExe)
 	fsys.notFixed = true
-	if _, err := (WindowsReplacer{Exe: winExe, FS: fsys}).Prepare(); !errors.Is(err, ErrNotWritable) {
+	if _, err := (WindowsReplacer{Exe: winExe, FS: fsys, PlatformSig: unsignedRunning}).Prepare(); !errors.Is(err, ErrNotWritable) {
 		t.Fatalf("ağ/çıkarılabilir sürücü: %v", err)
 	}
 	if len(fsys.files) != 1 {
@@ -220,7 +223,7 @@ func TestAC483WindowsNotWritableAndBusy(t *testing.T) {
 	}
 	fsys = newFakeWinFS(winExe)
 	st := stageWin(t, fsys, "x") // birinci örnek tutuyor
-	if _, err := (WindowsReplacer{Exe: winExe, FS: fsys}).Prepare(); !errors.Is(err, ErrBusy) {
+	if _, err := (WindowsReplacer{Exe: winExe, FS: fsys, PlatformSig: unsignedRunning}).Prepare(); !errors.Is(err, ErrBusy) {
 		t.Fatalf("ikinci örnek sessiz geçmeli: %v", err)
 	}
 	st.Abort()
@@ -309,5 +312,31 @@ func TestAC484LinuxTempName(t *testing.T) {
 		if IsLinuxTemp(base, name) != want {
 			t.Errorf("%s: %v olmalı", name, want)
 		}
+	}
+}
+
+func TestAC476WindowsPlatformSignatureGate(t *testing.T) {
+	fsys := newFakeWinFS(winExe)
+	var got [2]string
+	st, err := WindowsReplacer{Exe: winExe, FS: fsys, PlatformSig: func(cur, next string) error {
+		got = [2]string{cur, next}
+		return errors.New("yayıncı farklı") // çalışan imzalı, yeni imzasız/başka yayıncı
+	}}.Prepare()
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, _ = st.Write([]byte("yeni"))
+	if err := st.Commit(); !errors.Is(err, ErrPlatformSignature) {
+		t.Fatalf("PLATFORM_SIGNATURE beklenir: %v", err)
+	}
+	if got != [2]string{winExe, winExe + WinNewSuffix} {
+		t.Fatalf("denetim kapanmış .yeni üzerinde yapılmalı: %v", got)
+	}
+	if fs := fsys.names(); len(fs) != 1 || string(fsys.files[winExe]) != "eski" {
+		t.Fatalf("kurulum yok, .yeni silinmeli: %v", fs)
+	}
+	// Kapı bağlanmamışsa (programlama hatası) hazırlık yapılmaz (fail-closed).
+	if _, err := (WindowsReplacer{Exe: winExe, FS: newFakeWinFS(winExe)}).Prepare(); !errors.Is(err, ErrPlatformSignature) {
+		t.Fatalf("kapısız: %v", err)
 	}
 }
