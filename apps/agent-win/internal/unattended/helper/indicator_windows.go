@@ -322,6 +322,7 @@ func (ind *winIndicator) placeLayer() {
 		win.ShowWindow(h, win.SW_SHOWNOACTIVATE)
 	case r != ind.layerRect:
 		win.SetWindowPos(l, win.HWND_TOPMOST, r.Left, r.Top, r.Right-r.Left, r.Bottom-r.Top, win.SWP_NOACTIVATE)
+		win.Invalidate(l)
 	default:
 		return
 	}

@@ -17427,7 +17427,7 @@ Tasarım: `docs/mimari-p30.md` (K-P30-1..5), AC-494..AC-499. Sunucu/web/contract
 - `helper` (tüm platform): `TestAC494LiveAnnotSnapshot`, `TestAC494SnapshotIsCopyAndStaleLaserDropped`,
   `TestAC497RebindRepaintsStrokesDropsLaser`, `TestAC497SetSurfaceKeepsStrokes`, `TestP30AnnotAfterCloseAndNonPainter`,
   `TestAC494HeadlessForwardsAnnotAndSurface`, `TestAC496ExcludeRectsMatchIndicatorLayout`, `TestAC496RaiseOrderLayerFirst`,
-  `TestAC497RunAnnotSurvivesDesktopChange` (Run + DC çizimi + masaüstü değişimi uçtan uca).
+  `TestAC497RunAnnotSurvivesDesktopChange` (Run + DC çizimi + masaüstü değişimi uçtan uca), `TestAC496PaintNeverFailsIndicator`.
 - `helper` (Windows CI, etkileşimsiz oturumda SKIP): `TestAC495P30LayerStyleAndCaptureExclusion` (ex-stil
   TRANSPARENT|NOACTIVATE|LAYERED|TOPMOST, `WDA_EXCLUDEFROMCAPTURE`, monitör dikdörtgeni, iki doğrulama tiki sonra `Failed`
   kapalı, yüzey 0'da katman kalkar), `TestAC496P30LayerFailureKeepsIndicator`.
@@ -17444,3 +17444,8 @@ Gözetimsiz oturumda kalem/ok/dikdörtgen/lazer, geri al ve temizle; çizim tekn
 tıklama ve klavye çizimin altındaki pencereye gidiyor; gösterge kenarı/etiketi çizimin üstünde; Win+L, oturum açma ekranı
 ve UAC'de çizimler yeniden görünüyor, lazer düşüyor (R-P30-3: Winlogon'da katman kurulamazsa yalnız çizim görünmez);
 monitör değiştirme ve çözünürlük değişiminde katman taşınıyor; yüksek DPI'da kalınlık/ok ucu.
+
+Ek elle madde: kilit/UAC masaüstünde `wmAnnot` iletisi kaybolursa çizim en geç 1 sn'lik `tick`'te uygulanır; lazer
+alındığı anda damgalandığından o masaüstünde hiç görünmeden sönebilir (AC-494 ≤ 1 sn ölçütü staging'de ölçülmeli).
+`layer_windows_test.go` runner'da ilk kez koşacak (daha önce `showIndicator`'ı çağıran CI testi yoktu); SKIP olursa
+AC-495/496 kanıtı staging elle turundan gelir.

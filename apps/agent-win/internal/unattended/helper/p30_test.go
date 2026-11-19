@@ -213,3 +213,21 @@ func TestAC497RunAnnotSurvivesDesktopChange(t *testing.T) {
 	r.conn.in <- signal.SessionEnded{T: "session.ended", Reason: "ENDED"}
 	waitExit(t, done)
 }
+
+// AC-496 (K-P30-2): çizim yolu göstergenin Failed kanalına dokunmaz — boyama başarısız olsa da (katman kurulamadı)
+// oturum sürer; yalnız göstergenin kendi doğrulaması Failed'i kapatır.
+func TestAC496PaintNeverFailsIndicator(t *testing.T) {
+	ind := newPaintInd("Default")
+	l := newLive(ind, "X", false)
+	l.SetSurface(99) // Windows'ta geçersiz monitör → katman yok
+	for range 10 {
+		l.Annot(stroke("a"))
+		l.Annot(laserAt(0.1, 0.1))
+	}
+	l.Annot(dc.Ctl{T: "annot.clear"})
+	select {
+	case <-l.Failed():
+		t.Fatal("çizim göstergeyi başarısız saydı")
+	case <-time.After(50 * time.Millisecond):
+	}
+}
