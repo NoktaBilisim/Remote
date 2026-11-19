@@ -1563,3 +1563,15 @@ kayıt yedeği, kaydedici bastırmaya karşı kaynak taraflı ikinci kayıt, sak
 | 9. DoD                             | Kapsamda: K9 qa GEÇTİ + güvenlik Kritik/Yüksek 0; K11 staging 0.22.0 → 0.22.1 tam tur                                                                                                  |
 | 9. Dokümantasyon planı             | Kapsamda: runbook §31, mimari-protokol P29 eki, api.md, kılavuz, DATASHEET, CHANGELOG 0.22.0, PDF (K12)                                                                                |
 | Sonra                              | Kademeli yayın/kanal, pin, bakım penceresi, "şimdi güncelle", başarısız güncelleme e-postası, delta, Yayın durumu ekranı (A-P29-1), binding sürüm dağılımı (A-P29-2)                   |
+
+**P29 r2 notu (2026-11-19, K0g güvenlik tasarım turu "DÜZELTİLMELİ"; `docs/mimari-p29.md` §14):** S-P29-T-1..12 karara bağlandı.
+
+- 1. Servis hesapları / API anahtarı: T-1 **kabul edilen risk** (kullanıcı 2026-11-19, "Tek imza, risk kabul"); 2-of-2 yok. Kalan sertleştirmeler: onaylı ortam (yalnız `v*`, yönetici atlaması kapalı), etiket ruleset'i, yedek/rotasyon, attestation (kimlik sabit), alarm, staging-önce 24 sa.
+- 4. Gizli bilgi yönetimi: tohum yalnız tek adımda stdin ile; imzalayıcı ön işte stdlib-only derlenir; bilinen değerle log taraması; yeniden imza iki işe bölünür (T-2).
+- 4. Girdi doğrulama: kanonik manifest baytı, iki dilde ortak fikstür (T-11).
+- 3. Rate limit: olay ucu + IP 10 istek/sa, istek başına ≤ 5 anahtar; servis dosyası global 8 akış + `Retry-After` (T-5, T-10).
+- 4. Log maskeleme: servis belirteci `Authorization` başlığında; 400 yanıtı değer yansıtmaz (T-10, T-12).
+- 7. Metrik / alarm: `source` etiketi; alarm ≥ 1 yalnız `device`, diğerleri oran eşiği (T-5); sürüm gauge ≤ 50 değer.
+- 7. CI/CD / rollback: servis kurtarma `PendingFileRenameOperations` yerine SCM `RUN_COMMAND` → `--update-recover` (K0s doğrular); gözetmen mutex + nonce (T-3, T-4).
+- 5. Bildirim / AV: `.eski` gizli değil, yürütülemez uzantı; MOTW kopyalanır (T-8).
+- 9. Riskler: T-7 (ara sürüme replay; istemci manifesti ≤ 30 g) ve T-9 (`?ref=`) kabul; donma saldırısı kalan risk (T-12). AC-490 IDOR metni düzeltildi.

@@ -26,6 +26,8 @@ taşıma (T-10), olay/audit `source` alanı (T-5); panel uçları, `DEVICE_UPDAT
 
 ### [YÜKSEK] S-P29-T-1 Tek güven kökü tek kişinin oturumunda toplanıyor: "anahtar + sunucu" pratikte tek varlık — A08 (Yazılım ve veri bütünlüğü)
 
+> **Karar kaydı (mimar r2, 2026-11-19):** kabul edilen risk (kullanıcı 2026-11-19, "Tek imza, risk kabul"). Düzeltme 2 (asgari) kalemleri ve madde 3 (staging-önce 24 sa) mimari-p29 §14.1'de uygulanır; 2-of-2 genişleme noktası olarak kaldı.
+
 Yer: ADR-0040 Karar 1, mimari-p29 K-P29-1, §5.4 satır "Anahtar + sunucu", §9.1 GitHub ortamları, §9.3; `agent-win.yml:1242-1260` (`approve`,
 `environment: agent-release`).
 Sorun: Platform imzası yok (gereksinim §8) → manifest anahtarı SYSTEM yetkili tüm müşteri sunucularında kod çalıştırma yetkisidir. Tasarım
@@ -233,13 +235,13 @@ refs/tags/vX.Y.Z` (ve `--cert-oidc-issuer`) ile doğrulamalı; yalnız "repo'da 
 
 ## r2 için yapılacaklar özeti
 
-| Bulgu       | Atanan                       | r2'de yazılacak yer                                   |
-| ----------- | ---------------------------- | ----------------------------------------------------- |
-| S-P29-T-1   | mimar + kullanıcı kararı     | ADR-0040 Karar 1/Sonuçlar, K-P29-1, §9.1, runbook §31 |
-| S-P29-T-2   | devops, backend-dev (Go)     | §2, §9.3, §9.6                                        |
-| S-P29-T-3/4 | backend-dev (Go) — K0s spike | §5.3, R-P29-11/15                                     |
-| S-P29-T-5   | backend-dev                  | §4.5, §4.6, §4.7, §9.4                                |
-| T-6..T-12   | ilgili ajanlar               | K9 kod turunda denetlenir; "Sonra" değil, P29 içinde  |
+| Bulgu       | Atanan                       | r2'de yazılacak yer                                                                                                                                           |
+| ----------- | ---------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| S-P29-T-1   | mimar + kullanıcı kararı     | **Kabul edilen risk (kullanıcı 2026-11-19: "Tek imza, risk kabul")** — 2-of-2 yok; sertleştirmeler mimari-p29 §14.1, ADR-0040 Sonuçlar, gereksinimler R-P29-1 |
+| S-P29-T-2   | devops, backend-dev (Go)     | §2, §9.3, §9.6                                                                                                                                                |
+| S-P29-T-3/4 | backend-dev (Go) — K0s spike | §5.3, R-P29-11/15                                                                                                                                             |
+| S-P29-T-5   | backend-dev                  | §4.5, §4.6, §4.7, §9.4                                                                                                                                        |
+| T-6..T-12   | ilgili ajanlar               | K9 kod turunda denetlenir; "Sonra" değil, P29 içinde                                                                                                          |
 
 ---
 

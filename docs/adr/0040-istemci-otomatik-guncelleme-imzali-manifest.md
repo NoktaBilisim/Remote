@@ -1,6 +1,6 @@
 # ADR-0040 — İstemci otomatik güncelleme: Ed25519 imzalı manifest, oturum dışı yerinde kurulum, eski ikili gözetmen
 
-Tarih: 2026-11-19 · Durum: **Önerildi** (P29 güvenlik tasarım turu K0g bekliyor) · İlgili: AC-470..AC-493, `docs/gereksinimler-p29.md`,
+Tarih: 2026-11-19 · Durum: **Önerildi r2** (K0g güvenlik turu S-P29-T-1..12 işlendi, `docs/mimari-p29.md` §14; T-1 kullanıcı risk kabulü 2026-11-19) · İlgili: AC-470..AC-493, `docs/gereksinimler-p29.md`,
 `docs/mimari-p29.md`, ADR-0004 (Go istemci), ADR-0010 (imzasız dağıtım), ADR-0012 (agent kökeni), ADR-0028 (gözetimsiz erişim), ADR-0037 (macOS),
 ADR-0038 (Linux)
 
@@ -17,13 +17,13 @@ ADR-0038 (Linux)
 
 ## Karar
 
-1. **Güven kökü:** her ortam (prod, staging) için ayrı bir Ed25519 anahtar çifti vardır. İstemciye derlemede iki açık anahtar yuvası (etkin +
+1. **Güven kökü (r2: tek CI imzası, kullanıcı risk kabulü — Sonuçlar):** her ortam (prod, staging) için ayrı bir Ed25519 anahtar çifti vardır. İstemciye derlemede iki açık anahtar yuvası (etkin +
    yedek) gömülür. Açık anahtarlar repodaki `build/update-keys/<env>.pub` dosyalarındadır.
    Özel anahtar yalnız onaylı GitHub ortamının secret'ıdır (`agent-update-sign`, `agent-update-sign-stg`). Yedek tohum çevrimdışı saklanır.
    PR ve yer tutucu adresli derlemelere anahtar gömülmez; bu derlemelerde güncelleyici kapalıdır.
 2. **Manifest:** her ikili için ayrı bir manifest üretilir. Manifest katı JSON'dur ve şu alanları taşır: `schema, env, platform, arch,
 component, version, sha256, size, issuedAt, expiresAt (≤ 90 g), minUpdaterVersion`.
-   İmza `"rs-update-manifest-v1\n"` önekiyle ham baytlar üzerinden atılır. CI, nihai (imzalı/notarize edilmiş) baytlardan üretir.
+   İmza `"rs-update-manifest-v1\n"` önekiyle ham baytlar üzerinden atılır. Manifest kanonik JSON'dur (sabit alan sırası, boşluksuz, ASCII); doğrulayıcı yeniden serileştirilmiş baytın ham bayta eşitliğini ister (r2 T-11). Süre: istemci ≤ 30 g, servis ≤ 90 g (r2 T-7). CI, nihai (imzalı/notarize edilmiş) baytlardan üretir.
    İmzalayıcı ve doğrulayıcı aynı Go paketidir (stdlib `crypto/ed25519`); yeni bağımlılık yoktur.
 3. **Doğrulama istemcidedir; sunucuya güvenilmez.** Sunucu manifest üretmez ve değiştirmez, baytları olduğu gibi aktarır. Yalnız şu
    koşullardan biri sağlanmazsa manifesti sunmaz: imza, ortam, süre, yayımlanmış ikili SHA'sı, `signed` kip SHA listesi.
@@ -84,10 +84,28 @@ component, version, sha256, size, issuedAt, expiresAt (≤ 90 g), minUpdaterVers
 
 - (+) Gözetimsiz servis kendiliğinden güncellenir ve AC-435 kilidi pratikte kalkar. Bozuk sürüm otomatik geri alınır.
 - (+) Sahte, eski ya da başka ortama ait sürüm kurulmaz ve reddedilmesi alarm üretir.
-- (−) Tek güven kökü manifest anahtarıdır. Anahtar sızar ve sunucu da ele geçirilirse etki kritiktir (R-P29-1). Önlemler: onaylı ortam,
-  attestation, yedek anahtar ve rotasyon, alarm.
+- (−) **Kabul edilen risk (S-P29-T-1, kullanıcı 2026-11-19: "Tek imza, risk kabul").** Tek güven kökü CI ortam anahtarıdır. Etiket,
+  onay, yayın ve sunucu erişimi aynı hesapta toplandığından "anahtar + sunucu" pratikte tek varlıktır. Bu hesap ele geçirilirse tüm gözetimsiz
+  servislerde SYSTEM kodu çalıştırılabilir (R-P29-1, Kritik). 2-of-2 imza tasarlanmadı; genişleme noktası olarak mimari-p29 §14.1'de durur.
+  Kalan sertleştirmeler:
+  - Ortam secret'ı + onaylı environment (yalnız `v*`, yönetici atlaması kapalı) ve etiket ruleset'i.
+  - Yedek anahtar ve rotasyon; attestation (kimliği sabitlenmiş doğrulama).
+  - Alarm (`source="device"` ≥ 1).
+  - Staging-önce 24 sa yayın kuralı.
+  - Önerilen: donanım 2FA ve SSH anahtar koruması.
 - (−) ≤ 0.21.x istemciler için son bir elle kurulum gerekir (R-P29-5).
-- (−) Windows taşınabilir istemcide sonraki açılışa kadar gizli bir `.eski` dosya kalır.
+- (−) Windows taşınabilir istemcide sonraki açılışa kadar görünür, yürütülemez bir `<ad>.eski` dosya kalır (r2 T-8: gizli öznitelik yok; MOTW
+  yeni dosyaya kopyalanır).
+- (−) Kabul edilen kalan riskler (r2):
+  - T-7: ele geçirilmiş sunucu, taşınabilir istemciyi eski ama imzalı bir ara sürüme çekebilir. Sınır: istemci manifesti ≤ 30 g; açıklı
+    sürüm yeniden imzalanmaz ve `MIN_AGENT_VERSION` yükseltilir.
+  - T-12: donma saldırısı (hiç manifest sunmamak). Tespit: süre metriği ve dağılım.
+- r2 sertleştirmeleri (mimari-p29 §14):
+  - Kanonik manifest baytı (T-11).
+  - Servis gözetmeninde tekillik mutex'i + nonce (T-4). Önyükleme kurtarma kancası SCM `RUN_COMMAND` → `--update-recover`;
+    `PendingFileRenameOperations` geri dönüş için kullanılmaz (T-3).
+  - İmza adımında tohum stdin ile, imzalayıcı ön işte stdlib-only derlenir, yeniden imza iki işe bölünür (T-2).
+  - Olay `source` etiketi (T-5); belirteç `Authorization` başlığında (T-10).
 - (−) macOS'ta Developer ID gelene kadar yalnız bildirim yapılır.
 - Geri dönüş: `publish-manifest.sh --withdraw` manifesti kaldırır, istemciler 204 alır ve güncellemez. Ayrıca `UPDATE_MANIFEST_DIR` boş
   bırakılabilir. Kod tarafında güncelleyici, gömülü anahtarsız derlemeyle kapatılır.
