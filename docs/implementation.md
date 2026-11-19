@@ -16933,3 +16933,23 @@ Yeni bağımlılık yok. Yeni dosya/kayıt/ağ ucu yok (iz testi etkilenmez).
 - Windows ve macOS arayüz değişiklikleri yalnız derlendi/vet edildi; görsel doğrulama ve üç platformda staging elle testi (sohbet açık, DC yok, onay satırı) P22-GQ / test-operatoru'nda.
 - macOS'ta `<b>` literal kanıtı model testinde (flow) ve NSTextView ayarlarında (`setRichText:false`, veri/bağlantı algılama kapalı); AppKit'te otomatik GUI geri okuma testi yok (paketin mevcut düzeninde GUI testi yalnız GTK'da).
 - `more:true` (daha eski mesajlar) müşteri istemcisinde gösterilmez (tasarım: yalnız konsol metni).
+
+### P22-GQ düzeltme turu 1 (backend-dev Go, 2026-11-19)
+
+- **Q-P22G-1 = S-P22G-1** (`ui/chat_windows.go`, `ui_windows.go`, `session_windows.go`, `transfer_windows.go`, `voice_windows.go`,
+  `ended_windows.go`): Windows `SessionChat` geçmiş EDIT'ini `ChatView.Text` ile baştan yazıp `appendLine` "Sistem" satırlarını
+  (dosya/virüs taraması sonucu, ses notu/duyuruları) siliyordu. Artık mac/GTK kalıbı: `sessionWin.hist` birikimi
+  (`uicore.AppendChat`), kutu `uicore.ChatComposite(chatText, hist)` ile çizilir (`drawHistory`, `appendSystem`); `appendLine`
+  kaldırıldı. Test: `uicore.TestQP22G1SystemLinesSurviveChatRev` (platformdan bağımsız; sistem satırı + iki yeni sohbet sürümü).
+- **S-P22G-2 = Q-P22G-3** (`flow/flow.go` `admitStage`): karşılamada `ChatRetentionDays < 1` ise arayüz onay dönse bile join
+  yapılmaz; son ekran `msgNoRetention` ("Bağlantı başlatılamadı" / `ChatTexts.ServerOutdated`). Talep formu (`request/form.go`) ile
+  simetrik akış düzeyi ikinci kapı. Test: `TestAC292P22GWelcomeFlowGateNoRetentionDays`. Test sahtesi `fakeAPI` varsayılan 90 gün döner.
+- **S-P22G-3** (`signal/chat.go`, `inbound.go`): `chat.message` ve `chat.history` öğesinde `tid`/`senderName`/`clientMsgId`
+  `null` ya da `""`; `chat.state` `reason` `null` ya da `""` reddedilir (contracts `ws-chat.ts` `optional()` / `z.enum`
+  ile birebir; `chatNoNull` + `nullOrEmptyKey`, `dc.ParseCtl` kalıbı). Test: `TestSP22G3ChatNullAndEmptyRejected`. Fikstüre
+  (`packages/contracts`) `invalid.*` eklenmedi — sözleşme paketi bu turun kapsamı dışında; Go testi örnekleri içerir.
+- **Q-P22G-2** (`ui/gtk/welcome_linux.go`, `ui_linux.go`, `gui_linux_test.go`): `retentionLine` etiketi de döndürür; son karşılama
+  denetimleri `UI.welcomeW`'de (yalnız UI iş parçacığı). GUI testi 90 günde satırı `uicore.RetentionText(90)` olarak geri okur ve
+  ad + onay ile "Bağlan" etkin; 0 günde satır "Sunucu güncel değil", ad + onay olsa da "Bağlan" pasif.
+- Doğrulama: darwin `go test ./...`; gofmt; vet darwin/windows/linux/linux+linuxgui; Docker (`remote-p28g-gui:2404`, Xvfb) yalnız
+  `ui/gtk` paketi `-tags linuxgui`: ok (`TestP28gK4GUIWindowOpens` dahil). Windows UI yalnız derlendi/vet edildi.

@@ -17,6 +17,7 @@ import (
 	"remote-support/agent-win/internal/flow"
 	"remote-support/agent-win/internal/signal"
 	"remote-support/agent-win/internal/transfer"
+	"remote-support/agent-win/internal/ui/uicore"
 )
 
 // GUI duman testi (K8a sözleşmesi: `linuxgui` etiketi, X11 fazı, P28G_GUI=x11 + DISPLAY). GTK yalnız ana iş
@@ -117,12 +118,39 @@ func runScenario() []string {
 			AbuseEmail:  "abuse@noktabilisim.net", RecOffered: true, ChatRetentionDays: 90})
 		wait("1-karsilama")
 		mapped("karşılama", 1)
+		// AC-292 / Q-P22G-2: saklama satırı onay düğmesinin üstünde çizilmiş ve geri okunuyor; ad + onay ile "Bağlan"
+		// etkin. 0 gün (eski sunucu): satır "Sunucu güncel değil", ad + onay olsa da "Bağlan" pasif.
+		consentFilled := func(days int, wantConnect bool) {
+			onMain(u, func() {
+				w := u.welcomeW
+				if got := labelText(w.retention); got != uicore.RetentionText(days) {
+					fail("karşılama saklama satırı (%d gün): %q", days, got)
+				}
+				gtkEntrySetText(w.name, cstr("Ayşe Yılmaz"))
+				gtkToggleSetActive(w.consent, true)
+				if gtkWidgetGetSensitive(w.connect) != wantConnect {
+					fail("karşılama %d gün: Bağlan etkin=%v, beklenen %v", days, !wantConnect, wantConnect)
+				}
+			})
+		}
+		closeForms := func() {
+			onMain(u, func() {
+				for f := range u.forms {
+					f.destroy()
+				}
+			})
+		}
+		consentFilled(90, true)
 		cancel()
-		onMain(u, func() {
-			for f := range u.forms {
-				f.destroy()
-			}
-		})
+		closeForms()
+		ctx0, cancel0 := context.WithCancel(context.Background())
+		go u.Welcome(ctx0, flow.Welcome{Host: "stg.remote.noktabilisim.net", Tenant: "Nokta Bilişim",
+			TechName: "Ayşe Yılmaz", TechVerifyCode: "4821", ConsentVersion: 3, ConsentBody: "KVKK"})
+		wait("1b-karsilama-0gun")
+		mapped("karşılama 0 gün", 1)
+		consentFilled(0, false)
+		cancel0()
+		closeForms()
 		u.Lobby("K7Q2", "Ayşe Yılmaz")
 		wait("2-lobi")
 		mapped("lobi", 1)

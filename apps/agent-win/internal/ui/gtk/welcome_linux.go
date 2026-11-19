@@ -102,7 +102,7 @@ func (u *UI) welcomeForm(w flow.Welcome, ch chan<- welcomeResult) {
 			}
 		})
 	}
-	ready = f.retentionLine(w.ChatRetentionDays)
+	retention, ready := f.retentionLine(w.ChatRetentionDays)
 	b := f.row()
 	connect = f.button(b, "Bağlan", submit)
 	gtkWidgetSetCanDefault(connect, true)
@@ -110,13 +110,14 @@ func (u *UI) welcomeForm(w flow.Welcome, ch chan<- welcomeResult) {
 	f.button(b, "Vazgeç", func() { done(welcomeResult{}) })
 	f.label(u.footer)
 	enable(connect, false)
+	u.welcomeW.name, u.welcomeW.consent, u.welcomeW.retention, u.welcomeW.connect = name, consent, retention, connect
 	f.onX = func() { done(welcomeResult{}) }
 	f.show(name)
 }
 
 // retentionLine AC-292 (mimari-p22 §9): uicore.RetentionText satırını (markup kapalı etiket) onay düğmesinin hemen
-// üstüne çizer ve geri okur; dönen değer uicore.ConsentReady. Alan yok/0 → "Sunucu güncel değil" (danger) ve false.
-func (f *form) retentionLine(days int) bool {
+// üstüne çizer ve geri okur; dönen etiket ve uicore.ConsentReady. Alan yok/0 → "Sunucu güncel değil" (danger) ve false.
+func (f *form) retentionLine(days int) (uintptr, bool) {
 	text := uicore.RetentionText(days)
 	var l uintptr
 	if days < 1 {
@@ -124,5 +125,5 @@ func (f *form) retentionLine(days int) bool {
 	} else {
 		l = f.label(text)
 	}
-	return uicore.ConsentReady(days, l != 0 && uicore.RetentionDrawn(days, labelText(l)))
+	return l, uicore.ConsentReady(days, l != 0 && uicore.RetentionDrawn(days, labelText(l)))
 }
