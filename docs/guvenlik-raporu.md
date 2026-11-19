@@ -1,3 +1,241 @@
+# Güvenlik Raporu — P31 — Tasarım turu (dal p31-mac-destek-iste, HEAD da47326, 2026-11-20)
+
+DURUM: GEÇTİ (tasarım) — Kritik 0 / Yüksek 0 / Orta 2 / Düşük 6 / Bilgi 3
+
+Kapsam: `docs/gereksinimler.md` §14 (AC-509..522), `docs/mimari-p31.md` r1.1 (§14 dahil), ADR-0041, `docs/tasarim-kontrol.md`
+"P31". Karşılaştırma için ADR-0006 r4 / G-E9-11 (Windows firma dosyası), P28f-r4 tasarım turu (S-r4-1..13). Tasarımın "mevcut"
+dediği kontroller koddan doğrulandı: `deploy/Caddyfile` (log filtreleri 23-40 ve 135-160, `agent_zip_file` 88-99, `@agentZip`
+203-212, `@agentExeFirm` 231-240), `deploy/nginx/remote.noktabilisim.net.conf:20-23`, `apps/server/src/public/routes.ts:66-99`,
+`requests/{ref.ts,service.ts:428-450,public-routes.ts,create-steps.ts:122-140,245-270,limits.ts}`, `signaling/control.ts:276-286`,
+`control-grant.ts:39`, `agent-win/internal/launch/{code_folder.go,code_darwin.go}`, `internal/pairing/pairing.go:13-46`,
+`build/macos/OKUBENI-adhoc.txt`, `apps/web/messages/tr.json:229-230`.
+
+**K0 notu:** Arşiv İzlencesi çift tık yolu GEÇTİ. `NoktaDestek-Acme-AB12CD34.zip` aynı adlı klasöre açılıyor, `.app` karantina
+işaretini taşıyor ve translocation devreye giriyor. Mevcut `BundleLocation` (`code_darwin.go`), `SecTranslocateCreateOriginalPathForURL`
+ile özgün yolu çözüyor. Çözüm başarısız olursa yol `.../AppTranslocation/<UUID>/d/` olur; desen bu yolla eşleşmez ve akış
+fail-closed biçimde AC-190'a düşer. Bu tasarım doğru.
+
+**Kabul edilmiş riskler bulgu değildir:** T-P31-1 (sahte klasör adı veya saldırganın ref'iyle dağıtılan gerçek uygulama), Windows'taki
+dosya adı tehdidinin (G-E9-11) aynısıdır. Developer ID'siz ad-hoc prod (R39-r4) kullanıcı kararıdır. Aşağıdaki bulgular bu iki kararın
+**içinde** kalan açıklardır.
+
+## Sorulan konulara kısa hüküm
+
+- **Ref sahteciliği ve klasör adının değiştirilmesi:** Klasör adını değiştiren kişi yalnız kendi makinesinde hangi tenant'a talep
+  gideceğini seçer. Tenant adı, logo ve teknisyen doğrulama kodu sunucudan gelir; etiket gösterilmez (AC-512). Başka firmaya talep
+  yağdırmak için uygulama gerekmez, `POST /public/requests` ref ile zaten çağrılabilir. Bu uç IP, önek, /48 ve tenant kovalarıyla
+  korunuyor (`create-steps.ts:115-117`, `checkTenantBucket`). Ref 16 base32 karakterdir (80 bit). Enumerasyon, `req.download` IP
+  kovası ve `refInvalid` engeliyle pratik değil. Mac tarafına özgü bir yan etki var: S-P31-3.
+- **`@agentZipFirm` ve indirme kapısı:** Matcher deseni Windows ile aynı. `Content-Disposition` adı yalnız regex yakalamasından
+  geliyor, başlık enjeksiyonu yok. `Cache-Control: no-store` hem 302'de hem zip'te var, bu yüzden ölü ref CDN veya ara önbellekten
+  sunulmaz. Tasarım iki noktada fail-open: S-P31-1. Doğrudan yolda hız sınırı yok: S-P31-6.
+- **Zip bütünlüğü:** Ad yalnız `Content-Disposition` ile değişiyor; volume'daki dosya tek, kapı `MAC_AGENT_SHA256` ile doğruluyor.
+  Yeniden adlandırma SHA'yı, attestation'ı, P29 manifestini ve `.app` mührünü etkilemiyor. Onay.
+- **`client_os` doğrulaması:** zod enum ve DB CHECK var. Sahte beyan yalnız kısıtlıyor: `OS_PERMISSION` macOS ya da linux
+  beyanında kontrolü düşürür, Windows beyanında yok sayılır (`control.ts:276-286`). Bu yalnız beyan edenin kendi oturumunu etkiler.
+  Not: S-P31-7.
+- **PII ve audit:** Form, doğrulama ve saklama `internal/request` ile Windows'la aynı. Mac'te hatırla ve kayıt olmadığından kalıcı PII
+  yok (AC-517). `request.create` audit'ine yalnız `clientOs` ekleniyor; kişisel veri eklenmiyor. Onay.
+- **G-10:** Caddy erişim ve hata logunda `request>uri` `NoktaDestek-[^/?]+` ve `\?.*$` maskeleri `.zip`'i ve `request-download?ref=`'i
+  kapsıyor. Erişim logunda `resp_headers>Location` ve `Content-Disposition` siliniyor. nginx `remote_m5` maskesi ilk
+  `NoktaDestek-`'ten sonrasını siliyor. Yeni `os` parametresi ve metrik etiketleri düşük kardinaliteli ve gizli değil. Onay.
+
+## Bulgular (öncelik sırasıyla)
+
+### [ORTA] S-P31-1 macOS iç kapısı firma denetiminde fail-open: sürüm kayması, geri alma ve kopyala-yapıştır hatası AC-510'u sessizce boşa çıkarır — A01 / A05
+
+Yer: mimari-p31 K-P31-3, §3.1 `public/routes.ts` satırı ("URI `^/downloads/NoktaDestek-` ise `firmPathValid`, değilse yalnız kapı"),
+§9 Rollback ("sunucu geri alınırsa `.zip` yolu 404"), §11 (O ve B1 paralel). Bugünkü kod: `apps/server/src/public/routes.ts:86-97`.
+`/agent-ready/macos` = `onlyGate`, `X-Forwarded-Uri`'yi hiç okumuyor. Komşu `@agentZip` bloğu aynı iç URI'yi
+`header_up X-Forwarded-Uri "/downloads/***"` ile çağırıyor (`Caddyfile:203-212`).
+
+Sorun: Firma doğrulaması, kapının **ne olduğunu** değil, gelen URI'nin **neye benzediğini** temel alıyor. Üç durumda denetim atlanıyor
+ve `/downloads/NoktaDestek-<herhangi>-<16 base32>.zip` 200 ile sunuluyor:
+
+1. Caddyfile (O paketi) sunucudan (B1) önce yayımlanırsa eski `onlyGate` her URI'ye 204 döner.
+2. Sunucu geri alınıp Caddyfile kalırsa aynı sonuç oluşur. §9'daki "404" iddiası yanlış.
+3. `@agentZipFirm` bloğu `@agentZip`'ten kopyalanıp `header_up` `/downloads/***` kalırsa, sunucu "firma deseni değil, yalnız kapı"
+   dalına girer.
+
+Windows `windowsReady`'de de aynı yapı var. Fark şu: Windows'ta yeni yol eklenmiyor, burada ekleniyor.
+
+İstismar senaryosu: Kapı boşken resmi alan adında `https://remote.noktabilisim.net/downloads/NoktaDestek-BankaniziDestek-aaaaaaaaaaaaaaaa.zip`
+gibi keyfi etiketli bağlantı üretilir. Bu G-E9-11 / T-P31-2'nin geri gelmesidir. İçerik gerçek uygulama olduğu için doğrudan kod
+çalıştırma yok. Ancak saldırgan kendi tenant ref'ini kurbanın markasını taşıyan etiketle birleştirerek oltalamaya resmi alan adının
+güvenilirliğini ekler.
+
+Düzeltme (atanan ajan: mimar → backend-dev, devops):
+
+1. Firma yolu için **ayrı iç URI** tanımlayın: `/internal/agent-ready/macos-firm`. Bu uç `X-Forwarded-Uri` tam olarak
+   `^/downloads/NoktaDestek-[A-Za-z0-9]{1,20}-[a-z2-7]{16}\.zip$` değilse ya da `firmPathValid` false ise 404 döner (fail-closed;
+   eksik veya maskeli başlık da 404). `/agent-ready/macos` bugünkü `onlyGate` olarak kalır ve URI okumaz. Eski sunucuda yeni yol
+   kayıtlı olmadığından 404 döner, böylece kayma ve geri alma kendiliğinden kapanır. Aynı ayrımı ileride Windows'a da uygulayın
+   (`/agent-ready/windows-firm`); bu P31 dışında, Sonra.
+2. `deploy/test-caddy.sh`'e şu kontrolleri ekleyin: firma zip'i `macos-firm`'e gider, `X-Forwarded-Uri` tam addır (`***` değil),
+   `NoktaDestek-Yanlis-…zip` 404, mac kapısı kapalıyken 503, `.exe` firma yolu mac kapısına gitmez, `NoktaDestek-macOS.zip`
+   `macos-firm`'e gitmez. AC-510 test satırına "test-caddy.sh" yazın.
+3. §9 Rollback satırını düzeltin. Runbook yayın sırası: sunucu önce, Caddyfile sonra; geri alma ters sırayla.
+
+### [ORTA] S-P31-2 r4 "Yine de Aç" çapası P31 kanalıyla çelişiyor; AC-520 yeni öz-beyan denetimi ekliyor (S-r4-1 ve S-r4-13 tetiklendi) — A04 / A08
+
+Yer: AC-520 ve K-P31-10 (OKUBENI'ye "Pencerede teknisyen doğrulama kodu **ya da** firmanızın adı görünmelidir");
+`apps/agent-win/build/macos/OKUBENI-adhoc.txt` son paragraf ("“Yine de Aç”ı YALNIZ teknisyeninizle görüşürken destek sayfasından
+kendiniz indirdiğiniz bu uygulama için kullanın"); `tr.json:230` `gm.adhocOnlyBody`; S-r4-13 ("macOS bağlantısı eklenirse metin
+güncellenmeli"). Mimari §1, firma dosyası için web rehber sayfasını kapsam dışı bırakıyor.
+
+Sorun: P31'de Mac zip'i teknisyen yokken, e-posta, WhatsApp, müşteri kartı ve portal üzerinden gelen bir bağlantıyla iniyor.
+Müşteri kurulumu tek başına yapıyor. Zip içindeki OKUBENI ise bu kullanımı yasaklıyor. Çelişkili metin müşteriye uyarıyı yok saymayı
+öğretir. Ayrıca yeni cümle ("firmanızın adı görünmelidir"), S-r4-1'in reddettiği öz-beyan denetiminin firma eşidir. Yeniden
+paketlenmiş zararlı kopya herhangi bir firma adını yazabilir. Gerçek bir ref'i klasör adına koyarsa gerçek sunucudan doğru firma adını
+da çeker. OKUBENI zip içinde olduğu için kopya onu da yeniden yazar. Sonuçta Mac firma yolunda kaynağa çapalı tek uyarı ortadan kalkar.
+
+İstismar senaryosu: Dolandırıcı firmanın K3 mesajını taklit eden bir WhatsApp mesajıyla `NoktaDestek-Acme-<gerçek ref>.zip` adlı,
+yeniden ad-hoc imzalanmış zararlı bir zip gönderir. Kurban kılavuzda gördüğü "zip → klasör → Yine de Aç → Destek iste" adımlarını
+uygular. Pencerede "Acme" yazdığı için güvenir, Ekran Kaydı ve Erişilebilirlik izni verir. Gerçek uygulamanın yerel tıklamalı onay
+korumaları zararlı kopyada yoktur. Kabul edilmiş ad-hoc riskin kalıntısıdır; bu nedenle Orta.
+
+Düzeltme (atanan ajan: mimar → teknik-yazar, devops, frontend-dev, backend-dev):
+
+1. OKUBENI-adhoc ve OKUBENI son paragrafını kaynağa çapalayın, kanal ayrımı yapmayın: "“Yine de Aç”ı yalnız tarayıcınızda
+   **{host}** adresinden indirdiğiniz Nokta Destek için kullanın (Finder → Bilgi Al → “Nereden” satırı https://{host}/ ile
+   başlamalı). Firmanız size yalnız bağlantı gönderir, dosya göndermez. Dosya ek olarak geldiyse açmayın." `{host}` derleme
+   anında prod veya stg kökeni olur. Zip tek ve sabit olduğundan metin ref'e özgü olamaz; bu yeterli.
+2. AC-520 cümlesini şöyle değiştirin: "Pencerede firmanızın adı ya da teknisyen doğrulama kodu görünür; bu yalnız doğru firmaya
+   bağlandığınızı gösterir, dosyanın güvenli olduğunu göstermez." K-P31-10'u buna göre düzeltin.
+3. `/r/<ref>` kabul kartının Mac varyantı (AC-520), oturum sayfasındaki `mac-adhoc-only-this` uyarısını (S-r4-1 m.3) indirme
+   düğmesinin yanında göstersin (anahtarı yeniden kullanın, metni kanal-bağımsız yapın).
+4. K3 müşteri mesajı (`notify/customer-templates.ts`, D-6) ve kılavuzun macOS alt başlığı (AC-522) şu satırı içersin:
+   "Bağlantı her zaman https://{host}/ ile başlar; dosya eki göndermeyiz".
+5. E-P31-1'e Safari ve Chrome için "Nereden" alanının görünüp görünmediğinin ölçümünü ekleyin (S-r4-1 m.5'in firma yolu eşi).
+
+### [DÜŞÜK] S-P31-3 Mac talepleri hep "bilinmeyen kaynak"; ref sızınca tenant kovası Mac müşterilerini Windows'tan önce dışlar — A04 (kullanılabilirlik)
+
+Yer: K-P31-6 (`Store=nil`, binding yok); `create-steps.ts:122-140` (`bindingKey` yolu), `checkTenantBucket` (245-270): bilinmeyen
+kaynak için 60/sa, bilinen kaynak için 120/sa.
+
+Sorun: Sızmış bir ref ile spam yapılırsa tenant'ın 60/sa'lik bilinmeyen kaynak kovası dolar. Kayıtlı Windows müşterileri bilinen
+kaynak tavanıyla devam eder, Mac müşterileri ise bir saat boyunca "meşgul" yanıtı alır. Güvenlik açığı değil; P31'in kullanılabilirlik
+sınırı.
+
+Düzeltme (atanan ajan: mimar, teknik-yazar): Risk listesine R-P31-4 olarak ekleyin. Runbook'taki "ref sızdı → ref yenile" adımı Mac
+müşterileri için de geçerli olsun ve kılavuzda "yeni bağlantıdan yeniden indirin" yazsın. A-P31-2'ye (Mac kaydı) bu gerekçeyi ekleyin.
+
+### [DÜŞÜK] S-P31-4 Ref deseni ve kaynak önceliği belgeler arasında tutarsız — A04
+
+Yer: AC-512 ("**yalnız** … üst klasör adından") ile ADR-0041 Karar m.2 ve §3.2 ("yoksa bundle adından") çelişiyor. §3.2'deki desende
+`(?i)` yok ama metin "ref küçük harfe çevrilir" diyor; Windows `refFileNameRe` ise `(?i)` + `ToLower` kullanıyor (`pairing.go:19,45`).
+AC-512 tablosunda alternatif `\|` olarak kaçışlanmış; Go'ya olduğu gibi kopyalanırsa `\|` düz karakter olur ve kopya eki dalı bozulur.
+Klasör ve bundle adlarından biri kod, diğeri ref taşırsa hangisinin kazanacağı tanımlı değil.
+
+Düzeltme (atanan ajan: mimar → backend-dev Go): Tek kaynak kullanın. Ref çekirdeğini `pairing` içinde Windows ile ortak bir sabitten
+(`[A-Za-z0-9]{1,20}-([a-z2-7]{16})`, `(?i)` + `ToLower`) türetin; yalnız sonek ve uzantı platforma göre değişsin. Öncelik sırasını
+yazın ve tablo testine koyun: üst klasör (kod > ref) → bundle adı (kod > ref) → yok. AC-512'yi "üst klasör ya da bundle adı" diye
+düzeltin. Testte `NoktaDestek-X-ABCDEFGHIJKLMNOP` ile `…abcdefghijklmnop` aynı ref'e çözülsün; `/` ve `\` içeren ad, 21 karakterlik
+etiket ve fazladan sonek reddedilsin.
+
+### [DÜŞÜK] S-P31-5 D-5 yedeği ref'i diske yazar; AC-517 ve AC-518 ile çelişir — A04 / KVKK izi
+
+Yer: mimari-p31 §14 D-5 ("okunamazsa yedek: `macperm` yeniden başlatma dosyası `r:<ref>`"), AC-518 ("ref yeniden başlatma dosyasına
+yazılmaz"), AC-517 ("ref … yalnız bellektedir").
+
+Düzeltme (atanan ajan: mimar → backend-dev Go):
+
+1. `open -n`, `BundleLocation()`'un çözülmüş **özgün** yolunu kullansın; translocated yol kullanılmasın. Yeni örnek yeniden
+   translocate olur ve yeniden çözer.
+2. K0'da bu durum ölçülsün.
+3. Yedek yine de gerekirse AC-517 ve AC-518 açıkça değiştirilsin. Dosya bugünkü 0600/belirteç kurallarıyla, ilk okumada silinsin,
+   iz testi (AC-394) yeniden başlatmadan sonra da koşsun. AC değiştirilmeden yedek kodlanmasın.
+
+### [DÜŞÜK] S-P31-6 Doğrudan `/downloads/NoktaDestek-…zip` yolunda hız sınırı yok (Windows'tan devralınan) — A04
+
+Yer: §4 "Caddy" satırı, `firmPathValid` (`service.ts:443-449`; `limit` çağrısı yok). `request-download`'daki `req.download` IP kovası
+302 sonrasını kapsamıyor.
+
+Sorun: Geçerli bir firma bağlantısını bilen biri sınırsız istek gönderebilir. Her istek bir `resolveRef` DB sorgusu ve tam zip
+aktarımı demek; bu bant genişliği ve DB üzerinde DoS yaratır. Ref ve etiket tahmini 80 bit olduğundan oracle riski pratik değil.
+Windows `.exe` firma yolu bugün de aynı durumda.
+
+Düzeltme (atanan ajan: devops): nginx'te `/downloads/` için `limit_req` tanımlayın (ör. IP başına 10/dk, burst 5). Mac ve Windows
+firma yolları birlikte kapsansın. Bu yapılmayacaksa runbook'a kabul edilen risk olarak yazın.
+
+### [DÜŞÜK] S-P31-7 `clientOs` talep şeması `linux`'u kabul ediyor, ama Linux'ta talep akışı yok (AC-521) — A04
+
+Yer: AC-511, K-P31-4 (`clientOsSchema` = `windows|macos|linux`).
+
+Sorun: Etki yalnız kısıtlayıcı (`control-grant.ts:39` → `linux_no_control`), ancak var olmayan bir istemci için kabul edilen değer
+hem saldırı yüzeyini hem panel ve audit karışıklığını gereksiz yere büyütüyor.
+
+Düzeltme (atanan ajan: backend-dev): Talep gövdesi için `z.enum(["windows","macos"])` kullanın. DB CHECK ileriye dönük `linux`'u
+tutabilir. AC-511 test satırında `linux` → 400 yazsın.
+
+### [DÜŞÜK] S-P31-8 "Bir kez indir, sakla" ile ad-hoc "klasörü silin" çelişiyor; eski sürümler TCC iznini koruyor (S-r4-10'un firma yolu eşi) — A06
+
+Yer: AC-522 kılavuz alt başlığı, US-P31-1; `OKUBENI-adhoc.txt` adım 4 ("Bu klasörü silin"); T-P31-1.
+
+Sorun: Firma dosyası tekrar kullanım için saklanır; Windows'taki US-29 kalıbı da budur. Ad-hoc imzada her sürümün TCC kaydı ayrı
+cdhash'e bağlıdır, bu yüzden eski firma klasörleri Ekran Kaydı ve Erişilebilirlik iznini taşır. Ayrıca aynı gerçek ikili, saldırganın
+ref'iyle adlandırılmış bir klasöre konursa önceden verilmiş izni kullanır (cdhash aynı). T-P31-1 senaryosunda geriye yalnız talep
+formu ve yerel tıklamalı "Ekranımı paylaş" engeli kalır. Bu engel yeterli, ama izinlerin önceden verilmiş olması bir sürtünmeyi
+ortadan kaldırıyor.
+
+Düzeltme (atanan ajan: teknik-yazar): Kılavuz ve OKUBENI'de şu satır olsun: "Mac'te dosyayı saklamayın; her destek isteğinde
+firmanızın bağlantısından yeniden indirin, eski klasörü silin." `MIN_AGENT_VERSION` kapısının talep yolunda da `CLIENT_OUTDATED`
+ürettiği (AC-519) runbook'ta not edilsin.
+
+### [BİLGİ] S-P31-9 Kapı kapalıyken 503 ile 404 ayrımı ref geçerliliğini sızdırır
+
+Açık `os=macos` gönderildiğinde ve kapı kapalıyken geçerli ref 503, geçersiz ref 404 döner (`download` sırası: limit → resolveRef →
+kapı). Windows'ta da aynı. IP kovası, `refInvalid` engeli ve 80 bitlik ref bu sızıntıyı pratik dışı bırakır. Sıra değiştirilmesin:
+geçersiz ref denemelerinin engel sayacına girmesi için ref denetimi önce kalmalı.
+
+### [BİLGİ] S-P31-10 Ref, macOS karantina ve konum meta verisinde kalır
+
+`com.apple.quarantine` ve `kMDItemWhereFroms` indirme adresini, yani 302 sonrası `/downloads/NoktaDestek-<label>-<ref>.zip`'i taşır;
+Gatekeeper birleşik logu özgün yolu yazabilir. Windows'taki `Zone.Identifier` ile eşdeğer ve ref zaten klasör adında. Kabul; T-P31-6
+yeterli.
+
+### [BİLGİ] S-P31-11 UA ile platform seçimi güvenlik kararı değil
+
+UA sahteciliği yalnız aynı ref için hangi jenerik ikilinin adlandırılacağını değiştirir; kapı ve firma doğrulaması ayrıca yapılır
+(K-P31-2). `Vary` gerekmez çünkü yanıt `no-store`. iPad'in zip alması kabul edildi (R-P31-2).
+
+## Otomatik tarama çıktıları
+
+Tasarım turu, kod değişikliği yok; taramalar uygulanmadı. Kod turunda (P31-Q) şunlar koşulacak: `pnpm audit --audit-level=moderate`,
+`govulncheck ./...` (agent-win), gitleaks, `deploy/test-caddy.sh` (S-P31-1 satırları dahil), `deploy/nginx/test-nginx.sh` (`.zip` maske
+satırı).
+
+## Tasarımda vaat edilip kodda bulunmayanlar
+
+Tasarım turu; P31 kodu yok. Kod turunda doğrulanacaklar:
+
+- `/agent-ready/macos(-firm)` firma denetimi ve fail-closed davranış (bugün `routes.ts:86-97` URI okumuyor).
+- `@agentZipFirm` `header_up X-Forwarded-Uri` tam ad.
+- `requestDownloadQuerySchema` geçersiz `os` → 400, kova tüketilmeden.
+- `client_os` CHECK'leri ve `grants.sql`.
+- `request.create` `newValue.clientOs`.
+- `PreAdmitInput.clientOs`.
+- Mac `Store=nil` → `Binding=nil` → hiçbir dosya yazılmaması.
+- `OpenURL` yalnız `DownloadURL`/`mailto:`.
+- Kabul diyaloğunda `input.LocalClick` + 1,5 sn.
+- `uicore` → `launch`/`request` yönü (D-4).
+- OKUBENI'nin üç dosyada `cmp`.
+
+## Olumlu
+
+- ADR-0041: imzayı, SHA'yı ve attestation'ı bozan seçenekler (yan dosya, üçüncü zip öğesi, `.app` adı) doğru gerekçeyle reddedilmiş;
+  URL şeması yüzeyi açılmamış.
+- Etiket hiçbir yerde gösterilmiyor; firma adı yalnız sunucudan geliyor (G-E9-11 kalıbı).
+- Uzantı ile kapı arasında çapraz geçiş kapalı (K-P31-3, T-P31-3); `.exe` ve `.zip` matcher'ları ayrık.
+- `no-store` ve `nosniff` mevcut; `Content-Disposition` yalnız regex yakalamasından geliyor.
+- G-10 maskeleri `.zip`'i zaten kapsıyor (Caddy erişim ve hata logu, nginx).
+- Talep akışı Windows'un `internal/request` ve `launch.Decide` mantığını yeniden kullanıyor; doğrulama ve hız sınırı tek kaynaktan.
+- Mac'te kalıcı PII yok (hatırla ve kayıt kapsam dışı); AC-394 iz kuralı korunuyor.
+- `clientOs` beyanı yalnız kısıtlayıcı; Windows gövdesi bayt bayt aynı (D-1).
+- Kabul diyaloğu P28f korumalı istemini yeniden kullanıyor (sentetik ve uzak tıklama reddi).
+
+---
+
 # Güvenlik Raporu — P30b (AC-498 r2, dal p30b-kontrolde-cizim, HEAD b502558, 2026-11-20)
 
 DURUM: GEÇTİ — Kritik 0 / Yüksek 0 / Orta 0 / Düşük 3
