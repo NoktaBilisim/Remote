@@ -20,6 +20,40 @@ interface SessionBatchResult {
   storedFiles: number;
   /** P28e (§3.4, AC-386): aynı TX'te silinen kayıtlar (parçalarıyla; satır kalmaz). */
   recordings: number;
+  /** P22 (mimari-p22 §3.3, AC-264): aynı TX'te silinen oturum sohbeti satırları. */
+  messages: number;
+  /**
+   * P22 (r2 §15.3): aday listesi mesaj bütçesiyle kısaltıldı ya da parti doluydu → firmada aday kalmış olabilir; döngü
+   * sürer (`selected < limit` tek başına yetmez: kısaltılmış parti hep küçüktür).
+   */
+  more: boolean;
+}
+
+/** P22 (r2 §15.3, S-P22-3): bir anonimleştirme TX'inde silinecek oturum sohbeti satırı üst sınırı. */
+export const SESSION_MSG_DELETE_BUDGET = 20_000;
+
+/**
+ * Aday oturumları (`created_at` sırasıyla) mesaj toplamı `budget`'ı aşmayacak şekilde kısaltır; ilk oturum her zaman
+ * alınır (tek oturum tasarım tavanı ≤ ~10.000 satır). Saf fonksiyon.
+ */
+export function trimByMessageBudget(ids: readonly string[], counts: ReadonlyMap<string, number>, budget: number): string[] {
+  const out: string[] = [];
+  let total = 0;
+  for (const id of ids) {
+    const n = counts.get(id) ?? 0;
+    if (out.length > 0 && total + n > budget) break;
+    out.push(id);
+    total += n;
+  }
+  return out;
+}
+
+/** Aday oturumların sohbet satırı sayıları (IX(session_id, tenant_id, created_at); TX'ten önce, r2 §15.3). */
+async function messageCounts(db: Db, tenantId: string, ids: readonly string[]): Promise<Map<string, number>> {
+  if (ids.length === 0) return new Map();
+  const rows = await db.$queryRaw<{ session_id: string; n: bigint | number }[]>`SELECT session_id, COUNT(*) AS n
+    FROM session_messages WHERE tenant_id = ${tenantId} AND session_id IN (${Prisma.join(ids)}) GROUP BY session_id`;
+  return new Map(rows.map((r) => [r.session_id, Number(r.n)]));
 }
 
 /**
@@ -43,9 +77,12 @@ async function deleteSessionRecordings(tx: Tx, tenantId: string, sessionIds: str
 
 /**
  * Tek parti, tek TX: aday id'ler (IX tenant_id, anonymized_at, created_at) → dosya meta satırları silinir → onay
- * kayıtlarının ip/user_agent'ı NULL → oturumun kişisel alanları NULL + anonymized_at. Son UPDATE `anonymized_at IS NULL`
- * koşullu (eşzamanlı ikinci tur 0 satır sayar). Onay kararı, seviye, kaynak, metin sürümü/özeti kalır (KVKK kanıtı).
+ * kayıtlarının ip/user_agent'ı NULL → oturumun kişisel alanları NULL + anonymized_at → oturum sohbeti satırları silinir.
+ * Son UPDATE `anonymized_at IS NULL` koşullu (eşzamanlı ikinci tur 0 satır sayar). Onay kararı, seviye, kaynak, metin
+ * sürümü/özeti kalır (KVKK kanıtı).
  * P28u (§3.3, K-P28u-15): izinsiz bağlantı gerekçesi (`silent_reason`) NULL; `consent_mode` kalır (kişisel değil; CHECK zorlar).
+ * P22 (§3.3, r2 §15.3): adaylar TX'ten ÖNCE mesaj sayılarıyla `msgBudget`'a göre kısaltılır (en az 1 oturum); TX aynı
+ * kısaltılmış listeyle sınırlanır. `beforeTx` de yalnız bu listeyi alır.
  */
 export async function anonymizeSessionBatch(
   db: Db,
@@ -53,18 +90,20 @@ export async function anonymizeSessionBatch(
   cutoff: Date,
   limit: number,
   beforeTx?: (sessionIds: string[]) => Promise<void>,
+  msgBudget = SESSION_MSG_DELETE_BUDGET,
 ): Promise<SessionBatchResult> {
-  const candidates = {
-    where: { tenantId, anonymizedAt: null, createdAt: { lt: cutoff }, status: { in: [...FINISHED_STATUSES] } },
-    orderBy: [{ createdAt: "asc" as const }, { id: "asc" as const }],
-    take: limit,
-    select: { id: true },
-  };
+  const where = { tenantId, anonymizedAt: null, createdAt: { lt: cutoff }, status: { in: [...FINISHED_STATUSES] } };
+  const order = [{ createdAt: "asc" as const }, { id: "asc" as const }];
+  const empty = { selected: 0, sessions: 0, consents: 0, files: 0, storedFiles: 0, recordings: 0, messages: 0, more: false };
+  const all = (await db.supportSession.findMany({ where, orderBy: order, take: limit, select: { id: true } })).map((r) => r.id);
+  if (all.length === 0) return empty;
+  const picked = trimByMessageBudget(all, await messageCounts(db, tenantId, all), msgBudget);
+  const more = picked.length < all.length || all.length === limit;
   // P28b (§3.3): saklanan dosyaların diski TX'ten ÖNCE silinir (TX geri alınırsa satır CLEAN kalır → mutabakat EXPIRED yapar).
-  if (beforeTx) await beforeTx((await db.supportSession.findMany(candidates)).map((r) => r.id));
+  if (beforeTx) await beforeTx(picked);
   return db.$transaction(async (tx) => {
-    const rows = await tx.supportSession.findMany(candidates);
-    if (rows.length === 0) return { selected: 0, sessions: 0, consents: 0, files: 0, storedFiles: 0, recordings: 0 };
+    const rows = await tx.supportSession.findMany({ where: { ...where, id: { in: picked } }, orderBy: order, select: { id: true } });
+    if (rows.length === 0) return { ...empty, selected: picked.length, more };
     const ids = rows.map((r) => r.id);
     const recordings = await deleteSessionRecordings(tx, tenantId, ids);
     const stored = await tx.sessionStoredFile.deleteMany({ where: { tenantId, sessionId: { in: ids } } });
@@ -80,7 +119,23 @@ export async function anonymizeSessionBatch(
           silent_reason = NULL, anonymized_at = UTC_TIMESTAMP(3)
       WHERE tenant_id = ${tenantId} AND id IN (${Prisma.join(ids)}) AND anonymized_at IS NULL
         AND status IN (${Prisma.join([...FINISHED_STATUSES])})`;
-    return { selected: rows.length, sessions, consents: consents.count, files: files.count, storedFiles: stored.count, recordings };
+    // P22 (§3.3, AC-264): UPDATE'ten SONRA (silme kalkanı tetikleyicisi aynı TX'teki `anonymized_at`'i görür). Join koşulu
+    // eşzamanlı başka tur yüzünden UPDATE'in atladığı (anonim olmayan) oturumun mesajına dokunmaz; `request_id IS NULL`
+    // savunma (oturum satırında hep NULL — K-P22-13).
+    const messages = await tx.$executeRaw`DELETE m FROM session_messages m
+      JOIN support_sessions s ON s.id = m.session_id AND s.tenant_id = m.tenant_id
+      WHERE m.tenant_id = ${tenantId} AND m.session_id IN (${Prisma.join(ids)})
+        AND s.anonymized_at IS NOT NULL AND m.request_id IS NULL`;
+    return {
+      selected: picked.length,
+      sessions,
+      consents: consents.count,
+      files: files.count,
+      storedFiles: stored.count,
+      recordings,
+      messages,
+      more,
+    };
   }, REQUEST_TX_OPTIONS);
 }
 

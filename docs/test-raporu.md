@@ -1,3 +1,138 @@
+# Test Raporu — P22-T (oturum sohbeti WS + KVKK; gerçek sunucu + gerçek web)
+
+**DURUM: GEÇTİ (web + sunucu).** ENGELLEYİCİ ve YÜKSEK bulgu yok. Kritik 4 akışın (çift yönlü WS sohbeti ve yeniden bağlanma, eski istemci, AC-292, oturum detayı ve audit) tamamı gerçek sunucu ve gerçek web birlikte koşularak geçti. Ek olarak yetki toggle'ı, yetkisiz erişim ve IDOR kontrolleri de geçti. Koşulan akışlarda pageerror ve konsol hatası yok, 5xx yok. Proje axe kural setinde ihlal 0, 390 px'te taşma yok.
+
+Bulgular: iki ORTA-altı (DÜŞÜK) bulgu ve bir doküman uyuşmazlığı. Hiçbiri geçişi engellemiyor.
+
+Kapsam dışı: Go istemci 0.21.0 (P22-G) ve gerçek 0.19/0.20 istemciler. Bunlar aşağıdaki elle listede.
+
+Ortam:
+
+- Dal ve tarih: `claude/p22-06bd24` @ `97d2270`, 2026-11-18, Chromium (Playwright).
+- Kaynak: çalışma ağacının APFS anlık görüntüsü (scratchpad). Worktree dosyalarına ve `.next`'e dokunulmadı.
+- Sunucu: gerçek `apps/server` (`node src/server.ts`, NODE_ENV=development, 2FA kurulum zorunluluğu açık) :3483.
+- Web: standalone derleme :3484 (`/api`, `/ws` → :3483).
+- DB: `rs-p22-test` (127.0.0.1:33481). `pnpm db:seed` ile demo tenant + Super Admin eklendi, `e2e:real:users` ile iki ADMIN eklendi. Kimlik bilgileri rastgele üretildi, yalnız scratchpad'de (600 izinle) duruyor.
+- Sahte API/WS yok. Müşteri ekran kaynağı sentetik canvas.
+
+Dosyalar:
+
+- Betikler: `docs/test-raporu/e2e/p22/`. `up.sh` yığını kurar. `lib.ts` API girişi + TOTP + step-up yardımcılarını içerir. `p22op.spec.ts` kritik 4 akışı, `p22op-b.spec.ts` yetki ve aydınlatma kontrollerini içerir. Config: `p22op.config.ts`.
+- Ham sonuç: `akis.jsonl`.
+- Ekranlar: `docs/img/p22/` (12 dosya).
+
+Temizlik: server ve web süreçleri kapatıldı, 3483 ve 3484 boş. `rs-p22-test` konteyneri bırakıldı (bana ait değil). Seed'in eklediği demo tenant, iki ADMIN ve test oturumları DB'de kaldı.
+
+## Özet
+
+| Ölçüt                                        | Sonuç                                                                                                                                                                                                                                                                                                                                                        |
+| -------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Koşu                                         | `p22op.spec.ts`: 4/4 geçti (33 sn). `p22op-b.spec.ts`: 2/2 geçti (45 sn)                                                                                                                                                                                                                                                                                     |
+| pageerror / konsol hatası (konsol + misafir) | 0                                                                                                                                                                                                                                                                                                                                                            |
+| 5xx                                          | 0                                                                                                                                                                                                                                                                                                                                                            |
+| axe                                          | 28 tarama. Proje kural setinde (wcag2a/2aa/21aa, `e2e/helpers.ts`) 0 ihlal. Kapsam: karşılama 1280/390 × açık/koyu, konsol sohbeti, misafir sohbeti, 4426 ekranı, eski istemci (konsol + misafir), geçmiş sohbeti, yetki ekranı. Ek `wcag21a` etiketi açıkken `/settings/consent-text` ve `/settings/general`'da 1 `label-content-name-mismatch` çıktı (D-3) |
+| 390 px yatay taşma                           | 0 (karşılama, 4426, geçmiş, genel ayarlar)                                                                                                                                                                                                                                                                                                                   |
+| Kırık link / sayfa-tarayıcı                  | **Koşulmadı.** Tarama spec içinde yapıldı; `sayfa-tarayici.mjs` projede `playwright` paketi olmadığı için çalışmıyor                                                                                                                                                                                                                                         |
+
+## Bulgular
+
+### [DÜŞÜK] D-1 Audit ekranında P22 eylemleri ham kod olarak görünüyor
+
+Sayfa/akış: `/audit` (Admin).
+Adımlar:
+
+1. Bir oturumda sohbet et, oturumu sonlandır.
+2. `/history/<id>` → "Sohbeti göster".
+3. `/audit` sayfasını aç.
+
+Beklenen: diğer satırlar gibi Türkçe etiket ve altında kod (ör. "Yönetici sonlandırdı / session.terminated").
+Gerçekleşen: `session.chat_viewed` ve `session.chat_summary` yalnız ham kodla görünüyor. `packages/contracts/src/labels.ts` içinde P22 eylemlerinin (`session.chat_viewed`, `session.chat_summary`, `session.chat_rejected`, `session.chat_history_sent`, `session.chat_legacy` vb.) etiketi yok. P28u K10'da gözetimsiz eylemler için aynı açık kapatılmıştı.
+Kanıt: `docs/img/p22/audit-1280.png`
+Atanan: frontend-dev (contracts `labels.ts` + gerekirse audit süzgeç grubu)
+
+### [DÜŞÜK] D-2 Eski konsol sekmesi (4426) "Oturum sona erdi" + "Bitti" diyor; oturum aslında sürüyor
+
+Sayfa/akış: `/sessions/<id>/console`, `rs.cap.schat1` bildirmeyen konsol sekmesi (`WebSocket` sarmalayıcısıyla taklit edildi).
+Adımlar:
+
+1. Aktif oturum.
+2. Belirteçsiz sokete sahip ikinci konsol sekmesini aç.
+
+Beklenen: metin doğru ("Konsol sürümü eski — sayfayı yenileyin." + "Sayfayı yenile" düğmesi). Ama başlık ve durum rozeti oturumun bittiğini söylememeli.
+Gerçekleşen: kapanış kodu 4426, metin ve düğme doğru, canlı sekme etkilenmiyor (aşağıda). Ancak kart başlığı "Oturum sona erdi", üst bardaki rozet "Bitti", müşteri adı "Müşteri". Teknisyen yenilemeden önce oturumun kapandığını sanabilir. Etkisi düşük: düğme tek tıkla düzeltiyor.
+Kanıt: `docs/img/p22/konsol-4426-1280-dark.png`
+Atanan: frontend-dev
+
+### [DÜŞÜK] D-3 Hesap menüsü `summary` erişilebilir adı görünen metinle uyuşmuyor (P22 dışı, önceden var)
+
+Sayfa/akış: tüm panel sayfaları (ölçüm `/settings/general` ve `/settings/consent-text`).
+Bulgu: axe `label-content-name-mismatch` (wcag21a, 2.5.3). `aria-label="Hesap menüsü: …"` görünen metni ("E1" + ad) içermiyor. Proje axe kural seti `wcag21a` etiketini taramadığı için CI'da görünmüyor.
+Atanan: frontend-dev (fırsat bulunca)
+
+### [Not / doküman] mimari-p22 §5.3 "403 mevcut `auth.forbidden` yoluna düşer"; kodda böyle bir audit yok
+
+`sessions.view_chat` olmayan ADMIN2 için `GET /sessions/:id/chat` 403 döndü (doğru), ancak `auth.forbidden` satırı 0. Bu eylem adı `apps/server/src` ve `packages/contracts` içinde hiç geçmiyor. Ürün davranışı başka paketlerle tutarlı. Ya doküman cümlesi düzeltilmeli ya da yetkisiz okuma denemesi audit'e yazılmalı.
+Atanan: mimar (karar) → backend-dev (gerekirse)
+
+## Akış sonuçları (gerçek sunucu + gerçek web)
+
+| Akış                                                                             | Sonuç        | Not / kanıt (`akis.jsonl`)                                                                                                                                                                                                                               |
+| -------------------------------------------------------------------------------- | ------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| ADMIN girişi + 2FA (kurulum → etkinleştirme → doğrulama)                         | ✅           | `sessions.view_chat` ADMIN'de varsayılan açık                                                                                                                                                                                                            |
+| AC-264 teknisyen → misafir                                                       | ✅           | Konsol "T1" yazdı, tarayıcı misafirde göründü                                                                                                                                                                                                            |
+| AC-264 misafir → teknisyen + XSS                                                 | ✅           | `<img src=x onerror=…>` metin olarak göründü. `img` 0, script çalışmadı (`xssFired:false`)                                                                                                                                                               |
+| Önce kaydet + şifreli saklama                                                    | ✅           | `session_messages` = 2 (gönderilen 2). `body_enc` içinde düz metin araması 0                                                                                                                                                                             |
+| Saklama notu iki tarafta                                                         | ✅           | Konsol: "Sohbet kayıt altına alınır ve oturum saklama süresi boyunca saklanır." Misafir: "Sohbet mesajları kayıt altına alınır ve 365 gün saklanır" (tenant ayarı 365)                                                                                   |
+| Misafir yeniden bağlanma (çevrimdışı + soket kapandı, bu sırada teknisyen yazdı) | ✅           | Dönüşte 3 mesaj, sonuncusu "T2". 2 `chat.history` çerçevesi geldi, çift kayıt yok                                                                                                                                                                        |
+| Konsol yenileme                                                                  | ✅           | Konsol geçmişten 3 mesajı gösterdi, DB 3 satır                                                                                                                                                                                                           |
+| Belirteçsiz konsol (eski sekme) → 4426                                           | ✅ (D-2)     | `close` kodu `[4426]`, "Konsol sürümü eski — sayfayı yenileyin." + "Sayfayı yenile". Aynı kullanıcının canlı sekmesi "Aktif" kaldı ve sonrasında mesaj iletti ("T3")                                                                                     |
+| Belirteçsiz misafir: konsol tarafı                                               | ✅           | "Müşterinin istemcisi eski; sohbet için güncellemesi gerekir.", giriş pasif ("Sohbet kapalı (müşterinin istemcisi eski)")                                                                                                                                |
+| Belirteçsiz misafir: misafir tarafı                                              | ✅           | Misafire giden `chat.*` WS çerçevesi 0. Tarayıcı misafirde "Sohbet şu an kullanılamıyor." DC'den sabit `LEGACY_CHAT_NOTICE` **1 kez** geldi ("Bu sürümde sohbet kapalıdır… güncelleyin"). Gerçek Go ≤ 0.20 ekranında gösterimi elle listede (E-1/E-2)    |
+| Eski istemcili oturum özeti ve detayı                                            | ✅           | `session_messages` 0. `session.chat_summary` `{legacy:true, tech:0, customer:0}`. Detayda "Müşteri eski istemci kullandığı için bu oturumda sohbet kapalıydı"                                                                                            |
+| AC-264 oturum detayı (`/history/[id]`)                                           | ✅           | Düğme "Sohbeti göster (4 mesaj)", 4 mesaj (talep yazışması yok). Sayfa açılışı audit **0**, tıklama **1** `session.chat_viewed` `{messages:4, requestMessages:0}`. Yenileme + ikinci tıklama yeni satır **eklemedi** (10 dk penceresi). 390 px taşma yok |
+| Audit ekranında `session.chat_viewed`                                            | ✅ (D-1)     | Satır görünüyor, kullanıcı ve IP doğru, Türkçe etiket yok                                                                                                                                                                                                |
+| `sessions.view_chat` toggle ekranı (AC-285)                                      | ✅           | "Oturumlar" satırında anahtar var + hassas yetki notu. Kapatma audit'e `{permKey:"sessions.view_chat", granted:false}` olarak yazıldı. Test sonunda geri açıldı                                                                                          |
+| Yetkisiz (ADMIN2, view_chat kapalı)                                              | ✅           | `GET /sessions/:id/chat` 403. `GET /history` 200 ve `chat` alanı **yok**. Detayda "Sohbet" bölümü yok                                                                                                                                                    |
+| IDOR: başka tenant oturumunun sohbeti                                            | ✅           | 404                                                                                                                                                                                                                                                      |
+| AC-292 karşılama satırı                                                          | ✅           | "Sohbet mesajları kayıt altına alınır ve 365 gün saklanır", `join-browser`'ın hemen önceki kardeşi. `aria-describedby` satıra bağlı. Ad + onay girilince düğme etkin. 1280/390 × iki tema axe 0                                                          |
+| AC-291 aydınlatma bandı                                                          | ➖ gözlem    | Seed v1 metni sohbet paragrafını içeriyor: `chatParagraphMissing:false`, iki sayfada bant yok (doğru). "Paragrafsız sürüm kaydet → bant → ekle" yolu gerçek sunucuda **koşulmadı** (sahte API e2e'sinde yeşil)                                           |
+| Gözetimsiz odada sohbet pasif                                                    | ➖ koşulmadı | Gerçek cihaz yok. Sahte e2e (`p22-chat.spec.ts`) + sunucu entegrasyon testi kapsıyor                                                                                                                                                                     |
+
+## Kabul kriterleri (uçtan uca)
+
+| AC                                                    | Durum                | Nasıl doğrulandı                                                                                                                                                                                                                                                                    |
+| ----------------------------------------------------- | -------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| AC-264 sunucu aktarımı, önce kaydet, şifreli          | ✅                   | Gerçek WS iki yön, DB satır sayısı, şifreli alanda düz metin 0                                                                                                                                                                                                                      |
+| AC-264 eski istemcide iki tarafta kapalı              | ✅ (web) / ELLE (Go) | Belirteçsiz tarayıcı misafir taklidi. Gerçek 0.19/0.20 E-1/E-2                                                                                                                                                                                                                      |
+| AC-264 detayda yalnız yetkiliye + görüntüleme audit'i | ✅                   | Toggle + 403 + alan yok + `session.chat_viewed` 1 kez                                                                                                                                                                                                                               |
+| AC-285 yeni yetki toggle ekranında                    | ✅                   | `perm-sessions.view_chat`                                                                                                                                                                                                                                                           |
+| AC-287 iki tema axe 0, 390 px                         | ✅ (not)             | Proje kural setinde 0. **Not:** panel ekranlarının (konsol, geçmiş) "açık" görüntüsü alınırken uygulama hâlâ koyu temadaydı (`emulateMedia` değişimi + 200 ms bekleme yetmedi). Bu ekranlarda açık tema axe'ı bu turda güvenilir değil. QA Tur 2'deki sahte e2e iki temayı kapsıyor |
+| AC-291                                                | ✅ (seed) / ➖       | Seed metni paragrafı içeriyor. Bant yolu gerçek sunucuda koşulmadı                                                                                                                                                                                                                  |
+| AC-292 (tarayıcı karşılama)                           | ✅                   | Yukarıda. Windows/macOS/Linux istemci yüzeyleri P22-G                                                                                                                                                                                                                               |
+
+## Görsel gözlemler (ekran görüntülerinden)
+
+- Konsol sohbeti (koyu, 1280): saklama notu `ShieldCheck` ile görünüyor. Balonlar okunaklı, XSS gövdesi düz metin. Gönder düğmesi ve giriş hizalı (`konsol-sohbet-1280-dark.png`).
+- Eski istemci (konsol): uyarı bandı sarı, metin okunaklı. Giriş yer tutucusu "Sohbet kapalı (müşterinin istemcisi eski)". Boş durum metni ("Henüz mesaj yok. Ayşe Test ile buradan yazışabilirsiniz.") giriş pasifken biraz çelişkili ama zararsız (`konsol-eski-istemci-1280-light.png`, görüntü koyu temada; bkz. AC-287 notu).
+- 4426 ekranı: D-2.
+- Geçmiş sohbeti (1280 koyu ve 390 açık): gönderen + zaman satırı, teknisyen sağda, müşteri solda, taşma yok. 390 tam sayfa görüntüde yapışkan üst bar sayfa ortasında görünüyor; bu tam sayfa ekran görüntüsünün yan etkisi, hata değil.
+- Audit: D-1.
+
+## Elle test listesi (staging, ana oturum)
+
+| #     | Madde                                                                                                                                                                                                                                                                                             | Durum |
+| ----- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----- |
+| E-1   | 0.19.0 (Windows/macOS) istemciyle oturum. Konsolda "istemci eski" + giriş pasif olmalı. Müşteri penceresinde "Bu sürümde sohbet kapalıdır… programı güncelleyin" bir kez görünmeli, sonraki DC `chat`'te en çok 60 sn'de bir. Müşterinin yazdığı konsolda görünmemeli. Oturum kopmamalı (T-P22-5) | ELLE  |
+| E-2   | 0.20.0 (Linux) istemciyle E-1'in aynısı                                                                                                                                                                                                                                                           | ELLE  |
+| E-3   | Yayından önce açık konsol sekmesi yayın sonrası 4426 almalı → "sayfayı yenileyin". Yenileyince düzelmeli (yerelde taklitle ✅)                                                                                                                                                                    | ELLE  |
+| E-4   | Seed provası: staging'de `pnpm db:seed` sohbet paragraflı yeni aydınlatma sürümünü yazmalı (`consent_text.created{source:"seed"}`). Eski sürümle onay alınamamalı                                                                                                                                 | ELLE  |
+| E-5   | Alarm provası: `rs_session_chat_rejected_total{reason="internal"}` > 0 → remote-watch uyarısı. `rs_ws_tech_outdated_total` ve `rs_session_chat_legacy_sessions_total` `/metrics`'te görünmeli                                                                                                     | ELLE  |
+| E-6   | Retention: süresi dolan oturumun `session_messages` satırları silinmeli. Detayda "Sohbet saklama süresi dolduğu için silindi" görünmeli                                                                                                                                                           | ELLE  |
+| E-7   | Gözetimsiz bağlantıda konsol sohbet sekmesi "Gözetimsiz bağlantıda sohbet yoktur." göstermeli (gerçek cihazla)                                                                                                                                                                                    | ELLE  |
+| P22-G | Go 0.21.0: `schat1`, WS sohbeti, DC sohbetinin kaldırılması, `chat.state` gelmeden giriş pasif, üç platformun karşılama ve talep formunda AC-292 satırı                                                                                                                                           | P22-G |
+
+---
+
 # Test Raporu — P28f (macOS istemci; web ekranları + elle liste)
 
 DURUM: GEÇTİ (web arayüzü). ENGELLEYİCİ ve YÜKSEK bulgu yok. Bir ORTA bulgu var: konsol ve lobi, macOS istemcisini de "Hızlı Destek (Windows)" diye etiketliyor. İki DÜŞÜK bulgu var. 5xx yok (beklenen sahte 500/503 dışında), JS hatası (pageerror) yok, axe ihlali yok, yatay taşma yok, kırık link yok. Web tarafından denetlenen AC'lerde ❌ yok.

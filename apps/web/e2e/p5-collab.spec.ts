@@ -468,8 +468,8 @@ for (const scheme of ["light", "dark"] as const) {
     await page.getByTestId("chat-input").fill("Kontrol mesajı");
     await page.keyboard.press("Enter");
     await expect(g.getByTestId("chat-msg")).toHaveCount(1);
-    // TEST-P5-2/3: boşluksuz 2000 karakter → günlük kaydırılır (klavyeyle odaklanır), balon satır kaydırır (kesilmez)
-    await page.getByTestId("chat-input").fill("Ç".repeat(2000));
+    // TEST-P5-2/3: boşluksuz 1000 karakter (P22: sınır 1.000 kod noktası) → günlük kaydırılır (klavyeyle odaklanır), balon satır kaydırır (kesilmez)
+    await page.getByTestId("chat-input").fill("Ç".repeat(1000));
     await page.keyboard.press("Enter");
     await expect(g.getByTestId("chat-msg")).toHaveCount(2);
     for (const p of [page, g]) {
@@ -495,7 +495,7 @@ for (const scheme of ["light", "dark"] as const) {
   test(`AC-39: P5 müşteri 375 px + dosya kabul diyaloğu axe (${scheme})`, async ({ page, context, browser }) => {
     await signIn(context, `p5-ay${scheme}`);
     const { g } = await live(page, browser, scheme);
-    await page.getByTestId("chat-input").fill("Ç".repeat(2000));
+    await page.getByTestId("chat-input").fill("Ç".repeat(1000));
     await page.keyboard.press("Enter");
     await expect(g.getByTestId("chat-msg")).toHaveCount(1);
     await g.setViewportSize({ width: 375, height: 780 });

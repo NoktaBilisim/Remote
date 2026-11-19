@@ -13,8 +13,6 @@
  */
 import type { GuestInboundFull, IceServer } from "@remote/contracts/ws";
 import type { RosterRole, TechRosterEntry } from "@remote/contracts/ws-multi";
-import { parseCtl } from "../dc/ctl";
-import { inboundLimiter } from "../dc/rate";
 import type { VoicePeers } from "../voice/guest";
 import { PeerLink, type Channels } from "./peer";
 
@@ -55,19 +53,11 @@ interface Entry {
   off?: () => void;
 }
 
-export interface GuestChatIn {
-  id: string;
-  text: string;
-  ts: number;
-  by: string;
-}
-
 interface Opts {
   ice: () => IceServer[];
   send: (m: GuestInboundFull) => void;
   /** Ana eş kanalları / açık kanal kümesi değişti (React durumunu yeniler). */
   onChange: () => void;
-  onChat: (m: GuestChatIn) => void;
   /** P28d: eş kümesi / uzak ses izi değişti (yanıt verildi ya da eş kapandı). */
   onPeers?: () => void;
   /** P28d: bir eşin ses göndericisine iz bağlanamadı (GuestVoice tek hata yoluna bağlar). */
@@ -155,44 +145,13 @@ export class GuestPeers implements VoicePeers {
     link.onChannels = (c) => {
       if (this.peers.get(tid) !== e) return;
       e.channels = c;
-      e.off = this.listen(tid, c.ctl);
       this.o.onChange();
     };
     this.peers.set(tid, e);
     return e;
   }
 
-  /** Sohbet yayma (§4.5): izleyiciden ve `by`'lı gelen düşer; diğerleri gösterilir + öteki eşlere `by` ile iletilir. */
-  private listen(tid: string, ctl: RTCDataChannel): () => void {
-    const allow = inboundLimiter();
-    const h = (ev: MessageEvent) => {
-      const m = parseCtl(ev.data);
-      if (!m || m.t !== "chat" || m.by !== undefined || !allow("chat")) return;
-      if (this.roleOf(tid) === "observer") return;
-      this.o.onChat({ id: m.id, text: m.text, ts: m.ts, by: tid });
-      if (tid === LEGACY) return;
-      const fwd = JSON.stringify({ t: "chat", id: m.id, text: m.text, ts: m.ts, by: tid });
-      for (const [other, e] of this.peers) if (other !== tid && e.channels?.ctl.readyState === "open") e.channels.ctl.send(fwd);
-    };
-    ctl.addEventListener("message", h);
-    return () => ctl.removeEventListener("message", h);
-  }
-
-  /** Müşterinin kendi mesajı: tüm açık eşlere `by`'sız. En az birine gittiyse true. */
-  sendChat(m: { t: "chat"; id: string; text: string; ts: number }): boolean {
-    let sent = false;
-    const raw = JSON.stringify(m);
-    for (const e of this.peers.values())
-      if (e.channels?.ctl.readyState === "open") {
-        e.channels.ctl.send(raw);
-        sent = true;
-      }
-    return sent;
-  }
-
-  get chatReady(): boolean {
-    return [...this.peers.values()].some((e) => e.channels !== null);
-  }
+  // P22 (mimari-p22 §4.4, §8.2): DC sohbet yayma/gönderimi kaldırıldı — oturum sohbeti yalnız WS (`lib/chat`).
 
   /** Dosya/işaretleme kanalı: kontrol sahibinin eşi (eski yolda tek eş). */
   main(): Channels | null {

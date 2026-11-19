@@ -1,10 +1,12 @@
 "use client";
 
 /*
- * İşbirliği kanalı bağlayıcısı (P5): ctl + file DataChannel'larını sohbet, dosya ve işaretleme modellerine bağlar.
+ * İşbirliği kanalı bağlayıcısı (P5): ctl + file DataChannel'larını dosya ve işaretleme modellerine bağlar.
+ * P22 (mimari-p22 §4.4, §8.1): oturum sohbeti DC'den kaldırıldı (`lib/chat/use-session-chat.ts`, WS). Gelen DC `chat` hiç
+ * gösterilmez/sayılmaz; yalnız konsolda eski misafir için sabit `LEGACY_CHAT_NOTICE` tetiği (`legacyNotice`).
  * Konsol ve müşteri sayfası aynı hook'u kullanır. Kanal yokken (bağlantı kuruluyor/koptu) gönderimler pasif.
  */
-import { useCallback, useEffect, useReducer, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { DEFAULT_MAX_FILE_MB, maxFileBytes } from "@remote/contracts/dc";
 import { FSRV_MAX_BYTES, type FileMode } from "@remote/contracts/ws-fsrv";
 import type { ServerOutbound } from "@remote/contracts/ws";
@@ -12,17 +14,15 @@ import { newCpId } from "../clip/chunks";
 import { FsrvTransfers, type FsrvIn, type FsrvOut, type PrintUploadCallbacks } from "../fsrv/transfers";
 import type { Channels } from "../webrtc/peer";
 import { annotReducer, initialAnnot, type AnnotState } from "./annot";
-import { chatReducer, initialChat, prepareChat } from "./chat";
+import { legacyNotifier } from "../chat/legacy-notice";
 import { parseCtl, type CtlMessage, type FileDirection, type FileMetaMsg } from "./ctl";
 import { FileTransfers, type Transfer } from "./files";
-import { chatSendLimiter, inboundLimiter } from "./rate";
+import { inboundLimiter } from "./rate";
 
 interface CollabOptions {
   inbound: FileDirection;
   /** `file_transfer` yeteneği (müşteri: hello.caps; konsol: kullanıcının yetkisi). */
   filesAllowed: boolean;
-  /** Sohbet şu an görünür mü (okunmamış sayaç). */
-  chatVisible: boolean;
   /** Bu taraf çizim alabilir mi (müşteri: evet, konsol: yalnız kendi çizimi). */
   receiveAnnot: boolean;
   sendMeta: (m: FileMetaMsg) => void;
@@ -36,17 +36,10 @@ interface CollabOptions {
    */
   fsrv?: FsrvLink;
   /**
-   * P28c (§4.5): müşteri sayfasında sohbet tüm eşlere yayılır (`lib/webrtc/guest-chat-hub.ts`). Verilirse sohbet yalnız bu
-   * yoldan gider/gelir; `ch.ctl` üzerindeki sohbet yok sayılır (dosya/işaretleme ana eşin kanalında kalır).
+   * P22 (K-P22-3): konsol, oturum sahibi ve misafir eski (`guestChat="outdated"`) → DC açılınca ve her gelen DC `chat`'te en
+   * çok 60 sn'de bir sabit bildirim. Diğer her durumda DC'ye sohbet çerçevesi gitmez.
    */
-  chatHub?: ChatHub;
-}
-
-/** Çok eşli sohbet yolu (müşteri sayfası). `send` → en az bir eşe gitti mi; `subscribe` → gelen (kaynak eşin tid'iyle). */
-export interface ChatHub {
-  ready: boolean;
-  send: (m: { t: "chat"; id: string; text: string; ts: number }) => boolean;
-  subscribe: (fn: (m: { id: string; text: string; ts: number; by: string }) => void) => () => void;
+  legacyNotice?: boolean;
 }
 
 export interface FsrvLink {
@@ -100,11 +93,7 @@ const e2eOfferTimeout = () =>
 const e2eSelfThrottle = () =>
   !(process.env.NEXT_PUBLIC_RS_E2E === "1" && (globalThis as { __rsNoSelfThrottle?: boolean }).__rsNoSelfThrottle);
 
-/** `sendChat` sonucu: gönderildi / hız sınırı (AC-227) / kanal kapalı veya geçersiz metin. */
-type ChatSendResult = "sent" | "rate" | "error";
-
 export function useCollab(ch: Channels | null, o: CollabOptions) {
-  const [chat, chatDispatch] = useReducer(chatReducer, initialChat);
   const [transfers, setTransfers] = useState<Transfer[]>([]);
   const [annot, setAnnot] = useState<AnnotState>(initialAnnot);
   const ft = useRef<FileTransfers | null>(null);
@@ -113,6 +102,7 @@ export function useCollab(ch: Channels | null, o: CollabOptions) {
     opts.current = o;
   });
   const fs = useFsrvTransfers(o, opts);
+  const notify = useRef(legacyNotifier());
   const server = fs.server;
 
   useEffect(() => {
@@ -135,6 +125,7 @@ export function useCollab(ch: Channels | null, o: CollabOptions) {
           extBusy: () => opts.current.printBusy?.() ?? false,
         });
     ft.current = t;
+    const sendRaw = (x: string) => ch.ctl.readyState === "open" && (ch.ctl.send(x), true);
     const dcReject = (fid: string) => ch.ctl.readyState === "open" && ch.ctl.send(JSON.stringify({ t: "file.reject", fid }));
     // S-P5-6: karşı tarafın chat/annot seli bu sekmeyi kilitlemesin — aşan mesaj düşer
     const allow = inboundLimiter();
@@ -142,8 +133,8 @@ export function useCollab(ch: Channels | null, o: CollabOptions) {
       const m = parseCtl(e.data);
       if (!m || !allow(m.t)) return;
       if (m.t === "chat") {
-        if (opts.current.chatHub) return; // P28c: sohbet çok eşli yoldan
-        chatDispatch({ type: "in", id: m.id, text: m.text, ts: m.ts, visible: opts.current.chatVisible, by: m.by });
+        // P22: gösterilmez; eski misafir yazdıysa (yalnız sahip) sabit bildirim
+        if (opts.current.legacyNotice) notify.current(sendRaw);
       } else if (m.t.startsWith("file.")) {
         if (!t) {
           if (m.t === "file.offer") dcReject(m.fid);
@@ -164,15 +155,15 @@ export function useCollab(ch: Channels | null, o: CollabOptions) {
     };
   }, [ch, o.inbound, o.maxFileMb, server]);
 
+  // K-P22-3: kabulden sonra (DC açık + misafir eski + sahip) bir kez; sonrası 60 sn sınırıyla gelen DC `chat`'e bağlı
   useEffect(() => {
-    if (o.chatVisible) chatDispatch({ type: "read" });
-  }, [o.chatVisible]);
-
-  const hub = o.chatHub;
-  useEffect(() => {
-    if (!hub) return;
-    return hub.subscribe((m) => chatDispatch({ type: "in", ...m, visible: opts.current.chatVisible }));
-  }, [hub]);
+    if (!ch || !o.legacyNotice) return;
+    const raw = (x: string) => ch.ctl.readyState === "open" && (ch.ctl.send(x), true);
+    if (ch.ctl.readyState === "open") return void notify.current(raw);
+    const onOpen = () => notify.current(raw);
+    ch.ctl.addEventListener("open", onOpen, { once: true });
+    return () => ch.ctl.removeEventListener("open", onOpen);
+  }, [ch, o.legacyNotice]);
 
   const sendCtl = useCallback(
     (m: CtlMessage) => {
@@ -181,22 +172,6 @@ export function useCollab(ch: Channels | null, o: CollabOptions) {
       return true;
     },
     [ch],
-  );
-
-  // AC-227: gönderen sınırı — aşımda mesaj gönderilmez ve kuyruğa alınmaz ("rate"); metin girişte kalır
-  const chatLimit = useRef(chatSendLimiter());
-  const sendChat = useCallback(
-    (text: string): ChatSendResult => {
-      const item = prepareChat(text);
-      const ready = hub ? hub.ready : ch?.ctl.readyState === "open";
-      if (!item || !ready) return "error";
-      if (!chatLimit.current.take()) return "rate";
-      const m = { t: "chat" as const, id: item.id, text: item.text, ts: item.ts };
-      if (!(hub ? hub.send(m) : sendCtl(m))) return "error";
-      chatDispatch({ type: "out", item });
-      return "sent";
-    },
-    [ch, hub, sendCtl],
   );
 
   /** Çizim gönder + yerelde uygula (geri al/temizle kendi listemizde de geçerli). */
@@ -211,16 +186,12 @@ export function useCollab(ch: Channels | null, o: CollabOptions) {
   const mb = o.maxFileMb ?? DEFAULT_MAX_FILE_MB;
   return {
     ready: ch !== null,
-    /** Sohbet gönderilebilir (P28c: müşteri sayfasında herhangi bir eşin kanalı açık). */
-    chatReady: hub ? hub.ready : ch !== null,
     /** P28b: dosyalar sunucu yolundan (SERVER modu) — arayüz bilgi satırı (AC-363) ve hazır olma buna göre. */
     fileMode: server ? ("SERVER" as const) : ("P2P" as const),
     /** Dosya yolu hazır: P2P'de DC açık, SERVER'da WS + karşı taraf. */
     filesReady: server ? (o.fsrv?.ready ?? false) : ch !== null,
     /** Etkin dosya sınırı (MB) — arayüz metinleri için (SERVER: en çok 256 MB). */
     maxMb: server ? Math.min(mb, FSRV_MAX_BYTES / 1_048_576) : mb,
-    chat,
-    sendChat,
     transfers: server ? fs.list : transfers,
     sendFile: (f: File) => (server ? fx.current?.send(f) : ft.current?.send(f)) ?? Promise.resolve("denied" as const),
     accept: (fid: string) => void (server ? fx.current?.accept(fid) : ft.current?.accept(fid)),

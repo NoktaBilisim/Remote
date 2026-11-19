@@ -53,7 +53,7 @@ const flush = () => new Promise((r) => setTimeout(r, 0));
 
 function make() {
   const sent: Record<string, unknown>[] = [];
-  const p = new GuestPeers({ ice: () => [], send: (m) => sent.push(m as Record<string, unknown>), onChange: () => {}, onChat: () => {} });
+  const p = new GuestPeers({ ice: () => [], send: (m) => sent.push(m as Record<string, unknown>), onChange: () => {} });
   return { p, sent };
 }
 

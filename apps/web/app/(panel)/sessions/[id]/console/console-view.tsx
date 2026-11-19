@@ -22,7 +22,8 @@ import { useCollab } from "@/lib/dc/use-collab";
 import { useQuality } from "@/lib/webrtc/use-quality";
 import { useTechSession } from "@/lib/webrtc/use-tech-session";
 import { inviteBlockOf } from "@/lib/multi/errors";
-import { canSend, chatAuthor, seatOf, type Seat } from "@/lib/multi/roster";
+import { canSend, seatOf, type Seat } from "@/lib/multi/roster";
+import { useSessionChat } from "@/lib/chat/use-session-chat";
 import { consoleVoiceView, shouldListen } from "@/lib/voice/console";
 import { voiceEndToast } from "@/lib/voice/ui";
 import { useConsoleVoice } from "@/lib/voice/use-console-voice";
@@ -68,9 +69,21 @@ export function ConsoleView({
   const printBusy = useRef<() => boolean>(() => false);
   const files = notController && canFiles ? { allowed: false, blocked: "notController" as const } : serverFiles(state, canFiles);
   const collab = useCollab(ts.channels, {
-    ...collabOptions(ts, files.allowed, tab),
+    ...collabOptions(ts, files.allowed),
     sendMeta: gatedSend,
     printBusy: () => printBusy.current(),
+    // K-P22-3: eski misafire sabit bildirim yalnız oturum sahibinin konsolundan
+    legacyNotice: seat.owner && state.guestChat === "outdated" && !state.unattended,
+  });
+  // P22 (§8.1): oturum sohbeti sunucu WS'inden (DC değil)
+  const chat = useSessionChat({
+    side: "tech",
+    subscribe: ts.subscribe,
+    send: ts.send,
+    tid: state.tid,
+    visible: tab === "chat",
+    connected: state.phase === "live" && state.reconnectSince === null,
+    guestChat: state.guestChat,
   });
   const quality = useQuality(ts.pc, gatedSend);
   const now = useNow();
@@ -158,8 +171,10 @@ export function ConsoleView({
               peerName={name}
               tab={tab}
               onTab={setTab}
-              chat={{
-                authorOf: (by) => chatAuthor(by, state.roster, name),
+              chat={chat}
+              chatBlocked={state.unattended ? "unattended" : null}
+              chatView={{
+                authorOf: (tid) => state.roster.find((e) => e.tid === tid)?.name ?? null,
                 readOnlyNote: seat.observer ? t("mt.observerChat") : null,
               }}
             />
@@ -240,12 +255,11 @@ function serverFiles(s: ReturnType<typeof useTechSession>["state"], canFiles: bo
   return { allowed: true, blocked: null };
 }
 
-/** Konsol tarafı işbirliği seçenekleri (gelen yön TO_TECH; okunmamış sayacı sohbet sekmesi açıkken sıfırlanır). */
-function collabOptions(ts: ReturnType<typeof useTechSession>, canFiles: boolean, tab: CollabTab) {
+/** Konsol tarafı işbirliği seçenekleri (gelen yön TO_TECH). */
+function collabOptions(ts: ReturnType<typeof useTechSession>, canFiles: boolean) {
   return {
     inbound: "TO_TECH" as const,
     filesAllowed: canFiles,
-    chatVisible: tab === "chat",
     receiveAnnot: false,
     sendMeta: ts.send,
     maxFileMb: ts.maxFileMb,

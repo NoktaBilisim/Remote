@@ -396,6 +396,32 @@ sayfasında gösterilir, `client_unsupported` WEB'de üretilmez. `binding.offer`
 redakte. `/r/<ref>` sayfası uygulamanın sıkı CSP'siyle sunulur (`connect-src 'self' wss://<host>`, `frame-ancestors 'none'`,
 `Referrer-Policy: no-referrer`).
 
+### 5.6 P22 eki — oturum sohbeti `/ws/tech` + `/ws/guest` üzerinden (2026-11-18; mimari-p22 §4, §15; AC-264)
+
+Bu bölüm yalnız ekler; §1–§5.5 aynen geçerlidir. Sözleşme `packages/contracts/src/ws-chat.ts` (+ `chat.ts` gövde şeması),
+ortak fikstür `fixtures/ws-session-chat.json`, sunucu `apps/server/src/signaling/chat.ts` + `sessions/chat.ts`. Uç ayrıntısı
+ve örnekler `docs/api.md` "Oturum sohbeti (P22)".
+
+- **Tek yol:** gönderen → sunucu (doğrula → şifrele → koşullu INSERT, oda ACTIVE) → commit sonrası tüm teknisyen soketleri +
+  `rs.cap.schat1` bildiren kabul edilmiş misafir. Oda başına seri zincir; yayın sırası = saklama sırası. DC `ctl` `chat`
+  (§4.1) yeni kodda gönderilmez/gösterilmez; yalnız eski misafir tespiti ve konsolun sabit `LEGACY_CHAT_NOTICE` bildirimi
+  (parametresiz, 60 sn'de en çok 1, yalnız sahip) için kalır.
+- **Yetenek:** `rs.cap.schat1` (`/ws/request` `rs.cap.chat1`'den ayrı). `/ws/guest`: yalnız belirteçli sokette `chat.*` şemada
+  (`guestInboundSchemaFor` bit 64); belirteçsiz misafire hiçbir `chat.*` gitmez, misafir `hello`'suna alan eklenmez.
+  `/ws/tech`: belirteç zorunlu; yoksa odaya bağlanmadan **4426** `console_outdated` (§1 kapanış kodlarına ek).
+- **Mesajlar:** `chat.send {clientMsgId, body}` (C→S); `chat.message`, `chat.history {items ≤ 100, more}`,
+  `chat.state {enabled, reason?}`, `chat.rejected {clientMsgId, reason}` (S→C). Teknisyen `hello` / `peer.joined{guest}` +=
+  `guestChat: "on" | "outdated"`.
+- **Kapı sırası:** ACTIVE değil → `not_active`; gözetimsiz → `forbidden`; izleyici (`ROLE_MAY["chat.send"] = "talker"`) →
+  `forbidden` (genel `error{FORBIDDEN}` değil, soket açık); kabul edilmemiş misafir → `forbidden`; eski misafirli odada
+  teknisyen → `outdated`. Sonra kovalar: gönderen 5/sn, oturumda gönderen başına 2.000 ve toplam 10.000 (`cap`), firma
+  müşteri 600/dk.
+- **Geçmiş:** `chat.history` yalnız oda ACTIVE iken, koltuklu teknisyen soketine ve kabul edilmiş `schat1` misafire; çerçeve
+  ≤ `CHAT_HISTORY_MAX_BYTES` (48 KiB, Go okuma sınırı 64 KiB), en yeniden geriye, sığmayan için `more: true`. Sonradan
+  katılan üyeye ilk gönderimde audit `session.chat_history_sent {userId, n}` (`n > 0`).
+- **P18 düzeltmesi (§5.4.2'ye ek):** `request.messages` aynı bayt bütçesiyle ≤ `REQUEST_HISTORY_MAX_BYTES` (48 KiB, ≤ 50 öğe);
+  şemaya `more` eklenmedi (0.12–0.20 Go katı ayrıştırıcı).
+
 ## 6. Bilgisayar kaydı mesajları (P8c — mimar, 2026-11-12; ADR-0017, `docs/mimari-e10.md` §3.4)
 
 Şemalar `packages/contracts/src/ws.ts` (`binding.*`, `strictObject`); Go eşi `internal/signal/messages.go`, ortak fixture `fixtures/bindings.json`. Kanal mevcut `/ws/guest` soketidir; yeni WS ucu yok. `hello` şeması **değişmez** (0.9.x istemci sıkı ayrıştırır).

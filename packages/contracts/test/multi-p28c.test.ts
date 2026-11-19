@@ -123,7 +123,17 @@ describe("P28c rol kapısı ROLE_MAY (D-PC-6 varsayılan-ret)", () => {
     expect(techTypes.filter((t) => multi.seatMay(t, observer)).sort()).toEqual(["ice", "ice.restart", "member.leave", "sdp.offer"]);
     const member = { owner: false, controller: false, observer: false };
     const allowed = techTypes.filter((t) => multi.seatMay(t, member));
-    expect(allowed.sort()).toEqual(["ice", "ice.restart", "member.leave", "sdp.offer", "voice.end", "voice.join", "voice.request"]);
+    // P22 (S-P22-8): katılımcı chat.send gönderir (talker); izleyici göndermez (yukarıdaki liste).
+    expect(allowed.sort()).toEqual([
+      "chat.send",
+      "ice",
+      "ice.restart",
+      "member.leave",
+      "sdp.offer",
+      "voice.end",
+      "voice.join",
+      "voice.request",
+    ]);
     const controllerMember = { owner: false, controller: true, observer: false };
     expect(multi.seatMay("control.request", controllerMember)).toBe(true);
     expect(multi.seatMay("clip.push", controllerMember)).toBe(true);

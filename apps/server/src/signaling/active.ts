@@ -12,6 +12,8 @@ import type { Guest, Room, TechConn } from "./types.ts";
 import { guestMulti, rosterOf, sendRosterToGuest, sendTechs, techRoleOf, tidOf } from "./members.ts";
 import { recHelloGuest, recHelloTech } from "./rec.ts";
 import { guestVoiceOf, voiceGuestHello } from "./voice.ts";
+import { writeChatSummary } from "../sessions/chat.ts";
+import { chatAdmitted, chatGuestHello, chatSettled, chatTechHello, guestChatField } from "./chat.ts";
 
 const HOUR_MS = 3_600_000;
 const iso = (ms: number): string => new Date(ms).toISOString();
@@ -34,9 +36,10 @@ function grant(rooms: Rooms, room: Room, fresh = false): IceGrant {
 
 /**
  * Teknisyen hello'su: PENDING'de iceServers boş + maxEndsAt null (TURN yalnız admit sonrası). P28c: `conn` verilirse o sokete
- * (üye); `tid`, `techRole`, `roster` her teknisyene (§4.4).
+ * (üye); `tid`, `techRole`, `roster` her teknisyene (§4.4). P22: hello'dan hemen sonra `chat.state` + koltuklu sokete
+ * `chat.history` (`history: false` → çağıran kendisi `chatTechHello` ile gönderir; üye katılım audit'i `chatHistory:<n>`).
  */
-export function sendHelloTech(rooms: Rooms, room: Room, conn: TechConn | undefined = room.tech): void {
+export function sendHelloTech(rooms: Rooms, room: Room, conn: TechConn | undefined = room.tech, history = true): void {
   const g = room.admitted;
   if (!conn) return;
   conn.peer.send({
@@ -59,7 +62,9 @@ export function sendHelloTech(rooms: Rooms, room: Room, conn: TechConn | undefin
     roster: rosterOf(room),
     ...(g ? { guestMulti: guestMulti(room) } : {}), // K1c AC-372: konsol "Davet et"/"İzle"yi baştan pasif gösterir
     ...(g ? { guestVoice: guestVoiceOf(room) } : {}), // P28d §4.1: transceiver + düğme durumu (eski istemci → false)
+    ...guestChatField(room), // P22 §4.1: "on" | "outdated"; yok = misafir yok / gözetimsiz
   });
+  if (history) void chatTechHello(rooms, room, conn);
 }
 
 /** P27 + P28u (§6.4): konsol rozeti + kip (`ask` odasında onay sonucuna kadar yok) + müdahale düğmeleri (cihaz `consent1`). */
@@ -111,6 +116,7 @@ export function sendHelloGuest(rooms: Rooms, room: Room, guest: Guest): void {
   room.multi.guestMulti = guest.peer?.multi === true;
   sendRosterToGuest(room); // P28c §4.4: multi1 misafire hello'nun hemen ardından
   voiceGuestHello(room); // P28d §4.2: ses destekli misafire roster'dan hemen sonra `voice.state`
+  chatGuestHello(rooms, room, guest); // P22 §4.1: `guestChat`; schat1 sokete chat.state + chat.history; eskide chat_legacy
   offerBinding(rooms, guest);
 }
 
@@ -127,6 +133,7 @@ export function sendGuestJoined(room: Room, guest: Guest): void {
     ...clipPrintFields(room, false),
     guestMulti: guest.peer?.multi === true, // K1c AC-372
     guestVoice: hasVoice(room, guest.peer), // P28d §4.1
+    ...guestChatField(room), // P22 §4.1 (sendHelloGuest'ten sonra çağrılır)
   });
 }
 
@@ -171,6 +178,7 @@ export function scheduleActive(rooms: Rooms, room: Room, guest: Guest, consumedA
   sendHelloGuest(rooms, room, guest);
   room.tech?.peer.send({ t: "ice.servers", iceServers: grant(rooms, room).iceServers });
   sendGuestJoined(room, guest);
+  chatAdmitted(room); // P22: teknisyenlere chat.state{true}
 }
 
 /** İki taraf da bağlıysa kopma sayacı iptal; biri yoksa 120 sn sonra oturum `timeout` ile biter (AC-25). */
@@ -189,7 +197,10 @@ export function syncDisconnect(rooms: Rooms, room: Room): void {
   }, rooms.timing.reconnectMs);
 }
 
-/** `Rooms.finish`: ACTIVE oturum → DB ENDED + audit `session.ended` (tek TX); hata loglanır, teardown yine yapılır. */
+/**
+ * `Rooms.finish`: ACTIVE oturum → DB ENDED + audit `session.ended` + P22 `session.chat_summary` (S-P22-4; DB'den sayım) tek TX;
+ * hata loglanır, teardown yine yapılır. Özetten önce odanın sohbet zinciri (uçuştaki INSERT / `chat_legacy`) beklenir.
+ */
 export async function recordEnded(
   rooms: Rooms,
   room: Room,
@@ -198,6 +209,7 @@ export async function recordEnded(
   ctx: AuditContext,
 ): Promise<void> {
   try {
+    await chatSettled(room);
     await rooms.db.$transaction(async (tx) => {
       if ((await repo.endActive(tx, room.sessionId, new Date(rooms.clock.now()), endedBy, reason)) === 0) return;
       const actor =
@@ -214,6 +226,7 @@ export async function recordEnded(
         oldValue: { status: "ACTIVE" },
         newValue: { status: "ENDED", endedBy, reason },
       });
+      await writeChatSummary(tx, room.tenantId, room.sessionId);
     });
   } catch (err) {
     rooms.log.error({ err, sessionId: room.sessionId }, "oturum bitişi DB'ye yazılamadı");

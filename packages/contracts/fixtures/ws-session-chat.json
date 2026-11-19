@@ -1,0 +1,451 @@
+{
+  "_doc": "P22 oturum sohbeti sözleşme örnekleri (mimari-p22 r2 §4, §15). TS (packages/contracts/test/session-chat-p22.test.ts) ve Go (P22-G internal/signal/chat_test.go) aynı dosyayı okur. valid.* geçer, invalid.* reddedilir. techInbound: /ws/tech chat.send (her zaman şemada); guestInbound: yalnız rs.cap.schat1 misafir soketi (belirteçsiz sokette şema dışı → 1008); bodyOnly: zarf (chatSendEnvelopeSchema) geçer, tam şema reddeder → chat.rejected{invalid}, soket açık; guestOutbound: sunucu → schat1 misafir; techOutbound: konsola (hello/peer.joined guestChat dahil — Go misafir hello/peer.joined'da guestChat'i reddeder). texts: bağlayıcı metinler (chat.ts).",
+  "subprotocols": {
+    "schat": "rs.cap.schat1"
+  },
+  "constants": {
+    "CHAT_HISTORY_MAX": 100,
+    "CHAT_HISTORY_MAX_BYTES": 49152,
+    "SESSION_CHAT_CAP_PER_SENDER": 2000,
+    "SESSION_CHAT_TENANT_CUSTOMER_PER_MIN": 600,
+    "CHAT_CLIENT_MSG_ID_PATTERN": "^[A-Za-z0-9_-]{16,36}$",
+    "SESSION_CHAT_MIN_CLIENT": "0.21.0",
+    "WS_CLOSE_CONSOLE_OUTDATED": 4426,
+    "MESSAGE_BODY_MAX": 1000,
+    "MESSAGE_LINES_MAX": 20
+  },
+  "sets": {
+    "rejectReasons": ["rate", "cap", "invalid", "forbidden", "not_active", "outdated", "internal"],
+    "guestChat": ["on", "outdated"],
+    "stateReasons": ["not_active", "ended"]
+  },
+  "texts": {
+    "legacyNotice": "Bu sürümde sohbet kapalıdır. Yazdıklarınız teknisyene gösterilmez ve kaydedilmez; lütfen sohbet için programı güncelleyin.",
+    "retentionLine90": "Sohbet mesajları kayıt altına alınır ve 90 gün saklanır",
+    "consentKeySentence": "Sohbet uçtan uca şifreli değildir"
+  },
+  "valid": {
+    "techInbound": [
+      {
+        "t": "chat.send",
+        "clientMsgId": "cm_0123456789abcd",
+        "body": "Merhaba"
+      },
+      {
+        "t": "chat.send",
+        "clientMsgId": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+        "body": "Satır 1\nSatır 2 👍"
+      },
+      {
+        "t": "chat.send",
+        "clientMsgId": "bbbbbbbbbbbbbbbb",
+        "body": "  kırpılır\r\n  "
+      },
+      {
+        "t": "chat.send",
+        "clientMsgId": "cm_0123456789abcd",
+        "body": "😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀"
+      },
+      {
+        "t": "chat.send",
+        "clientMsgId": "cm_0123456789abcd",
+        "body": "s\ns\ns\ns\ns\ns\ns\ns\ns\ns\ns\ns\ns\ns\ns\ns\ns\ns\ns\ns"
+      },
+      {
+        "t": "chat.send",
+        "clientMsgId": "cm_0123456789abcd",
+        "body": "👨‍💻 ❤️"
+      }
+    ],
+    "guestInbound": [
+      {
+        "t": "chat.send",
+        "clientMsgId": "cm_0123456789abcd",
+        "body": "Ekranımı görüyor musunuz?"
+      },
+      {
+        "t": "chat.send",
+        "clientMsgId": "Z9_-Z9_-Z9_-Z9_-",
+        "body": "Tamam"
+      }
+    ],
+    "guestOutbound": [
+      {
+        "id": "01JC5Z8X4N2M7Q9R3T6V0W1Y2A",
+        "sender": "TECH",
+        "tid": "Ab3_xY9-kLm",
+        "senderName": "Ayşe Teknisyen",
+        "body": "Merhaba, nasıl yardımcı olabilirim?",
+        "createdAt": "2026-11-17T10:00:00.000Z",
+        "t": "chat.message"
+      },
+      {
+        "id": "01JC5Z8X4N2M7Q9R3T6V0W1Y2B",
+        "sender": "CUSTOMER",
+        "body": "Yazıcı çalışmıyor\nHata kodu 0x1F 👍",
+        "createdAt": "2026-11-17T10:00:05.000Z",
+        "t": "chat.message",
+        "clientMsgId": "cm_0123456789abcd"
+      },
+      {
+        "t": "chat.history",
+        "items": [
+          {
+            "id": "01JC5Z8X4N2M7Q9R3T6V0W1Y2A",
+            "sender": "TECH",
+            "tid": "Ab3_xY9-kLm",
+            "senderName": "Ayşe Teknisyen",
+            "body": "Merhaba, nasıl yardımcı olabilirim?",
+            "createdAt": "2026-11-17T10:00:00.000Z"
+          },
+          {
+            "id": "01JC5Z8X4N2M7Q9R3T6V0W1Y2B",
+            "sender": "CUSTOMER",
+            "body": "Yazıcı çalışmıyor\nHata kodu 0x1F 👍",
+            "createdAt": "2026-11-17T10:00:05.000Z"
+          }
+        ],
+        "more": false
+      },
+      {
+        "t": "chat.history",
+        "items": [],
+        "more": true
+      },
+      {
+        "t": "chat.state",
+        "enabled": true
+      },
+      {
+        "t": "chat.state",
+        "enabled": false,
+        "reason": "ended"
+      },
+      {
+        "t": "chat.rejected",
+        "clientMsgId": "cm_0123456789abcd",
+        "reason": "rate"
+      }
+    ],
+    "techOutbound": [
+      {
+        "id": "01JC5Z8X4N2M7Q9R3T6V0W1Y2A",
+        "sender": "TECH",
+        "tid": "Ab3_xY9-kLm",
+        "senderName": "Ayşe Teknisyen",
+        "body": "Merhaba, nasıl yardımcı olabilirim?",
+        "createdAt": "2026-11-17T10:00:00.000Z",
+        "t": "chat.message",
+        "clientMsgId": "cm_0123456789abcd"
+      },
+      {
+        "id": "01JC5Z8X4N2M7Q9R3T6V0W1Y2B",
+        "sender": "CUSTOMER",
+        "body": "Yazıcı çalışmıyor\nHata kodu 0x1F 👍",
+        "createdAt": "2026-11-17T10:00:05.000Z",
+        "t": "chat.message"
+      },
+      {
+        "t": "chat.message",
+        "id": "01JC5Z8X4N2M7Q9R3T6V0W1Y2A",
+        "sender": "TECH",
+        "body": "tid ve ad isteğe bağlı",
+        "createdAt": "2026-11-17T10:00:00.000Z"
+      },
+      {
+        "t": "chat.history",
+        "items": [
+          {
+            "id": "01JC5Z8X4N2M7Q9R3T6V0W1Y2B",
+            "sender": "CUSTOMER",
+            "body": "Yazıcı çalışmıyor\nHata kodu 0x1F 👍",
+            "createdAt": "2026-11-17T10:00:05.000Z"
+          },
+          {
+            "id": "01JC5Z8X4N2M7Q9R3T6V0W1Y2A",
+            "sender": "TECH",
+            "tid": "Ab3_xY9-kLm",
+            "senderName": "Ayşe Teknisyen",
+            "body": "Merhaba, nasıl yardımcı olabilirim?",
+            "createdAt": "2026-11-17T10:00:00.000Z"
+          }
+        ],
+        "more": true
+      },
+      {
+        "t": "chat.state",
+        "enabled": false,
+        "reason": "not_active"
+      },
+      {
+        "t": "chat.rejected",
+        "clientMsgId": "cm_0123456789abcd",
+        "reason": "outdated"
+      },
+      {
+        "t": "chat.rejected",
+        "clientMsgId": "cm_0123456789abcd",
+        "reason": "forbidden"
+      },
+      {
+        "t": "hello",
+        "role": "tech",
+        "sessionId": "01JC5Z8X4N2M7Q9R3T6V0W1Y20",
+        "peerPresent": true,
+        "iceServers": [],
+        "maxEndsAt": null,
+        "guestChat": "on"
+      },
+      {
+        "t": "hello",
+        "role": "tech",
+        "sessionId": "01JC5Z8X4N2M7Q9R3T6V0W1Y20",
+        "peerPresent": true,
+        "iceServers": [],
+        "maxEndsAt": null,
+        "guestChat": "outdated"
+      },
+      {
+        "t": "peer.joined",
+        "role": "guest",
+        "guestKind": "AGENT",
+        "guestName": "Mehmet",
+        "guestChat": "outdated"
+      }
+    ]
+  },
+  "invalid": {
+    "techInbound": [
+      {
+        "t": "chat.send",
+        "clientMsgId": "aaaaaaaaaaaaaaa",
+        "body": "kısa kimlik"
+      },
+      {
+        "t": "chat.send",
+        "clientMsgId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "body": "uzun kimlik"
+      },
+      {
+        "t": "chat.send",
+        "clientMsgId": "cm_01234567 89abcd",
+        "body": "boşluklu kimlik"
+      },
+      {
+        "t": "chat.send",
+        "body": "kimlik yok"
+      },
+      {
+        "t": "chat.send",
+        "clientMsgId": "cm_0123456789abcd"
+      },
+      {
+        "t": "chat.send",
+        "clientMsgId": "cm_0123456789abcd",
+        "body": "fazla alan",
+        "by": "Ab3_xY9-kLm"
+      },
+      {
+        "t": "chat.send",
+        "clientMsgId": "cm_0123456789abcd",
+        "body": 7
+      }
+    ],
+    "bodyOnly": [
+      {
+        "t": "chat.send",
+        "clientMsgId": "cm_0123456789abcd",
+        "body": ""
+      },
+      {
+        "t": "chat.send",
+        "clientMsgId": "cm_0123456789abcd",
+        "body": "   \n  "
+      },
+      {
+        "t": "chat.send",
+        "clientMsgId": "cm_0123456789abcd",
+        "body": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      {
+        "t": "chat.send",
+        "clientMsgId": "cm_0123456789abcd",
+        "body": "s\ns\ns\ns\ns\ns\ns\ns\ns\ns\ns\ns\ns\ns\ns\ns\ns\ns\ns\ns\ns"
+      },
+      {
+        "t": "chat.send",
+        "clientMsgId": "cm_0123456789abcd",
+        "body": "ters ‮yazı"
+      },
+      {
+        "t": "chat.send",
+        "clientMsgId": "cm_0123456789abcd",
+        "body": "satır ayırıcı"
+      },
+      {
+        "t": "chat.send",
+        "clientMsgId": "cm_0123456789abcd",
+        "body": "sıfır​genişlik"
+      },
+      {
+        "t": "chat.send",
+        "clientMsgId": "cm_0123456789abcd",
+        "body": "zil\u0007"
+      }
+    ],
+    "guestInbound": [
+      {
+        "t": "chat.send",
+        "clientMsgId": "aaaaaaaaaaaaaaa",
+        "body": "kısa kimlik"
+      },
+      {
+        "t": "chat.send",
+        "clientMsgId": "cm_0123456789abcd",
+        "body": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      {
+        "t": "chat",
+        "id": "x1",
+        "text": "DC biçimi WS'te yok",
+        "ts": 0
+      }
+    ],
+    "guestOutbound": [
+      {
+        "id": "01JC5Z8X4N2M7Q9R3T6V0W1Y2B",
+        "sender": "CUSTOMER",
+        "body": "Yazıcı çalışmıyor\nHata kodu 0x1F 👍",
+        "createdAt": "2026-11-17T10:00:05.000Z",
+        "t": "chat.message",
+        "senderName": "Müşteri adı yasak"
+      },
+      {
+        "t": "chat.history",
+        "items": [
+          {
+            "id": "01JC5Z8X4N2M7Q9R3T6V0W1Y2A",
+            "sender": "TECH",
+            "tid": "Ab3_xY9-kLm",
+            "senderName": "Ayşe Teknisyen",
+            "body": "Merhaba, nasıl yardımcı olabilirim?",
+            "createdAt": "2026-11-17T10:00:00.000Z"
+          }
+        ]
+      },
+      {
+        "t": "chat.state",
+        "enabled": true,
+        "reason": "closed"
+      }
+    ],
+    "techOutbound": [
+      {
+        "id": "01JC5Z8X4N2M7Q9R3T6V0W1Y2B",
+        "sender": "CUSTOMER",
+        "body": "Yazıcı çalışmıyor\nHata kodu 0x1F 👍",
+        "createdAt": "2026-11-17T10:00:05.000Z",
+        "t": "chat.message",
+        "tid": "Ab3_xY9-kLm"
+      },
+      {
+        "id": "01JC5Z8X4N2M7Q9R3T6V0W1Y2B",
+        "sender": "CUSTOMER",
+        "body": "Yazıcı çalışmıyor\nHata kodu 0x1F 👍",
+        "createdAt": "2026-11-17T10:00:05.000Z",
+        "t": "chat.message",
+        "senderName": "Ad"
+      },
+      {
+        "id": "01JC5Z8X4N2M7Q9R3T6V0W1Y2A",
+        "sender": "TECH",
+        "tid": "Ab3_xY9-kLm",
+        "senderName": "Ayşe Teknisyen",
+        "body": "Merhaba, nasıl yardımcı olabilirim?",
+        "createdAt": "2026-11-17T10:00:00.000Z",
+        "t": "chat.message",
+        "clientMsgId": "short"
+      },
+      {
+        "id": "01JC5Z8X4N2M7Q9R3T6V0W1Y2A",
+        "sender": "TECH",
+        "tid": "Ab3_xY9-kLm",
+        "senderName": "Ayşe Teknisyen",
+        "body": "",
+        "createdAt": "2026-11-17T10:00:00.000Z",
+        "t": "chat.message"
+      },
+      {
+        "id": "01JC5Z8X4N2M7Q9R3T6V0W1Y2A",
+        "sender": "SYSTEM",
+        "tid": "Ab3_xY9-kLm",
+        "senderName": "Ayşe Teknisyen",
+        "body": "Merhaba, nasıl yardımcı olabilirim?",
+        "createdAt": "2026-11-17T10:00:00.000Z",
+        "t": "chat.message"
+      },
+      {
+        "id": "01JC5Z8X4N2M7Q9R3T6V0W1Y2A",
+        "sender": "TECH",
+        "tid": "Ab3_xY9-kLm",
+        "senderName": "Ayşe Teknisyen",
+        "body": "Merhaba, nasıl yardımcı olabilirim?",
+        "createdAt": "dün",
+        "t": "chat.message"
+      },
+      {
+        "t": "chat.history",
+        "items": [
+          {
+            "id": "01JC5Z8X4N2M7Q9R3T6V0W1Y2A",
+            "sender": "TECH",
+            "tid": "Ab3_xY9-kLm",
+            "senderName": "Ayşe Teknisyen",
+            "body": "Merhaba, nasıl yardımcı olabilirim?",
+            "createdAt": "2026-11-17T10:00:00.000Z",
+            "clientMsgId": "cm_0123456789abcd"
+          }
+        ],
+        "more": false
+      },
+      {
+        "t": "chat.history",
+        "items": [
+          {
+            "id": "01JC5Z8X4N2M7Q9R3T6V0W1Y2A",
+            "sender": "TECH",
+            "tid": "Ab3_xY9-kLm",
+            "senderName": "Ayşe Teknisyen",
+            "body": "Merhaba, nasıl yardımcı olabilirim?",
+            "createdAt": "2026-11-17T10:00:00.000Z",
+            "t": "chat.message"
+          }
+        ],
+        "more": false
+      },
+      {
+        "t": "chat.rejected",
+        "clientMsgId": "cm_0123456789abcd",
+        "reason": "spam"
+      },
+      {
+        "t": "chat.rejected",
+        "reason": "rate"
+      },
+      {
+        "t": "hello",
+        "role": "tech",
+        "sessionId": "01JC5Z8X4N2M7Q9R3T6V0W1Y20",
+        "peerPresent": true,
+        "iceServers": [],
+        "maxEndsAt": null,
+        "guestChat": "off"
+      },
+      {
+        "t": "peer.joined",
+        "role": "guest",
+        "guestChat": true
+      }
+    ]
+  }
+}

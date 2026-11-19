@@ -199,8 +199,8 @@ describe("sinyal yardımcıları", () => {
   it("URL'de kimlik bilgisi yok; ticket alt protokolde", () => {
     expect(wsUrl("/ws/guest", { protocol: "https:", host: "h:4450" })).toBe("wss://h:4450/ws/guest");
     expect(wsUrl("/ws/guest", { protocol: "http:", host: "localhost" })).toBe("ws://localhost/ws/guest");
-    expect(guestProtocols({ ticket: "T" })).toEqual(["rs.v1", "rs.ticket.T", "rs.cap.rec1", "rs.cap.multi1"]);
-    expect(guestProtocols({ reconnect: "R" })).toEqual(["rs.v1", "rs.reconnect.R", "rs.cap.rec1", "rs.cap.multi1"]);
+    expect(guestProtocols({ ticket: "T" })).toEqual(["rs.v1", "rs.ticket.T", "rs.cap.rec1", "rs.cap.multi1", "rs.cap.schat1"]);
+    expect(guestProtocols({ reconnect: "R" })).toEqual(["rs.v1", "rs.reconnect.R", "rs.cap.rec1", "rs.cap.multi1", "rs.cap.schat1"]);
   });
   it("şema dışı/bozuk mesaj yok sayılır", () => {
     expect(parseServerMessage("{")).toBeNull();

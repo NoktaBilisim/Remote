@@ -20,6 +20,9 @@ geliştirilir (bkz. `README.md` "Yol haritası"); kılavuz da her paketle birlik
   yetkisi, bağlanma, cihaz rozetleri, iptal; müşteri tarafında servisi kurma, gösterge, tepsi, yerel kapatma, kaldırma);
   üç bağlantı kipi (İzinli / Kullanıcı yok / İzinsiz), cihazdaki onay penceresi, izin istemeden bağlanma politikası ve KVKK
   uyarısı, dört göz e-postası, müdahale (oturumu kilitle / kapat), eski servis güncellemesi
+- **Teknisyen, Admin, Super Admin ve müşteri için:** Oturum sohbeti ve kaydı (sohbet her zaman kaydedilir, uçtan uca
+  şifreli değildir, saklama süresi, "sohbete şifre yazmayın", eski Hızlı Destek'te sohbet kapalı, oturum geçmişinde
+  **Sohbeti göster** ve `sessions.view_chat` yetkisi, aydınlatma metninde standart sohbet paragrafı)
 - **Teknisyen, Admin ve müşteri için:** Çoklu teknisyen (roller, davet etme ve kabul, "İzle", kontrol ve oturum devri,
   oturumdan ayrılma, müşterinin teknisyen listesi ve **Çıkar**, Admin için `sessions.invite` / `sessions.supervise` yetkileri)
 - **Admin, teknisyen, müşteri ve müşteri BT için:** Oturum kaydı (Ayarlar > Oturum kaydı, saklama süresi, KVKK onayı,
@@ -339,7 +342,7 @@ Destek simgesi her zaman görünür.
 - Ekranınızı **görebilir**.
 - **Siz izin verirseniz** fare ve klavyenizi kullanabilir. İzni her istediğinizde tek tıkla veya bir tuş kombinasyonuyla
   geri alırsınız (bkz. "Teknisyen bilgisayarımı kullanmak isterse").
-- Sizinle yazışabilir (sohbet).
+- Sizinle yazışabilir (sohbet; tarayıcı modunda. Hızlı Destek 0.20 ve öncesinde oturum sohbeti kapalıdır, bkz. "Oturum sohbeti ve kaydı").
 - Ekranınızın üzerine geçici çizimler yapabilir (ok, kalem, dikdörtgen, kısa süreli lazer noktası). Bu çizimler
   tıklamanızı engellemez.
 - Size dosya gönderebilir. Her dosyayı siz onaylarsınız.
@@ -442,8 +445,9 @@ Paylaşım başlayınca:
 - Paylaşılan ekranın kenarında **kırmızı bir çerçeve** ve üstte **"Ekranınız izleniyor — <teknisyen adı>"** yazısı
   görünür. Bu çerçeve oturum boyunca hep en üstte kalır; teknisyenin görüntüsünde görünmez.
 - **Nokta Destek — Oturum** penceresi açılır. Burada bağlantı durumu, sohbet ve **Oturumu bitir** düğmesi bulunur.
-- **Sohbet:** alttaki kutuya yazıp **Gönder**'e tıklayın. Pencere arkadayken yeni mesaj gelirse
-  pencere başlığında "(1 yeni)" gibi bir sayı çıkar.
+- **Sohbet:** Hızlı Destek 0.20 ve öncesinde oturum sohbeti kapalıdır; sohbet kutusunda "Bu sürümde sohbet kapalıdır…"
+  mesajı görünür ve yazdıklarınız teknisyene ulaşmaz. Teknisyeninizle telefonda konuşun ya da tarayıcıdan bağlanın (bkz.
+  "Oturum sohbeti ve kaydı").
 - İnternet kısa süre koparsa "Bağlantı koptu, yeniden bağlanılıyor…" yazar. Program 2 dakika içinde kendiliğinden
   yeniden bağlanır; bir şey yapmanız gerekmez.
 - Oturumun bitmesine 5 dakika kala durum satırında uyarı çıkar.
@@ -3336,6 +3340,7 @@ süresi dolan verileri kendiliğinden siler veya anonimleştirir. Sizin bir şey
 | Destek talebi                                           | Saklama süresi dolunca                                                 | Ad, telefon, e-posta ve açıklama silinir                                                                                                                           |
 | Pasif müşteri                                           | Pasife alındıktan saklama süresi kadar sonra                           | Yetkili kişi, telefon, e-posta ve not silinir ("Anonimleştirildi")                                                                                                 |
 | Kayıtlı bilgisayar                                      | Son kullanımdan saklama süresi kadar sonra                             | Kayıt geçersiz olur; müşteri yeni dosya veya kodla bağlanır                                                                                                        |
+| Oturum sohbeti                                          | Oturum anonimleştirilirken                                             | Oturumun bütün sohbet mesajları silinir (bkz. "Oturum sohbeti ve kaydı")                                                                                           |
 | Oturum kaydı (görüntü)                                  | Kayıt saklama süresi (1–90 gün) dolunca veya oturum anonimleştirilince | Kayıt dosyaları silinir (bkz. "Oturum kaydı")                                                                                                                      |
 | Audit log                                               | 730 gün (firmaya göre değişmez)                                        | Silinir                                                                                                                                                            |
 | Giriş oturumları ve şifre sıfırlama bağlantıları        | Süreleri bittikten 7 gün sonra                                         | Silinir                                                                                                                                                            |
@@ -3476,7 +3481,7 @@ tarayıcıdan katılan müşteri ister. Eski sürümde "Davet et" ve "İzle" pas
 - Başlangıçta kontrol sahibi oturum sahibidir. Kontrolü başkasına verirse ona tam kalite görüntü ve kontrol hakkı geçer.
 - Katılımcı ve izleyicinin konsolunda kontrol, pano, yazdırma, dosya ve işaretleme düğmeleri pasiftir: "Yalnız kontrol
   sahibi kullanabilir". İzleyicinin sohbet kutusu yerine "İzleyici olarak sohbete yazamazsınız" yazar.
-- Bir teknisyen katılmadan önce yazılan sohbet mesajlarını görmez.
+- Davet edilen teknisyen ve süpervizör (İzle) katıldığı andan önceki sohbet mesajlarını görür (bkz. "Oturum sohbeti ve kaydı").
 
 ### Teknisyen için: Oturuma nasıl teknisyen davet ederim?
 
@@ -3593,6 +3598,146 @@ Oturumu açan teknisyenin (oturum sahibi) yanında "Çıkar" yoktur; onunla gör
 | "Önce 2FA kurun"                                                                         | Gözetimsiz oturuma katılmak için Hesabım > Güvenlik'ten iki adımlı doğrulamayı kurun         |
 | "Oturumdan çıkarıldınız: müşteri sizi çıkardı ya da bu oturum için yetkiniz kaldırıldı." | Bu oturuma yeniden giremezsiniz; gerekiyorsa yöneticinize başvurun                           |
 | "Davet edilebilecek kullanıcı yok"                                                       | Firmada yetkisi olan, etkin ve oturumda olmayan kullanıcı yok                                |
+
+## Oturum sohbeti ve kaydı (teknisyen, Admin, Super Admin ve müşteri için)
+
+Destek oturumundaki sohbet **her zaman kaydedilir**. Bu ayar kapatılamaz. Bilmeniz gerekenler:
+
+- Mesajlar sunucu üzerinden iletilir ve sunucuda şifrelenerek saklanır. Sohbet **uçtan uca şifreli değildir**: hizmeti
+  veren sunucu mesaj içeriğini okuyabilir. Canlı ekran görüntüsü, uzaktan kontrol ve doğrudan dosya aktarımı ise uçtan uca
+  şifreli kalır.
+- Mesajlar firmanın **oturum saklama süresi** kadar saklanır (bkz. "Kişisel verilerin saklama süresi ve anonimleştirme").
+  Ayrı bir sohbet saklama süresi yoktur. Oturum anonimleştirilirken o oturumun sohbeti silinir.
+- **Sohbete şifre veya kart bilgisi yazmayın.** Bu kural müşteri için de teknisyen için de geçerlidir. Şifre gerekiyorsa
+  telefonda söyleyin ya da müşteriden kendisinin yazmasını isteyin.
+- Mesaj en çok **1.000 karakter** ve 20 satır olabilir. Saniyede en çok 5 mesaj gönderilir (bkz. "Sohbette 'Çok hızlı
+  yazıyorsunuz' uyarısı").
+- **Gözetimsiz bağlantıda sohbet yoktur.** Konsolun sohbet sekmesinde "Gözetimsiz bağlantıda sohbet yoktur." yazar.
+
+### Müşteri için: Sohbet kaydedilir mi?
+
+Evet. Tarayıcıdan bağlanırken onay düğmesinin hemen üstünde "Sohbet mesajları kayıt altına alınır ve N gün saklanır"
+satırı yazar (N, firmanın saklama süresidir). Bu satır görünmüyorsa bağlanma düğmesi pasif kalır; sayfayı yenileyin.
+Aydınlatma metninde de sohbetin sunucuda saklandığı ve uçtan uca şifreli olmadığı yazar.
+
+Oturum sırasında sohbet bölümünün başlığında aynı saklama satırı tekrar görünür. Sayfayı yenilediyseniz gün sayısı yerine
+genel cümle görünebilir.
+
+### Müşteri için: Hızlı Destek'te "Bu sürümde sohbet kapalıdır" yazıyor
+
+Bilgisayarınızdaki Hızlı Destek programı (Windows ya da macOS, 0.20 ve öncesi) eski sohbet yolunu kullanır. Sohbet
+kaydedilmeden yapılamayacağı için bu sürümlerde oturum sohbeti **kapalıdır**. Sohbet penceresinde teknisyenin konsolundan
+şu sabit mesaj gelir:
+
+> Bu sürümde sohbet kapalıdır. Yazdıklarınız teknisyene gösterilmez ve kaydedilmez; lütfen sohbet için programı güncelleyin.
+
+Ne yapmalı:
+
+- Yazdıklarınız teknisyene ulaşmaz. Teknisyeninizle **telefonda** konuşun.
+- Görüntü, uzaktan kontrol, dosya, pano, yazdırma, sesli görüşme ve kayıt etkilenmez; oturuma devam edebilirsiniz.
+- Sohbet gerekiyorsa ekranınızı **tarayıcıdan** paylaşın: tarayıcı modunda sohbet tam çalışır.
+- Tepside çalışan ya da firmaya kayıtlı program kendiliğinden güncellenmez. Firmanızın destek sayfasından programı yeniden
+  indirin.
+- Beklerken yapılan talep sohbeti ("Beklerken teknisyenle nasıl yazışırım?") bundan etkilenmez.
+
+### Teknisyen için: Konsolda sohbet
+
+- Sohbet sekmesinin başlığı altında "Sohbet kayıt altına alınır ve oturum saklama süresi boyunca saklanır." notu durur.
+- Mesajınızı yazıp **Enter**'a basın (yeni satır için **Shift+Enter**). Sayaç "n / 1.000" gösterir.
+- Mesaj sunucuya ulaşana kadar "Gönderiliyor…" yazar. Ulaşmazsa "Gönderilemedi." ve **Tekrar dene** çıkar. Tekrar dene
+  aynı mesajı bir kez daha gönderir; mesaj iki kez kaydedilmez.
+- Oturum bitince "Sohbet kapandı; mesajlar salt okunur." yazar.
+- Uzun oturumda yalnız son mesajlar gelir ve "Daha eski mesajlar oturum geçmişinde." yazar. Tamamını oturum geçmişinde
+  görürsünüz.
+- İzleyici olarak katıldıysanız sohbeti okursunuz, yazamazsınız ("İzleyici olarak sohbete yazamazsınız").
+- **Süpervizör ve davet edilen teknisyen katıldığı andan önceki sohbet mesajlarını görür.** Bu bilgi audit log'a
+  "Katılan teknisyene önceki sohbet mesajları gösterildi" olarak yazılır (yalnız mesaj sayısı; içerik yazılmaz).
+
+| Konsolda gördüğünüz                                            | Anlamı / ne yapmalı                                                                                                                                                  |
+| -------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| "Müşterinin istemcisi eski; sohbet için güncellemesi gerekir." | Müşteri Hızlı Destek 0.20 veya öncesini kullanıyor. Sohbet iki tarafta kapalı, giriş pasif. Müşteriyle telefonda konuşun ya da müşteriyi tarayıcı moduna yönlendirin |
+| "Sohbet şu an kullanılamıyor."                                 | Sunucu sohbeti başlatamadı. Sayfayı yenileyin; sürerse sistem yöneticisine bildirin                                                                                  |
+| "Gözetimsiz bağlantıda sohbet yoktur."                         | Gözetimsiz bağlantılarda sohbet bulunmaz                                                                                                                             |
+| Başlıkta ve rozette "Konsol sürümü eski"                       | Bu sekme sistem güncellenmeden önce açılmış. Oturum sürüyor; **Sayfayı yenile**'ye basın, konsol yeni sürümle yeniden bağlanır                                       |
+| "Gönderilemedi." + Tekrar dene                                 | Ağ kesintisi, hız sınırı ya da oturum bitti. Bir saniye bekleyip **Tekrar dene**'ye basın                                                                            |
+| Mesajlar gönderilmiyor, oturumda çok mesaj var                 | Bir oturumda kişi başına 2.000, toplam 10.000 mesaj sınırı vardır. Sınır dolduysa yeni mesaj kaydedilmez; telefonla devam edin                                       |
+
+**Teknisyen davranış kuralı:** Müşterinin programı eskiyse sohbet kapalıdır. Bu durumda müşteriyle sohbeti başka bir yoldan
+(tarayıcı araçları, eski sekme vb.) kaydı atlayarak sürdürmeye çalışmayın. Kayıtsız yazışma firma politikasına ve KVKK
+bilgilendirmesine aykırıdır. Telefonu ya da tarayıcı modunu kullanın. Eski istemcili oturumlar audit log'da "Müşteri
+istemcisi eski — sohbet kapalı" olarak işaretlenir.
+
+### Teknisyen ve Admin için: Oturum geçmişinde sohbeti görme
+
+Bunun için **Oturum geçmişi → Görüntüle** ve **Oturumlar → Sohbet geçmişini görüntüle** (`sessions.view_chat`) yetkileri
+gerekir. Teknisyen (User) yalnız **kendi** oturumlarının sohbetini görür; Admin firmasındaki tüm oturumların, Super Admin
+seçtiği firmanın.
+
+1. **Oturum geçmişi**'nde oturumu açın.
+2. Ayrıntıda **Sohbet** bölümünü bulun. Bölüm kapalı gelir; altında "Sohbeti açmanız denetim kaydına yazılır." yazar.
+3. **Sohbeti göster (N mesaj)**'a basın.
+4. İki başlık görünür:
+   - **Talep yazışması (kabul öncesi):** oturum bir destek talebinden doğduysa, talep kabul edilmeden önceki yazışma.
+   - **Oturum sohbeti:** oturum sırasındaki mesajlar. Fazlası varsa **Daha fazla**'ya basın.
+
+Bölümde görebileceğiniz durumlar:
+
+| Görünen                                                             | Anlamı                                                          |
+| ------------------------------------------------------------------- | --------------------------------------------------------------- |
+| "Bu oturumda sohbet yok" / "Kabul öncesi yazışma yok"               | Hiç mesaj yazılmamış                                            |
+| "Müşteri eski istemci kullandığı için bu oturumda sohbet kapalıydı" | Müşteri Hızlı Destek 0.20 veya öncesiyle bağlandı               |
+| "Sohbet saklama süresi dolduğu için silindi"                        | Oturum anonimleştirildi; sohbet silindi                         |
+| "Mesaj okunamadı"                                                   | Mesaj çözülemedi (anahtar sorunu). Sistem yöneticisine bildirin |
+| Sohbet bölümü hiç yok                                               | Hesabınızda `sessions.view_chat` yetkisi yok                    |
+
+- Sohbeti açmak audit log'a **"Oturum sohbeti görüntülendi"** olarak yazılır (kim, hangi oturum, kaç mesaj; içerik
+  yazılmaz). Aynı kişi aynı oturumu 10 dakika içinde tekrar açarsa yeni kayıt yazılmaz.
+- Süren oturumda konsoldaki sohbeti görmek ek yetki istemez; oturuma katılma hakkı yeterlidir.
+
+### Admin için: Sohbet geçmişi yetkisini nasıl veririm?
+
+**Kullanıcılar** → kullanıcı → yetkiler ekranında **Oturumlar** grubunda **Sohbet geçmişini görüntüle**
+(`sessions.view_chat`) anahtarı vardır.
+
+- Admin rolünde açık, User (teknisyen) rolünde kapalı başlar.
+- **Hassas bir yetkidir; yalnız gerçekten gerekene verin.** Sohbette müşterinin kişisel bilgileri bulunabilir.
+- Teknisyene verirseniz yalnız kendi oturumlarının sohbetini görür.
+- Kendinizde olmayan bir yetkiyi başkasına veremezsiniz. Her değişiklik audit log'a yazılır.
+
+### Admin için: Aydınlatma metninde sohbet paragrafı
+
+Sistemin hazır aydınlatma metni, sohbetin sunucuda şifreli saklandığını, uçtan uca şifreli olmadığını ve ne kadar
+saklandığını anlatan bir paragraf içerir. Hazır metni kullanan firmalarda bu paragraf güncellemeyle kendiliğinden yeni sürüm
+olarak eklenir; bir şey yapmanız gerekmez.
+
+Metni **siz yazdıysanız** sistem ona dokunmaz. Metninizde paragraf yoksa:
+
+1. **Ayarlar → Aydınlatma metni** sayfasında sarı bant çıkar: "Metniniz sohbetin sunucuda saklandığını ve uçtan uca şifreli
+   olmadığını belirtmiyor (KVKK). Standart paragrafı ekleyip kaydedin."
+2. **Standart sohbet paragrafını ekle**'ye basın. Paragraf metin kutusunun sonuna eklenir; henüz kaydedilmez.
+3. Gerekirse düzenleyin, sonra **Yeni sürüm olarak kaydet** ile kaydedin. Bant kalkar.
+
+Aynı bant **Ayarlar → Genel** sayfasının üstünde de görünür (yalnız **Ayarlar → Düzenle** yetkisi olanlara);
+**Aydınlatma metnine git** sizi doğrudan ayara götürür. Paragraf eklenince iki bant da kalkar.
+
+### Super Admin için
+
+- Super Admin sohbeti yalnız firma seçtikten sonra, o firmanın oturum geçmişinde görür. Kurallar Admin ile aynıdır;
+  görüntüleme audit log'a yazılır.
+- Aydınlatma metni güncellemesi sistem güncellemesiyle (seed) yayımlanır. Metni Admin tarafından değiştirilmiş firmalar bu
+  güncellemeyi almaz; bu firmaların Admin'leri yukarıdaki bandı görür.
+
+### Audit log'da sohbet
+
+**Audit log**'da şu kayıtlar bulunur; hiçbirinde mesaj içeriği yoktur:
+
+| Kayıt                                                 | Ne zaman                                                              |
+| ----------------------------------------------------- | --------------------------------------------------------------------- |
+| Oturum sohbeti görüntülendi                           | Biri oturum geçmişinde **Sohbeti göster**'e bastı (mesaj sayılarıyla) |
+| Oturum sohbeti özeti                                  | Oturum bitti; teknisyen ve müşteri mesaj sayıları                     |
+| Sohbet mesajı reddedildi                              | Mesaj sınırı doldu, yetkisiz gönderim ya da sunucu hatası             |
+| Müşteri istemcisi eski — sohbet kapalı                | Müşteri 0.20 veya öncesi programla kabul edildi                       |
+| Katılan teknisyene önceki sohbet mesajları gösterildi | Davetli teknisyen ya da süpervizör katıldı ve önceki mesajları gördü  |
 
 ## Sesli görüşme (teknisyen, Admin ve müşteri için)
 

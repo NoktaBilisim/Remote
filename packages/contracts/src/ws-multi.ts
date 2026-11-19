@@ -153,6 +153,8 @@ export const ROLE_MAY = {
   "voice.request": "talker",
   "voice.join": "talker",
   "voice.end": "talker",
+  // P22 (mimari-p22 r2 §15.6 S-P22-8): izleyici yazamaz — işleyici bu tipte `error{FORBIDDEN}` yerine `chat.rejected{forbidden}`.
+  "chat.send": "talker",
 } as const satisfies Readonly<Record<string, TechSeat>>;
 export type RoleMayType = keyof typeof ROLE_MAY;
 

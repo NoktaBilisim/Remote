@@ -2,6 +2,7 @@
 // Metin tenant bazlı ve sürümlü; tenant başına tek `is_current` (DB fonksiyonel UQ). Onay kaydı append-only.
 import { createHash } from "node:crypto";
 import type { ConsentTextView } from "@remote/contracts/api/sessions";
+import { CHAT_CONSENT_PARAGRAPH } from "@remote/contracts/chat";
 import { REC_CONSENT_LINE, REC_CONSENT_LINE_SHA256 } from "@remote/contracts/ws-rec";
 import type { Prisma } from "../generated/prisma/client.ts";
 import type { Db } from "../lib/db.ts";
@@ -18,6 +19,9 @@ export function defaultConsentBody(tenantName: string): string {
     `Bu uzaktan destek hizmetinde veri sorumlusu ${tenantName}'dır.`,
     "Destek talebi ve oturum sırasında adınız, telefon numaranız, e-posta adresiniz (verirseniz), sorun açıklamanız, IP adresiniz, cihaz/tarayıcı bilgileriniz ve onay kayıtlarınız; destek hizmetinin verilmesi ve kayıt altına alınması amacıyla 6698 sayılı KVKK'ya uygun olarak işlenir.",
     'Ekranınız yalnız siz paylaşımı başlattığınızda ("Ekranımı paylaş") ve oturum süresince teknisyene canlı olarak iletilir; ekran görüntüsü veya video kaydı tutulmaz. Paylaşımı istediğiniz an durdurabilir, oturumu sonlandırabilirsiniz.',
+    // P22 (AC-291, mimari-p22 §3.4): sohbet paragrafı — tek kaynak contracts sabiti (web "Standart paragrafı ekle" aynısı).
+    // Değişince sha değişir → seed sistem metnini kullanan firmalara yeni sürüm yayımlar (Admin metnine dokunmaz).
+    CHAT_CONSENT_PARAGRAPH,
     '"Bilgilerimi hatırla" kutucuğunu işaretlerseniz adınız, telefonunuz, e-postanız ve bu bilgisayarı tanımaya yarayan rastgele bir cihaz anahtarı yalnız bu bilgisayarda, Windows kullanıcı profilinizde şifreli bir dosyada (%LOCALAPPDATA%\\NoktaDestek\\hatirla.bin) saklanır; sorun açıklamanız saklanmaz. Bu bilgileri istediğiniz an "Bilgilerimi unut" ile ya da kutucuğu boş bırakarak gönderim yaparak silebilirsiniz.',
     // P8c-1 (AC-188, mimari-e10 §3.5): bilgisayar kaydı — ne, nerede, ne kadar, nasıl silinir.
     `Başarılı bir destek oturumundan sonra bu bilgisayar ${tenantName} için hatırlanır: Windows kullanıcı profilinizdeki aynı şifreli dosyaya (%LOCALAPPDATA%\\NoktaDestek\\hatirla.bin) firmaya ait rastgele bir kayıt anahtarı yazılır; sunucuda bu anahtarın yalnız tek yönlü özeti tutulur ve bilgisayar adınız, IP adresiniz gibi bilgiler bu kayda eklenmez. Kayıt yalnız yeniden destek talebi açmaya yarar; bilgisayarınıza onayınız olmadan bağlanılmasına izin vermez, her oturumda ekran paylaşımını yine siz başlatırsınız. Kayıt son kullanımdan sonra firmanın saklama süresi kadar kullanılmazsa geçersizleşir; istediğiniz an "Bu bilgisayarı unut" ile bilgisayarınızdan ve sunucudan silebilirsiniz.`,
@@ -41,6 +45,16 @@ export async function createInitialConsent(
   const row = { id: newId(), tenantId: tenant.id, version: 1, body, sha256, isCurrent: true };
   await tx.consentText.create({ data: row, select: { id: true } });
   return { id: row.id, version: 1, sha256 };
+}
+
+/**
+ * P22 (AC-292, mimari-p22 §5.1): onay düğmesi üstündeki saklama satırının gün sayısı = `tenant_settings.retention_days`
+ * (resolve + `/public/requests/tenant`). Satır yoksa (kurulum hatası) bilinmeyen hata → 500 + referans.
+ */
+export async function chatRetentionDaysOf(db: DbOrTx, tenantId: string): Promise<number> {
+  const ts = await db.tenantSettings.findUnique({ where: { tenantId }, select: { retentionDays: true } });
+  if (!ts) throw new Error(`tenant_settings_missing tenant=${tenantId}`);
+  return ts.retentionDays;
 }
 
 /** Join anında onaylanan metin; admit'e kadar yalnız bellekte (lobi misafiri) tutulur. */

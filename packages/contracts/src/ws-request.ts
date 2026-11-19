@@ -47,6 +47,12 @@ export function parsePanelRetry(reason: string): number | null {
 
 /** Gelen mesaj sınırı (§5.1): 5 msg/sn. */
 export const WS_REQUEST_RATE_PER_SEC = 5;
+/**
+ * P22 (mimari-p22 r2 §15.1 S-P22-1, K-P22-16): `request.messages` serileştirilmiş çerçeve üst sınırı (bayt; Go okuma sınırı
+ * 64 KiB). En yeniden geriye en çok `MESSAGE_HISTORY_WS` öğe; sığmayan eski mesajlar istemciye gitmez. Şemaya `more` EKLENMEZ
+ * (0.12–0.20 Go katı ayrıştırıcı reddeder).
+ */
+export const REQUEST_HISTORY_MAX_BYTES = 49_152;
 
 const iso = z.iso.datetime();
 const ulid = z.string().regex(/^[0-9A-HJKMNP-TV-Z]{26}$/);
