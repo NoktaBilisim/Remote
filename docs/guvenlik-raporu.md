@@ -1,3 +1,82 @@
+# Güvenlik Raporu — P28g Kod turu 3 (K10 düzeltme doğrulaması) (dal p28g, HEAD 1c66f69, 2026-11-19)
+
+DURUM: GEÇTİ — Kritik 0 / Yüksek 0 / Orta 0 / Düşük 2
+
+Kapsam: yalnız 1c66f69 diff'i (`git show 1c66f69`) ve `docs/implementation.md` "P28g K10 tur 1". Testler koşturulmadı (backend-dev
+koşu kayıtları okundu); GUI imajı testleri (`TestAC402P28gGTKClipSecretHint`, `TestP28gK10GdkEventOffsets`) CI'da görülmeli.
+
+## Önceki bulguların doğrulaması
+
+| Bulgu | Durum | Kanıt |
+| --- | --- | --- |
+| O-P28g-K1-1 (Orta) Wayland yalnız görüntü anahtarı | **Kapandı** (kalıntı → D-P28g-K3-2, Bilgi m.1) | `config.go` `waylandControlOn`: yalnız ""/"on" açık, "ON"/"1"/"on " dahil başka her değer kapalı (fail-closed, test var). `build-linux.sh` değeri `case on\|off` ile ldflags'e girmeden **önce** doğruluyor (çift tırnak içinde, boşluk/`-X` enjeksiyonu yok); CI'da değer `env:` üzerinden geliyor (`run:` içine `${{ }}` açılmıyor → ifade enjeksiyonu yok); repro işi build-meta 4. satırı `on\|off` denetliyor ve iki derlemenin meta'sı `cmp` ile eşit. `control_linux.go` `controlPlan`: kapalıyken `ConfigureWayland(bus, false, …)` → RemoteDesktop istenmez, `ControlReady=false` ve enjektör hiç bağlanmadan `return`; X11 etkilenmez (tablo testi 6 durum). Arayüz ipucu/uyarı yalnız `viewOnly=Wayland && !WaylandControl`. Onay listesi maddesi anahtarı özetten okutuyor. |
+| D-P28g-K1-1 a11y başlangıcı bilinmiyor | **Kapandı** | `localclick_linux.go:128` `(!base.Known \|\| !base.On) && cur.Known && cur.On`; `WatchA11y` ile uçtan uca test (ilk okuma bilinmeyen → sonraki açık → mandal). |
+| D-P28g-K1-2 X11'de `WAYLAND_NO_CONTROL` | **Kapandı** | Go X11 → `OS_PERMISSION`; sunucu `control.ts:276-280` macos\|linux kabul, Windows (ve `clientOs` yok) hâlâ yok sayılır; `control-grant.ts` `cancelSourceOf` Linux'ta audit `linux_no_control`, macOS AC-391 kaydı değişmedi. Entegrasyon testi: VIEW, consent yok, metrik `cancelled_linux_no_control`, `cancelled_os_permission` yok. |
+| D-P28g-K2-1 başlatma komutu | **Kapandı** (kalıntı kabul) | `linux-command.ts`: `-mmin -10`, `sort\|head` kaldırıldı, eşleşme sayısı `wc -l` ile tam 1 değilse uyarı + `false`. Desen yalnız rakam/boşluk/parantez içerdiğinden adlarda satır sonu olamaz → sayım güvenilir. Sabit metin, sunucu verisi yok, baştaki boşluk korunmuş. Kalıntı: müşteri gerçek dosyayı henüz indirmeden yalnız ekilmiş dosya varsa tek eşleşme odur — hedefli zamanlama gerekir, kabul (kılavuzda beklenen adın gösterilmesi isteğe bağlı öneri olarak kalır). |
+| D-P28g-K2-2 izin korumasında anlık durum | **Kapandı** | `session_linux.go:348-351` guard = `controlGuardOK(indicatorShown(), sessionShown(u.sess), Failed, Failed)`; `indicatorShown` `u.ind == nil` → false (kurulamamış gösterge ilk 3 sn'de de izni engeller). Test 4 olumsuz durum. |
+| D-P28g-K2-3 pano parola ipucu | **Kapandı** (kalıntı → Bilgi m.3) | `clip_linux.go` `gtk_clipboard_set_with_data`; hedefler UTF8_STRING + text/plain;charset=utf-8 + `x-kde-passwordManagerHint`="secret"; geri çağrılar süreçte bir kez; clear geri çağrısı metni sıfırlıyor (`clear(owned)`); hata yolunda da `clear(data)`. `gtk_clipboard_store` yok. |
+| D-P28g-K2-4 GdkEvent ofsetleri | **Kapandı** | `click_linux.go` adlı sabitler, `prompt_linux.go` `offKeyKeyval`; `xi2-offsets.c` `<gdk/gdk.h>` ile 7 `OFF`; `run-gui-tests.sh` `pkg-config --cflags gtk+-3.0`; `TestP28gK10GdkEventOffsets` `gui-tests.txt` zorunlu listede (imajda SKIP edemez). Dockerfile'lara libgtk-3-dev + pkg-config. |
+| qa m.4 / S-P28g-8 XQueryTree yığın denetimi | **Uygulandı** | `x11/gdk_linux.go` `RootChildren`: GDK Display'i, GDK hata tuzağı, `st==0`/hata/`n > 65536` → ok=false, `XFree` her yolda, C belleği kopyalanıyor. `indicatorOnTop` fail-closed; sunucu XID'i (`>= 1<<29`, SERVER_BIT) dışlanması güvenli: istemciler kendi aralıkları dışında XID oluşturamaz (X sunucusu `LegalNewID`), saldırgan pencere bu muafiyeti alamaz. |
+| D-P28g-T2-1 / qa m.5 vekil hatası | **Kapandı** | `api.go`: `Error()` vekil hatasında sabit metin (her platform); `proxyFromEnvironment` geçersiz vekil adresi hatasını (değeri, olası `user:pass@` dahil) `errProxy`'ye çeviriyor; `OnProxyConnectResponse` 200 dışı → `errProxy` (yanıt gövdesi/başlığı taşınmaz). Arayüz metni sabit (`ProxyFailed/Body`); test adres yokluğunu iki gerçek transport senaryosunda doğruluyor. Kalıntı → Bilgi m.4. |
+| qa m.1 `path.Clean` | Uygun | POSIX yol; `Allowed` mantığı değişmedi (önek + temizlenmiş eşitlik + izinli soname). |
+
+## Bulgular (öncelik sırasıyla)
+
+### [DÜŞÜK] D-P28g-K3-1 reproducible-mac işi build-meta 4. satırını Wayland anahtarı sanıyor: macOS derlemesi her koşuda kırılır — A05 (yayın hattı, işlevsel regresyon)
+Yer: `.github/workflows/agent-win.yml:756-757` (reproducible-mac: `wl="$(sed -n 4p "$meta")"; case "$wl" in on|off) ;; *) … exit 1`),
+`:715` (macOS build-meta 4. satırı = `$team`, yani boş ya da Apple Team ID), `:1419` (sign-mac 4. satırı TEAM olarak okuyor).
+Sorun: K10 kalıbı Linux işine (`:1038-1039`, doğru) ek olarak macOS repro işine de kopyalanmış. macOS meta'sında 4. satır Team ID'dir;
+test derlemesinde `""`, prod'da 10 karakterlik ID → her durumda `::error::build-meta Wayland kontrol anahtarı` ile çıkış.
+İstismar senaryosu: Güvenlik açığı değil (fail-closed). Etki: macOS TEST/prod paketi üretilemez; P28f/P28g yayın akışı (macOS Release
+varlığı, staging TEST zip'i) durur; acele "düzeltme" sırasında 4. satır anlamının (sign-mac Team ID doğrulaması, D-P28f-K3) bozulması riski.
+Düzeltme: `:756-757`'deki `wl` okumasını ve `case` denetimini kaldır (macOS meta'sına Wayland satırı ekleme; 4. satır Team ID olarak kalmalı).
+Linux işindeki `:1038-1039` kalsın. CI'da `agent-mac-build`/`reproducible-mac` yeşil görülmeli. (atanan ajan: devops)
+
+### [DÜŞÜK] D-P28g-K3-2 Repo değişkeni tanımsızken prod Linux ikilisi Wayland kontrolü AÇIK derlenir (varsayılan fail-open) — A04 Güvensiz tasarım
+Yer: `.github/workflows/agent-win.yml:990` (`WAYLAND_CONTROL: ${{ vars.LINUX_WAYLAND_CONTROL || 'on' }}`), `build-linux.sh:89` (`:-on`).
+Sorun: O-P28g-K1-1 düzeltmesinin önerisi "varsayılan prod değeri E-7 GEÇTİ kaydına bağlanır" idi. Uygulamada değişken tanımsız → `on`;
+koruma yine Release onay listesindeki elle kutudur (artık özet satırında değer görünüyor, bu bir iyileşme).
+İstismar senaryosu: E-7 (b)/(c) henüz koşulmamışken onaylayan kişi maddeyi atlarsa Wayland'de müşterinin kesemeyeceği kontrol prod'a çıkar
+(O-P28g-K1-1'deki senaryo). Ön koşul insan hatası → Düşük.
+Düzeltme: Etiket (prod) derlemesinde değişkenin **açıkça** `on` ya da `off` olmasını şart koş (`REF_TYPE=tag` ve `vars.LINUX_WAYLAND_CONTROL`
+boşsa `::error::`), ya da tanımsız → `off`. Staging/dev varsayılanı `on` kalabilir. Runbook §28g.6'ya "E-7 GEÇTİ kaydı tarihi → değişken on" adımı.
+(atanan ajan: devops)
+
+## Bilgi (bulgu değil)
+
+1. Anahtar derleme zamanındadır: sahadaki eski (on) ikililer için hızlı kapatma yolu yine yeni etiket + `publish-linux.sh --withdraw`;
+   sunucu tarafı bayrak "tercihen" önerisiydi, uygulanmadı — implementation.md sapma 3'te gerekçeli, kabul.
+2. `indicatorShown` "İzin ver" anında da XQueryTree ölçer. Mutter (Ubuntu GNOME) yönetilen pencereleri override-redirect pencerelerin
+   üstüne çıkarmaz; ancak tıklamada yükselten (raise-on-click) başka WM'lerde (xfwm/KWin X11) diyalog çerçevesi göstergenin üstüne çıkıp
+   onayı reddettirebilir. Güvenli yön (fail-closed), kullanılabilirlik riski; E-8 sırasında bir GNOME dışı X11 masaüstünde de denenmeli.
+3. Pano: kendi yazımımızın SENSITIVE sayılmaması `ownsClip` bayrağına dayanıyor (clear geri çağrısıyla düşüyor). `sensitiveTargets` kararı
+   `wait_for_targets`'tan sonra verildiği ve SelectionClear olayı iç döngüde önce işlendiği için başka bir uygulamanın (parola yöneticisi)
+   sahipliği bu denetimden kaçmıyor. Daha sağlam alternatif: `gtk_clipboard_get_owner`/seçim sahibi karşılaştırması (isteğe bağlı).
+4. `api.Error.Err` vekil hatasında hâlâ `net.OpError` (vekil adresi) taşıyor; yalnız `Error()` sabit. `%+v`/`.Err` doğrudan basan yer
+   bulunmadı; Linux'ta stdout/stderr `/dev/null`. WS tarafında `request.DialError.Error()` `e.Err`'i basıyor (`internal/request/ws.go:210`)
+   — arayüze yansımadığı implementation.md'de belirtiliyor; ileride log eklenirse aynı sınıflandırma uygulanmalı.
+5. Sunucunun Linux'tan `OS_PERMISSION` kabulü yeni yetki doğurmuyor: yalnız AGENT (`control.ts:270`), yalnız REQUESTED'da iptal, başka fazda
+   `*_ignored`; aynı misafir zaten `WAYLAND_NO_CONTROL` ve `DENIED` gönderebiliyordu. `clientOs` beyanı yalnız audit etiketini seçiyor.
+
+## Otomatik tarama çıktıları
+
+- Bu turda yeni tarama koşulmadı (yeni bağımlılık yok; `pnpm-lock.yaml`/`go.mod` diff'te değişmedi). Kod turu 1 çıktıları geçerli
+  (D-P28g-K1-3 picomatch, dev zinciri, açık). Gizli bilgi: diff'te anahtar/parola deseni yok (`git show 1c66f69 | grep -iE "secret|token|password"`
+  yalnız `hintSecret` sabiti ve yorumlar).
+
+## Tasarımda vaat edilip kodda bulunmayanlar
+
+- §5.2b m.7 "varsayılan prod değeri E-7 GEÇTİ kaydına bağlı" → D-P28g-K3-2.
+
+## Olumlu
+
+- Anahtar her katmanda fail-closed doğrulanıyor (betik, CI meta, Go ayrıştırıcı) ve Release özetinde görünür.
+- Vekil adresi hata zincirinin üç kaynağında (ortam ayrıştırma, bağlantı, CONNECT yanıtı) kapatıldı ve gerçek transport ile test edildi.
+- Yığın denetimi C belleği/hata tuzağı/üst sınır açısından dikkatli; sunucu XID muafiyeti istemci tarafından taklit edilemez.
+- GdkEvent ofsetleri artık XI2 ile aynı CI güvencesinde.
+
+---
+
 # Güvenlik Raporu — P28g Kod turu 2 (Linux istemci, K9; Kod turu 1 kapsam dışı alanları) (dal p28g, HEAD 2fd8e16, 2026-11-18)
 
 DURUM: GEÇTİ (incelenen kapsam için; kısmi tur) — Kritik 0 / Yüksek 0 / Orta 0 / Düşük 4

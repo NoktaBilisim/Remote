@@ -4983,7 +4983,7 @@ Kilit testi: `deploy/agent/test-publish-linux-lock.sh [<stg klasörü>]` → `SO
 - [ ] K9 qa GEÇTİ, güvenlik Kritik/Yüksek 0; mimari-p28g §12.1 E-listesi staging TEST ikilisiyle GEÇTİ.
 - [ ] **Wayland kontrolü (mimari-p28g §5.2b m.7):** E-7 **(b)** (teknisyen Ctrl'yi sürekli yeniden basarken Super+L ≤ 3 sn REVOKED) ve
       **(c)** (kipli kabuk diyaloğu açıkken Super+L) gerçek GNOME Wayland makinesinde (24.04 + 22.04) GEÇTİ ise anahtar **on** kalır.
-      **E-7 (b)/(c) geçmezse `WAYLAND_CONTROL=off` ile derle:** repo değişkeni `LINUX_WAYLAND_CONTROL=off` (tanımsız → on), yeni etiket.
+      **E-7 (b)/(c) geçmezse `WAYLAND_CONTROL=off` ile derle:** repo değişkeni `LINUX_WAYLAND_CONTROL=off`, yeni etiket. Etiket (prod) derlemesinde değişken `on` ya da `off` olarak tanımlı olmak zorundadır; tanımsızsa derleme durur (D-P28g-K3-2). Etiket dışı derlemede tanımsız → on.
       off ikili Wayland'de yalnız görüntüdür (RemoteDesktop istenmez, kontrol isteğine `WAYLAND_NO_CONTROL`); X11 etkilenmez. Değer
       `reproducible-linux` özetinde ("Wayland kontrolü: on|off") ve build-meta 4. satırında; iki derleme aynı değeri kullanmak zorunda
       (build-meta `cmp`). Yerelde: `WAYLAND_CONTROL=off build/build-linux.sh …`. (d) tutmazsa yalnız kılavuz notu.

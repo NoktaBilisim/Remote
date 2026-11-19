@@ -753,8 +753,7 @@ jobs:
             echo "sha_$a=$x" >> "$GITHUB_OUTPUT"
           done
           meta=builds/agent-mac-build-1/build-meta.txt
-          server="$(sed -n 1p "$meta")"; ver="$(sed -n 2p "$meta")"; mode="$(sed -n 3p "$meta")"; wl="$(sed -n 4p "$meta")"
-          case "$wl" in on|off) ;; *) echo "::error::build-meta Wayland kontrol anahtarı '$wl' (on|off)"; exit 1 ;; esac
+          server="$(sed -n 1p "$meta")"; ver="$(sed -n 2p "$meta")"; mode="$(sed -n 3p "$meta")"
           if [ "$REF_TYPE" = tag ]; then
             [ "$mode" = prod ] || { echo "::error::etiket derlemesi prod kipinde olmalı"; exit 1; }
             zip="NoktaDestek-macOS-$ver.zip"; artifact=none
@@ -984,9 +983,10 @@ jobs:
           VERSION: ${{ steps.meta.outputs.version }}
           MODE: ${{ steps.meta.outputs.mode }}
           # P28g K10 (mimari-p28g §5.2b m.7, runbook §28g.6): Wayland kontrol anahtarı. Repo değişkeni LINUX_WAYLAND_CONTROL
-          # (on|off; tanımsız → on). E-7 (b)/(c) gerçek GNOME Wayland'de GEÇMEDİYSE off. build-meta 4. satırı; reproducible-linux
-          # iki derlemenin build-meta'sını cmp ile karşılaştırdığından ikisi aynı değeri kullanmak zorundadır.
-          WAYLAND_CONTROL: ${{ vars.LINUX_WAYLAND_CONTROL || 'on' }}
+          # (on|off). Etiket (prod) derlemesinde tanımsızsa 'unset' → build-linux.sh durur (D-P28g-K3-2: prod'da açık karar şart);
+          # etiket dışı (staging/test) derlemede tanımsız → on. E-7 (b)/(c) gerçek GNOME Wayland'de GEÇMEDİYSE off. build-meta 4.
+          # satırı; reproducible-linux iki derlemenin build-meta'sını cmp ile karşılaştırdığından ikisi aynı değeri kullanmak zorundadır.
+          WAYLAND_CONTROL: ${{ vars.LINUX_WAYLAND_CONTROL || (github.ref_type == 'tag' && 'unset' || 'on') }}
         run: |
           git config --global --add safe.directory "$GITHUB_WORKSPACE"
           kip="test"; [ "$MODE" = prod ] && kip=""
@@ -1219,7 +1219,7 @@ jobs:
             echo "- [ ] 0.17.0 ve sonrası: Windows çoklu teknisyen elle turu + AC-371 ölçümü GEÇTİ (runbook §28c.7/§28c.8: roster adları, Çıkar, devir, gözetimsiz göstergede adlar, silent katılım gerekçe + dört göz e-postası; kontrol sahibi ≥ 15 FPS, diğerleri ≥ 5 FPS)"
             echo "- [ ] 0.19.0 ve sonrası: sunucu P28f prod'da (clientOs, availability, OS_PERMISSION; migration yok) — eski sunucu clientOs'u yok sayar"
             echo "- [ ] 0.20.0 ve sonrası: sunucu P28g prod'da (os=linux, availability linux, WAYLAND_NO_CONTROL; migration yok); Linux elle E-listesi (mimari-p28g §12.1) staging TEST ikilisiyle GEÇTİ"
-            echo "- [ ] 0.20.0 ve sonrası (mimari-p28g §5.2b m.7): Linux ikilisinin Wayland kontrol anahtarı (reproducible-linux özetindeki 'Wayland kontrolü: on|off'; repo değişkeni LINUX_WAYLAND_CONTROL, tanımsız → on). **on** ise E-7 (b) ve (c) gerçek GNOME Wayland makinesinde (24.04 + 22.04) GEÇTİ mi? Geçmediyse **Reject**, LINUX_WAYLAND_CONTROL=off yapıp yeni etiket (Wayland yalnız görüntü; X11 etkilenmez) (runbook §28g.6)"
+            echo "- [ ] 0.20.0 ve sonrası (mimari-p28g §5.2b m.7): Linux ikilisinin Wayland kontrol anahtarı (reproducible-linux özetindeki 'Wayland kontrolü: on|off'; repo değişkeni LINUX_WAYLAND_CONTROL; etiket derlemesinde tanımlı olmak zorunda). **on** ise E-7 (b) ve (c) gerçek GNOME Wayland makinesinde (24.04 + 22.04) GEÇTİ mi? Geçmediyse **Reject**, LINUX_WAYLAND_CONTROL=off yapıp yeni etiket (Wayland yalnız görüntü; X11 etkilenmez) (runbook §28g.6)"
             echo "- [ ] macOS: repo değişkeni APPLE_TEAM_ID tanımlı mı? Tanımsızsa sign-mac ATLANIR ve Release'te macOS zip'i OLMAZ (beklenen, R39). Tanımlıysa macOS elle D-listesi (runbook §28f.6) staging TEST paketiyle GEÇTİ"
             echo "- [ ] Aynı commit'ten staging exe ile duman testi GEÇTİ (runbook §24.2)"
             echo "- [ ] qa GEÇTİ, güvenlik Kritik/Yüksek 0; bekleyen eski etiket koşusu yok"
