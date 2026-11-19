@@ -1,3 +1,219 @@
+# Güvenlik Raporu — P32 — Tasarım turu (K0; dal p32-prod-imzasiz-gozetimsiz, 2026-11-20)
+
+DURUM: DÜZELTİLMELİ (tasarım) — Kritik 0 / Yüksek 1 / Orta 3 / Düşük 6
+
+Kapsam: `docs/gereksinimler.md` §15 (AC-523..532), `docs/mimari-p32.md` r1, ADR-0042 r1. Kodda bugünkü durum şunlarla
+karşılaştırıldı: `apps/server/src/env.ts`, `unattended/{gate,device-auth,device-ws,device-access,service,registration,connect,intervene,public-download}.ts`,
+`signaling/admit-device.ts`, `update/{wiring,manifest-store}.ts`, `customer-send/targets.ts`, `deploy/agent/publish-servis.sh`,
+`deploy/docker-compose.yml`, `.github/workflows/agent-win.yml`, `docs/mimari-p29.md` §14.
+
+Kullanıcının risk kabulü bu turda tartışılmadı. Kabul edilmiş ve sayıma girmeyen riskler: **R-P32-1** (imzasız servis, Yüksek, 2026-11-20)
+ve **S-P29-T-1 / T-7** (tek CI imzası, Kritik, 2026-11-19). Aşağıdaki bulgular, bu kabulün dayandığı telafi kontrollerinin
+tasarımda doğru ve yeterli olup olmadığına bakar.
+
+## Bulgular (öncelik sırasıyla)
+
+### [YÜKSEK] S-P32-1 Risk kaydının ana telafi kontrolü yanlış: oturumsuz, bağlantıyla indirme yolu var — A04 Güvensiz Tasarım / A08
+
+Yer: `docs/mimari-p32.md` §5 T-1 ("indirme yalnız oturumlu panelden (Caddy public yolu yok)"), ADR-0042 "Sonuçlar" (oturumlu
+indirme), `gereksinimler.md` §15 R-P32-1. Kod: `apps/server/src/unattended/public-download.ts:1-6, 92`,
+`apps/server/src/customer-send/targets.ts:21, 160`, `apps/server/src/app-routes.ts:31`. Caddy `/api/*` isteklerini server'a
+yönlendirir (`deploy/Caddyfile:2`).
+
+Sorun: `GET /api/v1/public/unattended/download?t=` (AC-419, P28 bağlantı gönderme) oturumsuz ve çerezsiz çalışır. Kapı kapalı
+değilse (`gate.status().available`, yani `unsigned-accepted` modunda da) servis ikilisini verir. Bağlantı müşteriye e-posta, SMS
+ya da WhatsApp ile gider. Sonuç olarak prod'da müşteriler şunu görmeye alışacak: mesajla gelen bir bağlantı, imzasız bir SYSTEM
+servisi, "Yayıncı: Bilinmiyor" uyarısı ve kılavuzdaki "Ek bilgi → Yine de çalıştır" adımı. Bu, R-P32-1'de adı geçen sahte ikili
+oltalamasının ta kendisidir. Belirteç kayıt koduna bağlıdır; kod kullanılana ya da süresi dolana dek tekrar kullanılabilir (`registration.ts:62-68` `usableCodeWhere`: `usedAt: null`, `expiresAt > now`; kod başına en çok 10 indirme audit satırı). Ama saldırganın gerçek belirteç kullanması zaten gerekmez:
+benzer bir alan adı ve aynı mesaj kalıbı yeter. Kullanıcı §20.3 m.16 imzasını var olmayan bir kontrole dayanarak atacaktır.
+
+İstismar senaryosu: Saldırgan, Nokta mesaj kalıbını taklit eden bir SMS ya da e-posta gönderir. Mesaj benzer alan adındaki bir
+`NoktaDestekServis.exe` dosyasına gider. Müşteri kılavuzdaki gibi SmartScreen'i geçer ve kurulumda yönetici onayı verir.
+Saldırganın kodu SYSTEM yetkisiyle çalışır. İmza olmadığı için müşterinin gerçek dosyayı sahtesinden ayırabileceği tek bağımsız
+işaret yoktur.
+
+Düzeltme (tasarım; mimar, ardından backend-dev ve teknik-yazar):
+
+1. T-1, ADR-0042 "Sonuçlar" ve R-P32-1 metni düzeltilir: "indirme oturumlu panelden **ve** AC-419 bağlantısıyla (oturumsuz;
+   kayıt koduna bağlı, kod kullanılana ya da süresi dolana dek geçerli belirteç)".
+2. Yeni bir AC (öneri AC-533) bağlantının `unsigned-accepted` modundaki kaderini belirler. Varsayılan öneri: bağlantı açık
+   kalır ama sertleşir.
+   - Mesaj metni sabit bir uyarı içerir: tam kanonik alan adı, dosya adı, sürüm ve SHA-256'nın ilk ve son 8 hanesi. Ayrıca "Bu
+     dosyayı yalnız <alan adı> adresinden indirin; size başka yoldan gönderilen dosyayı çalıştırmayın" yazar.
+     `targets.ts` `unattendedSha256` alanını zaten taşıyor.
+   - İndirme adımı Windows'ta `Get-FileHash` ile tam SHA karşılaştırmasını önerir.
+   - Kullanıcı isterse alternatif: `unsigned-accepted` modunda bağlantı gönderimi kapanır, yalnız oturumlu indirme kalır.
+     Hangi seçeneğin uygulanacağı kullanıcıya açık karar olarak sorulur (§13'e madde 3).
+3. AC-532: Kullanım kılavuzundaki SmartScreen adımı koşullu yazılır. "Yine de çalıştır"dan **önce** yayıncı adının
+   "Bilinmiyor", dosya adının `NoktaDestekServis.exe` olduğu ve SHA-256'nın panelde ya da mesajda gösterilenle eşleştiği
+   denetlenir. Eşleşmezse çalıştırılmaz ve Nokta'ya bildirilir.
+4. Test: e2e veya birim testi `unsigned-accepted` modunda mesaj gövdesinde alan adı ve SHA parçasının bulunduğunu doğrular.
+
+### [ORTA] S-P32-2 Listeden çıkarılan SHA cihazı güncellenemez hale getirir; ADR'deki "tek hamlede devre dışı" yararı gerçekte kullanılamaz — A04
+
+Yer: `apps/server/src/unattended/device-ws.ts:186` (`update.check` kimliği doğrulanmış sokette işlenir, yani
+`device-auth.ts:82` kapısından sonra), `docs/mimari-p32.md` §1 ve §8.3, ADR-0042 m.3 ve m.5.
+
+Sorun: Açıklı bir sürümün SHA'sı listeden çıkarılınca o sürümdeki cihaz 4403 alır. P29 güncelleme teklifi de aynı soketten
+geldiği için cihaz artık hiç güncellenemez ve her makinede elle yeniden kurulum gerekir. Bu maliyet operatörü açıklı sürümü
+listede tutmaya iter. Böylece tasarımın "sürüm kapısı" yararı fiilen işlemez. Güvenlik açısından 4403'teki servisin zararsız olduğu varsayılıyor
+(yalnız dışarı bağlanır, komut almaz; Go servisinin davranışı bu turda okunmadı), yani sorun kullanılabilirliğin güvenliği yenmesidir.
+
+İstismar senaryosu: Servis sürümünde uzaktan istismar edilebilir bir hata bulunur. Elle yeniden kurulum maliyeti nedeniyle SHA
+listeden çıkarılmaz. Düzeltilmiş sürüm manifestle yavaş yayılırken açıklı sürümler haftalarca bağlanmayı sürdürür.
+
+Düzeltme (mimar ve devops; runbook §27.9 ile AC-529/532):
+
+- Runbook'a iki aşamalı geri çekme yazılır. (1) Düzeltilmiş sürüm yayınlanır, manifest sunulur ve sürüm dağılımında
+  (`rs_unattended_agent_versions` sürüm bazlıdır, SHA bazlı değil; sürüm ile SHA eşlemesi `PUBLISHED.log`'dan) eski sürüm sıfıra iner ya da N gün beklenir, ardından SHA çıkarılır. (2) Aktif istismar varsa
+  SHA hemen çıkarılır ve elle yeniden kurulum kabul edilir.
+- ADR-0042 "Sonuçlar"a bu bedel açıkça yazılır.
+- İsteğe bağlı ve "Sonra" önerisi: "yalnız güncelleme" durumu. Listedeki eski SHA ile bağlanan cihaz yalnız `update.*`
+  mesajlarına yanıt alır; kayıt, bağlantı ve müdahale kapalı kalır.
+
+### [ORTA] S-P32-3 "Liste = attestation'lı Release SHA'ları" değişmezi zorlanmıyor; staging'de attestation'sız SHA'lar listeye girer — A08 Yazılım ve Veri Bütünlüğü
+
+Yer: AC-529 ("listeye ekler … tüm ortamlarda"), `docs/mimari-p32.md` §8.1, T-3 ("Kalan: yok"), T-4 (elle karşılaştırma),
+`deploy/agent/publish-servis.sh:41` (staging/development'ta etiket serbest), `:118` (`dir-*`), `:130` (`-unattested`),
+`deploy/docker-compose.yml:165` (`DEPLOY_ENV` `.env`'den okunur).
+
+Sorun:
+
+1. Staging `unsigned-accepted` modunu kabul eder (AC-523). Betik ise `dir-*` ve `*-unattested` SHA'larını da listeye ekler. Bu
+   durumda staging'deki "prod provası", kökeni kanıtlanmamış ikililerle geçebilir.
+2. Tüm staging `.env` dosyası prod'a kopyalanırsa `DEPLOY_ENV=staging` de birlikte gelir. Bu durumda K-P27-22 korkuluğu
+   (`production`+`unsigned` açılış hatası) devreye girmez ve prod sunucusu staging kurallarıyla açılır. T-3'teki "Kalan: yok"
+   ifadesi fazla iddialıdır.
+3. Listeye elle eklemeyi yalnız runbook yasaklar. remote-watch yalnız BİLGİ satırı yazar ve listeyi `PUBLISHED.log` ile
+   karşılaştırmaz.
+
+İstismar senaryosu: Bir operatör hatası ya da kötü niyetli içeriden biri, attestation'sız bir derlemenin SHA'sını prod listesine
+koyar (doğrudan `--apply` ya da `.env` düzenlemesiyle). Bu kayıt kimsenin dikkatini çekmeden kalıcılaşır.
+
+Düzeltme (devops; AC-529 ve AC-527b):
+
+- `apply`, listeye yalnız `^v[0-9]+\.[0-9]+\.[0-9]+$` etiketlerini ekler (tüm ortamlarda). `dir-*` ve `-unattested` etiketleri
+  `UNATTENDED_AGENT_SHA256` satırını yazar ama listeye eklenmez. Staging `unsigned` modunda liste zaten yok sayılır;
+  `unsigned-accepted` provası böylece yalnız Release ile yapılır.
+- remote-watch her turda listedeki her SHA için `PUBLISHED.log`'da `v*` etiketli bir satır arar. Eşleşmeyen bir SHA varsa
+  BİLGİ değil **ALERT** gönderir (yalnız SHA'nın ilk 12 hanesi).
+- remote-watch ayrıca `DEPLOY_ENV` değerini beklenen ortam etiketiyle (`PUBLIC_BASE_URL` alan adı ya da betik yapılandırması)
+  karşılaştırır ve uyuşmazlıkta ALERT verir.
+- T-3 satırı "kalan: tüm `.env` kopyası → remote-watch ALERT" olarak düzeltilir.
+- `test-publish-lock.sh` yeni vakası: staging + `dir-*` → liste değişmedi.
+
+### [ORTA] S-P32-4 Adli iz yetersiz: audit ve ret logunda beyan edilen SHA yok — A09 Günlükleme ve İzleme
+
+Yer: AC-528 (yalnız `gateMode`), AC-527a ve mimari §5 ("SHA değerleri yazılmaz"). Kod: `registration.ts:243` kayıt audit'i
+`version` ve `signed` yazıyor, SHA yazmıyor. `device-auth.ts:56-63` ret audit'i yalnız `{reason}` yazıyor. `device-auth.ts:95`
+`binary_sha256`'yı her auth'ta üzerine yazıyor.
+
+Sorun: Liste kimlik doğrulama yapmadığı için kabul edilen riskin tek dedektif kontrolü, hangi ikilinin bağlandığının geriye
+dönük izlenebilmesidir. Bugün cihaz satırı yalnız son beyanı tutar. Kayıt audit'inde sürüm ve imza beyanı var ama SHA yok. 4403
+gate ret audit'i ise yalnız `reason=gate` yazar ve hangi SHA'nın reddedildiği kaybolur. SHA-256 ise gizli değildir: yayınlanan ikilinin herkese açık özetidir. Sır sayılması gereken
+listenin kendisi de değil, yalnız yapılandırmadır.
+
+İstismar senaryosu: Değiştirilmiş bir ikili listedeki bir SHA'yı beyan edip bağlanır ve sonra ayrıntıları değişir. Olay
+incelemesinde hangi cihazın hangi tarihte hangi beyanla kaydolduğu ve hangi SHA'ların reddedildiği gösterilemez.
+
+Düzeltme (backend-dev; AC-528 ve AC-527a):
+
+- `unattended.device.registered` ve `unattended.connect` `new_value`'suna `gateMode` ile birlikte `binarySha256` (tam 64 hane)
+  eklenir. `connect` satırına `signed` beyanı da eklenir.
+- `device-auth` gate ret audit'ine (`reason=gate`) ve `warn` loguna `{deviceId, tenantId, sha256Prefix: 12 hane}` eklenir. Hız sınırı ya da örnekleme mevcut log
+  kalıbına göre yapılır.
+- Açılış alarm satırına `allowedCount` yanında listenin sıralı birleşiminin SHA-256'sının ilk 12 hanesi (`listFingerprint`)
+  eklenir. Böylece liste değişimi loglardan izlenebilir.
+- Mimari §5'teki "SHA yazılmaz" cümlesi "SHA gizli değildir; token, kayıt kodu ve indirme belirteci yazılmaz" olarak düzeltilir.
+
+### [DÜŞÜK] S-P32-5 Mod ya da liste değişimi tek seferlik alarm üretmiyor — A09
+
+Yer: AC-527b (her turda BİLGİ, ALERT yok), mimari §4.5 (mod değişimi kalıcı kaydı yok).
+Sorun: `off` → `unsigned-accepted` geçişi ya da listeye yeni SHA eklenmesi kimseye bildirim göndermez. Her turda yazılan BİLGİ
+satırı gürültüye dönüşür.
+Etki: Yetkisiz ya da hatalı bir mod veya liste değişikliği günlerce fark edilmeyebilir.
+Düzeltme (devops; AC-527b): remote-watch bir durum dosyasında `UNATTENDED_MODE` ve `listFingerprint` değerlerini tutar.
+Değişimde **bir kez** ALERT gönderir ("gözetimsiz mod/liste değişti: eski → yeni"), sonra BİLGİ'ye döner. Betik testine iki
+vaka eklenir.
+
+### [DÜŞÜK] S-P32-6 20 öğe sınırı acil düzeltme yayınını durdurabilir — A04 (kullanılabilirlik)
+
+Yer: mimari §8.1 ("liste 20'yi aşacaksa betik durur"), ADR-0042 "Sonuçlar".
+Etki: Açıklı sürüm acilen değiştirilmek istenirken liste dolu olduğu için betik durur ve düzeltme gecikir.
+Düzeltme (devops; AC-529): 16 öğede betik uyarı verir, remote-watch da BİLGİ yazar. Runbook §27.9'a acil yol eklenir: "önce
+kullanımı 0 olan en eski SHA'yı çıkar, sonra yayınla". Sınır env.ts regex'inde de uygulanır (§4.1 notu; bugünkü regex
+sınırsız: `env.ts:235`).
+
+### [DÜŞÜK] S-P32-7 Geri alma sırası yalnız §27.9'da yazılı — A05
+
+Yer: mimari §8.2 "Geri alma" (önce `off`, sonra imaj).
+Sorun: Genel imaj geri alma prosedürü (runbook rollback bölümü) bu sırayı bilmezse eski imaj `unsigned-accepted` değerini
+tanımaz ve server açılmaz. Sonuç tam kesinti olur ve bir güvenlik kontrolü üretmez.
+Düzeltme (devops; AC-532): runbook'un genel geri alma adımına "`UNATTENDED_MODE=unsigned-accepted` ise önce `off`" ön koşulu
+eklenir. İmaj geri alma komutunun yanına `grep -q '^UNATTENDED_MODE=unsigned-accepted' .env && echo DUR` denetimi konur.
+
+### [DÜŞÜK] S-P32-8 Admin kurulum yönlendirmesi ve AV istisnası — A04
+
+Yer: mimari §13 m.2 (bant yalnız SA'ya), V-P32-1 (AV istisnasını Admin verir).
+Sorun: Servisi kuran ve SmartScreen ile AV uyarısını gören kişi firma Admin'idir, ama bandı yalnız SA görür. Kılavuzda AV
+istisnası klasör yoluyla tarif edilirse, o yola yazılan her dosya muaf olur.
+Etki: Klasöre yazma yetkisi olan zararlı bir dosya da AV/EDR denetiminden muaf kalır.
+Düzeltme (frontend-dev, teknik-yazar; AC-527c, AC-532): Admin'e risk bandı değil, kayıt kodu ya da indirme diyaloğunda kısa bir
+kurulum notu gösterilir: "Windows 'Bilinmeyen yayıncı' gösterebilir; SHA-256: …". Kılavuzdaki AV/EDR istisnası **dosya
+özeti (SHA-256) ya da tam dosya yolu + özet** ile tarif edilir, klasör joker karakteriyle değil. İstisna her sürümde yenilenir.
+
+### [DÜŞÜK] S-P32-9 `.env` geçici dosyası ve yedeklerin izinleri — A05
+
+Yer: `deploy/agent/publish-servis.sh:61-64`. `.env.tmp.$ts` varsayılan umask ile oluşur (root için genelde 0644). `.env` tüm
+sırları içerir. `.env.bak.servis.*` dosyaları süresiz birikir.
+Etki: Sunucudaki yetkisiz bir yerel kullanıcı, yayın sırasında oluşan `.env` kopyasından sırları okuyabilir.
+Düzeltme (devops; AC-529, aynı `awk` geçişi değiştiği için): geçici dosya `umask 077` ile oluşturulur. Yedekler `chmod 600`
+alır ve son N tanesi tutulur (runbook). Bu sorun P32'den önce de vardı; P32 aynı satırı değiştirdiği için birlikte ele alınmalı.
+
+### [DÜŞÜK] S-P32-10 Attestation'ın `--source-ref refs/tags/vX.Y.Z` güvencesi etiket ruleset'ine bağlı — A08
+
+Yer: `publish-servis.sh:114, 132-134` (ref sabitleme doğru), `docs/mimari-p29.md` §14.1 m.2 (`v*` ruleset ve onaylı ortam).
+Sorun: Herhangi bir yazar değiştirilmiş workflow ile `v*` etiketi itebiliyorsa etiket ref'i hiçbir şeyi kanıtlamaz. Ruleset'in
+GitHub'da gerçekten etkin olduğu bu turda doğrulanmadı.
+Etki: Yazma yetkisi olan bir hesap değiştirilmiş workflow ile `v*` etiketi iterse attestation kontrolü geçer ve bu ikili prod listesine girer.
+Düzeltme (devops; AC-532 §20.3 m.16): imza maddesine `gh api repos/<repo>/rulesets` çıktısıyla `v*` için yalnız yönetici, silme
+ve yeniden yazma yasağı denetimi eklenir. `agent-release` ortamında yönetici atlamasının kapalı olduğu da kanıtlanır.
+
+## Otomatik tarama çıktıları
+
+Tasarım turu; bağımlılık değişikliği yok, `npm audit`/gitleaks K4 kod turunda koşulacak.
+
+## Tasarımda vaat edilip kodda bulunmayanlar
+
+- T-1 ve ADR-0042'deki "indirme yalnız oturumlu panelden" iddiası doğru değil: AC-419 oturumsuz bağlantı yolu kodda var ve
+  `unsigned-accepted` modunda açık kalacak (S-P32-1).
+- "Açıklı sürümü listeden çıkararak tek hamlede devre dışı bırakma" iddiası teknik olarak doğru, ama güncelleme kanalı da
+  kapandığı için pratikte bedeli yüksek (S-P32-2).
+
+K4'te doğrulanacak: 20 öğe sınırının env.ts regex'inde uygulanması (bugünkü regex sınırsız, `env.ts:235`; K1 işi).
+
+## Olumlu
+
+- Kapının tüm kullanım yerleri `gate.allows()` üzerinden geçiyor: `device-auth.ts:82`, `registration.ts:254`,
+  `admit-device.ts:58`, `device-access.ts:24`, `service.ts:93`. Bu yüzden `unsigned-accepted` dalı tek yerde (`gate.ts`)
+  eklenince her yol kapsanıyor. `mode === "unsigned"` yalnız `connect.ts:209`, `intervene.ts:126`, `unattended-shell.tsx:43`, `gate.ts:31` ve
+  `env.ts:121`'de geçiyor. `Record<UnattendedMode, …>` ya da `!== "signed"` dalı yok; mimari §1'in tespiti doğru.
+- Ayrı mod değeri, K-P27-22 korkuluğunu (`production`+`unsigned` hatası) ve TEST etiketlerini bozmadan risk kabulünü açıkça
+  ifade ediyor. Tek anahtar, tek karar.
+- `publish-servis.sh` `--tag` yolunda attestation `--signer-workflow`, `--source-ref refs/tags/$TAG` ve
+  `--deny-self-hosted-runners` ile doğrulanıyor. `apply` sunucu tarafında SHA biçimini, dosya özetini ve prod için etiketi
+  yeniden denetliyor. İkili, volume'a özet doğrulamalı atomik `mv` ile yazılıyor.
+- AC-524 (`UNATTENDED_AGENT_SHA256` ∈ liste) ve AC-530 (manifest SHA ∈ liste), "yayınlanan = izinli = sunulan" zincirini
+  kapatıyor. Servis listede olmayan bir sürüme güncellenip kilitlenemiyor.
+- Acil kapatma (`off` → server yeniden yaratılır, cihazlar yeniden bağlanınca 4403; "≤ 60 sn" bu turda ölçülmedi) ve audit
+  `gateMode` mevcut yolları yeniden kullanıyor. Migration ve yeni uç yok.
+- Açılış alarmında sır yok; hata mesajları değer içermiyor (AC-523).
+
+Önerilen "Sonra" (`gereksinimler.md` §9): S-P32-2'deki "yalnız güncelleme" cihaz durumu ve `UNATTENDED_SIGNED_SHA256` →
+`UNATTENDED_ALLOWED_SHA256` adlandırması (imza gelince).
+
+---
+
 # Güvenlik Raporu — P30b (AC-498 r2, dal p30b-kontrolde-cizim, HEAD b502558, 2026-11-20)
 
 DURUM: GEÇTİ — Kritik 0 / Yüksek 0 / Orta 0 / Düşük 3
