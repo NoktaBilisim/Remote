@@ -16922,8 +16922,11 @@ Yeni bağımlılık yok. Yeni dosya/kayıt/ağ ucu yok (iz testi etkilenmez).
 - `gofmt -l .` boş; `go vet ./...` (darwin), `GOOS=windows`, `GOOS=linux` ve `GOOS=linux -tags linuxgui` vet temiz; staticcheck v0.8.2 (linux+linuxgui / windows / darwin) temiz; Windows test ikilileri `go test -c` ile derlendi (Windows'ta koşulmadı — CI `test-windows`).
 - Linux GUI (`test/linux/gui.sh 2404`, Apple Silicon'da emüle amd64, Xvfb): X11 fazında 40 paketten 39'u geçti
   (`ui/gtk` dahil: `SessionChat` + `<b>` literal geri okuma, karşılama saklama satırı; 899 PASS). Tek kırmızı
-  `input/TestP28gK3GUIXTestClick` (KeyPress 0 — emülasyon zamanlaması); `input` bu dalda değişmedi, aynı imajda tek başına
-  `-count=3` ile 3/3 geçti → oynak, P22-G'ye bağlı değil. Wayland fazı derlendi. Yerli amd64 CI'da yeniden doğrulanır.
+  `input/TestP28gK3GUIXTestClick` (KeyPress 0). Tek başına `-count=3` 3/3 geçti; `./internal/input ./internal/ui/gtk`
+  birlikte (paralel, aynı Xvfb :99) 3 koşuda 2 kırmızı — **taban d813bc3'te de aynı oran (2/3)** → P22-G'den bağımsız,
+  önceden var olan bir sorun: `run-gui-tests.sh` paketleri `-p 1` olmadan koşuyor, GTK pencereleri klavye odağını alıyor
+  olası (kök neden doğrulanmadı). `input` bu dalda değişmedi; ayrı iş olarak açık. Wayland fazında yalnız `capture`
+  ve `config` test koştu (geçti), diğerleri `-run Wayland` ile eşleşmedi.
 
 ### Bilinen sınırlar / açık maddeler
 
