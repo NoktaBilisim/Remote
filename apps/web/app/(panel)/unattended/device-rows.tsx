@@ -27,8 +27,8 @@ function NameLink({ d, className = "" }: { d: DeviceListItem; className?: string
   );
 }
 
-function Version({ d }: { d: DeviceListItem }) {
-  return <UpdateBadge version={d.agentVersion} badge={d.updateBadge} reason={d.updateReason} target={d.updateVersion} />;
+function Version({ d, stacked = false }: { d: DeviceListItem; stacked?: boolean }) {
+  return <UpdateBadge version={d.agentVersion} badge={d.updateBadge} reason={d.updateReason} target={d.updateVersion} stacked={stacked} />;
 }
 
 type RowItemProps = { d: DeviceListItem; available: boolean; busy: boolean; onConnect: (id: string) => void };
@@ -47,7 +47,7 @@ function DeviceTableRow({ d, available, busy, onConnect }: RowItemProps) {
         <UserState state={d.userState} />
       </td>
       <td className="px-3 py-2 pt-4 text-fg">
-        <Version d={d} />
+        <Version d={d} stacked />
       </td>
       <td className={td}>{when(d.lastSeenAt)}</td>
       <td className={td}>{when(d.lastSessionAt)}</td>

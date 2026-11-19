@@ -11,8 +11,8 @@ test("AC-490/486 Sürüm sütunu: beş rozet metinle, hedef sürüm, başarısı
   await page.goto("/unattended");
   const badge = (name: string) => row(page, name).getByTestId("upd-badge");
   await expect(badge("GUNCEL-PC")).toHaveText("Güncel");
-  await expect(badge("BEKLEYEN-PC")).toHaveText("Güncelleme bekliyor→ 0.22.1");
-  await expect(badge("KURULAN-PC")).toHaveText("Güncelleniyor→ 0.22.1");
+  await expect(badge("BEKLEYEN-PC")).toHaveText("Güncelleme bekliyor → 0.22.1");
+  await expect(badge("KURULAN-PC")).toHaveText("Güncelleniyor → 0.22.1");
   await expect(badge("HATALI-PC")).toHaveText("Güncelleme başarısız (bütünlük)");
   await expect(badge("ESKI-PC")).toHaveText("Asgari sürümün altında");
   await expect(badge("ESKI-PC")).toHaveAttribute("data-badge", "BELOW_MIN");
@@ -195,4 +195,31 @@ test("AC-491 Audit mobil kart: Türkçe etiket, ham anahtar yok (metin ve aria)"
   await expect(main).not.toContainText("settings.client_update");
   const labels = await main.locator("[aria-label]").evaluateAll((els) => els.map((e) => e.getAttribute("aria-label") ?? ""));
   for (const l of labels) expect(l).not.toMatch(/client\.update|settings\.client_update/);
+});
+
+test("T-P29-1 1280 px: cihaz tablosu kapsayıcısı yatay kaymaz, Bağlan düğmesi tam görünür", async ({ page, context }, info) => {
+  desktopOnly(info.project.name);
+  await page.setViewportSize({ width: 1280, height: 900 });
+  await signIn(context, "p29adm");
+  await page.goto("/unattended");
+  const table = page.getByTestId("un-table");
+  await expect(table).toBeVisible();
+  const region = table.locator("xpath=..");
+  const { sw, cw } = await region.evaluate((el) => ({ sw: el.scrollWidth, cw: el.clientWidth }));
+  expect(sw, "tablo kapsayıcısı taşmamalı").toBeLessThanOrEqual(cw);
+  const box = await region.boundingBox();
+  const btn = await row(page, "HATALI-PC").getByRole("button", { name: "Bağlan: HATALI-PC" }).boundingBox();
+  expect(btn && box && btn.x + btn.width <= box.x + box.width).toBe(true);
+});
+
+test("T-P29-2 390 px audit kartı: güncelleme başlıkları kesilmez, ayırt edici son görünür", async ({ page, context }) => {
+  await page.setViewportSize({ width: 390, height: 900 });
+  await signIn(context, "auupd");
+  await page.goto("/audit");
+  for (const name of ["İstemci güncellemesi bulundu", "İstemci güncellemesi atlandı", "İstemci güncellemesi geri alındı"]) {
+    const title = page.locator("main button").filter({ hasText: name }).locator("span.font-medium").first();
+    await expect(title).toHaveText(name);
+    const clipped = await title.evaluate((el) => el.scrollWidth > el.clientWidth || el.scrollHeight > el.clientHeight);
+    expect(clipped, name).toBe(false);
+  }
 });

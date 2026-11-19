@@ -16991,6 +16991,8 @@ yükleniyor (`settings/loading.tsx`), hata (`LoadError`), yetkisiz/firma seçilm
   alanı yok (gözetimsiz cihaz hep `device`).
 - AC-491 (QA P29 tur 1 düzeltmesi): `client.update.*` ve `settings.client_update` satırlarında ham eylem anahtarı hiçbir yerde gösterilmez
   (`hidesRawAction`, `ActionCell`); diğer gruplarda P11 davranışı (etiket altında ham ad) aynen; e2e tablo/kart/ayrıntı/aria denetler.
+- Sayfa testi T-P29-1: masaüstü tabloda Sürüm hücresi yığılı (sürüm üstte, rozet altta, `max-w-36`, metin sarar) → 1280 px'te tablo
+  kaymaz. T-P29-2: audit mobil kart başlığı kesilmez, sarar (tüm gruplar). İkisi de e2e ile sabitlendi.
 - `/unattended/[id]` "son güncelleme olayı" satırı (zaman + kaynak sürüm) yazılamadı: `DeviceDetail`/`DeviceListItem`'da `updateAt` ve
   `fromVersion` yok. Yalnız rozet (+ bekleyen/sürende hedef sürüm) gösterilir. **contracts/K4:** istenirse `updateAt?: string | null` eklensin.
 - Skill dosyası `~/.claude/skills/ui-ux-pro-max/SKILL.md` okundu; yeni bağımlılık yok.

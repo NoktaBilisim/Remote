@@ -147,8 +147,9 @@ function AuditCard({ a, showTenant, onOpen }: { a: AuditItem; showTenant: boolea
     >
       <Avatar name={who(a)} src={a.avatarUrl} size="sm" tombstone={auditActor(a).tombstone} />
       <span className="min-w-0 flex-1">
-        <span className="flex items-center justify-between gap-2">
-          <span className="truncate font-medium text-fg">{auditItemLabel(a)}</span>
+        <span className="flex items-start justify-between gap-2">
+          {/* T-P29-2: başlık kesilmez, sarar — "İstemci güncellemesi bulundu/atlandı/…" ayırt edici sonu kart açılmadan görünür */}
+          <span className="min-w-0 font-medium break-words text-fg">{auditItemLabel(a)}</span>
           <ResultBadge result={a.result} />
         </span>
         <span className="mt-1 block truncate text-xs text-fg-muted">
