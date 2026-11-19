@@ -5,7 +5,7 @@ Biçim [Keep a Changelog](https://keepachangelog.com/tr/1.1.0/), sürümleme [Se
 
 ## [Unreleased]
 
-### Eklendi — P21 müşteri portalı, sürüm 0.20.0 (AC-262, ADR-0039)
+### Eklendi — P21 müşteri portalı — yayımlanmadı, sürüm birleştirmede belirlenecek (AC-262, ADR-0039)
 
 - **Müşteri portalı (`/portal`):** müşteri firmasının çalışanı firmaya özel adresle (`/portal/login?tenant=<firma>`) e-posta
   ve şifreyle girer; kendi müşterisinin talep ve oturum geçmişini (yalnız meta: tarih, durum, kod, kaynak, öncelik, teknisyen,

@@ -6,7 +6,7 @@ katılır.
 Görüntü eşler arası WebRTC ile akar; sunucu sinyalizasyon ve meta veri tutar. Dosyalar varsayılan olarak eşler arası
 gider; firma isterse sunucu üzerinden, ClamAV taramalı ve şifreli saklamalı aktarır (P28b).
 
-## Şu anki durum: P1–P13a tamamlandı, P13b (prod açılışı) kodu hazır, P14a/P14b, P15, P16, P17 (istemci 0.11.0), P18 (talep iletişimi), P19 (web talep formu, SMS, müşteri bildirimi, müşteri CSV) P20 (istemci 0.12.0), P27a (2FA'da cihaz hatırlama), P27 (gözetimsiz erişim; prod'da kapalı) P28a (pano paylaşımı + uzaktan yazdırma, istemci 0.13.0) P28b (sunucuda dosya aktarımı + ClamAV + depolama kotası, istemci 0.14.0), P28u (gözetimsiz izinli / izinsiz bağlantı ve müdahale, servis 0.15.0) P28e (oturum kaydı, istemci/servis 0.16.0) ve P28c (çoklu teknisyen: davet, İzle, kontrol ve oturum devri, istemci/yardımcı 0.17.0) ve P28d (sesli görüşme, istemci 0.18.0) ve P28f (macOS istemci, istemci 0.19.0; prod'da Apple imzası gelene kadar yok) ve P21 (müşteri portalı, sürüm 0.20.0) kodlandı (QA sürüyor)
+## Şu anki durum: P1–P13a tamamlandı, P13b (prod açılışı) kodu hazır, P14a/P14b, P15, P16, P17 (istemci 0.11.0), P18 (talep iletişimi), P19 (web talep formu, SMS, müşteri bildirimi, müşteri CSV) P20 (istemci 0.12.0), P27a (2FA'da cihaz hatırlama), P27 (gözetimsiz erişim; prod'da kapalı) P28a (pano paylaşımı + uzaktan yazdırma, istemci 0.13.0) P28b (sunucuda dosya aktarımı + ClamAV + depolama kotası, istemci 0.14.0), P28u (gözetimsiz izinli / izinsiz bağlantı ve müdahale, servis 0.15.0) P28e (oturum kaydı, istemci/servis 0.16.0) ve P28c (çoklu teknisyen: davet, İzle, kontrol ve oturum devri, istemci/yardımcı 0.17.0) ve P28d (sesli görüşme, istemci 0.18.0) ve P28f (macOS istemci, istemci 0.19.0; prod'da Apple imzası gelene kadar yok) ve P21 (müşteri portalı) kodlandı (QA sürüyor)
 
 İş P1..P13 dikey paketlerle yürür (`docs/mimari.md` §10). P1–P11 ve **P12** (firma ve sistem logosu, kullanıcı profil
 resmi, kullanıcı başına tema, hesap menüsü, tasarım token lint kuralı) tamamlandı: P12 güvenlik Kritik/Yüksek 0 (doğrulama
@@ -263,7 +263,7 @@ P13c'ye kadar ayrı staging yoktur; yeni kod yerelde (`scripts/e2e-real.sh`) den
 - Yeni cihaz hatırlanınca ve çalınmış çerez şüphesinde kullanıcıya e-posta; şifre değişimi, 2FA sıfırlama, tüm cihazlardan
   çıkış gibi olaylar hatırlamayı siler. Çerez `__Secure-rs_td` (`Path=/api/v1/auth`). Migration `20261121000000_p27a_trusted_devices`; yeni env yok.
 
-**P21 — müşteri portalı, sürüm 0.20.0** (AC-262, ADR-0039; kod tamam, güvenlik kod turu 1 GEÇTİ (Kritik/Yüksek/Orta 0),
+**P21 — müşteri portalı (yayımlanmadı)** (AC-262, ADR-0039; kod tamam, güvenlik kod turu 1 GEÇTİ (Kritik/Yüksek/Orta 0),
 QA tur 2 GEÇTİ; staging doğrulaması runbook §29.3)
 
 - Müşteri firmasının çalışanı firmaya özel adresle (`/portal/login?tenant=<firma>`) girer; kendi müşterisinin talep ve
@@ -648,7 +648,7 @@ görür. `deploy/staging-users.sh` staging test hesapları için hâlâ kullanı
 | P28c (kod ✓, QA sürüyor)                                                          | G8-c çoklu teknisyen: davet, İzle, kontrol ve oturum devri, müşterinin Çıkar'ı, istemci/yardımcı 0.17.0; runbook §28c                                                                                                      |
 | P28d (kod ✓, QA sürüyor)                                                          | G8-d sesli görüşme: teknisyen ister, müşteri yerel Kabul ile mikrofon açar, çoklu teknisyende konuşan/dinleyen, ses kaydedilmez, istemci 0.18.0 (libopus wasm + wazero); runbook §28d                                      |
 | P28f (kod ✓, QA sürüyor; prod Apple imzasından sonra)                             | macOS istemci 0.19.0: universal `.app` (zip), TCC izin rehberi, korunan düğmeler, purego (CGO'suz); runbook §28f                                                                                                           |
-| P21 (kod ✓, qa tur 2 GEÇTİ; staging doğrulaması bekliyor)                         | G6 müşteri portalı (sürüm 0.20.0): portal girişi, talep/oturum geçmişi, portaldan talep, firma dosyası, isteğe bağlı 2FA; panel Portal hesapları; runbook §29                                                              |
+| P21 (kod ✓, qa tur 2 GEÇTİ; staging doğrulaması bekliyor)                         | G6 müşteri portalı: portal girişi, talep/oturum geçmişi, portaldan talep, firma dosyası, isteğe bağlı 2FA; panel Portal hesapları; runbook §29                                                                             |
 | P13c                                                                              | Ayrı staging (`stg.remote.noktabilisim.net`, ayrı DB/sır/yedek); E11 özelliklerinden önce                                                                                                                                  |
 
 Prod açılışının ön koşulları ve imzalı kontrol listesi: runbook §20.1–§20.3. TURN için yalnız 443/TCP'nin açık olduğu
