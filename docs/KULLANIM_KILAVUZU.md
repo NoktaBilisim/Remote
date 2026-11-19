@@ -41,6 +41,9 @@ geliştirilir (bkz. `README.md` "Yol haritası"); kılavuz da her paketle birlik
   Aydınlatma metni, Ayarlar > Güvenlik (2FA cihaz hatırlama, kullanıcının hatırlanan cihazlarını kaldırma), Ayarlar > Logo, kullanıcının profil resmi, kişisel verilerin saklama süresi ve
   anonimleştirme, kurumsal bilgisayarlarda Hızlı Destek'e izin verme (AppLocker / antivirüs), ağ gereksinimleri
   (güvenlik duvarı izin listesi)
+- **Admin, teknisyen, müşteri ve müşteri BT için:** İstemcilerin otomatik güncellenmesi (0.22.0; servis, Windows ve
+  Linux programı kendini günceller, Mac yalnız haber verir; Ayarlar > İstemciler; asgari sürüm istisnası; cihaz listesinde
+  sürüm rozetleri ve sürüm dağılımı; audit kayıtları; 0.21 ve öncesini bir kez elle güncelleme)
 - **Super Admin için:** Firmalar ve aranabilir firma seçici, firmanın sunucu depolama kotası, firmayı kalıcı silme (24 saat iptal penceresi), tüm firmaların oturum geçmişi, destek talepleri, Sistem ayarları
   (MySQL, TURN, sistem logosunu değiştirme/kaldırma, WhatsApp servisi, virüs tarama (ClamAV)), başka bir Super Admin'in şifresini sıfırlama,
   şifre/2FA kaybı
@@ -3975,6 +3978,10 @@ kısıtlıyorsa Hızlı Destek engellenebilir. Bu bölüm o şirketin BT sorumlu
 3. Koşul: **Dosya karması** (File hash) → doğruladığınız program dosyasını seçin → kuralı kaydedin.
 4. İlkeyi dağıtın (`gpupdate /force`) ve programı standart kullanıcıyla açarak deneyin.
 
+**Not (0.22 ve sonrası):** program kendini güncelleyince dosyanın özeti değişir; hash kuralı yeni sürümü engeller ve
+program açılmaz. Hash kuralı kullanıyorsanız her sürümde kuralı yeni özetle güncelleyin ya da firmanız için Ayarlar >
+İstemciler'den otomatik güncellemeyi kapatıp yeni sürümü kendiniz dağıtın.
+
 **2b. AppLocker yol kuralı (yalnız gerekirse)**
 
 - **İndirilenler** klasörüne yol kuralı yazmayın: kullanıcı oraya her dosyayı koyabildiği için kural her programa izin verir.
@@ -4188,8 +4195,8 @@ Ne yapmalı:
 - Yazdıklarınız teknisyene ulaşmaz. Teknisyeninizle **telefonda** konuşun.
 - Görüntü, uzaktan kontrol, dosya, pano, yazdırma, sesli görüşme ve kayıt etkilenmez; oturuma devam edebilirsiniz.
 - Sohbet gerekiyorsa ekranınızı **tarayıcıdan** paylaşın: tarayıcı modunda sohbet tam çalışır.
-- Tepside çalışan ya da firmaya kayıtlı program kendiliğinden güncellenmez. Firmanızın destek sayfasından programı yeniden
-  indirin.
+- 0.21 ve önceki programlar kendiliğinden güncellenmez (tepside çalışan ya da firmaya kayıtlı olsa da). Firmanızın destek
+  sayfasından programı bir kez yeniden indirin; 0.22 ve sonrası kendini günceller.
 - Beklerken yapılan talep sohbeti ("Beklerken teknisyenle nasıl yazışırım?") bundan etkilenmez.
 
 ### Teknisyen için: Konsolda sohbet
@@ -4955,8 +4962,9 @@ kodunu alın.
 3. Kayıt kodunu yazın (tire ve boşluk önemsiz) → **Kur**.
 4. Pencere "Kuruldu — çevrimiçi." gösterir. Bildirim adreslerinize "yeni cihaz kaydedildi" e-postası gelir.
 
-Servis Windows açılışında kendiliğinden başlar; bilgisayara kimse giriş yapmamışken de çalışır. Yeni sürüm geldiğinde
-pencerede **Güncelle…** çıkar; güncelleme kaydı korur.
+Servis Windows açılışında kendiliğinden başlar; bilgisayara kimse giriş yapmamışken de çalışır. 0.22.0 ve sonraki servisler
+yeni sürüme bağlantı yokken kendiliğinden geçer (bkz. "İstemcilerin otomatik güncellenmesi"). Elle güncellemek için
+pencerede **Güncelle…** kullanılır; güncelleme kaydı korur.
 
 **Önemli — yönetici hesabı uyarısı.** Bağlantı sırasında bilgisayarda oturum açmış Windows kullanıcısı **yöneticiyse**,
 teknisyen ekrana gelen yönetici onayı (UAC) pencerelerini onaylayabilir. Bu bilgisayarlarda günlük kullanım için
@@ -5021,9 +5029,151 @@ edilir (bilgisayar o an çevrimdışıysa cihaz panelde çevrimdışı kalır, A
 | Kayıt kodu geçersiz, kullanılmış ya da süresi dolmuş (servis kurulumunda)            | Destek firmasından yeni kod isteyin; kod 24 saat geçerli ve tek kullanımlıktır            |
 | Müşteri pasif; kayıt kodu oluşturulamaz.                                             | Önce müşteriyi **Yeniden aktif et**, sonra kodu yeniden oluşturun                         |
 | Cihazdaki servis güncel değil — güncelleyin                                          | Servisi bir sonraki servis sürümüne güncelleyin (bkz. "Eski servis: Servis güncel değil") |
+| Cihaz güncelleniyor, birazdan tekrar deneyin.                                        | Servis kendini güncelliyor; 2–3 dakika sonra yeniden deneyin                              |
 | Kullanıcı bağlantıyı reddetti. / Kullanıcı yanıt vermedi.                            | Yalnız eski kayıtlarda görünür (eski onay penceresi); yeni bağlantıda çıkmaz              |
 | Önceki komut henüz tamamlanmadı                                                      | Kilit/oturum kapatma sonucunu bekleyin                                                    |
 | Cihaz komutu uygulayamadı                                                            | Kontrolün açık olduğunu ve cihazda oturum bulunduğunu kontrol edin; yeniden deneyin       |
+
+## İstemcilerin otomatik güncellenmesi (Admin, teknisyen, müşteri ve müşteri BT için)
+
+Sürüm **0.22.0** ile destek programları ve gözetimsiz erişim servisi yeni sürüme kendileri geçer. Program yeni sürümü
+sunucudan öğrenir, indirir, Nokta Bilişim'in imzasıyla doğrular ve **yalnız destek oturumu yokken** kurar. Oturum
+sırasında hiçbir program değişmez, kapanmaz ya da yeniden başlamaz. İmzası tutmayan, bozuk ya da eski bir sürüm kurulmaz;
+bu durum denetim kaydına "Güncelleme reddedildi" olarak yazılır.
+
+Programlar yeni sürümü açılışta ve açık kaldıkça yaklaşık 24 saatte bir denetler. İnternet yoksa sessizce sonraki denetimi
+bekler; ekrana hata çıkmaz.
+
+### Hangi program nasıl güncellenir?
+
+| Program                             | Ne olur                                                                                                                                                                                                                                                                                                                                                                                     |
+| ----------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Gözetimsiz erişim servisi (Windows) | **Tam otomatik.** Bağlantı yokken indirir, doğrular, kendini değiştirir ve yeniden başlar; kesinti yaklaşık 30 saniyedir. Yeni sürüm 60 saniye içinde sunucuya bağlanamazsa servis eski sürüme kendiliğinden döner ve aynı sürümü 24 saat denemez. Kayıt, teknisyen yetkileri ve yerel kapatma anahtarı korunur; cihaz panelde aynı cihaz olarak kalır. Kimsenin bir şey tıklaması gerekmez |
+| Hızlı Destek (Windows)              | Yeni sürümü arka planda indirir. Oturum bitince dosyayı **aynı klasörde, aynı adla** değiştirir. Yeni sürüm programı bir sonraki açışınızda çalışır; açık program kendini kapatmaz. Ekranda bir kez "Yeni sürüm (x.y.z) hazır — programı sonraki açışınızda kullanılacak" yazar. Tepside çalışan programda bu bilgi balon olarak çıkar                                                      |
+| Hızlı Destek (Linux)                | Windows ile aynı: dosya aynı adla değişir, çalıştırma izni korunur, yeni sürüm sonraki açılışta çalışır. Bilgi oturum sonu ekranında görünür                                                                                                                                                                                                                                                |
+| Hızlı Destek (macOS)                | **Kendini güncellemez.** Yeni sürüm varsa oturum sonu ekranında "Yeni sürüm var — indirme bağlantısından yeni sürümü alın" yazar. Yeni sürümü indirme bağlantısından alın. Mac'te ekran kaydı ve erişilebilirlik izinleri her yeni dosyada düşeceği için Apple imzası gelene kadar böyledir                                                                                                 |
+| Tarayıcıdan katılım                 | Güncellenecek program yoktur                                                                                                                                                                                                                                                                                                                                                                |
+
+Dosya yazılamayan bir yerdeyse (ağ sürücüsü, USB bellek, salt okunur klasör, Linux'ta başka kullanıcıya ait dosya) program
+dosyaya dokunmaz. Yalnız "Yeni sürüm var — indirme bağlantısından yeni sürümü alın" bilgisini ve destek firmanızın
+karşılama sayfası adresini gösterir. Programın yanına kopya dosya bırakılmaz.
+
+Windows'ta güncellemeden sonra klasörde kısa süre `<program adı>.eski` dosyası görünebilir. Program bir sonraki açılışta
+bunu siler; isterseniz elle de silebilirsiniz.
+
+### Admin için: Ayarlar > İstemciler (otomatik güncellemeyi açma / kapatma)
+
+1. **Ayarlar** → **İstemciler** sekmesini açın.
+2. **İstemcileri otomatik güncelle** anahtarını açın ya da kapatın. Varsayılan **Açık**tır.
+3. **Kaydet**'e basın. "İstemci güncelleme ayarı kaydedildi." yazar. Kimlik doğrulama penceresi çıkmaz.
+
+Kaydetmeden sayfadan çıkmaya çalışırsanız uyarı gelir. Ayarı görmek için **Ayarlar → Görüntüle**, değiştirmek için
+**Ayarlar → Düzenle** yetkisi gerekir. Değişiklik denetim kaydına "İstemci otomatik güncelleme ayarı değişti" olarak eski →
+yeni değeriyle yazılır.
+
+**Kapalıyken:** programlar yeni sürümü indirmez ve kurmaz, yalnız "yeni sürüm var" diye haber verir. Gözetimsiz cihaz
+listesinde bu cihazlar **Güncelleme bekliyor** rozetiyle görünür. Değişiklik açık servis bağlantılarına bir dakika içinde,
+diğer programlara bir sonraki denetimde (en geç 24 saat) yansır.
+
+Bu ayara uyan programlar: firmanızın gözetimsiz erişim servisleri, firmanıza kayıtlı Windows bilgisayarlar ve firmanızın
+müşteri dosyaları (`NoktaDestek-<firma>-….exe`). Bir bilgisayar birden çok firmaya kayıtlıysa ve firmalardan biri ayarı
+kapattıysa o bilgisayarda güncelleme kapalı sayılır. Genel bağlantıyla indirilen Windows programı ile Linux programı hangi
+firmaya ait olduğunu bilmediği için her zaman günceller; Mac programı zaten yalnız haber verir.
+
+**Önemli — asgari sürüm:** sunucu yöneticisi bir asgari sürüm belirlediyse ve firmanıza kayıtlı bir bilgisayardaki
+Hızlı Destek (`NoktaDestek.exe`) bu sürümün altındaysa, program **otomatik güncelleme Kapalı olsa bile kendini günceller**.
+Program eski sürümle zaten bağlanamaz; asgari sürüm, yöneticinin "güncellenmeli" kararıdır. Bu istisna gözetimsiz
+erişim servisi ve firma müşteri dosyası için geçerli değildir: ayar Kapalıyken asgari sürümün altında kalan servis
+kendiliğinden güncellenmez ve listede kırmızı **Asgari sürümün altında** rozetiyle görünür. Böyle bir
+durumda ayarı geçici olarak açın ya da servisi elle güncelleyin (bkz. "Eski servis: Servis güncel değil").
+
+### Gözetimsiz cihaz listesinde sürüm ve rozetler
+
+**Gözetimsiz** listesinde **Sürüm** sütunu cihazdaki servis sürümünü ve yanında bir rozet gösterir. Rozet her zaman ikon ve
+yazıyla birlikte gelir; yalnız renge bakmanız gerekmez.
+
+| Rozet                         | Anlamı                                                                                                 | Ne yapmalı                                                                                    |
+| ----------------------------- | ------------------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------- |
+| Güncel                        | Cihaz yayındaki sürümde                                                                                | —                                                                                             |
+| Güncelleme bekliyor (→ x.y.z) | Yeni sürüm var; henüz kurulmadı (ayar Kapalı, bağlantı sürüyor ya da servis indirme sırasını bekliyor) | Ayar Açıksa bekleyin; servis yeni sürümü gördükten sonra indirmeye 2 saate kadar bekleyebilir |
+| Güncelleniyor (→ x.y.z)       | Servis şu an kuruyor                                                                                   | 2–3 dakika sonra bağlanın                                                                     |
+| Güncelleme başarısız (neden)  | Son deneme başarısız oldu ya da eski sürüme dönüldü                                                    | Nedene bakın (aşağıdaki "Sık karşılaşılan durumlar")                                          |
+| Asgari sürümün altında        | Cihaz sunucu yöneticisinin belirlediği asgari sürümden eski                                            | Ayarı açın ya da servisi elle güncelleyin                                                     |
+
+Neden yazıları: indirme, bütünlük, imza, platform imzası, eski sürüm, süresi dolmuş, ortam, kurulum, sağlık denetimi.
+Cihaz ayrıntısındaki sürüm satırında da aynı rozet görünür.
+
+**Sürüm dağılımı:** listenin üstündeki şerit "Yayındaki sürüm: x.y.z" satırını ve her sürümde kaç cihaz olduğunu
+gösterir. Bir sürüme tıklayınca liste o sürümdeki cihazlara süzülür; **Süzgeci kaldır** ile geri dönersiniz. Asgari
+sürümün altında cihaz varsa "Asgari sürümün altında: n cihaz" satırı çıkar. Şerit yalnız gözetimsiz cihazları sayar;
+Hızlı Destek kopyaları burada görünmez (onların güncellemeleri denetim kaydındadır).
+
+- Şerit yüklenemezse "Sürüm dağılımı alınamadı. Cihaz listesi aşağıda." yazar; **Tekrar dene**'ye basın. Liste bundan
+  etkilenmez.
+- "Yayın bilgisi alınamadı; yalnız cihazlardaki sürümler gösteriliyor." yazıyorsa sunucuda yayında bir sürüm yoktur ya
+  da bilgisi okunamadı; cihaz sayıları yine doğrudur.
+- **Super Admin:** şeritte **Bu firma / Tüm firmalar** seçimi vardır. "Tüm firmalar" yalnız sayıları gösterir, cihaz adı
+  göstermez; alttaki liste seçili firmanındır.
+
+Sütunu ve şeridi gözetimsiz listeyi görebilen herkes (Gözetimsiz erişim **Bağlan** ya da **Yönet** yetkisi) görür.
+
+### Teknisyen için: "Cihaz güncelleniyor, birazdan tekrar deneyin"
+
+**Bağlan**'a bastığınızda bu mesaj çıkıyorsa cihazdaki servis o an kendini güncelliyor. Kurulum en çok birkaç dakika
+sürer. 2–3 dakika sonra yeniden deneyin. Bu ret kimlik doğrulama kodunuzu harcamaz.
+
+### Admin için: Audit log'da güncelleme kayıtları
+
+**Audit log** → **İşlem** süzgecinde **İstemci güncelleme** grubunu seçin. Görülen kayıtlar:
+
+| Kayıt                                                                          | Ne zaman yazılır                                                                                        |
+| ------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------- |
+| İstemci güncellemesi bulundu                                                   | Program yeni sürümü ilk kez gördü (sürüm başına bir kez)                                                |
+| İstemci güncellendi                                                            | Kurulum tamamlandı (eski → yeni sürüm)                                                                  |
+| İstemci güncellemesi başarısız                                                 | İndirme ya da kurulum başarısız                                                                         |
+| Güncelleme reddedildi (imza / platform imzası / eski sürüm / bütünlük / ortam) | **Güvenlik olayı:** program sahte, bozuk ya da yanlış ortama ait bir sürümü reddetti; kurulum yapılmadı |
+| İstemci güncellemesi geri alındı                                               | Servis yeni sürümle açılamadı, eski sürüme döndü                                                        |
+| İstemci güncellemesi atlandı                                                   | Ayar Kapalı, dosya yazılamıyor ya da elle güncelleme gerekiyor                                          |
+| İstemci otomatik güncelleme ayarı değişti                                      | Ayarlar > İstemciler'de anahtar değişti                                                                 |
+
+"İstemci bildirdi:" ile başlayan kayıtlar kayıtlı bilgisayarın kendi bildirdiği, sunucunun doğrulayamadığı sonuçlardır.
+Denetim kaydına yalnız gözetimsiz servislerin ve firmanıza kayıtlı bilgisayarların olayları yazılır; Genel bağlantı, Mac
+ve Linux programlarının olayları yalnız sunucu sayaçlarına girer. **Güncelleme reddedildi** kaydı görürseniz sunucu
+yöneticinize hemen bildirin.
+
+### Müşteri BT için: servis güncellemesi
+
+- Servis kendini bağlantı yokken günceller; bağlantı sürerken kurulum yapılmaz, bağlantı bitince yapılır.
+- Kurulum, geri dönüş ve ret Windows Olay Görüntüleyicisi → Uygulama günlüğüne **NoktaDestek** kaynağıyla yazılır:
+  **1010** güncellendi, **1011** eski sürüme dönüldü, **1012** güncelleme reddedildi.
+- Tepsi simgesi yeni sürüme geçerken kendini yeniden başlatır; kısa süre kaybolup geri gelebilir.
+- Program klasöründe geçici `NoktaDestekServis.exe.eski` dosyası görülebilir; servis sonraki açılışlarında siler.
+- Ayar penceresindeki **Güncelle…** düğmesi elle güncelleme için yerinde durur.
+
+### 0.21 ve önceki programlar: bir kez elle güncelleme
+
+Otomatik güncelleme 0.22.0 sürümüyle gelir. 0.21 ve önceki programlarda güncelleyici yoktur; bu yüzden her program **bir
+kez elle** 0.22.0 ya da sonrasına geçirilir. Sonraki sürümler kendiliğinden gelir.
+
+- **Gözetimsiz servis:** Admin kayıt kodu penceresindeki **Servis programını indir** ile yeni `NoktaDestekServis.exe`'yi
+  indirip müşteri BT'ye iletir; müşteri BT ayar penceresinde **Güncelle…** der. Kayıt korunur.
+- **Hızlı Destek (Windows, Linux, Mac):** müşteriye yeni bağlantı gönderin (**Müşteriye gönder**) ya da müşteri
+  karşılama sayfasından programı yeniden indirsin. Eski dosyayı yenisiyle değiştirmesi yeterlidir; bilgisayar kaydı
+  korunur.
+
+### Sık karşılaşılan durumlar (otomatik güncelleme)
+
+| Durum                                                                       | Ne yapmalı                                                                                                                                                |
+| --------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Windows/Linux programı "Yeni sürüm var — indirme bağlantısından…" diyor     | Dosya yazılamayan bir yerde ya da firma güncellemeyi kapattı. Programı Masaüstü ya da İndirilenler gibi bir klasörden çalıştırın veya yeni sürümü indirin |
+| Mac programı her seferinde "Yeni sürüm var…" diyor                          | Normaldir; Mac programı kendini güncellemez. Yeni sürümü indirme bağlantısından alın                                                                      |
+| Rozet uzun süredir "Güncelleme bekliyor"                                    | Ayarlar > İstemciler'de anahtar Açık mı bakın. Cihazda bağlantı sürüyorsa kurulum bağlantı bitince yapılır                                                |
+| "Güncelleme başarısız (indirme)"                                            | Ağ sorunu; program sonraki denetimde yeniden dener                                                                                                        |
+| "Güncelleme başarısız (sağlık denetimi)" ya da "geri alındı"                | Yeni sürüm açılamadı, servis eski sürüme döndü ve çalışmaya devam ediyor. 24 saat sonra yeniden dener. Sunucu yöneticisine bildirin                       |
+| "Güncelleme başarısız (imza, platform imzası, bütünlük, ortam, eski sürüm)" | Güvenlik reddi; hiçbir şey kurulmadı. Sunucu yöneticisine hemen bildirin                                                                                  |
+| "Cihaz güncelleniyor, birazdan tekrar deneyin"                              | 2–3 dakika sonra yeniden bağlanın                                                                                                                         |
+| "Asgari sürümün altında"                                                    | Ayarlar > İstemciler'i açın ya da servisi elle güncelleyin. Cihaz 0.21 ya da öncesindeyse bir kez elle güncelleyin                                        |
+| Bir program hiç güncellenmiyor                                              | Sürümü 0.21 ya da önceyse bir kez elle güncelleyin. 0.22 ve sonrasında sunucuda yayında sürüm olmayabilir; sunucu yöneticisine sorun                      |
 
 ## Super Admin için: Firmalar ve firma geçişi
 

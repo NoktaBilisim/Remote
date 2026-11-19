@@ -5,6 +5,70 @@ Biçim [Keep a Changelog](https://keepachangelog.com/tr/1.1.0/), sürümleme [Se
 
 ## [Unreleased]
 
+### Eklendi — P29 istemci otomatik güncelleme, istemci/servis 0.22.0 (AC-470..493, ADR-0040)
+
+- **İmzalı güncelleme:** CI her ikili için kanonik JSON manifest (`update-<component>-<platform>-<arch>.json`) üretir ve
+  ortama özel Ed25519 anahtarıyla imzalar (`.json.sig`). Özel tohum yalnız onaylı GitHub ortam secret'ıdır
+  (`agent-update-sign` yalnız `v*` etiketi, `agent-update-sign-stg` yalnız `main`); repo değişkenleri
+  `UPDATE_SIGNING_ENABLED(_STG)`. İstemciye derlemede iki açık anahtar yuvası (etkin + yedek) gömülür; anahtarsız derleme
+  güncelleyicisiz çalışır. Yeni araç `apps/agent-win/cmd/update-sign` (`keygen`, `pubkey`, `sign`, `verify`; yalnız stdlib).
+- **İstemcide doğrulama (tüm platformlar):** imza, ortam, platform/mimari/bileşen, süre (istemci ≤ 30 g, servis ≤ 90 g),
+  sürüm > çalışan ve ≥ görülen en yüksek (yeniden oynatma engeli), boyut ve SHA-256; çalışan ikili platform imzalıysa aynı
+  yayıncı. Doğrulanmayan dosya silinir, kurulmaz. İndirme yalnız gömülü kökenden, yönlendirmesiz.
+- **Gözetimsiz servis (Windows):** bağlantı yokken tam otomatik kurulum; eski ikili `--update-apply` gözetmeni olarak yer
+  değiştirir, yeni servis 60 sn'de sunucuya bağlanmazsa eski sürüme döner (aynı sürüm 24 sa denenmez), SCM kurtarma
+  kancası `--update-recover`. Kayıt, DPAPI anahtarı, yerel kapatma anahtarı, ACL'ler korunur; `DisplayVersion` güncellenir.
+  Olay günlüğü 1010 (güncellendi), 1011 (geri dönüldü), 1012 (reddedildi). Tepsi süreci sürüm farkında kendini yeniden başlatır.
+- **Hızlı Destek Windows ve Linux:** yeni sürüm oturum sürerken indirilip doğrulanır, oturum bitince aynı yerde aynı adla
+  atomik değiştirilir (Windows MOTW korunur, Linux çalıştırma izni korunur); yeni sürüm sonraki açılışta çalışır, ekranda
+  bir kez "Yeni sürüm (x.y.z) hazır — programı sonraki açışınızda kullanılacak". Yazılamayan konumda (ağ, USB, salt okunur,
+  `noexec`) yalnız "Yeni sürüm var — indirme bağlantısından yeni sürümü alın".
+- **Hızlı Destek macOS:** kendini güncellemez; yeni sürüm olduğunda yalnız bilgi gösterir (`skipped(MANUAL_ONLY)`).
+- **Olay bildirimi:** `available`, `installed`, `failed`, `rolled_back`, `skipped`; servis WS'den, taşınabilir istemci
+  `POST /api/v1/public/agent/update-events` ile. Kimlikli olaylar firmanın audit'ine `client.update.*` olarak yazılır;
+  imza/bütünlük/ortam/eski sürüm reddi güvenlik olayıdır (`rs_agent_update_rejected_total`, `remote-watch` alarmları).
+- **Sunucu:** `GET /api/v1/public/agent/update` (200 teklif / 204), `GET …/update/service-file` (tek kullanımlık Bearer
+  belirteç), `POST …/update-events` (her durumda 204), `GET /api/v1/unattended/versions`, `GET/PUT
+/api/v1/settings/client-update`; `bindings/status` yanıtına `autoUpdate`; cihaz listesine `agentVersion`, `updateBadge`,
+  `updateReason`, `updateVersion` ve `version=` süzgeci; `/ws/device` yetenek `rs.cap.update1` ve `update.*` mesajları;
+  yeni hata 409 `DEVICE_UPDATING`. Manifest yalnız imza, ortam, süre ve ikili SHA kapısından geçerse sunulur;
+  `UNATTENDED_MODE=signed` iken servis SHA'sı listede olmalı.
+- **Panel:** Ayarlar → **İstemciler** "İstemcileri otomatik güncelle" (firma başına, varsayılan Açık; Kapalı = yalnız
+  haber ver; step-up yok; audit `settings.client_update`). Gözetimsiz listede **Sürüm** sütunu ve rozetler, sürüm dağılımı
+  şeridi (sürüme tıklayınca süzgeç; Super Admin "Tüm firmalar"), Audit Log'da "İstemci güncelleme" grubu ve Türkçe etiketler.
+- **Yayın:** `deploy/agent/publish-manifest.sh` + `verify-manifest.mjs` (imza, attestation, SHA256SUMS, yayımlanmış ikili
+  SHA'sı; `--withdraw` acil durdurma), CI `update-manifest`, `update-manifest-stg`, `update-resign`. Runbook §31.
+- Migration `20261128000000_p29_client_update` (`tenant_settings.client_auto_update`, `unattended_devices.update_state /
+update_version / update_reason / update_at`; yeni tablo yok). Yeni env `UPDATE_MANIFEST_PUBKEYS`, `UPDATE_MANIFEST_DIR`.
+  Yeni bağımlılık ve yetki yok.
+
+### Değişti — P29
+
+- Asgari sürümün (`MIN_AGENT_VERSION`) altındaki kayıtlı Windows bilgisayar, firma otomatik güncellemeyi kapatmış olsa bile
+  güncellenir (`bindings/status` 426 → politika `auto`). Gözetimsiz servis ve firma müşteri dosyası için bu istisna yoktur.
+- Güncelleme uçları `MIN_AGENT_VERSION` kapısından muaftır; eski istemci de güncelleme bulabilir. Kilit kuralı (426
+  `CLIENT_OUTDATED`, 409 `DEVICE_OUTDATED`) değişmedi.
+- mimari-e11 §8d.13 ve mimari-p27 §1'deki "otomatik güncelleme yok" kararı ADR-0040 ile değişti.
+
+### Güvenlik — P29
+
+- Tek güven kökü CI manifest imzasıdır (platform imzası yok). Tek imza riski kullanıcı tarafından yazılı kabul edildi
+  (2026-11-19); sertleştirmeler: onaylı ortam, yönetici atlatması kapalı, etiket ruleset'i, yedek anahtar ve rotasyon,
+  attestation, alarmlar, staging-önce 24 saat kuralı (runbook §31.9).
+- İmza tohumu CI'da tüm base64/hex biçimleriyle maskelenir ve imza adımı çıktısı taranır. `bindingKeys`, belirteç ve `ref`
+  loglanmaz; doğrulama hataları değer yansıtmaz.
+- Servis gözetmeni `Guncelleme\` klasörünü (yalnız SYSTEM/Administrators) okumadan önce doğrular; doğrulanan bayt = kurulan
+  bayt (aynı tutamaçtan SHA + kopya).
+
+### Bilinen sınırlamalar — P29
+
+- **0.21 ve önceki istemciler güncelleyici içermez;** her biri bir kez elle 0.22.0'a geçirilir.
+- macOS otomatik kurulumu Apple Developer ID gelene kadar yoktur.
+- Sürüm dağılımı yalnız gözetimsiz cihazları sayar; Hızlı Destek kopyaları audit ve metrikte görünür.
+- Taşınabilir istemcinin olay kuyruğu süreç belleğindedir (iz bırakmama); program kapanınca gönderilememiş olaylar düşer.
+- Gerçek Windows'ta yer değiştirme, SCM kurtarma ve AV davranışı ile staging 0.22.0 → 0.22.1 tam tur yayından önce elle
+  doğrulanacak (AC-493).
+
 ### Eklendi — P28g Linux istemci, istemci 0.20.0 (AC-397..404)
 
 - **Hızlı Destek Linux:** Ubuntu 22.04 / 24.04 LTS x86_64 (GNOME; X11 ve Wayland) için tek ELF dosyası (≤ 60 MB), kurulumsuz,

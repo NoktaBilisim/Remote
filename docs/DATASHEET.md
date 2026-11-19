@@ -27,6 +27,10 @@ aktarır; bu durumda teslim edilen dosyalar da seçilen süre (1–7 gün) boyun
   müşteri tek tıkla kapatabilir. Bağlantı cihaz kullanıcısına sorulmadan açılır ve teknisyen ekranı görüp kontrolü hemen
   alır; sunucu ve personel bilgisayarlarına destek ve müdahale için tek, basit yol. Gizli izleme yoktur: gösterge her
   bağlantıda görünür. Teknisyen gerekirse Windows oturumunu kilitler ya da kullanıcı oturumunu kapatır. Kod imzası alındıktan sonra canlı ortamda açılır.
+- **Kendini güncelleyen programlar** — gözetimsiz erişim servisi ile Windows ve Linux destek programı yeni sürüme
+  kendileri geçer; yalnız bizim imzaladığımız sürüm kurulur, destek oturumu sırasında hiçbir şey değişmez. Servis yeni
+  sürümle açılamazsa eski sürüme kendiliğinden döner. Yönetici her cihazın sürümünü ve başarısız güncellemeleri panelde
+  görür; isterse firması için otomatik kurulumu kapatıp yalnız bildirim alır. (Mac programı yeni sürümü yalnız haber verir.)
 - **İzinli uzaktan kontrol (müşteri onaylı oturum)** — her kontrol isteğini müşteri onaylar, tek tuşla geri alır; uzaktan tıklama izin sayılmaz.
 - **Mac desteği** — Mac kullanan müşteri de kurulumsuz Nokta Destek uygulamasıyla bağlanır: teknisyen ekranı görür, izinle
   kontrol eder, yazışır, dosya ve belge gönderir. Uygulama Apple Silicon ve Intel Mac'lerde (macOS 13 ve üstü) çalışır,
@@ -127,6 +131,7 @@ aktarır; bu durumda teslim edilen dosyalar da seçilen süre (1–7 gün) boyun
 | Audit log                        | Salt okunur denetim kaydı: tarih, kullanıcı, işlem, sonuç ve firma filtreleri, ayrıntı, CSV                                                                                                                                                                                                                                                                                                                                                                                                                                       |
 | Sistem ayarları (Süper Yönetici) | MySQL bağlantı bilgisi + bağlantı testi (isteğe bağlı zorunlu TLS ve sertifika doğrulaması), TURN sunucuları ve gizli anahtar, sistem logosu (yükleme/kaldırma), Süper Yönetici şifre sıfırlama, WhatsApp servis adresi + test mesajı, virüs tarama (ClamAV) sunucusu + bağlantı testi                                                                                                                                                                                                                                            |
 | Hesabım                          | Profil resmi (kare kırpma), tema (Açık / Koyu / Sistem), 2FA kurulumu, kurtarma kodları ve yenilenmesi, hatırlanan cihazlar, şifre değiştirme/sıfırlama, tüm cihazlardan çıkış                                                                                                                                                                                                                                                                                                                                                    |
+| İstemci güncellemeleri           | Ayarlar → İstemciler'de firma başına "İstemcileri otomatik güncelle" (Açık/Kapalı); gözetimsiz cihaz listesinde sürüm sütunu ve durum rozetleri (güncel, bekliyor, güncelleniyor, başarısız, asgari sürümün altında), sürüm dağılımı; denetim kaydında her güncelleme ve reddedilen sürüm                                                                                                                                                                                                                                         |
 | Ayarlar                          | Oturum kaydı (aç/kapa, saklama süresi, gözetimsiz kayıt politikası), genel sınırlar (kod geçerliliği, en uzun oturum, teknisyen başına açık oturum, dosya boyutu), destek talebi bağlantısı, bekleme süresi, WhatsApp ve e-posta bildirimi + test, güvenilen ağlar, SMTP + test maili, SMS + test SMS, web talep formu aç/kapa ve müşteriye durum bildirimi kanalları, teknisyen 2FA zorunluluğu, sürümlü aydınlatma metni, firma logosu, Dosyalar (sunucu üzerinden aktarım ve virüs tarama, saklama süresi, depolama kullanımı) |
 
 ## Güvenlik ve yönetim
@@ -187,6 +192,9 @@ aktarır; bu durumda teslim edilen dosyalar da seçilen süre (1–7 gün) boyun
   iptal edince bağlantı 10 saniyede kesilir. Koşullar sunucuda denetlenir; eski servis sürümlerine bağlantı açılmaz.
   Olaylar denetim kaydına ve cihazın Windows olay günlüğüne yazılır. **Not:** cihazda oturum açmış Windows kullanıcısı
   yöneticiyse teknisyen yönetici onayı (UAC) verebilir; standart kullanıcı hesabı önerilir.
+- Otomatik güncelleme: programlar yeni sürümü yalnız Nokta Bilişim'in dijital imzasıyla doğrulayıp kurar; imzası tutmayan,
+  bozuk, eski ya da başka ortama ait sürüm reddedilir ve güvenlik olayı olarak kaydedilir. Sunucu ele geçirilse bile
+  istemci imzayı kendisi denetler. İmza anahtarı yalnız onaylı yayın ortamında durur; yedek anahtarla değiştirilebilir.
 - **Gizli izleme yoktur:** bağlantı süresince cihazda "Uzaktan bağlantı" göstergesi her zaman görünür ve cihaz kullanıcısı
   bağlantıyı yerel kapatma anahtarıyla sonlandırabilir. **KVKK:** firma, çalışanlarını bu bilgisayarlara sorulmadan uzaktan
   bağlanılabileceği, ekranın görülebileceği, kontrol edilebileceği ve (açıksa) kaydedilebileceği konusunda yazılı olarak

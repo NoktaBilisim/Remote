@@ -265,6 +265,28 @@ P13c'ye kadar ayrı staging yoktur; yeni kod yerelde (`scripts/e2e-real.sh`) den
 - Yeni cihaz hatırlanınca ve çalınmış çerez şüphesinde kullanıcıya e-posta; şifre değişimi, 2FA sıfırlama, tüm cihazlardan
   çıkış gibi olaylar hatırlamayı siler. Çerez `__Secure-rs_td` (`Path=/api/v1/auth`). Migration `20261121000000_p27a_trusted_devices`; yeni env yok.
 
+**P29 — istemci otomatik güncelleme, istemci/servis 0.22.0** (AC-470..493, ADR-0040; kod tamam, QA tur 2 GEÇTİ, güvenlik
+kod turu GEÇTİ; staging'de 0.22.0 → 0.22.1 tam tur (servis + üç taşınabilir platform) yayından önce elle doğrulanacak)
+
+- Programlar yeni sürümü Ed25519 imzalı manifestle doğrulayıp **yalnız oturum yokken** kurar. Gözetimsiz Windows servisi
+  tam otomatik: eski ikili gözetmen olarak yer değiştirir, yeni servis 60 sn'de bağlanmazsa eski sürüme döner (aynı sürüm
+  24 sa denenmez). Windows ve Linux Hızlı Destek dosyayı aynı yerde, aynı adla değiştirir; yeni sürüm sonraki açılışta
+  çalışır. macOS yalnız "yeni sürüm var" der (Apple imzası yok, TCC izni düşerdi). Yazılamayan konumda yalnız bilgi.
+- Her ikili için manifest `update-<component>-<platform>-<arch>.json` + `.sig`; CI yalnız onaylı GitHub ortamında imzalar
+  (`agent-update-sign`, `agent-update-sign-stg`). Sunucu manifesti üretmez: imza, ortam, süre ve ikili SHA kapısından geçeni
+  sunar. Platform imzası (Authenticode/Developer ID) gelirse aynı yayıncı şartı kendiliğinden devreye girer.
+- Panel: **Ayarlar → İstemciler** "İstemcileri otomatik güncelle" (firma başına, varsayılan Açık; Kapalı = yalnız haber
+  ver). Asgari sürümün (`MIN_AGENT_VERSION`) altındaki kayıtlı Windows bilgisayar, ayar Kapalı olsa da güncellenir.
+  Gözetimsiz listede **Sürüm** sütunu ve rozetler (Güncel / Güncelleme bekliyor / Güncelleniyor / Güncelleme başarısız
+  (neden) / Asgari sürümün altında), sürüm dağılımı şeridi (Super Admin "Tüm firmalar"), audit `client.update.*` ve
+  `settings.client_update`. Kurulum sırasında bağlantı 409 `DEVICE_UPDATING`.
+- Yeni uçlar `GET /public/agent/update`, `GET /public/agent/update/service-file`, `POST /public/agent/update-events`,
+  `GET /unattended/versions`, `GET/PUT /settings/client-update`; `/ws/device` yetenek `rs.cap.update1`. Migration
+  `20261128000000_p29_client_update` (yeni tablo yok), yeni env `UPDATE_MANIFEST_PUBKEYS`, `UPDATE_MANIFEST_DIR`; yeni
+  bağımlılık ve yetki yok. **0.21 ve önceki istemciler bir kez elle güncellenir** (güncelleyici içermezler). API
+  `docs/api.md` "İstemci otomatik güncelleme (P29, 0.22.0)"; kullanım kılavuzu "İstemcilerin otomatik güncellenmesi";
+  operasyon runbook §31.
+
 **P21 — müşteri portalı (yayımlanmadı)** (AC-262, ADR-0039; kod tamam, güvenlik kod turu 1 GEÇTİ (Kritik/Yüksek/Orta 0),
 QA tur 2 GEÇTİ; staging doğrulaması runbook §29.3)
 
@@ -774,6 +796,8 @@ hesabın şifresi ezilmez. `NODE_ENV` production değilse `demo` adlı bir örne
 | `UNATTENDED_MODE`                                                                | Hayır         | P27 imza kapısı: boş = `off` (kayıt kodu, kayıt ve bağlantı 409 `UNATTENDED_DISABLED`), `unsigned` (**yalnız** `DEPLOY_ENV=staging`; aksi halde server açılmaz; panelde "TEST ortamı — imzasız servis" bandı), `signed` (servis imzalı ve SHA'sı listede). Prod: `off` (runbook §27.1, §27.5)                                                                                                                                                                                                                                                                                                                 |
 | `UNATTENDED_SIGNED_SHA256`                                                       | `signed` iken | P27: izin verilen `NoktaDestekServis.exe` SHA-256 değerleri, virgülle ayrılmış 64 hex. `signed` modda boşsa server açılmaz (runbook §27.5)                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
 | `UNATTENDED_AGENT_SHA256`                                                        | İndirme için  | P27: yayındaki `NoktaDestekServis.exe`'nin SHA-256'sı. Elle yazılmaz; `deploy/agent/publish-servis.sh` yazar. Boş ya da dosya farklıysa panel "Servis programını indir" 503 döner. Yol compose'da sabit (`/data/unattended/NoktaDestekServis.exe`) (runbook §27.3)                                                                                                                                                                                                                                                                                                                                            |
+| `UPDATE_MANIFEST_PUBKEYS`                                                        | Güncelleme    | P29: ortamın Ed25519 açık anahtarları (`apps/agent-win/build/update-keys/prod.pub` ya da `staging.pub` içindeki değerler), virgülle en çok 2 (etkin, yedek), base64url 43 karakter. Gizli değildir. Boş = güncelleme kapalı (istemciler "yayın yok" görür). Doluysa compose `UPDATE_MANIFEST_DIR=/data/downloads/update` verir. Sızan anahtar hemen çıkarılır (runbook §31.2–§31.3)                                                                                                                                                                                                                           |
+| `UPDATE_MANIFEST_DIR`                                                            | Compose dışı  | P29: imzalı manifest klasörünün mutlak yolu; production'da yalnız `/data/downloads/update`. Doluysa `UPDATE_MANIFEST_PUBKEYS` zorunludur, yoksa server açılmaz. Manifestleri `deploy/agent/publish-manifest.sh` koyar                                                                                                                                                                                                                                                                                                                                                                                         |
 | `ABUSE_EMAIL`                                                                    | Önerilir      | Müşteri ekranındaki "Kötüye kullanımı bildir" adresi (ör. `abuse@<alan-adı>`). Production'da boşsa bağlantı gizlenir; Super Admin e-postası kullanılmaz. Boş bırakmak güvenlidir; dolu ama geçersiz adres server'ı açtırmaz                                                                                                                                                                                                                                                                                                                                                                                   |
 | `WHATSAPP_SERVICE_URL`                                                           | Hayır         | P8b: whatsapp-bildirim servis adresi (sistem düzeyi; ör. `http://<whatsapp-servis>:3000`). **P12b'den beri yalnız yedek:** Sistem ayarları > WhatsApp servisi'nde panel kaydı varsa o geçerlidir. **P13b'den beri yerleşik varsayılan yok:** env ve panel kaydı boşsa kanal kapalıdır (gönderim yok, test "Servis yapılandırılmamış."). Değer kanonik biçime çevrilir (P13a). Kural: `http://`/`https://`, kullanıcı:şifre, `?`, `#`, boşluk ve görünmez karakter yok, ≤ 200 karakter; **uymazsa server açılmaz** (runbook §17.1). Production'da şifresiz + genel adres → kanal kapalı başlar (runbook §12.3) |
 | `WHATSAPP_SERVICE_API_KEY`                                                       | Hayır         | P13b: servis anahtarı (`x-api-key` başlığı), 16–256 karakter, boşluksuz; uymazsa server açılmaz. Yalnız `WHATSAPP_SERVICE_URL` adresine gönderilir; panelde adres kayıtlıysa yalnız panel anahtarı kullanılır. Boş = başlık gönderilmez. Loglanmaz                                                                                                                                                                                                                                                                                                                                                            |
@@ -1193,6 +1217,25 @@ geçmezse `off` yapılıp yeni etiket alınır (runbook §28g.6).
 Sunucuya yayın: `deploy/agent/publish-linux.sh` (staging `--dir` / `--stg-run`, prod `AGENT_SERVER_URL=https://<prod> …
 --tag vX.Y.Z`; önce `--dry-run`, sonra `--ssh root@<sunucu>`), geri alma `--withdraw` (`LINUX_AGENT_SHA256` boşalır, indirme
 503). Kilit testi `deploy/agent/test-publish-linux-lock.sh`. Ayrıntı ve staging komutları: runbook §28g.4–§28g.7.
+
+### İstemci güncellemesi yayını (P29; runbook §31)
+
+Her sürüm önce staging'de denenir, 24 saat beklenir, sonra prod'a çıkar. Prod sırası:
+
+1. Etiket `vX.Y.Z` → mevcut derleme/imza zinciri → `update-manifest` işi (ortam `agent-update-sign` onayı) → Release'e
+   `update-*.json` + `.sig` eklenir; Release notunda "Güncelleme manifesti: var" yazar.
+2. `UNATTENDED_MODE=signed` ise yeni servis SHA'sı önce `UNATTENDED_SIGNED_SHA256` listesine **eklenir**.
+3. **Önce ikililer:** `verify-and-publish.sh`, `publish-servis.sh`, `publish-linux.sh` (`publish-mac.sh`).
+4. **Sonra manifest:** `deploy/agent/publish-manifest.sh --tag vX.Y.Z --ssh root@<sunucu>` (imza, attestation, SHA256SUMS ve
+   yayımlanmış ikili SHA'sı denetlenir; sıra karışırsa durur).
+5. Gözetimsiz → sürüm dağılımında geçişi izleyin; cihazların çoğu geçince `MIN_AGENT_VERSION` yükseltilir, eski servis SHA'sı
+   listeden çıkarılır.
+
+Acil durdurma: `deploy/agent/publish-manifest.sh --withdraw client|service|all --ssh root@<sunucu>` (istemciler ≤ 60 sn'de
+"yayın yok" görür; kurulmuş sürüm geri alınmaz, düzeltme daha yüksek sürümle yayımlanır). Anahtar üretimi (çevrimdışı,
+`go run ./cmd/update-sign keygen`), rotasyon, sızıntı ve yeniden imza (`update-resign`, istemci manifesti 30 g, servis 90 g
+geçerli): runbook §31.2–§31.6. Anahtar yoksa ikililer güncelleyicisiz derlenir ve Release manifestsiz çıkar; imzasız
+güncelleme hiçbir durumda kurulmaz. Yerel test: `deploy/agent/test-publish-manifest.sh`.
 
 ### Prod işletim araçları (P13b; runbook §20)
 
