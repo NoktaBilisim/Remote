@@ -59,7 +59,7 @@ func TestAC391NoOSPermissionSendsOSPermissionWithoutCooldown(t *testing.T) {
 	cs := startControlReady(t, &ready, &guides)
 	cs.c.toClient <- signal.ControlRequest{T: "control.request"}
 	expectControl(t, cs.c, "VIEW", "OS_PERMISSION")
-	if guides.Load() != 1 {
+	if waitGuides(&guides) != 1 {
 		t.Fatalf("izin rehberi bir kez açılmalı, %d", guides.Load())
 	}
 	cs.h.events <- Event{Kind: EvControlGrant} // bekleyen istek yok → yok sayılır
@@ -86,7 +86,7 @@ func TestAC391PermissionRevokedBeforeGrant(t *testing.T) {
 	ready.Store(false)
 	cs.h.events <- Event{Kind: EvControlGrant}
 	expectControl(t, cs.c, "VIEW", "OS_PERMISSION")
-	if cs.gate.IsOpen() || guides.Load() != 1 {
+	if cs.gate.IsOpen() || waitGuides(&guides) != 1 {
 		t.Fatalf("kapı açık=%v rehber=%d", cs.gate.IsOpen(), guides.Load())
 	}
 }
@@ -126,7 +126,7 @@ func TestAC104DP28fK1ArmBeforeGateOpen(t *testing.T) {
 	expectCall(t, cs.h.ui, "ctlreq:Ali Teknisyen:Control+Shift+F12")
 	cs.h.events <- Event{Kind: EvControlGrant}
 	expectControl(t, cs.c, "VIEW", "OS_PERMISSION")
-	if cs.gate.IsOpen() || guides.Load() != 1 {
+	if cs.gate.IsOpen() || waitGuides(&guides) != 1 {
 		t.Fatalf("musluksuz kapı açık=%v rehber=%d", cs.gate.IsOpen(), guides.Load())
 	}
 	armOK.Store(true)
@@ -138,4 +138,14 @@ func TestAC104DP28fK1ArmBeforeGateOpen(t *testing.T) {
 	if openAtArm.Load() || !cs.gate.IsOpen() {
 		t.Fatalf("Arm kapı açılmadan çağrılmalı (Arm anında açık=%v), sonra kapı açık=%v", openAtArm.Load(), cs.gate.IsOpen())
 	}
+}
+
+// waitGuides: rehber `sendControl`'dan SONRA çağrılır (osPermission) — VIEW alındığı an sayaç henüz artmamış olabilir (CI -race
+// yarışı). En çok 2 sn ilk çağrıyı bekler, sonra kısa bir süre fazladan çağrı olmadığını görmek için değeri döndürür.
+func waitGuides(g *atomic.Int32) int32 {
+	deadline := time.Now().Add(2 * time.Second)
+	for g.Load() == 0 && time.Now().Before(deadline) {
+		time.Sleep(5 * time.Millisecond)
+	}
+	return g.Load()
 }

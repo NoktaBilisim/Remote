@@ -96,10 +96,8 @@ func (c *Core) logoffLocked(r *running, id string, target uint32) {
 	}
 	t := c.timings()
 	now := c.clock()
-	asked := r.mode == helperio.ModeAsked
-	c.rejoin = &rejoinState{sessionID: r.sessionID, base: r.conn, asked: asked, oldWin: target,
-		until: now.Add(t.rejoinWindow), rec: r.rec}
-	r.guardLogon = r.guardLogon || asked
+	c.rejoin = &rejoinState{sessionID: r.sessionID, base: r.conn, oldWin: target, until: now.Add(t.rejoinWindow),
+		rec: r.rec}
 	if err := c.Sessions.Logoff(target); err != nil {
 		c.rejoin = nil
 		c.interveneDone(r.sessionID, id, CmdLogoff, InterveneAPIError, r.techName)

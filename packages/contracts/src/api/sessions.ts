@@ -9,6 +9,7 @@ import { FILE_DIRECTIONS, FILE_RESULTS, qualitySummarySchema, type QualitySummar
 import type { StoredFileItem } from "./fsrv.ts";
 import type { RecordingConsentOffer, SessionRecordingSummary } from "./recording.ts";
 import { CONSENT_MODES, type ConsentMode, type ConsentResultDecision } from "../unattended-consent.ts";
+import type { MessageSender } from "../chat.ts";
 
 export const SESSION_STATUSES = ["PENDING", "ACTIVE", "ENDED", "EXPIRED", "CANCELLED"] as const;
 export type SessionStatus = (typeof SESSION_STATUSES)[number];
@@ -162,6 +163,11 @@ export interface ResolveSessionResponse {
   consentText: ConsentTextView;
   /** "Kötüye kullanımı bildir" `mailto:` adresi (AC-125): ABUSE_EMAIL; production'da yoksa null (bağlantı gizlenir). Super Admin e-postasına düşme yalnız production dışında (S-P4-1). */
   abuseEmail: string | null;
+  /**
+   * P22 (AC-292, mimari-p22 §5.1): `tenant_settings.retention_days` — onay düğmesi üstündeki `CHAT_RETENTION_LINE(days)`.
+   * P22-B her zaman doldurur; şemada opsiyonel (alan yoksa web onay düğmesi pasif kalır). Go gevşek ayrıştırır.
+   */
+  chatRetentionDays?: number;
 }
 
 export { UNSAFE_NAME_CHARS } from "./shared.ts";
@@ -494,6 +500,52 @@ export interface SessionHistoryDetail extends Omit<SessionListItem, "waitingGues
   recording?: SessionRecordingSummary | null;
   /** P28c (AC-369): çoklu teknisyen katılımcıları; tek teknisyenli oturumda boş dizi. */
   participants?: SessionParticipant[];
+  /**
+   * P22 (AC-264, mimari-p22 §5.1): oturum sohbeti özeti — YALNIZ `sessions.view_chat` sahibine; yetkisizde alan YOK (sohbet
+   * varlığı sızmaz).
+   */
+  chat?: SessionChatSummary;
+}
+
+// ---------------------------------------------------------------------------------------------------------------
+// P22 — oturum sohbeti görüntüleme (mimari-p22 §5.1–5.3, r2 §15.6 S-P22-11; AC-264, AC-255 K-P18-2)
+// ---------------------------------------------------------------------------------------------------------------
+
+/** `GET /sessions/:id/history` `chat`: `count` = `session_messages` sayısı; `legacy` = `session.chat_legacy` audit satırı var. */
+export interface SessionChatSummary {
+  count: number;
+  legacy: boolean;
+}
+
+/** `GET /sessions/:id/chat` `session.items` üst sınırı (artan; fazlası `more: true`). */
+export const SESSION_CHAT_PAGE_MAX = 200;
+/** `GET /sessions/:id/chat` kullanıcı başına dakikada en çok. */
+export const SESSION_CHAT_READS_PER_MIN = 60;
+
+/**
+ * GET /sessions/:id/chat?after=<ulid> (`session_history.view` + `sessions.view_chat` + `historyScope`). `after` oturum +
+ * tenant ile aranır, bulunmazsa yok sayılır (S-P22-11). Biçim dışı → 400.
+ */
+export const sessionChatQuerySchema = z.strictObject({ after: ulidSchema.optional() });
+export type SessionChatQuery = z.infer<typeof sessionChatQuerySchema>;
+
+export interface SessionChatItem {
+  id: string;
+  sender: MessageSender;
+  /** Yalnız TECH'te (teknisyen adı); CUSTOMER'da null. */
+  senderName: string | null;
+  /** null = gövde çözülemedi ("Mesaj okunamadı"). React metin düğümü + `pre-wrap`; HTML yok. */
+  body: string | null;
+  createdAt: string;
+}
+
+/**
+ * `request` = bağlı talebin kabul öncesi yazışması (talep yoksa ya da anonimse null; `after` verildiyse null).
+ * `session.items` ≤ `SESSION_CHAT_PAGE_MAX`, artan.
+ */
+export interface SessionChatResponse {
+  request: { items: SessionChatItem[]; total: number } | null;
+  session: { items: SessionChatItem[]; more: boolean };
 }
 
 /** P28u (§5.4) gözetimsiz zaman çizelgesi olay türleri (audit satırlarından türetilir; ≤ `UNATTENDED_TIMELINE_MAX`). */

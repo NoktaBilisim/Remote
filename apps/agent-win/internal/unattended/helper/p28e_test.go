@@ -13,45 +13,7 @@ import (
 	"remote-support/agent-win/internal/signal"
 )
 
-// P28e K6 yardımcı birim testleri (mimari-p28e r2 §8; AC-448, AC-449).
-
-func TestAC449ConsentSpecCarriesRecordingLine(t *testing.T) {
-	for _, rec := range []bool{false, true} {
-		in := askInput()
-		in.Recording = rec
-		var got ConsentSpec
-		ask := func(_ context.Context, sp ConsentSpec) (string, time.Time) {
-			got = sp
-			return helperio.DecisionDenied, time.Now()
-		}
-		runConsent(context.Background(), ask, in, time.Now)
-		if got.RecordingLine != rec {
-			t.Fatalf("Recording=%v → RecordingLine=%v", rec, got.RecordingLine)
-		}
-	}
-}
-
-// Satır istenmişse yalnız görünür ve metni tam olan satır "İzin ver"i açar (Windows diyaloğu her tikte bunu sorar).
-func TestAC449GrantNeedsDrawnRecordingLine(t *testing.T) {
-	on, off := ConsentSpec{RecordingLine: true}, ConsentSpec{}
-	cases := []struct {
-		sp      ConsentSpec
-		text    string
-		visible bool
-		want    bool
-	}{
-		{off, "", false, true},
-		{on, helperio.RecordingLine, true, true},
-		{on, helperio.RecordingLine, false, false},
-		{on, "", true, false},
-		{on, "Bu bağlantının ekran kaydı", true, false},
-	}
-	for _, c := range cases {
-		if got := recordingLineDrawn(c.sp, c.text, c.visible); got != c.want {
-			t.Errorf("%+v %q %v → %v", c.sp, c.text, c.visible, got)
-		}
-	}
-}
+// P28e K6 yardımcı birim testleri (mimari-p28e r2 §8; AC-448). r3: AC-449 diyalog satırı kaldırıldı.
 
 func TestAC448IndicatorDrawnWithSuffixBeforeDial(t *testing.T) {
 	r := newRig(nil)
@@ -64,7 +26,7 @@ func TestAC448IndicatorDrawnWithSuffixBeforeDial(t *testing.T) {
 		}
 		return show(s)
 	}
-	in := silentInput()
+	in := directInput()
 	in.Recording = true
 	done := make(chan uint32, 1)
 	go func() { done <- Run(context.Background(), r.d, in) }()
@@ -84,27 +46,27 @@ func TestAC448SuffixNotDrawableNoDial(t *testing.T) {
 		}
 		return r.ind, nil
 	}
-	in := silentInput()
+	in := directInput()
 	in.Recording = true
 	if code := Run(context.Background(), r.d, in); code != helperio.ExitIndicatorFailed || r.dials.Load() != 0 {
 		t.Fatalf("çıkış %d dial %d", code, r.dials.Load())
 	}
 }
 
-// rec.state off/on ve silent izleme ↔ kontrol geçişi birlikte: ek sunucu etiketinden bağımsız korunur.
+// rec.state off/on: ek sunucu etiketinden bağımsız eklenir/kaldırılır; kontrol geçişi etiketi değiştirmez (r3).
 func TestAC448LiveSuffixFollowsRecStateAndControl(t *testing.T) {
 	ind := &labelIndicator{fakeIndicator: fakeIndicator{failed: make(chan struct{})}}
-	live := newLive(ind, "İzleme", true)
-	if live.Text() != "İzleme"+helperio.RecordingSuffix {
+	live := newLive(ind, "Uzaktan bağlantı", true)
+	if live.Text() != "Uzaktan bağlantı"+helperio.RecordingSuffix {
 		t.Fatalf("başlangıç %q", live.Text())
 	}
-	h := &headless{mode: helperio.ModeSilent, live: live, viewText: "İzleme", controlText: "Kontrol"}
+	h := &headless{live: live, st: newStatusPipe(nil)}
 	h.ControlState(true, "")
-	if ind.last() != "Kontrol"+helperio.RecordingSuffix {
-		t.Fatalf("kontrol %q", ind.last())
+	if len(ind.texts) != 0 {
+		t.Fatalf("kontrol etiketi değiştirdi: %v", ind.texts)
 	}
 	live.SetRecording(false)
-	if ind.last() != "Kontrol" {
+	if ind.last() != "Uzaktan bağlantı" {
 		t.Fatalf("kayıt durdu %q", ind.last())
 	}
 	n := len(ind.texts)
@@ -113,7 +75,7 @@ func TestAC448LiveSuffixFollowsRecStateAndControl(t *testing.T) {
 		t.Fatal("aynı durum yeniden çizildi")
 	}
 	live.SetRecording(true)
-	if ind.last() != "Kontrol"+helperio.RecordingSuffix {
+	if ind.last() != "Uzaktan bağlantı"+helperio.RecordingSuffix {
 		t.Fatalf("kayıt yeniden %q", ind.last())
 	}
 }

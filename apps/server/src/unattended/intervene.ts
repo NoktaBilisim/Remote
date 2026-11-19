@@ -53,7 +53,7 @@ async function precheck(d: InterveneDeps, auth: AuthContext, tenantId: string, s
   if (!room || !u || !d.rooms.live(room) || !room.admitted) throw new AppError("FORBIDDEN");
   const grant = await d.db.unattendedDeviceGrant.findFirst({ where: { tenantId, deviceId: u.deviceId, userId: auth.user.id } });
   if (!grant) throw new AppError("NOT_FOUND");
-  if (room.control.state !== "GRANTED") throw new AppError("FORBIDDEN", { message: "Önce müdahale edin (kontrol açık olmalı)." });
+  if (room.control.state !== "GRANTED") throw new AppError("FORBIDDEN", { message: "Önce kontrolü alın (kontrol açık olmalı)." });
   if (!d.hub.has(u.deviceId, "consent1")) throw new AppError("DEVICE_OUTDATED");
   if (d.hub.intervene.has(sessionId)) throw new AppError("INTERVENE_PENDING");
   const now = d.rooms.clock.now();

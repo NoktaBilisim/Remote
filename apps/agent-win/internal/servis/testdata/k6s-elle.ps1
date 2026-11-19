@@ -2,7 +2,7 @@
 # P28u K6s elle Windows spike (docs/spike-p28u-k6s.md). Tek komut, yönetici PowerShell'de, test ikilileriyle aynı klasörden:
 #   powershell -ExecutionPolicy Bypass -File .\k6s-elle.ps1            # ölçümü başlatır (sonunda oturum KAPATILIR)
 #   powershell -ExecutionPolicy Bypass -File .\k6s-elle.ps1 -Sonuc     # yeniden girişten sonra: sonucu gösterir, görevi siler
-# Klasörde k6s-servis.test.exe ve k6s-win.test.exe bulunmalı (üretimi: docs/spike-p28u-k6s.md "Elle koşu").
+# Klasörde k6s-servis.test.exe bulunmalı (P28u r3: örtü testi/k6s-win.test.exe kaldırıldı) (üretimi: docs/spike-p28u-k6s.md "Elle koşu").
 # Ne yapar: (1) bu kullanıcının oturumunda soru 4 (örtü) + oturum kimliği testleri; (2) tek seferlik SYSTEM zamanlanmış
 # görevi (Session 0 = servis bağlamı) TestK6sElle'yi koşar: Session 0'dan kilit, kısıtlı SYSTEM yardımcı jetonuyla kilit,
 # K-P28u-5b kullanıcı jetonuyla kilit (her kilitten sonra kilidi siz açarsınız), en sonda WTSLogoffSession.
@@ -26,22 +26,20 @@ if ($Sonuc) {
 }
 
 if ($Adimlar -notmatch '^(hepsi|(kilit0|kilit|kilit5b|kapat)(,(kilit0|kilit|kilit5b|kapat))*)$') { throw "geçersiz -Adimlar: $Adimlar" }
-foreach ($n in 'k6s-servis.test.exe', 'k6s-win.test.exe') {
+foreach ($n in 'k6s-servis.test.exe') {
   if (-not (Test-Path -LiteralPath (Join-Path $PSScriptRoot $n))) { throw "$n bu klasörde yok" }
 }
 New-Item -ItemType Directory -Force -Path $dir | Out-Null
 # SYSTEM + Yöneticiler tam, Kullanıcılar okuma/çalıştırma (K-P28u-5b çocuğu kullanıcı jetonuyla bu ikiliyi açar).
 & icacls.exe $dir /inheritance:r /grant:r '*S-1-5-18:(OI)(CI)F' '*S-1-5-32-544:(OI)(CI)F' '*S-1-5-32-545:(OI)(CI)RX' | Out-Null
-Copy-Item -Force (Join-Path $PSScriptRoot 'k6s-servis.test.exe'), (Join-Path $PSScriptRoot 'k6s-win.test.exe') $dir
+Copy-Item -Force (Join-Path $PSScriptRoot 'k6s-servis.test.exe') $dir
 Remove-Item -Force -ErrorAction SilentlyContinue $out, $log
 
 $exeS = Join-Path $dir 'k6s-servis.test.exe'
-$exeW = Join-Path $dir 'k6s-win.test.exe'
 $u = Join-Path $dir 'kullanici.txt'
 "Windows: $([Environment]::OSVersion.VersionString) / $((Get-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion').DisplayVersion)" | Set-Content -LiteralPath $u -Encoding utf8
-# Test ikilisi stderr'e yazarsa 'Stop' betiği SYSTEM görevini kurmadan durdurmasın: yalnız bu iki çağrıda Continue.
+# Test ikilisi stderr'e yazarsa 'Stop' betiği SYSTEM görevini kurmadan durdurmasın: yalnız bu çağrıda Continue.
 $ErrorActionPreference = 'Continue'
-& $exeW -test.run 'TestK6sOverlay' -test.v -test.count 1 2>&1 | ForEach-Object { "$_" } | Add-Content -LiteralPath $u -Encoding utf8
 & $exeS -test.run 'TestK6sSessionIDs' -test.v -test.count 1 2>&1 | ForEach-Object { "$_" } | Add-Content -LiteralPath $u -Encoding utf8
 $ErrorActionPreference = 'Stop'
 Get-Content -LiteralPath $u -Encoding utf8

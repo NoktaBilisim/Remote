@@ -8,6 +8,7 @@ import type { IncomingMessage } from "node:http";
 import { STATUS_CODES } from "node:http";
 import type { Duplex } from "node:stream";
 import {
+  DEVICE_ANNOUNCED_FEATURES,
   DEVICE_AUTH_TIMEOUT_MS,
   DEVICE_FEATURE_BY_SUBPROTOCOL,
   deviceAuthSchema,
@@ -204,8 +205,10 @@ async function authenticate(
   const conn: DeviceConn = { deviceId: m.deviceId, tenantId: out.tenantId, ip: ctx.ip, send: peer.send, close: peer.close, caps };
   if (!(await confirmAttached(c, ws, peer, conn))) return undefined;
   peer.send({ t: "device.ready", tenantName: out.tenantName.slice(0, 120), customerName: out.customerName.slice(0, 120) });
-  // P28u §6.1: `device.ready` değişmez; yalnız belirteci bildiren sokete hemen ardından `device.features`.
-  if (caps.size > 0) peer.send({ t: "device.features", caps: [...caps] });
+  // P28u §6.1: `device.ready` değişmez; yalnız belirteci bildiren sokete hemen ardından `device.features`. S-P28u-r3-5 / r3.3:
+  // yankı `DEVICE_ANNOUNCED_FEATURES` ile süzülür — `direct1` yalnız `DeviceConn.caps`'te (eski Go `validFeatures` katı).
+  const announced = DEVICE_ANNOUNCED_FEATURES.filter((f) => caps.has(f));
+  if (announced.length > 0) peer.send({ t: "device.features", caps: announced });
   return conn;
 }
 

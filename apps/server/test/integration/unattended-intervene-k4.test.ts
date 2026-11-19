@@ -5,7 +5,7 @@ import { createTenant, createUser, loginAs, loginStepUp } from "../helpers/app.t
 import { admitted, startLive, techSession, type Live } from "../helpers/signal-flow.ts";
 import { UNSIGNED_ENV, grantRow } from "../helpers/unattended.ts";
 import { helperGuest, sessionStatus, waitUntil } from "../helpers/unattended-device.ts";
-import { auditsOf, grantControl, helperIn, readyK4, SILENT_PERMS, silentPending, techConsole } from "../helpers/unattended-k4.ts";
+import { auditsOf, directSession, grantControl, helperIn, K4_PERMS, readyK4, techConsole } from "../helpers/unattended-k4.ts";
 import { FakeClock } from "../helpers/ws.ts";
 
 let live: Live;
@@ -26,7 +26,6 @@ type Rejoin = {
   ticket: string;
   mode: string;
   indicatorText: string;
-  indicatorControl?: string;
   expiresInSec: number;
 };
 const post = (l: Live, headers: Record<string, string>, id: string, cmd: "lock" | "logoff") =>
@@ -39,34 +38,32 @@ const post = (l: Live, headers: Record<string, string>, id: string, cmd: "lock" 
 const code = (res: { statusCode: number; json: () => unknown }) =>
   `${res.statusCode} ${(res.json() as { error?: { code: string } }).error?.code ?? ""}`.trim();
 
-/** İzinsiz oda + konsol + kontrol açık (müdahale ön koşulu). */
+/** Onaysız oda + konsol + kontrol açık (müdahale ön koşulu). */
 async function controlled(l: Live) {
   const r = await readyK4(l);
-  const { sessionId, ticket } = await silentPending(l, r);
-  const helper = await helperIn(l, ticket);
+  const { sessionId, helper } = await directSession(l, r);
   const { ws } = await techConsole(l, r, sessionId);
   await grantControl(ws, helper);
   return { r, sessionId, helper, tech: ws };
 }
 
 describe("P28u-K4 müdahale ucu — ön koşullar (AC-442)", () => {
-  it("AC-442: izleme kipi → 403; başka teknisyen → 403; başka tenant → 404; katılımlı oturum → 403; confirm yok → 400", async () => {
+  it("AC-442: kontrol GRANTED değil → 403; başka teknisyen → 403; başka tenant → 404; katılımlı oturum → 403; confirm yok → 400", async () => {
     const r = await readyK4(live);
-    const { sessionId, ticket } = await silentPending(live, r);
-    await helperIn(live, ticket);
+    const { sessionId } = await directSession(live, r);
     expect(code(await post(live, r.s.headers, sessionId, "lock"))).toBe("403 FORBIDDEN");
-    const peer = await createUser({ tenantId: r.tenantId, role: "USER", perms: SILENT_PERMS });
+    const peer = await createUser({ tenantId: r.tenantId, role: "USER", perms: K4_PERMS });
     await grantRow(r.tenantId, r.dev.id, peer.id);
     const ps = await loginStepUp(live.app, peer);
     expect(code(await post(live, ps.headers, sessionId, "lock"))).toBe("403 FORBIDDEN");
     const other = await createTenant();
-    const stranger = await createUser({ tenantId: other.id, role: "USER", perms: SILENT_PERMS });
+    const stranger = await createUser({ tenantId: other.id, role: "USER", perms: K4_PERMS });
     const ss = await loginAs(live.app, stranger);
     expect(code(await post(live, ss.headers, sessionId, "lock"))).toBe("404 NOT_FOUND");
     const t = await techSession(live);
     await admitted(live, t);
     const ts = { ...t.techAuth.headers };
-    const attended = await createUser({ tenantId: t.tenantId, role: "USER", perms: SILENT_PERMS });
+    const attended = await createUser({ tenantId: t.tenantId, role: "USER", perms: K4_PERMS });
     expect(attended).toBeDefined();
     // katılımlı odanın teknisyenine unattended.connect yoksa 403 (yetki), varsa oda gözetimsiz değil → 403
     expect(code(await post(live, ts, t.sessionId, "lock"))).toBe("403 FORBIDDEN");
@@ -93,7 +90,7 @@ describe("P28u-K4 kilit ve oturum kapatma (AC-443, 444)", () => {
     expect(res.json()).toEqual({ ok: true });
     const [a] = await auditsOf(sessionId, "unattended.lock");
     expect(a).toMatchObject({ result: "success", userId: r.tech.id });
-    expect(a?.newValue).toMatchObject({ deviceId: r.dev.id, consentMode: "silent" });
+    expect(a?.newValue).toMatchObject({ deviceId: r.dev.id, consentMode: "no_user" });
     expect(Object.keys(a?.newValue as object)).not.toContain("reason");
   });
 
@@ -120,9 +117,9 @@ describe("P28u-K4 kilit ve oturum kapatma (AC-443, 444)", () => {
     const res = await p;
     expect(res.json()).toEqual({ ok: true, rejoin: true });
     const rj = (await r.device.waitFor("rejoin" as never)) as unknown as Rejoin;
-    expect(rj).toMatchObject({ sessionId, mode: "silent", expiresInSec: 30 });
-    expect(rj.indicatorText).toContain("Uzaktan izleniyor");
-    expect(rj.indicatorControl).toContain("Uzaktan kontrol");
+    expect(rj).toMatchObject({ sessionId, mode: "no_user", expiresInSec: 30 });
+    expect(rj.indicatorText).toContain("Uzaktan bağlantı");
+    expect(rj).not.toHaveProperty("indicatorControl");
     helper.ws.close();
     await tech.waitFor("peer.left");
     const again = await helperIn(live, rj.ticket);

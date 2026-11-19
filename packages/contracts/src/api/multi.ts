@@ -4,7 +4,6 @@ import { z } from "zod";
 import type { ErrorCode } from "../errors.ts";
 import type { ConsentMode } from "../unattended-consent.ts";
 import type { SessionMode } from "./sessions.ts";
-import { silentReasonSchema } from "./unattended.ts";
 
 /** P28c hata kodlarının Türkçe metni (sunucu zarf `message`'ı ve web aynı metni kullanır). */
 export const MULTI_ERROR_MESSAGES = {
@@ -12,13 +11,11 @@ export const MULTI_ERROR_MESSAGES = {
   /** AC-372: AC-352 metni (labels `UNSUPPORTED` ile aynı cümle). */
   CLIENT_UNSUPPORTED: "Müşterinin uygulaması bu özelliği desteklemiyor — güncel sürümü indirmesini isteyin",
   INVITE_GONE: "Davet artık geçerli değil",
-  JOIN_NOT_ALLOWED: "İzinli gözetimsiz bağlantıya ek teknisyen katılamaz",
+  JOIN_NOT_ALLOWED: "Bu gözetimsiz bağlantıya ek teknisyen katılamaz",
 } as const satisfies Partial<Record<ErrorCode, string>>;
 
 /** `GET /sessions/:id/invite-candidates` en çok satır (ada göre sıralı). */
 export const INVITE_CANDIDATES_MAX = 200;
-/** Gerekçe sınırları `api/unattended.ts` `silentReasonSchema` ile aynı (AC-437 şeması). */
-export { SILENT_REASON_MAX, SILENT_REASON_MIN } from "./unattended.ts";
 
 const ulid = z.string().regex(/^[0-9A-HJKMNP-TV-Z]{26}$/);
 /** Davet kimliği: 128 bit rastgele → base64url (dolgusuz) = 22 karakter (T4). */
@@ -42,10 +39,10 @@ export interface CreateInviteResponse {
 }
 
 /**
- * POST /sessions/invites/:inviteId/accept ve POST /sessions/:id/supervise girdisi: silent odada `{reason}` (20–500) zorunlu,
- * diğerlerinde `{}`. Oda kipini yalnız sunucu bilir: eksik/fazla gerekçe sunucuda `VALIDATION` + `fields.reason`.
+ * POST /sessions/invites/:inviteId/accept ve POST /sessions/:id/supervise girdisi: boş nesne. r3 (K-P28u-r3-9): silent oda
+ * yok → gerekçe alanı kaldırıldı; bilinmeyen alan (ör. eski `reason`) 400 `VALIDATION`. Ad geriye uyum için korunur.
  */
-export const joinWithReasonInputSchema = z.strictObject({ reason: silentReasonSchema.optional() });
+export const joinWithReasonInputSchema = z.strictObject({});
 export type JoinWithReasonInput = z.input<typeof joinWithReasonInputSchema>;
 export interface JoinSessionAsMemberResponse {
   sessionId: string;
@@ -86,8 +83,6 @@ export interface IncomingInvite {
   fromName: string;
   customerName: string;
   unattended: boolean;
-  /** Silent odada kabul gerekçe ister. */
-  silent: boolean;
   expiresAt: string;
 }
 export interface IncomingInvitesResponse {
@@ -106,7 +101,6 @@ export interface ActiveSessionItem {
   /** Misafir `rs.cap.multi1` bildirdi (false → İzle pasif + AC-352 metni). */
   supported: boolean;
   unattended: boolean;
-  silent: boolean;
   /** Gözetimsiz oda kipi (`asked` → İzle pasif, `JOIN_NOT_ALLOWED` metni). Gözetimsiz değilse yok. */
   consentMode?: ConsentMode;
 }

@@ -14,19 +14,20 @@ const MONITOR_OUTCOME_KEY = {
 } as const;
 
 /** Kontrol durum geçiş bildirimleri (AC-50 ≤ 1 sn, AC-99 "Kontrol reddedildi") ve monitör sonucu (TEST-P7-2). */
-export function useControlToasts(control: ControlState, toast: ReturnType<typeof useToast>) {
+export function useControlToasts(control: ControlState, toast: ReturnType<typeof useToast>, unattended = false) {
   const prev = useRef(control);
   useEffect(() => {
     const p = prev.current;
     prev.current = control;
-    phaseToast(p, control, toast);
+    phaseToast(p, control, toast, unattended);
     if (!p.forbidden && control.forbidden) toast(t("p7.forbidden"), "danger");
     monitorToast(p, control, toast);
-  }, [control, toast]);
+  }, [control, toast, unattended]);
 }
 
-function phaseToast(p: ControlState, c: ControlState, toast: ReturnType<typeof useToast>) {
-  if (p.phase !== "granted" && c.phase === "granted") toast(t("p7.toast.granted"), "success");
+function phaseToast(p: ControlState, c: ControlState, toast: ReturnType<typeof useToast>, unattended: boolean) {
+  // P28u r3: gözetimsiz oturumda kimse izin vermez (onaysız) — "Müşteri kontrol izni verdi" yerine nötr metin
+  if (p.phase !== "granted" && c.phase === "granted") toast(t(unattended ? "p7.toast.grantedUnattended" : "p7.toast.granted"), "success");
   else if (p.phase !== "denied" && c.phase === "denied") toast(t("p7.toast.denied"), "danger");
   // Teknisyenin kendi bırakması/iptali bildirim üretmez (not satırında yazar)
   else if (p.phase === "granted" && c.phase !== "granted" && c.endedBy && c.endedBy !== "tech") toast(t(`p7.end.${c.endedBy}`), "danger");

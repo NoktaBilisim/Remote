@@ -137,14 +137,14 @@ export async function handleTransfer(rooms: Rooms, room: Room, seat: Seat, to: s
 
 /**
  * D-PC-K4: hedef TX içinde (kilit sonrası) yeniden okunur — etkin kullanıcı + tenant, §4.3 `revalidate` (görüntüleme yetkisi,
- * gözetimsizde `unattended.connect` + cihaz grant'ı + silent yetki/politika) ve sahip koltuğu için odayı açan yetki
+ * gözetimsizde `unattended.connect` + cihaz grant'ı) ve sahip koltuğu için odayı açan yetki
  * (gözetimli: `sessions.create`, `POST /sessions` ile aynı; gözetimsiz: `unattended.connect`, D-PC-K5). 60 sn yedek yola bırakılmaz.
  */
 async function targetMayOwn(rooms: Rooms, tx: Prisma.TransactionClient, room: Room, to: string): Promise<boolean> {
   const s = await subjectById(tx, to);
   if (!s) return false;
   // D-PC-K5: sahip koltuğu, odayı açan yetkiyle aynı — gözetimli `sessions.create`, gözetimsiz `unattended.connect`
-  // (`connect.ts`); ikincisi + grant + silent koşulları aşağıdaki `eligibleToJoin` revalidate evresinde denetlenir.
+  // (`connect.ts`); ikincisi + grant koşulları aşağıdaki `eligibleToJoin` revalidate evresinde denetlenir.
   if (!room.unattended && !s.permissions.has("sessions.create")) return false;
   const gate = rooms.unattendedGate;
   if (room.unattended && !gate) return false;
@@ -204,14 +204,6 @@ function swapOwner(rooms: Rooms, room: Room, oldConn: TechConn, m: Member): void
   setController(rooms, room, m.userId, oldConn, "transfer");
   syncDisconnect(rooms, room);
   void narrowCaps(rooms, room, newConn.permissions);
-  if (room.unattended?.consentMode === "silent")
-    rooms.silentNotify?.({
-      event: "transfer",
-      room,
-      actor: { userId: oldConn.userId, email: oldConn.username, fullName: oldOwner.fullName },
-      role: "owner",
-      ctx: oldConn.ctx,
-    });
   broadcastRoster(room);
   voiceSync(rooms, room); // P28d §4.2: devirde konuşanlar (tid) değişmez; yalnız yeniden hesap
 }

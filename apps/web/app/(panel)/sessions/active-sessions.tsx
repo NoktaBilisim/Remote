@@ -3,10 +3,9 @@
 import type { ActiveSessionItem, ActiveSessionsResponse } from "@remote/contracts/api/multi";
 import { MULTI_ERROR_MESSAGES } from "@remote/contracts/api/multi";
 import { ACTIVE_POLL_MS, MAX_TECHS } from "@remote/contracts/ws-multi";
-import { Eye, EyeOff, MonitorCog, MonitorSmartphone, Users } from "lucide-react";
+import { Eye, MonitorCog, MonitorSmartphone, Users } from "lucide-react";
 import { useCallback, useEffect, useId, useState } from "react";
 import { LoadError } from "@/components/load-error";
-import { JoinReasonDialog } from "@/components/multi/join-reason-dialog";
 import { useJoin } from "@/components/multi/use-join";
 import { Button } from "@/components/ui/button";
 import { EmptyState } from "@/components/ui/empty-state";
@@ -18,10 +17,9 @@ import { t } from "@/lib/i18n";
 
 type Load = { kind: "loading" } | { kind: "error" } | { kind: "forbidden" } | { kind: "ok"; items: ActiveSessionItem[] };
 
-/** "İzle" pasiflik nedeni (AC-372, V-PC-5): dolu / misafir multi1 yok / izinli gözetimsiz oda; null = etkin. */
+/** "İzle" pasiflik nedeni (AC-372, V-PC-5): dolu / misafir multi1 yok; null = etkin (P28u r3: izinli oda kipi yok). */
 export function watchBlock(s: ActiveSessionItem): string | null {
   if (!s.supported) return MULTI_ERROR_MESSAGES.CLIENT_UNSUPPORTED;
-  if (s.unattended && s.consentMode === "asked") return MULTI_ERROR_MESSAGES.JOIN_NOT_ALLOWED;
   if (s.full) return MULTI_ERROR_MESSAGES.SESSION_FULL;
   return null;
 }
@@ -59,7 +57,7 @@ function useActive() {
 
 /**
  * "Firmadaki etkin oturumlar" (mimari-p28c §10, AC-368): `sessions.supervise` sahibine; satırda "İzle" (izleyici olarak katıl).
- * Silent odada önce gerekçe diyaloğu, sonra step-up (lib/api). Sunucu yalnız çağıranın uygun olduğu gözetimsiz odaları listeler.
+ * Gözetimsiz odada step-up (lib/api). Sunucu yalnız çağıranın uygun olduğu gözetimsiz odaları listeler.
  */
 export function ActiveSessions() {
   const headId = useId();
@@ -92,16 +90,10 @@ export function ActiveSessions() {
       ) : (
         <ul className="flex flex-col gap-2">
           {load.items.map((s) => (
-            <ActiveRow
-              key={s.id}
-              s={s}
-              busy={join.busyId === s.id}
-              onWatch={() => join.start({ kind: "supervise", id: s.id, silent: s.silent, label: s.customerName })}
-            />
+            <ActiveRow key={s.id} s={s} busy={join.busyId === s.id} onWatch={() => void join.start({ kind: "supervise", id: s.id })} />
           ))}
         </ul>
       )}
-      <JoinReasonDialog flow={join} />
     </section>
   );
 }
@@ -119,8 +111,8 @@ function ActiveRow({ s, busy, onWatch }: { s: ActiveSessionItem; busy: boolean; 
           <span className="truncate">{s.customerName}</span>
           {s.unattended && (
             <span className="inline-flex items-center gap-1 rounded-full bg-primary-surface px-2 py-0.5 text-xs font-medium text-primary">
-              {s.silent ? <EyeOff aria-hidden className="size-3.5" /> : <MonitorCog aria-hidden className="size-3.5" />}
-              {s.silent ? t("mt.active.silent") : t("mt.active.unattended")}
+              <MonitorCog aria-hidden className="size-3.5" />
+              {t("mt.active.unattended")}
             </span>
           )}
         </p>

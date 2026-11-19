@@ -39,16 +39,10 @@ func (s *syncBuf) lines() []string {
 	return strings.Split(strings.TrimSpace(s.b.String()), "\n")
 }
 
-func askInput() helperio.Input {
+// directInput r3 servis girdisi: tek kip no_user (kullanıcıya sorulmaz).
+func directInput() helperio.Input {
 	in := testInput()
-	in.Consent, in.Mode = helperio.ConsentAsk, helperio.ModeAsked
-	return in
-}
-
-func silentInput() helperio.Input {
-	in := testInput()
-	in.Consent, in.Mode = helperio.ConsentNone, helperio.ModeSilent
-	in.IndicatorText, in.IndicatorControl = "Uzaktan izleniyor: Ali — Acme", "Uzaktan kontrol: Ali — Acme"
+	in.Consent, in.Mode = helperio.ConsentNone, helperio.ModeNoUser
 	return in
 }
 
@@ -74,126 +68,33 @@ func (i *labelIndicator) last() string {
 	return i.texts[len(i.texts)-1]
 }
 
-func TestAC431DeniedOrTimeoutNoIndicatorNoDialNoFrames(t *testing.T) {
-	for dec, want := range map[string]uint32{helperio.DecisionDenied: helperio.ExitConsentDenied,
-		helperio.DecisionTimeout: helperio.ExitConsentTimeout, "bozuk": helperio.ExitConsentDenied} {
-		r := newRig(nil)
-		var shows, captures atomic.Int32
-		show := r.d.ShowIndicator
-		r.d.ShowIndicator = func(s string) (Indicator, error) { shows.Add(1); return show(s) }
-		r.d.Flow.Capture = func(int) (rtc.Source, error) { captures.Add(1); return fakeSrc{}, nil }
-		st := &syncBuf{}
-		r.d.Status = st
-		r.d.AskConsent = func(context.Context, ConsentSpec) (string, time.Time) { return dec, time.Now() }
-		if code := Run(context.Background(), r.d, askInput()); code != want {
-			t.Fatalf("%s: çıkış %d, beklenen %d", dec, code, want)
-		}
-		if shows.Load() != 0 || r.dials.Load() != 0 || captures.Load() != 0 {
-			t.Fatalf("%s: gösterge=%d dial=%d kare=%d (hepsi 0 olmalı)", dec, shows.Load(), r.dials.Load(), captures.Load())
-		}
-		if l := st.lines(); len(l) != 1 || !strings.Contains(l[0], `"ev":"consent"`) {
-			t.Fatalf("%s: durum %v", dec, l)
-		}
-	}
-}
-
-func TestAC431GrantedWritesConsentBeforeIndicatorAndDial(t *testing.T) {
-	r := newRig(nil)
-	st := &syncBuf{}
-	r.d.Status = st
-	var spec ConsentSpec
-	var linesAtShow []string
-	show := r.d.ShowIndicator
-	r.d.ShowIndicator = func(s string) (Indicator, error) { linesAtShow = st.lines(); return show(s) }
-	r.d.AskConsent = func(_ context.Context, sp ConsentSpec) (string, time.Time) {
-		spec = sp
-		if r.dials.Load() != 0 {
-			t.Error("karar öncesi dial")
-		}
-		return helperio.DecisionGranted, time.Now()
-	}
-	done := make(chan uint32, 1)
-	go func() { done <- Run(context.Background(), r.d, askInput()) }()
-	r.conn.in <- signal.SessionEnded{T: "session.ended", Reason: "ENDED"}
-	if code := waitExit(t, done); code != helperio.ExitEnded {
-		t.Fatalf("çıkış %d", code)
-	}
-	if spec.TenantName != "Acme" || spec.TechName != "Ali" || time.Until(spec.Deadline) > ConsentTimeout {
-		t.Fatalf("diyalog içeriği %+v", spec)
-	}
-	if len(linesAtShow) != 1 || !strings.Contains(linesAtShow[0], `"decision":"granted"`) {
-		t.Fatalf("gösterge çiziminde durum %v", linesAtShow)
-	}
-}
-
-func TestAC431NoAskConsentFailsClosed(t *testing.T) {
-	r := newRig(nil)
-	if code := Run(context.Background(), r.d, askInput()); code != helperio.ExitHelperFailed || r.dials.Load() != 0 {
-		t.Fatalf("çıkış %d dial %d", code, r.dials.Load())
-	}
-}
-
-func TestAC431ConsentStatusWriteFailureNeverDials(t *testing.T) {
-	r := newRig(nil)
-	r.d.Status = failWriter{}
-	r.d.AskConsent = func(context.Context, ConsentSpec) (string, time.Time) { return helperio.DecisionGranted, time.Now() }
-	if code := Run(context.Background(), r.d, askInput()); code != helperio.ExitHelperFailed || r.dials.Load() != 0 {
-		t.Fatalf("çıkış %d dial %d", code, r.dials.Load())
-	}
-}
-
-type failWriter struct{}
-
-func (failWriter) Write([]byte) (int, error) { return 0, errors.New("boru kapalı") }
-
-func TestAC431ConsentMsClampedAndTimeoutDeadline(t *testing.T) {
-	t0 := time.Unix(1000, 0)
-	clock := t0
-	now := func() time.Time { return clock }
-	ask := func(ctx context.Context, _ ConsentSpec) (string, time.Time) {
-		dl, _ := ctx.Deadline()
-		if !dl.Equal(t0.Add(60 * time.Second)) {
-			t.Errorf("süre %v (60 sn olmalı)", dl.Sub(t0))
-		}
-		clock = t0.Add(70 * time.Second)
-		return helperio.DecisionTimeout, time.Time{}
-	}
-	dec, ms := runConsent(context.Background(), ask, askInput(), now)
-	if dec != helperio.DecisionTimeout || ms != helperio.MaxConsentMs {
-		t.Fatalf("%s %d", dec, ms)
-	}
-}
-
-func TestAC438SilentIndicatorFailureNoDialNoDialog(t *testing.T) {
-	r := newRig(errors.New("çizilemedi"))
-	r.d.AskConsent = func(context.Context, ConsentSpec) (string, time.Time) {
-		t.Error("silent'ta diyalog açıldı")
-		return helperio.DecisionGranted, time.Now()
-	}
-	if code := Run(context.Background(), r.d, silentInput()); code != helperio.ExitIndicatorFailed || r.dials.Load() != 0 {
-		t.Fatalf("çıkış %d dial %d", code, r.dials.Load())
-	}
-}
-
-func TestAC439SilentLabelControlStatusAndNoSessionLimit(t *testing.T) {
+// AC-433 / AC-438 (r3): diyalog yok; gösterge sunucu metniyle /ws/guest'ten önce çizilir, kontrol isteği anında
+// GRANTED; etiket kontrolle değişmez; durum borusuna yalnız control olayları yazılır (consent yok); gözetimsizde
+// K-P28u-16 geçiş sınırı yok.
+func TestAC433NoDialogIndicatorFirstControlGrantedLabelFixed(t *testing.T) {
 	r := newRig(nil)
 	ind := &labelIndicator{fakeIndicator: fakeIndicator{failed: make(chan struct{})}}
 	var shown string
-	r.d.ShowIndicator = func(s string) (Indicator, error) { shown = s; return ind, nil }
+	r.d.ShowIndicator = func(s string) (Indicator, error) {
+		if r.dials.Load() != 0 {
+			t.Error("gösterge öncesi dial")
+		}
+		shown = s
+		return ind, nil
+	}
 	st := &syncBuf{}
 	r.d.Status = st
-	in := silentInput()
+	in := directInput()
 	done := make(chan uint32, 1)
 	go func() { done <- Run(context.Background(), r.d, in) }()
 	r.conn.in <- hello()
-	for i := 0; i < 7; i++ { // K-P28u-16: 5 geçiş sınırı gözetimsizde yok
+	for i := 0; i < 7; i++ {
 		r.conn.in <- signal.ControlRequest{T: "control.request"}
 		if s := waitSent[signal.ControlState](t, r.conn); s.State != "GRANTED" {
 			t.Fatalf("%d: %+v", i, s)
 		}
-		waitLabel(t, ind, in.IndicatorControl)
 		r.conn.in <- signal.ControlRelease{T: "control.release"}
-		waitLabel(t, ind, in.IndicatorText)
+		waitLines(t, st, 2*(i+1))
 	}
 	r.conn.in <- signal.SessionEnded{T: "session.ended", Reason: "ENDED"}
 	if code := waitExit(t, done); code != helperio.ExitEnded {
@@ -202,43 +103,49 @@ func TestAC439SilentLabelControlStatusAndNoSessionLimit(t *testing.T) {
 	if shown != in.IndicatorText {
 		t.Fatalf("ilk etiket %q", shown)
 	}
+	if len(ind.texts) != 0 {
+		t.Fatalf("etiket kontrolle değişti: %v", ind.texts)
+	}
 	l := st.lines()
 	if len(l) != 14 || l[0] != `{"ev":"control","on":true}` || l[1] != `{"ev":"control","on":false}` {
 		t.Fatalf("durum satırları %d: %v", len(l), l)
 	}
+	for _, x := range l {
+		if strings.Contains(x, "consent") {
+			t.Fatalf("consent olayı yazıldı: %v", l)
+		}
+	}
 }
 
-func waitLabel(t *testing.T, ind *labelIndicator, want string) {
+func waitLines(t *testing.T, st *syncBuf, n int) {
 	t.Helper()
-	deadline := time.Now().Add(time.Second) // AC-439: ≤ 1 sn
-	for ind.last() != want {
+	deadline := time.Now().Add(time.Second)
+	for len(st.lines()) < n || st.lines()[0] == "" {
 		if time.Now().After(deadline) {
-			t.Fatalf("etiket %q, beklenen %q", ind.last(), want)
+			t.Fatalf("durum satırı %d, beklenen %d: %v", len(st.lines()), n, st.lines())
 		}
 		time.Sleep(5 * time.Millisecond)
 	}
 }
 
-func TestAC439SilentFileOfferRejectedUntilControl(t *testing.T) {
+// AC-438 (r3, KORUNUR): gösterge çizilemezse bağlantı açılmaz — kullanıcı durumu ne olursa olsun.
+func TestAC438IndicatorFailureNoDial(t *testing.T) {
+	r := newRig(errors.New("çizilemedi"))
+	if code := Run(context.Background(), r.d, directInput()); code != helperio.ExitIndicatorFailed || r.dials.Load() != 0 {
+		t.Fatalf("çıkış %d dial %d", code, r.dials.Load())
+	}
+}
+
+// AC-433 (r3): izleme kipi yok — dosya teklifi kontrol açık olmasa da kabul edilir (P27).
+func TestAC433FileOfferAcceptedWithoutControl(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	events := make(chan flow.Event, 4)
 	h := newHeadless(ctx, events)
-	h.mode, h.st = helperio.ModeSilent, newStatusPipe(nil)
+	h.st = newStatusPipe(nil)
 	h.FileOffer(transfer.Prompt{FID: "f1"})
-	if ev := <-events; ev.Kind != flow.EvFileReject {
-		t.Fatalf("izleme kipinde dosya kabul edildi: %+v", ev)
-	}
-	h.ControlState(true, "")
-	h.FileOffer(transfer.Prompt{FID: "f2"})
 	if ev := <-events; ev.Kind != flow.EvFileAccept {
-		t.Fatalf("kontrolde dosya reddedildi: %+v", ev)
-	}
-	a := newHeadless(ctx, events)
-	a.mode = helperio.ModeAsked
-	a.FileOffer(transfer.Prompt{FID: "f3"})
-	if ev := <-events; ev.Kind != flow.EvFileAccept {
-		t.Fatalf("asked kipinde dosya reddedildi: %+v", ev)
+		t.Fatalf("dosya reddedildi: %+v", ev)
 	}
 }
 
@@ -316,14 +223,12 @@ func inputRig(r *rig) (*countInjector, chan func([]byte)) {
 
 var moveMsg = []byte(`{"t":"m.move","x":0.5,"y":0.5}`)
 
-func TestAC439SilentMonitoringInputCountZeroUntilGranted(t *testing.T) {
+// AC-433 (r3): girdi yalnız kontrol verildikten sonra uygulanır (kapı korunur); kontrol isteği anında verilir.
+func TestAC433InputAppliedOnlyAfterImmediateGrant(t *testing.T) {
 	r := newRig(nil)
-	r.d.ShowIndicator = func(string) (Indicator, error) {
-		return &labelIndicator{fakeIndicator: fakeIndicator{failed: make(chan struct{})}}, nil
-	}
 	inj, handlers := inputRig(r)
 	done := make(chan uint32, 1)
-	go func() { done <- Run(context.Background(), r.d, silentInput()) }()
+	go func() { done <- Run(context.Background(), r.d, directInput()) }()
 	r.conn.in <- hello()
 	var send func([]byte)
 	select {
@@ -335,43 +240,18 @@ func TestAC439SilentMonitoringInputCountZeroUntilGranted(t *testing.T) {
 		send(moveMsg)
 	}
 	if inj.n.Load() != 0 {
-		t.Fatalf("izleme kipinde girdi uygulandı: %d", inj.n.Load())
+		t.Fatalf("kontrol isteği olmadan girdi uygulandı: %d", inj.n.Load())
 	}
 	r.conn.in <- signal.ControlRequest{T: "control.request"}
-	waitSent[signal.ControlState](t, r.conn)
+	if s := waitSent[signal.ControlState](t, r.conn); s.State != "GRANTED" {
+		t.Fatalf("kontrol %+v", s)
+	}
 	send(moveMsg)
 	if inj.n.Load() == 0 {
-		t.Fatal("kontrol verildikten sonra girdi uygulanmadı (test düzeneği)")
+		t.Fatal("kontrol verildikten sonra girdi uygulanmadı")
 	}
 	r.conn.in <- signal.SessionEnded{T: "session.ended", Reason: "ENDED"}
 	waitExit(t, done)
-}
-
-func TestAC431DeniedInputAndFrameCountZero(t *testing.T) {
-	r := newRig(nil)
-	inj, handlers := inputRig(r)
-	var captures atomic.Int32
-	r.d.Flow.Capture = func(int) (rtc.Source, error) { captures.Add(1); return fakeSrc{}, nil }
-	r.d.AskConsent = func(context.Context, ConsentSpec) (string, time.Time) { return helperio.DecisionDenied, time.Now() }
-	if code := Run(context.Background(), r.d, askInput()); code != helperio.ExitConsentDenied {
-		t.Fatalf("çıkış %d", code)
-	}
-	if len(handlers) != 0 || inj.n.Load() != 0 || captures.Load() != 0 || r.dials.Load() != 0 {
-		t.Fatalf("karar öncesi/ret: peer=%d girdi=%d kare=%d dial=%d", len(handlers), inj.n.Load(), captures.Load(), r.dials.Load())
-	}
-}
-
-func TestAC431DialogFailedIsHelperFailedWithoutConsentEvent(t *testing.T) {
-	r := newRig(nil)
-	st := &syncBuf{}
-	r.d.Status = st
-	r.d.AskConsent = func(context.Context, ConsentSpec) (string, time.Time) { return decisionFailed, time.Time{} }
-	if code := Run(context.Background(), r.d, askInput()); code != helperio.ExitHelperFailed || r.dials.Load() != 0 {
-		t.Fatalf("çıkış %d", code)
-	}
-	if l := st.lines(); len(l) != 1 || l[0] != "" {
-		t.Fatalf("durum yazıldı: %v", l)
-	}
 }
 
 func TestAC439P27InputWritesNoStatusEvents(t *testing.T) {

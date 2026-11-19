@@ -13,8 +13,8 @@ import (
 
 // Durum borusunun yardımcı ucu (mimari-p28u §7.4, D-P28u-1, K-P28u-19). Servis okuyucusu olay × durum tablosunu
 // uygular ve beklenmeyen olayda yardımcıyı sonlandırır; bu uç yalnız tablonun kabul ettiği olayları üretir:
-// `consent` bir kez (yalnız Consent=="ask"), `control` yalnız değer değişiminde (başlangıç değeri off, yazılmaz),
-// `lock` yalnız servisin gönderdiği komut kimliğiyle.
+// `control` yalnız değer değişiminde (başlangıç değeri off, yazılmaz), `lock` yalnız servisin gönderdiği komut
+// kimliğiyle (r3: `consent` olayı yoktur).
 
 type statusPipe struct {
 	mu      sync.Mutex
@@ -38,10 +38,6 @@ func (s *statusPipe) send(st helperio.Status) error {
 	defer s.mu.Unlock()
 	_, err = s.w.Write(b)
 	return err
-}
-
-func (s *statusPipe) consent(decision string, ms int) error {
-	return s.send(helperio.Status{Ev: "consent", Decision: decision, Ms: &ms})
 }
 
 // setControl değer değiştiyse `control` olayı yazar; değişim olduysa true.

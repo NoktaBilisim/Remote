@@ -8,6 +8,8 @@ import { FilesPanel } from "@/components/collab/files-panel";
 import { chatFilesOptions } from "@/components/collab/tab-options";
 import type { DrawTool } from "@/components/collab/annot-layer";
 import { QualityPanel } from "@/components/console/quality-panel";
+import { Alert } from "@/components/ui/alert";
+import type { SessionChat } from "@/lib/chat/use-session-chat";
 import { Segmented } from "@/components/ui/segmented";
 import { ANNOT_COLORS, type AnnotColor } from "@/lib/dc/ctl";
 import type { ClipPrint } from "@/lib/clip/use-clip-print";
@@ -29,9 +31,15 @@ export function CollabSide({
   tab,
   onTab,
   chat,
+  chatView,
+  chatBlocked = null,
 }: {
+  /** P22: oturum sohbeti (WS, `useSessionChat`). */
+  chat: SessionChat;
   /** P28c: sohbet yazarı çözümü (roster) ve izleyici notu. */
-  chat?: { authorOf?: (by: string | undefined) => string; readOnlyNote?: string | null };
+  chatView?: { authorOf?: (tid: string | undefined) => string | null; readOnlyNote?: string | null };
+  /** P22 (§8.1, K-P22-8): gözetimsiz odada sohbet yok — sekme pasif bilgi (`filesBlocked` kalıbı). */
+  chatBlocked?: "unattended" | null;
   /** P28b: SERVER modunda dosya alanının kapalı olma nedeni. */
   filesBlocked?: "unsupported" | "unattended" | "notController" | null;
   collab: Collab;
@@ -59,11 +67,18 @@ export function CollabSide({
         value={tab}
         onChange={onTab}
         options={[
-          ...chatFilesOptions(collab.chat.unread),
+          ...chatFilesOptions(chat.model.unread),
           { value: "quality", label: t("p5.tab.quality"), icon: <Signal aria-hidden className="size-4" /> },
         ]}
       />
-      {tab === "chat" && <ChatPanel collab={collab} peerName={peerName} {...chat} />}
+      {tab === "chat" &&
+        (chatBlocked === "unattended" ? (
+          <Alert tone="info" testId="chat-unattended">
+            {t("p22.chat.unattended")}
+          </Alert>
+        ) : (
+          <ChatPanel chat={chat} peerName={peerName} {...chatView} />
+        ))}
       {tab === "files" && <FilesPanel collab={collab} allowed={canFiles} blocked={filesBlocked} peerName={peerName} />}
       {tab === "quality" && <QualityPanel last={quality.last} verdict={quality.verdict} />}
       <ClipPrintPanel cp={clipPrint} now={now} />

@@ -19,6 +19,7 @@ import { WS_CAP_MULTI } from "@remote/contracts/ws-multi";
 import type { Peer } from "./types.ts";
 import type { RequestChannels } from "../requests/ws.ts";
 import { bindFsrv } from "./fsrv.ts";
+import { bindChat, unbindChat } from "./chat.ts";
 import type { Rooms } from "./rooms.ts";
 import { createGate } from "../unattended/gate.ts";
 import { revalidateDevice } from "./rooms-device.ts";
@@ -209,6 +210,13 @@ export function attachSignaling(
   const u = upgradeCtx(app, rooms, wss, missed);
   if (app.hasDecorator("fsrv")) bindFsrv(rooms, app.fsrv.service); // P28b: wiring.ts kurar, sinyal bağlar
   rooms.unattendedGate = createGate(app.env); // P28c D-PC-K4: devir TX'i hedefin cihaz erişimini yeniden okur
+  // P22 (§4.3): sohbet şifreleme + firma müşteri kovası aşımında panellere `queue.alert` (talep hub'ı).
+  bindChat(rooms, {
+    secrets: app.secrets,
+    ...(app.hasDecorator("requestHub")
+      ? { alert: (tenantId: string, until: string) => app.requestHub.publish(tenantId, { t: "queue.alert", kind: "rate_limited", until }) }
+      : {}),
+  });
   // Etiketsiz seri: toplam; P8b `role="request"|"panel"` serileri (devops metrik adı).
   // P28c §8: bağlı üye sayısı rol başına (tenant etiketi yok).
   rooms.metrics.gauge("rs_multi_members", "Çoklu teknisyen bağlı üyeler (anlık)", () => {
@@ -232,6 +240,7 @@ export function attachSignaling(
     u.guestIp.close();
     u.techIp.close();
     rooms.shutdown();
+    unbindChat(rooms);
     for (const ws of wss.clients) ws.terminate();
     wss.close();
   });

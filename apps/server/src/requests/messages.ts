@@ -18,9 +18,8 @@ import {
   type RequestMessageListResponse,
   type SendRequestMessageResponse,
 } from "@remote/contracts/api/requests";
-import { UNSAFE_NAME_CHARS } from "@remote/contracts/api/sessions";
 import { REQUEST_COMMS_AUDIT } from "@remote/contracts/audit";
-import type { RequestChatMessage } from "@remote/contracts/ws-request";
+import { REQUEST_HISTORY_MAX_BYTES, type RequestChatMessage } from "@remote/contracts/ws-request";
 import { CUSTOMER_USERNAME, writeAudit, type AuditContext } from "../audit/service.ts";
 import type { AuthContext } from "../auth/session.ts";
 import type { Prisma } from "../generated/prisma/client.ts";
@@ -28,13 +27,14 @@ import { aadFor, type SecretBox } from "../lib/crypto.ts";
 import { conflictIndex, type Db } from "../lib/db.ts";
 import { AppError } from "../lib/errors.ts";
 import { newId } from "../lib/ids.ts";
+import { fitNewest } from "../lib/ws-budget.ts";
+import { decryptRow, displayName } from "../sessions/chat.ts";
 import { FixedWindowCounter } from "../lib/rate.ts";
 import type { RequestConn } from "./hub.ts";
 import type { RequestService } from "./service.ts";
 
 type DbOrTx = Db | Prisma.TransactionClient;
 const MIN = 60_000;
-const TABLE = "session_messages";
 export const RATE_MESSAGE = "Çok hızlı mesaj gönderiyorsunuz. Lütfen biraz bekleyin.";
 export const CAP_MESSAGE = `Bu talepte en çok ${MESSAGES_PER_SENDER_MAX} mesaj gönderilebilir.`;
 
@@ -77,6 +77,7 @@ const rowSelect = {
   id: true,
   tenantId: true,
   requestId: true,
+  sessionId: true,
   sender: true,
   clientMsgId: true,
   bodyEnc: true,
@@ -108,14 +109,8 @@ async function lastRows(db: DbOrTx, tenantId: string, requestId: string, take: n
 
 // ------------------------------------------------------------------ yardımcılar
 
-/** Müşteriye giden teknisyen adı: görünmez/kontrol karakteri ayıklanır, ≤ 100 kod noktası. */
-export function displayName(fullName: string | null | undefined): string {
-  const clean = [...(fullName ?? "")]
-    .filter((ch) => !UNSAFE_NAME_CHARS.test(ch))
-    .join("")
-    .trim();
-  return [...clean].slice(0, 100).join("") || "Teknisyen";
-}
+/** P22: tek kaynak `sessions/chat.ts` (geriye uyum için yeniden ihraç). */
+export { displayName };
 
 const chars = (v: string): number => [...v].length;
 
@@ -180,15 +175,9 @@ export class RequestMessages {
     });
   }
 
-  /** Şifre çözme; hata → null + `rs_crypto_decrypt_failures_total{table}` (alarm). Gövde/hata metni loglanmaz. */
-  private decrypt(r: Pick<Row, "id" | "tenantId" | "requestId" | "bodyEnc">): string | null {
-    try {
-      return this.secrets.decrypt(r.bodyEnc, aadFor.sessionMessage(r.tenantId, r.requestId ?? "", r.id));
-    } catch {
-      this.svc.d.metrics.inc("rs_crypto_decrypt_failures_total", { table: TABLE });
-      this.svc.d.log.error({ alarm: "crypto_decrypt_failed", table: TABLE, messageId: r.id }, "mesaj gövdesi çözülemedi");
-      return null;
-    }
+  /** P22 (r2 §15.6): tek okuma yardımcısı `decryptRow` (AAD `requestId ?? sessionId`); hata → null + metrik + alarm logu. */
+  private decrypt(r: Row): string | null {
+    return decryptRow({ secrets: this.secrets, metrics: this.svc.d.metrics, log: this.svc.d.log }, r);
   }
 
   private toItem(r: Row): RequestMessageItem {
@@ -382,11 +371,19 @@ export class RequestMessages {
     this.svc.d.log.warn({ alarm: "request_message_tenant_rate", tenantId }, "firma müşteri mesajı kovası aşıldı");
   }
 
-  /** Yetenekli soket bağlandı (PENDING): son 50 mesaj `request.messages`. */
+  /**
+   * Yetenekli soket bağlandı (PENDING): son ≤ 50 mesaj `request.messages`, çerçeve ≤ `REQUEST_HISTORY_MAX_BYTES` (r2 §15.1,
+   * K-P22-16: Go okuma sınırı 64 KiB). En yeniden geriye; sığmayan eski mesajlar gitmez (şemada `more` yok — eski Go uyumu).
+   */
   async sendHistory(conn: RequestConn): Promise<void> {
     if (!conn.caps.chat) return;
     const rows = await lastRows(this.svc.d.db, conn.tenantId, conn.requestId, MESSAGE_HISTORY_WS);
-    this.svc.d.hub.sendChat(conn.requestId, { t: "request.messages", items: rows.map((r) => this.toChat(r, true)) });
+    const fit = fitNewest(
+      rows.map((r) => this.toChat(r, true)),
+      (items) => ({ t: "request.messages", items }),
+      REQUEST_HISTORY_MAX_BYTES,
+    );
+    this.svc.d.hub.sendChat(conn.requestId, { t: "request.messages", items: fit.items });
   }
 }
 

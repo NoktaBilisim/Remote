@@ -12,10 +12,9 @@ import (
 
 // Durum borusu okuyucusu (mimari-p28u §7.4, D-P28u-1, K-P28u-19). Yardımcı servisten daha az güvenilen süreçtir
 // (S-P27-6): her satır boyut + şema + olay × durum tablosundan geçer; beklenmeyen her şey `helper_protocol` (olay 1004)
-// ve TerminateProcess'tir. Tablo:
+// ve TerminateProcess'tir. Tablo (r3: onay diyaloğu yok — `ev:consent` artık sözleşme dışıdır):
 //
-//	ev:consent  Consent=="ask" ∧ henüz karar yok (bir kez)
-//	ev:control  karar granted ∨ Consent=="none"; yalnız değer değişimi
+//	ev:control  yalnız değer değişimi
 //	ev:lock     id = bekleyen tek lock komutunun kimliği
 //	diğer/bozuk —
 
@@ -26,9 +25,6 @@ var errStatus = errors.New("servis: durum borusu sözleşme dışı")
 
 // helperStatus tek yardımcının durum makinesi. control başlatmada (sıfır değer) ve çıkışta off'tur.
 type helperStatus struct {
-	consent     string // helperio.ConsentAsk | ConsentNone
-	decided     bool
-	granted     bool
 	control     bool
 	pendingLock string // bekleyen lock komut kimliği
 	lateLock    string // zaman aşımına uğramış son kimlik: geç gelen tek ev:lock yok sayılır
@@ -36,30 +32,15 @@ type helperStatus struct {
 
 // statusAction kabul edilen olayın sonucu.
 type statusAction struct {
-	consent  bool // decision/ms consent.result'a gider
-	decision string
-	ms       int
-	lock     bool   // bekleyen kilidin sonucu
-	reason   string // "" = ok
+	lock   bool   // bekleyen kilidin sonucu
+	reason string // "" = ok
 }
 
 // apply olayı tabloya göre kabul eder; hata = sonlandırma.
 func (h *helperStatus) apply(s helperio.Status) (statusAction, error) {
 	switch s.Ev {
-	case "consent":
-		ok := h.consent == helperio.ConsentAsk && !h.decided && s.On == nil && s.ID == "" && s.Ok == nil &&
-			s.Reason == "" && s.Ms != nil && *s.Ms >= 0 && *s.Ms <= helperio.MaxConsentMs &&
-			(s.Decision == helperio.DecisionGranted || s.Decision == helperio.DecisionDenied ||
-				s.Decision == helperio.DecisionTimeout)
-		if !ok {
-			return statusAction{}, errStatus
-		}
-		h.decided, h.granted = true, s.Decision == helperio.DecisionGranted
-		return statusAction{consent: true, decision: s.Decision, ms: *s.Ms}, nil
 	case "control":
-		allowed := h.consent == helperio.ConsentNone || (h.decided && h.granted)
-		ok := allowed && s.On != nil && *s.On != h.control && s.Decision == "" && s.Ms == nil && s.ID == "" &&
-			s.Ok == nil && s.Reason == ""
+		ok := s.On != nil && *s.On != h.control && s.ID == "" && s.Ok == nil && s.Reason == ""
 		if !ok {
 			return statusAction{}, errStatus
 		}
@@ -70,8 +51,7 @@ func (h *helperStatus) apply(s helperio.Status) (statusAction, error) {
 			h.lateLock = ""
 			return statusAction{}, nil
 		}
-		ok := h.pendingLock != "" && s.ID == h.pendingLock && s.Ok != nil && s.Decision == "" && s.Ms == nil &&
-			s.On == nil && (*s.Ok == (s.Reason == "")) &&
+		ok := h.pendingLock != "" && s.ID == h.pendingLock && s.Ok != nil && s.On == nil && (*s.Ok == (s.Reason == "")) &&
 			(s.Reason == "" || s.Reason == InterveneNotLocked || s.Reason == InterveneAPIError)
 		if !ok {
 			return statusAction{}, errStatus
@@ -144,12 +124,7 @@ func (c *Core) onStatus(r *running, s helperio.Status) bool {
 	if err != nil {
 		return false
 	}
-	switch {
-	case act.consent:
-		ms := act.ms
-		c.Send(&ConsentResult{SessionID: r.sessionID, Mode: helperio.ModeAsked, Decision: act.decision, Ms: &ms})
-		c.Events.Write(evConsent(r, act.decision))
-	case act.lock:
+	if act.lock {
 		if r.lockTimer != nil {
 			r.lockTimer.Stop()
 		}

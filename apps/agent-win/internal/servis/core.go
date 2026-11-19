@@ -59,7 +59,7 @@ type Core struct {
 	State func() string
 	// OnUnregister kaldırma isteği (boruda yönetici); sunucuya `device.unregister` gönderir.
 	OnUnregister func() error
-	// Consent1 bu sokette `device.features` alındı mı (P28u kip kararı; nil = P27 sunucusu).
+	// Consent1 bu sokette `device.features` alındı mı (P28u sözleşmesi; nil = P27 sunucusu).
 	Consent1 func() bool
 	// Record1 bu sokette `device.features` caps `record1` içeriyor mu (P28e; nil = kayıtsız sunucu).
 	Record1 func() bool
@@ -83,14 +83,11 @@ type running struct {
 	sessionID  string
 	techName   string
 	conn       *Connect // rejoin girdisi için teknisyen/firma/IP (rejoin mesajı taşımaz)
-	mode       string   // asked | no_user | silent
 	proc       Process
 	started    time.Time
 	killReason string
 	st         helperStatus
 	lockTimer  stopper
-	// guardLogon `asked` odada logoff kabul edildi: konsolda yeni kullanıcı oturumu = session_changed (K-P28u-17).
-	guardLogon bool
 	// rec P28e: yardımcının göstergesinde kayıt eki var mı (connect.recording, sonra rec.state{on}).
 	rec bool
 }
@@ -140,26 +137,15 @@ func (c *Core) Connect(m *Connect) {
 		c.reject(m.SessionID, RejectBusy)
 		return
 	}
-	consent, mode := c.decideMode(m)
+	// r3 (K-P28u-r3-1, AC-433): tek kip `no_user` — kullanıcı durumu ne olursa olsun diyalog yok, yardımcı P27 davranışıyla
+	// (gösterge + kontrol isteğine anında GRANTED) başlar. consent1 sokette sunucu `consent.result{no_user}` bekler.
 	in := helperio.Input{V: helperio.Version, SessionID: m.SessionID, Ticket: m.Ticket, TechName: m.TechName,
 		TenantName: m.TenantName, TechIP: m.TechIP, IndicatorText: m.IndicatorText,
-		ExpiresInSec: m.ExpiresInSec, Consent: consent, Mode: mode, IndicatorControl: m.IndicatorControl,
+		ExpiresInSec: m.ExpiresInSec, Consent: helperio.ConsentNone, Mode: helperio.ModeNoUser,
 		Recording: m.Recording != nil && *m.Recording}
-	if c.start(m, in) != nil && features && m.Consent == helperio.ConsentAsk && mode == helperio.ModeNoUser {
+	if c.start(m, in) != nil && features {
 		c.Send(&ConsentResult{SessionID: m.SessionID, Mode: helperio.ModeNoUser})
 	}
-}
-
-// decideMode kip kararı cihazdadır (§7.2, K-P28u-2): ask + canlı `active` → diyalog; locked/none → no_user;
-// silent → diyalog yok. P27 (features'sız) bağlantı no_user gibi yürür (diyalog yok, P27 göstergesi).
-func (c *Core) decideMode(m *Connect) (consent, mode string) {
-	switch {
-	case m.Consent == ConsentSilent:
-		return helperio.ConsentNone, helperio.ModeSilent
-	case m.Consent == helperio.ConsentAsk && c.userState() == UserActive:
-		return helperio.ConsentAsk, helperio.ModeAsked
-	}
-	return helperio.ConsentNone, helperio.ModeNoUser
 }
 
 // start yardımcıyı başlatır ve kaydeder (kilit altında); hata `connect.result{ok:false}` ile bildirilir.
@@ -178,10 +164,10 @@ func (c *Core) start(m *Connect, in helperio.Input) *running {
 
 // register başlatılmış yardımcıyı kaydeder, çıkışını ve durum borusunu izler (kilit altında).
 func (c *Core) register(m *Connect, in helperio.Input, proc Process) *running {
-	r := &running{sessionID: m.SessionID, techName: m.TechName, conn: m, mode: in.Mode, proc: proc,
-		started: c.clock(), st: helperStatus{consent: in.Consent}, rec: in.Recording} // control=off başlatmada (D-P28u-1)
+	r := &running{sessionID: m.SessionID, techName: m.TechName, conn: m, proc: proc, started: c.clock(),
+		rec: in.Recording} // control=off başlatmada (D-P28u-1)
 	c.cur = r
-	c.Events.Write(evStarted(m, in.Mode, in.Recording))
+	c.Events.Write(evStarted(m, in.Recording))
 	go c.watch(r)
 	if sp := proc.StatusPipe(); sp != nil {
 		go c.readStatus(r, sp)

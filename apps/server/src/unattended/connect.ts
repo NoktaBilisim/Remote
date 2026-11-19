@@ -3,19 +3,13 @@
 // imza kapısı → çevrimiçi → meşgul. Yetkili karar TX'te: cihaz FOR UPDATE → iptal/yerel → grant FOR SHARE → meşgul → teknisyen
 // kilidi + açık oturum sınırı → PENDING satır (60 sn, kod yok) → step-up KOŞULLU tüketim (count≠1 → 401, TX geri) → audit.
 // Commit sonrası: oda + bilet + cihaza `connect`; 60 sn içinde kabul yoksa CANCELLED(device_timeout). Her ret audit'lenir.
-// P28u (mimari-p28u §5.1; AC-430, 434, 435, 437): 2a/2b silent kapısı (connect-silent.ts) → kullanıcı kovası → 2c `ask` için
-// teknisyen×cihaz kovası (60 sn'de 1; yalnız okunur, TX başarısında sayılır) → … → 8 çevrimiçi → 8a `consent1` (409
-// DEVICE_OUTDATED) → 9 meşgul → TX. Audit ret alanı `failReason` + `mode` (çıplak `reason` yok, K-P28u-20).
+// P28u r3 (mimari-p28u §r3.4; AC-430, 433, 434, 435): tek kip (cihaz kullanıcıya sormaz). Kullanıcı kovası → … → 8 çevrimiçi →
+// 8a `direct1` (409 DEVICE_OUTDATED, step-up tüketilmeden) → 9 meşgul → TX. Gönderim anında `direct1` yeniden (S-P28u-r3-1):
+// soket arada eski servisle yenilendiyse oturum CANCELLED(protocol) + 409 DEVICE_OUTDATED. Audit ret alanı `failReason` + `mode`.
 import { STEP_UP_MAX_AGE_SEC } from "@remote/contracts/api/auth";
 import type { UnattendedConnectResponse } from "@remote/contracts/api/unattended";
 import { AUTH_AUDIT, UNATTENDED_AUDIT } from "@remote/contracts/audit";
-import { DEVICE_CONSENT_WINDOW_MS } from "@remote/contracts/unattended-consent";
-import {
-  deviceControlIndicatorText,
-  deviceIndicatorText,
-  deviceSilentIndicatorText,
-  type DeviceOutbound,
-} from "@remote/contracts/ws-device";
+import { deviceIndicatorText, type DeviceOutbound } from "@remote/contracts/ws-device";
 import { writeAudit, type AuditContext } from "../audit/service.ts";
 import type { AuthContext } from "../auth/session.ts";
 import type { ErrorCode } from "@remote/contracts/errors";
@@ -26,9 +20,8 @@ import type { FixedWindowCounter } from "../lib/rate.ts";
 import type { Rooms } from "../signaling/rooms.ts";
 import type { Room } from "../signaling/types.ts";
 import { endDeviceRoom, preAdmitDevice } from "../signaling/rooms-device.ts";
-import { notifySilentConnect, silentPrecheck } from "./connect-silent.ts";
 import { deviceVerdict } from "./device-access.ts";
-import { DEVICE_CONNECT_WINDOW_MS, openDeviceSession, Refusal, type ConnectRequest, type Opened } from "./connect-tx.ts";
+import { openDeviceSession, Refusal, type Opened } from "./connect-tx.ts";
 import type { DeviceHub } from "./hub.ts";
 import { recoveryConnectMail, sendInternalNotice } from "./mail.ts";
 import * as repo from "./repo.ts";
@@ -39,17 +32,13 @@ export interface ConnectDeps extends UnattendedDeps {
   rooms: Rooms;
   metrics: { inc(name: string, labels?: Record<string, string>): void };
   limit: FixedWindowCounter;
-  /** §5.1 2c: teknisyen×cihaz kovası (`ask`; limit 1 / 60 sn). */
-  pairLimit: FixedWindowCounter;
-  /** §5.1 8a: hub'daki soket `rs.cap.consent1` bildirmiş mi (K4 hub). */
-  consentCapable(deviceId: string): boolean;
-  /** Dört göz e-postası testleri: sahte bekleme / gecikmeler (mail.ts). */
-  sleep?: (ms: number) => Promise<void>;
-  delaysMs?: readonly number[];
 }
 
-/** Yarış testi kancası (`unattended-silent-race`): TX commit'i ile oda kaydı arası. Üretimde boş. */
+/** Yarış testi kancası (S-P28u-r3-1): TX commit'i ile oda kaydı/gönderim arası. Üretimde boş. */
 export const connectTestSeams: { afterTx?: (o: Opened) => Promise<void> } = {};
+
+/** Tel/metrik/audit kip etiketi: r3'te tek değer (`connect.consent` tarihsel adı, K-P28u-r3-3). */
+const MODE = "ask";
 
 const refuse = (result: string, code: ErrorCode): Refusal => new Refusal(result, new AppError(code));
 
@@ -81,7 +70,7 @@ async function precheck(d: ConnectDeps, auth: AuthContext, tenantId: string, id:
   if ((await d.mail.configFor(tenantId)) === null) throw refuse("no_channel", "NOTIFY_CHANNEL_UNAVAILABLE");
   if (verdict === "unsigned") throw refuse("unsigned", "UNATTENDED_DISABLED");
   if (!d.hub.isOnline(id)) throw refuse("offline", "DEVICE_OFFLINE");
-  if (!d.consentCapable(id)) throw refuse("outdated", "DEVICE_OUTDATED");
+  if (!d.hub.has(id, "direct1")) throw refuse("outdated", "DEVICE_OUTDATED"); // 8a (AC-435)
   if ((await repo.openDeviceSessions(d.db, tenantId, id, new Date(d.now()))) > 0) throw refuse("busy", "DEVICE_BUSY");
   return dev;
 }
@@ -104,30 +93,23 @@ export async function connectDevice(
   auth: AuthContext,
   tenantId: string,
   id: string,
-  req: ConnectRequest = { consent: "ask" },
 ): Promise<UnattendedConnectResponse> {
   let opened: Opened;
-  const pair = `${auth.user.id}:${id}`;
   try {
     if (!auth.permissions.has("unattended.connect")) throw refuse("forbidden", "FORBIDDEN");
-    if (req.consent === "silent") await silentPrecheck(d, auth, tenantId);
     if (d.limit.blockedFor(auth.user.id) > 0 || d.limit.hit(auth.user.id))
       throw new Refusal("limit", new AppError("RATE_LIMITED", { retryAfterSec: d.limit.blockedFor(auth.user.id) || 3600 }));
-    const wait = req.consent === "ask" ? d.pairLimit.blockedFor(pair) : 0;
-    if (wait > 0) throw new Refusal("pair_limit", new AppError("RATE_LIMITED", { retryAfterSec: wait }));
     const dev = await precheck(d, auth, tenantId, id);
     const method = await stepUpMethod(d, auth);
-    opened = await openDeviceSession(d, ctx, auth, tenantId, dev, method, req);
+    opened = await openDeviceSession(d, ctx, auth, tenantId, dev, method);
   } catch (err) {
     if (!(err instanceof Refusal)) throw err;
-    d.metrics.inc("rs_unattended_connect_total", { mode: req.consent, result: err.result });
-    await auditConnect(d, ctx, auth, tenantId, id, { failReason: err.result, mode: req.consent });
+    d.metrics.inc("rs_unattended_connect_total", { mode: MODE, result: err.result });
+    await auditConnect(d, ctx, auth, tenantId, id, { failReason: err.result, mode: MODE });
     throw err.err;
   }
-  if (req.consent === "ask") d.pairLimit.hit(pair);
-  d.metrics.inc("rs_unattended_connect_total", { mode: req.consent, result: "ok" });
+  d.metrics.inc("rs_unattended_connect_total", { mode: MODE, result: "ok" });
   if (opened.method === "recovery_code") notifyRecovery(d, ctx, auth, tenantId, opened);
-  notifySilentConnect(d, ctx, auth, tenantId, opened);
   if (connectTestSeams.afterTx) await connectTestSeams.afterTx(opened);
   return afterCommit(d, ctx, auth, tenantId, opened);
 }
@@ -151,15 +133,21 @@ async function afterCommit(
     deviceId: o.deviceId,
     deviceName: o.deviceName,
     customerId: o.customerId,
-    consent: o.request.consent,
   });
   const room = d.rooms.get(o.sessionId);
   const tenantName = auth.actingTenant?.name ?? auth.tenant?.name ?? "";
   const recording = room ? await recordingDecision(d, ctx, auth, tenantId, o, room) : false;
   const msg = connectMessage(d, ctx, auth, o, { ticket, expiresAt, tenantName: tenantName || "Destek" });
-  const sent = d.hub.send(o.deviceId, recording ? { ...msg, recording: true } : msg);
-  if (room && !sent) await endDeviceRoom(d.rooms, room, "device_timeout");
-  else if (room) armTimeout(d, room, o.request.consent);
+  const sent = d.hub.sendDirect(o.deviceId, recording ? { ...msg, recording: true } : msg);
+  if (sent === "outdated") {
+    // S-P28u-r3-1: 8a sonrası soket `direct1`'siz yenilendi — eski servise `connect` gitmez; anlamlı ret.
+    if (room) await endDeviceRoom(d.rooms, room, "device_timeout", "protocol");
+    d.metrics.inc("rs_unattended_connect_total", { mode: MODE, result: "outdated" });
+    await auditConnect(d, ctx, auth, tenantId, o.deviceId, { failReason: "outdated", mode: MODE, sessionId: o.sessionId });
+    throw new AppError("DEVICE_OUTDATED");
+  }
+  if (room && sent === "offline") await endDeviceRoom(d.rooms, room, "device_timeout");
+  else if (room) armTimeout(d, room);
   return { sessionId: o.sessionId };
 }
 
@@ -192,7 +180,6 @@ async function recordingDecision(
         sessionId: o.sessionId,
         basis: "tenant_policy",
         reason,
-        ...(o.request.consent === "silent" ? { consentMode: "silent" as const } : {}),
         actor: { kind: "user", userId: auth.user.id, username: auth.user.email, ctx },
       })
       .catch((err: unknown) => d.log.error({ err }, "kayıt başlatma reddi audit'i yazılamadı"));
@@ -209,7 +196,7 @@ async function recordingDecision(
   return true;
 }
 
-/** §6.2 `connect`: `ask` → P27 göstergesi; `silent` → "Uzaktan izleniyor" + kontrol açıkken gösterge (`indicatorControl`). */
+/** §6.2 `connect` (K-P28u-r3-3, r3-7): `consent:"ask"` (cihaz sormaz) + P27 gösterge metni. */
 function connectMessage(
   d: ConnectDeps,
   ctx: AuditContext,
@@ -228,26 +215,15 @@ function connectMessage(
     techIp: ctx.ip.length >= 2 ? ctx.ip.slice(0, 45) : "bilinmiyor",
     expiresInSec: Math.max(1, Math.round((t.expiresAt - d.now()) / 1000)),
   };
-  if (o.request.consent === "ask") return { ...base, consent: "ask", indicatorText: deviceIndicatorText(name, t.tenantName, test) };
-  return {
-    ...base,
-    consent: "silent",
-    indicatorText: deviceSilentIndicatorText(name, t.tenantName, test),
-    indicatorControl: deviceControlIndicatorText(name, t.tenantName, test),
-  };
+  return { ...base, consent: "ask", indicatorText: deviceIndicatorText(name, t.tenantName, test) };
 }
 
-/**
- * §2 adım 8: kabul yoksa CANCELLED(device_timeout). `silent` → `timing.requestConnectMs` (60 sn); `ask` → aynı oranla 150 sn
- * (K-P28u-4; test zamanlaması küçültüldüğünde oran korunur).
- */
-function armTimeout(d: ConnectDeps, room: NonNullable<ReturnType<Rooms["get"]>>, consent: ConnectRequest["consent"]): void {
-  const base = d.rooms.timing.requestConnectMs;
-  const ms = consent === "ask" ? Math.round((base * DEVICE_CONSENT_WINDOW_MS) / DEVICE_CONNECT_WINDOW_MS) : base;
+/** §2 adım 8 (K-P28u-r3-4): `timing.requestConnectMs` (60 sn) içinde kabul yoksa CANCELLED(device_timeout). */
+function armTimeout(d: ConnectDeps, room: NonNullable<ReturnType<Rooms["get"]>>): void {
   d.rooms.clock.setTimeout(() => {
     if (!d.rooms.live(room) || room.admitted || room.admitting) return;
     void endDeviceRoom(d.rooms, room, "device_timeout").catch((err: unknown) => d.log.error({ err }, "cihaz zaman aşımı işlenemedi"));
-  }, ms);
+  }, d.rooms.timing.requestConnectMs);
 }
 
 /** D-P27-6 / AC-339: kurtarma koduyla gözetimsiz bağlantı → diğer `manage` sahiplerine e-posta (en iyi çaba). */

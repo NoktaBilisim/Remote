@@ -1,3 +1,283 @@
+# Test Raporu — P28u r3 (onaysız tek yol; R6 web taraması + Windows elle listesi)
+
+DURUM: GEÇTİ (web arayüzü). ENGELLEYİCİ ve YÜKSEK bulgu yok. Bir ORTA bulgu var: geçmiş detayındaki müdahale zaman çizelgesi r3'te
+kalkan kavramlarla etiketleniyor ("Müdahale edildi", "İzlemeye dönüldü"). İki DÜŞÜK bulgu var. 5xx yok (yalnız bilerek üretilen sahte
+500), pageerror yok, axe ihlali yok, 390 px dahil yatay taşma yok, kırık link yok. Web tarafında denetlenen AC'lerde ❌ yok.
+**Windows servis tarafı ELLE ve sonuçsuz** (aşağıdaki liste). Staging dumanı yapılmadı: talimat gereği staging'de yazma yok ve
+"Bağlan" bir yazma işlemi. Ayrıca r3 sunucusu ile servis henüz staging'e çıkmadı (runbook §28u.10).
+
+Ortam: yerel üretim derlemesi (standalone) `http://localhost:3217` + sahte API/WS `e2e/mock-api.mjs` (:4217). Worktree
+`claude/p28u2-onaysiz-5cadd5` @ `5f4c61c`, tarih 2026-11-19, Chromium (Playwright).
+
+- **Betikler:** `docs/test-raporu/e2e/p28u-r3/zz-r3-p28u.spec.ts` (tarama + keşif K1–K9) ve `r3-op.config.ts`. Koşu sırasında
+  `apps/web/` altına geçici kopyalandı, sonra silindi. Sunucular elle başlatıldı ve kapatıldı; 3217/4217 portları boş.
+- **Ham sonuç:** `docs/test-raporu/e2e/p28u-r3/tarama.jsonl` (93 satır). **Ekranlar:** `docs/test-raporu/p28u-r3/` (112 PNG, 12 MB).
+  Diyalog görünümlerinde tam sayfa ve ayrıca ekran (`-ekran.png`) çekimi var.
+- Ürün kodu değiştirilmedi. Çalışma ağacındaki `docs/KULLANIM_KILAVUZU.md` değişikliği bu tura ait değil (eşzamanlı R7).
+
+## Özet
+
+| Ölçüt                                                                                                                             | Sonuç                                                                                                                                                                                                                                                                |
+| --------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Mevcut e2e `p28u-unattended` + `unattended` + `p28c-multi` + `p9-users`, desktop + mobile                                         | **70 geçti, 0 düştü, 26 atlandı** (masaüstü senaryoları mobilde `skip`)                                                                                                                                                                                              |
+| Tarama: 21 görünüm × açık/koyu × 1440/390 = **84 görünüm**                                                                        | HTTP beklenen değerde: 80 × 200, `/settings/unattended` 4 × **404** (beklenen)                                                                                                                                                                                       |
+| Konsol hatası / pageerror                                                                                                         | **0 pageerror**. Görülen konsol kayıtları yalnız beklenen ağ yanıtları: step-up 401, zorlanan 409, 404 sayfası. `kullanici-yetki`'de 3 × 404 `GET /api/v1/support-requests[/count]` sahte API'nin `usadm` senaryosunda bu uç olmadığından çıkıyor; ürün hatası değil |
+| axe (WCAG 2.1 AA, tüm sayfa)                                                                                                      | 84 görünümde **0** ihlal                                                                                                                                                                                                                                             |
+| Yatay taşma (390 px dahil)                                                                                                        | 84 görünümde **0**                                                                                                                                                                                                                                                   |
+| Kırık iç link                                                                                                                     | **0**. Ayarlar sekmelerinde `/settings/unattended`'a giden link yok                                                                                                                                                                                                  |
+| Tema                                                                                                                              | Panel ekranları seçilen temada. Konsol tasarım gereği hep koyu (DESIGN.md)                                                                                                                                                                                           |
+| En yavaş görünüm                                                                                                                  | 2,1 sn (konsol, sahte ajan dahil)                                                                                                                                                                                                                                    |
+| Eski metin artığı taraması ("İzin istemeden", "Müdahale et", "İzleniyor", "onayı bekleniyor", "(eski)" eksiz "İzinsiz", "Hassas") | Bağlan diyaloğu, liste, detay, konsol, ayarlar ve yetki matrisinde **0**. Audit eylem süzgecinde ve eski kayıt detayında eşleşme var: biri ORTA bulgu, biri DÜŞÜK bulgu (aşağıda). Bunlar betikte 20 "soft" kırmızıya yol açtı                                       |
+| Keşif turu K1–K9                                                                                                                  | 9/9 beklendiği gibi                                                                                                                                                                                                                                                  |
+
+Taranan görünümler: cihaz listesi; cihaz detayı (güncel ve eski servis); Bağlan diyaloğu (AKTIF-PC, KILIT-PC, step-up, 409
+`DEVICE_OUTDATED`); Ayarlar sekmeleri; `/settings/unattended` (404); kullanıcı yetki matrisi; audit (filtresiz, `no_user`, `asked`,
+`silent`); geçmiş (`no_user`, `asked`); eski `silent` kaydın geçmiş detayı; konsol (bekleme, otomatik kontrol, logoff onayı, eski servis).
+
+## Bulgular (öncelik sırasıyla)
+
+### [ORTA] Geçmiş detayında müdahale zaman çizelgesi r3'te kalkan kavramlarla etiketleniyor
+
+Sayfa/akış: `/history/<id>` → "Gözetimsiz bağlantı" → "Müdahale zaman çizelgesi".
+Adımlar: 1. `hun` senaryosuyla giriş. 2. `/history/01JHXST0000000000000000000` aç.
+Beklenen: r3'te izleme kipi yok, kontrol bağlantıyla otomatik geliyor (AC-433, AC-439 kaldırıldı). Bu yüzden `control_on` / `control_off`
+için nötr etiket beklenir, ör. "Kontrol alındı" / "Kontrol bırakıldı" (ikon `Eye` yerine kontrol ikonu).
+Gerçekleşen: `h.un.k.control_on` "Müdahale edildi (kontrol açıldı)", `h.un.k.control_off` "İzlemeye dönüldü" (göz ikonu).
+`unattended.control_toggle` r3'te yazılmaya devam ediyor (K-P28u-r3-12). Bu yüzden bu etiketler eski kayıtlarda değil, **her yeni
+onaysız oturumda** da görünecek: teknisyen kontrolü her bıraktığında "İzlemeye dönüldü" yazacak. Eski `silent` kayıtta da etiket
+"izleme kipi"ni ima ediyor, bu kabul edilebilir, ama tek etiket iki anlam taşıyamaz.
+Kanıt: `docs/test-raporu/p28u-r3/gecmis-detay-eski-izinsiz-390-dark.png`. `tarama.jsonl` residue: `İzlemeye dön → «12:04:00 İzlemeye dönüldü»`.
+Kaynak: `apps/web/messages/tr.json:2358-2359`, `apps/web/app/(panel)/history/[id]/unattended-info.tsx:11`.
+Atanan: frontend-dev
+
+### [DÜŞÜK] Konsolda otomatik kontrol verilince "Müşteri kontrol izni verdi" toast'ı çıkıyor
+
+Sayfa/akış: konsol, gözetimsiz oda → cihaz katılır → otomatik `control.request` → `GRANTED`.
+Beklenen: onaysız yolda kimse izin vermiyor, cihaz kontrolü kendisi veriyor. Metin bunu yansıtmalı, ör. "Kontrol sizde" ya da toast
+hiç çıkmamalı.
+Gerçekleşen: P27'den gelen "Müşteri kontrol izni verdi" toast'ı görünüyor. Kullanıcı kararıyla ("sormadan") çelişiyor gibi okunuyor.
+Not: sahte ajan `source:"UI"` gönderiyor. Gerçek servis `UNATTENDED` kaynağıyla farklı metin seçiyorsa bu bulgu kapanır; elle
+listede (W3) kontrol edilmeli.
+Kanıt: `docs/test-raporu/p28u-r3/konsol-kontrol-1440-light.png`, `konsol-kontrol-390-light.png`. Atanan: frontend-dev
+
+### [DÜŞÜK] Audit "İşlem" süzgecinde r3'te artık yazılmayan eylemler "(eski)" işaretsiz listeleniyor
+
+Sayfa/akış: `/audit` → "İşlem" açılır listesi.
+Gerçekleşen: "Gözetimsiz erişim politikası değişti" (`settings.unattended_silent`) ve "İzinsiz bağlantı bildirimi (dört göz)"
+(`unattended.silent.notify`) seçenekleri işaretsiz duruyor. "Bağlantı kipi" süzgeci ise eski değerleri "(eski)" ile ayırıyor.
+Etiketlerin kalması AC-451 gereği doğru; tutarsızlık yalnız ek işaretinde.
+Beklenen: aynı "(eski)" kalıbı, ya da bu iki eylem yalnız kayıtlarda etiket olarak kalıp süzgeç seçeneklerinden çıkarılır.
+Kanıt: `tarama.jsonl` K6 `actionOpts` ve audit görünümlerindeki residue satırları. Atanan: frontend-dev
+
+## Akış sonuçları
+
+| Akış                                                                                                                                                                        | Sonuç | Not                                                                                                              |
+| --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----- | ---------------------------------------------------------------------------------------------------------------- |
+| Liste: Kullanıcı sütunu (Aktif / Kilitli / —), ESKI-PC "Servis güncel değil" rozeti, Bağlan pasif + "Cihazdaki servis güncel değil — güncelleyin"                           | ✅    | İki tema, 1440/390                                                                                               |
+| Cihaz detayı (güncel / eski servis)                                                                                                                                         | ✅    |                                                                                                                  |
+| Bağlan diyaloğu: kutu yok, gerekçe yok, bilgi satırı "Bağlantı cihaz kullanıcısına sorulmadan açılır…" (`Info` ikonu), kullanıcı durumu bilgi olarak                        | ✅    | KILIT-PC'de "Kilitli" görünüyor, diyalog aynı                                                                    |
+| Bağlan → step-up → konsol; gövde `{}`                                                                                                                                       | ✅    | K1: çift tıklamada step-up öncesi 1 POST, toplam 2 (401 + başarılı), iki gövde de `{}`. Çift kayıt yok           |
+| 409 `DEVICE_OUTDATED` (step-up öncesi ve K3'te step-up sonrası)                                                                                                             | ✅    | Diyalogda "Cihazdaki servis güncel değil — güncelleyin", sayfa listede kalıyor                                   |
+| connect 500 / ağ kopması (K2)                                                                                                                                               | ✅    | "Beklenmeyen bir hata oluştu." / "Sunucuya ulaşılamadı…", düğme yeniden etkin                                    |
+| Liste yoklaması 500 (K4)                                                                                                                                                    | ✅    | "Cihaz durumları güncellenemedi; son bilinen durum gösteriliyor…" + son veri                                     |
+| Geri tuşu (konsol → liste)                                                                                                                                                  | ✅    | Diyalog görünmüyor                                                                                               |
+| Esc Bağlan diyaloğunu kapatıyor, odak "Bağlan: AKTIF-PC"ye dönüyor (K7)                                                                                                     | ✅    |                                                                                                                  |
+| Oturumsuz erişim (K5): `/unattended`, detay, `/settings/general`, `/settings/unattended`, `/users/…`, geçmiş, audit                                                         | ✅    | Hepsi `/login?next=…`. `next` sorgu dizesini taşımıyor (mevcut davranış)                                         |
+| Ayarlar sekmeleri: "Gözetimsiz erişim" yok; `/settings/unattended` → 404 "Sayfa bulunamadı"                                                                                 | ✅    |                                                                                                                  |
+| Yetki matrisi (`usadm`): `unattended.silent` satırı yok, "İzin istemeden bağlan" yok, "Hassas" rozeti/metni yok                                                             | ✅    | Mevcut e2e AC-451 + tarama residue 0                                                                             |
+| Konsol bekleme: "Cihaz bağlanıyor…", onay beklemesi yok, kip rozeti yok                                                                                                     | ✅    |                                                                                                                  |
+| Konsol: cihaz katılınca tıklamasız **tek** otomatik kontrol isteği → Kilitle / Kullanıcı oturumunu kapat                                                                    | ✅    | Mevcut e2e + tarama                                                                                              |
+| Bırak sonrası otomatik ikinci istek yok; cihaz kopup **yeniden katılınca** otomatik istek yeniden gidiyor (K9)                                                              | ✅    | `first=1, afterRelease=1, rejoinAsked=true`                                                                      |
+| Çok teknisyenli oda, kontrol sahibi olmayan katılımcı (K8; S-P28u-r3-8)                                                                                                     | ✅    | Otomatik istek 0, Kilitle/Oturumu kapat yok, "Yalnız kontrol sahibi kullanabilir" (`kesif-konsol-katilimci.png`) |
+| Logoff onayı (odak Vazgeç), Esc kapatıyor; eski serviste düğmeler pasif + "güncelleyin"                                                                                     | ✅    | Mevcut e2e + ekranlar                                                                                            |
+| Geçmiş / audit "Bağlantı kipi": seçenekler "Kullanıcı onayıyla (eski)", "Onaysız", "İzinsiz (eski)"; yenilemede korunuyor; geçersiz değer (`xxx`, `<script>`) yok sayılıyor | ✅    | Geri tuşunda filtresiz liste (mevcut davranış)                                                                   |
+| Eski `silent` kayıt detayı: "İzinsiz (eski)", gerekçe düz metin (`<b>` kaçışlı)                                                                                             | ✅    | Zaman çizelgesi etiketleri ORTA bulguda                                                                          |
+
+## Kabul kriterleri (uçtan uca, web tarafı; sahte API)
+
+| AC               | ✅/❌      | Nasıl doğrulandı                                                                                                         |
+| ---------------- | ---------- | ------------------------------------------------------------------------------------------------------------------------ |
+| AC-429           | ✅ (web)   | Liste ve diyalogda Aktif / Kilitli / —, iki tema. ≤ 10 sn geçişleri Windows elle listesinde (W1)                         |
+| AC-430           | ✅         | Tek diyalog, kutu/gerekçe yok, bilgi satırı birebir, gövde `{}`, step-up                                                 |
+| AC-433           | ✅ (web)   | Otomatik tek kontrol isteği, bırak/yeniden al, yeniden katılımda yeniden istek. Cihazda diyalogsuz açılış: elle (W1, W3) |
+| AC-435           | ✅ (web)   | Rozet, pasif Bağlan, 409 metni. Eski servisle gerçek uyum: elle (W7)                                                     |
+| AC-442           | ✅ (web)   | Düğmeler yalnız kontrol açıkken ve yalnız kontrol sahibinde (K8)                                                         |
+| AC-443 / 444     | ✅ (web)   | Logoff onayı, eski serviste pasif + neden. Cihaz davranışı ve olay günlüğü: elle (W4)                                    |
+| AC-445           | ✅         | Üç kipte filtre, r3 etiketleri (mevcut e2e + tarama). Süzgeç tutarlılığı DÜŞÜK bulgu                                     |
+| AC-446           | ✅ (kısmi) | Kip, gerekçe, zaman çizelgesi görünüyor. Etiketler r3'e uymuyor (ORTA)                                                   |
+| AC-451           | ✅         | Saklı `unattended.silent` satırı görünmüyor, kaydetmede geri gitmiyor. Eski kip etiketleri doğru                         |
+| AC-438, 440, 448 | —          | Web'de ayrıca doğrulanacak yüz yok. Elle (W2, W6) ve entegrasyon                                                         |
+
+## P28u r3 — Windows servis ELLE test listesi (kullanıcı)
+
+Kaynak: koordinatör listesi. Şu dosyalarla doğrulandı: `apps/agent-win/internal/servis/events.go` (1001 "kip: onaysız"; 1008 r3'te
+yazılmaz, sabit silindi; 1006/1007/1009/1003), `wire_consent.go` (`rs.cap.direct1`, `not_in_control`), `core.go` (`local_disabled`),
+`helperio` (`indicator_failed`), runbook §28u.3–28u.5, §28u.8.
+**Hiçbiri koşulmadı; sonuç sütunu boş.** Ortam: §28u.10 yayınından sonra staging (185.126.217.99:4450) + r3 servis, Windows 10 ve 11
+VM. Olay günlüğü sorgusu:
+`Get-WinEvent -FilterHashtable @{LogName='Application'; ProviderName='NoktaDestek'} -MaxEvents 50 | Format-List TimeCreated,Id,Message`.
+Kapı: **Z** = prod öncesi zorunlu, **K** = AC kanıtı.
+
+| #   | Madde                                     | Adımlar                                                                                                                                                                                       | Beklenen                                                                                                                                                                                                                                                                              | AC        | Kapı | Sonuç (GEÇTİ/KALDI · Windows sürümü · tarih) |
+| --- | ----------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------- | ---- | -------------------------------------------- |
+| W1  | Diyalogsuz açılış, üç kullanıcı durumunda | Kullanıcı **aktif**, sonra **kilitli** (Win+L), sonra **giriş ekranında / oturum yok** iken panelden Bağlan → step-up                                                                         | Üçünde de cihazda **hiçbir diyalog yok**. Görüntü ≤ 3 sn. Panel Kullanıcı sütunu geçişleri ≤ 10 sn. Olay 1001 "kip: onaysız". **1008 yok**                                                                                                                                            | 429, 433  | Z    | ELLE — yapılmadı                             |
+| W2  | Gösterge                                  | Bağlantı sırasında tüm monitörleri gör. Görev Yöneticisi ile gösterge yardımcısını öldür. UAC isteği aç, Win+L ile kilitle/aç                                                                 | "Uzaktan bağlantı: <ad> — <firma>" **görüntü akmadan önce** tüm monitörlerde. Öldürülünce oturum `indicator_failed` ile biter. UAC/kilit masaüstü geçişinde gösterge ≤ 2 sn içinde yeniden çizilir, çizilemezse oturum biter                                                          | 438 (294) | Z    | ELLE — yapılmadı                             |
+| W3  | Otomatik kontrol                          | Bağlan → konsola gel, hiçbir şeye tıklama. Kontrolü bırak → "Kontrol iste". Kontrol kapalıyken teknisyenden dosya gönder                                                                      | Kontrol anında gelir, cihazda soru yok. Bırak/yeniden al çalışır. Kontrol kapalıyken dosya teklifi kabul edilir (P27 kuralı). Konsol toast metnini not edin (DÜŞÜK bulgu: "Müşteri kontrol izni verdi" görünüyor mu?)                                                                 | 433       | K    | ELLE — yapılmadı                             |
+| W4  | Müdahale                                  | Kontrol açıkken **Kilitle**. Sonra **Kullanıcı oturumunu kapat** → onay. Yeni oturumda kullanıcı giriş yapsın. Kontrolü bırakıp REST ile kilit isteği at (ya da ikinci teknisyen konsolundan) | Kilit: ≤ 2 sn Winlogon, bağlantı sürer, olay 1006. Oturum kapatma: olay 1007, ≤ 45 sn yeni konsol oturumuna yeniden katılım (`unattended.rejoin`). Yeni kullanıcı giriş yapınca **bağlantı sürer**. Kontrol kapalıyken müdahale 403 / `not_in_control`                                | 442–444   | Z    | ELLE — yapılmadı                             |
+| W5  | Yerel kapatma anahtarı                    | Göstergeden ya da tepsiden yerel anahtarı kapat                                                                                                                                               | Bağlantı hemen biter (`local_disabled`). Olay 1003 "yerel olarak kapatıldı" (kullanıcı adıyla). Panelde Bağlan pasif                                                                                                                                                                  | 295       | Z    | ELLE — yapılmadı                             |
+| W6  | Kayıt açıkken                             | Ayarlar → Oturum kaydı → "Gözetimsiz bağlantıları da kaydet" açık iken bağlan                                                                                                                 | Gösterge metni " — Kayıt yapılıyor" ekiyle. Olay 1009 "Ekran kaydı başladı". 1001'de "ekran kaydı: alınıyor". Konsolda "Kayıt yapılıyor"                                                                                                                                              | 448       | K    | ELLE — yapılmadı                             |
+| W7  | Uyum                                      | (a) r3 sunucusu + 0.15–0.19 servisli VM. (b) Eski (P28u..P28f) sunucu + r3 servis: `ask` ve `silent`                                                                                          | (a) Panelde "Servis güncel değil" rozeti, Bağlan pasif, API 409 `DEVICE_OUTDATED`, step-up tüketilmez. "Güncelle…" ile güncellenince ≤ 10 sn rozet kalkar. (b) `ask` → sormadan açılır, `consent.result{no_user}` gönderilir. `silent` → `connect.result{protocol}`, bağlantı açılmaz | 435       | Z    | ELLE — yapılmadı                             |
+| W8  | Alt protokol                              | Sunucu logunda veya servis hata ayıklama günlüğünde cihaz WS alt protokolünü gör (Caddy logu `Sec-WebSocket-Protocol` yazmaz, G-10)                                                           | `direct1` (`rs.cap.direct1`) bildiriliyor                                                                                                                                                                                                                                             | 435       | K    | ELLE — yapılmadı                             |
+| W9  | İz                                        | Turdan sonra olay günlüğü + `trace-check.ps1 -Mode Compare … -Servis on`                                                                                                                      | Olaylarda ve ProgramData'da bilet, cihaz anahtarı, nonce, gerekçe yok → `TEMİZ`                                                                                                                                                                                                       | §7.5      | Z    | ELLE — yapılmadı                             |
+| W10 | K6s spike (runbook §28u.8 m.1)            | `docs/spike-p28u-k6s.md` §3                                                                                                                                                                   | Sonuç spike belgesine. K-P28u-5b `--lock` kararı                                                                                                                                                                                                                                      | 443       | K    | ELLE — yapılmadı                             |
+
+## Görsel gözlemler (ekran görüntülerinden)
+
+- Liste 1440 açık: Kullanıcı sütunu ikonlu (kişi / kilit / —). ESKI-PC'de turuncu "Servis güncel değil" rozeti var. Pasif Bağlan'ın
+  altındaki neden metni iki satıra sarıyor, taşma yok.
+- Bağlan diyaloğu 390 koyu (ekran çekimi): başlık, kullanıcı durumu, `Info` ikonlu bilgi satırı, 2FA notu, tam genişlik "Bağlan" ve
+  "Vazgeç" ekran içinde ve okunaklı. Gereksiz kutu veya uyarı bandı yok.
+- Konsol 1440/390: "Kontrol sizde" rozeti, "Kontrolü bırak", ayrı satırda "Oturumu kilitle" ve kırmızı çerçeveli "Kullanıcı oturumunu
+  kapat". 390 px'te düğmeler alt alta, taşma yok. Toast sahnenin üstüne biniyor (geçici, DÜŞÜK bulgu metni).
+- Katılımcı konsolu: "Teknisyenler 2/3", "Kontrol iste" ve "Yalnız kontrol sahibi kullanabilir"; müdahale çubuğu yok.
+- `/settings/unattended`: panel kabuğu olmadan tam ekran "Sayfa bulunamadı" ve "Ana sayfaya dön" (genel 404 sayfası, iki tema okunaklı).
+- Geçmiş detayı 390 koyu: "Gözetimsiz bağlantı" bölümü okunaklı. "(başarısız)" kırmızı. "İzlemeye dönüldü" göz ikonuyla (ORTA bulgu).
+
+# Test Raporu — P22-T (oturum sohbeti WS + KVKK; gerçek sunucu + gerçek web)
+
+**DURUM: GEÇTİ (web + sunucu).** ENGELLEYİCİ ve YÜKSEK bulgu yok. Kritik 4 akışın (çift yönlü WS sohbeti ve yeniden bağlanma, eski istemci, AC-292, oturum detayı ve audit) tamamı gerçek sunucu ve gerçek web birlikte koşularak geçti. Ek olarak yetki toggle'ı, yetkisiz erişim ve IDOR kontrolleri de geçti. Koşulan akışlarda pageerror ve konsol hatası yok, 5xx yok. Proje axe kural setinde ihlal 0, 390 px'te taşma yok.
+
+Bulgular: iki ORTA-altı (DÜŞÜK) bulgu ve bir doküman uyuşmazlığı. Hiçbiri geçişi engellemiyor.
+
+Kapsam dışı: Go istemci 0.21.0 (P22-G) ve gerçek 0.19/0.20 istemciler. Bunlar aşağıdaki elle listede.
+
+Ortam:
+
+- Dal ve tarih: `claude/p22-06bd24` @ `97d2270`, 2026-11-18, Chromium (Playwright).
+- Kaynak: çalışma ağacının APFS anlık görüntüsü (scratchpad). Worktree dosyalarına ve `.next`'e dokunulmadı.
+- Sunucu: gerçek `apps/server` (`node src/server.ts`, NODE_ENV=development, 2FA kurulum zorunluluğu açık) :3483.
+- Web: standalone derleme :3484 (`/api`, `/ws` → :3483).
+- DB: `rs-p22-test` (127.0.0.1:33481). `pnpm db:seed` ile demo tenant + Super Admin eklendi, `e2e:real:users` ile iki ADMIN eklendi. Kimlik bilgileri rastgele üretildi, yalnız scratchpad'de (600 izinle) duruyor.
+- Sahte API/WS yok. Müşteri ekran kaynağı sentetik canvas.
+
+Dosyalar:
+
+- Betikler: `docs/test-raporu/e2e/p22/`. `up.sh` yığını kurar. `lib.ts` API girişi + TOTP + step-up yardımcılarını içerir. `p22op.spec.ts` kritik 4 akışı, `p22op-b.spec.ts` yetki ve aydınlatma kontrollerini içerir. Config: `p22op.config.ts`.
+- Ham sonuç: `akis.jsonl`.
+- Ekranlar: `docs/img/p22/` (12 dosya).
+
+Temizlik: server ve web süreçleri kapatıldı, 3483 ve 3484 boş. `rs-p22-test` konteyneri bırakıldı (bana ait değil). Seed'in eklediği demo tenant, iki ADMIN ve test oturumları DB'de kaldı.
+
+## Özet
+
+| Ölçüt                                        | Sonuç                                                                                                                                                                                                                                                                                                                                                        |
+| -------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Koşu                                         | `p22op.spec.ts`: 4/4 geçti (33 sn). `p22op-b.spec.ts`: 2/2 geçti (45 sn)                                                                                                                                                                                                                                                                                     |
+| pageerror / konsol hatası (konsol + misafir) | 0                                                                                                                                                                                                                                                                                                                                                            |
+| 5xx                                          | 0                                                                                                                                                                                                                                                                                                                                                            |
+| axe                                          | 28 tarama. Proje kural setinde (wcag2a/2aa/21aa, `e2e/helpers.ts`) 0 ihlal. Kapsam: karşılama 1280/390 × açık/koyu, konsol sohbeti, misafir sohbeti, 4426 ekranı, eski istemci (konsol + misafir), geçmiş sohbeti, yetki ekranı. Ek `wcag21a` etiketi açıkken `/settings/consent-text` ve `/settings/general`'da 1 `label-content-name-mismatch` çıktı (D-3) |
+| 390 px yatay taşma                           | 0 (karşılama, 4426, geçmiş, genel ayarlar)                                                                                                                                                                                                                                                                                                                   |
+| Kırık link / sayfa-tarayıcı                  | **Koşulmadı.** Tarama spec içinde yapıldı; `sayfa-tarayici.mjs` projede `playwright` paketi olmadığı için çalışmıyor                                                                                                                                                                                                                                         |
+
+## Bulgular
+
+### [DÜŞÜK] D-1 Audit ekranında P22 eylemleri ham kod olarak görünüyor
+
+Sayfa/akış: `/audit` (Admin).
+Adımlar:
+
+1. Bir oturumda sohbet et, oturumu sonlandır.
+2. `/history/<id>` → "Sohbeti göster".
+3. `/audit` sayfasını aç.
+
+Beklenen: diğer satırlar gibi Türkçe etiket ve altında kod (ör. "Yönetici sonlandırdı / session.terminated").
+Gerçekleşen: `session.chat_viewed` ve `session.chat_summary` yalnız ham kodla görünüyor. `packages/contracts/src/labels.ts` içinde P22 eylemlerinin (`session.chat_viewed`, `session.chat_summary`, `session.chat_rejected`, `session.chat_history_sent`, `session.chat_legacy` vb.) etiketi yok. P28u K10'da gözetimsiz eylemler için aynı açık kapatılmıştı.
+Kanıt: `docs/img/p22/audit-1280.png`
+Atanan: frontend-dev (contracts `labels.ts` + gerekirse audit süzgeç grubu)
+
+### [DÜŞÜK] D-2 Eski konsol sekmesi (4426) "Oturum sona erdi" + "Bitti" diyor; oturum aslında sürüyor
+
+Sayfa/akış: `/sessions/<id>/console`, `rs.cap.schat1` bildirmeyen konsol sekmesi (`WebSocket` sarmalayıcısıyla taklit edildi).
+Adımlar:
+
+1. Aktif oturum.
+2. Belirteçsiz sokete sahip ikinci konsol sekmesini aç.
+
+Beklenen: metin doğru ("Konsol sürümü eski — sayfayı yenileyin." + "Sayfayı yenile" düğmesi). Ama başlık ve durum rozeti oturumun bittiğini söylememeli.
+Gerçekleşen: kapanış kodu 4426, metin ve düğme doğru, canlı sekme etkilenmiyor (aşağıda). Ancak kart başlığı "Oturum sona erdi", üst bardaki rozet "Bitti", müşteri adı "Müşteri". Teknisyen yenilemeden önce oturumun kapandığını sanabilir. Etkisi düşük: düğme tek tıkla düzeltiyor.
+Kanıt: `docs/img/p22/konsol-4426-1280-dark.png`
+Atanan: frontend-dev
+
+### [DÜŞÜK] D-3 Hesap menüsü `summary` erişilebilir adı görünen metinle uyuşmuyor (P22 dışı, önceden var)
+
+Sayfa/akış: tüm panel sayfaları (ölçüm `/settings/general` ve `/settings/consent-text`).
+Bulgu: axe `label-content-name-mismatch` (wcag21a, 2.5.3). `aria-label="Hesap menüsü: …"` görünen metni ("E1" + ad) içermiyor. Proje axe kural seti `wcag21a` etiketini taramadığı için CI'da görünmüyor.
+Atanan: frontend-dev (fırsat bulunca)
+
+### [Not / doküman] mimari-p22 §5.3 "403 mevcut `auth.forbidden` yoluna düşer"; kodda böyle bir audit yok
+
+`sessions.view_chat` olmayan ADMIN2 için `GET /sessions/:id/chat` 403 döndü (doğru), ancak `auth.forbidden` satırı 0. Bu eylem adı `apps/server/src` ve `packages/contracts` içinde hiç geçmiyor. Ürün davranışı başka paketlerle tutarlı. Ya doküman cümlesi düzeltilmeli ya da yetkisiz okuma denemesi audit'e yazılmalı.
+Atanan: mimar (karar) → backend-dev (gerekirse)
+
+## Akış sonuçları (gerçek sunucu + gerçek web)
+
+| Akış                                                                             | Sonuç        | Not / kanıt (`akis.jsonl`)                                                                                                                                                                                                                               |
+| -------------------------------------------------------------------------------- | ------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| ADMIN girişi + 2FA (kurulum → etkinleştirme → doğrulama)                         | ✅           | `sessions.view_chat` ADMIN'de varsayılan açık                                                                                                                                                                                                            |
+| AC-264 teknisyen → misafir                                                       | ✅           | Konsol "T1" yazdı, tarayıcı misafirde göründü                                                                                                                                                                                                            |
+| AC-264 misafir → teknisyen + XSS                                                 | ✅           | `<img src=x onerror=…>` metin olarak göründü. `img` 0, script çalışmadı (`xssFired:false`)                                                                                                                                                               |
+| Önce kaydet + şifreli saklama                                                    | ✅           | `session_messages` = 2 (gönderilen 2). `body_enc` içinde düz metin araması 0                                                                                                                                                                             |
+| Saklama notu iki tarafta                                                         | ✅           | Konsol: "Sohbet kayıt altına alınır ve oturum saklama süresi boyunca saklanır." Misafir: "Sohbet mesajları kayıt altına alınır ve 365 gün saklanır" (tenant ayarı 365)                                                                                   |
+| Misafir yeniden bağlanma (çevrimdışı + soket kapandı, bu sırada teknisyen yazdı) | ✅           | Dönüşte 3 mesaj, sonuncusu "T2". 2 `chat.history` çerçevesi geldi, çift kayıt yok                                                                                                                                                                        |
+| Konsol yenileme                                                                  | ✅           | Konsol geçmişten 3 mesajı gösterdi, DB 3 satır                                                                                                                                                                                                           |
+| Belirteçsiz konsol (eski sekme) → 4426                                           | ✅ (D-2)     | `close` kodu `[4426]`, "Konsol sürümü eski — sayfayı yenileyin." + "Sayfayı yenile". Aynı kullanıcının canlı sekmesi "Aktif" kaldı ve sonrasında mesaj iletti ("T3")                                                                                     |
+| Belirteçsiz misafir: konsol tarafı                                               | ✅           | "Müşterinin istemcisi eski; sohbet için güncellemesi gerekir.", giriş pasif ("Sohbet kapalı (müşterinin istemcisi eski)")                                                                                                                                |
+| Belirteçsiz misafir: misafir tarafı                                              | ✅           | Misafire giden `chat.*` WS çerçevesi 0. Tarayıcı misafirde "Sohbet şu an kullanılamıyor." DC'den sabit `LEGACY_CHAT_NOTICE` **1 kez** geldi ("Bu sürümde sohbet kapalıdır… güncelleyin"). Gerçek Go ≤ 0.20 ekranında gösterimi elle listede (E-1/E-2)    |
+| Eski istemcili oturum özeti ve detayı                                            | ✅           | `session_messages` 0. `session.chat_summary` `{legacy:true, tech:0, customer:0}`. Detayda "Müşteri eski istemci kullandığı için bu oturumda sohbet kapalıydı"                                                                                            |
+| AC-264 oturum detayı (`/history/[id]`)                                           | ✅           | Düğme "Sohbeti göster (4 mesaj)", 4 mesaj (talep yazışması yok). Sayfa açılışı audit **0**, tıklama **1** `session.chat_viewed` `{messages:4, requestMessages:0}`. Yenileme + ikinci tıklama yeni satır **eklemedi** (10 dk penceresi). 390 px taşma yok |
+| Audit ekranında `session.chat_viewed`                                            | ✅ (D-1)     | Satır görünüyor, kullanıcı ve IP doğru, Türkçe etiket yok                                                                                                                                                                                                |
+| `sessions.view_chat` toggle ekranı (AC-285)                                      | ✅           | "Oturumlar" satırında anahtar var + hassas yetki notu. Kapatma audit'e `{permKey:"sessions.view_chat", granted:false}` olarak yazıldı. Test sonunda geri açıldı                                                                                          |
+| Yetkisiz (ADMIN2, view_chat kapalı)                                              | ✅           | `GET /sessions/:id/chat` 403. `GET /history` 200 ve `chat` alanı **yok**. Detayda "Sohbet" bölümü yok                                                                                                                                                    |
+| IDOR: başka tenant oturumunun sohbeti                                            | ✅           | 404                                                                                                                                                                                                                                                      |
+| AC-292 karşılama satırı                                                          | ✅           | "Sohbet mesajları kayıt altına alınır ve 365 gün saklanır", `join-browser`'ın hemen önceki kardeşi. `aria-describedby` satıra bağlı. Ad + onay girilince düğme etkin. 1280/390 × iki tema axe 0                                                          |
+| AC-291 aydınlatma bandı                                                          | ➖ gözlem    | Seed v1 metni sohbet paragrafını içeriyor: `chatParagraphMissing:false`, iki sayfada bant yok (doğru). "Paragrafsız sürüm kaydet → bant → ekle" yolu gerçek sunucuda **koşulmadı** (sahte API e2e'sinde yeşil)                                           |
+| Gözetimsiz odada sohbet pasif                                                    | ➖ koşulmadı | Gerçek cihaz yok. Sahte e2e (`p22-chat.spec.ts`) + sunucu entegrasyon testi kapsıyor                                                                                                                                                                     |
+
+## Kabul kriterleri (uçtan uca)
+
+| AC                                                    | Durum                | Nasıl doğrulandı                                                                                                                                                                                                                                                                    |
+| ----------------------------------------------------- | -------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| AC-264 sunucu aktarımı, önce kaydet, şifreli          | ✅                   | Gerçek WS iki yön, DB satır sayısı, şifreli alanda düz metin 0                                                                                                                                                                                                                      |
+| AC-264 eski istemcide iki tarafta kapalı              | ✅ (web) / ELLE (Go) | Belirteçsiz tarayıcı misafir taklidi. Gerçek 0.19/0.20 E-1/E-2                                                                                                                                                                                                                      |
+| AC-264 detayda yalnız yetkiliye + görüntüleme audit'i | ✅                   | Toggle + 403 + alan yok + `session.chat_viewed` 1 kez                                                                                                                                                                                                                               |
+| AC-285 yeni yetki toggle ekranında                    | ✅                   | `perm-sessions.view_chat`                                                                                                                                                                                                                                                           |
+| AC-287 iki tema axe 0, 390 px                         | ✅ (not)             | Proje kural setinde 0. **Not:** panel ekranlarının (konsol, geçmiş) "açık" görüntüsü alınırken uygulama hâlâ koyu temadaydı (`emulateMedia` değişimi + 200 ms bekleme yetmedi). Bu ekranlarda açık tema axe'ı bu turda güvenilir değil. QA Tur 2'deki sahte e2e iki temayı kapsıyor |
+| AC-291                                                | ✅ (seed) / ➖       | Seed metni paragrafı içeriyor. Bant yolu gerçek sunucuda koşulmadı                                                                                                                                                                                                                  |
+| AC-292 (tarayıcı karşılama)                           | ✅                   | Yukarıda. Windows/macOS/Linux istemci yüzeyleri P22-G                                                                                                                                                                                                                               |
+
+## Görsel gözlemler (ekran görüntülerinden)
+
+- Konsol sohbeti (koyu, 1280): saklama notu `ShieldCheck` ile görünüyor. Balonlar okunaklı, XSS gövdesi düz metin. Gönder düğmesi ve giriş hizalı (`konsol-sohbet-1280-dark.png`).
+- Eski istemci (konsol): uyarı bandı sarı, metin okunaklı. Giriş yer tutucusu "Sohbet kapalı (müşterinin istemcisi eski)". Boş durum metni ("Henüz mesaj yok. Ayşe Test ile buradan yazışabilirsiniz.") giriş pasifken biraz çelişkili ama zararsız (`konsol-eski-istemci-1280-light.png`, görüntü koyu temada; bkz. AC-287 notu).
+- 4426 ekranı: D-2.
+- Geçmiş sohbeti (1280 koyu ve 390 açık): gönderen + zaman satırı, teknisyen sağda, müşteri solda, taşma yok. 390 tam sayfa görüntüde yapışkan üst bar sayfa ortasında görünüyor; bu tam sayfa ekran görüntüsünün yan etkisi, hata değil.
+- Audit: D-1.
+
+## Elle test listesi (staging, ana oturum)
+
+| #     | Madde                                                                                                                                                                                                                                                                                             | Durum |
+| ----- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----- |
+| E-1   | 0.19.0 (Windows/macOS) istemciyle oturum. Konsolda "istemci eski" + giriş pasif olmalı. Müşteri penceresinde "Bu sürümde sohbet kapalıdır… programı güncelleyin" bir kez görünmeli, sonraki DC `chat`'te en çok 60 sn'de bir. Müşterinin yazdığı konsolda görünmemeli. Oturum kopmamalı (T-P22-5) | ELLE  |
+| E-2   | 0.20.0 (Linux) istemciyle E-1'in aynısı                                                                                                                                                                                                                                                           | ELLE  |
+| E-3   | Yayından önce açık konsol sekmesi yayın sonrası 4426 almalı → "sayfayı yenileyin". Yenileyince düzelmeli (yerelde taklitle ✅)                                                                                                                                                                    | ELLE  |
+| E-4   | Seed provası: staging'de `pnpm db:seed` sohbet paragraflı yeni aydınlatma sürümünü yazmalı (`consent_text.created{source:"seed"}`). Eski sürümle onay alınamamalı                                                                                                                                 | ELLE  |
+| E-5   | Alarm provası: `rs_session_chat_rejected_total{reason="internal"}` > 0 → remote-watch uyarısı. `rs_ws_tech_outdated_total` ve `rs_session_chat_legacy_sessions_total` `/metrics`'te görünmeli                                                                                                     | ELLE  |
+| E-6   | Retention: süresi dolan oturumun `session_messages` satırları silinmeli. Detayda "Sohbet saklama süresi dolduğu için silindi" görünmeli                                                                                                                                                           | ELLE  |
+| E-7   | Gözetimsiz bağlantıda konsol sohbet sekmesi "Gözetimsiz bağlantıda sohbet yoktur." göstermeli (gerçek cihazla)                                                                                                                                                                                    | ELLE  |
+| P22-G | Go 0.21.0: `schat1`, WS sohbeti, DC sohbetinin kaldırılması, `chat.state` gelmeden giriş pasif, üç platformun karşılama ve talep formunda AC-292 satırı                                                                                                                                           | P22-G |
+
+---
+
 # Test Raporu — P28f (macOS istemci; web ekranları + elle liste)
 
 DURUM: GEÇTİ (web arayüzü). ENGELLEYİCİ ve YÜKSEK bulgu yok. Bir ORTA bulgu var: konsol ve lobi, macOS istemcisini de "Hızlı Destek (Windows)" diye etiketliyor. İki DÜŞÜK bulgu var. 5xx yok (beklenen sahte 500/503 dışında), JS hatası (pageerror) yok, axe ihlali yok, yatay taşma yok, kırık link yok. Web tarafından denetlenen AC'lerde ❌ yok.

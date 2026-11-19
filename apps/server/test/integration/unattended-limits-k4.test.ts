@@ -6,7 +6,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { UNATTENDED_CONTROL_PER_MIN } from "../../src/signaling/unattended-control.ts";
 import { startLive, type Live } from "../helpers/signal-flow.ts";
 import { UNSIGNED_ENV } from "../helpers/unattended.ts";
-import { grantControl, helperIn, readyK4, silentPending, techConsole } from "../helpers/unattended-k4.ts";
+import { directSession, grantControl, readyK4, techConsole } from "../helpers/unattended-k4.ts";
 import { FakeClock } from "../helpers/ws.ts";
 
 // Test başına ayrı sahte saat + sunucu: bir testin ilerlettiği saat ötekinin PENDING oturumunu (gerçek saatle 60 sn) düşürmesin.
@@ -27,10 +27,9 @@ const metric = (series: string): number => {
   return line ? Number(line.split(" ").pop()) : 0;
 };
 
-async function silentRoom() {
+async function directRoom() {
   const r = await readyK4(faked);
-  const { sessionId, ticket } = await silentPending(faked, r);
-  const helper = await helperIn(faked, ticket);
+  const { sessionId, helper } = await directSession(faked, r);
   const { ws } = await techConsole(faked, r, sessionId);
   return { r, sessionId, helper, tech: ws };
 }
@@ -38,7 +37,7 @@ async function silentRoom() {
 describe("P28u-K4 hız sınırları (sahte saat)", () => {
   it("AC-442: müdahale oda başına 6/dk — 7. kilit 429 RATE_LIMITED (cihaza gitmez); 60 sn sonra yeniden kabul", async () => {
     expect(INTERVENE_PER_MIN).toBe(6);
-    const { r, sessionId, helper, tech } = await silentRoom();
+    const { r, sessionId, helper, tech } = await directRoom();
     await grantControl(tech, helper);
     const lock = () =>
       faked.app.inject({ method: "POST", url: `/api/v1/sessions/${sessionId}/unattended/lock`, headers: r.s.headers, payload: {} });
@@ -62,7 +61,7 @@ describe("P28u-K4 hız sınırları (sahte saat)", () => {
 
   it("AC-439 K-P28u-16: gözetimsiz kontrol isteği 30/dk — 31. istek RATE_LIMITED + metrik, yardımcıya gitmez; 60 sn sonra açılır", async () => {
     expect(UNATTENDED_CONTROL_PER_MIN).toBe(30);
-    const { helper, tech } = await silentRoom();
+    const { helper, tech } = await directRoom();
     const series = 'rs_control_total{event="unattended_rate"}';
     const before = metric(series);
     for (let i = 0; i < UNATTENDED_CONTROL_PER_MIN; i++) {

@@ -12,6 +12,8 @@ import type { TechState } from "@/lib/webrtc/tech-machine";
 const pill = "inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-xs font-medium whitespace-nowrap";
 
 function statusOf(state: TechState): { cls: string; label: string } {
+  // P22 (r2 §15.2; test-raporu D-2): 4426 = oturum sürüyor, bu sekme eski — "Bitti" değil
+  if (state.end === "console_outdated") return { cls: "bg-warning-surface text-warning", label: t("c.st.outdated") };
   if (state.phase === "ended") return { cls: "bg-surface-muted text-fg-muted", label: t("c.st.ended") };
   if (state.reconnectSince !== null || state.peerLostSince !== null) return { cls: "bg-danger-surface text-danger", label: t("c.st.lost") };
   if (state.phase === "live") return { cls: "bg-success-surface text-success", label: t("c.st.live") };

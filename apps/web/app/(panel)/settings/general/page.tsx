@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { ChatParagraphBanner } from "@/components/settings/chat-paragraph-banner";
 import { t } from "@/lib/i18n";
 import { TenantSettingsPage } from "../tenant-settings-page";
 import { LimitsForm } from "./limits-form";
@@ -11,6 +12,7 @@ export default function GeneralSettingsPage() {
     <TenantSettingsPage
       title={t("gen.title")}
       subtitle={t("gen.subtitle")}
+      banner={<ChatParagraphBanner />}
       render={(data, canEdit) => <LimitsForm initial={data} canEdit={canEdit} />}
     />
   );

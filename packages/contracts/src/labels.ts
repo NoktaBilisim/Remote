@@ -13,7 +13,7 @@ import type {
   SessionStatus,
   TimelineEvent,
 } from "./api/sessions.ts";
-import { VOICE_AUDIT, VOICE_AUDIT_LABELS, VOICE_END_REASON_LABELS, VOICE_REJECT_REASON_LABELS } from "./audit.ts";
+import { CHAT_AUDIT_LABELS, VOICE_AUDIT, VOICE_AUDIT_LABELS, VOICE_END_REASON_LABELS, VOICE_REJECT_REASON_LABELS } from "./audit.ts";
 import type { ClipResult, PrintDecision, PrintResult } from "./ws-clip-print.ts";
 import type { AvScanReason, FsrvGateReason, FsrvWireState, StoredFileState } from "./ws-fsrv.ts";
 
@@ -69,7 +69,8 @@ export const END_REASON_LABELS: Readonly<Record<string, string>> = {
   helper_failed: "Cihazda bağlantı başlatılamadı",
   no_console: "Cihazda etkin Windows oturumu yok",
   busy: "Cihazda başka gözetimsiz bağlantı var",
-  // P28u (mimari-p28u §6.2): onay sonuçları + D-P28u-5 fail-closed (`protocol` yalnız DB nedeni).
+  // P28u (mimari-p28u §6.2): onay sonuçları + D-P28u-5 fail-closed (`protocol` yalnız DB nedeni). r3 (K-P28u-r3-12):
+  // `consent_denied`/`consent_timeout` artık oluşmaz, eski kayıtlar için kalır; `consent_missing` (K-P28u-3) yazılmaya devam eder.
   consent_denied: "Kullanıcı bağlantıyı reddetti",
   consent_timeout: "Kullanıcı yanıt vermedi",
   consent_missing: "Cihaz onay sonucunu bildirmedi",
@@ -250,6 +251,8 @@ export const TIMELINE_ACTION_LABELS: Readonly<Record<string, string>> = {
   "file.download": "Sunucudaki dosya indirildi",
   // P28d (mimari-p28d §6)
   ...VOICE_AUDIT_LABELS,
+  // P22 (mimari-p22 §7.1; test-raporu D-1): session.chat_viewed/chat_summary/chat_rejected/chat_legacy/chat_history_sent
+  ...CHAT_AUDIT_LABELS,
 };
 
 /** P28a (AC-345, 346): pano sonucu — konsol durum metni ve zaman çizelgesi. */

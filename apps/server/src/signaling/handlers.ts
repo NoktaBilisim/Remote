@@ -15,6 +15,15 @@ import {
 } from "@remote/contracts/ws";
 import type { z } from "zod";
 import { seatMay } from "@remote/contracts/ws-multi";
+import { chatSendEnvelopeSchema } from "@remote/contracts/ws-chat";
+import {
+  handleGuestChat,
+  handleTechChat,
+  rejectGuestForbidden,
+  rejectGuestInvalid,
+  rejectTechForbidden,
+  rejectTechInvalid,
+} from "./chat.ts";
 import { handleHandover, handleMemberLeave, handleTechRemove, handleTransfer, relayGuestToTech, relayTechToGuest } from "./member-cmds.ts";
 import { controllerOf, logOnce, seatOf, sendTechs, type Seat } from "./members.ts";
 import { admitGuest, rejectGuest } from "./admit.ts";
@@ -40,7 +49,7 @@ import {
 import { handleFsrv } from "./fsrv.ts";
 import { handleRecConsent, handleRecError, handleRecRevoke } from "./rec.ts";
 import type { Rooms } from "./rooms.ts";
-import { hasFsrv, hasVoice } from "./rooms-features.ts";
+import { hasFsrv, hasSessionChat, hasVoice } from "./rooms-features.ts";
 import { handleGuestVoice, handleTechVoice } from "./voice.ts";
 import type { Clock, Guest, Peer, Room, TechConn } from "./types.ts";
 
@@ -115,11 +124,21 @@ export async function onTechMessage(
   const seat = rooms.live(room) ? seatOf(room, peer) : null;
   if (!seat) return;
   const tech = seat.conn;
-  const m = parseFrame(rooms, peer, bucket, techInboundSchema, data, isBinary);
+  const m = parseFrame(rooms, peer, bucket, techInboundSchema, data, isBinary, (json) => {
+    // P22 (§4.3, S-P18-K1 kalıbı): zarfı geçerli `chat.send`te gövde hatası → `chat.rejected{invalid}`, soket açık.
+    const env = chatSendEnvelopeSchema.safeParse(json);
+    if (!env.success) return false;
+    rejectTechInvalid(rooms, room, tech, env.data.clientMsgId);
+    return true;
+  });
   if (!m) return;
   // P28c (§4.4, D-PC-6): rol kapısı her teknisyen mesajından önce, varsayılan-ret.
   const observer = seat.member?.role === "observer";
-  if (!seatMay(m.t, { owner: seat.owner, controller: controllerOf(room) === tech, observer })) return roleDenied(rooms, room, tech, m.t);
+  if (!seatMay(m.t, { owner: seat.owner, controller: controllerOf(room) === tech, observer })) {
+    // P22 (r2 S-P22-8): `chat.send` rol reddi `chat.rejected{forbidden}` (soket açık); diğer tipler genel `error{FORBIDDEN}`.
+    if (m.t === "chat.send") return rejectTechForbidden(rooms, room, tech, m.clientMsgId);
+    return roleDenied(rooms, room, tech, m.t);
+  }
   if ((m.t === "guest.admit" || m.t === "guest.reject") && room.requestId && !room.acceptCode) {
     // P8b §5.2 adım 5: talep oturumunda lobi yok.
     tech.peer.send({ t: "error", code: "CONFLICT", message: "Talep oturumunda lobi yok; müşteri onayıyla otomatik bağlanır." });
@@ -155,6 +174,9 @@ async function multiAction(rooms: Rooms, room: Room, seat: Seat, m: TechMsg): Pr
     case "member.leave":
       handleMemberLeave(rooms, room, seat);
       return true;
+    case "chat.send":
+      handleTechChat(rooms, room, seat.conn, m); // P22 §4.3
+      return true;
     case "voice.request":
     case "voice.join":
     case "voice.end":
@@ -165,19 +187,7 @@ async function multiAction(rooms: Rooms, room: Room, seat: Seat, m: TechMsg): Pr
   }
 }
 
-/**
- * P28u §6.4 (K-P28u-9, AC-439): `silent` odada kontrol GRANTED değilken (izleme kipi) teknisyenin dosya teklifi reddedilir.
- */
-function silentFileBlocked(rooms: Rooms, room: Room, tech: TechConn, m: TechMsg): boolean {
-  if (room.unattended?.consentMode !== "silent" || room.control.state === "GRANTED") return false;
-  if (m.t !== "file.meta" && m.t !== "fsrv.init") return false;
-  tech.peer.send({ t: "error", code: "FORBIDDEN", message: "İzleme kipinde dosya gönderilemez; önce müdahale edin." });
-  rooms.metrics.inc("rs_file_meta_total", { result: "silent_view" });
-  return true;
-}
-
 async function techAction(rooms: Rooms, room: Room, tech: TechConn, peer: Peer, m: TechMsg): Promise<void> {
-  if (silentFileBlocked(rooms, room, tech, m)) return;
   switch (m.t) {
     case "guest.admit":
       await admitGuest(rooms, room, tech, m.admitCode);
@@ -250,8 +260,16 @@ export async function onGuestMessage(
     peer.rec === true && !room.unattended,
     peer.multi === true, // P28c §4.4: `to`'lu sdp.answer/ice + tech.remove yalnız multi1 sokette
     hasVoice(room, peer), // P28d §4.1: `voice.*` yalnız ses destekli sokette (aksi 1008)
+    hasSessionChat(room, peer), // P22 §4.2: `chat.send` yalnız `rs.cap.schat1` sokette (aksi 1008)
   );
   const m = parseFrame(rooms, peer, bucket, schema, data, isBinary, (json) => {
+    // P22 (§4.3): yalnız `schat1` sokette — zarfı geçerli `chat.send`te gövde hatası → `chat.rejected{invalid}`, soket açık.
+    const chat = hasSessionChat(room, peer) ? chatSendEnvelopeSchema.safeParse(json) : null;
+    if (chat?.success) {
+      if (guest.state === "ADMITTED") rejectGuestInvalid(rooms, room, guest, peer, chat.data.clientMsgId);
+      else rejectGuestForbidden(rooms, room, guest, peer, chat.data.clientMsgId);
+      return true;
+    }
     // P20 (protokol §6.1): zarfı geçerli `binding.request`te previousKey + previousKeys → error VALIDATION, soket açık.
     if (guest.state !== "ADMITTED" || !bindingRequestEnvelopeSchema.safeParse(json).success) return false;
     peer.send({ t: "error", code: "VALIDATION", message: BINDING_REQUEST_EXCLUSIVE_MESSAGE });
@@ -261,6 +279,8 @@ export async function onGuestMessage(
   if (guest.state !== "ADMITTED") {
     // §3.1: kabul edilmemiş misafirden SDP/ICE/share → 1008 (relay yok, G-01).
     if (m.t === "session.end") rooms.leaveLobby(room, guest, "left");
+    else if (m.t === "chat.send")
+      rejectGuestForbidden(rooms, room, guest, peer, m.clientMsgId); // P22 §4.3: lobi → forbidden
     else {
       rooms.metrics.inc("rs_ws_closed_policy_total", { reason: "ws_not_admitted" });
       peer.close(WS_CLOSE.POLICY, "not_admitted");
@@ -325,6 +345,9 @@ async function guestAction(rooms: Rooms, room: Room, guest: Guest, peer: Peer, m
     case "voice.answer":
     case "voice.end":
       handleGuestVoice(rooms, room, guest, m); // P28d §4.2
+      return;
+    case "chat.send":
+      handleGuestChat(rooms, room, guest, peer, m); // P22 §4.3
       return;
   }
 }

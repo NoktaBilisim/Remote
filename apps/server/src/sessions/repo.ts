@@ -194,15 +194,6 @@ export async function terminateActive(db: DbOrTx, tenantId: string, id: string, 
   return r.count;
 }
 
-/** Açılışta yarım kalan ACTIVE oturumlar (oda bellekte, süreç yeniden başladı — §3.5, ADR-0005). */
-export async function endAllActive(db: DbOrTx, now: Date): Promise<number> {
-  const r = await db.supportSession.updateMany({
-    where: { status: "ACTIVE" },
-    data: { status: "ENDED", endedAt: now, endedBy: "SYSTEM", endReason: "server" },
-  });
-  return r.count;
-}
-
 const signalSelect = {
   id: true,
   tenantId: true,

@@ -23,6 +23,8 @@ export interface TenantCounts {
   /** P28e (§3.4): anonimleştirmeyle silinen kayıtlar ve süresi dolan (`DELETED{EXPIRED}`) kayıtlar. */
   recordings: number;
   recordingsExpired: number;
+  /** P22 (mimari-p22 §3.3, AC-264): anonimleştirmeyle aynı TX'te silinen oturum sohbeti satırları (dry modda da silinir). */
+  sessionMessages: number;
 }
 export interface GlobalCounts {
   audit: number;
@@ -72,6 +74,7 @@ export const KINDS: Record<keyof (TenantCounts & GlobalCounts), string> = {
   recordings: "recordings",
   recordingsExpired: "recordings_expired",
   recMissing: "recordings_missing",
+  sessionMessages: "session_messages",
 };
 
 const PURGE_KEYS = ["purgedSessions", "purgedConsents", "purgedFiles", "purgedRequests", "purgedBindings", "purgedJobs"] as const;
@@ -99,6 +102,7 @@ export const zeroTenant = (): TenantCounts => ({
   filesExpired: 0,
   recordings: 0,
   recordingsExpired: 0,
+  sessionMessages: 0,
 });
 export const zeroGlobal = (): GlobalCounts => ({
   audit: 0,

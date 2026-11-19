@@ -1,10 +1,8 @@
 {
-  "_doc": "/ws/device sözleşme örnekleri (mimari-p27 §4.4, P27-K1). valid.* şemadan geçmeli, invalid.* reddedilmeli. deviceAuth = kimliksiz soketin tek mesajı; deviceInbound = kimliği doğrulanmış soketten gelenler; deviceOutbound = sunucudan cihaza. Go servisi (K5, internal/servis/wsdevice.go) bu örnekleri go test ile doğrular. authMessage: deviceAuthMessage(nonce, deviceId, origin) beklenen dizesi. P28u (mimari-p28u §6): consent1Inbound/consent1Outbound = rs.cap.consent1 bildiren sokette device.features SONRASI geçerli mesajlar (taban birlik ∪ consent birliği); eski anahtarlar yalnız P27 tabanı. connect artık yalnız consent1 cihaza gider ve consent zorunlu → örnekleri consent1Outbound'da (D-P28u-5: consent'siz connect geçersiz). constants: Go eşi (K5 rejoin.go/wire.go, K6 yardımcı) aynı değerleri doğrular.",
+  "_doc": "/ws/device sözleşme örnekleri (mimari-p27 §4.4, P27-K1). valid.* şemadan geçmeli, invalid.* reddedilmeli. deviceAuth = kimliksiz soketin tek mesajı; deviceInbound = kimliği doğrulanmış soketten gelenler; deviceOutbound = sunucudan cihaza. Go servisi (K5, internal/servis/wsdevice.go) bu örnekleri go test ile doğrular. authMessage: deviceAuthMessage(nonce, deviceId, origin) beklenen dizesi. P28u (mimari-p28u §6): consent1Inbound/consent1Outbound = rs.cap.consent1 bildiren sokette device.features SONRASI geçerli mesajlar (taban birlik ∪ consent birliği); eski anahtarlar yalnız P27 tabanı. connect artık yalnız consent1 cihaza gider ve consent zorunlu → örnekleri consent1Outbound'da (D-P28u-5: consent'siz connect geçersiz). constants: Go eşi (K5 rejoin.go/wire.go, K6 yardımcı) aynı değerleri doğrular. r3 (mimari-p28u §r3.3, K-P28u-r3-2..5): onaysız tek yol — connect.consent yalnız \"ask\" (indicatorControl yok), consent.result yalnız {mode:\"no_user\"}, rejoin.mode yalnız \"no_user\", connect.result.reason'da consent_* yok; eski silent/asked örnekleri invalid'e taşındı (Go R4 sonrası da reddeder: silent connect → connect.result{protocol}). rejoin mode:\"asked\" örneği listeden çıkarıldı (TS reddeder, Go eski sunucu uyumu için kabul eder — iki tarafın ortak kararı olmadığından fikstürde yok). Yeni belirteç rs.cap.direct1 (constants.wsDeviceCapDirect) yalnız alt protokolde; device.features.caps'e girmez (invalid örnek).",
   "constants": {
     "wsDeviceCapConsent": "rs.cap.consent1",
-    "consentDialogSec": 60,
-    "consentResultMsMax": 65000,
-    "deviceConsentWindowMs": 150000,
+    "wsDeviceCapDirect": "rs.cap.direct1",
     "rejoinWindowSec": 45,
     "rejoinTicketTtlSec": 30,
     "rejoinConsoleWaitSec": 20,
@@ -88,21 +86,9 @@
         "techName": "Mehmet Teknisyen",
         "tenantName": "Nokta Destek",
         "techIp": "203.0.113.7",
-        "expiresInSec": 150,
+        "expiresInSec": 60,
         "indicatorText": "Uzaktan bağlantı: Mehmet Teknisyen — Nokta Destek",
         "consent": "ask"
-      },
-      {
-        "t": "connect",
-        "sessionId": "01JD0000000000000000000002",
-        "ticket": "OSTHxpIxRYOEvsy1t7jssmOfVM9-lMgf5dSNuly4uso",
-        "techName": "Mehmet Teknisyen",
-        "tenantName": "Nokta Destek",
-        "techIp": "203.0.113.7",
-        "expiresInSec": 60,
-        "indicatorText": "Uzaktan izleniyor: Mehmet Teknisyen — Nokta Destek",
-        "consent": "silent",
-        "indicatorControl": "Uzaktan kontrol: Mehmet Teknisyen — Nokta Destek"
       },
       {
         "t": "intervene",
@@ -120,26 +106,9 @@
         "t": "rejoin",
         "sessionId": "01JD0000000000000000000002",
         "ticket": "OSTHxpIxRYOEvsy1t7jssmOfVM9-lMgf5dSNuly4uso",
-        "mode": "asked",
-        "indicatorText": "Uzaktan bağlantı: Mehmet Teknisyen — Nokta Destek",
-        "expiresInSec": 30
-      },
-      {
-        "t": "rejoin",
-        "sessionId": "01JD0000000000000000000002",
-        "ticket": "OSTHxpIxRYOEvsy1t7jssmOfVM9-lMgf5dSNuly4uso",
         "mode": "no_user",
         "indicatorText": "Uzaktan bağlantı: Mehmet Teknisyen — Nokta Destek",
         "expiresInSec": 30
-      },
-      {
-        "t": "rejoin",
-        "sessionId": "01JD0000000000000000000002",
-        "ticket": "OSTHxpIxRYOEvsy1t7jssmOfVM9-lMgf5dSNuly4uso",
-        "mode": "silent",
-        "indicatorText": "Uzaktan izleniyor: Mehmet Teknisyen — Nokta Destek",
-        "expiresInSec": 30,
-        "indicatorControl": "Uzaktan kontrol: Mehmet Teknisyen — Nokta Destek"
       },
       {
         "t": "disconnect",
@@ -163,27 +132,6 @@
       {
         "t": "consent.result",
         "sessionId": "01JD0000000000000000000002",
-        "mode": "asked",
-        "decision": "granted",
-        "ms": 4200
-      },
-      {
-        "t": "consent.result",
-        "sessionId": "01JD0000000000000000000002",
-        "mode": "asked",
-        "decision": "denied",
-        "ms": 0
-      },
-      {
-        "t": "consent.result",
-        "sessionId": "01JD0000000000000000000002",
-        "mode": "asked",
-        "decision": "timeout",
-        "ms": 65000
-      },
-      {
-        "t": "consent.result",
-        "sessionId": "01JD0000000000000000000002",
         "mode": "no_user"
       },
       {
@@ -200,18 +148,6 @@
         "cmd": "logoff",
         "ok": false,
         "reason": "not_in_control"
-      },
-      {
-        "t": "connect.result",
-        "sessionId": "01JD0000000000000000000002",
-        "ok": false,
-        "reason": "consent_denied"
-      },
-      {
-        "t": "connect.result",
-        "sessionId": "01JD0000000000000000000002",
-        "ok": false,
-        "reason": "consent_timeout"
       },
       {
         "t": "connect.result",
@@ -324,6 +260,18 @@
         "techName": "Mehmet Teknisyen",
         "tenantName": "Nokta Destek",
         "techIp": "203.0.113.7",
+        "expiresInSec": 60,
+        "indicatorText": "Uzaktan izleniyor: Mehmet Teknisyen — Nokta Destek",
+        "consent": "silent",
+        "indicatorControl": "Uzaktan kontrol: Mehmet Teknisyen — Nokta Destek"
+      },
+      {
+        "t": "connect",
+        "sessionId": "01JD0000000000000000000002",
+        "ticket": "OSTHxpIxRYOEvsy1t7jssmOfVM9-lMgf5dSNuly4uso",
+        "techName": "Mehmet Teknisyen",
+        "tenantName": "Nokta Destek",
+        "techIp": "203.0.113.7",
         "expiresInSec": 150,
         "indicatorText": "Uzaktan bağlantı: Mehmet Teknisyen — Nokta Destek"
       },
@@ -396,6 +344,14 @@
         "caps": ["consent2"]
       },
       {
+        "t": "device.features",
+        "caps": ["direct1"]
+      },
+      {
+        "t": "device.features",
+        "caps": ["consent1", "direct1"]
+      },
+      {
         "t": "device.ready",
         "tenantName": "Nokta Destek",
         "customerName": "Örnek",
@@ -417,7 +373,7 @@
         "t": "rejoin",
         "sessionId": "01JD0000000000000000000002",
         "ticket": "OSTHxpIxRYOEvsy1t7jssmOfVM9-lMgf5dSNuly4uso",
-        "mode": "asked",
+        "mode": "no_user",
         "indicatorText": "Uzaktan bağlantı: Mehmet Teknisyen — Nokta Destek",
         "expiresInSec": 31
       },
@@ -441,7 +397,7 @@
         "t": "rejoin",
         "sessionId": "01JD0000000000000000000002",
         "ticket": "OSTHxpIxRYOEvsy1t7jssmOfVM9-lMgf5dSNuly4uso",
-        "mode": "asked",
+        "mode": "no_user",
         "indicatorText": "Uzaktan bağlantı: Mehmet Teknisyen — Nokta Destek",
         "expiresInSec": 30,
         "indicatorControl": "Uzaktan kontrol: X — Y"
@@ -450,10 +406,19 @@
         "t": "rejoin",
         "sessionId": "01JD0000000000000000000002",
         "ticket": "OSTHxpIxRYOEvsy1t7jssmOfVM9-lMgf5dSNuly4uso",
-        "mode": "asked",
+        "mode": "no_user",
         "indicatorText": "Uzaktan bağlantı: Mehmet Teknisyen — Nokta Destek",
         "expiresInSec": 30,
         "extra": 1
+      },
+      {
+        "t": "rejoin",
+        "sessionId": "01JD0000000000000000000002",
+        "ticket": "OSTHxpIxRYOEvsy1t7jssmOfVM9-lMgf5dSNuly4uso",
+        "mode": "silent",
+        "indicatorText": "Uzaktan izleniyor: Mehmet Teknisyen — Nokta Destek",
+        "expiresInSec": 30,
+        "indicatorControl": "Uzaktan kontrol: Mehmet Teknisyen — Nokta Destek"
       }
     ],
     "consent1Inbound": [
@@ -505,6 +470,27 @@
         "ms": 1.5
       },
       {
+        "t": "consent.result",
+        "sessionId": "01JD0000000000000000000002",
+        "mode": "asked",
+        "decision": "granted",
+        "ms": 4200
+      },
+      {
+        "t": "consent.result",
+        "sessionId": "01JD0000000000000000000002",
+        "mode": "asked",
+        "decision": "denied",
+        "ms": 0
+      },
+      {
+        "t": "consent.result",
+        "sessionId": "01JD0000000000000000000002",
+        "mode": "asked",
+        "decision": "timeout",
+        "ms": 65000
+      },
+      {
         "t": "intervene.result",
         "sessionId": "01JD0000000000000000000002",
         "id": "01JD0000000000000000000009",
@@ -532,6 +518,18 @@
         "sessionId": "01JD0000000000000000000002",
         "ok": false,
         "reason": "consent_missing"
+      },
+      {
+        "t": "connect.result",
+        "sessionId": "01JD0000000000000000000002",
+        "ok": false,
+        "reason": "consent_denied"
+      },
+      {
+        "t": "connect.result",
+        "sessionId": "01JD0000000000000000000002",
+        "ok": false,
+        "reason": "consent_timeout"
       },
       {
         "t": "device.auth"

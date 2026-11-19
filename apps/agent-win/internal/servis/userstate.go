@@ -7,7 +7,8 @@ import (
 
 // Konsol kullanıcı durumu (mimari-p28u §7.2, AC-429). Kaynak SERVICE_CONTROL_SESSIONCHANGE olayıdır; olay yalnız
 // tetikleyicidir (EventData'ya güvenilmez), durum her seferinde WTS okumasıyla yeniden hesaplanır. Kural: konsol yok ∨
-// kullanıcı adı boş → none; LOCK → locked; aksi active. Okunamazsa active (onay sormaya meyilli, K-P28u-2 fail-safe).
+// kullanıcı adı boş → none; LOCK → locked; aksi active. Okunamazsa active. r3 (K-P28u-r3-11): durum yalnız panel
+// bilgisidir; bağlantı kararını etkilemez.
 
 // SessionInfo tek Windows oturumunun okunan hâli.
 type SessionInfo struct {
@@ -46,7 +47,7 @@ func userStateOf(s Sessions) string {
 	return UserActive
 }
 
-// userState canlı okuma (kip kararı eski bildirime değil o anki duruma dayanır).
+// userState canlı okuma (device.user bildirimi).
 func (c *Core) userState() string { return userStateOf(c.Sessions) }
 
 // DeviceUserDebounce `device.user` değişim bildiriminin sönümlemesi (contracts deviceUserDebounceMs).

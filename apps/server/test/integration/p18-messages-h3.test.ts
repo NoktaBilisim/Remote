@@ -4,7 +4,7 @@ import { Writable } from "node:stream";
 import type { RequestMessageListResponse, SendRequestMessageResponse } from "@remote/contracts/api/requests";
 import type { TenantPurgePreviewResponse, TenantPurgeScheduledResponse } from "@remote/contracts/api/tenants";
 import { MESSAGES_PER_SENDER_MAX } from "@remote/contracts/api/requests";
-import { WS_REQUEST_CAP_CHAT } from "@remote/contracts/ws-request";
+import { REQUEST_HISTORY_MAX_BYTES, WS_REQUEST_CAP_CHAT } from "@remote/contracts/ws-request";
 import pino from "pino";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { main as cryptoMain, CLI_ACTOR, REWRAP_BATCH, rewrap } from "../../src/cli/crypto.ts";
@@ -177,6 +177,40 @@ describe("AC-255 çift yönlü mesajlaşma", () => {
     const again = await waitMsg<{ clientMsgId: string }>(cust, "request.message");
     expect(again.clientMsgId).toBe("c-dup");
     expect(await rowsOf(r.id)).toBe(2);
+    cust.ws.close();
+  });
+});
+
+describe("P22-B1 S-P22-1 / K-P22-16: request.messages bayt bütçesi", () => {
+  it("S-P22-1: 50 × 1.000 emoji talep mesajı → request.messages çerçevesi ≤ 48 KiB, en yeniler, artan; şemada more yok", async () => {
+    const { t, r } = await firm();
+    const body = "😀".repeat(1000);
+    const t0 = Date.now() - 100_000;
+    const ids: string[] = [];
+    for (let i = 0; i < 50; i++) {
+      const id = newId();
+      ids.push(id);
+      await db().sessionMessage.create({
+        data: {
+          id,
+          tenantId: t.id,
+          requestId: r.id,
+          sender: "CUSTOMER",
+          clientMsgId: `seed-${i}`,
+          bodyEnc: live.app.secrets.encrypt(body, aadFor.sessionMessage(t.id, r.id, id)),
+          bodyChars: 1000,
+          createdAt: new Date(t0 + i * 1000),
+        },
+      });
+    }
+    const cust = await reqWs(r.secret);
+    const hist = await waitMsg<{ items: { id: string; body: string }[] }>(cust, "request.messages");
+    expect(Buffer.byteLength(JSON.stringify(hist), "utf8")).toBeLessThanOrEqual(REQUEST_HISTORY_MAX_BYTES);
+    expect(Object.keys(hist).sort()).toEqual(["items", "t"]);
+    expect(hist.items.length).toBeGreaterThanOrEqual(10);
+    expect(hist.items.length).toBeLessThan(50);
+    expect(hist.items.map((x) => x.id)).toEqual(ids.slice(-hist.items.length));
+    expect(hist.items.every((x) => x.body === body)).toBe(true);
     cust.ws.close();
   });
 });

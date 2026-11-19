@@ -5,7 +5,7 @@ import { RecordingConsent } from "@/components/consent/recording-consent";
 import { FormError } from "@/components/form-error";
 import { t } from "@/lib/i18n";
 import { setRecConsent } from "@/lib/rec/consent-choice";
-import { ChatRetentionNotice } from "./chat-retention-notice";
+import { ChatRetentionNotice } from "@/components/kvkk/chat-retention-notice";
 import { useWebRequestForm, type WebRequestFormProps } from "./use-web-request-form";
 import { AfterHoursNote, ConsentFields, ContactFields, NotifyChoices, SubmitButton } from "./web-request-fields";
 

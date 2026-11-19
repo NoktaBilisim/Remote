@@ -5,6 +5,7 @@ import { ScreenShare } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useEffect, useId, useRef, useState, useSyncExternalStore, type FormEvent } from "react";
 import { RecordingConsent } from "@/components/consent/recording-consent";
+import { ChatRetentionNotice } from "@/components/kvkk/chat-retention-notice";
 import { FormError } from "@/components/form-error";
 import { TextField } from "@/components/ui/text-field";
 import { api, ApiError } from "@/lib/api";
@@ -57,7 +58,11 @@ export function JoinForm({
     () => true,
     () => false,
   );
-  const ready = hydrated && name.trim().length >= 2 && consent;
+  const retId = useId();
+  // P22 (AC-292, mimari-p22 §8.2): saklama satırı çizilmeden (gün sayısı yok / < 1) tarayıcı yolu etkinleşmez
+  const days = data.chatRetentionDays;
+  const retentionShown = typeof days === "number" && Number.isInteger(days) && days >= 1;
+  const ready = hydrated && name.trim().length >= 2 && consent && retentionShown;
 
   const submit = async () => {
     const input = {
@@ -183,11 +188,12 @@ export function JoinForm({
             onBrowser={toBrowser}
           />
         )}
+        {retentionShown && <ChatRetentionNotice days={days} id={retId} />}
         <button
           ref={browserRef}
           type="submit"
           disabled={!ready || busy}
-          aria-describedby={ready ? undefined : hintId}
+          aria-describedby={[retentionShown ? retId : "", ready ? "" : hintId].filter(Boolean).join(" ") || undefined}
           aria-busy={busy || undefined}
           data-testid="join-browser"
           className={`flex min-h-11 cursor-pointer flex-col items-start gap-1 rounded-lg bg-surface p-4 ${windows ? "border border-border" : "border-2 border-primary"} text-left shadow-sm transition-[transform,opacity] duration-150 ease-out hover:bg-primary-surface active:scale-[0.99] disabled:cursor-not-allowed disabled:border-border disabled:opacity-60 disabled:active:scale-100`}

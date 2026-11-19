@@ -1,11 +1,10 @@
 // P28c üyelik yaşam döngüsü (mimari-p28c r2 §5.1 adım 5, §5.3, §5.4, §6.2; AC-366, 367, 369, 370; Y-PC-1/2/3, O-PC-3).
-// Rezervasyon (60 sn) → ilk WS (audit + dört göz) → kopma payı (120 sn) → ayrılma. Tek geri alma yolu `revokeMember`; üyenin
+// Rezervasyon (60 sn) → ilk WS (audit) → kopma payı (120 sn) → ayrılma. Tek geri alma yolu `revokeMember`; üyenin
 // kimlik oturumu düşmesi odayı bitirmez. Kontrol sahibi değişimi tek yoldan (`setController`): kontrol kapanır, kaydedici devri.
 import { CONTROL_AUDIT, type MultiLeaveReason } from "@remote/contracts/audit";
 import { WS_CLOSE } from "@remote/contracts/ws";
 import { MEMBER_GRACE_MS, MEMBER_RESERVE_MS, type MemberRole, type MemberVia } from "@remote/contracts/ws-multi";
 import type { ConsentMode } from "@remote/contracts/unattended-consent";
-import type { AuditContext } from "../audit/service.ts";
 import { sendHelloTech } from "./active.ts";
 import { onControlClosed } from "./clip-print.ts";
 import { closeState, recordClose, techActor } from "./control-record.ts";
@@ -16,16 +15,7 @@ import { recRecorderChanged } from "./rec.ts";
 import type { Rooms } from "./rooms.ts";
 import type { Member, Peer, Room, TechConn } from "./types.ts";
 import { voiceDropTalker, voiceSync, voiceTechAttached } from "./voice.ts";
-
-/** Silent odada dört göz e-postası kancası (routes-multi bağlar; `sendSilentNotice` `event: join|transfer`). */
-export interface SilentJoinEvent {
-  event: "join" | "transfer";
-  room: Room;
-  actor: { userId: string; email: string; fullName: string };
-  role: MemberRole | "owner";
-  reason?: string;
-  ctx: AuditContext;
-}
+import { auditHistorySent, chatTechHello } from "./chat.ts";
 
 export interface ReserveInput {
   userId: string;
@@ -34,7 +24,6 @@ export interface ReserveInput {
   role: MemberRole;
   via: MemberVia;
   authSessionId: string;
-  reason?: string | undefined;
 }
 
 const consentModeOf = (room: Room): ConsentMode | undefined => room.unattended?.consentMode;
@@ -50,7 +39,6 @@ export function reserveMember(rooms: Rooms, room: Room, i: ReserveInput): Member
     via: i.via,
     joinedAudited: false,
     authSessionId: i.authSessionId,
-    ...(i.reason !== undefined ? { reasonLen: i.reason.length, silentReason: i.reason } : {}),
   };
   room.multi.members.set(i.userId, m);
   m.timer = rooms.clock.setTimeout(() => {
@@ -60,7 +48,7 @@ export function reserveMember(rooms: Rooms, room: Room, i: ReserveInput): Member
   return m;
 }
 
-/** Üye WS'si açıldı (ws-auth §4.3 `ws` evresi geçti). İlk katılımda audit + (silent) dört göz; hello + roster. */
+/** Üye WS'si açıldı (ws-auth §4.3 `ws` evresi geçti). İlk katılımda audit; hello + roster. */
 export function attachMember(rooms: Rooms, room: Room, m: Member, conn: TechConn): void {
   const old = m.conn;
   rooms.clock.clearTimeout(m.timer);
@@ -71,32 +59,34 @@ export function attachMember(rooms: Rooms, room: Room, m: Member, conn: TechConn
     voiceDropTalker(room, m.userId); // P28d V-PD-5
     if (old.connId) rooms.rec?.dropUploadTokens({ by: "conn", connId: old.connId });
   }
+  const first = !m.joinedAudited;
   if (!m.joinedAudited) {
     m.joinedAudited = true;
     const cm = consentModeOf(room);
-    const silent = cm === "silent";
-    auditMulti(rooms, room, conn.ctx, techActor(conn), m.via === "supervise" ? MULTI_AUDIT.SUPERVISE_JOIN : MULTI_AUDIT.PARTICIPANT_JOIN, {
-      userId: m.userId,
-      role: m.role,
-      ...(cm ? { consentMode: cm } : {}),
-      ...(silent && m.reasonLen !== undefined ? { reasonLen: m.reasonLen } : {}),
-      ...(silent && m.silentReason !== undefined ? { silentReason: m.silentReason } : {}),
-    });
-    if (silent)
-      rooms.silentNotify?.({
-        event: "join",
-        room,
-        actor: { userId: m.userId, email: m.username, fullName: m.fullName },
+    // Güvenlik P22-Q S-P22-Q-1: katılım audit'i HEMEN (geçmiş okumasını beklemez); geçmiş sayısı ayrı satır (`chat_history_sent`).
+    void auditMulti(
+      rooms,
+      room,
+      conn.ctx,
+      techActor(conn),
+      m.via === "supervise" ? MULTI_AUDIT.SUPERVISE_JOIN : MULTI_AUDIT.PARTICIPANT_JOIN,
+      {
+        userId: m.userId,
         role: m.role,
-        ...(m.silentReason !== undefined ? { reason: m.silentReason } : {}),
-        ctx: conn.ctx,
-      });
-    delete m.silentReason; // gerekçe metni yalnız audit'te kalır
+        ...(cm ? { consentMode: cm } : {}),
+      },
+    );
   }
-  sendHelloTech(rooms, room, conn);
+  sendHelloTech(rooms, room, conn, false);
+  // P22 r2 §15.5: ilk katılımda gönderilen geçmiş sayısı ayrı satır (n > 0); yeniden bağlanmada geçmiş yeniden gider, satır yok.
+  const history = chatJoin(rooms, room, conn);
+  if (first) void history.then((n) => auditHistorySent(rooms, room, conn, n));
   broadcastRoster(room);
   voiceTechAttached(rooms, room, conn); // P28d §4.2: roster'dan hemen sonra; yeni dinleyen yayınlanır (Y-PD-3)
 }
+
+/** P22: hello sonrası `chat.state` + `chat.history`; hata → 0. */
+const chatJoin = (rooms: Rooms, room: Room, conn: TechConn): Promise<number> => chatTechHello(rooms, room, conn).catch(() => 0);
 
 /** Üye soketi kapandı: kontrol sahibiyse kontrol sahibe döner; 120 sn payda dönmezse `participant_leave{disconnect}`. */
 export function detachMember(rooms: Rooms, room: Room, userId: string, peer: Peer): void {

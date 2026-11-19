@@ -29,7 +29,6 @@ const (
 const (
 	SessionConsoleConnect    uint32 = 0x1
 	SessionConsoleDisconnect uint32 = 0x2
-	SessionLogon             uint32 = 0x5
 )
 
 type timing struct {
@@ -60,7 +59,6 @@ type stopper interface{ Stop() bool }
 type rejoinState struct {
 	sessionID string
 	base      *Connect // teknisyen/firma/IP (rejoin mesajı taşımaz)
-	asked     bool     // K-P28u-17: konsolda kullanıcı oturumu açılırsa session_changed
 	oldWin    uint32
 	until     time.Time
 	msg       *Rejoin // sunucunun bileti (oturum başına bir kez)
@@ -76,7 +74,8 @@ func (c *Core) rejoinLocked() *rejoinState {
 }
 
 // Rejoin DeviceHandler: sunucu yeni bilet gönderdi. Yalnız bekleyen oturum için ve bir kez kabul edilir; yeni konsol
-// oturumu belirince yardımcı `Consent:"none"` ile başlatılır (onay yeniden sorulmaz; asked'da kullanıcı varsa bitiş).
+// oturumu belirince yardımcı `Consent:"none"`, `Mode:"no_user"` ile başlatılır (r3: tek kip; K-P28u-17 konusuz —
+// yeni oturumda kullanıcı olsa da bağlantı sürer).
 func (c *Core) Rejoin(m *Rejoin) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -85,7 +84,6 @@ func (c *Core) Rejoin(m *Rejoin) {
 		return // eski/yinelenen bilet: etkisiz (sunucu penceresi odayı bitirir)
 	}
 	rj.msg = m
-	rj.asked = rj.asked || m.Mode == helperio.ModeAsked
 	t := c.timings()
 	deadline := c.clock().Add(min(t.consoleWait, time.Duration(m.ExpiresInSec)*time.Second))
 	if rj.until.Before(deadline) {
@@ -109,11 +107,7 @@ func (c *Core) rejoinStep(rj *rejoinState, deadline time.Time) bool {
 	}
 	if c.cur == nil {
 		if id, ok := c.Sessions.Console(); ok {
-			if info, err := c.Sessions.Info(id); err == nil {
-				if rj.asked && info.User {
-					c.endLocked(KillSessionChanged) // onay aklama yok: yardımcı hiç başlatılmaz
-					return true
-				}
+			if _, err := c.Sessions.Info(id); err == nil {
 				c.launchRejoin(rj)
 				return true
 			}
@@ -135,7 +129,7 @@ func (c *Core) launchRejoin(rj *rejoinState) {
 	m, b := rj.msg, rj.base
 	in := helperio.Input{V: helperio.Version, SessionID: m.SessionID, Ticket: m.Ticket, TechName: b.TechName,
 		TenantName: b.TenantName, TechIP: b.TechIP, IndicatorText: m.IndicatorText, ExpiresInSec: m.ExpiresInSec,
-		Consent: helperio.ConsentNone, Mode: m.Mode, IndicatorControl: m.IndicatorControl, Recording: rj.rec}
+		Consent: helperio.ConsentNone, Mode: helperio.ModeNoUser, Recording: rj.rec} // eski sunucunun asked'ı da no_user
 	proc, err := c.Launch.Launch(in)
 	if err != nil {
 		reason := helperio.ReasonHelperFailed
@@ -146,24 +140,15 @@ func (c *Core) launchRejoin(rj *rejoinState) {
 		return
 	}
 	c.rejoin = nil
-	r := c.register(b, in, proc)
-	r.guardLogon = rj.asked
+	c.register(b, in, proc)
 }
 
 // SessionEvent svc SERVICE_CONTROL_SESSIONCHANGE. Konsol geçişi P27 kuralıyla oturumu bitirir (K-P27-12) — logoff
-// kabulünden sonraki beklenen geçiş hariç. asked odada logoff kabulünden sonra kullanıcı oturumu açılırsa session_changed.
+// kabulünden sonraki beklenen geçiş hariç. Diğer olaylar (oturum açma, kilit …) yalnız kullanıcı durumunu yeniler.
 func (c *Core) SessionEvent(ev uint32) {
 	c.mu.Lock()
-	rj := c.rejoinLocked()
-	switch ev {
-	case SessionConsoleConnect, SessionConsoleDisconnect:
-		if rj == nil {
-			c.killLocked(KillSessionChanged)
-		}
-	case SessionLogon:
-		if (rj != nil && rj.asked) || (c.cur != nil && c.cur.guardLogon) {
-			c.endLocked(KillSessionChanged)
-		}
+	if (ev == SessionConsoleConnect || ev == SessionConsoleDisconnect) && c.rejoinLocked() == nil {
+		c.killLocked(KillSessionChanged)
 	}
 	c.mu.Unlock()
 	c.UserChanged()

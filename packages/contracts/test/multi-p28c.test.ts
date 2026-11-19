@@ -52,7 +52,7 @@ describe("P28c yetkiler ve hata kodları", () => {
     expect(MULTI_ERROR_MESSAGES.SESSION_FULL).toBe("Oturum dolu");
     expect(MULTI_ERROR_MESSAGES.CLIENT_UNSUPPORTED).toBe(FSRV_GATE_REASON_LABELS.UNSUPPORTED);
     expect(MULTI_ERROR_MESSAGES.INVITE_GONE).toBe("Davet artık geçerli değil");
-    expect(MULTI_ERROR_MESSAGES.JOIN_NOT_ALLOWED).toBe("İzinli gözetimsiz bağlantıya ek teknisyen katılamaz");
+    expect(MULTI_ERROR_MESSAGES.JOIN_NOT_ALLOWED).toBe("Bu gözetimsiz bağlantıya ek teknisyen katılamaz");
   });
 });
 
@@ -123,7 +123,17 @@ describe("P28c rol kapısı ROLE_MAY (D-PC-6 varsayılan-ret)", () => {
     expect(techTypes.filter((t) => multi.seatMay(t, observer)).sort()).toEqual(["ice", "ice.restart", "member.leave", "sdp.offer"]);
     const member = { owner: false, controller: false, observer: false };
     const allowed = techTypes.filter((t) => multi.seatMay(t, member));
-    expect(allowed.sort()).toEqual(["ice", "ice.restart", "member.leave", "sdp.offer", "voice.end", "voice.join", "voice.request"]);
+    // P22 (S-P22-8): katılımcı chat.send gönderir (talker); izleyici göndermez (yukarıdaki liste).
+    expect(allowed.sort()).toEqual([
+      "chat.send",
+      "ice",
+      "ice.restart",
+      "member.leave",
+      "sdp.offer",
+      "voice.end",
+      "voice.join",
+      "voice.request",
+    ]);
     const controllerMember = { owner: false, controller: true, observer: false };
     expect(multi.seatMay("control.request", controllerMember)).toBe(true);
     expect(multi.seatMay("clip.push", controllerMember)).toBe(true);
@@ -150,13 +160,10 @@ describe("P28c REST şemaları", () => {
     expect(ok(sessionInviteParamsSchema, { id: "01JD0000000000000000000000", inviteId: fx.rest.validInviteIds[0] })).toBe(true);
   });
 
-  it("AC-368 (Y-PC-1): kabul/İzle gövdesi {} ya da gerekçe 20–500; kısa/uzun/görünmez karakterli gerekçe reddedilir", () => {
+  it("AC-368 (r3 K-P28u-r3-9): kabul/İzle gövdesi yalnız {}; eski gerekçe alanı ve bilinmeyen alan reddedilir", () => {
     expect(ok(joinWithReasonInputSchema, {})).toBe(true);
-    expect(ok(joinWithReasonInputSchema, { reason: "Müşteri arızası için ikinci görüş gerekiyor" })).toBe(true);
-    expect(ok(joinWithReasonInputSchema, { reason: "kısa" })).toBe(false);
-    expect(ok(joinWithReasonInputSchema, { reason: "x".repeat(501) })).toBe(false);
-    expect(ok(joinWithReasonInputSchema, { reason: `${"a".repeat(25)}‮` })).toBe(false);
-    expect(ok(joinWithReasonInputSchema, { reason: "a".repeat(25), silent: true })).toBe(false);
+    expect(ok(joinWithReasonInputSchema, { reason: "Müşteri arızası için ikinci görüş gerekiyor" })).toBe(false);
+    expect(ok(joinWithReasonInputSchema, { silent: true })).toBe(false);
   });
 });
 

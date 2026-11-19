@@ -23,7 +23,11 @@ import {
   type SessionEmailResponse,
   SESSIONS_WAITING_PER_MIN,
   type WaitingSessionsResponse,
+  SESSION_CHAT_READS_PER_MIN,
+  sessionChatQuerySchema,
+  type SessionChatResponse,
 } from "@remote/contracts/api/sessions";
+import { ChatViewMarks, getSessionChat } from "./history-chat.ts";
 import { emailSessionLink } from "./email.ts";
 import { sendLinkInputSchema, type SendLinkOptions, type SendLinkResponse } from "@remote/contracts/api/notify";
 import { sendLinkOptions, sendSessionLink, type SendLinkDeps } from "./send-link.ts";
@@ -136,6 +140,20 @@ function detailRoutes(app: FastifyInstance): void {
     const id = idParam(req);
     void reply.header("Cache-Control", "no-store");
     return getHistoryDetail(app.db, req.log, authOf(req), id);
+  });
+
+  // P22 (AC-264, AC-255; mimari-p22 §5.1–5.3): sohbet + bağlı talebin kabul öncesi yazışması. İki yetki + historyScope
+  // (USER yalnız kendi oturumu); 60/dk/kullanıcı (61. istek 429); `session.chat_viewed` after'sız ilk çağrıda, 10 dk'da 1.
+  const chatLimit = new FixedWindowCounter(SESSION_CHAT_READS_PER_MIN + 1, MIN_MS, MIN_MS);
+  app.addHook("onClose", async () => chatLimit.close());
+  const chatViewMarks = new ChatViewMarks();
+  const chatPerms = [requirePerm("session_history.view"), requirePerm("sessions.view_chat")];
+  app.get("/:id/chat", { preHandler: chatPerms }, async (req, reply): Promise<SessionChatResponse> => {
+    const id = idParam(req);
+    const q = parseInput(sessionChatQuerySchema, req.query);
+    void reply.header("Cache-Control", "no-store");
+    const deps = { db: app.db, secrets: app.secrets, metrics: app.metrics, log: req.log, limiter: chatLimit, viewMarks: chatViewMarks };
+    return getSessionChat(deps, auditContext(req), authOf(req), id, q);
   });
 
   // AC-63: Origin + CSRF requireAuth'ta (PATCH). Kapsam UPDATE'in where'inde; audit session.updated (not metni yok).

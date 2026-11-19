@@ -32,6 +32,7 @@ import type { HistoryLog } from "./history.ts";
 import * as hrepo from "./history-repo.ts";
 import { unattendedInfo } from "./history-unattended.ts";
 import { participantsOf } from "./history-participants.ts";
+import { countSessionChat, hasLegacyAudit } from "./chat.ts";
 import {
   CONTROL_PERIOD_ACTIONS,
   actorOf,
@@ -139,6 +140,7 @@ export async function buildDetail(
   now: number,
   canFiles = false,
   recPerms: { view: boolean; del: boolean } = { view: false, del: false },
+  canChat = false,
 ): Promise<SessionHistoryDetail> {
   const s = { id: row.id, tenantId: row.tenantId };
   const anonymized = row.anonymizedAt !== null;
@@ -177,7 +179,17 @@ export async function buildDetail(
     ...(row.mode === "UNATTENDED" ? { unattended: await unattendedInfo(db, row, anonymized) } : {}),
     recording: rec ? recordingSummary(rec, recPerms) : null,
     participants,
+    ...(canChat ? { chat: await chatSummaryOf(db, s) } : {}),
   };
+}
+
+/**
+ * P22 (§5.1, r2 §15.4): `count` = oturum sohbeti satırı sayısı (IX); `legacy` = `session.chat_legacy` audit satırı var
+ * (özetten değil; çökmeden etkilenmez). Çağıran `sessions.view_chat` denetler.
+ */
+async function chatSummaryOf(db: Db, s: { id: string; tenantId: string }): Promise<NonNullable<SessionHistoryDetail["chat"]>> {
+  const [count, legacy] = await Promise.all([countSessionChat(db, s.tenantId, s.id), hasLegacyAudit(db, s.tenantId, s.id)]);
+  return { count, legacy };
 }
 
 /** P28e (§5, AC-385/386/450): kayıt özeti; `canView` silinmemiş kayıtta iki yetki, `canDelete` durmuş kayıtta `edit`. */

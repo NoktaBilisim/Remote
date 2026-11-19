@@ -10,9 +10,8 @@
  */
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
 import type { TechRosterEntry } from "@remote/contracts/ws-multi";
-import type { ChatHub } from "../dc/use-collab";
 import type { Channels } from "./peer";
-import { GuestPeers, type GuestChatIn } from "./guest-peers";
+import { GuestPeers } from "./guest-peers";
 import { backoff, guestProtocols, RECONNECT_WINDOW_MS, Signal, wsUrl } from "./signal";
 import { guestReducer, initialGuest, resumingGuest, type GuestState } from "./guest-machine";
 import type { PublicSessionStatusResponse } from "@remote/contracts/api/sessions";
@@ -70,7 +69,6 @@ export function useGuestSession(cred: GuestCred, sessionRef: string | null = nul
   /** P28c: bağlı teknisyenler (multi1 roster); eski sunucuda null. */
   const [roster, setRoster] = useState<TechRosterEntry[] | null>(null);
   const [peerTick, setPeerTick] = useState(0);
-  const chatSubs = useRef(new Set<(m: GuestChatIn) => void>());
   const track = useRef<MediaStreamTrack | null>(null);
   const rosterRef = useRef<TechRosterEntry[] | null>(null);
   const retry = useRef<{ timer?: ReturnType<typeof setTimeout>; attempt: number }>({ attempt: 0 });
@@ -85,7 +83,7 @@ export function useGuestSession(cred: GuestCred, sessionRef: string | null = nul
 
   const send = useCallback((m: Parameters<Signal["send"]>[0]) => sig.current?.send(m), []);
   const [voiceTick, setVoiceTick] = useState(0);
-  const { peers, voice } = usePeers(st, send, setPeerTick, chatSubs, setVoiceTick);
+  const { peers, voice } = usePeers(st, send, setPeerTick, setVoiceTick);
 
   const resetPeer = useCallback(() => peers.closeAll(), [peers]);
 
@@ -252,7 +250,6 @@ export function useGuestSession(cred: GuestCred, sessionRef: string | null = nul
     return () => void subs.current.delete(fn);
   }, []);
 
-  const chatHub = useChatHub(peers, peerTick, chatSubs);
   /** P28c (§5.3): müşterinin "Çıkar"ı (sahip olamaz — sunucu FORBIDDEN). */
   const removeTech = useCallback((tid: string) => send({ t: "tech.remove", tid }), [send]);
   const markDrawn = useCallback((tids: string[]) => peers.markDrawn(tids), [peers]);
@@ -273,7 +270,6 @@ export function useGuestSession(cred: GuestCred, sessionRef: string | null = nul
     stopShare,
     end,
     roster,
-    chatHub,
     removeTech,
     markDrawn,
     voice,
@@ -289,7 +285,6 @@ function usePeers(
   st: { current: GuestState },
   send: (m: Parameters<Signal["send"]>[0]) => void,
   tick: (fn: (n: number) => number) => void,
-  chatSubs: { current: Set<(m: GuestChatIn) => void> },
   voiceTick: (fn: (n: number) => number) => void,
 ): { peers: GuestPeers; voice: GuestVoice } {
   const [pair] = useState(() => {
@@ -298,9 +293,6 @@ function usePeers(
       ice: () => st.current.iceServers,
       send,
       onChange: () => tick((n) => n + 1),
-      onChat: (m) => {
-        for (const fn of chatSubs.current) fn(m);
-      },
       onPeers: () => voice?.peersChanged(),
       onAudioError: () => voice?.audioFailed(),
     });
@@ -314,20 +306,4 @@ function usePeers(
     return { peers, voice };
   });
   return pair;
-}
-/** Çok eşli sohbet yolu (`useCollab` `chatHub`): hazır = herhangi bir eşin `ctl`'i açık. */
-function useChatHub(peers: GuestPeers, peerTick: number, chatSubs: { current: Set<(m: GuestChatIn) => void> }): ChatHub {
-  const ready = peers.chatReady;
-  return useMemo(
-    () => ({
-      ready,
-      send: (m) => peers.sendChat(m),
-      subscribe: (fn) => {
-        chatSubs.current.add(fn);
-        return () => void chatSubs.current.delete(fn);
-      },
-    }),
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- peerTick: kanal kümesi değişince `ready` yeniden okunur
-    [peers, ready, peerTick, chatSubs],
-  );
 }

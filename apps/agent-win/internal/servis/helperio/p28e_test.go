@@ -14,7 +14,7 @@ func TestAC449InputRecordingOnlyWithP28uInput(t *testing.T) {
 	if in.Validate() == nil {
 		t.Fatal("P27 girdisinde recording kabul edildi")
 	}
-	in.Consent, in.Mode = ConsentAsk, ModeAsked
+	in.Consent, in.Mode = ConsentNone, ModeNoUser
 	if err := in.Validate(); err != nil {
 		t.Fatal(err)
 	}
@@ -55,7 +55,7 @@ func TestAC448IndicatorLabel(t *testing.T) {
 	if IndicatorLabel("A", false) != "A" || IndicatorLabel("A", true) != "A — Kayıt yapılıyor" {
 		t.Fatal("etiket")
 	}
-	if !Text(RecordingLine, 160) || !Text(IndicatorLabel(strings.Repeat("a", 160), true), 200) {
+	if !Text(IndicatorLabel(strings.Repeat("a", 160), true), 200) {
 		t.Fatal("metin denetimi")
 	}
 }

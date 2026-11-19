@@ -1,24 +1,29 @@
-// P28u-K4 test yardımcıları: izinli (`ask`) oturumu cihaz onay sonucuyla açma, izinsiz (`silent`) oturumu K3 bağlantı ucundan
-// bağımsız kurma (PENDING satır `consent_mode='silent'` + `preAdmitDevice`), teknisyen konsolu ve kontrolü açma.
-import { newId, newSecretToken, sha256Hex } from "../../src/lib/ids.ts";
-import { preAdmitDevice } from "../../src/signaling/rooms-device.ts";
+// P28u-K4 test yardımcıları (r3: tek kip): oturumu cihazın `consent.result{no_user}`'ıyla açma, teknisyen konsolu ve kontrolü açma.
 import { createTenant, createUser, loginStepUp, ORIGIN, testDb } from "./app.ts";
 import { createCustomerRow } from "./requests.ts";
 import type { Live } from "./signal-flow.ts";
 import { contactRow, grantRow, setSmtp } from "./unattended.ts";
-import { connectReq, helperGuest, keyedDevice, onlineDevice, UN_TECH_PERMS, type ConnectMsg, type Ready } from "./unattended-device.ts";
+import {
+  connectReq,
+  helperGuest,
+  keyedDevice,
+  onlineDevice,
+  UN_TECH_PERMS,
+  type ConnectMsg,
+  type Legacy,
+  type Ready,
+} from "./unattended-device.ts";
 import { connect, techHeaders, type WsClient } from "./ws.ts";
 
-export const SILENT_PERMS = { ...UN_TECH_PERMS, "unattended.silent": true, "session_history.view": true };
-export const REASON = "Sunucu bakım penceresi; kullanıcıya ulaşılamadı.";
+export const K4_PERMS = { ...UN_TECH_PERMS, "session_history.view": true };
 
-/** `ready()` eşi; yetkiler ve eski servis (belirteçsiz) seçilebilir. */
-export async function readyK4(live: Live, o: { perms?: Record<string, boolean>; legacy?: boolean } = {}): Promise<Ready> {
+/** `ready()` eşi; yetkiler ve eski servis (belirteçsiz / yalnız `consent1`) seçilebilir. */
+export async function readyK4(live: Live, o: { perms?: Record<string, boolean>; legacy?: Legacy } = {}): Promise<Ready> {
   const t = await createTenant();
   await setSmtp(t.id);
   const customer = await createCustomerRow(t.id);
   await contactRow(t.id, customer.id);
-  const tech = await createUser({ tenantId: t.id, role: "USER", perms: o.perms ?? SILENT_PERMS });
+  const tech = await createUser({ tenantId: t.id, role: "USER", perms: o.perms ?? K4_PERMS });
   const dev = await keyedDevice(t.id, customer.id);
   await grantRow(t.id, dev.id, tech.id);
   const s = await loginStepUp(live.app, tech);
@@ -26,54 +31,19 @@ export async function readyK4(live: Live, o: { perms?: Record<string, boolean>; 
   return { tenantId: t.id, customerId: customer.id, tech, s, dev, device };
 }
 
-/** `ask` bağlantısı → cihaza `connect` (onay sonucu henüz yok). */
+/** Bağlantı → cihaza `connect` (`consent.result` henüz gönderilmedi). */
 export async function askConnect(live: Live, r: Ready): Promise<ConnectMsg> {
   const res = await live.app.inject(connectReq(r));
   if (res.statusCode !== 200) throw new Error(`connect ${res.statusCode} ${res.body}`);
   return (await r.device.waitFor("connect" as never)) as unknown as ConnectMsg;
 }
 
-export async function setPolicy(tenantId: string, on: boolean, ackBy: string): Promise<void> {
-  await testDb().tenantSettings.update({
-    where: { tenantId },
-    data: on
-      ? { unattendedSilentEnabled: true, unattendedSilentAckAt: new Date(), unattendedSilentAckBy: ackBy }
-      : { unattendedSilentEnabled: false },
-  });
-}
-
-/** İzinsiz oturum (K3 ucundan bağımsız): politika açık, PENDING `silent` satır + oda + bilet. */
-export async function silentPending(live: Live, r: Ready, o: { policy?: boolean } = {}): Promise<{ sessionId: string; ticket: string }> {
-  await setPolicy(r.tenantId, o.policy ?? true, r.tech.id);
-  const id = newId();
-  const now = new Date();
-  const expiresAt = new Date(now.getTime() + 60_000);
-  const dev = await testDb().unattendedDevice.findUniqueOrThrow({ where: { id: r.dev.id }, select: { name: true } });
-  await testDb().supportSession.create({
-    data: {
-      id,
-      tenantId: r.tenantId,
-      technicianId: r.tech.id,
-      deviceId: r.dev.id,
-      customerId: r.customerId,
-      customerName: dev.name,
-      tokenHash: sha256Hex(newSecretToken()),
-      techVerifyCode: "1234",
-      status: "PENDING",
-      createdAt: now,
-      expiresAt,
-      consentMode: "silent",
-      silentReason: REASON,
-    },
-  });
-  const row = { id, tenantId: r.tenantId, technicianId: r.tech.id, technician: { fullName: "Teknisyen" }, expiresAt };
-  const { ticket } = preAdmitDevice(live.app.rooms, row, {
-    deviceId: r.dev.id,
-    deviceName: dev.name,
-    customerId: r.customerId,
-    consent: "silent",
-  });
-  return { sessionId: id, ticket };
+/** r3 tek kip: bağlan → cihaz `consent.result{no_user}` → yardımcı kabul edilir (ACTIVE). */
+export async function directSession(live: Live, r: Ready): Promise<{ sessionId: string; ticket: string; helper: WsClient }> {
+  const msg = await askConnect(live, r);
+  r.device.send({ t: "consent.result", sessionId: msg.sessionId, mode: "no_user" });
+  const helper = await helperIn(live, msg.ticket);
+  return { sessionId: msg.sessionId, ticket: msg.ticket, helper };
 }
 
 /** Yardımcı bağlanır ve kabul edilir (hello). */
@@ -90,7 +60,7 @@ export async function techConsole(live: Live, r: Ready, sessionId: string): Prom
   return { ws, hello };
 }
 
-/** Konsol "Müdahale et" → yardımcı P27 otomatik GRANTED → konsol GRANTED. */
+/** Konsol `control.request` → yardımcı P27 otomatik GRANTED → konsol GRANTED. */
 export async function grantControl(tech: WsClient, helper: WsClient): Promise<void> {
   tech.send({ t: "control.request" });
   await helper.waitFor("control.request");

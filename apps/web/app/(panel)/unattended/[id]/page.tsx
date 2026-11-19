@@ -127,7 +127,7 @@ function DeviceView({ d, status, access }: { d: DeviceDetail; status: Unattended
             {t("un.col.user")}: <UserState state={d.userState} />
           </p>
         </div>
-        <DetailConnect device={d} available={gateOpen(status)} silentAllowed={status?.silentAllowed === true} />
+        <DetailConnect device={d} available={gateOpen(status)} />
       </div>
       <div className="mt-4 flex max-w-3xl flex-col gap-2">
         <ModeBanner status={status} />

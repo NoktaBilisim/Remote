@@ -1,12 +1,10 @@
 // POST /unattended/devices/:id/connect TX'i (mimari-p27 §4.3 adım 10 + r2 TX içi yeniden denetim, K-P27-17; AC-273, 338).
 // Kilit sırası: cihaz (FOR UPDATE) → grant (FOR SHARE) → teknisyen (lockTechnician) — revoke / PUT grants / device.state /
 // admit-device aynı cihaz kilidini alır, kilitlenme yok. Step-up en sonda koşullu tüketilir (K-P27-5): count≠1 → 401, TX geri.
-// P28u (mimari-p28u §5.1 adım 10, K-P28u-4/21): `ask` PENDING 150 sn, `consent_mode` NULL (admit yazar); `silent` 60 sn,
-// `consent_mode='silent'` + `silent_reason`, ve teknisyen kilidinden sonra `tenant_settings` FOR SHARE + `unattended.silent`
-// DB'den yeniden (PUT /policy FOR UPDATE ile sıralanır). Audit: `consentRequested:"ask"` ya da `consentMode` + `silentReason`.
+// P28u r3 (mimari-p28u §r3.4, K-P28u-r3-4): tek kip — PENDING 60 sn, `consent_mode` NULL (admit `no_user` yazar).
+// Audit `unattended.connect{consentRequested:"ask"}`.
 import { STEP_UP_MAX_AGE_SEC } from "@remote/contracts/api/auth";
 import { UNATTENDED_AUDIT } from "@remote/contracts/audit";
-import { DEVICE_CONSENT_WINDOW_MS } from "@remote/contracts/unattended-consent";
 import { writeAudit, type AuditContext } from "../audit/service.ts";
 import type { AuthContext } from "../auth/session.ts";
 import type { Prisma } from "../generated/prisma/client.ts";
@@ -15,14 +13,10 @@ import { newId, newSecretToken, sha256Hex } from "../lib/ids.ts";
 import { newTechVerifyCode } from "../sessions/codes.ts";
 import * as srepo from "../sessions/repo.ts";
 import type { ConnectDeps } from "./connect.ts";
-import { lockSilentPolicy, userHasSilent } from "./policy.ts";
 import * as repo from "./repo.ts";
 
-/** PENDING cihaz oturumu ömrü: `silent` (P27 60 sn); `ask` → `DEVICE_CONSENT_WINDOW_MS` (DB TTL cihaz dalı 55..155 sn). */
+/** PENDING cihaz oturumu ömrü (K-P28u-r3-4: 60 sn; DB TTL cihaz dalı 55..155 sn CHECK'ine uyar). */
 export const DEVICE_CONNECT_WINDOW_MS = 60_000;
-
-/** İstenen kip: `ask` (gövde `{}`) ya da `silent` + kırpılmış gerekçe. */
-export type ConnectRequest = { consent: "ask" } | { consent: "silent"; reason: string };
 
 export interface Opened {
   sessionId: string;
@@ -32,7 +26,6 @@ export interface Opened {
   customerName: string;
   expiresAt: Date;
   method: "totp" | "recovery_code";
-  request: ConnectRequest;
 }
 
 type Tx = Prisma.TransactionClient;
@@ -50,7 +43,7 @@ export class Refusal extends Error {
 const no = (result: string, code: ConstructorParameters<typeof AppError>[0]) => new Refusal(result, new AppError(code));
 
 /** (a)–(e): yetkili yeniden denetim; kaybeden eşzamanlı istek burada `DEVICE_BUSY` alır. */
-async function recheck(tx: Tx, d: ConnectDeps, auth: AuthContext, tenantId: string, deviceId: string, now: Date, silent: boolean) {
+async function recheck(tx: Tx, auth: AuthContext, tenantId: string, deviceId: string, now: Date) {
   const dev = await repo.lockDevice(tx, tenantId, deviceId);
   if (!dev || dev.revoked_at) throw no("not_found", "NOT_FOUND");
   if (!dev.local_enabled) throw no("local_disabled", "DEVICE_LOCAL_DISABLED");
@@ -60,9 +53,6 @@ async function recheck(tx: Tx, d: ConnectDeps, auth: AuthContext, tenantId: stri
   const settings = await srepo.sessionSettings(tx, tenantId);
   if (!settings) throw new Error("tenant_settings satırı yok");
   if ((await srepo.countOpen(tx, auth.user.id, now)) >= settings.maxOpenSessions) throw no("limit", "OPEN_SESSION_LIMIT");
-  if (!silent) return;
-  if (!(await lockSilentPolicy(tx, tenantId))) throw no("silent_disabled", "SILENT_DISABLED");
-  if (!(await userHasSilent(tx, tenantId, auth.user.id))) throw no("forbidden", "FORBIDDEN");
 }
 
 /** (g): `UPDATE auth_sessions SET step_up_at = NULL WHERE … step_up_at >= now − 300 sn`; count≠1 → 401. */
@@ -77,7 +67,7 @@ async function consumeStepUp(tx: Tx, auth: AuthContext, now: Date): Promise<void
 /** PENDING cihaz oturumu satırı (kod yok; belirteç hiç döndürülmez). */
 async function insertPending(
   tx: Tx,
-  o: { id: string; tenantId: string; technicianId: string; dev: repo.DeviceRow; now: Date; expiresAt: Date; req: ConnectRequest },
+  o: { id: string; tenantId: string; technicianId: string; dev: repo.DeviceRow; now: Date; expiresAt: Date },
 ): Promise<void> {
   await srepo.insertSession(tx, {
     id: o.id,
@@ -92,7 +82,6 @@ async function insertPending(
     deviceId: o.dev.id,
     customerId: o.dev.customerId,
     customerName: o.dev.name,
-    ...(o.req.consent === "silent" ? { consentMode: "silent", silentReason: o.req.reason } : {}),
   });
 }
 
@@ -103,15 +92,13 @@ export function openDeviceSession(
   tenantId: string,
   dev: repo.DeviceRow,
   method: Opened["method"],
-  req: ConnectRequest,
 ): Promise<Opened> {
   return d.db.$transaction(async (tx) => {
     const now = new Date(d.now());
-    await recheck(tx, d, auth, tenantId, dev.id, now, req.consent === "silent");
+    await recheck(tx, auth, tenantId, dev.id, now);
     const sessionId = newId();
-    const windowMs = req.consent === "silent" ? DEVICE_CONNECT_WINDOW_MS : DEVICE_CONSENT_WINDOW_MS;
-    const expiresAt = new Date(now.getTime() + windowMs);
-    await insertPending(tx, { id: sessionId, tenantId, technicianId: auth.user.id, dev, now, expiresAt, req });
+    const expiresAt = new Date(now.getTime() + DEVICE_CONNECT_WINDOW_MS);
+    await insertPending(tx, { id: sessionId, tenantId, technicianId: auth.user.id, dev, now, expiresAt });
     await consumeStepUp(tx, auth, now);
     await writeAudit(tx, ctx, {
       tenantId,
@@ -125,8 +112,8 @@ export function openDeviceSession(
         deviceId: dev.id,
         ip: ctx.ip,
         stepUpMethod: method,
-        mode: req.consent,
-        ...(req.consent === "silent" ? { consentMode: "silent", silentReason: req.reason } : { consentRequested: "ask" }),
+        mode: "ask",
+        consentRequested: "ask",
       },
     });
     return {
@@ -137,7 +124,6 @@ export function openDeviceSession(
       customerName: dev.customer.name,
       expiresAt,
       method,
-      request: req,
     };
   });
 }

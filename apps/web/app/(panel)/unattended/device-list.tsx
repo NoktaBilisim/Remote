@@ -65,15 +65,12 @@ export function DeviceList({
   available,
   manage,
   createBlock,
-  silentAllowed = false,
 }: {
   initial: DeviceListResponse;
   params: DeviceListParams;
   available: boolean;
   manage: boolean;
   createBlock: string | null;
-  /** P28u (AC-430): `status.silentAllowed` — Bağlan diyaloğunda "İzin istemeden bağlan" kutusu. */
-  silentAllowed?: boolean;
 }): ReactNode {
   const { data, stale, more, poll, loadMore } = useDevicePoll(initial, params.q, params.customerId, params.state);
   const flow = useConnect(() => void poll());
@@ -99,7 +96,7 @@ export function DeviceList({
           {data.nextCursor && <MoreButton state={more} onClick={() => void loadMore()} />}
         </>
       )}
-      <ConnectDialog flow={flow} silentAllowed={silentAllowed} />
+      <ConnectDialog flow={flow} />
     </section>
   );
 }
