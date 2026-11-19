@@ -702,7 +702,8 @@ export function attachWs(srv) {
       if (!rec) return sock.destroy();
       // P22 (r2 §15.2): belirteçsiz konsol soketi 4426 ile kapanır (sayfayı yenileyin). Playwright routeWebSocket alt
       // protokolü iletmeyebilir → boş liste yok sayılır; `rs.v1` var ama `rs.cap.schat1` yoksa eski konsol.
-      if (protos.includes("rs.v1") && !hasSchat(protos)) return wss.handleUpgrade(req, sock, head, (ws) => ws.close(4426, "console_outdated"));
+      if (protos.includes("rs.v1") && !hasSchat(protos))
+        return wss.handleUpgrade(req, sock, head, (ws) => ws.close(4426, "console_outdated"));
       return wss.handleUpgrade(req, sock, head, (ws) => onTech(ws, rec));
     }
     if (url.pathname !== "/ws/guest" || url.search) return sock.destroy();

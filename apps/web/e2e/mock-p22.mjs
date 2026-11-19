@@ -69,7 +69,8 @@ function store(r, ws, m, sender) {
 /** Teknisyen `chat.send` (true = işlendi). Eski misafir → `outdated`, satır yok (AC-264 iki tarafta kapalı). */
 export function chatTech(r, ws, m) {
   if (m.t !== "chat.send") return false;
-  if (!r.guest && !r.chat) return (send(ws, chatRejectedSchema.parse({ t: "chat.rejected", clientMsgId: m.clientMsgId, reason: "not_active" })), true);
+  if (!r.guest && !r.chat)
+    return (send(ws, chatRejectedSchema.parse({ t: "chat.rejected", clientMsgId: m.clientMsgId, reason: "not_active" })), true);
   if (r.guestChat === "outdated")
     return (send(ws, chatRejectedSchema.parse({ t: "chat.rejected", clientMsgId: m.clientMsgId, reason: "outdated" })), true);
   store(r, ws, m, "TECH");
@@ -119,8 +120,7 @@ export const chatViews = new Map();
 
 function chatResponse(id, after) {
   if (id === RICH) {
-    if (after)
-      return { request: null, session: { items: [it(4, "CUSTOMER", "Teşekkürler, sorun çözüldü.", 9)], more: false } };
+    if (after) return { request: null, session: { items: [it(4, "CUSTOMER", "Teşekkürler, sorun çözüldü.", 9)], more: false } };
     return {
       request: null,
       session: {
@@ -203,7 +203,13 @@ export async function handleP22(req, res, { url, session, csrfOk, send: reply, e
       const { body = "" } = await readJson(req);
       const text = String(body).replace(/\r\n?/g, "\n").trim();
       if (text === s.current.body) return (reply(res, 200, { ...consentView(s), changed: false }), true);
-      const v = { id: `01JCQNSENT${String(s.current.version + 1).padStart(16, "0")}`, version: s.current.version + 1, sha256: sha(text), createdAt: new Date().toISOString(), createdByName: "Deniz Güven" };
+      const v = {
+        id: `01JCQNSENT${String(s.current.version + 1).padStart(16, "0")}`,
+        version: s.current.version + 1,
+        sha256: sha(text),
+        createdAt: new Date().toISOString(),
+        createdByName: "Deniz Güven",
+      };
       s.current = { ...v, body: text };
       s.versions = [v, ...s.versions];
       return (reply(res, 200, { ...consentView(s), changed: true }), true);

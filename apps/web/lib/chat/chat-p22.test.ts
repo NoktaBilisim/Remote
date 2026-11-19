@@ -39,7 +39,13 @@ describe("AC-264 oturum sohbeti modeli", () => {
   });
 
   it("iyimser öğe → yankı (aynı clientMsgId) onaylar; yinelenen id tek öğe", () => {
-    let s: ChatModel = chatModelReducer(initialChatModel, { type: "sent", clientMsgId: "c".repeat(22), body: "selam", at: "x", sender: "TECH" });
+    let s: ChatModel = chatModelReducer(initialChatModel, {
+      type: "sent",
+      clientMsgId: "c".repeat(22),
+      body: "selam",
+      at: "x",
+      sender: "TECH",
+    });
     expect(s.items[0]).toMatchObject({ status: "sending", id: null, mine: true });
     s = chatModelReducer(s, {
       type: "server",
@@ -49,7 +55,12 @@ describe("AC-264 oturum sohbeti modeli", () => {
     });
     expect(s.items).toHaveLength(1);
     expect(s.items[0]).toMatchObject({ status: "sent", id: ID1, mine: true });
-    s = chatModelReducer(s, { type: "server", m: { t: "chat.history", items: [item(msg(ID1, "TECH", "selam"))], more: false }, me: tech, visible: true });
+    s = chatModelReducer(s, {
+      type: "server",
+      m: { t: "chat.history", items: [item(msg(ID1, "TECH", "selam"))], more: false },
+      me: tech,
+      visible: true,
+    });
     expect(s.items).toHaveLength(1);
   });
 
@@ -83,7 +94,12 @@ describe("AC-264 oturum sohbeti modeli", () => {
   });
 
   it("chat.state enabled/kapanış; kim benim (çoklu teknisyen tid)", () => {
-    const s = chatModelReducer(initialChatModel, { type: "server", m: { t: "chat.state", enabled: false, reason: "ended" }, me: guest, visible: true });
+    const s = chatModelReducer(initialChatModel, {
+      type: "server",
+      m: { t: "chat.state", enabled: false, reason: "ended" },
+      me: guest,
+      visible: true,
+    });
     expect(s).toMatchObject({ enabled: false, reason: "ended" });
     expect(isMine({ sender: "TECH", tid: "BBBBBBBBBBB" }, tech)).toBe(false);
     expect(isMine({ sender: "TECH", tid: tech.tid }, tech)).toBe(true);

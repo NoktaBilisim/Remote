@@ -15286,8 +15286,7 @@ Kaynak: `docs/mimari-p22.md` §4.1–4.5, §5.1–5.3, §7.1, §3.4, §10.1 P22-
   `chatSendEnvelopeSchema` (gövde hatası → `invalid`, soket açık; S-P18-K1 kalıbı), `chatMessageSchema`, `chatHistoryItemSchema`,
   `chatHistorySchema`, `chatStateSchema`, `chatRejectedSchema`, `techChatInbound`, `guestChatInbound`, `serverChatOutbound`,
   `helloChatFields`; tipler `ChatSend`, `ChatMessage`, `ChatHistoryItem`, `ChatRejectReason`, `GuestChatState`, `ChatStateReason`.
-- `src/ws.ts` (ekleme): `WS_CLOSE.CONSOLE_OUTDATED`; `techInboundSchema` += `chat.send`; `guestInboundSchemaFor(…, schat = false)`
-  6. parametre (bit 64); `serverOutboundSchema` += `chat.*`; `hello` ve `peer.joined` += `guestChat`.
+- `src/ws.ts` (ekleme): `WS_CLOSE.CONSOLE_OUTDATED`; `techInboundSchema` += `chat.send`; `guestInboundSchemaFor(…, schat = false)` 6. parametre (bit 64); `serverOutboundSchema` += `chat.*`; `hello` ve `peer.joined` += `guestChat`.
 - `src/ws-multi.ts`: `ROLE_MAY["chat.send"] = "talker"`. `src/ws-request.ts`: `REQUEST_HISTORY_MAX_BYTES` (49152; şemaya `more` eklenmedi).
 - `src/permissions.ts`: `sessions.view_chat` + açıklama (§5.2). `src/audit.ts`: `CHAT_AUDIT` (`session.chat_viewed|chat_summary|chat_rejected|chat_legacy`),
   `CHAT_AUDIT_LABELS`, `CHAT_AUDIT_REJECT_REASONS` (cap/forbidden/internal/outdated), `CHAT_SUMMARY_SENDER_IDS_MAX` (10).
@@ -15346,7 +15345,7 @@ WS tarafı (signaling, `sessions/chat.ts`, `lib/ws-budget.ts`, metrikler) P22-B1
 - `src/jobs/retention-repo.ts`: `anonymizeSessionBatch` — adaylar TX'ten önce `COUNT … GROUP BY session_id` ile sayılır,
   `trimByMessageBudget` (`SESSION_MSG_DELETE_BUDGET = 20_000`, en az 1 oturum) ile kısaltılır; `beforeTx` (fsrv disk) ve TX aday sorgusu aynı
   kısaltılmış listeyle; UPDATE `anonymized_at` sonrası join'li `DELETE m FROM session_messages m JOIN support_sessions s … anonymized_at IS NOT
-  NULL AND m.request_id IS NULL`. Sonuca `messages` + `more` eklendi. Bütçe parametresi son opsiyonel argüman (test; konum imzası korunur).
+NULL AND m.request_id IS NULL`. Sonuca `messages` + `more` eklendi. Bütçe parametresi son opsiyonel argüman (test; konum imzası korunur).
 - `src/jobs/retention.ts`: döngü `!r.more` ile biter (kısaltılmış parti `< SESSION_BATCH` olsa da aday kalabilir). `retention-counts.ts`:
   `sessionMessages` sayacı, metrik `rs_retention_rows_total{kind="session_messages"}` (purge anahtarı değil; dry modda da silinir).
 - `src/public/consent.ts`: `defaultConsentBody()` "Ekranınız yalnız…" paragrafından sonra `CHAT_CONSENT_PARAGRAPH` (contracts tek kaynak);
@@ -15365,15 +15364,15 @@ WS tarafı (signaling, `sessions/chat.ts`, `lib/ws-budget.ts`, metrikler) P22-B1
 
 - `chatRetentionDays` için iki küçük düzenleme §12 dosya listesinin dışında: resolve yanıtı `sessions/public.ts`'te, talep firma bilgisi
   `requests/service.ts` `requestInfo`'da kuruluyor (`public/service.ts` / `requests/public-routes.ts` yalnız çağırıyor). Tek satırlık çağrı
-  + yardımcı `public/consent.ts`'te.
+  - yardımcı `public/consent.ts`'te.
 - `request.items` üst sınırı tasarımda yok: `SESSION_CHAT_PAGE_MAX` (200, artan; `total` tam COUNT). Talep sohbeti gönderen başına ≤ 200
   olduğundan toplam ≤ 400; ilk 200 gösterilir, `total` farkı UI'da "ilk 200" notu için kullanılabilir.
 - `session.chat_viewed` `messages`/`requestMessages` = bu yanıtta **gösterilen** öğe sayıları (gövde yok).
 - AC-264 iş düzeyi testinde "sahte saat" fikstür tarihleriyle sağlandı (`retention_days + 1` gün geri); `run(now)` ileri alınmadı — ileri saat
   global adımda (giriş oturumu +7 g) seri projedeki canlı test oturumlarını silerdi. Parti düzeyi testleri `anonymizeSessionBatch(…, budget)`
   ile küçük bütçede kısaltma + "bütçeyi aşan tek oturum yine alınır" durumunu doğrudan sınar; iş düzeyi test gerçek 20.000 bütçesini 12.000
-  + 8.000 + 12.000 mesajla sınar (ilk TX tam 20.000 satır, sınırda kısaltma; 32 aday, tek turda hepsi anonim, `sessionMessages = 32.029`).
-  §15.3'teki "1.000 aday" yarısı mevcut AC-199 testi (`SESSION_BATCH + 1` aday, iki parti) ile kapsanıyor.
+  - 8.000 + 12.000 mesajla sınar (ilk TX tam 20.000 satır, sınırda kısaltma; 32 aday, tek turda hepsi anonim, `sessionMessages = 32.029`).
+    §15.3'teki "1.000 aday" yarısı mevcut AC-199 testi (`SESSION_BATCH + 1` aday, iki parti) ile kapsanıyor.
 
 **Eklenen bağımlılık:** yok. **Yeni env:** yok.
 
@@ -15414,14 +15413,14 @@ yeni `LEGACY_CHAT_NOTICE`). Sunucuya (`apps/server`) dokunulmadı; e2e sahte WS/
 
 **Rotalar (yeni rota yok; değişen ekranlar)**
 
-| Yol | Auth | Ne değişti |
-| --- | --- | --- |
-| `/sessions/[id]/console` | evet (`sessions.view`, sahip/üye) | Sohbet sekmesi WS'ten (`chat.*`); eski misafir → "Müşterinin istemcisi eski…" + giriş pasif; gözetimsiz → "Gözetimsiz bağlantıda sohbet yoktur."; 4426 → "Konsol sürümü eski — sayfayı yenileyin." + "Sayfayı yenile" |
-| `/session/[token]` | hayır (bağlantı belirteci) | Onay düğmesinin hemen üstünde AC-292 satırı (`resolve.chatRetentionDays`); satır yoksa tarayıcı yolu pasif. Canlı oturumda sohbet WS'ten, başlıkta gün sayılı saklama satırı |
-| `/r/[ref]` | hayır | Değişmedi (AC-292 satırı P19'dan); bileşen `components/kvkk/` altına taşındı |
-| `/history/[id]` | evet (`session_history.view`) | "Sohbet" bölümü yalnız `detail.chat` (= `sessions.view_chat`) varken; "Sohbeti göster (n mesaj)" tıklaması `GET /sessions/:id/chat` |
-| `/settings/consent-text` | evet (`settings.view`; düzenleme `settings.edit`) | `chatParagraphMissing` bandı + "Standart sohbet paragrafını ekle" (yalnız metin alanına ekler) |
-| `/settings/general` | evet (`settings.view`) | Üstte aynı bant (yalnız `settings.edit`) + "Aydınlatma metnine git" |
+| Yol                      | Auth                                              | Ne değişti                                                                                                                                                                                                            |
+| ------------------------ | ------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `/sessions/[id]/console` | evet (`sessions.view`, sahip/üye)                 | Sohbet sekmesi WS'ten (`chat.*`); eski misafir → "Müşterinin istemcisi eski…" + giriş pasif; gözetimsiz → "Gözetimsiz bağlantıda sohbet yoktur."; 4426 → "Konsol sürümü eski — sayfayı yenileyin." + "Sayfayı yenile" |
+| `/session/[token]`       | hayır (bağlantı belirteci)                        | Onay düğmesinin hemen üstünde AC-292 satırı (`resolve.chatRetentionDays`); satır yoksa tarayıcı yolu pasif. Canlı oturumda sohbet WS'ten, başlıkta gün sayılı saklama satırı                                          |
+| `/r/[ref]`               | hayır                                             | Değişmedi (AC-292 satırı P19'dan); bileşen `components/kvkk/` altına taşındı                                                                                                                                          |
+| `/history/[id]`          | evet (`session_history.view`)                     | "Sohbet" bölümü yalnız `detail.chat` (= `sessions.view_chat`) varken; "Sohbeti göster (n mesaj)" tıklaması `GET /sessions/:id/chat`                                                                                   |
+| `/settings/consent-text` | evet (`settings.view`; düzenleme `settings.edit`) | `chatParagraphMissing` bandı + "Standart sohbet paragrafını ekle" (yalnız metin alanına ekler)                                                                                                                        |
+| `/settings/general`      | evet (`settings.view`)                            | Üstte aynı bant (yalnız `settings.edit`) + "Aydınlatma metnine git"                                                                                                                                                   |
 
 **Yeni dosyalar:** `apps/web/lib/chat/{model.ts, use-session-chat.ts, legacy-notice.ts, chat-p22.test.ts}`,
 `apps/web/app/(panel)/history/[id]/chat.tsx`, `apps/web/components/settings/chat-paragraph-banner.tsx`,
@@ -15497,13 +15496,13 @@ Kaynak: `docs/mimari-p22.md` §4 (tamamı), §7, §10.1 P22-B, §11, **§15 r2**
 
 **Oturumu bitiren yollar ve özet (S-P22-4 listesi)**
 
-| Yol | Özet |
-| --- | --- |
-| `Rooms.finish` → `recordEnded` (tech, customer, max_duration, timeout, auth_revoked, tenant_passive, permission…) | aynı TX'te `writeChatSummary` (önce oda zinciri beklenir) |
-| `terminateSession` (yönetici, `closeSession("admin")`) | aynı TX'te |
-| `endOrphanedActive` (açılış süpürücüsü; oda bellekte kaybolmuş) | oturum başına TX |
-| `admit-device.ts` `endActive` (gözetimsiz) | N/A — gözetimsizde sohbet kapısı `forbidden`, `chat_legacy` yazılmaz → satır/özet imkânsız |
-| PENDING → EXPIRED / CANCELLED (iptal, süre) | N/A — INSERT ACTIVE ister, satır imkânsız |
+| Yol                                                                                                               | Özet                                                                                       |
+| ----------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------ |
+| `Rooms.finish` → `recordEnded` (tech, customer, max_duration, timeout, auth_revoked, tenant_passive, permission…) | aynı TX'te `writeChatSummary` (önce oda zinciri beklenir)                                  |
+| `terminateSession` (yönetici, `closeSession("admin")`)                                                            | aynı TX'te                                                                                 |
+| `endOrphanedActive` (açılış süpürücüsü; oda bellekte kaybolmuş)                                                   | oturum başına TX                                                                           |
+| `admit-device.ts` `endActive` (gözetimsiz)                                                                        | N/A — gözetimsizde sohbet kapısı `forbidden`, `chat_legacy` yazılmaz → satır/özet imkânsız |
+| PENDING → EXPIRED / CANCELLED (iptal, süre)                                                                       | N/A — INSERT ACTIVE ister, satır imkânsız                                                  |
 
 **K-P22-6 — ortak standart §1.1'den sapma gerekçesi (koşul d):** Oturum sohbetinde mesaj başına audit satırı yazılmaz. Her mesaj zaten
 append-only, tetikleyiciyle korunan, gönderen (`sender_user_id`) ve zaman damgalı bir `session_messages` satırıdır; ayrıca audit satırı oturum
@@ -15589,6 +15588,7 @@ süzgeçli → sohbet satırı imkânsız (yukarıdaki tablo).
   - oturum detayı sohbet bölümü (`emulateMedia` döngüsü yerine).
 
   390 px'te `noHorizontalOverflow` eklendi: konsol sohbet paneli (dolu + eski istemci), misafir, aydınlatma bandı.
+
 - **Öneri uygulandı:** AC-292 satır metni tek kaynak oldu. `components/kvkk/chat-retention-notice.tsx` ve misafir sohbet başlığı artık contracts `CHAT_RETENTION_LINE(days)` kullanıyor; satır sonundaki nokta kalktı, Go istemciyle aynı metin. `tr.json` `wr.retention` anahtarı silinmedi (ortak dosya, yalnız ekleme kuralı); kodda artık kullanılmıyor.
 - **Koşu:**
   - `npx playwright test e2e/p22-chat.spec.ts`: 10 geçti.
@@ -15602,6 +15602,7 @@ süzgeçli → sohbet satırı imkânsız (yukarıdaki tablo).
   - `apps/web/lib/audit/actions.ts` `AUDIT_ACTION_LABELS` += `...CHAT_AUDIT_LABELS`.
 
   `pt-surface` snapshot'ı yalnız export adlarını listeliyor, yeni export olmadığı için değişmedi. Contracts testleri 286 geçti.
+
 - **D-2:** 4426 kapanışında konsol başlığı ve rozeti artık "Konsol sürümü eski" gösteriyor (uyarı tonu); "Oturum sona erdi" ve "Bitti" görünmüyor. Neden metni: "Oturum sürüyor, ancak bu sekme eski konsol sürümüyle açık — sayfayı yenileyin." + "Sayfayı yenile" düğmesi. `tr.json`'a `c.st.outdated` ve `c.outdatedTitle` eklendi; bu paketin kendi anahtarı `c.reason.console_outdated` metni güncellendi.
 - **Testler:**
   - Birim: `lib/chat/chat-p22.test.ts` → "S-P22-2 konsol kapısı (4426)" (4426 → `console_outdated`, yeniden bağlanma yok).

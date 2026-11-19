@@ -58,7 +58,10 @@ export function ChatSection({
       const seen = new Set(cur.session.items.map((i) => i.id));
       setLoad({
         kind: "ok",
-        data: { ...cur, session: { items: [...cur.session.items, ...r.session.items.filter((i) => !seen.has(i.id))], more: r.session.more } },
+        data: {
+          ...cur,
+          session: { items: [...cur.session.items, ...r.session.items.filter((i) => !seen.has(i.id))], more: r.session.more },
+        },
       });
     } catch (e) {
       setMoreErr(toUiError(e).message);

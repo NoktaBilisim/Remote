@@ -16,8 +16,7 @@ import { toUiError, type UiError } from "@/lib/error-message";
 import { t } from "@/lib/i18n";
 
 /** K-P22-5: NFC + boşluk tekleştirilmiş gövde anahtar cümleyi içeriyor mu (sunucu `chatParagraphMissing` ile aynı ölçü). */
-export const hasChatParagraph = (body: string): boolean =>
-  body.normalize("NFC").replace(/\s+/g, " ").includes(CHAT_CONSENT_KEY_SENTENCE);
+export const hasChatParagraph = (body: string): boolean => body.normalize("NFC").replace(/\s+/g, " ").includes(CHAT_CONSENT_KEY_SENTENCE);
 
 /** Sunucuyla aynı sayım: CRLF → LF, uçlar kırpılmış, kod noktası. */
 const consentLength = (v: string): number => [...v.replace(/\r\n?/g, "\n").trim()].length;

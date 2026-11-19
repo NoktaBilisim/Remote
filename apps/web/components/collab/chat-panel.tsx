@@ -137,12 +137,7 @@ export function ChatPanel({
                 {m.status === "failed" && m.clientMsgId && (
                   <span className="inline-flex flex-wrap items-center gap-2 text-xs text-danger" data-testid="chat-failed">
                     {t("p22.chat.failed")}
-                    <Button
-                      variant="secondary"
-                      disabled={!chat.ready}
-                      onClick={() => chat.retry(m.clientMsgId!)}
-                      data-testid="chat-retry"
-                    >
+                    <Button variant="secondary" disabled={!chat.ready} onClick={() => chat.retry(m.clientMsgId!)} data-testid="chat-retry">
                       <RotateCw aria-hidden className="size-4" />
                       {t("p22.chat.retry")}
                     </Button>

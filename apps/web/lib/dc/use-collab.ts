@@ -174,7 +174,6 @@ export function useCollab(ch: Channels | null, o: CollabOptions) {
     [ch],
   );
 
-
   /** Çizim gönder + yerelde uygula (geri al/temizle kendi listemizde de geçerli). */
   const sendAnnot = useCallback(
     (m: Extract<CtlMessage, { t: `annot.${string}` }>) => {

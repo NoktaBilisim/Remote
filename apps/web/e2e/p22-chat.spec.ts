@@ -144,7 +144,8 @@ test("K-P22-8 gözetimsiz oda: sohbet sekmesi pasif bilgi", async ({ page, conte
     const server = ws.connectToServer();
     server.onMessage((m) => {
       const o = JSON.parse(String(m)) as { t: string; unattended?: unknown };
-      if (o.t === "hello") o.unattended = { deviceId: "01JDEV0000000000000000000A", deviceName: "AKTIF-PC", consentMode: "silent", intervene: true };
+      if (o.t === "hello")
+        o.unattended = { deviceId: "01JDEV0000000000000000000A", deviceName: "AKTIF-PC", consentMode: "silent", intervene: true };
       ws.send(JSON.stringify(o));
     });
     ws.onMessage((m) => server.send(m));
@@ -185,7 +186,8 @@ test("AC-264 oturum detayı: yetkili sohbeti açar (audit tıklamayla), okunamay
   await historyAs(context, page, "hc", RICH);
   const sec = page.getByTestId("section-chat");
   await expect(sec.getByRole("heading", { name: "Sohbet" })).toBeVisible();
-  const views = async (c: string) => ((await (await page.request.get(`${MOCK}/__e2e/chat-views/${c}/${RICH}`)).json()) as { views: number }).views;
+  const views = async (c: string) =>
+    ((await (await page.request.get(`${MOCK}/__e2e/chat-views/${c}/${RICH}`)).json()) as { views: number }).views;
   const cookie = (await context.cookies()).find((c) => c.value.startsWith("u-hc-"))!.value;
   expect(await views(cookie)).toBe(0); // sayfa açılışı audit üretmez
   await sec.getByTestId("hchat-show").click();
@@ -222,7 +224,10 @@ test("AC-264 oturum detayı: sessions.view_chat yoksa sohbet bölümü yok", asy
   await expect(page.getByTestId("section-chat")).toHaveCount(0);
 });
 
-test("AC-291: aydınlatma bandı → standart paragrafı ekle → kaydet → bant yok (genel ayarlar bandı da kalkar)", async ({ page, context }, info) => {
+test("AC-291: aydınlatma bandı → standart paragrafı ekle → kaydet → bant yok (genel ayarlar bandı da kalkar)", async ({
+  page,
+  context,
+}, info) => {
   desktopOnly(info.project.name);
   await signIn(context, "p22ct");
   await page.goto("/settings/general");
