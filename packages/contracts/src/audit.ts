@@ -312,12 +312,14 @@ export type UnattendedAuditAction = (typeof UNATTENDED_AUDIT)[keyof typeof UNATT
 /**
  * P28u politika değişikliği (AC-436): entity `tenant_settings`/tenantId, `{old, new, ack: true, stepUp: true}`. `settings.*`
  * önekli (audit "Ayarlar" grubu) olduğundan `UNATTENDED_AUDIT` (`unattended.*`) dışında; etiket `UNATTENDED_AUDIT_LABELS`'ta.
+ * r3 (2026-11-18): politika kaldırıldı — yalnız eski satırları okumak/etiketlemek için kalır, yeni yazım yok.
  */
 export const UNATTENDED_POLICY_AUDIT = "settings.unattended_silent";
 
 /**
  * `unattended.silent.notify.event` (P28u `connect`/`policy`; P28e S-P28e-4 `recording_policy` — gözetimsiz kayıt politikası;
  * P28c Y-PC-1 `join` — silent odaya ek teknisyen katıldı, `transfer` — silent odada oturum devredildi).
+ * r3 (2026-11-18): yeni yazım yalnız `recording_policy`; diğer değerler eski satırları okumak için kalır.
  */
 export const SILENT_NOTIFY_EVENTS = ["connect", "policy", "recording_policy", "join", "transfer"] as const;
 export type SilentNotifyEvent = (typeof SILENT_NOTIFY_EVENTS)[number];
