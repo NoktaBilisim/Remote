@@ -5430,6 +5430,9 @@ Gerçek anahtar **yalnız bu adımla**, internete bağlı olmayan bir makinede �
    - **Etkin** tohum GitHub ortam secret'ına konur (§31.5):
      `tr -d '\n' < prod-etkin.seed | gh secret set UPDATE_SIGNING_KEY --env agent-update-sign` ve
      `tr -d '\n' < stg-etkin.seed | gh secret set UPDATE_SIGNING_KEY --env agent-update-sign-stg`.
+     İmza adımı tohumu dolgulu/dolgusuz, std/url base64 olarak kabul eder; 32 bayta çözülmezse iş başarısız olur.
+     Ham değer, std/url (dolgulu+dolgusuz) ve hex (küçük/büyük) varyantlarının hepsi `add-mask` ile maskelenir ve
+     imzalayıcı çıktısı bu varyantlarla taranır (S-P29-K-1).
    - **Yedek** tohumlar iki ayrı çevrimdışı ortama (kasa / şifreli USB) konur. GitHub'a **konmaz**.
    - Diskteki kalanlar silinir: `shred -u *.seed *.txt`.
 4. Sunucu `.env` dosyasına `UPDATE_MANIFEST_PUBKEYS=<etkin>,<yedek>` satırını yazın. Prod'a prod anahtarları, staging'e staging

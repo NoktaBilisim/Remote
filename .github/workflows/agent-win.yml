@@ -1957,16 +1957,22 @@ jobs:
             echo "produced=0" >> "$GITHUB_OUTPUT"; exit 0
           fi
           raw="$(printf '%s' "$UPDATE_SIGNING_KEY" | tr -d ' \t\r\n')"
-          url="$(printf '%s' "$raw" | tr '+/' '-_' | tr -d '=')"
-          hex="$(printf '%s' "$raw" | base64 -d 2>/dev/null | od -An -tx1 | tr -d ' \n')"
-          echo "::add-mask::$url"; echo "::add-mask::$hex"
+          echo "::add-mask::$raw"
+          # S-P29-K-1: dolgulu/dolgusuz, std/url base64 tohum -> tüm varyantlar maskelenir ve taranır
+          std="$(printf '%s' "$raw" | tr -- '-_' '+/' | tr -d '=')"
+          case $(( ${#std} % 4 )) in 0) pad="$std" ;; 2) pad="$std==" ;; 3) pad="$std=" ;; *) pad="" ;; esac
+          hex=""; [ -z "$pad" ] || hex="$(printf '%s' "$pad" | base64 -d 2>/dev/null | od -An -tx1 | tr -d ' \n')" || hex=""
+          [ "${#hex}" -eq 64 ] || { raw=""; std=""; pad=""; hex=""; echo "::error::UPDATE_SIGNING_KEY 32 baytlık base64 tohum olarak çözülemedi (runbook §31.2)"; exit 1; }
+          url="$(printf '%s' "$std" | tr '+/' '-_')"; urlpad="$(printf '%s' "$pad" | tr '+/' '-_')"
+          HEX="$(printf '%s' "$hex" | tr 'a-f' 'A-F')"
+          for m in "$std" "$pad" "$url" "$urlpad" "$hex" "$HEX"; do echo "::add-mask::$m"; done
           log="$RUNNER_TEMP/sign.log"; rc=0; mkdir -p out
           while read -r c p a f; do
             printf '%s' "$UPDATE_SIGNING_KEY" | signer/update-sign sign --key-stdin --env "$UENV" --platform "$p" --arch "$a" \
               --component "$c" --version "$V" --min-updater "$MIN" --file "$f" --out-dir out >>"$log" 2>&1 || rc=1
           done < items.txt
-          leak=0; if grep -qF -f <(printf '%s\n%s\n%s\n' "$raw" "$url" "$hex" | grep -v '^$') "$log"; then leak=1; fi
-          raw=""; url=""; hex=""; unset UPDATE_SIGNING_KEY
+          leak=0; if grep -qiF -f <(printf '%s\n' "$raw" "$std" "$pad" "$url" "$urlpad" "$hex" | grep -v '^$') "$log"; then leak=1; fi
+          raw=""; std=""; pad=""; url=""; urlpad=""; hex=""; HEX=""; unset UPDATE_SIGNING_KEY
           [ "$leak" = 0 ] || { rm -f "$log"; echo "::error::imza adımı çıktısında tohum biçimi bulundu (AC-471) — anahtarı döndürün (runbook §31.3)"; exit 1; }
           cat "$log"; rm -f "$log"
           [ "$rc" = 0 ] || { echo "::error::update-sign sign başarısız"; exit 1; }
@@ -2061,16 +2067,22 @@ jobs:
           set +x
           [ -n "$UPDATE_SIGNING_KEY" ] || { echo "::error::agent-update-sign-stg ortamında UPDATE_SIGNING_KEY yok (UPDATE_SIGNING_ENABLED_STG=1 iken zorunlu)"; exit 1; }
           raw="$(printf '%s' "$UPDATE_SIGNING_KEY" | tr -d ' \t\r\n')"
-          url="$(printf '%s' "$raw" | tr '+/' '-_' | tr -d '=')"
-          hex="$(printf '%s' "$raw" | base64 -d 2>/dev/null | od -An -tx1 | tr -d ' \n')"
-          echo "::add-mask::$url"; echo "::add-mask::$hex"
+          echo "::add-mask::$raw"
+          # S-P29-K-1: dolgulu/dolgusuz, std/url base64 tohum -> tüm varyantlar maskelenir ve taranır
+          std="$(printf '%s' "$raw" | tr -- '-_' '+/' | tr -d '=')"
+          case $(( ${#std} % 4 )) in 0) pad="$std" ;; 2) pad="$std==" ;; 3) pad="$std=" ;; *) pad="" ;; esac
+          hex=""; [ -z "$pad" ] || hex="$(printf '%s' "$pad" | base64 -d 2>/dev/null | od -An -tx1 | tr -d ' \n')" || hex=""
+          [ "${#hex}" -eq 64 ] || { raw=""; std=""; pad=""; hex=""; echo "::error::UPDATE_SIGNING_KEY 32 baytlık base64 tohum olarak çözülemedi (runbook §31.2)"; exit 1; }
+          url="$(printf '%s' "$std" | tr '+/' '-_')"; urlpad="$(printf '%s' "$pad" | tr '+/' '-_')"
+          HEX="$(printf '%s' "$hex" | tr 'a-f' 'A-F')"
+          for m in "$std" "$pad" "$url" "$urlpad" "$hex" "$HEX"; do echo "::add-mask::$m"; done
           log="$RUNNER_TEMP/sign.log"; rc=0; mkdir -p out
           while read -r c p a f; do
             printf '%s' "$UPDATE_SIGNING_KEY" | signer/update-sign sign --key-stdin --env "$UENV" --platform "$p" --arch "$a" \
               --component "$c" --version "$V" --min-updater "$MIN" --file "$f" --out-dir out >>"$log" 2>&1 || rc=1
           done < items.txt
-          leak=0; if grep -qF -f <(printf '%s\n%s\n%s\n' "$raw" "$url" "$hex" | grep -v '^$') "$log"; then leak=1; fi
-          raw=""; url=""; hex=""; unset UPDATE_SIGNING_KEY
+          leak=0; if grep -qiF -f <(printf '%s\n' "$raw" "$std" "$pad" "$url" "$urlpad" "$hex" | grep -v '^$') "$log"; then leak=1; fi
+          raw=""; std=""; pad=""; url=""; urlpad=""; hex=""; HEX=""; unset UPDATE_SIGNING_KEY
           [ "$leak" = 0 ] || { rm -f "$log"; echo "::error::imza adımı çıktısında tohum biçimi bulundu (AC-471) — anahtarı döndürün (runbook §31.3)"; exit 1; }
           cat "$log"; rm -f "$log"
           [ "$rc" = 0 ] || { echo "::error::update-sign sign başarısız"; exit 1; }
@@ -2174,15 +2186,21 @@ jobs:
           set +x
           [ -n "$UPDATE_SIGNING_KEY" ] || { echo "::error::agent-update-sign ortamında UPDATE_SIGNING_KEY yok"; exit 1; }
           raw="$(printf '%s' "$UPDATE_SIGNING_KEY" | tr -d ' \t\r\n')"
-          url="$(printf '%s' "$raw" | tr '+/' '-_' | tr -d '=')"
-          hex="$(printf '%s' "$raw" | base64 -d 2>/dev/null | od -An -tx1 | tr -d ' \n')"
-          echo "::add-mask::$url"; echo "::add-mask::$hex"
+          echo "::add-mask::$raw"
+          # S-P29-K-1: dolgulu/dolgusuz, std/url base64 tohum -> tüm varyantlar maskelenir ve taranır
+          std="$(printf '%s' "$raw" | tr -- '-_' '+/' | tr -d '=')"
+          case $(( ${#std} % 4 )) in 0) pad="$std" ;; 2) pad="$std==" ;; 3) pad="$std=" ;; *) pad="" ;; esac
+          hex=""; [ -z "$pad" ] || hex="$(printf '%s' "$pad" | base64 -d 2>/dev/null | od -An -tx1 | tr -d ' \n')" || hex=""
+          [ "${#hex}" -eq 64 ] || { raw=""; std=""; pad=""; hex=""; echo "::error::UPDATE_SIGNING_KEY 32 baytlık base64 tohum olarak çözülemedi (runbook §31.2)"; exit 1; }
+          url="$(printf '%s' "$std" | tr '+/' '-_')"; urlpad="$(printf '%s' "$pad" | tr '+/' '-_')"
+          HEX="$(printf '%s' "$hex" | tr 'a-f' 'A-F')"
+          for m in "$std" "$pad" "$url" "$urlpad" "$hex" "$HEX"; do echo "::add-mask::$m"; done
           log="$RUNNER_TEMP/sign.log"; rc=0; mkdir -p out
           for f in in/update-*.json; do
             printf '%s' "$UPDATE_SIGNING_KEY" | signer/update-sign sign --key-stdin --from "$f" --out-dir out >>"$log" 2>&1 || rc=1
           done
-          leak=0; if grep -qF -f <(printf '%s\n%s\n%s\n' "$raw" "$url" "$hex" | grep -v '^$') "$log"; then leak=1; fi
-          raw=""; url=""; hex=""; unset UPDATE_SIGNING_KEY
+          leak=0; if grep -qiF -f <(printf '%s\n' "$raw" "$std" "$pad" "$url" "$urlpad" "$hex" | grep -v '^$') "$log"; then leak=1; fi
+          raw=""; std=""; pad=""; url=""; urlpad=""; hex=""; HEX=""; unset UPDATE_SIGNING_KEY
           [ "$leak" = 0 ] || { rm -f "$log"; echo "::error::imza adımı çıktısında tohum biçimi bulundu (AC-471) — anahtarı döndürün (runbook §31.3)"; exit 1; }
           cat "$log"; rm -f "$log"
           [ "$rc" = 0 ] || { echo "::error::update-sign sign --from başarısız"; exit 1; }
