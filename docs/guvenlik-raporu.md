@@ -1,3 +1,27 @@
+# Güvenlik Raporu — P30b (AC-498 r2, dal p30b-kontrolde-cizim, HEAD b502558, 2026-11-20)
+
+DURUM: GEÇTİ — Kritik 0 / Yüksek 0 / Orta 0 / Düşük 3
+
+Kapsam: `git diff origin/main...HEAD -- apps/web DESIGN.md`. Yalnız web konsolu değişti; sunucu, Go istemci ve `packages/`
+diff'i boş. Ayrıntılı tablo ve testler `docs/qa-raporu.md` "P30b" bölümünde.
+
+Doğrulananlar:
+
+- Çizim modunda girdi yakalanmıyor: `capturing = held && !drawing` ve `useRemoteInput` sökülüyor.
+- Temizlikte basılı düğmeler bırakılıyor ve `k.release_all` gönderiliyor.
+- `comboSender` çizim modunda göndermiyor. Keyboard Lock kaldırılıyor.
+- Araç seçimi kontrol makinesine girmiyor. e2e'de tek `control.request` görülüyor, `control.release` yok.
+- P28c kilidi korunuyor (`activeDrawTool` + `disabledHint=lock`). Sunucudaki `ctlAllowed` değişmedi.
+- Gözetimsiz gösterge ve kontrol kuralları değişmedi.
+
+| ID     | Önem  | Bulgu                                                                                                                                                                                                                                                      |
+| ------ | ----- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| P30b-1 | Düşük | `collab.ready` false iken araç yok sayılıyor ve yakalama kendiliğinden dönebiliyor. Bu durum yalnız `resetPeer`'da oluşuyor ve `input` kanalı da aynı anda null oluyor; kaçak yol görülmedi. `draw.tool` yeni peer'de seçili kalıyor (sürpriz mod geçişi). |
+| P30b-2 | Düşük | %100'de çizim sahne kabına odak veriyor (`tabIndex=0`, pointerdown `preventDefault` yok). Esc ile çıkınca Esc keyup (ve tekrar eden keydown'lar) uzak bilgisayara gidebilir. Yakalama bilerek açıldığı için sızıntı sayılmadı.                             |
+| P30b-3 | Düşük | Esc dinleyicisi belge düzeyinde (sohbet kutusu ve tam ekranda yan etki). `ui/menu` içindeki Esc doğrulanmadı.                                                                                                                                              |
+
+---
+
 # Güvenlik Raporu — P30 kod turu 2 (dal p30-gozetimsiz-cizim, HEAD f713f54, 2026-11-20)
 
 DURUM: GEÇTİ — Kritik 0 / Yüksek 0 / Orta 0 / Düşük 2

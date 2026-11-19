@@ -90,14 +90,13 @@ export function annotInput(collab: Collab, drawTool: DrawTool | null, color: Ann
   return { state: collab.annot, input };
 }
 
-/** İşaretleme araç çubuğu (kontrol yakalanırken pasif, nedeni ipucunda). */
+/** İşaretleme araç çubuğu (P28c kontrol sahibi değilse pasif, nedeni ipucunda; kontrol açıkken de etkin — AC-498 r2). */
 export function ConsoleAnnotTools({
   collab,
   tool,
   color,
   onTool,
   onColor,
-  capturing,
   lock = null,
 }: {
   /** P28c: kontrol sahibi değil — araç çubuğu pasif + neden. */
@@ -107,7 +106,6 @@ export function ConsoleAnnotTools({
   color: AnnotColor;
   onTool: (t: DrawTool | null) => void;
   onColor: (c: AnnotColor) => void;
-  capturing: boolean;
 }) {
   if (!collab.ready) return null;
   return (
@@ -118,7 +116,7 @@ export function ConsoleAnnotTools({
       onColor={onColor}
       onUndo={() => collab.sendAnnot({ t: "annot.undo", ...(collab.annot.strokes.at(-1) ? { id: collab.annot.strokes.at(-1)?.id } : {}) })}
       onClear={() => collab.sendAnnot({ t: "annot.clear" })}
-      disabledHint={lock ?? (capturing ? t("p7.annotOff") : null)}
+      disabledHint={lock}
     />
   );
 }
@@ -138,6 +136,8 @@ export function ConsoleControlBar(p: {
   releaseRef: RefObject<HTMLButtonElement | null>;
   /** Gözetimsiz oturum (bırakma notu onay istemez). */
   unattended?: boolean;
+  /** AC-498 r2: çizim aracı seçili — kontrol açık, girdi duraklatıldı. */
+  drawing?: boolean;
 }) {
   if (p.lock) return <SeatLockedControl lock={p.lock} />;
   return (
@@ -153,6 +153,7 @@ export function ConsoleControlBar(p: {
           onKeys={p.onKeys}
           releaseRef={p.releaseRef}
           unattended={p.unattended ?? false}
+          drawing={p.drawing ?? false}
         />
       )}
     </>

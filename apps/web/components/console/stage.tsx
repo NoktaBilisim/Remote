@@ -18,6 +18,8 @@ type StageAnnot = { state: AnnotState; input: DrawInput | null } | null;
 interface StageControl {
   /** Kontrol izni var ve teknisyen bırakmadı (görüntü yoksa yine yakalanmaz). */
   active: boolean;
+  /** AC-498 r2: çizim aracı seçili — kontrol açık kalır (çerçeve), girdi yakalanmaz, çizim katmanı girdiyi alır. */
+  drawing?: boolean;
   channel: RTCDataChannel | null;
   /** Ctrl+Alt+Shift: klavye yakalamasından çık (odak "Kontrolü bırak"a). */
   onKeyboardRelease: () => void;
@@ -35,7 +37,7 @@ interface StageProps {
   verifyCode: string;
   sessionCode: string | null;
   lobby: ReactNode;
-  /** P5 işaretleme: yalnız "Sığdır" görünümünde (koordinat = görünen içerik alanı). */
+  /** P5 işaretleme: Sığdır ve %100 (AC-498 r2) görünümünde; koordinat = video kutusundaki içerik alanı. */
   annot?: StageAnnot;
   tools?: ReactNode;
   /** P7: kontrol düğmesi + monitör seçimi (şeritte, görüntü olmasa da görünür). */
@@ -86,24 +88,17 @@ export function Stage(p: StageProps) {
       data-share={state.share}
       data-mode={mode}
       data-fullscreen={full}
-      data-control={f.capturing ? "on" : "off"}
+      data-control={f.held ? "on" : "off"}
+      data-capture={f.capturing ? "on" : f.held ? "paused" : "off"}
       className="relative flex min-h-[60vh] flex-1 flex-col overflow-hidden rounded-lg bg-stage"
     >
-      {f.strip && (
-        <StageStrip
-          stripRef={stripRef}
-          fit={{ compact, tight }}
-          view={view}
-          content={stripContent(p)}
-          showing={f.showing}
-          capturing={f.capturing}
-        />
-      )}
+      {f.strip && <StageStrip stripRef={stripRef} fit={{ compact, tight }} view={view} content={stripContent(p)} showing={f.showing} />}
       <StageBanners selfElevated={control?.selfElevated} elevated={f.showing && control?.elevated} />
       <StageView
         videoRef={ref}
         scrollRef={scroll}
         capturing={f.capturing}
+        held={f.held}
         showing={f.showing}
         actual={actual}
         guestName={state.guest?.name ?? t("c.customer")}
@@ -115,15 +110,17 @@ export function Stage(p: StageProps) {
 }
 
 /**
- * Sahne kararları: görüntü gösteriliyor mu, girdi yakalanıyor mu (kontrol izni + görüntü + güvenli masaüstü değil +
- * kendi WS'imiz bağlı), şerit görünür mü (görüntü varken ya da kontrol çubuğu varken canlı ve bağlıyken).
+ * Sahne kararları: görüntü gösteriliyor mu, kontrol açık mı (`held`: kontrol izni + görüntü + güvenli masaüstü değil +
+ * kendi WS'imiz bağlı → kırmızı çerçeve), girdi yakalanıyor mu (`held` ve çizim aracı seçili değil, AC-498 r2),
+ * şerit görünür mü (görüntü varken ya da kontrol çubuğu varken canlı ve bağlıyken).
  */
-function stageFlags(state: TechState, control: StageControl | null | undefined, hasControlBar: boolean) {
+export function stageFlags(state: TechState, control: StageControl | null | undefined, hasControlBar: boolean) {
   const live = state.phase === "live";
   const showing = live && state.share === "sharing" && state.peerLostSince === null;
-  const capturing = Boolean(control?.active && showing && !control.secureDesktop && state.reconnectSince === null);
+  const held = Boolean(control?.active && showing && !control.secureDesktop && state.reconnectSince === null);
+  const capturing = held && !control?.drawing;
   const strip = showing || (hasControlBar && live && state.peerLostSince === null && state.reconnectSince === null);
-  return { showing, capturing, strip };
+  return { showing, held, capturing, strip };
 }
 
 function overlayInput(p: StageProps, now: number | null): OverlayInput {
@@ -174,6 +171,7 @@ function StageView({
   videoRef,
   scrollRef,
   capturing,
+  held,
   showing,
   actual,
   guestName,
@@ -183,6 +181,8 @@ function StageView({
   videoRef: RefObject<HTMLVideoElement | null>;
   scrollRef: RefObject<HTMLDivElement | null>;
   capturing: boolean;
+  /** Kontrol açık (çizim modunda da) → kırmızı çerçeve. */
+  held: boolean;
   showing: boolean;
   actual: boolean;
   guestName: string;
@@ -190,25 +190,29 @@ function StageView({
   overlay: ReactNode;
 }) {
   const region = showing && actual;
-  const frame = capturing ? "border-control-frame" : "border-transparent";
+  const frame = held ? "border-control-frame" : "border-transparent";
   return (
     // Kontrol aktifken kırmızı çerçeve (control-frame, iki temada sabit); kalınlık hep 4 px → kayma yok
     <div data-testid="stage-view" className={`relative flex min-h-[50vh] flex-1 items-center justify-center border-4 p-4 ${frame}`}>
       {/* %100: doğal boyut + kaydırma (klavyeyle odaklanıp ok tuşlarıyla kaydırılır); Sığdır: object-contain.
-          Kontrol: aynı kap odaklanabilir "application" olur; fare/klavye uzak ekrana gider (lib/control). */}
+          Kontrol: aynı kap odaklanabilir "application" olur; fare/klavye uzak ekrana gider (lib/control).
+          Medya kabı iki kipte de aynı öğe (video yeniden takılmaz): %100'de video boyutunu sarar → çizim katmanı video
+          kutusunun tamamına oturur (kaydırılan kısım dahil); Sığdır'da kaydırma kabını doldurur. */}
       <div ref={scrollRef} data-testid="stage-scroll" {...scrollAttrs(capturing, region)} className={scrollClass(capturing, actual)}>
-        <video
-          ref={videoRef}
-          autoPlay
-          muted
-          playsInline
-          data-testid="console-video"
-          aria-label={t("cs.video", { name: guestName })}
-          className={`${actual ? "size-auto max-w-none" : "size-full object-contain"} ${showing ? "" : "invisible"}`}
-        />
-        {showing && !actual && annot && (
-          <AnnotLayer video={videoRef} state={annot.state} input={capturing ? null : annot.input} label={t("p5.a.layer")} />
-        )}
+        <div data-testid="stage-media" className={actual ? "relative w-max" : "relative size-full"}>
+          <video
+            ref={videoRef}
+            autoPlay
+            muted
+            playsInline
+            data-testid="console-video"
+            aria-label={t("cs.video", { name: guestName })}
+            className={`${actual ? "block size-auto max-w-none" : "size-full object-contain"} ${showing ? "" : "invisible"}`}
+          />
+          {showing && annot && (
+            <AnnotLayer video={videoRef} state={annot.state} input={capturing ? null : annot.input} label={t("p5.a.layer")} />
+          )}
+        </div>
       </div>
       {overlay && <div className="relative z-10 flex w-full items-center justify-center">{overlay}</div>}
     </div>
