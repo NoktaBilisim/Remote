@@ -80,3 +80,48 @@ func TestAC496P30LayerFailureKeepsIndicator(t *testing.T) {
 	default:
 	}
 }
+
+// P30 güvenlik turu (YÜKSEK): en kötü çizim yükü (toplam nokta bütçesi kadar tam ekran zikzak + ~1 kHz lazer) altında
+// doğrulama turu ≤ 1,5 sn aralıkla sürer ve gösterge başarısız sayılmaz (boyama ≈ 30 Hz, wmAnnot birleşir).
+func TestAC342P30TickUnderAnnotFlood(t *testing.T) {
+	ind := showForTest(t)
+	zig := make([][2]float64, 500)
+	for i := range zig {
+		zig[i] = [2]float64{float64(i%2) * 1, float64(i) / 499}
+	}
+	var strokes []annot.Stroke
+	for range annot.MaxPoints / 500 {
+		strokes = append(strokes, annot.Stroke{ID: "z", Tool: "pen", Color: "red", Pts: zig})
+	}
+	stop := make(chan struct{})
+	go func() {
+		for i := 0; ; i++ {
+			select {
+			case <-stop:
+				return
+			case <-time.After(time.Millisecond):
+			}
+			p := [2]float64{float64(i%100) / 100, 0.5}
+			ind.Paint(annotSnap{Surface: 1, Strokes: strokes, Laser: &p, LaserAt: time.Now()})
+		}
+	}()
+	defer close(stop)
+	prev, maxGap := ind.tickedAt(), time.Duration(0)
+	end := time.Now().Add(5 * time.Second)
+	for time.Now().Before(end) {
+		time.Sleep(10 * time.Millisecond)
+		if at := ind.tickedAt(); at != prev {
+			maxGap, prev = max(maxGap, at.Sub(prev)), at
+		}
+	}
+	maxGap = max(maxGap, time.Since(prev))
+	t.Logf("yük altında en uzun doğrulama aralığı: %v", maxGap)
+	if maxGap > 1500*time.Millisecond {
+		t.Fatalf("doğrulama turu %v aç kaldı (≤ 1,5 sn beklenir)", maxGap)
+	}
+	select {
+	case <-ind.Failed():
+		t.Fatal("yük altında gösterge başarısız sayıldı")
+	default:
+	}
+}

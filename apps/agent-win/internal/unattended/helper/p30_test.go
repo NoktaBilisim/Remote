@@ -7,6 +7,7 @@ import (
 
 	"remote-support/agent-win/internal/annot"
 	"remote-support/agent-win/internal/dc"
+	"remote-support/agent-win/internal/flow"
 	"remote-support/agent-win/internal/signal"
 )
 
@@ -214,20 +215,56 @@ func TestAC497RunAnnotSurvivesDesktopChange(t *testing.T) {
 	waitExit(t, done)
 }
 
-// AC-496 (K-P30-2): çizim yolu göstergenin Failed kanalına dokunmaz — boyama başarısız olsa da (katman kurulamadı)
-// oturum sürer; yalnız göstergenin kendi doğrulaması Failed'i kapatır.
-func TestAC496PaintNeverFailsIndicator(t *testing.T) {
-	ind := newPaintInd("Default")
-	l := newLive(ind, "X", false)
-	l.SetSurface(99) // Windows'ta geçersiz monitör → katman yok
-	for range 10 {
-		l.Annot(stroke("a"))
-		l.Annot(laserAt(0.1, 0.1))
+// P30 güvenlik turu (DÜŞÜK): kontrol başka teknisyene geçince önceki sahibin çizimleri silinir; aynı sahipte ve ilk
+// roster'da silinmez.
+func TestAC498ControllerChangeClearsStrokes(t *testing.T) {
+	ctrl := flow.MultiTexts.RoleControl
+	view := func(c string) flow.RosterView {
+		v := flow.RosterView{}
+		for _, tid := range []string{"A", "B"} {
+			role := flow.MultiTexts.RoleMember
+			if tid == c {
+				role = ctrl
+			}
+			v.Techs = append(v.Techs, flow.RosterTech{TID: tid, Name: "T" + tid, Role: role})
+		}
+		return v
 	}
-	l.Annot(dc.Ctl{T: "annot.clear"})
+	f := &fakeSink{}
+	h := &headless{draw: f, live: &fakeLive{ok: true}, techName: "TA"}
+	h.ShowRoster(view("A"))
+	h.ShowRoster(view("A"))
+	if len(f.ctl) != 0 {
+		t.Fatalf("sahip değişmeden silindi: %v", f.ctl)
+	}
+	h.ShowRoster(view("B"))
+	if !reflect.DeepEqual(f.ctl, []string{"annot.clear"}) {
+		t.Fatalf("devirde silinmedi: %v", f.ctl)
+	}
+}
+
+// P30 güvenlik turu (YÜKSEK): gözcü — doğrulama turu limit'ten eskiyse fail; güncel tur ya da stop'ta fail yok.
+func TestAC342P30WatchdogFailsOnStaleTick(t *testing.T) {
+	failed := make(chan struct{})
+	stale := time.Now().Add(-time.Hour)
+	go watchdog(make(chan struct{}), func() time.Time { return stale }, 50*time.Millisecond, 5*time.Millisecond,
+		func() { close(failed) })
 	select {
-	case <-l.Failed():
-		t.Fatal("çizim göstergeyi başarısız saydı")
-	case <-time.After(50 * time.Millisecond):
+	case <-failed:
+	case <-time.After(time.Second):
+		t.Fatal("eski turda gözcü fail çağırmadı")
+	}
+	stop := make(chan struct{})
+	done := make(chan struct{})
+	var calls int
+	go func() {
+		watchdog(stop, time.Now, 50*time.Millisecond, 5*time.Millisecond, func() { calls++ })
+		close(done)
+	}()
+	time.Sleep(100 * time.Millisecond)
+	close(stop)
+	<-done
+	if calls != 0 {
+		t.Fatal("güncel turda fail çağrıldı")
 	}
 }

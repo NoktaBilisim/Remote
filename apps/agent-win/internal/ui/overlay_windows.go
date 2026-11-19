@@ -123,6 +123,7 @@ func (ind *indicator) close() {
 // Model ve boyama internal/annot'tadır (P30: gözetimsiz yardımcı da aynı kodu kullanır).
 type overlay struct {
 	f       *form
+	canvas  annot.Canvas
 	strokes []annot.Stroke
 	laser   *[2]float64
 	laserAt time.Time
@@ -135,7 +136,7 @@ func newOverlay(t *thread, r win.RECT) *overlay {
 	f := t.newPopup(classOverlay, r.Left, r.Top, r.Right-r.Left, r.Bottom-r.Top, true)
 	win.SetLayered(f.h, annot.ColorKey, 0, win.LWA_COLORKEY)
 	win.ExcludeFromCapture(f.h)
-	f.paint = func(dc uintptr, r win.RECT) { annot.Paint(dc, r, o.strokes, o.laser, f.s, nil) }
+	f.paint = func(dc uintptr, r win.RECT) { o.canvas.Paint(dc, r, o.strokes, o.laser, f.s, nil) }
 	f.timer = func(uintptr) {
 		if o.laser != nil && time.Since(o.laserAt) > time.Second {
 			o.laser = nil
@@ -158,4 +159,7 @@ func (o *overlay) apply(m dc.Ctl) {
 	win.Invalidate(o.f.h)
 }
 
-func (o *overlay) close() { o.f.destroy() }
+func (o *overlay) close() {
+	o.f.destroy()
+	o.canvas.Release()
+}

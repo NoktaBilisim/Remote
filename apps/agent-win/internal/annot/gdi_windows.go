@@ -7,14 +7,28 @@ import "remote-support/agent-win/internal/win"
 // ColorKey işaretleme katmanında saydam renk (LWA_COLORKEY); hiçbir çizim rengiyle çakışmaz.
 var ColorKey = win.RGB(255, 0, 255)
 
+// Canvas katmanın arka tamponu: bellek DC'si ve bitmap katman boyutu değişene kadar yeniden kullanılır (P30 güvenlik
+// turu: her boyamada monitör boyutunda bitmap ayrılmaz). Yalnız katmanın iş parçacığında; Release pencereyle birlikte.
+type Canvas struct {
+	mem, bmp, old uintptr
+	w, h          int32
+}
+
 // Paint çizimleri ve lazer noktasını r boyutundaki (sol üst 0,0) katmana çift tamponlu boyar; zemin ColorKey (saydam).
 // scale DPI ölçekleme (kalem 4, ok ucu 16, lazer yarıçapı 8 pt). exclude dikdörtgenlerine (katman yerel koordinatı)
 // boyanmaz: zemin orada da saydamdır, çizim kırpılır (P30 K-P30-3: gösterge örtülmez). Hızlı Destek exclude=nil.
-func Paint(dc uintptr, r win.RECT, strokes []Stroke, laser *[2]float64, scale func(int32) int32, exclude []win.RECT) {
+func (c *Canvas) Paint(dc uintptr, r win.RECT, strokes []Stroke, laser *[2]float64, scale func(int32) int32,
+	exclude []win.RECT) {
 	w, h := r.Right, r.Bottom
-	mem := win.CompatibleDC(dc)
-	bmp := win.CompatibleBitmap(dc, w, h)
-	oldBmp := win.SelectObject(mem, bmp)
+	if c.mem == 0 || c.w != w || c.h != h {
+		c.Release()
+		c.mem = win.CompatibleDC(dc)
+		c.bmp = win.CompatibleBitmap(dc, w, h)
+		c.old = win.SelectObject(c.mem, c.bmp)
+		c.w, c.h = w, h
+	}
+	mem := c.mem
+	win.SelectClipRgn(mem, 0) // önceki boyamanın kırpması
 	key := win.SolidBrush(ColorKey)
 	win.FillRect(mem, &r, key)
 	win.DeleteObject(key)
@@ -31,9 +45,17 @@ func Paint(dc uintptr, r win.RECT, strokes []Stroke, laser *[2]float64, scale fu
 	}
 	win.SelectObject(mem, oldBrush)
 	win.BitBlt(dc, 0, 0, w, h, mem)
-	win.SelectObject(mem, oldBmp)
-	win.DeleteObject(bmp)
-	win.DeleteDC(mem)
+}
+
+// Release arka tamponu bırakır (pencere kapanınca; sonraki Paint yeniden ayırır).
+func (c *Canvas) Release() {
+	if c.mem == 0 {
+		return
+	}
+	win.SelectObject(c.mem, c.old)
+	win.DeleteObject(c.bmp)
+	win.DeleteDC(c.mem)
+	*c = Canvas{}
 }
 
 func colorRef(name string) uint32 {

@@ -72,3 +72,23 @@ func TestAC494AnnotEdges(t *testing.T) {
 		t.Fatalf("yeşil %v", c)
 	}
 }
+
+// AC-494 / P30 güvenlik turu: toplam nokta bütçesi — aşılınca en eski çizimler düşer, son çizim kalır.
+func TestAC494AnnotPointBudget(t *testing.T) {
+	pts := make([][2]float64, 500)
+	var s []Stroke
+	for i := range 100 {
+		s, _, _ = Apply(s, nil, dc.Ctl{T: "annot.stroke", ID: string(rune('A' + i%26)), Pts: pts})
+	}
+	total := 0
+	for _, st := range s {
+		total += len(st.Pts)
+	}
+	if total > MaxPoints || len(s) != MaxPoints/500 {
+		t.Fatalf("toplam %d nokta, %d çizim", total, len(s))
+	}
+	s, _, _ = Apply(s, nil, dc.Ctl{T: "annot.stroke", ID: "son", Pts: [][2]float64{{0, 0}}})
+	if s[len(s)-1].ID != "son" || len(s) != MaxPoints/500 {
+		t.Fatalf("son çizim %q, %d çizim", s[len(s)-1].ID, len(s))
+	}
+}

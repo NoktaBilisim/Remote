@@ -1,6 +1,9 @@
 package helper
 
-import "strings"
+import (
+	"strings"
+	"time"
+)
 
 // Platformdan bağımsız denetim kuralları (Windows uygulamaları *_windows.go; Linux'ta birim testli).
 
@@ -126,4 +129,23 @@ func raiseOrder(layer uintptr, wins []uintptr) []uintptr {
 		out = append(out, layer)
 	}
 	return append(out, wins...)
+}
+
+// watchdog P30 güvenlik turu: göstergenin doğrulama turu (tick) iş parçacığı dışından izlenir; son tur limit'ten
+// eskiyse fail çağrılır ve gözcü biter (fail-closed: gösterge en üste alınamıyor/doğrulanamıyorsa oturum biter).
+// stop kapanınca (gösterge kapandı) çıkar.
+func watchdog(stop <-chan struct{}, last func() time.Time, limit, every time.Duration, fail func()) {
+	t := time.NewTicker(every)
+	defer t.Stop()
+	for {
+		select {
+		case <-stop:
+			return
+		case <-t.C:
+			if time.Since(last()) > limit {
+				fail()
+				return
+			}
+		}
+	}
 }

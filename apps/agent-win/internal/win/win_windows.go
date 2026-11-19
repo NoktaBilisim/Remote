@@ -73,6 +73,7 @@ var (
 	pRectangle              = gdi32.NewProc("Rectangle")
 	pEllipse                = gdi32.NewProc("Ellipse")
 	pExcludeClipRect        = gdi32.NewProc("ExcludeClipRect")
+	pSelectClipRgn          = gdi32.NewProc("SelectClipRgn")
 	pGetStockObject         = gdi32.NewProc("GetStockObject")
 	pCreateCompatibleDC     = gdi32.NewProc("CreateCompatibleDC")
 	pCreateCompatibleBitmap = gdi32.NewProc("CreateCompatibleBitmap")
@@ -466,9 +467,10 @@ func SetLayered(h uintptr, key uint32, alpha byte, flags uint32) {
 	_, _, _ = pSetLayeredWindowAttribute.Call(h, uintptr(key), uintptr(alpha), uintptr(flags))
 }
 
-// ExcludeFromCapture pencereyi ekran yakalamadan hariç tutar (Win10 2004+; eski sürümde etkisiz).
-func ExcludeFromCapture(h uintptr) {
-	_, _, _ = pSetWindowDisplayAffinity.Call(h, WDA_EXCLUDEFROMCAP)
+// ExcludeFromCapture pencereyi ekran yakalamadan hariç tutar (Win10 2004+); başarılıysa true (P30: katman sonucu denetler).
+func ExcludeFromCapture(h uintptr) bool {
+	r, _, _ := pSetWindowDisplayAffinity.Call(h, WDA_EXCLUDEFROMCAP)
+	return r != 0
 }
 
 // DisplayAffinity GetWindowDisplayAffinity (P30 testleri: katman yakalamadan hariç mi); sorgu başarısızsa 0.
@@ -540,6 +542,9 @@ func Rectangle(dc uintptr, l, t, r, b int32) {
 func ExcludeClipRect(dc uintptr, l, t, r, b int32) {
 	_, _, _ = pExcludeClipRect.Call(dc, uintptr(l), uintptr(t), uintptr(r), uintptr(b))
 }
+
+// SelectClipRgn rgn=0: DC'nin kırpma bölgesini kaldırır.
+func SelectClipRgn(dc, rgn uintptr) { _, _, _ = pSelectClipRgn.Call(dc, rgn) }
 func Ellipse(dc uintptr, l, t, r, b int32) {
 	_, _, _ = pEllipse.Call(dc, uintptr(l), uintptr(t), uintptr(r), uintptr(b))
 }

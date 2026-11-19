@@ -38,6 +38,10 @@ func Color(name string) [3]float64 {
 // MaxStrokes bellekte tutulan en çok çizim (teknisyenden sınırsız ileti katmanı şişirmesin).
 const MaxStrokes = 500
 
+// MaxPoints tüm çizimlerin toplam nokta bütçesi (P30 güvenlik turu: 500 × 500 noktalık boyama işi göstergenin iş
+// parçacığını tıkamasın); aşılınca en eski çizimler atılır. Tek çizim ≤ 500 nokta (dc.ParseCtl) her zaman sığar.
+const MaxPoints = 20000
+
 // Apply işaretleme iletisini uygular; laser true ise lazer noktası (yeniden) kondu.
 func Apply(strokes []Stroke, laser *[2]float64, m dc.Ctl) ([]Stroke, *[2]float64, bool) {
 	switch m.T {
@@ -47,6 +51,7 @@ func Apply(strokes []Stroke, laser *[2]float64, m dc.Ctl) ([]Stroke, *[2]float64
 			if len(strokes) > MaxStrokes {
 				strokes = strokes[len(strokes)-MaxStrokes:]
 			}
+			strokes = trimPoints(strokes)
 		}
 	case "annot.laser":
 		if m.X != nil && m.Y != nil {
@@ -63,6 +68,20 @@ func Apply(strokes []Stroke, laser *[2]float64, m dc.Ctl) ([]Stroke, *[2]float64
 		return nil, nil, false
 	}
 	return strokes, laser, false
+}
+
+// trimPoints toplam nokta MaxPoints'i aşıyorsa en eski çizimleri atar (son çizim her zaman kalır).
+func trimPoints(strokes []Stroke) []Stroke {
+	total := 0
+	for _, s := range strokes {
+		total += len(s.Pts)
+	}
+	i := 0
+	for total > MaxPoints && i < len(strokes)-1 {
+		total -= len(strokes[i].Pts)
+		i++
+	}
+	return strokes[i:]
 }
 
 // Polylines çizimin piksel uzayındaki (w×h, sol üst orijin) çoklu çizgileri: dikdörtgen kapalı çizgi, ok gövde +

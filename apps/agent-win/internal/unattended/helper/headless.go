@@ -25,6 +25,7 @@ type headless struct {
 	st       *statusPipe
 	live     rosterLabel
 	draw     annotSink // P30: çizim durumu (liveIndicator)
+	ctrlTid  string    // P30: son roster'daki kontrol sahibi (değişince çizimler silinir)
 	techName string    // P28c: sunucu gösterge metnindeki ad (tek sahipte ek yazılmaz)
 	granted  atomic.Bool
 }
@@ -43,11 +44,27 @@ type annotSink interface {
 // ShowRoster flow.RosterUI (P28c §6, V-PC-5): göstergede bağlı teknisyen adları; "Çıkar" yok. Ad
 // güvensizse ya da çizim doğrulanamazsa false → o teknisyenin eşi kurulmaz (Y-PC-4).
 func (h *headless) ShowRoster(v flow.RosterView) bool {
+	h.controllerChanged(v)
 	if h.live == nil {
 		return false
 	}
 	suffix, ok := namesSuffix(v, h.techName)
 	return ok && h.live.SetNames(suffix)
+}
+
+// controllerChanged P30 güvenlik turu: kontrol başka teknisyene geçince önceki sahibin çizimleri silinir (yeni sahip
+// onları konsolunda görmez ve kimliğe göre geri alamaz). Yalnız akış döngüsünden çağrılır.
+func (h *headless) controllerChanged(v flow.RosterView) {
+	ctrl := ""
+	for _, t := range v.Techs {
+		if t.Role == flow.MultiTexts.RoleControl {
+			ctrl = t.TID
+		}
+	}
+	if h.ctrlTid != "" && ctrl != h.ctrlTid && h.draw != nil {
+		h.draw.Annot(dc.Ctl{T: "annot.clear"})
+	}
+	h.ctrlTid = ctrl
 }
 
 // TechChat sohbet paneli yok (§5.6).

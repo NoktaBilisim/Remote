@@ -1,3 +1,64 @@
+# QA Raporu — P30 Tur 1
+
+DURUM: DÜZELTİLMELİ. Kod ve Go birim testleri temiz. Tek açık konu kanıt: AC-495'in tanımlı tek kanıtı olan Windows
+katman testlerinin CI'da gerçekten koştuğu (SKIP olmadığı) gösterilemiyor. Kapsam P30-1/2 kod + otomatik testler
+(2a64ff2; a8444c8 yalnız doküman). Staging elle maddeleri (AC-494 ≤ 1 sn, çift çizim yok, Winlogon/UAC, yüksek DPI)
+test-operatoru turuna kalır; bu turda kapanmış sayılmaz.
+
+## Test sonucu
+
+- Docker `golang:1.26`, `apps/agent-win`: `gofmt -l .` boş; `go vet ./...` linux, windows ve darwin(annot, unattended) temiz.
+- `go test -race ./internal/annot/ ./internal/unattended/... ./internal/flow/ ./internal/ui/uicore/` → 4 paket ok.
+- `-v -run 'AC341|AC431'`: `TestAC341HelperDependencyBoundary`, `TestAC341OnlyAllowedPrivileges`,
+  `TestAC431HelperWindowClassesOnlyIndicator` ve `TestAC431BoundaryForbidsMessageFilter` PASS. Bu dosyalar diff'te değişmemiş.
+- PR #35 CI (run 44610803990, 2a64ff2): "go test (Windows)" sonucu success. Ancak adım `go test -count=1` ile `-v`
+  olmadan koşuyor (`.github/workflows/agent-win.yml:159`), bu yüzden `TestAC495P30LayerStyleAndCaptureExclusion` ve
+  `TestAC496P30LayerFailureKeepsIndicator` testlerinin PASS mı SKIP mi olduğu logdan anlaşılamıyor. Testler etkileşimsiz
+  oturumda `t.Skipf` ile atlanıyor (`layer_windows_test.go:19`) ve implementation.md'ye göre runner'da ilk kez koşuyorlar.
+  Rapor yazılırken run'ın bazı işleri sürüyordu; log henüz alınamadı.
+
+## Kabul kriterleri
+
+| AC     | Durum                               | Kanıt / eksik                                                                                                                                                                                                                                                                                                                                                                                          |
+| ------ | ----------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| AC-494 | ✅ (otomatik kısım)                 | `TestAC494Annot`, `TestAC494AnnotEdges` (500 sınırı, en eski düşer, ID'siz geri al), `TestAC494LiveAnnotSnapshot`, `TestAC494SnapshotIsCopyAndStaleLaserDropped`, `TestAC494HeadlessForwardsAnnotAndSurface`, uçtan uca `TestAC497RunAnnotSurvivesDesktopChange`. ≤ 1 sn ve "cihazda görünür" staging elle doğrulanacak.                                                                               |
+| AC-495 | ⚠️ kanıtsız                         | Kod doğru: katman `indicatorExStyle` (TRANSPARENT, NOACTIVATE, LAYERED, TOPMOST), `ExcludeFromCapture` (`indicator_windows.go:320-324`). AC'nin istediği kanıt Windows CI testi, ancak koştuğu gösterilemiyor (Düzeltilmeli 1).                                                                                                                                                                        |
+| AC-496 | ✅ (birim) / ⚠️ (Windows)           | `TestAC496ExcludeRectsMatchIndicatorLayout` (kırpma = `layout`), `TestAC496RaiseOrderLayerFirst`. Katman `wins` (doğrulama kümesi) dışında. Gösterge yalnız `wins` pencerelerini boyar. `Failed` kapanmaz yolu yalnız Windows testinde var; kanıt Düzeltilmeli 1'e bağlı.                                                                                                                              |
+| AC-497 | ✅                                  | `TestAC497RebindRepaintsStrokesDropsLaser`, `TestAC497SetSurfaceKeepsStrokes`, `TestAC497RunAnnotSurvivesDesktopChange`. Rebind, `show` (doğrulama) döndükten sonra boyar. `WM_DISPLAYCHANGE` → `placeLayer`. Monitör kimliği `capture.Monitors` ile aynı sırada (`i+1`).                                                                                                                              |
+| AC-498 | ✅                                  | `TestAC498AnnotOnlyFromController` (katılımcı ve izleyici `annot.*` iletileri UI'a ulaşmaz, sahibinki ulaşır). Kapı `ctlAllowed` (`flow/peers.go:278`) role (ctrlTid) bağlı, aktif girdiye bağlı değil; gözetimsiz yolda bu kapıyı atlayan dal yok. Konsol ve web değişmedi.                                                                                                                           |
+| AC-499 | ✅ (sınır + tek paket) / ⚠️ (sürüm) | Sınır testleri değiştirilmeden PASS. Kopya yok: `case "annot.*"` yalnız `dc/ctl.go` (ayrıştırma), `flow` (yönlendirme) ve `annot.Apply` içinde. ColorKey tek yerde. Windows, macOS ve Linux Hızlı Destek ile yardımcı `annot`'u kullanıyor. `annot` yalnız `dc` ve `win`'i içe aktarıyor. 0.23.0: CHANGELOG/kılavuz yazıldı (a8444c8), build sürümü P30-3'e (devops) bırakıldı; kodda sabit sürüm yok. |
+
+## Düzeltilmeli
+
+1. [devops] `.github/workflows/agent-win.yml:155-170` — P30 katman testleri `-v` olmadan koşuyor ve SKIP görünmüyor. Beklenen: TestAC248/249 adımına benzer ayrı bir adım ekle: `go test -count=1 -v -run 'TestAC495P30|TestAC496P30' ./internal/unattended/helper/`. Çıktıda `--- SKIP` varsa ya da `--- PASS` sayısı 2 değilse adım kırmızı olsun. Runner'da gösterge çizilemiyorsa bu kayda geçsin ve AC-495'in kanıtı açıkça staging elle turuna devredilsin (implementation.md'ye yazılsın).
+
+## Definition of Done
+
+| Madde                                 | Durum       | Not                                                                                                                                  |
+| ------------------------------------- | ----------- | ------------------------------------------------------------------------------------------------------------------------------------ |
+| AC'ler kanıtlı                        | ❌          | AC-495 (ve AC-496'nın Windows kısmı) kanıtsız                                                                                        |
+| Testler yeşil (yerel + CI)            | ✅          | Yerel race testleri ok; Windows işi success (koşum ayrıntısı yok)                                                                    |
+| gofmt / vet / staticcheck             | ✅          | gofmt ve vet doğrulandı; staticcheck implementation.md beyanı                                                                        |
+| Tasarım uyumu, sapmalar gerekçeli     | ✅          | `Deps.MonitorRect` yok, katman ilk çizimde kurulur, `LaserAt`, Hızlı Destek davranış farkı: hepsi implementation.md P30'da gerekçeli |
+| Kopya/ölü kod yok                     | ✅          | uicore işaretleme bölümü ve testi silindi, `annot`'a taşındı                                                                         |
+| Hata yutma / oturum etkisi            | ✅          | Katman hatası yalnız çizimi gizler, `fail()` çağrılmaz                                                                               |
+| Yeni bağımlılık / env / yetki / audit | ✅          | Yok                                                                                                                                  |
+| Dokümantasyon                         | ✅          | Kılavuz, CHANGELOG, datasheet (a8444c8)                                                                                              |
+| Sürüm 0.23.0                          | ❌ (planlı) | P30-3 devops                                                                                                                         |
+
+## Öneriler (zorunlu değil)
+
+- `p30_test.go` `TestAC496PaintNeverFailsIndicator`: sahte gösterge hiçbir zaman başarısız olmadığı için test totolojik. Ya kaldırılsın ya da `Paint`'te panik/başarısızlık simüle edilsin.
+- `layer_windows_test.go` `TestAC496P30LayerFailureKeepsIndicator` yalnız geçersiz monitörün erken dönüşünü sınıyor, `CreateWindow` hatasını değil. Gerçek pencerede z-sırasını (gösterge katmanın üstünde, `GetWindow(GW_HWNDPREV)`) ve kırpmayı doğrulayan bir test yok.
+- `flow/peers_test.go` `TestAC498AnnotOnlyFromController`: negatif doğrulama 200 ms `Sleep` ile yapılıyor. Sahibin iletisi önce gönderilip sonra boşaltılırsa sıralama kesinleşir.
+- Kilit/UAC masaüstünde `wmAnnot` kaybolursa lazer hiç görünmeden sönebilir (implementation.md'de not edilmiş). Staging'de ölçülsün.
+
+## Olumlu
+
+- Model tek pakette. Hızlı Destek Windows overlay'i 100 satır GDI kodunu bıraktı. X/Y'siz lazerde eski nil-deref olasılığı kapandı.
+- Durum yardımcı süreçte, gösterge yalnız boyuyor. Anlık görüntü kopyalanıyor, masaüstü geçişinde liste korunuyor.
+- AC-341 ve AC-431 sınır testleri ile gösterge doğrulama kümesine dokunulmadı.
+
 # QA Raporu — P29 Tur 2
 
 DURUM: GEÇTİ (K9 kapsamı: kod + otomatik testler). AC-480, 481, 482, 484 ve 493'ün elle doğrulanacak kısımları paket planı gereği K11'e

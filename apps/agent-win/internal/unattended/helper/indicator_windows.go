@@ -35,9 +35,17 @@ const (
 	wmRelabel      = win.WM_APP + 3
 	wmAnnot        = win.WM_APP + 4
 	timerLaser     = 2
-	barThickness   = 5
-	labelHeight    = 32
-	showTimeout    = 2 * time.Second
+	timerRedraw    = 3
+	timerAnnot     = 4
+	// paintGap katman boyamaları arasındaki en kısa süre (≈ 30 Hz; P30 güvenlik turu): boyama ne kadar uzun sürerse
+	// sürsün iki boyama arasında ileti kuyruğu boşalır, WM_TIMER (en üste alma + doğrulama) aç kalmaz.
+	paintGap = 33 * time.Millisecond
+	// tickLimit son başarılı doğrulama turundan bu yana en uzun süre; aşılırsa iş parçacığı dışındaki gözcü göstergeyi
+	// başarısız sayar (fail-closed, AC-342 ile tutarlı).
+	tickLimit    = 3 * time.Second
+	barThickness = 5
+	labelHeight  = 32
+	showTimeout  = 2 * time.Second
 )
 
 var (
@@ -66,11 +74,20 @@ type winIndicator struct {
 	desktop  string      // bağlandığı giriş masaüstü (K6b)
 	quit     atomic.Bool // Close: başka masaüstündeki iş parçacığına ileti gitmezse zamanlayıcı görür
 
+	lastTick atomic.Int64 // P30 güvenlik turu: son doğrulama turunun zamanı (UnixNano; gözcü okur)
+
 	// P30 işaretleme katmanı (yalnız gösterge iş parçacığında; layer testte okunur).
 	annNext   atomic.Pointer[annotSnap] // Paint → iş parçacığı (ileti başka masaüstünde kaybolursa tick uygular)
+	annPosted atomic.Bool               // bekleyen tek wmAnnot (sel kuyruğu doldurmaz; anlık görüntüler birleşir)
 	ann       annotSnap
 	layer     atomic.Uintptr
 	layerRect rect
+	layerOff  bool // yakalama dışlaması kurulamadı: bu göstergede katman yok (çizim görünmez, oturum sürer)
+	canvas    annot.Canvas
+	lastPaint time.Time
+	redrawSet bool      // timerRedraw kurulu
+	lastApply time.Time // son anlık görüntü uygulaması
+	applySet  bool      // timerAnnot kurulu
 }
 
 // showIndicator göstergeyi çizer ve doğrular (≤ 2 sn); doğrulanamazsa hata (bağlantı açılmaz).
@@ -83,6 +100,7 @@ func showIndicator(text string) (Indicator, error) {
 		if err != nil {
 			return nil, err
 		}
+		go watchdog(ind.done, ind.tickedAt, tickLimit, tickLimit/6, ind.fail)
 		return ind, nil
 	case <-time.After(showTimeout):
 		return nil, errIndicator // iş parçacığı askıda: süreç zaten indicator_failed ile çıkar
@@ -117,6 +135,7 @@ func (ind *winIndicator) loop(ready chan<- error) {
 		return
 	}
 	win.SetTimer(ind.host, timerVerify, 1000)
+	ind.lastTick.Store(time.Now().UnixNano())
 	ind.markDrawn()
 	ready <- nil
 	var m win.MSG
@@ -139,7 +158,7 @@ func (ind *winIndicator) rebuild() bool {
 		ind.create(i, lbl, true)
 	}
 	if l := ind.layer.Load(); l != 0 {
-		win.Invalidate(l) // etiket genişliği değişmiş olabilir (kırpma)
+		ind.redraw(l) // etiket genişliği değişmiş olabilir (kırpma)
 	}
 	return ind.verify(mons)
 }
@@ -185,8 +204,13 @@ func (ind *winIndicator) tick() {
 	ind.raise()
 	if !ind.verify(win.Monitors()) && !ind.rebuild() {
 		ind.fail()
+		return
 	}
+	ind.lastTick.Store(time.Now().UnixNano())
 }
+
+// tickedAt son başarılı doğrulama turu (gözcü; herhangi bir iş parçacığından).
+func (ind *winIndicator) tickedAt() time.Time { return time.Unix(0, ind.lastTick.Load()) }
 
 // raise K-P30-3: önce katman, sonra gösterge pencereleri en üste (gösterge çizimin üstünde kalır).
 func (ind *winIndicator) raise() {
@@ -210,9 +234,7 @@ func (ind *winIndicator) destroyBars() {
 
 func (ind *winIndicator) destroy() {
 	ind.destroyBars()
-	if l := ind.layer.Swap(0); l != 0 {
-		win.DestroyWindow(l)
-	}
+	ind.destroyLayer()
 	if ind.host != 0 {
 		win.DestroyWindow(ind.host)
 		ind.host = 0
@@ -270,13 +292,33 @@ func (ind *winIndicator) Drawn(text string, wait time.Duration) bool {
 }
 
 // Paint P30 (painter): çizim anlık görüntüsünü gösterge iş parçacığına iletir (engellemez).
+// Bekleyen en çok bir wmAnnot vardır: sel halinde anlık görüntüler birleşir, gönderilmiş ileti kuyruğu WM_TIMER'ı
+// aç bırakmaz (P30 güvenlik turu).
 func (ind *winIndicator) Paint(s annotSnap) {
 	ind.annNext.Store(&s)
-	win.PostMessage(ind.host, wmAnnot, 0, 0)
+	if ind.annPosted.CompareAndSwap(false, true) {
+		win.PostMessage(ind.host, wmAnnot, 0, 0)
+	}
 }
 
-// applyAnnot bekleyen anlık görüntüyü uygular (yalnız gösterge iş parçacığında).
+// annotMsg wmAnnot: anlık görüntü en çok paintGap'te bir uygulanır; erkense timerAnnot'a ertelenir ve annPosted kalkmaz
+// (Paint yeni ileti göndermez) — sel halinde gönderilmiş ileti hızı ≈ 30/sn ile sınırlı, WM_TIMER aç kalmaz.
+func (ind *winIndicator) annotMsg() {
+	if wait := paintGap - time.Since(ind.lastApply); wait > 0 {
+		if !ind.applySet {
+			ind.applySet = true
+			win.SetTimer(ind.host, timerAnnot, uint32(wait/time.Millisecond)+1)
+		}
+		return
+	}
+	ind.applyAnnot()
+}
+
+// applyAnnot bekleyen anlık görüntüyü uygular (yalnız gösterge iş parçacığında; tick de çağırır: ileti başka
+// masaüstünde kaybolmuş olabilir).
 func (ind *winIndicator) applyAnnot() {
+	ind.lastApply = time.Now()
+	ind.annPosted.Store(false)
 	p := ind.annNext.Swap(nil)
 	if p == nil {
 		return
@@ -290,7 +332,41 @@ func (ind *winIndicator) applyAnnot() {
 	if ind.ann.Laser != nil {
 		win.SetTimer(l, timerLaser, 100)
 	}
-	win.Invalidate(l)
+	ind.redraw(l)
+}
+
+// redraw katmanı yeniden boyatır; son boyamadan bu yana paintGap geçmediyse boyama zamanlayıcıya ertelenir (≈ 30 Hz).
+func (ind *winIndicator) redraw(l uintptr) {
+	wait := paintGap - time.Since(ind.lastPaint)
+	if wait <= 0 {
+		win.Invalidate(l)
+		return
+	}
+	if !ind.redrawSet {
+		ind.redrawSet = true
+		win.SetTimer(l, timerRedraw, uint32(wait/time.Millisecond)+1)
+	}
+}
+
+// layerTimer katman zamanlayıcıları: ertelenmiş boyama ve lazer sönmesi.
+func (ind *winIndicator) layerTimer(l, id uintptr) {
+	switch id {
+	case timerRedraw:
+		win.KillTimer(l, timerRedraw)
+		ind.redrawSet = false
+		win.Invalidate(l)
+	case timerLaser:
+		ind.laserTick(l)
+	}
+}
+
+// destroyLayer katmanı ve arka tamponunu kaldırır.
+func (ind *winIndicator) destroyLayer() {
+	if l := ind.layer.Swap(0); l != 0 {
+		win.DestroyWindow(l)
+	}
+	ind.canvas.Release()
+	ind.redrawSet = false
 }
 
 // placeLayer katmanı paylaşılan monitörün dikdörtgenine kurar ya da taşır (K-P30-4). Çizim yoksa yeni katman kurulmaz;
@@ -300,15 +376,13 @@ func (ind *winIndicator) placeLayer() {
 	id := ind.ann.Surface
 	l := ind.layer.Load()
 	if id < 1 || id > len(mons) {
-		if l != 0 {
-			win.DestroyWindow(ind.layer.Swap(0))
-		}
+		ind.destroyLayer()
 		return
 	}
 	r := rect(mons[id-1].Rect)
 	switch {
 	case l == 0:
-		if len(ind.ann.Strokes) == 0 && ind.ann.Laser == nil {
+		if ind.layerOff || (len(ind.ann.Strokes) == 0 && ind.ann.Laser == nil) {
 			return
 		}
 		h := win.CreateWindow(indicatorExStyle, indicatorClass, "", win.WS_POPUP, r.Left, r.Top, r.Right-r.Left,
@@ -316,13 +390,19 @@ func (ind *winIndicator) placeLayer() {
 		if h == 0 {
 			return
 		}
+		// AC-495: yakalamadan hariç tutulamıyorsa (Win10 2004 öncesi, reddeden masaüstü) katman gösterilmez — çizim
+		// teknisyen görüntüsüne ve kayda girmez; yalnız cihazda görünmez, oturum sürer (K-P30-2).
+		if !win.ExcludeFromCapture(h) || win.DisplayAffinity(h) != win.WDA_EXCLUDEFROMCAP {
+			win.DestroyWindow(h)
+			ind.layerOff = true
+			return
+		}
 		ind.layer.Store(h) // boyama yordamı katmanı tanısın (kırmızı zemin boyanmaz)
 		win.SetLayered(h, annot.ColorKey, 0, win.LWA_COLORKEY)
-		win.ExcludeFromCapture(h)
 		win.ShowWindow(h, win.SW_SHOWNOACTIVATE)
 	case r != ind.layerRect:
 		win.SetWindowPos(l, win.HWND_TOPMOST, r.Left, r.Top, r.Right-r.Left, r.Bottom-r.Top, win.SWP_NOACTIVATE)
-		win.Invalidate(l)
+		ind.redraw(l)
 	default:
 		return
 	}
@@ -335,7 +415,7 @@ func (ind *winIndicator) laserTick(l uintptr) {
 	if ind.ann.Laser == nil || time.Since(ind.ann.LaserAt) > laserTTL {
 		ind.ann.Laser = nil
 		win.KillTimer(l, timerLaser)
-		win.Invalidate(l)
+		ind.redraw(l)
 	}
 }
 
@@ -349,7 +429,8 @@ func (ind *winIndicator) paintLayer(h uintptr) {
 	for _, r := range annotExclude(ind.layerRect, barThickness, labelWidth(ind.text, int32(win.DPI(ind.host))), labelHeight) {
 		ex = append(ex, win.RECT(r))
 	}
-	annot.Paint(dc, win.ClientRect(h), ind.ann.Strokes, ind.ann.Laser, func(v int32) int32 { return v * dpi / 96 }, ex)
+	ind.canvas.Paint(dc, win.ClientRect(h), ind.ann.Strokes, ind.ann.Laser, func(v int32) int32 { return v * dpi / 96 }, ex)
+	ind.lastPaint = time.Now() // boyama süresinden sonra ölçülür: iki boyama arasında en az paintGap boşluk
 }
 
 // Close pencereleri kaldırır ve iş parçacığını bitirir.
@@ -375,13 +456,18 @@ func indicatorProc(h uintptr, msg uint32, wp, lp uintptr) uintptr {
 		ind.paintLayer(h)
 		return 0
 	case msg == win.WM_TIMER && layer != 0 && h == layer:
-		ind.laserTick(h)
+		ind.layerTimer(h, wp)
 		return 0
 	case msg == win.WM_PAINT:
 		ind.paint(h)
 		return 0
 	case msg == win.WM_CLOSE:
 		return 0 // kapatma yok (AC-294)
+	case msg == win.WM_TIMER && h == ind.host && wp == timerAnnot:
+		win.KillTimer(h, timerAnnot)
+		ind.applySet = false
+		ind.applyAnnot()
+		return 0
 	case msg == win.WM_TIMER && h == ind.host:
 		ind.tick()
 		return 0
@@ -392,7 +478,7 @@ func indicatorProc(h uintptr, msg uint32, wp, lp uintptr) uintptr {
 		ind.placeLayer() // K-P30-4: katman paylaşılan monitörün yeni dikdörtgenine
 		return 0
 	case msg == wmAnnot && h == ind.host:
-		ind.applyAnnot()
+		ind.annotMsg()
 		return 0
 	case msg == wmRelabel && h == ind.host:
 		ind.relabel()
