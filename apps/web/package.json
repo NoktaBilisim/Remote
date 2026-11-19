@@ -20,7 +20,7 @@
     "@fontsource-variable/jetbrains-mono": "5.3.0",
     "@fontsource-variable/plus-jakarta-sans": "5.3.0",
     "@remote/contracts": "workspace:*",
-    "lucide-react": "1.71.0",
+    "lucide-react": "1.73.0",
     "next": "16.4.6",
     "react": "19.3.1",
     "react-dom": "19.3.1",
@@ -29,12 +29,12 @@
   },
   "devDependencies": {
     "@axe-core/playwright": "4.14.0",
-    "@playwright/test": "1.65.0",
+    "@playwright/test": "1.65.1",
     "@tailwindcss/postcss": "4.3.5",
     "@types/node": "^24.0.0",
     "@types/react": "^19.2.0",
     "@types/react-dom": "^19.2.0",
-    "@types/ws": "8.18.1",
+    "@types/ws": "8.18.2",
     "@vitest/coverage-v8": "5.1.0",
     "eslint": "9.39.5",
     "eslint-config-next": "16.4.6",
@@ -42,6 +42,6 @@
     "tailwindcss": "4.3.5",
     "typescript": "5.9.3",
     "vitest": "5.1.0",
-    "ws": "8.21.0"
+    "ws": "8.23.0"
   }
 }
