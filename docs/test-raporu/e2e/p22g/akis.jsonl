@@ -1,0 +1,8 @@
+{"ts":"2026-11-19T12:08:34.043Z","t":"g1-welcome","features":["rs.cap.schat1"],"days":365,"dbDays":365,"line":"Sohbet mesajları kayıt altına alınır ve 365 gün saklanır"}
+{"ts":"2026-11-19T12:08:34.317Z","t":"g1-state","firstChatEnabled":false,"firstStatus":"Sohbet şu an kullanılamıyor","enabledStatus":""}
+{"ts":"2026-11-19T12:08:34.530Z","t":"g1-tech-to-go","notOutdated":true,"notify":true,"techPrefix":true}
+{"ts":"2026-11-19T12:08:34.769Z","t":"g1-go-to-tech","pendingSeen":true,"settledHasSiz":true,"clear":true,"rowsA":2,"scriptsInLog":0}
+{"ts":"2026-11-19T12:08:37.818Z","t":"g1-dc-chat","sent":true,"state":"open","revBefore":3,"revAfter":3,"leaked":false,"consoleLeak":false,"ctlAfter":"open","status":"Aktif"}
+{"ts":"2026-11-19T12:08:41.515Z","t":"g1-reconnect","offStatus":"Sohbet şu an kullanılamıyor","g2Ignored":true,"g2WhileOffline":{"enabled":false,"pending":false,"status":"Sohbet şu an kullanılamıyor","restore":""},"rowsB":4,"dupG1":1,"dupK1":1,"dupK2":1,"goG2":1,"consoleG2":1,"wsDials":2}
+{"ts":"2026-11-19T12:08:41.838Z","t":"g1-end","title":"Oturumu sonlandırdınız","failed":false,"summary":"{\"tech\": 2, \"legacy\": false, \"customer\": 2, \"senderUserIds\": [\"01M7PTW6H0WZQRYRF6NJDVJ8NJ\"]}"}
+{"ts":"2026-11-19T12:08:42.125Z","t":"g2-noretention","welcomeDays":0,"proxy":{"ev":"proxy-resolve","serverDays":365,"stripped":true,"ts":"2026-11-19T15:08:41.890276+03:00"},"title":"Bağlantı başlatılamadı","joins":0,"wsDials":0,"status":"PENDING"}

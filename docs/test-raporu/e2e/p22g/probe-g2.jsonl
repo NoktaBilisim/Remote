@@ -1,0 +1,4 @@
+{"ev":"features","features":["rs.cap.schat1"],"ts":"2026-11-19T15:08:41.883036+03:00"}
+{"ev":"proxy-resolve","serverDays":365,"stripped":true,"ts":"2026-11-19T15:08:41.890276+03:00"}
+{"days":0,"ev":"welcome","line":"","tech":"E2E Teknisyen 1","tenant":"Demo Firma","ts":"2026-11-19T15:08:41.890509+03:00"}
+{"ev":"outcome","failed":false,"joins":0,"resolves":1,"title":"Bağlantı başlatılamadı","ts":"2026-11-19T15:08:41.890519+03:00","wsDials":0}

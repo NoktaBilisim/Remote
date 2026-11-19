@@ -1,0 +1,31 @@
+{"ev":"features","features":["rs.cap.schat1"],"ts":"2026-11-19T15:08:33.889653+03:00"}
+{"days":365,"ev":"welcome","line":"Sohbet mesajları kayıt altına alınır ve 365 gün saklanır","tech":"E2E Teknisyen 1","tenant":"Demo Firma","ts":"2026-11-19T15:08:33.905303+03:00"}
+{"ev":"proxy-ws","path":"/ws/guest","protocols":3,"ts":"2026-11-19T15:08:33.915083+03:00"}
+{"ev":"dial","reconnect":false,"ts":"2026-11-19T15:08:33.915927+03:00"}
+{"code":"9848","ev":"lobby","tech":"E2E Teknisyen 1","ts":"2026-11-19T15:08:33.916033+03:00"}
+{"caps":["remote_control","file_transfer"],"ev":"peer","ts":"2026-11-19T15:08:34.219342+03:00"}
+{"ev":"active","tech":"E2E Teknisyen 1","ts":"2026-11-19T15:08:34.222217+03:00"}
+{"clear":false,"enabled":false,"ev":"chat","notify":false,"restore":"","rev":0,"status":"Sohbet şu an kullanılamıyor","text":"","ts":"2026-11-19T15:08:34.222227+03:00"}
+{"clear":false,"enabled":true,"ev":"chat","notify":false,"restore":"","rev":0,"status":"","text":"","ts":"2026-11-19T15:08:34.222254+03:00"}
+{"clear":false,"enabled":true,"ev":"chat","notify":false,"restore":"","rev":0,"status":"","text":"","ts":"2026-11-19T15:08:34.222261+03:00"}
+{"clear":false,"enabled":true,"ev":"chat","notify":true,"restore":"","rev":1,"status":"","text":"[15:08] Teknisyen E2E Teknisyen 1:\n    K1 konsoldan merhaba\n","ts":"2026-11-19T15:08:34.336646+03:00"}
+{"cmd":"send","ev":"cmd","ts":"2026-11-19T15:08:34.69228+03:00"}
+{"clear":true,"enabled":true,"ev":"chat","notify":false,"restore":"","rev":2,"status":"","text":"[15:08] Teknisyen E2E Teknisyen 1:\n    K1 konsoldan merhaba\nSiz (gönderiliyor…):\n    G1 istemciden \u003cscript\u003ealert(1)\u003c/script\u003e ' OR 1=1\n","ts":"2026-11-19T15:08:34.692573+03:00"}
+{"clear":false,"enabled":true,"ev":"chat","notify":false,"restore":"","rev":3,"status":"","text":"[15:08] Teknisyen E2E Teknisyen 1:\n    K1 konsoldan merhaba\n[15:08] Siz:\n    G1 istemciden \u003cscript\u003ealert(1)\u003c/script\u003e ' OR 1=1\n","ts":"2026-11-19T15:08:34.707751+03:00"}
+{"cmd":"drop","ev":"cmd","ts":"2026-11-19T15:08:37.908022+03:00"}
+{"clear":false,"enabled":false,"ev":"chat","notify":false,"restore":"","rev":3,"status":"Sohbet şu an kullanılamıyor","text":"[15:08] Teknisyen E2E Teknisyen 1:\n    K1 konsoldan merhaba\n[15:08] Siz:\n    G1 istemciden \u003cscript\u003ealert(1)\u003c/script\u003e ' OR 1=1\n","ts":"2026-11-19T15:08:37.908489+03:00"}
+{"ev":"status","msg":"Bağlantı koptu, yeniden bağlanılıyor…","ts":"2026-11-19T15:08:37.908889+03:00"}
+{"cmd":"send","ev":"cmd","ts":"2026-11-19T15:08:39.719128+03:00"}
+{"clear":false,"enabled":false,"ev":"chat","notify":false,"restore":"","rev":3,"status":"Sohbet şu an kullanılamıyor","text":"[15:08] Teknisyen E2E Teknisyen 1:\n    K1 konsoldan merhaba\n[15:08] Siz:\n    G1 istemciden \u003cscript\u003ealert(1)\u003c/script\u003e ' OR 1=1\n","ts":"2026-11-19T15:08:39.719278+03:00"}
+{"cmd":"up","ev":"cmd","ts":"2026-11-19T15:08:41.126898+03:00"}
+{"ev":"proxy-ws","path":"/ws/guest","protocols":3,"ts":"2026-11-19T15:08:41.133095+03:00"}
+{"ev":"dial","reconnect":true,"ts":"2026-11-19T15:08:41.134806+03:00"}
+{"caps":["remote_control","file_transfer"],"ev":"peer","ts":"2026-11-19T15:08:41.135361+03:00"}
+{"ev":"status","msg":"Bağlantı yeniden kuruldu.","ts":"2026-11-19T15:08:41.135821+03:00"}
+{"clear":false,"enabled":true,"ev":"chat","notify":false,"restore":"","rev":3,"status":"","text":"[15:08] Teknisyen E2E Teknisyen 1:\n    K1 konsoldan merhaba\n[15:08] Siz:\n    G1 istemciden \u003cscript\u003ealert(1)\u003c/script\u003e ' OR 1=1\n","ts":"2026-11-19T15:08:41.135906+03:00"}
+{"clear":false,"enabled":true,"ev":"chat","notify":true,"restore":"","rev":4,"status":"","text":"[15:08] Teknisyen E2E Teknisyen 1:\n    K1 konsoldan merhaba\n[15:08] Siz:\n    G1 istemciden \u003cscript\u003ealert(1)\u003c/script\u003e ' OR 1=1\n[15:08] Teknisyen E2E Teknisyen 1:\n    K2 kopukken teknisyen\n","ts":"2026-11-19T15:08:41.142491+03:00"}
+{"cmd":"send","ev":"cmd","ts":"2026-11-19T15:08:41.328333+03:00"}
+{"clear":true,"enabled":true,"ev":"chat","notify":false,"restore":"","rev":5,"status":"","text":"[15:08] Teknisyen E2E Teknisyen 1:\n    K1 konsoldan merhaba\n[15:08] Siz:\n    G1 istemciden \u003cscript\u003ealert(1)\u003c/script\u003e ' OR 1=1\n[15:08] Teknisyen E2E Teknisyen 1:\n    K2 kopukken teknisyen\nSiz (gönderiliyor…):\n    G2 kopukken müşteri\n","ts":"2026-11-19T15:08:41.328663+03:00"}
+{"clear":false,"enabled":true,"ev":"chat","notify":false,"restore":"","rev":6,"status":"","text":"[15:08] Teknisyen E2E Teknisyen 1:\n    K1 konsoldan merhaba\n[15:08] Siz:\n    G1 istemciden \u003cscript\u003ealert(1)\u003c/script\u003e ' OR 1=1\n[15:08] Teknisyen E2E Teknisyen 1:\n    K2 kopukken teknisyen\n[15:08] Siz:\n    G2 kopukken müşteri\n","ts":"2026-11-19T15:08:41.343936+03:00"}
+{"cmd":"end","ev":"cmd","ts":"2026-11-19T15:08:41.730387+03:00"}
+{"ev":"outcome","failed":false,"joins":1,"resolves":1,"title":"Oturumu sonlandırdınız","ts":"2026-11-19T15:08:41.732369+03:00","wsDials":2}
