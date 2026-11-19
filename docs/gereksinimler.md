@@ -17,6 +17,7 @@ Tarih: 2026-11-12 Durum: TASLAK (2026-11-10: tam erişim MVP'de; 2026-11-11: `do
 > P28 — G8 ürün genişlemeleri (2026-11-15, TASLAK; kapsam kullanıcı kararı, ayrıntılar varsayımla): 7 alt paket P28a–g, yeni AC-343..AC-404, US-66..US-72, V41..V54, R39..R50; mobil (AC-278) Sonra: `/Users/mennan/Projeler/Remote/docs/gereksinimler-p28.md`.
 > Müşteriye bağlantı gönderme (2026-11-15, kullanıcı talebi; TASLAK): tek "Müşteriye gönder" diyaloğu — K1 oturum bağlantısı + Windows istemci indirme, K2 gözetimsiz kayıt kodu + servis indirme bağlantısı, K3 müşteriye özel indirme + talep bağlantısı (e-posta/WhatsApp); yeni AC-405..AC-428, US-73..US-75, V-LG1..V-LG6, R-LG1..R-LG5: `/Users/mennan/Projeler/Remote/docs/gereksinimler-link-gonderme.md`.
 > P29 — İstemci otomatik güncelleme + sürüm bildirimi (2026-11-19, TASLAK; kullanıcı isteği 2026-11-18): imzalı (Ed25519) manifest, gözetimsiz servis ve taşınabilir istemcide (Windows/macOS/Linux) oturum dışı güncelleme ve geri dönüş, `client.update.*` audit, sürüm dağılımı, tenant politikası; yeni AC-470..AC-493, US-P29-1..5, V-P29-1..12, R-P29-1..10, S-P29-1..6: `docs/gereksinimler-p29.md`.
+> P30 — Gözetimsiz bağlantıda ekrana çizim (2026-11-19, TASLAK; kullanıcı isteği 2026-11-19, staging 0.22.1 bulgusu: konsolda çizim cihazda görünmüyor): yeni AC-494..AC-499, bu dosyanın §12'si; tasarım `docs/mimari-p30.md`.
 > Toplam: **65 kullanıcı hikâyesi, 324 kabul kriteri** (AC-1..AC-324; AC-317..AC-324 2026-11-15, PT kod temizliği; AC-196 2026-11-13, E9 WhatsApp servisi sistem ayarı; AC-197..AC-200 2026-11-14, E7 saklama ve yedek — P13a; AC-201..AC-297 2026-11-14, E11; AC-298..AC-302 2026-11-14 ve AC-303 2026-11-15, P13b prod açılışı; AC-304..AC-316 2026-11-15, E4 lobi göstergesi).
 
 ## 1. Amaç ve iş değeri
@@ -446,3 +447,26 @@ cihaz kullanır; paylaşılan bilgisayarda kutu işaretlenmez (kutu varsayılan 
 step-up'ın atlanmaması, audit, yeni cihaz e-postası (AC-335a), döndürme + yeniden kullanım tespiti (AC-335b). Risk
 R-P27a-2: yarışan iki sekme veya kaybolan yanıt yeniden kullanım yanlış alarmı üretebilir → bedeli tüm cihazların
 silinmesi + bir TOTP + bir e-posta; kabul edildi.
+
+## 12. P30 — Gözetimsiz bağlantıda ekrana çizim (AC-494..AC-499; 2026-11-19)
+
+Bağlam: Hızlı Destek'te (katılımlı istemci) teknisyenin konsolda yaptığı çizimler (kalem, ok, dikdörtgen, 1 sn'lik lazer
+noktası; AC-37/56) müşteri ekranında görünür. Gözetimsiz bağlantıda (P27/P28u) aynı çizimler cihaza ulaşır ama gözetimsiz
+yardımcı onları yok sayar (`headless.Annot` boş). Kullanıcı isteği: gözetimsizde de çizim görünsün. Konsol ve sunucu
+tarafında engel yoktur (işaretleme DataChannel üzerinden eşler arası gider; sunucu iletmez, sözleşme değişmez).
+
+| AC     | Kabul kriteri |
+| ------ | ------------- |
+| AC-494 | Gözetimsiz bağlantıda kontrol sahibi teknisyenin konsolda yaptığı kalem, ok ve dikdörtgen çizimleri cihazda paylaşılan monitörün üstünde, konsoldaki ile aynı konum (normalize koordinat), renk (4 renk) ve kalınlıkta ≤ 1 sn içinde görünür; lazer noktası görünür ve son iletiden 1 sn sonra söner; "Geri al" son çizimi, "Temizle" tüm çizimleri ve lazeri kaldırır. Davranış Hızlı Destek (Windows) ile aynıdır; bellekte en çok 500 çizim tutulur (fazlası en eskiden atılır). Test: Go birim (paylaşılan model) + Windows CI (yardımcı katmanı) + staging elle (çizim cihazda görünür). |
+| AC-495 | Çizim katmanı tıklama geçirgendir ve odak almaz (cihazdaki ve teknisyenin fare/klavye girdisi altındaki pencereye gider), ekran yakalamaya girmez (teknisyen görüntüsünde çift çizim yok; Hızlı Destek ile aynı kural). Test: Windows CI — katman penceresinin genişletilmiş stilinde `WS_EX_TRANSPARENT|WS_EX_NOACTIVATE|WS_EX_LAYERED` ve yakalama dışlama çağrısı doğrulanır. |
+| AC-496 | Gösterge (AC-294) çizimlerin üstünde kalır ve çizimle örtülemez: katman, göstergenin kenar ve etiket dikdörtgenlerinin içine boyamaz (kırpma) ve her 1 sn'lik en üste alma turunda önce katman, sonra gösterge pencereleri en üste alınır. Katman göstergenin doğrulama kümesine girmez; katman kurulamaz ya da çizilemezse yalnız çizim görünmez — gösterge ve oturum etkilenmez (AC-342'nin 2 sn bütçesi ve `indicator_failed` kuralı değişmez). Test: Go birim (kırpma dikdörtgenleri = gösterge yerleşimi; katman hatası `Failed` kapatmaz) + Windows CI. |
+| AC-497 | Giriş masaüstü değiştiğinde (kilit ekranı, oturum açma ekranı, UAC güvenli masaüstü) katman göstergeyle birlikte yeni masaüstünde yeniden kurulur, gösterge doğrulandıktan sonra açılır ve o ana kadarki çizimler (konsolda görünen liste) yeniden boyanır; lazer geçişte düşer. Masaüstüne göre farklı davranış yoktur. Teknisyen monitör değiştirdiğinde ya da çözünürlük/monitör düzeni değiştiğinde katman paylaşılan monitörün yeni dikdörtgenine taşınır, çizimler korunur. Test: Go birim (sahte göstergeyle `rebind` sonrası yeni göstergeye aynı çizim listesi + yüzey verilir). |
+| AC-498 | Çizim yalnız oturumun kontrol sahibi teknisyenden kabul edilir (mevcut akış kuralı `ctlAllowed`; izleyici/katılımcı teknisyenin çizimi uygulanmaz). Konsolda araç çubuğu kuralı katılımlıyla aynıdır: kontrol açıkken (girdi yakalanırken) araçlar pasif ve "Kontrol sırasında işaretleme kapalı; önce kontrolü bırakın" yazar; kontrol bırakılınca çizilir, "Kontrol iste" ile kontrol yeniden (onaysız) alınır. Yeni yetki anahtarı, audit eylemi, sunucu ya da web değişikliği yoktur. Test: mevcut akış testleri + Go birim (kontrol sahibi olmayan eşten `annot.*` → katmana ulaşmaz). |
+| AC-499 | Yardımcının sınır kuralları (AC-341) korunur: yardımcı `internal/ui` ve alt paketlerini içe aktarmaz, tek pencere sınıfı `NoktaDestekGosterge` kalır (katman aynı sınıfı göstergenin iş parçacığında kullanır), ileti kutusu/URL/dosya seçici yoktur; `TestAC341HelperDependencyBoundary` ve `TestAC431HelperWindowClassesOnlyIndicator` değiştirilmeden geçer. Çizim modeli ve Windows boyama kodu tek pakette (`internal/annot`) bulunur; Hızlı Destek (Windows/macOS/Linux) ve gözetimsiz yardımcı aynı kodu kullanır (kopya yok). İstemci ve servis 0.23.0. |
+
+Kapsam dışı (P30): konsolda çizim varken kontrolü açık tutma (katılımlıyla aynı kural kalır); cihaz kullanıcısının çizimleri
+kapatması/gizlemesi; çizimin kayda (P28e) ya da teknisyen görüntüsüne girmesi; macOS/Linux gözetimsiz (yok); çizimlerin
+oturumlar/yeniden bağlanmalar arasında saklanması (yardımcı süreci bitince silinir); Hızlı Destek'te monitör değişiminde
+çizimlerin korunması (bugün temizlenir — konsolla bilinen fark, Sonra); yeni araç/renk/kalınlık. Varsayım V-P30-1: Windows 10
+2004+ (yakalama dışlama) — gösterge ile aynı önkoşul. Risk R-P30-1: çizim kilit/UAC ekranındaki öğelerin üstüne düşebilir →
+katman tıklama geçirgen, gösterge üstte, teknisyen zaten tam kontrol sahibi; kabul.
