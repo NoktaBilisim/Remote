@@ -538,7 +538,7 @@ jobs:
         shell: bash
         run: |
           out="$RUNNER_TEMP/p28c.txt"
-          GITHUB_STEP_SUMMARY='' go test -count=1 -v -run 'P28c|AC366|AC367|AC371' ./internal/signal/... ./internal/dc/... \
+          GITHUB_STEP_SUMMARY='' go test -count=1 -v -run 'P28c|AC366|AC367|AC371|AC264P22GDCChat' ./internal/signal/... ./internal/dc/... \
             ./internal/rtc/... ./internal/flow/... ./internal/capture/... ./internal/ui/... ./internal/unattended/... \
             ./internal/tray/... | tee "$out"
           for t in TestAC372P28cConstantsMatchFixture TestAC366P28cGuestInboundMatchesFixture TestAC366P28cGuestOutboundMatchesFixture \
