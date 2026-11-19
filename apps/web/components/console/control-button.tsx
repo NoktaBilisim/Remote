@@ -34,6 +34,7 @@ export function ControlButton({
   onCancel,
   onKeys,
   releaseRef,
+  unattended = false,
 }: {
   s: ControlState;
   now: number | null;
@@ -44,6 +45,8 @@ export function ControlButton({
   onCancel: () => void;
   onKeys: (id: SpecialComboId) => void;
   releaseRef: RefObject<HTMLButtonElement | null>;
+  /** Gözetimsiz oturum: bırakınca müşteri onayı yok, "Kontrole devam" kontrolü doğrudan geri alır (P30). */
+  unattended?: boolean;
 }) {
   const noteId = useId();
   const mainRef = useRef<HTMLButtonElement>(null);
@@ -112,7 +115,8 @@ export function ControlButton({
     );
     if (denied) note.push(t("p7.denied") + at(s.deniedAt));
     // Kopma/yenileme `idle`'a döndürür; neden yine yazılır (gözlem: kontrol açıkken müşteri koptu)
-    else if (s.endedBy && (s.phase === "ended" || s.endedBy === "peer")) note.push(t(`p7.end.${s.endedBy}`) + at(s.endedAt));
+    else if (s.endedBy && (s.phase === "ended" || s.endedBy === "peer"))
+      note.push(t(released && unattended ? "p7.end.techUnattended" : `p7.end.${s.endedBy}`) + at(s.endedAt));
     else note.push(t("p7.viewOnly"));
     if (left === 0) note.push(t("p7.exhausted", { max: MAX_CONTROL_REQUESTS }));
     else if (s.requests > 0) note.push(t("p7.left", { n: left }));

@@ -72,6 +72,7 @@ function controlBar(p: ConsoleStageProps, showing: boolean, capturing: boolean) 
       available={showing}
       onKeys={comboSender(ts.input, capturing)}
       releaseRef={p.releaseRef}
+      unattended={ts.state.unattended !== null}
       onRequest={ts.requestControl}
       onRelease={ts.releaseControl}
       onCancel={ts.cancelControl}
