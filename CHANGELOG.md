@@ -5,6 +5,58 @@ Biçim [Keep a Changelog](https://keepachangelog.com/tr/1.1.0/), sürümleme [Se
 
 ## [Unreleased]
 
+### Eklendi — P28g Linux istemci, istemci 0.20.0 (AC-397..404)
+
+- **Hızlı Destek Linux:** Ubuntu 22.04 / 24.04 LTS x86_64 (GNOME; X11 ve Wayland) için tek ELF dosyası (≤ 60 MB), kurulumsuz,
+  root istemez. Kod/bağlantı ile Hızlı Destek akışı Windows ile aynı: karşılama, KVKK, kayıt rızası, bekleme odası, görüntü,
+  uzaktan kontrol, dosya, işaretleme, gösterge, pano, yazdırma (`lp`), sunucuda dosya, çoklu teknisyen ve **Çıkar**, sesli
+  görüşme (PipeWire/PulseAudio).
+- **İndirme ve başlatma:** `Destek-<kod>` uzantısız iner; kod dosya adından okunur (`(1)` ekli ad dahil). Karşılama sayfası
+  Linux'u tanır, rehber ve kopyalanabilir sabit başlatma komutu gösterir: İndirilenler'de son 10 dakikada inmiş **tam 1**
+  `Destek-*` dosyasına çalıştırma izni verip açar; birden fazlaysa "İndirilenler'deki eski Destek-\* dosyalarını silip
+  yeniden indirin" der. "Nokta Destek size bundan başka komut vermez" uyarısı.
+- **X11:** ekran seçimi, kontrol (XTest), kısayol Ctrl+Shift+F12 (yedek F11), yerel girdi uzaktan girdiyi 1 sn durdurur.
+- **Wayland:** ekran Ubuntu'nun sistem izin penceresinde seçilir ("Paylaşım başlatılmadı / Tekrar dene"); kontrol yalnız
+  "Uzaktan etkileşime izin ver" açıksa. Telafi: ekran kilidi (Super+L) kontrolü hemen kapatır, kilit kısayolu kapalıysa kontrol
+  verilmez, değiştirici tuş bütçesi (3 sn'de en çok 2 sn), üst çubuk **Durdur** oturumu bitirir, onay ve oturum penceresinde
+  uyarı metni (AC-399 sapması, kullanıcı onayı 2026-11-17). Derleme anahtarı `WAYLAND_CONTROL=off` ile Wayland yalnız görüntü.
+- **Sürüm bilgisi üç platformda:** Windows, macOS ve Linux pencere başlıkları "Nokta Destek 0.20.0 — …" biçiminde sürümü
+  gösterir; Windows tepsi ipucunda da sürüm vardır. Linux test derlemesinde başlık sonunda " — TEST".
+- **Sunucu:** `GET /public/agent/download?os=linux` → `/downloads/Destek-<kod>`, availability `linux` alanı,
+  `/internal/agent-ready/linux`, `control.state` kaynağı `WAYLAND_NO_CONTROL` (audit `wayland_no_control`), Linux X11
+  `OS_PERMISSION` kabulü (audit `linux_no_control`). Caddy `@agentLinux` (octet-stream, `Last-Modified` yok).
+- **Konsol:** "Müşterinin masaüstü uzaktan kontrole izin vermiyor (Wayland)" (ret değil, bekleme yok).
+- **CI ve yayın:** `build/build-linux.sh`, `reproducible-linux`, `test-linux-gui` (22.04/24.04), `attest-linux`, Release'te
+  `NoktaDestek-linux-x86_64-<sürüm>`; repo değişkeni `LINUX_WAYLAND_CONTROL` (etiket derlemesinde zorunlu);
+  `deploy/agent/publish-linux.sh`, `agent-watch` Linux hash denetimi (runbook §28g).
+- Yeni env `LINUX_AGENT_SHA256`, `LINUX_AGENT_PATH`. Yeni Go bağımlılığı `github.com/godbus/dbus/v5` (BSD-2). Migration,
+  tablo ve yetki yok. Karar ADR-0038.
+
+### Değişti — P28g
+
+- Konsoldaki `OS_PERMISSION` metni nötrleşti: "Müşterinin bilgisayarı uzaktan kontrole izin vermiyor (Mac'te erişilebilirlik
+  izni). Müşteri izni verdikten sonra yeniden isteyin." (AC-391 notu, 2026-11-19; konsol misafir işletim sistemini bilmez).
+  macOS audit etiketi "Müşteri erişilebilirlik izni vermedi" aynen kalır.
+- Tehlikeli dosya türlerine Linux türleri eklendi (`desktop`, `run`, `appimage`, `deb`, `rpm`, `snap`, `flatpak`, `so` vb.);
+  alınan dosya adı `Destek-` ile başlıyorsa `Dosya-` önekiyle kaydedilir (her platform).
+- Linux'ta vekil sunucu hatası ayrı metinle gösterilir: "Vekil sunucuya bağlanılamadı"; vekil adresi hiçbir metne yazılmaz.
+
+### Güvenlik — P28g
+
+- Korunan düğmeler yalnız gerçek yerel fare tıklamasıyla çalışır (XTEST/sentetik olay, klavye, oturumda açılan
+  erişilebilirlik tıklaması reddedilir). Alınan dosya çalıştırma izni olmadan (0644) yazılır; program/betik içeriği uyarılır.
+- Ortam değişkenleri izin listesiyle süzülür, sistem kitaplıkları mutlak yoldan yüklenir, GStreamer öğeleri beyaz listede.
+  Tema sabit Adwaita (kullanıcı CSS'i güvenlik düğmelerini gizleyemez). Teknisyenin panoya koyduğu metin parola ipucuyla yazılır.
+
+### Bilinen sınırlamalar — P28g
+
+- Wayland'de müşterinin faresi teknisyeni durdurmaz ve global kısayol yoktur (telafi yukarıda). Prod'da Wayland kontrolü
+  gerçek makinede E-7 (b)/(c) GEÇTİ şartına bağlıdır; aksi halde `LINUX_WAYLAND_CONTROL=off`.
+- Wayland'de gösterge her zaman üstte garanti edilemez; Ubuntu üst çubuğundaki paylaşım simgesi göstergedir (AC-400).
+- Linux'ta pencere paylaşımı, oturum sohbeti (0.20'de kapalı, P22), "Destek iste", tepsi ve gözetimsiz erişim yok. Gösterge ve
+  işaretleme görüntüye girer. Bazı pano geçmişi eklentileri parola ipucunu dikkate almayabilir.
+- Gerçek x86_64 Ubuntu masaüstünde elle test (mimari-p28g §12.1) bekliyor; staging yayını henüz yapılmadı.
+
 ### Eklendi — P21 müşteri portalı — yayımlanmadı, sürüm birleştirmede belirlenecek (AC-262, ADR-0039)
 
 - **Müşteri portalı (`/portal`):** müşteri firmasının çalışanı firmaya özel adresle (`/portal/login?tenant=<firma>`) e-posta

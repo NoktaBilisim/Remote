@@ -8,6 +8,7 @@ import (
 
 	"remote-support/agent-win/internal/control"
 	"remote-support/agent-win/internal/darwin/objc"
+	"remote-support/agent-win/internal/ui/uicore"
 )
 
 // promptSpec ortak onay diyaloğunun içeriği (mimari-p28f §2.1 prompt_darwin.go).
@@ -51,7 +52,7 @@ const (
 func (u *UI) newPrompt(sp promptSpec) *prompt {
 	d := &prompt{u: u, sp: sp, rule: control.Consent{HotkeyOK: sp.hotkeyOK || sp.open}}
 	d.btnY = 140 + float64(len(sp.warns)+1)*promptWarn + 8 // +1: enjekte tıklama uyarısı için ayrılmış satır
-	f := u.newForm(appTitle+" — "+sp.title, promptW, d.btnY+48)
+	f := u.newForm(uicore.AppTitle+" — "+sp.title, promptW, d.btnY+48)
 	headW := 408.0
 	if sp.logo != nil {
 		headW = 280

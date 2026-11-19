@@ -34,7 +34,7 @@ export function JoinForm({
   onEnd,
 }: {
   data: ResolveData;
-  /** AC-27 / P28f AC-396: indirme seçeneği (Windows / macOS); `none` → tarayıcı yolu birincil. */
+  /** AC-27 / P28f AC-396 / P28g AC-403: indirme seçeneği (Windows / macOS / Linux); `none` → tarayıcı yolu birincil. */
   agent?: AgentOffer;
   onJoined: (r: JoinSessionResponse & { customerName: string }) => void;
   onEnd: (e: GuestEnd) => void;

@@ -36,11 +36,11 @@ function bareMagic(n: number, m: Magic): Buffer {
   return Buffer.concat(Array.from({ length: Math.ceil(n / unit.length) }, () => unit)).subarray(0, n);
 }
 
-/** Isınma + en iyi 3 koşu (ms). */
+/** Isınma + en iyi 5 koşu (ms). */
 function bestMs(b: Buffer): number {
   checkWebmContinuation(b, false);
   let best = Number.POSITIVE_INFINITY;
-  for (let i = 0; i < 3; i++) {
+  for (let i = 0; i < 5; i++) {
     const t = performance.now();
     checkWebmContinuation(b, false);
     best = Math.min(best, performance.now() - t);
@@ -65,6 +65,12 @@ function prng(seed: number): (n: number) => Buffer {
   };
 }
 
+/**
+ * Doğrusallık eşiği: boyut oranı 2 MiB / 200 kB ≈ 10,5 → doğrusal tarama ≈ 10,5, karesel ≈ 110. Eşik 40: paylaşılan CI
+ * koşucusundaki zamanlama gürültüsüne (gözlenen 15–24) dayanır, karesel büyümeyi yine yakalar (2026-11-19 oynaklık).
+ */
+const LINEAR_RATIO_MAX = 40;
+
 const real = (n: number): Buffer => readFileSync(new URL(`../fixtures/rec-chromium/p${n}.webm`, import.meta.url));
 
 describe("Y-P28e-K2-1 gömülü tarama doğrusal ve bütçeli", () => {
@@ -84,20 +90,20 @@ describe("Y-P28e-K2-1 gömülü tarama doğrusal ve bütçeli", () => {
     expect(v).toMatchObject({ ok: false, reason: m });
   });
 
-  it.each(["ebml", "tracks"] as const)("Y-P28e-K2-1 sık çıplak sihir (%s): kabul, 2 MiB < 200 ms, büyüme doğrusal (oran < 15)", (m) => {
+  it.each(["ebml", "tracks"] as const)("Y-P28e-K2-1 sık çıplak sihir (%s): kabul, 2 MiB < 200 ms, büyüme doğrusal (oran < 40)", (m) => {
     const big = bareMagic(MiB2, m);
     const small = bareMagic(200_000, m);
     expect(checkWebmContinuation(big, false)).toEqual({ ok: true });
     const tBig = bestMs(big);
     const tSmall = bestMs(small);
     expect(tBig).toBeLessThan(200);
-    expect(tBig / Math.max(tSmall, 1)).toBeLessThan(15);
+    expect(tBig / Math.max(tSmall, 1)).toBeLessThan(LINEAR_RATIO_MAX);
   });
 
-  it("Y-P28e-K2-1 ajan deseni büyümesi doğrusal: 2 MiB / 200 kB < 15", () => {
+  it("Y-P28e-K2-1 ajan deseni büyümesi doğrusal: 2 MiB / 200 kB < 40", () => {
     const tBig = bestMs(agentPattern(MiB2, "ebml"));
     const tSmall = bestMs(agentPattern(200_000, "ebml"));
-    expect(tBig / Math.max(tSmall, 1)).toBeLessThan(15);
+    expect(tBig / Math.max(tSmall, 1)).toBeLessThan(LINEAR_RATIO_MAX);
   });
 
   it("Y-P28e-K2-1 Void dolgusu çocuk bütçesini aşarsa DocType'a varmadan ret (atlatma yok)", () => {

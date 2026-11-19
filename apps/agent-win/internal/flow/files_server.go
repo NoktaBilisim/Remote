@@ -128,7 +128,7 @@ func (s *session) onFsrvFileOffer(ctx context.Context, m signal.FsrvOffer) {
 		return
 	}
 	s.srv.asking = &m
-	name := files.SanitizeFileName(m.Name)
+	name := files.ReceivedName(m.Name) // S-P28g-6 m.3: diske yazılacak ad
 	s.lastPct = -1
 	s.d.UI.FileOffer(transfer.Prompt{FID: m.FID, Name: name, Size: m.Size, Warning: files.NameWarning(name)})
 }
@@ -143,7 +143,7 @@ func (s *session) onFsrvDecide(ctx context.Context, fid string, accept bool) {
 		return
 	}
 	s.srv.asking = nil
-	name := files.SanitizeFileName(o.Name)
+	name := files.ReceivedName(o.Name)
 	if !accept {
 		s.srv.rejectUntil = s.d.Now().Add(transfer.RejectCooldown)
 		s.send(ctx, signal.FsrvReject{T: "fsrv.reject", FID: fid})
@@ -253,7 +253,7 @@ func (s *session) resetFsrv() {
 		s.srv.asking = nil
 		s.srv.pendingCancel = append(s.srv.pendingCancel, o.FID)
 		s.d.UI.FileOfferWithdrawn(o.FID)
-		s.d.UI.FileResult(transfer.Result{Name: files.SanitizeFileName(o.Name), Status: "CANCELLED"})
+		s.d.UI.FileResult(transfer.Result{Name: files.ReceivedName(o.Name), Status: "CANCELLED"})
 	}
 	if c := s.srv.cur; c != nil {
 		s.srv.pendingCancel = append(s.srv.pendingCancel, c.fid)
@@ -279,7 +279,7 @@ func (s *session) onFsrvStatus(m signal.FsrvStatus) {
 		if o := s.srv.asking; o != nil && o.FID == m.FID && m.State == "CANCELLED" {
 			s.srv.asking = nil
 			s.d.UI.FileOfferWithdrawn(m.FID)
-			s.d.UI.FileResult(transfer.Result{Name: files.SanitizeFileName(o.Name), Status: "CANCELLED"})
+			s.d.UI.FileResult(transfer.Result{Name: files.ReceivedName(o.Name), Status: "CANCELLED"})
 			return
 		}
 		if c := s.srv.cur; c != nil && c.fid == m.FID && m.State == "CANCELLED" {

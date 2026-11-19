@@ -71,3 +71,22 @@ func TestP28fExpectedTeamID(t *testing.T) {
 		t.Fatalf("Load TeamID = %q", c.TeamID)
 	}
 }
+
+// P28g K10 (§5.2b m.7, O-P28g-K1-1): Wayland kontrol anahtarı yalnız boş/"on" ile açık; "off" ve bozuk değer kapalı.
+func TestP28gK10WaylandControlSwitch(t *testing.T) {
+	for v, want := range map[string]bool{"": true, "on": true, "off": false, "ON": false, "1": false, "on ": false} {
+		if got := waylandControlOn(v); got != want {
+			t.Errorf("waylandControlOn(%q) = %v, beklenen %v", v, got, want)
+		}
+	}
+	old := waylandControl
+	defer func() { waylandControl = old }()
+	waylandControl = "off"
+	if c, _ := Load(); c.WaylandControl {
+		t.Fatal("Load: off iken açık")
+	}
+	waylandControl = ""
+	if c, _ := Load(); !c.WaylandControl {
+		t.Fatal("Load: varsayılan kapalı")
+	}
+}

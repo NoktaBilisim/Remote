@@ -116,7 +116,7 @@ export interface Guest {
   netKey?: string;
   /** P8b r2 (§13.4): AGENT sürümü (resolve/talep kaydından; /ws/guest MIN_AGENT_VERSION kontrolü). */
   clientVersion?: string;
-  /** P28f (§4.2, S-P28f-15): AGENT işletim sistemi beyanı (resolve nonce'undan); yoksa `windows`. Yalnız OS_PERMISSION kabulünde kullanılır. */
+  /** P28f (§4.2, S-P28f-15): AGENT işletim sistemi beyanı (resolve nonce'undan); yoksa `windows`. Yalnız OS_PERMISSION / WAYLAND_NO_CONTROL (P28g) kabulünde kullanılır. */
   clientOs?: ClientOs;
   /** P8b: ön-kabullü misafir (talepten doğan oturum) — lobi/admitCode atlanır (mimari-protokol §5.2). */
   requestId?: string;

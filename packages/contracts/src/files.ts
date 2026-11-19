@@ -42,6 +42,22 @@ function truncate(name: string): string {
   return `${base}${ext.join("")}`;
 }
 
+/** S-P28g-6 m.3: Linux başlatma komutunun desenine (`Destek-<kod>`) alınan dosya uymasın diye bu önekle başlayan ad
+ * yeniden adlandırılır (büyük/küçük harf duyarsız). */
+const LAUNCHER_PREFIX = /^destek-/i;
+/** Yeniden adlandırmada eklenen önek. */
+const RECEIVED_RENAME_PREFIX = "Dosya-";
+
+/**
+ * Alıcının diske yazacağı ad (S-P28g-6 m.3): `sanitizeFileName` sonucu `destek-` ile başlıyorsa `Dosya-` öneki eklenir
+ * ve 255 sınırı yeniden uygulanır. Girdi önce temizlenir; sonuç yine `isSanitizedFileName`'dir. Yalnız alım yolunda
+ * kullanılır (`file.meta` raporu ve sunucu kaydı teklif edilen temiz adı taşır).
+ */
+export function receivedFileName(raw: string): string {
+  const name = sanitizeFileName(raw);
+  return LAUNCHER_PREFIX.test(name) ? truncate(`${RECEIVED_RENAME_PREFIX}${name}`) : name;
+}
+
 /** DB CHECK (`session_files.file_name`) ile aynı koşul: temizlenmiş, 1..255 karakter. */
 export function isSanitizedFileName(name: string): boolean {
   return name !== "" && sanitizeFileName(name) === name;
@@ -154,6 +170,20 @@ export const DANGEROUS_EXT: ReadonlySet<string> = new Set([
   "rb",
   "pl",
   "saver",
+  // P28g (mimari-p28g §5.4, T8): Linux çalıştırılabilir/kurulum/paket/servis türleri — liste platformdan bağımsız.
+  "desktop",
+  "run",
+  "bin",
+  "appimage",
+  "deb",
+  "rpm",
+  "snap",
+  "flatpak",
+  "flatpakref",
+  "flatpakrepo",
+  "so",
+  "ko",
+  "service",
 ]);
 
 function extensions(name: string): string[] {

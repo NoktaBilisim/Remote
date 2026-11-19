@@ -209,7 +209,8 @@ type MonitorDenied struct {
 
 // guestViewSources misafirin gönderebileceği VIEW kaynakları (mimari-protokol §3; RECONNECT/TECH yalnız sunucu üretir).
 // OS_PERMISSION P28f (mimari-p28f §4.2; contracts GUEST_VIEW_SOURCES): macOS Erişilebilirlik izni yok.
-var guestViewSources = []string{"UI", "HOTKEY", "DENIED", "SYSTEM", "OS_PERMISSION"}
+// WAYLAND_NO_CONTROL P28g (mimari-p28g §4.2): Wayland portal oturumunda klavye/işaretçi izni yok; yalnız VIEW ile.
+var guestViewSources = []string{"UI", "HOTKEY", "DENIED", "SYSTEM", "OS_PERMISSION", "WAYLAND_NO_CONTROL"}
 
 func (m ControlState) validate() error {
 	if m.T != "control.state" {

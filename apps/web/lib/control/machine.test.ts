@@ -257,6 +257,21 @@ describe("P7 kontrol makinesi", () => {
     expect(controlReducer(on, msg(osPerm))).toBe(on);
   });
 
+  it("P28g AC-399: requested'da {VIEW, WAYLAND_NO_CONTROL} → iptal (ret değil), bekleme yok; diğer fazda yok sayılır", () => {
+    const wl: ServerOutbound = { t: "control.state", state: "VIEW", source: "WAYLAND_NO_CONTROL" };
+    const s = run([req(1000), msg(wl, 2000)]);
+    expect(s.phase).toBe("ended");
+    expect(s.endedBy).toBe("waylandNoControl");
+    expect(s.deniedAt).toBeNull();
+    expect(cooldownLeft(s, 2000)).toBe(0);
+    expect(canRequest(s, 2000)).toBe(true);
+    expect(s.lastSent).toBeNull();
+    const idle = run([]);
+    expect(controlReducer(idle, msg(wl))).toBe(idle);
+    const on = run([req(), granted]);
+    expect(controlReducer(on, msg(wl))).toBe(on);
+  });
+
   it("K7: monitör reddi / yanıtsızlık → 30 sn + 1 sn bekleme; bekleme ve bekleyen istek varken yeni istek yok", () => {
     const withMon = run([msg({ t: "share.state", state: "sharing", monitors, activeMonitor: 0 })]);
     const p = controlReducer(withMon, { type: "monitor", id: 1, now: 1000 });

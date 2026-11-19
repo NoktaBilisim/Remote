@@ -129,7 +129,11 @@ func (s *session) armControl(ctx context.Context) bool {
 // osPermission bekleyen istek iptal (ret sayılmaz), VIEW{OS_PERMISSION}, izin rehberi.
 func (s *session) osPermission(ctx context.Context) {
 	s.ctlReq.Cancel()
-	s.sendControl(ctx, "VIEW", "OS_PERMISSION")
+	src := "OS_PERMISSION"
+	if s.d.NoControlSource != "" {
+		src = s.d.NoControlSource
+	}
+	s.sendControl(ctx, "VIEW", src)
 	if s.d.AccessGuide != nil {
 		s.d.AccessGuide()
 	}
@@ -187,7 +191,11 @@ func (s *session) onControlUser(ctx context.Context, ev Event) {
 		}
 	case EvControlSystem: // P28f K3: girdi altyapısı kapıyı kapattı (musluk/izin; S-P28f-10)
 		if c := s.closeControl(ctx, "SYSTEM", false); c.granted {
-			s.d.UI.Status(MacTexts.ControlLost)
+			txt := MacTexts.ControlLost
+			if s.d.ControlLostText != "" {
+				txt = s.d.ControlLostText
+			}
+			s.d.UI.Status(txt)
 		}
 	case EvControlClose, EvControlHotkey:
 		src := "UI"

@@ -1,0 +1,38 @@
+# P28g K8a — test-linux-gui zorunlu test listesi (sözleşme: docs/implementation.md "P28g K8a"; mimari-p28g §8.2, §9).
+# test/linux/run-gui-tests.sh her imajda (22.04, 24.04) `go test -tags linuxgui -count=1 -v` çıktısını bu listeyle denetler.
+#
+# Biçim: satır başına bir Go test adı (yalnız üst düzey Test işlevi; alt testler denetlenmez). `#` sonrası yorum.
+#   Ad                 → zorunlu: bu imajda `--- PASS` olmalı. SKIP, FAIL ya da hiç koşmaması (ad değişti) = kırmızı.
+#   Ad bekleyen        → henüz yazılmadı: hiç koşmazsa dalda/PR'da ::warning::, v* etiketinde (P28G_STRICT=1) kırmızı.
+#                        Koştuysa zorunlu gibi PASS olmalı. Testi yazan paket `bekleyen` sözcüğünü siler.
+# Faz: adında `Wayland` geçen testler Wayland fazında (başsız mutter + portal), diğerleri X11 fazında (Xvfb) koşar. Wayland
+# katmanı kurulamazsa Wayland adları denetlenmez (görünür uyarı); kurulduysa zorunludur.
+# Ek kural (listeden bağımsız): adında `P28g` geçen bir testin imajda SKIP olması kırmızıdır (imajda tüm kitaplıklar var).
+# Testi yeniden adlandıran / silen bu listeyi de günceller.
+
+# K1 (var)
+TestP28gK1LoadSystemGLib
+TestP28gK1PostHandleTable
+TestAC398P28gK1EnvAllowList
+
+# K2 — yakalama (GStreamer, T6 / S-P28g-4 beyaz liste iki katman)
+TestP28gK2PipelineElementsWhitelisted
+TestP28gK2GUIRuntimeWhitelist
+TestP28gK2GUIXimagesrcVP8Frames
+TestP28gK2GUIPortalFakeDBusStates
+
+# K3 — girdi (XTest, XI2, D-P28g-T2-2 ofsetler)
+TestP28gK3XI2OffsetsMatchHeaders
+TestP28gK3GUIXTestClick
+TestP28gK3GUIXTestDeviceRejected
+
+# K4 — arayüz
+TestP28gK4GUIWindowOpens
+TestP28gK10GdkEventOffsets
+
+# K5 — pano (GTK CLIPBOARD gerçek gidiş-dönüş, Xvfb) ve saf karar testleri
+TestAC402P28gGTKClipRoundTrip
+TestAC402P28gGTKClipSecretHint
+TestAC402P28gSensitiveTargets
+TestAC398P28gClearExecRemovesExecBits
+TestAC398P28gDownloadsDirFallbacks

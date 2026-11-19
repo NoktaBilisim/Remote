@@ -13,6 +13,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/url"
 	"runtime"
@@ -40,11 +41,17 @@ type Error struct {
 	RequestID string            // destek referansı
 	Err       error             // ağ/TLS hatası (Status 0)
 	TLS       bool              // Status 0 ve sunucu sertifikası doğrulanamadı (güvenilmeyen kök, süresi dolmuş, ad uyuşmazlığı)
+	// Proxy Status 0 ve hata ortamdaki vekil sunucudan (bağlanılamadı, CONNECT reddedildi, adres geçersiz). P28g K10
+	// (D-P28g-T2-1): Error() vekil adresini içermez.
+	Proxy bool
 	// RetryAfter `Retry-After` başlığı (saniye); yoksa 0. 429/503 yeniden deneme kararı çağırandadır (P8b-2, S8b-8).
 	RetryAfter time.Duration
 }
 
 func (e *Error) Error() string {
+	if e.Status == 0 && e.Proxy {
+		return "api: vekil sunucu hatası" // vekil URL'si hiçbir metne/loga yazılmaz (D-P28g-T2-1)
+	}
 	if e.Status == 0 {
 		return fmt.Sprintf("api: ağ hatası: %v", e.Err)
 	}
@@ -75,7 +82,14 @@ func New(serverURL *url.URL, version string) *Client {
 
 func newClient(serverURL *url.URL, version string, tlsCfg *tls.Config) *Client {
 	tr := &http.Transport{
-		Proxy:               http.ProxyFromEnvironment,
+		Proxy: proxyFromEnvironment,
+		// K10: CONNECT 200 değilse tipli hata (Go'nun hatası yalnız durum metnidir; vekil hatası olarak sınıflansın).
+		OnProxyConnectResponse: func(_ context.Context, _ *url.URL, _ *http.Request, res *http.Response) error {
+			if res.StatusCode != http.StatusOK {
+				return errProxy
+			}
+			return nil
+		},
 		TLSClientConfig:     tlsCfg,
 		TLSHandshakeTimeout: 10 * time.Second,
 		ForceAttemptHTTP2:   true,
@@ -241,7 +255,7 @@ func (c *Client) do(ctx context.Context, method string, ref *url.URL, body []byt
 	req.Header.Set("User-Agent", c.userAgent)
 	resp, err := c.http.Do(req)
 	if err != nil {
-		return &Error{Err: err, TLS: isCertError(err)}
+		return &Error{Err: err, TLS: isCertError(err), Proxy: isProxyError(err)}
 	}
 	defer resp.Body.Close()
 	data, err := io.ReadAll(io.LimitReader(resp.Body, maxResponseSize))
@@ -294,4 +308,23 @@ func isCertError(err error) bool {
 	var cie x509.CertificateInvalidError
 	var hne x509.HostnameError
 	return errors.As(err, &verr) || errors.As(err, &uae) || errors.As(err, &cie) || errors.As(err, &hne)
+}
+
+// errProxy vekil sunucu hatası (CONNECT reddi ya da geçersiz vekil adresi); ayrıntı ve adres taşımaz.
+var errProxy = errors.New("api: vekil sunucu hatası")
+
+// proxyFromEnvironment http.ProxyFromEnvironment; geçersiz vekil adresi hatası (değeri içerir) errProxy'ye çevrilir.
+func proxyFromEnvironment(r *http.Request) (*url.URL, error) {
+	u, err := http.ProxyFromEnvironment(r)
+	if err != nil {
+		return nil, errProxy
+	}
+	return u, nil
+}
+
+// isProxyError hata vekil sunucudan mı: vekile bağlanılamadı (net.OpError "proxyconnect"), CONNECT reddedildi ya da
+// vekil adresi geçersiz (errProxy). Sertifika hatası önce gelir (classify).
+func isProxyError(err error) bool {
+	var oe *net.OpError
+	return errors.Is(err, errProxy) || (errors.As(err, &oe) && oe.Op == "proxyconnect")
 }

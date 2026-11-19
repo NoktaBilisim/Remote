@@ -296,7 +296,8 @@ func TestAC111ControlStateEncode(t *testing.T) {
 	for _, m := range []ControlState{{T: "control.state", State: "GRANTED", Source: "UI"},
 		{T: "control.state", State: "VIEW", Source: "HOTKEY"}, {T: "control.state", State: "VIEW", Source: "SYSTEM"},
 		{T: "control.state", State: "VIEW", Source: "DENIED"},
-		{T: "control.state", State: "VIEW", Source: "OS_PERMISSION"}} { // P28f AC-391
+		{T: "control.state", State: "VIEW", Source: "OS_PERMISSION"},        // P28f AC-391
+		{T: "control.state", State: "VIEW", Source: "WAYLAND_NO_CONTROL"}} { // P28g AC-399
 		b, err := Encode(m)
 		if err != nil {
 			t.Fatalf("%+v: %v", m, err)
@@ -306,7 +307,8 @@ func TestAC111ControlStateEncode(t *testing.T) {
 		}
 	}
 	for _, m := range []ControlState{{T: "control.state", State: "GRANTED", Source: "SYSTEM"},
-		{T: "control.state", State: "GRANTED", Source: "OS_PERMISSION"}, // yalnız VIEW ile (mimari-p28f §4.2)
+		{T: "control.state", State: "GRANTED", Source: "OS_PERMISSION"},      // yalnız VIEW ile (mimari-p28f §4.2)
+		{T: "control.state", State: "GRANTED", Source: "WAYLAND_NO_CONTROL"}, // yalnız VIEW ile (mimari-p28g §4.2)
 		{T: "control.state", State: "OPEN", Source: "UI"}, {T: "control.state", State: "VIEW", Source: "X"},
 		// S7-10 / §3: RECONNECT ve TECH yalnız sunucu üretir; misafir göndermez.
 		{T: "control.state", State: "VIEW", Source: "RECONNECT"}, {T: "control.state", State: "VIEW", Source: "TECH"}} {

@@ -4880,6 +4880,141 @@ gömülmez, davranış değişmez. Elle staging derlemesi (§28f.4 docker komutu
 Yerel prova: Team ID'siz iki derleme SHA eşit; uydurma sembol → ret, çıktı yok; var olan bir sembolle (geçici kopya) → kabul, değer
 ikilide; `abcde12345`, 9 karakter, `"ABCDE12345 -X a=b"`, satır sonlu değer → çıkış 2.
 
+## 28g. P28g — Linux istemcisi: CI, yayın (devops K8a/K8b, 2026-11-17/18; mimari-p28g §8, §9, §13 S-P28g-6/9/12; ADR-0038)
+
+Test sözleşmesi: `docs/implementation.md` "P28g K8a". Yayın: §28g.4–§28g.7 (K8b).
+
+### 28g.1 CI akışı (`agent-win.yml`)
+
+- `check`: linux/amd64 `CGO_ENABLED=0` vet ve staticcheck (etiketsiz ve `-tags linuxgui`), govulncheck, go-licenses. Kaynakta yasak
+  GStreamer öğe adı (`x264enc`, `decodebin`, `auto*` …) taraması.
+- `build-linux` ×2 → `reproducible-linux`: SHA eşitliği ve `build/check-linux-elf.sh` (ELF64 x86-64, NEEDED ⊆ libc/libdl/libpthread,
+  ≤ 60 MiB). Etiket: prod adres, staging/`.invalid` yok. Artifact adları:
+  - etiket: `agent-linux` (`NoktaDestek-linux-x86_64-<sürüm>`)
+  - main'den staging dispatch: `agent-linux-stg`
+  - diğer: `agent-linux-test`
+- `test-linux-gui` (22.04, 24.04): `apps/agent-win/test/linux/gui.sh <2204|2404>`. Özet koşu sayfasında görünür, günlükler
+  `test-linux-gui-<sürüm>` artifact'ındadır. Etikette `bekleyen` testler ve eksik iz betiği kırmızıdır.
+- `approve`, `reproducible-linux` ve `test-linux-gui` yeşil olmadan açılmaz.
+
+### 28g.2 Yerel prova (CI ile aynı betik)
+
+```sh
+apps/agent-win/test/linux/gui.sh 2404          # ya da 2204; çıktı apps/agent-win/bin/gui-test-2404/
+GO_IMAGE=… apps/agent-win/test/linux/gui.sh 2204 /tmp/gui   # GO_IMAGE verilmezse agent-win.yml'den okunur
+sh apps/agent-win/build/build-linux.sh https://x.example.invalid 0.0.0 /tmp/nd && sh apps/agent-win/build/check-linux-elf.sh /tmp/nd
+```
+
+- Apple Silicon'da imaj `linux/amd64` emülasyonla koşar. İmaj kurulumu yaklaşık 2 dk, test koşusu emülasyonda yavaştır.
+- Kırmızıysa `ozet-<sürüm>.md`'deki HATA satırlarına bakın:
+  - `go-test-x11-*.txt` / `go-test-wayland-*.txt`: test çıktısı.
+  - `xi2-offsets-*.txt`: K3 ofset karşılaştırması.
+- Wayland katmanı kurulamazsa yalnız uyarı verilir. Kanıt elle alınır (mimari-p28g §12.1).
+
+### 28g.3 Bakım
+
+- Taban imaj digest'leri `Dockerfile.2204/2404` dosyalarındadır ve Dependabot PR'ı açar. Go sürümü GO_IMAGE'dan gelir (tek kaynak).
+- apt paketleri sabit değildir. İmaj kaynaklı kırmızıda önce paket listesi karşılaştırılır.
+- Zorunlu test adı değişirse `test/linux/gui-tests.txt` aynı PR'da güncellenir.
+- Harness (K8b): iz testi ELF'i `-buildvcs=false` ile derlenir (repo kökü farklı uid'le bağlı → git "dubious ownership" → "error
+  obtaining VCS status"); yayın derlemeleri değişmez. `trace-check-linux.sh` çalışan istemciyi `/proc/<pid>/exe` ve argv[0] ile arar
+  (eskiden `pgrep -f` betiğin kendi `--exe …/Destek-12345678` komut satırını eşliyordu).
+
+### 28g.4 Dosyalar ve CI yayın zinciri
+
+| Yer                                                            | İş                                                                                                                               |
+| -------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
+| `deploy/agent/publish-linux.sh` + `test-publish-linux-lock.sh` | yayın / geri alma (`--tag`, `--stg-run`, `--dir`, `--withdraw`); kilit + adres + sahte `gh` ile `--tag` testi                    |
+| `deploy/Caddyfile` `@agentLinux` + `agent_bin_file`            | `/downloads/(NoktaDestek-linux\|Destek-<8 hane>)` → forward_auth `/internal/agent-ready/linux` → volume'daki `NoktaDestek-linux` |
+| `deploy/docker-compose.yml` server                             | `LINUX_AGENT_PATH=/data/downloads/NoktaDestek-linux` (sabit), `LINUX_AGENT_SHA256=${LINUX_AGENT_SHA256:-}` (yayın betiği yazar)  |
+| `.github/workflows/agent-win.yml`                              | `attest-linux` (etikette onaydan sonra), `release`: `NoktaDestek-linux-x86_64-<sürüm>` + SHA256SUMS satırı **zorunlu**           |
+| `.github/workflows/agent-watch.yml`                            | `hash-linux` (sunulan ELF = bir Release SHA256SUMS satırı), günlük govulncheck `GOOS=linux`                                      |
+
+Caddy yanıtı: `Content-Type: application/octet-stream`, `Content-Disposition: attachment; filename="Destek-<kod>"` (uzantısız),
+`nosniff`, `no-store`, **`Last-Modified` yok** (tarayıcı mtime'ı ondan alırsa kılavuzdaki `find -mmin -10` komutu dosyayı görmez,
+S-P28g-6). Kapı kapalıysa (SHA boş / uyuşmaz / dosya yok) 503 ve dosya sunulmaz; Windows/macOS kapıları bağımsızdır.
+Doğrulama: `deploy/test-caddy.sh` (Docker; Linux başlıkları, çapraz kapılar, biçim dışı adlar 404) → `SONUÇ: GEÇTİ`.
+
+CI: `reproducible-linux` artifact'ı → `attest-linux` (`attest-build-provenance`; etikette `agent-linux`, staging dispatch'te
+`agent-linux-stg`, main push'ta `agent-linux-test`) → `release` (artifact adı, dosya adı = etiket sürümü, SHA = reproducible-linux
+çıktısı, build-meta `prod` + `AGENT_SERVER_URL`; `sha256sum -c --ignore-missing SHA256SUMS`). Linux'ta imza adımı olmadığından
+"skipped" yolu yoktur: `attest-linux` başarısızsa Release oluşmaz.
+
+ELF adres denetimi (S-P28g-9): etikette `check-linux-elf.sh --server AGENT_SERVER_URL --forbid STG_SERVER_URL --forbid
+PLACEHOLDER_SERVER_URL`. **Düz `.invalid` aranmaz:** gerçek ELF'te Go sembolleri (`http2…invalidate`) bu metni 27 kez içerir
+(2026-11-18 ölçüldü); `publish-linux.sh` de yalnız `https://<host>.invalid` adresini arar.
+
+### 28g.5 Yayın (`deploy/agent/publish-linux.sh`)
+
+Ortam kilidi `publish-mac.sh` ile aynıdır (§28f.4 tablosu): production yalnız `--tag vX.Y.Z`; staging `stg-*`, `dir-*`, `vX.Y.Z`;
+development hepsi; boş/bilinmeyen ret; proje `remote` + `stg.*` genel ad ret (S13C-15). Ek olarak **sunucu tarafında** ELF'te hedef
+`.env` `PUBLIC_BASE_URL` (şemasıyla) geçmelidir (staging dahil — ikili o sunucuya bağlanır), `https://….invalid` geçmemelidir;
+production'da staging adresi (`https://stg.remote.noktabilisim.net`) de geçmemelidir.
+
+Operatör tarafı: `SHA256SUMS` tek satır; ELF64 LE x86-64 (`od`, `readelf` gerekmez — macOS'ta çalışır), ≤ 60 MiB, UPX yok.
+Ad: Release `^NoktaDestek-linux-x86_64-X.Y.Z$` (`-stg-` ret), staging yolları `NoktaDestek-linux-x86_64-stg-X.Y.Z`.
+`--tag` (S-P28g-9): `AGENT_SERVER_URL=https://<prod host>` ortam değişkeni **zorunlu** (repo değişkeniyle aynı değer); ELF'te bu adres
+var, staging adresi yok; `gh attestation verify --signer-workflow <repo>/.github/workflows/agent-win.yml --source-ref refs/tags/<etiket>
+--deny-self-hosted-runners`. Sunucu tarafı: ağsız yardımcı konteynerle `agent_downloads/NoktaDestek-linux` atomik (0644), `.env`
+`LINUX_AGENT_SHA256` (yedek `.env.bak.linux.*`, son 5), `PUBLISHED.log` `linux` satırı, server yeniden yaratılır, Caddy'den
+`/downloads/NoktaDestek-linux` SHA + `octet-stream` + `Last-Modified` yok kontrolü (Caddyfile güncel değilse burada durur).
+
+**Staging TEST ikilisi (tek yığın, bugünkü yol):** sunucu (P28g K6) + Caddyfile + compose staging'e alınmış olmalı (§28g.7 sıra).
+Temiz ağaç (commit'lenmiş), repo kökü:
+
+```bash
+SERVER='https://remote.noktabilisim.net'; VER=0.20.0      # tek yığın staging'in gömülü adresi (§28f.4 ile aynı)
+OUT="$(mktemp -d)"
+for n in 1 2; do
+  docker run --rm --platform linux/amd64 -v "$PWD:/src" -v "$OUT:/out" -w /src -e GOFLAGS=-mod=readonly -e GOTOOLCHAIN=local \
+    golang:1.26.11-bookworm@sha256:dc40a13b61304647ed7e5d581d246b86413dfc29d63c6d018310feb93cd98fc0 sh -c '
+    git config --global --add safe.directory /src
+    apps/agent-win/build/build-linux.sh "$0" "$1" "/out/nd-$2" test' "$SERVER" "$VER" "$n"
+done
+shasum -a 256 "$OUT"/nd-*                  # iki SHA eşit olmalı (tekrarlanabilirlik)
+mkdir "$OUT/yayin" && cp "$OUT/nd-1" "$OUT/yayin/NoktaDestek-linux-x86_64-stg-$VER"
+(cd "$OUT/yayin" && shasum -a 256 "NoktaDestek-linux-x86_64-stg-$VER" > SHA256SUMS)
+ALLOW_UNATTESTED=staging deploy/agent/publish-linux.sh --dir "$OUT/yayin" --no-attestation --dry-run
+ALLOW_UNATTESTED=staging deploy/agent/publish-linux.sh --dir "$OUT/yayin" --no-attestation --ssh root@185.126.217.99 \
+  --deploy-dir /opt/remote/deploy
+```
+
+Beklenen: `yayınlandı: agent_downloads/NoktaDestek-linux (dir-…-unattested, <sha>)` ve `kontrol: … octet-stream, Last-Modified yok`.
+Sonra `curl -sk https://<host>/api/v1/public/agent/availability` → `"linux":true`. TEST metni pencere başlığında ve Hakkında'da
+`test` kipinden gelir. İkinci yığın (`/opt/remote-stg`) kurulduysa CI yolu: `gh workflow run agent-win.yml --ref main -f
+server_url=https://stg.remote.noktabilisim.net -f version=0.20.0` → `publish-linux.sh --stg-run <run-id> --ssh root@185.126.217.99`.
+**Durum (2026-11-18):** `--dir --dry-run` ve `AGENT_PUBLISH_RESTART=0 --apply` gerçek TEST ELF'iyle yerelde denendi; `--ssh` adımı
+staging'de **henüz koşulmadı** (sunucu P28g K6 staging'de değil; dal birleşince koordinatör uygular).
+
+**Prod (yalnız §28g.6 kontrol listesi tamamsa):** `AGENT_SERVER_URL=https://remote.noktabilisim.net deploy/agent/publish-linux.sh --tag
+v0.20.0 --dry-run`, sonra `--ssh root@<prod>`.
+
+Gözcü: repo değişkeni `AGENT_WATCH_LINUX_URL=https://<prod host>/downloads/NoktaDestek-linux` (Linux Release yayımlanınca). Hiçbir
+Release'te Linux satırı yoksa iş "notice" ile geçer. 503, uyuşmazlık, erişilemezlik → `agent-watch` issue'su → §11.7; kapatma `--withdraw`.
+
+Kilit testi: `deploy/agent/test-publish-linux-lock.sh [<stg klasörü>]` → `SONUÇ: GEÇTİ` (2026-11-18: 43/43, gerçek TEST ELF'iyle).
+
+### 28g.6 Prod yayın kontrol listesi (Linux; `approve` özetinde de var)
+
+- [ ] Sunucu P28g (K6) prod'da: `os=linux`, availability `linux`, `WAYLAND_NO_CONTROL`, `/internal/agent-ready/linux`; Caddyfile
+      `@agentLinux` ve compose `LINUX_AGENT_*` prod'da (yoksa yayın betiği Caddy kontrolünde durur).
+- [ ] K9 qa GEÇTİ, güvenlik Kritik/Yüksek 0; mimari-p28g §12.1 E-listesi staging TEST ikilisiyle GEÇTİ.
+- [ ] **Wayland kontrolü (mimari-p28g §5.2b m.7):** E-7 **(b)** (teknisyen Ctrl'yi sürekli yeniden basarken Super+L ≤ 3 sn REVOKED) ve
+      **(c)** (kipli kabuk diyaloğu açıkken Super+L) gerçek GNOME Wayland makinesinde (24.04 + 22.04) GEÇTİ ise anahtar **on** kalır.
+      **E-7 (b)/(c) geçmezse `WAYLAND_CONTROL=off` ile derle:** repo değişkeni `LINUX_WAYLAND_CONTROL=off`, yeni etiket. Etiket (prod) derlemesinde değişken `on` ya da `off` olarak tanımlı olmak zorundadır; tanımsızsa derleme durur (D-P28g-K3-2). Etiket dışı derlemede tanımsız → on.
+      off ikili Wayland'de yalnız görüntüdür (RemoteDesktop istenmez, kontrol isteğine `WAYLAND_NO_CONTROL`); X11 etkilenmez. Değer
+      `reproducible-linux` özetinde ("Wayland kontrolü: on|off") ve build-meta 4. satırında; iki derleme aynı değeri kullanmak zorunda
+      (build-meta `cmp`). Yerelde: `WAYLAND_CONTROL=off build/build-linux.sh …`. (d) tutmazsa yalnız kılavuz notu.
+- [ ] Release'te `NoktaDestek-linux-x86_64-<sürüm>` ve SHA256SUMS satırı var; `gh attestation verify … --source-ref refs/tags/<etiket>` geçti.
+
+### 28g.7 Sıra ve geri alma
+
+- Sıra: sunucu + web (K6/K7) → Caddyfile + compose (`docker compose up -d caddy server`) → `publish-linux.sh`. Linux kapısı
+  `LINUX_AGENT_SHA256` boşken 503 olduğundan sunucu önce çıkabilir; karşılama sayfası Linux düğmesini göstermez.
+- **Linux indirmesini kapat:** `deploy/agent/publish-linux.sh --withdraw --ssh root@<sunucu> [--deploy-dir …]` → `LINUX_AGENT_SHA256=`
+  - server yeniden + `/downloads/NoktaDestek-linux` **503** kontrolü. Windows/macOS etkilenmez.
+- Önceki sürüme dönüş: `AGENT_SERVER_URL=… publish-linux.sh --tag v<önceki>` (Release'te Linux ELF'i varsa).
+
 ## 29. P22 — oturum sohbeti (sunucu + web; istemci 0.21.0 = P22-G ayrı) (devops P22-O, 2026-11-18; mimari-p22 §7.2, §10.2, §13, §15.2/§15.3/§15.7; ADR-0025 r-P22; AC-264, AC-291)
 
 Bu bölüm yayın **talimatıdır**; P22-O'da staging/prod'a dokunulmadı. **DENENMEDİ:** staging seed provası ve alarm provası

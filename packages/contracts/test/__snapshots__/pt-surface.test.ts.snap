@@ -1270,6 +1270,7 @@ exports[`PT-K1 contracts yüzeyi > AC-318: her exports yolunun dışa verdiği a
     "isDoubleExtension",
     "isHiddenName",
     "isSanitizedFileName",
+    "receivedFileName",
     "sanitizeFileName",
   ],
   "./holidays-tr": [
@@ -1302,6 +1303,7 @@ exports[`PT-K1 contracts yüzeyi > AC-318: her exports yolunun dışa verdiği a
     "FSRV_UNKNOWN_SIGNATURE",
     "GENERAL_CUSTOMER_LABEL",
     "KNOWN_DEVICE_LABEL",
+    "LINUX_NO_CONTROL_CANCELLED",
     "NETWORK_MATCH_LABELS",
     "OS_PERMISSION_CANCELLED",
     "OUTBOUND_REASON_LABELS",
@@ -1326,6 +1328,7 @@ exports[`PT-K1 contracts yüzeyi > AC-318: her exports yolunun dışa verdiği a
     "TIMELINE_ACTION_LABELS",
     "TimelineText (tip)",
     "VIA_BINDING_LABEL",
+    "WAYLAND_NO_CONTROL_CANCELLED",
     "describeFsrvStatus",
     "describeShareFailure",
     "describeTimelineEvent",

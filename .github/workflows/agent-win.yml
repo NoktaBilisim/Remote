@@ -14,6 +14,11 @@
 # (package-mac), go test darwin + iz testi (test-macos). Etikette onaydan sonra sign-mac (Developer ID + notarize + staple;
 # vars.APPLE_TEAM_ID yoksa atlanır) → attest-mac → Release. İmzasız/ad-hoc zip ve prod adresli ad-hoc zip HİÇBİR ZAMAN artifact/
 # Release olmaz (S-P28f-7): etikette package-mac yalnız denetler, yüklemez.
+# P28g K8a (mimari-p28g §8.2, ADR-0038): Linux istemcisi. Tek ELF GO_IMAGE'da CGO'suz derlenir (build-linux ×2 →
+# reproducible-linux SHA eşitliği + check-linux-elf.sh), test-linux-gui Ubuntu 22.04/24.04 imajlarında Xvfb + başsız mutter ile
+# `go test -tags linuxgui` + ortam pozitif kontrolü + XI2 ofsetleri + iz testi (sözleşme: docs/implementation.md "P28g K8a").
+# İmza yok (AC-403). P28g K8b: attest-linux (etikette approve'dan sonra) → Release'e NoktaDestek-linux-x86_64-<sürüm> + SHA256SUMS
+# satırı ZORUNLU (Linux'ta "skipped" yolu yok); staging dispatch'te agent-linux-stg attest edilir (publish-linux.sh --stg-run).
 name: agent-win
 on:
   pull_request:
@@ -101,10 +106,28 @@ jobs:
           govulncheck ./...
           GOOS=darwin GOARCH=arm64 CGO_ENABLED=0 govulncheck ./...
           GOOS=darwin GOARCH=amd64 CGO_ENABLED=0 govulncheck ./...
-      - name: lisans (AGPL/GPL/bilinmeyen yasak; windows + darwin)
+      - name: lisans (AGPL/GPL/bilinmeyen yasak; windows + darwin + linux)
         run: |
           GOOS=windows GOARCH=amd64 go-licenses check ./... --ignore remote-support/agent-win --disallowed_types=forbidden,restricted,unknown
           GOOS=darwin GOARCH=arm64 CGO_ENABLED=0 go-licenses check ./... --ignore remote-support/agent-win --disallowed_types=forbidden,restricted,unknown
+          GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go-licenses check ./... --ignore remote-support/agent-win --disallowed_types=forbidden,restricted,unknown
+      # P28g K8a (§8.2 check, S-P28g-9): ürün Linux hedefi CGO_ENABLED=0 (purego); imajın varsayılanı CGO=1 olduğundan ayrıca.
+      # `-tags linuxgui`: GUI test dosyaları (yalnız test-linux-gui'de koşar) her PR'da derlenir ve denetlenir.
+      - name: linux/amd64 CGO=0 vet + staticcheck + govulncheck (+ linuxgui etiketi)
+        run: |
+          GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go vet ./...
+          GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go vet -tags linuxgui ./...
+          GOOS=linux GOARCH=amd64 CGO_ENABLED=0 staticcheck ./...
+          GOOS=linux GOARCH=amd64 CGO_ENABLED=0 staticcheck -tags linuxgui ./...
+          GOOS=linux GOARCH=amd64 CGO_ENABLED=0 govulncheck ./...
+      # P28g K8a (T6, S-P28g-4 beyaz liste katman 0): kaynakta GPL/H.264 kodlayıcı ve otomatik eklenti seçici adı geçmez. Asıl
+      # denetim K2'nin şablon testi (TestP28gK2PipelineElementsWhitelisted) + çalışma anı; bu tarama ek katmandır. _test.go hariç
+      # (negatif fikstür olabilir). GStreamer öğe adları küçük harf; tam sözcük eşleşmesi.
+      - name: yasak GStreamer öğesi kaynakta yok (x264enc, decodebin, auto*)
+        run: |
+          bad="$(grep -rnwE --include='*.go' --exclude='*_test.go' \
+            'x264enc|x265enc|openh264enc|avenc_h264|vah264enc|vaapih264enc|nvh264enc|msdkh264enc|decodebin3?|uridecodebin3?|playbin3?|parsebin|encodebin2?|autovideosrc|autovideosink|autovideoconvert|autoaudiosrc|autoaudiosink' . || true)"
+          [ -z "$bad" ] || { printf '%s\n' "$bad"; echo "::error::yasak GStreamer öğesi (mimari-p28g T6 / S-P28g-4)"; exit 1; }
 
   test-windows:
     name: go test (Windows)
@@ -917,6 +940,163 @@ jobs:
           sleep 2
           bash "$TRACE_MAC" compare "$snap" --since "$since" --bundle "$app" --marker 12345678
 
+  # P28g K8a (mimari-p28g §8.2 build-linux; S-P28g-9): tek ELF GO_IMAGE'da (CGO_ENABLED=0, purego). Sunucu adresi tablosu build-mac
+  # ile aynı: v* etiket push'u → vars.AGENT_SERVER_URL, prod (build-linux.sh yalnız GITHUB_REF_TYPE=tag + v<sürüm> ile derler) ·
+  # main'de elle tetikleme + staging adresi → STG_SERVER_URL + `test` · geri kalan (PR, main push, yer tutucu) → PLACEHOLDER + `test`.
+  # main push'a prod adresi GÖMÜLMEZ.
+  build-linux:
+    name: build-linux ${{ matrix.n }}/2
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    strategy:
+      matrix:
+        n: [1, 2]
+    container:
+      image: golang:1.26.11-bookworm@sha256:dc40a13b61304647ed7e5d581d246b86413dfc29d63c6d018310feb93cd98fc0
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with: { persist-credentials: false }
+      - name: sürüm + sunucu adresi + kip
+        id: meta
+        env:
+          EVENT: ${{ github.event_name }}
+          REF_TYPE: ${{ github.ref_type }}
+          REF_NAME: ${{ github.ref_name }}
+          VAR_SERVER_URL: ${{ vars.AGENT_SERVER_URL }}
+          GIT_REF: ${{ github.ref }}
+          IN_SERVER_URL: ${{ inputs.server_url }}
+          IN_VERSION: ${{ inputs.version }}
+        run: |
+          if [ "$REF_TYPE" = tag ] && [ "$EVENT" != push ]; then
+            echo "::error::etiket derlemesi yalnız etiket push'unda"; exit 1
+          fi
+          server="$PLACEHOLDER_SERVER_URL"; version=0.0.0; mode="test"
+          if [ "$REF_TYPE" = tag ]; then
+            echo "$REF_NAME" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+$' || { echo "::error::etiket vX.Y.Z olmalı"; exit 1; }
+            [ -n "$VAR_SERVER_URL" ] || { echo "::error::Release için repo değişkeni AGENT_SERVER_URL gerekli"; exit 1; }
+            server="$VAR_SERVER_URL"; version="${REF_NAME#v}"; mode=prod
+          elif [ "$EVENT" = workflow_dispatch ] && [ -n "$IN_SERVER_URL" ] && [ "$IN_SERVER_URL" != yer-tutucu ]; then
+            [ "$IN_SERVER_URL" = "$STG_SERVER_URL" ] || { echo "::error::server_url yalnız $STG_SERVER_URL olabilir"; exit 1; }
+            [ "$GIT_REF" = refs/heads/main ] || { echo "::error::staging ikilisi yalnız main dalından ($GIT_REF)"; exit 1; }
+            printf '%s' "$IN_VERSION" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$' || { echo "::error::version x.y.z olmalı"; exit 1; }
+            server="$STG_SERVER_URL"; version="$IN_VERSION"
+          fi
+          { echo "version=$version"; echo "server=$server"; echo "mode=$mode"; } >> "$GITHUB_OUTPUT"
+      - name: build/build-linux.sh + check-linux-elf.sh
+        env:
+          SERVER: ${{ steps.meta.outputs.server }}
+          VERSION: ${{ steps.meta.outputs.version }}
+          MODE: ${{ steps.meta.outputs.mode }}
+          # P28g K10 (mimari-p28g §5.2b m.7, runbook §28g.6): Wayland kontrol anahtarı. Repo değişkeni LINUX_WAYLAND_CONTROL
+          # (on|off). Etiket (prod) derlemesinde tanımsızsa 'unset' → build-linux.sh durur (D-P28g-K3-2: prod'da açık karar şart);
+          # etiket dışı (staging/test) derlemede tanımsız → on. E-7 (b)/(c) gerçek GNOME Wayland'de GEÇMEDİYSE off. build-meta 4.
+          # satırı; reproducible-linux iki derlemenin build-meta'sını cmp ile karşılaştırdığından ikisi aynı değeri kullanmak zorundadır.
+          WAYLAND_CONTROL: ${{ vars.LINUX_WAYLAND_CONTROL || (github.ref_type == 'tag' && 'unset' || 'on') }}
+        run: |
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          kip="test"; [ "$MODE" = prod ] && kip=""
+          # kip boşsa (prod) build-linux.sh yalnız GITHUB_REF_TYPE=tag + GITHUB_REF_NAME=v<sürüm> ile derler (S-P28g-9).
+          # WAYLAND_CONTROL on|off dışında build-linux.sh durur.
+          # shellcheck disable=SC2086
+          apps/agent-win/build/build-linux.sh "$SERVER" "$VERSION" "$RUNNER_TEMP/out/noktadestek-linux" $kip
+          apps/agent-win/build/check-linux-elf.sh "$RUNNER_TEMP/out/noktadestek-linux" --server "$SERVER"
+          printf '%s\n%s\n%s\n%s\n' "$SERVER" "$VERSION" "$MODE" "$WAYLAND_CONTROL" > "$RUNNER_TEMP/out/build-meta.txt"
+          sha256sum "$RUNNER_TEMP/out/noktadestek-linux"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: agent-linux-build-${{ matrix.n }}
+          path: ${{ runner.temp }}/out/
+          if-no-files-found: error
+          retention-days: 7
+
+  # P28g K8a (§8.2 reproducible-linux; S-P28g-9): iki derleme aynı SHA + ELF denetimi (prod: adres = AGENT_SERVER_URL, staging ve
+  # yer tutucu .invalid adresi yok — düz ".invalid" Go sembollerinde (http2…invalidate) geçtiğinden tam adres aranır, K8b) + adlandırma. Çıktılar K8b'nin attest-linux / release / publish-linux.sh işleri içindir (docs/implementation.md
+  # "P28g K8a" iskelet). Release'e bağlama K8b'de; approve bu işi bekler.
+  reproducible-linux:
+    name: tekrarlanabilirlik (linux x86_64)
+    needs: build-linux
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    outputs:
+      sha: ${{ steps.cmp.outputs.sha }}
+      version: ${{ steps.cmp.outputs.version }}
+      mode: ${{ steps.cmp.outputs.mode }}
+      file: ${{ steps.cmp.outputs.file }}
+      artifact: ${{ steps.cmp.outputs.artifact }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with: { persist-credentials: false, sparse-checkout: apps/agent-win/build }
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with: { pattern: agent-linux-build-*, path: builds }
+      - name: iki derleme aynı SHA-256 + ELF denetimi; dosya adı
+        id: cmp
+        env:
+          REF_TYPE: ${{ github.ref_type }}
+          VAR_SERVER_URL: ${{ vars.AGENT_SERVER_URL }}
+        run: |
+          cmp builds/agent-linux-build-1/build-meta.txt builds/agent-linux-build-2/build-meta.txt || { echo "::error::build-meta farklı"; exit 1; }
+          f1=builds/agent-linux-build-1/noktadestek-linux; f2=builds/agent-linux-build-2/noktadestek-linux
+          x=$(sha256sum "$f1" | cut -d' ' -f1); y=$(sha256sum "$f2" | cut -d' ' -f1)
+          echo "build1=$x build2=$y"
+          [ "$x" = "$y" ] || { echo "::error::linux tekrarlanabilir build başarısız: SHA-256 farklı"; exit 1; }
+          meta=builds/agent-linux-build-1/build-meta.txt
+          server="$(sed -n 1p "$meta")"; ver="$(sed -n 2p "$meta")"; mode="$(sed -n 3p "$meta")"; wl="$(sed -n 4p "$meta")"
+          case "$wl" in on|off) ;; *) echo "::error::build-meta Wayland kontrol anahtarı '$wl' (on|off)"; exit 1 ;; esac
+          if [ "$REF_TYPE" = tag ]; then
+            [ "$mode" = prod ] && [ "$server" = "$VAR_SERVER_URL" ] || { echo "::error::etiket derlemesi prod kipinde ve AGENT_SERVER_URL adresli olmalı"; exit 1; }
+            apps/agent-win/build/check-linux-elf.sh "$f1" --server "$server" --forbid "$STG_SERVER_URL" --forbid "$PLACEHOLDER_SERVER_URL"
+            file="NoktaDestek-linux-x86_64-$ver"; artifact=agent-linux
+          else
+            [ "$mode" = test ] || { echo "::error::etiket dışı derleme test kipinde olmalı (S-P28g-9)"; exit 1; }
+            apps/agent-win/build/check-linux-elf.sh "$f1" --server "$server"
+            file="NoktaDestek-linux-x86_64-stg-$ver"
+            if [ "$server" = "$STG_SERVER_URL" ]; then artifact=agent-linux-stg; else artifact=agent-linux-test; fi
+          fi
+          printf '%s' "$file" | grep -Eq '^NoktaDestek-linux-x86_64-(stg-)?[0-9]+\.[0-9]+\.[0-9]+$' || { echo "::error::dosya adı $file"; exit 1; }
+          mkdir dist && cp "$f1" "dist/$file" && cp "$meta" dist/
+          (cd dist && sha256sum "$file" > SHA256SUMS && cat SHA256SUMS)
+          { echo "### $file ($artifact; $mode, $server; Wayland kontrolü: $wl)"; echo '```'; cat dist/SHA256SUMS; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+          { echo "sha=$x"; echo "version=$ver"; echo "mode=$mode"; echo "file=$file"; echo "artifact=$artifact"; } >> "$GITHUB_OUTPUT"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: ${{ steps.cmp.outputs.artifact }}
+          path: dist/
+          if-no-files-found: error
+          retention-days: 30
+
+  # P28g K8a (§8.2 test-linux-gui, §9; D-P28g-T2-2, §14 m.2, T6): Ubuntu 22.04 / 24.04 imajı (taban digest sabit; Go GO_IMAGE'dan)
+  # içinde Xvfb + başsız mutter/portal ile `go test -tags linuxgui`, GStreamer envanteri, XI2 ofsetleri, ELF yükleme + ortam pozitif
+  # kontrolü, iz testi ve zorunlu liste (test/linux/gui-tests.txt). Mantık YAML'de değil test/linux/ betiklerinde (yerel prova aynı:
+  # runbook §28g). Etikette P28G_STRICT=1: "bekleyen" testler ve eksik iz betiği kırmızı.
+  test-linux-gui:
+    name: test-linux-gui (Ubuntu ${{ matrix.rel }})
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    strategy:
+      fail-fast: false
+      matrix:
+        rel: ["2204", "2404"]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with: { persist-credentials: false }
+      - name: test/linux/gui.sh ${{ matrix.rel }}
+        env:
+          REL: ${{ matrix.rel }}
+          P28G_STRICT: ${{ github.ref_type == 'tag' && '1' || '0' }}
+        run: |
+          set +e
+          apps/agent-win/test/linux/gui.sh "$REL" "$RUNNER_TEMP/gui"
+          rc=$?
+          cat "$RUNNER_TEMP"/gui/ozet-*.md >> "$GITHUB_STEP_SUMMARY" 2>/dev/null
+          exit "$rc"
+      - if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: test-linux-gui-${{ matrix.rel }}
+          path: ${{ runner.temp }}/gui/
+          if-no-files-found: warn
+          retention-days: 7
+
   build:
     name: build ${{ matrix.n }}/2
     runs-on: ubuntu-24.04
@@ -1044,6 +1224,8 @@ jobs:
             echo "- [ ] 0.16.0 ve sonrası: Windows 10 + 11 kayıt elle turu GEÇTİ (runbook §28e.8: rıza kutusu işaretsiz, şerit/gösterge + Kaydı durdur ≤ 2 sn, gösterge eki (r3: gözetimsiz diyalog satırı yok), olay 1009, 1 sa kayıt ≤ 1 GB)"
             echo "- [ ] 0.17.0 ve sonrası: Windows çoklu teknisyen elle turu + AC-371 ölçümü GEÇTİ (runbook §28c.7/§28c.8: roster adları, Çıkar, devir, gözetimsiz göstergede adlar (r3: silent katılım gerekçesi/dört göz e-postası yok); kontrol sahibi ≥ 15 FPS, diğerleri ≥ 5 FPS)"
             echo "- [ ] 0.19.0 ve sonrası: sunucu P28f prod'da (clientOs, availability, OS_PERMISSION; migration yok) — eski sunucu clientOs'u yok sayar"
+            echo "- [ ] 0.20.0 ve sonrası: sunucu P28g prod'da (os=linux, availability linux, WAYLAND_NO_CONTROL; migration yok); Linux elle E-listesi (mimari-p28g §12.1) staging TEST ikilisiyle GEÇTİ"
+            echo "- [ ] 0.20.0 ve sonrası (mimari-p28g §5.2b m.7): Linux ikilisinin Wayland kontrol anahtarı (reproducible-linux özetindeki 'Wayland kontrolü: on|off'; repo değişkeni LINUX_WAYLAND_CONTROL; etiket derlemesinde tanımlı olmak zorunda). **on** ise E-7 (b) ve (c) gerçek GNOME Wayland makinesinde (24.04 + 22.04) GEÇTİ mi? Geçmediyse **Reject**, LINUX_WAYLAND_CONTROL=off yapıp yeni etiket (Wayland yalnız görüntü; X11 etkilenmez) (runbook §28g.6)"
             echo "- [ ] macOS: repo değişkeni APPLE_TEAM_ID tanımlı mı? Tanımsızsa sign-mac ATLANIR ve Release'te macOS zip'i OLMAZ (beklenen, R39). Tanımlıysa macOS elle D-listesi (runbook §28f.6) staging TEST paketiyle GEÇTİ"
             echo "- [ ] Aynı commit'ten staging exe ile duman testi GEÇTİ (runbook §24.2)"
             echo "- [ ] qa GEÇTİ, güvenlik Kritik/Yüksek 0; bekleyen eski etiket koşusu yok"
@@ -1068,9 +1250,11 @@ jobs:
       !cancelled() && github.event_name == 'push' && github.ref_type == 'tag' && needs.check.result == 'success' &&
       needs.test-windows.result == 'success' && needs.reproducible.result == 'success' &&
       needs.libopus-wasm.result == 'success' && needs.reproducible-mac.result == 'success' &&
-      needs.package-mac.result == 'success' && needs.test-macos.result == 'success'
+      needs.package-mac.result == 'success' && needs.test-macos.result == 'success' &&
+      needs.reproducible-linux.result == 'success' && needs.test-linux-gui.result == 'success'
     # P28f (§8.2 sıra): (reproducible ‖ reproducible-mac + package-mac + test-macos) → approve → (sign ‖ sign-mac) → attest → release.
-    needs: [check, test-windows, reproducible, libopus-wasm, reproducible-mac, package-mac, test-macos]
+    # P28g K8a: Linux derleme + GUI testleri de onaydan önce yeşil olmalı (attest-linux / Release K8b'de).
+    needs: [check, test-windows, reproducible, libopus-wasm, reproducible-mac, package-mac, test-macos, reproducible-linux, test-linux-gui]
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     environment: agent-release
@@ -1402,6 +1586,38 @@ jobs:
           predicate-type: ${{ env.MAC_NOTARIZED_PREDICATE }}
           predicate-path: dist/notarization.json
 
+  # P28g K8b (mimari-p28g §8.2, S-P28g-9): Linux ELF attestation'ı. Etiket: yalnız agent-release onayından sonra (Reject edilen etiket
+  # attest edilmez); etiket dışı (main push → agent-linux-test, staging dispatch → agent-linux-stg) koşulsuz. PR'da yok (id-token yok).
+  # publish-linux.sh --tag `--source-ref refs/tags/<etiket> --signer-workflow agent-win.yml` ile doğrular (iş akışı = etiket iş akışı).
+  attest-linux:
+    name: Linux attestation
+    if: >-
+      !cancelled() && github.event_name != 'pull_request' && needs.reproducible-linux.result == 'success' &&
+      (github.ref_type != 'tag' || needs.approve.result == 'success')
+    needs: [reproducible-linux, approve]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with: { name: "${{ needs.reproducible-linux.outputs.artifact }}", path: dist }
+      - name: artifact + SHA256SUMS + reproducible-linux SHA
+        env:
+          REF_TYPE: ${{ github.ref_type }}
+          ART: ${{ needs.reproducible-linux.outputs.artifact }}
+          FILE: ${{ needs.reproducible-linux.outputs.file }}
+          SHA: ${{ needs.reproducible-linux.outputs.sha }}
+        run: |
+          case "$REF_TYPE:$ART" in tag:agent-linux|branch:agent-linux-stg|branch:agent-linux-test) ;; *) echo "::error::artifact $ART ($REF_TYPE)"; exit 1 ;; esac
+          cd dist && sha256sum -c SHA256SUMS
+          [ "$(sha256sum "$FILE" | cut -d' ' -f1)" = "$SHA" ] || { echo "::error::$FILE SHA'sı reproducible-linux çıktısı değil"; exit 1; }
+      - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: dist/${{ needs.reproducible-linux.outputs.file }}
+
   attest:
     name: build provenance attestation
     # Fork PR'larında id-token yok; yalnız main/etiket push'u ve elle tetikleme. GitHub, attestation'ı private
@@ -1447,8 +1663,10 @@ jobs:
     if: >-
       !cancelled() && github.event_name == 'push' && github.ref_type == 'tag' && needs.approve.result == 'success' &&
       needs.attest.result == 'success' && (needs.sign-mac.result == 'success' || needs.sign-mac.result == 'skipped') &&
-      (needs.attest-mac.result == 'success' || needs.attest-mac.result == 'skipped')
-    needs: [reproducible, approve, attest, reproducible-mac, sign-mac, attest-mac]
+      (needs.attest-mac.result == 'success' || needs.attest-mac.result == 'skipped') &&
+      needs.reproducible-linux.result == 'success' && needs.attest-linux.result == 'success'
+    # P28g K8b: Linux ELF'i her Release'te ZORUNLU (imza adımı yok, "skipped" kabul edilmez); attest-linux başarısızsa Release yok.
+    needs: [reproducible, approve, attest, reproducible-mac, sign-mac, attest-mac, reproducible-linux, attest-linux]
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions:
@@ -1459,7 +1677,9 @@ jobs:
       - if: needs.attest-mac.result == 'success'
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with: { name: agent-mac-signed, path: distmac }
-      - name: Release oluştur (exe + [macOS zip] + SHA256SUMS)
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with: { name: agent-linux, path: distlinux }
+      - name: Release oluştur (exe + [macOS zip] + Linux ELF + SHA256SUMS)
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ github.ref_name }}
@@ -1470,6 +1690,10 @@ jobs:
           APPLE_TEAM: ${{ vars.APPLE_TEAM_ID }}
           MAC_ART: ${{ needs.attest-mac.outputs.artifact }}
           MAC_ZIP: ${{ needs.reproducible-mac.outputs.zip }}
+          LINUX_ART: ${{ needs.reproducible-linux.outputs.artifact }}
+          LINUX_FILE: ${{ needs.reproducible-linux.outputs.file }}
+          LINUX_SHA: ${{ needs.reproducible-linux.outputs.sha }}
+          VAR_SERVER_URL: ${{ vars.AGENT_SERVER_URL }}
         run: |
           case "$ART" in agent-win|agent-win-signed) ;; *) echo "::error::Release artifact'i $ART olamaz"; exit 1 ;; esac
           # P28f (AC-390, S-P28f-7): Release'e yalnız Developer ID + notarize edilmiş zip; APPLE_TEAM_ID varken zip yoksa dur.
@@ -1492,6 +1716,19 @@ jobs:
             sig="imzasız (ADR-0010)"
           fi
           files=(NoktaDestek.exe "$SERVIS_EXE")
+          # P28g (AC-403, S-P28g-9): Linux ELF — artifact agent-linux, ad etiketle aynı sürüm, SHA = reproducible-linux, build-meta prod +
+          # AGENT_SERVER_URL. SHA256SUMS satırı mac olsun olmasın her zaman eklenir ve aşağıda doğrulanır.
+          L="$GITHUB_WORKSPACE/distlinux"
+          [ "$LINUX_ART" = agent-linux ] || { echo "::error::Linux artifact'i $LINUX_ART (agent-linux olmalı)"; exit 1; }
+          [ "$LINUX_FILE" = "NoktaDestek-linux-x86_64-${TAG#v}" ] || { echo "::error::Linux dosya adı $LINUX_FILE etiketle uyuşmuyor"; exit 1; }
+          [ "$(sed -n 3p "$L/build-meta.txt")" = prod ] && [ "$(sed -n 1p "$L/build-meta.txt")" = "$VAR_SERVER_URL" ] \
+            || { echo "::error::Linux build-meta prod/AGENT_SERVER_URL değil"; exit 1; }
+          (cd "$L" && sha256sum -c SHA256SUMS)
+          [ "$(sha256sum "$L/$LINUX_FILE" | cut -d' ' -f1)" = "$LINUX_SHA" ] || { echo "::error::Linux SHA reproducible-linux çıktısı değil"; exit 1; }
+          cp "$L/$LINUX_FILE" .
+          awk -v f="$LINUX_FILE" '$2 == f' "$L/SHA256SUMS" | grep -q . || { echo "::error::Linux SHA256SUMS'ta $LINUX_FILE yok"; exit 1; }
+          awk -v f="$LINUX_FILE" '$2 == f' "$L/SHA256SUMS" >> SHA256SUMS
+          files+=("$LINUX_FILE")
           if [ "$mac" = 1 ]; then
             cp "$M/$MAC_ZIP" .
             # SHA256SUMS: zip satırı + paket içi ikili satırı (Hakkında parmak izi, AC-128). Paket içi satırın dosyası Release'te
@@ -1502,6 +1739,8 @@ jobs:
             sha256sum -c --ignore-missing SHA256SUMS
             files+=("$MAC_ZIP")
           fi
+          sha256sum -c --ignore-missing SHA256SUMS
+          for x in "${files[@]}"; do grep -Eq "^[0-9a-f]{64}  $x\$" SHA256SUMS || { echo "::error::SHA256SUMS'ta $x satırı yok"; exit 1; }; done
           {
             echo "Nokta Destek Windows istemcisi ve gözetimsiz erişim servisi ($SERVIS_EXE) $TAG ($sig). Sunucu: $server"
             if [ "$mac" = 1 ]; then
@@ -1511,6 +1750,8 @@ jobs:
               echo
               echo "macOS istemcisi bu sürümde YOK (Apple Developer hesabı tanımlı değil — R39)."
             fi
+            echo
+            echo "Linux istemcisi $LINUX_FILE: x86_64, imzasız (AC-403); Ubuntu 22.04 / 24.04 (GNOME, X11 ve Wayland). Bütünlük bu Release'teki SHA256SUMS ve attestation ile doğrulanır; indirme sayfasındaki SHA yalnız kolaylıktır."
             echo
             echo '```'; cat SHA256SUMS; echo '```'
             if [ "$mac" = 1 ]; then

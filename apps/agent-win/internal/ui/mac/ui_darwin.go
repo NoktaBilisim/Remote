@@ -13,6 +13,7 @@ import (
 	"remote-support/agent-win/internal/darwin/objc"
 	"remote-support/agent-win/internal/flow"
 	"remote-support/agent-win/internal/input"
+	"remote-support/agent-win/internal/ui/uicore"
 )
 
 // ErrNoMainQueue ana dispatch kuyruğu bağlanamadı (arayüz kurulamaz; fail-closed).
@@ -37,11 +38,13 @@ type UI struct {
 	app    objc.ID
 	events chan flow.Event
 	footer string
-	gate   *control.Gate
-	band   bool
-	dark   bool
-	forms  map[*form]bool
-	quit   func() // ön plandaki ekranın kapatma yolu (Cmd+Q, uygulama menüsü)
+	// version config.Version: pencere başlıklarında uygulama adının yanında (uicore.VersionedTitle, 2026-11-18).
+	version string
+	gate    *control.Gate
+	band    bool
+	dark    bool
+	forms   map[*form]bool
+	quit    func() // ön plandaki ekranın kapatma yolu (Cmd+Q, uygulama menüsü)
 
 	lobby, ended, licenses, about *form
 	sess                          *sessionWin
@@ -59,7 +62,7 @@ type UI struct {
 	hotkeyLabel string
 	fileServer  bool
 	recView     flow.RecView
-	health      health
+	health      uicore.Health
 
 	pause atomic.Pointer[func(paused bool)] // SetInjectPause
 	stop  chan struct{}
@@ -79,8 +82,8 @@ func New(o Options) (*UI, <-chan flow.Event, error) {
 	if gate == nil {
 		gate = &control.Gate{}
 	}
-	u := &UI{q: q, events: make(chan flow.Event, 16), footer: footerText(o.Host, o.Version, o.Fingerprint),
-		gate: gate, forms: map[*form]bool{}, stop: make(chan struct{})}
+	u := &UI{q: q, events: make(chan flow.Event, 16), footer: uicore.FooterText(o.Host, o.Version, o.Fingerprint),
+		version: o.Version, gate: gate, forms: map[*form]bool{}, stop: make(chan struct{})}
 	u.app = cls("NSApplication").Send(selSharedApp)
 	u.app.Send(objc.Sel("setActivationPolicy:"), nsRegular)
 	u.dark = isDark(u.app)
@@ -145,11 +148,11 @@ func (u *UI) protectedDelta(d int) {
 // "Diğerlerini Gizle" ve "Pencere" menüsü yoktur (§5.2b).
 func (u *UI) buildMenu() {
 	bar := cls("NSMenu").Send(selNew)
-	appMenu := newMenu(appTitle)
-	u.menuItem(appMenu, appTitle+" Hakkında", "", u.showAbout)
+	appMenu := newMenu(uicore.AppTitle)
+	u.menuItem(appMenu, uicore.AppTitle+" Hakkında", "", u.showAbout)
 	u.menuItem(appMenu, "Lisanslar…", "", u.showLicenses)
 	appMenu.Send(objc.Sel("addItem:"), cls("NSMenuItem").Send(objc.Sel("separatorItem")))
-	u.menuItem(appMenu, appTitle+"'ten Çık", "q", u.quitApp)
+	u.menuItem(appMenu, uicore.AppTitle+"'ten Çık", "q", u.quitApp)
 	addSubmenu(bar, appMenu)
 	edit := newMenu("Düzen")
 	for _, it := range []struct{ title, sel, key string }{

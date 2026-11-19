@@ -25,8 +25,8 @@ const END: Partial<Record<PublicSessionStatusResponse["status"], GuestEnd>> = {
 
 /**
  * Karşılama: teknisyen + doğrulama kodu → dolandırıcılık uyarısı → ad + aydınlatma onayı → iki yol: Windows'ta Hızlı Destek
- * (önerilen) / tarayıcıdan yalnız görüntü; macOS'ta aynı düzen, indirme availability'ye bağlı (P28f AC-396, AC-390); Linux'ta yalnız
- * tarayıcı (DESIGN §8, AC-27); 2 sn durum yoklaması (AC-8).
+ * (önerilen) / tarayıcıdan yalnız görüntü; macOS ve Linux x86_64'te aynı düzen, indirme availability'ye bağlı (P28f AC-396,
+ * AC-390; P28g AC-403); diğer cihazlarda yalnız tarayıcı (DESIGN §8, AC-27); 2 sn durum yoklaması (AC-8).
  */
 export function GuestWelcome({
   data,
@@ -46,7 +46,7 @@ export function GuestWelcome({
     () => isScreenShareSupported(readSupportEnv()),
     () => null,
   );
-  // AC-27 / P28f AC-396: indirme Windows ve macOS masaüstünde; sunucuda bilinmez → yalnız tarayıcı modu (hidrasyon sonrası)
+  // AC-27 / P28f AC-396 / P28g AC-403: indirme Windows, macOS ve Linux x86_64 masaüstünde; sunucuda bilinmez → yalnız tarayıcı (hidrasyon sonrası)
   const deviceOs = useSyncExternalStore(
     noop,
     () => agentOsOf(readSupportEnv()),

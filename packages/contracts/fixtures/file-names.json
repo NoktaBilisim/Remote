@@ -1,5 +1,5 @@
 {
-  "_comment": "G-06/AC-117 ortak \u00f6rnekler: contracts/src/files.ts ve agent-win internal/files ayn\u0131 sonucu vermeli. warning: none|dangerous|double_extension (girdi \u00f6nce sanitize edilir).",
+  "_comment": "G-06/AC-117 ortak \u00f6rnekler: contracts/src/files.ts ve agent-win internal/files ayn\u0131 sonucu vermeli. warning: none|dangerous|double_extension (girdi \u00f6nce sanitize edilir). received: S-P28g-6 m.3 al\u0131c\u0131n\u0131n diske yazd\u0131\u011f\u0131 ad (receivedFileName / files.ReceivedName).",
   "sanitize": [
     {
       "in": "rapor.pdf",
@@ -382,6 +382,100 @@
     {
       "name": "notlar.pages",
       "warning": "none"
+    },
+    {
+      "name": "kur.desktop",
+      "warning": "dangerous"
+    },
+    {
+      "name": "oyun.RUN",
+      "warning": "dangerous"
+    },
+    {
+      "name": "firmware.bin",
+      "warning": "dangerous"
+    },
+    {
+      "name": "uyg.AppImage",
+      "warning": "dangerous"
+    },
+    {
+      "name": "paket.deb",
+      "warning": "dangerous"
+    },
+    {
+      "name": "paket.rpm",
+      "warning": "dangerous"
+    },
+    {
+      "name": "x.snap",
+      "warning": "dangerous"
+    },
+    {
+      "name": "x.flatpak",
+      "warning": "dangerous"
+    },
+    {
+      "name": "x.flatpakref",
+      "warning": "dangerous"
+    },
+    {
+      "name": "x.flatpakrepo",
+      "warning": "dangerous"
+    },
+    {
+      "name": "libx.so",
+      "warning": "dangerous"
+    },
+    {
+      "name": "modul.ko",
+      "warning": "dangerous"
+    },
+    {
+      "name": "arka.service",
+      "warning": "dangerous"
+    },
+    {
+      "name": "fatura.pdf.desktop",
+      "warning": "double_extension"
+    }
+  ],
+  "received": [
+    {
+      "in": "Destek-12345678",
+      "out": "Dosya-Destek-12345678"
+    },
+    {
+      "in": "destek-12345678(1)",
+      "out": "Dosya-destek-12345678(1)"
+    },
+    {
+      "in": "DESTEK-12345678 (2).sh",
+      "out": "Dosya-DESTEK-12345678 (2).sh"
+    },
+    {
+      "in": "../../Downloads/Destek-87654321",
+      "out": "Dosya-Destek-87654321"
+    },
+    {
+      "in": "\u202eDestek-12345678",
+      "out": "Dosya-Destek-12345678"
+    },
+    {
+      "in": "Destek_12345678",
+      "out": "Destek_12345678"
+    },
+    {
+      "in": " Destek-12345678",
+      "out": " Destek-12345678"
+    },
+    {
+      "in": "rapor.pdf",
+      "out": "rapor.pdf"
+    },
+    {
+      "in": "Destek-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.pdf",
+      "out": "Dosya-Destek-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.pdf"
     }
   ]
 }

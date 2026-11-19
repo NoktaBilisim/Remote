@@ -39,11 +39,11 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with: { persist-credentials: false }
-      # P14a A5 (mimari-e11 §4.6): tüm deploy/**/*.sh + scripts/*.sh (+ P28f: apps/agent-win/build/macos/*.sh). Eşik `warning`: info/style notları (SC2016 bilinçli
+      # P14a A5 (mimari-e11 §4.6): tüm deploy/**/*.sh + scripts/*.sh (+ P28f: apps/agent-win/build/macos/*.sh; + P28g K8a: apps/agent-win/test/**/*.sh, build-linux.sh, check-linux-elf.sh). Eşik `warning`: info/style notları (SC2016 bilinçli
       # tek tırnaklı `sh -c '$X'`, SC2015 `a && b || c` test deyimi) düşürmez; uyarı/hata düşürür. İmajlar digest ile sabit.
       - name: shellcheck
         run: |
-          find deploy scripts apps/agent-win/build/macos -name '*.sh' -print0 | sort -z | xargs -0 docker run --rm -e LANG=C.UTF-8 -v "$PWD:/mnt:ro" -w /mnt \
+          { find deploy scripts apps/agent-win/build/macos apps/agent-win/test -name '*.sh' -print0; printf '%s\0' apps/agent-win/build/build-linux.sh apps/agent-win/build/check-linux-elf.sh; } | sort -z | xargs -0 docker run --rm -e LANG=C.UTF-8 -v "$PWD:/mnt:ro" -w /mnt \
             koalaman/shellcheck:v0.11.0@sha256:61862eba1fcf09a484ebcc6feea46f1782532571a34ed51fedf90dd25f925a8d -S warning
       - name: actionlint (.github/workflows)
         run: |

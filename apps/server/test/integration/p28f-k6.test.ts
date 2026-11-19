@@ -155,7 +155,8 @@ describe("P28f GET /public/agent/download?os= (§4.1, S-P28f-15)", () => {
   it("S-P28f-15: geçersiz os → 400 VALIDATION; ref kovası tüketilmez (12 deneme sonra aynı IP'den geçerli ref 302)", async () => {
     const ip = "198.51.100.11";
     const s = await session();
-    for (const os of ["linux", "MACOS", "darwin", "", "windows,macos", "x".repeat(300), "macos ", "../exe", "0", "win", "mac", "ios"]) {
+    // P28g: `linux` artık geçerli (p28g-k6.test.ts); yerine büyük harfli `LINUX` geçersiz örnek.
+    for (const os of ["LINUX", "MACOS", "darwin", "", "windows,macos", "x".repeat(300), "macos ", "../exe", "0", "win", "mac", "ios"]) {
       const r = await download(s.ref, ip, os);
       expect(r.statusCode).toBe(400);
       expect(errCode(r)).toBe("VALIDATION");
@@ -201,7 +202,8 @@ describe("P28f GET /public/agent/availability (§4.1, AC-390)", () => {
   it("AC-390: iki kapı ok → {windows:true, macos:true}; Cache-Control public, max-age=60; çerez yok, Origin gerekmez", async () => {
     const r = await availability("203.0.113.50");
     expect(r.statusCode).toBe(200);
-    expect(r.json()).toEqual({ windows: true, macos: true, macosTestBuild: true }); // test env: DEPLOY_ENV yok → production değil
+    // test env: DEPLOY_ENV yok → production değil. P28g: `linux` alanı (bu app'te LINUX_AGENT_* yok → false).
+    expect(r.json()).toEqual({ windows: true, macos: true, macosTestBuild: true, linux: false });
     expect(r.headers["cache-control"]).toBe("public, max-age=60");
     expect(r.headers["set-cookie"]).toBeUndefined();
   });
@@ -213,23 +215,28 @@ describe("P28f GET /public/agent/availability (§4.1, AC-390)", () => {
       { ...bothEnv(), MAC_AGENT_PATH: join(dir, "yok.zip") },
     ]) {
       await withApp(env, async (a) =>
-        expect((await availability("203.0.113.51", a)).json()).toEqual({ windows: true, macos: false, macosTestBuild: false }),
+        expect((await availability("203.0.113.51", a)).json()).toEqual({
+          windows: true,
+          macos: false,
+          macosTestBuild: false,
+          linux: false,
+        }),
       );
     }
     await withApp({ SESSION_REF_KEY: REF_KEY }, async (a) =>
-      expect((await availability("203.0.113.52", a)).json()).toEqual({ windows: false, macos: false, macosTestBuild: false }),
+      expect((await availability("203.0.113.52", a)).json()).toEqual({ windows: false, macos: false, macosTestBuild: false, linux: false }),
     );
   });
 
   it("S-P28f-8: macosTestBuild yalnız DEPLOY_ENV ≠ production ve macOS indirmesi varken true; production'da her zaman false", async () => {
     await withApp({ ...bothEnv(), DEPLOY_ENV: "staging" }, async (a) =>
-      expect((await availability("203.0.113.56", a)).json()).toEqual({ windows: true, macos: true, macosTestBuild: true }),
+      expect((await availability("203.0.113.56", a)).json()).toEqual({ windows: true, macos: true, macosTestBuild: true, linux: false }),
     );
     await withApp({ ...bothEnv(), DEPLOY_ENV: "production" }, async (a) =>
-      expect((await availability("203.0.113.57", a)).json()).toEqual({ windows: true, macos: true, macosTestBuild: false }),
+      expect((await availability("203.0.113.57", a)).json()).toEqual({ windows: true, macos: true, macosTestBuild: false, linux: false }),
     );
     await withApp({ ...bothEnv(), DEPLOY_ENV: "staging", MAC_AGENT_SHA256: "0".repeat(64) }, async (a) =>
-      expect((await availability("203.0.113.58", a)).json()).toEqual({ windows: true, macos: false, macosTestBuild: false }),
+      expect((await availability("203.0.113.58", a)).json()).toEqual({ windows: true, macos: false, macosTestBuild: false, linux: false }),
     );
   });
 
@@ -296,7 +303,8 @@ describe("P28f /internal/agent-ready/{windows,macos} (S-P28f-3)", () => {
 
   it("S-P28f-3: bilinmeyen platform yolu 404 (varsayılan ret); dışarıdan (proxy dışı / forward_auth başlıksız) /macos 404", async () => {
     await withApp(proxyEnv(bothEnv()), async (a) => {
-      for (const p of ["/linux", "/MACOS", "/macos/x", "/windows.exe", "/"]) expect((await ready(a, p)).statusCode).toBe(404);
+      // P28g: `/linux` artık kayıtlı (p28g-k6.test.ts); bilinmeyen örnek `/ios`.
+      for (const p of ["/ios", "/MACOS", "/macos/x", "/windows.exe", "/"]) expect((await ready(a, p)).statusCode).toBe(404);
       for (const o of [{ ip: "203.0.113.9" }, { fwd: false }, { ip: "127.0.0.1" }]) {
         const r = await ready(a, "/macos", o);
         expect(r.statusCode).toBe(404);

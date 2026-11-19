@@ -14,10 +14,10 @@ describe("P28f resolve clientOs (S-P28f-15)", () => {
       expect(resolveSessionInputSchema.safeParse({ code: "12345678", clientKind: "AGENT", clientOs }).success).toBe(false);
   });
 
-  it("AC-396: indirme os varsayılanı windows; yalnız windows|macos", () => {
+  it("AC-396: indirme os varsayılanı windows; yalnız windows|macos (P28g: + linux, p28g-contracts.test.ts)", () => {
     expect(agentDownloadOsSchema.parse(undefined)).toBe("windows");
     expect(agentDownloadOsSchema.parse("macos")).toBe("macos");
-    for (const os of ["linux", "MACOS", ""]) expect(agentDownloadOsSchema.safeParse(os).success).toBe(false);
+    for (const os of ["LINUX", "MACOS", ""]) expect(agentDownloadOsSchema.safeParse(os).success).toBe(false);
   });
 
   it("AC-396: guest.pending zaman çizelgesinde os anahtarı; etiketler", () => {

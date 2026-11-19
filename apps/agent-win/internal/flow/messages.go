@@ -2,6 +2,7 @@ package flow
 
 import (
 	"errors"
+	"runtime"
 
 	"remote-support/agent-win/internal/api"
 	"remote-support/agent-win/internal/capture"
@@ -94,7 +95,14 @@ const (
 )
 
 // classify AC-97: geçersiz kod → giriş alanı; süresi dolmuş/tüketilmiş → AC-5/AC-7 mesajı.
-func classify(err error) (Message, apiOutcome) {
+func classify(err error) (Message, apiOutcome) { return classifyFor(err, runtime.GOOS == "linux") }
+
+// msgProxy P28g K10 (D-P28g-T2-1): Linux'ta vekil sunucu hatası. Sabit metin; vekil adresi asla yazılmaz.
+var msgProxy = Message{LinuxTexts.ProxyFailed, LinuxTexts.ProxyFailedBody}
+
+// classifyFor classify; linux true ise vekil hatası ayrı sınıftır (Windows/macOS metinleri değişmez: orada genel ağ
+// hatası). GOOS parametre: test her platformda iki dalı da sınar.
+func classifyFor(err error, linux bool) (Message, apiOutcome) {
 	var ae *api.Error
 	if !errors.As(err, &ae) {
 		return msgError, outRetryCode
@@ -114,6 +122,8 @@ func classify(err error) (Message, apiOutcome) {
 		return msgLobbyFull, outFinal
 	case ae.Status == 0 && ae.TLS:
 		return msgTLS, outFinal // kod girişi sorunu çözmez; "kod geçersiz" sanılmasın
+	case ae.Status == 0 && ae.Proxy && linux:
+		return msgProxy, outRetryCode
 	case ae.Status == 0:
 		return msgNetwork, outRetryCode
 	case ae.Status == 403:

@@ -122,6 +122,12 @@ func connectInput(t *testing.T, caps []string, ctlOut chan dc.Ctl, input func([]
 // teknisyene bağlanır. Dönen yanıt teknisyende uygulanmıştır.
 func dial(t *testing.T, tech *techPeer, caps []string, h Handlers) (*Peer, signal.SdpAnswer) {
 	t.Helper()
+	return dialMedia(t, tech, caps, h, testMedia(t))
+}
+
+// dialMedia dial'ın verilen iz çiftiyle kurulan biçimi (P28g: codec testi).
+func dialMedia(t *testing.T, tech *techPeer, caps []string, h Handlers, m *Media) (*Peer, signal.SdpAnswer) {
+	t.Helper()
 	var guest *Peer
 	var err error
 	h.LocalICE = func(m signal.Ice) {
@@ -137,14 +143,19 @@ func dial(t *testing.T, tech *techPeer, caps []string, h Handlers) (*Peer, signa
 		}
 		_ = tech.pc.AddICECandidate(init)
 	}
-	guest, err = New(nil, caps, h, testMedia(t))
+	guest, err = New(nil, caps, h, m)
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = guest.Close() })
+	// closing guest.Close'dan önce kurulur (Cleanup LIFO). Kök neden (2026-11-19): teknisyenin aday toplaması test
+	// gövdesi bittikten sonra da sürer; Cleanup misafiri kapatınca pion ICE ajanını nil'ler ve geç gelen aday
+	// "ICEAgent does not exist" döner. Kapanış başladıktan sonraki hata beklenen sonuçtur, test hatası değildir.
+	var closing atomic.Bool
+	t.Cleanup(func() { closing.Store(true) })
 
 	tech.pc.OnICECandidate(func(c *webrtc.ICECandidate) {
-		if c == nil {
+		if c == nil || closing.Load() {
 			return
 		}
 		j := c.ToJSON()
@@ -155,7 +166,7 @@ func dial(t *testing.T, tech *techPeer, caps []string, h Handlers) (*Peer, signa
 		if j.SDPMLineIndex != nil {
 			msg["sdpMLineIndex"] = *j.SDPMLineIndex
 		}
-		if err := guest.AddRemoteICE(relay(t, msg).(signal.RemoteIce)); err != nil {
+		if err := guest.AddRemoteICE(relay(t, msg).(signal.RemoteIce)); err != nil && !closing.Load() {
 			t.Errorf("AddRemoteICE: %v", err)
 		}
 	})
@@ -342,7 +353,7 @@ func TestAC115InputChannelFollowsCaps(t *testing.T) {
 
 func testMedia(t *testing.T) *Media {
 	t.Helper()
-	m, err := NewMedia()
+	m, err := NewMedia(H264)
 	if err != nil {
 		t.Fatal(err)
 	}

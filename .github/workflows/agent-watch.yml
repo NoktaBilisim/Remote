@@ -7,6 +7,8 @@
 # P28f K8b (mimari-p28f §8.2, AC-128): hash-mac işi macOS zip'i için aynısını yapar (AGENT_WATCH_MAC_URL, ör.
 # https://<host>/downloads/NoktaDestek-macOS.zip). Hiçbir Release'te macOS zip satırı yoksa (Apple hesabı yok, R39) zip
 # denetlenmez — staging TEST zip'i ya da 503 "unconfigured" alarm DEĞİLDİR. Runbook §28f.7.
+# P28g K8b (mimari-p28g §8.2, S-P28g-9 m.3): hash-linux işi Linux ELF'i için aynısını yapar (AGENT_WATCH_LINUX_URL, ör.
+# https://<host>/downloads/NoktaDestek-linux). Hiçbir Release'te Linux satırı yoksa denetim yok. Runbook §28g.5.
 name: agent-watch
 on:
   schedule:
@@ -152,6 +154,74 @@ jobs:
           else gh issue create --repo "$REPO" --label agent-watch --title "$title" --body "$body"; fi
           echo "::error::$DETAIL"; exit 1
 
+  hash-linux:
+    name: Linux ELF hash'i = Release (yayımlandıysa)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      issues: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      REPO: ${{ github.repository }}
+      WATCH_URL: ${{ vars.AGENT_WATCH_LINUX_URL }}
+      WATCH_CA_PEM: ${{ vars.AGENT_WATCH_CA_PEM }}
+    steps:
+      - name: indir + karşılaştır
+        id: cmp
+        run: |
+          set -u
+          if [ -z "$WATCH_URL" ]; then
+            echo "::notice::AGENT_WATCH_LINUX_URL tanımlı değil; Linux gözcüsü atlandı (runbook §28g.5)"; echo "result=skip" >> "$GITHUB_OUTPUT"; exit 0
+          fi
+          # Release'lerdeki Linux satırları (ad sürümlü: NoktaDestek-linux-x86_64-X.Y.Z; sunulan ad sürümsüz NoktaDestek-linux).
+          : > linux-sums.txt
+          for tag in $(gh release list --repo "$REPO" --limit 100 --exclude-drafts --json tagName --jq '.[].tagName'); do
+            mkdir -p "sums/$tag"
+            gh release download "$tag" --repo "$REPO" -p SHA256SUMS -D "sums/$tag" --clobber 2>/dev/null || continue
+            grep -E '^[0-9a-f]{64}[[:space:]]+\*?NoktaDestek-linux-x86_64-[0-9]+\.[0-9]+\.[0-9]+$' "sums/$tag/SHA256SUMS" \
+              | sed "s/\$/ $tag/" >> linux-sums.txt || true
+          done
+          if [ ! -s linux-sums.txt ]; then
+            echo "::notice::Hiçbir Release'te Linux ELF'i yok (0.20.0 öncesi) — denetim yok"; echo "result=skip" >> "$GITHUB_OUTPUT"; exit 0
+          fi
+          ca=(); if [ -n "$WATCH_CA_PEM" ]; then printf '%s\n' "$WATCH_CA_PEM" > ca.pem; ca=(--cacert ca.pem); fi
+          code=$(curl -sS "${ca[@]}" --proto '=https' --max-time 120 --max-filesize 62914560 -o agent.bin -w '%{http_code}' "$WATCH_URL") || {
+            echo "::error::indirme ağı/TLS hatası"; exit 1; }
+          case "$code" in
+            503) echo "result=server503" >> "$GITHUB_OUTPUT"
+                 echo "detail=sunucu 503: Linux ELF'i yok ya da SHA-256'sı LINUX_AGENT_SHA256 ile uyuşmuyor (forward_auth /internal/agent-ready/linux)" >> "$GITHUB_OUTPUT"; exit 0 ;;
+            502|504) echo "result=unreachable" >> "$GITHUB_OUTPUT"
+                 echo "detail=sunucu erişilemez: HTTP $code" >> "$GITHUB_OUTPUT"; exit 0 ;;
+          esac
+          [ "$code" = 200 ] || { echo "::error::HTTP $code"; exit 1; }
+          got=$(sha256sum agent.bin | cut -d' ' -f1)
+          echo "indirilen sha256=$got"
+          match=$(awk -v h="$got" '$1 == h {print $3; exit}' linux-sums.txt)
+          if [ -z "$match" ]; then
+            echo "result=mismatch" >> "$GITHUB_OUTPUT"; echo "detail=Linux ELF sha256 $got hiçbir Release SHA256SUMS'ında yok" >> "$GITHUB_OUTPUT"; exit 0
+          fi
+          echo "result=ok" >> "$GITHUB_OUTPUT"
+          echo "Linux ELF eşleşen Release: $match" | tee -a "$GITHUB_STEP_SUMMARY"
+      - name: alarm (issue)
+        if: contains(fromJSON('["mismatch","server503","unreachable"]'), steps.cmp.outputs.result)
+        env:
+          RESULT: ${{ steps.cmp.outputs.result }}
+          DETAIL: ${{ steps.cmp.outputs.detail }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          if [ "$RESULT" = unreachable ]; then
+            title="ALARM: istemci indirme sunucusu erişilemez (agent-watch)"
+          else
+            title="ALARM: istemci indirme bütünlüğü (agent-watch)"
+          fi
+          body="agent-watch (Linux): $DETAIL. URL: $WATCH_URL. Koşu: $RUN_URL. Runbook §28g.5 ve §11.7."
+          gh label create agent-watch --repo "$REPO" --color B60205 --description "İstemci bütünlük alarmı (G-07)" --force
+          num=$(gh issue list --repo "$REPO" --label agent-watch --state open --json number --jq '.[0].number // empty')
+          if [ -n "$num" ]; then gh issue comment "$num" --repo "$REPO" --body "$body"
+          else gh issue create --repo "$REPO" --label agent-watch --title "$title" --body "$body"; fi
+          echo "::error::$DETAIL"; exit 1
+
   govulncheck:
     name: govulncheck (günlük)
     runs-on: ubuntu-24.04
@@ -170,3 +240,4 @@ jobs:
       - run: GOFLAGS='' go install golang.org/x/vuln/cmd/govulncheck@v1.7.0
       - run: GOOS=windows GOARCH=amd64 govulncheck ./...
       - run: GOOS=darwin GOARCH=arm64 CGO_ENABLED=0 govulncheck ./...
+      - run: GOOS=linux GOARCH=amd64 CGO_ENABLED=0 govulncheck ./...

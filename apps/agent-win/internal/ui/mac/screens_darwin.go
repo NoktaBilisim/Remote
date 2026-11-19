@@ -38,7 +38,7 @@ func (u *UI) restoreQuit() {
 func (u *UI) AskCode(ctx context.Context, notice string) (string, bool) {
 	ch := make(chan textResult, 1)
 	u.do(func() {
-		f := u.newForm(appTitle, 460, 248)
+		f := u.newForm(uicore.AppTitle, 460, 248)
 		f.label("Uzaktan destek", 16, 16, 428, 24, fontBold)
 		f.label("Teknisyeninizin verdiği 8 haneli destek kodunu girin.", 16, 46, 428, 20, fontNormal)
 		var e objc.ID
@@ -86,7 +86,7 @@ func (u *UI) welcomeForm(w flow.Welcome, ch chan<- welcomeResult) {
 	if w.RecOffered {
 		shift = 44
 	}
-	f := u.newForm(appTitle+" — Karşılama", 520, 652+shift)
+	f := u.newForm(uicore.AppTitle+" — Karşılama", 520, 652+shift)
 	f.label("Uzaktan destek bağlantısı", 16, 14, 488, 30, fontBig)
 	f.label(w.Tenant+" teknisyeni sizinle uzaktan destek oturumu başlatmak istiyor.", 16, 50, 488, 20, fontNormal)
 	f.label("Teknisyen: "+w.TechName, 16, 74, 352, 20, fontBold)
@@ -101,7 +101,7 @@ func (u *UI) welcomeForm(w flow.Welcome, ch chan<- welcomeResult) {
 	f.danger("Sizi biz aramadıysak devam etmeyin", 16, 172, 488, 20, fontBold)
 	f.danger("Sizi kendiliğinden arayan biri bunu istediyse kapatın; banka veya şifre işlemi yapmayın. "+
 		"Teknisyenimiz şifrenizi hiçbir zaman sormaz.", 16, 194, 488, 38, fontNormal)
-	if addr := mailtoAddr(w.AbuseEmail); addr != "" {
+	if addr := uicore.MailtoAddr(w.AbuseEmail); addr != "" {
 		f.button("Kötüye kullanımı bildir", 16, 234, 200, 32, func(objc.ID) { openMailto(addr) })
 	}
 	f.danger(w.Notice, 224, 236, 280, 30, fontNormal)
@@ -120,7 +120,7 @@ func (u *UI) welcomeForm(w flow.Welcome, ch chan<- welcomeResult) {
 	}
 	submit := func() {
 		if valid() { // AC-98: onaysız bağlantı başlamaz
-			done(welcomeResult{trimRunes(strings.TrimSpace(getText(name)), 100), record && w.RecOffered, true})
+			done(welcomeResult{uicore.TrimRunes(strings.TrimSpace(getText(name)), 100), record && w.RecOffered, true})
 		}
 	}
 	name = f.field(16, 484, 300, 26, submit, refresh)
@@ -148,7 +148,7 @@ func (u *UI) welcomeForm(w flow.Welcome, ch chan<- welcomeResult) {
 func (u *UI) Lobby(admitCode, techName string) {
 	u.do(func() {
 		u.closeLobby()
-		f := u.newForm(appTitle+" — Bekleme odası", 420, 290)
+		f := u.newForm(uicore.AppTitle+" — Bekleme odası", 420, 290)
 		f.label("Teknisyen onayı bekleniyor", 16, 16, 388, 24, fontBold)
 		f.label("Kabul kodunuz", 16, 48, 388, 20, fontNormal)
 		c := f.label(admitCode, 16, 70, 388, 46, fontHuge)
@@ -164,7 +164,7 @@ func (u *UI) Lobby(admitCode, techName string) {
 func (u *UI) Connecting(techName string) {
 	u.do(func() {
 		u.closeLobby()
-		f := u.newForm(appTitle+" — Bağlanıyor", 420, 170)
+		f := u.newForm(uicore.AppTitle+" — Bağlanıyor", 420, 170)
 		f.label("Teknisyen bağlanıyor…", 16, 16, 388, 24, fontBold)
 		f.label("Teknisyen: "+techName, 16, 48, 388, 20, fontNormal)
 		f.label("Ekranınız teknisyen bağlandığında paylaşılmaya başlar.", 16, 74, 388, 40, fontNormal)
@@ -198,7 +198,7 @@ func (u *UI) ChooseShare(ctx context.Context, mons []signal.Monitor, def int, _ 
 	u.do(func() {
 		u.closeLobby()
 		h := 120 + float64(len(mons))*26
-		f := u.newForm(appTitle+" — Ekran seçimi", 460, h)
+		f := u.newForm(uicore.AppTitle+" — Ekran seçimi", 460, h)
 		f.label("Teknisyenle paylaşılacak ekranı seçin", 16, 16, 428, 24, fontBold)
 		sel := def
 		found := false
@@ -256,7 +256,7 @@ func (u *UI) PermGuide(ctx context.Context) PermAction {
 	ch := make(chan PermAction, 1)
 	u.do(func() {
 		t := flow.MacTexts
-		f := u.newForm(appTitle+" — İzin", 480, 284)
+		f := u.newForm(uicore.AppTitle+" — İzin", 480, 284)
 		f.label(t.ScreenTitle, 16, 16, 448, 24, fontBold)
 		f.label("Teknisyenin ekranınızı görebilmesi için macOS'ta Ekran Kaydı izni verilmelidir.", 16, 46, 448, 36, fontNormal)
 		f.label(t.ScreenSteps, 16, 84, 448, 70, fontNormal)
@@ -313,8 +313,8 @@ func (u *UI) showAbout() {
 		u.about.show(0, false, 0)
 		return
 	}
-	f := u.newForm(appTitle+" Hakkında", 460, 120)
-	f.label(appTitle, 16, 16, 428, 24, fontBold)
+	f := u.newForm(uicore.AppTitle+" Hakkında", 460, 120)
+	f.label(uicore.AppTitle, 16, 16, 428, 24, fontBold)
 	f.label(u.footer, 16, 48, 428, 36, fontNormal)
 	f.onClose(func() { f.destroy(); u.about = nil; u.restoreQuit() })
 	ok := f.button("Tamam", 352, 82, 92, 30, func(objc.ID) { f.destroy(); u.about = nil; u.restoreQuit() })
@@ -329,7 +329,7 @@ func (u *UI) showLicenses() {
 		u.licenses.show(0, false, 0)
 		return
 	}
-	f := u.newForm(appTitle+" — Lisanslar", 640, 520)
+	f := u.newForm(uicore.AppTitle+" — Lisanslar", 640, 520)
 	f.textView(16, 16, 608, 448, uicore.ThirdPartyNotices)
 	closeFn := func() { f.destroy(); u.licenses = nil; u.restoreQuit() }
 	f.button("Kapat", 532, 476, 92, 32, func(objc.ID) { closeFn() })

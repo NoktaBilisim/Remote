@@ -63,6 +63,9 @@ func run(mode servis.Mode) int {
 		if installUI == nil {
 			return exitUnavailable
 		}
+		if d, ok := installUI.(*servisui.InstallDialog); ok {
+			d.Version = cfg.Version // başlıkta sürüm (2026-11-18)
+		}
 		return servis.Install(context.Background(), cfg, installUI)
 	case servis.ModeUninstall:
 		if uninstallUI == nil {

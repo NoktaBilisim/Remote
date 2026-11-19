@@ -10,6 +10,7 @@ import (
 	"unicode"
 
 	"remote-support/agent-win/internal/servis"
+	"remote-support/agent-win/internal/ui/uicore"
 )
 
 // Status penceredeki durum.
@@ -120,12 +121,12 @@ const (
 func Compute(s Snapshot) View {
 	if !s.Installed {
 		return View{Status: StNotInstalled, StatusText: textNotInstall, Detail: detailNotInstall, Primary: ActInstall,
-			PrimaryText: ButtonInstall, Tip: TipPrefix + textNotInstall}
+			PrimaryText: ButtonInstall, Tip: uicore.VersionedTitle(TipPrefix+textNotInstall, s.SelfVersion)}
 	}
 	v := View{CanUninstall: true, Lines: infoLines(s), Update: needsUpdate(s)}
 	v.Status, v.Detail = status(s)
 	v.StatusText = statusText(v.Status, s.TechName)
-	v.Tip = TipPrefix + tipText(v)
+	v.Tip = uicore.VersionedTitle(TipPrefix+tipText(v), s.SelfVersion) // sürüm gösterimi (2026-11-18)
 	switch {
 	case v.Status == StRevoked:
 	case s.Enabled:

@@ -75,6 +75,9 @@ func (u *UI) FileResult(r transfer.Result) {
 			if r.MOTWFailed {
 				msg += " (Uyarı: güvenlik işareti yazılamadı; dosyayı açmadan önce dikkatli olun.)"
 			}
+			if r.Executable { // P28g K5, S-P28g-6 m.3
+				msg += flow.FileTexts.ExecContent
+			}
 		case "CORRUPT":
 			msg = "Dosya bozuk; silindi: " + r.Name
 		case "CANCELLED":

@@ -186,7 +186,7 @@ func (a *app) startTray() (*tray.Icon, string, bool) {
 	}
 	c, _ := autorun.New().Verify() // G-P20-15; eksik exe de silinir (S-P20-K1)
 	balloon := tray.AutorunBalloon(c)
-	icon, lock, ok := acquireTray(a.writeDiag)
+	icon, lock, ok := acquireTray(a.writeDiag, a.cfg.Version)
 	if !ok {
 		tray.SignalExisting() // ikinci örnek: ilkini öne getir ve çık (yalnız aynı kullanıcının penceresi, S-P20-K2)
 		return nil, "", false

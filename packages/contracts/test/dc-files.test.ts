@@ -13,7 +13,7 @@ import {
   maxFileBytes,
   parseCtlMessage,
 } from "../src/dc.ts";
-import { fileNameWarning, isSanitizedFileName, sanitizeFileName } from "../src/files.ts";
+import { DANGEROUS_EXT, fileNameWarning, isSanitizedFileName, receivedFileName, sanitizeFileName } from "../src/files.ts";
 
 const sha = "0".repeat(64);
 const j = (o: unknown) => JSON.stringify(o);
@@ -104,5 +104,37 @@ describe("P5 dosya adı (G-06)", () => {
     expect(fileNameWarning("setup.EXE")).toBe("dangerous");
     expect(fileNameWarning("fatura.pdf.exe")).toBe("double_extension");
     expect(fileNameWarning("rapor.pdf")).toBe("none");
+  });
+});
+
+describe("P28g alınan dosya (mimari-p28g §5.4, S-P28g-6 m.3)", () => {
+  it("AC-398 S-P28g-6: `destek-` önekli ad `Dosya-` ile yeniden adlandırılır, diğerleri değişmez", () => {
+    expect(receivedFileName("Destek-12345678")).toBe("Dosya-Destek-12345678");
+    expect(receivedFileName("dEsTeK-1.sh")).toBe("Dosya-dEsTeK-1.sh");
+    expect(receivedFileName("rapor.pdf")).toBe("rapor.pdf");
+    const long = receivedFileName(`Destek-${"x".repeat(300)}.pdf`);
+    expect(Array.from(long).length).toBe(255);
+    expect(long.endsWith(".pdf") && isSanitizedFileName(long)).toBe(true);
+  });
+
+  it("AC-117 T8: Linux çalıştırılabilir/paket türleri tehlikeli", () => {
+    for (const e of [
+      "desktop",
+      "run",
+      "bin",
+      "appimage",
+      "deb",
+      "rpm",
+      "snap",
+      "flatpak",
+      "flatpakref",
+      "flatpakrepo",
+      "so",
+      "ko",
+      "service",
+    ]) {
+      expect(DANGEROUS_EXT.has(e), e).toBe(true);
+      expect(fileNameWarning(sanitizeFileName(`a.${e.toUpperCase()}`)), e).toBe("dangerous");
+    }
   });
 });

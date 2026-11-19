@@ -26,10 +26,10 @@ const GONE: Record<string, AgentEnd> = {
 
 /**
  * İndirme ucunun adresi (aynı origin; ref opak sessionRef, kodu taşımaz). P28f: macOS'ta `&os=macos` (302 → `.zip`);
- * Windows adresi değişmez (sunucu varsayılanı `windows`, eski bağlantılar aynen çalışır).
+ * P28g: Linux'ta `&os=linux` (302 → uzantısız `Destek-<kod>`). Windows adresi değişmez (sunucu varsayılanı `windows`, eski bağlantılar aynen çalışır).
  */
 export const agentDownloadUrl = (sessionRef: string, os: AgentOs = "windows"): string =>
-  `${API_BASE}/public/agent/download?ref=${encodeURIComponent(sessionRef)}${os === "macos" ? "&os=macos" : ""}`;
+  `${API_BASE}/public/agent/download?ref=${encodeURIComponent(sessionRef)}${os === "windows" ? "" : `&os=${os}`}`;
 
 export async function probeAgentDownload(
   sessionRef: string,
@@ -72,6 +72,8 @@ const availabilitySchema: z.ZodType<AgentAvailabilityResponse> = z.object({
   windows: z.boolean(),
   macos: z.boolean(),
   macosTestBuild: z.boolean().catch(false),
+  // P28g (mimari-p28g §4.1): eski sunucu / eksik / geçersiz `linux` → false (fail-closed, yalnız tarayıcı).
+  linux: z.boolean().catch(false),
 });
 export type AgentAvailability = AgentAvailabilityResponse;
 export const AGENT_AVAILABILITY_URL = `${API_BASE}/public/agent/availability`;

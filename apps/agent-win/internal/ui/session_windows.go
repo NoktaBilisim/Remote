@@ -32,7 +32,7 @@ func (u *UI) Active(techName string, mon signal.Monitor) {
 			s.active = on
 			if on && s.unread > 0 {
 				s.unread = 0
-				win.SetText(f.h, appTitle+" — Oturum")
+				win.SetText(f.h, uicore.VersionedTitle(uicore.UnreadTitle(0), u.t.version))
 			}
 		}
 		f.show(primaryWork(), false, s.input)
@@ -197,7 +197,7 @@ func (u *UI) chatLine(who, text string) {
 		appendLine(s.history, who, text)
 		if !s.active {
 			s.unread++
-			win.SetText(s.f.h, fmt.Sprintf("(%d yeni) %s — Oturum", s.unread, appTitle))
+			win.SetText(s.f.h, uicore.VersionedTitle(uicore.UnreadTitle(s.unread), u.t.version))
 			win.FlashWindow(s.f.h)
 		}
 	})

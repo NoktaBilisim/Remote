@@ -10,17 +10,20 @@ import { copyText } from "@/lib/use-now";
  * Bağlantı kopyalama (AC-169): pano API'si → 2 sn "Kopyalandı" (`Check`, `role=status`). API yoksa veya izin
  * reddedilirse bağlantı salt okunur alanda **seçili** gösterilir (kullanıcı Ctrl+C ile alır).
  * `srLabel`: ekran okuyucu için kimin bağlantısı olduğu ("Bağlantıyı kopyala: Acme").
+ * `manualLabel` (P28g): yedek alanın etiketi — bağlantı dışı metin (ör. Linux başlatma komutu) için.
  */
 export function CopyLink({
   url,
   srLabel,
   testId = "copy-link",
   className = "",
+  manualLabel,
 }: {
   url: string;
   srLabel: string;
   testId?: string;
   className?: string;
+  manualLabel?: string;
 }) {
   const [state, setState] = useState<"idle" | "copied" | "manual">("idle");
   const inputRef = useRef<HTMLInputElement>(null);
@@ -60,7 +63,7 @@ export function CopyLink({
       {state === "manual" && (
         <div className="flex min-w-0 flex-col gap-1">
           <label htmlFor={id} className="text-xs text-fg-muted">
-            {t("cu.copyManual")}
+            {manualLabel ?? t("cu.copyManual")}
           </label>
           <input
             ref={inputRef}

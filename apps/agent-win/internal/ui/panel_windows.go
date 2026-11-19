@@ -68,7 +68,7 @@ var (
 
 // OpenPanel UI iş parçacığını (gerekirse) başlatır, pencereyi kurar ve ortada gösterir.
 func OpenPanel(spec PanelSpec) (*Panel, error) {
-	panelThreadOnce.Do(func() { panelThread, panelThreadErr = startThread() })
+	panelThreadOnce.Do(func() { panelThread, panelThreadErr = startThread("") })
 	if panelThreadErr != nil {
 		return nil, panelThreadErr
 	}

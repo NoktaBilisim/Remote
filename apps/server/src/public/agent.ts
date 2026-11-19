@@ -13,9 +13,13 @@ import * as repo from "../sessions/repo.ts";
 import { expireSession } from "../sessions/service.ts";
 import type { AgentBinary } from "./agent-binary.ts";
 
-/** Caddy'nin tek jenerik ikiliyi `Content-Disposition: attachment` ile sunduğu sabit konum (deploy/Caddyfile). */
+/**
+ * Caddy'nin tek jenerik ikiliyi `Content-Disposition: attachment` ile sunduğu sabit konum (deploy/Caddyfile). P28g (§4.1, §4.3):
+ * Linux ELF'i uzantısız `Destek-<kod>`.
+ */
+const DOWNLOAD_SUFFIX: Readonly<Record<AgentDownloadOs, string>> = { windows: ".exe", macos: ".zip", linux: "" };
 export const agentDownloadLocation = (code: string, os: AgentDownloadOs = "windows"): string =>
-  `/downloads/Destek-${code}.${os === "macos" ? "zip" : "exe"}`;
+  `/downloads/Destek-${code}${DOWNLOAD_SUFFIX[os]}`;
 
 const UNAVAILABLE = "İndirme şu anda kullanılamıyor. Biraz sonra tekrar deneyin ya da tarayıcıdan paylaşımı kullanın.";
 
@@ -63,7 +67,7 @@ export async function agentDownload(
   return { location: agentDownloadLocation(row.activeCode, os), os };
 }
 
-/** P28f (§4.1): karşılama sayfası indirme düğmesini yalnız kapı `ok` iken gösterir (AC-390). ipKey 30/dk. */
+/** P28f (§4.1): karşılama sayfası indirme düğmesini yalnız kapı `ok` iken gösterir (AC-390; P28g AC-403 linux). ipKey 30/dk. */
 export async function agentAvailability(
   limits: PublicLimits,
   ctx: AuditContext,
@@ -71,9 +75,10 @@ export async function agentAvailability(
   production: boolean,
 ): Promise<AgentAvailabilityResponse> {
   consume(limits.availabilityIp, ipKey(ctx.ip), 60);
-  const [windows, macos] = await Promise.all([binaries.windows.check(), binaries.macos.check()]);
+  const [windows, macos, linux] = await Promise.all([binaries.windows.check(), binaries.macos.check(), binaries.linux.check()]);
   // S-P28f-8: "Yine de Aç" rehberi yalnız staging (imzasız TEST zip'i); production'da hiçbir koşulda true değil.
-  return { windows: windows === "ok", macos: macos === "ok", macosTestBuild: !production && macos === "ok" };
+  // P28g (§4.1): `linux` yalnız kapı; TEST bayrağı yok.
+  return { windows: windows === "ok", macos: macos === "ok", macosTestBuild: !production && macos === "ok", linux: linux === "ok" };
 }
 
 /** Bütünlük kapısı (G-07, S6-2): ikili AGENT_SHA256 ile eşleşmiyorsa / yoksa / yapılandırılmamışsa 503 NOT_READY. */

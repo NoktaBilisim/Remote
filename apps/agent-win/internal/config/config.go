@@ -23,6 +23,10 @@ var (
 	// expectedTeamID P28f D-P28f-K3: beklenen Apple Developer Team ID (build-darwin.sh EXPECTED_TEAM_ID). Boşsa ya da
 	// biçim dışıysa TEST bandı her zaman gösterilir; doluysa bant yalnız imza bu Team ID ile ise gizlenir.
 	expectedTeamID string
+	// waylandControl P28g K10 (mimari-p28g §5.2b m.7, O-P28g-K1-1): Linux Wayland'de uzaktan kontrol anahtarı
+	// (build-linux.sh WAYLAND_CONTROL=on|off). Boş ya da "on" açık; başka her değer kapalı (fail-closed): yalnız
+	// ScreenCast istenir (RemoteDesktop yok), kontrol isteğine VIEW{WAYLAND_NO_CONTROL}. X11'i etkilemez.
+	waylandControl string
 )
 
 // Config doğrulanmış derleme zamanı yapılandırması.
@@ -34,6 +38,8 @@ type Config struct {
 	TestBuild bool
 	// TeamID P28f D-P28f-K3: gömülü beklenen Team ID (10 karakter A-Z0-9); geçersiz/boşsa "".
 	TeamID string
+	// WaylandControl P28g K10: Wayland'de kontrol açık mı (ldflags config.waylandControl; varsayılan açık).
+	WaylandControl bool
 }
 
 // ErrNotConfigured: build ldflags olmadan alınmış.
@@ -44,8 +50,12 @@ func Load() (Config, error) {
 	c, err := parse(serverURL, version)
 	c.TestBuild = isTestBuild(testBuild)
 	c.TeamID = teamID(expectedTeamID)
+	c.WaylandControl = waylandControlOn(waylandControl)
 	return c, err
 }
+
+// waylandControlOn yalnız boş (ldflags verilmedi) ve tam "on" açıktır; "off" ya da bozuk değer kapalı (fail-closed).
+func waylandControlOn(v string) bool { return v == "" || v == "on" }
 
 // teamID yalnız 10 karakter A-Z0-9 Apple Team ID kabul edilir; başka her değer "" (bant gösterilir).
 func teamID(v string) string {

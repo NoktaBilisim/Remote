@@ -9,6 +9,7 @@ import (
 	"remote-support/agent-win/internal/config"
 	"remote-support/agent-win/internal/servis"
 	"remote-support/agent-win/internal/ui"
+	"remote-support/agent-win/internal/ui/uicore"
 	"remote-support/agent-win/internal/win"
 )
 
@@ -61,7 +62,7 @@ type window struct {
 
 func openWindow(version string, standalone bool) (*window, error) {
 	w := &window{version: version, standalone: standalone}
-	p, err := ui.OpenPanel(ui.PanelSpec{Title: Title, W: 480, H: 276, Items: windowItems(),
+	p, err := ui.OpenPanel(ui.PanelSpec{Title: uicore.VersionedTitle(Title, version), W: 480, H: 276, Items: windowItems(),
 		OnCommand: w.command, TimerMS: windowPollMS, OnTimer: w.refresh})
 	if err != nil {
 		return nil, err

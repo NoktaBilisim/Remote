@@ -9,6 +9,7 @@ import (
 	"encoding/hex"
 	"image"
 	"image/color"
+	"strings"
 )
 
 // Command kullanıcının tepsi simgesindeki eylemi.
@@ -62,6 +63,17 @@ func VoiceTip(base string, on, muted bool) string {
 		return TipMicMuted
 	}
 	return TipMicOn
+}
+
+// ShownTip simgede görünen ipucu (2026-11-18): VoiceTip'in başındaki uygulama adı (Tip) sürüm etiketiyle değiştirilir
+// ("Nokta Destek 0.20.0 — oturum sürüyor"). label uicore.VersionLabel çıktısıdır (uicore bu paketi içe aktardığından
+// biçim çağırandan gelir); boşsa ipucu aynen.
+func ShownTip(base string, on, muted bool, label string) string {
+	tip := VoiceTip(base, on, muted)
+	if label == "" || !strings.HasPrefix(tip, Tip) {
+		return tip
+	}
+	return label + strings.TrimPrefix(tip, Tip)
 }
 
 // MenuItem tepsi menüsünün bir öğesi.

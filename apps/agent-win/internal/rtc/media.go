@@ -29,13 +29,32 @@ type Media struct {
 	lowOn bool
 }
 
-// NewMedia iz çiftini kurar (H.264; aynı codec → ReplaceTrack yeniden müzakere istemez).
-func NewMedia() (*Media, error) {
-	mainT, err := webrtc.NewTrackLocalStaticSample(h264, "video", "noktadestek")
+// Codec iz çiftinin video kodlaması (P28g, mimari-p28g §4.4, ADR-0038 m.3).
+type Codec int
+
+const (
+	// H264 Windows (Media Foundation) ve macOS (VideoToolbox) — mevcut davranış.
+	H264 Codec = iota
+	// VP8 Linux (GStreamer vp8enc; sistem H.264 kodlayıcısı garanti değil).
+	VP8
+)
+
+// capability codec'in RTP yeteneği.
+func (c Codec) capability() webrtc.RTPCodecCapability {
+	if c == VP8 {
+		return vp8
+	}
+	return h264
+}
+
+// NewMedia iz çiftini kurar. Ana ve düşük iz aynı codec'i kullanır → ReplaceTrack yeniden müzakere istemez (ADR-0035).
+func NewMedia(codec Codec) (*Media, error) {
+	cc := codec.capability()
+	mainT, err := webrtc.NewTrackLocalStaticSample(cc, "video", "noktadestek")
 	if err != nil {
 		return nil, err
 	}
-	lowT, err := webrtc.NewTrackLocalStaticSample(h264, "video-low", "noktadestek")
+	lowT, err := webrtc.NewTrackLocalStaticSample(cc, "video-low", "noktadestek")
 	if err != nil {
 		return nil, err
 	}

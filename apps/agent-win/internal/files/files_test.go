@@ -19,6 +19,10 @@ type fixture struct {
 		Name    string  `json:"name"`
 		Warning Warning `json:"warning"`
 	} `json:"warning"`
+	Received []struct {
+		In  string `json:"in"`
+		Out string `json:"out"`
+	} `json:"received"`
 }
 
 func loadFixture(t *testing.T) fixture {
@@ -53,6 +57,33 @@ func TestAC36WarningMatchesContractsFixture(t *testing.T) {
 	for _, c := range loadFixture(t).Warning {
 		if got := NameWarning(SanitizeFileName(c.Name)); got != c.Warning {
 			t.Errorf("NameWarning(%q) = %q, want %q", c.Name, got, c.Warning)
+		}
+	}
+}
+
+// P28g K5 (S-P28g-6 m.3): alınan ad contracts receivedFileName ile aynı; idempotent; başlatma komutu desenine uymaz.
+func TestAC398P28gReceivedNameMatchesContractsFixture(t *testing.T) {
+	cmd := regexp.MustCompile(`^Destek-[0-9]{8}( ?\([0-9]{1,3}\))?$`)
+	f := loadFixture(t)
+	if len(f.Received) == 0 {
+		t.Fatal("received fikstürü boş")
+	}
+	for _, c := range f.Received {
+		got := ReceivedName(c.In)
+		if got != c.Out || ReceivedName(got) != got || !IsSanitized(got) || cmd.MatchString(got) {
+			t.Errorf("ReceivedName(%q) = %q, want %q", c.In, got, c.Out)
+		}
+	}
+}
+
+func TestAC398P28gExecutableContent(t *testing.T) {
+	for _, c := range []struct {
+		head string
+		want bool
+	}{{"\x7fELF", true}, {"\x7fELF\x02", true}, {"#!", true}, {"#!/b", true}, {"#", false}, {"\x7fEL", false},
+		{"MZ\x90\x00", false}, {"", false}, {" #!", false}} {
+		if got := IsExecutableContent([]byte(c.head)); got != c.want {
+			t.Errorf("%q: %v", c.head, got)
 		}
 	}
 }

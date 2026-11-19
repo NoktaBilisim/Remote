@@ -16,6 +16,16 @@ func startControlReady(t *testing.T, ready *atomic.Bool, guides *atomic.Int32) *
 
 // startControlArm startControlReady + ArmControl (D-P28f-K1); arm kapıyı alır.
 func startControlArm(t *testing.T, ready *atomic.Bool, guides *atomic.Int32, arm func(g *control.Gate) bool) *ctlSession {
+	return startControlWith(t, ready, guides, arm, nil)
+}
+
+// startControlReadyWith startControlReady + akış başlamadan önce Deps ayarı (P28g Linux kaynak/metin).
+func startControlReadyWith(t *testing.T, ready *atomic.Bool, guides *atomic.Int32, set func(h *harness)) *ctlSession {
+	return startControlWith(t, ready, guides, nil, set)
+}
+
+func startControlWith(t *testing.T, ready *atomic.Bool, guides *atomic.Int32, arm func(g *control.Gate) bool,
+	set func(h *harness)) *ctlSession {
 	t.Helper()
 	h := newHarness(t)
 	cs := &ctlSession{h: h, gate: &control.Gate{}, clk: &clock{t: time.Date(2026, 11, 17, 10, 0, 0, 0, time.UTC)}}
@@ -25,6 +35,9 @@ func startControlArm(t *testing.T, ready *atomic.Bool, guides *atomic.Int32, arm
 		h.deps.ArmControl = func() bool { return arm(cs.gate) }
 	}
 	h.deps.AccessGuide = func() { guides.Add(1) }
+	if set != nil {
+		set(h)
+	}
 	cs.out = start(h, "12345678")
 	recv(t, h.creds)
 	cs.c = recv(t, h.conns)

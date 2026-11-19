@@ -164,3 +164,15 @@ func TestUTF16TruncKeepsTerminatorAndPairs(t *testing.T) {
 		t.Fatalf("Türkçe %v", got)
 	}
 }
+
+// Sürüm gösterimi (2026-11-18): tepsi ipucu çalışan ikilinin sürümünü taşır (kurulu ve kurulu değil dalları).
+func TestTipShowsVersion(t *testing.T) {
+	s := installed(servis.StateOnline)
+	s.SelfVersion = "0.20.0"
+	if got := Compute(s).Tip; got != TipPrefix+"Açık — Nokta Destek 0.20.0" {
+		t.Fatalf("ipucu %q", got)
+	}
+	if got := Compute(Snapshot{SelfVersion: "0.20.0"}).Tip; got != TipPrefix+"Kurulu değil — Nokta Destek 0.20.0" {
+		t.Fatalf("kurulu değil ipucu %q", got)
+	}
+}

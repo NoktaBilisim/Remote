@@ -94,6 +94,9 @@ var h264 = webrtc.RTPCodecCapability{
 	SDPFmtpLine: "level-asymmetry-allowed=1;packetization-mode=1;profile-level-id=42e01f",
 }
 
+// vp8 RTP yeteneği (P28g Linux; pion NewAPI varsayılan kodekleri VP8'i kaydeder, tarayıcı teklifinde her zaman var).
+var vp8 = webrtc.RTPCodecCapability{MimeType: webrtc.MimeTypeVP8, ClockRate: 90000}
+
 // ICEConfig hello.iceServers / ice.servers → Pion yapılandırması.
 func ICEConfig(list []signal.IceServer) webrtc.Configuration {
 	servers := make([]webrtc.ICEServer, 0, len(list))
@@ -108,10 +111,10 @@ func ICEConfig(list []signal.IceServer) webrtc.Configuration {
 }
 
 // New eşi kurar. caps hello.caps'tir (yetenek filtresi, G-09). m paylaşılan iz çiftidir (nil → yalnız bu eşe ait
-// yeni çift); eş ana izle başlar (SetMain ile değişir).
+// yeni H.264 çifti); eş ana izle başlar (SetMain ile değişir).
 func New(iceServers []signal.IceServer, caps []string, h Handlers, m *Media, opts ...Option) (*Peer, error) {
 	if m == nil {
-		nm, err := NewMedia()
+		nm, err := NewMedia(H264)
 		if err != nil {
 			return nil, err
 		}

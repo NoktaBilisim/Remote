@@ -1,10 +1,10 @@
-//go:build !windows && !darwin
+//go:build !windows && !darwin && !linux
 
 package printing
 
 import "context"
 
-// Yazdırma Windows (mimari-p28 §5.1) ve macOS (printer_darwin.go, P28f) istemcisindedir; Linux P28g'de lp_unix.go ile.
+// Yazdırma Windows (mimari-p28 §5.1) , macOS ve Linux (printer_unix.go; P28f/P28g) istemcisindedir.
 
 type noPrinter struct{}
 

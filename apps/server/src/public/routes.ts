@@ -1,5 +1,6 @@
 // /api/v1/public/agent — çerezsiz, kimliksiz, Origin istemez (GET, durum değiştirmez; ADR-0012 madde 4).
-// /internal/agent-ready/{windows,macos} — Caddy forward_auth iç ucu (S6-2, S-P28f-3); /api dışında, dışarıya kapalı.
+// /internal/agent-ready/{windows,macos,linux} — Caddy forward_auth iç ucu (S6-2, S-P28f-3, P28g S-P28g-12); /api dışında,
+// dışarıya kapalı.
 import {
   agentDownloadOsSchema,
   sessionStatusQuerySchema,
@@ -17,7 +18,11 @@ import { agentAvailability, agentDownload, assertAgentReady } from "./agent.ts";
 const osQuerySchema = z.object({ os: agentDownloadOsSchema });
 
 export async function publicAgentRoutes(app: FastifyInstance): Promise<void> {
-  const binaries = (): Record<AgentDownloadOs, AgentBinary> => ({ windows: app.agentBinary, macos: app.macAgentBinary });
+  const binaries = (): Record<AgentDownloadOs, AgentBinary> => ({
+    windows: app.agentBinary,
+    macos: app.macAgentBinary,
+    linux: app.linuxAgentBinary,
+  });
   // AC-27: 302 → sabit konum (dosya adı kodu taşır). Hata yanıtları da önbelleğe alınmaz. P28f: `os` ayrı ayrıştırılır
   // (geçersiz → 400, ref kovası tüketilmez).
   app.get("/download", async (req, reply) => {
@@ -56,7 +61,7 @@ export async function internalAgentRoutes(app: FastifyInstance): Promise<void> {
     return allowedPeer && typeof req.headers["x-forwarded-method"] === "string";
   };
   // S-P28f-3: platform başına ayrı iç URI; her uç yalnız kendi kapısını uygular. Çıplak `/agent-ready` geçiş süresince
-  // `/agent-ready/windows` takma adıdır. Bilinmeyen alt yol (ör. `/agent-ready/linux`) kayıtlı değil → 404 (varsayılan ret).
+  // `/agent-ready/windows` takma adıdır. Bilinmeyen alt yol (ör. `/agent-ready/ios`) kayıtlı değil → 404 (varsayılan ret).
   const windowsReady = async (req: FastifyRequest, reply: FastifyReply): Promise<FastifyReply> => {
     void reply.header("Cache-Control", "no-store");
     if (!fromEdge(req)) throw new AppError("NOT_FOUND");
@@ -70,11 +75,21 @@ export async function internalAgentRoutes(app: FastifyInstance): Promise<void> {
   };
   app.get("/agent-ready", windowsReady);
   app.get("/agent-ready/windows", windowsReady);
-  // macOS: firma dosyası yolu yok (V52) → yalnız zip kapısı. X-Forwarded-Uri Caddy'de maskeli gelir, okunmaz.
-  app.get("/agent-ready/macos", async (req, reply) => {
-    void reply.header("Cache-Control", "no-store");
-    if (!fromEdge(req)) throw new AppError("NOT_FOUND");
-    await assertAgentReady(app.macAgentBinary);
-    return reply.code(204).send();
-  });
+  // macOS / Linux (P28g): firma dosyası yolu yok (V52) → yalnız kendi ikili kapısı. X-Forwarded-Uri Caddy'de maskeli gelir, okunmaz.
+  const onlyGate =
+    (binary: () => AgentBinary) =>
+    async (req: FastifyRequest, reply: FastifyReply): Promise<FastifyReply> => {
+      void reply.header("Cache-Control", "no-store");
+      if (!fromEdge(req)) throw new AppError("NOT_FOUND");
+      await assertAgentReady(binary());
+      return reply.code(204).send();
+    };
+  app.get(
+    "/agent-ready/macos",
+    onlyGate(() => app.macAgentBinary),
+  );
+  app.get(
+    "/agent-ready/linux",
+    onlyGate(() => app.linuxAgentBinary),
+  );
 }
