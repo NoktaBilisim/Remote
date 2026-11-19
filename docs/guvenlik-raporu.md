@@ -1,3 +1,248 @@
+# Güvenlik Raporu — P29 tasarım turu (K0g) (dal claude/p29-auto-update, HEAD c5e3110, 2026-11-19)
+
+DURUM: DÜZELTİLMELİ (tasarım r2) — Kritik 0 / Yüksek 1 / Orta 4 / Düşük 7
+
+Kapsam: `docs/gereksinimler-p29.md`, `docs/mimari-p29.md` r1, ADR-0040, `docs/tasarim-kontrol.md` P29; mevcut kodla karşılaştırma
+(`.github/workflows/agent-win.yml`, `deploy/Caddyfile`, `internal/servis/mode.go`, `internal/proclimit`, `unattended/device-ws.ts`). Kod yok,
+otomatik tarama bu turda anlamsız (yeni bağımlılık yok). Karar: S-P29-T-1 (Yüksek) mimari r2'de 2-of-2 imza ile ya da kullanıcının yazılı
+risk kabulüyle kapanmadan K3/K6/K7 kodlanmaz. K1 (migration) ve K5 (ekranlar) başlayabilir. K2/K4'te şu kısımlar r2'ye kadar donar:
+`api/update.ts` manifest/olay şemaları ve `update.offer`/`GET /public/agent/update` yanıtı (T-1 ikinci imza, T-11 kanonik biçim), §4.4 belirteç
+taşıma (T-10), olay/audit `source` alanı (T-5); panel uçları, `DEVICE_UPDATING`, hub bayrağı ve migration'a bağlı kısımlar başlayabilir.
+
+## Mimarın sorularına kısa yanıtlar
+
+| #   | Soru                                      | Yanıt                                                                                                                                                                                                                                    |
+| --- | ----------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1   | Tek güven kökü yeterli mi                 | **Hayır, olduğu gibi değil** → S-P29-T-1. Etiket itme, ortam onayı, yayın ve sunucu erişimi aynı kişide toplanıyorsa "anahtar + sunucu" iki bağımsız varlık değildir. Rotasyon + alarm tespittir, önleme değil                           |
+| 2   | Reboot penceresi, DELAY_UNTIL_REBOOT, güç | `PendingFileRenameOperations` ile geri dönüş **önerilmez** (geri alınamaz kayıt, sessiz düşürme) → S-P29-T-3; tek önyükleme kurtarma kancası hem R-P29-15'i hem R-P29-11'i kapatır                                                       |
+| 3   | TOCTOU / ACL / yerel yönetici             | Tasarım doğru: `DataDirSDDL = O:BAD:P(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)` (`mode.go:58`) kullanıcı yazmasını kapatır, sınır yerel yöneticidir (kabul). Eksikler S-P29-T-4 (gözetmen tekilliği) ve S-P29-T-6 (reparse/sahip, `.yeni` artığı) |
+| 4   | Taşınabilirde `maxSeen` bellekte          | Kalan risk: ele geçirilmiş sunucu, çalışandan yüksek ama en yeniden düşük **gerçek** bir sürümü (≤ 90 g) kurdurabilir → bilinen açıklı ara sürüm. Kabul edilebilir, sınırlar S-P29-T-7                                                   |
+| 5   | Gizli `.eski`, AV                         | Gizli öznitelik kaldırılmalı, uzantı yürütülemez kalmalı; MOTW kaybı belgelenmeli → S-P29-T-8                                                                                                                                            |
+| 6   | `?ref=` oracle                            | Yalnız politikası kapalı tenant'ın geçerli ref'i için `notify` ayrımı var; 80 bit + 60/sa ile pratikte oracle değil → S-P29-T-9 (Düşük, metin düzeltmesi)                                                                                |
+| 7   | Olay ucu                                  | Tek tip 204 ve enum etiketleri doğru; ancak **kimliksiz** sahte `failed(MANIFEST_SIGNATURE)` güvenlik alarmını herkesin tetiklemesine izin veriyor → S-P29-T-5                                                                           |
+| 8   | Servis belirteci + hash kapısı            | Tek kullanım + 10 dk + cihaz başına 1 + 404 tek tip uygun; sorgu dizesi yerine başlık önerilir, SHA kapısı istek başına hash hesaplamamalı → S-P29-T-10                                                                                  |
+
+## Bulgular (öncelik sırasıyla)
+
+### [YÜKSEK] S-P29-T-1 Tek güven kökü tek kişinin oturumunda toplanıyor: "anahtar + sunucu" pratikte tek varlık — A08 (Yazılım ve veri bütünlüğü)
+
+Yer: ADR-0040 Karar 1, mimari-p29 K-P29-1, §5.4 satır "Anahtar + sunucu", §9.1 GitHub ortamları, §9.3; `agent-win.yml:1242-1260` (`approve`,
+`environment: agent-release`).
+Sorun: Platform imzası yok (gereksinim §8) → manifest anahtarı SYSTEM yetkili tüm müşteri sunucularında kod çalıştırma yetkisidir. Tasarım
+bunu "anahtar sızar **ve** sunucu da ele geçirilirse" diye iki bağımsız olaya bağlıyor. Oysa mevcut kalıpta (`docs/runbook.md:707` "required
+reviewers (kendiniz)", `:715` tek onaylayıcı `NoktaBilisim`, etiket ruleset'i yalnız depo yöneticisi) etiketi iten, ortamı onaylayan ve
+Release'i yayımlayan aynı hesaptır; `agent-update-sign` henüz yok ama aynı kalıpla kurulursa durum aynı olur. Yayın yetkisi ile sunucu
+erişimi de aynı kişide toplanıyorsa iki koşul tek bir hesabın/cihazın ele geçirilmesine iner. Bu durumda saldırgan kötü
+kodlu etiket iter, kendisi onaylar, CI kendi anahtarımızla imzalar, `publish-*.sh` ile sunucuya koyar → 0–24 sa içinde tüm gözetimsiz
+servisler SYSTEM olarak saldırgan kodunu çalıştırır. Rotasyon ve `rejected_total` alarmı bu senaryoda hiç tetiklenmez (her şey geçerli imzalı).
+İstismar senaryosu: oltalama ile GitHub oturum çerezi + SSH anahtarı çalınır → etiket `v0.22.9` (arka kapılı) → onay → Release → yayın.
+Düzeltme (mimar, sonra devops + backend-dev Go) — biri seçilir ve ADR-0040 r2'ye yazılır:
+
+1. **Önerilen — prod için 2-of-2 imza:** manifest iki Ed25519 imzası taşır: (i) mevcut CI ortam anahtarı, (ii) GitHub'a hiç girmeyen
+   **çevrimdışı yayın anahtarı** (yayıncının ayrı bir cihazında / donanım anahtarında; `cmd/update-sign sign --offline` ile CI'nın ürettiği
+   manifesti imzalar, `.sig2` Release'e elle yüklenir). İstemci prod'da ikisini de ister (her biri kendi 2 yuvalı kümesinden). Böylece
+   GitHub/CI ele geçirilmesi tek başına yetmez; maliyet: sürüm başına ~1 dk elle adım. Staging tek imzayla kalabilir.
+2. **Asgari (1 kabul edilmezse):** kullanıcının yazılı risk kabulü (`docs/implementation.md` + ADR "Sonuçlar") **ve** şunların hepsi:
+   `agent-update-sign` ortamında "Prevent self-review" açık ve en az bir **farklı** onaylayıcı; etiket ruleset'i + imzalı etiket (tag
+   signature) zorunlu ve `update-manifest` işi etiket imzasını sabit açık anahtarla doğrular; GitHub hesabında donanım anahtarı 2FA; sunucu
+   root SSH anahtarı parola/donanımla korunur; R-P29-1 kaydına "tek kişi" notu.
+3. Her iki durumda: servis bileşeni (SYSTEM) için ilk yayından sonra **kademesiz tam yayın** riskini azaltmak üzere runbook'a "önce staging +
+   kendi test cihazımız, 24 sa sonra prod manifest" kuralı (yayın gecikmesi bir saldırıya tespit penceresi verir).
+
+### [ORTA] S-P29-T-2 İmza işinde anahtar yüzeyi geniş: ortam değişkeni, `go run`, `update-resign` aynı işte yazma jetonu, log taraması imzayı yakalar — A08 / A05
+
+Yer: mimari-p29 §2 (`cmd/update-sign`: `UPDATE_SIGNING_KEY` ortam değişkeni), §5.5, §9.3 (`update-resign` → `gh release upload --clobber`),
+§9.6 ("43+ karakterlik base64 dizisi aranır"); `agent-win.yml:23-28` (iş akışı `pull_request` ile de tetiklenir).
+Sorun: (a) Tohum iş/adım ortam değişkeni olursa o adımın başlattığı her alt süreç (Go araç zinciri, modül indirme, test ikilileri) okuyabilir;
+`::add-mask::` yalnız birebir dizgiyi maskeler (base64 ↔ hex, parça çıktılar maskelenmez). (b) İmza adımı `go run`/`go build` ile ağdan modül
+çekerse etiketli commit'teki her bağımlılık/derleme betiği anahtarla aynı süreç ağacında koşar. (c) `update-resign` hem anahtarı hem
+`contents: write` jetonunu tek işte tutar; girdi "etiket" `run:` içine `${{ }}` ile açılırsa ifade enjeksiyonu. (d) `.sig` 86 karakter
+base64url olduğu için tarif edilen log taraması her başarılı koşuda kırmızı olur → ekip taramayı gevşetir/kapatır.
+İstismar senaryosu: main'e birleşen masum görünümlü bir derleme betiği değişikliği etiket koşusunda `env`'i dışarı yollar (ortam koruması
+yalnız ref'i denetler, kodu değil).
+Düzeltme (devops, backend-dev Go):
+
+- Tohum yalnız tek adımda, **stdin** ile verilir (`update-sign sign --key-stdin`); `env:` iş düzeyinde değil adım düzeyinde, hemen sonra
+  bellekten temizlenir. İmzalayıcı, imza işinden **önceki** anahtarsız işte `GOFLAGS=-mod=readonly GOPROXY=off` ile derlenir ve
+  `go list -deps` çıktısının yalnız stdlib olduğu denetlenir; imza işinde `actions/checkout` yalnız `build/update-keys/` + manifest girdileri,
+  `persist-credentials: false`, önbellek (`actions/cache`, `setup-go` cache) **yok**, başka betik çalıştırılmaz.
+- `update-resign`: imza işi (`contents: read`) artifact üretir, yükleme ayrı anahtarsız işte (`contents: write`); etiket girdisi `env:` ile
+  geçer ve `^v[0-9]+\.[0-9]+\.[0-9]+$` ile doğrulanır; yeniden imzalanan manifestin `version/sha256/size` alanları önceki Release
+  manifestiyle **birebir** aynı olmalı (yalnız tarih değişir) — aksi kırmızı.
+- Log taraması regex ile değil **bilinen değerle eşleşme** ile: imza adımı kendi stdout/stderr'ini bir dosyaya tee'ler, aynı adımın
+  sonunda tohumun base64/base64url/hex biçimlerini o dosyada `grep -F` ile arar (değer yalnız bellekte, dosyaya yazılmaz); eşleşme →
+  kırmızı. Böylece 86 karakterlik imza ve SHA'lar yanlış pozitif üretmez.
+- Ortam `agent-update-sign` için "deployment branches and tags: yalnız `v*`" ve "Allow administrators to bypass" **kapalı** (runbook §31'e).
+
+### [ORTA] S-P29-T-3 Sağlık penceresinde reboot ve iki MoveFileEx arası güç kesintisi: önerilen `MOVEFILE_DELAY_UNTIL_REBOOT` geri dönüşü güvensiz — A04 (Güvensiz tasarım; kullanılabilirlik)
+
+Yer: mimari-p29 §5.3 "Gözetmensiz durumlar" (R-P29-15 aday önlem), R-P29-11, ADR-0040 Alternatif E.
+Sorun: `MoveFileEx(exe.eski → exe, DELAY_UNTIL_REBOOT|REPLACE_EXISTING)` `HKLM\…\Session Manager\PendingFileRenameOperations` çoklu
+dizgesine yazar; **tekil kayıt geri alma API'si yoktur** (değeri elle düzenlemek, başka kurulumların bekleyen işlerini bozma riski).
+`healthy` sonrası geri alma başarısız olursa (gözetmen ölür, düzenleme yarışı) **haftalar sonraki ilk yeniden başlatmada sistem sessizce eski
+ikiliye döner** — `maxSeen`/imza dışı bir düşürme yolu; ayrıca servis açılışında `exe.eski` silindiyse kayıt boşa düşer ama yerinde kalır.
+R-P29-11'de ise (`exe` yok) hiçbir kod koşmaz; yalnız runbook ile kurtarılır → uzak sunucuda elle müdahale.
+Düzeltme (mimar → K0s spike, backend-dev Go):
+
+- `PendingFileRenameOperations` **geri dönüş için kullanılmaz** (en çok artık silme için kabul).
+- Tek **önyükleme kurtarma kancası**: yer değiştirmeden önce gözetmen SCM'de servisin `FailureActions` ilk eylemini
+  `SC_ACTION_RUN_COMMAND` = `"<kurulu yol>\NoktaDestekServis.exe.eski" --update-recover` olarak ayarlar (önceki eylemleri `durum.json`'a
+  yedekler), `phase=done` sonrası eski eylemleri geri yükler. Yeni ikili açılışta çökerse (reboot sonrası dahil) SCM eski ikiliyi koşar;
+  `--update-recover` yalnız `phase=swapped` iken ve LocalSystem jetonuyla geri döner. K0s doğrular: RUN_COMMAND'ın hangi hesapla koştuğu ve
+  `exe` hiç yokken (R-P29-11) SCM'nin başlatma hatasını "failure" sayıp saymadığı. Saymıyorsa ikinci seçenek: yer değiştirme süresince
+  `ONSTART` SYSTEM zamanlanmış görevi (aynı komut), `done`'da silinir — AV açısından kalıcılık IOC'si olduğu için yalnız spike olumsuzsa.
+- Yer değiştirme: önce K0s'ta `SetFileInformationByHandle(FileRenameInfoEx, FILE_RENAME_FLAG_REPLACE_IF_EXISTS|POSIX_SEMANTICS)` ile tek
+  adımda `exe.yeni → exe` denenir (tepsi imajı eşlenmişken başarısızsa iki adımlı akış kalır); iki adımlı akışta her iki çağrı
+  `MOVEFILE_WRITE_THROUGH`, `durum.json` `phase=swapping` yer değiştirmeden **önce** fsync'li yazılır.
+- Hang (çökmeden asılı kalan yeni servis) + reboot kalan risk olarak R-P29-15'te kalır; runbook'a kurtarma komutu.
+
+### [ORTA] S-P29-T-4 Gözetmen tekilliği ve servis çıkışı ↔ SCM kurtarma yarışı tanımsız — A04
+
+Yer: mimari-p29 §5.3 adım 6–9 ("servis kendi işini bitirir"), "SCM kurtarma eylemleri (3×10 sn) değişmez".
+Sorun: Gözetmen başladıktan sonra eski servis süreci hata koduyla çıkar ya da çökerse SCM 10 sn içinde eski servisi yeniden başlatır; o da
+`phase=staged` görüp **ikinci bir gözetmen** başlatabilir. İki gözetmen aynı `exe.yeni`/`exe.eski` adları üzerinde yarışır → yarım yer
+değiştirme, `exe` kaybı (R-P29-11 durumunun güç kesintisi olmadan oluşması). Ayrıca `--update-apply` herhangi bir SYSTEM bağlamından
+(ör. başka bir yazılımın zamanlanmış görevi) tetiklenebilir; tek denetim jeton.
+Düzeltme (backend-dev Go): gözetmen `Global\NoktaDestekServisUpdate` adlı mutex'i (DACL: SY) alamazsa çıkar; servis `phase ∈ {staged,
+swapping, swapped}` iken ve mutex sahipliyse gözetmen başlatmaz; gözetmeni başlattıktan sonra servis **çıkmaz**, `SERVICE_STOPPED`'a yalnız
+gözetmenin `Control(Stop)`'u ile geçer (kurtarma eylemi tetiklenmez). Gözetmen yalnız `phase=staged` ve `durum.json` içindeki `nonce` ile
+`Guncelleme\apply.nonce` eşleşirse ilerler (servis her denemede yeni nonce yazar). Windows birim testi: iki gözetmen eşzamanlı → biri çıkar.
+
+### [ORTA] S-P29-T-5 Kimliksiz olay herkesin "imza reddi" güvenlik alarmını tetiklemesine izin veriyor — A09 (Loglama ve izleme)
+
+Yer: mimari-p29 §4.6 m.2 (`failed` + güvenlik nedeni → `rs_agent_update_rejected_total{reason}`), §9.4 alarm "≥ 1 → inceleme", §4.5.
+Sorun: `POST /public/agent/update-events` kimliksizdir; İnternet'teki herkes `{"type":"failed","reason":"MANIFEST_SIGNATURE"}` gönderip
+"imza reddi" alarmını istediği an tetikleyebilir (IP başına 30/sa yeter). Sonuç: alarm yorgunluğu → gerçek saldırıdaki (ör. ele geçirilmiş
+sunucunun sahte ikilisi) `HASH_MISMATCH` görmezden gelinir. Aynı şekilde kimlikli kayıt anahtarı olan herkes kendi tenant'ında sahte
+"reddedildi" audit satırı yazabilir (beklenen, ama kaynağı ayırt edilmeli).
+Düzeltme (backend-dev): metriklere `source="device"|"binding"|"anonymous"` enum etiketi; runbook alarmı ≥ 1 yalnız `device` (servis,
+cihaz anahtarı) için, `binding` ve `anonymous` için oran eşiği (ör. 1 sa'te ≥ 3 farklı IP/kimlik) ve "istemci beyanı, doğrulanmamış" notu.
+Audit satırı `new_value.source` taşır; panel etiketi "İstemci bildirdi: …". Olay ucu IP kovası IPv6 için /64 (manifest ucuyla aynı);
+hız sınırı **istek** başına da (ör. 10 istek/sa/IP) ve istek başına en çok 5 anahtar çözümü.
+
+### [DÜŞÜK] S-P29-T-6 `Guncelleme\` klasörü ve `.yeni` artığı: reparse/sahip denetimi ve önceden var olan dosya — A01
+
+Yer: mimari-p29 §5.1 TOCTOU kuralı, §5.3 adım 2 ("varsa VerifyDir"), adım 8 (`Program Files\…\NoktaDestekServis.exe.yeni`).
+Sorun: Tasarım güven sınırını doğru çiziyor (yazabilen yalnız SY/BA). Ama `VerifyDir`'in neyi denetlediği yazılı değil: klasör bir
+junction/symlink ise (yerel yönetici dışı biri oluşturamaz; yine de eski sürüm/artık durum) SYSTEM yazması başka hedefe gidebilir.
+`exe.yeni` önceki başarısız denemeden kalmışsa `CREATE_NEW` hata verir ve kurulum sonsuza dek `INSTALL` ile düşer.
+Düzeltme (backend-dev Go): `VerifyDir` = `FILE_FLAG_OPEN_REPARSE_POINT` ile aç, `FILE_ATTRIBUTE_REPARSE_POINT` → ret; sahip SY/BA, DACL
+korumalı ve yalnız SY/BA ACE (değilse sil-yeniden oluştur, olay günlüğü 1012). `yeni.bin` ve `exe.yeni` açılmadan önce varsa silinir
+(artık); `durum.json` ≤ 8 KiB katı şema (bilinmeyen alan → `phase` yok sayılır). Sonuç: kalan sınır yerel yönetici — **kabul**.
+
+### [DÜŞÜK] S-P29-T-7 Taşınabilir istemcide `maxSeen` bellekte: ara sürüme yeniden oynatma — A08
+
+Yer: K-P29-14, D-4, R-P29-8.
+Sorun: Her açılışta `maxSeen = çalışan`. Ele geçirilmiş sunucu (anahtar yok) süresi dolmamış daha eski gerçek bir manifest + gerçek ikili
+(ör. bilinen açığı olan 0.22.1, en yeni 0.22.3) sunarak istemciyi o ara sürüme yükseltebilir; donma (hiç güncelleme sunmamak) da mümkündür.
+Etki eski-ama-imzalı kodla ve ≤ 90 g ile sınırlı; sunucu zaten ele geçirilmiş durumda. Kabul edilebilir.
+Düzeltme (mimar, isteğe bağlı): (a) istemci manifestleri için `expiresAt` 30 g'e indirilir (servis 90 g kalabilir) ve `update-resign` ayda bir;
+(b) güvenlik düzeltmesi yayınında runbook: açıklı sürümlerin manifestleri bir daha yeniden imzalanmaz ve `MIN_AGENT_VERSION` düzeltme
+sürümüne yükseltilir (ara sürüme çekilen istemci sunucuya bağlanamaz, güncellemeye devam eder); (c) kalan risk ADR "Sonuçlar"a yazılır. Kayıtlı Windows
+bilgisayarda mevcut kayıt dosyasına `maxSeen` eklemek iz kuralını bozmaz — isteğe bağlı.
+
+### [DÜŞÜK] S-P29-T-8 Gizli `.eski` izi, AV algısı ve MOTW kaybı — A05
+
+Yer: K-P29-9, D-3, R-P29-2, R-P29-14.
+Sorun: Gizli öznitelik + çalışan exe'yi yeniden adlandırma + aynı adla yeni PE yazma, kendini değiştiren zararlı örüntüsüne yakındır; gizli
+öznitelik algıyı artırır ve iz kuralını kullanıcıdan saklar. Yeni dosyada `Zone.Identifier` (MOTW) yoktur → kuruluşun MOTW/SmartScreen
+politikasının ilk dosyada sağladığı uyarı yeni sürümde atlanır.
+Düzeltme (backend-dev Go, teknik-yazar): gizli öznitelik **kullanılmaz**; ad `NoktaDestek.exe.eski` / `.yeni` (yürütülemez uzantı, PATHEXT
+dışında, çift tıklamada çalışmaz); `.yeni` yazımı sırasında da uzantı yürütülemez kalır, PE yalnız son `MoveFileEx` ile `.exe` olur. Orijinal
+dosyada MOTW varsa yeni dosyaya **kopyalanır** (`Zone.Identifier` ADS okunup yazılır) — davranış değişmesin. AV kapısı (K11) Defender +
+en az bir EDR ile "güncelleme senaryosu"nu kapsar; kılavuz `.eski`'yi anlatır.
+
+### [DÜŞÜK] S-P29-T-9 `?ref=` politika yanıtı: "ayrım sızdırmaz" ifadesi doğru değil — A01 / A04
+
+Yer: K-P29-7, §4.2.
+Sorun: Politikası kapalı tenant'ın **geçerli** ref'i `notify`, diğer her şey `auto` döner → yalnız o tenant'lar için ref geçerlilik ayrımı var.
+Ref 80 bit ve 60/sa → kaba kuvvet imkânsız; ref zaten dosya adında. Ayrıca DB sorgusu yalnız desen geçerliyse yapılırsa süre farkı oluşur.
+Düzeltme (mimar/backend-dev): metin "pratikte oracle değil (80 bit, 60/sa)" olarak düzeltilir; desen geçersiz ref → 400 değil sessizce
+`auto` (tek davranış); ref çözümü aktif-pasif ayrımı yapmaz. Caddy sorgu dizesini zaten siliyor (`deploy/Caddyfile:28`); `maskUrl` testi eklenir.
+
+### [DÜŞÜK] S-P29-T-10 Servis belirteci sorgu dizesinde; hash kapısı ve eşzamanlı indirme sınırı — A02 / A04 (DoS)
+
+Yer: §4.4, §8.
+Sorun: (a) `?t=` müşteri ağlarındaki TLS denetimli vekillerde URL'yle loglanır (Caddy/uygulama filtresi orada işlemez); etkisi küçük (tek
+kullanım, 10 dk, ikili gizli değil) ama G-10 ilkesine aykırı. (b) "dosya SHA = belirteçteki sha256" her istekte 15 MB hash'lenirse 20/dk/IP ×
+çok IP CPU tüketir. (c) 200 cihaz için toplam eşzamanlı akış sınırı yok; sunucu yeniden başlayınca hepsi `device.ready` → offer alır (0–120 dk
+sapma var, iyi) ama portatif denetimler sapmasız açılışta yapılır.
+Düzeltme (backend-dev): belirteç `Authorization: Bearer` başlığında (sorgu kabul edilmez); SHA kapısı mevcut `unattendedBinary.check()`
+önbelleğinden (stat anahtarlı) okunur, istek başına hash yok; global eşzamanlı indirme sınırı (ör. 8) → 503 + `Retry-After`, istemci ≥ değer
+kadar bekler; indirici gövdeyi `size+1` baytta keser (2×size değil; "≤ 2×" AC metniyle tutarlı ama gereksiz).
+
+### [DÜŞÜK] S-P29-T-11 "Katı JSON" tanımı eksik: Go `encoding/json` büyük/küçük harf duyarsız ve yinelenen anahtarı kabul eder — A08
+
+Yer: K-P29-3, §5.1 adım 3, §4.1.
+Sorun: İmzalı bayt üretimi bizde olduğundan saldırgan bunu tek başına kullanamaz; fakat sunucu (zod, `JSON.parse` son değer kazanır) ile
+istemci (Go, `"Sha256"` ≡ `"sha256"`, son değer kazanır) farklı ayrıştırırsa sunucu kapısı bir değere, istemci başka değere bakar
+(savunma derinliği kırılır; anahtar sızıntısında kapıyı atlatma aracı olur).
+Düzeltme (backend-dev): ortak kural ve iki dilde test fikstürü: yalnız ASCII, BOM yok, yinelenen anahtar → ret, anahtar adı birebir
+(Go'da `json.Decoder` + `Token()` ile anahtar sırası/yineleme denetimi), sonda veri yok (`dec.More()`), sayı yalnız `size`/`schema`.
+İmzalayıcı kanonik biçim yazar (sabit alan sırası, boşluksuz) ve doğrulayıcı `yeniden serileştir == ham bayt` ister — tek biçim, ayrıştırıcı
+farkı kalmaz.
+
+### [DÜŞÜK] S-P29-T-12 Yayın tarafı: attestation kimliği sabitlenmeli, hata yanıtları anahtar yansıtmamalı, Linux geçici dosya — A08 / A09
+
+Yer: §2 `publish-manifest.sh`, §4.5, K-P29-11.
+Sorun / Düzeltme:
+
+- `publish-manifest.sh` attestation'ı `gh attestation verify --signer-workflow <repo>/.github/workflows/agent-win.yml --source-ref
+refs/tags/vX.Y.Z` (ve `--cert-oidc-issuer`) ile doğrulamalı; yalnız "repo'da bir attestation var" yetmez (devops).
+- `update-events` 400 `VALIDATION` yanıtı ve logu zod hata ayrıntısında `bindingKeys` değerlerini yansıtmamalı (yalnız yol/ kod); logger
+  REDACT'e ek olarak yanıt zarfı testi (backend-dev).
+- Linux: `.<ad>.yeni` adı rastgele sonek + `O_CREAT|O_EXCL|O_NOFOLLOW|O_CLOEXEC`; klasör herkese yazılabilir ve sticky değilse
+  `NOT_WRITABLE` (backend-dev Go).
+- Donma saldırısı (ele geçirilmiş sunucu hiç manifest sunmaz) bilinçli kalan risk olarak ADR'ye yazılır; tespit
+  `rs_update_manifest_expiry_seconds` + dağılım şeridiyle.
+
+## Diğer sorulan konular (kısa hüküm)
+
+| Konu                        | Hüküm                                                                                                                                                                                                                                                                                                                                                                                                 |
+| --------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `expiresAt` / saat kayması  | Ek kural (T-11 ile aynı K3 işi): `issuedAt > now + 24 sa` → `EXPIRED` değil "yayın yok" (saati geri istemci), `now > expiresAt` → `EXPIRED` ama **güvenlik nedeni değil** (doğru, listede yok). Saati geri alınmış istemci süresi dolmuş manifesti kabul eder — yerel kullanıcı sınırı, kabul. Saati ileri istemci sürekli `EXPIRED` üretir → `available`/`failed` sürüm başına 1 kez tekilleştirilir |
+| Kök sabitleme / TLS vekil   | Sistem kökleri **kabul**: bütünlük TLS'e değil manifest imzasına dayanıyor; TLS denetimli vekil yalnız hizmet engelleyebilir. Pinning eklenmez (kurumsal vekilde güncellemeyi kırar)                                                                                                                                                                                                                  |
+| Action SHA sabitleme        | Yeni işler (`update-manifest(-stg)`, `update-resign`) mevcut G-18 kuralına tabi: her `uses:` 40 hane SHA + sürüm yorumu, iş düzeyinde en az `permissions`; K9'da `grep -nE "uses: [^@]+@(v                                                                                                                                                                                                            | main)"` boş olmalı |
+| IDOR `/unattended/versions` | `tenantScope(req)` ile yalnız kendi verisi; `scope=all` yalnız Super Admin (403), yanıt yalnız sayı (cihaz adı yok). AC-490 "IDOR testi 404" ile §4.8 "404 değil, yalnız kendi verisi" çelişkisi: uçta id yok, doğru test = başka tenant'ın cihazı yanıtta **sayılmaz**; AC metni proje-yöneticisince düzeltilir                                                                                      |
+| `?version=` süzgeci         | Desenle doğrulanır, sorguya tenant koşulundan **sonra** AND ile eklenir; başka tenant sürümü sızmaz                                                                                                                                                                                                                                                                                                   |
+| `settings/client-update`    | Tenant oturumdan alınır, gövdede `tenantId` kabul edilmez (strictObject); Super Admin tenant değiştirme mevcut kuralla. Step-up yokluğu kabul (açmak saldırgana kazanç değil)                                                                                                                                                                                                                         |
+| Metrik kardinalitesi        | `rs_agent_update_*` etiketleri enum (doğru). `rs_unattended_agent_versions{version}` enum değil ama yalnız kimlikli `device.auth` sürümünden ve desenli → üst sınır cihaz sayısı; ek olarak en çok 50 farklı değer, fazlası `other`                                                                                                                                                                   |
+| DoS 200 cihaz               | Servis 0–120 dk sapma yeterli; global eşzamanlı akış sınırı T-10                                                                                                                                                                                                                                                                                                                                      |
+| Audit maskeleme             | `new_value` alanları uygun; ek: `bindingKeys` hata yanıtında yansımaz (T-12)                                                                                                                                                                                                                                                                                                                          |
+| Env ayrımı                  | Ortam başına anahtar + `env` alanı + sunucu `DEPLOY_ENV` eşlemesi yeterli. Staging ortamı onaylayıcısız (main + dispatch): staging anahtarı yalnız staging istemcilerini etkiler, kabul                                                                                                                                                                                                               |
+
+## Otomatik tarama çıktıları
+
+- Bağımlılık taraması: bu turda kod/bağımlılık değişikliği yok (yalnız doküman; HEAD c5e3110) → `pnpm audit` / `govulncheck` K9 kod turunda.
+- `git grep -nE "(api[_-]?key|secret|password|token)\s*[:=]\s*['\"][^'\"]{8,}"` (test dosyaları hariç): yalnız `docs/runbook.md:2374` — komut
+  örneği (`grep -lE 'PASSWORD=…'`), gizli değer değil.
+- `git log --all -- '*.env' '.env*'` (`.env.example` hariç): boş.
+
+## Tasarımda doğru bulunanlar (Olumlu)
+
+- Bağlam önekli imza (`rs-update-manifest-v1\n`), ham baytın olduğu gibi taşınması, ortam başına ayrı anahtar + `env` alanı (4 kombinasyon testi).
+- Fail-closed: anahtarsız/PR/yer tutucu derlemede güncelleyici kapalı; anahtar yoksa Release'e manifest girmez.
+- İndirme kökeni istemcide sabit, manifestte URL yok, yönlendirme reddi; sunucu yalnız aktarır + hash kapısıyla sahte alarmı önler.
+- `maxSeen` servis için kalıcı; düşürme yok, ileri düzeltme ilkesi; `minUpdaterVersion` genişleme noktası.
+- Gözetmen = eski ikili (bozuk yeni ikili kendini geri alamaz sorununu çözer); ProgramData'dan exe çalıştırma yok; `Gelen\` kullanılmıyor.
+- Eski sunucu/istemci uyumu: `update.*` yalnız offer/none alındıktan sonra (mevcut `device-ws.ts:140-143` bilinmeyen türde 1008 kapatır) ve
+  yalnız `update1` yetenekli sokete.
+- Kimliksiz olay audit'e girmez; metrik etiketleri yalnız enum; `last_used_at` değişmez; `DEVICE_UPDATING` çevrimiçi denetiminden önce,
+  step-up tüketmez; `scope=all` yalnız Super Admin, tenant verisi `tenantScope`.
+- Gizli bilgi: Caddy sorgu/çerez/`Sec-WebSocket-Protocol` filtresi mevcut (`deploy/Caddyfile:28-38`); audit `new_value`'da anahtar/yol yok.
+
+## r2 için yapılacaklar özeti
+
+| Bulgu       | Atanan                       | r2'de yazılacak yer                                   |
+| ----------- | ---------------------------- | ----------------------------------------------------- |
+| S-P29-T-1   | mimar + kullanıcı kararı     | ADR-0040 Karar 1/Sonuçlar, K-P29-1, §9.1, runbook §31 |
+| S-P29-T-2   | devops, backend-dev (Go)     | §2, §9.3, §9.6                                        |
+| S-P29-T-3/4 | backend-dev (Go) — K0s spike | §5.3, R-P29-11/15                                     |
+| S-P29-T-5   | backend-dev                  | §4.5, §4.6, §4.7, §9.4                                |
+| T-6..T-12   | ilgili ajanlar               | K9 kod turunda denetlenir; "Sonra" değil, P29 içinde  |
+
+---
+
 # Güvenlik Raporu — P28g Kod turu 3 (K10 düzeltme doğrulaması) (dal p28g, HEAD 1c66f69, 2026-11-19)
 
 DURUM: GEÇTİ — Kritik 0 / Yüksek 0 / Orta 0 / Düşük 2
