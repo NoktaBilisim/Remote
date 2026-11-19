@@ -260,7 +260,7 @@ services:
   # Profil: ana dosyada profil YOK (tek yığın/prod her zaman açık); ikinci yığın (remote-stg) staging katmanı `profiles: [av]`
   # ekler -> varsayılan kapalı, test sırasında COMPOSE_PROFILES=av ile açılır (K-P28b-18, D-r2-4; runbook §28b).
   clamav:
-    image: clamav/clamav:1.5.4@sha256:45fe5149fbee5a46509c9848ef20d0c354b7b2323c9369f285939a37cf33422a
+    image: clamav/clamav:1.5.4@sha256:7054e3f34308c384ea43cd786ea17abf899bd44af40af9f1b099853d7a5c214e
     entrypoint: ["clamd", "--foreground", "--config-file=/etc/clamav/clamd.conf"]
     restart: unless-stopped
     user: "100:101"
@@ -289,7 +289,7 @@ services:
     logging: *logging
 
   clamav-update:
-    image: clamav/clamav:1.5.4@sha256:45fe5149fbee5a46509c9848ef20d0c354b7b2323c9369f285939a37cf33422a
+    image: clamav/clamav:1.5.4@sha256:7054e3f34308c384ea43cd786ea17abf899bd44af40af9f1b099853d7a5c214e
     # K9 B2 (ilk açılış yarışı): önce TEK SEFERLİK güncelleme, sonra işaret (/tmp tmpfs -> her başlangıçta sıfır), sonra daemon.
     # Sağlık = işaret + DB dosyaları -> clamav (depends_on service_healthy) imajdaki eski daily'yi değil güncel DB'yi yükler.
     # `;` bilinçli: CDN/çıkış hatasında da clamd eski DB ile açılır (fail-closed değil, imza yaşı alarmı yakalar); `timeout` asılmayı keser.
