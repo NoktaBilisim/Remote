@@ -2,8 +2,6 @@ package flow
 
 import (
 	"context"
-	"encoding/json"
-	"errors"
 	"sync/atomic"
 
 	"remote-support/agent-win/internal/dc"
@@ -18,7 +16,7 @@ import (
 // Kabul listesi (Y-PC-4): multi kipinde yalnız son roster'da olan ve RosterUI'nin ekranda/göstergede adıyla çizdiğini
 // doğruladığı tid'in sdp.offer'ı kabul edilir; bilinmeyen/çizilmemiş `from` → offer düşer, PC kurulmaz. Roster'dan düşen
 // ya da bağlantısı kopan (connected:false) tid'in eşi hemen kapanır. Girdi, dosya, pano, yazdırma, işaretleme yalnız
-// kontrol sahibinin eşinden; sohbet izleyiciden düşer (§4.5).
+// kontrol sahibinin eşinden (§4.5). P22-G: sohbet DC'den geçmez (sunucu aktarımlı WS, chat.go).
 
 // RosterTech müşteri listesindeki satır (ad + rol; userId yok — T10).
 type RosterTech struct {
@@ -40,8 +38,6 @@ type RosterUI interface {
 	// ShowRoster listeyi ekranda (oturum penceresi) ya da göstergede adlarıyla çizer ve çizim doğrulanınca true döner
 	// (en geç ~2 sn; döngüyü kısa süre bekletebilir). false → yeni tid'lerin eşi kurulmaz.
 	ShowRoster(v RosterView) bool
-	// TechChat teknisyen adıyla sohbet satırı (multi kipinde UI.Chat yerine).
-	TechChat(name, text string)
 }
 
 // techPeer bir teknisyenin eşi.
@@ -278,66 +274,9 @@ func (s *session) onTechRemove(ctx context.Context, tid string) {
 	}
 }
 
-// ctlAllowed §4.5 misafir kapısı: kontrol sahibinden her şey; diğerlerinden yalnız sohbet (izleyici değilse) ve ping.
+// ctlAllowed §4.5 misafir kapısı: kontrol sahibinden her şey; diğerlerinden yalnız ping (P22-G: DC sohbeti yok).
 func (s *session) ctlAllowed(tid, t string) bool {
-	if tid == s.ctrlTid() {
-		return true
-	}
-	switch t {
-	case "chat":
-		e := s.rosterEntry(tid)
-		return e != nil && e.Role != "observer"
-	case "ping":
-		return true
-	}
-	return false
-}
-
-// onTechChat teknisyen sohbeti: gösterilir ve multi kipinde diğer eşlere `by=<tid>` ile yayılır (D-PC-4: ad yok).
-func (s *session) onTechChat(tid string, m dc.Ctl) {
-	if !s.multi.on || s.d.RosterUI == nil {
-		s.d.UI.Chat(m.Text)
-		return
-	}
-	name := MultiTexts.RoleMember
-	if e := s.rosterEntry(tid); e != nil {
-		name = e.Name
-	}
-	s.d.RosterUI.TechChat(name, m.Text)
-	b, err := relayChat(m, tid)
-	if err != nil {
-		return
-	}
-	for other, tp := range s.peers {
-		if other != tid {
-			_ = tp.p.SendCtl(b)
-		}
-	}
-}
-
-var errBadChat = errors.New("flow: geçersiz sohbet yayını")
-
-// relayChat misafir → teknisyen yönünde yayılan sohbet çerçevesi (`chat` + `by`; dc.chatSchema.by).
-func relayChat(m dc.Ctl, by string) ([]byte, error) {
-	if m.T != "chat" || m.TS == nil || !signal.ValidTID(by) {
-		return nil, errBadChat
-	}
-	return json.Marshal(struct {
-		T    string `json:"t"`
-		ID   string `json:"id"`
-		Text string `json:"text"`
-		TS   int64  `json:"ts"`
-		By   string `json:"by"`
-	}{"chat", m.ID, m.Text, *m.TS, by})
-}
-
-// sendAll müşterinin sohbeti tüm eşlere (by'sız); en az biri aldıysa başarılı.
-func (s *session) sendAll(b []byte) bool {
-	ok := false
-	for _, tp := range s.peers {
-		ok = tp.p.SendCtl(b) == nil || ok
-	}
-	return ok
+	return tid == s.ctrlTid() || t == "ping"
 }
 
 // peerInput girdi yalnız kontrol sahibinin eşinden (Pion goroutine'inde; atomik denetim, §4.5).

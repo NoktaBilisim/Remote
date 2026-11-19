@@ -538,14 +538,14 @@ jobs:
         shell: bash
         run: |
           out="$RUNNER_TEMP/p28c.txt"
-          GITHUB_STEP_SUMMARY='' go test -count=1 -v -run 'P28c|AC366|AC367|AC371' ./internal/signal/... ./internal/dc/... \
+          GITHUB_STEP_SUMMARY='' go test -count=1 -v -run 'P28c|AC366|AC367|AC371|AC264P22GDCChat' ./internal/signal/... ./internal/dc/... \
             ./internal/rtc/... ./internal/flow/... ./internal/capture/... ./internal/ui/... ./internal/unattended/... \
             ./internal/tray/... | tee "$out"
           for t in TestAC372P28cConstantsMatchFixture TestAC366P28cGuestInboundMatchesFixture TestAC366P28cGuestOutboundMatchesFixture \
-                   TestP28cInboundChatRejectsBy TestAC366OfferOnlyFromDrawnRosterTid TestAC366OfferRejectedWhenNameNotDrawn \
+                   TestAC264P22GDCChatNotRecognized TestAC366OfferOnlyFromDrawnRosterTid TestAC366OfferRejectedWhenNameNotDrawn \
                    TestAC366RemoveSendsTechRemoveAndRosterDropClosesPeer TestAC366UnattendedHasNoRemove \
                    TestAC371AC367TracksAndFilesFollowController TestAC367InputGateFollowsController \
-                   TestP28cChatRelayAndObserverDropped TestP28cInvalidRosterEndsSession TestAC371LowEncoderAtMost8FPS \
+                   TestAC264P22GDCChatNotShownNorRelayed TestP28cInvalidRosterEndsSession TestAC371LowEncoderAtMost8FPS \
                    TestAC371LowEncoderOnlyWhileEnabled TestAC371LowEncoderFailureIsolated TestAC367SetMainReplacesTrack \
                    TestP28cControllerDisconnectAndReturnStatus TestP28cP28eTrayWithActiveForwardsRecUI TestP28cNamesSuffix \
                    TestP28cHeadlessShowRoster TestP28cLiveSetNamesDrawsSuffix TestP28cSessionWindowFits768 \

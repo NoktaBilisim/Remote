@@ -3,14 +3,18 @@
 package ui
 
 import (
+	"time"
+
 	"golang.org/x/sys/windows"
 
+	"remote-support/agent-win/internal/flow"
 	"remote-support/agent-win/internal/request"
+	"remote-support/agent-win/internal/ui/uicore"
 	"remote-support/agent-win/internal/win"
 )
 
-// P20 K6 — bekleme penceresindeki talep sohbeti (AC-255 Go ucu; mimari-e11 §8d.3, G-P20-7, K-P20-9). Geçmiş salt okunur
-// düz EDIT'tir (bağlantı tıklanmaz, HTML yorumu yok); metni request.Chat üretir: gövde süzülmüş, "Teknisyen <ad>:" /
+// P20 K6 — bekleme penceresindeki talep sohbeti (AC-255 Go ucu; mimari-e11 §8d.3, G-P20-7, K-P20-9) ve (dosya sonunda)
+// P22-G oturum sohbeti bölümü. Talep sohbeti geçmişi salt okunur düz EDIT'tir (bağlantı tıklanmaz, HTML yorumu yok); metni request.Chat üretir: gövde süzülmüş, "Teknisyen <ad>:" /
 // "Siz:" öneki istemcinin, gövde satırları girintili, `\r\n`, 200 mesaj / 256 K karakter tavanı. EDIT sınırı 512 K.
 
 const idReqChatSend = idOK // Enter "Gönder"i tetikler (bekleme penceresinin varsayılan düğmesi)
@@ -89,4 +93,77 @@ func (u *UI) chatSubmit(c *chatPane) {
 	case u.reqChat <- win.GetText(c.input.h):
 	default:
 	}
+}
+
+// --- P22-G oturum sohbeti (mimari-p22 §9; flow/chat.go modeli) ---
+
+// newChat oturum penceresinin sohbet bölümü: başlık + "Sohbet kayıt altına alınır" notu, salt okunur düz metin geçmiş
+// (EDIT; bağlantı/biçim yorumlanmaz), durum satırı, giriş + "Gönder". chat.state{true} gelene kadar giriş pasif.
+func (s *sessionWin) newChat(f *form, sq int32) {
+	f.label(flow.ChatTexts.Heading, 16, 80, 70, 20, fontBold)
+	f.label(flow.ChatTexts.HeaderNote, 90, 80, 334, 20, fontNormal)
+	s.history = f.edit(0, 16, uicore.ChatHistoryY, 408, uicore.ChatHistoryH-sq-sessionChatNoteH,
+		win.ES_MULTILINE|win.ES_READONLY|win.ES_AUTOVSCROLL|win.WS_VSCROLL, 0)
+	s.chatNote = f.danger(flow.ChatTexts.Unavailable, 16, uicore.ChatHistoryY+uicore.ChatHistoryH-sq-sessionChatNoteH+2,
+		408, sessionChatNoteH-2, fontNormal)
+	s.input = f.edit(idChatInput, 16, 306-sq, 316, 28, win.ES_AUTOHSCROLL, uicore.ChatInputLimit)
+	s.sendBtn = f.button(flow.ChatTexts.Send, idOK, 338, 305-sq, 86, true)
+	win.EnableWindow(s.input.h, false)
+	win.EnableWindow(s.sendBtn.h, false)
+}
+
+// sessionChatNoteH sohbet durum satırının geçmiş kutusundan aldığı yükseklik.
+const sessionChatNoteH = 22
+
+// sessionChatSubmit "Gönder"/Enter: ham metin akışa gider (doğrulama, kova ve kutuyu boşaltma kararı flow'da).
+func (u *UI) sessionChatSubmit(s *sessionWin) {
+	if s.finished || !s.chatOn {
+		return
+	}
+	u.emit(flow.Event{Kind: flow.EvChat, Text: win.GetText(s.input.h)})
+}
+
+// SessionChat flow.ChatUI: geçmiş yalnız sürüm değişince yazılır; pencere arka plandaysa okunmamış sayacı başlıkta.
+func (u *UI) SessionChat(v flow.ChatView) {
+	u.t.Do(func() {
+		s := u.sess
+		if s == nil || s.finished {
+			return
+		}
+		if v.Rev != s.chatRev {
+			s.chatRev, s.chatText = v.Rev, v.Text
+			s.drawHistory()
+		}
+		if v.Clear {
+			win.SetText(s.input.h, "")
+		}
+		if v.Restore != "" && win.GetText(s.input.h) == "" { // gönderilemeyen metin kaybolmaz
+			win.SetText(s.input.h, v.Restore)
+		}
+		s.chatOn = v.Enabled
+		win.EnableWindow(s.input.h, v.Enabled)
+		win.EnableWindow(s.sendBtn.h, v.Enabled)
+		win.SetText(s.chatNote.h, v.Status)
+		if v.NotifyNew && !s.active {
+			s.unread++
+			win.SetText(s.f.h, uicore.VersionedTitle(uicore.UnreadTitle(s.unread), u.t.version))
+			win.FlashWindow(s.f.h)
+		}
+	})
+}
+
+// drawHistory geçmiş kutusunu sohbet metni + yerel sistem satırlarından yeniden yazar (Q-P22G-1: sohbet güncellemesi
+// sistem satırlarını silmez) ve sona kaydırır.
+func (s *sessionWin) drawHistory() {
+	text := crlf(uicore.ChatComposite(s.chatText, s.hist))
+	win.SetText(s.history.h, text)
+	n := uintptr(len(windows.StringToUTF16(text)) - 1)
+	win.SendMessage(s.history.h, win.EM_SETSEL, n, n)
+	win.SendMessage(s.history.h, win.EM_SCROLLCARET, 0, 0)
+}
+
+// appendSystem yerel "Sistem" satırı; birikime eklenir, kutu birleşik metinle çizilir (mac/GTK appendLine eşi).
+func (s *sessionWin) appendSystem(text string) {
+	s.hist = uicore.AppendChat(s.hist, time.Now(), "Sistem", text)
+	s.drawHistory()
 }

@@ -151,6 +151,8 @@ type ResolveResult struct {
 	ExpiresAt      time.Time   `json:"expiresAt"`
 	JoinNonce      string      `json:"joinNonce"`
 	NonceExpiresAt time.Time   `json:"nonceExpiresAt"`
+	// ChatRetentionDays P22 (AC-292): onay düğmesi üstündeki saklama satırı. Eski sunucu göndermez → 0 (düğme pasif).
+	ChatRetentionDays int `json:"chatRetentionDays"`
 }
 
 // JoinRequest lobiye giriş (gövdede clientKind yok — kind nonce'a bağlı, ADR-0012).

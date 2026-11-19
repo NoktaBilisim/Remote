@@ -350,7 +350,7 @@ func (p *Peer) AddRemoteICE(m signal.RemoteIce) error {
 	return p.pc.AddICECandidate(init)
 }
 
-// SendCtl doğrulanmış ctl çerçevesini gönderir (chat, file.accept/reject/result).
+// SendCtl doğrulanmış ctl çerçevesini gönderir (file.accept/reject/result, pano/yazdırma yanıtları).
 func (p *Peer) SendCtl(b []byte) error {
 	p.mu.Lock()
 	ch := p.ctl

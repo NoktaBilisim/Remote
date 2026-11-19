@@ -115,6 +115,3 @@ func (u *UI) confirmRemove(s *sessionWin, i int) {
 		u.emit(flow.Event{Kind: flow.EvTechRemove, TID: r.tid})
 	}
 }
-
-// TechChat flow.RosterUI: teknisyen adıyla sohbet satırı (multi kipinde).
-func (u *UI) TechChat(name, text string) { u.chatLine(name, text) }

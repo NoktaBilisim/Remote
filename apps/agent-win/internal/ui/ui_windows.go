@@ -115,7 +115,14 @@ type sessionWin struct {
 	// P28d ses satırı (voice_windows.go); görüşme yokken gizli.
 	voiceLbl, voiceMute, voiceEnd *ctrl
 	// P28c bağlı teknisyen satırları (roster_windows.go); roster gelene kadar gizli.
-	techs    [rosterRows]rosterRow
+	techs [rosterRows]rosterRow
+	// P22-G oturum sohbeti (chat_windows.go): durum satırı, son çizilen görünüm sürümü ve metni, yerel sistem satırları
+	// (dosya sonucu, ses notu, oturum sonu; uicore.ChatComposite ile sohbetin altında — Q-P22G-1), giriş etkin mi.
+	chatNote *ctrl
+	chatRev  int
+	chatText string
+	hist     string
+	chatOn   bool
 	unread   int
 	active   bool
 	finished bool

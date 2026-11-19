@@ -79,7 +79,7 @@ func (u *UI) VoiceBar(v flow.VoiceView) {
 			if live {
 				showVoiceRow(s, false)
 				if v.Note != "" {
-					appendLine(s.history, "Sistem", v.Note)
+					s.appendSystem(v.Note)
 					u.flashSession(s)
 				}
 			}
@@ -96,7 +96,7 @@ func (u *UI) VoiceBar(v flow.VoiceView) {
 			win.SetText(s.voiceMute.h, uicore.VoiceMuteText(u.voiceMuted))
 			showVoiceRow(s, true)
 			for _, line := range uicore.VoiceAnnouncements(v.Announce) {
-				appendLine(s.history, "Sistem", line)
+				s.appendSystem(line)
 			}
 		}
 		if len(v.Announce) > 0 {

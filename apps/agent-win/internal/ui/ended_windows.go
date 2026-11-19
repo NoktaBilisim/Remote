@@ -22,7 +22,7 @@ func (u *UI) Ended(m flow.Message) {
 			win.SetText(s.watch.h, m.Title)
 			win.SetText(s.status.h, m.Body)
 			if u.endNote != "" {
-				appendLine(s.history, "Sistem", u.endNote)
+				s.appendSystem(u.endNote)
 			}
 			for _, c := range []*ctrl{s.input, s.sendBtn, s.endBtn, s.fileBtn, s.grantBtn, s.closeBtn, s.clipChk, s.recBtn,
 				s.voiceMute, s.voiceEnd} {

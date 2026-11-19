@@ -91,7 +91,7 @@ func (u *UI) FileResult(r transfer.Result) {
 		default:
 			msg = "Dosya reddedildi: " + r.Name
 		}
-		appendLine(u.sess.history, "Sistem", msg)
+		u.sess.appendSystem(msg)
 		win.SetText(u.sess.fileLbl.h, "")
 		win.ShowWindow(u.sess.fileBtn.h, win.SW_HIDE)
 	})
@@ -111,7 +111,7 @@ func (u *UI) FileServerStatus(text string, final bool) {
 			return
 		}
 		if final {
-			appendLine(u.sess.history, "Sistem", text)
+			u.sess.appendSystem(text)
 			text = ""
 		}
 		win.SetText(u.sess.fileLbl.h, text)

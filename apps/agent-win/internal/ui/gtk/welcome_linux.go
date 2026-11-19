@@ -70,7 +70,10 @@ func (u *UI) welcomeForm(w flow.Welcome, ch chan<- welcomeResult) {
 	}
 	f.label("Adınız ve soyadınız (teknisyeniniz sizi bu adla görür)")
 	var connect, name, consent uintptr
-	valid := func() bool { return consent != 0 && checked(consent) && strings.TrimSpace(entryText(name)) != "" }
+	ready := false // AC-292: saklama satırı çizildi ve gün geçerli (aşağıda, onay düğmesinin hemen üstünde)
+	valid := func() bool {
+		return ready && consent != 0 && checked(consent) && strings.TrimSpace(entryText(name)) != ""
+	}
 	refresh := func() {
 		if connect != 0 {
 			enable(connect, valid())
@@ -99,6 +102,7 @@ func (u *UI) welcomeForm(w flow.Welcome, ch chan<- welcomeResult) {
 			}
 		})
 	}
+	retention, ready := f.retentionLine(w.ChatRetentionDays)
 	b := f.row()
 	connect = f.button(b, "Bağlan", submit)
 	gtkWidgetSetCanDefault(connect, true)
@@ -106,6 +110,20 @@ func (u *UI) welcomeForm(w flow.Welcome, ch chan<- welcomeResult) {
 	f.button(b, "Vazgeç", func() { done(welcomeResult{}) })
 	f.label(u.footer)
 	enable(connect, false)
+	u.welcomeW.name, u.welcomeW.consent, u.welcomeW.retention, u.welcomeW.connect = name, consent, retention, connect
 	f.onX = func() { done(welcomeResult{}) }
 	f.show(name)
+}
+
+// retentionLine AC-292 (mimari-p22 §9): uicore.RetentionText satırını (markup kapalı etiket) onay düğmesinin hemen
+// üstüne çizer ve geri okur; dönen etiket ve uicore.ConsentReady. Alan yok/0 → "Sunucu güncel değil" (danger) ve false.
+func (f *form) retentionLine(days int) (uintptr, bool) {
+	text := uicore.RetentionText(days)
+	var l uintptr
+	if days < 1 {
+		l = f.danger(text)
+	} else {
+		l = f.label(text)
+	}
+	return l, uicore.ConsentReady(days, l != 0 && uicore.RetentionDrawn(days, labelText(l)))
 }

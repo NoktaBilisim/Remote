@@ -150,3 +150,39 @@ func TestP28fFileResultText(t *testing.T) {
 		t.Fatal("FileResultText")
 	}
 }
+
+func TestAC264P22GChatComposite(t *testing.T) {
+	if got := ChatComposite("[10:00] Siz:\n    <b>a</b>\n", "[10:01] Sistem: x\n"); got != "[10:00] Siz:\n    <b>a</b>\n[10:01] Sistem: x\n" {
+		t.Fatalf("%q", got)
+	}
+	big := strings.Repeat("satır\n", ChatLimit/6+10)
+	got := ChatComposite(big, "[10:01] Sistem: son\n")
+	if len(got) > ChatLimit || !strings.HasSuffix(got, "[10:01] Sistem: son\n") || !strings.HasPrefix(got, "satır\n") {
+		t.Fatalf("kırpma: %d", len(got))
+	}
+}
+
+// Q-P22G-1 / S-P22G-1: üç arayüzün geçmiş kutusu kalıbı — yerel sistem satırı (dosya/virüs taraması sonucu, ses notu)
+// birikime girer; ardından gelen her yeni sohbet sürümü kutuyu ChatComposite ile yeniden yazar ve sistem satırı kalır.
+func TestQP22G1SystemLinesSurviveChatRev(t *testing.T) {
+	at := time.Date(2026, 11, 19, 10, 1, 0, 0, time.Local)
+	hist := AppendChat("", at, "Sistem", "Dosya taraması: virüs bulundu")
+	hist = AppendChat(hist, at, "Sistem", "Sesli görüşme başladı")
+	if box := ChatComposite("", hist); box != hist { // sohbet boşken yalnız sistem satırları
+		t.Fatalf("%q", box)
+	}
+	for _, chat := range []string{
+		"[10:02] Teknisyen Ali:\n    merhaba\n",
+		"[10:02] Teknisyen Ali:\n    merhaba\n[10:03] Siz:\n    selam\n",
+	} {
+		box := ChatComposite(chat, hist) // yeni Rev: kutu birleşik metinle yeniden yazılır
+		if !strings.HasPrefix(box, chat) {
+			t.Fatalf("sohbet bloğu yok: %q", box)
+		}
+		for _, want := range []string{"[10:01] Sistem: Dosya taraması: virüs bulundu\n", "[10:01] Sistem: Sesli görüşme başladı\n"} {
+			if !strings.Contains(box, want) {
+				t.Fatalf("sistem satırı silindi (%q): %q", want, box)
+			}
+		}
+	}
+}
