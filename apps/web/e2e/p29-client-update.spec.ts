@@ -161,6 +161,11 @@ test("AC-491 Audit: Türkçe etiketler, reddedildi/İstemci bildirdi, 'İstemci 
   await expect(table).toContainText("İstemci güncellendi");
   await expect(table).toContainText("İstemci güncellemesi geri alındı");
   await expect(table).toContainText("İstemci otomatik güncelleme ayarı değişti");
+  // AC-491 (QA tur 1): ham eylem anahtarı tabloda, aria etiketlerinde ve ayrıntıda görünmez
+  await expect(table).not.toContainText("client.update");
+  await expect(table).not.toContainText("settings.client_update");
+  for (const l of await table.locator("[aria-label]").evaluateAll((els) => els.map((e) => e.getAttribute("aria-label") ?? "")))
+    expect(l).not.toMatch(/client\.update|settings\.client_update/);
 
   const sel = page.getByTestId("audit-filters").getByLabel("İşlem");
   const group = sel.locator('optgroup[label="İstemci güncelleme"]');
@@ -177,4 +182,17 @@ test("AC-491 Audit: Türkçe etiketler, reddedildi/İstemci bildirdi, 'İstemci 
     .click();
   const dlg = page.getByTestId("audit-detail");
   await expect(dlg.getByTestId("audit-update-reason")).toHaveText("imza");
+  await expect(dlg).not.toContainText("client.update");
+});
+
+test("AC-491 Audit mobil kart: Türkçe etiket, ham anahtar yok (metin ve aria)", async ({ page, context }) => {
+  await page.setViewportSize({ width: 390, height: 900 });
+  await signIn(context, "auupd");
+  await page.goto("/audit");
+  const main = page.locator("main");
+  await expect(main.getByRole("button", { name: /Güncelleme reddedildi \(imza\)/ }).first()).toBeVisible();
+  await expect(main).not.toContainText("client.update");
+  await expect(main).not.toContainText("settings.client_update");
+  const labels = await main.locator("[aria-label]").evaluateAll((els) => els.map((e) => e.getAttribute("aria-label") ?? ""));
+  for (const l of labels) expect(l).not.toMatch(/client\.update|settings\.client_update/);
 });

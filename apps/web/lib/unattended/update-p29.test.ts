@@ -1,6 +1,6 @@
 import { CLIENT_UPDATE_AUDIT } from "@remote/contracts/audit";
 import { describe, expect, it } from "vitest";
-import { actionLabel, actionOptionGroups, auditItemLabel, clientUpdateReasonLabel, groupLabel } from "@/lib/audit/actions";
+import { actionLabel, actionOptionGroups, auditItemLabel, clientUpdateReasonLabel, groupLabel, hidesRawAction } from "@/lib/audit/actions";
 import { devicesApiPath, devicesHref, parseDeviceParams, versionsApiPath } from "./query";
 import { publishedParts, sortVersionRows, updateBadgeLabel, updateTarget } from "./update";
 
@@ -63,6 +63,11 @@ describe("P29 audit (AC-491)", () => {
       "İstemci güncellemesi atlandı",
     );
     expect(auditItemLabel({ action: "auth.login", newValue: { reason: "MANIFEST_SIGNATURE" } })).toBe("Giriş");
+  });
+  it("ham anahtar yalnız P29 eylemlerinde gizlenir", () => {
+    for (const a of [...Object.values(CLIENT_UPDATE_AUDIT), "settings.client_update"]) expect(hidesRawAction(a), a).toBe(true);
+    expect(hidesRawAction("auth.login")).toBe(false);
+    expect(hidesRawAction("settings.recording")).toBe(false);
   });
   it("neden etiketi yalnız bilinen değerde", () => {
     expect(clientUpdateReasonLabel(f({ reason: "ENV_MISMATCH" }))).toBe("ortam");

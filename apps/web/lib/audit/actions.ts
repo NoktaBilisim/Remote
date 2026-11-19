@@ -27,6 +27,7 @@ import {
   CLIENT_UPDATE_AUDIT,
   CLIENT_UPDATE_AUDIT_GROUP,
   CLIENT_UPDATE_AUDIT_LABELS,
+  CLIENT_UPDATE_SETTINGS_AUDIT,
   SYSTEM_AUDIT,
   TENANT_AUDIT,
   USER_AUDIT,
@@ -210,6 +211,12 @@ export function clientUpdateLabel(item: { action: string; newValue: unknown }): 
     : (CLIENT_UPDATE_AUDIT_LABELS[CLIENT_UPDATE_AUDIT.FAILED] ?? item.action);
   return objOf(item.newValue)?.source === "binding" ? `${UPDATE_CLIENT_REPORTED_PREFIX}${base}` : base;
 }
+
+/**
+ * AC-491 (QA P29 tur 1): `client.update.*` ve `settings.client_update` satırlarında ham eylem anahtarı hiçbir yerde
+ * gösterilmez (tablo, kart, ayrıntı, aria). Diğer gruplarda P11 davranışı (etiketin altında ham ad) korunur.
+ */
+export const hidesRawAction = (action: string): boolean => CLIENT_UPDATE_ACTIONS.has(action) || action === CLIENT_UPDATE_SETTINGS_AUDIT;
 
 /** Satır etiketi (tablo, kart, ayrıntı): özel durum varsa o, yoksa `actionLabel`. */
 export const auditItemLabel = (item: { action: string; newValue: unknown }): string => clientUpdateLabel(item) ?? actionLabel(item.action);

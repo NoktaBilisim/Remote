@@ -2,7 +2,7 @@
 
 import { EyeOff } from "lucide-react";
 import { Avatar } from "@/components/ui/avatar";
-import { auditActor, auditItemLabel } from "@/lib/audit/actions";
+import { auditActor, auditItemLabel, hidesRawAction } from "@/lib/audit/actions";
 import { AUDIT_RESULT_LABELS, type AuditItem, type AuditResult } from "@/lib/audit/contract";
 import { formatDateTime } from "@/lib/format";
 import { t } from "@/lib/i18n";
@@ -74,7 +74,7 @@ export function ActionCell({ item }: { item: Pick<AuditItem, "action" | "newValu
     // Tablo hücresinde `truncate` sütunu daraltmaz; P28c uzun `session.*` adları tabloyu taşırmasın diye kap sınırlı ve satır kırılır
     <span className="flex max-w-44 min-w-0 flex-col">
       <span className="text-fg">{label}</span>
-      {label !== action && <span className="font-mono text-xs text-fg-muted wrap-anywhere">{action}</span>}
+      {label !== action && !hidesRawAction(action) && <span className="font-mono text-xs text-fg-muted wrap-anywhere">{action}</span>}
     </span>
   );
 }
