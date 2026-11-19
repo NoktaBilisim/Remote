@@ -64,6 +64,8 @@ type Welcome struct {
 	RememberNote string
 	// RecOffered P28e: kayıt rıza kutusu gösterilir (api.ConsentText.RecOffered; yalnız RecUI.WelcomeRec ile).
 	RecOffered bool
+	// ChatRetentionDays P22 AC-292: resolve `chatRetentionDays`; < 1 (eski sunucu) → onay düğmesi pasif (uicore.ConsentReady).
+	ChatRetentionDays int
 }
 
 // BindingHandler P8c (ADR-0017, mimari-e10 §8.4): bilgisayar kaydının alınması. Uygulaması internal/launch'tadır.
@@ -367,6 +369,7 @@ func welcomeData(ctx context.Context, d Deps, res *api.ResolveResult, notice str
 		Tenant: res.Tenant.Name, TechName: res.Technician.Name, TechVerifyCode: res.TechVerifyCode,
 		ConsentVersion: res.ConsentText.Version, ConsentBody: res.ConsentText.Body, AbuseEmail: abuse,
 		Notice: notice, Logo: tenantLogo(ctx, d, res.Tenant.LogoURL), RememberNote: rememberNote(d, res.Tenant.Name),
+		ChatRetentionDays: res.ChatRetentionDays,
 	}
 }
 

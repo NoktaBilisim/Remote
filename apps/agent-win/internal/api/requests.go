@@ -21,6 +21,8 @@ type TenantRequestInfo struct {
 	WaitMinutes     int         `json:"waitMinutes"`
 	AbuseEmail      *string     `json:"abuseEmail"`
 	MinAgentVersion *string     `json:"minAgentVersion"`
+	// ChatRetentionDays P22 (AC-292): talep formunda gönder düğmesi üstündeki satır. Yoksa 0 (düğme pasif).
+	ChatRetentionDays int `json:"chatRetentionDays"`
 }
 
 // CreateRequestBody POST /public/requests gövdesi (contracts `createRequestInputSchema`). `ref` ya da `bindingKey`

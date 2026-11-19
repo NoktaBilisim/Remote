@@ -228,3 +228,26 @@ func TestAC141CancelRequest204(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+// AC-292 (P22): resolve ve /public/requests/tenant `chatRetentionDays` gevşek okunur; alan yoksa 0 (eski sunucu).
+func TestAC292ChatRetentionDaysParsed(t *testing.T) {
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodGet {
+			_, _ = w.Write([]byte(`{"tenant":{"name":"Demo","logoUrl":null},"consentText":{"id":"c1","version":3,"body":"m","sha256":"ab"},"waitMinutes":30,"abuseEmail":null,"minAgentVersion":null,"chatRetentionDays":45}`))
+			return
+		}
+		_, _ = w.Write([]byte(`{"sessionRef":"r","tenant":{"name":"Nokta","logoUrl":null},"technician":{"name":"Ali"},
+			"techVerifyCode":"7731","consentText":{"id":"c1","version":2,"body":"metin","sha256":"ab"},"abuseEmail":null,
+			"expiresAt":"2026-11-11T12:00:00.000Z","joinNonce":"n1","nonceExpiresAt":"2026-11-11T11:10:00.000Z","chatRetentionDays":90}`))
+	}))
+	defer srv.Close()
+	c := trusted(t, srv)
+	res, err := c.Resolve(context.Background(), "12345678")
+	if err != nil || res.ChatRetentionDays != 90 {
+		t.Fatalf("%+v %v", res, err)
+	}
+	info, err := c.TenantInfo(context.Background(), "abcdefghijk23456")
+	if err != nil || info.ChatRetentionDays != 45 {
+		t.Fatalf("%+v %v", info, err)
+	}
+}

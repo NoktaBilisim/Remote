@@ -35,3 +35,29 @@ func TestAC239AdmitLine(t *testing.T) {
 		t.Fatal("kodsuz mesajda satır olmamalı")
 	}
 }
+
+// AC-292 (mimari-p22 §9): ConsentReady tablo testi — gün 0 / eksik (0) / 90 × satır çizildi / çizilmedi.
+func TestAC292ConsentReady(t *testing.T) {
+	for _, c := range []struct {
+		days  int
+		drawn bool
+		want  bool
+	}{
+		{0, false, false}, {0, true, false}, // eksik alan (eski sunucu) json'da 0 olur
+		{-1, true, false},
+		{90, false, false}, {90, true, true},
+		{1, true, true},
+	} {
+		if got := ConsentReady(c.days, c.drawn); got != c.want {
+			t.Errorf("ConsentReady(%d, %v) = %v", c.days, c.drawn, got)
+		}
+	}
+	if RetentionText(0) != "Sunucu güncel değil; lütfen daha sonra deneyin" ||
+		RetentionText(90) != "Sohbet mesajları kayıt altına alınır ve 90 gün saklanır" {
+		t.Fatal("RetentionText")
+	}
+	if !RetentionDrawn(90, RetentionText(90)) || RetentionDrawn(90, "") || RetentionDrawn(0, RetentionText(0)) ||
+		RetentionDrawn(30, RetentionText(90)) {
+		t.Fatal("RetentionDrawn")
+	}
+}
