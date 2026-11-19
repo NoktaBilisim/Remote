@@ -1577,3 +1577,53 @@ Windows UI kodu yalnız derlendi/vet edildi (Windows'ta test koşmadı; CI `test
 - Sohbet modeli saf ve zaman parametreli; iki varış sırası, kopuş/yeniden gönderim, kova ve red nedenleri ayrı testlerle kanıtlı.
 - AC-292 düğme kuralı `uicore.ConsentReady` tek fonksiyonunda; `lineDrawn` sabit değil, çizilen etiketin geri okunmasından türetiliyor.
 - Metinler (`ChatRetentionLine`, gövde hata metinleri, sabitler) contracts fikstüründen doğrulanıyor.
+
+### P22-GQ Tur 2 (2026-11-19; düzeltmeler 724bc3d..0173122)
+
+DURUM: GEÇTİ
+
+#### Test sonucu
+
+| Komut | Sonuç |
+| --- | --- |
+| `cd apps/agent-win && go test -count=1 ./...` (darwin) | 36 paket ok, 1 FAIL `internal/capture` `TestP28fK2AC392OwnWindowsExcluded`: Tur 1'deki ortam kırmızısıyla aynı. Paket dalda değişmedi, `origin/main`'de de kırmızı; P22-G dışı |
+| `go vet ./...` (darwin) · `GOOS=windows` · `GOOS=linux` · `GOOS=linux -tags linuxgui ./internal/ui/gtk/` | temiz |
+| `gofmt -l .` | boş |
+| `GOOS=windows go test -c ./internal/ui/` | derlendi (Windows'ta koşulmadı; CI `test-windows`) |
+| GTK GUI: `remote-p28g-gui:2404` imajında, Xvfb ile, `P28G_GUI=x11 go test -tags linuxgui -run TestP28gK4GUIWindowOpens ./internal/ui/gtk/` | PASS (QA tarafından bu turda koşuldu) |
+| Yeni/ilgili testler | `TestQP22G1SystemLinesSurviveChatRev`, `TestSP22G3ChatNullAndEmptyRejected`, `TestAC292P22GWelcomeFlowGateNoRetentionDays` ve Tur 1'deki tüm `AC264P22G*`/`AC292*`/`SP22_1*` PASS; skip yok |
+
+#### Bulgu kapanışı
+
+| Bulgu | Durum | Kanıt |
+| --- | --- | --- |
+| Q-P22G-1 (Windows sistem satırları siliniyordu) | ✅ kapandı | `ui/chat_windows.go` `drawHistory` / `appendSystem`: kutu `crlf(uicore.ChatComposite(chatText, hist))` ile yazılıyor. `appendLine` kaldırıldı; `transfer_windows.go:94,114`, `voice_windows.go:82,99`, `ended_windows.go:25` artık `appendSystem` çağırıyor (`grep appendLine( *_windows.go` boş). Test `uicore.TestQP22G1SystemLinesSurviveChatRev`: saf birleştirme fonksiyonu, yeni sohbet sürümünden sonra sistem satırı kalıyor. Windows çizim kodu macOS/GTK ile aynı kalıpta, yalnız derlendi. implementation.md'deki yanlış "fark yok" notu kaldırılmış |
+| Q-P22G-2 (GTK karşılama GUI testi saklama satırını doğrulamıyordu) | ✅ kapandı | `gui_linux_test.go`: 90 günde satır `RetentionText(90)` olarak geri okunuyor ve "Bağlan" etkin; 0 günde satır "Sunucu güncel değil", ad + onay olsa da "Bağlan" pasif. QA koşusunda PASS |
+| Q-P22G-3 = S-P22G-2 (karşılamada akış düzeyi ikinci kapı) | ✅ kapandı | `flow/flow.go:317-321`: `ChatRetentionDays < 1` ise join yok, son ekran `msgNoRetention`. Test `TestAC292P22GWelcomeFlowGateNoRetentionDays`: arayüz onay dönse bile join 0; 90 gün karşılamaya aktarılıyor |
+| S-P22G-3 (güvenlik; null / boş isteğe bağlı alan) | ✅ | `signal/chat.go` `chatNoNull` / `nullOrEmptyKey`: `chat.message`, `chat.history` öğesi ve `chat.state.reason` için null/`""` reddediliyor (zod `optional()`/`enum` ile aynı). Test 14 vakayla `TestSP22G3ChatNullAndEmptyRejected`. Fikstüre örnek eklenmemiş (contracts paketi kapsam dışı, gerekçeli) |
+
+#### Kabul kriterleri (Go kısmı)
+
+| AC | Durum | Not |
+| --- | --- | --- |
+| AC-264 | ✅ | Tur 1 kanıtları geçerli; Q-P22G-1 gerilemesi kapandı |
+| AC-291 | ✅ | Go metni değiştirmiyor, sunucunun metnini gösteriyor |
+| AC-292 | ✅ | `ConsentReady` tablo testi; üç karşılama ekranı ve Windows talep formu düğme/Enter kapısı; akış düzeyi ikinci kapı (karşılama + talep); GTK GUI geri okuma |
+
+#### Definition of Done
+
+| Madde | ✅/❌ | Not |
+| --- | --- | --- |
+| Testler yeşil | ✅ | Tek kırmızı, tabanda da var olan ortam testi (`capture`) |
+| vet (3 platform + linuxgui), gofmt | ✅ | |
+| AC'ler test kanıtlı, adlar AC/S-P22/Q-P22G taşıyor | ✅ | |
+| Gerileme yok | ✅ | Q-P22G-1 kapandı |
+| implementation.md güncel ve doğru | ✅ | "P22-GQ düzeltme turu 1" |
+| Kapsam dışı dosyalar (P21, `consent_windows.go`, `headless.go`) | ✅ | dokunulmamış |
+| Yeni bağımlılık | ✅ | yok |
+
+#### Açık kalanlar (zorunlu değil)
+
+- Windows ve macOS görsel doğrulaması, üç platformda staging elle testi (sohbet açık, DC yok, onay satırı) test-operatoru turunda yapılmalı. Windows `drawHistory` yolu yalnız derlendi; davranışı saf `uicore` testiyle kanıtlanıyor.
+- `headless.go` `Chat`/`TechChat` ölü metotları, dokunma yasağı kalkınca ayrı küçük işte silinmeli.
+- S-P22G-3 null/boş örnekleri ileride `packages/contracts/fixtures/ws-session-chat.json` `invalid.*` bölümüne taşınabilir (TS ve Go aynı örneği okur).
