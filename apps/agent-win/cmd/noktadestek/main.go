@@ -25,6 +25,7 @@ import (
 	"remote-support/agent-win/internal/remember"
 	"remote-support/agent-win/internal/tray"
 	"remote-support/agent-win/internal/ui"
+	"remote-support/agent-win/internal/update"
 )
 
 // Çıkış kodları.
@@ -81,6 +82,9 @@ type app struct {
 	// P28a pano iş parçacığı (deps.go clipboard; süreç ömrü).
 	clipOnce sync.Once
 	clip     *clipprint.Clipboard
+	// P29 K8 taşınabilir güncelleyici (serve'de kurulur); updOnce ilk kapsamda ya da tepsi açılışında başlatır.
+	upd     *update.Portable
+	updOnce sync.Once
 }
 
 // run kurulum → mod seçimi (`--tray`) → çalıştırma (arayüz + yerleşik döngü).
@@ -233,15 +237,27 @@ func (a *app) serve(trayIcon *tray.Icon, trayBalloon string) int {
 	})
 
 	client := api.New(a.cfg.ServerURL, a.cfg.Version)
+	a.startUpdater(client, func(text string) bool { // P29: tepside boştayken kurulum bilgisi balonla (AC-482)
+		if ic := current.Load(); ic != nil {
+			ic.Balloon(text)
+			return true
+		}
+		return false
+	})
 	res := a.resident(u, client, &current)
 	if trayIcon != nil {
+		a.beginUpdates() // tepsi açılışı: kapsam yok, boşta
 		res.RunTray(context.Background(), trayIcon, trayBalloon)
 	} else {
 		res.RunNormal(context.Background())
 	}
+	a.upd.Close(updateCloseTimeout) // süren indirme iptal (olay yok), kurulmamış geçici dosya silinir
 	current.Store(nil)
 	return exitOK
 }
+
+// beginUpdates açılış denetimi + 24 sa ± 2 sa dönemi bir kez başlar (AC-478).
+func (a *app) beginUpdates() { a.updOnce.Do(func() { a.upd.Start(context.Background()) }) }
 
 // rememberStore hatırlama dosyası deposu; LocalAppData bulunamazsa nil (kayıt ve hatırlama kapalı).
 func rememberStore() *remember.Store {

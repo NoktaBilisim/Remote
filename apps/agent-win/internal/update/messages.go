@@ -9,3 +9,11 @@ const MessageAvailable = "Yeni sürüm var — indirme bağlantısından yeni s�
 func MessageReady(version string) string {
 	return "Yeni sürüm (" + version + ") hazır — programı sonraki açışınızda kullanılacak"
 }
+
+// MessageAvailableLink MessageAvailable + indirme bağlantısı (AC-483; P29 K8). Bağlantı yoksa yalnız metin.
+func MessageAvailableLink(link string) string {
+	if link == "" {
+		return MessageAvailable + "."
+	}
+	return MessageAvailable + ": " + link
+}
