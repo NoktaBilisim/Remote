@@ -525,7 +525,7 @@
   "p7.monitorAlready": "Bu monitör zaten paylaşılıyor",
   "p7.monitorRetryIn": "yeni istek {time} sonra",
   "p7.monitorSwitched": "{name} gösteriliyor",
-  "p7.annotOff": "Kontrol sırasında işaretleme kapalı; önce kontrolü bırakın",
+  "p7.drawMode": "Çizim modu — fare ve klavye duraklatıldı",
   "nav.history": "Oturum geçmişi",
   "h.title": "Oturum geçmişi",
   "h.subtitle": "Biten ve süren destek oturumlarınızı filtreleyin, ayrıntısına bakın, ticket ve not ekleyin.",

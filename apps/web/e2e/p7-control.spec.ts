@@ -1,5 +1,5 @@
 import { expect, test, type Browser, type Page } from "@playwright/test";
-import { agentLog, agentSend, startFakeAgent } from "./fake-agent";
+import { agentCtl, agentLog, agentSend, startFakeAgent } from "./fake-agent";
 import { axeScan, guardConsole, newSession, signIn } from "./helpers";
 
 // P7 konsol uzaktan kontrol (AC-43, 47–51, 99, 105, 115, 116). Sahte API + sahte WS + sahte Hızlı Destek istemcisi
@@ -85,10 +85,15 @@ test("AC-47/48/49/99/50: kontrol iste → izin → fare/klavye input DC'ye → b
   await expect(page.getByTestId("stage")).toHaveAttribute("data-control", "on");
   await expect(page.getByText("Müşteri kontrol izni verdi")).toBeVisible();
   await expect(page.getByTestId("control-cancel")).toHaveCount(0);
-  await expect(page.getByTestId("annot-pen")).toHaveCount(0); // işaretleme kontrolde pasif → şeritte yer kaplamaz
-  // TEST-P7-2: kontrol sırasında şerit 1280 px'te tek satır
+  // AC-498 r2: işaretleme kontrolde de etkin (araç seçilmedikçe girdi yakalanır)
+  await expect(page.getByTestId("annot-pen")).toBeEnabled();
+  await expect(page.getByTestId("annot-pen")).toHaveAttribute("aria-pressed", "false");
+  await expect(page.getByTestId("stage")).toHaveAttribute("data-capture", "on");
+  // TEST-P7-2 (AC-498 r2 ile güncellendi): araç çubuğu şeritte kaldığı için 1280 px'te şerit en çok iki satır
+  // (araç grubu 54 + aralık 8 + düğme satırı 44 + dolgu/çizgi 17 ≈ 123 px; üç satır ≥ 160) ve görüntünün üstünü kapatmaz
   const strip = (await page.getByTestId("stage-tools").boundingBox())!;
-  expect(strip.height).toBeLessThanOrEqual(64);
+  expect(strip.height).toBeLessThanOrEqual(140);
+  expect(strip.y + strip.height).toBeLessThanOrEqual((await page.getByTestId("stage-view").boundingBox())!.y + 1);
   await expect(page.getByTestId("stage-scroll")).toHaveAttribute("role", "application");
 
   await clickVideo(page, 0.25, 0.75);
@@ -302,6 +307,127 @@ test("TEST-P7-1 / AC-49: %100 (kaydırılmış ve kaydırılmamış) ve Sığdı
   await page.mouse.click(sb.x + 50, sb.y + 50);
   await expect.poll(clicks).toBe(c + 1);
   await near(350, 250);
+  await a.context().close();
+});
+
+/** Sahnede (videonun içerik alanına göre oransal) sürükleme — çizim katmanı da video kutusunu kaplar. */
+async function dragVideo(p: Page, from: [number, number], to: [number, number]) {
+  const b = (await p.getByTestId("console-video").boundingBox())!;
+  const s = Math.min(b.width / 1280, b.height / 720);
+  const at = ([fx, fy]: [number, number]) =>
+    [b.x + (b.width - 1280 * s) / 2 + 1280 * s * fx, b.y + (b.height - 720 * s) / 2 + 720 * s * fy] as const;
+  const [x0, y0] = at(from);
+  const [x1, y1] = at(to);
+  await p.mouse.move(x0, y0);
+  await p.mouse.down();
+  await p.mouse.move((x0 + x1) / 2, (y0 + y1) / 2, { steps: 4 });
+  await p.mouse.move(x1, y1, { steps: 4 });
+  await p.mouse.up();
+}
+type StrokeMsg = { t: string; tool?: string; pts?: [number, number][] };
+const strokes = async (a: Page) => ((await agentCtl(a)) as StrokeMsg[]).filter((m) => m.t === "annot.stroke");
+
+test("AC-498 r2: kontrol açıkken kalemle çizim → annot.stroke; girdi kanalı susar; Esc → yakalama döner, yeni istek yok", async ({
+  page,
+  context,
+  browser,
+}) => {
+  await signIn(context, "p7");
+  const { a, id } = await liveAgent(page, browser);
+  const stage = page.getByTestId("stage");
+  await req(page).click();
+  await grant(a);
+  await expect(stage).toHaveAttribute("data-capture", "on");
+  const pen = page.getByTestId("annot-pen");
+  await pen.click();
+  await expect(pen).toHaveAttribute("aria-pressed", "true");
+  // Kontrol açık kalır (çerçeve + "Kontrol sizde"), yalnız girdi duraklar; özel tuşlar gizli, ipucu görünür
+  await expect(stage).toHaveAttribute("data-control", "on");
+  await expect(stage).toHaveAttribute("data-capture", "paused");
+  await expect(page.getByTestId("control-on")).toHaveText("Kontrol sizde");
+  await expect(page.getByTestId("control-release")).toBeVisible();
+  await expect(note(page)).toHaveText("Çizim modu — fare ve klavye duraklatıldı");
+  await expect(note(page)).toBeVisible();
+  await expect(page.getByTestId("special-keys")).toHaveCount(0);
+  await expect(page.getByTestId("stage-scroll")).not.toHaveAttribute("role", "application");
+  // Askıya alırken takılı tuş güvencesi (k.release_all) gider; "girdi yok" sayımı ondan sonra başlar
+  await expect.poll(async () => (await inputs(a)).some((m) => m.t === "k.release_all")).toBe(true);
+  const before = (await inputs(a)).length;
+
+  await dragVideo(page, [0.2, 0.2], [0.35, 0.3]);
+  await page.keyboard.press("a");
+  await expect.poll(async () => (await strokes(a)).length).toBe(1);
+  const st = (await strokes(a))[0]!;
+  expect(st.tool).toBe("pen");
+  expect(Math.abs(st.pts![0]![0] - 0.2)).toBeLessThan(0.01);
+  expect(Math.abs(st.pts![0]![1] - 0.2)).toBeLessThan(0.01);
+  await expect(page.getByTestId("annot-layer")).toHaveAttribute("data-strokes", "1");
+  expect(await axeScan(page)).toEqual([]);
+
+  // Esc → araç kapanır, yakalama geri gelir; müşteriden yeniden onay yok, yeni control.request yok
+  await page.keyboard.press("Escape");
+  await expect(pen).toHaveAttribute("aria-pressed", "false");
+  await expect(stage).toHaveAttribute("data-capture", "on");
+  await expect(page.getByTestId("special-keys")).toBeVisible();
+  // Pozitif sabit: aynı kanaldan bir tık gelir → kanal sıralı; çizim sırasındaki hiçbir şey arada değil
+  await clickVideo(page, 0.6, 0.6);
+  await expect.poll(async () => (await inputs(a)).slice(before).some((m) => m.t === "m.btn")).toBe(true);
+  const after = (await inputs(a)).slice(before);
+  expect(after.filter((m) => m.t === "k")).toEqual([]);
+  const downs = after.filter((m) => m.t === "m.btn" && m.down === true) as unknown as { x: number; y: number }[];
+  expect(downs).toHaveLength(1);
+  expect(Math.abs(downs[0]!.x - 0.6)).toBeLessThan(0.01);
+  expect(after.filter((m) => m.t === "m.move" && (m.x as number) < 0.5)).toEqual([]); // çizim yolu (0.2–0.35) gitmedi
+
+  // Düğmeyle aç/kapa da aynı: yeni istek yok, kapı açık
+  await pen.click();
+  await expect(stage).toHaveAttribute("data-capture", "paused");
+  await pen.click();
+  await expect(stage).toHaveAttribute("data-capture", "on");
+  expect(await techSent(page, id)).toEqual(["control.request"]);
+  const log = await agentLog(a);
+  expect(log.controlRequests).toBe(1);
+  expect(log.gate).toBe(true);
+  expect(log.closes).toEqual([]);
+  await a.context().close();
+});
+
+test("AC-498 r2: %100 görünümde de araçlar görünür; kaydırılmış görüntüde çizim koordinatı uzak piksele denk", async ({
+  page,
+  context,
+  browser,
+}) => {
+  await signIn(context, "p7");
+  const { a } = await liveAgent(page, browser);
+  await req(page).click();
+  await grant(a);
+  await openViewMenu(page);
+  await page.getByRole("button", { name: "%100" }).click();
+  await page.keyboard.press("Escape");
+  await expect(page.getByTestId("stage")).toHaveAttribute("data-mode", "actual");
+  await expect(page.getByTestId("console-video")).toHaveCSS("width", "1280px");
+  const pen = page.getByTestId("annot-pen");
+  await expect(pen).toBeVisible();
+  await pen.click();
+  await expect(page.getByTestId("stage")).toHaveAttribute("data-capture", "paused");
+  // Çizim katmanı video kutusunu tam kaplar (kaydırılan kısım dahil)
+  const vb = (await page.getByTestId("console-video").boundingBox())!;
+  const lb = (await page.getByTestId("annot-layer").boundingBox())!;
+  expect(Math.abs(lb.width - vb.width)).toBeLessThanOrEqual(1);
+  expect(Math.abs(lb.height - vb.height)).toBeLessThanOrEqual(1);
+  const box = page.getByTestId("stage-scroll");
+  await box.evaluate((el) => el.scrollTo(300, 200));
+  await expect.poll(() => box.evaluate((el) => [el.scrollLeft, el.scrollTop])).toEqual([300, 200]);
+  const sb = (await box.boundingBox())!;
+  await page.mouse.move(sb.x + 50, sb.y + 50);
+  await page.mouse.down();
+  await page.mouse.move(sb.x + 90, sb.y + 70, { steps: 4 });
+  await page.mouse.up();
+  await expect.poll(async () => (await strokes(a)).length).toBe(1);
+  const [x, y] = (await strokes(a))[0]!.pts![0]!;
+  // sahte istemci monitörü 1280×720: görünür (50, 50) + kaydırma (300, 200) = uzak (350, 250)
+  expect(Math.abs(x * 1280 - 350)).toBeLessThanOrEqual(1);
+  expect(Math.abs(y * 720 - 250)).toBeLessThanOrEqual(1);
   await a.context().close();
 });
 

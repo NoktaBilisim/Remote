@@ -125,8 +125,13 @@ export const monitorBlockLeft = (s: ControlState, now: number): number =>
 export function canRequestMonitor(s: ControlState, now: number): boolean {
   return s.monitorPending === null && s.monitorRequests < MAX_CONTROL_REQUESTS && monitorBlockLeft(s, now) === 0;
 }
-/** Girdi yakalanır mı (görüntü varlığı ayrıca sahnede kontrol edilir). */
-export const isCapturing = (s: ControlState): boolean => s.phase === "granted" && !s.forbidden;
+/** Kontrol bu konsolda açık mı (müşteri izin verdi, yetki daralmadı) — çizim modunda da açık kalır (AC-498 r2). */
+export const hasControl = (s: ControlState): boolean => s.phase === "granted" && !s.forbidden;
+/**
+ * Girdi yakalanır mı (görüntü varlığı ayrıca sahnede kontrol edilir). AC-498 r2: kontrol açık VE çizim aracı seçili
+ * değil. Araç seçimi makineye olay olarak girmez → seçmek/kapatmak `control.release`/`control.request` üretemez.
+ */
+export const isCapturing = (s: ControlState, drawing = false): boolean => hasControl(s) && !drawing;
 /** "Kontrolü bırak" anlamlı mı (K1). */
 export const canRelease = (s: ControlState): boolean => s.phase === "granted";
 /** "Vazgeç" anlamlı mı (K2). */
