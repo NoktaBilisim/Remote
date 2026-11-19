@@ -22,9 +22,10 @@ var ErrNoMainQueue = errors.New("ui/mac: ana kuyruk yok")
 // Options arayüz kurulum bilgileri.
 type Options struct {
 	Host, Version, Fingerprint string
-	// TestBuild config.TestBuild (S-P28f-7): TEST bandı için ek koşul; bant imzadan her durumda türetilir.
+	// TestBuild config.TestBuild (S-P28f-7): TEST derlemesinde bant her zaman gösterilir (AC-504).
 	TestBuild bool
-	// TeamID config.TeamID (D-P28f-K3): beklenen Developer Team ID; boşsa bant her zaman gösterilir.
+	// TeamID config.TeamID (D-P28f-K3): beklenen Developer Team ID; gömülüyse imza ona uymadığında bant gösterilir,
+	// boşsa (prod ad-hoc) imzadan bant türetilmez (K-P28f-r4-5, AC-504).
 	TeamID string
 	// Gate izin kapısı (flow.Deps.Gate ile aynı): "Kontrolü kapat" ve gösterge fail-closed'u kapıyı UI iş
 	// parçacığında, akışı beklemeden kapatır (AC-101, §5.2b).
@@ -42,6 +43,7 @@ type UI struct {
 	version string
 	gate    *control.Gate
 	band    bool
+	sigLine string // AC-504: Hakkında imza satırı (bant ile aynı signingInfo okumasından)
 	dark    bool
 	forms   map[*form]bool
 	quit    func() // ön plandaki ekranın kapatma yolu (Cmd+Q, uygulama menüsü)
@@ -87,7 +89,9 @@ func New(o Options) (*UI, <-chan flow.Event, error) {
 	u.app = cls("NSApplication").Send(selSharedApp)
 	u.app.Send(objc.Sel("setActivationPolicy:"), nsRegular)
 	u.dark = isDark(u.app)
-	u.band = showTestBand(signingInfo(), o.TestBuild, o.TeamID)
+	si := signingInfo()
+	u.band = showTestBand(si, o.TestBuild, o.TeamID)
+	u.sigLine = aboutSigLine(si)
 	u.buildMenu()
 	screensHook = u.screensChanged
 	movedHook = u.syncOwnWindows

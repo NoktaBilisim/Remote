@@ -1,6 +1,6 @@
 # ADR-0037 — macOS istemci: CGO'suz purego/objc, AppKit doğrudan, .app paketi, Linux'ta derleme + macOS'ta imza/notarization
 
-Tarih: 2026-11-17 · Durum: **Kabul r3** — K0s spike (`docs/spike-p28f-k0s.md`) işlendi: m.2, m.7, m.8 değişti (mimari-p28f §14); r2 — güvenlik tasarım turu (`docs/guvenlik-raporu.md` "P28f Tasarım turu", S-P28f-1..17) işlendi: m.3, m.6, m.7, m.8 değişti, ayrıntı `docs/mimari-p28f.md` §13; K0s spike sonucu bekleniyor (FAIL dalı aşağıda) · İlgili: AC-276, AC-389..396,
+Tarih: 2026-11-17 · Durum: **Kabul r3 + Değişiklik 2026-11-20 (ad-hoc prod, sonda)** — K0s spike (`docs/spike-p28f-k0s.md`) işlendi: m.2, m.7, m.8 değişti (mimari-p28f §14); r2 — güvenlik tasarım turu (`docs/guvenlik-raporu.md` "P28f Tasarım turu", S-P28f-1..17) işlendi: m.3, m.6, m.7, m.8 değişti, ayrıntı `docs/mimari-p28f.md` §13; K0s spike sonucu bekleniyor (FAIL dalı aşağıda) · İlgili: AC-276, AC-389..396,
 AC-393 (P28a–e), R39, R44, R49, V52, ADR-0004 (Go istemci), ADR-0009 (izin kapısı istemcide), ADR-0010 (tekrarlanabilir dağıtım),
 ADR-0011 (lisans), ADR-0031 (yazdırma), ADR-0035 (ana/düşük iz), ADR-0036 (ses: libopus wasm + wazero), `docs/mimari-p28f.md`
 
@@ -141,3 +141,33 @@ yazıcı" olarak gösterilir (AC-349 macOS'ta kısmi; alt süreç TCC yetkisini 
 - (−) Prod R39'a bağlı: Apple Developer Program hesabı (D-U-N-S) olmadan macOS prod'da görünmez.
 - Yeni teknoloji ölçütleri: **Ekipte bilgi:** purego yok, ancak API düz C/ObjC çağrısıdır ve spike tek belgede kalır. **Bakım:**
   purego Ebitengine'in kendi oyun motorunda (macOS) üretimde. **Geri dönüş:** paket başına cgo'ya geçiş (Karar m.1).
+
+## Değişiklik (2026-11-20) — Developer ID'siz (ad-hoc) prod yayını
+
+Kullanıcı kararı: Apple Developer Program ücreti ödenmeyecek. Ayrıntı ve bağlayıcı metin: `docs/mimari-p28f.md` §15 (K-P28f-r4-1..11,
+AC-500..508).
+
+- **m.6 r4 ile değişti:** Prod iki yoldan birini kullanır. (a) `vars.APPLE_TEAM_ID` tanımlıysa Developer ID + notarize + staple
+  (bugünkü metin **aynen**). (b) Tanımsızsa **ad-hoc + hardened runtime + aynı (boş) entitlement dosyası**, bundle kimliği
+  `net.noktabilisim.destek`, zip `NoktaDestek-macOS-<sürüm>.zip` Release'e girer. "`APPLE_TEAM_ID` yoksa Release'e macOS zip'i hiç
+  girmez" cümlesi geçersizdir; etikette macOS zip'i artık zorunludur. Ad-hoc zip yalnız `agent-release` onayından sonra attest edilir:
+  build provenance + `https://noktabilisim.net/attestation/macos-adhoc/v1` predicate'i (`{bundleId, version, file, signature:"adhoc",
+notarized:false, executableSha256}`). Yayın betiği dalı ortamdan deterministik seçer (`APPLE_TEAM_ID` var → notarized predicate,
+  yok → adhoc predicate); notarize→ad-hoc indirme bayrağı yoktur. Sunucu `MAC_AGENT_SIGNING` (`adhoc|notarized`) ile karşılama
+  sayfasına imza türünü bildirir (`macosSigning`).
+- **Bant (m.6, S-P28f-7) r4 ile değişti:** "TEST SÜRÜMÜ — imzasız" bandı yalnız `testBuild` ya da (beklenen Team ID gömülü ve imza
+  uymuyor) iken gösterilir; prod ad-hoc'ta bant yok, Hakkında'da imza satırı vardır.
+- **"Yine de Aç" (S-P28f-8, A-PF-5) r4 ile değişti:** prod ad-hoc karşılama sayfası ve `OKUBENI-adhoc.txt` TEST kelimesi olmadan
+  Gatekeeper onay adımlarını ve "yalnız bu sayfadan indirdiğiniz uygulama için" uyarısını verir; "asla Yine de Aç istemez" metni yalnız
+  notarize yayında kalır.
+- **Güncelleme:** K-P29-10 değişmez (macOS yalnız bildirir); ad-hoc zip için manifest üretilir.
+
+**Sonuçlar (ek):**
+
+- (−) **R39 kapandı, yerine R39-r4:** müşteri her sürümde Gatekeeper onayı ("Yine de Aç"; macOS 15'te yalnız Sistem Ayarları yolu,
+  yönetici kimliği ister — standart kullanıcı tarayıcı moduna düşer) ve Ekran Kaydı/Erişilebilirlik iznini yeniden verir (TCC kimliği
+  cdhash; Sistem Ayarları'nda eski kayıt açık görünüp etkisiz kalabilir — rehber "−" ile kaldırmayı anlatır).
+- (−) Gatekeeper gerçek paketle değiştirilmiş (yeniden ad-hoc imzalanmış) paketi ayırt etmez; köken güvencesi yalnız indirme
+  kanalı (TLS, sunucu SHA kapısı), SHA256SUMS + attestation ve Hakkında parmak izidir. Müşteriye "Yine de Aç" öğretmek sosyal
+  mühendislik yüzeyidir; karşı önlem sayfa/OKUBENI uyarısı ve pencerede teknisyen doğrulama kodu + sunucu adresi eşleşmesi.
+- (+) Developer ID yolu kodda kalır: hesap alınırsa `vars.APPLE_TEAM_ID` + `agent-mac-sign` sırları tanımlanınca kod değişmeden açılır.

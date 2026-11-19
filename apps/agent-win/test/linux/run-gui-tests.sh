@@ -111,7 +111,7 @@ for _ in $(seq 1 30); do
 done
 if [ "$x11" = 1 ]; then
   ext="$(DISPLAY=:99 xdpyinfo -queryExtensions 2>/dev/null)"
-  for e in XTEST XInputExtension RANDR; do printf '%s\n' "$ext" | grep -q "$e" || err "Xvfb'de $e eklentisi yok"; done
+  for e in XTEST XInputExtension RANDR; do grep -q "$e" <<<"$ext" || err "Xvfb'de $e eklentisi yok"; done
   ok "Xvfb :99 + oturum D-Bus hazır"
 else
   err "Xvfb ya da oturum D-Bus'ı 30 sn'de hazır olmadı"; cat /tmp/xvfb.log /tmp/dbus-session.log

@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { Skeleton } from "@/components/ui/skeleton";
-import { fetchAgentAvailability } from "@/lib/agent-download";
+import { fetchAgentAvailability, macVariant, type MacVariant } from "@/lib/agent-download";
 import { isLinuxDesktop, readSupportEnv, readUaArch, type AgentOs } from "@/lib/device-support";
 import { t } from "@/lib/i18n";
 
@@ -10,19 +10,19 @@ import { t } from "@/lib/i18n";
  * İndirme seçeneği: `none` = yalnız tarayıcı, `loading` = macOS/Linux availability (Linux'ta + UA-CH mimarisi) bekleniyor,
  * `ready` = birincil indirme gösterilir.
  */
-export type AgentOffer = { state: "none" } | { state: "loading" } | { state: "ready"; os: AgentOs; testBuild: boolean };
+export type AgentOffer = { state: "none" } | { state: "loading" } | { state: "ready"; os: AgentOs; variant: MacVariant };
 
-/** Ağ/okuma sonucu: `ok` = indirme sunulabilir; `testBuild` yalnız macOS staging. */
-type Gate = { os: AgentOs; ok: boolean; testBuild: boolean };
+/** Ağ/okuma sonucu: `ok` = indirme sunulabilir; `variant` yalnız macOS rehberinde anlamlı (K-P28f-r4-3). */
+type Gate = { os: AgentOs; ok: boolean; variant: MacVariant };
 
 /** P28g: Linux'ta availability `linux:true` **ve** gerçek mimari x86_64 (Chromium UA-CH; okunamazsa fail-closed). */
 async function checkGate(os: "macos" | "linux"): Promise<Gate> {
   if (os === "macos") {
     const r = await fetchAgentAvailability();
-    return { os, ok: r?.macos === true, testBuild: r?.macosTestBuild === true };
+    return { os, ok: r?.macos === true, variant: macVariant(r) };
   }
   const [r, arch] = await Promise.all([fetchAgentAvailability(), readUaArch()]);
-  return { os, ok: r?.linux === true && isLinuxDesktop(readSupportEnv(), arch), testBuild: false };
+  return { os, ok: r?.linux === true && isLinuxDesktop(readSupportEnv(), arch), variant: "adhoc" };
 }
 
 /**
@@ -42,10 +42,10 @@ export function useAgentOffer(os: AgentOs | null): AgentOffer {
       live = false;
     };
   }, [os]);
-  if (os === "windows") return { state: "ready", os, testBuild: false };
+  if (os === "windows") return { state: "ready", os, variant: "adhoc" };
   if (os === null) return { state: "none" };
   if (gate?.os !== os) return { state: "loading" };
-  return gate.ok ? { state: "ready", os, testBuild: gate.testBuild } : { state: "none" };
+  return gate.ok ? { state: "ready", os, variant: gate.variant } : { state: "none" };
 }
 
 /** macOS/Linux indirme seçeneği denetlenirken (DESIGN §7 iskelet); tarayıcı yolu bu sırada kullanılabilir kalır. */

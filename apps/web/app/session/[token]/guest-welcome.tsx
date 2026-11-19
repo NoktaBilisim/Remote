@@ -139,7 +139,7 @@ export function GuestWelcome({
                   sessionRef={data.sessionRef}
                   verifyCode={data.techVerifyCode}
                   os={agent.os}
-                  testBuild={agent.testBuild}
+                  variant={agent.variant}
                   onEnd={setEnd}
                 />
               )}

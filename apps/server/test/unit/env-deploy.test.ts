@@ -1,6 +1,6 @@
 // P27-K2 (mimari-p27 §4.5 r2, K-P27-3/22; AC-297, AC-342): DEPLOY_ENV zorunluluğu ve imza kapısı modu kuralları.
 import { describe, expect, it } from "vitest";
-import { loadEnv } from "../../src/env.ts";
+import { loadEnv, macSigningUnsetInProduction } from "../../src/env.ts";
 import { createGate } from "../../src/unattended/gate.ts";
 import { FAKE_APP_ENCRYPTION_KEYS } from "../helpers/secrets.ts";
 
@@ -46,5 +46,25 @@ describe("P27 env — DEPLOY_ENV / UNATTENDED_MODE (AC-342)", () => {
     expect([off.allows(dev(true)), off.status()]).toEqual([false, { mode: "off", available: false }]);
     expect([unsigned.allows(dev(false)), unsigned.status().available]).toEqual([true, true]);
     expect([signed.allows(dev(true)), signed.allows(dev(false)), signed.allows(dev(true, "ef".repeat(32)))]).toEqual([true, false, false]);
+  });
+});
+
+describe("P28f-r4 MAC_AGENT_SIGNING (K-P28f-r4-2, AC-502)", () => {
+  it("AC-502: adhoc/notarized kabul; boş dize → tanımsız; geçersiz değer → açılış hatası (S-r4-8)", () => {
+    expect(loadEnv({ ...base, MAC_AGENT_SIGNING: "adhoc" }).MAC_AGENT_SIGNING).toBe("adhoc");
+    expect(loadEnv({ ...base, MAC_AGENT_SIGNING: "notarized" }).MAC_AGENT_SIGNING).toBe("notarized");
+    expect(loadEnv({ ...base, MAC_AGENT_SIGNING: "" }).MAC_AGENT_SIGNING).toBeUndefined();
+    expect(loadEnv(base).MAC_AGENT_SIGNING).toBeUndefined();
+    for (const bad of ["Notarized", "signed", "developer-id", "true"])
+      expect(() => loadEnv({ ...base, MAC_AGENT_SIGNING: bad })).toThrow(/MAC_AGENT_SIGNING/);
+  });
+
+  it("AC-502: açılış uyarısı yalnız production + MAC_AGENT_SHA256 dolu + MAC_AGENT_SIGNING boş", () => {
+    const p = { ...prod, DEPLOY_ENV: "production" };
+    expect(macSigningUnsetInProduction(loadEnv({ ...p, MAC_AGENT_SHA256: SHA }))).toBe(true);
+    expect(macSigningUnsetInProduction(loadEnv({ ...p, MAC_AGENT_SHA256: SHA, MAC_AGENT_SIGNING: "" }))).toBe(true);
+    expect(macSigningUnsetInProduction(loadEnv({ ...p, MAC_AGENT_SHA256: SHA, MAC_AGENT_SIGNING: "adhoc" }))).toBe(false);
+    expect(macSigningUnsetInProduction(loadEnv(p))).toBe(false);
+    expect(macSigningUnsetInProduction(loadEnv({ ...base, MAC_AGENT_SHA256: SHA }))).toBe(false);
   });
 });

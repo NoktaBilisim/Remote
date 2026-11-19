@@ -73,12 +73,21 @@ export async function agentAvailability(
   ctx: AuditContext,
   binaries: Record<AgentDownloadOs, AgentBinary>,
   production: boolean,
+  macSigning: "adhoc" | "notarized" | undefined,
 ): Promise<AgentAvailabilityResponse> {
   consume(limits.availabilityIp, ipKey(ctx.ip), 60);
   const [windows, macos, linux] = await Promise.all([binaries.windows.check(), binaries.macos.check(), binaries.linux.check()]);
   // S-P28f-8: "Yine de Aç" rehberi yalnız staging (imzasız TEST zip'i); production'da hiçbir koşulda true değil.
   // P28g (§4.1): `linux` yalnız kapı; TEST bayrağı yok.
-  return { windows: windows === "ok", macos: macos === "ok", macosTestBuild: !production && macos === "ok", linux: linux === "ok" };
+  // K-P28f-r4-1 / S-r4-8: imza türü yalnız macOS varken; env boşsa "adhoc" (notarized yalnız açık değerle).
+  const macosOk = macos === "ok";
+  return {
+    windows: windows === "ok",
+    macos: macosOk,
+    macosTestBuild: !production && macosOk,
+    macosSigning: macosOk ? (macSigning ?? "adhoc") : null,
+    linux: linux === "ok",
+  };
 }
 
 /** Bütünlük kapısı (G-07, S6-2): ikili AGENT_SHA256 ile eşleşmiyorsa / yoksa / yapılandırılmamışsa 503 NOT_READY. */

@@ -67,15 +67,26 @@ export async function probeAgentDownload(
  * P28f (mimari-p28f §4.1, AC-390): `GET /public/agent/availability` → `{ windows, macos }` (contracts
  * `AgentAvailabilityResponse`; sözleşmede yalnız tip var → yanıt burada doğrulanır, fazladan alan yok sayılır).
  */
-// macosTestBuild eksik/geçersiz → false (imzalı rehber; "Yine de Aç" asla varsayılan değil — S-P28f-8).
-const availabilitySchema: z.ZodType<AgentAvailabilityResponse> = z.object({
+// macosTestBuild eksik/geçersiz → false. P28f-r4 (K-P28f-r4-3, AC-503): `macosSigning` eksik/geçersiz → null → `adhoc` rehberi
+// ("Yine de Aç" + yalnız-bu-sayfa uyarısı); bilinmeyen değer asla `notarized` sayılmaz.
+const availabilitySchema = z.object({
   windows: z.boolean(),
   macos: z.boolean(),
   macosTestBuild: z.boolean().catch(false),
+  macosSigning: z.enum(["notarized", "adhoc"]).nullable().catch(null),
   // P28g (mimari-p28g §4.1): eski sunucu / eksik / geçersiz `linux` → false (fail-closed, yalnız tarayıcı).
   linux: z.boolean().catch(false),
-});
-export type AgentAvailability = AgentAvailabilityResponse;
+}) satisfies z.ZodType<AgentAvailabilityResponse>;
+export type AgentAvailability = z.infer<typeof availabilitySchema>;
+
+/** macOS rehber varyantı (K-P28f-r4-3/6). */
+export type MacVariant = "test" | "adhoc" | "notarized";
+
+/** `macosTestBuild` true → test; değilse yalnız açık `"notarized"` → notarized; diğer her durum (eksik/geçersiz/null) → adhoc. */
+export function macVariant(a: Pick<AgentAvailability, "macosTestBuild" | "macosSigning"> | null | undefined): MacVariant {
+  if (a?.macosTestBuild === true) return "test";
+  return a?.macosSigning === "notarized" ? "notarized" : "adhoc";
+}
 export const AGENT_AVAILABILITY_URL = `${API_BASE}/public/agent/availability`;
 
 /**

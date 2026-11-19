@@ -4,7 +4,7 @@ Bu kılavuz Nokta Bilişim uzaktan destek platformunun kullanıcıya dönük ekr
 geliştirilir (bkz. `README.md` "Yol haritası"); kılavuz da her paketle birlikte büyür. Bu sürümde yer alan bölümler:
 
 - **Müşteri için:** Hızlı Destek uygulaması (Windows) ve **Hızlı Destek uygulaması (macOS, 0.19)** (indirme ve açma, Ekran
-  Kaydı / Erişilebilirlik izinleri, "Yine de Aç" uyarısı, korunan düğmeler, yazdırma, izinleri kaldırma), **Hızlı Destek
+  Kaydı / Erişilebilirlik izinleri, ilk açılışta "Yine de Aç" onayı, her yeni sürümde onay ve izinler, korunan düğmeler, yazdırma, izinleri kaldırma), **Hızlı Destek
   uygulaması (Linux, 0.20)** (Ubuntu 22.04 / 24.04, başlatma komutu, X11 ve Wayland farkları, Wayland izin penceresi ve
   kontrol sınırları, Super+L), pencere başlığında sürüm (0.20), yalnız bir pencereyi paylaşma (0.11), "Destek iste" ile talep gönderme,
   birden çok firmaya kayıt, tepside çalıştırma ve Windows açılışında başlatma, beklerken teknisyenle yazışma (0.12),
@@ -1179,8 +1179,8 @@ ve destek talebi bu sırada çalışmaya devam eder.
 ## Müşteri için: Hızlı Destek uygulaması (macOS)
 
 Hızlı Destek'in Mac sürümü (0.19 ve sonrası), Windows sürümüyle aynı işi yapar: teknisyen ekranınızı görür, izin
-verirseniz farenizi ve klavyenizi kullanır, sizinle yazışır, size dosya gönderir. Kurulum gerektirmez, yönetici parolası
-sormaz. Oturum bitince uygulama kendiliğinden kapanır ve arkada çalışan bir parçası kalmaz.
+verirseniz farenizi ve klavyenizi kullanır, sizinle yazışır, size dosya gönderir. Kurulum gerektirmez. Yalnız ilk
+açılıştaki "Yine de Aç" onayı bir kez Mac'in yönetici parolasını ya da Touch ID'yi ister. Oturum bitince uygulama kendiliğinden kapanır ve arkada çalışan bir parçası kalmaz.
 
 **Ne gerekir?**
 
@@ -1189,13 +1189,19 @@ sormaz. Oturum bitince uygulama kendiliğinden kapanır ve arkada çalışan bir
 - Teknisyeninizin gönderdiği **destek bağlantısı** ya da **8 haneli destek kodu**.
 - Telefonda teknisyeninizle görüşüyor olmanız (kodları birbirinize okuyacaksınız).
 
-**Ne zaman kullanılabilir?** Mac sürümü yalnız Apple'ın onayladığı (imzalı ve "notarize" edilmiş) paket olarak dağıtılır.
-Bu paket yayımlanana kadar destek sayfasında Mac için indirme düğmesi **görünmez**; sayfa sizi tarayıcıdan ekran
+**Nasıl imzalanır?** Nokta Destek açık kaynaklıdır ve Mac sürümü **Apple Developer ID olmadan (ad-hoc) imzalanır**.
+Uygulama GitHub'da derlenir ve hangi kaynak koddan derlendiği kanıtlanır (attestation). Apple'ın onay (notarize) adımı
+yoktur. Bu yüzden macOS uygulamayı ilk açılışta durdurur; siz bir kez onaylarsınız (bkz. "Mac'te nasıl indirir ve
+açarım?"). Bu onay ve izinler **her yeni sürümde** yeniden istenir. İleride Apple geliştirici hesabı alınırsa Mac sürümü
+Apple onaylı olarak dağıtılır ve bu onay adımı kalkar.
+
+Mac sürümü sunucuda yayımlanmamışsa destek sayfasında Mac için indirme düğmesi **görünmez**; sayfa sizi tarayıcıdan ekran
 paylaşımına yönlendirir. Bu durumda teknisyen ekranınızı görür ama farenizi kullanamaz.
 
-> **Nokta Destek hiçbir zaman "Yine de Aç" istemez.** macOS uygulamanın açılamayacağını, doğrulanamadığını ya da
-> zararlı olabileceğini söylerse uygulamayı **açmayın**. Sistem Ayarları'ndaki "Yine de Aç" düğmesine basmayın ve
-> teknisyeninize bildirin. Gerçek Nokta Destek uygulaması bu uyarıyı hiç göstermez.
+> **"Yine de Aç" yalnız destek sayfasından indirdiğiniz uygulama için.** Nokta Destek'i yalnız teknisyeninizle telefonda
+> görüşürken, size verilen destek bağlantısındaki sayfadan kendiniz indirin. **Nokta Bilişim uygulamayı e-posta eki ya da
+> mesajla göndermez;** başka bir yoldan gelen dosyayı açmayın ve onun için "Yine de Aç" demeyin. Uygulama açılınca
+> karşılama penceresindeki kontrolleri yapın (bkz. "Doğru programla mı bağlanıyorum?").
 
 **Mac sürümünde olmayanlar** (Windows sürümünde var):
 
@@ -1215,9 +1221,26 @@ paylaşımına yönlendirir. Bu durumda teknisyen ekranınızı görür ama fare
 4. Safari zip dosyasını kendiliğinden açar. Açmadıysa **Finder → İndirilenler** klasöründe zip dosyasına çift tıklayın.
    Aynı adla bir klasör oluşur (ör. `Destek-48291376`). Aynı dosyayı ikinci kez indirdiyseniz klasörün adı
    `Destek-48291376 (1)` olabilir; bu da çalışır.
-5. Klasörün içinde iki şey vardır: **Nokta Destek** uygulaması ve kısa bir `OKUBENI.txt`. **Nokta Destek**'e çift tıklayın.
-6. macOS "İnternetten indirilmiş bir uygulama. Açmak istediğinizden emin misiniz?" diye sorarsa **Aç**'a tıklayın. Bu
-   normal bir sorudur. Bunun dışındaki bir uyarıda (ör. "açılamıyor", "doğrulanamadı") uygulamayı açmayın.
+5. Klasörün içinde iki şey vardır: **Nokta Destek** uygulaması ve kısa bir `OKUBENI.txt` (bu bölümdeki adımların kısa
+   özeti). **Nokta Destek**'e çift tıklayın.
+6. macOS uygulamayı durdurur. Uyarının metnine bakın:
+   - **"Nokta Destek" açılmadı** ya da **Apple uygulamayı doğrulayamadı** diyorsa **Bitti**'yi seçin (Çöp Sepetine Taşı'yı
+     değil) ve 7. adıma geçin. Bu, Apple Developer ID olmadan imzalanmış uygulamalarda beklenen uyarıdır.
+   - **Bilgisayarınıza zarar verir** ya da **kötü amaçlı yazılım içeriyor** diyorsa **Çöp Sepetine Taşı**'yı seçin. "Yine
+     de Aç" denemeyin ve teknisyeninize bildirin.
+7. **Apple menüsü → Sistem Ayarları → Gizlilik ve Güvenlik** sayfasını açın ve aşağı kaydırın. "Nokta Destek" engellendi
+   satırının yanındaki **Yine de Aç**'a tıklayın.
+8. Açılan pencerede yeniden **Yine de Aç**'ı seçin ve Mac parolanızı ya da Touch ID'nizi girin. Mac parolanızı yalnız bu
+   adımda, Sistem Ayarları penceresinde girin; hiçbir zaman sohbete ya da teknisyene söylemeyin.
+9. Nokta Destek açılır. Bu onayı bu sürüm için bir kez yaparsınız; yeni bir sürüm indirdiğinizde yeniden istenir.
+
+**Kısa yol (yalnız macOS 13 ve 14):** Nokta Destek'e **Control** tuşuna basılı tutarak tıklayın ve
+menüden **Aç**'ı seçin. macOS 15 ve sonrasında bu kısa yol çalışmaz; yalnız
+Sistem Ayarları yolu (7–8. adımlar) kullanılır.
+
+**Mac'imde yönetici parolası yok (standart kullanıcı):** "Yine de Aç" adımı bir yönetici hesabının parolasını ister.
+Yönetici parolanız yoksa ve yanınızda bunu bilen biri yoksa uygulamayı açamazsınız. Bu durumda destek sayfasına dönüp
+**tarayıcıdan paylaşımı** kullanın: teknisyen ekranınızı görür ama farenizi kullanamaz.
 
 **Destek kodu nereden gelir?** Uygulama kodu, içinde bulunduğu klasörün adından (`Destek-48291376`) okur; sizden
 istemez. Klasörü yeniden adlandırdıysanız ya da uygulamayı başka bir yere taşıdıysanız kod okunamaz. O zaman uygulama
@@ -1235,11 +1258,16 @@ göremez. Uygulama ilk açılışta bunu kontrol eder ve **Ekran Kaydı izni ger
    korunur.
 4. Nokta Destek penceresine dönün ve **İzni verdim, yeniden başlat**'a tıklayın. Uygulama kapanıp yeniden açılır;
    **destek kodunuz korunur**, yeniden yazmanız gerekmez.
+5. Listede **Nokta Destek** zaten açık görünüyorsa (önceki bir sürümden kalmış olabilir) ama uygulama yine izin istiyorsa:
+   satırı seçin, alttaki **−** düğmesiyle kaldırın, Nokta Destek penceresini kapatıp uygulamayı yeniden açın ve izni
+   yeniden verin. Eski kayıt yeni sürüme geçmez; anahtarı kapatıp açmak yetmez.
 
 Vazgeçmek isterseniz **Vazgeç**'e tıklayın; ekranınız paylaşılmaz.
 
 Bilmeniz gerekenler:
 
+- **Her yeni sürümde** macOS Ekran Kaydı ve Erişilebilirlik izinlerini yeniden ister (uygulama Apple Developer ID olmadan
+  imzalandığı için izin o sürüme bağlıdır).
 - İzin yalnız bu Mac'te ve yalnız Nokta Destek için geçerlidir. Oturum bittikten sonra da Sistem Ayarları'nda kalır;
   istediğiniz an kaldırabilirsiniz (bkz. "Mac'te verdiğim izinleri nasıl kaldırırım?").
 - macOS 15 ve sonrası, ekran kaydı izni olan uygulamalar için zaman zaman "… ekranınıza erişmeye devam etsin mi?"
@@ -1258,8 +1286,10 @@ Bu adımlar Windows sürümüyle aynıdır:
 - **Ekran seçimi:** birden fazla ekranınız varsa paylaşılacak ekranı seçersiniz.
 
 Uygulama menüsünde (**Nokta Destek**) **Hakkında** ve **Lisanslar** bulunur. **Hakkında** penceresinde sürüm, sunucu
-adresi ve **parmak izi** (uygulama dosyasının özetinin ilk 8 karakteri) yazar. Şirketinizin BT sorumlusu bunu GitHub
-sürüm sayfasındaki `SHA256SUMS` dosyasıyla karşılaştırabilir.
+adresi, **parmak izi** (uygulama dosyasının özetinin ilk 8 karakteri) ve imza satırı yazar. Canlı sürümde imza satırı
+**"İmza: ad-hoc (Apple Developer ID yok)"** olur; bu beklenen değerdir. İmza okunamazsa satırda "İmza: doğrulanamadı" yazar.
+Şirketinizin BT sorumlusu parmak izini ve zip dosyasının SHA-256 özetini GitHub sürüm
+sayfasındaki `SHA256SUMS` dosyasıyla karşılaştırabilir; kökeni GitHub attestation kaydıyla doğrulanır.
 
 ### Oturum sırasında ne görürüm?
 
@@ -1283,6 +1313,11 @@ kontrol istediğinde gerekir; yalnız ekran paylaşımı için gerekmez.
 1. **Sistem Ayarları → Gizlilik ve Güvenlik → Erişilebilirlik** bölümünü açın.
 2. Listede **Nokta Destek**'in anahtarını açın (Mac parolanız ya da Touch ID istenebilir).
 3. Teknisyene "izni verdim" deyin; teknisyen kontrolü **yeniden** ister.
+
+Listede **Nokta Destek** açık göründüğü hâlde kontrol çalışmıyorsa (önceki bir sürümden kalmış kayıt): satırı seçip **−**
+ile kaldırın ve uygulamayı yeniden açın. Teknisyen kontrolü yeniden istediğinde açılan pencerede **Sistem Ayarları'nı aç**
+düğmesine basın; **Nokta Destek** listede yeniden görünür, anahtarını açın. Listeye "+" ile kendiniz eklemeyin (yanlış ya
+da eski bir kopyayı seçebilirsiniz).
 
 Bu sırada ekran paylaşımı, sohbet ve dosya aktarımı çalışmaya devam eder. Teknisyen konsolunda "Müşterinin bilgisayarı
 uzaktan kontrole izin vermiyor (Mac'te erişilebilirlik izni). Müşteri izni verdikten sonra yeniden isteyin." yazar; bu bir ret sayılmaz, teknisyen hemen yeniden
@@ -1387,8 +1422,8 @@ Diğer durumlar:
 - **Oturumu bitir**'e tıklayın. Teknisyen ekranınızı artık göremez; uygulama birkaç saniye içinde kendiliğinden kapanır.
 - Teknisyen oturumu bitirdiğinde de "Destek oturumu sona erdi" yazar ve uygulama kapanır.
 - Bitiş ekranındaki **İzinleri kaldırma** düğmesi Sistem Ayarları'nın Ekran Kaydı bölümünü açar.
-- İsterseniz `Destek-…` klasörünü ve zip dosyasını İndirilenler'den çöp sepetine atabilirsiniz; bir sonraki destekte yeni
-  bağlantıyla yeniden indirilir.
+- Oturum bitince `Destek-…` klasörünü ve zip dosyasını İndirilenler'den **silin** (çöp sepetine atıp boşaltın). Eski
+  sürümler verdiğiniz izinleri korur; bir sonraki destekte yeni bağlantıyla güncel sürüm yeniden indirilir.
 
 ### Mac'imde ne kalır ve verdiğim izinleri nasıl kaldırırım?
 
@@ -1397,7 +1432,7 @@ yeniden başlatma için kullanılan geçici kod dosyası. Mac sürümü tanılam
 
 Kalanlar:
 
-- İndirdiğiniz `Destek-….zip` ve `Destek-…` klasörü (siz silersiniz).
+- İndirdiğiniz `Destek-….zip` ve `Destek-…` klasörü (oturum bitince siz silin).
 - Teknisyenden aldığınız dosyalar (İndirilenler'de).
 - Verdiğiniz **Ekran Kaydı** ve **Erişilebilirlik** izinleri (macOS tutar).
 - Yazdırma yaptıysanız macOS'un yazdırma geçmişindeki iş kaydı.
@@ -1417,26 +1452,22 @@ tccutil reset Accessibility net.noktabilisim.destek
 
 İzinleri kaldırdıktan sonra Nokta Destek'i yeniden kullanırsanız macOS izinleri yeniden sorar.
 
-> **Yalnız test ortamı için (gerçek müşterilere verilmez).** Test sunucusundan indirilen Mac paketi Apple onaylı
-> değildir; tüm pencerelerde ve ekranın üstünde gizlenemeyen **"TEST SÜRÜMÜ — imzasız"** bandı görünür ve destek
-> sayfasında da "TEST SÜRÜMÜ" uyarısı çıkar. macOS bu paketi ilk açılışta engeller:
->
-> 1. Nokta Destek'e çift tıklayın; "açılamadı" uyarısında **Bitti**'yi seçin.
-> 2. **Sistem Ayarları → Gizlilik ve Güvenlik** bölümünün altında **Yine de Aç**'a tıklayın (macOS parola isteyebilir).
->
-> Bu adım **yalnız** TEST bandı görünen paket içindir. Test paketinin kimliği farklıdır; izinlerini kaldırmak için:
-> `tccutil reset ScreenCapture net.noktabilisim.destek.stg` ve `tccutil reset Accessibility net.noktabilisim.destek.stg`.
-> Her yeni test sürümünde macOS izinleri yeniden sorar. **Önemli:** imzasız pakette izin o derlemeye bağlıdır; daha önce
-> başka bir test sürümüne izin verilmişse Sistem Ayarları'nda anahtar "açık" görünür ama yeni sürüm izni görmez (rehber
-> ekranı tekrar gelir). Bu durumda uygulamayı kapatıp yukarıdaki iki `tccutil reset` komutunu çalıştırın, uygulamayı yeniden
-> açıp izni yeniden verin. İmzalı (canlı) sürümde bu sorun olmaz.
+> **Yalnız test ortamı için (gerçek müşterilere verilmez).** Test sunucusundan indirilen Mac pakette tüm pencerelerde ve
+> ekranın üstünde gizlenemeyen **"TEST SÜRÜMÜ — imzasız"** bandı görünür; destek sayfasında da "TEST SÜRÜMÜ" uyarısı çıkar.
+> Açılış adımları ("Bitti", Gizlilik ve Güvenlik → Yine de Aç) canlı sürümle aynıdır. Test paketinin kimliği farklıdır;
+> izinlerini kaldırmak için: `tccutil reset ScreenCapture net.noktabilisim.destek.stg` ve
+> `tccutil reset Accessibility net.noktabilisim.destek.stg`. Canlı sürümde bu bant görünmez.
 
 ### Sık karşılaşılan durumlar (Mac)
 
 | Durum                                                                      | Ne yapmalı                                                                                                                                           |
 | -------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Destek sayfasında Mac için indirme düğmesi yok                             | Mac sürümü bu sunucuda henüz yayımlanmamış. **Tarayıcıdan** ekranınızı paylaşın.                                                                     |
-| macOS "açılamıyor" / "doğrulanamadı" / "zararlı olabilir" diyor            | Uygulamayı açmayın, "Yine de Aç"a basmayın, teknisyeninize bildirin.                                                                                 |
+| Destek sayfasında Mac için indirme düğmesi yok                             | Mac sürümü bu sunucuda yayımlanmamış. **Tarayıcıdan** ekranınızı paylaşın.                                                                           |
+| macOS "açılmadı" / "doğrulanamadı" diyor                                   | Beklenen uyarı. **Bitti**'yi seçin, Sistem Ayarları → Gizlilik ve Güvenlik → **Yine de Aç** (bkz. "Mac'te nasıl indirir ve açarım?").                |
+| macOS "zarar verir" / "kötü amaçlı yazılım içeriyor" diyor                 | **Çöp Sepetine Taşı**'yı seçin, "Yine de Aç" denemeyin, teknisyeninize bildirin.                                                                     |
+| "Yine de Aç" parola istiyor, yönetici parolam yok                          | Standart kullanıcı uygulamayı açamaz. Destek sayfasından **tarayıcıdan paylaşımı** kullanın.                                                         |
+| Yeni sürümde yine "Yine de Aç" ve izinler istendi                          | Normaldir; her yeni sürümde onay ve izinler bir kez yeniden verilir.                                                                                 |
+| İzin listede açık görünüyor ama uygulama yine izin istiyor                 | Eski sürümün kaydı. Satırı seçip **−** ile kaldırın, uygulamayı yeniden açın, izni yeniden verin.                                                    |
 | Uygulama kodu soruyor                                                      | Klasör adı değişmiş ya da uygulama taşınmış. Teknisyeninizden 8 haneli kodu alıp yazın.                                                              |
 | "Ekran Kaydı izni gerekli" ekranı tekrar tekrar geliyor                    | Sistem Ayarları'nda Nokta Destek anahtarının açık olduğunu kontrol edip **İzni verdim, yeniden başlat**'a tıklayın.                                  |
 | "Kontrol için Erişilebilirlik izni gerekli"                                | Erişilebilirlik listesinde Nokta Destek'i açın; teknisyenden kontrolü yeniden istemesini isteyin.                                                    |
@@ -1445,6 +1476,13 @@ tccutil reset Accessibility net.noktabilisim.destek
 | Control+Shift+F12 çalışmıyor                                               | Dizüstünde **fn** ile birlikte basın. Oturum penceresinde F11 yazıyorsa Control+Shift+F11 kullanın. Her zaman **Kontrolü kapat** düğmesi de çalışır. |
 | Teknisyen bazı harfleri yazamıyor                                          | Fare Tuşları açık olabilir. Kapatın ya da o harfleri siz yazın.                                                                                      |
 | Teknisyen sesli görüşme başlatamıyor                                       | Mac sürümünde sesli görüşme yoktur; telefonda konuşun.                                                                                               |
+
+### Super Admin için: Mac sürümünün yayını (not)
+
+Mac sürümü panelden değil, sunucu operatörünün çalıştırdığı yayın betiğiyle (`deploy/agent/publish-mac.sh`) yayımlanır.
+Betik GitHub sürümündeki zip'in kökenini (attestation) ve özetini doğrulamadan yayımlamaz; imza türünü (`adhoc`) sunucu
+ayarına kendisi yazar. Bu ayar elle değiştirilmez. Yayından sonra destek sayfası Mac müşterisine yukarıdaki "Yine de Aç"
+rehberini gösterir. Yayını geri çekmek de betikle yapılır; ayrıntı `docs/runbook.md` §28f.9.
 
 ---
 
@@ -2095,6 +2133,12 @@ Hızlı Destek 0.11 ve sonrasında müşteri tüm ekran yerine tek bir pencere p
 - **Fare Tuşları:** müşterinin Mac'inde Fare Tuşları açıksa sayısal tuş takımı ve `7 8 9 U I O J K L M .` tuşları
   iletilmez. Nokta Destek pencerelerinin üzerindeyken bu tuşlar her durumda iletilmez; bu pencerelere tıklamalarınız da
   düşer (onay düğmelerine yalnız müşteri basabilir).
+- **İlk açılış:** Mac sürümü Apple Developer ID olmadan (ad-hoc) imzalıdır. Müşteri ilk açılışta macOS uyarısında
+  **Bitti**'yi seçer, **Sistem Ayarları → Gizlilik ve Güvenlik → Yine de Aç** ile onaylar (bkz. "Mac'te nasıl indirir ve
+  açarım?"). Müşteriye uygulamayı e-posta ya da mesajla göndermeyin; her zaman destek bağlantısını verin, müşteri sayfadan
+  kendisi indirsin. Uyarı "zarar verir / kötü amaçlı" diyorsa müşteriye açtırmayın. Müşterinin yönetici parolası yoksa
+  tarayıcıdan paylaşıma geçin. Her yeni sürümde onay ve izinler yeniden istenir; izin listede açık görünüp çalışmıyorsa
+  müşteriye eski kaydı **−** ile kaldırtıp uygulamayı yeniden açtırın.
 - **Olmayanlar:** pencere paylaşımı (her zaman tam ekran), sesli görüşme (düğme pasif; bkz. "Sesli görüşme").
 - **Yazdırma:** müşterinin onay penceresinde sayfa sayısı ve yazıcı adı yazmaz ("Sayfa sayısı: yazıcıda belirlenir",
   "Varsayılan yazıcı"). Müşterinin varsayılan yazıcısı yoksa bunu müşteri onayladıktan sonra görürsünüz.
@@ -5134,7 +5178,7 @@ bekler; ekrana hata çıkmaz.
 | Gözetimsiz erişim servisi (Windows) | **Tam otomatik.** Bağlantı yokken indirir, doğrular, kendini değiştirir ve yeniden başlar; kesinti yaklaşık 30 saniyedir. Yeni sürüm 60 saniye içinde sunucuya bağlanamazsa servis eski sürüme kendiliğinden döner ve aynı sürümü 24 saat denemez. Kayıt, teknisyen yetkileri ve yerel kapatma anahtarı korunur; cihaz panelde aynı cihaz olarak kalır. Kimsenin bir şey tıklaması gerekmez |
 | Hızlı Destek (Windows)              | Yeni sürümü arka planda indirir. Oturum bitince dosyayı **aynı klasörde, aynı adla** değiştirir. Yeni sürüm programı bir sonraki açışınızda çalışır; açık program kendini kapatmaz. Ekranda bir kez "Yeni sürüm (x.y.z) hazır — programı sonraki açışınızda kullanılacak" yazar. Tepside çalışan programda bu bilgi balon olarak çıkar                                                      |
 | Hızlı Destek (Linux)                | Windows ile aynı: dosya aynı adla değişir, çalıştırma izni korunur, yeni sürüm sonraki açılışta çalışır. Bilgi oturum sonu ekranında görünür                                                                                                                                                                                                                                                |
-| Hızlı Destek (macOS)                | **Kendini güncellemez.** Yeni sürüm varsa oturum sonu ekranında "Yeni sürüm var — indirme bağlantısından yeni sürümü alın" yazar. Yeni sürümü indirme bağlantısından alın. Mac'te ekran kaydı ve erişilebilirlik izinleri her yeni dosyada düşeceği için Apple imzası gelene kadar böyledir                                                                                                 |
+| Hızlı Destek (macOS)                | **Kendini güncellemez.** Yeni sürüm varsa oturum sonu ekranında "Yeni sürüm var — indirme bağlantısından yeni sürümü alın" yazar. Yeni zip'i teknisyenin verdiği destek sayfasından indirin. Mac'te her yeni sürüm yeni bir indirmedir: Apple Developer ID olmadığı için ilk açılışta "Yine de Aç" onayı ve Ekran Kaydı / Erişilebilirlik izinleri yeniden istenir                          |
 | Tarayıcıdan katılım                 | Güncellenecek program yoktur                                                                                                                                                                                                                                                                                                                                                                |
 
 Dosya yazılamayan bir yerdeyse (ağ sürücüsü, USB bellek, salt okunur klasör, Linux'ta başka kullanıcıya ait dosya) program

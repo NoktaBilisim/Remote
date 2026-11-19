@@ -36,6 +36,59 @@ func RequestScreenCapture() {
 	}
 }
 
+// RequestAccessibility AC-506 / S-r4-9: Erişilebilirlik izni yoksa AXIsProcessTrustedWithOptions
+// ({kAXTrustedCheckOptionPrompt: true}) bir kez çağrılır; macOS uygulamayı (listeden "−" ile kaldırılmışsa da) listeye
+// kapalı olarak ekler ve kendi istemini gösterir. "+" ile Finder'dan seçme yolunun yerini tutar. Herhangi bir sembol
+// bağlanamazsa sessizce atlanır (rehber metni geçerli kalır). Diske yazmaz. Ana iş parçacığında çağrılır.
+func RequestAccessibility() {
+	b, ok := bindAXPrompt()
+	if !ok || b.trusted() {
+		return
+	}
+	objc.Pool(func() {
+		// CFStringRef/CFBooleanRef NSString/NSNumber ile köprülüdür; sözlük autorelease (havuzla bırakılır).
+		opts := objc.ID(b.dict).Send(objc.Sel("dictionaryWithObject:forKey:"), objc.ID(b.yes), objc.ID(b.key))
+		if opts != 0 {
+			b.withOptions(uintptr(opts))
+		}
+	})
+}
+
+// axPrompt RequestAccessibility'nin bağlanan sembolleri.
+type axPrompt struct {
+	trusted     func() bool
+	withOptions func(uintptr) bool
+	key, yes    uintptr // kAXTrustedCheckOptionPrompt, kCFBooleanTrue
+	dict        objc.Class
+}
+
+// bindAXPrompt sembolleri bağlar; biri eksikse ok=false (fail-closed: istem açılmaz).
+func bindAXPrompt() (axPrompt, bool) {
+	var b axPrompt
+	ax, err := objc.Framework("ApplicationServices")
+	if err != nil {
+		return b, false
+	}
+	cf, err := objc.Framework("CoreFoundation")
+	if err != nil {
+		return b, false
+	}
+	if objc.Func(&b.trusted, ax, "AXIsProcessTrusted") != nil ||
+		objc.Func(&b.withOptions, ax, "AXIsProcessTrustedWithOptions") != nil {
+		return b, false
+	}
+	if b.key, err = objc.Symbol(ax, "kAXTrustedCheckOptionPrompt"); err != nil || b.key == 0 {
+		return b, false
+	}
+	if b.yes, err = objc.Symbol(cf, "kCFBooleanTrue"); err != nil || b.yes == 0 {
+		return b, false
+	}
+	if b.dict, err = objc.GetClass("NSDictionary"); err != nil {
+		return b, false
+	}
+	return b, true
+}
+
 // TempDir confstr(_CS_DARWIN_USER_TEMP_DIR) — ortam değişkeni ($TMPDIR) değil (T6).
 func TempDir() (string, error) {
 	var confstr func(name int32, buf *byte, n uintptr) uintptr

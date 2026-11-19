@@ -17520,3 +17520,42 @@ tam kutuyu verir. e2e: kaydırılmış (300, 200) görüntüde görünür (50, 5
 araçların kontrolde görünmesini istiyor). (2) `data-control` kontrol açıklığını (çerçeve) izler; girdi yakalama ayrıca
 `data-capture`. (3) Çizim modunda çerçeve kırmızı kalır (kontrol müşteride açık). (4) Bileşen testleri SSR işaretlemesiyle
 (jsdom yok, bağımlılık eklenmedi); Esc ve gerçek olaylar Playwright'ta.
+
+## P28f-r4 — macOS Developer ID'siz (ad-hoc) prod yayını (2026-11-20; mimari-p28f §15, AC-500..508)
+
+### P28f-r4-D (devops) — ad-hoc prod yayını
+
+- Dal tek kaynak: `reproducible-mac` `signing` (build-meta 4. satır); package-mac/attest-mac/release/update-manifest `vars.APPLE_TEAM_ID`'yi yalnız tutarlılık için karşılaştırır (S-r4-3).
+- package-mac: etiket+adhoc → `agent-mac-adhoc` (retention 7, attestation'sız); çıktılar `zip_sha`/`exe_sha`; OKUBENI `cmp` (AC-505); özet onaylayana dal+SHA basar.
+- attest-mac: `needs` approve; kapı approve==success + signing'e göre; `macos-adhoc/v1` predicate iş çıktılarından `jq -n`, artifact `adhoc.json` ile `jq -cS` eşit (S-r4-4).
+- release/update-manifest: attest-mac success zorunlu, artifact = `attest-mac.outputs.artifact` ∈ {signed, adhoc}; "macOS YOK" dalı silindi.
+- publish-mac.sh: `APPLE_TEAM_ID` boş → ad-hoc dal; tüm attestation'larda 6 alan (version=`${TAG#v}`, executableSha256=zip içi ikili), boş liste RET (S-r4-5); bozuk Team ID RET.
+- `--apply` 6. argüman adhoc|notarized; `MAC_AGENT_SHA256`+`MAC_AGENT_SIGNING` tek yazım, withdraw ikisini boşaltır (S-r4-7); hedef notarized iken ad-hoc RET (S-r4-6). `PUBLISHED.log` mac satırına 5. alan imza türü.
+- `OKUBENI-adhoc.txt`: §15.3 + S-r4-1 (yalnız destek sayfası, e-posta/mesajla gönderilmez) + S-r4-2 (zararlı uyarısında Çöp Sepeti, yönetici parolası) + S-r4-10 (klasörü silin).
+- Test: `test-publish-mac-lock.sh` 52/52 (sahte gh fikstürü, ağsız). Etiket yolu (ad-hoc attest/release/manifest) PR CI'da koşmaz; ilk `v*` etiketinde doğrulanır.
+
+### P28f-r4-B1 (sunucu) — AC-502
+
+- contracts: `AgentAvailabilityResponse.macosSigning` (`"notarized"|"adhoc"|null`) eklendi; uç/hız sınırı/önbellek aynı.
+- env.ts: `MAC_AGENT_SIGNING` `z.enum(["adhoc","notarized"]).optional()`; boş → yok, geçersiz → açılış hatası.
+- `macSigningUnsetInProduction()`: prod + `MAC_AGENT_SHA256` dolu + SIGNING boş → app.ts açılış uyarısı (alarm `mac_agent_signing_unset`).
+- agent.ts/routes.ts: macos false → null; true → env ?? "adhoc" (S-r4-8: bilinmeyen asla notarized). `macosTestBuild` değişmedi.
+- Testler: p28f-k6 AC-502 (4 durum + staging/prod), p28g-k6 beklentileri, env-deploy (geçersiz değer, uyarı koşulu). Bağımlılık yok; sapma yok.
+
+### P28f-r4-B2 (Go macOS istemci)
+
+- AC-504: `ui/mac/logic.go` `showTestBand = testBuild || (expectedTeam!="" && (Err||TeamID==""||AdHoc||TeamID!=expectedTeam))`; prod ad-hoc'ta bant yok. Saf `aboutSigLine` → Hakkında tek imza satırı (`flow.MacTexts.AboutSig*`); `signingInfo` açılışta bir kez okunur. Test: `TestAC504TestBand` (9 satır), `TestAC504AboutSigLine`.
+- AC-506: `ScreenSteps` 4. adım (§15.3); PermGuide 284→338. `AccessBody` ek cümlesi §15.3'ten SAPMA: S-r4-9 gereği "+" ile ekleme yolu yok. `promptSpec.bodyH` (Erişilebilirlik 150; diğerleri 96). Test: `TestAC506StaleTCCStep`.
+- AC-507/S-r4-11: `DecideMac` davranışı aynı; gerekçe yorumu güncellendi. Testler: `TestSr411DecideMacNeverStages` (her platform), `TestSr411MacPrepareNeverStages` (darwin).
+- S-r4-10 Go tarafı yok (macOS'a özgü oturum sonu metni yok); "klasörü silin" OKUBENI-adhoc ve kılavuzda.
+- Pencere yükseklikleri E-1/E-2/E-5'te görsel kontrol edilecek. Yeni bağımlılık yok.
+- AC-506 / S-r4-9: Erişilebilirlik penceresinde "Sistem Ayarları'nı aç" basılınca izin yoksa `macperm.RequestAccessibility()` → `AXIsProcessTrustedWithOptions({kAXTrustedCheckOptionPrompt:true})`; "−" ile kaldırılan kayıt listeye geri gelir ("+" yolunun yerine). Sembol bağlanamazsa sessiz atlanır, diske yazmaz. `AccessBody` bu düğmeyi anar (bodyH 176). Test: `TestAC506AXPromptBinds` (yalnız bağlama); cihazda E-4.
+
+### P28f-r4-F (web, AC-503)
+
+- `lib/agent-download.ts`: `macosSigning` (eksik/geçersiz → null) + `macVariant()` (test > notarized > adhoc; bilinmeyen asla notarized).
+- `AgentDownload`/`MacGuide`: `testBuild` → `variant`; `data-build` = test|adhoc|notarized (eski "signed" → "notarized").
+- adhoc: `mac-adhoc-only-this` indirme düğmesi yanında, 2. adımdan önce (S-r4-1; yalnız {host}, doğrulama kodu kanıt sayılmaz); test+adhoc ortak 2. adım + `mac-harmful` kutusu (S-r4-2: "zarar verir / kötü amaçlı" uyarısında Çöp Sepeti).
+- tr.json: `gm.step2Test/Body` → `gm.step2Unsigned/Body` + `gm.step2Harmful`; yeni `gm.guideIntroAdhoc`, `adhocOnlyTitle/Body`, `verifyBodyAdhoc`; `gm.guideIntroTest` ortak 2. adıma göre, `gm.permScreenBody` "Yeni sürümde macOS izni yeniden ister." eki.
+- Sapma: `adhocOnlyTitle` kısaltıldı (gövdeyle tekrar); 2. adımda koşulsuz "Çöp Sepetine Taşı'yı değil" kaldırıldı (S-r4-2); `**` işaretleri yok (t() düz metin).
+- e2e mock availability `macosSigning:"adhoc"`; p28f-macos.spec ana senaryo prod ad-hoc + notarized/test/eski sunucu/geçersiz; 390 px.

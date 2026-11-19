@@ -34,8 +34,9 @@ aktarır; bu durumda teslim edilen dosyalar da seçilen süre (1–7 gün) boyun
 - **İzinli uzaktan kontrol (müşteri onaylı oturum)** — her kontrol isteğini müşteri onaylar, tek tuşla geri alır; uzaktan tıklama izin sayılmaz.
 - **Mac desteği** — Mac kullanan müşteri de kurulumsuz Nokta Destek uygulamasıyla bağlanır: teknisyen ekranı görür, izinle
   kontrol eder, yazışır, dosya ve belge gönderir. Uygulama Apple Silicon ve Intel Mac'lerde (macOS 13 ve üstü) çalışır,
-  gereken macOS izinlerini adım adım gösterir; onay düğmelerine yalnız Mac'in başındaki kişi basabilir. Apple imzalı ve
-  onaylı (notarize) dağıtım, Apple geliştirici hesabı açıldığında canlı ortamda yayımlanır.
+  gereken macOS izinlerini adım adım gösterir; onay düğmelerine yalnız Mac'in başındaki kişi basabilir. Uygulama açık
+  kaynaktır; GitHub'da derlenir, kökeni attestation ile kanıtlanır ve ad-hoc imzalı dağıtılır (Apple Developer ID yok).
+  Müşteri ilk açılışta ve her yeni sürümde macOS'un "Yine de Aç" onayını bir kez verir; destek sayfası bunu adım adım anlatır.
 - **Linux desteği** — Ubuntu 22.04 / 24.04 (64 bit, standart masaüstü) kullanan müşteri de kurulum ve yönetici şifresi
   gerektirmeyen tek dosyalık programla bağlanır: teknisyen ekranı görür, izinle kontrol eder, dosya ve belge gönderir, sesli
   konuşur. Destek sayfası programı açan tek satırlık komutu kopyalanabilir verir. Ubuntu'nun yeni ekran sisteminde (Wayland)
@@ -251,16 +252,16 @@ aktarır; bu durumda teslim edilen dosyalar da seçilen süre (1–7 gün) boyun
 
 ## Teknik özellikler
 
-| Başlık                  | Değer                                                                                                                                                                                                                                                                         |
-| ----------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Çalışma şekli           | Web tabanlı teknisyen konsolu; müşteri için Windows programı, Mac uygulaması, Linux programı veya tarayıcı                                                                                                                                                                    |
-| Sunucu / veritabanı     | Node.js 22 (Fastify), Next.js arayüz / MySQL 8.4                                                                                                                                                                                                                              |
-| Kurulum                 | Docker Compose, kurum sunucusunda; TURN ayrı compose                                                                                                                                                                                                                          |
-| Görüntü                 | WebRTC, eşler arası; H.264 (Windows, Mac) / VP8 (Linux), en çok 1920×1080, hedef 30 fps                                                                                                                                                                                       |
-| Müşteri işletim sistemi | Windows 10 / 11 (64 bit); macOS 13 ve üstü (Apple Silicon ve Intel; canlı dağıtım Apple imzasından sonra); Ubuntu 22.04 / 24.04 LTS x86_64, GNOME (Wayland'de uzaktan kontrol sınırlı ya da yalnız görüntü); tarayıcı modu için ekran paylaşımı destekleyen masaüstü tarayıcı |
-| Gözetimsiz erişim       | Windows 10 / 11 (64 bit), fiziksel konsol oturumu (uzak masaüstü oturumu desteklenmez)                                                                                                                                                                                        |
-| Teknisyen tarayıcısı    | Chrome, Edge (güncel)                                                                                                                                                                                                                                                         |
-| Dil / tema              | Türkçe / kullanıcı başına Açık, Koyu veya Sistem                                                                                                                                                                                                                              |
+| Başlık                  | Değer                                                                                                                                                                                                                                                                                       |
+| ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Çalışma şekli           | Web tabanlı teknisyen konsolu; müşteri için Windows programı, Mac uygulaması, Linux programı veya tarayıcı                                                                                                                                                                                  |
+| Sunucu / veritabanı     | Node.js 22 (Fastify), Next.js arayüz / MySQL 8.4                                                                                                                                                                                                                                            |
+| Kurulum                 | Docker Compose, kurum sunucusunda; TURN ayrı compose                                                                                                                                                                                                                                        |
+| Görüntü                 | WebRTC, eşler arası; H.264 (Windows, Mac) / VP8 (Linux), en çok 1920×1080, hedef 30 fps                                                                                                                                                                                                     |
+| Müşteri işletim sistemi | Windows 10 / 11 (64 bit); macOS 13 ve üstü (Apple Silicon ve Intel; ad-hoc imzalı, ilk açılışta yönetici onayı gerekir); Ubuntu 22.04 / 24.04 LTS x86_64, GNOME (Wayland'de uzaktan kontrol sınırlı ya da yalnız görüntü); tarayıcı modu için ekran paylaşımı destekleyen masaüstü tarayıcı |
+| Gözetimsiz erişim       | Windows 10 / 11 (64 bit), fiziksel konsol oturumu (uzak masaüstü oturumu desteklenmez)                                                                                                                                                                                                      |
+| Teknisyen tarayıcısı    | Chrome, Edge (güncel)                                                                                                                                                                                                                                                                       |
+| Dil / tema              | Türkçe / kullanıcı başına Açık, Koyu veya Sistem                                                                                                                                                                                                                                            |
 
 ## Sistem gereksinimleri (öneri)
 

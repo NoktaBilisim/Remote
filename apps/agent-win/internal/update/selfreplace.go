@@ -235,8 +235,10 @@ type MacLocation struct {
 
 // DecideMac macOS kararı: Translocation ya da yazılamayan konum → ErrNotWritable; diğer her durumda ErrManualOnly.
 // Yerinde paket değiştirme (Developer ID + aynı Team ID + notarization kapısı) bu pakette YAZILMADI: yeni paketin
-// SecStaticCodeCheckValidity/SecAssessment doğrulaması Developer ID'li paket olmadan test edilemez; Apple hesabı yokken
-// her derleme ad-hoc/TEST'tir ve dal zaten erişilemez (implementation.md P29-K8 sapma notu). Fail-closed: zip inmez.
+// SecStaticCodeCheckValidity/SecAssessment doğrulaması Developer ID'li paket olmadan test edilemez; Developer ID yok
+// (kullanıcı kararı 2026-11-20, mimari-p28f §15): her derleme ad-hoc/TEST'tir ve dal zaten erişilemez (implementation.md
+// P29-K8 sapma notu). Fail-closed: zip inmez. S-r4-11: ad-hoc imzada yerinde değiştirme yasak; açılması ADR revizyonu
+// ister (platform imza kapısı ad-hoc'ta Team ID doğrulayamaz).
 func DecideMac(l MacLocation) error {
 	if l.Translocated || !l.Writable {
 		return ErrNotWritable

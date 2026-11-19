@@ -14008,3 +14008,324 @@ kalıbı); fikstüre `invalid.nullTid`, `invalid.emptyReason` ekle. (atanan ajan
 Özet: Kritik 0 / Yüksek 0 / Orta 0 / Düşük 3 (S-P22G-1..3 — `docs/gereksinimler.md` §9'a "Sonra" önerilir; S-P22G-1 düşük maliyetli, P22-G içinde kapatılabilir).
 
 DURUM: GEÇTİ
+
+# Güvenlik Raporu — P28f-r4 Tasarım turu (2026-11-20) (macOS ad-hoc prod; dal claude/recursing-kare-964b8f, HEAD 811eab8 + çalışma kopyası)
+
+DURUM: GEÇTİ (tasarım) — Kritik 0 / Yüksek 0 / Orta 2 / Düşük 7 / Bilgi 4
+
+Kapsam: `docs/mimari-p28f.md` §15 (r4, K-P28f-r4-1..11, AC-500..508), ADR-0037 "Değişiklik (2026-11-20)" (git diff), bağlam §5.1, §13.
+Doğrulanan mevcut kod: `.github/workflows/agent-win.yml` (build-mac 676-741, reproducible-mac 743-797, package-mac 799-855, approve
+1268-1306, attest-mac 1566-1613, release 1683-1760, update-manifest 1893-2001), `deploy/agent/publish-mac.sh` (1-291),
+`apps/server/src/public/agent.ts` (71-82), `apps/server/src/update/wiring.ts:34`, `apps/server/src/sessions/routes.ts:58-63`,
+`apps/web/app/session/[token]/mac-guide.tsx`, `apps/agent-win/internal/update/selfreplace.go:236-245`, `selfreplace_darwin.go:22-25`,
+`portable.go:233-240`, `internal/ui/mac/logic.go:51-52`.
+
+**Kullanıcı kararı bulgu değildir:** Developer ID'siz prod (R39 → R39-r4) kabul edilmiş risktir. S-P28f-7 (ad-hoc asla Release olmaz),
+S-P28f-8 / A-PF-5 ("Yine de Aç" yalnız staging), A-PF-6 ve §5.1 T3 bu turda "kabul edilen riske dönüştü" olarak kapanır; aşağıdaki
+bulgular bu kararın **içinde** kalan açıklar ve metin/denetim iyileştirmeleridir.
+
+## Soru bazında yanıt (a)–(g)
+
+- **(a) Eksik `macosSigning` → web "adhoc" (K-P28f-r4-3 / A-r4-1): ONAY.** Bugün prod sunucusu hiç `macos:true` vermedi (notarize yayın
+  yok), staging'de `macosTestBuild` önceliklidir; eksik alan yalnız sürüm karışıklığı penceresinde oluşur. "Gizle" alternatifi
+  güvenlik kazancı getirmez (müşteri tarayıcı moduna düşer). Ad-hoc metni daha temkinli taraftır (sosyal mühendislik uyarısı içerir).
+  Koşul: bilinmeyen/gelecek enum değeri **asla** `notarized`'a eşlenmez (tasarımda "diğer her durum → adhoc" — korunmalı, birim testte
+  `"notarized "`, `"NOTARIZED"`, `"developer-id"` satırları). Notarize dünyasında bu varsayılan "asla Yine de Aç" sinyalini siler —
+  Developer ID'ye geçilirse varsayılan yeniden değerlendirilmeli (S-r4-8). Sunucu tarafı "boş → adhoc + uyarı logu" da onaylanır:
+  SHA dolu + SIGNING boş durumu meşru olarak oluşur (r4 öncesi betikle yayınlanmış staging zip'i, elle geri alma) ve bugün tek dürüst
+  değer adhoc'tur.
+- **(b) Önceden yüklenen `agent-mac-adhoc` (K-P28f-r4-4): reddedilen etiketin artifact'i yayın betiğinden GEÇEMEZ.** Kanıt:
+  `--tag` yalnız Release'ten indirir (`publish-mac.sh:206`; reddedilen etikette `release` işi koşmaz → Release yok); elle Release
+  oluşturulsa bile `gh attestation verify --source-ref refs/tags/<etiket>` + ad-hoc predicate zorunlu ve attestation yalnız approve
+  sonrası üretilir (§15.4 m.4). `--dir`/`--stg-run` yolları: ad deseni yalnız `-stg-` (229), bundle kimliği `.stg` (200, 248),
+  production kilidi `dir-*`/`stg-*` etiketini reddeder (62), `--no-attestation` yalnız `ALLOW_UNATTESTED=staging` (186-187).
+  CI tarafında bağlayıcı bağ `package-mac.outputs.zip_sha` iş çıktısı eşitliğidir (iş çıktısı değiştirilemez). attest-mac kapısının
+  `approve`'a bağlanması doğru (sign-mac `skipped` artık hem "Team ID yok" hem "Reject" anlamına gelebilir). Release'te macOS
+  zorunluluğu (`skipped` kaldırılır) doğru. Ek öneriler S-r4-3, S-r4-4.
+- **(c) Dal seçimi / düşürme-karıştırma:** Karıştırma kapalı — notarize zip'te ad-hoc predicate, ad-hoc zip'te notarized predicate yok;
+  her dal kendi predicate'ini zorunlu tuttuğu için yanlış ortam değişkeni **fail-closed** sonuçlanır. Eksikler: predicate'teki
+  `executableSha256` karşılaştırılmıyor, `.version` biçimi belirsiz (S-r4-5); notarize → ad-hoc "yapışkanlık" yok (S-r4-6);
+  `MAC_AGENT_SIGNING` ile `MAC_AGENT_SHA256` tek atomik yazım ve geri alma tutarlılığı tanımlı değil (S-r4-7).
+- **(d) Prod ad-hoc'ta TEST bandının kalkması (K-P28f-r4-5): ONAY.** Bant kötü niyetli derlemeye karşı hiçbir zaman kontrol değildi
+  (kaynak açık; saldırgan bandı derlemeden çıkarır). Ancak tasarımın (ADR "Sonuçlar", `gm.adhocOnlyBody`, OKUBENI-adhoc) karşı önlem
+  olarak saydığı **teknisyen doğrulama kodu + sunucu adresi + Hakkında parmak izi + zip içi OKUBENI** kötü niyetli kopyanın **kendi
+  beyanıdır**; yeniden paketlenmiş/sahte kopya bunların hepsini istediği gibi gösterir. Gerçek kontroller yalnız: indirme kanalı (TLS +
+  sunucu SHA kapısı, `/downloads` yalnız destek sayfasından) ve zip özetinin Release SHA256SUMS + attestation ile karşılaştırılması
+  (müşteri için pratik değil). → S-r4-1.
+- **(e) "Yine de Aç" alışkanlığı:** Kabul edilmiş riskin en büyük kalıntısı; metin önerileri S-r4-1 ve S-r4-2.
+- **(f) TCC eski kayıt rehberi (K-P28f-r4-8): ONAY** (diske işaretçi yok, uygulama içi `tccutil` yok). Olumlu yan etki: ad-hoc TCC kaydı
+  cdhash'e bağlı olduğu için aynı ad + aynı bundle kimlikli sahte kopya eski izni **devralamaz**. Öneriler S-r4-9 ("+" yolu), S-r4-10
+  (eski ikililerin izni).
+- **(g) P29 manifest ad-hoc zip için (K-P28f-r4-7): ONAY.** `DecideMac` her durumda `ErrNotWritable`/`ErrManualOnly` döner
+  (`selfreplace.go:240-245`), `MacReplacer.Prepare` indirmeden önce çağrılır (`portable.go:235`, `selfreplace_darwin.go:22-25`) — zip
+  inmez, platform imza kapısına ulaşılmaz. Sunucu manifest kapısı `MAC_AGENT_SHA256`'ya bağlı (`update/wiring.ts:34`), imza türünden
+  bağımsız. Bildirim metni "indirme bağlantısından yeni sürümü alın" (`messages.go:6`) kanalı destek sayfasına yönlendirir. → S-r4-11.
+
+## Bulgular (öncelik sırasıyla)
+
+### [ORTA] S-r4-1 Sahte kopyaya karşı "karşı önlem" olarak sayılan denetimler kopyanın kendi beyanı; uyarı metni kaynağa çapalanmamış — A04 / A08
+
+Yer: ADR-0037 "Değişiklik (2026-11-20)" Sonuçlar 2. madde ("karşı önlem … pencerede teknisyen doğrulama kodu + sunucu adresi
+eşleşmesi"); mimari-p28f §15.3 `gm.adhocOnlyBody`, `OKUBENI-adhoc.txt` son paragraf; §5.1 T3 (güncellenmemiş: "Prod: Developer ID +
+notarization").
+Sorun: Prod ad-hoc'ta Gatekeeper gerçek paketle yeniden imzalanmış/sahte paketi ayırmaz. Tasarım müşteriye "pencerede kod ve sunucu
+doğruysa güvendesiniz" mesajı veriyor; bu kontroller yalnız **yanlış teknisyen/yanlış oturum**a karşı işler, kötü niyetli ikiliye karşı
+değil (sahte uygulama `stg`/prod adresini ve herhangi bir kodu yazabilir; oturum kodu klasör adındaysa gerçek sunucudan doğrulama kodunu
+bile çekebilir). OKUBENI zip içindedir; yeniden paketleyen onu da yeniden yazar.
+İstismar senaryosu: Dolandırıcı "Nokta Bilişim destek" diye arar, WhatsApp/e-posta ekiyle "Nokta Destek" adlı zararlı zip gönderir:
+"Her zamanki gibi Sistem Ayarları → Yine de Aç, sonra Ekran Kaydı ve Erişilebilirlik iznini verin." Müşteri bu adımları Nokta'nın kendi
+sayfasından öğrenmiştir; sahte pencere "doğru" kodu ve "remote.noktabilisim.net" yazar → tam ele geçirme. r4 öncesi tasarımda müşteriye
+"Nokta Destek asla Yine de Aç istemez" öğretiliyordu; artık tersi öğretiliyor.
+Düzeltme (atanan ajan: mimar → frontend-dev, backend-dev Go, teknik-yazar):
+
+1. ADR Sonuçlar ve §15 metninden doğrulama kodu/host/parmak izini "sahte kopyaya karşı önlem" olarak çıkarın; yerine: "Kötü niyetli
+   kopyaya karşı tek kontrol indirme kanalıdır; kod/host eşleşmesi yalnız doğru teknisyeni doğrular." §5.1 T3 satırını r4'e göre yazın
+   (prod: ad-hoc + attestation + SHA256SUMS; Gatekeeper köken güvencesi yok — kabul edilen risk R39-r4).
+2. `gm.adhocOnlyBody` önerisi (kaynağa çapalı): "“Yine de Aç”ı yalnız tarayıcınızda **{host}** adresindeki bu sayfadan az önce
+   indirdiğiniz **Destek-{sessionCode}** dosyası için kullanın. Nokta Bilişim uygulamayı hiçbir zaman e-posta eki ya da mesajla dosya
+   olarak göndermez; telefonda biri sizden başka bir dosya için “Yine de Aç” ya da Mac parolanızı isterse yapmayın ve
+   {abuse/telefon} üzerinden bize bildirin. Pencerede görünen teknisyen doğrulama kodu {code} yalnız doğru teknisyenle görüştüğünüzü
+   gösterir." (`{sessionCode}` dosya adındaki 8 haneli koddur; sayfada zaten var.)
+3. Uyarı (`mac-adhoc-only-this`) indirme düğmesinin **yanında** ve rehberin 2. adımından **önce** görünsün (S-P28f-8'deki "TEST uyarısı
+   düğme yanında" kalıbı); `<details>` içine gizlenmesin.
+4. OKUBENI-adhoc son paragrafını aynı kaynak cümlesine çevirin ("yalnız {host} destek sayfasından indirdiğiniz"); kod/host cümlesi
+   "doğru teknisyen" anlamıyla kalsın.
+5. E-listesine **E-10**: Safari'nin açtığı klasördeki uygulamada Finder → Bilgi Al → "Nereden" alanı indirme adresini gösteriyor mu
+   (gösteriyorsa kılavuza "Nereden: https://{host}/downloads/Destek-… olmalı" adımı — müşterinin doğrulayabileceği tek kaynak bilgisi).
+
+### [ORTA] S-r4-2 2. adım metni "doğrulanamadı" uyarısını geçmeyi öğretiyor; bilinen zararlı (XProtect) uyarısı ayrılmamış — A04
+
+Yer: §15.3 `gm.step2UnsignedBody` ("… Apple kötü amaçlı yazılım içermediğini doğrulayamadı derse **Bitti**'yi seçin (Çöp Sepetine
+Taşı'yı değil)"), `OKUBENI-adhoc.txt` adım 1.
+Sorun: macOS iki farklı uyarı gösterir: (i) kimliği doğrulanamayan geliştirici / "doğrulanamadı" (ad-hoc için beklenen) ve (ii) XProtect
+imzasıyla eşleşen **bilinen zararlı** ("bilgisayarınıza zarar verir" / "kötü amaçlı yazılım içeriyor" kategorisi). Metin "Çöp Sepetine
+Taşı'yı değil" diyerek her iki durumda da çöpe atmamayı öğretir; (ii) durumunda Sistem Ayarları'nda "Yine de Aç" çıkmasa bile kullanıcı
+ısrara şartlanır.
+Düzeltme (atanan ajan: mimar → frontend-dev, teknik-yazar): 2. adıma ayrı uyarı cümlesi: "macOS uygulamanın bilgisayarınıza **zarar
+vereceğini** ya da **kötü amaçlı yazılım içerdiğini** söylerse Çöp Sepetine Taşı'yı seçin, Yine de Aç denemeyin ve teknisyeninize
+bildirin. Yalnız “doğrulanamadı / açılmadı” uyarısında Bitti'yi seçin." Kesin macOS 14/15 Türkçe iletişim kutusu metinleri E-1/E-2'de
+ekran görüntüsüyle alınır ve metin ona göre birebir yazılır (ezberden tırnak yok). Ayrıca 2. adıma: "Mac parolasını yalnız bu adımda,
+Sistem Ayarları penceresinde girin" cümlesi.
+
+### [DÜŞÜK] S-r4-3 Dal kararı birden çok işte `vars.APPLE_TEAM_ID` yeniden okunarak veriliyor (zaman farkı tutarsızlığı) — A08
+
+Yer: §15.4 m.3-5 (package-mac upload koşulu, attest-mac `if`, release seçimi); build-mac 723-731 (beklenen Team ID gömme).
+Sorun: `vars` her işin başlangıcında okunur; build-mac ile attest-mac arasında saatler (onay) olabilir. Değişken araya değişirse:
+Team ID gömülü derleme ad-hoc yayına gidebilir (prod'da kalıcı TEST bandı) ya da tersi. Bugün sonuç fail-closed ya da işlevsel bozukluk;
+güvenlik açığı değil, ama "tutarsızlık hata" kuralı tek kaynağa dayanmıyor.
+Düzeltme (devops): Dal tek yerde belirlensin: `reproducible-mac` çıktısı `signing=adhoc|notarized` = build-meta 4. satırı (gömülü Team
+ID) boş/dolu. package-mac, attest-mac, release, update-manifest bu çıktıyı kullanır; her biri ayrıca `vars.APPLE_TEAM_ID` ile
+karşılaştırır, uyuşmazlık → hata. Approve kontrol listesi bu çıktıyı ve `zip_sha`'yı basar.
+
+### [DÜŞÜK] S-r4-4 attest-mac ad-hoc predicate'i onay öncesi artifact'teki `adhoc.json`'dan alıyor — A08
+
+Yer: §15.4 m.3-4.
+Sorun: Predicate dosyası onaydan önce üretilip artifact'te bekliyor; attest-mac alanları denetliyor ama kaynak yine artifact. Bağ
+`zip_sha` ile korunuyor; `executableSha256` ise yalnız artifact beyanı.
+Düzeltme (devops): package-mac `exe_sha` (paket içi `Contents/MacOS/noktadestek`) iş çıktısı versin; attest-mac predicate'i iş
+çıktılarından `jq -n` ile **kendisi** kursun (`version`=reproducible-mac, `file`=zip, `executableSha256`=package-mac.exe_sha);
+artifact'teki `adhoc.json` ile birebir eşitlik ek denetim olsun. Ayrıca Reject edilmiş bir dry etiket koşusunda attest-mac/release'in
+`skipped` olduğunu AC-500 kanıtına ekleyin.
+
+### [DÜŞÜK] S-r4-5 publish-mac ad-hoc dalında `executableSha256` karşılaştırılmıyor; `.version` biçimi belirsiz — A08
+
+Yer: §15.2 K-P28f-r4-9 ("`.version == etiket`"); `publish-mac.sh:278` (iç ikili SHA hesaplanıyor, predicate ile karşılaştırılmıyor).
+Düzeltme (devops): ad-hoc dalda `.executableSha256 == inner` (278. satırdaki değer) ve `.version == ${TAG#v}` (öneksiz) zorunlu;
+`.signature`, `.notarized`, `.bundleId`, `.file` ile birlikte tek `jq -e` ifadesi; birden fazla attestation varsa **hepsi** aynı
+alanları taşımalı (`.[0]` yerine `all`). Yanlış ortam değişkeninde hata mesajı ipucu versin ("ad-hoc predicate yok — Release notarize
+olabilir: APPLE_TEAM_ID tanımlayın").
+
+### [DÜŞÜK] S-r4-6 notarize → ad-hoc düşürmeyi engelleyen "yapışkanlık" yok — A08
+
+Yer: `publish-mac.sh` `lock()`/`apply` (48-69, 95-142); §15.2 K-P28f-r4-9.
+Sorun: İleride Developer ID'ye geçildikten sonra `APPLE_TEAM_ID`'siz çalıştırılan betik eski (attestation'lı) bir ad-hoc etiketi prod'a
+koyabilir; müşteri yeniden "Yine de Aç"a döner, operatör fark etmeyebilir.
+Düzeltme (devops): hedef `.env` `MAC_AGENT_SIGNING=notarized` iken `adhoc` apply reddedilsin; önce açık `--withdraw` gereksin (bayrak
+yok, iki adım). `PUBLISHED.log` satırına imza türü eklensin.
+
+### [DÜŞÜK] S-r4-7 `MAC_AGENT_SIGNING` ve `MAC_AGENT_SHA256` yazımının atomikliği ve geri alma tutarlılığı tanımlı değil — A05
+
+Yer: §15.2 K-P28f-r4-2/9; `publish-mac.sh` `set_env_sha` (71-78).
+Düzeltme (devops): iki anahtar **tek awk geçişinde** tek geçici dosyaya yazılıp tek `cat >` ile değiştirilsin; `--apply` 6. argüman enum
+(`adhoc|notarized`) betikte ve `env.ts` `z.enum`'da; withdraw ikisini birlikte boşaltır; `.env.bak.mac.*` ile geri dönüş ikisini
+birlikte getirir. Runbook: `MAC_AGENT_SHA256`'yı elle değiştirmek yasak (geri alma yalnız betikle) — aksi halde "notarized" bayat kalabilir.
+
+### [DÜŞÜK] S-r4-9 Erişilebilirlik rehberinde "+ ile ekleyin" yolu yanlış dosyanın seçilmesine açık — A04
+
+Yer: §15.3 `AccessBody` ek cümlesi ("… sonra \"+\" ile ya da teknisyenin yeni isteğinde yeniden ekleyip açın").
+Sorun: "+" Finder'dan herhangi bir uygulamayı seçtirir; müşteri İndirilenler'deki başka/eski bir "Nokta Destek" kopyasına Erişilebilirlik
+verebilir. Uygulamanın kendi isteği (`AXIsProcessTrustedWithOptions` istemi) doğru ikiliyi ekler.
+Düzeltme (backend-dev Go, teknik-yazar): "+" yolunu metinden çıkarın: "seçip “−” ile kaldırın; teknisyen yeniden kontrol istediğinde
+uygulamanın açtığı istemle izni verin." Kılavuzda `tccutil reset` her zaman bundle kimliğiyle yazılsın (kimliksiz biçim **tüm**
+uygulamaların iznini siler). E-4'te standart kullanıcının "−" için yönetici kimliği istenip istenmediği kaydedilsin.
+
+### [DÜŞÜK] S-r4-10 Ad-hoc'ta eski sürüm ikilileri verilmiş TCC iznini cdhash ile korur — A06
+
+Yer: §15.2 K-P28f-r4-7/8; OKUBENI-adhoc adım 4 ("Bu klasörü silebilirsiniz").
+Sorun: Her sürüm ayrı cdhash ⇒ eski `Destek-…` klasöründeki N sürümü Ekran Kaydı/Erişilebilirlik iznini saklamaya devam eder (Developer
+ID'de yeni sürüm aynı kaydı devralırdı). Eski sürümde düzeltilmiş bir açık izinli hâlde diskte kalır.
+Düzeltme (teknik-yazar, mimar): OKUBENI adım 4 ve oturum sonu metni "Oturum bitince bu klasörü **silin**"; `ScreenSteps` 4. adımdaki "−"
+eski kaydı da kaldırdığı için yeterli. Sunucunun `MIN_AGENT_VERSION` kapısının macOS'ta da uygulandığı runbook'ta not edilsin.
+
+### [BİLGİ] S-r4-8 Developer ID'ye geçişte r4 varsayılanları gözden geçirilmeli
+
+`macosSigning` eksik → adhoc (web) ve boş → adhoc (sunucu) notarize dünyasında "asla Yine de Aç" sinyalini siler. `vars.APPLE_TEAM_ID`
+tanımlandığında (ADR "(+)" maddesi) bu iki varsayılan ve `gm.neverTitle` kullanımı ayrı tasarım turunda yeniden değerlendirilmeli; ADR
+notuna bir cümle eklenmesi yeterli.
+
+### [BİLGİ] S-r4-11 macOS yerinde güncellemenin ad-hoc'ta açılmaması kalıcı kural olarak testle sabitlenmeli
+
+`DecideMac` bugün güvenli. Ad-hoc zip için manifest üretildiğinden, ileride biri yerinde değiştirmeyi açarsa platform imza kapısı
+(Team ID) ad-hoc'ta doğrulanamaz. Öneri (backend-dev Go): `selfreplace_test`'e "darwin `Prepare` hiçbir girdide `Staging` döndürmez"
+satırı; `selfreplace.go` yorumuna "ad-hoc imzada yerinde değiştirme yasak; açılması ADR revizyonu ister".
+
+### [BİLGİ] S-r4-12 Reddedilen etiketin ad-hoc zip'i 7 gün artifact olarak indirilebilir
+
+Açık repoda artifact'ler oturum açmış her GitHub kullanıcısına açıktır; reddedilen etiketin prod adresli, attestation'sız zip'i 7 gün
+erişilebilir. Windows'taki `agent-win` önceden yükleme kalıbıyla aynı ve kaynak zaten açık; yayın betiğinden geçemez (bkz. (b)). Kabul.
+
+### [BİLGİ] S-r4-13 K1 (e-posta/SMS/WhatsApp) doğrudan indirme bağlantısı yalnız Windows
+
+`sessions/routes.ts:58-63` `agentDeps` Windows ikilisi ve `AGENT_SHA256` kullanır; macOS zip'i yalnız karşılama sayfasından iner.
+`gm.adhocOnlyBody`'deki "mesajla gönderilen dosya" uyarısı ürünün kendi kanalıyla çelişmez. İleride macOS K1 bağlantısı eklenirse metin
+"bağlantı her zaman {host} ile başlar" olarak güncellenmeli.
+
+## Otomatik tarama çıktıları
+
+Tasarım turu — uygulanmaz (kod değişikliği yok). Kod turunda (r4-Q): `shellcheck publish-mac.sh`, `actionlint`, gitleaks, `pnpm audit`.
+
+## Tasarımda vaat edilip kodda bulunmayanlar
+
+Tasarım turu; r4 kodu henüz yok. Kod turunda doğrulanacaklar: attest-mac `needs: approve` + kapı; release'te `attest-mac` `skipped`
+kaldırılması; `agent-mac-adhoc` yalnız etiket + Team ID boş; publish-mac ad-hoc dalının predicate alan denetimleri (S-r4-5 dahil);
+`env.ts` enum + boş → undefined; web varyant eşlemesi (bilinmeyen → adhoc); `showTestBand` tablo testi; OKUBENI-adhoc zip içeriği.
+
+## Olumlu
+
+- Dal seçimi predicate'e dayanıyor, operatör bayrağına değil; iki dal karşılıklı fail-closed (karıştırma yok).
+- Ad-hoc attestation yalnız approve sonrası; Release ve manifest yalnız attest edilmiş artifact'ten; `zip_sha` iş çıktısı bağı.
+- `-stg-` reddi, `--source-ref`, prod bundle kimliği, `--no-attestation` yasağı, production kilidi aynen korunuyor.
+- `macosTestBuild` prod'da yeniden kullanılmıyor; TEST metni prod'a sızmıyor; `macosSigning` "notarized" yalnız betiğin kanıtladığı
+  durumda yazılıyor (varsayılan dürüst taraf).
+- Developer ID yolu ve D-P28f-K3 yeniden imzalama bandı aynen; ad-hoc cdhash TCC bağı sahte kopyanın izin devralmasını engelliyor.
+- TCC rehberi diske iz bırakmıyor (AC-394); doğrulanmamış `tccutil` davranışı varsayılmamış (E-7).
+
+## Sonuç
+
+Tasarım Kritik/Yüksek açısından **GEÇER**. r4-B1/B2/F/D başlayabilir. Kod öncesi §15'e işlenmesi önerilenler: S-r4-1 ve S-r4-2 (metin +
+ADR/T3 düzeltmesi), S-r4-3..7 (devops sözleşmesi). S-r4-9/10 metin; Bilgi maddeleri ADR notu/test. Orta/Düşük bulgular
+`docs/gereksinimler.md` 9. bölüme "Sonra" olarak değil, r4 paketinin kendi AC'lerine (AC-501, AC-503, AC-506) eklenmeli — maliyetleri
+düşük ve aynı dosyalara dokunuyor.
+
+---
+
+# P28f-r4 Kod denetimi (2026-11-20)
+
+DURUM: GEÇTİ
+Özet: Kritik 0 / Yüksek 0 / Orta 0 / Düşük 2 / Bilgi 4
+
+Kapsam: `git diff` (43 dosya) + yeni dosyalar (`OKUBENI-adhoc.txt`, `tcc_darwin_test.go`, `selfreplace_darwin_test.go`).
+Odak: agent-win.yml macOS dal kapıları, publish-mac.sh, sunucu `MAC_AGENT_SIGNING`, web varyantı, Go AX istemi/bant, OKUBENI.
+
+## Bulgular
+
+### [DÜŞÜK] K-r4-1 sign-mac kapısı hâlâ `vars.APPLE_TEAM_ID`'den karar veriyor (tek kaynak `signing` değil) — A08
+
+Yer: .github/workflows/agent-win.yml:1488-1490 (sign-mac `if:`)
+Sorun: S-r4-3 dalı reproducible-mac `signing` çıktısına bağladı; attest-mac/release/update-manifest bunu kullanıyor, ancak sign-mac
+hâlâ `vars.APPLE_TEAM_ID != ''` ile tetikleniyor. Etiket derlemesi sırasında değişken tanımlanırsa ad-hoc dalda sign-mac `agent-mac-sign`
+ortamını (Developer ID/notary sırları) açar.
+İstismar: Yok denecek kadar sınırlı — sign-mac `build-meta` 4. satır = TEAM denetimiyle (≈:1520) düşer; attest-mac `signing=adhoc` +
+dolu vars'ı reddeder; Release açılmaz (fail-closed). Kalıntı: gereksiz yere sırlı ortama giriş + kafa karıştırıcı kırmızı koşu.
+Düzeltme: sign-mac `if:`'ine `needs.reproducible-mac.outputs.signing == 'notarized'` ekleyin (vars koşulu tutarlılık için kalabilir).
+(atanan: devops)
+
+### [DÜŞÜK] K-r4-2 `.env` yazımı tek yazım ama yeniden adlandırma-atomik değil — A05
+
+Yer: deploy/agent/publish-mac.sh:87 (`cat "$1/.env.tmp.$4" > "$1/.env"`)
+Sorun: İki anahtar tek geçişte/tek yazımda (S-r4-7 amacı karşılanıyor), fakat `cat >` önce kırpar; yazım sırasında kesinti (disk dolu,
+SIGKILL) yarım `.env` bırakır. Yedek (`.env.bak.mac.<ts>`) var, geri alma elle mümkün.
+Düzeltme: inode korunması gerekmiyorsa `mv -f tmp .env` (aynı dizinde, `chmod --reference`/`cp -p` ile izin taşıyarak); gerekiyorsa
+yazım öncesi `df`/boyut denetimi + başarısızlıkta yedekten otomatik geri yükleme. (atanan: devops)
+
+### [BİLGİ] K-r4-3 Uzak komutta `--deploy-dir` doğrulanmadan tek tırnak içine gömülüyor
+
+Yer: deploy/agent/publish-mac.sh:212, :327 (ayrıca :240 `--stg-run` sayısal denetimsiz)
+Sorun: `'$dir'` içinde `'` olan bir yol uzak kabukta tırnağı kırar. Girdi operatörün kendisinden (zaten root SSH yetkili) → güven sınırı
+aşılmıyor; `--stg-run` değeri önce `gh run download`'da başarısız olur (`set -e`). `want`/`LABEL`/`SIGNING` regex/sabit kümeden geliyor ✓.
+Öneri: `[[ "$dir" =~ ^/[A-Za-z0-9._/-]+$ ]]` ve `[[ "$STG_RUN" =~ ^[0-9]+$ ]]` (savunma derinliği). (devops)
+
+### [BİLGİ] K-r4-4 Notarize dalı yalnız ilk attestation'ın `teamId`'sini denetliyor (önceden var; r4 zayıflatmadı)
+
+Yer: deploy/agent/publish-mac.sh:285 (`.[0]...teamId`)
+Not: Ad-hoc dal TÜM attestation'ları 6 alanla karşılaştırırken (S-r4-5, :291-299) notarize dal `.[0]` + teamId ile yetiniyor; macOS
+operatör makinesinde codesign TeamIdentifier + spctl ek kapı. Developer ID'ye geçişte (S-r4-8) aynı "hepsi eşleşmeli" kalıbı
+`teamId`/`file` için uygulanmalı. Başlıktaki "notarize zip'te ad-hoc predicate bulunmaz" iddiası açıkça denetlenmiyor; pratikte iş akışı
+dal başına tek predicate ürettiği ve diğer dalın predicate'i zorunlu olduğu için fail-closed (test: "karıştırma yok" GEÇTİ).
+
+### [BİLGİ] K-r4-5 `macosSigning` dosyadan değil env'den türetiliyor
+
+Yer: apps/server/src/public/agent.ts:88; env.ts:169
+Not: Kaynak yalnız publish-mac `--apply` (predicate doğrulandıktan sonra). Elle `.env`'e `notarized` yazılırsa web notarize rehberini
+("asla Yine de Aç") gösterir — güvenli yöne hata (müşteri açamaz, açmaya teşvik edilmez). Kabul.
+
+### [BİLGİ] K-r4-6 Prod ad-hoc derlemede bant yok — sahte kopya için çalışma anı göstergesi kalmadı
+
+Yer: apps/agent-win/internal/ui/mac/logic.go (`showTestBand`)
+Not: K-P28f-r4-5 kararının doğrudan sonucu; karşı önlem kaynak çapalı web/OKUBENI uyarısı (S-r4-1) + Hakkında imza satırı. Kabul edilmiş
+risk (ADR-0037 r4); Developer ID'ye geçişte beklenen Team ID gömülür ve bant kuralı otomatik sıkılaşır (testli).
+
+## Denetim notları (olumlu)
+
+- **agent-win.yml:** Etiket dalı tek kaynak `reproducible-mac.signing` (build-meta 4. satır); her tüketici işte vars yalnız tutarlılık
+  (uyuşmazlık = hata). attest-mac `approve.result == 'success'` şartı → Reject edilen etiketin ad-hoc zip'i attest edilmez/yayımlanmaz.
+  Release ve update-manifest'te `attest-mac` "skipped" kabul edilmiyor; artifact∶dal çifti `case` ile sabit kümeye bağlı. Ad-hoc predicate
+  İŞ ÇIKTILARINDAN (`zip_sha`, `exe_sha`, `version`, `zip`) kuruluyor, artifact'teki `adhoc.json` yalnız birebir karşılaştırılıyor; zip SHA +
+  zip içi ikili SHA + `icerik-sha256.txt` + build-meta (prod, boş Team ID) yeniden doğrulanıyor (S-r4-4). Tüm `run:` girdileri `env:`
+  üzerinden (`${{ }}` kabuğa doğrudan girmiyor); `${{ }}` yalnız `with:`/`if:`'te ve değerler önceden `case` ile doğrulanmış. Yeni Action
+  yok; kullanılanlar SHA sabit. attest-mac izinleri `contents:read, id-token:write, attestations:write`. Developer ID dalı aynen (notarized
+  predicate, teamId/file denetimi, spctl) — zayıflama yok.
+- **publish-mac.sh:** dal yalnız ortamdan (bozuk `APPLE_TEAM_ID` ad-hoc'a düşmez); ad-hoc predicate 6 alan × tüm attestation'lar, boş
+  liste RET; `--apply` sunucu tarafında sha/etiket/imza türü yeniden doğrulanıyor; S-r4-6 notarize→ad-hoc düşüş, dosyaya/.env'e
+  dokunmadan RET (önce `--withdraw`); `--withdraw` iki anahtarı birlikte boşaltıyor. `bash deploy/agent/test-publish-mac-lock.sh` →
+  **SONUÇ: GEÇTİ** (S-r4-5/6, karıştırma, bozuk Team ID vakaları dahil).
+- **Sunucu:** `MAC_AGENT_SIGNING` `z.enum(["adhoc","notarized"]).optional()`; boş dize `loadEnv` filtresiyle tanımsız; geçersiz değer
+  açılış hatası; `macos:false` → `null`, boş → `adhoc`; notarized yalnız açık değerle. Prod'da boş + yayında → uyarı logu.
+- **Web:** `macosSigning` `.catch(null)`; `macVariant` yalnız açık `"notarized"` → notarized, diğer her şey `adhoc` (fail-closed).
+  `{host}` interpolasyonu React metin düğümü (dangerouslySetInnerHTML yok) → XSS yok. S-r4-1 uyarısı düğmenin yanında, rehberden önce;
+  S-r4-2 zararlı uyarısı (Çöp Sepetine Taşı) ayrı kırmızı satır.
+- **Go:** `RequestAccessibility` — sembollerin her biri bağlanmazsa fail-closed atlanır; `objc.Symbol` CFStringRef/CFBooleanRef değişken
+  adresini doğru dereference ediyor (load_darwin.go:82), nil denetimli; sözlük autorelease havuzda; diske yazma yok; yalnız kullanıcı
+  "Sistem Ayarları'nı aç"a bastığında. `DecideMac` değişmedi (yalnız yorum); `TestSr411DecideMacNeverStages` tüm girdilerde hata
+  bekliyor. `go test ./internal/{ui/mac,macperm,update,flow}` → ok. `package.sh`: `OKUBENI_VARIANT` ortamdan devralınmıyor (betik başında
+  sıfırlanıyor; sign-mac `bundle … prod` her zaman OKUBENI.txt); CI zip içi OKUBENI'yi `cmp` ile denetliyor.
+- **Gizli bilgi:** `git grep` gizli desen taraması (değişen alanlar) boş; diff'te özel anahtar/token deseni yok; `.env.example` yalnız
+  boş anahtar.
+
+## Tasarım bulgularının kapanışı
+
+| Bulgu                                                       | Durum                                                                                                   |
+| ----------------------------------------------------------- | ------------------------------------------------------------------------------------------------------- |
+| S-r4-1 kaynağa çapalı uyarı                                 | KAPANDI (agent-download.tsx `mac-adhoc-only-this`, tr.json `gm.adhocOnly*`, OKUBENI-adhoc son paragraf) |
+| S-r4-2 XProtect uyarısı ayrımı                              | KAPANDI (`gm.step2Harmful`, OKUBENI-adhoc m.1)                                                          |
+| S-r4-3 tek kaynak dal                                       | KAPANDI — kalıntı K-r4-1 (sign-mac `if:`; fail-closed)                                                  |
+| S-r4-4 predicate iş çıktılarından                           | KAPANDI                                                                                                 |
+| S-r4-5 executableSha256 + sürüm biçimi, tüm attestation'lar | KAPANDI (testli)                                                                                        |
+| S-r4-6 düşürme yapışkanlığı                                 | KAPANDI (testli)                                                                                        |
+| S-r4-7 atomik çift + geri alma                              | KAPANDI — kalıntı K-r4-2 (kırpma-yazım)                                                                 |
+| S-r4-8 bilinmeyen asla notarized                            | KAPANDI (sunucu enum + web catch)                                                                       |
+| S-r4-9 "+" yolu                                             | KAPANDI (`RequestAccessibility`, metinlerden "+" kaldırıldı)                                            |
+| S-r4-10 eski sürüm TCC                                      | AZALTILDI (OKUBENI m.3-4 "klasörü silin", rehber 4. adım) — kabul                                       |
+| S-r4-11 macOS yerinde güncelleme yok                        | KAPANDI (test)                                                                                          |
+| S-r4-12 reddedilen etiketin 7 gün artifact'i                | KABUL (attestation'sız → publish-mac'ten geçemez)                                                       |
+| S-r4-13 K1 bağlantısı yalnız Windows                        | AÇIK (kapsam dışı, Sonra)                                                                               |
+
+## Karar
+
+Kritik 0 / Yüksek 0 → **GEÇTİ**. K-r4-1 ve K-r4-2 (Düşük) `docs/gereksinimler.md` §9'a "Sonra" olarak önerilir; Developer ID'ye
+geçişte K-r4-4 uygulanmalı.
+
+**P28f-r4 kod denetimi — düzeltme (2026-11-20, ana oturum):** K-r4-1 kapandı — `sign-mac` `if:` koşuluna
+`needs.reproducible-mac.outputs.signing == 'notarized'` eklendi (dal tek kaynaktan). K-r4-2 kapandı — `publish-mac.sh`
+`set_env_mac` `.env` yazımı başarısız olursa yedekten (`.env.bak.mac.<ts>`) geri yükler ve durur; `cat >` inode/kipi korur.
+Doğrulama: `test-publish-mac-lock.sh` GEÇTİ, actionlint temiz. Karar: P28f-r4 K/Y/O = 0.

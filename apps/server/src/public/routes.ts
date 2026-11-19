@@ -38,7 +38,13 @@ export async function publicAgentRoutes(app: FastifyInstance): Promise<void> {
   // P28f (§4.1, AC-390): girdi/ref/çerez yok. Başarı 60 sn önbelleklenebilir; hata (429) önbelleğe alınmaz.
   app.get("/availability", async (req, reply): Promise<AgentAvailabilityResponse> => {
     void reply.header("Cache-Control", "no-store");
-    const out = await agentAvailability(app.publicLimits, auditContext(req), binaries(), app.env.DEPLOY_ENV === "production");
+    const out = await agentAvailability(
+      app.publicLimits,
+      auditContext(req),
+      binaries(),
+      app.env.DEPLOY_ENV === "production",
+      app.env.MAC_AGENT_SIGNING,
+    );
     void reply.header("Cache-Control", "public, max-age=60");
     return out;
   });

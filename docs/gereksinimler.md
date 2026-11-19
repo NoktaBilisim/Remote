@@ -20,6 +20,8 @@ Tarih: 2026-11-12 Durum: TASLAK (2026-11-10: tam erişim MVP'de; 2026-11-11: `do
 > Müşteriye bağlantı gönderme (2026-11-15, kullanıcı talebi; TASLAK): tek "Müşteriye gönder" diyaloğu — K1 oturum bağlantısı + Windows istemci indirme, K2 gözetimsiz kayıt kodu + servis indirme bağlantısı, K3 müşteriye özel indirme + talep bağlantısı (e-posta/WhatsApp); yeni AC-405..AC-428, US-73..US-75, V-LG1..V-LG6, R-LG1..R-LG5: `/Users/mennan/Projeler/Remote/docs/gereksinimler-link-gonderme.md`.
 > P29 — İstemci otomatik güncelleme + sürüm bildirimi (2026-11-19, TASLAK; kullanıcı isteği 2026-11-18): imzalı (Ed25519) manifest, gözetimsiz servis ve taşınabilir istemcide (Windows/macOS/Linux) oturum dışı güncelleme ve geri dönüş, `client.update.*` audit, sürüm dağılımı, tenant politikası; yeni AC-470..AC-493, US-P29-1..5, V-P29-1..12, R-P29-1..10, S-P29-1..6: `docs/gereksinimler-p29.md`.
 > P30 — Gözetimsiz bağlantıda ekrana çizim (2026-11-19, TASLAK; kullanıcı isteği 2026-11-19, staging 0.22.1 bulgusu: konsolda çizim cihazda görünmüyor): yeni AC-494..AC-499, bu dosyanın §12'si; tasarım `docs/mimari-p30.md`.
+
+> P28f-r4 — macOS prod yayını Developer ID'siz, ad-hoc imzalı (2026-11-20, kullanıcı kararı): yeni AC-500..AC-508 bu dosyanın §13'ünde; AC-390 ve R39 "r4 ile değişti" (`docs/gereksinimler-p28.md`). Tasarım `docs/mimari-p28f.md` §15, ADR-0037 "Değişiklik (2026-11-20)".
 > Toplam: **65 kullanıcı hikâyesi, 324 kabul kriteri** (AC-1..AC-324; AC-317..AC-324 2026-11-15, PT kod temizliği; AC-196 2026-11-13, E9 WhatsApp servisi sistem ayarı; AC-197..AC-200 2026-11-14, E7 saklama ve yedek — P13a; AC-201..AC-297 2026-11-14, E11; AC-298..AC-302 2026-11-14 ve AC-303 2026-11-15, P13b prod açılışı; AC-304..AC-316 2026-11-15, E4 lobi göstergesi).
 
 ## 1. Amaç ve iş değeri
@@ -472,3 +474,57 @@ oturumlar/yeniden bağlanmalar arasında saklanması (yardımcı süreci bitince
 çizimlerin korunması (bugün temizlenir — konsolla bilinen fark, Sonra); yeni araç/renk/kalınlık. Varsayım V-P30-1: Windows 10
 2004+ (yakalama dışlama) — gösterge ile aynı önkoşul. Risk R-P30-1: çizim kilit/UAC ekranındaki öğelerin üstüne düşebilir →
 katman tıklama geçirgen, gösterge üstte, teknisyen zaten tam kontrol sahibi; kabul.
+
+## 13. P28f-r4 — macOS istemcisinin Developer ID'siz (ad-hoc) prod yayını (AC-500..AC-508; 2026-11-20)
+
+Kullanıcı kararı (2026-11-20, tartışılmaz): Apple Developer Program ücreti ödenmeyecek; macOS istemcisi prod'a Developer
+ID / notarization olmadan, ad-hoc imzalı çıkar. `vars.APPLE_TEAM_ID` tanımlıysa Developer ID yolu kodda aynen kalır. Tasarım:
+`docs/mimari-p28f.md` §15 (K-P28f-r4-1..11), ADR-0037 "Değişiklik (2026-11-20)". AC-390 ve R39 bu bölümle değişti
+(`docs/gereksinimler-p28.md`).
+
+Hikâye: macOS kullanan müşteri olarak, firma Apple Developer ID almasa da destek sayfasından Nokta Destek'i indirip bir kez
+"Yine de Aç" onayıyla çalıştırmak istiyorum ki tarayıcı moduyla sınırlı kalmayayım. Teknisyen olarak müşterinin indirdiği
+paketin GitHub'da derlenip kökeninin kanıtlandığını bilmek istiyorum.
+
+- AC-500: (CI yayın) `vars.APPLE_TEAM_ID` boşken onaylanmış (approve) bir `vX.Y.Z` etiketi koşusunda GitHub Release'te
+  `NoktaDestek-macOS-<sürüm>.zip`, SHA256SUMS'ta zip satırı ve paket içi ikili satırı, build provenance attestation'ı ve
+  predicate-type `https://noktabilisim.net/attestation/macos-adhoc/v1` olan ikinci attestation bulunur. Predicate içeriği
+  `{bundleId:"net.noktabilisim.destek", version, file, signature:"adhoc", notarized:false, executableSha256}` biçimindedir.
+  Onay reddedilirse attestation ve Release üretilmez. Etiket koşusunda macOS zip'i yoksa (`attest-mac` sonucu `success`
+  değilse) Release oluşmaz. `APPLE_TEAM_ID` tanımlıyken Developer ID yolu aynen çalışır. Test: qa yml incelemesi + actionlint.
+- AC-501: (yayın betiği) `publish-mac.sh --tag` dalı ortamdan deterministik seçer: `APPLE_TEAM_ID` tanımlı → notarized dal
+  (bugünkü kurallar); tanımsız → ad-hoc dal: `macos-adhoc/v1` predicate'li attestation (`--source-ref refs/tags/<etiket>`,
+  `--signer-workflow`, `--deny-self-hosted-runners`), predicate alan eşleşmesi (`file`, `version` = etiket,
+  `signature == "adhoc"`, `notarized == false`, prod bundle kimliği) ve Darwin'de `codesign --verify --strict` +
+  `Signature=adhoc` zorunlu. Notarize zip ad-hoc dalda, ad-hoc zip notarized dalda reddedilir. `--no-attestation` production'da
+  reddedilir. `--apply` 6. argümanı `adhoc|notarized` dışında reddedilir; `.env`'e tek satır `MAC_AGENT_SIGNING=<değer>`
+  yazar; `--withdraw` bu satırı ve `MAC_AGENT_SHA256`'yı boşaltır. Test: `test-publish-mac-lock.sh` yeni durumlarla yeşil.
+- AC-502: (sunucu sinyali) `AgentAvailabilityResponse`'a `macosSigning: "notarized" | "adhoc" | null`: `macos` false → `null`;
+  true → `MAC_AGENT_SIGNING`, boşsa `"adhoc"`. `macosTestBuild` değişmez. `MAC_AGENT_SIGNING` geçersiz değerde açılış hatası;
+  production + `MAC_AGENT_SHA256` dolu + `MAC_AGENT_SIGNING` boş → uyarı logu. Yeni env `.env.example` + `env.ts` + compose +
+  runbook'ta. Test: sunucu birim.
+- AC-503: (karşılama sayfası) Varyant: `macosTestBuild` true → `test`; değilse `macosSigning === "notarized"` → `notarized`;
+  diğer her durumda → `adhoc`. `adhoc` sayfasında "TEST" kelimesi ve `mac-test-build` uyarısı yoktur; ad-hoc giriş metni,
+  ortak 2. adım ("Yine de Aç"; macOS 13–14 ve 15 farkı), `mac-adhoc-only-this` uyarısı ve ad-hoc doğrulama metni gösterilir.
+  `notarized` metinleri bugünküyle aynıdır (her varyantta ortak `gm.permScreenBody` eki "Yeni sürümde macOS izni yeniden ister." hariç); `test` TEST uyarısı + aynı ortak 2. adım. 5 durum, axe 0, iki tema, 390 px.
+  Test: web birim (3 varyant + eksik/geçersiz alan) + e2e.
+- AC-504: (istemci bandı) Prod ad-hoc derlemede (testBuild=false, gömülü Team ID boş) TEST bandı yoktur; staging derlemede
+  vardır; Developer ID derlemesinde Team ID uyuşmazlığı/ad-hoc/okunamayan imza bant gösterir. Hakkında penceresinde tek imza
+  satırı ("İmza: ad-hoc (Apple Developer ID yok)" / "İmza: Apple Developer ID (Ekip …)" / "İmza: doğrulanamadı"). Test: Go
+  tablo testi + elle E-5.
+- AC-505: (OKUBENI) `package.sh adhoc … prod` zip'indeki `OKUBENI.txt` = `OKUBENI-adhoc.txt`; Developer ID zip'inde mevcut
+  `OKUBENI.txt`; stg'de `OKUBENI-stg.txt`. Test: CI `package-mac` `cmp` adımı.
+- AC-506: (TCC eski kayıt) Ekran Kaydı ve Erişilebilirlik rehberleri, listede açık görünen eski "Nokta Destek" kaydının "−" ile
+  kaldırılıp iznin yeniden verilmesi adımını her derlemede aynı metinle içerir; istemci diske işaretçi yazmaz (AC-394 iz testi
+  aynen). Test: Go metin testi + elle E-4.
+- AC-507: (güncelleme bildirimi) `UPDATE_SIGNING_ENABLED=1` iken ad-hoc etiket için `update-client-macos-universal.json`
+  üretilir (sha256 = Release zip). macOS istemcisi yalnız "Yeni sürüm var" bildirir, zip indirmez (`DecideMac` değişmez).
+- AC-508: (doküman + elle doğrulama) Kılavuz, README, DATASHEET, CHANGELOG `[Unreleased]`, runbook ad-hoc prod'a göre güncel
+  (macOS için "notarize" iddiası yok); kılavuzda macOS 14/15 "Yine de Aç" adımları, standart kullanıcı notu, her güncellemede
+  izinlerin yeniden verilmesi ve eski kaydın "−" ile kaldırılması. E-1..E-9 listesi `docs/test-raporu.md` "P28f-r4"te.
+
+Kapsam dışı: yerinde macOS güncellemesi (K-P29-10 değişmez); Developer ID satın alma; `tccutil reset` düğmesi (E-7'ye bağlı
+ayrı paket); istemci sürüm yükseltmesi (ilk ad-hoc prod Release P30 ile çıkan sonraki etiket); "Yine de Aç"ı atlatan yol.
+
+Riskler: R39-r4 (kabul) — ilk açılışta Gatekeeper onayı ve her sürümde TCC izinleri yeniden. A-r4-2 — macOS 15'te standart
+kullanıcı yönetici kimliği olmadan "Yine de Aç"ı geçemez → tarayıcı modu (E-2 ile kesinleşir).

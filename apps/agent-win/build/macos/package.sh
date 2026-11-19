@@ -14,7 +14,8 @@
 #        (iki taraftan imza kaldırılır; `codesign --remove-signature` __LINKEDIT vmsize'ı geri yüklemediği için TEK izinli fark
 #        bu 8 baytlık alandır; o alan eşitlenip dosyanın tamamı `cmp` ile karşılaştırılır)
 # Profil: stg → bundle kimliği net.noktabilisim.destek.stg (TEST; TCC kayıtları prod'a taşınmaz), OKUBENI-stg.txt;
-#         prod → net.noktabilisim.destek, OKUBENI.txt. stg her zaman ad-hoc olmalıdır (check denetler).
+#         prod → net.noktabilisim.destek; `adhoc … prod` → OKUBENI-adhoc.txt (r4: Developer ID'siz prod, "Yine de Aç"),
+#         `bundle … prod` (sign-mac, Developer ID) → OKUBENI.txt. stg her zaman ad-hoc olmalıdır (check denetler).
 # Ortam: SOURCE_DATE_EPOCH (zip; yoksa git son commit zamanı), CODESIGN_KEYCHAIN (sign; isteğe bağlı keychain yolu).
 # Çıkış: 0 tamam · 1 denetim/araç hatası · 2 kullanım hatası. `set -x` YOK (sign-mac'te kimlik/sır günlüğe düşmesin).
 set -eu
@@ -74,7 +75,12 @@ cmd_bundle() {
   sed -e "s/@BUNDLE_ID@/$bid/" -e "s/@VERSION@/$ver/g" "$HERE/Info.plist.tmpl" > "$app/Contents/Info.plist"
   plutil -lint -s "$app/Contents/Info.plist" || die "Info.plist geçersiz"
   make_icon "$app/Contents/Resources/AppIcon.icns"
-  if [ "$prof" = stg ]; then cp "$HERE/OKUBENI-stg.txt" "$stage/OKUBENI.txt"; else cp "$HERE/OKUBENI.txt" "$stage/OKUBENI.txt"; fi
+  # K-P28f-r4-11: stg → TEST metni; prod + ad-hoc (cmd_adhoc, OKUBENI_VARIANT=adhoc) → OKUBENI-adhoc.txt; prod Developer ID
+  # (sign-mac `bundle`) → OKUBENI.txt (değişmez).
+  if [ "$prof" = stg ]; then okb="OKUBENI-stg.txt"
+  elif [ "${OKUBENI_VARIANT:-}" = adhoc ]; then okb="OKUBENI-adhoc.txt"
+  else okb="OKUBENI.txt"; fi
+  cp "$HERE/$okb" "$stage/OKUBENI.txt"
   find "$stage" -type d -exec chmod 0755 {} +
   find "$stage" -type f ! -path "*/Contents/MacOS/$EXE" -exec chmod 0644 {} +
   echo "bundle: $app ($bid $ver; $(lipo -archs "$app/Contents/MacOS/$EXE"))"
@@ -179,7 +185,7 @@ cmd_adhoc() {
   a="$1" x="$2" ver="$3" prof="$4" out="$5" zname="$6"
   case "$zname" in */*) die "zip adı yol içeremez" ;; esac
   mkdir -p "$out"
-  cmd_bundle "$a" "$x" "$ver" "$prof" "$out/stage"
+  OKUBENI_VARIANT=adhoc; cmd_bundle "$a" "$x" "$ver" "$prof" "$out/stage"
   cmd_sign "$out/stage/$APP_NAME" -
   cmd_check "$out/stage/$APP_NAME" "$prof" "$ver"
   cmd_zip "$out/stage" "$out/$zname"
@@ -211,6 +217,7 @@ cmd_compare() {
 [ $# -ge 1 ] || usage
 sub="$1"; shift
 need_mac
+OKUBENI_VARIANT="" # yalnız cmd_adhoc atar (ortamdan devralınmaz: sign-mac `bundle … prod` her zaman OKUBENI.txt)
 case "$sub" in
   bundle) cmd_bundle "$@" ;;
   sign) cmd_sign "$@" ;;

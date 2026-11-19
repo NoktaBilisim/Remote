@@ -1481,3 +1481,35 @@ Temizlik: server, web ve prob kapatıldı; 3483 ve 3484 boş. `rs-p22-test` aç�
 | X-3 | Üçü      | Oturum bitince geçmiş ekranında sohbet (`/history/<id>` → "Sohbeti göster")                                                         | Go istemcinin mesajları "müşteri" olarak, sırası doğru                                                                                                                  |
 
 Önceki P22-T elle listesi (E-1..E-7) geçerliliğini koruyor. "P22-G" satırı bu bölümle kapandı: yerelde flow + GTK kanıtı var, pencereler W/M/L maddelerinde.
+
+## P28f-r4 (macOS Developer ID'siz ad-hoc prod yayını)
+
+# Test Raporu — P28f-r4 (2026-11-20; mimari-p28f §15.7, AC-500..508)
+
+**Otomatik (bu dal, yerel):** web birim 667/667, web e2e tüm suite 651 geçti / 0 hata (p28f-macos: prod ad-hoc, notarized,
+staging test, eski sunucu, geçersiz `macosSigning`; 390 px; koyu tema axe), contracts 331/331, server birim 725 (+1 clamd skip),
+entegrasyon `p28f-k6` + `p28g-k6` 43/43 (`rs-macadhoc-test`), `test-publish-mac-lock.sh` 52/52, Go `ui/flow/update/macperm`
+testleri + vet/staticcheck (darwin arm64/amd64, windows, linux), actionlint temiz. Ayrıntı: `docs/qa-raporu.md` "P28f-r4".
+
+**Otomatikle kapsanmayan:** etiket yolu (ad-hoc `agent-mac-adhoc` → approve → `macos-adhoc/v1` attestation → Release → manifest)
+PR CI'da koşmaz; ilk `v*` etiketinde `gh attestation verify NoktaDestek-macOS-<sürüm>.zip --repo NoktaBilisim/Remote
+--source-ref refs/tags/<etiket> --predicate-type https://noktabilisim.net/attestation/macos-adhoc/v1` ve
+`publish-mac.sh --tag <etiket> --dry-run` (APPLE_TEAM_ID tanımsız) ile elle doğrulanır. Reject edilen bir etikette attest-mac /
+release'in `skipped` olduğu da bir kez gözlenir (S-r4-4).
+
+**Elle doğrulama listesi — gerçek Mac, macOS 14 ve 15** (staging TEST paketi `net.noktabilisim.destek.stg` Gatekeeper/TCC
+açısından prod ad-hoc ile aynıdır; prod etiketinden sonra E-1, E-5 ve E-10 prod paketiyle bir kez daha). Durum: **BEKLİYOR**
+(prod açılışından önce teknisyen/kullanıcı tarafından yapılır; sonuç ve ekran görüntüleri `docs/img/` altına).
+
+| #    | Senaryo                                                                                                      | Beklenen                                                                                                                                                                                        | macOS 14 | macOS 15 |
+| ---- | ------------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------- | -------- |
+| E-1  | Safari ile karşılama sayfasından indir, İndirilenler'den çift tık (Gatekeeper ilk açılış)                    | 14: "doğrulanamadı" kutusu, Control-tık → Aç çalışır. 15: "açılmadı" + Bitti / Çöp Sepetine Taşı; Control-tık yolu yok. Ekran metinleri web rehberi / OKUBENI-adhoc ile karşılaştırılır         | bekliyor | bekliyor |
+| E-2  | Sistem Ayarları → Gizlilik ve Güvenlik → Yine de Aç → ikinci "Yine de Aç" → parola/Touch ID                  | Uygulama açılır, kod korunur. Standart (yönetici olmayan) hesapta ne istendiği kaydedilir (A-r4-2)                                                                                              | bekliyor | bekliyor |
+| E-3  | Translocation: İndirilenler'den taşımadan açılış                                                             | Kod okunur; güncelleme bildirimi `NOT_WRITABLE` dalı                                                                                                                                            | bekliyor | bekliyor |
+| E-4  | Ekran Kaydı + Erişilebilirlik izni ver; sonra sürüm N → N+1 zip'ini aç (güncelleme sonrası izin)             | N+1'de izin rehberi yeniden çıkar; eski kaydın görünümü (açık mı, iki kayıt mı) ekran görüntüsüyle kaydedilir; "−" adımı ve Erişilebilirlik "Sistem Ayarları'nı aç" düğmesiyle kayıt geri gelir | bekliyor | bekliyor |
+| E-5  | Hakkında ve bant                                                                                             | Prod ad-hoc: bant yok, "İmza: ad-hoc (Apple Developer ID yok)", parmak izi = SHA256SUMS paket içi satırın ilk 8 hanesi; pencere metni kırpılmıyor. Staging: TEST bandı var                      | bekliyor | bekliyor |
+| E-6  | Eski sürüm N açık, sunucuda N+1 manifesti                                                                    | Oturum sonunda "Yeni sürüm var" bilgisi; zip inmez                                                                                                                                              | bekliyor | bekliyor |
+| E-7  | Terminal'de kullanıcı haklarıyla `tccutil reset ScreenCapture net.noktabilisim.destek.stg` (+ Accessibility) | Sonuç kaydedilir (çalıştı / yetki istedi / etkisiz) — A-r4-3 girdisi                                                                                                                            | bekliyor | bekliyor |
+| E-8  | Aynı sürümü ikinci kez indirip açma                                                                          | Gatekeeper onayı istenip istenmediği kaydedilir; TCC izni korunur (cdhash aynı)                                                                                                                 | bekliyor | bekliyor |
+| E-9  | İzin sonrası "İzni verdim, yeniden başlat" (`--restart`)                                                     | Yeni süreç Gatekeeper'a yeniden takılmaz, kod korunur                                                                                                                                           | bekliyor | bekliyor |
+| E-10 | Finder → Bilgi Al → "Nereden" alanı (S-r4-1)                                                                 | İndirme adresi destek sayfasının sunucusu                                                                                                                                                       | bekliyor | bekliyor |

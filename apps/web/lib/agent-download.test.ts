@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { AGENT_AVAILABILITY_URL, agentDownloadUrl, fetchAgentAvailability, probeAgentDownload } from "./agent-download";
+import { AGENT_AVAILABILITY_URL, agentDownloadUrl, fetchAgentAvailability, macVariant, probeAgentDownload } from "./agent-download";
 
 const json = (status: number, code: string, headers: Record<string, string> = {}) =>
   new Response(JSON.stringify({ error: { code, message: "x", requestId: "01JREQ" } }), {
@@ -90,7 +90,7 @@ describe("P28f AC-390 / S-P28f-15: fetchAgentAvailability (fail-closed)", () => 
       init = i;
       return new Response(JSON.stringify({ windows: true, macos: true, macosTestBuild: true }), { status: 200 });
     }) as unknown as typeof fetch;
-    expect(await fetchAgentAvailability(f)).toEqual({ windows: true, macos: true, linux: false, macosTestBuild: true });
+    expect(await fetchAgentAvailability(f)).toEqual({ windows: true, macos: true, linux: false, macosTestBuild: true, macosSigning: null });
     expect(url).toBe(AGENT_AVAILABILITY_URL);
     expect(url).toBe("/api/v1/public/agent/availability");
     expect(init?.credentials).toBe("omit");
@@ -101,6 +101,7 @@ describe("P28f AC-390 / S-P28f-15: fetchAgentAvailability (fail-closed)", () => 
       macos: false,
       linux: false,
       macosTestBuild: false,
+      macosSigning: null,
     }));
   it("S-P28f-8: macosTestBuild eksik/geçersiz → false (imzalı rehber; 'Yine de Aç' varsayılan değil)", async () => {
     expect(await fetchAgentAvailability(ok({ windows: true, macos: true }))).toEqual({
@@ -108,6 +109,7 @@ describe("P28f AC-390 / S-P28f-15: fetchAgentAvailability (fail-closed)", () => 
       macos: true,
       linux: false,
       macosTestBuild: false,
+      macosSigning: null,
     });
     expect((await fetchAgentAvailability(ok({ windows: true, macos: true, macosTestBuild: "evet" })))?.macosTestBuild).toBe(false);
   });
@@ -118,6 +120,7 @@ describe("P28f AC-390 / S-P28f-15: fetchAgentAvailability (fail-closed)", () => 
       macos: false,
       linux: false,
       macosTestBuild: false,
+      macosSigning: null,
     });
   });
   it.each([
@@ -128,4 +131,36 @@ describe("P28f AC-390 / S-P28f-15: fetchAgentAvailability (fail-closed)", () => 
     ["JSON değil", fake(new Response("<html>", { status: 200 }))],
     ["ağ hatası", fake(new TypeError("net"))],
   ])("%s → null (yalnız tarayıcı modu)", async (_n, f) => expect(await fetchAgentAvailability(f)).toBeNull());
+});
+
+describe("P28f-r4 AC-503 / K-P28f-r4-3: macosSigning şeması ve varyant", () => {
+  const ok = (body: unknown) => (async () => new Response(JSON.stringify(body), { status: 200 })) as unknown as typeof fetch;
+  const base = { windows: true, macos: true, macosTestBuild: false };
+  it.each([
+    ["notarized", "notarized"],
+    ["adhoc", "adhoc"],
+    [null, null],
+    [undefined, null],
+    ["NOTARIZED", null],
+    ["evet", null],
+    [true, null],
+  ] as const)("macosSigning %s → %s (bilinmeyen asla notarized değil; şema geri kalanı geçerli)", async (inp, out) => {
+    const r = await fetchAgentAvailability(ok({ ...base, macosSigning: inp }));
+    expect(r).not.toBeNull();
+    expect(r?.macosSigning).toBe(out);
+  });
+  it("varyant: test > notarized > adhoc (eksik/geçersiz/null → adhoc)", () => {
+    expect(macVariant({ macosTestBuild: true, macosSigning: "notarized" })).toBe("test");
+    expect(macVariant({ macosTestBuild: true, macosSigning: null })).toBe("test");
+    expect(macVariant({ macosTestBuild: false, macosSigning: "notarized" })).toBe("notarized");
+    expect(macVariant({ macosTestBuild: false, macosSigning: "adhoc" })).toBe("adhoc");
+    expect(macVariant({ macosTestBuild: false, macosSigning: null })).toBe("adhoc");
+    expect(macVariant(null)).toBe("adhoc");
+    expect(macVariant(undefined)).toBe("adhoc");
+  });
+  it("uçtan uca: eski sunucu (alan yok) ve geçersiz değer → adhoc", async () => {
+    expect(macVariant(await fetchAgentAvailability(ok(base)))).toBe("adhoc");
+    expect(macVariant(await fetchAgentAvailability(ok({ ...base, macosSigning: "Notarized" })))).toBe("adhoc");
+    expect(macVariant(await fetchAgentAvailability(ok({ ...base, macosSigning: "notarized" })))).toBe("notarized");
+  });
 });
