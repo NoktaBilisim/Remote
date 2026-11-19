@@ -15,6 +15,7 @@ import (
 
 	"remote-support/agent-win/internal/files"
 	"remote-support/agent-win/internal/flow"
+	"remote-support/agent-win/internal/linux/glib"
 	"remote-support/agent-win/internal/signal"
 	"remote-support/agent-win/internal/transfer"
 	"remote-support/agent-win/internal/ui/uicore"
@@ -233,4 +234,13 @@ func runScenario() []string {
 	}()
 	u.Run()
 	return errs
+}
+
+// textViewText geçmiş kutusunun düz metni (geri okuma; GUI duman testi düz metin kanıtı).
+func textViewText(v uintptr) string {
+	buf := gtkTextViewGetBuffer(v)
+	var a, b [96]byte
+	gtkTextBufferGetStartIter(buf, &a)
+	gtkTextBufferGetEndIter(buf, &b)
+	return glib.GoString(gtkTextBufferGetText(buf, &a, &b, true))
 }
