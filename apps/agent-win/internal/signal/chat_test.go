@@ -170,7 +170,7 @@ func TestAC264P22GChatSendEncode(t *testing.T) {
 	for _, m := range []ChatSend{
 		{T: "chat.send", ClientMsgID: "kisa", Body: "a"},
 		{T: "chat.send", ClientMsgID: "cm_0123456789abcd", Body: "  kırpılmamış "},
-		{T: "chat.send", ClientMsgID: "cm_0123456789abcd", Body: "bidi‮"},
+		{T: "chat.send", ClientMsgID: "cm_0123456789abcd", Body: "bidi\u202e"},
 		{T: "chat", ClientMsgID: "cm_0123456789abcd", Body: "a"},
 	} {
 		if _, err := Encode(m); err == nil {
