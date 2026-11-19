@@ -4860,10 +4860,11 @@ Teknisyende liste yalnız yetkili olduğu cihazları gösterir; hiç yoksa "Size
 4. Konsol açılır; kısa süre "Cihaz bağlanıyor…" yazar, ardından ekran gelir. Konsol kontrolü **kendiliğinden** ister ve
    cihaz hemen verir: ek tıklama olmadan ekranı görür, fare ve klavyeyi kullanırsınız. Başlıkta **Gözetimsiz** rozeti ve
    cihaz adı vardır. Müşteri onaylı oturumdaki doğrulama kodu ve oturum kodu burada yoktur; kimseye kod söylemeniz gerekmez.
-5. Kontrolü **Kontrolü bırak** ile bırakıp **Kontrol iste** ile yeniden alabilirsiniz; cihazda onay sorulmaz. Dosya
-   gönderebilirsiniz; dosya cihazda `C:\ProgramData\NoktaDestek Servis\Gelen\` klasörüne düşer. Cihazdan dosya çekme ve
-   sohbet yoktur. Pano paylaşımı ve uzaktan yazdırma da yoktur; konsolda "Gözetimsiz oturumda kullanılamaz — müşteri onayı
-   gerekir" yazar.
+5. Kontrolü **Kontrolü bırak** ile bırakıp **Kontrole devam** ile yeniden alabilirsiniz; cihazda onay sorulmaz (düğmenin
+   altındaki "müşteri yeniden onaylamalı" notu gözetimsiz bağlantıda geçerli değildir). Dosya gönderebilirsiniz; dosya
+   cihazda `C:\ProgramData\NoktaDestek Servis\Gelen\` klasörüne düşer. Cihazın ekranına çizim yapabilirsiniz (bkz.
+   "Teknisyen için: gözetimsiz cihazın ekranına çizim"). Cihazdan dosya çekme ve sohbet yoktur. Pano paylaşımı ve uzaktan
+   yazdırma da yoktur; konsolda "Gözetimsiz oturumda kullanılamaz — müşteri onayı gerekir" yazar.
 6. Bitirmek için oturumu normal şekilde sonlandırın.
 
 - Kontrolün kendiliğinden alınması için hesabınızda uzaktan kontrol yetkisi olmalı ve konsolun kontrol sahibi siz
@@ -4893,6 +4894,36 @@ Teknisyende liste yalnız yetkili olduğu cihazları gösterir; hiç yoksa "Size
 | Cihazda Windows oturumu değişti; yeniden bağlanın.                 | Cihazda kullanıcı değiştirildi; yeniden **Bağlan** deyin    |
 
 Cihaz yeniden başlatılırsa bağlantı biter; cihaz çevrimiçi olunca yeniden bağlanın.
+
+### Teknisyen için: gözetimsiz cihazın ekranına çizim
+
+Hızlı Destek'teki gibi cihazın ekranına kalem, ok, dikdörtgen ve lazer noktasıyla çizebilirsiniz. Çizim, cihazın başındaki
+kişiye bir yeri göstermek içindir (ör. yönetici onayı penceresinde "buraya tıklayın"). Cihazda servis **0.23 veya sonrası**
+olmalıdır; eski serviste çizim yalnız sizin konsolunuzda görünür, cihazda görünmez.
+
+Gözetimsiz bağlantıda kontrol açılışta size gelir. Kontrol sizdeyken çizim araçları şeritte görünmez. Çizmek için:
+
+1. Sahnenin üst şeridinde **Kontrolü bırak**'a basın. Şeritte **İşaretleme araçları** (Kalem, Ok, Dikdörtgen, Lazer, dört
+   renk, **Geri al**, **İşaretleri temizle**) çıkar. Araçlar **Sığdır** görünümünde çıkar; **%100** görünümünde yoktur.
+2. Bir araç ve renk seçip görüntünün üzerinde çizin. Çizim cihazda, paylaşılan monitörde aynı yerde ve aynı renkte en geç
+   1 saniye içinde görünür. Lazer noktası bıraktıktan 1 saniye sonra söner.
+3. **Geri al** son çizimi, **İşaretleri temizle** tüm çizimleri cihazdan da kaldırır.
+4. Fare ve klavyeyi yeniden kullanmak için **Kontrole devam**'a basın; cihazda onay sorulmaz. Çizimler cihazda kalır.
+
+Bilmeniz gerekenler:
+
+- Yalnız kontrol sahibi teknisyen çizebilir. Katılımcı ve izleyicinin araçları pasiftir ("Yalnız kontrol sahibi kullanabilir").
+- Çizimler tıklamayı engellemez: sizin ve cihaz kullanıcısının tıklaması çizimin altındaki pencereye gider.
+- Bağlantı göstergesi (kırmızı çerçeve ve üstteki yazı) her zaman çizimlerin üstündedir; çizim göstergeyi örtemez.
+- Çizimler sizin görüntünüze ve oturum kaydına girmez; cihazdan gelen görüntüde çift çizim görmezsiniz.
+- Cihaz kilit ekranına, oturum açma ekranına ya da yönetici onayı (UAC) penceresine geçerse çizimler orada yeniden
+  görünür. Lazer noktası geçişte söner. Bazı bilgisayarlarda bu güvenli ekranlarda çizim gösterilemeyebilir; bu durumda
+  yalnız çizim görünmez, bağlantı ve gösterge etkilenmez.
+- Monitör değiştirdiğinizde ya da cihazda çözünürlük değiştiğinde çizimler yeni ekrana taşınır, silinmez.
+- Bir oturumda en çok 500 çizim tutulur; fazlasında en eski çizim silinir.
+- Bağlantı bitince çizimler cihazdan kalkar. Yeniden bağlandığınızda önceki çizimler gelmez.
+- Çizimin görüntünüze girmemesi için cihazda Windows 10 2004 veya sonrası gerekir; daha eski Windows'ta çizimi
+  görüntüde iki kez görebilirsiniz.
 
 ### Tek bağlantı yolu: cihaz kullanıcısına sorulmaz
 
@@ -5023,6 +5054,10 @@ teknisyen ekrana gelen yönetici onayı (UAC) pencerelerini onaylayabilir. Bu bi
 - **Gösterge:** bağlantı süresince her monitörün kenarında kırmızı çerçeve ve üstte "Uzaktan bağlantı: <teknisyen adı> —
   <destek firması>" yazısı durur. Bağlantı size sorulmadan açılır; bu yüzden **gizli izleme yoktur**: gösterge her
   bağlantıda görünür, kapatılamaz, kilit ekranında da görünür. Gösterge çizilemezse bağlantı hiç açılmaz.
+- **Teknisyenin çizimleri** (servis 0.23 ve sonrası): teknisyen bir yeri göstermek için ekrana ok, kalem, dikdörtgen ya
+  da kısa süreli lazer noktası çizebilir. Çizimler teknisyenin baktığı monitörde görünür, tıklamanızı engellemez
+  (tıklama altındaki pencereye gider) ve göstergeyi örtmez. Kilit ekranında ve yönetici onayı (UAC) penceresinde de
+  görünebilir. Bağlantı bitince kalkar. Çizimleri cihazda kapatma seçeneği yoktur.
 - **E-posta:** her gözetimsiz bağlantıda tanımlı adreslere e-posta gelir. Bağlantı gördüğünüz halde e-posta gelmiyorsa
   destek firmanıza sorun.
 - **Tepsi simgesi:** saatin yanındaki simgenin ipucu "Gözetimsiz erişim: Açık / Kapalı / Bağlantı var: <teknisyen>"
