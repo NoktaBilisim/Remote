@@ -100,7 +100,9 @@ step "4 X11 katmanı (oturum D-Bus + Xvfb)"
 export DBUS_SESSION_BUS_ADDRESS="unix:path=$XDG_RUNTIME_DIR/bus"
 dbus-daemon --session --address="$DBUS_SESSION_BUS_ADDRESS" --nofork --nopidfile >/tmp/dbus-session.log 2>&1 &
 PIDS+=($!)
-Xvfb :99 -screen 0 1920x1080x24 -nolisten tcp >/tmp/xvfb.log 2>&1 &
+# -noreset: son istemci kopunca Xvfb sunucuyu sıfırlar; o anda açılan bağlantı reddedilir (art arda X testleri arasında
+# oynak "X görüntüsü açılamadı", CI 2026-11-19).
+Xvfb :99 -screen 0 1920x1080x24 -nolisten tcp -noreset >/tmp/xvfb.log 2>&1 &
 PIDS+=($!)
 x11=0
 for _ in $(seq 1 30); do

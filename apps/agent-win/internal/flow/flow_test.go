@@ -301,7 +301,7 @@ func newHarness(t *testing.T) *harness {
 			return []signal.Monitor{{ID: 1, Name: "Ekran 1", W: 1920, H: 1080, Primary: true},
 				{ID: 2, Name: "Ekran 2", W: 1280, H: 1024}}, nil
 		},
-		Capture:        func(int) (rtc.Source, error) { return fakeSrc{}, nil },
+		Capture: func(int) (rtc.Source, error) { return fakeSrc{}, nil },
 		// Klasör kurulumda alınır: akış goroutine'i test bittikten sonra çağırırsa t.TempDir panikler (CI 2026-11-19).
 		DownloadDir:    func() (string, error) { return dlDir, nil },
 		MOTW:           func(string) error { return nil },
