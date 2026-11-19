@@ -1509,30 +1509,30 @@ Kapsam: `git diff origin/main...HEAD` (10 commit, `apps/agent-win`), `docs/mimar
 
 ### Test sonucu
 
-| Komut | Sonuç |
-| --- | --- |
+| Komut                                                             | Sonuç                                                                                                                                                                                                                                                                                                                                     |
+| ----------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `cd apps/agent-win && go test -count=1 ./...` (darwin, go1.26.11) | 36 paket ok, 1 FAIL: `internal/capture` `TestP28fK2AC392OwnWindowsExcluded` ("pozitif kontrol: macenta görülmedi"). Kapsam dışı: `internal/capture` bu dalda değişmedi; aynı test `origin/main`'den açılan geçici worktree'de de kırmızı (bu makinenin ekran yakalama ortamı). Bilinen `input/TestP28gK3GUIXTestClick` darwin'de koşmuyor |
-| `GOOS=windows go vet ./...` | temiz |
-| `GOOS=linux go vet ./...` | temiz |
-| `go vet ./...` (darwin) | temiz |
-| `gofmt -l .` | boş |
-| P22 testleri (`-run 'P22\|AC292\|AC264\|SP22' -v`) | 21 test, hepsi PASS; skip yok |
+| `GOOS=windows go vet ./...`                                       | temiz                                                                                                                                                                                                                                                                                                                                     |
+| `GOOS=linux go vet ./...`                                         | temiz                                                                                                                                                                                                                                                                                                                                     |
+| `go vet ./...` (darwin)                                           | temiz                                                                                                                                                                                                                                                                                                                                     |
+| `gofmt -l .`                                                      | boş                                                                                                                                                                                                                                                                                                                                       |
+| P22 testleri (`-run 'P22\|AC292\|AC264\|SP22' -v`)                | 21 test, hepsi PASS; skip yok                                                                                                                                                                                                                                                                                                             |
 
 Windows UI kodu yalnız derlendi/vet edildi (Windows'ta test koşmadı; CI `test-windows`). macOS/Windows için GUI geri okuma testi yok.
 
 ### Kabul kriterleri (Go kısmı)
 
-| AC | Durum | Kanıt / eksik |
-| --- | --- | --- |
-| AC-264 — sohbet WS üzerinden, sunucu aktarımlı; DC `chat` kullanılmaz | ✅ | `TestAC264P22GSessionSendsOverWS` (schat1 yalnız ChatUI bağlıyken ve gözetimsiz değilken; `chat.send` WS'ten gider, DC'ye 0 yazım), `TestAC264P22GDCChatNotShownNorRelayed` (DC chat gelişi UI'ya 0 öğe), `TestAC264P22GDCChatNotRecognized` (multi.json dcChat'in tamamı ParseCtl'de reddedilir). Kod: `onTechChat`/`relayChat`/`sendAll`/`chatMessage`/`case "chat"`/`UI.Chat`/`RosterUI.TechChat` silindi; `ctlAllowed` = sahip ∨ ping (`internal/flow/peers.go:278`) |
-| AC-264 — `chat.state` gelmeden giriş pasif (eski sunucu → "Sohbet şu an kullanılamıyor") | ✅ | `TestAC264P22GInputDisabledUntilChatState`; üç arayüzde giriş + Gönder oluşturulurken pasif (`chat_windows.go:110-111`, `mac/session_darwin.go:75-76`, `gtk/session_linux.go:76-77`), `sendChat` ayrıca `!s.chatOn` ile döner |
-| AC-264 — yankı eşleme, "tekrar dene" idempotent | ✅ | `TestAC264P22GEchoMatchAndRetryIdempotent` (reddedilen metin aynı `clientMsgId` ile; yeni öğe yok), `TestAC264P22GClientMsgIDIsRandom16Bytes` |
-| AC-264 — `chat.history` tekilleştirme (id), iki varış sırası, yeniden bağlanmada yeniden gönderim | ✅ | `TestAC264P22GReconnectResendAndHistoryDedupe` (yankı→geçmiş ve geçmiş→yankı; ikinci geçmiş çoğaltmaz) |
-| S-P22-1 — 48 KiB `chat.history` / `request.messages` gerçek sokette okunur, okuma sınırı değişmez | ✅ | `TestSP22_1BudgetedHistoryReadsOverRealSocket`, `TestSP22_1BudgetedRequestMessagesReadOverRealSocket`; `conn.go` 64 KiB sınırına dokunulmadı |
-| Sözleşme birebir (fikstür) | ✅ | `TestAC264P22GConstantsMatchFixture`, `…ChatSendMatchesFixture`, `…ServerMessagesMatchFixture`, `…ChatStateAndItems`, `…ChatSendEncode`. Sapma (gerekçeli): `senderName` kod noktası ile ≤ 100 (zod UTF-16) — Go şemanın üst kümesini kabul eder, sunucu `displayName` kesimiyle uyumlu; kabul edildi |
-| Düz metin (`<b>` literal, sahte başlık yok, bidi süzülür) | ✅ | `TestAC264P22GPlainTextNoFakeHeaders` (model), GTK `TestP28gK4GUIWindowOpens` (geçmiş + durum satırı geri okuma; implementation.md'ye göre Linux GUI koşusunda geçti, bu turda yeniden koşulmadı). macOS: NSTextView `setRichText:false` + bağlantı/veri algılama kapalı (`mac/form_darwin.go:189-193`); Windows: salt okunur EDIT |
-| AC-291 (Go) | ✅ | Go metni üretmez; sunucunun aydınlatma metnini olduğu gibi gösterir (değişiklik yok, gerekmez) |
-| AC-292 — onay düğmesinin hemen üstünde saklama satırı; satır yoksa düğme pasif (Win/mac/gtk karşılama + Windows talep formu) | ✅ | `TestAC292ConsentReady` (0/-1/1/90 × çizildi/çizilmedi), `TestAC292P22GRetentionLineMatchesContracts` (fikstür `retentionLine90` birebir), `TestAC292ChatRetentionDaysParsed`, `TestAC292RequestFormRetentionDays` (0 gün → talep oluşturulmaz, "Sunucu güncel değil"). Kod: `ready` geri okunan etiketten (`RetentionDrawn`), `valid()`/Enter yolları `ready` ister (`welcome_windows.go:84,91`, `screens_darwin.go:114,139`, `welcome_linux.go:73-76,105`, `reqform_windows.go:157,175`) |
+| AC                                                                                                                           | Durum | Kanıt / eksik                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
+| ---------------------------------------------------------------------------------------------------------------------------- | ----- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| AC-264 — sohbet WS üzerinden, sunucu aktarımlı; DC `chat` kullanılmaz                                                        | ✅    | `TestAC264P22GSessionSendsOverWS` (schat1 yalnız ChatUI bağlıyken ve gözetimsiz değilken; `chat.send` WS'ten gider, DC'ye 0 yazım), `TestAC264P22GDCChatNotShownNorRelayed` (DC chat gelişi UI'ya 0 öğe), `TestAC264P22GDCChatNotRecognized` (multi.json dcChat'in tamamı ParseCtl'de reddedilir). Kod: `onTechChat`/`relayChat`/`sendAll`/`chatMessage`/`case "chat"`/`UI.Chat`/`RosterUI.TechChat` silindi; `ctlAllowed` = sahip ∨ ping (`internal/flow/peers.go:278`)                   |
+| AC-264 — `chat.state` gelmeden giriş pasif (eski sunucu → "Sohbet şu an kullanılamıyor")                                     | ✅    | `TestAC264P22GInputDisabledUntilChatState`; üç arayüzde giriş + Gönder oluşturulurken pasif (`chat_windows.go:110-111`, `mac/session_darwin.go:75-76`, `gtk/session_linux.go:76-77`), `sendChat` ayrıca `!s.chatOn` ile döner                                                                                                                                                                                                                                                              |
+| AC-264 — yankı eşleme, "tekrar dene" idempotent                                                                              | ✅    | `TestAC264P22GEchoMatchAndRetryIdempotent` (reddedilen metin aynı `clientMsgId` ile; yeni öğe yok), `TestAC264P22GClientMsgIDIsRandom16Bytes`                                                                                                                                                                                                                                                                                                                                              |
+| AC-264 — `chat.history` tekilleştirme (id), iki varış sırası, yeniden bağlanmada yeniden gönderim                            | ✅    | `TestAC264P22GReconnectResendAndHistoryDedupe` (yankı→geçmiş ve geçmiş→yankı; ikinci geçmiş çoğaltmaz)                                                                                                                                                                                                                                                                                                                                                                                     |
+| S-P22-1 — 48 KiB `chat.history` / `request.messages` gerçek sokette okunur, okuma sınırı değişmez                            | ✅    | `TestSP22_1BudgetedHistoryReadsOverRealSocket`, `TestSP22_1BudgetedRequestMessagesReadOverRealSocket`; `conn.go` 64 KiB sınırına dokunulmadı                                                                                                                                                                                                                                                                                                                                               |
+| Sözleşme birebir (fikstür)                                                                                                   | ✅    | `TestAC264P22GConstantsMatchFixture`, `…ChatSendMatchesFixture`, `…ServerMessagesMatchFixture`, `…ChatStateAndItems`, `…ChatSendEncode`. Sapma (gerekçeli): `senderName` kod noktası ile ≤ 100 (zod UTF-16) — Go şemanın üst kümesini kabul eder, sunucu `displayName` kesimiyle uyumlu; kabul edildi                                                                                                                                                                                      |
+| Düz metin (`<b>` literal, sahte başlık yok, bidi süzülür)                                                                    | ✅    | `TestAC264P22GPlainTextNoFakeHeaders` (model), GTK `TestP28gK4GUIWindowOpens` (geçmiş + durum satırı geri okuma; implementation.md'ye göre Linux GUI koşusunda geçti, bu turda yeniden koşulmadı). macOS: NSTextView `setRichText:false` + bağlantı/veri algılama kapalı (`mac/form_darwin.go:189-193`); Windows: salt okunur EDIT                                                                                                                                                         |
+| AC-291 (Go)                                                                                                                  | ✅    | Go metni üretmez; sunucunun aydınlatma metnini olduğu gibi gösterir (değişiklik yok, gerekmez)                                                                                                                                                                                                                                                                                                                                                                                             |
+| AC-292 — onay düğmesinin hemen üstünde saklama satırı; satır yoksa düğme pasif (Win/mac/gtk karşılama + Windows talep formu) | ✅    | `TestAC292ConsentReady` (0/-1/1/90 × çizildi/çizilmedi), `TestAC292P22GRetentionLineMatchesContracts` (fikstür `retentionLine90` birebir), `TestAC292ChatRetentionDaysParsed`, `TestAC292RequestFormRetentionDays` (0 gün → talep oluşturulmaz, "Sunucu güncel değil"). Kod: `ready` geri okunan etiketten (`RetentionDrawn`), `valid()`/Enter yolları `ready` ister (`welcome_windows.go:84,91`, `screens_darwin.go:114,139`, `welcome_linux.go:73-76,105`, `reqform_windows.go:157,175`) |
 
 ### Düzeltilmeli
 
@@ -1550,16 +1550,16 @@ Windows UI kodu yalnız derlendi/vet edildi (Windows'ta test koşmadı; CI `test
 
 ### Definition of Done
 
-| Madde | Durum | Not |
-| --- | --- | --- |
-| Testler yeşil | ✅ | P22 kapsamındaki tüm paketler ok; tek kırmızı (`capture`) tabanda da kırmızı, bu dala ait değil |
-| vet (darwin/windows/linux), gofmt | ✅ | temiz |
-| AC'ler test kanıtlı, test adları AC/S-P22 taşır | ✅ | yukarıdaki tablo |
-| Mimari §9/§15 dosya planına uyum | ✅ | Gövde kuralının `signal`'e taşınması gerekçeli (döngü), kabul |
-| Kapsam dışı dosyalara dokunulmadı | ✅ | P21 güncelleme/indirme, `consent_windows.go`, `unattended/helper/consent_windows.go`, `headless.go` diff'te yok |
-| Yeni bağımlılık yok | ✅ | `go.mod` değişmedi |
-| Gerileme yok (mevcut davranış korunur) | ❌ | Q-P22G-1 (Windows sistem satırları) |
-| implementation.md doğru | ❌ | Q-P22G-1 notu koda uymuyor |
+| Madde                                           | Durum | Not                                                                                                             |
+| ----------------------------------------------- | ----- | --------------------------------------------------------------------------------------------------------------- |
+| Testler yeşil                                   | ✅    | P22 kapsamındaki tüm paketler ok; tek kırmızı (`capture`) tabanda da kırmızı, bu dala ait değil                 |
+| vet (darwin/windows/linux), gofmt               | ✅    | temiz                                                                                                           |
+| AC'ler test kanıtlı, test adları AC/S-P22 taşır | ✅    | yukarıdaki tablo                                                                                                |
+| Mimari §9/§15 dosya planına uyum                | ✅    | Gövde kuralının `signal`'e taşınması gerekçeli (döngü), kabul                                                   |
+| Kapsam dışı dosyalara dokunulmadı               | ✅    | P21 güncelleme/indirme, `consent_windows.go`, `unattended/helper/consent_windows.go`, `headless.go` diff'te yok |
+| Yeni bağımlılık yok                             | ✅    | `go.mod` değişmedi                                                                                              |
+| Gerileme yok (mevcut davranış korunur)          | ❌    | Q-P22G-1 (Windows sistem satırları)                                                                             |
+| implementation.md doğru                         | ❌    | Q-P22G-1 notu koda uymuyor                                                                                      |
 
 ### Öneriler (zorunlu değil)
 
@@ -1584,43 +1584,43 @@ DURUM: GEÇTİ
 
 #### Test sonucu
 
-| Komut | Sonuç |
-| --- | --- |
-| `cd apps/agent-win && go test -count=1 ./...` (darwin) | 36 paket ok, 1 FAIL `internal/capture` `TestP28fK2AC392OwnWindowsExcluded`: Tur 1'deki ortam kırmızısıyla aynı. Paket dalda değişmedi, `origin/main`'de de kırmızı; P22-G dışı |
-| `go vet ./...` (darwin) · `GOOS=windows` · `GOOS=linux` · `GOOS=linux -tags linuxgui ./internal/ui/gtk/` | temiz |
-| `gofmt -l .` | boş |
-| `GOOS=windows go test -c ./internal/ui/` | derlendi (Windows'ta koşulmadı; CI `test-windows`) |
-| GTK GUI: `remote-p28g-gui:2404` imajında, Xvfb ile, `P28G_GUI=x11 go test -tags linuxgui -run TestP28gK4GUIWindowOpens ./internal/ui/gtk/` | PASS (QA tarafından bu turda koşuldu) |
-| Yeni/ilgili testler | `TestQP22G1SystemLinesSurviveChatRev`, `TestSP22G3ChatNullAndEmptyRejected`, `TestAC292P22GWelcomeFlowGateNoRetentionDays` ve Tur 1'deki tüm `AC264P22G*`/`AC292*`/`SP22_1*` PASS; skip yok |
+| Komut                                                                                                                                      | Sonuç                                                                                                                                                                                       |
+| ------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `cd apps/agent-win && go test -count=1 ./...` (darwin)                                                                                     | 36 paket ok, 1 FAIL `internal/capture` `TestP28fK2AC392OwnWindowsExcluded`: Tur 1'deki ortam kırmızısıyla aynı. Paket dalda değişmedi, `origin/main`'de de kırmızı; P22-G dışı              |
+| `go vet ./...` (darwin) · `GOOS=windows` · `GOOS=linux` · `GOOS=linux -tags linuxgui ./internal/ui/gtk/`                                   | temiz                                                                                                                                                                                       |
+| `gofmt -l .`                                                                                                                               | boş                                                                                                                                                                                         |
+| `GOOS=windows go test -c ./internal/ui/`                                                                                                   | derlendi (Windows'ta koşulmadı; CI `test-windows`)                                                                                                                                          |
+| GTK GUI: `remote-p28g-gui:2404` imajında, Xvfb ile, `P28G_GUI=x11 go test -tags linuxgui -run TestP28gK4GUIWindowOpens ./internal/ui/gtk/` | PASS (QA tarafından bu turda koşuldu)                                                                                                                                                       |
+| Yeni/ilgili testler                                                                                                                        | `TestQP22G1SystemLinesSurviveChatRev`, `TestSP22G3ChatNullAndEmptyRejected`, `TestAC292P22GWelcomeFlowGateNoRetentionDays` ve Tur 1'deki tüm `AC264P22G*`/`AC292*`/`SP22_1*` PASS; skip yok |
 
 #### Bulgu kapanışı
 
-| Bulgu | Durum | Kanıt |
-| --- | --- | --- |
-| Q-P22G-1 (Windows sistem satırları siliniyordu) | ✅ kapandı | `ui/chat_windows.go` `drawHistory` / `appendSystem`: kutu `crlf(uicore.ChatComposite(chatText, hist))` ile yazılıyor. `appendLine` kaldırıldı; `transfer_windows.go:94,114`, `voice_windows.go:82,99`, `ended_windows.go:25` artık `appendSystem` çağırıyor (`grep appendLine( *_windows.go` boş). Test `uicore.TestQP22G1SystemLinesSurviveChatRev`: saf birleştirme fonksiyonu, yeni sohbet sürümünden sonra sistem satırı kalıyor. Windows çizim kodu macOS/GTK ile aynı kalıpta, yalnız derlendi. implementation.md'deki yanlış "fark yok" notu kaldırılmış |
-| Q-P22G-2 (GTK karşılama GUI testi saklama satırını doğrulamıyordu) | ✅ kapandı | `gui_linux_test.go`: 90 günde satır `RetentionText(90)` olarak geri okunuyor ve "Bağlan" etkin; 0 günde satır "Sunucu güncel değil", ad + onay olsa da "Bağlan" pasif. QA koşusunda PASS |
-| Q-P22G-3 = S-P22G-2 (karşılamada akış düzeyi ikinci kapı) | ✅ kapandı | `flow/flow.go:317-321`: `ChatRetentionDays < 1` ise join yok, son ekran `msgNoRetention`. Test `TestAC292P22GWelcomeFlowGateNoRetentionDays`: arayüz onay dönse bile join 0; 90 gün karşılamaya aktarılıyor |
-| S-P22G-3 (güvenlik; null / boş isteğe bağlı alan) | ✅ | `signal/chat.go` `chatNoNull` / `nullOrEmptyKey`: `chat.message`, `chat.history` öğesi ve `chat.state.reason` için null/`""` reddediliyor (zod `optional()`/`enum` ile aynı). Test 14 vakayla `TestSP22G3ChatNullAndEmptyRejected`. Fikstüre örnek eklenmemiş (contracts paketi kapsam dışı, gerekçeli) |
+| Bulgu                                                              | Durum      | Kanıt                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
+| ------------------------------------------------------------------ | ---------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Q-P22G-1 (Windows sistem satırları siliniyordu)                    | ✅ kapandı | `ui/chat_windows.go` `drawHistory` / `appendSystem`: kutu `crlf(uicore.ChatComposite(chatText, hist))` ile yazılıyor. `appendLine` kaldırıldı; `transfer_windows.go:94,114`, `voice_windows.go:82,99`, `ended_windows.go:25` artık `appendSystem` çağırıyor (`grep appendLine( *_windows.go` boş). Test `uicore.TestQP22G1SystemLinesSurviveChatRev`: saf birleştirme fonksiyonu, yeni sohbet sürümünden sonra sistem satırı kalıyor. Windows çizim kodu macOS/GTK ile aynı kalıpta, yalnız derlendi. implementation.md'deki yanlış "fark yok" notu kaldırılmış |
+| Q-P22G-2 (GTK karşılama GUI testi saklama satırını doğrulamıyordu) | ✅ kapandı | `gui_linux_test.go`: 90 günde satır `RetentionText(90)` olarak geri okunuyor ve "Bağlan" etkin; 0 günde satır "Sunucu güncel değil", ad + onay olsa da "Bağlan" pasif. QA koşusunda PASS                                                                                                                                                                                                                                                                                                                                                                        |
+| Q-P22G-3 = S-P22G-2 (karşılamada akış düzeyi ikinci kapı)          | ✅ kapandı | `flow/flow.go:317-321`: `ChatRetentionDays < 1` ise join yok, son ekran `msgNoRetention`. Test `TestAC292P22GWelcomeFlowGateNoRetentionDays`: arayüz onay dönse bile join 0; 90 gün karşılamaya aktarılıyor                                                                                                                                                                                                                                                                                                                                                     |
+| S-P22G-3 (güvenlik; null / boş isteğe bağlı alan)                  | ✅         | `signal/chat.go` `chatNoNull` / `nullOrEmptyKey`: `chat.message`, `chat.history` öğesi ve `chat.state.reason` için null/`""` reddediliyor (zod `optional()`/`enum` ile aynı). Test 14 vakayla `TestSP22G3ChatNullAndEmptyRejected`. Fikstüre örnek eklenmemiş (contracts paketi kapsam dışı, gerekçeli)                                                                                                                                                                                                                                                         |
 
 #### Kabul kriterleri (Go kısmı)
 
-| AC | Durum | Not |
-| --- | --- | --- |
-| AC-264 | ✅ | Tur 1 kanıtları geçerli; Q-P22G-1 gerilemesi kapandı |
-| AC-291 | ✅ | Go metni değiştirmiyor, sunucunun metnini gösteriyor |
-| AC-292 | ✅ | `ConsentReady` tablo testi; üç karşılama ekranı ve Windows talep formu düğme/Enter kapısı; akış düzeyi ikinci kapı (karşılama + talep); GTK GUI geri okuma |
+| AC     | Durum | Not                                                                                                                                                        |
+| ------ | ----- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| AC-264 | ✅    | Tur 1 kanıtları geçerli; Q-P22G-1 gerilemesi kapandı                                                                                                       |
+| AC-291 | ✅    | Go metni değiştirmiyor, sunucunun metnini gösteriyor                                                                                                       |
+| AC-292 | ✅    | `ConsentReady` tablo testi; üç karşılama ekranı ve Windows talep formu düğme/Enter kapısı; akış düzeyi ikinci kapı (karşılama + talep); GTK GUI geri okuma |
 
 #### Definition of Done
 
-| Madde | ✅/❌ | Not |
-| --- | --- | --- |
-| Testler yeşil | ✅ | Tek kırmızı, tabanda da var olan ortam testi (`capture`) |
-| vet (3 platform + linuxgui), gofmt | ✅ | |
-| AC'ler test kanıtlı, adlar AC/S-P22/Q-P22G taşıyor | ✅ | |
-| Gerileme yok | ✅ | Q-P22G-1 kapandı |
-| implementation.md güncel ve doğru | ✅ | "P22-GQ düzeltme turu 1" |
-| Kapsam dışı dosyalar (P21, `consent_windows.go`, `headless.go`) | ✅ | dokunulmamış |
-| Yeni bağımlılık | ✅ | yok |
+| Madde                                                           | ✅/❌ | Not                                                      |
+| --------------------------------------------------------------- | ----- | -------------------------------------------------------- |
+| Testler yeşil                                                   | ✅    | Tek kırmızı, tabanda da var olan ortam testi (`capture`) |
+| vet (3 platform + linuxgui), gofmt                              | ✅    |                                                          |
+| AC'ler test kanıtlı, adlar AC/S-P22/Q-P22G taşıyor              | ✅    |                                                          |
+| Gerileme yok                                                    | ✅    | Q-P22G-1 kapandı                                         |
+| implementation.md güncel ve doğru                               | ✅    | "P22-GQ düzeltme turu 1"                                 |
+| Kapsam dışı dosyalar (P21, `consent_windows.go`, `headless.go`) | ✅    | dokunulmamış                                             |
+| Yeni bağımlılık                                                 | ✅    | yok                                                      |
 
 #### Açık kalanlar (zorunlu değil)
 
