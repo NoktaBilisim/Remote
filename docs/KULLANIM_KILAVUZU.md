@@ -4,13 +4,15 @@ Bu kılavuz Nokta Bilişim uzaktan destek platformunun kullanıcıya dönük ekr
 geliştirilir (bkz. `README.md` "Yol haritası"); kılavuz da her paketle birlikte büyür. Bu sürümde yer alan bölümler:
 
 - **Müşteri için:** Hızlı Destek uygulaması (Windows) ve **Hızlı Destek uygulaması (macOS, 0.19)** (indirme ve açma, Ekran
-  Kaydı / Erişilebilirlik izinleri, "Yine de Aç" uyarısı, korunan düğmeler, yazdırma, izinleri kaldırma), yalnız bir pencereyi paylaşma (0.11), "Destek iste" ile talep gönderme,
+  Kaydı / Erişilebilirlik izinleri, "Yine de Aç" uyarısı, korunan düğmeler, yazdırma, izinleri kaldırma), **Hızlı Destek
+  uygulaması (Linux, 0.20)** (Ubuntu 22.04 / 24.04, başlatma komutu, X11 ve Wayland farkları, Wayland izin penceresi ve
+  kontrol sınırları, Super+L), pencere başlığında sürüm (0.20), yalnız bir pencereyi paylaşma (0.11), "Destek iste" ile talep gönderme,
   birden çok firmaya kayıt, tepside çalıştırma ve Windows açılışında başlatma, beklerken teknisyenle yazışma (0.12),
   program indirmeden tarayıcıdan talep gönderme (web talep formu, durum bildirimi, "sohbete şifre yazmayın"), bilgisayarın hatırlanması
   ("Bağlantı kodum var", "Bu bilgisayarı unut"), uzaktan kontrol izni, pano paylaşımı ve uzaktan yazdırma onayı (0.13), firma dosyaları sunucuda tarıyorsa (0.14), ekran görüntüsü alınamazsa ne yapılır,
   bilgisayarda ne kalır (iz ve gizlilik)
 - **Teknisyen için:** Oturumlar ve bekleme odası ("Müşteri bekliyor" rozeti, menü sayacı, bildirim), Uzaktan kontrol
-  (konsol; "Pencere paylaşımı" rozeti dahil), Pano ve uzaktan yazdırma (konsol), Dosyalar sunucuda taranırken (tarama durumları), Oturum geçmişi (sunucudaki dosyaları indirme dahil) (dosyalarda "Doğrulanmış / Müşteri bildirimi", talepte SLA satırı), Destek talepleri ("Bu kaynağı engelle"; öncelik, atama,
+  (konsol; "Pencere paylaşımı" rozeti, Mac ve Linux müşterisi dahil), Pano ve uzaktan yazdırma (konsol), Dosyalar sunucuda taranırken (tarama durumları), Oturum geçmişi (sunucudaki dosyaları indirme dahil) (dosyalarda "Doğrulanmış / Müşteri bildirimi", talepte SLA satırı), Destek talepleri ("Bu kaynağı engelle"; öncelik, atama,
   SLA rozetleri, kabul öncesi mesajlaşma),
   Engellenenler, web formundan gelen talepler ("Web" rozeti), müşterinin ekranı gelmiyorsa (paylaşım hata nedeni)
 - **Admin ve teknisyen için:** Müşteriler (müşteri firmalar, bağlantı gönderme, web talep formu bağlantısı, kayıtlı
@@ -364,8 +366,9 @@ Destek simgesi her zaman görünür.
 
 Düğme görünmüyorsa:
 
-- Bağlantıyı telefon, tablet veya Linux bilgisayarda açmış olabilirsiniz. Hızlı Destek Windows'ta ve Mac'te çalışır
-  (Mac için bkz. "Müşteri için: Hızlı Destek uygulaması (macOS)").
+- Bağlantıyı telefon, tablet ya da desteklenmeyen bir bilgisayarda açmış olabilirsiniz. Hızlı Destek Windows'ta, Mac'te
+  ve Ubuntu Linux'ta (22.04 / 24.04, x86_64) çalışır (bkz. "Müşteri için: Hızlı Destek uygulaması (macOS)" ve "Müşteri
+  için: Hızlı Destek uygulaması (Linux)").
 - Sayfada "Hızlı Destek şu anda indirilemiyor" yazıyorsa **Tarayıcıdan devam et** düğmesiyle devam edin. Bu yolda
   teknisyen ekranınızı yine görür.
 - "Çok fazla indirme denemesi yapıldı" yazıyorsa belirtilen süre kadar bekleyin.
@@ -399,6 +402,11 @@ Program açıldığında **Nokta Destek — Karşılama** penceresi gelir. Devam
 | **Teknisyen doğrulama kodu**                  | Teknisyen bu kodu telefonda size söylemeli. Söyleyemiyorsa veya farklıysa devam etmeyin. |
 | **Bağlanılan sunucu:** adres                  | Destek sayfasındaki adresle aynı olmalı. Farklıysa pencereyi kapatın.                    |
 | En alt satır: **Sunucu · Sürüm · Parmak izi** | Programın kimlik bilgisi. Şirketinizin BT sorumlusu isterse bu bilgiyi verin.            |
+
+**Sürüm pencere başlığında da yazar** (Hızlı Destek 0.20 ve sonrası; Windows, Mac ve Linux): her pencerenin başlığı
+programın sürümüyle başlar, ör. **"Nokta Destek 0.20.0 — Oturum"**. Windows'ta tepsi simgesinin ipucunda da sürüm
+görünür. Teknisyen ya da BT sorumlusu sürümü sorarsa başlığa bakmanız yeter. Test sunucusundan indirilen Linux
+programında başlığın sonunda " — TEST" yazar.
 
 **Parmak izi nedir?** Program dosyasının 8 karakterlik özetidir (ör. `471023c7`). Dosyada tek bir bayt değişse bile
 farklı çıkar. BT sorumlusu bunu GitHub sürüm sayfasındaki `SHA256SUMS` dosyasında aynı sürüme ait satırın ilk 8
@@ -1255,8 +1263,8 @@ kontrol istediğinde gerekir; yalnız ekran paylaşımı için gerekmez.
 2. Listede **Nokta Destek**'in anahtarını açın (Mac parolanız ya da Touch ID istenebilir).
 3. Teknisyene "izni verdim" deyin; teknisyen kontrolü **yeniden** ister.
 
-Bu sırada ekran paylaşımı, sohbet ve dosya aktarımı çalışmaya devam eder. Teknisyen konsolunda "Müşteri erişilebilirlik
-izni vermedi. Müşteri izni verdikten sonra yeniden isteyin." yazar; bu bir ret sayılmaz, teknisyen hemen yeniden
+Bu sırada ekran paylaşımı, sohbet ve dosya aktarımı çalışmaya devam eder. Teknisyen konsolunda "Müşterinin bilgisayarı
+uzaktan kontrole izin vermiyor (Mac'te erişilebilirlik izni). Müşteri izni verdikten sonra yeniden isteyin." yazar; bu bir ret sayılmaz, teknisyen hemen yeniden
 isteyebilir. Uygulamayı yeniden başlatmanız gerekmez. İzin verdiğiniz hâlde kontrol açılmıyorsa **Oturumu bitir** ile
 çıkıp uygulamayı yeniden açın ve teknisyenden yeni bağlantı isteyin.
 
@@ -1416,6 +1424,267 @@ tccutil reset Accessibility net.noktabilisim.destek
 | Control+Shift+F12 çalışmıyor                                               | Dizüstünde **fn** ile birlikte basın. Oturum penceresinde F11 yazıyorsa Control+Shift+F11 kullanın. Her zaman **Kontrolü kapat** düğmesi de çalışır. |
 | Teknisyen bazı harfleri yazamıyor                                          | Fare Tuşları açık olabilir. Kapatın ya da o harfleri siz yazın.                                                                                      |
 | Teknisyen sesli görüşme başlatamıyor                                       | Mac sürümünde sesli görüşme yoktur; telefonda konuşun.                                                                                               |
+
+---
+
+## Müşteri için: Hızlı Destek uygulaması (Linux)
+
+Hızlı Destek'in Linux sürümü (0.20 ve sonrası), Windows ve Mac sürümüyle aynı işi yapar: teknisyen ekranınızı görür,
+izin verirseniz farenizi ve klavyenizi kullanır, size dosya gönderir, sizinle sesli konuşabilir. Program tek bir
+dosyadır. Kurulum gerektirmez, yönetici (root) şifresi istemez. Oturum bitince program kapanır ve arkada çalışan bir
+parçası kalmaz.
+
+**Ne gerekir?**
+
+- **Ubuntu 22.04 ya da 24.04 LTS**, 64 bit Intel/AMD işlemcili (x86_64) bir bilgisayar ve Ubuntu'nun standart masaüstü
+  (GNOME). Diğer dağıtımlar, diğer masaüstleri ve ARM işlemcili bilgisayarlar desteklenmez.
+- İnternet bağlantısı.
+- Teknisyeninizin gönderdiği **destek bağlantısı** ya da **8 haneli destek kodu**.
+- Telefonda teknisyeninizle görüşüyor olmanız (kodları birbirinize okuyacaksınız).
+
+**Ne zaman kullanılabilir?** Linux sürümü sunucuda yayımlandığında destek sayfası Ubuntu bilgisayarınızı tanır ve indirme
+düğmesini gösterir. Yayımlanmadıysa, ya da bilgisayarınız desteklenen türde değilse (ör. ARM işlemcili Linux, Chromebook)
+sayfa yalnız **tarayıcıdan ekran paylaşımı** sunar. Bu yolda teknisyen ekranınızı görür ama farenizi kullanamaz.
+
+**Linux sürümünde olmayanlar:**
+
+- Yalnız bir pencereyi paylaşma (her zaman bir ekranın tamamı paylaşılır).
+- Oturum sohbeti. Hızlı Destek 0.20'de sohbet kapalıdır; teknisyenle telefonda konuşun ya da sesli görüşmeyi kullanın.
+- "Destek iste", firma kaydı, "Bilgilerimi hatırla", tepside çalışma ve açılışta başlatma. Linux'ta yalnız teknisyenin
+  verdiği bağlantı ya da kodla bağlanılır.
+- Gözetimsiz erişim (başında kimse yokken bağlanma).
+
+### Ekranımın türü X11 mi, Wayland mı?
+
+Ubuntu iki tür masaüstü oturumu açabilir. Program ikisinde de çalışır ama bazı adımlar farklıdır:
+
+| Konu                       | X11 ("Ubuntu on Xorg")                               | Wayland (Ubuntu'nun varsayılanı)                                                         |
+| -------------------------- | ---------------------------------------------------- | ---------------------------------------------------------------------------------------- |
+| Ekran seçimi               | Nokta Destek kendi **Ekran seçimi** penceresini açar | Ubuntu'nun sistem izin penceresi açılır; ekranı orada seçersiniz                         |
+| Uzaktan kontrol            | Windows sürümüyle aynı                               | Yalnız sistem izin penceresinde **Uzaktan etkileşime izin ver** açıksa; sınırlar aşağıda |
+| Kontrolü kısayolla kapatma | **Ctrl+Shift+F12** (yedek Ctrl+Shift+F11)            | Kısayol yok: üst çubuktaki ekran paylaşımı simgesi → **Durdur**, ya da **Super+L**       |
+| Kendi farenizi oynatmak    | Teknisyenin hareketi yaklaşık 1 saniye durur         | Teknisyenin hareketini **durdurmaz**                                                     |
+
+Hangisinde olduğunuzu öğrenmek için: **Ayarlar → Sistem → Hakkında** (22.04'te **Ayarlar → Hakkında**) ekranında
+"Pencereleme Sistemi" satırına bakın. Giriş ekranında, şifrenizi yazmadan önce sağ alttaki dişli simgesinden
+"Ubuntu on Xorg" (X11) seçebilirsiniz.
+
+### Linux'ta nasıl indirir ve açarım?
+
+1. Teknisyeninizin gönderdiği destek bağlantısını Ubuntu bilgisayarınızda Firefox ya da Chrome ile açın.
+2. Sayfa bilgisayarınızı tanır. **Hızlı Destek uygulamasını indir** düğmesine tıklayın. Düğmenin altında "Ubuntu 22.04 /
+   24.04 · 64 bit (x86_64) · GNOME" yazar.
+3. Tarayıcı `Destek-` ile başlayan, **uzantısız** bir dosya indirir (ör. `Destek-48291376`). Dosya adındaki 8 rakam destek
+   kodunuzdur. Dosya **İndirilenler** klasörüne kaydedilir.
+4. Sayfadaki **Linux'ta nasıl çalıştırılır?** rehberini izleyin. İndirilen dosyaya bir kez **çalıştırma izni** vermeniz
+   gerekir. Bunun için iki yol vardır.
+
+**Terminal ile (önerilen, tek adım):**
+
+1. Terminal'i açın (**Ctrl+Alt+T**).
+2. Destek sayfasındaki **Başlatma komutunu kopyala** düğmesine tıklayın. Tarayıcı panoya erişemezse komut seçili hâlde
+   gösterilir; **Ctrl+C** ile kopyalayın.
+3. Terminal'e yapıştırın (**Ctrl+Shift+V**) ve Enter'a basın. Program açılır.
+
+Sayfadaki komut şudur (tek satır; baştaki boşluk bilerek vardır, komutun terminal geçmişine yazılmamasını sağlar):
+
+```bash
+ d="$(xdg-user-dir DOWNLOAD)" && [ -d "$d" ] && cd "$d" && f="$(find . -maxdepth 1 -type f -mmin -10 -regextype posix-extended -regex './Destek-[0-9]{8}( ?\([0-9]{1,3}\))?' -printf '%f\n')" && [ -n "$f" ] && { [ "$(printf '%s\n' "$f" | wc -l)" -eq 1 ] || { echo "İndirilenler'deki eski Destek-* dosyalarını silip yeniden indirin"; false; }; } && chmod u+x -- "$f" && ./"$f"
+```
+
+Komut şunları yapar, başka hiçbir şey yapmaz:
+
+- İndirilenler klasörünüzde **son 10 dakikada** indirilmiş, adı `Destek-` + 8 rakam olan dosyayı arar. Firefox'un ikinci
+  indirmede verdiği `Destek-48291376(1)` gibi adlar da kabul edilir.
+- Böyle **tam bir dosya** bulursa yalnız ona çalıştırma izni verir ve onu açar. Yönetici şifresi istemez.
+- Böyle birden fazla dosya varsa durur ve **"İndirilenler'deki eski Destek-\* dosyalarını silip yeniden indirin"** yazar.
+  İndirilenler'deki `Destek-…` dosyalarını silin, destek sayfasından dosyayı bir kez daha indirin ve komutu yeniden
+  çalıştırın. Aynı dosyayı 10 dakika içinde iki kez indirdiyseniz de bu mesajı görürsünüz.
+- Böyle bir dosya yoksa (hiç indirilmemiş ya da 10 dakikadan önce indirilmiş) **hiçbir mesaj vermeden** durur, program
+  açılmaz. Dosyayı destek sayfasından yeniden indirip komutu hemen çalıştırın.
+
+> **Nokta Destek size bundan başka komut vermez.** Bu komutu yalnız destek sayfasından kopyalayın. Sohbette, e-postada ya
+> da telefonda size okunan bir komutu çalıştırmayın; `sudo` ile başlayan ya da yönetici şifresi isteyen bir komut bizim
+> değildir.
+
+**Dosyalar uygulamasıyla:** İndirilenler klasöründe `Destek-…` dosyasına sağ tıklayın → **Özellikler** → **Program olarak
+çalıştır** anahtarını açın. Pencereyi kapatıp dosyaya çift tıklayın. Bu yol Ubuntu sürümüne göre farklı davranabilir;
+dosya açılmazsa Terminal yolunu kullanın.
+
+**Destek kodu nereden gelir?** Program kodu dosya adından okur; sizden istemez. Dosyayı yeniden adlandırdıysanız kod
+okunamaz. O zaman program 8 haneli kodu sorar: teknisyeninizden alıp yazın ve **Devam**'a tıklayın.
+
+**Dosya doğru mu? (BT sorumlusu için)** Linux sürümü imzasız dağıtılır. Dosyanın SHA-256 özeti GitHub sürüm sayfasındaki
+`SHA256SUMS` dosyasıyla eşleşmeli ve GitHub attestation ile doğrulanabilmelidir:
+
+```bash
+sha256sum ~/İndirilenler/Destek-48291376
+gh attestation verify ~/İndirilenler/Destek-48291376 --repo NoktaBilisim/Remote
+```
+
+(Klasör adı sistem dilinize göre `~/Downloads` olabilir.) **Hakkında** penceresindeki parmak izi bu özetin ilk 8
+karakteridir.
+
+### Ekran paylaşımına izin verme
+
+**X11'de:** birden fazla ekranınız varsa **Nokta Destek — Ekran seçimi** penceresi açılır. Paylaşılacak ekranı seçip
+**Paylaş**'a tıklayın.
+
+**Wayland'de:** program önce **"Sistem izin penceresi açılıyor…"** yazar, ardından Ubuntu'nun kendi ekran paylaşımı
+penceresi açılır.
+
+1. Paylaşılacak ekranı seçin.
+2. Teknisyenin bilgisayarınızı kontrol etmesini de istiyorsanız aynı pencerede **Uzaktan etkileşime izin ver**
+   anahtarını açın. Kapalı bırakırsanız teknisyen yalnız ekranınızı görür.
+3. **Paylaş**'a tıklayın.
+
+Bu izin yalnız bu oturum için geçerlidir; her destekte yeniden sorulur, Ubuntu bunu hatırlamaz.
+
+Sistem penceresini iptal ederseniz Nokta Destek **"Paylaşım başlatılmadı"** yazar. **Tekrar dene** ile sistem penceresini
+yeniden açabilir ya da **Oturumu bitir** ile çıkabilirsiniz.
+
+Paylaşım sürerken Ubuntu'nun üst çubuğunda ekran paylaşımı simgesi görünür. Bu simgeden **Durdur**'a basmak paylaşımı
+**ve oturumu** bitirir.
+
+### Karşılama, KVKK onayı ve teknisyen kabulü
+
+Bu adımlar Windows sürümüyle aynıdır (bkz. "Doğru programla mı bağlanıyorum?", "KVKK onayı ve bağlanma", "Teknisyen
+kabulü"):
+
+- **Karşılama penceresi:** teknisyenin adı, **teknisyen doğrulama kodu**, bağlanılan sunucu adresi ve firma logosu görünür.
+  Sizi biz aramadıysak devam etmeyin. Pencerede **Kötüye kullanımı bildir** varsa şüpheli durumu e-postayla
+  bildirebilirsiniz.
+- **KVKK onayı:** aydınlatma metnini okuyun, adınızı yazın, onay kutusunu işaretleyip **Bağlan**'a tıklayın. Firma oturum
+  kaydı açtıysa kayıt için ayrı bir kutu çıkar.
+- **Bekleme odası:** ekrandaki 4 haneli kabul kodunu telefonda teknisyene okuyun.
+
+Oturum penceresinin alt satırında **Lisanslar** ve **Hakkında** düğmeleri vardır. **Hakkında** penceresinde sürüm, sunucu
+adresi ve parmak izi yazar.
+
+Pencereler Ubuntu'nun Yaru görünümünde değil, GTK'nın standart **Adwaita** görünümündedir; açık ya da koyu oluşu
+Ubuntu'nun görünüm tercihine uyar. Bu bilinçli bir seçimdir: kişisel tema ayarları güvenlik düğmelerini gizleyemez.
+
+### Oturum sırasında ne görürüm?
+
+- **X11'de:** her ekranınızın kenarında **kırmızı çerçeve** ve üstte **"Ekranınız izleniyor — <teknisyen adı>"** yazısı
+  bulunur (kontrol izni verdiyseniz **"Uzaktan kontrol aktif — <teknisyen adı>"**). Gösterge diğer pencerelerin altında
+  kalırsa ya da gösterilemezse uzaktan kontrol güvenlik için kendiliğinden kapanır.
+- **Wayland'de:** Nokta Destek göstergesinin her zaman en üstte kalacağı garanti edilemez. Bu yüzden Ubuntu'nun üst
+  çubuğundaki **ekran paylaşımı simgesi** de göstergedir: simge görünüyorsa ekranınız paylaşılıyordur.
+- **Nokta Destek — Oturum** penceresinde bağlantı durumu, dosya aktarımları, bağlı teknisyenler ve **Erişime izin ver**,
+  **Kontrolü kapat**, **Oturumu bitir** düğmeleri bulunur. Pencere diğer pencerelerin üstünde durur ve tüm çalışma
+  alanlarında görünür. Pencereyi küçültürseniz program onu geri getirir.
+- Teknisyenin ekranınıza çizdiği işaretler ve kırmızı çerçeve, teknisyenin gördüğü görüntüye de girer. Bu beklenen bir
+  durumdur.
+
+### Teknisyen bilgisayarımı kullanmak isterse (Linux)
+
+Teknisyen kontrol istediğinde **Uzaktan kontrol isteği** penceresi açılır. Kurallar Windows ve Mac sürümüyle aynıdır:
+
+- İsteği beklemiyorsanız **Reddet**'e tıklayın. Enter, Boşluk ve Esc de reddeder.
+- Bekliyorsanız **kendi farenizle** **İzin ver**'e tıklayın. Düğme ilk **1,5 saniye** çalışmaz. Klavyeyle izin
+  verilemez; teknisyenin uzaktan yaptığı tıklama ve başka programların ürettiği tıklama sayılmaz.
+- X11'de pencere imlecinizin hemen altında açılmaz. Wayland'de oturum penceresinin bulunduğu ekranın ortasında açılır.
+
+**X11'de kontrolü geri almak için:**
+
+- Oturum penceresinde **Kontrolü kapat**'a tıklayın, **veya**
+- Klavyede **Ctrl+Shift+F12**'ye basın (başka program kullanıyorsa **Ctrl+Shift+F11**; geçerli olanı oturum penceresinde
+  yazar).
+- Kendi farenizi ya da klavyenizi kullandığınızda teknisyenin hareketi yaklaşık 1 saniye durur.
+- İki kısayol da kaydedilemezse güvenliğiniz için kontrol izni verilemez; teknisyen yalnız ekranı görür.
+
+**Wayland'de kontrol ve sınırları:**
+
+Wayland'de program bilgisayarınızın genel klavye kısayollarını dinleyemez ve sizin fare hareketinizi göremez. Bu yüzden
+kontrol penceresinde ve oturum penceresinde şu uyarı yazar:
+
+> Bu masaüstünde fareniz teknisyenin hareketini durdurmaz; kesmek için Super+L (ekranı kilitle) ya da üst çubukta
+> Durdur. Super+L hemen çalışmazsa birkaç kez basın; yine olmazsa önce Super+Esc, sonra Super+L.
+
+- **Kontrolü kapat** düğmesi her zaman çalışır.
+- **Super+L** (Windows logolu tuş + L) ekranı kilitler; kilitlenince uzaktan kontrol hemen kapanır. Kilidi açtığınızda
+  kontrol **kendiliğinden geri gelmez**; teknisyen yeniden ister, siz yeniden onaylarsınız.
+- Üst çubuktaki ekran paylaşımı simgesinden **Durdur** paylaşımı ve oturumu bitirir.
+- Ekran kilidi kısayolu kapatılmışsa ya da ekran kilitleme devre dışıysa güvenliğiniz için Wayland'de kontrol verilmez;
+  teknisyen yalnız ekranı görür. Oturum sırasında bu ayarlar değişirse kontrol kapanır.
+- Sistem izin penceresinde **Uzaktan etkileşime izin ver**'i açmadıysanız teknisyenin kontrol isteği size hiç gelmez;
+  teknisyen ekranınızı görmeye devam eder.
+- Bazı sürümlerde Hızlı Destek Wayland'de **yalnız görüntü** paylaşır; o zaman kontrol isteği gelmez ve bu uyarılar
+  görünmez. X11'de kontrol her durumda çalışır.
+
+Kontrol kapandığında oturum penceresinde **"Uzaktan kontrol kapatıldı: ekran kilitlendi ya da masaüstü kontrol iznini
+kaldırdı."** yazabilir.
+
+**Ekran kilitliyken:** teknisyen konsolunda "Müşteri güvenli masaüstünde" yazar. Kilidi siz açarsınız.
+
+### Klavyesiz kullanım ve erişilebilirlik (Linux)
+
+Korunan düğmeler (**İzin ver**, **Erişime izin ver**, dosya **Kabul et**, **Yazdır**, pano kutusu, **Çıkar**, kayıt izni,
+**Mikrofonu aç**) yalnız gerçek bir fare ya da dokunmatik yüzey tıklamasıyla çalışır. Klavye, ekran okuyucu (Orca) ve
+erişilebilirlik araçları bu düğmelere basamaz. Güvenli yöne işleyen düğmeler klavyeyle de çalışır: **Kontrolü kapat**,
+**Oturumu bitir**, **Kaydı durdur**, **Görüşmeyi bitir**.
+
+Ubuntu'nun **bekleyerek tıklama** ya da **fare tuşları** erişilebilirlik ayarı oturum başında açıksa sorun yoktur. Oturum
+sırasında açılırsa korunan düğmeler çalışmaz ve **"Erişilebilirlik ayarı oturum sırasında değişti; onay için oturumu
+yeniden başlatın"** yazar. Oturumu bitirip yeni bağlantıyla yeniden başlayın.
+
+### Pano, yazdırma, dosya ve ses (Linux)
+
+- **Pano paylaşımı:** Windows sürümündeki gibi çalışır (bkz. "Teknisyenle pano paylaşımı"); kutuyu yalnız kendi farenizle
+  işaretleyebilirsiniz. Parola yöneticinizin gizli olarak işaretlediği içerik okunmaz. Teknisyenin panonuza koyduğu metin
+  "gizli" işaretiyle yazılır; ancak bazı pano geçmişi eklentileri (ör. GPaste, Clipboard Indicator) bu işareti dikkate
+  almayabilir ve metni geçmişte tutabilir. Böyle bir eklenti kullanıyorsanız oturumdan sonra geçmişi temizleyin.
+- **Yazdırma:** Mac sürümüyle aynıdır (bkz. "Teknisyen belge yazdırmak isterse (Mac)"). Belge **varsayılan yazıcıya** tek
+  kopya gider; onay penceresinde "Sayfa sayısı: yazıcıda belirlenir" ve "Varsayılan yazıcı" yazar. Yazdırma sistemi (CUPS)
+  işi kendi geçmişinde tutar.
+- **Dosya:** kabul ettiğiniz dosya **İndirilenler** klasörüne kaydedilir ve **çalıştırma izni olmadan** kaydedilir. Dosya
+  bir program ya da betikse sonuç satırında "(Dikkat: bu dosya bir program ya da betik. Beklemediyseniz açmayın, silin.)"
+  yazar. `.desktop`, `.run`, `.AppImage`, `.deb`, `.rpm`, `.snap` gibi türler ek uyarıyla gelir. Adı `Destek-` ile başlayan
+  bir dosya, başlatma komutuyla karışmasın diye `Dosya-` önekiyle kaydedilir.
+- **Sesli görüşme:** çalışır (bkz. "Sesli görüşme"). Mikrofon açılamazsa "Mikrofonunuz açılamadı. Mikrofonun bağlı
+  olduğunu ve Ayarlar > Ses altında giriş aygıtı olarak seçildiğini kontrol edin; teknisyen yeniden isteyebilir." yazar.
+
+### Oturumu kapatma (Linux)
+
+- **Oturumu bitir**'e tıklayın. Program birkaç saniye içinde kendiliğinden kapanır.
+- Oturum penceresini **✕** ile kapatırsanız program **"Oturumu bitir?"** diye sorar.
+- Wayland'de üst çubuktaki **Durdur** da oturumu bitirir.
+- Terminal'i kapatmak oturumu bitirmez; oturumu programın kendi düğmesiyle bitirin.
+
+### Linux'ta ne kalır?
+
+Program kapanınca ayar dosyası, önbellek, tanılama dosyası ya da otomatik başlatma kaydı **kalmaz**. Geçici dosyalar
+kapanışta silinir.
+
+Kalanlar:
+
+- İndirdiğiniz `Destek-…` dosyası ve teknisyenden aldığınız dosyalar (İndirilenler'de; siz silersiniz).
+- Başlatma komutu, baştaki boşluk ayarınızda işe yaramazsa terminal geçmişinde kalabilir. Kod tek kullanımlıktır.
+- Ubuntu'nun ses sistemine ait küçük ayar dosyaları (22.04'te `~/.config/pulse/` altında, 24.04'te
+  `~/.local/state/wireplumber/` altında). Bunları program değil Ubuntu yazar.
+- Yazdırma yaptıysanız yazdırma sistemindeki iş kaydı.
+- Program Wayland'de beklenmedik biçimde çökerse Ubuntu'nun hata raporlayıcısı `/var/crash` altında bir rapor
+  bırakabilir.
+
+### Sık karşılaşılan durumlar (Linux)
+
+| Durum                                                                                     | Ne yapmalı                                                                                                                                                                                                               |
+| ----------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Destek sayfasında Linux için indirme düğmesi yok                                          | Linux sürümü bu sunucuda yayımlanmamış ya da bilgisayarınız desteklenmiyor (ARM, Chromebook, Ubuntu dışı). **Tarayıcıdan** ekranınızı paylaşın.                                                                          |
+| Komut "İndirilenler'deki eski Destek-\* dosyalarını silip yeniden indirin" diyor          | İndirilenler'deki tüm `Destek-…` dosyalarını silin, dosyayı yeniden indirin, komutu tekrar çalıştırın.                                                                                                                   |
+| Komut hiçbir şey yazmadan bitti, program açılmadı                                         | Dosya 10 dakikadan önce indirilmiş ya da hiç inmemiş. Yeniden indirip komutu hemen çalıştırın.                                                                                                                           |
+| Program kodu soruyor                                                                      | Dosya adı değişmiş. Teknisyeninizden 8 haneli kodu alıp yazın.                                                                                                                                                           |
+| Terminal'de "Nokta Destek bir masaüstü oturumunda (X11 ya da Wayland) çalıştırılmalıdır." | Program uzak bağlantıdan (SSH) ya da masaüstü olmayan bir oturumdan çalıştırılmış. Bilgisayarın kendi masaüstünde Terminal açıp yeniden deneyin.                                                                         |
+| "Bu masaüstünde ekran paylaşımı bileşeni eksik"                                           | Ubuntu'nun ekran paylaşımı bileşeni kurulu değil (genelde en küçük kurulumlarda). BT sorumlusu `sudo apt install xdg-desktop-portal-gnome gstreamer1.0-pipewire` ile kurar. O zamana kadar tarayıcıdan paylaşın.         |
+| "Paylaşım başlatılmadı"                                                                   | Sistem izin penceresini iptal ettiniz. **Tekrar dene**'ye tıklayıp ekranı seçin ve **Paylaş**'a basın.                                                                                                                   |
+| Teknisyen kontrol edemiyor (Wayland)                                                      | Sistem izin penceresinde **Uzaktan etkileşime izin ver** kapalıydı, ekran kilidi kısayolu kapalı ya da bu sürüm Wayland'de yalnız görüntü paylaşıyor. Oturumu yeniden başlatıp anahtarı açın ya da X11 oturumuyla girin. |
+| "Vekil sunucuya bağlanılamadı"                                                            | Bilgisayarınızın vekil sunucu (proxy) ayarını kontrol edin ya da ağ yöneticinize danışın, sonra tekrar deneyin. Program yalnız `HTTPS_PROXY` / `NO_PROXY` ortam ayarını kullanır.                                        |
+| "Sunucuya ulaşılamıyor"                                                                   | İnternet bağlantınızı kontrol edip tekrar deneyin.                                                                                                                                                                       |
+| **İzin ver** / **Yazdır** / pano kutusu tepki vermiyor                                    | 1,5 saniye bekleyin, sonra gerçek fareyle tıklayın. Klavye ve ekran okuyucu bu düğmelerde çalışmaz.                                                                                                                      |
+| Super+L ile kilitledikten sonra teknisyen kontrolü kaybetti                               | Beklenen davranış. Teknisyen kontrolü yeniden ister; siz yeniden onaylarsınız.                                                                                                                                           |
+| "Sohbet kapalı" ya da sohbet alanı yok                                                    | Hızlı Destek 0.20'de oturum sohbeti kapalıdır. Telefonda ya da sesli görüşmeyle konuşun.                                                                                                                                 |
+| Pencereler Ubuntu'nun diğer pencerelerinden farklı görünüyor                              | Beklenen davranış (Adwaita görünümü).                                                                                                                                                                                    |
 
 ---
 
@@ -1622,16 +1891,17 @@ Hızlı Destek 0.11 ve sonrasında müşteri tüm ekran yerine tek bir pencere p
 
 ### Kontrolün kendiliğinden kapandığı durumlar
 
-| Konsolda gördüğünüz                                                                 | Ne oldu                                                                     | Ne yapmalı                                                                                                                                                          |
-| ----------------------------------------------------------------------------------- | --------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Kontrol müşteri tarafından kapatıldı                                                | Müşteri "Kontrolü kapat"a tıkladı                                           | Müşteriyle konuşun; gerekirse yeniden isteyin                                                                                                                       |
-| Kontrol müşteri tarafından kısayolla kapatıldı                                      | Müşteri Ctrl+Shift+F12 (veya F11) bastı                                     | Aynı                                                                                                                                                                |
-| Kontrol sistem tarafından kapatıldı (yetki veya kayıt)                              | Yetkiniz kaldırıldı veya izin kaydı yazılamadı                              | Yetkiniz varsa yeniden deneyin; tekrarlıyorsa yöneticinize bildirin                                                                                                 |
-| Uzaktan kontrol yetkiniz yok; kontrol istenemez                                     | Hesabınızda yetki yok veya oturum sırasında kaldırıldı                      | Yöneticinizden yetki isteyin; yeni oturumda geçerli olur                                                                                                            |
-| Müşteri bağlantısı koptu; kontrol kapandı                                           | Müşterinin interneti gitti                                                  | Yeniden bağlanınca yeniden isteyin                                                                                                                                  |
-| Bağlantı yenilendi; kontrol yeniden istenmeli                                       | Sizin bağlantınız koptu veya sekmeyi yenilediniz                            | Yeniden isteyin                                                                                                                                                     |
-| Müşteri tarafında bağlantı kesildi; istek kapandı                                   | İstek beklerken müşterinin görüntü bağlantısı koptu                         | Ret sayılmaz; hemen yeniden isteyebilirsiniz                                                                                                                        |
-| Müşteri erişilebilirlik izni vermedi. Müşteri izni verdikten sonra yeniden isteyin. | Mac müşterisinde macOS Erişilebilirlik izni yok; kontrol penceresi açılmadı | Müşteriden izni vermesini isteyin (Sistem Ayarları → Gizlilik ve Güvenlik → Erişilebilirlik → Nokta Destek). Ret sayılmaz, 30 sn bekleme yok, hemen yeniden isteyin |
+| Konsolda gördüğünüz                                                                                                                | Ne oldu                                                                                                                                                                             | Ne yapmalı                                                                                                                                                                                                                  |
+| ---------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Kontrol müşteri tarafından kapatıldı                                                                                               | Müşteri "Kontrolü kapat"a tıkladı                                                                                                                                                   | Müşteriyle konuşun; gerekirse yeniden isteyin                                                                                                                                                                               |
+| Kontrol müşteri tarafından kısayolla kapatıldı                                                                                     | Müşteri Ctrl+Shift+F12 (veya F11) bastı                                                                                                                                             | Aynı                                                                                                                                                                                                                        |
+| Kontrol sistem tarafından kapatıldı (yetki veya kayıt)                                                                             | Yetkiniz kaldırıldı veya izin kaydı yazılamadı                                                                                                                                      | Yetkiniz varsa yeniden deneyin; tekrarlıyorsa yöneticinize bildirin                                                                                                                                                         |
+| Uzaktan kontrol yetkiniz yok; kontrol istenemez                                                                                    | Hesabınızda yetki yok veya oturum sırasında kaldırıldı                                                                                                                              | Yöneticinizden yetki isteyin; yeni oturumda geçerli olur                                                                                                                                                                    |
+| Müşteri bağlantısı koptu; kontrol kapandı                                                                                          | Müşterinin interneti gitti                                                                                                                                                          | Yeniden bağlanınca yeniden isteyin                                                                                                                                                                                          |
+| Bağlantı yenilendi; kontrol yeniden istenmeli                                                                                      | Sizin bağlantınız koptu veya sekmeyi yenilediniz                                                                                                                                    | Yeniden isteyin                                                                                                                                                                                                             |
+| Müşteri tarafında bağlantı kesildi; istek kapandı                                                                                  | İstek beklerken müşterinin görüntü bağlantısı koptu                                                                                                                                 | Ret sayılmaz; hemen yeniden isteyebilirsiniz                                                                                                                                                                                |
+| Müşterinin bilgisayarı uzaktan kontrole izin vermiyor (Mac'te erişilebilirlik izni). Müşteri izni verdikten sonra yeniden isteyin. | Mac müşterisinde macOS Erişilebilirlik izni yok; ya da Linux X11 müşterisinde kontrol koşulları sağlanamadı (ör. ekran kilidi izlenemiyor). Kontrol penceresi açılmadı              | Mac: müşteriden izni vermesini isteyin (Sistem Ayarları → Gizlilik ve Güvenlik → Erişilebilirlik → Nokta Destek). Linux: bkz. "Müşteri Linux kullanıyorsa". Ret sayılmaz, 30 sn bekleme yok, hemen yeniden isteyebilirsiniz |
+| Müşterinin masaüstü uzaktan kontrole izin vermiyor (Wayland)                                                                       | Linux Wayland müşterisi sistem izin penceresinde "Uzaktan etkileşime izin ver"i açmadı, ekran kilidi kısayolu kapalı ya da istemci bu sunucuda Wayland'de yalnız görüntü paylaşıyor | Ret sayılmaz, bekleme yok. Müşteriden oturumu yeniden başlatıp anahtarı açmasını ya da X11 ("Ubuntu on Xorg") oturumuyla girmesini isteyin                                                                                  |
 
 ### Uyarılar
 
@@ -1649,8 +1919,10 @@ Hızlı Destek 0.11 ve sonrasında müşteri tüm ekran yerine tek bir pencere p
   Control**, **Alt → Option**. Yani Mac'te kopyalamak için Ctrl+C'ye basarsınız (Mac'te ⌘C olur). AltGr ile yazılan
   karakterler (`@ # { [ ] } \ |`) olduğu gibi gider. Ekran kilidi kısayolu (Control+⌘+Q) iletilmez. Teknisyen Mac
   kullanıyorsa da eşleme aynıdır: ⌘ yerine Ctrl kullanın.
-- **Erişilebilirlik izni:** müşteri izni vermediyse kontrol isteğiniz "Müşteri erişilebilirlik izni vermedi…" ile
-  kapanır. Bu ret değildir; müşteri izni verince hemen yeniden isteyin.
+- **Erişilebilirlik izni:** müşteri izni vermediyse kontrol isteğiniz "Müşterinin bilgisayarı uzaktan kontrole izin
+  vermiyor (Mac'te erişilebilirlik izni)…" ile kapanır. Bu ret değildir; müşteri izni verince hemen yeniden isteyin.
+  Konsol müşterinin işletim sistemini bilmediği için bu metin Linux X11 müşterisinde de görünür. Denetim kaydında Mac için
+  "Müşteri erişilebilirlik izni vermedi", Linux için "Müşterinin masaüstü uzaktan kontrole izin vermiyor (Linux)" yazar.
 - **"Yükseltilmiş pencere — kontrol edilemiyor"** uyarısı Mac'te, müşterinin bir **parola alanında** olduğu anlamına
   gelir (macOS klavye girişini korumaya alır). Parolayı müşteri yazar. Kilit ekranında "Müşteri güvenli masaüstünde"
   görünür.
@@ -1660,8 +1932,36 @@ Hızlı Destek 0.11 ve sonrasında müşteri tüm ekran yerine tek bir pencere p
 - **Olmayanlar:** pencere paylaşımı (her zaman tam ekran), sesli görüşme (düğme pasif; bkz. "Sesli görüşme").
 - **Yazdırma:** müşterinin onay penceresinde sayfa sayısı ve yazıcı adı yazmaz ("Sayfa sayısı: yazıcıda belirlenir",
   "Varsayılan yazıcı"). Müşterinin varsayılan yazıcısı yoksa bunu müşteri onayladıktan sonra görürsünüz.
-- Audit log'da katılım satırının ayrıntısında **İşletim sistemi (beyan)**: Windows / macOS / Tarayıcı yazar. Bu bilgi
-  müşteri programının kendi beyanıdır; yetki kararlarında kullanılmaz.
+- Audit log'da katılım satırının ayrıntısında **İşletim sistemi (beyan)**: Windows / macOS / Linux / Tarayıcı yazar. Bu
+  bilgi müşteri programının kendi beyanıdır; yetki kararlarında kullanılmaz.
+
+### Müşteri Linux kullanıyorsa (Hızlı Destek Linux)
+
+Hızlı Destek Linux sürümü (0.20 ve sonrası) Ubuntu 22.04 / 24.04 x86_64 üzerinde çalışır. Müşterinin masaüstü oturum
+türü (X11 ya da Wayland) kontrolü doğrudan etkiler.
+
+- **X11:** kontrol Windows sürümündeki gibi çalışır. Müşteri kontrolü **Ctrl+Shift+F12** (yedek F11) ile kapatır; müşteri
+  faresini oynatınca hareketiniz yaklaşık 1 saniye durur. Kısayol kaydedilemezse kontrol hiç sunulmaz. Ekran kilidi
+  izlenemiyorsa kontrol isteğiniz "Müşterinin bilgisayarı uzaktan kontrole izin vermiyor (Mac'te erişilebilirlik izni)…"
+  ile kapanır; metin Mac'i ansa da Linux X11'de de bu metin görünür. Ret sayılmaz.
+- **Wayland:** müşteri ekranı Ubuntu'nun sistem izin penceresinde seçer; siz konsoldan başka ekrana geçemezsiniz. Kontrol
+  yalnız müşteri o pencerede **Uzaktan etkileşime izin ver**'i açtıysa çalışır. Açmadıysa, ekran kilidi kısayolu
+  kapalıysa ya da istemci bu sunucuda Wayland'de yalnız görüntü paylaşacak biçimde derlendiyse isteğiniz **"Müşterinin
+  masaüstü uzaktan kontrole izin vermiyor (Wayland)"** ile kapanır. Bu ret değildir; 30 sn bekleme yoktur, istek hakkınız
+  iade edilmez.
+- **Wayland'de müşterinin fare hareketi sizi durdurmaz.** Müşteri kontrolü **Kontrolü kapat** düğmesiyle, **Super+L** ile
+  ekranı kilitleyerek ya da üst çubukta **Durdur** ile keser. Ekran kilitlenince kontrol hemen kapanır ve konsolda
+  "Müşteri güvenli masaüstünde" yazar; kilit açılınca kontrol kendiliğinden geri gelmez, yeniden istersiniz. **Durdur**
+  oturumu da bitirir. Müşterinin Super+L'yi her zaman kullanabilmesi için değiştirici tuşları (Ctrl, Alt, Shift, Super) 3
+  saniyelik bir pencerede en çok 2 saniye basılı tutabilirsiniz; uzun basılı tutulan değiştirici kendiliğinden bırakılır.
+- **Tuşlar:** klavyeniz Windows düzeniyle aynı tuşlara gider; Windows tuşu müşteride **Super** tuşudur.
+- **İşaretleme:** Linux'ta çizimleriniz ve müşteri ekranındaki kırmızı çerçeve görüntüye de girer; çiziminizi aynı yerde
+  iki kat görürsünüz. Bu beklenen bir durumdur.
+- **Görüntü:** Linux istemcisi görüntüyü VP8 ile gönderir (Windows ve Mac H.264). Konsolda fark görmezsiniz; büyük ekranlarda
+  çözünürlük işlemci gücüne göre düşük başlayabilir.
+- **Olmayanlar:** pencere paylaşımı, oturum sohbeti (0.20'de kapalı; konsolda "istemci eski" uyarısı çıkar), "Destek iste" ve
+  gözetimsiz erişim. Sesli görüşme, pano, yazdırma, dosya, çoklu teknisyen ve kayıt rızası çalışır.
+- **Yazdırma:** Mac'teki gibi müşterinin onay penceresinde sayfa sayısı ve yazıcı adı yazmaz.
 
 ### Sohbette "Çok hızlı yazıyorsunuz" uyarısı
 

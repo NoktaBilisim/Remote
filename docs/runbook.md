@@ -4931,7 +4931,7 @@ sh apps/agent-win/build/build-linux.sh https://x.example.invalid 0.0.0 /tmp/nd &
 | `.github/workflows/agent-watch.yml`                            | `hash-linux` (sunulan ELF = bir Release SHA256SUMS satırı), günlük govulncheck `GOOS=linux`                                      |
 
 Caddy yanıtı: `Content-Type: application/octet-stream`, `Content-Disposition: attachment; filename="Destek-<kod>"` (uzantısız),
-`nosniff`, `no-store`, **`Last-Modified` yok** (tarayıcı mtime'ı ondan alırsa kılavuzdaki `find -mmin -30` komutu dosyayı görmez,
+`nosniff`, `no-store`, **`Last-Modified` yok** (tarayıcı mtime'ı ondan alırsa kılavuzdaki `find -mmin -10` komutu dosyayı görmez,
 S-P28g-6). Kapı kapalıysa (SHA boş / uyuşmaz / dosya yok) 503 ve dosya sunulmaz; Windows/macOS kapıları bağımsızdır.
 Doğrulama: `deploy/test-caddy.sh` (Docker; Linux başlıkları, çapraz kapılar, biçim dışı adlar 404) → `SONUÇ: GEÇTİ`.
 

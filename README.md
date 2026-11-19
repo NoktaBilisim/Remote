@@ -1,8 +1,8 @@
 # Remote Support — Nokta Bilişim uzaktan destek platformu
 
 Self-hosted, çok kiracılı (multi-tenant) uzaktan destek platformu. Teknisyen web konsolundan bir destek
-oturumu açar; müşteri taşınabilir Windows ya da macOS istemcisi (tam erişim; macOS P28f) veya tarayıcı (yalnız görüntü) ile
-katılır.
+oturumu açar; müşteri taşınabilir Windows, macOS ya da Linux istemcisi (tam erişim; macOS P28f, Ubuntu Linux P28g) veya tarayıcı
+(yalnız görüntü) ile katılır.
 Görüntü eşler arası WebRTC ile akar; sunucu sinyalizasyon ve meta veri tutar. Dosyalar varsayılan olarak eşler arası
 gider; firma isterse sunucu üzerinden, ClamAV taramalı ve şifreli saklamalı aktarır (P28b).
 
@@ -274,6 +274,22 @@ değişmedi; qa ve güvenlik GEÇTİ, sayfa testi GEÇTİ)
   sekmesi 4426 ile "Konsol sürümü eski — sayfayı yenileyin".
 - Migration `20261126000000_p22_session_chat`, yayında `pnpm db:seed` gerekli, yeni env yok. API `docs/api.md` "Oturum
   sohbeti (P22)"; kullanım kılavuzu "Oturum sohbeti ve kaydı"; operasyon runbook §29.
+
+**P28g — Linux istemci, istemci 0.20.0** (AC-397..404; kod tamam, K10 tur 2 düzeltmeleri yapıldı; Linux elle turu (mimari-p28g
+§12.1 E-listesi) gerçek Ubuntu makinesinde bekliyor; prod'da Wayland kontrolü E-7 (b)/(c) GEÇTİ şartına bağlı)
+
+- Hızlı Destek'in Ubuntu 22.04 / 24.04 LTS x86_64 (GNOME; X11 ve Wayland) sürümü: tek ELF (≤ 60 MB, `CGO_ENABLED=0`,
+  purego ile GTK3 / GStreamer / libpulse), kurulumsuz, root istemez. İndirme `Destek-<kod>` (uzantısız); kod dosya adından
+  okunur. Karşılama sayfası Linux rehberi ve sabit başlatma komutunu (`apps/web/lib/linux-command.ts`; İndirilenler'de son
+  10 dk'da inmiş **tam 1** `Destek-*` dosyasına `u+x` verir) gösterir.
+- X11: görüntü (`ximagesrc`) + kontrol (XTest), kısayol Ctrl+Shift+F12. Wayland: ScreenCast + RemoteDesktop portalı;
+  kontrol yalnız portal izniyle, telafi olarak kilit = REVOKED, değiştirici bütçesi ve Super+L uyarısı (AC-399 sapması,
+  kullanıcı onayı 2026-11-17). Görüntü VP8. Pano, yazdırma (`lp`), sunucu dosyası, çoklu teknisyen, ses, kayıt rızası.
+- Sunucu: `download?os=linux`, availability `linux`, `/internal/agent-ready/linux`, `control.state` kaynağı
+  `WAYLAND_NO_CONTROL`, Linux X11 `OS_PERMISSION` (audit `linux_no_control`). Yeni env `LINUX_AGENT_SHA256`,
+  `LINUX_AGENT_PATH`; migration ve yeni yetki yok. Yeni Go bağımlılığı `github.com/godbus/dbus/v5` (BSD-2). Karar ADR-0038.
+- Üç platformda pencere başlıklarında sürüm ("Nokta Destek 0.20.0 — Oturum"). API `docs/api.md` "Linux istemci (P28g)";
+  kullanım `docs/KULLANIM_KILAVUZU.md` "Hızlı Destek uygulaması (Linux)"; operasyon runbook §28g.
 
 **P28f — macOS istemci, istemci 0.19.0** (AC-389..396; kod tamam, güvenlik kod turu 3 GEÇTİ (Kritik/Yüksek/Orta/Düşük 0; prod öncesi
 elle şart: Fare Tuşları ayar anahtarı ve `localClick` alan ölçümü), QA tur 2 DÜZELTİLMELİ; macOS elle turu staging'de; **prod'da macOS yok** — Apple Developer hesabı açılıp imzalı + notarize zip
@@ -737,6 +753,8 @@ hesabın şifresi ezilmez. `NODE_ENV` production değilse `demo` adlı bir örne
 | `AGENT_BINARY_PATH`                                                              | Compose dışı  | İkilinin mutlak yolu. Compose `/data/downloads/NoktaDestek.exe` verir; yalnız yerel `pnpm` çalıştırmada gerekir                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
 | `MAC_AGENT_SHA256`                                                               | macOS için    | P28f: yayındaki `NoktaDestek-macOS.zip`'in SHA-256'sı. Elle yazılmaz; `deploy/agent/publish-mac.sh` yazar (`--withdraw` boşaltır). Boşsa macOS indirmesi 503 ve karşılama sayfasında Mac düğmesi görünmez (runbook §28f.4)                                                                                                                                                                                                                                                                                                                                                                                    |
 | `MAC_AGENT_PATH`                                                                 | Compose dışı  | P28f: zip'in mutlak yolu. Compose `/data/downloads/NoktaDestek-macOS.zip` verir; production'da yalnız bu değer kabul edilir                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
+| `LINUX_AGENT_SHA256`                                                             | Linux için    | P28g: yayındaki `NoktaDestek-linux` ELF'inin SHA-256'sı. Elle yazılmaz; `deploy/agent/publish-linux.sh` yazar (`--withdraw` boşaltır). Boşsa Linux indirmesi 503 ve karşılama sayfasında Linux düğmesi görünmez (runbook §28g.5)                                                                                                                                                                                                                                                                                                                                                                              |
+| `LINUX_AGENT_PATH`                                                               | Compose dışı  | P28g: ELF'in mutlak yolu. Compose `/data/downloads/NoktaDestek-linux` verir; production'da yalnız bu değer kabul edilir                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
 | `UNATTENDED_MODE`                                                                | Hayır         | P27 imza kapısı: boş = `off` (kayıt kodu, kayıt ve bağlantı 409 `UNATTENDED_DISABLED`), `unsigned` (**yalnız** `DEPLOY_ENV=staging`; aksi halde server açılmaz; panelde "TEST ortamı — imzasız servis" bandı), `signed` (servis imzalı ve SHA'sı listede). Prod: `off` (runbook §27.1, §27.5)                                                                                                                                                                                                                                                                                                                 |
 | `UNATTENDED_SIGNED_SHA256`                                                       | `signed` iken | P27: izin verilen `NoktaDestekServis.exe` SHA-256 değerleri, virgülle ayrılmış 64 hex. `signed` modda boşsa server açılmaz (runbook §27.5)                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
 | `UNATTENDED_AGENT_SHA256`                                                        | İndirme için  | P27: yayındaki `NoktaDestekServis.exe`'nin SHA-256'sı. Elle yazılmaz; `deploy/agent/publish-servis.sh` yazar. Boş ya da dosya farklıysa panel "Servis programını indir" 503 döner. Yol compose'da sabit (`/data/unattended/NoktaDestekServis.exe`) (runbook §27.3)                                                                                                                                                                                                                                                                                                                                            |
@@ -1139,6 +1157,27 @@ Profil `stg` bundle kimliği `net.noktabilisim.destek.stg` (TEST), `prod` `net.n
 `vars.APPLE_TEAM_ID` tanımlıysa etkinleşir. Sunucuya yayın: `deploy/agent/publish-mac.sh` (staging `--dir`, prod `--tag
 vX.Y.Z`; önce `--dry-run`), geri alma `--withdraw`. İmza kurulumu, yayın kilidi ve elle test listesi: runbook §28f.3–§28f.6.
 
+### Linux istemciyi derleme ve yayınlama (runbook §28g)
+
+**Derleme (Linux/Docker, CGO'suz)** — `[WAYLAND_CONTROL=on|off] apps/agent-win/build/build-linux.sh <https://alan-adı[:port]>
+<x.y.z> [çıktı] [test]`. 4. argüman `test` staging TEST derlemesidir. Prod derlemesi (4. argümansız) yalnız `v<sürüm>` etiket
+iş akışında ya da `.invalid` adresle (iz testi) çalışır. `WAYLAND_CONTROL` varsayılan `on`; `off` ikili Wayland'de yalnız
+görüntü paylaşır (RemoteDesktop istenmez, kontrol isteğine `WAYLAND_NO_CONTROL`), X11'i etkilemez. Yerel prova:
+
+```bash
+sh apps/agent-win/build/build-linux.sh https://x.example.invalid 0.0.0 /tmp/nd && sh apps/agent-win/build/check-linux-elf.sh /tmp/nd
+```
+
+CI (`agent-win.yml`): `build-linux` ×2 → `reproducible-linux` (SHA eşitliği, ELF denetimi), `test-linux-gui` (22.04 / 24.04
+imajları), `attest-linux`, `release` (`NoktaDestek-linux-x86_64-<sürüm>` + `SHA256SUMS` satırı zorunlu; imza yok). Wayland
+anahtarı **repo değişkeni `LINUX_WAYLAND_CONTROL`** (`on` | `off`) ile verilir: etiket (prod) derlemesinde tanımlı olmak
+**zorundadır**, tanımsızsa derleme durur; etiket dışı derlemede tanımsız → `on`. E-7 (b)/(c) gerçek Wayland makinesinde
+geçmezse `off` yapılıp yeni etiket alınır (runbook §28g.6).
+
+Sunucuya yayın: `deploy/agent/publish-linux.sh` (staging `--dir` / `--stg-run`, prod `AGENT_SERVER_URL=https://<prod> …
+--tag vX.Y.Z`; önce `--dry-run`, sonra `--ssh root@<sunucu>`), geri alma `--withdraw` (`LINUX_AGENT_SHA256` boşalır, indirme
+503). Kilit testi `deploy/agent/test-publish-linux-lock.sh`. Ayrıntı ve staging komutları: runbook §28g.4–§28g.7.
+
 ### Prod işletim araçları (P13b; runbook §20)
 
 Hepsi host'ta root ile kurulur; kurulu kopya git ağacından değil kendi yerinden çalışır. Betik değişince `install` yeniden
@@ -1171,15 +1210,19 @@ WhatsApp müşteri mesajları (P19) aynı whatsapp-bildirim servisini kullanır.
 apps/server/        Fastify API (src/), Prisma şeması ve migration'lar (prisma/), testler (test/)
 apps/web/           Next.js arayüzü (app/, components/, lib/), e2e testleri (e2e/)
 packages/contracts/ Ortak zod şemaları, yetki listesi, hata kodları
-apps/agent-win/     Windows ve macOS istemci (Go): cmd/noktadestek (NoktaDestek.exe; main_darwin.go → Nokta Destek.app),
+apps/agent-win/     Windows, macOS ve Linux istemci (Go): cmd/noktadestek (NoktaDestek.exe; main_darwin.go → Nokta Destek.app;
+                    main_linux.go → NoktaDestek-linux),
                     cmd/noktadestek-servis (P27 gözetimsiz erişim servisi NoktaDestekServis.exe), internal/ (api, flow,
                     rtc, capture, ui, ui/uicore, ui/mac, darwin/objc, macperm, launch, transfer, control, input, env,
-                    servis, servisui, unattended, desktop…), build/ (build.sh, build-darwin.sh, macos/ package.sh +
+                    servis, servisui, unattended, desktop, ui/gtk, portal, linux/glib, linux/x11…), build/ (build.sh,
+                    build-darwin.sh, build-linux.sh, check-linux-elf.sh, macos/ package.sh +
                     Info.plist.tmpl + entitlements.plist + OKUBENI, winres.json, winres-servis.json),
-                    test/trace-check.ps1 (-Servis profili), test/trace-check-mac.sh
+                    test/trace-check.ps1 (-Servis profili), test/trace-check-mac.sh, test/trace-check-linux.sh,
+                    test/linux/ (Dockerfile.2204/2404, gui.sh)
 deploy/             docker-compose.yml, Caddyfile, mysql/ (kullanıcı init + yetki kontrol betiği),
                     turn/ (coturn compose, başlatıcı, güvenlik duvarı ve test betikleri),
-                    agent/ (verify-and-publish.sh: Windows istemci yayını, publish-mac.sh: macOS zip yayını),
+                    agent/ (verify-and-publish.sh: Windows istemci yayını, publish-mac.sh: macOS zip yayını,
+                    publish-linux.sh: Linux ELF yayını),
                     backup/ (backup.sh, restore.sh, lib*.sh, systemd birimleri, backup.env.example, test-backup.sh),
                     ops/ (remote-watch, proxy-guard, systemd birimleri, watch.env.example, testler),
                     turn/cert-deploy-hook.sh (TURN sertifika kancası),

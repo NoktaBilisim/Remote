@@ -607,7 +607,8 @@ Ayrıntı ve gerekçe `implementation.md` "P28g K2/K3" sapmalar listesindedir; t
   (şema önce `g_settings_schema_source_lookup` ile denetlenir). Başlangıç a11y durumu okunamazsa m.5 ret üretmez (X11'de m.3 asıl
   ayırıcı).
 - **S-P28g-12:** Linux'ta her "kontrol koşulu yok" durumu (X11 dahil) `WAYLAND_NO_CONTROL` ile bildirilir; X11 için ayrı kaynak
-  K10'da değerlendirilecek.
+  K10'da değerlendirilecek. **Güncelleme (K10, 2026-11-19, D-P28g-K1-2):** X11'de kontrol verilemezse `OS_PERMISSION`
+  gönderilir (sunucu macos|linux'tan kabul eder; audit kaynağı `linux_no_control`); `WAYLAND_NO_CONTROL` yalnız Wayland içindir.
 - **§5.2a m.3 Wayland:** XTEST kimlikleri XWayland'den açılışta bir kez okunur (XI2 izleyici yalnız X11'de çalışır).
 - **§5.2a m.4:** "enjektör duraklatılmış" = arayüz duraklatması (korunan diyalog açık) VEYA kapı kapalı (Applier enjekte
   etmez). Kapı açıkken diyalog dışı korunan denetim (pano anahtarı, "Mikrofonu aç") yerel tıklamayla da reddedilir.

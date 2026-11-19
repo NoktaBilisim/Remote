@@ -234,7 +234,7 @@
   "gl.pathFiles": "Dosyalar uygulamasıyla",
   "gl.pathFilesBody": "İndirilenler klasöründe Destek-… dosyasına sağ tıklayın → Özellikler → “Program olarak çalıştır”ı açın. Pencereyi kapatıp dosyaya çift tıklayın.",
   "gl.pathTerminal": "Ya da Terminal ile tek adımda",
-  "gl.pathTerminalBody": "Terminal'i açın (Ctrl+Alt+T), komutu kopyalayıp yapıştırın ve Enter'a basın. Komut yalnız son 30 dakikada indirilen Destek- dosyasına çalıştırma izni verir ve onu açar; yönetici şifresi istemez.",
+  "gl.pathTerminalBody": "Terminal'i açın (Ctrl+Alt+T), komutu kopyalayıp yapıştırın ve Enter'a basın. Komut yalnız son 10 dakikada indirilen tek Destek- dosyasına çalıştırma izni verir ve onu açar; yönetici şifresi istemez.",
   "gl.cmdLabel": "Başlatma komutu",
   "gl.copyCmd": "Başlatma komutunu kopyala",
   "gl.copyManual": "Panoya erişilemedi; komut seçildi, Ctrl+C ile kopyalayın:",
