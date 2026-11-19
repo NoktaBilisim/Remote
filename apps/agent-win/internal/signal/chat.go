@@ -156,12 +156,41 @@ func parseChatHistory(raw []byte) (Inbound, error) {
 		if err := decodeStrict(r, &it); err != nil {
 			return nil, fail(t, err.Error())
 		}
-		if !validChatItem(it) {
+		if !validChatItem(it) || nullOrEmptyKey(r, "tid", "senderName") != "" {
 			return nil, fail(t, "öğe")
 		}
 		h.Items = append(h.Items, it)
 	}
 	return h, nil
+}
+
+// chatNoNull S-P22G-3: zod `optional()` alanı `null` ve enum `""` değerini reddeder; encoding/json ikisini de "yok"
+// sayar. Katı çözümden sonra ham anahtarlar denetlenir: isteğe bağlı alan varsa null/boş olamaz.
+func chatNoNull(p func([]byte) (Inbound, error), keys ...string) func([]byte) (Inbound, error) {
+	return func(raw []byte) (Inbound, error) {
+		m, err := p(raw)
+		if err != nil {
+			return nil, err
+		}
+		if k := nullOrEmptyKey(raw, keys...); k != "" {
+			return nil, fail(m.Type(), k+" null/boş")
+		}
+		return m, nil
+	}
+}
+
+// nullOrEmptyKey keys içinden değeri `null` ya da `""` olan ilk anahtar; yoksa "". raw katı çözümden geçmiştir.
+func nullOrEmptyKey(raw []byte, keys ...string) string {
+	var obj map[string]json.RawMessage
+	if json.Unmarshal(raw, &obj) != nil {
+		return "json"
+	}
+	for _, k := range keys {
+		if v, ok := obj[k]; ok && (string(v) == "null" || string(v) == `""`) {
+			return k
+		}
+	}
+	return ""
 }
 
 func validChatState(m *ChatState) bool {

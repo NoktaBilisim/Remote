@@ -269,9 +269,9 @@ var serverParsers = map[string]func(raw []byte) (Inbound, error){
 	"voice.request": check(validVoiceRequest),
 	"voice.state":   check(validVoiceState),
 	// P22-G (mimari-p22 §4.2): yalnız schat1 sokete; doğrulayıcılar chat.go.
-	"chat.message":  check(validChatMessage),
+	"chat.message":  chatNoNull(check(validChatMessage), "tid", "senderName", "clientMsgId"),
 	"chat.history":  parseChatHistory,
-	"chat.state":    check(validChatState),
+	"chat.state":    chatNoNull(check(validChatState), "reason"),
 	"chat.rejected": check(validChatRejected),
 	"error": check(func(m *ErrorMsg) bool {
 		return slices.Contains(wsErrorCodes, m.Code) && utf16Len(m.Message) <= errMsgMax

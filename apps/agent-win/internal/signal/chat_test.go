@@ -252,3 +252,35 @@ func TestSP22_1BudgetedHistoryReadsOverRealSocket(t *testing.T) {
 		t.Fatalf("soket geçmişten sonra açık kalmalı: %v %v", m, err)
 	}
 }
+
+// S-P22G-3: zod `optional()` null'ı, `reason` enum'u boş dizgeyi reddeder (contracts ws-chat.ts:86-87,100,120). Go da
+// aynı: isteğe bağlı alan varsa null/"" olamaz; yokluğu geçerli kalır.
+func TestSP22G3ChatNullAndEmptyRejected(t *testing.T) {
+	const msg = `{"t":"chat.message","id":"01JC5Z8X4N2M7Q9R3T6V0W1Y2A","sender":"%s","body":"x","createdAt":"2026-11-17T10:00:00.000Z"%s}`
+	const item = `{"id":"01JC5Z8X4N2M7Q9R3T6V0W1Y2A","sender":"%s","body":"x","createdAt":"2026-11-17T10:00:00.000Z"%s}`
+	hist := func(it string) string { return `{"t":"chat.history","items":[` + it + `],"more":false}` }
+	cases := []struct {
+		raw string
+		ok  bool
+	}{
+		{fmt.Sprintf(msg, "CUSTOMER", `,"tid":null`), false},
+		{fmt.Sprintf(msg, "TECH", `,"tid":null`), false},
+		{fmt.Sprintf(msg, "TECH", `,"senderName":null`), false},
+		{fmt.Sprintf(msg, "CUSTOMER", `,"clientMsgId":null`), false},
+		{fmt.Sprintf(msg, "CUSTOMER", `,"clientMsgId":""`), false},
+		{fmt.Sprintf(msg, "TECH", `,"tid":"t0123456789","senderName":"Ali"`), true},
+		{fmt.Sprintf(msg, "TECH", ``), true},
+		{hist(fmt.Sprintf(item, "CUSTOMER", `,"tid":null`)), false},
+		{hist(fmt.Sprintf(item, "TECH", `,"senderName":null`)), false},
+		{hist(fmt.Sprintf(item, "TECH", `,"tid":"t0123456789","senderName":"Ali"`)), true},
+		{`{"t":"chat.state","enabled":false,"reason":""}`, false},
+		{`{"t":"chat.state","enabled":false,"reason":null}`, false},
+		{`{"t":"chat.state","enabled":false,"reason":"ended"}`, true},
+		{`{"t":"chat.state","enabled":false}`, true},
+	}
+	for _, c := range cases {
+		if _, err := ParseServer([]byte(c.raw)); (err == nil) != c.ok {
+			t.Errorf("%s → %v", c.raw, err)
+		}
+	}
+}
