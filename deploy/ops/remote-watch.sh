@@ -39,7 +39,8 @@ WATCH_BACKUP_DIR WATCH_DISK_PATHS WATCH_OFFSITE_REMIND_DAYS WATCH_TREE_DIR WATCH
 WATCH_GUEST_PREFIX_MAX WATCH_MYSQL_FAIL_MAX WATCH_PURGE_CHECKS WATCH_PURGE_REPEAT_MIN WATCH_NOTIFY_CAPS WATCH_NOTIFY_FAIL_MIN
 WATCH_NOTIFY_RL_MAX WATCH_AV_CHECKS WATCH_AV_STALE_DAYS WATCH_AV_FAIL_MIN
 WATCH_REC_ERR_MIN WATCH_REC_PART_BAD_MAX WATCH_REC_VIEW_THROTTLE_MAX
-WATCH_MULTI_DENIED_MAX WATCH_PORTAL_LOGIN_FAIL_MAX WATCH_PORTAL_LOCKED_MAX WATCH_PORTAL_REQ_REJECT_MAX"
+WATCH_MULTI_DENIED_MAX WATCH_PORTAL_LOGIN_FAIL_MAX WATCH_PORTAL_LOCKED_MAX WATCH_PORTAL_REQ_REJECT_MAX
+WATCH_UPDATE_REJECT_CLIENT_MIN WATCH_UPDATE_EXPIRY_MIN_DAYS WATCH_UPDATE_MANIFEST_REQUIRED"
 
 # P13c: isteğe bağlı örnek adı (2. argüman). Boş = prod (bugünkü adlar/yollar birebir).
 INST="${2:-}"
@@ -200,13 +201,23 @@ MD_MAX="${WATCH_MULTI_DENIED_MAX:-20}"
 PL_FMAX="${WATCH_PORTAL_LOGIN_FAIL_MAX:-200}"
 PL_LMAX="${WATCH_PORTAL_LOCKED_MAX:-10}"
 PR_RMAX="${WATCH_PORTAL_REQ_REJECT_MAX:-20}"
+# P29 (mimari-p29 §9.4, §14.1 m.5, §14.4 T-5; runbook §31.8): istemci güncelleme. Cihaz (WS kimlikli, source=device) kaynaklı
+# güvenlik reddi rs_agent_update_rejected_total{source="device"} >= 1 artış -> update-rejected-device (24 sa; inceleme). İstemci
+# beyanı (source=binding|anonymous, doğrulanmamış) 1 sa'te artış >= UR_CMIN -> update-rejected-client (tasarımdaki "≥ 3 farklı
+# IP/kimlik" metrikten çıkmaz; sayaç artışıyla yaklaşıklanır, ayrıntı server logu). Manifest kalan süresi
+# min(rs_update_manifest_expiry_seconds) < UE_DAYS gün -> update-manifest-expiry ("yeniden imza zamanı", update-resign).
+# UM_REQ=1 (prod'da ilk manifest yayınından sonra) iken hiç manifest süresi serisi yoksa -> update-manifest-missing (donma, T-12).
+UR_CMIN="${WATCH_UPDATE_REJECT_CLIENT_MIN:-3}"
+UE_DAYS="${WATCH_UPDATE_EXPIRY_MIN_DAYS:-14}"
+UM_REQ="${WATCH_UPDATE_MANIFEST_REQUIRED:-0}"
 for x in $NOTIFY_CAPS; do [[ "$x" =~ ^[A-Z_]{1,16}:[1-9][0-9]{0,5}$ ]] || die "WATCH_NOTIFY_CAPS biçimi KANAL:sayı (bulunan: $x)"; done
 if [ -n "$INST" ]; then TIMERS="${WATCH_TIMERS:-remote-backup@$INST.timer}"; TURN_CHECKS="${WATCH_TURN_CHECKS:-0}"; AV_CHECKS="${WATCH_AV_CHECKS:-auto}"
 else TIMERS="${WATCH_TIMERS:-remote-turn-fw.timer remote-backup.timer}"; TURN_CHECKS="${WATCH_TURN_CHECKS:-1}"; AV_CHECKS="${WATCH_AV_CHECKS:-1}"; fi
 case "$AV_CHECKS" in 0|1|auto) ;; *) die "WATCH_AV_CHECKS 0, 1 ya da auto olmalı" ;; esac
 case "$TURN_CHECKS" in 0|1) ;; *) die "WATCH_TURN_CHECKS 0 ya da 1 olmalı" ;; esac
 case "$PURGE_CHECKS" in 0|1) ;; *) die "WATCH_PURGE_CHECKS 0 ya da 1 olmalı" ;; esac
-for v in REPEAT_MIN DISK_MAX CERT_DAYS REMIND_DAYS GP_MAX MF_MAX PURGE_REPEAT NF_MIN NRL_MAX AV_STALE AV_FMIN REC_EMIN REC_BMAX REC_VMAX MD_MAX PL_FMAX PL_LMAX PR_RMAX; do
+case "$UM_REQ" in 0|1) ;; *) die "WATCH_UPDATE_MANIFEST_REQUIRED 0 ya da 1 olmalı" ;; esac
+for v in REPEAT_MIN DISK_MAX CERT_DAYS REMIND_DAYS GP_MAX MF_MAX PURGE_REPEAT NF_MIN NRL_MAX AV_STALE AV_FMIN REC_EMIN REC_BMAX REC_VMAX MD_MAX PL_FMAX PL_LMAX PR_RMAX UR_CMIN UE_DAYS; do
   case "${!v}" in ''|*[!0-9]*) die "WATCH_${v} sayı olmalı (bulunan: ${!v})" ;; esac
 done
 for c in docker systemctl curl openssl df timeout awk; do command -v "$c" >/dev/null 2>&1 || die "'$c' bulunamadı"; done
@@ -295,11 +306,11 @@ if [ -n "$SERVER_C" ]; then
   # listesi (etiket adı channel ya da role — Metrics.gauge kayıtları {role=…} yazar; kanal adı [A-Za-z0-9_] dışı "_").
   # 3./4. alan (P14a A5): rs_guest_code_rate_limited_total{scope="prefix"} ve rs_mysql_test_failed_total (tüm class) toplamı;
   # seri yoksa "-" (metrik henüz yayında değil -> değerlendirilmez).
-  rt="$(timeout 20 docker exec "$SERVER_C" node -e "const sum=(t,re)=>{let n=0,k=0;for(const x of t.matchAll(re)){n+=Number(x[1]);k++}return k?String(n):'-'};const mx=(t,re)=>{let n=null;for(const x of t.matchAll(re)){const v=Number(x[1]);if(n===null||v>n)n=v}return n===null?'-':String(n)};fetch('http://127.0.0.1:3001/metrics',{headers:{authorization:'Bearer '+(process.env.METRICS_TOKEN||'')}}).then(r=>r.text()).then(t=>{const m=t.match(/^rs_retention_last_success_timestamp_seconds (\S+)/m);const f=t.match(/^rs_retention_failures_total (\S+)/m);console.log([m?m[1]:'yok',sum(t,/^rs_retention_failures_total(?:\{[^}]*\})? (\S+)/gm).replace('-','0'),sum(t,/^rs_guest_code_rate_limited_total\{[^}]*scope=\"prefix\"[^}]*\} (\S+)/gm),sum(t,/^rs_mysql_test_failed_total(?:\{[^}]*\})? (\S+)/gm),sum(t,/^rs_tenant_purge_jobs\{[^}]*=\"SCHEDULED\"[^}]*\} (\S+)/gm),sum(t,/^rs_tenant_purge_jobs\{[^}]*=\"FAILED\"[^}]*\} (\S+)/gm),sum(t,/^rs_tenant_purge_jobs\{[^}]*=\"RUNNING\"[^}]*\} (\S+)/gm),sum(t,/^rs_tenant_purge_last_heartbeat_seconds(?:\{[^}]*\})? (\S+)/gm),sum(t,/^rs_orphan_scan_last_success_timestamp_seconds(?:\{[^}]*\})? (\S+)/gm),sum(t,/^(?:rs_orphan_scan_circuit_open_total(?:\{[^}]*\})?|rs_orphan_files_total\{[^}]*action=\"circuit_open\"[^}]*\}) (\S+)/gm),sum(t,/^rs_erasure_ledger_write_failed_total(?:\{[^}]*\})? (\S+)/gm),sum(t,/^rs_crypto_decrypt_failures_total(?:\{[^}]*\})? (\S+)/gm),sum(t,/^rs_calendar_fallback_total(?:\{[^}]*\})? (\S+)/gm),sum(t,/^rs_request_messages_rejected_total\{[^}]*reason=\"[^\"]*tenant[^\"]*\"[^}]*\} (\S+)/gm),sum(t,/^rs_request_messages_total(?:\{[^}]*\})? (\S+)/gm),sum(t,/^rs_notify_outbox_total(?:\{[^}]*\})? (\S+)/gm),sum(t,/^rs_notify_outbox_total\{[^}]*result=\"fail(?:ed)?\"[^}]*\} (\S+)/gmi),mx(t,/^rs_notify_outbox_oldest_pending_seconds(?:\{[^}]*\})? (\S+)/gm),sum(t,/^rs_notify_rate_limited_total(?:\{[^}]*\})? (\S+)/gm),sum(t,/^rs_sms_key_unreadable_total(?:\{[^}]*\})? (\S+)/gm),[...t.matchAll(/^rs_notify_tenant_max_hourly\{(?:[^}]*,)?(?:channel|role)=\"([^\"]*)\"[^}]*\} (\S+)/gm)].map(x=>x[1].replace(/\W/g,'_')+'='+x[2]).join(',')||'-',sum(t,/^rs_av_up(?:\{[^}]*\})? (\S+)/gm),sum(t,/^rs_av_selftest_ok(?:\{[^}]*\})? (\S+)/gm),mx(t,/^rs_av_signature_age_seconds(?:\{[^}]*\})? (\S+)/gm),sum(t,/^rs_av_scan_total(?:\{[^}]*\})? (\S+)/gm),sum(t,/^rs_av_scan_total\{[^}]*result=\"failed_[^\"]*\"[^}]*\} (\S+)/gm),sum(t,/^rs_unattended_silent_notify_total(?:\{[^}]*\})? (\S+)/gm),sum(t,/^rs_unattended_silent_notify_total\{[^}]*result=\"fail\"[^}]*\} (\S+)/gm),sum(t,/^rs_rec_part_total(?:\{[^}]*\})? (\S+)/gm),sum(t,/^rs_rec_part_total\{[^}]*result=\"(?:invalid|rate|busy)\"[^}]*\} (\S+)/gm),sum(t,/^rs_rec_stop_total(?:\{[^}]*\})? (\S+)/gm),sum(t,/^rs_rec_stop_total\{[^}]*reason=\"error\"[^}]*\} (\S+)/gm),sum(t,/^rs_rec_view_throttled_total(?:\{[^}]*\})? (\S+)/gm),sum(t,/^rs_multi_denied_total(?:\{[^}]*\})? (\S+)/gm),sum(t,/^rs_session_chat_rejected_total(?:\{[^}]*\})? (\S+)/gm),sum(t,/^rs_session_chat_rejected_total\{[^}]*reason=\"internal\"[^}]*\} (\S+)/gm),sum(t,/^rs_portal_login_total(?:\{[^}]*\})? (\S+)/gm),sum(t,/^rs_portal_login_total\{[^}]*result=\"fail\"[^}]*\} (\S+)/gm),sum(t,/^rs_portal_locked_total(?:\{[^}]*\})? (\S+)/gm),sum(t,/^rs_portal_requests_total\{[^}]*result=\"(?:rate_limited|queue_full)\"[^}]*\} (\S+)/gm)].join(' '))}).catch(()=>console.log('yok 0'))" 2>/dev/null)" || rt="yok 0"
+  rt="$(timeout 20 docker exec "$SERVER_C" node -e "const sum=(t,re)=>{let n=0,k=0;for(const x of t.matchAll(re)){n+=Number(x[1]);k++}return k?String(n):'-'};const mx=(t,re)=>{let n=null;for(const x of t.matchAll(re)){const v=Number(x[1]);if(n===null||v>n)n=v}return n===null?'-':String(n)};const mn=(t,re)=>{let n=null;for(const x of t.matchAll(re)){const v=Math.max(0,Math.floor(Number(x[1])));if(Number.isFinite(v)&&(n===null||v<n))n=v}return n===null?'-':String(n)};fetch('http://127.0.0.1:3001/metrics',{headers:{authorization:'Bearer '+(process.env.METRICS_TOKEN||'')}}).then(r=>r.text()).then(t=>{const m=t.match(/^rs_retention_last_success_timestamp_seconds (\S+)/m);const f=t.match(/^rs_retention_failures_total (\S+)/m);console.log([m?m[1]:'yok',sum(t,/^rs_retention_failures_total(?:\{[^}]*\})? (\S+)/gm).replace('-','0'),sum(t,/^rs_guest_code_rate_limited_total\{[^}]*scope=\"prefix\"[^}]*\} (\S+)/gm),sum(t,/^rs_mysql_test_failed_total(?:\{[^}]*\})? (\S+)/gm),sum(t,/^rs_tenant_purge_jobs\{[^}]*=\"SCHEDULED\"[^}]*\} (\S+)/gm),sum(t,/^rs_tenant_purge_jobs\{[^}]*=\"FAILED\"[^}]*\} (\S+)/gm),sum(t,/^rs_tenant_purge_jobs\{[^}]*=\"RUNNING\"[^}]*\} (\S+)/gm),sum(t,/^rs_tenant_purge_last_heartbeat_seconds(?:\{[^}]*\})? (\S+)/gm),sum(t,/^rs_orphan_scan_last_success_timestamp_seconds(?:\{[^}]*\})? (\S+)/gm),sum(t,/^(?:rs_orphan_scan_circuit_open_total(?:\{[^}]*\})?|rs_orphan_files_total\{[^}]*action=\"circuit_open\"[^}]*\}) (\S+)/gm),sum(t,/^rs_erasure_ledger_write_failed_total(?:\{[^}]*\})? (\S+)/gm),sum(t,/^rs_crypto_decrypt_failures_total(?:\{[^}]*\})? (\S+)/gm),sum(t,/^rs_calendar_fallback_total(?:\{[^}]*\})? (\S+)/gm),sum(t,/^rs_request_messages_rejected_total\{[^}]*reason=\"[^\"]*tenant[^\"]*\"[^}]*\} (\S+)/gm),sum(t,/^rs_request_messages_total(?:\{[^}]*\})? (\S+)/gm),sum(t,/^rs_notify_outbox_total(?:\{[^}]*\})? (\S+)/gm),sum(t,/^rs_notify_outbox_total\{[^}]*result=\"fail(?:ed)?\"[^}]*\} (\S+)/gmi),mx(t,/^rs_notify_outbox_oldest_pending_seconds(?:\{[^}]*\})? (\S+)/gm),sum(t,/^rs_notify_rate_limited_total(?:\{[^}]*\})? (\S+)/gm),sum(t,/^rs_sms_key_unreadable_total(?:\{[^}]*\})? (\S+)/gm),[...t.matchAll(/^rs_notify_tenant_max_hourly\{(?:[^}]*,)?(?:channel|role)=\"([^\"]*)\"[^}]*\} (\S+)/gm)].map(x=>x[1].replace(/\W/g,'_')+'='+x[2]).join(',')||'-',sum(t,/^rs_av_up(?:\{[^}]*\})? (\S+)/gm),sum(t,/^rs_av_selftest_ok(?:\{[^}]*\})? (\S+)/gm),mx(t,/^rs_av_signature_age_seconds(?:\{[^}]*\})? (\S+)/gm),sum(t,/^rs_av_scan_total(?:\{[^}]*\})? (\S+)/gm),sum(t,/^rs_av_scan_total\{[^}]*result=\"failed_[^\"]*\"[^}]*\} (\S+)/gm),sum(t,/^rs_unattended_silent_notify_total(?:\{[^}]*\})? (\S+)/gm),sum(t,/^rs_unattended_silent_notify_total\{[^}]*result=\"fail\"[^}]*\} (\S+)/gm),sum(t,/^rs_rec_part_total(?:\{[^}]*\})? (\S+)/gm),sum(t,/^rs_rec_part_total\{[^}]*result=\"(?:invalid|rate|busy)\"[^}]*\} (\S+)/gm),sum(t,/^rs_rec_stop_total(?:\{[^}]*\})? (\S+)/gm),sum(t,/^rs_rec_stop_total\{[^}]*reason=\"error\"[^}]*\} (\S+)/gm),sum(t,/^rs_rec_view_throttled_total(?:\{[^}]*\})? (\S+)/gm),sum(t,/^rs_multi_denied_total(?:\{[^}]*\})? (\S+)/gm),sum(t,/^rs_session_chat_rejected_total(?:\{[^}]*\})? (\S+)/gm),sum(t,/^rs_session_chat_rejected_total\{[^}]*reason=\"internal\"[^}]*\} (\S+)/gm),sum(t,/^rs_portal_login_total(?:\{[^}]*\})? (\S+)/gm),sum(t,/^rs_portal_login_total\{[^}]*result=\"fail\"[^}]*\} (\S+)/gm),sum(t,/^rs_portal_locked_total(?:\{[^}]*\})? (\S+)/gm),sum(t,/^rs_portal_requests_total\{[^}]*result=\"(?:rate_limited|queue_full)\"[^}]*\} (\S+)/gm),sum(t,/^rs_agent_update_rejected_total\{[^}]*source=\"device\"[^}]*\} (\S+)/gm),sum(t,/^rs_agent_update_rejected_total\{[^}]*source=\"(?:binding|anonymous)\"[^}]*\} (\S+)/gm),mn(t,/^rs_update_manifest_expiry_seconds(?:\{[^}]*\})? (\S+)/gm)].join(' '))}).catch(()=>console.log('yok 0'))" 2>/dev/null)" || rt="yok 0"
   started="$(docker inspect -f '{{.State.StartedAt}}' "$SERVER_C" 2>/dev/null)"
   st_epoch="$(date -d "$started" +%s 2>/dev/null || echo "$NOW")"
   read -r r_last r_fail R_GP R_MF P_SCH P_FAIL P_RUN P_HB O_LAST O_CIRC L_FAIL D_FAIL C_FB M_TEN M_ALL NO_TOT NO_FAIL NO_OLD NO_RL SK_UNR NO_VOL \
-    AV_UP AV_ST AV_AGE AV_TOT AV_FAIL UA_NT UA_NF REC_PT REC_PB REC_ST REC_SE REC_VT MD_TOT SC_TOT SC_INT PL_TOT PL_FAIL PL_LOCK PR_REJ _ <<<"$rt"
+    AV_UP AV_ST AV_AGE AV_TOT AV_FAIL UA_NT UA_NF REC_PT REC_PB REC_ST REC_SE REC_VT MD_TOT SC_TOT SC_INT PL_TOT PL_FAIL PL_LOCK PR_REJ UP_DEV UP_CLI UP_EXP _ <<<"$rt"
   r_last="${r_last%.*}"; r_fail="${r_fail%.*}"
   # S14-2: konteyner çıktısı güvenilmez; $(( )) bash aritmetiği `a[$(komut)]` ile komut çalıştırır -> yalnız ^[0-9]+$ girer.
   [[ "$st_epoch" =~ ^[0-9]+$ ]] || { err "UYARI: server başlangıç zamanı geçersiz; şimdi varsayıldı"; st_epoch="$NOW"; }
@@ -435,6 +446,25 @@ if [ -n "$SERVER_C" ] && [[ "${r_last:-yok}" != yok ]] && [ -n "$PL_TOT" ]; then
   PT=1; seen portal-login-fail; seen portal-locked; seen portal-request-reject
   PL_FAIL="$(num "${PL_FAIL:--}")"; PL_FAIL="${PL_FAIL:-0}"; PL_LOCK="$(num "${PL_LOCK:--}")"; PL_LOCK="${PL_LOCK:-0}"
   PR_REJ="$(num "${PR_REJ:--}")"; PR_REJ="${PR_REJ:-0}"
+fi
+
+# P29 istemci güncelleme (mimari-p29 §9.4, §14.4; runbook §31.8). 41.-43. alan: rejected{source=device} toplamı,
+# rejected{source=binding|anonymous} toplamı, en küçük manifest kalan süresi (sn, >= 0 kırpılmış). Seriler ilk olaya kadar yoktur;
+# herhangi biri varsa ya da önceki durum varsa (alarm penceresi sürsün) server P29 sayılır, eksik sayaç 0. Yalnız ^[0-9]+ (S14-2).
+UP=0
+UP_DEV="$(num "${UP_DEV:--}")"; UP_CLI="$(num "${UP_CLI:--}")"; UP_EXP="$(num "${UP_EXP:--}")"
+if [ -n "$SERVER_C" ] && [[ "${r_last:-yok}" != yok ]]; then
+  if [ -n "$UP_DEV$UP_CLI$UP_EXP" ] || [ "$UM_REQ" = 1 ] || grep -q '^update_rejected_device=[0-9]' "$STATE_DIR/state" 2>/dev/null; then
+    UP=1; seen update-rejected-device; seen update-rejected-client; seen update-manifest-expiry
+    UP_DEV="${UP_DEV:-0}"; UP_CLI="${UP_CLI:-0}"
+    if [ -n "$UP_EXP" ] && [ "$UP_EXP" -lt $((UE_DAYS * DAY)) ]; then
+      fail update-manifest-expiry "güncelleme manifesti $((UP_EXP / 3600)) sa sonra doluyor (< $UE_DAYS g): yeniden imza zamanı — update-resign + publish-manifest.sh --tag (runbook §31.6)"
+    fi
+    if [ "$UM_REQ" = 1 ]; then
+      seen update-manifest-missing
+      [ -n "$UP_EXP" ] || fail update-manifest-missing "sunulabilir güncelleme manifesti yok (rs_update_manifest_expiry_seconds serisi yok: süresi doldu/geri çekildi/imza kapısı? donma; runbook §31.8)"
+    fi
+  fi
 fi
 
 # Sertifikalar: LE web (nginx), LE remote-turn, coturn'ün dağıtılmış dosyası ve 5349'dan sunulan.
@@ -678,6 +708,21 @@ if [ "$PT" = 1 ]; then
   [ -z "$d" ] || [ "$d" -le "$PR_RMAX" ] || fail portal-request-reject "1 sa'te portal talep reddi +$d (rate_limited|queue_full; eşik $PR_RMAX; audit via:portal; runbook §30.5)"
 fi
 
+# P29: cihaz kaynaklı güvenlik reddi — artıştan sonra 24 sa (taban 0: açılıştan beri birikmiş ret de alarm verir). İstemci beyanı
+# örnekleri "ts:ret" 90 dk; 1 sa'te artış >= UR_CMIN -> update-rejected-client. Sayaç süreç yeniden başlayınca sıfırlanır.
+ud_prev="$(st_get update_rejected_device)"; upsamples="$(st_get update_samples)"
+kept=""
+for x in $upsamples; do IFS=: read -r ts _ <<<"$x"; [[ "$ts" =~ ^[0-9]+$ ]] && [ $((NOW - ts)) -le 5400 ] && kept="${kept:+$kept }$x"; done
+upsamples="$kept"
+if [ "$UP" = 1 ]; then
+  [ -n "$ud_prev" ] || ud_prev="0 0"
+  read -r a b <<<"$(bump update-rejected-device "$UP_DEV" "${ud_prev% *}" "${ud_prev#* }")"; ud_prev="$a $b"
+  [ $((NOW - b)) -ge "$DAY" ] || fail update-rejected-device "gözetimsiz servis güncellemeyi GÜVENLİK nedeniyle reddetti (rs_agent_update_rejected_total{source=device}=$UP_DEV; imza/bütünlük/ortam/düşürme — audit client.update.failed; runbook §31.8)"
+  upsamples="${upsamples:+$upsamples }$NOW:$UP_CLI"
+  d="$(incr 2 3600 "$upsamples")"
+  [ -z "$d" ] || [ "$d" -lt "$UR_CMIN" ] || fail update-rejected-client "1 sa'te istemci beyanı güncelleme reddi +$d (source=binding|anonymous, doğrulanmamış; eşik $UR_CMIN; runbook §31.8)"
+else ud_prev=""; fi
+
 cur=""
 for x in "${FAILS[@]+"${FAILS[@]}"}"; do
   n="${x%%|*}"; err "ALERT check=$n ${x#*|}"
@@ -720,9 +765,9 @@ if [ -f "$BSTATUS" ] && [ "$(prom remote_backup_offsite_configured)" = 0 ]; then
 fi
 
 tmp="$STATE.tmp.$$"
-printf 'failing=%s\nlast_sent=%s\noffsite_remind=%s\nretention_fail_count=%s\nretention_fail_at=%s\ncounter_samples=%s\npurge_sent=%s\norphan_circuit=%s\nledger_write=%s\ndecrypt_fail=%s\ncalendar_fallback=%s\nmsg_tenant_rate=%s\nnotify_volume_since=%s\nsms_key_unreadable=%s\nnotify_samples=%s\nav_down=%s\nav_samples=%s\nua_notify_fail=%s\nrec_samples=%s\nmulti_samples=%s\nchat_internal=%s\nportal_samples=%s\n' \
+printf 'failing=%s\nlast_sent=%s\noffsite_remind=%s\nretention_fail_count=%s\nretention_fail_at=%s\ncounter_samples=%s\npurge_sent=%s\norphan_circuit=%s\nledger_write=%s\ndecrypt_fail=%s\ncalendar_fallback=%s\nmsg_tenant_rate=%s\nnotify_volume_since=%s\nsms_key_unreadable=%s\nnotify_samples=%s\nav_down=%s\nav_samples=%s\nua_notify_fail=%s\nrec_samples=%s\nmulti_samples=%s\nchat_internal=%s\nportal_samples=%s\nupdate_rejected_device=%s\nupdate_samples=%s\n' \
   "$keep" "$last_sent" "$remind" "${prev_rfc:-}" "${prev_rfa:-}" "$samples" "$purge_sent" "${oc_prev:-}" "${lw_prev:-}" \
-  "${df_prev:-}" "${cf_prev:-}" "${mt_prev:-}" "${vs_prev:-}" "${sk_prev:-}" "$nsamples" "$av_down" "$avsamples" "${ua_nf_prev:-}" "$recsamples" "$mdsamples" "${ci_prev:-}" "$ptsamples" >"$tmp" && mv -f "$tmp" "$STATE"
+  "${df_prev:-}" "${cf_prev:-}" "${mt_prev:-}" "${vs_prev:-}" "${sk_prev:-}" "$nsamples" "$av_down" "$avsamples" "${ua_nf_prev:-}" "$recsamples" "$mdsamples" "${ci_prev:-}" "$ptsamples" "${ud_prev:-}" "$upsamples" >"$tmp" && mv -f "$tmp" "$STATE"
 tmp="$STATE_DIR/status.prom.tmp.$$"
 {
   echo "# $TAG (mimari-p13 §7.8); sır yok"

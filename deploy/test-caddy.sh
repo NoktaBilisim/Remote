@@ -41,6 +41,12 @@ printf 'PK-sahte-zip-%s' "$(date +%s)" >"$TMP/dl/NoktaDestek-macOS.zip"
 printf '\177ELF-sahte-linux-%s' "$(date +%s)" >"$TMP/dl/NoktaDestek-linux"
 touch -t 202001010000 "$TMP/dl/NoktaDestek-linux"   # eski mtime: Last-Modified sızarsa açıkça görünür
 chmod 0755 "$TMP" "$TMP/dl" && chmod 0644 "$TMP/dl/NoktaDestek.exe" "$TMP/dl/NoktaDestek-macOS.zip" "$TMP/dl/NoktaDestek-linux"
+# P29 (mimari-p29 §9.1): agent_downloads/update/ altındaki imzalı manifestler public SUNULMAZ (server okur, Caddy 404).
+mkdir -p "$TMP/dl/update"
+for m in update-client-windows-amd64.json update-client-windows-amd64.json.sig update-service-windows-amd64.json; do
+  printf 'MANIFEST-sahte-%s' "$m" >"$TMP/dl/update/$m"; chmod 0644 "$TMP/dl/update/$m"
+done
+chmod 0755 "$TMP/dl/update"
 cat >"$TMP/mock.js" <<'JS'
 // Sahte server:3001 — yalnız Caddy'nin ilettiklerini kaydeder (gerçek doğrulama server'ın işi). WS yanıtında
 // en kötü durumu sınar: gerçek server yalnız rs.v1 seçer, burada sırlı ilk öğe geri yazılır → log filtresi silmeli.
@@ -135,6 +141,15 @@ for bad in "NoktaDestek-ABCDEFGHIJKLMNOPQRSTU-$REF.exe" "NoktaDestek-Demo-ABCDEF
   [ "$CODE" = 404 ] && pass "404 $bad" || fail "$bad → $CODE"
 done
 [ "$(fa_count)" = "$N0" ] && pass "biçim dışı adlarda forward_auth çağrılmadı" || fail "biçim dışı ad server'a gitti"
+
+echo "== P29 update/ alt yolu public sunulmaz (404, gövdede manifest yok)"
+N0="$(fa_count)"
+for u in update/ update/update-client-windows-amd64.json update/update-client-windows-amd64.json.sig \
+  update/update-service-windows-amd64.json update/../update/update-service-windows-amd64.json; do
+  CODE="$(curl -s --path-as-is -o "$TMP/out" -w '%{http_code}' "$B/downloads/$u")"
+  [ "$CODE" = 404 ] && ! grep -q MANIFEST-sahte "$TMP/out" && pass "404 /downloads/$u" || fail "/downloads/$u → $CODE"
+done
+[ "$(fa_count)" = "$N0" ] && pass "update/ yolları server'a gitmez" || fail "update/ yolu forward_auth'a gitti"
 
 echo "== P6 yolları (regresyon)"
 for n in NoktaDestek Destek-12345678; do

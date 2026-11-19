@@ -84,6 +84,28 @@ function nestedPath(a: string, b: string): boolean {
 export const AGENT_BINARY_PATH_FIXED = "/data/downloads/NoktaDestek.exe";
 export const MAC_AGENT_PATH_FIXED = "/data/downloads/NoktaDestek-macOS.zip";
 export const LINUX_AGENT_PATH_FIXED = "/data/downloads/NoktaDestek-linux";
+/** P29 (mimari-p29 §9.1): imzalı güncelleme manifestlerinin klasörü (agent_downloads volume'u, deploy/agent/publish-manifest.sh yazar). */
+export const UPDATE_MANIFEST_DIR_FIXED = "/data/downloads/update";
+
+/**
+ * P29 (mimari-p29 §9.1, K-P29-1/5): `UPDATE_MANIFEST_PUBKEYS` = virgüllü, en çok 2 adet Ed25519 açık anahtarı (base64url, dolgusuz,
+ * 43 karakter = 32 bayt; `build/update-keys/<env>.pub` ile aynı). Gizli değildir. Geçersizse null.
+ */
+export function parseUpdatePubkeys(raw: string): Buffer[] | null {
+  const parts = raw
+    .split(",")
+    .map((p) => p.trim())
+    .filter(Boolean);
+  if (parts.length < 1 || parts.length > 2 || new Set(parts).size !== parts.length) return null;
+  const keys: Buffer[] = [];
+  for (const p of parts) {
+    if (!/^[A-Za-z0-9_-]{42}[AEIMQUYcgkosw048]$/.test(p)) return null;
+    const key = Buffer.from(p, "base64url");
+    if (key.length !== 32) return null;
+    keys.push(key);
+  }
+  return keys;
+}
 
 /** S14-7: herkesçe bilinen/zayıf anahtar — tüm baytları aynı (CI'daki 32 sıfır bayt dahil). Production'da reddedilir. */
 const isWeakEncryptionKey = (key: Buffer): boolean => key.every((b) => b === key[0]);
@@ -216,6 +238,14 @@ const schema = z
       .regex(/^[0-9a-fA-F]{64}$/, "64 haneli onaltılık SHA-256 olmalı")
       .transform((v) => v.toLowerCase())
       .optional(),
+    // P29 (mimari-p29 §9.1, K-P29-5): imzalı güncelleme manifestleri. Boş = güncelleme uçları her zaman 204 / update.none.
+    // Production'da yol sabit (UPDATE_MANIFEST_DIR_FIXED). Dolu iken UPDATE_MANIFEST_PUBKEYS zorunlu (aşağıdaki refine).
+    UPDATE_MANIFEST_DIR: z.string().startsWith("/", "mutlak yol olmalı").optional(),
+    // Virgüllü ≤ 2 Ed25519 açık anahtarı (base64url 43 karakter; gizli değil). Ortamın build/update-keys/<env>.pub dosyasıyla aynı.
+    UPDATE_MANIFEST_PUBKEYS: z
+      .string()
+      .refine((v) => parseUpdatePubkeys(v) !== null, "virgüllü en çok 2 adet base64url (43 karakter) Ed25519 açık anahtarı olmalı")
+      .optional(),
   })
   .refine((e) => e.NODE_ENV !== "production" || e.TRUSTED_PROXY_CIDR, {
     path: ["TRUSTED_PROXY_CIDR"],
@@ -251,6 +281,14 @@ const schema = z
     path: ["LINUX_AGENT_PATH"],
     message: `production'da yalnız ${LINUX_AGENT_PATH_FIXED} (Caddy'nin sunduğu dosya)`,
   })
+  .refine((e) => e.NODE_ENV !== "production" || !e.UPDATE_MANIFEST_DIR || e.UPDATE_MANIFEST_DIR === UPDATE_MANIFEST_DIR_FIXED, {
+    path: ["UPDATE_MANIFEST_DIR"],
+    message: `production'da yalnız ${UPDATE_MANIFEST_DIR_FIXED} (agent_downloads volume'u)`,
+  })
+  .refine((e) => !e.UPDATE_MANIFEST_DIR || e.UPDATE_MANIFEST_PUBKEYS, {
+    path: ["UPDATE_MANIFEST_PUBKEYS"],
+    message: "UPDATE_MANIFEST_DIR doluyken zorunlu (manifest imzası doğrulanmadan sunulmaz)",
+  })
   .refine((e) => !e.CLAMAV_ALLOWED_CIDR || !e.TRUSTED_PROXY_CIDR || !cidrOverlap(e.CLAMAV_ALLOWED_CIDR, e.TRUSTED_PROXY_CIDR), {
     path: ["CLAMAV_ALLOWED_CIDR"],
     message: "TRUSTED_PROXY_CIDR ile çakışmamalı (D-r2-5)",
@@ -282,6 +320,7 @@ const schema = z
       allowedOrigins,
       turnUrls,
       encryptionKeys,
+      updateManifestPubkeys: e.UPDATE_MANIFEST_PUBKEYS ? (parseUpdatePubkeys(e.UPDATE_MANIFEST_PUBKEYS) ?? []) : [],
       unattendedSignedSha256: new Set(
         (e.UNATTENDED_SIGNED_SHA256 ?? "")
           .split(",")

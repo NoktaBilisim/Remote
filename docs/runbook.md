@@ -5377,3 +5377,201 @@ adım kaldırılır (P10 `users.totp_secret_enc` için de aynı açık var).
 
 Mevcut gece yedeği iki tabloyu kapsar (şifreli döküm; kişisel veri: e-posta, ad, IP, user agent; `totp_secret_enc` AES-GCM).
 Geri yükleme provası değişmez; geri yüklenen DB'de portal oturumları 8 sa içinde kendiliğinden düşer.
+
+## 31. P29 — istemci otomatik güncelleme: anahtar, imza, yayın, alarm (devops K6, 2026-11-19; mimari-p29 r2 §9, §11 K6, §14; ADR-0040; AC-470..472, 486, 489, 492)
+
+Güncelleme kanalının bütünlüğü kendi Ed25519 manifest imzamıza dayanır. Platform imzası (SignPath/Apple) yoktur. **Manifest
+anahtarı, bütün gözetimsiz servislerde SYSTEM olarak kod çalıştırma yetkisi demektir.** Bu bölümdeki adımları atlamayın.
+
+### 31.1 Parçalar
+
+| Parça                                 | Yer                                                                                                                                                    |
+| ------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Açık anahtarlar (gizli değil, repoda) | `apps/agent-win/build/update-keys/{prod,staging}.pub`: satır başına 1, en çok 2 (etkin + yedek)                                                        |
+| Gömme                                 | `build/update-ldflags.sh` ← `build.sh` / `build-darwin.sh` / `build-linux.sh`, ortam değişkeni `UPDATE_ENV`                                            |
+| Özel tohum (32 bayt, base64)          | Yalnız GitHub **ortam** secret'ı `UPDATE_SIGNING_KEY`. Yedek tohum çevrimdışı, iki kopya (kasa)                                                        |
+| CI işleri (`agent-win.yml`)           | `update-signer` → `update-manifest` (etiket) / `update-manifest-stg` (main dispatch) / `update-resign-prep` → `update-resign` → `update-resign-upload` |
+| Yayın                                 | `deploy/agent/publish-manifest.sh` + `verify-manifest.mjs` (Node, Go'dan bağımsız doğrulayıcı)                                                         |
+| Sunucu                                | `.env` `UPDATE_MANIFEST_PUBKEYS`; compose bu doluysa `UPDATE_MANIFEST_DIR=/data/downloads/update` verir                                                |
+| Alarm                                 | `remote-watch`: `update-rejected-device`, `update-rejected-client`, `update-manifest-expiry`, `update-manifest-missing`                                |
+
+Anahtar yoksa güvenli varsayılan geçerlidir. `.pub` dosyası yoksa ikililer **güncelleyici kapalı** derlenir; build log'unda
+`update-ldflags: UYARI` görünür. `UPDATE_SIGNING_ENABLED` tanımsızsa imza işleri "skipped" olur ve Release manifestsiz çıkar.
+`UPDATE_MANIFEST_PUBKEYS` boşsa sunucu hiçbir manifest sunmaz. Hiçbir durumda imzasız güncelleme kurulmaz.
+
+Manifest dosyaları ikili başına birer tanedir (K-P29-2): `update-client-windows-amd64.json`, `update-client-macos-universal.json`,
+`update-client-linux-amd64.json`, `update-service-windows-amd64.json`. Her birinin yanında `<ad>.json.sig` bulunur.
+Geçerlilik süresi istemci manifestinde 30 gün, servis manifestinde 90 gündür.
+
+### 31.2 Anahtar üretimi (bir kez, ortam başına; çevrimdışı)
+
+Gerçek anahtar **yalnız bu adımla**, internete bağlı olmayan bir makinede üretilir. Ajanlar ve CI anahtar üretmez.
+
+1. Çevrimdışı makinede repo kopyası ve Go 1.26 (GO_IMAGE ile aynı sürüm) bulunur. Her ortam için **iki** çift üretin.
+   `keygen` çıktısı iki satırdır: `UPDATE_SIGNING_KEY=<tohum, base64 32 bayt>` ve `PUBLIC_KEY=<b64url 43>`.
+   ```sh
+   cd apps/agent-win && umask 077
+   for k in prod-etkin prod-yedek stg-etkin stg-yedek; do go run ./cmd/update-sign keygen > "$k.txt"; done
+   for k in prod-etkin prod-yedek stg-etkin stg-yedek; do sed -n 's/^UPDATE_SIGNING_KEY=//p' "$k.txt" > "$k.seed"; done
+   # denetim: tohumdan türeyen açık anahtar = PUBLIC_KEY satırı
+   go run ./cmd/update-sign pubkey --key-stdin < prod-etkin.seed; grep PUBLIC_KEY prod-etkin.txt
+   ```
+2. Açık anahtar dosyalarını yazın. Önce etkin, sonra yedek anahtar gelir. Yorum satırı kullanılabilir:
+   ```
+   # prod — etkin (2026-11-19)
+   <prod-etkin b64url-43>
+   # prod — yedek (çevrimdışı)
+   <prod-yedek b64url-43>
+   ```
+   Bu içerik `build/update-keys/prod.pub` dosyasına, staging çifti de `staging.pub` dosyasına girer.
+   - Değişiklik PR ile `main`'e gelir; incelemede iki satırın üretim çıktısıyla aynı olduğu doğrulanır.
+   - `sh build/update-ldflags.sh prod` biçimi denetler.
+3. Tohumları yerleştirin:
+   - **Etkin** tohum GitHub ortam secret'ına konur (§31.5):
+     `tr -d '\n' < prod-etkin.seed | gh secret set UPDATE_SIGNING_KEY --env agent-update-sign` ve
+     `tr -d '\n' < stg-etkin.seed | gh secret set UPDATE_SIGNING_KEY --env agent-update-sign-stg`.
+   - **Yedek** tohumlar iki ayrı çevrimdışı ortama (kasa / şifreli USB) konur. GitHub'a **konmaz**.
+   - Diskteki kalanlar silinir: `shred -u *.seed *.txt`.
+4. Sunucu `.env` dosyasına `UPDATE_MANIFEST_PUBKEYS=<etkin>,<yedek>` satırını yazın. Prod'a prod anahtarları, staging'e staging
+   anahtarları girer; iki ortamı karıştırmayın. Ardından servisi yeniden yaratın ve değişkenleri kontrol edin:
+   ```sh
+   docker compose up -d --no-deps server
+   docker compose exec server printenv UPDATE_MANIFEST_DIR UPDATE_MANIFEST_PUBKEYS
+   ```
+5. Bundan sonraki ilk derleme anahtarı gömer: build, ikilide anahtarı arar ve bulamazsa durur.
+   **0.22.0 son elle kurulumdur** (R-P29-5). Anahtarsız derlenmiş ikililer kendini hiçbir zaman güncellemez.
+
+### 31.3 Rotasyon, sızıntı, kayıp
+
+- **Planlı rotasyon (yılda bir) ya da şüpheli sızıntı:**
+  1. Yedek tohum ortam secret'ına konur ve yeni etkin anahtar olur.
+  2. Çevrimdışı makinede yeni bir yedek çift üretilir.
+  3. `.pub` = {eski yedek (artık etkin), yeni yedek} olarak PR'la güncellenir.
+  4. Yeni bir sürüm etiketlenir. Eski istemciler bu sürümü eski yedek anahtarla doğrular; yeni istemciler yeni yuvaları taşır.
+  5. Sunucu `.env` `UPDATE_MANIFEST_PUBKEYS` = yeni çift yapılır; ardından server yeniden yaratılır.
+- **Sızıntı** (tohum log'a düştü, `imza adımı çıktısında tohum biçimi bulundu` hatası, ortam ele geçirildi):
+  1. **Hemen** sızan anahtarı prod ve staging `.env` `UPDATE_MANIFEST_PUBKEYS` değerinden çıkarın ve server'ı yeniden yaratın.
+     Sunucu artık o anahtarla imzalı manifesti sunmaz.
+  2. `publish-manifest.sh --withdraw all` çalıştırın.
+  3. Rotasyon adımlarını uygulayın.
+  4. GitHub'da ortam secret'ını silin; ortam ve etiket denetim günlüğünü inceleyin.
+- **Kayıp** (iki tohum birden): otomatik güncelleme kanalı kapanır. Yeni anahtar çifti üretilir (§31.2). Yeni anahtarlı sürüm
+  **elle** dağıtılır (servis: `--install` → `Update`; taşınabilir: indirme bağlantısı). Eski istemciler bu sürümü otomatik almaz.
+
+### 31.4 Yayın sırası (her sürüm; AC-492; staging-önce kuralı, §14.1 m.6)
+
+1. **Staging:** `main`'de `agent-win` iş akışını `server_url=https://stg.remote.noktabilisim.net`, `version=X.Y.Z` ile tetikleyin.
+   İmza işi `update-manifest-stg` ortam onayı ister.
+   - İkilileri yayınlayın: `verify-and-publish.sh --stg-run <id>`, `publish-servis.sh …`, `publish-linux.sh --stg-run <id>`.
+   - Manifesti yayınlayın: `deploy/agent/publish-manifest.sh --stg-run <id> --ssh root@<sunucu>`.
+   - Kendi test cihazlarımızda (servis + taşınabilir) kurulum + panel rozeti + audit `client.update.installed` görülür.
+2. **24 saat bekleyin.** Bu süre içinde staging'de alarm, beklenmeyen davranış ya da beklenmeyen etiket/onay olmamalıdır.
+   Bu kural, kötü niyetli bir yayını fark etmek için zaman kazandırır.
+3. **Prod:** etiket `vX.Y.Z` → `approve` (agent-release) → imza/attest → `update-manifest` (agent-update-sign onayı) → Release.
+   Release notunda `Güncelleme manifesti: var` yazmalıdır.
+4. `UNATTENDED_MODE=signed` ise yeni servis SHA'sını `UNATTENDED_SIGNED_SHA256` listesine **ekleyin**; eskisini henüz çıkarmayın.
+5. **Önce ikilileri** yayınlayın: `verify-and-publish.sh --tag`, `publish-servis.sh --tag`, `publish-linux.sh --tag`,
+   (`publish-mac.sh --tag`). Sunucunun `*_SHA256` kapıları yeni sürüme geçer.
+6. **Sonra manifesti** yayınlayın: `deploy/agent/publish-manifest.sh --tag vX.Y.Z --ssh root@<sunucu>`. Betik şunları denetler:
+   - imza (repo `.pub` ile, sonra sunucuda hedefin kendi `UPDATE_MANIFEST_PUBKEYS` anahtarlarıyla),
+   - kanonik biçim, `env=prod`, sürüm = etiket, kalan süre ≥ 1 g,
+   - SHA256SUMS ve attestation (`--signer-workflow …/agent-win.yml --source-ref refs/tags/vX.Y.Z --cert-oidc-issuer
+https://token.actions.githubusercontent.com`),
+   - **manifest sha256 = sunucuda yayımlanmış ikilinin SHA'sı**; sürüm geri gidemez.
+
+   Sıra karışırsa betik durur. Sunucunun kendi hash kapısı da manifesti sunmaz.
+
+7. Panel → Gözetimsiz → sürüm dağılımında cihazların geçişini izleyin.
+
+### 31.5 GitHub kurulumu (bir kez; S-P29-T-1 sertleştirmeleri)
+
+- **Ortam `agent-update-sign`** (Settings → Environments):
+  - Required reviewers: yayıncı. "Prevent self-review" açılabiliyorsa açın; tek kişilik ekipte açılamıyorsa bu durum risk
+    kabulüne dahildir (§31.9).
+  - **Allow administrators to bypass: KAPALI.**
+  - Deployment branches and tags: **yalnız etiket `v*`**.
+  - Secret: `UPDATE_SIGNING_KEY` (prod etkin tohum).
+- **Ortam `agent-update-sign-stg`:** required reviewer, deployment branches = **yalnız `main`**, secret `UPDATE_SIGNING_KEY`
+  (staging etkin tohum).
+- **Repo/org secret'ı olarak `UPDATE_SIGNING_KEY` TANIMLAMAYIN** (yalnız ortam secret'ı olur).
+- **Repo değişkenleri** (Settings → Variables):
+  - `UPDATE_SIGNING_ENABLED=1` (prod imza işleri) ve `UPDATE_SIGNING_ENABLED_STG=1`. **Anahtar üretilmeden 1 yapılmaz**;
+    `.pub` yoksa iş kırmızı olur.
+  - İsteğe bağlı `UPDATE_MIN_UPDATER_VERSION` (varsayılan `0.22.0`; K-P29-15). Manifest biçimi kırılırsa yükseltilir.
+- **Etiket ruleset'i** (mevcut, runbook §24/§28f.3): `v*` etiketlerini yalnız depo yöneticisi oluşturabilir; silme ve yeniden yazma
+  yasaktır. Kontrol: `gh api repos/{owner}/{repo}/rulesets`.
+- **Önerilir (zorunlu değil):**
+  - GitHub hesabında donanım anahtarıyla 2FA.
+  - Sunucu root SSH anahtarının parola ya da donanımla korunması.
+  - Ortam onay geçmişinin ayda bir gözden geçirilmesi.
+
+### 31.6 Yeniden imza (update-resign)
+
+İstemci manifesti 30 gün, servis manifesti 90 gün geçerlidir. `update-manifest-expiry` alarmı en kısa manifestte 14 günden az kaldığında
+gelir; istemci için bu, yayından yaklaşık 16 gün sonradır. Alarm gelince ya da her ay başında yeniden imzalayın:
+
+```sh
+gh workflow run agent-win.yml --ref vX.Y.Z -f resign_tag=vX.Y.Z      # koşu ETİKET ref'inde (ortam yalnız v*)
+# update-resign (agent-update-sign) onayından sonra: Release'te manifest + .sig + SHA256SUMS --clobber ile yenilenir
+deploy/agent/publish-manifest.sh --tag vX.Y.Z --ssh root@<sunucu>      # aynı sürüm, yeni tarih -> volume'a
+```
+
+`resign_tag` doluyken derleme ve test işleri koşmaz. Hazırlık işi yeni manifestleri üretir; `version`, `sha256`, `size`, hedef, `env` ve
+`minUpdaterVersion` alanlarından biri eskisinden farklıysa iş kırmızı olur. Yalnız tarihler değişebilir.
+
+Bir sürüm için güvenlik düzeltmesi yayınlandıysa, açıklı sürümün manifesti **bir daha yeniden imzalanmaz** (§14.5 T-7). Ayrıca
+`MIN_AGENT_VERSION` düzeltme sürümüne yükseltilir (§31.7).
+
+### 31.7 MIN_AGENT_VERSION sırası (K-P29-19, AC-486)
+
+Güncelleme uçları `MIN_AGENT_VERSION` kapısından muaftır. Sıra şöyledir:
+
+1. Yayınlayın (§31.4).
+2. Panelde sürüm dağılımında cihazların ≥ %95'i yeni sürüme geçene kadar bekleyin. Güvenlik yamasında beklemeyin.
+3. `.env` `MIN_AGENT_VERSION=X.Y.Z` yazın ve server'ı yeniden yaratın.
+4. Kalan cihazlar "Asgari sürümün altında" rozetini alır; bunlar yine güncelleme bulabilir.
+5. `UNATTENDED_SIGNED_SHA256` listesinden eski servis SHA'sını ancak bu noktadan sonra çıkarın.
+
+### 31.8 Alarmlar (remote-watch; `watch.env.example`)
+
+| Kontrol                   | Koşul                                                                                 | Ne yapılır                                                                                                                                                                                                                                |
+| ------------------------- | ------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `update-rejected-device`  | `rs_agent_update_rejected_total{source="device"}` ≥ 1 artış (24 sa sürer)             | **Güvenlik olayı.** Audit → `client.update.failed` (neden). İmza/ortam reddi: sunucudaki manifest ve `.pub` eşleşmesi; bütünlük: volume'daki ikili SHA'sı ve `PUBLISHED.log`. Açıklanamıyorsa `publish-manifest.sh --withdraw all`, §31.3 |
+| `update-rejected-client`  | 1 sa'te `source=binding\|anonymous` ret artışı ≥ `WATCH_UPDATE_REJECT_CLIENT_MIN` (3) | İstemci beyanıdır, doğrulanmamıştır (sahte olay seli olabilir). Server logunda kaynak IP'lere bakın; tasarımdaki "≥ 3 farklı IP" ayrımı metrikte yok                                                                                      |
+| `update-manifest-expiry`  | En kısa manifest kalan süresi < `WATCH_UPDATE_EXPIRY_MIN_DAYS` (14) gün               | §31.6 yeniden imza                                                                                                                                                                                                                        |
+| `update-manifest-missing` | `WATCH_UPDATE_MANIFEST_REQUIRED=1` iken hiç sunulabilir manifest yok                  | Süresi dolmuş olabilir (§31.6), geri çekilmiş olabilir ya da imza/SHA kapısı reddetmiş olabilir: `docker compose logs server \| grep -i manifest`. Ele geçirilmiş sunucuda "donma" belirtisidir                                           |
+
+İlk prod manifest yayınından sonra `/etc/remote-watch/watch.env` dosyasına `WATCH_UPDATE_MANIFEST_REQUIRED=1` yazın.
+Server açılışta geçersiz imzalı manifest bulursa log'a `warn` yazar; sunucu bu manifesti sunmaz.
+
+### 31.9 Kabul edilen risk (S-P29-T-1, kullanıcı kararı 2026-11-19: "Tek imza, risk kabul")
+
+Tek CI imzası kullanılıyor. Etiket itme, ortam onayı, Release ve sunucu erişimi aynı hesapta toplandığından, bu hesabın ele
+geçirilmesi bütün gözetimsiz servislerde SYSTEM kod çalıştırma anlamına gelir. Risk yazılı olarak kabul edildi (ADR-0040 Sonuçlar,
+R-P29-1).
+
+Kalan sertleştirmeler:
+
+- onaylı ortam secret'ı ve yönetici atlatmasının kapalı olması (§31.5),
+- etiket ruleset'i,
+- yedek anahtar ve rotasyon (§31.3),
+- attestation kimliğinin sabit olması (§31.4 m.6),
+- alarmlar (§31.8),
+- **staging-önce 24 sa kuralı** (§31.4 m.2).
+
+Genişleme noktası 2-of-2 imzadır (mimari §14.1). Kullanıcı isterse eklenir; manifest biçimi değişmez.
+
+### 31.10 Acil durdurma ve geri alma (denenmiş: `deploy/agent/test-publish-manifest.sh` bölüm 3)
+
+```sh
+deploy/agent/publish-manifest.sh --withdraw client --ssh root@<sunucu>    # ya da service | all
+```
+
+Manifest volume'dan silinir ve istemciler ≤ 60 sn içinde "yayın yok" görür. Zaten kurulmuş sürüm geri alınmaz (V-P29-7); düzeltme
+için daha yüksek bir sürüm yayınlanır. Yeniden açmak için §31.4 m.6 yeniden çalıştırılır. Sunucu kodunu geri almak (önceki imaj) eski
+istemcilere zarar vermez (AC-493). Güncelleme uçları yoksa istemciler sessiz kalır.
+
+### 31.11 Doğrulama komutları (yerel; sunucuya bağlanmaz)
+
+`deploy/agent/test-publish-manifest.sh` 63 PASS. `deploy/test-caddy.sh`: `update/` alt yolu 404. `deploy/ops/test-watch.sh`: P29
+alarmları. `apps/server/test/unit/p29-k6-env.test.ts`.

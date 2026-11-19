@@ -8,6 +8,9 @@
 #   istenmez, kontrol isteğine WAYLAND_NO_CONTROL). E-7 (b)/(c) geçmezse off ile derlenir (runbook §28g.6). X11'i etkilemez.
 # S-P28g-9 (build-darwin.sh S-P28f-7 kalıbı): TEST olmayan (prod) derleme yalnız etiket iş akışında
 # (GITHUB_REF_TYPE=tag, GITHUB_REF_NAME=v<sürüm>) ya da `.invalid` sunucuyla (iz testi derlemesi, AC-401) yapılır.
+# P29 K6 (mimari-p29 §9.6): UPDATE_ENV=prod|staging ortam değişkeni verilirse build/update-keys/<env>.pub açık anahtarları gömülür
+# (build/update-ldflags.sh; dosya yoksa güncelleyici kapalı derlenir). Boş/verilmemiş = gömülmez (PR, yer tutucu). Gömüldüyse
+# değerin ikilide bulunduğu denetlenir (`-X` var olmayan sembolde sessizce etkisizdir).
 set -eu
 SERVER="$1"; VERSION="$2"; OUT="${3:-bin/linux-amd64/noktadestek}"; MODE="${4:-}"
 WAYLAND_CONTROL="${WAYLAND_CONTROL:-on}"
@@ -31,7 +34,12 @@ case "$MODE" in
   *) echo "bilinmeyen kip: $MODE (yalnız: test)" >&2; exit 2 ;;
 esac
 cd "$(dirname "$0")/.."
+UPD_FLAGS="$(sh build/update-ldflags.sh "${UPDATE_ENV:-}")"
 GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -trimpath -ldflags "-s -w -buildid= \
   -X remote-support/agent-win/internal/config.serverURL=$SERVER \
   -X remote-support/agent-win/internal/config.version=$VERSION \
-  -X remote-support/agent-win/internal/config.waylandControl=$WAYLAND_CONTROL $TEST_FLAG" -o "$OUT" ./cmd/noktadestek
+  -X remote-support/agent-win/internal/config.waylandControl=$WAYLAND_CONTROL $TEST_FLAG $UPD_FLAGS" -o "$OUT" ./cmd/noktadestek
+if [ -n "$UPD_FLAGS" ]; then
+  UPD_KEYS="${UPD_FLAGS##*updateKeys=}"
+  LC_ALL=C grep -aqF "$UPD_KEYS" "$OUT" || { echo "güncelleme anahtarı ikiliye gömülmedi: config.updateKeys Go kaynağında yok (P29 K3)" >&2; rm -f "$OUT"; exit 2; }
+fi

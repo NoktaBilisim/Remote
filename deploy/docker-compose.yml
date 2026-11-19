@@ -129,6 +129,12 @@ services:
       # doğrulamasından sonra yazar; boşsa/uyuşmazsa Linux indirmesi 503, availability linux:false.
       LINUX_AGENT_PATH: /data/downloads/NoktaDestek-linux
       LINUX_AGENT_SHA256: ${LINUX_AGENT_SHA256:-}
+      # P29 (mimari-p29 §9.1, K-P29-5; runbook §31): imzalı güncelleme manifestleri — aynı agent_downloads volume'unun update/ alt
+      # klasörü (salt okunur; Caddy `handle /downloads/*` 404 bu alt yolu da kapatır, public sunulmaz). Yol sabit; yalnız açık anahtar
+      # tanımlıyken verilir: anahtarsız .env'de güncelleme kapalı kalır ve env.ts "DIR dolu → PUBKEYS zorunlu" kuralı server'ı
+      # durdurmaz. PUBKEYS = ortamın build/update-keys/<env>.pub değerleri (virgüllü ≤ 2, base64url; gizli değil).
+      UPDATE_MANIFEST_DIR: ${UPDATE_MANIFEST_PUBKEYS:+/data/downloads/update}
+      UPDATE_MANIFEST_PUBKEYS: ${UPDATE_MANIFEST_PUBKEYS:-}
       # P8b (mimari-e9 §6/§8/§13.5): whatsapp-bildirim servisi (sistem düzeyi; tenant değiştiremez). deploy/.env'den gelir
       # (ör. http://<whatsapp-servis>:3000); yerleşik varsayılan YOK (G-P13b-2): boşsa ve panel kaydı yoksa kanal kapalı.
       # production'da http:// + özel olmayan adres → kanal KAPALI başlar (fail-closed, log `alarm:"whatsapp_insecure"`);

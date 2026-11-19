@@ -39,6 +39,13 @@ on:
         description: "Staging exe sürümü x.y.z (MIN_AGENT_VERSION'dan düşük olmamalı)"
         type: string
         default: "0.0.0"
+      # P29 K6 (mimari-p29 §9.3, §14.2): yalnız update-resign — mevcut Release'in manifestlerini aynı ikililer için yeni
+      # issuedAt/expiresAt ile yeniden imzalar. Koşu ETİKET ref'inde başlatılır (agent-update-sign ortamı yalnız v*):
+      # gh workflow run agent-win.yml --ref vX.Y.Z -f resign_tag=vX.Y.Z (runbook §31.6). Doluyken derleme/test işleri koşmaz.
+      resign_tag:
+        description: "Yalnız yeniden imza: vX.Y.Z (koşu aynı etiket ref'inde başlatılmalı); boş = normal derleme"
+        type: string
+        default: ""
 permissions:
   contents: read
 concurrency:
@@ -62,6 +69,7 @@ env:
 jobs:
   check:
     name: gofmt + vet + test -race + govulncheck + lisans
+    if: inputs.resign_tag == ''
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     container:
@@ -131,6 +139,7 @@ jobs:
 
   test-windows:
     name: go test (Windows)
+    if: inputs.resign_tag == ''
     runs-on: windows-2025
     timeout-minutes: 25
     defaults:
@@ -627,6 +636,7 @@ jobs:
   # değişirse iş kırmızı olur. libopus sürüm yükseltmesi = betik + bu değer + wasm/.sha256 aynı PR'da (runbook §28d.11).
   libopus-wasm:
     name: libopus.wasm yeniden üret + karşılaştır
+    if: inputs.resign_tag == ''
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     defaults:
@@ -665,6 +675,7 @@ jobs:
   # prod adresi girmez).
   build-mac:
     name: build-mac ${{ matrix.n }}/2
+    if: inputs.resign_tag == ''
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     strategy:
@@ -700,12 +711,15 @@ jobs:
             printf '%s' "$IN_VERSION" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$' || { echo "::error::version x.y.z olmalı"; exit 1; }
             server="$STG_SERVER_URL"; version="$IN_VERSION"
           fi
-          { echo "version=$version"; echo "server=$server"; echo "mode=$mode"; } >> "$GITHUB_OUTPUT"
+          # P29 K6 (§9.6): prod (etiket) -> prod.pub, staging adresi -> staging.pub, diğerleri gömülmez (güncelleyici kapalı).
+          upd=""; [ "$mode" = prod ] && upd=prod; [ "$server" = "$STG_SERVER_URL" ] && upd=staging
+          { echo "version=$version"; echo "server=$server"; echo "mode=$mode"; echo "updenv=$upd"; } >> "$GITHUB_OUTPUT"
       - name: build/build-darwin.sh (arm64 + amd64)
         env:
           SERVER: ${{ steps.meta.outputs.server }}
           VERSION: ${{ steps.meta.outputs.version }}
           MODE: ${{ steps.meta.outputs.mode }}
+          UPDATE_ENV: ${{ steps.meta.outputs.updenv }}
           VAR_TEAM: ${{ vars.APPLE_TEAM_ID }}
         run: |
           git config --global --add safe.directory "$GITHUB_WORKSPACE"
@@ -842,6 +856,7 @@ jobs:
   # test/trace-check-mac.sh snapshot/compare; salt okunur).
   test-macos:
     name: go test (macOS) + iz testi
+    if: inputs.resign_tag == ''
     runs-on: macos-15
     timeout-minutes: 30
     defaults:
@@ -946,6 +961,7 @@ jobs:
   # main push'a prod adresi GÖMÜLMEZ.
   build-linux:
     name: build-linux ${{ matrix.n }}/2
+    if: inputs.resign_tag == ''
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     strategy:
@@ -981,12 +997,15 @@ jobs:
             printf '%s' "$IN_VERSION" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$' || { echo "::error::version x.y.z olmalı"; exit 1; }
             server="$STG_SERVER_URL"; version="$IN_VERSION"
           fi
-          { echo "version=$version"; echo "server=$server"; echo "mode=$mode"; } >> "$GITHUB_OUTPUT"
+          # P29 K6 (§9.6): prod (etiket) -> prod.pub, staging adresi -> staging.pub, diğerleri gömülmez (güncelleyici kapalı).
+          upd=""; [ "$mode" = prod ] && upd=prod; [ "$server" = "$STG_SERVER_URL" ] && upd=staging
+          { echo "version=$version"; echo "server=$server"; echo "mode=$mode"; echo "updenv=$upd"; } >> "$GITHUB_OUTPUT"
       - name: build/build-linux.sh + check-linux-elf.sh
         env:
           SERVER: ${{ steps.meta.outputs.server }}
           VERSION: ${{ steps.meta.outputs.version }}
           MODE: ${{ steps.meta.outputs.mode }}
+          UPDATE_ENV: ${{ steps.meta.outputs.updenv }}
           # P28g K10 (mimari-p28g §5.2b m.7, runbook §28g.6): Wayland kontrol anahtarı. Repo değişkeni LINUX_WAYLAND_CONTROL
           # (on|off). Etiket (prod) derlemesinde tanımsızsa 'unset' → build-linux.sh durur (D-P28g-K3-2: prod'da açık karar şart);
           # etiket dışı (staging/test) derlemede tanımsız → on. E-7 (b)/(c) gerçek GNOME Wayland'de GEÇMEDİYSE off. build-meta 4.
@@ -1070,6 +1089,7 @@ jobs:
   # runbook §28g). Etikette P28G_STRICT=1: "bekleyen" testler ve eksik iz betiği kırmızı.
   test-linux-gui:
     name: test-linux-gui (Ubuntu ${{ matrix.rel }})
+    if: inputs.resign_tag == ''
     runs-on: ubuntu-24.04
     timeout-minutes: 40
     strategy:
@@ -1099,6 +1119,7 @@ jobs:
 
   build:
     name: build ${{ matrix.n }}/2
+    if: inputs.resign_tag == ''
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     strategy:
@@ -1142,10 +1163,15 @@ jobs:
           fi
           echo "version=$version" >> "$GITHUB_OUTPUT"
           echo "server=$server" >> "$GITHUB_OUTPUT"
+          # P29 K6 (§9.6): güncelleme açık anahtarı yalnız gerçek adresli derlemeye (prod adresi -> prod.pub, staging -> staging.pub);
+          # PR / yer tutucu -> gömülmez (güncelleyici kapalı). .pub yoksa build-ldflags uyarır, kapalı derler.
+          upd=""; [ "$server" = "$VAR_SERVER_URL" ] && [ -n "$VAR_SERVER_URL" ] && upd=prod; [ "$server" = "$STG_SERVER_URL" ] && upd=staging
+          echo "updenv=$upd" >> "$GITHUB_OUTPUT"
       - name: build/build.sh
         env:
           SERVER: ${{ steps.meta.outputs.server }}
           VERSION: ${{ steps.meta.outputs.version }}
+          UPDATE_ENV: ${{ steps.meta.outputs.updenv }}
         run: |
           # Konteyner root, çalışma alanı runner kullanıcısının: VCS damgası için git güvenli dizin (build.sh değişmez).
           git config --global --add safe.directory "$GITHUB_WORKSPACE"
@@ -1664,9 +1690,12 @@ jobs:
       !cancelled() && github.event_name == 'push' && github.ref_type == 'tag' && needs.approve.result == 'success' &&
       needs.attest.result == 'success' && (needs.sign-mac.result == 'success' || needs.sign-mac.result == 'skipped') &&
       (needs.attest-mac.result == 'success' || needs.attest-mac.result == 'skipped') &&
-      needs.reproducible-linux.result == 'success' && needs.attest-linux.result == 'success'
+      needs.reproducible-linux.result == 'success' && needs.attest-linux.result == 'success' &&
+      (needs.update-manifest.result == 'success' || needs.update-manifest.result == 'skipped')
     # P28g K8b: Linux ELF'i her Release'te ZORUNLU (imza adımı yok, "skipped" kabul edilmez); attest-linux başarısızsa Release yok.
-    needs: [reproducible, approve, attest, reproducible-mac, sign-mac, attest-mac, reproducible-linux, attest-linux]
+    # P29 K6 (§9.6, AC-471): update-manifest atlandıysa (UPDATE_SIGNING_ENABLED kapalı) ya da secret boşsa (produced=0) Release
+    # manifestsiz sürer (fail-closed: istemci "yayın yok" görür); update-manifest BAŞARISIZSA Release yok.
+    needs: [reproducible, approve, attest, reproducible-mac, sign-mac, attest-mac, reproducible-linux, attest-linux, update-manifest]
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions:
@@ -1679,6 +1708,19 @@ jobs:
         with: { name: agent-mac-signed, path: distmac }
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with: { name: agent-linux, path: distlinux }
+      # P29 K6: manifestler anahtarsız bu işte Node doğrulayıcısıyla (Go imzalayıcıdan bağımsız) yeniden denetlenir.
+      - if: needs.update-manifest.outputs.produced == '1'
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          path: src
+          sparse-checkout: |
+            apps/agent-win/build/update-keys
+            deploy/agent/verify-manifest.mjs
+          sparse-checkout-cone-mode: false
+      - if: needs.update-manifest.outputs.produced == '1'
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with: { name: agent-update, path: distupd }
       - name: Release oluştur (exe + [macOS zip] + Linux ELF + SHA256SUMS)
         env:
           GH_TOKEN: ${{ github.token }}
@@ -1694,6 +1736,7 @@ jobs:
           LINUX_FILE: ${{ needs.reproducible-linux.outputs.file }}
           LINUX_SHA: ${{ needs.reproducible-linux.outputs.sha }}
           VAR_SERVER_URL: ${{ vars.AGENT_SERVER_URL }}
+          UPD_PRODUCED: ${{ needs.update-manifest.outputs.produced }}
         run: |
           case "$ART" in agent-win|agent-win-signed) ;; *) echo "::error::Release artifact'i $ART olamaz"; exit 1 ;; esac
           # P28f (AC-390, S-P28f-7): Release'e yalnız Developer ID + notarize edilmiş zip; APPLE_TEAM_ID varken zip yoksa dur.
@@ -1739,6 +1782,26 @@ jobs:
             sha256sum -c --ignore-missing SHA256SUMS
             files+=("$MAC_ZIP")
           fi
+          # P29 K6: manifest çifti (ikili başına; K-P29-2) — sha256 = bu Release'teki ikili, sürüm = etiket, env = prod.
+          upd="yok (UPDATE_SIGNING_ENABLED kapalı ya da anahtar tanımsız — istemciler bu sürümü otomatik almaz)"
+          if [ "$UPD_PRODUCED" = 1 ]; then
+            U="$GITHUB_WORKSPACE/distupd"
+            (cd "$U" && sha256sum -c SHA256SUMS)
+            (cd "$U" && node "$GITHUB_WORKSPACE/src/deploy/agent/verify-manifest.mjs" --pubkeys-file "$GITHUB_WORKSPACE/src/apps/agent-win/build/update-keys/prod.pub" \
+              --env prod --expect-name --expect-version "${TAG#v}" update-*.json) > upd.jsonl
+            while read -r j; do
+              m=$(jq -r .file <<<"$j"); want=$(jq -r .sha256 <<<"$j")
+              case "$m" in
+                update-client-windows-amd64.json) b=NoktaDestek.exe ;; update-service-windows-amd64.json) b="$SERVIS_EXE" ;;
+                update-client-linux-amd64.json) b="$LINUX_FILE" ;; update-client-macos-universal.json) b="$MAC_ZIP" ;;
+                *) echo "::error::beklenmeyen manifest $m"; exit 1 ;;
+              esac
+              [ -f "$b" ] && [ "$(sha256sum "$b" | cut -d' ' -f1)" = "$want" ] || { echo "::error::$m sha256 Release'teki $b değil"; exit 1; }
+              cp "$U/$m" "$U/$m.sig" .; files+=("$m" "$m.sig"); sha256sum "$m" "$m.sig" >> SHA256SUMS
+            done < upd.jsonl
+            rm -f upd.jsonl
+            upd="var ($(grep -c . <<<"$(ls update-*.json)") ikili; Ed25519 imzalı, env=prod — runbook §31)"
+          fi
           sha256sum -c --ignore-missing SHA256SUMS
           for x in "${files[@]}"; do grep -Eq "^[0-9a-f]{64}  $x\$" SHA256SUMS || { echo "::error::SHA256SUMS'ta $x satırı yok"; exit 1; }; done
           {
@@ -1754,6 +1817,8 @@ jobs:
             echo "Linux istemcisi $LINUX_FILE: x86_64, imzasız (AC-403); Ubuntu 22.04 / 24.04 (GNOME, X11 ve Wayland). Bütünlük bu Release'teki SHA256SUMS ve attestation ile doğrulanır; indirme sayfasındaki SHA yalnız kolaylıktır."
             echo
             echo '```'; cat SHA256SUMS; echo '```'
+            echo
+            echo "Güncelleme manifesti: $upd"
             if [ "$mac" = 1 ]; then
               echo
               echo "macOS imzasız (tekrarlanabilir) ince ikililer, S-P28f-17:"
@@ -1764,3 +1829,417 @@ jobs:
             echo "Doğrulama: \`sha256sum -c --ignore-missing SHA256SUMS\` ve her dosya için \`gh attestation verify <dosya> --repo $REPO --signer-workflow $REPO/.github/workflows/agent-win.yml --source-ref refs/tags/$TAG\`"
           } > notes.md
           gh release create "$TAG" "${files[@]}" SHA256SUMS --repo "$REPO" --verify-tag --title "Nokta Destek $TAG" --notes-file notes.md
+
+
+  # ---------------------------------------------------------------------------------------------------------------------------
+  # P29 K6 — imzalı güncelleme manifesti (mimari-p29 §9.6, §14.1, §14.2 T-2; ADR-0040; runbook §31). AC-470/471/472.
+  # Güvenlik sınırı `if:` DEĞİL ortamdır: tohum UPDATE_SIGNING_KEY yalnız `agent-update-sign` (prod; deployment refs yalnız `v*`,
+  # zorunlu onaylayıcı, yönetici atlatması kapalı) ve `agent-update-sign-stg` (yalnız `main`) ORTAM secret'ıdır. Repo değişkenleri
+  # UPDATE_SIGNING_ENABLED / UPDATE_SIGNING_ENABLED_STG ('1') işleri açar; kapalıysa "skipped", Release manifestsiz (fail-closed).
+  # T-2: imzalayıcı anahtarsız `update-signer` işinde GOPROXY=off ile derlenir, yalnız stdlib + kendi paketlerimize bağlı olduğu
+  # denetlenir; imza işinde checkout yalnız build/update-keys (sparse), persist-credentials:false, önbellek/setup-go yok, başka betik
+  # yok; tohum TEK adımda yalnız stdin'e verilir; adım çıktısı dosyaya yazılır ve tohumun base64/base64url/hex biçimleri
+  # `grep -F -f` ile aranır (değer argv'ye/diske girmez) -> eşleşme kırmızı; çıktı ancak temizse log'a basılır.
+  # İmzalayıcı (apps/agent-win/cmd/update-sign, P29 K3):
+  #   sign --key-stdin --env E --platform P --arch A --component C --version V --min-updater V --file <ikili> --out-dir D
+  #   sign --key-stdin --from <eski manifest> --out-dir D     (yeniden imza: yalnız issuedAt/expiresAt değişir)
+  #   verify --pubkeys <b64url>[,<b64url>] --env E --manifest <m.json> [--file <ikili>]
+  # ---------------------------------------------------------------------------------------------------------------------------
+  update-signer:
+    name: "update-sign derle (anahtarsız; GOPROXY=off, yalnız stdlib)"
+    if: >-
+      (vars.UPDATE_SIGNING_ENABLED == '1' &&
+       ((github.event_name == 'push' && github.ref_type == 'tag') ||
+        (github.event_name == 'workflow_dispatch' && inputs.resign_tag != '' && github.ref_type == 'tag'))) ||
+      (vars.UPDATE_SIGNING_ENABLED_STG == '1' && github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' &&
+       inputs.server_url == 'https://stg.remote.noktabilisim.net' && inputs.resign_tag == '')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    container:
+      image: golang:1.26.11-bookworm@sha256:dc40a13b61304647ed7e5d581d246b86413dfc29d63c6d018310feb93cd98fc0
+    outputs:
+      sha: ${{ steps.b.outputs.sha }}
+    defaults:
+      run:
+        working-directory: apps/agent-win
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with: { persist-credentials: false }
+      - name: bağımlılık denetimi + derleme (ağsız modül çözümü)
+        id: b
+        env:
+          GOPROXY: "off"
+          GOFLAGS: -mod=readonly
+          CGO_ENABLED: "0"
+          GOOS: linux
+          GOARCH: amd64
+        run: |
+          deps="$(go list -deps -f '{{if not .Standard}}{{.ImportPath}}{{end}}' ./cmd/update-sign)"
+          bad="$(printf '%s\n' "$deps" | grep -v '^$' | grep -v '^remote-support/agent-win/' || true)"
+          [ -z "$bad" ] || { echo "::error::update-sign stdlib dışı bağımlılık içeriyor (T-2): $bad"; exit 1; }
+          echo "stdlib dışı bağımlılıklar (yalnız kendi paketlerimiz):"; printf '%s\n' "$deps"
+          go build -trimpath -ldflags "-s -w -buildid=" -o "$RUNNER_TEMP/signer/update-sign" ./cmd/update-sign
+          sha="$(sha256sum "$RUNNER_TEMP/signer/update-sign" | cut -d' ' -f1)"; echo "sha=$sha" >> "$GITHUB_OUTPUT"
+          echo "update-sign sha256=$sha"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: update-signer
+          path: ${{ runner.temp }}/signer/update-sign
+          if-no-files-found: error
+          retention-days: 1
+
+  update-manifest:
+    name: "update-manifest (prod; agent-update-sign ortamı)"
+    if: >-
+      !cancelled() && github.event_name == 'push' && github.ref_type == 'tag' && vars.UPDATE_SIGNING_ENABLED == '1' &&
+      needs.approve.result == 'success' && needs.update-signer.result == 'success' && needs.attest.result == 'success' &&
+      needs.attest-linux.result == 'success' && (needs.attest-mac.result == 'success' || needs.attest-mac.result == 'skipped')
+    needs: [update-signer, approve, reproducible, attest, reproducible-mac, attest-mac, reproducible-linux, attest-linux]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    environment: agent-update-sign
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+    outputs:
+      produced: ${{ steps.sign.outputs.produced }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          sparse-checkout: apps/agent-win/build/update-keys
+          sparse-checkout-cone-mode: false
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with: { name: update-signer, path: signer }
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with: { name: "${{ needs.attest.outputs.artifact }}", path: win }
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with: { name: agent-linux, path: linux }
+      - if: needs.attest-mac.result == 'success'
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with: { name: agent-mac-signed, path: mac }
+      - name: girdiler (imzalayıcı SHA, açık anahtar, SHA256SUMS, son baytlar)
+        id: in
+        env:
+          SIGNER_SHA: ${{ needs.update-signer.outputs.sha }}
+          TAG: ${{ github.ref_name }}
+          SERVIS_EXE: ${{ needs.reproducible.outputs.servis_exe }}
+          LINUX_FILE: ${{ needs.reproducible-linux.outputs.file }}
+          MAC_ZIP: ${{ needs.reproducible-mac.outputs.zip }}
+          MIN_UPDATER: ${{ vars.UPDATE_MIN_UPDATER_VERSION || '0.22.0' }}
+        run: |
+          [ "$(sha256sum signer/update-sign | cut -d' ' -f1)" = "$SIGNER_SHA" ] || { echo "::error::update-sign SHA update-signer çıktısı değil"; exit 1; }
+          chmod 0755 signer/update-sign
+          pubf=apps/agent-win/build/update-keys/prod.pub
+          [ -f "$pubf" ] || { echo "::error::$pubf yok — anahtar üretilmeden UPDATE_SIGNING_ENABLED=1 yapılmaz (runbook §31.2)"; exit 1; }
+          keys="$(sed -e 's/\r$//' -e '/^[[:space:]]*#/d' "$pubf" | tr ',' '\n' | tr -d ' \t' | grep -v '^$' | paste -sd, -)"
+          printf '%s' "$MIN_UPDATER" | grep -Eq '^[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}$' || { echo "::error::UPDATE_MIN_UPDATER_VERSION x.y.z"; exit 1; }
+          (cd win && sha256sum -c SHA256SUMS) && (cd linux && sha256sum -c SHA256SUMS)
+          { echo "client windows amd64 win/NoktaDestek.exe"; echo "service windows amd64 win/$SERVIS_EXE"
+            echo "client linux amd64 linux/$LINUX_FILE"; } > items.txt
+          if [ -d mac ]; then (cd mac && sha256sum -c SHA256SUMS) && echo "client macos universal mac/$MAC_ZIP" >> items.txt; fi
+          cat items.txt
+          { echo "keys=$keys"; echo "version=${TAG#v}"; echo "min=$MIN_UPDATER"; } >> "$GITHUB_OUTPUT"
+      - name: imzala (tohum yalnız bu adımda, yalnız stdin)
+        id: sign
+        env:
+          UPDATE_SIGNING_KEY: ${{ secrets.UPDATE_SIGNING_KEY }}
+          V: ${{ steps.in.outputs.version }}
+          MIN: ${{ steps.in.outputs.min }}
+          UENV: prod
+        run: |
+          set +x
+          if [ -z "$UPDATE_SIGNING_KEY" ]; then
+            echo "::warning::agent-update-sign ortamında UPDATE_SIGNING_KEY yok — manifest üretilmedi, Release manifestsiz (AC-471)"
+            echo "produced=0" >> "$GITHUB_OUTPUT"; exit 0
+          fi
+          raw="$(printf '%s' "$UPDATE_SIGNING_KEY" | tr -d ' \t\r\n')"
+          url="$(printf '%s' "$raw" | tr '+/' '-_' | tr -d '=')"
+          hex="$(printf '%s' "$raw" | base64 -d 2>/dev/null | od -An -tx1 | tr -d ' \n')"
+          echo "::add-mask::$url"; echo "::add-mask::$hex"
+          log="$RUNNER_TEMP/sign.log"; rc=0; mkdir -p out
+          while read -r c p a f; do
+            printf '%s' "$UPDATE_SIGNING_KEY" | signer/update-sign sign --key-stdin --env "$UENV" --platform "$p" --arch "$a" \
+              --component "$c" --version "$V" --min-updater "$MIN" --file "$f" --out-dir out >>"$log" 2>&1 || rc=1
+          done < items.txt
+          leak=0; if grep -qF -f <(printf '%s\n%s\n%s\n' "$raw" "$url" "$hex" | grep -v '^$') "$log"; then leak=1; fi
+          raw=""; url=""; hex=""; unset UPDATE_SIGNING_KEY
+          [ "$leak" = 0 ] || { rm -f "$log"; echo "::error::imza adımı çıktısında tohum biçimi bulundu (AC-471) — anahtarı döndürün (runbook §31.3)"; exit 1; }
+          cat "$log"; rm -f "$log"
+          [ "$rc" = 0 ] || { echo "::error::update-sign sign başarısız"; exit 1; }
+          echo "produced=1" >> "$GITHUB_OUTPUT"
+      - name: doğrula (repo açık anahtarları + ikili) + SHA256SUMS
+        if: steps.sign.outputs.produced == '1'
+        env:
+          KEYS: ${{ steps.in.outputs.keys }}
+        run: |
+          while read -r c p a f; do
+            signer/update-sign verify --pubkeys "$KEYS" --env prod --manifest "out/update-$c-$p-$a.json" --file "$f"
+          done < items.txt
+          [ "$(find out -name 'update-*.json' | wc -l)" = "$(wc -l < items.txt)" ] || { echo "::error::manifest sayısı ikili sayısıyla aynı değil"; exit 1; }
+          (cd out && sha256sum update-*.json update-*.json.sig > SHA256SUMS && cat SHA256SUMS)
+          { echo "### Güncelleme manifestleri (prod)"; echo '```'; for f in out/*.json; do cat "$f"; echo; done; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+      - if: steps.sign.outputs.produced == '1'
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: out/update-*.json
+      - if: steps.sign.outputs.produced == '1'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: agent-update
+          path: out/
+          if-no-files-found: error
+          retention-days: 1
+
+  # Staging: main'de elle tetikleme + staging adresi (P13c). Artifact agent-update-stg -> publish-manifest.sh --stg-run <id>.
+  update-manifest-stg:
+    name: "update-manifest-stg (staging; agent-update-sign-stg ortamı)"
+    if: >-
+      !cancelled() && github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' &&
+      inputs.server_url == 'https://stg.remote.noktabilisim.net' && vars.UPDATE_SIGNING_ENABLED_STG == '1' &&
+      needs.update-signer.result == 'success' && needs.attest.result == 'success' && needs.attest-linux.result == 'success'
+    needs: [update-signer, reproducible, attest, reproducible-mac, package-mac, attest-mac, reproducible-linux, attest-linux]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    environment: agent-update-sign-stg
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          sparse-checkout: apps/agent-win/build/update-keys
+          sparse-checkout-cone-mode: false
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with: { name: update-signer, path: signer }
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with: { name: agent-win-stg, path: win }
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with: { name: agent-linux-stg, path: linux }
+      - if: needs.attest-mac.outputs.artifact == 'agent-mac-stg'
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with: { name: agent-mac-stg, path: mac }
+      - name: ref/adres denetimi + girdiler
+        id: in
+        env:
+          GIT_REF: ${{ github.ref }}
+          IN_SERVER_URL: ${{ inputs.server_url }}
+          SIGNER_SHA: ${{ needs.update-signer.outputs.sha }}
+          WIN_ART: ${{ needs.reproducible.outputs.artifact }}
+          LINUX_ART: ${{ needs.reproducible-linux.outputs.artifact }}
+          EXE: ${{ needs.reproducible.outputs.exe }}
+          SERVIS_EXE: ${{ needs.reproducible.outputs.servis_exe }}
+          LINUX_FILE: ${{ needs.reproducible-linux.outputs.file }}
+          MAC_ZIP: ${{ needs.reproducible-mac.outputs.zip }}
+          MIN_UPDATER: ${{ vars.UPDATE_MIN_UPDATER_VERSION || '0.22.0' }}
+        run: |
+          [ "$GIT_REF" = refs/heads/main ] && [ "$IN_SERVER_URL" = "$STG_SERVER_URL" ] || { echo "::error::staging manifesti yalnız main + staging adresi"; exit 1; }
+          [ "$WIN_ART" = agent-win-stg ] && [ "$LINUX_ART" = agent-linux-stg ] || { echo "::error::artifact staging değil ($WIN_ART/$LINUX_ART)"; exit 1; }
+          [ "$(sha256sum signer/update-sign | cut -d' ' -f1)" = "$SIGNER_SHA" ] || { echo "::error::update-sign SHA uyuşmuyor"; exit 1; }
+          chmod 0755 signer/update-sign
+          pubf=apps/agent-win/build/update-keys/staging.pub
+          [ -f "$pubf" ] || { echo "::error::$pubf yok (runbook §31.2)"; exit 1; }
+          keys="$(sed -e 's/\r$//' -e '/^[[:space:]]*#/d' "$pubf" | tr ',' '\n' | tr -d ' \t' | grep -v '^$' | paste -sd, -)"
+          [ "$(sed -n 1p win/build-meta.txt)" = "$STG_SERVER_URL" ] || { echo "::error::Windows build-meta staging adresi değil"; exit 1; }
+          (cd win && sha256sum -c SHA256SUMS) && (cd linux && sha256sum -c SHA256SUMS)
+          { echo "client windows amd64 win/$EXE"; echo "service windows amd64 win/$SERVIS_EXE"
+            echo "client linux amd64 linux/$LINUX_FILE"; } > items.txt
+          if [ -d mac ]; then (cd mac && sha256sum -c SHA256SUMS) && echo "client macos universal mac/$MAC_ZIP" >> items.txt; fi
+          { echo "keys=$keys"; echo "version=$(sed -n 2p win/build-meta.txt)"; echo "min=$MIN_UPDATER"; } >> "$GITHUB_OUTPUT"
+      - name: imzala (tohum yalnız bu adımda, yalnız stdin)
+        env:
+          UPDATE_SIGNING_KEY: ${{ secrets.UPDATE_SIGNING_KEY }}
+          V: ${{ steps.in.outputs.version }}
+          MIN: ${{ steps.in.outputs.min }}
+          UENV: staging
+        run: |
+          set +x
+          [ -n "$UPDATE_SIGNING_KEY" ] || { echo "::error::agent-update-sign-stg ortamında UPDATE_SIGNING_KEY yok (UPDATE_SIGNING_ENABLED_STG=1 iken zorunlu)"; exit 1; }
+          raw="$(printf '%s' "$UPDATE_SIGNING_KEY" | tr -d ' \t\r\n')"
+          url="$(printf '%s' "$raw" | tr '+/' '-_' | tr -d '=')"
+          hex="$(printf '%s' "$raw" | base64 -d 2>/dev/null | od -An -tx1 | tr -d ' \n')"
+          echo "::add-mask::$url"; echo "::add-mask::$hex"
+          log="$RUNNER_TEMP/sign.log"; rc=0; mkdir -p out
+          while read -r c p a f; do
+            printf '%s' "$UPDATE_SIGNING_KEY" | signer/update-sign sign --key-stdin --env "$UENV" --platform "$p" --arch "$a" \
+              --component "$c" --version "$V" --min-updater "$MIN" --file "$f" --out-dir out >>"$log" 2>&1 || rc=1
+          done < items.txt
+          leak=0; if grep -qF -f <(printf '%s\n%s\n%s\n' "$raw" "$url" "$hex" | grep -v '^$') "$log"; then leak=1; fi
+          raw=""; url=""; hex=""; unset UPDATE_SIGNING_KEY
+          [ "$leak" = 0 ] || { rm -f "$log"; echo "::error::imza adımı çıktısında tohum biçimi bulundu (AC-471) — anahtarı döndürün (runbook §31.3)"; exit 1; }
+          cat "$log"; rm -f "$log"
+          [ "$rc" = 0 ] || { echo "::error::update-sign sign başarısız"; exit 1; }
+      - name: doğrula + SHA256SUMS
+        env:
+          KEYS: ${{ steps.in.outputs.keys }}
+        run: |
+          while read -r c p a f; do
+            signer/update-sign verify --pubkeys "$KEYS" --env staging --manifest "out/update-$c-$p-$a.json" --file "$f"
+          done < items.txt
+          (cd out && sha256sum update-*.json update-*.json.sig > SHA256SUMS && cat SHA256SUMS)
+      - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: out/update-*.json
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: agent-update-stg
+          path: out/
+          if-no-files-found: error
+          retention-days: 30
+
+  # Yeniden imza (§9.3, §14.2, §14.5 T-7): üç iş. (1) anahtarsız hazırlık: etiket doğrulanır, Release'in manifestleri indirilir ve
+  # Node doğrulayıcısıyla (imza + kanonik; --now = issuedAt, süresi dolmuş olabilir) denetlenir. (2) anahtarlı imza
+  # (`sign --from`, contents: read; yalnız issuedAt/expiresAt değişir). (3) anahtarsız yükleme (contents: write; --same-as + --clobber).
+  update-resign-prep:
+    name: "update-resign 1/3: hazırlık (anahtarsız)"
+    if: >-
+      github.event_name == 'workflow_dispatch' && inputs.resign_tag != '' && vars.UPDATE_SIGNING_ENABLED == '1'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          sparse-checkout: |
+            apps/agent-win/build/update-keys
+            deploy/agent/verify-manifest.mjs
+          sparse-checkout-cone-mode: false
+      - name: etiket + eski manifestler (imza doğrulamalı)
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          RESIGN_TAG: ${{ inputs.resign_tag }}
+          REF_NAME: ${{ github.ref_name }}
+          REF_TYPE: ${{ github.ref_type }}
+        run: |
+          printf '%s' "$RESIGN_TAG" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+$' || { echo "::error::resign_tag vX.Y.Z olmalı"; exit 1; }
+          [ "$REF_TYPE" = tag ] && [ "$REF_NAME" = "$RESIGN_TAG" ] || { echo "::error::koşu $RESIGN_TAG etiket ref'inde başlatılmalı (--ref $RESIGN_TAG)"; exit 1; }
+          mkdir old
+          gh release download "$RESIGN_TAG" --repo "$REPO" -p 'update-*.json' -p 'update-*.json.sig' -D old \
+            || { echo "::error::$RESIGN_TAG Release'inde manifest yok (ilk imza yapılmamış — yeniden imza yerine yeni sürüm)"; exit 1; }
+          for f in old/update-*.json; do
+            (cd old && node "$GITHUB_WORKSPACE/deploy/agent/verify-manifest.mjs" \
+              --pubkeys-file "$GITHUB_WORKSPACE/apps/agent-win/build/update-keys/prod.pub" --env prod --expect-name \
+              --expect-version "${RESIGN_TAG#v}" --now "$(jq -r .issuedAt "$f")" "$(basename "$f")")
+          done
+          rm -f old/*.sig; ls -l old
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: update-resign-input
+          path: old/
+          if-no-files-found: error
+          retention-days: 1
+
+  update-resign:
+    name: "update-resign 2/3: imza (agent-update-sign ortamı)"
+    if: needs.update-resign-prep.result == 'success' && needs.update-signer.result == 'success'
+    needs: [update-signer, update-resign-prep]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    environment: agent-update-sign
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          sparse-checkout: apps/agent-win/build/update-keys
+          sparse-checkout-cone-mode: false
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with: { name: update-signer, path: signer }
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with: { name: update-resign-input, path: in }
+      - name: girdiler
+        id: in
+        env:
+          SIGNER_SHA: ${{ needs.update-signer.outputs.sha }}
+        run: |
+          [ "$(sha256sum signer/update-sign | cut -d' ' -f1)" = "$SIGNER_SHA" ] || { echo "::error::update-sign SHA uyuşmuyor"; exit 1; }
+          chmod 0755 signer/update-sign
+          keys="$(sed -e 's/\r$//' -e '/^[[:space:]]*#/d' apps/agent-win/build/update-keys/prod.pub | tr ',' '\n' | tr -d ' \t' | grep -v '^$' | paste -sd, -)"
+          echo "keys=$keys" >> "$GITHUB_OUTPUT"; ls -l in
+      - name: yeniden imzala (tohum yalnız bu adımda, yalnız stdin)
+        env:
+          UPDATE_SIGNING_KEY: ${{ secrets.UPDATE_SIGNING_KEY }}
+        run: |
+          set +x
+          [ -n "$UPDATE_SIGNING_KEY" ] || { echo "::error::agent-update-sign ortamında UPDATE_SIGNING_KEY yok"; exit 1; }
+          raw="$(printf '%s' "$UPDATE_SIGNING_KEY" | tr -d ' \t\r\n')"
+          url="$(printf '%s' "$raw" | tr '+/' '-_' | tr -d '=')"
+          hex="$(printf '%s' "$raw" | base64 -d 2>/dev/null | od -An -tx1 | tr -d ' \n')"
+          echo "::add-mask::$url"; echo "::add-mask::$hex"
+          log="$RUNNER_TEMP/sign.log"; rc=0; mkdir -p out
+          for f in in/update-*.json; do
+            printf '%s' "$UPDATE_SIGNING_KEY" | signer/update-sign sign --key-stdin --from "$f" --out-dir out >>"$log" 2>&1 || rc=1
+          done
+          leak=0; if grep -qF -f <(printf '%s\n%s\n%s\n' "$raw" "$url" "$hex" | grep -v '^$') "$log"; then leak=1; fi
+          raw=""; url=""; hex=""; unset UPDATE_SIGNING_KEY
+          [ "$leak" = 0 ] || { rm -f "$log"; echo "::error::imza adımı çıktısında tohum biçimi bulundu (AC-471) — anahtarı döndürün (runbook §31.3)"; exit 1; }
+          cat "$log"; rm -f "$log"
+          [ "$rc" = 0 ] || { echo "::error::update-sign sign --from başarısız"; exit 1; }
+      - name: doğrula
+        env:
+          KEYS: ${{ steps.in.outputs.keys }}
+        run: for f in out/update-*.json; do signer/update-sign verify --pubkeys "$KEYS" --env prod --manifest "$f"; done
+      - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: out/update-*.json
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: agent-update-resigned
+          path: out/
+          if-no-files-found: error
+          retention-days: 1
+
+  update-resign-upload:
+    name: "update-resign 3/3: Release'e yükle (anahtarsız)"
+    if: needs.update-resign.result == 'success'
+    needs: [update-resign-prep, update-resign]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          sparse-checkout: |
+            apps/agent-win/build/update-keys
+            deploy/agent/verify-manifest.mjs
+          sparse-checkout-cone-mode: false
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with: { name: agent-update-resigned, path: out }
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with: { name: update-resign-input, path: in }
+      - name: Node doğrulama (--same-as eski) + SHA256SUMS + gh release upload --clobber
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          RESIGN_TAG: ${{ inputs.resign_tag }}
+        run: |
+          printf '%s' "$RESIGN_TAG" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+$' || { echo "::error::resign_tag"; exit 1; }
+          V="$GITHUB_WORKSPACE/deploy/agent/verify-manifest.mjs"; K="$GITHUB_WORKSPACE/apps/agent-win/build/update-keys/prod.pub"
+          [ "$(find out -name 'update-*.json' | wc -l)" = "$(find in -name 'update-*.json' | wc -l)" ] || { echo "::error::manifest sayısı farklı"; exit 1; }
+          files=()
+          for f in out/update-*.json; do
+            n="$(basename "$f")"
+            (cd out && node "$V" --pubkeys-file "$K" --env prod --expect-name --expect-version "${RESIGN_TAG#v}" --min-remaining-days 20 \
+              --same-as "$GITHUB_WORKSPACE/in/$n" "$n")
+            files+=("$f" "$f.sig")
+          done
+          mkdir rel && gh release download "$RESIGN_TAG" --repo "$REPO" -p SHA256SUMS -D rel
+          awk '$2 !~ /^update-/' rel/SHA256SUMS > rel/SHA256SUMS.new
+          (cd out && sha256sum update-*.json update-*.json.sig) >> rel/SHA256SUMS.new
+          mv rel/SHA256SUMS.new rel/SHA256SUMS && cat rel/SHA256SUMS
+          gh release upload "$RESIGN_TAG" "${files[@]}" rel/SHA256SUMS --repo "$REPO" --clobber
+          { echo "### $RESIGN_TAG manifestleri yeniden imzalandı"; echo '```'; for f in out/update-*.json; do cat "$f"; echo; done; echo '```'
+            echo "Sunucuya: deploy/agent/publish-manifest.sh --tag $RESIGN_TAG --ssh <hedef> (runbook §31.6)"; } >> "$GITHUB_STEP_SUMMARY"
