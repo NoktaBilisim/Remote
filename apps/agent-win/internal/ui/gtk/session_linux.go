@@ -4,7 +4,6 @@ package gtk
 
 import (
 	"fmt"
-	"strings"
 	"time"
 
 	"remote-support/agent-win/internal/dc"
@@ -36,7 +35,11 @@ type sessionWin struct {
 	recBox, recLbl, recBtn, recNote     uintptr
 	voiceBox, voiceLbl, voiceMute, vEnd uintptr
 	techs                               [rosterRows]rosterRow
-	hist                                string
+	hist                                string // yerel sistem satırları (uicore.ChatComposite)
+	chatText                            string // P22-G flow.ChatView.Text
+	chatNote                            uintptr
+	chatRev                             int
+	chatOn                              bool
 	clipOn, clipEnabled, finished       bool
 	unread                              int
 }
@@ -58,11 +61,20 @@ func (u *UI) newSessionWin(watch string) *sessionWin {
 	s.watch = f.danger(watch)
 	setBold(s.watch)
 	s.status = f.label("Bağlantı kuruluyor…")
-	f.heading("Sohbet")
-	s.history = f.textView(180, "")
+	// P22-G: başlık + kayıt notu, düz metin geçmiş (gtk_text_buffer_set_text; markup yok), durum satırı (markup kapalı
+	// etiket), giriş; chat.state{true} gelene kadar giriş pasif.
+	hr := f.row()
+	h := newLabel(flow.ChatTexts.Heading, clsLabel)
+	setBold(h)
+	gtkBoxPackStart(hr, h, false, false, 0)
+	gtkBoxPackStart(hr, newLabel(flow.ChatTexts.HeaderNote, clsLabel), true, true, 0)
+	s.history = f.textView(160, "")
+	s.chatNote = f.danger(flow.ChatTexts.Unavailable)
 	r := f.row()
 	s.input = f.field(r, uicore.ChatInputLimit, func() { u.sendChat(s) }, nil)
-	s.sendBtn = f.button(r, "Gönder", func() { u.sendChat(s) })
+	s.sendBtn = f.button(r, flow.ChatTexts.Send, func() { u.sendChat(s) })
+	enable(s.input, false)
+	enable(s.sendBtn, false)
 	if u.fileServer {
 		f.label(flow.TextFileServerMode)
 	}
@@ -197,19 +209,18 @@ func (u *UI) confirmEnd() {
 		slot: &u.endDlg, onGrant: func() { u.emit(flow.Event{Kind: flow.EvEnd}) }})
 }
 
+// sendChat "Gönder"/Enter: ham metin akışa gider (doğrulama, kova, kutuyu boşaltma kararı flow/chat.go'da).
 func (u *UI) sendChat(s *sessionWin) {
-	text := uicore.TrimRunes(strings.TrimSpace(entryText(s.input)), uicore.ChatInputLimit)
-	if text == "" || s.finished {
+	if s.finished || !s.chatOn {
 		return
 	}
-	u.emit(flow.Event{Kind: flow.EvChat, Text: text})
-	u.appendLine(s, "Siz", text)
-	setEntry(s.input, "")
+	u.emit(flow.Event{Kind: flow.EvChat, Text: uicore.TrimRunes(entryText(s.input), uicore.ChatInputLimit)})
 }
 
+// appendLine yerel sistem satırı (dosya sonucu, ses notu, oturum sonu); sohbet bloğunun altında.
 func (u *UI) appendLine(s *sessionWin, who, text string) {
 	s.hist = uicore.AppendChat(s.hist, time.Now(), who, text)
-	setTextView(s.history, s.hist)
+	setTextView(s.history, uicore.ChatComposite(s.chatText, s.hist))
 }
 
 // Status oturum durum satırı.
@@ -221,20 +232,29 @@ func (u *UI) Status(msg string) {
 	})
 }
 
-// Chat AC-52.
-func (u *UI) Chat(text string) { u.chatLine("Teknisyen", text) }
-
-// TechChat flow.RosterUI.
-func (u *UI) TechChat(name, text string) { u.chatLine(name, text) }
-
-func (u *UI) chatLine(who, text string) {
+// SessionChat flow.ChatUI (P22-G): geçmiş yalnız sürüm değişince yazılır; pencere etkin değilse okunmamış sayısı
+// başlıkta ve aciliyet ipucu.
+func (u *UI) SessionChat(v flow.ChatView) {
 	u.do(func() {
 		s := u.sess
-		if s == nil {
+		if s == nil || s.finished {
 			return
 		}
-		u.appendLine(s, who, text)
-		if !gtkWindowIsActive(s.f.win) {
+		if v.Rev != s.chatRev {
+			s.chatRev, s.chatText = v.Rev, v.Text
+			setTextView(s.history, uicore.ChatComposite(s.chatText, s.hist))
+		}
+		if v.Clear {
+			setEntry(s.input, "")
+		}
+		if v.Restore != "" && entryText(s.input) == "" {
+			setEntry(s.input, v.Restore)
+		}
+		s.chatOn = v.Enabled
+		enable(s.input, v.Enabled)
+		enable(s.sendBtn, v.Enabled)
+		setText(s.chatNote, v.Status)
+		if v.NotifyNew && !gtkWindowIsActive(s.f.win) {
 			s.unread++
 			gtkWindowSetTitle(s.f.win, cstr(u.winTitle(uicore.UnreadTitle(s.unread))))
 			gtkWindowSetUrgencyHint(s.f.win, true)

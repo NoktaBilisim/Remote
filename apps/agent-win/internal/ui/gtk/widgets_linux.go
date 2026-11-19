@@ -246,6 +246,15 @@ func (f *form) textView(h int32, text string) uintptr {
 }
 
 // setTextView metni yazar ve sona kaydırır.
+// textViewText geçmiş kutusunun düz metni (geri okuma; GUI duman testi düz metin kanıtı).
+func textViewText(v uintptr) string {
+	buf := gtkTextViewGetBuffer(v)
+	var a, b [96]byte
+	gtkTextBufferGetStartIter(buf, &a)
+	gtkTextBufferGetEndIter(buf, &b)
+	return glib.GoString(gtkTextBufferGetText(buf, &a, &b, true))
+}
+
 func setTextView(v uintptr, s string) {
 	buf := gtkTextViewGetBuffer(v)
 	gtkTextBufferSetText(buf, cstr(s), -1)

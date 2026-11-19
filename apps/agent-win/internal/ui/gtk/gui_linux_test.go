@@ -114,7 +114,7 @@ func runScenario() []string {
 		go u.WelcomeRec(ctx, flow.Welcome{Host: "stg.remote.noktabilisim.net", Tenant: "Nokta Bilişim",
 			TechName: "Ayşe Yılmaz", TechVerifyCode: "4821", ConsentVersion: 3,
 			ConsentBody: "Kişisel verileriniz 6698 sayılı KVKK kapsamında işlenir; çğıöşüİ.",
-			AbuseEmail:  "abuse@noktabilisim.net", RecOffered: true})
+			AbuseEmail:  "abuse@noktabilisim.net", RecOffered: true, ChatRetentionDays: 90})
 		wait("1-karsilama")
 		mapped("karşılama", 1)
 		cancel()
@@ -130,7 +130,22 @@ func runScenario() []string {
 		u.SetHotkey("Ctrl+Shift+F12")
 		u.ClipSwitch(flow.ClipSwitchState{Visible: true, Enabled: true})
 		u.Status("Ekranınız paylaşılıyor.")
-		u.Chat("Merhaba, ekranınızı görüyorum. Şimdi ağ ayarlarına bakalım.")
+		// P22-G: sohbet bölümü flow.ChatView ile; düz metin — `<b>` literal görünür (markup yok).
+		chatText := "[10:00] Teknisyen Ayşe Yılmaz:\n    Merhaba, ekranınızı görüyorum. <b>kalın değil</b>\n"
+		u.SessionChat(flow.ChatView{Text: chatText, Rev: 1, Enabled: true, Status: "<b>durum</b>"})
+		onMain(u, func() {
+			s := u.sess
+			switch {
+			case s == nil:
+				fail("oturum penceresi yok")
+			case textViewText(s.history) != chatText:
+				fail("sohbet geçmişi düz metin değil: %q", textViewText(s.history))
+			case labelText(s.chatNote) != "<b>durum</b>":
+				fail("sohbet durum satırı markup yorumladı: %q", labelText(s.chatNote))
+			case !gtkWidgetGetSensitive(s.input) || !gtkWidgetGetSensitive(s.sendBtn):
+				fail("chat.state{true} görünümünde giriş etkin olmalı")
+			}
+		})
 		u.RecState(flow.RecView{On: true})
 		u.VoiceBar(flow.VoiceView{On: true, Talkers: []string{"Ayşe Yılmaz"}})
 		if !u.ShowRoster(flow.RosterView{Controller: "Ayşe Yılmaz", Techs: []flow.RosterTech{
