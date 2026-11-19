@@ -3,6 +3,8 @@
 package ui
 
 import (
+	"time"
+
 	"golang.org/x/sys/windows"
 
 	"remote-support/agent-win/internal/flow"
@@ -129,12 +131,8 @@ func (u *UI) SessionChat(v flow.ChatView) {
 			return
 		}
 		if v.Rev != s.chatRev {
-			s.chatRev = v.Rev
-			text := crlf(v.Text)
-			win.SetText(s.history.h, text)
-			n := uintptr(len(windows.StringToUTF16(text)) - 1)
-			win.SendMessage(s.history.h, win.EM_SETSEL, n, n)
-			win.SendMessage(s.history.h, win.EM_SCROLLCARET, 0, 0)
+			s.chatRev, s.chatText = v.Rev, v.Text
+			s.drawHistory()
 		}
 		if v.Clear {
 			win.SetText(s.input.h, "")
@@ -152,4 +150,20 @@ func (u *UI) SessionChat(v flow.ChatView) {
 			win.FlashWindow(s.f.h)
 		}
 	})
+}
+
+// drawHistory geçmiş kutusunu sohbet metni + yerel sistem satırlarından yeniden yazar (Q-P22G-1: sohbet güncellemesi
+// sistem satırlarını silmez) ve sona kaydırır.
+func (s *sessionWin) drawHistory() {
+	text := crlf(uicore.ChatComposite(s.chatText, s.hist))
+	win.SetText(s.history.h, text)
+	n := uintptr(len(windows.StringToUTF16(text)) - 1)
+	win.SendMessage(s.history.h, win.EM_SETSEL, n, n)
+	win.SendMessage(s.history.h, win.EM_SCROLLCARET, 0, 0)
+}
+
+// appendSystem yerel "Sistem" satırı; birikime eklenir, kutu birleşik metinle çizilir (mac/GTK appendLine eşi).
+func (s *sessionWin) appendSystem(text string) {
+	s.hist = uicore.AppendChat(s.hist, time.Now(), "Sistem", text)
+	s.drawHistory()
 }

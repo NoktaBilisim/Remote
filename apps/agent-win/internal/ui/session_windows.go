@@ -3,9 +3,6 @@
 package ui
 
 import (
-	"fmt"
-	"time"
-
 	"remote-support/agent-win/internal/capture"
 	"remote-support/agent-win/internal/dc"
 	"remote-support/agent-win/internal/flow"
@@ -156,14 +153,6 @@ func (u *UI) confirmEnd(s *sessionWin) {
 		win.MB_YESNO|win.MB_ICONQUESTION|win.MB_DEFBUTTON2) == win.IDYES {
 		u.emit(flow.Event{Kind: flow.EvEnd})
 	}
-}
-
-func appendLine(edit *ctrl, who, text string) {
-	line := fmt.Sprintf("[%s] %s: %s\r\n", time.Now().Format("15:04"), who, crlf(text))
-	n := win.SendMessage(edit.h, 0x000E /*WM_GETTEXTLENGTH*/, 0, 0)
-	win.SendMessage(edit.h, win.EM_SETSEL, n, n)
-	win.SendMessageStr(edit.h, win.EM_REPLACESEL, 0, line)
-	win.SendMessage(edit.h, win.EM_SCROLLCARET, 0, 0)
 }
 
 // Status oturum durum satırı.
