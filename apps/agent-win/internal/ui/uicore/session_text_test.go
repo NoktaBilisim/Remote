@@ -5,7 +5,6 @@ import (
 	"testing"
 	"time"
 
-	"remote-support/agent-win/internal/dc"
 	"remote-support/agent-win/internal/transfer"
 )
 
@@ -88,41 +87,6 @@ func TestP28fBgrToRGBA(t *testing.T) {
 	}
 	if BGRToRGBA(bgr[:3], w, h) != nil {
 		t.Fatal("kısa tampon")
-	}
-}
-
-// AC-37/56: işaretleme iletileri, geri alma, temizleme, sınır ve ok/dikdörtgen çizgileri.
-func TestP28fAnnot(t *testing.T) {
-	x, y := 0.5, 0.25
-	var s []Stroke
-	var l *[2]float64
-	s, l, _ = ApplyAnnot(s, l, dc.Ctl{T: "annot.stroke", ID: "a", Tool: "rect", Color: "blue", Pts: [][2]float64{{0, 0}, {1, 1}}})
-	s, l, _ = ApplyAnnot(s, l, dc.Ctl{T: "annot.stroke", ID: "b", Tool: "arrow", Color: "red", Pts: [][2]float64{{0, 0}, {1, 0}}})
-	s, l, laser := ApplyAnnot(s, l, dc.Ctl{T: "annot.laser", X: &x, Y: &y})
-	if len(s) != 2 || !laser || l == nil || l[0] != 0.5 {
-		t.Fatal("stroke/laser")
-	}
-	s, _, _ = ApplyAnnot(s, l, dc.Ctl{T: "annot.undo", ID: "a"})
-	if len(s) != 1 || s[0].ID != "b" {
-		t.Fatal("undo")
-	}
-	if r := StrokePolylines(Stroke{Tool: "rect", Pts: [][2]float64{{0, 0}, {1, 1}}}, 100, 50); len(r) != 1 || len(r[0]) != 5 || r[0][2] != [2]float64{100, 50} {
-		t.Fatalf("rect %v", r)
-	}
-	if r := StrokePolylines(s[0], 100, 100); len(r) != 3 {
-		t.Fatalf("arrow %v", r)
-	}
-	for range MaxStrokes + 10 {
-		s, _, _ = ApplyAnnot(s, nil, dc.Ctl{T: "annot.stroke", Pts: [][2]float64{{0, 0}}})
-	}
-	if len(s) != MaxStrokes {
-		t.Fatal("sınır")
-	}
-	if s, l, _ = ApplyAnnot(s, l, dc.Ctl{T: "annot.clear"}); s != nil || l != nil {
-		t.Fatal("clear")
-	}
-	if AnnotColor("mor") != AnnotColor("red") {
-		t.Fatal("bilinmeyen renk")
 	}
 }
 

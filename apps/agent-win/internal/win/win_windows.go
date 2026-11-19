@@ -71,6 +71,7 @@ var (
 	pLineTo                 = gdi32.NewProc("LineTo")
 	pRectangle              = gdi32.NewProc("Rectangle")
 	pEllipse                = gdi32.NewProc("Ellipse")
+	pExcludeClipRect        = gdi32.NewProc("ExcludeClipRect")
 	pGetStockObject         = gdi32.NewProc("GetStockObject")
 	pCreateCompatibleDC     = gdi32.NewProc("CreateCompatibleDC")
 	pCreateCompatibleBitmap = gdi32.NewProc("CreateCompatibleBitmap")
@@ -523,6 +524,11 @@ func LineTo(dc uintptr, x, y int32)     { _, _, _ = pLineTo.Call(dc, uintptr(x),
 func DeleteDC(dc uintptr)               { _, _, _ = pDeleteDC.Call(dc) }
 func Rectangle(dc uintptr, l, t, r, b int32) {
 	_, _, _ = pRectangle.Call(dc, uintptr(l), uintptr(t), uintptr(r), uintptr(b))
+}
+
+// ExcludeClipRect dikdörtgeni DC'nin kırpma bölgesinden çıkarır (P30: işaretleme göstergenin üstüne boyamaz).
+func ExcludeClipRect(dc uintptr, l, t, r, b int32) {
+	_, _, _ = pExcludeClipRect.Call(dc, uintptr(l), uintptr(t), uintptr(r), uintptr(b))
 }
 func Ellipse(dc uintptr, l, t, r, b int32) {
 	_, _, _ = pEllipse.Call(dc, uintptr(l), uintptr(t), uintptr(r), uintptr(b))

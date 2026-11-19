@@ -6,6 +6,7 @@ import (
 	"math"
 	"time"
 
+	"remote-support/agent-win/internal/annot"
 	"remote-support/agent-win/internal/dc"
 	"remote-support/agent-win/internal/flow"
 	"remote-support/agent-win/internal/linux/x11"
@@ -39,7 +40,7 @@ type indicator struct {
 	rec      bool
 	voice    string
 	shared   signal.Monitor
-	strokes  []uicore.Stroke
+	strokes  []annot.Stroke
 	laser    *[2]float64
 	laserGen int
 	broken   bool // RGBA görsel/bileştirici/giriş şekli yok → kalıcı sağlıksız
@@ -208,7 +209,7 @@ func (ind *indicator) setShared(m signal.Monitor) {
 // annot işaretleme iletisi (lazer 1 sn sonra söner).
 func (ind *indicator) annot(u *UI, m dc.Ctl) {
 	var laser bool
-	ind.strokes, ind.laser, laser = uicore.ApplyAnnot(ind.strokes, ind.laser, m)
+	ind.strokes, ind.laser, laser = annot.Apply(ind.strokes, ind.laser, m)
 	if laser {
 		ind.laserGen++
 		gen := ind.laserGen
@@ -268,9 +269,9 @@ func (ind *indicator) draw(o *overlay, cr uintptr) {
 	cairoSetLineWidth(cr, 4)
 	cairoSetLineJoin(cr, 1)
 	for _, s := range ind.strokes {
-		c := uicore.AnnotColor(s.Color)
+		c := annot.Color(s.Color)
 		cairoSetSourceRGBA(cr, c[0], c[1], c[2], 1)
-		for _, seg := range uicore.StrokePolylines(s, w, h) {
+		for _, seg := range annot.Polylines(s, w, h) {
 			cairoNewPath(cr)
 			cairoMoveTo(cr, seg[0][0], seg[0][1])
 			for _, q := range seg[1:] {
@@ -280,7 +281,7 @@ func (ind *indicator) draw(o *overlay, cr uintptr) {
 		}
 	}
 	if ind.laser != nil {
-		c := uicore.AnnotColor("red")
+		c := annot.Color("red")
 		cairoSetSourceRGBA(cr, c[0], c[1], c[2], 1)
 		cairoNewPath(cr)
 		cairoArc(cr, ind.laser[0]*w, ind.laser[1]*h, 8, 0, 2*math.Pi)
