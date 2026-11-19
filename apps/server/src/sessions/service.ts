@@ -11,6 +11,7 @@ import { newId, sha256Hex } from "../lib/ids.ts";
 import { isActiveCodeConflict, newSessionCode, newSessionToken, newTechVerifyCode } from "./codes.ts";
 import { findHistory, type AllTenantsScope, type HistoryScope } from "./history-repo.ts";
 import * as repo from "./repo.ts";
+import { writeChatSummary } from "./chat.ts";
 
 const HOUR_MS = 60 * 60 * 1000;
 const HOURLY_CREATE_LIMIT = 20; // AC-12
@@ -219,6 +220,8 @@ export async function expireDue(db: Db, ctx: AuditContext, now: Date, rooms?: Ro
 /** Oda bildirimi (signaling/rooms.ts); servis yalnız bu dar arayüzü bilir. */
 export interface RoomNotifier {
   closeSession(sessionId: string, reason: "cancelled" | "admin" | "timeout"): void;
+  /** P22 (güvenlik P22-Q S-P22-Q-2): odanın sohbet zinciri (uçuştaki INSERT / `chat_legacy`) bitene dek bekler; oda yoksa hemen. */
+  settleChat?(sessionId: string): Promise<void>;
 }
 
 /**
@@ -234,6 +237,7 @@ export async function terminateSession(
   reason: string | undefined,
   rooms?: RoomNotifier,
 ): Promise<void> {
+  await rooms?.settleChat?.(id); // S-P22-Q-2: özet uçuştaki sohbet satırlarını / chat_legacy'yi görsün
   await db.$transaction(async (tx) => {
     const now = new Date();
     if ((await repo.terminateActive(tx, tenantId, id, now, auth.user.id)) === 0) {
@@ -249,11 +253,24 @@ export async function terminateSession(
       oldValue: { status: "ACTIVE" },
       newValue: { status: "ENDED", endedBy: "ADMIN", ...(reason ? { reason } : {}) },
     });
+    await writeChatSummary(tx, tenantId, id); // P22 S-P22-4: oturumu bitiren her yol
   });
   rooms?.closeSession(id, "admin");
 }
 
-/** Açılış: bellekteki odası kaybolan ACTIVE oturumlar ENDED{server} (mimari §3.5). Dönen: sayı. */
+/**
+ * Açılış: bellekteki odası kaybolan ACTIVE oturumlar ENDED{server} (mimari §3.5). Dönen: sayı. P22 (S-P22-4): her oturum kendi
+ * TX'inde kapanır ve `session.chat_summary` DB'den sayılarak yazılır (oda belleği süreçle birlikte kayboldu).
+ */
 export async function endOrphanedActive(db: Db, now: Date): Promise<number> {
-  return repo.endAllActive(db, now);
+  const rows = await db.supportSession.findMany({ where: { status: "ACTIVE" }, select: { id: true, tenantId: true } });
+  let n = 0;
+  for (const r of rows) {
+    n += await db.$transaction(async (tx) => {
+      const c = await repo.endActive(tx, r.id, now, "SYSTEM", "server");
+      if (c > 0) await writeChatSummary(tx, r.tenantId, r.id);
+      return c;
+    });
+  }
+  return n;
 }

@@ -22,7 +22,9 @@ import { useCollab } from "@/lib/dc/use-collab";
 import { useQuality } from "@/lib/webrtc/use-quality";
 import { useTechSession } from "@/lib/webrtc/use-tech-session";
 import { inviteBlockOf } from "@/lib/multi/errors";
-import { canSend, chatAuthor, seatOf, type Seat } from "@/lib/multi/roster";
+import { autoControlDecision } from "@/lib/unattended/consent";
+import { canSend, seatOf, type Seat } from "@/lib/multi/roster";
+import { useSessionChat } from "@/lib/chat/use-session-chat";
 import { consoleVoiceView, shouldListen } from "@/lib/voice/console";
 import { voiceEndToast } from "@/lib/voice/ui";
 import { useConsoleVoice } from "@/lib/voice/use-console-voice";
@@ -68,9 +70,21 @@ export function ConsoleView({
   const printBusy = useRef<() => boolean>(() => false);
   const files = notController && canFiles ? { allowed: false, blocked: "notController" as const } : serverFiles(state, canFiles);
   const collab = useCollab(ts.channels, {
-    ...collabOptions(ts, files.allowed, tab),
+    ...collabOptions(ts, files.allowed),
     sendMeta: gatedSend,
     printBusy: () => printBusy.current(),
+    // K-P22-3: eski misafire sabit bildirim yalnız oturum sahibinin konsolundan
+    legacyNotice: seat.owner && state.guestChat === "outdated" && !state.unattended,
+  });
+  // P22 (§8.1): oturum sohbeti sunucu WS'inden (DC değil)
+  const chat = useSessionChat({
+    side: "tech",
+    subscribe: ts.subscribe,
+    send: ts.send,
+    tid: state.tid,
+    visible: tab === "chat",
+    connected: state.phase === "live" && state.reconnectSince === null,
+    guestChat: state.guestChat,
   });
   const quality = useQuality(ts.pc, gatedSend);
   const now = useNow();
@@ -85,7 +99,8 @@ export function ConsoleView({
   const name = state.guest?.name ?? t("c.customer");
 
   const releaseRef = useRef<HTMLButtonElement>(null);
-  useControlToasts(control, toast);
+  useControlToasts(control, toast, state.unattended !== null);
+  useAutoControl(ts, seat.controller, canControl);
   const voice = useVoiceSlot(ts, seat, canVoice, now, toast);
 
   return (
@@ -108,7 +123,7 @@ export function ConsoleView({
           sessionId={session.id}
           seat={seat}
           canInvite={canInvite}
-          inviteBlock={inviteBlockOf(state.unattended?.consentMode, state.guestMulti)}
+          inviteBlock={inviteBlockOf(state.guestMulti)}
           now={now}
         />
       )}
@@ -122,10 +137,8 @@ export function ConsoleView({
           unattended={state.unattended}
           phase={control.phase}
           live={live}
-          canControl={canControl && seat.controller}
+          controller={seat.controller}
           now={now}
-          onIntervene={ts.requestControl}
-          onReturn={ts.releaseControl}
         />
       )}
 
@@ -134,7 +147,7 @@ export function ConsoleView({
       )}
 
       {state.phase === "ended" ? (
-        <ConsoleEnded end={state.end} deviceId={state.unattended?.deviceId ?? null} />
+        <ConsoleEnded end={state.end} />
       ) : (
         <div className="flex flex-col gap-3 xl:flex-row">
           <ConsoleStage
@@ -158,8 +171,10 @@ export function ConsoleView({
               peerName={name}
               tab={tab}
               onTab={setTab}
-              chat={{
-                authorOf: (by) => chatAuthor(by, state.roster, name),
+              chat={chat}
+              chatBlocked={state.unattended ? "unattended" : null}
+              chatView={{
+                authorOf: (tid) => state.roster.find((e) => e.tid === tid)?.name ?? null,
                 readOnlyNote: seat.observer ? t("mt.observerChat") : null,
               }}
             />
@@ -223,6 +238,23 @@ function useVoiceSlot(
   );
 }
 
+/**
+ * P28u r3 (K-P28u-r3-6, S-P28u-r3-2): gözetimsiz odada misafir katılınca / yeniden katılınca bir kez `control.request`
+ * (makine kapısından, `requestControl`); yalnız o an kontrol sahibiysem. Devirde (handover) otomatik istek yok — karar yalnız
+ * `guestJoins` değişiminde verilir (`autoControlDecision`). Ref temizlenmez: yeniden çizim / StrictMode ikinci istek üretmez.
+ */
+function useAutoControl(ts: ReturnType<typeof useTechSession>, controller: boolean, canControl: boolean) {
+  const seen = useRef(0);
+  const { guestJoins, unattended } = ts.state;
+  const phase = ts.control.phase;
+  const { requestControl } = ts;
+  useEffect(() => {
+    const r = autoControlDecision(seen.current, { joins: guestJoins, unattended: unattended !== null, controller, canControl, phase });
+    seen.current = r.seen;
+    if (r.fire) requestControl();
+  }, [guestJoins, unattended, controller, canControl, phase, requestControl]);
+}
+
 /** P28c: yerim roster'dan; üye konsolunda `hello` gelmeden önce hiçbir yetki yok (sahip varsayılmaz). */
 function mySeat(s: ReturnType<typeof useTechSession>["state"], isOwner: boolean): Seat {
   if (!isOwner && s.tid === null && s.techRole === null) return { owner: false, controller: false, observer: false };
@@ -240,12 +272,11 @@ function serverFiles(s: ReturnType<typeof useTechSession>["state"], canFiles: bo
   return { allowed: true, blocked: null };
 }
 
-/** Konsol tarafı işbirliği seçenekleri (gelen yön TO_TECH; okunmamış sayacı sohbet sekmesi açıkken sıfırlanır). */
-function collabOptions(ts: ReturnType<typeof useTechSession>, canFiles: boolean, tab: CollabTab) {
+/** Konsol tarafı işbirliği seçenekleri (gelen yön TO_TECH). */
+function collabOptions(ts: ReturnType<typeof useTechSession>, canFiles: boolean) {
   return {
     inbound: "TO_TECH" as const,
     filesAllowed: canFiles,
-    chatVisible: tab === "chat",
     receiveAnnot: false,
     sendMeta: ts.send,
     maxFileMb: ts.maxFileMb,

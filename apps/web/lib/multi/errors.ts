@@ -1,6 +1,6 @@
 /*
  * P28c (mimari-p28c §4, §4.1; AC-364, 365, 372): hata kodları → Türkçe metin. Metinler contracts `MULTI_ERROR_MESSAGES` (AC-352
- * metni dahil); 403 `MFA_SETUP_REQUIRED` → "Önce 2FA kurun" (D-PC-2). Gerekçe hatası 400 `VALIDATION` + `fields.reason` (K0 sapma 6).
+ * metni dahil); 403 `MFA_SETUP_REQUIRED` → "Önce 2FA kurun" (D-PC-2).
  */
 import { MULTI_ERROR_MESSAGES } from "@remote/contracts/api/multi";
 import { ApiError } from "@/lib/api";
@@ -23,20 +23,16 @@ export function multiWsMessage(code: string, message: string): string {
   return Object.hasOwn(MESSAGES, code) ? MESSAGES[code]! : message;
 }
 
-/** Davet/İzle kalıcı olarak açılamaz mı (misafir `multi1` yok / `asked` gözetimsiz oda): düğme pasif + bu metin. */
+/** Davet/İzle kalıcı olarak açılamaz mı (misafir `multi1` yok / sunucu `JOIN_NOT_ALLOWED`): düğme pasif + bu metin. */
 export function joinBlockedMessage(e: unknown): string | null {
   if (!(e instanceof ApiError)) return null;
   return e.code === "CLIENT_UNSUPPORTED" || e.code === "JOIN_NOT_ALLOWED" ? MESSAGES[e.code]! : null;
 }
 
-/** Gerekçe alanı hatası (`fields.reason`). */
-export const reasonFieldError = (e: unknown): string | undefined => (e instanceof ApiError ? e.fields?.reason : undefined);
-
 /**
- * "Davet et" baştan pasif mi (V-PC-5, O-PC-5, AC-372): izinli (`asked`) gözetimsiz oda → `JOIN_NOT_ALLOWED`; misafir `multi1`
- * bildirmedi (`guestMulti === false`) → AC-352 metni. `guestMulti` yok (null) = kabul edilmiş misafir yok → engel değil.
+ * "Davet et" baştan pasif mi (V-PC-5, O-PC-5, AC-372): misafir `multi1` bildirmedi (`guestMulti === false`) → AC-352 metni.
+ * `guestMulti` yok (null) = kabul edilmiş misafir yok → engel değil. P28u r3: izinli (`asked`) oda kipi yok → kip engeli kalktı.
  */
-export function inviteBlockOf(consentMode: string | null | undefined, guestMulti: boolean | null): string | null {
-  if (consentMode === "asked") return MESSAGES.JOIN_NOT_ALLOWED!;
+export function inviteBlockOf(guestMulti: boolean | null): string | null {
   return guestMulti === false ? MESSAGES.CLIENT_UNSUPPORTED! : null;
 }

@@ -240,7 +240,9 @@ export class RetentionJob {
       c.files += r.files;
       c.storedFiles += r.storedFiles;
       c.recordings += r.recordings;
-      if (r.selected < SESSION_BATCH) break;
+      c.sessionMessages += r.messages;
+      // P22 (r2 §15.3): mesaj bütçesiyle kısaltılmış parti küçük olsa da firmada aday kalabilir → `more`.
+      if (!r.more) break;
     }
     await this.purgeAnonymized(t.tenantId, c);
   }

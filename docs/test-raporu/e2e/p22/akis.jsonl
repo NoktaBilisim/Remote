@@ -1,0 +1,40 @@
+{"ts":"2026-11-18T08:07:44.776Z","t":"login","role":"ADMIN","perms":["sessions.view_chat"]}
+{"ts":"2026-11-18T08:07:45.413Z","t":"ac292","days":"365","prev":"chat-retention-notice","describedByLine":true,"disabledBefore":true,"enabledAfter":true}
+{"ts":"2026-11-18T08:07:45.922Z","t":"axe","name":"karsilama","scheme":"light","w":1280,"violations":[],"overflow":false}
+{"ts":"2026-11-18T08:07:46.354Z","t":"axe","name":"karsilama","scheme":"dark","w":1280,"violations":[],"overflow":false}
+{"ts":"2026-11-18T08:07:46.783Z","t":"axe","name":"karsilama","scheme":"light","w":390,"violations":[],"overflow":false}
+{"ts":"2026-11-18T08:07:47.214Z","t":"axe","name":"karsilama","scheme":"dark","w":390,"violations":[],"overflow":false}
+{"ts":"2026-11-18T08:07:47.911Z","t":"notes","techNote":"Sohbet kayıt altına alınır ve oturum saklama süresi boyunca saklanır.","guestNote":"Sohbet mesajları kayıt altına alınır ve 365 gün saklanır"}
+{"ts":"2026-11-18T08:07:48.108Z","t":"bidir","rows1":2,"imgs":0,"xssFired":false,"plaintextInDb":0}
+{"ts":"2026-11-18T08:07:48.527Z","t":"axe","name":"konsol-sohbet","scheme":"light","w":1280,"violations":[],"overflow":false}
+{"ts":"2026-11-18T08:07:48.930Z","t":"axe","name":"konsol-sohbet","scheme":"dark","w":1280,"violations":[],"overflow":false}
+{"ts":"2026-11-18T08:07:49.410Z","t":"axe","name":"misafir-sohbet","scheme":"light","w":1280,"violations":[],"overflow":false}
+{"ts":"2026-11-18T08:07:49.846Z","t":"axe","name":"misafir-sohbet","scheme":"dark","w":1280,"violations":[],"overflow":false}
+{"ts":"2026-11-18T08:07:53.200Z","t":"reconnect-guest","got":true,"count":3,"lastIsT2":true,"histFrames":2,"wsOpened":3}
+{"ts":"2026-11-18T08:07:53.654Z","t":"reconnect-tech","rows2":3,"consoleMsgs":3}
+{"ts":"2026-11-18T08:07:54.313Z","t":"axe","name":"konsol-4426","scheme":"light","w":1280,"violations":[],"overflow":false}
+{"ts":"2026-11-18T08:07:54.679Z","t":"axe","name":"konsol-4426","scheme":"dark","w":1280,"violations":[],"overflow":false}
+{"ts":"2026-11-18T08:07:54.697Z","t":"4426","closes":[4426],"endedText":"Oturum sona erdiKonsol sürümü eski — sayfayı yenileyin.Sayfayı yenileOturumlara dön","reloadBtn":true,"overflow390":false}
+{"ts":"2026-11-18T08:07:56.241Z","t":"4426-live","liveStill":"Aktif"}
+{"ts":"2026-11-18T08:07:57.242Z","t":"axe","name":"gecmis-sohbet","scheme":"light","w":1280,"violations":[],"overflow":false}
+{"ts":"2026-11-18T08:07:57.656Z","t":"axe","name":"gecmis-sohbet","scheme":"dark","w":1280,"violations":[],"overflow":false}
+{"ts":"2026-11-18T08:07:58.388Z","t":"history","before":0,"afterOpen":0,"btnText":"Sohbeti göster (4 mesaj)","msgs":4,"afterShow":1,"afterSecond":1,"nv":"{\"messages\": 4, \"requestMessages\": 0}","summary":"{\"tech\": 3, \"legacy\": false, \"customer\": 1, \"senderUserIds\": [\"01M7PTW6H0WZQRYRF6NJDVJ8NJ\"]}","of390":false}
+{"ts":"2026-11-18T08:07:58.997Z","t":"audit-screen","hasChatViewed":false,"snippet":[]}
+{"ts":"2026-11-18T08:08:14.759Z","t":"axe","name":"konsol-eski-istemci","scheme":"light","w":1280,"violations":[],"overflow":false}
+{"ts":"2026-11-18T08:08:15.351Z","t":"axe","name":"konsol-eski-istemci","scheme":"dark","w":1280,"violations":[],"overflow":false}
+{"ts":"2026-11-18T08:08:16.044Z","t":"axe","name":"misafir-eski-istemci","scheme":"light","w":1280,"violations":[],"overflow":false}
+{"ts":"2026-11-18T08:08:16.572Z","t":"axe","name":"misafir-eski-istemci","scheme":"dark","w":1280,"violations":[],"overflow":false}
+{"ts":"2026-11-18T08:08:16.605Z","t":"legacy-guest","techInputDisabled":true,"guestUnavailable":true,"guestInput":true,"dcChatFrames":1,"dcNotice":["{\"t\":\"chat\",\"id\":\"1q49184a090l39115v3y0667\",\"text\":\"Bu sürümde sohbet kapalıdır. Yazdıklarınız teknisyene gösterilmez ve kaydedilmez; lütfen sohbet için program"],"wsChatFramesToGuest":[],"rows":0}
+{"ts":"2026-11-18T08:08:16.941Z","t":"legacy-summary","summary":"{\"tech\": 0, \"legacy\": true, \"customer\": 0, \"senderUserIds\": []}"}
+{"ts":"2026-11-18T08:08:17.087Z","t":"legacy-history","legacyText":"Müşteri eski istemci kullandığı için bu oturumda sohbet kapalıydı"}
+{"ts":"2026-11-18T08:09:32.497Z","t":"axe","name":"yetki-ekrani","scheme":"light","w":1280,"violations":[],"overflow":false}
+{"ts":"2026-11-18T08:09:33.856Z","t":"axe","name":"yetki-ekrani","scheme":"dark","w":1280,"violations":[],"overflow":false}
+{"ts":"2026-11-18T08:09:35.942Z","t":"toggle","rowHasChat":true,"sensitiveNote":1,"permAudit":"{\"granted\": false, \"permKey\": \"sessions.view_chat\"}"}
+{"ts":"2026-11-18T08:10:03.112Z","t":"unauthorized","chatStatus":403,"historyStatus":200,"historyHasChat":false,"sectionCount":0,"authForbiddenRows":"0"}
+{"ts":"2026-11-18T08:10:04.092Z","t":"idor","otherTenantChat":404}
+{"ts":"2026-11-18T08:10:04.579Z","t":"consent-api","status":200,"chatParagraphMissing":false,"version":1}
+{"ts":"2026-11-18T08:10:06.625Z","t":"axe","name":"aydinlatma","scheme":"light","w":1280,"violations":["label-content-name-mismatch(1)"],"overflow":false}
+{"ts":"2026-11-18T08:10:07.484Z","t":"axe","name":"aydinlatma","scheme":"dark","w":1280,"violations":["label-content-name-mismatch(1)"],"overflow":false}
+{"ts":"2026-11-18T08:10:09.049Z","t":"axe","name":"genel-ayarlar","scheme":"light","w":1280,"violations":["label-content-name-mismatch(1)"],"overflow":false}
+{"ts":"2026-11-18T08:10:09.820Z","t":"axe","name":"genel-ayarlar","scheme":"dark","w":1280,"violations":["label-content-name-mismatch(1)"],"overflow":false}
+{"ts":"2026-11-18T08:10:09.921Z","t":"consent-ui","band":0,"gband":0,"of390":false}

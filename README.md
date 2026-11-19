@@ -8,6 +8,8 @@ gider; firma isterse sunucu üzerinden, ClamAV taramalı ve şifreli saklamalı 
 
 ## Şu anki durum: P1–P13a tamamlandı, P13b (prod açılışı) kodu hazır, P14a/P14b, P15, P16, P17 (istemci 0.11.0), P18 (talep iletişimi), P19 (web talep formu, SMS, müşteri bildirimi, müşteri CSV) P20 (istemci 0.12.0), P27a (2FA'da cihaz hatırlama), P27 (gözetimsiz erişim; prod'da kapalı) P28a (pano paylaşımı + uzaktan yazdırma, istemci 0.13.0) P28b (sunucuda dosya aktarımı + ClamAV + depolama kotası, istemci 0.14.0), P28u (gözetimsiz izinli / izinsiz bağlantı ve müdahale, servis 0.15.0) P28e (oturum kaydı, istemci/servis 0.16.0) ve P28c (çoklu teknisyen: davet, İzle, kontrol ve oturum devri, istemci/yardımcı 0.17.0) ve P28d (sesli görüşme, istemci 0.18.0) ve P28f (macOS istemci, istemci 0.19.0; prod'da Apple imzası gelene kadar yok) ve P21 (müşteri portalı) kodlandı (QA sürüyor)
 
+## Şu anki durum: P1–P13a tamamlandı, P13b (prod açılışı) kodu hazır, P14a/P14b, P15, P16, P17 (istemci 0.11.0), P18 (talep iletişimi), P19 (web talep formu, SMS, müşteri bildirimi, müşteri CSV) P20 (istemci 0.12.0), P27a (2FA'da cihaz hatırlama), P27 (gözetimsiz erişim; prod'da kapalı) P28a (pano paylaşımı + uzaktan yazdırma, istemci 0.13.0) P28b (sunucuda dosya aktarımı + ClamAV + depolama kotası, istemci 0.14.0), P28u (gözetimsiz onaysız bağlantı ve müdahale; r3 onaysız tek yol, servis 0.15.0) P28e (oturum kaydı, istemci/servis 0.16.0) ve P28c (çoklu teknisyen: davet, İzle, kontrol ve oturum devri, istemci/yardımcı 0.17.0) ve P28d (sesli görüşme, istemci 0.18.0) ve P28f (macOS istemci, istemci 0.19.0; prod'da Apple imzası gelene kadar yok) ve P22 (oturum sohbeti kaydı + KVKK) kodlandı (QA sürüyor)
+
 İş P1..P13 dikey paketlerle yürür (`docs/mimari.md` §10). P1–P11 ve **P12** (firma ve sistem logosu, kullanıcı profil
 resmi, kullanıcı başına tema, hesap menüsü, tasarım token lint kuralı) tamamlandı: P12 güvenlik Kritik/Yüksek 0 (doğrulama
 turu GEÇTİ), sayfa testi gerçek server ile GEÇTİ, QA Tur 2'nin tek maddesi (P11'e ait kararsız e2e testi) düzeltildi
@@ -81,8 +83,8 @@ P13c'ye kadar ayrı staging yoktur; yeni kod yerelde (`scripts/e2e-real.sh`) den
 
 - Teknisyen konsolunda yan panel: **Sohbet / Dosyalar / Kalite**. Müşteri sayfasında "Teknisyenle iletişim" bölümü
   (Sohbet; teknisyenin dosya yetkisi varsa Dosyalar).
-- **Sohbet:** iki yönlü, mesaj başına en çok 2000 karakter, zaman damgası, okunmamış sayacı. Mesaj düz metin
-  basılır; HTML yorumlanmaz.
+- **Sohbet:** iki yönlü, zaman damgası, okunmamış sayacı. Mesaj düz metin basılır; HTML yorumlanmaz. P22'den beri
+  sunucu üzerinden iletilir ve kaydedilir, mesaj başına en çok 1.000 karakter (aşağıda "P22").
 - **Dosya transferi (iki yön):** dosya eşler arası DataChannel'dan geçer, sunucuya içerik gitmez. Alıcı her teklifi
   onaylar (varsayılan odak "Reddet", "Kabul et" 1,5 sn sonra etkinleşir); tehlikeli ve çift uzantı (`.pdf.exe`)
   uyarısı; dosya adı iki tarafta temizlenir. Boyut sınırı tenant ayarıdır (varsayılan 100 MB). SHA-256 tutmazsa
@@ -273,9 +275,20 @@ QA tur 2 GEÇTİ; staging doğrulaması runbook §29.3)
 - Panel: müşteri detayında **Portal hesapları** (oluştur, pasife al, etkinleştir, şifreyi sıfırla; portal adresi kopyala).
   Yeni yetki `customers.portal`. Sınırlar: müşteri başına 20 hesap, 10 talep/sa, 3 bekleyen talep.
 - Kimlik panelden ayrı: `portal_users`, `portal_sessions`, çerezler `__Host-rs_portal` / `__Host-rs_portal_csrf` /
-  `rs_portal_tenant`. Migration `20261126000000_p21_customer_portal`; yeni env ve bağımlılık yok. API `docs/api.md` "Müşteri
+  `rs_portal_tenant`. Migration `20261127000000_p21_customer_portal`; yeni env ve bağımlılık yok. API `docs/api.md` "Müşteri
   portalı (P21)"; kullanım `docs/KULLANIM_KILAVUZU.md` "Müşteri için: Müşteri portalı" ve "Admin için: Müşteri portal
   hesapları"; operasyon runbook §29.
+  **P22 — oturum sohbeti her zaman kaydedilir + KVKK bilgilendirme** (AC-264, 291, 292; sunucu + web, istemci sürümü
+  değişmedi; qa ve güvenlik GEÇTİ, sayfa testi GEÇTİ)
+
+- Oturum sohbeti `/ws/tech` + `/ws/guest` üzerinden sunucuya gider, `session_messages`'a şifreli kaydedilir, sonra iletilir
+  (uçtan uca değil). Saklama = oturum saklama süresi; anonimleştirmede silinir. Mesaj ≤ 1.000 karakter.
+- Oturum geçmişinde **Sohbeti göster** (`GET /sessions/:id/chat`, yeni yetki `sessions.view_chat`, audit). Aydınlatma
+  metnine standart sohbet paragrafı (seed), karşılama sayfasında saklama satırı.
+- Hızlı Destek 0.20 ve öncesinde oturum sohbeti kapalıdır ("programı güncelleyin"); tarayıcı modu tam çalışır. Eski konsol
+  sekmesi 4426 ile "Konsol sürümü eski — sayfayı yenileyin".
+- Migration `20261126000000_p22_session_chat`, yayında `pnpm db:seed` gerekli, yeni env yok. API `docs/api.md` "Oturum
+  sohbeti (P22)"; kullanım kılavuzu "Oturum sohbeti ve kaydı"; operasyon runbook §29.
 
 **P28f — macOS istemci, istemci 0.19.0** (AC-389..396; kod tamam, güvenlik kod turu 3 GEÇTİ (Kritik/Yüksek/Orta/Düşük 0; prod öncesi
 elle şart: Fare Tuşları ayar anahtarı ve `localClick` alan ölçümü), QA tur 2 DÜZELTİLMELİ; macOS elle turu staging'de; **prod'da macOS yok** — Apple Developer hesabı açılıp imzalı + notarize zip
@@ -314,8 +327,8 @@ CI yeşili bekliyor; Windows elle turu ve AC-371 ölçümü staging'de; prod P28
   izleyici yalnız görür ve sohbeti okur), **Kontrolü ver / geri al**, **Oturumu devret**, **Oturumdan ayrıl**. Girdi, pano,
   yazdırma, dosya ve işaretleme yalnız kontrol sahibinde.
 - Müşteri (Hızlı Destek ve tarayıcı) **Bağlı teknisyenler** listesini ad ve rolle görür, sahip dışındakileri **Çıkar** ile
-  çıkarır. Gözetimsiz göstergede tüm adlar yazar; "İzinli" kipte ek teknisyen katılamaz, "İzinsiz" kipte gerekçe + dört göz
-  e-postası gerekir. Geçmiş ayrıntısında **Katılımcılar** bölümü.
+  çıkarır. Gözetimsiz göstergede tüm adlar yazar; gözetimsiz odaya katılım `unattended.connect` + cihaz yetkisi + step-up ister
+  (P28u r3'ten beri gerekçe yok). Geçmiş ayrıntısında **Katılımcılar** bölümü.
 - Migration, yeni env ve bağımlılık yok. Uçlar `docs/api.md` "Çoklu teknisyen (P28c)"; kullanım `docs/KULLANIM_KILAVUZU.md`
   "Çoklu teknisyen"; operasyon runbook §28c; karar ADR-0035.
 
@@ -324,24 +337,30 @@ staging'e çıkar, prod P28 sonunda)
 
 - Ayarlar → **Oturum kaydı** (varsayılan kapalı; aydınlatma onayı, saklama 1–90 gün, kısaltma geriye uygulanmaz).
   Katılımlı oturumda müşterinin ayrı, işaretsiz rıza kutusu; "Kayıt yapılıyor" göstergesi ve geri alınamaz **Kaydı durdur**.
-  Gözetimsiz bağlantılar firma politikasıyla kaydedilir (step-up + dört göz e-postası). Ses kaydedilmez.
+  Gözetimsiz bağlantılar firma kayıt politikasıyla kaydedilir (çalışan bilgilendirme kutusu + step-up + kayıt politikası dört göz e-postası). Ses kaydedilmez.
 - Kaydı teknisyen konsolu alır (WebM/VP8; Safari'de yok), sunucu şifreli saklar; dosyalarla aynı kotayı kullanır, yedeğe
   girmez. Geçmişte **Kaydı izle** (`sessions.view_recording`; indirme düğmesi/ucu yok, her izleme audit'te) ve **Kaydı sil**.
 - Migration `20261125000000_p28e_recordings`; yeni env ve bağımlılık yok. Uçlar `docs/api.md` "Oturum kaydı (P28e)";
   kullanım `docs/KULLANIM_KILAVUZU.md` "Oturum kaydı"; operasyon runbook §28e; karar ADR-0034.
 
-**P28u — gözetimsiz cihazda izinli / izinsiz bağlantı ve müdahale, servis 0.15.0** (AC-429..446; kod tamam, QA tur 1
-DÜZELTİLMELİ maddeleri ve Windows elle testleri sürüyor; staging'e çıkar, prod P28 sonunda)
+**P28u — gözetimsiz cihazda onaysız bağlantı ve müdahale** (AC-429..451; r3 "onaysız tek yol" kullanıcı kararı 2026-11-18;
+kod tamam, güvenlik r3 kod turu GEÇTİ, QA r3 kod maddeleri tamam, Windows elle testleri sürüyor; staging'e çıkar, prod P28 sonunda)
 
-- Üç kip: **İzinli** (cihazda aktif kullanıcıya 60 sn'lik onay penceresi, "Reddet" varsayılan), **Kullanıcı yok** (oturum
-  yok/kilitli, onaysız), **İzinsiz** (firma politikası + `unattended.silent` + step-up + 20–500 karakter gerekçe; izleme
-  kipinde açılır, "Müdahale et" ile kontrol). Gizli izleme yoktur: gösterge her kipte görünür.
-- Ayarlar → **Gözetimsiz erişim** politikası (varsayılan kapalı; açarken aydınlatma onayı + step-up), dört göz e-postası,
-  konsolda **Oturumu kilitle** / **Kullanıcı oturumunu kapat** (45 sn yeniden katılım), cihaz listesinde kullanıcı durumu ve
-  "Servis güncel değil" rozeti, geçmiş/audit "Bağlantı kipi" süzgeci.
-- Migration `20261124000000_p28u_unattended_consent`; yeni env ve bağımlılık yok. Uçlar `docs/api.md` "Gözetimsiz izinli /
-  izinsiz bağlantı ve müdahale (P28u)"; kullanım `docs/KULLANIM_KILAVUZU.md` "Üç bağlantı kipi"; operasyon runbook §28u;
-  karar ADR-0033.
+- **Tek yol:** gözetimsiz bağlantı her zaman cihaz kullanıcısına sorulmadan açılır (`consentMode=no_user`); konsol
+  kontrolü kendiliğinden ister, teknisyen doğrudan görüntü + kontrol alır. **Gizli izleme yoktur:** "Uzaktan bağlantı"
+  göstergesi her zaman görünür (çizilemezse bağlantı açılmaz), cihaz kullanıcısı yerel anahtarla keser. KVKK: firma
+  çalışanlarını yazılı bilgilendirmekten sorumludur (kılavuz "Admin için: KVKK — çalışanları bilgilendirme").
+- Kalanlar: step-up, `unattended.connect` + cihaz yetkisi, audit, konsolda **Oturumu kilitle** / **Kullanıcı oturumunu
+  kapat** (yalnız kontrol sahibinde; 45 sn yeniden katılım), cihaz listesinde kullanıcı durumu (yalnız bilgi), "Servis
+  güncel değil" rozeti, geçmiş/audit "Bağlantı kipi" süzgeci (eski kayıtlar "Kullanıcı onayıyla (eski)" / "İzinsiz (eski)").
+- r3 ile kaldırılanlar: cihazdaki onay diyaloğu, izinsiz kip ve "İzin istemeden bağlan" kutusu, firma politikası
+  (Ayarlar → Gözetimsiz erişim, `GET/PUT /unattended/policy`), `unattended.silent` yetkisi, gerekçe, izinsiz bağlantı dört
+  göz e-postası, izleme kipi / "Müdahale et" / "İzlemeye dön". P28e kayıt politikası e-postası kalır.
+- Yeni servis yeteneği `rs.cap.direct1`: 0.15–0.19 servisler 409 `DEVICE_OUTDATED` alır; **bir sonraki servis sürümü**
+  gerekir (sunucu ile aynı pencerede yayımlanır, runbook §28u).
+- Migration `20261124000000_p28u_unattended_consent` (r3'te migration yok); yeni env ve bağımlılık yok. Uçlar
+  `docs/api.md` "Gözetimsiz onaysız bağlantı ve müdahale (P28u)"; kullanım `docs/KULLANIM_KILAVUZU.md` "Tek bağlantı yolu:
+  cihaz kullanıcısına sorulmaz"; operasyon runbook §28u; karar ADR-0033 + `docs/mimari-p28u.md` §r3.
 
 **P28b — sunucuda dosya aktarımı + ClamAV + depolama kotası, istemci 0.14.0** (AC-353..363, AC-284; kod tamam, QA tur 1
 DÜZELTİLMELİ maddeleri işleniyor; staging'e çıkar, prod P28 sonunda)
@@ -643,12 +662,13 @@ görür. `deploy/staging-users.sh` staging test hesapları için hâlâ kullanı
 | P27 (kod ✓, QA sürüyor; prod `off`)                                               | G7 gözetimsiz erişim: `NoktaDestekServis.exe`, kayıt kodu, cihaz başına yetki, bağlantı başına step-up, müşteri bildirimi, gösterge, yerel kapatma; runbook §27                                                            |
 | P28a (kod ✓, qa GEÇTİ; Windows elle turu bekliyor)                                | G8-a pano paylaşımı (düz metin ≤ 64 KB) ve uzaktan yazdırma (PDF, müşteri onayı), Windows istemci 0.13.0; runbook §28a                                                                                                     |
 | P28b (kod ✓, QA sürüyor)                                                          | G8-b sunucuda dosya aktarımı + ClamAV taraması + firma depolama kotası, Windows istemci 0.14.0; runbook §28b                                                                                                               |
-| P28u (kod ✓, QA sürüyor)                                                          | G7-u gözetimsiz izinli / izinsiz bağlantı, firma politikası, dört göz e-postası, oturumu kilitle / kapat, servis 0.15.0; runbook §28u                                                                                      |
+| P28u (kod ✓, QA sürüyor)                                                          | G7-u gözetimsiz bağlantı (r3: onaysız tek yol, servis `direct1` gerekir), oturumu kilitle / kapat; runbook §28u                                                                                                            |
 | P28e (kod ✓, QA sürüyor)                                                          | G8-e oturum kaydı: müşteri rızası, gösterge ve Kaydı durdur, gözetimsiz politika kaydı, şifreli saklama, izleme/silme, istemci/servis 0.16.0; runbook §28e                                                                 |
 | P28c (kod ✓, QA sürüyor)                                                          | G8-c çoklu teknisyen: davet, İzle, kontrol ve oturum devri, müşterinin Çıkar'ı, istemci/yardımcı 0.17.0; runbook §28c                                                                                                      |
 | P28d (kod ✓, QA sürüyor)                                                          | G8-d sesli görüşme: teknisyen ister, müşteri yerel Kabul ile mikrofon açar, çoklu teknisyende konuşan/dinleyen, ses kaydedilmez, istemci 0.18.0 (libopus wasm + wazero); runbook §28d                                      |
 | P28f (kod ✓, QA sürüyor; prod Apple imzasından sonra)                             | macOS istemci 0.19.0: universal `.app` (zip), TCC izin rehberi, korunan düğmeler, purego (CGO'suz); runbook §28f                                                                                                           |
-| P21 (kod ✓, qa tur 2 GEÇTİ; staging doğrulaması bekliyor)                         | G6 müşteri portalı: portal girişi, talep/oturum geçmişi, portaldan talep, firma dosyası, isteğe bağlı 2FA; panel Portal hesapları; runbook §29                                                                             |
+| P21 (kod ✓, qa tur 2 GEÇTİ; staging doğrulaması bekliyor)                         | G6 müşteri portalı: portal girişi, talep/oturum geçmişi, portaldan talep, firma dosyası, isteğe bağlı 2FA; panel Portal hesapları; runbook §30                                                                             |
+| P22 (kod ✓, qa/güvenlik/sayfa testi GEÇTİ)                                        | Oturum sohbeti sunucu üzerinden ve her zaman kayıtlı, oturum geçmişinde sohbet (`sessions.view_chat`), aydınlatma sohbet paragrafı; runbook §29                                                                            |
 | P13c                                                                              | Ayrı staging (`stg.remote.noktabilisim.net`, ayrı DB/sır/yedek); E11 özelliklerinden önce                                                                                                                                  |
 
 Prod açılışının ön koşulları ve imzalı kontrol listesi: runbook §20.1–§20.3. TURN için yalnız 443/TCP'nin açık olduğu

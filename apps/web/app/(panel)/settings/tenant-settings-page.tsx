@@ -19,7 +19,10 @@ export async function TenantSettingsPage<T = TenantSettingsView>({
   subtitle,
   render,
   path = "/settings/tenant",
+  banner,
 }: {
+  /** P22: başarı durumunda formun üstünde gösterilen bant (ör. genel ayarlar sohbet paragrafı uyarısı). */
+  banner?: ReactNode;
   title: string;
   subtitle: string;
   render: (data: T, canEdit: boolean) => ReactNode;
@@ -79,6 +82,7 @@ export async function TenantSettingsPage<T = TenantSettingsView>({
   return (
     <>
       {header}
+      {banner}
       {render(res.data, perms.includes("settings.edit"))}
     </>
   );

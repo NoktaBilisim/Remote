@@ -197,6 +197,8 @@ byToken.set(fixed("V"), Object.assign(newSession("PENDING"), { techAvatar: true 
 const AVATAR_PNG = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=", "base64");
 const techAvatarUrl = (rec) =>
   `/api/v1/public/sessions/${rec.view.id}/tech-avatar?exp=${Math.floor(Date.now() / 1000) + 600}&sig=${"a".repeat(64)}`;
+// P22 (AC-292): "Q" resolve yanıtında chatRetentionDays yok → satır çizilmez, tarayıcı yolu pasif
+byToken.set(fixed("Q"), Object.assign(newSession("PENDING"), { noRetention: true }));
 // P6 (AC-27) indirme ucu: "D" istemci yayında değil (503 NOT_READY), "G" indirme anında oturum iptal (410)
 byToken.set(fixed("D"), Object.assign(newSession("PENDING"), { agent: "notReady" }));
 byToken.set(fixed("G"), Object.assign(newSession("PENDING"), { agent: "gone" }));
@@ -242,6 +244,8 @@ export async function handleSessions(req, res, { url, session, csrfOk, send, err
         ? { ...CONSENT, recording: { offered: true, line: REC_CONSENT_LINE, lineSha256: REC_CONSENT_LINE_SHA256 } }
         : CONSENT,
       abuseEmail: rec.noAbuse ? null : "kotuye-kullanim@ornek.com",
+      // P22 (AC-292): onay düğmesi üstündeki saklama satırı; `noRetention` → alan yok (düğme pasif kalmalı)
+      ...(rec.noRetention ? {} : { chatRetentionDays: 90 }),
     };
     nonces.set(body.joinNonce, rec);
     return (send(res, 200, body), true);

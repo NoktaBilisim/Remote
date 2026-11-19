@@ -12,7 +12,6 @@ import (
 // P28e-K2: record1 cihaz soketi sözleşme eşi (`packages/contracts/fixtures/rec.json` deviceOutbound).
 type recDeviceFixture struct {
 	Subprotocols map[string]string            `json:"subprotocols"`
-	Consent      map[string]string            `json:"consent"`
 	Valid        map[string][]json.RawMessage `json:"valid"`
 	Invalid      map[string][]json.RawMessage `json:"invalid"`
 }
@@ -54,8 +53,8 @@ func parseRecDevice(raw []byte) bool {
 
 func TestAC448P28eRecordDeviceMessagesMatchFixture(t *testing.T) {
 	f := loadRecFixture(t)
-	if f.Subprotocols["record"] != DeviceCapRecord || f.Consent["unattendedLine"] != RecUnattendedLine {
-		t.Fatalf("belirteç/satır fikstürle farklı: %v %v", f.Subprotocols, f.Consent)
+	if f.Subprotocols["record"] != DeviceCapRecord { // r3: AC-449 diyalog satırı Go'da yok (onay diyaloğu kalktı)
+		t.Fatalf("belirteç fikstürle farklı: %v", f.Subprotocols)
 	}
 	for _, raw := range f.Valid["deviceOutbound"] {
 		if !parseRecDevice(raw) {

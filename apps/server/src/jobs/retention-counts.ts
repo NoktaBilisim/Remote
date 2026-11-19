@@ -25,6 +25,8 @@ export interface TenantCounts {
   recordingsExpired: number;
   /** P21 (K-P21-9): `retention_days` dolan pasif portal hesapları (oturumlarıyla). */
   portalAccounts: number;
+  /** P22 (mimari-p22 §3.3, AC-264): anonimleştirmeyle aynı TX'te silinen oturum sohbeti satırları (dry modda da silinir). */
+  sessionMessages: number;
 }
 export interface GlobalCounts {
   audit: number;
@@ -78,6 +80,7 @@ export const KINDS: Record<keyof (TenantCounts & GlobalCounts), string> = {
   recMissing: "recordings_missing",
   portalAccounts: "portal_accounts",
   portalSessions: "portal_sessions",
+  sessionMessages: "session_messages",
 };
 
 const PURGE_KEYS = ["purgedSessions", "purgedConsents", "purgedFiles", "purgedRequests", "purgedBindings", "purgedJobs"] as const;
@@ -106,6 +109,7 @@ export const zeroTenant = (): TenantCounts => ({
   recordings: 0,
   recordingsExpired: 0,
   portalAccounts: 0,
+  sessionMessages: 0,
 });
 export const zeroGlobal = (): GlobalCounts => ({
   audit: 0,

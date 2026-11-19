@@ -138,8 +138,7 @@ function setup(o: { techRec?: boolean; guestRec?: boolean; unattended?: boolean;
       deviceId: "d1",
       deviceName: "PC",
       customerId: "c",
-      consentRequest: "silent",
-      consentMode: "silent",
+      consentMode: "no_user",
       recording: true,
     };
   room.recGate = { firstAdmitHelloAt: clock.t };

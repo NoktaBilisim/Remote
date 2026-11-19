@@ -3,6 +3,7 @@
  * `rs.cap.rec1` bildirir (Safari vb. bildirmez → kayıt başlamaz, neden görünür). Oynatıcı MSE + VP8 WebM ister.
  */
 import { REC_MIME_TYPE, WS_CAP_REC } from "@remote/contracts/ws-rec";
+import { WS_CAP_SCHAT } from "@remote/contracts/ws-chat";
 
 /** WebM/VP8 MSE türü (oynatıcı; boşluklu yazım tarayıcıların beklediği biçim). */
 export const REC_MSE_TYPE = 'video/webm; codecs="vp8"';
@@ -28,7 +29,10 @@ export function canPlay(ms: MseCtor = typeof MediaSource === "undefined" ? undef
   }
 }
 
-/** `/ws/tech` alt protokolleri: kayıt destekliyse `rs.v1` + `rs.cap.rec1`, aksi alt protokolsüz (bugünkü davranış). */
-export function techProtocols(subprotocol: string, recordable: boolean = canRecord()): string[] | undefined {
-  return recordable ? [subprotocol, WS_CAP_REC] : undefined;
+/**
+ * `/ws/tech` alt protokolleri: her zaman `rs.v1` + `rs.cap.schat1` (P22 r2 §15.2 — bildirmeyen konsol soketi 4426 ile kapanır);
+ * kayıt destekliyse + `rs.cap.rec1`.
+ */
+export function techProtocols(subprotocol: string, recordable: boolean = canRecord()): string[] {
+  return recordable ? [subprotocol, WS_CAP_SCHAT, WS_CAP_REC] : [subprotocol, WS_CAP_SCHAT];
 }

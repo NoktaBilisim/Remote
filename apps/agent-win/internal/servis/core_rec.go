@@ -2,8 +2,8 @@ package servis
 
 import "remote-support/agent-win/internal/servis/helperio"
 
-// P28e gözetimsiz kayıt (mimari-p28e r2 §2.2, §6.2, §8; AC-448, AC-449). Kayıt teknisyen konsolunda alınır; servis
-// yalnız göstergeyi doğru tutar: `connect.recording` → yardımcı girdisi (asked diyalog satırı + gösterge eki),
+// P28e gözetimsiz kayıt (mimari-p28e r2 §2.2, §6.2, §8; AC-448). Kayıt teknisyen konsolunda alınır; servis
+// yalnız göstergeyi doğru tutar: `connect.recording` → yardımcı girdisi (gösterge eki; r3: diyalog satırı yok),
 // `rec.state{on}` → yardımcıya `rec` komutu (ek eklenir/kaldırılır). Cihaz kullanıcısına durdurma yolu verilmez; tek yol
 // yerel anahtardır (AC-295: bağlantı kesilir, kayıt kaynağı biter). Sunucu hangi durumu bildirirse gösterge onu çizer:
 // `on:true` connect.recording olmadan gelse de ek çizilir (gizli kayıt olmaz — K-P28e-7 güvenli yön).

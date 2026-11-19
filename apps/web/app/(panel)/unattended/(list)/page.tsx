@@ -48,15 +48,7 @@ export default async function UnattendedPage({ searchParams }: { searchParams: P
           <LoadError />
         </div>
       ) : (
-        <DeviceList
-          key={path}
-          initial={res.data}
-          params={params}
-          available={available}
-          manage={access.manage}
-          createBlock={createBlock}
-          silentAllowed={status?.silentAllowed === true}
-        />
+        <DeviceList key={path} initial={res.data} params={params} available={available} manage={access.manage} createBlock={createBlock} />
       )}
     </UnattendedShell>
   );

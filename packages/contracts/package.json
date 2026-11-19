@@ -41,7 +41,9 @@
     "./labels": "./src/labels.ts",
     "./holidays-tr": "./src/holidays-tr.ts",
     "./rejoin-const": "./src/rejoin-const.ts",
-    "./unattended-consent": "./src/unattended-consent.ts"
+    "./unattended-consent": "./src/unattended-consent.ts",
+    "./ws-chat": "./src/ws-chat.ts",
+    "./chat": "./src/chat.ts"
   },
   "scripts": {
     "lint": "eslint .",

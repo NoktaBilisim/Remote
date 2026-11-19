@@ -21,8 +21,11 @@ geliştirilir (bkz. `README.md` "Yol haritası"); kılavuz da her paketle birlik
   yenileme, şifre sıfırlama, `customers.portal` yetkisi, hesap ve talep sınırları)
 - **Admin, teknisyen ve müşteri BT için:** Gözetimsiz erişim (SMTP ön koşulu, bildirim adresleri, kayıt kodu, teknisyen
   yetkisi, bağlanma, cihaz rozetleri, iptal; müşteri tarafında servisi kurma, gösterge, tepsi, yerel kapatma, kaldırma);
-  üç bağlantı kipi (İzinli / Kullanıcı yok / İzinsiz), cihazdaki onay penceresi, izin istemeden bağlanma politikası ve KVKK
-  uyarısı, dört göz e-postası, müdahale (oturumu kilitle / kapat), eski servis güncellemesi
+  cihaz kullanıcısına sorulmadan açılan tek bağlantı yolu, gösterge ve KVKK uyarısı, müdahale (oturumu kilitle / kapat),
+  eski servis güncellemesi, eski kayıtlardaki bağlantı kipi etiketleri
+- **Teknisyen, Admin, Super Admin ve müşteri için:** Oturum sohbeti ve kaydı (sohbet her zaman kaydedilir, uçtan uca
+  şifreli değildir, saklama süresi, "sohbete şifre yazmayın", eski Hızlı Destek'te sohbet kapalı, oturum geçmişinde
+  **Sohbeti göster** ve `sessions.view_chat` yetkisi, aydınlatma metninde standart sohbet paragrafı)
 - **Teknisyen, Admin ve müşteri için:** Çoklu teknisyen (roller, davet etme ve kabul, "İzle", kontrol ve oturum devri,
   oturumdan ayrılma, müşterinin teknisyen listesi ve **Çıkar**, Admin için `sessions.invite` / `sessions.supervise` yetkileri)
 - **Admin, teknisyen, müşteri ve müşteri BT için:** Oturum kaydı (Ayarlar > Oturum kaydı, saklama süresi, KVKK onayı,
@@ -342,7 +345,7 @@ Destek simgesi her zaman görünür.
 - Ekranınızı **görebilir**.
 - **Siz izin verirseniz** fare ve klavyenizi kullanabilir. İzni her istediğinizde tek tıkla veya bir tuş kombinasyonuyla
   geri alırsınız (bkz. "Teknisyen bilgisayarımı kullanmak isterse").
-- Sizinle yazışabilir (sohbet).
+- Sizinle yazışabilir (sohbet; tarayıcı modunda. Hızlı Destek 0.20 ve öncesinde oturum sohbeti kapalıdır, bkz. "Oturum sohbeti ve kaydı").
 - Ekranınızın üzerine geçici çizimler yapabilir (ok, kalem, dikdörtgen, kısa süreli lazer noktası). Bu çizimler
   tıklamanızı engellemez.
 - Size dosya gönderebilir. Her dosyayı siz onaylarsınız.
@@ -445,8 +448,9 @@ Paylaşım başlayınca:
 - Paylaşılan ekranın kenarında **kırmızı bir çerçeve** ve üstte **"Ekranınız izleniyor — <teknisyen adı>"** yazısı
   görünür. Bu çerçeve oturum boyunca hep en üstte kalır; teknisyenin görüntüsünde görünmez.
 - **Nokta Destek — Oturum** penceresi açılır. Burada bağlantı durumu, sohbet ve **Oturumu bitir** düğmesi bulunur.
-- **Sohbet:** alttaki kutuya yazıp **Gönder**'e tıklayın. Pencere arkadayken yeni mesaj gelirse
-  pencere başlığında "(1 yeni)" gibi bir sayı çıkar.
+- **Sohbet:** Hızlı Destek 0.20 ve öncesinde oturum sohbeti kapalıdır; sohbet kutusunda "Bu sürümde sohbet kapalıdır…"
+  mesajı görünür ve yazdıklarınız teknisyene ulaşmaz. Teknisyeninizle telefonda konuşun ya da tarayıcıdan bağlanın (bkz.
+  "Oturum sohbeti ve kaydı").
 - İnternet kısa süre koparsa "Bağlantı koptu, yeniden bağlanılıyor…" yazar. Program 2 dakika içinde kendiliğinden
   yeniden bağlanır; bir şey yapmanız gerekmez.
 - Oturumun bitmesine 5 dakika kala durum satırında uyarı çıkar.
@@ -3594,6 +3598,7 @@ süresi dolan verileri kendiliğinden siler veya anonimleştirir. Sizin bir şey
 | Destek talebi                                           | Saklama süresi dolunca                                                 | Ad, telefon, e-posta ve açıklama silinir                                                                                                                           |
 | Pasif müşteri                                           | Pasife alındıktan saklama süresi kadar sonra                           | Yetkili kişi, telefon, e-posta ve not silinir ("Anonimleştirildi")                                                                                                 |
 | Kayıtlı bilgisayar                                      | Son kullanımdan saklama süresi kadar sonra                             | Kayıt geçersiz olur; müşteri yeni dosya veya kodla bağlanır                                                                                                        |
+| Oturum sohbeti                                          | Oturum anonimleştirilirken                                             | Oturumun bütün sohbet mesajları silinir (bkz. "Oturum sohbeti ve kaydı")                                                                                           |
 | Oturum kaydı (görüntü)                                  | Kayıt saklama süresi (1–90 gün) dolunca veya oturum anonimleştirilince | Kayıt dosyaları silinir (bkz. "Oturum kaydı")                                                                                                                      |
 | Audit log                                               | 730 gün (firmaya göre değişmez)                                        | Silinir                                                                                                                                                            |
 | Giriş oturumları ve şifre sıfırlama bağlantıları        | Süreleri bittikten 7 gün sonra                                         | Silinir                                                                                                                                                            |
@@ -3734,7 +3739,7 @@ tarayıcıdan katılan müşteri ister. Eski sürümde "Davet et" ve "İzle" pas
 - Başlangıçta kontrol sahibi oturum sahibidir. Kontrolü başkasına verirse ona tam kalite görüntü ve kontrol hakkı geçer.
 - Katılımcı ve izleyicinin konsolunda kontrol, pano, yazdırma, dosya ve işaretleme düğmeleri pasiftir: "Yalnız kontrol
   sahibi kullanabilir". İzleyicinin sohbet kutusu yerine "İzleyici olarak sohbete yazamazsınız" yazar.
-- Bir teknisyen katılmadan önce yazılan sohbet mesajlarını görmez.
+- Davet edilen teknisyen ve süpervizör (İzle) katıldığı andan önceki sohbet mesajlarını görür (bkz. "Oturum sohbeti ve kaydı").
 
 ### Teknisyen için: Oturuma nasıl teknisyen davet ederim?
 
@@ -3754,8 +3759,7 @@ Bekleyen davet de bir koltuk tutar. Oturumda 3 kişi (bekleyen davet dahil) vars
 1. Panelin hangi sayfasında olursanız olun, birkaç saniye içinde "<Ad> sizi <müşteri> oturumuna davet ediyor" bildirimi ve
    kalan süreyi gösteren bir kart çıkar.
 2. **Katıl**'a basın; oturumun konsolu açılır. Katılmak istemiyorsanız **Reddet**'e basın.
-3. Kartta "Gözetimsiz bağlantı" notu varsa katılırken doğrulama kodunuz (2FA) istenir. "İzinsiz bağlantı" notu varsa
-   önce en az 20, en çok 500 karakterlik bir **katılım gerekçesi** yazarsınız; firma yöneticilerine bildirim gider.
+3. Kartta "Gözetimsiz bağlantı" notu varsa katılırken doğrulama kodunuz (2FA) istenir.
 4. Katıldıktan sonra 60 saniye içinde konsol açılmazsa yeriniz düşer; yeni davet gerekir.
 
 ### Teknisyen için: Süren bir oturumu nasıl izlerim? ("İzle")
@@ -3767,11 +3771,11 @@ Bunun için hesabınızda **Etkin oturumları izle** yetkisi olmalı.
 2. İzlemek istediğiniz satırda **İzle**'ye basın. İzleyici olarak katılırsınız: görüntüyü ve sohbeti görürsünüz, kontrol ve
    dosya işlemi yapamazsınız.
 3. Müşteri sizi listesinde "İzleyici" olarak görür. İzleme gizli değildir.
-4. Gözetimsiz oturumu izlemek için o cihaza bağlanma yetkiniz olmalıdır; değilse oturum listede hiç görünmez. "İzinsiz"
-   rozetli oturumda önce gerekçe yazarsınız, sonra doğrulama kodu istenir.
+4. Gözetimsiz oturumu izlemek için o cihaza bağlanma yetkiniz olmalıdır; değilse oturum listede hiç görünmez. Gözetimsiz
+   oturumda doğrulama kodunuz (2FA) istenir.
 
-İzle düğmesi şu durumlarda pasiftir: oturum dolu, müşterinin uygulaması eski, ya da oturum "İzinli" kipte açılmış bir
-gözetimsiz bağlantı.
+İzle düğmesi şu durumlarda pasiftir: oturum dolu ya da müşterinin uygulaması eski. Henüz açılmakta olan bir gözetimsiz
+bağlantı listede görünmez.
 
 ### Teknisyen için: Kontrolü başka teknisyene nasıl veririm?
 
@@ -3812,7 +3816,6 @@ Oturumu açan teknisyenin (oturum sahibi) yanında "Çıkar" yoktur; onunla gör
 
 - Bağlantı göstergesi bağlı tüm teknisyenlerin adlarını yazar. Adı göstergeye yazılamayan teknisyenin görüntüsü başlamaz.
 - Gözetimsiz cihazda "Çıkar" düğmesi yoktur; bağlantıyı yerel anahtarla ("Gözetimsiz erişimi kapat") kapatabilirsiniz.
-- Cihaz kullanıcısına izin sorularak açılan ("İzinli") bağlantıya ikinci bir teknisyen katılamaz.
 
 ### Admin için: Davet ve izleme yetkilerini nasıl veririm?
 
@@ -3826,9 +3829,7 @@ Oturumu açan teknisyenin (oturum sahibi) yanında "Çıkar" yoktur; onunla gör
 - Admin rolünde ikisi de açık, User (teknisyen) rolünde kapalı başlar.
 - **Etkin oturumları izle hassas bir yetkidir; yalnız gerçekten gerekene verin.** İzleyen kişi müşterinin ekranını görür.
 - Davet edilecek kişide en az **Oturumlar → Görüntüle** yetkisi olmalıdır.
-- Gözetimsiz oturuma katılmak için ayrıca **Gözetimsiz erişim → Bağlan** yetkisi ve o cihaz için teknisyen yetkisi gerekir;
-  izinsiz bağlantıya katılmak için **Gözetimsiz erişim → İzin istemeden bağlan** yetkisi ve firma politikasının açık olması
-  gerekir.
+- Gözetimsiz oturuma katılmak için ayrıca **Gözetimsiz erişim → Bağlan** yetkisi ve o cihaz için teknisyen yetkisi gerekir.
 - Bir yetkiyi kapattığınızda ya da kullanıcıyı pasife aldığınızda o kişi katıldığı oturumdan birkaç saniye içinde (en geç
   60 saniyede) çıkarılır; oturum diğerleriyle sürer.
 
@@ -3847,10 +3848,150 @@ Oturumu açan teknisyenin (oturum sahibi) yanında "Çıkar" yoktur; onunla gör
 | "Oturum dolu"                                                                            | 3 koltuk dolu (bekleyen davet dahil). Bir davet geri çekilmeli ya da bir teknisyen ayrılmalı |
 | "Davet artık geçerli değil"                                                              | 2 dakika doldu, davet geri çekildi ya da oturum bitti. Yeni davet isteyin                    |
 | "Müşterinin uygulaması bu özelliği desteklemiyor — güncel sürümü indirmesini isteyin"    | Müşteri Hızlı Destek'i (ya da cihaz servisini) 0.17'ye güncellemeli                          |
-| "İzinli gözetimsiz bağlantıya ek teknisyen katılamaz"                                    | Cihaz kullanıcısından izin alınarak açılmış bağlantıya ikinci teknisyen eklenemez            |
+| "Bu gözetimsiz bağlantıya ek teknisyen katılamaz"                                        | Gözetimsiz bağlantı henüz açılıyor ya da eski sürümde kullanıcı onayıyla açılmış; bekleyin   |
 | "Önce 2FA kurun"                                                                         | Gözetimsiz oturuma katılmak için Hesabım > Güvenlik'ten iki adımlı doğrulamayı kurun         |
 | "Oturumdan çıkarıldınız: müşteri sizi çıkardı ya da bu oturum için yetkiniz kaldırıldı." | Bu oturuma yeniden giremezsiniz; gerekiyorsa yöneticinize başvurun                           |
 | "Davet edilebilecek kullanıcı yok"                                                       | Firmada yetkisi olan, etkin ve oturumda olmayan kullanıcı yok                                |
+
+## Oturum sohbeti ve kaydı (teknisyen, Admin, Super Admin ve müşteri için)
+
+Destek oturumundaki sohbet **her zaman kaydedilir**. Bu ayar kapatılamaz. Bilmeniz gerekenler:
+
+- Mesajlar sunucu üzerinden iletilir ve sunucuda şifrelenerek saklanır. Sohbet **uçtan uca şifreli değildir**: hizmeti
+  veren sunucu mesaj içeriğini okuyabilir. Canlı ekran görüntüsü, uzaktan kontrol ve doğrudan dosya aktarımı ise uçtan uca
+  şifreli kalır.
+- Mesajlar firmanın **oturum saklama süresi** kadar saklanır (bkz. "Kişisel verilerin saklama süresi ve anonimleştirme").
+  Ayrı bir sohbet saklama süresi yoktur. Oturum anonimleştirilirken o oturumun sohbeti silinir.
+- **Sohbete şifre veya kart bilgisi yazmayın.** Bu kural müşteri için de teknisyen için de geçerlidir. Şifre gerekiyorsa
+  telefonda söyleyin ya da müşteriden kendisinin yazmasını isteyin.
+- Mesaj en çok **1.000 karakter** ve 20 satır olabilir. Saniyede en çok 5 mesaj gönderilir (bkz. "Sohbette 'Çok hızlı
+  yazıyorsunuz' uyarısı").
+- **Gözetimsiz bağlantıda sohbet yoktur.** Konsolun sohbet sekmesinde "Gözetimsiz bağlantıda sohbet yoktur." yazar.
+
+### Müşteri için: Sohbet kaydedilir mi?
+
+Evet. Tarayıcıdan bağlanırken onay düğmesinin hemen üstünde "Sohbet mesajları kayıt altına alınır ve N gün saklanır"
+satırı yazar (N, firmanın saklama süresidir). Bu satır görünmüyorsa bağlanma düğmesi pasif kalır; sayfayı yenileyin.
+Aydınlatma metninde de sohbetin sunucuda saklandığı ve uçtan uca şifreli olmadığı yazar.
+
+Oturum sırasında sohbet bölümünün başlığında aynı saklama satırı tekrar görünür. Sayfayı yenilediyseniz gün sayısı yerine
+genel cümle görünebilir.
+
+### Müşteri için: Hızlı Destek'te "Bu sürümde sohbet kapalıdır" yazıyor
+
+Bilgisayarınızdaki Hızlı Destek programı (Windows ya da macOS, 0.20 ve öncesi) eski sohbet yolunu kullanır. Sohbet
+kaydedilmeden yapılamayacağı için bu sürümlerde oturum sohbeti **kapalıdır**. Sohbet penceresinde teknisyenin konsolundan
+şu sabit mesaj gelir:
+
+> Bu sürümde sohbet kapalıdır. Yazdıklarınız teknisyene gösterilmez ve kaydedilmez; lütfen sohbet için programı güncelleyin.
+
+Ne yapmalı:
+
+- Yazdıklarınız teknisyene ulaşmaz. Teknisyeninizle **telefonda** konuşun.
+- Görüntü, uzaktan kontrol, dosya, pano, yazdırma, sesli görüşme ve kayıt etkilenmez; oturuma devam edebilirsiniz.
+- Sohbet gerekiyorsa ekranınızı **tarayıcıdan** paylaşın: tarayıcı modunda sohbet tam çalışır.
+- Tepside çalışan ya da firmaya kayıtlı program kendiliğinden güncellenmez. Firmanızın destek sayfasından programı yeniden
+  indirin.
+- Beklerken yapılan talep sohbeti ("Beklerken teknisyenle nasıl yazışırım?") bundan etkilenmez.
+
+### Teknisyen için: Konsolda sohbet
+
+- Sohbet sekmesinin başlığı altında "Sohbet kayıt altına alınır ve oturum saklama süresi boyunca saklanır." notu durur.
+- Mesajınızı yazıp **Enter**'a basın (yeni satır için **Shift+Enter**). Sayaç "n / 1.000" gösterir.
+- Mesaj sunucuya ulaşana kadar "Gönderiliyor…" yazar. Ulaşmazsa "Gönderilemedi." ve **Tekrar dene** çıkar. Tekrar dene
+  aynı mesajı bir kez daha gönderir; mesaj iki kez kaydedilmez.
+- Oturum bitince "Sohbet kapandı; mesajlar salt okunur." yazar.
+- Uzun oturumda yalnız son mesajlar gelir ve "Daha eski mesajlar oturum geçmişinde." yazar. Tamamını oturum geçmişinde
+  görürsünüz.
+- İzleyici olarak katıldıysanız sohbeti okursunuz, yazamazsınız ("İzleyici olarak sohbete yazamazsınız").
+- **Süpervizör ve davet edilen teknisyen katıldığı andan önceki sohbet mesajlarını görür.** Bu bilgi audit log'a
+  "Katılan teknisyene önceki sohbet mesajları gösterildi" olarak yazılır (yalnız mesaj sayısı; içerik yazılmaz).
+
+| Konsolda gördüğünüz                                            | Anlamı / ne yapmalı                                                                                                                                                  |
+| -------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| "Müşterinin istemcisi eski; sohbet için güncellemesi gerekir." | Müşteri Hızlı Destek 0.20 veya öncesini kullanıyor. Sohbet iki tarafta kapalı, giriş pasif. Müşteriyle telefonda konuşun ya da müşteriyi tarayıcı moduna yönlendirin |
+| "Sohbet şu an kullanılamıyor."                                 | Sunucu sohbeti başlatamadı. Sayfayı yenileyin; sürerse sistem yöneticisine bildirin                                                                                  |
+| "Gözetimsiz bağlantıda sohbet yoktur."                         | Gözetimsiz bağlantılarda sohbet bulunmaz                                                                                                                             |
+| Başlıkta ve rozette "Konsol sürümü eski"                       | Bu sekme sistem güncellenmeden önce açılmış. Oturum sürüyor; **Sayfayı yenile**'ye basın, konsol yeni sürümle yeniden bağlanır                                       |
+| "Gönderilemedi." + Tekrar dene                                 | Ağ kesintisi, hız sınırı ya da oturum bitti. Bir saniye bekleyip **Tekrar dene**'ye basın                                                                            |
+| Mesajlar gönderilmiyor, oturumda çok mesaj var                 | Bir oturumda kişi başına 2.000, toplam 10.000 mesaj sınırı vardır. Sınır dolduysa yeni mesaj kaydedilmez; telefonla devam edin                                       |
+
+**Teknisyen davranış kuralı:** Müşterinin programı eskiyse sohbet kapalıdır. Bu durumda müşteriyle sohbeti başka bir yoldan
+(tarayıcı araçları, eski sekme vb.) kaydı atlayarak sürdürmeye çalışmayın. Kayıtsız yazışma firma politikasına ve KVKK
+bilgilendirmesine aykırıdır. Telefonu ya da tarayıcı modunu kullanın. Eski istemcili oturumlar audit log'da "Müşteri
+istemcisi eski — sohbet kapalı" olarak işaretlenir.
+
+### Teknisyen ve Admin için: Oturum geçmişinde sohbeti görme
+
+Bunun için **Oturum geçmişi → Görüntüle** ve **Oturumlar → Sohbet geçmişini görüntüle** (`sessions.view_chat`) yetkileri
+gerekir. Teknisyen (User) yalnız **kendi** oturumlarının sohbetini görür; Admin firmasındaki tüm oturumların, Super Admin
+seçtiği firmanın.
+
+1. **Oturum geçmişi**'nde oturumu açın.
+2. Ayrıntıda **Sohbet** bölümünü bulun. Bölüm kapalı gelir; altında "Sohbeti açmanız denetim kaydına yazılır." yazar.
+3. **Sohbeti göster (N mesaj)**'a basın.
+4. İki başlık görünür:
+   - **Talep yazışması (kabul öncesi):** oturum bir destek talebinden doğduysa, talep kabul edilmeden önceki yazışma.
+   - **Oturum sohbeti:** oturum sırasındaki mesajlar. Fazlası varsa **Daha fazla**'ya basın.
+
+Bölümde görebileceğiniz durumlar:
+
+| Görünen                                                             | Anlamı                                                          |
+| ------------------------------------------------------------------- | --------------------------------------------------------------- |
+| "Bu oturumda sohbet yok" / "Kabul öncesi yazışma yok"               | Hiç mesaj yazılmamış                                            |
+| "Müşteri eski istemci kullandığı için bu oturumda sohbet kapalıydı" | Müşteri Hızlı Destek 0.20 veya öncesiyle bağlandı               |
+| "Sohbet saklama süresi dolduğu için silindi"                        | Oturum anonimleştirildi; sohbet silindi                         |
+| "Mesaj okunamadı"                                                   | Mesaj çözülemedi (anahtar sorunu). Sistem yöneticisine bildirin |
+| Sohbet bölümü hiç yok                                               | Hesabınızda `sessions.view_chat` yetkisi yok                    |
+
+- Sohbeti açmak audit log'a **"Oturum sohbeti görüntülendi"** olarak yazılır (kim, hangi oturum, kaç mesaj; içerik
+  yazılmaz). Aynı kişi aynı oturumu 10 dakika içinde tekrar açarsa yeni kayıt yazılmaz.
+- Süren oturumda konsoldaki sohbeti görmek ek yetki istemez; oturuma katılma hakkı yeterlidir.
+
+### Admin için: Sohbet geçmişi yetkisini nasıl veririm?
+
+**Kullanıcılar** → kullanıcı → yetkiler ekranında **Oturumlar** grubunda **Sohbet geçmişini görüntüle**
+(`sessions.view_chat`) anahtarı vardır.
+
+- Admin rolünde açık, User (teknisyen) rolünde kapalı başlar.
+- **Hassas bir yetkidir; yalnız gerçekten gerekene verin.** Sohbette müşterinin kişisel bilgileri bulunabilir.
+- Teknisyene verirseniz yalnız kendi oturumlarının sohbetini görür.
+- Kendinizde olmayan bir yetkiyi başkasına veremezsiniz. Her değişiklik audit log'a yazılır.
+
+### Admin için: Aydınlatma metninde sohbet paragrafı
+
+Sistemin hazır aydınlatma metni, sohbetin sunucuda şifreli saklandığını, uçtan uca şifreli olmadığını ve ne kadar
+saklandığını anlatan bir paragraf içerir. Hazır metni kullanan firmalarda bu paragraf güncellemeyle kendiliğinden yeni sürüm
+olarak eklenir; bir şey yapmanız gerekmez.
+
+Metni **siz yazdıysanız** sistem ona dokunmaz. Metninizde paragraf yoksa:
+
+1. **Ayarlar → Aydınlatma metni** sayfasında sarı bant çıkar: "Metniniz sohbetin sunucuda saklandığını ve uçtan uca şifreli
+   olmadığını belirtmiyor (KVKK). Standart paragrafı ekleyip kaydedin."
+2. **Standart sohbet paragrafını ekle**'ye basın. Paragraf metin kutusunun sonuna eklenir; henüz kaydedilmez.
+3. Gerekirse düzenleyin, sonra **Yeni sürüm olarak kaydet** ile kaydedin. Bant kalkar.
+
+Aynı bant **Ayarlar → Genel** sayfasının üstünde de görünür (yalnız **Ayarlar → Düzenle** yetkisi olanlara);
+**Aydınlatma metnine git** sizi doğrudan ayara götürür. Paragraf eklenince iki bant da kalkar.
+
+### Super Admin için
+
+- Super Admin sohbeti yalnız firma seçtikten sonra, o firmanın oturum geçmişinde görür. Kurallar Admin ile aynıdır;
+  görüntüleme audit log'a yazılır.
+- Aydınlatma metni güncellemesi sistem güncellemesiyle (seed) yayımlanır. Metni Admin tarafından değiştirilmiş firmalar bu
+  güncellemeyi almaz; bu firmaların Admin'leri yukarıdaki bandı görür.
+
+### Audit log'da sohbet
+
+**Audit log**'da şu kayıtlar bulunur; hiçbirinde mesaj içeriği yoktur:
+
+| Kayıt                                                 | Ne zaman                                                              |
+| ----------------------------------------------------- | --------------------------------------------------------------------- |
+| Oturum sohbeti görüntülendi                           | Biri oturum geçmişinde **Sohbeti göster**'e bastı (mesaj sayılarıyla) |
+| Oturum sohbeti özeti                                  | Oturum bitti; teknisyen ve müşteri mesaj sayıları                     |
+| Sohbet mesajı reddedildi                              | Mesaj sınırı doldu, yetkisiz gönderim ya da sunucu hatası             |
+| Müşteri istemcisi eski — sohbet kapalı                | Müşteri 0.20 veya öncesi programla kabul edildi                       |
+| Katılan teknisyene önceki sohbet mesajları gösterildi | Davetli teknisyen ya da süpervizör katıldı ve önceki mesajları gördü  |
 
 ## Sesli görüşme (teknisyen, Admin ve müşteri için)
 
@@ -4037,7 +4178,7 @@ gösterir.
 
 ### Admin için: Gözetimsiz bağlantıları da kaydet
 
-Bu anahtar açıkken her gözetimsiz bağlantı (İzinli, Kullanıcı yok ve İzinsiz kiplerinin hepsi) müşteriye sorulmadan,
+Bu anahtar açıkken her gözetimsiz bağlantı müşteriye sorulmadan,
 **firma politikası** dayanağıyla kaydedilir. Bu yüzden açmak ek adımlar ister.
 
 1. Önce **Oturum kaydı** anahtarı açık ve kaydedilmiş olmalı. Değilse anahtarın altında "Önce oturum kaydını açın" yazar.
@@ -4147,8 +4288,6 @@ Destek firmanız oturum kaydını açtıysa onay ekranında, aydınlatma metnini
 
 Destek firması "Gözetimsiz bağlantıları da kaydet" politikasını açtıysa (ve servis 0.16.0 veya sonrasıysa):
 
-- **Onay penceresi:** bilgisayarda oturum açık bir kullanıcı varsa çıkan "Uzaktan bağlantı isteği" penceresine **"Bu
-  bağlantının ekran kaydı alınacaktır"** satırı eklenir. Satır çizilemezse pencere açılmaz ve bağlantı kurulmaz.
 - **Gösterge:** kenardaki bağlantı yazısının sonuna **" — Kayıt yapılıyor"** eklenir (ör. "Uzaktan bağlantı: <teknisyen
   adı> — <destek firması> — Kayıt yapılıyor"). Ek çizilemezse bağlantı açılmaz. Kayıt ortada durursa ek kalkar.
 - **Durdurma:** cihaz kullanıcısına **Kaydı durdur** düğmesi verilmez; kayıt firma politikasıyla alınır. Kaydı durdurmanın
@@ -4163,14 +4302,14 @@ filtrelerdeki **Kayıt** seçicisinde **Kayıtlı**'yı seçin.
 
 **Oturum ayrıntısında** **Oturum kaydı** bölümü çıkar (kaydı olmayan oturumda bu bölüm görünmez):
 
-| Alan           | Anlamı                                                                                |
-| -------------- | ------------------------------------------------------------------------------------- |
-| Durum          | **Kayıt sürüyor** veya **Durdu**                                                      |
-| Süre / Boyut   | Kaydedilen görüntünün toplam süresi ve kapladığı yer                                  |
-| Dayanak        | **Müşteri rızası** (katılımlı oturum) veya **Firma politikası** (gözetimsiz bağlantı) |
-| Bağlantı kipi  | Yalnız gözetimsiz kayıtta: İzinli / Kullanıcı yok / İzinsiz                           |
-| Gerekçe        | Yalnız İzinsiz bağlantıda, teknisyenin yazdığı gerekçe                                |
-| Silinme tarihi | Kaydın kendiliğinden silineceği tarih                                                 |
+| Alan           | Anlamı                                                                                          |
+| -------------- | ----------------------------------------------------------------------------------------------- |
+| Durum          | **Kayıt sürüyor** veya **Durdu**                                                                |
+| Süre / Boyut   | Kaydedilen görüntünün toplam süresi ve kapladığı yer                                            |
+| Dayanak        | **Müşteri rızası** (katılımlı oturum) veya **Firma politikası** (gözetimsiz bağlantı)           |
+| Bağlantı kipi  | Yalnız gözetimsiz kayıtta: Onaysız (eski kayıtlarda Kullanıcı onayıyla (eski) / İzinsiz (eski)) |
+| Gerekçe        | Yalnız eski "İzinsiz (eski)" kayıtlarda, teknisyenin o zaman yazdığı gerekçe                    |
+| Silinme tarihi | Kaydın kendiliğinden silineceği tarih                                                           |
 
 **Kaydı nasıl izlerim?**
 
@@ -4215,7 +4354,7 @@ denetim kaydına yazılmaz.
 | Oturum kaydı silindi                         | Elle silindi veya sunucuda dosyası bulunamadı                                                              |
 | Saklama süresi dolan kayıtlar silindi        | Gece 03:30 turu; firma başına kaç kayıt silindiği                                                          |
 | Oturum kaydı ayarı değişti                   | **Ayarlar > Oturum kaydı** değişti (eski → yeni)                                                           |
-| Gözetimsiz bağlantı kayıt politikası değişti | Dört göz e-postası gönderim denemesi (Gözetimsiz erişim grubunda)                                          |
+| Gözetimsiz bağlantı kayıt politikası değişti | Kayıt politikası dört göz e-postası gönderim denemesi (Gözetimsiz erişim grubunda)                         |
 
 ### Sık karşılaşılan mesajlar (Oturum kaydı)
 
@@ -4235,14 +4374,15 @@ denetim kaydına yazılmaz.
 
 Gözetimsiz erişim, başında kimse olmayan müşteri bilgisayarlarına (sunucu, kiosk, kasa bilgisayarı vb.) bağlanmanızı
 sağlar. Müşteri bilgisayarına bir kez **Nokta Destek — Gözetimsiz Erişim** servisi (`NoktaDestekServis.exe`) kurulur;
-sonra yetkili teknisyen panelden **Bağlan** der. Bilgisayarda oturum açmış bir kullanıcı varsa önce **ona izin sorulur**;
-kullanıcı yoksa (oturum kapalı ya da kilitli) bağlantı onaysız açılır. Firma politikası izin veriyorsa yetkili teknisyen,
-gerekçe yazarak **izin istemeden** de bağlanabilir (bkz. "Üç bağlantı kipi"). Teknisyen ekranı görür, fare ve klavyeyi
-kullanır, cihaza dosya gönderebilir. Bu güç nedeniyle her bağlantı ek kimlik doğrulaması ister, müşteriye e-postayla
-bildirilir ve cihazda kapatılamayan bir gösterge çıkar.
+sonra yetkili teknisyen panelden **Bağlan** der. Bağlantı **cihaz kullanıcısına sorulmadan** açılır: bilgisayarda oturum
+açık olsa da, kilitli olsa da, kimse giriş yapmamış olsa da onay penceresi çıkmaz. Amaç sunucu ve personel
+bilgisayarlarına destek ve müdahaledir. Teknisyen ekranı görür, kontrolü hemen alır (fare ve klavye), cihaza dosya
+gönderebilir. Bu güç nedeniyle her bağlantı ek kimlik doğrulaması ister, müşteriye e-postayla bildirilir ve cihazda
+kapatılamayan bir gösterge çıkar.
 
-**Gizli izleme yoktur.** Hangi kipte bağlanılırsa bağlanılsın cihazda bağlantı göstergesi her zaman görünür; gösterge
-çizilemezse bağlantı hiç açılmaz.
+**Gizli izleme yoktur.** Bağlantı süresince cihazda "Uzaktan bağlantı" göstergesi her zaman görünür; gösterge çizilemezse
+bağlantı hiç açılmaz. Cihaz kullanıcısı bağlantıyı yerel kapatma anahtarıyla ("Gözetimsiz erişimi kapat") istediği an
+sonlandırabilir. Firmanın çalışanlarını bilgilendirme sorumluluğu için bkz. "Admin için: KVKK — çalışanları bilgilendirme".
 
 ### Önce: firmanızın SMTP ayarı zorunlu
 
@@ -4271,14 +4411,12 @@ E-posta (SMTP)").
 | ------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | **Gözetimsiz erişim → Yönet** (Admin varsayılan) | Tüm cihazları görür, kayıt kodu üretir ve iptal eder, bildirim adreslerini düzenler, teknisyen yetkisi verir, cihazı iptal eder, servis programını indirir     |
 | **Gözetimsiz erişim → Bağlan**                   | Yalnız kendisine **cihaz yetkisi** verilmiş cihazları görür ve bağlanır                                                                                        |
-| **Gözetimsiz erişim → İzin istemeden bağlan**    | Firma politikası açıksa, cihaz yetkisi olan cihazlara gerekçe yazarak kullanıcıya sormadan bağlanır. Hassas yetki; yalnız gerekene verin                       |
 | Super Admin                                      | Üst menüden bir firma seçerek o firmanın cihazlarını yönetir. Kendisine cihaz yetkisi verilemez, bu yüzden bağlanamaz; bağlanacak kişi firmanın kullanıcısıdır |
 
-Yetkiler Kullanıcılar → kullanıcı → yetki listesinde **Gözetimsiz erişim** grubundadır. **İzin istemeden bağlan**
-satırında "Hassas — yalnız gerekene verin" rozeti ve şu açıklama vardır: "İzin istemeden bağlanma (hassas — yalnız gerekene
-verin). Firma politikası, cihaz yetkisi ve 2FA ayrıca gerekir." Bu yetki Admin'de varsayılan açık, User'da kapalıdır; asıl
-kapı varsayılan kapalı firma politikasıdır. "Bağlan" yetkisi tek başına
-yetmez: Admin dahil herkes, bağlanmak için o cihazda ayrıca yetkili olmalıdır. Yeni kayıtlı cihazda **kimsenin** yetkisi yoktur.
+Yetkiler Kullanıcılar → kullanıcı → yetki listesinde **Gözetimsiz erişim** grubundadır. Grupta yalnız **Yönet** ve
+**Bağlan** vardır; eski "İzin istemeden bağlan" yetkisi kaldırıldı (kullanıcıda kalmışsa etkisizdir, kullanıcı bir sonraki
+kaydedilişinde silinir). "Bağlan" yetkisi tek başına yetmez: Admin dahil herkes, bağlanmak için o cihazda ayrıca yetkili
+olmalıdır. Yeni kayıtlı cihazda **kimsenin** yetkisi yoktur.
 
 ### Admin için: ilk kurulum sırası
 
@@ -4344,8 +4482,8 @@ ve yetkili teknisyen sayısı görünür. Liste 8 saniyede bir kendiliğinden ye
 **Kullanıcı sütunu** cihazda o an Windows oturumunun durumunu gösterir: **Aktif** (oturum açık, kilitsiz), **Kilitli**,
 **Oturum yok** ya da **—** (cihaz çevrimdışı veya servisi güncel değil). Durum yalnız **cihaz yetkiniz olan** cihazlarda
 görünür; hiçbir dışa aktarıma ve audit log'a yazılmaz. Bu bilgi bağlantı yokken de görünür; çalışanın bilgisayar başında
-olup olmadığını gösterdiği için kişisel veridir. Firmanızın aydınlatma metni bunu da kapsamalıdır (bkz. "Admin için:
-Gözetimsiz erişim politikası").
+olup olmadığını gösterdiği için kişisel veridir. Durum yalnız bilgidir; bağlantı davranışını değiştirmez. Firmanızın
+aydınlatma metni bunu da kapsamalıdır (bkz. "Admin için: KVKK — çalışanları bilgilendirme").
 
 | Rozet                                      | Anlamı ve yapılacak                                                                                                                                          |
 | ------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
@@ -4355,29 +4493,28 @@ Gözetimsiz erişim politikası").
 | Yeni — doğrulanmadı                        | Henüz kimseye yetki verilmedi. Kaydı müşteriyle doğrulayıp yetki verin                                                                                       |
 | Son bildirim gönderilemedi                 | Son bağlantı e-postası müşteriye ulaşmadı. SMTP ayarını test edin; sonraki başarılı bildirimde rozet kalkar                                                  |
 | Anahtar başka yerden kullanılıyor olabilir | Cihaz 10 dakikada 3'ten fazla kez yeniden bağlandı; cihaz kimliği kopyalanmış olabilir. Müşteriyle kontrol edin, şüphe varsa cihazı iptal edip yeniden kurun |
-| Servis güncel değil                        | Cihazdaki servis izin sorma özelliğini bilmeyen eski bir sürüm (0.15.0 öncesi). **Bağlan** pasiftir; servisi güncelleyin (bkz. "Eski servis: güncel değil")  |
+| Servis güncel değil                        | Cihazdaki servis onaysız tek yolu bilmeyen eski bir sürüm (0.19 ve öncesi). **Bağlan** pasiftir; servisi güncelleyin (bkz. "Eski servis: güncel değil")      |
 
 Teknisyende liste yalnız yetkili olduğu cihazları gösterir; hiç yoksa "Size yetki verilmiş cihaz yok" yazar.
 
 ### Teknisyen için: cihaza nasıl bağlanırım?
 
-1. **Gözetimsiz cihazlar** → cihaz satırında **Bağlan**. **Bağlan: <cihaz adı>** penceresi açılır: "Cihaz kullanıcısı"
-   satırında güncel durum ve "Kullanıcı varsa izin istenir: cihazda oturum açıksa kullanıcıya 60 sn süreyle izin sorulur.
-   Kullanıcı yoksa bağlantı onaysız açılır." bilgisi vardır.
-2. İzin istemeden bağlanacaksanız bkz. "Teknisyen için: izin istemeden bağlanma". Değilse doğrudan **Bağlan**'a basın.
+1. **Gözetimsiz cihazlar** → cihaz satırında **Bağlan**. **Bağlan: <cihaz adı>** penceresi açılır. Pencerede "Cihaz
+   kullanıcısı" satırında güncel durum (Aktif / Kilitli / Oturum yok; yalnız bilgi) ve şu bilgi satırı vardır: "Bağlantı
+   cihaz kullanıcısına sorulmadan açılır. Cihazda bağlantı göstergesi görünür." Seçilecek kutu veya yazılacak gerekçe yoktur.
+2. **Bağlan**'a basın.
 3. "Kimliğinizi doğrulayın" penceresinde uygulamadaki kodu (ya da bir kurtarma kodunu) girin.
-4. Konsol açılır. Cihazda kullanıcı varsa "Kullanıcının onayı bekleniyor… (60 sn)" görünür; kullanıcı **İzin ver** derse
-   ekran gelir. Kullanıcı yoksa ekran hemen gelir. Müşteri onaylı oturumdaki doğrulama kodu ve oturum kodu burada yoktur;
-   kimseye kod söylemeniz gerekmez. Başlıkta **Gözetimsiz** rozeti, cihaz adı ve "Bağlantı kipi: İzinli / Kullanıcı yok /
-   İzinsiz" rozeti vardır.
-5. Kontrol için konsoldaki **Kontrol iste** düğmesini kullanın; cihazda ayrıca onay sorulmaz. Dosya gönderebilirsiniz; dosya
-   cihazda `C:\ProgramData\NoktaDestek Servis\Gelen\` klasörüne düşer. Cihazdan dosya çekme ve sohbet yoktur. Pano paylaşımı ve
-   uzaktan yazdırma da yoktur; konsolda "Gözetimsiz oturumda kullanılamaz — müşteri onayı gerekir" yazar.
+4. Konsol açılır; kısa süre "Cihaz bağlanıyor…" yazar, ardından ekran gelir. Konsol kontrolü **kendiliğinden** ister ve
+   cihaz hemen verir: ek tıklama olmadan ekranı görür, fare ve klavyeyi kullanırsınız. Başlıkta **Gözetimsiz** rozeti ve
+   cihaz adı vardır. Müşteri onaylı oturumdaki doğrulama kodu ve oturum kodu burada yoktur; kimseye kod söylemeniz gerekmez.
+5. Kontrolü **Kontrolü bırak** ile bırakıp **Kontrol iste** ile yeniden alabilirsiniz; cihazda onay sorulmaz. Dosya
+   gönderebilirsiniz; dosya cihazda `C:\ProgramData\NoktaDestek Servis\Gelen\` klasörüne düşer. Cihazdan dosya çekme ve
+   sohbet yoktur. Pano paylaşımı ve uzaktan yazdırma da yoktur; konsolda "Gözetimsiz oturumda kullanılamaz — müşteri onayı
+   gerekir" yazar.
 6. Bitirmek için oturumu normal şekilde sonlandırın.
 
-- Kullanıcı reddederse konsolda "Kullanıcı bağlantıyı reddetti.", 60 sn içinde yanıt vermezse "Kullanıcı yanıt vermedi."
-  yazar. **Yeniden dene** yeni kimlik doğrulaması ister. Aynı cihaza izin isteği **60 saniyede bir** gönderilebilir;
-  kullanıcıyı art arda pencereyle rahatsız edemezsiniz.
+- Kontrolün kendiliğinden alınması için hesabınızda uzaktan kontrol yetkisi olmalı ve konsolun kontrol sahibi siz
+  olmalısınız. Çok teknisyenli oturumda sonradan katılan ya da kontrolü devralan teknisyen kontrolü kendisi ister.
 - **Kod her bağlantıda yeniden sorulur.** Bir doğrulama tek bağlantı açar; "Bu cihazı 30 gün hatırla" bunu atlatmaz.
   Bağlandıktan sonra aynı oturumda başka bir kritik ayar değiştirirseniz kod yeniden sorulur.
 - Kurtarma koduyla bağlanırsanız size "Kurtarma kodunuz kullanıldı" e-postası, firmanızdaki diğer yöneticilere de bilgi
@@ -4388,6 +4525,7 @@ Teknisyende liste yalnız yetkili olduğu cihazları gösterir; hiç yoksa "Size
   gönderilemez; etki alanı politikasıyla kilit ekranında Ctrl+Alt+Del zorunlu kılınmış bilgisayarlarda kilit açılamaz.
 - Yalnız bilgisayarın kendi ekranındaki (fiziksel) Windows oturumu görünür; uzak masaüstü (RDP) oturumlarına bağlanılamaz.
 - Bir cihazda aynı anda tek gözetimsiz bağlantı olur.
+- Bağlantı sürerken cihazda biri kilidi açar ya da oturum açarsa bağlantı sürer; onay sorulmaz.
 - Geçmişte bu bağlantılar **Gözetimsiz** mod süzgeciyle bulunur; cihaz ayrıntısında son 20 bağlantı listelenir.
 
 **Bağlantının kendiliğinden kapandığı durumlar** (konsolda yazan metin):
@@ -4399,86 +4537,52 @@ Teknisyende liste yalnız yetkili olduğu cihazları gösterir; hiç yoksa "Size
 | Gözetimsiz erişim cihazda yerel olarak kapatıldı.                  | Müşteri cihazdaki anahtarı kapattı (en geç 2 sn'de kesilir) |
 | Cihazda bağlantı göstergesi gösterilemediği için bağlantı kapandı. | Gösterge çizilemedi; güvenlik gereği bağlantı açık kalmaz   |
 | Cihaz yanıt vermedi.                                               | Cihaz zamanında katılmadı                                   |
-| Kullanıcı bağlantıyı reddetti.                                     | Cihazdaki kullanıcı **Reddet** dedi                         |
-| Kullanıcı yanıt vermedi.                                           | Onay penceresi 60 sn içinde yanıtlanmadı                    |
 | Cihazda Windows oturumu değişti; yeniden bağlanın.                 | Cihazda kullanıcı değiştirildi; yeniden **Bağlan** deyin    |
 
 Cihaz yeniden başlatılırsa bağlantı biter; cihaz çevrimiçi olunca yeniden bağlanın.
 
-### Üç bağlantı kipi
+### Tek bağlantı yolu: cihaz kullanıcısına sorulmaz
 
-Her gözetimsiz bağlantı üç kipten biriyle açılır. Kip konsolda, oturum geçmişinde ve audit log'da görünür.
+Gözetimsiz bağlantının tek bir yolu vardır. Bağlantı cihaz kullanıcısına sorulmadan açılır; kullanıcı durumu (Aktif /
+Kilitli / Oturum yok) bunu değiştirmez. Seçilecek bir kip, firma politikası ya da ayrı bir "izin istemeden bağlan"
+seçeneği yoktur.
 
-| Kip (ekrandaki ad) | Ne zaman                                                                  | Cihazda ne olur                                                     | Konsolda ilk durum                         |
-| ------------------ | ------------------------------------------------------------------------- | ------------------------------------------------------------------- | ------------------------------------------ |
-| **İzinli**         | Normal **Bağlan**; bilgisayarda oturum açık ve kilitsiz bir kullanıcı var | Onay penceresi (60 sn). Kullanıcı **İzin ver** derse gösterge çıkar | Ekran görüntüsü; kontrol için Kontrol iste |
-| **Kullanıcı yok**  | Normal **Bağlan**; bilgisayarda oturum yok ya da ekran kilitli            | Onay sorulmaz; gösterge çıkar                                       | Ekran görüntüsü; kontrol için Kontrol iste |
-| **İzinsiz**        | Firma politikası açık + **İzin istemeden bağlan** yetkisi + 2FA + gerekçe | Onay sorulmaz; gösterge "Uzaktan izleniyor: <teknisyen> — <firma>"  | Yalnız izleme; kontrol için Müdahale et    |
+| Ne olur                     | Açıklama                                                                                           |
+| --------------------------- | -------------------------------------------------------------------------------------------------- |
+| Cihazda                     | Onay penceresi çıkmaz; "Uzaktan bağlantı: <teknisyen> — <firma>" göstergesi bağlantı boyunca kalır |
+| Konsolda                    | Ekran gelir, kontrol kendiliğinden alınır                                                          |
+| Müşterinin bildirim adresi  | Her bağlantıda e-posta gider                                                                       |
+| Oturum geçmişi ve audit log | Bağlantı kipi **Onaysız** olarak yazılır                                                           |
 
 Rolünüze göre:
 
-- **User (teknisyen):** Admin **Bağlan** ve cihaz yetkisi verdiyse İzinli / Kullanıcı yok kipinde bağlanır. İzinsiz kip
-  için ayrıca **İzin istemeden bağlan** yetkisi (User'da varsayılan kapalı) ve açık firma politikası gerekir.
-- **Admin:** politikayı açar/kapatır, kimin izinsiz bağlanabileceğini yetki listesinden belirler, dört göz e-postalarını
-  alır. Kendisi bağlanmak için o cihazda da yetkili olmalıdır.
-- **Super Admin:** firma seçerek o firmanın politika ekranını ve kayıtlarını görür; cihaz yetkisi verilemediği için
-  bağlanamaz.
+- **User (teknisyen):** Admin **Bağlan** ve cihaz yetkisi verdiyse bağlanır.
+- **Admin:** kimin hangi cihaza bağlanabileceğini yetki listesi ve cihaz yetkileriyle belirler. Kendisi bağlanmak için o
+  cihazda da yetkili olmalıdır. Çalışanları bilgilendirmek Admin'in (müşteri firmanın) sorumluluğundadır.
+- **Super Admin:** firma seçerek o firmanın cihazlarını ve kayıtlarını görür; cihaz yetkisi verilemediği için bağlanamaz.
 
-- Kullanıcı var mı yok mu kararını **cihaz** bağlantı anında verir; paneldeki "Kullanıcı" sütunu yalnız bilgi içindir.
-- Kullanıcı yokken açılan bağlantıda kullanıcı sonradan kilidi açarsa yeniden izin sorulmaz.
-- Bütün kiplerde: bağlantı göstergesi görünür, müşterinin bildirim adreslerine e-posta gider, müşteri cihazdaki anahtarla
-  gözetimsiz erişimi kapatabilir, pano paylaşımı ve uzaktan yazdırma kapalıdır. İzinsiz kipte müşteri e-postasına ayrıca
-  "İzin istenmeden bağlanıldı." satırı eklenir (gerekçe eklenmez).
+Her bağlantıda: gösterge görünür, müşterinin bildirim adreslerine e-posta gider, müşteri cihazdaki anahtarla gözetimsiz
+erişimi kapatabilir, pano paylaşımı ve uzaktan yazdırma kapalıdır.
 
-### Müşteri için: onay penceresi ("Uzaktan bağlantı isteği")
+### Admin için: KVKK — çalışanları bilgilendirme
 
-Bilgisayarınızda oturum açıkken destek firmanız bağlanmak isterse ekranın ortasında şu pencere çıkar:
+Gözetimsiz cihaza bağlantı cihaz kullanıcısına sorulmadan açılır; amaç sunucu ve personel bilgisayarlarına destek ve
+müdahaledir.
 
-- Başlık: **Uzaktan bağlantı isteği**
-- "<teknisyen adı> (<destek firması>) bilgisayarınıza bağlanmak istiyor."
-- Kalın satır: **Destek firması: <firma adı>**. Firma adını teknisyen değiştiremez; teknisyenin kendi yazdığı ad ne olursa
-  olsun, bağlanan firmayı bu satırdan anlarsınız.
-- "Kalan süre: NN sn" ve iki düğme: **Reddet** / **İzin ver**.
-
-Nasıl yanıtlarım?
-
-1. Teknisyeni ve firmayı tanıyorsanız **İzin ver**'e fareyle tıklayın (ya da Tab ile düğmeye gelip **Alt+V**). Düğme pencere
-   açıldıktan 1,5 saniye sonra etkinleşir; Enter ve boşluk tuşu izin vermez.
-2. Tanımıyorsanız **Reddet**'e basın. Esc tuşu ve pencereyi kapatmak da **Reddet** sayılır. Varsayılan düğme **Reddet**'tir.
-3. 60 saniye içinde yanıt vermezseniz bağlantı **açılmaz**.
-
-- Pencerenin üstüne başka bir pencere gelirse **İzin ver** pasifleşir ve "Pencerenin üstünde başka bir pencere var" yazar.
-  Bu, başka bir programın sizi kandırıp izin verdirmesini önler. Üstteki pencere kalkınca düğme 1,5 sn sonra yeniden
-  etkinleşir.
-- Uzaktan (programla) yapılan tıklama ve tuş basışları izin sayılmaz.
-- Pencere yalnız normal masaüstünde çıkar; giriş ekranında, kilit ekranında ve yönetici onayı (UAC) ekranında çıkmaz.
-- İzin verince ekranın kenarında bağlantı göstergesi çıkar; bağlantı boyunca kalır.
-
-### Teknisyen için: izin istemeden bağlanma
-
-Bu seçenek yalnız şu koşulların **hepsi** varken görünür ve çalışır: firma politikası açık, sizde **İzin istemeden bağlan**
-yetkisi, cihaz yetkisi ve 2FA. Koşullar sunucuda da denetlenir; ekranda gizlemek tek başına bir kural değildir.
-
-1. **Gözetimsiz cihazlar** → **Bağlan**.
-2. Pencerede **İzin istemeden bağlan** kutusunu işaretleyin (kutu her açılışta işaretsiz gelir).
-3. **Gerekçe** alanına neden bağlandığınızı yazın: 20–500 karakter. Gerekçe denetim kaydına yazılır.
-4. Uyarıyı okuyun: "Bu bağlantı diğer yöneticilere e-postayla bildirilir; cihazda gösterge görünür."
-5. **Bağlan** → kimlik doğrulama.
-6. Bağlantı **izleme kipinde** açılır: konsolda **İzleniyor** rozeti vardır, fare ve klavye kapalıdır, cihaza dosya
-   gönderilemez. Cihazdaki gösterge "Uzaktan izleniyor: <adınız> — <firmanız>" der.
-7. Müdahale gerekiyorsa **Müdahale et** → "Müdahale edilsin mi? Kontrol açılacak ve cihaz göstergesi 'Uzaktan kontrol'
-   olacak." → onaylayın. Gösterge "Uzaktan kontrol: …" olur. İşiniz bitince **İzlemeye dön** deyin.
-
-- Her izinsiz bağlantıda firmanızdaki diğer gözetimsiz erişim yöneticilerine "İzin istenmeden bağlanıldı" konulu e-posta
-  gider (bağlanan, cihaz, müşteri, saat, gerekçe). Bkz. "Dört göz e-postası".
-- Politika kapatılırsa ya da yetkiniz alınırsa açık izinsiz bağlantınız en geç birkaç saniyede kesilir.
-- Firma politikası kapalıyken bu isteği API ile göndermek "Firma politikası izin istemeden bağlanmaya izin vermiyor" hatası
-  verir.
+- **Gizli izleme yoktur:** bağlantı süresince cihazda "Uzaktan bağlantı" göstergesi her zaman görünür ve cihaz kullanıcısı
+  bağlantıyı yerel kapatma anahtarıyla sonlandırabilir.
+- **KVKK:** firma, çalışanlarını bu bilgisayarlara sorulmadan uzaktan bağlanılabileceği, ekranın görülebileceği, kontrol
+  edilebileceği ve (açıksa) kaydedilebileceği konusunda **yazılı olarak bilgilendirmekten sorumludur**. Panelde cihaz
+  kullanıcısının durumu (aktif / kilitli / oturum yok) görünür; aydınlatma metniniz bunu da kapsamalıdır.
+- Uygulamada bu bilgilendirmeyi onaylatan ayrı bir ekran yoktur. Yalnız gözetimsiz bağlantıları **kaydetmek** için
+  **Ayarlar → Oturum kaydı** ekranındaki çalışan bilgilendirme kutusu işaretlenir (bkz. "Admin için: Gözetimsiz
+  bağlantıları da kaydet").
+- Servisi kurmadan önce bilgisayarı kullanan çalışanlara bu bilgilendirmeyi yapın.
 
 ### Teknisyen için: müdahale (oturumu kilitle, oturumu kapat)
 
-Kontrol açıkken (izinsiz kipte **Müdahale et** sonrası, diğer kiplerde kontrol verildikten sonra) konsolun **Gözetimsiz
-müdahale** çubuğunda iki düğme vardır:
+Kontrol sizdeyken konsolun **Gözetimsiz müdahale** çubuğunda iki düğme vardır. Kontrol kapalıyken, kontrol isteği
+sürerken ya da çok teknisyenli oturumda kontrol sahibi siz değilken düğmeler görünmez.
 
 - **Oturumu kilitle:** cihazdaki Windows oturumunu kilitler, onay sormaz. Bağlantı sürer; kilit ekranını görmeye devam
   edersiniz. Başarıda "Cihazda Windows oturumu kilitlendi." yazar.
@@ -4490,69 +4594,40 @@ kilitle** yeterlidir ve veri kaybettirmez. **Kullanıcı oturumunu kapat**'ı ya
 
 Oturum kapatıldıktan sonra konsolda "Cihaz yeniden bağlanıyor… Oturum kapandıktan sonra servis bağlantıya yeniden katılır.
 En çok 45 sn bekleyin; katılamazsa bağlantı biter." görünür. Servis yeni oturumla bağlantıya katılır ve giriş ekranını
-görürsünüz. Kontrol **kapalı** başlar; yeniden **Kontrol iste** ya da **Müdahale et** deyin.
+görürsünüz. Konsol kontrolü kendiliğinden yeniden ister.
 
-- **İzinli** kipte oturum kapatıldıktan sonra bilgisayarda biri (aynı kişi dahil) oturum açarsa bağlantı biter: önceki onay
-  yeni oturuma taşınmaz. Yeniden **Bağlan** derseniz onay penceresi yeniden çıkar.
 - Cihazdaki servis eskiyse düğmeler pasiftir: "Cihazdaki servis bu özelliği desteklemiyor — güncelleyin".
 - Önceki komut bitmeden yenisi gönderilemez ("Önceki komut henüz tamamlanmadı"); dakikada en çok 6 komut gönderilir.
 - Komut uygulanamazsa "Cihaz komutu uygulayamadı" yazar.
 - Her komut (başarılı ya da başarısız) audit log'a yazılır; cihazın Windows olay günlüğüne de düşer.
 
-### Admin için: Gözetimsiz erişim politikası (izin istemeden bağlanma)
-
-**Ayarlar → Gözetimsiz erişim** sekmesi "Gözetimsiz cihazlara izin istemeden bağlanma politikası (firma geneli)" ayarıdır.
-Görmek için **Gözetimsiz erişim → Yönet** ve **Ayarlar: Görüntüle**, değiştirmek için ayrıca **Ayarlar: Düzenle** gerekir.
-
-Açmak için:
-
-1. **İzin istemeden bağlanmaya izin ver** anahtarını açın (varsayılan **Kapalı**).
-2. Kutuyu işaretleyin: "Cihaz kullanıcılarını (çalışanları) izin istenmeden izlenebilecekleri ve müdahale edilebileceği
-   konusunda yazılı olarak bilgilendirdik; aydınlatma metnimiz bunu kapsıyor".
-3. **Kaydet** → "Kimliğinizi doğrulayın" penceresinde kodunuzu girin. "İzin istemeden bağlanma açıldı." yazar.
-
-Kapatmak için anahtarı kapatıp **Kaydet** deyin; kod sorulmaz. Açık izinsiz bağlantılar hemen kesilir. Ekranda son açan
-kişi ve zaman ("Son açan: <ad> · <zaman>") görünür.
-
-Ekrandaki uyarıları dikkate alın:
-
-- **KVKK:** "Çalışanların izlenmesi önceden yazılı bilgilendirme ve hukuki dayanak gerektirir. Bu ayarı yalnız
-  bilgilendirmeyi yaptıysanız açın." Bilgilendirme ve hukuki dayanak müşteri firmanın sorumluluğundadır; bu ayar
-  bilgilendirmenin yerine geçmez.
-- "Gizli izleme yoktur; cihazda gösterge her zaman görünür."
-- "Panelde cihaz kullanıcısının durumu (aktif / kilitli / oturum yok) görünür; aydınlatma metniniz bunu da kapsamalıdır."
-- "İzin istemeden bağlanmak için ayrıca kullanıcının “İzin istemeden bağlan” yetkisi, cihaz yetkisi ve 2FA gerekir."
-
-### Admin için: dört göz e-postası
-
-Politika açılıp kapatıldığında ("Gözetimsiz erişim politikası değişti") ve her izinsiz bağlantıda ("İzin istenmeden
-bağlanıldı") e-posta gider. Alıcılar firmanızdaki **Gözetimsiz erişim → Yönet** yetkisi olan diğer etkin kullanıcılardır.
-Gönderilemezse 1 dakika içinde iki kez daha denenir; her deneme audit log'a "İzinsiz bağlantı bildirimi (dört göz)" olarak
-yazılır. E-posta gitmese de bağlantı sürer.
-
-**Tek yöneticili firmada dikkat:** işlemi yapan dışında **Yönet** yetkisi olan kimse yoksa e-posta işlemi yapanın kendisine
-ve firmanın Admin'lerine gider. Tek yöneticili bir firmada bu, e-postanın yalnız işlemi yapan kişiye gitmesi demektir: dört
-göz denetimi fiilen çalışmaz ve ele geçirilmiş bir yönetici hesabını kimse fark etmez. **İzin istemeden bağlanmayı açmadan
-önce firmanızda en az iki yönetici tanımlayın** (ikincisine **Gözetimsiz erişim → Yönet** yetkisi verin).
-
 ### Geçmiş ve audit log'da bağlantı kipi
 
-- **Oturum geçmişi:** süzgeçte **Bağlantı kipi** (İzinli / Kullanıcı yok / İzinsiz) vardır. Gözetimsiz bir oturumun
-  ayrıntısında **Gözetimsiz bağlantı** bölümü bulunur: bağlantı kipi, (yalnız izinsizde) **Gerekçe** ve **Müdahale zaman
-  çizelgesi** (Kullanıcı onayı — İzin verdi / Reddetti / Yanıt vermedi; Müdahale edildi (kontrol açıldı); İzlemeye dönüldü;
-  Oturum kilitlendi; Kullanıcı oturumu kapatıldı; Cihaz yeniden katıldı). Müdahale yoksa "Müdahale yok" yazar. Bölümü
-  **Oturum geçmişi → Görüntüle** yetkisi olan görür. Kişisel veri saklama süresi dolup oturum anonimleştirilince gerekçe
-  silinir.
-- **Audit log:** süzgeçte **Bağlantı kipi** vardır. Reddedilen ve yanıtlanmayan izin istekleri de **İzinli** süzgeciyle
-  görünür. Yeni kayıt türleri: Gözetimsiz bağlantı onayı (cihaz kullanıcısı), Gözetimsiz oturumda kontrol değişti, Uzak
-  oturum kilitlendi, Uzak kullanıcı oturumu kapatıldı, Gözetimsiz bağlantı yeniden kuruldu, İzinsiz bağlantı bildirimi (dört
-  göz), Gözetimsiz erişim politikası değişti. Cihaz kullanıcısının varlık durumu (aktif/kilitli) hiçbir kayda yazılmaz.
+Yeni gözetimsiz bağlantıların hepsi **Onaysız** kipindedir. Eski sürümde açılmış bağlantılar kendi etiketleriyle kalır:
+
+| Etiket                        | Anlamı                                                                       |
+| ----------------------------- | ---------------------------------------------------------------------------- |
+| **Onaysız**                   | Cihaz kullanıcısına sorulmadan açılan bağlantı (şimdiki tek yol)             |
+| **Kullanıcı onayıyla (eski)** | Eski sürümde cihaz kullanıcısının onay penceresiyle açılan bağlantı          |
+| **İzinsiz (eski)**            | Eski sürümde firma politikası ve gerekçeyle "izin istemeden" açılan bağlantı |
+
+- **Oturum geçmişi:** süzgeçte **Bağlantı kipi** vardır (üç etiket). Gözetimsiz bir oturumun ayrıntısında **Gözetimsiz
+  bağlantı** bölümü bulunur: bağlantı kipi ve **Müdahale zaman çizelgesi** (Kontrol açıldı; Kontrol bırakıldı; Oturum kilitlendi; Kullanıcı oturumu kapatıldı; Cihaz yeniden katıldı;
+  eski kayıtlarda Kullanıcı onayı — İzin verdi / Reddetti / Yanıt vermedi). Müdahale yoksa "Müdahale yok" yazar. Yalnız
+  eski "İzinsiz (eski)" kayıtlarda **Gerekçe** de görünür; kişisel veri saklama süresi dolup oturum anonimleştirilince
+  gerekçe silinir. Bölümü **Oturum geçmişi → Görüntüle** yetkisi olan görür.
+- **Audit log:** süzgeçte **Bağlantı kipi** vardır. Gözetimsiz kayıt türleri: Gözetimsiz bağlantı isteği, Gözetimsiz
+  bağlantı başladı / bitti, Gözetimsiz oturumda kontrol değişti, Uzak oturum kilitlendi, Uzak kullanıcı oturumu kapatıldı,
+  Gözetimsiz bağlantı yeniden kuruldu, Dört göz e-posta bildirimi (yalnız kayıt politikası e-postası). Eski kayıtlarda
+  ayrıca Gözetimsiz bağlantı onayı (cihaz kullanıcısı) ve Gözetimsiz erişim politikası değişti (eski) görünebilir. Cihaz kullanıcısının varlık durumu (aktif/kilitli)
+  hiçbir kayda yazılmaz.
 
 ### Eski servis: "Servis güncel değil"
 
-İzin sorma ve müdahale servis sürümü **0.15.0** ile gelir. Daha eski servisli cihazlarda listede **Servis güncel değil**
-rozeti çıkar, **Bağlan** pasiftir ve üzerine gelince "Cihazdaki servis güncel değil — güncelleyin" yazar. Eski servisle
-onaysız bağlantı açılmaz.
+Onaysız tek yol **bir sonraki servis sürümü** ile gelir. 0.15–0.19 dahil daha eski servisli cihazlarda listede **Servis
+güncel değil** rozeti çıkar, **Bağlan** pasiftir ve üzerine gelince "Cihazdaki servis güncel değil — güncelleyin" yazar.
+Eski servise hiçbir gözetimsiz bağlantı açılmaz (eski servisler onay penceresi açabileceği için). Bu ret kimlik doğrulama
+kodunuzu harcamaz.
 
 Ne yapmalı:
 
@@ -4592,8 +4667,8 @@ teknisyen ekrana gelen yönetici onayı (UAC) pencerelerini onaylayabilir. Bu bi
 ### Müşteri BT için: bağlantıyı nasıl anlarım, nasıl kapatırım?
 
 - **Gösterge:** bağlantı süresince her monitörün kenarında kırmızı çerçeve ve üstte "Uzaktan bağlantı: <teknisyen adı> —
-  <destek firması>" yazısı durur. İzinsiz bağlantıda yazı "Uzaktan izleniyor: …", teknisyen müdahale edince "Uzaktan
-  kontrol: …" olur. Gizli izleme yoktur: gösterge her kipte görünür. Kapatılamaz, kilit ekranında da görünür. Gösterge çizilemezse bağlantı hiç açılmaz.
+  <destek firması>" yazısı durur. Bağlantı size sorulmadan açılır; bu yüzden **gizli izleme yoktur**: gösterge her
+  bağlantıda görünür, kapatılamaz, kilit ekranında da görünür. Gösterge çizilemezse bağlantı hiç açılmaz.
 - **E-posta:** her gözetimsiz bağlantıda tanımlı adreslere e-posta gelir. Bağlantı gördüğünüz halde e-posta gelmiyorsa
   destek firmanıza sorun.
 - **Tepsi simgesi:** saatin yanındaki simgenin ipucu "Gözetimsiz erişim: Açık / Kapalı / Bağlantı var: <teknisyen>"
@@ -4614,8 +4689,8 @@ klasörü bilgisayardaki tüm kullanıcılar okuyabilir; servis kaldırılınca 
 
 **Olay günlüğü:** bağlantı başlangıcı ve bitişi, yerel anahtar değişikliği, reddedilen bağlantılar ve iptal Windows Olay
 Görüntüleyicisi → Uygulama günlüğüne **NoktaDestek** kaynağıyla yazılır (1001 başladı, 1002 bitti, 1003 yerel anahtar,
-1004 reddedildi, 1005 iptal/kaldırma, 1006 oturum kilitlendi, 1007 kullanıcı oturumu kapatıldı, 1008 bağlantı onayı —
-karar, kip ve teknisyen). Gerekçe olay günlüğüne yazılmaz. Bu kayıt yardımcı kanıttır; yerel yönetici silebilir. **Yetkili kayıt destek
+1004 reddedildi, 1005 iptal/kaldırma, 1006 oturum kilitlendi, 1007 kullanıcı oturumu kapatıldı). 1001 kaydında bağlantı
+kipi "onaysız" yazar. Eski servislerin yazdığı 1008 (bağlantı onayı) artık yazılmaz. Bu kayıt yardımcı kanıttır; yerel yönetici silebilir. **Yetkili kayıt destek
 firmanızın sunucusundaki audit log'dur.**
 
 ### Müşteri BT için: servisi kaldırma
@@ -4636,23 +4711,21 @@ edilir (bilgisayar o an çevrimdışıysa cihaz panelde çevrimdışı kalır, A
 
 ### Sık karşılaşılan mesajlar (Gözetimsiz erişim)
 
-| Mesaj                                                                                | Ne yapmalı                                                                            |
-| ------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------- |
-| Bildirim e-postası yapılandırılmamış — Ayarlar → SMTP                                | Firmanızın SMTP ayarını kaydedip test edin                                            |
-| Müşterinin bildirim adresi yok — adres yokken bu müşterinin cihazlarına bağlanılamaz | Müşteri ayrıntısında en az bir bildirim adresi ekleyin                                |
-| Gözetimsiz erişim kod imzası olmadan kullanılamaz                                    | Özellik bu sunucuda kapalı; sunucu yöneticinize başvurun                              |
-| Cihaz çevrimdışı                                                                     | Bilgisayar kapalı ya da internete bağlı değil; açılınca en geç 2 dk'da çevrimiçi olur |
-| Cihazda başka bir gözetimsiz bağlantı var                                            | Diğer bağlantı bitince yeniden deneyin                                                |
-| Yerel olarak kapalı                                                                  | Müşteri cihazda kapattı; açmak için müşterinin bilgisayar yöneticisine başvurun       |
-| Cihaz bulunamadı ya da bu cihaz için yetkiniz yok.                                   | Admin'den o cihaz için teknisyen yetkisi isteyin                                      |
-| Kayıt kodu geçersiz, kullanılmış ya da süresi dolmuş (servis kurulumunda)            | Destek firmasından yeni kod isteyin; kod 24 saat geçerli ve tek kullanımlıktır        |
-| Müşteri pasif; kayıt kodu oluşturulamaz.                                             | Önce müşteriyi **Yeniden aktif et**, sonra kodu yeniden oluşturun                     |
-| Cihazdaki servis güncel değil — güncelleyin                                          | Servisi 0.15.0 ve sonrasına güncelleyin (bkz. "Eski servis: Servis güncel değil")     |
-| Firma politikası izin istemeden bağlanmaya izin vermiyor                             | Admin **Ayarlar → Gözetimsiz erişim**'de politikayı açmadıkça izinsiz bağlanılamaz    |
-| Kullanıcı bağlantıyı reddetti. / Kullanıcı yanıt vermedi.                            | Kullanıcıyla iletişime geçin; 60 sn sonra **Yeniden dene**                            |
-| Gerekçe 20–500 karakter olmalı                                                       | Gerekçeyi en az 20 karakterle yazın                                                   |
-| Önceki komut henüz tamamlanmadı                                                      | Kilit/oturum kapatma sonucunu bekleyin                                                |
-| Cihaz komutu uygulayamadı                                                            | Kontrolün açık olduğunu ve cihazda oturum bulunduğunu kontrol edin; yeniden deneyin   |
+| Mesaj                                                                                | Ne yapmalı                                                                                |
+| ------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------- |
+| Bildirim e-postası yapılandırılmamış — Ayarlar → SMTP                                | Firmanızın SMTP ayarını kaydedip test edin                                                |
+| Müşterinin bildirim adresi yok — adres yokken bu müşterinin cihazlarına bağlanılamaz | Müşteri ayrıntısında en az bir bildirim adresi ekleyin                                    |
+| Gözetimsiz erişim kod imzası olmadan kullanılamaz                                    | Özellik bu sunucuda kapalı; sunucu yöneticinize başvurun                                  |
+| Cihaz çevrimdışı                                                                     | Bilgisayar kapalı ya da internete bağlı değil; açılınca en geç 2 dk'da çevrimiçi olur     |
+| Cihazda başka bir gözetimsiz bağlantı var                                            | Diğer bağlantı bitince yeniden deneyin                                                    |
+| Yerel olarak kapalı                                                                  | Müşteri cihazda kapattı; açmak için müşterinin bilgisayar yöneticisine başvurun           |
+| Cihaz bulunamadı ya da bu cihaz için yetkiniz yok.                                   | Admin'den o cihaz için teknisyen yetkisi isteyin                                          |
+| Kayıt kodu geçersiz, kullanılmış ya da süresi dolmuş (servis kurulumunda)            | Destek firmasından yeni kod isteyin; kod 24 saat geçerli ve tek kullanımlıktır            |
+| Müşteri pasif; kayıt kodu oluşturulamaz.                                             | Önce müşteriyi **Yeniden aktif et**, sonra kodu yeniden oluşturun                         |
+| Cihazdaki servis güncel değil — güncelleyin                                          | Servisi bir sonraki servis sürümüne güncelleyin (bkz. "Eski servis: Servis güncel değil") |
+| Kullanıcı bağlantıyı reddetti. / Kullanıcı yanıt vermedi.                            | Yalnız eski kayıtlarda görünür (eski onay penceresi); yeni bağlantıda çıkmaz              |
+| Önceki komut henüz tamamlanmadı                                                      | Kilit/oturum kapatma sonucunu bekleyin                                                    |
+| Cihaz komutu uygulayamadı                                                            | Kontrolün açık olduğunu ve cihazda oturum bulunduğunu kontrol edin; yeniden deneyin       |
 
 ## Super Admin için: Firmalar ve firma geçişi
 

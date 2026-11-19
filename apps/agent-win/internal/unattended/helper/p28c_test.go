@@ -46,7 +46,6 @@ type fakeLive struct {
 	names []string
 }
 
-func (f *fakeLive) SetText(string) {}
 func (f *fakeLive) SetNames(s string) bool {
 	f.names = append(f.names, s)
 	return f.ok

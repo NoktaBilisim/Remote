@@ -12,6 +12,8 @@
 // `rs.cap.multi1` sokette: `to`'lu `sdp.answer`/`ice` + `tech.remove`), `sdp.offer`/`ice` `from`, teknisyen `hello` ekleri.
 // P28d (mimari-p28d §4): sesli görüşme tipleri `ws-voice.ts`'te; burada birlik bağlantısı (misafirde yalnız `rs.cap.voice1` /
 // tarayıcı sokette), teknisyen `hello`/`peer.joined` `guestVoice`, WS hata kodu `CLIENT_UNSUPPORTED`.
+// P22 (mimari-p22 r2 §4): oturum sohbeti tipleri `ws-chat.ts`'te; burada birlik bağlantısı (misafirde yalnız `rs.cap.schat1`
+// sokette, bit 64), teknisyen `hello`/`peer.joined` `guestChat`, kapanış kodu 4426 (`WS_CLOSE.CONSOLE_OUTDATED`).
 import { z } from "zod";
 import { guestClipInbound, guestPrintInbound, serverClipPrintOutbound, techClipPrintInbound, type GuestFeature } from "./ws-clip-print.ts";
 import { FILE_MODES, fsrvInbound, PEER_FEATURES, serverFsrvOutbound } from "./ws-fsrv.ts";
@@ -19,6 +21,7 @@ import { CONSENT_MODES } from "./unattended-consent.ts";
 import { guestRecInbound, recHelloSchema, serverRecOutbound, techRecInbound } from "./ws-rec.ts";
 import { guestMultiInbound, helloMultiFields, serverMultiOutbound, techIdSchema, techMultiInbound, WS_CLOSE_REMOVED } from "./ws-multi.ts";
 import { guestVoiceInbound, helloVoiceFields, serverVoiceOutbound, techVoiceInbound } from "./ws-voice.ts";
+import { guestChatInbound, helloChatFields, serverChatOutbound, techChatInbound, WS_CLOSE_CONSOLE_OUTDATED } from "./ws-chat.ts";
 
 export const WS_SUBPROTOCOL = "rs.v1";
 export const WS_TICKET_PREFIX = "rs.ticket.";
@@ -35,6 +38,8 @@ export const WS_CLOSE = {
   REPLACED: 4409,
   /** P28c (§4.4): teknisyen soketi — müşteri çıkardı / üyenin yetkisi düştü. */
   REMOVED: WS_CLOSE_REMOVED,
+  /** P22 (r2 §15.2): `/ws/tech` soketi `rs.cap.schat1` bildirmedi (eski konsol sekmesi) — "sayfayı yenileyin". */
+  CONSOLE_OUTDATED: WS_CLOSE_CONSOLE_OUTDATED,
 } as const;
 
 export const GUEST_KINDS = ["BROWSER", "AGENT"] as const;
@@ -60,7 +65,8 @@ export const SESSION_ENDED_REASONS = [
   "device_timeout",
   "session_changed",
   // P28u (mimari-p28u §6.2): kullanıcı onay diyaloğunu reddetti / 60 sn yanıt vermedi; `ask` odası onay sonucu olmadan
-  // `/ws/guest`'e geldi (K-P28u-3).
+  // `/ws/guest`'e geldi (K-P28u-3). r3 (K-P28u-r3-12): `consent_denied`/`consent_timeout` artık oluşmaz — eski kayıt okuma
+  // ve DB uyumu için kalır; `consent_missing` yazılmaya devam eder.
   "consent_denied",
   "consent_timeout",
   "consent_missing",
@@ -271,6 +277,8 @@ export const techInboundSchema = z.discriminatedUnion("t", [
   ...techMultiInbound,
   // P28d (§4.2): sesli görüşme isteği/katılma/bitirme — rol kapısı `ROLE_MAY` "talker" (izleyici değil).
   ...techVoiceInbound,
+  // P22 (§4.2): oturum sohbeti — her zaman şemada; rol kapısı `ROLE_MAY` "talker" (izleyici → `chat.rejected{forbidden}`).
+  ...techChatInbound,
 ]);
 export type TechInbound = z.infer<typeof techInboundSchema>;
 
@@ -340,7 +348,8 @@ type GuestOption =
   | (typeof fsrvInbound)[number]
   | (typeof guestRecInbound)[number]
   | (typeof guestInboundMultiBase)[number]
-  | (typeof guestVoiceInbound)[number];
+  | (typeof guestVoiceInbound)[number]
+  | (typeof guestChatInbound)[number];
 const guestFullSchema = z.discriminatedUnion("t", [
   ...guestInboundBase,
   ...guestClipInbound,
@@ -360,7 +369,10 @@ const guestFullMultiSchema = z.discriminatedUnion("t", [
  * `voice.answer`/`voice.end`).
  */
 export type GuestInboundFull =
-  z.infer<typeof guestFullSchema> | z.infer<typeof guestFullMultiSchema> | z.infer<(typeof guestVoiceInbound)[number]>;
+  | z.infer<typeof guestFullSchema>
+  | z.infer<typeof guestFullMultiSchema>
+  | z.infer<(typeof guestVoiceInbound)[number]>
+  | z.infer<(typeof guestChatInbound)[number]>;
 const guestSchemaCache = new Map<number, z.ZodType<GuestInboundFull>>([
   [0, guestInboundSchema],
   [15, guestFullSchema],
@@ -375,6 +387,8 @@ const guestSchemaCache = new Map<number, z.ZodType<GuestInboundFull>>([
  * `tech.remove` şemadadır. Aksi `to` ve `tech.remove` şema dışı → 1008.
  * P28d (§4.1): `voice = true` yalnız `hasVoice` soketinde (gözetimsiz değil ve `rs.cap.voice1` ya da BROWSER); aksi
  * `voice.answer`/`voice.end` şema dışı → 1008.
+ * P22 (mimari-p22 §4.2): `schat = true` yalnız `hasSessionChat` soketinde (gözetimsiz değil ve `rs.cap.schat1`; tarayıcı
+ * istisnası yok); aksi `chat.send` şema dışı → 1008 (satır 0).
  */
 export function guestInboundSchemaFor(
   features: ReadonlySet<GuestFeature>,
@@ -382,6 +396,7 @@ export function guestInboundSchemaFor(
   rec = false,
   multi = false,
   voice = false,
+  schat = false,
 ): z.ZodType<GuestInboundFull> {
   const key =
     (features.has("clipboard") ? 1 : 0) |
@@ -389,7 +404,8 @@ export function guestInboundSchemaFor(
     (fsrv ? 4 : 0) |
     (rec ? 8 : 0) |
     (multi ? 16 : 0) |
-    (voice ? 32 : 0);
+    (voice ? 32 : 0) |
+    (schat ? 64 : 0);
   const cached = guestSchemaCache.get(key);
   if (cached) return cached;
   const options: [GuestOption, ...GuestOption[]] = multi ? [...guestInboundMultiBase] : [...guestInboundBase];
@@ -398,6 +414,7 @@ export function guestInboundSchemaFor(
   if (key & 4) options.push(...fsrvInbound);
   if (key & 8) options.push(...guestRecInbound);
   if (key & 32) options.push(...guestVoiceInbound);
+  if (key & 64) options.push(...guestChatInbound);
   const schema = z.discriminatedUnion("t", options);
   guestSchemaCache.set(key, schema);
   return schema;
@@ -438,7 +455,8 @@ export const serverOutboundSchema = z.discriminatedUnion("t", [
     /** Yalnız role=tech hello'sunda: misafirden gelen son paylaşım durumu (misafir ayrıldıysa "stopped"). */
     share: shareStateSchema.omit({ t: true, id: true }).optional(),
     /** P27 (§4.6): yalnız role=tech hello'sunda, gözetimsiz odada — konsol "Gözetimsiz" rozeti + cihaz adı. */
-    // P28u (§6.4): `consentMode` oda kipi (yoksa henüz belli değil — `ask` odası `consent.result`'a kadar); `intervene` cihaz
+    // P28u (§6.4): `consentMode` oda kipi (yoksa henüz belli değil — `ask` odası `consent.result`'a kadar; r3: yalnız `no_user`
+    // gönderilir, enum eski kayıt uyumu için üç değerli); `intervene` cihaz
     // `consent1` bildirdi → konsol "Müdahale et"/"Kilitle"/"Oturumu kapat" düğmeleri (yoksa false, AC-352 metni).
     unattended: z
       .strictObject({
@@ -468,6 +486,8 @@ export const serverOutboundSchema = z.discriminatedUnion("t", [
     ...helloMultiFields,
     /** P28d (§4.1): YALNIZ role=tech hello'sunda — kabul edilmiş misafir sesi destekliyor mu (`hasVoice`). */
     ...helloVoiceFields,
+    /** P22 (§4.1): YALNIZ role=tech hello'sunda — kabul edilmiş misafirin oturum sohbeti durumu (`on` | `outdated`). */
+    ...helloChatFields,
   }),
   z.strictObject({ t: z.literal("lobby.wait"), expiresAt: iso }),
   z.strictObject({ t: z.literal("peer.pending"), guestId: ulid, name: z.string().max(100), guestKind: z.enum(GUEST_KINDS), since: iso }),
@@ -491,6 +511,8 @@ export const serverOutboundSchema = z.discriminatedUnion("t", [
     guestMulti: z.boolean().optional(),
     /** P28d (§4.1): role=guest (teknisyene giden) mesajda `hasVoice` (`hello.guestVoice` ile aynı). */
     ...helloVoiceFields,
+    /** P22 (§4.1): role=guest (teknisyene giden) mesajda `hello.guestChat` ile aynı. */
+    ...helloChatFields,
   }),
   z.strictObject({ t: z.literal("peer.left"), role: z.enum(["tech", "guest"]), reason: z.enum(["disconnect", "ended"]).optional() }),
   /** P28c (§4.4): `from` yalnız multi1 misafire (sunucu damgalar; eski misafirde alan yok). */
@@ -541,6 +563,8 @@ export const serverOutboundSchema = z.discriminatedUnion("t", [
   ...serverMultiOutbound,
   // P28d (§4.2): görüşme isteği (yalnız voice misafire) ve durum (tüm teknisyenlere + voice misafire).
   ...serverVoiceOutbound,
+  // P22 (§4.2): oturum sohbeti (tüm teknisyenlere + yalnız `schat1` misafire; `chat.rejected` yalnız gönderene).
+  ...serverChatOutbound,
 ]);
 export type ServerOutbound = z.infer<typeof serverOutboundSchema>;
 /** Odada saklanan son paylaşım durumu (teknisyen hello `share` alanı). */

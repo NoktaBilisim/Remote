@@ -1,6 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
 import { encodeFileChunk } from "@remote/contracts/dc";
-import { chatReducer, initialChat, prepareChat } from "./chat";
 import { annotReducer, contentRect, initialAnnot, laserAlpha, normalize, simplify } from "./annot";
 import { FileTransfers, fileRisk, sha256Hex, type FileChannelLike, type Transfer } from "./files";
 import type { CtlMessage, FileMetaMsg } from "./ctl";
@@ -158,19 +157,7 @@ describe("dosya transferi (AC-36, 53, 54, 117, 119)", () => {
   });
 });
 
-describe("sohbet (AC-35, 52)", () => {
-  it("düz metin saklanır, okunmamış sayılır, uzun metin reddedilir", () => {
-    const xss = "<img src=x onerror=alert(1)>";
-    let s = chatReducer(initialChat, { type: "in", id: "1", text: xss, ts: 1, visible: false });
-    expect(s.items[0]?.text).toBe(xss);
-    expect(s.unread).toBe(1);
-    s = chatReducer(s, { type: "read" });
-    expect(s.unread).toBe(0);
-    expect(prepareChat("a".repeat(2001))).toBeNull();
-    expect(prepareChat("  ")).toBeNull();
-  });
-});
-
+// P22: sohbet modeli WS'e taşındı — testleri lib/chat/chat-p22.test.ts
 describe("işaretleme (AC-56, 57)", () => {
   it("object-contain alanına göre normalize, ≤500 nokta, geri al/temizle, lazer söner", () => {
     const r = contentRect(200, 100, 100, 100);

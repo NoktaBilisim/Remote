@@ -14,7 +14,7 @@ import type {
 } from "@remote/contracts/api/sessions";
 import type { ErrorCode } from "@remote/contracts/errors";
 import { writeAudit, type AuditContext } from "../audit/service.ts";
-import { abuseEmail, currentConsentText, type AbuseEmailSource } from "../public/consent.ts";
+import { abuseEmail, chatRetentionDaysOf, currentConsentText, type AbuseEmailSource } from "../public/consent.ts";
 import type { RecService } from "../rec/types.ts";
 import type { Db } from "../lib/db.ts";
 import { AppError } from "../lib/errors.ts";
@@ -256,12 +256,13 @@ export async function resolvePublicSession(
     await goneAudit(db, limits, ctx, row, gone);
     throw new AppError(gone);
   }
-  const [consentText, abuse, logoUrl] = await Promise.all([
+  const [consentText, abuse, logoUrl, chatRetentionDays] = await Promise.all([
     // P28e §2.1: kayıt teklifi yalnız `rec` verildiğinde (kayıt açık ∧ kapasite). Gözetimsiz oturum bu uca ulaşmaz:
     // kodu yok, token'ı rastgele üretilip hiç dönmez (unattended/connect-tx.ts).
     currentConsentText(db, row.tenantId, rec),
     abuseEmail(db, abuseSrc),
     effectiveLogoUrl(db, row.tenant.logoPath),
+    chatRetentionDaysOf(db, row.tenantId), // P22 (AC-292): onay düğmesi üstündeki saklama satırı
   ]);
   return {
     sessionRef: sessionRef(refKey, row.id),
@@ -281,6 +282,7 @@ export async function resolvePublicSession(
     ),
     consentText, // P4: karşılamada gösterilir, join'de id'si geri gelir (G-24)
     abuseEmail: abuse,
+    chatRetentionDays,
   };
 }
 

@@ -1,34 +1,34 @@
 // P28e düzeltme turu 1 (QA-P28e-2/3): gözetimsiz politika kaydı GERÇEK bağlantı zincirinden (`POST /unattended/devices/:id/connect`
-// → cihaz `connect` → yardımcı admit → `admit-device` TX'i `startPolicy`) üç kipte (asked / no_user / silent) × politika kapalı/açık
+// → cihaz `connect` → yardımcı admit → `admit-device` TX'i `startPolicy`) r3 tek kipte (no_user) × politika kapalı/açık
 // (AC-387, AC-448), eski cihazda `recordOutdated` + `device_outdated`; ana anahtar kapanınca gözetimsiz anahtar kapanır, ACTIVE
 // politika kaydı `POLICY_OFF` ile durur, audit eski→yeni ve `recording_policy` dört göz e-postası iki yön (AC-447, S-P28e-4).
 import { RECORDING_AUDIT, RECORDING_SETTINGS_AUDIT, UNATTENDED_AUDIT } from "@remote/contracts/audit";
-import { WS_DEVICE_CAP_CONSENT, WS_DEVICE_SUBPROTOCOL } from "@remote/contracts/ws-device";
+import { DEVICE_CAP_DIRECT, WS_DEVICE_CAP_CONSENT, WS_DEVICE_SUBPROTOCOL } from "@remote/contracts/ws-device";
 import { REC_CONSENT_LINE_SHA256, WS_CAP_REC, WS_DEVICE_CAP_RECORD } from "@remote/contracts/ws-rec";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { RECORDING_POLICY_SUBJECT } from "../../src/unattended/mail.ts";
 import { createUser, loginStepUp, ORIGIN, testDb, type Session } from "../helpers/app.ts";
 import type { Live } from "../helpers/signal-flow.ts";
-import { authMsg, ready, waitUntil, type ConnectMsg, type Ready } from "../helpers/unattended-device.ts";
-import { connectReq, decodeSubject, REASON, setPolicy, startSilentLive } from "../helpers/unattended-silent.ts";
+import { authMsg, connectReq, ready, waitUntil, type ConnectMsg, type Ready } from "../helpers/unattended-device.ts";
+import { decodeSubject, startMailLive } from "../helpers/unattended-mail.ts";
 import { connect, techHeaders, type WsClient } from "../helpers/ws.ts";
 
 let live: Live;
-let env: Awaited<ReturnType<typeof startSilentLive>>;
+let env: Awaited<ReturnType<typeof startMailLive>>;
 let inbox: { to: string; body: string }[];
 beforeAll(async () => {
-  env = await startSilentLive();
+  env = await startMailLive();
   ({ live, inbox } = env);
   live.app.rec.service.d.store.freeRatioOverride = 0.5; // disk %10 kuralı test makinesinin doluluğuna bağlı olmasın
 });
 afterAll(async () => env.close());
 
-type Mode = "asked" | "no_user" | "silent";
+type Mode = "no_user";
 type Msg = Record<string, unknown> & { t: string };
 
-/** Servis soketi: `consent1` + (yeni sürümde) `record1`. */
+/** Servis soketi: `consent1` + `direct1` (r3) + (yeni sürümde) `record1`. */
 async function device(r: Ready, record: boolean): Promise<WsClient> {
-  const protos = [WS_DEVICE_SUBPROTOCOL, WS_DEVICE_CAP_CONSENT, ...(record ? [WS_DEVICE_CAP_RECORD] : [])];
+  const protos = [WS_DEVICE_SUBPROTOCOL, WS_DEVICE_CAP_CONSENT, DEVICE_CAP_DIRECT, ...(record ? [WS_DEVICE_CAP_RECORD] : [])];
   const c = await connect(`${live.base}/ws/device`, protos);
   const hello = (await c.waitFor("device.hello" as never)) as unknown as { nonce: string };
   c.send(authMsg(r.dev, hello.nonce));
@@ -36,8 +36,8 @@ async function device(r: Ready, record: boolean): Promise<WsClient> {
   return c;
 }
 
-/** Firma + cihaz; `policy` → `recording_enabled ∧ unattended_recording_enabled`; silent kipte izinsiz politika + yetki. */
-async function fixture(mode: Mode, o: { policy: boolean; record?: boolean }): Promise<Ready> {
+/** Firma + cihaz; `policy` → `recording_enabled ∧ unattended_recording_enabled`. */
+async function fixture(_mode: Mode, o: { policy: boolean; record?: boolean }): Promise<Ready> {
   const r = await ready(live, { online: false });
   await testDb().tenantSettings.update({
     where: { tenantId: r.tenantId },
@@ -47,21 +47,16 @@ async function fixture(mode: Mode, o: { policy: boolean; record?: boolean }): Pr
       ...(o.policy ? { unattendedRecordingAckAt: new Date(), unattendedRecordingAckBy: r.tech.id } : {}),
     },
   });
-  if (mode === "silent") {
-    await testDb().userPermission.create({ data: { userId: r.tech.id, permKey: "unattended.silent", granted: true } });
-    await setPolicy(r.tenantId, true);
-  }
   return { ...r, device: await device(r, o.record ?? true) };
 }
 
 /** Bağlan → cihaz `connect` → teknisyen konsolu → kip sonucu → yardımcı (rec1 bildirir) admit. */
 async function open(r: Ready, mode: Mode) {
-  const res = await live.app.inject(connectReq(r, mode === "silent" ? { silent: true, reason: REASON } : {}));
+  const res = await live.app.inject(connectReq(r));
   expect(res.statusCode).toBe(200);
   const msg = (await r.device.waitFor("connect" as never)) as unknown as ConnectMsg & { recording?: boolean };
   const tech = await connect(`${live.base}/ws/tech?sessionId=${msg.sessionId}`, ["rs.v1"], techHeaders(r.s.token, ORIGIN));
   await tech.waitFor("hello");
-  if (mode === "asked") r.device.send({ t: "consent.result", sessionId: msg.sessionId, mode: "asked", decision: "granted", ms: 900 });
   if (mode === "no_user") r.device.send({ t: "consent.result", sessionId: msg.sessionId, mode: "no_user" });
   const helper = await connect(`${live.base}/ws/guest`, ["rs.v1", `rs.ticket.${msg.ticket}`, WS_CAP_REC]);
   await helper.waitFor("hello");
@@ -74,7 +69,7 @@ const startAudits = (sessionId: string) => testDb().auditLog.findMany({ where: {
 const has = (c: WsClient, t: string) => (c.msgs as unknown as Msg[]).some((m) => m.t === t);
 
 describe("AC-387 / AC-448 gözetimsiz politika kaydı — gerçek connect → admit-device zinciri", () => {
-  for (const mode of ["asked", "no_user", "silent"] as const) {
+  for (const mode of ["no_user"] as const) {
     it(`AC-387 politika kapalı (${mode}): kayıt satırı yok, connect.recording yok, rıza mesajı yok sayılır, cihaza rec.state yok`, async () => {
       const r = await fixture(mode, { policy: false });
       const { sessionId, msg, tech, helper } = await open(r, mode);

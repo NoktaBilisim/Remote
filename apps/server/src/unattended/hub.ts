@@ -161,6 +161,18 @@ export class DeviceHub implements DeviceLink {
     return true;
   }
 
+  /**
+   * S-P28u-r3-1 (r3.4): `connect` / `rejoin` gönderimi anında `direct1` yeniden denetlenir — 8a ile gönderim arasında soket
+   * `direct1`'siz (eski servis) yenilendiyse mesaj gitmez (eski servis onay diyaloğu açardı). Çevrimdışı → `offline`.
+   */
+  sendDirect(deviceId: string, msg: DeviceOutbound | DeviceConsentOutbound): "sent" | "offline" | "outdated" {
+    const c = this.conns.get(deviceId);
+    if (!c) return "offline";
+    if (!c.caps.has("direct1")) return "outdated";
+    c.send(msg);
+    return "sent";
+  }
+
   /** AC-275: `revoked{}` + 4401; cihazın odaları `device_revoked`. */
   revoked(deviceId: string): void {
     const c = this.conns.get(deviceId);

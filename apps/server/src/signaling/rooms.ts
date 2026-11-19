@@ -32,12 +32,13 @@ import { newControl } from "./control.ts";
 import { closeControlOnEnd, narrowCaps, resetOnGuestGone, revokeOnTechChange } from "./control-revoke.ts";
 import { fsrvRoomClosed, fsrvSideGone } from "./fsrv.ts";
 import { recRoomClosed, recSourceGone, recTechAttached, recTechDetached } from "./rec.ts";
-import { cancelPendingSilent, endDeviceRoom } from "./rooms-device.ts";
+import { endDeviceRoom } from "./rooms-device.ts";
 import * as lobby from "./rooms-lobby.ts";
-import { membersTeardown, revokeMember, revokeMemberEverywhere, type SilentJoinEvent } from "./member-life.ts";
+import { membersTeardown, revokeMember, revokeMemberEverywhere } from "./member-life.ts";
 import { broadcastRoster, controllerOf, newMulti, sendTechs } from "./members.ts";
 import { revokeControlFor } from "./control-revoke.ts";
 import { pending, type RoomRow } from "./rooms-lobby.ts";
+import { chatRoomClosed, chatSettled } from "./chat.ts";
 import { endVoice, newVoice, voiceDropTalker, voicePermChange, voiceSync, voiceTechAttached } from "./voice.ts";
 import type { UnattendedGate } from "../unattended/gate.ts";
 
@@ -85,8 +86,6 @@ export class Rooms implements RoomNotifier, TechnicianLiveControl {
   rec?: RecService;
   /** P28b: sunucu dosya servisi (`bindFsrv`, ws.ts); yoksa SERVER odasında `fsrv.init` → UNSUPPORTED. */
   fsrv?: FsrvService;
-  /** P28c (Y-PC-1): silent odada katılım/devir dört göz e-postası (routes-multi bağlar; en iyi çaba). */
-  silentNotify?: (e: SilentJoinEvent) => void;
   /** P28c (D-PC-K4): devir TX'inde hedefin cihaz erişimi için imza kapısı (ws.ts bağlar; yoksa gözetimsiz devir reddedilir). */
   unattendedGate?: UnattendedGate;
   private readonly rooms = new Map<string, Room>();
@@ -276,6 +275,12 @@ export class Rooms implements RoomNotifier, TechnicianLiveControl {
     this.teardown(room, reason);
   }
 
+  /** P22 (S-P22-Q-2): zorla sonlandırma TX'inden önce odanın sohbet zinciri beklenir (oda yoksa hemen). */
+  settleChat(sessionId: string): Promise<void> {
+    const room = this.rooms.get(sessionId);
+    return room ? chatSettled(room) : Promise.resolve();
+  }
+
   /** DB'yi başka katman güncelledi (iptal, zorla sonlandırma): yalnız bildir ve kapat. */
   closeSession(sessionId: string, reason: SessionEndedReason): void {
     const room = this.rooms.get(sessionId);
@@ -287,6 +292,7 @@ export class Rooms implements RoomNotifier, TechnicianLiveControl {
   private teardown(room: Room, reason: SessionEndedReason): void {
     for (const t of Object.values(room.timers)) this.clock.clearTimeout(t);
     endVoice(this, room, "session_ended"); // P28d: üyeler silinmeden önce (listenerIds + yayın), session.ended'dan önce
+    chatRoomClosed(room); // P22 §4.2: chat.state{false, ended} — üyeler silinmeden ve session.ended'dan önce
     const msg = { t: "session.ended", reason } as const;
     const peers = [room.tech?.peer, ...membersTeardown(this, room), room.admitted?.peer, ...[...room.lobby.values()].map((g) => g.peer)];
     for (const g of room.lobby.values()) this.clock.clearTimeout(g.timer);
@@ -331,9 +337,7 @@ export class Rooms implements RoomNotifier, TechnicianLiveControl {
       }
       if (room.technicianId !== userId) continue;
       // P27 (§4.4): `unattended.connect` düştüyse gözetimsiz oda `permission` ile biter (PENDING ise DB CANCELLED).
-      // P28u (§8.4, AC-440): `silent` odada `unattended.silent` düştüyse aynı yol.
-      const silentLost = room.unattended?.consentMode === "silent" && !perms.has("unattended.silent");
-      if ((room.unattended && !perms.has("unattended.connect")) || silentLost) {
+      if (room.unattended && !perms.has("unattended.connect")) {
         jobs.push(endDeviceRoom(this, room, "permission"));
         continue;
       }
@@ -341,7 +345,6 @@ export class Rooms implements RoomNotifier, TechnicianLiveControl {
       voicePermChange(this, room, userId, perms); // P28d Y-PD-3: sahip yolu (narrowCaps ile aynı noktada)
       jobs.push(narrowCaps(this, room, perms));
     }
-    if (!perms.has("unattended.silent")) jobs.push(cancelPendingSilent(this, userId));
     await Promise.all(jobs);
   }
 
@@ -363,17 +366,14 @@ export class Rooms implements RoomNotifier, TechnicianLiveControl {
 
 /**
  * P28c (§4.3 `revalidate` 5, 6, 6b; Y-PC-2): üyenin yetkisi daraldı → temel yetki (`sessions.view` / `sessions.supervise`),
- * gözetimsizde `unattended.connect`, silent'ta `unattended.silent` düştüyse `revokeMember`; aksi halde soket yetkisi tazelenir,
+ * gözetimsizde `unattended.connect` düştüyse `revokeMember`; aksi halde soket yetkisi tazelenir,
  * kontrol sahibiyse `remote_control.use` düşünce açık kontrol kapanır.
  */
 function memberPermChange(rooms: Rooms, room: Room, userId: string, perms: ReadonlySet<PermissionKey>): void {
   const m = room.multi.members.get(userId);
   if (!m) return;
   const base = m.via === "supervise" ? "sessions.supervise" : "sessions.view";
-  const lost =
-    !perms.has(base) ||
-    (room.unattended !== undefined && !perms.has("unattended.connect")) ||
-    (room.unattended?.consentMode === "silent" && !perms.has("unattended.silent"));
+  const lost = !perms.has(base) || (room.unattended !== undefined && !perms.has("unattended.connect"));
   if (lost) return revokeMember(rooms, room, userId);
   if (m.conn) m.conn.permissions = perms;
   if (controllerOf(room) === m.conn && m.conn && !perms.has("remote_control.use")) void revokeControlFor(rooms, room, "permission");

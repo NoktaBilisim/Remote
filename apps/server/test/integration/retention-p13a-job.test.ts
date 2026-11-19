@@ -25,6 +25,7 @@ import {
   type TestUser,
 } from "../helpers/app.ts";
 import { FAKE_METRICS_TOKEN } from "../helpers/secrets.ts";
+import { createRequestRow } from "../helpers/requests.ts";
 
 // AC-199 fail-soft: seçilen tenant'ın oturum adımı hata verir; diğerleri sürer.
 const failing = vi.hoisted(() => ({ tenantId: "" }));
@@ -233,6 +234,7 @@ describe("P13a saklama işi — oturum anonimleştirme (AC-197)", () => {
       recordings: 0, // P28e: anonimleştirmeyle silinen kayıtlar
       recordingsExpired: 0, // P28e: süresi dolan kayıtlar
       portalAccounts: 0, // P21: retention_days'i dolan pasif portal hesapları
+      sessionMessages: 0, // P22: anonimleştirmeyle aynı TX'te silinen oturum sohbeti satırları
       purgeCandidates: { sessions: 0, consents: 0, files: 0, requests: 0, bindings: 0 },
     });
   });
@@ -506,5 +508,64 @@ describe("P13a saklama işi — partiler, fail-soft, metrikler (AC-199)", () => 
     // P16: dry modda `purgeCandidates` iç içe nesnesi de yalnız sayı.
     const leaves = (v: unknown): unknown[] => (typeof v === "object" && v !== null ? Object.values(v).flatMap(leaves) : [v]);
     for (const r of rows) for (const v of leaves(r.newValue)) expect(typeof v).toBe("number");
+  });
+});
+
+// P22 (mimari-p22 §3.3, r2 §15.3; AC-264): anonimleştirme TX'inde oturum sohbeti satırları silinir; mesaj bütçesi
+// (20.000/parti) partiyi kısaltır ama iş aynı turda bütün adayları bitirir. Saat: fikstür `retention_days + 1` gün geriye
+// tarihlenir (iş saati `run(now)` değiştirilmez — ileri saat global adımda canlı giriş oturumlarını silerdi).
+describe("P22 saklama işi — oturum sohbeti (AC-264, S-P22-3)", () => {
+  /** Hızlı toplu satır (gövde içeriği önemsiz; silme kalkanı yalnız üst bağa bakar). */
+  async function messages(tenantId: string, parent: { sessionId: string } | { requestId: string }, n: number, techId?: string) {
+    for (let off = 0; off < n; off += 5000) {
+      const data = Array.from({ length: Math.min(5000, n - off) }, () => {
+        const id = newId();
+        const who = techId ? { sender: "TECH", senderUserId: techId } : { sender: "CUSTOMER", senderUserId: null };
+        return { id, tenantId, ...parent, ...who, clientMsgId: `p22-${id}`, bodyEnc: new Uint8Array(31), bodyChars: 2 };
+      });
+      await testFixtureDb().sessionMessage.createMany({ data });
+    }
+  }
+  const countOf = (where: { sessionId: string } | { requestId: string }) => testDb().sessionMessage.count({ where });
+
+  it("AC-264: anonim oturumda sohbet satırı 0; ACTIVE oturum ve bağlı talebin mesajları korunur; sayaç sessionMessages", async () => {
+    const tenantId = await tenantWith(90);
+    const tech = await createUser({ tenantId, role: "ADMIN" });
+    const old = new Date(Date.now() - 91 * DAY);
+    const ended = await createSupportSessionRow({ tenantId, technicianId: tech.id, status: "ENDED", createdAt: old });
+    const active = await createSupportSessionRow({ tenantId, technicianId: tech.id, status: "ACTIVE", createdAt: old });
+    await messages(tenantId, { sessionId: ended.id }, 3, tech.id);
+    await messages(tenantId, { sessionId: ended.id }, 2);
+    await messages(tenantId, { sessionId: active.id }, 2);
+    const req = await createRequestRow(tenantId);
+    await messages(tenantId, { requestId: req.id }, 2);
+    const r = await app.retention.run();
+    expect(r?.failures).toBe(0);
+    expect((await testDb().supportSession.findUniqueOrThrow({ where: { id: ended.id } })).anonymizedAt).not.toBeNull();
+    expect(await countOf({ sessionId: ended.id })).toBe(0);
+    expect(await countOf({ sessionId: active.id })).toBe(2);
+    expect(await countOf({ requestId: req.id })).toBe(2);
+    expect((await retentionAudits(tenantId)).at(-1)?.newValue).toMatchObject({ sessions: 1, sessionMessages: 5 });
+  });
+
+  it("S-P22-3: 12.000 + 8.000 + 12.000 mesajlı oturum (ilk TX tam 20.000 bütçe) + 29 aday → tek turda hepsi anonim, mesaj 0, sayaç = silinen", async () => {
+    const tenantId = await tenantWith(90);
+    const tech = await createUser({ tenantId, role: "ADMIN" });
+    const base = Date.now() - 100 * DAY;
+    const ids: string[] = [];
+    for (let i = 0; i < 32; i++) {
+      const s = await createSupportSessionRow({ tenantId, technicianId: tech.id, status: "ENDED", createdAt: new Date(base + i * 60_000) });
+      ids.push(s.id);
+    }
+    // İlk TX tam 20.000 (12.000 + 8.000; sonraki 1 mesajlı aday sınırı aşar → kısaltma), ikinci TX 12.000 + kalanlar.
+    await messages(tenantId, { sessionId: ids[0] ?? "" }, 12_000);
+    await messages(tenantId, { sessionId: ids[1] ?? "" }, 8_000);
+    await messages(tenantId, { sessionId: ids[2] ?? "" }, 12_000);
+    for (const id of ids.slice(3)) await messages(tenantId, { sessionId: id }, 1);
+    const r = await app.retention.run();
+    expect(r?.failures).toBe(0);
+    expect(await testDb().sessionMessage.count({ where: { tenantId } })).toBe(0);
+    expect(await testDb().supportSession.count({ where: { tenantId, anonymizedAt: null } })).toBe(0);
+    expect((await retentionAudits(tenantId)).at(-1)?.newValue).toMatchObject({ sessions: 32, sessionMessages: 32_029 });
   });
 });

@@ -37,7 +37,7 @@ WATCH_ENV_KEYS="WATCH_ALERT_CMD WATCH_REPEAT_MIN WATCH_DISK_MAX_PCT WATCH_CERT_M
 WATCH_SERVICES WATCH_PROJECT WATCH_TURN_CONTAINER WATCH_TURN_TLS WATCH_TURN_CERT_FILE WATCH_LE_DIR WATCH_BACKUP_STATUS
 WATCH_BACKUP_DIR WATCH_DISK_PATHS WATCH_OFFSITE_REMIND_DAYS WATCH_TREE_DIR WATCH_TIMERS WATCH_TURN_CHECKS
 WATCH_GUEST_PREFIX_MAX WATCH_MYSQL_FAIL_MAX WATCH_PURGE_CHECKS WATCH_PURGE_REPEAT_MIN WATCH_NOTIFY_CAPS WATCH_NOTIFY_FAIL_MIN
-WATCH_NOTIFY_RL_MAX WATCH_AV_CHECKS WATCH_AV_STALE_DAYS WATCH_AV_FAIL_MIN WATCH_UA_SILENT_MAX WATCH_UA_TIMEOUT_MIN
+WATCH_NOTIFY_RL_MAX WATCH_AV_CHECKS WATCH_AV_STALE_DAYS WATCH_AV_FAIL_MIN
 WATCH_REC_ERR_MIN WATCH_REC_PART_BAD_MAX WATCH_REC_VIEW_THROTTLE_MAX
 WATCH_MULTI_DENIED_MAX WATCH_PORTAL_LOGIN_FAIL_MAX WATCH_PORTAL_LOCKED_MAX WATCH_PORTAL_REQ_REJECT_MAX"
 
@@ -182,10 +182,8 @@ NRL_MAX="${WATCH_NOTIFY_RL_MAX:-20}"
 # FAIL_MIN = 1 sa'te taranamadı oranı > %20 alarmı için en az başarısız tarama sayısı (tek hata gece alarmı olmasın).
 AV_STALE="${WATCH_AV_STALE_DAYS:-3}"
 AV_FMIN="${WATCH_AV_FAIL_MIN:-5}"
-# P28u (mimari-p28u §9.4; runbook §28u.6): SILENT_MAX = 1 sa'te izinsiz (silent) başarılı bağlantı artışı bu sayıyı AŞARSA uyarı
-# (R-PU2); TIMEOUT_MIN = 24 sa'te onay diyaloğu "yanıt yok" oranı > %50 bilgisi için en az zaman aşımı sayısı.
-UA_SMAX="${WATCH_UA_SILENT_MAX:-5}"
-UA_TMIN="${WATCH_UA_TIMEOUT_MIN:-3}"
+# P28u r3 (mimari-p28u §r3.1 §9.4; runbook §28u.6): izinsiz (silent) bağlantı hacmi ve onay zaman aşımı alarmları kaldırıldı (tek kip
+# `no_user`, onay diyaloğu yok); WATCH_UA_SILENT_MAX / WATCH_UA_TIMEOUT_MIN artık okunmaz (watch.env'de kalırsa zararsız).
 # P28e (mimari-p28e §11.3; runbook §28e.6): ERR_MIN = 1 sa'te error ile duran kayıt oranı > %20 alarmı için en az error sayısı (tek
 # hata gece alarmı olmasın); PART_BAD_MAX = 10 dk'da reddedilen parça (invalid|rate|busy) artışı bunu AŞARSA; VIEW_THROTTLE_MAX =
 # 1 sa'te izleme kovası (429) artışı bunu AŞARSA uyarı.
@@ -195,7 +193,7 @@ REC_VMAX="${WATCH_REC_VIEW_THROTTLE_MAX:-50}"
 # P28c (mimari-p28c §4.4/§8; runbook §28c.6): 1 sa'te rol kapısı reddi (rs_multi_denied_total, bütün type) artışı bunu AŞARSA uyarı.
 # Konsol yetkisiz mesajı arayüzde zaten göndermez -> ret = rol yükseltme denemesi (T3) ya da istemci/sunucu sürüm hatası.
 MD_MAX="${WATCH_MULTI_DENIED_MAX:-20}"
-# P21 (mimari-p21 §9, §5.4 P1/P12, r2 S-P21-4; runbook §29.5): müşteri portalı. LOGIN_FAIL_MAX = 10 dk'da
+# P21 (mimari-p21 §9, §5.4 P1/P12, r2 S-P21-4; runbook §30.5): müşteri portalı. LOGIN_FAIL_MAX = 10 dk'da
 # rs_portal_login_total{result="fail"} artışı >= bu sayı (mimari: "10 dk'da fail >= 200", dağıtık doldurma); LOCKED_MAX = 1 sa'te
 # rs_portal_locked_total artışı bunu AŞARSA; REQ_REJECT_MAX = 1 sa'te rs_portal_requests_total{result="rate_limited"|"queue_full"}
 # artışı bunu AŞARSA (son ikisi devops varsayılanı; mimaride sayı yok).
@@ -208,7 +206,7 @@ else TIMERS="${WATCH_TIMERS:-remote-turn-fw.timer remote-backup.timer}"; TURN_CH
 case "$AV_CHECKS" in 0|1|auto) ;; *) die "WATCH_AV_CHECKS 0, 1 ya da auto olmalı" ;; esac
 case "$TURN_CHECKS" in 0|1) ;; *) die "WATCH_TURN_CHECKS 0 ya da 1 olmalı" ;; esac
 case "$PURGE_CHECKS" in 0|1) ;; *) die "WATCH_PURGE_CHECKS 0 ya da 1 olmalı" ;; esac
-for v in REPEAT_MIN DISK_MAX CERT_DAYS REMIND_DAYS GP_MAX MF_MAX PURGE_REPEAT NF_MIN NRL_MAX AV_STALE AV_FMIN UA_SMAX UA_TMIN REC_EMIN REC_BMAX REC_VMAX MD_MAX PL_FMAX PL_LMAX PR_RMAX; do
+for v in REPEAT_MIN DISK_MAX CERT_DAYS REMIND_DAYS GP_MAX MF_MAX PURGE_REPEAT NF_MIN NRL_MAX AV_STALE AV_FMIN REC_EMIN REC_BMAX REC_VMAX MD_MAX PL_FMAX PL_LMAX PR_RMAX; do
   case "${!v}" in ''|*[!0-9]*) die "WATCH_${v} sayı olmalı (bulunan: ${!v})" ;; esac
 done
 for c in docker systemctl curl openssl df timeout awk; do command -v "$c" >/dev/null 2>&1 || die "'$c' bulunamadı"; done
@@ -285,7 +283,7 @@ fi
 seen retention
 RET_FC=""; R_GP=""; R_MF=""; P_SCH=""; P_FAIL=""; P_RUN=""; P_HB=""; O_LAST=""; O_CIRC=""; L_FAIL=""; st_epoch="$NOW"
 D_FAIL=""; C_FB=""; M_TEN=""; M_ALL=""; NO_TOT=""; NO_FAIL=""; NO_OLD=""; NO_RL=""; SK_UNR=""; NO_VOL=""
-AV_UP=""; AV_ST=""; AV_AGE=""; AV_TOT=""; AV_FAIL=""; UA_NT=""; UA_NF=""; UA_SOK=""; UA_CT=""; UA_CTO=""
+AV_UP=""; AV_ST=""; AV_AGE=""; AV_TOT=""; AV_FAIL=""; UA_NT=""; UA_NF=""
 REC_PT=""; REC_PB=""; REC_ST=""; REC_SE=""; REC_VT=""; MD_TOT=""; PL_TOT=""; PL_FAIL=""; PL_LOCK=""; PR_REJ=""
 if [ -n "$SERVER_C" ]; then
   # 12.-15. alan (P18 H5; mimari-e11 §8b.13 T2/T4/T12): rs_crypto_decrypt_failures_total (bütün table), rs_calendar_fallback_total
@@ -297,11 +295,11 @@ if [ -n "$SERVER_C" ]; then
   # listesi (etiket adı channel ya da role — Metrics.gauge kayıtları {role=…} yazar; kanal adı [A-Za-z0-9_] dışı "_").
   # 3./4. alan (P14a A5): rs_guest_code_rate_limited_total{scope="prefix"} ve rs_mysql_test_failed_total (tüm class) toplamı;
   # seri yoksa "-" (metrik henüz yayında değil -> değerlendirilmez).
-  rt="$(timeout 20 docker exec "$SERVER_C" node -e "const sum=(t,re)=>{let n=0,k=0;for(const x of t.matchAll(re)){n+=Number(x[1]);k++}return k?String(n):'-'};const mx=(t,re)=>{let n=null;for(const x of t.matchAll(re)){const v=Number(x[1]);if(n===null||v>n)n=v}return n===null?'-':String(n)};fetch('http://127.0.0.1:3001/metrics',{headers:{authorization:'Bearer '+(process.env.METRICS_TOKEN||'')}}).then(r=>r.text()).then(t=>{const m=t.match(/^rs_retention_last_success_timestamp_seconds (\S+)/m);const f=t.match(/^rs_retention_failures_total (\S+)/m);console.log([m?m[1]:'yok',sum(t,/^rs_retention_failures_total(?:\{[^}]*\})? (\S+)/gm).replace('-','0'),sum(t,/^rs_guest_code_rate_limited_total\{[^}]*scope=\"prefix\"[^}]*\} (\S+)/gm),sum(t,/^rs_mysql_test_failed_total(?:\{[^}]*\})? (\S+)/gm),sum(t,/^rs_tenant_purge_jobs\{[^}]*=\"SCHEDULED\"[^}]*\} (\S+)/gm),sum(t,/^rs_tenant_purge_jobs\{[^}]*=\"FAILED\"[^}]*\} (\S+)/gm),sum(t,/^rs_tenant_purge_jobs\{[^}]*=\"RUNNING\"[^}]*\} (\S+)/gm),sum(t,/^rs_tenant_purge_last_heartbeat_seconds(?:\{[^}]*\})? (\S+)/gm),sum(t,/^rs_orphan_scan_last_success_timestamp_seconds(?:\{[^}]*\})? (\S+)/gm),sum(t,/^(?:rs_orphan_scan_circuit_open_total(?:\{[^}]*\})?|rs_orphan_files_total\{[^}]*action=\"circuit_open\"[^}]*\}) (\S+)/gm),sum(t,/^rs_erasure_ledger_write_failed_total(?:\{[^}]*\})? (\S+)/gm),sum(t,/^rs_crypto_decrypt_failures_total(?:\{[^}]*\})? (\S+)/gm),sum(t,/^rs_calendar_fallback_total(?:\{[^}]*\})? (\S+)/gm),sum(t,/^rs_request_messages_rejected_total\{[^}]*reason=\"[^\"]*tenant[^\"]*\"[^}]*\} (\S+)/gm),sum(t,/^rs_request_messages_total(?:\{[^}]*\})? (\S+)/gm),sum(t,/^rs_notify_outbox_total(?:\{[^}]*\})? (\S+)/gm),sum(t,/^rs_notify_outbox_total\{[^}]*result=\"fail(?:ed)?\"[^}]*\} (\S+)/gmi),mx(t,/^rs_notify_outbox_oldest_pending_seconds(?:\{[^}]*\})? (\S+)/gm),sum(t,/^rs_notify_rate_limited_total(?:\{[^}]*\})? (\S+)/gm),sum(t,/^rs_sms_key_unreadable_total(?:\{[^}]*\})? (\S+)/gm),[...t.matchAll(/^rs_notify_tenant_max_hourly\{(?:[^}]*,)?(?:channel|role)=\"([^\"]*)\"[^}]*\} (\S+)/gm)].map(x=>x[1].replace(/\W/g,'_')+'='+x[2]).join(',')||'-',sum(t,/^rs_av_up(?:\{[^}]*\})? (\S+)/gm),sum(t,/^rs_av_selftest_ok(?:\{[^}]*\})? (\S+)/gm),mx(t,/^rs_av_signature_age_seconds(?:\{[^}]*\})? (\S+)/gm),sum(t,/^rs_av_scan_total(?:\{[^}]*\})? (\S+)/gm),sum(t,/^rs_av_scan_total\{[^}]*result=\"failed_[^\"]*\"[^}]*\} (\S+)/gm),sum(t,/^rs_unattended_silent_notify_total(?:\{[^}]*\})? (\S+)/gm),sum(t,/^rs_unattended_silent_notify_total\{[^}]*result=\"fail\"[^}]*\} (\S+)/gm),sum(t,/^rs_unattended_connect_total\{(?=[^}]*mode=\"silent\")(?=[^}]*result=\"ok\")[^}]*\} (\S+)/gm),sum(t,/^rs_unattended_consent_total(?:\{[^}]*\})? (\S+)/gm),sum(t,/^rs_unattended_consent_total\{[^}]*decision=\"timeout\"[^}]*\} (\S+)/gm),sum(t,/^rs_rec_part_total(?:\{[^}]*\})? (\S+)/gm),sum(t,/^rs_rec_part_total\{[^}]*result=\"(?:invalid|rate|busy)\"[^}]*\} (\S+)/gm),sum(t,/^rs_rec_stop_total(?:\{[^}]*\})? (\S+)/gm),sum(t,/^rs_rec_stop_total\{[^}]*reason=\"error\"[^}]*\} (\S+)/gm),sum(t,/^rs_rec_view_throttled_total(?:\{[^}]*\})? (\S+)/gm),sum(t,/^rs_multi_denied_total(?:\{[^}]*\})? (\S+)/gm),sum(t,/^rs_portal_login_total(?:\{[^}]*\})? (\S+)/gm),sum(t,/^rs_portal_login_total\{[^}]*result=\"fail\"[^}]*\} (\S+)/gm),sum(t,/^rs_portal_locked_total(?:\{[^}]*\})? (\S+)/gm),sum(t,/^rs_portal_requests_total\{[^}]*result=\"(?:rate_limited|queue_full)\"[^}]*\} (\S+)/gm)].join(' '))}).catch(()=>console.log('yok 0'))" 2>/dev/null)" || rt="yok 0"
+  rt="$(timeout 20 docker exec "$SERVER_C" node -e "const sum=(t,re)=>{let n=0,k=0;for(const x of t.matchAll(re)){n+=Number(x[1]);k++}return k?String(n):'-'};const mx=(t,re)=>{let n=null;for(const x of t.matchAll(re)){const v=Number(x[1]);if(n===null||v>n)n=v}return n===null?'-':String(n)};fetch('http://127.0.0.1:3001/metrics',{headers:{authorization:'Bearer '+(process.env.METRICS_TOKEN||'')}}).then(r=>r.text()).then(t=>{const m=t.match(/^rs_retention_last_success_timestamp_seconds (\S+)/m);const f=t.match(/^rs_retention_failures_total (\S+)/m);console.log([m?m[1]:'yok',sum(t,/^rs_retention_failures_total(?:\{[^}]*\})? (\S+)/gm).replace('-','0'),sum(t,/^rs_guest_code_rate_limited_total\{[^}]*scope=\"prefix\"[^}]*\} (\S+)/gm),sum(t,/^rs_mysql_test_failed_total(?:\{[^}]*\})? (\S+)/gm),sum(t,/^rs_tenant_purge_jobs\{[^}]*=\"SCHEDULED\"[^}]*\} (\S+)/gm),sum(t,/^rs_tenant_purge_jobs\{[^}]*=\"FAILED\"[^}]*\} (\S+)/gm),sum(t,/^rs_tenant_purge_jobs\{[^}]*=\"RUNNING\"[^}]*\} (\S+)/gm),sum(t,/^rs_tenant_purge_last_heartbeat_seconds(?:\{[^}]*\})? (\S+)/gm),sum(t,/^rs_orphan_scan_last_success_timestamp_seconds(?:\{[^}]*\})? (\S+)/gm),sum(t,/^(?:rs_orphan_scan_circuit_open_total(?:\{[^}]*\})?|rs_orphan_files_total\{[^}]*action=\"circuit_open\"[^}]*\}) (\S+)/gm),sum(t,/^rs_erasure_ledger_write_failed_total(?:\{[^}]*\})? (\S+)/gm),sum(t,/^rs_crypto_decrypt_failures_total(?:\{[^}]*\})? (\S+)/gm),sum(t,/^rs_calendar_fallback_total(?:\{[^}]*\})? (\S+)/gm),sum(t,/^rs_request_messages_rejected_total\{[^}]*reason=\"[^\"]*tenant[^\"]*\"[^}]*\} (\S+)/gm),sum(t,/^rs_request_messages_total(?:\{[^}]*\})? (\S+)/gm),sum(t,/^rs_notify_outbox_total(?:\{[^}]*\})? (\S+)/gm),sum(t,/^rs_notify_outbox_total\{[^}]*result=\"fail(?:ed)?\"[^}]*\} (\S+)/gmi),mx(t,/^rs_notify_outbox_oldest_pending_seconds(?:\{[^}]*\})? (\S+)/gm),sum(t,/^rs_notify_rate_limited_total(?:\{[^}]*\})? (\S+)/gm),sum(t,/^rs_sms_key_unreadable_total(?:\{[^}]*\})? (\S+)/gm),[...t.matchAll(/^rs_notify_tenant_max_hourly\{(?:[^}]*,)?(?:channel|role)=\"([^\"]*)\"[^}]*\} (\S+)/gm)].map(x=>x[1].replace(/\W/g,'_')+'='+x[2]).join(',')||'-',sum(t,/^rs_av_up(?:\{[^}]*\})? (\S+)/gm),sum(t,/^rs_av_selftest_ok(?:\{[^}]*\})? (\S+)/gm),mx(t,/^rs_av_signature_age_seconds(?:\{[^}]*\})? (\S+)/gm),sum(t,/^rs_av_scan_total(?:\{[^}]*\})? (\S+)/gm),sum(t,/^rs_av_scan_total\{[^}]*result=\"failed_[^\"]*\"[^}]*\} (\S+)/gm),sum(t,/^rs_unattended_silent_notify_total(?:\{[^}]*\})? (\S+)/gm),sum(t,/^rs_unattended_silent_notify_total\{[^}]*result=\"fail\"[^}]*\} (\S+)/gm),sum(t,/^rs_rec_part_total(?:\{[^}]*\})? (\S+)/gm),sum(t,/^rs_rec_part_total\{[^}]*result=\"(?:invalid|rate|busy)\"[^}]*\} (\S+)/gm),sum(t,/^rs_rec_stop_total(?:\{[^}]*\})? (\S+)/gm),sum(t,/^rs_rec_stop_total\{[^}]*reason=\"error\"[^}]*\} (\S+)/gm),sum(t,/^rs_rec_view_throttled_total(?:\{[^}]*\})? (\S+)/gm),sum(t,/^rs_multi_denied_total(?:\{[^}]*\})? (\S+)/gm),sum(t,/^rs_session_chat_rejected_total(?:\{[^}]*\})? (\S+)/gm),sum(t,/^rs_session_chat_rejected_total\{[^}]*reason=\"internal\"[^}]*\} (\S+)/gm),sum(t,/^rs_portal_login_total(?:\{[^}]*\})? (\S+)/gm),sum(t,/^rs_portal_login_total\{[^}]*result=\"fail\"[^}]*\} (\S+)/gm),sum(t,/^rs_portal_locked_total(?:\{[^}]*\})? (\S+)/gm),sum(t,/^rs_portal_requests_total\{[^}]*result=\"(?:rate_limited|queue_full)\"[^}]*\} (\S+)/gm)].join(' '))}).catch(()=>console.log('yok 0'))" 2>/dev/null)" || rt="yok 0"
   started="$(docker inspect -f '{{.State.StartedAt}}' "$SERVER_C" 2>/dev/null)"
   st_epoch="$(date -d "$started" +%s 2>/dev/null || echo "$NOW")"
   read -r r_last r_fail R_GP R_MF P_SCH P_FAIL P_RUN P_HB O_LAST O_CIRC L_FAIL D_FAIL C_FB M_TEN M_ALL NO_TOT NO_FAIL NO_OLD NO_RL SK_UNR NO_VOL \
-    AV_UP AV_ST AV_AGE AV_TOT AV_FAIL UA_NT UA_NF UA_SOK UA_CT UA_CTO REC_PT REC_PB REC_ST REC_SE REC_VT MD_TOT PL_TOT PL_FAIL PL_LOCK PR_REJ _ <<<"$rt"
+    AV_UP AV_ST AV_AGE AV_TOT AV_FAIL UA_NT UA_NF REC_PT REC_PB REC_ST REC_SE REC_VT MD_TOT SC_TOT SC_INT PL_TOT PL_FAIL PL_LOCK PR_REJ _ <<<"$rt"
   r_last="${r_last%.*}"; r_fail="${r_fail%.*}"
   # S14-2: konteyner çıktısı güvenilmez; $(( )) bash aritmetiği `a[$(komut)]` ile komut çalıştırır -> yalnız ^[0-9]+$ girer.
   [[ "$st_epoch" =~ ^[0-9]+$ ]] || { err "UYARI: server başlangıç zamanı geçersiz; şimdi varsayıldı"; st_epoch="$NOW"; }
@@ -389,19 +387,18 @@ if [ "$AV_ON" = 1 ]; then
   fi
 fi
 
-# P28u gözetimsiz izinli/izinsiz (mimari-p28u §9.4; runbook §28u.6). 27.-31. alan: rs_unattended_silent_notify_total (bütün
-# seriler; P28u server işareti — etiketsiz sayaç ilk artışa kadar "… 0" yazılır), {result="fail"}, rs_unattended_connect_total
-# {mode="silent",result="ok"} (etiket sırasından bağımsız), rs_unattended_consent_total (bütün), {decision="timeout"}. İşaret yoksa
-# server P28u öncesidir -> değerlendirilmez; varsa etiketli seriler ilk artışa kadar yoktur -> 0. Yalnız ^[0-9]+ (S14-2).
+# P28u dört göz e-postası (mimari-p28u §9.4, §r3.1; runbook §28u.6). 27.-28. alan: rs_unattended_silent_notify_total (bütün
+# seriler; server işareti — etiketsiz sayaç ilk artışa kadar "… 0" yazılır), {result="fail"}. r3'ten itibaren sayacı yalnız P28e kayıt
+# politikası e-postası (`recording_policy`) artırır. İşaret yoksa server P28u öncesidir -> değerlendirilmez; varsa etiketli seri ilk
+# artışa kadar yoktur -> 0. Yalnız ^[0-9]+ (S14-2).
 UA=0
 UA_NT="$(num "${UA_NT:--}")"
 if [ -n "$SERVER_C" ] && [[ "${r_last:-yok}" != yok ]] && [ -n "$UA_NT" ]; then
-  UA=1; seen unattended-notify-fail; seen unattended-silent-volume; seen unattended-consent-timeout
-  UA_NF="$(num "${UA_NF:--}")"; UA_NF="${UA_NF:-0}"; UA_SOK="$(num "${UA_SOK:--}")"; UA_SOK="${UA_SOK:-0}"
-  UA_CT="$(num "${UA_CT:--}")"; UA_CT="${UA_CT:-0}"; UA_CTO="$(num "${UA_CTO:--}")"; UA_CTO="${UA_CTO:-0}"
+  UA=1; seen unattended-notify-fail
+  UA_NF="$(num "${UA_NF:--}")"; UA_NF="${UA_NF:-0}"
 fi
 
-# P28e oturum kaydı (mimari-p28e §11.2/§11.3; runbook §28e.6). 32.-36. alan: rs_rec_part_total (bütün seriler; P28e server işareti —
+# P28e oturum kaydı (mimari-p28e §11.2/§11.3; runbook §28e.6). 29.-33. alan: rs_rec_part_total (bütün seriler; P28e server işareti —
 # etiketsiz sayaç ilk artışa kadar "… 0"), {result=~"invalid|rate|busy"}, rs_rec_stop_total (bütün), {reason="error"} (gözcü
 # no_upload dahil — neden etiketi yok, alt kod audit recording.stop.cause'da), rs_rec_view_throttled_total. rs_rec_part_bytes
 # (histogram) ayrı addır, toplanmaz. İşaret yoksa server P28e öncesidir -> değerlendirilmez. Yalnız ^[0-9]+ (S14-2).
@@ -413,13 +410,22 @@ if [ -n "$SERVER_C" ] && [[ "${r_last:-yok}" != yok ]] && [ -n "$REC_PT" ]; then
   REC_SE="$(num "${REC_SE:--}")"; REC_SE="${REC_SE:-0}"; REC_VT="$(num "${REC_VT:--}")"; REC_VT="${REC_VT:-0}"
 fi
 
-# P28c çoklu teknisyen (mimari-p28c §8; runbook §28c.6). 37. alan: rs_multi_denied_total (bütün type; etiketsiz sayaç ilk reddedilen
+# P28c çoklu teknisyen (mimari-p28c §8; runbook §28c.6). 34. alan: rs_multi_denied_total (bütün type; etiketsiz sayaç ilk reddedilen
 # mesaja kadar "… 0" -> P28c server işareti). İşaret yoksa server P28c öncesidir -> değerlendirilmez. Yalnız ^[0-9]+ (S14-2).
 MD=0
 MD_TOT="$(num "${MD_TOT:--}")"
 if [ -n "$SERVER_C" ] && [[ "${r_last:-yok}" != yok ]] && [ -n "$MD_TOT" ]; then MD=1; seen multi-denied; fi
 
-# P21 müşteri portalı (mimari-p21 §9; runbook §29.5). 38.-41. alan: rs_portal_login_total (bütün seriler; P21 server işareti —
+# P22 oturum sohbeti (mimari-p22 §7.2; runbook §29.5). 35. alan: rs_session_chat_rejected_total (bütün reason; etiketsiz sayaç ilk
+# reddedilen mesaja kadar "… 0" -> P22 server işareti), 36. alan: {reason="internal"} (DB yazımı başarısız -> mesaj iletilmedi; seri
+# ilk artışa kadar yok -> 0). İşaret yoksa server P22 öncesidir -> değerlendirilmez. Yalnız ^[0-9]+ (S14-2).
+SC=0
+SC_TOT="$(num "${SC_TOT:--}")"
+if [ -n "$SERVER_C" ] && [[ "${r_last:-yok}" != yok ]] && [ -n "$SC_TOT" ]; then
+  SC=1; seen session-chat-internal; SC_INT="$(num "${SC_INT:--}")"; SC_INT="${SC_INT:-0}"
+fi
+
+# P21 müşteri portalı (mimari-p21 §9; runbook §30.5). 37.-40. alan: rs_portal_login_total (bütün seriler; P21 server işareti —
 # etiketsiz sayaç ilk girişe kadar "… 0"), {result="fail"}, rs_portal_locked_total (bütün), rs_portal_requests_total
 # {result="rate_limited"|"queue_full"}. İşaret yoksa server P21 öncesidir -> değerlendirilmez; etiketli seriler ilk artışa kadar
 # yoktur -> 0. rs_portal_sessions_active (gösterge) toplanmaz. Yalnız ^[0-9]+ (S14-2).
@@ -605,24 +611,13 @@ if [ "$AV_ON" = 1 ] && [ -n "$AV_TOT" ]; then
 fi
 
 # P28u: dört göz e-postası son denemede de gitmedi (sayaç alıcı başına, 3 deneme sonrası) -> artıştan sonra 24 sa uyarı; ilk P28u
-# turunda taban 0 (açılıştan beri birikmiş hata da alarm verir). Örnekler "ts:silent-ok:onay-toplam:onay-timeout" 25 sa tutulur:
-# 1 sa'te izinsiz bağlantı > UA_SMAX -> uyarı; 24 sa'te onay zaman aşımı >= UA_TMIN ve onay sonuçlarının > %50'si -> bilgi.
-ua_nf_prev="$(st_get ua_notify_fail)"; uasamples="$(st_get ua_samples)"
-kept=""
-for x in $uasamples; do IFS=: read -r ts _ <<<"$x"; [[ "$ts" =~ ^[0-9]+$ ]] && [ $((NOW - ts)) -le 90000 ] && kept="${kept:+$kept }$x"; done
-uasamples="$kept"
+# turunda taban 0 (açılıştan beri birikmiş hata da alarm verir). r3: yalnız P28e kayıt politikası e-postası (runbook §28e). Eski
+# `ua_samples` durum satırı (r3 öncesi silent/onay örnekleri) artık okunmaz ve durum dosyası yeniden yazılırken düşer.
+ua_nf_prev="$(st_get ua_notify_fail)"
 if [ "$UA" = 1 ]; then
   [ -n "$ua_nf_prev" ] || ua_nf_prev="0 0"
   read -r a b <<<"$(bump unattended-notify-fail "$UA_NF" "${ua_nf_prev% *}" "${ua_nf_prev#* }")"; ua_nf_prev="$a $b"
-  [ $((NOW - b)) -ge "$DAY" ] || fail unattended-notify-fail "rs_unattended_silent_notify_total{result=fail}=$UA_NF: dört göz e-postası 3 denemede gitmedi -> izinsiz bağlantı/politika değişikliği bildirilmedi (SMTP; runbook §28u.6)"
-  uasamples="${uasamples:+$uasamples }$NOW:$UA_SOK:$UA_CT:$UA_CTO"
-  d="$(incr 2 3600 "$uasamples")"
-  [ -z "$d" ] || [ "$d" -le "$UA_SMAX" ] || fail unattended-silent-volume "1 sa'te izinsiz (silent) bağlantı +$d (eşik $UA_SMAX; audit filtresi İzinsiz; runbook §28u.6)"
-  dt="$(incr 3 86400 "$uasamples")"; dto="$(incr 4 86400 "$uasamples")"
-  [ -z "$dto" ] || [ "${dt:-0}" -ge "$dto" ] || dt="$dto"
-  if [ -n "$dto" ] && [ "$dto" -ge "$UA_TMIN" ] && [ $((dto * 2)) -gt "${dt:-0}" ]; then
-    fail unattended-consent-timeout "BİLGİ: 24 sa'te onay diyaloğu yanıtsız $dto / $dt (> %50; diyalog görünmüyor olabilir; runbook §28u.6)"
-  fi
+  [ $((NOW - b)) -ge "$DAY" ] || fail unattended-notify-fail "rs_unattended_silent_notify_total{result=fail}=$UA_NF: dört göz e-postası 3 denemede gitmedi -> kayıt politikası değişikliği bildirilmedi (SMTP; runbook §28u.6)"
 else ua_nf_prev=""; fi
 
 # P28e: örnekler "ts:parça-toplam:parça-red:stop-toplam:stop-error:izleme-429" 90 dk tutulur. 1 sa'te error ile duran >= REC_EMIN ve
@@ -657,6 +652,15 @@ if [ "$MD" = 1 ]; then
   [ -z "$d" ] || [ "$d" -le "$MD_MAX" ] || fail multi-denied "1 sa'te çoklu teknisyen rol kapısı reddi +$d (rs_multi_denied_total{type}: izleyici/katılımcı yetkisiz mesaj — rol yükseltme denemesi ya da sürüm hatası; eşik $MD_MAX; runbook §28c.6)"
 fi
 
+# P22: sohbet "internal" reddi — tasarım "5 dk'da > 0"; timer 10 dk -> son turdan beri artış (bump), artıştan sonra 1 sa alarm.
+# İlk P22 turunda taban 0 (açılıştan beri birikmiş hata da alarm verir). Süreç yeniden başlayınca sayaç sıfırlanır (bump yeni değeri artış sayar).
+ci_prev="$(st_get chat_internal)"
+if [ "$SC" = 1 ]; then
+  [ -n "$ci_prev" ] || ci_prev="0 0"
+  read -r a b <<<"$(bump session-chat-internal "$SC_INT" "${ci_prev% *}" "${ci_prev#* }")"; ci_prev="$a $b"
+  [ $((NOW - b)) -ge 3600 ] || fail session-chat-internal "oturum sohbeti mesajı saklanamadı -> iletilmedi (rs_session_chat_rejected_total{reason=internal}=$SC_INT; log event=session_chat_store; runbook §29.5)"
+else ci_prev=""; fi
+
 # P21: örnekler "ts:giriş-fail:kilit:talep-ret" 90 dk tutulur. 600 sn penceresinde (timer 10 dk -> fiilen 10-20 dk) giriş hatası
 # artışı >= PL_FMAX -> portal-login-fail; 1 sa'te kilit artışı > PL_LMAX -> portal-locked; 1 sa'te talep reddi > PR_RMAX ->
 # portal-request-reject. Süreç yeniden başlarsa sayaç sıfırlanır (incr yeni değeri artış sayar).
@@ -667,11 +671,11 @@ ptsamples="$kept"
 if [ "$PT" = 1 ]; then
   ptsamples="${ptsamples:+$ptsamples }$NOW:$PL_FAIL:$PL_LOCK:$PR_REJ"
   d="$(incr 2 600 "$ptsamples")"
-  [ -z "$d" ] || [ "$d" -lt "$PL_FMAX" ] || fail portal-login-fail "10 dk'da portal giriş hatası +$d (>= $PL_FMAX; dağıtık kimlik doldurma? rs_portal_login_total{result=fail}; runbook §29.5)"
+  [ -z "$d" ] || [ "$d" -lt "$PL_FMAX" ] || fail portal-login-fail "10 dk'da portal giriş hatası +$d (>= $PL_FMAX; dağıtık kimlik doldurma? rs_portal_login_total{result=fail}; runbook §30.5)"
   d="$(incr 3 3600 "$ptsamples")"
-  [ -z "$d" ] || [ "$d" -le "$PL_LMAX" ] || fail portal-locked "1 sa'te kilitlenen portal hesabı +$d (eşik $PL_LMAX; audit portal.locked; runbook §29.5)"
+  [ -z "$d" ] || [ "$d" -le "$PL_LMAX" ] || fail portal-locked "1 sa'te kilitlenen portal hesabı +$d (eşik $PL_LMAX; audit portal.locked; runbook §30.5)"
   d="$(incr 4 3600 "$ptsamples")"
-  [ -z "$d" ] || [ "$d" -le "$PR_RMAX" ] || fail portal-request-reject "1 sa'te portal talep reddi +$d (rate_limited|queue_full; eşik $PR_RMAX; audit via:portal; runbook §29.5)"
+  [ -z "$d" ] || [ "$d" -le "$PR_RMAX" ] || fail portal-request-reject "1 sa'te portal talep reddi +$d (rate_limited|queue_full; eşik $PR_RMAX; audit via:portal; runbook §30.5)"
 fi
 
 cur=""
@@ -716,9 +720,9 @@ if [ -f "$BSTATUS" ] && [ "$(prom remote_backup_offsite_configured)" = 0 ]; then
 fi
 
 tmp="$STATE.tmp.$$"
-printf 'failing=%s\nlast_sent=%s\noffsite_remind=%s\nretention_fail_count=%s\nretention_fail_at=%s\ncounter_samples=%s\npurge_sent=%s\norphan_circuit=%s\nledger_write=%s\ndecrypt_fail=%s\ncalendar_fallback=%s\nmsg_tenant_rate=%s\nnotify_volume_since=%s\nsms_key_unreadable=%s\nnotify_samples=%s\nav_down=%s\nav_samples=%s\nua_notify_fail=%s\nua_samples=%s\nrec_samples=%s\nmulti_samples=%s\nportal_samples=%s\n' \
+printf 'failing=%s\nlast_sent=%s\noffsite_remind=%s\nretention_fail_count=%s\nretention_fail_at=%s\ncounter_samples=%s\npurge_sent=%s\norphan_circuit=%s\nledger_write=%s\ndecrypt_fail=%s\ncalendar_fallback=%s\nmsg_tenant_rate=%s\nnotify_volume_since=%s\nsms_key_unreadable=%s\nnotify_samples=%s\nav_down=%s\nav_samples=%s\nua_notify_fail=%s\nrec_samples=%s\nmulti_samples=%s\nchat_internal=%s\nportal_samples=%s\n' \
   "$keep" "$last_sent" "$remind" "${prev_rfc:-}" "${prev_rfa:-}" "$samples" "$purge_sent" "${oc_prev:-}" "${lw_prev:-}" \
-  "${df_prev:-}" "${cf_prev:-}" "${mt_prev:-}" "${vs_prev:-}" "${sk_prev:-}" "$nsamples" "$av_down" "$avsamples" "${ua_nf_prev:-}" "$uasamples" "$recsamples" "$mdsamples" "$ptsamples" >"$tmp" && mv -f "$tmp" "$STATE"
+  "${df_prev:-}" "${cf_prev:-}" "${mt_prev:-}" "${vs_prev:-}" "${sk_prev:-}" "$nsamples" "$av_down" "$avsamples" "${ua_nf_prev:-}" "$recsamples" "$mdsamples" "${ci_prev:-}" "$ptsamples" >"$tmp" && mv -f "$tmp" "$STATE"
 tmp="$STATE_DIR/status.prom.tmp.$$"
 {
   echo "# $TAG (mimari-p13 §7.8); sır yok"

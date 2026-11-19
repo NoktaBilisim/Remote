@@ -12,7 +12,7 @@ import { namesOf } from "@/lib/voice/console";
 import type { GuestVoice, GuestVoiceView } from "@/lib/voice/guest";
 import { guestBarModel } from "@/lib/voice/ui";
 import type { TechRosterEntry } from "@remote/contracts/ws-multi";
-import { chatAuthor } from "@/lib/multi/roster";
+import { useSessionChat, type SessionChat } from "@/lib/chat/use-session-chat";
 import { useCollab } from "@/lib/dc/use-collab";
 import { useGuestRec } from "@/lib/rec/use-guest-rec";
 import { Button } from "@/components/ui/button";
@@ -49,6 +49,8 @@ interface GuestInfo {
   customerName: string;
   /** Lobi kodu; F5 dönüşünde (lobiye girilmez) null. */
   admitCode: string | null;
+  /** P22 (§8.2): sohbet başlığındaki AC-292 satırı (resolve); F5 dönüşünde bilinmez → genel saklama cümlesi. */
+  chatRetentionDays?: number | null;
 }
 
 interface GuestSessionProps {
@@ -89,11 +91,8 @@ export function GuestSession({ info: join, verifyCode, sessionRef, cred, storeKe
   const collab = useCollab(g.channels, {
     inbound: "TO_CUSTOMER",
     filesAllowed,
-    chatVisible: chatOpen,
     receiveAnnot: true,
     sendMeta: g.send,
-    // P28c (§4.5): sohbet tüm teknisyen eşlerine yayılır
-    chatHub: g.chatHub,
     maxFileMb: g.maxFileMb,
     fsrv: {
       mode: g.fileMode,
@@ -101,6 +100,15 @@ export function GuestSession({ info: join, verifyCode, sessionRef, cred, storeKe
       subscribe: g.subscribe,
       ready: state.phase === "live" && state.reconnectSince === null && state.techPresent,
     },
+  });
+  // P22 (§8.2): oturum sohbeti WS'ten (`rs.cap.schat1`); tüm teknisyenlere sunucu yayar
+  const chat = useSessionChat({
+    side: "guest",
+    subscribe: g.subscribe,
+    send: g.send,
+    tid: null,
+    visible: chatOpen,
+    connected: state.phase === "live" && state.reconnectSince === null,
   });
   const pip = usePip();
   // P28e (§9, AC-381/382): rıza (bellek) ilk hello'da gider; gösterge + Kaydı durdur yalnız sunucu durumundan
@@ -129,7 +137,7 @@ export function GuestSession({ info: join, verifyCode, sessionRef, cred, storeKe
         onLeave={end}
       />
     );
-  const live = { state, now, techName: join.technicianName, share, video, collab, pip, rec };
+  const live = { state, now, techName: join.technicianName, share, video, collab, chat, pip, rec, days: join.chatRetentionDays ?? null };
   const multi = { roster: g.roster, onRemove: g.removeTech, onDrawn: g.markDrawn };
   const dialog = { confirm, onConfirm: setConfirm, onEnd: end };
   const voice = { view: g.voiceView, api: g.voice };
@@ -143,6 +151,9 @@ interface GuestLiveProps {
   share: ShareControls;
   video: RefObject<HTMLVideoElement | null>;
   collab: Collab;
+  chat: SessionChat;
+  /** AC-292 gün sayısı (resolve); bilinmiyorsa null. */
+  days: number | null;
   pip: ReturnType<typeof usePip>;
   rec: ReturnType<typeof useGuestRec>;
   filesAllowed: boolean;
@@ -194,10 +205,12 @@ function GuestLive(p: GuestLiveProps) {
         )}
         <GuestCollab
           collab={collab}
+          chat={p.chat}
+          retentionDays={p.days}
           filesAllowed={p.filesAllowed}
           techName={p.techName}
           onChatVisible={p.onChatVisible}
-          authorOf={p.multi.roster ? (by) => chatAuthor(by, p.multi.roster ?? [], p.techName) : undefined}
+          authorOf={(tid) => p.multi.roster?.find((e) => e.tid === tid)?.name ?? null}
         />
         <ViewOnlyNote />
       </div>

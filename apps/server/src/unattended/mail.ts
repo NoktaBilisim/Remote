@@ -129,61 +129,17 @@ export function recoveryConnectMail(o: { user: string; device: string; at: Date;
   ]);
 }
 
-// ------------------------------------------------------------------------------------------- P28u dört göz (AC-436, 441)
-// mimari-p28u §9.2 (D-P28u-4, K-P28u-14): konu SABİT, gerekçe yalnız gövdede (düz metin; HTML sürümünde `esc`). URL yok. Commit
+// ------------------------------------------------------------------------------------------- dört göz e-postası (P28e)
+// r3 (K-P28u-r3): izinsiz bağlantı / politika / katılım e-postaları kaldırıldı; altyapı yalnız P28e `recording_policy`
+// (S-P28e-4) için kalır. mimari-p28u §9.2 (D-P28u-4, K-P28u-14): konu SABİT. URL yok. Commit
 // sonrası süreç içi 3 deneme (0 / 10 / 30 sn) → ≤ 60 sn; her deneme `unattended.silent.notify` (alıcı maskeli) + `mail.sent`
 // (MailService). Son deneme de başarısızsa audit `result:fail` + metrik; bağlantı sürer. Yeniden başlatmada bekleyen deneme
 // kaybolur (ADR-0005 kabulü).
 
-export const SILENT_CONNECT_SUBJECT = "İzin istenmeden bağlanıldı";
-export const SILENT_POLICY_SUBJECT = "Gözetimsiz erişim politikası değişti";
 /** P28e (mimari-p28e §11.5, S-P28e-4): gözetimsiz kayıt politikası değişti (sabit konu; URL yok). */
 export const RECORDING_POLICY_SUBJECT = "Gözetimsiz bağlantı kayıt politikası değişti";
 /** §9.2: deneme gecikmeleri (ms; ilk deneme hemen). */
 export const SILENT_NOTICE_DELAYS_MS: readonly number[] = [0, 10_000, 30_000];
-
-/** İzinsiz bağlantı: bağlanan, cihaz, müşteri, saat, gerekçe. */
-export function silentConnectMail(o: { user: string; device: string; customer: string; at: Date; reason: string }): MailContent {
-  return content(SILENT_CONNECT_SUBJECT, [
-    `${o.user}, ${o.customer} müşterisinin "${o.device}" cihazına kullanıcıdan izin istemeden gözetimsiz bağlantı açtı (${istanbul(o.at)}).`,
-    `Gerekçe: ${o.reason}`,
-    "Bu bağlantı beklenmiyorsa kullanıcının yetkilerini ve firmanın gözetimsiz erişim politikasını hemen kontrol edin.",
-  ]);
-}
-
-/** P28c (mimari-p28c §4.3 Y-PC-1): izinsiz odaya ek teknisyen katıldı / oturum devredildi (sabit konu; gerekçe yalnız gövdede). */
-export const SILENT_JOIN_SUBJECT = "İzinsiz gözetimsiz oturuma teknisyen katıldı";
-export const SILENT_TRANSFER_SUBJECT = "İzinsiz gözetimsiz oturum devredildi";
-const MULTI_ROLE_LABEL: Record<string, string> = { participant: "Katılımcı", observer: "İzleyici", owner: "Oturum sahibi" };
-export function silentJoinMail(o: {
-  event: "join" | "transfer";
-  user: string;
-  role: string;
-  owner: string;
-  device: string;
-  at: Date;
-  reason?: string;
-}): MailContent {
-  if (o.event === "transfer")
-    return content(SILENT_TRANSFER_SUBJECT, [
-      `${o.user}, "${o.device}" cihazındaki izinsiz gözetimsiz oturumu ${o.owner} adlı teknisyene devretti (${istanbul(o.at)}).`,
-      "Bu devir beklenmiyorsa kullanıcıların yetkilerini hemen kontrol edin.",
-    ]);
-  return content(SILENT_JOIN_SUBJECT, [
-    `${o.user}, ${o.owner} tarafından açılan "${o.device}" cihazındaki izinsiz gözetimsiz oturuma ${MULTI_ROLE_LABEL[o.role] ?? o.role} olarak katıldı (${istanbul(o.at)}).`,
-    `Gerekçe: ${o.reason ?? ""}`,
-    "Bu katılım beklenmiyorsa kullanıcının yetkilerini ve firmanın gözetimsiz erişim politikasını hemen kontrol edin.",
-  ]);
-}
-
-/** Politika değişikliği: değiştiren, eski → yeni, saat. */
-export function silentPolicyMail(o: { user: string; old: boolean; next: boolean; at: Date }): MailContent {
-  const label = (v: boolean): string => (v ? "açık" : "kapalı");
-  return content(SILENT_POLICY_SUBJECT, [
-    `${o.user}, "İzin istemeden bağlanma" politikasını değiştirdi: ${label(o.old)} → ${label(o.next)} (${istanbul(o.at)}).`,
-    "Bu değişiklik beklenmiyorsa gözetimsiz erişim ayarlarını hemen kontrol edin.",
-  ]);
-}
 
 /**
  * P28e §11.5: "Gözetimsiz bağlantıları da kaydet" değişti (iki yön; `enabled=false` zinciri dahil). Gövde: değiştiren, eski → yeni,
@@ -220,8 +176,8 @@ export interface SilentNotice {
   ctx: AuditContext;
   tenantId: string;
   actor: { userId: string; email: string };
-  /** P28e: `recording_policy` (gözetimsiz kayıt politikası; S-P28e-4). */
-  event: SilentNotifyEvent;
+  /** P28e: `recording_policy` (gözetimsiz kayıt politikası; S-P28e-4). r3: diğer olaylar artık yazılmaz. */
+  event: Extract<SilentNotifyEvent, "recording_policy">;
   entity: "support_sessions" | "tenant_settings";
   entityId: string;
   content: MailContent;

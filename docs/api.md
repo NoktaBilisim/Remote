@@ -1091,6 +1091,7 @@ paylaşım sürüyorsa `share.state: sharing`'i yeniden gönderir.
 | 1009 | Mesaj 64 KB'ı aştı                                                                                            |
 | 4401 | Teknisyenin oturumu geçersizleşti (60 sn'de bir yeniden doğrulanır); önce `session.ended{auth_revoked}`       |
 | 4409 | Aynı teknisyen aynı oturuma başka sekmeden bağlandı; eski soket kapanır                                       |
+| 4426 | (P22) `/ws/tech` `rs.cap.schat1` bildirmedi — eski konsol sekmesi (`console_outdated`); "Sayfayı yenileyin"   |
 
 Sunucu 30 sn'de bir ping atar; iki pong kaçıran soket sonlandırılır. Bekleyen oturumun süresi dolunca teknisyen ve
 lobi `session.ended{timeout}` alır (30 sn'lik süre dolumu turu gecikmesiyle).
@@ -3035,7 +3036,7 @@ kapsamlıdır (Super Admin bir firma seçmelidir); başka firmanın kaydı 404.
 `DeviceListItem`: `{ id, name, customerId, customerName, online, localEnabled, signatureOk, lastSeenAt, lastSessionAt,
 grantCount, canConnect, connectBlockedReason, verified, notifyFailed, replacedAlert }`. `connectBlockedReason`:
 `no_grant` | `unsigned` | `offline` | `outdated` (P28u) | `local_disabled` | `no_contacts` | `smtp` | `null`. P28u'dan
-beri ek alan `userState` ve panel yoklaması 8 sn (bkz. "Gözetimsiz izinli / izinsiz bağlantı ve müdahale (P28u)").
+beri ek alan `userState` ve panel yoklaması 8 sn (bkz. "Gözetimsiz onaysız bağlantı ve müdahale (P28u)").
 Ayrıca `GET /sessions?deviceId=` ve `GET /users/options?unattendedGrantable=1` (`manage`) eklendi. Etkin cihaz varken
 SMTP alanını değiştiren `PUT /settings/tenant` step-up ister (401 `MFA_STEP_UP_REQUIRED`). Eski SMTP kaydı varsa kayıttan
 önce firmadaki diğer `unattended.manage` / `settings.edit` sahiplerine eski ayarla bilgi e-postası gider; eski kayıt yoksa
@@ -3487,130 +3488,129 @@ odasında P5 `file.meta` yok sayılır, misafire giden `caps`'ten `file_transfer
 Dosya adı, belirteç ve içerik hiçbir olayda yoktur. Metrikler `rs_av_scan_total{result}`, `rs_av_up`, `rs_av_selftest_ok`,
 `rs_av_signature_age_seconds`, `rs_fsrv_denied_total{reason}` (alarm eşikleri: runbook §28b.4).
 
-## Gözetimsiz izinli / izinsiz bağlantı ve müdahale (P28u)
+## Gözetimsiz onaysız bağlantı ve müdahale (P28u)
 
-Kaynak: `apps/server/src/unattended/{routes,connect,connect-silent,connect-tx,policy,intervene,mail}.ts`,
+Kaynak: `apps/server/src/unattended/{routes,connect,connect-tx,intervene,mail}.ts`,
 `signaling/{admit-device,rejoin-device}.ts`, `packages/contracts/src/{api/unattended.ts,api/sessions.ts,api/audit.ts,
-unattended-consent.ts,ws-device.ts,errors.ts,permissions.ts,audit.ts}`. Tasarım `docs/mimari-p28u.md` (ADR-0033); operasyon
-runbook §28u. Yeni yetki `unattended.silent` ("İzin istemeden bağlan", hassas). Doğrulama hataları mevcut 400 `VALIDATION`
-zarfıyla (`fields`) döner. Servis sürümü 0.15.0 alt protokol listesine `rs.cap.consent1` ekler; bildirmeyen cihaz "eski"
-sayılır.
+unattended-consent.ts,ws-device.ts,errors.ts,permissions.ts,audit.ts}`. Tasarım `docs/mimari-p28u.md` §r3 (ADR-0033);
+operasyon runbook §28u. Doğrulama hataları mevcut 400 `VALIDATION` zarfıyla (`fields`) döner.
 
-**Kip (`consentMode`):** `asked` (cihazda aktif kullanıcı izin verdi) · `no_user` (oturum yok/kilitli, onaysız) · `silent`
-(izin istemeden). Etiketler (`CONSENT_MODE_LABELS`): "İzinli", "Kullanıcı yok", "İzinsiz". Kipi cihaz bağlantı anında seçer
-(`asked`/`no_user`); `silent` istekle belirlenir.
+**r3 (2026-11-18, onaysız tek yol):** gözetimsiz bağlantı her zaman cihaz kullanıcısına sorulmadan açılır; yeni oturumlarda
+`consentMode` her zaman `no_user`'dır. Kaldırılanlar: `GET/PUT /api/v1/unattended/policy` (artık 404), connect gövdesindeki
+`silent` / `reason`, `status.silentAllowed`, `SILENT_DISABLED` hata kodu, `unattended.silent` yetkisi, teknisyen × cihaz
+"60 sn'de 1" sınırı, cihaz onay penceresi ve izleme kipi. Saklı kalmış `unattended.silent` yetki satırı okumada yok sayılır,
+kullanıcı bir sonraki kaydedilişinde silinir.
 
-### Yeni hata kodları
+**Kip (`consentMode`, yalnız okuma/süzgeç):** `no_user` · `asked` (r3 öncesi, cihaz kullanıcısı onayladı) · `silent` (r3
+öncesi, izin istemeden). Etiketler (`CONSENT_MODE_LABELS`): "Onaysız", "Kullanıcı onayıyla (eski)", "İzinsiz (eski)".
 
-| Kod                 | HTTP | Metin                                                    |
-| ------------------- | ---- | -------------------------------------------------------- |
-| `DEVICE_OUTDATED`   | 409  | Cihazdaki servis güncel değil — güncelleyin              |
-| `SILENT_DISABLED`   | 409  | Firma politikası izin istemeden bağlanmaya izin vermiyor |
-| `INTERVENE_PENDING` | 409  | Önceki komut henüz tamamlanmadı                          |
-| `INTERVENE_FAILED`  | 502  | Cihaz komutu uygulayamadı (`fields.reason`, aşağıda)     |
+**Servis yeteneği:** sunucu bağlanmayı yalnız alt protokol listesinde `rs.cap.direct1` bildiren servise açar. 0.15–0.19
+servisler (`rs.cap.consent1`, `direct1` yok) ve daha eskiler "eski" sayılır: liste `outdated`, connect 409 `DEVICE_OUTDATED`.
+Bir sonraki servis sürümü `direct1` bildirir.
+
+### Hata kodları
+
+| Kod                 | HTTP | Metin                                                |
+| ------------------- | ---- | ---------------------------------------------------- |
+| `DEVICE_OUTDATED`   | 409  | Cihazdaki servis güncel değil — güncelleyin          |
+| `INTERVENE_PENDING` | 409  | Önceki komut henüz tamamlanmadı                      |
+| `INTERVENE_FAILED`  | 502  | Cihaz komutu uygulayamadı (`fields.reason`, aşağıda) |
 
 ### Uçlar
 
-| Uç                                                      | Yetki                                                                     | Girdi                                                   | Çıktı                                               | Hatalar                                                                                                           |
-| ------------------------------------------------------- | ------------------------------------------------------------------------- | ------------------------------------------------------- | --------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------- |
-| `GET /api/v1/unattended/status` (değişti)               | `connect` ∨ `manage`                                                      | —                                                       | `{ mode, available, notifyChannel, silentAllowed }` | —                                                                                                                 |
-| `POST /api/v1/unattended/devices/:id/connect` (değişti) | `connect` + cihaz yetkisi + step-up (tüketilir); `silent` için + `silent` | `{}` (izinli) ya da `{ "silent": true, "reason": "…" }` | `{ sessionId }`                                     | zincir aşağıda                                                                                                    |
-| `GET /api/v1/unattended/policy`                         | `unattended.manage` ∧ `settings.view`                                     | —                                                       | `{ silentEnabled, ackAt, ackByName }`               | 403                                                                                                               |
-| `PUT /api/v1/unattended/policy`                         | `unattended.manage` ∧ `settings.edit`; açarken step-up (tüketmez)         | `{ "silentEnabled": true, "ack": true }`                | `{ silentEnabled, ackAt, ackByName }`               | 400 `VALIDATION` (`fields.ack`: "Açmak için bilgilendirme kutusunu işaretleyin"), 401 `MFA_STEP_UP_REQUIRED`, 403 |
-| `POST /api/v1/sessions/:id/unattended/lock`             | `unattended.connect` + oturumun teknisyeni + cihaz yetkisi                | `{}`                                                    | `{ "ok": true }`                                    | 403, 404, 409 `DEVICE_OUTDATED` / `INTERVENE_PENDING`, 429, 502 `INTERVENE_FAILED`                                |
-| `POST /api/v1/sessions/:id/unattended/logoff`           | aynı                                                                      | `{ "confirm": true }`                                   | `{ "ok": true, "rejoin": true }`                    | aynı; `confirm` yoksa 400 ("Onay gerekli")                                                                        |
+| Uç                                                      | Yetki                                                 | Girdi                 | Çıktı                                | Hatalar                                                                            |
+| ------------------------------------------------------- | ----------------------------------------------------- | --------------------- | ------------------------------------ | ---------------------------------------------------------------------------------- |
+| `GET /api/v1/unattended/status`                         | `connect` ∨ `manage`                                  | —                     | `{ mode, available, notifyChannel }` | —                                                                                  |
+| `POST /api/v1/unattended/devices/:id/connect` (değişti) | `connect` + cihaz yetkisi + step-up (tüketilir)       | `{}` (ek alan → 400)  | `{ sessionId }`                      | zincir aşağıda                                                                     |
+| `POST /api/v1/sessions/:id/unattended/lock`             | `unattended.connect` + kontrol sahibi + cihaz yetkisi | `{}`                  | `{ "ok": true }`                     | 403, 404, 409 `DEVICE_OUTDATED` / `INTERVENE_PENDING`, 429, 502 `INTERVENE_FAILED` |
+| `POST /api/v1/sessions/:id/unattended/logoff`           | aynı                                                  | `{ "confirm": true }` | `{ "ok": true, "rejoin": true }`     | aynı; `confirm` yoksa 400 ("Onay gerekli")                                         |
 
-- `silentAllowed` = firma politikası açık ∧ çağıranda `unattended.silent`. Panel "İzin istemeden bağlan" kutusunu yalnız
-  `true` iken çizer; sunucu yine zincirde denetler.
-- `reason`: kırpılır, 20–500 karakter (kod noktası), satır sonu yalnız `\n`, kontrol/görünmez karakter yok. `silent` ⇔
-  `reason`; ihlal 400 `fields.reason` ("Gerekçe zorunlu" / "Gerekçe yalnız izin istemeden bağlanmada girilir" /
-  "Gerekçe 20–500 karakter olmalı"). Bilinmeyen alan 400.
-- Politika: `false→true` için `ack: true` ve son 5 dk'da step-up gerekir; `true→false` step-up istemez ve açık izinsiz
-  oturumları (bekleyenler dahil) `CANCELLED(permission)` ile keser; aynı değer 200 döner, audit yazmaz. `ackAt`/`ackByName`
-  kapatınca korunur (iz).
+### Bağlantı zincirine eklenen adım
 
-### Bağlantı zincirine eklenen adımlar
+P27 zincirine (bkz. "Bağlantı ön koşul zinciri") tek adım eklenir; her ret audit `unattended.connect{result:fail,
+failReason, mode}` olarak yazılır:
 
-P27 zincirine (bkz. "Bağlantı ön koşul zinciri") şu adımlar eklenir; ilk başarısız olan döner, her ret audit
-`unattended.connect{result:fail, failReason, mode}` olarak yazılır:
+| Yer              | Denetim                                | Hata                                                |
+| ---------------- | -------------------------------------- | --------------------------------------------------- |
+| 8a (8'den sonra) | cihaz `rs.cap.direct1` bildirmiş       | 409 `DEVICE_OUTDATED` (step-up **tüketilmez**)      |
+| gönderim anı     | soket arada eski servisle yenilendiyse | oturum `CANCELLED(protocol)`, 409 `DEVICE_OUTDATED` |
 
-| Yer           | Denetim                                                                             | Hata                                 |
-| ------------- | ----------------------------------------------------------------------------------- | ------------------------------------ |
-| 2'den sonra   | `silent` ise `unattended.silent`                                                    | 403 `FORBIDDEN`                      |
-| 2'den sonra   | `silent` ise firma politikası açık                                                  | 409 `SILENT_DISABLED`                |
-| kovadan sonra | `ask` ise teknisyen × cihaz başına 60 sn'de 1 istek (yalnız başarılı istek sayılır) | 429 `RATE_LIMITED` (`retryAfterSec`) |
-| 8'den sonra   | cihaz `rs.cap.consent1` bildirmiş                                                   | 409 `DEVICE_OUTDATED`                |
-| TX            | politika ve `unattended.silent` işlem içinde yeniden okunur                         | 409 / 403                            |
+Oturum `PENDING` süresi 60 sn. Cihaz bağlantıyı kullanıcıya sormadan kabul eder ve `consent.result{mode:"no_user"}` gönderir;
+3 sn içinde gelmezse oturum `CANCELLED(consent_missing)` olur. Bağlantı açılınca konsol bir kez otomatik `control.request`
+gönderir (yalnız kontrol sahibi ve `remote_control.use`), cihaz hemen verir. `consent_denied` / `consent_timeout` bitişleri
+yalnız r3 öncesi kayıtlarda görünür.
 
-Oturum `PENDING` süresi: `ask` 150 sn (onay penceresi 60 sn + pay), `silent` 60 sn. Kullanıcı reddederse oturum
-`CANCELLED(consent_denied)`, yanıt vermezse `CANCELLED(consent_timeout)` olur; konsol metni "Kullanıcı bağlantıyı reddetti." /
-"Kullanıcı yanıt vermedi.".
-
-Örnek istek / yanıt (izinsiz):
+Örnek istek / yanıt:
 
 ```http
 POST /api/v1/unattended/devices/01KA0000000000000000000000/connect
 Content-Type: application/json
 X-CSRF-Token: <csrf>
 
-{ "silent": true, "reason": "Fidye yazılımı şüphesi; diskteki şifreleme işlemi durdurulacak" }
+{}
 ```
 
 ```json
 { "sessionId": "01KA0000000000000000000001" }
 ```
 
-Politika kapalıyken aynı istek:
+Eski servisli cihaz:
 
 ```json
-{ "error": { "code": "SILENT_DISABLED", "message": "Firma politikası izin istemeden bağlanmaya izin vermiyor" } }
+{ "error": { "code": "DEVICE_OUTDATED", "message": "Cihazdaki servis güncel değil — güncelleyin" } }
 ```
+
+Eski gövde (`{ "silent": true, "reason": "…" }`) → 400 `VALIDATION`.
 
 ### Müdahale ön koşulları
 
-Sırayla: `unattended.connect` (403) → oturum bu firmada (404) → çağıran oturumun teknisyeni (403) → oda canlı ve gözetimsiz
-(katılımlı oturum 403) → cihaz yetkisi sürüyor (404) → kontrol açık, izleme kipinde değil (403 "Önce müdahale edin (kontrol
-açık olmalı).") → cihaz `consent1` (409 `DEVICE_OUTDATED`) → bekleyen komut yok (409 `INTERVENE_PENDING`) → oda başına
-dakikada 6 komut (429). Sunucu cihaza komutu iletir ve sonucu bekler: kilit 5 sn, oturum kapatma 15 sn. Başarısız ya da
-yanıtsız komut 502 `INTERVENE_FAILED` döner; `fields.reason` ∈ `no_session` | `not_in_control` | `not_locked` | `no_user` |
-`api_error` | `timeout`.
+Sırayla: `unattended.connect` (403) → oturum bu firmada (404) → çağıran oturumun kontrol sahibi (403; çok teknisyenli odada
+devirden sonra devralan) → oda canlı ve gözetimsiz (katılımlı oturum 403) → cihaz yetkisi sürüyor (404) → kontrol açık
+(403 "Önce kontrolü alın (kontrol açık olmalı).") → cihaz `consent1`
+(409 `DEVICE_OUTDATED`) → bekleyen komut yok (409 `INTERVENE_PENDING`) → oda başına dakikada 6 komut (429). Sunucu
+cihaza komutu iletir ve sonucu bekler: kilit 5 sn, oturum kapatma 15 sn. Başarısız ya da yanıtsız komut 502
+`INTERVENE_FAILED` döner; `fields.reason` ∈ `no_session` | `not_in_control` | `not_locked` | `no_user` | `api_error` |
+`timeout`.
 
 Oturum kapatmada `rejoin: true` → sunucu 45 sn'lik yeniden katılım penceresi açtı; servis yeni Windows oturumunda yardımcıyı
-başlatıp aynı oturuma katılır (kontrol kapalı başlar). Pencerede katılamazsa oturum `session_changed` ile biter. `asked`
-kipinde oturum kapatıldıktan sonra konsolda bir kullanıcı oturum açarsa oturum `session_changed` ile biter (onay taşınmaz).
+başlatıp aynı oturuma katılır (`rejoin.mode` her zaman `no_user`); konsol kontrolü yeniden kendiliğinden ister. Pencerede
+katılamazsa oturum `session_changed` ile biter. Rejoin anında servis `direct1` bildirmiyorsa oturum `protocol` ile biter ve
+yanıt `rejoin: false` olur.
 
 ### Mevcut uçlarda değişenler
 
-| Uç                                       | Değişiklik                                                                                                                                                                                                                                                                             |
-| ---------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `GET /api/v1/unattended/devices`, `/:id` | `userState`: `active` \| `locked` \| `none` \| `null` (çevrimdışı ya da eski servis). Yalnız çağıranın cihaz yetkisi olan cihazda dolu; audit ve dışa aktarımda yok. `connectBlockedReason` + `outdated`                                                                               |
-| `GET /api/v1/sessions`                   | Satırda `consentMode` (`asked` \| `no_user` \| `silent` \| `null`); yeni süzgeç `consentMode=asked\|no_user\|silent` (kipsiz satırlar elenir); dışa aktarım aynı süzgeci kullanır                                                                                                      |
-| `GET /api/v1/sessions/:id/history`       | `unattended?: { consentMode, silentReason?, timeline: [{ at, kind, result?, decision?, ms? }] }`; `kind` ∈ `consent` \| `control_on` \| `control_off` \| `lock` \| `logoff` \| `rejoin` (≤ 200 satır). `silentReason` yalnız `silent` ve anonimleştirilmemiş oturumda. Başka firma 404 |
-| `GET /api/v1/audit`                      | Süzgeç `consentMode=asked\|no_user\|silent` (`new_value.consentMode` eşitliği). Reddedilen/zaman aşımlı istekler `unattended.consent` satırıyla `asked` süzgecinde görünür; geçersiz değer 400 "Bağlantı kipi geçersiz"                                                                |
+| Uç                                       | Değişiklik                                                                                                                                                                                                                                                                                                      |
+| ---------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `GET /api/v1/unattended/devices`, `/:id` | `userState`: `active` \| `locked` \| `none` \| `null` (çevrimdışı ya da eski servis); yalnız bilgi, bağlantıyı etkilemez. Yalnız çağıranın cihaz yetkisi olan cihazda dolu; audit ve dışa aktarımda yok. `connectBlockedReason` + `outdated` (`direct1` yok)                                                    |
+| `GET /api/v1/sessions`                   | Satırda `consentMode` (`no_user` \| `asked` \| `silent` \| `null`); süzgeç `consentMode=no_user\|asked\|silent` (kipsiz satırlar elenir); dışa aktarım aynı süzgeci kullanır                                                                                                                                    |
+| `GET /api/v1/sessions/:id/history`       | `unattended?: { consentMode, silentReason?, timeline: [{ at, kind, result?, decision?, ms? }] }`; `kind` ∈ `consent` (yalnız eski kayıt) \| `control_on` \| `control_off` \| `lock` \| `logoff` \| `rejoin` (≤ 200 satır). `silentReason` yalnız eski `silent` ve anonimleştirilmemiş oturumda. Başka firma 404 |
+| `GET /api/v1/audit`                      | Süzgeç `consentMode=no_user\|asked\|silent` (`new_value.consentMode` eşitliği); geçersiz değer 400 "Bağlantı kipi geçersiz"                                                                                                                                                                                     |
 
 ### Audit ve bildirim
 
-Yeni eylemler: `unattended.consent` (aktör cihaz, `username = device:<deviceId>`; `consentMode, decision, ms,
-technicianId`), `unattended.control_toggle` (`from`, `to`, `consentMode`), `unattended.lock` / `unattended.logoff`
-(`deviceId, consentMode, durationMs, failReason?`, logoff'ta `rejoin`), `unattended.rejoin`, `unattended.silent.notify`
-(`event: connect|policy`, alıcı maskeli, `result`, `attempt`), `settings.unattended_silent` (`old`, `new`, `ack`).
-`unattended.connect` ve `unattended.session.started/ended` satırlarına `consentMode` eklendi; gerekçe yalnız başarılı izinsiz
-`unattended.connect` satırında `silentReason` olarak durur, uygulama loguna yazılmaz. Audit listesi ve CSV'de gerekçe
-yalnız çağıranda `session_history.view` varsa ve oturum aynı firmada, anonimleştirilmemiş duruyorsa açık gelir; aksi her
-durumda `"***"` döner (kayıt değişmez). Kullanıcı varlık durumu hiçbir audit
-satırına yazılmaz.
+Yazılan eylemler: `unattended.connect` (`consentRequested:"ask"` — tarihsel ad), `unattended.session.started/ended`
+(`consentMode:"no_user"`, bitişte süre), `unattended.control_toggle` (`from`, `to`, `consentMode`), `unattended.lock` /
+`unattended.logoff` (`deviceId, consentMode, durationMs, failReason?`, logoff'ta `rejoin`), `unattended.rejoin`.
+`unattended.silent.notify` artık yalnız P28e kayıt politikası e-postası için yazılır (`event:"recording_policy"`).
 
-Dört göz e-postası (konu sabit: "İzin istenmeden bağlanıldı" / "Gözetimsiz erişim politikası değişti"): alıcı firmadaki diğer
-etkin `unattended.manage` sahipleri; yoksa işlemi yapan + etkin Admin'ler. 3 deneme (0 / 10 / 30 sn); başarısızlık bağlantıyı
-durdurmaz. Müşteri bildirimine izinsiz bağlantıda "İzin istenmeden bağlanıldı." satırı eklenir (gerekçe eklenmez).
+Yalnız r3 öncesi satırlarda görünen (okunur, etiketlenir, yeni yazılmaz): `unattended.consent` ("Gözetimsiz bağlantı onayı
+(cihaz kullanıcısı)"), `settings.unattended_silent` ("Gözetimsiz erişim politikası değişti (eski)"), `unattended.silent.notify`
+`event: connect | policy | join | transfer`, `unattended.connect.silentReason`. Eski gerekçe audit listesi ve CSV'de yalnız
+çağıranda `session_history.view` varsa ve oturum aynı firmada, anonimleştirilmemiş duruyorsa açık gelir; aksi `"***"`.
+Kullanıcı varlık durumu hiçbir audit satırına yazılmaz.
+
+Müşteri bildirimi (P27 şablonu) her gözetimsiz bağlantıda aynen gider; ayrı "izin istenmeden" satırı yoktur.
 
 ### `/ws/device` (servis protokolü, `"v":1` aynı)
 
-Sunucu `device.ready`'den sonra yalnız `rs.cap.consent1` bildiren sokete `device.features{caps:["consent1"]}` gönderir.
-S→C: `connect` (+ `consent: "ask"|"silent"`, silent'ta `indicatorControl`), `intervene{sessionId, id, cmd: lock|logoff}`,
-`rejoin{sessionId, ticket, mode, indicatorText, indicatorControl?, expiresInSec ≤ 30}`. C→S (yalnız `device.features`
-alındıktan sonra): `device.user{state}`, `consent.result{mode, decision?, ms?}`, `intervene.result{sessionId, id, cmd, ok,
-reason?}`. Şemalar `packages/contracts/src/ws-device.ts`, fikstür `fixtures/ws-device.json`.
+Yeni servisin alt protokol listesi: `rs.device.v1`, `rs.cap.consent1`, `rs.cap.record1`, `rs.cap.direct1`. Sunucu
+`device.ready`'den sonra `rs.cap.consent1` bildiren sokete `device.features{caps:["consent1", …]}` gönderir (`direct1`
+`device.features`'a girmez). S→C: `connect` (+ `consent: "ask"` — tek değer, tarihsel ad; anlamı "gözetimsiz bağlantı,
+cihaz sormaz"), `intervene{sessionId, id, cmd: lock|logoff}`, `rejoin{sessionId, ticket, mode:"no_user", indicatorText,
+expiresInSec ≤ 30}`. C→S (yalnız `device.features` alındıktan sonra): `device.user{state}`, `consent.result{sessionId,
+mode:"no_user"}`, `intervene.result{sessionId, id, cmd, ok, reason?}`. Yeni servis r3 öncesi sunucudan `consent:"silent"`
+alırsa bağlanmaz (`connect.result{protocol}`). Şemalar `packages/contracts/src/ws-device.ts`, fikstür
+`fixtures/ws-device.json`.
 
 ## Oturum kaydı (P28e)
 
@@ -3703,7 +3703,7 @@ ve `Range` desteği **yoktur**; `HEAD` açılmaz. Her GET'te kullanıcı, giriş
 
 - `state`: `active` | `stopped`. `basis`: `consent` | `tenant_policy`. `stopReason`: `revoked` | `quota` | `session_end` |
   `error` | `policy_off`.
-- Gözetimsiz kayıtta `consentMode` (`asked` | `no_user` | `silent`); `silent` ve anonimleştirilmemiş oturumda `silentReason`.
+- Gözetimsiz kayıtta `consentMode` (yeni kayıtta `no_user`; eski kayıtta `asked` | `silent`); yalnız eski `silent` ve anonimleştirilmemiş oturumda `silentReason`.
 - `canDelete` yalnız `session_history.edit` varken ve kayıt `stopped` iken `true`.
 - Kayıt yok ya da silinmiş → 404 (silinmişin izi geçmiş detayındaki `recording` alanındadır).
 
@@ -3764,7 +3764,7 @@ sokete gider; bildirmeyen sokette gelen `rec.*` şema hatasıdır (1008). Şemal
 | `rec.state`    | S → misafir          | `on`, `reason?`                                                           | Gösterge ve düğme yalnız buna göre çizilir. `reason`: `revoked`, `quota`, `session_end`, `error`, `policy_off`, `unavailable`                                              |
 | `rec.state`    | S → tüm teknisyenler | `on`, `reason?`, `rid?`, `basis?`, `upload?: { token, series, nextPart }` | `on:true` iken `rid` + `basis` zorunlu. `upload` yalnız kaydedici teknisyene. Yeniden bağlanmada `hello.rec` aynı gövdeyle gelir (yeni belirteç, yeni bölüm)               |
 | `rec.error`    | teknisyen → S        | `id`, `code`: `unsupported` \| `recorder_failed` \| `upload_failed`       | Yalnız kaydediciden; kayıt `STOPPED{error}`                                                                                                                                |
-| `connect` (ek) | S → cihaz            | `recording?: true`                                                        | Yalnız `record1` cihaza. İzinli kipte onay penceresine "Bu bağlantının ekran kaydı alınacaktır" satırı, göstergeye " — Kayıt yapılıyor" eki                                |
+| `connect` (ek) | S → cihaz            | `recording?: true`                                                        | Yalnız `record1` cihaza. Göstergeye " — Kayıt yapılıyor" eki (r3: onay penceresi yok)                                                                                      |
 | `rec.state`    | S → cihaz            | `on`                                                                      | Kayıt ortada durursa gösterge eki kalkar                                                                                                                                   |
 
 Gözetimsiz konsolda cihaz `record1` bildirmediyse teknisyen `hello.unattended.recordOutdated: true` alır ("Cihaz istemcisi
@@ -3804,9 +3804,8 @@ katılımcı geçmişi audit'ten türetilir.
 - Müşteri tarafı (Windows istemci, gözetimsiz yardımcı, tarayıcı misafir) `rs.cap.multi1` bildirmiyorsa (istemci/servis
   0.17.0 öncesi) davet ve İzle açılmaz: 409 `CLIENT_UNSUPPORTED`.
 - Gözetimsiz odada katılan kişide `unattended.connect` ve cihaz yetkisi gerekir; kabul ve İzle 2FA kurulu olmasını ve son 5 dk
-  içinde step-up yapılmasını ister. **İzinli (`asked`) gözetimsiz odaya ek teknisyen katılamaz** (409 `JOIN_NOT_ALLOWED`).
-  **İzinsiz (`silent`) odada** `unattended.silent`, açık firma politikası ve kabul/İzle gövdesinde 20–500 karakter gerekçe
-  zorunludur; katılım ve devirde dört göz e-postası gider.
+  içinde step-up yapılmasını ister. Kipi `no_user` olmayan odaya (henüz admit edilmemiş ya da r3 öncesi `asked`) katılım
+  409 `JOIN_NOT_ALLOWED` alır. P28u r3'ten beri gerekçe ve dört göz e-postası yoktur; kabul/İzle gövdesi `{}`'dir.
 - Müşterinin çıkardığı teknisyen aynı oturuma davet, İzle ya da WS ile yeniden giremez (403).
 
 ### Yetkiler
@@ -3825,10 +3824,9 @@ Davet edilecek kişide en az `sessions.view` bulunmalıdır. Super Admin davet e
 | `SESSION_FULL`       | 409  | Oturum dolu                                                                         |
 | `CLIENT_UNSUPPORTED` | 409  | Müşterinin uygulaması bu özelliği desteklemiyor — güncel sürümü indirmesini isteyin |
 | `INVITE_GONE`        | 410  | Davet artık geçerli değil                                                           |
-| `JOIN_NOT_ALLOWED`   | 409  | İzinli gözetimsiz bağlantıya ek teknisyen katılamaz                                 |
+| `JOIN_NOT_ALLOWED`   | 409  | Bu gözetimsiz bağlantıya ek teknisyen katılamaz (r3: kipi `no_user` olmayan oda)    |
 
-Yeniden kullanılanlar: `VALIDATION` (400; gerekçe eksik/fazla → `fields.reason` "Gerekçe zorunlu" / "Gerekçe yalnız izinsiz
-bağlantıda verilir"), `MFA_STEP_UP_REQUIRED` (401), `MFA_SETUP_REQUIRED` (403; konsol "Önce 2FA kurun"), `FORBIDDEN` (403),
+Yeniden kullanılanlar: `VALIDATION` (400; kabul/İzle gövdesinde bilinmeyen alan, ör. eski `reason`), `MFA_STEP_UP_REQUIRED` (401), `MFA_SETUP_REQUIRED` (403; konsol "Önce 2FA kurun"), `FORBIDDEN` (403),
 `NOT_FOUND` (404; başka firma ya da biçimsiz kimlik dahil), `CONFLICT` (409; oda etkin değil, kişi zaten odada ya da davetli,
 devir sürüyor), `RATE_LIMITED` (429, `retryAfterSec`).
 
@@ -3845,25 +3843,25 @@ Başarısız davet/kabul/İzle `fail` audit'i aynı (kullanıcı, oturum, neden)
 
 ### Uçlar (`/api/v1/sessions`, çerez + Origin + CSRF)
 
-| Uç                                        | Yetki / kural                                                 | Girdi                                       | Çıktı                                                                                       | Hatalar                                                                                                              |
-| ----------------------------------------- | ------------------------------------------------------------- | ------------------------------------------- | ------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------- |
-| `GET /sessions/:id/invite-candidates`     | `sessions.invite` + oturum sahibi                             | —                                           | `{ items: {userId, fullName, avatarUrl}[] }` (≤ 200, ada göre)                              | 403, 404, 409 `CONFLICT` / `CLIENT_UNSUPPORTED` / `JOIN_NOT_ALLOWED`, 429                                            |
-| `POST /sessions/:id/invites`              | `sessions.invite` + oturum sahibi                             | `{ "userId": "<ULID>" }`                    | 201 `{ inviteId, expiresAt }`                                                               | 400, 403, 404, 409 `SESSION_FULL` / `CLIENT_UNSUPPORTED` / `JOIN_NOT_ALLOWED` / `CONFLICT`, 429                      |
-| `GET /sessions/:id/invites`               | Oturum sahibi                                                 | —                                           | `{ items: {inviteId, userId, inviteeName, expiresAt}[] }` (bitişe göre)                     | 403, 404, 429                                                                                                        |
-| `DELETE /sessions/:id/invites/:inviteId`  | Oturum sahibi                                                 | —                                           | 204                                                                                         | 403, 404, 429                                                                                                        |
-| `GET /sessions/invites`                   | Oturum açmış her kullanıcı; yalnız kendine gelen davetler     | —                                           | `{ items: {inviteId, sessionId, fromName, customerName, unattended, silent, expiresAt}[] }` | 429                                                                                                                  |
-| `POST /sessions/invites/:inviteId/accept` | Davet bu kullanıcıya ait; uygunluk zinciri yeniden denetlenir | `{}` ya da silent odada `{ "reason": "…" }` | `{ sessionId, consoleUrl }`                                                                 | 400 `fields.reason`, 401, 403, 409 `SESSION_FULL` / `CONFLICT`, 410 `INVITE_GONE`, 429                               |
-| `POST /sessions/invites/:inviteId/reject` | Davet bu kullanıcıya ait                                      | —                                           | 204                                                                                         | 410 `INVITE_GONE`, 429                                                                                               |
-| `GET /sessions/active`                    | `sessions.supervise`; seçili firma                            | —                                           | `{ items: ActiveSessionItem[] }`                                                            | 403, 429                                                                                                             |
-| `POST /sessions/:id/supervise`            | `sessions.supervise`; uygunluk zinciri                        | `{}` ya da silent odada `{ "reason": "…" }` | `{ sessionId, consoleUrl }`                                                                 | 400 `fields.reason`, 401, 403, 404, 409 `SESSION_FULL` / `CLIENT_UNSUPPORTED` / `JOIN_NOT_ALLOWED` / `CONFLICT`, 429 |
+| Uç                                        | Yetki / kural                                                 | Girdi                    | Çıktı                                                                               | Hatalar                                                                                              |
+| ----------------------------------------- | ------------------------------------------------------------- | ------------------------ | ----------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------- |
+| `GET /sessions/:id/invite-candidates`     | `sessions.invite` + oturum sahibi                             | —                        | `{ items: {userId, fullName, avatarUrl}[] }` (≤ 200, ada göre)                      | 403, 404, 409 `CONFLICT` / `CLIENT_UNSUPPORTED` / `JOIN_NOT_ALLOWED`, 429                            |
+| `POST /sessions/:id/invites`              | `sessions.invite` + oturum sahibi                             | `{ "userId": "<ULID>" }` | 201 `{ inviteId, expiresAt }`                                                       | 400, 403, 404, 409 `SESSION_FULL` / `CLIENT_UNSUPPORTED` / `JOIN_NOT_ALLOWED` / `CONFLICT`, 429      |
+| `GET /sessions/:id/invites`               | Oturum sahibi                                                 | —                        | `{ items: {inviteId, userId, inviteeName, expiresAt}[] }` (bitişe göre)             | 403, 404, 429                                                                                        |
+| `DELETE /sessions/:id/invites/:inviteId`  | Oturum sahibi                                                 | —                        | 204                                                                                 | 403, 404, 429                                                                                        |
+| `GET /sessions/invites`                   | Oturum açmış her kullanıcı; yalnız kendine gelen davetler     | —                        | `{ items: {inviteId, sessionId, fromName, customerName, unattended, expiresAt}[] }` | 429                                                                                                  |
+| `POST /sessions/invites/:inviteId/accept` | Davet bu kullanıcıya ait; uygunluk zinciri yeniden denetlenir | `{}` (ek alan → 400)     | `{ sessionId, consoleUrl }`                                                         | 400, 401, 403, 409 `SESSION_FULL` / `CONFLICT`, 410 `INVITE_GONE`, 429                               |
+| `POST /sessions/invites/:inviteId/reject` | Davet bu kullanıcıya ait                                      | —                        | 204                                                                                 | 410 `INVITE_GONE`, 429                                                                               |
+| `GET /sessions/active`                    | `sessions.supervise`; seçili firma                            | —                        | `{ items: ActiveSessionItem[] }`                                                    | 403, 429                                                                                             |
+| `POST /sessions/:id/supervise`            | `sessions.supervise`; uygunluk zinciri                        | `{}` (ek alan → 400)     | `{ sessionId, consoleUrl }`                                                         | 400, 401, 403, 404, 409 `SESSION_FULL` / `CLIENT_UNSUPPORTED` / `JOIN_NOT_ALLOWED` / `CONFLICT`, 429 |
 
 Tüm GET yanıtları `Cache-Control: no-store`. `inviteId` 22 karakter base64url'dir; biçimsiz yol parametresi 404 döner.
 Başkasına ait ya da bilinmeyen davet kabul/ret isteği kimlik sızdırmamak için 410 döner. `consoleUrl` =
 `/sessions/<id>/console`; teknisyenin rolü konsol WS `hello` mesajından gelir.
 
-`ActiveSessionItem`: `{ id, technicianName, customerName, mode, startedAt, techCount, full, supported, unattended, silent,
+`ActiveSessionItem`: `{ id, technicianName, customerName, mode, startedAt, techCount, full, supported, unattended,
 consentMode? }`. `supported: false` → İzle pasif (`CLIENT_UNSUPPORTED` metni). Gözetimsiz oda yalnız çağıran o cihaza
-bağlanabiliyorsa listelenir; izinli (`asked`) oda ve yetkisiz olunan izinsiz oda listede hiç görünmez.
+bağlanabiliyorsa ve kipi `no_user` ise listelenir.
 
 Örnek — davet ve kabul:
 
@@ -3927,14 +3925,14 @@ sahibinin eşinden kabul edilir.
 | `session.invite` (Teknisyen davet edildi)                 | `{inviteeUserId, inviteeName}`; ret `fail` + `failReason`                      |
 | `session.invite_accept` / `session.invite_reject`         | `{inviteId}`                                                                   |
 | `session.invite_expire` (Davet düştü)                     | `{inviteeUserId, reason: timeout\|session_end\|revoked}`                       |
-| `session.participant_join` (Teknisyen katıldı)            | `{userId, role, consentMode?, reasonLen?}`                                     |
-| `session.supervise_join` (Süpervizör izlemeye başladı)    | `{userId, role:"observer", consentMode?, reasonLen?}`; ret `fail`              |
+| `session.participant_join` (Teknisyen katıldı)            | `{userId, role, consentMode?}`                                                 |
+| `session.supervise_join` (Süpervizör izlemeye başladı)    | `{userId, role:"observer", consentMode?}`; ret `fail`                          |
 | `session.participant_leave` (Teknisyen ayrıldı)           | `{userId, role, reason: left\|disconnect\|no_show\|session_end\|auth_revoked}` |
 | `session.participant_remove` (Müşteri teknisyeni çıkardı) | `{userId, role}`, aktör müşteri                                                |
 | `session.control_handover` (Kontrol devredildi)           | `{fromUserId, toUserId, reason?: "controller_left"}`                           |
 | `session.transfer` (Oturum devredildi)                    | `{fromUserId, toUserId}`; `fail` `conflict` \| `target_gone`                   |
 
-İzinsiz odada katılım ve devir `unattended.silent.notify` (`event: join | transfer`) yazar. Metrikler
+P28u r3'ten beri katılım ve devir `unattended.silent.notify` yazmaz (eski satırlar `event: join | transfer` ile okunur). Metrikler
 `rs_multi_invites_total{result}`, `rs_multi_members{role}`, `rs_multi_denied_total{type}`; alarm runbook §28c.6.
 
 ## Sesli görüşme (P28d)
@@ -4151,7 +4149,7 @@ AC-262, ADR-0039; tasarım `docs/mimari-p21.md` r2 §4–§5, sözleşme özeti 
 `apps/server/src/portal/{routes,guard,auth,session,data,admin,admin-routes,limits,retention}.ts`,
 `requests/{service,create-tx,create-steps}.ts` (`createPortal`), `packages/contracts/src/api/portal.ts`
 (`@remote/contracts/api/portal`), `permissions.ts` (`customers.portal`), `audit.ts` (`PORTAL_AUDIT`), `labels.ts`.
-Yeni hata kodu, env ve bağımlılık yok. Migration `20261126000000_p21_customer_portal` (`portal_users`, `portal_sessions`).
+Yeni hata kodu, env ve bağımlılık yok. Migration `20261127000000_p21_customer_portal` (`portal_users`, `portal_sessions`).
 
 **Kimlik alanı ayrıdır.** Portal kullanıcısı (`portal_users`) panel kullanıcısı değildir; rolü ve yetki toggle'ı yoktur.
 Kapsam (firma + müşteri) her istekte oturumun DB satırından türetilir; istekte `tenantId` / `customerId` / `ref` kabul edilmez
@@ -4319,10 +4317,148 @@ Grup "Müşteri portalı": `portal.login` (başarısızda `reason`: `invalid_cre
 Entity `portal_users`. Silinmiş portal hesabının kimliği audit listesinde ve CSV'de maskelenir. Geçici şifre ve TOTP kodu yazılmaz.
 
 Metrikler: `rs_portal_login_total{result,reason}`, `rs_portal_locked_total`, `rs_portal_requests_total{result}`
-(`created` | `rate_limited` | `queue_full`), `rs_portal_sessions_active`. Alarmlar runbook §29.5.
+(`created` | `rate_limited` | `queue_full`), `rs_portal_sessions_active`. Alarmlar runbook §30.5.
 
 Saklama: süresi dolmuş/iptal portal oturumları 7 gün sonra, pasif hesaplar firmanın `retention_days` süresi sonra silinir;
 müşteri anonimleştirilince portal hesapları ve oturumları aynı işlemde silinir.
+
+## Oturum sohbeti (P22)
+
+Oturum sohbeti artık yalnız sinyalizasyon WebSocket'inden geçer: gönderen → sunucu (doğrula → şifrele → kaydet) → herkese
+ilet (AC-264, 291, 292; mimari `docs/mimari-p22.md` §4, §5, §15; ADR-0025). DataChannel `chat` yeni kodda kullanılmaz.
+Mesajlar `session_messages` tablosunda AES-256-GCM ile şifreli saklanır, oturum anonimleştirilirken silinir. Sohbet uçtan uca
+şifreli değildir. Sözleşme `packages/contracts/src/{chat,ws-chat}.ts`, `src/api/sessions.ts`; ortak örnekler
+`packages/contracts/fixtures/ws-session-chat.json`. Yeni env yok. Migration `20261126000000_p22_session_chat` (yalnız UQ
+indeksi). Yeni yetki `sessions.view_chat`.
+
+### Yetki
+
+- `sessions.view_chat` ("Sohbet geçmişini görüntüle", hassas): oturum geçmişinde sohbet ve bağlı talebin kabul öncesi
+  yazışmasını okur. Admin açık, User kapalı başlar. User'a verilirse `historyScope` onu kendi oturumlarıyla sınırlar.
+- Canlı oturumda sohbet yetki istemez: oturuma katılma hakkı (sahip, davetli, `sessions.supervise` izleyici) yeterlidir.
+
+### GET /api/v1/sessions/:id/chat?after=<ulid>
+
+Yetki: `session_history.view` + `sessions.view_chat` + `historyScope` (User yalnız kendi oturumu). Hız: kullanıcı başına
+60/dk. Yanıt `Cache-Control: no-store`.
+
+| Girdi   | Kural                                                                                              |
+| ------- | -------------------------------------------------------------------------------------------------- |
+| `:id`   | Oturum ULID'i. Biçim dışı, yok, kapsam dışı ya da başka firma → 404                                |
+| `after` | İsteğe bağlı ULID. Yalnız aynı oturum + firmada aranır; bulunmazsa yok sayılır (baştan listelenir) |
+
+200 yanıtı:
+
+```json
+{
+  "request": {
+    "items": [{ "id": "01JD…", "sender": "CUSTOMER", "senderName": null, "body": "Yazıcı çalışmıyor", "createdAt": "2026-11-18T09:00:00.000Z" }],
+    "total": 1
+  },
+  "session": {
+    "items": [{ "id": "01JE…", "sender": "TECH", "senderName": "Ayşe Yılmaz", "body": "Bağlandım", "createdAt": "2026-11-18T09:05:00.000Z" }],
+    "more": false
+  }
+}
+```
+
+- `request`: bağlı talebin kabul öncesi yazışması (ilk 200 öğe, artan; `total` tam sayı). Talep yoksa, anonimse ya da
+  `after` verildiyse `null`.
+- `session.items`: en çok 200 öğe (`SESSION_CHAT_PAGE_MAX`), artan. `more: true` ise son öğenin `id`'siyle `after` verin.
+- `senderName` yalnız TECH'te dolu. `body: null` = gövde çözülemedi (ekranda "Mesaj okunamadı";
+  `rs_crypto_decrypt_failures_total{table="session_messages"}` artar).
+
+| Hata | Kod            | Ne zaman                                              |
+| ---- | -------------- | ----------------------------------------------------- |
+| 400  | `VALIDATION`   | `after` ULID değil ya da bilinmeyen sorgu alanı       |
+| 403  | `FORBIDDEN`    | `session_history.view` ya da `sessions.view_chat` yok |
+| 404  | `NOT_FOUND`    | Oturum yok, kapsam dışı, başka firma                  |
+| 429  | `RATE_LIMITED` | 60/dk aşıldı (`Retry-After`)                          |
+
+Audit: `after`'sız çağrıda `session.chat_viewed` (`entity: support_sessions`, `new_value: {messages, requestMessages}` =
+yanıtta gösterilen öğe sayıları; gövde yok). Aynı kullanıcı + oturum için 10 dk'da en çok 1 (bellek penceresi; yeniden
+başlatmada sıfırlanır). 403 audit'e yazılmaz. Metrik `rs_session_chat_reads_total` her çağrıda artar.
+
+### Mevcut uçlarda değişenler
+
+| Uç                                          | Eklenen alan                                                                                                                                                                       |
+| ------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `GET /api/v1/sessions/:id/history`          | `chat: {count, legacy}` — yalnız `sessions.view_chat` sahibine; yetkisizde alan **yok**. `count` = oturum mesaj sayısı; `legacy` = oturumda `session.chat_legacy` audit satırı var |
+| `POST /api/v1/public/sessions/resolve`      | `chatRetentionDays: number` (firmanın `retentionDays` değeri; onay düğmesi üstündeki satır)                                                                                        |
+| `GET /api/v1/public/requests/tenant`        | `chatRetentionDays` (aynı); müşteri ref'i ve `POST /public/bindings/status` yanıtı da aynı şekilde                                                                                 |
+| `GET` / `PUT /api/v1/settings/consent-text` | `chatParagraphMissing: boolean` (güncel metin "Sohbet uçtan uca şifreli değildir" cümlesini içermiyor), `chatParagraph: string` (standart sohbet paragrafı)                        |
+
+Sistem aydınlatma metnine standart sohbet paragrafı eklendi (`CHAT_CONSENT_PARAGRAPH`). `pnpm db:seed` hazır metni kullanan
+her firmaya yeni sürüm yayımlar; Admin'in yazdığı metne dokunmaz. Yeni sürüm yayımlanınca eski sürümle açık karşılama/talep
+sayfaları join'de 400 alır (AC-127; sayfa yenilenince düzelir).
+
+### WebSocket: yetenek ve kapanış kodu
+
+- Belirteç `rs.cap.schat1` (talep sohbetinin `rs.cap.chat1`'inden ayrı). Sunucu yanıtı yine yalnız `rs.v1`.
+- `/ws/guest`: yeni tarayıcı misafir her zaman bildirir. Hızlı Destek 0.20 ve öncesi bildirmez → oturum sohbeti iki tarafta
+  kapalıdır; misafire hiçbir `chat.*` mesajı gitmez. Misafir `chat.send` yalnız belirteçli sokette şemadadır; aksi 1008.
+- `/ws/tech`: konsol her zaman bildirir. Belirteç yoksa sunucu soketi odaya bağlamadan **4426** (`console_outdated`) ile
+  kapatır; konsol "Konsol sürümü eski — sayfayı yenileyin" gösterir. Metrik `rs_ws_tech_outdated_total`.
+- Teknisyene giden `hello` ve `peer.joined{role:"guest"}` += `guestChat: "on" | "outdated"`. Alan yoksa kabul edilmiş misafir
+  yok ya da oda gözetimsiz. Misafire giden `hello`'da bu alan yoktur.
+- Gözetimsiz odada hiçbir `chat.*` mesajı gitmez; teknisyen `chat.send` → `chat.rejected{forbidden}`.
+
+### WebSocket mesajları
+
+| Yön                                          | Mesaj           | Alanlar                                                                                                                                                           |
+| -------------------------------------------- | --------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| teknisyen / `schat1` misafir → sunucu        | `chat.send`     | `clientMsgId` (`^[A-Za-z0-9_-]{16,36}$`), `body`                                                                                                                  |
+| sunucu → tüm teknisyenler + `schat1` misafir | `chat.message`  | `id` (ULID), `sender: "TECH" \| "CUSTOMER"`, `tid?`, `senderName?` (yalnız TECH), `body`, `createdAt`, `clientMsgId?` (yalnız gönderenin kendi kopyasında = onay) |
+| sunucu → aynı                                | `chat.history`  | `items` (≤ 100, artan, `clientMsgId`'siz), `more: boolean`. Çerçeve ≤ 48 KiB                                                                                      |
+| sunucu → aynı                                | `chat.state`    | `enabled: boolean`, `reason?: "not_active" \| "ended"`                                                                                                            |
+| sunucu → gönderen                            | `chat.rejected` | `clientMsgId`, `reason: "rate" \| "cap" \| "invalid" \| "forbidden" \| "not_active" \| "outdated" \| "internal"`                                                  |
+
+Kurallar:
+
+- `body`: NFC + trim, 1..1.000 kod noktası, en çok 20 satır, görünmez/kontrol karakteri yok (P18 talep sohbetiyle aynı
+  `chatBodySchema`). Zarf geçerli, gövde geçersiz → `chat.rejected{invalid}`, soket açık kalır.
+- Sıra: teknisyende `hello` → `chat.state` → (oda ACTIVE ise ve teknisyenin koltuğu varsa) `chat.history`; misafir kabulünde
+  teknisyenlere `chat.state{enabled:true}`; bitişte `chat.state{false,"ended"}`. Misafirde (`schat1`) kabulden sonra
+  `chat.state{true}` → `chat.history`.
+- Sunucu önce kaydeder, sonra iletir. Kayıt başarısızsa iletim yok, `chat.rejected{internal}`.
+- Yinelenen `clientMsgId` (aynı oturum + gönderen) yeniden kaydedilmez; yalnız gönderene yankı gider.
+- İzleyici `chat.send` → `forbidden`. Kabul edilmiş misafir eski istemciyse teknisyen `chat.send` → `outdated`, satır 0.
+- Sınırlar: gönderen başına 5 mesaj/sn (`rate`); oturumda gönderen başına 2.000 ve toplam 10.000 mesaj (`cap`); firma başına
+  müşteri mesajı 600/dk (`rate`, panele `queue.alert`).
+- Eski (≤ 0.20) misafire konsol yalnız sabit bildirimi DC `chat` ile gönderir: "Bu sürümde sohbet kapalıdır. Yazdıklarınız
+  teknisyene gösterilmez ve kaydedilmez; lütfen sohbet için programı güncelleyin." Misafirden gelen DC `chat` gösterilmez.
+
+Örnekler:
+
+```json
+{ "t": "chat.send", "clientMsgId": "AbCdEfGhIjKlMnOpQrSt_-", "body": "Merhaba" }
+{ "t": "chat.message", "id": "01JE0000000000000000000000", "sender": "TECH", "tid": "AAAAAAAAAAA", "senderName": "Ayşe Yılmaz",
+  "body": "Merhaba", "createdAt": "2026-11-18T09:05:00.000Z", "clientMsgId": "AbCdEfGhIjKlMnOpQrSt_-" }
+{ "t": "chat.rejected", "clientMsgId": "AbCdEfGhIjKlMnOpQrSt_-", "reason": "rate" }
+{ "t": "peer.joined", "role": "guest", "guestKind": "AGENT", "guestChat": "outdated" }
+```
+
+### P18 düzeltmesi: talep geçmişi boyutu
+
+`/ws/request` `request.messages` çerçevesi artık ≤ 48 KiB (`REQUEST_HISTORY_MAX_BYTES`, en çok 50 öğe, en yeniden geriye).
+Önceden uzun talep yazışmasında çerçeve Go istemcinin 64 KiB okuma sınırını aşıp yeniden bağlanmada bağlantıyı kopartabiliyordu.
+Şema değişmedi (`more` alanı eklenmedi); sığmayan eski mesajlar istemcide görünmez, panel REST'ten tamamını görür.
+
+### Audit ve metrik
+
+| Action                      | `new_value`                                            | Ne zaman                                                                  |
+| --------------------------- | ------------------------------------------------------ | ------------------------------------------------------------------------- |
+| `session.chat_viewed`       | `{messages, requestMessages}`                          | Geçmişte sohbet açıldı (yukarıda)                                         |
+| `session.chat_summary`      | `{tech, customer, senderUserIds, legacy}`              | Oturum bitişinde bir kez (her bitiş yolunda, DB'den sayım)                |
+| `session.chat_rejected`     | `{reason: cap\|forbidden\|internal\|outdated, sender}` | Neden + gönderen başına oturumda 1                                        |
+| `session.chat_legacy`       | —                                                      | Belirteçsiz misafir kabul edildi (oturum başına 1)                        |
+| `session.chat_history_sent` | `{userId, n}`                                          | Sonradan katılan üyeye önceki `n` mesaj gönderildi (ilk katılım, `n > 0`) |
+
+Mesaj başına audit yazılmaz; her mesaj zaten append-only, gönderenli ve zaman damgalı bir `session_messages` satırıdır
+(K-P22-6). Gövde hiçbir audit/log satırına yazılmaz. `retention.run` sayaçlarına `sessionMessages` eklendi.
+Metrikler: `rs_session_chat_messages_total{sender}`, `rs_session_chat_rejected_total{reason}`,
+`rs_session_chat_legacy_sessions_total`, `rs_session_chat_reads_total`, `rs_session_chat_store_seconds`,
+`rs_ws_tech_outdated_total`, `rs_retention_rows_total{kind="session_messages"}`. Alarm `session-chat-internal` (runbook §29).
 
 ## Saklama ve anonimleştirme (P13a)
 

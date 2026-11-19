@@ -14,6 +14,7 @@ import {
 } from "@remote/contracts/ws";
 import { WS_CAP_REC } from "@remote/contracts/ws-rec";
 import { WS_CAP_MULTI } from "@remote/contracts/ws-multi";
+import { WS_CAP_SCHAT } from "@remote/contracts/ws-chat";
 import type { P5Outbound } from "../dc/ctl";
 
 /** Misafirin yeniden bağlanma penceresi (sunucu 120 sn sonra oturumu bitirir). */
@@ -26,12 +27,14 @@ export function wsUrl(path: string, loc: Pick<Location, "protocol" | "host"> = l
 /**
  * P28e (§6.1): tarayıcı misafir kayıt göstergesi + "Kaydı durdur"u çizebilir → her zaman `rs.cap.rec1` bildirir.
  * P28c (§4.4): eş haritası + bağlı teknisyen listesi çizer → her zaman `rs.cap.multi1` (yanıt/ICE `to`'lu, roster alır).
+ * P22 (§4.1, K-P22-10): oturum sohbeti WS'ten → her zaman `rs.cap.schat1` (tarayıcı istisnası yok; açıkça bildirilir).
  */
 export const guestProtocols = (cred: { ticket: string } | { reconnect: string }): string[] => [
   WS_SUBPROTOCOL,
   "ticket" in cred ? WS_TICKET_PREFIX + cred.ticket : WS_RECONNECT_PREFIX + cred.reconnect,
   WS_CAP_REC,
   WS_CAP_MULTI,
+  WS_CAP_SCHAT,
 ];
 
 /** Üstel geri çekilme: 1, 2, 4, 8 sn … en çok 10 sn. */

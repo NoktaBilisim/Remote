@@ -26,7 +26,7 @@ type liveIndicator struct {
 	failed   chan struct{}
 	failOnce sync.Once
 	closed   bool
-	base     string // sunucu etiketi (P28u silent: izleme ↔ kontrol)
+	base     string // sunucu etiketi
 	rec      bool   // P28e: kayıt sürüyor → etikete helperio.RecordingSuffix (AC-448)
 	names    string // P28c: bağlı teknisyen adları eki (flow.MultiTexts.IndicatorList + adlar); tek sahipte boş
 }
@@ -138,9 +138,6 @@ func (l *liveIndicator) SetNames(suffix string) bool {
 	c, ok := cur.(confirmer)
 	return ok && c.Drawn(text, drawWait)
 }
-
-// SetText P28u §7.6: sunucu etiketini değiştirir (aynı pencereler, ≤ 1 sn); kayıt eki korunur.
-func (l *liveIndicator) SetText(base string) { l.update(func() { l.base = base }) }
 
 // SetRecording P28e `rec.state{on}`: eki ekler/kaldırır (AC-448). Ek çizilemezse gösterge başarısızdır (fail-closed).
 func (l *liveIndicator) SetRecording(on bool) { l.update(func() { l.rec = on }) }

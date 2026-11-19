@@ -267,8 +267,8 @@ describe("misafir rızası, başlık, yetenek, CSP, audit, süzgeç", () => {
     expect(recTitle(`${REC_TITLE_PREFIX}Destek`, false)).toBe("Destek");
   });
   it("rs.cap.rec1 yalnız VP8 kaydedebilen konsolda; destek algısı güvenli", () => {
-    expect(techProtocols("rs.v1", true)).toEqual(["rs.v1", "rs.cap.rec1"]);
-    expect(techProtocols("rs.v1", false)).toBeUndefined();
+    expect(techProtocols("rs.v1", true)).toEqual(["rs.v1", "rs.cap.schat1", "rs.cap.rec1"]);
+    expect(techProtocols("rs.v1", false)).toEqual(["rs.v1", "rs.cap.schat1"]); // P22 r2 §15.2
     expect(canRecord(undefined)).toBe(false);
     expect(canRecord({ isTypeSupported: (t) => t === "video/webm;codecs=vp8" })).toBe(true);
     expect(canPlay({ isTypeSupported: () => false })).toBe(false);

@@ -868,6 +868,7 @@ model SessionMessage {
   senderUser User?           @relation(fields: [senderUserId], references: [id], onDelete: Restrict, onUpdate: Restrict)
 
   @@unique([requestId, sender, clientMsgId]) // yeniden gönderimde çift kayıt yok (NULL'lar çakışmaz)
+  @@unique([sessionId, sender, clientMsgId], map: "session_messages_session_client_key") // P22 oturum sohbeti yeniden gönderim tekilliği (talep satırında session_id NULL → çakışmaz)
   @@index([requestId, tenantId, createdAt]) // talep yazışması (after=, son 50) + request FK
   @@index([sessionId, tenantId, createdAt]) // P22 oturum yazışması + session FK
   @@index([tenantId, createdAt]) // tenant FK + firma silme partisi

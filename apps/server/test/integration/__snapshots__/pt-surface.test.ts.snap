@@ -64,6 +64,7 @@ exports[`PT-K1 HTTP yüzeyi > AC-318: Fastify rota tablosu (metot + yol + schema
   "GET /api/v1/request-blocks",
   "GET /api/v1/sessions",
   "GET /api/v1/sessions/:id",
+  "GET /api/v1/sessions/:id/chat",
   "GET /api/v1/sessions/:id/history",
   "GET /api/v1/sessions/:id/invite-candidates",
   "GET /api/v1/sessions/:id/invites",
@@ -88,7 +89,6 @@ exports[`PT-K1 HTTP yüzeyi > AC-318: Fastify rota tablosu (metot + yol + schema
   "GET /api/v1/unattended/devices",
   "GET /api/v1/unattended/devices/:id",
   "GET /api/v1/unattended/download",
-  "GET /api/v1/unattended/policy",
   "GET /api/v1/unattended/registration-codes",
   "GET /api/v1/unattended/status",
   "GET /api/v1/users",
@@ -143,6 +143,7 @@ exports[`PT-K1 HTTP yüzeyi > AC-318: Fastify rota tablosu (metot + yol + schema
   "HEAD /api/v1/request-blocks",
   "HEAD /api/v1/sessions",
   "HEAD /api/v1/sessions/:id",
+  "HEAD /api/v1/sessions/:id/chat",
   "HEAD /api/v1/sessions/:id/history",
   "HEAD /api/v1/sessions/:id/invite-candidates",
   "HEAD /api/v1/sessions/:id/invites",
@@ -168,7 +169,6 @@ exports[`PT-K1 HTTP yüzeyi > AC-318: Fastify rota tablosu (metot + yol + schema
   "HEAD /api/v1/unattended/devices",
   "HEAD /api/v1/unattended/devices/:id",
   "HEAD /api/v1/unattended/download",
-  "HEAD /api/v1/unattended/policy",
   "HEAD /api/v1/unattended/registration-codes",
   "HEAD /api/v1/unattended/status",
   "HEAD /api/v1/users",
@@ -294,6 +294,5 @@ exports[`PT-K1 HTTP yüzeyi > AC-318: Fastify rota tablosu (metot + yol + schema
   "PUT /api/v1/settings/tenant",
   "PUT /api/v1/unattended/customers/:customerId/contacts",
   "PUT /api/v1/unattended/devices/:id/grants",
-  "PUT /api/v1/unattended/policy",
 ]
 `;

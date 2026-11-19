@@ -15,6 +15,7 @@ import {
   type RequestPriority,
 } from "./shared.ts";
 import type { ConsentTextView } from "./sessions.ts";
+import { chatBodySchema, type MessageSender } from "../chat.ts";
 
 // ---------------------------------------------------------------------------------------------------------------
 // Enum'lar ve durum makinesi
@@ -447,6 +448,11 @@ export interface TenantRequestInfo {
   minAgentVersion: string | null;
   /** P18 (AC-258): mesai durumu (gevşek JSON; 0.9–0.11 istemci yok sayar). Sunucu her zaman doldurur. */
   businessHours?: PublicBusinessHours;
+  /**
+   * P22 (AC-292, mimari-p22 §5.1): `tenant_settings.retention_days` — Go talep formundaki saklama satırı. P22-B her zaman
+   * doldurur; şemada opsiyonel (eski istemci yok sayar).
+   */
+  chatRetentionDays?: number;
 }
 
 /**
@@ -913,11 +919,9 @@ export const HOLIDAYS_MAX_MESSAGE = `Firma başına en çok ${HOLIDAYS_MAX} tati
 // P18 H3 — kabul öncesi talep mesajları (mimari-e11 §8b.4–8b.6, §8b.13 S-P18-T3/T4/T8; AC-255)
 // ---------------------------------------------------------------------------------------------------------------
 
-export const MESSAGE_SENDERS = ["TECH", "CUSTOMER"] as const;
-export type MessageSender = (typeof MESSAGE_SENDERS)[number];
-/** Gövde: 1..1000 kod noktası, en çok 20 satır (DB `body_chars` CHECK ile aynı). */
-export const MESSAGE_BODY_MAX = 1000;
-export const MESSAGE_LINES_MAX = 20;
+// P22 (mimari-p22 §4.2): gönderen sözlüğü ve gövde kuralı `../chat.ts`'e taşındı (oturum sohbeti aynı kuralı kullanır);
+// adlar burada yeniden dışa verilir (yüzey değişmez).
+export { MESSAGE_BODY_MAX, MESSAGE_LINES_MAX, MESSAGE_SENDERS, type MessageSender } from "../chat.ts";
 /** S-P18-T4: talep başına gönderici başına tavan (CUSTOMER 200 / TECH 200). */
 export const MESSAGES_PER_SENDER_MAX = 200;
 /** AC-255: talep başına 1 msg/sn (WS ve REST aynı). */
@@ -930,30 +934,9 @@ export const MESSAGE_HISTORY_WS = 50;
 /** Okunamayan (yanlış anahtar/AAD) gövdenin panel/istemci metni; öğe `body: null` döner. */
 export const MESSAGE_UNREADABLE_LABEL = "Mesaj okunamadı";
 
-/** `String.prototype.isWellFormed()` eşdeğeri (lib ES2023'te yok): eşleşmemiş vekil (surrogate) yok. */
-export const isWellFormedText = (v: string): boolean => !/[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/.test(v);
-/**
- * S-P18-T8: Cc (yalnız `\n` serbest), U+2028/U+2029, Cf (yalnız ZWJ U+200D ve VS16 U+FE0F serbest — emoji); bidi
- * (U+202A–202E, U+2066–2069) Cf olduğu için reddedilir. CGJ/Moğol ayırıcı da yasak (ad kuralıyla aynı).
- */
-const UNSAFE_MESSAGE_CHARS = /[\p{Cc}\p{Cf}\p{Zl}\p{Zp}\u034F\u180E]/u;
-/** İzinli istisnalar (`\n`, ZWJ, VS16) çıkarıldıktan sonra yasak karakter var mı. */
-export const hasUnsafeMessageChars = (v: string): boolean => UNSAFE_MESSAGE_CHARS.test(v.replace(/\n|\u200D|\uFE0F/gu, ""));
-const messageLines = (v: string): number => v.split(/\r\n|\n/).length;
-
-/**
- * Mesaj gövdesi (WS `request.message` ve REST POST aynı şema): iyi biçimli UTF-16 → `\r\n` → `\n` → NFC → trim →
- * yasak karakter yok → 1..1000 kod noktası → ≤ 20 satır. Ham uzunluk ön sınırı 4.000 UTF-16 birimi.
- */
-export const requestMessageBodySchema = z
-  .string()
-  .max(4000, `Mesaj en çok ${MESSAGE_BODY_MAX} karakter olabilir`)
-  .refine(isWellFormedText, "Mesaj geçersiz karakter içeriyor")
-  .overwrite((v) => v.replace(/\r\n/g, "\n").normalize("NFC").trim())
-  .refine((v) => !hasUnsafeMessageChars(v), "Mesaj görünmez veya kontrol karakteri içeremez")
-  .refine((v) => codePoints(v) >= 1, "Mesaj boş olamaz")
-  .refine((v) => codePoints(v) <= MESSAGE_BODY_MAX, `Mesaj en çok ${MESSAGE_BODY_MAX} karakter olabilir`)
-  .refine((v) => messageLines(v) <= MESSAGE_LINES_MAX, `Mesaj en çok ${MESSAGE_LINES_MAX} satır olabilir`);
+export { hasUnsafeMessageChars, isWellFormedText } from "../chat.ts";
+/** Mesaj gövdesi (WS `request.message` ve REST POST aynı şema) — P22: tek tanım `chatBodySchema` (`../chat.ts`). */
+export const requestMessageBodySchema = chatBodySchema;
 
 /** İstemci mesaj kimliği (yeniden gönderim tekilliği; UQ(request_id, sender, client_msg_id)). */
 export const clientMsgIdSchema = z.string().regex(/^[A-Za-z0-9_-]{1,36}$/, "Geçersiz mesaj kimliği");

@@ -13,7 +13,6 @@ import type { Rooms } from "../signaling/rooms.ts";
 import type { Room } from "../signaling/types.ts";
 import { deviceAccess, type DeviceVerdict } from "../unattended/device-access.ts";
 import type { UnattendedGate } from "../unattended/gate.ts";
-import { silentPolicyEnabled } from "../unattended/policy.ts";
 
 type DbOrTx = Db | Prisma.TransactionClient;
 
@@ -48,16 +47,12 @@ export interface JoinDeps {
   gate: Pick<UnattendedGate, "allows">;
   /** Aday listesi gibi toplu çağrılarda önbellekli cihaz kararı (verilmezse tek sorgu). */
   device?: (userId: string) => Promise<DeviceVerdict>;
-  /** Toplu çağrıda önbellekli tenant silent politikası (D-PC-K2; verilmezse tek sorgu). */
-  silentPolicy?: () => Promise<boolean>;
 }
 
 export interface JoinOpts {
   purpose?: JoinPurpose;
   /** Kabulde: davet bu kullanıcıya ait (adım 3) ve koltuk tutulu (adım 7 atlanır). */
   inviteId?: string;
-  /** Kabul / İzle gövdesindeki gerekçe (silent odada zorunlu, diğerlerinde yasak). */
-  reason?: string | undefined;
 }
 
 export const subjectOfAuth = (a: AuthContext): JoinSubject => ({
@@ -140,8 +135,6 @@ export async function eligibleToJoin(
   if (!s.permissions.has(via === "supervise" ? "sessions.supervise" : "sessions.view")) return fail("FORBIDDEN", "permission");
   const un = await unattendedStep(d, s, room, phase);
   if (un) return un;
-  const r = reasonStep(room, phase, o);
-  if (r) return r;
   if (phase === "request" && o.purpose !== "accept" && roomFull(room)) return fail("SESSION_FULL", "full");
   if (phase === "ws") {
     const m = room.multi.members.get(s.userId);
@@ -151,8 +144,8 @@ export async function eligibleToJoin(
 }
 
 /**
- * Adım 6 / 6a / 6b (gözetimsiz oda): `unattended.connect` + cihaz erişimi; asked odaya katılım kapalı (revalidate hariç);
- * silent'ta `unattended.silent` ∧ tenant politikası. Koltuk/kapasite/multi1'den bağımsız — `GET /sessions/active` görünürlüğü
+ * Adım 6 / 6a (gözetimsiz oda): `unattended.connect` + cihaz erişimi; kipi `no_user` olmayan odaya (admit öncesi — kip henüz
+ * yazılmamış — ya da eski `asked`) katılım kapalı, revalidate hariç (K-P28u-r3-9, S-P28u-r3-4). Koltuk/kapasite/multi1'den bağımsız — `GET /sessions/active` görünürlüğü
  * de bunu kullanır (O-PC-K1, tek kaynak).
  */
 export async function unattendedStep(d: JoinDeps, s: JoinSubject, room: Room, phase: JoinPhase): Promise<JoinFail | null> {
@@ -162,10 +155,7 @@ export async function unattendedStep(d: JoinDeps, s: JoinSubject, room: Room, ph
   const v = d.device ? await d.device(s.userId) : await deviceAccess(d.db, d.gate, room.tenantId, s.userId, u.deviceId);
   if (v !== "ok") return fail("FORBIDDEN", "device");
   const cm = u.consentMode;
-  if (phase !== "revalidate" && cm !== "silent" && cm !== "no_user") return fail("JOIN_NOT_ALLOWED", "join_not_allowed");
-  if (cm === "silent" && !s.permissions.has("unattended.silent")) return fail("FORBIDDEN", "silent");
-  if (cm === "silent" && !(await (d.silentPolicy ? d.silentPolicy() : silentPolicyEnabled(d.db, room.tenantId))))
-    return fail("FORBIDDEN", "silent");
+  if (phase !== "revalidate" && cm !== "no_user") return fail("JOIN_NOT_ALLOWED", "join_not_allowed");
   return null;
 }
 
@@ -181,15 +171,6 @@ function seatStep(room: Room, s: JoinSubject, phase: JoinPhase, o: JoinOpts): Jo
     return fail("CONFLICT", "already_invited");
   }
   if (o.purpose === "accept" && !room.multi.invites.has(o.inviteId ?? "")) return fail("INVITE_GONE", "invite_gone");
-  return null;
-}
-
-/** Adım 6b gerekçe: kabul/İzle'de silent odada zorunlu, diğer odalarda yasak (VALIDATION + `fields.reason`, K0 sapma 6). */
-function reasonStep(room: Room, phase: JoinPhase, o: JoinOpts): JoinFail | null {
-  if (phase !== "request" || (o.purpose !== "accept" && o.purpose !== "supervise")) return null;
-  const silent = room.unattended?.consentMode === "silent";
-  if (silent && o.reason === undefined) return fail("VALIDATION", "reason", { reason: "Gerekçe zorunlu" });
-  if (!silent && o.reason !== undefined) return fail("VALIDATION", "reason", { reason: "Gerekçe yalnız izinsiz bağlantıda verilir" });
   return null;
 }
 

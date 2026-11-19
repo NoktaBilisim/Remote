@@ -129,11 +129,11 @@ describe("P28c arayüz kararları", () => {
       full: false,
       supported: true,
       unattended: false,
-      silent: false,
     };
     expect(watchBlock(base)).toBeNull();
     expect(watchBlock({ ...base, supported: false })).toMatch(/desteklemiyor/);
-    expect(watchBlock({ ...base, unattended: true, consentMode: "asked" })).toMatch(/İzinli gözetimsiz/);
+    // P28u r3: izinli (`asked`) oda kipi yok → gözetimsiz oda yalnız dolu/desteksiz ise pasif
+    expect(watchBlock({ ...base, unattended: true, consentMode: "asked" })).toBeNull();
     expect(watchBlock({ ...base, full: true })).toBe("Oturum dolu");
   });
   it("yalnız yeni davetler bildirilir", () => {
@@ -143,7 +143,6 @@ describe("P28c arayüz kararları", () => {
       fromName: "A",
       customerName: "M",
       unattended: false,
-      silent: false,
       expiresAt: "",
     };
     expect(newInvites(new Set(), [i])).toHaveLength(1);
@@ -177,10 +176,9 @@ describe("P28c K2b: guestMulti, zaman çizelgesi, katılımcılar", () => {
     expect(s.guestMulti).toBe(false);
     s = techReducer(s, { type: "msg", m: { ...hello, guestMulti: true } as never, now });
     expect(s.guestMulti).toBe(true);
-    expect(inviteBlockOf(undefined, null)).toBeNull();
-    expect(inviteBlockOf(undefined, true)).toBeNull();
-    expect(inviteBlockOf(undefined, false)).toBe(MULTI_ERROR_MESSAGES.CLIENT_UNSUPPORTED);
-    expect(inviteBlockOf("asked", true)).toBe(MULTI_ERROR_MESSAGES.JOIN_NOT_ALLOWED);
+    expect(inviteBlockOf(null)).toBeNull();
+    expect(inviteBlockOf(true)).toBeNull();
+    expect(inviteBlockOf(false)).toBe(MULTI_ERROR_MESSAGES.CLIENT_UNSUPPORTED);
   });
   it("zaman çizelgesi: P28c etiketi + rol/neden notu; P28c dışı olay contracts etiketinde kalır", () => {
     expect(describeEvent({ action: "session.participant_leave", details: { role: "observer", reason: "disconnect" } })).toEqual({
