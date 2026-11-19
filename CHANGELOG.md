@@ -5,6 +5,33 @@ Biçim [Keep a Changelog](https://keepachangelog.com/tr/1.1.0/), sürümleme [Se
 
 ## [Unreleased]
 
+### Değişti — macOS prod ad-hoc (P28f-r4, AC-500..508, mimari-p28f §15)
+
+- **Karar (2026-11-20):** macOS istemcisi prod'a Apple Developer ID / notarization **olmadan, ad-hoc imzalı** çıkar.
+  Developer ID yolu (`vars.APPLE_TEAM_ID` tanımlıysa `sign-mac`, notarized predicate, `OKUBENI.txt`) kodda aynen durur.
+- **CI / Release:** etiket + `APPLE_TEAM_ID` boş → `package-mac` ad-hoc prod paketini `agent-mac-adhoc` artifact'i olarak
+  yükler (7 gün); attestation yalnız onay sonrası `attest-mac`'te (build provenance + `macos-adhoc/v1` predicate).
+  `release` ve `update-manifest` attest edilen artifact'i kullanır; ad-hoc zip için `update-client-macos-universal.json`
+  üretilir. Release notunda ad-hoc uyarısı ve `gh attestation verify` komutu.
+- **`deploy/agent/publish-mac.sh`:** dal ortamdan deterministik seçilir (`APPLE_TEAM_ID` tanımsız → ad-hoc); ad-hoc dalda
+  `macos-adhoc` attestation'ı zorunlu. `MAC_AGENT_SHA256` ile yeni `MAC_AGENT_SIGNING` tek yazımda yazılır, `--withdraw`
+  ikisini boşaltır; hedef `notarized` iken ad-hoc yayın reddedilir.
+- **Sunucu:** `GET /api/v1/public/agent/availability` yanıtına `macosSigning` (`"notarized"` | `"adhoc"` | `null`); yeni env
+  `MAC_AGENT_SIGNING` (boş → `adhoc`; production'da zip yayındayken boşsa açılış uyarısı).
+- **Karşılama rehberi (web):** Mac rehberi `test` / `adhoc` / `notarized` varyantlı. Ad-hoc'ta TEST kelimesi olmadan
+  "Bitti → Sistem Ayarları → Gizlilik ve Güvenlik → Yine de Aç" adımı, "zarar verir / kötü amaçlı" uyarısında Çöp Sepeti,
+  macOS 13–14 Control-tık kısa yolu, standart kullanıcı için tarayıcı modu, "Yine de Aç yalnız bu sayfadaki indirme için"
+  uyarısı ve attestation doğrulama metni. "Asla Yine de Aç istemez" metni yalnız notarize yayında kalır.
+- **İstemci bandı ve Hakkında:** prod ad-hoc pakette "TEST SÜRÜMÜ" bandı yok (bant yalnız test derlemesinde ya da beklenen
+  Team ID'ye uymayan imzada). Hakkında penceresine imza satırı: "İmza: ad-hoc (Apple Developer ID yok)", "İmza: Apple
+  Developer ID (Ekip …)" ya da "İmza: doğrulanamadı".
+- **TCC rehberi + Erişilebilirlik istemi:** Ekran Kaydı rehberine 4. adım ve Erişilebilirlik penceresine ek metin: listede
+  açık görünen eski sürüm kaydını "−" ile kaldırıp uygulamayı yeniden açın ve izni yeniden verin.
+- **`OKUBENI-adhoc.txt`:** ad-hoc prod zip'ine giren yeni müşteri metni (ilk açılış onayı, izinler, "Nokta Bilişim uygulamayı
+  e-posta ya da mesajla göndermez", oturum sonunda klasörü silin).
+- **Dokümanlar:** kullanım kılavuzu macOS bölümü (ilk açılış, her sürümde onay ve izinler, eski kayıt, Hakkında imza satırı,
+  teknisyen ve Super Admin notları), README, DATASHEET'ten "notarize" iddiası kaldırıldı.
+
 ### Eklendi — P29 istemci otomatik güncelleme, istemci/servis 0.22.0 (AC-470..493, ADR-0040)
 
 - **İmzalı güncelleme:** CI her ikili için kanonik JSON manifest (`update-<component>-<platform>-<arch>.json`) üretir ve

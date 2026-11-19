@@ -10,8 +10,8 @@ import (
 	"remote-support/agent-win/internal/ui/uicore"
 )
 
-// AC-390 / S-P28f-7: "TEST SÜRÜMÜ — imzasız" bandı çalışma anında kendi imzamızdan türetilir
-// (SecCodeCopySelf + SecCodeCopySigningInformation). Bant her ekranın üstünde, gösterge seviyesinde, tıklama geçirgen,
+// AC-390 / AC-504 / S-P28f-7: "TEST SÜRÜMÜ — imzasız" bandı çalışma anında kendi imzamızdan türetilir
+// (SecCodeCopySelf + SecCodeCopySigningInformation; karar logic.go showTestBand). Bant her ekranın üstünde, gösterge seviyesinde, tıklama geçirgen,
 // gizlenemez (canHide=NO) bir şerittir ve her pencerenin en üst satırıdır (form_darwin.go newForm). Tik ve ekran
 // değişimi bildirimi şeritleri yeniden kurar/öne alır.
 
@@ -29,7 +29,8 @@ const (
 
 var errNoSignInfo = errors.New("ui/mac: imza bilgisi okunamadı")
 
-// signingInfo Team ID ve ad-hoc bayrağı; herhangi bir adım başarısızsa Err (bant gösterilir, fail-closed).
+// signingInfo Team ID ve ad-hoc bayrağı; herhangi bir adım başarısızsa Err (beklenen Team ID gömülüyse bant gösterilir,
+// Hakkında "doğrulanamadı" der; AC-504).
 func signingInfo() signInfo {
 	h, err := objc.Framework("Security")
 	if err != nil {

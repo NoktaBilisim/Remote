@@ -24,27 +24,49 @@ func TestP28fClassifyClick(t *testing.T) {
 	}
 }
 
-// AC-390 / S-P28f-7 / D-P28f-K3: bant yalnız beklenen Developer ID ekibiyle (Team ID eşit, ad-hoc değil) imzalı ve
-// TEST olmayan derlemede gizli; beklenen Team ID gömülmemişse ya da farklı ekiple imzalıysa gösterilir.
-func TestP28fTestBand(t *testing.T) {
+// AC-504 / AC-390 / K-P28f-r4-5 / D-P28f-K3: bant TEST derlemesinde ya da beklenen Team ID gömülüyken imza ona
+// uymuyorsa gösterilir; prod ad-hoc (beklenen boş) derlemede yoktur.
+func TestAC504TestBand(t *testing.T) {
 	const team = "ABCDE12345"
 	signed := signInfo{TeamID: team}
+	adhoc := signInfo{AdHoc: true}
 	for _, c := range []struct {
+		name     string
 		si       signInfo
 		test     bool
 		expected string
 		want     bool
 	}{
-		{signed, false, team, false},
-		{signed, true, team, true},
-		{signed, false, "", true},                           // beklenen gömülmemiş
-		{signInfo{TeamID: "ZZZZZ99999"}, false, team, true}, // başka ekip (D-P28f-K3)
-		{signInfo{}, false, team, true},
-		{signInfo{TeamID: team, AdHoc: true}, false, team, true},
-		{signInfo{TeamID: team, Err: errors.New("x")}, false, team, true},
+		{"prod ad-hoc", adhoc, false, "", false},
+		{"prod ad-hoc imza okunamadı", signInfo{Err: errors.New("x")}, false, "", false},
+		{"stg ad-hoc", adhoc, true, "", true},
+		{"stg Developer ID", signed, true, team, true},
+		{"Developer ID eşleşen", signed, false, team, false},
+		{"Developer ID farklı ekip", signInfo{TeamID: "ZZZZZ99999"}, false, team, true},
+		{"Developer ID beklenen ama ad-hoc", signInfo{TeamID: team, AdHoc: true}, false, team, true},
+		{"Developer ID beklenen ama Team ID boş", signInfo{}, false, team, true},
+		{"Developer ID beklenen ama Err", signInfo{TeamID: team, Err: errors.New("x")}, false, team, true},
 	} {
 		if got := showTestBand(c.si, c.test, c.expected); got != c.want {
-			t.Errorf("%+v test=%v beklenen=%q → %v", c.si, c.test, c.expected, got)
+			t.Errorf("%s: %+v test=%v beklenen=%q → %v", c.name, c.si, c.test, c.expected, got)
+		}
+	}
+}
+
+// AC-504: Hakkında'daki tek imza satırı.
+func TestAC504AboutSigLine(t *testing.T) {
+	for _, c := range []struct {
+		si   signInfo
+		want string
+	}{
+		{signInfo{AdHoc: true}, "İmza: ad-hoc (Apple Developer ID yok)"},
+		{signInfo{TeamID: "ABCDE12345"}, "İmza: Apple Developer ID (Ekip ABCDE12345)"},
+		{signInfo{Err: errors.New("x")}, "İmza: doğrulanamadı"},
+		{signInfo{TeamID: "ABCDE12345", AdHoc: true, Err: errors.New("x")}, "İmza: doğrulanamadı"},
+		{signInfo{}, "İmza: doğrulanamadı"},
+	} {
+		if got := aboutSigLine(c.si); got != c.want {
+			t.Errorf("%+v → %q, beklenen %q", c.si, got, c.want)
 		}
 	}
 }

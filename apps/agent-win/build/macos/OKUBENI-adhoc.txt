@@ -1,0 +1,26 @@
+Nokta Destek — uzaktan destek istemcisi (macOS 13 ve üstü)
+
+Bu uygulama açık kaynaklıdır ve Apple Developer ID olmadan imzalanmıştır. macOS ilk
+açılışta uygulamayı durdurur; aşağıdaki adımla bir kez onaylarsınız.
+
+1. Bu klasördeki "Nokta Destek" uygulamasını çift tıklayın. macOS yalnız "açılmadı" ya da
+   "doğrulanamadı" derse "Bitti"yi seçin. macOS "bilgisayarınıza zarar verir" ya da
+   "kötü amaçlı yazılım içeriyor" derse "Çöp Sepetine Taşı"yı seçin ve teknisyeninize
+   bildirin.
+2. Sistem Ayarları > Gizlilik ve Güvenlik sayfasını açıp aşağı kaydırın. "Nokta Destek"
+   satırının yanındaki "Yine de Aç"a tıklayın, açılan pencerede yeniden "Yine de Aç"ı
+   seçin ve Mac parolanızı ya da Touch ID'yi girin (yönetici parolası gerekir; yoksa
+   destek sayfasındaki tarayıcıdan paylaşımı kullanın).
+3. Ekranınızı paylaşmak için "Ekran Kaydı", teknisyenin farenizi kullanabilmesi için
+   "Erişilebilirlik" izni istenir. Listede "Nokta Destek" zaten açık görünüyor ama
+   uygulama yine izin istiyorsa: seçin, "-" ile kaldırın, uygulamayı yeniden açın ve
+   izni yeniden verin. Her yeni sürümde bu izinler yeniden istenir.
+4. Oturum bitince uygulama kendiliğinden kapanır. Bu klasörü silin: eski sürümler
+   verdiğiniz izinleri korur.
+
+"Yine de Aç"ı YALNIZ teknisyeninizle görüşürken destek sayfasından kendiniz
+indirdiğiniz bu uygulama için kullanın. Nokta Bilişim uygulamayı e-posta eki ya da
+mesajla göndermez; başka bir yoldan gelen dosyayı açmayın.
+
+Verilen izinleri kaldırmak: Sistem Ayarları > Gizlilik ve Güvenlik > Ekran Kaydı /
+Erişilebilirlik listesinden "Nokta Destek"i seçip "-" düğmesine basın.

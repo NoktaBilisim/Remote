@@ -203,7 +203,7 @@ describe("P28f GET /public/agent/availability (§4.1, AC-390)", () => {
     const r = await availability("203.0.113.50");
     expect(r.statusCode).toBe(200);
     // test env: DEPLOY_ENV yok → production değil. P28g: `linux` alanı (bu app'te LINUX_AGENT_* yok → false).
-    expect(r.json()).toEqual({ windows: true, macos: true, macosTestBuild: true, linux: false });
+    expect(r.json()).toEqual({ windows: true, macos: true, macosTestBuild: true, macosSigning: "adhoc", linux: false });
     expect(r.headers["cache-control"]).toBe("public, max-age=60");
     expect(r.headers["set-cookie"]).toBeUndefined();
   });
@@ -219,25 +219,80 @@ describe("P28f GET /public/agent/availability (§4.1, AC-390)", () => {
           windows: true,
           macos: false,
           macosTestBuild: false,
+          macosSigning: null,
           linux: false,
         }),
       );
     }
     await withApp({ SESSION_REF_KEY: REF_KEY }, async (a) =>
-      expect((await availability("203.0.113.52", a)).json()).toEqual({ windows: false, macos: false, macosTestBuild: false, linux: false }),
+      expect((await availability("203.0.113.52", a)).json()).toEqual({
+        windows: false,
+        macos: false,
+        macosTestBuild: false,
+        macosSigning: null,
+        linux: false,
+      }),
     );
   });
 
   it("S-P28f-8: macosTestBuild yalnız DEPLOY_ENV ≠ production ve macOS indirmesi varken true; production'da her zaman false", async () => {
     await withApp({ ...bothEnv(), DEPLOY_ENV: "staging" }, async (a) =>
-      expect((await availability("203.0.113.56", a)).json()).toEqual({ windows: true, macos: true, macosTestBuild: true, linux: false }),
+      expect((await availability("203.0.113.56", a)).json()).toEqual({
+        windows: true,
+        macos: true,
+        macosTestBuild: true,
+        macosSigning: "adhoc",
+        linux: false,
+      }),
     );
     await withApp({ ...bothEnv(), DEPLOY_ENV: "production" }, async (a) =>
-      expect((await availability("203.0.113.57", a)).json()).toEqual({ windows: true, macos: true, macosTestBuild: false, linux: false }),
+      expect((await availability("203.0.113.57", a)).json()).toEqual({
+        windows: true,
+        macos: true,
+        macosTestBuild: false,
+        macosSigning: "adhoc",
+        linux: false,
+      }),
     );
     await withApp({ ...bothEnv(), DEPLOY_ENV: "staging", MAC_AGENT_SHA256: "0".repeat(64) }, async (a) =>
-      expect((await availability("203.0.113.58", a)).json()).toEqual({ windows: true, macos: false, macosTestBuild: false, linux: false }),
+      expect((await availability("203.0.113.58", a)).json()).toEqual({
+        windows: true,
+        macos: false,
+        macosTestBuild: false,
+        macosSigning: null,
+        linux: false,
+      }),
     );
+  });
+
+  it("AC-502: macosSigning — macos false → null; true → MAC_AGENT_SIGNING, boşsa adhoc; macosTestBuild prod'da false kalır", async () => {
+    const signing = async (env: Record<string, string>, ip: string) =>
+      withApp(env, async (a) => (await availability(ip, a)).json<{ macosSigning: unknown; macosTestBuild: boolean }>());
+    // 1) macOS kapısı kapalı → null (env "notarized" olsa bile)
+    expect(await signing({ ...bothEnv(), MAC_AGENT_SHA256: sha(EXE), MAC_AGENT_SIGNING: "notarized" }, "203.0.113.60")).toMatchObject({
+      macosSigning: null,
+    });
+    // 2) env yok / boş dize → adhoc (S-r4-8: bilinmeyen asla notarized değil)
+    expect(await signing({ ...bothEnv(), DEPLOY_ENV: "production" }, "203.0.113.61")).toEqual(
+      expect.objectContaining({ macosSigning: "adhoc", macosTestBuild: false }),
+    );
+    expect(await signing({ ...bothEnv(), DEPLOY_ENV: "production", MAC_AGENT_SIGNING: "" }, "203.0.113.62")).toMatchObject({
+      macosSigning: "adhoc",
+    });
+    // 3) açık adhoc → adhoc
+    expect(await signing({ ...bothEnv(), DEPLOY_ENV: "production", MAC_AGENT_SIGNING: "adhoc" }, "203.0.113.63")).toMatchObject({
+      macosSigning: "adhoc",
+      macosTestBuild: false,
+    });
+    // 4) açık notarized → notarized; macosTestBuild DEPLOY_ENV'e bağlı kalır (staging true, prod false)
+    expect(await signing({ ...bothEnv(), DEPLOY_ENV: "production", MAC_AGENT_SIGNING: "notarized" }, "203.0.113.64")).toMatchObject({
+      macosSigning: "notarized",
+      macosTestBuild: false,
+    });
+    expect(await signing({ ...bothEnv(), DEPLOY_ENV: "staging", MAC_AGENT_SIGNING: "notarized" }, "203.0.113.65")).toMatchObject({
+      macosSigning: "notarized",
+      macosTestBuild: true,
+    });
   });
 
   it("AC-390: dosya yayından sonra değişirse (tahrif) yeniden başlatmadan macos:false", async () => {

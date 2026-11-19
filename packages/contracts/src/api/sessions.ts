@@ -83,9 +83,15 @@ export interface AgentAvailabilityResponse {
   macos: boolean;
   /**
    * macOS zip'i imzasız TEST derlemesi mi (staging): `DEPLOY_ENV !== "production"` ve `macos` iken true; production'da her
-   * zaman false. Karşılama sayfası "Yine de Aç" rehberini yalnız true iken gösterir (S-P28f-8, A-PF-5).
+   * zaman false. true → karşılama sayfası TEST rehberi (S-P28f-8, A-PF-5); prod ad-hoc ayrımı `macosSigning` ile (r4).
    */
   macosTestBuild: boolean;
+  /**
+   * P28f-r4 (mimari-p28f §15.2 K-P28f-r4-1/2): yayındaki macOS zip'inin imza türü. Kaynak sunucu env `MAC_AGENT_SIGNING`
+   * (`publish-mac.sh --apply` doğruladığı predicate'e göre yazar). `macos` false → `null`; true → env değeri, boşsa `"adhoc"`
+   * (yalnız açık değer `"notarized"` sayılır). `macosTestBuild`'den bağımsız. Web eksik/geçersiz alanı `"adhoc"` sayar.
+   */
+  macosSigning: "notarized" | "adhoc" | null;
   /**
    * P28g (mimari-p28g §4.1, S-P28g-12): Linux ELF kapısı `ok` mu. `linuxTestBuild` yok (imza/TEST bandı yok). Web eksik/geçersiz
    * alanı `false` sayar (fail-closed, yalnız tarayıcı).

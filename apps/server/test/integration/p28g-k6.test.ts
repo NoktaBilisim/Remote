@@ -196,7 +196,7 @@ describe("P28g GET /public/agent/availability linux (§4.1)", () => {
   it("AC-403: üç kapı ok → {windows, macos, macosTestBuild, linux:true}; linuxTestBuild yok; Cache-Control public, max-age=60", async () => {
     const r = await availability("203.0.113.70");
     expect(r.statusCode).toBe(200);
-    expect(r.json()).toEqual({ windows: true, macos: true, macosTestBuild: true, linux: true });
+    expect(r.json()).toEqual({ windows: true, macos: true, macosTestBuild: true, macosSigning: "adhoc", linux: true });
     expect(r.headers["cache-control"]).toBe("public, max-age=60");
   });
 
@@ -207,11 +207,23 @@ describe("P28g GET /public/agent/availability linux (§4.1)", () => {
       { ...allEnv(), LINUX_AGENT_PATH: join(dir, "yok") },
     ]) {
       await withApp(env, async (a) =>
-        expect((await availability("203.0.113.71", a)).json()).toEqual({ windows: true, macos: true, macosTestBuild: true, linux: false }),
+        expect((await availability("203.0.113.71", a)).json()).toEqual({
+          windows: true,
+          macos: true,
+          macosTestBuild: true,
+          macosSigning: "adhoc",
+          linux: false,
+        }),
       );
     }
     await withApp({ ...allEnv(), DEPLOY_ENV: "production", AGENT_SHA256: BAD_SHA, MAC_AGENT_SHA256: "" }, async (a) =>
-      expect((await availability("203.0.113.72", a)).json()).toEqual({ windows: false, macos: false, macosTestBuild: false, linux: true }),
+      expect((await availability("203.0.113.72", a)).json()).toEqual({
+        windows: false,
+        macos: false,
+        macosTestBuild: false,
+        macosSigning: null,
+        linux: true,
+      }),
     );
   });
 

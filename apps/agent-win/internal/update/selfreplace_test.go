@@ -340,3 +340,16 @@ func TestAC476WindowsPlatformSignatureGate(t *testing.T) {
 		t.Fatalf("kapısız: %v", err)
 	}
 }
+
+// S-r4-11 / AC-507: macOS hiçbir konumda yerinde değiştirmeye geçmez — DecideMac her girdide hata (nil değil) ve
+// yalnız ErrNotWritable ya da ErrManualOnly döner (platformdan bağımsız; MacReplacer.Prepare bunu Staging'siz döndürür).
+func TestSr411DecideMacNeverStages(t *testing.T) {
+	for _, tr := range []bool{false, true} {
+		for _, w := range []bool{false, true} {
+			err := DecideMac(MacLocation{Translocated: tr, Writable: w})
+			if err == nil || !(errors.Is(err, ErrNotWritable) || errors.Is(err, ErrManualOnly)) {
+				t.Errorf("translocated=%v writable=%v → %v", tr, w, err)
+			}
+		}
+	}
+}

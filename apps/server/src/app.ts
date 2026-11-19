@@ -7,7 +7,7 @@ import { addRequestHooks, addStartupJobs, decorateJobs, decorateRequests, type W
 import { registerRoutes } from "./app-routes.ts";
 import { closeAuthLimits, createAuthLimits, type AuthLimits } from "./auth/service.ts";
 import type { AuthContext } from "./auth/session.ts";
-import type { Env } from "./env.ts";
+import { type Env, macSigningUnsetInProduction } from "./env.ts";
 import type { Db } from "./lib/db.ts";
 import { newId } from "./lib/ids.ts";
 import { FixedWindowCounter } from "./lib/rate.ts";
@@ -158,6 +158,12 @@ function decorateCore(app: FastifyInstance, deps: AppDeps): Pick<Wiring, "metric
       app.log.warn({ alarm: "mac_agent_binary", state }, "macOS istemcisi indirilemez (dosya yok veya SHA-256 uyuşmuyor)");
   });
   app.decorate("macAgentBinary", macAgentBinary);
+  // K-P28f-r4-2: prod'da zip yayında ama imza türü yazılmamış → availability "adhoc" der; operatöre uyarı (hata değil).
+  if (macSigningUnsetInProduction(env))
+    app.log.warn(
+      { alarm: "mac_agent_signing_unset" },
+      "MAC_AGENT_SIGNING boş; macOS yayını adhoc sayılıyor (publish-mac.sh --apply yazar)",
+    );
   // P28g: Linux ELF'i (macOS kalıbı). `unconfigured` olağan (yayın öncesi / geri alma) → alarm yalnız missing/mismatch.
   const linuxAgentBinary = new AgentBinary(env.LINUX_AGENT_PATH, env.LINUX_AGENT_SHA256, (state) => {
     if (state !== "unconfigured")

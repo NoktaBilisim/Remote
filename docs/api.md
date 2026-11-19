@@ -4090,7 +4090,7 @@ curl -sk https://localhost:4450/api/v1/public/agent/availability
 Yanıt 200 (`Cache-Control: public, max-age=60`):
 
 ```json
-{ "windows": true, "macos": false, "macosTestBuild": false, "linux": true }
+{ "windows": true, "macos": true, "macosTestBuild": false, "macosSigning": "adhoc", "linux": true }
 ```
 
 | Alan             | Anlamı                                                                                                                                                                                                                           |
@@ -4098,6 +4098,7 @@ Yanıt 200 (`Cache-Control: public, max-age=60`):
 | `windows`        | Windows ikilisi bütünlük kapısından geçiyor (`AGENT_SHA256` dolu ve dosya eşleşiyor)                                                                                                                                             |
 | `macos`          | macOS zip'i kapıdan geçiyor (`MAC_AGENT_SHA256` dolu ve `/data/downloads/NoktaDestek-macOS.zip` eşleşiyor)                                                                                                                       |
 | `macosTestBuild` | `DEPLOY_ENV` `production` değil **ve** `macos` true → sayfa imzasız TEST rehberini ("Yine de Aç" adımı) gösterir. Production'da her zaman false                                                                                  |
+| `macosSigning`   | P28f-r4 (AC-502): `macos` false → `null`; true → `MAC_AGENT_SIGNING` (`publish-mac.sh` yazar), boşsa `"adhoc"`. Sayfa `"notarized"` dışındaki her değerde (eksik/geçersiz dahil) ad-hoc "Yine de Aç" rehberini gösterir          |
 | `linux`          | P28g: Linux ELF'i kapıdan geçiyor (`LINUX_AGENT_SHA256` dolu ve `/data/downloads/NoktaDestek-linux` eşleşiyor). `linuxTestBuild` alanı yoktur (Linux'ta imza ve TEST bandı yok). Eski sunucu alanı göndermezse web `false` sayar |
 
 Hatalar: 429 `RATE_LIMITED` (IP başına 30/dk, `Retry-After`, `Cache-Control: no-store`). Web her hata, 429 ya da şema dışı

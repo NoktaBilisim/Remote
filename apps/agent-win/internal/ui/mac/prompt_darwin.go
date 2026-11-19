@@ -14,10 +14,12 @@ import (
 // promptSpec ortak onay diyaloğunun içeriği (mimari-p28f §2.1 prompt_darwin.go).
 type promptSpec struct {
 	title, body, grantText string
-	denyText               string      // boşsa "Reddet"
-	logo                   image.Image // nil değilse sağ üstte
-	warns                  []string    // kırmızı uyarı satırları
-	hotkeyOK               bool        // false ise izin düğmesi hiç etkinleşmez (G-21; yalnız kontrol diyaloğu)
+	// bodyH gövde etiketi yüksekliği; 0 → promptBody (AC-506: uzun Erişilebilirlik rehberi büyütür).
+	bodyH    float64
+	denyText string      // boşsa "Reddet"
+	logo     image.Image // nil değilse sağ üstte
+	warns    []string    // kırmızı uyarı satırları
+	hotkeyOK bool        // false ise izin düğmesi hiç etkinleşmez (G-21; yalnız kontrol diyaloğu)
 	// open korunan değil: 1,5 sn kilit ve localClick yok (yalnız güvenli yönde işleyen "Oturumu bitir" onayı).
 	open bool
 	// guard izin anında ek koşul (kontrol: gösterge sağlıklı); false → izin verilmez, diyalog açık kalır.
@@ -47,11 +49,16 @@ type prompt struct {
 const (
 	promptW    = 440
 	promptWarn = 48
+	promptBody = 96
 )
 
 func (u *UI) newPrompt(sp promptSpec) *prompt {
 	d := &prompt{u: u, sp: sp, rule: control.Consent{HotkeyOK: sp.hotkeyOK || sp.open}}
-	d.btnY = 140 + float64(len(sp.warns)+1)*promptWarn + 8 // +1: enjekte tıklama uyarısı için ayrılmış satır
+	bodyH := float64(promptBody)
+	if sp.bodyH > bodyH {
+		bodyH = sp.bodyH
+	}
+	d.btnY = 44 + bodyH + float64(len(sp.warns)+1)*promptWarn + 8 // +1: enjekte tıklama uyarısı için ayrılmış satır
 	f := u.newForm(uicore.AppTitle+" — "+sp.title, promptW, d.btnY+48)
 	headW := 408.0
 	if sp.logo != nil {
@@ -59,8 +66,8 @@ func (u *UI) newPrompt(sp promptSpec) *prompt {
 		f.picture(sp.logo, 304, 8, 120, 32)
 	}
 	f.label(sp.title, 16, 14, headW, 22, fontBold)
-	d.body = f.label(sp.body, 16, 44, 408, 96, fontNormal)
-	y := 140.0
+	d.body = f.label(sp.body, 16, 44, 408, bodyH, fontNormal)
+	y := 44 + bodyH
 	for _, w := range sp.warns {
 		f.danger(w, 16, y, 408, promptWarn-4, fontNormal)
 		y += promptWarn

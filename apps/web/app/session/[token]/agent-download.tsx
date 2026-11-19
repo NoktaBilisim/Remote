@@ -5,7 +5,7 @@ import { useId, useState, useSyncExternalStore, type MouseEvent, type ReactNode 
 import type { AgentOs } from "@/lib/device-support";
 import { Alert } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
-import { agentDownloadUrl, probeAgentDownload } from "@/lib/agent-download";
+import { agentDownloadUrl, probeAgentDownload, type MacVariant } from "@/lib/agent-download";
 import { t } from "@/lib/i18n";
 import type { GuestEnd } from "../guest-ui";
 import { GuideStep as Step } from "./guide-step";
@@ -25,7 +25,7 @@ export function AgentDownload({
   sessionRef,
   verifyCode,
   os = "windows",
-  testBuild = false,
+  variant = "adhoc",
   onEnd,
   onBrowser,
 }: {
@@ -33,8 +33,8 @@ export function AgentDownload({
   verifyCode: string;
   /** P28f (AC-396): macOS'ta indirme `os=macos` (zip) ve macOS rehberi; P28g (AC-403): Linux'ta `os=linux` + Linux rehberi. */
   os?: AgentOs;
-  /** P28f (S-P28f-8): yalnız staging imzasız TEST sürümünde "Yine de Aç" adımı; varsayılan imzalı (prod) metin. */
-  testBuild?: boolean;
+  /** P28f-r4 (K-P28f-r4-3/6): macOS rehber varyantı; varsayılan `adhoc` (asla `notarized` varsayılmaz). */
+  variant?: MacVariant;
   onEnd: (e: GuestEnd) => void;
   /** Tarayıcı moduna geç (ad alanına / paylaş düğmesine odak). Yoksa (tarayıcı modu desteklenmiyor) düğme gösterilmez. */
   onBrowser?: () => void;
@@ -102,10 +102,17 @@ export function AgentDownload({
         <span className="text-sm text-fg-muted">{t("ga.downloadBody")}</span>
         <span className="text-xs text-fg-muted">{t(mac ? "gm.downloadMeta" : linux ? "gl.downloadMeta" : "ga.downloadMeta")}</span>
       </a>
-      {mac && testBuild && (
+      {mac && variant === "test" && (
         <Alert tone="warning" testId="mac-test-build">
           <p className="font-semibold">{t("gm.testTitle")}</p>
           <p className="text-fg">{t("gm.testBody")}</p>
+        </Alert>
+      )}
+      {/* S-r4-1: indirme kaynağına çapalı uyarı düğmenin yanında, rehberin 2. adımından önce */}
+      {mac && variant === "adhoc" && (
+        <Alert tone="warning" testId="mac-adhoc-only-this">
+          <p className="font-semibold">{t("gm.adhocOnlyTitle")}</p>
+          <p className="text-fg">{t("gm.adhocOnlyBody", { host: host || "—" })}</p>
         </Alert>
       )}
 
@@ -141,7 +148,7 @@ export function AgentDownload({
       )}
 
       {mac ? (
-        <MacGuide id={guideId} highlight={state === "started"} testBuild={testBuild} verifyCode={verifyCode} host={host} />
+        <MacGuide id={guideId} highlight={state === "started"} variant={variant} verifyCode={verifyCode} host={host} />
       ) : linux ? (
         <LinuxGuide id={guideId} highlight={state === "started"} verifyCode={verifyCode} host={host} />
       ) : (

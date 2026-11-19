@@ -9,6 +9,7 @@ import (
 
 	"remote-support/agent-win/internal/darwin/objc"
 	"remote-support/agent-win/internal/flow"
+	"remote-support/agent-win/internal/macperm"
 	"remote-support/agent-win/internal/signal"
 	"remote-support/agent-win/internal/ui/uicore"
 )
@@ -253,26 +254,26 @@ const (
 	SettingsAccessibility = "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility"
 )
 
-// PermGuide AC-391 Ekran Kaydı rehberi (resolve'dan önce): üç adım, "Sistem Ayarları'nı aç", "İzni verdim, yeniden
+// PermGuide AC-391 Ekran Kaydı rehberi (resolve'dan önce): dört adım (4.: eski TCC kaydı, AC-506), "Sistem Ayarları'nı aç", "İzni verdim, yeniden
 // başlat", "Vazgeç". Engeller.
 func (u *UI) PermGuide(ctx context.Context) PermAction {
 	ch := make(chan PermAction, 1)
 	u.do(func() {
 		t := flow.MacTexts
-		f := u.newForm(uicore.AppTitle+" — İzin", 480, 284)
+		f := u.newForm(uicore.AppTitle+" — İzin", 480, 338)
 		f.label(t.ScreenTitle, 16, 16, 448, 24, fontBold)
 		f.label("Teknisyenin ekranınızı görebilmesi için macOS'ta Ekran Kaydı izni verilmelidir.", 16, 46, 448, 36, fontNormal)
-		f.label(t.ScreenSteps, 16, 84, 448, 70, fontNormal)
-		f.button(t.OpenSettings, 16, 164, 200, 32, func(objc.ID) { openURL(SettingsScreen) })
+		f.label(t.ScreenSteps, 16, 84, 448, 124, fontNormal)
+		f.button(t.OpenSettings, 16, 218, 200, 32, func(objc.ID) { openURL(SettingsScreen) })
 		done := func(a PermAction) {
 			f.destroy()
 			u.restoreQuit()
 			ch <- a
 		}
-		rs := f.button(t.RestartGranted, 224, 164, 240, 32, func(objc.ID) { done(PermRestart) })
+		rs := f.button(t.RestartGranted, 224, 218, 240, 32, func(objc.ID) { done(PermRestart) })
 		setDefault(rs)
-		f.button(t.Cancel, 368, 206, 96, 32, func(objc.ID) { done(PermCancel) })
-		f.label(u.footer, 16, 254, 448, 20, fontNormal)
+		f.button(t.Cancel, 368, 260, 96, 32, func(objc.ID) { done(PermCancel) })
+		f.label(u.footer, 16, 308, 448, 20, fontNormal)
 		f.onClose(func() { done(PermCancel) })
 		f.show(0, false, 0)
 	})
@@ -285,9 +286,12 @@ func (u *UI) AccessibilityGuide() {
 	u.do(func() {
 		closePrompt(u.accessDlg)
 		t := flow.MacTexts
-		u.accessDlg = u.newPrompt(promptSpec{title: t.AccessTitle, body: t.AccessBody, grantText: t.OpenSettings,
-			denyText: "Kapat", open: true, slot: &u.accessDlg,
-			onGrant: func() { openURL(SettingsAccessibility) }})
+		u.accessDlg = u.newPrompt(promptSpec{title: t.AccessTitle, body: t.AccessBody, bodyH: 176,
+			grantText: t.OpenSettings, denyText: "Kapat", open: true, slot: &u.accessDlg,
+			onGrant: func() {
+				macperm.RequestAccessibility() // AC-506: "−" ile kaldırılan kayıt listeye geri gelir (S-r4-9)
+				openURL(SettingsAccessibility)
+			}})
 	})
 }
 
@@ -310,17 +314,18 @@ func openMailto(addr string) {
 	}
 }
 
-// showAbout AC-128: sürüm, ikili parmak izi ve sunucu.
+// showAbout AC-128: sürüm, ikili parmak izi ve sunucu; AC-504 tek imza satırı.
 func (u *UI) showAbout() {
 	if u.about != nil {
 		u.about.show(0, false, 0)
 		return
 	}
-	f := u.newForm(uicore.AppTitle+" Hakkında", 460, 120)
+	f := u.newForm(uicore.AppTitle+" Hakkında", 460, 148)
 	f.label(uicore.AppTitle, 16, 16, 428, 24, fontBold)
 	f.label(u.footer, 16, 48, 428, 36, fontNormal)
+	f.label(u.sigLine, 16, 86, 428, 20, fontNormal)
 	f.onClose(func() { f.destroy(); u.about = nil; u.restoreQuit() })
-	ok := f.button("Tamam", 352, 82, 92, 30, func(objc.ID) { f.destroy(); u.about = nil; u.restoreQuit() })
+	ok := f.button("Tamam", 352, 110, 92, 30, func(objc.ID) { f.destroy(); u.about = nil; u.restoreQuit() })
 	setDefault(ok)
 	u.about = f
 	f.show(0, false, 0)

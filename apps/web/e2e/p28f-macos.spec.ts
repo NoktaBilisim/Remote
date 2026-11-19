@@ -2,7 +2,8 @@ import { expect, test, type Page } from "@playwright/test";
 import { axeScan, guardConsole, noHorizontalOverflow } from "./helpers";
 
 // P28f · AC-396 (macOS'ta Windows ile aynı düzen), AC-390 (indirme yalnız availability macos:true iken; hata → yalnız tarayıcı,
-// S-P28f-15), AC-391 (izin rehberi), S-P28f-8 (prod sayfası "asla Yine de Aç istemez"). Sahte API: e2e/mock-sessions.mjs.
+// S-P28f-15), AC-391 (izin rehberi), AC-503 (P28f-r4: varyant test/adhoc/notarized; prod ad-hoc'ta TEST yok, "Yine de Aç" var,
+// S-r4-1 yalnız-bu-sayfa uyarısı düğme yanında). Sahte API: e2e/mock-sessions.mjs (varsayılan macosSigning "adhoc").
 // Beklenen ağ kayıtları: availability 429/500 ve kesilen istek (ağ hatası senaryosu)
 guardConsole(/^Failed to load resource: (the server responded with a status of (404|410|429|500|503)|net::ERR_FAILED)/);
 const tok = (ch: string) => `/session/${ch.repeat(43)}`;
@@ -28,15 +29,20 @@ test("AC-396: macOS'ta birincil 'uygulamayı indir' + ikincil tarayıcı; indirm
   expect(dlBox!.height).toBeGreaterThanOrEqual(44);
   await expect(page.getByTestId("smartscreen-guide")).toHaveCount(0);
 
-  // AC-391 rehberi + S-P28f-8 (prod metni): "Yine de Aç" adımı yok, "asla istemez" uyarısı var
+  // AC-391 rehberi + AC-503 (prod ad-hoc): TEST yok, "Yine de Aç" adımı + zararlı uyarısı, yalnız-bu-sayfa uyarısı düğme yanında
   const guide = page.getByTestId("mac-guide");
-  await expect(guide).toHaveAttribute("data-build", "signed");
+  await expect(guide).toHaveAttribute("data-build", "adhoc");
   await expect(page.getByTestId("mac-perm-screen")).toContainText("Ekran Kaydı");
   await expect(page.getByTestId("mac-perm-ax")).toContainText("Erişilebilirlik");
   await expect(page.getByTestId("mac-perm-mic")).toHaveCount(0); // r3: macOS istemcide ses yok
-  await expect(page.getByTestId("mac-never-open-anyway")).toContainText("Nokta Destek hiçbir zaman “Yine de Aç” istemez");
-  await expect(guide).not.toContainText("Gizlilik ve Güvenlik → Yine de Aç");
+  await expect(guide).toContainText("Gizlilik ve Güvenlik → Yine de Aç");
+  await expect(page.getByTestId("mac-harmful")).toContainText("Çöp Sepetine Taşı");
+  await expect(page.getByTestId("mac-never-open-anyway")).toHaveCount(0);
   await expect(page.getByTestId("mac-test-build")).toHaveCount(0);
+  await expect(page.getByTestId("agent-download-block")).not.toContainText("TEST");
+  const only = page.getByTestId("mac-adhoc-only-this");
+  await expect(only).toContainText(/yalnız localhost:\d+ adresindeki bu sayfadan şimdi indirdiğiniz Nokta Destek/);
+  expect((await only.boundingBox())!.y).toBeLessThan((await guide.boundingBox())!.y);
   await expect(guide).toContainText(/doğrulama kodu \d{4}, sunucu adresi localhost:\d+/);
   expect(await axeScan(page)).toEqual([]);
   await noHorizontalOverflow(page);
@@ -49,14 +55,41 @@ test("AC-396: macOS'ta birincil 'uygulamayı indir' + ikincil tarayıcı; indirm
   await expect(guide).toHaveClass(/border-primary/);
 });
 
-test("S-P28f-8: staging (availability macosTestBuild:true) → rehber TEST sürümü (Yine de Aç adımı + TEST uyarısı)", async ({ page }) => {
-  await avail(page, { windows: true, macos: true, macosTestBuild: true });
+test("S-P28f-8 / AC-503: staging (macosTestBuild:true) → TEST uyarısı + ortak 'Yine de Aç' adımı; ad-hoc uyarısı yok", async ({ page }) => {
+  await avail(page, { windows: true, macos: true, macosTestBuild: true, macosSigning: "adhoc" });
   await page.goto(tok("A"));
   await expect(page.getByTestId("agent-download")).toBeVisible();
   await expect(page.getByTestId("mac-guide")).toHaveAttribute("data-build", "test");
   await expect(page.getByTestId("mac-test-build")).toBeVisible();
+  await expect(page.getByTestId("mac-guide")).toContainText("Gizlilik ve Güvenlik → Yine de Aç");
+  await expect(page.getByTestId("mac-adhoc-only-this")).toHaveCount(0);
   await expect(page.getByTestId("mac-never-open-anyway")).toHaveCount(0);
 });
+
+test("AC-503: notarize yayın (macosSigning:notarized) → bugünkü metin, 'asla Yine de Aç istemez'", async ({ page }) => {
+  await avail(page, { windows: true, macos: true, macosTestBuild: false, macosSigning: "notarized" });
+  await page.goto(tok("A"));
+  const guide = page.getByTestId("mac-guide");
+  await expect(guide).toHaveAttribute("data-build", "notarized");
+  await expect(page.getByTestId("mac-never-open-anyway")).toContainText("Nokta Destek hiçbir zaman “Yine de Aç” istemez");
+  await expect(guide).not.toContainText("Gizlilik ve Güvenlik → Yine de Aç");
+  await expect(page.getByTestId("mac-test-build")).toHaveCount(0);
+  await expect(page.getByTestId("mac-adhoc-only-this")).toHaveCount(0);
+  expect(await axeScan(page)).toEqual([]);
+});
+
+for (const [name, body] of [
+  ["eski sunucu (alan yok)", { windows: true, macos: true, macosTestBuild: false }],
+  ["geçersiz değer", { windows: true, macos: true, macosTestBuild: false, macosSigning: "NOTARIZED" }],
+] as const) {
+  test(`K-P28f-r4-3: macosSigning ${name} → adhoc (asla notarized değil)`, async ({ page }) => {
+    await avail(page, body);
+    await page.goto(tok("A"));
+    await expect(page.getByTestId("mac-guide")).toHaveAttribute("data-build", "adhoc");
+    await expect(page.getByTestId("mac-adhoc-only-this")).toBeVisible();
+    await expect(page.getByTestId("mac-never-open-anyway")).toHaveCount(0);
+  });
+}
 
 test("AC-390: availability macos:false → indirme yok, yalnız tarayıcı (birincil)", async ({ page }) => {
   await avail(page, { windows: true, macos: false });
@@ -113,8 +146,8 @@ test("AC-390: macOS istemci yayında değil (503 NOT_READY) → tarayıcı modu 
   await expect(page.getByTestId("guest-name")).toBeFocused();
 });
 
-test("AC-396: 375 px yatay taşma yok, koyu temada axe 0", async ({ page }) => {
-  await page.setViewportSize({ width: 375, height: 800 });
+test("AC-396 / AC-503: 390 px yatay taşma yok, koyu temada axe 0 (ad-hoc)", async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 800 });
   await page.emulateMedia({ colorScheme: "dark" });
   await page.goto(tok("A"));
   await expect(page.getByTestId("mac-guide")).toBeVisible();

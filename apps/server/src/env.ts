@@ -164,6 +164,9 @@ const schema = z
       .regex(/^[0-9a-fA-F]{64}$/, "64 haneli onaltılık SHA-256 olmalı")
       .transform((v) => v.toLowerCase())
       .optional(),
+    // P28f-r4 (K-P28f-r4-2): yayındaki macOS zip'inin imza türü; publish-mac.sh --apply yazar. Boş = yok → availability
+    // `adhoc` sayar (S-r4-8: bilinmeyen değer asla notarized değil; geçersiz değer açılış hatası).
+    MAC_AGENT_SIGNING: z.enum(["adhoc", "notarized"]).optional(),
     // P28g (mimari-p28g §8.1, S-P28g-12): Linux istemcisi tek ELF (MAC_AGENT_* kalıbı). İkisi dolu ve dosya hash'i eşleşmedikçe
     // Linux indirmesi 503 ve availability `linux:false`. Production'da yol sabit (LINUX_AGENT_PATH_FIXED; aşağıdaki refine).
     LINUX_AGENT_PATH: z.string().startsWith("/", "mutlak yol olmalı").optional(),
@@ -348,4 +351,9 @@ export function loadEnv(source: NodeJS.ProcessEnv = process.env): Env {
     throw new Error(`Geçersiz ortam değişkenleri — ${keys}`);
   }
   return parsed.data;
+}
+
+/** K-P28f-r4-2: production + macOS zip yayında (MAC_AGENT_SHA256 dolu) + MAC_AGENT_SIGNING boş → açılışta uyarı (hata değil). */
+export function macSigningUnsetInProduction(env: Pick<Env, "NODE_ENV" | "MAC_AGENT_SHA256" | "MAC_AGENT_SIGNING">): boolean {
+  return env.NODE_ENV === "production" && !!env.MAC_AGENT_SHA256 && !env.MAC_AGENT_SIGNING;
 }

@@ -183,7 +183,7 @@ export function JoinForm({
             sessionRef={data.sessionRef}
             verifyCode={data.techVerifyCode}
             os={agent.os}
-            testBuild={agent.testBuild}
+            variant={agent.variant}
             onEnd={onEnd}
             onBrowser={toBrowser}
           />

@@ -267,7 +267,9 @@ export async function handleSessions(req, res, { url, session, csrfOk, send, err
   // P28f (AC-390): platform başına ikili kapısı. Senaryolar tarayıcıda page.route ile ezilir (false / 429 / 500).
   if (path === "/api/v1/public/agent/availability" && req.method === "GET")
     return (
-      send(res, 200, { windows: true, macos: true, linux: true, macosTestBuild: false }, [], { "Cache-Control": "public, max-age=60" }),
+      send(res, 200, { windows: true, macos: true, linux: true, macosTestBuild: false, macosSigning: "adhoc" }, [], {
+        "Cache-Control": "public, max-age=60",
+      }),
       true
     );
   if (path === "/api/v1/public/agent/download" && req.method === "GET") {

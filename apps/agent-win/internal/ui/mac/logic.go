@@ -5,6 +5,9 @@
 package mac
 
 import (
+	"fmt"
+
+	"remote-support/agent-win/internal/flow"
 	"remote-support/agent-win/internal/input"
 )
 
@@ -45,11 +48,26 @@ type signInfo struct {
 	Err    error
 }
 
-// showTestBand bant her durumda gösterilir: Team ID boş, ad-hoc, imza okunamadı, TEST derlemesi, beklenen Team ID
-// gömülmemiş ya da imzanın Team ID'si beklenenden farklı (D-P28f-K3: başka bir Developer ID ile yeniden imzalanmış
-// paket). Yalnız beklenen Developer ID ekibiyle imzalı (ad-hoc değil) ve TEST olmayan derlemede gizlidir.
+// showTestBand AC-504 / K-P28f-r4-5: bant TEST derlemesinde ya da beklenen Team ID gömülüyken imza ona uymuyorsa
+// (okunamadı, Team ID boş, ad-hoc ya da başka ekip — D-P28f-K3: başka bir Developer ID ile yeniden imzalanmış paket)
+// gösterilir. Prod ad-hoc derlemede (testBuild=false, beklenen Team ID boş) bant yoktur; imza Hakkında'da yazılır.
 func showTestBand(si signInfo, testBuild bool, expectedTeam string) bool {
-	return testBuild || si.Err != nil || si.TeamID == "" || si.AdHoc || expectedTeam == "" || si.TeamID != expectedTeam
+	return testBuild || (expectedTeam != "" && (si.Err != nil || si.TeamID == "" || si.AdHoc || si.TeamID != expectedTeam))
+}
+
+// aboutSigLine AC-504: Hakkında penceresindeki tek imza satırı. Okunamayan ya da Team ID'siz ve ad-hoc olmayan imza
+// "doğrulanamadı" sayılır.
+func aboutSigLine(si signInfo) string {
+	t := flow.MacTexts
+	switch {
+	case si.Err != nil:
+		return t.AboutSigUnknown
+	case si.AdHoc:
+		return t.AboutSigAdhoc
+	case si.TeamID != "":
+		return fmt.Sprintf(t.AboutSigDevID, si.TeamID)
+	}
+	return t.AboutSigUnknown
 }
 
 // flipRect AppKit pencere çerçevesini (sol alt köken, y yukarı; birincil ekran yüksekliği primaryH) genel

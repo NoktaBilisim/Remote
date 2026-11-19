@@ -11,9 +11,13 @@
 # Go sürümü değişince (go.mod `toolchain`) GO_IMAGE de değişir; `check` job'u uyuşmazlıkta kırmızı olur.
 # P28f K8a/K8b (mimari-p28f §8.2, ADR-0037 r3): macOS istemcisi. İnce ikililer (arm64, amd64) Linux GO_IMAGE'da CGO'suz çapraz
 # derlenir (build-mac ×2 → reproducible-mac SHA eşitliği); macos-15'te universal .app + ad-hoc/hardened runtime + boş entitlement
-# (package-mac), go test darwin + iz testi (test-macos). Etikette onaydan sonra sign-mac (Developer ID + notarize + staple;
-# vars.APPLE_TEAM_ID yoksa atlanır) → attest-mac → Release. İmzasız/ad-hoc zip ve prod adresli ad-hoc zip HİÇBİR ZAMAN artifact/
-# Release olmaz (S-P28f-7): etikette package-mac yalnız denetler, yüklemez.
+# (package-mac), go test darwin + iz testi (test-macos). P28f-r4 (mimari-p28f §15.4, K-P28f-r4-4; S-r4-3/4): etikette dal TEK
+# kaynaktan — reproducible-mac `signing` çıktısı (build-meta 4. satır = gömülü Team ID: dolu → notarized, boş → adhoc); sonraki işler
+# vars.APPLE_TEAM_ID'yi yalnız tutarlılık için karşılaştırır (uyuşmazlık = hata). notarized: onaydan sonra sign-mac (Developer ID +
+# notarize + staple) → attest-mac (notarized predicate) → Release (aynen). adhoc (APPLE_TEAM_ID boş, Developer ID'siz prod): package-mac
+# onaydan ÖNCE prod ad-hoc zip'i `agent-mac-adhoc` artifact'i olarak yükler (retention 7; attestation'sız → yayın betiğinden geçemez);
+# attest-mac YALNIZ approve sonrası build provenance + "macos-adhoc" predicate'ini iş çıktılarından kurar → Release. Etikette macOS
+# zip'i ZORUNLU (attest-mac "skipped" Release'i geçirmez). Etiket dışı ad-hoc TEST zip'leri (agent-mac / agent-mac-stg) aynen.
 # P28g K8a (mimari-p28g §8.2, ADR-0038): Linux istemcisi. Tek ELF GO_IMAGE'da CGO'suz derlenir (build-linux ×2 →
 # reproducible-linux SHA eşitliği + check-linux-elf.sh), test-linux-gui Ubuntu 22.04/24.04 imajlarında Xvfb + başsız mutter ile
 # `go test -tags linuxgui` + ortam pozitif kontrolü + XI2 ofsetleri + iz testi (sözleşme: docs/implementation.md "P28g K8a").
@@ -65,6 +69,8 @@ env:
   STG_SERVER_URL: https://stg.remote.noktabilisim.net
   # P28f K8b (S-P28f-7): imzalı macOS zip'inin ikinci attestation'ının predicate türü; deploy/agent/publish-mac.sh aynı değeri ister.
   MAC_NOTARIZED_PREDICATE: https://noktabilisim.net/attestation/macos-notarized/v1
+  # P28f-r4 (K-P28f-r4-4): Developer ID'siz (ad-hoc) prod zip'inin ikinci attestation'ı; publish-mac.sh ADHOC_PREDICATE ile aynı değer.
+  MAC_ADHOC_PREDICATE: https://noktabilisim.net/attestation/macos-adhoc/v1
 
 jobs:
   check:
@@ -724,8 +730,8 @@ jobs:
         run: |
           git config --global --add safe.directory "$GITHUB_WORKSPACE"
           kip="test"; [ "$MODE" = prod ] && kip=""
-          # D-P28f-K3: beklenen Team ID yalnız prod (etiket) derlemesine ve yalnız vars.APPLE_TEAM_ID doluysa gömülür (boşsa R39:
-          # sign-mac atlanır, gömülmez). build-darwin.sh biçimi ve ikilide bulunmasını denetler; sign-mac build-meta 4. satırı = TEAM.
+          # D-P28f-K3: beklenen Team ID yalnız prod (etiket) derlemesine ve yalnız vars.APPLE_TEAM_ID doluysa gömülür (boşsa r4 ad-hoc
+          # prod dalı: sign-mac atlanır, gömülmez; 4. satır boş = reproducible-mac signing=adhoc, S-r4-3). build-darwin.sh biçimi ve ikilide bulunmasını denetler; sign-mac build-meta 4. satırı = TEAM.
           team=""; [ "$MODE" = prod ] && team="$VAR_TEAM"
           for a in arm64 amd64; do
             # kip boşsa (prod) build-darwin.sh yalnız GITHUB_REF_TYPE=tag + GITHUB_REF_NAME=v<sürüm> ile derler (S-P28f-7).
@@ -752,13 +758,16 @@ jobs:
       mode: ${{ steps.cmp.outputs.mode }}
       zip: ${{ steps.cmp.outputs.zip }}
       artifact: ${{ steps.cmp.outputs.artifact }}
+      # S-r4-3: etiket dalının TEK kaynağı (adhoc|notarized); etiket dışı her zaman adhoc (TEST).
+      signing: ${{ steps.cmp.outputs.signing }}
     steps:
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with: { pattern: agent-mac-build-*, path: builds }
-      - name: iki derleme aynı SHA-256 + Mach-O 64 + boyut; paket adı
+      - name: iki derleme aynı SHA-256 + Mach-O 64 + boyut; paket adı; imza dalı
         id: cmp
         env:
           REF_TYPE: ${{ github.ref_type }}
+          VAR_TEAM: ${{ vars.APPLE_TEAM_ID }}
         run: |
           cmp builds/agent-mac-build-1/build-meta.txt builds/agent-mac-build-2/build-meta.txt || { echo "::error::build-meta farklı"; exit 1; }
           for a in arm64 amd64; do
@@ -772,20 +781,24 @@ jobs:
             echo "sha_$a=$x" >> "$GITHUB_OUTPUT"
           done
           meta=builds/agent-mac-build-1/build-meta.txt
-          server="$(sed -n 1p "$meta")"; ver="$(sed -n 2p "$meta")"; mode="$(sed -n 3p "$meta")"
+          server="$(sed -n 1p "$meta")"; ver="$(sed -n 2p "$meta")"; mode="$(sed -n 3p "$meta")"; team="$(sed -n 4p "$meta")"
+          signing=adhoc
           if [ "$REF_TYPE" = tag ]; then
             [ "$mode" = prod ] || { echo "::error::etiket derlemesi prod kipinde olmalı"; exit 1; }
             zip="NoktaDestek-macOS-$ver.zip"; artifact=none
+            # S-r4-3: dal = gömülü Team ID (build-mac'in o anki vars'ı); şimdiki vars ile uyuşmazlık = hata (onay öncesi görünür).
+            [ -z "$team" ] || signing=notarized
+            [ "$team" = "$VAR_TEAM" ] || { echo "::error::gömülü Team ID ('$team') vars.APPLE_TEAM_ID ('$VAR_TEAM') değil — değişken derleme sırasında değişti; yeni etiket"; exit 1; }
           else
             [ "$mode" = test ] || { echo "::error::etiket dışı derleme test kipinde olmalı (S-P28f-7)"; exit 1; }
             zip="NoktaDestek-macOS-stg-$ver.zip"
             if [ "$server" = "$STG_SERVER_URL" ]; then artifact=agent-mac-stg; else artifact=agent-mac; fi
           fi
           printf '%s' "$zip" | grep -Eq '^NoktaDestek-macOS-(stg-)?[0-9]+\.[0-9]+\.[0-9]+\.zip$' || { echo "::error::zip adı $zip"; exit 1; }
-          { echo "version=$ver"; echo "mode=$mode"; echo "zip=$zip"; echo "artifact=$artifact"; } >> "$GITHUB_OUTPUT"
+          { echo "version=$ver"; echo "mode=$mode"; echo "zip=$zip"; echo "artifact=$artifact"; echo "signing=$signing"; } >> "$GITHUB_OUTPUT"
           mkdir thin && cp builds/agent-mac-build-1/* thin/
           (cd thin && sha256sum noktadestek-arm64 noktadestek-amd64 > SHA256SUMS && cat SHA256SUMS)
-          { echo "### darwin ince ikililer ($mode, $server)"; echo '```'; cat thin/SHA256SUMS; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+          { echo "### darwin ince ikililer ($mode, $server, imza dalı: $signing)"; echo '```'; cat thin/SHA256SUMS; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: agent-mac-thin
@@ -795,12 +808,18 @@ jobs:
 
   # P28f K8a (§8.2 package-mac; S-P28f-4/5/14/17): universal + .app + AD-HOC + hardened runtime + entitlements.plist (boş; prod ile
   # aynı dosya) + Info.plist izin listesi + entitlement tam eşleşme + zip ≤ 60 MiB. Girdi SHA'ları reproducible-mac ÇIKTILARIYLA
-  # karşılaştırılır (aynı artifact'teki SHA256SUMS ile değil). Etikette (prod adresli ikililer) yalnız denetler; zip YÜKLENMEZ.
+  # karşılaştırılır (aynı artifact'teki SHA256SUMS ile değil). r4 (K-P28f-r4-4/11, S-r4-3/4): etiket + signing=notarized → yalnız
+  # denetler, YÜKLEMEZ (Developer ID zip'i sign-mac üretir). Etiket + signing=adhoc → prod ad-hoc zip (OKUBENI-adhoc) `agent-mac-adhoc`
+  # artifact'i (retention 7: onay 1 günü aşabilir); attestation YOK — yalnız approve sonrası attest-mac. Çıktılar zip_sha / exe_sha
+  # (iş çıktısı; attest-mac predicate'i bunlardan kurar). Onaylayan özette imza dalını + SHA'ları görür.
   package-mac:
     name: package-mac (universal .app, ad-hoc + hardened runtime)
     needs: reproducible-mac
     runs-on: macos-15
     timeout-minutes: 15
+    outputs:
+      zip_sha: ${{ steps.pkg.outputs.zip_sha }}
+      exe_sha: ${{ steps.pkg.outputs.exe_sha }}
     defaults:
       run:
         working-directory: apps/agent-win
@@ -816,11 +835,14 @@ jobs:
         run: |
           [ "$(shasum -a 256 "$RUNNER_TEMP/thin/noktadestek-arm64" | cut -d' ' -f1)" = "$WANT_ARM64" ] || { echo "::error::arm64 SHA uyuşmuyor"; exit 1; }
           [ "$(shasum -a 256 "$RUNNER_TEMP/thin/noktadestek-amd64" | cut -d' ' -f1)" = "$WANT_AMD64" ] || { echo "::error::amd64 SHA uyuşmuyor"; exit 1; }
-      - name: package.sh adhoc (+ check)
+      - name: package.sh adhoc (+ check) + OKUBENI içeriği (AC-505) + zip/ikili SHA
+        id: pkg
         env:
           VERSION: ${{ needs.reproducible-mac.outputs.version }}
           MODE: ${{ needs.reproducible-mac.outputs.mode }}
           ZIP: ${{ needs.reproducible-mac.outputs.zip }}
+          SIGNING: ${{ needs.reproducible-mac.outputs.signing }}
+          REF_TYPE: ${{ github.ref_type }}
         run: |
           SOURCE_DATE_EPOCH="$(git log -1 --format=%ct)"; export SOURCE_DATE_EPOCH
           prof=stg; [ "$MODE" = prod ] && prof=prod
@@ -828,7 +850,54 @@ jobs:
             "$RUNNER_TEMP/pkg" "$ZIP"
           app="$RUNNER_TEMP/pkg/stage/Nokta Destek.app"
           spctl -a -vv -t exec "$app" 2>&1 | tee "$RUNNER_TEMP/spctl.txt" || true
-          echo "(ad-hoc paket Gatekeeper'da reddedilir — beklenen; prod'da sign-mac 'Notarized Developer ID' şartını uygular)"
+          echo "(ad-hoc paket Gatekeeper'da reddedilir — beklenen; Developer ID dalında sign-mac 'Notarized Developer ID' şartını uygular)"
+          # AC-505 / K-P28f-r4-11: package.sh adhoc → stg: OKUBENI-stg.txt, prod: OKUBENI-adhoc.txt (Developer ID metni OKUBENI.txt değil).
+          want=build/macos/OKUBENI-adhoc.txt; [ "$prof" = stg ] && want=build/macos/OKUBENI-stg.txt
+          unzip -p "$RUNNER_TEMP/pkg/$ZIP" OKUBENI.txt | cmp - "$want" || { echo "::error::zip içi OKUBENI.txt $want değil"; exit 1; }
+          zsha=$(shasum -a 256 "$RUNNER_TEMP/pkg/$ZIP" | cut -d' ' -f1)
+          esha=$(shasum -a 256 "$app/Contents/MacOS/noktadestek" | cut -d' ' -f1)
+          [ "$(unzip -p "$RUNNER_TEMP/pkg/$ZIP" "Nokta Destek.app/Contents/MacOS/noktadestek" | shasum -a 256 | cut -d' ' -f1)" = "$esha" ] \
+            || { echo "::error::zip içi ikili paketteki ikili değil"; exit 1; }
+          { echo "zip_sha=$zsha"; echo "exe_sha=$esha"; } >> "$GITHUB_OUTPUT"
+          if [ "$REF_TYPE" = tag ]; then
+            { echo "### macOS etiket paketi — onaylayan için (S-r4-3)"
+              echo "- imza dalı (reproducible-mac signing): **$SIGNING** ($([ "$SIGNING" = adhoc ] && echo "Developer ID'siz prod; Gatekeeper 'Yine de Aç'" || echo "Developer ID + notarize, sign-mac"))"
+              echo "- ad-hoc zip $ZIP SHA-256: \`$zsha\`$([ "$SIGNING" = adhoc ] && echo " (Release'e girecek dosya)" || echo " (yüklenmez; Release'e sign-mac zip'i girer)")"
+              echo "- paket içi ikili (Hakkında parmak izi ${esha:0:8}): \`$esha\`"; } >> "$GITHUB_STEP_SUMMARY"
+          fi
+      - name: prod ad-hoc dağıtım klasörü (etiket + signing=adhoc; K-P28f-r4-4)
+        if: github.ref_type == 'tag' && needs.reproducible-mac.outputs.signing == 'adhoc'
+        env:
+          ZIP: ${{ needs.reproducible-mac.outputs.zip }}
+          VERSION: ${{ needs.reproducible-mac.outputs.version }}
+          VAR_TEAM: ${{ vars.APPLE_TEAM_ID }}
+          ZSHA: ${{ steps.pkg.outputs.zip_sha }}
+          ESHA: ${{ steps.pkg.outputs.exe_sha }}
+        run: |
+          # S-r4-3: tek kaynak signing; vars yalnız tutarlılık (uyuşmazlık = hata, sessiz atlama değil).
+          [ -z "$VAR_TEAM" ] || { echo "::error::signing=adhoc ama vars.APPLE_TEAM_ID tanımlı — değişken derleme sırasında değişti; yeni etiket"; exit 1; }
+          printf '%s' "$ZIP" | grep -Eq '^NoktaDestek-macOS-[0-9]+\.[0-9]+\.[0-9]+\.zip$' || { echo "::error::prod zip adı $ZIP"; exit 1; }
+          app="$RUNNER_TEMP/pkg/stage/Nokta Destek.app"
+          codesign -dv "$app" 2>&1 | grep -qx 'Signature=adhoc' || { echo "::error::prod paket ad-hoc imzalı değil"; exit 1; }
+          [ "$(plutil -extract CFBundleIdentifier raw -o - "$app/Contents/Info.plist")" = net.noktabilisim.destek ] || { echo "::error::bundle kimliği prod değil"; exit 1; }
+          d="$RUNNER_TEMP/dist"; mkdir "$d"
+          cp "$RUNNER_TEMP/pkg/$ZIP" "$RUNNER_TEMP/thin/build-meta.txt" "$d/"
+          (cd "$d" && shasum -a 256 "$ZIP" > SHA256SUMS)
+          [ "$(cut -d' ' -f1 "$d/SHA256SUMS")" = "$ZSHA" ] || { echo "::error::zip SHA zip_sha çıktısı değil"; exit 1; }
+          # S-P28f-17: paket içi ikili + dilim başına imzasız SHA (Hakkında parmak izi = Contents/MacOS/noktadestek).
+          { (cd "$RUNNER_TEMP/pkg/stage" && shasum -a 256 "Nokta Destek.app/Contents/MacOS/noktadestek")
+            (cd "$RUNNER_TEMP/thin" && shasum -a 256 noktadestek-arm64 noktadestek-amd64); } > "$d/icerik-sha256.txt"
+          # Bilgi amaçlı beyan; attest-mac predicate'i İŞ ÇIKTILARINDAN kendisi kurar ve bununla birebir karşılaştırır (S-r4-4).
+          jq -n --arg ver "$VERSION" --arg zip "$ZIP" --arg exe "$ESHA" \
+            '{bundleId:"net.noktabilisim.destek", version:$ver, file:$zip, signature:"adhoc", notarized:false, executableSha256:$exe}' > "$d/adhoc.json"
+          { echo "### $ZIP (prod ad-hoc; agent-mac-adhoc — attestation YALNIZ onaydan sonra)"; echo '```'; cat "$d/SHA256SUMS" "$d/icerik-sha256.txt" "$d/adhoc.json"; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+      - if: github.ref_type == 'tag' && needs.reproducible-mac.outputs.signing == 'adhoc'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: agent-mac-adhoc
+          path: ${{ runner.temp }}/dist/
+          if-no-files-found: error
+          retention-days: 7
       - name: dağıtım klasörü (etiket değilse)
         if: github.ref_type != 'tag'
         env:
@@ -1252,7 +1321,7 @@ jobs:
             echo "- [ ] 0.19.0 ve sonrası: sunucu P28f prod'da (clientOs, availability, OS_PERMISSION; migration yok) — eski sunucu clientOs'u yok sayar"
             echo "- [ ] 0.20.0 ve sonrası: sunucu P28g prod'da (os=linux, availability linux, WAYLAND_NO_CONTROL; migration yok); Linux elle E-listesi (mimari-p28g §12.1) staging TEST ikilisiyle GEÇTİ"
             echo "- [ ] 0.20.0 ve sonrası (mimari-p28g §5.2b m.7): Linux ikilisinin Wayland kontrol anahtarı (reproducible-linux özetindeki 'Wayland kontrolü: on|off'; repo değişkeni LINUX_WAYLAND_CONTROL; etiket derlemesinde tanımlı olmak zorunda). **on** ise E-7 (b) ve (c) gerçek GNOME Wayland makinesinde (24.04 + 22.04) GEÇTİ mi? Geçmediyse **Reject**, LINUX_WAYLAND_CONTROL=off yapıp yeni etiket (Wayland yalnız görüntü; X11 etkilenmez) (runbook §28g.6)"
-            echo "- [ ] macOS: repo değişkeni APPLE_TEAM_ID tanımlı mı? Tanımsızsa sign-mac ATLANIR ve Release'te macOS zip'i OLMAZ (beklenen, R39). Tanımlıysa macOS elle D-listesi (runbook §28f.6) staging TEST paketiyle GEÇTİ"
+            echo "- [ ] macOS (r4): package-mac özetindeki imza dalı + zip SHA'sını okuyun. APPLE_TEAM_ID tanımsız → macOS **ad-hoc** Release (Gatekeeper 'Yine de Aç'); E-listesi (mimari-p28f §15.7) aynı commit'in staging TEST paketiyle macOS 14 + 15'te GEÇTİ mi? Tanımlıysa Developer ID + D-listesi (runbook §28f.6)"
             echo "- [ ] Aynı commit'ten staging exe ile duman testi GEÇTİ (runbook §24.2)"
             echo "- [ ] qa GEÇTİ, güvenlik Kritik/Yüksek 0; bekleyen eski etiket koşusu yok"
             echo
@@ -1409,7 +1478,7 @@ jobs:
 
   # P28f K8b (mimari-p28f §8.2 sign-mac, §5.1 T11; ADR-0037 m.6; S-P28f-6): Developer ID + hardened runtime + --timestamp,
   # notarytool (30 dk), staple, spctl "Notarized Developer ID", TeamIdentifier = vars.APPLE_TEAM_ID. vars.APPLE_TEAM_ID yoksa
-  # iş "skipped" olur ve Release'te macOS zip'i OLMAZ (R39; SignPath kalıbı). GÜVENLİK SINIRI `if:` DEĞİL ORTAMDIR: `agent-mac-sign`
+  # iş "skipped" olur; r4: Release'e package-mac'in ad-hoc prod zip'i (agent-mac-adhoc) girer (attest-mac onaya bağlı). GÜVENLİK SINIRI `if:` DEĞİL ORTAMDIR: `agent-mac-sign`
   # deployment policy yalnız `v*` etiketleri + zorunlu onaylayıcı (kendi onayı yasak) + etiket ruleset'i (runbook §28f.3). Girdi
   # reproducible-mac ÇIKTISINDAKİ SHA'larla doğrulanır; bundle + zip BU işte etiket commit'indeki package.sh ile üretilir.
   # Sırlar yalnız Apple araçlarına (security, codesign, notarytool) gider; üçüncü taraf Action yok, `set -x` yok; .p12/.p8/keychain
@@ -1418,6 +1487,7 @@ jobs:
     name: sign-mac (Developer ID + notarize + staple; APPLE_TEAM_ID yoksa atlanır)
     if: >-
       !cancelled() && github.event_name == 'push' && github.ref_type == 'tag' && vars.APPLE_TEAM_ID != '' &&
+      needs.reproducible-mac.outputs.signing == 'notarized' &&
       needs.approve.result == 'success' && needs.reproducible-mac.result == 'success'
     needs: [reproducible-mac, approve]
     runs-on: macos-15
@@ -1560,16 +1630,21 @@ jobs:
           [ -z "$KC" ] || security delete-keychain "$KC" 2>/dev/null || true
           rm -f "$RUNNER_TEMP/imza.p12" "$RUNNER_TEMP/notary.p8" "$RUNNER_TEMP/imza.keychain-db"
 
-  # P28f K8b: macOS zip attestation'ı. Etiket: yalnız sign-mac başarılıysa (imzalı zip) build provenance + ayrı "notarized"
-  # predicate'li attestation (S-P28f-7; yayın betiği --predicate-type ile ister). Etiket dışı (main push, staging dispatch):
-  # package-mac'in ad-hoc TEST zip'i yalnız build provenance (publish-mac.sh --stg-run doğrular). PR'da yok (id-token yok).
+  # P28f K8b + r4 (§15.4 m.4; S-r4-3/4): macOS zip attestation'ı. Etiket: YALNIZ approve başarılıysa (sign-mac "skipped" hem
+  # "Team ID yok" hem "Reject" olabilir → kapı onaya bağlı) ve dal reproducible-mac `signing`'e göre: notarized → sign-mac başarılı,
+  # agent-mac-signed + "notarized" predicate (aynen); adhoc → package-mac başarılı, agent-mac-adhoc; zip SHA = package-mac.zip_sha,
+  # zip içi ikili = package-mac.exe_sha; "macos-adhoc" predicate'i İŞ ÇIKTILARINDAN kurulur (artifact'teki adhoc.json yalnız birebir
+  # karşılaştırılır). Etiket dışı (main push, staging dispatch): package-mac'in ad-hoc TEST zip'i yalnız build provenance
+  # (publish-mac.sh --stg-run doğrular). PR'da yok (id-token yok).
   attest-mac:
     name: macOS attestation
     if: >-
       !cancelled() && github.event_name != 'pull_request' &&
-      ((github.ref_type == 'tag' && needs.sign-mac.result == 'success') ||
+      ((github.ref_type == 'tag' && needs.approve.result == 'success' &&
+        ((needs.reproducible-mac.outputs.signing == 'notarized' && needs.sign-mac.result == 'success') ||
+         (needs.reproducible-mac.outputs.signing == 'adhoc' && needs.package-mac.result == 'success'))) ||
        (github.ref_type != 'tag' && needs.package-mac.result == 'success'))
-    needs: [reproducible-mac, package-mac, sign-mac]
+    needs: [reproducible-mac, package-mac, sign-mac, approve]
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions:
@@ -1578,39 +1653,73 @@ jobs:
       attestations: write
     outputs:
       artifact: ${{ steps.pick.outputs.artifact }}
+      signing: ${{ steps.pick.outputs.signing }}
     steps:
-      - name: attest edilecek artifact
+      - name: attest edilecek artifact (dal = reproducible-mac signing; vars yalnız tutarlılık)
         id: pick
         env:
           REF_TYPE: ${{ github.ref_type }}
           PLAIN: ${{ needs.reproducible-mac.outputs.artifact }}
+          SIGNING: ${{ needs.reproducible-mac.outputs.signing }}
+          VAR_TEAM: ${{ vars.APPLE_TEAM_ID }}
         run: |
-          if [ "$REF_TYPE" = tag ]; then a=agent-mac-signed; else a="$PLAIN"; fi
-          case "$a" in agent-mac|agent-mac-stg|agent-mac-signed) ;; *) echo "::error::artifact $a"; exit 1 ;; esac
-          echo "artifact=$a" >> "$GITHUB_OUTPUT"
+          if [ "$REF_TYPE" = tag ]; then
+            case "$SIGNING" in
+              notarized) a=agent-mac-signed; [ -n "$VAR_TEAM" ] || { echo "::error::signing=notarized ama vars.APPLE_TEAM_ID boş"; exit 1; } ;;
+              adhoc) a=agent-mac-adhoc; [ -z "$VAR_TEAM" ] || { echo "::error::signing=adhoc ama vars.APPLE_TEAM_ID tanımlı"; exit 1; } ;;
+              *) echo "::error::reproducible-mac signing '$SIGNING'"; exit 1 ;;
+            esac
+          else
+            a="$PLAIN"; SIGNING=adhoc
+          fi
+          case "$a" in agent-mac|agent-mac-stg|agent-mac-signed|agent-mac-adhoc) ;; *) echo "::error::artifact $a"; exit 1 ;; esac
+          { echo "artifact=$a"; echo "signing=$SIGNING"; } >> "$GITHUB_OUTPUT"
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with: { name: "${{ steps.pick.outputs.artifact }}", path: dist }
-      - name: SHA256SUMS + notarization.json (etiket)
+      - name: SHA256SUMS + notarization.json / ad-hoc predicate (etiket)
         env:
           REF_TYPE: ${{ github.ref_type }}
+          SIGNING: ${{ steps.pick.outputs.signing }}
           ZIP: ${{ needs.reproducible-mac.outputs.zip }}
+          VERSION: ${{ needs.reproducible-mac.outputs.version }}
+          ZSHA: ${{ needs.package-mac.outputs.zip_sha }}
+          ESHA: ${{ needs.package-mac.outputs.exe_sha }}
           TEAM: ${{ vars.APPLE_TEAM_ID }}
         run: |
           cd dist && sha256sum -c SHA256SUMS
           [ -f "$ZIP" ] || { echo "::error::$ZIP yok"; exit 1; }
-          if [ "$REF_TYPE" = tag ]; then
+          if [ "$REF_TYPE" = tag ] && [ "$SIGNING" = notarized ]; then
             [ "$(jq -r .teamId notarization.json)" = "$TEAM" ] && [ "$(jq -r .file notarization.json)" = "$ZIP" ] \
               || { echo "::error::notarization.json teamId/file uyuşmuyor"; exit 1; }
+          elif [ "$REF_TYPE" = tag ]; then
+            # S-r4-4: bağ iş çıktılarıdır (değiştirilemez); artifact yalnız bunlara eşitse attest edilir.
+            if ! printf '%s\n%s' "$ESHA" "$ZSHA" | grep -Ecx '[0-9a-f]{64}' | grep -qx 2; then echo "::error::package-mac zip_sha/exe_sha yok"; exit 1; fi
+            [ "$(sha256sum "$ZIP" | cut -d' ' -f1)" = "$ZSHA" ] || { echo "::error::zip SHA package-mac.zip_sha değil"; exit 1; }
+            [ "$(unzip -p "$ZIP" "Nokta Destek.app/Contents/MacOS/noktadestek" | sha256sum | cut -d' ' -f1)" = "$ESHA" ] \
+              || { echo "::error::zip içi ikili package-mac.exe_sha değil"; exit 1; }
+            grep -qxF "$ESHA  Nokta Destek.app/Contents/MacOS/noktadestek" icerik-sha256.txt || { echo "::error::icerik-sha256.txt paket içi satırı exe_sha değil"; exit 1; }
+            [ "$(sed -n 3p build-meta.txt)" = prod ] && [ -z "$(sed -n 4p build-meta.txt)" ] || { echo "::error::build-meta prod + boş Team ID değil"; exit 1; }
+            jq -n --arg ver "$VERSION" --arg zip "$ZIP" --arg exe "$ESHA" \
+              '{bundleId:"net.noktabilisim.destek", version:$ver, file:$zip, signature:"adhoc", notarized:false, executableSha256:$exe}' \
+              > "$RUNNER_TEMP/adhoc-predicate.json"
+            [ "$(jq -cS . adhoc.json)" = "$(jq -cS . "$RUNNER_TEMP/adhoc-predicate.json")" ] || { echo "::error::artifact adhoc.json iş çıktılarından kurulan predicate değil"; exit 1; }
+            cat "$RUNNER_TEMP/adhoc-predicate.json"
           fi
       - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
         with:
           subject-path: dist/${{ needs.reproducible-mac.outputs.zip }}
-      - if: github.ref_type == 'tag'
+      - if: github.ref_type == 'tag' && steps.pick.outputs.signing == 'notarized'
         uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
         with:
           subject-path: dist/${{ needs.reproducible-mac.outputs.zip }}
           predicate-type: ${{ env.MAC_NOTARIZED_PREDICATE }}
           predicate-path: dist/notarization.json
+      - if: github.ref_type == 'tag' && steps.pick.outputs.signing == 'adhoc'
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
+        with:
+          subject-path: dist/${{ needs.reproducible-mac.outputs.zip }}
+          predicate-type: ${{ env.MAC_ADHOC_PREDICATE }}
+          predicate-path: ${{ runner.temp }}/adhoc-predicate.json
 
   # P28g K8b (mimari-p28g §8.2, S-P28g-9): Linux ELF attestation'ı. Etiket: yalnız agent-release onayından sonra (Reject edilen etiket
   # attest edilmez); etiket dışı (main push → agent-linux-test, staging dispatch → agent-linux-stg) koşulsuz. PR'da yok (id-token yok).
@@ -1684,12 +1793,13 @@ jobs:
     name: GitHub Release (korumalı v* etiketi; agent-release onayından sonra)
     # İnsan kapısı `approve` işidir (S17-2, S-P17-2); bu iş yalnız onaylanmış + (imzalanmış) + attest edilmiş ikiliyi yayımlar.
     # Ayrı ortam onayı yok (ikinci onay aynı kişiye aynı soruyu sorardı). Etiket yalnız yöneticilerce itilebilir (ruleset).
-    # P28f K8b: macOS zip'i yalnız sign-mac + attest-mac başarılıysa Release'e girer; sign-mac başarısızsa Release yok (fail-closed);
-    # APPLE_TEAM_ID tanımlıyken imzalı zip yoksa Release adımı durur.
+    # P28f K8b + r4 (§15.4 m.5): macOS zip'i Release'te ZORUNLU — attest-mac başarılı olmalı ("skipped" kabul edilmez). Artifact
+    # attest-mac.outputs.artifact: agent-mac-signed (notarized) ya da agent-mac-adhoc (adhoc); dal reproducible-mac signing ile ve
+    # vars.APPLE_TEAM_ID ile tutarlı olmalı (uyuşmazlık = hata). sign-mac başarısızsa Release yok (fail-closed).
     if: >-
       !cancelled() && github.event_name == 'push' && github.ref_type == 'tag' && needs.approve.result == 'success' &&
       needs.attest.result == 'success' && (needs.sign-mac.result == 'success' || needs.sign-mac.result == 'skipped') &&
-      (needs.attest-mac.result == 'success' || needs.attest-mac.result == 'skipped') &&
+      needs.attest-mac.result == 'success' &&
       needs.reproducible-linux.result == 'success' && needs.attest-linux.result == 'success' &&
       (needs.update-manifest.result == 'success' || needs.update-manifest.result == 'skipped')
     # P28g K8b: Linux ELF'i her Release'te ZORUNLU (imza adımı yok, "skipped" kabul edilmez); attest-linux başarısızsa Release yok.
@@ -1703,9 +1813,8 @@ jobs:
     steps:
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with: { name: "${{ needs.attest.outputs.artifact }}", path: dist }
-      - if: needs.attest-mac.result == 'success'
-        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
-        with: { name: agent-mac-signed, path: distmac }
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with: { name: "${{ needs.attest-mac.outputs.artifact }}", path: distmac }
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with: { name: agent-linux, path: distlinux }
       # P29 K6: manifestler anahtarsız bu işte Node doğrulayıcısıyla (Go imzalayıcıdan bağımsız) yeniden denetlenir.
@@ -1721,7 +1830,7 @@ jobs:
       - if: needs.update-manifest.outputs.produced == '1'
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with: { name: agent-update, path: distupd }
-      - name: Release oluştur (exe + [macOS zip] + Linux ELF + SHA256SUMS)
+      - name: Release oluştur (exe + macOS zip + Linux ELF + SHA256SUMS)
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ github.ref_name }}
@@ -1731,6 +1840,8 @@ jobs:
           SERVIS_EXE: ${{ needs.reproducible.outputs.servis_exe }}
           APPLE_TEAM: ${{ vars.APPLE_TEAM_ID }}
           MAC_ART: ${{ needs.attest-mac.outputs.artifact }}
+          MAC_SIGNING: ${{ needs.attest-mac.outputs.signing }}
+          REPRO_SIGNING: ${{ needs.reproducible-mac.outputs.signing }}
           MAC_ZIP: ${{ needs.reproducible-mac.outputs.zip }}
           LINUX_ART: ${{ needs.reproducible-linux.outputs.artifact }}
           LINUX_FILE: ${{ needs.reproducible-linux.outputs.file }}
@@ -1739,12 +1850,15 @@ jobs:
           UPD_PRODUCED: ${{ needs.update-manifest.outputs.produced }}
         run: |
           case "$ART" in agent-win|agent-win-signed) ;; *) echo "::error::Release artifact'i $ART olamaz"; exit 1 ;; esac
-          # P28f (AC-390, S-P28f-7): Release'e yalnız Developer ID + notarize edilmiş zip; APPLE_TEAM_ID varken zip yoksa dur.
-          M="$GITHUB_WORKSPACE/distmac"; mac=0
-          if [ -d "$M" ]; then mac=1; fi
-          [ -z "$APPLE_TEAM" ] || [ "$mac" = 1 ] || { echo "::error::APPLE_TEAM_ID tanımlı ama imzalı macOS zip'i yok"; exit 1; }
+          # P28f r4 (AC-500, K-P28f-r4-4, S-r4-3): macOS zip'i ZORUNLU; notarized ⇔ agent-mac-signed ⇔ APPLE_TEAM_ID dolu,
+          # adhoc ⇔ agent-mac-adhoc ⇔ APPLE_TEAM_ID boş; dal reproducible-mac signing ile aynı.
+          M="$GITHUB_WORKSPACE/distmac"; mac=1
+          [ -d "$M" ] || { echo "::error::macOS zip'i yok (etikette zorunlu)"; exit 1; }
+          case "$MAC_ART:$MAC_SIGNING" in agent-mac-signed:notarized|agent-mac-adhoc:adhoc) ;; *) echo "::error::macOS artifact/dal tutarsız: $MAC_ART/$MAC_SIGNING"; exit 1 ;; esac
+          [ "$MAC_SIGNING" = "$REPRO_SIGNING" ] || { echo "::error::attest-mac dalı ($MAC_SIGNING) reproducible-mac signing ($REPRO_SIGNING) değil"; exit 1; }
+          if [ -n "$APPLE_TEAM" ]; then want_sig=notarized; else want_sig=adhoc; fi
+          [ "$MAC_SIGNING" = "$want_sig" ] || { echo "::error::dal $MAC_SIGNING ama vars.APPLE_TEAM_ID ile beklenen $want_sig"; exit 1; }
           if [ "$mac" = 1 ]; then
-            [ "$MAC_ART" = agent-mac-signed ] || { echo "::error::macOS artifact'i $MAC_ART (agent-mac-signed olmalı)"; exit 1; }
             printf '%s' "$MAC_ZIP" | grep -Eq '^NoktaDestek-macOS-[0-9]+\.[0-9]+\.[0-9]+\.zip$' || { echo "::error::macOS zip adı $MAC_ZIP"; exit 1; }
             [ "$MAC_ZIP" = "NoktaDestek-macOS-${TAG#v}.zip" ] || { echo "::error::macOS zip sürümü etiketle uyuşmuyor"; exit 1; }
             (cd "$M" && sha256sum -c SHA256SUMS)
@@ -1806,12 +1920,12 @@ jobs:
           for x in "${files[@]}"; do grep -Eq "^[0-9a-f]{64}  $x\$" SHA256SUMS || { echo "::error::SHA256SUMS'ta $x satırı yok"; exit 1; }; done
           {
             echo "Nokta Destek Windows istemcisi ve gözetimsiz erişim servisi ($SERVIS_EXE) $TAG ($sig). Sunucu: $server"
-            if [ "$mac" = 1 ]; then
-              echo
+            echo
+            if [ "$MAC_SIGNING" = notarized ]; then
               echo "macOS istemcisi $MAC_ZIP: Developer ID (Team $APPLE_TEAM) + notarize + staple; macOS 13+, universal (Apple Silicon + Intel)."
             else
-              echo
-              echo "macOS istemcisi bu sürümde YOK (Apple Developer hesabı tanımlı değil — R39)."
+              echo "macOS istemcisi $MAC_ZIP: ad-hoc imzalı (Apple Developer ID / notarization YOK); ilk açılışta Gizlilik ve Güvenlik → 'Yine de Aç' onayı ve her sürümde Ekran Kaydı/Erişilebilirlik izni yeniden gerekir. macOS 13+, universal."
+              echo "Köken: \`gh attestation verify $MAC_ZIP --repo $REPO --signer-workflow $REPO/.github/workflows/agent-win.yml --source-ref refs/tags/$TAG --predicate-type $MAC_ADHOC_PREDICATE\`"
             fi
             echo
             echo "Linux istemcisi $LINUX_FILE: x86_64, imzasız (AC-403); Ubuntu 22.04 / 24.04 (GNOME, X11 ve Wayland). Bütünlük bu Release'teki SHA256SUMS ve attestation ile doğrulanır; indirme sayfasındaki SHA yalnız kolaylıktır."
@@ -1895,7 +2009,8 @@ jobs:
     if: >-
       !cancelled() && github.event_name == 'push' && github.ref_type == 'tag' && vars.UPDATE_SIGNING_ENABLED == '1' &&
       needs.approve.result == 'success' && needs.update-signer.result == 'success' && needs.attest.result == 'success' &&
-      needs.attest-linux.result == 'success' && (needs.attest-mac.result == 'success' || needs.attest-mac.result == 'skipped')
+      needs.attest-linux.result == 'success' && needs.attest-mac.result == 'success'
+    # r4 (K-P28f-r4-7): macOS zip'i (notarized ya da ad-hoc) her etikette var → update-client-macos-universal.json üretilir.
     needs: [update-signer, approve, reproducible, attest, reproducible-mac, attest-mac, reproducible-linux, attest-linux]
     runs-on: ubuntu-24.04
     timeout-minutes: 15
@@ -1918,9 +2033,8 @@ jobs:
         with: { name: "${{ needs.attest.outputs.artifact }}", path: win }
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with: { name: agent-linux, path: linux }
-      - if: needs.attest-mac.result == 'success'
-        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
-        with: { name: agent-mac-signed, path: mac }
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with: { name: "${{ needs.attest-mac.outputs.artifact }}", path: mac }
       - name: girdiler (imzalayıcı SHA, açık anahtar, SHA256SUMS, son baytlar)
         id: in
         env:
@@ -1929,6 +2043,10 @@ jobs:
           SERVIS_EXE: ${{ needs.reproducible.outputs.servis_exe }}
           LINUX_FILE: ${{ needs.reproducible-linux.outputs.file }}
           MAC_ZIP: ${{ needs.reproducible-mac.outputs.zip }}
+          MAC_ART: ${{ needs.attest-mac.outputs.artifact }}
+          MAC_SIGNING: ${{ needs.attest-mac.outputs.signing }}
+          REPRO_SIGNING: ${{ needs.reproducible-mac.outputs.signing }}
+          APPLE_TEAM: ${{ vars.APPLE_TEAM_ID }}
           MIN_UPDATER: ${{ vars.UPDATE_MIN_UPDATER_VERSION || '0.22.0' }}
         run: |
           [ "$(sha256sum signer/update-sign | cut -d' ' -f1)" = "$SIGNER_SHA" ] || { echo "::error::update-sign SHA update-signer çıktısı değil"; exit 1; }
@@ -1940,7 +2058,13 @@ jobs:
           (cd win && sha256sum -c SHA256SUMS) && (cd linux && sha256sum -c SHA256SUMS)
           { echo "client windows amd64 win/NoktaDestek.exe"; echo "service windows amd64 win/$SERVIS_EXE"
             echo "client linux amd64 linux/$LINUX_FILE"; } > items.txt
-          if [ -d mac ]; then (cd mac && sha256sum -c SHA256SUMS) && echo "client macos universal mac/$MAC_ZIP" >> items.txt; fi
+          # r4 (S-r4-3): artifact ∈ {agent-mac-signed, agent-mac-adhoc}, dal tek kaynakla ve vars ile tutarlı.
+          case "$MAC_ART:$MAC_SIGNING" in agent-mac-signed:notarized|agent-mac-adhoc:adhoc) ;; *) echo "::error::macOS artifact/dal tutarsız: $MAC_ART/$MAC_SIGNING"; exit 1 ;; esac
+          [ "$MAC_SIGNING" = "$REPRO_SIGNING" ] || { echo "::error::attest-mac dalı reproducible-mac signing değil"; exit 1; }
+          if [ -n "$APPLE_TEAM" ]; then w=notarized; else w=adhoc; fi
+          [ "$MAC_SIGNING" = "$w" ] || { echo "::error::dal $MAC_SIGNING ama vars.APPLE_TEAM_ID ile beklenen $w"; exit 1; }
+          [ "$MAC_ZIP" = "NoktaDestek-macOS-${TAG#v}.zip" ] || { echo "::error::macOS zip adı etiketle uyuşmuyor"; exit 1; }
+          (cd mac && sha256sum -c SHA256SUMS) && echo "client macos universal mac/$MAC_ZIP" >> items.txt
           cat items.txt
           { echo "keys=$keys"; echo "version=${TAG#v}"; echo "min=$MIN_UPDATER"; } >> "$GITHUB_OUTPUT"
       - name: imzala (tohum yalnız bu adımda, yalnız stdin)
