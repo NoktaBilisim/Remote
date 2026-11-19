@@ -14,6 +14,7 @@ import { handleP19, p19User } from "./mock-p19.mjs";
 import { handleP21, p21User } from "./mock-p21.mjs";
 import { handleP27, p27User } from "./mock-p27.mjs";
 import { handleP28u, p28uUser } from "./mock-p28u.mjs";
+import { handleP29, p29Puts, p29User } from "./mock-p29.mjs";
 import { handleP22, p22User } from "./mock-p22.mjs";
 import { handleP28e, handleRecBytes, p28eUser, p28eViews } from "./mock-p28e.mjs";
 import { emptyInvites, handleP28c, p28cUser } from "./mock-p28c.mjs";
@@ -95,6 +96,8 @@ function resolveMe(session) {
   if (p27) return p27;
   const p28u = p28uUser(session);
   if (p28u) return p28u;
+  const p29 = p29User(session);
+  if (p29) return p29;
   const p22 = p22User(session);
   if (p22) return p22;
   const p28e = p28eUser(session);
@@ -169,6 +172,8 @@ const srv = createServer(async (req, res) => {
   if (ageHit) return send(res, ageRoom(ageHit[1], Number(ageHit[2])) ? 200 : 404, {});
   // P13b-L: lobi durumu kancası (/__e2e/lobby/<oturum>?waiting=&arrivals=, /__e2e/lobby-calls/<çerez>)
   // LG-3: sahte SMTP/WA yakalayıcısının son mesajı (/__e2e/lg-outbox/<çerez>) — e2e önizleme = gönderilen metin karşılaştırması
+  const p29Hit = req.method === "GET" && url.match(/^\/__e2e\/p29\/puts\/([\w-]+)$/);
+  if (p29Hit) return send(res, 200, p29Puts(p29Hit[1]));
   const lgHit = req.method === "GET" && url.match(/^\/__e2e\/lg-outbox\/([\w-]+)$/);
   if (lgHit) return send(res, 200, lgOutbox(lgHit[1]));
   const lh = req.method === "GET" && lobbyHook(url);
@@ -200,6 +205,8 @@ const srv = createServer(async (req, res) => {
   if (await handleP27(req, res, { url, session, csrfOk, send, err, readJson })) return;
   // P28u-K7: izinli/izinsiz bağlantı, politika (u-p28u*)
   if (await handleP28u(req, res, { url, session, csrfOk, send, err, readJson })) return;
+  // P29-K5: sürüm sütunu/dağılımı, istemci güncelleme ayarı (u-p29*)
+  if (await handleP29(req, res, { url, session, csrfOk, send, err, readJson })) return;
   // P28c-K2: çoklu teknisyen (u-p28c*)
   if (await handleP28c(req, res, { url, session, csrfOk, send, err, readJson })) return;
   // P28e-K7: oturum kaydı ayarı, geçmiş kayıt bölümü/oynatıcı (u-p28e*)

@@ -24,12 +24,22 @@ import {
   VOICE_AUDIT_GROUP_LABELS,
   VOICE_AUDIT_LABELS,
   CHAT_AUDIT_LABELS,
+  CLIENT_UPDATE_AUDIT,
+  CLIENT_UPDATE_AUDIT_GROUP,
+  CLIENT_UPDATE_AUDIT_LABELS,
   SYSTEM_AUDIT,
   TENANT_AUDIT,
   USER_AUDIT,
   deletedUserLabel,
 } from "@remote/contracts/audit";
 import { UNATTENDED_AUDIT_LABELS } from "@remote/contracts/api/unattended";
+import {
+  UPDATE_CLIENT_REPORTED_PREFIX,
+  UPDATE_REASON_LABELS,
+  UPDATE_REJECTED_LABEL,
+  isUpdateSecurityReason,
+  type UpdateReason,
+} from "@remote/contracts/api/update";
 import { AUDIT_ACTION_GROUPS } from "./contract";
 import { CLIENT_OS_FIELD_LABEL, CLIENT_OS_LABELS, labelOf, OUTBOUND_REASON_LABELS, TIMELINE_ACTION_LABELS } from "@remote/contracts/labels";
 import type { JoinAuditOs } from "@remote/contracts/api/sessions";
@@ -128,6 +138,8 @@ const AUDIT_ACTION_LABELS: Readonly<Record<string, string>> = {
   ...VOICE_AUDIT_LABELS,
   // P22 (mimari-p22 §7.1; test-raporu D-1): oturum sohbeti görüntüleme/özet/ret/eski istemci/geçmiş gönderimi
   ...CHAT_AUDIT_LABELS,
+  // P29 (mimari-p29 §4.7; AC-491): client.update.* + `settings.client_update`
+  ...CLIENT_UPDATE_AUDIT_LABELS,
 };
 
 /**
@@ -155,6 +167,8 @@ const AUDIT_GROUP_LABELS: Readonly<Record<string, string>> = {
   ...RECORDING_AUDIT_GROUP_LABELS,
   // P28d: `voice.*` → "Sesli görüşme"
   ...VOICE_AUDIT_GROUP_LABELS,
+  // P29: `client.update.*` → "İstemci güncelleme" (contracts grup listesinde yok; `client.` öneki yalnız bu grupta)
+  client: CLIENT_UPDATE_AUDIT_GROUP.label,
 };
 
 /**
@@ -166,6 +180,39 @@ const MULTI_ACTIONS: ReadonlySet<string> = new Set(MULTI_AUDIT_GROUP.actions);
 const groupOf = (action: string): string => (MULTI_ACTIONS.has(action) ? MULTI_GROUP : (action.split(".")[0] ?? action));
 export const actionLabel = (action: string): string => labelOf(AUDIT_ACTION_LABELS, action);
 export const groupLabel = (group: string): string => (group === MULTI_GROUP ? MULTI_AUDIT_GROUP.label : labelOf(AUDIT_GROUP_LABELS, group));
+
+const CLIENT_UPDATE_ACTIONS: ReadonlySet<string> = new Set(Object.values(CLIENT_UPDATE_AUDIT));
+const objOf = (v: unknown): Record<string, unknown> | null =>
+  v && typeof v === "object" && !Array.isArray(v) ? (v as Record<string, unknown>) : null;
+
+/** P29: `client.update.*` satırının bilinen nedeni (`new_value.reason`); başka eylem / bilinmeyen değer → null. */
+export function clientUpdateReason(item: { action: string; newValue: unknown }): UpdateReason | null {
+  if (!CLIENT_UPDATE_ACTIONS.has(item.action)) return null;
+  const r = objOf(item.newValue)?.reason;
+  return typeof r === "string" && Object.hasOwn(UPDATE_REASON_LABELS, r) ? (r as UpdateReason) : null;
+}
+
+/** Ayrıntıdaki "Neden" satırı (Türkçe etiket) — yalnız `client.update.*` satırında, bilinen nedende. */
+export function clientUpdateReasonLabel(item: { action: string; newValue: unknown }): string | null {
+  const r = clientUpdateReason(item);
+  return r ? UPDATE_REASON_LABELS[r] : null;
+}
+
+/**
+ * AC-491 tek özel durum (§4.7, §14.4): `failed` + güvenlik nedeni → "Güncelleme reddedildi (imza)"; `binding` kaynaklı
+ * (istemci beyanı, doğrulanmamış) `failed` satırının önüne "İstemci bildirdi: ". Diğer satırlar → null (genel etiket).
+ */
+export function clientUpdateLabel(item: { action: string; newValue: unknown }): string | null {
+  if (item.action !== CLIENT_UPDATE_AUDIT.FAILED) return null;
+  const reason = clientUpdateReason(item);
+  const base = isUpdateSecurityReason(reason)
+    ? `${UPDATE_REJECTED_LABEL} (${UPDATE_REASON_LABELS[reason]})`
+    : (CLIENT_UPDATE_AUDIT_LABELS[CLIENT_UPDATE_AUDIT.FAILED] ?? item.action);
+  return objOf(item.newValue)?.source === "binding" ? `${UPDATE_CLIENT_REPORTED_PREFIX}${base}` : base;
+}
+
+/** Satır etiketi (tablo, kart, ayrıntı): özel durum varsa o, yoksa `actionLabel`. */
+export const auditItemLabel = (item: { action: string; newValue: unknown }): string => clientUpdateLabel(item) ?? actionLabel(item.action);
 
 interface ActionOptionGroup {
   label: string;

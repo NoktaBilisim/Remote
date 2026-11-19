@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { redirect } from "next/navigation";
+import { Suspense } from "react";
 import { LoadError } from "@/components/load-error";
 import { EXPIRED_LOGIN_PATH } from "@/lib/api";
 import { t } from "@/lib/i18n";
@@ -10,6 +11,7 @@ import { devicesApiPath, parseDeviceParams } from "@/lib/unattended/query";
 import { DeviceFilters } from "../device-filters";
 import { DeviceList } from "../device-list";
 import { accessOf, gateBody, UnattendedShell } from "../unattended-shell";
+import { VersionStrip, VersionStripSkeleton } from "./version-strip";
 
 export const metadata: Metadata = { title: t("nav.unattended") };
 
@@ -42,6 +44,10 @@ export default async function UnattendedPage({ searchParams }: { searchParams: P
 
   return (
     <UnattendedShell access={access} status={status} createBlock={createBlock}>
+      {/* P29 (AC-490): sürüm dağılımı ayrı akış — hatası listeyi düşürmez */}
+      <Suspense key={params.scope ?? "tenant"} fallback={<VersionStripSkeleton />}>
+        <VersionStrip params={params} superAdmin={me.me.user.role === "SUPER_ADMIN"} />
+      </Suspense>
       <DeviceFilters params={params} customerLabel={customerLabel} />
       {res.kind === "error" ? (
         <div className="mt-6 max-w-xl">

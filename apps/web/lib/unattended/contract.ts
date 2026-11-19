@@ -16,6 +16,9 @@ export {
   UNATTENDED_OFF_BANNER,
   UNATTENDED_TEST_BANNER,
   putNotifyContactsInputSchema,
+  // P29 (mimari-p29 §4.8, §6; AC-490): sürüm sütunu rozetleri ve dağılım şeridi
+  DEVICE_UPDATE_BADGE_LABELS,
+  DEVICE_UPDATE_BADGES,
 } from "@remote/contracts/api/unattended";
 export type {
   ConnectBlockedReason,
@@ -35,6 +38,11 @@ export type {
   UnattendedConnectInput,
   UnattendedConnectResponse,
   UnattendedStatus,
+  DeviceUpdateBadge,
+  DeviceVersionRow,
+  DeviceVersionsResponse,
+  PublishedUpdate,
 } from "@remote/contracts/api/unattended";
+export { UPDATE_REASON_LABELS, UPDATE_VERSION_PATTERN, type UpdatePlatform, type UpdateReason } from "@remote/contracts/api/update";
 export { CONSENT_MODES, type ConsentMode, type DeviceUserState } from "@remote/contracts/unattended-consent";
 export { REJOIN_WINDOW_SEC } from "@remote/contracts/rejoin-const";

@@ -6,7 +6,7 @@ import { useState } from "react";
 import { Alert } from "@/components/ui/alert";
 import { Avatar } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
-import { actionLabel, auditActor } from "@/lib/audit/actions";
+import { auditActor, auditItemLabel } from "@/lib/audit/actions";
 import type { AuditItem, AuditListResponse } from "@/lib/audit/contract";
 import { auditApiPath, type AuditFilters } from "@/lib/audit/query";
 import { api, EXPIRED_LOGIN_PATH, isUnauthenticated } from "@/lib/api";
@@ -96,7 +96,7 @@ function AuditRow({ a, showTenant, onOpen }: { a: AuditItem; showTenant: boolean
         </td>
       )}
       <td className="max-w-60 px-3 py-2">
-        <ActionCell action={a.action} />
+        <ActionCell item={a} />
       </td>
       <td className="max-w-36 truncate px-3 py-2 whitespace-nowrap text-fg-muted" title={a.entity}>
         {a.entity}
@@ -148,7 +148,7 @@ function AuditCard({ a, showTenant, onOpen }: { a: AuditItem; showTenant: boolea
       <Avatar name={who(a)} src={a.avatarUrl} size="sm" tombstone={auditActor(a).tombstone} />
       <span className="min-w-0 flex-1">
         <span className="flex items-center justify-between gap-2">
-          <span className="truncate font-medium text-fg">{actionLabel(a.action)}</span>
+          <span className="truncate font-medium text-fg">{auditItemLabel(a)}</span>
           <ResultBadge result={a.result} />
         </span>
         <span className="mt-1 block truncate text-xs text-fg-muted">

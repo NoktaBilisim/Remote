@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
+import { UpdateBadge } from "@/components/update-badge";
 import { notFound, redirect } from "next/navigation";
 import { History, Info, UserCheck } from "lucide-react";
 import type { ReactNode } from "react";
@@ -45,9 +46,7 @@ function InfoList({ d, manage }: { d: DeviceDetail; manage: boolean }) {
     [t("un.d.os"), d.osVersion],
     [
       t("un.d.version"),
-      <span key="v" className="font-mono">
-        {d.agentVersion}
-      </span>,
+      <UpdateBadge key="v" version={d.agentVersion} badge={d.updateBadge} reason={d.updateReason} target={d.updateVersion} />,
     ],
     [t("un.d.signature"), t(d.signed ? "un.d.signed" : "un.d.unsigned")],
     [t("un.col.lastSeen"), d.lastSeenAt ? formatDateTime(d.lastSeenAt) : t("un.never")],

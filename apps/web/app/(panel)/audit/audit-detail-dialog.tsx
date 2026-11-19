@@ -5,7 +5,14 @@ import type { ReactNode } from "react";
 import { Alert } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Dialog } from "@/components/ui/dialog";
-import { actionLabel, auditClientOs, auditPayload, CLIENT_OS_FIELD_LABEL, reasonLabel } from "@/lib/audit/actions";
+import {
+  auditClientOs,
+  auditItemLabel,
+  auditPayload,
+  clientUpdateReasonLabel,
+  CLIENT_OS_FIELD_LABEL,
+  reasonLabel,
+} from "@/lib/audit/actions";
 import type { AuditItem } from "@/lib/audit/contract";
 import { formatDateTime, formatTimeSeconds } from "@/lib/format";
 import { t } from "@/lib/i18n";
@@ -54,7 +61,7 @@ function DetailRows({ item }: { item: AuditItem }) {
       </Row>
       {tenantOf(item) && <Row term={t("au.col.tenant")}>{tenantOf(item)}</Row>}
       <Row term={t("au.col.action")}>
-        <ActionCell action={item.action} />
+        <ActionCell item={item} />
       </Row>
       <Row term={t("au.col.entity")}>{item.entity}</Row>
       {item.entityId && (
@@ -71,6 +78,11 @@ function DetailRows({ item }: { item: AuditItem }) {
       {auditClientOs(item) && (
         <Row term={CLIENT_OS_FIELD_LABEL}>
           <span data-testid="audit-client-os">{auditClientOs(item)}</span>
+        </Row>
+      )}
+      {clientUpdateReasonLabel(item) && (
+        <Row term={t("au.d.reason")}>
+          <span data-testid="audit-update-reason">{clientUpdateReasonLabel(item)}</span>
         </Row>
       )}
       {item.userAgent && (
@@ -138,7 +150,7 @@ export function AuditDetailDialog({ item, onClose }: { item: AuditItem | null; o
       open={item !== null}
       onClose={onClose}
       title={t("au.d.title")}
-      description={item ? `${actionLabel(item.action)} · ${formatDateTime(item.createdAt)}` : undefined}
+      description={item ? `${auditItemLabel(item)} · ${formatDateTime(item.createdAt)}` : undefined}
       testId="audit-detail"
       footer={
         <Button variant="secondary" className="sm:ml-auto" onClick={onClose} data-autofocus>

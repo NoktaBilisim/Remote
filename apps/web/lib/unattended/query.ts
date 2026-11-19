@@ -1,15 +1,27 @@
 /*
- * /unattended liste durumu URL'de: `q` (≤ 64), `customerId` (ULID), `state` (online | offline | all vars.). Sunucu
+ * /unattended liste durumu URL'de: `q` (≤ 64), `customerId` (ULID), `state` (online | offline | all vars.), P29 `version`
+ * (sürüm dağılımı süzgeci, `x.y.z`) ve `scope=all` (yalnız Super Admin şeridi; listeye gitmez). Sunucu
  * `listDevicesQuerySchema` strict olduğundan geçersiz değer API'ye hiç gönderilmez (yok sayılır). Keyset sayfalı;
  * 8 sn (P28u) yoklama ilk sayfayı (en çok 100 satır) tazeler (mimari-p27 §4.2).
  */
 import { UNSAFE_NAME_CHARS } from "@remote/contracts/api/sessions";
-import { DEVICE_LIST_STATES, DEVICE_PAGE_SIZE, DEVICE_PAGE_SIZE_MAX, type DeviceListResponse, type DeviceListState } from "./contract";
+import {
+  DEVICE_LIST_STATES,
+  DEVICE_PAGE_SIZE,
+  DEVICE_PAGE_SIZE_MAX,
+  UPDATE_VERSION_PATTERN,
+  type DeviceListResponse,
+  type DeviceListState,
+} from "./contract";
 
 export interface DeviceListParams {
   q?: string;
   customerId?: string;
   state: DeviceListState;
+  /** P29 (AC-490): `agent_version` birebir eşitlik süzgeci. */
+  version?: string;
+  /** P29: sürüm şeridi kapsamı (yalnız Super Admin'de anlamlı; cihaz listesine gönderilmez). */
+  scope?: "all";
 }
 
 type SP = Record<string, string | string[] | undefined>;
@@ -28,10 +40,13 @@ export function deviceSearchTerm(raw: string | undefined): string | undefined {
 export function parseDeviceParams(sp: SP): DeviceListParams {
   const state = one(sp.state);
   const customerId = one(sp.customerId);
+  const version = one(sp.version);
   return {
     q: deviceSearchTerm(one(sp.q)),
     customerId: customerId && ULID.test(customerId) ? customerId : undefined,
     state: (DEVICE_LIST_STATES as readonly string[]).includes(state ?? "") ? (state as DeviceListState) : "all",
+    version: version && UPDATE_VERSION_PATTERN.test(version) ? version : undefined,
+    scope: one(sp.scope) === "all" ? "all" : undefined,
   };
 }
 
@@ -41,19 +56,30 @@ export function devicesHref(p: Partial<DeviceListParams>): string {
   if (p.q) q.set("q", p.q);
   if (p.customerId) q.set("customerId", p.customerId);
   if (p.state && p.state !== "all") q.set("state", p.state);
+  if (p.version) q.set("version", p.version);
+  if (p.scope) q.set("scope", p.scope);
   const s = q.toString();
   return s ? `/unattended?${s}` : "/unattended";
 }
 
-/** GET /unattended/devices sorgusu (`limit` her zaman açık). */
-export function devicesApiPath(p: DeviceListParams, page: { cursor?: string; limit?: number } = {}): string {
+/** GET /unattended/devices sorgusu (`limit` her zaman açık; `scope` gönderilmez — strict şema 400 verirdi). */
+export function devicesApiPath(
+  p: Pick<DeviceListParams, "q" | "customerId" | "state" | "version">,
+  page: { cursor?: string; limit?: number } = {},
+): string {
   const q = new URLSearchParams();
   if (p.q) q.set("q", p.q);
   if (p.customerId) q.set("customerId", p.customerId);
   q.set("state", p.state);
+  if (p.version) q.set("version", p.version);
   if (page.cursor) q.set("cursor", page.cursor);
   q.set("limit", String(page.limit ?? DEVICE_PAGE_SIZE));
   return `/unattended/devices?${q.toString()}`;
+}
+
+/** P29 (§4.8): GET /unattended/versions — `scope=all` yalnız Super Admin'de istenir (diğerinde 403). */
+export function versionsApiPath(scopeAll: boolean): string {
+  return scopeAll ? "/unattended/versions?scope=all" : "/unattended/versions";
 }
 
 /** Yoklamada istenecek satır sayısı: yüklenen kadar (50..100). */

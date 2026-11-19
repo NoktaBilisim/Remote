@@ -1,5 +1,6 @@
 import { ChevronRight } from "lucide-react";
 import Link from "next/link";
+import { UpdateBadge } from "@/components/update-badge";
 import { formatDateTime, formatNumber } from "@/lib/format";
 import { t } from "@/lib/i18n";
 import type { DeviceListItem } from "@/lib/unattended/contract";
@@ -26,6 +27,10 @@ function NameLink({ d, className = "" }: { d: DeviceListItem; className?: string
   );
 }
 
+function Version({ d }: { d: DeviceListItem }) {
+  return <UpdateBadge version={d.agentVersion} badge={d.updateBadge} reason={d.updateReason} target={d.updateVersion} />;
+}
+
 type RowItemProps = { d: DeviceListItem; available: boolean; busy: boolean; onConnect: (id: string) => void };
 
 function DeviceTableRow({ d, available, busy, onConnect }: RowItemProps) {
@@ -40,6 +45,9 @@ function DeviceTableRow({ d, available, busy, onConnect }: RowItemProps) {
       </td>
       <td className={td}>
         <UserState state={d.userState} />
+      </td>
+      <td className="px-3 py-2 pt-4 text-fg">
+        <Version d={d} />
       </td>
       <td className={td}>{when(d.lastSeenAt)}</td>
       <td className={td}>{when(d.lastSessionAt)}</td>
@@ -63,6 +71,9 @@ function TableHead() {
         </th>
         <th scope="col" className={th}>
           {t("un.col.user")}
+        </th>
+        <th scope="col" className={th}>
+          {t("upd.col.version")}
         </th>
         <th scope="col" className={th}>
           {t("un.col.lastSeen")}
@@ -120,6 +131,10 @@ function DeviceCards({ items, available, busyId, onConnect }: RowProps) {
             <dt className="text-fg-muted">{t("un.col.user")}</dt>
             <dd className="text-fg">
               <UserState state={d.userState} />
+            </dd>
+            <dt className="text-fg-muted">{t("upd.col.version")}</dt>
+            <dd className="min-w-0 text-fg">
+              <Version d={d} />
             </dd>
             <dt className="text-fg-muted">{t("un.col.lastSeen")}</dt>
             <dd className="tabular-nums text-fg">{when(d.lastSeenAt)}</dd>
