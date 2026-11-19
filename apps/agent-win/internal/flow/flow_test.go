@@ -2,7 +2,6 @@ package flow
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"image"
 	"net/url"
@@ -28,6 +27,7 @@ type fakeAPI struct {
 	logoURL  string
 	abuse    *string
 	rec      *api.RecordingOffer // P28e
+	noDays   bool                // AC-292: eski sunucu (chatRetentionDays yok)
 }
 
 func (a *fakeAPI) Resolve(_ context.Context, code string) (*api.ResolveResult, error) {
@@ -47,6 +47,9 @@ func (a *fakeAPI) Resolve(_ context.Context, code string) (*api.ResolveResult, e
 	r.ConsentText = api.ConsentText{ID: "ct1", Version: 3, Body: "KVKK metni", Recording: a.rec}
 	r.Tenant.LogoURL = a.logoURL
 	r.AbuseEmail = a.abuse
+	if !a.noDays {
+		r.ChatRetentionDays = 90
+	}
 	return r, nil
 }
 
@@ -239,7 +242,7 @@ func (u *fakeUI) ChooseShare(_ context.Context, m []signal.Monitor, def int, win
 }
 func (u *fakeUI) Active(tech string, m signal.Monitor) { u.log("active:" + tech + ":" + m.Name) }
 func (u *fakeUI) Status(msg string)                    { u.log("status:" + msg) }
-func (u *fakeUI) Chat(text string)                     { u.log("chat:" + text) }
+func (u *fakeUI) SessionChat(v ChatView)               { u.log("chatview:" + v.Text) }
 func (u *fakeUI) Annot(m dc.Ctl)                       { u.log("annot:" + m.T) }
 func (u *fakeUI) FileOffer(p transfer.Prompt)          { u.log("fileoffer:" + p.Name) }
 func (u *fakeUI) FileOfferWithdrawn(string)            { u.log("withdrawn") }
@@ -549,17 +552,16 @@ func TestAC106AC107HappyPath(t *testing.T) {
 	if a := recv(t, c.sent).(signal.SdpAnswer); a.SDP != "answer-for-o1" {
 		t.Fatalf("answer: %+v", a)
 	}
-	// DC chat → UI; kullanıcı chat → ctl (şemaya uygun)
-	p.h.Ctl(dc.Ctl{T: "chat", Text: "Merhaba"})
-	expectCall(t, h.ui, "chat:Merhaba")
+	// AC-264 / P22-G: DC `chat` arayüze ulaşmaz; kullanıcı sohbeti DC'ye hiç yazılmaz (ChatUI yokken yok sayılır).
+	p.h.Ctl(dc.Ctl{T: "chat", ID: "m1"})
 	h.events <- Event{Kind: EvChat, Text: "Selam"}
-	b := recv(t, p.ctl)
-	var chat map[string]any
-	if err := json.Unmarshal(b, &chat); err != nil || chat["t"] != "chat" || chat["text"] != "Selam" {
-		t.Fatalf("chat: %s", b)
-	}
 	p.h.Ctl(dc.Ctl{T: "annot.clear"})
 	expectCall(t, h.ui, "annot:annot.clear")
+	select {
+	case b := <-p.ctl:
+		t.Fatalf("sohbet DC'ye yazıldı: %s", b)
+	default:
+	}
 
 	c.toClient <- signal.SessionEnded{T: "session.ended", Reason: "tech"}
 	if o := recv(t, out); o.Message != msgEnded {

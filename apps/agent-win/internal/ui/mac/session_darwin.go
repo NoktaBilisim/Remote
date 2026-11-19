@@ -4,7 +4,6 @@ package mac
 
 import (
 	"fmt"
-	"strings"
 	"time"
 
 	"remote-support/agent-win/internal/darwin/objc"
@@ -34,7 +33,11 @@ type sessionWin struct {
 	grantBtn, closeBtn, hotkey, clipChk   objc.ID
 	recLbl, recBtn, recNote               objc.ID
 	techs                                 [rosterRows]rosterRow
-	hist                                  string
+	hist                                  string // yerel sistem satırları (uicore.ChatComposite)
+	chatText                              string // P22-G flow.ChatView.Text
+	chatNote                              objc.ID
+	chatRev                               int
+	chatOn                                bool
 	clipOn, clipEnabled, finished, active bool
 	unread                                int
 }
@@ -61,10 +64,16 @@ func (u *UI) newSessionWin(watch string) *sessionWin {
 	s := &sessionWin{f: f, active: true}
 	s.watch = f.danger(watch, 16, 14, 408, 22, fontBold)
 	s.status = f.label("Bağlantı kuruluyor…", 16, 40, 408, 36, fontNormal)
-	f.label("Sohbet", 16, 80, 408, 20, fontBold)
-	s.history = f.textView(16, 102, 408, 196, "")
+	// P22-G: başlık + kayıt notu, düz metin geçmiş (NSTextView: zengin metin, bağlantı ve veri algılama kapalı —
+	// form.textView), durum satırı, giriş; chat.state{true} gelene kadar giriş pasif.
+	f.label(flow.ChatTexts.Heading, 16, 80, 70, 20, fontBold)
+	f.label(flow.ChatTexts.HeaderNote, 90, 80, 334, 20, fontNormal)
+	s.history = f.textView(16, 102, 408, 174, "")
+	s.chatNote = f.danger(flow.ChatTexts.Unavailable, 16, 280, 408, 20, fontNormal)
 	s.input = f.field(16, 306, 316, 26, func() { u.sendChat(s) }, nil)
-	s.sendBtn = f.button("Gönder", 338, 304, 86, 30, func(objc.ID) { u.sendChat(s) })
+	s.sendBtn = f.button(flow.ChatTexts.Send, 338, 304, 86, 30, func(objc.ID) { u.sendChat(s) })
+	enable(s.input, false)
+	enable(s.sendBtn, false)
 	if u.fileServer {
 		f.label(flow.TextFileServerMode, 16, 342, 408, 36, fontNormal)
 	}
@@ -142,19 +151,18 @@ func (u *UI) confirmEnd() {
 		onGrant: func() { u.emit(flow.Event{Kind: flow.EvEnd}) }})
 }
 
+// sendChat "Gönder"/Enter: ham metin akışa gider (doğrulama, kova, kutuyu boşaltma kararı flow/chat.go'da).
 func (u *UI) sendChat(s *sessionWin) {
-	text := uicore.TrimRunes(strings.TrimSpace(getText(s.input)), uicore.ChatInputLimit)
-	if text == "" || s.finished {
+	if s.finished || !s.chatOn {
 		return
 	}
-	u.emit(flow.Event{Kind: flow.EvChat, Text: text})
-	u.appendLine(s, "Siz", text)
-	setText(s.input, "")
+	u.emit(flow.Event{Kind: flow.EvChat, Text: uicore.TrimRunes(getText(s.input), uicore.ChatInputLimit)})
 }
 
+// appendLine yerel sistem satırı (dosya sonucu, oturum sonu notu); sohbet bloğunun altında.
 func (u *UI) appendLine(s *sessionWin, who, text string) {
 	s.hist = uicore.AppendChat(s.hist, time.Now(), who, text)
-	setTextView(s.history, s.hist)
+	setTextView(s.history, uicore.ChatComposite(s.chatText, s.hist))
 }
 
 // Status oturum durum satırı.
@@ -166,20 +174,29 @@ func (u *UI) Status(msg string) {
 	})
 }
 
-// Chat AC-52 (zaman damgalı; pencere arka plandaysa başlıkta okunmamış sayısı).
-func (u *UI) Chat(text string) { u.chatLine("Teknisyen", text) }
-
-// TechChat flow.RosterUI: multi kipinde teknisyen adıyla satır.
-func (u *UI) TechChat(name, text string) { u.chatLine(name, text) }
-
-func (u *UI) chatLine(who, text string) {
+// SessionChat flow.ChatUI (P22-G): geçmiş yalnız sürüm değişince yazılır; pencere arka plandaysa okunmamış sayısı
+// başlıkta ve dikkat isteği.
+func (u *UI) SessionChat(v flow.ChatView) {
 	u.do(func() {
 		s := u.sess
-		if s == nil {
+		if s == nil || s.finished {
 			return
 		}
-		u.appendLine(s, who, text)
-		if !sendBool(s.f.win, objc.Sel("isKeyWindow")) {
+		if v.Rev != s.chatRev {
+			s.chatRev, s.chatText = v.Rev, v.Text
+			setTextView(s.history, uicore.ChatComposite(s.chatText, s.hist))
+		}
+		if v.Clear {
+			setText(s.input, "")
+		}
+		if v.Restore != "" && getText(s.input) == "" {
+			setText(s.input, v.Restore)
+		}
+		s.chatOn = v.Enabled
+		enable(s.input, v.Enabled)
+		enable(s.sendBtn, v.Enabled)
+		setText(s.chatNote, v.Status)
+		if v.NotifyNew && !sendBool(s.f.win, objc.Sel("isKeyWindow")) {
 			s.unread++
 			s.f.win.Send(selSetTitle, nsstr(uicore.VersionedTitle(uicore.UnreadTitle(s.unread), u.version)))
 			u.app.Send(objc.Sel("requestUserAttention:"), 10) // NSInformationalRequest

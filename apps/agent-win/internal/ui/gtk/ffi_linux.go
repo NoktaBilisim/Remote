@@ -73,14 +73,17 @@ var (
 	gtkEntrySetMaxLength func(e uintptr, n int32)
 	gtkEntrySetWidth     func(e uintptr, n int32)
 
-	gtkTextViewNew            func() uintptr
-	gtkTextViewGetBuffer      func(v uintptr) uintptr
-	gtkTextViewSetEditable    func(v uintptr, b bool)
-	gtkTextViewSetWrapMode    func(v uintptr, m int32)
-	gtkTextViewSetCursorVis   func(v uintptr, b bool)
-	gtkTextViewScrollMark     func(v, mark uintptr)
-	gtkTextBufferSetText      func(b uintptr, s *byte, n int32)
-	gtkTextBufferGetEndIter   func(b uintptr, iter *[96]byte)
+	gtkTextViewNew          func() uintptr
+	gtkTextViewGetBuffer    func(v uintptr) uintptr
+	gtkTextViewSetEditable  func(v uintptr, b bool)
+	gtkTextViewSetWrapMode  func(v uintptr, m int32)
+	gtkTextViewSetCursorVis func(v uintptr, b bool)
+	gtkTextViewScrollMark   func(v, mark uintptr)
+	gtkTextBufferSetText    func(b uintptr, s *byte, n int32)
+	gtkTextBufferGetEndIter func(b uintptr, iter *[96]byte)
+	// P22-G: geçmişin geri okunması (düz metin kanıtı — `<b>` literal kalır; GUI duman testi).
+	gtkTextBufferGetStartIter func(b uintptr, iter *[96]byte)
+	gtkTextBufferGetText      func(b uintptr, start, end *[96]byte, hidden bool) uintptr
 	gtkTextBufferPlaceCursor  func(b uintptr, iter *[96]byte)
 	gtkTextBufferGetInsert    func(b uintptr) uintptr
 	gtkScrolledWindowNew      func(h, v uintptr) uintptr
@@ -256,6 +259,7 @@ func gtkSyms() []sym {
 		{&gtkTextViewSetCursorVis, "gtk_text_view_set_cursor_visible"},
 		{&gtkTextViewScrollMark, "gtk_text_view_scroll_mark_onscreen"},
 		{&gtkTextBufferSetText, "gtk_text_buffer_set_text"}, {&gtkTextBufferGetEndIter, "gtk_text_buffer_get_end_iter"},
+		{&gtkTextBufferGetStartIter, "gtk_text_buffer_get_start_iter"}, {&gtkTextBufferGetText, "gtk_text_buffer_get_text"},
 		{&gtkTextBufferPlaceCursor, "gtk_text_buffer_place_cursor"}, {&gtkTextBufferGetInsert, "gtk_text_buffer_get_insert"},
 		{&gtkScrolledWindowNew, "gtk_scrolled_window_new"},
 		{&gtkScrolledSetMinHeight, "gtk_scrolled_window_set_min_content_height"},

@@ -1373,3 +1373,111 @@ Engelleyici, yüksek ya da orta bulgu yok.
 - Audit 390 koyu: süzgeç formu tam genişlik, kartlarda baş harf avatarı "C" (client), sonuç rozetleri renkli. Başlık kesilmesi için bkz. T-P29-2.
 
 DURUM: GEÇTİ
+---
+
+## P22-GQ (Go istemci 0.21.0)
+
+# Test Raporu — P22-GQ (Go istemci 0.21.0: WS oturum sohbeti + AC-292; gerçek sunucu + gerçek konsol)
+
+**DURUM: GEÇTİ.** ENGELLEYİCİ, YÜKSEK veya ORTA bulgu yok. Go istemcinin flow katmanı gerçek sunucu ve gerçek konsol ile koşuldu. Kritik akışların hepsi geçti: iki yönlü sohbet, `chat.state` gelene kadar pasif giriş, DC `chat`'in yok sayılması, yeniden bağlanmada `chat.history` (çift kayıt yok), AC-292 satırı ve satır yoksa katılmama. Linux GTK GUI testlerinde P22'ye ait iki kontrol (saklama satırı ve 0 günde pasif "Bağlan") Docker 24.04'te geçti. Windows için yalnız derleme ve vet yapıldı; gerçek pencereler aşağıdaki staging elle listesinde.
+
+Ortam:
+
+- Dal ve tarih: `p22g` @ `659daed`, 2026-11-19.
+- Kaynak: worktree'nin scratchpad anlık görüntüsü. Worktree koduna dokunulmadı.
+- Sunucu: gerçek `apps/server` :3483. Web: standalone derleme :3484.
+- DB: `rs-p22-test`; `db:migrate` ile son göç `20261127000000_p21_customer_portal`. P22-T'nin seed'li kullanıcıları ve gizli değerleri yeniden kullanıldı, yalnız scratchpad'de (600) duruyor.
+- Go: `go1.26.11` (macOS arm64). Konsol: Chromium (Playwright).
+
+Yöntem:
+
+- Gerçek macOS ikilisi yerel sunucuya bağlanamıyor. Sunucu URL'si yalnız ldflags'ten geliyor, WS `wss` sabit, TLS sistem köklerine bağlı. Anahtar zincirine sertifika eklemek kabul edilmedi.
+- Bunun yerine bir prob yazıldı: `docs/test-raporu/e2e/p22g/zz_p22g_live_test.go` (`p22glive` etiketi, anlık görüntüde `internal/flow` altına kopyalanıp koşuldu).
+- Probun gerçek bileşenleri: `flow.Run`, `api.New` istemcisi, `signal.Dial` (gerçek `flow.Features` → `rs.cap.schat1`) ve pion `rtc` eşi.
+- Bağlantı süreç içi TLS ters vekil üzerinden (httptest + `httputil.ReverseProxy`, WS yükseltmesini geçirir). Vekilin kökü yalnız bu süreçte istemci taşıyıcısına eklendi.
+- Sahte olanlar: arayüz (olaylar JSONL'a yazılıyor) ve ekran kaynağı (kare yok, TCC istemi yok).
+- Konsol tarafı: `p22g-live.spec.ts` (Playwright, gerçek konsol, ADMIN + 2FA).
+
+Kanıtlar:
+
+- `docs/test-raporu/e2e/p22g/akis.jsonl`: özet.
+- `probe-g1.jsonl`, `probe-g2.jsonl`: istemcinin gördüğü her `ChatView`.
+- `gui-ozet-24.04.md`, `gui-p22-sonuclar-24.04.txt`: Linux GUI.
+- Ekranlar: `docs/img/p22g/` (2 dosya).
+
+Temizlik: server, web ve prob kapatıldı; 3483 ve 3484 boş. `rs-p22-test` açık bırakıldı. GUI konteyneri `--rm` ile kaldırıldı.
+
+### Özet
+
+| Ölçüt                                     | Sonuç                                                                                                                                                                                                                               |
+| ----------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Canlı akış (`p22g-live.spec.ts`)          | 2/2 geçti (9,4 sn)                                                                                                                                                                                                                  |
+| Konsol pageerror / konsol hatası          | 0                                                                                                                                                                                                                                   |
+| 5xx                                       | 0. Sunucu logunda yalnız yerel ortam alarmı var (`UPLOADS_DIR`/`FILES_DIR` yazılamıyor), P22 dışı                                                                                                                                   |
+| Linux GUI (Docker `remote-p28g-gui:2404`) | 902 PASS, 1 FAIL. P22 testlerinin hepsi geçti, `ui/gtk` ok (14,2 sn). Tek FAIL `TestP28gK3GUIXTestClick` (P28g `internal/input`, amd64 emülasyonunda KeyPress 0); bu turdan önceki 14:33 koşusunda da aynıydı, P22-G ile ilgisi yok |
+| macOS yerel `go test`                     | `flow`, `signal`, `request`, `api`, `dc`, `ui/uicore`, `ui/mac` ok                                                                                                                                                                  |
+| Windows                                   | `GOOS=windows go build ./cmd/...` ve `go vet ./...` temiz. Çalıştırılmadı                                                                                                                                                           |
+| macOS darwin derleme                      | `CGO_ENABLED=0 go build ./cmd/noktadestek` temiz                                                                                                                                                                                    |
+
+### Bulgular
+
+Ürün bulgusu yok (D-P22G-n açılmadı). Notlar:
+
+- **Bilgi, P22 dışı:** `TestP28gK3GUIXTestClick` Apple Silicon emülasyonunda tekrarlanabilir şekilde düşüyor (XTEST tuş olayı izleyiciye gelmiyor). CI yerli amd64'te koşuyor. Bu turun konusu değil; düşmeye devam ederse P28g sahibine (devops/frontend-dev) iletilmeli.
+- **Tasarım teyidi:** kopukken giriş kutusu pasif ve yazılan metin gönderilmiyor. Yeniden gönderim yalnız kopuş anında yanıtını bekleyen öğeler için geçerli; gerçek sunucuda kopuş anı yakalanamadı, birim testi `TestAC264P22GReconnectResendAndHistoryDedupe` kapsıyor. Müşteri dönüşte yeniden "Gönder"e basar.
+- **Prob sınırı:** ekran ve ses yok. Bu yüzden konsolda video siyah ve "Sesli görüşme — desteklemiyor" görünüyor. İkisi de prob kaynaklı, ürün davranışı değil.
+
+### Akış sonuçları (gerçek sunucu + gerçek konsol + Go flow)
+
+| Akış                                         | Sonuç | Kanıt (`akis.jsonl` / `probe-*.jsonl`)                                                                                                                                                                                                                                                                                                                                |
+| -------------------------------------------- | ----- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Özellik bildirimi                            | ✅    | `features:["rs.cap.schat1"]`. WS alt protokolü 3 öğe (rs.v1 + bilet + schat1). Konsolda "istemci eski" uyarısı yok (`notOutdated:true`)                                                                                                                                                                                                                               |
+| AC-292 resolve → karşılama verisi            | ✅    | `chatRetentionDays` 365 = DB `tenant_settings.retention_days` 365. Satır "Sohbet mesajları kayıt altına alınır ve 365 gün saklanır" (web ile birebir)                                                                                                                                                                                                                 |
+| Giriş `chat.state` gelene kadar pasif        | ✅    | `active` sonrası ilk görünüm `enabled:false` + "Sohbet şu an kullanılamıyor", ardından `chat.state{true}` → `enabled:true`                                                                                                                                                                                                                                            |
+| Konsol → Go                                  | ✅    | "K1" ~0,1 sn'de geldi. `[ss:dd] Teknisyen <ad>:` öneki var, `NotifyNew:true`                                                                                                                                                                                                                                                                                          |
+| Go → konsol (+ `<script>`, `' OR 1=1`)       | ✅    | Önce "Siz (gönderiliyor…)" + `Clear:true`, yankıyla "Siz:" (~17 ms). Konsolda gövde düz metin, `chat-log` içinde `<script>` öğesi 0. DB `session_messages` = 2                                                                                                                                                                                                        |
+| Eski DC `chat` (≤ 0.20 biçimi) konsoldan ctl | ✅    | `{t:"chat",…}` açık ctl kanalına gönderildi. Go görünümü değişmedi (rev 3 → 3), metin istemcide de konsolda da yok. ctl kanalı açık kaldı, oturum "Aktif"                                                                                                                                                                                                             |
+| Yeniden bağlanma + `chat.history`            | ✅    | Soket yerelden kapatıldı → "Bağlantı koptu, yeniden bağlanılıyor…", giriş pasif. Kopukken teknisyen "K2" yazdı. Dönüşte `reconnect:true` dial, "Bağlantı yeniden kuruldu.", `chat.state{true}` ve geçmişle K2 geldi. K1/G1/K2 birer kez (çift yok). Dönüş sonrası G2 konsolda 1 kez. DB = 4                                                                           |
+| Müşteri bitirir                              | ✅    | "Oturumu sonlandırdınız". `session.chat_summary` `{tech:2, customer:2, legacy:false}`                                                                                                                                                                                                                                                                                 |
+| AC-292 olumsuz: sunucu alanı vermez          | ✅    | Vekil resolve yanıtından `chatRetentionDays`'i sildi (sunucu 365 dönmüştü). Karşılamaya 0 gitti, akış "Bağlantı başlatılamadı" ile bitti. **join 0, WS 0**, oturum PENDING kaldı                                                                                                                                                                                      |
+| Satır yoksa "Bağlan" pasif (arayüz kapısı)   | ✅    | GTK GUI (Docker 24.04, gerçek GTK): 90 günde satır `uicore.RetentionText(90)` ve ad + onayla Bağlan etkin. 0 günde satır "Sunucu güncel değil", ad + onay olsa da Bağlan pasif. Sohbet bölümü düz metin (`<b>` yorumlanmıyor), `chat.state{true}` görünümünde giriş etkin. macOS ve Windows: `uicore` `accept_test` ortak kapısı (yerel ok). Pencere doğrulaması elle |
+| Talep formunda AC-292                        | ➖    | Gerçek sunucuda koşulmadı (talep `ref`'i gerekiyor). `api` `TestAC292ChatRetentionDaysParsed` ve `request` testleri (form.go kapısı) yeşil. Elle listede                                                                                                                                                                                                              |
+
+### Kabul kriterleri (uçtan uca, Go istemci)
+
+| AC                                                  | Durum              | Nasıl doğrulandı                                                                                       |
+| --------------------------------------------------- | ------------------ | ------------------------------------------------------------------------------------------------------ |
+| AC-264 Go istemci WS sohbeti (iki yön, önce kaydet) | ✅                 | Gerçek sunucu + konsol + Go flow. DB satır sayısı her adımda tuttu                                     |
+| AC-264 DC sohbeti kaldırıldı                        | ✅                 | Gerçek DataChannel'a eski biçimli `chat` verildi, gösterilmedi ve iletilmedi                           |
+| AC-264 yeniden bağlanmada geçmiş, tekilleştirme     | ✅                 | Gerçek kopuş ve dönüş. Kopukken yazılan teknisyen mesajı geldi, çift yok                               |
+| AC-292 karşılama satırı (veri + metin)              | ✅ (flow) / ✅ GTK | Resolve değeri DB ile, metin contracts ile aynı. GTK ekranında geri okundu. macOS/Windows pencere ELLE |
+| AC-292 satır yoksa düğme pasif + katılmama          | ✅                 | Gerçek sunucu + vekille join 0. GTK'da Bağlan pasif                                                    |
+| AC-292 talep formu (Windows)                        | ELLE               | Birim testleri yeşil. Gerçek pencere W-3                                                               |
+
+### Görsel gözlemler
+
+- `konsol-go-istemci-sohbet-1280.png` (koyu): Go istemcinin adı "Go Probe", rozet "Hızlı Destek uygulaması". Saklama notu `ShieldCheck` ile görünüyor. Müşteri balonu solda, `<script>…' OR 1=1` düz metin. Giriş kutusu etkin. Taşma veya çakışma yok.
+- `konsol-go-istemci-yeniden-baglanma-1280.png`: K1, G1, K2, G2 sırasıyla ve birer kez görünüyor. "Aktif" rozeti kopuş boyunca kaldı.
+- macOS ve Windows istemci pencerelerinin ekran görüntüsü yok: gerçek ikili yerel sunucuya bağlanamıyor ve kullanıcı ekranı paylaşılmasın diye tam ekran yakalama yapılmadı. Bu yüzden `docs/img/p22g/`'de yalnız konsol görüntüleri var.
+
+### Staging elle test listesi (0.21.0, üç platform)
+
+Ön koşul: staging'de P22 sunucusu ve 0.21.0 istemciler (Windows imzalı `.exe`, macOS `.app`, Linux AppImage/ELF). Konsolda ADMIN.
+
+| #   | Platform | Madde                                                                                                                               | Beklenen                                                                                                                                                                |
+| --- | -------- | ----------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| W-1 | Windows  | Kodla aç → karşılama                                                                                                                | Onay düğmesinin hemen üstünde "Sohbet mesajları kayıt altına alınır ve N gün saklanır" (N = firma ayarı). Ad + onay olmadan "Bağlan" pasif. Ekran okuyucu satırı okuyor |
+| W-2 | Windows  | Oturum: konsol ↔ istemci sohbeti iki yön. Uzun (1000 karakter, 20 satır) ve emoji/Türkçe metin. Pencere arkadayken teknisyen mesajı | Mesajlar düz metin. "Siz (gönderiliyor…)" → "Siz". Arkadayken görev çubuğunda dikkat/okunmamış işareti. 1001. karakter "Mesaj en çok 1000 karakter olabilir"            |
+| W-3 | Windows  | Talep formu (firma dosyası ile "Destek iste")                                                                                       | Form onay düğmesinin üstünde aynı saklama satırı. Satır yoksa (eski sunucu) gönder pasif                                                                                |
+| W-4 | Windows  | Ağı 10–20 sn kes, bu sırada teknisyen yazsın, sonra aç                                                                              | Kopukken giriş pasif + "Sohbet şu an kullanılamıyor". Dönüşte teknisyen mesajı bir kez görünür, eski mesajlar çiftlenmez                                                |
+| W-5 | Windows  | Konsoldan çok hızlı (> 5/sn) gönderim ve müşteri tarafında hızlı Enter                                                              | "Çok hızlı yazıyorsunuz". Metin kaybolmaz                                                                                                                               |
+| W-6 | Windows  | Gözetimsiz servisli bilgisayarda gözetimsiz bağlantı                                                                                | Sohbet bölümü yok/pasif. Konsolda "Gözetimsiz bağlantıda sohbet yoktur." `schat1` bildirilmez                                                                           |
+| M-1 | macOS    | W-1 (karşılama satırı, Bağlan kapısı); açık ve koyu görünüm                                                                         | Satır iki temada okunaklı, düğmenin hemen üstünde                                                                                                                       |
+| M-2 | macOS    | W-2 + W-4 (sohbet + kopuş); oturum penceresi küçültülmüşken teknisyen mesajı                                                        | Dock'ta dikkat isteği. Geçmiş düz metin, çift yok                                                                                                                       |
+| L-1 | Linux    | Ubuntu 22.04 ve 24.04 (X11 + Wayland): W-1 ve W-2                                                                                   | GTK karşılamada satır + Bağlan kapısı. Sohbet bölümünde `<b>` gibi işaretler düz metin                                                                                  |
+| L-2 | Linux    | W-4 (kopuş)                                                                                                                         | M-2 ile aynı                                                                                                                                                            |
+| X-1 | Üçü      | 0.21.0 istemciye konsoldan eski DC `chat` (≤ 0.20 konsol sekmesi açık kalmışsa)                                                     | İstemcide görünmez, oturum kopmaz (yerelde ✅)                                                                                                                          |
+| X-2 | Üçü      | 0.21.0 istemci + P22 öncesi sunucu (yayın sırası provası)                                                                           | Karşılamada satır yerine "Sunucu güncel değil; lütfen daha sonra deneyin", Bağlan pasif, join gitmez (yerelde vekille ✅)                                               |
+| X-3 | Üçü      | Oturum bitince geçmiş ekranında sohbet (`/history/<id>` → "Sohbeti göster")                                                         | Go istemcinin mesajları "müşteri" olarak, sırası doğru                                                                                                                  |
+
+Önceki P22-T elle listesi (E-1..E-7) geçerliliğini koruyor. "P22-G" satırı bu bölümle kapandı: yerelde flow + GTK kanıtı var, pencereler W/M/L maddelerinde.

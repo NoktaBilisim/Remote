@@ -19,7 +19,6 @@ func frame(idx uint16, seq uint32, payload []byte) []byte {
 func TestAC35AC56CtlValidMessages(t *testing.T) {
 	sha := strings.Repeat("a", 64)
 	ok := []string{
-		`{"t":"chat","id":"m1","text":"Merhaba ğüşİ","ts":1700000000000}`,
 		`{"t":"annot.stroke","id":"s1","tool":"arrow","color":"red","pts":[[0,0],[1,1],[0.5,0.25]]}`,
 		`{"t":"annot.laser","x":0.1,"y":1}`,
 		`{"t":"annot.undo"}`, `{"t":"annot.clear","id":"s1"}`, `{"t":"ping"}`,
@@ -37,6 +36,8 @@ func TestAC119CtlRejectsInvalidAndControl(t *testing.T) {
 	sha := strings.Repeat("a", 64)
 	bad := []string{
 		`{"t":"control.request"}`, `{"t":"control.state","state":"GRANTED"}`, // DC'de control.* yok (G-09)
+		// AC-264 / P22-G: DC `chat` tipi yok (sohbet yalnız WS) — eski geçerli biçim de bilinmeyen tip olarak düşer.
+		`{"t":"chat","id":"m1","text":"Merhaba ğüşİ","ts":1700000000000}`,
 		`{"t":"chat","id":"m1","text":"","ts":1}`,
 		`{"t":"chat","id":"m1","text":"` + strings.Repeat("x", 2001) + `","ts":1}`,
 		`{"t":"chat","id":"m1","text":"a","ts":1.5}`,
@@ -60,7 +61,7 @@ func TestAC119CtlRejectsInvalidAndControl(t *testing.T) {
 		}
 	}
 	// Yetenek filtresi
-	if Allowed("file.offer", []string{"remote_control"}) || !Allowed("file.offer", []string{"file_transfer"}) || !Allowed("chat", nil) {
+	if Allowed("file.offer", []string{"remote_control"}) || !Allowed("file.offer", []string{"file_transfer"}) || !Allowed("ping", nil) {
 		t.Fatal("caps filtresi")
 	}
 }

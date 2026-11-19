@@ -15,8 +15,10 @@ import (
 
 	"remote-support/agent-win/internal/files"
 	"remote-support/agent-win/internal/flow"
+	"remote-support/agent-win/internal/linux/glib"
 	"remote-support/agent-win/internal/signal"
 	"remote-support/agent-win/internal/transfer"
+	"remote-support/agent-win/internal/ui/uicore"
 )
 
 // GUI duman testi (K8a sözleşmesi: `linuxgui` etiketi, X11 fazı, P28G_GUI=x11 + DISPLAY). GTK yalnız ana iş
@@ -114,15 +116,42 @@ func runScenario() []string {
 		go u.WelcomeRec(ctx, flow.Welcome{Host: "stg.remote.noktabilisim.net", Tenant: "Nokta Bilişim",
 			TechName: "Ayşe Yılmaz", TechVerifyCode: "4821", ConsentVersion: 3,
 			ConsentBody: "Kişisel verileriniz 6698 sayılı KVKK kapsamında işlenir; çğıöşüİ.",
-			AbuseEmail:  "abuse@noktabilisim.net", RecOffered: true})
+			AbuseEmail:  "abuse@noktabilisim.net", RecOffered: true, ChatRetentionDays: 90})
 		wait("1-karsilama")
 		mapped("karşılama", 1)
+		// AC-292 / Q-P22G-2: saklama satırı onay düğmesinin üstünde çizilmiş ve geri okunuyor; ad + onay ile "Bağlan"
+		// etkin. 0 gün (eski sunucu): satır "Sunucu güncel değil", ad + onay olsa da "Bağlan" pasif.
+		consentFilled := func(days int, wantConnect bool) {
+			onMain(u, func() {
+				w := u.welcomeW
+				if got := labelText(w.retention); got != uicore.RetentionText(days) {
+					fail("karşılama saklama satırı (%d gün): %q", days, got)
+				}
+				gtkEntrySetText(w.name, cstr("Ayşe Yılmaz"))
+				gtkToggleSetActive(w.consent, true)
+				if gtkWidgetGetSensitive(w.connect) != wantConnect {
+					fail("karşılama %d gün: Bağlan etkin=%v, beklenen %v", days, !wantConnect, wantConnect)
+				}
+			})
+		}
+		closeForms := func() {
+			onMain(u, func() {
+				for f := range u.forms {
+					f.destroy()
+				}
+			})
+		}
+		consentFilled(90, true)
 		cancel()
-		onMain(u, func() {
-			for f := range u.forms {
-				f.destroy()
-			}
-		})
+		closeForms()
+		ctx0, cancel0 := context.WithCancel(context.Background())
+		go u.Welcome(ctx0, flow.Welcome{Host: "stg.remote.noktabilisim.net", Tenant: "Nokta Bilişim",
+			TechName: "Ayşe Yılmaz", TechVerifyCode: "4821", ConsentVersion: 3, ConsentBody: "KVKK"})
+		wait("1b-karsilama-0gun")
+		mapped("karşılama 0 gün", 1)
+		consentFilled(0, false)
+		cancel0()
+		closeForms()
 		u.Lobby("K7Q2", "Ayşe Yılmaz")
 		wait("2-lobi")
 		mapped("lobi", 1)
@@ -130,7 +159,22 @@ func runScenario() []string {
 		u.SetHotkey("Ctrl+Shift+F12")
 		u.ClipSwitch(flow.ClipSwitchState{Visible: true, Enabled: true})
 		u.Status("Ekranınız paylaşılıyor.")
-		u.Chat("Merhaba, ekranınızı görüyorum. Şimdi ağ ayarlarına bakalım.")
+		// P22-G: sohbet bölümü flow.ChatView ile; düz metin — `<b>` literal görünür (markup yok).
+		chatText := "[10:00] Teknisyen Ayşe Yılmaz:\n    Merhaba, ekranınızı görüyorum. <b>kalın değil</b>\n"
+		u.SessionChat(flow.ChatView{Text: chatText, Rev: 1, Enabled: true, Status: "<b>durum</b>"})
+		onMain(u, func() {
+			s := u.sess
+			switch {
+			case s == nil:
+				fail("oturum penceresi yok")
+			case textViewText(s.history) != chatText:
+				fail("sohbet geçmişi düz metin değil: %q", textViewText(s.history))
+			case labelText(s.chatNote) != "<b>durum</b>":
+				fail("sohbet durum satırı markup yorumladı: %q", labelText(s.chatNote))
+			case !gtkWidgetGetSensitive(s.input) || !gtkWidgetGetSensitive(s.sendBtn):
+				fail("chat.state{true} görünümünde giriş etkin olmalı")
+			}
+		})
 		u.RecState(flow.RecView{On: true})
 		u.VoiceBar(flow.VoiceView{On: true, Talkers: []string{"Ayşe Yılmaz"}})
 		if !u.ShowRoster(flow.RosterView{Controller: "Ayşe Yılmaz", Techs: []flow.RosterTech{
@@ -190,4 +234,13 @@ func runScenario() []string {
 	}()
 	u.Run()
 	return errs
+}
+
+// textViewText geçmiş kutusunun düz metni (geri okuma; GUI duman testi düz metin kanıtı).
+func textViewText(v uintptr) string {
+	buf := gtkTextViewGetBuffer(v)
+	var a, b [96]byte
+	gtkTextBufferGetStartIter(buf, &a)
+	gtkTextBufferGetEndIter(buf, &b)
+	return glib.GoString(gtkTextBufferGetText(buf, &a, &b, true))
 }

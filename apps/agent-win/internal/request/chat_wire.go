@@ -11,8 +11,6 @@ import (
 	"errors"
 	"regexp"
 	"slices"
-	"strings"
-	"unicode/utf8"
 
 	"remote-support/agent-win/internal/signal"
 )
@@ -21,23 +19,21 @@ import (
 const (
 	// CapChat `rs.cap.chat1` (WS_REQUEST_CAP_CHAT): Dial her zaman bildirir.
 	CapChat        = "rs.cap.chat1"
-	chatRawMax     = 4000 // ham gövde ön sınırı (UTF-16 birimi)
-	chatBodyMax    = 1000 // MESSAGE_BODY_MAX (kod noktası)
-	chatLinesMax   = 20   // MESSAGE_LINES_MAX
-	chatInBodyMax  = 2000 // sunucu → istemci gövde payı (MESSAGE_BODY_MAX * 2, UTF-16 birimi)
-	chatHistoryMax = 50   // MESSAGE_HISTORY_WS
+	chatBodyMax    = signal.ChatBodyMax // MESSAGE_BODY_MAX (kod noktası)
+	chatInBodyMax  = 2000               // sunucu → istemci gövde payı (MESSAGE_BODY_MAX * 2, UTF-16 birimi)
+	chatHistoryMax = 50                 // MESSAGE_HISTORY_WS
 	senderNameMax  = 100
 	senderTech     = "TECH"
 	senderCustomer = "CUSTOMER"
 )
 
-// Gövde hata metinleri contracts `requestMessageBodySchema` ile aynı.
+// Gövde hata metinleri contracts `chatBodySchema` ile aynı (tek tanım signal/chat.go; P22-G).
 const (
-	errChatLong    = "Mesaj en çok 1000 karakter olabilir"
-	errChatBadText = "Mesaj geçersiz karakter içeriyor"
-	errChatUnsafe  = "Mesaj görünmez veya kontrol karakteri içeremez"
-	errChatEmpty   = "Mesaj boş olamaz"
-	errChatLines   = "Mesaj en çok 20 satır olabilir"
+	errChatLong    = signal.ChatErrLong
+	errChatBadText = signal.ChatErrBadText
+	errChatUnsafe  = signal.ChatErrUnsafe
+	errChatEmpty   = signal.ChatErrEmpty
+	errChatLines   = signal.ChatErrLines
 )
 
 var (
@@ -168,31 +164,9 @@ func parseChatToggle(t string, raw []byte) (Inbound, error) {
 	return m, nil
 }
 
-// ChatBody §5.4.4 gövde kuralları (sunucuyla aynı sıra): ham ≤ 4000 UTF-16 → iyi biçimli metin → `\r\n`→`\n` → trim →
-// yasak karakter yok (Cc yalnız `\n` serbest; Cf yalnız ZWJ serbest; Zl/Zp, U+034F, U+180E) → 1..1000 kod noktası →
-// ≤ 20 satır. NFC sunucuda yapılır (ek bağımlılık yok); istemci yankıdaki gövdeyi esas alır. Hata yoksa msg boştur.
-func ChatBody(raw string) (body, msg string) {
-	if utf16Len(raw) > chatRawMax {
-		return "", errChatLong
-	}
-	if !utf8.ValidString(raw) { // Go dizesinde vekil kod noktası olamaz; geçersiz UTF-8 = iyi biçimsiz metin
-		return "", errChatBadText
-	}
-	s := strings.TrimFunc(strings.ReplaceAll(raw, "\r\n", "\n"), jsSpace)
-	if strings.ContainsFunc(s, func(r rune) bool { return r != '\n' && r != 0x200D && unsafeChar(r) }) {
-		return "", errChatUnsafe
-	}
-	switch n := utf8.RuneCountInString(s); {
-	case n < 1:
-		return "", errChatEmpty
-	case n > chatBodyMax:
-		return "", errChatLong
-	}
-	if strings.Count(s, "\n")+1 > chatLinesMax {
-		return "", errChatLines
-	}
-	return s, ""
-}
+// ChatBody §5.4.4 gövde kuralları (sunucuyla aynı sıra). P22-G: tek tanım signal.ChatBody (oturum sohbeti de kullanır;
+// contracts `chatBodySchema` taşımasının eşi). Hata yoksa msg boştur.
+func ChatBody(raw string) (body, msg string) { return signal.ChatBody(raw) }
 
 // EncodeMessage `request.message` (C→S). Gövde ChatBody'den geçmiş olmalıdır.
 func EncodeMessage(body, clientMsgID string) ([]byte, error) {

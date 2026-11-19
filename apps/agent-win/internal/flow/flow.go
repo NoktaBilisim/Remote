@@ -64,6 +64,8 @@ type Welcome struct {
 	RememberNote string
 	// RecOffered P28e: kayıt rıza kutusu gösterilir (api.ConsentText.RecOffered; yalnız RecUI.WelcomeRec ile).
 	RecOffered bool
+	// ChatRetentionDays P22 AC-292: resolve `chatRetentionDays`; < 1 (eski sunucu) → onay düğmesi pasif (uicore.ConsentReady).
+	ChatRetentionDays int
 }
 
 // BindingHandler P8c (ADR-0017, mimari-e10 §8.4): bilgisayar kaydının alınması. Uygulaması internal/launch'tadır.
@@ -92,7 +94,6 @@ type UI interface {
 	ChooseShare(ctx context.Context, mons []signal.Monitor, def int, windows bool) (c ShareChoice, ok bool)
 	Active(techName string, mon signal.Monitor)
 	Status(msg string)
-	Chat(text string)
 	Annot(m dc.Ctl)
 	FileOffer(p transfer.Prompt)
 	FileOfferWithdrawn(fid string)
@@ -119,7 +120,7 @@ type EventKind int
 
 const (
 	EvEnd        EventKind = iota // "Oturumu bitir" / lobide "Vazgeç" / pencere kapatma
-	EvChat                        // Text
+	EvChat                        // Text: P22-G oturum sohbeti ham metni (doğrulama ve gönderim chat.go)
 	EvFileAccept                  // FID
 	EvFileReject                  // FID
 	EvFileCancel                  // süren alımı iptal
@@ -246,6 +247,9 @@ type Deps struct {
 	// VoiceActiveWait yerel Kabul'den sonra o callId için `voice.state{active}` bekleme süresi; dolarsa mikrofon
 	// bırakılır (D-PD-K1-2; varsayılan 5 sn; testte kısaltılır).
 	VoiceActiveWait time.Duration
+	// ChatUI P22-G (mimari-p22 §9; chat.go): oturum sohbeti bölümü. nil ya da Unattended → `rs.cap.schat1` bildirilmez,
+	// `chat.*` yok sayılır.
+	ChatUI ChatUI
 	// Admitted P8b-2: ilk `hello` geldiğinde bir kez çağrılır (talep modu `/ws/request`'i 1000 ile ancak bundan sonra
 	// kapatır; öncesindeki 1000 sunucuda "vazgeçme" sayılır). nil olabilir.
 	Admitted func()
@@ -310,6 +314,11 @@ func admitStage(ctx context.Context, d Deps, initial string) (*api.JoinResult, *
 		if !ok {
 			return nil, nil, false, Outcome{}, false
 		}
+		// AC-292 / S-P22G-2: saklama satırı gösterilemeyen (eski) sunucuya katılınmaz — arayüzdeki düğme kapısının akış
+		// düzeyi ikinci kapısı (talep formu request/form.go ile simetrik).
+		if res.ChatRetentionDays < 1 {
+			return nil, nil, false, Outcome{Message: msgNoRetention}, false
+		}
 		// AC-98: onaysız bağlantı başlamaz — UI yalnız onay kutusu işaretliyken ok döner.
 		jr, err := d.API.Join(ctx, api.JoinRequest{JoinNonce: res.JoinNonce, CustomerName: name,
 			ConsentTextID: res.ConsentText.ID, ConsentAccepted: true})
@@ -365,6 +374,7 @@ func welcomeData(ctx context.Context, d Deps, res *api.ResolveResult, notice str
 		Tenant: res.Tenant.Name, TechName: res.Technician.Name, TechVerifyCode: res.TechVerifyCode,
 		ConsentVersion: res.ConsentText.Version, ConsentBody: res.ConsentText.Body, AbuseEmail: abuse,
 		Notice: notice, Logo: tenantLogo(ctx, d, res.Tenant.LogoURL), RememberNote: rememberNote(d, res.Tenant.Name),
+		ChatRetentionDays: res.ChatRetentionDays,
 	}
 }
 

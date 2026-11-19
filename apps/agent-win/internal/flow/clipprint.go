@@ -136,6 +136,9 @@ func Features(d Deps) []string {
 	if voiceOn(d) { // P28d O-PD-3: gözetimsizde yok (yukarıdaki erken dönüş + voiceOn)
 		f = append(f, signal.FeatureVoice)
 	}
+	if d.ChatUI != nil { // P22-G: sohbet bölümü çizebilen arayüz; gözetimsizde yok (yukarıdaki erken dönüş)
+		f = append(f, signal.FeatureSessionChat)
+	}
 	return f
 }
 

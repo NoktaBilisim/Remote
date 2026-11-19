@@ -203,6 +203,52 @@ update_version / update_reason / update_at`; yeni tablo yok). Yeni env `UPDATE_M
 - Aşağıdaki "Eklendi — P28u … servis 0.15.0" girdisindeki üç kip, politika, gerekçe, dört göz ve izleme/müdahale geçişi
   P28u r3 ile kaldırıldı (yukarıya bakın).
 
+### Eklendi — P22-G Hızlı Destek 0.21.0 (Windows, macOS, Linux): kayıtlı oturum sohbeti (AC-264, AC-292)
+
+Sürüm numarası kodda sabit değildir; derlemede (ldflags / CI) 0.21.0 olarak verilir. Yalnız P22 sunucusuyla çalışır (bkz.
+"Operasyon — P22-G").
+
+- **Oturum sohbeti istemcide yeniden açık:** sohbet artık `/ws/guest` üzerinden sunucuya gider ve kaydedilir; istemci
+  `rs.cap.schat1` bildirir. Oturum penceresinde **Sohbet** başlığı ve "Sohbet kayıt altına alınır" notu; mesajlar düz
+  metin gösterilir. Hızlı Destek 0.20'deki "Bu sürümde sohbet kapalıdır… programı güncelleyin" durumu 0.21.0 ile kalkar.
+- **Sohbet durumları:** "Siz (gönderiliyor…)", "Gönderilemedi — tekrar deneyin" (metin yazma kutusuna geri gelir; yeniden
+  **Gönder** aynı mesaj kimliğiyle gider, iki kez kaydedilmez), "Çok hızlı yazıyorsunuz" (5 mesaj/sn), "Sohbet şu an
+  kullanılamıyor" (sunucu sohbeti açana kadar, kopuşta ve oturum sonunda giriş pasif). Kopuşta bekleyen mesajlar yeniden
+  bağlanınca kendiliğinden gönderilir.
+- **Saklama satırı (AC-292):** karşılama penceresinde **Bağlan**'ın, Windows talep formunda **Destek iste**'nin hemen
+  üstünde "Sohbet mesajları kayıt altına alınır ve N gün saklanır". Sunucu gün sayısını (`chatRetentionDays`) vermezse
+  satır yerine "Sunucu güncel değil; lütfen daha sonra deneyin" yazar ve düğme (Enter dahil) pasif kalır; akış düzeyinde
+  ikinci kapı da katılımı ve talep oluşturmayı durdurur.
+- Linux istemcide oturum sohbeti ilk kez çalışır (0.20'de kapalıydı).
+
+### Değişti — P22-G
+
+- Dosya sonucu, virüs taraması, ses ve oturum sonu gibi program satırları sohbetin altında ayrı tutulur; sohbet yenilenince
+  silinmez (Windows dahil, Q-P22G-1).
+- Talep sohbeti (P18/P20) ile oturum sohbeti aynı gövde kuralını ve gösterim süzgecini kullanır.
+
+### Kaldırıldı — P22-G
+
+- DataChannel üzerinden oturum sohbeti (istemci tarafı). DataChannel'dan gelen `chat` çerçevesi gösterilmez ve yayılmaz;
+  kanal açık kalır.
+
+### Güvenlik — P22-G
+
+- Sunucu sohbet çerçeveleri katı ayrıştırılır: `null` ya da boş `tid`, `senderName`, `clientMsgId` ve `reason` reddedilir
+  (S-P22G-3). Güvenlik denetimi P22-GQ: Kritik 0 / Yüksek 0.
+
+### Bilinen sınırlamalar — P22-G
+
+- Eski mesajlar (`more`) müşteri istemcisinde gösterilmez; tamamı teknisyenin oturum geçmişindedir.
+- Gözetimsiz bağlantıda sohbet yoktur (istemci `schat1` bildirmez).
+- Windows ve macOS arayüzü otomatik testle değil derleme ve vet ile doğrulandı; üç platformda staging elle testi bekliyor.
+
+### Operasyon — P22-G
+
+- Yeni env, migration ve bağımlılık yok. **Sunucu önce:** 0.21.0 eski sunucuda saklama satırını bulamaz ve kullanılamaz.
+  P22-G yayımlandıktan sonra sunucu geri alınmaz, ileri düzeltilir (runbook §29.8).
+- Kayıtlı/tepsi istemcileri kendini güncellemez; 0.20 ve öncesi kullanıcılar programı destek sayfasından yeniden indirir.
+
 ### Eklendi — P22 oturum sohbeti her zaman kaydedilir + KVKK bilgilendirme (sunucu + web; istemci sürümü değişmedi) (AC-264, AC-291, AC-292)
 
 - **Sunucu aktarımlı sohbet:** oturum sohbeti artık `/ws/tech` ve `/ws/guest` üzerinden geçer; sunucu önce kaydeder

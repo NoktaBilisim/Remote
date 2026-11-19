@@ -268,11 +268,11 @@ if [ "$(uname -s)" = Darwin ]; then
   x="$WORK/x"; mkdir "$x"; ditto -x -k "$f" "$x"
   codesign --verify --strict "$x/$APP" || die "codesign --verify başarısız"
   if [ -n "$TAG" ]; then
-    codesign -dv "$x/$APP" 2>&1 | grep -qx "TeamIdentifier=$APPLE_TEAM_ID" || die "TeamIdentifier $APPLE_TEAM_ID değil"
-    spctl -a -vv -t exec "$x/$APP" 2>&1 | grep -q 'source=Notarized Developer ID' || die "spctl: Notarized Developer ID değil"
+    codesign -dv "$x/$APP" 2>&1 | grep -x "TeamIdentifier=$APPLE_TEAM_ID" >/dev/null || die "TeamIdentifier $APPLE_TEAM_ID değil"
+    spctl -a -vv -t exec "$x/$APP" 2>&1 | grep 'source=Notarized Developer ID' >/dev/null || die "spctl: Notarized Developer ID değil"
     echo "Gatekeeper: Notarized Developer ID (Team $APPLE_TEAM_ID)"
   else
-    codesign -dv "$x/$APP" 2>&1 | grep -qx 'Signature=adhoc' || die "staging TEST paketi ad-hoc değil"
+    codesign -dv "$x/$APP" 2>&1 | grep -x 'Signature=adhoc' >/dev/null || die "staging TEST paketi ad-hoc değil"
   fi
 fi
 inner=$(unzip -p "$f" "$APP/Contents/MacOS/noktadestek" | { command -v sha256sum >/dev/null && sha256sum || shasum -a 256; } | cut -d' ' -f1)

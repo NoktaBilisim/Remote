@@ -1,5 +1,7 @@
 package uicore
 
+import "remote-support/agent-win/internal/flow"
+
 // AcceptKey açık onay diyaloğunun kimliği (S8b2-4): başlıktaki teknisyen adı + gövdedeki teknisyen doğrulama kodu.
 // Yalnız ad yetmez; aynı adlı iki teknisyen farklı kodla gelebilir.
 type AcceptKey struct {
@@ -40,4 +42,23 @@ func AdmitLine(code string) string {
 		spaced = append(spaced, code[i])
 	}
 	return "  ·  Kabul kodu: " + string(spaced)
+}
+
+// ConsentReady P22 AC-292 (mimari-p22 §9): onay/gönder düğmesi yalnız saklama günü geçerliyken (≥ 1) VE saklama satırı
+// ekranda çizildiyse etkin olabilir. Üç platform ve talep formu bu tek kuralı kullanır (diğer koşullar — onay kutusu,
+// ad — ayrıca aranır).
+func ConsentReady(days int, lineDrawn bool) bool { return days >= 1 && lineDrawn }
+
+// RetentionText düğmenin hemen üstündeki satır: geçerli günde flow.ChatRetentionLine(days); alan yok/0 (eski sunucu) →
+// flow.ChatTexts.ServerOutdated.
+func RetentionText(days int) string {
+	if days < 1 {
+		return flow.ChatTexts.ServerOutdated
+	}
+	return flow.ChatRetentionLine(days)
+}
+
+// RetentionDrawn çizilen (geri okunan) satır beklenen saklama satırı mı (lineDrawn kanıtı; sabit true değil).
+func RetentionDrawn(days int, readBack string) bool {
+	return days >= 1 && readBack == flow.ChatRetentionLine(days)
 }

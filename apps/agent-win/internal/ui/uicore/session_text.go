@@ -90,6 +90,21 @@ func AppendChat(hist string, at time.Time, who, text string) string {
 	return hist
 }
 
+// ChatComposite P22-G (macOS/Linux): oturum sohbeti metni (flow.ChatView.Text) + yerel sistem satırları (dosya sonucu,
+// ses notu, oturum sonu; AppendChat ile birikir) tek geçmiş kutusunda; sistem satırları sohbet bloğunun altında durur.
+// Toplam ChatLimit'i aşarsa baştan satır sınırında kırpılır (en yeni korunur). Düz metindir.
+func ChatComposite(chat, sys string) string {
+	s := chat + sys
+	for len(s) > ChatLimit {
+		i := strings.IndexByte(s, '\n')
+		if i < 0 || i == len(s)-1 {
+			return s[len(s)-ChatLimit:]
+		}
+		s = s[i+1:]
+	}
+	return s
+}
+
 // ChatInputLimit sohbet giriş alanı (Windows EDIT sınırı 2000 karakter).
 const ChatInputLimit = 2000
 

@@ -28,6 +28,7 @@ type fakeAPI struct {
 	statusErr  []error
 	statusKeys []string
 	customer   string
+	noDays     bool // P22 AC-292: eski sunucu (chatRetentionDays yok)
 }
 
 func (f *fakeAPI) TenantInfo(context.Context, string) (*api.TenantRequestInfo, error) {
@@ -38,7 +39,10 @@ func (f *fakeAPI) TenantInfo(context.Context, string) (*api.TenantRequestInfo, e
 		f.infoErr = f.infoErr[1:]
 		return nil, e
 	}
-	i := &api.TenantRequestInfo{WaitMinutes: 30, MinAgentVersion: f.min}
+	i := &api.TenantRequestInfo{WaitMinutes: 30, MinAgentVersion: f.min, ChatRetentionDays: 90}
+	if f.noDays {
+		i.ChatRetentionDays = 0
+	}
 	i.Tenant.Name = "Demo Firma"
 	if f.tenant != "" {
 		i.Tenant.Name = f.tenant
@@ -470,3 +474,28 @@ func TestAC141ReconnectAfterDropAnd403Ends(t *testing.T) {
 type dropConn struct{ *fakeConn }
 
 func (c *dropConn) Read(context.Context) (Inbound, error) { return nil, errors.New("eof") }
+
+// AC-292 (P22, mimari-p22 §9): talep formu saklama gününü arayüze verir; alan yoksa (eski sunucu) gönderim talep
+// oluşturmaz, "Sunucu güncel değil" gösterilir.
+func TestAC292RequestFormRetentionDays(t *testing.T) {
+	a, u, conn, ev := &fakeAPI{noDays: true}, newUI(), newConn(), make(chan UserAction, 4)
+	u.forms = submits(goodForm)
+	out := runAsync(deps(a, u, conn, ev, &memRemember{}))
+	if o := wait(t, out); o.Kind != OutClose {
+		t.Fatalf("%+v", o)
+	}
+	u.mu.Lock()
+	defer u.mu.Unlock()
+	if len(a.bodies) != 0 || len(u.views) != 2 || u.views[0].ChatRetentionDays != 0 ||
+		u.views[1].Notice != "Sunucu güncel değil; lütfen daha sonra deneyin" {
+		t.Fatalf("eski sunucuya talep gitmemeli: %d %+v", len(a.bodies), u.views)
+	}
+	a2, u2 := &fakeAPI{}, newUI()
+	out2 := runAsync(deps(a2, u2, newConn(), make(chan UserAction, 4), &memRemember{}))
+	if o := wait(t, out2); o.Kind != OutClose {
+		t.Fatalf("%+v", o)
+	}
+	if u2.views[0].ChatRetentionDays != 90 {
+		t.Fatalf("gün aktarılmadı: %+v", u2.views[0])
+	}
+}

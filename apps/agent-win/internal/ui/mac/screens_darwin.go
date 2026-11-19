@@ -86,7 +86,7 @@ func (u *UI) welcomeForm(w flow.Welcome, ch chan<- welcomeResult) {
 	if w.RecOffered {
 		shift = 44
 	}
-	f := u.newForm(uicore.AppTitle+" — Karşılama", 520, 652+shift)
+	f := u.newForm(uicore.AppTitle+" — Karşılama", 520, 652+shift+retentionRow)
 	f.label("Uzaktan destek bağlantısı", 16, 14, 488, 30, fontBig)
 	f.label(w.Tenant+" teknisyeni sizinle uzaktan destek oturumu başlatmak istiyor.", 16, 50, 488, 20, fontNormal)
 	f.label("Teknisyen: "+w.TechName, 16, 74, 352, 20, fontBold)
@@ -110,7 +110,8 @@ func (u *UI) welcomeForm(w flow.Welcome, ch chan<- welcomeResult) {
 	f.label(w.RememberNote, 16, 420, 488, 36, fontNormal)
 	f.label("Adınız ve soyadınız (teknisyeniniz sizi bu adla görür)", 16, 462, 488, 20, fontNormal)
 	var connect, name, consent objc.ID
-	valid := func() bool { return checked(consent) && strings.TrimSpace(getText(name)) != "" }
+	ready := false // AC-292: saklama satırı çizildi ve gün geçerli (aşağıda, onay düğmesinin hemen üstünde)
+	valid := func() bool { return ready && checked(consent) && strings.TrimSpace(getText(name)) != "" }
 	refresh := func() { enable(connect, valid()) }
 	record := false
 	done := func(r welcomeResult) {
@@ -135,6 +136,8 @@ func (u *UI) welcomeForm(w flow.Welcome, ch chan<- welcomeResult) {
 			setChecked(rec, record)
 		})
 	}
+	ready = f.retentionLine(w.ChatRetentionDays, 16, 584+shift, 488)
+	shift += retentionRow
 	connect = f.button("Bağlan", 318, 584+shift, 90, 32, func(objc.ID) { submit() })
 	setDefault(connect)
 	f.button("Vazgeç", 414, 584+shift, 90, 32, func(objc.ID) { done(welcomeResult{}) })
@@ -336,4 +339,20 @@ func (u *UI) showLicenses() {
 	f.onClose(closeFn)
 	u.licenses = f
 	f.show(0, false, 0)
+}
+
+// retentionRow AC-292 saklama satırının kapladığı yükseklik.
+const retentionRow = 26
+
+// retentionLine AC-292 (mimari-p22 §9): uicore.RetentionText satırını çizer ve geri okur; dönen değer uicore.ConsentReady
+// (gün ≥ 1 ve satır gerçekten çizildi). Alan yok/0 → "Sunucu güncel değil" (danger) ve false.
+func (f *form) retentionLine(days int, x, y, w float64) bool {
+	text := uicore.RetentionText(days)
+	var l objc.ID
+	if days < 1 {
+		l = f.danger(text, x, y, w, 20, fontNormal)
+	} else {
+		l = f.label(text, x, y, w, 20, fontNormal)
+	}
+	return uicore.ConsentReady(days, l != 0 && uicore.RetentionDrawn(days, getText(l)))
 }

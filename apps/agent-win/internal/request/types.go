@@ -73,6 +73,9 @@ type FormView struct {
 	RememberNote string
 	// RecOffered P28e (AC-381): kayıt rıza kutusu gösterilir (api.ConsentText.RecOffered); varsayılan işaretsiz.
 	RecOffered bool
+	// ChatRetentionDays P22 AC-292: gönder düğmesinin hemen üstündeki saklama satırı (uicore.RetentionText); < 1 (eski
+	// sunucu) → düğme pasif + flow.ChatTexts.ServerOutdated (uicore.ConsentReady).
+	ChatRetentionDays int
 }
 
 // FormAction form kararı.

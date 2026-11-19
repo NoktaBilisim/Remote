@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"remote-support/agent-win/internal/flow"
+	"remote-support/agent-win/internal/ui/uicore"
 	"remote-support/agent-win/internal/win"
 )
 
@@ -67,7 +68,7 @@ func (u *UI) welcomeForm(w flow.Welcome, ch chan<- welcomeResult) {
 	if w.RecOffered {
 		shift = 44
 	}
-	f := u.t.newForm(appTitle+" — Karşılama", 520, 652+shift, false)
+	f := u.t.newForm(appTitle+" — Karşılama", 520, 652+shift+retentionRow, false)
 	welcomeIntro(f, w)
 	f.label("Adınız ve soyadınız (teknisyeniniz sizi bu adla görür)", 16, 462, 488, 20, fontNormal)
 	name := f.edit(idName, 16, 484, 300, 28, win.ES_AUTOHSCROLL, 100)
@@ -79,12 +80,15 @@ func (u *UI) welcomeForm(w flow.Welcome, ch chan<- welcomeResult) {
 		rec = f.add("BUTTON", flow.RecTexts.ConsentLine, win.WS_TABSTOP|win.BS_AUTOCHECKBOX|win.BS_MULTILINE, 0,
 			idRecConsent, 16, 578, 488, 36, fontNormal)
 	}
+	// AC-292: saklama satırı onay düğmesinin HEMEN üstünde (kayıt kutusunun altında); düğme yalnız satır çizildiyse.
+	ready := retentionLine(f, w.ChatRetentionDays, 16, 584+shift, 488)
+	shift += retentionRow
 	connect := f.button("Bağlan", idOK, 318, 584+shift, 90, true)
 	f.button("Vazgeç", idCancel, 414, 584+shift, 90, false)
 	f.label(u.footer, 16, 626+shift, 488, 20, fontNormal)
 	win.EnableWindow(connect.h, false)
 	valid := func() bool {
-		return win.SendMessage(chk.h, win.BM_GETCHECK, 0, 0) == 1 && strings.TrimSpace(win.GetText(name.h)) != ""
+		return ready && win.SendMessage(chk.h, win.BM_GETCHECK, 0, 0) == 1 && strings.TrimSpace(win.GetText(name.h)) != ""
 	}
 	done := func(r welcomeResult) { f.destroy(); ch <- r }
 	f.command = func(id, code int) {
@@ -125,4 +129,20 @@ func welcomeIntro(f *form, w flow.Welcome) {
 	consent := f.edit(0, 16, 294, 488, 120, win.ES_MULTILINE|win.ES_READONLY|win.ES_AUTOVSCROLL|win.WS_VSCROLL, 0)
 	win.SetText(consent.h, crlf(w.ConsentBody))
 	f.label(w.RememberNote, 16, 420, 488, 36, fontNormal) // AC-188 (kayıt kapalıysa boş)
+}
+
+// retentionRow AC-292 saklama satırının kapladığı yükseklik (karşılama ve talep formu).
+const retentionRow = 26
+
+// retentionLine AC-292 (mimari-p22 §9): uicore.RetentionText satırını çizer ve geri okur; dönen değer
+// uicore.ConsentReady (gün ≥ 1 ve satır gerçekten çizildi). Alan yok/0 → "Sunucu güncel değil" (danger) ve false.
+func retentionLine(f *form, days int, x, y, w int32) bool {
+	text := uicore.RetentionText(days)
+	var l *ctrl
+	if days < 1 {
+		l = f.danger(text, x, y, w, 20, fontNormal)
+	} else {
+		l = f.label(text, x, y, w, 20, fontNormal)
+	}
+	return uicore.ConsentReady(days, l != nil && l.h != 0 && uicore.RetentionDrawn(days, win.GetText(l.h)))
 }

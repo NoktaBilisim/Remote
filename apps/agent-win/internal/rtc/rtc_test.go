@@ -197,7 +197,7 @@ func negotiate(t *testing.T, tech *techPeer, guest *Peer, opts *webrtc.OfferOpti
 	return ans
 }
 
-func TestAC52SignalMappingVideoAndChat(t *testing.T) {
+func TestAC52SignalMappingVideoAndCtl(t *testing.T) {
 	ctlOut := make(chan dc.Ctl, 8)
 	tech, guest := connect(t, []string{"file_transfer"}, ctlOut)
 
@@ -207,26 +207,24 @@ func TestAC52SignalMappingVideoAndChat(t *testing.T) {
 	wait(t, tech.track, "teknisyende H.264 track")
 
 	wait(t, tech.open, "ctl açılışı")
+	// AC-264 / P22-G: DC `chat` tanınmaz (sohbet yalnız WS) — düşer, kanal açık kalır. Şema dışı mesaj da düşer;
+	// ardından gelen geçerli mesaj yine ulaşır.
 	if err := tech.ctl.SendText(`{"t":"chat","id":"m1","text":"Merhaba","ts":1}`); err != nil {
 		t.Fatal(err)
 	}
-	if m := wait(t, ctlOut, "chat"); m.T != "chat" || m.Text != "Merhaba" {
-		t.Fatalf("chat: %+v", m)
-	}
-	// Şema dışı mesaj düşer; ardından gelen geçerli mesaj yine ulaşır.
 	_ = tech.ctl.SendText(`{"t":"control.request"}`)
 	_ = tech.ctl.SendText(`{"t":"ping"}`)
 	if m := wait(t, ctlOut, "ping"); m.T != "ping" {
 		t.Fatalf("beklenen ping, gelen %q", m.T)
 	}
-	// Misafir → teknisyen chat
+	// Misafir → teknisyen ctl
 	time.Sleep(100 * time.Millisecond)
-	b, _ := json.Marshal(map[string]any{"t": "chat", "id": "g1", "text": "Selam", "ts": 2})
+	b, _ := json.Marshal(map[string]any{"t": "file.result", "fid": "f1", "ok": true})
 	if err := guest.SendCtl(b); err != nil {
 		t.Fatal(err)
 	}
-	if got := wait(t, tech.ctlIn, "misafir chat"); got != string(b) {
-		t.Fatalf("misafir chat: %s", got)
+	if got := wait(t, tech.ctlIn, "misafir ctl"); got != string(b) {
+		t.Fatalf("misafir ctl: %s", got)
 	}
 }
 

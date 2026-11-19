@@ -7,6 +7,7 @@ import (
 	"errors"
 
 	"remote-support/agent-win/internal/api"
+	"remote-support/agent-win/internal/flow"
 	"remote-support/agent-win/internal/remember"
 )
 
@@ -23,7 +24,8 @@ func (r *runner) formView(errs map[string]string) FormView {
 	return FormView{Tenant: r.info.Tenant.Name, Logo: r.logo, ConsentVersion: r.info.ConsentText.Version,
 		ConsentBody: r.info.ConsentText.Body, AbuseEmail: r.abuse, WaitMinutes: r.info.WaitMinutes, Values: r.vals,
 		Errors: errs, Focus: firstError(errs), Notice: joinNotice(r.forgetWarn, r.notice), Remembered: r.remembered,
-		RememberNote: r.rememberNote(), RecOffered: r.info.ConsentText.RecOffered()}
+		RememberNote: r.rememberNote(), RecOffered: r.info.ConsentText.RecOffered(),
+		ChatRetentionDays: r.info.ChatRetentionDays}
 }
 
 func joinNotice(a, b string) string {
@@ -74,6 +76,10 @@ func (r *runner) form(ctx context.Context) (*api.CreateRequestResult, bool, *Out
 			continue
 		}
 		r.vals = f
+		if r.info.ChatRetentionDays < 1 { // AC-292: saklama satırı gösterilemeyen (eski) sunucuya talep gönderilmez
+			r.notice = flow.ChatTexts.ServerOutdated
+			continue
+		}
 		v, verrs := Validate(f)
 		if len(verrs) > 0 {
 			errs, r.notice = verrs, noticeCheck

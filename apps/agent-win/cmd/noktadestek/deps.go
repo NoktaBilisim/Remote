@@ -195,6 +195,7 @@ func (a *app) flowDeps(client *api.Client, u *ui.UI, opener capture.Opener, appl
 		SelfElevated: a.elevated, // K8: env.state.selfElevated (GRANTED audit'i, konsol rozeti)
 		ClipPrintUI:  u,
 		RosterUI:     u,                           // P28c: teknisyen listesi + "Çıkar" (rs.cap.multi1 bildirilir)
+		ChatUI:       u,                           // P22-G: oturum sohbeti bölümü (rs.cap.schat1 bildirilir)
 		Printer:      clipprint.NewPrinter(a.exe), // işleyici `exe --pdf-isleyici` (kısıtlı süreç, iş başına)
 		// P28b (mimari-p28b §8): sunucu üzerinden dosya — aynı kök + TLS/proxy taşıyıcısı, belirteç yalnız Bearer.
 		FileServer:   fsrv.New(cfg.ServerURL, client.HTTPClient(), cfg.Version),

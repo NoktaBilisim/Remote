@@ -68,6 +68,8 @@ type UI struct {
 	voiceMuted  bool
 	health      uicore.Health // gösterge (§5.2b)
 	sessHealth  uicore.Health // oturum penceresi (S-P28g-8)
+	// welcomeW son karşılama penceresinin denetimleri (AC-292 GUI geri okuma testi, Q-P22G-2); yalnız UI iş parçacığı.
+	welcomeW struct{ name, consent, retention, connect uintptr }
 
 	pause atomic.Pointer[func(paused bool)]
 	stop  chan struct{}

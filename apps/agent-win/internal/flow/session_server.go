@@ -45,6 +45,8 @@ func (s *session) onServer(ctx context.Context, m signal.Inbound) (Outcome, bool
 		return s.onRoster(ctx, m)
 	case signal.VoiceRequest, signal.VoiceState:
 		s.onVoiceServer(ctx, m)
+	case signal.ChatMessage, signal.ChatHistory, signal.ChatState, signal.ChatRejected:
+		s.onChatServer(ctx, m) // P22-G (chat.go)
 	}
 	return Outcome{}, false
 }

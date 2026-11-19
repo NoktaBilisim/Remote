@@ -8,7 +8,7 @@ gider; firma isterse sunucu üzerinden, ClamAV taramalı ve şifreli saklamalı 
 
 ## Şu anki durum: P1–P13a tamamlandı, P13b (prod açılışı) kodu hazır, P14a/P14b, P15, P16, P17 (istemci 0.11.0), P18 (talep iletişimi), P19 (web talep formu, SMS, müşteri bildirimi, müşteri CSV) P20 (istemci 0.12.0), P27a (2FA'da cihaz hatırlama), P27 (gözetimsiz erişim; prod'da kapalı) P28a (pano paylaşımı + uzaktan yazdırma, istemci 0.13.0) P28b (sunucuda dosya aktarımı + ClamAV + depolama kotası, istemci 0.14.0), P28u (gözetimsiz izinli / izinsiz bağlantı ve müdahale, servis 0.15.0) P28e (oturum kaydı, istemci/servis 0.16.0) ve P28c (çoklu teknisyen: davet, İzle, kontrol ve oturum devri, istemci/yardımcı 0.17.0) ve P28d (sesli görüşme, istemci 0.18.0) ve P28f (macOS istemci, istemci 0.19.0; prod'da Apple imzası gelene kadar yok) ve P21 (müşteri portalı) kodlandı (QA sürüyor)
 
-## Şu anki durum: P1–P13a tamamlandı, P13b (prod açılışı) kodu hazır, P14a/P14b, P15, P16, P17 (istemci 0.11.0), P18 (talep iletişimi), P19 (web talep formu, SMS, müşteri bildirimi, müşteri CSV) P20 (istemci 0.12.0), P27a (2FA'da cihaz hatırlama), P27 (gözetimsiz erişim; prod'da kapalı) P28a (pano paylaşımı + uzaktan yazdırma, istemci 0.13.0) P28b (sunucuda dosya aktarımı + ClamAV + depolama kotası, istemci 0.14.0), P28u (gözetimsiz onaysız bağlantı ve müdahale; r3 onaysız tek yol, servis 0.15.0) P28e (oturum kaydı, istemci/servis 0.16.0) ve P28c (çoklu teknisyen: davet, İzle, kontrol ve oturum devri, istemci/yardımcı 0.17.0) ve P28d (sesli görüşme, istemci 0.18.0) ve P28f (macOS istemci, istemci 0.19.0; prod'da Apple imzası gelene kadar yok) ve P22 (oturum sohbeti kaydı + KVKK) kodlandı (QA sürüyor)
+## Şu anki durum: P1–P13a tamamlandı, P13b (prod açılışı) kodu hazır, P14a/P14b, P15, P16, P17 (istemci 0.11.0), P18 (talep iletişimi), P19 (web talep formu, SMS, müşteri bildirimi, müşteri CSV) P20 (istemci 0.12.0), P27a (2FA'da cihaz hatırlama), P27 (gözetimsiz erişim; prod'da kapalı) P28a (pano paylaşımı + uzaktan yazdırma, istemci 0.13.0) P28b (sunucuda dosya aktarımı + ClamAV + depolama kotası, istemci 0.14.0), P28u (gözetimsiz onaysız bağlantı ve müdahale; r3 onaysız tek yol, servis 0.15.0) P28e (oturum kaydı, istemci/servis 0.16.0) ve P28c (çoklu teknisyen: davet, İzle, kontrol ve oturum devri, istemci/yardımcı 0.17.0) ve P28d (sesli görüşme, istemci 0.18.0) ve P28f (macOS istemci, istemci 0.19.0; prod'da Apple imzası gelene kadar yok) ve P22 (oturum sohbeti kaydı + KVKK) ve P22-G (istemci 0.21.0: kayıtlı oturum sohbeti) kodlandı (QA sürüyor)
 
 İş P1..P13 dikey paketlerle yürür (`docs/mimari.md` §10). P1–P11 ve **P12** (firma ve sistem logosu, kullanıcı profil
 resmi, kullanıcı başına tema, hesap menüsü, tasarım token lint kuralı) tamamlandı: P12 güvenlik Kritik/Yüksek 0 (doğrulama
@@ -300,6 +300,17 @@ QA tur 2 GEÇTİ; staging doğrulaması runbook §29.3)
   `rs_portal_tenant`. Migration `20261127000000_p21_customer_portal`; yeni env ve bağımlılık yok. API `docs/api.md` "Müşteri
   portalı (P21)"; kullanım `docs/KULLANIM_KILAVUZU.md` "Müşteri için: Müşteri portalı" ve "Admin için: Müşteri portal
   hesapları"; operasyon runbook §29.
+  **P22-G — Hızlı Destek 0.21.0: kayıtlı oturum sohbeti** (AC-264, 292; Windows + macOS + Linux; qa P22-GQ tur 2 GEÇTİ,
+  güvenlik Kritik/Yüksek 0; staging elle testi bekliyor)
+
+- İstemci oturum sohbetini `/ws/guest` üzerinden gönderir (`rs.cap.schat1`); DataChannel sohbeti kaldırıldı. 0.20'deki
+  "Bu sürümde sohbet kapalıdır" durumu 0.21.0 ile kalkar; Linux'ta sohbet ilk kez açılır.
+- Karşılamada **Bağlan**'ın, Windows talep formunda **Destek iste**'nin üstünde "Sohbet mesajları kayıt altına alınır ve N
+  gün saklanır". Sunucu `chatRetentionDays` vermezse "Sunucu güncel değil; lütfen daha sonra deneyin" ve düğme pasif.
+- Sohbet durumları: gönderiliyor, "Gönderilemedi — tekrar deneyin" (idempotent), "Çok hızlı yazıyorsunuz", "Sohbet şu an
+  kullanılamıyor". Sürüm ldflags/CI ile verilir. **Sunucu önce** yayımlanır; 0.21.0 çıktıktan sonra sunucu geri alınmaz
+  (runbook §29.8). Kullanım kılavuzu "Hızlı Destek'te oturum sohbeti".
+
   **P22 — oturum sohbeti her zaman kaydedilir + KVKK bilgilendirme** (AC-264, 291, 292; sunucu + web, istemci sürümü
   değişmedi; qa ve güvenlik GEÇTİ, sayfa testi GEÇTİ)
 

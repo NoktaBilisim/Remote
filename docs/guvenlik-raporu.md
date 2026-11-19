@@ -13708,3 +13708,89 @@ Testler (test DB): `session-chat-p22.test.ts` + `multi-p28c.test.ts` ikinci koş
 Özet: Kritik 0 / Yüksek 0 / Orta 0 / Düşük 0 açık.
 
 DURUM: GEÇTİ
+
+## P22-GQ — Go istemci 0.21.0 kod güvenlik denetimi (2026-11-19)
+
+Kapsam: `git diff origin/main...HEAD` (dal `p22g`, 10 commit `caac419..7533d1d`) — `apps/agent-win`: `signal/chat.go` (katı ayrıştırıcı,
+`rs.cap.schat1`), `flow/chat.go` (model, kova, clientMsgId), DC `chat` kaldırma (`dc/ctl.go`, `flow/peers.go`, `session*.go`), üç platform UI
+(Win EDIT, AppKit NSTextView, GTK), AC-292 saklama satırı ve onay kapısı (`uicore/accept.go`, karşılama + talep formu), `request` gövde kuralı taşıması.
+Tehdit modeli: `docs/mimari-p22.md` §4.4, §6 (T-P22-2..13), §9, §15.1.
+
+DURUM: GEÇTİ
+Özet: Kritik 0 / Yüksek 0 / Orta 0 / Düşük 3
+
+### Odak maddeleri — doğrulandı
+
+| Konu                    | Kanıt                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           | Sonuç                 |
+| ----------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------- |
+| Katı ayrıştırıcı        | `signal/inbound.go:272-275` dört tip `check(...)`/`parseChatHistory`; `decodeStrict` (`strict.go:15-34`) üst düzey anahtarı **harf duyarlı** tam eşleşmeyle, zorunlu alanı varlıkla denetler. `chat.history` öğeleri tek tek `decodeStrict` (`chat.go:149-158`) — iç içe `DisallowUnknownFields`'in harf duyarsızlığı açığı yok; öğede `t`/`clientMsgId` reddedilir; `items:null`, `more` eksik/null, > 100 öğe reddedilir. `validChatItem` ULID id, gönderen sözlüğü, gövde 1..2000 UTF-16, ISO tarih; CUSTOMER'da `tid`/`senderName` yasak; `chat.state` `enabled` null reddi; `chat.rejected` sözlük + desen. İhlal → `conn.go:121-124` 1008 | Tamam                 |
+| Okuma sınırı / 48 KiB   | `signal/conn.go:20` `maxPayload = 64 * 1024`, `request/ws.go:24` aynı — diff'te değişmedi. `chat_test.go:84` sınırın değişmediğini, `:190-219` 48 KiB'a yakın bütçeli `chat.history`'nin gerçek soketten kopmadan okunduğunu test ediyor (S-P22-1)                                                                                                                                                                                                                                                                                                                                                                                              | Tamam                 |
+| DC `chat` tamamen düştü | `dc/ctl.go` `ctlFields`'ten `chat` ve `Text/TS` alanları çıktı → `ParseCtl` (`ctl.go:105-108`) bilinmeyen tip → `errInvalid`; `rtc.go:211-214` sessizce düşürür, kanal açık. `flow/peers.go` `onTechChat/relayChat/sendAll` ve `session.go` `chatMessage` silindi; `ctlAllowed` yalnız kontrol sahibi + `ping`. Depoda `"chat"` dizesi üretim kodunda kalmadı (grep). Test: `dc/chat_multi_test.go:10-31` (P28c fikstürü DC chat reddi), `flow/peers_test.go:213`. Sahte teknisyen mesajı enjeksiyonu (T-P22-3) Go tarafında kapalı                                                                                                             | Tamam                 |
+| Sahte başlık / gönderen | `flow/chat.go:283-327`: başlık (`[SS:DD] Teknisyen <ad>:` / `Siz:`) istemci üretir; gövde satırları 4 boşluk girintili (sütun 0'da başlamaz), ad `\n`→boşluk ve `ChatDisplayBody` süzgeçli; `Siz:` yalnız sunucunun `sender=CUSTOMER` dediği öğede. Mac/GTK `uicore.ChatComposite` sistem satırlarını sütun 0'da ayrı tutar                                                                                                                                                                                                                                                                                                                     | Tamam                 |
+| Görünmez/bidi karakter  | Gönderim `ChatBody` (Cc/Cf/Zl/Zp/U+034F/U+180E yasak, ZWJ serbest) — P18 ile tek tanım (`request/chat_wire.go` delege, davranış birebir); gösterim `ChatDisplayBody` NUL dahil Cc'yi atar → C dizgi (GTK `cstr`, `nsstr`) kesilmesi yok                                                                                                                                                                                                                                                                                                                                                                                                         | Tamam                 |
+| UI düz metin            | Win: geçmiş `ES_READONLY` EDIT (`chat_windows.go:105-106`), durum satırı yalnız sabit metin; macOS: `form_darwin.go:187-193` `setRichText:NO`, `setImportsGraphics/AutomaticLinkDetection/AutomaticDataDetection/AutomaticTextReplacement:NO`; GTK: `gtk_text_buffer_set_text` + `newLabel` `use_markup=false`, `use_underline=false` (`widgets_linux.go:91-101`). GUI duman testi `<b>` literal geri okuma (`gui_linux_test.go:133-148`)                                                                                                                                                                                                       | Tamam                 |
+| clientMsgId             | `flow/chat.go:81-85` 16 bayt `crypto/rand` → base64url 22 karakter (desen `^[A-Za-z0-9_-]{16,36}$`). Hata yok sayılıyor; Go ≥ 1.24'te `crypto/rand.Read` hata döndürmez (başarısızlıkta süreç durur) — sıfır kimlik riski yok. Yeniden gönderimde aynı kimlik (S-P22-10 idempotent)                                                                                                                                                                                                                                                                                                                                                             | Tamam                 |
+| Hız kovası              | `flow/chat.go:98-106` kayan 1 sn / 5; `OnState(true)` yeniden gönderimleri de kovadan geçiyor (taşan → "gönderilemedi") — yeniden bağlanmada sunucuya patlama yok. Sunucu kovası esas                                                                                                                                                                                                                                                                                                                                                                                                                                                           | Tamam                 |
+| Giriş kapısı            | `enabled` yalnız `chat.state{enabled:true}` (`chat.go:225-247`); başlangıç ve `Offline()` kapalı; UI `sendChat` `!s.chatOn` ise göndermez. Eski sunucu (`chat.state` yok) → giriş pasif, DC'ye düşüş yok (T-P22-13)                                                                                                                                                                                                                                                                                                                                                                                                                             | Tamam                 |
+| Gözetimsiz              | `clipprint.go:121` gözetimsizde erken dönüş → `schat1` bildirilmez; `chat.go:330` `chatOn` `Unattended` iken tüm `chat.*` yok sayılır; `headless.go` değişmedi                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  | Tamam                 |
+| Onay kapısı (AC-292)    | `uicore.ConsentReady(days ≥ 1 && lineDrawn)`; `lineDrawn` sabit değil, çizilen etiketin geri okunan metni beklenen satıra eşit mi (`RetentionDrawn`). Win `welcome_windows.go` `valid()` hem düğme etkinliğinde hem `idOK` (Enter) yolunda; mac/GTK `submit` → `valid()`; talep formu `reqform_windows.go` `idOK` dalında `r.ready`, `busy()` de korur, ayrıca akış düzeyinde `request/form.go:79` eski sunucuya talep göndermez. Eski sunucu (alan yok → 0) → düğme pasif + "Sunucu güncel değil"                                                                                                                                              | Tamam (bkz. S-P22G-2) |
+| Log / kayıt             | `flow/chat.go`, `signal/chat.go`, `session_server.go` sohbet yolunda log çağrısı yok; ayrıştırma hataları gövde değeri taşımaz (alan adı/sabit metin). Yeni dosya/kalıcı kayıt yok (sohbet yalnız bellekte, 200 öğe / 48 KiB tavan)                                                                                                                                                                                                                                                                                                                                                                                                             | Tamam                 |
+| Gizli bilgi             | Diff'te anahtar/şifre/token deseni 0; `.env` geçmişinde yalnız `.env.example`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   | Tamam                 |
+
+### Bulgular
+
+### [DÜŞÜK] S-P22G-1 Windows: sohbet güncellemesi geçmişteki sistem satırlarını siliyor — A04 Insecure Design (şeffaflık)
+
+Yer: `apps/agent-win/internal/ui/chat_windows.go:131-137` (`win.SetText(s.history.h, text)`); etkilenen ekleyiciler
+`session_windows.go:161` `appendLine` ← `voice_windows.go:82,99` (sesli görüşme duyuruları), `transfer_windows.go:94,114` (dosya sonucu).
+Sorun: macOS/GTK `uicore.ChatComposite(chatText, hist)` ile sistem satırlarını korurken Windows her `Rev` değişiminde EDIT'in tamamını
+`ChatView.Text` ile değiştiriyor; `EM_REPLACESEL` ile eklenmiş "Sistem:" satırları (ses görüşmesine katılan/ayrılan, dosya alındı/reddedildi) ilk
+yeni sohbet mesajında kaybolur.
+İstismar senaryosu: Teknisyen sesli görüşmeye katılım duyurusu ya da dosya aktarım sonucu düştükten hemen sonra bir sohbet mesajı yazar; müşterinin
+geçmişinde bu olayların izi kalmaz. Mikrofon göstergesi (`vstrip`) ayrı ve kalıcı olduğundan doğrudan gizli dinleme yok; etki şeffaflık/iz kaybı.
+Düzeltme: Windows'ta da `sessionWin.hist` tutulup `uicore.ChatComposite(v.Text, s.hist)` yazılsın; `appendLine` metni `hist`'e ekleyip aynı
+birleşimi çizsin (mac/GTK kalıbı). Birim/GUI testi: sistem satırı + ardından `SessionChat(Rev+1)` → satır duruyor. (atanan ajan: backend-dev — Go istemci)
+
+### [DÜŞÜK] S-P22G-2 Oturum karşılamasında AC-292 kapısı yalnız UI katmanında — A04 Insecure Design (derinlemesine savunma)
+
+Yer: `apps/agent-win/internal/flow/flow.go:369-373` (`welcomeData` yalnız aktarır); kapı `ui/welcome_windows.go`, `ui/mac/screens_darwin.go`,
+`ui/gtk/welcome_linux.go` içinde. Karşılaştırma: talep yolu akışta da denetliyor (`request/form.go:79`).
+Sorun: Üç mevcut UI doğru kapatıyor; ancak `flow` `ChatRetentionDays < 1` iken `Welcome` sonucunu (ok=true) yine kabul eder. İleride eklenecek
+yeni bir UI/yol (ör. CLI, yeniden karşılama) kuralı atlarsa müşteri saklama bilgisini görmeden oturuma girer (T-P22-12).
+İstismar senaryosu: Doğrudan uzaktan istismar yok (gün değeri TLS doğrulamalı resolve'dan gelir); risk gelecekteki gerileme.
+Düzeltme: `flow` karşılama sonrasında `res.ChatRetentionDays < 1` ise katılımı başlatmasın (talep yolundaki gibi), birim testi eklensin.
+(atanan ajan: backend-dev)
+
+### [DÜŞÜK] S-P22G-3 Ayrıştırıcı sunucu şemasının hafif üst kümesi — A08 Software and Data Integrity (sözleşme sapması)
+
+Yer: `apps/agent-win/internal/signal/chat.go:65-72,121-133,163-165`.
+Sorun: (a) `tid`/`senderName`/`clientMsgId` için JSON `null` "yok" sayılıyor (zod `optional` null'ı reddeder); CUSTOMER öğesinde `"tid":null`
+geçer. (b) `chat.state` `reason:""` kabul (zod enum reddeder). (c) `senderName` ≤ 100 kod noktası (zod 100 UTF-16) — gerekçeli ve belgeli
+(`64a70f2`). (d) `chat.history` için istemci tarafı bayt denetimi yok (bütçe sunucuda; 64 KiB okuma sınırı tavan).
+İstismar senaryosu: Yok — tüm girdiler kimliği doğrulanmış sunucudan; gösterim süzgeci ve gönderen kuralı değişmiyor. Not amaçlı.
+Düzeltme: İsteğe bağlı: `*string` alanlar için ham anahtar değeri `null` ise reddet (`decodeStrict`'e "null yasak" seçeneği, `dc.ParseCtl`
+kalıbı); fikstüre `invalid.nullTid`, `invalid.emptyReason` ekle. (atanan ajan: backend-dev)
+
+### Otomatik tarama çıktıları
+
+- `go test ./internal/signal/... ./internal/flow/... ./internal/dc/... ./internal/request/... ./internal/ui/uicore/... ./internal/api/...` (go1.26.11): **hepsi ok**.
+- `go vet` aynı paketler + `GOOS=windows ./internal/ui/` + `GOOS=linux ./internal/ui/gtk/`: **temiz**.
+- Gizli bilgi: `git diff origin/main...HEAD | grep -E "(api[_-]?key|secret|password|token)\s*[:=]\s*['\"][^'\"]{8,}"` → 0 eşleşme;
+  `git log --all -- '*.env*'` → yalnız `.env.example`.
+- Yeni bağımlılık yok (`go.mod` diff'te yok).
+
+### Tasarımda vaat edilip kodda bulunmayanlar
+
+- Yok. §9 tablosundaki tüm maddeler (FeatureSessionChat, katı ayrıştırıcı, `flow/chat.go`, DC yolu silme, `ctl.go` izin tablosu, metinler, üç
+  platform düz metin bölümü, `ConsentReady`, talep formu satırı, `headless.go` değişmez) kodda mevcut. Tek sapma S-P22G-1 (Windows sistem satırı birleşimi).
+
+### Olumlu
+
+- DC sohbetinin kaldırılması eksiksiz; T-P22-3 (kayıt atlatma) Go tarafında yapısal olarak kapalı.
+- `chat.history` öğeleri için iç içe katı çözme açığı (harf duyarsız eşleşme) bilinçli olarak kapatılmış.
+- Onay kapısında "satır çizildi" kanıtı geri okumayla (sabit `true` değil); Enter yolu da kapılı.
+- Gövde kuralı ve gösterim süzgeci P18 ile tek tanımda birleşti (kopya yok).
+
+Özet: Kritik 0 / Yüksek 0 / Orta 0 / Düşük 3 (S-P22G-1..3 — `docs/gereksinimler.md` §9'a "Sonra" önerilir; S-P22G-1 düşük maliyetli, P22-G içinde kapatılabilir).
+
+DURUM: GEÇTİ
