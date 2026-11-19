@@ -109,18 +109,19 @@ func (s *Supervisor) Apply() int {
 		return ApplyBusy
 	}
 	defer release()
+	// §14.3 m.6 (S-P29-K-2): klasör AÇILMADAN önce doğrulanır; güvensizse silinip yeniden oluşturulur → sahne yok.
+	if recreated, err := s.Sys.PrepareDir(); err != nil || recreated {
+		if recreated {
+			s.Events.Write(evUpdateFolder())
+		}
+		return ApplyFailed
+	}
 	st := s.Store.Load()
 	nonce, err := s.Sys.ReadNonce()
 	if st.Phase != phaseStaged || st.Nonce == "" || err != nil || nonce != st.Nonce {
 		return ApplyNothing
 	}
 	target, prev := st.Target, st.Prev
-	if recreated, err := s.Sys.PrepareDir(); err != nil || recreated {
-		if recreated {
-			s.Events.Write(evUpdateFolder())
-		}
-		return s.abort(target, prev, update.ReasonInstall, nil)
-	}
 	if err := s.Sys.CopyStagedToNew(st.SHA256); err != nil {
 		reason := update.ReasonInstall
 		if errors.Is(err, ErrStagedHash) {
@@ -212,6 +213,7 @@ func (s *Supervisor) abort(target, prev string, reason update.Reason, backup *Re
 			u.Recovery = nil
 		}
 		u.addEvents(update.NewEvent(update.EventFailed, target, prev, reason, now))
+		u.blockOnFail(target, reason, now)
 		return true
 	})
 	if reason.Security() {

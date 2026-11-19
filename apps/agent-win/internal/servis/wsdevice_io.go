@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"slices"
+	"sync/atomic"
 	"time"
 
 	"github.com/coder/websocket"
@@ -20,6 +21,11 @@ func (c *DeviceClient) writer(ctx context.Context, ws *websocket.Conn) {
 			fm, flush := m.(flushMsg)
 			if flush {
 				m = fm.msg
+				// S-P29-K-3: süresi dolan (çağıran vazgeçti) ya da önceki bağlantıda kuyruğa alınmış update.* yazılmaz.
+				if fm.dropped != nil && (fm.dropped.Load() || fm.gen != c.gen.Load()) {
+					fm.done <- errUpdateGate
+					continue
+				}
 			}
 			if consentOnly(m) && !c.consent.Load() {
 				continue // K-P28u-8: features'sız (eski/geri alınmış) sunucuya yeni mesaj yazılmaz
@@ -113,8 +119,9 @@ func (c *DeviceClient) UpdateGate() bool { return c.updateSeen.Load() && c.State
 // SendWait mesajı kuyruğa alır ve yazılmasını bekler (en çok d). Kuyruk doluysa, kapı kapalıysa ya da süre dolarsa hata.
 func (c *DeviceClient) SendWait(msg any, d time.Duration) error {
 	done := make(chan error, 1)
+	dropped := &atomic.Bool{}
 	select {
-	case c.out <- flushMsg{msg: msg, done: done}:
+	case c.out <- flushMsg{msg: msg, done: done, dropped: dropped, gen: c.gen.Load()}:
 	default:
 		return errUpdateGate
 	}
@@ -124,6 +131,7 @@ func (c *DeviceClient) SendWait(msg any, d time.Duration) error {
 	case err := <-done:
 		return err
 	case <-t.C:
+		dropped.Store(true) // yazıcı henüz almadıysa düşürür
 		return errUpdateGate
 	}
 }

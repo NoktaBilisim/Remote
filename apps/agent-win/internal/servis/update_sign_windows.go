@@ -4,7 +4,6 @@ package servis
 
 import (
 	"crypto/sha256"
-	"errors"
 	"unsafe"
 
 	"golang.org/x/sys/windows"
@@ -15,9 +14,6 @@ import (
 // Çalışan ikili imzasızsa yalnız manifest geçerlidir (bugün tüm derlemeler imzasız dalda). Sertifika yenilenirse özet
 // değişir → fail-closed (yayın notu: imza sertifikası değişen sürüm elle dağıtılır).
 
-// ErrPlatformSignature yeni ikilinin platform imzası çalışan ikiliyle uyuşmuyor.
-var ErrPlatformSignature = errors.New("servis: platform imzası uyuşmuyor")
-
 var (
 	crypt32              = windows.NewLazySystemDLL("crypt32.dll")
 	procCryptMsgGetParam = crypt32.NewProc("CryptMsgGetParam")
@@ -26,21 +22,10 @@ var (
 
 const cmsgSignerCertInfoParam = 7 // CMSG_SIGNER_CERT_INFO_PARAM
 
-// platformSignature selfExe imzasızsa nil; imzalıysa newPath'in WinVerifyTrust'tan geçmesi ve imzalayan sertifika
-// özetlerinin eşit olması gerekir.
-func platformSignature(selfExe, newPath string) error {
-	if !SelfSigned(selfExe) {
-		return nil
-	}
-	if !SelfSigned(newPath) {
-		return ErrPlatformSignature
-	}
-	a, err1 := signerDigest(selfExe)
-	b, err2 := signerDigest(newPath)
-	if errors.Join(err1, err2) != nil || a != b {
-		return ErrPlatformSignature
-	}
-	return nil
+// PlatformSignature K-P29-13 / AC-476 (servis ve taşınabilir Windows istemcisi ortak): çalışan ikili imzasızsa nil;
+// imzalıysa newPath WinVerifyTrust'tan geçmeli ve imzalayan yaprak sertifika özeti aynı olmalı (karar update_sign.go).
+func PlatformSignature(selfExe, newPath string) error {
+	return checkPublisher(SelfSigned, signerDigest, selfExe, newPath)
 }
 
 // signerDigest gömülü PKCS#7 imzasındaki ilk imzalayanın sertifikasının SHA-256'sı.

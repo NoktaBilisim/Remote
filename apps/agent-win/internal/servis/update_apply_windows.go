@@ -5,7 +5,6 @@ package servis
 import (
 	"errors"
 	"io"
-	"os"
 	"path/filepath"
 	"strings"
 
@@ -67,7 +66,7 @@ func (w *winApplySys) AcquireSupervisor() (func(), bool) { return acquireNamed(s
 func (w *winApplySys) PrepareDir() (bool, error) { return prepareUpdateDir(w.dataDir) }
 
 func (w *winApplySys) ReadNonce() (string, error) {
-	f, err := os.Open(filepath.Join(w.dir, nonceFileName))
+	f, err := openShareDelete(filepath.Join(w.dir, nonceFileName)) // reparse izlenmez (S-P29-K-2)
 	if err != nil {
 		return "", err
 	}

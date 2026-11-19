@@ -23,20 +23,7 @@ import (
 // winReplacer çalışan exe için yer değiştirici.
 func winReplacer(exe string) update.WindowsReplacer {
 	return update.WindowsReplacer{Exe: exe, FS: update.NewWindowsFS(moveWriteThrough, fixedLocal),
-		PlatformSig: platformSignature}
-}
-
-// errPlatformUnverified çalışan exe Authenticode imzalıyken yayıncı karşılaştırması bu derlemede yapılamıyor.
-var errPlatformUnverified = errors.New("platform imzası doğrulanamadı")
-
-// platformSignature K-P29-13 / AC-476: çalışan exe imzasızsa (bugün tüm derlemeler) kapı atlanır. İmzalıysa yeni exe
-// aynı yayıncıyla imzalı olmalı; yayıncı özeti karşılaştırması K7'nin internal/servis/update_sign_windows.go'sundaki
-// (dışa açık değil) işlevle yapılacak — o dışa açılana kadar imzalı çalışan exe'de güncelleme reddedilir (fail-closed).
-func platformSignature(cur, _ string) error {
-	if !servis.SelfSigned(cur) {
-		return nil
-	}
-	return errPlatformUnverified
+		PlatformSig: servis.PlatformSignature} // K-P29-13: aynı yaprak sertifika (K7, internal/servis)
 }
 
 // moveWriteThrough MoveFileEx(REPLACE_EXISTING | WRITE_THROUGH).

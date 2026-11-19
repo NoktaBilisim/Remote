@@ -204,6 +204,17 @@ func (s *UpdateState) block(version string, now time.Time) {
 	s.Blocked = &BlockedVersion{Version: version, Until: now.UTC().Add(blockFor).Format(time.RFC3339)}
 }
 
+// blockOnFail S-P29-K-3: kurulum/bütünlük/platform imzası hatasından sonra hedef sürüm 24 sa yeniden indirilmez
+// (rolled_back ile aynı kural). DOWNLOAD (ağ) geçicidir, engellenmez.
+func (s *UpdateState) blockOnFail(version string, reason update.Reason, now time.Time) {
+	switch reason {
+	case update.ReasonInstall, update.ReasonHashMismatch, update.ReasonPlatformSignature:
+		if versionRe.MatchString(version) {
+			s.block(version, now)
+		}
+	}
+}
+
 // blocked sürüm engelli mi.
 func (s UpdateState) blocked(version string, now time.Time) bool {
 	if s.Blocked == nil || s.Blocked.Version != version {

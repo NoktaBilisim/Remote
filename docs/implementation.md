@@ -16989,8 +16989,8 @@ yükleniyor (`settings/loading.tsx`), hata (`LoadError`), yetkisiz/firma seçilm
   bağlantı değildir (alttaki liste tek firmanın); firma kullanıcısında URL'deki `scope=all` yok sayılır (403 tetiklenmez).
 - "İstemci bildirdi: " öneki yalnız audit'te ve yalnız `source=binding` + `client.update.failed` satırında (§14.4); cihaz listesinde kaynak
   alanı yok (gözetimsiz cihaz hep `device`).
-- AC-491 "ham anahtar görünmez": birincil etiket ve süzgeç seçenekleri Türkçe; `ActionCell`'in tüm eylemlerde etiketin altına küçük
-  `font-mono` ham adı basma davranışı (P11) tek grup için değiştirilmedi.
+- AC-491 (QA P29 tur 1 düzeltmesi): `client.update.*` ve `settings.client_update` satırlarında ham eylem anahtarı hiçbir yerde gösterilmez
+  (`hidesRawAction`, `ActionCell`); diğer gruplarda P11 davranışı (etiket altında ham ad) aynen; e2e tablo/kart/ayrıntı/aria denetler.
 - `/unattended/[id]` "son güncelleme olayı" satırı (zaman + kaynak sürüm) yazılamadı: `DeviceDetail`/`DeviceListItem`'da `updateAt` ve
   `fromVersion` yok. Yalnız rozet (+ bekleyen/sürende hedef sürüm) gösterilir. **contracts/K4:** istenirse `updateAt?: string | null` eklensin.
 - Skill dosyası `~/.claude/skills/ui-ux-pro-max/SKILL.md` okundu; yeni bağımlılık yok.
@@ -17260,3 +17260,48 @@ requests-p8b-3 §13.2) P29 dışı ve yük/zamanlama kaynaklı: üçü tek baş�
   - Başarısız kurulum her offer'da yeniden indirilir (sınır: belirteç 4/sa, offer yalnız bağlanmada ve 24 sa'te bir).
   - K0s listesine 14. madde: servis `START_PENDING`/açılışta kendi FailureActions'ını değiştirebiliyor mu (`finalize` açılışta çalışır).
 - Kaldırma (`uninstall_windows.go` `RemoveAll(DataDir)` + `removeProgramDir`) ve iz testi (`$data\*` izinli) `Guncelleme\` ile `exe.eski/.bozuk/.yeni`'yi zaten kapsıyor; değişiklik gerekmedi. Contracts `refineUpdateEvent`, `rolled_back(INSTALL)`'ı kabul ediyor (fail nedeni).
+
+### P29 düzeltme turu 1 — K8 (qa-raporu P29 Tur 1)
+
+1. **AC-476 / K-P29-13: Windows taşınabilir platform imzası kapısı.**
+   - `update.WindowsReplacer.PlatformSig func(cur, next string) error` eklendi; bağlanmamışsa `Prepare` reddeder (fail-closed).
+   - `winStaging.Commit` kapıyı `.yeni` tutamacı kapandıktan sonra, MOTW kopyasından ve yer değiştirmeden önce çağırır. Hata durumunda `.yeni` silinir, `ErrPlatformSignature` döner; `Portable` bunu `failed(PLATFORM_SIGNATURE)` güvenlik olayı olarak bildirir.
+   - `cmd/noktadestek/updater_windows.go` `platformSignature`: çalışan exe imzasızsa (bugün tüm derlemeler) kapı atlanır. Bu denetim K7'nin `servis.SelfSigned` işlevini olduğu gibi çağırır (kod kopyası yok).
+   - **Geçici, fail-closed davranış:** çalışan exe imzalıysa güncelleme şimdilik **reddedilir**. Neden: yayıncı özetini karşılaştıran `platformSignature` / `signerDigest` (`internal/servis/update_sign_windows.go`) dışa açık değil ve o dosya K7'nin.
+   - **Kalan iş:** K7 bu işlevi `PlatformSignature` olarak dışa açınca tek satır değişiklikle ona bağlanacak. SignPath gelmeden bu dalın pratik etkisi yok.
+   - Not: istemci ikilisi artık `internal/servis`'i içe aktarıyor; `init` yan etkisi yok, `crypt32` tembel yükleniyor.
+   - Testler:
+     - `TestAC476WindowsPlatformSignatureGate`: ret durumunda kurulum yok ve `.yeni` silinir; denetim kapanmış `.yeni` yolunda yapılır; kapısız `Prepare` reddeder.
+     - `TestAC476PlatformSignatureFailureEvent`.
+2. **K-P29-19 / AC-486 (orkestratör kararı): asgari sürümün altındaki istemci zorunlu güncellenir.**
+   - `cmd/noktadestek/policy.go` `mergeBindingPolicies`: bir kaydın `bindings/status` sonucu 426 `CLIENT_OUTDATED` ise, tenant ayarı Kapalı olsa bile sonuç **`auto`** olur. Kaydın anahtarı olay kimliği olarak tutulur.
+   - Gerekçe: istemci zaten kilitli; `MIN_AGENT_VERSION` yöneticinin güncelleme talebidir.
+   - Diğer kurallar aynı: geçerli kayıtlarda kapalı kazanır; `BINDING_INVALID` düşer; diğer hatalar (5xx, hız sınırı, ağ) → o dönem karar yok.
+   - Sunucu değişmiyor.
+   - Test: `TestAC485AC486MergeBindingPolicies` (8 vaka). Mantık platformdan bağımsız dosyada; macOS ve Linux'ta da koşar.
+
+- **Koşu:**
+  - `go vet ./...` + `go build ./...`: `GOOS=windows|linux|darwin` temiz (K7 düzeltmesi sonrası `internal/servis` dahil).
+  - `go test -race ./internal/update/ ./cmd/noktadestek/ ./internal/launch/`: macOS ve docker golang:1.26 (linux) geçti.
+  - `gofmt -l` temiz.
+
+### P29 düzeltme turu 1 — K7 (backend-dev Go, 2026-11-19)
+
+Kaynak: `docs/qa-raporu.md` "P29 Tur 1" m.2 ve m.3(a); `docs/guvenlik-raporu.md` "P29 kod turu" S-P29-K-2 ve S-P29-K-3; orkestratörün K8 eki.
+
+- **QA m.2 — kararsız test:** `Updater` arka plan işleri artık `sync.WaitGroup` altında (`wg.Go`). `Updater.Wait()` eklendi. `newTestUpdater` cleanup'ı bağlamı iptal edip işleri bekliyor; LIFO sırası gereği bu, TempDir temizliğinden önce çalışıyor. `go test -race -count=50 -run TestAC480ServiceFlow ./internal/servis/` → 0 kırmızı.
+- **QA m.3(a) — AC-476 servis:** yayıncı kararı platformsuz `checkPublisher` işlevine ayrıldı (`update_sign.go`). Windows bağlaması `PlatformSignature`, WinVerifyTrust ve yaprak sertifika özetini kullanıyor.
+  - Testler:
+    - `TestAC476CheckPublisher`: çalışan imzasız → atla; imzalı → imzasız ya da farklı yayıncı reddedilir, özet okunamazsa reddedilir, aynı yayıncı kabul edilir.
+    - `TestAC476ServicePlatformSignatureRejected`: `failed(PLATFORM_SIGNATURE)` yazılır, `yeni.bin` silinir, gözetmen başlatılmaz, olay 1012 yazılır, sürüm 24 sa engellenir.
+- **S-P29-K-2:** gözetmen `PrepareDir` (VerifyDir) adımını `durum.json` ve `apply.nonce` okunmadan önce yapıyor. Klasör güvensizse silinip yeniden oluşturuluyor; olay 1012 yazılıyor, okuma yapılmıyor ve `ApplyFailed` dönüyor. `ReadNonce` ile `StateStore.Load`, `openShareDelete` (`FILE_FLAG_OPEN_REPARSE_POINT`) kullanıyor. Test: `TestSP29K2VerifyDirBeforeRead`; başarı sırası testi `prepare,nonce,copy,…` olarak güncellendi.
+- **S-P29-K-3:**
+  - (a) `SendWait` mesajı `flushMsg{dropped, gen}` taşıyor. Süresi dolarsa ya da başka bir bağlantıda kuyruğa alınmışsa yazıcı onu yazmadan düşürüyor; bağlantı sayacı `gen` her session'da artıyor. Test: `TestSP29K3StaleUpdateStateDropped`.
+  - (b) `failed(INSTALL|HASH_MISMATCH|PLATFORM_SIGNATURE)` sonrası hedef sürüm 24 sa engelleniyor (`blockOnFail`, rolled_back ile aynı `blocked`). Bu kural servis tarafında (`fail`, gözetmen çıkışı, başlatma hatası) ve gözetmen `abort` yolunda uygulanıyor. `DOWNLOAD` (ağ hatası) engellenmiyor.
+- **K8 eki:** `servis.PlatformSignature(selfExe, newPath)` dışa açıldı; Windows dışında stub nil döner (`update_sign_other.go`). `cmd/noktadestek/updater_windows.go` `winReplacer` bunu bağlıyor. Yerel fail-closed `platformSignature` ve `errPlatformUnverified` artık ölü kod olduğu için kaldırıldı. K8 dosyasındaki tek dokunuş bu.
+- **Doğrulama:**
+  - `GOOS=windows|linux|darwin go vet ./... && go build ./...` temiz.
+  - `GOOS=windows go test -c ./internal/servis/` derleniyor.
+  - `gofmt -l` boş.
+  - `go test -race -count=5 ./internal/servis/ ./internal/servisui/` geçti.
+  - `go test -race ./internal/update/... ./cmd/...` geçti.

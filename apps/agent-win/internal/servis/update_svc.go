@@ -113,6 +113,7 @@ type Updater struct {
 	tm    updTiming
 
 	ctx      context.Context
+	wg       sync.WaitGroup // arka plan işleri (Wait: test/kapanış)
 	off      bool
 	mu       sync.Mutex
 	pending  *pendingInstall
@@ -224,7 +225,7 @@ func (u *Updater) Startup(ctx context.Context) {
 		u.finalize()
 	}
 	if plan.awaitSupervisor {
-		go u.finishAfterHealthy()
+		u.wg.Go(u.finishAfterHealthy)
 	}
 }
 
@@ -314,7 +315,7 @@ func (u *Updater) Ready() {
 	if u.off {
 		return
 	}
-	go u.markHealthy()
+	u.wg.Go(u.markHealthy)
 }
 
 func (u *Updater) markHealthy() {
@@ -473,13 +474,13 @@ func (u *Updater) schedule(m update.Manifest) {
 	p := &pendingInstall{m: m}
 	u.pending = p
 	delay := time.Duration(u.random() * float64(u.tm.tokenDelayMax))
-	go func() {
+	u.wg.Go(func() {
 		if !u.wait(delay) {
 			u.clearPending(p)
 			return
 		}
 		u.requestToken(p)
-	}()
+	})
 }
 
 func (u *Updater) clearPending(p *pendingInstall) {
@@ -499,7 +500,7 @@ func (u *Updater) requestToken(p *pendingInstall) {
 		u.clearPending(p) // sonraki offer (yeniden bağlanma / 24 sa denetimi) yeniden planlar
 		return
 	}
-	go func() { // yanıt update.none ise belirteç gelmez: bekleyiş düşer
+	u.wg.Go(func() { // yanıt update.none ise belirteç gelmez: bekleyiş düşer
 		if !u.wait(u.tm.tokenWait) {
 			return
 		}
@@ -509,7 +510,7 @@ func (u *Updater) requestToken(p *pendingInstall) {
 		if stale {
 			u.clearPending(p)
 		}
-	}()
+	})
 }
 
 // Token `update.token`: yalnız bekleyen sürüm için, tek indirme.
@@ -525,13 +526,29 @@ func (u *Updater) Token(m *UpdateToken) {
 	}
 	p.gotToken = true
 	u.mu.Unlock()
-	go u.download(p, m.Token)
+	u.wg.Go(func() { u.download(p, m.Token) })
 }
 
 func (u *Updater) fail(p *pendingInstall, reason update.Reason) {
 	u.clearPending(p)
-	u.addEvents(update.NewEvent(update.EventFailed, p.m.Version, u.Running.String(), reason, u.clock()))
+	u.failVersion(p.m.Version, reason)
 }
+
+// failVersion failed(reason) kuyruğa + S-P29-K-3 bloğu (INSTALL/HASH_MISMATCH/PLATFORM_SIGNATURE → 24 sa).
+func (u *Updater) failVersion(version string, reason update.Reason) {
+	now := u.clock()
+	var added []update.Event
+	_, _ = u.Store.Update(func(s *UpdateState) bool {
+		added = s.addEvents(update.NewEvent(update.EventFailed, version, u.Running.String(), reason, now))
+		s.blockOnFail(version, reason, now)
+		return true
+	})
+	u.logRejected(added)
+	u.kickLoop()
+}
+
+// Wait arka plan işlerinin bitmesini bekler (bağlam iptalinden sonra; kapanış ve testler).
+func (u *Updater) Wait() { u.wg.Wait() }
 
 // download §5.3 adım 2–4.
 func (u *Updater) download(p *pendingInstall, token string) {
@@ -680,13 +697,13 @@ func (u *Updater) tryInstall() {
 		u.endApply()
 		u.Sys.RemoveStaged()
 		_, _ = u.Store.Update(func(s *UpdateState) bool { s.clearPhase(""); return true })
-		u.addEvents(update.NewEvent(update.EventFailed, s.Target, u.Running.String(), update.ReasonInstall, u.clock()))
+		u.failVersion(s.Target, update.ReasonInstall)
 		return
 	}
-	go func() {
+	u.wg.Go(func() {
 		wait() // gözetmen bu servisi durdurmadan çıktıysa (nonce/kopya hatası) servis normal çalışmayı sürdürür
 		u.supervisorExited(s.Target)
-	}()
+	})
 }
 
 // supervisorExited gözetmen servisi durdurmadan çıktı. Faz hâlâ staged ise (mutex/nonce/jeton reddi, çökme) sahne
@@ -699,7 +716,9 @@ func (u *Updater) supervisorExited(target string) {
 		}
 		stale = true
 		s.clearPhase("")
-		s.addEvents(update.NewEvent(update.EventFailed, target, u.Running.String(), update.ReasonInstall, u.clock()))
+		now := u.clock()
+		s.addEvents(update.NewEvent(update.EventFailed, target, u.Running.String(), update.ReasonInstall, now))
+		s.blockOnFail(target, update.ReasonInstall, now)
 		return true
 	})
 	if stale {

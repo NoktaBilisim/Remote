@@ -423,7 +423,8 @@ func newTestUpdater(t *testing.T, f *updFixture) (*Updater, *fakeUpdSys, *fakeLi
 		},
 		tm: updTiming{tokenWait: time.Hour}}
 	ctx, cancel := context.WithCancel(context.Background())
-	t.Cleanup(cancel)
+	// TempDir temizliğinden ÖNCE (LIFO): bağlam iptal + arka plan işleri beklenir (QA P29 Tur 1 m.2).
+	t.Cleanup(func() { cancel(); u.Wait() })
 	u.Startup(ctx)
 	return u, sys, link, core
 }
@@ -606,14 +607,15 @@ func TestAC480NewServiceMarksHealthy(t *testing.T) {
 // ---- Gözetmen / kurtarma ----
 
 type fakeApplySys struct {
-	calls   []string
-	system  bool
-	busy    bool
-	nonce   string
-	copyErr error
-	stopped bool
-	store   *StateStore
-	healthy bool
+	calls     []string
+	system    bool
+	busy      bool
+	nonce     string
+	copyErr   error
+	stopped   bool
+	store     *StateStore
+	healthy   bool
+	recreated bool
 }
 
 func (f *fakeApplySys) rec(c string)        { f.calls = append(f.calls, c) }
@@ -624,8 +626,8 @@ func (f *fakeApplySys) AcquireSupervisor() (func(), bool) {
 	}
 	return func() { f.rec("release") }, true
 }
-func (f *fakeApplySys) PrepareDir() (bool, error)    { return false, nil }
-func (f *fakeApplySys) ReadNonce() (string, error)   { return f.nonce, nil }
+func (f *fakeApplySys) PrepareDir() (bool, error)    { f.rec("prepare"); return f.recreated, nil }
+func (f *fakeApplySys) ReadNonce() (string, error)   { f.rec("nonce"); return f.nonce, nil }
 func (f *fakeApplySys) CopyStagedToNew(string) error { f.rec("copy"); return f.copyErr }
 func (f *fakeApplySys) QueryFailureActions() (RecoveryBackup, error) {
 	return RecoveryBackup{ResetSec: 86400, Actions: []RecoveryStep{{Type: 1, DelayMs: 10000}}}, nil
@@ -674,7 +676,7 @@ func TestAC480SupervisorSuccess(t *testing.T) {
 	if r := sup.Apply(); r != ApplyOK {
 		t.Fatalf("Apply = %d, çağrılar %v", r, sys.calls)
 	}
-	want := "copy,setRecover,stop,swap,start,restore,removeStaged,release"
+	want := "prepare,nonce,copy,setRecover,stop,swap,start,restore,removeStaged,release"
 	if got := strings.Join(sys.calls, ","); got != want {
 		t.Fatalf("sıra %s, beklenen %s", got, want)
 	}
@@ -715,7 +717,7 @@ func TestAC480SupervisorGuards(t *testing.T) {
 			t.Errorf("%s: %d, beklenen %d", c.name, r, c.want)
 		}
 		for _, call := range c.sys.calls {
-			if call == "stop" || call == "swap" {
+			if call == "stop" || call == "swap" || call == "copy" {
 				t.Errorf("%s: %s çağrıldı", c.name, call)
 			}
 		}
@@ -781,5 +783,135 @@ func TestAC480SupervisorExitWithoutApplyNoLoop(t *testing.T) {
 	s := u.Store.Load()
 	if s.Phase != "" || len(s.Queue) != 1 || s.Queue[0].Reason != update.ReasonInstall {
 		t.Fatalf("durum = %+v", s)
+	}
+}
+
+// ---- P29 düzeltme turu 1 ----
+
+// S-P29-K-2: klasör doğrulaması durum.json/apply.nonce okunmadan önce; güvensiz klasör → okuma yok.
+func TestSP29K2VerifyDirBeforeRead(t *testing.T) {
+	sys := &fakeApplySys{system: true, recreated: true}
+	sup := stagedSupervisor(t, sys)
+	if r := sup.Apply(); r != ApplyFailed {
+		t.Fatalf("Apply = %d", r)
+	}
+	if got := strings.Join(sys.calls, ","); got != "prepare,release" {
+		t.Fatalf("çağrılar = %s (nonce/kopya olmamalı)", got)
+	}
+	if ids := sup.Events.(*memEvents).ids(); len(ids) != 1 || ids[0] != EvUpdateRejected {
+		t.Fatalf("olay 1012 yok: %v", ids)
+	}
+}
+
+// AC-476 karar tablosu: çalışan imzasız → atla; imzalı → yeni imzalı + aynı yaprak sertifika.
+func TestAC476CheckPublisher(t *testing.T) {
+	d1, d2 := [32]byte{1}, [32]byte{2}
+	cases := []struct {
+		name               string
+		selfSigned, newSig bool
+		newDigest          [32]byte
+		digestErr          error
+		ok                 bool
+	}{
+		{"çalışan imzasız → atla", false, false, d2, nil, true},
+		{"çalışan imzasız, yeni imzalı → atla", false, true, d2, nil, true},
+		{"imzalı → imzasız ret", true, false, d1, nil, false},
+		{"imzalı → farklı yayıncı ret", true, true, d2, nil, false},
+		{"imzalı → özet okunamadı ret", true, true, d1, errors.New("crypt32"), false},
+		{"imzalı → aynı yayıncı kabul", true, true, d1, nil, true},
+	}
+	for _, c := range cases {
+		signed := func(p string) bool {
+			if p == "self" {
+				return c.selfSigned
+			}
+			return c.newSig
+		}
+		digest := func(p string) ([32]byte, error) {
+			if p == "self" {
+				return d1, nil
+			}
+			return c.newDigest, c.digestErr
+		}
+		err := checkPublisher(signed, digest, "self", "new")
+		if (err == nil) != c.ok || (err != nil && !errors.Is(err, ErrPlatformSignature)) {
+			t.Errorf("%s: %v", c.name, err)
+		}
+	}
+}
+
+// AC-476 servis akışı: platform imzası reddi → failed(PLATFORM_SIGNATURE) + yeni.bin silinir + gözetmen yok + 1012 + blok.
+func TestAC476ServicePlatformSignatureRejected(t *testing.T) {
+	f := newUpdFixture(t)
+	u, sys, link, _ := newTestUpdater(t, f)
+	sys.platErr = ErrPlatformSignature
+	u.Offer(f.offer(t, "0.22.1", "auto", f.body))
+	eventually(t, "token.request", func() bool {
+		return hasMsg(link, func(m any) bool { _, ok := m.(*UpdateTokenRequest); return ok })
+	})
+	u.Token(&UpdateToken{Version: "0.22.1", Token: strings.Repeat("A", 43)})
+	<-f.bearer
+	eventually(t, "failed(PLATFORM_SIGNATURE)", func() bool {
+		for _, e := range u.Store.Load().Queue {
+			if e.Type == update.EventFailed && e.Reason == update.ReasonPlatformSignature {
+				return true
+			}
+		}
+		return false
+	})
+	s := u.Store.Load()
+	if s.Phase != "" || !s.blocked("0.22.1", time.Now()) {
+		t.Fatalf("durum = %+v", s)
+	}
+	if !strings.Contains(strings.Join(sys.callList(), ","), "commit,removeStaged") {
+		t.Fatalf("yeni.bin silinmedi: %v", sys.callList())
+	}
+	u.tryInstall()
+	sys.mu.Lock()
+	n := sys.launched
+	sys.mu.Unlock()
+	if n != 0 {
+		t.Fatal("imza reddinden sonra gözetmen başlatıldı")
+	}
+	if ids := u.Events.(*memEvents).ids(); len(ids) == 0 || ids[len(ids)-1] != EvUpdateRejected {
+		t.Fatalf("olay günlüğü 1012 yok: %v", ids)
+	}
+	// S-P29-K-3: engelli sürüm aynı teklifte yeniden indirilmez.
+	before := len(link.msgs())
+	u.Offer(f.offer(t, "0.22.1", "auto", f.body))
+	time.Sleep(20 * time.Millisecond)
+	for _, m := range link.msgs()[before:] {
+		if _, ok := m.(*UpdateTokenRequest); ok {
+			t.Fatal("başarısız sürüm 24 sa içinde yeniden istendi")
+		}
+	}
+}
+
+// S-P29-K-3: süresi dolan / önceki bağlantıda kuyruğa alınan update.state sonraki sokete yazılmaz.
+func TestSP29K3StaleUpdateStateDropped(t *testing.T) {
+	got := make(chan string, 32)
+	c, _, _, _ := startDevice(t, collectTypes(`{"t":"update.none"}`, got))
+	if err := c.SendWait(&UpdateStateMsg{Phase: UpdatePhaseInstalling, Version: "0.22.1"}, time.Millisecond); err == nil {
+		t.Fatal("bağlantı yokken SendWait başarı döndü")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	go func() { _ = c.Run(ctx) }()
+	for !c.UpdateGate() && ctx.Err() == nil {
+		time.Sleep(5 * time.Millisecond)
+	}
+	c.Send(&State{LocalEnabled: true})
+	for {
+		select {
+		case typ := <-got:
+			if typ == tUpdateState {
+				t.Fatal("bayat update.state yeni sokete yazıldı")
+			}
+			if typ == tState {
+				return
+			}
+		case <-ctx.Done():
+			t.Fatal("zaman aşımı")
+		}
 	}
 }

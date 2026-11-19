@@ -296,7 +296,7 @@ func (w *winUpdateSys) WriteNonce(nonce string) error {
 }
 
 func (w *winUpdateSys) PlatformSignature() error {
-	return platformSignature(w.exe, filepath.Join(w.dir, stagedFileName))
+	return PlatformSignature(w.exe, filepath.Join(w.dir, stagedFileName))
 }
 
 func (w *winUpdateSys) SupervisorAlive() bool { return supervisorAlive() }
