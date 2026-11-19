@@ -69,6 +69,8 @@ async function precheck(d: ConnectDeps, auth: AuthContext, tenantId: string, id:
     throw refuse("no_contact", "NOTIFY_CONTACT_REQUIRED");
   if ((await d.mail.configFor(tenantId)) === null) throw refuse("no_channel", "NOTIFY_CHANNEL_UNAVAILABLE");
   if (verdict === "unsigned") throw refuse("unsigned", "UNATTENDED_DISABLED");
+  // P29 (K-P29-12, AC-479): kurulum sürüyor → çevrimiçi denetiminden ÖNCE 409 (servis kurulumda durur); step-up TX'te tüketilir, burada değil.
+  if (d.hub.isUpdating(id)) throw refuse("updating", "DEVICE_UPDATING");
   if (!d.hub.isOnline(id)) throw refuse("offline", "DEVICE_OFFLINE");
   if (!d.hub.has(id, "direct1")) throw refuse("outdated", "DEVICE_OUTDATED"); // 8a (AC-435)
   if ((await repo.openDeviceSessions(d.db, tenantId, id, new Date(d.now()))) > 0) throw refuse("busy", "DEVICE_BUSY");

@@ -22,6 +22,7 @@ import type { UnattendedGate } from "./gate.ts";
 import { selfGrantMail, sendInternalNotice } from "./mail.ts";
 import * as repo from "./repo.ts";
 import type { DeviceUserState } from "@remote/contracts/unattended-consent";
+import { deviceUpdateBadge } from "../update/versions.ts";
 
 /** Canlı cihaz kanalı (K3 DeviceHub). Commit SONRASI çağrılır; hata fırlatmaz. */
 export interface DeviceLink {
@@ -53,6 +54,9 @@ export interface UnattendedDeps {
   link: DeviceLink;
   now: () => number;
   log: { error(obj: object, msg: string): void };
+  /** P29 (§3.2): rozet için yayındaki servis sürümü ve `MIN_AGENT_VERSION` (verilmezse yayın yok / asgari yok sayılır). */
+  updates?: { publishedServiceVersion(): Promise<string | null> };
+  minAgentVersion?: string | undefined;
 }
 
 interface Facts {
@@ -82,6 +86,7 @@ interface ViewCtx {
   canConnectPerm: boolean;
   contacts: Map<string, number>;
   smtp: boolean;
+  publishedService: string | null;
 }
 
 function toItem(v: ViewCtx, r: repo.DeviceRow): DeviceListItem {
@@ -97,6 +102,7 @@ function toItem(v: ViewCtx, r: repo.DeviceRow): DeviceListItem {
     smtp: v.smtp,
   };
   const reason = blockedReason(r, facts);
+  const upd = deviceUpdateBadge(r, { minVersion: v.d.minAgentVersion, publishedService: v.publishedService, now: v.d.now() });
   return {
     id: r.id,
     name: r.name,
@@ -115,19 +121,25 @@ function toItem(v: ViewCtx, r: repo.DeviceRow): DeviceListItem {
     replacedAlert: v.d.link.replacedAlert(r.id),
     // D-P28u-6: yalnız çağıranın grant'ı olan cihazda (manage sahibi grant'sız cihazı görür ama durumunu görmez).
     userState: r.grants.length > 0 ? (v.d.link.userState?.(r.id) ?? null) : null,
+    // P29 (§4.8, AC-490): sürüm sütunu + rozet.
+    agentVersion: r.agentVersion,
+    updateBadge: upd.badge,
+    updateReason: upd.reason,
+    updateVersion: r.updateVersion,
   };
 }
 
 async function viewCtx(d: UnattendedDeps, auth: AuthContext, tenantId: string, rows: repo.DeviceRow[]): Promise<ViewCtx> {
-  const [contacts, smtp] = await Promise.all([
+  const [contacts, smtp, publishedService] = await Promise.all([
     repo.contactCounts(
       d.db,
       tenantId,
       rows.map((r) => r.customerId),
     ),
     d.mail.configFor(tenantId).then((c) => c !== null),
+    d.updates ? d.updates.publishedServiceVersion() : Promise.resolve(null),
   ]);
-  return { d, canConnectPerm: auth.permissions.has("unattended.connect"), contacts, smtp };
+  return { d, canConnectPerm: auth.permissions.has("unattended.connect"), contacts, smtp, publishedService };
 }
 
 /** GET /unattended/devices (AC-275, 293): `manage` yoksa yalnız grant'lı cihazlar; keyset (ad, id). */
@@ -148,6 +160,7 @@ export async function listDevices(
     customerId: q.customerId,
     online,
     after,
+    version: q.version,
     take: q.limit + 1,
   });
   const page = rows.slice(0, q.limit);

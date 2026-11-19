@@ -10,6 +10,7 @@ import {
   type DeviceFeature,
   type DeviceOutbound,
   type DeviceRecordOutbound,
+  type DeviceUpdateOutbound,
 } from "@remote/contracts/ws-device";
 import type { SessionEndedReason } from "@remote/contracts/ws";
 import { writeAudit, type AuditContext } from "../audit/service.ts";
@@ -30,13 +31,15 @@ export interface DeviceConn {
   deviceId: string;
   tenantId: string;
   ip: string;
-  send(msg: DeviceOutbound | DeviceConsentOutbound | DeviceRecordOutbound): void;
+  send(msg: DeviceOutbound | DeviceConsentOutbound | DeviceRecordOutbound | DeviceUpdateOutbound): void;
   close(code: number, reason: string): void;
   /** P28u §6.1: upgrade'de bildirilen yetenek belirteçleri (`rs.cap.consent1` → `consent1`). */
   caps: ReadonlySet<DeviceFeature>;
   /** P28u §6.3 (AC-429): son `device.user` (yalnız bellek; DB/audit/dışa aktarım yok — D-P28u-6). */
   userState?: DeviceUserState;
   userStateAt?: number;
+  /** P29 (§4.3): `device.auth`'ta bildirilen sürüm (`update.token` koşulu: sunulabilir sürüm > bu). */
+  version?: string;
 }
 
 export interface HubDeps {
@@ -51,6 +54,8 @@ export class DeviceHub implements DeviceLink {
   private readonly conns = new Map<string, DeviceConn>();
   private readonly replacedAt = new Map<string, number[]>();
   private readonly replacedAuditAt = new Map<string, number>();
+  /** P29 (K-P29-12, AC-479): cihaz → "güncelleniyor" bayrağının bitişi (ms). Soket kopsa da TTL boyunca kalır (kurulum servisi durdurur). */
+  private readonly updatingUntil = new Map<string, number>();
   private readonly d: HubDeps;
   /** P28u §6.3: oturum başına bekleyen müdahale komutu. */
   readonly intervene: InterveneWaits;
@@ -101,6 +106,32 @@ export class DeviceHub implements DeviceLink {
     if (!c?.caps.has("record1")) return false;
     c.send(msg);
     return true;
+  }
+
+  /** P29 (§4.3): yalnız `update1` sokete `update.*` (eski servis bilinmeyen `t`'de kapatır, AC-493); gönderilemezse false. */
+  sendUpdate(deviceId: string, msg: DeviceUpdateOutbound): boolean {
+    const c = this.conns.get(deviceId);
+    if (!c?.caps.has("update1")) return false;
+    c.send(msg);
+    return true;
+  }
+
+  /** Firmanın açık `update1` soketleri (politika değişince yeniden teklif, AC-485). */
+  updateConnsOf(tenantId: string): DeviceConn[] {
+    return [...this.conns.values()].filter((c) => c.tenantId === tenantId && c.caps.has("update1"));
+  }
+
+  /** P29 `update.state{installing}` → bağlantı ön denetiminde 409 `DEVICE_UPDATING` (TTL sonunda kendiliğinden düşer). */
+  markUpdating(deviceId: string, ttlMs: number): void {
+    this.updatingUntil.set(deviceId, this.d.now() + ttlMs);
+  }
+
+  isUpdating(deviceId: string): boolean {
+    const until = this.updatingUntil.get(deviceId);
+    if (until === undefined) return false;
+    if (until > this.d.now()) return true;
+    this.updatingUntil.delete(deviceId);
+    return false;
   }
 
   /** Son 10 dk'daki 4409 sayısı (pencere dışı kayıtlar atılır). */

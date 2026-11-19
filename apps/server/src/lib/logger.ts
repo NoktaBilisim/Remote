@@ -36,6 +36,8 @@ const REDACT_PATHS = [
   "*.previousKey",
   // P20 (§8d.2): çoklu firma kaydı anahtar listesi.
   "*.previousKeys",
+  // P29 (§4.5): güncelleme olayı kayıt anahtarları (savunma; gövde zaten loglanmaz).
+  "*.bindingKeys",
   "*.contactName",
   "*.phone",
   "*.email",
