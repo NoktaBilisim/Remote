@@ -64,7 +64,12 @@ export async function bindingStatus(svc: RequestService, ctx: AuditContext, body
   if (!b) throw bindingInvalid(svc, ip);
   await svc.limit(ctx, b.row.tenantId, "bindingStatus", "binding.status", "ip", ip);
   const info = await svc.requestInfo(b.row.tenantId, b.row.tenant, b.row.tenant.requestSettings?.waitMinutes ?? 30);
-  return { ...info, customer: b.row.customer ? { name: b.row.customer.name } : null };
+  // P29 (§4.8, K-P29-7): bu kaydın firma politikası; çoklu kayıtta "kapalı kazanır" istemcide uygulanır.
+  return {
+    ...info,
+    customer: b.row.customer ? { name: b.row.customer.name } : null,
+    autoUpdate: b.row.tenant.settings?.clientAutoUpdate ?? true,
+  };
 }
 
 /** POST /public/bindings/revoke (AC-186): her durumda 204; etkin satır düştüyse audit `binding.revoked{FORGOTTEN}`. */

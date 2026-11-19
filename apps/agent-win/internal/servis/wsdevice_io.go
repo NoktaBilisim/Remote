@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"slices"
+	"sync/atomic"
+	"time"
 
 	"github.com/coder/websocket"
 )
@@ -19,9 +21,20 @@ func (c *DeviceClient) writer(ctx context.Context, ws *websocket.Conn) {
 			fm, flush := m.(flushMsg)
 			if flush {
 				m = fm.msg
+				// S-P29-K-3: süresi dolan (çağıran vazgeçti) ya da önceki bağlantıda kuyruğa alınmış update.* yazılmaz.
+				if fm.dropped != nil && (fm.dropped.Load() || fm.gen != c.gen.Load()) {
+					fm.done <- errUpdateGate
+					continue
+				}
 			}
 			if consentOnly(m) && !c.consent.Load() {
 				continue // K-P28u-8: features'sız (eski/geri alınmış) sunucuya yeni mesaj yazılmaz
+			}
+			if updateOnly(m) && !c.updateSeen.Load() {
+				if flush {
+					fm.done <- errUpdateGate
+				}
+				continue // AC-493: offer/none almamış (eski) sunucuya update.* yazılmaz
 			}
 			err := c.write(ctx, ws, m)
 			if flush {
@@ -95,4 +108,46 @@ func (c *DeviceClient) write(ctx context.Context, ws *websocket.Conn, m any) err
 func (c *DeviceClient) violation(ws *websocket.Conn, why string) error {
 	_ = ws.Close(websocket.StatusPolicyViolation, "")
 	return errors.Join(errSchema, errors.New(why))
+}
+
+// errUpdateGate güncelleme mesajı bu sokette yazılamaz (sunucu offer/none göndermedi).
+var errUpdateGate = errors.New("servis: sunucu güncelleme desteğini duyurmadı")
+
+// UpdateGate bu sokette `update.offer`/`update.none` alındı mı (C→S update.* yazma kapısı).
+func (c *DeviceClient) UpdateGate() bool { return c.updateSeen.Load() && c.State() == StateOnline }
+
+// SendWait mesajı kuyruğa alır ve yazılmasını bekler (en çok d). Kuyruk doluysa, kapı kapalıysa ya da süre dolarsa hata.
+func (c *DeviceClient) SendWait(msg any, d time.Duration) error {
+	done := make(chan error, 1)
+	dropped := &atomic.Bool{}
+	select {
+	case c.out <- flushMsg{msg: msg, done: done, dropped: dropped, gen: c.gen.Load()}:
+	default:
+		return errUpdateGate
+	}
+	t := time.NewTimer(d)
+	defer t.Stop()
+	select {
+	case err := <-done:
+		return err
+	case <-t.C:
+		dropped.Store(true) // yazıcı henüz almadıysa düşürür
+		return errUpdateGate
+	}
+}
+
+// updateMessage P29 sunucu mesajları: offer/none kapıyı açar (sunucu P29'u biliyor); güncelleyiciye iletilir.
+func (c *DeviceClient) updateMessage(m any) {
+	c.updateSeen.Store(true)
+	if c.Update == nil {
+		return
+	}
+	switch v := m.(type) {
+	case *UpdateOffer:
+		c.Update.Offer(v)
+	case *UpdateNone:
+		c.Update.None()
+	case *UpdateToken:
+		c.Update.Token(v)
+	}
 }

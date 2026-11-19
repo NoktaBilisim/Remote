@@ -50,4 +50,9 @@ export type BindingRevokeInput = z.infer<typeof bindingRevokeInputSchema>;
 /** POST /public/bindings/status yanıtı: `TenantRequestInfo` + müşteri firma adı (Genel kayıtta null). */
 export interface BindingInfo extends TenantRequestInfo {
   customer: { name: string } | null;
+  /**
+   * P29 (§4.8, K-P29-7, AC-485): tenant'ın `client_auto_update` politikası (ek alan; eski istemci yok sayar). İstemci birden çok
+   * kayıtta "kapalı olan kazanır" kuralını uygular. K4 doldurur — o zamana kadar gelmeyebilir (istemci yokluğu `true` sayar).
+   */
+  autoUpdate?: boolean;
 }

@@ -115,6 +115,9 @@ func (d Deps) firmHome(ctx context.Context, server string, file *fileFirm, notic
 	notes := []string{notice}
 	for {
 		notes = append(notes, d.checkStatus(ctx, server)...)
+		if d.UpdateNotice != nil {
+			notes = append(notes, d.UpdateNotice())
+		}
 		st, own := d.loadOwn(server)
 		if ctx.Err() != nil {
 			return flow.Outcome{}

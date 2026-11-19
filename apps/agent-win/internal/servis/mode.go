@@ -17,6 +17,9 @@ const (
 	ModeInstall               // --install: UAC
 	ModeUninstall             // --uninstall: "Uygulamalar"
 	ModeEnable                // --enable: UAC, HKLM LocalEnabled=1
+	// P29 (mimari-p29 §5.3, §14.3): yalnız LocalSystem; yapılandırma okunmaz, arayüz yok.
+	ModeUpdateApply   // --update-apply: servisin başlattığı gözetmen (eski ikili)
+	ModeUpdateRecover // --update-recover: SCM FailureActions RUN_COMMAND (exe.eski)
 )
 
 var modeArgs = map[string]Mode{
@@ -26,6 +29,9 @@ var modeArgs = map[string]Mode{
 	"--install":   ModeInstall,
 	"--uninstall": ModeUninstall,
 	"--enable":    ModeEnable,
+
+	"--update-apply":   ModeUpdateApply,
+	"--update-recover": ModeUpdateRecover,
 }
 
 // ParseMode os.Args'tan kipi seçer.

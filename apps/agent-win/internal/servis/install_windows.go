@@ -219,9 +219,8 @@ func createService(exe string) error {
 			return err
 		}
 	}
-	acts := []mgr.RecoveryAction{{Type: mgr.ServiceRestart, Delay: recoveryDelay},
-		{Type: mgr.ServiceRestart, Delay: recoveryDelay}, {Type: mgr.ServiceRestart, Delay: recoveryDelay}}
-	return s.SetRecoveryActions(acts, uint32((24 * time.Hour).Seconds()))
+	acts, reset := defaultRecoveryActions()
+	return s.SetRecoveryActions(acts, reset)
 }
 
 func installed() bool {

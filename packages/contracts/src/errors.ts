@@ -97,6 +97,11 @@ export const ERROR_STATUS = {
   AV_NOT_READY: 409,
   /** P28u (AC-435, §6.1; r3 K-P28u-r3-2): servis güncel değil — bağlantı `rs.cap.direct1`, müdahale `rs.cap.consent1` ister. */
   DEVICE_OUTDATED: 409,
+  /**
+   * P29 (AC-479, K-P29-12): cihaz kendini güncelliyor (`update.state{installing}`, hub bayrağı 3 dk) — bağlantı ön denetiminde
+   * çevrimiçi denetiminden önce; step-up tüketilmez. Metin `UNATTENDED_ERROR_MESSAGES.DEVICE_UPDATING`.
+   */
+  DEVICE_UPDATING: 409,
   /** P28u (§5.3): bu odada yanıtı beklenen müdahale komutu var. */
   INTERVENE_PENDING: 409,
   /** P28c (AC-365, mimari-p28c §4): oturumda sahip dahil 3 teknisyen koltuğu dolu (bekleyen davet koltuk tutar). */

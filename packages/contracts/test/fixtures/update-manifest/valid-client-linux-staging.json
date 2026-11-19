@@ -1,0 +1,1 @@
+{"schema":1,"env":"staging","platform":"linux","arch":"amd64","component":"client","version":"0.22.1","sha256":"3f1c8a0e5b7d9c2f4a6e8b0d1c3f5a7e9b2d4f6a8c0e1b3d5f7a9c2e4b6d8f0a","size":15728640,"issuedAt":"2026-11-19T00:00:00Z","expiresAt":"2026-11-20T00:00:00Z","minUpdaterVersion":"0.22.0"}

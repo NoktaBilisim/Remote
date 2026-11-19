@@ -11,6 +11,8 @@ import (
 	"errors"
 	"io"
 	"net/url"
+
+	"remote-support/agent-win/internal/update"
 )
 
 // ldflags hedefleri; derlemede doldurulmazsa Load hata döner (yanlış yapılandırılmış build çalışmaz).
@@ -27,6 +29,11 @@ var (
 	// (build-linux.sh WAYLAND_CONTROL=on|off). Boş ya da "on" açık; başka her değer kapalı (fail-closed): yalnız
 	// ScreenCast istenir (RemoteDesktop yok), kontrol isteğine VIEW{WAYLAND_NO_CONTROL}. X11'i etkilemez.
 	waylandControl string
+	// updateEnv / updateKeys P29 (K-P29-1, ADR-0040): güncelleme güven kökü — ortam (prod|staging) ve etkin + yedek Ed25519
+	// açık anahtar ("<b64url>[,<b64url>]", build/update-keys/<env>.pub). PR/yer tutucu derlemede boş → güncelleyici kapalı;
+	// biri bozuksa da kapalı (fail-closed).
+	updateEnv  string
+	updateKeys string
 )
 
 // Config doğrulanmış derleme zamanı yapılandırması.
@@ -40,6 +47,8 @@ type Config struct {
 	TeamID string
 	// WaylandControl P28g K10: Wayland'de kontrol açık mı (ldflags config.waylandControl; varsayılan açık).
 	WaylandControl bool
+	// Update P29: gömülü güncelleme güven kökü; sıfır değer (Enabled()==false) = güncelleyici kapalı.
+	Update update.Trust
 }
 
 // ErrNotConfigured: build ldflags olmadan alınmış.
@@ -51,7 +60,17 @@ func Load() (Config, error) {
 	c.TestBuild = isTestBuild(testBuild)
 	c.TeamID = teamID(expectedTeamID)
 	c.WaylandControl = waylandControlOn(waylandControl)
+	c.Update = updateTrust(updateEnv, updateKeys)
 	return c, err
+}
+
+// updateTrust ldflags güncelleme kökü; boş ya da bozuksa sıfır Trust (güncelleyici kapalı, Load hata dönmez).
+func updateTrust(env, keys string) update.Trust {
+	t, err := update.ParseTrust(env, keys)
+	if err != nil {
+		return update.Trust{}
+	}
+	return t
 }
 
 // waylandControlOn yalnız boş (ldflags verilmedi) ve tam "on" açıktır; "off" ya da bozuk değer kapalı (fail-closed).

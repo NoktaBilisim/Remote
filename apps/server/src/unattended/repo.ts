@@ -24,6 +24,11 @@ export function deviceSelect(userId: string) {
     verifiedAt: true,
     notifyFailedAt: true,
     createdAt: true,
+    // P29 (§3.2): rozet türetimi.
+    updateState: true,
+    updateVersion: true,
+    updateReason: true,
+    updateAt: true,
     customer: { select: { name: true } },
     _count: { select: { grants: true } },
     grants: { where: { userId }, select: { id: true } },
@@ -42,6 +47,8 @@ export interface ListFilter {
   /** online → yalnız bu id'ler; offline → bu id'ler hariç. */
   online?: { ids: string[]; want: boolean } | undefined;
   after?: { name: string; id: string } | undefined;
+  /** P29 (AC-490): sürüm dağılımı süzgeci (`agent_version` birebir). */
+  version?: string | undefined;
   take: number;
 }
 
@@ -52,6 +59,7 @@ export async function listDevices(db: DbOrTx, f: ListFilter): Promise<DeviceRow[
     ...(f.manage ? {} : { grants: { some: { userId: f.userId, tenantId: f.tenantId } } }),
     ...(f.q ? { name: { contains: f.q } } : {}),
     ...(f.customerId ? { customerId: f.customerId } : {}),
+    ...(f.version ? { agentVersion: f.version } : {}),
     ...(f.online ? { id: f.online.want ? { in: f.online.ids } : { notIn: f.online.ids } } : {}),
     ...(f.after ? { OR: [{ name: { gt: f.after.name } }, { name: f.after.name, id: { gt: f.after.id } }] } : {}),
   };

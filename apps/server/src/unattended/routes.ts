@@ -4,6 +4,7 @@
 // `POST /devices/:id/connect` (K3, unattended/connect.ts): yetki denetimi serviste (ret audit'lensin), kullanıcı başına 20/sa.
 import {
   createRegistrationCodeInputSchema,
+  deviceVersionsQuerySchema,
   listDevicesQuerySchema,
   putDeviceGrantsInputSchema,
   putNotifyContactsInputSchema,
@@ -13,6 +14,7 @@ import {
   type DeviceDetail,
   type DeviceGrantsResponse,
   type DeviceListResponse,
+  type DeviceVersionsResponse,
   type NotifyContactsResponse,
   type RegisterDeviceResponse,
   type RegistrationCodeListResponse,
@@ -51,7 +53,18 @@ export interface UnattendedRouteOptions {
 
 function depsOf(app: FastifyInstance, link: DeviceLink): () => RegistrationDeps {
   const gate = createGate(app.env);
-  return () => ({ db: app.db, mail: app.mail, gate, link, now: Date.now, log: app.log, secrets: app.secrets, metrics: app.metrics });
+  return () => ({
+    db: app.db,
+    mail: app.mail,
+    gate,
+    link,
+    now: Date.now,
+    log: app.log,
+    secrets: app.secrets,
+    metrics: app.metrics,
+    updates: app.updates,
+    minAgentVersion: app.env.MIN_AGENT_VERSION,
+  });
 }
 
 function writeLimit(app: FastifyInstance): void {
@@ -84,6 +97,16 @@ function deviceRoutes(p: Panel): void {
   app.get("/devices", anyPerm(), async (req): Promise<DeviceListResponse> =>
     listDevices(d(), authOf(req), tenantScope(req).tenantId, parseInput(listDevicesQuerySchema, req.query)),
   );
+  // P29 (§4.8, AC-490): sürüm dağılımı. `unattended.view` = mevcut liste koruması (connect ∨ manage; ayrı anahtar yok, K-P29-20).
+  // `scope=all` yalnız Super Admin (rol denetimi) ve tenantScope'tan ÖNCE (firma seçmemiş Super Admin); aksi tenant kapsamı.
+  app.get("/versions", anyPerm(), async (req): Promise<DeviceVersionsResponse> => {
+    const q = parseInput(deviceVersionsQuerySchema, req.query);
+    if (q.scope === "all") {
+      if (authOf(req).user.role !== "SUPER_ADMIN") throw new AppError("FORBIDDEN");
+      return app.updateVersions.view(null);
+    }
+    return app.updateVersions.view(tenantScope(req).tenantId);
+  });
   app.get("/devices/:id", anyPerm(), async (req): Promise<DeviceDetail> =>
     getDevice(d(), authOf(req), tenantScope(req).tenantId, idParam(req)),
   );

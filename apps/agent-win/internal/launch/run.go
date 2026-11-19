@@ -49,6 +49,8 @@ type Deps struct {
 	Startup *remember.MigrateResult
 	// Diag kişisel veri içermeyen tanılama olayı (`store_write_failed{class}`); nil olabilir.
 	Diag func(event, class string)
+	// UpdateNotice P29 (AC-482/483): gösterilmemiş güncelleme bilgi satırı (bir kez; update.Portable.Notice). nil olabilir.
+	UpdateNotice func() string
 }
 
 // Run açılış kararını verir ve seçilen akışı yürütür; dönen sonucun Message'ı son ekrandır (boşsa son ekran yok).

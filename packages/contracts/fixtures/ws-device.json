@@ -1,5 +1,5 @@
 {
-  "_doc": "/ws/device sözleşme örnekleri (mimari-p27 §4.4, P27-K1). valid.* şemadan geçmeli, invalid.* reddedilmeli. deviceAuth = kimliksiz soketin tek mesajı; deviceInbound = kimliği doğrulanmış soketten gelenler; deviceOutbound = sunucudan cihaza. Go servisi (K5, internal/servis/wsdevice.go) bu örnekleri go test ile doğrular. authMessage: deviceAuthMessage(nonce, deviceId, origin) beklenen dizesi. P28u (mimari-p28u §6): consent1Inbound/consent1Outbound = rs.cap.consent1 bildiren sokette device.features SONRASI geçerli mesajlar (taban birlik ∪ consent birliği); eski anahtarlar yalnız P27 tabanı. connect artık yalnız consent1 cihaza gider ve consent zorunlu → örnekleri consent1Outbound'da (D-P28u-5: consent'siz connect geçersiz). constants: Go eşi (K5 rejoin.go/wire.go, K6 yardımcı) aynı değerleri doğrular. r3 (mimari-p28u §r3.3, K-P28u-r3-2..5): onaysız tek yol — connect.consent yalnız \"ask\" (indicatorControl yok), consent.result yalnız {mode:\"no_user\"}, rejoin.mode yalnız \"no_user\", connect.result.reason'da consent_* yok; eski silent/asked örnekleri invalid'e taşındı (Go R4 sonrası da reddeder: silent connect → connect.result{protocol}). rejoin mode:\"asked\" örneği listeden çıkarıldı (TS reddeder, Go eski sunucu uyumu için kabul eder — iki tarafın ortak kararı olmadığından fikstürde yok). Yeni belirteç rs.cap.direct1 (constants.wsDeviceCapDirect) yalnız alt protokolde; device.features.caps'e girmez (invalid örnek).",
+  "_doc": "/ws/device sözleşme örnekleri (mimari-p27 §4.4, P27-K1). valid.* şemadan geçmeli, invalid.* reddedilmeli. deviceAuth = kimliksiz soketin tek mesajı; deviceInbound = kimliği doğrulanmış soketten gelenler; deviceOutbound = sunucudan cihaza. Go servisi (K5, internal/servis/wsdevice.go) bu örnekleri go test ile doğrular. authMessage: deviceAuthMessage(nonce, deviceId, origin) beklenen dizesi. P28u (mimari-p28u §6): consent1Inbound/consent1Outbound = rs.cap.consent1 bildiren sokette device.features SONRASI geçerli mesajlar (taban birlik ∪ consent birliği); eski anahtarlar yalnız P27 tabanı. connect artık yalnız consent1 cihaza gider ve consent zorunlu → örnekleri consent1Outbound'da (D-P28u-5: consent'siz connect geçersiz). constants: Go eşi (K5 rejoin.go/wire.go, K6 yardımcı) aynı değerleri doğrular. r3 (mimari-p28u §r3.3, K-P28u-r3-2..5): onaysız tek yol — connect.consent yalnız \"ask\" (indicatorControl yok), consent.result yalnız {mode:\"no_user\"}, rejoin.mode yalnız \"no_user\", connect.result.reason'da consent_* yok; eski silent/asked örnekleri invalid'e taşındı (Go R4 sonrası da reddeder: silent connect → connect.result{protocol}). rejoin mode:\"asked\" örneği listeden çıkarıldı (TS reddeder, Go eski sunucu uyumu için kabul eder — iki tarafın ortak kararı olmadığından fikstürde yok). Yeni belirteç rs.cap.direct1 (constants.wsDeviceCapDirect) yalnız alt protokolde; device.features.caps'e girmez (invalid örnek). P29 (mimari-p29 §4.3): update1Inbound/update1Outbound = rs.cap.update1 bildiren sokette geçerli update.* mesajları (ayrı birlik; taban anahtarlara girmez — eski servis/sunucu ayrıştırıcısı bunları tanımaz). update.offer.manifest = test/fixtures/update-manifest/valid-service-windows.json baytlarının base64'ü, signature aynı dizindeki .sig (TEST anahtarı). constants.wsDeviceCapUpdate.",
   "constants": {
     "wsDeviceCapConsent": "rs.cap.consent1",
     "wsDeviceCapDirect": "rs.cap.direct1",
@@ -8,7 +8,8 @@
     "rejoinConsoleWaitSec": 20,
     "deviceUserDebounceMs": 500,
     "interveneLockTimeoutMs": 5000,
-    "interveneLogoffTimeoutMs": 15000
+    "interveneLogoffTimeoutMs": 15000,
+    "wsDeviceCapUpdate": "rs.cap.update1"
   },
   "authMessage": {
     "nonce": "Tzvurhrfhd0k9x-ZN1JarzZap5Ix7vMOKvclD1Y-lUE",
@@ -158,6 +159,80 @@
       {
         "t": "device.state",
         "localEnabled": true
+      }
+    ],
+    "update1Outbound": [
+      {
+        "t": "update.offer",
+        "manifest": "eyJzY2hlbWEiOjEsImVudiI6InByb2QiLCJwbGF0Zm9ybSI6IndpbmRvd3MiLCJhcmNoIjoiYW1kNjQiLCJjb21wb25lbnQiOiJzZXJ2aWNlIiwidmVyc2lvbiI6IjAuMjIuMSIsInNoYTI1NiI6IjNmMWM4YTBlNWI3ZDljMmY0YTZlOGIwZDFjM2Y1YTdlOWIyZDRmNmE4YzBlMWIzZDVmN2E5YzJlNGI2ZDhmMGEiLCJzaXplIjoxNjc3NzIxNiwiaXNzdWVkQXQiOiIyMDI2LTExLTE5VDAwOjAwOjAwWiIsImV4cGlyZXNBdCI6IjIwMjctMDItMTdUMDA6MDA6MDBaIiwibWluVXBkYXRlclZlcnNpb24iOiIwLjIyLjAifQ==",
+        "signature": "_uNv3a-qCu71XWz6ZUI5N_7K8nSw1BEs0ObXegG1LYrasCeQEdppGTbORPq-NPf_p5s4Wssmq0991JkwRc-oAA",
+        "policy": "auto"
+      },
+      {
+        "t": "update.offer",
+        "manifest": "eyJzY2hlbWEiOjEsImVudiI6InByb2QiLCJwbGF0Zm9ybSI6IndpbmRvd3MiLCJhcmNoIjoiYW1kNjQiLCJjb21wb25lbnQiOiJzZXJ2aWNlIiwidmVyc2lvbiI6IjAuMjIuMSIsInNoYTI1NiI6IjNmMWM4YTBlNWI3ZDljMmY0YTZlOGIwZDFjM2Y1YTdlOWIyZDRmNmE4YzBlMWIzZDVmN2E5YzJlNGI2ZDhmMGEiLCJzaXplIjoxNjc3NzIxNiwiaXNzdWVkQXQiOiIyMDI2LTExLTE5VDAwOjAwOjAwWiIsImV4cGlyZXNBdCI6IjIwMjctMDItMTdUMDA6MDA6MDBaIiwibWluVXBkYXRlclZlcnNpb24iOiIwLjIyLjAifQ==",
+        "signature": "_uNv3a-qCu71XWz6ZUI5N_7K8nSw1BEs0ObXegG1LYrasCeQEdppGTbORPq-NPf_p5s4Wssmq0991JkwRc-oAA",
+        "policy": "notify"
+      },
+      {
+        "t": "update.none"
+      },
+      {
+        "t": "update.token",
+        "version": "0.22.1",
+        "token": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+      }
+    ],
+    "update1Inbound": [
+      {
+        "t": "update.check"
+      },
+      {
+        "t": "update.token.request",
+        "version": "0.22.1"
+      },
+      {
+        "t": "update.state",
+        "phase": "installing",
+        "version": "0.22.1"
+      },
+      {
+        "t": "update.event",
+        "type": "available",
+        "version": "0.22.1",
+        "fromVersion": "0.22.0",
+        "at": "2026-11-19T10:00:00Z"
+      },
+      {
+        "t": "update.event",
+        "type": "installed",
+        "version": "0.22.1",
+        "fromVersion": "0.22.0",
+        "at": "2026-11-19T10:05:00.123Z"
+      },
+      {
+        "t": "update.event",
+        "type": "failed",
+        "version": "0.22.1",
+        "fromVersion": "0.22.0",
+        "reason": "HASH_MISMATCH",
+        "at": "2026-11-19T10:00:00Z"
+      },
+      {
+        "t": "update.event",
+        "type": "rolled_back",
+        "version": "0.22.1",
+        "fromVersion": "0.22.0",
+        "reason": "HEALTH",
+        "at": "2026-11-19T10:00:00Z"
+      },
+      {
+        "t": "update.event",
+        "type": "skipped",
+        "version": "0.22.1",
+        "fromVersion": "0.22.0",
+        "reason": "POLICY_OFF",
+        "at": "2026-11-19T10:00:00Z"
       }
     ]
   },
@@ -533,6 +608,137 @@
       },
       {
         "t": "device.auth"
+      }
+    ],
+    "update1Outbound": [
+      {
+        "t": "update.offer",
+        "manifest": "eyJzY2hlbWEiOjEsImVudiI6InByb2QiLCJwbGF0Zm9ybSI6IndpbmRvd3MiLCJhcmNoIjoiYW1kNjQiLCJjb21wb25lbnQiOiJzZXJ2aWNlIiwidmVyc2lvbiI6IjAuMjIuMSIsInNoYTI1NiI6IjNmMWM4YTBlNWI3ZDljMmY0YTZlOGIwZDFjM2Y1YTdlOWIyZDRmNmE4YzBlMWIzZDVmN2E5YzJlNGI2ZDhmMGEiLCJzaXplIjoxNjc3NzIxNiwiaXNzdWVkQXQiOiIyMDI2LTExLTE5VDAwOjAwOjAwWiIsImV4cGlyZXNBdCI6IjIwMjctMDItMTdUMDA6MDA6MDBaIiwibWluVXBkYXRlclZlcnNpb24iOiIwLjIyLjAifQ==",
+        "signature": "_uNv3a-qCu71XWz6ZUI5N_7K8nSw1BEs0ObXegG1LYrasCeQEdppGTbORPq-NPf_p5s4Wssmq0991JkwRc-oAA"
+      },
+      {
+        "t": "update.offer",
+        "manifest": "eyJzY2hlbWEiOjEsImVudiI6InByb2QiLCJwbGF0Zm9ybSI6IndpbmRvd3MiLCJhcmNoIjoiYW1kNjQiLCJjb21wb25lbnQiOiJzZXJ2aWNlIiwidmVyc2lvbiI6IjAuMjIuMSIsInNoYTI1NiI6IjNmMWM4YTBlNWI3ZDljMmY0YTZlOGIwZDFjM2Y1YTdlOWIyZDRmNmE4YzBlMWIzZDVmN2E5YzJlNGI2ZDhmMGEiLCJzaXplIjoxNjc3NzIxNiwiaXNzdWVkQXQiOiIyMDI2LTExLTE5VDAwOjAwOjAwWiIsImV4cGlyZXNBdCI6IjIwMjctMDItMTdUMDA6MDA6MDBaIiwibWluVXBkYXRlclZlcnNpb24iOiIwLjIyLjAifQ==",
+        "signature": "_uNv3a-qCu71XWz6ZUI5N_7K8nSw1BEs0ObXegG1LYrasCeQEdppGTbORPq-NPf_p5s4Wssmq0991JkwRc-oAA",
+        "policy": "off"
+      },
+      {
+        "t": "update.offer",
+        "manifest": "eyJzY2hlbWEiOjEsImVudiI6InByb2QiLCJwbGF0Zm9ybSI6IndpbmRvd3MiLCJhcmNoIjoiYW1kNjQiLCJjb21wb25lbnQiOiJzZXJ2aWNlIiwidmVyc2lvbiI6IjAuMjIuMSIsInNoYTI1NiI6IjNmMWM4YTBlNWI3ZDljMmY0YTZlOGIwZDFjM2Y1YTdlOWIyZDRmNmE4YzBlMWIzZDVmN2E5YzJlNGI2ZDhmMGEiLCJzaXplIjoxNjc3NzIxNiwiaXNzdWVkQXQiOiIyMDI2LTExLTE5VDAwOjAwOjAwWiIsImV4cGlyZXNBdCI6IjIwMjctMDItMTdUMDA6MDA6MDBaIiwibWluVXBkYXRlclZlcnNpb24iOiIwLjIyLjAifQ==",
+        "signature": "_uNv3a-qCu71XWz6ZUI5N_7K8nSw1BEs0ObXegG1LYrasCeQEdppGTbORPq-NPf_p5s4Wssmq0991JkwRc-oA",
+        "policy": "auto"
+      },
+      {
+        "t": "update.offer",
+        "manifest": "eyJzY2hlbWEiOjEsImVudiI6InByb2QiLCJwbGF0Zm9ybSI6IndpbmRvd3MiLCJhcmNoIjoiYW1kNjQiLCJjb21wb25lbnQiOiJzZXJ2aWNlIiwidmVyc2lvbiI6IjAuMjIuMSIsInNoYTI1NiI6IjNmMWM4YTBlNWI3ZDljMmY0YTZlOGIwZDFjM2Y1YTdlOWIyZDRmNmE4YzBlMWIzZDVmN2E5YzJlNGI2ZDhmMGEiLCJzaXplIjoxNjc3NzIxNiwiaXNzdWVkQXQiOiIyMDI2LTExLTE5VDAwOjAwOjAwWiIsImV4cGlyZXNBdCI6IjIwMjctMDItMTdUMDA6MDA6MDBaIiwibWluVXBkYXRlclZlcnNpb24iOiIwLjIyLjAifQ==!",
+        "signature": "_uNv3a-qCu71XWz6ZUI5N_7K8nSw1BEs0ObXegG1LYrasCeQEdppGTbORPq-NPf_p5s4Wssmq0991JkwRc-oAA",
+        "policy": "auto"
+      },
+      {
+        "t": "update.offer",
+        "manifest": "eyJzY2hlbWEiOjEsImVudiI6InByb2QiLCJwbGF0Zm9ybSI6IndpbmRvd3MiLCJhcmNoIjoiYW1kNjQiLCJjb21wb25lbnQiOiJzZXJ2aWNlIiwidmVyc2lvbiI6IjAuMjIuMSIsInNoYTI1NiI6IjNmMWM4YTBlNWI3ZDljMmY0YTZlOGIwZDFjM2Y1YTdlOWIyZDRmNmE4YzBlMWIzZDVmN2E5YzJlNGI2ZDhmMGEiLCJzaXplIjoxNjc3NzIxNiwiaXNzdWVkQXQiOiIyMDI2LTExLTE5VDAwOjAwOjAwWiIsImV4cGlyZXNBdCI6IjIwMjctMDItMTdUMDA6MDA6MDBaIiwibWluVXBkYXRlclZlcnNpb24iOiIwLjIyLjAifQ==",
+        "signature": "_uNv3a-qCu71XWz6ZUI5N_7K8nSw1BEs0ObXegG1LYrasCeQEdppGTbORPq-NPf_p5s4Wssmq0991JkwRc-oAA",
+        "policy": "auto",
+        "token": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+      },
+      {
+        "t": "update.none",
+        "reason": "x"
+      },
+      {
+        "t": "update.token",
+        "version": "0.22",
+        "token": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+      },
+      {
+        "t": "update.token",
+        "version": "0.22.1",
+        "token": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+      }
+    ],
+    "update1Inbound": [
+      {
+        "t": "update.check",
+        "version": "0.22.1"
+      },
+      {
+        "t": "update.token.request"
+      },
+      {
+        "t": "update.state",
+        "phase": "installed",
+        "version": "0.22.1"
+      },
+      {
+        "t": "update.state",
+        "phase": "installing"
+      },
+      {
+        "t": "update.event",
+        "type": "installing",
+        "version": "0.22.1",
+        "fromVersion": "0.22.0",
+        "at": "2026-11-19T10:00:00Z"
+      },
+      {
+        "t": "update.event",
+        "type": "available",
+        "version": "0.22.1",
+        "fromVersion": "0.22.0",
+        "reason": "POLICY_OFF",
+        "at": "2026-11-19T10:00:00Z"
+      },
+      {
+        "t": "update.event",
+        "type": "failed",
+        "version": "0.22.1",
+        "fromVersion": "0.22.0",
+        "at": "2026-11-19T10:00:00Z"
+      },
+      {
+        "t": "update.event",
+        "type": "failed",
+        "version": "0.22.1",
+        "fromVersion": "0.22.0",
+        "reason": "POLICY_OFF",
+        "at": "2026-11-19T10:00:00Z"
+      },
+      {
+        "t": "update.event",
+        "type": "rolled_back",
+        "version": "0.22.1",
+        "fromVersion": "0.22.0",
+        "at": "2026-11-19T10:00:00Z"
+      },
+      {
+        "t": "update.event",
+        "type": "skipped",
+        "version": "0.22.1",
+        "fromVersion": "0.22.0",
+        "reason": "HEALTH",
+        "at": "2026-11-19T10:00:00Z"
+      },
+      {
+        "t": "update.event",
+        "type": "available",
+        "version": "0.22.1",
+        "fromVersion": "0.22.0",
+        "at": "2026-11-19T10:00:00Z",
+        "source": "device"
+      },
+      {
+        "t": "update.event",
+        "type": "available",
+        "version": "v0.22.1",
+        "fromVersion": "0.22.0",
+        "at": "2026-11-19T10:00:00Z"
+      },
+      {
+        "t": "update.event",
+        "type": "available",
+        "version": "0.22.1",
+        "fromVersion": "0.22.0",
+        "at": "19.11.2026"
       }
     ]
   }

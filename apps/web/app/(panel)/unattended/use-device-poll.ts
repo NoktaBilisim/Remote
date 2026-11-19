@@ -13,7 +13,7 @@ import { appendPage, devicesApiPath, mergePoll, pollLimit } from "@/lib/unattend
 export const UN_DEVICE_POLL_MS = 8_000;
 
 type More = "idle" | "busy" | "error";
-type Filter = { q: string | undefined; customerId: string | undefined; state: DeviceListState };
+type Filter = { q: string | undefined; customerId: string | undefined; state: DeviceListState; version: string | undefined };
 
 /** "Daha fazla yükle": keyset imleciyle sonraki sayfayı ekler; 401 dışı hatada `more=error`. */
 function useLoadMore(
@@ -42,7 +42,13 @@ function useLoadMore(
  * yoklanmaz). Yoklama hatasında son veri kalır ve `stale` bandı görünür (kısmi durum); sonraki başarılı yoklamada kalkar.
  * "Daha fazla yükle" keyset imleciyle ekler.
  */
-export function useDevicePoll(initial: DeviceListResponse, q: string | undefined, customerId: string | undefined, state: DeviceListState) {
+export function useDevicePoll(
+  initial: DeviceListResponse,
+  q: string | undefined,
+  customerId: string | undefined,
+  state: DeviceListState,
+  version?: string,
+) {
   const router = useRouter();
   const [data, setData] = useState(initial);
   const [stale, setStale] = useState(false);
@@ -59,7 +65,8 @@ export function useDevicePoll(initial: DeviceListResponse, q: string | undefined
     },
     [router],
   );
-  const filter = useMemo(() => ({ q, customerId, state }), [q, customerId, state]);
+  // P29: sürüm süzgeci yoklamada da korunur (aksi halde 8 sn sonra süzgeç sessizce düşerdi)
+  const filter = useMemo(() => ({ q, customerId, state, version }), [q, customerId, state, version]);
 
   const poll = useCallback(async () => {
     const limit = pollLimit(loaded.current);

@@ -1,3 +1,194 @@
+# QA Raporu — P29 Tur 2
+
+DURUM: GEÇTİ (K9 kapsamı: kod + otomatik testler). AC-480, 481, 482, 484 ve 493'ün elle doğrulanacak kısımları paket planı gereği K11'e
+(staging 0.22.0 → 0.22.1 tam tur), dokümanlar K12'ye kalır; bunlar bu turda kapanmış sayılmaz.
+
+Kapsam: `a42e6f1` (tur 1 düzeltmeleri `e029e13..a42e6f1`: format, S-P29-K-1 CI maskeleme, AC-491, AC-476 taşınabilir + AC-486
+orkestratör kararı "asgari sürüm altı → 426 → zorunlu auto", K7 kararsız test + servis AC-476 + K-2/K-3).
+
+## Test sonucu
+
+| Komut                                                                                                    | Sonuç                                                                                                                                                                                |
+| -------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `pnpm -r run lint` / `typecheck`                                                                         | temiz                                                                                                                                                                                |
+| `pnpm format:check`                                                                                      | temiz (tur 1 kırmızısı kapandı)                                                                                                                                                      |
+| `pnpm -r run test`                                                                                       | contracts 331 · web 654 · server 723 geçti / 1 atlandı (CLAMD, P29 dışı)                                                                                                             |
+| Server entegrasyon tam koşu                                                                              | 1291 testte 1289 geçti; 2 kırmızı (`p19-notify-j3` AC-261, `portal-p21-requests` AC-262) — ikisi + `update-p29` + `update-p29-panel` tek başına 55/55 geçti → yük kaynaklı, P29 dışı |
+| `playwright test p29`                                                                                    | 19 geçti, 3 atlandı (mobilde `desktopOnly`, mevcut kalıp); yeni AC-491 mobil kart testi geçti                                                                                        |
+| Go `go vet ./...`, `GOOS=windows/linux/darwin` vet + build, `GOOS=windows go test -c ./internal/servis/` | temiz                                                                                                                                                                                |
+| `gofmt -l .`                                                                                             | boş                                                                                                                                                                                  |
+| `go test -race -count=50 -run TestAC480ServiceFlow ./internal/servis/`                                   | 0 kırmızı (tur 1: 2/20)                                                                                                                                                              |
+| `go test -count=3 ./cmd/... ./internal/update/... ./internal/servis/ ./internal/servisui/`               | geçti                                                                                                                                                                                |
+| `go test ./...`                                                                                          | yalnız `internal/capture` (macOS ekran kaydı izni, P28f, bilinen) kırmızı                                                                                                            |
+
+## Tur 1 bulgularının doğrulanması
+
+| #   | Bulgu                                                  | Durum                           | Kanıt                                                                                                                                                                                                          |
+| --- | ------------------------------------------------------ | ------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1   | format:check kırmızı                                   | ✅ kapandı                      | `pnpm format:check` temiz                                                                                                                                                                                      |
+| 2   | `TestAC480ServiceFlowStagesAndLaunches` kararsız       | ✅ kapandı                      | Updater işleri `WaitGroup` altında, test cleanup'ı iptal + bekleme; `-race -count=50` 0 kırmızı                                                                                                                |
+| 3a  | Servis AC-476 testi yok                                | ✅ kapandı                      | `TestAC476CheckPublisher` (imzasız→kabul, imzalı→imzasız ret, farklı yayıncı ret, özet okunamaz ret), `TestAC476ServicePlatformSignatureRejected` (failed(PLATFORM_SIGNATURE), yeni.bin silinir, gözetmen yok) |
+| 3b  | Windows taşınabilirde K-P29-13 kapısı yok              | ✅ kapandı                      | `WindowsReplacer.PlatformSig` (nil → fail-closed ret), Commit'te yer değiştirmeden önce; `TestAC476WindowsPlatformSignatureGate`, `TestAC476PlatformSignatureFailureEvent`                                     |
+| 4   | MIN altı kayıtlı istemci hiç güncellenmiyor (K-P29-19) | ✅ kapandı (orkestratör kararı) | `cmd/noktadestek/policy.go` `mergeBindingPolicies`: 426 → `auto` (kapalı tenant'ta da); 5xx/ağ → karar yok; `TestAC485AC486MergeBindingPolicies` 8 vaka                                                        |
+| 5   | AC-491 ham anahtar görünüyor                           | ✅ kapandı                      | `audit-cells.tsx` `hidesRawAction`; e2e tablo, aria-label, ayrıntı ve mobil kartta `client.update` / `settings.client_update` yok                                                                              |
+
+## Kabul kriterleri
+
+| AC                                  | Durum                             | Not                                                                                     |
+| ----------------------------------- | --------------------------------- | --------------------------------------------------------------------------------------- |
+| 470–475, 477–479, 483, 485–490, 492 | ✅                                | Tur 1 kanıtları geçerli, regresyon yok                                                  |
+| 476                                 | ✅                                | Bulgu 3a/3b; gerçek Authenticode yolu imzalı derleme gelene kadar etkin değil (S-P29-6) |
+| 491                                 | ✅                                | Bulgu 5                                                                                 |
+| 486                                 | ✅                                | Rozet + bulgu 4                                                                         |
+| 480, 481, 482, 484                  | ✅ birim / ⏳ K11 elle            | Windows/üç platform elle doğrulama K11                                                  |
+| 493                                 | ✅ birim+entegrasyon / ⏳ K11+K12 | Staging tam tur ve dokümanlar                                                           |
+
+## Düzeltilmeli
+
+Yok (K9 kapsamında).
+
+## Definition of Done
+
+| Madde                                                         | ✅/❌ | Not                                   |
+| ------------------------------------------------------------- | ----- | ------------------------------------- |
+| AC'ler kanıtlı (otomatik)                                     | ✅    | Elle kısımlar K11                     |
+| Lint / typecheck / format                                     | ✅    |                                       |
+| Testler yeşil                                                 | ✅    | Kırmızılar P29 dışı, tek başına yeşil |
+| Migration + down, env (4 yer), audit, tenant izolasyonu, a11y | ✅    | Tur 1'den değişmedi                   |
+| Yeni bağımlılık                                               | ✅    | Yok                                   |
+| Dokümantasyon                                                 | —     | K12                                   |
+
+## Öneriler (zorunlu değil)
+
+- Taşınabilir istemci (`cmd/noktadestek`) artık Windows'ta `internal/servis` paketini içe aktarıyor (yalnız `PlatformSignature` için;
+  `init` yan etkisi yok, implementation.md'de not var). Katman temizliği için yayıncı kararı ve WinVerifyTrust bağlaması ileride
+  `internal/update` altında (ör. `platformsig_windows.go`) ortak yaprak pakete taşınabilir; servis kodunun istemci ikilisine girmesi önlenir.
+- `agent-win.yml` S-P29-K-1 maskeleme değişikliği yerelde actionlint/shellcheck ile denetlenemedi; ilk etiket/dispatch koşusunda log
+  taraması adımının çıktısı kontrol edilmeli.
+- `GET /unattended/versions` grant'la sınırlı kullanıcıya firma toplam sayılarını gösterir (tur 1 önerisi, açık).
+
+## Olumlu
+
+- Tüm tur 1 maddeleri testleriyle kapandı; kararsız test kök nedeninden (gorutin yaşam süresi) çözüldü.
+- 426 politikası saf işleve ayrılıp tablo testiyle sabitlendi; ağ/5xx için fail-closed korunuyor.
+
+---
+
+# QA Raporu — P29 Tur 1
+
+DURUM: DÜZELTİLMELİ
+
+Kapsam: dal `claude/p29-auto-update`, `bb2fa49` (origin/main..HEAD: K1–K8). Kaynaklar: `docs/gereksinimler-p29.md` (AC-470..493),
+`docs/mimari-p29.md` r2 (§14 bağlayıcı, §12 eşleme), `docs/implementation.md` P29-K2..K8. Orkestratörün kabul ettiği sapmalar
+(sürüm ≤ çalışan → sessiz None; kimlik başına olay aşımında 204; `unattended.view` yok → connect∨manage; ayrıntıda son-olay satırı yok;
+macOS yerinde değiştirme yok; "İstemciler" Ayarlar sekmesinde) bulgu sayılmadı. Dokümantasyon (kılavuz, DATASHEET, CHANGELOG, api.md)
+K12'ye kalır — yalnız not edildi.
+
+## Test sonucu
+
+| Komut                                                                                                  | Sonuç                                                                                                                                                                                                                                                    |
+| ------------------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `pnpm -r run lint`                                                                                     | temiz                                                                                                                                                                                                                                                    |
+| `pnpm -r run typecheck`                                                                                | temiz                                                                                                                                                                                                                                                    |
+| `pnpm -r run test`                                                                                     | contracts 331/331 · web 653/653 · server unit 723 geçti / 1 atlandı (`fsrv-p28b` AC-353 `skipIf(!CLAMD_TEST_HOST)`, P29 dışı, gerekçeli)                                                                                                                 |
+| `pnpm format:check`                                                                                    | **KIRMIZI** — `docs/mimari-p29.md`, `docs/implementation.md` (ikisi de P29 commit'leriyle bozuldu; origin/main'de `implementation.md` temiz)                                                                                                             |
+| Server entegrasyon (rs-p29-test 33472)                                                                 | 123 dosya / 1291 test: 1289 geçti, 2 kırmızı (`customers-p8c-api` AC-175/176/177, `requests-p8b-3` AC-142). İkisi + `update-p29` + `update-p29-panel` tek başına: **57/57 geçti** → yük kaynaklı, P29 dışı                                               |
+| `playwright test p29`                                                                                  | 17 geçti, 3 atlandı (mobil projede `desktopOnly` — 390 px/axe/audit testleri masaüstü projesinde koşuyor; mevcut kalıp)                                                                                                                                  |
+| Go `go vet ./...` (+ `GOOS=windows/linux/darwin` vet + build, `GOOS=windows go test -c` servis/update) | temiz                                                                                                                                                                                                                                                    |
+| `gofmt -l .`                                                                                           | boş                                                                                                                                                                                                                                                      |
+| Go `go test ./...` (macOS)                                                                             | `internal/capture` 5 test kırmızı (ekran kaydı izni, P28f, P29 dokunmadı — bilinen). **`internal/servis` `TestAC480ServiceFlowStagesAndLaunches` kararsız**: `-count=20` ile 2/20 kırmızı ("TempDir RemoveAll cleanup: directory not empty") — P29 testi |
+| `deploy/agent/test-publish-manifest.sh`, `deploy/ops/test-watch.sh`, `deploy/test-caddy.sh`            | GEÇTİ                                                                                                                                                                                                                                                    |
+| `deploy/mysql/check-app-grants.sh`                                                                     | koşulmadı (yığın gerektirir; yeni tablo yok, `grants.sql` yalnız yorum)                                                                                                                                                                                  |
+| actionlint / shellcheck                                                                                | bu makinede kurulu değil — koşulamadı (CI'da koşar)                                                                                                                                                                                                      |
+
+## Kabul kriterleri
+
+| AC  | Durum          | Kanıt / eksik                                                                                                                                                                                                                        |
+| --- | -------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| 470 | ✅             | `TestAC470SignVerifyRoundTrip`, `TestAC470VerifyRejects`, `TestAC470CanonicalMatchesFixedBytes`; ikili başına manifest (D-1). Gerçek etiket koşusu görülmedi (CI)                                                                    |
+| 471 | ✅             | `agent-win.yml` `update-manifest` ortam `agent-update-sign`, `UPDATE_SIGNING_ENABLED` atlama + boş secret → `produced=0`, Release manifestsiz; `TestAC471SignInputGuards` (tohum yalnız stdin). Gerçek ortam/log taraması CI'da      |
+| 472 | ✅             | `TestAC472EnvCombinations` (4 kombinasyon), `TestAC472DisabledWithoutKeys`                                                                                                                                                           |
+| 473 | ✅             | unit `P29 manifest deposu` 11 test (imza, kanonik, env, süre, SHA kapısı, açılış uyarısı); int `GET /public/agent/update` 200/204/400, 60/sa → 429, no-store/nosniff                                                                 |
+| 474 | ✅             | `TestAC474VerifyNegativeCases`, ortak fikstür `TestAC474SharedCanonicalFixtures/SignatureFixtures`, `TestAC474DownloadHashAndSize`                                                                                                   |
+| 475 | ✅             | `TestAC475ReplayBelowMaxSeen` (0.23.0 → 0.22.5 `DOWNGRADE`), `TestAC475MaxSeenInMemoryReplay`                                                                                                                                        |
+| 476 | ⚠️             | Servis: `update_sign_windows.go` var ama **hiç test yok** (`fakeUpdSys.platErr` hiçbir testte set edilmiyor). Windows taşınabilir istemcide platform imzası kapısı **yok** (yalnız macOS sapması belgeli)                            |
+| 477 | ✅             | `TestAC477DownloadSameOrigin…`, `…RejectsRedirect`, `…StopsAtSizePlusOne`; servis klasörü `TestT6PrepareUpdateDir` (Windows CI); int belirteç tek kullanım, 8 akış/503                                                               |
+| 478 | ✅             | `TestAC478ScheduleJitter`, `TestAC478StartDisabledWithoutKeysAndRunsAtLaunch`                                                                                                                                                        |
+| 479 | ✅             | int "update.state{installing} → 409 DEVICE_UPDATING, step-up tüketilmez" (`stepUpAt` korunuyor); Go `TestAC479NoInstallDuringSession`, `TestAC479InstallDeferredUntilSessionEnds`                                                    |
+| 480 | ⚠️ K11         | Birim: `TestAC480Supervisor*`, `PlanStartupTable`, `HealthTimeoutRollsBack`. AC "Windows elle" — K11'e bağlı; kararsız test (Düzeltilmeli 2)                                                                                         |
+| 481 | ⚠️ K11         | Entegrasyon `deviceId` aynı (device.auth temizliği testi); DPAPI/ACL/DisplayVersion korunumu yalnız Windows elle (K0s tablosu 11)                                                                                                    |
+| 482 | ⚠️ K11         | Go birim (Windows sıra/rollback/MOTW, Linux kip+atomik, bilgi satırı bir kez). "Üç platformda elle" K11; macOS yalnız bildir (D-6, kabul)                                                                                            |
+| 483 | ✅ (+K11 elle) | `TestAC483NotWritableAndManualOnly`, `TestAC483WindowsNotWritableAndBusy`, `TestAC483LinuxNotWritable`, `TestAC483PosixLocation`                                                                                                     |
+| 484 | ⚠️ K11         | Birim `TestAC484*`; iz testi betikleri (`trace-check.ps1 -Update`, `trace-check-linux.sh --update`) eklendi, gerçek tur K11                                                                                                          |
+| 485 | ✅             | int Ayarlar → İstemciler (varsayılan Açık, step-up'sız, audit old/new, 403'ler), politika kapalı → `update.none`/`notify` teklif, ref politikası; e2e `/settings/clients`; Go `TestAC485*`                                           |
+| 486 | ✅ (bulgulu)   | Rozet: unit "BELOW_MIN her şeyden önce", int liste, e2e "beş rozet". 426/409 yolu değişmedi. Ancak K-P29-19 ihlali: Düzeltilmeli 4                                                                                                   |
+| 487 | ✅             | Go `TestAC487QueueBoundAndDedup` (≤ 20, tekil available), `…AckOnlyOnSuccess`; int update-events + WS update.event; metrik `rs_agent_update_total`                                                                                   |
+| 488 | ✅             | int: kimliksiz audit yok, iki firmaya audit, kimlik 10/sa (204 — kabul edilen sapma), IP 30 olay + 10 istek → 429, 400 değer yansıtmaz; WS cihaz 10/sa                                                                               |
+| 489 | ✅             | int `rejected_total{source}` + `result=fail`; runbook §31 alarm notu; olay günlüğü 1010–1012 kodda (Windows elle)                                                                                                                    |
+| 490 | ✅             | int rozet+süzgeç, versions IDOR (başka firma sayılmaz), `scope=all` 403, gösterge; e2e şerit/süzgeç/5 durum/390 px/iki tema axe                                                                                                      |
+| 491 | ⚠️             | Türkçe etiketler ve süzgeç grubu e2e ile kanıtlı; ancak `audit-cells.tsx:77` her satırda ham `client.update.*` anahtarını etiketin altında basıyor ve e2e "ham anahtar görünmez"i doğrulamıyor. Orkestratörün kabul listesinde değil |
+| 492 | ✅             | unit "signed kipte servis SHA'sı listede yoksa sunulmaz + uyarı"; runbook §31 sıra                                                                                                                                                   |
+| 493 | ⚠️ K11/K12     | `TestAC493NoUpdateMessagesWithoutOffer`, `TestAC493CheckUpdateSilentOnNoContentAndOldServer`, int "update1 bildirmeyen servis update.* almaz". Staging 0.22.0 → 0.22.1 tam tur (K11) ve dokümanlar (K12) bekliyor                    |
+
+## Düzeltilmeli
+
+1. [backend-dev] `docs/mimari-p29.md:581` (hizasız tablo satırı) ve `docs/implementation.md` P29-K0s tablosu (~17218–17232) — `pnpm format:check`
+   kırmızı → `pnpm exec prettier --write docs/mimari-p29.md docs/implementation.md`; CI format adımı yeşil olmalı.
+2. [backend-dev Go] `apps/agent-win/internal/servis/update_test.go:451-483` `TestAC480ServiceFlowStagesAndLaunches` — test bitince Updater
+   gorutinleri `t.TempDir()`'e yazmaya devam ediyor (`-count=20` → 2 kırmızı: "directory not empty") → test sonunda updater durdurulmalı
+   (`t.Cleanup` ile ctx iptal + gorutin bekleme, TempDir temizliğinden önce); `go test -race -count=50 -run TestAC480ServiceFlow ./internal/servis/` 0 kırmızı.
+3. [backend-dev Go] AC-476 — (a) `internal/servis/update_test.go` `fakeUpdSys.platErr` (satır 270/299) hiçbir testte kullanılmıyor → test ekle:
+   `platErr` dolu → `failed(PLATFORM_SIGNATURE)` olayı, `yeni.bin` silinir, gözetmen başlatılmaz; nil → staging sürer. (b) Windows taşınabilir
+   istemcide (`cmd/noktadestek/updater_windows.go` / `internal/update/portable.go`) K-P29-13 kapısı yok → servisteki `platformSignature`
+   kalıbıyla aynı kapı (çalışan imzasızsa geç, imzalıysa aynı yaprak sertifika) + "imzalı→imzasız ret / imzasız→imzasız kabul" birim testi;
+   ya da yazılmama gerekçesi `implementation.md` sapmasına yazılıp orkestratör onayı alınmalı.
+4. [backend-dev Go + backend-dev] K-P29-19 / AC-486 — `apps/server/src/bindings/service.ts:62` `bindings/status` asgari sürüm altındaki
+   istemciye 426 döner; `apps/agent-win/cmd/noktadestek/updater_windows.go` `updatePolicy` (`default: return "", nil, err`) bunu "politika
+   bilinmiyor" sayar → kayıtlı Windows bilgisayar `MIN_AGENT_VERSION` altına düştüğünde **hiç güncellenmez** (P29'un çözmesi gereken durum).
+   Beklenen: 426 `CLIENT_OUTDATED` politika kararını kilitlememeli (ör. sunucu 426 zarfına firmanın `autoUpdate`'ini ekler ya da istemci
+   CLIENT_OUTDATED'de o kaydı politika için `GET /public/agent/update` yanıtındaki politikaya bırakır — "kapalı kazanır" korunarak).
+   Test: Go — BindingStatus 426 dönerken karar verilir; entegrasyon — MIN altı istemci için politika elde edilebilir.
+5. [frontend-dev] AC-491 — `apps/web/app/(panel)/audit/audit-cells.tsx:77` ham eylem anahtarını (`client.update.failed`) satırda gösteriyor;
+   AC "ham anahtar görünmez" diyor ve `e2e/p29-client-update.spec.ts:151-180` bunu doğrulamıyor. Beklenen: `client.update.*` ve
+   `settings.client_update` satırlarında ham anahtar gizlensin + e2e'ye `not.toContainText("client.update.")`; ya da proje-yöneticisi AC-491
+   metnini P11 davranışına göre düzeltsin (orkestratör kararı yazılı olmalı).
+
+## Definition of Done
+
+| Madde                                                    | ✅/❌ | Not                                                                                                                              |
+| -------------------------------------------------------- | ----- | -------------------------------------------------------------------------------------------------------------------------------- |
+| Tüm AC'ler kanıtlı                                       | ❌    | 476, 491 eksik; 480–482, 484, 493 elle kısmı K11                                                                                 |
+| Lint / typecheck temiz                                   | ✅    |                                                                                                                                  |
+| Format kontrolü                                          | ❌    | Düzeltilmeli 1                                                                                                                   |
+| Testler yeşil                                            | ❌    | Kararsız P29 Go testi (Düzeltilmeli 2); diğer kırmızılar yük/ortam kaynaklı, tek başına yeşil                                    |
+| Migration + down                                         | ✅    | `20261128000000_p29_client_update/{migration,down}.sql`; yeni tablo yok, `grants.sql` yorum                                      |
+| Yeni env → `.env.example` + `env.ts` + compose + runbook | ✅    | `UPDATE_MANIFEST_DIR/PUBKEYS`: `.env.example:63-67`, `env.ts` refine'lar + test, compose `server` 136-137, runbook §31           |
+| Audit                                                    | ✅    | `client.update.*` (device/binding), `settings.client_update` old/new; kimliksiz yazılmıyor; anahtar/belirteç audit'te yok (test) |
+| Tenant izolasyonu                                        | ✅    | versions IDOR testi, ayar firma izolasyonu, `tenant-matrix` 6 uç                                                                 |
+| Hata yutma / PII log                                     | ✅    | catch'ler loglanıyor; `*.bindingKeys` REDACT, belirteç yalnız Authorization, ref sorgu kırpılır                                  |
+| 5 durum / a11y / iki tema                                | ✅    | e2e axe 0, 390 px, iki tema; ikonlar lucide (`MonitorDown`, rozet ikonları)                                                      |
+| Yeni bağımlılık                                          | ✅    | Yok (Go stdlib + mevcut x/sys; Node `node:crypto`)                                                                               |
+| Dokümantasyon                                            | —     | K12'ye kalır (kılavuz, DATASHEET, CHANGELOG 0.22.0, api.md); runbook §31 hazır                                                   |
+
+## Öneriler (zorunlu değil)
+
+- `GET /unattended/versions` yalnız `connect` yetkili (grant'la sınırlı) kullanıcıya da firmanın tüm cihaz sayılarını döndürüyor; liste grant'la
+  sınırlıyken dağılım değil. Firma içi sayı sızıntısı (cihaz adı yok) — kabul edilecekse `implementation.md`'ye not.
+- K7'nin açık bıraktığı Düşük maddeler (süresi dolan `update.state`'in sonraki sokete yazılması, başarısız kurulumun her offer'da yeniden
+  indirilmesi, K0s madde 14) K11 öncesi kapatılmalı ya da kabul notu almalı.
+- `update-p29.test.ts` "MIN_AGENT_VERSION uygulanmaz" iddiası, uç sürüm girdisi almadığından boş geçer; K-P29-19'un anlamlı testi
+  Düzeltilmeli 4 ile birlikte yazılmalı.
+- actionlint/shellcheck yerelde kurulu değil; `agent-win.yml` (+487 satır) yalnız CI'da denetlenecek.
+
+## Olumlu
+
+- Kanonik manifest için TS + Go ortak fikstür (28 vaka) ve bağımsız imza doğrulaması; sunucu ve istemci aynı baytları kapılıyor.
+- Sunucu kapısı (imza + env + süre + SHA + signed listesi) ayrıntılı birim testli; sahte HASH_MISMATCH alarmı önleniyor.
+- Anahtar oracle'ı, değer yansıtmayan 400, belirteç tek kullanım/akış sınırı entegrasyonla kanıtlı.
+- Servis gözetmeni faz makinesi tablo testli (`TestAC480PlanStartupTable`), Windows'a özgü varsayımlar K0s tablosunda açıkça listelenmiş.
+
+---
+
 # QA Raporu — P28g Tur 2
 
 DURUM: DÜZELTİLMELİ

@@ -35,7 +35,7 @@ func readSnapshot(version string) Snapshot {
 	resp, err := servis.CallPipe(servis.CmdStatus)
 	s.Pipe = pipeResult(resp, err)
 	if s.Pipe == PipeOK {
-		s.State, s.TechName = resp.State, resp.TechName
+		s.State, s.TechName, s.ServiceVersion = resp.State, resp.TechName, resp.Version
 	}
 	return s
 }

@@ -7,6 +7,7 @@ import { UNATTENDED_AUDIT } from "@remote/contracts/audit";
 import { deviceAuthMessage, WS_DEVICE_CLOSE, type DeviceAuth } from "@remote/contracts/ws-device";
 import { writeAudit, type AuditContext } from "../audit/service.ts";
 import type { Db } from "../lib/db.ts";
+import { compareVersions } from "../lib/version.ts";
 import type { Metrics } from "../ops/metrics.ts";
 import type { UnattendedGate } from "./gate.ts";
 
@@ -32,6 +33,7 @@ const deviceSelect = {
   revokedAt: true,
   lastIp: true,
   localEnabled: true,
+  updateVersion: true,
   tenant: { select: { name: true, status: true, deletedAt: true } },
   customer: { select: { name: true } },
 } as const;
@@ -96,6 +98,10 @@ async function recordAuth(d: AuthDeps, ctx: AuditContext, dev: Dev, m: DeviceAut
         osVersion: m.osVersion,
         lastSeenAt: new Date(d.now()),
         lastIp: ctx.ip.slice(0, 45),
+        // P29 (§3.2): bildirilen sürüm hedefe ulaştıysa güncelleme durumu temizlenir (dört alan aynı UPDATE'te; CHECK birlikte NULL).
+        ...(dev.updateVersion !== null && compareVersions(m.version, dev.updateVersion) >= 0
+          ? { updateState: null, updateVersion: null, updateReason: null, updateAt: null }
+          : {}),
       },
     });
     if (r.count !== 1) return false;
@@ -119,7 +125,7 @@ export async function deviceLiveState(db: Db, deviceId: string): Promise<LiveSta
   return dev.tenant.status !== "ACTIVE" || dev.tenant.deletedAt ? "tenant_passive" : "ok";
 }
 
-type Dev = { id: string; tenantId: string; lastIp: string | null; localEnabled: boolean };
+type Dev = { id: string; tenantId: string; lastIp: string | null; localEnabled: boolean; updateVersion: string | null };
 
 /** D-P27-3: yalnız IP değiştiyse success audit'i; yerel anahtar beyanı değiştiyse `local_state`. */
 async function successAudits(tx: Parameters<typeof writeAudit>[0], ctx: AuditContext, dev: Dev, m: DeviceAuth): Promise<void> {

@@ -38,6 +38,8 @@ import { recordingSettingsRoutes } from "./settings/recording.ts";
 import { closePortalLimits, createPortalLimits } from "./portal/limits.ts";
 import { portalRoutes } from "./portal/routes.ts";
 import { portalAdminRoutes } from "./portal/admin-routes.ts";
+import { publicUpdateRoutes } from "./update/routes.ts";
+import { clientUpdateSettingsRoutes } from "./update/settings-route.ts";
 
 /** CSP / başlıklar (mimari §5.4, G-19, AC-126). connect-src WS origin'i portu içerir. */
 function helmetOptions(env: Env) {
@@ -123,6 +125,9 @@ function registerAdminRoutes(app: FastifyInstance, deps: AppDeps, uploads: Uploa
   void app.register(recPartRoutes, { prefix: "/api/v1/rec" });
   void app.register(recordingSessionRoutes, { prefix: "/api/v1/sessions" });
   void app.register(recordingSettingsRoutes, { prefix: "/api/v1/settings/recording" });
+  // P29 (mimari-p29 §4.2–4.5, §4.8): public güncelleme uçları (çerezsiz, AGENT) + Ayarlar → İstemciler.
+  void app.register(publicUpdateRoutes, { prefix: "/api/v1/public/agent" });
+  void app.register(clientUpdateSettingsRoutes, { prefix: "/api/v1/settings/client-update" });
 }
 
 /**

@@ -21,7 +21,7 @@ const useSelect = {
       logoPath: true,
       status: true,
       deletedAt: true,
-      settings: { select: { retentionDays: true } },
+      settings: { select: { retentionDays: true, clientAutoUpdate: true } },
       requestSettings: { select: { waitMinutes: true, trustedCidrs: true, waEnabled: true, waRecipients: true } },
     },
   },

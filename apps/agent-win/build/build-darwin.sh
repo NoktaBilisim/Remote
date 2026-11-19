@@ -9,6 +9,9 @@
 # D-P28f-K3 (P28f düzeltme 1): EXPECTED_TEAM_ID ortam değişkeni (10 karakter A-Z0-9; CI'da etikette vars.APPLE_TEAM_ID) verilirse
 # beklenen Apple Team ID'si TEAM_SYMBOL'e gömülür; çalışma anındaki imza Team ID'si farklıysa TEST bandı gösterilir (Go tarafı).
 # `-X` var olmayan sembolde sessizce etkisiz olduğundan derleme sonrası değerin ikilide bulunduğu denetlenir (yoksa ret).
+# P29 K6 (mimari-p29 §9.6): UPDATE_ENV=prod|staging ortam değişkeni verilirse build/update-keys/<env>.pub açık anahtarları gömülür
+# (build/update-ldflags.sh; dosya yoksa güncelleyici kapalı derlenir). Boş/verilmemiş = gömülmez (PR, yer tutucu). Gömüldüyse
+# değerin ikilide bulunduğu denetlenir (`-X` var olmayan sembolde sessizce etkisizdir).
 set -eu
 TEAM_SYMBOL=remote-support/agent-win/internal/config.expectedTeamID
 SERVER="$1"; VERSION="$2"; ARCH="$3"; OUT="${4:-bin/darwin-$ARCH/noktadestek}"; MODE="${5:-}"
@@ -36,9 +39,14 @@ if [ -n "$TEAM" ]; then
   TEAM_FLAG="-X $TEAM_SYMBOL=$TEAM"
 fi
 cd "$(dirname "$0")/.."
+UPD_FLAGS="$(sh build/update-ldflags.sh "${UPDATE_ENV:-}")"
 GOOS=darwin GOARCH="$ARCH" CGO_ENABLED=0 go build -trimpath -ldflags "-s -w -buildid= \
   -X remote-support/agent-win/internal/config.serverURL=$SERVER \
-  -X remote-support/agent-win/internal/config.version=$VERSION $TEST_FLAG $TEAM_FLAG" -o "$OUT" ./cmd/noktadestek
+  -X remote-support/agent-win/internal/config.version=$VERSION $TEST_FLAG $TEAM_FLAG $UPD_FLAGS" -o "$OUT" ./cmd/noktadestek
 if [ -n "$TEAM" ] && ! LC_ALL=C grep -aqF "$TEAM" "$OUT"; then
   echo "EXPECTED_TEAM_ID ikiliye gömülmedi: $TEAM_SYMBOL Go kaynağında yok (D-P28f-K3)" >&2; rm -f "$OUT"; exit 2
+fi
+if [ -n "$UPD_FLAGS" ]; then
+  UPD_KEYS="${UPD_FLAGS##*updateKeys=}"
+  LC_ALL=C grep -aqF "$UPD_KEYS" "$OUT" || { echo "güncelleme anahtarı ikiliye gömülmedi: config.updateKeys Go kaynağında yok (P29 K3)" >&2; rm -f "$OUT"; exit 2; }
 fi

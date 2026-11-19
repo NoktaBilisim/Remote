@@ -4,6 +4,7 @@ package main
 
 import (
 	"context"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -85,6 +86,10 @@ func (a *app) scope(u *ui.UI, client *api.Client) tray.Scope {
 		},
 		Reset: u.ResetScope,
 		Run: func(ctx context.Context, first bool, gate *control.Gate, hotkey string, active func()) flow.Outcome {
+			// P29 K8 (AC-479): pencere kapsamı sürerken kurulum yok; kapsam bitince bekleyen sürüm kurulur (son ekrandan önce).
+			a.upd.Begin()
+			defer a.upd.End()
+			a.beginUpdates()
 			ld := a.launchDeps(client, u, opener, gate, hotkey, active)
 			ld.Diag = a.writeDiag
 			ld.Startup, firstStartup = firstStartup, nil // göç bilgileri yalnız ilk ana ekranda
@@ -95,8 +100,10 @@ func (a *app) scope(u *ui.UI, client *api.Client) tray.Scope {
 			return launch.Run(ctx, ld)
 		},
 		Ended: func(out flow.Outcome) {
-			if out.BindingChanged != "" {
-				u.EndedNote(out.BindingChanged) // AC-187: keeper tam cümle üretir
+			// AC-187: keeper tam cümle üretir; P29 AC-482/483: bekleyen güncelleme bilgisi (bir kez) aynı satırda.
+			note := strings.TrimSpace(out.BindingChanged + " " + a.upd.Notice())
+			if note != "" {
+				u.EndedNote(note)
 			}
 			u.Ended(out.Message)
 		},
@@ -145,6 +152,7 @@ func (a *app) launchDeps(client *api.Client, u *ui.UI, opener capture.Opener, ga
 	if a.store != nil {
 		ld.Store = a.store
 	}
+	ld.UpdateNotice = a.upd.Notice // P29: ana ekran bilgi satırı (AC-482/483)
 	return ld
 }
 

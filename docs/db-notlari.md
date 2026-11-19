@@ -1873,3 +1873,77 @@ olmadığından indeks kurulumu yalnız talep satırlarını tarar (NULL önekli
   gönderen/oturum/NULL kimlik serbest; talep satırları (P18 UQ) etkilenmedi; tetikleyici 23; app DROP INDEX reddi; EXPLAIN'ler.
 - `test:int` 115 dosya / 1173 test: 1172 geçti; `customers-csv-p19` AC-263 performans ölçümü (31,3 sn > 30 sn) tam koşu yükünde
   aştı, tek başına 12/12 geçti (P22 ile ilgisiz; yerel yük).
+
+## P29 — istemci otomatik güncelleme: firma politikası ve cihaz güncelleme durumu (K1, 2026-11-19)
+
+Migration `apps/server/prisma/migrations/20261128000000_p29_client_update/{migration,down}.sql` (mimari-p29 §3.1–3.3, §9.5, §11 K1;
+AC-485, 490; K-P29-7/18). Veri taşıma yok; yeni tablo/tetikleyici/indeks yok (tetikleyici 23 kalır, audit-continuity özeti
+değişmez). Seed değişmedi (politika varsayılan TRUE; `update_*` NULL = "olay yok").
+
+### Şema
+
+| Değişiklik                           | Ayrıntı                                                                                                                                          |
+| ------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `tenant_settings.client_auto_update` | BOOLEAN NOT NULL DEFAULT TRUE (mevcut firmalar TRUE — AC-485 varsayılan Açık). Prisma `clientAutoUpdate`                                         |
+| `unattended_devices.update_state`    | VARCHAR(12) NULL; `update_state_chk` ikili enum AVAILABLE / INSTALLING / FAILED / ROLLED_BACK / SKIPPED (ADR-0014)                               |
+| `unattended_devices.update_version`  | VARCHAR(20) NULL; `update_version_chk` = `agent_version_chk` ile birebir (`^[0-9]{1,3}[.][0-9]{1,3}[.][0-9]{1,3}\z`, 'c')                        |
+| `unattended_devices.update_reason`   | VARCHAR(24) NULL; `update_reason_chk`: state ∈ {FAILED, ROLLED_BACK, SKIPPED} ⇔ dolu; değer ikili enum UPDATE_FAIL_REASONS ∪ UPDATE_SKIP_REASONS |
+| `unattended_devices.update_at`       | DATETIME(3) NULL (sunucu saati)                                                                                                                  |
+| `unattended_devices_update_set_chk`  | state, version, update_at birlikte dolu / birlikte NULL                                                                                          |
+
+Enum/lookup: `update_state` ve `update_reason` ikili CHECK (sabit, kodda tek kaynak contracts `api/update.ts`; lookup gereksiz).
+İkili enum CHECK sayısı 80 → 82 (`session-history-p8` meta-testi güncellendi; information_schema'dan ölçüldü).
+
+Sapmalar (mimari §3'e göre; mimari doküman K1'de düzenlenmedi — mimar r2'de işlesin):
+
+1. **`update_set_chk` (ek CHECK):** §3.2 yazma kuralı "dört alan birlikte yazılır / NULL'a çekilir" DB'de zorunlu kılındı (reason
+   kendi CHECK'iyle state'e bağlı). Yarım yazım (ör. yalnız `update_version`) 3819 verir.
+2. **`update_reason_chk` değer kümesi birleşim:** mimari "§4.1 enum" diyor; DB FAIL ∪ SKIP (12 değer) tutar, durum sınıfı eşlemesi
+   (FAILED/ROLLED_BACK → FAIL, SKIPPED → SKIP) zod refine'ında kalır. **K2:** `UPDATE_FAIL_REASONS`/`UPDATE_SKIP_REASONS`'a değer
+   eklenirse bu CHECK'e de ileri migration gerekir (yoksa 3819). Liste: DOWNLOAD, HASH_MISMATCH, MANIFEST_SIGNATURE,
+   PLATFORM_SIGNATURE, DOWNGRADE, EXPIRED, ENV_MISMATCH, INSTALL, HEALTH, POLICY_OFF, NOT_WRITABLE, MANUAL_ONLY.
+3. **down.sql guard'lı:** §3.3 "ön denetimsiz" diyor; ama `client_auto_update = 0` firma kararıdır ve türetilemez — down + yeniden
+   up sütunu DEFAULT TRUE ile döndürür, güncelleme o firmalarda sessizce açılırdı. Kapalı firma varsa `p29_down_guard_chk` 3819.
+4. **Kilit:** §3 "INSTANT/INPLACE ADD COLUMN, kilit yok" — `tenant_settings` için doğru (INSTANT). `unattended_devices`'ta CHECK
+   eklemek INPLACE desteklemez (test DB'de `ALGORITHM=INPLACE` → 1845) → **tek COPY ALTER** (aşağıda).
+
+### Yazım noktaları (K4 için)
+
+- Olay (`available/failed/rolled_back/skipped`) ve WS `update.state{installing}`: dört alan tek UPDATE'te
+  `WHERE id=? AND tenant_id=? AND revoked_at IS NULL` (PK araması; tenant/revoked yalnız süzgeç). `installing` / `available` için
+  `update_reason = NULL` yazılmalı (önceki FAILED'den kalan neden 3819 verir).
+- `device.auth` yeni `agent_version ≥ update_version` ya da `installed` olayı: dört alan NULL (tek UPDATE).
+- `available` tekilleştirme: `update_state='AVAILABLE' AND update_version=?` koşulu aynı satırda — ek indeks gerekmez.
+- `client_auto_update`: `PUT /settings/client-update` tek UPDATE (`tenant_id` PK) + audit `settings.client_update` aynı TX.
+- Yetki: yeni GRANT yok — tablo düzeyi SELECT/UPDATE (P1 tenant_settings, P27 unattended_devices); `grants.sql`'e not eklendi.
+
+### Sorgu desenleri
+
+Yeni indeks yok (§3.2): firma dağılımı `GROUP BY agent_version` `IX(tenant_id, revoked_at, name)` önekiyle (tenant başına ≤ birkaç
+yüz satır); Super Admin "tüm firmalar" tam tarama (tablo küçük, 60 sn önbellek). Rozet türetimi satır başına sütun okuması (liste
+zaten tenant + sayfalı). Tablo binlerce cihaza büyür ve "tüm firmalar" yavaşlarsa `IX(agent_version)` ayrı migration.
+
+### Kilit ve bakım penceresi
+
+`tenant_settings`: `ADD COLUMN … DEFAULT TRUE, ALGORITHM=INSTANT` (meta veri). `unattended_devices`: 4 ADD COLUMN + 4 CHECK → **tek COPY
+ALTER** (kısıtsız ara an yok); tablo yeniden yazılır, süresince `device.auth`/`last_seen_at` UPDATE'i ve kayıt INSERT'i bekler.
+Tablo küçük (gözetimsiz cihaz sayısı; deploy öncesi `SELECT COUNT(*) FROM unattended_devices`) → süre ms mertebesi, pencere
+gerekmez. İleri ön kontrol gerekmez (yeni sütunlar NULL).
+
+### Geri alma
+
+Asıl yol önceki server/web imajı (yeni sütunlar okunmaz). Şema geri alınacaksa: P29 kodu geri → `down.sql` (migrator, `prisma db
+execute`). Guard: otomatik güncellemesi kapalı firma varsa hiçbir şey değişmeden 3819 — listeyi kaydedip (karar kaydıyla) 1'e çekin,
+yeniden up sonrası 0'a döndürün. Kalıcı kayıp (bilinçli): `update_*` (yalnız rozet durumu; ilk olay/device.auth ile yeniden oluşur,
+olay kopyası audit'te 730 g).
+
+### Test (2026-11-19, geçici `rs-p29-test`:33472, mysql 8.4.13 — backend K4 için AÇIK bırakıldı)
+
+- Temiz up (P21 dahil tüm migration'lar + P29) OK; `migrate diff --exit-code` "No difference".
+- `check-app-grants.sh` **955/955 PASS** (+26 P29: politika varsayılanı TRUE + app UPDATE, `update_*` NULL, yaşam döngüsü
+  available → installing → failed → rolled_back → skipped → temizlik, ikili enum varyantları (state, reason), neden ⇔ durum
+  (NULL-güvenli), dört alan birlikte, sürüm biçimi `-beta` / sonda `\n` / 4 hane).
+- down: kapalı politikalı firma varken 3819, şema ve migration kaydı değişmedi; temizledikten sonra down → HEAD şemasına diff 0,
+  `%update%` CHECK 0, ikili CHECK 80, kayıt silindi; yeniden up → diff 0, 4 CHECK.
+- `pnpm db:generate`, server typecheck temiz. Entegrasyon 21 dosya / 141 test geçti (session-history-p8, db-grants,
+  tenant-purge-meta-p16, users-delete-p16, tenants-p9, unattended-* 16 dosya).

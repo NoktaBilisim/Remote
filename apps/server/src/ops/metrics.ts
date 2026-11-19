@@ -19,6 +19,8 @@ export class Metrics {
   /** Sayı ya da etiket değeri → sayı (`""` anahtarı etiketsiz seri; P8b `rs_ws_connections{role}`). */
   private readonly gauges = new Map<string, () => number | Record<string, number>>();
   private readonly help = new Map<string, string>();
+  /** P29: çok etiketli gösterge serileri (`{component,platform}`, `{version}`); okuma senkron, kaynak önbellek. */
+  private readonly labeledGauges = new Map<string, () => readonly { labels: Labels; value: number }[]>();
   /** Etiketsiz histogram: sınırlar, kova sayaçları (kümülatif değil), toplam, sayı. */
   private readonly histograms = new Map<string, { le: readonly number[]; counts: number[]; sum: number; count: number }>();
 
@@ -47,12 +49,16 @@ export class Metrics {
     this.gauges.set(name, read);
   }
 
+  /** P29: etiket kümesi serbest gösterge (etiket değerleri çağıranda enum/sınırlı olmalı). */
+  labeledGauge(name: string, help: string, read: () => readonly { labels: Labels; value: number }[]): void {
+    this.help.set(name, help);
+    this.labeledGauges.set(name, read);
+  }
+
   inc(name: string, labels: Labels = {}, by = 1): void {
     const series = this.counters.get(name);
     if (!series) return;
-    const key = Object.entries(labels)
-      .map(([k, v]) => `${k}="${v.replace(/["\\\n]/g, "_")}"`)
-      .join(",");
+    const key = labelKey(labels);
     series.set(key, (series.get(key) ?? 0) + by);
   }
 
@@ -78,8 +84,21 @@ export class Metrics {
       if (typeof v === "number") out.push(`${name} ${v}`);
       else for (const [role, n] of Object.entries(v)) out.push(role === "" ? `${name} ${n}` : `${name}{role="${role}"} ${n}`);
     }
+    for (const [name, read] of this.labeledGauges) {
+      out.push(`# HELP ${name} ${this.help.get(name) ?? ""}`, `# TYPE ${name} gauge`);
+      for (const { labels, value } of read()) {
+        const key = labelKey(labels);
+        out.push(`${name}${key ? `{${key}}` : ""} ${value}`);
+      }
+    }
     return `${out.join("\n")}\n`;
   }
+}
+
+function labelKey(labels: Labels): string {
+  return Object.entries(labels)
+    .map(([k, v]) => `${k}="${v.replace(/["\\\n]/g, "_")}"`)
+    .join(",");
 }
 
 export function createMetrics(): Metrics {
@@ -159,7 +178,7 @@ export function createMetrics(): Metrics {
   // P27 (mimari-p27 §7.3): gözetimsiz erişim sayaçları (tenant etiketi yok). Çevrimiçi göstergesi hub ile (K3) kaydedilir.
   m.counter(
     "rs_unattended_connect_total",
-    "Gözetimsiz bağlantı istekleri (mode: ask — r3 tek kip; result: ok|forbidden|not_found|step_up|local_disabled|no_contact|no_channel|unsigned|offline|outdated|busy|limit)",
+    "Gözetimsiz bağlantı istekleri (mode: ask — r3 tek kip; result: ok|forbidden|not_found|step_up|local_disabled|no_contact|no_channel|unsigned|updating|offline|outdated|busy|limit)",
   );
   m.counter("rs_unattended_device_auth_total", "Cihaz kimlik doğrulamaları (result; unauth_cap dahil)");
   m.counter("rs_unattended_register_total", "Cihaz kayıt denemeleri (result: ok|invalid_code|cap|disabled|rate)");
@@ -197,6 +216,17 @@ export function createMetrics(): Metrics {
   m.counter("rs_session_chat_reads_total", "Oturum geçmişinden sohbet okumaları (GET /sessions/:id/chat)");
   m.histogram("rs_session_chat_store_seconds", "Oturum sohbeti INSERT süresi (sn)", SESSION_CHAT_STORE_BUCKETS);
   m.counter("rs_ws_tech_outdated_total", "rs.cap.schat1 bildirmediği için 4426 ile kapatılan /ws/tech soketleri (eski konsol)");
+  // P29 (mimari-p29 §9.4, r2 §14.4; tenant etiketi yok, etiketler yalnız enum). Alarm: rejected{source="device"} >= 1.
+  m.counter(
+    "rs_agent_update_total",
+    "İstemci güncelleme olayları (P29; platform, component, result: available|installed|failed|rolled_back|skipped|installing|rate_limited, source: device|binding|anonymous)",
+  );
+  m.counter("rs_agent_update_rejected_total", "Güvenlik nedenli güncelleme retleri (P29 AC-489; reason, source)");
+  m.counter("rs_agent_update_check_total", "Güncelleme denetimleri (P29; platform, component, result: offer|none|rate_limited|invalid)");
+  m.counter(
+    "rs_agent_update_download_total",
+    "Servis güncelleme dosyası indirmeleri (P29; component, result: ok|not_found|not_ready|busy|rate_limited)",
+  );
   return m;
 }
 

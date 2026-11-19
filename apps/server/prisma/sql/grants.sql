@@ -187,3 +187,7 @@ GRANT UPDATE (full_name, temp_password_expires_at, password_hash, must_change_pa
 GRANT SELECT, INSERT, DELETE ON portal_sessions TO 'app'@'%';
 REVOKE IF EXISTS UPDATE, ALTER, DROP, INDEX, TRIGGER, REFERENCES ON portal_sessions FROM 'app'@'%';
 GRANT UPDATE (last_seen_at, revoked_at, updated_at) ON portal_sessions TO 'app'@'%';
+
+-- P29 (mimari-p29 §3; AC-485, 490): yeni tablo YOK, yeni GRANT YOK. tenant_settings.client_auto_update (PUT
+-- /settings/client-update) ve unattended_devices.update_state/update_version/update_reason/update_at (olay işleme, device.auth
+-- temizliği) mevcut tablo düzeyi SELECT/UPDATE ile yazılır (P1 / P27); kurallar CHECK'te (check-app-grants.sh "P29").

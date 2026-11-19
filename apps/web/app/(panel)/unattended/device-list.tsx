@@ -16,7 +16,7 @@ import { DeviceRows } from "./device-rows";
 import { useConnect } from "./use-connect";
 import { useDevicePoll } from "./use-device-poll";
 
-const filtered = (p: DeviceListParams) => Boolean(p.q || p.customerId || p.state !== "all");
+const filtered = (p: DeviceListParams) => Boolean(p.q || p.customerId || p.state !== "all" || p.version);
 
 /** Boş durum: filtre varsa "uyan cihaz yok" + temizle; yoksa yönetici "kayıt kodu oluşturun", teknisyen "yetki yok". */
 function Empty({ params, manage, createBlock }: { params: DeviceListParams; manage: boolean; createBlock: string | null }) {
@@ -72,7 +72,7 @@ export function DeviceList({
   manage: boolean;
   createBlock: string | null;
 }): ReactNode {
-  const { data, stale, more, poll, loadMore } = useDevicePoll(initial, params.q, params.customerId, params.state);
+  const { data, stale, more, poll, loadMore } = useDevicePoll(initial, params.q, params.customerId, params.state, params.version);
   const flow = useConnect(() => void poll());
   const openConnect = (id: string) => {
     const d = data.items.find((x) => x.id === id);

@@ -446,3 +446,39 @@ Kayıt **oturum yetkisi vermez**: `bindingKey` subprotocol'de (`rs.ticket.*`, `r
 
 İstemci: `multi` yoksa `previousKey` göndermez (başka firma kaydı `REPLACED` olmasın); 5 kayıt doluysa ve `multi` yoksa istek
 göndermez. `previousKeys` loglanmaz (`REDACT_PATHS`). Talep sohbeti için 0.12.0 istemci §5.4'ü (`rs.cap.chat1`) uygular.
+
+## 7. P29 eki — `/ws/device` güncelleme mesajları (2026-11-19; mimari-p29 r2 §4.3, §5.3; ADR-0040; AC-479, 485, 487, 488, 493)
+
+Bu bölüm yalnız ekler; `/ws/device` zarfı (`"v":1`), `device.auth` ve P27/P28u mesajları aynen geçerlidir. Sözleşme
+`packages/contracts/src/ws-device.ts` (`deviceUpdateOutboundSchema`, `deviceUpdateInboundSchema`) + `api/update.ts`
+(`updateOfferSchema`, `UPDATE_EVENT_SHAPE`, `UPDATE_LIMITS`), fikstür `fixtures/ws-device.json` `update1*`, sunucu
+`apps/server/src/update/device-update.ts`, Go eşi `apps/agent-win/internal/servis/update_wire.go`. Uç ayrıntısı
+`docs/api.md` "İstemci otomatik güncelleme (P29, 0.22.0)".
+
+- **Yetenek:** alt protokol belirteci `rs.cap.update1` → `DeviceFeature "update1"`. `DEVICE_ANNOUNCED_FEATURES`'e
+  **eklenmez** (0.15–0.21 Go `validFeatures` katı); sunucunun P29 desteğini `update.offer` / `update.none`'ın kendisi
+  duyurur. Mesajlar `deviceInboundSchema`'ya değil ayrı `update1` birliklerine girer (consent1/record1 kalıbı).
+- **Eski sunucu kuralı:** servis C→S `update.*` mesajlarını yalnız o bağlantıda `update.offer` ya da `update.none`
+  aldıktan sonra yazar; almadıysa güncelleme kapalıdır ve olaylar `durum.json` kuyruğunda (≤ 20) bekler. Sunucu `update.*`
+  mesajlarını yalnız `hub.has(id, "update1")` iken gönderir/kabul eder; eski servis hiç görmez.
+
+| Yön | `t`                    | Alanlar                                                                    | Kural                                                                                                                                                                                        |
+| --- | ---------------------- | -------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| S→C | `update.offer`         | `manifest` (b64 ham bayt), `signature` (b64url 86), `policy: auto\|notify` | **Belirteçsiz.** `device.ready` sonrası (teklif `s.conn` atandıktan sonra), `update.check` yanıtı ve firma politikası değişince (`PUT /settings/client-update`). Manifest değişince itme yok |
+| S→C | `update.none`          | —                                                                          | Sunulabilir servis manifesti yok (imza/env/süre/SHA/`signed` listesi kapısı)                                                                                                                 |
+| S→C | `update.token`         | `version`, `token` (b64url 32 bayt)                                        | Yalnız `update.token.request` yanıtı; `policy=auto` ∧ `version` = sunulabilir sürüm > cihaz sürümü; aksi `update.none`. Tek kullanım, 10 dk, cihaz başına 1                                  |
+| C→S | `update.check`         | —                                                                          | 24 sa ± 2 sa; cihaz başına 4/sa (fazlası yok sayılır)                                                                                                                                        |
+| C→S | `update.token.request` | `version`                                                                  | Teklif `update.Verify` ile doğrulandıktan sonra 0–120 dk rastgele gecikme; 4/sa                                                                                                              |
+| C→S | `update.state`         | `phase: "installing"`, `version`                                           | "Güncelleniyor"un tek kanalı: hub `markUpdating(id, 180 sn)` + DB `INSTALLING` + metrik; audit yok; 4/sa. Bayrak yalnız TTL ile düşer                                                        |
+| C→S | `update.event`         | `type`, `version`, `fromVersion`, `reason?`, `at`                          | `updateEventSchema` alanları düz; audit `client.update.*` (`source:"device"`, `username:"device"`) + `unattended_devices.update_*`; 10/sa                                                    |
+
+- **İndirme:** servis ikiliyi WS'den değil `GET /api/v1/public/agent/update/service-file` + `Authorization: Bearer <token>`
+  ile alır (sorgu dizesi kabul edilmez).
+- **Kurulum kapısı:** servis `update.state{installing}` gönderir, 2 sn bekler; bu sürede `connect` gelirse kurulumu iptal
+  edip bağlantıyı kabul eder. "Kuruluyor" aşamasında gelen `connect` → `connect.result{ok:false, reason:"busy"}`. Sunucu
+  bayrak süresince `POST /unattended/devices/:id/connect`'i çevrimiçi denetiminden önce 409 `DEVICE_UPDATING` ile reddeder
+  (step-up tüketilmez).
+- **Tamamlama:** yeni servis `device.auth`'ta yeni `version`'ı bildirir; sunucu `agent_version ≥ update_version` ise dört
+  `update_*` sütununu aynı UPDATE'te NULL'a çeker. `installed` olayını yeni servis, `rolled_back(HEALTH)` olayını gözetmen
+  `durum.json` kuyruğuna yazar; hangi sürüm ayaktaysa o gönderir.
+- Mesaj boyutu mevcut 4 KiB sınırında (manifest ≤ 2 KiB → base64 ≤ 2.732 karakter).

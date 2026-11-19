@@ -14,6 +14,7 @@ import {
   deviceAuthSchema,
   deviceConsentInboundSchema,
   deviceInboundSchema,
+  deviceUpdateInboundSchema,
   WS_DEVICE_CLOSE,
   WS_DEVICE_MAX_PAYLOAD,
   WS_DEVICE_PROTOCOL_VERSION,
@@ -23,6 +24,7 @@ import {
   type DeviceRecordOutbound,
   type DeviceFeature,
   type DeviceOutbound,
+  type DeviceUpdateOutbound,
 } from "@remote/contracts/ws-device";
 import type { FastifyInstance } from "fastify";
 import { WebSocket, WebSocketServer } from "ws";
@@ -35,6 +37,7 @@ import { TokenBucket } from "../signaling/handlers.ts";
 import type { DeviceChannel } from "../signaling/ws.ts";
 import { authenticateDevice, deviceLiveState, type AuthDeps } from "./device-auth.ts";
 import { onDeviceMessage } from "./device-msg.ts";
+import { announceUpdate, onDeviceUpdateMessage } from "../update/device-update.ts";
 import { createGate } from "./gate.ts";
 import type { DeviceConn, DeviceHub } from "./hub.ts";
 
@@ -54,7 +57,7 @@ interface Ctx {
   beforeAttach?: ((deviceId: string) => Promise<void>) | undefined;
 }
 
-type Peer = ReturnType<typeof jsonPeer<DeviceOutbound | DeviceConsentOutbound | DeviceRecordOutbound>>;
+type Peer = ReturnType<typeof jsonPeer<DeviceOutbound | DeviceConsentOutbound | DeviceRecordOutbound | DeviceUpdateOutbound>>;
 
 /** Soket başına kimlik durumu (open ↔ beginAuth). */
 interface SockState {
@@ -127,7 +130,7 @@ function upgrade(c: Ctx, req: IncomingMessage, socket: Duplex, head: Buffer, ip:
 }
 
 function open(c: Ctx, ws: WebSocket, ctx: AuditContext, release: () => void, caps: ReadonlySet<DeviceFeature>): void {
-  const peer = jsonPeer<DeviceOutbound | DeviceConsentOutbound | DeviceRecordOutbound>(ws);
+  const peer = jsonPeer<DeviceOutbound | DeviceConsentOutbound | DeviceRecordOutbound | DeviceUpdateOutbound>(ws);
   const nonce = randomBytes(32).toString("base64url");
   const bucket = new TokenBucket(c.app.rooms.clock, WS_DEVICE_RATE_PER_SEC);
   const s: SockState = { conn: undefined, authing: false, caps };
@@ -140,6 +143,14 @@ function open(c: Ctx, ws: WebSocket, ctx: AuditContext, release: () => void, cap
     if (isBinary || !bucket.take()) return ws.close(1008, isBinary ? "binary" : "rate");
     const json = parseJson(data);
     if (!s.conn) return beginAuth(c, ws, peer, { ctx, nonce, json, s, release });
+    // P29 (§4.3): `update.*` yalnız `update1` sokette (eski servise/sokete yeni tür açılmaz; değilse aşağıdaki 1008 akışı).
+    const upd = s.conn.caps.has("update1") ? deviceUpdateInboundSchema.safeParse(json) : undefined;
+    if (upd?.success) {
+      void onDeviceUpdateMessage({ updates: c.app.updates, hub: c.hub }, s.conn, ctx, upd.data).catch((err: unknown) =>
+        c.app.log.error({ err, t: upd.data.t }, "cihaz güncelleme mesajı işlenemedi"),
+      );
+      return;
+    }
     // K2 devir: önce taban şema; `consent1` sokette olmazsa P28u birliği (belirteçsizde denenmez → 1008).
     const base = deviceInboundSchema.safeParse(json);
     const m = base.success ? base : s.conn.caps.has("consent1") ? deviceConsentInboundSchema.safeParse(json) : base;
@@ -169,7 +180,13 @@ function beginAuth(
   void authenticate(c, ws, peer, a.ctx, a.nonce, m.data, a.s.caps)
     .then((ok) => {
       a.s.conn = ok;
-      if (ok) a.release();
+      if (!ok) return;
+      a.release();
+      // P29 (§4.3, AC-493): `update1` sokete her zaman `update.offer` | `update.none` (manifest yokken de). `s.conn` atandıktan
+      // SONRA gönderilir: servis teklifi alır almaz `update.check` yollayabilir, o mesaj kimlikli sokette işlenmelidir.
+      void announceUpdate({ updates: c.app.updates, hub: c.hub }, ok).catch((err: unknown) =>
+        c.app.log.error({ err }, "güncelleme teklifi gönderilemedi"),
+      );
     })
     .catch((err: unknown) => {
       c.app.log.error({ err }, "cihaz kimlik doğrulaması başarısız");
@@ -202,7 +219,15 @@ async function authenticate(
     ws.close(out.code, out.reason);
     return undefined;
   }
-  const conn: DeviceConn = { deviceId: m.deviceId, tenantId: out.tenantId, ip: ctx.ip, send: peer.send, close: peer.close, caps };
+  const conn: DeviceConn = {
+    deviceId: m.deviceId,
+    tenantId: out.tenantId,
+    ip: ctx.ip,
+    send: peer.send,
+    close: peer.close,
+    caps,
+    version: m.version,
+  };
   if (!(await confirmAttached(c, ws, peer, conn))) return undefined;
   peer.send({ t: "device.ready", tenantName: out.tenantName.slice(0, 120), customerName: out.customerName.slice(0, 120) });
   // P28u §6.1: `device.ready` değişmez; yalnız belirteci bildiren sokete hemen ardından `device.features`. S-P28u-r3-5 / r3.3:

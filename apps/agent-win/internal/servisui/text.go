@@ -51,6 +51,15 @@ type Snapshot struct {
 	InstalledVersion string
 	SelfVersion      string
 	SelfIsInstalled  bool
+	// ServiceVersion P29 (K-P29-21): boru `status` yanıtındaki çalışan servis sürümü (eski servis: boş).
+	ServiceVersion string
+}
+
+// TrayRestart K-P29-21: tepsi kendi sürümünden farklı bir servisle konuşuyorsa ve kurulu sürüm (DisplayVersion,
+// yeni servis öz-onarımla yazar) servisle aynıysa kurulu yoldan yeniden başlamalı. Eski servis (sürüm yok) → hayır.
+func TrayRestart(s Snapshot) bool {
+	return s.Pipe == PipeOK && s.ServiceVersion != "" && s.ServiceVersion != s.SelfVersion &&
+		s.InstalledVersion == s.ServiceVersion
 }
 
 // Action birincil düğmenin eylemi.

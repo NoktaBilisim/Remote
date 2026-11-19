@@ -13,7 +13,12 @@ func BundleCode() string { return CodeFromBundlePath(BundlePath()) }
 
 // BundlePath çalışan bundle'ın özgün yolu ("" okunamazsa).
 func BundlePath() string {
-	var path string
+	p, _ := BundleLocation()
+	return p
+}
+
+// BundleLocation özgün yol ve App Translocation altında çalışılıp çalışılmadığı (P29 K8: translocation → NOT_WRITABLE).
+func BundleLocation() (path string, translocated bool) {
 	objc.Pool(func() {
 		b, err := objc.GetClass("NSBundle")
 		if err != nil {
@@ -22,10 +27,10 @@ func BundlePath() string {
 		p, _ := objc.GoString(objc.ID(b).Send(objc.Sel("mainBundle")).Send(objc.Sel("bundlePath")))
 		path = p
 		if orig := originalPath(p); orig != "" {
-			path = orig
+			path, translocated = orig, true
 		}
 	})
-	return path
+	return path, translocated
 }
 
 func originalPath(p string) string {

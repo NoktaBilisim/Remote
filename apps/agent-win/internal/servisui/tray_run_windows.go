@@ -34,7 +34,13 @@ func runTray(version string) int {
 	if !ok {
 		return 0 // aynı kullanıcının tepsisi zaten çalışıyor
 	}
-	defer func() { _ = windows.CloseHandle(lock) }()
+	restart := false
+	defer func() {
+		_ = windows.CloseHandle(lock)
+		if restart { // K-P29-21: tek örnek kilidi bırakıldıktan SONRA kurulu yoldan yeni tepsi
+			startTray()
+		}
+	}()
 	last := Merge(Snapshot{}, readSnapshot(version))
 	ic, err := startIcon(ui.SystemLogo(), Compute(last))
 	if err != nil {
@@ -57,6 +63,10 @@ func runTray(version string) int {
 			settings = trayCommand(c, settings, version)
 		}
 		last = Merge(last, readSnapshot(version))
+		if TrayRestart(last) {
+			restart = true
+			break
+		}
 	}
 	if settings != nil {
 		settings.p.Close()

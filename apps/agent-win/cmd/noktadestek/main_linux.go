@@ -27,6 +27,7 @@ import (
 	"remote-support/agent-win/internal/launch"
 	"remote-support/agent-win/internal/linux/glib"
 	"remote-support/agent-win/internal/ui/gtk"
+	"remote-support/agent-win/internal/update"
 )
 
 // GTK yalnız ana iş parçacığında çalışır: main goroutine'i init'te ana iş parçacığına kilitlenir (§2).
@@ -65,16 +66,23 @@ func run() int {
 	if err != nil {
 		return exitConfig
 	}
-	_, fp, err := identity()
+	exe, fp, err := identity()
 	if err != nil {
 		return exitIdentity
 	}
+	rep := update.LinuxReplacer{Exe: exe}
+	rep.CleanupPrevious() // AC-484: çökmüş önceki sürecin geçici dosyaları
+	client := api.New(cfg.ServerURL, cfg.Version)
+	upd := newUpdater(cfg, client, rep, "", nil, nil)
 	uid, runtimeDir := os.Getuid(), os.Getenv("XDG_RUNTIME_DIR")
 	priv, err := privateDir(runtimeDir, uid)
 	if err != nil {
 		return exitHarden
 	}
-	cleanup := func() { _ = os.RemoveAll(priv) }
+	cleanup := func() {
+		upd.Abort() // sinyal yolu (os.Exit): indirme geçici dosyası da silinir
+		_ = os.RemoveAll(priv)
+	}
 	defer cleanup()
 	applyEnv(priv, runtimeDir, uid)
 	if sessionKind(os.Getenv) == "x11" {
@@ -90,12 +98,19 @@ func run() int {
 	if err != nil {
 		return exitUI
 	}
-	d := flowDeps(cfg, fp, api.New(cfg.ServerURL, cfg.Version), u, events, gate)
+	d := flowDeps(cfg, fp, client, u, events, gate)
 	// GTK ana iş parçacığında (init'te kilitli), akış ayrı goroutine'de (darwin kalıbı); kapanış glib.Post ile.
+	// P29 K8: süreç ömrü tek kapsamdır (Begin); kurulum akış bitince, son ekrandan önce (K-P29-11: çıkıştan hemen önce).
+	upd.Begin()
+	upd.Start(context.Background())
 	go func() {
 		out := flow.Run(context.Background(), d, launch.ExeCode())
-		u.Ended(out.Message)
+		upd.End()
+		u.Ended(withUpdateNotice(out.Message, upd))
+		closed := make(chan struct{})
+		go func() { upd.Close(updateCloseTimeout); close(closed) }()
 		time.Sleep(closeDelay)
+		<-closed
 		u.Quit()
 	}()
 	u.Run()

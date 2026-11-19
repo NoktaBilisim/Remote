@@ -25,6 +25,7 @@
     "./api/recording": "./src/api/recording.ts",
     "./api/multi": "./src/api/multi.ts",
     "./api/portal": "./src/api/portal.ts",
+    "./api/update": "./src/api/update.ts",
     "./ws-request": "./src/ws-request.ts",
     "./ws": "./src/ws.ts",
     "./ws-device": "./src/ws-device.ts",

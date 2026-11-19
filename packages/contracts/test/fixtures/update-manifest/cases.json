@@ -1,0 +1,363 @@
+{
+  "_doc": "P29 ortak manifest fikstürleri (mimari-p29 §14.6). Dosyalar HAM BAYTTIR — biçimlendirilmez (.prettierignore). Üretici build.ts, yazıcı generate.mjs; contracts testi her koşuda yeniden üretip baytları karşılaştırır. cases: ts = parseCanonicalManifest, go = update.ParseManifest, reason = Verify nedeni (null = geçer; trust {env: prod|staging = manifest env, keys: [test1]}, çalışan sürüm 0.22.0 + manifestin platform/arch/component'i, now = issuedAt + 1 sa). signatures: Ed25519(context ‖ manifest baytları), anahtar test1. keys: YALNIZ TEST — tohum = SHA-256(label, UTF-8); etiket açık olduğundan gizli değildir, gerçek ortamda kullanılamaz.",
+  "context": "rs-update-manifest-v1\n",
+  "keys": {
+    "test1": {
+      "label": "rs-update-manifest TEST key 1 - public test-only seed, never a real key",
+      "seed": "sha256(label)",
+      "publicKey": "0_i-7_Bnc6wkjgRhCpAWLd9UhlCXGvVfsKiD8nrbkhU"
+    },
+    "test2": {
+      "label": "rs-update-manifest TEST key 2 - public test-only seed, never a real key",
+      "seed": "sha256(label)",
+      "publicKey": "WjS8gdUD0uO9Dvhuw_tXXDxZRJtZ3ltBuAgf9KeAeug"
+    }
+  },
+  "cases": [
+    {
+      "file": "valid-client-windows.json",
+      "doc": "Windows istemci, prod, 30 g (istemci üst sınırı tam)",
+      "ts": "ok",
+      "go": "ok",
+      "reason": null
+    },
+    {
+      "file": "valid-client-macos.json",
+      "doc": "macOS istemci, prod, universal",
+      "ts": "ok",
+      "go": "ok",
+      "reason": null
+    },
+    {
+      "file": "valid-client-linux-staging.json",
+      "doc": "Linux istemci, staging ortamı (prod güveniyle ENV_MISMATCH)",
+      "ts": "ok",
+      "go": "ok",
+      "reason": null
+    },
+    {
+      "file": "valid-service-windows.json",
+      "doc": "Windows servis, prod, 90 g (servis üst sınırı tam)",
+      "ts": "ok",
+      "go": "ok",
+      "reason": null
+    },
+    {
+      "file": "invalid-duplicate-key.json",
+      "doc": "Yinelenen anahtar (sonda ikinci minUpdaterVersion)",
+      "ts": "reject",
+      "go": "reject",
+      "reason": "MANIFEST_SIGNATURE"
+    },
+    {
+      "file": "invalid-key-case.json",
+      "doc": "Anahtar harf farkı: Sha256",
+      "ts": "reject",
+      "go": "reject",
+      "reason": "MANIFEST_SIGNATURE"
+    },
+    {
+      "file": "invalid-bom.json",
+      "doc": "UTF-8 BOM önekli",
+      "ts": "reject",
+      "go": "reject",
+      "reason": "MANIFEST_SIGNATURE"
+    },
+    {
+      "file": "invalid-trailing-newline.json",
+      "doc": "Sonda yeni satır",
+      "ts": "reject",
+      "go": "reject",
+      "reason": "MANIFEST_SIGNATURE"
+    },
+    {
+      "file": "invalid-trailing-data.json",
+      "doc": "Nesneden sonra ikinci nesne",
+      "ts": "reject",
+      "go": "reject",
+      "reason": "MANIFEST_SIGNATURE"
+    },
+    {
+      "file": "invalid-whitespace.json",
+      "doc": "Ayırıcılardan sonra boşluk",
+      "ts": "reject",
+      "go": "reject",
+      "reason": "MANIFEST_SIGNATURE"
+    },
+    {
+      "file": "invalid-field-order.json",
+      "doc": "env ile platform yer değiştirmiş",
+      "ts": "reject",
+      "go": "reject",
+      "reason": "MANIFEST_SIGNATURE"
+    },
+    {
+      "file": "invalid-unknown-field.json",
+      "doc": "Fazladan alan (url)",
+      "ts": "reject",
+      "go": "reject",
+      "reason": "MANIFEST_SIGNATURE"
+    },
+    {
+      "file": "invalid-missing-field.json",
+      "doc": "Eksik alan (minUpdaterVersion)",
+      "ts": "reject",
+      "go": "reject",
+      "reason": "MANIFEST_SIGNATURE"
+    },
+    {
+      "file": "invalid-schema-2.json",
+      "doc": "schema 2",
+      "ts": "reject",
+      "go": "reject",
+      "reason": "MANIFEST_SIGNATURE"
+    },
+    {
+      "file": "invalid-escaped-string.json",
+      "doc": "Kaçışlı dizgi (\\u0030 = '0')",
+      "ts": "reject",
+      "go": "reject",
+      "reason": "MANIFEST_SIGNATURE"
+    },
+    {
+      "file": "invalid-size-float.json",
+      "doc": "size ondalıklı (15728640.0)",
+      "ts": "reject",
+      "go": "reject",
+      "reason": "MANIFEST_SIGNATURE"
+    },
+    {
+      "file": "invalid-size-exponent.json",
+      "doc": "size üslü (1.572864e7)",
+      "ts": "reject",
+      "go": "reject",
+      "reason": "MANIFEST_SIGNATURE"
+    },
+    {
+      "file": "invalid-time-millis.json",
+      "doc": "Kesirli saniye",
+      "ts": "reject",
+      "go": "reject",
+      "reason": "MANIFEST_SIGNATURE"
+    },
+    {
+      "file": "invalid-time-offset.json",
+      "doc": "Saat dilimi ofseti",
+      "ts": "reject",
+      "go": "reject",
+      "reason": "MANIFEST_SIGNATURE"
+    },
+    {
+      "file": "invalid-time-nov31.json",
+      "doc": "Takvimde olmayan gün (11-31; JS Date 12-01'e kaydırır, Go reddeder)",
+      "ts": "reject",
+      "go": "reject",
+      "reason": "MANIFEST_SIGNATURE"
+    },
+    {
+      "file": "invalid-sha-uppercase.json",
+      "doc": "sha256 büyük harf",
+      "ts": "reject",
+      "go": "reject",
+      "reason": "MANIFEST_SIGNATURE"
+    },
+    {
+      "file": "invalid-non-ascii.json",
+      "doc": "ASCII dışı bayt (UTF-8 'ı' sürümde)",
+      "ts": "reject",
+      "go": "reject",
+      "reason": "MANIFEST_SIGNATURE"
+    },
+    {
+      "file": "invalid-expires-before-issued.json",
+      "doc": "expiresAt ≤ issuedAt",
+      "ts": "reject",
+      "go": "reject",
+      "reason": "MANIFEST_SIGNATURE"
+    },
+    {
+      "file": "invalid-service-91d.json",
+      "doc": "Servis 91 g (90 g üst sınır aşıldı)",
+      "ts": "reject",
+      "go": "reject",
+      "reason": "MANIFEST_SIGNATURE"
+    },
+    {
+      "file": "span-client-31d.json",
+      "doc": "İstemci 31 g: biçim kanonik; TS şeması component sınırıyla reddeder (sunucu sunmaz), Go ParseManifest kabul eder ve Verify EXPIRED verir",
+      "ts": "reject",
+      "go": "ok",
+      "reason": "EXPIRED"
+    }
+  ],
+  "signatures": [
+    {
+      "manifest": "valid-client-windows.json",
+      "sig": "valid-client-windows.sig",
+      "valid": true,
+      "doc": "test1, bağlam önekli"
+    },
+    {
+      "manifest": "valid-client-macos.json",
+      "sig": "valid-client-macos.sig",
+      "valid": true,
+      "doc": "test1, bağlam önekli"
+    },
+    {
+      "manifest": "valid-client-linux-staging.json",
+      "sig": "valid-client-linux-staging.sig",
+      "valid": true,
+      "doc": "test1, bağlam önekli"
+    },
+    {
+      "manifest": "valid-service-windows.json",
+      "sig": "valid-service-windows.sig",
+      "valid": true,
+      "doc": "test1, bağlam önekli"
+    },
+    {
+      "manifest": "invalid-duplicate-key.json",
+      "sig": "invalid-duplicate-key.sig",
+      "valid": true,
+      "doc": "test1, bağlam önekli"
+    },
+    {
+      "manifest": "invalid-key-case.json",
+      "sig": "invalid-key-case.sig",
+      "valid": true,
+      "doc": "test1, bağlam önekli"
+    },
+    {
+      "manifest": "invalid-bom.json",
+      "sig": "invalid-bom.sig",
+      "valid": true,
+      "doc": "test1, bağlam önekli"
+    },
+    {
+      "manifest": "invalid-trailing-newline.json",
+      "sig": "invalid-trailing-newline.sig",
+      "valid": true,
+      "doc": "test1, bağlam önekli"
+    },
+    {
+      "manifest": "invalid-trailing-data.json",
+      "sig": "invalid-trailing-data.sig",
+      "valid": true,
+      "doc": "test1, bağlam önekli"
+    },
+    {
+      "manifest": "invalid-whitespace.json",
+      "sig": "invalid-whitespace.sig",
+      "valid": true,
+      "doc": "test1, bağlam önekli"
+    },
+    {
+      "manifest": "invalid-field-order.json",
+      "sig": "invalid-field-order.sig",
+      "valid": true,
+      "doc": "test1, bağlam önekli"
+    },
+    {
+      "manifest": "invalid-unknown-field.json",
+      "sig": "invalid-unknown-field.sig",
+      "valid": true,
+      "doc": "test1, bağlam önekli"
+    },
+    {
+      "manifest": "invalid-missing-field.json",
+      "sig": "invalid-missing-field.sig",
+      "valid": true,
+      "doc": "test1, bağlam önekli"
+    },
+    {
+      "manifest": "invalid-schema-2.json",
+      "sig": "invalid-schema-2.sig",
+      "valid": true,
+      "doc": "test1, bağlam önekli"
+    },
+    {
+      "manifest": "invalid-escaped-string.json",
+      "sig": "invalid-escaped-string.sig",
+      "valid": true,
+      "doc": "test1, bağlam önekli"
+    },
+    {
+      "manifest": "invalid-size-float.json",
+      "sig": "invalid-size-float.sig",
+      "valid": true,
+      "doc": "test1, bağlam önekli"
+    },
+    {
+      "manifest": "invalid-size-exponent.json",
+      "sig": "invalid-size-exponent.sig",
+      "valid": true,
+      "doc": "test1, bağlam önekli"
+    },
+    {
+      "manifest": "invalid-time-millis.json",
+      "sig": "invalid-time-millis.sig",
+      "valid": true,
+      "doc": "test1, bağlam önekli"
+    },
+    {
+      "manifest": "invalid-time-offset.json",
+      "sig": "invalid-time-offset.sig",
+      "valid": true,
+      "doc": "test1, bağlam önekli"
+    },
+    {
+      "manifest": "invalid-time-nov31.json",
+      "sig": "invalid-time-nov31.sig",
+      "valid": true,
+      "doc": "test1, bağlam önekli"
+    },
+    {
+      "manifest": "invalid-sha-uppercase.json",
+      "sig": "invalid-sha-uppercase.sig",
+      "valid": true,
+      "doc": "test1, bağlam önekli"
+    },
+    {
+      "manifest": "invalid-non-ascii.json",
+      "sig": "invalid-non-ascii.sig",
+      "valid": true,
+      "doc": "test1, bağlam önekli"
+    },
+    {
+      "manifest": "invalid-expires-before-issued.json",
+      "sig": "invalid-expires-before-issued.sig",
+      "valid": true,
+      "doc": "test1, bağlam önekli"
+    },
+    {
+      "manifest": "invalid-service-91d.json",
+      "sig": "invalid-service-91d.sig",
+      "valid": true,
+      "doc": "test1, bağlam önekli"
+    },
+    {
+      "manifest": "span-client-31d.json",
+      "sig": "span-client-31d.sig",
+      "valid": true,
+      "doc": "test1, bağlam önekli"
+    },
+    {
+      "manifest": "valid-client-windows.json",
+      "sig": "sig-wrong-key.sig",
+      "valid": false,
+      "doc": "Gömülü olmayan anahtar (test2)"
+    },
+    {
+      "manifest": "valid-client-windows.json",
+      "sig": "sig-no-context.sig",
+      "valid": false,
+      "doc": "Bağlam öneki olmadan imzalanmış"
+    },
+    {
+      "manifest": "valid-client-macos.json",
+      "sig": "valid-client-windows.sig",
+      "valid": false,
+      "doc": "Başka manifestin imzası (kurcalanmış bayt)"
+    }
+  ]
+}

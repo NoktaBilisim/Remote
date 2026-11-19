@@ -80,6 +80,12 @@
     sayılır. Kayıt/kişisel veri silindiğinde ("Bu bilgisayarı unut", kayıt yokken "Bilgilerimi unut", geçersiz kayıt)
     log da silinir.
 
+.PARAMETER Update
+    İstemci 0.22.0 (P29 K8, AC-484, D-3). off (varsayılan): değişiklik yok. installed: istemci kendini yerinde
+    güncelledi ve yeni sürüm henüz açılmadı — izinli tek ek iz İndirilenler'de "<-ExePath>.eski" (görünür, yürütülemez
+    uzantı; yeni sürümün ilk açılışında silinir). "<-ExePath>.yeni" (yarım indirme) her durumda izdir. relaunched: yeni
+    sürüm bir kez açılıp kapandı — .eski de iz sayılır (off ile aynı). -ExePath gerektirir (yoksa 2).
+
 .PARAMETER Servis
     P27 K9 (mimari-p27 §5.3, AC-289/340, D-P27-2). Gözetimsiz erişim servisi (NoktaDestekServis.exe) profili. Tarama her
     modda ayrıca %ProgramFiles% ve %ProgramData% (1 seviye), HKLM ...\Uninstall anahtarlarını ve Application olay günlüğü
@@ -150,6 +156,8 @@ param(
     [string]$Diagnostics = 'auto',
     [ValidateSet('on', 'off')]
     [string]$Servis = 'off',
+    [ValidateSet('off', 'installed', 'relaunched')]
+    [string]$Update = 'off',
     [string[]]$ContentMarker = @('P28A-ISARET-', 'gizli-ad-'),
     [switch]$Strict
 )
@@ -562,6 +570,8 @@ if ($Autostart -eq 'on') {
     }
 }
 $allowedAll = @($al.Allowed)
+if ($Update -ne 'off' -and -not $exeFull) { Write-Error '-Update -ExePath gerektirir'; exit 2 }
+if ($Update -eq 'installed') { $allowedAll += "Downloads`t$exeFull.eski" }   # P29 D-3: sonraki açılışa kadar
 $pendingOps = @()   # değer yoksa (bekleyen işlem yok) Get-ItemProperty hata verir
 try {
     $pendingOps = @((Get-ItemProperty -LiteralPath 'HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager' `

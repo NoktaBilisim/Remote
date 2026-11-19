@@ -10,7 +10,8 @@
 # notify-outbox-failed / notify-volume / sms-key-unreadable / p19-metrics; P28b K6 av-up (ardışık 2) / av-selftest /
 # av-signature-age / av-scan-failed / av-metrics / compose:clamav*; P28u K8 unattended-notify-fail (r3: silent-volume ve
 # consent-timeout kaldırıldı); P28e K8 rec-stop-error / rec-part-rejected / rec-view-throttled; P28c K4 multi-denied;
-# P22-O session-chat-internal; P21 K7 portal-login-fail / portal-locked / portal-request-reject.
+# P22-O session-chat-internal; P21 K7 portal-login-fail / portal-locked / portal-request-reject; P29 K6 update-rejected-device /
+# update-rejected-client / update-manifest-expiry / update-manifest-missing.
 # Kullanım: deploy/ops/test-watch.sh   Çıkış 0 = tüm beklentiler tuttu.
 set -euo pipefail
 cd "$(dirname "$0")"
@@ -548,6 +549,37 @@ good; clrpt; ppt 'a[$(touch /tmp/pwnp21a)] a[$(touch /tmp/pwnp21b)] a[$(touch /t
 ls /tmp/pwnp21* >/dev/null 2>&1 && no "P21 enjeksiyon: $(ls /tmp/pwnp21*)" || ok "S14-2: P21 metrik/durum alanlarında a[\$(…)] komut çalıştırmadı"
 good; clrpt; run
 
+# P29 K6 (mimari-p29 §9.4, §14.4; runbook §31.8): alanlar 41-43 = rejected{source=device} rejected{binding|anonymous} expiry-min-sn.
+pup() { echo "$((NOW - 3600)) 0 0 0 0 0 0 - $((NOW - 3600)) 0 0 0 0 - 5 10 0 3 0 0 - - - - - - - - - - - - - 0 - - - - - - $1" >/scn/metrics; }
+clrup() { sed -i '/^update_rejected_device=/d;/^update_samples=/d' /var/lib/rw/state; }
+ups() { sed -i "/^$1=/d" /var/lib/rw/state; echo "$1=$2" >>/var/lib/rw/state; }
+good; clrup; run
+! grep -q 'check="update-' /var/lib/rw/status.prom && ok "P29 öncesi (seri yok) -> update-* kontrolleri yok" || no "p29 öncesi: $(cat /out/o)"
+good; clrup; pup "- - $((40 * 86400))"; run
+p18n 'update-' && grep -q 'check="update-rejected-device"} 1' /var/lib/rw/status.prom && grep -q 'check="update-manifest-expiry"} 1' /var/lib/rw/status.prom \
+  && ok "P29 temiz (yalnız manifest 40 g) -> update-* OK" || no "up temiz: $(cat /out/o)"
+good; clrup; pup "1 - $((40 * 86400))"; run
+p18a update-rejected-device && grep -q 'source=device}=1' /out/o && ok "cihaz kaynaklı ret 1 (taban 0) -> ALERT update-rejected-device" || no "up dev: $(cat /out/o)"
+good; ups update_rejected_device "1 $((NOW - 3600))"; pup "1 - $((40 * 86400))"; run
+grep -q "ALERT check=update-rejected-device" /out/o && ok "artış yok, son artış 1 sa önce -> alarm sürer (24 sa)" || no "up dev 1sa: $(cat /out/o)"
+good; ups update_rejected_device "1 $((NOW - 90000))"; pup "1 - $((40 * 86400))"; run
+p18n update-rejected-device && ok "son artıştan 25 sa geçti -> alarm kalktı" || no "up dev 25sa: $(cat /out/o)"
+good; ups update_rejected_device "3 $((NOW - 3600))"; pup "- - -"; run
+grep -q "ALERT check=update-rejected-device" /out/o && ok "server yeniden başladı (seri yok) ama önceki durum var -> alarm penceresi sürer" || no "up dev restart: $(cat /out/o)"
+good; clrup; ups update_samples "$((NOW - 1800)):0"; pup "- 2 $((40 * 86400))"; run
+p18n update-rejected-client && ok "istemci beyanı reddi +2 (< 3) -> alarm yok" || no "up cli 2: $(cat /out/o)"
+good; clrup; ups update_samples "$((NOW - 1800)):0"; pup "- 3 $((40 * 86400))"; run
+p18a update-rejected-client && grep -q 'istemci beyanı güncelleme reddi +3' /out/o && ok "istemci beyanı reddi +3 (>= 3) -> ALERT update-rejected-client" || no "up cli 3: $(cat /out/o)"
+good; clrup; pup "- - $((13 * 86400))"; run
+p18a update-manifest-expiry && grep -q 'yeniden imza zamanı' /out/o && ok "manifest kalan 13 g (< 14) -> ALERT update-manifest-expiry" || no "up exp: $(cat /out/o)"
+good; clrup; pup "- - $((13 * 86400))"; WATCH_UPDATE_EXPIRY_MIN_DAYS=7 run
+p18n update-manifest-expiry && ok "WATCH_UPDATE_EXPIRY_MIN_DAYS=7 -> 13 g alarm yok (eşik ortamdan)" || no "up exp env: $(cat /out/o)"
+good; clrup; pup "- - -"; WATCH_UPDATE_MANIFEST_REQUIRED=1 run
+p18a update-manifest-missing && ok "WATCH_UPDATE_MANIFEST_REQUIRED=1 + manifest serisi yok -> ALERT update-manifest-missing (donma)" || no "up missing: $(cat /out/o)"
+good; clrup; pup 'a[$(touch /tmp/pwnp29a)] a[$(touch /tmp/pwnp29b)] a[$(touch /tmp/pwnp29c)]'; run; ups update_samples 'a[$(touch /tmp/pwnp29d)]:1'; ups update_rejected_device 'a[$(touch /tmp/pwnp29e)] 1'; pup "1 1 1"; run
+ls /tmp/pwnp29* >/dev/null 2>&1 && no "P29 enjeksiyon: $(ls /tmp/pwnp29*)" || ok "S14-2: P29 metrik/durum alanlarında a[\$(…)] komut çalıştırmadı"
+good; clrup; run
+
 mkdir -p /src && cp /w/remote-watch.sh /w/remote-watch.service /w/remote-watch.timer /w/watch.env.example /src/
 mkdir -p /etc/systemd/system
 bash /src/remote-watch.sh install >/out/o 2>&1 && ok "install -> 0" || no "install: $(cat /out/o)"
@@ -581,7 +613,7 @@ if command -v node >/dev/null 2>&1; then
     'rs_orphan_files_total{action="deleted"} 4' 'rs_orphan_files_total{action="circuit_open"} 3' 'rs_erasure_ledger_write_failed_total 0' >"$M"
   JS="$(sed -n 's/.*node -e "\(const sum=.*\)" 2>\/dev\/null)" || rt=.*/\1/p' "$HERE/remote-watch.sh" | sed 's/\\"/"/g')"
   got="$(M="$M" node -e "globalThis.fetch=async()=>({text:async()=>require('fs').readFileSync(process.env.M,'utf8')});$JS")"
-  exp="1763000000 3 - - 1 0 1 1763000100 - 3 0 - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
+  exp="1763000000 3 - - 1 0 1 1763000100 - 3 0 - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
   if [ "$got" = "$exp" ]; then echo "PASS  metrik ayrıştırma: etiketli rs_retention_failures_total toplamı 3, SCHEDULED/RUNNING, circuit_open 3, P18 serisi yok -> '-'"
   else echo "FAIL  metrik ayrıştırma: '$got' (beklenen '$exp')"; echo "SONUÇ-İÇ 1" >>"$TMP/out"; fi
   # P18 H5: decrypt (bütün table), takvim (bütün tenant), yalnız reason~tenant kova reddi, mesaj sayacı (P18 işareti).
@@ -589,7 +621,7 @@ if command -v node >/dev/null 2>&1; then
     'rs_calendar_fallback_total{tenant="t2"} 2' 'rs_request_messages_rejected_total{reason="tenant_rate"} 4' \
     'rs_request_messages_rejected_total{reason="sender_cap"} 9' 'rs_request_messages_total{sender="CUSTOMER"} 7' >>"$M"
   got="$(M="$M" node -e "globalThis.fetch=async()=>({text:async()=>require('fs').readFileSync(process.env.M,'utf8')});$JS")"
-  exp="1763000000 3 - - 1 0 1 1763000100 - 3 0 2 3 4 7 - - - - - - - - - - - - - - - - - - - - - - - - -"
+  exp="1763000000 3 - - 1 0 1 1763000100 - 3 0 2 3 4 7 - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
   if [ "$got" = "$exp" ]; then echo "PASS  metrik ayrıştırma P18: decrypt 2, takvim 1+2, tenant kova 4 (sender_cap hariç), mesaj 7"
   else echo "FAIL  metrik ayrıştırma P18: '$got' (beklenen '$exp')"; echo "SONUÇ-İÇ 1" >>"$TMP/out"; fi
   # P19 J6: outbox toplam (etiketsiz 0 dahil), FAILED (result=failed/FAILED), en eski PENDING (en büyük), rate_limited toplamı,
@@ -600,14 +632,14 @@ if command -v node >/dev/null 2>&1; then
     'rs_notify_rate_limited_total{scope="wa_bucket",channel="WHATSAPP"} 3' 'rs_sms_key_unreadable_total 0' \
     'rs_notify_tenant_max_hourly{role="SMS"} 81' 'rs_notify_tenant_max_hourly{channel="WHATSAPP"} 2' >>"$M"
   got="$(M="$M" node -e "globalThis.fetch=async()=>({text:async()=>require('fs').readFileSync(process.env.M,'utf8')});$JS")"
-  exp="1763000000 3 - - 1 0 1 1763000100 - 3 0 2 3 4 7 10 3 70 7 0 SMS=81,WHATSAPP=2 - - - - - - - - - - - - - - - - - - -"
+  exp="1763000000 3 - - 1 0 1 1763000100 - 3 0 2 3 4 7 10 3 70 7 0 SMS=81,WHATSAPP=2 - - - - - - - - - - - - - - - - - - - - - -"
   if [ "$got" = "$exp" ]; then echo "PASS  metrik ayrıştırma P19: outbox 10 (FAILED 3), en eski 70, rate_limited 7, anahtar 0, hacim SMS=81,WHATSAPP=2"
   else echo "FAIL  metrik ayrıştırma P19: '$got' (beklenen '$exp')"; echo "SONUÇ-İÇ 1" >>"$TMP/out"; fi
   # P28b K6: rs_av_up, öz-sınama, imza yaşı (en büyük), tarama toplamı ve yalnız result=failed_* toplamı.
   printf '%s\n' 'rs_av_up 1' 'rs_av_selftest_ok 1' 'rs_av_signature_age_seconds 7200.5' 'rs_av_scan_total{result="clean"} 10' \
     'rs_av_scan_total{result="infected"} 1' 'rs_av_scan_total{result="failed_busy"} 2' 'rs_av_scan_total{result="failed_timeout"} 3' >>"$M"
   got="$(M="$M" node -e "globalThis.fetch=async()=>({text:async()=>require('fs').readFileSync(process.env.M,'utf8')});$JS")"
-  exp="1763000000 3 - - 1 0 1 1763000100 - 3 0 2 3 4 7 10 3 70 7 0 SMS=81,WHATSAPP=2 1 1 7200.5 16 5 - - - - - - - - - - - - - -"
+  exp="1763000000 3 - - 1 0 1 1763000100 - 3 0 2 3 4 7 10 3 70 7 0 SMS=81,WHATSAPP=2 1 1 7200.5 16 5 - - - - - - - - - - - - - - - - -"
   if [ "$got" = "$exp" ]; then echo "PASS  metrik ayrıştırma P28b: av_up 1, öz-sınama 1, imza yaşı 7200.5, tarama 16 (failed_* 5)"
   else echo "FAIL  metrik ayrıştırma P28b: '$got' (beklenen '$exp')"; echo "SONUÇ-İÇ 1" >>"$TMP/out"; fi
   # P28u K8 (r3): notify toplam (etiketsiz 0 + etiketli) ve yalnız result="fail"; eski connect/consent serileri alan üretmez.
@@ -616,12 +648,12 @@ if command -v node >/dev/null 2>&1; then
     'rs_unattended_connect_total{mode="ask",result="ok"} 9' 'rs_unattended_connect_total{mode="silent",result="forbidden"} 5' \
     'rs_unattended_consent_total{decision="granted"} 5' 'rs_unattended_consent_total{decision="timeout"} 2' >>"$M"
   got="$(M="$M" node -e "globalThis.fetch=async()=>({text:async()=>require('fs').readFileSync(process.env.M,'utf8')});$JS")"
-  exp="1763000000 3 - - 1 0 1 1763000100 - 3 0 2 3 4 7 10 3 70 7 0 SMS=81,WHATSAPP=2 1 1 7200.5 16 5 6 2 - - - - - - - - - - - -"
+  exp="1763000000 3 - - 1 0 1 1763000100 - 3 0 2 3 4 7 10 3 70 7 0 SMS=81,WHATSAPP=2 1 1 7200.5 16 5 6 2 - - - - - - - - - - - - - - -"
   if [ "$got" = "$exp" ]; then echo "PASS  metrik ayrıştırma P28u: notify 6 (fail 2); r3: connect/consent serileri okunmaz"
   else echo "FAIL  metrik ayrıştırma P28u: '$got' (beklenen '$exp')"; echo "SONUÇ-İÇ 1" >>"$TMP/out"; fi
   printf '%s\n' 'rs_unattended_silent_notify_total 0' >"$M.0"; sed -n '1,10p' "$M" >>"$M.0"
   got="$(M="$M.0" node -e "globalThis.fetch=async()=>({text:async()=>require('fs').readFileSync(process.env.M,'utf8')});$JS")"
-  case "$got" in *" 0 - - - - - - - - - - - - -") echo "PASS  metrik ayrıştırma P28u işareti: etiketsiz 'rs_unattended_silent_notify_total 0' -> 0, diğerleri '-'" ;;
+  case "$got" in *" 0 - - - - - - - - - - - - - - - -") echo "PASS  metrik ayrıştırma P28u işareti: etiketsiz 'rs_unattended_silent_notify_total 0' -> 0, diğerleri '-'" ;;
     *) echo "FAIL  metrik ayrıştırma P28u işareti: '$got'"; echo "SONUÇ-İÇ 1" >>"$TMP/out" ;; esac
   # P28e K8: parça toplamı (histogram rs_rec_part_bytes_* ve rs_rec_bytes_total hariç), yalnız invalid|rate|busy, stop toplamı,
   # yalnız reason="error", izleme 429.
@@ -630,35 +662,35 @@ if command -v node >/dev/null 2>&1; then
     'rs_rec_part_bytes_sum 123456' 'rs_rec_part_bytes_count 40' 'rs_rec_bytes_total 999999' 'rs_rec_stop_total{reason="error"} 2' \
     'rs_rec_stop_total{reason="session_end"} 7' 'rs_rec_view_throttled_total 4' >>"$M"
   got="$(M="$M" node -e "globalThis.fetch=async()=>({text:async()=>require('fs').readFileSync(process.env.M,'utf8')});$JS")"
-  exp="1763000000 3 - - 1 0 1 1763000100 - 3 0 2 3 4 7 10 3 70 7 0 SMS=81,WHATSAPP=2 1 1 7200.5 16 5 6 2 51 6 9 2 4 - - - - - - -"
+  exp="1763000000 3 - - 1 0 1 1763000100 - 3 0 2 3 4 7 10 3 70 7 0 SMS=81,WHATSAPP=2 1 1 7200.5 16 5 6 2 51 6 9 2 4 - - - - - - - - - -"
   if [ "$got" = "$exp" ]; then echo "PASS  metrik ayrıştırma P28e: parça 51 (red 6; histogram hariç), stop 9 (error 2), izleme 429 4"
   else echo "FAIL  metrik ayrıştırma P28e: '$got' (beklenen '$exp')"; echo "SONUÇ-İÇ 1" >>"$TMP/out"; fi
   printf '%s\n' 'rs_rec_part_total 0' 'rs_rec_stop_total 0' 'rs_rec_view_throttled_total 0' >"$M.1"
   got="$(M="$M.1" node -e "globalThis.fetch=async()=>({text:async()=>require('fs').readFileSync(process.env.M,'utf8')});$JS")"
-  case "$got" in *" 0 - 0 - 0 - - - - - - -") echo "PASS  metrik ayrıştırma P28e işareti: etiketsiz sayaçlar 0, etiketli alt kümeler '-'" ;;
+  case "$got" in *" 0 - 0 - 0 - - - - - - - - - -") echo "PASS  metrik ayrıştırma P28e işareti: etiketsiz sayaçlar 0, etiketli alt kümeler '-'" ;;
     *) echo "FAIL  metrik ayrıştırma P28e işareti: '$got'"; echo "SONUÇ-İÇ 1" >>"$TMP/out" ;; esac
   # P28c K4: rol kapısı reddi toplamı (bütün type); rs_multi_invites_total / rs_multi_members (gauge) toplanmaz.
   printf '%s\n' 'rs_multi_denied_total{type="input"} 3' 'rs_multi_denied_total{type="file.offer"} 2' \
     'rs_multi_invites_total{result="rejected"} 9' 'rs_multi_members{role="observer"} 1' >>"$M"
   got="$(M="$M" node -e "globalThis.fetch=async()=>({text:async()=>require('fs').readFileSync(process.env.M,'utf8')});$JS")"
-  exp="1763000000 3 - - 1 0 1 1763000100 - 3 0 2 3 4 7 10 3 70 7 0 SMS=81,WHATSAPP=2 1 1 7200.5 16 5 6 2 51 6 9 2 4 5 - - - - - -"
+  exp="1763000000 3 - - 1 0 1 1763000100 - 3 0 2 3 4 7 10 3 70 7 0 SMS=81,WHATSAPP=2 1 1 7200.5 16 5 6 2 51 6 9 2 4 5 - - - - - - - - -"
   if [ "$got" = "$exp" ]; then echo "PASS  metrik ayrıştırma P28c: rol kapısı reddi 5 (bütün type; davet/üye sayılmaz)"
   else echo "FAIL  metrik ayrıştırma P28c: '$got' (beklenen '$exp')"; echo "SONUÇ-İÇ 1" >>"$TMP/out"; fi
   printf '%s\n' 'rs_multi_denied_total 0' >"$M.2"
   got="$(M="$M.2" node -e "globalThis.fetch=async()=>({text:async()=>require('fs').readFileSync(process.env.M,'utf8')});$JS")"
-  case "$got" in *" - - - - - 0 - - - - - -") echo "PASS  metrik ayrıştırma P28c işareti: etiketsiz 'rs_multi_denied_total 0' -> 0" ;;
+  case "$got" in *" - - - - - 0 - - - - - - - - -") echo "PASS  metrik ayrıştırma P28c işareti: etiketsiz 'rs_multi_denied_total 0' -> 0" ;;
     *) echo "FAIL  metrik ayrıştırma P28c işareti: '$got'"; echo "SONUÇ-İÇ 1" >>"$TMP/out" ;; esac
   # P22-O: sohbet reddi toplamı (bütün reason) ve yalnız reason="internal"; diğer rs_session_chat_* serileri toplanmaz.
   printf '%s\n' 'rs_session_chat_rejected_total{reason="rate"} 4' 'rs_session_chat_rejected_total{reason="internal"} 2' \
     'rs_session_chat_rejected_total{reason="outdated"} 1' 'rs_session_chat_messages_total{sender="TECH"} 9' \
     'rs_session_chat_legacy_sessions_total 3' 'rs_ws_tech_outdated_total 5' >>"$M"
   got="$(M="$M" node -e "globalThis.fetch=async()=>({text:async()=>require('fs').readFileSync(process.env.M,'utf8')});$JS")"
-  exp="1763000000 3 - - 1 0 1 1763000100 - 3 0 2 3 4 7 10 3 70 7 0 SMS=81,WHATSAPP=2 1 1 7200.5 16 5 6 2 51 6 9 2 4 5 7 2 - - - -"
+  exp="1763000000 3 - - 1 0 1 1763000100 - 3 0 2 3 4 7 10 3 70 7 0 SMS=81,WHATSAPP=2 1 1 7200.5 16 5 6 2 51 6 9 2 4 5 7 2 - - - - - - -"
   if [ "$got" = "$exp" ]; then echo "PASS  metrik ayrıştırma P22: sohbet reddi 7 (internal 2; mesaj/legacy/4426 sayılmaz)"
   else echo "FAIL  metrik ayrıştırma P22: '$got' (beklenen '$exp')"; echo "SONUÇ-İÇ 1" >>"$TMP/out"; fi
   printf '%s\n' 'rs_session_chat_rejected_total 0' >"$M.3"
   got="$(M="$M.3" node -e "globalThis.fetch=async()=>({text:async()=>require('fs').readFileSync(process.env.M,'utf8')});$JS")"
-  case "$got" in *" - 0 - - - - -") echo "PASS  metrik ayrıştırma P22 işareti: etiketsiz 'rs_session_chat_rejected_total 0' -> 0, internal '-'" ;;
+  case "$got" in *" - 0 - - - - - - - -") echo "PASS  metrik ayrıştırma P22 işareti: etiketsiz 'rs_session_chat_rejected_total 0' -> 0, internal '-'" ;;
     *) echo "FAIL  metrik ayrıştırma P22 işareti: '$got'"; echo "SONUÇ-İÇ 1" >>"$TMP/out" ;; esac
   # Ad eşlemesi P22: betikteki rs_session_chat_* adları ops/metrics.ts'te birebir (ad değişirse alarm sessizce ölmesin).
   for nm in $(grep -o 'rs_session_chat_[a-z_]*' "$HERE/remote-watch.sh" | sort -u); do
@@ -672,13 +704,35 @@ if command -v node >/dev/null 2>&1; then
     'rs_portal_requests_total{result="created"} 9' 'rs_portal_requests_total{result="rate_limited"} 2' \
     'rs_portal_requests_total{result="queue_full"} 1' 'rs_portal_sessions_active 5' >>"$M"
   got="$(M="$M" node -e "globalThis.fetch=async()=>({text:async()=>require('fs').readFileSync(process.env.M,'utf8')});$JS")"
-  exp="1763000000 3 - - 1 0 1 1763000100 - 3 0 2 3 4 7 10 3 70 7 0 SMS=81,WHATSAPP=2 1 1 7200.5 16 5 6 2 51 6 9 2 4 5 7 2 14 4 3 3"
+  exp="1763000000 3 - - 1 0 1 1763000100 - 3 0 2 3 4 7 10 3 70 7 0 SMS=81,WHATSAPP=2 1 1 7200.5 16 5 6 2 51 6 9 2 4 5 7 2 14 4 3 3 - - -"
   if [ "$got" = "$exp" ]; then echo "PASS  metrik ayrıştırma P21: giriş 14 (fail 4), kilit 3, talep reddi 3 (created/gösterge sayılmaz)"
   else echo "FAIL  metrik ayrıştırma P21: '$got' (beklenen '$exp')"; echo "SONUÇ-İÇ 1" >>"$TMP/out"; fi
   printf '%s\n' 'rs_portal_login_total 0' 'rs_portal_locked_total 0' >"$M.4"
   got="$(M="$M.4" node -e "globalThis.fetch=async()=>({text:async()=>require('fs').readFileSync(process.env.M,'utf8')});$JS")"
-  case "$got" in *" - 0 - 0 -") echo "PASS  metrik ayrıştırma P21 işareti: etiketsiz 'rs_portal_login_total 0' -> 0, etiketli alt kümeler '-'" ;;
+  case "$got" in *" - 0 - 0 - - - -") echo "PASS  metrik ayrıştırma P21 işareti: etiketsiz 'rs_portal_login_total 0' -> 0, etiketli alt kümeler '-'" ;;
     *) echo "FAIL  metrik ayrıştırma P21 işareti: '$got'"; echo "SONUÇ-İÇ 1" >>"$TMP/out" ;; esac
+  # P29 K6: yalnız source=device / binding|anonymous ret sayaçları; manifest süresi en küçük değer (negatif -> 0, ondalık kırpılır).
+  printf '%s\n' 'rs_agent_update_rejected_total{reason="MANIFEST_SIGNATURE",source="device"} 2' \
+    'rs_agent_update_rejected_total{reason="HASH_MISMATCH",source="binding"} 1' 'rs_agent_update_rejected_total{reason="DOWNGRADE",source="anonymous"} 4' \
+    'rs_agent_update_total{platform="windows",component="service",result="failed",source="device"} 9' \
+    'rs_update_manifest_expiry_seconds{component="service",platform="windows"} 7000000.7' 'rs_update_manifest_expiry_seconds{component="client",platform="linux"} 2500000.2' >>"$M"
+  got="$(M="$M" node -e "globalThis.fetch=async()=>({text:async()=>require('fs').readFileSync(process.env.M,'utf8')});$JS")"
+  case "$got" in *" 14 4 3 3 2 5 2500000") echo "PASS  metrik ayrıştırma P29: device 2, binding+anonymous 5, en kısa süre 2500000 (rs_agent_update_total sayılmaz)" ;;
+    *) echo "FAIL  metrik ayrıştırma P29: '$got'"; echo "SONUÇ-İÇ 1" >>"$TMP/out" ;; esac
+  printf '%s\n' 'rs_update_manifest_expiry_seconds{component="client",platform="windows"} -50' >"$M.5"
+  got="$(M="$M.5" node -e "globalThis.fetch=async()=>({text:async()=>require('fs').readFileSync(process.env.M,'utf8')});$JS")"
+  case "$got" in *" - - 0") echo "PASS  metrik ayrıştırma P29: süresi geçmiş manifest (negatif) -> 0" ;;
+    *) echo "FAIL  metrik ayrıştırma P29 negatif: '$got'"; echo "SONUÇ-İÇ 1" >>"$TMP/out" ;; esac
+  # Ad eşlemesi P29: K4 (sunucu) paralel; sunucuda rs_agent_update_/rs_update_manifest_ kaydı yoksa UYARI + mimari-p29'a karşı.
+  SRC="$HERE/../../apps/server/src"
+  for nm in $(grep -oE 'rs_(agent_update|update_manifest)_[a-z_]*' "$HERE/remote-watch.sh" | sort -u); do
+    if grep -rqE '"rs_(agent_update|update_manifest)_' "$SRC"; then
+      if grep -rq "\"$nm\"" "$SRC"; then echo "PASS  ad eşlemesi: $nm sunucuda kayıtlı"
+      else echo "FAIL  ad eşlemesi: $nm sunucuda kayıtlı değil"; echo "SONUÇ-İÇ 1" >>"$TMP/out"; fi
+    elif grep -q "$nm" "$HERE/../../docs/mimari-p29.md"; then
+      echo "UYARI: $nm henüz sunucuda kayıtlı değil (P29 K4); tasarımda var (mimari-p29 §9.4)"
+    else echo "FAIL  ad eşlemesi: $nm ne sunucuda ne mimari-p29.md'de"; echo "SONUÇ-İÇ 1" >>"$TMP/out"; fi
+  done
   # Ad eşlemesi P21: sayaçlar app-routes.ts'te kaydedilir (P19 kalıbı) -> apps/server/src altında aranır. K3 paralel yazılırken
   # hiç counter("rs_portal_…") yoksa UYARI + tasarıma (mimari-p21) karşı; bir tanesi bile varsa betiğin kullandığı her ad
   # sunucuda birebir kayıtlı olmalı (ad değişirse alarm sessizce ölmesin). Etiket değeri (rate_limited) denetlenmez.

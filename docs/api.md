@@ -4555,6 +4555,182 @@ Metrikler: `rs_session_chat_messages_total{sender}`, `rs_session_chat_rejected_t
 `rs_session_chat_legacy_sessions_total`, `rs_session_chat_reads_total`, `rs_session_chat_store_seconds`,
 `rs_ws_tech_outdated_total`, `rs_retention_rows_total{kind="session_messages"}`. Alarm `session-chat-internal` (runbook §29).
 
+## İstemci otomatik güncelleme (P29, 0.22.0)
+
+Kaynak: `apps/server/src/update/{routes,service,service-token,events,device-update,versions,settings-route,manifest-store}.ts`,
+`apps/server/src/unattended/{routes,connect}.ts`, `packages/contracts/src/{api/update.ts,api/unattended.ts,ws-device.ts,
+audit.ts,errors.ts}`. Tasarım `docs/mimari-p29.md` (r2), ADR-0040; WS ayrıntısı `docs/mimari-protokol.md` §7; operasyon
+runbook §31.
+
+**Güven modeli.** CI her ikili için kanonik JSON manifest (`update-<component>-<platform>-<arch>.json`) üretir ve ortamın
+Ed25519 anahtarıyla imzalar (`.json.sig`, base64url 86 karakter; imzalanan bayt `"rs-update-manifest-v1\n" ‖ manifest`).
+Sunucu manifesti üretmez ve değiştirmez; yalnız şu koşulların hepsi tutarsa sunar: imza `UPDATE_MANIFEST_PUBKEYS`
+anahtarlarından biriyle geçerli, `env` = `DEPLOY_ENV` (`production→prod`, `staging→staging`; başka değerde hiçbir manifest
+sunulmaz), süresi dolmamış, `sha256` = ilgili ikili kapısının beklenen SHA'sı (`AGENT_SHA256` / `MAC_AGENT_SHA256` /
+`LINUX_AGENT_SHA256` / `UNATTENDED_AGENT_SHA256`), servis için `UNATTENDED_MODE=signed` iken SHA `UNATTENDED_SIGNED_SHA256`
+listesinde. İstemci her şeyi yeniden doğrular (imza, ortam, platform, süre, sürüm > çalışan ve ≥ görülen en yüksek, boyut,
+SHA-256). Güncelleme uçları `MIN_AGENT_VERSION` kapısından muaftır.
+
+Manifest alanları (sabit sıra): `schema` (1), `env` (`prod`|`staging`), `platform` (`windows`|`macos`|`linux`), `arch`
+(`amd64`; macOS `universal`), `component` (`client`|`service`; servis yalnız windows), `version` (`x.y.z`), `sha256`, `size`,
+`issuedAt`, `expiresAt` (`YYYY-MM-DDTHH:MM:SSZ`; geçerlilik istemcide ≤ 30 g, serviste ≤ 90 g), `minUpdaterVersion`.
+
+### Yeni hata kodu
+
+| Kod               | HTTP | Metin                                         | Nerede                                                                                     |
+| ----------------- | ---- | --------------------------------------------- | ------------------------------------------------------------------------------------------ |
+| `DEVICE_UPDATING` | 409  | Cihaz güncelleniyor, birazdan tekrar deneyin. | `POST /api/v1/unattended/devices/:id/connect`: servis kurulumda (3 dk); step-up tüketilmez |
+
+Bağlantı zincirinde yeri: yerel anahtar / bildirim / imza denetimlerinden sonra, **çevrimiçi denetiminden önce**
+(`DEVICE_OFFLINE`, `DEVICE_OUTDATED`, `DEVICE_BUSY` bundan sonra gelir). Audit `unattended.connect{result:fail,
+failReason:"updating"}`.
+
+### Uçlar
+
+| Uç                                             | Kimlik / yetki                                                                     | Girdi                                                                           | Çıktı                                               | Hatalar                                         |
+| ---------------------------------------------- | ---------------------------------------------------------------------------------- | ------------------------------------------------------------------------------- | --------------------------------------------------- | ----------------------------------------------- |
+| `GET /api/v1/public/agent/update`              | Kimliksiz (AGENT kuralı)                                                           | Sorgu `platform`, `arch`, `component=client`, isteğe bağlı `ref`                | 200 `{manifest, signature, policy}` · 204 yayın yok | 400 `VALIDATION`, 429 `RATE_LIMITED` (IP 60/sa) |
+| `GET /api/v1/public/agent/update/service-file` | `Authorization: Bearer <belirteç>` (tek kullanımlık, 10 dk)                        | Sorgu dizesi **kabul edilmez**                                                  | 200 `application/octet-stream` (servis ikilisi)     | 404, 429 (IP 20/dk), 503 `NOT_READY`            |
+| `POST /api/v1/public/agent/update-events`      | Kimliksiz ya da gövdede kayıt anahtarı                                             | `{platform, arch, component:"client", bindingKeys?[≤5], events[1..20]}` ≤ 8 KiB | 204 (her durumda)                                   | 400 `VALIDATION`, 429 `RATE_LIMITED`            |
+| `GET /api/v1/unattended/versions[?scope=all]`  | Oturum; `unattended.connect` ∨ `unattended.manage`; `scope=all` yalnız Super Admin | —                                                                               | Sürüm dağılımı (aşağıda)                            | 400, 403 `FORBIDDEN`                            |
+| `GET /api/v1/settings/client-update`           | Oturum; `settings.view`                                                            | —                                                                               | `{ "autoUpdate": boolean }`                         | 401, 403                                        |
+| `PUT /api/v1/settings/client-update`           | Oturum + CSRF; `settings.edit` (step-up **yok**)                                   | `{ "autoUpdate": boolean }`                                                     | 200 aynı gövde                                      | 400 `VALIDATION`, 401, 403                      |
+
+Tüm public uçlar `Cache-Control: no-store` ve `X-Content-Type-Options: nosniff` döner. Doğrulama hatalarında `fields`
+yalnız alan yolunu ve sabit "Geçersiz değer" metnini taşır; gönderilen değer yansıtılmaz. `ref`, belirteç ve
+`bindingKeys` loglanmaz.
+
+### GET /api/v1/public/agent/update
+
+- `platform` + `arch` eşleşmeli: `windows/amd64`, `linux/amd64`, `macos/universal`. `component=service` 400 (servis WS
+  kullanır). Bilinmeyen parametre 400.
+- `ref` (müşteri dosyası adındaki ref) isteğe bağlıdır ve **hiçbir zaman 400 üretmez**: aktif ref'in firmasında otomatik
+  güncelleme kapalıysa `policy:"notify"`, aksi her durumda (ref yok, desen dışı, geçersiz, pasif) `"auto"`.
+- 200 gövdesi: `manifest` = manifest ham baytlarının standart base64'ü (≤ 2.732 karakter), `signature` = `.sig` içeriği,
+  `policy` = `auto` (indir ve kur) | `notify` (yalnız haber ver).
+- Eski sunucuda uç yoktur (404); 0.22 istemci bunu "yayın yok" sayar.
+
+```bash
+curl -s -i 'https://remote.noktabilisim.net/api/v1/public/agent/update?platform=windows&arch=amd64&component=client'
+# HTTP/2 204  -> sunulabilir manifest yok
+```
+
+```json
+{
+  "manifest": "eyJzY2hlbWEiOjEsImVudiI6InByb2QiLC4uLn0=",
+  "signature": "<base64url 86 karakter>",
+  "policy": "auto"
+}
+```
+
+### GET /api/v1/public/agent/update/service-file
+
+Yalnız gözetimsiz servis kullanır. Belirteç WS `update.token` ile verilir (32 bayt, base64url 43 karakter), 10 dakika
+geçerlidir, ilk istekte tükenir; cihaz başına tek canlı belirteç vardır. Sıra: biçim (sorgu dizesi ya da biçimsiz
+belirteç → 404) → IP 20/dk (429) → eşzamanlı akış sınırı 8 (503 `NOT_READY` + `Retry-After: 300`; belirteç **tüketilmez**)
+→ belirteç (geçersiz, kullanılmış, süresi dolmuş → aynı 404) → ikili kapısı ve SHA eşleşmesi (503 `NOT_READY` "Servis
+programı şu an indirilemiyor."; belirteç tükenmiştir). `HEAD` yoktur. Audit yazılmaz; metrik
+`rs_agent_update_download_total{component,result}`.
+
+### POST /api/v1/public/agent/update-events
+
+Taşınabilir istemcinin (Windows, Linux, macOS) olay bildirimi. Olay: `{type, version, fromVersion, reason?, at}`.
+
+| `type`        | `reason`                                                                                                                             |
+| ------------- | ------------------------------------------------------------------------------------------------------------------------------------ |
+| `available`   | yok                                                                                                                                  |
+| `installed`   | yok                                                                                                                                  |
+| `failed`      | `DOWNLOAD`, `HASH_MISMATCH`, `MANIFEST_SIGNATURE`, `PLATFORM_SIGNATURE`, `DOWNGRADE`, `EXPIRED`, `ENV_MISMATCH`, `INSTALL`, `HEALTH` |
+| `rolled_back` | `failed` ile aynı küme (servis: `HEALTH`, `INSTALL`)                                                                                 |
+| `skipped`     | `POLICY_OFF`, `NOT_WRITABLE`, `MANUAL_ONLY`                                                                                          |
+
+Güvenlik nedenleri (`MANIFEST_SIGNATURE`, `PLATFORM_SIGNATURE`, `DOWNGRADE`, `HASH_MISMATCH`, `ENV_MISMATCH`)
+`rs_agent_update_rejected_total{reason,source}` sayacını artırır.
+
+- Yanıt **her durumda 204**: geçersiz ya da iptal edilmiş kayıt anahtarı ayırt edilmez.
+- Hız: IP başına 10 istek/sa (429) ve 30 olay/sa (bütçe kısmen doluysa fazlası düşer, sıfırsa 429); kayıt başına 10
+  olay/sa (aşım sessiz düşer, 204).
+- Çözülen her kayıt için ilgili firmanın audit'ine `client.update.*` yazılır (`source:"binding"`); kaydın son kullanım
+  zamanı değişmez. Hiç kayıt çözülmezse yalnız metrik (`source:"anonymous"`).
+
+```bash
+curl -s -i -X POST -H 'Content-Type: application/json' \
+  -d '{"platform":"linux","arch":"amd64","component":"client","events":[{"type":"available","version":"0.22.1","fromVersion":"0.22.0","at":"2026-11-19T10:00:00Z"}]}' \
+  https://remote.noktabilisim.net/api/v1/public/agent/update-events      # 204
+```
+
+### GET /api/v1/unattended/versions
+
+Firma kapsamında gözetimsiz cihazların sürüm dağılımı. `scope=all` yalnız Super Admin'de tüm firmaları sayar (60 sn
+önbellek, cihaz adı yok); diğer rollerde 403. Firma seçmemiş Super Admin yalnız `scope=all` kullanabilir.
+
+```json
+{
+  "published": {
+    "service": { "version": "0.22.1", "expiresAt": "2027-02-17T10:00:00Z" },
+    "client": { "windows": { "version": "0.22.1", "expiresAt": "2026-12-19T10:00:00Z" }, "macos": null, "linux": null }
+  },
+  "rows": [
+    { "platform": "windows", "component": "service", "version": "0.22.1", "count": 12 },
+    { "platform": "windows", "component": "service", "version": "0.22.0", "count": 3 }
+  ],
+  "belowMin": 0
+}
+```
+
+`rows` sayısal sürüme göre azalan, en çok 200 satır. `belowMin` = `MIN_AGENT_VERSION` altındaki cihaz sayısı (env boşsa 0).
+
+### Mevcut uçlarda değişenler
+
+| Uç                                            | Değişiklik                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
+| --------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `GET /api/v1/unattended/devices`, `/:id`      | Satıra `agentVersion`, `updateBadge` (`CURRENT` \| `PENDING` \| `UPDATING` \| `FAILED` \| `BELOW_MIN`), `updateReason` (yalnız `FAILED`'de), `updateVersion` (son olayın hedef sürümü ya da null). Liste sorgusuna `version=x.y.z` süzgeci (birebir eşitlik). Rozet önceliği: asgari sürümün altında → güncelleniyor (son 3 dk) → başarısız/geri alındı (hedef > mevcut) → bekliyor (yayındaki servis sürümü > mevcut ya da `AVAILABLE`/`SKIPPED`) → güncel |
+| `POST /api/v1/public/bindings/status`         | 200 yanıtına `autoUpdate: boolean` (firmanın Ayarlar > İstemciler değeri; eski istemci yok sayar)                                                                                                                                                                                                                                                                                                                                                           |
+| `POST /api/v1/unattended/devices/:id/connect` | 409 `DEVICE_UPDATING` (yukarıda)                                                                                                                                                                                                                                                                                                                                                                                                                            |
+
+`PUT /settings/client-update` değer değişince tek işlemde audit `settings.client_update {old:{autoUpdate}, new:{autoUpdate}}`
+(`tenant_settings`/firma) yazar ve firmanın açık `update1` soketlerine yeni `update.offer` gönderir. Değer aynıysa audit
+yazılmaz.
+
+### `/ws/device` `update.*` mesajları (servis 0.22.0+, yetenek `rs.cap.update1`)
+
+Sunucu `update.*` mesajlarını yalnız alt protokol listesinde `rs.cap.update1` bildiren servise gönderir ve ondan kabul
+eder. Servis C→S `update.*` mesajlarını yalnız o bağlantıda `update.offer` ya da `update.none` aldıktan sonra yollar (eski
+sunucu bilinmeyen mesajda soketi 1008 ile kapatır).
+
+| Yön | Mesaj                  | Alanlar                                           | Kural                                                                                                                      |
+| --- | ---------------------- | ------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------- |
+| S→C | `update.offer`         | `manifest`, `signature`, `policy`                 | `device.ready`'den hemen sonra, `update.check` yanıtı olarak ve firma politikası değişince                                 |
+| S→C | `update.none`          | —                                                 | Sunulabilir servis manifesti yok                                                                                           |
+| S→C | `update.token`         | `version`, `token`                                | Yalnız `update.token.request` yanıtı; `policy=auto` ve `version` = yayındaki sürüm > cihaz sürümü iken, aksi `update.none` |
+| C→S | `update.check`         | —                                                 | 24 sa ± 2 sa; cihaz başına 4/sa                                                                                            |
+| C→S | `update.token.request` | `version`                                         | Teklif doğrulandıktan 0–120 dk sonra; 4/sa                                                                                 |
+| C→S | `update.state`         | `phase:"installing"`, `version`                   | Sunucu 3 dk "güncelleniyor" bayrağı + DB `INSTALLING`; audit yok; 4/sa                                                     |
+| C→S | `update.event`         | `type`, `version`, `fromVersion`, `reason?`, `at` | Audit `client.update.*` (`source:"device"`) + cihaz durum sütunları; 10/sa, fazlası yok sayılır                            |
+
+`device.auth`'ta bildirilen sürüm hedef sürüme ulaştıysa cihazın güncelleme durumu temizlenir.
+
+### Audit ve metrik
+
+| Eylem                       | Etiket                                    | `result`  |
+| --------------------------- | ----------------------------------------- | --------- |
+| `client.update.available`   | İstemci güncellemesi bulundu              | `success` |
+| `client.update.installed`   | İstemci güncellendi                       | `success` |
+| `client.update.failed`      | İstemci güncellemesi başarısız            | `fail`    |
+| `client.update.rolled_back` | İstemci güncellemesi geri alındı          | `fail`    |
+| `client.update.skipped`     | İstemci güncellemesi atlandı              | `success` |
+| `settings.client_update`    | İstemci otomatik güncelleme ayarı değişti | `success` |
+
+`new_value`: `{fromVersion, version, reason?, platform, component, source:"device"|"binding"}`; anahtar, belirteç, yol
+yazılmaz. `username` servis için `device`, kayıtlı bilgisayar için `client`; kayıtlı bilgisayar satırında IP ağ önekine
+indirilir ve UA boştur. Panel `failed` + güvenlik nedenini "Güncelleme reddedildi (imza | platform imzası | eski sürüm |
+bütünlük | ortam)", `binding` kaynaklı `failed`'i "İstemci bildirdi: …" diye gösterir; ham eylem anahtarı görünmez.
+Audit süzgecinde grup "İstemci güncelleme".
+
+Metrikler: `rs_agent_update_total{platform,component,result,source}`, `rs_agent_update_rejected_total{reason,source}`,
+`rs_agent_update_check_total{platform,component,result}`, `rs_agent_update_download_total{component,result}`,
+`rs_update_manifest_expiry_seconds{component,platform}`, `rs_unattended_agent_versions{version}` (en çok 50 + `other`).
+
 ## Saklama ve anonimleştirme (P13a)
 
 Yeni uç yoktur. Kaynak: `docs/mimari-p13.md` §2–§3, `apps/server/src/jobs/retention.ts`.

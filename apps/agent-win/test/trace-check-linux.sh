@@ -13,6 +13,8 @@
 #                      kullanıcı günlüğünde aranır; bulunan içerik basılmaz
 #   --exe <yol>        çalıştırılan ikili (kendisi iz sayılmaz; İndirilenler'deki ikili belgelenmiş kalan izdir)
 #   --since <zaman>    journalctl --user bu andan itibaren taranır (verilmezse günlük taranmaz)
+#   --update           P29 K8 (AC-484): istemci kendini yerinde güncelledi; --exe klasörü de taranır ve orada ikili dışında
+#                      her yeni girdi (ör. yarım `.<ad>.yeni-*`) izdir. --exe gerektirir.
 #
 # Taranan yerler (öncesi/sonrası ad farkı): ~/.config (autostart dahil), ~/.cache, ~/.local/share, ~/.local/state, HOME kökü,
 # /tmp, /var/tmp, $XDG_RUNTIME_DIR (özel dizin noktadestek-*), İndirilenler (yalnız *.part iz), çalışan süreç.
@@ -39,16 +41,18 @@ case "$mode" in
   check) ;;
   *) usage ;;
 esac
-since=""; exe=""; markers=()
+since=""; exe=""; markers=(); upd=0
 while [ $# -gt 0 ]; do
   case "$1" in
     --since) [ $# -ge 2 ] || usage; since=$2; shift 2 ;;
     --marker) [ $# -ge 2 ] || usage; markers+=("$2"); shift 2 ;;
     --exe) [ $# -ge 2 ] || usage; exe=$2; shift 2 ;;
+    --update) upd=1; shift ;;
     *) usage ;;
   esac
 done
 [ -n "${HOME:-}" ] && [ -d "$HOME" ] || { echo "HATA: HOME yok" >&2; exit 2; }
+[ "$upd" = 0 ] || [ -n "$exe" ] || { echo "HATA: --update --exe gerektirir" >&2; exit 2; }
 rt=${XDG_RUNTIME_DIR:-}
 
 # İndirme dizini: user-dirs.dirs (yalnız "$HOME/…" ya da mutlak biçim) → ~/Downloads.
@@ -70,6 +74,9 @@ scan() {
   done
   [ -n "$rt" ] && [ -d "$rt" ] && find "$rt" -maxdepth 2 2>/dev/null | sed "s|^|Runtime\t|"
   [ -d "$dl" ] && find "$dl" -maxdepth 1 -name '*.part' 2>/dev/null | sed "s|^|Downloads\t|"
+  # P29 K8: ikilinin klasöründe ikili dışında her girdi (geçici `.<ad>.yeni-*` dahil) iz adayıdır (compare: yeni olanlar).
+  [ "$upd" = 1 ] && [ -d "$(dirname -- "$exe")" ] &&
+    find "$(dirname -- "$exe")" -mindepth 1 -maxdepth 1 2>/dev/null | sed "s|^|ExeDir\t|"
 }
 
 traces_of() {
@@ -80,7 +87,7 @@ traces_of() {
     $0 == "" { next }
     $2 == snap || $2 == after || (exe != "" && $2 == exe) { next }
     $0 ~ ex { if (all) print "BILGI\t" $0; next }
-    { item = tolower($2); hit = all || ($1 == "Downloads") || (item ~ pat)
+    { item = tolower($2); hit = all || ($1 == "Downloads") || ($1 == "ExeDir") || (item ~ pat)
       for (i = 1; i <= n && !hit; i++) if (m[i] != "" && index(item, m[i])) hit = 1
       if (hit) print "IZ\t" $0 }'
 }

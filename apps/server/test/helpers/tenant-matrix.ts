@@ -112,6 +112,14 @@ export const ROUTE_CLASSES: Record<string, RouteClass> = {
   "GET /api/v1/public/web-requests/form": "public",
   "POST /api/v1/public/web-requests": "public",
   "GET /api/v1/public/agent/request-download": "public",
+  // P29 (mimari-p29 §4.2–4.5): güncelleme uçları kimliksiz (AGENT); dağılım ve politika tenantScope'lu (izolasyon:
+  // update-p29-panel.test.ts "AC-490" / "AC-485").
+  "GET /api/v1/public/agent/update": "public",
+  "GET /api/v1/public/agent/update/service-file": "public",
+  "POST /api/v1/public/agent/update-events": "public",
+  "GET /api/v1/unattended/versions": "scoped",
+  "GET /api/v1/settings/client-update": "scoped",
+  "PUT /api/v1/settings/client-update": "scoped",
   "GET /api/v1/support-requests": "scoped",
   "GET /api/v1/support-requests/count": "scoped",
   "GET /api/v1/support-requests/:id": "tenant",

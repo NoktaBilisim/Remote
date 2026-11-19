@@ -21,7 +21,9 @@ import (
 	"remote-support/agent-win/internal/darwin/objc"
 	"remote-support/agent-win/internal/files"
 	"remote-support/agent-win/internal/flow"
+	"remote-support/agent-win/internal/launch"
 	"remote-support/agent-win/internal/ui/mac"
+	"remote-support/agent-win/internal/update"
 )
 
 // AppKit yalnız ana iş parçacığında çalışır: main goroutine'i init'te ana iş parçacığına kilitlenir.
@@ -57,6 +59,10 @@ func run() int {
 	}
 	_ = files.CleanTraces() // AC-394: önceki (çökmüş) oturumdan kalan izler
 	watchSignals()
+	client := api.New(cfg.ServerURL, cfg.Version)
+	// P29 K8 (K-P29-10, D-6): macOS bugün yalnız bildirir; paket inmez, diske bir şey yazılmaz.
+	bundle, translocated := launch.BundleLocation()
+	upd := newUpdater(cfg, client, update.MacReplacer{Bundle: bundle, Translocated: translocated}, "", nil, nil)
 	code := exitOK
 	objc.Pool(func() {
 		gate := &control.Gate{} // arayüz ("Kontrolü kapat", gösterge fail-closed) ve akış/girdi aynı kapıyı paylaşır
@@ -66,7 +72,7 @@ func run() int {
 			code = exitUI
 			return
 		}
-		d := flowDeps(cfg, fp, api.New(cfg.ServerURL, cfg.Version), u, events, gate)
+		d := flowDeps(cfg, fp, client, u, events, gate)
 		go func() {
 			ctx := context.Background()
 			initial, ok := startCode(ctx, u) // K4: yeniden başlatma dosyası / klasör adı + Ekran Kaydı rehberi
@@ -74,9 +80,15 @@ func run() int {
 				terminate(app)
 				return
 			}
+			upd.Begin()
+			upd.Start(ctx)
 			out := flow.Run(ctx, d, initial)
-			u.Ended(out.Message)
+			upd.End()
+			u.Ended(withUpdateNotice(out.Message, upd))
+			closed := make(chan struct{})
+			go func() { upd.Close(updateCloseTimeout); close(closed) }()
 			time.Sleep(closeDelay)
+			<-closed
 			terminate(app)
 		}()
 		app.Send(objc.Sel("run"))

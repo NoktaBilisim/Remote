@@ -16872,6 +16872,442 @@ süzgeçli → sohbet satırı imkânsız (yukarıdaki tablo).
   - `npx playwright test e2e/p22-chat.spec.ts`: 11 geçti.
   - contracts lint / typecheck temiz; server typecheck temiz.
 
+## P29-K3 — Go ortak katman: `internal/update` + `cmd/update-sign` (backend-dev Go, 2026-11-19)
+
+- **Yeni:** `apps/agent-win/internal/update/{reason,version,manifest,verify,download}.go` + testler
+  (`manifest_test`, `verify_test`, `download_test`, `fixture_test`, `imports_test`, `testkeys_test`); `apps/agent-win/cmd/update-sign/{main,main_test}.go`.
+  **Değişen (yalnız ekleme):** `internal/config/config.go` (ldflags `updateEnv`, `updateKeys` → `Config.Update update.Trust`), `config_test.go`.
+- **API (K7/K8 için):**
+  - `update.Verify(trust, manifest, sig, Running{Platform,Arch,Component,Version}, maxSeen, now) Result{Outcome, Reason, Manifest, MaxSeen}`.
+    Saf işlevdir, G/Ç yapmaz. Sonuçlar: `OutcomeDisabled` (anahtar yok, olay yok), `OutcomeNone` (sessiz "yayın yok": kimlik uyuşmuyor,
+    eşit sürüm, `issuedAt > now+24 sa`), `OutcomeRejected` + `Reason`, `OutcomeManualOnly` (`MANUAL_ONLY`), `OutcomeAccept`.
+    `MaxSeen` yalnız sürüm adımı geçince yükselir; saklamak çağıranın işidir (servis `durum.json`, taşınabilir bellek).
+  - `update.Download(ctx, DownloadRequest{Client, Origin, Path, Bearer, UserAgent, Manifest, Dst})`.
+    - Yalnız `https` köken ve sabit yollar (`PathWindowsClient`, `PathMacOSClient`, `PathLinuxClient`, `PathServiceFile`; `ClientPath(platform)`).
+    - İstemcinin kopyası kullanılır: `Timeout` 0, her yönlendirme hata. Bağlam süresizse 30 dk.
+    - Gövde `size+1`'de kesilir. Fazla bayt `DOWNLOAD`, eksik bayt ya da SHA farkı `HASH_MISMATCH`, 200 dışı `DOWNLOAD` (+ `Status`, `RetryAfter`).
+    - SHA `Dst`'e yazılan akıştan hesaplanır. `Dst`'yi (O_EXCL / paylaşımsız tutamaç) çağıran açar ve kapatır; hata halinde siler.
+  - `update.ParseTrust(env, "<b64url>[,<b64url>]")`, `Trust.Enabled/VerifySignature`, `ParseManifest` (kanonik), `Manifest.Canonical/FileName`,
+    `ValidCombo`, `MaxValidity(component)`, `ParseVersion/Compare`, `DecodeSignature/EncodeSignature`, `RunningIdentity(goos)`,
+    `Reason.Security()/Skip()`, `FailReasons/SkipReasons` (contracts `api/update.ts` ile aynı sırada).
+- **`cmd/update-sign`:** `keygen` | `pubkey --key-stdin` | `sign --key-stdin (--file … [--sums SHA256SUMS] | --from eski.json) --out-dir` | `verify --pubkeys --env --manifest [--sig] [--file] [--allow-expired]`.
+  - Tohum yalnız stdin'den okunur (base64, 32 bayt). Hiçbir çıktıya yansımaz, kullanımdan sonra `clear` ile silinir.
+  - Çıktı: `update-<component>-<platform>-<arch>.json` (kanonik) + `.sig` (86 karakter, sonda yeni satır yok).
+  - Süre varsayılanı: istemci 30 g, servis 90 g.
+  - `--from` yeniden imzada yalnız `issuedAt/expiresAt` değişir (§14.2).
+- **Kanıt (§14.2):**
+  - `go list -deps ./cmd/update-sign`: stdlib dışında yalnız `internal/update` ve `cmd/update-sign`.
+  - `GOFLAGS=-mod=readonly GOPROXY=off go build ./cmd/update-sign` geçti.
+  - Boş `GOMODCACHE` + `GOPROXY=off` (önbelleksiz CI koşulu) ile de derlendi.
+  - `imports_test` platformdan bağımsız dosyalarda stdlib dışı içe aktarmayı kırmızı yapar; `_windows/_darwin/_linux.go` dosyaları muaf. İmza koşucusu (linux) kapanışını K6'nın `go list -deps` adımı denetler (K8 `install_linux.go`'da stdlib dışı kullanırsa orada kırmızı olur).
+- **Ortak fikstür (§14.6):** `fixture_test` K2'nin `packages/contracts/test/fixtures/update-manifest/cases.json` dosyasını okur. Her vakada
+  `go` ve `reason` beklentisi tuttu; imza vakaları da tuttu; test1 açık anahtarı Go'da etiketten türetilenle aynı. Dizin yoksa test kırmızı (atlamaz).
+  K6 notu: §10'daki docker komutu yalnız `apps/agent-win`'i bağlıyor; fikstür testi için repo kökü bağlanmalı.
+- **Tasarım notları:**
+  - Platform↔arch ve `service` yalnız windows kuralı contracts zod şemasıyla aynı biçimde `ParseManifest`'te uygulanır.
+  - **Orkestratör kararı (2026-11-19, §5.1 adım 6'yı daraltır):** manifest sürümü ≤ çalışan → `OutcomeNone` (sessiz, olay/alarm yok;
+    eşit = güncel, düşük = cihaz yayından önde ya da yayın geri çekildi). Yalnız çalışan < v < `maxSeen` → `DOWNGRADE` (güvenlik nedeni).
+    Testler: `TestAC474VerifyNegativeCases` ("eski sürüm sessiz"), `TestAC475ReplayBelowMaxSeen`.
+  - K7/K8: manifest/imza base64 çözümü başarısızsa `Verify`'a boş imza verilir (`MANIFEST_SIGNATURE`), sessiz düşürülmez. Bağlam iptalinde `Download` `DOWNLOAD` döner; `errors.Is(err, context.Canceled)` ile ayrılıp olay üretilmez.
+  - K6: tohum stdin'de base64 (dolgulu/dolgusuz) 32 bayt; `.sig` sonda yeni satırsız 86 karakter; `updateKeys` = `<b64url>[,<b64url>]` (boşluk/yeni satır yok).
+- **Bağımlılık:** yeni yok; `go.mod`/`go.sum` değişmedi.
+- **Koşu:**
+  - `go test -race ./internal/update/... ./internal/api/... ./cmd/update-sign/... ./internal/config/...` geçti; `go vet` ve `gofmt -l` temiz.
+  - `GOOS=windows|darwin|linux go vet ./...` ve `go build ./...` geçti.
+- **K3 tamamlama (ikinci tur):**
+  - `check.go`: `NextInterval(r)` 22..26 sa, `RunChecks(ctx, timer, rnd, check)` açılışta hemen + her dönem (sahte saat testi, AC-478).
+  - `decide.go`: `ParsePolicy` (bilinmeyen → notify, boş → auto), `MergePolicy` (kapalı kazanır), `PolicyFromBinding(*bool)`,
+    `Decide(Result, Policy, running, now) Decision{Action None|Notify|Install, Events}` (§5.2), `VerifyEncoded` (HTTP/WS teklifinin kodlu
+    alanları; çözülemeyen → `MANIFEST_SIGNATURE`) (AC-485).
+  - `queue.go`: `Event` (updateEventSchema, `at` = `YYYY-MM-DDTHH:MM:SSZ`), `NewEvent`, `Queue` (≤ 20, taşarsa en eski düşer;
+    available/failed/skipped sürüm başına 1; `Ack` gönderileni çıkarır; `State/NewQueue` servis `durum.json` için) (AC-487).
+  - `messages.go`: `MessageAvailable` (AC-483), `MessageReady(v)` (AC-482).
+  - `internal/api/update.go`: `CheckUpdate(ctx, platform, arch, ref)` (204/404 → nil,nil — AC-493; ref yalnız `[a-z2-7]{16}`;
+    hata metninde URL/ref yok), `SendUpdateEvents(ctx, platform, arch, bindingKeys≤5, events≤20)` (anahtar yalnız gövdede).
+  - `internal/api/bindings.go`: `BindingInfo.AutoUpdate *bool` (yalnız ekleme; nil = eski sunucu → auto). `api/requests.go`'ya dokunulmadı.
+
+## P29-K2 — contracts (istemci otomatik güncelleme sözleşmesi)
+
+**Yeni:** `packages/contracts/src/api/update.ts` (yaprak modül, yalnız zod; export `./api/update`), `test/update-p29.test.ts`,
+`test/fixtures/update-manifest/` (ortak TS+Go fikstürü: `build.ts` üretici, `generate.mjs` yazıcı, `cases.json` dizini, `*.json` ham
+manifest, `*.sig`), `test/node-fs.d.ts`. **Ekleme:** `ws-device.ts` (`WS_DEVICE_CAP_UPDATE`, `update1` özelliği, `deviceUpdateOutboundSchema`
+/ `deviceUpdateInboundSchema`), `errors.ts` (`DEVICE_UPDATING` 409), `audit.ts` (`CLIENT_UPDATE_AUDIT`, `_LABELS`, `_GROUP`, `_BY_EVENT`,
+`CLIENT_UPDATE_SETTINGS_AUDIT`), `api/unattended.ts` (liste `version` süzgeci, `DeviceListItem` isteğe bağlı sürüm/rozet alanları,
+`DEVICE_UPDATE_BADGES`, versions şeması, `DEVICE_UPDATING` metni), `api/bindings.ts` (`BindingInfo.autoUpdate?`), `fixtures/ws-device.json`
+(`update1Inbound/Outbound`, `constants.wsDeviceCapUpdate`), `test/node-crypto.d.ts`, `.prettierignore` (fikstür ham bayt), PT-K1 anlık görüntüsü (yalnız ekleme).
+
+**Sapmalar:**
+
+- `update1`, `DEVICE_ANNOUNCED_FEATURES`'e **eklenmedi** (§4.3 ekle diyor). Gerekçe `direct1` ile aynı: Go `validFeatures` bilinmeyen
+  değeri reddeder; 0.22 servisi K7'de güncellenmezse `device.features` reddedilir ve consent akışı kırılır. P29 desteğini zaten
+  `update.offer`/`update.none` duyuruyor. `update1` yalnız `DEVICE_FEATURES` + `DEVICE_FEATURE_BY_SUBPROTOCOL`'da.
+- `update.*` mesajları `deviceInboundSchema`'ya değil, ayrı `update1` birliklerine kondu (consent1/record1 kalıbı). Go fikstür testleri
+  `valid.deviceInbound` girdilerinin hepsini katı ayrıştırıcıdan geçiriyor, oraya eklenselerdi kırılırdı.
+- WS mesajları §4.3 tablosundaki 7 mesajın tamamı (offer, none, token / check, token.request, state, event).
+- `api/update.ts` desenleri yaprak modül kuralı gereği yeniden yazıldı; `.source` eşitliği testle sabitlendi.
+
+**Sözleşme notları (K4/K5/K7):** `updateManifestSchema` component'e göre süreyi uygular (istemci ≤ 30 g, servis ≤ 90 g) ve
+platform↔arch eşlemesini zorlar. Go `ParseManifest` ise 90 g'ı geneldir, 30 g Verify'da `EXPIRED`'dır (`span-client-31d` vakası).
+`DeviceListItem` yeni alanları K4 doldurana kadar isteğe bağlıdır. Olay şemasında `source` yok, strict olduğu için reddedilir.
+
+**Test anahtarı:** tohum = SHA-256(açık etiket "rs-update-manifest TEST key 1/2 - public test-only seed, never a real key"). Repoda tohum
+baytı yok; Ed25519 deterministik, test her koşuda yeniden üretip disk baytlarıyla karşılaştırır.
+
+**Komutlar:** `pnpm --filter @remote/contracts test` → 31 dosya / 331 test geçti; `typecheck`, `lint`, `prettier --check` temiz;
+`pnpm -r typecheck` temiz. Bağımsız doğrulama: imzalar Python `cryptography` ile 28/28; K3'ün `ParseManifest`'i (golang:1.26) 25/25 vakada `go` beklentisiyle aynı.
+
+## P29-K5 — Web: sürüm sütunu, dağılım şeridi, /settings/clients, audit etiketleri (frontend-dev, 2026-11-19)
+
+### Rotalar
+
+| Yol                          | Auth                                                                                      | Ne yapar                                                                                                                                                                                  |
+| ---------------------------- | ----------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `/settings/clients` (yeni)   | Evet; `settings.view` (görüntüle), `settings.edit` (kaydet); Super Admin firma bağlamında | Tek anahtar "İstemcileri otomatik güncelle" (vars. Açık); GET/PUT `/api/v1/settings/client-update`; Kaydet çubuğu + toast + ayrılma uyarısı. Ayarlar sekmesi "İstemciler" (`MonitorDown`) |
+| `/unattended` (değişti)      | Evet; `unattended.connect` ∨ `manage`                                                     | "Sürüm" sütunu + rozet; üstte sürüm dağılımı şeridi (GET `/unattended/versions`); `?version=x.y.z` liste süzgeci; Super Admin `?scope=all` (yalnız şerit)                                 |
+| `/unattended/[id]` (değişti) | Evet                                                                                      | Sürüm satırında rozet                                                                                                                                                                     |
+| `/audit` (değişti)           | Evet; `audit.view`                                                                        | "İstemci güncelleme" süzgeç grubu (`client.*` + 5 eylem), AC-491 satır etiketleri, ayrıntıda "Neden"                                                                                      |
+
+**Yeni dosyalar:** `apps/web/app/(panel)/settings/clients/{page,client-update-form}.tsx`, `app/(panel)/unattended/(list)/version-strip.tsx`
+(sunucu bileşeni, `Suspense` ile ayrı akış), `(list)/version-strip-parts.tsx` (kapsam anahtarı, yeniden dene), `components/update-badge.tsx`,
+`lib/unattended/update.ts` (+ `update-p29.test.ts`), `e2e/mock-p29.mjs`, `e2e/p29-client-update.spec.ts`.
+**Değişen:** `lib/unattended/{query,contract}.ts` (`version`, `scope`, `versionsApiPath`, yeniden dışa aktarımlar), `unattended/{device-rows,
+device-list,use-device-poll}.tsx|ts` (sütun, süzgeç yoklamada korunur, boş durum süzgeci sayar), `(list)/page.tsx`, `[id]/page.tsx`,
+`settings/settings-tabs.tsx`, `lib/audit/actions.ts` (`clientUpdateLabel`, `clientUpdateReason(Label)`, `auditItemLabel`, `client` grup etiketi),
+`audit/{audit-cells,audit-log,audit-detail-dialog}.tsx` (satır etiketi öğe bazlı: tablo, kart, ayrıntı, `aria-label`), `messages/tr.json`
+(yalnız ekleme: `set.tab.clients`, `upd.*`), `e2e/{mock-api,mock-audit}.mjs` (u-p29*, u-auupd-*), `DESIGN.md` §4 (P29 ikonları).
+
+**5 durum:** şerit — iskelet (Suspense), boş (cihaz yok → çizilmez, listenin boş durumu), hata (uyarı + Tekrar dene; liste etkilenmez),
+kısmi (yayın bilgisi yok → "Yayın bilgisi alınamadı" + dağılım; liste yoklaması hatası mevcut `un-stale` bandı), başarılı. Ayar —
+yükleniyor (`settings/loading.tsx`), hata (`LoadError`), yetkisiz/firma seçilmedi (ortak kabuk), salt okunur, başarılı.
+
+**Sapmalar / kararlar:**
+
+- `unattended.view` yetkisi kodda yok (`permissions.ts` yalnız `connect`/`manage`). Şerit sayfa kapısıyla (connect ∨ manage) açılır; uç 403/404
+  dönerse şerit gizlenir (eski sunucu da sayfayı bozmaz). **backend-dev (K4):** `/unattended/versions` aynı kapıyı (connect ∨ manage) kullanmalı.
+- §6 "kenar menüsü İstemciler" → ayar sayfaları kenar menüsünde değil, Ayarlar sekmelerinde; "İstemciler" sekme olarak eklendi.
+- Super Admin "Tüm firmalar" yalnız firma bağlamında (firma seçmemiş SA mevcut "firma seçin" kapısında). `scope=all` iken sürüm sayıları
+  bağlantı değildir (alttaki liste tek firmanın); firma kullanıcısında URL'deki `scope=all` yok sayılır (403 tetiklenmez).
+- "İstemci bildirdi: " öneki yalnız audit'te ve yalnız `source=binding` + `client.update.failed` satırında (§14.4); cihaz listesinde kaynak
+  alanı yok (gözetimsiz cihaz hep `device`).
+- AC-491 (QA P29 tur 1 düzeltmesi): `client.update.*` ve `settings.client_update` satırlarında ham eylem anahtarı hiçbir yerde gösterilmez
+  (`hidesRawAction`, `ActionCell`); diğer gruplarda P11 davranışı (etiket altında ham ad) aynen; e2e tablo/kart/ayrıntı/aria denetler.
+- Sayfa testi T-P29-1: masaüstü tabloda Sürüm hücresi yığılı (sürüm üstte, rozet altta, `max-w-36`, metin sarar) → 1280 px'te tablo
+  kaymaz. T-P29-2: audit mobil kart başlığı kesilmez, sarar (tüm gruplar). İkisi de e2e ile sabitlendi.
+- `/unattended/[id]` "son güncelleme olayı" satırı (zaman + kaynak sürüm) yazılamadı: `DeviceDetail`/`DeviceListItem`'da `updateAt` ve
+  `fromVersion` yok. Yalnız rozet (+ bekleyen/sürende hedef sürüm) gösterilir. **contracts/K4:** istenirse `updateAt?: string | null` eklensin.
+- Skill dosyası `~/.claude/skills/ui-ux-pro-max/SKILL.md` okundu; yeni bağımlılık yok.
+
+**Komutlar:** `pnpm --filter @remote/web typecheck` · `lint` · `test` (67 dosya / 653 test) temiz; prettier uygulandı;
+tam e2e takımı (`e2e -- p29` tüm takımı koşturdu): 640 geçti, 1 kırmızı `portal-p21` "yeni talep" (yük altında kararsız; tekrar
+koşuda geçti, P29 değişikliğiyle ilgisiz). Hedefli koşu `playwright test p29 portal-p21 unattended p28u`: 82 geçti / 20 atlandı (yalnız masaüstü).
+
+## P29-K4 — Sunucu: manifest kapısı, public güncelleme uçları, `/ws/device` update1, panel uçları (backend-dev, 2026-11-19)
+
+**Yeni (`apps/server/src/update/`):** `manifest-store.ts` (dosya + imza önbelleği stat anahtarlı ve en çok 60 sn'de bir stat;
+imza `UPDATE_MANIFEST_PUBKEYS` iki yuva, bağlam önekli; kanonik bayt `parseCanonicalManifest` ile, component'e göre süre
+istemci ≤ 30 g, servis ≤ 90 g; yuva eşleşmesi; `env` = DEPLOY_ENV eşlemesi; süre dolumu; `issuedAt > now+24 sa` → yayın yok;
+SHA = ikili kapısının beklenen SHA'sı ve kapı `ok`; servis + `signed` → `UNATTENDED_SIGNED_SHA256`; her yuvada durum değişince tek
+`warn`, < 14 g `update_manifest_expiring`), `service.ts` (`app.updates`: politika, ref politikası, teklif, hız kovaları),
+`service-token.ts` (tek kullanımlık 32 bayt belirteç, 10 dk, cihaz başına 1, global 8 akış), `events.ts` (metrik, audit, cihaz
+durum sütunları), `device-update.ts` (WS `update.*`), `versions.ts` (rozet `deviceUpdateBadge`, dağılım, sürüm göstergesi),
+`routes.ts` (public uçlar), `settings-route.ts`, `wiring.ts`. Testler: `test/unit/update-p29.test.ts`,
+`test/integration/update-p29.test.ts`, `test/integration/update-p29-panel.test.ts`, `test/helpers/update.ts`.
+
+**Ekleme yapılan dosyalar:** `app.ts` (`decorateUpdates`, ikili kapılarından sonra), `app-routes.ts` (2 eklenti),
+`unattended/hub.ts` (`sendUpdate`, `updateConnsOf`, `markUpdating`/`isUpdating`, `DeviceConn.version`), `unattended/device-ws.ts`
+(`update1` sokette `deviceUpdateInboundSchema`; teklif `s.conn` atandıktan sonra), `unattended/device-auth.ts` (aynı UPDATE'te
+`agent_version ≥ update_version` → dört alan NULL), `unattended/connect.ts` (`DEVICE_UPDATING`), `unattended/{repo,service,routes}.ts`
+(liste alanları, `?version=`, `GET /versions`), `bindings/{repo,service}.ts` (`autoUpdate`), `ops/metrics.ts` (`labeledGauge` +
+4 sayaç), `lib/logger.ts` (REDACT `*.bindingKeys`), `test/helpers/tenant-matrix.ts` (6 uç), PT-K1 anlık görüntüsü (yalnız ekleme;
+`HEAD /update/service-file` bilinçli yok).
+
+**Uçlar:** `GET /api/v1/public/agent/update` (AGENT, IP 60/sa, `ref` şemadan önce ayrılır: dizi/desen dışı/geçersiz → `auto`,
+desenden bağımsız aynı paralel sorgu çifti), `GET …/update/service-file` (yalnız Bearer; sorgu dizesi → 404; IP 20/dk;
+global 8 akış → 503 + `Retry-After: 300`), `POST …/update-events` (8 KiB; IP 10 istek/sa + 30 olay/sa → 429; kimlik 10 olay/sa),
+`GET /api/v1/unattended/versions[?scope=all]`, `GET/PUT /api/v1/settings/client-update`. Metrikler: `rs_agent_update_total
+{platform,component,result,source}`, `rs_agent_update_rejected_total{reason,source}`, `rs_agent_update_check_total`,
+`rs_agent_update_download_total`, `rs_update_manifest_expiry_seconds{component,platform}`, `rs_unattended_agent_versions{version}`
+(≤ 50 + `other`; 60 sn'de bir DB'den, yalnız `startJobs`). Dosya adları K6 ile aynı: `update-<c>-<p>-<a>.json` + `.json.sig`.
+
+**Sapmalar (gerekçeli):**
+
+1. **`unattended.view` yok** (koordinatör/K5 teyidi): sürüm ucu ve liste süzgeci mevcut sayfa kapısıyla aynı, `unattended.connect ∨
+unattended.manage`. Yeni yetki eklenmedi (K-P29-20). `scope=all` rol denetimi (`SUPER_ADMIN`, aksi 403) ve `tenantScope`'tan önce.
+2. **Kimlik başına (binding) aşımı 429 değil, sessiz 204** (+ `rate_limited` metriği). §10'daki "kimlik 10/sa → 429" ifadesiyle
+   çelişir: 429 dönmek geçerli anahtarı geçersizden ayırt ettirir (§4.5 "anahtar oracle'ı yok"). IP kovaları 429 döner; IP olay
+   bütçesi kısmen doluysa kalan olaylar işlenir, fazlası düşer (204), bütçe sıfırsa 429.
+3. **Kayıtlı bilgisayar audit'inde IP ağ önekine indirildi, UA boş** (username §4.7 gereği `client`). Gerekçe KVKK S-P13a-1:
+   müşteri bilgisayarı aktörlü satırlar tam IP/UA taşımaz (`customer` kuralının eşdeğeri). Servis (`device`) satırı mevcut cihaz
+   kuralıyla tam IP.
+4. **Servis dosyasında akış sınırı belirteçten önce denetlenir:** 503 (dolu) belirteci TÜKETMEZ (servis `Retry-After` sonrası aynı
+   belirteçle dener); belirteç alındıktan sonraki 503 `NOT_READY` (kapı/SHA) belirteci tüketir. `HEAD` kapalı (gövdesiz tüketim olmasın).
+5. **`update.state` saatlik sınırı** 4/sa (tehdit modeli "yenileme `update.state` 4/sa"); sınır `UPDATE_LIMITS.deviceChecksPerHour`
+   değeriyle. Hub "güncelleniyor" bayrağı yalnız TTL ile düşer (3 dk; yeniden auth'ta erken düşürme yok).
+6. **`device.auth` temizliği `device-auth.ts recordAuth`'ta** (dosya planda yok; §3.2 kuralı aynı UPDATE'te olmalı).
+7. **Audit eylem etiketleri sunucuda yok** (etiket tablosu web `lib/audit/actions.ts`, K5). Sunucu payı: `GET /audit?action=
+client.update.*` geri okuma testi (alanlar `view.ts`'te düşmüyor).
+8. **DEPLOY_ENV `development`/boş → hiçbir manifest sunulmaz** (env eşlemesi yalnız production→prod, staging→staging).
+
+**frontend-dev için sözleşme:** liste satırında `agentVersion`, `updateBadge`, `updateReason` (yalnız FAILED'de dolu),
+`updateVersion` artık her zaman dolu/null gelir; `/unattended/versions` `rows` sayısal sürüme göre azalan (en çok 200); 403 metni
+firma seçmemiş Super Admin'de "Önce bir firma seçin." (yalnız `scope=all` çalışır). `PUT /settings/client-update` yanıtı gönderilen
+gövdeyle aynı. `bindings/status` `autoUpdate` her zaman dolu.
+
+**Bağımlılık:** yok (`node:crypto` Ed25519).
+
+**Komutlar ve sonuç (rs-p29-test, 33472):** `pnpm --filter @remote/server typecheck` temiz · `lint` temiz · `test` (unit) 52 dosya /
+723 geçti, 1 atlandı (yeni `update-p29.test.ts` 19) · entegrasyon `update-p29` 18 + `update-p29-panel` 8 geçti; ilgili takım
+(unattended-_, bindings-_, tenant-isolation, pt-surface, audit*, agent-download, clip-print, rec-p28e-unattended, db-grants, p27a,
+logs, ops-headers) 36 dosya / 290 test geçti. Tam entegrasyon: 123 dosya / 1291 test, 1288 geçti; 3 kırmızı (p19-notify-j3 AC-261, customers-csv-p19 AC-263 süre ölçümü,
+requests-p8b-3 §13.2) P29 dışı ve yük/zamanlama kaynaklı: üçü tek başına koşulunca 42/42 geçti.
+
+## P29-K8 — Taşınabilir istemci güncellemesi: Windows exe, Linux ELF, macOS app (backend-dev Go, 2026-11-19)
+
+- **Yeni dosyalar:**
+  - `internal/update/portable.go`: platformdan bağımsız orkestratör `Portable`. API: `Start / Begin / End / Notice / Abort / Close`.
+  - `internal/update/selfreplace.go`: ortak, yalnız stdlib. İçerik:
+    - `SelfReplacer` / `Staging`, `ErrNotWritable` / `ErrManualOnly` / `ErrBusy`;
+    - Windows sırası (`WindowsReplacer`, `WinFS`, `SwapInPlace`);
+    - Linux konum kararı (`CheckPosixLocation`, `IsLinuxTemp`);
+    - macOS kararı (`DecideMac`).
+  - `internal/update/selfreplace_{windows,linux,darwin}.go`, testler `selfreplace_test.go`, `selfreplace_linux_test.go`, `portable_test.go`.
+  - `cmd/noktadestek/updater.go` (ortak kablolama), `cmd/noktadestek/updater_windows.go` (x/sys `MoveFileEx`/`GetDriveType` enjeksiyonu + kayıt politikası).
+- **Değişen dosyalar (ekleme):**
+  - `internal/update/messages.go`: `MessageAvailableLink`.
+  - `internal/launch/run.go` + `home.go`: `Deps.UpdateNotice`, ana ekran bilgi satırı.
+  - `internal/launch/code_darwin.go`: `BundleLocation()`; `BundlePath` buna sarıldı, davranış aynı.
+  - `cmd/noktadestek/{main.go,deps.go,main_linux.go,main_darwin.go}`.
+  - `test/trace-check.ps1`: `-Update off|installed|relaunched`. `test/trace-check-linux.sh`: `--update`.
+- **Dokunulmayanlar:** P22-G dosyaları (`flow`, `signal`, `dc`, `rtc`, `request/chat*`, `api/requests.go`, `uicore/accept.go`), K7 `internal/servis*`, K4/K5/K6.
+
+### Akış (§5.2)
+
+- **Denetim (AC-478):** açılışta + 24 sa ± 2 sa (`RunChecks`). Gömülü anahtar yoksa `Start` hiçbir ağ isteği yapmaz.
+  - Windows normal açılış: ilk kapsamda başlar. `--tray`: hemen başlar.
+  - Linux/macOS: akış başlarken başlar.
+- **Politika:** `MergePolicy(offer.policy (?ref=), her kayıt için bindings/status autoUpdate)`.
+  - `BINDING_INVALID` hesaptan düşer.
+  - Kayıt dosyası okunamıyor ya da status hatası (ağ dahil) → o dönem karar yok (fail-closed, AC-485).
+  - macOS/Linux'ta tenant bilinmez → `auto`.
+- **Bellekte tutulanlar (iz bırakmama):** `maxSeen` (T-7) ve olay kuyruğu.
+  - Kuyruk gönderimleri sıralıdır; `Ack` yalnız başarıda.
+  - İptal edilen indirme olay üretmez; geçici dosya silinir.
+- **Kurulum zamanı (AC-479):** kurulum yalnız açık kapsam yokken.
+  - Windows: `tray.Scope.Run` sarmalayıcısında `Begin/End`; kurulum kapsam biter bitmez, son ekrandan önce.
+  - Linux/macOS: `flow.Run` dönünce, `closeDelay` ile eşzamanlı `Close(2 sn)`. AC-107 süresi uzamaz.
+  - Süreç başına tek kurulum: kurulumdan sonra denetim yapılmaz (çalışan imaj `.eski`).
+- **Bilgi satırı (bir kez):** Windows'ta ana ekran notu, son ekran `EndedNote`, tepside boşta kurulumda balon. Linux/macOS'ta son ekran gövdesine ek.
+- **Windows (K-P29-9 r2):**
+  - Ön koşul: sürücü harfli sabit disk (UNC/ağ/çıkarılabilir → `NOT_WRITABLE`).
+  - Yazılabilirlik yoklaması `<ad>.yeni`'nin `CREATE_NEW` + share=0 ile açılmasının kendisidir. Var/paylaşım ihlali → `ErrBusy` (sessiz, ikinci örnek).
+  - Commit sırası: `Sync` → kapat → MOTW ADS kopyası (asılda varsa; okunamazsa kurulum yok) → `exe→.eski`, `.yeni→exe`. Her iki rename `MoveFileEx(REPLACE_EXISTING|WRITE_THROUGH)`; ikincisi başarısızsa geri alınır.
+  - Her açılışta `.eski` ve bayat `.yeni` sessizce silinir.
+- **Linux (K-P29-11, T-12):**
+  - Ret koşulları: farklı sahip, düzenli dosya değil, `ST_RDONLY` / `ST_NOEXEC`, sticky olmayan herkes-yazılabilir klasör → `NOT_WRITABLE`.
+  - Geçici dosya `.<ad>.yeni-<8hex>`: `O_CREAT|O_EXCL|O_NOFOLLOW|O_CLOEXEC`, 0600.
+  - Commit sırası: `fchmod` asıl kip → fsync → kapat → hedef hâlâ `/proc/self/exe` inode'u mu (`os.SameFile`) → `rename(2)` → klasör fsync.
+  - Açılışta yalnız tam desenli, düzenli ve kendi sahibimiz olan artıklar silinir.
+  - Sinyal çıkışı (`os.Exit`) `Abort` ile geçici dosyayı siler.
+
+### Sapmalar
+
+1. **Dosya adı:** mimari §7 `install_*.go` diyor; yerine `selfreplace_*.go` kullanıldı. Gerekçe: K7 servis kurulumu ile ad çakışmasın.
+2. **macOS (K-P29-10 / D-6), bilinçli sapma:** yerinde paket değiştirme kodu **yazılmadı**.
+   - Karar: translocation ya da yazılamayan konum → `NOT_WRITABLE`, aksi her durumda `MANUAL_ONLY` + bilgi; zip inmez.
+   - Gerekçe: yeni paketin `SecStaticCodeCheckValidity` + Team ID + `SecAssessment` (notarization) doğrulaması Developer ID'li paket olmadan yazılıp test edilemez. Bugün her derleme ad-hoc/TEST olduğundan dal erişilemezdi; test edilmemiş yer değiştirme kodu bırakılmadı (fail-closed).
+   - Apple hesabı gelince `DecideMac`'e imza girdisi + yer değiştirici eklenir. §10'daki "Team ID uyuşmazlığı → `PLATFORM_SIGNATURE`" vakası da o zaman yazılır.
+3. **AC-483 bağlantısı:** `bindings/status` yanıtında tenant indirme bağlantısı alanı yok. Bu yüzden her durumda sunucu karşılama adresi (`https://<köken>/`) gösterilir.
+4. **Denetim zamanı:** açılış denetimi ve indirme kapsam sürerken de yapılır (§5.2 "oturum sürüyor olabilir"); yalnız kurulum ertelenir.
+
+### Testler
+
+- **macOS host:** `go test -race ./internal/update/ ./internal/launch/ ./internal/config/` geçti. Kapsanan AC'ler:
+  - **AC-479** kurulum End'e ertelenir.
+  - **AC-482:** aynı ad; Windows sıra + rollback + MOTW; bilgi satırı bir kez; tepside balon.
+  - **AC-483:** NOT_WRITABLE / MANUAL_ONLY / ErrBusy; POSIX ve mac karar tabloları.
+  - **AC-484:** `.eski` sonraki açılışta silinir; Abort/iptal/ret sonrası geçici dosya yok; süreç başına tek kurulum.
+  - **AC-485:** ref/kayıt politikası; politika bilinmiyorsa karar yok.
+  - **AC-487:** HASH_MISMATCH / INSTALL olayı, iptalde olay yok, Ack yalnız başarıda.
+  - **AC-475:** maxSeen bellekte replay.
+  - **AC-478:** anahtarsız ağ yok, açılış + dönem.
+- **Linux (docker golang:1.26, repo kökü bağlı):**
+  - root: `go test -race ./internal/update/ ./internal/launch/` geçti.
+  - `--user` (root olmayan): `-run Linux` geçti; salt okunur klasör vakası yalnız root olmayanda koşar.
+  - Gerçek FS: kip 0750 korunur, klasörde yalnız ikili kalır, inode değişince vazgeçer, artık temizliği sembolik bağı silmez.
+- **Derleme:** `GOOS={windows,linux,darwin}` için `go vet` + `go build ./...` + `go test -c ./internal/update/` temiz. Kendi dosyalarımda `gofmt -l` temiz.
+  - Not: `internal/servis` vet'i K7'nin yarım `update_test.go` dosyası (`undefined: fakeSwitch`) nedeniyle şu an kırmızı; K8 dışı, o paket hariç tutuldu.
+- **Diğer:** `go list -deps ./cmd/update-sign` (linux) stdlib dışı paket içermiyor. `trace-check-linux.sh --update` docker'da duman testi: temiz → 0, `.yeni` artığı → 1.
+
+### Burada doğrulanamayanlar (K11 elle / Windows runner)
+
+- **Windows:**
+  - Çalışan exe'nin `MoveFileEx` ile `.eski`'ye adlandırılması: tepsi açık ve tek seferlik.
+  - share=0 tutamaç + MOTW ADS yazımı.
+  - `GetDriveType` (USB, ağ sürücüsü, UNC).
+  - Autorun `Run` değerinin güncelleme sonrası yeni dosyayı başlatması.
+  - Yeni dosyanın SmartScreen/Defender davranışı (R-P29-14).
+  - `trace-check.ps1 -Update installed|relaunched`.
+- **Windows tepsi süreci:** kurulumdan sonra eski imajla yaşamaya devam eder. Yeni kapsamda PDF işleyicisini `a.exe` yolundan, yani **yeni** ikiliden başlatır. Sürümler arası boru uyumu doğrulanmadı; K9/K11'e risk notu.
+- **Linux:** gerçek `noexec` / salt okunur bağlama (yalnız saf karar testli), çalışan ELF'in rename sonrası sorunsuz sürmesi, `trace-check-linux.sh --update` ile gerçek GUI turu.
+- **macOS:** translocation algısının (`BundleLocation`) gerçek indirilen pakette doğrulanması; bilgi satırının son ekranda görünümü (iki tema).
+- **Hepsi:** staging 0.22.0 → 0.22.1 tam tur (AC-493, K11).
+
+**Bağımlılık:** yeni yok.
+
+## P29-K0s/K7 — Windows gözetimsiz servis güncellemesi (backend-dev Go, 2026-11-19)
+
+**Yeni (`apps/agent-win/internal/servis/`):**
+
+- `update_wire.go`: `rs.cap.update1` ve S→C `update.offer/none/token`. C→S `update.check/token.request/state/event`, doğrulama ve kodlama.
+- `update.go`:
+  - `durum.json` katı şeması (`ParseUpdateState`, ≤ 8 KiB). Bilinmeyen alan ya da geçersiz değer gelirse yalnız faz alanları düşer; maxSeen, blok, kuyruk ve yedek ayrı doğrulanır.
+  - `StateStore`: süreçler arası kilit + oku-değiştir-yaz + atomik değiştirme.
+  - Olay günlüğü 1010/1011/1012.
+- `update_svc.go`:
+  - `Updater` servis akışı: offer → `VerifyEncoded` (maxSeen kalıcı) → `Decide` → kuyruk → 0–120 dk gecikme → token → `Download` (Bearer) → platform imzası → `staged`+nonce → oturum kapısı → gözetmen.
+  - `planStartup`: saf ve toplam faz uzlaştırması. `finalize`: R2-1 sırası.
+  - `Core` kurulum kapısı (`UpdateBegin/Commit/End`).
+- `update_apply.go`: `Supervisor.Apply` (`--update-apply`) ve `Supervisor.Recover` (`--update-recover`); `ApplySys` arayüzü üstünde, platformsuz.
+- `update_windows.go`:
+  - `Guncelleme\` VerifyDir: reparse, sahip, korumalı DACL ve yalnız SY/BA; değilse silinip yeniden oluşturulur, olay 1012.
+  - `CREATE_NEW` + paylaşımsız `yeni.bin`.
+  - Mutex'ler: `Global\NoktaDestekServisUpdate` (varlık anlamı, DACL SY) ve `Global\NoktaDestekServisDurum` (durum kilidi).
+  - Job dışı gözetmen başlatma, SCM FailureActions yedek/RUN_COMMAND/geri yükleme.
+  - Yer değiştirme: sabit bağlantı + `FileRenameInfoEx`, olmazsa iki `MoveFileEx WRITE_THROUGH`. Ayrıca geri dönüş ve DisplayVersion öz-onarımı.
+- `update_apply_windows.go`: giriş noktaları, LocalSystem denetimi, aynı tutamaçtan SHA + kopya (`copyStaged`).
+- `update_sign_windows.go`: AC-476 platform imzası. Çalışan ikili imzalıysa yeni ikili WinVerifyTrust'tan geçmeli ve imzalayan yaprak sertifikanın SHA-256'sı aynı olmalı (CryptQueryObject + crypt32 `CryptMsgGetParam`). Bugün derlemeler imzasız olduğundan bu dal etkin değil.
+- Testler:
+  - `update_test.go` (platformsuz, macOS'ta koşar).
+  - `update_windows_test.go` (Windows CI'daki mevcut `go test ./...` adımında koşar).
+  - `internal/servisui/update_test.go`.
+
+**Değişen (yalnız ekleme / küçük hedefli):**
+
+- `wire.go`: ParseServer'a 3 tür; validate/encode kancaları.
+- `wsdevice.go`:
+  - Alt protokol listesine `rs.cap.update1`.
+  - `updateSeen` bayrağı, bağlantı başına sıfırlanır.
+  - `Update` alanı ve `Ready()` kancası.
+- `wsdevice_io.go`:
+  - Yazıcı kapısı: offer/none yoksa `update.*` yazılmaz; `flushMsg` hata döner.
+  - `SendWait` ve `UpdateGate`.
+- `core.go`: `upd` kapısı, `Version`; kurulum sırasında `connect` → `busy`.
+- `mode.go` + `cmd/noktadestek-servis/main.go`: `--update-apply` ve `--update-recover`. İkisi de `config.Load` ve arayüzden önce ayrılır; hata durumunda sessiz çıkar.
+- `svc_windows.go`: güncelleyiciyi bağlar; `Startup` WS'den önce çalışır.
+- `install_windows.go`: kurtarma varsayılanı tek işlevde (`defaultRecoveryActions`).
+- `pipecmd.go`: `PipeResponse.Version` (ek alan).
+- Tepsi (`servisui`): `Snapshot.ServiceVersion`, `TrayRestart`. Yeni tepsi, tek örnek kilidi bırakıldıktan sonra kurulu yoldan başlatılır.
+- Taşınabilir istemci (K8) dosyalarına dokunulmadı. `internal/update`'e dosya eklenmedi.
+
+**Sapmalar (gerekçeli):**
+
+1. **Yer değiştirmede sabit bağlantı (§14.3 m.4):** tek adımlı `FileRenameInfoEx(exe.yeni → exe)` `exe.eski` bırakmaz. Oysa geri dönüş, kurtarma komutu ve gözetmenin kendi imajı ona bağlı. Bu yüzden önce `CreateHardLink(exe.eski → exe)`, sonra tek adım yapılır. Olmazsa bağlantı silinir ve iki `MoveFileEx` adımı uygulanır. Geri dönüş faza değil dosyaya bakar: `exe.eski` varsa geri konur.
+2. **Kurtarma yuvaları:** üç yuvanın üçü de RUN_COMMAND (1 sn, 10 sn, 10 sn) ve `FailureActionsOnNonCrashFailures=true`. Gerekçe: o gün daha önce bir çökme olduysa hata sayacı 0 değildir ve yalnız ilk yuva yetmez. Kurtarma komutu fazı uygun değilse yalnız eylemleri geri yükleyip servisi başlatır; mutex tutuluyorsa sessiz çıkar.
+3. **`durum.json` alanları:** §5.3'teki `availableSent` yerine K3 `QueueState` adları (`queue`, `sent`) kullanıldı. FailureActions yedeği `recovery{resetSec, command, nonCrash, actions}` alanında. Tam dolu durumun 8 KiB'a sığdığı test edildi.
+4. **Olayların kaynağı:** `rolled_back(HEALTH)` ve gözetmenin `failed` olaylarını gözetmen doğrudan `durum.json` kuyruğuna yazar; yeni ya da eski servis WS'den gönderir. `installed` olayını yeni servis `healthy` yazarken kuyruğa ekler.
+5. **Açılış uzlaştırması toplamdır (mimarinin tanımlamadığı birleşimler):**
+   - Gözetmen yokken bayat `staged` → temizlenir, faz boşa döner.
+   - `healthy` ve sürüm hedefle aynı → `done`.
+   - Sürüm ne hedef ne önceki → faz boşa döner, olay yok.
+6. **Gözetmen canlılığı PID ile değil mutex'le anlaşılır (`OpenMutex`).** Mutex'i alamayan gözetmen ya da kurtarma süreci çıkar.
+7. **İstemci tarafı hız sınırları:** olay 10/sa, belirteç 4/sa, denetim 4/sa. 503 + `Retry-After` gelirse en az `max(Retry-After, 5 dk)` beklenir, en çok 3 yeni belirteç istenir.
+8. **Oturum kapısı:** `Core.mu` altında 2 aşamalıdır. "Bekliyor" aşamasında connect gelirse kurulum iptal olur ve connect kabul edilir. "Kuruluyor" aşamasında connect `busy` alır. Yardımcı, yeniden katılım bekleyişi ya da bekleyen oturum kapatma varken kurulum başlamaz.
+
+**Bağımlılık:** yeni yok (`golang.org/x/sys` mevcut; crypt32 `NewLazySystemDLL`).
+
+### K0s — gerçek Windows'ta doğrulanacaklar (K11 staging / Windows CI; macOS'ta çalıştırılamadı)
+
+| #   | Doğrulanacak                                                                                                                                         | Kodda dayanılan varsayım / yedek yol                                                                                         |
+| --- | ---------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
+| 1   | Çalışan servis imajı (ve açık tepsi imajları) varken `exe` yeniden adlandırılabiliyor mu                                                             | `TestK0sRenameRunningImageAndHardLink` (ping.exe kopyası) Windows CI'da ölçer; olmazsa INSTALL                               |
+| 2   | Eşlenmiş imaja `CreateHardLink` kurulabiliyor mu; `FileRenameInfoEx` (REPLACE_IF_EXISTS\|POSIX_SEMANTICS) eşlenmiş `exe` üstüne yazabiliyor mu       | Olmazsa iki `MoveFileEx` yolu (aynı test `t.Logf` ile hangisinin çalıştığını yazar)                                          |
+| 3   | SC_ACTION_RUN_COMMAND hangi hesapla koşuyor (x/sys belgesi: "servisle aynı hesap" = LocalSystem)                                                     | `--update-recover` LocalSystem değilse `ApplyDenied` ile çıkar → kanca işlemez; o durumda §14.3 yedek: ONSTART SYSTEM görevi |
+| 4   | `exe` hiç yokken (R-P29-11) SCM başlatma hatası (1053/2) "failure" sayılıp RUN_COMMAND çalışıyor mu                                                  | Sayılmıyorsa ONSTART görevi (spike olumsuz yolu)                                                                             |
+| 5   | Hata sayacı > 0 iken hangi yuva koşuyor; `SetRecoveryActions` sayacı sıfırlıyor mu                                                                   | Üç yuva da RUN_COMMAND (sapma 2)                                                                                             |
+| 6   | Temiz ama sıfır dışı çıkış `NonCrashFailures=true` ile failure sayılıyor mu; gözetmenin `Control(Stop)`'u failure sayılmıyor mu                      | Stop çıkış kodu 0                                                                                                            |
+| 7   | Servis durunca job dışı alt süreç (gözetmen) yaşıyor mu; servis bir job'da mı (`CREATE_BREAKAWAY_FROM_JOB` reddediliyorsa bayraksız yeniden denenir) | `LaunchSupervisor`                                                                                                           |
+| 8   | `Global\` mutex'ler SY DACL ile servis ↔ gözetmen ↔ kurtarma arasında görünüyor mu                                                                   | `TestT4SupervisorMutexSingle` (`Local\` ad ile)                                                                              |
+| 9   | Uzantısı `.bin` olan PE dosyasında WinVerifyTrust/CryptQueryObject çalışıyor mu (imzalı derleme gelince)                                             | Bugün imzasız dal                                                                                                            |
+| 10  | `MoveFileEx(REPLACE_EXISTING\|WRITE_THROUGH)` ile `durum.json` değiştirme, tarayıcı/AV tutarken                                                      | Hata → işlem yapılmaz, sonraki dönemde yeniden                                                                               |
+| 11  | Program Files'ta oluşturulan `exe.yeni`'nin miras ACL'si kurulumdakiyle aynı mı (AC-481)                                                             | `createExclusive` (SA yok → miras)                                                                                           |
+| 12  | Tepsi yeniden başlatma: eski tepsi `exe.eski`'yi bırakıyor mu; servis 24 sa'te bir silmeyi yeniden deniyor mu                                        | `TrayRestart` + `finalize` 24 sa denetiminde                                                                                 |
+| 13  | AV/EDR: `--update-apply` alt süreci + exe yer değiştirme "dropper" algısı (R-P29-2)                                                                  | K11 AV kapısı                                                                                                                |
+
+**Doğrulama (2026-11-19, macOS, go1.26.11):**
+
+- `GOOS=windows|linux|darwin go vet ./...` ve `go build ./...` temiz.
+- `GOOS=windows go test -c ./internal/servis/` derlendi.
+- `gofmt -l` boş.
+- `go test -race -count=3 ./internal/servis/ ./internal/servisui/ ./internal/update/...` geçti.
+- `go test ./...`: yalnız `internal/capture` `TestP28fK2AC392OwnWindowsExcluded` kırmızı. Sebebi macOS ekran kaydı izni / yoklama (P28f GUI testi); bu paketle ilgisi yok, değişmedi.
+- CI: `agent-win.yml`'e dokunulmadı. Windows testleri mevcut `go test ./...` adımında koşar. İstenirse devops K6, `-run 'AC47[9]|AC48[0-9]|AC49[3]|T[346]|R21|K0s|KP2921' -v` adımı ekleyebilir (ad sözleşmesi).
+
+**Sözleşme notu (K4/K5):**
+
+- Servis `update.state{installing}` gönderdikten ~2 sn sonra gözetmeni başlatır. Sunucunun 3 dk `DEVICE_UPDATING` bayrağı geri dönüş penceresini (≤ ~2 dk) kapsar.
+- Gözetmen sürerken gelen `connect`, `connect.result{busy}` alır.
+- Boru `status` yanıtına `version` eklendi (ek alan).
+
+**P29-K7 ek (danışman incelemesi sonrası, aynı gün):**
+
+- `markHealthy` artık tek atımlık değil. Yazma başarısız olursa en çok 20 kez, 2 sn arayla yeniden dener; aksi halde gözetmen sağlıklı sürümü geri alırdı.
+- `StateStore`:
+  - Windows okuması `FILE_SHARE_DELETE` ile yapılır (`openShareDelete`). Go'nun `os.Open`'ı bu bayrağı vermez; açık okuyucu `MoveFileEx` değiştirmesini engellerdi.
+  - Değiştirme 5 kez denenir.
+- Gözetmen `staged` fazını tüketmeden çıkarsa (mutex, nonce, jeton reddi, çökme) servis sahneyi temizler ve `failed(INSTALL)` yazar. Bu olmasa tryInstall ~2 sn'de bir yeni gözetmen ve `update.state` üretirdi. Test: `TestAC480SupervisorExitWithoutApplyNoLoop`.
+- Gözetmen, kayıtlı kurtarma komutu zaten `--update-recover` ise gerçek yedeği ezmez. Varsa önceki yedeği, yoksa kurulum varsayılanını kullanır.
+- Mutex SDDL'den sahip kaldırıldı (`D:P(A;;GA;;;SY)`); SYSTEM olmayan koşucu da oluşturabilsin.
+- **Açık kalan (Düşük, K9'a):**
+  - `SendWait` süresi dolan `update.state` kuyrukta kalıp sonraki sokete yazılabilir.
+  - Başarısız kurulum her offer'da yeniden indirilir (sınır: belirteç 4/sa, offer yalnız bağlanmada ve 24 sa'te bir).
+  - K0s listesine 14. madde: servis `START_PENDING`/açılışta kendi FailureActions'ını değiştirebiliyor mu (`finalize` açılışta çalışır).
+- Kaldırma (`uninstall_windows.go` `RemoveAll(DataDir)` + `removeProgramDir`) ve iz testi (`$data\*` izinli) `Guncelleme\` ile `exe.eski/.bozuk/.yeni`'yi zaten kapsıyor; değişiklik gerekmedi. Contracts `refineUpdateEvent`, `rolled_back(INSTALL)`'ı kabul ediyor (fail nedeni).
+
+### P29 düzeltme turu 1 — K8 (qa-raporu P29 Tur 1)
+
+1. **AC-476 / K-P29-13: Windows taşınabilir platform imzası kapısı.**
+   - `update.WindowsReplacer.PlatformSig func(cur, next string) error` eklendi; bağlanmamışsa `Prepare` reddeder (fail-closed).
+   - `winStaging.Commit` kapıyı `.yeni` tutamacı kapandıktan sonra, MOTW kopyasından ve yer değiştirmeden önce çağırır. Hata durumunda `.yeni` silinir, `ErrPlatformSignature` döner; `Portable` bunu `failed(PLATFORM_SIGNATURE)` güvenlik olayı olarak bildirir.
+   - `cmd/noktadestek/updater_windows.go` `platformSignature`: çalışan exe imzasızsa (bugün tüm derlemeler) kapı atlanır. Bu denetim K7'nin `servis.SelfSigned` işlevini olduğu gibi çağırır (kod kopyası yok).
+   - **Geçici, fail-closed davranış:** çalışan exe imzalıysa güncelleme şimdilik **reddedilir**. Neden: yayıncı özetini karşılaştıran `platformSignature` / `signerDigest` (`internal/servis/update_sign_windows.go`) dışa açık değil ve o dosya K7'nin.
+   - **Kalan iş:** K7 bu işlevi `PlatformSignature` olarak dışa açınca tek satır değişiklikle ona bağlanacak. SignPath gelmeden bu dalın pratik etkisi yok.
+   - Not: istemci ikilisi artık `internal/servis`'i içe aktarıyor; `init` yan etkisi yok, `crypt32` tembel yükleniyor.
+   - Testler:
+     - `TestAC476WindowsPlatformSignatureGate`: ret durumunda kurulum yok ve `.yeni` silinir; denetim kapanmış `.yeni` yolunda yapılır; kapısız `Prepare` reddeder.
+     - `TestAC476PlatformSignatureFailureEvent`.
+2. **K-P29-19 / AC-486 (orkestratör kararı): asgari sürümün altındaki istemci zorunlu güncellenir.**
+   - `cmd/noktadestek/policy.go` `mergeBindingPolicies`: bir kaydın `bindings/status` sonucu 426 `CLIENT_OUTDATED` ise, tenant ayarı Kapalı olsa bile sonuç **`auto`** olur. Kaydın anahtarı olay kimliği olarak tutulur.
+   - Gerekçe: istemci zaten kilitli; `MIN_AGENT_VERSION` yöneticinin güncelleme talebidir.
+   - Diğer kurallar aynı: geçerli kayıtlarda kapalı kazanır; `BINDING_INVALID` düşer; diğer hatalar (5xx, hız sınırı, ağ) → o dönem karar yok.
+   - Sunucu değişmiyor.
+   - Test: `TestAC485AC486MergeBindingPolicies` (8 vaka). Mantık platformdan bağımsız dosyada; macOS ve Linux'ta da koşar.
+
+- **Koşu:**
+  - `go vet ./...` + `go build ./...`: `GOOS=windows|linux|darwin` temiz (K7 düzeltmesi sonrası `internal/servis` dahil).
+  - `go test -race ./internal/update/ ./cmd/noktadestek/ ./internal/launch/`: macOS ve docker golang:1.26 (linux) geçti.
+  - `gofmt -l` temiz.
+
+### P29 düzeltme turu 1 — K7 (backend-dev Go, 2026-11-19)
+
+Kaynak: `docs/qa-raporu.md` "P29 Tur 1" m.2 ve m.3(a); `docs/guvenlik-raporu.md` "P29 kod turu" S-P29-K-2 ve S-P29-K-3; orkestratörün K8 eki.
+
+- **QA m.2 — kararsız test:** `Updater` arka plan işleri artık `sync.WaitGroup` altında (`wg.Go`). `Updater.Wait()` eklendi. `newTestUpdater` cleanup'ı bağlamı iptal edip işleri bekliyor; LIFO sırası gereği bu, TempDir temizliğinden önce çalışıyor. `go test -race -count=50 -run TestAC480ServiceFlow ./internal/servis/` → 0 kırmızı.
+- **QA m.3(a) — AC-476 servis:** yayıncı kararı platformsuz `checkPublisher` işlevine ayrıldı (`update_sign.go`). Windows bağlaması `PlatformSignature`, WinVerifyTrust ve yaprak sertifika özetini kullanıyor.
+  - Testler:
+    - `TestAC476CheckPublisher`: çalışan imzasız → atla; imzalı → imzasız ya da farklı yayıncı reddedilir, özet okunamazsa reddedilir, aynı yayıncı kabul edilir.
+    - `TestAC476ServicePlatformSignatureRejected`: `failed(PLATFORM_SIGNATURE)` yazılır, `yeni.bin` silinir, gözetmen başlatılmaz, olay 1012 yazılır, sürüm 24 sa engellenir.
+- **S-P29-K-2:** gözetmen `PrepareDir` (VerifyDir) adımını `durum.json` ve `apply.nonce` okunmadan önce yapıyor. Klasör güvensizse silinip yeniden oluşturuluyor; olay 1012 yazılıyor, okuma yapılmıyor ve `ApplyFailed` dönüyor. `ReadNonce` ile `StateStore.Load`, `openShareDelete` (`FILE_FLAG_OPEN_REPARSE_POINT`) kullanıyor. Test: `TestSP29K2VerifyDirBeforeRead`; başarı sırası testi `prepare,nonce,copy,…` olarak güncellendi.
+- **S-P29-K-3:**
+  - (a) `SendWait` mesajı `flushMsg{dropped, gen}` taşıyor. Süresi dolarsa ya da başka bir bağlantıda kuyruğa alınmışsa yazıcı onu yazmadan düşürüyor; bağlantı sayacı `gen` her session'da artıyor. Test: `TestSP29K3StaleUpdateStateDropped`.
+  - (b) `failed(INSTALL|HASH_MISMATCH|PLATFORM_SIGNATURE)` sonrası hedef sürüm 24 sa engelleniyor (`blockOnFail`, rolled_back ile aynı `blocked`). Bu kural servis tarafında (`fail`, gözetmen çıkışı, başlatma hatası) ve gözetmen `abort` yolunda uygulanıyor. `DOWNLOAD` (ağ hatası) engellenmiyor.
+- **K8 eki:** `servis.PlatformSignature(selfExe, newPath)` dışa açıldı; Windows dışında stub nil döner (`update_sign_other.go`). `cmd/noktadestek/updater_windows.go` `winReplacer` bunu bağlıyor. Yerel fail-closed `platformSignature` ve `errPlatformUnverified` artık ölü kod olduğu için kaldırıldı. K8 dosyasındaki tek dokunuş bu.
+- **Doğrulama:**
+  - `GOOS=windows|linux|darwin go vet ./... && go build ./...` temiz.
+  - `GOOS=windows go test -c ./internal/servis/` derleniyor.
+  - `gofmt -l` boş.
+  - `go test -race -count=5 ./internal/servis/ ./internal/servisui/` geçti.
+  - `go test -race ./internal/update/... ./cmd/...` geçti.
+
 ## P22-G — Go istemci 0.21.0: oturum sohbeti WS'e geçiş + AC-292 onay satırı (backend-dev Go, 2026-11-19)
 
 Kaynak: `docs/mimari-p22.md` §9, §10.2, §15 (r2; S-P22-1). Dal `p22g` (main d813bc3). Sürüm kodda sabit değil (ldflags).

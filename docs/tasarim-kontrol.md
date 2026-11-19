@@ -1496,3 +1496,82 @@ kayıt yedeği, kaydedici bastırmaya karşı kaynak taraflı ikinci kayıt, sak
 - 2. Audit: `writeChatSummary` her bitiş yolunda çağrılır ve sayıları DB'den alır. `session.chat_legacy` kabul anında yazılır. K-P22-6 koşullu onaylandı.
 - 8. KVKK: eski istemci bildirim metni düzeltildi. Aydınlatma paragrafında koşulsuz "uçtan uca" iddiası kaldırıldı.
 - 9. Riskler: eski istemcideki DC sohbeti artık risk olarak ADR-0025'e yazıldı. Asgari istemci politikası (P22-G + 60 gün, K-P22-15) ve AAD v2 "Sonra" olarak kaldı.
+
+## P29 — İstemci otomatik güncelleme + sürüm bildirimi (2026-11-19, r1 — güvenlik tasarım turu K0g bekliyor, `docs/mimari-p29.md`, ADR-0040, AC-470..AC-493)
+
+| Madde                              | Karar                                                                                                                                                                                  |
+| ---------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1. Kimlik doğrulama / 2FA          | Kapsam dışı: panel girişi değişmez; politika değişikliği step-up istemez (AC-485)                                                                                                      |
+| 1. Şifre / kilitleme / brute-force | Kapsam dışı: yeni giriş yolu yok. Public uçlarda hız sınırı var (§3. Rate limit)                                                                                                       |
+| 1. Yetkilendirme / IDOR            | Kapsamda: yeni yetki yok (`settings.view/edit`, `unattended.view`); dağılım tenant kapsamlı, `scope=all` yalnız Super Admin (403)                                                      |
+| 1. Oturum yönetimi                 | Kapsamda: destek oturumu sürerken kurulum ve yeniden başlatma yok; `DEVICE_UPDATING` 409 step-up tüketmez (K-P29-12)                                                                   |
+| 1. Davet / onay / hesap silme      | Kapsam dışı                                                                                                                                                                            |
+| 1. Servis hesapları / API anahtarı | Kapsamda: Ed25519 manifest anahtarı ortam başına, 2 yuva, rotasyon/kayıp runbook §31.2; olay kimliği mevcut cihaz/kayıt anahtarı                                                       |
+| 2. created/updated, silme          | Kapsamda: yeni tablo yok; `unattended_devices` + 4 durum sütunu, cihazla birlikte silinir                                                                                              |
+| 2. Para                            | Kapsam dışı                                                                                                                                                                            |
+| 2. Tarih/saat                      | Kapsamda: `update_at` UTC DATETIME(3); manifest zamanları ISO UTC; istemcide sahte saatli testler                                                                                      |
+| 2. Benzersizlik / indeks           | Kapsamda: yeni indeks yok (gerekçe mimari-p29 §3.2)                                                                                                                                    |
+| 2. Migration / seed                | Kapsamda: `20261128000000_p29_client_update` INSTANT ADD COLUMN + down; seed yok; grants değişmez                                                                                      |
+| 2. Audit izi                       | Kapsamda: `client.update.*` (5 eylem) + `settings.client_update`; kimliksiz olay audit'e yazılmaz                                                                                      |
+| 2. Multi-tenant                    | Kapsamda: politika tenant'ta; olay kaydın/cihazın tenant'ına; çoklu kayıtta her tenant'a ayrı satır                                                                                    |
+| 2. Dosya / ek                      | Kapsamda: güncelleme ikilisi mevcut indirme volume'undan (yeni depolama yok); manifest `agent_downloads/update/` (Caddy 404)                                                           |
+| 3. API sözleşmesi / versiyon       | Kapsamda: `contracts/api/update.ts`, `/api/v1` altında; WS `update1` yeteneğiyle geriye uyumlu                                                                                         |
+| 3. Hata formatı                    | Kapsamda: mevcut zarf; yeni `DEVICE_UPDATING` (409); olay ucu her durumda 204 (oracle yok)                                                                                             |
+| 3. Sayfalama / filtre              | Kapsamda: liste `version=` süzgeci; dağılım sayfalamasız (küçük küme)                                                                                                                  |
+| 3. Rate limit / idempotency        | Kapsamda: manifest IP 60/sa; olay IP 30/sa + kimlik 10/sa; servis WS 10 olay/sa, 4 denetim/sa; servis dosyası IP 20/dk + tek kullanımlık belirteç; `available` sürüm başına 1          |
+| 3. Zaman aşımı / retry             | Kapsamda: istemci ağ hatasında sessiz erteleme (24 sa); olay kuyruğu ≤ 20; servis kurulum zaman aşımı 60 sn sağlık                                                                     |
+| 3. Webhook                         | Kapsam dışı                                                                                                                                                                            |
+| 3. CORS                            | Kapsam dışı: istemci uçları ADR-0012 AGENT kuralı                                                                                                                                      |
+| 4. Tehdit modeli                   | Kapsamda: mimari-p29 §5.4 (sahte/ele geçirilmiş sunucu, sızmış anahtar, CI, replay, downgrade, TOCTOU, yerel yazma, olay seli); K0g turu zorunlu                                       |
+| 4. Girdi doğrulama                 | Kapsamda: zod katı şemalar (manifest, olay, WS), Go katı ayrıştırma; sürüm deseni tek grammar                                                                                          |
+| 4. Gizli bilgi yönetimi            | Kapsamda: özel anahtar yalnız GitHub ortam secret'ı (required reviewer); repoda yalnız açık anahtar; `UPDATE_MANIFEST_PUBKEYS` gizli değil                                             |
+| 4. Hassas veri                     | Kapsamda: yeni kişisel veri yok; bindingKey/belirteç/ref loglanmaz (REDACT, maskUrl, Caddy filtresi)                                                                                   |
+| 4. Log maskeleme                   | Kapsamda: `*.bindingKeys` REDACT; CI imza adımında `::add-mask::` + log taraması                                                                                                       |
+| 4. Bağımlılık taraması             | Kapsamda: yeni bağımlılık yok (Go stdlib, Node `node:crypto`); mevcut govulncheck/audit                                                                                                |
+| 4. Güvenlik başlıkları             | Kapsamda: public uçlarda `no-store`, `nosniff`; panel CSP değişmez                                                                                                                     |
+| 4. Yönetici paneli                 | Kapsamda: `scope=all` yalnız Super Admin                                                                                                                                               |
+| 5. 5 durum                         | Kapsamda: liste sütunu, dağılım şeridi (kısmi: yayın bilgisi yok), `/settings/clients`                                                                                                 |
+| 5. Form doğrulama                  | Kapsamda: tek anahtar; sunucu hatası toast                                                                                                                                             |
+| 5. Yıkıcı işlem                    | Konu dışı: kullanıcı tetiklemez; geri dönüş otomatik                                                                                                                                   |
+| 5. Responsive                      | Kapsamda: 390 px liste/şerit                                                                                                                                                           |
+| 5. Erişilebilirlik                 | Kapsamda: rozet metinli, renk ek bilgi; axe 0                                                                                                                                          |
+| 5. Yerelleştirme                   | Kapsamda: TR; Go `internal/update/messages.go`, web `upd.*`                                                                                                                            |
+| 5. Bildirim                        | Kapsamda: istemcide tek bilgi satırı; panelde toast. E-posta/WA yok (Sonra: başarısız güncelleme e-postası)                                                                            |
+| 5. Çevrimdışı / yavaş ağ           | Kapsamda: sessiz erteleme, kuyruk, indirme düşük öncelik                                                                                                                               |
+| 5. Başlık / breadcrumb             | Kapsamda: "İstemciler" ayar sayfası mevcut ayar düzeninde, ikon `MonitorDown`                                                                                                          |
+| 5. Tasarım token                   | Kapsamda: DESIGN.md "Vitrin"; animasyon yok (dönen ikon yok)                                                                                                                           |
+| 6. Beklenen yük                    | Kapsamda: 200 cihaz × günlük denetim; indirme güne yayılır (≈ 0,3 Mbit/s ort.)                                                                                                         |
+| 6. N+1 / indeks                    | Kapsamda: dağılım tek GROUP BY; liste mevcut sorgu + sütun                                                                                                                             |
+| 6. Önbellek                        | Kapsamda: manifest stat anahtarlı önbellek (≤ 60 sn stat); Super Admin dağılım 60 sn                                                                                                   |
+| 6. Kuyruk / arka plan işi          | Kapsamda: istemci olay kuyruğu; sunucuda yeni iş yok                                                                                                                                   |
+| 6. Büyük liste / export            | Kapsam dışı                                                                                                                                                                            |
+| 6. Performans bütçesi              | Kapsamda: denetim ≤ 2 KiB, servis kesintisi ≤ 30 sn                                                                                                                                    |
+| 7. Log / korelasyon                | Kapsamda: mevcut JSON logger; manifest uyarıları durum başına bir kez                                                                                                                  |
+| 7. Metrik / alarm                  | Kapsamda: `rs_agent_update_total`, `_rejected_total` (≥ 1 → inceleme), `_check_total`, `_download_total`, `rs_unattended_agent_versions`, `rs_update_manifest_expiry_seconds` (< 14 g) |
+| 7. Hata izleme                     | Kapsamda: mevcut hata ref'i; Windows olay günlüğü 1010–1012                                                                                                                            |
+| 7. Yedek                           | Kapsamda: DB yedeği değişmez; yedek imza tohumu çevrimdışı iki kopya                                                                                                                   |
+| 7. Ortamlar                        | Kapsamda: prod/staging ayrı anahtar çifti ve GitHub ortamı; PR derlemesi güncelleyicisiz                                                                                               |
+| 7. CI/CD / rollback                | Kapsamda: `update-manifest(-stg)`, `update-resign`; `--withdraw` ile acil durdurma; downgrade yok, ileri düzeltme                                                                      |
+| 7. Sıfır kesintili migration       | Kapsamda: INSTANT ADD COLUMN; sıra migration → server/web → istemci                                                                                                                    |
+| 7. Runbook                         | Kapsamda: §29 yayın sırası, anahtar üretimi/rotasyon/kayıp, süre yenileme, alarm, servis kurtarma                                                                                      |
+| 8. KVKK                            | Kapsamda: yeni kişisel veri yok; IP mevcut audit kuralıyla                                                                                                                             |
+| 8. Lisans                          | Kapsamda: yeni bağımlılık yok; TUF/Sparkle vb. reddedildi (ADR-0040 C)                                                                                                                 |
+| 8. Finansal                        | Kapsam dışı                                                                                                                                                                            |
+| 9. Kapsam dışı listesi             | Kapsamda: mimari-p29 §1 + gereksinim §3.3                                                                                                                                              |
+| 9. Ölçülebilir AC                  | Kapsamda: AC-470..493 → mimari-p29 §12; sapmalar D-1..D-7                                                                                                                              |
+| 9. Riskler / varsayımlar           | Kapsamda: R-P29-1..14, A-P29-1..3, K-P29-1..21                                                                                                                                         |
+| 9. DoD                             | Kapsamda: K9 qa GEÇTİ + güvenlik Kritik/Yüksek 0; K11 staging 0.22.0 → 0.22.1 tam tur                                                                                                  |
+| 9. Dokümantasyon planı             | Kapsamda: runbook §31, mimari-protokol P29 eki, api.md, kılavuz, DATASHEET, CHANGELOG 0.22.0, PDF (K12)                                                                                |
+| Sonra                              | Kademeli yayın/kanal, pin, bakım penceresi, "şimdi güncelle", başarısız güncelleme e-postası, delta, Yayın durumu ekranı (A-P29-1), binding sürüm dağılımı (A-P29-2)                   |
+
+**P29 r2 notu (2026-11-19, K0g güvenlik tasarım turu "DÜZELTİLMELİ"; `docs/mimari-p29.md` §14):** S-P29-T-1..12 karara bağlandı.
+
+- 1. Servis hesapları / API anahtarı: T-1 **kabul edilen risk** (kullanıcı 2026-11-19, "Tek imza, risk kabul"); 2-of-2 yok. Kalan sertleştirmeler: onaylı ortam (yalnız `v*`, yönetici atlaması kapalı), etiket ruleset'i, yedek/rotasyon, attestation (kimlik sabit), alarm, staging-önce 24 sa.
+- 4. Gizli bilgi yönetimi: tohum yalnız tek adımda stdin ile; imzalayıcı ön işte stdlib-only derlenir; bilinen değerle log taraması; yeniden imza iki işe bölünür (T-2).
+- 4. Girdi doğrulama: kanonik manifest baytı, iki dilde ortak fikstür (T-11).
+- 3. Rate limit: olay ucu + IP 10 istek/sa, istek başına ≤ 5 anahtar; servis dosyası global 8 akış + `Retry-After` (T-5, T-10).
+- 4. Log maskeleme: servis belirteci `Authorization` başlığında; 400 yanıtı değer yansıtmaz (T-10, T-12).
+- 7. Metrik / alarm: `source` etiketi; alarm ≥ 1 yalnız `device`, diğerleri oran eşiği (T-5); sürüm gauge ≤ 50 değer.
+- 7. CI/CD / rollback: servis kurtarma `PendingFileRenameOperations` yerine SCM `RUN_COMMAND` → `--update-recover` (K0s doğrular); gözetmen mutex + nonce (T-3, T-4).
+- 5. Bildirim / AV: `.eski` gizli değil, yürütülemez uzantı; MOTW kopyalanır (T-8).
+- 9. Riskler: T-7 (ara sürüme replay; istemci manifesti ≤ 30 g) ve T-9 (`?ref=`) kabul; donma saldırısı kalan risk (T-12). AC-490 IDOR metni düzeltildi.

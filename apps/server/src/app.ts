@@ -43,6 +43,7 @@ import { ErasureLedger } from "./ops/erasure-ledger.ts";
 import { mailLogoUrl } from "./uploads/urls.ts";
 import { addAvSourceGuard, decorateFsrv, startAvPolling, type FsrvTestOptions } from "./fsrv/wiring.ts";
 import { decorateRec } from "./rec/wiring.ts";
+import { decorateUpdates } from "./update/wiring.ts";
 import type { PortalLimits } from "./portal/limits.ts";
 
 declare module "fastify" {
@@ -286,6 +287,7 @@ export function buildApp(deps: AppDeps): FastifyInstance {
   });
   const w: Wiring = { ...core, ...io, rooms };
   const r = decorateRequests(app, deps, w);
+  decorateUpdates(app, { env, now: () => rooms.clock.now(), startJobs: deps.startJobs === true }); // P29 (ikili kapılarından sonra)
   const jobs = decorateJobs(app, deps, w, r);
   const sig = deps.signaling ?? {};
   const devices = new DeviceHub({ db: deps.db, rooms, metrics: core.metrics, log: app.log, now: () => rooms.clock.now() });

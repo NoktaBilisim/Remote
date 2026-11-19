@@ -4,6 +4,7 @@
 //   auview   USER, audit.view + settings.view (CSV yok, aydınlatma metni salt okunur)
 //   aunone   USER, audit/ayar yetkisi yok (menüde Audit log yok, sayfa 403 durumu)
 //   auempty  ADMIN, audit listesi boş
+//   auupd    ADMIN, P29 (AC-491) client.update.* + settings.client_update satırları (mock-p29.mjs `p29AuditRows`)
 //   auun     ADMIN, P28u (AC-445) üç kipli gözetimsiz satırlar (mock-p28u.mjs `p28uAuditRows`) — "Bağlantı kipi" filtresi
 //   aubroken ADMIN, audit listesi ilk istekte 500 (sonra 200 → "Tekrar dene"); "Daha fazla yükle" ilk denemede 500
 //   ausa     SUPER_ADMIN (firma seçmemiş): firma filtresi + sistem ayarları; WhatsApp servisi env kaynaklı (P12b)
@@ -19,6 +20,7 @@
 import { PERMISSION_KEYS } from "@remote/contracts/permissions";
 import { listAuditQuerySchema } from "@remote/contracts/api/audit";
 import { p28uAuditRows } from "./mock-p28u.mjs";
+import { p29AuditRows } from "./mock-p29.mjs";
 import { stepUpInputSchema } from "@remote/contracts/api/auth";
 import {
   MYSQL_PASSWORD_REQUIRED_MESSAGE,
@@ -43,7 +45,7 @@ export const AU = {
 const ALL_NO_WS = PERMISSION_KEYS.filter((k) => !k.startsWith("support_requests."));
 
 export function auditUser(cookie) {
-  const m = cookie?.match(/^u-(auadm|auun|auview|aunone|auempty|aubroken|ausa(?:wa0|ins|iok|brk|def|su|rsv)?)-/);
+  const m = cookie?.match(/^u-(auadm|auun|auupd|auview|aunone|auempty|aubroken|ausa(?:wa0|ins|iok|brk|def|su|rsv)?)-/);
   if (!m) return null;
   const kind = m[1];
   const role = kind.startsWith("ausa") ? "SUPER_ADMIN" : kind === "auview" || kind === "aunone" ? "USER" : "ADMIN";
@@ -89,6 +91,7 @@ const base = (o) => ({
 function seedItems(kind) {
   if (kind === "auempty") return [];
   if (kind === "auun") return p28uAuditRows(base, iso); // P28u AC-445: üç kipli gözetimsiz satırlar
+  if (kind === "auupd") return p29AuditRows(base, iso); // P29 AC-491: istemci güncelleme satırları
   const items = [
     base({
       id: "1060",
