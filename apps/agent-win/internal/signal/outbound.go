@@ -212,15 +212,19 @@ type MonitorDenied struct {
 // WAYLAND_NO_CONTROL P28g (mimari-p28g §4.2): Wayland portal oturumunda klavye/işaretçi izni yok; yalnız VIEW ile.
 var guestViewSources = []string{"UI", "HOTKEY", "DENIED", "SYSTEM", "OS_PERMISSION", "WAYLAND_NO_CONTROL"}
 
+// guestGrantSources misafirin gönderebileceği GRANTED kaynakları (contracts GUEST_GRANT_SOURCES): UI = yerel "İzin ver",
+// UNATTENDED = P27/P28u r3 gözetimsiz yardımcının otomatik kabulü (oda denetimi sunucuda, control.ts).
+var guestGrantSources = []string{"UI", "UNATTENDED"}
+
 func (m ControlState) validate() error {
 	if m.T != "control.state" {
 		return fail(m.T, "tip")
 	}
 	switch m.State {
 	case "GRANTED":
-		// GRANTED yalnız yerel UI kararıyla.
-		if m.Source != "UI" {
-			return fail(m.T, "GRANTED yalnız UI")
+		// GRANTED yalnız yerel UI kararıyla ya da gözetimsiz yardımcıdan (UNATTENDED).
+		if !slices.Contains(guestGrantSources, m.Source) {
+			return fail(m.T, "GRANTED kaynağı")
 		}
 	case "VIEW":
 		if !slices.Contains(guestViewSources, m.Source) {
