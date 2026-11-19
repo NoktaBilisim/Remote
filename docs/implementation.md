@@ -17030,7 +17030,7 @@ global 8 akış → 503 + `Retry-After: 300`), `POST …/update-events` (8 KiB; 
 **Sapmalar (gerekçeli):**
 
 1. **`unattended.view` yok** (koordinatör/K5 teyidi): sürüm ucu ve liste süzgeci mevcut sayfa kapısıyla aynı, `unattended.connect ∨
-   unattended.manage`. Yeni yetki eklenmedi (K-P29-20). `scope=all` rol denetimi (`SUPER_ADMIN`, aksi 403) ve `tenantScope`'tan önce.
+unattended.manage`. Yeni yetki eklenmedi (K-P29-20). `scope=all` rol denetimi (`SUPER_ADMIN`, aksi 403) ve `tenantScope`'tan önce.
 2. **Kimlik başına (binding) aşımı 429 değil, sessiz 204** (+ `rate_limited` metriği). §10'daki "kimlik 10/sa → 429" ifadesiyle
    çelişir: 429 dönmek geçerli anahtarı geçersizden ayırt ettirir (§4.5 "anahtar oracle'ı yok"). IP kovaları 429 döner; IP olay
    bütçesi kısmen doluysa kalan olaylar işlenir, fazlası düşer (204), bütçe sıfırsa 429.
@@ -17043,7 +17043,7 @@ global 8 akış → 503 + `Retry-After: 300`), `POST …/update-events` (8 KiB; 
    değeriyle. Hub "güncelleniyor" bayrağı yalnız TTL ile düşer (3 dk; yeniden auth'ta erken düşürme yok).
 6. **`device.auth` temizliği `device-auth.ts recordAuth`'ta** (dosya planda yok; §3.2 kuralı aynı UPDATE'te olmalı).
 7. **Audit eylem etiketleri sunucuda yok** (etiket tablosu web `lib/audit/actions.ts`, K5). Sunucu payı: `GET /audit?action=
-   client.update.*` geri okuma testi (alanlar `view.ts`'te düşmüyor).
+client.update.*` geri okuma testi (alanlar `view.ts`'te düşmüyor).
 8. **DEPLOY_ENV `development`/boş → hiçbir manifest sunulmaz** (env eşlemesi yalnız production→prod, staging→staging).
 
 **frontend-dev için sözleşme:** liste satırında `agentVersion`, `updateBadge`, `updateReason` (yalnız FAILED'de dolu),
@@ -17055,7 +17055,7 @@ gövdeyle aynı. `bindings/status` `autoUpdate` her zaman dolu.
 
 **Komutlar ve sonuç (rs-p29-test, 33472):** `pnpm --filter @remote/server typecheck` temiz · `lint` temiz · `test` (unit) 52 dosya /
 723 geçti, 1 atlandı (yeni `update-p29.test.ts` 19) · entegrasyon `update-p29` 18 + `update-p29-panel` 8 geçti; ilgili takım
-(unattended-*, bindings-*, tenant-isolation, pt-surface, audit*, agent-download, clip-print, rec-p28e-unattended, db-grants, p27a,
+(unattended-_, bindings-_, tenant-isolation, pt-surface, audit*, agent-download, clip-print, rec-p28e-unattended, db-grants, p27a,
 logs, ops-headers) 36 dosya / 290 test geçti. Tam entegrasyon: 123 dosya / 1291 test, 1288 geçti; 3 kırmızı (p19-notify-j3 AC-261, customers-csv-p19 AC-263 süre ölçümü,
 requests-p8b-3 §13.2) P29 dışı ve yük/zamanlama kaynaklı: üçü tek başına koşulunca 42/42 geçti.
 
@@ -17215,21 +17215,21 @@ requests-p8b-3 §13.2) P29 dışı ve yük/zamanlama kaynaklı: üçü tek baş�
 
 ### K0s — gerçek Windows'ta doğrulanacaklar (K11 staging / Windows CI; macOS'ta çalıştırılamadı)
 
-| # | Doğrulanacak | Kodda dayanılan varsayım / yedek yol |
-| - | ------------ | ------------------------------------- |
-| 1 | Çalışan servis imajı (ve açık tepsi imajları) varken `exe` yeniden adlandırılabiliyor mu | `TestK0sRenameRunningImageAndHardLink` (ping.exe kopyası) Windows CI'da ölçer; olmazsa INSTALL |
-| 2 | Eşlenmiş imaja `CreateHardLink` kurulabiliyor mu; `FileRenameInfoEx` (REPLACE_IF_EXISTS\|POSIX_SEMANTICS) eşlenmiş `exe` üstüne yazabiliyor mu | Olmazsa iki `MoveFileEx` yolu (aynı test `t.Logf` ile hangisinin çalıştığını yazar) |
-| 3 | SC_ACTION_RUN_COMMAND hangi hesapla koşuyor (x/sys belgesi: "servisle aynı hesap" = LocalSystem) | `--update-recover` LocalSystem değilse `ApplyDenied` ile çıkar → kanca işlemez; o durumda §14.3 yedek: ONSTART SYSTEM görevi |
-| 4 | `exe` hiç yokken (R-P29-11) SCM başlatma hatası (1053/2) "failure" sayılıp RUN_COMMAND çalışıyor mu | Sayılmıyorsa ONSTART görevi (spike olumsuz yolu) |
-| 5 | Hata sayacı > 0 iken hangi yuva koşuyor; `SetRecoveryActions` sayacı sıfırlıyor mu | Üç yuva da RUN_COMMAND (sapma 2) |
-| 6 | Temiz ama sıfır dışı çıkış `NonCrashFailures=true` ile failure sayılıyor mu; gözetmenin `Control(Stop)`'u failure sayılmıyor mu | Stop çıkış kodu 0 |
-| 7 | Servis durunca job dışı alt süreç (gözetmen) yaşıyor mu; servis bir job'da mı (`CREATE_BREAKAWAY_FROM_JOB` reddediliyorsa bayraksız yeniden denenir) | `LaunchSupervisor` |
-| 8 | `Global\` mutex'ler SY DACL ile servis ↔ gözetmen ↔ kurtarma arasında görünüyor mu | `TestT4SupervisorMutexSingle` (`Local\` ad ile) |
-| 9 | Uzantısı `.bin` olan PE dosyasında WinVerifyTrust/CryptQueryObject çalışıyor mu (imzalı derleme gelince) | Bugün imzasız dal |
-| 10 | `MoveFileEx(REPLACE_EXISTING\|WRITE_THROUGH)` ile `durum.json` değiştirme, tarayıcı/AV tutarken | Hata → işlem yapılmaz, sonraki dönemde yeniden |
-| 11 | Program Files'ta oluşturulan `exe.yeni`'nin miras ACL'si kurulumdakiyle aynı mı (AC-481) | `createExclusive` (SA yok → miras) |
-| 12 | Tepsi yeniden başlatma: eski tepsi `exe.eski`'yi bırakıyor mu; servis 24 sa'te bir silmeyi yeniden deniyor mu | `TrayRestart` + `finalize` 24 sa denetiminde |
-| 13 | AV/EDR: `--update-apply` alt süreci + exe yer değiştirme "dropper" algısı (R-P29-2) | K11 AV kapısı |
+| #   | Doğrulanacak                                                                                                                                         | Kodda dayanılan varsayım / yedek yol                                                                                         |
+| --- | ---------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
+| 1   | Çalışan servis imajı (ve açık tepsi imajları) varken `exe` yeniden adlandırılabiliyor mu                                                             | `TestK0sRenameRunningImageAndHardLink` (ping.exe kopyası) Windows CI'da ölçer; olmazsa INSTALL                               |
+| 2   | Eşlenmiş imaja `CreateHardLink` kurulabiliyor mu; `FileRenameInfoEx` (REPLACE_IF_EXISTS\|POSIX_SEMANTICS) eşlenmiş `exe` üstüne yazabiliyor mu       | Olmazsa iki `MoveFileEx` yolu (aynı test `t.Logf` ile hangisinin çalıştığını yazar)                                          |
+| 3   | SC_ACTION_RUN_COMMAND hangi hesapla koşuyor (x/sys belgesi: "servisle aynı hesap" = LocalSystem)                                                     | `--update-recover` LocalSystem değilse `ApplyDenied` ile çıkar → kanca işlemez; o durumda §14.3 yedek: ONSTART SYSTEM görevi |
+| 4   | `exe` hiç yokken (R-P29-11) SCM başlatma hatası (1053/2) "failure" sayılıp RUN_COMMAND çalışıyor mu                                                  | Sayılmıyorsa ONSTART görevi (spike olumsuz yolu)                                                                             |
+| 5   | Hata sayacı > 0 iken hangi yuva koşuyor; `SetRecoveryActions` sayacı sıfırlıyor mu                                                                   | Üç yuva da RUN_COMMAND (sapma 2)                                                                                             |
+| 6   | Temiz ama sıfır dışı çıkış `NonCrashFailures=true` ile failure sayılıyor mu; gözetmenin `Control(Stop)`'u failure sayılmıyor mu                      | Stop çıkış kodu 0                                                                                                            |
+| 7   | Servis durunca job dışı alt süreç (gözetmen) yaşıyor mu; servis bir job'da mı (`CREATE_BREAKAWAY_FROM_JOB` reddediliyorsa bayraksız yeniden denenir) | `LaunchSupervisor`                                                                                                           |
+| 8   | `Global\` mutex'ler SY DACL ile servis ↔ gözetmen ↔ kurtarma arasında görünüyor mu                                                                   | `TestT4SupervisorMutexSingle` (`Local\` ad ile)                                                                              |
+| 9   | Uzantısı `.bin` olan PE dosyasında WinVerifyTrust/CryptQueryObject çalışıyor mu (imzalı derleme gelince)                                             | Bugün imzasız dal                                                                                                            |
+| 10  | `MoveFileEx(REPLACE_EXISTING\|WRITE_THROUGH)` ile `durum.json` değiştirme, tarayıcı/AV tutarken                                                      | Hata → işlem yapılmaz, sonraki dönemde yeniden                                                                               |
+| 11  | Program Files'ta oluşturulan `exe.yeni`'nin miras ACL'si kurulumdakiyle aynı mı (AC-481)                                                             | `createExclusive` (SA yok → miras)                                                                                           |
+| 12  | Tepsi yeniden başlatma: eski tepsi `exe.eski`'yi bırakıyor mu; servis 24 sa'te bir silmeyi yeniden deniyor mu                                        | `TrayRestart` + `finalize` 24 sa denetiminde                                                                                 |
+| 13  | AV/EDR: `--update-apply` alt süreci + exe yer değiştirme "dropper" algısı (R-P29-2)                                                                  | K11 AV kapısı                                                                                                                |
 
 **Doğrulama (2026-11-19, macOS, go1.26.11):**
 

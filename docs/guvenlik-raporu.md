@@ -1,3 +1,121 @@
+# Güvenlik Raporu — P29 kod turu (K9) (dal claude/p29-auto-update, HEAD bb2fa49, 2026-11-19)
+
+DURUM: GEÇTİ — Kritik 0 / Yüksek 0 / Orta 0 / Düşük 3 (+ prod açılış koşulu: K0s Windows doğrulamaları)
+
+Kapsam: `git diff origin/main...HEAD` — `internal/update/{verify,manifest,version,download,decide,portable,selfreplace*}.go`,
+`internal/servis/{update,update_svc,update_apply,update_apply_windows,update_windows}.go`, `internal/api/update.go`,
+`cmd/noktadestek/updater*.go`, `apps/server/src/update/{routes,service-token,device-update,versions}.ts`, `unattended/routes.ts`,
+`.github/workflows/agent-win.yml` (update-signer / update-manifest(-stg) / update-resign). Tasarım: `docs/mimari-p29.md` r2 §14;
+sapmalar `docs/implementation.md` P29-K2..K8 (kabul edildi, aşağıda değerlendirildi). Tur süresi sınırlı olduğundan web (K5) ve
+`deploy/agent/publish-manifest.sh` yalnız yüzeysel tarandı.
+
+## Tasarım denetimlerinin koddaki durumu
+
+| Denetim                                                                                                                                                                     | Durum  | Kanıt                                                                                               |
+| --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------ | --------------------------------------------------------------------------------------------------- |
+| İmza ham bayt üzerinde, ayrıştırmadan önce; bağlam öneki                                                                                                                    | Var    | `internal/update/verify.go:110-121,174-176` (`SignedMessage`, `VerifySignature`)                    |
+| Kanonik JSON (sıra, yineleme, harf, BOM, sonda veri, `Canonical()==ham`)                                                                                                    | Var    | `manifest.go:85-170` (Token akışı + `bytes.Equal(m.Canonical(), b)`); ortak fikstür iki dilde       |
+| Sıra env → kimlik → ileri tarih → süre (30/90 g) → sürüm/maxSeen → minUpdater                                                                                               | Var    | `verify.go:167-215`; `v ≤ çalışan` sessiz (orkestratör kararı), `çalışan < v < maxSeen` → DOWNGRADE |
+| Anahtar yok/bozuk → kapalı, ağ isteği yok                                                                                                                                   | Var    | `verify.go:30-50,168-171`; `portable.go:85` (`Start` anahtarsız döner)                              |
+| İndirme: köken sabit https, sabit yol, yönlendirme reddi, `size+1`, SHA yazılan akıştan, sabit zamanlı karşılaştırma                                                        | Var    | `download.go:118-171`                                                                               |
+| Servis maxSeen kalıcı                                                                                                                                                       | Var    | `update_svc.go:404-425` (durum kilidi altında yalnız yükselir)                                      |
+| Gözetmen: LocalSystem, `Global\` mutex (DACL SY), nonce eşitliği                                                                                                            | Var    | `update_apply.go:107-115`, `update_windows.go:31-34,83-105`, `update_apply_windows.go:60-63`        |
+| VerifyDir reparse/sahip/DACL; artık `yeni.bin`/`exe.yeni` silme; CREATE_NEW + `OPEN_REPARSE_POINT`                                                                          | Var    | `update_windows.go:153-247,268-279,486-525`                                                         |
+| Aynı tutamaçtan SHA + kopya (share=READ)                                                                                                                                    | Var    | `update_windows.go:486-525` (`copyStaged`)                                                          |
+| FailureActions R2-1 sırası (önce geri yükle, sonra sil)                                                                                                                     | Var    | `update_svc.go:356-378` (`finalize`), `update_apply.go:156-166`                                     |
+| RUN_COMMAND komut satırı tırnaklı, `"` reddi                                                                                                                                | Var    | `update_windows.go:335`, `mode.go:70-75`                                                            |
+| Gözetmeni başlatan servis çıkmaz; çıkışsız gözetmende döngü yok                                                                                                             | Var    | `update_svc.go:640-680` (`supervisorExited`)                                                        |
+| Linux `O_CREAT                                                                                                                                                              | O_EXCL | O_NOFOLLOW                                                                                          | O_CLOEXEC` 0600, rastgele sonek, sticky kuralı, inode eşitliği + rename + dizin fsync | Var | `selfreplace_linux.go:59-138`, `selfreplace.go:221-233` |
+| Windows taşınabilir: gizli öznitelik yok, `.yeni/.eski` yürütülemez, MOTW kopyası (fail-closed)                                                                             | Var    | `selfreplace.go:41-160`                                                                             |
+| Sunucu servis dosyası: yalnız Bearer, sorgu → 404, IP 20/dk, global 8 → 503 + Retry-After, tek kullanım, SHA = belirteç                                                     | Var    | `apps/server/src/update/routes.ts:84-124`, `service-token.ts:27-44`                                 |
+| Belirteç yalnız `policy=auto ∧ sürüm = sunulan > cihaz`                                                                                                                     | Var    | `device-update.ts:47-60`                                                                            |
+| Olay ucu 204 tek tip, kimlik aşımı sessiz, `source` sunucuda, 400 değer yansıtmaz                                                                                           | Var    | `routes.ts:30-37,73-81,127-150`                                                                     |
+| `scope=all` yalnız SUPER_ADMIN, `tenantScope` sonrası; sürüm metriği ≤ 50 + `other`                                                                                         | Var    | `unattended/routes.ts:101-108`, `versions.ts:11-106`                                                |
+| CI: tohum yalnız adım `env` + stdin, imzalayıcı GOPROXY=off stdlib, sparse checkout, `persist-credentials:false`, önbellek yok, bilinen değerle log taraması, resign iki iş | Var    | `agent-win.yml:1849-1990,2098-2200`                                                                 |
+| Tüm `uses:` 40 haneli SHA                                                                                                                                                   | Var    | `grep -nE "uses: " agent-win.yml                                                                    | grep -vE "@[0-9a-f]{40}"` boş                                                         |
+
+## Bulgular (öncelik sırasıyla)
+
+### [DÜŞÜK] S-P29-K-1 Log taramasında hex biçimi dolgusuz tohumda üretilemeyebilir — A09 / A02
+
+Yer: `.github/workflows/agent-win.yml:1959-1966` (aynı kalıp `:2063-2066`, `:2176-2178`).
+Sorun: `update-sign` tohumu dolgulu **veya dolgusuz** base64 kabul ediyor (implementation K3 notu). Adım ise `hex` biçimini
+`base64 -d 2>/dev/null` ile türetiyor; GNU `base64 -d` dolgusuz girdide "invalid input" ile çıkar ve çıktı eksik/boş olabilir.
+Boş satır `grep -v '^$'` ile düşürüldüğü için tarama yalnız base64/base64url biçimlerine bakar; hex sızıntısı yakalanmaz ve
+`::add-mask::` boş değeri maskeler. Ayrıca `raw` (boşluk temizlenmiş biçim) için `add-mask` yok (GitHub ham secret'ı maskeler; temizlenmiş
+biçim farklıysa maskelenmez).
+İstismar senaryosu: ileride imzalayıcıya eklenen hata ayıklama çıktısı tohumu hex basarsa log taraması yeşil kalır.
+Düzeltme (devops): decode öncesi dolguyu tamamla (`pad=$(( (4 - ${#raw} % 4) % 4 ))`, `raw` + `=`×pad) ve `tr '_-' '/+'`; `hex`
+uzunluğu 64 değilse adımı kırmızı yap; `echo "::add-mask::$raw"` ekle.
+
+### [DÜŞÜK] S-P29-K-2 Gözetmen `apply.nonce`/`durum.json`'u VerifyDir'den önce okuyor — A01
+
+Yer: `apps/agent-win/internal/servis/update_apply.go:111-121` (Load + `ReadNonce` → sonra `PrepareDir`),
+`update_apply_windows.go:60-63` (`os.Open`, reparse izlenir).
+Sorun: §14.3 m.6 "açmadan önce VerifyDir". Gözetmen önce okur, sonra doğrular. `ReadNonce` reparse noktasını izler.
+İstismar senaryosu: yalnız SY/BA'nın yazabildiği klasörde junction gerekir → sınır yerel yönetici (kabul); pratik etkisi yok, sıra tutarsızlığı.
+Düzeltme (backend-dev Go): `PrepareDir()` çağrısını `Store.Load()`/`ReadNonce()` öncesine al; `ReadNonce` için `openShareDelete`
+(FILE_FLAG_OPEN_REPARSE_POINT) kullan.
+
+### [DÜŞÜK] S-P29-K-3 K7 açık kalanları: bayat `update.state` ve her teklifte yeniden indirme — A04
+
+Yer: `update_svc.go:612-622` (`SendWait` zaman aşımı), `:461-485` (`schedule`), implementation P29-K7 "Açık kalan".
+Sorun: `SendWait` süresi dolan `update.state{installing}` kuyrukta kalıp sonraki sokete yazılabilir → panelde 3 dk yanlış
+`DEVICE_UPDATING` (oturum açmayı geciktirir). Başarısız kurulum (ör. INSTALL) blok koymadığı için her offer'da yeniden indirilir
+(sınır belirteç 4/sa, offer bağlanma + 24 sa).
+Düzeltme (backend-dev Go): zaman aşımına uğrayan `update.state` yazıcı kuyruğundan düşürülsün (bağlantı başına sıfırlama);
+`failed(INSTALL|HASH_MISMATCH|PLATFORM_SIGNATURE)` sonrası hedef sürüm için `block(target, 24 sa)` (rolled_back ile aynı).
+
+## Bilgi (bulgu değil)
+
+- Olay ucu: geçerli anahtar için `resolveUsable` + audit yazımı yanıt süresini uzatır (zaman oracle'ı). Anahtarlar yüksek entropili,
+  IP 10 istek/sa → pratikte sömürülemez; kabul.
+- `service-file`: kapı denetimi ile `createReadStream` arasında dosya değişirse istemci `HASH_MISMATCH` (source=device) üretir → alarm.
+  Yalnız deploy sırasında ikili değiştirilirken olur; runbook §31'e "ikili değişimi sırasında manifest yayından çekilir" notu önerilir.
+- `update.offer` belirteç taşımaz; belirteç tek kullanım + cihaz başına 1; Bearer dışında kabul yok — T-10 kapandı.
+
+## Tasarımda vaat edilip kodda doğrulanamayanlar (prod açılış koşulu)
+
+- K0s maddeleri 1–8 ve 14 (implementation P29-K0s tablosu) gerçek Windows'ta koşulmadı: RUN_COMMAND'ın LocalSystem ile koşması,
+  `exe` yokken SCM'nin failure sayması, `Control(Stop)`'un failure sayılmaması, job dışı gözetmenin servis durunca yaşaması,
+  `Global\` mutex görünürlüğü. Bunlar T-3/T-4 kapanışının dayanağıdır. **Karar:** prod `UPDATE_SIGNING_ENABLED=1` (servis bileşeni)
+  K11'de bu maddeler Windows CI/staging'de geçmeden açılmaz; staging'de açılabilir.
+- AC-476 platform imzası (`update_sign_windows.go`) bugün imzasız derlemede etkin değil — beklenen (K-P29-13).
+- macOS yerinde değiştirme yazılmadı (K8 sapma 2, `MANUAL_ONLY`) — güvenlik açısından fail-closed, kabul.
+
+## Kabul edilen sapmaların güvenlik değerlendirmesi
+
+- K2: `update1` `DEVICE_ANNOUNCED_FEATURES`'te yok — güvenlik etkisi yok (duyuru offer/none ile).
+- K4-2 kimlik aşımı 204 — anahtar oracle'ını önler, doğru. K4-3 kayıtlı bilgisayar audit'inde IP önek/UA boş — KVKK ile uyumlu.
+  K4-4 akış sınırı belirteçten önce (503 belirteç tüketmez) — tek kullanımı bozmaz (yalnız başarılı alım siler). K4-8 development'ta
+  manifest sunulmaz — fail-closed.
+- K7-1 sabit bağlantı + `FileRenameInfoEx`: `exe.eski` Program Files'ta (SY/BA yazabilir) → yeni yüzey yok. K7-2 üç yuva RUN_COMMAND:
+  komut tırnaklı, yol Program Files, `--update-recover` LocalSystem + mutex + faz denetimli → kabul. K7-6 canlılık mutex'le — `Global\`
+  nesne oluşturma SeCreateGlobalPrivilege ister (standart kullanıcı ön-oluşturamaz) → kabul.
+- K8-2/3/4 — kabul.
+
+## Otomatik tarama çıktıları
+
+- `pnpm audit --prod`: "No known vulnerabilities found".
+- `govulncheck` v1.10.0 (`GOOS=darwin|windows|linux ./...`, apps/agent-win): üçünde de "No vulnerabilities found".
+- gitleaks yerelde kurulu değil (CI'da çalışıyor). `git diff origin/main...HEAD` eklemelerinde
+  `(api[_-]?key|secret|password|token)\s*[:=]\s*['"][^'"]{8,}` (test hariç): eşleşme yok. Test anahtarları deterministik etiketten
+  türetiliyor (`testkeys_test.go`, fikstür `build.ts`); repoda tohum baytı yok.
+- `git log --all -- '*.env' '.env.*'` (`.env.example` hariç): boş.
+- `agent-win.yml`: SHA ile sabitlenmemiş `uses:` yok; imza işlerinde `persist-credentials: false`, `cache: false`, `contents: read`.
+
+## Olumlu
+
+- Doğrulama tek saf işlevde, sıra tasarımla birebir; kanonik eşitlik kapısı ayrıştırıcı farkını kökten kapatıyor.
+- İndiricide köken/yol beyaz listesi, yönlendirme reddi, `size+1`, URL'siz hata metni (`scrub`) — belirteç/ref sızmıyor.
+- Gözetmen yolu derin savunmalı: jeton + mutex + nonce + reparse'sız tutamaçlar + aynı tutamaç SHA; geri dönüş dosyaya bakıyor.
+- Sunucu uçları tek tip yanıt, değer yansıtmayan 400, enum etiketler, `scope=all` rol denetimi tenant kapsamından önce.
+- CI imza işi tasarımın T-2 maddelerinin tamamını uyguluyor (stdin, stdlib-only imzalayıcı SHA ile bağlı, bilinen değer taraması).
+
+Önerilen "Sonra" (gereksinimler §9): S-P29-K-1..3.
+
+---
+
 # Güvenlik Raporu — P29 tasarım turu (K0g) (dal claude/p29-auto-update, HEAD c5e3110, 2026-11-19)
 
 DURUM: DÜZELTİLMELİ (tasarım r2) — Kritik 0 / Yüksek 1 / Orta 4 / Düşük 7
