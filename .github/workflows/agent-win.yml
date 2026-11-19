@@ -992,7 +992,7 @@ jobs:
             TestAC48ModifierMappingCtrlToCommand TestAC48TurkishTextUnicode TestAC48AltGrTextOnMac
             TestAC49MacCoordinatesDragAndDoubleClick TestAC101MacClosedGateNoEvents TestP28fAccessibilityShortcutsNeverInjected
             TestP28fRestartRoundTrip TestP28fRestartRejects TestP28fRestartPurge
-            TestP28fClassifyClick TestP28fIndicatorHealth TestP28fFooterAndInputLimit TestP28fTestBand
+            TestP28fClassifyClick TestP28fIndicatorHealth TestP28fFooterAndInputLimit TestAC504TestBand TestAC504AboutSigLine
             TestYP28fK1MouseKeysDropsKeypad TestYP28fK1OwnWindowDropsClickAndKeypad TestYP28fK1NoProbeAndMouseKeysState
             TestYP28fK1rOwnWindowDropsMouseKeysLettersWhenOff TestYP28fK1rLastMoveTargetOverOwnWindow TestYP28fK1FlipRect
             TestYP28fK1MacProbeReads TestAC104DP28fK1ArmBeforeGateOpen TestP28fExpectedTeamID
