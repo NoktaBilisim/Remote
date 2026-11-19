@@ -272,6 +272,7 @@ type harness struct {
 
 func newHarness(t *testing.T) *harness {
 	t.Helper()
+	dlDir := t.TempDir()
 	h := &harness{
 		api:    &fakeAPI{},
 		ui:     &fakeUI{calls: make(chan string, 64), monitor: 2},
@@ -301,7 +302,8 @@ func newHarness(t *testing.T) *harness {
 				{ID: 2, Name: "Ekran 2", W: 1280, H: 1024}}, nil
 		},
 		Capture:        func(int) (rtc.Source, error) { return fakeSrc{}, nil },
-		DownloadDir:    func() (string, error) { return t.TempDir(), nil },
+		// Klasör kurulumda alınır: akış goroutine'i test bittikten sonra çağırırsa t.TempDir panikler (CI 2026-11-19).
+		DownloadDir:    func() (string, error) { return dlDir, nil },
 		MOTW:           func(string) error { return nil },
 		UI:             h.ui,
 		Events:         h.events,
