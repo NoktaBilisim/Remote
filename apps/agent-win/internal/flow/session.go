@@ -246,11 +246,11 @@ func (s *session) reconnect(ctx context.Context, deadline time.Time) {
 	s.redial <- nil
 }
 
-func (s *session) send(ctx context.Context, m signal.Outbound) {
+func (s *session) send(ctx context.Context, m signal.Outbound) error {
 	if s.conn == nil {
-		return // yeniden bağlanırken gönderilemez (file.meta kaybı implementation.md'de)
+		return nil // yeniden bağlanırken gönderilemez (file.meta kaybı implementation.md'de)
 	}
-	_ = s.conn.Send(ctx, m)
+	return s.conn.Send(ctx, m)
 }
 
 func (s *session) onUser(ctx context.Context, ev Event) (Outcome, bool) {

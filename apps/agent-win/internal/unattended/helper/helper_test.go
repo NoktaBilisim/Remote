@@ -39,6 +39,11 @@ func (c *fakeConn) Read(ctx context.Context) (signal.Inbound, error) {
 }
 
 func (c *fakeConn) Send(_ context.Context, m signal.Outbound) error {
+	// Gerçek bağlantı gibi giden doğrulayıcıdan geçir: doğrulanamayan mesaj gönderilmez (GRANTED/UNATTENDED hatası
+	// yalnız bu sahte bağlantının doğrulamayı atlaması yüzünden testlerde görünmemişti).
+	if _, err := signal.Encode(m); err != nil {
+		return err
+	}
 	if _, ok := m.(signal.EnvState); !ok {
 		c.sent <- m
 	}
@@ -105,9 +110,11 @@ func newRig(indErr error) *rig {
 				r.dials.Add(1)
 				return r.conn, nil
 			},
-			NewPeer:     func([]signal.IceServer, []string, rtc.Handlers) (flow.Peer, error) { return fakePeer{}, nil },
-			Media:       fakeMedia{},
-			Monitors:    func() ([]signal.Monitor, error) { return []signal.Monitor{{ID: 0, Primary: true}}, nil },
+			NewPeer: func([]signal.IceServer, []string, rtc.Handlers) (flow.Peer, error) { return fakePeer{}, nil },
+			Media:   fakeMedia{},
+			Monitors: func() ([]signal.Monitor, error) {
+				return []signal.Monitor{{ID: 0, Primary: true, W: 1920, H: 1080}}, nil
+			},
 			Capture:     func(int) (rtc.Source, error) { return fakeSrc{}, nil },
 			DownloadDir: func() (string, error) { return "", errors.New("yok") },
 			MOTW:        func(string) error { return nil },

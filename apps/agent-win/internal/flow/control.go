@@ -33,8 +33,8 @@ const (
 
 func (s *session) hasCap(c string) bool { return slices.Contains(s.caps, c) }
 
-func (s *session) sendControl(ctx context.Context, state, source string) {
-	s.send(ctx, signal.ControlState{T: "control.state", State: state, Source: source})
+func (s *session) sendControl(ctx context.Context, state, source string) error {
+	return s.send(ctx, signal.ControlState{T: "control.state", State: state, Source: source})
 }
 
 // closed closeControl'ün kapattıkları: kullanıcıya hangi metnin gösterileceğine bunlara göre karar verilir.
@@ -241,7 +241,11 @@ func (s *session) grantControl(ctx context.Context) {
 	if s.d.Unattended {
 		source = "UNATTENDED"
 	}
-	s.sendControl(ctx, "GRANTED", source)
+	if err := s.sendControl(ctx, "GRANTED", source); err != nil {
+		// Fail-closed: sunucu GRANTED'i öğrenmediyse kapı yerelde açık kalmaz (teknisyen bekler, cihaz denetimsiz açık
+		// kalmaz). VIEW de gönderilmez — sunucu zaten REQUESTED'de.
+		s.closeControl(ctx, "", false)
+	}
 }
 
 // onMonitorRequest AC-43: yalnız çoklu monitörde, farklı ve bilinen kimlik için diyalog (G-03 kuralları).

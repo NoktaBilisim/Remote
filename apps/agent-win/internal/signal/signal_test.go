@@ -294,6 +294,7 @@ func TestAC99P7ServerControlMessages(t *testing.T) {
 
 func TestAC111ControlStateEncode(t *testing.T) {
 	for _, m := range []ControlState{{T: "control.state", State: "GRANTED", Source: "UI"},
+		{T: "control.state", State: "GRANTED", Source: "UNATTENDED"}, // P27/P28u r3 gözetimsiz otomatik kabul
 		{T: "control.state", State: "VIEW", Source: "HOTKEY"}, {T: "control.state", State: "VIEW", Source: "SYSTEM"},
 		{T: "control.state", State: "VIEW", Source: "DENIED"},
 		{T: "control.state", State: "VIEW", Source: "OS_PERMISSION"},        // P28f AC-391
