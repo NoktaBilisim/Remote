@@ -46,6 +46,7 @@ var (
 	pGetCursorPos              = user32.NewProc("GetCursorPos")
 	pSetLayeredWindowAttribute = user32.NewProc("SetLayeredWindowAttributes")
 	pSetWindowDisplayAffinity  = user32.NewProc("SetWindowDisplayAffinity")
+	pGetWindowDisplayAffinity  = user32.NewProc("GetWindowDisplayAffinity")
 	pBeginPaint                = user32.NewProc("BeginPaint")
 	pEndPaint                  = user32.NewProc("EndPaint")
 	pInvalidateRect            = user32.NewProc("InvalidateRect")
@@ -468,6 +469,15 @@ func SetLayered(h uintptr, key uint32, alpha byte, flags uint32) {
 // ExcludeFromCapture pencereyi ekran yakalamadan hariç tutar (Win10 2004+; eski sürümde etkisiz).
 func ExcludeFromCapture(h uintptr) {
 	_, _, _ = pSetWindowDisplayAffinity.Call(h, WDA_EXCLUDEFROMCAP)
+}
+
+// DisplayAffinity GetWindowDisplayAffinity (P30 testleri: katman yakalamadan hariç mi); sorgu başarısızsa 0.
+func DisplayAffinity(h uintptr) uint32 {
+	var v uint32
+	if r, _, _ := pGetWindowDisplayAffinity.Call(h, uintptr(unsafe.Pointer(&v))); r == 0 {
+		return 0
+	}
+	return v
 }
 
 func BeginPaint(h uintptr, ps *PAINTSTRUCT) uintptr {

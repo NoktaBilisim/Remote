@@ -17389,3 +17389,58 @@ Yeni bağımlılık yok. Yeni dosya/kayıt/ağ ucu yok (iz testi etkilenmez).
   ad + onay ile "Bağlan" etkin; 0 günde satır "Sunucu güncel değil", ad + onay olsa da "Bağlan" pasif.
 - Doğrulama: darwin `go test ./...`; gofmt; vet darwin/windows/linux/linux+linuxgui; Docker (`remote-p28g-gui:2404`, Xvfb) yalnız
   `ui/gtk` paketi `-tags linuxgui`: ok (`TestP28gK4GUIWindowOpens` dahil). Windows UI yalnız derlendi/vet edildi.
+
+## P30 — Gözetimsiz bağlantıda ekrana çizim: P30-1 + P30-2 (backend-dev Go, 2026-11-19)
+
+Tasarım: `docs/mimari-p30.md` (K-P30-1..5), AC-494..AC-499. Sunucu/web/contracts değişmedi.
+
+### Değişen dosyalar (`apps/agent-win/`)
+
+| Dosya | Değişiklik |
+| --- | --- |
+| `internal/annot/annot.go` (yeni) | `Stroke`, `MaxStrokes=500`, `Apply`, `Color`, `Polylines` (`uicore`'daki işaretleme bölümü aynen taşındı; ok ucu hesabı `arrowHead` ile GDI ve çoklu çizgi arasında tek) |
+| `internal/annot/gdi_windows.go` (yeni) | `ColorKey`, `Paint(dc, r, strokes, laser, scale, exclude)` — `ui/overlay_windows.go`'daki çift tamponlu GDI boyaması; `exclude` dikdörtgenleri `ExcludeClipRect` ile kırpılır |
+| `internal/annot/annot_test.go` (yeni) | `TestAC494Annot` (uicore `TestP28fAnnot` taşındı), `TestAC494AnnotEdges` (501. çizim, ID'siz geri al, eksik X/Y lazer, boş çizim) |
+| `internal/ui/uicore/session_text.go`, `_test.go` | işaretleme bölümü ve testi silindi |
+| `internal/ui/overlay_windows.go` | `overlay` yalnız pencere + lazer zamanlayıcısı; model `annot.Apply`, boyama `annot.Paint(..., nil)` |
+| `internal/ui/mac/overlay_darwin.go`, `internal/ui/gtk/overlay_linux.go` | `uicore.ApplyAnnot/AnnotColor/StrokePolylines/Stroke` → `annot.*` |
+| `internal/win/win_windows.go` | `ExcludeClipRect`, `DisplayAffinity` (GetWindowDisplayAffinity; Windows CI testi) |
+| `internal/unattended/helper/helper.go` | `painter` arayüzü, `annotSnap`, `laserTTL`; `Run` `ui.draw = live` |
+| `internal/unattended/helper/follow.go` | `liveIndicator.ann` (çizim listesi, lazer, yüzey), `Annot`, `SetSurface`, `paint` (l.mu altında; süresi dolan lazer atılır); `rebind` yeni göstergeye aynı listeyi verir, lazeri düşürür |
+| `internal/unattended/helper/headless.go` | `Annot` → `draw.Annot`; `Active`/`MonitorChanged` → `draw.SetSurface(mon.ID)` |
+| `internal/unattended/helper/checks.go` | `annotExclude` (gösterge kenar + etiket, katman yerel koordinatı), `raiseOrder` (önce katman, sonra gösterge) |
+| `internal/unattended/helper/indicator_windows.go` | katman: aynı sınıf (`NoktaDestekGosterge`) ve iş parçacığı, `wins` dışında; `Paint` → `annNext` + `wmAnnot` (kaybolursa `tick` uygular); `placeLayer` (ilk çizimde kurulur, monitör değişince/`WM_DISPLAYCHANGE`'de taşınır, geçersiz monitörde kaldırılır; hata `Failed` kapatmaz); `paintLayer` (kırpmalı `annot.Paint`); 100 ms lazer zamanlayıcısı katman penceresinde; `tick`/yeni katman sonrası `raise` (önce katman sonra gösterge); gösterge `paint` yalnız `wins` pencerelerini kırmızı boyar |
+| `internal/unattended/helper/p30_test.go`, `layer_windows_test.go` (yeni), `follow_test.go` | aşağıdaki testler |
+| `internal/flow/peers_test.go` | `TestAC498AnnotOnlyFromController` |
+
+### Tasarımdan sapmalar
+
+- **`Deps.MonitorRect` eklenmedi.** Yüzey anlık görüntüde monitör kimliği (`signal.Monitor.ID`) olarak taşınır, dikdörtgen gösterge iş parçacığında `win.Monitors()[id-1]` ile çözülür (`capture.MonitorRect` ile aynı kaynak). `WM_DISPLAYCHANGE` sonrası dikdörtgeni yeniden çözmek zaten bu iş parçacığında gerektiğinden ayrı bir bağımlılık kullanılmayacaktı (kullanılmayan alan olurdu).
+- **Katman ilk çizimde kurulur** (yüzey bilinip en az bir çizim/lazer varken), oturum başında değil. Çizimsiz oturumda ekranda ek pencere yok; kurulduktan sonra temizlemede kalır (saydam).
+- **`annotSnap.LaserAt`**: lazerin sönmesi katmanda `LaserAt`'e göre hesaplanır, `liveIndicator` süresi dolan lazeri sonraki görüntüde göndermez (eski lazer sonraki çizimle yeniden görünmesin).
+- Hızlı Destek Windows davranış farkı (tasarımda öngörülen): 500 çizim sınırı, noktasız çizim ve X/Y'siz lazer yok sayılır. Bilinmeyen renk artık kırmızı (önce siyah) — `dc.ParseCtl` yalnız dört rengi kabul ettiği için erişilemez.
+- `docs/mimari-p27.md` §5.6 notu, kılavuz ve CHANGELOG teknik-yazara bırakıldı (P30-4). Kodda sabit sürüm yok; 0.23.0 build argümanı (P30-3).
+
+### Testler
+
+- `annot`: `TestAC494Annot`, `TestAC494AnnotEdges`.
+- `helper` (tüm platform): `TestAC494LiveAnnotSnapshot`, `TestAC494SnapshotIsCopyAndStaleLaserDropped`,
+  `TestAC497RebindRepaintsStrokesDropsLaser`, `TestAC497SetSurfaceKeepsStrokes`, `TestP30AnnotAfterCloseAndNonPainter`,
+  `TestAC494HeadlessForwardsAnnotAndSurface`, `TestAC496ExcludeRectsMatchIndicatorLayout`, `TestAC496RaiseOrderLayerFirst`,
+  `TestAC497RunAnnotSurvivesDesktopChange` (Run + DC çizimi + masaüstü değişimi uçtan uca).
+- `helper` (Windows CI, etkileşimsiz oturumda SKIP): `TestAC495P30LayerStyleAndCaptureExclusion` (ex-stil
+  TRANSPARENT|NOACTIVATE|LAYERED|TOPMOST, `WDA_EXCLUDEFROMCAPTURE`, monitör dikdörtgeni, iki doğrulama tiki sonra `Failed`
+  kapalı, yüzey 0'da katman kalkar), `TestAC496P30LayerFailureKeepsIndicator`.
+- `flow`: `TestAC498AnnotOnlyFromController`. AC-499: `TestAC341HelperDependencyBoundary`,
+  `TestAC431HelperWindowClassesOnlyIndicator` değiştirilmeden PASS.
+
+Komut (Docker `golang:1.26`, `apps/agent-win`): `gofmt -l .` boş; `go vet ./...` linux/windows/darwin temiz; `go test ./...`
+tümü ok; `go test -race` P30/AC-341 testleri PASS; `GOOS=windows go test -c` helper/annot/ui derlenir; staticcheck
+linux/amd64, windows/amd64, darwin/arm64 bulgu 0.
+
+### Elle (Windows, staging) doğrulanacaklar
+
+Gözetimsiz oturumda kalem/ok/dikdörtgen/lazer, geri al ve temizle; çizim teknisyen görüntüsüne girmiyor (çift çizim yok);
+tıklama ve klavye çizimin altındaki pencereye gidiyor; gösterge kenarı/etiketi çizimin üstünde; Win+L, oturum açma ekranı
+ve UAC'de çizimler yeniden görünüyor, lazer düşüyor (R-P30-3: Winlogon'da katman kurulamazsa yalnız çizim görünmez);
+monitör değiştirme ve çözünürlük değişiminde katman taşınıyor; yüksek DPI'da kalınlık/ok ucu.
