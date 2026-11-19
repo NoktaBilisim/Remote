@@ -16871,3 +16871,55 @@ süzgeçli → sohbet satırı imkânsız (yukarıdaki tablo).
   - web lint / typecheck temiz; birim testler 592 geçti.
   - `npx playwright test e2e/p22-chat.spec.ts`: 11 geçti.
   - contracts lint / typecheck temiz; server typecheck temiz.
+
+## P22-G — Go istemci 0.21.0: oturum sohbeti WS'e geçiş + AC-292 onay satırı (backend-dev Go, 2026-11-19)
+
+Kaynak: `docs/mimari-p22.md` §9, §10.2, §15 (r2; S-P22-1). Dal `p22g` (main d813bc3). Sürüm kodda sabit değil (ldflags).
+
+### Yapılanlar
+
+| Alan | Dosya | Değişiklik |
+| --- | --- | --- |
+| Sözleşme | `internal/signal/chat.go` (yeni), `inbound.go`, `conn.go` | `FeatureSessionChat = "rs.cap.schat1"` (`knownFeatures`); katı ayrıştırıcı `chat.message` / `chat.history` (≤ 100, öğeler tek tek `DecodeStrict`, `items:null` ve `more` eksik/null red) / `chat.state` (`enabled` işaretçi, null red) / `chat.rejected`; `chat.send{t, clientMsgId, body}` — `id` alanı YOK (sunucu strictObject). CUSTOMER'da `tid`/`senderName` yasak. Okuma sınırı 64 KiB değişmedi |
+| Tek gövde kuralı | `signal.ChatBody`, `signal.ChatDisplayBody`; `request/chat_wire.go`, `request/chat_view.go` | Gövde kuralı ve gösterim süzgeci `signal`'e taşındı, P18/P20 talep sohbeti delege eder (contracts `requestMessageBodySchema` → `chat.ts` taşımasının eşi; `flow` → `request` yönü döngü olduğundan `signal`) |
+| Model | `internal/flow/chat.go` (yeni) | `enabled` yalnız `chat.state{true}` sonrası; iyimser öğe + yankı eşleme (`clientMsgId` 16 bayt crypto/rand base64url); `rejected` → "gönderilemedi" + metin giriş kutusuna geri; aynı metin aynı `clientMsgId` ile (idempotent "tekrar dene"); history `id` ile tekilleştirme + ULID sırası; yankının id'si geçmişte zaten varsa iyimser öğe silinir (iki varış sırası); kopuşta giriş kapanır, yeni sokette `chat.state{true}` ile bekleyenler aynı kimlikle yeniden gönderilir; 5/sn kayan kova (yeniden gönderimler dahil) → "Çok hızlı yazıyorsunuz". `Deps.ChatUI` (nil ya da gözetimsiz → `schat1` bildirilmez) |
+| DC kaldırma | `flow/peers.go`, `session.go`, `session_media.go`, `flow.go`, `dc/ctl.go`, `rtc/rtc.go` (yorum) | `onTechChat`, `relayChat`, `sendAll`, `chatMessage`, `case "chat"`, `ctlAllowed` chat dalı, `UI.Chat`, `RosterUI.TechChat` silindi; `dc` izin tablosundan `chat` ve `Ctl.Text/TS`, `chatMax` çıktı (bilinmeyen tip düşer, kanal açık) |
+| Metinler | `internal/flow/messages.go` | `ChatTexts` tek tablo + `ChatRetentionLine(days)` (contracts `CHAT_RETENTION_LINE` ile birebir, fikstür `texts.retentionLine90` testi) |
+| AC-292 | `api/api.go`, `api/requests.go`, `flow/flow.go`, `uicore/accept.go` | `chatRetentionDays` (contracts `ResolveSessionResponse` / `TenantRequestInfo` alan adı) gevşek int, yoksa 0; `Welcome.ChatRetentionDays`; `uicore.ConsentReady(days, lineDrawn) = days ≥ 1 && lineDrawn`, `RetentionText`, `RetentionDrawn` (çizilen etiket geri okunur — `lineDrawn` sabit true değil) |
+| UI | Windows `ui/chat_windows.go` (+`session_windows.go`, `ui_windows.go`, `roster_windows.go`), macOS `ui/mac/session_darwin.go`, Linux `ui/gtk/session_linux.go` | Sohbet bölümü `flow.ChatView`'a bağlı: başlık + "Sohbet kayıt altına alınır" notu, düz metin geçmiş (EDIT / NSTextView zengin metin-bağlantı-veri algılama kapalı / `gtk_text_buffer_set_text`), durum satırı, `chat.state` öncesi giriş + Gönder pasif; Gönder ham metni akışa verir (kutuyu boşaltma kararı flow'da) |
+| Karşılama | `ui/welcome_windows.go`, `ui/mac/screens_darwin.go`, `ui/gtk/welcome_linux.go` | Saklama satırı "Bağlan"ın hemen üstünde, P28e kayıt kutusunun altında; düğme ve Enter (`valid()`) yalnız `ConsentReady` iken; alan yok/0 → "Sunucu güncel değil; lütfen daha sonra deneyin" (danger) ve düğme pasif. `consent_windows.go`, `unattended/helper/consent_windows.go`, `headless.go` değişmedi |
+| Talep formu | `ui/reqform_windows.go`, `request/form.go`, `request/types.go` | Satır "Destek iste"nin hemen üstünde; düğme/Enter `ConsentReady` ile; ayrıca `request` akışı `chatRetentionDays < 1` iken talep oluşturmaz (notice "Sunucu güncel değil") |
+| Bağlama | `cmd/noktadestek/deps.go`, `deps_darwin.go`, `deps_linux.go` | `ChatUI` `Features`'tan önce atanır (Windows doğrudan `u`; macOS/Linux arayüz uyguluyorsa) |
+
+Yeni bağımlılık yok. Yeni dosya/kayıt/ağ ucu yok (iz testi etkilenmez).
+
+### Tasarımdan sapmalar / notlar
+
+- **Gövde kuralının yeri:** §9 tablo `signal/chat.go`'yu sözleşme yeri sayar; `request.ChatBody/ChatDisplayBody` aynı kurala delege eder (çift tanım yok). Hata metinleri `signal.ChatErr*` (request sabitleri bunların takma adı).
+- **"Tekrar dene"** ayrı düğme değil (P20 talep sohbeti kalıbı): gönderilemeyen metin giriş kutusuna geri konur, aynı metin "Gönder" ile aynı `clientMsgId`'le gider. Web'deki yanıtsızlık zaman aşımı Go'da yok; kopuşta bekleyenler yeni sokette otomatik yeniden gönderilir.
+- **macOS/Linux sistem satırları** (dosya sonucu, ses notu, oturum sonu notu) eskiden sohbetle aynı geçmişe tarih sırasıyla ekleniyordu; artık geçmiş flow'un sohbet metninden yeniden yazıldığı için sistem satırları sohbet bloğunun altında toplanır (`uicore.ChatComposite`, toplam 48 KiB, baştan kırpılır). Windows'ta dosya sonucu ayrı satırdadır, fark yok.
+- **headless.go** dokunulmadı; `Chat`/`TechChat` boş metotları artık hiçbir arayüzün parçası değil (ölü ama zararsız; dosyayı değiştirmeme kuralı gereği bırakıldı).
+- **Sohbet durum satırı** geçmiş kutusunun altında (Windows/macOS'ta geçmiş 22 px kısaldı; 768 px sığdırma kuralı `ChatSqueeze` değişmedi).
+- `gtk/ffi_linux.go`'ya `gtk_text_buffer_get_start_iter` / `get_text` bağlaması eklendi (yalnız GUI duman testinde düz metin geri okuma için).
+
+### Testler (adlar AC / bulgu no taşır)
+
+- `signal`: `TestAC264P22GConstantsMatchFixture`, `…ChatSendMatchesFixture` (valid/invalid tech/guest inbound, bodyOnly), `…ServerMessagesMatchFixture` (guestOutbound valid/invalid, techOutbound invalid, `guestChat`'li hello/peer.joined misafirde red), `…ChatStateAndItems`, `…ChatSendEncode`, `TestSP22_1BudgetedHistoryReadsOverRealSocket` (≈ 48 KiB, ≥ 11 × 1.000 emoji, gerçek TLS WS üzerinden, sonrasında soket açık).
+- `request`: `TestSP22_1BudgetedRequestMessagesReadOverRealSocket` (P18 `request.messages` aynı bütçe), `TestAC292RequestFormRetentionDays`.
+- `flow`: `TestAC264P22GInputDisabledUntilChatState`, `…EchoMatchAndRetryIdempotent`, `…ClientMsgIDIsRandom16Bytes`, `…ReconnectResendAndHistoryDedupe` (iki sıra), `…SenderBucketTooFast`, `…PlainTextNoFakeHeaders` (`<b>` literal, bidi süzülür, sahte başlık yok), `…SessionSendsOverWS` (schat1 bildirimi, DC'ye 0 yazım), `TestAC264P22GDCChatNotShownNorRelayed` (DC chat gelişi UI'ya 0 öğe), `TestAC292P22GRetentionLineMatchesContracts`.
+- `dc`: `TestAC264P22GDCChatNotRecognized` (multi.json dcChat'in tamamı reddedilir); `rtc`: DC chat düşer, kanal açık.
+- `uicore`: `TestAC292ConsentReady` (0/eksik/-1/1/90 × çizildi/çizilmedi), `TestAC264P22GChatComposite`; `api`: `TestAC292ChatRetentionDaysParsed`.
+- GTK GUI duman testi (`TestP28gK4GUIWindowOpens`, `linuxgui`): sohbet geçmişi ve durum satırında `<b>` literal geri okunur, `chat.state{true}` görünümünde giriş etkin.
+
+### Komutlar ve sonuç (2026-11-19)
+
+- darwin: `cd apps/agent-win && go test ./...` → tümü ok (`internal/input` `TestAC49CGInjectMoveInPlace` bir kez gerçek imleç hareketiyle oynadı, yeniden koşuda ok — bu paketle ilgisiz).
+- Linux (golang:1.26 Docker, CGO=0): `go test ./internal/ui/gtk/... ./internal/flow/... ./internal/signal/... ./internal/request/... ./internal/dc/... ./internal/api/... ./internal/ui/uicore/...` → ok.
+- `gofmt -l .` boş; `go vet ./...` (darwin), `GOOS=windows`, `GOOS=linux` ve `GOOS=linux -tags linuxgui` vet temiz; staticcheck v0.8.2 (linux+linuxgui / windows / darwin) temiz; Windows test ikilileri `go test -c` ile derlendi (Windows'ta koşulmadı — CI `test-windows`).
+- Linux GUI (`test/linux/gui.sh 2404`, emüle amd64): sonuç aşağıda.
+
+### Bilinen sınırlar / açık maddeler
+
+- Windows ve macOS arayüz değişiklikleri yalnız derlendi/vet edildi; görsel doğrulama ve üç platformda staging elle testi (sohbet açık, DC yok, onay satırı) P22-GQ / test-operatoru'nda.
+- macOS'ta `<b>` literal kanıtı model testinde (flow) ve NSTextView ayarlarında (`setRichText:false`, veri/bağlantı algılama kapalı); AppKit'te otomatik GUI geri okuma testi yok (paketin mevcut düzeninde GUI testi yalnız GTK'da).
+- `more:true` (daha eski mesajlar) müşteri istemcisinde gösterilmez (tasarım: yalnız konsol metni).
