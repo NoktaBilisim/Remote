@@ -80,9 +80,7 @@ const manageStepUp = (p: Panel) => ({ preHandler: [requirePerm("unattended.manag
 /** Durum + cihaz uçları (liste, ayrıntı, yetkiler, iptal, bağlan). */
 function deviceRoutes(p: Panel): void {
   const { app, d } = p;
-  app.get("/status", anyPerm(), async (req): Promise<UnattendedStatus> =>
-    unattendedStatus(d().gate, app.mail, authOf(req).tenantId),
-  );
+  app.get("/status", anyPerm(), async (req): Promise<UnattendedStatus> => unattendedStatus(d().gate, app.mail, authOf(req).tenantId));
   app.get("/devices", anyPerm(), async (req): Promise<DeviceListResponse> =>
     listDevices(d(), authOf(req), tenantScope(req).tenantId, parseInput(listDevicesQuerySchema, req.query)),
   );

@@ -94,8 +94,7 @@ describe("P27-K3 control.state source:UNATTENDED (§4.6)", () => {
     const fx = await roomFixture(rooms, [...CTRL]);
     const g = fx.guest("203.0.113.7", "AGENT");
     expect(await admitGuest(rooms, fx.room, fx.tech, g.admitCode)).toBe("admitted");
-    if (unattended)
-      fx.room.unattended = { deviceId: "01ARZ3NDEKTSV4RRFFQ69G5FAV", deviceName: "PC-1", customerId: "c" };
+    if (unattended) fx.room.unattended = { deviceId: "01ARZ3NDEKTSV4RRFFQ69G5FAV", deviceName: "PC-1", customerId: "c" };
     return { rooms, fx, g };
   }
 

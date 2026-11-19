@@ -15263,13 +15263,13 @@ packages/contracts ve apps/server'a dokunulmadı.
 
 ### Rotalar
 
-| Yol                     | Auth                    | Durum                                                                                                        |
-| ----------------------- | ----------------------- | ------------------------------------------------------------------------------------------------------------ |
-| `/settings/unattended`  | —                       | **Silindi** (politika ekranı; artık 404). Ayarlar sekmesindeki "Gözetimsiz erişim" öğesi kaldırıldı          |
-| `/unattended`, `/unattended/[id]` | Evet, `unattended.connect`/`manage` | Bağlan diyaloğu: kutu/gerekçe yok; kullanıcı durumu (bilgi) + "Bağlantı cihaz kullanıcısına sorulmadan açılır. Cihazda bağlantı göstergesi görünür." (`Info`); gövde `{}` → step-up → konsol |
-| `/sessions/[id]/console` | Evet                   | Gözetimsiz odada misafir katılınca bir kez otomatik kontrol isteği; kip rozeti / İzleniyor / Müdahale et / İzlemeye dön yok; kilitle / oturumu kapat kontrol açıkken |
-| `/sessions` (etkin oturumlar, davetler) | Evet   | İzle / Katıl gerekçesiz (`{}`); "İzinsiz" etiketi ve gerekçe diyaloğu yok                                     |
-| `/audit`, `/history`, `/history/[id]` | Evet     | Değişmedi: "Bağlantı kipi" filtresi üç değerli (eski kayıtlar); etiketler contracts `CONSENT_MODE_LABELS` (Onaysız / Kullanıcı onayıyla (eski) / İzinsiz (eski)); eski `silent` kayıtta gerekçe görünür |
+| Yol                                     | Auth                                | Durum                                                                                                                                                                                                   |
+| --------------------------------------- | ----------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `/settings/unattended`                  | —                                   | **Silindi** (politika ekranı; artık 404). Ayarlar sekmesindeki "Gözetimsiz erişim" öğesi kaldırıldı                                                                                                     |
+| `/unattended`, `/unattended/[id]`       | Evet, `unattended.connect`/`manage` | Bağlan diyaloğu: kutu/gerekçe yok; kullanıcı durumu (bilgi) + "Bağlantı cihaz kullanıcısına sorulmadan açılır. Cihazda bağlantı göstergesi görünür." (`Info`); gövde `{}` → step-up → konsol            |
+| `/sessions/[id]/console`                | Evet                                | Gözetimsiz odada misafir katılınca bir kez otomatik kontrol isteği; kip rozeti / İzleniyor / Müdahale et / İzlemeye dön yok; kilitle / oturumu kapat kontrol açıkken                                    |
+| `/sessions` (etkin oturumlar, davetler) | Evet                                | İzle / Katıl gerekçesiz (`{}`); "İzinsiz" etiketi ve gerekçe diyaloğu yok                                                                                                                               |
+| `/audit`, `/history`, `/history/[id]`   | Evet                                | Değişmedi: "Bağlantı kipi" filtresi üç değerli (eski kayıtlar); etiketler contracts `CONSENT_MODE_LABELS` (Onaysız / Kullanıcı onayıyla (eski) / İzinsiz (eski)); eski `silent` kayıtta gerekçe görünür |
 
 ### Otomatik kontrol (K-P28u-r3-6, S-P28u-r3-2)
 
@@ -15288,7 +15288,7 @@ packages/contracts ve apps/server'a dokunulmadı.
 - `app/(panel)/unattended/{connect-dialog.tsx, use-connect.ts, device-list.tsx, (list)/page.tsx, [id]/page.tsx, [id]/device-actions.tsx}` —
   kutu/gerekçe/`silentAllowed` kaldırıldı; `ReasonField` silindi.
 - `app/(panel)/sessions/[id]/console/{console-view.tsx, console-stage.tsx, console-parts.tsx}`, `components/console/{unattended-actions.tsx,
-  stage-overlay.tsx}` — otomatik kontrol; kip rozeti, izleme, Müdahale et/İzlemeye dön, onay bekleme metni ve `consent_denied/timeout`
+stage-overlay.tsx}` — otomatik kontrol; kip rozeti, izleme, Müdahale et/İzlemeye dön, onay bekleme metni ve `consent_denied/timeout`
   "Yeniden dene" kaldırıldı (bitiş metinleri `c.reason.*` geçmiş için kalır). Müdahale çubuğu kontrol kapalıyken hiç çizilmez (yeniden
   katılım bildirimi hariç).
 - `lib/unattended/{consent.ts, contract.ts}`, `lib/webrtc/tech-machine.ts`, `lib/multi/errors.ts` (`inviteBlockOf(guestMulti)`,

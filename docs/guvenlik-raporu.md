@@ -11637,6 +11637,7 @@ yollarla karşılaştırıldı.
 ## Bulgular
 
 ### S-P28u-r3-1 [DÜŞÜK] `connect` gönderiminde `direct1` yalnız 8a'da denetleniyor (TOCTOU) — A04 Güvensiz Tasarım
+
 Yer: `apps/server/src/unattended/connect.ts` `afterCommit` → `d.hub.send(o.deviceId, msg)`; `unattended/hub.ts:157` (`send` yetenek denetlemez).
 Sorun: 8a ile commit sonrası gönderim arasında cihaz soketi yeniden bağlanırsa (servis geri alındı / eski sürüm yeniden kuruldu)
 `connect{consent:"ask"}` `direct1` bildirmeyen sokete gider.
@@ -11646,6 +11647,7 @@ Düzeltme (tasarım r3.4): `connect`/`rejoin` gönderimi `hub.sendIf(deviceId, "
 yeniden denetlesin; yoksa oda `device_timeout` yerine `DEVICE_OUTDATED` anlamlı bitişle kapansın. (backend-dev)
 
 ### S-P28u-r3-2 [DÜŞÜK] Konsolun otomatik `control.request`'i kontrol sahibine bağlanmamış — A04
+
 Yer: `docs/mimari-p28u.md` K-P28u-r3-6, r3.6 ("misafir katıldığında bir kez"); P28c rol tablosu (`mimari-p28c.md` §… "control.request yalnız kontrol sahibi").
 Sorun: P28c çok teknisyenli gözetimsiz odada katılımcı/izleyici konsolları da etkiyi çalıştırırsa sunucudan 403 + gereksiz audit/metrik
 gürültüsü ve konsolda hata metni oluşur. Sunucu reddettiği için yetki ihlali yok.
@@ -11653,6 +11655,7 @@ Düzeltme: koşul tasarıma yazılsın: yalnız `controllerId === ben` ∧ `room
 henüz gönderilmedi. Devirde (P28c handover) yeni sahip otomatik istemez (bilinçli tıklama). Birim testi: katılımcı konsolunda istek 0. (frontend-dev)
 
 ### S-P28u-r3-3 [DÜŞÜK] Saklı `unattended.silent` satırları ve politika sütunu yeniden etkinleşebilir (geri alma / ad yeniden kullanımı) — A01 / A05
+
 Yer: K-P28u-r3-8, K-P28u-r3-10; `user_permissions.perm_key='unattended.silent'`, `tenant_settings.unattended_silent_enabled=1` (staging).
 Sorun: Satırlar yalnız kullanıcı kaydedilince silinir; bugün etkisiz. Ancak (a) sunucu P28u..P28f imajına geri alınırsa eski politika
 `1` ve saklı yetki satırları anında `silent` yolunu yeniden açar (henüz güncellenmemiş 0.15–0.19 servislerde izleme kipi); (b) ileride aynı
@@ -11663,33 +11666,39 @@ Düzeltme: `permissions.ts`'de silinen anahtarlar için "yeniden kullanılmaz" m
 "Sonra" olarak eklenebilir; expand-only kuralı nedeniyle zorunlu değil. (backend-dev, devops, dba-Sonra)
 
 ### S-P28u-r3-4 [BİLGİ] Katılım uygunluğunda "kip yok / bilinmeyen kip" reddi korunmalı
+
 Yer: `apps/server/src/sessions/eligibility.ts:165` (`cm !== "silent" && cm !== "no_user"` → `JOIN_NOT_ALLOWED`).
 Sorun değil, uyarı: K-P28u-r3-9 sadeleştirmesinde koşul `cm !== "no_user"` olarak kalmalı; `consentMode` henüz yazılmamış (admit öncesi)
 ya da eski `asked` odaya katılım açılmamalı. `reasonStep` silinince `api/multi.ts` katılım şeması `strictObject` kalmalı (eski `reason` → 400).
 Düzeltme: R2 testine "admit öncesi odaya İzle/kabul → JOIN_NOT_ALLOWED" vakası. (backend-dev)
 
 ### S-P28u-r3-5 [BİLGİ] `device.features` yankısı `direct1`'i içermemeli — sözleşme tutarlılığı
+
 Yer: `apps/server/src/unattended/device-ws.ts:208` (`caps` kümesinin tamamı yankılanır), `ws-device.ts:40 DEVICE_FEATURES`.
 Sorun: r3.3 "`direct1` gönderilmez" der; `direct1` `DEVICE_FEATURE_BY_SUBPROTOCOL`'a eklenirse mevcut kod onu yankılar ve
 `device.features` şeması (`z.enum(DEVICE_FEATURES)`) ile çelişir. Güvenlik etkisi yok (yalnız `direct1` bildiren yeni servis alır).
 Düzeltme: yankı `caps ∩ {consent1, record1}`; `direct1` yalnız `DeviceConn.caps`'te. Fikstür testi. (backend-dev)
 
 ### S-P28u-r3-6 [BİLGİ] Teknisyen×cihaz "dakikada 1" sınırının kalkması
+
 Diyalog seli tehdidi (T8) konusuz. Bağlantı başına step-up tüketimi, 20/sa, `DEVICE_BUSY` ve her bağlantıda müşteri bildirimi
 (AC-296) kötüye kullanımı yeterince sınırlar. Ek önlem gerekmez.
 
 ### S-P28u-r3-7 [BİLGİ] KVKK yükü tamamen firmaya geçti
+
 Teknik gösterge + yerel anahtar + bildirim korunuyor; hukuki aydınlatma artık yalnız kılavuz/DATASHEET uyarısı (r3.8). Tasarım
 doğru; teknik-yazar r3.8 metnindeki "gizli izleme yoktur / gösterge her zaman görünür / yerel anahtar" üçlüsünün eksiksiz yazıldığı
 qa'da denetlensin.
 
 ## Tasarımda vaat edilip doğrulanması kod aşamasına kalanlar
+
 - R4 sadeleştirmesinde `helper.go` gösterge → `/ws/guest` sırası ve `ExitIndicatorFailed` dalı aynen kalmalı (Go birim: gösterge hatası →
   `RunTicket` çağrı sayısı 0).
 - `wire_consent.go`: `connect.consent` eksik/bilinmeyen/`silent` → `protocol` (D-P28u-5 fail-closed) r3'te de korunmalı.
 - Eski kayıt etiketleri (AC-451) ve saklı yetki satırıyla giriş + kullanıcı kaydetme entegrasyon testi.
 
 ## Sonuç
+
 Kritik **0** / Yüksek **0** / Orta **0** / Düşük **3** (S-P28u-r3-1, 2, 3) / Bilgi **4** (S-P28u-r3-4..7).
 Kritik/Yüksek bulgu yok → tasarım güvenlik kapısı **GEÇTİ**. Düşük bulgular tasarıma küçük ekleme olarak işlenebilir; S-P28u-r3-3'ün
 veri temizliği kısmı `docs/gereksinimler.md` §9'a "Sonra" önerisidir.
@@ -11701,13 +11710,13 @@ DURUM: GEÇTİ · Kapsam: `git diff 9b1db78..HEAD` (62b5b9e; apps/server, apps/w
 
 ## Tasarım turu bulgularının kapanışı
 
-| Bulgu | Durum | Kanıt |
-|---|---|---|
-| S-P28u-r3-1 (TOCTOU `direct1`) | Kapandı | `unattended/hub.ts:164-174 sendDirect` gönderim anında `caps.has("direct1")`; `connect.ts:141-148` `outdated` → oda `protocol` ile biter + audit fail + 409; `signaling/rejoin-device.ts:76-89` rejoin de `sendDirect`. Yarış testi kancası `connectTestSeams.afterTx` |
-| S-P28u-r3-2 (otomatik `control.request`) | Kapandı | `apps/web/lib/unattended/consent.ts:51-55 autoControlDecision`: yalnız `joins` artışında ∧ `unattended` ∧ `controller` ∧ `canControl` ∧ istek/izin yokken. Devirde `joins` değişmediği için istek yok (`console-view.tsx:90`) |
-| S-P28u-r3-3 (saklı `unattended.silent`) | Kısmen | `packages/contracts/src/permissions.ts` `RETIRED_PERMISSION_KEYS` + `test/permissions.test.ts:21` kesişim = ∅; `users.ts:91-96 permissionMapSchema` retired anahtarı 400 (`unattended-legacy-r3.test.ts` PATCH → 400, kayıtta satır silinir, `/auth/me` ve kullanıcı yanıtında yok). Runbook geri alma notu ve veri temizliği bu turda doğrulanmadı (R5/dba-Sonra) |
-| S-P28u-r3-4 (kip yok/bilinmeyen kip reddi) | Kapandı | `sessions/eligibility.ts:158` `cm !== "no_user"` → `JOIN_NOT_ALLOWED` (revalidate hariç); `invites.ts:93 roomGate` aynı; `api/multi.ts joinWithReasonInputSchema = z.strictObject({})`, `routes-multi.ts:73,98` parse ediliyor (eski `reason` → 400) |
-| S-P28u-r3-5 (`direct1` yankısı) | Kapandı | `unattended/device-ws.ts:208-211` yankı `DEVICE_ANNOUNCED_FEATURES` ile süzülüyor. Go `validFeatures` (`wire_consent.go:126-138`) yalnız consent1/record1 kabul ediyor |
+| Bulgu                                      | Durum   | Kanıt                                                                                                                                                                                                                                                                                                                                                              |
+| ------------------------------------------ | ------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| S-P28u-r3-1 (TOCTOU `direct1`)             | Kapandı | `unattended/hub.ts:164-174 sendDirect` gönderim anında `caps.has("direct1")`; `connect.ts:141-148` `outdated` → oda `protocol` ile biter + audit fail + 409; `signaling/rejoin-device.ts:76-89` rejoin de `sendDirect`. Yarış testi kancası `connectTestSeams.afterTx`                                                                                             |
+| S-P28u-r3-2 (otomatik `control.request`)   | Kapandı | `apps/web/lib/unattended/consent.ts:51-55 autoControlDecision`: yalnız `joins` artışında ∧ `unattended` ∧ `controller` ∧ `canControl` ∧ istek/izin yokken. Devirde `joins` değişmediği için istek yok (`console-view.tsx:90`)                                                                                                                                      |
+| S-P28u-r3-3 (saklı `unattended.silent`)    | Kısmen  | `packages/contracts/src/permissions.ts` `RETIRED_PERMISSION_KEYS` + `test/permissions.test.ts:21` kesişim = ∅; `users.ts:91-96 permissionMapSchema` retired anahtarı 400 (`unattended-legacy-r3.test.ts` PATCH → 400, kayıtta satır silinir, `/auth/me` ve kullanıcı yanıtında yok). Runbook geri alma notu ve veri temizliği bu turda doğrulanmadı (R5/dba-Sonra) |
+| S-P28u-r3-4 (kip yok/bilinmeyen kip reddi) | Kapandı | `sessions/eligibility.ts:158` `cm !== "no_user"` → `JOIN_NOT_ALLOWED` (revalidate hariç); `invites.ts:93 roomGate` aynı; `api/multi.ts joinWithReasonInputSchema = z.strictObject({})`, `routes-multi.ts:73,98` parse ediliyor (eski `reason` → 400)                                                                                                               |
+| S-P28u-r3-5 (`direct1` yankısı)            | Kapandı | `unattended/device-ws.ts:208-211` yankı `DEVICE_ANNOUNCED_FEATURES` ile süzülüyor. Go `validFeatures` (`wire_consent.go:126-138`) yalnız consent1/record1 kabul ediyor                                                                                                                                                                                             |
 
 ## Telafi edici kontroller — doğrulandı (olumlu)
 
@@ -11728,26 +11737,32 @@ DURUM: GEÇTİ · Kapsam: `git diff 9b1db78..HEAD` (62b5b9e; apps/server, apps/w
 ## Bulgular
 
 ### S-P28u-r3-8 [DÜŞÜK] Konsolda Kilitle / Oturumu kapat düğmeleri artık kontrol sahibine bağlı değil — A04
+
 Yer: `apps/web/app/(panel)/sessions/[id]/console/console-view.tsx:122`. Önceki sürüm `canControl && seat.controller` veriyordu, şimdi kaldırıldı. `apps/web/lib/unattended/consent.ts:27-30 interveneView` yalnız `phase === "granted"` koşuluna bakıyor.
 Sorun: P28c çok teknisyenli gözetimsiz odada `phase` katılımcı/izleyici konsolunda da `granted` görünüyorsa, sahip olmayan teknisyene müdahale düğmeleri çiziliyor.
 İstismar senaryosu: Yetki ihlali yok. Sunucu `intervene.ts:49-50` kontrol sahibi değilse 403 dönüyor. Sonuç gereksiz 403, hata metni ve audit/metrik gürültüsü.
 Düzeltme: `UnattendedActions`'a `controller={seat.controller && canControl}` geri verilsin ve `interveneView` bunu da koşul alsın. Birim testi: katılımcı konsolunda `showCommands=false`. (frontend-dev)
 
 ### S-P28u-r3-9 [BİLGİ] Yeni servis eski sunucunun `rejoin{mode:"asked"}` mesajını `no_user` olarak başlatıyor
+
 Yer: `apps/agent-win/internal/servis/wire_consent.go:146-153`, `servis/rejoin.go launchRejoin`.
 Tasarıma uygun (r3.3, eski sunucu + r3 servis). Gösterge önce çiziliyor. Eski sunucu odası zaten onaylıydı. Gizlilik açısından gerileme yok, eylem gerekmiyor.
 
 ### S-P28u-r3-10 [BİLGİ] Üretim modülünde dışa açık test kancası
+
 Yer: `apps/server/src/unattended/connect.ts:38` (`connectTestSeams`), `:113`.
 Değiştirilebilir bir modül nesnesi. Dış girdiyle erişilemiyor, üretimde boş kalıyor. Güvenlik etkisi yok. İsteğe bağlı olarak `NODE_ENV==="test"` koruması eklenebilir. (backend-dev, Sonra)
 
 ## Otomatik tarama çıktıları
+
 Bu turda çalıştırılmadı (zaman sınırı). Farkta yeni bağımlılık yok (`package.json`/`go.mod` değişmedi). Gizli bilgi taraması CI gitleaks'e bırakıldı.
 
 ## Tasarımda vaat edilip kodda doğrulanamayanlar
+
 - S-P28u-r3-3: runbook §28u geri alma notu ("r3 öncesi imaja dönülürse politika sütunu 0") ve `deploy/ops/remote-watch.sh` alarm temizliği. Bunlar R5/devops işi; dosya çalışma ağacında commit'lenmemiş değişiklik olarak duruyor. Staging veri temizliği (`DELETE … perm_key='unattended.silent'`, `unattended_silent_enabled=0`) `docs/gereksinimler.md` §9'a "Sonra" olarak önerilir.
 - Windows'ta elle doğrulama (R6): diyalogsuz açılış, gösterge, yerel anahtar, kilit/oturum kapatma.
 
 ## Sonuç
+
 Kritik **0** / Yüksek **0** / Orta **0** / Düşük **1** (S-P28u-r3-8) / Bilgi **2** (S-P28u-r3-9, 10). S-P28u-r3-1, 2, 4, 5 kapandı; S-P28u-r3-3 kodda kapandı, runbook ve veri kısmı açık.
 Kritik/Yüksek bulgu yok → kod güvenlik kapısı **GEÇTİ**.

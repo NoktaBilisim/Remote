@@ -43,13 +43,31 @@ export async function legacySession(
       userId: r.tech.id,
       username: r.tech.email,
       action: "unattended.connect",
-      newValue: mode === "silent" ? { deviceId: r.dev.id, consentMode: "silent", silentReason: LEGACY_REASON } : { deviceId: r.dev.id, consentRequested: "ask" },
+      newValue:
+        mode === "silent"
+          ? { deviceId: r.dev.id, consentMode: "silent", silentReason: LEGACY_REASON }
+          : { deviceId: r.dev.id, consentRequested: "ask" },
     },
     { ...base, username: "device", action: "unattended.session.started", newValue: { deviceId: r.dev.id, consentMode: mode } },
     { ...base, username: "system", action: "unattended.session.ended", newValue: { deviceId: r.dev.id, consentMode: mode, endReason } },
     ...(mode === "asked"
-      ? [{ ...base, username: `device:${r.dev.id}`, action: "unattended.consent", newValue: { consentMode: "asked", decision: "granted", ms: 900 } }]
-      : [{ ...base, userId: r.tech.id, username: r.tech.email, action: "unattended.silent.notify", newValue: { event: "connect", recipient: "a***@x.test", result: "success", attempt: 1 } }]),
+      ? [
+          {
+            ...base,
+            username: `device:${r.dev.id}`,
+            action: "unattended.consent",
+            newValue: { consentMode: "asked", decision: "granted", ms: 900 },
+          },
+        ]
+      : [
+          {
+            ...base,
+            userId: r.tech.id,
+            username: r.tech.email,
+            action: "unattended.silent.notify",
+            newValue: { event: "connect", recipient: "a***@x.test", result: "success", attempt: 1 },
+          },
+        ]),
   ];
   await testDb().auditLog.createMany({ data: rows });
   return id;

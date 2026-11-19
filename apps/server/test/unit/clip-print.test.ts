@@ -140,9 +140,7 @@ describe("P28a capsOf / capsFor / featuresOf (§4.1–4.2)", () => {
     const { room, guest } = setup();
     const protos = ["rs.v1", "rs.cap.clip1", "rs.cap.print1", "rs.cap.chat9"];
     expect([...featuresOf(protos, room, guest)]).toEqual(["clipboard", "print"]);
-    expect(
-      featuresOf(protos, { ...room, unattended: { deviceId: "d", deviceName: "PC", customerId: "c" } }, guest).size,
-    ).toBe(0);
+    expect(featuresOf(protos, { ...room, unattended: { deviceId: "d", deviceName: "PC", customerId: "c" } }, guest).size).toBe(0);
     expect(featuresOf(protos, room, { ...guest, kind: "BROWSER" }).size).toBe(0);
   });
 });

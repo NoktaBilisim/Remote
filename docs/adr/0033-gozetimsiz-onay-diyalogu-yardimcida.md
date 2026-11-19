@@ -5,7 +5,6 @@
 > karar: `docs/mimari-p28u.md` §r3 (K-P28u-r3-1..12). Durum borusu (`ev:control`, `ev:lock`), giriş borusu komutları ve yardımcının
 > tek pencere sınıfı (`NoktaDestekGosterge`) kalır. Bu ADR tarihsel kayıt olarak korunur.
 
-
 Tarih: 2026-11-16 · Durum: Kabul edildi (P28u güvenlik tasarım turu GEÇTİ; r2 bulguları işlendi — mimari-p28u §r2) · İlgili: ADR-0028 (değiştirir), AC-341, AC-429..446,
 `docs/mimari-p28u.md` §7, mimari-p27 §5.2–5.5
 

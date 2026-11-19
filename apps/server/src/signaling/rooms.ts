@@ -365,9 +365,7 @@ function memberPermChange(rooms: Rooms, room: Room, userId: string, perms: Reado
   const m = room.multi.members.get(userId);
   if (!m) return;
   const base = m.via === "supervise" ? "sessions.supervise" : "sessions.view";
-  const lost =
-    !perms.has(base) ||
-    (room.unattended !== undefined && !perms.has("unattended.connect"));
+  const lost = !perms.has(base) || (room.unattended !== undefined && !perms.has("unattended.connect"));
   if (lost) return revokeMember(rooms, room, userId);
   if (m.conn) m.conn.permissions = perms;
   if (controllerOf(room) === m.conn && m.conn && !perms.has("remote_control.use")) void revokeControlFor(rooms, room, "permission");

@@ -3916,13 +3916,13 @@ Müşteri tarafında "kim, ne zaman bağlandı / ne yaptı" sorusunun yerel kan�
 Uygulama → "Geçerli günlüğü filtrele" → Olay kaynağı `NoktaDestek`. PowerShell (yönetici gerekmez):
 `Get-WinEvent -FilterHashtable @{LogName='Application'; ProviderName='NoktaDestek'; Id=1001,1004,1006,1007,1008} -MaxEvents 50 | Format-List TimeCreated,Id,LevelDisplayName,Message`
 
-| Kimlik | Düzey         | Anlam                                                                                                                                                                                |
-| ------ | ------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Kimlik | Düzey         | Anlam                                                                                                                                                                                                          |
+| ------ | ------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | 1001   | Bilgi         | Gözetimsiz bağlantı başladı — teknisyen, destek firması, teknisyen IP, oturum, **kip**: r3'te her zaman "onaysız" (eski kayıtlarda "izinli (kullanıcı onayı)" / "izinli (kullanıcı yok)" / "izinsiz (izleme)") |
-| 1004   | Uyarı         | Bağlantı reddedildi / güvenlik denetimi başarısız (`folder_acl`, `pipe_squatted`, `device_key`, `auth_rejected`, `signature_gate`, `folder_renamed`)                                 |
-| 1006   | Bilgi / Uyarı | Oturum kilitlendi (teknisyen, oturum, sonuç). Uyarı = "(uygulanmadı) … başarısız: <neden>"                                                                                           |
-| 1007   | Bilgi / Uyarı | Kullanıcı oturumu kapatıldı (aynı biçim)                                                                                                                                             |
-| 1008   | Bilgi / Uyarı | **r3: artık yazılmaz** (yalnız eski servis kayıtlarında). Bağlantı onayı: "izin verildi" / "reddedildi" / "yanıt verilmedi"                                                         |
+| 1004   | Uyarı         | Bağlantı reddedildi / güvenlik denetimi başarısız (`folder_acl`, `pipe_squatted`, `device_key`, `auth_rejected`, `signature_gate`, `folder_renamed`)                                                           |
+| 1006   | Bilgi / Uyarı | Oturum kilitlendi (teknisyen, oturum, sonuç). Uyarı = "(uygulanmadı) … başarısız: <neden>"                                                                                                                     |
+| 1007   | Bilgi / Uyarı | Kullanıcı oturumu kapatıldı (aynı biçim)                                                                                                                                                                       |
+| 1008   | Bilgi / Uyarı | **r3: artık yazılmaz** (yalnız eski servis kayıtlarında). Bağlantı onayı: "izin verildi" / "reddedildi" / "yanıt verilmedi"                                                                                    |
 
 Diğerleri (P27): 1002 bitti, 1003 yerel anahtar, 1005 iptal/kaldırma. Bilet, anahtar, nonce, gerekçe hiçbir olaya yazılmaz.
 
@@ -3950,8 +3950,8 @@ Server P28u öncesiyse (`rs_unattended_silent_notify_total` yok) değerlendirilm
 kaldırıldı (`rs_unattended_connect_total{mode="silent"}` ve `rs_unattended_consent_total` artık üretilmiyor); `WATCH_UA_SILENT_MAX` /
 `WATCH_UA_TIMEOUT_MIN` okunmaz (watch.env'de kalırsa zararsız, silinebilir). Durum dosyasındaki eski `ua_samples=` satırı ilk turda düşer.
 
-| Kontrol                  | Koşul                                                                                                          | Düzey | Eylem                                                                                                                                                                                                                         |
-| ------------------------ | -------------------------------------------------------------------------------------------------------------- | ----- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Kontrol                  | Koşul                                                                                                          | Düzey | Eylem                                                                                                                                                                                                                           |
+| ------------------------ | -------------------------------------------------------------------------------------------------------------- | ----- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `unattended-notify-fail` | `rs_unattended_silent_notify_total{result="fail"}` arttı (alıcı başına 3 deneme sonrası); artıştan sonra 24 sa | Uyarı | **Kayıt politikası dört göz e-postası gitmedi** (P28e `recording_policy`). Firma SMTP testi, `docker compose logs server \| grep unattended_silent_notify`, Audit `unattended.silent.notify result=fail`; alıcılara elle bildir |
 
 Elle bakış (alarm yok): `rs_unattended_intervene_total{result!="ok"}` ve `rs_unattended_rejoin_total{result!="ok"}` sürekli artıyorsa §28u.3;
@@ -3965,13 +3965,13 @@ docker compose exec -T server node -e "fetch('http://127.0.0.1:3001/metrics',{he
 
 Uyum matrisi (mimari-p28u §r3.3):
 
-| Sunucu     | Servis                 | Sonuç                                                                                     |
-| ---------- | ---------------------- | ----------------------------------------------------------------------------------------- |
-| r3         | r3 (`direct1`)         | Sormadan açılır, `consent_mode=no_user`, konsol otomatik kontrol                          |
-| r3         | 0.15–0.19 (`consent1`) | 409 `DEVICE_OUTDATED`, rozet "Servis güncel değil", Bağlan pasif → "Güncelle…" (§28u.5)   |
+| Sunucu     | Servis                 | Sonuç                                                                                      |
+| ---------- | ---------------------- | ------------------------------------------------------------------------------------------ |
+| r3         | r3 (`direct1`)         | Sormadan açılır, `consent_mode=no_user`, konsol otomatik kontrol                           |
+| r3         | 0.15–0.19 (`consent1`) | 409 `DEVICE_OUTDATED`, rozet "Servis güncel değil", Bağlan pasif → "Güncelle…" (§28u.5)    |
 | r3         | ≤ 0.14 (belirteçsiz)   | 409 `DEVICE_OUTDATED`                                                                      |
 | P28u..P28f | r3                     | `ask` → sormadan açılır + `consent.result{no_user}`; `silent` → `connect.result{protocol}` |
-| P27        | r3                     | P27 (features yok, onaysız)                                                               |
+| P27        | r3                     | P27 (features yok, onaysız)                                                                |
 
 Önceki "gizlilik gerilemesi" uyarısı (müşteri bildirimi, D-P28u-5) **konusuzdur**: eski sunucu da r3 servisinde sormadan açar.
 Migration geri alması **yoktur** (r3 migration getirmez).
@@ -4074,7 +4074,7 @@ hazır edilir, sunucu yayınının hemen ardından yayınlanır ve test VM'leri 
 2. Sunucu: §25.2 akışı — ön yedek → `git pull` → `IMAGE_TAG` → `docker compose build && docker compose up -d` →
    `docker compose logs --since 5m migrate` "No pending migrations" → `check-app-grants.sh` tümü PASS → `audit-continuity ok`.
 3. **Hemen ardından** servis yayını: `ALLOW_UNATTESTED=staging deploy/agent/publish-servis.sh --dir "$OUT/servis" --no-attestation
-   --ssh root@185.126.217.99 --deploy-dir /opt/remote/deploy` → `kontrol: … SHA-256 = … = <sha>`.
+--ssh root@185.126.217.99 --deploy-dir /opt/remote/deploy` → `kontrol: … SHA-256 = … = <sha>`.
 4. İzleme: `cd ops && ./remote-watch.sh install` → `systemctl start remote-watch.service; journalctl -u remote-watch -n 5` → `OK`;
    `status.prom`'da `unattended-silent-volume` / `unattended-consent-timeout` yok, `unattended-notify-fail` 1.
 5. Test VM'lerinde "Güncelle…" (§28u.5) → rozet kalkar → §28u.8 elle tur (test-operatoru).

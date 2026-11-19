@@ -61,7 +61,11 @@ const authMsg = (dev: KeyedDevice, nonce: string, extra: Record<string, unknown>
 export type Legacy = boolean | "consent1";
 
 /** Ham `/ws/device` soketi (hello alınmış); `nonce` döner. */
-export async function rawDevice(live: Live, headers: Record<string, string> = {}, legacy: Legacy = false): Promise<{ c: WsClient; nonce: string }> {
+export async function rawDevice(
+  live: Live,
+  headers: Record<string, string> = {},
+  legacy: Legacy = false,
+): Promise<{ c: WsClient; nonce: string }> {
   const protos =
     legacy === true
       ? [WS_DEVICE_SUBPROTOCOL]
@@ -74,7 +78,12 @@ export async function rawDevice(live: Live, headers: Record<string, string> = {}
 }
 
 /** Kimliği doğrulanmış cihaz soketi (`device.ready` alınmış). */
-export async function onlineDevice(live: Live, dev: KeyedDevice, extra: Record<string, unknown> = {}, legacy: Legacy = false): Promise<WsClient> {
+export async function onlineDevice(
+  live: Live,
+  dev: KeyedDevice,
+  extra: Record<string, unknown> = {},
+  legacy: Legacy = false,
+): Promise<WsClient> {
   const { c, nonce } = await rawDevice(live, {}, legacy);
   c.send(authMsg(dev, nonce, extra));
   await c.waitFor("device.ready" as never);

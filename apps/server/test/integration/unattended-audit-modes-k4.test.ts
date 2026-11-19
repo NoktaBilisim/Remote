@@ -50,9 +50,17 @@ describe("P28u audit consentMode filtresi (AC-445, AC-451)", () => {
     const noUser = await opened("no_user");
     const silent = await opened("silent");
     const expected: Record<Mode, { sessionId: string; tenantId: string; actions: string[] }> = {
-      asked: { ...asked, tenantId: asked.r.tenantId, actions: ["unattended.consent", "unattended.session.ended", "unattended.session.started"] },
+      asked: {
+        ...asked,
+        tenantId: asked.r.tenantId,
+        actions: ["unattended.consent", "unattended.session.ended", "unattended.session.started"],
+      },
       no_user: { ...noUser, tenantId: noUser.r.tenantId, actions: ["unattended.session.started"] },
-      silent: { ...silent, tenantId: silent.r.tenantId, actions: ["unattended.connect", "unattended.session.ended", "unattended.session.started"] },
+      silent: {
+        ...silent,
+        tenantId: silent.r.tenantId,
+        actions: ["unattended.connect", "unattended.session.ended", "unattended.session.started"],
+      },
     };
     for (const [mode, e] of Object.entries(expected) as [Mode, (typeof expected)[Mode]][]) {
       const admin = await loginAs(live.app, await createUser({ tenantId: e.tenantId, role: "ADMIN" }));
