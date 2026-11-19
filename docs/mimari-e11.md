@@ -1622,7 +1622,7 @@ NoktaDestek /f` veya Görev Yöneticisi > Başlangıç). Sunucu eki geri alını
 - Oturum sohbetinin WS'e taşınması (Go + sunucu) ve AC-292 Go onay satırı: **P22** (K-P20-1).
 - Go talep formunda bildirim kutucukları (AC-261 Go ucu; `createRequestInputSchema.notify`): ayrı AC gerekir, P20'de yok.
 - Tepside "çevrimiçi" durumu / gözetimsiz bağlantı: P27 (ayrı servis ikilisi; bu tepsi süreci kullanılmaz).
-- Otomatik güncelleme: yok (imza olmadan güvenli değil); SignPath sonrası ayrı ADR.
+- Otomatik güncelleme: yok (imza olmadan güvenli değil); SignPath sonrası ayrı ADR. **P29 ile değişti → ADR-0040.**
 - `deviceKey`'in tenant'a türetilmesi (HMAC(deviceKey, köken+tenant/ref)) — firmalar arası ilişkilendirmeyi kaldırır (G-P20-11; gereksinimler §9 "Sonra").
 - Tepsi menüsünde firma alt menüsü (doğrudan firmaya talep): talep gelirse; bugün "Destek iste" ana ekranı açar.
 
@@ -1779,6 +1779,7 @@ Veri: `unattended_devices`, `unattended_device_grants`, `unattended_registration
 | P26   | **Beklemede (2026-11-16)** — Kullanım sayımı + Paraşüt taslak fatura                                                                                                                                       | P25                                          | — (ADR-0027)                                                           | Çift fatura; Paraşüt API değişikliği; sayım ihtilafı (R33)    |
 | P27   | Gözetimsiz erişim (bildirim P19 `notify` outbox'ı ile; kullanım sayımı P26'ya bırakılır, aşağıdaki sıra değişikliği)                                                                                       | P17, P20, PT, SignPath (prod)                | ADR-0028 + tehdit modeli eki (zorunlu güvenlik turu)                   | R25, R30, R32; Session 0 / Secure Desktop karmaşıklığı        |
 | P28+  | macOS, Linux, Android/iOS, oturum kaydı, çoklu teknisyen, ses, pano, yazdırma, sunucuda dosya + ClamAV (P28 = macOS + Linux + kayıt + çoklu teknisyen/ses + pano/yazdırma/dosya-ClamAV; mobil Sonra)       | PT, P27                                      | her biri ayrı ADR; ClamAV ayrı konteyner (GPL, bağlanmaz, `clamd` TCP) | Kapsam; lisans; depolama/KVKK (kayıt, dosya)                  |
+| P29   | **Ayrıntı `docs/mimari-p29.md`.** İstemci otomatik güncelleme: imzalı manifest, servis gözetmeni, sürüm bildirimi                                                                                          | P27, P28f, P28g                              | ADR-0040 imzalı manifest                                               | Manifest anahtarı (R-P29-1); AV                               |
 
 ### 11.1 Sıra değişikliği (2026-11-15): PT ve P27 öne, P21–P26 sona
 

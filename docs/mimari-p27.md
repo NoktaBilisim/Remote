@@ -41,7 +41,7 @@ cihaz kaydı, kalıcı `/ws/device` kanalı, cihaz başına yetki, bildirim, yer
 | Cihaz adını panelde değiştirme, cihaz grupları                                    | Sonra (genişleme: `unattended_devices.display_name` sütunu eklenir)                                                                                          |
 | Oturum sırasında konsol oturumu değişirse (kullanıcı değiştirme) kesintisiz devam | Kapsam dışı: bağlantı `session_changed` ile biter, teknisyen yeniden bağlanır (sadelik)                                                                      |
 | Yeniden başlatma sonrası **aynı oturumun** otomatik sürmesi                       | Kapsam dışı: cihaz ≤ 2 dk çevrimiçi olur (AC-274), teknisyen yeni bağlantı açar (yeni step-up — AC-273 bağlantı başına tüketim kuralı bunu zaten ister)      |
-| Otomatik güncelleme                                                               | Sonra (P20 ile aynı: yeni sürüm elle kurulur; kurulum üzerine kurma kaydı korur §5.3)                                                                        |
+| Otomatik güncelleme                                                               | Sonra (P20 ile aynı: yeni sürüm elle kurulur; kurulum üzerine kurma kaydı korur §5.3) — **P29 ile değişti → ADR-0040**                                       |
 | Çoklu teknisyen aynı cihazda                                                      | P28: oda modeli zaten "tek teknisyen"i sözleşmeye gömmez; cihaz başına tek etkin gözetimsiz oturum P27 kuralıdır (`DEVICE_BUSY`), P28'de gevşetilebilir      |
 
 ## 2. Bileşenler ve akış
