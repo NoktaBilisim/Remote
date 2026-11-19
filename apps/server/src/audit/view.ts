@@ -5,7 +5,14 @@
 // P16 (AC-241, S16-1, ADR-0030 m.4): kimlik maskesi FAIL-CLOSED — liste, CSV ve oturum zaman çizelgesi bu dosyadaki
 // `identityView`/`actorLabelOf` ile çalışır (tek görünüm kuralı).
 import type { AuditJson } from "@remote/contracts/api/audit";
-import { AUDIT_ENTITY, AUDIT_IDENTITY_KEYS, deletedTenantLabel, deletedUserLabel, maskIdentity } from "@remote/contracts/audit";
+import {
+  AUDIT_ENTITY,
+  AUDIT_IDENTITY_KEYS,
+  PORTAL_USERS_ENTITY,
+  deletedTenantLabel,
+  deletedUserLabel,
+  maskIdentity,
+} from "@remote/contracts/audit";
 import { MASK, maskValue, type JsonValue } from "./mask.ts";
 
 /** `mail.*`, `session.email`, `settings.*.test`, adında `smtp` geçen eylemler. */
@@ -129,12 +136,19 @@ interface IdentityResult {
 /**
  * ADR-0030 m.4: satır şu durumlardan birinde kimlik maskelidir — aktör kullanıcısı yok/DELETED; `entity = users` hedefi
  * yok/DELETED; `tenant_id` dolu ama firma satırı yok. Maskeli satırda `username` → `maskIdentity`.
+ * P21 (K-P21-14, r2 S-P21-2): `entity = portal_users` ve `entity_id` portal hesabı artık yok (`portalUsers` = sayfada var
+ * olan hesaplar) → maskeli. Olmayan hesap denemesi (`entity_id` NULL) maskelenmez. `portalUsers` verilmezse fail-closed.
  */
-export function identityView(r: IdentityRow, users: ReadonlyMap<string, IdentityUser>): IdentityResult {
+export function identityView(
+  r: IdentityRow,
+  users: ReadonlyMap<string, IdentityUser>,
+  portalUsers: ReadonlySet<string> = new Set(),
+): IdentityResult {
   const tenantGone = r.tenantId !== null && r.tenantName === null;
   const masked =
     (r.userId !== null && userGone(r.userId, users)) ||
     (r.entity === AUDIT_ENTITY.USERS && r.entityId !== null && userGone(r.entityId, users)) ||
+    (r.entity === PORTAL_USERS_ENTITY && r.entityId !== null && !portalUsers.has(r.entityId)) ||
     tenantGone;
   return {
     masked,
@@ -143,6 +157,11 @@ export function identityView(r: IdentityRow, users: ReadonlyMap<string, Identity
     tenantLabel: r.tenantId ? (r.tenantName ?? deletedTenantLabel(r.tenantId)) : null,
   };
 }
+
+/** P21: sayfadaki portal hesabı kimlikleri (`entity = portal_users` satırlarının `entity_id`'si). */
+export const identityPortalUserIds = (rows: readonly { entity: string; entityId: string | null }[]): string[] => [
+  ...new Set(rows.flatMap((r) => (r.entity === PORTAL_USERS_ENTITY && r.entityId ? [r.entityId] : []))),
+];
 
 /** Sayfadaki kullanıcı kimlikleri: `user_id` ∪ `entity = users` satırlarının `entity_id`'si. */
 export const identityUserIds = (rows: readonly { userId: string | null; entity: string; entityId: string | null }[]): string[] =>

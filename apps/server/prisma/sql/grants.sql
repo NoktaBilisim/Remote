@@ -173,3 +173,17 @@ GRANT UPDATE (state, stop_reason, delete_reason, recorder_user_id, stopped_at, d
     updated_at) ON session_recordings TO 'app'@'%';
 GRANT SELECT, INSERT, DELETE ON session_recording_parts TO 'app'@'%';
 REVOKE IF EXISTS UPDATE, ALTER, DROP, INDEX, TRIGGER, REFERENCES ON session_recording_parts FROM 'app'@'%';
+
+-- P21 (mimari-p21 §3.3; ADR-0039; AC-262). portal_users: hesap açma INSERT, sütun düzeyi UPDATE (şifre/TOTP/kilit/tema/durum
+-- alanları), DELETE (saklama işi, müşteri anonimleştirme aynı TX, firma silme). email/tenant_id/customer_id/created_by
+-- GÜNCELLENEMEZ (hesap başka müşteriye/firmaya taşınamaz → IDOR'un DB düzeyi emniyeti). portal_sessions: INSERT (giriş),
+-- UPDATE(last_seen_at, revoked_at, updated_at) — token_hash/expires_at değiştirilemez (oturum uzatılamaz), DELETE (saklama,
+-- iptal, firma silme). Tetikleyici yok; kurallar CHECK + bileşik FK'de. DDL yok. Sütun GRANT'ı tablo düzeyi REVOKE'tan SONRA.
+GRANT SELECT, INSERT, DELETE ON portal_users TO 'app'@'%';
+REVOKE IF EXISTS UPDATE, ALTER, DROP, INDEX, TRIGGER, REFERENCES ON portal_users FROM 'app'@'%';
+GRANT UPDATE (full_name, temp_password_expires_at, password_hash, must_change_password, failed_login_count, failed_window_at,
+    locked_until, totp_secret_enc, totp_enabled, totp_last_step, theme, status, passive_at, last_login_at, updated_at)
+    ON portal_users TO 'app'@'%';
+GRANT SELECT, INSERT, DELETE ON portal_sessions TO 'app'@'%';
+REVOKE IF EXISTS UPDATE, ALTER, DROP, INDEX, TRIGGER, REFERENCES ON portal_sessions FROM 'app'@'%';
+GRANT UPDATE (last_seen_at, revoked_at, updated_at) ON portal_sessions TO 'app'@'%';

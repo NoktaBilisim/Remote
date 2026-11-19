@@ -35,6 +35,9 @@ import { customerSendRoutes } from "./customer-send/routes.ts";
 import { fsrvRoutes, storedFileLinkRoutes } from "./fsrv/routes.ts";
 import { recPartRoutes, recordingSessionRoutes } from "./rec/routes.ts";
 import { recordingSettingsRoutes } from "./settings/recording.ts";
+import { closePortalLimits, createPortalLimits } from "./portal/limits.ts";
+import { portalRoutes } from "./portal/routes.ts";
+import { portalAdminRoutes } from "./portal/admin-routes.ts";
 
 /** CSP / başlıklar (mimari §5.4, G-19, AC-126). connect-src WS origin'i portu içerir. */
 function helmetOptions(env: Env) {
@@ -122,8 +125,24 @@ function registerAdminRoutes(app: FastifyInstance, deps: AppDeps, uploads: Uploa
   void app.register(recordingSettingsRoutes, { prefix: "/api/v1/settings/recording" });
 }
 
+/**
+ * P21 müşteri portalı (mimari-p21 §4.2–4.3, ADR-0039): portal uçları (portal oturumu) + panel hesap yönetimi (ayrı eklenti,
+ * `/api/v1/customers` öneki — customers/routes.ts değişmez). Kovalar ve metrik adları kök örnekte.
+ */
+function registerPortalRoutes(app: FastifyInstance): void {
+  const limits = createPortalLimits();
+  app.decorate("portalLimits", limits);
+  app.addHook("onClose", async () => closePortalLimits(limits));
+  app.metrics.counter("rs_portal_login_total", "Portal girişleri (P21; result: success|fail|locked|mfa_required, reason)");
+  app.metrics.counter("rs_portal_locked_total", "Portal hesap kilitleri (P21; hesap ya da hesap+IP)");
+  app.metrics.counter("rs_portal_requests_total", "Portal talepleri (P21 r2 S-P21-4; result: created|rate_limited|queue_full)");
+  void app.register(portalRoutes, { prefix: "/api/v1/portal" });
+  void app.register(portalAdminRoutes, { prefix: "/api/v1/customers" });
+}
+
 /** Tüm eklenti ve rota kayıtları, buildApp'teki sırayla. */
 export function registerRoutes(app: FastifyInstance, deps: AppDeps, uploads: UploadStore): void {
   registerCoreRoutes(app, deps.env);
   registerAdminRoutes(app, deps, uploads);
+  registerPortalRoutes(app);
 }

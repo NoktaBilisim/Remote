@@ -13,7 +13,15 @@ import type {
   SessionStatus,
   TimelineEvent,
 } from "./api/sessions.ts";
-import { CHAT_AUDIT_LABELS, VOICE_AUDIT, VOICE_AUDIT_LABELS, VOICE_END_REASON_LABELS, VOICE_REJECT_REASON_LABELS } from "./audit.ts";
+import {
+  CHAT_AUDIT_LABELS,
+  PORTAL_AUDIT,
+  VOICE_AUDIT,
+  VOICE_AUDIT_LABELS,
+  VOICE_END_REASON_LABELS,
+  VOICE_REJECT_REASON_LABELS,
+  type PortalAuditAction,
+} from "./audit.ts";
 import type { ClipResult, PrintDecision, PrintResult } from "./ws-clip-print.ts";
 import type { AvScanReason, FsrvGateReason, FsrvWireState, StoredFileState } from "./ws-fsrv.ts";
 
@@ -529,3 +537,20 @@ export const FILE_VERIFIED_LABEL = "Doğrulanmış";
 /** P15 (AC-238): yalnız müşteri tarafının bildirdiği satır (sunucu teknisyen tarafından doğrulamadı). */
 export const FILE_CUSTOMER_REPORT_LABEL = "Müşteri bildirimi";
 export const fileVerificationLabel = (verified: boolean): string => (verified ? FILE_VERIFIED_LABEL : FILE_CUSTOMER_REPORT_LABEL);
+
+/** P21 (mimari-p21 §4.5): audit süzgecinde `portal.*` grubunun adı (web `AUDIT_GROUP_LABELS`'a yayılır; RECORDING kalıbı). */
+export const PORTAL_AUDIT_GROUP_LABELS: Readonly<Record<string, string>> = { portal: "Müşteri portalı" };
+/** P21 eylemlerinin Türkçe etiketleri (web `AUDIT_ACTION_LABELS`'a yayılır). */
+export const PORTAL_AUDIT_LABELS: Readonly<Record<PortalAuditAction, string>> = {
+  [PORTAL_AUDIT.LOGIN]: "Portal girişi",
+  [PORTAL_AUDIT.LOCKED]: "Portal hesabı kilitlendi",
+  [PORTAL_AUDIT.LOGOUT]: "Portal çıkışı",
+  [PORTAL_AUDIT.PASSWORD_CHANGE]: "Portal şifresi değiştirildi",
+  [PORTAL_AUDIT.MFA_ENABLED]: "Portal 2FA etkinleştirildi",
+  [PORTAL_AUDIT.MFA_DISABLED]: "Portal 2FA kapatıldı",
+  [PORTAL_AUDIT.ACCOUNT_CREATED]: "Portal hesabı oluşturuldu",
+  [PORTAL_AUDIT.ACCOUNT_DEACTIVATED]: "Portal hesabı pasife alındı",
+  [PORTAL_AUDIT.ACCOUNT_REACTIVATED]: "Portal hesabı yeniden etkinleştirildi",
+  [PORTAL_AUDIT.ACCOUNT_PASSWORD_RESET]: "Portal hesabı şifresi sıfırlandı",
+  [PORTAL_AUDIT.ACCOUNT_DELETED]: "Portal hesabı silindi (saklama süresi)",
+};

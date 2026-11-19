@@ -47,13 +47,14 @@ function VerifyCodes({ phase }: { phase: AcceptedPhase }) {
 
 interface AcceptedProps {
   phase: AcceptedPhase;
-  tenantRef: string;
+  /** Firma dosyası indirme bağlantısı (P21: kaynak adaptöründen; `/r/` için `request-download?ref=`). */
+  downloadHref: string;
   onShare: () => void;
   onDecline: () => void;
 }
 
 /** Kabul: teknisyen adı + doğrulama kodu (+ kabul kodu), "Ekranımı paylaş" / "Vazgeç", uygulama indirme bağlantısı. */
-export function AcceptedCard({ phase, tenantRef, onShare, onDecline }: AcceptedProps) {
+export function AcceptedCard({ phase, downloadHref, onShare, onDecline }: AcceptedProps) {
   return (
     <section
       className="flex flex-col gap-4 rounded-lg border border-border bg-surface p-4 text-center shadow-sm sm:p-6"
@@ -75,7 +76,7 @@ export function AcceptedCard({ phase, tenantRef, onShare, onDecline }: AcceptedP
         </Button>
       </div>
       <a
-        href={`/api/v1/public/agent/request-download?ref=${encodeURIComponent(tenantRef)}`}
+        href={downloadHref}
         className="inline-flex min-h-11 items-center justify-center gap-1.5 text-sm font-medium text-primary hover:underline"
         data-testid="wr-download"
       >

@@ -23,6 +23,8 @@ export interface TenantCounts {
   /** P28e (§3.4): anonimleştirmeyle silinen kayıtlar ve süresi dolan (`DELETED{EXPIRED}`) kayıtlar. */
   recordings: number;
   recordingsExpired: number;
+  /** P21 (K-P21-9): `retention_days` dolan pasif portal hesapları (oturumlarıyla). */
+  portalAccounts: number;
   /** P22 (mimari-p22 §3.3, AC-264): anonimleştirmeyle aynı TX'te silinen oturum sohbeti satırları (dry modda da silinir). */
   sessionMessages: number;
 }
@@ -43,6 +45,8 @@ export interface GlobalCounts {
   fsrvStale: number;
   /** P28e mutabakatı (b): dosyası eksik parça bulunan kayıt (`recording.delete{missing}`). */
   recMissing: number;
+  /** P21 (§3.4): süresi dolan/iptal edilen + 7 g portal oturumları. */
+  portalSessions: number;
 }
 /** `rs_retention_rows_total{kind}` etiketleri (düşük kardinalite, sabit küme). */
 export const KINDS: Record<keyof (TenantCounts & GlobalCounts), string> = {
@@ -74,6 +78,8 @@ export const KINDS: Record<keyof (TenantCounts & GlobalCounts), string> = {
   recordings: "recordings",
   recordingsExpired: "recordings_expired",
   recMissing: "recordings_missing",
+  portalAccounts: "portal_accounts",
+  portalSessions: "portal_sessions",
   sessionMessages: "session_messages",
 };
 
@@ -102,6 +108,7 @@ export const zeroTenant = (): TenantCounts => ({
   filesExpired: 0,
   recordings: 0,
   recordingsExpired: 0,
+  portalAccounts: 0,
   sessionMessages: 0,
 });
 export const zeroGlobal = (): GlobalCounts => ({
@@ -116,5 +123,6 @@ export const zeroGlobal = (): GlobalCounts => ({
   fsrvMissing: 0,
   fsrvStale: 0,
   recMissing: 0,
+  portalSessions: 0,
 });
 export const sum = (o: object): number => Object.values(o).reduce((a: number, b: unknown) => a + (typeof b === "number" ? b : 0), 0);

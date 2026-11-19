@@ -42,6 +42,7 @@ import { CalendarCache, publicBusinessHours } from "./hours.ts";
 import type { SecretBox } from "../lib/crypto.ts";
 import { RequestMessages } from "./messages.ts";
 import { admitCreate, peekCreate } from "./create-steps.ts";
+import type { PortalCreateOptions } from "./create-tx.ts";
 import { afterCreate } from "./create-after.ts";
 import { webFormCoreInput, webFormInfoOf } from "./web-form.ts";
 import { cancelSystemOf, connectTimeoutOf, customerCancelOf } from "./cancel.ts";
@@ -352,8 +353,9 @@ export class RequestService {
     body: unknown,
     parse: (b: unknown) => CreateCoreInput,
     source: RequestSource,
+    portal: PortalCreateOptions | null = null,
   ): Promise<CreateRequestResponse> {
-    const p = await peekCreate(this, ctx, body, source);
+    const p = await peekCreate(this, ctx, body, source, portal);
     // P14a (AC-209) sıra: hazır mı (kapı; dolu/zaman aşımı → 503 NOT_READY) → IP/önek kovası → TX → commit sonrası tenant
     // kovası. 503'te hiçbir kova tüketilmez. Ref/kayıt çözülemediyse TX'e hiç varılmaz (tek 404 yolu) → kapı gerekmez.
     // S14-1: kilitli ip/önek/net48 kapıya HİÇ girmez (sayımsız ön kontrol); sayım (`hit`) kapının içinde kalır.
@@ -395,6 +397,14 @@ export class RequestService {
   async createWeb(ctx: AuditContext, body: unknown): Promise<CreateRequestResponse> {
     const core = await webFormCoreInput(this, ctx, body);
     return this.createCore(ctx, core, () => core, "WEB");
+  }
+
+  /**
+   * P21 (K-P21-2): POST /portal/requests — gövde portal/data.ts'te YALNIZ sunucuda kurulur (ref oturumdaki müşterinin);
+   * aynı çekirdek, `web_form_enabled` denetimi yok, beklenen firma/müşteri doğrulaması + müşteri bekleyen sınırı (TX).
+   */
+  async createPortal(ctx: AuditContext, core: CreateCoreInput, portal: PortalCreateOptions): Promise<CreateRequestResponse> {
+    return this.createCore(ctx, core, () => core, "WEB", portal);
   }
 
   /** POST /public/requests/cancel (AC-141): her durumda 204 — sır oracle'ı yok. */

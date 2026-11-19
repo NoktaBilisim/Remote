@@ -53,6 +53,11 @@ const REDACT_PATHS = [
   // P28e (S-P28e-6): kayıt yükleme belirteci `rec.state.upload.token` / `hello.rec.upload.token` (savunma; WS gövdesi zaten loglanmaz).
   "*.upload.token",
   "*.*.upload.token",
+  // P21 (mimari-p21 §9, r2 ek not): portal giriş TOTP kodu ve Admin'in verdiği geçici şifre (savunma). TOTP enable/disable `code`
+  // alanı yalnız istek gövdesinde gelir (`body`/`*.body` zaten redakte); `*.code` hata nesnelerinin `code`'unu (P2002, ECONNREFUSED…)
+  // gizlediği için yok (S-P21-K-4).
+  "*.totpCode",
+  "*.temporaryPassword",
 ];
 
 interface LoggableRequest {

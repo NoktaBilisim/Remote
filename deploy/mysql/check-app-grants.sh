@@ -394,8 +394,8 @@ run_root 0 "SELECT COUNT(*) FROM information_schema.REFERENTIAL_CONSTRAINTS WHER
 run_root 0 "SELECT (SELECT COUNT(*) FROM information_schema.USER_PRIVILEGES WHERE GRANTEE=\"'app'@'%'\" AND PRIVILEGE_TYPE<>'USAGE') + (SELECT COUNT(*) FROM information_schema.SCHEMA_PRIVILEGES WHERE GRANTEE=\"'app'@'%'\") + (SELECT COUNT(*) FROM information_schema.TABLE_PRIVILEGES WHERE GRANTEE=\"'app'@'%'\" AND PRIVILEGE_TYPE IN ('TRIGGER','ALTER','DROP','CREATE','INDEX','REFERENCES','GRANT OPTION'))" "app: global/DB yetkisi yok, hiçbir tabloda TRIGGER/ALTER/DROP/CREATE/INDEX yok"
 run_root 0 "SELECT COUNT(*) FROM information_schema.TABLE_PRIVILEGES WHERE GRANTEE=\"'app'@'%'\" AND TABLE_NAME='audit_logs' AND PRIVILEGE_TYPE NOT IN ('SELECT','INSERT','DELETE')" "app: audit_logs yalnız SELECT/INSERT/DELETE (DELETE P13a)"
 # P13a (K27) + P16 (ADR-0030 m.3): DELETE yetkisi tam olarak bu tablolarda; P16'nın 8 tablosunda koşul tetikleyicide.
-run_root "audit_logs,auth_sessions,business_holidays,consent_texts,customer_notify_contacts,customers,device_bindings,notification_outbox,password_reset_tokens,recovery_codes,request_blocks,request_refs,session_consents,session_files,session_messages,session_recording_parts,session_recordings,session_stored_files,support_requests,support_sessions,tenant_purge_jobs,tenant_request_settings,tenant_settings,tenants,trusted_devices,unattended_device_grants,unattended_devices,unattended_registration_codes,user_permissions,users" "SELECT GROUP_CONCAT(TABLE_NAME ORDER BY CAST(TABLE_NAME AS BINARY)) FROM information_schema.TABLE_PRIVILEGES WHERE GRANTEE=\"'app'@'%'\" AND TABLE_SCHEMA=DATABASE() AND PRIVILEGE_TYPE='DELETE'" "app: DELETE yetkili tablo kümesi (K27)"
-run_root "consent_texts.is_current:UPDATE,consent_texts.updated_at:UPDATE,password_reset_tokens.updated_at:UPDATE,password_reset_tokens.used_at:UPDATE,recovery_codes.updated_at:UPDATE,recovery_codes.used_at:UPDATE,session_consents.ip:UPDATE,session_consents.user_agent:UPDATE,session_recordings.delete_reason:UPDATE,session_recordings.deleted_at:UPDATE,session_recordings.duration_ms:UPDATE,session_recordings.part_count:UPDATE,session_recordings.recorder_user_id:UPDATE,session_recordings.size_bytes:UPDATE,session_recordings.state:UPDATE,session_recordings.stop_reason:UPDATE,session_recordings.stopped_at:UPDATE,session_recordings.updated_at:UPDATE,session_stored_files.deleted_at:UPDATE,session_stored_files.delivered_at:UPDATE,session_stored_files.expires_at:UPDATE,session_stored_files.scan_reason:UPDATE,session_stored_files.scanned_at:UPDATE,session_stored_files.signature:UPDATE,session_stored_files.state:UPDATE,session_stored_files.storage_rel:UPDATE,session_stored_files.updated_at:UPDATE" "SELECT GROUP_CONCAT(CONCAT(TABLE_NAME,'.',COLUMN_NAME,':',PRIVILEGE_TYPE) ORDER BY CAST(TABLE_NAME AS BINARY),CAST(COLUMN_NAME AS BINARY)) FROM information_schema.COLUMN_PRIVILEGES WHERE GRANTEE=\"'app'@'%'\" AND TABLE_SCHEMA=DATABASE()" "app: sütun düzeyi yetki kümesi (P13a session_consents ip/user_agent, P28b, P28e)"
+run_root "audit_logs,auth_sessions,business_holidays,consent_texts,customer_notify_contacts,customers,device_bindings,notification_outbox,password_reset_tokens,portal_sessions,portal_users,recovery_codes,request_blocks,request_refs,session_consents,session_files,session_messages,session_recording_parts,session_recordings,session_stored_files,support_requests,support_sessions,tenant_purge_jobs,tenant_request_settings,tenant_settings,tenants,trusted_devices,unattended_device_grants,unattended_devices,unattended_registration_codes,user_permissions,users" "SELECT GROUP_CONCAT(TABLE_NAME ORDER BY CAST(TABLE_NAME AS BINARY)) FROM information_schema.TABLE_PRIVILEGES WHERE GRANTEE=\"'app'@'%'\" AND TABLE_SCHEMA=DATABASE() AND PRIVILEGE_TYPE='DELETE'" "app: DELETE yetkili tablo kümesi (K27)"
+run_root "consent_texts.is_current:UPDATE,consent_texts.updated_at:UPDATE,password_reset_tokens.updated_at:UPDATE,password_reset_tokens.used_at:UPDATE,portal_sessions.last_seen_at:UPDATE,portal_sessions.revoked_at:UPDATE,portal_sessions.updated_at:UPDATE,portal_users.failed_login_count:UPDATE,portal_users.failed_window_at:UPDATE,portal_users.full_name:UPDATE,portal_users.last_login_at:UPDATE,portal_users.locked_until:UPDATE,portal_users.must_change_password:UPDATE,portal_users.passive_at:UPDATE,portal_users.password_hash:UPDATE,portal_users.status:UPDATE,portal_users.temp_password_expires_at:UPDATE,portal_users.theme:UPDATE,portal_users.totp_enabled:UPDATE,portal_users.totp_last_step:UPDATE,portal_users.totp_secret_enc:UPDATE,portal_users.updated_at:UPDATE,recovery_codes.updated_at:UPDATE,recovery_codes.used_at:UPDATE,session_consents.ip:UPDATE,session_consents.user_agent:UPDATE,session_recordings.delete_reason:UPDATE,session_recordings.deleted_at:UPDATE,session_recordings.duration_ms:UPDATE,session_recordings.part_count:UPDATE,session_recordings.recorder_user_id:UPDATE,session_recordings.size_bytes:UPDATE,session_recordings.state:UPDATE,session_recordings.stop_reason:UPDATE,session_recordings.stopped_at:UPDATE,session_recordings.updated_at:UPDATE,session_stored_files.deleted_at:UPDATE,session_stored_files.delivered_at:UPDATE,session_stored_files.expires_at:UPDATE,session_stored_files.scan_reason:UPDATE,session_stored_files.scanned_at:UPDATE,session_stored_files.signature:UPDATE,session_stored_files.state:UPDATE,session_stored_files.storage_rel:UPDATE,session_stored_files.updated_at:UPDATE" "SET SESSION group_concat_max_len=65535; SELECT GROUP_CONCAT(CONCAT(TABLE_NAME,'.',COLUMN_NAME,':',PRIVILEGE_TYPE) ORDER BY CAST(TABLE_NAME AS BINARY),CAST(COLUMN_NAME AS BINARY)) FROM information_schema.COLUMN_PRIVILEGES WHERE GRANTEE=\"'app'@'%'\" AND TABLE_SCHEMA=DATABASE()" "app: sütun düzeyi yetki kümesi (P13a session_consents ip/user_agent, P28b, P28e, P21; P21 ile liste 1024 B group_concat sınırını aştı → oturumda yükseltildi)"
 run_root 0 "SELECT COUNT(*) FROM information_schema.COLUMN_PRIVILEGES WHERE GRANTEE=\"'app'@'%'\" AND TABLE_NAME='audit_logs'" "app: audit_logs sütun düzeyi UPDATE yok"
 run DENIED "DROP TRIGGER audit_logs_force_created_at" "denied"
 run DENIED "UPDATE audit_logs SET action='x' WHERE id=-1"
@@ -1040,6 +1040,75 @@ run DENIED "$TX $ADM; $SR1; $SP1; $(sp "GRANTP1'" "GRANTP3'" | sed "s/REPEAT('a'
 run DENIED "$TX $ADM; $SR1; $SP1; $(sp "GRANTP1',$RID,'$GT',0,7" "GRANTP3',$RID,'$GT',0,8"); $R" "Duplicate entry"           # aynı dosya iki satırda
 SPX="'0000000000000000000GRANTP1',$RID,'00000000000000000000GRANTX',0,7,35000,5000,1048576,CONCAT('00000000000000000000GRANTX','/',REPEAT('a',24),'.rsf'),1"
 run DENIED "$TX $GX; $ADM; $SR1; INSERT INTO session_recording_parts ($SPC) VALUES ($SPX); $R" session_recording_parts_recording_id_tenant_id_fkey   # başka tenant'ın kaydı
+# P21 (mimari-p21 §3.1–3.3; AC-262; K-P21-6/9, S-P21-3/5): portal_users (SELECT/INSERT/DELETE + sütun UPDATE; email/tenant_id/
+# customer_id/created_by değişmez), portal_sessions (SELECT/INSERT/DELETE + UPDATE(last_seen_at, revoked_at, updated_at)). Tetikleyici
+# yok; kurallar CHECK + bileşik FK'de. Tümü geri alınan TX'te. Müşteri: P8c `$CU1` fikstürü (GRANTK, tenant GRANTT).
+PUID="'0000000000000000000GRANTPU'"; WPU="WHERE id=$PUID"; UPU="UPDATE portal_users SET"
+PH="'\$argon2id\$v=19\$m=19456,t=2,p=1\$c2FsdHNhbHQ\$aGFzaGhhc2g'"
+PUC="id,tenant_id,customer_id,email,full_name,password_hash,temp_password_expires_at,created_by,updated_at"
+PUV="$PUID,'$GT','00000000000000000000GRANTK','musteri@firma.test','Portal Kisi',$PH,NOW(3)+INTERVAL 72 HOUR,'00000000000000000000GRANTU',NOW(3)"
+PU1="$CU1; INSERT INTO portal_users ($PUC) VALUES ($PUV)"
+pu() { echo "$CU1; INSERT INTO portal_users ($PUC) VALUES (${PUV/$1/$2})"; }  # $1 → $2 değiştir
+PSC="id,portal_user_id,tenant_id,token_hash,ip,user_agent,last_seen_at,expires_at,updated_at"
+PSV="'0000000000000000000GRANTPS',$PUID,'$GT',$H1,'203.0.113.7','ua',NOW(3),NOW(3)+INTERVAL 8 HOUR,NOW(3)"
+PS1="INSERT INTO portal_sessions ($PSC) VALUES ($PSV)"
+ps() { echo "INSERT INTO portal_sessions ($PSC) VALUES (${PSV/$1/$2})"; }
+run OK     "SELECT COUNT(*) FROM portal_users; SELECT COUNT(*) FROM portal_sessions"
+run_val "1,0,SYSTEM,ACTIVE,0" "$TX $PU1; SELECT CONCAT(must_change_password,',',totp_enabled,',',theme,',',status,',',failed_login_count) FROM portal_users $WPU; $R" "portal_users varsayılanları (zorunlu değişim, TOTP kapalı, SYSTEM, ACTIVE)"
+# Yaşam döngüsü: giriş + oturum, last_seen, şifre değişimi, TOTP kur/aç, kilit, pasife alma (oturum iptali), etkinleştirme, silme sırası
+run OK     "$TX $PU1; $PS1; $UPU last_login_at=NOW(3),failed_login_count=0,failed_window_at=NULL,updated_at=NOW(3) $WPU; UPDATE portal_sessions SET last_seen_at=NOW(3),updated_at=NOW(3) WHERE id='0000000000000000000GRANTPS'; $UPU password_hash=$PH,must_change_password=0,temp_password_expires_at=NULL $WPU; $UPU totp_secret_enc=RANDOM_BYTES(44) $WPU; $UPU totp_enabled=1,totp_last_step=58000000 $WPU; $UPU failed_login_count=5,failed_window_at=NOW(3),locked_until=NOW(3)+INTERVAL 15 MINUTE,theme='DARK',full_name='Yeni Ad' $WPU; $UPU status='PASSIVE',passive_at=NOW(3) $WPU; UPDATE portal_sessions SET revoked_at=NOW(3) WHERE portal_user_id=$PUID AND tenant_id='$GT' AND revoked_at IS NULL; $UPU status='ACTIVE',passive_at=NULL $WPU; DELETE FROM portal_sessions WHERE portal_user_id=$PUID; DELETE FROM portal_users $WPU; $R"
+# Admin sıfırlama (K-P21-5): yeni geçici şifre + TOTP kapatma tek UPDATE
+run OK     "$TX $PU1; $UPU must_change_password=0,temp_password_expires_at=NULL,totp_secret_enc=RANDOM_BYTES(44),totp_enabled=1,totp_last_step=1 $WPU; $UPU password_hash=$PH,must_change_password=1,temp_password_expires_at=NOW(3)+INTERVAL 72 HOUR,totp_enabled=0,totp_secret_enc=NULL,totp_last_step=NULL $WPU; $R"
+run OK     "$TX $PU1; $PS1; DELETE FROM portal_sessions WHERE tenant_id='$GT'; DELETE FROM portal_users WHERE tenant_id='$GT'; $R"   # firma silme (byTenant)
+# Yetki sınırı: kimlik/bağ alanları ve oturum belirteci/süresi güncellenemez; DDL yok
+run DENIED "UPDATE portal_users SET email='baska@firma.test' $WPU" "command denied"
+run DENIED "UPDATE portal_users SET customer_id='00000000000000000000GRANTZ' $WPU" "command denied"
+run DENIED "UPDATE portal_users SET tenant_id='00000000000000000000GRANTX' $WPU" "command denied"
+run DENIED "UPDATE portal_users SET created_by=NULL $WPU" "command denied"
+run DENIED "UPDATE portal_users SET created_at=NOW(3) $WPU" "command denied"
+run DENIED "UPDATE portal_sessions SET token_hash=$H2 WHERE id='0000000000000000000GRANTPS'" "command denied"
+run DENIED "UPDATE portal_sessions SET expires_at=NOW(3)+INTERVAL 1 DAY WHERE id='0000000000000000000GRANTPS'" "command denied"
+run DENIED "UPDATE portal_sessions SET portal_user_id='00000000000000000000GRANTU' WHERE id='0000000000000000000GRANTPS'" "command denied"
+run DENIED "ALTER TABLE portal_users ADD COLUMN x INT" "denied"
+run DENIED "ALTER TABLE portal_sessions ADD COLUMN x INT" "denied"
+run DENIED "DROP TABLE portal_sessions" "denied"
+run DENIED "CREATE TRIGGER t_x BEFORE INSERT ON portal_users FOR EACH ROW SET @a=1" "denied"
+# UQ / FK
+run DENIED "$TX $PU1; INSERT INTO portal_users ($PUC) VALUES (${PUV/GRANTPU/GRANTP2}); $R" portal_users_tenant_id_email_key              # firma içinde tekil
+run DENIED "$TX $PU1; INSERT INTO portal_users ($PUC) VALUES (${PUV/musteri@firma.test/MUSTERI@firma.test}); $R" portal_users_email_chk  # büyük harf (ikili CHECK)
+run DENIED "$TX $GX; $(pu "'$GT','00000000000000000000GRANTK'" "'00000000000000000000GRANTX','00000000000000000000GRANTK'"); $R" portal_users_tenant_id_customer_id_fkey   # başka firmanın müşterisi
+run DENIED "$TX $(pu "'00000000000000000000GRANTK'" "'000000000000000000NOCUSTMR'"); $R" portal_users_tenant_id_customer_id_fkey
+run DENIED "$TX $GX; $PU1; $(ps "'$GT',$H1" "'00000000000000000000GRANTX',$H1"); $R" portal_sessions_portal_user_id_tenant_id_fkey   # oturum başka firmada
+run DENIED "$TX $PU1; $PS1; $(ps "'0000000000000000000GRANTPS'" "'0000000000000000000GRANTP2'"); $R" portal_sessions_token_hash_key
+run DENIED "$TX $PU1; $PS1; DELETE FROM portal_users $WPU; $R" portal_sessions_portal_user_id_tenant_id_fkey   # silme sırası: oturum → hesap
+# CHECK'ler — portal_users
+run DENIED "$TX $(pu "'musteri@firma.test'" "' musteri@firma.test'"); $R" portal_users_email_chk
+run DENIED "$TX $(pu "'musteri@firma.test'" "'musteri.firma.test'"); $R" portal_users_email_chk
+run DENIED "$TX $(pu "'musteri@firma.test'" "CONCAT('musteri@firma.test',CHAR(10))"); $R" portal_users_email_chk
+run DENIED "$TX $(pu "'Portal Kisi'" "'P'"); $R" portal_users_full_name_chk
+run DENIED "$TX $(pu "'Portal Kisi'" "' Portal Kisi'"); $R" portal_users_full_name_chk
+run DENIED "$TX $(pu "'Portal Kisi'" "CONCAT('Portal',CHAR(13),'Kisi')"); $R" portal_users_full_name_chk
+run DENIED "$TX $(pu "'Portal Kisi'" "CONCAT('Portal',CONVERT(X'E280AE' USING utf8mb4),'Kisi')"); $R" portal_users_full_name_chk   # U+202E (Cf)
+run DENIED "$TX $(pu "$PH" "'duz-sifre-123'"); $R" portal_users_password_hash_chk
+run DENIED "$TX $(pu "$PH" "'\$argon2i\$v=19\$m=4096,t=3,p=1\$c2FsdA\$aGFzaA'"); $R" portal_users_password_hash_chk
+run DENIED "$TX $PU1; $UPU password_hash='x' $WPU; $R" portal_users_password_hash_chk
+run DENIED "$TX $PU1; $UPU totp_enabled=1 $WPU; $R" portal_users_totp_enabled_chk
+run DENIED "$TX $PU1; $UPU totp_secret_enc=RANDOM_BYTES(10) $WPU; $R" portal_users_totp_secret_enc_chk
+run DENIED "$TX $PU1; $UPU totp_last_step=5 $WPU; $R" portal_users_totp_last_step_chk
+run DENIED "$TX $PU1; $UPU totp_secret_enc=RANDOM_BYTES(44),totp_last_step=0 $WPU; $R" portal_users_totp_last_step_chk
+enum_case portal_users_theme_chk DARK dark "CONCAT('D',$AA,'RK')" "$TX $PU1; $UPU theme=@V@ $WPU; $R"
+enum_case portal_users_status_chk ACTIVE active "CONCAT($AA,'CTIVE')" "$TX $PU1; $UPU status=@V@ $WPU; $R"   # passive_chk'yi tetiklemeyen değer
+run DENIED "$TX $PU1; $UPU status='PASSIVE' $WPU; $R" portal_users_passive_chk                       # pasif ama sayaç yok
+run DENIED "$TX $PU1; $UPU passive_at=NOW(3) $WPU; $R" portal_users_passive_chk                      # etkin ama sayaç dolu
+run DENIED "$TX $PU1; $UPU must_change_password=0 $WPU; $R" portal_users_temp_password_chk           # S-P21-5: süre varken değişim kapandı
+run DENIED "$TX $PU1; $UPU failed_login_count=-1 $WPU; $R" portal_users_failed_count_chk
+run DENIED "$TX $(pu "'00000000000000000000GRANTU',NOW(3)" "'kullanici',NOW(3)"); $R" portal_users_created_by_chk
+# CHECK'ler — portal_sessions
+run DENIED "$TX $PU1; $(ps "$H1" "'plain-portal-token'"); $R" portal_sessions_token_hash_fmt_chk
+run DENIED "$TX $PU1; $(ps "$H1" "UPPER($H2)"); $R" portal_sessions_token_hash_fmt_chk
+run DENIED "$TX $PU1; $(ps "$H1" "CONCAT(REPEAT('a',63),CHAR(10))"); $R" portal_sessions_token_hash_fmt_chk
+run DENIED "$TX $PU1; $(ps "INTERVAL 8 HOUR" "INTERVAL 9 HOUR"); $R" portal_sessions_ttl_chk          # 8 saatten uzun
+run DENIED "$TX $PU1; $(ps "NOW(3)+INTERVAL 8 HOUR" "NOW(3)-INTERVAL 1 SECOND"); $R" portal_sessions_ttl_chk
 # Temizlik (FK sırasıyla)
 run_mig OK "DELETE FROM tenant_purge_jobs WHERE tenant_id IN ('00000000000000000000GRANTT','00000000000000000000GRANTW'); DELETE FROM session_consents WHERE id IN ('00000000000000000000GRANT9','0000000000000000000GRANT10'); DELETE FROM support_sessions WHERE id IN ('00000000000000000000GRANT7','00000000000000000000GRANT8'); DELETE FROM customers WHERE id='00000000000000000000GRANTY'; DELETE FROM tenants WHERE id='00000000000000000000GRANTW'; DELETE FROM users WHERE id='00000000000000000000GRANTU'; DELETE FROM tenant_settings WHERE tenant_id='00000000000000000000GRANTT'; DELETE FROM tenants WHERE id='00000000000000000000GRANTT'"  # P16: app tenant/users silemez (tetikleyici) → migrator
 # P13a `backup` kullanıcısı (mimari-p13 §4): yalnız 'backup'@'localhost'; DB'de SELECT, SHOW VIEW, TRIGGER; global yetki yok.

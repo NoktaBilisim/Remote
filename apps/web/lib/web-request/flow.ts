@@ -23,8 +23,13 @@ export interface StoredRequest {
 }
 
 export function readStored(ref: string, store: Pick<Storage, "getItem"> | null): StoredRequest | null {
+  return readStoredAt(storeKeyOf(ref), store);
+}
+
+/** P21: anahtarı kaynak adaptörü verir (`/r/` → `rs.wr.<ref>`, portal → `rs.wr.portal.<kullanıcı>`). */
+export function readStoredAt(key: string, store: Pick<Storage, "getItem"> | null): StoredRequest | null {
   try {
-    const raw = store?.getItem(storeKeyOf(ref));
+    const raw = store?.getItem(key);
     if (!raw) return null;
     const v = JSON.parse(raw) as Partial<StoredRequest>;
     if (!requestSecretSchema.safeParse(v.requestSecret).success || typeof v.requestCode !== "string") return null;

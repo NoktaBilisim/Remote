@@ -515,25 +515,32 @@ export type NotifyChoice = z.output<typeof notifyChoiceSchema>;
 /** Form token'ı: base64url (`v1` ‖ issuedAt ‖ nonce ‖ HMAC); biçim sunucuda doğrulanır. */
 export const formTokenSchema = z.string().regex(/^[A-Za-z0-9_-]{16,200}$/, "Formun süresi doldu, sayfayı yenileyin.");
 
+/**
+ * P21 (r2, S-P21-6): web formu alanları — portal talep şeması (`api/portal.ts`) bundan `ref`/`formToken`/`website`
+ * çıkarılarak türetilir (zod 4'te refine'lı şemada `.omit()` hata verir; iki şema `strictObject(shape).superRefine` ile kurulur).
+ */
+export const webRequestShape = {
+  ref: tenantRefSchema,
+  formToken: formTokenSchema,
+  website: honeypotSchema,
+  clientInstanceId: clientInstanceSchema,
+  customerName: customerNameSchema,
+  phone: phoneSchema,
+  email: optionalEmailSchema,
+  description: descriptionSchema,
+  consentTextId: z.string().regex(ULID, "Aydınlatma metni geçersiz"),
+  consentAccepted: z.literal(true, "Aydınlatma metni onaylanmalı"),
+  notify: notifyChoiceSchema,
+};
+
+/** `notify.email` ⇒ `email` zorunlu (web formu ve portal talebi ortak kuralı; S-P21-6). */
+export function refineNotifyEmail(b: { notify: NotifyChoice; email?: string | undefined }, ctx: z.RefinementCtx): void {
+  if (b.notify.email && b.email === undefined)
+    ctx.addIssue({ code: "custom", path: ["email"], message: "E-posta ile bildirim için e-posta adresi girin" });
+}
+
 /** POST /public/web-requests (AC-259; AC-134 alan kuralları AGENT ile aynı). `notify.email` ⇒ `email` zorunlu. */
-export const webRequestInputSchema = z
-  .strictObject({
-    ref: tenantRefSchema,
-    formToken: formTokenSchema,
-    website: honeypotSchema,
-    clientInstanceId: clientInstanceSchema,
-    customerName: customerNameSchema,
-    phone: phoneSchema,
-    email: optionalEmailSchema,
-    description: descriptionSchema,
-    consentTextId: z.string().regex(ULID, "Aydınlatma metni geçersiz"),
-    consentAccepted: z.literal(true, "Aydınlatma metni onaylanmalı"),
-    notify: notifyChoiceSchema,
-  })
-  .superRefine((b, ctx) => {
-    if (b.notify.email && b.email === undefined)
-      ctx.addIssue({ code: "custom", path: ["email"], message: "E-posta ile bildirim için e-posta adresi girin" });
-  });
+export const webRequestInputSchema = z.strictObject(webRequestShape).superRefine(refineNotifyEmail);
 export type WebRequestInput = z.input<typeof webRequestInputSchema>;
 export type WebRequestData = z.output<typeof webRequestInputSchema>;
 

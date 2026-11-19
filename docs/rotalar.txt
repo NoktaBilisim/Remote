@@ -20,3 +20,12 @@
 /r/webformaaaaaaaaa
 /customers/import
 /settings/sms
+/portal/login?tenant=acme
+/portal/login
+/portal
+/portal?tab=sessions
+/portal/requests/01JP21RQ000000000000000001
+/portal/sessions/01JP21SS000000000000000001
+/portal/account
+/portal/change-password
+/portal/new-request

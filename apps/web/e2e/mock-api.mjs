@@ -11,6 +11,7 @@ import { handleP15, p15User } from "./mock-p15.mjs";
 import { handleP16, p16User } from "./mock-p16.mjs";
 import { handleP18, p18User } from "./mock-p18.mjs";
 import { handleP19, p19User } from "./mock-p19.mjs";
+import { handleP21, p21User } from "./mock-p21.mjs";
 import { handleP27, p27User } from "./mock-p27.mjs";
 import { handleP28u, p28uUser } from "./mock-p28u.mjs";
 import { handleP22, p22User } from "./mock-p22.mjs";
@@ -106,6 +107,8 @@ function resolveMe(session) {
   if (p15) return p15;
   const p16 = p16User(session);
   if (p16) return p16;
+  const p21 = p21User(session);
+  if (p21) return p21;
   const p19 = p19User(session);
   if (p19) return { user: p19.user, permissions: p19.permissions, tenant: p19.tenant, actingTenant: p19.actingTenant };
   const p18 = p18User(session);
@@ -180,6 +183,8 @@ const srv = createServer(async (req, res) => {
   if (req.method !== "GET" && req.headers.origin !== (process.env.MOCK_ALLOWED_ORIGIN ?? "http://localhost:3217"))
     return send(res, 403, err("FORBIDDEN", "Origin reddedildi."));
 
+  // P21: müşteri portalı (portal çerezi) + panel "Portal hesapları" (u-p21*) — handleCustomers'tan önce
+  if (await handleP21(req, res, { url, session, csrfOk, send, err, readJson, cookies: c })) return;
   // P22: oturum geçmişi sohbeti (u-hc-*), aydınlatma metni sohbet paragrafı (u-p22ct-*)
   if (await handleP22(req, res, { url, session, csrfOk, send, err, readJson })) return;
   // P28b: ClamAV / Dosyalar ayarı (u-fsa-*, u-fad*-*) ve geçmiş indirme bağlantısı (u-hfs-*)

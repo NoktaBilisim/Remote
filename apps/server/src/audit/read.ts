@@ -27,7 +27,7 @@ import type { FixedWindowCounter } from "../lib/rate.ts";
 import { avatarUrlFor, type AvatarViewer } from "../uploads/urls.ts";
 import * as repo from "./repo.ts";
 import { writeAudit, type AuditContext } from "./service.ts";
-import { auditValueView, carriesSilentReason, identityUserIds, identityView, silentReasonVisible } from "./view.ts";
+import { auditValueView, carriesSilentReason, identityPortalUserIds, identityUserIds, identityView, silentReasonVisible } from "./view.ts";
 
 const DAY_MS = 86_400_000;
 const EXPORT_BATCH = 1000;
@@ -90,8 +90,22 @@ async function reasonViewOf(db: Db, auth: AuthContext, rows: readonly repo.Audit
  * `viewer` verilirse avatar yalnız görüntüleyenin erişebildiği dosyaysa döner (başka tenant/sistem avatarı → null).
  * P16 (AC-241, S16-1): kimlik maskesi `identityView` ile (fail-closed); silinmiş aktörün avatarı yok.
  */
-function toItem(r: repo.AuditRow, names: Map<string, repo.AuditUserInfo>, reason: ReasonView, viewer?: AvatarViewer): AuditItem {
-  const id = identityView({ ...r, tenantName: r.tenant?.name ?? null }, names);
+/** P21 (K-P21-14): sayfadaki portal hesaplarından hâlâ var olanlar (tek sorgu; yoksa sorgu atılmaz). */
+async function livePortalUsers(db: Db, rows: readonly repo.AuditRow[]): Promise<ReadonlySet<string>> {
+  const ids = identityPortalUserIds(rows);
+  if (ids.length === 0) return new Set();
+  const live = await db.portalUser.findMany({ where: { id: { in: ids } }, select: { id: true } });
+  return new Set(live.map((u) => u.id));
+}
+
+function toItem(
+  r: repo.AuditRow,
+  names: Map<string, repo.AuditUserInfo>,
+  reason: ReasonView,
+  portalUsers: ReadonlySet<string>,
+  viewer?: AvatarViewer,
+): AuditItem {
+  const id = identityView({ ...r, tenantName: r.tenant?.name ?? null }, names, portalUsers);
   const hideReason = !silentReasonVisible(r, reason.canViewHistory, reason.visible);
   const u = r.userId ? names.get(r.userId) : undefined;
   const live = u && u.status !== "DELETED" ? u : undefined;
@@ -125,10 +139,11 @@ export async function listAuditItems(db: Db, auth: AuthContext, q: ListAuditQuer
   const page = rows.slice(0, AUDIT_PAGE_SIZE);
   const names = await repo.userNames(db, identityUserIds(page));
   const reason = await reasonViewOf(db, auth, page);
+  const portalUsers = await livePortalUsers(db, page);
   const last = page[page.length - 1];
   const viewer: AvatarViewer = { role: auth.user.role, tenantId: auth.user.tenantId };
   return {
-    items: page.map((r) => toItem(r, names, reason, viewer)),
+    items: page.map((r) => toItem(r, names, reason, portalUsers, viewer)),
     nextCursor: rows.length > AUDIT_PAGE_SIZE && last ? encodeCursor(last) : null,
   };
 }
@@ -212,7 +227,8 @@ export async function exportAuditCsv(
         if (batch.length === 0) return;
         const names = await repo.userNames(db, identityUserIds(batch));
         const reason = await reasonViewOf(db, auth, batch);
-        yield batch.map((r) => csvRow(csvCells(toItem(r, names, reason), withTenant))).join("");
+        const portalUsers = await livePortalUsers(db, batch);
+        yield batch.map((r) => csvRow(csvCells(toItem(r, names, reason, portalUsers), withTenant))).join("");
         written += batch.length;
         const last = batch[batch.length - 1];
         if (!last || batch.length < EXPORT_BATCH) return;
