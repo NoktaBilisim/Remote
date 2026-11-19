@@ -7,7 +7,8 @@ import (
 	"slices"
 	"strings"
 	"time"
-	"unicode/utf8"
+
+	"remote-support/agent-win/internal/signal"
 )
 
 // Gösterim tavanları (G-P20-7): 200 mesaj ve 256 K karakter (UTF-16 birimi; aşımda en eski düşer). Salt okunur geçmiş
@@ -39,20 +40,9 @@ type ChatView struct {
 	NotifyNew bool   // yeni teknisyen mesajı (pencere önde değilse yanıp sönme / gövdesiz balon)
 }
 
-// ChatDisplayBody G-P20-7 gövde süzgeci (request.Display'den AYRI: satır sonları korunur). Cc (`\n` hariç; `\r` ve
-// `\t` dahil), tüm Cf (U+200B–200F, U+202A–202E, U+2066–2069, U+FEFF, U+00AD…), U+2028/2029, U+034F, U+180E,
-// geçersiz UTF-8 baytları ve U+FFFD atılır (encoding/json eşlenmemiş vekili U+FFFD'ye çevirir; vekil böylece atılır).
-func ChatDisplayBody(s string) string {
-	var b strings.Builder
-	for i := 0; i < len(s); {
-		r, n := utf8.DecodeRuneInString(s[i:])
-		i += n
-		if r == '\n' || (r != utf8.RuneError && !unsafeChar(r)) {
-			b.WriteRune(r)
-		}
-	}
-	return b.String()
-}
+// ChatDisplayBody G-P20-7 gövde süzgeci (request.Display'den AYRI: satır sonları korunur). P22-G: tek tanım
+// signal.ChatDisplayBody (oturum sohbeti de kullanır).
+func ChatDisplayBody(s string) string { return signal.ChatDisplayBody(s) }
 
 func (c *Chat) trim() {
 	if n := len(c.entries) - ChatShowMax; n > 0 {

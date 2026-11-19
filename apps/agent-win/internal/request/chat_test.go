@@ -564,3 +564,59 @@ func TestAC255DialAnnouncesChatCapAndRoundTrips(t *testing.T) {
 		t.Fatal("yasak karakterli gövde gönderilmemeli")
 	}
 }
+
+// S-P22-1 (mimari-p22 r2 §15.1): sunucunun bayt bütçeli `request.messages` çerçevesi (≤ 48 KiB, en çok 50 öğe) 64 KiB
+// okuma sınırı DEĞİŞMEDEN gerçek soketten kopmadan okunur.
+func TestSP22_1BudgetedRequestMessagesReadOverRealSocket(t *testing.T) {
+	body := strings.Repeat("😀", 1000)
+	var frame []byte
+	n := 0
+	for i := 1; i <= chatHistoryMax; i++ {
+		items := make([]ChatItem, i)
+		for j := range items {
+			items[j] = ChatItem{ID: "01JC00000000000000000000" + string("0123456789ABCDEFGHJKMNPQRSTVWXYZ"[j/32]) +
+				string("0123456789ABCDEFGHJKMNPQRSTVWXYZ"[j%32]), Sender: "CUSTOMER", Body: body, CreatedAt: "2026-11-15T10:00:00.000Z"}
+		}
+		b, err := json.Marshal(struct {
+			T     string     `json:"t"`
+			Items []ChatItem `json:"items"`
+		}{"request.messages", items})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(b) > signal.ChatHistoryMaxBytes {
+			break
+		}
+		frame, n = b, i
+	}
+	if n < 11 || len(frame) < 40_000 {
+		t.Fatalf("bütçe çerçevesi %d öğe %d bayt", n, len(frame))
+	}
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		c, err := websocket.Accept(w, r, &websocket.AcceptOptions{Subprotocols: []string{"rs.v1"}})
+		if err != nil {
+			return
+		}
+		_ = c.Write(r.Context(), websocket.MessageText, frame)
+		_ = c.Write(r.Context(), websocket.MessageText, []byte(`{"t":"request.chat","enabled":true}`))
+		_, _, _ = c.Read(r.Context())
+	}))
+	defer srv.Close()
+	pool := x509.NewCertPool()
+	pool.AddCert(srv.Certificate())
+	hc := &http.Client{Transport: &http.Transport{TLSClientConfig: &tls.Config{RootCAs: pool, MinVersion: tls.VersionTLS12}}}
+	su, _ := url.Parse(srv.URL)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	conn, err := Dial(ctx, hc, su, testSecret)
+	if err != nil {
+		t.Fatal(err)
+	}
+	m, err := conn.Read(ctx)
+	if h, ok := m.(ChatHistory); err != nil || !ok || len(h.Items) != n {
+		t.Fatalf("bütçeli geçmiş okunamadı (%d bayt): %T %v", len(frame), m, err)
+	}
+	if m, err := conn.Read(ctx); err != nil || m == nil {
+		t.Fatalf("soket açık kalmalı: %v", err)
+	}
+}
