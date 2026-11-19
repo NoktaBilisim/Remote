@@ -9,6 +9,9 @@ import { REC_METRICS } from "../rec/types.ts";
 /** P28e `rs_rec_part_bytes` kova sınırları (bayt; parça ≤ 2 MiB). */
 export const REC_PART_BYTES_BUCKETS = [65_536, 262_144, 524_288, 1_048_576, 1_572_864, 2_097_152] as const;
 
+/** P22 `rs_session_chat_store_seconds` kova sınırları (sn). */
+export const SESSION_CHAT_STORE_BUCKETS = [0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5] as const;
+
 type Labels = Record<string, string>;
 
 export class Metrics {
@@ -184,6 +187,16 @@ export function createMetrics(): Metrics {
     "rs_voice_denied_total",
     "Sesli görüşme kapı retleri ve düşen mesajlar (code: permission|unattended|no_guest|client_unsupported|conflict|cooldown|limit|not_talker|stale_call)",
   );
+  // P22 (mimari-p22 §7.2, r2 §15.2; tenant etiketi yok, gövde yok). Alarm: `rejected{reason="internal"}` 5 dk'da > 0.
+  m.counter("rs_session_chat_messages_total", "Saklanıp iletilen oturum sohbeti mesajları (sender: TECH|CUSTOMER)");
+  m.counter(
+    "rs_session_chat_rejected_total",
+    "Reddedilen oturum sohbeti gönderimleri (reason: rate|cap|invalid|forbidden|not_active|outdated|internal)",
+  );
+  m.counter("rs_session_chat_legacy_sessions_total", "Eski (rs.cap.schat1 bildirmeyen) misafirli kabul edilen oturumlar");
+  m.counter("rs_session_chat_reads_total", "Oturum geçmişinden sohbet okumaları (GET /sessions/:id/chat)");
+  m.histogram("rs_session_chat_store_seconds", "Oturum sohbeti INSERT süresi (sn)", SESSION_CHAT_STORE_BUCKETS);
+  m.counter("rs_ws_tech_outdated_total", "rs.cap.schat1 bildirmediği için 4426 ile kapatılan /ws/tech soketleri (eski konsol)");
   return m;
 }
 

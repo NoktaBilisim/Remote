@@ -46,6 +46,54 @@ Biçim [Keep a Changelog](https://keepachangelog.com/tr/1.1.0/), sürümleme [Se
 - Aşağıdaki "Eklendi — P28u … servis 0.15.0" girdisindeki üç kip, politika, gerekçe, dört göz ve izleme/müdahale geçişi
   P28u r3 ile kaldırıldı (yukarıya bakın).
 
+### Eklendi — P22 oturum sohbeti her zaman kaydedilir + KVKK bilgilendirme (sunucu + web; istemci sürümü değişmedi) (AC-264, AC-291, AC-292)
+
+- **Sunucu aktarımlı sohbet:** oturum sohbeti artık `/ws/tech` ve `/ws/guest` üzerinden geçer; sunucu önce kaydeder
+  (`session_messages`, AES-256-GCM alan şifreleme), sonra tüm teknisyenlere ve müşteriye iletir. Sohbet kapatılamaz; uçtan
+  uca şifreli değildir. Saklama süresi = firmanın oturum saklama süresi; oturum anonimleştirilirken sohbet silinir.
+- **Konsol ve tarayıcı müşteri:** "Gönderiliyor…", "Gönderilemedi." + **Tekrar dene** (aynı mesaj iki kez kaydedilmez),
+  oturum bitince salt okunur, uzun oturumda "Daha eski mesajlar oturum geçmişinde.", başlıkta saklama notu. Gözetimsiz
+  bağlantıda sohbet yok ("Gözetimsiz bağlantıda sohbet yoktur.").
+- **Çoklu teknisyen:** davetli teknisyen ve süpervizör katıldığı andan önceki mesajları görür (audit
+  `session.chat_history_sent`).
+- **Oturum geçmişi:** "Sohbet" bölümü ve **Sohbeti göster (N mesaj)** — talep yazışması (kabul öncesi) + oturum sohbeti;
+  yeni uç `GET /api/v1/sessions/:id/chat` (60/dk), audit `session.chat_viewed`. `GET /sessions/:id/history` += `chat`
+  (yalnız yetkiliye).
+- **Yeni yetki `sessions.view_chat`** ("Sohbet geçmişini görüntüle", hassas): Admin açık, User kapalı; User yalnız kendi
+  oturumlarını görür.
+- **KVKK:** sistem aydınlatma metnine standart sohbet paragrafı; tarayıcı karşılama sayfasında onay düğmesinin üstünde
+  "Sohbet mesajları kayıt altına alınır ve N gün saklanır" satırı (satır yoksa düğme pasif). Admin'in yazdığı metinde
+  paragraf yoksa Ayarlar → Aydınlatma metni ve Ayarlar → Genel'de uyarı bandı + **Standart sohbet paragrafını ekle**.
+  Resolve, `/public/requests/tenant` += `chatRetentionDays`; `GET /settings/consent-text` += `chatParagraphMissing`,
+  `chatParagraph`.
+- Audit `session.chat_summary`, `session.chat_rejected`, `session.chat_legacy` (Türkçe etiketli); metrikler
+  `rs_session_chat_*`, `rs_ws_tech_outdated_total`, alarm `session-chat-internal` (runbook §29). API `docs/api.md`
+  "Oturum sohbeti (P22)"; kılavuz "Oturum sohbeti ve kaydı".
+
+### Değişti — P22
+
+- Mesaj sınırı 2.000 karakterden **1.000 karaktere** (ve 20 satıra) indi; talep sohbetiyle aynı kural.
+- **Hızlı Destek 0.20 ve öncesi (Windows/macOS):** oturum sohbeti iki tarafta kapalıdır. Konsolda "Müşterinin istemcisi
+  eski; sohbet için güncellemesi gerekir." ve giriş pasif; müşteriye sabit "Bu sürümde sohbet kapalıdır… lütfen sohbet için
+  programı güncelleyin." mesajı gider. Görüntü, kontrol, dosya, pano, yazdırma, ses, kayıt ve talep sohbeti etkilenmez;
+  tarayıcı modunda sohbet tam çalışır.
+- Yayından önce açık kalmış konsol sekmesi 4426 ile kapanır; başlık ve rozet "Konsol sürümü eski", **Sayfayı yenile**.
+- Oturum sohbetinde mesaj başına audit yazılmaz; oturum sonunda `session.chat_summary` (DB'den sayım) yazılır (K-P22-6).
+
+### Düzeltildi — P22
+
+- **P18 talep geçmişi:** `/ws/request` `request.messages` çerçevesi 48 KiB ile sınırlandı. Uzun talep yazışmasında Go
+  istemcinin yeniden bağlanırken kopması giderildi (şema değişmedi).
+
+### Operasyon — P22
+
+- Migration `20261126000000_p22_session_chat` (yalnız `session_messages` UQ indeksi; tablo/tetikleyici/grant değişmedi).
+- **Seed gerekli:** `pnpm db:seed` (compose: `docker compose --profile setup run --rm seed`) hazır metni kullanan firmalara
+  yeni aydınlatma sürümünü yayımlar. Düşük trafikte çalıştırın: eski sürümle açık karşılama sayfaları bir kez 400 alır
+  (yenileyince düzelir). İkinci çalıştırma yeni sürüm üretmez. Admin metinli firmalar runbook §29 sorgusuyla bulunur.
+- Yeni env yok, yeni bağımlılık yok. Saklama işi oturum mesajlarını parti başına en çok 20.000 satır siler; `retention.run`
+  += `sessionMessages`.
+
 ### Eklendi — P28f macOS istemci, istemci 0.19.0 (AC-389..396)
 
 - **Hızlı Destek macOS:** macOS 13+ için tek universal `.app` (Apple Silicon + Intel), zip içinde, kurulumsuz. Kod/bağlantı

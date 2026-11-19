@@ -26,7 +26,7 @@ import type { WhatsappNotifier } from "../notify/whatsapp.ts";
 import type { SmsClient } from "../notify/sms.ts";
 import type { NotifyOutbox } from "../notify/outbox.ts";
 import type { Metrics } from "../ops/metrics.ts";
-import { abuseEmail, currentConsentText } from "../public/consent.ts";
+import { abuseEmail, chatRetentionDaysOf, currentConsentText } from "../public/consent.ts";
 import type { Rooms } from "../signaling/rooms.ts";
 import type { Clock, Timing } from "../signaling/types.ts";
 import type { RequestHub, RequestStatePayload } from "./hub.ts";
@@ -212,10 +212,11 @@ export class RequestService {
 
   /** Public bilgi gövdesi (`TenantRequestInfo`; P8c `bindings/status` aynı şekli genişletir). */
   async requestInfo(tenantId: string, tenant: { name: string; logoPath: string | null }, waitMinutes: number): Promise<TenantRequestInfo> {
-    const [consentText, abuse, logoUrl] = await Promise.all([
+    const [consentText, abuse, logoUrl, chatRetentionDays] = await Promise.all([
       currentConsentText(this.d.db, tenantId, this.d.rooms.rec), // P28e §2.1: teklif yalnız kayıt açık ∧ kapasite uygun (talep yolu katılımlı)
       abuseEmail(this.d.db, { fromEnv: this.d.env.ABUSE_EMAIL, superAdminFallback: this.d.env.NODE_ENV !== "production" }),
       effectiveLogoUrl(this.d.db, tenant.logoPath), // P12 (AC-81)
+      chatRetentionDaysOf(this.d.db, tenantId), // P22 (AC-292): Go talep formu saklama satırı
     ]);
     const businessHours = await publicBusinessHours(this.calendars, tenantId, this.d.clock.now()); // P18 (AC-258)
     return {
@@ -225,6 +226,7 @@ export class RequestService {
       abuseEmail: abuse,
       minAgentVersion: this.d.env.MIN_AGENT_VERSION ?? null,
       businessHours,
+      chatRetentionDays,
     };
   }
 

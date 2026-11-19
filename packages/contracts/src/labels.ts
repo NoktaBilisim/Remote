@@ -13,7 +13,7 @@ import type {
   SessionStatus,
   TimelineEvent,
 } from "./api/sessions.ts";
-import { VOICE_AUDIT, VOICE_AUDIT_LABELS, VOICE_END_REASON_LABELS, VOICE_REJECT_REASON_LABELS } from "./audit.ts";
+import { CHAT_AUDIT_LABELS, VOICE_AUDIT, VOICE_AUDIT_LABELS, VOICE_END_REASON_LABELS, VOICE_REJECT_REASON_LABELS } from "./audit.ts";
 import type { ClipResult, PrintDecision, PrintResult } from "./ws-clip-print.ts";
 import type { AvScanReason, FsrvGateReason, FsrvWireState, StoredFileState } from "./ws-fsrv.ts";
 
@@ -247,6 +247,8 @@ export const TIMELINE_ACTION_LABELS: Readonly<Record<string, string>> = {
   "file.download": "Sunucudaki dosya indirildi",
   // P28d (mimari-p28d §6)
   ...VOICE_AUDIT_LABELS,
+  // P22 (mimari-p22 §7.1; test-raporu D-1): session.chat_viewed/chat_summary/chat_rejected/chat_legacy/chat_history_sent
+  ...CHAT_AUDIT_LABELS,
 };
 
 /** P28a (AC-345, 346): pano sonucu — konsol durum metni ve zaman çizelgesi. */

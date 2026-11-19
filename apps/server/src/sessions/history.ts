@@ -89,7 +89,9 @@ export async function getHistoryDetail(
     view: auth.permissions.has("session_history.view") && auth.permissions.has("sessions.view_recording"),
     del: auth.permissions.has("session_history.edit"),
   };
-  return buildDetail(db, log, scope, row, auth.user.id, now, canFiles, rec);
+  // P22 (AC-264, §5.1): sohbet özeti yalnız `sessions.view_chat` sahibine (yetkisizde alan yok).
+  const canChat = auth.permissions.has("sessions.view_chat");
+  return buildDetail(db, log, scope, row, auth.user.id, now, canFiles, rec, canChat);
 }
 
 // ---- PATCH (AC-63) ----

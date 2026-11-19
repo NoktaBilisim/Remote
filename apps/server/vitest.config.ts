@@ -24,6 +24,8 @@ const RETENTION_SERIAL = [
   "test/integration/retention-p13a-job.test.ts",
   "test/integration/retention-p16-purge.test.ts",
   "test/integration/fsrv-p28b-retention.test.ts",
+  // P22-B1: açılış süpürücüsü (`endOrphanedActive`) tüm ACTIVE oturumları kapatır.
+  "test/integration/session-chat-orphan-p22.test.ts",
 ];
 const SERIAL = [...SYSTEM_SETTINGS_SERIAL, ...BINDINGS_SERIAL, ...RETENTION_SERIAL];
 

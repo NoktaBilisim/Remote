@@ -1,4 +1,4 @@
-import { ArrowLeft, CircleX, Hand, Power } from "lucide-react";
+import { ArrowLeft, CircleX, Hand, Power, RefreshCw } from "lucide-react";
 import { useId } from "react";
 import Link from "next/link";
 import type { RefObject } from "react";
@@ -22,8 +22,14 @@ export function ConsoleEnded({ end }: { end: TechState["end"] }) {
       data-testid="console-ended"
       className="flex flex-col items-start gap-3 rounded-lg border border-border bg-surface p-6"
     >
-      <h2 className="text-lg font-semibold text-fg">{t("c.endedTitle")}</h2>
+      <h2 className="text-lg font-semibold text-fg">{t(end === "console_outdated" ? "c.outdatedTitle" : "c.endedTitle")}</h2>
       <p className="text-sm text-fg-muted">{t(`c.reason.${end ?? "server"}`)}</p>
+      {end === "console_outdated" && (
+        <Button variant="secondary" onClick={() => location.reload()} data-testid="console-reload">
+          <RefreshCw aria-hidden className="size-4" />
+          {t("c.reload")}
+        </Button>
+      )}
       <Link href="/sessions" className="inline-flex min-h-11 items-center gap-2 text-sm font-medium text-primary hover:underline">
         <ArrowLeft aria-hidden className="size-4" />
         {t("c.back")}

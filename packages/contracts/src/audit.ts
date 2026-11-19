@@ -1,6 +1,7 @@
 // Uzaktan kontrol audit zaman çizelgesi action adları (P7; AC-111, AC-115, G-15). Sunucu yazar, oturum geçmişi (P8)
 // aynı adlarla okur. Önceki paketlerin action'ları kendi modüllerinde kalır; yeni zaman çizelgesi olayları buraya eklenir.
 import type { VoiceEndReason } from "./ws-voice.ts";
+import type { ChatRejectReason } from "./ws-chat.ts";
 
 export const CONTROL_AUDIT = {
   /** Teknisyen isteği müşteriye iletildi (oturum başına ≤ 5). */
@@ -589,6 +590,41 @@ export const VOICE_END_REASON_LABELS: Readonly<Record<VoiceEndReason, string>> =
   device: "Mikrofon açılamadı",
   disconnect: "Müşterinin bağlantısı koptu",
   session_ended: "Oturum bitti",
+};
+
+/**
+ * P22 oturum sohbeti (mimari-p22 r2 §5.3, §7.1, §15.4). Entity `support_sessions` / sessionId. Gövde ve PII ASLA yazılmaz;
+ * mesaj başına audit yoktur (K-P22-6 — iz `session_messages` satırı + özet):
+ *  - VIEWED `{messages, requestMessages}` (`GET /sessions/:id/chat` `after`'sız ilk çağrı; kullanıcı + oturum için 10 dk'da 1).
+ *  - SUMMARY `{tech, customer, senderUserIds: userId[] (≤ CHAT_SUMMARY_SENDER_IDS_MAX), legacy}` — oturumu bitiren her yolda bir
+ *    kez, DB `COUNT … GROUP BY` ile (r2 §15.4; `techUsers` kaldırıldı). Mesaj yoksa ve legacy değilse yazılmaz.
+ *  - REJECTED `{reason: CHAT_AUDIT_REJECT_REASONS, sender: MessageSender}` — neden + gönderen başına oturumda 1 (pencere).
+ *  - LEGACY `{}` — belirteçsiz AGENT misafir kabul edildiği anda, oturum başına 1; `GET /sessions/:id/history` `chat.legacy`
+ *    bu satırdan türetilir.
+ *  - HISTORY_SENT `{userId, n}` — üyeye (katılımcı/izleyici) ilk katılımında `n > 0` geçmiş mesaj gönderildi; üye başına 1.
+ *    Güvenlik P22-Q S-P22-Q-1: katılım audit'i (`session.participant_join` / `session.supervise_join`) eskisi gibi HEMEN yazılır
+ *    (geçmiş okumasını beklemez); r2 §15.5'teki `chatHistory:<n>` sayısı bu ayrı satıra taşındı.
+ */
+export const CHAT_AUDIT = {
+  VIEWED: "session.chat_viewed",
+  SUMMARY: "session.chat_summary",
+  REJECTED: "session.chat_rejected",
+  LEGACY: "session.chat_legacy",
+  HISTORY_SENT: "session.chat_history_sent",
+} as const;
+export type ChatAuditAction = (typeof CHAT_AUDIT)[keyof typeof CHAT_AUDIT];
+/** `session.chat_rejected.reason` (r2 §15.4 (b)): audit'e yalnız bu nedenler yazılır (`rate`/`invalid`/`not_active` yalnız metrik). */
+export const CHAT_AUDIT_REJECT_REASONS = ["cap", "forbidden", "internal", "outdated"] as const satisfies readonly ChatRejectReason[];
+export type ChatAuditRejectReason = (typeof CHAT_AUDIT_REJECT_REASONS)[number];
+/** `session.chat_summary.senderUserIds` üst sınırı. */
+export const CHAT_SUMMARY_SENDER_IDS_MAX = 10;
+/** P22 eylemlerinin Türkçe etiketleri (web `AUDIT_ACTION_LABELS`'a yayılır). */
+export const CHAT_AUDIT_LABELS: Readonly<Record<ChatAuditAction, string>> = {
+  [CHAT_AUDIT.VIEWED]: "Oturum sohbeti görüntülendi",
+  [CHAT_AUDIT.SUMMARY]: "Oturum sohbeti özeti",
+  [CHAT_AUDIT.REJECTED]: "Sohbet mesajı reddedildi",
+  [CHAT_AUDIT.LEGACY]: "Müşteri istemcisi eski — sohbet kapalı",
+  [CHAT_AUDIT.HISTORY_SENT]: "Katılan teknisyene önceki sohbet mesajları gösterildi",
 };
 
 /** Audit `entity` değerleri (S16-1: maske `entity = AUDIT_ENTITY.USERS` satırlarında hedef kullanıcıya da bakar). */

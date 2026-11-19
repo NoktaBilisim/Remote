@@ -6,7 +6,7 @@ katılır.
 Görüntü eşler arası WebRTC ile akar; sunucu sinyalizasyon ve meta veri tutar. Dosyalar varsayılan olarak eşler arası
 gider; firma isterse sunucu üzerinden, ClamAV taramalı ve şifreli saklamalı aktarır (P28b).
 
-## Şu anki durum: P1–P13a tamamlandı, P13b (prod açılışı) kodu hazır, P14a/P14b, P15, P16, P17 (istemci 0.11.0), P18 (talep iletişimi), P19 (web talep formu, SMS, müşteri bildirimi, müşteri CSV) P20 (istemci 0.12.0), P27a (2FA'da cihaz hatırlama), P27 (gözetimsiz erişim; prod'da kapalı) P28a (pano paylaşımı + uzaktan yazdırma, istemci 0.13.0) P28b (sunucuda dosya aktarımı + ClamAV + depolama kotası, istemci 0.14.0), P28u (gözetimsiz onaysız bağlantı ve müdahale; r3 onaysız tek yol, servis 0.15.0) P28e (oturum kaydı, istemci/servis 0.16.0) ve P28c (çoklu teknisyen: davet, İzle, kontrol ve oturum devri, istemci/yardımcı 0.17.0) ve P28d (sesli görüşme, istemci 0.18.0) ve P28f (macOS istemci, istemci 0.19.0; prod'da Apple imzası gelene kadar yok) kodlandı (QA sürüyor)
+## Şu anki durum: P1–P13a tamamlandı, P13b (prod açılışı) kodu hazır, P14a/P14b, P15, P16, P17 (istemci 0.11.0), P18 (talep iletişimi), P19 (web talep formu, SMS, müşteri bildirimi, müşteri CSV) P20 (istemci 0.12.0), P27a (2FA'da cihaz hatırlama), P27 (gözetimsiz erişim; prod'da kapalı) P28a (pano paylaşımı + uzaktan yazdırma, istemci 0.13.0) P28b (sunucuda dosya aktarımı + ClamAV + depolama kotası, istemci 0.14.0), P28u (gözetimsiz onaysız bağlantı ve müdahale; r3 onaysız tek yol, servis 0.15.0) P28e (oturum kaydı, istemci/servis 0.16.0) ve P28c (çoklu teknisyen: davet, İzle, kontrol ve oturum devri, istemci/yardımcı 0.17.0) ve P28d (sesli görüşme, istemci 0.18.0) ve P28f (macOS istemci, istemci 0.19.0; prod'da Apple imzası gelene kadar yok) ve P22 (oturum sohbeti kaydı + KVKK) kodlandı (QA sürüyor)
 
 İş P1..P13 dikey paketlerle yürür (`docs/mimari.md` §10). P1–P11 ve **P12** (firma ve sistem logosu, kullanıcı profil
 resmi, kullanıcı başına tema, hesap menüsü, tasarım token lint kuralı) tamamlandı: P12 güvenlik Kritik/Yüksek 0 (doğrulama
@@ -81,8 +81,8 @@ P13c'ye kadar ayrı staging yoktur; yeni kod yerelde (`scripts/e2e-real.sh`) den
 
 - Teknisyen konsolunda yan panel: **Sohbet / Dosyalar / Kalite**. Müşteri sayfasında "Teknisyenle iletişim" bölümü
   (Sohbet; teknisyenin dosya yetkisi varsa Dosyalar).
-- **Sohbet:** iki yönlü, mesaj başına en çok 2000 karakter, zaman damgası, okunmamış sayacı. Mesaj düz metin
-  basılır; HTML yorumlanmaz.
+- **Sohbet:** iki yönlü, zaman damgası, okunmamış sayacı. Mesaj düz metin basılır; HTML yorumlanmaz. P22'den beri
+  sunucu üzerinden iletilir ve kaydedilir, mesaj başına en çok 1.000 karakter (aşağıda "P22").
 - **Dosya transferi (iki yön):** dosya eşler arası DataChannel'dan geçer, sunucuya içerik gitmez. Alıcı her teklifi
   onaylar (varsayılan odak "Reddet", "Kabul et" 1,5 sn sonra etkinleşir); tehlikeli ve çift uzantı (`.pdf.exe`)
   uyarısı; dosya adı iki tarafta temizlenir. Boyut sınırı tenant ayarıdır (varsayılan 100 MB). SHA-256 tutmazsa
@@ -262,6 +262,18 @@ P13c'ye kadar ayrı staging yoktur; yeni kod yerelde (`scripts/e2e-real.sh`) den
   kaldır", Ayarlar → Güvenlik'te firma anahtarı "2FA cihaz hatırlama" (**mevcut firmalarda da varsayılan açık**).
 - Yeni cihaz hatırlanınca ve çalınmış çerez şüphesinde kullanıcıya e-posta; şifre değişimi, 2FA sıfırlama, tüm cihazlardan
   çıkış gibi olaylar hatırlamayı siler. Çerez `__Secure-rs_td` (`Path=/api/v1/auth`). Migration `20261121000000_p27a_trusted_devices`; yeni env yok.
+
+**P22 — oturum sohbeti her zaman kaydedilir + KVKK bilgilendirme** (AC-264, 291, 292; sunucu + web, istemci sürümü
+değişmedi; qa ve güvenlik GEÇTİ, sayfa testi GEÇTİ)
+
+- Oturum sohbeti `/ws/tech` + `/ws/guest` üzerinden sunucuya gider, `session_messages`'a şifreli kaydedilir, sonra iletilir
+  (uçtan uca değil). Saklama = oturum saklama süresi; anonimleştirmede silinir. Mesaj ≤ 1.000 karakter.
+- Oturum geçmişinde **Sohbeti göster** (`GET /sessions/:id/chat`, yeni yetki `sessions.view_chat`, audit). Aydınlatma
+  metnine standart sohbet paragrafı (seed), karşılama sayfasında saklama satırı.
+- Hızlı Destek 0.20 ve öncesinde oturum sohbeti kapalıdır ("programı güncelleyin"); tarayıcı modu tam çalışır. Eski konsol
+  sekmesi 4426 ile "Konsol sürümü eski — sayfayı yenileyin".
+- Migration `20261126000000_p22_session_chat`, yayında `pnpm db:seed` gerekli, yeni env yok. API `docs/api.md` "Oturum
+  sohbeti (P22)"; kullanım kılavuzu "Oturum sohbeti ve kaydı"; operasyon runbook §29.
 
 **P28f — macOS istemci, istemci 0.19.0** (AC-389..396; kod tamam, güvenlik kod turu 3 GEÇTİ (Kritik/Yüksek/Orta/Düşük 0; prod öncesi
 elle şart: Fare Tuşları ayar anahtarı ve `localClick` alan ölçümü), QA tur 2 DÜZELTİLMELİ; macOS elle turu staging'de; **prod'da macOS yok** — Apple Developer hesabı açılıp imzalı + notarize zip
@@ -640,6 +652,7 @@ görür. `deploy/staging-users.sh` staging test hesapları için hâlâ kullanı
 | P28c (kod ✓, QA sürüyor)                                                          | G8-c çoklu teknisyen: davet, İzle, kontrol ve oturum devri, müşterinin Çıkar'ı, istemci/yardımcı 0.17.0; runbook §28c                                                                                                      |
 | P28d (kod ✓, QA sürüyor)                                                          | G8-d sesli görüşme: teknisyen ister, müşteri yerel Kabul ile mikrofon açar, çoklu teknisyende konuşan/dinleyen, ses kaydedilmez, istemci 0.18.0 (libopus wasm + wazero); runbook §28d                                      |
 | P28f (kod ✓, QA sürüyor; prod Apple imzasından sonra)                             | macOS istemci 0.19.0: universal `.app` (zip), TCC izin rehberi, korunan düğmeler, purego (CGO'suz); runbook §28f                                                                                                           |
+| P22 (kod ✓, qa/güvenlik/sayfa testi GEÇTİ)                                        | Oturum sohbeti sunucu üzerinden ve her zaman kayıtlı, oturum geçmişinde sohbet (`sessions.view_chat`), aydınlatma sohbet paragrafı; runbook §29                                                                            |
 | P13c                                                                              | Ayrı staging (`stg.remote.noktabilisim.net`, ayrı DB/sır/yedek); E11 özelliklerinden önce                                                                                                                                  |
 
 Prod açılışının ön koşulları ve imzalı kontrol listesi: runbook §20.1–§20.3. TURN için yalnız 443/TCP'nin açık olduğu

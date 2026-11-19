@@ -97,6 +97,7 @@ export const ROUTE_CLASSES: Record<string, RouteClass> = {
   // P8 oturum geçmişi (historyScope)
   "GET /api/v1/sessions/export.csv": "list",
   "GET /api/v1/sessions/:id/history": "tenant",
+  "GET /api/v1/sessions/:id/chat": "tenant", // P22 (AC-264): historyScope + sessions.view_chat
   // P13b-L: kendi bekleyen lobilerim (tenantScope + auth'tan teknisyen); izolasyon sessions-lobby-p13bl.test.ts "AC-309/310"
   "GET /api/v1/sessions/waiting": "scoped",
   "PATCH /api/v1/sessions/:id": "tenant",
@@ -374,6 +375,7 @@ export const CROSS_TENANT_CASES: CrossTenantCase[] = [
     request: (fx) => ({ method: "POST", url: `/api/v1/sessions/${fx.a.sessionId}/terminate` }),
   },
   { route: "GET /api/v1/sessions/:id/history", request: (fx) => ({ method: "GET", url: `/api/v1/sessions/${fx.a.sessionId}/history` }) },
+  { route: "GET /api/v1/sessions/:id/chat", request: (fx) => ({ method: "GET", url: `/api/v1/sessions/${fx.a.sessionId}/chat` }) },
   {
     route: "PATCH /api/v1/sessions/:id",
     request: (fx) => ({ method: "PATCH", url: `/api/v1/sessions/${fx.a.sessionId}`, payload: { note: "x" } }),

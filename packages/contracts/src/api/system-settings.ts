@@ -305,6 +305,13 @@ export interface ConsentTextSettings {
   current: (ConsentTextVersion & { body: string }) | null;
   /** Yeniden eskiye, en çok `CONSENT_VERSIONS_MAX`. */
   versions: ConsentTextVersion[];
+  /**
+   * P22 (AC-291, K-P22-5): güncel gövde (NFC + boşluk tekleştirilmiş) `CHAT_CONSENT_KEY_SENTENCE`'ı içermiyor → ayar ekranı
+   * uyarı bandı. P22-B doldurur; şemada opsiyonel.
+   */
+  chatParagraphMissing?: boolean;
+  /** P22: "Standart sohbet paragrafını ekle" düğmesinin eklediği metin (= `CHAT_CONSENT_PARAGRAPH`). P22-B doldurur. */
+  chatParagraph?: string;
 }
 
 /** PUT yanıtı: `changed:false` → gövde güncel sürümle aynı, yeni sürüm oluşturulmadı (çift gönderim güvenli). */

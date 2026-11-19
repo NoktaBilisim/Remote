@@ -15,6 +15,7 @@ import { recRecorderChanged } from "./rec.ts";
 import type { Rooms } from "./rooms.ts";
 import type { Member, Peer, Room, TechConn } from "./types.ts";
 import { voiceDropTalker, voiceSync, voiceTechAttached } from "./voice.ts";
+import { auditHistorySent, chatTechHello } from "./chat.ts";
 
 export interface ReserveInput {
   userId: string;
@@ -58,19 +59,34 @@ export function attachMember(rooms: Rooms, room: Room, m: Member, conn: TechConn
     voiceDropTalker(room, m.userId); // P28d V-PD-5
     if (old.connId) rooms.rec?.dropUploadTokens({ by: "conn", connId: old.connId });
   }
+  const first = !m.joinedAudited;
   if (!m.joinedAudited) {
     m.joinedAudited = true;
     const cm = consentModeOf(room);
-    auditMulti(rooms, room, conn.ctx, techActor(conn), m.via === "supervise" ? MULTI_AUDIT.SUPERVISE_JOIN : MULTI_AUDIT.PARTICIPANT_JOIN, {
-      userId: m.userId,
-      role: m.role,
-      ...(cm ? { consentMode: cm } : {}),
-    });
+    // Güvenlik P22-Q S-P22-Q-1: katılım audit'i HEMEN (geçmiş okumasını beklemez); geçmiş sayısı ayrı satır (`chat_history_sent`).
+    void auditMulti(
+      rooms,
+      room,
+      conn.ctx,
+      techActor(conn),
+      m.via === "supervise" ? MULTI_AUDIT.SUPERVISE_JOIN : MULTI_AUDIT.PARTICIPANT_JOIN,
+      {
+        userId: m.userId,
+        role: m.role,
+        ...(cm ? { consentMode: cm } : {}),
+      },
+    );
   }
-  sendHelloTech(rooms, room, conn);
+  sendHelloTech(rooms, room, conn, false);
+  // P22 r2 §15.5: ilk katılımda gönderilen geçmiş sayısı ayrı satır (n > 0); yeniden bağlanmada geçmiş yeniden gider, satır yok.
+  const history = chatJoin(rooms, room, conn);
+  if (first) void history.then((n) => auditHistorySent(rooms, room, conn, n));
   broadcastRoster(room);
   voiceTechAttached(rooms, room, conn); // P28d §4.2: roster'dan hemen sonra; yeni dinleyen yayınlanır (Y-PD-3)
 }
+
+/** P22: hello sonrası `chat.state` + `chat.history`; hata → 0. */
+const chatJoin = (rooms: Rooms, room: Room, conn: TechConn): Promise<number> => chatTechHello(rooms, room, conn).catch(() => 0);
 
 /** Üye soketi kapandı: kontrol sahibiyse kontrol sahibe döner; 120 sn payda dönmezse `participant_leave{disconnect}`. */
 export function detachMember(rooms: Rooms, room: Room, userId: string, peer: Peer): void {

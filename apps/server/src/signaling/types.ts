@@ -14,6 +14,7 @@ import type { IceGrant, TurnConfig } from "./turn.ts";
 import type { RoomRec } from "../rec/types.ts";
 import type { MemberRole, MemberVia } from "@remote/contracts/ws-multi";
 import type { VoicePhase } from "@remote/contracts/ws-voice";
+import type { GuestChatState } from "@remote/contracts/ws-chat";
 
 /**
  * P27 gözetimsiz oda + P28u kip/müdahale durumu (mimari-p28u §8.1, §8.3, §r3; bellekte). `consentMode` cihazın
@@ -70,6 +71,11 @@ export interface Peer {
   multi?: boolean;
   /** P28d (§4.1): soket sesi destekliyor mu (`rs.cap.voice1` ya da BROWSER; ws-auth). Karar yalnız `hasVoice` ile okunur. */
   voice?: boolean;
+  /**
+   * P22 (mimari-p22 r2 §4.1, S-P22-7): misafir soketi `rs.cap.schat1` bildirdi mi (ws-auth; gözetimsiz odada atanmaz, tarayıcı
+   * istisnası yok — K-P22-10). Karar yalnız `hasSessionChat` ile okunur.
+   */
+  schat?: boolean;
 }
 
 /** Zamanlayıcı soyutlaması: üretimde gerçek saat, testlerde elle ilerletilen sahte saat (AC-13, AC-25). */
@@ -352,6 +358,26 @@ export interface Room {
   multi: MultiRoom;
   /** P28d sesli görüşme (signaling/voice.ts). */
   voice: VoiceRoom;
+  /** P22 oturum sohbeti (signaling/chat.ts; ilk kullanımda kurulur). */
+  chat?: ChatRoom;
+}
+
+/**
+ * P22 `Room.chat` (mimari-p22 r2 §4.1, §4.3; bellekte, gövde YOK). Gönderen anahtarı: TECH → `tech:<userId>`, misafir → `customer`.
+ */
+export interface ChatRoom {
+  /** Son kabul edilen misafirin sohbet durumu (kısa kopuklukta korunur; `guestVoice` kalıbı). Yok = kabul edilmiş misafir yok. */
+  guestChat?: GuestChatState;
+  /** `session.chat_legacy` bu oturumda yazıldı (oturum başına 1). */
+  legacyAudited: boolean;
+  /** Oda başına seri işleme (sıra garantisi: saklama sırası = yayın sırası). */
+  chain: Promise<void>;
+  /** Saklanan mesaj sayısı gönderen başına (oturum tavanı); ilk sohbette DB'den tohumlanır. */
+  counts?: Map<string, number>;
+  /** Gönderen başına son 1 sn'deki kabul edilen gönderim anları (kayan pencere). */
+  sendTimes: Map<string, number[]>;
+  /** `session.chat_rejected` audit'i yazılmış `${reason}|${gönderen}` (oturumda 1). */
+  rejectAudited: Set<string>;
 }
 
 /**

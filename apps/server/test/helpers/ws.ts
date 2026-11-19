@@ -1,6 +1,7 @@
 // P3 sinyalizasyon test yardımcıları: sahte saat (AC-13/25), sahte Peer (ağsız oda testleri), gerçek WS istemcisi.
 import { SESSION_COOKIE } from "@remote/contracts/api/auth";
 import type { ServerOutbound } from "@remote/contracts/ws";
+import { WS_CAP_SCHAT } from "@remote/contracts/ws-chat";
 import type { PermissionKey } from "@remote/contracts/permissions";
 import pino from "pino";
 import { WebSocket, type ClientOptions } from "ws";
@@ -111,8 +112,22 @@ export interface WsClient {
   send(o: object): void;
 }
 
-/** Açılırsa istemci; upgrade reddedilirse HTTP durum koduyla reject. */
+/**
+ * Açılırsa istemci; upgrade reddedilirse HTTP durum koduyla reject. P22 (r2 §15.2): yeni konsol `/ws/tech`'e her zaman
+ * `rs.cap.schat1` bildirir — burada da eklenir (eski konsol davranışı `connectRaw` ile denenir).
+ */
 export function connect(
+  url: string,
+  protocols: string[],
+  headers: Record<string, string> = {},
+  opts: ClientOptions = {},
+): Promise<WsClient> {
+  const tech = new URL(url).pathname === "/ws/tech" && !protocols.includes(WS_CAP_SCHAT);
+  return connectRaw(url, tech ? [...protocols, WS_CAP_SCHAT] : protocols, headers, opts);
+}
+
+/** Alt protokol listesine dokunmadan bağlanır. */
+export function connectRaw(
   url: string,
   protocols: string[],
   headers: Record<string, string> = {},

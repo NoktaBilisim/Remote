@@ -14,6 +14,7 @@ import {
 } from "@remote/contracts/ws";
 import type { FileMode, PeerFeature } from "@remote/contracts/ws-fsrv";
 import type { TechRole, TechRosterEntry } from "@remote/contracts/ws-multi";
+import type { GuestChatState } from "@remote/contracts/ws-chat";
 import type { UnattendedInfo } from "../unattended/consent";
 import { applyMsg, type MsgOf, type MsgTable } from "./msg-table";
 
@@ -27,7 +28,8 @@ export interface Pending {
  * P28c (§4.4, §5.3, §5.4): `removed` = soket 4403 (müşteri çıkardı ya da üyenin yetkisi düştü — kod ikisini ayırmaz);
  * `left` = üye "Oturumdan ayrıl" dedi; `notMember` = sahip olmayan konsolun ilk WS'i `hello` almadan kapandı (üye değil).
  */
-export type TechEnd = SessionEndedReason | "replaced" | "protocol" | "lost" | "removed" | "left" | "notMember";
+/** P22 (r2 §15.2): `console_outdated` = soket 4426 (yayından önce açık eski konsol sekmesi `rs.cap.schat1` bildirmedi). */
+export type TechEnd = SessionEndedReason | "replaced" | "protocol" | "lost" | "removed" | "left" | "notMember" | "console_outdated";
 /** Sunucu 5. hatalı kodda lobiyi boşaltır (mimari-protokol §3). */
 export const MAX_ADMIT_ATTEMPTS = 5;
 /** 3 retten sonra "kod sızmış olabilir" önerisi (§3.1). */
@@ -93,6 +95,11 @@ export interface TechState {
    * null = alan yok (misafir yok / eski sunucu) → ses arayüzü gizli; `false` → "Sesli görüşme" pasif + AC-352 metni.
    */
   guestVoice: boolean | null;
+  /**
+   * P22 (mimari-p22 §4.1): kabul edilmiş misafirin oturum sohbeti (`hello`/`peer.joined{guest}` `guestChat`). null = alan yok
+   * (misafir yok / gözetimsiz / eski sunucu); `outdated` → sohbet iki tarafta kapalı, konsol "istemci eski" der.
+   */
+  guestChat: GuestChatState | null;
 }
 
 export type TechEvent =
@@ -131,6 +138,7 @@ export const initialTech: TechState = {
   roster: [],
   guestMulti: null,
   guestVoice: null,
+  guestChat: null,
 };
 
 /**
@@ -201,6 +209,7 @@ function onClosed(s: TechState, code: number, now: number): TechState {
   if (code === WS_CLOSE.AUTH_REVOKED) return finish(s, "auth_revoked");
   if (code === WS_CLOSE.REPLACED) return finish(s, "replaced");
   if (code === WS_CLOSE.REMOVED) return finish(s, "removed");
+  if (code === WS_CLOSE.CONSOLE_OUTDATED) return finish(s, "console_outdated");
   if (code === WS_CLOSE.POLICY || code === WS_CLOSE.TOO_BIG) return finish(s, "protocol");
   return { ...s, reconnectSince: s.reconnectSince ?? now, admitBusy: false };
 }
@@ -266,6 +275,7 @@ function onHello(s: TechState, m: MsgOf<"hello">, now: number): TechState {
     roster: m.roster ? [...m.roster] : s.roster,
     guestMulti: m.guestMulti ?? null,
     guestVoice: m.guestVoice ?? null,
+    guestChat: m.guestChat ?? null,
     ...helloShare(s, x, active && m.peerPresent),
   };
 }
@@ -296,6 +306,7 @@ function onPeerJoined(s: TechState, m: MsgOf<"peer.joined">): TechState {
     fileMode: m.fileMode ?? s.fileMode,
     guestMulti: m.guestMulti ?? null,
     guestVoice: m.guestVoice ?? null,
+    guestChat: m.guestChat ?? null,
     // TEST-P4-2: canlı kabulde kalan süre sayacı sunucunun bildirdiği üst sınırla başlar (opsiyonel alan)
     maxEndsAt: joinedMaxEndsAt(m) ?? s.maxEndsAt,
   };

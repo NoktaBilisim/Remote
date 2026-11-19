@@ -983,3 +983,162 @@ uçtan uca kayıt → izle → sil (gerçek sunucu; K7 e2e yalnız sahte API ile
 ---
 
 P28u QA raporları (Tur 1, Tur 2): `docs/arsiv/p28u-qa-raporu.md`.
+
+---
+
+## P22 — QA Tur 1 (2026-11-18)
+
+Kapsam: `git diff main...HEAD` (dal `claude/p22-06bd24`, 7039378; 10 commit). AC-264, AC-291, AC-292 (+ AC-264 revizyon notu K-P22-4),
+ortak AC-285..290. Tasarım: `docs/mimari-p22.md` r2 (§15 bağlayıcı). **P22-G (Go 0.21.0) maddeleri ertelendi — "P22-G'de" olarak
+işaretlidir, bu turda DÜZELTİLMELİ sayılmadı.** Denetim sırasında çalışma ağacında commit edilmemiş paralel değişiklikler vardı
+(`deploy/ops/remote-watch.sh`, `deploy/ops/test-watch.sh`, `docs/runbook.md`, `docs/implementation.md` P22-O alarm eki,
+`docs/guvenlik-raporu.md`); bunlar kapsam dışı tutuldu (aşağıda not).
+
+### Test sonucu
+
+| Komut                                                                                                                                                                                      | Sonuç                                                                                                                                                                         |
+| ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `pnpm -r run lint`                                                                                                                                                                         | temiz (contracts, server, web)                                                                                                                                                |
+| `pnpm -r run typecheck`                                                                                                                                                                    | temiz                                                                                                                                                                         |
+| `pnpm -r run test`                                                                                                                                                                         | contracts 28 dosya / 286 geçti · web 63 / 591 geçti · server 50 / 677 geçti, **1 skip** (`fsrv-p28b` AC-353 gerçek clamd — `CLAMD_TEST_HOST` yoksa, P28b'den beri, gerekçeli) |
+| Entegrasyon (rs-p22-test:33481): `p22-schema-d`, `session-chat-p22`, `session-chat-p22-b2`, `session-chat-orphan-p22`, `p18-messages-h3`, `retention-p13a-job`, `multi-p28c`, `consent-p4` | 8 dosya / **127 geçti**, 0 kırık (`p22-schema-d` §15.3 EXPLAIN dahil — 30d0150 sonrası yeşil)                                                                                 |
+| e2e `playwright test e2e/p22-chat.spec.ts e2e/p5-collab.spec.ts`                                                                                                                           | **586 geçti, 261 atlandı** (desktop-rtc/mobil proje filtreleri, `desktopOnly`), 0 kırık                                                                                       |
+
+Not: `pnpm --filter @remote/web e2e -- p22-chat` dosya filtresini iletmiyor (tam takımı başlatıyor); filtreli koşu doğrudan
+`npx playwright test <dosya>` ile yapıldı. Tam `test:int` yük altında koşulmadı (koordinatör talimatı).
+
+### Kabul kriterleri
+
+| AC                                                                                     | Durum                            | Kanıt / eksik                                                                                                                                                                                                                                                                                                                                                                                                                           |
+| -------------------------------------------------------------------------------------- | -------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| AC-264 sunucu aktarımı, önce kaydet sonra ilet                                         | ✅                               | `session-chat-p22` "teknisyen ↔ schat1 misafir çift yön…" (satır `request_id` NULL, `body_enc` düz metin içermez, başka AAD ile çözülmez); "T-P22-3: INSERT hatası enjekte → alıcıda 0 çerçeve, satır 0"; kod: `signaling/chat.ts` `storeAndDeliver` → `fanOut` yalnız `stored` dalında                                                                                                                                                 |
+| AC-264 idempotency                                                                     | ✅                               | "S-P22-10: yinelenen clientMsgId → 1 satır, yalnız gönderene yankı, yayın/sayaç yok"; tavanda yinelenen yine yankı; `p22-schema-d` UQ 1062                                                                                                                                                                                                                                                                                              |
+| AC-264 kapılar (izleyici, lobi, PENDING, kova, tavan, firma kovası, 1.001 kod noktası) | ✅                               | `session-chat-p22` rol/lobi/PENDING/`rate`/`cap`/`invalid`/firma kovası testleri; soket açık kalır                                                                                                                                                                                                                                                                                                                                      |
+| AC-264 alan şifreleme                                                                  | ✅                               | yukarıdaki + `b2` "çözülemeyen → body null"                                                                                                                                                                                                                                                                                                                                                                                             |
+| AC-264 `sessions.view_chat` + historyScope + audit                                     | ✅                               | contracts "Admin açık, User kapalı"; `b2` 403/404 (USER başkası, başka tenant), `session.chat_viewed` ilk çağrı, 10 dk tekrar yok, `after` audit'siz, gövde audit'te yok; history `chat` alanı yetkisizde yok; e2e "view_chat yoksa sohbet bölümü yok"                                                                                                                                                                                  |
+| AC-264 retention (anonim oturumda satır 0)                                             | ✅ (not)                         | `retention-p13a-job` "AC-264: anonim oturumda sohbet satırı 0; ACTIVE ve talep mesajları korunur"; S-P22-3 32.029 satır testi. "Sahte saat" saat ilerletme yerine fikstür tarihini `retention_days+1` gün geri alarak sağlanmış — `implementation.md` P22-B2'de gerekçeli (global adımda canlı oturumları silerdi); mantıksal olarak eşdeğer, kabul                                                                                     |
+| AC-264 eski istemci iki tarafta kapalı + metinler                                      | ✅ (sunucu+web) / P22-G'de (Go)  | Entegrasyon "T-P22-5: belirteçsiz AGENT → misafire chat.* 0, kopma yok; guestChat outdated; teknisyen yazamaz (satır 0); chat_legacy 1"; e2e "eski istemci: 'Müşterinin istemcisi eski; sohbet için güncellemesi gerekir.' + giriş pasif; DC chat gösterilmez; sabit bildirim 1 kez" (`LEGACY_CHAT_NOTICE` = "…lütfen sohbet için programı güncelleyin.", K-P22-3 parametresiz). Konsol 4426: entegrasyon "S-P22-2… canlı sekme düşmez" |
+| AC-264 (Go: WS chat, DC chat kaldırma)                                                 | P22-G'de                         | —                                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| AC-291 aydınlatma paragrafı + yeni sürüm + AC-127                                      | ✅                               | `b2` "sistem metni paragrafı 'Ekranınız yalnız…'dan sonra", "seed v+1 (audit source=seed), idempotent; eski sürüm id'siyle onay 400", "Admin metnine seed dokunmaz; chatParagraphMissing"; metin §3.4 r2 ile birebir (`contracts/src/chat.ts`, "uçtan uca şifreli değildir", koşullu E2E cümlesi); e2e "aydınlatma bandı → ekle → kaydet → bant yok"                                                                                    |
+| AC-292 (tarayıcı karşılama)                                                            | ✅                               | e2e "AC-292 (web): satır düğmenin hemen önceki kardeşi; satırsız düğme pasif" (iki tema, 390 px, axe 0, `aria-describedby`); `b2` resolve + `/public/requests/tenant` `chatRetentionDays`                                                                                                                                                                                                                                               |
+| AC-292 (Windows/macOS/Linux karşılama + talep formu, istemci birim testi)              | P22-G'de                         | —                                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| AC-285 yetki tek tanımdan                                                              | ✅                               | contracts `PERMISSION_KEYS` testi; web `users.test.ts` matris güncel                                                                                                                                                                                                                                                                                                                                                                    |
+| AC-286 dış servis ayarı                                                                | N/A                              | yeni dış servis yok                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| AC-287 5 durum, iki tema axe 0, 390 px, ikon                                           | ⚠️ kanıtsız (kısmi)              | Oturum detayı sohbeti iki tema + 390 px ✅; karşılama satırı iki tema ✅. **Konsol sohbet paneli (dolu / gönderilemedi / eski istemci / gözetimsiz), misafir sohbeti, aydınlatma bandı ve genel ayarlar bandı yalnız varsayılan (açık) temada axe'li; koyu tema taraması yok** (`axeScan` tema döngüsü yapmıyor). Konsol paneli ve aydınlatma bandı 390 px'te de denenmemiş. Bkz. Düzeltilmeli 1                                        |
+| AC-288 kılavuz/CHANGELOG/DATASHEET/PDF                                                 | Sıra gereği bekliyor             | P22-W (P22-T sonrası); bu turda bloklamaz                                                                                                                                                                                                                                                                                                                                                                                               |
+| AC-289 iz testi + build hash                                                           | P22-G'de                         | —                                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| AC-290 qa + güvenlik                                                                   | bu rapor + paralel güvenlik turu | —                                                                                                                                                                                                                                                                                                                                                                                                                                       |
+
+### Düzeltilmeli
+
+1. **[frontend-dev] `apps/web/e2e/p22-chat.spec.ts:100,103,130,215` + konsol/gözetimsiz ve genel ayarlar testleri** — AC-287 "iki temada
+   axe 0, 390 px" yeni/değişen konsol sohbet paneli, misafir sohbeti, eski istemci ve gözetimsiz durumları, aydınlatma bandı
+   (`consent-chat-missing`) ve genel ayarlar bandı (`general-chat-missing`) için yalnız açık temada kanıtlı. → Beklenen: bu yüzeyler için
+   `page.emulateMedia({ colorScheme })` ile `light` + `dark` döngüsünde `axeScan` = [] (oturum detayındaki `for (const scheme …)` kalıbı);
+   konsol sohbet paneli (eski istemci durumu dahil) ve aydınlatma bandı için 390 px'te `noHorizontalOverflow`. İhlal çıkarsa token düzeltmesi.
+
+(Sunucu, dba ve devops için bu turda zorunlu düzeltme yok.)
+
+### Definition of Done
+
+| Madde                                         | Durum | Not                                                                                                                                                                                                                                                                                                                             |
+| --------------------------------------------- | ----- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Lint / typecheck / birim testler yeşil        | ✅    | yukarıda                                                                                                                                                                                                                                                                                                                        |
+| P22 entegrasyon testleri yeşil                | ✅    | 127/127                                                                                                                                                                                                                                                                                                                         |
+| P22 e2e yeşil                                 | ✅    | 586 geçti                                                                                                                                                                                                                                                                                                                       |
+| AC'lerin her biri testle kanıtlı (sunucu+web) | ❌    | AC-287 koyu tema / 390 px kısmi (Düzeltilmeli 1)                                                                                                                                                                                                                                                                                |
+| Tasarım-kod uyumu, sapmalar gerekçeli         | ✅    | `implementation.md` P22-C/D/B1/B2/F/O sapmaları gerekçeli (opsiyonel alanlar, `MESSAGE_SENDERS` taşıma, `TriangleAlert`, `request.items` 200, sahte saat yöntemi, `chat.state` teknisyende `outdated` taşımaz, lobi `forbidden`)                                                                                                |
+| K-P22-6 koşulları (§15.4 a–e)                 | ✅    | (a) `writeChatSummary` DB `GROUP BY`, `recordEnded`/`terminateSession`/`endOrphanedActive` TX'lerinde; (b) `chat_rejected` cap/forbidden/internal/outdated; (c) satırda IP yok; (d) gerekçe paragrafı P22-B1'de; (e) "özet = COUNT" + süpürücü testi                                                                            |
+| Katman / `any` / hata yutma / PII log         | ✅    | gövde loga/audit'e girmiyor (`chars`, `code`); `catch` dalları loglu; `any` yok                                                                                                                                                                                                                                                 |
+| Sayfasız liste                                | ✅    | REST 200 + `after`; WS geçmişi 100 + 48 KiB bütçe                                                                                                                                                                                                                                                                               |
+| Transaction                                   | ✅    | özet ve retention DELETE aynı TX'te                                                                                                                                                                                                                                                                                             |
+| Yeni bağımlılık / env                         | ✅    | yok                                                                                                                                                                                                                                                                                                                             |
+| İkon kuralı (lucide, anlamlı)                 | ✅    | `MessagesSquare`, `ShieldCheck`, `TextQuote`, `TriangleAlert` (Alert primitifi)                                                                                                                                                                                                                                                 |
+| Ölü kod                                       | ✅    | `lib/dc/chat.ts` silindi, `endAllActive` silindi                                                                                                                                                                                                                                                                                |
+| Operasyon (runbook §29, alarm)                | ⚠️    | Runbook §29 commit'li. `remote-watch.sh` `session-chat-internal` alarmı denetim anında **commit edilmemiş** çalışma ağacında; bu turda doğrulanmadı. Staging seed + alarm provası P22-T/dağıtımda yapılacak (implementation.md "DENENMEDİ"). Commit edilince devops kendi `test-watch.sh` sonucunu implementation.md'ye yazmalı |
+
+### Öneriler (zorunlu değil)
+
+- AC-292 satır metni iki kaynakta: contracts `CHAT_RETENTION_LINE(days)` (noktasız) ve web `tr.json` `wr.retention` (noktalı). Web
+  bileşeni sabiti kullanmıyor; Go P22-G'de contracts metnini alacak. Tek kaynağa bağlamak (ya da fikstürde iki metni eşleyen test) önerilir.
+- `pnpm --filter @remote/web e2e -- <dosya>` filtreyi iletmiyor; CLAUDE.md komut tablosuna `pnpm --filter @remote/web exec playwright test <dosya>` notu.
+- Web e2e sahte WS ile yazıldı; gerçek sunucu sırası (`hello` → `chat.state{false,not_active}` → kabulde `chat.state{true}` → `chat.history`;
+  misafirde `hello` → `chat.state{true}` → `chat.history`) entegrasyon testlerinde doğrulandı ve web kancası `chat.state`'i sıradan bağımsız
+  işliyor. Yine de P22-T staging'de tarayıcı misafir ↔ konsol + 0.19/0.20 istemciyle "güncelleyin" iki tarafta mutlaka elle denenmeli.
+- `chat.state` teknisyende `outdated` nedeni taşımıyor (yalnız `guestChat`); tutarlı ama mimari-protokol §5 ekinde (P22-W) açıkça yazılmalı.
+- K-P22-11 (aydınlatma metnindeki "video kaydı tutulmaz" cümlesi) açık madde olarak duruyor — proje-yöneticisi + teknik-yazar.
+
+### Olumlu
+
+- Önce-kaydet kuralı hata enjeksiyonuyla, idempotency UQ + yankı ayrımıyla, eski istemci "satır 0 + 0 çerçeve + kopma yok" ile kanıtlı.
+- P18 `request.messages` 64 KiB açığı (S-P22-1) aynı `fitNewest` yardımcısıyla kapatılmış ve testli.
+- Retention mesaj bütçesi gerçek 20.000 sınırında, 32.029 satırla sınanmış; anonim oturum satırı 0, ACTIVE/talep satırları korunuyor.
+- Yetki tek tanımdan, rol varsayılanı ve historyScope IDOR testleri eksiksiz; audit'lerde gövde yok.
+
+DURUM: DÜZELTİLMELİ
+
+---
+
+## P22 — QA Tur 2 (2026-11-18)
+
+Kapsam: Tur 1 sonrası commit'ler — d100e47 (P22-O alarm + raporlar), d7fa5a2 (P22-F QA Tur 1 düzeltmesi), 9556399 (P22-B1 güvenlik Tur 1
+Düşük ×3). Yalnız bu değişiklikler ve gerileme denetlendi.
+
+### Test sonucu
+
+| Komut                                                                                                                                                                                                        | Sonuç                                                                                                                                                                                                                                |
+| ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `pnpm -r run lint` / `typecheck`                                                                                                                                                                             | temiz                                                                                                                                                                                                                                |
+| `pnpm -r run test`                                                                                                                                                                                           | contracts 286 ✓ · web 591 ✓ · server 677 ✓ / 1 skip (clamd, gerekçeli). Not: entegrasyonla eşzamanlı ilk koşuda `rec-webm-dos` (P28e, değişmedi) 2 zaman testi kırıldı; tek başına koşuda 50/50 dosya yeşil — yük kaynaklı, P22 dışı |
+| Entegrasyon (rs-p22-test): `session-chat-p22` (+3 yeni S-P22-Q testi), `session-chat-p22-b2`, `session-chat-orphan-p22`, `multi-p28c`, `p22-schema-d`, `consent-p4`, `retention-p13a-job`, `p18-messages-h3` | 130 testten 127 ✓ ilk koşuda; `p18-messages-h3`'ün 3 zaman ölçümlü testi birim koşusuyla eşzamanlı yükte kırıldı, **tek başına 23/23 ✓** (P22 değişiklikleri bu dosyanın yoluna dokunmuyor)                                          |
+| `npx playwright test e2e/p22-chat.spec.ts e2e/p19-j5.spec.ts --project=desktop`                                                                                                                              | **27/27 ✓** (p22-chat 10, p19-j5 talep formu satırı gerilemesi yok)                                                                                                                                                                  |
+
+### Tur 1 bulgusunun doğrulanması
+
+| Bulgu                                              | Durum                  | Kanıt                                                                                                                                                                                                                                                                                                                                                                       |
+| -------------------------------------------------- | ---------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Düzeltilmeli 1 — AC-287 iki tema axe + 390 px      | ✅ kapandı             | `p22-chat.spec.ts` `scanThemes` (mevcut `helpers.ts` yardımcısı; `html` sınıfıyla temayı zorlar ve `--rs-fg` ile etkin temayı doğrular) — konsol sohbet dolu + gönderilemedi, eski istemci, gözetimsiz, misafir sohbeti, oturum detayı, genel ayarlar bandı, aydınlatma bandı; 390 px `noHorizontalOverflow` konsol paneli (dolu + eski istemci), misafir, aydınlatma bandı |
+| Öneri — AC-292 satırı tek kaynak                   | ✅ uygulandı           | `components/kvkk/chat-retention-notice.tsx` ve `guest-collab.tsx` contracts `CHAT_RETENTION_LINE(days)` kullanıyor; e2e metni AC ile birebir ("… 90 gün saklanır"); `wr.retention` kodda kullanılmıyor (tr.json yalnız ekleme kuralı gereği kaldı — gerekçeli)                                                                                                              |
+| DoD — operasyon alarmı (Tur 1'de commit edilmemiş) | ✅ commit'li (d100e47) | `remote-watch.sh` `session-chat-internal` + `test-watch.sh` senaryoları; "5 dk → bir tur" sapması implementation.md'de gerekçeli. Staging provası P22-T/dağıtımda (bloklamaz)                                                                                                                                                                                               |
+
+### Güvenlik Tur 1 düzeltmeleri (gerileme ve tasarım uyumu)
+
+| Madde                                                                                       | Durum | Not                                                                                                                                                                                                                                                                             |
+| ------------------------------------------------------------------------------------------- | ----- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| S-P22-Q-1 katılım audit'i hemen; geçmiş sayısı ayrı `session.chat_history_sent {userId, n}` | ✅    | Test "S-P22-Q-1: zincir asılıyken participant_join yine hemen"; P28c testi yeni satırı doğruluyor. Mimari r2 §15.5'teki "katılım audit'ine `chatHistory:<n>`" kuralından sapma güvenlik raporu kaynaklı ve implementation.md'de gerekçeli; contracts eylem + etiket tek tanımda |
+| S-P22-Q-2 `terminateSession` önce `settleChat`                                              | ✅    | Test "yönetici sonlandırması özetten önce sohbet zincirini bekler"; Tur 1'deki "kabul edilen artık yarış" kapandı. `RoomNotifier.settleChat?` opsiyonel → oda yoksa beklemez                                                                                                    |
+| S-P22-Q-3 `SESSION_CHAT_CAP_TOTAL = 10.000`                                                 | ✅    | Test "oturum toplam tavanı 10.000 → cap, satır yok"; tavanda yinelenen yine idempotent yankı; pt-surface yalnız ekleme                                                                                                                                                          |
+
+Yeni bağımlılık / env yok. Kod incelemesinde yeni `any`, hata yutma ya da gövde içeren log/audit yok (`auditHistorySent` hatası loglanıyor, gövdesiz).
+
+### Kabul kriterleri (Tur 2 güncel)
+
+| AC                                                                    | Durum                                                         |
+| --------------------------------------------------------------------- | ------------------------------------------------------------- |
+| AC-264 (sunucu + web + tarayıcı)                                      | ✅                                                            |
+| AC-264 (Go)                                                           | P22-G'de                                                      |
+| AC-291                                                                | ✅                                                            |
+| AC-292 (tarayıcı karşılama + web talep formu)                         | ✅                                                            |
+| AC-292 (Win/macOS/Linux karşılama + talep formu, istemci birim testi) | P22-G'de                                                      |
+| AC-285                                                                | ✅                                                            |
+| AC-286                                                                | N/A                                                           |
+| AC-287                                                                | ✅                                                            |
+| AC-288                                                                | P22-W sırasında (bloklamaz)                                   |
+| AC-289                                                                | P22-G'de                                                      |
+| AC-290                                                                | qa bu tur GEÇTİ; güvenlik P22-Q Tur 1 GEÇTİ (Kritik/Yüksek 0) |
+
+### Düzeltilmeli
+
+Yok.
+
+### Definition of Done
+
+Tur 1'deki ❌ (AC-287) ve ⚠️ (alarm commit'i) kapandı; diğer maddeler değişmedi (✅). Açık kalanlar sıra gereği sonraki paketlerde:
+P22-T staging (seed + alarm provası, 0.19/0.20 istemciyle "güncelleyin" iki tarafta), P22-W doküman/PDF, P22-G Go istemci.
+
+### Öneriler (zorunlu değil)
+
+- `p18-messages-h3` ve `rec-webm-dos` zaman ölçümlü testleri eşzamanlı yükte kırılıyor (P22 öncesi bilinen kalıp); CI'da seri koşu ya da süre payı.
+- `tr.json` `wr.retention` artık kullanılmıyor; ortak dosya kuralı izin verdiğinde temizlenebilir.
+
+DURUM: GEÇTİ

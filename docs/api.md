@@ -1089,6 +1089,7 @@ paylaşım sürüyorsa `share.state: sharing`'i yeniden gönderir.
 | 1009 | Mesaj 64 KB'ı aştı                                                                                            |
 | 4401 | Teknisyenin oturumu geçersizleşti (60 sn'de bir yeniden doğrulanır); önce `session.ended{auth_revoked}`       |
 | 4409 | Aynı teknisyen aynı oturuma başka sekmeden bağlandı; eski soket kapanır                                       |
+| 4426 | (P22) `/ws/tech` `rs.cap.schat1` bildirmedi — eski konsol sekmesi (`console_outdated`); "Sayfayı yenileyin"   |
 
 Sunucu 30 sn'de bir ping atar; iki pong kaçıran soket sonlandırılır. Bekleyen oturumun süresi dolunca teknisyen ve
 lobi `session.ended{timeout}` alır (30 sn'lik süre dolumu turu gecikmesiyle).
@@ -4139,6 +4140,144 @@ izin rehberini gösterir ve şunu gönderir:
 macOS istemci Windows ile aynı `rs.cap.*` listesini bildirir; **`rs.cap.voice1` bildirmez** (macOS'ta ses yok, ADR-0037
 r3) ve pencere paylaşımı yoktur. Yazdırmada sayfa sayısı istemcide hesaplanmaz: `print.report` sayfa alanı taşımaz
 (contracts değişmedi). macOS'ta parola alanı (güvenli metin girişi) `env.state` `elevatedForeground=true` olarak bildirilir.
+
+## Oturum sohbeti (P22)
+
+Oturum sohbeti artık yalnız sinyalizasyon WebSocket'inden geçer: gönderen → sunucu (doğrula → şifrele → kaydet) → herkese
+ilet (AC-264, 291, 292; mimari `docs/mimari-p22.md` §4, §5, §15; ADR-0025). DataChannel `chat` yeni kodda kullanılmaz.
+Mesajlar `session_messages` tablosunda AES-256-GCM ile şifreli saklanır, oturum anonimleştirilirken silinir. Sohbet uçtan uca
+şifreli değildir. Sözleşme `packages/contracts/src/{chat,ws-chat}.ts`, `src/api/sessions.ts`; ortak örnekler
+`packages/contracts/fixtures/ws-session-chat.json`. Yeni env yok. Migration `20261126000000_p22_session_chat` (yalnız UQ
+indeksi). Yeni yetki `sessions.view_chat`.
+
+### Yetki
+
+- `sessions.view_chat` ("Sohbet geçmişini görüntüle", hassas): oturum geçmişinde sohbet ve bağlı talebin kabul öncesi
+  yazışmasını okur. Admin açık, User kapalı başlar. User'a verilirse `historyScope` onu kendi oturumlarıyla sınırlar.
+- Canlı oturumda sohbet yetki istemez: oturuma katılma hakkı (sahip, davetli, `sessions.supervise` izleyici) yeterlidir.
+
+### GET /api/v1/sessions/:id/chat?after=<ulid>
+
+Yetki: `session_history.view` + `sessions.view_chat` + `historyScope` (User yalnız kendi oturumu). Hız: kullanıcı başına
+60/dk. Yanıt `Cache-Control: no-store`.
+
+| Girdi   | Kural                                                                                              |
+| ------- | -------------------------------------------------------------------------------------------------- |
+| `:id`   | Oturum ULID'i. Biçim dışı, yok, kapsam dışı ya da başka firma → 404                                |
+| `after` | İsteğe bağlı ULID. Yalnız aynı oturum + firmada aranır; bulunmazsa yok sayılır (baştan listelenir) |
+
+200 yanıtı:
+
+```json
+{
+  "request": {
+    "items": [{ "id": "01JD…", "sender": "CUSTOMER", "senderName": null, "body": "Yazıcı çalışmıyor", "createdAt": "2026-11-18T09:00:00.000Z" }],
+    "total": 1
+  },
+  "session": {
+    "items": [{ "id": "01JE…", "sender": "TECH", "senderName": "Ayşe Yılmaz", "body": "Bağlandım", "createdAt": "2026-11-18T09:05:00.000Z" }],
+    "more": false
+  }
+}
+```
+
+- `request`: bağlı talebin kabul öncesi yazışması (ilk 200 öğe, artan; `total` tam sayı). Talep yoksa, anonimse ya da
+  `after` verildiyse `null`.
+- `session.items`: en çok 200 öğe (`SESSION_CHAT_PAGE_MAX`), artan. `more: true` ise son öğenin `id`'siyle `after` verin.
+- `senderName` yalnız TECH'te dolu. `body: null` = gövde çözülemedi (ekranda "Mesaj okunamadı";
+  `rs_crypto_decrypt_failures_total{table="session_messages"}` artar).
+
+| Hata | Kod            | Ne zaman                                              |
+| ---- | -------------- | ----------------------------------------------------- |
+| 400  | `VALIDATION`   | `after` ULID değil ya da bilinmeyen sorgu alanı       |
+| 403  | `FORBIDDEN`    | `session_history.view` ya da `sessions.view_chat` yok |
+| 404  | `NOT_FOUND`    | Oturum yok, kapsam dışı, başka firma                  |
+| 429  | `RATE_LIMITED` | 60/dk aşıldı (`Retry-After`)                          |
+
+Audit: `after`'sız çağrıda `session.chat_viewed` (`entity: support_sessions`, `new_value: {messages, requestMessages}` =
+yanıtta gösterilen öğe sayıları; gövde yok). Aynı kullanıcı + oturum için 10 dk'da en çok 1 (bellek penceresi; yeniden
+başlatmada sıfırlanır). 403 audit'e yazılmaz. Metrik `rs_session_chat_reads_total` her çağrıda artar.
+
+### Mevcut uçlarda değişenler
+
+| Uç                                          | Eklenen alan                                                                                                                                                                       |
+| ------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `GET /api/v1/sessions/:id/history`          | `chat: {count, legacy}` — yalnız `sessions.view_chat` sahibine; yetkisizde alan **yok**. `count` = oturum mesaj sayısı; `legacy` = oturumda `session.chat_legacy` audit satırı var |
+| `POST /api/v1/public/sessions/resolve`      | `chatRetentionDays: number` (firmanın `retentionDays` değeri; onay düğmesi üstündeki satır)                                                                                        |
+| `GET /api/v1/public/requests/tenant`        | `chatRetentionDays` (aynı); müşteri ref'i ve `POST /public/bindings/status` yanıtı da aynı şekilde                                                                                 |
+| `GET` / `PUT /api/v1/settings/consent-text` | `chatParagraphMissing: boolean` (güncel metin "Sohbet uçtan uca şifreli değildir" cümlesini içermiyor), `chatParagraph: string` (standart sohbet paragrafı)                        |
+
+Sistem aydınlatma metnine standart sohbet paragrafı eklendi (`CHAT_CONSENT_PARAGRAPH`). `pnpm db:seed` hazır metni kullanan
+her firmaya yeni sürüm yayımlar; Admin'in yazdığı metne dokunmaz. Yeni sürüm yayımlanınca eski sürümle açık karşılama/talep
+sayfaları join'de 400 alır (AC-127; sayfa yenilenince düzelir).
+
+### WebSocket: yetenek ve kapanış kodu
+
+- Belirteç `rs.cap.schat1` (talep sohbetinin `rs.cap.chat1`'inden ayrı). Sunucu yanıtı yine yalnız `rs.v1`.
+- `/ws/guest`: yeni tarayıcı misafir her zaman bildirir. Hızlı Destek 0.20 ve öncesi bildirmez → oturum sohbeti iki tarafta
+  kapalıdır; misafire hiçbir `chat.*` mesajı gitmez. Misafir `chat.send` yalnız belirteçli sokette şemadadır; aksi 1008.
+- `/ws/tech`: konsol her zaman bildirir. Belirteç yoksa sunucu soketi odaya bağlamadan **4426** (`console_outdated`) ile
+  kapatır; konsol "Konsol sürümü eski — sayfayı yenileyin" gösterir. Metrik `rs_ws_tech_outdated_total`.
+- Teknisyene giden `hello` ve `peer.joined{role:"guest"}` += `guestChat: "on" | "outdated"`. Alan yoksa kabul edilmiş misafir
+  yok ya da oda gözetimsiz. Misafire giden `hello`'da bu alan yoktur.
+- Gözetimsiz odada hiçbir `chat.*` mesajı gitmez; teknisyen `chat.send` → `chat.rejected{forbidden}`.
+
+### WebSocket mesajları
+
+| Yön                                          | Mesaj           | Alanlar                                                                                                                                                           |
+| -------------------------------------------- | --------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| teknisyen / `schat1` misafir → sunucu        | `chat.send`     | `clientMsgId` (`^[A-Za-z0-9_-]{16,36}$`), `body`                                                                                                                  |
+| sunucu → tüm teknisyenler + `schat1` misafir | `chat.message`  | `id` (ULID), `sender: "TECH" \| "CUSTOMER"`, `tid?`, `senderName?` (yalnız TECH), `body`, `createdAt`, `clientMsgId?` (yalnız gönderenin kendi kopyasında = onay) |
+| sunucu → aynı                                | `chat.history`  | `items` (≤ 100, artan, `clientMsgId`'siz), `more: boolean`. Çerçeve ≤ 48 KiB                                                                                      |
+| sunucu → aynı                                | `chat.state`    | `enabled: boolean`, `reason?: "not_active" \| "ended"`                                                                                                            |
+| sunucu → gönderen                            | `chat.rejected` | `clientMsgId`, `reason: "rate" \| "cap" \| "invalid" \| "forbidden" \| "not_active" \| "outdated" \| "internal"`                                                  |
+
+Kurallar:
+
+- `body`: NFC + trim, 1..1.000 kod noktası, en çok 20 satır, görünmez/kontrol karakteri yok (P18 talep sohbetiyle aynı
+  `chatBodySchema`). Zarf geçerli, gövde geçersiz → `chat.rejected{invalid}`, soket açık kalır.
+- Sıra: teknisyende `hello` → `chat.state` → (oda ACTIVE ise ve teknisyenin koltuğu varsa) `chat.history`; misafir kabulünde
+  teknisyenlere `chat.state{enabled:true}`; bitişte `chat.state{false,"ended"}`. Misafirde (`schat1`) kabulden sonra
+  `chat.state{true}` → `chat.history`.
+- Sunucu önce kaydeder, sonra iletir. Kayıt başarısızsa iletim yok, `chat.rejected{internal}`.
+- Yinelenen `clientMsgId` (aynı oturum + gönderen) yeniden kaydedilmez; yalnız gönderene yankı gider.
+- İzleyici `chat.send` → `forbidden`. Kabul edilmiş misafir eski istemciyse teknisyen `chat.send` → `outdated`, satır 0.
+- Sınırlar: gönderen başına 5 mesaj/sn (`rate`); oturumda gönderen başına 2.000 ve toplam 10.000 mesaj (`cap`); firma başına
+  müşteri mesajı 600/dk (`rate`, panele `queue.alert`).
+- Eski (≤ 0.20) misafire konsol yalnız sabit bildirimi DC `chat` ile gönderir: "Bu sürümde sohbet kapalıdır. Yazdıklarınız
+  teknisyene gösterilmez ve kaydedilmez; lütfen sohbet için programı güncelleyin." Misafirden gelen DC `chat` gösterilmez.
+
+Örnekler:
+
+```json
+{ "t": "chat.send", "clientMsgId": "AbCdEfGhIjKlMnOpQrSt_-", "body": "Merhaba" }
+{ "t": "chat.message", "id": "01JE0000000000000000000000", "sender": "TECH", "tid": "AAAAAAAAAAA", "senderName": "Ayşe Yılmaz",
+  "body": "Merhaba", "createdAt": "2026-11-18T09:05:00.000Z", "clientMsgId": "AbCdEfGhIjKlMnOpQrSt_-" }
+{ "t": "chat.rejected", "clientMsgId": "AbCdEfGhIjKlMnOpQrSt_-", "reason": "rate" }
+{ "t": "peer.joined", "role": "guest", "guestKind": "AGENT", "guestChat": "outdated" }
+```
+
+### P18 düzeltmesi: talep geçmişi boyutu
+
+`/ws/request` `request.messages` çerçevesi artık ≤ 48 KiB (`REQUEST_HISTORY_MAX_BYTES`, en çok 50 öğe, en yeniden geriye).
+Önceden uzun talep yazışmasında çerçeve Go istemcinin 64 KiB okuma sınırını aşıp yeniden bağlanmada bağlantıyı kopartabiliyordu.
+Şema değişmedi (`more` alanı eklenmedi); sığmayan eski mesajlar istemcide görünmez, panel REST'ten tamamını görür.
+
+### Audit ve metrik
+
+| Action                      | `new_value`                                            | Ne zaman                                                                  |
+| --------------------------- | ------------------------------------------------------ | ------------------------------------------------------------------------- |
+| `session.chat_viewed`       | `{messages, requestMessages}`                          | Geçmişte sohbet açıldı (yukarıda)                                         |
+| `session.chat_summary`      | `{tech, customer, senderUserIds, legacy}`              | Oturum bitişinde bir kez (her bitiş yolunda, DB'den sayım)                |
+| `session.chat_rejected`     | `{reason: cap\|forbidden\|internal\|outdated, sender}` | Neden + gönderen başına oturumda 1                                        |
+| `session.chat_legacy`       | —                                                      | Belirteçsiz misafir kabul edildi (oturum başına 1)                        |
+| `session.chat_history_sent` | `{userId, n}`                                          | Sonradan katılan üyeye önceki `n` mesaj gönderildi (ilk katılım, `n > 0`) |
+
+Mesaj başına audit yazılmaz; her mesaj zaten append-only, gönderenli ve zaman damgalı bir `session_messages` satırıdır
+(K-P22-6). Gövde hiçbir audit/log satırına yazılmaz. `retention.run` sayaçlarına `sessionMessages` eklendi.
+Metrikler: `rs_session_chat_messages_total{sender}`, `rs_session_chat_rejected_total{reason}`,
+`rs_session_chat_legacy_sessions_total`, `rs_session_chat_reads_total`, `rs_session_chat_store_seconds`,
+`rs_ws_tech_outdated_total`, `rs_retention_rows_total{kind="session_messages"}`. Alarm `session-chat-internal` (runbook §29).
 
 ## Saklama ve anonimleştirme (P13a)
 

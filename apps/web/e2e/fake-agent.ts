@@ -41,6 +41,9 @@ export async function startFakeAgent(browser: Browser, sessionId: string, featur
         asked: boolean;
         p28: string[];
         fsrv: unknown[];
+        /** P22: konsoldan `ctl` DC'ye gelen çerçeveler (eski istemci sabit bildirimi) ve `ctl` gönderici. */
+        ctl: unknown[];
+        ctlSend: (m: unknown) => boolean;
       }
       const w = window as unknown as W;
       // P28a: özellik bildirimi (`rs.cap.clip1`, `rs.cap.print1`) — Windows istemci gibi
@@ -69,6 +72,8 @@ export async function startFakeAgent(browser: Browser, sessionId: string, featur
         asked: false,
         p28: [],
         fsrv: [],
+        ctl: [],
+        ctlSend: () => false,
         send,
       };
       const cv = document.createElement("canvas");
@@ -100,6 +105,11 @@ export async function startFakeAgent(browser: Browser, sessionId: string, featur
             });
           pc.ondatachannel = (ev) => {
             if (ev.channel.label === "input") ev.channel.onmessage = (x) => w.__agent.inputs.push(JSON.parse(String(x.data)));
+            if (ev.channel.label === "ctl") {
+              const c = ev.channel;
+              c.onmessage = (x) => typeof x.data === "string" && w.__agent.ctl.push(JSON.parse(x.data));
+              w.__agent.ctlSend = (m) => c.readyState === "open" && (c.send(JSON.stringify(m)), true);
+            }
           };
           await pc.setRemoteDescription({ type: "offer", sdp: m.sdp });
           for (const c of queue.splice(0)) await pc.addIceCandidate(c).catch(() => undefined);
@@ -166,3 +176,10 @@ export const agentLog = (a: Page) =>
       .__agent;
     return { inputs, controlRequests, monitorRequests, revokes, caps, closes, gate, asked } as AgentLog;
   });
+
+/** P22: konsoldan `ctl` DC'ye gelen çerçeveler. */
+export const agentCtl = (a: Page) =>
+  a.evaluate(() => (window as unknown as { __agent: { ctl: { t: string; text?: string }[] } }).__agent.ctl);
+/** P22: eski istemci gibi `ctl` DC'den çerçeve gönder (ör. DC `chat`). */
+export const agentCtlSend = (a: Page, m: unknown) =>
+  a.evaluate((x) => (window as unknown as { __agent: { ctlSend: (m: unknown) => boolean } }).__agent.ctlSend(x), m);

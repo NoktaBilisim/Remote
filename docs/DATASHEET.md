@@ -49,6 +49,9 @@ aktarır; bu durumda teslim edilen dosyalar da seçilen süre (1–7 gün) boyun
 - **Zorlu donanımda da görüntü** — ekran üç farklı yöntemle okunur (HDR ve çift ekran kartlı dizüstüler dahil);
   okunamazsa müşteri ekranında kısa bir neden kodu ve ne yapacağı yazar; yeni sürüm programla neden teknisyen konsoluna
   da gelir.
+- **Kayıtlı sohbet** — oturum sohbeti sunucu üzerinden iletilir ve şifreli saklanır; anlaşmazlıkta "ne yazıldı"
+  sorusu yanıtlanır. Yetkili kişi oturum geçmişinde sohbeti açar, her açılış denetim kaydına yazılır. Mesajlar oturum
+  saklama süresi dolunca silinir. Müşteri bağlanmadan önce sohbetin kaydedildiğini ve kaç gün saklanacağını görür.
 - **Sohbet, dosya, ekran üzerine işaretleme** — her dosyayı alıcı onaylar. Geçmişte her dosya "Doğrulanmış" ya da
   "Müşteri bildirimi" olarak ayrılır. Dosyalar firmanın seçtiği iki yoldan biriyle gider:
   - **Doğrudan (varsayılan):** dosya iki taraf arasında uçtan uca şifreli akar; içerik sunucuya uğramaz, taranmaz.
@@ -128,6 +131,8 @@ aktarır; bu durumda teslim edilen dosyalar da seçilen süre (1–7 gün) boyun
   son 730 günün kaydının değiştirilmesini ve silinmesini, geri tarihli kayıt eklenmesini engeller. 730 günden eski kayıtlar
   kendiliğinden silinir.
 - KVKK: aydınlatma metni firma bazında ve sürümlü, yönetici panelden düzenler; her onay, onaylanan sürümle saklanır.
+- Sohbet uçtan uca şifreli değildir, sunucuda alan şifrelemesiyle saklanır; bunu söyleyen standart paragraf aydınlatma
+  metnine hazır gelir, eksikse panel uyarır. Sohbet geçmişini görme ayrı, hassas bir yetkidir.
   Saklama süresi (varsayılan 365 gün) dolan oturum, talep ve pasif müşteri kayıtlarında kişisel veriler (ad, e-posta, not,
   IP, dosya kayıtları) her gece anonimleştirilir; onay kararı ve metin sürümü kanıt olarak kalır. Anonimleştirilen kayıtlar
   30 gün sonra tamamen silinir (sunucu ayarıyla açılır); oturum kayıtları anonimleştirmeyle birlikte silinir; hiçbir kayda bağlı olmayan yüklenmiş dosyalar haftalık taramayla temizlenir.

@@ -6,7 +6,7 @@ import { useEffect, useId, useRef, useState, type RefObject } from "react";
 import { Button } from "@/components/ui/button";
 import { formatTime } from "@/lib/format";
 import { t } from "@/lib/i18n";
-import { ChatRetentionNotice } from "./chat-retention-notice";
+import { ChatRetentionNotice } from "@/components/kvkk/chat-retention-notice";
 
 export interface ChatItem {
   key: string;
