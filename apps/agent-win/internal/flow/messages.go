@@ -17,26 +17,27 @@ type Message struct {
 }
 
 var (
-	msgExpired   = Message{"Bu destek bağlantısının süresi doldu", "Bağlantılar güvenliğiniz için kısa süre geçerlidir ve yalnızca bir kez kullanılabilir. Teknisyeninizden yeni bir bağlantı isteyin."}
-	msgCancelled = Message{"Oturum iptal edildi", "Teknisyen bu destek oturumunu iptal etti. Gerekirse teknisyeninizden yeni bir bağlantı isteyin."}
-	msgConsumed  = Message{"Bu bağlantı zaten kullanıldı", "Destek bağlantıları yalnızca bir kez kullanılabilir. Teknisyeninizden yeni bir bağlantı isteyin."}
-	msgNotFound  = Message{"Kod geçersiz", "Bu destek kodu bulunamadı. Kodu teknisyeninizden kontrol ederek yeniden girin."}
-	msgRate      = Message{"Çok fazla deneme", "Kod girişi geçici olarak engellendi. Birkaç dakika sonra tekrar deneyin."}
-	msgNetwork   = Message{"Sunucuya ulaşılamıyor", "İnternet bağlantınızı kontrol edip tekrar deneyin."}
-	msgTLS       = Message{"Sunucu sertifikası doğrulanamadı", "Bu bilgisayar sunucunun güvenlik sertifikasına güvenmiyor. Teknisyeninize bildirin; kod girmeniz sorunu çözmez."}
-	msgError     = Message{"Bağlantı bilgisi alınamadı", "Sunucuya şu anda ulaşılamıyor. Biraz sonra tekrar deneyin."}
-	msgForbidden = Message{"Katılamazsınız", "Bu oturuma katılamazsınız. Teknisyeninizle iletişime geçin."}
-	msgLobbyFull = Message{"Bekleme odası dolu", "Bekleme odası dolu. Birkaç dakika sonra tekrar deneyin."}
-	msgEnded     = Message{"Destek oturumu sona erdi", "Bu oturum kapatıldı. Program birkaç saniye içinde kapanacak."}
-	msgSelfEnd   = Message{"Oturumu sonlandırdınız", "Teknisyen artık ekranınızı göremez. Program birkaç saniye içinde kapanacak."}
-	msgAdmin     = Message{"Oturum yönetici tarafından sonlandırıldı", "Program birkaç saniye içinde kapanacak."}
-	msgMaxDur    = Message{"Oturum süresi doldu", "Oturum azami süreye ulaştı. Program birkaç saniye içinde kapanacak."}
-	msgRejected  = Message{"Teknisyen bağlantıyı reddetti", "Teknisyeninizle telefonda görüşüyorsanız kodu doğru okuduğunuzdan emin olun ve onu arayın. Kimseyle görüşmüyorsanız bu pencereyi kapatın."}
-	msgLobbyTO   = Message{"Bekleme süresi doldu", "5 dakika içinde kabul edilmediniz. Destek kodu hâlâ geçerliyse programı yeniden çalıştırabilirsiniz."}
-	msgLeft      = Message{"Bekleme odasından çıktınız", "Ekranınız paylaşılmadı."}
-	msgLost      = Message{"Bağlantı kesildi", "Sunucuyla bağlantı kurulamadı. İnternet bağlantınızı kontrol edin; kod geçerliyse programı yeniden çalıştırın."}
-	msgOutdated  = Message{"Bu Hızlı Destek dosyası eski", "Güvenliğiniz için yeni sürüm gerekiyor. Teknisyeninizden yeni bağlantı isteyin."}
-	msgProtocol  = Message{"Bağlantı güvenlik nedeniyle kapatıldı", "Sunucudan beklenmeyen bir yanıt alındı. Teknisyeninizle iletişime geçin."}
+	msgExpired     = Message{"Bu destek bağlantısının süresi doldu", "Bağlantılar güvenliğiniz için kısa süre geçerlidir ve yalnızca bir kez kullanılabilir. Teknisyeninizden yeni bir bağlantı isteyin."}
+	msgCancelled   = Message{"Oturum iptal edildi", "Teknisyen bu destek oturumunu iptal etti. Gerekirse teknisyeninizden yeni bir bağlantı isteyin."}
+	msgConsumed    = Message{"Bu bağlantı zaten kullanıldı", "Destek bağlantıları yalnızca bir kez kullanılabilir. Teknisyeninizden yeni bir bağlantı isteyin."}
+	msgNotFound    = Message{"Kod geçersiz", "Bu destek kodu bulunamadı. Kodu teknisyeninizden kontrol ederek yeniden girin."}
+	msgRate        = Message{"Çok fazla deneme", "Kod girişi geçici olarak engellendi. Birkaç dakika sonra tekrar deneyin."}
+	msgNetwork     = Message{"Sunucuya ulaşılamıyor", "İnternet bağlantınızı kontrol edip tekrar deneyin."}
+	msgTLS         = Message{"Sunucu sertifikası doğrulanamadı", "Bu bilgisayar sunucunun güvenlik sertifikasına güvenmiyor. Teknisyeninize bildirin; kod girmeniz sorunu çözmez."}
+	msgError       = Message{"Bağlantı bilgisi alınamadı", "Sunucuya şu anda ulaşılamıyor. Biraz sonra tekrar deneyin."}
+	msgForbidden   = Message{"Katılamazsınız", "Bu oturuma katılamazsınız. Teknisyeninizle iletişime geçin."}
+	msgNoRetention = Message{"Bağlantı başlatılamadı", ChatTexts.ServerOutdated}
+	msgLobbyFull   = Message{"Bekleme odası dolu", "Bekleme odası dolu. Birkaç dakika sonra tekrar deneyin."}
+	msgEnded       = Message{"Destek oturumu sona erdi", "Bu oturum kapatıldı. Program birkaç saniye içinde kapanacak."}
+	msgSelfEnd     = Message{"Oturumu sonlandırdınız", "Teknisyen artık ekranınızı göremez. Program birkaç saniye içinde kapanacak."}
+	msgAdmin       = Message{"Oturum yönetici tarafından sonlandırıldı", "Program birkaç saniye içinde kapanacak."}
+	msgMaxDur      = Message{"Oturum süresi doldu", "Oturum azami süreye ulaştı. Program birkaç saniye içinde kapanacak."}
+	msgRejected    = Message{"Teknisyen bağlantıyı reddetti", "Teknisyeninizle telefonda görüşüyorsanız kodu doğru okuduğunuzdan emin olun ve onu arayın. Kimseyle görüşmüyorsanız bu pencereyi kapatın."}
+	msgLobbyTO     = Message{"Bekleme süresi doldu", "5 dakika içinde kabul edilmediniz. Destek kodu hâlâ geçerliyse programı yeniden çalıştırabilirsiniz."}
+	msgLeft        = Message{"Bekleme odasından çıktınız", "Ekranınız paylaşılmadı."}
+	msgLost        = Message{"Bağlantı kesildi", "Sunucuyla bağlantı kurulamadı. İnternet bağlantınızı kontrol edin; kod geçerliyse programı yeniden çalıştırın."}
+	msgOutdated    = Message{"Bu Hızlı Destek dosyası eski", "Güvenliğiniz için yeni sürüm gerekiyor. Teknisyeninizden yeni bağlantı isteyin."}
+	msgProtocol    = Message{"Bağlantı güvenlik nedeniyle kapatıldı", "Sunucudan beklenmeyen bir yanıt alındı. Teknisyeninizle iletişime geçin."}
 )
 
 // Durum satırı metinleri.

@@ -226,3 +226,28 @@ func TestAC264P22GSessionSendsOverWS(t *testing.T) {
 	c.toClient <- signal.SessionEnded{T: "session.ended", Reason: "tech"}
 	recv(t, out)
 }
+
+// S-P22G-2 / Q-P22G-3 (AC-292): karşılamada saklama günü yoksa (eski sunucu) arayüz yanlışlıkla onay dönse bile akış
+// katılmaz; son ekran "Sunucu güncel değil". Gün varsa karşılamaya aktarılır ve katılım olur.
+func TestAC292P22GWelcomeFlowGateNoRetentionDays(t *testing.T) {
+	h := newHarness(t)
+	h.api.noDays = true
+	h.ui.welcome = []bool{true}
+	out := recv(t, start(h, "12345678"))
+	if out.Message != msgNoRetention || out.Message.Body != ChatTexts.ServerOutdated {
+		t.Fatalf("son ekran %+v", out.Message)
+	}
+	h.api.mu.Lock()
+	joins := len(h.api.joins)
+	h.api.mu.Unlock()
+	if joins != 0 || h.ui.welcomes[0].ChatRetentionDays != 0 {
+		t.Fatalf("join=%d gün=%d", joins, h.ui.welcomes[0].ChatRetentionDays)
+	}
+
+	h = newHarness(t)
+	h.ui.welcome = []bool{false}
+	recv(t, start(h, "12345678"))
+	if h.ui.welcomes[0].ChatRetentionDays != 90 {
+		t.Fatalf("gün aktarılmadı: %d", h.ui.welcomes[0].ChatRetentionDays)
+	}
+}

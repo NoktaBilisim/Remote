@@ -314,6 +314,11 @@ func admitStage(ctx context.Context, d Deps, initial string) (*api.JoinResult, *
 		if !ok {
 			return nil, nil, false, Outcome{}, false
 		}
+		// AC-292 / S-P22G-2: saklama satırı gösterilemeyen (eski) sunucuya katılınmaz — arayüzdeki düğme kapısının akış
+		// düzeyi ikinci kapısı (talep formu request/form.go ile simetrik).
+		if res.ChatRetentionDays < 1 {
+			return nil, nil, false, Outcome{Message: msgNoRetention}, false
+		}
 		// AC-98: onaysız bağlantı başlamaz — UI yalnız onay kutusu işaretliyken ok döner.
 		jr, err := d.API.Join(ctx, api.JoinRequest{JoinNonce: res.JoinNonce, CustomerName: name,
 			ConsentTextID: res.ConsentText.ID, ConsentAccepted: true})

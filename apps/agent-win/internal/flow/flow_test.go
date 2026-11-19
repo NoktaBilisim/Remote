@@ -27,6 +27,7 @@ type fakeAPI struct {
 	logoURL  string
 	abuse    *string
 	rec      *api.RecordingOffer // P28e
+	noDays   bool                // AC-292: eski sunucu (chatRetentionDays yok)
 }
 
 func (a *fakeAPI) Resolve(_ context.Context, code string) (*api.ResolveResult, error) {
@@ -46,6 +47,9 @@ func (a *fakeAPI) Resolve(_ context.Context, code string) (*api.ResolveResult, e
 	r.ConsentText = api.ConsentText{ID: "ct1", Version: 3, Body: "KVKK metni", Recording: a.rec}
 	r.Tenant.LogoURL = a.logoURL
 	r.AbuseEmail = a.abuse
+	if !a.noDays {
+		r.ChatRetentionDays = 90
+	}
 	return r, nil
 }
 
