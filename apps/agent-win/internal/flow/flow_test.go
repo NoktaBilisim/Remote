@@ -2,7 +2,6 @@ package flow
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"image"
 	"net/url"
@@ -239,7 +238,7 @@ func (u *fakeUI) ChooseShare(_ context.Context, m []signal.Monitor, def int, win
 }
 func (u *fakeUI) Active(tech string, m signal.Monitor) { u.log("active:" + tech + ":" + m.Name) }
 func (u *fakeUI) Status(msg string)                    { u.log("status:" + msg) }
-func (u *fakeUI) Chat(text string)                     { u.log("chat:" + text) }
+func (u *fakeUI) SessionChat(v ChatView)               { u.log("chatview:" + v.Text) }
 func (u *fakeUI) Annot(m dc.Ctl)                       { u.log("annot:" + m.T) }
 func (u *fakeUI) FileOffer(p transfer.Prompt)          { u.log("fileoffer:" + p.Name) }
 func (u *fakeUI) FileOfferWithdrawn(string)            { u.log("withdrawn") }
@@ -549,17 +548,16 @@ func TestAC106AC107HappyPath(t *testing.T) {
 	if a := recv(t, c.sent).(signal.SdpAnswer); a.SDP != "answer-for-o1" {
 		t.Fatalf("answer: %+v", a)
 	}
-	// DC chat → UI; kullanıcı chat → ctl (şemaya uygun)
-	p.h.Ctl(dc.Ctl{T: "chat", Text: "Merhaba"})
-	expectCall(t, h.ui, "chat:Merhaba")
+	// AC-264 / P22-G: DC `chat` arayüze ulaşmaz; kullanıcı sohbeti DC'ye hiç yazılmaz (ChatUI yokken yok sayılır).
+	p.h.Ctl(dc.Ctl{T: "chat", ID: "m1"})
 	h.events <- Event{Kind: EvChat, Text: "Selam"}
-	b := recv(t, p.ctl)
-	var chat map[string]any
-	if err := json.Unmarshal(b, &chat); err != nil || chat["t"] != "chat" || chat["text"] != "Selam" {
-		t.Fatalf("chat: %s", b)
-	}
 	p.h.Ctl(dc.Ctl{T: "annot.clear"})
 	expectCall(t, h.ui, "annot:annot.clear")
+	select {
+	case b := <-p.ctl:
+		t.Fatalf("sohbet DC'ye yazıldı: %s", b)
+	default:
+	}
 
 	c.toClient <- signal.SessionEnded{T: "session.ended", Reason: "tech"}
 	if o := recv(t, out); o.Message != msgEnded {

@@ -2,6 +2,7 @@ package flow
 
 import (
 	"encoding/json"
+	"strings"
 	"testing"
 	"time"
 
@@ -20,11 +21,9 @@ const (
 type fakeRoster struct {
 	views chan RosterView
 	ok    bool
-	chats chan string
 }
 
 func (r *fakeRoster) ShowRoster(v RosterView) bool { r.views <- v; return r.ok }
-func (r *fakeRoster) TechChat(name, text string)   { r.chats <- name + ":" + text }
 
 func rosterOf(ctrl string, entries ...[2]string) signal.TechsRoster {
 	t, f := true, false
@@ -53,14 +52,29 @@ type multiRig struct {
 func startMulti(t *testing.T, drawOK bool) *multiRig {
 	t.Helper()
 	h := newHarness(t)
-	r := &fakeRoster{views: make(chan RosterView, 8), ok: drawOK, chats: make(chan string, 8)}
+	r := &fakeRoster{views: make(chan RosterView, 8), ok: drawOK}
 	h.deps.RosterUI = r
+	h.deps.ChatUI = h.ui // P22-G: DC sohbetinin arayüze 0 öğe verdiği görülsün
 	m := &multiRig{h: h, roster: r, out: start(h, "12345678")}
 	recv(t, h.creds)
 	m.c = recv(t, h.conns)
 	m.c.toClient <- hello(token)
 	recv(t, h.peers) // eski soket eşi "" (roster gelince kapanır)
 	return m
+}
+
+// chatEmpty arayüze boş olmayan bir sohbet görünümü gitmedi mi (bekleyen çağrılar boşaltılır).
+func (m *multiRig) chatEmpty() bool {
+	for {
+		select {
+		case c := <-m.h.ui.calls:
+			if strings.HasPrefix(c, "chatview:") && c != "chatview:" {
+				return false
+			}
+		default:
+			return true
+		}
+	}
 }
 
 // offer gönderir; eş kurulduysa onu döner (kurulmadıysa nil, 300 ms bekler).
@@ -188,28 +202,26 @@ func TestAC367InputGateFollowsController(t *testing.T) {
 	}
 }
 
-func TestP28cChatRelayAndObserverDropped(t *testing.T) {
+// AC-264 / P22-G (mimari-p22 §4.4, §9): DC `chat` hiçbir teknisyenden (sahip, katılımcı, izleyici) arayüze 0 öğe
+// verir ve diğer eşlere yayılmaz (sohbet yalnız sunucu aktarımlı WS).
+func TestAC264P22GDCChatNotShownNorRelayed(t *testing.T) {
 	m := startMulti(t, true)
 	m.c.toClient <- rosterOf(tidA, [2]string{tidA, "participant"}, [2]string{tidB, "participant"}, [2]string{tidC, "observer"})
 	recv(t, m.roster.views)
 	pa, pb, pc := m.offer(t, tidA), m.offer(t, tidB), m.offer(t, tidC)
-	ts := int64(5)
-	pb.h.Ctl(dc.Ctl{T: "chat", ID: "m1", Text: "selam", TS: &ts})
-	if v := recv(t, m.roster.chats); v != "TB:selam" {
-		t.Fatalf("sohbet %q", v)
+	for _, p := range []*fakePeer{pa, pb, pc} {
+		p.h.Ctl(dc.Ctl{T: "chat", ID: "m1"})
 	}
-	for _, p := range []*fakePeer{pa, pc} {
-		b := recv(t, p.ctl)
-		var f map[string]any
-		if json.Unmarshal(b, &f) != nil || f["by"] != tidB || f["text"] != "selam" {
-			t.Fatalf("yayın %s", b)
+	time.Sleep(200 * time.Millisecond)
+	for _, p := range []*fakePeer{pa, pb, pc} {
+		select {
+		case b := <-p.ctl:
+			t.Fatalf("DC sohbeti yayıldı: %s", b)
+		default:
 		}
 	}
-	pc.h.Ctl(dc.Ctl{T: "chat", ID: "m2", Text: "gizli", TS: &ts})
-	select {
-	case v := <-m.roster.chats:
-		t.Fatalf("izleyici sohbeti gösterildi: %s", v)
-	case <-time.After(200 * time.Millisecond):
+	if !m.chatEmpty() {
+		t.Fatal("DC sohbeti arayüze ulaştı")
 	}
 }
 

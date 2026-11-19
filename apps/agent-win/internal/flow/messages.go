@@ -3,6 +3,7 @@ package flow
 import (
 	"errors"
 	"runtime"
+	"strconv"
 
 	"remote-support/agent-win/internal/api"
 	"remote-support/agent-win/internal/capture"
@@ -46,7 +47,6 @@ const (
 	statusTechBack     = "Teknisyen yeniden bağlandı."
 	statusWarn5min     = "Oturum 5 dakika içinde sona erecek."
 	statusCaptureFail  = "Ekran görüntüsü alınamadı; teknisyen ekranınızı göremiyor." // neden kodu yoksa
-	statusChatFail     = "Mesaj gönderilemedi."
 	statusNonce        = "Sayfanın süresi doldu; bilgiler yenilendi. Lütfen yeniden onaylayın."
 )
 
@@ -163,4 +163,40 @@ func endedMessage(reason string) Message {
 func ResolveMessage(err error) Message {
 	m, _ := classify(err)
 	return m
+}
+
+// ChatTexts P22-G oturum sohbeti ve AC-292 saklama satırı metinleri (tek tablo; mimari-p22 §9). Üç arayüz (Windows,
+// macOS, Linux) yalnız buradan okur.
+var ChatTexts = struct {
+	Heading        string // sohbet bölümü başlığı
+	HeaderNote     string // başlığın yanındaki not (sohbet saklanır)
+	Unavailable    string // chat.state{true} yok (eski sunucu), oturum bitti ya da bağlantı yeniden kuruluyor
+	SendFailed     string // chat.rejected (cap/invalid/internal); aynı metin yeniden gönderilebilir
+	TooFast        string // 5/sn gönderen kovası (yerel ya da sunucu `rate`)
+	ServerOutdated string // AC-292: resolve/tenant yanıtında chatRetentionDays yok/0 → onay düğmesi pasif
+	Send           string
+	Tech           string // teknisyen satırı öneki (ad ardından)
+	You            string
+	YouSending     string
+	YouFailed      string
+	Unreadable     string // süzgeçten sonra boş kalan gövde
+}{
+	Heading:        "Sohbet",
+	HeaderNote:     "Sohbet kayıt altına alınır",
+	Unavailable:    "Sohbet şu an kullanılamıyor",
+	SendFailed:     "Gönderilemedi — tekrar deneyin",
+	TooFast:        "Çok hızlı yazıyorsunuz",
+	ServerOutdated: "Sunucu güncel değil; lütfen daha sonra deneyin",
+	Send:           "Gönder",
+	Tech:           "Teknisyen",
+	You:            "Siz",
+	YouSending:     "Siz (gönderiliyor…)",
+	YouFailed:      "Siz (gönderilemedi)",
+	Unreadable:     "(görüntülenemeyen içerik)",
+}
+
+// ChatRetentionLine AC-292: onay düğmesinin hemen üstündeki satır. Metin contracts `CHAT_RETENTION_LINE(days)` ile
+// birebir (fikstür `texts.retentionLine90`).
+func ChatRetentionLine(days int) string {
+	return "Sohbet mesajları kayıt altına alınır ve " + strconv.Itoa(days) + " gün saklanır"
 }

@@ -2,10 +2,6 @@ package flow
 
 import (
 	"context"
-	"crypto/rand"
-	"encoding/json"
-	"errors"
-	"fmt"
 	"time"
 
 	"remote-support/agent-win/internal/api"
@@ -119,6 +115,8 @@ type session struct {
 	rec recState
 	// voice P28d sesli görüşme (voice.go).
 	voice voiceState
+	// chat P22-G oturum sohbeti (chat.go; yalnız Deps.ChatUI bağlıyken).
+	chat *sessionChat
 }
 
 func (s *session) run(ctx context.Context, jr *api.JoinResult) Outcome {
@@ -127,6 +125,7 @@ func (s *session) run(ctx context.Context, jr *api.JoinResult) Outcome {
 	s.redial = make(chan Conn, 1)
 	s.shareErr = make(chan error, 1)
 	s.cp = s.newClipPrint(ctx)
+	s.chat = newSessionChat()
 	s.peers = map[string]*techPeer{}
 	s.setCtrl("")
 	defer s.cleanup()
@@ -202,6 +201,7 @@ func (s *session) startReconnect(ctx context.Context) {
 	s.voiceDrop(VoiceTexts.Ended) // P28d O-PD-1/V-PD-7: kapıdan hemen sonra; göndericiler susar, mikrofon bırakılır, rıza silinir
 	s.cp.reset()                  // P28a O-P28a-1 m.4: bekleyen kimlikler silinir
 	s.resetFsrv()                 // P28b: yarım teklif/alım yerelde biter, fid'ler yeni sokette iptal edilir
+	s.chatOffline()               // P22-G: yeni sokette chat.state{true} gelene kadar giriş kapalı
 	// AC-250 (B-P8c2-4): yanıtı gelmemiş kayıt isteği soketle gitti; yeni soketteki teklif yeni istek doğurur.
 	s.bindingPending = false
 	s.phase = phReconnecting
@@ -262,10 +262,7 @@ func (s *session) onUser(ctx context.Context, ev Event) (Outcome, bool) {
 		}
 		return Outcome{Message: msgSelfEnd}, true
 	case EvChat:
-		b, err := chatMessage(ev.Text, s.d.Now())
-		if err != nil || !s.sendAll(b) { // P28c: müşterinin mesajı by'sız tüm eşlere
-			s.d.UI.Status(statusChatFail)
-		}
+		s.onChatUser(ctx, ev.Text) // P22-G: yalnız WS (chat.send); DC `chat` yok
 	case EvTechRemove:
 		s.onTechRemove(ctx, ev.TID)
 	case EvFileAccept, EvFileReject:
@@ -298,27 +295,6 @@ func (s *session) onUser(ctx context.Context, ev Event) (Outcome, bool) {
 		}
 	}
 	return Outcome{}, false
-}
-
-// chatMessage misafir chat çerçevesi; gönderimden önce aynı şemayla doğrulanır.
-func chatMessage(text string, now time.Time) ([]byte, error) {
-	id := make([]byte, 8)
-	if _, err := rand.Read(id); err != nil {
-		return nil, err
-	}
-	b, err := json.Marshal(struct {
-		T    string `json:"t"`
-		ID   string `json:"id"`
-		Text string `json:"text"`
-		TS   int64  `json:"ts"`
-	}{"chat", fmt.Sprintf("g%x", id), text, now.UnixMilli()})
-	if err != nil {
-		return nil, err
-	}
-	if _, err := dc.ParseCtl(b); err != nil {
-		return nil, errors.New("flow: geçersiz chat mesajı")
-	}
-	return b, nil
 }
 
 func (s *session) cleanup() {

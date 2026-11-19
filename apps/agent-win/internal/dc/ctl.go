@@ -21,7 +21,6 @@ const (
 const (
 	// CtlMaxBytes tek ctl mesajı üst sınırı (UTF-8 bayt).
 	CtlMaxBytes = 16 * 1024
-	chatMax     = 2000
 	annotMaxPts = 500
 	nameMax     = 255
 	// FileMaxBytesCap tenant max_file_mb tavanı (2048 MiB).
@@ -45,8 +44,6 @@ func MaxFileBytes(mb int) int64 {
 type Ctl struct {
 	T     string       `json:"t"`
 	ID    string       `json:"id,omitempty"`
-	Text  string       `json:"text,omitempty"`
-	TS    *int64       `json:"ts,omitempty"`
 	Tool  string       `json:"tool,omitempty"`
 	Color string       `json:"color,omitempty"`
 	Pts   [][2]float64 `json:"pts,omitempty"`
@@ -66,9 +63,9 @@ type Ctl struct {
 	B64  string `json:"b64,omitempty"`
 }
 
-// Tip başına izinli alanlar: zorunlu (+) ve isteğe bağlı (?). zod strictObject eşi.
+// Tip başına izinli alanlar: zorunlu (+) ve isteğe bağlı (?). zod strictObject eşi. P22-G (mimari-p22 §4.4): `chat`
+// yoktur — sohbet sunucu aktarımlı WS'tedir; DC `chat` bilinmeyen tip olarak düşer, kanal açık kalır.
 var ctlFields = map[string]struct{ req, opt []string }{
-	"chat":         {[]string{"id", "text", "ts"}, nil},
 	"annot.stroke": {[]string{"id", "tool", "color", "pts"}, nil},
 	"annot.laser":  {[]string{"x", "y"}, nil},
 	"annot.undo":   {nil, []string{"id"}},
@@ -144,9 +141,6 @@ func utf16Len(s string) int {
 func (m Ctl) valid() bool {
 	idOK := m.ID == "" || msgIDRe.MatchString(m.ID)
 	switch m.T {
-	case "chat":
-		l := utf16Len(m.Text)
-		return msgIDRe.MatchString(m.ID) && l >= 1 && l <= chatMax && *m.TS >= 0
 	case "annot.stroke":
 		if !msgIDRe.MatchString(m.ID) || !slices.Contains([]string{"pen", "arrow", "rect"}, m.Tool) ||
 			!slices.Contains([]string{"red", "yellow", "green", "blue"}, m.Color) || len(m.Pts) < 1 || len(m.Pts) > annotMaxPts {

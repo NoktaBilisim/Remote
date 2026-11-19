@@ -92,7 +92,6 @@ type UI interface {
 	ChooseShare(ctx context.Context, mons []signal.Monitor, def int, windows bool) (c ShareChoice, ok bool)
 	Active(techName string, mon signal.Monitor)
 	Status(msg string)
-	Chat(text string)
 	Annot(m dc.Ctl)
 	FileOffer(p transfer.Prompt)
 	FileOfferWithdrawn(fid string)
@@ -119,7 +118,7 @@ type EventKind int
 
 const (
 	EvEnd        EventKind = iota // "Oturumu bitir" / lobide "Vazgeç" / pencere kapatma
-	EvChat                        // Text
+	EvChat                        // Text: P22-G oturum sohbeti ham metni (doğrulama ve gönderim chat.go)
 	EvFileAccept                  // FID
 	EvFileReject                  // FID
 	EvFileCancel                  // süren alımı iptal
@@ -246,6 +245,9 @@ type Deps struct {
 	// VoiceActiveWait yerel Kabul'den sonra o callId için `voice.state{active}` bekleme süresi; dolarsa mikrofon
 	// bırakılır (D-PD-K1-2; varsayılan 5 sn; testte kısaltılır).
 	VoiceActiveWait time.Duration
+	// ChatUI P22-G (mimari-p22 §9; chat.go): oturum sohbeti bölümü. nil ya da Unattended → `rs.cap.schat1` bildirilmez,
+	// `chat.*` yok sayılır.
+	ChatUI ChatUI
 	// Admitted P8b-2: ilk `hello` geldiğinde bir kez çağrılır (talep modu `/ws/request`'i 1000 ile ancak bundan sonra
 	// kapatır; öncesindeki 1000 sunucuda "vazgeçme" sayılır). nil olabilir.
 	Admitted func()

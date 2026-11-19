@@ -141,7 +141,7 @@ func TestAC348P28aCapsFilter(t *testing.T) {
 		{"print.offer", []string{"file_transfer"}, false}, // print, file_transfer'dan bağımsız (§4.1)
 		{"print.offer", []string{"print"}, true},
 		{"file.offer", []string{"print"}, false},
-		{"chat", nil, true},
+		{"ping", nil, true},
 	} {
 		if got := Allowed(tc.t, tc.caps); got != tc.want {
 			t.Errorf("Allowed(%s, %v) = %v", tc.t, tc.caps, got)

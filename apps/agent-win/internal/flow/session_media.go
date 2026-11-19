@@ -16,6 +16,7 @@ func (s *session) firstShare(ctx context.Context) (Outcome, bool) {
 		return out, true
 	}
 	s.d.UI.Active(s.techName, s.activeMonitor())
+	s.pushChat() // P22-G: oturum penceresi açıldı; sohbet bölümü güncel durumla çizilir
 	s.openCapture()
 	return Outcome{}, false
 }
@@ -245,8 +246,8 @@ func (s *session) onChunk(c dc.Chunk, ok bool) {
 	}
 }
 
-// onCtl doğrulanmış ctl; P28c §4.5 misafir kapısı: kontrol sahibi olmayan eşten yalnız sohbet (izleyici değilse) ve
-// ping; dosya teklifi o eşe reddedilir.
+// onCtl doğrulanmış ctl; P28c §4.5 misafir kapısı: kontrol sahibi olmayan eşten yalnız ping; dosya teklifi o eşe
+// reddedilir. P22-G: DC `chat` yoktur (dc.ParseCtl bilinmeyen tip olarak düşürür; sohbet yalnız WS).
 func (s *session) onCtl(tid string, m dc.Ctl) {
 	if !s.ctlAllowed(tid, m.T) {
 		if tp := s.peers[tid]; m.T == "file.offer" && tp != nil {
@@ -257,8 +258,6 @@ func (s *session) onCtl(tid string, m dc.Ctl) {
 		return
 	}
 	switch m.T {
-	case "chat":
-		s.onTechChat(tid, m)
 	case "annot.stroke", "annot.laser", "annot.undo", "annot.clear":
 		s.d.UI.Annot(m)
 	case "clip.ready", "clip.data", "print.ready", "print.offer", "print.done":

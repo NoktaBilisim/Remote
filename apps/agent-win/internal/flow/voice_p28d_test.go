@@ -165,7 +165,7 @@ func startVoiceDeps(t *testing.T, op *fakeOpener, opt func(*Deps)) *voiceRig {
 	if opt != nil {
 		opt(&h.deps)
 	}
-	r := &fakeRoster{views: make(chan RosterView, 32), ok: true, chats: make(chan string, 8)}
+	r := &fakeRoster{views: make(chan RosterView, 32), ok: true}
 	h.deps.RosterUI = r
 	ui := &fakeVoiceUI{}
 	if op == nil {
