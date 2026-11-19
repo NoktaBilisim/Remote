@@ -148,9 +148,14 @@ func dialMedia(t *testing.T, tech *techPeer, caps []string, h Handlers, m *Media
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = guest.Close() })
+	// closing guest.Close'dan önce kurulur (Cleanup LIFO). Kök neden (2026-11-19): teknisyenin aday toplaması test
+	// gövdesi bittikten sonra da sürer; Cleanup misafiri kapatınca pion ICE ajanını nil'ler ve geç gelen aday
+	// "ICEAgent does not exist" döner. Kapanış başladıktan sonraki hata beklenen sonuçtur, test hatası değildir.
+	var closing atomic.Bool
+	t.Cleanup(func() { closing.Store(true) })
 
 	tech.pc.OnICECandidate(func(c *webrtc.ICECandidate) {
-		if c == nil {
+		if c == nil || closing.Load() {
 			return
 		}
 		j := c.ToJSON()
@@ -161,7 +166,7 @@ func dialMedia(t *testing.T, tech *techPeer, caps []string, h Handlers, m *Media
 		if j.SDPMLineIndex != nil {
 			msg["sdpMLineIndex"] = *j.SDPMLineIndex
 		}
-		if err := guest.AddRemoteICE(relay(t, msg).(signal.RemoteIce)); err != nil {
+		if err := guest.AddRemoteICE(relay(t, msg).(signal.RemoteIce)); err != nil && !closing.Load() {
 			t.Errorf("AddRemoteICE: %v", err)
 		}
 	})
