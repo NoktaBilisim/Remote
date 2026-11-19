@@ -136,6 +136,8 @@ export function ConsoleControlBar(p: {
   onCancel: () => void;
   onKeys: (id: SpecialComboId) => void;
   releaseRef: RefObject<HTMLButtonElement | null>;
+  /** Gözetimsiz oturum (bırakma notu onay istemez). */
+  unattended?: boolean;
 }) {
   if (p.lock) return <SeatLockedControl lock={p.lock} />;
   return (
@@ -150,6 +152,7 @@ export function ConsoleControlBar(p: {
           onCancel={p.onCancel}
           onKeys={p.onKeys}
           releaseRef={p.releaseRef}
+          unattended={p.unattended ?? false}
         />
       )}
     </>

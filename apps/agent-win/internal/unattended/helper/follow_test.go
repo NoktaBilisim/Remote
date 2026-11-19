@@ -31,10 +31,28 @@ func (d *deskName) get() (string, error) {
 
 type deskIndicator struct {
 	fakeIndicator
-	desk string
+	desk  string
+	mu    sync.Mutex
+	snaps []annotSnap
 }
 
 func (i *deskIndicator) Desktop() string { return i.desk }
+
+// Paint P30: son çizim anlık görüntüsü (painter).
+func (i *deskIndicator) Paint(s annotSnap) {
+	i.mu.Lock()
+	defer i.mu.Unlock()
+	i.snaps = append(i.snaps, s)
+}
+
+func (i *deskIndicator) last() (annotSnap, bool) {
+	i.mu.Lock()
+	defer i.mu.Unlock()
+	if len(i.snaps) == 0 {
+		return annotSnap{}, false
+	}
+	return i.snaps[len(i.snaps)-1], true
+}
 
 // streamMedia kaynaktan kare çeker ve sayar (P28c: yayın eşten bağımsız).
 type streamMedia struct {

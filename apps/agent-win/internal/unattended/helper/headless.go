@@ -14,7 +14,8 @@ import (
 // headless flow.UI'nin gözetimsiz uygulaması (mimari-p27 §5.6): ekran yok; kararlar otomatiktir ve akışa olay olarak
 // döner. Dosya teklifi → kabul (hedef `Gelen`), monitör isteği → kabul, paylaşım seçimi → birincil monitör. Kontrol
 // isteği akışta (flow.Deps.Unattended) doğrudan GRANTED{UNATTENDED} olur; buraya düşerse fail-closed ret.
-// Sohbet ve işaretleme gösterilmez (sohbet paneli yok — §5.6).
+// Sohbet gösterilmez (sohbet paneli yok — §5.6). P30 (mimari-p30): işaretleme göstergenin katmanında gösterilir
+// (Annot → liveIndicator; paylaşılan monitör Active/MonitorChanged ile izlenir).
 // P28u (mimari-p28u §7.5): kontrol her açılıp kapandığında durum borusuna `control` yazılır (müdahale koşulu). r3: tek
 // kip; gösterge etiketi kontrolle değişmez, dosya teklifi her zaman kabul (P27).
 type headless struct {
@@ -23,7 +24,9 @@ type headless struct {
 
 	st       *statusPipe
 	live     rosterLabel
-	techName string // P28c: sunucu gösterge metnindeki ad (tek sahipte ek yazılmaz)
+	draw     annotSink // P30: çizim durumu (liveIndicator)
+	ctrlTid  string    // P30: son roster'daki kontrol sahibi (değişince çizimler silinir)
+	techName string    // P28c: sunucu gösterge metnindeki ad (tek sahipte ek yazılmaz)
 	granted  atomic.Bool
 }
 
@@ -32,14 +35,36 @@ type rosterLabel interface {
 	SetNames(suffix string) bool
 }
 
+// annotSink teknisyen çizimlerini ve paylaşılan monitörü alan gösterge (liveIndicator).
+type annotSink interface {
+	Annot(m dc.Ctl)
+	SetSurface(id int)
+}
+
 // ShowRoster flow.RosterUI (P28c §6, V-PC-5): göstergede bağlı teknisyen adları; "Çıkar" yok. Ad
 // güvensizse ya da çizim doğrulanamazsa false → o teknisyenin eşi kurulmaz (Y-PC-4).
 func (h *headless) ShowRoster(v flow.RosterView) bool {
+	h.controllerChanged(v)
 	if h.live == nil {
 		return false
 	}
 	suffix, ok := namesSuffix(v, h.techName)
 	return ok && h.live.SetNames(suffix)
+}
+
+// controllerChanged P30 güvenlik turu: kontrol başka teknisyene geçince önceki sahibin çizimleri silinir (yeni sahip
+// onları konsolunda görmez ve kimliğe göre geri alamaz). Yalnız akış döngüsünden çağrılır.
+func (h *headless) controllerChanged(v flow.RosterView) {
+	ctrl := ""
+	for _, t := range v.Techs {
+		if t.Role == flow.MultiTexts.RoleControl {
+			ctrl = t.TID
+		}
+	}
+	if h.ctrlTid != "" && ctrl != h.ctrlTid && h.draw != nil {
+		h.draw.Annot(dc.Ctl{T: "annot.clear"})
+	}
+	h.ctrlTid = ctrl
 }
 
 // TechChat sohbet paneli yok (§5.6).
@@ -86,17 +111,31 @@ func (h *headless) AskCode(context.Context, string) (string, bool)       { retur
 func (h *headless) Welcome(context.Context, flow.Welcome) (string, bool) { return "", false }
 func (h *headless) Lobby(string, string)                                 {}
 func (h *headless) Connecting(string)                                    {}
-func (h *headless) Active(string, signal.Monitor)                        {}
 func (h *headless) Status(string)                                        {}
 func (h *headless) Chat(string)                                          {}
-func (h *headless) Annot(dc.Ctl)                                         {}
 func (h *headless) FileOfferWithdrawn(string)                            {}
 func (h *headless) FileProgress(int64, int64)                            {}
 func (h *headless) FileResult(transfer.Result)                           {}
 func (h *headless) Ended(flow.Message)                                   {}
 func (h *headless) ControlPromptClosed()                                 {}
 func (h *headless) MonitorPromptClosed()                                 {}
-func (h *headless) MonitorChanged(signal.Monitor)                        {}
+
+// Active P30: paylaşılan monitör katmanın yüzeyidir (K-P30-4).
+func (h *headless) Active(_ string, mon signal.Monitor) { h.MonitorChanged(mon) }
+
+// MonitorChanged P30: teknisyen monitör değiştirdi → katman yeni monitöre taşınır, çizimler korunur.
+func (h *headless) MonitorChanged(mon signal.Monitor) {
+	if h.draw != nil {
+		h.draw.SetSurface(mon.ID)
+	}
+}
+
+// Annot P30 (AC-494): yalnız kontrol sahibinin iletisi buraya ulaşır (flow ctlAllowed, AC-498).
+func (h *headless) Annot(m dc.Ctl) {
+	if h.draw != nil {
+		h.draw.Annot(m)
+	}
+}
 
 // ControlState kontrol açıldı/kapandı (akış döngüsünden).
 func (h *headless) ControlState(granted bool, _ string) {

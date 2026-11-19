@@ -509,7 +509,7 @@ Servis\Gelen\` (ACL: SYSTEM/Administrators tam, Authenticated Users okuma+yürü
 MOTW kuralları aynen. **r2 (Y-P27-2 m.3):** her dosya yazımında yardımcı `Gelen` tanıtıcısını açar,
 `GetFinalPathNameByHandle` sonucu beklenen tam yolla (`%ProgramData%\NoktaDestek Servis\Gelen`) eşleşmezse ya da yolun herhangi
 bir bileşeni reparse noktasıysa aktarımı reddeder (AC-249 kalıbı; SYSTEM bağlamında zorunlu); `.part` dosyası klasör tanıtıcısına
-göre (`NtCreateFile` RootDirectory ya da aynı denetimden sonra tam yol) açılır. Sohbet paneli yok (gözetimsiz; P22 sonrası değerlendirilir). Kontrol kısayolu (müşteri tarafı acil
+göre (`NtCreateFile` RootDirectory ya da aynı denetimden sonra tam yol) açılır. Sohbet paneli yok (gözetimsiz; P22 sonrası değerlendirilir). İşaretleme: P30 ile gösterilir (`docs/mimari-p30.md`, AC-494..499). Kontrol kısayolu (müşteri tarafı acil
 kapatma) yerine yerel anahtar geçerlidir.
 
 ### 5.7 Olay günlüğü (AC-273)

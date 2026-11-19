@@ -32,6 +32,42 @@ Biçim [Keep a Changelog](https://keepachangelog.com/tr/1.1.0/), sürümleme [Se
 - **Dokümanlar:** kullanım kılavuzu macOS bölümü (ilk açılış, her sürümde onay ve izinler, eski kayıt, Hakkında imza satırı,
   teknisyen ve Super Admin notları), README, DATASHEET'ten "notarize" iddiası kaldırıldı.
 
+### Eklendi — P30 gözetimsiz bağlantıda ekrana çizim, istemci/servis 0.23.0 (AC-494..499)
+
+- **Gözetimsiz cihazda çizim:** kontrol sahibi teknisyenin konsolda yaptığı kalem, ok, dikdörtgen çizimleri ve lazer
+  noktası cihazda paylaşılan monitörde aynı konum, renk ve kalınlıkta görünür; lazer 1 sn'de söner, "Geri al" ve
+  "İşaretleri temizle" cihazdan da kaldırır. Davranış Hızlı Destek (Windows) ile aynıdır; en çok 500 çizim tutulur.
+- **Katman:** tıklama geçirgen, odak almaz, ekran yakalamaya girmez (teknisyen görüntüsünde çift çizim yok). Gösterge
+  (AC-294) her zaman çizimin üstündedir: katman gösterge kenarı/etiketi içine boyamaz, en üste alma turunda önce katman
+  sonra gösterge alınır. Katman kurulamazsa yalnız çizim görünmez; gösterge doğrulaması ve `indicator_failed` değişmez.
+- **Masaüstü geçişi:** kilit, oturum açma ve UAC ekranında katman göstergeyle birlikte yeniden kurulur ve çizimler yeniden
+  boyanır; lazer geçişte düşer. Monitör ya da çözünürlük değişince çizimler yeni dikdörtgene taşınır, korunur.
+- Çizim yalnız kontrol sahibi eşten kabul edilir (`ctlAllowed`). Konsolda kural katılımlıyla aynı: kontrol sizdeyken
+  araçlar görünmez; **Kontrolü bırak** → çiz → **Kontrole devam** (gözetimsizde onaysız).
+- Sunucu, web, `packages/contracts`, DB, env, yetki ve audit değişmedi.
+
+### Değişti — P30
+
+- İşaretleme modeli ve Windows GDI boyaması yeni paylaşılan pakete taşındı (`apps/agent-win/internal/annot`); Hızlı
+  Destek (Windows/macOS/Linux) ve gözetimsiz yardımcı aynı kodu kullanır. Yardımcı sınır kuralları (AC-341, tek pencere
+  sınıfı `NoktaDestekGosterge`) değişmedi.
+- Hızlı Destek Windows'ta da 500 çizim sınırı geçerli; noktasız çizim ve konumsuz lazer yok sayılır.
+
+### Bilinen sınırlamalar — P30
+
+- Yakalama dışlama Windows 10 2004+ ister; daha eskide çizim teknisyen görüntüsüne de girer (gösterge ile aynı önkoşul).
+- Güvenli masaüstünde (Winlogon) katman kurulamazsa o ekranda çizim görünmez; bağlantı ve gösterge etkilenmez.
+- Çizimler oturum kaydına girmez, yeniden bağlanmada korunmaz; cihaz kullanıcısı çizimleri kapatamaz.
+- Hızlı Destek'te monitör değişiminde çizimler hâlâ temizlenir (konsolla bilinen fark).
+- Windows CI katman testi ve gerçek Windows'ta staging elle turu (çizim, geri al/temizle, Win+L ve UAC, monitör
+  değişimi, yüksek DPI) yayından önce doğrulanacak.
+
+### Düzeltildi — istemci/servis 0.22.1 (PR #34)
+
+- Gözetimsiz bağlantıda kontrol verilemiyordu: cihaz kontrolü yerelde açıyor ama `control.state {GRANTED, UNATTENDED}`
+  giden doğrulamada reddedildiği için sunucuya hiç gitmiyordu; konsol "Kontrol bekleniyor"da kalıyordu (P27'den beri).
+  GRANTED kaynağı artık contracts ile aynı küme (`UI`, `UNATTENDED`); GRANTED gönderilemezse kontrol yerelde kapatılır.
+
 ### Eklendi — P29 istemci otomatik güncelleme, istemci/servis 0.22.0 (AC-470..493, ADR-0040)
 
 - **İmzalı güncelleme:** CI her ikili için kanonik JSON manifest (`update-<component>-<platform>-<arch>.json`) üretir ve

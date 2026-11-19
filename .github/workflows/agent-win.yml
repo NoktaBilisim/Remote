@@ -180,6 +180,25 @@ jobs:
           if grep -- '--- SKIP: TestAC249' "$RUNNER_TEMP/ac248-249.txt"; then
             echo "::warning::AC-249 testlerinden SKIP olan var (yukarıdaki satırlar)"
           fi
+      # P30 (mimari-p30 §9, AC-495/496; qa-raporu P30 Tur 1): gözetimsiz yardımcının işaretleme katmanı testleri gerçek
+      # gösterge çizer. Günlükte -v ile görünür; üç test de PASS olmalı. SKIP (runner'da gösterge çizilemedi: etkileşimsiz
+      # oturum) ya da eksik PASS adımı kırmızı yapar — AC-495'in otomatik kanıtı yalnız buradan gelir.
+      - name: P30 katman testleri (-v; SKIP kabul edilmez)
+        shell: bash
+        run: |
+          out="$RUNNER_TEMP/p30.txt"
+          go test -count=1 -v -run 'TestAC495P30|TestAC496P30|TestAC342P30Tick' ./internal/unattended/helper/ | tee "$out"
+          bad=0
+          for t in TestAC495P30LayerStyleAndCaptureExclusion TestAC496P30LayerFailureKeepsIndicator TestAC342P30TickUnderAnnotFlood; do
+            if grep -q -- "--- PASS: $t (" "$out"; then continue; fi
+            if grep -q -- "--- SKIP: $t (" "$out"; then
+              echo "::error::$t SKIP: runner'da gösterge çizilemedi (etkileşimsiz oturum); AC-495 kanıtı staging elle turuna devredilmeli"
+            else
+              echo "::error::$t PASS değil / koşmadı (ad değişti mi? sözleşme: docs/implementation.md P30)"
+            fi
+            bad=1
+          done
+          exit "$bad"
       # P28a K7 (mimari-p28 §9–§10, ADR-0031; AC-345/350): pano (internal/clip) + yazdırma (internal/printing: Windows.Data.Pdf
       # fikstürü testdata/k0.pdf, kısıtlı işleyici süreç, GDI) + clipprint testleri günlükte PASS/SKIP görünür koşar. "P28a K0/K4"
       # step summary tablosunu yukarıdaki `go test ./...` adımı yazar (printing TestMain); burada GITHUB_STEP_SUMMARY boş

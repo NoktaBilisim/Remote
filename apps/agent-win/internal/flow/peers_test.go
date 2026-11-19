@@ -323,3 +323,31 @@ func TestP28cIceRestartKeepsPeersAndSendsNothing(t *testing.T) {
 		t.Fatalf("yeniden başlatma offer'ı yanlış eşe: %q", sdp)
 	}
 }
+
+// AC-498 (P30, mimari-p30 K-P30-5): işaretleme yalnız kontrol sahibinden arayüze (gözetimsizde göstergeye) ulaşır;
+// katılımcı ve izleyicinin annot.* iletileri uygulanmaz.
+func TestAC498AnnotOnlyFromController(t *testing.T) {
+	m := startMulti(t, true)
+	m.c.toClient <- rosterOf(tidA, [2]string{tidA, "participant"}, [2]string{tidB, "participant"}, [2]string{tidC, "observer"})
+	recv(t, m.roster.views)
+	pa, pb, pc := m.offer(t, tidA), m.offer(t, tidB), m.offer(t, tidC)
+	x, y := 0.5, 0.5
+	for _, p := range []*fakePeer{pb, pc} {
+		p.h.Ctl(dc.Ctl{T: "annot.stroke", ID: "s1", Tool: "pen", Color: "red", Pts: [][2]float64{{0, 0}}})
+		p.h.Ctl(dc.Ctl{T: "annot.laser", X: &x, Y: &y})
+		p.h.Ctl(dc.Ctl{T: "annot.clear"})
+	}
+	time.Sleep(200 * time.Millisecond)
+	for done := false; !done; {
+		select {
+		case c := <-m.h.ui.calls:
+			if strings.HasPrefix(c, "annot:") {
+				t.Fatalf("kontrol sahibi olmayan eşin işaretlemesi uygulandı: %s", c)
+			}
+		default:
+			done = true
+		}
+	}
+	pa.h.Ctl(dc.Ctl{T: "annot.stroke", ID: "s2", Tool: "pen", Color: "red", Pts: [][2]float64{{0, 0}}})
+	expectCall(t, m.h.ui, "annot:annot.stroke")
+}

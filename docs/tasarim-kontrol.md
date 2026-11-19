@@ -1575,3 +1575,27 @@ kayıt yedeği, kaydedici bastırmaya karşı kaynak taraflı ikinci kayıt, sak
 - 7. CI/CD / rollback: servis kurtarma `PendingFileRenameOperations` yerine SCM `RUN_COMMAND` → `--update-recover` (K0s doğrular); gözetmen mutex + nonce (T-3, T-4).
 - 5. Bildirim / AV: `.eski` gizli değil, yürütülemez uzantı; MOTW kopyalanır (T-8).
 - 9. Riskler: T-7 (ara sürüme replay; istemci manifesti ≤ 30 g) ve T-9 (`?ref=`) kabul; donma saldırısı kalan risk (T-12). AC-490 IDOR metni düzeltildi.
+
+## P30 — Gözetimsiz bağlantıda ekrana çizim (2026-11-19, r1 — güvenlik tasarım turu bekliyor, `docs/mimari-p30.md`, AC-494..AC-499)
+
+| Madde                                                      | Karar                                                                                                           |
+| ---------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------- |
+| 1. Kimlik / şifre / oturum / davet / API anahtarı          | Kapsam dışı: giriş ve oturum değişmez                                                                           |
+| 1. Yetkilendirme / IDOR                                    | Kapsamda: yeni yetki yok; çizim yalnız kontrol sahibi eşten (`ctlAllowed`, AC-498)                              |
+| 2. Veri modeli / migration / indeks / para / tarih / dosya | Kapsam dışı: DB değişmez; çizim yalnız yardımcı belleğinde, süreç bitince silinir                               |
+| 2. Audit izi                                               | Kapsam dışı (gerekçe): işaretleme katılımlıda da audit'lenmez; bağlantı audit'i ve olay günlüğü 1001/1002 aynen |
+| 2. Multi-tenant                                            | Kapsam dışı: sunucu yolu yok (DC eşler arası)                                                                   |
+| 3. API / hata / sayfalama / webhook / CORS                 | Kapsam dışı: sözleşme değişmez (`contracts/dc.ts` aynen)                                                        |
+| 3. Rate limit                                              | Kapsamda: mevcut DC ileti sınırları + `MaxStrokes` 500                                                          |
+| 4. Tehdit modeli                                           | Kapsamda: mimari-p30 §5 (yanıltıcı çizim, gösterge örtme, katman çökmesi)                                       |
+| 4. Girdi doğrulama                                         | Kapsamda: `dc.ParseCtl` (≤ 500 nokta), nil lazer denetimi                                                       |
+| 4. Gizli bilgi / hassas veri / log / başlıklar             | Kapsam dışı: yeni gizli/kişisel veri yok                                                                        |
+| 4. Bağımlılık taraması                                     | Kapsamda: yeni bağımlılık yok; AC-341 sınır testi                                                               |
+| 5. 5 durum / form / responsive / a11y / token              | Kapsam dışı: web değişmez; Windows katmanı renkleri mevcut 4 renk                                               |
+| 5. Bildirim                                                | Kapsam dışı                                                                                                     |
+| 6. Performans                                              | Kapsamda: olay güdümlü boyama, çift tampon (mimari-p30 §7)                                                      |
+| 7. Log / metrik / yedek / runbook                          | Kapsam dışı: yeni metrik yok; yayın mevcut runbook akışı                                                        |
+| 7. Ortamlar / CI / rollback                                | Kapsamda: 0.23.0, Windows CI testi, geri dönüş 0.22.1                                                           |
+| 8. KVKK / lisans                                           | Kapsam dışı: yeni veri/bağımlılık yok                                                                           |
+| 9. Kapsam dışı / AC / riskler / DoD / doküman              | Kapsamda: gereksinimler §12, AC-494..499, R-P30-1..3, kılavuz + CHANGELOG + PDF                                 |
+| Sonra                                                      | Hızlı Destek'te monitör değişiminde çizimlerin korunması                                                        |
