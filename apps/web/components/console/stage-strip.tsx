@@ -39,14 +39,12 @@ export function StageStrip({
   view,
   content: c,
   showing,
-  capturing,
 }: {
   stripRef: RefObject<HTMLDivElement | null>;
   fit: StripFit;
   view: StripView;
   content: StripContent;
   showing: boolean;
-  capturing: boolean;
 }) {
   return (
     <div
@@ -56,8 +54,8 @@ export function StageStrip({
       data-compact={fit.compact}
       data-tight={fit.tight}
     >
-      {/* Kontrol sırasında işaretleme zaten pasif: şeritte yer kaplamaz (TEST-P7-2) */}
-      {showing && view.mode !== "actual" && !capturing && c.tools}
+      {/* AC-498 r2: işaretleme kontrol sırasında ve %100 görünümde de kullanılabilir */}
+      {showing && c.tools}
       {c.controlBar}
       {showing && c.shareMethod === "WGC" && <WindowShareBadge method={c.shareMethod} />}
       <StripViewArea fit={fit} view={view} content={c} showing={showing} />

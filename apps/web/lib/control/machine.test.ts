@@ -7,6 +7,7 @@ import {
   canRequestMonitor,
   controlReducer,
   cooldownLeft,
+  hasControl,
   initialControl,
   isCapturing,
   isUnexpectedGrant,
@@ -363,5 +364,26 @@ describe("P7 kontrol makinesi", () => {
     expect(b.phase).toBe("idle");
     // Bekleme bitmişse faz idle kalır
     expect(controlReducer(initialControl, { type: "restore", saved: { requests: 1, deniedAt: 1000 }, now: 40_000 }).phase).toBe("idle");
+  });
+});
+
+describe("AC-498 r2: kontrol açıkken çizim", () => {
+  it("araç seçiliyken yakalama yok, kontrol açık kalır; araç kapanınca yakalama döner (yeni istek yok)", () => {
+    const s = run([req(), granted]);
+    expect(isCapturing(s, true)).toBe(false);
+    expect(hasControl(s)).toBe(true);
+    expect(canRelease(s)).toBe(true);
+    expect(isCapturing(s, false)).toBe(true);
+    // Araç durumu makineye olay olarak girmez: istek sayacı ve faz aynı, yeni istek yapılamaz (zaten açık)
+    expect(s.requests).toBe(1);
+    expect(canRequest(s, 2000)).toBe(false);
+  });
+
+  it("kontrol yokken veya yetki daralınca çizim yakalama açmaz", () => {
+    expect(isCapturing(initialControl, false)).toBe(false);
+    expect(hasControl(initialControl)).toBe(false);
+    const f = run([req(), granted, msg({ t: "control.revoke", reason: "permission" })]);
+    expect(hasControl(f)).toBe(false);
+    expect(isCapturing(f, false)).toBe(false);
   });
 });

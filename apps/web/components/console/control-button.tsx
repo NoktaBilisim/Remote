@@ -35,6 +35,7 @@ export function ControlButton({
   onKeys,
   releaseRef,
   unattended = false,
+  drawing = false,
 }: {
   s: ControlState;
   now: number | null;
@@ -47,6 +48,8 @@ export function ControlButton({
   releaseRef: RefObject<HTMLButtonElement | null>;
   /** Gözetimsiz oturum: bırakınca müşteri onayı yok, "Kontrole devam" kontrolü doğrudan geri alır (P30). */
   unattended?: boolean;
+  /** AC-498 r2: çizim aracı seçili — kontrol açık kalır, fare/klavye/özel tuşlar duraklatıldı (ipucu görünür). */
+  drawing?: boolean;
 }) {
   const noteId = useId();
   const mainRef = useRef<HTMLButtonElement>(null);
@@ -78,10 +81,11 @@ export function ControlButton({
           <MousePointerBan aria-hidden className="size-4" />
           {t("p7.release")}
         </Button>
-        <SpecialKeys onKeys={onKeys} />
+        {/* Çizim modunda özel tuşlar uzak bilgisayara gitmez → menü gizli (ipucuna yer açar) */}
+        {!drawing && <SpecialKeys onKeys={onKeys} />}
       </>
     );
-    note.push(t("p7.kbHint"));
+    note.push(drawing ? t("p7.drawMode") : t("p7.kbHint"));
   } else if (s.phase === "requested") {
     // AC-47 metni birebir "Kontrol bekleniyor"; açıklama alt satırda (QA-P7-6)
     body = (
@@ -126,13 +130,18 @@ export function ControlButton({
 
   return (
     // `contents`: öğeler sahne şeridinde doğrudan akar (dar ekranda "Görünüm" menüsüyle aynı satıra sarabilir)
-    <div className="contents" data-testid="control-bar" data-phase={s.forbidden ? "forbidden" : s.phase}>
+    <div
+      className="contents"
+      data-testid="control-bar"
+      data-phase={s.forbidden ? "forbidden" : s.phase}
+      data-drawing={s.phase === "granted" && drawing ? "on" : undefined}
+    >
       {body}
       <p
         id={noteId}
         role="status"
         data-testid="control-note"
-        className={`${s.phase === "granted" && !s.forbidden ? "sr-only" : `${(s.endedBy === "osPermission" || s.endedBy === "waylandNoControl") && s.phase === "ended" ? "line-clamp-3 max-w-80" : "line-clamp-2 max-w-64"} min-w-0 text-xs`} ${s.error || s.notice || s.forbidden ? "text-warning" : "text-fg-muted"}`}
+        className={`${s.phase === "granted" && !s.forbidden && !drawing ? "sr-only" : `${(s.endedBy === "osPermission" || s.endedBy === "waylandNoControl") && s.phase === "ended" ? "line-clamp-3 max-w-80" : "line-clamp-2 max-w-64"} min-w-0 text-xs`} ${s.error || s.notice || s.forbidden ? "text-warning" : "text-fg-muted"}`}
       >
         {note.join(" · ")}
       </p>

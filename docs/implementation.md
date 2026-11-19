@@ -17488,3 +17488,35 @@ Açık notlar (düzeltme turu):
   (job 135866568300) `internal/unattended/helper` Windows'ta 7,7 sn sürdü (linux ~2,5 sn); iki katman testinin ~3,4 sn'lik
   beklemeleri bunu açıklar, yani büyük olasılıkla SKIP değil PASS oldular (çıkarım; günlükte -v yoktu).
 - CI "oynaklık" kayıtları hipotezdir: `test/` ve `remember`/`capture`/`diag` paketleri 811eab8'den bu yana değişmedi.
+
+## P30b — AC-498 r2: kontrol açıkken çizim (frontend-dev, 2026-11-20)
+
+Yalnız web konsolu; sunucu, Go istemci, yetki ve audit değişmedi. Hızlı Destek ve gözetimsiz oturumda aynı yol (`ConsoleStage`).
+
+**Davranış:** yakalama kararı `isCapturing(control, drawing)` = kontrol verildi (`hasControl`) VE etkin çizim aracı yok.
+Araç seçimi kontrol makinesine olay olarak girmez → seçmek/kapatmak yapısal olarak `control.release` / `control.request`
+üretemez. Araç seçiliyken: kırmızı çerçeve ve "Kontrol sizde" + "Kontrolü bırak" kalır, `useRemoteInput` sökülür
+(temizlikte takılı tuş güvencesi `k.release_all` bir kez gider — bilinçli), Özel tuşlar menüsü gizlenir ve `comboSender`
+göndermez, kontrol notu görünür "Çizim modu — fare ve klavye duraklatıldı" (`p7.drawMode`). Araç aynı düğmeyle veya
+Esc ile kapanır (diyalog/açık `<details>` menü içindeki Esc onlarındır) → yakalama geri gelir, müşteri onayı yok.
+P28c: kontrol sahibi değilse araç çubuğu pasif + kilit metni (değişmedi); `activeDrawTool` tek kaynak.
+
+**Rotalar:** yeni rota yok — `/sessions/[id]/console` (auth gerekir) sahnesi değişti.
+
+**Değişen dosyalar:** `apps/web/lib/control/machine.ts` (`hasControl`, `isCapturing(s, drawing)`),
+`app/(panel)/sessions/[id]/console/console-stage.tsx` (`activeDrawTool`, Esc kancası, `drawing` akışı),
+`console-parts.tsx` (`p7.annotOff` kaldırıldı), `components/console/control-button.tsx` (`drawing` prop),
+`components/console/stage.tsx` (`held` = çerçeve / `capturing` = girdi; `data-capture="on|paused|off"`; medya kabı),
+`components/console/stage-strip.tsx` (araçlar kontrolde ve %100'de görünür), `messages/tr.json`; testler:
+`lib/control/machine.test.ts`, `console-stage.test.tsx` (yeni), `e2e/p7-control.spec.ts`.
+
+**%100 görünüm:** eski katman `absolute inset-0` ile kaydırma kabının görünür kutusuna oturuyordu (video kutusuna değil)
+→ koordinat yanlış olurdu. Video + katman artık her iki kipte aynı `stage-media` kabında (video yeniden takılmaz):
+%100'de kap `w-max` ile videoyu sarar, katman video kutusunun tamamını (kaydırılan kısım dahil) kaplar; `contentRect`
+tam kutuyu verir. e2e: kaydırılmış (300, 200) görüntüde görünür (50, 50) çizimi uzak (350, 250) ±1 px.
+
+**Sapmalar:** (1) TEST-P7-2 "kontrol sırasında şerit tek satır" artık geçerli değil: araç çubuğu kontrolde de şeritte,
+1280 px'te şerit iki satır (~123 px); iddia "en çok iki satır ve görüntüyü kapatmaz" olarak güncellendi (gereksinim
+araçların kontrolde görünmesini istiyor). (2) `data-control` kontrol açıklığını (çerçeve) izler; girdi yakalama ayrıca
+`data-capture`. (3) Çizim modunda çerçeve kırmızı kalır (kontrol müşteride açık). (4) Bileşen testleri SSR işaretlemesiyle
+(jsdom yok, bağımlılık eklenmedi); Esc ve gerçek olaylar Playwright'ta.

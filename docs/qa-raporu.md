@@ -1,3 +1,88 @@
+# QA Raporu — P30b Tur 1 (AC-498 r2: kontrol açıkken çizim)
+
+DURUM: GEÇTİ. Güvenlik (bu paket için tek denetim): Kritik 0 / Yüksek 0 / Orta 0 / Düşük 3.
+Kapsam: `git diff origin/main...HEAD -- apps/web DESIGN.md` (dal `p30b-kontrolde-cizim`, b502558). Sunucu, Go istemci,
+`packages/` diff'i boş; yetki/audit değişmedi.
+
+## Test sonucu
+
+- `pnpm --filter @remote/web lint` temiz, `typecheck` temiz, `test` → 69 dosya / 664 test geçti, skip 0.
+- `npx playwright test e2e/p7-control.spec.ts` → 14 geçti, 14 skip. Skip'ler `[mobile]` projesi: dosya başında
+  `test.skip(project !== "desktop", "konsol masaüstü akışı")`, gerekçeli ve eski. Tam e2e koşusu: 650 geçti, 290 skip
+  (proje matrisi), kırmızı yok.
+- Değişen dosyalarda `prettier --check` temiz.
+- `TestAC498AnnotOnlyFromController` (Go) bu makinede koşulmadı (go yok). Go/sunucu/packages diff'i boş; P30 tur 2
+  raporunda `internal/flow` paketi ok. Test adı ayrıca görülmedi.
+
+## Kabul kriterleri
+
+| AC        | Durum | Kanıt                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| --------- | ----- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| AC-498 r2 | ✅    | Birim `console-stage.test.tsx` (5 test: paused + çerçeve + ipucu + özel tuş gizli + release/request çağrılmaz; araç kapalı → `role=application`; P28c kilitte araç etkisiz; `activeDrawTool`; `comboSender` çizimde göndermez), `machine.test.ts` "AC-498 r2" (2 test). e2e `AC-498 r2: kontrol açıkken kalemle çizim…`: `annot.stroke` normalize koordinat, sürükleme + "a" tuşu input DC'ye gitmez (`k` yok, çizim yolundaki `m.move` yok), Esc ve düğmeyle geri dönüş, `techSent == ["control.request"]`, `controlRequests == 1`, kapı açık, axe temiz. e2e `%100 görünümde…`: kaydırılmış görüntüde (350, 250) ±1 px. |
+
+Gözetimsiz: aynı `ConsoleStage` yolu (`agent` = AGENT misafiri), gösterge ve kontrol kuralları istemci/sunucuda değişmedi.
+Bu kip için ayrı bir çizim e2e testi yok (bkz. Öneriler).
+
+## Güvenlik incelemesi (kaçak kanallar)
+
+| Kanal                       | Sonuç | Not                                                                                                                                                                                                   |
+| --------------------------- | ----- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Fare/klavye dinleyicileri   | ✅    | `useRemoteInput({active: f.capturing})`, `capturing = held && !drawing` → effect sökülür; dinleyici kalmaz                                                                                            |
+| Takılı tuş/düğme            | ✅    | Effect temizliği basılı düğmeler için `m.btn down:false` ve `k.release_all` gönderir (e2e bunu doğruluyor)                                                                                            |
+| Pointer capture             | ✅    | Capture `stage-scroll`'da, dinleyiciler sökülünce olay üretmez. Çizim katmanı `input` yalnız `!capturing` iken bağlı                                                                                  |
+| Özel tuşlar / `comboSender` | ✅    | Menü gizli ve `comboSender(…, capturing=false)` erken döner (birim test)                                                                                                                              |
+| Keyboard Lock (tam ekran)   | ✅    | `active` false → `kb.unlock()`                                                                                                                                                                        |
+| Odak kaybı / Esc            | ✅    | Esc belge düzeyinde yalnız araç kapatır. Sonraki keyup e2e'de `k` iletisi üretmedi                                                                                                                    |
+| Pano                        | ✅    | Pano yalnız açık düğmelerle (clip-print panel), girdi kanalı değil; diff'te değişiklik yok                                                                                                            |
+| control.request/release     | ✅    | Araç durumu makineye olay olarak girmiyor (`isCapturing(s, drawing)` saf). e2e tek istek doğruluyor                                                                                                   |
+| P28c kilit                  | ✅    | `activeDrawTool` seatLock'ta null; araç çubuğu `disabledHint=lock`; `stageControl.active = canControl && hasControl` (eski `isCapturing(c)` ile aynı anlam). Sunucu `ctlAllowed` + Go testi değişmedi |
+
+Düşük bulgular (kabul edilebilir, zorunlu değil):
+
+- G-L1: `activeDrawTool` `collab.ready` false olursa aracı yok sayar ve yakalama kullanıcı eylemi olmadan dönebilir.
+  `ready` = `channels !== null`. `channels` yalnız iki kanal açılınca set edilir (`peer.ts:73`) ve yalnız `resetPeer`'da
+  null olur (`use-tech-peer.ts:30-38`). Aynı yer `input` kanalını da null yapar, bu yüzden aynı anda girdi gidemez.
+  Yeni peer'de `draw.tool` seçili kalır ve kanallar açılınca araç yeniden etkin olur. Erişilebilir bir kaçak yol görülmedi.
+- G-L2: %100 görünümde `stage-scroll` `tabIndex=0` (region) alıyor ve `AnnotLayer` pointerdown `preventDefault` yapmıyor.
+  Bu yüzden çizim sahneye odak veriyor. Esc ile çıkınca dinleyiciler yeniden bağlanıyor; Esc keyup (basılı tutulursa
+  tekrar keydown'lar) uzak bilgisayara `k Escape` olarak gidebilir. Yakalama bilerek geri açıldığı için sızıntı değil, ama
+  e2e bunu yalnız Sığdır'da, odak sahnede değilken doğruluyor.
+- G-L3: Esc dinleyicisi belge düzeyinde. Sohbet kutusunda Esc de aracı kapatır. Tam ekranda Esc tarayıcı tam ekranından
+  da çıkar. Görünüm menüsü (`ui/menu`) içindeki Esc'in aracı kapatıp kapatmadığı doğrulanmadı.
+
+## Düzeltilmeli
+
+Yok.
+
+## Definition of Done
+
+| Madde                                                    | ✅/❌ | Not                                                                                   |
+| -------------------------------------------------------- | ----- | ------------------------------------------------------------------------------------- |
+| AC kodlandı, testle kanıtlı                              | ✅    | Birim + e2e (yukarıda)                                                                |
+| Lint / tip / birim / e2e yeşil                           | ✅    | Go testi yerelde koşulmadı (değişmedi)                                                |
+| Kapsam dışı kod / spekülatif soyutlama yok               | ✅    | `p7.annotOff` ve `capturing` prop'ları kaldırıldı, ölü kod yok                        |
+| Yeni bağımlılık yok                                      | ✅    | Bileşen testi SSR ile yazıldı, jsdom eklenmedi                                        |
+| Ham renk/spacing yok, token kullanımı                    | ✅    | Yalnız mevcut sınıflar (`border-control-frame`, `text-fg-muted`)                      |
+| a11y: durum metni `role=status`, renk tek başına değil   | ✅    | İpucu görünür not satırında; axe e2e temiz                                            |
+| DESIGN.md / implementation.md güncel, sapmalar gerekçeli | ✅    | TEST-P7-2 iki satıra gevşetildi (gerekçeli, gereksinimin sonucu); `data-capture` yeni |
+| Yetki/audit/sunucu değişmedi                             | ✅    | Diff boş                                                                              |
+
+## Öneriler (zorunlu değil)
+
+- G-L1: Peer sıfırlanınca seçili aracı da sıfırla (yeni bağlantıda sürpriz mod geçişi olmasın).
+- Gözetimsiz oturum için `unattended.spec.ts`'e kısa bir "kontrol + kalem → annot.stroke, input yok" testi eklenmeli.
+  Şu an aynı bileşen yolu kanıtı dolaylı.
+- G-L2/G-L3: Esc'te `preventDefault` + sonraki keyup'ı yut ve Esc'i yalnız sahne/araç çubuğunda dinle.
+
+## Olumlu
+
+Yakalama kararının makineye olay olarak değil saf `isCapturing(s, drawing)` parametresiyle girmesi, `control.request`
+ve `control.release` sızıntısını yapısal olarak imkânsız kılıyor. e2e "girdi yok" iddiası `k.release_all` sonrasından
+sayılıyor ve kanal sıralılığı pozitif bir tıkla sabitleniyor. %100 koordinat düzeltmesi (`stage-media`) gizli bir hatayı
+da kapattı.
+
+---
+
 # QA Raporu — P30 Tur 2
 
 DURUM: DÜZELTİLMELİ. Kodda düzeltilecek madde yok. Karar yalnız Windows CI kanıtını bekliyor (PR #35, f713f54,
