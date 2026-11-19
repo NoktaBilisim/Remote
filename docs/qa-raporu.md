@@ -6,43 +6,50 @@ bu tur GEÇTİ sayılır. SKIP ya da kırmızı olursa AC-495 kanıtsız kalır 
 Staging elle maddeleri (≤ 1 sn, çift çizim, Winlogon/UAC, DPI) test-operatoru turuna kalır.
 
 ## Test sonucu
+
 - Docker `golang:1.26` (f713f54): `gofmt -l .` boş; `go vet ./...` ve `GOOS=windows go vet ./...` temiz.
 - `go test -race ./internal/annot/ ./internal/unattended/... ./internal/flow/ ./internal/ui/uicore/` → 4 paket ok.
 - AC-341 ve AC-431 sınır testleri (4 test) PASS; dosyalar değişmemiş.
 - CI: run 44615200064 "go test (Windows)" **bekliyor**. Sonuç `gh run view --job 135881906224 --log | grep -E -- '--- (PASS|SKIP): TestA(C495|C496|C342)P30'` ile okunacak.
 
 ## Tur 1 maddesinin kapanışı
-| Madde | Durum | Not |
-|---|---|---|
+
+| Madde                                                              | Durum                            | Not                                                                                                                                                                                                                                                          |
+| ------------------------------------------------------------------ | -------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | 1 [devops] P30 katman testleri ayrı `-v` adımı, SKIP kabul edilmez | ✅ (iş akışı) / bekliyor (sonuç) | `agent-win.yml:180-195`: üç test (`TestAC495P30LayerStyleAndCaptureExclusion`, `TestAC496P30LayerFailureKeepsIndicator`, `TestAC342P30TickUnderAnnotFlood`) tek tek PASS aranır; SKIP ya da eksik PASS `::error::` ve exit 1 verir. Beklenen denetim tam bu. |
 
 ## Kabul kriterleri
-| AC | Durum | Kanıt / eksik |
-|---|---|---|
-| AC-494 | ✅ (otomatik) | Tur 1 testleri. `TestAC494AnnotEdges` 20 000 nokta bütçesini de kapsar (annot_test.go). |
-| AC-495 | ⚠️ CI bekliyor | Kod: `SetLayered` → `ExcludeFromCapture` sonucu ve `DisplayAffinity` denetleniyor; başarısızsa katman kurulmuyor (`layerOff`), oturum sürüyor. |
-| AC-496 | ✅ (birim) / ⚠️ (Windows CI bekliyor) | Kırpma, en üste alma sırası, `TestAC342P30WatchdogFailsOnStaleTick`. Çizim seli gösterge tick'ini artık aç bırakmıyor (birleşen `wmAnnot`, 33 ms boyama aralığı). |
-| AC-497 | ✅ | Tur 1 testleri değişmeden geçiyor. |
-| AC-498 | ✅ | `TestAC498AnnotOnlyFromController`, ayrıca `TestAC498ControllerChangeClearsStrokes` (kontrol başka teknisyene geçince cihazdaki çizimler silinir). Web: kontrol bırakılınca gözetimsize özel not (952535e, `control-button.test.tsx`). |
-| AC-499 | ✅ (sınır + tek paket) / sürüm P30-3 | Kopya yok: `annot.Canvas` Hızlı Destek ve yardımcıda ortak. |
+
+| AC     | Durum                                 | Kanıt / eksik                                                                                                                                                                                                                          |
+| ------ | ------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| AC-494 | ✅ (otomatik)                         | Tur 1 testleri. `TestAC494AnnotEdges` 20 000 nokta bütçesini de kapsar (annot_test.go).                                                                                                                                                |
+| AC-495 | ⚠️ CI bekliyor                        | Kod: `SetLayered` → `ExcludeFromCapture` sonucu ve `DisplayAffinity` denetleniyor; başarısızsa katman kurulmuyor (`layerOff`), oturum sürüyor.                                                                                         |
+| AC-496 | ✅ (birim) / ⚠️ (Windows CI bekliyor) | Kırpma, en üste alma sırası, `TestAC342P30WatchdogFailsOnStaleTick`. Çizim seli gösterge tick'ini artık aç bırakmıyor (birleşen `wmAnnot`, 33 ms boyama aralığı).                                                                      |
+| AC-497 | ✅                                    | Tur 1 testleri değişmeden geçiyor.                                                                                                                                                                                                     |
+| AC-498 | ✅                                    | `TestAC498AnnotOnlyFromController`, ayrıca `TestAC498ControllerChangeClearsStrokes` (kontrol başka teknisyene geçince cihazdaki çizimler silinir). Web: kontrol bırakılınca gözetimsize özel not (952535e, `control-button.test.tsx`). |
+| AC-499 | ✅ (sınır + tek paket) / sürüm P30-3  | Kopya yok: `annot.Canvas` Hızlı Destek ve yardımcıda ortak.                                                                                                                                                                            |
 
 ## Düzeltilmeli
+
 1. [devops] Koşullu madde: CI'daki "P30 katman testleri" adımı SKIP verirse runner'da gösterge çizilemiyor demektir. Bu durumda `docs/implementation.md` P30'a "AC-495/496 Windows kanıtı staging elle turuna devredildi" yazılmalı ve test-operatoru maddesine eklenmeli. PASS ise bu madde düşer.
 
 ## Definition of Done
-| Madde | Durum | Not |
-|---|---|---|
-| AC'ler kanıtlı | ⚠️ | AC-495/496 Windows kısmı CI'yı bekliyor |
-| Testler yeşil | ✅ yerel / bekliyor CI | |
-| gofmt / vet | ✅ | |
-| Sapmalar gerekçeli | ✅ | Güvenlik turu değişiklikleri (gözcü 3 sn, MaxPoints, Canvas, sahip değişince temizleme) implementation.md:17457 civarında |
-| Kopya/ölü kod yok | ✅ | `annot.Paint` kalktı, yerine `Canvas` geldi; çağıranların hepsi güncel |
-| Hata yutma / oturum | ✅ | Katman/yakalama hatası yalnız çizimi gizler. Gözcü yalnız gösterge tick'i 3 sn durursa `indicator_failed` ile bitirir (fail-closed, AC-342 ile uyumlu) |
-| Sürüm 0.23.0 | planlı (P30-3) | |
+
+| Madde               | Durum                  | Not                                                                                                                                                    |
+| ------------------- | ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| AC'ler kanıtlı      | ⚠️                     | AC-495/496 Windows kısmı CI'yı bekliyor                                                                                                                |
+| Testler yeşil       | ✅ yerel / bekliyor CI |                                                                                                                                                        |
+| gofmt / vet         | ✅                     |                                                                                                                                                        |
+| Sapmalar gerekçeli  | ✅                     | Güvenlik turu değişiklikleri (gözcü 3 sn, MaxPoints, Canvas, sahip değişince temizleme) implementation.md:17457 civarında                              |
+| Kopya/ölü kod yok   | ✅                     | `annot.Paint` kalktı, yerine `Canvas` geldi; çağıranların hepsi güncel                                                                                 |
+| Hata yutma / oturum | ✅                     | Katman/yakalama hatası yalnız çizimi gizler. Gözcü yalnız gösterge tick'i 3 sn durursa `indicator_failed` ile bitirir (fail-closed, AC-342 ile uyumlu) |
+| Sürüm 0.23.0        | planlı (P30-3)         |                                                                                                                                                        |
 
 ## Öneriler (zorunlu değil)
+
 - AC-494 metni (`gereksinimler.md:460`) 20 000 nokta bütçesini "gözetimsiz yardımcıda ayrıca" diye anlatıyor. Oysa `annot.Apply` ortak olduğu için bütçe Hızlı Destek'te de geçerli (implementation.md bunu söylüyor). AC metni "her iki kipte" olarak düzeltilsin.
 - Tur 1'deki test kalitesi önerileri (totolojik `TestAC496PaintNeverFailsIndicator`, 200 ms sleep'li negatif test) açık.
+
 # QA Raporu — P30 Tur 1
 
 DURUM: DÜZELTİLMELİ. Kod ve Go birim testleri temiz. Tek açık konu kanıt: AC-495'in tanımlı tek kanıtı olan Windows
