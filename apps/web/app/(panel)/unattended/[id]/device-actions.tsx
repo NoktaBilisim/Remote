@@ -16,21 +16,13 @@ import { ConnectDialog } from "../connect-dialog";
 import { useConnect } from "../use-connect";
 
 /** Ayrıntıdaki Bağlan (listeyle aynı diyalog, P28u AC-430): hata sonrası sayfa sunucuda yeniden çizilir. */
-export function DetailConnect({
-  device,
-  available,
-  silentAllowed,
-}: {
-  device: DeviceListItem;
-  available: boolean;
-  silentAllowed: boolean;
-}) {
+export function DetailConnect({ device, available }: { device: DeviceListItem; available: boolean }) {
   const router = useRouter();
   const flow = useConnect(() => router.refresh());
   return (
     <>
       <ConnectButton device={device} available={available} busy={flow.busyId === device.id} onConnect={() => flow.open(device)} />
-      <ConnectDialog flow={flow} silentAllowed={silentAllowed} />
+      <ConnectDialog flow={flow} />
     </>
   );
 }

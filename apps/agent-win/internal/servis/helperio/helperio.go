@@ -31,12 +31,11 @@ type Input struct {
 	TechIP        string `json:"techIp"`
 	IndicatorText string `json:"indicatorText"`
 	ExpiresInSec  int    `json:"expiresInSec"`
-	// P28u (§7.4, p28u.go): Consent "ask"|"none", Mode "asked"|"no_user"|"silent", IndicatorControl (yalnız silent).
-	Consent          string `json:"consent,omitempty"`
-	Mode             string `json:"mode,omitempty"`
-	IndicatorControl string `json:"indicatorControl,omitempty"`
-	// P28e (mimari-p28e §8; p28e.go): sunucu `connect.recording` gönderdi. asked'da diyalog satırı (ConsentSpec.RecordingLine),
-	// her kipte gösterge eki. Yalnız P28u girdisinde (Consent dolu) geçerlidir.
+	// P28u (§7.4, p28u.go; r3): Consent ""|"none", Mode ""|"no_user" (ikisi birlikte).
+	Consent string `json:"consent,omitempty"`
+	Mode    string `json:"mode,omitempty"`
+	// P28e (mimari-p28e §8; p28e.go): sunucu `connect.recording` gönderdi → gösterge eki. Yalnız P28u girdisinde
+	// (Consent dolu) geçerlidir.
 	Recording bool `json:"recording,omitempty"`
 }
 
@@ -151,16 +150,11 @@ func Reason(code uint32) string {
 		return ReasonNoConsole
 	case ExitSessionChanged:
 		return ReasonSessionChanged
-	case ExitConsentDenied:
-		return ReasonConsentDenied
-	case ExitConsentTimeout:
-		return ReasonConsentTimeout
 	}
 	return ReasonHelperFailed
 }
 
 // PreJoin neden yardımcı `/ws/guest`'e katılmadan oluşabilen bir ret mi (servis `connect.result{ok:false}` gönderir).
 func PreJoin(reason string) bool {
-	return reason == ReasonIndicatorFailed || reason == ReasonHelperFailed || reason == ReasonNoConsole ||
-		reason == ReasonConsentDenied || reason == ReasonConsentTimeout
+	return reason == ReasonIndicatorFailed || reason == ReasonHelperFailed || reason == ReasonNoConsole
 }

@@ -1,29 +1,11 @@
 /*
- * P28u (mimari-p28u §5.1, §10; AC-430, 437, 439, 442): izinli / izinsiz bağlantı ve konsol müdahale düğmelerinin saf
- * kararları. Şema tek kaynak `@remote/contracts/api/unattended` (gerekçe `silentReasonSchema`); burada yalnız görünüm kararı.
+ * P28u r3 (mimari-p28u §r3 r3.6, K-P28u-r3-6; AC-433, 442): gözetimsiz bağlantı tek yol — cihaz kullanıcısına sorulmadan açılır.
+ * Konsoldaki müdahale düğmelerinin ve otomatik kontrol isteğinin saf kararları (bileşen/kanca yalnız uygular).
  */
-import { silentReasonSchema, SILENT_REASON_MAX, type UnattendedConnectInput } from "@remote/contracts/api/unattended";
 import type { ConsentMode } from "@remote/contracts/unattended-consent";
 import type { ControlPhase } from "@/lib/control/machine";
 
-/** Sayaç: kırpılmış metnin kod noktası sayısı (sunucu kuralıyla aynı; emoji/birleşik karakter 1'den fazla sayılabilir). */
-export const reasonLength = (v: string): number => [...v.trim()].length;
-
-/** Sayaç üst sınırı aşıldı mı (alan uyarı tonuna geçer). */
-export const reasonOver = (v: string): boolean => reasonLength(v) > SILENT_REASON_MAX;
-
-/**
- * Bağlan gövdesi: kutu işaretsiz → `{}` (izinli istek); işaretli → `{silent: true, reason}` (gerekçe şemayla doğrulanır,
- * kırpılmış hâli gider). Hata → alan metni (`fields.reason` ile aynı yer).
- */
-export function buildConnectBody(silent: boolean, reason: string): { body: UnattendedConnectInput } | { error: string } {
-  if (!silent) return { body: {} };
-  const r = silentReasonSchema.safeParse(reason);
-  if (!r.success) return { error: r.error.issues[0]?.message ?? "Gerekçe geçersiz" };
-  return { body: { silent: true, reason: r.data } };
-}
-
-/** `hello.unattended` (P27 + P28u §6.4). `consentMode` yoksa kip henüz belli değil (`ask` odası karara kadar). */
+/** `hello.unattended` (P27 + P28u §6.4). `consentMode` r3'te yalnız `no_user` gelir; konsol kipe göre davranmaz. */
 export interface UnattendedInfo {
   deviceId: string;
   deviceName: string;
@@ -32,44 +14,43 @@ export interface UnattendedInfo {
 }
 
 export interface InterveneView {
-  /** Rozet kipi (yoksa rozet yok). */
-  mode: ConsentMode | null;
-  /** silent + kontrol yok: "İzleniyor" + "Müdahale et". */
-  monitoring: boolean;
-  /** silent + kontrol açık: "İzlemeye dön". */
-  canReturn: boolean;
-  /** Kontrol açıkken (her kip): "Oturumu kilitle" / "Kullanıcı oturumunu kapat". */
+  /** Kontrol açıkken: "Oturumu kilitle" / "Kullanıcı oturumunu kapat". */
   showCommands: boolean;
   /** `intervene:false` (eski servis): komut düğmeleri pasif + neden. */
   commandsDisabled: boolean;
 }
 
 /**
- * Konsol üst çubuğu müdahale görünümü (§10, AC-439, 442). Katılımlı oturumda null (bileşen çizilmez). Kilit / oturum kapatma
- * yalnız kontrol `granted` iken; izleme kipinde ve kontrol isteği beklerken görünmez.
+ * Konsol müdahale görünümü (AC-442 r3). Katılımlı oturumda null (bileşen çizilmez). Kilit / oturum kapatma yalnız canlı oturumda
+ * kontrol `granted` iken; kontrol kapalıyken ve istek sürerken görünmez.
  */
-export function interveneView(u: UnattendedInfo | null, phase: ControlPhase, live: boolean): InterveneView | null {
+export function interveneView(u: UnattendedInfo | null, phase: ControlPhase, live: boolean, controller = true): InterveneView | null {
   if (!u) return null;
-  const silent = u.consentMode === "silent";
-  const granted = live && phase === "granted";
-  return {
-    mode: u.consentMode ?? null,
-    monitoring: live && silent && phase !== "granted",
-    canReturn: silent && granted,
-    showCommands: granted,
-    commandsDisabled: u.intervene !== true,
-  };
+  // S-P28u-r3-8: çok teknisyenli odada yalnız kontrol sahibi (sunucu zaten 403 döner; gereksiz istek/audit gürültüsü yok).
+  return { showCommands: live && controller && phase === "granted", commandsDisabled: u.intervene !== true };
+}
+
+/** Otomatik kontrol kararının girdisi (konsol durumundan). */
+export interface AutoControlInput {
+  /** Misafir (cihaz) katılım sayacı — `TechState.guestJoins`; her katılım / yeniden katılımda artar. */
+  joins: number;
+  /** Gözetimsiz oda mı (`hello.unattended`). */
+  unattended: boolean;
+  /** Bu konsol kontrol sahibi mi (P28c roster; tek teknisyenli odada sahip). */
+  controller: boolean;
+  /** `remote_control.use` yetkisi. */
+  canControl: boolean;
+  phase: ControlPhase;
 }
 
 /**
- * İzinsiz kipte mevcut "Kontrol iste" düğmesi yalnız kontrol isteği sürerken / kontrol açıkken görünür (Vazgeç, özel tuşlar,
- * bırak); boşta tek yol onaylı "Müdahale et"tir (AC-439). Diğer kiplerde P27 gibi her zaman.
+ * K-P28u-r3-6 + S-P28u-r3-2: gözetimsiz odada misafir katılınca (ve yeniden katılımda) konsol **bir kez** `control.request`
+ * gönderir. Karar yalnız katılım anında (sayaç değiştiğinde) verilir: o an kontrol sahibi değilsem (katılımcı / izleyici) o
+ * katılım için istek yoktur; sonradan devirle (handover) kontrol sahibi olunca da otomatik istek yoktur (bilinçli tıklama).
+ * Kontrol zaten istenmiş / açıksa istek yok. `seen` = son karar verilen sayaç (çağıran saklar; dönen `seen` ile günceller).
  */
-export const showControlButton = (u: UnattendedInfo | null, phase: ControlPhase): boolean =>
-  u?.consentMode !== "silent" || phase === "requested" || phase === "granted";
-
-/** Konsol bekleme: izinli istek (kip henüz belli değil) → "Kullanıcının onayı bekleniyor…"; silent → P27 "Cihaz bağlanıyor…". */
-export const awaitingConsent = (u: UnattendedInfo | null): boolean => u !== null && u.consentMode === undefined;
-
-/** Bitişte "Yeniden dene" bağlantısı gösterilen nedenler (yeni step-up ister — AC-432). */
-export const CONSENT_END_REASONS: readonly string[] = ["consent_denied", "consent_timeout"];
+export function autoControlDecision(seen: number, i: AutoControlInput): { seen: number; fire: boolean } {
+  if (i.joins === seen) return { seen, fire: false };
+  const fire = i.joins > seen && i.unattended && i.controller && i.canControl && i.phase !== "requested" && i.phase !== "granted";
+  return { seen: i.joins, fire };
+}

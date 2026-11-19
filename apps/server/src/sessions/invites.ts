@@ -25,7 +25,6 @@ import { auditMulti, countInvite, failAuditAllowed, MULTI_AUDIT, MULTI_SYSTEM_CT
 import type { Rooms } from "../signaling/rooms.ts";
 import type { Room } from "../signaling/types.ts";
 import { deviceVerdict, type DeviceVerdict } from "../unattended/device-access.ts";
-import { silentPolicyEnabled } from "../unattended/policy.ts";
 import { avatarUrlFor } from "../uploads/urls.ts";
 import type { UnattendedGate } from "../unattended/gate.ts";
 import {
@@ -91,7 +90,7 @@ function roomGate(d: MultiDeps, room: Room): void {
   if (!room.admitted || !d.rooms.live(room)) throw new AppError("CONFLICT");
   if (!guestMulti(room)) throw new AppError("CLIENT_UNSUPPORTED");
   const cm = room.unattended?.consentMode;
-  if (room.unattended && cm !== "silent" && cm !== "no_user") throw new AppError("JOIN_NOT_ALLOWED");
+  if (room.unattended && cm !== "no_user") throw new AppError("JOIN_NOT_ALLOWED");
 }
 
 /** GET /sessions/:id/invite-candidates: §4.3 `request` 1–7'yi geçen aynı firma kullanıcıları (≤ 200, ada göre). */
@@ -110,10 +109,9 @@ export async function inviteCandidates(
     select: { ...SUBJECT_SELECT, avatarPath: true },
   });
   const ids = users.map((u) => u.id);
-  // D-PC-K2: kullanıcılar (rol + toggle'lar aynı sorguda), cihaz grant'ları ve silent politikası toplu / bir kez (N+1 yok).
+  // D-PC-K2: kullanıcılar (rol + toggle'lar aynı sorguda) ve cihaz grant'ları toplu / bir kez (N+1 yok).
   const device = await deviceResolver(d, room, ids);
-  let policy: Promise<boolean> | undefined;
-  const deps = { ...d, ...(device ? { device } : {}), silentPolicy: () => (policy ??= silentPolicyEnabled(d.db, room.tenantId)) };
+  const deps = { ...d, ...(device ? { device } : {}) };
   const items: InviteCandidatesResponse["items"] = [];
   for (const u of users) {
     const s = toSubject(u);
@@ -231,7 +229,6 @@ export function incomingInvites(d: MultiDeps, auth: AuthContext): IncomingInvite
         fromName: room.technicianName,
         customerName: room.admitted?.name ?? "",
         unattended: room.unattended !== undefined,
-        silent: room.unattended?.consentMode === "silent",
         expiresAt: iso(inv.expiresAt),
       });
     }
@@ -248,12 +245,11 @@ export async function acceptInvite(
   ctx: AuditContext,
   auth: AuthContext,
   inviteId: string,
-  reason: string | undefined,
 ): Promise<JoinSessionAsMemberResponse> {
   const found = findInvite(d, inviteId);
   if (!found || found.inv.userId !== auth.user.id) throw new AppError("INVITE_GONE");
   const { room } = found;
-  const o = { purpose: "accept" as const, inviteId, reason };
+  const o = { purpose: "accept" as const, inviteId };
   const f = await eligibleToJoin(d, subjectOfAuth(auth), room, "invite", "request", o);
   if (f) return refuse(d, ctx, auth, room, MULTI_AUDIT.INVITE_ACCEPT, f, { inviteId });
   requireUnattendedStepUp(auth, room, d.rooms.clock.now());
@@ -270,7 +266,6 @@ export async function acceptInvite(
     role: "participant",
     via: "invite",
     authSessionId: auth.sessionId,
-    reason,
   });
   countInvite(d.rooms, "accepted");
   await auditMulti(d.rooms, room, ctx, actorOf(auth), MULTI_AUDIT.INVITE_ACCEPT, { inviteId });
@@ -308,7 +303,6 @@ export async function activeSessions(d: MultiDeps, auth: AuthContext, tenantId: 
       full: seatsUsed(room) >= MAX_TECHS,
       supported: guestMulti(room),
       unattended: u !== undefined,
-      silent: u?.consentMode === "silent",
       ...(u?.consentMode ? { consentMode: u.consentMode } : {}),
     });
   }
@@ -316,8 +310,8 @@ export async function activeSessions(d: MultiDeps, auth: AuthContext, tenantId: 
 }
 
 /**
- * O-PC-K1: gözetimsiz oda yalnız §4.3 adım 5–6b'yi (`unattendedStep`, `request`) geçen izleyiciye görünür — asked oda hiç,
- * silent oda yalnız `unattended.silent` ∧ açık politika ∧ cihaz grant'ı olana. Koltuk/multi1 listede bayrakla gösterilir.
+ * O-PC-K1: gözetimsiz oda yalnız §4.3 adım 5–6a'yı (`unattendedStep`, `request`) geçen izleyiciye görünür — kipi `no_user`
+ * olmayan (admit öncesi / eski `asked`) oda hiç (K-P28u-r3-9). Koltuk/multi1 listede bayrakla gösterilir.
  */
 async function unattendedVisible(d: MultiDeps, s: JoinSubject, room: Room): Promise<boolean> {
   if (!room.unattended || !s.permissions.has("sessions.supervise")) return false;
@@ -331,7 +325,6 @@ export async function supervise(
   auth: AuthContext,
   tenantId: string,
   sessionId: string,
-  reason: string | undefined,
 ): Promise<JoinSessionAsMemberResponse> {
   const room = d.rooms.get(sessionId);
   const ref = { tenantId, sessionId };
@@ -339,7 +332,7 @@ export async function supervise(
     const exists = await d.db.supportSession.findFirst({ where: { id: sessionId, tenantId }, select: { id: true } });
     throw new AppError(exists ? "CONFLICT" : "NOT_FOUND");
   }
-  const o = { purpose: "supervise" as const, reason };
+  const o = { purpose: "supervise" as const };
   const f = await eligibleToJoin(d, subjectOfAuth(auth), room, "supervise", "request", o);
   if (f) return refuse(d, ctx, auth, ref, MULTI_AUDIT.SUPERVISE_JOIN, f);
   requireUnattendedStepUp(auth, room, d.rooms.clock.now());
@@ -352,7 +345,6 @@ export async function supervise(
     role: "observer",
     via: "supervise",
     authSessionId: auth.sessionId,
-    reason,
   });
   return { sessionId, consoleUrl: consoleUrl(sessionId) };
 }

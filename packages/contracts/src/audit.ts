@@ -293,6 +293,8 @@ export const UNATTENDED_AUDIT = {
   // Alan adları (D-P28u-4, K-P28u-20): gerekçe `silentReason` YALNIZ `unattended.connect` satırında; ret kodu `failReason`;
   // çıplak `reason` anahtarı yok. `userState` hiçbir satıra yazılmaz (D-P28u-6). `CONNECT` += `consentRequested:"ask"` ya da
   // `consentMode:"silent"` + `silentReason`; `SESSION_STARTED`/`SESSION_ENDED` += `consentMode`.
+  // r3 (K-P28u-r3-12): `CONSENT` ve `UNATTENDED_POLICY_AUDIT` artık YAZILMAZ; `SILENT_NOTIFY` yalnız `event:"recording_policy"`
+  // (P28e kayıt politikası e-postası, S-P28e-4) için yazılır — diğer olay değerleri eski satırları okumak/etiketlemek için kalır. `CONTROL_TOGGLE` yazılmaya devam eder; yeni satırlarda `consentMode` yalnız `no_user`.
   /** Cihazdaki onay kararı — aktör cihaz (`user_id` NULL, `username` = `device:<id>`): `{consentMode:"asked", decision, ms, deviceId, technicianId}`. */
   CONSENT: "unattended.consent",
   /** Kontrol açıldı/kapandı (her kip, K-P28u-10): `{from, to: "view"|"control", consentMode}`. */
@@ -311,12 +313,14 @@ export type UnattendedAuditAction = (typeof UNATTENDED_AUDIT)[keyof typeof UNATT
 /**
  * P28u politika değişikliği (AC-436): entity `tenant_settings`/tenantId, `{old, new, ack: true, stepUp: true}`. `settings.*`
  * önekli (audit "Ayarlar" grubu) olduğundan `UNATTENDED_AUDIT` (`unattended.*`) dışında; etiket `UNATTENDED_AUDIT_LABELS`'ta.
+ * r3 (2026-11-18): politika kaldırıldı — yalnız eski satırları okumak/etiketlemek için kalır, yeni yazım yok.
  */
 export const UNATTENDED_POLICY_AUDIT = "settings.unattended_silent";
 
 /**
  * `unattended.silent.notify.event` (P28u `connect`/`policy`; P28e S-P28e-4 `recording_policy` — gözetimsiz kayıt politikası;
  * P28c Y-PC-1 `join` — silent odaya ek teknisyen katıldı, `transfer` — silent odada oturum devredildi).
+ * r3 (2026-11-18): yeni yazım yalnız `recording_policy`; diğer değerler eski satırları okumak için kalır.
  */
 export const SILENT_NOTIFY_EVENTS = ["connect", "policy", "recording_policy", "join", "transfer"] as const;
 export type SilentNotifyEvent = (typeof SILENT_NOTIFY_EVENTS)[number];

@@ -15256,6 +15256,156 @@ Silinen: `TestSP28f1LocalEventRejectsOwnSynthetic` (`LocalEvent` ile; `zorunlu=`
   - staticcheck 0.8.2 (darwin arm64/amd64, windows amd64/arm64): temiz.
   - actionlint bu makinede kurulu değil. YAML değişikliği yalnız `zorunlu=` dizesine eklenen adlardan ibaret.
 
+## P28u r3 — web (R3, frontend-dev, 2026-11-18)
+
+Kapsam: mimari-p28u §r3 r3.6/r3.7 R3, gereksinimler-p28u §5r3 (AC-430, 433, 442, 445, 446, 451), güvenlik S-P28u-r3-2. Tek yol onaysız;
+packages/contracts ve apps/server'a dokunulmadı.
+
+### Rotalar
+
+| Yol                                     | Auth                                | Durum                                                                                                                                                                                                   |
+| --------------------------------------- | ----------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `/settings/unattended`                  | —                                   | **Silindi** (politika ekranı; artık 404). Ayarlar sekmesindeki "Gözetimsiz erişim" öğesi kaldırıldı                                                                                                     |
+| `/unattended`, `/unattended/[id]`       | Evet, `unattended.connect`/`manage` | Bağlan diyaloğu: kutu/gerekçe yok; kullanıcı durumu (bilgi) + "Bağlantı cihaz kullanıcısına sorulmadan açılır. Cihazda bağlantı göstergesi görünür." (`Info`); gövde `{}` → step-up → konsol            |
+| `/sessions/[id]/console`                | Evet                                | Gözetimsiz odada misafir katılınca bir kez otomatik kontrol isteği; kip rozeti / İzleniyor / Müdahale et / İzlemeye dön yok; kilitle / oturumu kapat kontrol açıkken                                    |
+| `/sessions` (etkin oturumlar, davetler) | Evet                                | İzle / Katıl gerekçesiz (`{}`); "İzinsiz" etiketi ve gerekçe diyaloğu yok                                                                                                                               |
+| `/audit`, `/history`, `/history/[id]`   | Evet                                | Değişmedi: "Bağlantı kipi" filtresi üç değerli (eski kayıtlar); etiketler contracts `CONSENT_MODE_LABELS` (Onaysız / Kullanıcı onayıyla (eski) / İzinsiz (eski)); eski `silent` kayıtta gerekçe görünür |
+
+### Otomatik kontrol (K-P28u-r3-6, S-P28u-r3-2)
+
+- `lib/webrtc/tech-machine.ts`: yeni `guestJoins` sayacı — `peer.joined{guest}` ve misafir yokken gelen ACTIVE+`peerPresent` `hello`
+  (cihaz konsol WS'i bağlanmadan kabul edilmişse ilk mesaj budur; sunucu admit'i teknisyen soketini beklemez) artırır. Kendi WS'imiz
+  yeniden bağlandığında misafir zaten bağlıysa artmaz.
+- `lib/unattended/consent.ts` `autoControlDecision(seen, input)` (saf): karar yalnız sayaç değiştiğinde; gönderim koşulu gözetimsiz ∧
+  kontrol sahibi (roster) ∧ `remote_control.use` ∧ faz `requested`/`granted` değil. Katılım anında sahip değilse o katılım tüketilir →
+  devirde (handover) otomatik istek yok. `console-view.tsx useAutoControl` ref ile uygular, `ts.requestControl` (makine kapısı,
+  `isUnexpectedGrant` tetiklenmez). Sunucu `control.request` için paylaşım şartı aramaz (yalnız misafir bağlı + AGENT), istek katılımda gider.
+- Bilinçli sonuç: konsol sayfası yenilenirse (yeni konsol, AC-24 VIEW'dan başlar) ACTIVE+peerPresent hello bir katılım sayılır ve bir istek gider.
+
+### Değişen / silinen dosyalar (apps/web)
+
+- Silinen: `app/(panel)/settings/unattended/{page.tsx, policy-form.tsx}`, `components/multi/join-reason-dialog.tsx`.
+- `app/(panel)/unattended/{connect-dialog.tsx, use-connect.ts, device-list.tsx, (list)/page.tsx, [id]/page.tsx, [id]/device-actions.tsx}` —
+  kutu/gerekçe/`silentAllowed` kaldırıldı; `ReasonField` silindi.
+- `app/(panel)/sessions/[id]/console/{console-view.tsx, console-stage.tsx, console-parts.tsx}`, `components/console/{unattended-actions.tsx,
+stage-overlay.tsx}` — otomatik kontrol; kip rozeti, izleme, Müdahale et/İzlemeye dön, onay bekleme metni ve `consent_denied/timeout`
+  "Yeniden dene" kaldırıldı (bitiş metinleri `c.reason.*` geçmiş için kalır). Müdahale çubuğu kontrol kapalıyken hiç çizilmez (yeniden
+  katılım bildirimi hariç).
+- `lib/unattended/{consent.ts, contract.ts}`, `lib/webrtc/tech-machine.ts`, `lib/multi/errors.ts` (`inviteBlockOf(guestMulti)`,
+  `reasonFieldError` silindi), `components/multi/use-join.ts` (gerekçe akışı yok), `components/invite-notifier.tsx`,
+  `app/(panel)/sessions/active-sessions.tsx` (`asked` engeli ve `silent` alanı kullanılmıyor — R2'nin `IncomingInvite.silent` /
+  `ActiveSessionItem.silent` silmesiyle uyumlu), `components/admin/permission-matrix.tsx` (`SENSITIVE` + "Hassas" rozeti silindi),
+  `app/(panel)/settings/settings-tabs.tsx`, `messages/tr.json` (46 anahtar silindi: `un.policy.*`, `un.silent.*`, `mt.reason*`, onay
+  bekleme/yeniden dene, `un.intervene.{mode,monitoring,start,startTitle,startBody,back}`, `perm.sensitive`, `perm.a.silent`,
+  `set.tab.unattended`, `mt.silentNote`, `mt.active.silent`; eklenen `un.consent.info`).
+- Testler: `lib/unattended/{consent.test.ts, console-overlay.test.ts}`, `lib/webrtc/machines.test.ts`, `lib/multi/multi-p28c.test.ts`;
+  e2e `p28u-unattended.spec.ts`, `unattended.spec.ts`, `p28c-multi.spec.ts`, `p17-console.spec.ts`, mock `mock-p28u.mjs`
+  (politika ucu ve senaryoları silindi), `mock-p28c.mjs`, `mock-users.mjs` (AC-451: Can Aydın'da saklı `unattended.silent:true`).
+- Korunan: `audit/*`, `history/*` filtre ve etiketleri, `history/[id]/{unattended-info,recording}.tsx` eski gerekçe gösterimi,
+  `DEVICE_OUTDATED` rozeti/metni, kilitle/oturumu kapat, kullanıcı durumu.
+- Yeni bileşen/primitif yok; DESIGN.md değişikliği gerekmedi (P28u kip rozeti DESIGN.md'de belgelenmemişti).
+
+## P28u r3 — Go: onaysız tek yol (R4, backend-dev Go, 2026-11-18)
+
+Tasarım: `docs/mimari-p28u.md` §r3.3, §r3.5, §r3.7 (R4). Kapsam yalnız `apps/agent-win`; `internal/ui`, `internal/input`,
+`internal/capture`, `internal/portal`, `internal/ui/uicore`, `control/{consent,origin,gate}.go`, sürüm dosyaları dokunulmadı.
+
+**Davranış.** Servis alt protokole `rs.cap.direct1` ekler (`DeviceCapDirect`; `device.features.caps`'e girmez, `validFeatures`
+katı kalır). `connect.consent="ask"` → kullanıcı durumu ne olursa olsun diyalog yok; yardımcı `Consent:"none", Mode:"no_user"`
+ile başlar ve consent1 sokette `consent.result{no_user}` gönderilir (başlatma başarısızsa gönderilmez). `consent="silent"` ya da
+`ask`+`indicatorControl` → `connect.result{protocol}` (yardımcı başlatılmaz). `rejoin.mode` `no_user` ya da eski sunucunun `asked`'ı
+kabul edilir, yardımcı her durumda `no_user`; `silent` ret. K-P28u-17 (asked'da logon → session_changed) kalktı; konsol geçişi
+kuralı (K-P27-12) ve rejoin penceresi aynen. Olay 1008 yazılmaz; 1001 kip metni "onaysız". Gösterge fail-closed, kontrol
+isteğine anında GRANTED, durum borusu şema/boyut süzgeci + beklenmeyen olayda TerminateProcess (artık `ev:consent` de ihlal),
+kısıtlı jeton/job, yardımcı bağımlılık sınırı (boundary_test yasak listesi aynen), müdahale, yerel anahtar, P28e kayıt eki korundu.
+
+**Silinen:** `internal/unattended/helper/{consent.go, consent_windows.go, consent_input_windows.go}`, `internal/control/{occlusion.go,
+occlusion_test.go}`, `internal/flow/messages_p28u.go`, `internal/win/k6s_overlay_windows_test.go`; `win/p28u_windows.go`'dan
+`PrevWindow/Visible/WindowRect/WindowAt` (`LockWorkStation` kaldı); `helperio`: `ConsentAsk` (servis `ConsentAsk` tel sabitine
+taşındı), `ModeAsked/ModeSilent`, `Decision*`, `ExitConsentDenied/Timeout` (24/25 artık tanımsız kod → helper_failed; servis ve
+yardımcı aynı ikili olduğundan eski kodu okuma gereği yok), `ReasonConsent*`, `MaxConsentMs`, `Input.IndicatorControl`,
+`Status.Decision/Ms`, `RecordingLine`; servis: `ConsentSilent`, `decideMode`, `evConsent/EvConsent`, `modeText`,
+`RecUnattendedLine`, `ConsentResult.Decision/Ms`, `Rejoin.IndicatorControl`, `rejoinState.asked`, `running.mode/guardLogon`,
+`SessionLogon`; yardımcı: `Deps.AskConsent`, `statusPipe.consent`, headless `mode/viewText/controlText/silent()` (silent
+dosya kapısı), `liveIndicator.SetText`, `ownHWNDs/ownWindow`.
+
+**Sadeleşen:** servis `core.go, wire_consent.go, wire.go (connectFailReasons'tan consent_* çıktı; sessionEndedReasons aynen),
+helperstatus.go, events.go, rejoin.go, intervene.go, wsdevice.go, wire_rec.go, userstate.go, core_rec.go, svc_windows.go
+(yorum)`; `helperio/{p28u.go, helperio.go, p28e.go}`; yardımcı `helper.go, headless.go, status.go, follow.go,
+indicator_windows.go, main_windows.go`. `Connect.IndicatorControl` eski sunucunun silent connect'ini ayrıştırmak için kaldı.
+
+**Sapma yok.** Yeni bağımlılık yok.
+
+**Test adları (CI `agent-win.yml` — R5 güncellemeli):** kaldırılan: `TestAC431ConsentFlowAndProtocolViolationKills`,
+`TestAC431ObscuredLayeredTransparentCountsOwnExcluded`, `TestAC431GuardRearmsAfterOcclusionAndHide`,
+`TestAC431DeniedOrTimeoutNoIndicatorNoDialNoFrames`, `TestAC449ConsentSpecCarriesRecordingLine`,
+`TestAC449GrantNeedsDrawnRecordingLine`, `TestK6sOverlayZOrderAndWindowFromPoint` (ve diğer onay/silent testleri). Yeniden
+adlandırılan: `TestAC431HelperWindowClassesOnlyIndicatorAndConsent` → `TestAC431HelperWindowClassesOnlyIndicator` (küme
+{NoktaDestekGosterge}), `TestAC449ConnectRecordingAskedPassesRecordingLineToHelper` → `TestAC448ConnectRecordingPassesSuffixFlagToHelper`,
+`TestAC431InputConsentModeCombos` → `TestAC433InputConsentModeCombos`. Yeni: `TestAC433EveryUserStateStartsNoUserWithoutDialog`,
+`TestAC433LaunchFailureSendsNoConsentResult`, `TestAC435LegacySilentConnectIsProtocol`, `TestAC435LegacyConsentOutcomesNotSendable`,
+`TestAC431ConsentEventIsProtocolViolationKills`, `TestAC443LegacyAskedRejoinStartsNoUser`, `TestAC433LogonDoesNotEndSession`,
+`TestAC433NoDialogIndicatorFirstControlGrantedLabelFixed`, `TestAC438IndicatorFailureNoDial`,
+`TestAC433FileOfferAcceptedWithoutControl`, `TestAC433InputAppliedOnlyAfterImmediateGrant`. Adı korunan (CI listesinde):
+`TestAC432ConsentMissingOnConsent1SocketIsProtocol`, `TestAC435LegacyServerKeepsP27`, `TestAC431StatusTable`,
+`TestAC429UserWatchAnnounceAndDebounce`, `TestAC443LockViaHelperPipeAndEventLog`, `TestAC443LogoffThenRejoinLaunchesHelperControlOff`,
+`TestAC431AC443HelperPipeEndToEnd`, `TestAC431BoundaryForbidsMessageFilter`, `TestAC443StationLockerWaitsForWinlogon`,
+`TestAC449InputRecordingOnlyWithP28uInput`, `TestAC448LiveSuffixFollowsRecStateAndControl` ve diğer P28e testleri. Alt protokol
+`direct1` denetimi `TestAC435NewMessagesOnlyAfterFeatures` içinde.
+
+**Doğrulama (yerel, Go 1.26.11):** `gofmt -l .` boş; `go mod verify`; `go vet ./...` (linux, windows/amd64, darwin/arm64,
+darwin/amd64) temiz; `go build ./...` üç GOOS temiz; `staticcheck v0.8.2` dört hedefte uyarı 0; tüm paketler için
+`GOOS=windows go test -c` derlemesi temiz; `go test -race -count=1 ./...` (darwin/arm64) `internal/voice` dışında yeşil —
+`internal/voice` (dokunulmadı, değişen paketlere bağımlı değil; girdisi HEAD ile aynı) yalnız `-race` altında darwin/arm64'te
+"Opus kodu tuzağa düştü" ile düşer, `-race`'siz yeşil; nedeni incelenmedi, CI'ın linux/amd64 `-race` koşusu yerelde doğrulanmadı. Windows testleri yerelde KOŞMADI
+(yalnız derlendi) — CI test-windows + elle tur.
+
+**Yayın notu:** Yeni alt protokol belirteci nedeniyle yeni servis + yardımcı (`NoktaDestekServis.exe`) derlemesi ve yayını gerekir;
+sürüm numarası ana oturumda verilir. Sunucu r3 ile aynı pencerede staging'e çıkmalı (aksi halde eski servisler `DEVICE_OUTDATED`).
+
+## P28u r3 — backend: onaysız tek yol (R2, backend-dev, 2026-11-18)
+
+Tasarım: `docs/mimari-p28u.md` §r3 (r3.4, r3.7), `docs/gereksinimler-p28u.md` §5r3, güvenlik tasarım turu S-P28u-r3-1/3/4/5.
+Migration yok (K-P28u-r3-4/8/10). Yeni bağımlılık yok.
+
+**Silinen:** `apps/server/src/unattended/{connect-silent.ts, policy.ts}`; testler `integration/{unattended-silent-k3,
+unattended-silent-race, unattended-policy}.test.ts`, `helpers/unattended-silent.ts`, `unit/audit-silent-reason-p28u.test.ts`.
+
+**Değişen (src):** `unattended/{connect.ts, connect-tx.ts, routes.ts, device-msg.ts, device-ws.ts, hub.ts, service.ts, mail.ts}`,
+`signaling/{admit-device.ts, rejoin-device.ts, rooms.ts, rooms-device.ts, handlers.ts, member-cmds.ts, member-life.ts, types.ts}`,
+`sessions/{eligibility.ts, invites.ts, routes-multi.ts}`, `notify/{templates.ts, outbox-content.ts}`, `ops/metrics.ts`.
+Contracts (tek sahip): `api/multi.ts` (`IncomingInvite.silent`, `ActiveSessionItem.silent` silindi), `permissions.ts`
+(`RETIRED_PERMISSION_KEYS = ["unattended.silent"]` + birim test, S-P28u-r3-3), pt-surface snapshot.
+
+- Connect: gövde `z.strictObject({})` (ek alan 400); 2a/2b/2c, teknisyen×cihaz kovası, politika uçları (`GET/PUT /unattended/policy`)
+  ve `status.silentAllowed` kalktı; 8a `hub.has(id,"direct1")` (step-up tüketilmeden 409 `DEVICE_OUTDATED`); PENDING ve bilet TTL
+  60 sn / `ticketMs`; `consent_mode` admit'te her zaman `no_user`.
+- **S-P28u-r3-1:** `DeviceHub.sendDirect` gönderim anında `direct1` denetler. Connect'te `outdated` → oda CANCELLED(`protocol`),
+  konsola `device_timeout`, fail audit + metrik, POST 409 `DEVICE_OUTDATED`. Rejoin'de `outdated` → oda `protocol` ile biter,
+  logoff yanıtı `rejoin:false`.
+- **S-P28u-r3-4:** `eligibility.unattendedStep` `cm !== "no_user"` → `JOIN_NOT_ALLOWED` (admit öncesi kipsiz ve eski `asked` oda dahil);
+  `invites.roomGate` aynı kural; kabul/İzle gövdesi strict boş nesne (eski `reason` → 400).
+- **S-P28u-r3-5:** `device.features` yankısı `DEVICE_ANNOUNCED_FEATURES` ile süzülür; `direct1` yalnız `DeviceConn.caps`'te.
+- Admit: `consent.result{no_user}` beklemesi (3 sn) ve `consent_missing` korunur; asked/silent dalları ve silent politika TX'i silindi.
+  `device-msg`: `unattended.consent` audit ve `rs_unattended_consent_total` yazımı kalktı.
+- `applyPermChange`/revalidate/üye kesmesinden silent koşulları, `handlers` silent dosya kapısı, P28c `silentNotify` (katılım/devir
+  e-postası) ve müşteri bildirimindeki "İzin istenmeden bağlanıldı." satırı silindi.
+
+**Tasarımdan sapma (gerekçeli):** r3.1 `rs_unattended_silent_notify_total` sayacını ve `unattended.silent.notify` yazımını
+kaldırır; ancak P28e `PUT /settings/recording` (S-P28e-4, AC-447 "kod değişmez", K-P28u-r3-10) aynı dört göz altyapısını
+`event:"recording_policy"` ile kullanıyor. Bu yüzden `sendSilentNotice` + sayaç + audit eylemi **yalnız `recording_policy` için** kalır
+(`SilentNotice.event` tipi `"recording_policy"`'e daraltıldı); izinsiz connect/politika/katılım/devir e-posta içerikleri silindi.
+`packages/contracts/src/audit.ts` içindeki "SILENT_NOTIFY artık yazılmaz" yorumu bu olay için eksik — R1 sahibine bildirildi.
+Runbook alarmlarında `silent_notify_total{result="fail"}` alarmı kayıt politikası e-postası için anlamını korur (devops R5).
+
+**Testler:** yeni `integration/unattended-legacy-r3.test.ts` (AC-451: eski silent/asked kayıt okuma, saklı `unattended.silent`
+satırıyla giriş + kullanıcı kaydı → satır silinir, eski anahtar 400, politika uçları 404, `silentAllowed` yok), yardımcılar
+`helpers/{unattended-legacy.ts, unattended-mail.ts}`, `helpers/unattended-k4.ts directSession`; sahte cihaz varsayılan olarak
+`consent1 + direct1` bildirir (`legacy: true | "consent1"` eski sürümleri taklit eder). Güncellenen: `unattended-consent-k4`,
+`unattended-audit-modes-k4`, `unattended-intervene-k4`, `unattended-rejoin-k4` (S-P28u-r3-1 rejoin yarışı), `unattended-limits-k4`,
+`multi-p28c` (S-P28u-r3-4), `rec-p28e-unattended`, `unattended-api`, `tenant-matrix` ve bellek kurgusu kullanan birim testleri.
+Komut: `pnpm --filter @remote/server run typecheck && … lint && … test && … test:int` (test DB `scripts/test-db.sh`).
+
 ### P22-D — oturum sohbeti UQ migration'ı (dba, 2026-11-18)
 
 - Migration `apps/server/prisma/migrations/20261126000000_p22_session_chat/`: `migration.sql` ön kontrol

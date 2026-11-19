@@ -45,7 +45,7 @@ func Main(cfg config.Config) int {
 	gate := desktop.NewGate()
 	fd, applier := flowDeps(cfg, inc, gate)
 	d := Deps{ShowIndicator: showIndicator, InputDesktop: desktop.InputName, Gate: gate, Resumed: applier.ReleaseAll,
-		Flow: fd, AskConsent: askConsentWin, Status: os.Stdout, Commands: br, Locker: newWinLocker()}
+		Flow: fd, Status: os.Stdout, Commands: br, Locker: newWinLocker()}
 	return int(Run(context.Background(), d, in))
 }
 

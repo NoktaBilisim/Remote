@@ -94,16 +94,11 @@ export interface StartedInfo {
   device: string;
   technician: string;
   at: Date;
-  /** P28u (§9.3, AC-438): oturum `consent_mode='silent'` → "İzin istenmeden bağlanıldı." satırı (gerekçe EKLENMEZ). */
-  silent?: boolean;
 }
 
-export const SILENT_CUSTOMER_LINE = "İzin istenmeden bağlanıldı.";
-
-/** UNATTENDED_STARTED (SMS/WA metni). */
+/** UNATTENDED_STARTED (SMS/WA metni). r3 (AC-438): P27 metni aynen — ayrı "izin istenmeden" ibaresi yok. */
 export function startedMessage(o: StartedInfo): string {
-  const text = `${firmName(o.firm)}: "${deviceName(o.device)}" bilgisayarınıza ${istanbul(o.at)} itibarıyla gözetimsiz uzaktan bağlantı başladı — Teknisyen: ${techShortName(o.technician)}.`;
-  return o.silent ? `${text} ${SILENT_CUSTOMER_LINE}` : text;
+  return `${firmName(o.firm)}: "${deviceName(o.device)}" bilgisayarınıza ${istanbul(o.at)} itibarıyla gözetimsiz uzaktan bağlantı başladı — Teknisyen: ${techShortName(o.technician)}.`;
 }
 
 export function startedMail(o: StartedInfo): MailContent {

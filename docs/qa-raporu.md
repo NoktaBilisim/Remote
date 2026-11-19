@@ -1,3 +1,99 @@
+# QA Raporu — P28u r3 — Tur 1
+
+DURUM: DÜZELTİLMELİ (kod kapısı temiz; tek engel son kullanıcı belgeleri, AC-446 / DoD)
+
+> **Kapanış notu (2026-11-19, koordinatör):** Tek "Düzeltilmeli" maddesi (belgeler) R7 ile kapandı — KULLANIM_KILAVUZU, DATASHEET,
+> README, api.md, CHANGELOG güncellendi ve `docs/pdf/*.pdf` yeniden üretildi. QA'nın kendi notuna göre ("tamamlanınca bu madde
+> kapanır, kod için yeni QA turu gerekmez") paket **GEÇTİ** sayılır. Ayrıca test-operatörü bulguları (geçmiş zaman çizelgesi
+> etiketleri, gözetimsizde nötr kontrol bildirimi, eski audit etiketleri) ve `JOIN_NOT_ALLOWED` / müdahale 403 metinleri r3'e
+> uyarlandı (typecheck, contracts 271, web 589, ilgili e2e 48/48 yeşil).
+
+Tarih: 2026-11-18 · Dal `claude/p28u2-onaysiz-5cadd5`, HEAD `1d37076` (R1 `6191721`, R2–R4 `62b5b9e`, R5 + S-P28u-r3-8 `1d37076`).
+Kapsam: `git diff 9b1db78..1d37076`. Kaynaklar: gereksinimler-p28u §5r3, mimari-p28u §r3, implementation.md "P28u r3" (R2/R3/R4).
+QA kodu değiştirmedi.
+
+## Test sonucu
+
+| Komut                                                                      | Sonuç                                                                                                                                                                                                                                                                                                                                                                                                                    |
+| -------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `pnpm -r run lint` · `pnpm -r run typecheck`                               | temiz (62b5b9e). 1d37076'da web lint + typecheck yeniden koşuldu, temiz                                                                                                                                                                                                                                                                                                                                                  |
+| `pnpm --filter @remote/contracts test`                                     | 27 dosya, 271/271                                                                                                                                                                                                                                                                                                                                                                                                        |
+| `pnpm --filter @remote/web test`                                           | 62 dosya, 589/589 (1d37076; S-P28u-r3-8 testi dahil)                                                                                                                                                                                                                                                                                                                                                                     |
+| server birim `vitest run test/unit`                                        | 671 geçti, 1 atlandı (`fsrv-p28b.test.ts:362` `skipIf(!CLAMD_TEST_HOST)`: P28b'den, gerekçeli)                                                                                                                                                                                                                                                                                                                           |
+| server entegrasyon (`rs-p28u2-test`, 33491)                                | Tam koşu: 1148/1151. Kalan 3: `customers-csv-p19` AC-263 (≤ 30 sn), `sessions-lobby-p13bl` AC-314 (p95), `unattended-consent-k4` K-P28u-16 (`control.state` zaman aşımı). Koşu, e2e `next build` + Go testleri aynı anda çalışırken yapıldı. Ayrı koşuda: consent-k4 **3/3 yeşil** (13/13), iki ölçüm testi 25/25, r3 kümesi (`unattended-*`, `multi-p28c`, `rec-p28e-unattended`) 16 dosya 140/140. Konteyner kapatıldı |
+| Go `go vet ./...` (darwin) · `GOOS=windows go vet ./...` · `go test ./...` | temiz / temiz / yeşil. SKIP'ler P28f/P28d ölçüm ve spctl testleri (gerekçeli, r3 dışı). Windows testleri yerelde koşmadı (yalnız vet); CI test-windows gerekir                                                                                                                                                                                                                                                           |
+| e2e `p28u-unattended`, `unattended`, `p28c-multi`, `p17-console`           | 62b5b9e: `--` nedeniyle tüm takım koştu: 573 geçti, 0 kaldı, 255 atlandı. Hedef dosyalar: p28u 19 geçti / 9 atlandı, unattended 21/3, p28c 13/3, p17 3/1. Atlananlar `desktopOnly()` ile mobil projede (390/375 px görünümü masaüstü projede açıkça test ediliyor). 1d37076: p28u + p28c desktop 22/22                                                                                                                   |
+| CI test adları (`agent-win.yml` P28u/P28e/K6s listeleri)                   | Listedeki 25 adın hepsinin `func` tanımı repoda var; silinen testler listeden çıkmış. `deploy/ops/*.sh` `bash -n` temiz (shellcheck yok)                                                                                                                                                                                                                                                                                 |
+
+## Kabul kriterleri (r3)
+
+| AC                                        | Durum          | Kanıt / eksik                                                                                                                                                                                                                                                                                                                                                               |
+| ----------------------------------------- | -------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| AC-429                                    | ✅             | Go `TestAC429UserWatchAnnounceAndDebounce`; e2e "AC-429/435 liste: Kullanıcı sütunu"; bağlantıyı etkilemediği: `TestAC433EveryUserStateStartsNoUserWithoutDialog`. Üç geçişin ≤ 10 sn olduğu Windows elle testi test-operatoru'nda (R6)                                                                                                                                     |
+| AC-430                                    | ✅             | int `unattended-connect-r3` "AC-430: gövde boş nesne; silent/reason 400" (aynı step-up ile sonraki istek 200 → tüketilmedi); e2e "AC-430 r3 tek Bağlan diyaloğu: kutu/gerekçe yok, bilgi satırı; gövde {}"                                                                                                                                                                  |
+| AC-433                                    | ✅             | Go `TestAC433EveryUserStateStartsNoUserWithoutDialog`, `…NoDialogIndicatorFirstControlGrantedLabelFixed`, `…InputAppliedOnlyAfterImmediateGrant`, `…LogonDoesNotEndSession`; int consent-k4 "AC-433 AC-445: no_user → ACTIVE, consent_mode=no_user"; web `autoControlDecision` birim + e2e "AC-433/442/443 konsol onaysız: tıklamasız TEK kontrol isteği". Windows elle: R6 |
+| AC-434                                    | ✅             | int `unattended-connect-k3` "AC-338: eşzamanlı iki bağlantı → 409 DEVICE_BUSY"; `unattended-connect-r3` "dakikada 1 yok — hemen yeni bağlantı 200"; 20/sa kovası `connect.ts` (P27 testleri)                                                                                                                                                                                |
+| AC-435                                    | ✅             | int `unattended-connect-r3` "consent1 ama direct1 yok → 409 DEVICE_OUTDATED, step-up tüketilmez, fail audit" + S-P28u-r3-1 yarışı; consent-k4 "0.15–0.19 … liste outdated"; e2e "Servis güncel değil rozeti + Bağlan pasif"; Go `TestAC435LegacySilentConnectIsProtocol`, `TestAC435LegacyServerKeepsP27`, alt protokol `direct1` `TestAC435NewMessagesOnlyAfterFeatures`   |
+| AC-438                                    | ✅             | Go `TestAC438IndicatorFailureNoDial`; `notify/templates.ts` silent dalı silindi, P27 müşteri bildirimi testleri yeşil                                                                                                                                                                                                                                                       |
+| AC-440                                    | ✅             | int consent-k4 "AC-440: unattended.connect geri alınınca permission" + "yedek yol (sahte saat) ≤ 60 sn"; rejoin-k4 iki AC-440 testi                                                                                                                                                                                                                                         |
+| AC-442                                    | ✅             | int intervene-k4 "kontrol GRANTED değil → 403; başka teknisyen → 403; katılımlı → 403"; web `interveneView` birimi (kontrol kapalı/istek sürerken gizli; S-P28u-r3-8 kontrol sahibi olmayan konsolda gizli)                                                                                                                                                                 |
+| AC-443/444                                | ✅ (değişmedi) | intervene-k4, rejoin-k4, Go `TestAC443*`; e2e "AC-444/352 eski servis: pasif + neden"                                                                                                                                                                                                                                                                                       |
+| AC-445                                    | ✅             | int audit-modes-k4 "no_user ile eski asked/silent satırları ayrı süzülür"; consent-k4 "control_toggle on/off audit (consentMode=no_user)" ve "audit consentMode filtresi"; e2e "AC-445 geçmiş" ve "AC-445 audit" (üç değer)                                                                                                                                                 |
+| AC-446                                    | ⚠️             | Kod kısmı ✅: `permissions.ts` `unattended.silent` yok (`RETIRED_PERMISSION_KEYS`), `permissions.test.ts`, e2e AC-451 toggle görünmez; consent-k4 geçmiş detayı + başka tenant 404. **Belge kısmı ❌**: kılavuz/DATASHEET/README hâlâ üç kip anlatıyor (Düzeltilmeli 1)                                                                                                     |
+| AC-447/448/450                            | ✅ (kod aynen) | `rec-p28e-unattended` yeşil; `rset.unAck` metni AC-447 r3 ifadesiyle aynı (`tr.json:2395`); Go `TestAC448*` listesi CI'da                                                                                                                                                                                                                                                   |
+| AC-451                                    | ✅             | int `unattended-legacy-r3` (eski silent/asked + consent_denied okuma; saklı `unattended.silent` satırıyla giriş/me/kaydetme, satır silinir, eski anahtar 400; politika uçları 404); web `audit.test.ts` eski eylem etiketleri; e2e "AC-451 saklı eski yetki satırı"; `c.reason.consent_*` etiketleri `tr.json`'da kalıyor                                                   |
+| Kaldırılan AC-431/432/436/437/439/441/449 | ✅             | Kod, çeviri, rota, izin ve test kalıntısı yok (aşağıda)                                                                                                                                                                                                                                                                                                                     |
+
+**Kaldırılan davranışın kalıntı taraması** (`unattended.silent|silentAllowed|SILENT_DISABLED|NoktaDestekOnay|occlusion|messages_p28u|join-reason|silentNotify|silentReason|indicatorControl|un.policy|un.silent|consent_total|Uzaktan izleniyor|Müdahale et|İzlemeye dön|ModeAsked|AskConsent|evConsent`):
+Kalan isabetlerin hepsi meşru: eski kayıt okuma (`history-unattended.ts`, `rec/routes.ts`, `audit/view.ts`, `history/[id]/{unattended-info,recording}.tsx`),
+`RETIRED_PERMISSION_KEYS`, eski sunucu iletisini ayrıştıran Go alanı (`wire.go` `IndicatorControl`, mimari r3.7'de bilinçli), AC-451 testleri/mock'ları,
+P16 FK temizliği (`users/repo.ts:207`), P28e kayıt politikası e-postası için kalan dört göz altyapısı (`mail.ts`, `rs_unattended_silent_notify_total`; implementation.md'de
+gerekçeli sapma) ve macOS `occlusionState` (P28f gösterge; ayrı konu). `/settings/unattended` rotası, `policy.ts`, `connect-silent.ts`, `join-reason-dialog.tsx`,
+onay diyaloğu Go dosyaları silinmiş.
+
+**Dokunulmaz dosyalar:** `git diff 9b1db78..HEAD --name-only` içinde `public/consent.ts`, `settings/consent.ts`, `rec/*`, `internal/ui/**`, `internal/input`,
+`internal/capture`, `internal/portal`, `control/{consent,origin,gate}.go`, `*_linux.go`, sürüm dosyaları ve `prisma/` yok. ✅
+
+## Düzeltilmeli
+
+1. [teknik-yazar] `docs/DATASHEET.md:28, :108, :169–179`, `README.md:319–329`, `docs/KULLANIM_KILAVUZU.md` "Üç bağlantı kipi" bölümü — hâlâ izinli/izinsiz kip,
+   firma politikası "İzin istemeden bağlanmaya izin ver", gerekçe, dört göz e-postası ve "Müdahale et" anlatılıyor; koddaki davranışla çelişiyor (AC-446 belge kısmı,
+   ortak standart 1.7 "kodda olmayan özellik yazılmaz"). Beklenen: mimari-p28u §r3.8 metni (tek kip, "gizli izleme yoktur; gösterge her zaman görünür", KVKK uyarısı,
+   eski kayıt etiketleri, "Servis güncel değil" → Güncelle…, `unattended.silent` yetkisinin kalktığı) + CHANGELOG + `docs/pdf/*.pdf` yeniden üretimi.
+   (Akışta R7 olarak test-operatoru'ndan sonra planlı; tamamlanınca bu madde kapanır, kod için yeni QA turu gerekmez.)
+
+## Definition of Done
+
+| Madde                                | Durum | Not                                                                                                |
+| ------------------------------------ | ----- | -------------------------------------------------------------------------------------------------- |
+| Lint / typecheck                     | ✅    |                                                                                                    |
+| Birim + entegrasyon + Go + e2e yeşil | ✅    | Tam entegrasyon koşusundaki 3 kırmızı, yük altında zamanlama; ayrı koşuda 3/3 yeşil (Öneriler 1)   |
+| Her r3 AC'sinde test karşılığı       | ✅    | Windows elle maddeleri (AC-429 süresi, AC-433 diyalogsuz açılış, AC-443) R6'da                     |
+| Kaldırılan davranış ölü kodsuz       | ✅    |                                                                                                    |
+| Dokunulmaz dosyalar                  | ✅    |                                                                                                    |
+| Sapmalar gerekçeli                   | ✅    | dört göz altyapısının P28e için kalması implementation.md R2 "Tasarımdan sapma"                    |
+| Yeni bağımlılık / migration          | ✅    | yok / yok (K-P28u-r3-4/8/10)                                                                       |
+| Güvenlik Kritik/Yüksek 0             | ✅    | `guvenlik-raporu.md` r3 kod turu GEÇTİ (Düşük S-P28u-r3-8 1d37076'da kapandı, web birim testi var) |
+| CI / ops / runbook (R5)              | ✅    | test adları doğrulandı; CI'ın kendisi bu turda koşturulmadı (PR yok)                               |
+| Dokümantasyon + PDF                  | ❌    | Düzeltilmeli 1                                                                                     |
+
+## Öneriler (zorunlu değil)
+
+1. `apps/server/test/integration/unattended-consent-k4.test.ts:143` K-P28u-16: 6 tur grant/release tek testte; yüklü makinede `waitFor("control.state")`
+   zaman aşımına düştü (ayrı koşuda 3/3 yeşil). CI'da kararsızlaşırsa tur sayısı/tavan gözden geçirilmeli; kararsız test listesine aday.
+2. `packages/contracts/src/audit.ts:312–320` `UNATTENDED_POLICY_AUDIT` ve `SILENT_NOTIFY_EVENTS` yorumları r3 durumunu söylemiyor ("yalnız okuma; yeni yazım yalnız
+   `recording_policy`"). Bir satırlık yorum, okuyanı yanlış yönlendirmez.
+3. `connect.ts` metrik/audit `mode:"ask"` sabit etiketi tarihsel adla kalıyor (K-P28u-r3-3); runbook'taki panel/alarm sorgularının bunu bildiği R5'te kontrol edildi
+   varsayılmıştır.
+
+## Olumlu
+
+- Silme kapsamı temiz: −4 638 / +2 171 satır; kaldırılan yolun çeviri, rota, izin, metrik ve testleri birlikte gitmiş; eski kayıt okuma (AC-451) ayrı testle korunmuş.
+- S-P28u-r3-1 (TX ile gönderim arası eski servis yarışı) hem connect hem rejoin için test kancasıyla kanıtlanmış.
+- Otomatik kontrol isteği saf fonksiyona (`autoControlDecision`) ayrılmış; devirde istek üretmemesi birim testli.
+
+---
+
 # QA Raporu — P28f Tur 3
 
 DURUM: GEÇTİ

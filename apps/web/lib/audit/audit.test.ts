@@ -99,7 +99,7 @@ describe("P27/P28u gözetimsiz audit etiketleri (K10 bulgusu)", () => {
     expect(actionLabel("unattended.consent")).toBe("Gözetimsiz bağlantı onayı (cihaz kullanıcısı)");
     expect(actionLabel("unattended.connect")).toBe("Gözetimsiz bağlantı isteği");
     expect(actionLabel("unattended.session.started")).toBe("Gözetimsiz bağlantı başladı");
-    expect(actionLabel("settings.unattended_silent")).toBe("Gözetimsiz erişim politikası değişti");
+    expect(actionLabel("settings.unattended_silent")).toBe("Gözetimsiz erişim politikası değişti (eski)");
   });
   it("İşlem süzgeci: 'Gözetimsiz erişim' grubu, tüm eylemler etiketiyle", () => {
     expect(groupLabel("unattended")).toBe("Gözetimsiz erişim");

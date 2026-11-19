@@ -34,9 +34,8 @@ export const PERMISSION_MODULES = [
   { key: "customers", actions: ["view", "create", "edit", "delete", "export", "import"] },
   // P27 (AC-273, 275, 293, 296; mimari-p27 §4.1): connect = yetkili olduğu cihaza bağlan (+ cihaz grant'ı + step-up);
   // manage = tüm cihazları gör, kayıt kodu üret/iptal, teknisyen–cihaz yetkisi ver/al, cihazı iptal et, bildirim adresleri.
-  // P28u (AC-437, 446; mimari-p28u §4): silent = izin istemeden bağlan — ayrıca firma politikası + cihaz grant'ı + step-up.
   // Müdahale (kilitle/oturumu kapat) için ayrı anahtar YOK (V-PU7): `connect` + grant + oturumun teknisyeni olmak.
-  { key: "unattended", actions: ["connect", "manage", "silent"] },
+  { key: "unattended", actions: ["connect", "manage"] },
   { key: "users", actions: ["view", "create", "edit", "delete"] },
   { key: "settings", actions: ["view", "edit"] },
   { key: "audit", actions: ["view", "export"] },
@@ -55,6 +54,14 @@ export function permissionKeysOf(modules: readonly { key: string; actions: reado
 }
 
 export const PERMISSION_KEYS: readonly PermissionKey[] = permissionKeysOf(PERMISSION_MODULES);
+
+/**
+ * Mezar listesi (S-P28u-r3-3): kaldırılmış yetki anahtarları — bu adlar YENİDEN KULLANILMAZ. `user_permissions`'ta saklı
+ * `granted=true` satırları kalmış olabilir (expand-only; satır kullanıcı kaydında silinir, K-P28u-r3-8); aynı ad yeniden
+ * tanımlanırsa eski satırlar kendiliğinden yetki verirdi. Birim test: `PERMISSION_KEYS` ile kesişim boş.
+ * `unattended.silent`: P28u r3 (K-P28u-r3-7) — izinsiz (silent) kip kaldırıldı.
+ */
+export const RETIRED_PERMISSION_KEYS: readonly string[] = ["unattended.silent"];
 
 /**
  * P9 (mimari-e9 §13.2): toggle ekranında alt yetki açıklaması — yalnız davranışı adından anlaşılmayan anahtarlar.
@@ -85,10 +92,8 @@ export const PERMISSION_DESCRIPTIONS: Readonly<Partial<Record<PermissionKey, str
   "file_transfer.print": "Müşterinin onayıyla PDF belgeyi müşterinin varsayılan yazıcısına gönderir (yalnız Windows uygulaması).",
   "unattended.manage":
     "Tüm gözetimsiz cihazları görür; kayıt kodu üretir, teknisyenlere cihaz yetkisi verir/alır, cihazı iptal eder ve müşteri bildirim adreslerini düzenler.",
-  // P28u (§4): toggle ekranı bu açıklamayı uyarı tonuyla (`TriangleAlert`) gösterir (AC-404 kalıbı).
   // P28e (§4, V54): toggle ekranı uyarı tonuyla gösterir (AC-404 kalıbı).
   "sessions.view_recording": "Oturum kayıtlarını izler (hassas — yalnız gerekene verin).",
-  "unattended.silent": "İzin istemeden bağlanma (hassas — yalnız gerekene verin). Firma politikası, cihaz yetkisi ve 2FA ayrıca gerekir.",
   // P28c (mimari-p28c §9): `supervise` toggle ekranında uyarı tonuyla (AC-404 kalıbı).
   "sessions.invite": "Etkin oturuma aynı firmadan teknisyen davet eder, kontrolü ve oturumu devreder.",
   "sessions.supervise": "Firmanın etkin oturumlarını izleyici olarak izler (hassas — yalnız gerekene verin).",

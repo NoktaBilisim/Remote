@@ -69,7 +69,8 @@ export const END_REASON_LABELS: Readonly<Record<string, string>> = {
   helper_failed: "Cihazda bağlantı başlatılamadı",
   no_console: "Cihazda etkin Windows oturumu yok",
   busy: "Cihazda başka gözetimsiz bağlantı var",
-  // P28u (mimari-p28u §6.2): onay sonuçları + D-P28u-5 fail-closed (`protocol` yalnız DB nedeni).
+  // P28u (mimari-p28u §6.2): onay sonuçları + D-P28u-5 fail-closed (`protocol` yalnız DB nedeni). r3 (K-P28u-r3-12):
+  // `consent_denied`/`consent_timeout` artık oluşmaz, eski kayıtlar için kalır; `consent_missing` (K-P28u-3) yazılmaya devam eder.
   consent_denied: "Kullanıcı bağlantıyı reddetti",
   consent_timeout: "Kullanıcı yanıt vermedi",
   consent_missing: "Cihaz onay sonucunu bildirmedi",

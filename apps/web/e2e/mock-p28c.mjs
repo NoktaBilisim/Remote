@@ -1,7 +1,7 @@
 // E2E sahte API — P28c-K2 çoklu teknisyen arayüzü (mimari-p28c r2 §4.1, §4.4). Yalnız test; sözleşme contracts api/multi.ts,
 // ws-multi.ts. Çerez u-p28c<senaryo>-<rastgele>:
-//   p28cinv  USER (sessions.view): 2 gelen davet (biri silent); Katıl → üye konsolu (katılımcı roster'ı); Reddet → 204.
-//   p28csup  ADMIN (sessions.supervise): etkin oturumlar (normal / desteklemiyor / asked / silent); İzle → izleyici konsolu.
+//   p28cinv  USER (sessions.view): 2 gelen davet (biri gözetimsiz); Katıl → üye konsolu (katılımcı roster'ı); Reddet → 204.
+//   p28csup  ADMIN (sessions.supervise): etkin oturumlar (normal / desteklemiyor / gözetimsiz); İzle → izleyici konsolu.
 //   p28cown  USER (sessions.invite): sahip konsolu; roster'da bağlı katılımcı; adaylar; davet 201 / geri çek 204.
 //   p28cunsup aynı (sahip) ama hello.guestMulti=false (AC-372; adaylar yine 409 CLIENT_UNSUPPORTED — yarış yolu). Sahip konsolu kimliği: GET /api/v1/__e2e/p28c-own.
 // Konsol WS'i mock-ws.mjs: kayıttaki `multiHello` teknisyen hello'suna eklenir (tid/techRole/roster).
@@ -93,7 +93,6 @@ function store(cookie, kind) {
         fromName: "Ayşe Sahip",
         customerName: "Ali Müşteri",
         unattended: false,
-        silent: false,
         expiresAt: iso(110_000),
       },
       {
@@ -102,7 +101,6 @@ function store(cookie, kind) {
         fromName: "Ayşe Sahip",
         customerName: "SUNUCU-01",
         unattended: true,
-        silent: true,
         expiresAt: iso(110_000),
       },
     ],
@@ -117,7 +115,6 @@ function store(cookie, kind) {
         full: false,
         supported: true,
         unattended: false,
-        silent: false,
       },
       {
         id: ulid(),
@@ -129,20 +126,6 @@ function store(cookie, kind) {
         full: false,
         supported: false,
         unattended: false,
-        silent: false,
-      },
-      {
-        id: ulid(),
-        technicianName: "Deniz",
-        customerName: "IZINLI-PC",
-        mode: "UNATTENDED",
-        startedAt: iso(-100_000),
-        techCount: 1,
-        full: false,
-        supported: true,
-        unattended: true,
-        silent: false,
-        consentMode: "asked",
       },
       {
         id: ids.inv,
@@ -154,8 +137,7 @@ function store(cookie, kind) {
         full: false,
         supported: true,
         unattended: true,
-        silent: true,
-        consentMode: "silent",
+        consentMode: "no_user",
       },
     ],
     sent: [],
@@ -234,9 +216,8 @@ export async function handleP28c(req, res, { url, session, csrfOk, send, err, re
     const body = await readJson(req);
     const p = joinWithReasonInputSchema.safeParse(body);
     const row = s.active.find((x) => x.id === sup[1]);
-    if (!p.success || !row)
-      return ok(400, err("VALIDATION", "Doğrulama hatası", { fields: { reason: "Gerekçe 20–500 karakter olmalı." } }));
-    if (row.silent && !p.data.reason) return ok(400, err("VALIDATION", "Doğrulama hatası", { fields: { reason: "Gerekçe gerekli." } }));
+    // P28u r3 (K-P28u-r3-9): gövde boş nesne; eski `reason` alanı → 400
+    if (!p.success || !row) return ok(400, err("VALIDATION", "Doğrulama hatası"));
     return ok(200, { sessionId: s.ids.sup, consoleUrl: `/sessions/${s.ids.sup}/console` });
   }
   return false;

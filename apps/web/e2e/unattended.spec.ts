@@ -71,9 +71,12 @@ test("AC-273 Bağlan: step-up sonra teknisyen konsoluna yönlenir", async ({ pag
   await signIn(context, "unm");
   await page.goto("/unattended");
   await visible(page, "un-connect").first().click();
-  // P28u (AC-430): Bağlan tek diyaloğu açar; politika yok → "İzin istemeden bağlan" kutusu yok
+  // P28u r3 (AC-430): Bağlan tek diyaloğu açar; kutu/gerekçe yok, "sorulmadan açılır" bilgi satırı
   await expect(page.getByTestId("un-connect-dialog")).toBeVisible();
-  await expect(page.getByTestId("un-silent")).toHaveCount(0);
+  await expect(page.getByTestId("un-connect-info")).toHaveText(
+    "Bağlantı cihaz kullanıcısına sorulmadan açılır. Cihazda bağlantı göstergesi görünür.",
+  );
+  await expect(page.getByTestId("un-connect-dialog").getByRole("checkbox")).toHaveCount(0);
   await page.getByTestId("un-connect-submit").click();
   await stepUp(page);
   await expect(page).toHaveURL(/\/sessions\/01JSSP2700000000000000000B\/console$/);

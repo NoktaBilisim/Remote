@@ -132,7 +132,10 @@ export async function handleUsers(req, res, { url, session, csrfOk, send, err, r
   const own = new Set(who.permissions);
   const isSa = who.user.role === "SUPER_ADMIN";
   const canManage = (u) => isSa || Object.entries(u.permissions).every(([k, v]) => !v || own.has(k));
-  const detail = (u) => ({ ...u, isSelf: u.id === US.SELF, canManage: canManage(u) });
+  // P28u r3 AC-451: Can Aydın'ın yanıtında r3 öncesinden saklı kalmış, artık tanımsız yetki satırı (yalnız okuma yanıtında;
+  // depo ve PATCH kuralları değişmez) — arayüz süzer, ekranda göstermez, geri göndermez.
+  const legacy = (u) => (u.id === US.CAN ? { ...u.permissions, "unattended.silent": true } : u.permissions);
+  const detail = (u) => ({ ...u, permissions: legacy(u), isSelf: u.id === US.SELF, canManage: canManage(u) });
   const listItem = (u) => {
     const d = { ...u };
     delete d.permissions;

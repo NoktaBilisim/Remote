@@ -2,28 +2,24 @@
 // tanım `@remote/contracts/rejoin-const` (pencere 45 sn komuttan, bilet 30 sn). Pencere açıkken eski misafirin kopuşu odayı
 // bitirmez; pencere dolunca (misafir yoksa) `session_changed`. `ok:false` / 15 sn yanıtsızlık aynı temizlik yolu
 // (`clearRejoinWindow`). Bilet tek kullanımlık, oturum başına 1, yalnız başarılı `logoff` sonrası. Yeniden katılım TX'i admit
-// ile aynı kilit sırası (cihaz → grant → kapı → silent'ta politika + `unattended.silent`); onay/outbox YAZILMAZ.
+// ile aynı kilit sırası (cihaz → grant → kapı); onay/outbox YAZILMAZ. r3: `rejoin.mode` her zaman `no_user`; gönderim anında
+// `direct1` yeniden denetlenir (S-P28u-r3-1) — yoksa oda CANCELLED/ENDED(protocol).
 import { UNATTENDED_AUDIT } from "@remote/contracts/audit";
 import { REJOIN_TICKET_TTL_SEC, REJOIN_WINDOW_MS } from "@remote/contracts/rejoin-const";
 import type { SessionEndedReason } from "@remote/contracts/ws";
-import {
-  deviceControlIndicatorText,
-  deviceIndicatorText,
-  deviceSilentIndicatorText,
-  type DeviceConsentOutbound,
-} from "@remote/contracts/ws-device";
+import { deviceIndicatorText, type DeviceConsentOutbound } from "@remote/contracts/ws-device";
 import { writeAudit, type AuditContext } from "../audit/service.ts";
 import { newId } from "../lib/ids.ts";
 import { sendGuestJoined, sendHelloGuest, syncDisconnect } from "./active.ts";
 import { activeTechPerms } from "./admit.ts";
-import { recheck, silentRecheck, type AdmitDeviceDeps } from "./admit-device.ts";
+import { recheck, type AdmitDeviceDeps } from "./admit-device.ts";
 import type { Rooms } from "./rooms.ts";
 import { endDeviceRoom } from "./rooms-device.ts";
 import type { Guest, Peer, Room } from "./types.ts";
 
-/** Cihaza `rejoin` gönderen bağlantı (DeviceHub.sendConsent). */
+/** Cihaza `rejoin` gönderen bağlantı (DeviceHub.sendDirect — `direct1` gönderim anında denetlenir). */
 export interface RejoinLink {
-  sendConsent(deviceId: string, msg: DeviceConsentOutbound): boolean;
+  sendDirect(deviceId: string, msg: DeviceConsentOutbound): "sent" | "offline" | "outdated";
 }
 
 /** `intervene{logoff}` gönderilirken: pencere komuttan 45 sn. Dolunca misafir yoksa oda `session_changed`. */
@@ -77,18 +73,17 @@ export async function issueRejoin(rooms: Rooms, link: RejoinLink, room: Room, te
   const { token } = rooms.tickets.issue({ sessionId: room.sessionId, guestId: guest.id, gen });
   const tenant = await rooms.db.tenant.findUnique({ where: { id: room.tenantId }, select: { name: true } });
   const firm = tenant?.name.slice(0, 120) || "Destek";
-  const mode = u.consentMode ?? "no_user";
-  const silent = mode === "silent";
-  const indicatorText = (silent ? deviceSilentIndicatorText : deviceIndicatorText)(room.technicianName, firm, test);
-  return link.sendConsent(u.deviceId, {
+  const sent = link.sendDirect(u.deviceId, {
     t: "rejoin",
     sessionId: room.sessionId,
     ticket: token,
-    mode,
-    indicatorText,
-    ...(silent ? { indicatorControl: deviceControlIndicatorText(room.technicianName, firm, test) } : {}),
+    mode: "no_user",
+    indicatorText: deviceIndicatorText(room.technicianName, firm, test),
     expiresInSec: REJOIN_TICKET_TTL_SEC,
   });
+  // S-P28u-r3-1: soket arada `direct1`'siz (eski servis) yenilendi → oda anlamlı nedenle biter (DB `protocol`).
+  if (sent === "outdated") await endDeviceRoom(rooms, room, "device_timeout", "protocol");
+  return sent === "sent";
 }
 
 async function auditRejoin(rooms: Rooms, room: Room, ctx: AuditContext, failReason: string | null): Promise<void> {
@@ -110,9 +105,7 @@ function recheckRejoin(rooms: Rooms, d: AdmitDeviceDeps, room: Room): Promise<"o
   if (!dev) return Promise.resolve("permission");
   return rooms.db.$transaction(async (tx) => {
     const fail = await recheck(tx, d, room, dev);
-    if (fail) return fail;
-    if (dev.consentMode === "silent" && !(await silentRecheck(tx, room))) return "permission";
-    return "ok";
+    return fail ?? "ok";
   });
 }
 

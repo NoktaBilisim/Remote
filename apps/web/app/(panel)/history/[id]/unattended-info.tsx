@@ -1,5 +1,5 @@
 import type { SessionUnattendedInfo, UnattendedTimelineKind } from "@remote/contracts/api/sessions";
-import { Eye, Hand, Lock, LogOut, RefreshCw, UserCheck, type LucideIcon } from "lucide-react";
+import { Hand, Lock, MousePointer2Off, LogOut, RefreshCw, UserCheck, type LucideIcon } from "lucide-react";
 import { formatNumber, formatTimeSeconds } from "@/lib/format";
 import { t } from "@/lib/i18n";
 import { CONSENT_MODE_LABELS } from "@/lib/unattended/contract";
@@ -8,7 +8,7 @@ import { Muted } from "./sections";
 const ICONS: Readonly<Record<UnattendedTimelineKind, LucideIcon>> = {
   consent: UserCheck,
   control_on: Hand,
-  control_off: Eye,
+  control_off: MousePointer2Off,
   lock: Lock,
   logoff: LogOut,
   rejoin: RefreshCw,

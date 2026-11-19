@@ -79,7 +79,7 @@ test("K12: gözetimsiz konsol bekleme — 'Cihaz bağlanıyor…', kod alanları
     const server = ws.connectToServer();
     server.onMessage((m) => {
       const o = JSON.parse(String(m)) as { t: string; unattended?: unknown };
-      if (o.t === "hello") o.unattended = { deviceId: "01JDVP2700000000000000000A", deviceName: "MUHASEBE-PC", consentMode: "silent" };
+      if (o.t === "hello") o.unattended = { deviceId: "01JDVP2700000000000000000A", deviceName: "MUHASEBE-PC", consentMode: "no_user" };
       ws.send(JSON.stringify(o));
     });
     ws.onMessage((m) => server.send(m));

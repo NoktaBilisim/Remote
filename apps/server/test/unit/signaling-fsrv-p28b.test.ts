@@ -54,7 +54,7 @@ function room(unattended: boolean, fileMode: FileMode = "P2P"): Room {
     timers: {},
     ending: false,
     fileMode,
-    ...(unattended ? { unattended: { deviceId: "D", deviceName: "PC", customerId: "C", consentRequest: "ask" as const } } : {}),
+    ...(unattended ? { unattended: { deviceId: "D", deviceName: "PC", customerId: "C" } } : {}),
   };
 }
 

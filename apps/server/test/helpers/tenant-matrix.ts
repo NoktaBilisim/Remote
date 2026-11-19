@@ -34,8 +34,6 @@ export const ROUTE_CLASSES: Record<string, RouteClass> = {
   "POST /api/v1/sessions/:id/unattended/lock": "tenant",
   "POST /api/v1/sessions/:id/unattended/logoff": "tenant",
   // P28u-K3: firma politikası (tenantScope'lu, kimliksiz yol).
-  "GET /api/v1/unattended/policy": "scoped",
-  "PUT /api/v1/unattended/policy": "scoped",
   // P27-K2: koleksiyon/durum uçları tenantScope'lu (liste izolasyonu: unattended-api.test.ts "AC-293"); kayıt ucu kimliksiz
   // (kayıt kodu kimliği); id'li uçlar B → A kaydı 404.
   "GET /api/v1/unattended/status": "scoped",

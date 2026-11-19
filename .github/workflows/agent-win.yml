@@ -459,23 +459,27 @@ jobs:
           if ($script:bad -gt 0) { exit 1 }
           Write-Output 'trace-check P28a içerik işareti öz testi: tüm beklenen sonuçlar tuttu'
           exit 0
-      # P28u K8 (mimari-p28u §11 K8, §14.2; runbook §28u.8): servis 0.15.0 onay/müdahale testleri günlükte görünür koşar (kapsam
-      # yukarıdaki `go test ./...` ile aynı; bu adım ad sözleşmesini ve PASS/SKIP'i görünür kılar). Hepsi sahte saat/sahte z-sırası/
-      # sahte kilit kullanır — koşucuyu KİLİTLEMEZ (gerçek kilit yalnız aşağıdaki K6s adımında). Yalnız Windows'a özgü pencere
-      # sınıfı testi etkileşimsiz oturumda SKIP olabilir (uyarı); diğerlerinin koşmaması (ad değişti) kırmızıdır.
-      - name: P28u onay + örtülme + müdahale testleri (-v)
+      # P28u K8 + r3 (mimari-p28u §11 K8, §14.2, §r3.5/§r3.7; runbook §28u.8): gözetimsiz onaysız tek yol (r3: onay diyaloğu, örtülme
+      # denetimi ve silent kip kaldırıldı) + müdahale testleri günlükte görünür koşar (kapsam yukarıdaki `go test ./...` ile aynı; bu adım
+      # ad sözleşmesini ve PASS/SKIP'i görünür kılar). Hepsi sahte saat/sahte boru/sahte kilit kullanır — koşucuyu KİLİTLEMEZ (gerçek
+      # kilit yalnız aşağıdaki K6s adımında). Yalnız Windows'a özgü pencere sınıfı testi etkileşimsiz oturumda SKIP olabilir (uyarı);
+      # diğerlerinin koşmaması (ad değişti) kırmızıdır.
+      - name: P28u onaysız bağlantı + müdahale testleri (-v)
         shell: bash
         run: |
           out="$RUNNER_TEMP/p28u.txt"
           GITHUB_STEP_SUMMARY='' go test -count=1 -v -run 'TestAC4(29|3[0-9]|4[0-6])' ./internal/servis/... ./internal/unattended/... ./internal/control/... | tee "$out"
           for t in TestAC432ConsentMissingOnConsent1SocketIsProtocol TestAC435LegacyServerKeepsP27 TestAC431StatusTable \
-                   TestAC431ConsentFlowAndProtocolViolationKills TestAC429UserWatchAnnounceAndDebounce TestAC443LockViaHelperPipeAndEventLog \
-                   TestAC443LogoffThenRejoinLaunchesHelperControlOff TestAC431ObscuredLayeredTransparentCountsOwnExcluded \
-                   TestAC431GuardRearmsAfterOcclusionAndHide TestAC431AC443HelperPipeEndToEnd TestAC431BoundaryForbidsMessageFilter \
-                   TestAC431DeniedOrTimeoutNoIndicatorNoDialNoFrames TestAC443StationLockerWaitsForWinlogon; do
+                   TestAC429UserWatchAnnounceAndDebounce TestAC443LockViaHelperPipeAndEventLog TestAC443LogoffThenRejoinLaunchesHelperControlOff \
+                   TestAC431AC443HelperPipeEndToEnd TestAC431BoundaryForbidsMessageFilter TestAC443StationLockerWaitsForWinlogon \
+                   TestAC433EveryUserStateStartsNoUserWithoutDialog TestAC433LaunchFailureSendsNoConsentResult \
+                   TestAC435LegacySilentConnectIsProtocol TestAC435LegacyConsentOutcomesNotSendable TestAC431ConsentEventIsProtocolViolationKills \
+                   TestAC443LegacyAskedRejoinStartsNoUser TestAC433LogonDoesNotEndSession TestAC433NoDialogIndicatorFirstControlGrantedLabelFixed \
+                   TestAC438IndicatorFailureNoDial TestAC433FileOfferAcceptedWithoutControl TestAC433InputAppliedOnlyAfterImmediateGrant \
+                   TestAC433InputConsentModeCombos; do
             grep -q -- "--- PASS: $t" "$out" || { echo "::error::$t PASS değil / koşmadı (ad değişti mi? sözleşme: docs/implementation.md P28u K8)"; exit 1; }
           done
-          t=TestAC431HelperWindowClassesOnlyIndicatorAndConsent
+          t=TestAC431HelperWindowClassesOnlyIndicator
           if grep -q -- "--- SKIP: $t" "$out"; then echo "::warning::$t SKIP (etkileşimsiz oturum): kanıt Windows VM elle turundan (runbook §28u.8)"
           else grep -q -- "--- PASS: $t" "$out" || { echo "::error::$t koşmadı"; exit 1; }; fi
       # P28e K8 (mimari-p28e §12 "Go birim", §13 K8; runbook §28e.8): istemci + servis 0.16.0 kayıt testleri günlükte görünür koşar
@@ -492,13 +496,13 @@ jobs:
                    TestAC382IndicatorAndStop TestSP28e2PauseWithoutAckThenResume TestSP28e2PendingRevokeFirstAfterReconnect \
                    TestSP28e12FeatureOnlyWithRecUI TestAC381RequestFormRecordingConsent TestAC381P28eConsentLineAndConstants \
                    TestAC382P28eGuestInboundMatchesFixture TestAC382P28eGuestOutboundMatchesFixture \
-                   TestAC449ConnectRecordingAskedPassesRecordingLineToHelper TestAC448ConnectWithoutRecordingHasNoSuffixFlag \
+                   TestAC448ConnectRecordingPassesSuffixFlagToHelper TestAC448ConnectWithoutRecordingHasNoSuffixFlag \
                    TestAC448RecordingOnSocketWithoutRecord1IsProtocol TestAC448LegacySocketRecordingRejected \
                    TestAC448RecStateTogglesHelperSuffixAndLogs TestAC448RecStateOnWithoutConnectRecordingStillShown \
                    TestAC448RecCommandFailureKillsHelper TestAC448LocalSwitchIsOnlyStopPath TestAC448RejoinCarriesLastRecordingState \
                    TestAC448RecStateOnlyOnRecord1Socket TestAC448P28eRecordDeviceMessagesMatchFixture TestAC449P28eConnectRecordingParsed \
                    TestAC449InputRecordingOnlyWithP28uInput TestAC448RecCommandContract TestAC448IndicatorLabel \
-                   TestAC449ConsentSpecCarriesRecordingLine TestAC449GrantNeedsDrawnRecordingLine TestAC448IndicatorDrawnWithSuffixBeforeDial \
+                   TestAC448IndicatorDrawnWithSuffixBeforeDial \
                    TestAC448SuffixNotDrawableNoDial TestAC448LiveSuffixFollowsRecStateAndControl TestAC448SuffixChangeOnFixedIndicatorFails \
                    TestAC448RecCommandAppliedWithoutStatusReply; do
             grep -q -- "--- PASS: $t" "$out" || { echo "::error::$t PASS değil / koşmadı (ad değişti mi? sözleşme: docs/implementation.md P28e K8)"; exit 1; }
@@ -589,7 +593,8 @@ jobs:
         shell: bash
         run: |
           # Kilitten önce (-v görünür; tablolar ana `go test` adımında step summary'ye yazıldı, burada çiftlenmez):
-          GITHUB_STEP_SUMMARY='' go test -count=1 -v -run 'TestK6sOverlay|TestK6sSessionIDs' ./internal/win/ ./internal/servis/
+          # r3: TestK6sOverlay (soru 4, onay diyaloğu örtülmesi) win/k6s_overlay_windows_test.go ile silindi (mimari-p28u §r3.7 R4).
+          GITHUB_STEP_SUMMARY='' go test -count=1 -v -run 'TestK6sSessionIDs' ./internal/servis/
           K6S_KILIT=1 go test -count=1 -v -run 'TestK6sLockRestrictedToken' ./internal/servis/
 
   # P28d K4 (mimari-p28d §11 K4, §14 O-PD-4; docs/implementation.md P28d K3 "K0s"; runbook §28d.11): gömülü kodlayıcı
@@ -1034,9 +1039,10 @@ jobs:
           {
             echo "### Yayın ön koşulu (S17-2) — onay vermeden önce kontrol edin (runbook §24.1)"
             echo "- [ ] İstemcinin gerektirdiği sunucu paketi prod'da (0.11.0 → P15; 0.13.0 → P28a; 0.14.0 → P28b; 0.15.0 → P28u + migration 20261124000000_p28u_unattended_consent; 0.16.0 → P28e + migration 20261125000000_p28e_recordings; 0.17.0 → P28c, migration yok)"
-            echo "- [ ] 0.15.0 ve sonrası: Windows 10 + 11 elle turu GEÇTİ (runbook §28u.8: onay diyaloğu ≤ 3 sn, enjekte tıklama/Enter reddi, saydam katman örtüsü ayrı süreçten, kilit/oturum kapatma + 1006/1007/1008, K6s elle spike)"
-            echo "- [ ] 0.16.0 ve sonrası: Windows 10 + 11 kayıt elle turu GEÇTİ (runbook §28e.8: rıza kutusu işaretsiz, şerit/gösterge + Kaydı durdur ≤ 2 sn, gözetimsiz diyalog satırı + gösterge eki, olay 1009, 1 sa kayıt ≤ 1 GB)"
-            echo "- [ ] 0.17.0 ve sonrası: Windows çoklu teknisyen elle turu + AC-371 ölçümü GEÇTİ (runbook §28c.7/§28c.8: roster adları, Çıkar, devir, gözetimsiz göstergede adlar, silent katılım gerekçe + dört göz e-postası; kontrol sahibi ≥ 15 FPS, diğerleri ≥ 5 FPS)"
+            echo "- [ ] 0.15.0 ve sonrası: Windows 10 + 11 elle turu GEÇTİ (runbook §28u.8: diyalogsuz açılış ≤ 3 sn + gösterge, yerel kapatma anahtarı, kilit/oturum kapatma + 1006/1007, K6s elle spike; r3: onay diyaloğu/örtü maddeleri yok, 1008 yazılmaz)"
+            echo "- [ ] P28u r3 servisi (rs.cap.direct1) ve sonrası: sunucu P28u r3 prod'da ve servis AYNI pencerede yayınlanır (runbook §28u.10) — r3 sunucusu direct1 bildirmeyen servise 409 DEVICE_OUTDATED verir; P28u..P28f imajına geri dönüşte S-P28u-r3-3 notu (§28u.7)"
+            echo "- [ ] 0.16.0 ve sonrası: Windows 10 + 11 kayıt elle turu GEÇTİ (runbook §28e.8: rıza kutusu işaretsiz, şerit/gösterge + Kaydı durdur ≤ 2 sn, gösterge eki (r3: gözetimsiz diyalog satırı yok), olay 1009, 1 sa kayıt ≤ 1 GB)"
+            echo "- [ ] 0.17.0 ve sonrası: Windows çoklu teknisyen elle turu + AC-371 ölçümü GEÇTİ (runbook §28c.7/§28c.8: roster adları, Çıkar, devir, gözetimsiz göstergede adlar (r3: silent katılım gerekçesi/dört göz e-postası yok); kontrol sahibi ≥ 15 FPS, diğerleri ≥ 5 FPS)"
             echo "- [ ] 0.19.0 ve sonrası: sunucu P28f prod'da (clientOs, availability, OS_PERMISSION; migration yok) — eski sunucu clientOs'u yok sayar"
             echo "- [ ] macOS: repo değişkeni APPLE_TEAM_ID tanımlı mı? Tanımsızsa sign-mac ATLANIR ve Release'te macOS zip'i OLMAZ (beklenen, R39). Tanımlıysa macOS elle D-listesi (runbook §28f.6) staging TEST paketiyle GEÇTİ"
             echo "- [ ] Aynı commit'ten staging exe ile duman testi GEÇTİ (runbook §24.2)"

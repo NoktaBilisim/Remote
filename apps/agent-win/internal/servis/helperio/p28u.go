@@ -8,47 +8,22 @@ import (
 	"io"
 )
 
-// P28u (mimari-p28u §7.4; ADR-0033): giriş borusunun ilk satırı Input, sonraki satırları servis komutlarıdır
+// P28u (mimari-p28u §7.4; r3 §r3.5): giriş borusunun ilk satırı Input, sonraki satırları servis komutlarıdır
 // (`{"cmd":"lock","id":"…"}`); boru açık kalır. Durum borusu (yardımcı → servis, tek yön) satır başına bir JSON olaydır
 // (≤ MaxStatusLine bayt). İki uç aynı ikilidir: bilinmeyen alan reddedilir (DisallowUnknownFields).
+// r3 (K-P28u-r3-1): onay diyaloğu yok; tek kip `no_user`. Consent "" = P27 girdisi, "none" = P28u girdisi.
 
-// Consent değerleri (Input.Consent). Boş = P27 davranışı (eski sunucu; servis karar verir).
-const (
-	ConsentAsk  = "ask"
-	ConsentNone = "none"
-)
+// ConsentNone Input.Consent: yardımcı kullanıcıya sormaz (r3'te tek değer).
+const ConsentNone = "none"
 
-// Mode değerleri (Input.Mode; contracts `consentMode`).
-const (
-	ModeAsked  = "asked"
-	ModeNoUser = "no_user"
-	ModeSilent = "silent"
-)
-
-// Karar değerleri (`ev:consent`.decision; contracts `consent.result.decision`).
-const (
-	DecisionGranted = "granted"
-	DecisionDenied  = "denied"
-	DecisionTimeout = "timeout"
-)
-
-// P28u çıkış kodları ve nedenleri (connect.result.reason).
-const (
-	ExitConsentDenied  uint32 = 24
-	ExitConsentTimeout uint32 = 25
-
-	ReasonConsentDenied  = "consent_denied"
-	ReasonConsentTimeout = "consent_timeout"
-)
+// ModeNoUser Input.Mode (contracts `consentMode`; r3'te yeni yazımda tek değer).
+const ModeNoUser = "no_user"
 
 // Lock sonucu nedeni (contracts `intervene.result.reason`).
 const ReasonNotLocked = "not_locked"
 
 // MaxStatusLine durum borusunda bir satırın en çok bayt sayısı (yeni satır dahil).
 const MaxStatusLine = 512
-
-// MaxConsentMs `consent.result.ms` üst sınırı (contracts 0..65000).
-const MaxConsentMs = 65000
 
 // CmdLock tek komut (oturum kapatma servistedir — §7.5).
 const CmdLock = "lock"
@@ -60,34 +35,24 @@ type Command struct {
 	On  *bool  `json:"on,omitempty"`
 }
 
-// Status durum borusu olayı. Ev'e göre alanlar: consent{Decision, Ms}, control{On}, lock{ID, Ok, Reason?}.
+// Status durum borusu olayı. Ev'e göre alanlar: control{On}, lock{ID, Ok, Reason?}.
 type Status struct {
-	Ev       string `json:"ev"`
-	Decision string `json:"decision,omitempty"`
-	Ms       *int   `json:"ms,omitempty"`
-	On       *bool  `json:"on,omitempty"`
-	ID       string `json:"id,omitempty"`
-	Ok       *bool  `json:"ok,omitempty"`
-	Reason   string `json:"reason,omitempty"`
+	Ev     string `json:"ev"`
+	On     *bool  `json:"on,omitempty"`
+	ID     string `json:"id,omitempty"`
+	Ok     *bool  `json:"ok,omitempty"`
+	Reason string `json:"reason,omitempty"`
 }
 
 var cmdIDRe = ulidRe
 
-// validateP28u Input'un P28u alanlarının birlikte geçerliliği (§7.4): ask ⇔ asked; none ⇔ no_user|silent;
-// IndicatorControl yalnız silent'ta ve orada zorunlu. İkisi de boşsa P27 girdisidir.
+// validateP28u Input'un P28u alanlarının birlikte geçerliliği (§7.4, r3): none ⇔ no_user. İkisi de boşsa P27 girdisidir.
 func (in Input) validateP28u() error {
 	switch {
 	case in.Consent == "" && in.Mode == "":
-	case in.Consent == ConsentAsk && in.Mode == ModeAsked:
-	case in.Consent == ConsentNone && (in.Mode == ModeNoUser || in.Mode == ModeSilent):
+	case in.Consent == ConsentNone && in.Mode == ModeNoUser:
 	default:
 		return fmt.Errorf("%w: consent/mode", ErrInvalid)
-	}
-	if in.Mode == ModeSilent != (in.IndicatorControl != "") {
-		return fmt.Errorf("%w: indicatorControl", ErrInvalid)
-	}
-	if in.IndicatorControl != "" && !Text(in.IndicatorControl, 160) {
-		return fmt.Errorf("%w: indicatorControl", ErrInvalid)
 	}
 	if in.Recording && in.Consent == "" { // P27 girdisi kayıt taşımaz (gösterge eki yok → kayıt yok, K-P28e-7)
 		return fmt.Errorf("%w: recording", ErrInvalid)

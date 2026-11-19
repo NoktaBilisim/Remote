@@ -218,7 +218,7 @@ func (c *DeviceClient) dial(ctx context.Context) (*websocket.Conn, error) {
 	defer cancel()
 	ws, resp, err := websocket.Dial(dctx, u.String(), &websocket.DialOptions{
 		HTTPClient:   c.HTTP,
-		Subprotocols: []string{DeviceSubprotocol, DeviceCapConsent, DeviceCapRecord},
+		Subprotocols: []string{DeviceSubprotocol, DeviceCapConsent, DeviceCapRecord, DeviceCapDirect},
 	})
 	if resp != nil && resp.Body != nil {
 		_ = resp.Body.Close()

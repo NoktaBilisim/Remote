@@ -1,6 +1,6 @@
 // P28c REST uçları `/api/v1/sessions/...` (mimari-p28c r2 §4.1; AC-364, 365, 368, 372). Sıra: requireAuth (Origin + CSRF) →
 // requirePerm → tenantScope → hız sınırı → zod → servis (`invites.ts`) → yanıt. Statik yollar (`/invites`, `/active`) `/:id`'den
-// önce eşleşir (find-my-way). Silent odada katılım/devir dört göz e-postası kancası burada bağlanır (`rooms.silentNotify`).
+// önce eşleşir (find-my-way).
 // Hız sınırı: yoklama/aday listesi `poll`, kabul/İzle/ret/geri çekme `join` (ayrı anahtar önekleri; D-PC-K2).
 import {
   createInviteInputSchema,
@@ -21,9 +21,7 @@ import { auditContext } from "../audit/service.ts";
 import { authOf, requireAuth, requirePerm, tenantScope } from "../auth/guards.ts";
 import { AppError, parseInput } from "../lib/errors.ts";
 import { FixedWindowCounter } from "../lib/rate.ts";
-import type { SilentJoinEvent } from "../signaling/member-life.ts";
 import { createGate } from "../unattended/gate.ts";
-import { sendSilentNotice, silentJoinMail } from "../unattended/mail.ts";
 import {
   acceptInvite,
   activeSessions,
@@ -51,36 +49,8 @@ function limited(c: FixedWindowCounter, key: string): void {
   if (wait > 0 || c.hit(key)) throw new AppError("RATE_LIMITED", { retryAfterSec: wait || 60 });
 }
 
-/** Silent odada katılım (`join`) / devir (`transfer`) dört göz e-postası (Y-PC-1; beklenmez, hata fırlatmaz). */
-function bindSilentNotify(app: FastifyInstance): void {
-  app.rooms.silentNotify = (e: SilentJoinEvent) => {
-    const content = silentJoinMail({
-      event: e.event,
-      user: e.actor.fullName,
-      role: e.role,
-      owner: e.room.technicianName,
-      device: e.room.unattended?.deviceName ?? "",
-      at: new Date(app.rooms.clock.now()),
-      ...(e.reason !== undefined ? { reason: e.reason } : {}),
-    });
-    void sendSilentNotice(
-      { db: app.db, mail: app.mail, metrics: app.metrics, log: app.log },
-      {
-        ctx: e.ctx,
-        tenantId: e.room.tenantId,
-        actor: { userId: e.actor.userId, email: e.actor.email },
-        event: e.event,
-        entity: "support_sessions",
-        entityId: e.room.sessionId,
-        content,
-      },
-    );
-  };
-}
-
 export async function multiSessionRoutes(app: FastifyInstance): Promise<void> {
   app.addHook("preHandler", requireAuth);
-  bindSilentNotify(app);
   const d = (): MultiDeps => ({ db: app.db, rooms: app.rooms, gate: createGate(app.env) });
   const poll = new FixedWindowCounter(MULTI_POLL_PER_MIN + 1, MIN_MS, MIN_MS);
   const join = new FixedWindowCounter(MULTI_JOIN_PER_MIN + 1, MIN_MS, MIN_MS);
@@ -100,8 +70,8 @@ export async function multiSessionRoutes(app: FastifyInstance): Promise<void> {
     const auth = authOf(req);
     const { inviteId } = params(inviteParamsSchema, req);
     limited(join, auth.user.id);
-    const { reason } = parseInput(joinWithReasonInputSchema, req.body);
-    return acceptInvite(d(), auditContext(req), auth, inviteId, reason);
+    parseInput(joinWithReasonInputSchema, req.body); // r3 (S-P28u-r3-4): boş nesne; eski `reason` → 400
+    return acceptInvite(d(), auditContext(req), auth, inviteId);
   });
 
   app.post("/invites/:inviteId/reject", async (req, reply) => {
@@ -125,8 +95,8 @@ export async function multiSessionRoutes(app: FastifyInstance): Promise<void> {
     const { tenantId } = tenantScope(req);
     const { id } = params(multiSessionParamsSchema, req);
     limited(join, auth.user.id);
-    const { reason } = parseInput(joinWithReasonInputSchema, req.body);
-    return supervise(d(), auditContext(req), auth, tenantId, id, reason);
+    parseInput(joinWithReasonInputSchema, req.body); // r3 (S-P28u-r3-4): boş nesne; eski `reason` → 400
+    return supervise(d(), auditContext(req), auth, tenantId, id);
   });
 
   const invitePerm = { preHandler: requirePerm("sessions.invite") };

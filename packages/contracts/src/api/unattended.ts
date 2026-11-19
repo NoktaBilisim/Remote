@@ -6,7 +6,6 @@ import { UNATTENDED_AUDIT, UNATTENDED_POLICY_AUDIT } from "../audit.ts";
 import type { ErrorCode } from "../errors.ts";
 import type { ConsentMode, DeviceUserState } from "../unattended-consent.ts";
 import { B64URL_32_PATTERN, DEVICE_SHA256_PATTERN, DEVICE_VERSION_PATTERN, deviceTextSchema } from "../ws-device.ts";
-import { UNSAFE_NAME_CHARS } from "./shared.ts";
 import { optionalPhoneSchema } from "./customers.ts";
 import { notifyEmailKey } from "./requests.ts";
 
@@ -29,11 +28,6 @@ export interface UnattendedStatus {
    * false → "Kayıt kodu oluştur" baştan pasif + `UNATTENDED_ERROR_MESSAGES.NOTIFY_CHANNEL_UNAVAILABLE`. Firma seçilmemişse false.
    */
   notifyChannel: boolean;
-  /**
-   * P28u (§5.2, AC-430): firma politikası açık ∧ çağıranda `unattended.silent` — `ConnectDialog` "İzin istemeden bağlan" kutusunu
-   * yalnız true iken çizer (sunucu zincirde yine zorlar). K3 doldurur — o zamana kadar gelmeyebilir (yoksa false).
-   */
-  silentAllowed?: boolean;
 }
 
 // ------------------------------------------------------------------------------------------- hata metinleri
@@ -49,7 +43,6 @@ export const UNATTENDED_ERROR_MESSAGES = {
   REGISTRATION_CODE_INVALID: "Kayıt kodu geçersiz, kullanılmış ya da süresi dolmuş",
   // P28u (mimari-p28u §5).
   DEVICE_OUTDATED: "Cihazdaki servis güncel değil — güncelleyin",
-  SILENT_DISABLED: "Firma politikası izin istemeden bağlanmaya izin vermiyor",
   INTERVENE_PENDING: "Önceki komut henüz tamamlanmadı",
   INTERVENE_FAILED: "Cihaz komutu uygulayamadı",
 } as const satisfies Partial<Record<ErrorCode, string>>;
@@ -165,7 +158,7 @@ export type ListDevicesQuery = z.output<typeof listDevicesQuerySchema>;
 
 /**
  * `canConnect=false` iken düğme ipucunu seçer (§4.2, AC-336). Öncelik sırası sunucuda: `no_grant` (çağıranın cihaz yetkisi
- * ya da `unattended.connect`'i yok) → `unsigned` (imza kapısı) → `offline` → `outdated` (P28u: soket `consent1` bildirmedi,
+ * ya da `unattended.connect`'i yok) → `unsigned` (imza kapısı) → `offline` → `outdated` (P28u r3: soket `direct1` bildirmedi,
  * AC-435) → `local_disabled` → `no_contacts` → `smtp`.
  * `smtp` ayrıca "Kayıt kodu oluştur" düğmesini de pasif yapar.
  */
@@ -254,62 +247,15 @@ export interface UnattendedConnectResponse {
   sessionId: string;
 }
 
-// ------------------------------------------------------------------------------------------- P28u izinli / izinsiz bağlantı
-
-/** Gerekçe sınırları (kod noktası, kırpılmış) — DB `support_sessions_silent_reason_chk` ile aynı (K1). */
-export const SILENT_REASON_MIN = 20;
-export const SILENT_REASON_MAX = 500;
-export const SILENT_REASON_MESSAGE = `Gerekçe ${SILENT_REASON_MIN}–${SILENT_REASON_MAX} karakter olmalı`;
+// ------------------------------------------------------------------------------------------- P28u r3 onaysız bağlantı
 
 /**
- * İzinsiz bağlantı gerekçesi (§5.1, AC-437): kırpılır; 20..500 kod noktası; satır sonu yalnız `\n` (DB `\r`'yi reddeder — K1
- * devir notu 2); kontrol (Cc), biçim (Cf, yön/görünmez), Zl/Zp, U+034F, U+180E yok. DB CHECK'inden katı (alt küme) — zod'u
- * geçen her değer DB'ye yazılabilir.
+ * POST /unattended/devices/:id/connect girdisi (§5.1, r3 AC-430): boş nesne — tek yol onaysız, kip/gerekçe yok. Bilinmeyen alan
+ * (ör. eski `silent`, `reason`) 400 `VALIDATION`.
  */
-export const silentReasonSchema = z
-  .string()
-  .max(SILENT_REASON_MAX * 4, SILENT_REASON_MESSAGE)
-  .trim()
-  .refine((v) => !UNSAFE_NAME_CHARS.test(v.replaceAll("\n", "")), "Görünmez veya kontrol karakteri içeremez")
-  .refine((v) => {
-    const n = [...v].length;
-    return n >= SILENT_REASON_MIN && n <= SILENT_REASON_MAX;
-  }, SILENT_REASON_MESSAGE);
-
-/**
- * POST /unattended/devices/:id/connect girdisi (§5.1): `{}` → izinli (`ask`); `{silent: true, reason}` → izinsiz. `silent` ⇔
- * `reason`; her ihlal `fields.reason` ile 400 `VALIDATION` (K-P28u-12). Bilinmeyen alan 400.
- */
-export const unattendedConnectInputSchema = z
-  .strictObject({ silent: z.literal(true).optional(), reason: silentReasonSchema.optional() })
-  .superRefine((v, ctx) => {
-    if (v.silent && v.reason === undefined) ctx.addIssue({ code: "custom", path: ["reason"], message: "Gerekçe zorunlu" });
-    if (!v.silent && v.reason !== undefined)
-      ctx.addIssue({ code: "custom", path: ["reason"], message: "Gerekçe yalnız izin istemeden bağlanmada girilir" });
-  });
+export const unattendedConnectInputSchema = z.strictObject({});
 export type UnattendedConnectInput = z.input<typeof unattendedConnectInputSchema>;
 export type UnattendedConnectData = z.output<typeof unattendedConnectInputSchema>;
-
-/** §5.1 adım 2c: `ask` isteğinde teknisyen×cihaz başına bu kadar saniyede 1 (yalnız TX başarısında sayılır). */
-export const CONNECT_ASK_COOLDOWN_SEC = 60;
-
-/** GET /unattended/policy (`manage` ∧ `settings.view`) ve PUT yanıtı (AC-436). */
-export interface UnattendedPolicyView {
-  silentEnabled: boolean;
-  /** Aydınlatma kutusunun son işaretlendiği an (kapatınca korunur — iz). */
-  ackAt: string | null;
-  /** Son işaretleyen; kullanıcı silinmişse null. */
-  ackByName: string | null;
-}
-
-/**
- * PUT /unattended/policy (`manage` ∧ `settings.edit`). `false→true`: `ack !== true` → 400 `fields.ack`, step-up (tüketmez)
- * yoksa 401 `MFA_STEP_UP_REQUIRED`; `true→false` step-up istemez; aynı değer → 200, audit yok. Geçiş kuralı mevcut değere
- * bağlı olduğundan şemada DEĞİL serviste (K3). Açarken `enabled=1, ack_at, ack_by` tek UPDATE (DB CHECK, K1 notu 4).
- */
-export const putUnattendedPolicyInputSchema = z.strictObject({ silentEnabled: z.boolean(), ack: z.literal(true).optional() });
-export type PutUnattendedPolicyInput = z.infer<typeof putUnattendedPolicyInputSchema>;
-export const POLICY_ACK_REQUIRED_MESSAGE = "Açmak için bilgilendirme kutusunu işaretleyin";
 
 // ------------------------------------------------------------------------------------------- P28u müdahale (AC-442..444)
 
@@ -373,11 +319,11 @@ export interface NotifyContactsResponse {
 
 // ------------------------------------------------------------------------------------------- etiketler
 
-/** P28u (§10): kip rozeti / filtre etiketleri. */
+/** P28u (§10; r3 K-P28u-r3-12): kip etiketleri — yeni kayıtlar `no_user`; `asked`/`silent` yalnız r3 öncesi kayıtlarda. */
 export const CONSENT_MODE_LABELS: Readonly<Record<ConsentMode, string>> = {
-  asked: "İzinli",
-  no_user: "Kullanıcı yok",
-  silent: "İzinsiz",
+  asked: "Kullanıcı onayıyla (eski)",
+  no_user: "Onaysız",
+  silent: "İzinsiz (eski)",
 };
 
 /** P28u (§10, AC-429): cihaz listesi "Kullanıcı" sütunu (null → "—"). */
@@ -413,6 +359,6 @@ export const UNATTENDED_AUDIT_LABELS: Readonly<Record<string, string>> = {
   [UNATTENDED_AUDIT.LOCK]: "Uzak oturum kilitlendi",
   [UNATTENDED_AUDIT.LOGOFF]: "Uzak kullanıcı oturumu kapatıldı",
   [UNATTENDED_AUDIT.REJOIN]: "Gözetimsiz bağlantı yeniden kuruldu",
-  [UNATTENDED_AUDIT.SILENT_NOTIFY]: "İzinsiz bağlantı bildirimi (dört göz)",
-  [UNATTENDED_POLICY_AUDIT]: "Gözetimsiz erişim politikası değişti",
+  [UNATTENDED_AUDIT.SILENT_NOTIFY]: "Dört göz e-posta bildirimi",
+  [UNATTENDED_POLICY_AUDIT]: "Gözetimsiz erişim politikası değişti (eski)",
 };

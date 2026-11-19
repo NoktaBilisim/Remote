@@ -350,7 +350,7 @@ describe("P28d eski istemci ve gözetimsiz (AC-377, AC-379)", () => {
       caps: [WS_CAP_VOICE],
     });
     const r = room(o.sessionId);
-    r.unattended = { deviceId: "d", deviceName: "PC-1", customerId: "c", consentRequest: "ask", consentMode: "asked" };
+    r.unattended = { deviceId: "d", deviceName: "PC-1", customerId: "c", consentMode: "no_user" };
     try {
       o.ws.send({ t: "voice.request" });
       expect(await errorOf(o.ws)).toMatchObject({ code: "CLIENT_UNSUPPORTED" });

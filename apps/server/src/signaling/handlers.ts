@@ -187,19 +187,7 @@ async function multiAction(rooms: Rooms, room: Room, seat: Seat, m: TechMsg): Pr
   }
 }
 
-/**
- * P28u §6.4 (K-P28u-9, AC-439): `silent` odada kontrol GRANTED değilken (izleme kipi) teknisyenin dosya teklifi reddedilir.
- */
-function silentFileBlocked(rooms: Rooms, room: Room, tech: TechConn, m: TechMsg): boolean {
-  if (room.unattended?.consentMode !== "silent" || room.control.state === "GRANTED") return false;
-  if (m.t !== "file.meta" && m.t !== "fsrv.init") return false;
-  tech.peer.send({ t: "error", code: "FORBIDDEN", message: "İzleme kipinde dosya gönderilemez; önce müdahale edin." });
-  rooms.metrics.inc("rs_file_meta_total", { result: "silent_view" });
-  return true;
-}
-
 async function techAction(rooms: Rooms, room: Room, tech: TechConn, peer: Peer, m: TechMsg): Promise<void> {
-  if (silentFileBlocked(rooms, room, tech, m)) return;
   switch (m.t) {
     case "guest.admit":
       await admitGuest(rooms, room, tech, m.admitCode);

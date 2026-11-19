@@ -18,8 +18,8 @@ import {
   type PermModule,
   type PermState,
 } from "@/lib/users/permissions";
-/** P28u (§4, AC-446) + P22 (§5.2): hassas yetkiler — açıklama satırında "Hassas" rozeti (`TriangleAlert`, uyarı tonu). */
-const SENSITIVE: ReadonlySet<string> = new Set(["unattended.silent", "sessions.view_chat"]);
+/** P22 (§5.2): hassas yetkiler — açıklama satırında "Hassas" rozeti (`TriangleAlert`, uyarı tonu). P28u r3: `unattended.silent` kaldırıldı. */
+const SENSITIVE: ReadonlySet<string> = new Set(["sessions.view_chat"]);
 
 /** Modül ikonları menüyle tek kaynaktan (`lib/module-icons.ts`, std. 1.8). Geçici test modülünde nötr `ShieldCheck`. */
 const ICONS: Record<string, LucideIcon> = MODULE_ICONS;

@@ -42,7 +42,6 @@ async function sessionContent(db: Db, r: OutboxRowRef, sessionId: string): Promi
       consumedAt: true,
       createdAt: true,
       customerName: true,
-      consentMode: true,
       technician: { select: { fullName: true } },
     },
   });
@@ -55,7 +54,6 @@ async function sessionContent(db: Db, r: OutboxRowRef, sessionId: string): Promi
     device: dev?.name ?? s.customerName ?? "",
     technician: s.technician.fullName,
     at: s.consumedAt ?? s.createdAt,
-    silent: s.consentMode === "silent", // P28u AC-438 (K3)
   };
   return {
     text: startedMessage(info),

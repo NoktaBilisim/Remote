@@ -22,6 +22,7 @@ import { useCollab } from "@/lib/dc/use-collab";
 import { useQuality } from "@/lib/webrtc/use-quality";
 import { useTechSession } from "@/lib/webrtc/use-tech-session";
 import { inviteBlockOf } from "@/lib/multi/errors";
+import { autoControlDecision } from "@/lib/unattended/consent";
 import { canSend, seatOf, type Seat } from "@/lib/multi/roster";
 import { useSessionChat } from "@/lib/chat/use-session-chat";
 import { consoleVoiceView, shouldListen } from "@/lib/voice/console";
@@ -98,7 +99,8 @@ export function ConsoleView({
   const name = state.guest?.name ?? t("c.customer");
 
   const releaseRef = useRef<HTMLButtonElement>(null);
-  useControlToasts(control, toast);
+  useControlToasts(control, toast, state.unattended !== null);
+  useAutoControl(ts, seat.controller, canControl);
   const voice = useVoiceSlot(ts, seat, canVoice, now, toast);
 
   return (
@@ -121,7 +123,7 @@ export function ConsoleView({
           sessionId={session.id}
           seat={seat}
           canInvite={canInvite}
-          inviteBlock={inviteBlockOf(state.unattended?.consentMode, state.guestMulti)}
+          inviteBlock={inviteBlockOf(state.guestMulti)}
           now={now}
         />
       )}
@@ -135,10 +137,8 @@ export function ConsoleView({
           unattended={state.unattended}
           phase={control.phase}
           live={live}
-          canControl={canControl && seat.controller}
+          controller={seat.controller}
           now={now}
-          onIntervene={ts.requestControl}
-          onReturn={ts.releaseControl}
         />
       )}
 
@@ -147,7 +147,7 @@ export function ConsoleView({
       )}
 
       {state.phase === "ended" ? (
-        <ConsoleEnded end={state.end} deviceId={state.unattended?.deviceId ?? null} />
+        <ConsoleEnded end={state.end} />
       ) : (
         <div className="flex flex-col gap-3 xl:flex-row">
           <ConsoleStage
@@ -236,6 +236,23 @@ function useVoiceSlot(
       <VoiceAudio track={ts.voice.remoteAudio} listen={shouldListen(v.s, state.tid)} />
     </>
   );
+}
+
+/**
+ * P28u r3 (K-P28u-r3-6, S-P28u-r3-2): gözetimsiz odada misafir katılınca / yeniden katılınca bir kez `control.request`
+ * (makine kapısından, `requestControl`); yalnız o an kontrol sahibiysem. Devirde (handover) otomatik istek yok — karar yalnız
+ * `guestJoins` değişiminde verilir (`autoControlDecision`). Ref temizlenmez: yeniden çizim / StrictMode ikinci istek üretmez.
+ */
+function useAutoControl(ts: ReturnType<typeof useTechSession>, controller: boolean, canControl: boolean) {
+  const seen = useRef(0);
+  const { guestJoins, unattended } = ts.state;
+  const phase = ts.control.phase;
+  const { requestControl } = ts;
+  useEffect(() => {
+    const r = autoControlDecision(seen.current, { joins: guestJoins, unattended: unattended !== null, controller, canControl, phase });
+    seen.current = r.seen;
+    if (r.fire) requestControl();
+  }, [guestJoins, unattended, controller, canControl, phase, requestControl]);
 }
 
 /** P28c: yerim roster'dan; üye konsolunda `hello` gelmeden önce hiçbir yetki yok (sahip varsayılmaz). */

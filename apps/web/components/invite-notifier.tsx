@@ -5,7 +5,6 @@ import { INVITE_POLL_MS } from "@remote/contracts/ws-multi";
 import { LogIn, MonitorCog, UserPlus, UserX } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { JoinReasonDialog } from "@/components/multi/join-reason-dialog";
 import { useJoin, type JoinTarget } from "@/components/multi/use-join";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/components/ui/toast";
@@ -66,7 +65,7 @@ function useIncomingInvites(enabled: boolean) {
 
 /**
  * Davet bildirimi (mimari-p28c §10, AC-364): panelin her sayfasında; kart "<Ad> sizi <müşteri> oturumuna davet ediyor", kalan
- * süre, "Katıl" / "Reddet". Gözetimsizde kabul step-up ister (lib/api), silent odada önce gerekçe diyaloğu. Süresi dolan kart
+ * süre, "Katıl" / "Reddet". Gözetimsizde kabul step-up ister (lib/api). Süresi dolan kart
  * istemcide düşer (sunucu da 410 verir). Boşken hiçbir şey çizilmez.
  */
 export function InviteNotifier({ enabled }: { enabled: boolean }) {
@@ -92,39 +91,35 @@ export function InviteNotifier({ enabled }: { enabled: boolean }) {
       setBusyReject(null);
     }
   };
-  const dialog = join.reasonFor && <JoinReasonDialog flow={join} />;
-  if (!enabled || live.length === 0) return dialog;
+  if (!enabled || live.length === 0) return null;
   return (
-    <>
-      <section
-        aria-labelledby="mt-inv-t"
-        className="mb-4 flex flex-col gap-2 rounded-lg border border-primary/30 bg-primary-surface p-3"
-        data-testid="invite-notifier"
-      >
-        <h2 id="mt-inv-t" className="flex items-center gap-2 text-sm font-semibold text-fg">
-          <UserPlus aria-hidden className="size-4 text-primary" />
-          {t("mt.notifTitle")}
-        </h2>
-        <ul className="flex flex-col gap-2">
-          {live.map((i) => (
-            <InviteCard
-              key={i.inviteId}
-              i={i}
-              now={now}
-              joining={join.busyId === i.inviteId}
-              rejecting={busyReject === i.inviteId}
-              onJoin={() => join.start(targetOf(i))}
-              onReject={() => void reject(i)}
-            />
-          ))}
-        </ul>
-      </section>
-      {dialog}
-    </>
+    <section
+      aria-labelledby="mt-inv-t"
+      className="mb-4 flex flex-col gap-2 rounded-lg border border-primary/30 bg-primary-surface p-3"
+      data-testid="invite-notifier"
+    >
+      <h2 id="mt-inv-t" className="flex items-center gap-2 text-sm font-semibold text-fg">
+        <UserPlus aria-hidden className="size-4 text-primary" />
+        {t("mt.notifTitle")}
+      </h2>
+      <ul className="flex flex-col gap-2">
+        {live.map((i) => (
+          <InviteCard
+            key={i.inviteId}
+            i={i}
+            now={now}
+            joining={join.busyId === i.inviteId}
+            rejecting={busyReject === i.inviteId}
+            onJoin={() => void join.start(targetOf(i))}
+            onReject={() => void reject(i)}
+          />
+        ))}
+      </ul>
+    </section>
   );
 }
 
-const targetOf = (i: IncomingInvite): JoinTarget => ({ kind: "invite", id: i.inviteId, silent: i.silent, label: i.customerName });
+const targetOf = (i: IncomingInvite): JoinTarget => ({ kind: "invite", id: i.inviteId });
 
 function InviteCard(p: {
   i: IncomingInvite;
@@ -148,7 +143,7 @@ function InviteCard(p: {
         {i.unattended && (
           <p className="mt-1 flex items-center gap-1 text-xs text-fg-muted">
             <MonitorCog aria-hidden className="size-3.5" />
-            {i.silent ? t("mt.silentNote") : t("mt.unattendedNote")}
+            {t("mt.unattendedNote")}
           </p>
         )}
       </div>

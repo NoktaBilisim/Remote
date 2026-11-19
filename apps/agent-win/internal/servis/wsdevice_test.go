@@ -239,7 +239,10 @@ func TestAC435NewMessagesOnlyAfterFeatures(t *testing.T) {
 		t.Fatalf("features sonrası: %s", m)
 	}
 	hdr := <-fs.header
-	if p := hdr.Get("Sec-WebSocket-Protocol"); !strings.Contains(p, DeviceCapConsent) || !strings.Contains(p, DeviceSubprotocol) {
+	// r3 (AC-435, K-P28u-r3-2): servis rs.cap.direct1'i de teklif eder; seçilen alt protokol yine rs.device.v1'dir
+	// (sunucu yalnız onu seçer — sahte sunucu da öyle; seçilmeseydi bağlantı kurulmaz ve yukarıdaki mesajlar gelmezdi).
+	if p := hdr.Get("Sec-WebSocket-Protocol"); !strings.Contains(p, DeviceCapConsent) || !strings.Contains(p, DeviceSubprotocol) ||
+		!strings.Contains(p, DeviceCapDirect) || !strings.Contains(p, DeviceCapRecord) {
 		t.Fatalf("alt protokol listesi %q", p)
 	}
 }

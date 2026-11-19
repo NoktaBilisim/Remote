@@ -8,7 +8,6 @@ import {
   Inbox,
   Mail,
   MessageSquareText,
-  MonitorCog,
   ShieldCheck,
   SlidersHorizontal,
   Video,
@@ -33,7 +32,6 @@ export function SettingsTabs() {
         { href: "/settings/security", label: t("set.tab.security"), Icon: ShieldCheck },
         { href: "/settings/consent-text", label: t("set.tab.consent"), Icon: FileText },
         { href: "/settings/logo", label: t("set.tab.logo"), Icon: ImageIcon },
-        { href: "/settings/unattended", label: t("set.tab.unattended"), Icon: MonitorCog },
       ]}
     />
   );

@@ -32,8 +32,8 @@ export interface DeviceLink {
   revoked(deviceId: string): void;
   /** AC-293: yetkisi kalkan teknisyenlerin bu cihazdaki odası `permission` ile biter. */
   grantsRemoved(deviceId: string, userIds: readonly string[]): void;
-  /** P28u (AC-435): soket `rs.cap.consent1` bildirdi mi (verilmezse eski servis sayılır). */
-  has?(deviceId: string, feature: "consent1"): boolean;
+  /** P28u r3 (AC-435, K-P28u-r3-2): soket `rs.cap.direct1` bildirdi mi (verilmezse eski servis sayılır). */
+  has?(deviceId: string, feature: "direct1"): boolean;
   /** P28u (AC-429): canlı kullanıcı durumu (hub belleği); yoksa null. */
   userState?(deviceId: string): DeviceUserState | null;
 }
@@ -58,7 +58,7 @@ export interface UnattendedDeps {
 interface Facts {
   canConnectPerm: boolean;
   online: boolean;
-  /** P28u: çevrimiçi soket `consent1` bildirdi. */
+  /** P28u r3: çevrimiçi soket `direct1` bildirdi (onaysız yolu bilen servis). */
   current: boolean;
   signatureOk: boolean;
   contacts: number;
@@ -87,7 +87,7 @@ interface ViewCtx {
 function toItem(v: ViewCtx, r: repo.DeviceRow): DeviceListItem {
   const signatureOk = v.d.gate.allows({ signed: r.signed, sha256: r.binarySha256 });
   const online = v.d.link.isOnline(r.id);
-  const current = v.d.link.has?.(r.id, "consent1") ?? false;
+  const current = v.d.link.has?.(r.id, "direct1") ?? false;
   const facts = {
     canConnectPerm: v.canConnectPerm,
     online,

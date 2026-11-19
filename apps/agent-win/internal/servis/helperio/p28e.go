@@ -1,10 +1,7 @@
 package helperio
 
-// P28e (mimari-p28e r2 §8; AC-448, AC-449): gözetimsiz kayıt. Metinler servis ve yardımcıda aynı ikilidedir; satır
-// contracts `REC_UNATTENDED_LINE` (fikstür `rec.json` consent.unattendedLine) ile aynıdır (servis wire_rec_test).
-
-// RecordingLine `asked` onay diyaloğundaki kayıt satırı (AC-449).
-const RecordingLine = "Bu bağlantının ekran kaydı alınacaktır"
+// P28e (mimari-p28e r2 §8; AC-448): gözetimsiz kayıt göstergesi eki. Metin servis ve yardımcıda aynı ikilidedir.
+// r3 (mimari-p28u §r3.7): onay diyaloğu kalktığı için AC-449 diyalog satırı (RecordingLine) yoktur.
 
 // RecordingSuffix kayıt sürerken gösterge etiketine eklenen ek (AC-448; contracts `REC_INDICATOR_LABEL`).
 const RecordingSuffix = " — Kayıt yapılıyor"

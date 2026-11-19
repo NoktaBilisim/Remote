@@ -45,14 +45,15 @@ func eventText(ev *memEvents, id uint32) []string {
 	return out
 }
 
-func TestAC449ConnectRecordingAskedPassesRecordingLineToHelper(t *testing.T) {
+// r3: kayıtlı connect de onaysız açılır; yardımcıya yalnız gösterge eki bayrağı (Recording) gider.
+func TestAC448ConnectRecordingPassesSuffixFlagToHelper(t *testing.T) {
 	rg := recRig(t, true)
 	rg.c.Connect(withRec(askConnect()))
 	if rg.l.launched.Load() != 1 {
 		t.Fatalf("yardımcı başlamadı: %+v", rg.out.all())
 	}
 	in := rg.l.inputs[0]
-	if !in.Recording || in.Mode != helperio.ModeAsked || in.Consent != helperio.ConsentAsk || in.Validate() != nil {
+	if !in.Recording || in.Mode != helperio.ModeNoUser || in.Consent != helperio.ConsentNone || in.Validate() != nil {
 		t.Fatalf("girdi %+v", in)
 	}
 	if ts := eventText(rg.ev, EvStarted); len(ts) != 1 || !strings.Contains(ts[0], "ekran kaydı: alınıyor") {
@@ -62,7 +63,7 @@ func TestAC449ConnectRecordingAskedPassesRecordingLineToHelper(t *testing.T) {
 
 func TestAC448ConnectWithoutRecordingHasNoSuffixFlag(t *testing.T) {
 	rg := recRig(t, true)
-	rg.c.Connect(silentConnect())
+	rg.c.Connect(askConnect())
 	if in := rg.l.inputs[0]; in.Recording {
 		t.Fatalf("kayıtsız bağlantıda Recording %+v", in)
 	}
@@ -73,7 +74,7 @@ func TestAC448ConnectWithoutRecordingHasNoSuffixFlag(t *testing.T) {
 
 func TestAC448RecordingOnSocketWithoutRecord1IsProtocol(t *testing.T) {
 	rg := recRig(t, false)
-	rg.c.Connect(withRec(silentConnect()))
+	rg.c.Connect(withRec(askConnect()))
 	if r, _ := lastOf[*ConnectResult](rg.out); r.OK || r.Reason != RejectProtocol || rg.l.launched.Load() != 0 {
 		t.Fatalf("record1'siz kayıt isteği = %+v, başlatma %d", r, rg.l.launched.Load())
 	}
@@ -89,7 +90,7 @@ func TestAC448LegacySocketRecordingRejected(t *testing.T) {
 
 func TestAC448RecStateTogglesHelperSuffixAndLogs(t *testing.T) {
 	rg := recRig(t, true)
-	rg.c.Connect(withRec(silentConnect()))
+	rg.c.Connect(withRec(askConnect()))
 	rg.c.RecState(true) // değişim yok: komut/olay yok
 	rg.c.RecState(false)
 	rg.c.RecState(false)
@@ -112,7 +113,7 @@ func TestAC448RecStateTogglesHelperSuffixAndLogs(t *testing.T) {
 // Sunucu kaydın açık olduğunu bildirirse gösterge eki her durumda çizilir (gizli kayıt yok, K-P28e-7).
 func TestAC448RecStateOnWithoutConnectRecordingStillShown(t *testing.T) {
 	rg := recRig(t, true)
-	rg.c.Connect(silentConnect())
+	rg.c.Connect(askConnect())
 	rg.c.RecState(true)
 	if cmds := rg.l.procs[0].commands(); len(cmds) != 1 || !*cmds[0].On {
 		t.Fatalf("komutlar %+v", cmds)
@@ -121,7 +122,7 @@ func TestAC448RecStateOnWithoutConnectRecordingStillShown(t *testing.T) {
 
 func TestAC448RecCommandFailureKillsHelper(t *testing.T) {
 	rg := recRig(t, true)
-	rg.c.Connect(silentConnect())
+	rg.c.Connect(askConnect())
 	rg.l.procs[0].cmdErr = errors.New("boru kapalı")
 	rg.c.RecState(true)
 	cl := waitFor(t, rg.out, func(m *Closed) bool { return true })
@@ -133,7 +134,7 @@ func TestAC448RecCommandFailureKillsHelper(t *testing.T) {
 // Cihazda kaydı durdurma yolu yok; tek yol yerel anahtar (AC-295): bağlantı (dolayısıyla kayıt kaynağı) kesilir.
 func TestAC448LocalSwitchIsOnlyStopPath(t *testing.T) {
 	rg := recRig(t, true)
-	rg.c.Connect(withRec(silentConnect()))
+	rg.c.Connect(withRec(askConnect()))
 	if err := rg.c.Disable("kullanici"); err != nil {
 		t.Fatal(err)
 	}
@@ -146,13 +147,13 @@ func TestAC448LocalSwitchIsOnlyStopPath(t *testing.T) {
 func TestAC448RejoinCarriesLastRecordingState(t *testing.T) {
 	for _, off := range []bool{false, true} {
 		rg := recRig(t, true)
-		rg.c.Connect(withRec(silentConnect()))
+		rg.c.Connect(withRec(askConnect()))
 		logoffAndExit(t, rg)
 		if off {
 			rg.c.RecState(false) // bekleyiş sırasında kayıt durdu
 		}
 		rg.sess.set(func(s *fakeSess) { s.console = 3; s.info[3] = SessionInfo{} })
-		rg.c.Rejoin(rejoinMsg(helperio.ModeSilent))
+		rg.c.Rejoin(rejoinMsg(helperio.ModeNoUser))
 		for i := 0; i < 200 && rg.l.launched.Load() < 2; i++ {
 			time.Sleep(5 * time.Millisecond)
 		}
