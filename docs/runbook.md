@@ -5161,6 +5161,25 @@ session_messages WHERE ASCII(body_enc) = <ver>` — `request_id`/`session_id` s�
 - Yedek: yeni tablo yok; sohbet mevcut şifreli DB yedeğinde, geri yüklemede anahtar halkası gerekir (§25.5, §18.4).
 - **DENENMEDİ (ana oturum dağıtımında prova):** §29.1 adım 4 seed provası (ikinci koşu 0) ve §29.5 alarm provası.
 
+### 29.8 İstemci 0.21.0 (P22-G) yayın notu (teknik-yazar P22-GW, 2026-11-19; mimari-p22 §9, §10.2, §13)
+
+Bu bölüm talimattır; **DENENMEDİ** (staging/prod'a 0.21.0 henüz çıkmadı). Yayın komutları değişmedi, yalnız `VER=0.21.0`:
+Windows §28a.5 (istemci exe, §24.4 Release), macOS §28f.4 (`publish-mac.sh`), Linux §28g.5 (`publish-linux.sh`). Yeni env,
+migration, bağımlılık ve Caddy değişikliği yok.
+
+- **Ön koşul:** P22 sunucu+web (§29.1) aynı yığında çalışıyor ve `POST /api/v1/public/sessions/resolve` ve `/public/requests/tenant`
+  yanıtı `chatRetentionDays` taşıyor. Yoksa 0.21.0 karşılamada ve Windows talep formunda "Sunucu güncel değil; lütfen daha sonra
+  deneyin" gösterir, **Bağlan** / **Destek iste** pasif kalır → istemci kullanılamaz.
+- **Sıra:** sunucu önce (§29.1), istemci sonra. Prod'da öneri §29.3: ikisi aynı bakım penceresinde.
+- **Geri alma:** 0.21.0 yayımlandıktan sonra sunucu **geri alınmaz**, ileri düzeltilir (§29.6, mimari-p22 §13). Sorun istemcideyse
+  yalnız istemci önceki sürüme döner (Windows §11.4 / §24.5, macOS §28f.5, Linux §28g.7); 0.20 istemcide oturum sohbeti yine kapalı kalır (§29.3).
+- **Duman (her platform):** Hızlı Destek ile katıl → karşılamada **Bağlan**'ın üstünde "Sohbet mesajları kayıt altına alınır ve
+  N gün saklanır" (N = firmanın saklama süresi) → oturumda iki yönlü mesaj; konsolda "Müşterinin istemcisi eski…" **çıkmamalı**.
+  Windows'ta firma dosyasıyla talep formunda aynı satır **Destek iste**'nin üstünde. Oturum sonunda audit `session.chat_summary`
+  sayısı mesaj sayısına eşit; 0.21.0 oturumunda `session.chat_legacy` yazılmamalı.
+- **İzleme:** §29.5 legacy oranı 0.21.0 yayınından sonra düşmeli. K-P22-15 tarihini (§29.3) 0.21.0 **prod** yayın günüyle doldurun.
+- §8 yayın geçmişine her platform için sürüm ve SHA-256 yazılır.
+
 ## 30. P21 — müşteri portalı (devops K7, 2026-11-18; mimari-p21 r2 §7, §8, §9, §11 K7, §13 R-P21-6/7, §14 S-P21-4; ADR-0039; AC-262)
 
 Kapsam: Admin, müşteri firması kişisine **portal hesabı** açar (geçici şifre 72 sa, ilk girişte değişim, isteğe bağlı TOTP). Portal

@@ -26,7 +26,8 @@ geliştirilir (bkz. `README.md` "Yol haritası"); kılavuz da her paketle birlik
   cihaz kullanıcısına sorulmadan açılan tek bağlantı yolu, gösterge ve KVKK uyarısı, müdahale (oturumu kilitle / kapat),
   eski servis güncellemesi, eski kayıtlardaki bağlantı kipi etiketleri
 - **Teknisyen, Admin, Super Admin ve müşteri için:** Oturum sohbeti ve kaydı (sohbet her zaman kaydedilir, uçtan uca
-  şifreli değildir, saklama süresi, "sohbete şifre yazmayın", eski Hızlı Destek'te sohbet kapalı, oturum geçmişinde
+  şifreli değildir, saklama süresi, "sohbete şifre yazmayın", Hızlı Destek 0.21'de oturum sohbeti ve onay düğmesinin
+  üstündeki saklama satırı, 0.20 ve öncesinde sohbet kapalı, oturum geçmişinde
   **Sohbeti göster** ve `sessions.view_chat` yetkisi, aydınlatma metninde standart sohbet paragrafı)
 - **Teknisyen, Admin ve müşteri için:** Çoklu teknisyen (roller, davet etme ve kabul, "İzle", kontrol ve oturum devri,
   oturumdan ayrılma, müşterinin teknisyen listesi ve **Çıkar**, Admin için `sessions.invite` / `sessions.supervise` yetkileri)
@@ -347,7 +348,8 @@ Destek simgesi her zaman görünür.
 - Ekranınızı **görebilir**.
 - **Siz izin verirseniz** fare ve klavyenizi kullanabilir. İzni her istediğinizde tek tıkla veya bir tuş kombinasyonuyla
   geri alırsınız (bkz. "Teknisyen bilgisayarımı kullanmak isterse").
-- Sizinle yazışabilir (sohbet; tarayıcı modunda. Hızlı Destek 0.20 ve öncesinde oturum sohbeti kapalıdır, bkz. "Oturum sohbeti ve kaydı").
+- Sizinle yazışabilir (sohbet). Sohbet kayıt altına alınır. Hızlı Destek 0.21 ve sonrasında sohbet açıktır; 0.20 ve
+  öncesinde kapalıdır (bkz. "Oturum sohbeti ve kaydı").
 - Ekranınızın üzerine geçici çizimler yapabilir (ok, kalem, dikdörtgen, kısa süreli lazer noktası). Bu çizimler
   tıklamanızı engellemez.
 - Size dosya gönderebilir. Her dosyayı siz onaylarsınız.
@@ -426,7 +428,12 @@ bildirebilirsiniz.
 2. **Adınız ve soyadınız** alanına adınızı yazın. Teknisyen sizi bu adla görür.
 3. "Aydınlatma metnini okudum; ekran görüntümün bu oturum boyunca teknisyenle paylaşılmasını kabul ediyorum." kutusunu
    işaretleyin.
-4. **Bağlan** düğmesine tıklayın. Ad yazılmadan ve kutu işaretlenmeden bu düğme çalışmaz.
+4. **Bağlan** düğmesinin hemen üstündeki "Sohbet mesajları kayıt altına alınır ve N gün saklanır" satırını okuyun
+   (Hızlı Destek 0.21 ve sonrası). N, firmanızın saklama süresidir.
+5. **Bağlan** düğmesine tıklayın. Ad yazılmadan, kutu işaretlenmeden ve saklama satırı görünmeden bu düğme çalışmaz.
+
+Saklama satırının yerinde kırmızı "Sunucu güncel değil; lütfen daha sonra deneyin" yazıyorsa **Bağlan** pasif kalır.
+Firmanızın sunucusu bu sürümü henüz desteklemiyor. Teknisyeninizi arayıp durumu söyleyin.
 
 Vazgeçmek isterseniz **Vazgeç**'e tıklayın; ekranınız paylaşılmaz.
 
@@ -456,9 +463,11 @@ Paylaşım başlayınca:
 - Paylaşılan ekranın kenarında **kırmızı bir çerçeve** ve üstte **"Ekranınız izleniyor — <teknisyen adı>"** yazısı
   görünür. Bu çerçeve oturum boyunca hep en üstte kalır; teknisyenin görüntüsünde görünmez.
 - **Nokta Destek — Oturum** penceresi açılır. Burada bağlantı durumu, sohbet ve **Oturumu bitir** düğmesi bulunur.
-- **Sohbet:** Hızlı Destek 0.20 ve öncesinde oturum sohbeti kapalıdır; sohbet kutusunda "Bu sürümde sohbet kapalıdır…"
-  mesajı görünür ve yazdıklarınız teknisyene ulaşmaz. Teknisyeninizle telefonda konuşun ya da tarayıcıdan bağlanın (bkz.
-  "Oturum sohbeti ve kaydı").
+- **Sohbet (Hızlı Destek 0.21 ve sonrası):** pencerede **Sohbet** bölümü ve yanında "Sohbet kayıt altına alınır" notu
+  bulunur. Mesajınızı yazıp **Gönder**'e ya da Enter'a basın (bkz. "Hızlı Destek'te oturum sohbeti").
+- **Sohbet (Hızlı Destek 0.20 ve öncesi):** oturum sohbeti kapalıdır; sohbet kutusunda "Bu sürümde sohbet kapalıdır…"
+  mesajı görünür ve yazdıklarınız teknisyene ulaşmaz. Programı destek sayfasından yeniden indirin, teknisyeninizle
+  telefonda konuşun ya da tarayıcıdan bağlanın (bkz. "Oturum sohbeti ve kaydı").
 - İnternet kısa süre koparsa "Bağlantı koptu, yeniden bağlanılıyor…" yazar. Program 2 dakika içinde kendiliğinden
   yeniden bağlanır; bir şey yapmanız gerekmez.
 - Oturumun bitmesine 5 dakika kala durum satırında uyarı çıkar.
@@ -710,6 +719,7 @@ Diğer durumlar:
 | Sunucuya ulaşılamıyor                                                | İnternet bağlantınızı kontrol edip tekrar deneyin.                                                                                                                                                                                            |
 | Bekleme odası dolu                                                   | Birkaç dakika sonra tekrar deneyin.                                                                                                                                                                                                           |
 | Sayfanın süresi doldu; bilgiler yenilendi. Lütfen yeniden onaylayın. | Adınızı ve onay kutusunu yeniden kontrol edip **Bağlan**'a tıklayın.                                                                                                                                                                          |
+| Sunucu güncel değil; lütfen daha sonra deneyin                       | Hızlı Destek 0.21 güncellenmemiş bir sunucuya bağlanıyor; **Bağlan** pasif kalır. Teknisyeninizi arayın.                                                                                                                                      |
 | Ekran görüntüsü alınamadı (KOD). …                                   | Parantez içindeki kodu teknisyeninize okuyun; bkz. "Ekran görüntüsü alınamadı yazıyor". Sohbet ve dosya yine çalışır.                                                                                                                         |
 | Ekran görüntüsü alınamadı; teknisyen ekranınızı göremiyor.           | Eski sürüm (0.10.1 ve öncesi) bu metni kodsuz gösterir. Teknisyeninize söyleyin; Windows "N" sürümlerinde Media Feature Pack gerekir.                                                                                                         |
 | Bağlantı kesildi                                                     | İnternetinizi kontrol edin. Kod hâlâ geçerliyse programı yeniden açın.                                                                                                                                                                        |
@@ -743,7 +753,9 @@ Bu özellik Hızlı Destek **0.9.0** ve sonrasında vardır.
    - **Sorununuz:** en az 10, en çok 500 karakter. Ne olduğunu kısaca yazın.
 4. **Aydınlatma metni** kutusunu okuyun (kaydırılabilir). Altındaki "Aydınlatma metnini okudum; bilgilerimin destek
    talebi için işlenmesini kabul ediyorum. Ekran paylaşımı için teknisyen bağlanırken ayrıca onay istenir." kutusunu
-   işaretleyin.
+   işaretleyin. Hızlı Destek 0.21 ve sonrasında **Destek iste** düğmesinin hemen üstünde "Sohbet mesajları kayıt altına
+   alınır ve N gün saklanır" satırı yazar. Bu satırın yerinde "Sunucu güncel değil; lütfen daha sonra deneyin" yazıyorsa
+   **Destek iste** pasif kalır ve talep gönderilmez; firmanızı telefonla arayın.
 5. **Destek iste**'ye tıklayın veya Enter'a basın. Eksik ya da hatalı bir alan varsa alanın altında kırmızı bir yazı
    çıkar ve imleç o alana gider; düzeltip yeniden gönderin.
 6. **Talebiniz iletildi** ekranı açılır. Ekranda büyük harflerle 6 haneli bir **talep kodu** (ör. `123 456`),
@@ -817,6 +829,7 @@ sorar ve olağan akışla devam eder (bkz. "KVKK onayı ve bağlanma").
 | Talep gönderilemedi. Lütfen tekrar deneyin.                    | **Destek iste**'ye yeniden basın. Sürerse firmanızı telefonla arayın.                                                                                                                                                    |
 | Bu pencereden gönderilmiş bekleyen bir talebiniz var.          | Programı kapatıp yeniden açın.                                                                                                                                                                                           |
 | Aydınlatma metni güncellendi; lütfen yeniden okuyup onaylayın. | Metni okuyup kutuyu yeniden işaretleyin, sonra **Destek iste**'ye basın.                                                                                                                                                 |
+| Sunucu güncel değil; lütfen daha sonra deneyin                 | Firmanızın sunucusu Hızlı Destek 0.21'i henüz desteklemiyor; **Destek iste** pasif kalır. Firmanızı telefonla arayın.                                                                                                    |
 | Sunucuyla bağlantı kesildi                                     | İnternet uzun süre kopmuş. Bağlantınızı kontrol edip **Yeniden talep oluştur**'a tıklayın; bilgileriniz formda durur.                                                                                                    |
 | Talebiniz zaman aşımına uğradı                                 | Firmanız bekleme süresinde yanıt veremedi. **Yeniden talep oluştur** veya firmanızı arayın.                                                                                                                              |
 | Firmanız talebinizi yanıtladı / Firmanızın mesajı: …           | Talep reddedildi; ekranınız paylaşılmadı. Mesajdaki yönlendirmeyi izleyin.                                                                                                                                               |
@@ -1236,7 +1249,8 @@ Bu adımlar Windows sürümüyle aynıdır:
 - **Karşılama penceresi:** teknisyenin adı, **teknisyen doğrulama kodu**, bağlanılan sunucu adresi ve firma logosu görünür.
   Kontrolleri "Doğru programla mı bağlanıyorum?" bölümündeki gibi yapın. Sizi biz aramadıysak devam etmeyin.
 - **KVKK onayı:** aydınlatma metnini okuyun, adınızı yazın, onay kutusunu işaretleyip **Bağlan**'a tıklayın. Firma
-  oturum kaydı açtıysa kayıt için ayrı bir kutu çıkar; işaretlemezseniz kayıt alınmaz.
+  oturum kaydı açtıysa kayıt için ayrı bir kutu çıkar; işaretlemezseniz kayıt alınmaz. Hızlı Destek 0.21 ve sonrasında
+  **Bağlan**'ın hemen üstünde sohbet saklama satırı yazar; satır yoksa düğme pasiftir (bkz. "KVKK onayı ve bağlanma").
 - **Bekleme odası:** ekrandaki 4 haneli kabul kodunu telefonda teknisyene okuyun.
 - **Ekran seçimi:** birden fazla ekranınız varsa paylaşılacak ekranı seçersiniz.
 
@@ -1252,7 +1266,8 @@ sürüm sayfasındaki `SHA256SUMS` dosyasıyla karşılaştırabilir.
 - Gösterge herhangi bir nedenle ekranda gösterilemezse uzaktan kontrol güvenlik için kendiliğinden kapanır ve oturum
   penceresinde "Oturum göstergesi ekranda gösterilemediği için uzaktan kontrol kapatıldı." yazar.
 - **Nokta Destek — Oturum** penceresinde bağlantı durumu, sohbet, dosya aktarımları, bağlı teknisyenler ve **Erişime izin
-  ver**, **Kontrolü kapat**, **Oturumu bitir** düğmeleri bulunur. Bu pencere küçültülemez.
+  ver**, **Kontrolü kapat**, **Oturumu bitir** düğmeleri bulunur. Bu pencere küçültülemez. Sohbet 0.21 ve sonrasında
+  açıktır (bkz. "Hızlı Destek'te oturum sohbeti").
 - Pencereler Mac'inizin açık/koyu görünümüne kendiliğinden uyar.
 
 ### Teknisyen Mac'imi kullanmak isterse (Erişilebilirlik izni)
@@ -1452,7 +1467,8 @@ sayfa yalnız **tarayıcıdan ekran paylaşımı** sunar. Bu yolda teknisyen ekr
 **Linux sürümünde olmayanlar:**
 
 - Yalnız bir pencereyi paylaşma (her zaman bir ekranın tamamı paylaşılır).
-- Oturum sohbeti. Hızlı Destek 0.20'de sohbet kapalıdır; teknisyenle telefonda konuşun ya da sesli görüşmeyi kullanın.
+- Oturum sohbeti (yalnız 0.20'de yoktur; 0.21 ve sonrasında oturum penceresinde sohbet vardır). 0.20'de teknisyenle
+  telefonda konuşun ya da sesli görüşmeyi kullanın.
 - "Destek iste", firma kaydı, "Bilgilerimi hatırla", tepside çalışma ve açılışta başlatma. Linux'ta yalnız teknisyenin
   verdiği bağlantı ya da kodla bağlanılır.
 - Gözetimsiz erişim (başında kimse yokken bağlanma).
@@ -1558,7 +1574,8 @@ kabulü"):
   Sizi biz aramadıysak devam etmeyin. Pencerede **Kötüye kullanımı bildir** varsa şüpheli durumu e-postayla
   bildirebilirsiniz.
 - **KVKK onayı:** aydınlatma metnini okuyun, adınızı yazın, onay kutusunu işaretleyip **Bağlan**'a tıklayın. Firma oturum
-  kaydı açtıysa kayıt için ayrı bir kutu çıkar.
+  kaydı açtıysa kayıt için ayrı bir kutu çıkar. Hızlı Destek 0.21 ve sonrasında **Bağlan**'ın hemen üstünde sohbet saklama
+  satırı yazar; satır yoksa düğme pasiftir.
 - **Bekleme odası:** ekrandaki 4 haneli kabul kodunu telefonda teknisyene okuyun.
 
 Oturum penceresinin alt satırında **Lisanslar** ve **Hakkında** düğmeleri vardır. **Hakkında** penceresinde sürüm, sunucu
@@ -1574,7 +1591,7 @@ Ubuntu'nun görünüm tercihine uyar. Bu bilinçli bir seçimdir: kişisel tema 
   kalırsa ya da gösterilemezse uzaktan kontrol güvenlik için kendiliğinden kapanır.
 - **Wayland'de:** Nokta Destek göstergesinin her zaman en üstte kalacağı garanti edilemez. Bu yüzden Ubuntu'nun üst
   çubuğundaki **ekran paylaşımı simgesi** de göstergedir: simge görünüyorsa ekranınız paylaşılıyordur.
-- **Nokta Destek — Oturum** penceresinde bağlantı durumu, dosya aktarımları, bağlı teknisyenler ve **Erişime izin ver**,
+- **Nokta Destek — Oturum** penceresinde bağlantı durumu, sohbet (0.21 ve sonrası), dosya aktarımları, bağlı teknisyenler ve **Erişime izin ver**,
   **Kontrolü kapat**, **Oturumu bitir** düğmeleri bulunur. Pencere diğer pencerelerin üstünde durur ve tüm çalışma
   alanlarında görünür. Pencereyi küçültürseniz program onu geri getirir.
 - Teknisyenin ekranınıza çizdiği işaretler ve kırmızı çerçeve, teknisyenin gördüğü görüntüye de girer. Bu beklenen bir
@@ -1686,7 +1703,7 @@ Kalanlar:
 | "Sunucuya ulaşılamıyor"                                                                   | İnternet bağlantınızı kontrol edip tekrar deneyin.                                                                                                                                                                       |
 | **İzin ver** / **Yazdır** / pano kutusu tepki vermiyor                                    | 1,5 saniye bekleyin, sonra gerçek fareyle tıklayın. Klavye ve ekran okuyucu bu düğmelerde çalışmaz.                                                                                                                      |
 | Super+L ile kilitledikten sonra teknisyen kontrolü kaybetti                               | Beklenen davranış. Teknisyen kontrolü yeniden ister; siz yeniden onaylarsınız.                                                                                                                                           |
-| "Sohbet kapalı" ya da sohbet alanı yok                                                    | Hızlı Destek 0.20'de oturum sohbeti kapalıdır. Telefonda ya da sesli görüşmeyle konuşun.                                                                                                                                 |
+| "Sohbet kapalı" ya da sohbet alanı yok                                                    | Hızlı Destek 0.20'de oturum sohbeti kapalıdır. Destek sayfasından 0.21'i indirin; o arada telefonda ya da sesli görüşmeyle konuşun.                                                                                      |
 | Pencereler Ubuntu'nun diğer pencerelerinden farklı görünüyor                              | Beklenen davranış (Adwaita görünümü).                                                                                                                                                                                    |
 
 ## Müşteri için: Müşteri portalı
@@ -2105,8 +2122,8 @@ türü (X11 ya da Wayland) kontrolü doğrudan etkiler.
   iki kat görürsünüz. Bu beklenen bir durumdur.
 - **Görüntü:** Linux istemcisi görüntüyü VP8 ile gönderir (Windows ve Mac H.264). Konsolda fark görmezsiniz; büyük ekranlarda
   çözünürlük işlemci gücüne göre düşük başlayabilir.
-- **Olmayanlar:** pencere paylaşımı, oturum sohbeti (0.20'de kapalı; konsolda "istemci eski" uyarısı çıkar), "Destek iste" ve
-  gözetimsiz erişim. Sesli görüşme, pano, yazdırma, dosya, çoklu teknisyen ve kayıt rızası çalışır.
+- **Olmayanlar:** pencere paylaşımı, "Destek iste" ve gözetimsiz erişim. Oturum sohbeti 0.21 ve sonrasında çalışır; 0.20'de
+  kapalıdır (konsolda "istemci eski" uyarısı çıkar). Sesli görüşme, pano, yazdırma, dosya, çoklu teknisyen ve kayıt rızası çalışır.
 - **Yazdırma:** Mac'teki gibi müşterinin onay penceresinde sayfa sayısı ve yazıcı adı yazmaz.
 
 ### Sohbette "Çok hızlı yazıyorsunuz" uyarısı
@@ -2114,7 +2131,8 @@ türü (X11 ya da Wayland) kontrolü doğrudan etkiler.
 Konsolda ve müşterinin tarayıcı sayfasında sohbetten saniyede en çok **5 mesaj** gönderilebilir. Daha hızlı gönderirseniz
 mesaj **gönderilmez**, yazdığınız metin kutuda kalır ve altında "Çok hızlı yazıyorsunuz. Mesaj gönderilmedi; bir saniye
 sonra yeniden gönderin." yazar. Bir saniye bekleyip **Gönder**'e yeniden basın. Sınırın içinde gönderilen mesajlar karşı
-tarafa eksiksiz ulaşır.
+tarafa eksiksiz ulaşır. Müşterinin Hızlı Destek programında (0.21 ve sonrası) aynı sınır geçerlidir; orada kısaca "Çok
+hızlı yazıyorsunuz" yazar.
 
 ---
 
@@ -4175,9 +4193,35 @@ Aydınlatma metninde de sohbetin sunucuda saklandığı ve uçtan uca şifreli o
 Oturum sırasında sohbet bölümünün başlığında aynı saklama satırı tekrar görünür. Sayfayı yenilediyseniz gün sayısı yerine
 genel cümle görünebilir.
 
+Hızlı Destek programında (Windows, macOS ve Linux, 0.21 ve sonrası) aynı satır karşılama penceresinde **Bağlan**'ın,
+Windows talep formunda **Destek iste**'nin hemen üstünde yazar. Satırın yerinde "Sunucu güncel değil; lütfen daha sonra
+deneyin" yazıyorsa düğme pasif kalır: firmanın sunucusu henüz güncellenmemiştir. Teknisyeninizi ya da firmanızı arayın.
+
+### Müşteri için: Hızlı Destek'te oturum sohbeti (0.21 ve sonrası)
+
+Hızlı Destek 0.21 ve sonrasında oturum penceresinde **Sohbet** bölümü vardır. Başlığın yanında "Sohbet kayıt altına
+alınır" yazar.
+
+1. Alttaki kutuya mesajınızı yazın.
+2. **Gönder**'e ya da Enter'a basın. Mesajınız önce "Siz (gönderiliyor…)" başlığıyla görünür; sunucu kaydedince "Siz"
+   olur.
+3. Teknisyenin mesajları "[SS:DD] Teknisyen <ad>:" başlığıyla görünür. Mesajlar düz metin gösterilir.
+
+Dosya sonucu, virüs taraması ve sesli görüşme gibi program bildirimleri sohbetin altında ayrı satırlar olarak durur.
+
+| Sohbetin altında gördüğünüz    | Anlamı / ne yapmalı                                                                                        |
+| ------------------------------ | ---------------------------------------------------------------------------------------------------------- |
+| Sohbet şu an kullanılamıyor    | Bağlantı yeniden kuruluyor, oturum bitti ya da sunucu sohbeti açmadı. Yazma kutusu pasiftir; bekleyin      |
+| Siz (gönderiliyor…)            | Mesaj sunucuya gidiyor. Bağlantı koptuysa yeniden bağlanınca kendiliğinden gönderilir                      |
+| Gönderilemedi — tekrar deneyin | Mesaj kaydedilmedi; metin yazma kutusuna geri konur. **Gönder**'e yeniden basın; mesaj iki kez kaydedilmez |
+| Çok hızlı yazıyorsunuz         | Saniyede en çok 5 mesaj gönderilir. Bir saniye bekleyip yeniden gönderin                                   |
+
+- Uzun oturumda yalnız son mesajlar gösterilir; eski mesajlar teknisyenin oturum geçmişinde durur.
+- Gözetimsiz bağlantıda sohbet yoktur.
+
 ### Müşteri için: Hızlı Destek'te "Bu sürümde sohbet kapalıdır" yazıyor
 
-Bilgisayarınızdaki Hızlı Destek programı (Windows ya da macOS, 0.20 ve öncesi) eski sohbet yolunu kullanır. Sohbet
+Bilgisayarınızdaki Hızlı Destek programı (Windows, macOS ya da Linux, 0.20 ve öncesi) eski sohbet yolunu kullanır. Sohbet
 kaydedilmeden yapılamayacağı için bu sürümlerde oturum sohbeti **kapalıdır**. Sohbet penceresinde teknisyenin konsolundan
 şu sabit mesaj gelir:
 
@@ -4186,6 +4230,8 @@ kaydedilmeden yapılamayacağı için bu sürümlerde oturum sohbeti **kapalıd�
 Ne yapmalı:
 
 - Yazdıklarınız teknisyene ulaşmaz. Teknisyeninizle **telefonda** konuşun.
+- Kalıcı çözüm: programın yeni sürümünü (0.21 ve sonrası) firmanızın destek sayfasından indirin. Yeni sürümde sohbet
+  açıktır ve bu mesaj çıkmaz.
 - Görüntü, uzaktan kontrol, dosya, pano, yazdırma, sesli görüşme ve kayıt etkilenmez; oturuma devam edebilirsiniz.
 - Sohbet gerekiyorsa ekranınızı **tarayıcıdan** paylaşın: tarayıcı modunda sohbet tam çalışır.
 - Tepside çalışan ya da firmaya kayıtlı program kendiliğinden güncellenmez. Firmanızın destek sayfasından programı yeniden
@@ -4199,6 +4245,8 @@ Ne yapmalı:
 - Mesaj sunucuya ulaşana kadar "Gönderiliyor…" yazar. Ulaşmazsa "Gönderilemedi." ve **Tekrar dene** çıkar. Tekrar dene
   aynı mesajı bir kez daha gönderir; mesaj iki kez kaydedilmez.
 - Oturum bitince "Sohbet kapandı; mesajlar salt okunur." yazar.
+- Müşteri Hızlı Destek 0.21 ve sonrasını kullanıyorsa sohbet tarayıcı müşterisindeki gibi çalışır. 0.20 ve öncesinde konsol
+  "Müşterinin istemcisi eski…" der; müşteriden programı destek sayfasından yeniden indirmesini isteyin.
 - Uzun oturumda yalnız son mesajlar gelir ve "Daha eski mesajlar oturum geçmişinde." yazar. Tamamını oturum geçmişinde
   görürsünüz.
 - İzleyici olarak katıldıysanız sohbeti okursunuz, yazamazsınız ("İzleyici olarak sohbete yazamazsınız").
