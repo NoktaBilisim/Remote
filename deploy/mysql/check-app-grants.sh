@@ -1109,6 +1109,32 @@ run DENIED "$TX $PU1; $(ps "$H1" "UPPER($H2)"); $R" portal_sessions_token_hash_f
 run DENIED "$TX $PU1; $(ps "$H1" "CONCAT(REPEAT('a',63),CHAR(10))"); $R" portal_sessions_token_hash_fmt_chk
 run DENIED "$TX $PU1; $(ps "INTERVAL 8 HOUR" "INTERVAL 9 HOUR"); $R" portal_sessions_ttl_chk          # 8 saatten uzun
 run DENIED "$TX $PU1; $(ps "NOW(3)+INTERVAL 8 HOUR" "NOW(3)-INTERVAL 1 SECOND"); $R" portal_sessions_ttl_chk
+# P29 (mimari-p29 §3; AC-485, 490; K-P29-7/18): tenant_settings.client_auto_update (varsayılan TRUE, tablo düzeyi UPDATE) ve
+# unattended_devices.update_* (dört alan birlikte; ikili enum; semver; neden ⇔ FAILED/ROLLED_BACK/SKIPPED). Yeni tablo/GRANT/
+# tetikleyici yok. Tümü geri alınan TX'te.
+UPS="$UUD update_state=@S@,update_version='0.22.1',update_reason=@R@,update_at=NOW(3) $WUD"
+ups() { local q="${UPS//@S@/$1}"; echo "${q//@R@/$2}"; }   # $1 state, $2 reason (SQL ifadesi)
+run_val "1" "SELECT client_auto_update FROM tenant_settings WHERE tenant_id='$GT'" "P29 otomatik güncelleme varsayılanı açık (AC-485)"
+run OK     "$TX $US19 client_auto_update=0 $WT19; $US19 client_auto_update=1 $WT19; $R"
+run_val "0" "SELECT COUNT(*) FROM unattended_devices WHERE update_state IS NOT NULL OR update_version IS NOT NULL OR update_reason IS NOT NULL OR update_at IS NOT NULL" "P29 update_* mevcut cihazlarda NULL (veri taşıma yok)"
+# Yaşam döngüsü: available → installing → (failed | rolled_back | skipped) → device.auth/installed temizliği (dört alan NULL)
+run OK     "$TX $UD1; $(ups "'AVAILABLE'" NULL); $(ups "'INSTALLING'" NULL); $(ups "'FAILED'" "'HASH_MISMATCH'"); $(ups "'ROLLED_BACK'" "'HEALTH'"); $(ups "'SKIPPED'" "'NOT_WRITABLE'"); $UUD update_state=NULL,update_version=NULL,update_reason=NULL,update_at=NULL $WUD; $R"
+run OK     "$TX $UD1; $(ups "'SKIPPED'" "'MANUAL_ONLY'"); $(ups "'FAILED'" "'DOWNGRADE'"); $R"
+enum_case unattended_devices_update_state_chk INSTALLING installing "CONCAT('INSTALL',CONVERT(X'C4B0' USING utf8mb4),'NG')" "$TX $UD1; $(ups "@V@" NULL); $R"   # İ
+run DENIED "$TX $UD1; $(ups "'INSTALLED'" NULL); $R" unattended_devices_update_state_chk
+enum_case unattended_devices_update_reason_chk PLATFORM_SIGNATURE platform_signature "CONCAT('PLATFORM_S',CONVERT(X'C4B0' USING utf8mb4),'GNATURE')" "$TX $UD1; $(ups "'FAILED'" "@V@"); $R"
+run DENIED "$TX $UD1; $(ups "'FAILED'" "'TIMEOUT'"); $R" unattended_devices_update_reason_chk           # enum dışı
+run DENIED "$TX $UD1; $(ups "'FAILED'" NULL); $R" unattended_devices_update_reason_chk                  # FAILED neden ister
+run DENIED "$TX $UD1; $(ups "'SKIPPED'" NULL); $R" unattended_devices_update_reason_chk
+run DENIED "$TX $UD1; $(ups "'INSTALLING'" "'INSTALL'"); $R" unattended_devices_update_reason_chk       # nedensiz durumda neden yok
+run DENIED "$TX $UD1; $(ups "'AVAILABLE'" "'POLICY_OFF'"); $R" unattended_devices_update_reason_chk
+run DENIED "$TX $UD1; $UUD update_reason='HEALTH' $WUD; $R" unattended_devices_update_reason_chk       # state NULL + neden (NULL-güvenli)
+run DENIED "$TX $UD1; $UUD update_version='0.22.1' $WUD; $R" unattended_devices_update_set_chk          # dört alan birlikte
+run DENIED "$TX $UD1; $UUD update_state='AVAILABLE',update_version='0.22.1' $WUD; $R" unattended_devices_update_set_chk   # update_at yok
+run DENIED "$TX $UD1; $(ups "'AVAILABLE'" NULL); $UUD update_at=NULL $WUD; $R" unattended_devices_update_set_chk
+run DENIED "$TX $UD1; $(ups "'AVAILABLE'" NULL); $UUD update_version='0.22.1-beta' $WUD; $R" unattended_devices_update_version_chk
+run DENIED "$TX $UD1; $(ups "'AVAILABLE'" NULL); $UUD update_version=CONCAT('0.22.1',CHAR(10)) $WUD; $R" unattended_devices_update_version_chk
+run DENIED "$TX $UD1; $(ups "'AVAILABLE'" NULL); $UUD update_version='1000.0.0' $WUD; $R" unattended_devices_update_version_chk
 # Temizlik (FK sırasıyla)
 run_mig OK "DELETE FROM tenant_purge_jobs WHERE tenant_id IN ('00000000000000000000GRANTT','00000000000000000000GRANTW'); DELETE FROM session_consents WHERE id IN ('00000000000000000000GRANT9','0000000000000000000GRANT10'); DELETE FROM support_sessions WHERE id IN ('00000000000000000000GRANT7','00000000000000000000GRANT8'); DELETE FROM customers WHERE id='00000000000000000000GRANTY'; DELETE FROM tenants WHERE id='00000000000000000000GRANTW'; DELETE FROM users WHERE id='00000000000000000000GRANTU'; DELETE FROM tenant_settings WHERE tenant_id='00000000000000000000GRANTT'; DELETE FROM tenants WHERE id='00000000000000000000GRANTT'"  # P16: app tenant/users silemez (tetikleyici) → migrator
 # P13a `backup` kullanıcısı (mimari-p13 §4): yalnız 'backup'@'localhost'; DB'de SELECT, SHOW VIEW, TRIGGER; global yetki yok.

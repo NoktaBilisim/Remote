@@ -77,6 +77,9 @@ model TenantSettings {
   unattendedRecordingEnabled Boolean   @default(false) @map("unattended_recording_enabled")
   unattendedRecordingAckAt   DateTime? @map("unattended_recording_ack_at") @db.DateTime(3)
   unattendedRecordingAckBy   String?   @map("unattended_recording_ack_by") @db.Char(26) // kullanıcı silmede NULL (deleteUserChildren)
+  // P29 (mimari-p29 §3.1, K-P29-7; AC-485): istemci otomatik güncelleme firma politikası; mevcut firmalar da TRUE (INSTANT ADD COLUMN).
+  // Admin (settings.edit) `/settings/clients`; kanallar WS update.offer.policy, bindings/status autoUpdate, ?ref= → notify.
+  clientAutoUpdate           Boolean   @default(true) @map("client_auto_update")
   smtpHost                   String?   @map("smtp_host") @db.VarChar(255)
   smtpPort                   Int?      @map("smtp_port")
   smtpSecurity               String?   @map("smtp_security") @db.VarChar(20) // NONE | SSL | STARTTLS
@@ -960,6 +963,13 @@ model UnattendedDevice {
   revokedAt      DateTime? @map("revoked_at") @db.DateTime(3)
   revokedBy      String?   @map("revoked_by") @db.Char(26)
   revokeReason   String?   @map("revoke_reason") @db.VarChar(20) // ADMIN | UNINSTALLED | CUSTOMER_PASSIVE
+  // P29 (mimari-p29 §3.2, K-P29-18; AC-490): son güncelleme olayı — dört alan birlikte yazılır/NULL'lanır (CHECK
+  // unattended_devices_update_set_chk, elle). state ikili enum; version semver (agent_version_chk ile aynı); reason yalnız
+  // FAILED/ROLLED_BACK (UPDATE_FAIL_REASONS) ve SKIPPED (UPDATE_SKIP_REASONS) iken dolu. update_at sunucu saati.
+  updateState    String?   @map("update_state") @db.VarChar(12) // AVAILABLE | INSTALLING | FAILED | ROLLED_BACK | SKIPPED
+  updateVersion  String?   @map("update_version") @db.VarChar(20)
+  updateReason   String?   @map("update_reason") @db.VarChar(24)
+  updateAt       DateTime? @map("update_at") @db.DateTime(3)
   createdAt      DateTime  @default(now()) @map("created_at") @db.DateTime(3)
   updatedAt      DateTime  @updatedAt @map("updated_at") @db.DateTime(3)
 
