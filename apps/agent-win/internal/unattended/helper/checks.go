@@ -1,6 +1,9 @@
 package helper
 
-import "strings"
+import (
+	"strings"
+	"time"
+)
 
 // Platformdan bağımsız denetim kuralları (Windows uygulamaları *_windows.go; Linux'ta birim testli).
 
@@ -105,4 +108,44 @@ func layout(m rect, b, lw, lh int32) (bars [4]rect, label rect) {
 func labelWidth(text string, dpi int32) int32 {
 	n := int32(len([]rune(text)))
 	return max(460, n*8+48) * dpi / 96
+}
+
+// annotExclude P30 (K-P30-3, AC-496): işaretleme katmanının boyamadığı dikdörtgenler — m monitöründeki gösterge kenar
+// çubukları ve etiketi (layout ile aynı yerleşim), m'yi kaplayan katmanın yerel koordinatında.
+func annotExclude(m rect, b, lw, lh int32) []rect {
+	bars, lbl := layout(m, b, lw, lh)
+	out := make([]rect, 0, len(bars)+1)
+	for _, r := range append(bars[:], lbl) {
+		out = append(out, rect{r.Left - m.Left, r.Top - m.Top, r.Right - m.Left, r.Bottom - m.Top})
+	}
+	return out
+}
+
+// raiseOrder P30 (K-P30-3, AC-496): 1 sn'lik en üste alma sırası — önce işaretleme katmanı (varsa), sonra gösterge
+// pencereleri; en son alınan en üstte kalır, gösterge çizimle örtülmez.
+func raiseOrder(layer uintptr, wins []uintptr) []uintptr {
+	out := make([]uintptr, 0, len(wins)+1)
+	if layer != 0 {
+		out = append(out, layer)
+	}
+	return append(out, wins...)
+}
+
+// watchdog P30 güvenlik turu: göstergenin doğrulama turu (tick) iş parçacığı dışından izlenir; son tur limit'ten
+// eskiyse fail çağrılır ve gözcü biter (fail-closed: gösterge en üste alınamıyor/doğrulanamıyorsa oturum biter).
+// stop kapanınca (gösterge kapandı) çıkar.
+func watchdog(stop <-chan struct{}, last func() time.Time, limit, every time.Duration, fail func()) {
+	t := time.NewTicker(every)
+	defer t.Stop()
+	for {
+		select {
+		case <-stop:
+			return
+		case <-t.C:
+			if time.Since(last()) > limit {
+				fail()
+				return
+			}
+		}
+	}
 }

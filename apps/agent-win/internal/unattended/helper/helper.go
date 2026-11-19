@@ -2,8 +2,8 @@
 // §5.5, §5.6). Servis onu SYSTEM jetonunun kısıtlı kopyasıyla konsol oturumunda başlatır; girdi (bilet dahil) yalnız
 // devralınan borudan gelir (internal/servis/helperio). Sıra kesindir: süreç kimliği denetimi → girdi → gösterge tüm
 // monitörlerde çizilip doğrulanır → ancak sonra `/ws/guest` (mevcut flow oturumu, bilet yolu). Kullanıcı arayüzü yoktur:
-// kontrol isteği anında GRANTED{UNATTENDED}, dosya teklifi ve monitör isteği otomatik kabul. Gösterge dışında pencere,
-// diyalog, URL/e-posta açma yoktur (derleme sınırı: boundary_test.go, AC-341; pencere sınıfları windows_test.go). Çıkış
+// kontrol isteği anında GRANTED{UNATTENDED}, dosya teklifi ve monitör isteği otomatik kabul. Gösterge ve (P30) aynı
+// sınıflı işaretleme katmanı dışında pencere, diyalog, URL/e-posta açma yoktur (derleme sınırı: boundary_test.go, AC-341; pencere sınıfları windows_test.go). Çıkış
 // kodu bitiş nedenidir. P28u: giriş borusunun sonraki satırları servis komutlarıdır (kilit, kayıt eki); durum borusuna
 // kontrol/kilit olayları yazılır. r3 (mimari-p28u §r3, K-P28u-r3-1): onay diyaloğu yoktur — bağlantı cihaz kullanıcısına
 // sorulmadan açılır; gösterge çizilemezse bağlantı açılmaz (AC-294/AC-438, fail-closed).
@@ -16,6 +16,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"remote-support/agent-win/internal/annot"
 	"remote-support/agent-win/internal/desktop"
 	"remote-support/agent-win/internal/flow"
 	"remote-support/agent-win/internal/servis/helperio"
@@ -30,6 +31,22 @@ type Indicator interface {
 	Desktop() string
 	Close()
 }
+
+// painter P30 (AC-494, K-P30-2): teknisyen çizimlerini boyayabilen gösterge (Windows: göstergenin iş parçacığında, aynı
+// pencere sınıfıyla kurulan işaretleme katmanı). Paint engellemez (anlık görüntü + ileti); katman hatası göstergeyi
+// başarısız saymaz.
+type painter interface{ Paint(annotSnap) }
+
+// annotSnap çizim durumunun anlık görüntüsü (liveIndicator → gösterge).
+type annotSnap struct {
+	Strokes []annot.Stroke
+	Laser   *[2]float64 // nil: lazer yok
+	LaserAt time.Time   // lazerin son konduğu an; laserTTL sonra söner
+	Surface int         // paylaşılan monitör (signal.Monitor.ID, 1..n); 0 → bilinmiyor, katman kurulmaz
+}
+
+// laserTTL lazer noktasının son iletiden sonra görünür kaldığı süre (AC-494; Hızlı Destek ile aynı).
+const laserTTL = time.Second
 
 // Deps yardımcının bağımlılıkları (Windows: main_windows.go; Linux testte sahteler).
 type Deps struct {
@@ -87,7 +104,7 @@ func Run(ctx context.Context, d Deps, in helperio.Input) uint32 {
 	}
 	events := make(chan flow.Event, eventBuffer)
 	ui := newHeadless(ctx, events)
-	ui.st, ui.live, ui.techName = st, live, in.TechName
+	ui.st, ui.live, ui.draw, ui.techName = st, live, live, in.TechName
 	var admitted, indFailed atomic.Bool
 	fd := unattendedDeps(gatedFlow(d.Flow, d.Gate), ui, events, func() { admitted.Store(true) })
 	go watchIndicator(ctx, live.Failed(), &indFailed, ui, cancel, grace(d.EndGrace))

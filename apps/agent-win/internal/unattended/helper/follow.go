@@ -3,9 +3,12 @@ package helper
 import (
 	"context"
 	"errors"
+	"slices"
 	"sync"
 	"time"
 
+	"remote-support/agent-win/internal/annot"
+	"remote-support/agent-win/internal/dc"
 	"remote-support/agent-win/internal/desktop"
 	"remote-support/agent-win/internal/flow"
 	"remote-support/agent-win/internal/rtc"
@@ -29,6 +32,16 @@ type liveIndicator struct {
 	base     string // sunucu etiketi
 	rec      bool   // P28e: kayıt sürüyor → etikete helperio.RecordingSuffix (AC-448)
 	names    string // P28c: bağlı teknisyen adları eki (flow.MultiTexts.IndicatorList + adlar); tek sahipte boş
+	ann      annotState
+}
+
+// annotState P30 (mimari-p30 §3): çizim durumu yardımcı süreçte tutulur; gösterge (katman) yalnız boyar. Masaüstü
+// değişiminde yeni göstergeye aynı liste verilir (K-P30-1).
+type annotState struct {
+	strokes []annot.Stroke
+	laser   *[2]float64
+	laserAt time.Time
+	surface int
 }
 
 // confirmer etiketin çizildiğini doğrulayabilen gösterge (Windows: yeniden çizim + doğrulama sonrası). P28c Y-PC-4:
@@ -90,6 +103,10 @@ func (l *liveIndicator) rebind(show func(string) (Indicator, error)) (string, er
 		return "", errNoIndicator
 	}
 	l.watch(n)
+	l.mu.Lock()
+	l.ann.laser = nil // K-P30-1: lazer geçişte düşer; çizimler yeni masaüstünde yeniden boyanır
+	l.paint()
+	l.mu.Unlock()
 	if now := l.Text(); now != text { // etiket çizim sırasında değişti
 		if lb, ok := n.(labeler); ok {
 			lb.SetText(now)
@@ -163,6 +180,47 @@ func (l *liveIndicator) update(change func()) {
 		return
 	}
 	l.fail()
+}
+
+// Annot P30 (AC-494): kontrol sahibinin işaretleme iletisini uygular ve geçerli göstergeye boyatır. Akış döngüsünü
+// bloklamaz (Paint anlık görüntü + ileti).
+func (l *liveIndicator) Annot(m dc.Ctl) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if l.closed {
+		return
+	}
+	var set bool
+	l.ann.strokes, l.ann.laser, set = annot.Apply(l.ann.strokes, l.ann.laser, m)
+	if set {
+		l.ann.laserAt = time.Now()
+	}
+	l.paint()
+}
+
+// SetSurface P30 (K-P30-4): paylaşılan monitör değişti; katman yeni monitöre taşınır, çizimler korunur.
+func (l *liveIndicator) SetSurface(id int) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if l.closed || id == l.ann.surface {
+		return
+	}
+	l.ann.surface = id
+	l.paint()
+}
+
+// paint geçerli göstergeye çizim anlık görüntüsünü verir (l.mu tutulurken: sıra korunur, eski görüntü yenisini ezmez).
+// Süresi dolmuş lazer atılır (sonraki çizim eski lazeri yeniden göstermez).
+func (l *liveIndicator) paint() {
+	p, ok := l.cur.(painter)
+	if !ok {
+		return
+	}
+	if l.ann.laser != nil && time.Since(l.ann.laserAt) > laserTTL {
+		l.ann.laser = nil
+	}
+	p.Paint(annotSnap{Strokes: slices.Clone(l.ann.strokes), Laser: l.ann.laser, LaserAt: l.ann.laserAt,
+		Surface: l.ann.surface})
 }
 
 func (l *liveIndicator) fail() { l.failOnce.Do(func() { close(l.failed) }) }

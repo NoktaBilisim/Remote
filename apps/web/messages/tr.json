@@ -490,6 +490,7 @@
   "p7.end.reconnect": "Bağlantı yenilendi; kontrol yeniden istenmeli",
   "p7.end.peer": "Müşteri bağlantısı koptu; kontrol kapandı",
   "p7.end.tech": "Kontrolü bıraktınız; devam etmek için müşteri yeniden onaylamalı",
+  "p7.end.techUnattended": "Kontrolü bıraktınız. Çizim araçları açıldı; Kontrole devam ile kontrolü geri alırsınız.",
   "p7.end.cancel": "Kontrol isteğini geri çektiniz",
   "p7.end.agent": "Müşteri tarafında bağlantı kesildi; istek kapandı",
   "p7.end.osPermission": "Müşterinin bilgisayarı uzaktan kontrole izin vermiyor (Mac'te erişilebilirlik izni). Müşteri izni verdikten sonra yeniden isteyin.",

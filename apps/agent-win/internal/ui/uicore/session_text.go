@@ -2,12 +2,10 @@ package uicore
 
 import (
 	"fmt"
-	"math"
 	"regexp"
 	"strings"
 	"time"
 
-	"remote-support/agent-win/internal/dc"
 	"remote-support/agent-win/internal/flow"
 	"remote-support/agent-win/internal/transfer"
 )
@@ -188,82 +186,4 @@ func FileResultText(r transfer.Result) string {
 		}
 	}
 	return "Dosya reddedildi: " + r.Name
-}
-
-// --- AC-37/56 işaretleme ----------------------------------------------------------------------------------------------
-
-// Stroke tek çizim (0..1 normalize noktalar).
-type Stroke struct {
-	ID, Tool, Color string
-	Pts             [][2]float64
-}
-
-// AnnotColor Windows katmanıyla aynı dört renk (sRGB 0..1); bilinmeyen renk kırmızı.
-func AnnotColor(name string) [3]float64 {
-	c := map[string][3]float64{"red": {239, 68, 68}, "yellow": {234, 179, 8}, "green": {34, 197, 94},
-		"blue": {59, 130, 246}}[name]
-	if c == ([3]float64{}) {
-		c = [3]float64{239, 68, 68}
-	}
-	return [3]float64{c[0] / 255, c[1] / 255, c[2] / 255}
-}
-
-// MaxStrokes bellekte tutulan en çok çizim (teknisyenden sınırsız ileti katmanı şişirmesin).
-const MaxStrokes = 500
-
-// ApplyAnnot işaretleme iletisini uygular; laser true ise lazer noktası (yeniden) kondu.
-func ApplyAnnot(strokes []Stroke, laser *[2]float64, m dc.Ctl) ([]Stroke, *[2]float64, bool) {
-	switch m.T {
-	case "annot.stroke":
-		if len(m.Pts) > 0 {
-			strokes = append(strokes, Stroke{m.ID, m.Tool, m.Color, m.Pts})
-			if len(strokes) > MaxStrokes {
-				strokes = strokes[len(strokes)-MaxStrokes:]
-			}
-		}
-	case "annot.laser":
-		if m.X != nil && m.Y != nil {
-			return strokes, &[2]float64{*m.X, *m.Y}, true
-		}
-	case "annot.undo":
-		for i := len(strokes) - 1; i >= 0; i-- {
-			if m.ID == "" || strokes[i].ID == m.ID {
-				strokes = append(strokes[:i:i], strokes[i+1:]...)
-				break
-			}
-		}
-	case "annot.clear":
-		return nil, nil, false
-	}
-	return strokes, laser, false
-}
-
-// StrokePolylines çizimin piksel uzayındaki (w×h, sol üst orijin) çoklu çizgileri: dikdörtgen kapalı çizgi, ok gövde +
-// iki uç çizgisi (±30°, 16 pt), serbest çizgi noktaları.
-func StrokePolylines(s Stroke, w, h float64) [][][2]float64 {
-	if len(s.Pts) == 0 {
-		return nil
-	}
-	px := func(p [2]float64) [2]float64 { return [2]float64{p[0] * w, p[1] * h} }
-	a, b := px(s.Pts[0]), px(s.Pts[len(s.Pts)-1])
-	switch s.Tool {
-	case "rect":
-		return [][][2]float64{{a, {b[0], a[1]}, b, {a[0], b[1]}, a}}
-	case "arrow":
-		dx, dy := b[0]-a[0], b[1]-a[1]
-		l := max(1, math.Hypot(dx, dy))
-		ux, uy := dx/l, dy/l
-		const c, sn, size = 0.866, 0.5, 16.0
-		out := [][][2]float64{{a, b}}
-		for _, sign := range []float64{1, -1} {
-			hx, hy := ux*c-sign*uy*sn, uy*c+sign*ux*sn
-			out = append(out, [][2]float64{b, {b[0] - hx*size, b[1] - hy*size}})
-		}
-		return out
-	}
-	line := make([][2]float64, len(s.Pts))
-	for i, p := range s.Pts {
-		line[i] = px(p)
-	}
-	return [][][2]float64{line}
 }

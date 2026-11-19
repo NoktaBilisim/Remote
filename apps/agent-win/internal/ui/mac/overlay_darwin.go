@@ -5,6 +5,7 @@ package mac
 import (
 	"time"
 
+	"remote-support/agent-win/internal/annot"
 	"remote-support/agent-win/internal/darwin/objc"
 	"remote-support/agent-win/internal/dc"
 	"remote-support/agent-win/internal/flow"
@@ -29,7 +30,7 @@ type indicator struct {
 	noteGen  int
 	rec      bool
 	shared   int // paylaşılan ekranın CGDirectDisplayID'si (K2: signal.Monitor.ID)
-	strokes  []uicore.Stroke
+	strokes  []annot.Stroke
 	laser    *[2]float64
 	laserGen int
 }
@@ -185,7 +186,7 @@ func (ind *indicator) redraw() {
 // annot işaretleme iletisi (lazer 1 sn sonra söner).
 func (ind *indicator) annot(u *UI, m dc.Ctl) {
 	var laser bool
-	ind.strokes, ind.laser, laser = uicore.ApplyAnnot(ind.strokes, ind.laser, m)
+	ind.strokes, ind.laser, laser = annot.Apply(ind.strokes, ind.laser, m)
 	if laser {
 		ind.laserGen++
 		gen := ind.laserGen
@@ -228,9 +229,9 @@ func (ind *indicator) draw(o *overlay) {
 	pt := func(p [2]float64) objc.CGPoint { return objc.CGPoint{X: p[0], Y: p[1]} }
 	bp := cls("NSBezierPath")
 	for _, s := range ind.strokes {
-		c := uicore.AnnotColor(s.Color)
+		c := annot.Color(s.Color)
 		cls("NSColor").Send(selColorString, c[0], c[1], c[2], 1.0).Send(selSetStroke)
-		for _, seg := range uicore.StrokePolylines(s, w, h) {
+		for _, seg := range annot.Polylines(s, w, h) {
 			p := bp.Send(selBezier)
 			p.Send(selLineWidth, 4.0)
 			p.Send(selMoveTo, pt(seg[0]))
@@ -241,7 +242,7 @@ func (ind *indicator) draw(o *overlay) {
 		}
 	}
 	if ind.laser != nil {
-		c := uicore.AnnotColor("red")
+		c := annot.Color("red")
 		cls("NSColor").Send(selColorString, c[0], c[1], c[2], 1.0).Send(selSetFill)
 		x, y := ind.laser[0]*w, ind.laser[1]*h
 		bp.Send(selOvalPath, rect(x-8, y-8, 16, 16)).Send(selFill)

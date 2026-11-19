@@ -46,6 +46,7 @@ var (
 	pGetCursorPos              = user32.NewProc("GetCursorPos")
 	pSetLayeredWindowAttribute = user32.NewProc("SetLayeredWindowAttributes")
 	pSetWindowDisplayAffinity  = user32.NewProc("SetWindowDisplayAffinity")
+	pGetWindowDisplayAffinity  = user32.NewProc("GetWindowDisplayAffinity")
 	pBeginPaint                = user32.NewProc("BeginPaint")
 	pEndPaint                  = user32.NewProc("EndPaint")
 	pInvalidateRect            = user32.NewProc("InvalidateRect")
@@ -71,6 +72,8 @@ var (
 	pLineTo                 = gdi32.NewProc("LineTo")
 	pRectangle              = gdi32.NewProc("Rectangle")
 	pEllipse                = gdi32.NewProc("Ellipse")
+	pExcludeClipRect        = gdi32.NewProc("ExcludeClipRect")
+	pSelectClipRgn          = gdi32.NewProc("SelectClipRgn")
 	pGetStockObject         = gdi32.NewProc("GetStockObject")
 	pCreateCompatibleDC     = gdi32.NewProc("CreateCompatibleDC")
 	pCreateCompatibleBitmap = gdi32.NewProc("CreateCompatibleBitmap")
@@ -464,9 +467,19 @@ func SetLayered(h uintptr, key uint32, alpha byte, flags uint32) {
 	_, _, _ = pSetLayeredWindowAttribute.Call(h, uintptr(key), uintptr(alpha), uintptr(flags))
 }
 
-// ExcludeFromCapture pencereyi ekran yakalamadan hariç tutar (Win10 2004+; eski sürümde etkisiz).
-func ExcludeFromCapture(h uintptr) {
-	_, _, _ = pSetWindowDisplayAffinity.Call(h, WDA_EXCLUDEFROMCAP)
+// ExcludeFromCapture pencereyi ekran yakalamadan hariç tutar (Win10 2004+); başarılıysa true (P30: katman sonucu denetler).
+func ExcludeFromCapture(h uintptr) bool {
+	r, _, _ := pSetWindowDisplayAffinity.Call(h, WDA_EXCLUDEFROMCAP)
+	return r != 0
+}
+
+// DisplayAffinity GetWindowDisplayAffinity (P30 testleri: katman yakalamadan hariç mi); sorgu başarısızsa 0.
+func DisplayAffinity(h uintptr) uint32 {
+	var v uint32
+	if r, _, _ := pGetWindowDisplayAffinity.Call(h, uintptr(unsafe.Pointer(&v))); r == 0 {
+		return 0
+	}
+	return v
 }
 
 func BeginPaint(h uintptr, ps *PAINTSTRUCT) uintptr {
@@ -524,6 +537,14 @@ func DeleteDC(dc uintptr)               { _, _, _ = pDeleteDC.Call(dc) }
 func Rectangle(dc uintptr, l, t, r, b int32) {
 	_, _, _ = pRectangle.Call(dc, uintptr(l), uintptr(t), uintptr(r), uintptr(b))
 }
+
+// ExcludeClipRect dikdörtgeni DC'nin kırpma bölgesinden çıkarır (P30: işaretleme göstergenin üstüne boyamaz).
+func ExcludeClipRect(dc uintptr, l, t, r, b int32) {
+	_, _, _ = pExcludeClipRect.Call(dc, uintptr(l), uintptr(t), uintptr(r), uintptr(b))
+}
+
+// SelectClipRgn rgn=0: DC'nin kırpma bölgesini kaldırır.
+func SelectClipRgn(dc, rgn uintptr) { _, _, _ = pSelectClipRgn.Call(dc, rgn) }
 func Ellipse(dc uintptr, l, t, r, b int32) {
 	_, _, _ = pEllipse.Call(dc, uintptr(l), uintptr(t), uintptr(r), uintptr(b))
 }
