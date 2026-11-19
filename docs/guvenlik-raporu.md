@@ -114,6 +114,47 @@ Düzeltme (backend-dev Go): zaman aşımına uğrayan `update.state` yazıcı ku
 
 Önerilen "Sonra" (gereksinimler §9): S-P29-K-1..3.
 
+## Düzeltme doğrulaması — tur 1 (HEAD a42e6f1; ba3dcae, a42e6f1, 65ec90f) — DURUM: GEÇTİ (Kritik 0 / Yüksek 0 / Orta 0 / Düşük 0 açık)
+
+| Bulgu     | Durum       | Kanıt                                                                                                                                                                                                                                                                                                                     |
+| --------- | ----------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| S-P29-K-1 | **Kapandı** | `agent-win.yml` üç imza adımı (`:1959-1975`, `:2069-2085`, `:2188-2203`): dolgu tamamlanıyor (`std` → `pad`), hex 64 hane değilse adım kırmızı, `raw/std/pad/url/urlpad/hex/HEX` hepsi `add-mask`, tarama `grep -qiF` (büyük/küçük harf duyarsız) tüm varyantlarla; değişkenler sonra boşaltılıyor                        |
+| S-P29-K-2 | **Kapandı** | `update_apply.go:112-122` `PrepareDir` artık `Store.Load`/`ReadNonce`'tan önce; klasör yeniden oluşturulduysa sahne yok sayılır (servisin `supervisorExited`'ı faz temizliğini yapar). `update_apply_windows.go` `ReadNonce` → `openShareDelete` (`FILE_FLAG_OPEN_REPARSE_POINT`)                                         |
+| S-P29-K-3 | **Kapandı** | Bayat yazım: `wsdevice_io.go` `flushMsg.dropped` + bağlantı `gen` sayacı; süre aşımı ya da önceki bağlantıda kuyruğa alınmış `update.*` yazılmaz. Blok: `update.go` `blockOnFail` (INSTALL/HASH_MISMATCH/PLATFORM_SIGNATURE → 24 sa; DOWNLOAD hariç), `update_svc.go` `failVersion` ve `supervisorExited` bunu kullanıyor |
+
+Yeni kod (aynı turda gelen):
+
+- **AC-476 platform imzası (servis + Windows taşınabilir):** `servis/update_sign.go` `checkPublisher` saf karar: çalışan ikili
+  imzasızsa nil; imzalıysa yeni dosya WinVerifyTrust'tan geçmeli ve imzalayan yaprak sertifika SHA-256'sı eşit olmalı. Özet okunamazsa
+  ret (fail-closed). Taşınabilirde `selfreplace.go` `PlatformSig` nil ise `Prepare` reddediyor, kapı tutamaç kapandıktan sonra ve
+  yer değiştirmeden önce koşuyor. Ret `failed(PLATFORM_SIGNATURE)` (güvenlik olayı). Kontrol doğru.
+  Bilgi: çalışan ikilinin imzası geçersizse (ör. süresi dolmuş sertifika, zaman damgası yok) `SelfSigned=false` olur ve yalnız manifest
+  kapısı kalır. Birincil kapı manifest imzası olduğundan kabul; Authenticode geldiğinde K11'de zaman damgalı imza zorunlu tutulmalı.
+  Aradaki TOCTOU (tutamaç kapandıktan sonra yol üzerinden doğrulama) taşınabilirde aynı kullanıcı sınırındadır; kabul.
+- **426 CLIENT_OUTDATED → zorunlu güncelleme (`cmd/noktadestek/policy.go`, orkestratör kararı):** politika, kimliği doğrulanmış
+  sunucunun `bindings/status` yanıtından geliyor; manifest imzası, sürüm ve maxSeen denetimleri değişmedi. TLS denetimli bir vekilin
+  426 üretmesi en çok "notify → auto" geçişi yaptırır, imzasız kod kurduramaz. Güvenlik açısından kabul. İş kuralı (tenant "Kapalı"
+  olsa da kurulum) kılavuzda belirtilmeli (teknik-yazar).
+- Koşu: `go test -count=1 ./internal/update/... ./internal/servis/ ./cmd/noktadestek/` geçti; `GOOS=windows go vet` aynı paketlerde temiz.
+
+### Önceki turda yüzeysel kalanlar — tamamlandı
+
+- **Web (K5):** `settings/clients`, `version-strip*`, `update-badge`, `lib/unattended/{query,update}.ts`, `lib/audit/actions.ts`:
+  `dangerouslySetInnerHTML`/`innerHTML` yok. `version` URL parametresi `UPDATE_VERSION_PATTERN` ile süzülüyor (`query.ts:48`),
+  `scope` yalnız `"all"` sabiti. `href`ler aynı köken içi `devicesHref` ile kuruluyor. PUT `/settings/client-update` mevcut `api()`
+  sarmalayıcısıyla gidiyor (CSRF/çerez kuralı ortak). Yetki ve tenant ayrımı sunucuda (`settings.edit`, `tenantScope`). Bulgu yok.
+  b8f6b16 (AC-491: ham eylem anahtarının gizlenmesi) yalnız görünümle ilgili; güvenlik etkisi yok.
+- **`deploy/agent/publish-manifest.sh`:** `set -euo pipefail`; etiket `^v\d+\.\d+\.\d+$`, `--stg-run` sayısal. Doğrulama iki tarafta
+  yapılıyor: operatör makinesinde SHA256SUMS + `verify-manifest.mjs` (imza, kanonik biçim, env, sürüm = etiket), sunucuda da hedef
+  `.env` `UPDATE_MANIFEST_PUBKEYS` ile, ağsız ve salt okunur konteynerde (`:50,104-116`). Attestation kimliği sabit (`--repo`,
+  `--signer-workflow`, `--cert-oidc-issuer`, `--deny-self-hosted-runners`, Release'te `--source-ref refs/tags/vX.Y.Z`; `:261,310-313`).
+  `--no-attestation` yalnız `ALLOW_UNATTESTED=staging` ile açılıyor ve etiketi `-unattested` alıyor. Prod hedef yalnız `vX.Y.Z` ya da
+  `withdraw` etiketini kabul ediyor (`:69`), yani doğrulanmamış manifest prod'a yazılamıyor. Yazım `.new` + `mv` ile atomik.
+  T-12 attestation maddesi karşılandı. Bulgu yok.
+
+**Sonuç:** P29 kod turu **GEÇTİ**, açık bulgu yok. Prod açılış koşulu değişmedi: servis bileşeni için prod `UPDATE_SIGNING_ENABLED=1`
+açılmadan önce K0s 1–8 ve 14. maddeler Windows CI/staging'de (K11) geçmeli.
+
 ---
 
 # Güvenlik Raporu — P29 tasarım turu (K0g) (dal claude/p29-auto-update, HEAD c5e3110, 2026-11-19)

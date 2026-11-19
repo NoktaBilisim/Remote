@@ -1,3 +1,79 @@
+# QA Raporu — P29 Tur 2
+
+DURUM: GEÇTİ (K9 kapsamı: kod + otomatik testler). AC-480, 481, 482, 484 ve 493'ün elle doğrulanacak kısımları paket planı gereği K11'e
+(staging 0.22.0 → 0.22.1 tam tur), dokümanlar K12'ye kalır; bunlar bu turda kapanmış sayılmaz.
+
+Kapsam: `a42e6f1` (tur 1 düzeltmeleri `e029e13..a42e6f1`: format, S-P29-K-1 CI maskeleme, AC-491, AC-476 taşınabilir + AC-486
+orkestratör kararı "asgari sürüm altı → 426 → zorunlu auto", K7 kararsız test + servis AC-476 + K-2/K-3).
+
+## Test sonucu
+
+| Komut                                                                                                    | Sonuç                                                                                                                                                                                |
+| -------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `pnpm -r run lint` / `typecheck`                                                                         | temiz                                                                                                                                                                                |
+| `pnpm format:check`                                                                                      | temiz (tur 1 kırmızısı kapandı)                                                                                                                                                      |
+| `pnpm -r run test`                                                                                       | contracts 331 · web 654 · server 723 geçti / 1 atlandı (CLAMD, P29 dışı)                                                                                                             |
+| Server entegrasyon tam koşu                                                                              | 1291 testte 1289 geçti; 2 kırmızı (`p19-notify-j3` AC-261, `portal-p21-requests` AC-262) — ikisi + `update-p29` + `update-p29-panel` tek başına 55/55 geçti → yük kaynaklı, P29 dışı |
+| `playwright test p29`                                                                                    | 19 geçti, 3 atlandı (mobilde `desktopOnly`, mevcut kalıp); yeni AC-491 mobil kart testi geçti                                                                                        |
+| Go `go vet ./...`, `GOOS=windows/linux/darwin` vet + build, `GOOS=windows go test -c ./internal/servis/` | temiz                                                                                                                                                                                |
+| `gofmt -l .`                                                                                             | boş                                                                                                                                                                                  |
+| `go test -race -count=50 -run TestAC480ServiceFlow ./internal/servis/`                                   | 0 kırmızı (tur 1: 2/20)                                                                                                                                                              |
+| `go test -count=3 ./cmd/... ./internal/update/... ./internal/servis/ ./internal/servisui/`               | geçti                                                                                                                                                                                |
+| `go test ./...`                                                                                          | yalnız `internal/capture` (macOS ekran kaydı izni, P28f, bilinen) kırmızı                                                                                                            |
+
+## Tur 1 bulgularının doğrulanması
+
+| #   | Bulgu                                                  | Durum                           | Kanıt                                                                                                                                                                                                          |
+| --- | ------------------------------------------------------ | ------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1   | format:check kırmızı                                   | ✅ kapandı                      | `pnpm format:check` temiz                                                                                                                                                                                      |
+| 2   | `TestAC480ServiceFlowStagesAndLaunches` kararsız       | ✅ kapandı                      | Updater işleri `WaitGroup` altında, test cleanup'ı iptal + bekleme; `-race -count=50` 0 kırmızı                                                                                                                |
+| 3a  | Servis AC-476 testi yok                                | ✅ kapandı                      | `TestAC476CheckPublisher` (imzasız→kabul, imzalı→imzasız ret, farklı yayıncı ret, özet okunamaz ret), `TestAC476ServicePlatformSignatureRejected` (failed(PLATFORM_SIGNATURE), yeni.bin silinir, gözetmen yok) |
+| 3b  | Windows taşınabilirde K-P29-13 kapısı yok              | ✅ kapandı                      | `WindowsReplacer.PlatformSig` (nil → fail-closed ret), Commit'te yer değiştirmeden önce; `TestAC476WindowsPlatformSignatureGate`, `TestAC476PlatformSignatureFailureEvent`                                     |
+| 4   | MIN altı kayıtlı istemci hiç güncellenmiyor (K-P29-19) | ✅ kapandı (orkestratör kararı) | `cmd/noktadestek/policy.go` `mergeBindingPolicies`: 426 → `auto` (kapalı tenant'ta da); 5xx/ağ → karar yok; `TestAC485AC486MergeBindingPolicies` 8 vaka                                                        |
+| 5   | AC-491 ham anahtar görünüyor                           | ✅ kapandı                      | `audit-cells.tsx` `hidesRawAction`; e2e tablo, aria-label, ayrıntı ve mobil kartta `client.update` / `settings.client_update` yok                                                                              |
+
+## Kabul kriterleri
+
+| AC                                  | Durum                             | Not                                                                                     |
+| ----------------------------------- | --------------------------------- | --------------------------------------------------------------------------------------- |
+| 470–475, 477–479, 483, 485–490, 492 | ✅                                | Tur 1 kanıtları geçerli, regresyon yok                                                  |
+| 476                                 | ✅                                | Bulgu 3a/3b; gerçek Authenticode yolu imzalı derleme gelene kadar etkin değil (S-P29-6) |
+| 491                                 | ✅                                | Bulgu 5                                                                                 |
+| 486                                 | ✅                                | Rozet + bulgu 4                                                                         |
+| 480, 481, 482, 484                  | ✅ birim / ⏳ K11 elle            | Windows/üç platform elle doğrulama K11                                                  |
+| 493                                 | ✅ birim+entegrasyon / ⏳ K11+K12 | Staging tam tur ve dokümanlar                                                           |
+
+## Düzeltilmeli
+
+Yok (K9 kapsamında).
+
+## Definition of Done
+
+| Madde                                                         | ✅/❌ | Not                                   |
+| ------------------------------------------------------------- | ----- | ------------------------------------- |
+| AC'ler kanıtlı (otomatik)                                     | ✅    | Elle kısımlar K11                     |
+| Lint / typecheck / format                                     | ✅    |                                       |
+| Testler yeşil                                                 | ✅    | Kırmızılar P29 dışı, tek başına yeşil |
+| Migration + down, env (4 yer), audit, tenant izolasyonu, a11y | ✅    | Tur 1'den değişmedi                   |
+| Yeni bağımlılık                                               | ✅    | Yok                                   |
+| Dokümantasyon                                                 | —     | K12                                   |
+
+## Öneriler (zorunlu değil)
+
+- Taşınabilir istemci (`cmd/noktadestek`) artık Windows'ta `internal/servis` paketini içe aktarıyor (yalnız `PlatformSignature` için;
+  `init` yan etkisi yok, implementation.md'de not var). Katman temizliği için yayıncı kararı ve WinVerifyTrust bağlaması ileride
+  `internal/update` altında (ör. `platformsig_windows.go`) ortak yaprak pakete taşınabilir; servis kodunun istemci ikilisine girmesi önlenir.
+- `agent-win.yml` S-P29-K-1 maskeleme değişikliği yerelde actionlint/shellcheck ile denetlenemedi; ilk etiket/dispatch koşusunda log
+  taraması adımının çıktısı kontrol edilmeli.
+- `GET /unattended/versions` grant'la sınırlı kullanıcıya firma toplam sayılarını gösterir (tur 1 önerisi, açık).
+
+## Olumlu
+
+- Tüm tur 1 maddeleri testleriyle kapandı; kararsız test kök nedeninden (gorutin yaşam süresi) çözüldü.
+- 426 politikası saf işleve ayrılıp tablo testiyle sabitlendi; ağ/5xx için fail-closed korunuyor.
+
+---
+
 # QA Raporu — P29 Tur 1
 
 DURUM: DÜZELTİLMELİ
