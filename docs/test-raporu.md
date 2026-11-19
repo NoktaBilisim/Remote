@@ -1266,3 +1266,110 @@ Engelleyici, yüksek ya da orta bulgu yok.
 - Tam sayfa ekran görüntülerinde yapışkan üst çubuk sayfanın ortasında görünüyor (`panel-portal-hesaplari-rozetler…`). Bu, kaydırarak tam sayfa yakalamanın yan etkisi, ürün hatası değil.
 
 DURUM: GEÇTİ
+
+## P29 sayfa testi
+
+# Test Raporu — P29 (istemci otomatik güncelleme; yerel gerçek yığın)
+
+DURUM: GEÇTİ (engelleyici/yüksek bulgu yok; 2 düşük bulgu)
+
+Ortam: yerel **gerçek** yığın, sahte API yok. Web `next build` standalone `http://localhost:3493` → `apps/server` `:3492` (NODE_ENV=development, DEPLOY_ENV=staging, UNATTENDED_MODE=unsigned, MIN_AGENT_VERSION=0.21.0) → MySQL 8.4 `rs-p29-test` (127.0.0.1:33472, son göç `20261128000000_p29_client_update`). Dal `claude/p29-auto-update` @ `6f3ccd0`, 2026-11-19, Chromium (Playwright), axe. Kod, çalışma ağacının scratch'teki APFS klonundan derlendi ve koşturuldu; ağaçtaki `apps/web/.next` değişmedi.
+Manifest: geçici dizinde gerçek rastgele ikililer (NoktaDestek.exe, NoktaDestekServis.exe, linux). Kanonik `env=staging` manifestleri fikstür **TEST anahtarı `test1`** ile imzalandı (`build.ts testSign`, açık etiketli test tohumu). `UPDATE_MANIFEST_PUBKEYS` = test1 açık anahtarı. Linux istemci manifesti bilerek `test2` ile imzalandı (yanlış anahtar).
+Veri: paylaşımlı test DB'sine yalnız satır eklendi. Eklenenler: `P29 A Firması` (6 cihaz: GUNCEL 0.22.1, BEKLEYEN 0.22.0, KURULAN INSTALLING→0.22.1, HATALI FAILED/HASH_MISMATCH, ESKI 0.20.0, adı `<img src=x onerror=alert(1)>` olan 0.22.1), `P29 B Firması` (2 cihaz 0.19.7), Super Admin, Admin A, salt okunur kullanıcı (`settings.view` + `unattended.connect` + `audit.view`), yetkisiz kullanıcı, Admin B, A'da kayıtlı bilgisayar (binding). Her kullanıcıya 2FA API ile kuruldu. Parola, TOTP sırrı ve kayıt anahtarı yalnız scratch'te; repoya yazılmadı.
+
+- Betikler: `docs/test-raporu/p29/`. `p29lib.mjs` yardımcı kütüphane. `00-mfa-kur.mjs`. `01-api-akislar.mjs` ilk koşu: olaylar ve PUT burada gönderildi; 6 FAIL betik hatası (audit `limit` parametresi yok, liste yolu `/unattended/devices`). `02-api-tekrar.mjs` düzeltilmiş geri okuma: 0 FAIL. `03-arayuz.mjs`. `04-tablo-genislik.mjs`. Ham sonuç `tarama.jsonl`. Kurulum betikleri (`zz-p29-setup.ts`, `zz-p29-manifest.ts`) yalnız scratch klonunda kaldı.
+- Ekran görüntüleri: `docs/test-raporu/p29/ekran/` (33 dosya).
+- Temizlik: server (:3492) ve web (:3493) durduruldu. `rs-p29-test` çalışır bırakıldı, P29 test satırları içinde duruyor. Ürün kodu değişmedi.
+
+### Özet
+
+| Ölçüt                      | Sonuç                                                                                                                                                                                                                                        |
+| -------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Taranan görünüm            | 36 tarama. `/unattended`, `/unattended/[id]`, `/settings/clients` ve `/audit` için 1280/390 × açık/koyu; ayrıca süzgeç, boş, geçersiz, IDOR, salt okunur, yetkisiz, SA Tüm firmalar (açık+koyu), Admin B ve ayrıntı diyaloğu                 |
+| JS hatası (pageerror)      | **0**                                                                                                                                                                                                                                        |
+| Konsol hatası              | Hepsi beklenen: 404 (A → B cihaz detayı, IDOR), 500 (bilerek `route.fulfill` ile PUT), 1 adet `ws/panel` 429. Sonuncusu aynı oturumla art arda açılan çok sayıda bağlamdan kaynaklandı, test yan etkisi                                      |
+| 5xx                        | **0** gerçek (yalnız bilerek üretilen 500). Server logunda error/fatal satırı 0                                                                                                                                                              |
+| Kırık link                 | **0**                                                                                                                                                                                                                                        |
+| axe (wcag2a/2aa/21aa)      | P29 kaynaklı ihlal **0**. Tek kural `label-content-name-mismatch`: üst çubuk avatar `summary` (T-P21-1, önceden var), SA firma seçici `.size-11` ve 390 px audit kartı `aria-label`'ı. Audit kartı `fe7c1ab`'den beri böyle, yani P29 öncesi |
+| Mobil 390 px sayfa taşması | **0** (tüm sayfalar, açık+koyu)                                                                                                                                                                                                              |
+| Masaüstü tablo kaydırması  | 1280 px'te `/unattended` tablo kapsayıcısı 59 px yatay kaydırıyor → T-P29-1                                                                                                                                                                  |
+
+### Bulgular
+
+#### T-P29-1 [DÜŞÜK] 1280 px'te cihaz tablosunun son sütunu (Bağlan) kırpılıyor
+
+Sayfa: `/unattended` (masaüstü tablo, `lg` ve üstü).
+Adımlar: 1. Admin A ile 1280×900 aç. 2. Tablonun sağ kenarına bak.
+Beklenen: Bağlan düğmesi ve "Bu cihaza bağlanma yetkiniz yok" metni yatay kaydırma olmadan görünsün.
+Gerçekleşen: Kapsayıcıda `scrollWidth` 1033, `clientWidth` 974. Düğme "Ba" olarak kesik görünüyor, yatay kaydırma gerekiyor. 1440 ve 1920 px'te kaydırma yok (`04-tablo-genislik.mjs`). Yeni "Sürüm" sütunu (rozet "Güncelleme başarısız (bütünlük)" genişliğinde) tabloyu genişletiyor. P29 öncesinde 1280'de taşma olup olmadığı ölçülmedi; P28u turu 1440 px ile alınmıştı.
+Kanıt: `p29/ekran/unattended-1280-light.png`, `unattended-sa-tumfirmalar-1280-light.png`, `tarama.jsonl` (`kind:"tablo"`).
+Öneri: Rozet sürüm satırının altına geçsin (mobil karttaki gibi) veya "Son görülme/Son bağlantı" sütunları `xl` altında birleşsin.
+Atanan: frontend-dev
+
+#### T-P29-2 [DÜŞÜK] 390 px audit kartlarında güncelleme olayları birbirinden ayırt edilemiyor
+
+Sayfa: `/audit?action=client.*` (mobil).
+Adımlar: 1. 390 px'te İşlem = "İstemci güncelleme — tümü" süz.
+Gerçekleşen: 5 karttan 3'ünün başlığı "İstemci güncellemesi …" olarak tek satırda kesiliyor (bulundu / atlandı / geri alındı ayırt edilmiyor). Ayrıntı ancak kart açılınca görülüyor. Ham anahtar yok, AC-491 sağlanıyor; bu yalnız okunabilirlik sorunu.
+Kanıt: `p29/ekran/audit-client-390-dark.png`.
+Öneri: Kart başlığı 2 satıra kadar sarsın (`line-clamp-2`).
+Atanan: frontend-dev
+
+Engelleyici, yüksek ya da orta bulgu yok.
+
+### Akış sonuçları
+
+| Akış                                               | Sonuç | Not                                                                                                                                                                                                                                                                                                                   |
+| -------------------------------------------------- | ----- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Açılış imza denetimi                               | ✅    | Linux manifesti (test2) → açılış logunda `update_manifest slot=client-linux state=bad_signature` uyarısı. Windows client/service sunuluyor                                                                                                                                                                            |
+| `GET /public/agent/update` windows/client          | ✅    | 200; `manifest` ham baytlar (staging, 0.22.1, gerçek SHA), `policy:auto`, `Cache-Control: no-store`, `nosniff`                                                                                                                                                                                                        |
+| `GET …` linux (yanlış anahtar) / macos (yayın yok) | ✅    | 204 / 204                                                                                                                                                                                                                                                                                                             |
+| `GET …` component=service / biçim hatası           | ✅    | 400. `CANARY` değeri ve anahtar adı yanıtta yansımıyor                                                                                                                                                                                                                                                                |
+| `POST update-events` kimlikli (5 tür tek istekte)  | ✅    | 204. A audit'inde `device_bindings/<id>` için 5 satır: available/installed/skipped `success`, failed(MANIFEST_SIGNATURE)/rolled_back(HEALTH) `fail`                                                                                                                                                                   |
+| `POST update-events` kimliksiz                     | ✅    | 204, audit'e yazılmadı (HASH_MISMATCH satırı yok)                                                                                                                                                                                                                                                                     |
+| `POST update-events` tür/neden uyuşmazlığı         | ✅    | 400                                                                                                                                                                                                                                                                                                                   |
+| Audit yanıtında kayıt anahtarı                     | ✅    | `rsb_…` hiçbir yanıtta ve ekranda yok. IP `/24` önekine indirilmiş                                                                                                                                                                                                                                                    |
+| IDOR audit                                         | ✅    | Admin B'nin `client.update.*` listesinde A olayı yok                                                                                                                                                                                                                                                                  |
+| Ayar Kapalı → istemciye yansıma                    | ✅    | Admin A PUT `{autoUpdate:false}` 200 → `bindings/status` `autoUpdate:false` (önce true). `?ref=` Genel ref ve müşteri ref'i → `policy:notify`. B'nin ayarı `true` kaldı. Audit `settings.client_update` (eski→yeni) yazıldı                                                                                           |
+| Ayar PUT geçersiz tür                              | ✅    | 400                                                                                                                                                                                                                                                                                                                   |
+| Roller                                             | ✅    | Yetkisiz kullanıcı: GET ayar 403, `/unattended/versions` 403. Salt okunur: GET 200, PUT 403. Admin `scope=all` 403. SA firma seçmeden `versions` 403 "Önce bir firma seçin.", `scope=all` 200                                                                                                                         |
+| IDOR sürüm/liste                                   | ✅    | A şeridinde B'nin 0.19.7'si yok; B şeridinde yalnız `0.19.7 ×2`. A `?version=0.19.7` → B cihazı yok. A → B cihaz detayı API 404, sayfada "Cihaz bulunamadı"                                                                                                                                                           |
+| `/unattended` rozetler                             | ✅    | Güncel / Güncelleme bekliyor / Güncelleniyor → 0.22.1 / Güncelleme başarısız (bütünlük) / Asgari sürümün altında (kırmızı)                                                                                                                                                                                            |
+| Dağılım şeridi                                     | ✅    | "Yayındaki sürüm: Servis 0.22.1 · Windows 0.22.1 · macOS — · Linux —" (yanlış imzalı Linux "—"). 0.22.1 ×2 "yayındaki", 0.22.0 ×3, 0.20.0 ×1. "Asgari sürümün altında: 1 cihaz"                                                                                                                                       |
+| `?version=` süzgeci                                | ✅    | Tıklama → `?version=0.22.0`, 3 satır. Yenilemede korunuyor. "Süzgeci kaldır" → 6 satır. Geri tuşu süzgeçsiz listeye dönüyor. `?version=9.9.9` ve `?version=<script>` hata vermiyor, taşma yok                                                                                                                         |
+| XSS cihaz adı                                      | ✅    | `<img src=x onerror=alert(1)>` düz metin, alert/dialog yok                                                                                                                                                                                                                                                            |
+| SA "Tüm firmalar"                                  | ✅    | Firma bağlamında `data-scope=tenant` → düğmeyle `scope=all`. Tüm DB sayıları (0.22.10 > 0.22.9 sayısal sıra doğru), sürümler bağlantı değil, "yalnız sayılar…" notu var. Admin B'de `?scope=all` yok sayılıyor                                                                                                        |
+| `/unattended/[id]` rozet                           | ✅    | HATALI → "Güncelleme başarısız", ESKI → "Asgari sürümün altında"                                                                                                                                                                                                                                                      |
+| `/settings/clients`                                | ✅    | Kapalı görünüyor → aç → kaydet çubuğu → çift tıklamayla Kaydet → tek kayıt, toast "İstemci güncelleme ayarı kaydedildi.". Yenilemede Açık kalıyor. Kaydedilmemiş değişiklikle ayrılınca uygulama içi engel ve `beforeunload` var. PUT 500 → "Beklenmeyen bir hata oluştu." kutusu, anahtar ve kaydet çubuğu korunuyor |
+| Salt okunur / yetkisiz                             | ✅    | Salt okunur kullanıcıda bant görünüyor ve anahtar devre dışı. Yetkisiz kullanıcıya anahtar ve şerit çizilmiyor                                                                                                                                                                                                        |
+| `/audit`                                           | ✅    | "İstemci güncelleme" süzgeç grubu: tümü, atlandı, başarısız, bulundu, geri alındı, güncellendi. Tablo, 390 kart, `aria-label` ve ayrıntı diyaloğunda ham `client.update.*`/`settings.client_update` **yok** (4 görünüm). Ayrıntıda "İstemci bildirdi: Güncelleme reddedildi (imza)" görünüyor                         |
+| Liste yoklaması abort                              | ✅    | Şerit ve son liste görünür kalıyor, sayfa çökmüyor (`unattended-yoklama-abort-1280-light.png`)                                                                                                                                                                                                                        |
+| Çıkış sonrası korumalı URL                         | ✅    | `/settings/clients`, `/unattended`, `/audit` → `/login?next=…`                                                                                                                                                                                                                                                        |
+
+**Koşulamayanlar (kapsam dışı / bu turda yapılmadı):**
+
+- Gerçek istemci ve Windows servisi davranışı: indirme, kurulum, geri dönüş, WS `update.*`, `DEVICE_UPDATING` 409, servis dosyası belirteci. Bunlar K11 staging turunda, AC-493 tam tur ile yapılacak.
+- Şerit hata durumu ("Sürüm dağılımı alınamadı" + Tekrar dene) gerçek yığında üretilemedi, çünkü şerit sunucu bileşeni olduğu için tarayıcıdan kesilemiyor. Bu durum mock e2e (`p29-client-update.spec.ts`) ile kapsanıyor.
+- Hız sınırı (IP 10 istek/sa, 429) bilerek zorlanmadı; entegrasyon testinde var.
+
+### Kabul kriterleri (uçtan uca, web + public uç)
+
+| AC     | Durum            | Nasıl doğrulandı                                                                                                                        |
+| ------ | ---------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
+| AC-473 | ✅               | 200 ham manifest + imza, 204 (yayın yok / yanlış imza + açılış uyarısı), 400 yansımasız, no-store                                       |
+| AC-485 | ✅               | Varsayılan Açık. Arayüz ve API ile Kapalı → `bindings/status autoUpdate=false`, `policy=notify`. Step-up yok, audit eski→yeni yazılıyor |
+| AC-486 | ✅ (panel)       | ESKI-PC (0.20.0 < 0.21.0) kırmızı rozet, şeritte "Asgari sürümün altında: 1 cihaz"                                                      |
+| AC-488 | ✅               | Kimlikli olay A audit'ine yazılıyor (varlık kayıt, neden), kimliksiz yazılmıyor, B'de görünmüyor                                        |
+| AC-489 | ✅ (audit kısmı) | MANIFEST_SIGNATURE `result=fail`, "Güncelleme reddedildi (imza)". Olay günlüğü kısmı Windows'a ait, K11'de                              |
+| AC-490 | ✅               | Sütun, 5 rozet, şerit, `?version=` süzgeci, SA Tüm firmalar, IDOR, `scope=all` 403, iki tema, 390 px. Bkz. T-P29-1 (1280 kırpma, düşük) |
+| AC-491 | ✅               | Türkçe etiketler; ham anahtar tablo/kart/ayrıntı/aria/süzgeçte yok                                                                      |
+
+### Görsel gözlemler (ekran görüntülerinden)
+
+- `/unattended` 1280 açık: "Sürüm dağılımı" şeridi sekmelerin altında, sürüm kutuları eşit yükseklikte, "yayındaki" yeşil etiketli. Rozetler ikonlu: yeşil onay, mavi saat, sarı uyarı, kırmızı kalkan, mavi dönen ok. Sürüm numarası mono yazıyla. Sağdaki Bağlan sütunu kesik (T-P29-1).
+- 390 koyu: kart düzeni temiz, rozetler "Sürüm" satırında, uzun rozet ("Güncelleme başarısız (bütünlük)") alt satıra kayıyor, taşma yok, kontrast iyi.
+- `/settings/clients` koyu: tek kart, anahtar + "· Açık" durumu, bilgi notu okunaklı. Sekme çubuğu etkin sekmeye kaydırılmış ("Genel" ekran dışında, ok yok); bu mevcut sekme bileşeninin davranışı.
+- SA Tüm firmalar: "Bu firma / Tüm firmalar" segmenti sağda, 14 sürüm kutusu satır kırıyor. Üstteki sarı "firma silme işi başarısız" bantları paylaşımlı test DB'sindeki eski entegrasyon verisinden geliyor, P29 ile ilgisi yok.
+- Audit 390 koyu: süzgeç formu tam genişlik, kartlarda baş harf avatarı "C" (client), sonuç rozetleri renkli. Başlık kesilmesi için bkz. T-P29-2.
+
+DURUM: GEÇTİ
