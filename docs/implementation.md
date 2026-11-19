@@ -16920,7 +16920,10 @@ Yeni bağımlılık yok. Yeni dosya/kayıt/ağ ucu yok (iz testi etkilenmez).
 - darwin: `cd apps/agent-win && go test ./...` → tümü ok (`internal/input` `TestAC49CGInjectMoveInPlace` bir kez gerçek imleç hareketiyle oynadı, yeniden koşuda ok — bu paketle ilgisiz).
 - Linux (golang:1.26 Docker, CGO=0): `go test ./internal/ui/gtk/... ./internal/flow/... ./internal/signal/... ./internal/request/... ./internal/dc/... ./internal/api/... ./internal/ui/uicore/...` → ok.
 - `gofmt -l .` boş; `go vet ./...` (darwin), `GOOS=windows`, `GOOS=linux` ve `GOOS=linux -tags linuxgui` vet temiz; staticcheck v0.8.2 (linux+linuxgui / windows / darwin) temiz; Windows test ikilileri `go test -c` ile derlendi (Windows'ta koşulmadı — CI `test-windows`).
-- Linux GUI (`test/linux/gui.sh 2404`, emüle amd64): sonuç aşağıda.
+- Linux GUI (`test/linux/gui.sh 2404`, Apple Silicon'da emüle amd64, Xvfb): X11 fazında 40 paketten 39'u geçti
+  (`ui/gtk` dahil: `SessionChat` + `<b>` literal geri okuma, karşılama saklama satırı; 899 PASS). Tek kırmızı
+  `input/TestP28gK3GUIXTestClick` (KeyPress 0 — emülasyon zamanlaması); `input` bu dalda değişmedi, aynı imajda tek başına
+  `-count=3` ile 3/3 geçti → oynak, P22-G'ye bağlı değil. Wayland fazı derlendi. Yerli amd64 CI'da yeniden doğrulanır.
 
 ### Bilinen sınırlar / açık maddeler
 
