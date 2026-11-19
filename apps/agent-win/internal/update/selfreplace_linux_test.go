@@ -117,7 +117,7 @@ func TestAC483LinuxNotWritable(t *testing.T) {
 	if _, err := r.Prepare(); !errors.Is(err, ErrNotWritable) {
 		t.Fatalf("herkes yazılabilir sticky olmayan klasör: %v", err)
 	}
-	exe, r := linuxExe(t, fs.ModeSticky|0o777)
+	_, r = linuxExe(t, fs.ModeSticky|0o777)
 	st, err := r.Prepare()
 	if err != nil {
 		t.Fatalf("sticky klasör kabul: %v", err)
@@ -127,7 +127,7 @@ func TestAC483LinuxNotWritable(t *testing.T) {
 		t.Log("root: salt okunur klasör vakası atlandı (root her klasöre yazar); --user ile koşun")
 		return
 	}
-	exe, r = linuxExe(t, 0o555)
+	exe, r := linuxExe(t, 0o555)
 	if _, err := r.Prepare(); !errors.Is(err, ErrNotWritable) {
 		t.Fatalf("salt okunur klasör: %v", err)
 	}

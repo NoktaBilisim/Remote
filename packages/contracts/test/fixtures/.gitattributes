@@ -1,0 +1,2 @@
+# P29: imzalı manifest fikstürleri ham bayttır — Windows checkout (autocrlf) satır sonunu değiştirmesin.
+update-manifest/** -text

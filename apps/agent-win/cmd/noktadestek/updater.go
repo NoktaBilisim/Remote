@@ -6,12 +6,10 @@ import (
 	"context"
 	"io"
 	"runtime"
-	"strings"
 	"time"
 
 	"remote-support/agent-win/internal/api"
 	"remote-support/agent-win/internal/config"
-	"remote-support/agent-win/internal/flow"
 	"remote-support/agent-win/internal/update"
 )
 
@@ -50,16 +48,4 @@ func newUpdater(cfg config.Config, client *api.Client, rep update.SelfReplacer, 
 		Link:     origin.String() + "/",
 		Notify:   notify,
 	})
-}
-
-// withUpdateNotice son ekran metnine bekleyen güncelleme bilgisini ekler (Linux/macOS; flow dosyalarına dokunmadan).
-// Son ekran yoksa bilgi tüketilmez.
-func withUpdateNotice(m flow.Message, upd *update.Portable) flow.Message {
-	if m == (flow.Message{}) {
-		return m
-	}
-	if n := upd.Notice(); n != "" {
-		m.Body = strings.TrimSpace(m.Body + "\n\n" + n)
-	}
-	return m
 }

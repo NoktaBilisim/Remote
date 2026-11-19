@@ -1,10 +1,7 @@
 package servis
 
 import (
-	"crypto/sha256"
-	"encoding/hex"
 	"errors"
-	"io"
 	"strings"
 	"time"
 
@@ -273,19 +270,6 @@ func (s *Supervisor) Recover() int {
 	}
 	_ = s.Sys.StartService()
 	return ApplyNothing
-}
-
-// hashReader r'yi (w nil değilse w'ye de yazarak) okur ve SHA-256'yı küçük hex döner.
-func hashReader(r io.Reader, w io.Writer) (string, error) {
-	h := sha256.New()
-	dst := io.Writer(h)
-	if w != nil {
-		dst = io.MultiWriter(w, h)
-	}
-	if _, err := io.Copy(dst, r); err != nil {
-		return "", err
-	}
-	return hex.EncodeToString(h.Sum(nil)), nil
 }
 
 // installRecoveryBackup kurulum varsayılanı (3×10 sn yeniden başlat, 24 sa; SC_ACTION_RESTART = 1).

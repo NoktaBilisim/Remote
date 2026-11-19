@@ -86,8 +86,10 @@ func TestAC487QueueBoundAndDedup(t *testing.T) {
 	if !q.Add(NewEvent(EventAvailable, "0.22.2", "0.22.0", "", testNow)) {
 		t.Fatal("yeni sürüm available eklenmeli")
 	}
-	if !q.Add(NewEvent(EventInstalled, "0.22.2", "0.22.0", "", testNow)) || !q.Add(NewEvent(EventInstalled, "0.22.2", "0.22.0", "", testNow)) {
-		t.Fatal("installed tekilleştirilmemeli")
+	for i := 0; i < 2; i++ {
+		if !q.Add(NewEvent(EventInstalled, "0.22.2", "0.22.0", "", testNow)) {
+			t.Fatal("installed tekilleştirilmemeli")
+		}
 	}
 	for i := 0; i < 30; i++ {
 		q.Add(NewEvent(EventRolledBack, "0.22.2", "0.22.0", ReasonHealth, testNow.Add(time.Duration(i)*time.Second)))

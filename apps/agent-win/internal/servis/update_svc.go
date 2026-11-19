@@ -448,16 +448,6 @@ func (u *Updater) logRejected(evs []update.Event) {
 	}
 }
 
-func (u *Updater) addEvents(evs ...update.Event) {
-	var added []update.Event
-	_, _ = u.Store.Update(func(s *UpdateState) bool {
-		added = s.addEvents(evs...)
-		return len(added) > 0
-	})
-	u.logRejected(added)
-	u.kickLoop()
-}
-
 // schedule kabul edilen manifest için belirteç isteğini 0–120 dk rastgele gecikmeyle planlar (her offer'da yeniden
 // başlatılmaz; bekleyen ya da sahnelenmiş kurulum varken yenisi açılmaz).
 func (u *Updater) schedule(m update.Manifest) {

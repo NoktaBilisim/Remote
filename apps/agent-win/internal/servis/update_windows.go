@@ -3,6 +3,8 @@
 package servis
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
@@ -556,4 +558,17 @@ func copyStaged(dir, exe, sha string) error {
 		return err
 	}
 	return nil
+}
+
+// hashReader r'yi (w nil değilse w'ye de yazarak) okur ve SHA-256'yı küçük hex döner.
+func hashReader(r io.Reader, w io.Writer) (string, error) {
+	h := sha256.New()
+	dst := io.Writer(h)
+	if w != nil {
+		dst = io.MultiWriter(w, h)
+	}
+	if _, err := io.Copy(dst, r); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(h.Sum(nil)), nil
 }
