@@ -34,3 +34,7 @@ docs/test-raporu/
 docs/tasarim/
 docs/arsiv/
 graphify-out/
+
+# P29 (mimari-p29 §14.6): kanonik manifest fikstürleri ham bayttır (BOM, boşluk, yeni satırsızlık bilinçli; imza bu baytları
+# kapsar) — biçimlendirilirse imzalar ve kanonik/geçersiz ayrımı bozulur. Go testleri de aynı baytları okur.
+packages/contracts/test/fixtures/update-manifest/

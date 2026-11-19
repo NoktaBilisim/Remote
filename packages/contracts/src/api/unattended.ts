@@ -8,6 +8,7 @@ import type { ConsentMode, DeviceUserState } from "../unattended-consent.ts";
 import { B64URL_32_PATTERN, DEVICE_SHA256_PATTERN, DEVICE_VERSION_PATTERN, deviceTextSchema } from "../ws-device.ts";
 import { optionalPhoneSchema } from "./customers.ts";
 import { notifyEmailKey } from "./requests.ts";
+import type { UpdateComponent, UpdatePlatform, UpdateReason } from "./update.ts";
 
 const ULID = /^[0-9A-HJKMNP-TV-Z]{26}$/;
 const ulid = z.string().regex(ULID, "Geçersiz kimlik");
@@ -45,6 +46,8 @@ export const UNATTENDED_ERROR_MESSAGES = {
   DEVICE_OUTDATED: "Cihazdaki servis güncel değil — güncelleyin",
   INTERVENE_PENDING: "Önceki komut henüz tamamlanmadı",
   INTERVENE_FAILED: "Cihaz komutu uygulayamadı",
+  // P29 (mimari-p29 §4.8, AC-479).
+  DEVICE_UPDATING: "Cihaz güncelleniyor, birazdan tekrar deneyin.",
 } as const satisfies Partial<Record<ErrorCode, string>>;
 
 /** Panel bantları (§4.5, §6): mod `off` ve `unsigned` (O-P27-6). */
@@ -153,6 +156,8 @@ export const listDevicesQuerySchema = z.strictObject({
       .optional(),
   ),
   limit: z.preprocess(blankToUndefined, z.coerce.number().int().min(1).max(DEVICE_PAGE_SIZE_MAX).default(DEVICE_PAGE_SIZE)),
+  /** P29 (§4.8, AC-490): sürüm dağılımı süzgeci — `agent_version` birebir eşitlik. */
+  version: z.preprocess(blankToUndefined, z.string().regex(DEVICE_VERSION_PATTERN, "Geçersiz sürüm").optional()),
 });
 export type ListDevicesQuery = z.output<typeof listDevicesQuerySchema>;
 
@@ -201,6 +206,14 @@ export interface DeviceListItem {
    * olan cihazda dolu; hiçbir dışa aktarım/audit'te yok (D-P28u-6). K4 doldurur — o zamana kadar gelmeyebilir.
    */
   userState?: DeviceUserState | null;
+  /** P29 (§4.8, AC-490): servisin bildirdiği sürüm. K4 doldurur — o zamana kadar gelmeyebilir. */
+  agentVersion?: string;
+  /** P29 (§3.2 `deviceUpdateBadge`): "Sürüm" sütunu rozeti. K4 doldurur. */
+  updateBadge?: DeviceUpdateBadge;
+  /** P29: `FAILED` rozetinin nedeni (`update_reason`); diğer rozetlerde null. */
+  updateReason?: UpdateReason | null;
+  /** P29: son olayın hedef sürümü (`update_version`); olay yoksa null. */
+  updateVersion?: string | null;
 }
 export interface DeviceListResponse {
   items: DeviceListItem[];
@@ -362,3 +375,52 @@ export const UNATTENDED_AUDIT_LABELS: Readonly<Record<string, string>> = {
   [UNATTENDED_AUDIT.SILENT_NOTIFY]: "Dört göz e-posta bildirimi",
   [UNATTENDED_POLICY_AUDIT]: "Gözetimsiz erişim politikası değişti (eski)",
 };
+
+// ------------------------------------------------------------------------------------------- P29 sürüm (mimari-p29 §3.2, §4.8)
+
+/**
+ * Cihaz güncelleme rozeti (§3.2; sunucu `deviceUpdateBadge` öncelik sırası: BELOW_MIN → UPDATING → FAILED → PENDING → CURRENT).
+ * Renk yalnız ek bilgi; metin `DEVICE_UPDATE_BADGE_LABELS` (a11y).
+ */
+export const DEVICE_UPDATE_BADGES = ["CURRENT", "PENDING", "UPDATING", "FAILED", "BELOW_MIN"] as const;
+export type DeviceUpdateBadge = (typeof DEVICE_UPDATE_BADGES)[number];
+/** Rozet metni; `FAILED` web'de "Güncelleme başarısız (<neden>)" olarak `UPDATE_REASON_LABELS` ile tamamlanır. */
+export const DEVICE_UPDATE_BADGE_LABELS: Readonly<Record<DeviceUpdateBadge, string>> = {
+  CURRENT: "Güncel",
+  PENDING: "Güncelleme bekliyor",
+  UPDATING: "Güncelleniyor",
+  FAILED: "Güncelleme başarısız",
+  BELOW_MIN: "Asgari sürümün altında",
+};
+
+/** `unattended_devices.update_state` (DB CHECK, §3.2; ikili karşılaştırma ADR-0014). NULL = olay yok. */
+export const DEVICE_UPDATE_STATES = ["AVAILABLE", "INSTALLING", "FAILED", "ROLLED_BACK", "SKIPPED"] as const;
+export type DeviceUpdateState = (typeof DEVICE_UPDATE_STATES)[number];
+
+/** GET /unattended/versions (`unattended.view`); `scope=all` yalnız Super Admin (aksi 403). Bilinmeyen parametre 400. */
+export const deviceVersionsQuerySchema = z.strictObject({
+  scope: z.preprocess(blankToUndefined, z.literal("all").optional()),
+});
+export type DeviceVersionsQuery = z.output<typeof deviceVersionsQuerySchema>;
+
+/** Yayındaki (sunulabilir) manifest özeti; yoksa null. */
+export interface PublishedUpdate {
+  version: string;
+  expiresAt: string;
+}
+export interface DeviceVersionRow {
+  platform: Extract<UpdatePlatform, "windows">;
+  component: Extract<UpdateComponent, "service">;
+  version: string;
+  count: number;
+}
+/** GET /unattended/versions yanıtı: tenant kapsamı (`scope=all` → tüm firmalar, salt sayılar, cihaz adı yok). */
+export interface DeviceVersionsResponse {
+  published: {
+    service: PublishedUpdate | null;
+    client: Record<UpdatePlatform, PublishedUpdate | null>;
+  };
+  rows: DeviceVersionRow[];
+  /** `MIN_AGENT_VERSION` altındaki cihaz sayısı (dolu değilse 0). */
+  belowMin: number;
+}

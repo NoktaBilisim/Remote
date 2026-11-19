@@ -37,6 +37,7 @@ import {
   deviceInboundSchema,
   deviceOutboundSchema,
   WS_DEVICE_CAP_CONSENT,
+  WS_DEVICE_CAP_UPDATE,
 } from "../src/ws-device.ts";
 import { SESSION_ENDED_REASONS, serverOutboundSchema } from "../src/ws.ts";
 
@@ -177,6 +178,8 @@ describe("P28u /ws/device protokolü (fikstür — Go K5/K6 aynı dosyayı okur)
     expect(fx.constants).toEqual({
       wsDeviceCapConsent: WS_DEVICE_CAP_CONSENT,
       wsDeviceCapDirect: DEVICE_CAP_DIRECT,
+      // P29 (mimari-p29 §4.3).
+      wsDeviceCapUpdate: WS_DEVICE_CAP_UPDATE,
       rejoinWindowSec: REJOIN_WINDOW_SEC,
       rejoinTicketTtlSec: REJOIN_TICKET_TTL_SEC,
       rejoinConsoleWaitSec: REJOIN_CONSOLE_WAIT_SEC,

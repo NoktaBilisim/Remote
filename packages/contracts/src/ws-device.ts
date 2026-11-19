@@ -13,6 +13,7 @@ import { z } from "zod";
 import { UNSAFE_NAME_CHARS } from "./api/shared.ts";
 import { REJOIN_TICKET_TTL_SEC } from "./rejoin-const.ts";
 import { CONSENT_REQUESTS, DEVICE_USER_STATES } from "./unattended-consent.ts";
+import { refineUpdateEvent, UPDATE_EVENT_SHAPE, UPDATE_VERSION_PATTERN, updateOfferSchema } from "./api/update.ts";
 import { SESSION_ENDED_REASONS } from "./ws.ts";
 import { deviceRecStateSchema, WS_DEVICE_CAP_RECORD } from "./ws-rec.ts";
 
@@ -39,13 +40,20 @@ export const WS_DEVICE_CAP_CONSENT = "rs.cap.consent1";
  * `consent1` ile birlikte gönderilir (`device.features`, `device.user`, `intervene`, `rejoin` hâlâ `consent1`'e bağlı).
  */
 export const DEVICE_CAP_DIRECT = "rs.cap.direct1";
+/**
+ * P29 (mimari-p29 §4.3, AC-493): güncelleyiciyi bilen servis (0.22.0+). Sunucu `update.*` mesajlarını YALNIZ bunu bildiren
+ * sokete gönderir/kabul eder; eski servis (≤ 0.21) hiç görmez.
+ */
+export const WS_DEVICE_CAP_UPDATE = "rs.cap.update1";
 /** Hub `DeviceConn.caps` değerleri (soketin bildirdiği belirteçlerden). */
-export const DEVICE_FEATURES = ["consent1", "record1", "direct1"] as const;
+export const DEVICE_FEATURES = ["consent1", "record1", "direct1", "update1"] as const;
 export type DeviceFeature = (typeof DEVICE_FEATURES)[number];
 /**
  * `device.features.caps`'e girebilen özellikler — `direct1` BİLİNÇLİ OLARAK yok (r3.3): 0.15–0.19 Go `validFeatures` bilinmeyen
  * değeri reddeder; sunucu `caps`'i bu kümeye süzerek gönderir.
  */
+// P29 sapması (implementation.md K2): `update1` BİLİNÇLİ OLARAK yok — `direct1` ile aynı gerekçe (0.15–0.21 Go `validFeatures`
+// katı); P29 desteğini `update.offer`/`update.none`'ın kendisi duyurur (§4.3), `device.features` yankısına gerek yok.
 export const DEVICE_ANNOUNCED_FEATURES = ["consent1", "record1"] as const satisfies readonly DeviceFeature[];
 export type DeviceAnnouncedFeature = (typeof DEVICE_ANNOUNCED_FEATURES)[number];
 /** Belirteç → özellik (sunucu bilinmeyen `rs.cap.*` belirtecini yok sayar; P28a kalıbı). */
@@ -54,6 +62,8 @@ export const DEVICE_FEATURE_BY_SUBPROTOCOL: Readonly<Record<string, DeviceFeatur
   // P28e (§6.1, K-P28e-7): servis 0.16.0; `connect.recording` ve `rec.state` yalnız bu özellikteki sokete.
   [WS_DEVICE_CAP_RECORD]: "record1",
   [DEVICE_CAP_DIRECT]: "direct1",
+  // P29 (§4.3): servis 0.22.0; `update.*` yalnız bu özellikteki sokete.
+  [WS_DEVICE_CAP_UPDATE]: "update1",
 };
 /** `device.user` gönderimi değişimden sonra bu kadar ms debounce edilir (§6.2; kova `WS_DEVICE_RATE_PER_SEC` aynen). */
 export const DEVICE_USER_DEBOUNCE_MS = 500;
@@ -321,3 +331,45 @@ export type DeviceConsentOutbound = z.infer<typeof deviceConsentOutboundSchema>;
  */
 export const deviceRecordOutboundSchema = z.discriminatedUnion("t", [deviceRecStateSchema]);
 export type DeviceRecordOutbound = z.infer<typeof deviceRecordOutboundSchema>;
+
+// --- P29 güncelleme eki (mimari-p29 §4.3; yalnız `update1` soket) ---
+// Ayrı birlikler (P28u/P28e kalıbı): eski servisin katı ayrıştırıcısı bunları tanımaz; sunucu yalnız `hub.has(id, "update1")`
+// iken gönderir/kabul eder. Eski sunucu kuralı (AC-493): servis C→S `update.*` mesajlarını YALNIZ o bağlantıda `update.offer`
+// ya da `update.none` aldıktan sonra yollar (eski `device-ws.ts` bilinmeyen `t`'de 1008 kapatır). Fikstür `update1*` anahtarları.
+
+/**
+ * Sunucu → cihaz. `update.offer` (belirteçsiz): `device.ready`'den hemen sonra, `update.check` yanıtı ve politika değişince;
+ * `update.none`: sunulabilir servis manifesti yok (AC-492 "204" karşılığı); `update.token`: yalnız `update.token.request`
+ * yanıtı (`policy=auto`, `version` = sunulabilir sürüm > cihaz sürümü; aksi `update.none`), tek kullanımlık 32 bayt belirteç
+ * `Authorization: Bearer` ile servis dosyası ucunda kullanılır (§4.4).
+ */
+export const deviceUpdateOutboundSchema = z.discriminatedUnion("t", [
+  z.strictObject({ t: z.literal("update.offer"), ...updateOfferSchema.shape }),
+  z.strictObject({ t: z.literal("update.none") }),
+  z.strictObject({
+    t: z.literal("update.token"),
+    version: z.string().regex(UPDATE_VERSION_PATTERN),
+    token: z.string().regex(B64URL_32_PATTERN),
+  }),
+]);
+export type DeviceUpdateOutbound = z.infer<typeof deviceUpdateOutboundSchema>;
+
+/** `update.state.phase` — `installing` güncelleniyor durumunun TEK kanalıdır (olay değil, audit yok; D-5). */
+export const DEVICE_UPDATE_PHASES = ["installing"] as const;
+
+/**
+ * Cihaz → sunucu (`deviceInboundSchema`'dan sonra denenir). `update.check` 24 sa ± 2 sa (cihaz başına 4/sa);
+ * `update.token.request` offer doğrulandıktan sonra 0–120 dk rastgele gecikmeyle (4/sa); `update.state{installing}` →
+ * hub `markUpdating` (3 dk) + DB `INSTALLING`; `update.event` = `updateEventSchema` alanları düz (10/sa; fazlası yok sayılır).
+ */
+export const deviceUpdateInboundSchema = z.discriminatedUnion("t", [
+  z.strictObject({ t: z.literal("update.check") }),
+  z.strictObject({ t: z.literal("update.token.request"), version: z.string().regex(UPDATE_VERSION_PATTERN) }),
+  z.strictObject({
+    t: z.literal("update.state"),
+    phase: z.enum(DEVICE_UPDATE_PHASES),
+    version: z.string().regex(UPDATE_VERSION_PATTERN),
+  }),
+  z.strictObject({ t: z.literal("update.event"), ...UPDATE_EVENT_SHAPE }).superRefine(refineUpdateEvent),
+]);
+export type DeviceUpdateInbound = z.infer<typeof deviceUpdateInboundSchema>;

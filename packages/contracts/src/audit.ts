@@ -2,6 +2,7 @@
 // aynı adlarla okur. Önceki paketlerin action'ları kendi modüllerinde kalır; yeni zaman çizelgesi olayları buraya eklenir.
 import type { VoiceEndReason } from "./ws-voice.ts";
 import type { ChatRejectReason } from "./ws-chat.ts";
+import type { UpdateEventSource, UpdateEventType } from "./api/update.ts";
 
 export const CONTROL_AUDIT = {
   /** Teknisyen isteği müşteriye iletildi (oturum başına ≤ 5). */
@@ -696,3 +697,45 @@ export const PORTAL_LOGIN_FAIL_REASONS = [
   "temp_password_expired",
 ] as const;
 export type PortalLoginFailReason = (typeof PORTAL_LOGIN_FAIL_REASONS)[number];
+
+/**
+ * P29 istemci otomatik güncelleme (mimari-p29 §4.7, §14.4; AC-487..489, 491). Entity `unattended_devices`/deviceId (servis,
+ * `username: "device"`) ya da `device_bindings`/bindingId (kayıtlı bilgisayar, `username: "client"`); `user_id` NULL.
+ * `new_value {fromVersion, version, reason?, platform, component, source: "device"|"binding"}` — anahtar, belirteç, yol YOK.
+ * `result`: FAILED, ROLLED_BACK → `fail`; diğerleri `success`. Kimliksiz (`anonymous`) olay audit'e YAZILMAZ (yalnız metrik).
+ */
+export const CLIENT_UPDATE_AUDIT = {
+  AVAILABLE: "client.update.available",
+  INSTALLED: "client.update.installed",
+  FAILED: "client.update.failed",
+  ROLLED_BACK: "client.update.rolled_back",
+  SKIPPED: "client.update.skipped",
+} as const;
+export type ClientUpdateAuditAction = (typeof CLIENT_UPDATE_AUDIT)[keyof typeof CLIENT_UPDATE_AUDIT];
+/** `client.update.*` satırının `new_value.source` değerleri (`anonymous` audit'e girmez). */
+export const CLIENT_UPDATE_AUDIT_SOURCES = ["device", "binding"] as const satisfies readonly UpdateEventSource[];
+/** Olay türü → audit eylemi (`installing` olay değildir, audit yok). */
+export const CLIENT_UPDATE_AUDIT_BY_EVENT: Readonly<Record<UpdateEventType, ClientUpdateAuditAction>> = {
+  available: CLIENT_UPDATE_AUDIT.AVAILABLE,
+  installed: CLIENT_UPDATE_AUDIT.INSTALLED,
+  failed: CLIENT_UPDATE_AUDIT.FAILED,
+  rolled_back: CLIENT_UPDATE_AUDIT.ROLLED_BACK,
+  skipped: CLIENT_UPDATE_AUDIT.SKIPPED,
+};
+/** Ayarlar → İstemciler anahtarı değişti (AC-485): entity `tenant_settings`/tenantId, `{old, new}` (`autoUpdate`). */
+export const CLIENT_UPDATE_SETTINGS_AUDIT = "settings.client_update";
+/** Audit süzgecinde "İstemci güncelleme" grubu (5 eylem; MULTI_AUDIT_GROUP kalıbı). */
+export const CLIENT_UPDATE_AUDIT_GROUP = { label: "İstemci güncelleme", actions: Object.values(CLIENT_UPDATE_AUDIT) } as const;
+/**
+ * P29 eylemlerinin Türkçe etiketleri (web `AUDIT_ACTION_LABELS`'a yayılır). AC-491 özel durumu (`failed` + güvenlik nedeni →
+ * "Güncelleme reddedildi (<neden>)", `binding` kaynaklıda "İstemci bildirdi: " öneki) web `clientUpdateLabel`'dadır; metinler
+ * `api/update.ts` `UPDATE_REJECTED_LABEL`, `UPDATE_CLIENT_REPORTED_PREFIX`, `UPDATE_REASON_LABELS`.
+ */
+export const CLIENT_UPDATE_AUDIT_LABELS: Readonly<Record<ClientUpdateAuditAction | typeof CLIENT_UPDATE_SETTINGS_AUDIT, string>> = {
+  [CLIENT_UPDATE_AUDIT.AVAILABLE]: "İstemci güncellemesi bulundu",
+  [CLIENT_UPDATE_AUDIT.INSTALLED]: "İstemci güncellendi",
+  [CLIENT_UPDATE_AUDIT.FAILED]: "İstemci güncellemesi başarısız",
+  [CLIENT_UPDATE_AUDIT.ROLLED_BACK]: "İstemci güncellemesi geri alındı",
+  [CLIENT_UPDATE_AUDIT.SKIPPED]: "İstemci güncellemesi atlandı",
+  [CLIENT_UPDATE_SETTINGS_AUDIT]: "İstemci otomatik güncelleme ayarı değişti",
+};
