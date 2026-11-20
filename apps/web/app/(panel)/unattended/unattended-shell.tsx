@@ -52,14 +52,27 @@ export function ModeBanner({ status, superAdmin }: { status: UnattendedStatus | 
             {UNATTENDED_TEST_BANNER}
           </Alert>
         ) : (
-          <Alert key={k} tone="info" icon={ShieldAlert} testId="un-risk-banner">
-            {UNATTENDED_RISK_BANNER}
-          </Alert>
+          <RiskBanner key={k} />
         ),
       )}
     </>
   );
 }
+
+function RiskBanner() {
+  return (
+    <Alert tone="info" icon={ShieldAlert} testId="un-risk-banner">
+      {UNATTENDED_RISK_BANNER}
+    </Alert>
+  );
+}
+
+/**
+ * Firma seçmemiş Super Admin (AC-527c, QA P32 tur 1 m.2): `GET /unattended/status` firma bağlamı olmadan da çalışır; yalnız
+ * risk kabul bandı çizilir (OFF/TEST bantları ve kayıt kodu düğmesi firma bağlamına aittir, değişmez).
+ */
+export const pickTenantRisk = (access: UnAccess, status: UnattendedStatus | null | undefined): boolean =>
+  access.pickTenant && access.superAdmin && (access.connect || access.manage) && isRiskAccepted(status);
 
 /** /unattended ve /unattended/codes ortak kabuğu: başlık (+ yönetici "Kayıt kodu oluştur"), bant, sekmeler (`manage`). */
 export function UnattendedShell({
@@ -87,6 +100,11 @@ export function UnattendedShell({
       {ready && status !== undefined && (
         <div className="mt-4 flex max-w-3xl flex-col gap-2">
           <ModeBanner status={status} superAdmin={access.superAdmin} />
+        </div>
+      )}
+      {pickTenantRisk(access, status) && (
+        <div className="mt-4 flex max-w-3xl flex-col gap-2">
+          <RiskBanner />
         </div>
       )}
       {ready && access.manage && (

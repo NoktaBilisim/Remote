@@ -75,7 +75,7 @@ export function modeBanners(status: UnattendedStatus, superAdmin: boolean): Mode
 
 /**
  * Kayıt kodu diyaloğu kurulum notu (S-P32-8): yalnız `unsigned-accepted`'te tek satır. SHA kaynağı kod üretim yanıtının
- * `agentSha256` alanı (K1'e açık bağımlılık); gelmezse SHA parçası yazılmaz.
+ * `agentSha256` alanı (contracts `CreatedRegistrationCode`); boşsa SHA parçası yazılmaz.
  */
 export function installNote(riskAccepted: boolean, agentSha256: string | undefined): string | null {
   if (!riskAccepted) return null;

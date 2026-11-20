@@ -133,6 +133,16 @@ for i in $(seq 10 21); do : >"$TMP/sb/.env.bak.servis.20261101T0000${i}Z"; done
 pub sb 1 v0.23.0
 chk "S-P32-9 12 eski yedek + yeni -> en yeni 10 yedek kalır (yenisi dahil)" \
   '[ "$RC" = 0 ] && [ "$(ls "$TMP"/sb/.env.bak.servis.* | wc -l | tr -d " ")" = 10 ] && [ ! -e "$TMP/sb/.env.bak.servis.20261101T000010Z" ] && [ ! -e "$TMP/sb/.env.bak.servis.20261101T000012Z" ] && [ -e "$TMP/sb/.env.bak.servis.20261101T000013Z" ]'
+mks sa production 'UNATTENDED_MODE=off'; chmod 640 "$TMP/sa/.env"
+ino() { ls -i "$1" | awk '{print $1}'; }
+# shellcheck disable=SC2034  # ia/oa aşağıdaki chk eval dizesinde kullanılır
+ia="$(ino "$TMP/sa/.env")"
+# shellcheck disable=SC2034
+oa="$(ls -ln "$TMP/sa/.env" | awk '{print $3":"$4}')"
+pub sa 1 v0.23.0
+chk "S-P32-K-2 .env atomik yazılır: yeni inode (rename), kip 640 ve sahiplik korunur, geçici dosya kalmaz" \
+  '[ "$RC" = 0 ] && [ "$(ino "$TMP/sa/.env")" != "$ia" ] && [ "$(mode "$TMP/sa/.env")" = "-rw-r-----" ] && [ "$(ls -ln "$TMP/sa/.env" | awk "{print \$3\":\"\$4}")" = "$oa" ] && [ "$(ev sa UNATTENDED_SIGNED_SHA256)" = "$S1" ] && ! ls "$TMP"/sa/.env.tmp.* >/dev/null 2>&1'
+grep -q 'mv -f "$dir/.env.tmp.$ts" "$dir/.env"' "$P" && ! grep -q 'cat "$dir/.env.tmp' "$P" && ok "S-P32-K-2 publish-servis.sh .env'i yerinde üzerine yazmıyor (mv -f)" || no "S-P32-K-2 .env yazımı atomik değil"
 grep -q '^umask 077$' "$P" && ok "publish-servis.sh umask 077 (geçici dosya 600)" || no "publish-servis.sh umask 077 yok"
 
 echo

@@ -17,7 +17,8 @@
 #   (izinli servis listesi) sonuna eklenir (yinelenmez, sıra korunur; öğeler kırpılır + küçük harfe çevrilir) ve
 #   UNATTENDED_AGENT_VERSION=X.Y.Z yazılır. dir-* / *-unattested listeye EKLENMEZ, UNATTENDED_AGENT_VERSION boşaltılır.
 #   Liste 16 öğeye ulaşınca UYARI; 20'yi aşacaksa betik HİÇBİR ŞEY yazmadan durur (runbook §27.9 acil yol). Listeden
-#   çıkarma yalnız elle (runbook §27.9 iki aşamalı geri çekme). .env yazımı tek geçiş; geçici dosya umask 077,
+#   çıkarma yalnız elle (runbook §27.9 iki aşamalı geri çekme). .env yazımı tek geçiş + atomik: aynı dizinde geçici
+#   dosya (umask 077), .env'in kip/sahipliği kopyalanır, `mv -f` ile yer değiştirir (S-P32-K-2; yarım .env kalmaz);
 #   yedek .env.bak.servis.<UTC zaman> chmod 600, son 10 yedek tutulur.
 # Çıkış: 0 tamam · 1 doğrulama/yayın hatası · 2 kullanım hatası.
 # İç mod (sunucuda): --apply <deploy-dir> <sha256> <etiket> <dosya>
@@ -102,8 +103,14 @@ apply() {
       if (!("UNATTENDED_AGENT_SHA256" in done)) emit("UNATTENDED_AGENT_SHA256")
       if (!("UNATTENDED_AGENT_VERSION" in done)) emit("UNATTENDED_AGENT_VERSION")
       if (rel == 1 && !("UNATTENDED_SIGNED_SHA256" in done)) emit("UNATTENDED_SIGNED_SHA256")
-    }' "$dir/.env" > "$dir/.env.tmp.$ts"
-  cat "$dir/.env.tmp.$ts" > "$dir/.env" && rm -f "$dir/.env.tmp.$ts"
+    }' "$dir/.env" > "$dir/.env.tmp.$ts" || { rm -f "$dir/.env.tmp.$ts"; die ".env geçici dosyası yazılamadı (.env değişmedi)"; }
+  # S-P32-K-2: atomik değişim. Geçici dosya .env ile AYNI dizinde (rename aynı dosya sisteminde atomik); kip ve sahiplik
+  # mevcut .env'den alınır (GNU stat, yoksa BSD stat). Sahiplik aktarılamazsa .env'e dokunmadan durulur.
+  local emode eown
+  emode="$(stat -c '%a' "$dir/.env" 2>/dev/null || stat -f '%Lp' "$dir/.env")"
+  eown="$(stat -c '%u:%g' "$dir/.env" 2>/dev/null || stat -f '%u:%g' "$dir/.env")"
+  { chmod "$emode" "$dir/.env.tmp.$ts" && chown "$eown" "$dir/.env.tmp.$ts" && mv -f "$dir/.env.tmp.$ts" "$dir/.env"; } \
+    || { rm -f "$dir/.env.tmp.$ts"; die ".env kip/sahiplik aktarılamadı ya da yer değiştirilemedi (.env değişmedi; yedek .env.bak.servis.$ts)"; }
   if [ "$release" = 1 ]; then echo "izinli liste: $n öğe (UNATTENDED_SIGNED_SHA256), UNATTENDED_AGENT_VERSION=$ver"
   else echo "izinli liste değişmedi ($label Release değil); UNATTENDED_AGENT_VERSION boşaltıldı"; fi
   install -d -m 755 "$dir/agent"

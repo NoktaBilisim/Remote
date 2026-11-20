@@ -9,8 +9,10 @@ import { newId } from "../../src/lib/ids.ts";
 import { createTenant, createUser, loginStepUp, testDb } from "../helpers/app.ts";
 import { createCustomerRow } from "../helpers/requests.ts";
 import { startLive, type Live } from "../helpers/signal-flow.ts";
-import { acceptedEnv, contactRow, setSmtp, SHA } from "../helpers/unattended.ts";
-import { authMsg, connectReq, rawDevice, ready, type ConnectMsg } from "../helpers/unattended-device.ts";
+import { DEVICE_INDICATOR_TEST_PREFIX, deviceIndicatorText } from "@remote/contracts/ws-device";
+import { acceptedEnv, contactRow, setSmtp, SHA, UNSIGNED_ENV } from "../helpers/unattended.ts";
+import { authMsg, connectReq, rawDevice, ready, type ConnectMsg, type Ready } from "../helpers/unattended-device.ts";
+import { directSession, grantControl, readyK4, techConsole } from "../helpers/unattended-k4.ts";
 
 const OTHER = "ef".repeat(32);
 const AGENT_SHA = "12".repeat(32);
@@ -38,6 +40,33 @@ async function adminFirm() {
   const customer = await createCustomerRow(t.id);
   await contactRow(t.id, customer.id);
   return { tenantId: t.id, customerId: customer.id, s: await loginStepUp(live.app, admin) };
+}
+
+/** Gösterge parçaları DB'den (teknisyen adı + firma adı). */
+async function indicatorParts(r: Ready): Promise<[string, string]> {
+  const user = await testDb().user.findUniqueOrThrow({ where: { id: r.tech.id }, select: { fullName: true } });
+  const tenant = await testDb().tenant.findUniqueOrThrow({ where: { id: r.tenantId }, select: { name: true } });
+  return [user.fullName, tenant.name];
+}
+const signedIndicator = async (r: Ready) => deviceIndicatorText(...(await indicatorParts(r)), false);
+
+/** Kontrol açık onaysız oda → logoff ok → cihaza giden `rejoin.indicatorText` (intervene.ts:126 `test` bayrağı). */
+async function rejoinIndicator(l: Live): Promise<{ r: Ready; text: string }> {
+  const r = await readyK4(l);
+  const { sessionId, helper } = await directSession(l, r);
+  const { ws } = await techConsole(l, r, sessionId);
+  await grantControl(ws, helper);
+  const p = l.app.inject({
+    method: "POST",
+    url: `/api/v1/sessions/${sessionId}/unattended/logoff`,
+    headers: r.s.headers,
+    payload: { confirm: true },
+  });
+  const m = (await r.device.waitFor("intervene" as never)) as unknown as { id: string };
+  r.device.send({ t: "intervene.result", sessionId, id: m.id, cmd: "logoff", ok: true });
+  expect((await p).json()).toEqual({ ok: true, rejoin: true });
+  const rj = (await r.device.waitFor("rejoin" as never)) as unknown as { indicatorText: string };
+  return { r, text: rj.indicatorText };
 }
 
 let ipSeq = 0;
@@ -74,9 +103,17 @@ describe("P32 unsigned-accepted — kapı (AC-525)", () => {
       expect(r.json<{ agentSha256: string }>().agentSha256).toBe(AGENT_SHA);
       return r.json<{ code: string }>().code;
     };
-    const rejected = await register(await newCode(), OTHER, true);
+    const code = await newCode();
+    const rejected = await register(code, OTHER, true);
     expect([rejected.statusCode, rejected.json<{ error: { code: string } }>().error.code]).toEqual([409, "UNATTENDED_DISABLED"]);
-    const ok = await register(await newCode(), SHA, false);
+    // AC-528: kapı reddi aynı eylemle fail satırı yazar; tenant koddan, TX dışında (kod tüketilmez → aynı kodla kayıt 200).
+    const gateRows = await testDb().auditLog.findMany({
+      where: { tenantId: f.tenantId, action: "unattended.device.registered", result: "fail" },
+    });
+    expect(gateRows).toHaveLength(1);
+    expect(gateRows[0]).toMatchObject({ entity: "unattended_devices", username: "device" });
+    expect(newValue(gateRows[0])).toMatchObject({ reason: "gate", gateMode: "unsigned-accepted", binarySha256: OTHER, signed: true });
+    const ok = await register(code, SHA, false);
     expect(ok.statusCode, ok.body).toBe(200);
   });
 
@@ -132,8 +169,22 @@ describe("P32 unsigned-accepted — gösterge (AC-526)", () => {
     const res = await live.app.inject(connectReq(r));
     expect(res.statusCode, res.body).toBe(200);
     const msg = (await r.device.waitFor("connect" as never)) as unknown as ConnectMsg;
+    // `signed` moddaki metinle birebir aynı (önek yok, başka fark yok).
+    expect(msg.indicatorText).toBe(await signedIndicator(r));
     expect(msg.indicatorText).not.toMatch(/TEST/);
-    expect(msg.indicatorText.length).toBeGreaterThan(0);
+  });
+
+  it("AC-526: intervene (logoff → rejoin) göstergesi de `signed` moddaki metinle aynı; staging `unsigned` kipte 'TEST' önekli", async () => {
+    const accepted = await rejoinIndicator(live);
+    expect(accepted.text).toBe(await signedIndicator(accepted.r));
+    const staging = await startLive({ env: { ...UNSIGNED_ENV } });
+    try {
+      const u = await rejoinIndicator(staging);
+      expect(u.text).toBe(deviceIndicatorText(...(await indicatorParts(u.r)), true));
+      expect(u.text.startsWith(DEVICE_INDICATOR_TEST_PREFIX)).toBe(true);
+    } finally {
+      await staging.close();
+    }
   });
 });
 

@@ -13,7 +13,7 @@
 # P22-O session-chat-internal; P21 K7 portal-login-fail / portal-locked / portal-request-reject; P29 K6 update-rejected-device /
 # update-rejected-client / update-manifest-expiry / update-manifest-missing; P32 K3 unattended-deploy-env (WATCH_DEPLOY_ENV boş +
 # mod açık -> ALERT, S-P32-r2-1) / unattended-list-unpublished / unattended-agent-version-mismatch (PUBLISHED.log alan eşleşmesi,
-# S-P32-r2-2) / unattended-mode-changed (tek seferlik, DUZELDI yok, gönderim başarısızsa yeniden) + listFingerprint test vektörü.
+# S-P32-r2-2) / unattended-mode-changed (tek seferlik, DUZELDI yok, gönderim başarısızsa yeniden) / unattended-env-read (S-P32-K-1) + listFingerprint test vektörü.
 # Kullanım: deploy/ops/test-watch.sh   Çıkış 0 = tüm beklentiler tuttu.
 set -euo pipefail
 cd "$(dirname "$0")"
@@ -646,6 +646,12 @@ pl "20261120T000000Z servis dir-20261120-unattested $C"; ue staging unsigned "" 
   && grep -q 'BILGI check=unattended-deploy-env OK DEPLOY_ENV=staging' /out/o && ok "staging unsigned + dir-* (sürüm boş) -> liste/sürüm kontrolü yok, sessiz" || no "p32 staging: $(cat /out/o)"
 cp "$US" /tmp/us.before; good; ue production unsigned-accepted "$A" "$A" 0.23.0; sed -i '/^server|/d' /scn/ps; WATCH_DEPLOY_ENV=production run
 cmp -s "$US" /tmp/us.before && ! grep -q 'unattended-mode-changed' /out/o && ok "server çalışmıyor -> gözetimsiz kontrolleri yok, durum dosyasına dokunulmadı" || no "p32 server yok: $(cat /out/o)"
+cp "$US" /tmp/us.before; good; : >/scn/uenv; WATCH_DEPLOY_ENV=production run
+grep -q 'ALERT check=unattended-env-read server çalışıyor ama env okunamadı' /out/o && alerted unattended-env-read && cmp -s "$US" /tmp/us.before \
+  && grep -q 'check="unattended-env-read"} 0' /var/lib/rw/status.prom && ! grep -q 'unattended-mode-changed' /out/o \
+  && ok "S-P32-K-1 server çalışıyor + env okunamadı -> ALERT unattended-env-read (sessiz atlama yok), durum dosyasına dokunulmadı" || no "p32 env okunamadı: $(cat /out/o)"
+good; WATCH_DEPLOY_ENV=production run
+p18n unattended-env-read && grep -q 'check="unattended-env-read"} 1' /var/lib/rw/status.prom && ok "env yeniden okunur -> unattended-env-read kalktı (status 1)" || no "p32 env geri: $(cat /out/o)"
 good; WATCH_DEPLOY_ENV=prod run
 [ "$RC" = 1 ] && grep -q 'WATCH_DEPLOY_ENV production, staging ya da development olmalı' /out/o && ok "WATCH_DEPLOY_ENV geçersiz -> çalışmaz" || no "p32 wde: rc=$RC $(cat /out/o)"
 L16=""; pls=()

@@ -486,6 +486,10 @@ publog_has() {  # publog_has <sha> [sürüm] -> PUBLISHED.log'da "servis v<X.Y.Z
 if [ -n "$SERVER_C" ]; then
   uenv="$(timeout 20 docker exec "$SERVER_C" node -e "for(const k of ['DEPLOY_ENV','UNATTENDED_MODE','UNATTENDED_SIGNED_SHA256','UNATTENDED_AGENT_SHA256','UNATTENDED_AGENT_VERSION'])console.log(k+'='+(process.env[k]||''))" 2>/dev/null)" || uenv=""
   grep -q '^UNATTENDED_MODE=' <<<"$uenv" && U_OK=1
+  # S-P32-K-1: konteyner çalışıyor ama env okunamadıysa (exec/node hatası, 20 sn zaman aşımı) denetimler sessizce atlanmaz.
+  # Mod bilinmediği için güvenli taraf ALERT'tir (prod'da unsigned-accepted olabilir); geçici hata bir sonraki turda DUZELDI olur.
+  seen unattended-env-read
+  [ "$U_OK" = 1 ] || fail unattended-env-read "server çalışıyor ama env okunamadı (docker exec/node hatası ya da zaman aşımı): gözetimsiz servis denetimleri bu tur yapılamadı, mod bilinmiyor (runbook §27.9)"
 fi
 if [ "$U_OK" = 1 ]; then
   uv() { sed -n "s/^$1=//p" <<<"$uenv" | head -1 | tr -d '\r'; }

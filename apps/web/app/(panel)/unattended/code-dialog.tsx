@@ -21,14 +21,8 @@ import { installNote, isContactMissing, isSmtpMissing, unattendedUiError } from 
 
 type Failure = { ui: UiError; contactFor?: string };
 
-/**
- * P32 (S-P32-8): kurulum notundaki SHA, kod üretim yanıtının `agentSha256` alanından (sunucu `UNATTENDED_AGENT_SHA256`).
- * contracts'a K1 ekleyene kadar yerel genişletme; alan gelmezse not SHA'sız yazılır.
- */
-type Created = CreatedRegistrationCode & { agentSha256?: string };
-
 /** Kod bir kez gösterilir (AC-273): kopyala, müşteriye gönder (LG), indir, 3 adım + UAC satırı (O-P27-4, AC-342). */
-function CodeResult({ created, riskAccepted }: { created: Created; riskAccepted: boolean }) {
+function CodeResult({ created, riskAccepted }: { created: CreatedRegistrationCode; riskAccepted: boolean }) {
   const note = installNote(riskAccepted, created.agentSha256);
   return (
     <div className="flex flex-col gap-4" data-testid="un-code-result">
@@ -76,7 +70,7 @@ function useCodeForm(onSmtpMissing: () => void) {
   const [fieldError, setFieldError] = useState<string>();
   const [failure, setFailure] = useState<Failure | null>(null);
   const [busy, setBusy] = useState(false);
-  const [created, setCreated] = useState<Created | null>(null);
+  const [created, setCreated] = useState<CreatedRegistrationCode | null>(null);
   const reset = () => (setCustomer(null), setFieldError(undefined), setFailure(null), setCreated(null));
   const submit = async (e: FormEvent) => {
     e.preventDefault();
@@ -85,7 +79,7 @@ function useCodeForm(onSmtpMissing: () => void) {
     setBusy(true);
     setFailure(null);
     try {
-      setCreated(await api<Created>("POST", "/unattended/registration-codes", { customerId: customer.id }));
+      setCreated(await api<CreatedRegistrationCode>("POST", "/unattended/registration-codes", { customerId: customer.id }));
     } catch (err) {
       if (isUnauthenticated(err)) return router.replace(EXPIRED_LOGIN_PATH);
       if (isSmtpMissing(err)) onSmtpMissing();

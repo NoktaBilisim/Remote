@@ -18,9 +18,11 @@ export default async function CodesPage() {
   if (me.kind !== "ok") redirect(EXPIRED_LOGIN_PATH);
   const access = accessOf({ ...me.me, permissions: me.me.permissions as readonly string[] });
   const gate = gateBody(access);
+  // AC-527c: firma seçmemiş Super Admin'e de risk bandı (durum firma bağlamı olmadan çekilir; hata → bant yok, boş durum aynı)
+  const pickStatus = gate && access.pickTenant ? await serverGet<UnattendedStatus>("/unattended/status") : null;
   if (gate || !access.manage)
     return (
-      <UnattendedShell access={access} status={undefined} createBlock={null}>
+      <UnattendedShell access={access} status={pickStatus?.kind === "ok" ? pickStatus.data : undefined} createBlock={null}>
         {gate ?? (
           <div className="mt-6 max-w-xl">
             <Alert tone="warning" testId="un-forbidden">

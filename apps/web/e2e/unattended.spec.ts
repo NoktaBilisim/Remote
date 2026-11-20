@@ -272,6 +272,25 @@ test("AC-527/526 Super Admin risk kabul bandını görür (liste + kodlar + ayr�
   await expect(page.getByTestId("un-risk-banner")).toHaveText(RISK);
 });
 
+test("AC-527 firma seçmemiş Super Admin: 'firma seçin' boş durumunun üstünde yalnız risk bandı; iki tema axe 0", async ({
+  page,
+  context,
+}) => {
+  await signIn(context, "unaccsa0");
+  for (const path of ["/unattended", "/unattended/codes"]) {
+    await page.goto(path);
+    await expect(page.getByTestId("un-pick-tenant")).toBeVisible();
+    await expect(page.getByTestId("un-risk-banner")).toHaveText(RISK);
+    await expect(page.getByTestId("un-test-banner")).toHaveCount(0);
+    await expect(page.getByTestId("un-off-banner")).toHaveCount(0);
+    await expect(page.getByTestId("un-create-code")).toHaveCount(0);
+  }
+  await noHorizontalOverflow(page);
+  expect(await axeScan(page)).toEqual([]);
+  await page.emulateMedia({ colorScheme: "dark" });
+  expect(await axeScan(page)).toEqual([]);
+});
+
 test("AC-527/526/531 Admin: bant yok; rozet 'İzinli sürüm değil'; kayıt kodu diyaloğunda kurulum notu + SHA kısaltması", async ({
   page,
   context,

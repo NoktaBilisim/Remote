@@ -10,6 +10,7 @@
 //   unnone   gözetimsiz yetkisi yok (menü öğesi yok, sayfa uyarı).
 //   unacc    P32: unm gibi ADMIN, mod `unsigned-accepted` (bant yok); DEPO-PC SHA'sı listede değil (signatureOk=false);
 //            kayıt kodu yanıtında `agentSha256` (kurulum notu, S-P32-8). unaccsa: aynı, SUPER_ADMIN firma bağlamında.
+//            unaccsa0: SUPER_ADMIN firma seçmemiş (status firma bağlamı olmadan da döner; AC-527c).
 import { stepUpInputSchema } from "@remote/contracts/api/auth";
 import { putDeviceGrantsInputSchema, putNotifyContactsInputSchema } from "@remote/contracts/api/unattended";
 
@@ -26,14 +27,14 @@ export const P27 = {
   TECH: "01JMSP2700000000000000000B",
   SESSION: "01JSSP2700000000000000000A",
 };
-const KINDS = /^u-(unm|unsmtp|unoff|untech0|untech|unempty|unpoll|unnone|unaccsa|unacc)-/;
+const KINDS = /^u-(unm|unsmtp|unoff|untech0|untech|unempty|unpoll|unnone|unaccsa0|unaccsa|unacc)-/;
 
 export function p27User(cookie) {
   const m = cookie?.match(KINDS);
   if (!m) return null;
   const kind = m[1];
   const tech = kind.startsWith("untech");
-  const sa = kind === "unaccsa";
+  const sa = kind.startsWith("unaccsa");
   const perms =
     kind === "unnone"
       ? ["customers.view"]
@@ -54,7 +55,7 @@ export function p27User(cookie) {
     },
     permissions: perms,
     tenant: sa ? null : TENANT,
-    actingTenant: sa ? TENANT : null,
+    actingTenant: kind === "unaccsa" ? TENANT : null,
     mfa: { enabled: true, required: true, stage: "ok", recoveryCodesLeft: 10 },
   };
 }

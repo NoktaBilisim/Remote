@@ -4,7 +4,7 @@ import { t } from "@/lib/i18n";
 import { UNATTENDED_RISK_BANNER, UNATTENDED_TEST_BANNER, type DeviceListItem, type UnattendedStatus } from "@/lib/unattended/contract";
 import { installNote, isRiskAccepted, modeBanners } from "@/lib/unattended/errors";
 import { DeviceBadges } from "./device-badges";
-import { ModeBanner } from "./unattended-shell";
+import { gateBody, ModeBanner, pickTenantRisk, UnattendedShell, type UnAccess } from "./unattended-shell";
 
 const st = (mode: string, available = true): UnattendedStatus => ({ mode, available, notifyChannel: true }) as unknown as UnattendedStatus;
 const SHA = "0123456789abcdef".repeat(4);
@@ -32,6 +32,25 @@ describe("P32 kapı bantları (AC-526, AC-527c)", () => {
   it("signed ve off değişmez", () => {
     expect(modeBanners(st("signed"), true)).toEqual([]);
     expect(modeBanners(st("off", false), true)).toEqual(["off"]);
+  });
+  it("firma seçmemiş Super Admin: yalnız risk bandı + 'firma seçin' boş durumu (QA P32 tur 1 m.2)", () => {
+    const sa: UnAccess = { connect: true, manage: true, pickTenant: true, history: true, superAdmin: true };
+    const shell = (status: UnattendedStatus | undefined, access = sa) =>
+      renderToStaticMarkup(
+        <UnattendedShell access={access} status={status} createBlock={null}>
+          {gateBody(access)}
+        </UnattendedShell>,
+      );
+    const html = shell(st("unsigned-accepted", false));
+    expect(html).toContain('data-testid="un-risk-banner"');
+    expect(html).toContain('data-testid="un-pick-tenant"');
+    expect(html).not.toContain("un-off-banner");
+    expect(html).not.toContain("un-test-banner");
+    expect(html).not.toContain("un-create-code");
+    expect(html.indexOf("un-risk-banner")).toBeLessThan(html.indexOf("un-pick-tenant"));
+    for (const other of [st("unsigned"), st("signed"), st("off", false), undefined]) expect(shell(other)).not.toContain("un-risk-banner");
+    expect(pickTenantRisk({ ...sa, connect: false, manage: false }, st("unsigned-accepted"))).toBe(false);
+    expect(pickTenantRisk({ ...sa, pickTenant: false }, st("unsigned-accepted"))).toBe(false);
   });
   it("metin tek kaynak: contracts = mimari §4.7", () => {
     expect(UNATTENDED_RISK_BANNER).toBe(RISK);

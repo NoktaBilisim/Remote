@@ -17645,17 +17645,33 @@ Yeni bağımlılık yok (`node:crypto`).
 - Test DB konteyneri `rs-p32-test` (127.0.0.1:33532) açık bırakıldı (K4 yeniden koşusu için); kapatma:
   `TEST_DB_CONTAINER=rs-p32-test apps/server/scripts/test-db.sh down`.
 
+### QA tur 1 düzeltmeleri (qa-raporu P32 m.3, m.4)
+
+- **m.3 (AC-528) kayıtta kapı reddi audit'i:** `registration.ts` kapı reddinde `GateRejectedError` (`AppError`
+  `UNATTENDED_DISABLED` alt sınıfı, koddan gelen `tenantId` taşır) atar; yanıt değişmedi (409 `UNATTENDED_DISABLED`).
+  `register.ts` TX geri alındıktan **sonra** aynı eylemle (`unattended.device.registered`, `result:"fail"`) firmaya satır
+  yazar: `{reason:"gate", ip, gateMode, binarySha256, signed}`. Kod tüketilmez (TX rollback); per-IP kova bu yolu da sınırlar.
+  `signed` alanı diğer fail satırlarına (`invalid_code`, `cap`) da eklendi (aynı `failAudit`). Mod `off`
+  (`status().available=false`) reddinde kod çözülmediği için tenant bilinmez; bu yolda satır yazılmaz (metrik `disabled` sayar).
+- **m.4 (AC-526):** connect testi göstergeyi artık `deviceIndicatorText(fullName, tenantName, false)` ile **eşitlik** üzerinden
+  doğrular. Yeni entegrasyon vakası: intervene (logoff → `rejoin.indicatorText`) `unsigned-accepted`'te `signed` metne eşit,
+  staging `unsigned`'da `DEVICE_INDICATOR_TEST_PREFIX` önekli.
+- Testler: `unattended-p32-accepted.test.ts` (AC-525 409 vakasına fail satırı + aynı kodla 200 beklentisi; AC-526 iki vaka).
+  Değişen dosyalar: `apps/server/src/unattended/registration.ts`, `apps/server/src/unattended/register.ts`, test dosyası.
+- Çıktı (`rs-p32-test`): entegrasyon **124 dosya, 1301/1301**; birim 738 geçti + 1 atlandı; server lint + typecheck temiz.
+  Sözleşme değişikliği yok (frontend etkilenmez).
+
 ## P32-K2 — Web: risk kabul bandı, rozet metni, kayıt kodu kurulum notu (frontend-dev, 2026-11-20)
 
 Kaynak: mimari-p32 r2 §4.7, §6, §11 K2; gereksinimler §15 AC-526, AC-527c, AC-531, S-P32-8.
 
 ### Rotalar (değişen, yeni rota yok)
 
-| Yol                 | Auth                                   | P32 farkı                                                                                                                                          |
-| ------------------- | -------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `/unattended`       | evet (`unattended.connect` ∨ `manage`) | `unsigned-accepted` + Super Admin (firma bağlamında) → `un-risk-banner` (`Alert info` + `ShieldAlert`); TEST bandı yok; rozet "İzinli sürüm değil" |
-| `/unattended/codes` | evet (`manage`)                        | aynı bant; kayıt kodu sonucunda kurulum notu                                                                                                       |
-| `/unattended/[id]`  | evet                                   | aynı bant; rozet metni (ayrıntıdaki "İmza: İmzasız/İmzalı" satırı değişmedi, `un.d.*`)                                                             |
+| Yol                 | Auth                                   | P32 farkı                                                                                                                                                                                |
+| ------------------- | -------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `/unattended`       | evet (`unattended.connect` ∨ `manage`) | `unsigned-accepted` + Super Admin (firma bağlamında ya da firma seçmemişken, QA tur 1 m.2) → `un-risk-banner` (`Alert info` + `ShieldAlert`); TEST bandı yok; rozet "İzinli sürüm değil" |
+| `/unattended/codes` | evet (`manage`)                        | aynı bant; kayıt kodu sonucunda kurulum notu                                                                                                                                             |
+| `/unattended/[id]`  | evet                                   | aynı bant; rozet metni (ayrıntıdaki "İmza: İmzasız/İmzalı" satırı değişmedi, `un.d.*`)                                                                                                   |
 
 ### Değişen dosyalar
 
@@ -17671,19 +17687,15 @@ Kaynak: mimari-p32 r2 §4.7, §6, §11 K2; gereksinimler §15 AC-526, AC-527c, A
 - Testler: `apps/web/app/(panel)/unattended/p32-mode.test.tsx` (9 vaka); `e2e/unattended.spec.ts` (2 yeni AC adlı test + AC-273 testinde "not yok" denetimi); `e2e/mock-p27.mjs` senaryoları `unacc` (ADMIN) ve `unaccsa` (SUPER_ADMIN firma bağlamında).
 - `DESIGN.md`: Alert `icon` eki, P27-K8 satırına P32 bant/rozet/not.
 
-### Açık bağımlılık (backend-dev'e not)
+### Açık bağımlılık (backend-dev'e not) — KAPANDI (QA tur 1 m.5)
 
-- **Kurulum notundaki SHA:** `CreatedRegistrationCode`'da SHA alanı yok. Web, `POST /unattended/registration-codes` yanıtında
-  isteğe bağlı **`agentSha256`** (64 hane, sunucu `UNATTENDED_AGENT_SHA256`) alanını okuyor (`code-dialog.tsx`'te yerel tip
-  genişletmesi `Created`). K1 bu alanı contracts `CreatedRegistrationCode`'a ve `registration.ts` yanıtına eklemeli (mimari §4.7
-  "yoksa sözleşmede eklenir, yeni uç yok"). Eklenince yerel genişletme kaldırılır. Alan gelmezse not SHA'sız
-  yazılır ("Windows 'Bilinmeyen yayıncı' gösterebilir."). Bu yüzden **AC-527'nin "Admin notu SHA ile görür" kısmı uçtan uca
-  K1'e bağlı**; e2e bu kısmı sahte API ile doğruluyor.
+- ~~Kurulum notundaki SHA: `CreatedRegistrationCode`'da SHA alanı yok~~ → K1 contracts `CreatedRegistrationCode.agentSha256: string`
+  (`packages/contracts/src/api/unattended.ts`) ekledi. `code-dialog.tsx`'teki yerel `Created` genişletmesi kaldırıldı; tip doğrudan
+  contracts'tan. Alan boş dize gelirse not SHA'sız yazılır (`installNote`).
 
 ### Sapmalar
 
-- Firma seçmemiş Super Admin'de `/unattended` durumu hiç çekilmiyor (mevcut "firma seçin" boş durumu), bu yüzden bant da
-  görünmüyor. Bant firma bağlamındaki Super Admin'e çıkıyor. Genişletilmedi.
+- ~~Firma seçmemiş Super Admin'de bant görünmüyor~~ → QA tur 1 m.2 ile kaldırıldı (aşağıda).
 - Not `Alert` değil, düz tek satır (mimari "bant değil").
 
 ### Test sonucu
@@ -17693,6 +17705,21 @@ desktop + mobile: 24 geçti, 4 atlandı (yalnız masaüstü). İki temada axe 0 
 İlgili spec'ler (`p28u-unattended`, `p29-client-update`, `lg-send`) desktop + mobile: 48 geçti, 18 atlandı.
 K1 `registration.ts` diff'inde `agentSha256` yok (yalnız audit `binarySha256`) → bağımlılık açık.
 Skill dosyaları: değişiklik küçük ve mevcut primitiflerle yapıldı; ui-ux-pro-max okunmadı (DESIGN.md esas alındı).
+
+### QA tur 1 düzeltmeleri (frontend-dev, 2026-11-20)
+
+| QA m.       | Dosya                                                                         | Değişiklik                                                                                                                                                                                                                                                                                                    |
+| ----------- | ----------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 2 (AC-527c) | `apps/web/app/(panel)/unattended/unattended-shell.tsx`                        | `RiskBanner` ayrı bileşen; `pickTenantRisk(access, status)`: firma seçmemiş Super Admin (`pickTenant`, `connect ∨ manage`) + `unsigned-accepted` → "firma seçin" boş durumunun **üstünde yalnız** risk bandı. OFF/TEST bantları, kayıt kodu düğmesi ve sekmeler firma bağlamına ait kaldı (`ready` değişmedi) |
+| 2           | `apps/web/app/(panel)/unattended/(list)/page.tsx`, `(list)/codes/page.tsx`    | `gate && pickTenant` iken `GET /unattended/status` sunucuda çekilir (sunucu `tenantId:null` kabul ediyor); hata → bant yok, boş durum aynı. `/unattended/[id]` firma bağlamı gerektirdiği için değişmedi                                                                                                      |
+| 5           | `apps/web/app/(panel)/unattended/code-dialog.tsx`, `lib/unattended/errors.ts` | yerel `Created` tipi + "K1 ekleyene kadar" yorumu kaldırıldı; contracts `CreatedRegistrationCode` doğrudan                                                                                                                                                                                                    |
+
+Testler: `p32-mode.test.tsx` +1 vaka (firma seçmemiş SA: risk bandı boş durumun üstünde; OFF/TEST/kod düğmesi yok; diğer modlarda ve
+durum yokken bant yok; yetkisiz/firma bağlamında `pickTenantRisk` false). `e2e/mock-p27.mjs` yeni senaryo `unaccsa0` (SUPER_ADMIN,
+`actingTenant:null`); `e2e/unattended.spec.ts` "AC-527 firma seçmemiş Super Admin …" (`/unattended` + `/unattended/codes`, iki tema axe 0).
+
+Sonuç: web lint/typecheck temiz; birim 70 dosya / 687 vaka geçti; `playwright test e2e/unattended.spec.ts` desktop + mobile 26 geçti,
+4 atlandı (yalnız masaüstü). Prettier temiz.
 
 ## P32-K3 — Operasyon: `publish-servis.sh` izinli liste, remote-watch P32 kontrolleri, runbook §27.9 (devops, 2026-11-20)
 
@@ -17763,3 +17790,19 @@ yeni **§27.9** (açılış sırası, liste denetimi komutu, iki aşamalı geri 
 
 **Kalan / denenmedi:** sunucuda açılış ve geri alma sırası (§27.9) denenmedi — ilk koşu K5 staging provası. `gh api` kanıtı imza
 anında alınır (kullanıcı/yönetici). Kullanım kılavuzu SmartScreen/`Get-FileHash` adımı K6 (teknik-yazar).
+
+### Güvenlik kod turu düzeltmeleri (devops, 2026-11-20; `guvenlik-raporu.md` "P32 — Kod turu")
+
+- **S-P32-K-1** (`deploy/ops/remote-watch.sh`): server konteyneri çalışıyor ama env okunamıyorsa (`docker exec … node -e` hatası
+  ya da 20 sn zaman aşımı) yeni **ALERT `unattended-env-read`** yazılır ve `status.prom`'a girer; durum dosyası yine yazılmaz (yanlış
+  `mode-changed` yok). Karar ALERT (ATLANDI değil): mod bilinmiyor, prod'da `unsigned-accepted` olabilir; kalıcı exec hatası
+  (imajda `node` yolu değişimi vb.) tam olarak raporun kör noktası. Geçici hata (yeniden başlama) bir sonraki turda DUZELDI ile kapanır;
+  bu yanlış pozitif bedeli kabul edildi. Konteyner yokken davranış değişmedi (`compose:server`/`ready` ALERT verir). Runbook §27.9 tablo notu.
+- **S-P32-K-2** (`deploy/agent/publish-servis.sh`): `.env` artık yerinde üzerine yazılmıyor; aynı dizinde umask 077 geçici dosya →
+  mevcut `.env`'in kipi/sahipliği `stat` ile (GNU, yoksa BSD) kopyalanır → `mv -f` (atomik rename). awk/chmod/chown/mv hatasında
+  geçici dosya silinir, `.env`'e dokunulmadan `die`. Runbook §27.9 (yedek/geçici dosya maddesi).
+- **Karar 2** (runbook §20.3 m.16 + §27.9/8): kanıt adımına ruleset bypass'ta `DeployKey` girdisi olmadığı ve
+  `gh api 'repos/NoktaBilisim/Remote/collaborators?permission=admin' --jq '.[].login'` çıktısının yalnız beklenen yönetici(ler) olduğu eklendi.
+- Testler: `test-watch.sh` +2 vaka (env boş → ALERT `unattended-env-read`, durum dosyası aynı, `mode-changed` yok; sonraki tur kalkar),
+  toplam 255 PASS, GEÇTİ. `test-publish-lock.sh` +2 vaka (kip 640 + sahiplik korunur, inode değişti = rename, geçici dosya yok; betikte
+  `cat >` yerine `mv -f`), GEÇTİ. shellcheck `-S warning` (koalaman/shellcheck:stable) `deploy/ops/*.sh deploy/agent/*.sh` temiz.
