@@ -1,3 +1,85 @@
+# QA Raporu — P32 Tur 2 (tur 1 maddeleri + güvenlik kod turu Düşükleri; HEAD a6d8679)
+
+DURUM: GEÇTİ
+
+Kapsam: dal `p32-prod-imzasiz-gozetimsiz` (a6d8679, PR #39). Yalnız Tur 1 "Düzeltilmeli" 1–5 ve güvenlik "P32 — Kod turu"
+Düşükleri (S-P32-K-1, S-P32-K-2, D-3) doğrulandı. Kod değiştirilmedi.
+
+## Test sonucu
+
+| Komut                                                                                      | Sonuç                                                                                                                            |
+| ------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------- |
+| `pnpm -r run lint` / `pnpm -r run typecheck`                                               | 3 paket temiz                                                                                                                    |
+| `pnpm -r run test`                                                                         | contracts 331/331, web 687/687 (+1 yeni), server 738 + 1 atlandı (`fsrv-p28b` `skipIf(!CLAMD_TEST_HOST)`, gerekçeli, P32 dışı) |
+| Entegrasyon `rs-p32-test` (yeniden yaratıldı, 33532): `unattended-p32-accepted` + `lg-send` | 2 dosya, 31/31 (+1 yeni intervene vakası)                                                                                       |
+| `bash deploy/ops/test-watch.sh`                                                            | SONUÇ: GEÇTİ (S-P32-K-1 iki yeni vaka dahil)                                                                                     |
+| `bash deploy/agent/test-publish-lock.sh`                                                   | SONUÇ: GEÇTİ (S-P32-K-2 iki yeni vaka dahil)                                                                                     |
+| `pnpm --filter @remote/web exec playwright test e2e/unattended.spec.ts`                    | 26 geçti, 4 atlandı (proje/viewport koşullu, tur 1'deki ile aynı), 0 kaldı. Yeni "AC-527 firma seçmemiş Super Admin" iki projede ✅ |
+
+Not: ilk e2e denemesi port 4217'yi kullanan `Remote-p31` worktree'sinin mock-api'si yüzünden açılmadı; ona dokunulmadı, port
+boşalınca yeniden koşuldu. `rs-mysql-test` / `rs-p31-test`'e dokunulmadı.
+
+## Tur 1 maddeleri
+
+| #   | Madde                                       | Durum | Kanıt                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| --- | ------------------------------------------- | ----- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1   | K6 kılavuz (AC-532)                         | ✅    | `KULLANIM_KILAVUZU.md` "Müşteri BT için: servisi kurma" (≈5096–5151): yalnız e-postadaki bağlantıdan indir, AC-533 bloğunun açıklaması, `Get-FileHash … -Algorithm SHA256` karşılaştırması **"Yine de çalıştır"dan önce**, eşleşmezse "çalıştırmayın, silin, bildirin", SmartScreen'de "Bilinmeyen yayımcı" + dosya adı kontrolü (Windows'un gerçek Türkçe metni; AC'deki "Bilinmiyor" ile anlamca aynı), AV/EDR istisnası özetle (ya da tam yol + özet), klasör/joker yasak, her sürümde yenileme. Eski "Destek firmanızdan … dosyasını" ifadesi yok (grep). Sorun giderme tablosunda özet uyuşmazlığı satırı (5247). PDF'ler 03:43'te yeniden üretildi (KULLANIM_KILAVUZU.pdf 1.41→1.43 MB). DATASHEET 29/196: imzasız + risk kabul, ADR-0042 ile tutarlı |
+| 2   | Firma seçmemiş SA bandı (AC-527c)           | ✅    | `(list)/page.tsx` + `codes/page.tsx` `pickTenant` iken `/unattended/status` çekiyor; `unattended-shell.tsx` `pickTenantRisk` yalnız risk bandı. `p32-mode.test.tsx` (bant var, OFF/TEST/kod düğmesi yok, bant boş durumun üstünde, diğer modlarda yok, yetkisizde yok) + e2e `unattended.spec.ts:275` (iki sayfa, iki tema axe 0, taşma yok)                                                                         |
+| 3   | Kayıtta kapı reddi audit (AC-528)           | ✅    | `registration.ts` `GateRejectedError(tenantId)`; `register.ts` catch'te TX dışında `failAudit(…,"gate",…, tenantId)` + `signed`. Entegrasyon: tek fail satırı, `{reason:"gate", gateMode:"unsigned-accepted", binarySha256, signed:true}`, firma koddan; **aynı kodla** sonraki kayıt 200 → kod tüketilmedi                                                                                                         |
+| 4   | AC-526 testleri                             | ✅    | (b) connect `indicatorText` `toBe(deviceIndicatorText(user, tenant, false))` eşitliği; (a) yeni vaka: logoff → `rejoin.indicatorText` `unsigned-accepted`'te signed metniyle eşit, staging `unsigned`'da `DEVICE_INDICATOR_TEST_PREFIX` önekli eşit                                                                                                                                                                    |
+| 5   | Ölü kod (`code-dialog.tsx`)                 | ✅    | Yerel `Created` tipi ve yorum kaldırıldı, `CreatedRegistrationCode` doğrudan; implementation.md "Açık bağımlılık … KAPANDI"                                                                                                                                                                                                                                                                                                |
+
+## Güvenlik kod turu Düşükleri
+
+| Bulgu      | Durum | Kanıt                                                                                                                                                                                                                                                     |
+| ---------- | ----- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| S-P32-K-1  | ✅    | `remote-watch.sh` server konteyneri varken `seen unattended-env-read`; `U_OK≠1` → `fail` (ALERT, mod bilinmiyor). test-watch: env boş → ALERT + status 0 + durum dosyasına dokunulmadı + mode-changed yok; env geri → DUZELDI, status 1                    |
+| S-P32-K-2  | ✅    | `publish-servis.sh` aynı dizinde geçici dosya → kip/sahiplik `stat` ile aktarılır → `mv -f`; hata yolunda geçici silinir, `.env` değişmez. test-publish-lock: yeni inode, 640 + sahiplik korunur, geçici dosya kalmaz; `cat > .env` yok (grep)             |
+| D-3        | ✅    | `mimari-p32.md` §8.5: `WATCH_DEPLOY_ENV` boş + mod ≠ off → ALERT, off → ATLANDI; §5 T-7 ve §20.3 m.16: bypass yalnız `RepositoryRole` Admin, `DeployKey` yok, `collaborators?permission=admin` kanıtı                                                    |
+
+## AC-533 ile uyum: teknik yazarın "eski servis" kararı
+
+Kılavuz ≈5072: "Dosyayı müşteriye e-posta eki ya da mesajla göndermeyin; güncellemeyi müşteri bilgisayarında kendi teknisyeniniz
+yapsın" + teknisyen panelde gösterilen SHA-256 ile özeti karşılaştırır. **Uyumlu.** AC-533 müşteriye "başka yoldan gönderilen
+dosyayı çalıştırmayın" der; kılavuz da müşteriye ek/mesajla dosya gitmesini yasaklıyor, böylece müşteri BT bölümündeki "Başka yoldan
+gelen dosya" uyarısıyla çelişmiyor. Dosyayı müşteri bilgisayarında güncelleyen teknisyen, müşteri BT'nin yaptığı özet kontrolünü
+kendisi yapıyor (≈5113 "aynı kontrolü o yapar"). Tur 1'deki çelişki (eski 5080 "Destek firmanızdan dosyasını …") giderildi.
+
+## Definition of Done
+
+| Madde                                      | Durum | Not                                                                                                                         |
+| ------------------------------------------ | ----- | --------------------------------------------------------------------------------------------------------------------------- |
+| Tüm AC'ler testle kanıtlı                  | ✅    | AC-523..533 ✅ (526/527c/528 bu turda testli; 532 dokümanı tamam)                                                            |
+| Birim + entegrasyon yeşil                  | ✅    | Entegrasyonda yalnız P32 dosyaları koşuldu; tam paket sonucu implementation.md beyanı                                       |
+| e2e yeşil                                  | ✅    | `unattended.spec.ts` 26/26 (4 koşullu atlama)                                                                               |
+| Lint / typecheck temiz                     | ✅    |                                                                                                                             |
+| Atlanan testler gerekçeli                  | ✅    |                                                                                                                             |
+| Tasarım–kod uyumu                          | ✅    | D-3 ile mimari metni uygulamaya eşitlendi                                                                                   |
+| Yeni bağımlılık yok                        | ✅    |                                                                                                                             |
+| Ölü kod yok                                | ✅    |                                                                                                                             |
+| Dokümantasyon (runbook, ADR, kılavuz, PDF) | ✅    | Kılavuz/API/README/DATASHEET/CHANGELOG + 3 PDF güncel                                                                       |
+| Staging provası (`unsigned-accepted`)      | ⏳    | AC-532 "Test: staging provası" test-operatoru K5 adımı (paket sırasında QA'dan sonra). Bu GEÇTİ, K5 provası yeşil olma şartına bağlı |
+
+## Düzeltilmeli
+
+Yok.
+
+## Öneriler (zorunlu değil)
+
+1. Kılavuz "Eski servis" m.1–2: teknisyenin dosyayı müşteri bilgisayarına **nasıl** götüreceğini tek cümleyle yazın (ör. müşteri
+   bilgisayarındaki tarayıcıdan kanonik alan adıyla indirip özet kontrolü). Böylece "teknisyen kendi makinesinden kopyalar" okuması
+   kalmaz.
+2. Tur 1 öneri 1 (`p28e-recording.spec.ts:330` kararsızlığı) açık; ayrı iş.
+3. Eşzamanlı worktree'ler aynı e2e portunu (4217) kullanıyor; paralel QA koşularında çakışıyor. Port env ile ayrıştırılabilir.
+
+## Olumlu
+
+- Kapı reddi audit'i TX dışında yazılıyor ve testte "aynı kodla sonraki kayıt 200" ile kodun tüketilmediği kanıtlanmış.
+- Intervene göstergesi gerçek logoff → rejoin akışıyla, iki modda (eşitlik + önek) sınanıyor.
+- `.env` atomik yazımı inode değişimiyle test edilmiş; hata yolu `.env`'e dokunmuyor.
+
+---
+
 # QA Raporu — P32 Tur 1 (prod'da imzasız gözetimsiz servis, risk kabul; AC-523..533)
 
 DURUM: DÜZELTİLMELİ
