@@ -1,3 +1,78 @@
+# QA Raporu — P31 Tur 3 (tur 2 maddelerinin kapanışı)
+
+DURUM: GEÇTİ (kod + otomatik test kapsamı). Tur 2'nin iki frontend maddesi kapandı ve PR #38 CI e077e3b'de tamamen yeşil (23 pass, 13 skipping, 0 fail/pending). P31-K0 + E-P31-1..7 (gerçek Mac) **yayın ön koşulu** olarak açık. AC-514/515/517/518'in elle doğrulanan kısımları ⚠️ kalır. 0.24.0 macOS prod yayını bu kayıt olmadan yapılmaz.
+
+Kapsam: dal `p31-mac-destek-iste`, HEAD e077e3b (yalnız test dosyaları + `implementation.md`). Kod değiştirilmedi. `test:int` ve Go yerelde koşulmadı. Ürün kodunun diff'i boş; Go tarafının kanıtı CI'dan alındı.
+
+## Test sonucu
+
+| Komut                                                                                          | Sonuç                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| ---------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `pnpm exec playwright test e2e/p31-mac-request.spec.ts e2e/p28f-macos.spec.ts --repeat-each=5` | **125 geçti / 125 skip / 0 hata** (39.6 s). Atlanan 125 test `mobile` projesi: dosyalar `desktopOnly` kullanıyor, bu beklenen durum. Yani 25 masaüstü testi 5'er kez koştu. Config'de `retries` yok, dolayısıyla geçişler Playwright yeniden denemesiyle elde edilmedi                                                                                                                                                                                                                                                                                                                                                         |
+| `pnpm --filter @remote/web test`                                                               | 70 dosya / 688 test geçti, exit 0                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
+| `pnpm -r run typecheck` · `pnpm -r run lint`                                                   | exit 0 / exit 0                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| PR #38 CI (head e077e3b, `gh pr checks 38`)                                                    | Geçen işler: `go test (macOS) + iz testi` (adımlar dahil: **"trace-check-mac firma klasörü (AC-517)" success**, "trace-check-mac (AC-394)" success), `gofmt + vet + test -race …` (go test -race success), `go test (Windows)`, `test (MySQL 8.4)`, `package-mac` ("package.sh adhoc (+ check) + OKUBENI içeriği (AC-505)" success), `lint + type-check`, `audit + lisans + gitleaks`, build/tekrarlanabilirlik işlerinin tümü, `libopus` karşılaştırması. `web e2e (Playwright, mock API)` **pass (13 dk 2 sn)**. Özet: 23 pass, 13 skipping, 0 fail. update/sign/release işleri skipping; anahtarsız PR'da bu beklenen durum |
+
+## Tur 2 maddelerinin durumu
+
+| #   | Madde                                              | Durum             | Kanıt                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
+| --- | -------------------------------------------------- | ----------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| 1   | [frontend-dev] P31 e2e kararsızlığı                | ✅ kapandı        | `p31-mac-request.spec.ts:25-36` `acceptRequest`: kabul kancası `toPass` içinde, `wr-accepted` görünene kadar yeniden çağrılıyor (her denemede 1.5 s bekleme, toplam 20 s, aralıklar 250/500/1000 ms). Hem `toAccepted` hem portal testi (`:180`) bunu kullanıyor. `--repeat-each=5` sonucu 0 hata (kabul ölçütü sağlandı)                                                                                                                              |
+| 2   | [frontend-dev] S-P31-K1 başlık testi               | ✅ kapandı        | `waiting-parts.test.tsx:46-47` (RequestDownload ad-hoc) ve `:89-90` (AcceptedCard), `p31-mac-request.spec.ts:62-64` (ad-hoc kartı, `wr-mac-adhoc-only` içinde) ve `:182-183` (portal), `p28f-macos.spec.ts:45-46` (oturum sayfası, `mac-adhoc-only-this`). Hepsinde pozitif kontrol var ("“Yine de Aç” yalnız resmi adresten indirdiğiniz uygulama için") ve eski metin için negatif kontrol var ("yalnız bu sayfadaki indirme", sayfa gövdesinde yok) |
+| 3   | [devops] PR CI sonucu                              | ✅ kapandı        | AC-517 iz adımı, macOS go test, race, OKUBENI/AC-505 paket adımı yeşil. Tur 1'deki iki kırmızı Go testi (`TestP28fK2AC392…`, `TestAC253…`) bu koşuda yeşil, oynaklık maddesine gerek kalmadı. `web e2e` pass                                                                                                                                                                                                                                           |
+| 4   | [test-operatoru] P31-K0 + E-P31-1..7 gerçek Mac'te | ⏳ teslim sonrası | Tur 2 kararı geçerli: kod turu için engelleyici değil, **yayın ön koşulu**. AC-514/515/517/518'in elle doğrulanan kısımları ⚠️ kalır                                                                                                                                                                                                                                                                                                                   |
+
+## Yeniden denemenin hata maskeleme değerlendirmesi (statik inceleme, ayrıca negatif koşu yapılmadı)
+
+- **Kabul hiç gelmezse:** `toPass` 20 s sonunda son hatayı fırlatır ve test kalır. Ardından gelen `toContainText("Selin Teknik")` da kabul kartını şart koşuyor. Kalıcı bir kopukluk (yanlış ref, istemcinin `request.accepted`'ı işlememesi, WS hiç bağlanmaması) maskelenmez.
+- **Süre:** Test başına varsayılan süre 30 s. Config'deki `180_000` webServer başlatma süresi. 20 s'lik `toPass` bütçesi test süresinin içinde kalıyor; makul.
+- **Çift teslim:** Kanca yalnız kart 1.5 s içinde görünmezse yeniden çağrılıyor. İkinci `request.accepted` gelirse `request-socket.ts:69-77` aynı fazı yeniden kuruyor (idempotent). Test ayrıca fazladan bir yan etki doğrulamıyor.
+- **İlk teslim kapsamı:** `p19-j5.spec.ts:97` kabul kancasını yeniden denemesiz, tek sefer çağırıyor. Tek teslim yolu orada yeniden denemesiz kapsanmaya devam ediyor.
+- **Kalan risk:** WS bağlantısının 20 s'nin altında yavaşlaması P31 testlerinde görünmez. Bu test altyapısı kaynaklı bir zamanlama durumu, ürün hatası değil. Öneriler bölümüne yazıldı.
+
+## Kabul kriterleri (tur 2'den değişen)
+
+| AC                | Durum           | Kanıt                                                           |
+| ----------------- | --------------- | --------------------------------------------------------------- |
+| AC-520            | ✅              | E2e ×5 kararlı. Başlık + gövde birim ve e2e'de doğrulanıyor     |
+| AC-517            | ⚠️ (elle kısım) | CI iz adımı success. Gerçek Mac kısmı m.4 ile (yayın ön koşulu) |
+| AC-514/515/518    | ⚠️ (elle kısım) | Birim kısımları yeşil. Elle kısım m.4 ile (yayın ön koşulu)     |
+| Diğer P31 AC'leri | ✅              | Tur 1/2'den değişmedi                                           |
+
+## Karar
+
+`web e2e` CI işi success bitti, bu yüzden DURUM = **GEÇTİ** (kod + otomatik test kapsamı; K9 emsali). m.4 yayın ön koşulu olarak kalır; tur 2 kararı da buydu.
+
+## Düzeltilmeli
+
+Kod turu için madde yok. Yayın ön koşulu:
+
+1. [test-operatoru] (teslim sonrası, yayın ön koşulu) P31-K0 + E-P31-1..7, kullanıcının Mac'inde yapılacak. Sonuç `docs/test-raporu.md`'ye yazılacak. 0.24.0 macOS prod yayını bu kayıt olmadan yapılmaz.
+
+## Definition of Done
+
+| Madde                                   | ✅/❌               | Not                                                           |
+| --------------------------------------- | ------------------- | ------------------------------------------------------------- |
+| 1. AC'ler testle kanıtlı, testler yeşil | ✅                  | Yerel + CI tamamen yeşil. Elle Mac kısmı yayın ön koşulu (⚠️) |
+| 2. Lint / type-check                    | ✅                  | Yerel + CI `lint + type-check` pass                           |
+| 3. qa GEÇTİ, güvenlik K/Y 0             | ✅ / ✅             | Güvenlik 0/0/0/2                                              |
+| 4. test-operatoru                       | ❌ (teslim sonrası) | Mac testi                                                     |
+| 5. Migration geri alınabilir            | ✅                  | Değişmedi                                                     |
+| 6. Dokümantasyon güncel                 | ✅                  | `implementation.md` e077e3b notu eklendi                      |
+| 7. Sapmalar implementation.md'de        | ✅                  | Değişmedi                                                     |
+
+## Öneriler (zorunlu değil)
+
+- Mock `/__e2e/p19/accept`, bağlı soket yoksa mesajı kuyruğa alıp bağlantı kurulunca gönderebilir ya da 409 dönebilir. Böylece testte yeniden deneme gerekmez ve teslim belirlenimci olur.
+- `acceptRequest` içinde deneme sayısını `test.info().annotations`'a yazmak, CI'da sık yeniden deneme olup olmadığını görünür kılar.
+
+## Olumlu
+
+- İki madde de tur 2'nin önerdiği yolla, dar kapsamda ve yorumla gerekçelenerek kapatıldı. Başlık testi üç yüzeyi (bekleme kartı, kabul kartı, oturum sayfası) ve eski metnin yokluğunu birlikte kapsıyor.
+- Tur 1'den beri kırmızı olan iki Go testi ve AC-517 iz adımı bu CI koşusunda yeşil.
+
+---
+
 # QA Raporu — P31 Tur 2 (tur 1 maddelerinin kapanışı)
 
 DURUM: DÜZELTİLMELİ
