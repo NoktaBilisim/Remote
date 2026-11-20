@@ -18105,8 +18105,9 @@ değişikliği yok.
 **Değişen dosyalar.** `apps/agent-win/internal/capture/sck_darwin.go` (errStreamReopen, `frameSlot.halt/reopen`,
 `excludeLater`→`ownListed`, `streamOpts.lateExclude` test kancası), `source_darwin.go` (`grab` yeniden açılış dalı,
 `open` ilk kare yeniden açılışı, `pipeStats.reopenedAt`), `sck_darwin_test.go` (geç yol `lateExclude` ile zorlanır;
-tek geçişte yeniden açılış → ilk taze kare ≤ 1 sn, sonrasında 1,5 sn boyunca her karede macenta 0;
-`TestP28fK2AC392SlotReopenDistinct`).
+tek geçişte dışlama öncesi macenta > 0 (pozitif kontrol), sonrasında 1,5 sn boyunca her karede macenta 0, yeniden
+açılış → ilk taze kare ≤ 2 sn; `TestP28fK2AC392SlotReopenDistinct`). Son sınır gizlilik ölçütü değildir (yeniden açılış
+süresince hiç kare kodlanmaz), yalnız akışın takılmadığını gösterir; CI'da 980 ms görüldüğü için 1 sn yerine 2 sn.
 
 **Test.** Yerel: `gofmt -l`, `go vet` (darwin + `GOOS=windows`), birim testler PASS; SCK testleri yerelde ekran yok
 (NO_OUTPUT). Linux gofmt/vet CI "gofmt + vet + test -race" işinde. CI macOS (`gh workflow run agent-win.yml --ref
