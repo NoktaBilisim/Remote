@@ -17559,3 +17559,250 @@ araçların kontrolde görünmesini istiyor). (2) `data-control` kontrol açıkl
 - tr.json: `gm.step2Test/Body` → `gm.step2Unsigned/Body` + `gm.step2Harmful`; yeni `gm.guideIntroAdhoc`, `adhocOnlyTitle/Body`, `verifyBodyAdhoc`; `gm.guideIntroTest` ortak 2. adıma göre, `gm.permScreenBody` "Yeni sürümde macOS izni yeniden ister." eki.
 - Sapma: `adhocOnlyTitle` kısaltıldı (gövdeyle tekrar); 2. adımda koşulsuz "Çöp Sepetine Taşı'yı değil" kaldırıldı (S-r4-2); `**` işaretleri yok (t() düz metin).
 - e2e mock availability `macosSigning:"adhoc"`; p28f-macos.spec ana senaryo prod ad-hoc + notarized/test/eski sunucu/geçersiz; 390 px.
+
+## P32-K1 — Sunucu: `unsigned-accepted` modu, izinli liste, audit, AC-533 doğrulama bloğu (backend-dev, 2026-11-20)
+
+Durum: TAMAM (commit yok). Kaynak: `docs/mimari-p32.md` r2 §4.1–4.8, §6, §14; AC-523..528, 530, 533; S-P32-r2-2.
+
+### `listFingerprint` — TEK TANIM (devops K3 remote-watch aynısını uygular)
+
+Kod: `apps/server/src/env.ts` `normalizeShaList` + `listFingerprint`.
+
+1. `UNATTENDED_SIGNED_SHA256` ham değeri `,` ile bölünür.
+2. Her öğe baştan/sondan kırpılır (boşluk), küçük harfe çevrilir, boş öğeler atılır. **Tekrar eden öğe ATILMAZ** (betik zaten
+   yinelemez; iki taraf aynı davranır).
+3. Bayt sırasıyla sıralanır (öğeler yalnız `[0-9a-f]`; kabukta `LC_ALL=C sort`, `localeCompare` değil).
+4. `,` ile birleştirilir; **sonda satır sonu yok**.
+5. UTF-8 SHA-256 → küçük hex → **ilk 12 hane**. Boş liste → `e3b0c44298fc` (boş dizenin özeti).
+
+Sabit test vektörleri (server birim testi `env-deploy.test.ts` ikisini de bekler):
+girdi `" " + "cd"×32 + " , ," + "AB"×32 + " "` → `585d6c7c7e65`; devops K3 vektörü `" " + "B"×64 + " , " + "a"×64 + " ,"` →
+`b1da1a175574` (`deploy/ops/test-watch.sh` ile aynı; K3 `remote-watch.sh` tanımı bununla birebir — denetlendi).
+Kabuk karşılığı (doğrulandı, aynı sonuç):
+`printf '%s' "$RAW" | tr ',' '\n' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//' | tr 'A-F' 'a-f' | grep -v '^$' | LC_ALL=C sort | paste -sd, - | tr -d '\n' | sha256sum | cut -c1-12`
+
+`allowedCount` = normalize edilmiş öğe sayısı (tekrar dahil). Açılış alarmı:
+`warn {alarm:"unattended_unsigned_risk_accepted", allowedCount, listFingerprint}` (yalnız `unsigned-accepted`, açılışta bir kez).
+
+### Değişen dosyalar
+
+- `packages/contracts/src/api/unattended.ts`: `UNATTENDED_MODES` += `"unsigned-accepted"`; `UNATTENDED_RISK_BANNER`;
+  `CreatedRegistrationCode.agentSha256: string` (koordinatör ek işi; K2 kurulum notu). `test/__snapshots__/pt-surface` +1 ad.
+- `packages/contracts/src/audit.ts`: `gateMode`/`binarySha256`/`signed`/`sha256Prefix` alan yorumu.
+- `apps/server/src/env.ts`: §4.1 kuralları (`deployEnvRules`), `UNATTENDED_AGENT_VERSION` (`^\d+\.\d+\.\d+$`), ≤ 20 öğe (her modda),
+  `normalizeShaList`, `listFingerprint`, `UNATTENDED_SIGNED_SHA256_MAX`.
+- `apps/server/src/unattended/gate.ts`: `unsigned-accepted → list.has(sha)`; `riskAcceptedAlarm()` (saf; `server.ts` çağırır).
+- `apps/server/src/server.ts`: açılışta bir kez `warn` alarm (mevcut `unattended.mode=… deployEnv=…` info satırı korunur).
+- `apps/server/src/update/wiring.ts`: `serviceListEnforced(mode)` (signed ∨ unsigned-accepted) → `signedMode.signed`; `manifest-store.ts` yorum.
+- `apps/server/src/unattended/register.ts`, `registration.ts`: kayıt audit'i (başarılı + `invalid_code`/`cap` başarısız) `gateMode`,
+  `binarySha256`; `createCode` yanıtı `agentSha256` (`UNATTENDED_AGENT_SHA256 ?? ""`); `routes.ts` deps.
+- `apps/server/src/unattended/connect.ts`, `connect-tx.ts`: `unattended.connect` başarılı/başarısız satırına `gateMode` + (cihaz
+  yüklendiyse) `binarySha256`, `signed`. Cihaz okuma `precheck`'ten `connectDevice`'a alındı (sıra aynı: yetki → kova → 404 → …).
+- `apps/server/src/unattended/device-auth.ts`, `device-ws.ts`: kapı reddi audit'i `{reason:"gate", sha256Prefix}`; `warn`
+  `{deviceId, tenantId, sha256Prefix}` aynı dakikalık kısıtın içinde (audit yazılmadıysa log da yok). `AuthDeps.warn` eklendi.
+- `apps/server/src/notify/customer-templates.ts`, `customer-send/targets.ts`, `customer-send/routes.ts`: AC-533 doğrulama bloğu
+  (e-posta + kısa mesaj, mod bağımsız); `host = new URL(PUBLIC_BASE_URL).host` (port dahil); SHA 64 hane değilse SHA parçası da
+  yazılmaz (yarım `…` olmasın).
+- `.env.example`, `deploy/docker-compose.yml` (server): `UNATTENDED_AGENT_VERSION` (boş) + mod/liste açıklamaları. Runbook K3'te.
+- Testler: `test/unit/env-deploy.test.ts` (AC-523, 524, 525 matrisi, 527 alarm + parmak izi, 533 sürüm), `test/unit/customer-templates.test.ts`
+  (yeni, AC-533), `test/unit/update-p29.test.ts` (AC-530), `test/unit/lg-send.test.ts` (girdi alanları),
+  `test/integration/unattended-p32-accepted.test.ts` (yeni; AC-525, 526, 527, 528, agentSha256), `test/integration/lg-send.test.ts`
+  (AC-533 önizleme = gönderilen e-posta), `test/helpers/unattended.ts` `acceptedEnv()`.
+
+### Tasarımdan sapmalar (gerekçeli)
+
+- Test yerleri: mimari `env-deploy.test.ts`'i entegrasyon, `gate.test.ts`'i kapı testi sayıyor; gerçekte `env-deploy` `test/unit`
+  altında, `test/unit/gate.test.ts` ise `ConcurrencyGate` testi. 4 mod × imza × liste matrisi `env-deploy.test.ts`'e yazıldı.
+  `customer-templates.test.ts` yeni dosya (mevcut şablon testleri `lg-send.test.ts`'te kaldı).
+- Açık nokta (yeni satır eklenmedi — tasarım istemiyor): kayıtta kapı reddi (`registerTx` içindeki 409 `UNATTENDED_DISABLED`) ve
+  mod `off` reddi bugün audit satırı yazmıyor; AC-528 alanları yalnız var olan satırlara (başarılı + `invalid_code`/`cap`) eklendi.
+  Güvenlik/qa isterse aynı eylemle `reason:"gate"` satırı eklenebilir.
+- `unattended.connect` reddinde cihaz satırı yüklenmemişse (`forbidden`, `limit`, `not_found`) yalnız `gateMode` yazılır (test edildi).
+- Env regex'i (P27) liste öğelerinin baş/son boşluğunu reddetmeye devam ediyor (iç `\s*,\s*` serbest); normalizasyon yine uygulanır.
+- S-P32-r2-2 sürüm↔SHA bağı sunucuda zorlanmaz: sunucu `PUBLISHED.log`'u görmez; denetim remote-watch'ta (K3,
+  `unattended-agent-version-mismatch`). Sunucu tarafı yalnız normalizasyon + parmak izi tanımını sağlar.
+
+### Bağımlılık
+
+Yeni bağımlılık yok (`node:crypto`).
+
+### frontend-dev'in bilmesi gerekenler
+
+- `UnattendedMode` dört değer; `GET /unattended/status` `mode` alanı `"unsigned-accepted"` alabilir.
+- `UNATTENDED_RISK_BANNER` metni contracts'ta.
+- `POST /unattended/registration-codes` 201 yanıtı += `agentSha256: string` (64 küçük hex; servis yapılandırılmamışsa `""`).
+
+### Test komutları ve son çıktı
+
+- `pnpm -r run typecheck` → contracts/web/server Done. `pnpm -r run lint` → üçü Done.
+- `pnpm -r run test` → contracts 331/331, web 686/686, server birim 738 geçti + 1 atlandı (53 dosya).
+- Entegrasyon (`TEST_DB_CONTAINER=rs-p32-test TEST_DB_PORT=33532 apps/server/scripts/test-db.sh up` →
+  `pnpm --filter @remote/server test:int`): **124/124 dosya, 1300/1300 test geçti**. Son düzeltmelerden (AC-525 liste engeli,
+  AC-524 büyük harf, audit sorgusu IP ile daraltıldı) sonra ilgili dosyalar + tüm birimler yeniden: 55 dosya, 768 geçti + 1 atlandı.
+- `pnpm format:check`: kendi dosyalarım temiz; `docs/runbook.md` (K3) uyarı veriyor — devops'un dosyası, dokunulmadı.
+- AC-526 notu: `intervene.ts` `test = mode === "unsigned"` satırı değişmedi (connect ile aynı ifade); `unsigned-accepted`'te önek
+  yokluğu connect göstergesiyle entegrasyonda sınandı, intervene için ayrı entegrasyon vakası yazılmadı.
+- Test DB konteyneri `rs-p32-test` (127.0.0.1:33532) açık bırakıldı (K4 yeniden koşusu için); kapatma:
+  `TEST_DB_CONTAINER=rs-p32-test apps/server/scripts/test-db.sh down`.
+
+### QA tur 1 düzeltmeleri (qa-raporu P32 m.3, m.4)
+
+- **m.3 (AC-528) kayıtta kapı reddi audit'i:** `registration.ts` kapı reddinde `GateRejectedError` (`AppError`
+  `UNATTENDED_DISABLED` alt sınıfı, koddan gelen `tenantId` taşır) atar; yanıt değişmedi (409 `UNATTENDED_DISABLED`).
+  `register.ts` TX geri alındıktan **sonra** aynı eylemle (`unattended.device.registered`, `result:"fail"`) firmaya satır
+  yazar: `{reason:"gate", ip, gateMode, binarySha256, signed}`. Kod tüketilmez (TX rollback); per-IP kova bu yolu da sınırlar.
+  `signed` alanı diğer fail satırlarına (`invalid_code`, `cap`) da eklendi (aynı `failAudit`). Mod `off`
+  (`status().available=false`) reddinde kod çözülmediği için tenant bilinmez; bu yolda satır yazılmaz (metrik `disabled` sayar).
+- **m.4 (AC-526):** connect testi göstergeyi artık `deviceIndicatorText(fullName, tenantName, false)` ile **eşitlik** üzerinden
+  doğrular. Yeni entegrasyon vakası: intervene (logoff → `rejoin.indicatorText`) `unsigned-accepted`'te `signed` metne eşit,
+  staging `unsigned`'da `DEVICE_INDICATOR_TEST_PREFIX` önekli.
+- Testler: `unattended-p32-accepted.test.ts` (AC-525 409 vakasına fail satırı + aynı kodla 200 beklentisi; AC-526 iki vaka).
+  Değişen dosyalar: `apps/server/src/unattended/registration.ts`, `apps/server/src/unattended/register.ts`, test dosyası.
+- Çıktı (`rs-p32-test`): entegrasyon **124 dosya, 1301/1301**; birim 738 geçti + 1 atlandı; server lint + typecheck temiz.
+  Sözleşme değişikliği yok (frontend etkilenmez).
+
+## P32-K2 — Web: risk kabul bandı, rozet metni, kayıt kodu kurulum notu (frontend-dev, 2026-11-20)
+
+Kaynak: mimari-p32 r2 §4.7, §6, §11 K2; gereksinimler §15 AC-526, AC-527c, AC-531, S-P32-8.
+
+### Rotalar (değişen, yeni rota yok)
+
+| Yol                 | Auth                                   | P32 farkı                                                                                                                                                                                |
+| ------------------- | -------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `/unattended`       | evet (`unattended.connect` ∨ `manage`) | `unsigned-accepted` + Super Admin (firma bağlamında ya da firma seçmemişken, QA tur 1 m.2) → `un-risk-banner` (`Alert info` + `ShieldAlert`); TEST bandı yok; rozet "İzinli sürüm değil" |
+| `/unattended/codes` | evet (`manage`)                        | aynı bant; kayıt kodu sonucunda kurulum notu                                                                                                                                             |
+| `/unattended/[id]`  | evet                                   | aynı bant; rozet metni (ayrıntıdaki "İmza: İmzasız/İmzalı" satırı değişmedi, `un.d.*`)                                                                                                   |
+
+### Değişen dosyalar
+
+- `apps/web/app/(panel)/unattended/unattended-shell.tsx`: `UnAccess.superAdmin`; `ModeBanner({status, superAdmin})` bant listesini `modeBanners`'tan çizer.
+- `apps/web/app/(panel)/unattended/[id]/page.tsx`, `(list)/page.tsx`, `(list)/codes/page.tsx`, `device-list.tsx`, `codes-tab.tsx`: `superAdmin` / `riskAccepted` aktarımı.
+- `apps/web/app/(panel)/unattended/code-dialog.tsx`: `CreateCodeButton riskAccepted` → `CodeResult` indirme bağlantısının altında tek satır not (`un-code-unsigned-note`, `Info`, `fg-muted`, tam SHA `title`'da).
+- `apps/web/app/(panel)/unattended/device-badges.tsx`: rozet ipucu (`title` + `sr-only`), yalnız `unsigned` rozetinde.
+- `apps/web/lib/unattended/errors.ts`: `isRiskAccepted`, `modeBanners`, `installNote` (saf; birim testli).
+- `apps/web/lib/unattended/contract.ts`: `UNATTENDED_RISK_BANNER` yeniden dışa aktarımı (K1 contracts).
+- `apps/web/lib/format.ts`: `formatShortSha` (ilk 8…son 8); `settings/consent-text/consent-parts.tsx` yerel kopyası bununla değiştirildi.
+- `apps/web/components/ui/alert.tsx`: isteğe bağlı `icon` prop'u (DESIGN.md'ye işlendi).
+- `apps/web/messages/tr.json`: `un.badge.unsigned` = "İzinli sürüm değil"; yeni `un.badge.unsignedHint`, `un.code.unsignedNote`, `un.code.unsignedNoteSha`.
+- Testler: `apps/web/app/(panel)/unattended/p32-mode.test.tsx` (9 vaka); `e2e/unattended.spec.ts` (2 yeni AC adlı test + AC-273 testinde "not yok" denetimi); `e2e/mock-p27.mjs` senaryoları `unacc` (ADMIN) ve `unaccsa` (SUPER_ADMIN firma bağlamında).
+- `DESIGN.md`: Alert `icon` eki, P27-K8 satırına P32 bant/rozet/not.
+
+### Açık bağımlılık (backend-dev'e not) — KAPANDI (QA tur 1 m.5)
+
+- ~~Kurulum notundaki SHA: `CreatedRegistrationCode`'da SHA alanı yok~~ → K1 contracts `CreatedRegistrationCode.agentSha256: string`
+  (`packages/contracts/src/api/unattended.ts`) ekledi. `code-dialog.tsx`'teki yerel `Created` genişletmesi kaldırıldı; tip doğrudan
+  contracts'tan. Alan boş dize gelirse not SHA'sız yazılır (`installNote`).
+
+### Sapmalar
+
+- ~~Firma seçmemiş Super Admin'de bant görünmüyor~~ → QA tur 1 m.2 ile kaldırıldı (aşağıda).
+- Not `Alert` değil, düz tek satır (mimari "bant değil").
+
+### Test sonucu
+
+`pnpm --filter @remote/web lint` temiz, `typecheck` temiz, `test` 70 dosya / 686 vaka geçti. `e2e/unattended.spec.ts`
+desktop + mobile: 24 geçti, 4 atlandı (yalnız masaüstü). İki temada axe 0 (SA bandı, Admin diyaloğu).
+İlgili spec'ler (`p28u-unattended`, `p29-client-update`, `lg-send`) desktop + mobile: 48 geçti, 18 atlandı.
+K1 `registration.ts` diff'inde `agentSha256` yok (yalnız audit `binarySha256`) → bağımlılık açık.
+Skill dosyaları: değişiklik küçük ve mevcut primitiflerle yapıldı; ui-ux-pro-max okunmadı (DESIGN.md esas alındı).
+
+### QA tur 1 düzeltmeleri (frontend-dev, 2026-11-20)
+
+| QA m.       | Dosya                                                                         | Değişiklik                                                                                                                                                                                                                                                                                                    |
+| ----------- | ----------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 2 (AC-527c) | `apps/web/app/(panel)/unattended/unattended-shell.tsx`                        | `RiskBanner` ayrı bileşen; `pickTenantRisk(access, status)`: firma seçmemiş Super Admin (`pickTenant`, `connect ∨ manage`) + `unsigned-accepted` → "firma seçin" boş durumunun **üstünde yalnız** risk bandı. OFF/TEST bantları, kayıt kodu düğmesi ve sekmeler firma bağlamına ait kaldı (`ready` değişmedi) |
+| 2           | `apps/web/app/(panel)/unattended/(list)/page.tsx`, `(list)/codes/page.tsx`    | `gate && pickTenant` iken `GET /unattended/status` sunucuda çekilir (sunucu `tenantId:null` kabul ediyor); hata → bant yok, boş durum aynı. `/unattended/[id]` firma bağlamı gerektirdiği için değişmedi                                                                                                      |
+| 5           | `apps/web/app/(panel)/unattended/code-dialog.tsx`, `lib/unattended/errors.ts` | yerel `Created` tipi + "K1 ekleyene kadar" yorumu kaldırıldı; contracts `CreatedRegistrationCode` doğrudan                                                                                                                                                                                                    |
+
+Testler: `p32-mode.test.tsx` +1 vaka (firma seçmemiş SA: risk bandı boş durumun üstünde; OFF/TEST/kod düğmesi yok; diğer modlarda ve
+durum yokken bant yok; yetkisiz/firma bağlamında `pickTenantRisk` false). `e2e/mock-p27.mjs` yeni senaryo `unaccsa0` (SUPER_ADMIN,
+`actingTenant:null`); `e2e/unattended.spec.ts` "AC-527 firma seçmemiş Super Admin …" (`/unattended` + `/unattended/codes`, iki tema axe 0).
+
+Sonuç: web lint/typecheck temiz; birim 70 dosya / 687 vaka geçti; `playwright test e2e/unattended.spec.ts` desktop + mobile 26 geçti,
+4 atlandı (yalnız masaüstü). Prettier temiz.
+
+## P32-K3 — Operasyon: `publish-servis.sh` izinli liste, remote-watch P32 kontrolleri, runbook §27.9 (devops, 2026-11-20)
+
+Kaynak: `docs/mimari-p32.md` r2 §8.1–§8.5, §11 K3; `docs/gereksinimler.md` §15 AC-527b, AC-529, AC-532 (runbook kısmı);
+`docs/guvenlik-raporu.md` S-P32-2/3/5/6/7/9/10 ve tasarım turu 2 S-P32-r2-1, S-P32-r2-2. `.env.example` ve `docker-compose.yml`
+(K1'de backend yazdı) bu pakette değişmedi.
+
+**`deploy/agent/publish-servis.sh` (AC-529, S-P32-3/6/9)**
+
+- `apply`: etiket `^v[0-9]+\.[0-9]+\.[0-9]+$` ise (tüm ortamlarda) SHA hedef `.env` `UNATTENDED_SIGNED_SHA256` sonuna eklenir
+  (yinelenmez, sıra korunur) ve `UNATTENDED_AGENT_VERSION=X.Y.Z` yazılır. `dir-*` / `*-unattested` listeye dokunmaz,
+  `UNATTENDED_AGENT_VERSION`'ı boşaltır. Liste yazılırken server ile aynı normalizasyon uygulanır (kırp, küçük harf, boş öğe at).
+- Sınır denetimi ikili/volume/`.env`/`PUBLISHED.log`'a dokunmadan **önce**: sonuç > 20 → `liste dolu — runbook §27.9 acil yol …
+Hiçbir şey yazılmadı`; ≥ 16 → `UYARI`. Listede zaten olan SHA'nın yeniden yayını dolu listede de geçer.
+- Tek `awk` geçişi: üç anahtar ilk göründüğü satırda yazılır, yinelenen satırları atılır, yoksa sona eklenir. Geçici dosya `umask 077`
+  (betik başında zaten vardı). Yedek `cp` + `chmod 600` (önceki `cp -p` `.env`'in 644 kipini ve mtime'ını taşıyordu; mtime sıralı
+  budama yeni yedeği silebilirdi) → budama ad (UTC zaman) sırasıyla, **son 10** (önceden 5), yedek alındığı anda.
+
+**`deploy/ops/remote-watch.sh` (AC-527b, S-P32-3/5, S-P32-r2-1/r2-2)**
+
+- Server env'i tek `docker exec … node -e` ile `KEY=değer` satırları olarak okunur (5 anahtar; `printenv A B…` eksik anahtarda satır
+  kaydırır). Değerler güvenilmez: mod beyaz liste (aksi `gecersiz`), `DEPLOY_ENV` `[a-z]`, liste öğeleri 64-hex; SHA'dan yalnız ilk
+  12 hane yazılır.
+- Kontroller: `BILGI check=unattended-unsigned-accepted` (+ ≥ 16 öğe `BILGI check=unattended-list-size`), `unattended-deploy-env`,
+  `unattended-list-unpublished`, `unattended-agent-version-mismatch` (r2-2; `PUBLISHED.log` alan eşleşmesi `$2=="servis"`,
+  `$3` `vX.Y.Z` / `$3=="v"sürüm`, `$4==sha` — `dir-*`, `-unattested`, `-rc` sayılmaz), `unattended-mode-changed`
+  (`$STATE_DIR/unattended.state`; `fail()` akışı dışında **tek seferlik** gönderim, DUZELDI yok, gönderim başarısızsa durum yazılmaz
+  ve sonraki turda yeniden denenir; server okunamazsa durum dosyasına dokunulmaz).
+- **Mimariden sapma (S-P32-r2-1 gereği):** mimari §8.4/§8.5 "`WATCH_DEPLOY_ENV` boşsa ATLANDI" diyordu; uygulanan: mod `off` değilken
+  boşsa **ALERT** `unattended-deploy-env … yapılandırılmamış`, mod `off` iken `ATLANDI`. `WATCH_DEPLOY_ENV` set ise mod `off` iken de
+  karşılaştırılır. Geçti satırı `BILGI check=unattended-deploy-env OK DEPLOY_ENV=<env>` journal'a yazılır (§20.3 m.16 kanıtı; `remote-watch: OK (<n> kontrol)` genel satırıyla karışmasın diye `BILGI` önekli).
+- `WATCH_DEPLOY_ENV` `WATCH_ENV_KEYS`'e ve `watch.env.example`'a eklendi; geçersiz değerde betik çalışmaz. `WATCH_DEPLOY_DIR` artık
+  `PUBLISHED.log` için gerçekten okunuyor (SC2034 notu kaldırıldı).
+- Yayılım notu: mevcut kurulumlarda `install` `watch.env`'i ezmez → `WATCH_DEPLOY_ENV` elle eklenip `install` yeniden çalıştırılmalı;
+  eklenmezse staging örneği (`unsigned`) `unattended-deploy-env` ALERT'i verir (runbook §20.4).
+
+**`listFingerprint` uyumu (S-P32-r2-2):** server `apps/server/src/env.ts` `listFingerprint` (K1) ile betik aynı tanımı uygular:
+`normalizeShaList` (kırp, küçük harf, boş at, **yinelenen atılmaz**) → `LC_ALL=C sort` / JS `sort()` → `,` → SHA-256 → ilk 12;
+boş liste `e3b0c44298fc`. Ortak test vektörü: girdi `" " + "B"×64 + " , " + "a"×64 + " ,"` → **`b1da1a175574`**
+(`test-watch.sh`'ta betik + host node JS tanımıyla doğrulanır). Server birim testi `env-deploy.test.ts` aynı vektörü (ve kendi `585d6c7c7e65` vektörünü) bekliyor — iki uygulama bağlı. İki değer **iki farklı girdinin** sonucudur, çelişki yok: backend girdisi (`" "+"cd"×32+" , ,"+"AB"×32+" "`) kabuk tanımında da `585d6c7c7e65`, devops girdisi env.ts'te de `b1da1a175574` verir (2026-11-20 elle çapraz denetlendi).
+
+**Runbook (AC-532 operasyon kısmı):** env tablosu (`UNATTENDED_MODE`, `UNATTENDED_SIGNED_SHA256`, yeni `UNATTENDED_AGENT_VERSION`),
+§8 genel rollback + §19.1 + §27.6'ya "önce `off`" ve `grep -q '^UNATTENDED_MODE=unsigned-accepted' .env && echo DUR` (S-P32-7),
+§12.5 alarm tablosuna `alarm:"unattended_unsigned_risk_accepted"` (Bilgi), §20.3 madde 16 (risk kabul + S-P32-10 `gh api` kanıtı),
+§20.4 `WATCH_DEPLOY_ENV`, §27.1 tablo/kurallar, §27.3 yedek son 10/600, §27.5 m.2 (liste betikle dolar), §27.8 yeni satırlar ve R-P27-2,
+yeni **§27.9** (açılış sırası, liste denetimi komutu, iki aşamalı geri çekme + acil yol, remote-watch tablosu, geri alma), §31.4 m.4,
+§31.7 m.5, §28u.9 P28 prod notu, §20.2 sonuna §27.9 göstergesi. §27.9 sırası mimari §8.2 ile aynı (manifest modu açtıktan sonra, duman/imzadan önce).
+
+- Geçici dosya kipi (600) testte doğrudan gözlenmedi: betik başındaki `umask 077` satırı denetleniyor; yedek kipi 600 ve `.env` kipinin korunması gerçek dosyada gözlendi.
+
+- **§20.3 m.16 ruleset kanıtı — mimariden sapma:** mimari "bypass listesi boş" diyor; ama mevcut kurulum (runbook §11.1 durum notu,
+  §24.7) `refs/tags/v*` oluşturma/güncelleme/silmeyi **depo yöneticisi rolüne bypass** vererek kısıtlıyor (bypass boş olursa kimse
+  etiket oluşturamaz). Beklenen çıktı buna göre yazıldı: bypass yalnız `RepositoryRole` Admin (id imza anında doğrulanır), başka girdi yok. Güvenlik
+  K4'te bu ifadeyi onaylamalı.
+
+**Testler (yerel, sunucuya bağlanmadan)**
+
+- `bash deploy/agent/test-publish-lock.sh` → SONUÇ: GEÇTİ (P13c 24 vaka + P32 14 vaka: prod+v → liste + sürüm + PUBLISHED.log;
+  aynı SHA tekrar yok; ikinci sürüm sıra; kipler 644 korunur / yedek 600 / geçici dosya yok; prod+dir-* ret ve `.env` aynı; staging+dir-*
+  liste değişmez + sürüm boş; development+v eklenir; normalizasyon; 16 uyarı; 20 ret ve hiçbir şey yazılmaz; dolu listede mevcut SHA
+  geçer; son 10 yedek). P32 vakaları ayrıca Linux (alpine bash + gawk) üzerinde koşturuldu: geçti.
+- `bash deploy/ops/test-watch.sh` → SONUÇ: GEÇTİ (253 PASS; P32: ilk koşu ATLANDI + durum, off→unsigned-accepted tek ALERT + BİLGİ +
+  vektör, ikinci tur sessiz, gönderim başarısız → yeniden, list-unpublished (12 hane, tam SHA yazılmaz), dir/rc satırı eşleşmez,
+  PUBLISHED.log yok, sürüm uyuşmazlığı, sürüm boş, DEPLOY_ENV uyuşmazlığı, r2-1 boş anahtar + mod açık → ALERT, off'ta da
+  uyuşmazlık, staging unsigned + dir-* sessiz, server yok → durum dokunulmaz, geçersiz WATCH_DEPLOY_ENV, 16 öğe BİLGİ, S14-2
+  enjeksiyon). Mevcut "P28u öncesi" vakası `check="unattended-notify-fail"` ile daraltıldı (yeni `unattended-*` kontrolleri her turda var).
+- shellcheck (CI imajı `koalaman/shellcheck:v0.11.0`, `-S warning`) dört betikte temiz; `prettier --check docs/runbook.md deploy` temiz.
+
+**Kalan / denenmedi:** sunucuda açılış ve geri alma sırası (§27.9) denenmedi — ilk koşu K5 staging provası. `gh api` kanıtı imza
+anında alınır (kullanıcı/yönetici). Kullanım kılavuzu SmartScreen/`Get-FileHash` adımı K6 (teknik-yazar).
+
+### Güvenlik kod turu düzeltmeleri (devops, 2026-11-20; `guvenlik-raporu.md` "P32 — Kod turu")
+
+- **S-P32-K-1** (`deploy/ops/remote-watch.sh`): server konteyneri çalışıyor ama env okunamıyorsa (`docker exec … node -e` hatası
+  ya da 20 sn zaman aşımı) yeni **ALERT `unattended-env-read`** yazılır ve `status.prom`'a girer; durum dosyası yine yazılmaz (yanlış
+  `mode-changed` yok). Karar ALERT (ATLANDI değil): mod bilinmiyor, prod'da `unsigned-accepted` olabilir; kalıcı exec hatası
+  (imajda `node` yolu değişimi vb.) tam olarak raporun kör noktası. Geçici hata (yeniden başlama) bir sonraki turda DUZELDI ile kapanır;
+  bu yanlış pozitif bedeli kabul edildi. Konteyner yokken davranış değişmedi (`compose:server`/`ready` ALERT verir). Runbook §27.9 tablo notu.
+- **S-P32-K-2** (`deploy/agent/publish-servis.sh`): `.env` artık yerinde üzerine yazılmıyor; aynı dizinde umask 077 geçici dosya →
+  mevcut `.env`'in kipi/sahipliği `stat` ile (GNU, yoksa BSD) kopyalanır → `mv -f` (atomik rename). awk/chmod/chown/mv hatasında
+  geçici dosya silinir, `.env`'e dokunulmadan `die`. Runbook §27.9 (yedek/geçici dosya maddesi).
+- **Karar 2** (runbook §20.3 m.16 + §27.9/8): kanıt adımına ruleset bypass'ta `DeployKey` girdisi olmadığı ve
+  `gh api 'repos/NoktaBilisim/Remote/collaborators?permission=admin' --jq '.[].login'` çıktısının yalnız beklenen yönetici(ler) olduğu eklendi.
+- Testler: `test-watch.sh` +2 vaka (env boş → ALERT `unattended-env-read`, durum dosyası aynı, `mode-changed` yok; sonraki tur kalkar),
+  toplam 255 PASS, GEÇTİ. `test-publish-lock.sh` +2 vaka (kip 640 + sahiplik korunur, inode değişti = rename, geçici dosya yok; betikte
+  `cat >` yerine `mv -f`), GEÇTİ. shellcheck `-S warning` (koalaman/shellcheck:stable) `deploy/ops/*.sh deploy/agent/*.sh` temiz.

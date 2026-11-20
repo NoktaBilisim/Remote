@@ -8,6 +8,7 @@ import { AppError } from "../../src/lib/errors.ts";
 import { ManifestStore, type SlotGate, type UpdateSlot } from "../../src/update/manifest-store.ts";
 import { parseQuiet } from "../../src/update/routes.ts";
 import { ServiceTokens } from "../../src/update/service-token.ts";
+import { serviceListEnforced } from "../../src/update/wiring.ts";
 import { deviceUpdateBadge, summarize } from "../../src/update/versions.ts";
 import { manifest, newSigner, updateFixture, writeManifest } from "../helpers/update.ts";
 
@@ -156,6 +157,19 @@ describe("P29 manifest deposu (AC-473, AC-492)", () => {
     expect(await off.s.offer("service-windows")).toBeNull();
     expect(off.warns[0]?.msg).toContain("SHA listesinde yok");
     expect(await store(f.dir, { signed: { signed: true, list: new Set([SHA_A]) } }).s.offer("service-windows")).not.toBeNull();
+  });
+
+  it("AC-530: unsigned-accepted kipte de liste zorlanır — listede yoksa servis manifesti sunulmaz, listedeyse sunulur; istemci etkilenmez", async () => {
+    expect((["off", "unsigned", "unsigned-accepted", "signed"] as const).map(serviceListEnforced)).toEqual([false, false, true, true]);
+    const f = updateFixture();
+    place(f.dir, "valid-service-windows.json", { component: "service", platform: "windows", arch: "amd64" });
+    place(f.dir, "valid-client-windows.json", WIN);
+    const enforced = serviceListEnforced("unsigned-accepted");
+    const miss = store(f.dir, { signed: { signed: enforced, list: new Set(["1".repeat(64)]) } });
+    expect(await miss.s.offer("service-windows")).toBeNull();
+    expect(miss.warns[0]?.obj).toMatchObject({ state: "not_in_signed_list" });
+    expect(await miss.s.offer("client-windows")).not.toBeNull();
+    expect(await store(f.dir, { signed: { signed: enforced, list: new Set([SHA_A]) } }).s.offer("service-windows")).not.toBeNull();
   });
 
   it("AC-473: dizin boş / anahtar yok / dosya yok → sessiz (uyarı yok); durum başına tek uyarı", async () => {

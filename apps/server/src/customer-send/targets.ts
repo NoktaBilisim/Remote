@@ -26,6 +26,8 @@ export interface TargetDeps {
   gate: UnattendedGate;
   publicBaseUrl: string;
   unattendedSha256: string | undefined;
+  /** P32 (AC-533): `UNATTENDED_AGENT_VERSION` — kayıt kodu mesajının doğrulama bloğunda. */
+  unattendedVersion: string | undefined;
   agent: AgentLinkDeps;
 }
 
@@ -161,6 +163,8 @@ async function resolveCode(d: TargetDeps, auth: AuthContext, tenantId: string, t
       code: formatRegistrationCode(code),
       expiresAt: row.expiresAt,
       sha256: d.unattendedSha256 ?? "",
+      host: new URL(d.publicBaseUrl).host,
+      version: d.unattendedVersion,
     },
     allowed: [...CHANNELS_BY_KIND.UNATTENDED_CODE],
     recipientsLocked: true,

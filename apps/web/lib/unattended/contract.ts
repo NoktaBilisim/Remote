@@ -15,6 +15,8 @@ export {
   UNATTENDED_ERROR_MESSAGES,
   UNATTENDED_OFF_BANNER,
   UNATTENDED_TEST_BANNER,
+  // P32 (mimari-p32 §4.7, AC-527c)
+  UNATTENDED_RISK_BANNER,
   putNotifyContactsInputSchema,
   // P29 (mimari-p29 §4.8, §6; AC-490): sürüm sütunu rozetleri ve dağılım şeridi
   DEVICE_UPDATE_BADGE_LABELS,

@@ -5,6 +5,32 @@ Biçim [Keep a Changelog](https://keepachangelog.com/tr/1.1.0/), sürümleme [Se
 
 ## [Unreleased]
 
+### Değişti — P32 prod'da imzasız gözetimsiz servis, risk kabulüyle (AC-523..533, ADR-0042)
+
+- **Karar (2026-11-20):** Windows gözetimsiz erişim servisi (`NoktaDestekServis.exe`) prod'da Authenticode imzası olmadan
+  çalışabilir; risk kabul edildi. Açılış runbook §27.9 sırası ve §20.3 madde 16 imzasıyla yapılır. Go servisi, istemci sürümü
+  ve DB değişmez; migration ve yeni uç yok.
+- **Sunucu:** yeni `UNATTENDED_MODE=unsigned-accepted` (yalnız `DEPLOY_ENV=production|staging`). Kapı imzadan bağımsız,
+  cihazın beyan ettiği SHA-256'nın `UNATTENDED_SIGNED_SHA256` listesinde olmasını ister. Açılış koşulları: liste dolu (her
+  modda ≤ 20), `UNATTENDED_AGENT_SHA256` listede, `UNATTENDED_AGENT_VERSION` dolu. Açılışta bir kez
+  `unattended_unsigned_risk_accepted` alarm logu (`listFingerprint`). P29 servis manifesti bu modda da yalnız listedeki SHA
+  için sunulur. Gösterge metninde "TEST" öneki yok.
+- **API:** `POST /api/v1/unattended/registration-codes` yanıtına `agentSha256`; `GET /unattended/status` `mode` dördüncü değeri
+  alır. Audit: `unattended.device.registered` ve `unattended.connect` `gateMode` + `binarySha256` (+ `signed`) taşır; kayıtta
+  kapı reddi `result:"fail"`, `reason:"gate"` satırı yazar (kod tüketilmez); `device.auth` kapı reddi `sha256Prefix` (12 hane).
+- **Kayıt kodu e-postası (her modda):** "Yalnız <alan adı> adresinden indirin. Dosya: NoktaDestekServis.exe · Sürüm · SHA-256
+  ilk 8…son 8" ve "Size başka yoldan gönderilen dosyayı çalıştırmayın." satırları.
+- **Panel:** Super Admin'e risk kabul bilgi bandı (firma seçmeden de); Admin kayıt kodu penceresinde "Windows 'Bilinmeyen
+  yayıncı' gösterebilir; SHA-256: …" notu; cihaz rozeti "İmzasız" → "İzinli sürüm değil".
+- **Yayın ve izleme:** `publish-servis.sh` listeye yalnız `vX.Y.Z` (attestation'lı Release) SHA'sını ekler ve
+  `UNATTENDED_AGENT_VERSION` yazar; `dir-*` listeye dokunmaz; 16 öğede uyarı, 20'de durur; `.env` yedekleri 600, son 10.
+  `remote-watch.sh`: BİLGİ satırı, liste↔`PUBLISHED.log`, `DEPLOY_ENV`↔`WATCH_DEPLOY_ENV` (mod `off` değilken boşsa ALERT),
+  sürüm uyuşmazlığı ve mod/liste değişimi ALERT'leri; server env'i okunamazsa `unattended-env-read` ALERT'i.
+- **Dokümanlar:** kullanım kılavuzunda müşteri BT için `Get-FileHash` özet karşılaştırması ("Yine de çalıştır"dan önce),
+  eşleşmezse çalıştırmama, AV/EDR istisnasının özetle verilmesi, Admin kurulum notu ve Super Admin bandı; "dosyayı destek
+  firmanızdan alın" ifadesi e-postadaki bağlantıyla sınırlandı. README, DATASHEET (güvenlik), api.md, runbook §27.9,
+  mimari-p32 (D-3: `WATCH_DEPLOY_ENV` ALERT, `v*` bypass yalnız depo Admin rolü).
+
 ### Değişti — macOS prod ad-hoc (P28f-r4, AC-500..508, mimari-p28f §15)
 
 - **Karar (2026-11-20):** macOS istemcisi prod'a Apple Developer ID / notarization **olmadan, ad-hoc imzalı** çıkar.

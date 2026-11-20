@@ -1599,3 +1599,28 @@ kayıt yedeği, kaydedici bastırmaya karşı kaynak taraflı ikinci kayıt, sak
 | 8. KVKK / lisans                                           | Kapsam dışı: yeni veri/bağımlılık yok                                                                           |
 | 9. Kapsam dışı / AC / riskler / DoD / doküman              | Kapsamda: gereksinimler §12, AC-494..499, R-P30-1..3, kılavuz + CHANGELOG + PDF                                 |
 | Sonra                                                      | Hızlı Destek'te monitör değişiminde çizimlerin korunması                                                        |
+
+## P32 — Prod'da imzasız gözetimsiz servis, risk kabulüyle (2026-11-20, r1 — güvenlik tasarım turu bekliyor, `docs/mimari-p32.md`, ADR-0042, AC-523..AC-532)
+
+| Madde                                             | Karar                                                                                                                                       |
+| ------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1. Kimlik / şifre / oturum / davet / API anahtarı | Kapsam dışı: değişmez; kayıt kodu ve step-up (AC-273) aynen                                                                                 |
+| 1. Yetkilendirme / IDOR                           | Kapsamda: yeni yetki yok; SA bandı rol kontrolüyle (AC-527c)                                                                                |
+| 2. Veri modeli / migration / indeks / dosya       | Kapsam dışı: migration yok; `binary_sha256` her auth'ta zaten güncellenir                                                                   |
+| 2. Audit izi                                      | Kapsamda: `device.registered` ve `connect` satırlarına `gateMode` (AC-528); mod değişimi env'de, kalıcı kayıt yok (gerekçe mimari-p32 §4.5) |
+| 2. Multi-tenant                                   | Kapsam dışı: mod sistem düzeyi; tenant izolasyonu değişmez                                                                                  |
+| 3. API / hata / sayfalama / CORS                  | Kapsamda: `status.mode` dördüncü değer; yeni uç ve hata kodu yok                                                                            |
+| 3. Rate limit / retry                             | Kapsam dışı: değişmez                                                                                                                       |
+| 4. Tehdit modeli                                  | Kapsamda: mimari-p32 §5 (T-1..T-7), R-P32-1 risk kabul                                                                                      |
+| 4. Girdi doğrulama                                | Kapsamda: env.ts kuralları (AC-523/524), liste ≤ 20                                                                                         |
+| 4. Gizli bilgi / log                              | Kapsamda: SHA değerleri loga yazılmaz (`allowedCount`); yeni sır yok                                                                        |
+| 4. Bağımlılık / başlıklar                         | Kapsam dışı: yeni bağımlılık, CSP değişikliği yok                                                                                           |
+| 5. 5 durum / a11y / token / tema                  | Kapsamda: yalnız SA bandı ve rozet metni; iki tema, axe 0, mevcut `Alert`                                                                   |
+| 5. Bildirim                                       | Kapsam dışı: e-posta akışları aynı                                                                                                          |
+| 6. Performans                                     | Kapsam dışı: Set araması                                                                                                                    |
+| 7. Log / metrik / alarm                           | Kapsamda: açılış warn alarmı, remote-watch BİLGİ satırı (ALERT değil)                                                                       |
+| 7. Ortamlar / CI / rollback                       | Kapsamda: prod+staging izinli, development değil; geri dönüş `off` önce, imaj sonra (mimari-p32 §8.2)                                       |
+| 7. Runbook                                        | Kapsamda: değişiklik listesi mimari-p32 §8.4 (K3 uygular)                                                                                   |
+| 8. KVKK / lisans                                  | Kapsam dışı: yeni veri/bağımlılık yok                                                                                                       |
+| 9. Kapsam dışı / AC / risk / DoD / doküman        | Kapsamda: gereksinimler §15, AC-523..532, R-P32-1, kılavuz SmartScreen adımı, CHANGELOG, DATASHEET, PDF                                     |
+| Sonra                                             | SignPath gelince `signed`; `UNATTENDED_SIGNED_SHA256` yeniden adlandırma; listeden otomatik çıkarma                                         |

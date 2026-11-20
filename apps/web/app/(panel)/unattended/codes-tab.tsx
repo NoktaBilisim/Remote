@@ -90,7 +90,15 @@ function CodeRow({ c, onCancel }: { c: RegistrationCodeItem; onCancel: (c: Regis
 }
 
 /** Kayıt kodları sekmesi (AC-273, `manage`): bekleyen kodlar (kodun kendisi yok), iptal onaylı. */
-export function CodesTab({ items, createBlock }: { items: RegistrationCodeItem[]; createBlock: string | null }) {
+export function CodesTab({
+  items,
+  createBlock,
+  riskAccepted = false,
+}: {
+  items: RegistrationCodeItem[];
+  createBlock: string | null;
+  riskAccepted?: boolean;
+}) {
   const toast = useToast();
   const [removed, setRemoved] = useState<ReadonlySet<string>>(new Set());
   const [target, setTarget] = useState<RegistrationCodeItem | null>(null);
@@ -102,7 +110,7 @@ export function CodesTab({ items, createBlock }: { items: RegistrationCodeItem[]
         title={t("un.codes.empty")}
         body={t("un.codes.emptyBody")}
         testId="un-codes-empty"
-        action={<CreateCodeButton block={createBlock} testId="un-codes-empty-create" />}
+        action={<CreateCodeButton block={createBlock} riskAccepted={riskAccepted} testId="un-codes-empty-create" />}
       />
     );
   return (

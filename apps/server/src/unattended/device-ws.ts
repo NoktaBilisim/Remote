@@ -286,7 +286,15 @@ export function createDeviceChannel(
     handleProtocols: (p) => (p.has(WS_DEVICE_SUBPROTOCOL) ? WS_DEVICE_SUBPROTOCOL : false),
   });
   const origin = new URL(app.env.PUBLIC_BASE_URL).origin;
-  const auth: AuthDeps = { db: app.db, gate: createGate(app.env), metrics: app.metrics, origin, now: Date.now, failAuditAt: new Map() };
+  const auth: AuthDeps = {
+    db: app.db,
+    gate: createGate(app.env),
+    metrics: app.metrics,
+    origin,
+    now: Date.now,
+    failAuditAt: new Map(),
+    warn: (obj, msg) => app.log.warn(obj, msg),
+  };
   const c: Ctx = {
     app,
     hub,

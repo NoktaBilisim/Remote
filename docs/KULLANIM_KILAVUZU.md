@@ -24,7 +24,9 @@ geliştirilir (bkz. `README.md` "Yol haritası"); kılavuz da her paketle birlik
 - **Admin, teknisyen ve müşteri BT için:** Gözetimsiz erişim (SMTP ön koşulu, bildirim adresleri, kayıt kodu, teknisyen
   yetkisi, bağlanma, cihaz rozetleri, iptal; müşteri tarafında servisi kurma, gösterge, tepsi, yerel kapatma, kaldırma);
   cihaz kullanıcısına sorulmadan açılan tek bağlantı yolu, gösterge ve KVKK uyarısı, müdahale (oturumu kilitle / kapat),
-  eski servis güncellemesi, eski kayıtlardaki bağlantı kipi etiketleri
+  eski servis güncellemesi, eski kayıtlardaki bağlantı kipi etiketleri; imzasız servisi kurmadan önce `Get-FileHash` ile
+  özet doğrulama, SmartScreen "Yine de çalıştır", antivirüs istisnasının özetle verilmesi, Admin kurulum notu ve Super
+  Admin risk kabul bandı
 - **Teknisyen, Admin, Super Admin ve müşteri için:** Oturum sohbeti ve kaydı (sohbet her zaman kaydedilir, uçtan uca
   şifreli değildir, saklama süresi, "sohbete şifre yazmayın", Hızlı Destek 0.21'de oturum sohbeti ve onay düğmesinin
   üstündeki saklama satırı, 0.20 ve öncesinde sohbet kapalı, oturum geçmişinde
@@ -4850,6 +4852,14 @@ Her gözetimsiz bağlantı başladığında bu adreslere e-posta gider (cihaz ad
    3. Cihaz listede "Yeni — doğrulanmadı" olarak görünür; müşteriyle doğrulayıp teknisyen yetkisi verin.
    4. Oturumdaki kullanıcı yöneticiyse teknisyen yönetici onayı (UAC) verebilir; standart kullanıcı hesabı önerilir.
 
+   Sunucu kod imzası olmayan servisle çalışıyorsa (canlı ortamda risk kabulüyle) indirme düğmesinin altında şu not çıkar:
+   **"Windows 'Bilinmeyen yayıncı' gösterebilir; SHA-256: 1a2b3c4d…5e6f7a8b"**. Notun üzerine gelince özetin 64
+   karakterlik tamamı görünür. Servisi müşteri bilgisayarında kendiniz kuruyorsanız çalıştırmadan önce dosyanın özetini
+   bu değerle karşılaştırın (adımlar: "Müşteri BT için: servisi kurma" → "Çalıştırmadan önce dosyayı doğrulayın").
+   Windows "Bilinmeyen yayımcı" uyarısı bu durumda beklenen davranıştır. İndirdiğiniz dosyayı müşteriye e-posta eki ya da
+   mesajla **göndermeyin**: müşteriye giden kayıt kodu e-postası "Size başka yoldan gönderilen dosyayı çalıştırmayın" der.
+   Müşteri dosyayı kayıt kodu e-postasındaki bağlantıdan indirir.
+
 Kod **24 saat** geçerlidir ve tek kullanımlıktır. Kullanılmamış kodlar listede görünür (kodun kendisi değil; müşteri,
 oluşturan, geçerlilik sonu); gerekmiyorsa **İptal et** ile geçersiz kılın. Kullanılan veya süresi dolan kodlar listeden düşer.
 
@@ -4886,7 +4896,7 @@ aydınlatma metni bunu da kapsamalıdır (bkz. "Admin için: KVKK — çalışan
 | ------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | Çevrimiçi / Çevrimdışı                     | Servis sunucuya bağlı mı. Yeniden başlatılan cihaz en geç 2 dakikada çevrimiçi olur                                                                          |
 | Yerel olarak kapalı                        | Müşteri cihazda gözetimsiz erişimi kapattı. Panelden açılamaz; müşterinin bilgisayar yöneticisi açar                                                         |
-| İmzasız                                    | Servis programı kod imzası denetiminden geçmedi; bağlanılamaz                                                                                                |
+| İzinli sürüm değil                         | Cihazdaki servis sürümü sunucunun izin verdiği sürümler arasında değil; bağlanılamaz. Servisi güncelleyin ya da sunucu yöneticinize başvurun                 |
 | Yeni — doğrulanmadı                        | Henüz kimseye yetki verilmedi. Kaydı müşteriyle doğrulayıp yetki verin                                                                                       |
 | Son bildirim gönderilemedi                 | Son bağlantı e-postası müşteriye ulaşmadı. SMTP ayarını test edin; sonraki başarılı bildirimde rozet kalkar                                                  |
 | Anahtar başka yerden kullanılıyor olabilir | Cihaz 10 dakikada 3'ten fazla kez yeniden bağlandı; cihaz kimliği kopyalanmış olabilir. Müşteriyle kontrol edin, şüphe varsa cihazı iptal edip yeniden kurun |
@@ -5059,9 +5069,10 @@ kodunuzu harcamaz.
 
 Ne yapmalı:
 
-1. Admin: kayıt kodu penceresindeki **Servis programını indir** ile güncel `NoktaDestekServis.exe`'yi indirip
-   müşterinin BT sorumlusuna iletin.
-2. Müşteri BT: dosyayı çalıştırın; ayar penceresinde **Güncelle…** → yönetici onayı (UAC). Kayıt korunur, yeni kayıt kodu
+1. Admin: kayıt kodu penceresindeki **Servis programını indir** ile güncel `NoktaDestekServis.exe`'yi indirin. Dosyayı
+   müşteriye e-posta eki ya da mesajla göndermeyin; güncellemeyi müşteri bilgisayarında kendi teknisyeniniz yapsın.
+2. Teknisyen: pencerede "Windows 'Bilinmeyen yayıncı' gösterebilir; SHA-256: …" notu görünüyorsa dosyanın özetini bu
+   değerle karşılaştırın (bkz. "Müşteri BT için: servisi kurma"), sonra dosyayı çalıştırın; ayar penceresinde **Güncelle…** → yönetici onayı (UAC). Kayıt korunur, yeni kayıt kodu
    gerekmez.
 3. Servis yeniden bağlanınca rozet kalkar.
 
@@ -5077,8 +5088,68 @@ Ne yapmalı:
 
 ### Müşteri BT için: servisi kurma
 
-Kurulumu bilgisayarın yöneticisi yapar. Destek firmanızdan `NoktaDestekServis.exe` dosyasını ve 16 karakterlik kayıt
-kodunu alın.
+Kurulumu bilgisayarın yöneticisi yapar. Destek firmanız size 16 karakterlik kayıt kodunu ve indirme bağlantısını
+e-postayla gönderir. `NoktaDestekServis.exe` dosyasını **yalnız bu e-postadaki bağlantıdan** indirin. E-posta, dosyanın
+hangi adresten ineceğini ve özetini (SHA-256) yazar:
+
+> Yalnız destek.ornekfirma.com.tr adresinden indirin. Dosya: NoktaDestekServis.exe · Sürüm: 0.23.0 · SHA-256: 1a2b3c4d…5e6f7a8b
+> Size başka yoldan gönderilen dosyayı çalıştırmayın.
+
+Bu satırların anlamı:
+
+- **Adres:** bağlantı tam bu alan adıyla başlamalı. Adı benzeyen ama farklı bir adres (fazladan harf, farklı uzantı)
+  sahte olabilir; açmayın.
+- **Dosya ve sürüm:** inen dosyanın adı `NoktaDestekServis.exe`'dir. Aynı dosyayı ikinci kez indirirseniz tarayıcı adın
+  sonuna `(1)` ekleyebilir; bu sorun değildir.
+- **SHA-256:** dosyanın parmak izidir. Tek bir harfi değişen dosyanın özeti tamamen farklı çıkar. E-postanın kurulum
+  adımında aynı özetin 64 karakterlik tamamı da yazar.
+- **Başka yoldan gelen dosya:** e-posta eki, sohbet ya da mesaj uygulamasıyla gönderilen, başka bir siteden indirilen
+  "NoktaDestekServis" dosyasını çalıştırmayın. Böyle bir dosya gelirse destek firmanızı arayın.
+
+Kurulumu destek firmanızın teknisyeni yapıyorsa dosyayı kendi panelinden indirir; aynı kontrolü o yapar.
+
+**Çalıştırmadan önce dosyayı doğrulayın**
+
+Servis kod imzası (yayıncı sertifikası) olmadan dağıtılır. Windows bu yüzden yayıncıyı gösteremez; dosyanın doğru dosya
+olduğunu yalnız özetinden anlayabilirsiniz. Bu kontrolü atlamayın.
+
+1. Başlat menüsünde **PowerShell**'i açın (yönetici olarak açmanız gerekmez).
+2. İndirilenler klasörüne geçip dosyanın özetini hesaplayın:
+   ```powershell
+   cd $HOME\Downloads
+   Get-FileHash .\NoktaDestekServis*.exe -Algorithm SHA256 | Format-List Path, Hash
+   ```
+3. **Hash** satırını e-postadaki SHA-256 ile karşılaştırın. PowerShell büyük harf yazar, e-posta küçük harf; harf
+   büyüklüğü önemli değildir. E-postadaki kısa biçimde (`1a2b3c4d…5e6f7a8b`) ilk 8 ve son 8 karakter tutmalı; mümkünse
+   e-postadaki 64 karakterin tamamıyla karşılaştırın.
+4. Birden çok dosya listelenirse (ör. `NoktaDestekServis (1).exe`) **Path** satırına bakarak çalıştıracağınız dosyanın
+   özetini karşılaştırın; diğerlerini silin.
+5. **Özet eşleşmiyorsa dosyayı çalıştırmayın**, silin ve destek firmanıza bildirin.
+
+**Windows uyarı verirse (SmartScreen)**
+
+Özet eşleştiyse dosyayı açın. Windows "**Windows bilgisayarınızı korudu**" penceresini gösterebilir; servis
+imzasız olduğu için bu beklenen bir uyarıdır.
+
+1. **Ek bilgi** yazısına tıklayın.
+2. "Yayımcı: Bilinmeyen yayımcı" ve "Uygulama: NoktaDestekServis….exe" satırlarını kontrol edin. Uygulama adı başka bir
+   şeyse durun.
+3. Özeti yukarıdaki adımlarla doğruladıysanız **Yine de çalıştır**'a tıklayın. Doğrulamadıysanız önce doğrulayın.
+
+**Antivirüs veya EDR servisi engellerse**
+
+Servis imzasız bir Windows hizmetidir; bazı güvenlik yazılımları onu engelleyebilir ya da karantinaya alabilir. İstisna
+gerekiyorsa:
+
+- İstisnayı **dosyanın SHA-256 özetiyle** tanımlayın (ör. Microsoft Defender for Endpoint'te **Göstergeler → Dosya
+  karmaları → İzin ver**). Ürününüz özet desteklemiyorsa dosyanın tam yolu ile özetini birlikte kullanın.
+- Servisin program klasörüne ya da İndirilenler klasörüne **klasör veya joker karakter (`*`) istisnası yazmayın**: o
+  klasöre konan her dosyaya izin vermiş olursunuz.
+- Özet her sürümde değişir. Servis kendini güncellediğinde (bkz. "İstemcilerin otomatik güncellenmesi") yeni sürümün özetini
+  destek firmanızdan alıp istisnayı yenileyin, eski sürümün istisnasını kaldırın. Aksi halde güncellenen servis
+  engellenebilir.
+
+**Kurulum**
 
 1. `NoktaDestekServis.exe`'yi çalıştırın. **Nokta Destek — Gözetimsiz Erişim** penceresi "Kurulu değil" der.
 2. **Kur…** → Windows yönetici onayı (UAC) → **Evet**.
@@ -5134,32 +5205,50 @@ firmanızın sunucusundaki audit log'dur.**
 Servis, kayıt defteri girdileri, program ve veri klasörleri iz bırakmadan silinir; cihaz destek firmasının panelinde iptal
 edilir (bilgisayar o an çevrimdışıysa cihaz panelde çevrimdışı kalır, Admin iptal eder).
 
-### Ortam bantları: "TEST ortamı" ve "kod imzası olmadan kullanılamaz"
+### Ortam bantları: "TEST ortamı", "kod imzası olmadan kullanılamaz" ve risk kabul bandı
 
 - **"Gözetimsiz erişim kod imzası olmadan kullanılamaz"** bandı: özellik bu sunucuda kapalıdır; **Bağlan** ve **Kayıt kodu
-  oluştur** pasiftir. Canlı ortamda servis programı için kod imzası alınana kadar gözetimsiz erişim **kapalıdır**; imza
-  gelince sunucu yöneticisi açar.
+  oluştur** pasiftir. Sunucu yöneticisi özelliği açana kadar böyle kalır.
 - **"TEST ortamı — imzasız servis. Gerçek müşteri cihazı kaydetmeyin."** bandı: test sunucusundasınız; servis imzasızdır
   ve cihazdaki göstergede "TEST" ibaresi bulunur. Yalnız deneme bilgisayarları kaydedin.
 
+**Super Admin için: risk kabul bandı.** Canlı ortamda servis kod imzası olmadan, risk kabul edilerek çalıştırılıyorsa
+Super Admin **Gözetimsiz cihazlar** sayfasında (firma seçmeden de) şu bilgi bandını görür:
+
+> Gözetimsiz servis kod imzasız çalışıyor (risk kabul, ADR-0042). Kurulumda Windows SmartScreen uyarısı görülebilir.
+
+Bant bir hata değildir; sunucunun bu kararla çalıştığını hatırlatır. Admin, teknisyen ve müşteri bu bandı görmez. Bu
+modda:
+
+- Cihazdaki göstergede "TEST" ibaresi **yoktur**; gösterge diğer canlı bağlantılardaki gibidir.
+- Sunucu yalnız yayımlanmış servis sürümlerini kabul eder. İzin verilmeyen bir sürümle kurulum kayıt kodu aşamasında
+  reddedilir; cihaz listeye eklenmez (kayıt kodu harcanmaz). Önceden kayıtlı bir cihazın sürümü izin listesinden
+  çıkarılırsa cihaz bağlanamaz ve listede **İzinli sürüm değil** rozeti çıkar.
+- Admin kayıt kodu penceresinde "Windows 'Bilinmeyen yayıncı' gösterebilir" notunu ve servisin özetini görür.
+- Müşteriye giden kayıt kodu e-postası indirme adresini, dosya adını, sürümü ve özeti yazar (her ortamda).
+
+Kararı geri almak (özelliği kapatmak) sunucu yöneticisinin işidir; ayrıntı teknik işletim belgesindedir (runbook §27.9).
+
 ### Sık karşılaşılan mesajlar (Gözetimsiz erişim)
 
-| Mesaj                                                                                | Ne yapmalı                                                                                |
-| ------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------- |
-| Bildirim e-postası yapılandırılmamış — Ayarlar → SMTP                                | Firmanızın SMTP ayarını kaydedip test edin                                                |
-| Müşterinin bildirim adresi yok — adres yokken bu müşterinin cihazlarına bağlanılamaz | Müşteri ayrıntısında en az bir bildirim adresi ekleyin                                    |
-| Gözetimsiz erişim kod imzası olmadan kullanılamaz                                    | Özellik bu sunucuda kapalı; sunucu yöneticinize başvurun                                  |
-| Cihaz çevrimdışı                                                                     | Bilgisayar kapalı ya da internete bağlı değil; açılınca en geç 2 dk'da çevrimiçi olur     |
-| Cihazda başka bir gözetimsiz bağlantı var                                            | Diğer bağlantı bitince yeniden deneyin                                                    |
-| Yerel olarak kapalı                                                                  | Müşteri cihazda kapattı; açmak için müşterinin bilgisayar yöneticisine başvurun           |
-| Cihaz bulunamadı ya da bu cihaz için yetkiniz yok.                                   | Admin'den o cihaz için teknisyen yetkisi isteyin                                          |
-| Kayıt kodu geçersiz, kullanılmış ya da süresi dolmuş (servis kurulumunda)            | Destek firmasından yeni kod isteyin; kod 24 saat geçerli ve tek kullanımlıktır            |
-| Müşteri pasif; kayıt kodu oluşturulamaz.                                             | Önce müşteriyi **Yeniden aktif et**, sonra kodu yeniden oluşturun                         |
-| Cihazdaki servis güncel değil — güncelleyin                                          | Servisi bir sonraki servis sürümüne güncelleyin (bkz. "Eski servis: Servis güncel değil") |
-| Cihaz güncelleniyor, birazdan tekrar deneyin.                                        | Servis kendini güncelliyor; 2–3 dakika sonra yeniden deneyin                              |
-| Kullanıcı bağlantıyı reddetti. / Kullanıcı yanıt vermedi.                            | Yalnız eski kayıtlarda görünür (eski onay penceresi); yeni bağlantıda çıkmaz              |
-| Önceki komut henüz tamamlanmadı                                                      | Kilit/oturum kapatma sonucunu bekleyin                                                    |
-| Cihaz komutu uygulayamadı                                                            | Kontrolün açık olduğunu ve cihazda oturum bulunduğunu kontrol edin; yeniden deneyin       |
+| Mesaj                                                                                | Ne yapmalı                                                                                                                                                                                                   |
+| ------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Bildirim e-postası yapılandırılmamış — Ayarlar → SMTP                                | Firmanızın SMTP ayarını kaydedip test edin                                                                                                                                                                   |
+| Müşterinin bildirim adresi yok — adres yokken bu müşterinin cihazlarına bağlanılamaz | Müşteri ayrıntısında en az bir bildirim adresi ekleyin                                                                                                                                                       |
+| Gözetimsiz erişim kod imzası olmadan kullanılamaz                                    | Sayfanın üstünde bant varsa özellik bu sunucuda kapalıdır; sunucu yöneticinize başvurun. Bant yokken pasif **Bağlan** üzerinde görünüyorsa cihazda **İzinli sürüm değil** rozeti vardır: servisi güncelleyin |
+| Cihaz çevrimdışı                                                                     | Bilgisayar kapalı ya da internete bağlı değil; açılınca en geç 2 dk'da çevrimiçi olur                                                                                                                        |
+| Cihazda başka bir gözetimsiz bağlantı var                                            | Diğer bağlantı bitince yeniden deneyin                                                                                                                                                                       |
+| Yerel olarak kapalı                                                                  | Müşteri cihazda kapattı; açmak için müşterinin bilgisayar yöneticisine başvurun                                                                                                                              |
+| Cihaz bulunamadı ya da bu cihaz için yetkiniz yok.                                   | Admin'den o cihaz için teknisyen yetkisi isteyin                                                                                                                                                             |
+| Kayıt kodu geçersiz, kullanılmış ya da süresi dolmuş (servis kurulumunda)            | Destek firmasından yeni kod isteyin; kod 24 saat geçerli ve tek kullanımlıktır                                                                                                                               |
+| Müşteri pasif; kayıt kodu oluşturulamaz.                                             | Önce müşteriyi **Yeniden aktif et**, sonra kodu yeniden oluşturun                                                                                                                                            |
+| Cihazdaki servis güncel değil — güncelleyin                                          | Servisi bir sonraki servis sürümüne güncelleyin (bkz. "Eski servis: Servis güncel değil")                                                                                                                    |
+| İzinli sürüm değil (cihaz rozeti)                                                    | Servisi güncelleyin; sürer ise sunucu yöneticisi servisi yeniden yayınlar                                                                                                                                    |
+| Dosya özeti (Get-FileHash) e-postadaki SHA-256 ile eşleşmiyor                        | Dosyayı çalıştırmayın, silin, destek firmanıza bildirin                                                                                                                                                      |
+| Cihaz güncelleniyor, birazdan tekrar deneyin.                                        | Servis kendini güncelliyor; 2–3 dakika sonra yeniden deneyin                                                                                                                                                 |
+| Kullanıcı bağlantıyı reddetti. / Kullanıcı yanıt vermedi.                            | Yalnız eski kayıtlarda görünür (eski onay penceresi); yeni bağlantıda çıkmaz                                                                                                                                 |
+| Önceki komut henüz tamamlanmadı                                                      | Kilit/oturum kapatma sonucunu bekleyin                                                                                                                                                                       |
+| Cihaz komutu uygulayamadı                                                            | Kontrolün açık olduğunu ve cihazda oturum bulunduğunu kontrol edin; yeniden deneyin                                                                                                                          |
 
 ## İstemcilerin otomatik güncellenmesi (Admin, teknisyen, müşteri ve müşteri BT için)
 
@@ -5283,7 +5372,8 @@ Otomatik güncelleme 0.22.0 sürümüyle gelir. 0.21 ve önceki programlarda gü
 kez elle** 0.22.0 ya da sonrasına geçirilir. Sonraki sürümler kendiliğinden gelir.
 
 - **Gözetimsiz servis:** Admin kayıt kodu penceresindeki **Servis programını indir** ile yeni `NoktaDestekServis.exe`'yi
-  indirip müşteri BT'ye iletir; müşteri BT ayar penceresinde **Güncelle…** der. Kayıt korunur.
+  indirir; teknisyen müşteri bilgisayarında (pencerede SHA-256 notu varsa özeti doğrulayıp) ayar penceresinde **Güncelle…** der (bkz. "Eski
+  servis: Servis güncel değil"). Kayıt korunur.
 - **Hızlı Destek (Windows, Linux, Mac):** müşteriye yeni bağlantı gönderin (**Müşteriye gönder**) ya da müşteri
   karşılama sayfasından programı yeniden indirsin. Eski dosyayı yenisiyle değiştirmesi yeterlidir; bilgisayar kaydı
   korunur.

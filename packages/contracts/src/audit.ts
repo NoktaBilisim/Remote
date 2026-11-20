@@ -271,6 +271,10 @@ export const NOTIFY_AUDIT = {
 /**
  * P27 gözetimsiz erişim (mimari-p27 §7.2; AC-273, 275, 293, 295, 296, 336, 337, 339). Kayıt kodu, imza, anahtar, bilet ASLA
  * yazılmaz; adresler maskeli. Alanlar §7.2 tablosunda; Türkçe etiketler `api/unattended.ts` `UNATTENDED_AUDIT_LABELS`.
+ * P32 (mimari-p32 §4.5, AC-528): `DEVICE_REGISTERED` ve `CONNECT` satırları (başarılı + başarısız) `gateMode` (`UnattendedMode`)
+ * ve cihazın o anki beyanı `binarySha256` (tam 64 hane, küçük harf) taşır; `CONNECT` ayrıca `signed` beyanını. Cihaz satırı
+ * henüz yüklenmemiş ret (`forbidden`/`limit`/`not_found`) yalnız `gateMode` taşır. `DEVICE_AUTH` kapı reddi (`reason:"gate"`)
+ * `sha256Prefix` (ilk 12 hane) taşır. SHA-256 gizli değildir (yayınlanan ikilinin özeti).
  */
 export const UNATTENDED_AUDIT = {
   CODE_CREATED: "unattended.code.created",

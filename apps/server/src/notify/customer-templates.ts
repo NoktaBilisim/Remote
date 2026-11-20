@@ -51,6 +51,10 @@ export interface UnattendedTemplateInput {
   code: string;
   expiresAt: Date;
   sha256: string;
+  /** P32 (AC-533): `PUBLIC_BASE_URL` kanonik alan adı (port varsa dahil). */
+  host: string;
+  /** P32 (AC-533): `UNATTENDED_AGENT_VERSION`; boşsa doğrulama bloğunda "Sürüm" parçası yazılmaz. */
+  version?: string | undefined;
 }
 export interface CustomerTemplateInput {
   kind: "CUSTOMER";
@@ -103,13 +107,33 @@ function sessionMail(i: SessionTemplateInput): Rendered {
   };
 }
 
+/** P32 (AC-533, S-P32-1): SHA kısaltması `ilk8…son8`; 64 hane değilse (yapılandırma yok) parça yazılmaz. */
+const shortSha = (sha: string): string | null => (/^[0-9a-f]{64}$/.test(sha) ? `${sha.slice(0, 8)}…${sha.slice(-8)}` : null);
+export const UNATTENDED_DOWNLOAD_WARNING = "Size başka yoldan gönderilen dosyayı çalıştırmayın.";
+
+/**
+ * P32 (mimari-p32 §4.8, AC-533): mod bağımsız doğrulama bloğu (tek tanım; e-posta ve kısa mesaj aynı iki satır):
+ * "Yalnız <host> adresinden indirin. Dosya: NoktaDestekServis.exe · Sürüm: X.Y.Z · SHA-256: ilk8…son8" + uyarı.
+ */
+function verificationBlock(i: UnattendedTemplateInput): [string, string] {
+  const sha = shortSha(i.sha256);
+  const parts = [
+    `Yalnız ${i.host} adresinden indirin. Dosya: NoktaDestekServis.exe`,
+    ...(i.version ? [`Sürüm: ${i.version}`] : []),
+    ...(sha ? [`SHA-256: ${sha}`] : []),
+  ];
+  return [parts.join(" · "), UNATTENDED_DOWNLOAD_WARNING];
+}
+
 function unattendedMail(i: UnattendedTemplateInput): Rendered {
   const firm = F(i.firm);
   const until = istanbul(i.expiresAt);
+  const verify = verificationBlock(i);
   const lines = [
     "Merhaba,",
     `${firm}, bilgisayarınıza uzaktan destek servisinin kurulması için bir kayıt kodu oluşturdu.`,
     `1. Kurulum dosyasını indirin: ${i.downloadUrl}\n   Dosya: NoktaDestekServis.exe (Windows 10 / 11) · SHA-256: ${i.sha256}\n2. Dosyayı çalıştırın ve yönetici izni isteğini onaylayın.\n3. Kayıt kodu istendiğinde şunu girin: ${i.code}\n4. Kurulum tamamlanınca ${firm} ile iletişime geçin.`,
+    verify.join("\n"),
     `Kod ve bağlantı ${until} (Türkiye saati) tarihine kadar geçerlidir; kod bir kez kullanılabilir.`,
     "Bu kurulumu siz istemediyseniz destek firmanızı arayın.",
   ];
@@ -119,6 +143,7 @@ function unattendedMail(i: UnattendedTemplateInput): Rendered {
     `<ol><li>Kurulum dosyasını indirin: <a href="${esc(i.downloadUrl)}">${esc(i.downloadUrl)}</a><br>Dosya: NoktaDestekServis.exe (Windows 10 / 11) · SHA-256: ${esc(i.sha256)}</li>`,
     "<li>Dosyayı çalıştırın ve yönetici izni isteğini onaylayın.</li>",
     `<li>Kayıt kodu istendiğinde şunu girin: <b>${esc(i.code)}</b></li><li>Kurulum tamamlanınca ${esc(firm)} ile iletişime geçin.</li></ol>`,
+    `<p>${verify.map(esc).join("<br>")}</p>`,
     `<p>Kod ve bağlantı ${esc(until)} (Türkiye saati) tarihine kadar geçerlidir; kod bir kez kullanılabilir.</p>`,
     "<p>Bu kurulumu siz istemediyseniz destek firmanızı arayın.</p>",
   ];
@@ -129,6 +154,7 @@ function unattendedShort(i: UnattendedTemplateInput): string {
   return [
     `${F(i.firm)} uzaktan destek servisi kurulumu.`,
     `1) İndirin: ${i.downloadUrl}`,
+    ...verificationBlock(i),
     "2) Çalıştırıp yönetici iznini onaylayın.",
     `3) Kayıt kodu: ${i.code}`,
     `Son geçerlilik: ${istanbul(i.expiresAt)} (TR), tek kullanımlık.`,

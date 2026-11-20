@@ -26,6 +26,7 @@ export async function customerSendRoutes(app: FastifyInstance): Promise<void> {
     gate,
     publicBaseUrl: app.env.PUBLIC_BASE_URL,
     unattendedSha256: app.env.UNATTENDED_AGENT_SHA256,
+    unattendedVersion: app.env.UNATTENDED_AGENT_VERSION,
     agent: agentDeps(app),
     mail: app.mail,
     whatsapp: app.whatsapp,

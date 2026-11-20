@@ -6,7 +6,7 @@ import { EXPIRED_LOGIN_PATH } from "@/lib/api";
 import { t } from "@/lib/i18n";
 import { getMe, serverGet } from "@/lib/server-api";
 import type { DeviceListResponse, UnattendedStatus } from "@/lib/unattended/contract";
-import { createCodeBlock, gateOpen } from "@/lib/unattended/errors";
+import { createCodeBlock, gateOpen, isRiskAccepted } from "@/lib/unattended/errors";
 import { devicesApiPath, parseDeviceParams } from "@/lib/unattended/query";
 import { DeviceFilters } from "../device-filters";
 import { DeviceList } from "../device-list";
@@ -26,9 +26,11 @@ export default async function UnattendedPage({ searchParams }: { searchParams: P
   if (me.kind !== "ok") redirect(EXPIRED_LOGIN_PATH);
   const access = accessOf({ ...me.me, permissions: me.me.permissions as readonly string[] });
   const gate = gateBody(access);
+  // AC-527c: firma seçmemiş Super Admin'e de risk bandı (durum firma bağlamı olmadan çekilir; hata → bant yok, boş durum aynı)
+  const pickStatus = gate && access.pickTenant ? await serverGet<UnattendedStatus>("/unattended/status") : null;
   if (gate)
     return (
-      <UnattendedShell access={access} status={undefined} createBlock={null}>
+      <UnattendedShell access={access} status={pickStatus?.kind === "ok" ? pickStatus.data : undefined} createBlock={null}>
         {gate}
       </UnattendedShell>
     );
@@ -54,7 +56,15 @@ export default async function UnattendedPage({ searchParams }: { searchParams: P
           <LoadError />
         </div>
       ) : (
-        <DeviceList key={path} initial={res.data} params={params} available={available} manage={access.manage} createBlock={createBlock} />
+        <DeviceList
+          key={path}
+          initial={res.data}
+          params={params}
+          available={available}
+          manage={access.manage}
+          createBlock={createBlock}
+          riskAccepted={isRiskAccepted(status)}
+        />
       )}
     </UnattendedShell>
   );

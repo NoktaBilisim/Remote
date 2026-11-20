@@ -7,12 +7,11 @@ import { Alert } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Dialog } from "@/components/ui/dialog";
 import { CONSENT_BODY_MAX, type ConsentTextVersion } from "@/lib/admin-settings/contract";
-import { formatDateTime, formatNumber } from "@/lib/format";
+import { formatDateTime, formatNumber, formatShortSha as shortSha } from "@/lib/format";
 import { t } from "@/lib/i18n";
 import type { ConsentFormState } from "./use-consent-form";
 
 type P = { f: ConsentFormState };
-const shortSha = (s: string) => `${s.slice(0, 8)}…${s.slice(-8)}`;
 
 /** Salt okunur ve "metin yok" uyarıları, form üstü hata. */
 export function ConsentAlerts({ f, canEdit }: P & { canEdit: boolean }) {

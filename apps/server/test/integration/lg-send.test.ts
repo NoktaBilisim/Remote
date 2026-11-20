@@ -24,7 +24,7 @@ import {
 } from "../helpers/app.ts";
 import { closeSmtp, inboxTransport, loopbackNetguard, startInboxSmtp } from "../helpers/mail-tls.ts";
 import { createCustomerRow, startFakeWhatsapp, type FakeWhatsapp } from "../helpers/requests.ts";
-import { contactRow, createDeviceRow, setSmtp, UNSIGNED_ENV } from "../helpers/unattended.ts";
+import { acceptedEnv, contactRow, createDeviceRow, setSmtp, UNSIGNED_ENV } from "../helpers/unattended.ts";
 
 const inbox: { to: string; body: string }[] = [];
 const logLines: string[] = [];
@@ -36,6 +36,7 @@ let offApp: FastifyInstance;
 let badShaApp: FastifyInstance;
 let agentApp: FastifyInstance;
 let noWaApp: FastifyInstance;
+let acceptedApp: FastifyInstance;
 const dir = mkdtempSync(join(tmpdir(), "rs-lg2-"));
 const BIN = join(dir, "svc.exe");
 writeFileSync(BIN, Buffer.from("MZ-test-binary"));
@@ -60,10 +61,15 @@ beforeAll(async () => {
   agentApp = makeApp({ env: { ...env, AGENT_BINARY_PATH: BIN, AGENT_SHA256: SHA }, p10 });
   // AC-406: servis adresi yok → WhatsApp `usable=false` (yapılandırılmamış).
   noWaApp = makeApp({ env: { ...env, WHATSAPP_SERVICE_URL: "" }, p10 });
-  await Promise.all([app.ready(), offApp.ready(), badShaApp.ready(), agentApp.ready(), noWaApp.ready()]);
+  // P32 (AC-533): prod risk kabul modu — servis SHA'sı izinli listede, sürüm betikten.
+  acceptedApp = makeApp({
+    env: { ...env, ...acceptedEnv(SHA) },
+    p10,
+  });
+  await Promise.all([app.ready(), offApp.ready(), badShaApp.ready(), agentApp.ready(), noWaApp.ready(), acceptedApp.ready()]);
 });
 afterAll(async () => {
-  await Promise.all([app.close(), offApp.close(), badShaApp.close(), agentApp.close(), noWaApp.close()]);
+  await Promise.all([app.close(), offApp.close(), badShaApp.close(), agentApp.close(), noWaApp.close(), acceptedApp.close()]);
   await closeSmtp(smtp);
   await wa.close();
 });
@@ -248,6 +254,36 @@ describe("LG K2 kayıt kodu gönderimi", () => {
     const c = await newCode(f);
     const s = await loginStepUp(offApp, f.admin);
     expect(errOf(await options(s, { kind: "UNATTENDED_CODE", codeId: c.id, code: c.code }, offApp))).toBe("409 UNATTENDED_DISABLED");
+  });
+});
+
+describe("P32 kayıt kodu doğrulama bloğu (AC-533)", () => {
+  it("AC-533: unsigned-accepted'te gönderim kapanmaz; önizleme = gönderilen e-posta, alan adı + dosya + sürüm + SHA kısaltması + uyarı", async () => {
+    const f = await firm();
+    const s = await loginStepUp(acceptedApp, f.admin);
+    const c = await newCode(f, s, acceptedApp);
+    const target = { kind: "UNATTENDED_CODE", codeId: c.id, code: c.code };
+    const r = await options(s, target, acceptedApp);
+    expect(r.statusCode, r.body).toBe(200);
+    const text = r.json<{ previews: { EMAIL: { text: string } } }>().previews.EMAIL.text;
+    const host = new URL(ORIGIN).host;
+    expect(text).toContain(
+      `Yalnız ${host} adresinden indirin. Dosya: NoktaDestekServis.exe · Sürüm: 0.23.0 · SHA-256: ${SHA.slice(0, 8)}…${SHA.slice(-8)}`,
+    );
+    expect(text).toContain("Size başka yoldan gönderilen dosyayı çalıştırmayın.");
+    expect(text).toContain(SHA);
+    expect(errOf(await send(s, target, "EMAIL", f.email, acceptedApp))).toBe("200");
+    expect(sentMail(f.email).text).toBe(text);
+  });
+
+  it("AC-533: sürüm env'de yoksa (unsigned) blokta 'Sürüm' parçası yok, gerisi aynı", async () => {
+    const f = await firm();
+    const c = await newCode(f);
+    const text = (await options(f.su, { kind: "UNATTENDED_CODE", codeId: c.id, code: c.code })).json<{
+      previews: { EMAIL: { text: string } };
+    }>().previews.EMAIL.text;
+    expect(text).toContain(`Dosya: NoktaDestekServis.exe · SHA-256: ${SHA.slice(0, 8)}…${SHA.slice(-8)}`);
+    expect(text).not.toContain("Sürüm:");
   });
 });
 

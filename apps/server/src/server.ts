@@ -3,6 +3,7 @@ import { buildApp } from "./app.ts";
 import { loadEnv } from "./env.ts";
 import { createDb } from "./lib/db.ts";
 import { createLogger } from "./lib/logger.ts";
+import { riskAcceptedAlarm } from "./unattended/gate.ts";
 
 async function main(): Promise<void> {
   const env = loadEnv();
@@ -24,6 +25,9 @@ async function main(): Promise<void> {
   // P27 (AC-297, 342): gözetimsiz erişim kapısının etkin değeri (gizli bilgi yok; SHA listesi yazılmaz).
   const deployEnv = env.DEPLOY_ENV ?? "unset";
   logger.info({ unattendedMode: env.UNATTENDED_MODE, deployEnv }, `unattended.mode=${env.UNATTENDED_MODE} deployEnv=${deployEnv}`);
+  // P32 (AC-527a, ADR-0042): prod'da imzasız servis risk kabulü — açılışta bir kez alarm (remote-watch/runbook `grep -c` 1).
+  const alarm = riskAcceptedAlarm(env);
+  if (alarm) logger.warn(alarm, "gözetimsiz servis imzasız çalışıyor (risk kabul, ADR-0042)");
 }
 
 main().catch((error: unknown) => {

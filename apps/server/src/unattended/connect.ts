@@ -55,10 +55,13 @@ async function auditConnect(d: ConnectDeps, ctx: AuditContext, auth: AuthContext
   });
 }
 
-/** Adım 3–9 (TX öncesi hızlı ret; doğru hata kodu için). */
-async function precheck(d: ConnectDeps, auth: AuthContext, tenantId: string, id: string): Promise<repo.DeviceRow> {
-  const dev = await repo.getDevice(d.db, tenantId, auth.user.id, id);
-  if (!dev || dev.grants.length === 0) throw refuse("not_found", "NOT_FOUND");
+/** P32 (AC-528): audit'teki kapı alanları — `gateMode` her zaman; beyan (`binarySha256`, `signed`) cihaz satırı yüklendiyse. */
+function gateFields(d: ConnectDeps, dev: Pick<repo.DeviceRow, "binarySha256" | "signed"> | null) {
+  return { gateMode: d.gate.mode, ...(dev ? { binarySha256: dev.binarySha256, signed: dev.signed } : {}) };
+}
+
+/** Adım 3–9 (TX öncesi hızlı ret; doğru hata kodu için). Cihaz satırı (grant'lı) çağıranda yüklenir. */
+async function precheck(d: ConnectDeps, auth: AuthContext, tenantId: string, id: string, dev: repo.DeviceRow): Promise<void> {
   // P28c O-PC-4: tek yardımcı (`deviceVerdict`); ret kodları ve sırası değişmez (step-up grant ile yerel anahtar arasında).
   const verdict = deviceVerdict({ ...dev, revokedAt: null }, d.gate);
   if (!auth.totpEnabled) throw refuse("step_up", "MFA_SETUP_REQUIRED");
@@ -74,7 +77,6 @@ async function precheck(d: ConnectDeps, auth: AuthContext, tenantId: string, id:
   if (!d.hub.isOnline(id)) throw refuse("offline", "DEVICE_OFFLINE");
   if (!d.hub.has(id, "direct1")) throw refuse("outdated", "DEVICE_OUTDATED"); // 8a (AC-435)
   if ((await repo.openDeviceSessions(d.db, tenantId, id, new Date(d.now()))) > 0) throw refuse("busy", "DEVICE_BUSY");
-  return dev;
 }
 
 /** D-P27-6: bu oturumdaki son başarılı step-up'ın yöntemi (audit `auth.step_up`); bulunamazsa "totp". */
@@ -97,17 +99,21 @@ export async function connectDevice(
   id: string,
 ): Promise<UnattendedConnectResponse> {
   let opened: Opened;
+  let loaded: repo.DeviceRow | null = null;
   try {
     if (!auth.permissions.has("unattended.connect")) throw refuse("forbidden", "FORBIDDEN");
     if (d.limit.blockedFor(auth.user.id) > 0 || d.limit.hit(auth.user.id))
       throw new Refusal("limit", new AppError("RATE_LIMITED", { retryAfterSec: d.limit.blockedFor(auth.user.id) || 3600 }));
-    const dev = await precheck(d, auth, tenantId, id);
+    const dev = await repo.getDevice(d.db, tenantId, auth.user.id, id);
+    if (!dev || dev.grants.length === 0) throw refuse("not_found", "NOT_FOUND");
+    loaded = dev;
+    await precheck(d, auth, tenantId, id, dev);
     const method = await stepUpMethod(d, auth);
-    opened = await openDeviceSession(d, ctx, auth, tenantId, dev, method);
+    opened = await openDeviceSession(d, ctx, auth, tenantId, dev, method, gateFields(d, dev));
   } catch (err) {
     if (!(err instanceof Refusal)) throw err;
     d.metrics.inc("rs_unattended_connect_total", { mode: MODE, result: err.result });
-    await auditConnect(d, ctx, auth, tenantId, id, { failReason: err.result, mode: MODE });
+    await auditConnect(d, ctx, auth, tenantId, id, { failReason: err.result, mode: MODE, ...gateFields(d, loaded) });
     throw err.err;
   }
   d.metrics.inc("rs_unattended_connect_total", { mode: MODE, result: "ok" });

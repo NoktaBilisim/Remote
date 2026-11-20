@@ -11,7 +11,9 @@
 # av-signature-age / av-scan-failed / av-metrics / compose:clamav*; P28u K8 unattended-notify-fail (r3: silent-volume ve
 # consent-timeout kaldırıldı); P28e K8 rec-stop-error / rec-part-rejected / rec-view-throttled; P28c K4 multi-denied;
 # P22-O session-chat-internal; P21 K7 portal-login-fail / portal-locked / portal-request-reject; P29 K6 update-rejected-device /
-# update-rejected-client / update-manifest-expiry / update-manifest-missing.
+# update-rejected-client / update-manifest-expiry / update-manifest-missing; P32 K3 unattended-deploy-env (WATCH_DEPLOY_ENV boş +
+# mod açık -> ALERT, S-P32-r2-1) / unattended-list-unpublished / unattended-agent-version-mismatch (PUBLISHED.log alan eşleşmesi,
+# S-P32-r2-2) / unattended-mode-changed (tek seferlik, DUZELDI yok, gönderim başarısızsa yeniden) / unattended-env-read (S-P32-K-1) + listFingerprint test vektörü.
 # Kullanım: deploy/ops/test-watch.sh   Çıkış 0 = tüm beklentiler tuttu.
 set -euo pipefail
 cd "$(dirname "$0")"
@@ -28,6 +30,7 @@ case "$1" in
   ps) cat /scn/ps ;;
   exec)
     case "$*" in
+      *UNATTENDED_MODE*) cat /scn/uenv ;;
       *turnutils_stunclient*) exit "$(cat /scn/stun_rc)" ;;
       *"/metrics"*) cat /scn/metrics ;;
       *"/ready"*) exit "$(cat /scn/ready_rc)" ;;
@@ -86,6 +89,7 @@ remote_backup_audit_continuity_ok 1
 remote_backup_ledger_ok 1
 P
   mkdir -p /opt/tree/deploy; chmod -R go-w /opt/tree
+  printf 'DEPLOY_ENV=production\nUNATTENDED_MODE=off\nUNATTENDED_SIGNED_SHA256=\nUNATTENDED_AGENT_SHA256=\nUNATTENDED_AGENT_VERSION=\n' >/scn/uenv
 }
 good
 mkdir -p /etc/rw
@@ -96,7 +100,7 @@ WATCH_LE_DIR=/le
 E
 chmod 600 /etc/rw/watch.env
 export WATCH_ENV_FILE=/etc/rw/watch.env WATCH_STATE_DIR=/var/lib/rw WATCH_BACKUP_STATUS=/scn/status.prom \
-  WATCH_TURN_CERT_FILE=/tc/turn.crt WATCH_TURN_TLS=127.0.0.1:5349 WATCH_DISK_PATHS="/" WATCH_TREE_DIR=/opt/tree
+  WATCH_TURN_CERT_FILE=/tc/turn.crt WATCH_TURN_TLS=127.0.0.1:5349 WATCH_DISK_PATHS="/" WATCH_TREE_DIR=/opt/tree WATCH_DEPLOY_DIR=/dd
 run() { : >/out/alerts; bash $W run >/out/o 2>&1; RC=$?; }
 alerted() { grep -q "$1" /out/alerts; }
 
@@ -417,7 +421,7 @@ good; clrav; run
 pua() { echo "$((NOW - 3600)) 0 0 0 0 0 0 - $((NOW - 3600)) 0 0 0 0 - 5 10 0 3 0 0 - - - - - - $1" >/scn/metrics; }
 clrua() { sed -i -E '/^(ua_notify_fail|ua_samples)=/d' /var/lib/rw/state; }
 good; clrua; run
-! grep -q 'check="unattended-' /var/lib/rw/status.prom && ok "P28u öncesi (rs_unattended_silent_notify_total yok) -> unattended-* kontrolleri yok" || no "p28u öncesi: $(cat /out/o)"
+! grep -q 'check="unattended-notify-fail' /var/lib/rw/status.prom && ok "P28u öncesi (rs_unattended_silent_notify_total yok) -> unattended-* kontrolleri yok" || no "p28u öncesi: $(cat /out/o)"
 good; clrua; pua "0 -"; run
 p18n 'unattended-' && grep -q 'check="unattended-notify-fail"} 1' /var/lib/rw/status.prom \
   && ! grep -q 'check="unattended-\(silent-volume\|consent-timeout\)"' /var/lib/rw/status.prom \
@@ -579,6 +583,86 @@ p18a update-manifest-missing && ok "WATCH_UPDATE_MANIFEST_REQUIRED=1 + manifest 
 good; clrup; pup 'a[$(touch /tmp/pwnp29a)] a[$(touch /tmp/pwnp29b)] a[$(touch /tmp/pwnp29c)]'; run; ups update_samples 'a[$(touch /tmp/pwnp29d)]:1'; ups update_rejected_device 'a[$(touch /tmp/pwnp29e)] 1'; pup "1 1 1"; run
 ls /tmp/pwnp29* >/dev/null 2>&1 && no "P29 enjeksiyon: $(ls /tmp/pwnp29*)" || ok "S14-2: P29 metrik/durum alanlarında a[\$(…)] komut çalıştırmadı"
 good; clrup; run
+
+# P32 K3 (mimari-p32 §8.5, AC-527b; S-P32-3/5, S-P32-r2-1/r2-2; runbook §27.9). /scn/uenv = server env (5 anahtar).
+ue() { printf 'DEPLOY_ENV=%s\nUNATTENDED_MODE=%s\nUNATTENDED_SIGNED_SHA256=%s\nUNATTENDED_AGENT_SHA256=%s\nUNATTENDED_AGENT_VERSION=%s\n' "$@" >/scn/uenv; }
+pl() { mkdir -p /dd/agent; printf '%s\n' "$@" >/dd/agent/PUBLISHED.log; }
+h64() { printf "%064d" 0 | tr 0 "$1"; }
+A="$(h64 a)"; B="$(h64 b)"; C="$(h64 c)"; BU="$(h64 B)"
+US=/var/lib/rw/unattended.state
+uA() { grep -E "ALERT check=unattended-(deploy-env|list-unpublished|agent-version-mismatch)" /out/o; }
+good; rm -f "$US" /dd/agent/PUBLISHED.log; run
+[ "$RC" = 0 ] && grep -q '^remote-watch: OK' /out/o && grep -q 'ATLANDI check=unattended-deploy-env' /out/o && [ ! -s /out/alerts ] \
+  && grep -qx 'mode=off' "$US" && grep -qx 'fp=e3b0c44298fc' "$US" \
+  && ok "P32 ilk koşu, mod off + WATCH_DEPLOY_ENV boş -> ATLANDI, alarm yok, durum yazıldı (boş liste fp e3b0c44298fc)" || no "p32 ilk: $(cat /out/o) / $(cat "$US")"
+# listFingerprint test vektörü: " BBB…B , aaa…a ," -> kırp + küçük harf + boş at + sırala + "," -> SHA-256 ilk 12 = b1da1a175574
+good; pl "20261120T000000Z servis v0.23.0 $A" "20261120T000100Z servis v0.24.0 $B"; ue production unsigned-accepted " $BU , $A ," "$A" 0.23.0
+WATCH_DEPLOY_ENV=production run
+grep -q 'ALERT check=unattended-mode-changed .*off/e3b0c44298fc->unsigned-accepted/b1da1a175574' /out/o \
+  && alerted 'ALERT unattended-mode-changed off/e3b0c44298fc->unsigned-accepted/b1da1a175574' \
+  && grep -q 'BILGI check=unattended-unsigned-accepted .*liste=2 listFingerprint=b1da1a175574' /out/o \
+  && grep -q 'BILGI check=unattended-deploy-env OK DEPLOY_ENV=production' /out/o && [ -z "$(uA)" ] \
+  && grep -q 'check="unattended-mode-changed"} 0' /var/lib/rw/status.prom \
+  && ok "AC-527b off -> unsigned-accepted: bir kez ALERT unattended-mode-changed + BİLGİ satırı; listFingerprint vektörü b1da1a175574 (büyük harf/boşluk normalize)" \
+  || no "p32 değişim: $(cat /out/o) / $(cat /out/alerts)"
+WATCH_DEPLOY_ENV=production run
+[ ! -s /out/alerts ] && ! grep -q 'ALERT' /out/o && grep -q '^remote-watch: OK' /out/o && grep -q 'BILGI check=unattended-unsigned-accepted' /out/o \
+  && grep -q 'check="unattended-mode-changed"} 1' /var/lib/rw/status.prom \
+  && ok "S-P32-5 ikinci tur: sessiz (DUZELDI yok), BİLGİ sürer, durum OK" || no "p32 ikinci tur: $(cat /out/o) / $(cat /out/alerts)"
+pl "20261120T000000Z servis v0.23.0 $A" "20261120T000100Z servis v0.24.0 $B" "20261120T000200Z servis v0.25.0 $C"; ue production unsigned-accepted "$A,$B,$C" "$C" 0.25.0
+WATCH_DEPLOY_ENV=production WATCH_ALERT_CMD='exit 7' bash $W run >/out/o 2>&1
+grep -q 'ALERT check=unattended-mode-changed' /out/o && grep -qx 'fp=b1da1a175574' "$US" && ok "liste değişti + alarm komutu başarısız -> durum yazılmadı" || no "p32 send fail: $(cat /out/o) / $(cat "$US")"
+WATCH_DEPLOY_ENV=production run
+alerted 'ALERT unattended-mode-changed unsigned-accepted/b1da1a175574->unsigned-accepted/' && ! grep -qx 'fp=b1da1a175574' "$US" \
+  && ok "sonraki tur liste değişim alarmını yeniden gönderdi, durum güncellendi" || no "p32 resend: $(cat /out/alerts)"
+WATCH_DEPLOY_ENV=production run; [ ! -s /out/alerts ] && ok "üçüncü tur sessiz" || no "p32 3. tur: $(cat /out/alerts)"
+pl "20261120T000000Z servis v0.23.0 $A" "20261120T000200Z servis v0.25.0 $C"; ue production unsigned-accepted "$A,$B,$C" "$C" 0.25.0
+WATCH_DEPLOY_ENV=production run
+grep -q 'ALERT check=unattended-list-unpublished .*: bbbbbbbbbbbb ' /out/o && alerted 'unattended-list-unpublished' && ! grep -q "$B" /out/o /out/alerts \
+  && ok "AC-527b listede PUBLISHED.log'da olmayan SHA -> ALERT (yalnız ilk 12 hane)" || no "p32 unpublished: $(cat /out/o)"
+pl "20261120T000000Z servis v0.23.0 $A" "20261120T000100Z servis dir-20261120-unattested $B" "20261120T000150Z servis v0.24.0-rc1 $B" "x servis v0.24.0" "20261120T000200Z servis v0.25.0 $C"
+WATCH_DEPLOY_ENV=production run
+grep -q 'ALERT check=unattended-list-unpublished .*bbbbbbbbbbbb' /out/o && ok "S-P32-r2-2 yalnız dir-*/-unattested/rc/eksik alan satırı -> eşleşme sayılmaz, ALERT" || no "p32 alan eşleşmesi: $(cat /out/o)"
+rm -f /dd/agent/PUBLISHED.log; WATCH_DEPLOY_ENV=production run
+grep -q 'ALERT check=unattended-list-unpublished .*PUBLISHED.log yok' /out/o && ok "PUBLISHED.log yok + mod unsigned-accepted -> ALERT (atlanmaz)" || no "p32 publog yok: $(cat /out/o)"
+good; WATCH_DEPLOY_ENV=production run   # bozuk küme sıfırlanır (alarm yalnız yeni bozulan kontrolde hemen gider)
+pl "20261120T000000Z servis v0.23.0 $A" "20261120T000100Z servis v0.24.0 $B" "20261120T000200Z servis v0.25.0 $C"; ue production unsigned-accepted "$A,$B,$C" "$C" 0.24.0
+WATCH_DEPLOY_ENV=production run
+grep -q "ALERT check=unattended-agent-version-mismatch .*servis v0.24.0 cccccccccccc" /out/o && alerted unattended-agent-version-mismatch \
+  && ok "S-P32-r2-2 UNATTENDED_AGENT_VERSION 0.24.0 ama AGENT_SHA v0.25.0'ın -> ALERT unattended-agent-version-mismatch" || no "p32 sürüm: $(grep ALERT /out/o)"
+ue production unsigned-accepted "$A,$B,$C" "$C" ""; WATCH_DEPLOY_ENV=production run
+grep -q 'ALERT check=unattended-agent-version-mismatch .*boş ya da biçimsiz' /out/o && ok "unsigned-accepted + sürüm boş -> ALERT" || no "p32 sürüm boş: $(cat /out/o)"
+ue staging unsigned-accepted "$A,$B,$C" "$C" 0.25.0; WATCH_DEPLOY_ENV=production run
+grep -q 'ALERT check=unattended-deploy-env server DEPLOY_ENV=staging beklenen production' /out/o && alerted unattended-deploy-env \
+  && ok "S-P32-3 DEPLOY_ENV (staging) ≠ WATCH_DEPLOY_ENV (production) -> ALERT" || no "p32 denv: $(cat /out/o)"
+good; WATCH_DEPLOY_ENV=production run
+ue production unsigned-accepted "$A,$B,$C" "$C" 0.25.0; run
+grep -q 'ALERT check=unattended-deploy-env WATCH_DEPLOY_ENV yapılandırılmamış (mod=unsigned-accepted)' /out/o && alerted unattended-deploy-env \
+  && ok "S-P32-r2-1 mod açık + WATCH_DEPLOY_ENV boş -> ALERT (ATLANDI değil)" || no "p32 r2-1: $(grep -E 'ALERT|unattended-deploy' /out/o)"
+ue production off "" "" ""; WATCH_DEPLOY_ENV=staging run
+grep -q 'ALERT check=unattended-deploy-env server DEPLOY_ENV=production beklenen staging' /out/o && ok "mod off iken de DEPLOY_ENV uyuşmazlığı -> ALERT" || no "p32 off denv: $(cat /out/o)"
+pl "20261120T000000Z servis dir-20261120-unattested $C"; ue staging unsigned "" "$C" ""; WATCH_DEPLOY_ENV=staging run
+[ -z "$(uA)" ] && ! grep -q 'check="unattended-list-unpublished"\|check="unattended-agent-version-mismatch"' /var/lib/rw/status.prom \
+  && grep -q 'BILGI check=unattended-deploy-env OK DEPLOY_ENV=staging' /out/o && ok "staging unsigned + dir-* (sürüm boş) -> liste/sürüm kontrolü yok, sessiz" || no "p32 staging: $(cat /out/o)"
+cp "$US" /tmp/us.before; good; ue production unsigned-accepted "$A" "$A" 0.23.0; sed -i '/^server|/d' /scn/ps; WATCH_DEPLOY_ENV=production run
+cmp -s "$US" /tmp/us.before && ! grep -q 'unattended-mode-changed' /out/o && ok "server çalışmıyor -> gözetimsiz kontrolleri yok, durum dosyasına dokunulmadı" || no "p32 server yok: $(cat /out/o)"
+cp "$US" /tmp/us.before; good; : >/scn/uenv; WATCH_DEPLOY_ENV=production run
+grep -q 'ALERT check=unattended-env-read server çalışıyor ama env okunamadı' /out/o && alerted unattended-env-read && cmp -s "$US" /tmp/us.before \
+  && grep -q 'check="unattended-env-read"} 0' /var/lib/rw/status.prom && ! grep -q 'unattended-mode-changed' /out/o \
+  && ok "S-P32-K-1 server çalışıyor + env okunamadı -> ALERT unattended-env-read (sessiz atlama yok), durum dosyasına dokunulmadı" || no "p32 env okunamadı: $(cat /out/o)"
+good; WATCH_DEPLOY_ENV=production run
+p18n unattended-env-read && grep -q 'check="unattended-env-read"} 1' /var/lib/rw/status.prom && ok "env yeniden okunur -> unattended-env-read kalktı (status 1)" || no "p32 env geri: $(cat /out/o)"
+good; WATCH_DEPLOY_ENV=prod run
+[ "$RC" = 1 ] && grep -q 'WATCH_DEPLOY_ENV production, staging ya da development olmalı' /out/o && ok "WATCH_DEPLOY_ENV geçersiz -> çalışmaz" || no "p32 wde: rc=$RC $(cat /out/o)"
+L16=""; pls=()
+for i in $(seq 1 16); do x="$(printf '%064x' "$i")"; L16="${L16:+$L16,}$x"; pls+=("20261120T0000${i}Z servis v0.30.$i $x"); done
+pl "${pls[@]}"; ue production unsigned-accepted "$L16" "$(printf '%064x' 16)" 0.30.16; WATCH_DEPLOY_ENV=production run
+grep -q 'BILGI check=unattended-list-size izinli liste dolmak uzere (16/20' /out/o && [ -z "$(uA)" ] && ok "liste 16 öğe -> BİLGİ 'dolmak üzere', ALERT yok" || no "p32 16: $(cat /out/o)"
+ue 'a[$(touch /tmp/pwnu1)]' 'a[$(touch /tmp/pwnu2)]' 'a[$(touch /tmp/pwnu3)]' 'a[$(touch /tmp/pwnu4)]' 'a[$(touch /tmp/pwnu5)]'; WATCH_DEPLOY_ENV=production run
+printf 'mode=a[$(touch /tmp/pwnu6)]\nfp=a[$(touch /tmp/pwnu7)]\n' >"$US"; run
+ls /tmp/pwnu* >/dev/null 2>&1 && no "P32 enjeksiyon: $(ls /tmp/pwnu*)" || ok "S14-2: P32 env/durum değerlerinde a[\$(…)] komut çalıştırmadı"
+grep -q 'unsigned-accepted\|gecersiz' "$US" && ok "geçersiz mod değeri 'gecersiz' olarak normalize edildi" || no "p32 geçersiz mod: $(cat "$US")"
+good; run; rm -f /dd/agent/PUBLISHED.log
 
 mkdir -p /src && cp /w/remote-watch.sh /w/remote-watch.service /w/remote-watch.timer /w/watch.env.example /src/
 mkdir -p /etc/systemd/system
@@ -761,6 +845,15 @@ if command -v node >/dev/null 2>&1; then
     if grep -q "\"$nm\"" "$HERE/../../apps/server/src/rec/types.ts"; then echo "PASS  ad eşlemesi: $nm REC_METRICS'te"
     else echo "FAIL  ad eşlemesi: $nm REC_METRICS'te yok"; echo "SONUÇ-İÇ 1" >>"$TMP/out"; fi
   done
+  # P32 S-P32-r2-2: listFingerprint tanımı JS'te (server açılış alarmının uygulaması gereken biçim) aynı vektörü vermeli.
+  got="$(node -e "const c=require('node:crypto');const l=(' '+'B'.repeat(64)+' , '+'a'.repeat(64)+' ,').split(',').map(x=>x.trim().toLowerCase()).filter(Boolean).sort();console.log(c.createHash('sha256').update(l.join(',')).digest('hex').slice(0,12))")"
+  if [ "$got" = b1da1a175574 ]; then echo "PASS  listFingerprint JS tanımı = betik vektörü (b1da1a175574)"
+  else echo "FAIL  listFingerprint JS tanımı: '$got' (beklenen b1da1a175574)"; echo "SONUÇ-İÇ 1" >>"$TMP/out"; fi
+  # Server uygulaması varsa (K1 paralel) tanım ona da bağlanır: apps/server/src altında listFingerprint yoksa UYARI.
+  if grep -rq 'listFingerprint' "$HERE/../../apps/server/src" 2>/dev/null; then
+    if grep -rq 'b1da1a175574' "$HERE/../../apps/server/test" 2>/dev/null; then echo "PASS  server birim testi aynı listFingerprint vektörünü (b1da1a175574) bekliyor"
+    else echo "FAIL  server listFingerprint var ama birim testi b1da1a175574 vektörünü doğrulamıyor"; echo "SONUÇ-İÇ 1" >>"$TMP/out"; fi
+  else echo "UYARI: server listFingerprint henüz yok (P32 K1); tanım mimari-p32 §5 + guvenlik-raporu S-P32-r2-2"; fi
 else echo "UYARI: host'ta node yok — metrik ayrıştırma testi atlandı"; fi
 grep -E '^(PASS|FAIL)' "$TMP/out" || true
 n="$(sed -n 's/^SONUÇ-İÇ //p' "$TMP/out" | sort -n | tail -1)"

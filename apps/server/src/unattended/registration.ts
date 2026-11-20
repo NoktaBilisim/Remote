@@ -32,6 +32,8 @@ const CODE_MAC_VERSION = 1;
 export interface RegistrationDeps extends UnattendedDeps {
   secrets: SecretBox;
   metrics: Metrics;
+  /** P32 (S-P32-8): `UNATTENDED_AGENT_SHA256` — kayıt kodu yanıtında Admin kurulum notu için. */
+  agentSha256: string | undefined;
 }
 
 /** 80 bit rastgele → 16 × 5 bit Crockford base32. */
@@ -139,7 +141,13 @@ export async function createCode(
       newValue: { customerId, expiresAt: expiresAt.toISOString() },
     });
   });
-  return { id, code: formatRegistrationCode(code), expiresAt: expiresAt.toISOString(), downloadUrl: UNATTENDED_DOWNLOAD_PATH };
+  return {
+    id,
+    code: formatRegistrationCode(code),
+    expiresAt: expiresAt.toISOString(),
+    downloadUrl: UNATTENDED_DOWNLOAD_PATH,
+    agentSha256: d.agentSha256 ?? "",
+  };
 }
 
 /** DELETE /unattended/registration-codes/:id — yalnız bekleyen (kullanılmamış) kod; yoksa 404. */
@@ -240,18 +248,40 @@ async function registeredEvents(
     entity: "unattended_devices",
     entityId: deviceId,
     result: "success",
-    newValue: { customerId: c.customer_id, name: input.name, version: input.version, signed: input.signed, ip: ctx.ip, eventId },
+    newValue: {
+      customerId: c.customer_id,
+      name: input.name,
+      version: input.version,
+      signed: input.signed,
+      ip: ctx.ip,
+      eventId,
+      // P32 (AC-528): kapı modu + beyan edilen ikili özeti (tam 64 hane).
+      gateMode: d.gate.mode,
+      binarySha256: input.sha256,
+    },
   });
 }
 
-/** Kayıt TX'i; kod geçersizse null (çağıran hız kovalarını sayar). Kapı reddi → 409 UNATTENDED_DISABLED. */
+/**
+ * P32 (AC-528): kod geçerli ama kapı reddetti (SHA listede değil / imza kuralı). 409 UNATTENDED_DISABLED olarak yanıtlanır;
+ * `tenantId` koddan gelir, çağıran TX geri alındıktan SONRA ret audit satırını bu firmaya yazar (kod tüketilmez).
+ */
+export class GateRejectedError extends AppError {
+  readonly tenantId: string;
+  constructor(tenantId: string) {
+    super("UNATTENDED_DISABLED");
+    this.tenantId = tenantId;
+  }
+}
+
+/** Kayıt TX'i; kod geçersizse null (çağıran hız kovalarını sayar). Kapı reddi → GateRejectedError (409 UNATTENDED_DISABLED). */
 export async function registerTx(d: RegistrationDeps, ctx: AuditContext, input: RegisterDeviceData): Promise<Registered | null> {
   const now = new Date(d.now());
   const hash = codeHash(d.secrets, input.code);
   return d.db.$transaction(async (tx) => {
     const c = await lockValidCode(tx, hash, now);
     if (!c) return null;
-    if (!d.gate.allows({ signed: input.signed, sha256: input.sha256 })) throw new AppError("UNATTENDED_DISABLED");
+    if (!d.gate.allows({ signed: input.signed, sha256: input.sha256 })) throw new GateRejectedError(c.tenant_id);
     const deviceId = newId();
     const k = { id: deviceId, tenantId: c.tenant_id, customerId: c.customer_id, registeredBy: c.created_by };
     const dev = await insertDevice(tx, k, input, ctx.ip, now);

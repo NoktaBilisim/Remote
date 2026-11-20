@@ -1,3 +1,186 @@
+# QA Raporu — P32 Tur 2 (tur 1 maddeleri + güvenlik kod turu Düşükleri; HEAD a6d8679)
+
+DURUM: GEÇTİ
+
+Kapsam: dal `p32-prod-imzasiz-gozetimsiz` (a6d8679, PR #39). Yalnız Tur 1 "Düzeltilmeli" 1–5 ve güvenlik "P32 — Kod turu"
+Düşükleri (S-P32-K-1, S-P32-K-2, D-3) doğrulandı. Kod değiştirilmedi.
+
+## Test sonucu
+
+| Komut                                                                                       | Sonuç                                                                                                                               |
+| ------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
+| `pnpm -r run lint` / `pnpm -r run typecheck`                                                | 3 paket temiz                                                                                                                       |
+| `pnpm -r run test`                                                                          | contracts 331/331, web 687/687 (+1 yeni), server 738 + 1 atlandı (`fsrv-p28b` `skipIf(!CLAMD_TEST_HOST)`, gerekçeli, P32 dışı)      |
+| Entegrasyon `rs-p32-test` (yeniden yaratıldı, 33532): `unattended-p32-accepted` + `lg-send` | 2 dosya, 31/31 (+1 yeni intervene vakası)                                                                                           |
+| `bash deploy/ops/test-watch.sh`                                                             | SONUÇ: GEÇTİ (S-P32-K-1 iki yeni vaka dahil)                                                                                        |
+| `bash deploy/agent/test-publish-lock.sh`                                                    | SONUÇ: GEÇTİ (S-P32-K-2 iki yeni vaka dahil)                                                                                        |
+| `pnpm --filter @remote/web exec playwright test e2e/unattended.spec.ts`                     | 26 geçti, 4 atlandı (proje/viewport koşullu, tur 1'deki ile aynı), 0 kaldı. Yeni "AC-527 firma seçmemiş Super Admin" iki projede ✅ |
+
+Not: ilk e2e denemesi port 4217'yi kullanan `Remote-p31` worktree'sinin mock-api'si yüzünden açılmadı; ona dokunulmadı, port
+boşalınca yeniden koşuldu. `rs-mysql-test` / `rs-p31-test`'e dokunulmadı.
+
+## Tur 1 maddeleri
+
+| #   | Madde                             | Durum | Kanıt                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| --- | --------------------------------- | ----- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1   | K6 kılavuz (AC-532)               | ✅    | `KULLANIM_KILAVUZU.md` "Müşteri BT için: servisi kurma" (≈5096–5151): yalnız e-postadaki bağlantıdan indir, AC-533 bloğunun açıklaması, `Get-FileHash … -Algorithm SHA256` karşılaştırması **"Yine de çalıştır"dan önce**, eşleşmezse "çalıştırmayın, silin, bildirin", SmartScreen'de "Bilinmeyen yayımcı" + dosya adı kontrolü (Windows'un gerçek Türkçe metni; AC'deki "Bilinmiyor" ile anlamca aynı), AV/EDR istisnası özetle (ya da tam yol + özet), klasör/joker yasak, her sürümde yenileme. Eski "Destek firmanızdan … dosyasını" ifadesi yok (grep). Sorun giderme tablosunda özet uyuşmazlığı satırı (5247). PDF'ler 03:43'te yeniden üretildi (KULLANIM_KILAVUZU.pdf 1.41→1.43 MB). DATASHEET 29/196: imzasız + risk kabul, ADR-0042 ile tutarlı |
+| 2   | Firma seçmemiş SA bandı (AC-527c) | ✅    | `(list)/page.tsx` + `codes/page.tsx` `pickTenant` iken `/unattended/status` çekiyor; `unattended-shell.tsx` `pickTenantRisk` yalnız risk bandı. `p32-mode.test.tsx` (bant var, OFF/TEST/kod düğmesi yok, bant boş durumun üstünde, diğer modlarda yok, yetkisizde yok) + e2e `unattended.spec.ts:275` (iki sayfa, iki tema axe 0, taşma yok)                                                                                                                                                                                                                                                                                                                                                                                                                |
+| 3   | Kayıtta kapı reddi audit (AC-528) | ✅    | `registration.ts` `GateRejectedError(tenantId)`; `register.ts` catch'te TX dışında `failAudit(…,"gate",…, tenantId)` + `signed`. Entegrasyon: tek fail satırı, `{reason:"gate", gateMode:"unsigned-accepted", binarySha256, signed:true}`, firma koddan; **aynı kodla** sonraki kayıt 200 → kod tüketilmedi                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| 4   | AC-526 testleri                   | ✅    | (b) connect `indicatorText` `toBe(deviceIndicatorText(user, tenant, false))` eşitliği; (a) yeni vaka: logoff → `rejoin.indicatorText` `unsigned-accepted`'te signed metniyle eşit, staging `unsigned`'da `DEVICE_INDICATOR_TEST_PREFIX` önekli eşit                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| 5   | Ölü kod (`code-dialog.tsx`)       | ✅    | Yerel `Created` tipi ve yorum kaldırıldı, `CreatedRegistrationCode` doğrudan; implementation.md "Açık bağımlılık … KAPANDI"                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
+
+## Güvenlik kod turu Düşükleri
+
+| Bulgu     | Durum | Kanıt                                                                                                                                                                                                                                          |
+| --------- | ----- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| S-P32-K-1 | ✅    | `remote-watch.sh` server konteyneri varken `seen unattended-env-read`; `U_OK≠1` → `fail` (ALERT, mod bilinmiyor). test-watch: env boş → ALERT + status 0 + durum dosyasına dokunulmadı + mode-changed yok; env geri → DUZELDI, status 1        |
+| S-P32-K-2 | ✅    | `publish-servis.sh` aynı dizinde geçici dosya → kip/sahiplik `stat` ile aktarılır → `mv -f`; hata yolunda geçici silinir, `.env` değişmez. test-publish-lock: yeni inode, 640 + sahiplik korunur, geçici dosya kalmaz; `cat > .env` yok (grep) |
+| D-3       | ✅    | `mimari-p32.md` §8.5: `WATCH_DEPLOY_ENV` boş + mod ≠ off → ALERT, off → ATLANDI; §5 T-7 ve §20.3 m.16: bypass yalnız `RepositoryRole` Admin, `DeployKey` yok, `collaborators?permission=admin` kanıtı                                          |
+
+## AC-533 ile uyum: teknik yazarın "eski servis" kararı
+
+Kılavuz ≈5072: "Dosyayı müşteriye e-posta eki ya da mesajla göndermeyin; güncellemeyi müşteri bilgisayarında kendi teknisyeniniz
+yapsın" + teknisyen panelde gösterilen SHA-256 ile özeti karşılaştırır. **Uyumlu.** AC-533 müşteriye "başka yoldan gönderilen
+dosyayı çalıştırmayın" der; kılavuz da müşteriye ek/mesajla dosya gitmesini yasaklıyor, böylece müşteri BT bölümündeki "Başka yoldan
+gelen dosya" uyarısıyla çelişmiyor. Dosyayı müşteri bilgisayarında güncelleyen teknisyen, müşteri BT'nin yaptığı özet kontrolünü
+kendisi yapıyor (≈5113 "aynı kontrolü o yapar"). Tur 1'deki çelişki (eski 5080 "Destek firmanızdan dosyasını …") giderildi.
+
+## Definition of Done
+
+| Madde                                      | Durum | Not                                                                                                                                  |
+| ------------------------------------------ | ----- | ------------------------------------------------------------------------------------------------------------------------------------ |
+| Tüm AC'ler testle kanıtlı                  | ✅    | AC-523..533 ✅ (526/527c/528 bu turda testli; 532 dokümanı tamam)                                                                    |
+| Birim + entegrasyon yeşil                  | ✅    | Entegrasyonda yalnız P32 dosyaları koşuldu; tam paket sonucu implementation.md beyanı                                                |
+| e2e yeşil                                  | ✅    | `unattended.spec.ts` 26/26 (4 koşullu atlama)                                                                                        |
+| Lint / typecheck temiz                     | ✅    |                                                                                                                                      |
+| Atlanan testler gerekçeli                  | ✅    |                                                                                                                                      |
+| Tasarım–kod uyumu                          | ✅    | D-3 ile mimari metni uygulamaya eşitlendi                                                                                            |
+| Yeni bağımlılık yok                        | ✅    |                                                                                                                                      |
+| Ölü kod yok                                | ✅    |                                                                                                                                      |
+| Dokümantasyon (runbook, ADR, kılavuz, PDF) | ✅    | Kılavuz/API/README/DATASHEET/CHANGELOG + 3 PDF güncel                                                                                |
+| Staging provası (`unsigned-accepted`)      | ⏳    | AC-532 "Test: staging provası" test-operatoru K5 adımı (paket sırasında QA'dan sonra). Bu GEÇTİ, K5 provası yeşil olma şartına bağlı |
+
+## Düzeltilmeli
+
+Yok.
+
+## Öneriler (zorunlu değil)
+
+1. Kılavuz "Eski servis" m.1–2: teknisyenin dosyayı müşteri bilgisayarına **nasıl** götüreceğini tek cümleyle yazın (ör. müşteri
+   bilgisayarındaki tarayıcıdan kanonik alan adıyla indirip özet kontrolü). Böylece "teknisyen kendi makinesinden kopyalar" okuması
+   kalmaz.
+2. Tur 1 öneri 1 (`p28e-recording.spec.ts:330` kararsızlığı) açık; ayrı iş.
+3. Eşzamanlı worktree'ler aynı e2e portunu (4217) kullanıyor; paralel QA koşularında çakışıyor. Port env ile ayrıştırılabilir.
+
+## Olumlu
+
+- Kapı reddi audit'i TX dışında yazılıyor ve testte "aynı kodla sonraki kayıt 200" ile kodun tüketilmediği kanıtlanmış.
+- Intervene göstergesi gerçek logoff → rejoin akışıyla, iki modda (eşitlik + önek) sınanıyor.
+- `.env` atomik yazımı inode değişimiyle test edilmiş; hata yolu `.env`'e dokunmuyor.
+
+---
+
+# QA Raporu — P32 Tur 1 (prod'da imzasız gözetimsiz servis, risk kabul; AC-523..533)
+
+DURUM: DÜZELTİLMELİ
+
+Kapsam: dal `p32-prod-imzasiz-gozetimsiz` (42881a1, PR #39), `docs/gereksinimler.md` §15, `docs/mimari-p32.md` r2,
+`docs/implementation.md` P32-K1/K2/K3. Kod değiştirilmedi.
+
+## Test sonucu
+
+| Komut                                                                                               | Sonuç                                                                                                                                                                                                                                                                                                                                                   |
+| --------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `pnpm -r run lint`                                                                                  | 3 paket temiz                                                                                                                                                                                                                                                                                                                                           |
+| `pnpm -r run typecheck`                                                                             | 3 paket temiz                                                                                                                                                                                                                                                                                                                                           |
+| `pnpm -r run test`                                                                                  | contracts 331/331, web 686/686, server 738 geçti + 1 atlandı (`fsrv-p28b` AC-353 `skipIf(!CLAMD_TEST_HOST)`; gerekçeli, P32 dışı)                                                                                                                                                                                                                       |
+| Entegrasyon (`rs-p32-test`, 127.0.0.1:33532): `unattended-p32-accepted.test.ts` + `lg-send.test.ts` | 2 dosya, 30/30 geçti                                                                                                                                                                                                                                                                                                                                    |
+| `bash deploy/agent/test-publish-lock.sh`                                                            | SONUÇ: GEÇTİ (38 vaka; P32 14)                                                                                                                                                                                                                                                                                                                          |
+| `bash deploy/ops/test-watch.sh`                                                                     | SONUÇ: GEÇTİ (253 PASS)                                                                                                                                                                                                                                                                                                                                 |
+| `pnpm --filter @remote/web e2e -- unattended`                                                       | Filtre uygulanmadı, tüm paket koştu: 653 geçti, 294 atlandı, **1 kaldı**: `p28e-recording.spec.ts:330` (AC-382/383, `toBeGreaterThan`, yük altında WebServer ECONNRESET). P32 diff'i bu dosyaya dokunmuyor. Tek başına yeniden koşu (`p28e-recording` + `unattended`): 46 geçti, 10 atlandı, 0 kaldı. Kararsız test, P32 bulgusu sayılmadı (Öneriler 1) |
+
+## Kabul kriterleri
+
+| AC     | Durum | Kanıt / eksik                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| ------ | ----- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| AC-523 | ✅    | `env-deploy.test.ts` "AC-523: production + unsigned-accepted açılır…", "AC-523: development … DEPLOY_ENV yok … mesajda değer yok"                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
+| AC-524 | ✅    | `env-deploy.test.ts` AC-524 üç vaka (liste boş, ajan SHA listede değil, AGENT_VERSION boş/biçimsiz, ≤ 20 her modda)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
+| AC-525 | ✅    | `env-deploy.test.ts` "4 mod × imza × liste" + entegrasyon: kayıt 200/409, `device.auth` 4403, liste `canConnect:false` + `connectBlockedReason:"unsigned"`, status `{mode, available:true}`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
+| AC-526 | ⚠️    | Connect: entegrasyon "AC-526: … 'TEST' öneki yok" geçiyor, ama yalnız `not.toMatch(/TEST/)` diyor, `signed` moddaki metinle eşitliği denetlemiyor. **Intervene için hiç test yok** (AC'nin istediği "connect/intervene birim (mod → indicatorText)"). `intervene.ts:126` `mode === "unsigned"` kodda doğru, ama kanıt kod okumasından geliyor, testten değil. Web `ModeBanner`: `p32-mode.test.tsx` ✅                                                                                                                                                                                                                                                                                                                                        |
+| AC-527 | ⚠️    | (a) ✅ `env-deploy.test.ts` alarm + `listFingerprint` vektörleri; entegrasyon gate reddi audit + warn (12 hane, tam SHA yok). (b) ✅ `test-watch.sh` (tek seferlik ALERT, unpublished, deploy-env, sürüm uyuşmazlığı). (c) Kısmi: firma bağlamındaki SA bandı görüyor, Admin görmüyor, Admin notu var (`p32-mode.test.tsx`, e2e "AC-527/526 …", "AC-527/526/531 Admin …", iki tema axe 0). **Firma seçmemiş Super Admin `/unattended`'da bandı görmüyor** (`unattended-shell.tsx:76` `ready=…&&!access.pickTenant`). AC "Super Admin `/unattended` sayfasında görür" diyor, en sık SA durumu da firma seçmemiş olanı. `GET /unattended/status` `tenantId:null` ile çalışıyor (`gate.ts` `unattendedStatus`), yani düzeltme kolay → ❌ sayıldı |
+| AC-528 | ⚠️    | Var olan satırlar ✅ (entegrasyon: registered success + `invalid_code`; connect success/unsigned/not_found). **Kayıtta kapı reddinde (listede olmayan SHA → 409, `registration.ts:272`) audit satırı yok.** AC "imzasız servisle yapılan her kayıt … denetim kaydında ayırt edilir" ve "başarılı ve başarısız" diyor; bu modda en anlamlı başarısız kayıt bu. Karar: aynı eylemle (yeni eylem değil) satır yazılmalı                                                                                                                                                                                                                                                                                                                          |
+| AC-529 | ✅    | `test-publish-lock.sh` P32 14 vaka (prod+v liste + sürüm, tekrar yok, prod+dir-* ret, staging+dir-* değişmez, 16 uyarı, 20 ret, kipler 600, son 10 yedek)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| AC-530 | ✅    | `update-p29.test.ts` "AC-530: unsigned-accepted kipte de liste zorlanır…"                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| AC-531 | ✅    | `p32-mode.test.tsx` rozet vakaları + e2e Admin testi (iki tema)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
+| AC-532 | ❌    | ADR-0042 "Sonuçlar" ✅; runbook env tablosu, §8 + §19.1 `echo DUR`, §20.3 m.16 (`gh api` kanıtı dahil), §27.1, §27.8, §27.9, §31.4 ✅. **Kullanım kılavuzu (K6) yazılmamış:** `docs/KULLANIM_KILAVUZU.md`'de `NoktaDestekServis.exe` için yayıncı "Bilinmiyor" + dosya adı + `Get-FileHash … -Algorithm SHA256` karşılaştırması ("Ek bilgi → Yine de çalıştır"dan önce), eşleşmezse çalıştırmama, AV/EDR istisnasının özetle verilmesi yok. Ayrıca kılavuzun 5080. satırında "Destek firmanızdan `NoktaDestekServis.exe` dosyasını …" var; bu AC-533'teki "başka yoldan gönderilen dosyayı çalıştırmayın" uyarısıyla çelişiyor                                                                                                                |
+| AC-533 | ✅    | `customer-templates.test.ts` 4 vaka (alan adı + port, dosya, sürüm, SHA ilk 8…son 8, uyarı, e-postada tam SHA, sürüm boşken parça yok) + entegrasyon `lg-send` "önizleme = gönderilen e-posta"                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
+
+## Düzeltilmeli
+
+1. **[teknik-yazar] K6 — `docs/KULLANIM_KILAVUZU.md`, gözetimsiz servis kurulum bölümü (≈ satır 4847, 5080–5090, "Windows uyarı verirse" ≈ 388):**
+   AC-532'deki koşullu SmartScreen adımını ekle. Sıra şöyle olmalı: "Ek bilgi → Yine de çalıştır"dan **önce** yayıncının
+   "Bilinmiyor", dosya adının `NoktaDestekServis.exe` olduğu ve `Get-FileHash .\NoktaDestekServis.exe -Algorithm SHA256`
+   çıktısının panelde/mesajda gösterilen SHA-256 ile eşleştiği denetlenir. Eşleşmezse dosya çalıştırılmaz ve destek firmasına
+   bildirilir. AV/EDR istisnası dosya özetiyle (ya da tam yol + özet) verilir, klasör jokeriyle verilmez; her sürümde
+   yenilenir. 5080. satırdaki "Destek firmanızdan dosyasını …" ifadesini AC-533 ile uyumlu yap: yalnız kanonik alan adından
+   indirilir. Ardından PDF'ler yeniden üretilir (`docs/pdf/KULLANIM_KILAVUZU.pdf`). DATASHEET'te güvenlik/imza iddiası varsa
+   ADR-0042 ile tutarlı hale getir.
+2. **[frontend-dev] `apps/web/app/(panel)/unattended/unattended-shell.tsx:76,112` — AC-527c:** firma seçmemiş Super Admin
+   (`pickTenant`) `/unattended`'da "firma seçin" boş durumunun üstünde risk bandını görmeli. `GET /unattended/status` bu
+   durumda da çekilsin (sunucu `tenantId:null` kabul ediyor), yalnız `risk` bandı çizilsin (OFF/TEST bantları ve kayıt kodu
+   düğmesi değişmesin). Test: `p32-mode.test.tsx` + e2e senaryosu (`mock-p27.mjs`'e firma bağlamı olmayan SA ekle).
+   Değişiklik yapılmazsa gerekçe implementation.md'ye yazılmalı ve AC metni proje-yoneticisi tarafından daraltılmalı.
+3. **[backend-dev] `apps/server/src/unattended/registration.ts:272` / `register.ts:69-75` — AC-528:** kapı reddinde
+   (kod geçerli, SHA listede değil / imza kuralı) `unattended.device.registered` `result:"fail"` satırı yaz:
+   `{reason:"gate", gateMode, binarySha256, signed}`, tenant koddan gelsin. Satır geri alınan TX'in **dışında** yazılmalı,
+   kod tüketilmemeli. Mevcut per-IP kova bu satırları da sınırlar. Mod `off` reddinde tenant bilinmiyor; satır yazılmıyorsa
+   bunu implementation.md'de belirt. Entegrasyon testi `unattended-p32-accepted.test.ts` "AC-525…409" vakasına satır
+   beklentisini ekle.
+4. **[backend-dev] AC-526 testleri:** (a) intervene yolunda `unsigned-accepted` → gösterge metninde önek yok, `unsigned`
+   (staging) → önek var. Birim ya da entegrasyon olabilir (`intervene.ts:126`). (b) Connect testi metni
+   `signed` moddaki metinle **eşitlik** üzerinden doğrulasın (`deviceIndicatorText(name, tenant, false)` ile karşılaştır),
+   yalnız `/TEST/` yokluğuna bakmasın.
+5. **[frontend-dev] `apps/web/app/(panel)/unattended/code-dialog.tsx:24-28` — ölü kod:** yerel `Created` genişletmesi ve
+   "contracts'a K1 ekleyene kadar" yorumu artık geçersiz (`CreatedRegistrationCode.agentSha256: string` contracts'ta var,
+   `packages/contracts/src/api/unattended.ts:104`). `CreatedRegistrationCode`'u doğrudan kullan. implementation.md P32-K2
+   "Açık bağımlılık" notunu kapat.
+
+## Definition of Done
+
+| Madde                                                  | Durum | Not                                                                                                                                             |
+| ------------------------------------------------------ | ----- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
+| Tüm AC'ler testle kanıtlı                              | ❌    | AC-526 ⚠️, AC-527c ❌, AC-528 ⚠️, AC-532 ❌                                                                                                     |
+| Birim + entegrasyon yeşil                              | ✅    | Entegrasyon yalnız P32 dosyaları koşuldu. Tam paket 1300/1300 sonucu K1 beyanına dayanıyor                                                      |
+| e2e yeşil                                              | ⚠️    | P32 spec'leri yeşil. `p28e-recording` tam koşuda kararsız (P32 dışı)                                                                            |
+| Lint / typecheck temiz                                 | ✅    |                                                                                                                                                 |
+| Atlanan testler gerekçeli                              | ✅    | Tek atlama env koşullu                                                                                                                          |
+| Tasarım–kod uyumu, sapmalar gerekçeli                  | ✅    | Sapmalar implementation.md'de gerekçeli: test yerleri, `WATCH_DEPLOY_ENV` boş → ALERT, ruleset bypass = yönetici rolü (güvenlik onayı bekliyor) |
+| Yeni bağımlılık yok / gerekçeli                        | ✅    | Yok                                                                                                                                             |
+| Migration / yeni tablo yok (AC-528)                    | ✅    |                                                                                                                                                 |
+| Env üçlüsü (.env.example + env.ts + compose + runbook) | ✅    | `UNATTENDED_AGENT_VERSION`, `WATCH_DEPLOY_ENV` (watch.env.example)                                                                              |
+| Gizli bilgi / PII log                                  | ✅    | Log ve audit'te SHA öneki var; token/kod/tam SHA yok (testli)                                                                                   |
+| a11y + iki tema                                        | ✅    | e2e axe 0, iki tema (SA bandı, Admin diyaloğu). Rozet ipucu `sr-only`                                                                           |
+| Ölü kod yok                                            | ❌    | Düzeltilmeli 5                                                                                                                                  |
+| Dokümantasyon (runbook, ADR, kılavuz, PDF)             | ❌    | Kılavuz/PDF K6 eksik                                                                                                                            |
+| Staging provası (`unsigned-accepted`)                  | ❌    | K5 henüz yapılmadı (test-operatoru); AC-532 "Test: staging provası"                                                                             |
+
+## Öneriler (zorunlu değil)
+
+1. `p28e-recording.spec.ts:330` tam e2e koşusunda yük altında kararsız. Süre eşiği ya da bekleme koşulu sağlamlaştırılsın
+   (ayrı iş).
+2. `pnpm --filter @remote/web e2e -- unattended` CLAUDE.md'deki kalıbıyla filtre uygulamıyor, tüm paketi koşuyor. Doğru
+   kullanım `pnpm --filter @remote/web exec playwright test e2e/unattended.spec.ts`; runbook/CLAUDE.md'ye not düşülebilir.
+3. Güvenlik K4'te, runbook §20.3 m.16'daki "bypass yalnız depo yöneticisi rolü" sapmasını açıkça onaylasın.
+
+## Olumlu
+
+- `listFingerprint` tek tanım: server ve kabuk ortak vektörlerle çapraz bağlanmış (`585d6c7c7e65` / `b1da1a175574`).
+- Kapı reddi audit + warn dakikalık kısıtla bağlanmış, tam SHA'nın sızmadığı testte doğrulanmış.
+- `publish-servis.sh` sınır denetimi hiçbir şey yazmadan önce yapılıyor; yedek kipi 600 ve budama ad sırasıyla (mtime hatası da düzeltilmiş).
+- remote-watch'ta tek seferlik ALERT'in gönderim hatasında yeniden denenmesi ve server okunamazken durum dosyasına dokunulmaması testli.
+
+---
+
 # QA Raporu — P30b Tur 1 (AC-498 r2: kontrol açıkken çizim)
 
 DURUM: GEÇTİ. Güvenlik (bu paket için tek denetim): Kritik 0 / Yüksek 0 / Orta 0 / Düşük 3.

@@ -92,6 +92,8 @@ export function openDeviceSession(
   tenantId: string,
   dev: repo.DeviceRow,
   method: Opened["method"],
+  /** P32 (AC-528): `{gateMode, binarySha256, signed}` — başarı audit'ine eklenir. */
+  gateAudit: Record<string, string | boolean>,
 ): Promise<Opened> {
   return d.db.$transaction(async (tx) => {
     const now = new Date(d.now());
@@ -114,6 +116,7 @@ export function openDeviceSession(
         stepUpMethod: method,
         mode: "ask",
         consentRequested: "ask",
+        ...gateAudit,
       },
     });
     return {
