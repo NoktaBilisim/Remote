@@ -102,7 +102,7 @@ func open(monitorID int, opt streamOpts) (*source, error) {
 		if errors.Is(err, errStreamReopen) && try == 0 {
 			st.close()
 			p.st = nil
-			p.opt.lateExclude = false
+			p.opt.lateExclude, p.opt.haltFirst = false, false
 			continue
 		}
 		break
@@ -200,6 +200,10 @@ func (p *pipeline) grab(ctx context.Context, done <-chan struct{}) (bool, error)
 		return false, nil
 	}
 	if errors.Is(err, errStreamStopped) {
+		// Dışlamasız akışın son karesi penceremizi içerebilir: keep-alive/PLI ile yeniden gitmesin (D-392-2).
+		if !p.st.excluded.Load() {
+			p.cur = nil
+		}
 		p.st.close()
 		p.st = nil
 		p.retryAt = time.Now().Add(reopenMin)

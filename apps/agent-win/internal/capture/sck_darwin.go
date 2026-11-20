@@ -246,7 +246,6 @@ type sckStream struct {
 	output   objc.ID
 	slot     *frameSlot
 	w, h     int
-	display  uint32
 	excluded atomic.Bool // kendi uygulamamız filtrede hariç
 	quit     chan struct{}
 	wg       sync.WaitGroup
@@ -256,6 +255,7 @@ type sckStream struct {
 type streamOpts struct {
 	noExclude   bool // pozitif kontrol: kendi uygulamayı hariç tutma
 	lateExclude bool // açılışta listede yokmuş gibi davran (excludeLater yolunu zorlar)
+	haltFirst   bool // ilk kare beklenmeden yeniden açılış iste (Open yeniden açılış dalı)
 }
 
 // openStream displayID ekranı için akışı başlatır.
@@ -282,6 +282,9 @@ func openStream(displayID uint32, opt streamOpts) (*sckStream, error) {
 	if !s.excluded.Load() && !opt.noExclude {
 		s.wg.Add(1)
 		go s.excludeLater()
+	}
+	if opt.haltFirst {
+		s.slot.halt(true)
 	}
 	return s, nil
 }
@@ -340,7 +343,6 @@ func (s *sckStream) start(content objc.ID, displayID uint32, opt streamOpts) err
 	}
 	excl, found := ownApps(content, opt.noExclude || opt.lateExclude)
 	s.excluded.Store(found)
-	s.display = displayID
 	filter, err := newFilter(disp, excl)
 	if err != nil {
 		return err

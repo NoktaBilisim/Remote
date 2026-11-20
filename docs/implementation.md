@@ -18089,10 +18089,13 @@ açılışta listelemediği koşular olduğu **çıkarımdır** (eski test `init
 
 **Düzeltme.** `excludeLater` uygulamamızı listede görünce artık filtre güncellemez; yuvayı `halt(true)` ile durdurur,
 `grab` `errStreamReopen` alınca akışı kapatır, **son kareyi atar** (`p.cur = nil`) ve beklemeden dışlamalı filtreyle
-yeniden açar; ilk taze kare gelene kadar kodlama yapılmaz. Sistem durdurması (`errStreamStopped`) eskisi gibi son kareyi
-korur. `Open` ilk kareyi beklerken yeniden açılış isteği gelirse (ilk kare > 1 sn) bir kez dışlamalı yeniden açar
-(eskiden `FirstFrame` hatası olurdu). Dışlama öncesi ≤ 1 sn'lik (`sckExcludeEvery`) görünürlük tasarımdaki gibi kalır.
-`tryExclude` kaldırıldı. Bilinen sınır: yeniden açılan akış yine uygulamamızı listelemezse döngü en çok saniyede bir
+yeniden açar; ilk taze kare gelene kadar kodlama yapılmaz. Sistem durdurması (`errStreamStopped`) dışlamalı akışta son
+kareyi korur; dışlamasız akışta (penceremizi içerebilir) atar (D-392-2, güvenlik raporu; `TestP28fK2AC392StoppedUnexcludedDropsFrame`).
+`Open` ilk kareyi beklerken yeniden açılış isteği gelirse bir kez dışlamalı yeniden açar (eskiden `FirstFrame` hatası
+olurdu; `TestP28fK2AC392OpenReopenBeforeFirstFrame`, `streamOpts.haltFirst` kancası). **Bilinen sınır (D-392-1, güvenlik
+raporu; tasarımda tanımlı değil):** dışlamasız açılan akışta, uygulamamız listede görünene kadar (≤ `sckExcludeEvery`
+1 sn + `SCShareableContent` yanıtı; takılırsa en çok ~6 sn) taze karelerde penceremiz gidebilir. `tryExclude` ve
+kullanılmayan `sckStream.display` kaldırıldı. Test, dışlama öncesi macenta görülmezse düşer (pozitif kontrol). Bilinen sınır: yeniden açılan akış yine uygulamamızı listelemezse döngü en çok saniyede bir
 yeniden açar (sınırlı; gözlenmedi).
 
 **Tasarımdan sapma.** ADR-0037 m.2 "excludingApplications: [kendi uygulamamız]" korunur; yalnız geç dışlama

@@ -440,6 +440,9 @@ func TestP28fK2AC392LateWindowExcluded(t *testing.T) {
 	if firstAt.IsZero() || reopenedAt.IsZero() || src.p.st == nil || !src.p.st.excluded.Load() {
 		t.Fatalf("uygulama sonradan dışlanmadı: dışlama öncesi %d kare (%d macenta), sonrası %d", pre, preMag, post)
 	}
+	if preMag == 0 {
+		t.Fatalf("pozitif kontrol: dışlama öncesi macenta görülmedi (%d kare); 'sonrası 0' kanıt sayılmaz", pre)
+	}
 	lag := firstAt.Sub(reopenedAt)
 	if postMag != 0 || lag > time.Second {
 		t.Fatalf("dışlama sonrası: ilk taze kare %v (≤ 1 sn), macenta %d/%d; öncesi %d/%d",
@@ -449,7 +452,51 @@ func TestP28fK2AC392LateWindowExcluded(t *testing.T) {
 		pre, preMag, lag.Round(time.Millisecond), post)
 }
 
-// Sistem durdurması (errStreamStopped: son kare korunur) ile dışlama yeniden açılışı (errStreamReopen: son kare
+// Open ilk kareyi beklerken yeniden açılış istenirse (excludeLater ilk kareden önce) hata dönmez: akış bir kez yeniden
+// açılır, kancalar temizlenir ve ilk kare ikinci akıştan gelir.
+func TestP28fK2AC392OpenReopenBeforeFirstFrame(t *testing.T) {
+	needCapture(t)
+	src, err := open(1, streamOpts{lateExclude: true, haltFirst: true})
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	defer src.Close()
+	if src.p.opt.lateExclude || src.p.opt.haltFirst {
+		t.Fatalf("yeniden açılış dalı koşmadı: opt %+v", src.p.opt)
+	}
+	if src.p.st == nil || src.p.cur == nil {
+		t.Fatal("ikinci akış ya da ilk kare yok")
+	}
+	src.p.st.slot.mu.Lock()
+	reopen := src.p.st.slot.reopen
+	src.p.st.slot.mu.Unlock()
+	if reopen {
+		t.Fatal("ikinci akış da yeniden açılış bekliyor")
+	}
+	if n := framesFor(t, src, 500*time.Millisecond, nil); n == 0 {
+		t.Fatal("yeniden açılan akıştan kare gelmedi")
+	}
+}
+
+// D-392-2: dışlamasız akış sistemce durursa son kare (penceremizi içerebilir) atılır; dışlamalı akışınki korunur.
+func TestP28fK2AC392StoppedUnexcludedDropsFrame(t *testing.T) {
+	for _, excluded := range []bool{false, true} {
+		st := &sckStream{slot: newSlot(), quit: make(chan struct{})}
+		st.excluded.Store(excluded)
+		st.slot.stop()
+		cur := NewNV12(2, 2)
+		p := &pipeline{st: st, cur: cur}
+		changed, err := p.grab(context.Background(), make(chan struct{}))
+		if changed || err != nil || p.st != nil {
+			t.Fatalf("excluded=%v: grab %v %v st=%v", excluded, changed, err, p.st)
+		}
+		if kept := p.cur == cur; kept != excluded {
+			t.Fatalf("excluded=%v: son kare korundu=%v", excluded, kept)
+		}
+	}
+}
+
+// Sistem durdurması (errStreamStopped: dışlamalı akışta son kare korunur) ile dışlama yeniden açılışı (errStreamReopen: son kare
 // atılır) ayrışır; ikisi birlikte gelirse yeniden açılış önceliklidir.
 func TestP28fK2AC392SlotReopenDistinct(t *testing.T) {
 	s := newSlot()
