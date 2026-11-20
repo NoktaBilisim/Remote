@@ -2009,7 +2009,7 @@ jobs:
         id: b
         env:
           GOPROXY: "off"
-          GOFLAGS: -mod=readonly
+          GOFLAGS: -mod=readonly -buildvcs=false   # VCS damgası gerekmez; CI kabında "error obtaining VCS status" (v0.25.0)
           CGO_ENABLED: "0"
           GOOS: linux
           GOARCH: amd64

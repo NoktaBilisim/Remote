@@ -5,9 +5,9 @@ Biçim [Keep a Changelog](https://keepachangelog.com/tr/1.1.0/), sürümleme [Se
 
 ## [Unreleased]
 
-## [0.25.0] - 2026-11-20
+## [0.25.1] - 2026-11-21
 
-İlk prod istemci sürümü (prod güncelleme anahtarları gömülü; bu sürümden sonra istemciler kendini otomatik günceller).
+İlk prod istemci sürümü (prod güncelleme anahtarları gömülü; bu sürümden sonra istemciler kendini otomatik günceller). `v0.25.0` etiketi CI yapılandırma hatasıyla Release üretmedi (imzalayıcı derlemesinde `-buildvcs=false` eksikti, `LINUX_WAYLAND_CONTROL` tanımsızdı); aynı kod `v0.25.1` olarak yayınlandı.
 
 ### Güvenlik / Düzeltildi — macOS geç açılan pencerelerin dışlanması (AC-392, PR #40)
 
