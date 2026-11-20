@@ -598,6 +598,10 @@ model SupportRequest {
   secretHash     String    @unique @map("secret_hash") @db.Char(64) // SHA-256(talep sırrı) hex; düz sır DB'de yok
   clientInstance String    @map("client_instance") @db.Char(22) // AC-143 örnek başına 1 bekleyen
   clientVersion  String?   @map("client_version") @db.VarChar(20) // P19: WEB'de NULL (CHECK source_version_chk: WEB ⇔ NULL)
+  // P31 (mimari-p31 §5; AC-511): istemcinin beyan ettiği OS. NULL = windows (eski istemci / Windows gövdesi). CHECK'ler
+  // migration.sql'de (elle): client_os_chk ikili enum 'windows'|'macos' (tam küçük harf), source_client_os_chk WEB ⇒ NULL.
+  // Oluşturmada yazılır, sonra değişmez; kişisel veri değil (anonimleştirmede korunur).
+  clientOs       String?   @map("client_os") @db.VarChar(10)
   customerName   String?   @map("customer_name") @db.VarChar(80)
   customerPhone  String?   @map("customer_phone") @db.VarChar(16) // E.164
   customerEmail  String?   @map("customer_email") @db.VarChar(254)

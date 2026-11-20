@@ -17560,6 +17560,274 @@ araçların kontrolde görünmesini istiyor). (2) `data-control` kontrol açıkl
 - Sapma: `adhocOnlyTitle` kısaltıldı (gövdeyle tekrar); 2. adımda koşulsuz "Çöp Sepetine Taşı'yı değil" kaldırıldı (S-r4-2); `**` işaretleri yok (t() düz metin).
 - e2e mock availability `macosSigning:"adhoc"`; p28f-macos.spec ana senaryo prod ad-hoc + notarized/test/eski sunucu/geçersiz; 390 px.
 
+## P31-D — `support_requests.client_os` migration (dba, 2026-11-20; mimari-p31 §5, §15; AC-511)
+
+### Değişen dosyalar
+
+- `apps/server/prisma/schema.prisma`: `SupportRequest.clientOs String? @map("client_os") @db.VarChar(10)`.
+- `apps/server/prisma/migrations/20261129000000_p31_request_client_os/migration.sql` (sütun + `support_requests_client_os_chk` +
+  `support_requests_source_client_os_chk`, tek COPY ALTER) ve `down.sql` (elle; DROP CHECK ×2 + DROP COLUMN + kayıt).
+- `apps/server/prisma/sql/grants.sql`: yalnız yorum — tablo düzeyi INSERT/UPDATE `client_os`'u kapsar, yeni GRANT yok.
+- `apps/server/test/integration/p31-schema-d.test.ts` (yeni, 5 test); `test/helpers/requests.ts` `createRequestRow` + `clientOs?`;
+  `test/integration/session-history-p8.test.ts` ikili CHECK sayısı 82 → 83.
+- `deploy/mysql/check-app-grants.sh`: P31 bloğu (+11 satır).
+- `docs/db-notlari.md` "P31"; `docs/mimari-p31.md` §5 sapma notu.
+
+### Tasarımdan sapma
+
+`client_os_chk` düz `IN` yerine `CAST(client_os AS BINARY) IN ('windows','macos')` (ADR-0014): düz IN tablo harmanlamasında
+`'MACOS'` ve `'macos '`'u kabul ediyordu (ölçüldü). Sıkılaştırma; davranış §5 ile aynı.
+
+### B1 için notlar
+
+- Değer tam küçük harf `windows`|`macos`; diğerleri 3819 `support_requests_client_os_chk`.
+- WEB talebinde `client_os` yazılmaz (3819 `support_requests_source_client_os_chk`).
+- Test DB: `rs-p31-test` (127.0.0.1:33474) açık bırakıldı; iş bitince `TEST_DB_CONTAINER=rs-p31-test apps/server/scripts/test-db.sh down`.
+
+### Komutlar ve sonuç
+
+`pnpm db:generate` OK; server typecheck + lint temiz; unit 725 geçti (1 atlandı); entegrasyon 11 dosya / 120 test geçti
+(p31-schema-d, p19-schema-j1, session-history-p8, db-grants, tenant-purge-meta-p16, retention-p13a-db, requests-p8b/-2/-3,
+p19-web-j2, portal-p21-requests); `check-app-grants.sh` 966/966 PASS; up → down → up döngüsünde `migrate diff` 0.
+Tam `test:int` koşulmadı.
+
+## P31-F — Web: `/r/` kabul kartı macOS indirmesi, panel/müşteri/portal notu, e2e (frontend-dev, 2026-11-20; mimari-p31 §3.1, §14 D-6, §15.3; AC-520, AC-521)
+
+Rotalar: **yeni rota yok.** Değişen ekranlar (test operatörü için):
+
+| Yol                                                                | Auth   | Ne değişti                                                                                                                                                                                                                                                            |
+| ------------------------------------------------------------------ | ------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `/r/<ref>` (kabul kartı)                                           | Hayır  | macOS masaüstünde (availability `macos:true`) indirme "Uzaktan kontrol gerekiyorsa Nokta Destek'i (macOS) indirin", adres `…request-download?ref=<ref>&os=macos`; altında kaynağa çapalı uyarı (`gm.adhocOnlyTitle/Body`) + firma adı cümlesi. Diğer sistemler aynen. |
+| `/portal/new-request` (kabul kartı)                                | Portal | Aynı bileşen; mutlak `links.downloadUrl`'e `&os=macos`.                                                                                                                                                                                                               |
+| `/portal`                                                          | Portal | Firma dosyası kartında "Bu bağlantı Mac'te macOS uygulamasını (.zip) indirir." (aria-label'a da eklendi).                                                                                                                                                             |
+| `/settings/support-requests` (Genel bağlantı)                      | Evet   | Aynı not (`download-mac-note`).                                                                                                                                                                                                                                       |
+| `/customers` (Genel bağlantı şeridi), `/customers/<id>` (Bağlantı) | Evet   | Aynı not (`general-mac-note`, `customer-mac-note`).                                                                                                                                                                                                                   |
+
+Değişen / yeni dosyalar (yalnız `apps/web`):
+
+- `app/r/[ref]/waiting-parts.tsx`: `RequestDownloadOffer` (`windows | loading | macos+variant`), saf `requestDownloadOffer(os, offer)`, sunumsal `RequestDownload`; `AcceptedCard` isteğe bağlı `download` prop'u (varsayılan Windows = bugünkü davranış).
+- `app/r/[ref]/waiting-room.tsx`: cihaz OS'u `agentOsOf(readSupportEnv())` (`useSyncExternalStore`), macOS'ta mevcut `useAgentOffer("macos")` (P28f availability, fail-closed) **bekleme sırasında** çağrılır → kabul kartı açıldığında karar çoğunlukla hazır, `role="alert"` kart içeriği sonradan yer değiştirmez.
+- `lib/agent-download.ts`: `requestDownloadHref(base, os)` (göreli/mutlak taban, mevcut sorgu korunur; Windows adresi bayt bayt aynı).
+- `messages/tr.json`: yeni `wr.downloadMac`, `gm.firmNameNotProof`, `rq.linkMacNote`; **`gm.adhocOnlyBody` metni değişti** (anahtar aynı, K-P31-10/§15.3: kanaldan bağımsız, OKUBENI son paragrafının web eşi; oturum sayfası `session/[token]/agent-download.tsx` de bu metni gösterir — o dosyanın koduna dokunulmadı).
+- Panel/portal notu: `app/(panel)/settings/support-requests/sections.tsx`, `app/(panel)/customers/general-link.tsx`, `app/(panel)/customers/[id]/page.tsx`, `app/portal/(app)/page.tsx` (yalnız metin satırı).
+- Testler: yeni `app/r/[ref]/waiting-parts.test.tsx` (karar tablosu, Windows/macOS/test/notarized/loading, mutlak taban), `lib/agent-download.test.ts` (+`requestDownloadHref`), yeni `e2e/p31-mac-request.spec.ts` (10 test: ad-hoc, kapı kapalı, availability 429/500, notarized, gecikmeli availability iskeleti, Linux UA → Windows, iki tema × 390/1280 axe 0 + taşma yok, portal, panel üç not). Metin değişikliği nedeniyle güncellenen: `app/session/[token]/mac-guide.test.tsx`, `e2e/p28f-macos.spec.ts` (yalnız beklenen metin).
+
+5 durum (kabul kartı indirme satırı): loading = macOS availability beklenirken iskelet (`wr-download-loading`, `aria-busy`, bağlantı yok → yanlış dosya inemez); success = Mac/Windows bağlantısı; error/partial = availability hatası, 429 ya da kapı kapalı → bugünkü Windows bağlantısı (fail-closed, gerileme yok); empty uygulanmaz (bağlantı her zaman var).
+
+Kararlar / sapmalar:
+
+- **Uyarı varyantı:** `/r/` Mac kartında uyarı `variant !== "notarized"` iken gösterilir (ad-hoc ve staging `test` derlemesi "Yine de Aç" ister). Notarize derlemede gösterilmez — oturum sayfasının `gm.neverTitle` ("asla Yine de Aç istemez") kuralıyla çelişmemek için. Oturum sayfası bugünkü gibi yalnız `adhoc`'ta gösterir (değişmedi).
+- **Firma adı cümlesi:** görev tanımı Mac kartında istediği için ayrı anahtar `gm.firmNameNotProof` ile uyarının ikinci satırı olarak eklendi; mimari-p31 §15.3 tablosu bu cümleyi yalnız OKUBENI için listeler (`/r/` satırında yok) — mimar/qa isterse kaldırılabilir, tek satır.
+- **`gm.adhocOnlyTitle`** güvenlik kod turu S-P31-K1 ile değişti (294c3cf): "“Yine de Aç” yalnız resmi adresten indirdiğiniz uygulama için" — kanala değil kaynağa çapalı.
+- **Fail-closed etiket notu:** availability hatası (429/ağ) varken macOS kapısı gerçekte açıksa düz bağlantı (`os` yok) sunucuda UA'dan yine `.zip` seçebilir (K-P31-2), ama etiket "Windows programını" yazar ve uyarı gösterilmez. Engelleyici değil (dosya doğru, metin muhafazakâr); qa/güvenlik bilgisine.
+- Contracts'tan yeni tip içe aktarılmadı (`requestDownloadQuerySchema` vb. web'de gerekmiyor; paralel B1'e bağımlılık yok). API sözleşmesinde olmayan alan kullanılmadı.
+- Tasarım: yeni primitif yok (`Alert`, `Skeleton` mevcut); renk/boşluk token'lardan; bağlantı min 44 px; ikonlar mevcut (`Download`). DESIGN.md değişikliği gerekmedi.
+
+Komutlar (hepsi yeşil): `pnpm --filter @remote/web lint` · `typecheck` · `test` (70 dosya, 688 test) · `npx playwright test e2e/p31-mac-request.spec.ts e2e/p19-j5.spec.ts e2e/portal-p21.spec.ts e2e/customers.spec.ts e2e/p28f-macos.spec.ts e2e/p28g-linux.spec.ts e2e/p15.spec.ts e2e/p10-account.spec.ts e2e/p6-agent-download.spec.ts --project=desktop --project=mobile` → 162 geçti, 100 atlandı (desktopOnly), 0 hata. Tüm e2e takımı koşulmadı.
+
+### P31-F — QA tur 2 düzeltmesi (frontend-dev, 2026-11-20)
+
+- **e2e kararsızlığı (qa tur 2 madde 1):** sahte `/__e2e/p19/accept` kabul mesajını yalnız o an bağlı sokete gönderir; sayfanın `/ws/request` soketi henüz bağlanmamışsa mesaj kayboluyordu. `e2e/p31-mac-request.spec.ts`'e `acceptRequest()` eklendi: tetikleme + `wr-accepted` görünürlüğü `expect(...).toPass()` içinde (20 sn, 250/500/1000 ms aralık) yinelenir; `toAccepted` ve portal testi bunu kullanır. Yinelenen `request.accepted` istemcide aynı fazı yeniden kurar (idempotent). Sahte sunucu (`mock-p19.mjs`) değişmedi — diğer spec'leri etkilememek için; seri koşu gerekmedi.
+- **S-P31-K1 başlık testi (qa tur 2 madde 2):** `gm.adhocOnlyTitle` ("“Yine de Aç” yalnız resmi adresten indirdiğiniz uygulama için") artık doğrulanıyor: `app/r/[ref]/waiting-parts.test.tsx` (RequestDownload ad-hoc + AcceptedCard macOS), `e2e/p31-mac-request.spec.ts` (ad-hoc + portal testi), `e2e/p28f-macos.spec.ts` AC-503 ad-hoc (`mac-adhoc-only-this`). Hepsinde eski metin "yalnız bu sayfadaki indirme" için negatif beklenti var (uyarı + `body`).
+- Komutlar: `pnpm --filter @remote/web test` (70 dosya, 688 test geçti) · `typecheck` · `lint` temiz · `pnpm exec playwright test e2e/p31-mac-request.spec.ts --repeat-each=5` → 50 geçti / 50 atlandı / 0 hata · `e2e/p28f-macos.spec.ts` → 15 geçti / 15 atlandı · iki dosya birlikte `--repeat-each=5` iki kez → her biri 125 geçti / 125 atlandı / 0 hata.
+
+## P31-O — Caddy `@agentZipFirm`, nginx hız sınırı, runbook (devops, 2026-11-20; mimari-p31 §9, §15.1, §15.3, §15.4; AC-510, AC-520, AC-522)
+
+- `deploy/Caddyfile`: `@agentZipFirm` (`@agentExeFirm`'in altında, `handle /downloads/*` 404'ünden önce) → `forward_auth`
+  `uri /internal/agent-ready/macos-firm`, `header_up X-Forwarded-Uri {path}` → `agent_zip_file`. `{path}` forward_auth içinde özgün
+  yolu verir (test: X-Forwarded-Uri = `/downloads/<tam ad>.zip`, sorgu dizesiz). Log maskesi değişmedi (yalnız yorum).
+- `deploy/test-caddy.sh`: §15.1 satır 1–7; ek olarak eski sunucu kayması (sahte server `macos-firm` → 404 ⇒ zip 404), geri alınmış
+  Caddyfile provası (blok sed ile silinmiş üçüncü Caddy ⇒ 404, forward_auth çağrılmaz), HEAD, iki firma adı aynı SHA, çapraz kapı,
+  13 zip biçimli kötü ad, `/internal/agent-ready/macos-firm` dışarıdan 404. Sahte server `macos-firm`'de fail-closed'u taklit eder
+  (URI tam desen değilse 404). `"$FIRM.zip"` kötü ad listesinden çıkarıldı (artık geçerli yol). Mutasyon: `"/downloads/***"`
+  kopyalanırsa 9 FAIL. Sonuç: GEÇTİ (shellcheck -S warning temiz).
+- `deploy/nginx/remote.noktabilisim.net.conf` + `test-nginx.sh`: §15.4. **Sapma (ad):** `rs_dl_key`/`rs_dl` yerine `remote_dl_key`/`remote_dl`
+  — dosyanın kuralı yalnız `remote_` önekli http düzeyi adlar (sunucudaki diğer vhost'larla çakışmasın). Davranış aynı. Ön koşul
+  (gerçek IP) sağlanıyor: Cloudflare kaydı DNS only (runbook §8.3); `real_ip` gerekmedi. `error_log crit` korunur (red satırı tam
+  istek satırını `error` düzeyinde yazar → ref sızmaz; test hata logunda ref yok). Test: 1. istek mevcut firma `.exe` isteği, 2–6
+  geçer, 7. → 429, `.exe` aynı kova, `/api/` 12 istek ve kapsam dışı yollar sınırsız, 429 erişim logunda. Sonuç: GEÇTİ.
+  Kapsam `NoktaDestek-linux`'u da içerir (§15.4 deseni); gözcüler (`agent-watch` günde 1, `publish-*.sh` ≤ 10 deneme × 3 sn) sınırda değil.
+- `.github/workflows/agent-win.yml` `sign-mac`: Developer ID zip'indeki `OKUBENI.txt` ↔ `build/macos/OKUBENI.txt` `cmp` (stg/adhoc için
+  `package-mac`'te zaten vardı; "profil başına cmp" artık üç profili kapsar). actionlint temiz.
+- `docs/runbook.md`: §8.3 notu (DNS only ↔ limit_req) + yeni §32 (dosyalar, yayın sırası sunucu → iç uç doğrulama → Caddyfile → nginx,
+  staging `curl -I` komutları, ters geri alma, hız sınırı işletimi, ref sızdı → ref yenile Mac, `CLIENT_OUTDATED`, R-P31-4).
+  Staging komutları DENENMEDİ (sunucuya bağlanılmadı); geri alma/kayma CI'da (test-caddy) denendi.
+- **Yapılmadı — OKUBENI metinleri (AC-520):** `apps/agent-win/build/macos/OKUBENI{,-stg,-adhoc}.txt` bu pakette değiştirilmedi
+  (koordinatör kısıtı: `apps/` dokunulmaz; düzenleme girişimi reddedildi). Uygulanacak metin (cümleler bölünmeden, her biri tek satır/paragraf):
+  - `OKUBENI-adhoc.txt`: son paragraf ("“Yine de Aç”ı YALNIZ teknisyeninizle görüşürken …" üç satırı) yerine sırayla
+    (1) "Pencerede firmanızın adı ya da teknisyen doğrulama kodu görünür; bu yalnız doğru firmaya bağlandığınızı gösterir, dosyanın güvenli olduğunu göstermez."
+    (2) "Mac'te dosyayı saklamayın; her destek isteğinde firmanızın bağlantısından yeniden indirin, eski klasörü silin."
+    (3) "“Yine de Aç”ı yalnız tarayıcınızda remote.noktabilisim.net adresinden indirdiğiniz Nokta Destek için kullanın (Finder → Bilgi Al → “Nereden” satırı https://remote.noktabilisim.net/ ile başlamalı). Firmanız size yalnız bağlantı gönderir, dosya göndermez. Dosya ek olarak geldiyse açmayın."
+  - `OKUBENI-stg.txt`: 3. adımdan sonra aynı (1), (2), (3); (3)'te host `185.126.217.99:4450` (runbook staging kökeni).
+  - `OKUBENI.txt` (Developer ID): **sapma önerisi** — dosya "Nokta Destek hiçbir zaman “Yine de Aç” istemez" der (K-P28f-r4-11 "değişmez");
+    (3)'ün "Yine de Aç" kısmı bununla çelişir. Önerilen: mevcut uyarı korunur, ardından "Nokta Destek'i yalnız tarayıcınızda
+    remote.noktabilisim.net adresinden indirin (Finder → Bilgi Al → “Nereden” satırı https://remote.noktabilisim.net/ ile başlamalı).
+    Firmanız size yalnız bağlantı gönderir, dosya göndermez. Dosya ek olarak geldiyse açmayın." + (1) + (2). Mimar onayı gerekir.
+- Web eşi (`gm.adhocOnlyBody`, tr.json) (3) ile aynı metni taşıyor (frontend). Bu dosyalar yazılmadan 0.24.0 etiketi atılmamalı.
+
+## P31-B1 — Sunucu: platforma göre firma indirmesi, `macos-firm` iç ucu, talepte `clientOs` (backend-dev, 2026-11-20; mimari-p31 §3.1, §5, §14, §15.1, §15.3; AC-509..511, AC-520, AC-521)
+
+Değişen dosyalar (`git diff origin/main -- apps/server packages/contracts`):
+
+- `packages/contracts/src/api/requests.ts`: `REQUEST_CLIENT_OS = ["windows","macos"]`, `RequestClientOs`, `requestClientOsSchema`
+  (yeni enum; resolve'un `ClientOs`'u `linux` içerdiği için kullanılmadı, S-P31-7). `createRequestInputSchema.clientOs` isteğe
+  bağlı (Windows gövdesi değişmez, D-1). `requestDownloadQuerySchema = { os?: requestClientOsSchema }`.
+- `apps/server/src/lib/agent-os.ts` (yeni): `osFromUserAgent(ua)`: `Macintosh|Mac OS X` ve iPhone/iPad/iPod değilse `macos`,
+  aksi (UA yok, Windows, Linux, iOS) `windows`. UA güvenlik kararı değil, yalnız aynı ref için ikili seçer. UA loglanmaz.
+- `requests/ref.ts`: `FirmFileExt = ".exe" | ".zip"`; `requestFileName/requestDownloadLocation(label, ref, os = "windows")`
+  (varsayılan ad bayt bayt aynı). `FIRM_ZIP_URI` (tam desen, harf duyarlı, sorgu dizesiz). `parseFirmDownloadUri(uri, ext)`:
+  uzantı parametre, kapılar çaprazlanamaz (K-P31-3).
+- `requests/service.ts`: `download(ctx, ref, os, gates: DownloadGates)`. Sıra: engel → kova → ref (tek 404) → platform → kapı.
+  `os` açıksa ona göre (macos + kapı kapalı → 503 `NOT_READY`); yoksa UA macOS **ve** mac kapısı `ok` → macos, aksi windows
+  (gerileme yok). `firmPathValid(uri, ext)`. `CreateCoreInput.clientOs` yalnız AGENT dalında (WEB'de tip `never`).
+- `requests/public-routes.ts`: `GET /public/agent/request-download` `os`'u `requestDownloadQuerySchema` ile doğrular (geçersiz /
+  `linux` → 400, servise girmez, kova tüketilmez); `DownloadGates` (`assertReady(os)`, `macosOk()`).
+- `public/routes.ts`: yeni iç uç `GET /internal/agent-ready/macos-firm` (Caddy `@agentZipFirm` forward_auth, P31-O). Sıra: kenar
+  (değilse 404) → `FIRM_ZIP_URI` → `firmPathValid(uri, ".zip")` (ref aktif + label güncel, tek 404 gövdesi) → mac kapısı (503) →
+  204, `no-store`. Windows ucu `firmPathValid(uri, ".exe")`; `/agent-ready/macos` firma yolunu okumaz (değişmedi).
+- `requests/create-tx.ts`: `client_os` yalnız AGENT'ta yazılır (WEB NULL, CHECK `source_client_os_chk`); audit `newValue.clientOs`
+  yalnız beyan varsa. `requests/repo.ts`: `secretSelect.clientOs`. `requests/panel-accept.ts`: kabulde DB değeri
+  `requestClientOsSchema` ile daraltılıp `preAdmitGuest`'e (yalnız AGENT). `signaling/rooms-lobby.ts`: `PreAdmitInput.clientOs?`
+  → misafir `clientOs` (yoksa windows sayılır; `OS_PERMISSION` kabulü buna bağlı, D-2).
+- `ops/metrics.ts`: `rs_agent_download_total` açıklaması. Firma indirmesi `{os, kind="firm"}` etiketleriyle sayılır.
+  **Pano/alarm etkisi:** aynı sayaçta iki etiket kümesi var: P28f jenerik yolu `{os}`, P31 firma yolu `{os,kind}`. `sum by (os)`
+  ikisini birlikte toplar. Yalnız jenerik indirme için `kind=""` (etiket yok), yalnız firma için `kind="firm"` süzülmeli. Mevcut
+  alarm yok, pano sorgusu varsa bu ayrıma göre güncellenmeli.
+- K3 kaynak satırı (§15.3, AC-520): `notify/customer-templates.ts` `CustomerTemplateInput.origin` + "Bağlantı her zaman
+  {origin}/ ile başlar; dosya eki göndermeyiz." (metin ve HTML, kaçışlı). `customer-send/targets.ts` `origin`'i
+  `PUBLIC_BASE_URL`'den (sondaki `/` atılmış) verir; firma adı süzgecinden geçmez. Önizleme ve gönderim aynı `renderFor`'dan.
+- QA P31 tur 1 m.3: K3 indirme etiketi "Hızlı Destek programı (Windows)" → **"Hızlı Destek programı (Windows / macOS)"** (aynı
+  bağlantı Mac'te `.zip` indirir). `apps/web/e2e/mock-lg.mjs` sahte metni de eşlendi (yalnız tutarlılık, e2e beklentisi yok).
+  `docs/mimari-link-gonderme.md` (§ K3 şablonu) ve `KULLANIM_KILAVUZU.md`'deki eski etiket teknik-yazar/mimar işi (AC-522).
+
+Sapmalar (gerekçeli):
+
+- **Audit adı `request.created`:** mimari-p31 K-P31-4 / §3.1 / D-2 `request.create` der. Kodda talep oluşturma eylemi P8b'den beri
+  `request.created`; yeni eylem açılmadı, `clientOs` mevcut eylemin `newValue`'suna eklendi (§154 "yeni eylem yok" ile uyumlu).
+  Mimari metindeki ad yazım farkıdır.
+- **`requestDownloadQuerySchema` `ref` içermez:** biçimsiz ref de tek 404 `REQUEST_REF_INVALID` + başarısız deneme sayımından
+  geçmeli (G-E9-11, oracle yok). Şemada olsaydı 400 dönüp sayımı atlardı. Bu yüzden şema yalnız `os`'u doğrular, ref serviste.
+- **`requestFileName` varsayılanı `windows`:** panel/müşteri görünümündeki `fileName` alanı Windows adını taşımaya devam eder
+  (mimari-p31 §3.1); sözleşme değişmedi.
+
+Testler:
+
+- `apps/server/test/integration/p31-b1.test.ts` (16): UA tablosu, açık `os` > UA, kapı kapalı (örtük → .exe, açık → 503),
+  geçersiz ref + kapı kapalı → 404, `os=linux`/geçersiz → 400 ve 40 istek sonrası 302 (kova tüketilmez), metrik `{os,kind}`;
+  `macos-firm` 204 / tek tip 404 (eksik, maskeli, sorgu dizeli, büyük harf, `.exe`, eski label, yenilenmiş ref, pasif tenant,
+  bilinmeyen) / 503 / kenar dışı / uzantı ↔ kapı çaprazlama; `clientOs` macos/NULL/windows/geçersiz/WEB, gerçek `/ws/guest`'te
+  `OS_PERMISSION`.
+- `apps/server/test/unit/agent-os.test.ts` (10): `osFromUserAgent`, zip adı ve deseni, uzantı çaprazlama, K3 kaynak satırı ve
+  K3 etiketi (AC-520, yeni: "(Windows / macOS)", "(Windows):" yok, üç kanal). UA tablosu ortak: `test/helpers/user-agents.ts`.
+- `packages/contracts/test/p31-contracts.test.ts`: `requestClientOsSchema`, `requestDownloadQuerySchema`, `createRequestInputSchema.clientOs`.
+- Güncellenen eskiler (beklenti zayıflatılmadı): `lg-send.test.ts` (`origin` alanı), `requests-ref-p8b.test.ts` (`".exe"`
+  parametresi), `session-history-p8.test.ts` (CHECK 82→83, P31-D), `pt-surface` snapshot'ları (yeni rota, dışa aktarımlar),
+  `test/helpers/{requests,tenant-matrix}.ts`.
+
+Komutlar ve sonuç (QA tur 1 m.2–3 sonrası, 2026-11-20):
+
+- `pnpm --filter @remote/server lint` · `typecheck` temiz; `pnpm --filter @remote/server test` 53 dosya / 734 geçti, 1 skip
+  (eski `fsrv-p28b` AC-353 clamd). `prettier --check` (değişen dosyalar) temiz.
+- Entegrasyon (test DB `rs-p31-test`, 127.0.0.1:33474; `TEST_DATABASE_URL` / `TEST_MIGRATE_DATABASE_URL` konteyner env'inden):
+  `npx vitest run test/integration/lg-send.test.ts test/integration/p31-b1.test.ts test/integration/customers-p8c-api.test.ts`
+  → 3 dosya / 57 test geçti. Tam `test:int` sonucu QA raporunda (1311 geçti; 2 kırmızı yük altı, P31 dışı).
+
+frontend-dev için: sözleşme değişikliği P31-F'nin kullandığıyla aynı (`?os=windows|macos`, `linux` → 400). K3 müşteri mesajında
+etiket artık "Hızlı Destek programı (Windows / macOS)".
+
+## P31-B2 — Go istemci: macOS "Destek iste" (backend-dev Go, 2026-11-20; mimari-p31 §3.2, §14, §15.2; AC-511..519)
+
+**Durum:** kod tamam; birim testleri, darwin/windows vet ve dört platformda staticcheck yeşil. AppKit ekranları yalnız
+derlenebilirlik (vet + staticcheck darwin arm64/amd64) düzeyinde doğrulandı; davranış elle E-P31-1..7 ve CI macOS iz
+testiyle doğrulanacak.
+
+Yapılanlar:
+
+- `internal/pairing/pairing.go`: `RefCorePattern` (tek çekirdek, §15.2); `refFileNameRe` ondan türetildi (bayt eşdeğeri).
+- `internal/launch/source.go` (yeni): `Source{Code,Ref}`, `SourceFromBundlePath` (klasör kod > klasör ref > bundle adı
+  yalnız kod; bundle adından ref yok). `code_folder.go` `CodeFromBundlePath` → `SourceFromBundlePath(...).Code`.
+  `code_darwin.go` `BundleCode` → `BundleSource` (kullanılmayan `BundleCode` kaldırıldı).
+- `internal/launch/run.go`: `Deps.Source *Source` (nil → bugünkü Exe adı yolu), `Deps.SourceHint` (yalnız `FileOther`'da
+  bilgi satırına eklenir; `Decide` değişmedi). `home_text.go` `NoticeMacFolder` (AC-512 metni).
+- `internal/launch/home.go`: `FirmView.AbuseEmail` (AC-513 "Kötüye kullanımı bildir" ana ekranda; açılıştaki firma
+  bilgisinden). Win32 ana ekranı kullanmaz.
+- `internal/request/policy.go`: `DownloadURL(server, ref, os)` + `DownloadOSMac`; `request.Deps.DownloadOS`.
+- `internal/api/requests.go`: `CreateRequestBody.ClientOS` (`clientOs,omitempty`), `CreateRequest` içinde
+  `requestClientOS(runtime.GOOS)` ile doldurulur (yalnız darwin → `macos`; D-1). Ad, resolve'un mevcut `clientOS`'u ile
+  çakışmasın diye `requestClientOS`.
+- `internal/ui/uicore/request_view.go` (yeni): `Platform{Bindings}`, `HomeButtons`, `Forgettable`, `HomeSingleText`,
+  `HomeListed`, `FormFields()`, form/bekleme/kabul metinleri (`AcceptBody(v, nl)`). `internal/ui/home.go`,
+  `home_windows.go`, `reqform_windows.go`, `reqwait_windows.go`, `request_windows.go` uicore'a delege (metinler bayt bayt
+  aynı; `TestAC515WaitAndAcceptTexts` Win32 kabul gövdesini sabitler). `TestAC190AC189FirmHomeSingleScreen` uicore'a aynı
+  adla taşındı.
+
+Testler (Docker `golang:1.26.11-bookworm`): `go test ./internal/launch ./internal/request ./internal/api ./internal/pairing
+./internal/ui/...` yeşil; `GOOS=windows go vet ./internal/ui/... ./cmd/...` temiz; `gofmt -l` boş.
+Yeni testler: `TestAC512SourceFromBundlePath`, `TestAC512WindowsRefFromFileNameUnchanged`, `TestAC513MacSourceDecisions`,
+`TestAC513SourceOverridesExeName`, `TestAC513MacAbuseEmailOnHome`, `TestAC517MacNoStoreNoBindingNoRemember`,
+`TestAC519DownloadURLPlatform`, `TestAC519OutdatedProblemOpensMacURL`, `TestAC511RequestClientOSOnlyMac`,
+`TestAC511WindowsRequestBodyUnchanged`, `TestAC511CreateRequestSendsPlatformClientOS`, `TestAC513MacHomeButtonsNoForget`,
+`TestAC514FormFieldsShared`, `TestAC515WaitAndAcceptTexts`.
+
+- `internal/ui/mac` (AppKit, yeni): `home_darwin.go` (`FirmHome`: tek satır ya da AC-190, Mac bilgi satırı, uicore
+  düğmeleri, adres varsa "Kötüye kullanımı bildir"), `reqform_darwin.go` (`RequestForm/FormBusy/FormClose/Problem`;
+  alanlar uicore tablosundan, `NSTextView` sorun alanı alan düzenleyici kipinde (Tab ile çıkılır), alan altı hata,
+  ilk hatalı alana odak, VoiceOver etiketleri `setAccessibilityLabel:`, P28e kutusu yerel tıklamayla korunur, hatırla
+  yok), `reqwait_darwin.go` (`RequestWaiting/Chat/ChatSends/WaitClose/Closed`, `RequestEvents`, `OpenURL`),
+  `reqaccept_darwin.go` (`RequestAccepted/Tick`: `prompt_darwin.go` korumalı istem, `uicore.AcceptDecision`,
+  `requestUserAttention:` NSCriticalRequest). `logic.go` `downloadURLAllowed` (OpenURL yalnız DownloadURL biçimi).
+  `ui_darwin.go`: yalnız alan + kanal eklendi. `screens_darwin.go` `restoreQuit`: iki `case` eklendi (bekleme → ⌘Q
+  `UserClose`, form → `FormClose`; AC-515 — kabul istemi kapanınca ⌘Q talebi iptal etmeye döner).
+- `cmd/noktadestek/main_darwin.go`: `flow.Run` → `launch.Run(launchDeps(...))`; `start_darwin.go` `startCode` →
+  `startSource` (yeniden başlatma dosyası yalnız KOD; ref yazılmaz; `open -n` `BundlePath()` = translocation çözülmüş
+  özgün yol); `deps_darwin.go` `launchDeps` (`Store` nil, `Source`, `SourceHint: NoticeMacFolder`, `DownloadOS: macos`,
+  `UpdateNotice`).
+- AC-517 CI iz testi: `apps/agent-win/test/trace-firm-mac.sh` (yeni; aynı zip `NoktaDestek-Test-abcdefghijklmnop/`
+  klasörüne açılır → argümansız aç → 15 sn → SIGTERM → `trace-check-mac.sh compare --marker abcdefghijklmnop`).
+  **`apps/agent-win` dışı tek dosya:** `.github/workflows/agent-win.yml` `test-macos` işine bu betiği çağıran bir adım
+  eklendi (mevcut adımlar değişmedi). shellcheck -S warning ve actionlint temiz.
+- OKUBENI (koordinatör ek işi, AC-520, §15.3): `build/macos/OKUBENI-adhoc.txt` eski "Yine de Aç'ı YALNIZ teknisyeninizle
+  görüşürken…" paragrafı yerine sırayla firma adı cümlesi, "Mac'te dosyayı saklamayın…", kaynak çapalı "Yine de Aç"
+  paragrafı (`remote.noktabilisim.net`); `OKUBENI-stg.txt` 3. adımdan sonra aynı üçü (`185.126.217.99:4450`);
+  `OKUBENI.txt` (Developer ID) mevcut "hiçbir zaman Yine de Aç istemez" uyarısı korundu, ardından "Yine de Aç" içermeyen
+  kaynak cümlesi + firma adı cümlesi + saklamayın cümlesi (koordinatör kararı, P31-O önerisi). Cümleler bölünmeden tek
+  satır. Not: üç dosyada da en sonda "izinleri kaldırmak" satırı kalır (kaynak paragrafı bilgi bloğunun sonundadır).
+  CI `cmp` adımları dosyayı zip içiyle karşılaştırdığından ek iş yok.
+
+Tasarımdan sapmalar / eklemeler (gerekçeli):
+
+- `launch.FirmView.AbuseEmail` (yeni alan): AC-513 Mac ana ekranında "Kötüye kullanımı bildir" ister; FirmView'da adres
+  yoktu. Açılıştaki firma bilgisi yanıtından doldurulur; Win32 kullanmaz (davranış değişmez).
+- `api.requestClientOS` adı: §3.2'deki `clientOS(runtime.GOOS)` adı api paketinde resolve için zaten var (linux da
+  döner); talep şeması linux'u reddettiği için ayrı fonksiyon (yalnız darwin → `macos`, D-1).
+- `uicore.Platform` yalnız `Bindings` taşır, `FormFields()` parametresizdir (K-P31-7 `Platform{Remember,…}` /
+  `FormFields(p)` diyordu): alanlar iki platformda aynı; hatırla satırını yalnız Win32 formu çizer, AppKit formu hiç
+  çizmez. Kullanılmayan bir `Remember` bayrağı ölü kod olurdu. Mac'te hatırla yokluğu `TestAC517MacNoStoreNoBindingNoRemember`
+  (Remember nil, AC-188 satırı boş) ile sabit.
+- ⌘Q: `restoreQuit`'e `reqWait`, `reqForm` ve `reqQuit` (ana ekran / engel / kapanış ekranı) seçenekleri eklendi;
+  böylece Hakkında/Lisanslar ya da istem kapandıktan sonra ⌘Q `flow.EvEnd`'e düşüp tampondan sonraki oturuma sızmaz.
+- Mac ana ekranında "Kapat" düğmesi yok (AC-513 "yalnız Destek iste, Bağlantı kodum var, Kötüye kullanımı bildir");
+  pencere kapatma ve ⌘Q `FirmClose`.
+- Yeni bağımlılık yok. Sürüm 0.24.0 etiketle verilir (kodda sürüm sabiti yok).
+
+Frontend / sunucu için sözleşme notu: Go istemci `POST /public/requests` gövdesine yalnız macOS'ta `"clientOs":"macos"`
+ekler (Windows gövdesi bayt bayt aynı); "Yeni sürümü indir" macOS'ta `request-download?ref=<ref>&os=macos` açar.
+
+Test komutları (Docker `golang:1.26.11-bookworm`, worktree + ana `.git` bağlı): `go test ./...` (42 paket ok),
+`GOOS=windows GOARCH=amd64 go vet ./...`, `GOOS=darwin GOARCH=arm64|amd64 CGO_ENABLED=0 go vet ./...`, `staticcheck`
+(linux, windows/amd64, darwin/arm64, darwin/amd64), `gofmt -l .` — hepsi temiz.
+Ek yeni testler: `TestAC519MacOpenURLOnlyDownloadURL` (ui/mac, platformdan bağımsız), `TestAC518RefNeverWrittenToRestartFile`
+(macperm, darwin||linux).
+
+Doğrulanmayanlar (açıkça): darwin etiketli kod yalnız derlendi (vet + staticcheck), hiçbir yerde koşmadı; iz betiği
+"→ ana ekran" der ama CI runner'ında Ekran Kaydı izni yoksa süreç izin rehberinde durur (iz testi yine geçerli, ana ekrana
+ulaşıldığı doğrulanmadı); sorun alanı alan düzenleyici kipinde olduğundan Return'ün "Destek iste"yi tetiklediği
+doğrulanmadı (E-P31-3).
+
+Kalan (bu paketin dışında / elle): E-P31-1..7 gerçek Mac'te (form, VoiceOver, iki tema, kabul istemi 1,5 sn/yerel tıklama,
+⌘Q iptal, `open -n` yeniden başlatmada aynı firma); CI macOS işinde darwin testleri ve yeni iz adımının ilk koşusu; qa ‖
+güvenlik kod turu.
+
 ## P32-K1 — Sunucu: `unsigned-accepted` modu, izinli liste, audit, AC-533 doğrulama bloğu (backend-dev, 2026-11-20)
 
 Durum: TAMAM (commit yok). Kaynak: `docs/mimari-p32.md` r2 §4.1–4.8, §6, §14; AC-523..528, 530, 533; S-P32-r2-2.

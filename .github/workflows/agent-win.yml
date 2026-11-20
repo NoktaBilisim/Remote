@@ -1042,6 +1042,9 @@ jobs:
           wait "$pid" 2>/dev/null; echo "istemci çıkış kodu $?"
           sleep 2
           bash "$TRACE_MAC" compare "$snap" --since "$since" --bundle "$app" --marker 12345678
+      # P31 AC-517 (mimari-p31 §14 D-3): aynı zip firma klasörü adıyla (NoktaDestek-Test-<ref>/) → ana ekran → SIGTERM → compare.
+      - name: trace-check-mac firma klasörü (AC-517; ref içerik işareti)
+        run: bash test/trace-firm-mac.sh "$RUNNER_TEMP/trace-pkg/Destek-12345678.zip" "$RUNNER_TEMP/trace-firm"
 
   # P28g K8a (mimari-p28g §8.2 build-linux; S-P28g-9): tek ELF GO_IMAGE'da (CGO_ENABLED=0, purego). Sunucu adresi tablosu build-mac
   # ile aynı: v* etiket push'u → vars.AGENT_SERVER_URL, prod (build-linux.sh yalnız GITHUB_REF_TYPE=tag + v<sürüm> ile derler) ·
@@ -1627,6 +1630,8 @@ jobs:
           ditto -x -k "$d/$ZIP" "$RUNNER_TEMP/kontrol"
           build/macos/package.sh check "$RUNNER_TEMP/kontrol/Nokta Destek.app" prod "$VERSION" "$TEAM"
           xcrun stapler validate "$RUNNER_TEMP/kontrol/Nokta Destek.app"
+          # P31 (AC-520, mimari-p31 §15.3): Developer ID zip'indeki OKUBENI.txt = kaynak OKUBENI.txt (bayt bayt; profil başına cmp).
+          cmp "$RUNNER_TEMP/kontrol/OKUBENI.txt" build/macos/OKUBENI.txt || { echo "::error::zip içi OKUBENI.txt build/macos/OKUBENI.txt değil"; exit 1; }
           cp "$RUNNER_TEMP/thin/build-meta.txt" "$d/"
           (cd "$d" && shasum -a 256 "$ZIP" > SHA256SUMS)
           { (cd "$s" && shasum -a 256 "Nokta Destek.app/Contents/MacOS/noktadestek")

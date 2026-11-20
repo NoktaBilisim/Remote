@@ -62,6 +62,8 @@ Tablo §3. Her alt paket kendi Windows istemci artımını staging'e çıkarır;
 | 9   | Linux'ta Ubuntu 22.04/24.04 GNOME dışı dağıtım/masaüstü garantisi; ARM64 (macOS hariç)                                  | Sonra                                   |
 | 10  | Enfekte dosya için karantina klasörü; ClamAV dışı AV/sandbox; S3 vb. harici nesne deposu                                | Kapsam dışı                             |
 
+> **P31 ile değişti (2026-11-20):** kapsam dışı 8'in yalnız "E9 firma dosyası / destek talebi" kısmı macOS için açıldı (`gereksinimler.md` §14, AC-509..522; `mimari-p31.md`). macOS'ta tepsi, otomatik başlatma, çoklu firma kaydı (P20), "Bilgilerimi hatırla" (E9) ve gözetimsiz erişim kapsam dışı kalır; Linux'ta madde aynen geçerlidir.
+
 ## 5. Kullanıcı hikâyeleri
 
 - US-66: Teknisyen olarak müşteriye uzun bir komutu/lisans anahtarını panoya koymak ve bir PDF'i onun yazıcısından basmak istiyorum ki telefonda harf harf okutmayayım. (P28a)

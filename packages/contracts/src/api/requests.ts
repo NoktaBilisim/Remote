@@ -437,6 +437,22 @@ const uniqueList = <T extends z.ZodType<string>>(item: T, max: number, label: st
 /** GET /public/requests/tenant?ref= ve GET /public/agent/request-download?ref= */
 export const tenantRefQuerySchema = z.strictObject({ ref: tenantRefSchema });
 
+/**
+ * P31 (mimari-p31 K-P31-4, §15 S-P31-7; AC-511): talep istemcisinin işletim sistemi beyanı — yalnız `windows | macos`.
+ * `ClientOs` (resolve) `linux` içerdiği için kullanılmaz; DB CHECK `support_requests_client_os_chk` ile aynı küme. Yoksa
+ * sunucu `windows` sayar (eski istemci / Windows gövdesi alanı göndermez). Yetki vermez; yalnız `OS_PERMISSION` kabulü.
+ */
+export const REQUEST_CLIENT_OS = ["windows", "macos"] as const;
+export type RequestClientOs = (typeof REQUEST_CLIENT_OS)[number];
+export const requestClientOsSchema = z.enum(REQUEST_CLIENT_OS);
+
+/**
+ * P31 (AC-509, AC-521): `GET /public/agent/request-download?ref=&os=` — `os` isteğe bağlı (`windows | macos`; `linux` →
+ * 400). Yalnız `os` doğrulanır: `ref` bilinçli olarak burada değil, serviste (biçimsiz ref de tek 404 `REQUEST_REF_INVALID`
+ * + başarısız deneme sayımı; G-E9-11). Geçersiz `os` servise girmeden 400 → hiçbir kova tüketilmez.
+ */
+export const requestDownloadQuerySchema = z.object({ os: requestClientOsSchema.optional() });
+
 /** GET /public/requests/tenant yanıtı (AC-133, 135, §13.4). */
 export interface TenantRequestInfo {
   tenant: { name: string; logoUrl: string | null };
@@ -472,6 +488,8 @@ export const createRequestInputSchema = z
     consentTextId: z.string().regex(ULID, "Aydınlatma metni geçersiz"),
     consentAccepted: z.literal(true, "Aydınlatma metni onaylanmalı"),
     deviceKey: deviceKeySchema.optional(),
+    /** P31 (AC-511): yalnız Windows dışı istemci gönderir (D-1); Windows gövdesi bayt bayt aynı. */
+    clientOs: requestClientOsSchema.optional(),
   })
   .superRefine((b, ctx) => {
     if ((b.ref === undefined) === (b.bindingKey === undefined))

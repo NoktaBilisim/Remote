@@ -124,6 +124,10 @@ export default async function CustomerPage({ params }: { params: Promise<{ id: s
                 </Row>
                 <Row label={t("srs.dl.rotatedAt")}>{c.refRotatedAt ? formatDateTime(c.refRotatedAt) : t("srs.dl.never")}</Row>
               </dl>
+              {/* P31 (AC-520): aynı bağlantı Mac'te .zip indirir */}
+              <p className="text-sm text-fg-muted" data-testid="customer-mac-note">
+                {t("rq.linkMacNote")}
+              </p>
               {/* P19 (AC-259): web talep formu bağlantısı (form açıksa; aynı ref) */}
               {c.webFormUrl && (
                 <div className="flex flex-col gap-2 rounded-md border border-border bg-surface p-3" data-testid="customer-web-form">

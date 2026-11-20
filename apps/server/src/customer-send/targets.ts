@@ -199,7 +199,13 @@ async function resolveCustomer(d: TargetDeps, auth: AuthContext, tenantId: strin
     entity: "customers",
     entityId: customerId,
     customerId,
-    input: { kind: "CUSTOMER", firm: c.tenant.name, downloadUrl, webFormUrl: form },
+    input: {
+      kind: "CUSTOMER",
+      firm: c.tenant.name,
+      downloadUrl,
+      webFormUrl: form,
+      origin: d.publicBaseUrl.replace(/\/+$/, ""),
+    },
     allowed: [...CHANNELS_BY_KIND.CUSTOMER],
     recipientsLocked: false,
     recipients: {

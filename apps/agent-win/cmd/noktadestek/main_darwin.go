@@ -2,9 +2,10 @@
 
 // Command noktadestek macOS Hızlı Destek istemcisidir (P28f, mimari-p28f §2, ADR-0037): gömülü yapılandırma ve kimlik →
 // sistem çerçeveleri (izin listeli mutlak yol) → AppKit arayüzü (internal/ui/mac) → kod akışı (internal/flow, Windows
-// ile aynı) → son ekran ve en geç 3 sn içinde çıkış (AC-107). Ana goroutine ana iş parçacığına kilitlidir ve
+// ile aynı) ya da (P31) Windows açılış kararı + ana ekran + "Destek iste" (internal/launch, internal/request) → son
+// ekran ve en geç 3 sn içinde çıkış (AC-107). Ana goroutine ana iş parçacığına kilitlidir ve
 // NSApplication döngüsünü çalıştırır; akış ayrı goroutine'dedir. Tek okunan argüman `--restart <belirteç>`tir (T4, §5.3;
-// start_darwin.go). Tepsi, gözetimsiz servis, kayıt ve talep macOS'ta yoktur (V52).
+// start_darwin.go). Tepsi, gözetimsiz servis, bilgisayar kaydı ve "Bilgilerimi hatırla" macOS'ta yoktur (V52, K-P31-6).
 package main
 
 import (
@@ -20,7 +21,6 @@ import (
 	"remote-support/agent-win/internal/control"
 	"remote-support/agent-win/internal/darwin/objc"
 	"remote-support/agent-win/internal/files"
-	"remote-support/agent-win/internal/flow"
 	"remote-support/agent-win/internal/launch"
 	"remote-support/agent-win/internal/ui/mac"
 	"remote-support/agent-win/internal/update"
@@ -75,14 +75,15 @@ func run() int {
 		d := flowDeps(cfg, fp, client, u, events, gate)
 		go func() {
 			ctx := context.Background()
-			initial, ok := startCode(ctx, u) // K4: yeniden başlatma dosyası / klasör adı + Ekran Kaydı rehberi
+			src, ok := startSource(ctx, u) // K4 + P31: yeniden başlatma dosyası / klasör adı + Ekran Kaydı rehberi
 			if !ok {
 				terminate(app)
 				return
 			}
 			upd.Begin()
 			upd.Start(ctx)
-			out := flow.Run(ctx, d, initial)
+			// P31 K-P31-5: Windows açılış kararının kendisi (launch.Decide), kayıt deposu yok (Store=nil, AC-517).
+			out := launch.Run(ctx, launchDeps(cfg, client, u, d, src, upd.Notice))
 			upd.End()
 			u.Ended(withUpdateNotice(out.Message, upd))
 			closed := make(chan struct{})

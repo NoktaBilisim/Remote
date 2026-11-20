@@ -22,6 +22,12 @@ export function GeneralLink({ data, canSettings }: { data: GeneralLinkResponse |
               {data.fileName}
             </p>
           )}
+          {/* P31 (AC-520) */}
+          {data && (
+            <p className="mt-1 text-xs text-fg-muted" data-testid="general-mac-note">
+              {t("rq.linkMacNote")}
+            </p>
+          )}
           {canSettings && (
             <Link href="/settings/support-requests" className={LIST_LINK_CLS}>
               <Settings aria-hidden className="size-4" />

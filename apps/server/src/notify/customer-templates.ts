@@ -61,6 +61,8 @@ export interface CustomerTemplateInput {
   firm: string;
   downloadUrl: string | null;
   webFormUrl: string | null;
+  /** P31 (§15.3, AC-520): sunucunun genel kökeni (`PUBLIC_BASE_URL`, sondaki `/` yok) — kaynak satırı. */
+  origin: string;
 }
 export type TemplateInput = SessionTemplateInput | UnattendedTemplateInput | CustomerTemplateInput;
 
@@ -163,13 +165,21 @@ function unattendedShort(i: UnattendedTemplateInput): string {
 }
 
 const customerLinks = (i: CustomerTemplateInput): [string, string][] => [
-  ...(i.downloadUrl ? ([["Hızlı Destek programı (Windows)", i.downloadUrl]] as [string, string][]) : []),
+  // P31 (AC-520, QA P31 tur 1 m.3): aynı bağlantı Mac'te .zip indirir → etiket platformdan bağımsız.
+  ...(i.downloadUrl ? ([["Hızlı Destek programı (Windows / macOS)", i.downloadUrl]] as [string, string][]) : []),
   ...(i.webFormUrl ? ([["Destek talebi formu", i.webFormUrl]] as [string, string][]) : []),
 ];
 const CUSTOMER_WARN = "Bu bağlantılar firmanıza özeldir, paylaşmayın.";
+/** P31 (mimari-p31 §15.3, S-P31-2; AC-520): kaynağa çapa. Köken sunucu ayarından gelir (firma adı süzgecinden geçmez). */
+const sourceLine = (origin: string): string => `Bağlantı her zaman ${origin}/ ile başlar; dosya eki göndermeyiz.`;
 
 function customerShort(i: CustomerTemplateInput): string {
-  return [`${F(i.firm)} destek bağlantılarınız:`, ...customerLinks(i).map(([l, u]) => `${l}: ${u}`), CUSTOMER_WARN].join("\n");
+  return [
+    `${F(i.firm)} destek bağlantılarınız:`,
+    ...customerLinks(i).map(([l, u]) => `${l}: ${u}`),
+    CUSTOMER_WARN,
+    sourceLine(i.origin),
+  ].join("\n");
 }
 
 function customerMail(i: CustomerTemplateInput): Rendered {
@@ -179,7 +189,7 @@ function customerMail(i: CustomerTemplateInput): Rendered {
     text: customerShort(i),
     bodyHtml: `<p>${esc(firm)} destek bağlantılarınız:</p><ul>${customerLinks(i)
       .map(([l, u]) => `<li>${esc(l)}: <a href="${esc(u)}">${esc(u)}</a></li>`)
-      .join("")}</ul><p>${esc(CUSTOMER_WARN)}</p>`,
+      .join("")}</ul><p>${esc(CUSTOMER_WARN)}</p><p>${esc(sourceLine(i.origin))}</p>`,
   };
 }
 

@@ -75,6 +75,10 @@ export function DownloadSection({
         <dt className="text-fg-muted">{t("srs.dl.rotatedAt")}</dt>
         <dd className="text-fg tabular-nums">{saved.refRotatedAt ? formatDateTime(saved.refRotatedAt) : t("srs.dl.never")}</dd>
       </dl>
+      {/* P31 (AC-520): aynı bağlantı Mac'te .zip indirir (sunucu seçer) */}
+      <p className="text-sm text-fg-muted" data-testid="download-mac-note">
+        {t("rq.linkMacNote")}
+      </p>
       <Button type="button" variant="danger-ghost" className="self-start" onClick={onRotate}>
         <RefreshCw aria-hidden className="size-4" />
         {t("srs.dl.rotate")}

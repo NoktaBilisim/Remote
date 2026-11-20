@@ -13,6 +13,7 @@ import (
 	"remote-support/agent-win/internal/darwin/objc"
 	"remote-support/agent-win/internal/flow"
 	"remote-support/agent-win/internal/input"
+	"remote-support/agent-win/internal/request"
 	"remote-support/agent-win/internal/ui/uicore"
 )
 
@@ -68,6 +69,17 @@ type UI struct {
 
 	pause atomic.Pointer[func(paused bool)] // SetInjectPause
 	stop  chan struct{}
+
+	// P31 (mimari-p31 §3.2): ana ekran ve talep ekranları (request.UI). Kanallar request.Deps.Events / RequestChatSends.
+	reqEvents chan request.UserAction
+	reqChat   chan string
+	// reqQuit ana ekran / engel / kapanış ekranının kapatma yolu (açıkken ⌘Q bu ekranı kapatır; restoreQuit'in
+	// son seçeneği). Hakkında/Lisanslar ya da istem kapanınca ⌘Q flow.EvEnd'e düşüp sonraki oturuma sızmasın diye.
+	reqQuit      func()
+	reqForm      *reqForm
+	reqWait      *reqWait
+	reqAccept    *prompt
+	reqAcceptKey uicore.AcceptKey
 }
 
 // New arayüzü ana iş parçacığında kurar (NSApplication, menü, TEST bandı, 1 sn gösterge tiki). Olaylar
@@ -85,7 +97,8 @@ func New(o Options) (*UI, <-chan flow.Event, error) {
 		gate = &control.Gate{}
 	}
 	u := &UI{q: q, events: make(chan flow.Event, 16), footer: uicore.FooterText(o.Host, o.Version, o.Fingerprint),
-		version: o.Version, gate: gate, forms: map[*form]bool{}, stop: make(chan struct{})}
+		version: o.Version, gate: gate, forms: map[*form]bool{}, stop: make(chan struct{}),
+		reqEvents: make(chan request.UserAction, 8), reqChat: make(chan string, 8)}
 	u.app = cls("NSApplication").Send(selSharedApp)
 	u.app.Send(objc.Sel("setActivationPolicy:"), nsRegular)
 	u.dark = isDark(u.app)

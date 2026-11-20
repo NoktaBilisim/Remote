@@ -31,6 +31,15 @@ const GONE: Record<string, AgentEnd> = {
 export const agentDownloadUrl = (sessionRef: string, os: AgentOs = "windows"): string =>
   `${API_BASE}/public/agent/download?ref=${encodeURIComponent(sessionRef)}${os === "windows" ? "" : `&os=${os}`}`;
 
+/**
+ * P31 (AC-520, mimari-p31 §3.1): firma bağlantısının (`request-download?ref=`) macOS adresi — `os=macos` eklenir (302 → `.zip`).
+ * Taban göreli (`/r/`) ya da mutlak (portal `links.downloadUrl`) olabilir; mevcut sorgu korunur. Windows adresi değişmez.
+ */
+export function requestDownloadHref(base: string, os: "windows" | "macos"): string {
+  if (os === "windows") return base;
+  return `${base}${base.includes("?") ? "&" : "?"}os=macos`;
+}
+
 export async function probeAgentDownload(
   sessionRef: string,
   os: AgentOs = "windows",

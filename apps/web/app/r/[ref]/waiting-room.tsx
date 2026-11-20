@@ -1,14 +1,19 @@
 "use client";
 
 import { RefreshCw } from "lucide-react";
+import { useSyncExternalStore } from "react";
 import { Button } from "@/components/ui/button";
+import { agentOsOf, readSupportEnv } from "@/lib/device-support";
 import { t } from "@/lib/i18n";
 import type { StoredRequest } from "@/lib/web-request/flow";
 import { RequestEndScreen } from "./request-end";
+import { useAgentOffer } from "../../session/[token]/agent-offer";
 import { GuestSession } from "../../session/[token]/guest-session";
 import { RequestChat } from "./request-chat";
 import { useWaitingRoom } from "./use-waiting-room";
-import { AcceptedCard, ClosedScreen, LostBanner, WaitingCard } from "./waiting-parts";
+import { AcceptedCard, ClosedScreen, LostBanner, WaitingCard, requestDownloadOffer } from "./waiting-parts";
+
+const noop = () => () => undefined;
 
 interface WaitingRoomProps {
   request: StoredRequest;
@@ -26,6 +31,14 @@ interface WaitingRoomProps {
 export function WaitingRoom({ request, downloadHref, retentionDays, onFinished, onNewRequest }: WaitingRoomProps) {
   const w = useWaitingRoom(request, onFinished);
   const { phase } = w;
+  // P31 (AC-520): macOS masaüstünde availability bekleme sırasında denetlenir (kabul kartı açılınca içerik yer değiştirmesin);
+  // yalnız macOS — Linux ve diğerleri bugünkü Windows bağlantısı (AC-521). Hata/429 → Windows bağlantısı (fail-closed).
+  const deviceOs = useSyncExternalStore(
+    noop,
+    () => agentOsOf(readSupportEnv()),
+    () => null,
+  );
+  const download = requestDownloadOffer(deviceOs, useAgentOffer(deviceOs === "macos" ? "macos" : null));
   const newBtn = (
     <Button onClick={onNewRequest} data-testid="wr-new">
       <RefreshCw aria-hidden className="size-4" />
@@ -50,6 +63,7 @@ export function WaitingRoom({ request, downloadHref, retentionDays, onFinished, 
       <AcceptedCard
         phase={phase}
         downloadHref={downloadHref}
+        download={download}
         onShare={() => w.setPhase({ ...phase, kind: "sharing" })}
         onDecline={w.decline}
       />

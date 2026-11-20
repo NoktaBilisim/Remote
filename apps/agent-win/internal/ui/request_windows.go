@@ -4,8 +4,6 @@ package ui
 
 import (
 	"context"
-	"fmt"
-	"time"
 
 	"remote-support/agent-win/internal/request"
 	"remote-support/agent-win/internal/win"
@@ -26,9 +24,6 @@ const (
 	idReqCode     = 67
 	idReqDownload = 68
 )
-
-const fraudText = "Bu pencereyi yalnız firmanızdan destek istemek için kullanın. Sizi kendiliğinden arayan biri bunu " +
-	"istediyse kapatın; teknisyenimiz şifrenizi hiçbir zaman sormaz."
 
 // RequestEvents bekleme/onay ekranı eylemleri (request.Deps.Events).
 func (u *UI) RequestEvents() <-chan request.UserAction { return u.reqEvents }
@@ -51,18 +46,6 @@ func setChecked(c *ctrl, on bool) {
 		v = 1
 	}
 	win.SendMessage(c.h, win.BM_SETCHECK, v, 0)
-}
-
-func codeText(c string) string {
-	if len(c) == 6 {
-		return c[:3] + " " + c[3:]
-	}
-	return c
-}
-
-func mmss(d time.Duration) string {
-	s := int(d.Round(time.Second) / time.Second)
-	return fmt.Sprintf("%02d:%02d", s/60, s%60)
 }
 
 // RequestProblem AC-133: ağ/TLS hatası (ayrı metin + "Tekrar dene"), geçersiz dosya, eski sürüm.

@@ -64,8 +64,8 @@ func (h *firmHome) build() {
 // addFirms satır yoksa AC-190 açıklaması, varsa firma listesi (ilk satır seçili). Sonraki y'yi döner.
 func (h *firmHome) addFirms(y int32) int32 {
 	f, v := h.f, h.v
-	if !listed(v) {
-		f.label(singleText(v), 16, y, 370, 36, fontNormal)
+	if !uicore.HomeListed(v) {
+		f.label(uicore.HomeSingleText(v), 16, y, 370, 36, fontNormal)
 		return y + 40
 	}
 	f.label(firmPick, 16, y, 370, 20, fontBold)
@@ -88,7 +88,7 @@ func (h *firmHome) addNotes(y int32) int32 {
 		f.label(othersText(v), 16, y, 508, lh, fontNormal)
 		y += lh + 8
 	}
-	f.danger(fraudText, 16, y, 508, 36, fontNormal)
+	f.danger(uicore.RequestFraudText, 16, y, 508, 36, fontNormal)
 	y += 40
 	if v.Notice != "" {
 		f.danger(v.Notice, 16, y, 508, 72, fontNormal)
@@ -166,7 +166,7 @@ func (h *firmHome) command(id, code int) {
 			h.done(launch.FirmAction{Kind: launch.FirmSupport, Index: i})
 		}
 	case id == idFirmList && code == lbnSelChange:
-		win.EnableWindow(h.forgetOne.h, forgettable(v, h.selected()))
+		win.EnableWindow(h.forgetOne.h, uicore.Forgettable(v, h.selected()))
 	case id == idHomeCode:
 		h.done(launch.FirmAction{Kind: launch.FirmCode})
 	case id == idFirmForgetOne:
@@ -183,7 +183,7 @@ func (h *firmHome) command(id, code int) {
 // confirmForgetOne "Bu firmayı unut": yalnız kayıtlı seçili firmada, onaydan sonra.
 func (h *firmHome) confirmForgetOne() {
 	i := h.selected()
-	if !forgettable(h.v, i) {
+	if !uicore.Forgettable(h.v, i) {
 		return
 	}
 	if win.MessageBox(h.f.h, fmt.Sprintf(confirmForgetOne, h.v.Firms[i].Text), appTitle,

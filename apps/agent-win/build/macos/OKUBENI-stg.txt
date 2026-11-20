@@ -8,5 +8,11 @@ Bu paket Apple tarafından onaylanmamıştır ve gerçek müşterilere verilmez.
    "TEST SÜRÜMÜ" bandı görünür.
 3. Oturum bitince uygulama kendiliğinden kapanır.
 
+Pencerede firmanızın adı ya da teknisyen doğrulama kodu görünür; bu yalnız doğru firmaya bağlandığınızı gösterir, dosyanın güvenli olduğunu göstermez.
+
+Mac'te dosyayı saklamayın; her destek isteğinde firmanızın bağlantısından yeniden indirin, eski klasörü silin.
+
+“Yine de Aç”ı yalnız tarayıcınızda 185.126.217.99:4450 adresinden indirdiğiniz Nokta Destek için kullanın (Finder → Bilgi Al → “Nereden” satırı https://185.126.217.99:4450/ ile başlamalı). Firmanız size yalnız bağlantı gönderir, dosya göndermez. Dosya ek olarak geldiyse açmayın.
+
 İzinleri kaldırmak: tccutil reset ScreenCapture net.noktabilisim.destek.stg
                     tccutil reset Accessibility net.noktabilisim.destek.stg

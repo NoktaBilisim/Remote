@@ -315,9 +315,10 @@ Kısa metin (WhatsApp):
 
 ```
 {F} destek bağlantılarınız:
-Hızlı Destek programı (Windows): {downloadUrl}       ← varsa
+Hızlı Destek programı (Windows / macOS): {downloadUrl}   ← varsa (P31: aynı bağlantı Mac'te .zip indirir)
 Destek talebi formu: {webFormUrl}                     ← varsa
 Bu bağlantılar firmanıza özeldir, paylaşmayın.
+Bağlantı her zaman {origin}/ ile başlar; dosya eki göndermeyiz.   ← P31 (mimari-p31 §15.3)
 ```
 
 E-posta konusu `{F} – destek bağlantılarınız`. Gövde aynı satırlardan oluşur; bağlantılar `<a>` içinde verilir. Teknisyen adı yer almaz.

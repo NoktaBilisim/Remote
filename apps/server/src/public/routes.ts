@@ -1,6 +1,6 @@
 // /api/v1/public/agent — çerezsiz, kimliksiz, Origin istemez (GET, durum değiştirmez; ADR-0012 madde 4).
-// /internal/agent-ready/{windows,macos,linux} — Caddy forward_auth iç ucu (S6-2, S-P28f-3, P28g S-P28g-12); /api dışında,
-// dışarıya kapalı.
+// /internal/agent-ready/{windows,macos,macos-firm,linux} — Caddy forward_auth iç ucu (S6-2, S-P28f-3, P28g S-P28g-12,
+// P31 S-P31-1); /api dışında, dışarıya kapalı.
 import {
   agentDownloadOsSchema,
   sessionStatusQuerySchema,
@@ -12,6 +12,7 @@ import { z } from "zod";
 import { auditContext } from "../audit/service.ts";
 import { AppError } from "../lib/errors.ts";
 import { cidrMatcher } from "../lib/ip.ts";
+import { FIRM_ZIP_URI } from "../requests/ref.ts";
 import type { AgentBinary } from "./agent-binary.ts";
 import { agentAvailability, agentDownload, assertAgentReady } from "./agent.ts";
 
@@ -74,14 +75,27 @@ export async function internalAgentRoutes(app: FastifyInstance): Promise<void> {
     // P8b G-E9-11: firma yolu (`/downloads/NoktaDestek-<label>-<ref>.exe`) → ref aktif ve label güncel değilse 404
     // (aynı yol, oracle yok). `/downloads/Destek-*` (P6) yalnız ikili kapısı. URI/ref loglanmaz.
     const uri = req.headers["x-forwarded-uri"];
-    if (typeof uri === "string" && /^\/downloads\/NoktaDestek-/i.test(uri) && !(await app.requests.firmPathValid(uri)))
+    if (typeof uri === "string" && /^\/downloads\/NoktaDestek-/i.test(uri) && !(await app.requests.firmPathValid(uri, ".exe")))
       throw new AppError("NOT_FOUND");
     await assertAgentReady(app.agentBinary);
     return reply.code(204).send();
   };
   app.get("/agent-ready", windowsReady);
   app.get("/agent-ready/windows", windowsReady);
-  // macOS / Linux (P28g): firma dosyası yolu yok (V52) → yalnız kendi ikili kapısı. X-Forwarded-Uri Caddy'de maskeli gelir, okunmaz.
+  // P31 (mimari-p31 §15.1, S-P31-1; AC-510): firma zip'i ayrı iç uçtan, fail-closed. Sıra: kenar → TAM desen (duyarlı;
+  // eksik/maskeli/sorgu dizeli/büyük harfli ref → 404) → ref aktif + label güncel (404) → mac kapısı (503) → 204.
+  // 404 gövdesi tek tip (oracle yok). URI/ref loglanmaz.
+  app.get("/agent-ready/macos-firm", async (req, reply) => {
+    void reply.header("Cache-Control", "no-store");
+    if (!fromEdge(req)) throw new AppError("NOT_FOUND");
+    const uri = req.headers["x-forwarded-uri"];
+    if (typeof uri !== "string" || !FIRM_ZIP_URI.test(uri)) throw new AppError("NOT_FOUND");
+    if (!(await app.requests.firmPathValid(uri, ".zip"))) throw new AppError("NOT_FOUND");
+    await assertAgentReady(app.macAgentBinary);
+    return reply.code(204).send();
+  });
+  // macOS jenerik + kod zip'i / Linux (P28g): yalnız kendi ikili kapısı. X-Forwarded-Uri Caddy'de maskeli gelir, okunmaz
+  // (P31: firma zip'i bu uca gelmez — `/agent-ready/macos-firm`).
   const onlyGate =
     (binary: () => AgentBinary) =>
     async (req: FastifyRequest, reply: FastifyReply): Promise<FastifyReply> => {

@@ -10,6 +10,7 @@ import (
 	"remote-support/agent-win/internal/darwin/objc"
 	"remote-support/agent-win/internal/flow"
 	"remote-support/agent-win/internal/macperm"
+	"remote-support/agent-win/internal/request"
 	"remote-support/agent-win/internal/signal"
 	"remote-support/agent-win/internal/ui/uicore"
 )
@@ -30,6 +31,12 @@ func (u *UI) restoreQuit() {
 		u.quit = u.confirmEnd
 	case u.lobby != nil:
 		u.quit = func() { u.emit(flow.Event{Kind: flow.EvEnd}) }
+	case u.reqWait != nil: // P31 AC-515: ⌘Q bekleme penceresini kapatmakla aynı (talep iptal, uygulama kapanır)
+		u.quit = func() { u.reqEmit(request.UserClose) }
+	case u.reqForm != nil:
+		u.quit = func() { u.reqForm.reply(request.FormClose) }
+	case u.reqQuit != nil:
+		u.quit = u.reqQuit
 	default:
 		u.quit = nil
 	}

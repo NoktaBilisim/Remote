@@ -1,5 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { AGENT_AVAILABILITY_URL, agentDownloadUrl, fetchAgentAvailability, macVariant, probeAgentDownload } from "./agent-download";
+import {
+  AGENT_AVAILABILITY_URL,
+  agentDownloadUrl,
+  fetchAgentAvailability,
+  macVariant,
+  probeAgentDownload,
+  requestDownloadHref,
+} from "./agent-download";
 
 const json = (status: number, code: string, headers: Record<string, string> = {}) =>
   new Response(JSON.stringify({ error: { code, message: "x", requestId: "01JREQ" } }), {
@@ -162,5 +169,20 @@ describe("P28f-r4 AC-503 / K-P28f-r4-3: macosSigning şeması ve varyant", () =>
     expect(macVariant(await fetchAgentAvailability(ok(base)))).toBe("adhoc");
     expect(macVariant(await fetchAgentAvailability(ok({ ...base, macosSigning: "Notarized" })))).toBe("adhoc");
     expect(macVariant(await fetchAgentAvailability(ok({ ...base, macosSigning: "notarized" })))).toBe("notarized");
+  });
+});
+
+describe("P31 AC-520: firma bağlantısının macOS adresi", () => {
+  it("Windows adresi bayt bayt aynı; macOS'ta &os=macos (göreli ve mutlak taban)", () => {
+    expect(requestDownloadHref("/api/v1/public/agent/request-download?ref=abc", "windows")).toBe(
+      "/api/v1/public/agent/request-download?ref=abc",
+    );
+    expect(requestDownloadHref("/api/v1/public/agent/request-download?ref=abc", "macos")).toBe(
+      "/api/v1/public/agent/request-download?ref=abc&os=macos",
+    );
+    expect(requestDownloadHref("https://destek.ornek.com/api/v1/public/agent/request-download?ref=abc", "macos")).toBe(
+      "https://destek.ornek.com/api/v1/public/agent/request-download?ref=abc&os=macos",
+    );
+    expect(requestDownloadHref("/x", "macos")).toBe("/x?os=macos");
   });
 });

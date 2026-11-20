@@ -1,11 +1,15 @@
 "use client";
 
 import { Clock, Download, MonitorUp, ShieldCheck, WifiOff, XCircle } from "lucide-react";
-import type { ReactNode } from "react";
+import { useSyncExternalStore, type ReactNode } from "react";
 import { Alert } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
+import { Skeleton } from "@/components/ui/skeleton";
+import { requestDownloadHref, type MacVariant } from "@/lib/agent-download";
+import type { AgentOs } from "@/lib/device-support";
 import { formatRemaining } from "@/lib/format";
 import { t } from "@/lib/i18n";
+import type { AgentOffer } from "../../session/[token]/agent-offer";
 import { RequestEndScreen, type RequestEnd } from "./request-end";
 import type { AcceptedPhase, ClosedPhase, Phase } from "./request-socket";
 
@@ -45,16 +49,81 @@ function VerifyCodes({ phase }: { phase: AcceptedPhase }) {
   );
 }
 
+/**
+ * P31 (AC-520): kabul kartındaki firma dosyası indirmesinin biçimi. `macos` yalnız macOS masaüstünde ve availability
+ * `macos: true` iken; `loading` = macOS kapısı denetleniyor; diğer her durum (Windows, Linux — AC-521, mobil, kapı kapalı,
+ * availability hatası) bugünkü Windows bağlantısı.
+ */
+export type RequestDownloadOffer = { kind: "windows" } | { kind: "loading" } | { kind: "macos"; variant: MacVariant };
+
+/** Cihaz işletim sistemi + `useAgentOffer` sonucu → indirme biçimi (saf; Linux ve bilinmeyen → Windows bağlantısı). */
+export function requestDownloadOffer(os: AgentOs | null, offer: AgentOffer): RequestDownloadOffer {
+  if (os !== "macos") return { kind: "windows" };
+  if (offer.state === "loading") return { kind: "loading" };
+  return offer.state === "ready" && offer.os === "macos" ? { kind: "macos", variant: offer.variant } : { kind: "windows" };
+}
+
+const DL_CLS = "inline-flex min-h-11 items-center justify-center gap-1.5 text-sm font-medium text-primary hover:underline";
+
+/**
+ * İndirme bağlantısı. macOS'ta `&os=macos` (302 → `.zip`) + indirme kaynağına çapalı "Yine de Aç" uyarısı (mimari-p31 §15.3,
+ * `gm.adhocOnlyBody`) ve firma adının güvenlik kanıtı olmadığı cümlesi; notarize derlemede "Yine de Aç" gerekmediği için uyarı yok
+ * (oturum sayfasıyla aynı kural: `gm.neverTitle`).
+ */
+export function RequestDownload({ href, offer, host }: { href: string; offer: RequestDownloadOffer; host: string }) {
+  if (offer.kind === "loading")
+    return (
+      <div aria-busy="true" data-testid="wr-download-loading" className="flex min-h-11 items-center justify-center">
+        <span className="sr-only">{t("gm.checking")}</span>
+        <Skeleton className="h-4 w-64 max-w-full" />
+      </div>
+    );
+  const mac = offer.kind === "macos";
+  return (
+    <div className="flex flex-col gap-2">
+      <a
+        href={requestDownloadHref(href, mac ? "macos" : "windows")}
+        className={DL_CLS}
+        data-testid="wr-download"
+        data-os={mac ? "macos" : "windows"}
+      >
+        <Download aria-hidden className="size-4 shrink-0" />
+        {t(mac ? "wr.downloadMac" : "wr.download")}
+      </a>
+      {mac && offer.variant !== "notarized" && (
+        <div className="text-left">
+          <Alert tone="warning" testId="wr-mac-adhoc-only">
+            <p className="font-semibold">{t("gm.adhocOnlyTitle")}</p>
+            <p className="text-fg">{t("gm.adhocOnlyBody", { host: host || "—" })}</p>
+            <p className="mt-1 text-fg" data-testid="wr-mac-firm-note">
+              {t("gm.firmNameNotProof")}
+            </p>
+          </Alert>
+        </div>
+      )}
+    </div>
+  );
+}
+
 interface AcceptedProps {
   phase: AcceptedPhase;
   /** Firma dosyası indirme bağlantısı (P21: kaynak adaptöründen; `/r/` için `request-download?ref=`). */
   downloadHref: string;
+  /** P31: indirme biçimi (macOS / Windows / denetleniyor); varsayılan bugünkü Windows bağlantısı. */
+  download?: RequestDownloadOffer;
   onShare: () => void;
   onDecline: () => void;
 }
 
+const noop = () => () => undefined;
+
 /** Kabul: teknisyen adı + doğrulama kodu (+ kabul kodu), "Ekranımı paylaş" / "Vazgeç", uygulama indirme bağlantısı. */
-export function AcceptedCard({ phase, downloadHref, onShare, onDecline }: AcceptedProps) {
+export function AcceptedCard({ phase, downloadHref, download = { kind: "windows" }, onShare, onDecline }: AcceptedProps) {
+  const host = useSyncExternalStore(
+    noop,
+    () => window.location.host,
+    () => "",
+  );
   return (
     <section
       className="flex flex-col gap-4 rounded-lg border border-border bg-surface p-4 text-center shadow-sm sm:p-6"
@@ -75,14 +144,7 @@ export function AcceptedCard({ phase, downloadHref, onShare, onDecline }: Accept
           {t("wr.decline")}
         </Button>
       </div>
-      <a
-        href={downloadHref}
-        className="inline-flex min-h-11 items-center justify-center gap-1.5 text-sm font-medium text-primary hover:underline"
-        data-testid="wr-download"
-      >
-        <Download aria-hidden className="size-4" />
-        {t("wr.download")}
-      </a>
+      <RequestDownload href={downloadHref} offer={download} host={host} />
     </section>
   );
 }

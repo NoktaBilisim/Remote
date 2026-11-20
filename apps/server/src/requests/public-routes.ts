@@ -3,6 +3,7 @@
 import {
   cancelRequestInputSchema,
   createRequestInputSchema,
+  requestDownloadQuerySchema,
   type CreateRequestResponse,
   type TenantRequestInfo,
 } from "@remote/contracts/api/requests";
@@ -11,6 +12,7 @@ import { auditContext } from "../audit/service.ts";
 import { checkPublicClient } from "../auth/guards.ts";
 import { parseInput } from "../lib/errors.ts";
 import { assertAgentReady } from "../public/agent.ts";
+import type { DownloadGates } from "./service.ts";
 
 const refOf = (q: unknown): unknown => (typeof q === "object" && q !== null ? (q as { ref?: unknown }).ref : undefined);
 
@@ -39,10 +41,16 @@ export async function publicRequestRoutes(app: FastifyInstance): Promise<void> {
 }
 
 export async function publicRequestDownloadRoutes(app: FastifyInstance): Promise<void> {
-  // AC-130/132: 302 → /downloads/NoktaDestek-<label>-<ref>.exe (aynı jenerik ikili; son yanıtı Caddy verir).
+  const gates: DownloadGates = {
+    assertReady: (os) => assertAgentReady(os === "macos" ? app.macAgentBinary : app.agentBinary),
+    macosOk: async () => (await app.macAgentBinary.check()) === "ok",
+  };
+  // AC-130/132: 302 → /downloads/NoktaDestek-<label>-<ref>.exe (aynı jenerik ikili; son yanıtı Caddy verir). P31 (AC-509,
+  // 521): `os` (windows|macos) ya da UA → macOS'ta `.zip`. Geçersiz `os` (linux dahil) servise girmeden 400 → kova tüketilmez.
   app.get("/request-download", async (req, reply) => {
     void reply.header("Cache-Control", "no-store");
-    const location = await app.requests.download(auditContext(req), refOf(req.query), () => assertAgentReady(app.agentBinary));
+    const { os } = parseInput(requestDownloadQuerySchema, req.query);
+    const location = await app.requests.download(auditContext(req), refOf(req.query), os, gates);
     return reply.redirect(location, 302);
   });
 }

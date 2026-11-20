@@ -125,7 +125,10 @@ export function createMetrics(): Metrics {
   m.counter("rs_notify_suppressed_total", "Bastırılan müşteri durum bildirimleri (P19 S-P19-12; reason: pending_duplicate)");
   // P19 J3 (§8c.3, §8c.7; J6 remote-watch sözleşmesi): outbox yalnız son durumları sayar, rate_limited hariç.
   m.counter("rs_link_send_total", "Müşteriye bağlantı gönderimleri (P19 AC-260, LG; kind, channel, result: ok|<neden>)");
-  m.counter("rs_agent_download_total", "Hızlı Destek istemci indirme yönlendirmeleri (P28f §8.3; os: windows|macos)");
+  m.counter(
+    "rs_agent_download_total",
+    "Hızlı Destek istemci indirme yönlendirmeleri (P28f §8.3; os: windows|macos|linux; P31 firma dosyası: kind=firm)",
+  );
   m.counter("rs_unattended_download_total", "LG public servis indirme (result: ok|not_found|not_ready|rate_limited)");
   m.counter(
     "rs_sms_send_total",

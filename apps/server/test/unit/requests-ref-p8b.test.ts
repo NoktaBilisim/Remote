@@ -58,7 +58,7 @@ describe("AC-130 file_label", () => {
       const label = fileLabelOf(name);
       expect(label).toMatch(/^[A-Za-z0-9]{1,20}$/);
       expect(requestFileName(label, ref)).toBe(`NoktaDestek-${label}-${ref}.exe`);
-      expect(parseFirmDownloadUri(requestDownloadLocation(label, ref))).toEqual({ label, ref });
+      expect(parseFirmDownloadUri(requestDownloadLocation(label, ref), ".exe")).toEqual({ label, ref });
     }
   });
 });
