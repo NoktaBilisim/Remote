@@ -5711,6 +5711,8 @@ https://token.actions.githubusercontent.com`),
 
 7. Panel → Gözetimsiz → sürüm dağılımında cihazların geçişini izleyin.
 
+**Risk kabulü (kullanıcı, 2026-11-20):** ayrı `stg.remote` yığını yok; ilk prod sürümü (`v0.24.2`, prod anahtarlı) için m.1 staging manifest provası ve m.2 24 saat beklemesi **atlanır**. İlk prod güncelleme zinciri (imza → manifest → istemci kurulumu) prod'da ilk kez denenir; sorun çıkarsa `publish-manifest.sh --withdraw all` ile kanal kapatılır, istemciler mevcut sürümde kalır.
+
 ### 31.5 GitHub kurulumu (bir kez; S-P29-T-1 sertleştirmeleri)
 
 - **Ortam `agent-update-sign`** (Settings → Environments):
