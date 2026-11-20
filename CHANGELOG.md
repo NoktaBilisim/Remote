@@ -5,6 +5,10 @@ Biçim [Keep a Changelog](https://keepachangelog.com/tr/1.1.0/), sürümleme [Se
 
 ## [Unreleased]
 
+## [0.25.0] - 2026-11-20
+
+İlk prod istemci sürümü (prod güncelleme anahtarları gömülü; bu sürümden sonra istemciler kendini otomatik günceller).
+
 ### Güvenlik / Düzeltildi — macOS geç açılan pencerelerin dışlanması (AC-392, PR #40)
 
 - macOS: yakalama başladığında uygulamanın penceresi yoksa, sonradan açılan Nokta Destek pencereleri (gösterge, onay,
