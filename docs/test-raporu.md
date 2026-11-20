@@ -1513,3 +1513,17 @@ açısından prod ad-hoc ile aynıdır; prod etiketinden sonra E-1, E-5 ve E-10 
 | E-8  | Aynı sürümü ikinci kez indirip açma                                                                          | Gatekeeper onayı istenip istenmediği kaydedilir; TCC izni korunur (cdhash aynı)                                                                                                                 | bekliyor | bekliyor |
 | E-9  | İzin sonrası "İzni verdim, yeniden başlat" (`--restart`)                                                     | Yeni süreç Gatekeeper'a yeniden takılmaz, kod korunur                                                                                                                                           | bekliyor | bekliyor |
 | E-10 | Finder → Bilgi Al → "Nereden" alanı (S-r4-1)                                                                 | İndirme adresi destek sayfasının sunucusu                                                                                                                                                       | bekliyor | bekliyor |
+
+## P31 + AC-392 — gerçek Mac elle testi (2026-11-20, staging, macOS TEST zip 0.24.2)
+
+- **Ortam:** kullanıcının Mac'i, staging `remote.noktabilisim.net` (`a26f712d`), zip 0.24.2 (staging anahtarlı, ad-hoc) Müşteriler →
+  İndirme bağlantısı (firma bağlantısı) üzerinden.
+- **Sonuç:** kullanıcı beyanı — **Mac testleri tamam** (E-P31-1..7 "Destek iste" akışı + AC-392 geç açılan pencere dışlama).
+  Ayrıntılı adım/adım kayıt kullanıcıda; bu rapor beyanı kaydeder.
+- **Bulgu B-P31-E1 (Düşük, Sonra):** daha önce 0.24.0/0.24.1 kurulmuş Mac'te Ekran Kaydı izni listede açık göründüğü hâlde
+  "İzni verdim, yeniden başlat" döngüye girdi. Neden: ad-hoc imzada TCC izni derlemenin kod imzasına (cdhash) bağlı; yeni derleme
+  eski izni devralmaz. Çözüm (kullanıcı uyguladı, OKUBENI'de yazılı):
+  `tccutil reset ScreenCapture net.noktabilisim.destek.stg` ve `tccutil reset Accessibility net.noktabilisim.destek.stg`
+  → yeniden izin. Öneri: izin rehberi ekranına "Daha önce eski sürümü kurduysanız…" satırı + bu komutlar (prod bundle
+  `net.noktabilisim.destek`); kılavuz §sık sorunlar tablosuna satır. Her ad-hoc sürüm yükseltmesinde (otomatik güncelleme dahil) aynı
+  durum beklenir → P29 macOS güncellemesi sonrası izin yeniden istenebilir; kılavuzda belirtilmeli.
