@@ -4,6 +4,7 @@ package capture
 
 import (
 	"context"
+	"errors"
 	"os"
 	"runtime"
 	"slices"
@@ -395,79 +396,63 @@ func pct(d []time.Duration, p int) time.Duration {
 	return c[min(len(c)-1, len(c)*p/100)]
 }
 
-// Açılışta uygulamamızın penceresi yoksa SCK listesinde de olmayabilir; pencere sonradan açılınca filtre
-// güncellenmeli (excludeLater) ve macenta görüntüye girmemeli.
+// Açılışta uygulamamızın penceresi yoksa SCK listesinde de olmayabilir; pencere sonradan açılınca akış dışlamalı
+// filtreyle yeniden açılmalı (excludeLater) ve macenta ≤ 1 sn içinde görüntüden çıkıp öyle kalmalı. Yol lateExclude
+// ile zorlanır: aksi hâlde runner durumuna göre uygulama açılışta zaten listede olur ve test geç yolu hiç sınamaz.
 func TestP28fK2AC392LateWindowExcluded(t *testing.T) {
 	needCapture(t)
-	fails := 0
-	for round := range 5 {
-		if !lateRound(t, round) {
-			fails++
-		}
-	}
-	if fails > 0 {
-		t.Fatalf("TANI: %d/5 turda geç pencere görüldü", fails)
-	}
-}
-
-func delivered(s *source) int {
-	s.p.st.slot.mu.Lock()
-	defer s.p.st.slot.mu.Unlock()
-	return s.p.st.slot.delivered
-}
-
-// sample d süresince: toplam, macenta, taze (SCK yeni kare verdi) ve taze macenta.
-func sample(t *testing.T, src *source, d time.Duration) (total, mag, fresh, freshMag int) {
-	last := delivered(src)
-	framesFor(t, src, d, func(f *NV12) {
-		total++
-		m := magentaAtCenter(f)
-		n := delivered(src)
-		if n != last {
-			fresh++
-			if m {
-				freshMag++
-			}
-		}
-		last = n
-		if m {
-			mag++
-		}
-	})
-	return
-}
-
-func lateRound(t *testing.T, round int) bool {
-	src, err := open(1, streamOpts{})
+	src, err := open(1, streamOpts{lateExclude: true})
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}
 	defer src.Close()
-	initially := src.p.st.excluded.Load()
-	w := probeWindow(t)
-	defer onMain(t, func() { w.Send(objc.Sel("orderOut:"), objc.ID(0)) })
-	t0 := time.Now()
+	first := src.p.st
+	if first.excluded.Load() {
+		t.Fatal("lateExclude açılışı dışlamalı başladı")
+	}
+	src.p.opt = streamOpts{} // yeniden açılış üretim yolundan; NextFrame yalnız bu goroutine'den çağrılır
+	probeWindow(t)
+	reopened := func() bool { return src.p.st != nil && src.p.st != first && src.p.st.excluded.Load() }
 	deadline := time.Now().Add(5 * time.Second)
-	for !src.p.st.excluded.Load() && time.Now().Before(deadline) {
-		framesFor(t, src, 200*time.Millisecond, nil)
+	for !reopened() && time.Now().Before(deadline) {
+		framesFor(t, src, 100*time.Millisecond, nil)
 	}
-	flip := time.Since(t0)
-	time.Sleep(200 * time.Millisecond)
-	d0 := delivered(src)
-	total, mag, fresh, freshMag := sample(t, src, 1500*time.Millisecond)
-	t.Logf("TANI tur %d: başta hariç=%v, bayrak %v sonra; teslim %d→%d; kare %d macenta %d taze %d taze-macenta %d",
-		round, initially, flip.Round(time.Millisecond), d0, delivered(src), total, mag, fresh, freshMag)
-	if mag == 0 && total > 0 {
-		return true
+	if !reopened() {
+		t.Fatal("uygulama sonradan dışlanmadı (akış dışlamalı yeniden açılmadı)")
 	}
-	for i := range 5 {
-		a, b, c, e := sample(t, src, time.Second)
-		t.Logf("TANI tur %d +%d sn: kare %d macenta %d taze %d taze-macenta %d", round, i+1, a, b, c, e)
+	// Yeniden açılışta eski kare atılır: buradan sonra kodlanan her kare yeni (dışlamalı) akıştandır.
+	t0 := time.Now()
+	var firstAt time.Duration
+	seen, total := 0, 0
+	framesFor(t, src, 1500*time.Millisecond, func(f *NV12) {
+		if total == 0 {
+			firstAt = time.Since(t0)
+		}
+		total++
+		if magentaAtCenter(f) {
+			seen++
+		}
+	})
+	if total == 0 || firstAt > time.Second || seen != 0 {
+		t.Fatalf("dışlama sonrası: ilk kare %v (≤ 1 sn), macenta %d/%d", firstAt.Round(time.Millisecond), seen, total)
 	}
-	ok := src.p.st.tryExclude()
-	for i := range 3 {
-		a, b, c, e := sample(t, src, time.Second)
-		t.Logf("TANI tur %d yeniden filtre (ok=%v) +%d sn: kare %d macenta %d taze %d taze-macenta %d", round, ok, i+1, a, b, c, e)
+	t.Logf("geç dışlama: yeniden açıldı, ilk kare %v, %d karede macenta 0", firstAt.Round(time.Millisecond), total)
+}
+
+// Sistem durdurması (errStreamStopped: son kare korunur) ile dışlama yeniden açılışı (errStreamReopen: son kare
+// atılır) ayrışır; ikisi birlikte gelirse yeniden açılış önceliklidir.
+func TestP28fK2AC392SlotReopenDistinct(t *testing.T) {
+	s := newSlot()
+	s.stop()
+	if _, err := s.poll(); !errors.Is(err, errStreamStopped) {
+		t.Fatalf("stop: %v", err)
 	}
-	return false
+	s.halt(true)
+	if _, err := s.poll(); !errors.Is(err, errStreamReopen) {
+		t.Fatalf("halt(true): %v", err)
+	}
+	s.stop()
+	if _, err := s.poll(); !errors.Is(err, errStreamReopen) {
+		t.Fatalf("halt(true) sonrası stop: %v", err)
+	}
 }

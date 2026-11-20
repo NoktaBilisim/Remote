@@ -177,6 +177,14 @@ func (p *pipeline) grab(ctx context.Context, done <-chan struct{}) (bool, error)
 		p.kc.Request()
 	}
 	f, err := p.st.slot.wait(ctx, done, frameWait)
+	if errors.Is(err, errStreamReopen) {
+		// Dışlama öncesi kare penceremizi içerebilir: yeniden kodlanmaz; yeni akışın ilk taze karesi beklenir.
+		p.st.close()
+		p.st = nil
+		p.cur = nil
+		p.retryAt = time.Time{}
+		return false, nil
+	}
 	if errors.Is(err, errStreamStopped) {
 		p.st.close()
 		p.st = nil

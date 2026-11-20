@@ -27,7 +27,12 @@ const (
 	sckExcludeEvery   = time.Second // kendi uygulama listede yoksa yeniden deneme aralığı
 )
 
-var errStreamStopped = errors.New("capture: SCStream durdu")
+var (
+	errStreamStopped = errors.New("capture: SCStream durdu")
+	// errStreamReopen kendi uygulamamız sonradan listede bulundu: akış dışlamalı filtreyle yeniden açılmalı ve
+	// dışlama öncesi kare (penceremizi içerebilir) bir daha kodlanmamalı.
+	errStreamReopen = errors.New("capture: kendi uygulama dışlanacak, akış yeniden açılıyor")
+)
 
 // sampleQueue örnek geri çağrılarının seri kuyruğu (süreç ömrü, tek; yeniden açmada yenisi oluşturulmaz).
 var sampleQueue = sync.OnceValues(func() (objc.Queue, error) { return objc.NewQueue("net.noktabilisim.destek.capture") })
@@ -105,6 +110,7 @@ type frameSlot struct {
 	latest    *NV12
 	free      []*NV12
 	stopped   bool
+	reopen    bool // stopped nedeni errStreamReopen
 	ready     chan struct{}
 	delivered int // Complete kare sayısı (ölçüm)
 	bad       int // kopyalanamayan kare
@@ -187,9 +193,12 @@ func (s *frameSlot) recycle(f *NV12) {
 	s.mu.Unlock()
 }
 
-func (s *frameSlot) stop() {
+func (s *frameSlot) stop() { s.halt(false) }
+
+func (s *frameSlot) halt(reopen bool) {
 	s.mu.Lock()
 	s.stopped = true
+	s.reopen = s.reopen || reopen
 	s.mu.Unlock()
 	select {
 	case s.ready <- struct{}{}:
@@ -197,7 +206,8 @@ func (s *frameSlot) stop() {
 	}
 }
 
-// wait en çok d kadar yeni kare bekler: (kare, nil), zaman aşımında (nil, nil), akış durduysa errStreamStopped.
+// wait en çok d kadar yeni kare bekler: (kare, nil), zaman aşımında (nil, nil), akış durduysa errStreamStopped,
+// dışlama için yeniden açılacaksa errStreamReopen.
 func (s *frameSlot) wait(ctx context.Context, done <-chan struct{}, d time.Duration) (*NV12, error) {
 	if f, err := s.poll(); f != nil || err != nil {
 		return f, err
@@ -219,6 +229,9 @@ func (s *frameSlot) wait(ctx context.Context, done <-chan struct{}, d time.Durat
 func (s *frameSlot) poll() (*NV12, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if s.reopen {
+		return nil, errStreamReopen
+	}
 	if s.stopped {
 		return nil, errStreamStopped
 	}
@@ -241,7 +254,8 @@ type sckStream struct {
 
 // streamOpts test kancaları (üretimde sıfır değer).
 type streamOpts struct {
-	noExclude bool // pozitif kontrol: kendi uygulamayı hariç tutma
+	noExclude   bool // pozitif kontrol: kendi uygulamayı hariç tutma
+	lateExclude bool // açılışta listede yokmuş gibi davran (excludeLater yolunu zorlar)
 }
 
 // openStream displayID ekranı için akışı başlatır.
@@ -324,7 +338,7 @@ func (s *sckStream) start(content objc.ID, displayID uint32, opt streamOpts) err
 	if disp == 0 {
 		return &Error{Reason: ReasonNoOutput, Op: "SCDisplay"}
 	}
-	excl, found := ownApps(content, opt.noExclude)
+	excl, found := ownApps(content, opt.noExclude || opt.lateExclude)
 	s.excluded.Store(found)
 	s.display = displayID
 	filter, err := newFilter(disp, excl)
@@ -435,7 +449,11 @@ func newFilter(disp, excl objc.ID) (objc.ID, error) {
 	return f, nil
 }
 
-// excludeLater uygulamamız açılışta listede yoksa (henüz penceresi yok) bulunana kadar filtreyi günceller.
+// excludeLater uygulamamız açılışta listede yoksa (henüz penceresi yok) bulunana kadar yoklar; bulununca akışın
+// dışlamalı filtreyle yeniden açılmasını ister. updateContentFilter kullanılmaz: CI'da (macOS 15) tamamlama başarılı
+// dönse de sonraki ~3 sn taze karelerde pencere görünmeye devam etti, ekran durağanlaşınca da yeni kare gelmediği için
+// pencereli son kare keep-alive ile süresiz yeniden gönderildi (AC-392 ihlali). Dışlamayla açılan akış ise sonradan
+// açılan pencereleri de güvenilir biçimde dışlar.
 func (s *sckStream) excludeLater() {
 	defer s.wg.Done()
 	t := time.NewTicker(sckExcludeEvery)
@@ -446,47 +464,23 @@ func (s *sckStream) excludeLater() {
 			return
 		case <-t.C:
 		}
-		if s.tryExclude() {
+		if s.ownListed() {
+			s.slot.halt(true)
 			return
 		}
 	}
 }
 
-func (s *sckStream) tryExclude() bool {
+// ownListed uygulamamız SCShareableContent listesinde mi.
+func (s *sckStream) ownListed() bool {
 	content, err := shareableContent()
 	if err != nil {
 		return false
 	}
 	defer objc.Release(content)
-	ok := false
-	objc.Pool(func() {
-		excl, found := ownApps(content, false)
-		if !found {
-			return
-		}
-		disp := findDisplay(content, s.display)
-		if disp == 0 {
-			return
-		}
-		f, err := newFilter(disp, excl)
-		if err != nil {
-			return
-		}
-		defer objc.Release(f)
-		ch := make(chan uint32, 1)
-		blk := pobjc.NewBlock(func(_ pobjc.Block, nserr objc.ID) { ch <- nsErrorCode(nserr) })
-		defer blk.Release()
-		s.stream.Send(objc.Sel("updateContentFilter:completionHandler:"), f, blk)
-		select {
-		case code := <-ch:
-			ok = code == 0
-		case <-time.After(sckContentTimeout):
-		}
-	})
-	if ok {
-		s.excluded.Store(true)
-	}
-	return ok
+	found := false
+	objc.Pool(func() { _, found = ownApps(content, false) })
+	return found
 }
 
 // close akışı durdurur ve bırakır (idempotent değil; tek sahip çağırır).
