@@ -17625,6 +17625,12 @@ Kararlar / sapmalar:
 
 Komutlar (hepsi yeşil): `pnpm --filter @remote/web lint` · `typecheck` · `test` (70 dosya, 688 test) · `npx playwright test e2e/p31-mac-request.spec.ts e2e/p19-j5.spec.ts e2e/portal-p21.spec.ts e2e/customers.spec.ts e2e/p28f-macos.spec.ts e2e/p28g-linux.spec.ts e2e/p15.spec.ts e2e/p10-account.spec.ts e2e/p6-agent-download.spec.ts --project=desktop --project=mobile` → 162 geçti, 100 atlandı (desktopOnly), 0 hata. Tüm e2e takımı koşulmadı.
 
+### P31-F — QA tur 2 düzeltmesi (frontend-dev, 2026-11-20)
+
+- **e2e kararsızlığı (qa tur 2 madde 1):** sahte `/__e2e/p19/accept` kabul mesajını yalnız o an bağlı sokete gönderir; sayfanın `/ws/request` soketi henüz bağlanmamışsa mesaj kayboluyordu. `e2e/p31-mac-request.spec.ts`'e `acceptRequest()` eklendi: tetikleme + `wr-accepted` görünürlüğü `expect(...).toPass()` içinde (20 sn, 250/500/1000 ms aralık) yinelenir; `toAccepted` ve portal testi bunu kullanır. Yinelenen `request.accepted` istemcide aynı fazı yeniden kurar (idempotent). Sahte sunucu (`mock-p19.mjs`) değişmedi — diğer spec'leri etkilememek için; seri koşu gerekmedi.
+- **S-P31-K1 başlık testi (qa tur 2 madde 2):** `gm.adhocOnlyTitle` ("“Yine de Aç” yalnız resmi adresten indirdiğiniz uygulama için") artık doğrulanıyor: `app/r/[ref]/waiting-parts.test.tsx` (RequestDownload ad-hoc + AcceptedCard macOS), `e2e/p31-mac-request.spec.ts` (ad-hoc + portal testi), `e2e/p28f-macos.spec.ts` AC-503 ad-hoc (`mac-adhoc-only-this`). Hepsinde eski metin "yalnız bu sayfadaki indirme" için negatif beklenti var (uyarı + `body`).
+- Komutlar: `pnpm --filter @remote/web test` (70 dosya, 688 test geçti) · `typecheck` · `lint` temiz · `pnpm exec playwright test e2e/p31-mac-request.spec.ts --repeat-each=5` → 50 geçti / 50 atlandı / 0 hata · `e2e/p28f-macos.spec.ts` → 15 geçti / 15 atlandı · iki dosya birlikte `--repeat-each=5` iki kez → her biri 125 geçti / 125 atlandı / 0 hata.
+
 ## P31-O — Caddy `@agentZipFirm`, nginx hız sınırı, runbook (devops, 2026-11-20; mimari-p31 §9, §15.1, §15.3, §15.4; AC-510, AC-520, AC-522)
 
 - `deploy/Caddyfile`: `@agentZipFirm` (`@agentExeFirm`'in altında, `handle /downloads/*` 404'ünden önce) → `forward_auth`

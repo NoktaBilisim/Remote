@@ -43,6 +43,8 @@ describe("P31 RequestDownload (AC-520)", () => {
     const warn = html.indexOf("wr-mac-adhoc-only");
     expect(warn).toBeGreaterThan(html.indexOf("wr-download"));
     const block = html.slice(warn);
+    expect(block).toContain("“Yine de Aç” yalnız resmi adresten indirdiğiniz uygulama için");
+    expect(html).not.toContain("yalnız bu sayfadaki indirme");
     expect(block).toContain("yalnız tarayıcınızda destek.ornek.com adresinden indirdiğiniz Nokta Destek için kullanın");
     expect(block).toContain("“Nereden” satırı https://destek.ornek.com/ ile başlamalı");
     expect(block).toContain("Firmanız size yalnız bağlantı gönderir, dosya göndermez. Dosya ek olarak geldiyse açmayın.");
@@ -84,5 +86,7 @@ describe("P31 AcceptedCard", () => {
     expect(html).toContain("&amp;os=macos");
     expect(html).toContain('data-testid="wr-mac-adhoc-only"');
     expect(html).toContain("yalnız tarayıcınızda — adresinden");
+    expect(html).toContain("“Yine de Aç” yalnız resmi adresten indirdiğiniz uygulama için");
+    expect(html).not.toContain("yalnız bu sayfadaki indirme");
   });
 });

@@ -22,6 +22,18 @@ test.use({ userAgent: MAC });
 test.beforeEach(({}, info) => desktopOnly(info.project.name, ONLY));
 
 const avail = (page: Page, body: unknown, status = 200) => page.route(AVAIL, (r) => r.fulfill({ status, json: body }));
+const TITLE = "“Yine de Aç” yalnız resmi adresten indirdiğiniz uygulama için";
+const OLD_TITLE = "yalnız bu sayfadaki indirme";
+
+/** Teknisyen kabulü: sahte /ws/request kabul mesajını yalnız O AN bağlı sokete gönderir; sayfanın soketi henüz
+ *  bağlanmadıysa (ya da yeniden bağlanıyorsa) mesaj kaybolur. Kabul kartı görünene kadar tetiklemeyi yinele
+ *  (QA P31 tur 2: kararsızlık). İkinci `request.accepted` istemcide aynı fazı yeniden kurar (idempotent). */
+async function acceptRequest(page: Page, ref: string) {
+  await expect(async () => {
+    await page.request.get(`${MOCK}/__e2e/p19/accept/${ref}`);
+    await expect(page.getByTestId("wr-accepted")).toBeVisible({ timeout: 1500 });
+  }).toPass({ timeout: 20_000, intervals: [250, 500, 1000] });
+}
 
 /** /r/<ref> formu doldur → gönder → bekleme → teknisyen kabulü (sahte /ws/request). */
 async function toAccepted(page: Page, ref: string) {
@@ -33,7 +45,7 @@ async function toAccepted(page: Page, ref: string) {
   await expect(page.getByTestId("wr-submit")).toBeEnabled({ timeout: 5000 });
   await page.getByTestId("wr-submit").click();
   await expect(page.getByTestId("wr-waiting")).toBeVisible();
-  await page.request.get(`${MOCK}/__e2e/p19/accept/${ref}`);
+  await acceptRequest(page, ref);
   await expect(page.getByTestId("wr-accepted")).toContainText("Selin Teknik");
 }
 
@@ -47,6 +59,9 @@ test("AC-520: macOS (ad-hoc) kabul kartı → Mac metni, &os=macos, düğme yan�
   await expect(dl).toHaveAttribute("data-os", "macos");
   await expect(dl).toHaveText("Uzaktan kontrol gerekiyorsa Nokta Destek'i (macOS) indirin");
   const warn = page.getByTestId("wr-mac-adhoc-only");
+  await expect(warn).toContainText(TITLE);
+  await expect(warn).not.toContainText(OLD_TITLE);
+  await expect(page.locator("body")).not.toContainText(OLD_TITLE);
   await expect(warn).toContainText(/yalnız tarayıcınızda localhost:\d+ adresinden indirdiğiniz Nokta Destek için kullanın/);
   await expect(warn).toContainText(/“Nereden” satırı https:\/\/localhost:\d+\/ ile başlamalı/);
   await expect(warn).toContainText("Firmanız size yalnız bağlantı gönderir, dosya göndermez. Dosya ek olarak geldiyse açmayın.");
@@ -162,9 +177,10 @@ test("AC-520: portal — ana sayfada Mac notu; yeni talep kabul kartında mutlak
   await page.getByTestId("wr-consent").check();
   await page.getByTestId("wr-submit").click();
   await expect(page.getByTestId("wr-waiting")).toBeVisible();
-  await page.request.get(`${MOCK}/__e2e/p19/accept/${ref}`);
+  await acceptRequest(page, ref);
   await expect(page.getByTestId("wr-download")).toHaveAttribute("href", new RegExp(`request-download\\?ref=${ref}&os=macos$`));
-  await expect(page.getByTestId("wr-mac-adhoc-only")).toBeVisible();
+  await expect(page.getByTestId("wr-mac-adhoc-only")).toContainText(TITLE);
+  await expect(page.locator("body")).not.toContainText(OLD_TITLE);
 });
 
 test("AC-520: panel — destek talebi ayarı, genel bağlantı ve müşteri kartında Mac notu", async ({ page, context }) => {

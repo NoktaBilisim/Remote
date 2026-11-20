@@ -42,6 +42,8 @@ test("AC-396: macOS'ta birincil 'uygulamayı indir' + ikincil tarayıcı; indirm
   await expect(page.getByTestId("agent-download-block")).not.toContainText("TEST");
   const only = page.getByTestId("mac-adhoc-only-this");
   // P31 §15.3: kanaldan bağımsız, kaynağa çapalı metin
+  await expect(only).toContainText("“Yine de Aç” yalnız resmi adresten indirdiğiniz uygulama için");
+  await expect(page.locator("body")).not.toContainText("yalnız bu sayfadaki indirme");
   await expect(only).toContainText(/yalnız tarayıcınızda localhost:\d+ adresinden indirdiğiniz Nokta Destek/);
   await expect(only).toContainText(/“Nereden” satırı https:\/\/localhost:\d+\/ ile başlamalı/);
   expect((await only.boundingBox())!.y).toBeLessThan((await guide.boundingBox())!.y);
