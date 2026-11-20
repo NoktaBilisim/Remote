@@ -5,6 +5,14 @@ Biçim [Keep a Changelog](https://keepachangelog.com/tr/1.1.0/), sürümleme [Se
 
 ## [Unreleased]
 
+### Güvenlik / Düzeltildi — macOS geç açılan pencerelerin dışlanması (AC-392, PR #40)
+
+- macOS: yakalama başladığında uygulamanın penceresi yoksa, sonradan açılan Nokta Destek pencereleri (gösterge, onay,
+  işaretleme) teknisyen görüntüsünde birkaç saniye, durağan ekranda daha uzun görünebiliyordu. Akış artık dışlamalı
+  yeniden açılıyor ve eski kare atılıyor (AC-392, ADR-0037 m.2). Etkilenen: macOS istemci 0.19.0–0.24.0; risk Düşük.
+- Dışlamasız akış sistemce durursa pencere içerebilecek son kare artık yeniden gönderilmiyor (D-392-2). Bilinen sınır:
+  dışlama kurulana kadar (≤ ~1 sn) taze karelerde pencere görünebilir (D-392-1).
+
 ### Eklendi — P31 macOS Hızlı Destek'te "Destek iste", istemci 0.24.0 (AC-509..522, ADR-0041)
 
 - **Firma bağlantısı Mac'te:** aynı `GET /api/v1/public/agent/request-download` bağlantısı Mac'te

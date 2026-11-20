@@ -66,6 +66,8 @@ type pipeStats struct {
 	empty    int             // Encode çıktısız döndü (kare kaybı)
 	encodeNs []time.Duration // ana Encode duvar süresi (ölçüt p95 ≤ 33 ms)
 	stepNs   []time.Duration // ana + düşük kodlama (kare başına toplam iş)
+	// reopenedAt son dışlama yeniden açılışı (AC-392 testi: ilk taze kareye kadar geçen süre).
+	reopenedAt time.Time
 }
 
 // Open seçilen monitör için H.264 kaynağı: ilk kare openFirstFrame içinde alınmalı ve kodlayıcı kurulmalı; aksi
@@ -88,13 +90,24 @@ func open(monitorID int, opt streamOpts) (*source, error) {
 			!p.hwOff, time.Now, nil)
 		return ch.enc, err
 	}
-	st, err := openStream(id, opt)
-	if err != nil {
-		return nil, err
+	var f *NV12
+	for try := 0; ; try++ {
+		st, err := openStream(id, p.opt)
+		if err != nil {
+			return nil, err
+		}
+		p.st = st
+		f, err = st.slot.wait(context.Background(), s.done, openFirstFrame)
+		// İlk kareden önce uygulamamız listede bulunduysa (excludeLater) akış dışlamalı açılır; ilk kare atılır.
+		if errors.Is(err, errStreamReopen) && try == 0 {
+			st.close()
+			p.st = nil
+			p.opt.lateExclude, p.opt.haltFirst = false, false
+			continue
+		}
+		break
 	}
-	p.st = st
-	f, err := st.slot.wait(context.Background(), s.done, openFirstFrame)
-	if err != nil || f == nil {
+	if f == nil {
 		p.close()
 		return nil, &Error{Reason: ReasonOther, Op: "FirstFrame"}
 	}
@@ -177,7 +190,20 @@ func (p *pipeline) grab(ctx context.Context, done <-chan struct{}) (bool, error)
 		p.kc.Request()
 	}
 	f, err := p.st.slot.wait(ctx, done, frameWait)
+	if errors.Is(err, errStreamReopen) {
+		// Dışlama öncesi kare penceremizi içerebilir: yeniden kodlanmaz; yeni akışın ilk taze karesi beklenir.
+		p.st.close()
+		p.st = nil
+		p.cur = nil
+		p.retryAt = time.Time{}
+		p.stats.reopenedAt = time.Now()
+		return false, nil
+	}
 	if errors.Is(err, errStreamStopped) {
+		// Dışlamasız akışın son karesi penceremizi içerebilir: keep-alive/PLI ile yeniden gitmesin (D-392-2).
+		if !p.st.excluded.Load() {
+			p.cur = nil
+		}
 		p.st.close()
 		p.st = nil
 		p.retryAt = time.Now().Add(reopenMin)

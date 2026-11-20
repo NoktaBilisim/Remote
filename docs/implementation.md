@@ -18074,3 +18074,46 @@ anında alınır (kullanıcı/yönetici). Kullanım kılavuzu SmartScreen/`Get-F
 - Testler: `test-watch.sh` +2 vaka (env boş → ALERT `unattended-env-read`, durum dosyası aynı, `mode-changed` yok; sonraki tur kalkar),
   toplam 255 PASS, GEÇTİ. `test-publish-lock.sh` +2 vaka (kip 640 + sahiplik korunur, inode değişti = rename, geçici dosya yok; betikte
   `cat >` yerine `mv -f`), GEÇTİ. shellcheck `-S warning` (koalaman/shellcheck:stable) `deploy/ops/*.sh deploy/agent/*.sh` temiz.
+
+## Düzeltme — macOS geç pencere dışlaması (AC-392, `TestP28fK2AC392LateWindowExcluded` kararsızlığı) (backend-dev, 2026-11-20)
+
+**Kök neden (ürün hatası, yalnız test zamanlaması değil).** CI tanı koşusu (run 44657284519): açılışta uygulamamız
+SCShareableContent listesinde yokken `excludeLater` `updateContentFilter:completionHandler:` çağırıyor, tamamlama
+başarılı (`code 0`) dönüyor ve `excluded` bayrağı ancak o zaman set ediliyordu (bayrak sırası doğru). Buna rağmen
+sonraki ~3 sn'de gelen 24 **taze** SCK karesinin hepsinde kendi penceremiz (macenta) vardı; ekran durağanlaşınca SCK
+yeni kare üretmedi ve pencereli son kare `idleKeepAlive` ile süresiz yeniden kodlandı. Filtreyi ikinci kez uygulamak da
+yeni kare üretmedi. Dışlamayla açılan akışta (4/4 tur) sonradan açılan pencereler güvenilir biçimde dışlandı. Önceki
+yeşil koşularda test bu yolu hiç sınamıyordu (`açılışta hariç=true`). Eski kırmızı koşuların runner'ın uygulamayı
+açılışta listelemediği koşular olduğu **çıkarımdır** (eski test `initially` değerini yalnız geçerken yazıyordu; kırmızılar
+~1 sn uzun sürdü = `sckExcludeEvery` tıkı, tanı koşusunda da kırmızı tur `başta hariç=false` idi).
+
+**Düzeltme.** `excludeLater` uygulamamızı listede görünce artık filtre güncellemez; yuvayı `halt(true)` ile durdurur,
+`grab` `errStreamReopen` alınca akışı kapatır, **son kareyi atar** (`p.cur = nil`) ve beklemeden dışlamalı filtreyle
+yeniden açar; ilk taze kare gelene kadar kodlama yapılmaz. Sistem durdurması (`errStreamStopped`) dışlamalı akışta son
+kareyi korur; dışlamasız akışta (penceremizi içerebilir) atar (D-392-2, güvenlik raporu; `TestP28fK2AC392StoppedUnexcludedDropsFrame`).
+`Open` ilk kareyi beklerken yeniden açılış isteği gelirse bir kez dışlamalı yeniden açar (eskiden `FirstFrame` hatası
+olurdu; `TestP28fK2AC392OpenReopenBeforeFirstFrame`, `streamOpts.haltFirst` kancası). **Bilinen sınır (D-392-1, güvenlik
+raporu; tasarımda tanımlı değil):** dışlamasız açılan akışta, uygulamamız listede görünene kadar (≤ `sckExcludeEvery`
+1 sn + `SCShareableContent` yanıtı; takılırsa en çok ~6 sn) taze karelerde penceremiz gidebilir. `tryExclude` ve
+kullanılmayan `sckStream.display` kaldırıldı. Test, dışlama öncesi macenta görülmezse düşer (pozitif kontrol). Bilinen sınır: yeniden açılan akış yine uygulamamızı listelemezse döngü en çok saniyede bir
+yeniden açar (sınırlı; gözlenmedi).
+
+**Tasarımdan sapma.** ADR-0037 m.2 "excludingApplications: [kendi uygulamamız]" korunur; yalnız geç dışlama
+mekanizması `updateContentFilter` yerine akışı yeniden açmaktır (gerekçe yukarıda). Yeni bağımlılık yok. Sözleşme
+değişikliği yok.
+
+**Değişen dosyalar.** `apps/agent-win/internal/capture/sck_darwin.go` (errStreamReopen, `frameSlot.halt/reopen`,
+`excludeLater`→`ownListed`, `streamOpts.lateExclude` test kancası), `source_darwin.go` (`grab` yeniden açılış dalı,
+`open` ilk kare yeniden açılışı, `pipeStats.reopenedAt`), `sck_darwin_test.go` (geç yol `lateExclude` ile zorlanır;
+tek geçişte dışlama öncesi macenta > 0 (pozitif kontrol), sonrasında 1,5 sn boyunca her karede macenta 0, yeniden
+açılış → ilk taze kare ≤ 2 sn; `TestP28fK2AC392SlotReopenDistinct`). Son sınır gizlilik ölçütü değildir (yeniden açılış
+süresince hiç kare kodlanmaz), yalnız akışın takılmadığını gösterir; CI'da 980 ms görüldüğü için 1 sn yerine 2 sn.
+
+**Test.** Yerel: `gofmt -l`, `go vet` (darwin + `GOOS=windows`), birim testler PASS; SCK testleri yerelde ekran yok
+(NO_OUTPUT). Linux gofmt/vet CI "gofmt + vet + test -race" işinde. CI macOS (`gh workflow run agent-win.yml --ref
+fix-late-window-flake`): tanı 44657284519 (kök neden); düzeltmenin ilk sürümüyle 44658757181, 44659877551,
+44660762390 yeşil. Son sürüm (open + tek geçiş testi): 44662954083 (macOS PASS; ilgisiz Linux
+`TestAC402P28gGTKClipSecretHint` ve Windows `TestAC254GP202ConcurrentUpdatesNoLostWrite` kırmızı), 44663983867 ve
+44664994010 tamamen yeşil (yeniden açılış → ilk taze kare 153–201 ms, sonrasında 6–20 karede macenta 0; dışlama
+öncesi karelerde macenta görüldü = yoklama geçerli). 44662061810 altyapı (proxy.golang.org DNS) nedeniyle koşmadı.
+Dalda geçici tanı commit'i (5 turlu test) geçmişte durur; son haliyle değiştirildi.

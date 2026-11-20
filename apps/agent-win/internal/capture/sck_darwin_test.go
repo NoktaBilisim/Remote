@@ -4,6 +4,7 @@ package capture
 
 import (
 	"context"
+	"errors"
 	"os"
 	"runtime"
 	"slices"
@@ -395,34 +396,124 @@ func pct(d []time.Duration, p int) time.Duration {
 	return c[min(len(c)-1, len(c)*p/100)]
 }
 
-// Açılışta uygulamamızın penceresi yoksa SCK listesinde de olmayabilir; pencere sonradan açılınca filtre
-// güncellenmeli (excludeLater) ve macenta görüntüye girmemeli.
+// Açılışta uygulamamızın penceresi yoksa SCK listesinde de olmayabilir; pencere sonradan açılınca akış dışlamalı
+// filtreyle yeniden açılmalı (excludeLater); yeniden açılıştan sonraki her karede macenta 0 olmalı. Yol lateExclude
+// ile zorlanır: aksi hâlde runner durumuna göre uygulama açılışta zaten listede olur ve test geç yolu hiç sınamaz.
 func TestP28fK2AC392LateWindowExcluded(t *testing.T) {
 	needCapture(t)
-	src, err := open(1, streamOpts{})
+	src, err := open(1, streamOpts{lateExclude: true})
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}
 	defer src.Close()
-	initially := src.p.st.excluded.Load()
+	first := src.p.st
+	if first.excluded.Load() {
+		t.Fatal("lateExclude açılışı dışlamalı başladı")
+	}
+	src.p.opt = streamOpts{} // yeniden açılış üretim yolundan; NextFrame yalnız bu goroutine'den çağrılır
 	probeWindow(t)
-	deadline := time.Now().Add(5 * time.Second)
-	for !src.p.st.excluded.Load() && time.Now().Before(deadline) {
-		framesFor(t, src, 200*time.Millisecond, nil)
+	// Tek geçiş: yeni akışın ilk kareleri de ölçülür. Eski akıştan kare (dışlama öncesi) macenta içerebilir; yeniden
+	// açılışta eski kare atıldığı için sonrasında kodlanan her kare yeni (dışlamalı) akıştandır ve macenta 0 olmalı.
+	var pre, preMag, post, postMag int
+	var firstAt time.Time
+	deadline := time.Now().Add(6 * time.Second)
+	for time.Now().Before(deadline) && (firstAt.IsZero() || time.Since(firstAt) < 1500*time.Millisecond) {
+		framesFor(t, src, 100*time.Millisecond, func(f *NV12) {
+			m := magentaAtCenter(f)
+			if src.p.st == first {
+				pre++
+				if m {
+					preMag++
+				}
+				return
+			}
+			if firstAt.IsZero() {
+				firstAt = time.Now()
+			}
+			post++
+			if m {
+				postMag++
+			}
+		})
 	}
-	if !src.p.st.excluded.Load() {
-		t.Fatal("uygulama sonradan dışlanmadı")
+	reopenedAt := src.p.stats.reopenedAt
+	if firstAt.IsZero() || reopenedAt.IsZero() || src.p.st == nil || !src.p.st.excluded.Load() {
+		t.Fatalf("uygulama sonradan dışlanmadı: dışlama öncesi %d kare (%d macenta), sonrası %d", pre, preMag, post)
 	}
-	time.Sleep(200 * time.Millisecond)
-	seen, total := 0, 0
-	framesFor(t, src, 1500*time.Millisecond, func(f *NV12) {
-		total++
-		if magentaAtCenter(f) {
-			seen++
+	if preMag == 0 {
+		t.Fatalf("pozitif kontrol: dışlama öncesi macenta görülmedi (%d kare); 'sonrası 0' kanıt sayılmaz", pre)
+	}
+	lag := firstAt.Sub(reopenedAt)
+	if postMag != 0 {
+		t.Fatalf("dışlama sonrası macenta %d/%d; öncesi %d/%d", postMag, post, preMag, pre)
+	}
+	// Yeniden açılış → ilk taze kare süresi gizlilik ölçütü değildir (bu sürede hiç kare kodlanmaz); yalnız akışın
+	// takılmadığını gösterir. SCShareableContent + startCapture CI'da ~1 sn sürebildiği için sınır 2 sn.
+	if lag > 2*time.Second {
+		t.Fatalf("yeniden açılış → ilk taze kare %v (≤ 2 sn)", lag.Round(time.Millisecond))
+	}
+	t.Logf("geç dışlama: öncesi %d karede %d macenta; yeniden açılış→ilk taze kare %v; sonrası %d karede macenta 0",
+		pre, preMag, lag.Round(time.Millisecond), post)
+}
+
+// Open ilk kareyi beklerken yeniden açılış istenirse (excludeLater ilk kareden önce) hata dönmez: akış bir kez yeniden
+// açılır, kancalar temizlenir ve ilk kare ikinci akıştan gelir.
+func TestP28fK2AC392OpenReopenBeforeFirstFrame(t *testing.T) {
+	needCapture(t)
+	src, err := open(1, streamOpts{lateExclude: true, haltFirst: true})
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	defer src.Close()
+	if src.p.opt.lateExclude || src.p.opt.haltFirst {
+		t.Fatalf("yeniden açılış dalı koşmadı: opt %+v", src.p.opt)
+	}
+	if src.p.st == nil || src.p.cur == nil {
+		t.Fatal("ikinci akış ya da ilk kare yok")
+	}
+	src.p.st.slot.mu.Lock()
+	reopen := src.p.st.slot.reopen
+	src.p.st.slot.mu.Unlock()
+	if reopen {
+		t.Fatal("ikinci akış da yeniden açılış bekliyor")
+	}
+	if n := framesFor(t, src, 500*time.Millisecond, nil); n == 0 {
+		t.Fatal("yeniden açılan akıştan kare gelmedi")
+	}
+}
+
+// D-392-2: dışlamasız akış sistemce durursa son kare (penceremizi içerebilir) atılır; dışlamalı akışınki korunur.
+func TestP28fK2AC392StoppedUnexcludedDropsFrame(t *testing.T) {
+	for _, excluded := range []bool{false, true} {
+		st := &sckStream{slot: newSlot(), quit: make(chan struct{})}
+		st.excluded.Store(excluded)
+		st.slot.stop()
+		cur := NewNV12(2, 2)
+		p := &pipeline{st: st, cur: cur}
+		changed, err := p.grab(context.Background(), make(chan struct{}))
+		if changed || err != nil || p.st != nil {
+			t.Fatalf("excluded=%v: grab %v %v st=%v", excluded, changed, err, p.st)
 		}
-	})
-	if seen != 0 || total == 0 {
-		t.Fatalf("geç dışlama sonrası macenta %d/%d", seen, total)
+		if kept := p.cur == cur; kept != excluded {
+			t.Fatalf("excluded=%v: son kare korundu=%v", excluded, kept)
+		}
 	}
-	t.Logf("açılışta hariç=%v; sonradan dışlandı, %d karede macenta 0", initially, total)
+}
+
+// Sistem durdurması (errStreamStopped: dışlamalı akışta son kare korunur) ile dışlama yeniden açılışı (errStreamReopen: son kare
+// atılır) ayrışır; ikisi birlikte gelirse yeniden açılış önceliklidir.
+func TestP28fK2AC392SlotReopenDistinct(t *testing.T) {
+	s := newSlot()
+	s.stop()
+	if _, err := s.poll(); !errors.Is(err, errStreamStopped) {
+		t.Fatalf("stop: %v", err)
+	}
+	s.halt(true)
+	if _, err := s.poll(); !errors.Is(err, errStreamReopen) {
+		t.Fatalf("halt(true): %v", err)
+	}
+	s.stop()
+	if _, err := s.poll(); !errors.Is(err, errStreamReopen) {
+		t.Fatalf("halt(true) sonrası stop: %v", err)
+	}
 }
