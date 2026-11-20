@@ -226,7 +226,7 @@
   "gm.verifyBody": "Nokta Destek açık kaynaktır; macOS sürümü Apple Developer ID ile imzalı ve notarize edilmiştir. Zip dosyasının SHA-256 özeti GitHub sürüm sayfasındaki SHA256SUMS ile eşleşmelidir. Hakkında penceresindeki parmak izi uygulama dosyasının özetinin ilk 8 hanesidir.",
   "gm.verifyBodyTest": "Bu test sürümü imzasızdır ve yalnız test ortamında dağıtılır; GitHub sürüm sayfasında yayımlanmaz.",
   "gm.guideIntroAdhoc": "Nokta Destek açık kaynaklıdır ve Apple Developer ID olmadan imzalanır. Bu yüzden macOS ilk açılışta uygulamayı durdurur; aşağıdaki 2. adımla bir kez onaylarsınız. Kurulum gerekmez.",
-  "gm.adhocOnlyTitle": "“Yine de Aç” yalnız bu sayfadaki indirme için",
+  "gm.adhocOnlyTitle": "“Yine de Aç” yalnız resmi adresten indirdiğiniz uygulama için",
   "gm.adhocOnlyBody": "“Yine de Aç”ı yalnız tarayıcınızda {host} adresinden indirdiğiniz Nokta Destek için kullanın (Finder → Bilgi Al → “Nereden” satırı https://{host}/ ile başlamalı). Firmanız size yalnız bağlantı gönderir, dosya göndermez. Dosya ek olarak geldiyse açmayın.",
   "gm.firmNameNotProof": "Pencerede firmanızın adı ya da teknisyen doğrulama kodu görünür; bu yalnız doğru firmaya bağlandığınızı gösterir, dosyanın güvenli olduğunu göstermez.",
   "gm.verifyBodyAdhoc": "Nokta Destek açık kaynaktır; macOS sürümü Apple Developer ID olmadan (ad-hoc) imzalıdır ve GitHub'da derlenip kaynağı kanıtlanır (attestation). Zip dosyasının SHA-256 özeti GitHub sürüm sayfasındaki SHA256SUMS ile eşleşmelidir. Hakkında penceresindeki parmak izi uygulama dosyası özetinin ilk 8 hanesidir.",

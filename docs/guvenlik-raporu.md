@@ -1,3 +1,110 @@
+# Güvenlik Raporu — P31 — Kod turu (dal p31-mac-destek-iste, HEAD abfca0c, PR #38, 2026-11-20)
+
+DURUM: GEÇTİ — Kritik 0 / Yüksek 0 / Orta 0 / Düşük 2 / Bilgi 4
+
+Kapsam: `git diff main...HEAD` (96 dosya). Odak: `apps/server/src/public/routes.ts`, `requests/{ref,service,public-routes,create-tx,panel-accept,repo}.ts`,
+`signaling/rooms-lobby.ts`, `lib/agent-os.ts`, `notify/customer-templates.ts`, P31 migration + `grants.sql`, `packages/contracts/src/api/requests.ts`,
+`deploy/Caddyfile`, `deploy/nginx/remote.noktabilisim.net.conf`, `deploy/test-caddy.sh`, `deploy/nginx/test-nginx.sh`,
+`apps/agent-win/internal/{launch,pairing,macperm,request,api,ui/mac,ui/uicore}`, `cmd/noktadestek/*_darwin.go`, `build/macos/OKUBENI*.txt`,
+`apps/web/app/r/[ref]/*`, `apps/web/lib/agent-download.ts`, `apps/web/messages/tr.json`. Tasarım turu bulgularının (S-P31-1..8) koda işlenişi
+`mimari-p31 §15.5` iz tablosuna göre tek tek doğrulandı (aşağıda).
+
+## Tasarım turu bulgularının kodda doğrulanması (§15.5)
+
+| Bulgu                            | Kod durumu                               | Kanıt                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
+| -------------------------------- | ---------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| S-P31-1 (Orta) fail-open iç kapı | **Kapandı**                              | `public/routes.ts:88-96` ayrı `/agent-ready/macos-firm`: kenar → `FIRM_ZIP_URI` tam desen (eksik/`***`/sorgu dizeli/büyük harfli ref → 404) → `firmPathValid(uri, ".zip")` → `assertAgentReady(macAgentBinary)`. `/agent-ready/macos` URI okumuyor. `ref.ts:24-41` uzantı kapıya sabit (`.exe` kapısı `.zip`'i kabul etmez). `Caddyfile` `@agentZipFirm` `header_up X-Forwarded-Uri {path}` (tam ad, `***` değil); `@agentZip` deseni (`NoktaDestek-macOS\|Destek-<8>`) firma adıyla çakışmıyor. `test-caddy.sh` sürüm kayması (eski sunucu → 404), geri alınmış Caddyfile (→ 404, forward_auth çağrılmaz), kopyala-yapıştır (`***` → 404) satırları **koşuldu, GEÇTİ**. |
+| S-P31-2 (Orta) kaynağa çapa      | **Kapandı, bir metin artığı** (S-P31-K1) | OKUBENI ×3 kaynak satırı + "firma adı güvenlik kanıtı değil"; `tr.json` `gm.adhocOnlyBody` kanal-bağımsız, `gm.firmNameNotProof`; `waiting-parts.tsx:94-101` Mac kartında ad-hoc uyarısı; `customer-templates.ts:146-155` K3 kaynak satırı (köken `PUBLIC_BASE_URL`'den, firma adı süzgecinden geçmeden, HTML'de `esc`). Başlık anahtarı `gm.adhocOnlyTitle` hâlâ "bu sayfadaki" diyor → S-P31-K1.                                                                                                                                                                                                                                                                       |
+| S-P31-3 (Düşük)                  | Kabul edilen risk R-P31-4                | Kod değişikliği gerektirmez; runbook/kılavuz notları teknik-yazar kapsamında.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
+| S-P31-4 (Düşük) tek desen        | **Kapandı**                              | `pairing.go:17-24` `RefCorePattern` tek tanım; `launch/source.go:15` `(?i)` + `ToLower`; öncelik klasör kod > klasör ref > bundle adı yalnız kod (bundle adından ref okunmaz — tasarımda gerekçeli sapma). Etiket döndürülmüyor (G-E9-11).                                                                                                                                                                                                                                                                                                                                                                                                                               |
+| S-P31-5 (Düşük) ref diske        | **Kapandı**                              | `start_darwin.go:46-55` yalnız `src.Code` yazılır; `macperm.WriteRestart` `codeRe` ile ref/etiketli ad/`r:` önekini reddeder (`restart_p31_test.go`, GEÇTİ). `Relaunch(BundlePath())` translocation çözülmüş özgün yol.                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
+| S-P31-6 (Düşük) hız sınırı       | **Kapandı**                              | nginx `map $uri $remote_dl_key` + `limit_req_zone … 10r/m`, `location /` içinde `burst=5 nodelay`, 429; yeni location yok. `test-nginx.sh` GEÇTİ. Caddy 4450 prod'da `CADDY_BIND=127.0.0.1` (`docker-compose.yml:233-237`) → nginx'i atlayan yol yok. `real_ip` ön koşulu runbook §32.4'te.                                                                                                                                                                                                                                                                                                                                                                              |
+| S-P31-7 (Düşük) `linux`          | **Kapandı**                              | `requestClientOsSchema = z.enum(["windows","macos"])` hem gövdede hem `?os=`; DB `CAST(client_os AS BINARY) IN ('windows','macos')` (harmanlama atlatması da kapatılmış) + `source_client_os_chk` (WEB ⇒ NULL). `create-tx.ts` WEB'de her zaman NULL. Geçersiz `os` servise girmeden 400.                                                                                                                                                                                                                                                                                                                                                                                |
+| S-P31-8 (Düşük) sakla/sil        | **Kapandı**                              | OKUBENI ×3 "Mac'te dosyayı saklamayın…" satırı.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
+
+## Bulgular (öncelik sırasıyla)
+
+### [DÜŞÜK] S-P31-K1 `gm.adhocOnlyTitle` başlığı kanal-bağımlı kaldı; gövde ve OKUBENI ile çelişiyor — A04 (güvenli tasarım / kullanıcı uyarısı)
+
+Yer: `apps/web/messages/tr.json:229` (`"“Yine de Aç” yalnız bu sayfadaki indirme için"`); kullanım `apps/web/app/r/[ref]/waiting-parts.tsx:96`,
+`apps/web/app/session/[token]/agent-download.tsx:114`.
+
+Sorun (açık sorunun kararı): **Evet, S-P31-2 ile çelişiyor.** S-P31-2 m.1/m.3 uyarının **kaynağa** (alan adı + "Nereden") çapalanmasını ve
+"kanal ayrımı yapılmamasını" istedi. Gövde (`gm.adhocOnlyBody`) ve üç OKUBENI bunu yapıyor ("tarayıcınızda {host} adresinden indirdiğiniz"),
+ama hemen üstündeki kalın başlık hâlâ "yalnız **bu sayfadaki** indirme" diyor. P31'de aynı meşru zip e-posta/WhatsApp/portal bağlantısından da
+iniyor; OKUBENI bu durumda "Yine de Aç"a izin verirken web başlığı yasaklıyor. Çelişen iki uyarı, kullanıcıya uyarıları yok saymayı öğretir
+(S-P31-2'nin asıl gerekçesi). Doğrudan istismar yolu yok; zararlı kopyaya karşı çapa gövdede doğru durduğu için Düşük.
+
+İstismar senaryosu: Doğrudan yok. Dolaylı: K3 bağlantısından meşru indirme yapan müşteri, "bu sayfadaki" başlığıyla OKUBENI arasında çelişki
+görür; bir sonraki sefer uyarı metinlerini okumadan "Yine de Aç"ı kullanır — zararlı yeniden paketlenmiş kopyada da.
+
+Düzeltme (atanan ajan: frontend-dev, metin onayı teknik-yazar): Başlığı kaynağa çapalı ve kanal-bağımsız yapın, gövdeyle aynı ilke:
+`"“Yine de Aç” yalnız {host} adresinden indirdiğiniz uygulama için"` (anahtar iki sayfada ortak; `{host}` parametresi iki çağrı yerinde zaten
+mevcut). Oturum sayfası (`mac-adhoc-only-this`) için de doğru kalır, yeni anahtar gerekmez. `waiting-parts.test.tsx` / `mac-guide.test.tsx`
+başlık beklentisini güncelleyin.
+
+### [DÜŞÜK] S-P31-K2 Windows firma yolunda iç kapı hâlâ URI'ye göre fail-open (A-P31-6, devralınan) — A01 / A05
+
+Yer: `apps/server/src/public/routes.ts:78-79` (`windowsReady`: `X-Forwarded-Uri` `^/downloads/NoktaDestek-` ile başlamıyorsa firma denetimi atlanır).
+
+Sorun: S-P31-1'in Windows eşi. Bugün `@agentExeFirm` tam adı gönderdiği ve `@agentExe` ayrık olduğu için istismar edilemez (test-caddy kapsıyor),
+ama Caddyfile'da `header_up` satırının `***`'e çevrilmesi ya da sürüm kayması `.exe` firma yolunu keyfi etiketle 200'e açar. Tasarımda
+bilinçli "Sonra" (A-P31-6); P31 Windows'a dokunmuyor. Kayıt amaçlı.
+
+Düzeltme (atanan ajan: backend-dev + devops, Sonra): A-P31-6 — `/agent-ready/windows-firm` aynı fail-closed işleyiciyle; `docs/gereksinimler.md`
+§9 "Sonra" listesinde olduğu doğrulansın.
+
+### [BİLGİ] S-P31-K3 Mac `OpenURL` beyaz listesi ana bilgisayarı sabitlemiyor
+
+`ui/mac/logic.go:85-102` `downloadURLAllowed` şema/yol/sorgu denetler, `Host`'u gömülü sunucuyla karşılaştırmaz. Tek çağıran
+`request.DownloadURL` (köken gömülü `ServerURL`'den, `policy.go:82-92`) olduğundan bugün açık yok. Derinlemesine savunma için ileride
+`Host == cfg.ServerURL.Host` eklenebilir (backend-dev Go, Sonra).
+
+### [BİLGİ] S-P31-K4 Kapı kapalıyken 503/404 ayrımı (S-P31-9) korunmuş
+
+`service.ts` `download`: engel → kova → `resolveRef` (tek 404) → platform → kapı (503). Sıra tasarımdaki gibi; ref denetimi önce, engel sayacı çalışıyor.
+
+### [BİLGİ] S-P31-K5 UA ile örtük macOS seçimi güvenlik kararı değil
+
+`lib/agent-os.ts`: UA yalnız jenerik ikili seçer; iOS/iPadOS dışlanır; mac kapısı `ok` değilse Windows'a düşer (gerileme yok). UA loglanmaz,
+metrik etiketi `os`/`kind` düşük kardinaliteli.
+
+### [BİLGİ] S-P31-K6 `clientOs` beyanı yalnız kısıtlayıcı
+
+`panel-accept.ts:24-27` DB değerini şemayla yeniden daraltıyor ve yalnız AGENT'ta aktarıyor; `rooms-lobby.ts` yalnız beyan varsa ekliyor.
+Sahte `macos` beyanı yalnız beyan edenin kendi oturumunda `OS_PERMISSION` uyarısını tetikler. Go istemcisi alanı yalnız `GOOS=darwin`'de
+gönderir (`api/requests.go:50-57`), Windows gövdesi bayt bayt aynı.
+
+## Otomatik tarama çıktıları
+
+- `pnpm audit --audit-level high` → **No known vulnerabilities found**.
+- gitleaks (docker, proje `.gitleaks.toml`), `main..HEAD` 4 commit → **no leaks found**. Çalışma dizini taramasındaki 21 eşleşmenin tamamı
+  `apps/web/.next/` derleme çıktısı (git-ignored, Next önizleme anahtarları; repoda değil) → bulgu değil.
+- Gizli bilgi grep'i (`api_key|secret|password|token` = '...') dal farkında → eşleşme yok. `git log --all -- '*.env*'` → yalnız `.env.example`.
+- `deploy/test-caddy.sh` → **SONUÇ: GEÇTİ** (197 PASS; P31 §15.1 satır 1-7, sürüm kayması, geri alma provası, hata/erişim log maskesi dahil).
+- `deploy/nginx/test-nginx.sh` → **SONUÇ: GEÇTİ** (`limit_req` 429, `.zip` log maskesi).
+- `go test` (agent-win: launch, pairing, macperm, request, ui/uicore, ui/mac, api) → hepsi `ok`.
+- `govulncheck` → koşulamadı (araç kurulu değil; `go run …@latest` ortam izni reddetti). CI'daki govulncheck adımına bırakıldı.
+
+## Tasarımda vaat edilip kodda bulunmayanlar
+
+Yok. Tasarım turunun "kod turunda doğrulanacaklar" listesinin tamamı karşılanmış: `macos-firm` fail-closed; `@agentZipFirm` tam ad;
+`?os=` geçersiz → 400 kova tüketmeden; `client_os` CHECK'leri (ikili harmanlama ile sıkılaştırılmış) ve `grants.sql` notu (tablo düzeyi yetki
+yeterli); `request.create` `newValue.clientOs` (yalnız AGENT); `PreAdmitInput.clientOs`; Mac `Store=nil` (`deps_darwin.go` `launchDeps`);
+`OpenURL` yalnız `DownloadURL` / `mailto` (`uicore.MailtoAddr`); kabul diyaloğu korumalı istem (`input.LocalClick` + 1,5 sn,
+`reqaccept_darwin.go`); OKUBENI üç dosyada kaynak satırı. Tek artık metin S-P31-K1.
+
+## Olumlu
+
+- Fail-closed sıra ve uzantı↔kapı sabitlemesi hem regex (`FIRM_URI[ext]`) hem iç uç düzeyinde iki katlı; test-caddy sahte sunucusu da
+  `***` kopyasında düşecek biçimde yazılmış.
+- DB CHECK'te `CAST AS BINARY` ile harmanlama atlatması (`'MACOS'`, `'macos '`) ölçülüp kapatılmış.
+- Ref hiçbir yerde diske/loga yazılmıyor; klasör etiketi hiçbir ekranda gösterilmiyor, firma adı yalnız sunucudan.
+- K3 kaynak satırı köken ayarından geliyor, HTML gövdesinde kaçışlı.
+- nginx hız sınırı yeni `location` açmadan, yalnız indirme anahtarında sayıyor; prod Caddy portu localhost'a bağlı.
+
+---
+
 # Güvenlik Raporu — P31 — Tasarım turu (dal p31-mac-destek-iste, HEAD da47326, 2026-11-20)
 
 DURUM: GEÇTİ (tasarım) — Kritik 0 / Yüksek 0 / Orta 2 / Düşük 6 / Bilgi 3
