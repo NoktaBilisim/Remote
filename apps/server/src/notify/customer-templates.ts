@@ -139,7 +139,8 @@ function unattendedShort(i: UnattendedTemplateInput): string {
 }
 
 const customerLinks = (i: CustomerTemplateInput): [string, string][] => [
-  ...(i.downloadUrl ? ([["Hızlı Destek programı (Windows)", i.downloadUrl]] as [string, string][]) : []),
+  // P31 (AC-520, QA P31 tur 1 m.3): aynı bağlantı Mac'te .zip indirir → etiket platformdan bağımsız.
+  ...(i.downloadUrl ? ([["Hızlı Destek programı (Windows / macOS)", i.downloadUrl]] as [string, string][]) : []),
   ...(i.webFormUrl ? ([["Destek talebi formu", i.webFormUrl]] as [string, string][]) : []),
 ];
 const CUSTOMER_WARN = "Bu bağlantılar firmanıza özeldir, paylaşmayın.";

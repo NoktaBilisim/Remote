@@ -17618,7 +17618,7 @@ Kararlar / sapmalar:
 
 - **Uyarı varyantı:** `/r/` Mac kartında uyarı `variant !== "notarized"` iken gösterilir (ad-hoc ve staging `test` derlemesi "Yine de Aç" ister). Notarize derlemede gösterilmez — oturum sayfasının `gm.neverTitle` ("asla Yine de Aç istemez") kuralıyla çelişmemek için. Oturum sayfası bugünkü gibi yalnız `adhoc`'ta gösterir (değişmedi).
 - **Firma adı cümlesi:** görev tanımı Mac kartında istediği için ayrı anahtar `gm.firmNameNotProof` ile uyarının ikinci satırı olarak eklendi; mimari-p31 §15.3 tablosu bu cümleyi yalnız OKUBENI için listeler (`/r/` satırında yok) — mimar/qa isterse kaldırılabilir, tek satır.
-- **`gm.adhocOnlyTitle` değişmedi** ("“Yine de Aç” yalnız bu sayfadaki indirme için"): iki web bağlamında da indirme o sayfadadır, doğru kalıyor.
+- **`gm.adhocOnlyTitle`** güvenlik kod turu S-P31-K1 ile değişti (294c3cf): "“Yine de Aç” yalnız resmi adresten indirdiğiniz uygulama için" — kanala değil kaynağa çapalı.
 - **Fail-closed etiket notu:** availability hatası (429/ağ) varken macOS kapısı gerçekte açıksa düz bağlantı (`os` yok) sunucuda UA'dan yine `.zip` seçebilir (K-P31-2), ama etiket "Windows programını" yazar ve uyarı gösterilmez. Engelleyici değil (dosya doğru, metin muhafazakâr); qa/güvenlik bilgisine.
 - Contracts'tan yeni tip içe aktarılmadı (`requestDownloadQuerySchema` vb. web'de gerekmiyor; paralel B1'e bağımlılık yok). API sözleşmesinde olmayan alan kullanılmadı.
 - Tasarım: yeni primitif yok (`Alert`, `Skeleton` mevcut); renk/boşluk token'lardan; bağlantı min 44 px; ikonlar mevcut (`Download`). DESIGN.md değişikliği gerekmedi.
@@ -17658,6 +17658,76 @@ Komutlar (hepsi yeşil): `pnpm --filter @remote/web lint` · `typecheck` · `tes
     remote.noktabilisim.net adresinden indirin (Finder → Bilgi Al → “Nereden” satırı https://remote.noktabilisim.net/ ile başlamalı).
     Firmanız size yalnız bağlantı gönderir, dosya göndermez. Dosya ek olarak geldiyse açmayın." + (1) + (2). Mimar onayı gerekir.
 - Web eşi (`gm.adhocOnlyBody`, tr.json) (3) ile aynı metni taşıyor (frontend). Bu dosyalar yazılmadan 0.24.0 etiketi atılmamalı.
+
+## P31-B1 — Sunucu: platforma göre firma indirmesi, `macos-firm` iç ucu, talepte `clientOs` (backend-dev, 2026-11-20; mimari-p31 §3.1, §5, §14, §15.1, §15.3; AC-509..511, AC-520, AC-521)
+
+Değişen dosyalar (`git diff origin/main -- apps/server packages/contracts`):
+
+- `packages/contracts/src/api/requests.ts`: `REQUEST_CLIENT_OS = ["windows","macos"]`, `RequestClientOs`, `requestClientOsSchema`
+  (yeni enum; resolve'un `ClientOs`'u `linux` içerdiği için kullanılmadı, S-P31-7). `createRequestInputSchema.clientOs` isteğe
+  bağlı (Windows gövdesi değişmez, D-1). `requestDownloadQuerySchema = { os?: requestClientOsSchema }`.
+- `apps/server/src/lib/agent-os.ts` (yeni): `osFromUserAgent(ua)`: `Macintosh|Mac OS X` ve iPhone/iPad/iPod değilse `macos`,
+  aksi (UA yok, Windows, Linux, iOS) `windows`. UA güvenlik kararı değil, yalnız aynı ref için ikili seçer. UA loglanmaz.
+- `requests/ref.ts`: `FirmFileExt = ".exe" | ".zip"`; `requestFileName/requestDownloadLocation(label, ref, os = "windows")`
+  (varsayılan ad bayt bayt aynı). `FIRM_ZIP_URI` (tam desen, harf duyarlı, sorgu dizesiz). `parseFirmDownloadUri(uri, ext)`:
+  uzantı parametre, kapılar çaprazlanamaz (K-P31-3).
+- `requests/service.ts`: `download(ctx, ref, os, gates: DownloadGates)`. Sıra: engel → kova → ref (tek 404) → platform → kapı.
+  `os` açıksa ona göre (macos + kapı kapalı → 503 `NOT_READY`); yoksa UA macOS **ve** mac kapısı `ok` → macos, aksi windows
+  (gerileme yok). `firmPathValid(uri, ext)`. `CreateCoreInput.clientOs` yalnız AGENT dalında (WEB'de tip `never`).
+- `requests/public-routes.ts`: `GET /public/agent/request-download` `os`'u `requestDownloadQuerySchema` ile doğrular (geçersiz /
+  `linux` → 400, servise girmez, kova tüketilmez); `DownloadGates` (`assertReady(os)`, `macosOk()`).
+- `public/routes.ts`: yeni iç uç `GET /internal/agent-ready/macos-firm` (Caddy `@agentZipFirm` forward_auth, P31-O). Sıra: kenar
+  (değilse 404) → `FIRM_ZIP_URI` → `firmPathValid(uri, ".zip")` (ref aktif + label güncel, tek 404 gövdesi) → mac kapısı (503) →
+  204, `no-store`. Windows ucu `firmPathValid(uri, ".exe")`; `/agent-ready/macos` firma yolunu okumaz (değişmedi).
+- `requests/create-tx.ts`: `client_os` yalnız AGENT'ta yazılır (WEB NULL, CHECK `source_client_os_chk`); audit `newValue.clientOs`
+  yalnız beyan varsa. `requests/repo.ts`: `secretSelect.clientOs`. `requests/panel-accept.ts`: kabulde DB değeri
+  `requestClientOsSchema` ile daraltılıp `preAdmitGuest`'e (yalnız AGENT). `signaling/rooms-lobby.ts`: `PreAdmitInput.clientOs?`
+  → misafir `clientOs` (yoksa windows sayılır; `OS_PERMISSION` kabulü buna bağlı, D-2).
+- `ops/metrics.ts`: `rs_agent_download_total` açıklaması. Firma indirmesi `{os, kind="firm"}` etiketleriyle sayılır.
+  **Pano/alarm etkisi:** aynı sayaçta iki etiket kümesi var: P28f jenerik yolu `{os}`, P31 firma yolu `{os,kind}`. `sum by (os)`
+  ikisini birlikte toplar. Yalnız jenerik indirme için `kind=""` (etiket yok), yalnız firma için `kind="firm"` süzülmeli. Mevcut
+  alarm yok, pano sorgusu varsa bu ayrıma göre güncellenmeli.
+- K3 kaynak satırı (§15.3, AC-520): `notify/customer-templates.ts` `CustomerTemplateInput.origin` + "Bağlantı her zaman
+  {origin}/ ile başlar; dosya eki göndermeyiz." (metin ve HTML, kaçışlı). `customer-send/targets.ts` `origin`'i
+  `PUBLIC_BASE_URL`'den (sondaki `/` atılmış) verir; firma adı süzgecinden geçmez. Önizleme ve gönderim aynı `renderFor`'dan.
+- QA P31 tur 1 m.3: K3 indirme etiketi "Hızlı Destek programı (Windows)" → **"Hızlı Destek programı (Windows / macOS)"** (aynı
+  bağlantı Mac'te `.zip` indirir). `apps/web/e2e/mock-lg.mjs` sahte metni de eşlendi (yalnız tutarlılık, e2e beklentisi yok).
+  `docs/mimari-link-gonderme.md` (§ K3 şablonu) ve `KULLANIM_KILAVUZU.md`'deki eski etiket teknik-yazar/mimar işi (AC-522).
+
+Sapmalar (gerekçeli):
+
+- **Audit adı `request.created`:** mimari-p31 K-P31-4 / §3.1 / D-2 `request.create` der. Kodda talep oluşturma eylemi P8b'den beri
+  `request.created`; yeni eylem açılmadı, `clientOs` mevcut eylemin `newValue`'suna eklendi (§154 "yeni eylem yok" ile uyumlu).
+  Mimari metindeki ad yazım farkıdır.
+- **`requestDownloadQuerySchema` `ref` içermez:** biçimsiz ref de tek 404 `REQUEST_REF_INVALID` + başarısız deneme sayımından
+  geçmeli (G-E9-11, oracle yok). Şemada olsaydı 400 dönüp sayımı atlardı. Bu yüzden şema yalnız `os`'u doğrular, ref serviste.
+- **`requestFileName` varsayılanı `windows`:** panel/müşteri görünümündeki `fileName` alanı Windows adını taşımaya devam eder
+  (mimari-p31 §3.1); sözleşme değişmedi.
+
+Testler:
+
+- `apps/server/test/integration/p31-b1.test.ts` (16): UA tablosu, açık `os` > UA, kapı kapalı (örtük → .exe, açık → 503),
+  geçersiz ref + kapı kapalı → 404, `os=linux`/geçersiz → 400 ve 40 istek sonrası 302 (kova tüketilmez), metrik `{os,kind}`;
+  `macos-firm` 204 / tek tip 404 (eksik, maskeli, sorgu dizeli, büyük harf, `.exe`, eski label, yenilenmiş ref, pasif tenant,
+  bilinmeyen) / 503 / kenar dışı / uzantı ↔ kapı çaprazlama; `clientOs` macos/NULL/windows/geçersiz/WEB, gerçek `/ws/guest`'te
+  `OS_PERMISSION`.
+- `apps/server/test/unit/agent-os.test.ts` (10): `osFromUserAgent`, zip adı ve deseni, uzantı çaprazlama, K3 kaynak satırı ve
+  K3 etiketi (AC-520, yeni: "(Windows / macOS)", "(Windows):" yok, üç kanal). UA tablosu ortak: `test/helpers/user-agents.ts`.
+- `packages/contracts/test/p31-contracts.test.ts`: `requestClientOsSchema`, `requestDownloadQuerySchema`, `createRequestInputSchema.clientOs`.
+- Güncellenen eskiler (beklenti zayıflatılmadı): `lg-send.test.ts` (`origin` alanı), `requests-ref-p8b.test.ts` (`".exe"`
+  parametresi), `session-history-p8.test.ts` (CHECK 82→83, P31-D), `pt-surface` snapshot'ları (yeni rota, dışa aktarımlar),
+  `test/helpers/{requests,tenant-matrix}.ts`.
+
+Komutlar ve sonuç (QA tur 1 m.2–3 sonrası, 2026-11-20):
+
+- `pnpm --filter @remote/server lint` · `typecheck` temiz; `pnpm --filter @remote/server test` 53 dosya / 734 geçti, 1 skip
+  (eski `fsrv-p28b` AC-353 clamd). `prettier --check` (değişen dosyalar) temiz.
+- Entegrasyon (test DB `rs-p31-test`, 127.0.0.1:33474; `TEST_DATABASE_URL` / `TEST_MIGRATE_DATABASE_URL` konteyner env'inden):
+  `npx vitest run test/integration/lg-send.test.ts test/integration/p31-b1.test.ts test/integration/customers-p8c-api.test.ts`
+  → 3 dosya / 57 test geçti. Tam `test:int` sonucu QA raporunda (1311 geçti; 2 kırmızı yük altı, P31 dışı).
+
+frontend-dev için: sözleşme değişikliği P31-F'nin kullandığıyla aynı (`?os=windows|macos`, `linux` → 400). K3 müşteri mesajında
+etiket artık "Hızlı Destek programı (Windows / macOS)".
 
 ## P31-B2 — Go istemci: macOS "Destek iste" (backend-dev Go, 2026-11-20; mimari-p31 §3.2, §14, §15.2; AC-511..519)
 

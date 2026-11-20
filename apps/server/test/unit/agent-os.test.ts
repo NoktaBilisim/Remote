@@ -70,6 +70,15 @@ describe("P31 K3 kaynak satırı (AC-520, §15.3)", () => {
     expect(renderFor("EMAIL", k3("https://remote.noktabilisim.net")).bodyHtml).toContain(line);
   });
 
+  it("AC-520: K3 indirme etiketi platformdan bağımsız — 'Hızlı Destek programı (Windows / macOS)', '(Windows):' yok", () => {
+    for (const ch of ["EMAIL", "WHATSAPP", "SMS"] as const) {
+      const r = renderFor(ch, k3("https://remote.noktabilisim.net"));
+      const all = `${r.text}\n${r.bodyHtml ?? ""}`;
+      expect(all).toContain("Hızlı Destek programı (Windows / macOS)");
+      expect(all).not.toContain("(Windows):");
+    }
+  });
+
   it("AC-520: köken firma adı süzgecinden geçmez (rakamlı port korunur), HTML'de kaçışlı", () => {
     const r = renderFor("EMAIL", k3("https://185.126.217.99:4450"));
     expect(r.text).toContain("https://185.126.217.99:4450/ ile başlar");

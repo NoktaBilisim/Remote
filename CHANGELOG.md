@@ -5,6 +5,52 @@ Biçim [Keep a Changelog](https://keepachangelog.com/tr/1.1.0/), sürümleme [Se
 
 ## [Unreleased]
 
+### Eklendi — P31 macOS Hızlı Destek'te "Destek iste", istemci 0.24.0 (AC-509..522, ADR-0041)
+
+- **Firma bağlantısı Mac'te:** aynı `GET /api/v1/public/agent/request-download` bağlantısı Mac'te
+  `NoktaDestek-<firma>-<ref>.zip` indirir. Yeni isteğe bağlı `os=windows|macos`; verilmezse UA'dan seçilir (macOS masaüstü
+  ve macOS zip'i hazırsa `.zip`, diğer her durumda bugünkü `.exe`). Geçersiz `os` (`linux` dahil) 400; açık `os=macos` +
+  zip hazır değil 503.
+- **Yeni iç uç `/internal/agent-ready/macos-firm`:** firma zip'ini Caddy `@agentZipFirm` yalnız bu uçtan geçirir; tam yol
+  deseni, ref + güncel firma kısa adı ve macOS kapısı denetlenir; eksik/maskeli/desen dışı yol tek tip 404 (fail-closed).
+  Logda yol `NoktaDestek-***`.
+- **nginx:** `/downloads/NoktaDestek-*` yolunda IP başına 10 istek/dk, burst 5; fazlası 429.
+- **Talep:** `POST /api/v1/public/requests` gövdesinde isteğe bağlı `clientOs` (`windows|macos`; Windows gövdesi değişmez),
+  yeni sütun `support_requests.client_os` (migration `20261129000000_p31_request_client_os`, CHECK'li; WEB talebinde NULL).
+  Kabulde misafirin `clientOs`'u talepten gelir; Mac'in `OS_PERMISSION` iletisi talep yolunda da kabul edilir. Audit
+  `request.created` `newValue.clientOs`.
+- **macOS istemci:** firma kimliği zip'in açıldığı klasör adından (`NoktaDestek-<firma>-<ref>`, kopya ekleri dahil) okunur;
+  Windows'la aynı açılış karar tablosu, ana ekran ("Bu dosyanın firması", **Destek iste**, **Bağlantı kodum var**,
+  **Kötüye kullanımı bildir**), talep formu, bekleme + talep sohbeti, korumalı kabul istemi (1,5 sn, yalnız yerel
+  tıklama, Dock dikkati). Kırmızı düğme / ⌘Q bekleyen talebi iptal eder. Klasör okunamazsa Mac'e özgü bilgi satırı.
+  `CLIENT_OUTDATED` ekranı `…&os=macos` adresini açar. Talep akışı diske yazmaz; bilgisayar kaydı alınmaz.
+- **Web:** `/r/<ref>` ve portal kabul kartında Mac'te "Uzaktan kontrol gerekiyorsa Nokta Destek'i (macOS) indirin"
+  (`&os=macos`) ve kaynağa çapalı "Yine de Aç" uyarısı + firma adı cümlesi; panel Genel bağlantı, müşteri kartı ve
+  portal firma dosyası kartında "Bu bağlantı Mac'te macOS uygulamasını (.zip) indirir." notu.
+- **Dokümanlar:** kılavuzda "Mac'te nasıl destek isterim?" (zip → klasör → Yine de Aç → Destek iste, Bilgi Al → Nereden,
+  dosyayı saklamama), API "macOS'ta Destek iste (P31)", runbook §32, README, DATASHEET.
+
+### Değişti — P31
+
+- **Kaynağa çapalı metinler:** OKUBENI (stg, ad-hoc) son paragrafı "“Yine de Aç”ı yalnız tarayıcınızda {host} adresinden
+  indirdiğiniz Nokta Destek için kullanın (Finder → Bilgi Al → “Nereden” …)"; Developer ID `OKUBENI.txt` "asla Yine de Aç
+  istemez" uyarısını korur ve "Yine de Aç"sız kaynak cümlesini taşır. Üçüne firma adı ("güvenlik kanıtı değil") ve
+  "Mac'te dosyayı saklamayın" cümleleri eklendi. Web `gm.adhocOnlyBody` kanaldan bağımsız oldu; `gm.adhocOnlyTitle`
+  "“Yine de Aç” yalnız resmi adresten indirdiğiniz uygulama için". Bu metinler P28f-r4'ün "yalnız bu sayfadaki indirme
+  için" ve "teknisyeninizle görüşürken" ifadelerinin yerini alır.
+- **K3 müşteri mesajı:** indirme etiketi "Hızlı Destek programı (Windows)" → "Hızlı Destek programı (Windows / macOS)";
+  sonuna "Bağlantı her zaman https://{host}/ ile başlar; dosya eki göndermeyiz." satırı.
+- **Metrik:** firma indirmesi `rs_agent_download_total{os, kind="firm"}` (jenerik indirme yalnız `{os}`).
+- Windows istemcisi davranışça değişmez (talep gövdesi bayt bayt aynı; ortak kod `uicore`'a taşındı).
+
+### Bilinen sınırlamalar — P31
+
+- Mac'te "Bilgilerimi hatırla", bilgisayar kaydı, tepsi ve otomatik başlatma yok; Linux istemcisinde firma dosyası /
+  talep akışı yok.
+- Talep gönderildikten sonra Mac uygulaması yeniden başlarsa talep iptal olur.
+- Gerçek Mac'te K0 ölçümü (klasör adı, "Nereden", `open -n` yeniden başlatma) ve elle E-P31-1..7 henüz yapılmadı; 0.24.0
+  etiketi atılmadı.
+
 ### Değişti — macOS prod ad-hoc (P28f-r4, AC-500..508, mimari-p28f §15)
 
 - **Karar (2026-11-20):** macOS istemcisi prod'a Apple Developer ID / notarization **olmadan, ad-hoc imzalı** çıkar.

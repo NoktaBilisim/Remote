@@ -20,7 +20,7 @@ function render(target, channel) {
     const text = `Merhaba,\n\nDemo Firma, bilgisayarınıza uzaktan destek servisinin kurulması için bir kayıt kodu oluşturdu.\n\n1. Kurulum dosyasını indirin: ${BASE}/api/v1/public/unattended/download?t=${"x".repeat(43)}\n2. Dosyayı çalıştırın ve yönetici izni isteğini onaylayın.\n3. Kayıt kodu istendiğinde şunu girin: ${target.code}\n4. Kurulum tamamlanınca Demo Firma ile iletişime geçin.\n\nBu kurulumu siz istemediyseniz destek firmanızı arayın.`;
     return { subject: "Demo Firma – uzaktan destek servisi kurulumu", text };
   }
-  const text = `Demo Firma destek bağlantılarınız:\nHızlı Destek programı (Windows): ${BASE}/api/v1/public/agent/request-download?ref=sisliref2345abcd\nBu bağlantılar firmanıza özeldir, paylaşmayın.`;
+  const text = `Demo Firma destek bağlantılarınız:\nHızlı Destek programı (Windows / macOS): ${BASE}/api/v1/public/agent/request-download?ref=sisliref2345abcd\nBu bağlantılar firmanıza özeldir, paylaşmayın.`;
   return { subject: channel === "EMAIL" ? "Demo Firma – destek bağlantılarınız" : null, text };
 }
 

@@ -27,6 +27,8 @@ Kısıtlar: `CGO_ENABLED=0` korunur (ADR-0037 m.1); Apple Silicon imzasız ikili
 bağlıdır (ad-hoc'ta her derleme yeni kimlik → staging'de her sürümde izin yeniden verilir); macOS 15+ Ekran Kaydı için periyodik sistem
 uyarısı gösterebilir (bilgi, kılavuz). Geliştirme makinesi Apple Silicon macOS 26.3; gerçek Intel makine yok (A-PF-3).
 
+> **P31 ile değişti (2026-11-20, `mimari-p31.md`):** §1 kapsam dışı satırındaki "firma dosyası `NoktaDestek-<label>-<ref>`, destek talebi" macOS'ta açıldı (zip/klasör adından firma, Windows'la aynı ana ekran + Destek iste; ADR-0041). Tepsi, otomatik başlatma, çoklu firma kaydı ve "Bilgilerimi hatırla" kapsam dışı kalır. §2 `launch/code_darwin.go` satırındaki sıra 4 ("kod alanı") de değişti: Mac'te kaynaksız açılış Windows gibi ana ekrana gelir (AC-190), kod "Bağlantı kodum var" ile girilir; kaynak okuma `launch/source.go` `SourceFromBundlePath` (klasör kod > klasör ref > bundle kod). AC-97 / AC-392'nin macOS karşılığı aynı şekilde okunur. r4 web rehberindeki "klasör adından gelmezse kodu elle yazın" metni oturum (kod) sayfası için geçerli kalır.
+
 ## 2. Bileşenler ve sorumluluklar
 
 ```mermaid

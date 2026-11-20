@@ -8,7 +8,7 @@ gider; firma isterse sunucu üzerinden, ClamAV taramalı ve şifreli saklamalı 
 
 ## Şu anki durum: P1–P13a tamamlandı, P13b (prod açılışı) kodu hazır, P14a/P14b, P15, P16, P17 (istemci 0.11.0), P18 (talep iletişimi), P19 (web talep formu, SMS, müşteri bildirimi, müşteri CSV) P20 (istemci 0.12.0), P27a (2FA'da cihaz hatırlama), P27 (gözetimsiz erişim; prod'da kapalı) P28a (pano paylaşımı + uzaktan yazdırma, istemci 0.13.0) P28b (sunucuda dosya aktarımı + ClamAV + depolama kotası, istemci 0.14.0), P28u (gözetimsiz izinli / izinsiz bağlantı ve müdahale, servis 0.15.0) P28e (oturum kaydı, istemci/servis 0.16.0) ve P28c (çoklu teknisyen: davet, İzle, kontrol ve oturum devri, istemci/yardımcı 0.17.0) ve P28d (sesli görüşme, istemci 0.18.0) ve P28f (macOS istemci, istemci 0.19.0; prod'a ad-hoc imzalı, P28f-r4) ve P21 (müşteri portalı) kodlandı (QA sürüyor)
 
-## Şu anki durum: P1–P13a tamamlandı, P13b (prod açılışı) kodu hazır, P14a/P14b, P15, P16, P17 (istemci 0.11.0), P18 (talep iletişimi), P19 (web talep formu, SMS, müşteri bildirimi, müşteri CSV) P20 (istemci 0.12.0), P27a (2FA'da cihaz hatırlama), P27 (gözetimsiz erişim; prod'da kapalı) P28a (pano paylaşımı + uzaktan yazdırma, istemci 0.13.0) P28b (sunucuda dosya aktarımı + ClamAV + depolama kotası, istemci 0.14.0), P28u (gözetimsiz onaysız bağlantı ve müdahale; r3 onaysız tek yol, servis 0.15.0) P28e (oturum kaydı, istemci/servis 0.16.0) ve P28c (çoklu teknisyen: davet, İzle, kontrol ve oturum devri, istemci/yardımcı 0.17.0) ve P28d (sesli görüşme, istemci 0.18.0) ve P28f (macOS istemci, istemci 0.19.0; prod'a ad-hoc imzalı, P28f-r4) ve P22 (oturum sohbeti kaydı + KVKK) ve P22-G (istemci 0.21.0: kayıtlı oturum sohbeti) kodlandı (QA sürüyor)
+## Şu anki durum: P1–P13a tamamlandı, P13b (prod açılışı) kodu hazır, P14a/P14b, P15, P16, P17 (istemci 0.11.0), P18 (talep iletişimi), P19 (web talep formu, SMS, müşteri bildirimi, müşteri CSV) P20 (istemci 0.12.0), P27a (2FA'da cihaz hatırlama), P27 (gözetimsiz erişim; prod'da kapalı) P28a (pano paylaşımı + uzaktan yazdırma, istemci 0.13.0) P28b (sunucuda dosya aktarımı + ClamAV + depolama kotası, istemci 0.14.0), P28u (gözetimsiz onaysız bağlantı ve müdahale; r3 onaysız tek yol, servis 0.15.0) P28e (oturum kaydı, istemci/servis 0.16.0) ve P28c (çoklu teknisyen: davet, İzle, kontrol ve oturum devri, istemci/yardımcı 0.17.0) ve P28d (sesli görüşme, istemci 0.18.0) ve P28f (macOS istemci, istemci 0.19.0; prod'a ad-hoc imzalı, P28f-r4) ve P22 (oturum sohbeti kaydı + KVKK) ve P22-G (istemci 0.21.0: kayıtlı oturum sohbeti) ve P31 (macOS'ta "Destek iste", istemci 0.24.0) kodlandı (QA sürüyor)
 
 İş P1..P13 dikey paketlerle yürür (`docs/mimari.md` §10). P1–P11 ve **P12** (firma ve sistem logosu, kullanıcı profil
 resmi, kullanıcı başına tema, hesap menüsü, tasarım token lint kuralı) tamamlandı: P12 güvenlik Kritik/Yüksek 0 (doğrulama
@@ -265,6 +265,27 @@ P13c'ye kadar ayrı staging yoktur; yeni kod yerelde (`scripts/e2e-real.sh`) den
 - Yeni cihaz hatırlanınca ve çalınmış çerez şüphesinde kullanıcıya e-posta; şifre değişimi, 2FA sıfırlama, tüm cihazlardan
   çıkış gibi olaylar hatırlamayı siler. Çerez `__Secure-rs_td` (`Path=/api/v1/auth`). Migration `20261121000000_p27a_trusted_devices`; yeni env yok.
 
+**P31 — macOS Hızlı Destek'te "Destek iste", istemci 0.24.0** (AC-509..522, ADR-0041, `docs/mimari-p31.md`; kod tamam,
+güvenlik kod turu GEÇTİ, QA tur 1 düzeltmeleri sürüyor; gerçek Mac'te K0 ölçümü ve elle E-P31-1..7 bekliyor)
+
+- Firma bağlantısı tek kalır: aynı `request-download` bağlantısı Windows'ta `NoktaDestek-<firma>-<ref>.exe`, Mac'te
+  `NoktaDestek-<firma>-<ref>.zip` indirir (`os=windows|macos` ya da UA; Linux ve iOS bugünkü `.exe`). Zip içeriği jenerik
+  macOS zip'idir; Caddy `@agentZipFirm` yeni iç uç `/internal/agent-ready/macos-firm` (fail-closed) ile sunar, logda
+  `NoktaDestek-***`. nginx doğrudan indirme yolunda IP başına 10/dk (burst 5).
+- macOS istemcisi firmayı zip'in açıldığı klasör adından okur (`.app`'e dosya eklenmez); Windows'la aynı açılış karar
+  tablosu, ana ekran ("Bu dosyanın firması", Destek iste, Bağlantı kodum var, Kötüye kullanımı bildir), talep formu,
+  bekleme + talep sohbeti ve korumalı kabul istemi (1,5 sn, yalnız yerel tıklama, Dock dikkati). Mac'te bilgisayar kaydı,
+  "Bilgilerimi hatırla", tepsi ve otomatik başlatma yok; talep akışı diske yazmaz.
+- Sunucu: `POST /public/requests` gövdesinde isteğe bağlı `clientOs` (`windows|macos`), `support_requests.client_os`
+  (migration `20261129000000_p31_request_client_os`); kabulde misafirin `clientOs`'u talepten gelir (Mac `OS_PERMISSION`).
+  Yeni env ve yetki yok.
+- Metinler kaynağa çapalı: OKUBENI ve `/r/` Mac kartı "Yine de Aç"ı yalnız `remote.noktabilisim.net`'ten indirilen
+  uygulamaya bağlar ("Bilgi Al → Nereden"); K3 müşteri mesajında "Bağlantı her zaman https://{host}/ ile başlar; dosya eki
+  göndermeyiz." satırı ve "Hızlı Destek programı (Windows / macOS)" etiketi. Panel
+  ve portal bağlantı kartlarında "Bu bağlantı Mac'te macOS uygulamasını (.zip) indirir." notu.
+- API `docs/api.md` "macOS'ta Destek iste (P31)"; kullanım `docs/KULLANIM_KILAVUZU.md` "Mac'te nasıl destek isterim?";
+  operasyon runbook §32 (yayın sırası: önce sunucu, sonra Caddyfile; geri alma ters).
+
 **P29 — istemci otomatik güncelleme, istemci/servis 0.22.0** (AC-470..493, ADR-0040; kod tamam, QA tur 2 GEÇTİ, güvenlik
 kod turu GEÇTİ; staging'de 0.22.0 → 0.22.1 tam tur (servis + üç taşınabilir platform) yayından önce elle doğrulanacak)
 
@@ -305,7 +326,7 @@ QA tur 2 GEÇTİ; staging doğrulaması runbook §29.3)
 
 - İstemci oturum sohbetini `/ws/guest` üzerinden gönderir (`rs.cap.schat1`); DataChannel sohbeti kaldırıldı. 0.20'deki
   "Bu sürümde sohbet kapalıdır" durumu 0.21.0 ile kalkar; Linux'ta sohbet ilk kez açılır.
-- Karşılamada **Bağlan**'ın, Windows talep formunda **Destek iste**'nin üstünde "Sohbet mesajları kayıt altına alınır ve N
+- Karşılamada **Bağlan**'ın, talep formunda (Windows; Mac P31) **Destek iste**'nin üstünde "Sohbet mesajları kayıt altına alınır ve N
   gün saklanır". Sunucu `chatRetentionDays` vermezse "Sunucu güncel değil; lütfen daha sonra deneyin" ve düğme pasif.
 - Sohbet durumları: gönderiliyor, "Gönderilemedi — tekrar deneyin" (idempotent), "Çok hızlı yazıyorsunuz", "Sohbet şu an
   kullanılamıyor". Sürüm ldflags/CI ile verilir. **Sunucu önce** yayımlanır; 0.21.0 çıktıktan sonra sunucu geri alınmaz
@@ -346,7 +367,7 @@ notarization olmadan **ad-hoc imzalı** çıkar; köken GitHub attestation ile d
 - Hızlı Destek'in macOS 13+ sürümü: tek universal `.app` (Apple Silicon + Intel), `Destek-<kod>.zip` içinde, kurulumsuz.
   Kod zip'in açıldığı klasör adından okunur. Görüntü ScreenCaptureKit + VideoToolbox, kontrol CGEvent; sohbet, dosya
   (karantina işaretli), işaretleme, pano, yazdırma (`/usr/bin/lp`, sayfa sayısı yazıcıda), çoklu teknisyen, kayıt rızası.
-  Ses, pencere paylaşımı, "Destek iste", tepsi ve gözetimsiz erişim macOS'ta yok.
+  Ses, pencere paylaşımı, tepsi ve gözetimsiz erişim macOS'ta yok ("Destek iste" P31 ile 0.24.0'da geldi).
 - Ekran Kaydı / Erişilebilirlik izin rehberi (kodu koruyarak yeniden başlatma); izin yoksa teknisyene `OS_PERMISSION`.
   Korunan düğmeler yalnız gerçek yerel fare tıklamasıyla çalışır. Staging paketinde gizlenemeyen "TEST SÜRÜMÜ" bandı.
 - **Ad-hoc prod (P28f-r4):** `vars.APPLE_TEAM_ID` tanımsızken etiket derlemesi ad-hoc prod zip'ini (`OKUBENI-adhoc.txt`
@@ -724,6 +745,7 @@ görür. `deploy/staging-users.sh` staging test hesapları için hâlâ kullanı
 | P28f (kod ✓, QA sürüyor; prod ad-hoc imzalı, r4)                                  | macOS istemci 0.19.0: universal `.app` (zip), TCC izin rehberi, korunan düğmeler, purego (CGO'suz); runbook §28f                                                                                                           |
 | P21 (kod ✓, qa tur 2 GEÇTİ; staging doğrulaması bekliyor)                         | G6 müşteri portalı: portal girişi, talep/oturum geçmişi, portaldan talep, firma dosyası, isteğe bağlı 2FA; panel Portal hesapları; runbook §30                                                                             |
 | P22 (kod ✓, qa/güvenlik/sayfa testi GEÇTİ)                                        | Oturum sohbeti sunucu üzerinden ve her zaman kayıtlı, oturum geçmişinde sohbet (`sessions.view_chat`), aydınlatma sohbet paragrafı; runbook §29                                                                            |
+| P31 (kod ✓, QA sürüyor; Mac elle turu bekliyor)                                   | macOS istemci 0.24.0: firma bağlantısından `.zip`, "Destek iste" formu, bekleme ve kabul; `macos-firm` iç ucu; runbook §32                                                                                                 |
 | P13c                                                                              | Ayrı staging (`stg.remote.noktabilisim.net`, ayrı DB/sır/yedek); E11 özelliklerinden önce                                                                                                                                  |
 
 Prod açılışının ön koşulları ve imzalı kontrol listesi: runbook §20.1–§20.3. TURN için yalnız 443/TCP'nin açık olduğu

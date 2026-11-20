@@ -4,7 +4,7 @@ Bu kılavuz Nokta Bilişim uzaktan destek platformunun kullanıcıya dönük ekr
 geliştirilir (bkz. `README.md` "Yol haritası"); kılavuz da her paketle birlikte büyür. Bu sürümde yer alan bölümler:
 
 - **Müşteri için:** Hızlı Destek uygulaması (Windows) ve **Hızlı Destek uygulaması (macOS, 0.19)** (indirme ve açma, Ekran
-  Kaydı / Erişilebilirlik izinleri, ilk açılışta "Yine de Aç" onayı, her yeni sürümde onay ve izinler, korunan düğmeler, yazdırma, izinleri kaldırma), **Hızlı Destek
+  Kaydı / Erişilebilirlik izinleri, ilk açılışta "Yine de Aç" onayı, her yeni sürümde onay ve izinler, korunan düğmeler, yazdırma, izinleri kaldırma; 0.24 ile Mac'te de "Destek iste"), **Hızlı Destek
   uygulaması (Linux, 0.20)** (Ubuntu 22.04 / 24.04, başlatma komutu, X11 ve Wayland farkları, Wayland izin penceresi ve
   kontrol sınırları, Super+L), pencere başlığında sürüm (0.20), yalnız bir pencereyi paylaşma (0.11), "Destek iste" ile talep gönderme,
   birden çok firmaya kayıt, tepside çalıştırma ve Windows açılışında başlatma, beklerken teknisyenle yazışma (0.12),
@@ -738,8 +738,10 @@ Diğer durumlar:
 ### Teknisyeni beklemeden destek isteyebilir miyim? ("Destek iste")
 
 Evet. Firmanız size kendi **firma bağlantısını** verdiyse, teknisyenden kod beklemeden talep gönderebilirsiniz.
-Bu bağlantıdan inen dosyanın adı `NoktaDestek-<firma adı>-…exe` biçimindedir (ör. `NoktaDestek-Acme-k3pqxr2mab4cde7f.exe`).
-Bu özellik Hızlı Destek **0.9.0** ve sonrasında vardır.
+Bu bağlantıdan Windows'ta inen dosyanın adı `NoktaDestek-<firma adı>-…exe` biçimindedir (ör. `NoktaDestek-Acme-k3pqxr2mab4cde7f.exe`).
+Bu özellik Windows'ta Hızlı Destek **0.9.0**, Mac'te **0.24.0** ve sonrasında vardır. Aynı bağlantıyı Mac'te açarsanız
+`.zip` iner; Mac adımları bu bölümün sonundaki "Mac'te nasıl destek isterim?" alt başlığındadır. Aşağıdaki adımlar
+Windows içindir.
 
 **Nasıl destek isterim?**
 
@@ -841,6 +843,64 @@ sorar ve olağan akışla devam eder (bkz. "KVKK onayı ve bağlanma").
 | Bağlantı kurulamadı                                            | Teknisyen kabul etti ama bağlantı kurulamadı. Yeniden talep oluşturun veya firmanızı arayın.                                                                                                                             |
 | Talep başka bir pencerede açıldı                               | Aynı talep başka bir pencerede izleniyor; bu pencereyi kapatabilirsiniz.                                                                                                                                                 |
 
+#### Mac'te nasıl destek isterim? (Hızlı Destek macOS 0.24 ve sonrası)
+
+Mac'te de teknisyenden kod beklemeden talep gönderebilirsiniz. Firmanızın verdiği **firma bağlantısı** Windows'takiyle
+aynıdır; bağlantıyı Mac'te açtığınızda Windows programı yerine Mac uygulaması (`.zip`) iner. Ne gerektiği ve uygulamanın
+nasıl imzalandığı "Müşteri için: Hızlı Destek uygulaması (macOS)" bölümündedir.
+
+**Bağlantıyı kontrol edin.** Bağlantı her zaman `https://remote.noktabilisim.net/` ile başlar; dosya eki göndermeyiz.
+Firmanız size yalnız bağlantı gönderir, dosya göndermez. E-posta ya da mesaj ekinde gelen bir dosyayı açmayın.
+
+1. Firma bağlantısını Mac'inizde Safari ya da Chrome ile açın. Tarayıcı `NoktaDestek-<firma adı>-….zip` adlı bir dosya
+   indirir (ör. `NoktaDestek-Acme-k3pqxr2mab4cde7f.zip`).
+2. Safari zip'i kendiliğinden açar. Açmadıysa **Finder → İndirilenler** klasöründe zip'e çift tıklayın. Aynı adla bir
+   klasör oluşur (ör. `NoktaDestek-Acme-k3pqxr2mab4cde7f`). Aynı dosyayı ikinci kez indirdiyseniz klasörün adının
+   sonunda ` (1)` gibi bir ek olabilir; bu da çalışır.
+3. **Klasörün adını değiştirmeyin ve uygulamayı klasörden çıkarmayın.** Uygulama firmanızı bu klasörün adından tanır.
+4. Klasördeki **Nokta Destek** uygulamasına çift tıklayın. macOS ilk açılışta uygulamayı durdurur. "Mac'te nasıl indirir
+   ve açarım?" bölümündeki 6–9. adımları izleyin: uyarıda **Bitti**'yi seçin, ardından **Sistem Ayarları → Gizlilik ve
+   Güvenlik → Yine de Aç** ile onaylayın.
+   - **"Yine de Aç"ı yalnız tarayıcınızda remote.noktabilisim.net adresinden indirdiğiniz Nokta Destek için kullanın.**
+     Finder → **Bilgi Al** → **Nereden** satırı `https://remote.noktabilisim.net/` ile başlamalı. Başka bir adres
+     yazıyorsa uygulamayı açmayın ve firmanızı telefonla arayın.
+5. macOS **Ekran Kaydı** izni ister (bkz. "Ekran Kaydı izni"). İzni verip **İzni verdim, yeniden başlat**'a tıklayın.
+   Uygulama aynı klasörden yeniden açılır ve firmanızı yeniden tanır.
+6. **Nokta Destek — Uzaktan destek** penceresi açılır. Pencerede "Bu dosyanın firması: <firma adı>" satırı seçili,
+   **Destek iste** düğmesi varsayılandır. Pencerede firmanızın adı görünür; bu yalnız doğru firmaya bağlandığınızı gösterir,
+   dosyanın güvenli olduğunu göstermez. Tanımadığınız bir ad görürseniz pencereyi kapatın. Firmanız bir adres
+   tanımladıysa **Kötüye kullanımı bildir** düğmesi de bulunur.
+7. **Destek iste**'ye tıklayın. **Nokta Destek — <firma adı>** penceresi açılır. Form Windows'takiyle aynıdır (yukarıdaki 3–4. adımlar): ad soyad, telefon, e-posta
+   (isteğe bağlı), sorununuz, aydınlatma metni ve onay kutusu, sohbet saklama satırı. Formu doldurup **Destek iste**'ye
+   tıklayın. Hatalı alanın altında kırmızı yazı çıkar ve imleç o alana gider.
+8. **Talebiniz iletildi** ekranında 6 haneli talep kodunu, sıranızı ve bekleme sürenizi görürsünüz. Beklerken teknisyenle
+   yazışabilir ya da **Talebi iptal et** ile talebi geri çekebilirsiniz.
+9. Teknisyen talebi kabul edince **Bağlantı isteği** penceresi öne gelir ve Dock'taki Nokta Destek simgesi zıplar.
+   Teknisyen doğrulama kodunu telefondaki teknisyenle karşılaştırın. Her şey doğruysa **kendi farenizle** ya da izleme
+   dörtgeninizle **Ekranımı paylaş**'a tıklayın. Düğme ilk 1,5 saniye çalışmaz; Return ya da boşluk tuşu paylaşmaz.
+   Emin değilseniz **Vazgeç**'e tıklayın (varsayılan düğme budur). Sonrası kodla açılan Mac oturumuyla aynıdır.
+
+**Mac'te farklı olanlar**
+
+- **Dosyayı saklamayın.** Mac'te dosyayı saklamayın; her destek isteğinde firmanızın bağlantısından yeniden indirin, eski
+  klasörü silin. Windows'taki gibi masaüstünde bekletilecek bir dosya yoktur.
+- **Firmanız bağlantıyı yenilediyse** yeni bağlantıdan yeniden indirin. Eski klasördeki uygulama "Bu dosya artık geçerli
+  değil" der.
+- Bekleme penceresini kırmızı düğmeyle kapatmak ya da **⌘Q** ile çıkmak talebi iptal eder ve uygulamayı kapatır. Mac'te
+  tepsi yoktur.
+- Talebi gönderdikten sonra uygulama yeniden başlarsa talebiniz iptal olur. Uygulama açılınca yeniden **Destek iste**'ye
+  basın.
+- Formda **Bilgilerimi bu bilgisayarda hatırla** ve **Bilgilerimi unut** yoktur; bilgiler her seferinde yeniden yazılır.
+  Bilgisayar kaydı alınmaz, ana ekranda firma listesi, "Bu firmayı unut" ve "Bu bilgisayarı unut" yoktur. Uygulama
+  kapanınca bilgileriniz, talep kodunuz ve yazışmanız Mac'te kalmaz.
+- Uygulama firmanızı tanıyamazsa (klasör yeniden adlandırıldı ya da uygulama taşındı) ana ekranda **Destek iste** pasif
+  olur ve şu satır yazar: "Firmanızın bağlantısından indirdiyseniz zip'i açtığınız klasörü yeniden adlandırmadan ve
+  uygulamayı klasörden çıkarmadan açın. Teknisyen size kod verdiyse Bağlantı kodum var ile devam edin." Zip'i yeniden
+  açın ya da firmanızın bağlantısından yeniden indirin.
+- "Bu Hızlı Destek dosyası eski" ekranındaki **Yeni sürümü indir** Mac'te firma bağlantınızdan yeni `.zip`'i indirir.
+  Eski klasörü silin, yeni zip'i açıp uygulamayı yeniden onaylayın (her yeni sürümde "Yine de Aç" ve izinler yeniden
+  istenir).
+
 ### Program indirmeden tarayıcıdan destek isteyebilir miyim? (web talep formu)
 
 Evet, firmanız **web talep formunu** açtıysa. Firmanız size `https://<destek adresi>/r/…` biçiminde bir **form bağlantısı**
@@ -873,7 +933,10 @@ verir (e-posta imzası, web sitesi, sözleşme vb.). Bağlantıyı tarayıcıda 
 **Bilmeniz gerekenler**
 
 - Tarayıcıdan yapılan paylaşımda teknisyen ekranınızı **yalnız görür**; farenizi ve klavyenizi kullanamaz. Uzaktan kontrol
-  gerekiyorsa aynı sayfadaki "Uzaktan kontrol gerekiyorsa Windows programını indirin" bağlantısını kullanın.
+  gerekiyorsa aynı sayfadaki "Uzaktan kontrol gerekiyorsa Windows programını indirin" bağlantısını kullanın. Mac'te bu
+  bağlantı "Uzaktan kontrol gerekiyorsa Nokta Destek'i (macOS) indirin" yazar ve Mac uygulamasını (`.zip`) indirir;
+  yanında "“Yine de Aç” yalnız resmi adresten indirdiğiniz uygulama için" uyarısı bulunur (bkz. "Mac'te nasıl destek
+  isterim?"). Mac uygulaması sunucuda yayımlanmamışsa Windows bağlantısı görünür.
 - Sayfayı yenilerseniz (F5) bekleme ekranına geri dönersiniz. **Sekmeyi ya da tarayıcıyı kapatırsanız** talebiniz kısa
   süre sonra iptal olur; yeniden talep oluşturmanız gerekir.
 - **Talebi iptal et** ile talebinizi geri çekebilirsiniz.
@@ -1186,8 +1249,10 @@ açılıştaki "Yine de Aç" onayı bir kez Mac'in yönetici parolasını ya da 
 
 - macOS 13 (Ventura) veya daha yeni bir Mac. Apple işlemcili (M1, M2, M3, M4) ve Intel işlemcili Mac'lerde aynı dosya çalışır.
 - İnternet bağlantısı.
-- Teknisyeninizin gönderdiği **destek bağlantısı** ya da **8 haneli destek kodu**.
-- Telefonda teknisyeninizle görüşüyor olmanız (kodları birbirinize okuyacaksınız).
+- Teknisyeninizin gönderdiği **destek bağlantısı** ya da **8 haneli destek kodu**, ya da firmanızın verdiği **firma
+  bağlantısı** (0.24 ve sonrası; bkz. "Mac'te nasıl destek isterim?").
+- Kod ya da bağlantıyla bağlanırken telefonda teknisyeninizle görüşüyor olmanız (kodları birbirinize okuyacaksınız).
+  Firma bağlantısıyla talep gönderdiyseniz teknisyen sizi arar.
 
 **Nasıl imzalanır?** Nokta Destek açık kaynaklıdır ve Mac sürümü **Apple Developer ID olmadan (ad-hoc) imzalanır**.
 Uygulama GitHub'da derlenir ve hangi kaynak koddan derlendiği kanıtlanır (attestation). Apple'ın onay (notarize) adımı
@@ -1198,17 +1263,19 @@ Apple onaylı olarak dağıtılır ve bu onay adımı kalkar.
 Mac sürümü sunucuda yayımlanmamışsa destek sayfasında Mac için indirme düğmesi **görünmez**; sayfa sizi tarayıcıdan ekran
 paylaşımına yönlendirir. Bu durumda teknisyen ekranınızı görür ama farenizi kullanamaz.
 
-> **"Yine de Aç" yalnız destek sayfasından indirdiğiniz uygulama için.** Nokta Destek'i yalnız teknisyeninizle telefonda
-> görüşürken, size verilen destek bağlantısındaki sayfadan kendiniz indirin. **Nokta Bilişim uygulamayı e-posta eki ya da
-> mesajla göndermez;** başka bir yoldan gelen dosyayı açmayın ve onun için "Yine de Aç" demeyin. Uygulama açılınca
-> karşılama penceresindeki kontrolleri yapın (bkz. "Doğru programla mı bağlanıyorum?").
+> **"Yine de Aç" yalnız resmi adresten indirdiğiniz uygulama için.** "Yine de Aç"ı yalnız tarayıcınızda
+> remote.noktabilisim.net adresinden indirdiğiniz Nokta Destek için kullanın (Finder → Bilgi Al → "Nereden" satırı
+> `https://remote.noktabilisim.net/` ile başlamalı). Firmanız size yalnız bağlantı gönderir, dosya göndermez. Dosya ek
+> olarak geldiyse açmayın. Pencerede firmanızın adı ya da teknisyen doğrulama kodu görünür; bu yalnız doğru firmaya
+> bağlandığınızı gösterir, dosyanın güvenli olduğunu göstermez. Uygulama açılınca karşılama penceresindeki kontrolleri
+> yapın (bkz. "Doğru programla mı bağlanıyorum?").
 
 **Mac sürümünde olmayanlar** (Windows sürümünde var):
 
 - Yalnız bir pencereyi paylaşma (Mac'te her zaman bir ekranın tamamı paylaşılır).
 - Sesli görüşme (şimdilik yok; teknisyenle telefonda konuşun).
-- "Destek iste", firma kaydı, "Bilgilerimi hatırla", tepside çalışma ve açılışta başlatma. Mac'te yalnız teknisyenin
-  verdiği bağlantı ya da kodla bağlanılır.
+- Bilgisayar (firma) kaydı, "Bilgilerimi hatırla", tepside çalışma ve açılışta başlatma. "Destek iste" ve firma
+  bağlantısı 0.24 ile Mac'te de vardır (bkz. "Mac'te nasıl destek isterim?").
 - Gözetimsiz erişim (başında kimse yokken bağlanma).
 
 ### Mac'te nasıl indirir ve açarım?
@@ -1243,8 +1310,9 @@ Yönetici parolanız yoksa ve yanınızda bunu bilen biri yoksa uygulamayı aça
 **tarayıcıdan paylaşımı** kullanın: teknisyen ekranınızı görür ama farenizi kullanamaz.
 
 **Destek kodu nereden gelir?** Uygulama kodu, içinde bulunduğu klasörün adından (`Destek-48291376`) okur; sizden
-istemez. Klasörü yeniden adlandırdıysanız ya da uygulamayı başka bir yere taşıdıysanız kod okunamaz. O zaman uygulama
-8 haneli kodu sorar: teknisyeninizden alıp yazın ve **Devam**'a tıklayın.
+istemez. Firma bağlantısından indirdiyseniz aynı yolla firmanızı klasör adından (`NoktaDestek-<firma adı>-…`) tanır.
+Klasörü yeniden adlandırdıysanız ya da uygulamayı başka bir yere taşıdıysanız kod okunamaz. 0.24 ve sonrasında uygulama
+o zaman ana ekranla açılır: **Bağlantı kodum var**'a tıklayıp teknisyeninizden aldığınız 8 haneli kodu yazın.
 
 ### Ekran Kaydı izni (ilk açılışta)
 
@@ -1257,7 +1325,9 @@ göremez. Uygulama ilk açılışta bunu kontrol eder ve **Ekran Kaydı izni ger
 3. macOS uygulamayı yeniden açmayı önerirse onun yerine Nokta Destek penceresindeki düğmeyi kullanın: kod yalnız bu yolla
    korunur.
 4. Nokta Destek penceresine dönün ve **İzni verdim, yeniden başlat**'a tıklayın. Uygulama kapanıp yeniden açılır;
-   **destek kodunuz korunur**, yeniden yazmanız gerekmez.
+   **destek kodunuz korunur**, yeniden yazmanız gerekmez. Firma bağlantısından açtıysanız uygulama aynı klasörden
+   açılır ve firmanızı yeniden tanır; bu izin talep göndermeden önce sorulur. Talebi gönderdikten sonra uygulama
+   yeniden başlarsa talebiniz iptal olur.
 5. Listede **Nokta Destek** zaten açık görünüyorsa (önceki bir sürümden kalmış olabilir) ama uygulama yine izin istiyorsa:
    satırı seçin, alttaki **−** düğmesiyle kaldırın, Nokta Destek penceresini kapatıp uygulamayı yeniden açın ve izni
    yeniden verin. Eski kayıt yeni sürüme geçmez; anahtarı kapatıp açmak yetmez.
@@ -1432,7 +1502,8 @@ yeniden başlatma için kullanılan geçici kod dosyası. Mac sürümü tanılam
 
 Kalanlar:
 
-- İndirdiğiniz `Destek-….zip` ve `Destek-…` klasörü (oturum bitince siz silin).
+- İndirdiğiniz `Destek-….zip` ya da `NoktaDestek-<firma adı>-….zip` ve aynı adlı klasör (oturum bitince siz silin; firma
+  zip'ini de saklamayın, her destek isteğinde yeniden indirin).
 - Teknisyenden aldığınız dosyalar (İndirilenler'de).
 - Verdiğiniz **Ekran Kaydı** ve **Erişilebilirlik** izinleri (macOS tutar).
 - Yazdırma yaptıysanız macOS'un yazdırma geçmişindeki iş kaydı.
@@ -1460,22 +1531,25 @@ tccutil reset Accessibility net.noktabilisim.destek
 
 ### Sık karşılaşılan durumlar (Mac)
 
-| Durum                                                                      | Ne yapmalı                                                                                                                                           |
-| -------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Destek sayfasında Mac için indirme düğmesi yok                             | Mac sürümü bu sunucuda yayımlanmamış. **Tarayıcıdan** ekranınızı paylaşın.                                                                           |
-| macOS "açılmadı" / "doğrulanamadı" diyor                                   | Beklenen uyarı. **Bitti**'yi seçin, Sistem Ayarları → Gizlilik ve Güvenlik → **Yine de Aç** (bkz. "Mac'te nasıl indirir ve açarım?").                |
-| macOS "zarar verir" / "kötü amaçlı yazılım içeriyor" diyor                 | **Çöp Sepetine Taşı**'yı seçin, "Yine de Aç" denemeyin, teknisyeninize bildirin.                                                                     |
-| "Yine de Aç" parola istiyor, yönetici parolam yok                          | Standart kullanıcı uygulamayı açamaz. Destek sayfasından **tarayıcıdan paylaşımı** kullanın.                                                         |
-| Yeni sürümde yine "Yine de Aç" ve izinler istendi                          | Normaldir; her yeni sürümde onay ve izinler bir kez yeniden verilir.                                                                                 |
-| İzin listede açık görünüyor ama uygulama yine izin istiyor                 | Eski sürümün kaydı. Satırı seçip **−** ile kaldırın, uygulamayı yeniden açın, izni yeniden verin.                                                    |
-| Uygulama kodu soruyor                                                      | Klasör adı değişmiş ya da uygulama taşınmış. Teknisyeninizden 8 haneli kodu alıp yazın.                                                              |
-| "Ekran Kaydı izni gerekli" ekranı tekrar tekrar geliyor                    | Sistem Ayarları'nda Nokta Destek anahtarının açık olduğunu kontrol edip **İzni verdim, yeniden başlat**'a tıklayın.                                  |
-| "Kontrol için Erişilebilirlik izni gerekli"                                | Erişilebilirlik listesinde Nokta Destek'i açın; teknisyenden kontrolü yeniden istemesini isteyin.                                                    |
-| "Uzaktan kontrol kapatıldı: macOS girdi iznini ya da izlemesini durdurdu." | Erişilebilirlik izni kaldırılmış ya da macOS denetimi durdurmuş. İzni kontrol edin; teknisyen kontrolü yeniden ister.                                |
-| **İzin ver** / **Yazdır** / pano kutusu tepki vermiyor                     | 1,5 saniye bekleyin, sonra gerçek fare ya da izleme dörtgeniyle tıklayın. VoiceOver, Fare Tuşları ve klavye bu düğmelerde çalışmaz.                  |
-| Control+Shift+F12 çalışmıyor                                               | Dizüstünde **fn** ile birlikte basın. Oturum penceresinde F11 yazıyorsa Control+Shift+F11 kullanın. Her zaman **Kontrolü kapat** düğmesi de çalışır. |
-| Teknisyen bazı harfleri yazamıyor                                          | Fare Tuşları açık olabilir. Kapatın ya da o harfleri siz yazın.                                                                                      |
-| Teknisyen sesli görüşme başlatamıyor                                       | Mac sürümünde sesli görüşme yoktur; telefonda konuşun.                                                                                               |
+| Durum                                                                            | Ne yapmalı                                                                                                                                           |
+| -------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Destek sayfasında Mac için indirme düğmesi yok                                   | Mac sürümü bu sunucuda yayımlanmamış. **Tarayıcıdan** ekranınızı paylaşın.                                                                           |
+| macOS "açılmadı" / "doğrulanamadı" diyor                                         | Beklenen uyarı. **Bitti**'yi seçin, Sistem Ayarları → Gizlilik ve Güvenlik → **Yine de Aç** (bkz. "Mac'te nasıl indirir ve açarım?").                |
+| macOS "zarar verir" / "kötü amaçlı yazılım içeriyor" diyor                       | **Çöp Sepetine Taşı**'yı seçin, "Yine de Aç" denemeyin, teknisyeninize bildirin.                                                                     |
+| "Yine de Aç" parola istiyor, yönetici parolam yok                                | Standart kullanıcı uygulamayı açamaz. Destek sayfasından **tarayıcıdan paylaşımı** kullanın.                                                         |
+| Yeni sürümde yine "Yine de Aç" ve izinler istendi                                | Normaldir; her yeni sürümde onay ve izinler bir kez yeniden verilir.                                                                                 |
+| İzin listede açık görünüyor ama uygulama yine izin istiyor                       | Eski sürümün kaydı. Satırı seçip **−** ile kaldırın, uygulamayı yeniden açın, izni yeniden verin.                                                    |
+| Uygulama kodu soruyor ya da ana ekranda **Destek iste** pasif                    | Klasör adı değişmiş ya da uygulama taşınmış. 0.24 ve sonrasında **Bağlantı kodum var**'a tıklayıp teknisyeninizden aldığınız 8 haneli kodu yazın.    |
+| Firma bağlantısından açtım ama **Destek iste** pasif                             | Zip'i yeniden açın ya da firma bağlantısından yeniden indirin; klasörü yeniden adlandırmayın, uygulamayı klasörden çıkarmayın.                       |
+| "Bu dosya artık geçerli değil" (Mac)                                             | Firmanız bağlantıyı yenilemiş. Firmanızdan yeni bağlantıyı isteyin ve oradan yeniden indirin; eski klasörü silin.                                    |
+| Bilgi Al'daki "Nereden" satırı `https://remote.noktabilisim.net/` ile başlamıyor | Uygulamayı açmayın, "Yine de Aç" demeyin. Firmanızı telefonla arayın.                                                                                |
+| "Ekran Kaydı izni gerekli" ekranı tekrar tekrar geliyor                          | Sistem Ayarları'nda Nokta Destek anahtarının açık olduğunu kontrol edip **İzni verdim, yeniden başlat**'a tıklayın.                                  |
+| "Kontrol için Erişilebilirlik izni gerekli"                                      | Erişilebilirlik listesinde Nokta Destek'i açın; teknisyenden kontrolü yeniden istemesini isteyin.                                                    |
+| "Uzaktan kontrol kapatıldı: macOS girdi iznini ya da izlemesini durdurdu."       | Erişilebilirlik izni kaldırılmış ya da macOS denetimi durdurmuş. İzni kontrol edin; teknisyen kontrolü yeniden ister.                                |
+| **İzin ver** / **Yazdır** / pano kutusu tepki vermiyor                           | 1,5 saniye bekleyin, sonra gerçek fare ya da izleme dörtgeniyle tıklayın. VoiceOver, Fare Tuşları ve klavye bu düğmelerde çalışmaz.                  |
+| Control+Shift+F12 çalışmıyor                                                     | Dizüstünde **fn** ile birlikte basın. Oturum penceresinde F11 yazıyorsa Control+Shift+F11 kullanın. Her zaman **Kontrolü kapat** düğmesi de çalışır. |
+| Teknisyen bazı harfleri yazamıyor                                                | Fare Tuşları açık olabilir. Kapatın ya da o harfleri siz yazın.                                                                                      |
+| Teknisyen sesli görüşme başlatamıyor                                             | Mac sürümünde sesli görüşme yoktur; telefonda konuşun.                                                                                               |
 
 ### Super Admin için: Mac sürümünün yayını (not)
 
@@ -1753,7 +1827,8 @@ Kalanlar:
 
 - Firmanız adına açılmış **destek taleplerini** ve teknisyenlerin size bağlandığı **destek oturumlarını** görürsünüz.
 - Program indirmeden **yeni destek talebi** açarsınız.
-- Firmanıza özel destek programını (**firma dosyası**) indirirsiniz.
+- Firmanıza özel destek programını (**firma dosyası**) indirirsiniz. Kartta "Bu bağlantı Mac'te macOS uygulamasını (.zip)
+  indirir." yazar; Mac'te adımlar "Mac'te nasıl destek isterim?" bölümündedir.
 
 Portal hesabını destek sağlayıcınız açar; kendiniz kayıt olamazsınız. Aynı firmadaki her çalışanın ayrı hesabı olabilir;
 hepsi firmanın tüm talep ve oturumlarını görür.
@@ -2139,6 +2214,10 @@ Hızlı Destek 0.11 ve sonrasında müşteri tüm ekran yerine tek bir pencere p
   kendisi indirsin. Uyarı "zarar verir / kötü amaçlı" diyorsa müşteriye açtırmayın. Müşterinin yönetici parolası yoksa
   tarayıcıdan paylaşıma geçin. Her yeni sürümde onay ve izinler yeniden istenir; izin listede açık görünüp çalışmıyorsa
   müşteriye eski kaydı **−** ile kaldırtıp uygulamayı yeniden açtırın.
+- **Destek talebi (0.24 ve sonrası):** Mac müşterisi firma bağlantısından inen `.zip` ile **Destek iste** diyebilir. Talep
+  panelde Windows talebiyle aynı görünür; kabul ettiğinizde Erişilebilirlik izni yoksa kontrol isteğiniz kodla açılan Mac
+  oturumundaki gibi yukarıdaki "Müşterinin bilgisayarı uzaktan kontrole izin vermiyor…" metniyle kapanır. Mac'te bilgisayar kaydı olmadığı için talepte "Kayıtlı bilgisayar" rozeti
+  çıkmaz. Müşteri talebi gönderdikten sonra uygulamayı yeniden başlatırsa talep iptal olur.
 - **Olmayanlar:** pencere paylaşımı (her zaman tam ekran), sesli görüşme (düğme pasif; bkz. "Sesli görüşme").
 - **Yazdırma:** müşterinin onay penceresinde sayfa sayısı ve yazıcı adı yazmaz ("Sayfa sayısı: yazıcıda belirlenir",
   "Varsayılan yazıcı"). Müşterinin varsayılan yazıcısı yoksa bunu müşteri onayladıktan sonra görürsünüz.
@@ -2727,8 +2806,14 @@ Super Admin müşterileri bir firma seçtikten sonra görür.
    Ya da listede müşterinin satırındaki (veya detay sayfasındaki) **Kopyala**'ya tıklayın. 2 saniye "Kopyalandı" yazar.
    Tarayıcı panoya izin vermezse bağlantı seçili hâlde gösterilir; Ctrl+C ile kopyalayıp kendiniz iletin.
 2. Müşteri bağlantıyı açar.
-3. Müşteri dosyayı bir kez indirip masaüstüne kaydetsin. Destek gerektiğinde dosyayı açıp **Destek iste**'ye bassın.
-4. Windows "Bilgisayarınız korundu" uyarısı gösterirse müşteri **Ek bilgi** → **Yine de çalıştır**'a basmalıdır.
+3. Windows müşterisi dosyayı bir kez indirip masaüstüne kaydetsin. Destek gerektiğinde dosyayı açıp **Destek iste**'ye
+   bassın. **Mac müşterisi** dosyayı saklamaz: her destek isteğinde bağlantıdan yeniden indirir, zip'i açar ve klasördeki
+   uygulamayı açar (bkz. "Mac'te nasıl destek isterim?").
+4. Windows "Bilgisayarınız korundu" uyarısı gösterirse müşteri **Ek bilgi** → **Yine de çalıştır**'a basmalıdır. Mac'te
+   müşteri ilk açılışta **Sistem Ayarları → Gizlilik ve Güvenlik → Yine de Aç** ile onaylar.
+
+Bağlantı alanının altında "Bu bağlantı Mac'te macOS uygulamasını (.zip) indirir." notu bulunur. Aynı bağlantı Windows'ta
+`.exe`, Mac'te `.zip` indirir; müşteriye ayrı bağlantı göndermeniz gerekmez.
 
 Aynı adımlar ekrandaki **Müşteriye nasıl gönderilir?** düğmesinde de yazar. Tek seferlik destek için müşteri kaydı
 gerekmez: **Oturumlar > Yeni Destek Oturumu** ile link veya kod gönderin.
@@ -3306,7 +3391,8 @@ Değişiklikler sayfanın altındaki **Kaydet** ile kaydedilir; kaydetmeden çı
 Bu bağlantı müşteri firmaya atanmamış talepler içindir; bu dosyadan gelen talepler "Genel" görünür. Müşteriye özel
 bağlantılar **Müşteriler** ekranındadır (bkz. "Admin ve teknisyen için: Müşteriler").
 
-1. **Genel bağlantı** bölümünde bağlantı ve dosya adı (`NoktaDestek-<firma>-….exe`) görünür.
+1. **Genel bağlantı** bölümünde bağlantı ve dosya adı (`NoktaDestek-<firma>-….exe`) görünür. Altında "Bu bağlantı Mac'te
+   macOS uygulamasını (.zip) indirir." yazar: aynı bağlantı Mac'te `NoktaDestek-<firma>-….zip` indirir.
 2. **Kopyala** ile bağlantıyı alın. Müşterilerinize e-posta imzası, web siteniz, sözleşme veya karşılama yazısıyla iletin.
 3. Müşteri bağlantıdan dosyayı indirir ve ihtiyaç olduğunda talep gönderir. Dosya her müşteri için aynıdır; kurulum gerekmez.
 
@@ -3320,6 +3406,8 @@ bağlantılar **Müşteriler** ekranındadır (bkz. "Admin ve teknisyen için: M
 - Firmanızın adı değiştiyse (eski adlı dosyalar zaten çalışmaz).
 
 Yeniledikten sonra yeni bağlantıyı tüm müşterilerinize göndermeniz gerekir. "Son yenileme" alanı tarihi gösterir.
+Mac müşterileri için de aynıdır: eski klasördeki uygulama "Bu dosya artık geçerli değil" der; müşteri yeni bağlantıdan
+yeniden indirir.
 
 ### Bekleme süresi
 
@@ -3805,11 +3893,11 @@ başka bir uygulamadan göndermeniz gerekmez. Her gönderim denetim kaydına yaz
 
 Pencere üç yerden açılır. Pencere her yerde aynıdır; yalnız mesajın içeriği değişir.
 
-| Nereden açılır                                                              | Mesajda ne gider                                                                                       | Kanallar               |
-| --------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------ | ---------------------- |
-| **Oturumlar** → yeni oturum oluşturunca çıkan kart                          | Oturum bağlantısı, 8 haneli kod, son geçerlilik saati ve Windows destek programının indirme bağlantısı | E-posta, WhatsApp, SMS |
-| **Gözetimsiz cihazlar** → **Kayıt kodları** → kod oluşturunca çıkan pencere | Servis kurulum dosyasının indirme bağlantısı, kayıt kodu, son geçerlilik ve 4 adımlık kurulum özeti    | Yalnız e-posta         |
-| **Müşteriler** → müşteri ayrıntısı → **Bağlantı** bölümü                    | Müşteriye özel Hızlı Destek indirme bağlantısı ve (web formu açıksa) destek talebi formu bağlantısı    | E-posta, WhatsApp      |
+| Nereden açılır                                                              | Mesajda ne gider                                                                                                                                                                                                                                 | Kanallar               |
+| --------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ---------------------- |
+| **Oturumlar** → yeni oturum oluşturunca çıkan kart                          | Oturum bağlantısı, 8 haneli kod, son geçerlilik saati ve Windows destek programının indirme bağlantısı                                                                                                                                           | E-posta, WhatsApp, SMS |
+| **Gözetimsiz cihazlar** → **Kayıt kodları** → kod oluşturunca çıkan pencere | Servis kurulum dosyasının indirme bağlantısı, kayıt kodu, son geçerlilik ve 4 adımlık kurulum özeti                                                                                                                                              | Yalnız e-posta         |
+| **Müşteriler** → müşteri ayrıntısı → **Bağlantı** bölümü                    | Müşteriye özel Hızlı Destek indirme bağlantısı ("Hızlı Destek programı (Windows / macOS)") ve (web formu açıksa) destek talebi formu bağlantısı; sonunda "Bağlantı her zaman https://<destek adresi>/ ile başlar; dosya eki göndermeyiz." satırı | E-posta, WhatsApp      |
 
 Mesajlarda müşterinin adı, talep metni ya da sizin yazdığınız bir metin yer almaz. Metin sabittir; değiştirilemez.
 
@@ -4245,7 +4333,7 @@ Oturum sırasında sohbet bölümünün başlığında aynı saklama satırı te
 genel cümle görünebilir.
 
 Hızlı Destek programında (Windows, macOS ve Linux, 0.21 ve sonrası) aynı satır karşılama penceresinde **Bağlan**'ın,
-Windows talep formunda **Destek iste**'nin hemen üstünde yazar. Satırın yerinde "Sunucu güncel değil; lütfen daha sonra
+talep formunda (Windows; Mac 0.24 ve sonrası) **Destek iste**'nin hemen üstünde yazar. Satırın yerinde "Sunucu güncel değil; lütfen daha sonra
 deneyin" yazıyorsa düğme pasif kalır: firmanın sunucusu henüz güncellenmemiştir. Teknisyeninizi ya da firmanızı arayın.
 
 ### Müşteri için: Hızlı Destek'te oturum sohbeti (0.21 ve sonrası)
