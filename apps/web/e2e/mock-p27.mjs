@@ -8,6 +8,8 @@
 //   untech   USER yalnız connect; yalnız grant'lı MUHASEBE-PC. untech0: hiç cihaz yok.
 //   unempty  ADMIN, cihaz ve kod yok. unpoll: ilk liste (SSR) başarılı, sonraki yoklamalar 500 (kısmi durum).
 //   unnone   gözetimsiz yetkisi yok (menü öğesi yok, sayfa uyarı).
+//   unacc    P32: unm gibi ADMIN, mod `unsigned-accepted` (bant yok); DEPO-PC SHA'sı listede değil (signatureOk=false);
+//            kayıt kodu yanıtında `agentSha256` (kurulum notu, S-P32-8). unaccsa: aynı, SUPER_ADMIN firma bağlamında.
 import { stepUpInputSchema } from "@remote/contracts/api/auth";
 import { putDeviceGrantsInputSchema, putNotifyContactsInputSchema } from "@remote/contracts/api/unattended";
 
@@ -24,13 +26,14 @@ export const P27 = {
   TECH: "01JMSP2700000000000000000B",
   SESSION: "01JSSP2700000000000000000A",
 };
-const KINDS = /^u-(unm|unsmtp|unoff|untech0|untech|unempty|unpoll|unnone)-/;
+const KINDS = /^u-(unm|unsmtp|unoff|untech0|untech|unempty|unpoll|unnone|unaccsa|unacc)-/;
 
 export function p27User(cookie) {
   const m = cookie?.match(KINDS);
   if (!m) return null;
   const kind = m[1];
   const tech = kind.startsWith("untech");
+  const sa = kind === "unaccsa";
   const perms =
     kind === "unnone"
       ? ["customers.view"]
@@ -44,14 +47,14 @@ export function p27User(cookie) {
       email: "un@ornek.com",
       username: null,
       fullName: "Ufuk Yönetici",
-      role: tech ? "USER" : "ADMIN",
-      tenantId: TENANT.id,
+      role: sa ? "SUPER_ADMIN" : tech ? "USER" : "ADMIN",
+      tenantId: sa ? null : TENANT.id,
       theme: "SYSTEM",
       mustChangePassword: false,
     },
     permissions: perms,
-    tenant: TENANT,
-    actingTenant: null,
+    tenant: sa ? null : TENANT,
+    actingTenant: sa ? TENANT : null,
     mfa: { enabled: true, required: true, stage: "ok", recoveryCodesLeft: 10 },
   };
 }
@@ -79,6 +82,8 @@ const dev = (o) => ({
   grants: [],
   ...o,
 });
+/** P32: sunucu `UNATTENDED_AGENT_SHA256` (kayıt kodu yanıtı `agentSha256`; K1 sözleşme bağımlılığı). */
+export const AGENT_SHA = "3f2a9c1b".concat("0".repeat(48), "77e4d0aa");
 const ME_GRANT = { userId: SELF, name: "Ufuk Yönetici", avatarUrl: null };
 
 function devices(kind) {
@@ -104,6 +109,7 @@ function devices(kind) {
       grantCount: 1,
       grants: [ME_GRANT],
       connectBlockedReason: "offline",
+      signatureOk: !kind.startsWith("unacc"),
     }),
     dev({
       id: P27.D3,
@@ -150,7 +156,9 @@ const gateOf = (kind) =>
     ? { mode: "off", available: false }
     : kind === "unsmtp"
       ? { mode: "signed", available: true }
-      : { mode: "unsigned", available: true };
+      : kind.startsWith("unacc")
+        ? { mode: "unsigned-accepted", available: true }
+        : { mode: "unsigned", available: true };
 /** `notifyChannel`: firmanın SMTP kaydı (yalnız `unsmtp`'de yok). */
 const mode = (kind) => ({ ...gateOf(kind), notifyChannel: kind !== "unsmtp" });
 const LIST_KEYS = ["osVersion", "agentVersion", "signed", "lastIp", "registeredIp", "registeredAt", "grants"];
@@ -337,5 +345,6 @@ async function codesRoute(req, s, who, path, { ok, err, stepUp, readJson }) {
     code: "ABCD-1234-EFGH-5678",
     expiresAt: iso(24 * 3_600_000),
     downloadUrl: "/api/v1/unattended/download",
+    ...(who.kind.startsWith("unacc") ? { agentSha256: AGENT_SHA } : {}),
   });
 }

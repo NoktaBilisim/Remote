@@ -98,6 +98,18 @@ export async function setSmtp(tenantId: string, fromEmail = "destek@firma.test")
 /** P27 uygulama env'i (staging + imzasız mod). */
 export const UNSIGNED_ENV = { UNATTENDED_MODE: "unsigned", DEPLOY_ENV: "staging" } as const;
 
+/**
+ * P32 (mimari-p32 §4.1): `unsigned-accepted` (staging = prod provası). `agentSha` servis ikilisi SHA'sı (listede olmalı);
+ * `extra` ek izinli SHA'lar. Sürüm `0.23.0`.
+ */
+export const acceptedEnv = (agentSha: string, extra: string[] = []): Record<string, string> => ({
+  UNATTENDED_MODE: "unsigned-accepted",
+  DEPLOY_ENV: "staging",
+  UNATTENDED_SIGNED_SHA256: [agentSha, ...extra].join(","),
+  UNATTENDED_AGENT_SHA256: agentSha,
+  UNATTENDED_AGENT_VERSION: "0.23.0",
+});
+
 /** Kayıt kodu satırı (varsayılan bekleyen; TTL CHECK: expires = created + 24 sa); yalnız id döner — düz kod yok. */
 export async function codeRow(tenantId: string, customerId: string, o: { usedDeviceId?: string; createdAt?: Date } = {}): Promise<string> {
   const id = newId();

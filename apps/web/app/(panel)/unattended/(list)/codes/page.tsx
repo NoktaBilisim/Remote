@@ -6,7 +6,7 @@ import { EXPIRED_LOGIN_PATH } from "@/lib/api";
 import { t } from "@/lib/i18n";
 import { getMe, serverGet } from "@/lib/server-api";
 import type { RegistrationCodeListResponse, UnattendedStatus } from "@/lib/unattended/contract";
-import { createCodeBlock } from "@/lib/unattended/errors";
+import { createCodeBlock, isRiskAccepted } from "@/lib/unattended/errors";
 import { CodesTab } from "../../codes-tab";
 import { accessOf, gateBody, UnattendedShell } from "../../unattended-shell";
 
@@ -45,7 +45,7 @@ export default async function CodesPage() {
             <LoadError />
           </div>
         ) : (
-          <CodesTab items={res.data.items} createBlock={createBlock} />
+          <CodesTab items={res.data.items} createBlock={createBlock} riskAccepted={isRiskAccepted(status)} />
         )}
       </section>
     </UnattendedShell>

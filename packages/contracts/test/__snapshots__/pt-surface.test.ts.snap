@@ -1012,6 +1012,7 @@ exports[`PT-K1 contracts yüzeyi > AC-318: her exports yolunun dışa verdiği a
     "UNATTENDED_OFF_BANNER",
     "UNATTENDED_REVOKE_REASONS",
     "UNATTENDED_REVOKE_REASON_LABELS",
+    "UNATTENDED_RISK_BANNER",
     "UNATTENDED_TEST_BANNER",
     "UnattendedConnectData (tip)",
     "UnattendedConnectInput (tip)",

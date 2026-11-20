@@ -1,6 +1,6 @@
 "use client";
 
-import { Download, KeyRound, TriangleAlert } from "lucide-react";
+import { Download, Info, KeyRound, TriangleAlert } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useId, useState, type FormEvent } from "react";
@@ -17,12 +17,19 @@ import type { UiError } from "@/lib/error-message";
 import { formatDateTime } from "@/lib/format";
 import { t } from "@/lib/i18n";
 import { CONNECT_BLOCKED_REASON_LABELS, type CreatedRegistrationCode } from "@/lib/unattended/contract";
-import { isContactMissing, isSmtpMissing, unattendedUiError } from "@/lib/unattended/errors";
+import { installNote, isContactMissing, isSmtpMissing, unattendedUiError } from "@/lib/unattended/errors";
 
 type Failure = { ui: UiError; contactFor?: string };
 
+/**
+ * P32 (S-P32-8): kurulum notundaki SHA, kod üretim yanıtının `agentSha256` alanından (sunucu `UNATTENDED_AGENT_SHA256`).
+ * contracts'a K1 ekleyene kadar yerel genişletme; alan gelmezse not SHA'sız yazılır.
+ */
+type Created = CreatedRegistrationCode & { agentSha256?: string };
+
 /** Kod bir kez gösterilir (AC-273): kopyala, müşteriye gönder (LG), indir, 3 adım + UAC satırı (O-P27-4, AC-342). */
-function CodeResult({ created }: { created: CreatedRegistrationCode }) {
+function CodeResult({ created, riskAccepted }: { created: Created; riskAccepted: boolean }) {
+  const note = installNote(riskAccepted, created.agentSha256);
   return (
     <div className="flex flex-col gap-4" data-testid="un-code-result">
       <Alert tone="success">{t("un.code.once")}</Alert>
@@ -44,6 +51,12 @@ function CodeResult({ created }: { created: CreatedRegistrationCode }) {
         <Download aria-hidden className="size-4" />
         {t("un.code.download")}
       </a>
+      {note && (
+        <p className="flex items-start gap-2 text-sm text-fg-muted wrap-anywhere" data-testid="un-code-unsigned-note">
+          <Info aria-hidden className="mt-0.5 size-4 shrink-0" />
+          <span title={created.agentSha256 ? `SHA-256 ${created.agentSha256}` : undefined}>{note}</span>
+        </p>
+      )}
       <ol className="flex list-decimal flex-col gap-1 pl-5 text-sm text-fg" data-testid="un-code-steps">
         <li>{t("un.code.step1")}</li>
         <li>{t("un.code.step2")}</li>
@@ -63,7 +76,7 @@ function useCodeForm(onSmtpMissing: () => void) {
   const [fieldError, setFieldError] = useState<string>();
   const [failure, setFailure] = useState<Failure | null>(null);
   const [busy, setBusy] = useState(false);
-  const [created, setCreated] = useState<CreatedRegistrationCode | null>(null);
+  const [created, setCreated] = useState<Created | null>(null);
   const reset = () => (setCustomer(null), setFieldError(undefined), setFailure(null), setCreated(null));
   const submit = async (e: FormEvent) => {
     e.preventDefault();
@@ -72,7 +85,7 @@ function useCodeForm(onSmtpMissing: () => void) {
     setBusy(true);
     setFailure(null);
     try {
-      setCreated(await api<CreatedRegistrationCode>("POST", "/unattended/registration-codes", { customerId: customer.id }));
+      setCreated(await api<Created>("POST", "/unattended/registration-codes", { customerId: customer.id }));
     } catch (err) {
       if (isUnauthenticated(err)) return router.replace(EXPIRED_LOGIN_PATH);
       if (isSmtpMissing(err)) onSmtpMissing();
@@ -124,7 +137,17 @@ function PickForm({ formId, f }: { formId: string; f: ReturnType<typeof useCodeF
 }
 
 /** Kayıt kodu oluştur diyaloğu: müşteri seç → (step-up, `lib/api`) → kod bir kez. Kapatınca bekleyen kodlar tazelenir. */
-function CodeDialog({ open, onClose, onSmtpMissing }: { open: boolean; onClose: () => void; onSmtpMissing: () => void }) {
+function CodeDialog({
+  open,
+  onClose,
+  onSmtpMissing,
+  riskAccepted,
+}: {
+  open: boolean;
+  onClose: () => void;
+  onSmtpMissing: () => void;
+  riskAccepted: boolean;
+}) {
   const f = useCodeForm(onSmtpMissing);
   const formId = useId();
   const close = () => {
@@ -149,7 +172,7 @@ function CodeDialog({ open, onClose, onSmtpMissing }: { open: boolean; onClose: 
       footer={footer}
       testId="un-code-dialog"
     >
-      {f.created ? <CodeResult created={f.created} /> : <PickForm formId={formId} f={f} />}
+      {f.created ? <CodeResult created={f.created} riskAccepted={riskAccepted} /> : <PickForm formId={formId} f={f} />}
     </Dialog>
   );
 }
@@ -158,7 +181,16 @@ function CodeDialog({ open, onClose, onSmtpMissing }: { open: boolean; onClose: 
  * "Kayıt kodu oluştur" (`KeyRound`, `manage`): kapı kapalıysa ya da firma SMTP kaydı yoksa pasif + görünür neden (AC-336).
  * Sunucu 409 `NOTIFY_CHANNEL_UNAVAILABLE` dönerse düğme bu sayfa açık kaldıkça aynı nedenle pasifleşir.
  */
-export function CreateCodeButton({ block, testId = "un-create-code" }: { block: string | null; testId?: string }) {
+export function CreateCodeButton({
+  block,
+  riskAccepted = false,
+  testId = "un-create-code",
+}: {
+  block: string | null;
+  /** P32: kapı `unsigned-accepted` → sonuçta kurulum notu (S-P32-8). */
+  riskAccepted?: boolean;
+  testId?: string;
+}) {
   const [open, setOpen] = useState(false);
   const [smtpMissing, setSmtpMissing] = useState(false);
   const reason = block ?? (smtpMissing ? CONNECT_BLOCKED_REASON_LABELS.smtp : null);
@@ -179,7 +211,7 @@ export function CreateCodeButton({ block, testId = "un-create-code" }: { block: 
           {reason}
         </p>
       )}
-      <CodeDialog open={open} onClose={() => setOpen(false)} onSmtpMissing={() => setSmtpMissing(true)} />
+      <CodeDialog open={open} onClose={() => setOpen(false)} onSmtpMissing={() => setSmtpMissing(true)} riskAccepted={riskAccepted} />
     </div>
   );
 }

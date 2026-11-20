@@ -129,7 +129,7 @@ function DeviceView({ d, status, access }: { d: DeviceDetail; status: Unattended
         <DetailConnect device={d} available={gateOpen(status)} />
       </div>
       <div className="mt-4 flex max-w-3xl flex-col gap-2">
-        <ModeBanner status={status} />
+        <ModeBanner status={status} superAdmin={access.superAdmin} />
       </div>
       <DeviceSections d={d} access={access} />
     </>

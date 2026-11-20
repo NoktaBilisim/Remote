@@ -12,9 +12,13 @@ const tones: Record<Tone, { cls: string; Icon: typeof CircleAlert }> = {
   info: { cls: "bg-primary-surface text-fg border-primary/30", Icon: Info },
 };
 
-/** Satır içi durum mesajı. danger/locked → role="alert" (ekran okuyucu hemen okur); warning/success/info → role="status". */
-export function Alert({ tone, children, testId }: { tone: Tone; children: ReactNode; testId?: string }) {
-  const { cls, Icon } = tones[tone];
+/**
+ * Satır içi durum mesajı. danger/locked → role="alert" (ekran okuyucu hemen okur); warning/success/info → role="status".
+ * `icon` tonun varsayılan ikonunu anlama göre değiştirir (P32: risk kabul bandı `ShieldAlert`); renk tondan gelir.
+ */
+export function Alert({ tone, children, testId, icon }: { tone: Tone; children: ReactNode; testId?: string; icon?: typeof CircleAlert }) {
+  const { cls, Icon: ToneIcon } = tones[tone];
+  const Icon = icon ?? ToneIcon;
   const urgent = tone === "danger" || tone === "locked";
   return (
     <div

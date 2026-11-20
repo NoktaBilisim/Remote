@@ -47,7 +47,7 @@ export interface ManifestStoreDeps {
   /** `DEPLOY_ENV` → manifest ortamı (production→prod, staging→staging; diğerleri → hiçbir manifest sunulmaz). */
   deployEnv: string | undefined;
   gates: Readonly<Record<UpdateSlot, SlotGate>>;
-  /** Servis + `UNATTENDED_MODE=signed` → SHA bu listede olmalı (AC-492). */
+  /** Servis + `signed` = liste zorlanır (`UNATTENDED_MODE` signed ∨ unsigned-accepted, `serviceListEnforced`) → SHA listede olmalı (AC-492, AC-530). */
   signedMode: { signed: boolean; list: ReadonlySet<string> };
   now: () => number;
   warn: (obj: object, msg: string) => void;

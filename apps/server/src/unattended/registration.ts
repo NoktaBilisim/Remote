@@ -32,6 +32,8 @@ const CODE_MAC_VERSION = 1;
 export interface RegistrationDeps extends UnattendedDeps {
   secrets: SecretBox;
   metrics: Metrics;
+  /** P32 (S-P32-8): `UNATTENDED_AGENT_SHA256` — kayıt kodu yanıtında Admin kurulum notu için. */
+  agentSha256: string | undefined;
 }
 
 /** 80 bit rastgele → 16 × 5 bit Crockford base32. */
@@ -139,7 +141,13 @@ export async function createCode(
       newValue: { customerId, expiresAt: expiresAt.toISOString() },
     });
   });
-  return { id, code: formatRegistrationCode(code), expiresAt: expiresAt.toISOString(), downloadUrl: UNATTENDED_DOWNLOAD_PATH };
+  return {
+    id,
+    code: formatRegistrationCode(code),
+    expiresAt: expiresAt.toISOString(),
+    downloadUrl: UNATTENDED_DOWNLOAD_PATH,
+    agentSha256: d.agentSha256 ?? "",
+  };
 }
 
 /** DELETE /unattended/registration-codes/:id — yalnız bekleyen (kullanılmamış) kod; yoksa 404. */
@@ -240,7 +248,17 @@ async function registeredEvents(
     entity: "unattended_devices",
     entityId: deviceId,
     result: "success",
-    newValue: { customerId: c.customer_id, name: input.name, version: input.version, signed: input.signed, ip: ctx.ip, eventId },
+    newValue: {
+      customerId: c.customer_id,
+      name: input.name,
+      version: input.version,
+      signed: input.signed,
+      ip: ctx.ip,
+      eventId,
+      // P32 (AC-528): kapı modu + beyan edilen ikili özeti (tam 64 hane).
+      gateMode: d.gate.mode,
+      binarySha256: input.sha256,
+    },
   });
 }
 

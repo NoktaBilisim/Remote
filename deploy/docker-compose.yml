@@ -161,7 +161,7 @@ services:
       RETENTION_PURGE_MODE: ${RETENTION_PURGE_MODE:-}
       # P27 (mimari-p27 §4.5 r2, §8.1; AC-297/342): dağıtım ortamı + gözetimsiz erişim imza kapısı. DEPLOY_ENV yalnız server'a
       # verilir (web/migrate/seed almaz); boşsa compose durur. UNATTENDED_MODE boş = off; `unsigned` yalnız staging (env.ts
-      # açılış hatası). Prod: off (SignPath gelene kadar), staging: unsigned (runbook §27).
+      # açılış hatası); P32 `unsigned-accepted` yalnız production|staging (risk kabul, ADR-0042; runbook §27.9).
       DEPLOY_ENV: ${DEPLOY_ENV:?DEPLOY_ENV gerekli (production | staging | development; runbook §3)}
       UNATTENDED_MODE: ${UNATTENDED_MODE:-}
       UNATTENDED_SIGNED_SHA256: ${UNATTENDED_SIGNED_SHA256:-}
@@ -169,6 +169,9 @@ services:
       # görmez, /downloads/* public yoluna konmaz. SHA'yı deploy/agent/publish-servis.sh yazar; boş/uyuşmaz → 503.
       UNATTENDED_AGENT_PATH: /data/unattended/NoktaDestekServis.exe
       UNATTENDED_AGENT_SHA256: ${UNATTENDED_AGENT_SHA256:-}
+      # P32 (mimari-p32 §4.1, AC-533): yayınlanan servis sürümü X.Y.Z (publish-servis.sh --tag yazar); müşteri mesajında gösterilir.
+      # UNATTENDED_MODE=unsigned-accepted iken zorunlu; boşsa server açılmaz.
+      UNATTENDED_AGENT_VERSION: ${UNATTENDED_AGENT_VERSION:-}
       # P28b (mimari-p28b §11.3, ADR-0032): sunucuda saklanan dosyalar (AES-256-GCM, {tenantId}/{rastgele}.rsf). Ayrı volume
       # stored_files (uploads'tan ayrı: yetim taraması karışmaz); YEDEĞE GİRMEZ (K-P28b-11; backup.sh yalnız `uploads` etiketli
       # volume'u alır). Yol sabit.

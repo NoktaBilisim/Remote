@@ -24,21 +24,22 @@ function limited(d: RegistrationDeps, result: string, retryAfterSec: number): Ap
   return new AppError("RATE_LIMITED", { retryAfterSec: retryAfterSec || 60 });
 }
 
-async function failAudit(d: RegistrationDeps, ctx: AuditContext, reason: string): Promise<void> {
+/** P32 (AC-528): ret satırı da kapı modunu ve cihazın beyan ettiği SHA'yı taşır. */
+async function failAudit(d: RegistrationDeps, ctx: AuditContext, reason: string, input: RegisterDeviceData): Promise<void> {
   await writeAudit(d.db, ctx, {
     username: "device",
     action: UNATTENDED_AUDIT.DEVICE_REGISTERED,
     entity: "unattended_devices",
     result: "fail",
-    newValue: { reason, ip: ctx.ip },
+    newValue: { reason, ip: ctx.ip, gateMode: d.gate.mode, binarySha256: input.sha256 },
   });
 }
 
 /** Geçersiz kod yolu: sayaçlar → (tavan aşıldıysa) 429, değilse tek gövde 404 (yok/kullanılmış/süresi dolmuş ayrımı yok). */
-async function invalidCode(d: RegistrationDeps, limits: RegisterLimits, ctx: AuditContext): Promise<AppError> {
+async function invalidCode(d: RegistrationDeps, limits: RegisterLimits, ctx: AuditContext, input: RegisterDeviceData): Promise<AppError> {
   limits.badCode.hit(ipKey(ctx.ip));
   const capped = limits.globalFail.blockedFor(GLOBAL) > 0 || limits.globalFail.hit(GLOBAL);
-  await failAudit(d, ctx, capped ? "cap" : "invalid_code");
+  await failAudit(d, ctx, capped ? "cap" : "invalid_code", input);
   if (capped) return limited(d, "cap", limits.globalFail.blockedFor(GLOBAL));
   d.metrics.inc("rs_unattended_register_total", { result: "invalid_code" });
   return new AppError("REGISTRATION_CODE_INVALID");
@@ -72,7 +73,7 @@ export async function registerDevice(
     if (isUniqueViolation(err)) throw new AppError("CONFLICT", { message: "Bu cihaz anahtarı zaten kayıtlı." });
     throw err;
   }
-  if (!out) throw await invalidCode(d, limits, ctx);
+  if (!out) throw await invalidCode(d, limits, ctx, input);
   d.metrics.inc("rs_unattended_register_total", { result: "ok" });
   notifyRegistered(d, ctx, out, input);
   return toRegisterResponse(out);

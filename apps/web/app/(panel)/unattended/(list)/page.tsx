@@ -6,7 +6,7 @@ import { EXPIRED_LOGIN_PATH } from "@/lib/api";
 import { t } from "@/lib/i18n";
 import { getMe, serverGet } from "@/lib/server-api";
 import type { DeviceListResponse, UnattendedStatus } from "@/lib/unattended/contract";
-import { createCodeBlock, gateOpen } from "@/lib/unattended/errors";
+import { createCodeBlock, gateOpen, isRiskAccepted } from "@/lib/unattended/errors";
 import { devicesApiPath, parseDeviceParams } from "@/lib/unattended/query";
 import { DeviceFilters } from "../device-filters";
 import { DeviceList } from "../device-list";
@@ -54,7 +54,15 @@ export default async function UnattendedPage({ searchParams }: { searchParams: P
           <LoadError />
         </div>
       ) : (
-        <DeviceList key={path} initial={res.data} params={params} available={available} manage={access.manage} createBlock={createBlock} />
+        <DeviceList
+          key={path}
+          initial={res.data}
+          params={params}
+          available={available}
+          manage={access.manage}
+          createBlock={createBlock}
+          riskAccepted={isRiskAccepted(status)}
+        />
       )}
     </UnattendedShell>
   );

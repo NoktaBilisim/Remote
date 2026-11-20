@@ -12,6 +12,11 @@ export function formatSessionCode(code: string): string {
   return /^\d{8}$/.test(code) ? `${code.slice(0, 4)} ${code.slice(4)}` : code;
 }
 
+/** SHA-256 (64 hane) → "ilk 8…son 8" (tam değer `title`/kopyala ile ayrıca verilir; P32 S-P32-8, consent). */
+export function formatShortSha(sha: string): string {
+  return sha.length > 16 ? `${sha.slice(0, 8)}…${sha.slice(-8)}` : sha;
+}
+
 /** Kalan süre (ms) → "14:52" (dk:sn); 1 saati aşarsa "1:02:05". Negatif → "0:00". */
 export function formatRemaining(ms: number): string {
   const total = Math.max(0, Math.ceil(ms / 1000));

@@ -19,7 +19,17 @@ import { useDevicePoll } from "./use-device-poll";
 const filtered = (p: DeviceListParams) => Boolean(p.q || p.customerId || p.state !== "all" || p.version);
 
 /** Boş durum: filtre varsa "uyan cihaz yok" + temizle; yoksa yönetici "kayıt kodu oluşturun", teknisyen "yetki yok". */
-function Empty({ params, manage, createBlock }: { params: DeviceListParams; manage: boolean; createBlock: string | null }) {
+function Empty({
+  params,
+  manage,
+  createBlock,
+  riskAccepted,
+}: {
+  params: DeviceListParams;
+  manage: boolean;
+  createBlock: string | null;
+  riskAccepted: boolean;
+}) {
   if (filtered(params))
     return (
       <LinkEmpty
@@ -38,7 +48,7 @@ function Empty({ params, manage, createBlock }: { params: DeviceListParams; mana
       title={t("un.empty")}
       body={t("un.emptyBody")}
       testId="un-empty"
-      action={<CreateCodeButton block={createBlock} testId="un-empty-create" />}
+      action={<CreateCodeButton block={createBlock} riskAccepted={riskAccepted} testId="un-empty-create" />}
     />
   );
 }
@@ -65,12 +75,15 @@ export function DeviceList({
   available,
   manage,
   createBlock,
+  riskAccepted = false,
 }: {
   initial: DeviceListResponse;
   params: DeviceListParams;
   available: boolean;
   manage: boolean;
   createBlock: string | null;
+  /** P32: kapı `unsigned-accepted` (kayıt kodu kurulum notu, S-P32-8). */
+  riskAccepted?: boolean;
 }): ReactNode {
   const { data, stale, more, poll, loadMore } = useDevicePoll(initial, params.q, params.customerId, params.state, params.version);
   const flow = useConnect(() => void poll());
@@ -86,7 +99,7 @@ export function DeviceList({
         </Alert>
       )}
       {data.items.length === 0 ? (
-        <Empty params={params} manage={manage} createBlock={createBlock} />
+        <Empty params={params} manage={manage} createBlock={createBlock} riskAccepted={riskAccepted} />
       ) : (
         <>
           <DeviceRows items={data.items} available={available} busyId={flow.busyId} onConnect={openConnect} />

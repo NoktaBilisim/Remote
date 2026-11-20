@@ -2,6 +2,8 @@
 // `deviceAuthMessage(nonce, deviceId, PUBLIC_BASE_URL origin)` üzerinden doğrulanır. Sıra: cihaz var → imza → iptal (revoked{}
 // + 4401) → firma etkin (4401) → imza kapısı (4403). Başarıda beyan alanları + last_seen_at/last_ip yazılır; IP değiştiyse audit
 // `ipChanged` (D-P27-3), yerel anahtar değiştiyse `unattended.local_state`. Başarısızlık audit'i cihaz başına dakikada ≤ 1.
+// P32 (AC-527a, S-P32-4): kapı reddi audit'i ve `warn` logu `sha256Prefix` (beyan SHA'sının ilk 12 hanesi) taşır; log aynı
+// dakikalık kısıtın içinde (audit yazılmadıysa log da yazılmaz).
 import { createPublicKey, verify } from "node:crypto";
 import { UNATTENDED_AUDIT } from "@remote/contracts/audit";
 import { deviceAuthMessage, WS_DEVICE_CLOSE, type DeviceAuth } from "@remote/contracts/ws-device";
@@ -21,7 +23,12 @@ export interface AuthDeps {
   now: () => number;
   /** deviceId → son başarısızlık audit anı. */
   failAuditAt: Map<string, number>;
+  /** Kapı reddi uyarısı (app.log.warn); token/imza/kod yazılmaz. */
+  warn: (obj: object, msg: string) => void;
 }
+
+/** P32 (AC-527a): ret kaydında SHA'nın yalnız ilk 12 hanesi. */
+export const SHA256_PREFIX_LEN = 12;
 
 export type AuthOutcome =
   { ok: true; tenantId: string; tenantName: string; customerName: string } | { ok: false; code: number; reason: string; revoked?: boolean };
@@ -48,10 +55,18 @@ export function verifyDeviceSig(publicKey: Uint8Array, message: string, sigB64ur
   }
 }
 
-async function auditFail(d: AuthDeps, ctx: AuditContext, tenantId: string, deviceId: string, reason: string): Promise<void> {
+/** Cihaz başına dakikada ≤ 1 başarısızlık audit'i; yazıldıysa true (çağıranın logu da aynı kısıta bağlı). */
+async function auditFail(
+  d: AuthDeps,
+  ctx: AuditContext,
+  tenantId: string,
+  deviceId: string,
+  reason: string,
+  extra: Record<string, string> = {},
+): Promise<boolean> {
   const now = d.now();
   const last = d.failAuditAt.get(deviceId);
-  if (last !== undefined && now - last < FAIL_AUDIT_MS) return;
+  if (last !== undefined && now - last < FAIL_AUDIT_MS) return false;
   d.failAuditAt.set(deviceId, now);
   await writeAudit(d.db, ctx, {
     tenantId,
@@ -60,8 +75,9 @@ async function auditFail(d: AuthDeps, ctx: AuditContext, tenantId: string, devic
     entity: "unattended_devices",
     entityId: deviceId,
     result: "fail",
-    newValue: { reason },
+    newValue: { reason, ...extra },
   });
+  return true;
 }
 
 function fail(d: AuthDeps, reason: string, code: number = WS_DEVICE_CLOSE.AUTH_FAILED, revoked = false): AuthOutcome {
@@ -79,7 +95,12 @@ export async function authenticateDevice(d: AuthDeps, ctx: AuditContext, nonce: 
   if (!verifyDeviceSig(dev.publicKey, deviceAuthMessage(nonce, m.deviceId, d.origin), m.sig)) return reject("bad_sig");
   if (dev.revokedAt) return reject("revoked", WS_DEVICE_CLOSE.AUTH_FAILED, true);
   if (dev.tenant.status !== "ACTIVE" || dev.tenant.deletedAt) return reject("tenant_passive");
-  if (!d.gate.allows({ signed: m.signed, sha256: m.sha256 })) return reject("gate", WS_DEVICE_CLOSE.GATE);
+  if (!d.gate.allows({ signed: m.signed, sha256: m.sha256 })) {
+    const sha256Prefix = m.sha256.slice(0, SHA256_PREFIX_LEN);
+    if (await auditFail(d, ctx, dev.tenantId, dev.id, "gate", { sha256Prefix }))
+      d.warn({ deviceId: dev.id, tenantId: dev.tenantId, sha256Prefix }, "gözetimsiz cihaz kapı reddi (izinli listede değil)");
+    return fail(d, "gate", WS_DEVICE_CLOSE.GATE);
+  }
   if (!(await recordAuth(d, ctx, dev, m))) return reject("revoked", WS_DEVICE_CLOSE.AUTH_FAILED, true);
   d.metrics.inc("rs_unattended_device_auth_total", { result: "ok" });
   return { ok: true, tenantId: dev.tenantId, tenantName: dev.tenant.name, customerName: dev.customer.name };

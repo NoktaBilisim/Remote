@@ -141,6 +141,7 @@ test("AC-273/342 kayıt kodu: boş durum, oluştur (step-up) → kod bir kez + i
   await expect(dlg.getByTestId("un-code-value")).toHaveText("ABCD-1234-EFGH-5678");
   await expect(dlg.getByTestId("un-code-download")).toHaveAttribute("href", "/api/v1/unattended/download");
   await expect(dlg.getByTestId("un-code-uac")).toContainText("standart kullanıcı hesabı önerilir");
+  await expect(dlg.getByTestId("un-code-unsigned-note")).toHaveCount(0); // P32: not yalnız unsigned-accepted'te
   expect(await axeScan(page, "[data-testid=un-code-dialog]")).toEqual([]);
   await dlg.getByTestId("un-code-close").click();
 });
@@ -246,4 +247,57 @@ test("K12: arama kutusu sözleşme sınırında (64) — fazlası girilemez, fil
   await box.press("Enter");
   await expect(page).toHaveURL(new RegExp(`q=${"x".repeat(64)}$`));
   await expect(page.getByTestId("un-no-match")).toBeVisible();
+});
+
+// P32-K2 (mimari-p32 §4.7): prod risk kabul modu `unsigned-accepted`. Sahte API senaryoları unacc (ADMIN) / unaccsa (SUPER_ADMIN).
+const RISK = "Gözetimsiz servis kod imzasız çalışıyor (risk kabul, ADR-0042). Kurulumda Windows SmartScreen uyarısı görülebilir.";
+
+test("AC-527/526 Super Admin risk kabul bandını görür (liste + kodlar + ayrıntı), TEST bandı yok; iki tema axe 0", async ({
+  page,
+  context,
+}) => {
+  await signIn(context, "unaccsa");
+  await page.goto("/unattended");
+  await expect(page.getByTestId("un-risk-banner")).toHaveText(RISK);
+  await expect(page.getByTestId("un-risk-banner")).toHaveAttribute("role", "status");
+  await expect(page.getByTestId("un-test-banner")).toHaveCount(0);
+  await expect(page.getByTestId("un-off-banner")).toHaveCount(0);
+  await noHorizontalOverflow(page);
+  expect(await axeScan(page)).toEqual([]);
+  await page.emulateMedia({ colorScheme: "dark" });
+  expect(await axeScan(page)).toEqual([]);
+  await page.goto("/unattended/codes");
+  await expect(page.getByTestId("un-risk-banner")).toHaveText(RISK);
+  await page.goto(`/unattended/${D1}`);
+  await expect(page.getByTestId("un-risk-banner")).toHaveText(RISK);
+});
+
+test("AC-527/526/531 Admin: bant yok; rozet 'İzinli sürüm değil'; kayıt kodu diyaloğunda kurulum notu + SHA kısaltması", async ({
+  page,
+  context,
+}, info) => {
+  desktopOnly(info.project.name);
+  await signIn(context, "unacc");
+  await page.goto("/unattended");
+  await expect(visible(page, "un-row").first()).toBeVisible();
+  await expect(page.getByTestId("un-risk-banner")).toHaveCount(0);
+  await expect(page.getByTestId("un-test-banner")).toHaveCount(0);
+  const depo = visible(page, "un-row").filter({ hasText: "DEPO-PC" });
+  const badge = depo.getByTestId("un-badge-unsigned");
+  await expect(badge).toContainText("İzinli sürüm değil");
+  await expect(badge).toHaveAttribute("title", "Servisi güncelleyin ya da yeniden yayınlayın");
+  await page.getByTestId("un-create-code").click();
+  const dlg = page.getByTestId("un-code-dialog");
+  await dlg.getByRole("combobox", { name: "Müşteri" }).fill("Acme");
+  await page.getByRole("option", { name: "Acme Ltd." }).click();
+  await dlg.getByTestId("un-code-submit").click();
+  await stepUp(page);
+  await expect(dlg.getByTestId("un-code-value")).toHaveText("ABCD-1234-EFGH-5678");
+  await expect(dlg.getByTestId("un-code-unsigned-note")).toHaveText(
+    "Windows 'Bilinmeyen yayıncı' gösterebilir; SHA-256: 3f2a9c1b…77e4d0aa",
+  );
+  expect(await axeScan(page, "[data-testid=un-code-dialog]")).toEqual([]);
+  await page.emulateMedia({ colorScheme: "dark" });
+  expect(await axeScan(page, "[data-testid=un-code-dialog]")).toEqual([]);
+  await dlg.getByTestId("un-code-close").click();
 });

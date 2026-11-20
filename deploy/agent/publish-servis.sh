@@ -13,6 +13,12 @@
 # Ortam: AGENT_REPO (vars. NoktaBilisim/Remote), AGENT_PUBLISH_RESTART=0 (compose'a dokunma; test: $dir/agent/unattended/).
 # Ortam kilidi (apply; hedef .env DEPLOY_ENV, fail-closed): production -> yalnız Release etiketi (vX.Y.Z, attestation'lı);
 #   staging | development -> her etiket; boş/başka -> RET.
+# P32 (mimari-p32 §8.1, AC-529, S-P32-3/6/9): etiket vX.Y.Z ise (TÜM ortamlarda) SHA hedef .env UNATTENDED_SIGNED_SHA256
+#   (izinli servis listesi) sonuna eklenir (yinelenmez, sıra korunur; öğeler kırpılır + küçük harfe çevrilir) ve
+#   UNATTENDED_AGENT_VERSION=X.Y.Z yazılır. dir-* / *-unattested listeye EKLENMEZ, UNATTENDED_AGENT_VERSION boşaltılır.
+#   Liste 16 öğeye ulaşınca UYARI; 20'yi aşacaksa betik HİÇBİR ŞEY yazmadan durur (runbook §27.9 acil yol). Listeden
+#   çıkarma yalnız elle (runbook §27.9 iki aşamalı geri çekme). .env yazımı tek geçiş; geçici dosya umask 077,
+#   yedek .env.bak.servis.<UTC zaman> chmod 600, son 10 yedek tutulur.
 # Çıkış: 0 tamam · 1 doğrulama/yayın hatası · 2 kullanım hatası.
 # İç mod (sunucuda): --apply <deploy-dir> <sha256> <etiket> <dosya>
 set -euo pipefail
@@ -27,10 +33,14 @@ usage() { sed -n '2,/^set -euo/p' "$0" | sed '$d' >&2; exit 2; }
 sha() { if command -v sha256sum >/dev/null; then sha256sum "$1" | cut -d' ' -f1; else shasum -a 256 "$1" | cut -d' ' -f1; fi; }
 fsize() { wc -c < "$1" | tr -d ' '; }
 envval() { awk -F= -v k="$1" '$1 == k {sub(/^[^=]*=/, ""); v=$0} END {print v}' "$2" 2>/dev/null | tr -d '\r"'"'"; }
+LIST_WARN=16
+LIST_MAX=20
+# İzinli liste normalizasyonu (server env.ts ile aynı kural): virgülle böl, boşlukları at, küçük harf, boş öğeleri at; sıra korunur.
+normlist() { printf '%s' "$1" | tr ',' '\n' | tr -d ' \t\r' | tr 'A-F' 'a-f' | awk 'NF' | paste -sd, -; }
 
 # ---------- sunucu tarafı ----------
 apply() {
-  local dir="$1" want="$2" label="$3" file="$4" denv ts
+  local dir="$1" want="$2" label="$3" file="$4" denv ts release=0 list newlist ver="" n
   [[ "$want" =~ ^[0-9a-f]{64}$ ]] || die "geçersiz sha256"
   [[ "$label" =~ ^[A-Za-z0-9._-]{1,64}$ ]] || die "geçersiz etiket"
   [ -f "$dir/.env" ] && [ -f "$dir/docker-compose.yml" ] || die "$dir bir deploy klasörü değil"
@@ -41,6 +51,22 @@ apply() {
     staging|development) ;;
     *) die "$dir/.env DEPLOY_ENV development|staging|production olmalı (bulunan: '$denv')" ;;
   esac
+  # P32 AC-529: izinli liste — yalnız Release (vX.Y.Z) eklenir. Sınır denetimi ikili/volume/.env'e dokunmadan ÖNCE (yarım yayın yok).
+  list="$(normlist "$(envval UNATTENDED_SIGNED_SHA256 "$dir/.env")")"; newlist="$list"
+  if [[ "$label" =~ ^v([0-9]+\.[0-9]+\.[0-9]+)$ ]]; then
+    release=1; ver="${BASH_REMATCH[1]}"
+    case ",$list," in
+      *",$want,"*) ;;
+      *) newlist="${list:+$list,}$want" ;;
+    esac
+  fi
+  n=0; [ -z "$newlist" ] || n=$(printf '%s\n' "$newlist" | tr ',' '\n' | grep -c .)
+  if [ "$n" -gt "$LIST_MAX" ]; then
+    die "UNATTENDED_SIGNED_SHA256 liste dolu ($n > $LIST_MAX) — runbook §27.9 acil yol: kullanımı 0 olan en eski SHA'yı elle çıkarın, sonra yeniden yayınlayın. Hiçbir şey yazılmadı."
+  fi
+  if [ "$release" = 1 ] && [ "$n" -ge "$LIST_WARN" ]; then
+    echo "UYARI: UNATTENDED_SIGNED_SHA256 $n öğe (>= $LIST_WARN; en çok $LIST_MAX) — runbook §27.9 liste temizliği" >&2
+  fi
   ts=$(date -u +%Y%m%dT%H%M%SZ)
   if [ "${AGENT_PUBLISH_RESTART:-1}" = 1 ]; then
     local vol img stage
@@ -58,10 +84,28 @@ apply() {
     local dl="$dir/agent/unattended"; install -d -m 755 "$dl"
     install -m 644 "$file" "$dl/.$EXE.new"; mv -f "$dl/.$EXE.new" "$dl/$EXE"
   fi
-  cp -p "$dir/.env" "$dir/.env.bak.servis.$ts"
-  awk -v v="$want" 'BEGIN{d=0} /^UNATTENDED_AGENT_SHA256=/{print "UNATTENDED_AGENT_SHA256=" v; d=1; next} {print} END{if(!d) print "UNATTENDED_AGENT_SHA256=" v}' \
-    "$dir/.env" > "$dir/.env.tmp.$ts"
+  cp "$dir/.env" "$dir/.env.bak.servis.$ts" && chmod 600 "$dir/.env.bak.servis.$ts"
+  # Adlar UTC zaman damgası (sözlük sırası = zaman sırası); en yeni 10 yedek kalır (S-P32-9).
+  # shellcheck disable=SC2012  # adlar betiğin ürettiği .env.bak.servis.<UTC zaman>
+  ls -1 "$dir"/.env.bak.servis.* 2>/dev/null | sort -r | tail -n +11 | xargs -r rm -f
+  # Tek geçiş: üç anahtar ilk göründüğü yerde yazılır, yinelenen satırları atılır, yoksa sona eklenir. Geçici dosya umask 077 (600).
+  # Liste yalnız Release'te yazılır (dir-* mevcut satıra dokunmaz); sürüm Release'te X.Y.Z, aksi halde boş.
+  awk -v sha="$want" -v rel="$release" -v list="$newlist" -v ver="$ver" '
+    function emit(k) { if (k == "UNATTENDED_AGENT_SHA256") print k "=" sha; else if (k == "UNATTENDED_AGENT_VERSION") print k "=" ver; else print k "=" list }
+    { k = $0; sub(/=.*/, "", k) }
+    k == "UNATTENDED_AGENT_SHA256" || k == "UNATTENDED_AGENT_VERSION" || (rel == 1 && k == "UNATTENDED_SIGNED_SHA256") {
+      if (!(k in done)) { emit(k); done[k] = 1 }
+      next
+    }
+    { print }
+    END {
+      if (!("UNATTENDED_AGENT_SHA256" in done)) emit("UNATTENDED_AGENT_SHA256")
+      if (!("UNATTENDED_AGENT_VERSION" in done)) emit("UNATTENDED_AGENT_VERSION")
+      if (rel == 1 && !("UNATTENDED_SIGNED_SHA256" in done)) emit("UNATTENDED_SIGNED_SHA256")
+    }' "$dir/.env" > "$dir/.env.tmp.$ts"
   cat "$dir/.env.tmp.$ts" > "$dir/.env" && rm -f "$dir/.env.tmp.$ts"
+  if [ "$release" = 1 ]; then echo "izinli liste: $n öğe (UNATTENDED_SIGNED_SHA256), UNATTENDED_AGENT_VERSION=$ver"
+  else echo "izinli liste değişmedi ($label Release değil); UNATTENDED_AGENT_VERSION boşaltıldı"; fi
   install -d -m 755 "$dir/agent"
   printf '%s %s %s %s\n' "$ts" servis "$label" "$want" >> "$dir/agent/PUBLISHED.log"
   echo "yayınlandı: unattended_downloads/$EXE ($label, $want)"
@@ -78,8 +122,6 @@ apply() {
     [ "$got" = "$want" ] || die "server'ın gördüğü dosya/env farklı ($got)"
     echo "kontrol: server UNATTENDED_AGENT_PATH SHA-256 = UNATTENDED_AGENT_SHA256 = $want"
   fi
-  # shellcheck disable=SC2012  # adlar betiğin ürettiği .env.bak.servis.<UTC zaman>; mtime sırası gerekli
-  ls -1t "$dir"/.env.bak.servis.* 2>/dev/null | tail -n +6 | xargs -r rm -f
 }
 
 if [ "${1:-}" = --apply ]; then [ $# -eq 5 ] || usage; apply "$2" "$3" "$4" "$5"; exit 0; fi
