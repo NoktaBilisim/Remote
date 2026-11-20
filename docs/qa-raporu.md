@@ -1,3 +1,76 @@
+# QA Raporu — AC-392 geç pencere düzeltmesi (PR #40) — Tur 2
+
+DURUM: GEÇTİ (kod + Go/macOS CI). Tek açık konu: `web e2e (Playwright, mock API)` rapor anında **pending**. Tur 2'de
+web kodu değişmedi (`git diff 58404a4 ba4ca2c` içinde `apps/web` yok) ve aynı iş tur 1 HEAD'inde pass oldu. Birleştirmeden
+önce bu işin pass olduğu görülmeli.
+
+Kapsam: HEAD ba4ca2c (3ae28f9 + ba4ca2c); `git diff 58404a4 ba4ca2c`. Kod değiştirilmedi.
+
+## Test sonucu
+
+| Kaynak                              | Sonuç                                                                                                                                                                                                                                                                                                            |
+| ----------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| CI 44668934643 (ba4ca2c, agent-win) | completed **success**. macOS işinde PASS (SKIP değil): `LateWindowExcluded` ("öncesi 4 karede 4 macenta; yeniden açılış→ilk taze kare 181ms; sonrası 12 karede macenta 0"), `OpenReopenBeforeFirstFrame` (0.57s), `StoppedUnexcludedDropsFrame`, `SlotReopenDistinct`, `StreamStopReopens`, `OwnWindowsExcluded` |
+| `gh pr checks 40` (ba4ca2c)         | 22 pass, 13 skipping, 0 fail, 1 pending (`web e2e`, ilgisiz). `gofmt + vet + test -race …` pass                                                                                                                                                                                                                  |
+
+## Tur 1 maddelerinin kapanışı
+
+| #   | Madde                                          | Durum | Kanıt (kod)                                                                                                                                                                                                                                                                    |
+| --- | ---------------------------------------------- | ----- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| 1   | `sckStream.display` ölü alan                   | ✅    | alan ve `s.display = displayID` ataması silindi (`sck_darwin.go`)                                                                                                                                                                                                              |
+| 2   | `preMag > 0` pozitif kontrolü                  | ✅    | `LateWindowExcluded`: `preMag == 0` → `t.Fatalf("pozitif kontrol…")`. CI'da 4/4 macenta                                                                                                                                                                                        |
+| 3   | `Open` yeniden açılış dalı test edilmiyor      | ✅    | `streamOpts.haltFirst` → `openStream` sonunda `slot.halt(true)`; `open` dalı `lateExclude, haltFirst = false`. `TestP28fK2AC392OpenReopenBeforeFirstFrame` bayrakların temizlendiğini (dal koştu), ikinci akışta `reopen=false` olduğunu ve kare geldiğini doğruluyor. CI PASS |
+| 4   | `implementation.md` "tasarımdaki gibi" iddiası | ✅    | "Bilinen sınır (D-392-1, güvenlik raporu; tasarımda tanımlı değil)" olarak düzeltildi; CHANGELOG'da da aynı                                                                                                                                                                    |
+
+## Ek değişiklikler
+
+- **D-392-2 (güvenlik):** `grab` `errStreamStopped` dalında `!p.st.excluded.Load()` ise `p.cur = nil`. Böylece dışlamasız
+  akışın pencereli son karesi keep-alive/PLI ile yeniden gitmez. Dışlamalı akışta son kare eskisi gibi korunur.
+  `TestP28fK2AC392StoppedUnexcludedDropsFrame` iki kolu (false/true) birim olarak sınıyor. Kod okuması: `p.cur=nil`
+  iken `next()` kodlamıyor; `p.st=nil` + `retryAt` ile `grab` `sleepCtx`'te bekliyor, meşgul döngü yok. Yan etki:
+  dışlamasız akış durup yeniden açılamazsa görüntü donar, son kare tekrarlanmaz (gizlilik lehine, kabul edilebilir).
+- **Gecikme sınırı 1 sn → 2 sn (yalnız yeniden açılış → ilk taze kare):** gevşetme sayılmaz. Bu sürede `p.cur=nil`
+  olduğu için hiç kare kodlanmaz, yani pencere sızamaz. Ölçüt "akış takılmıyor" ölçütüdür; gerekçe CI'da görülen 980 ms
+  (`implementation.md`). Gizlilik ölçütleri sıkılaştı: sonrası her karede macenta 0 ve öncesinde macenta > 0 zorunlu.
+- **CHANGELOG** `[Unreleased]` altında: etkilenen sürüm aralığı, risk düzeyi, D-392-1 ve D-392-2 bilinen sınırları yazılı.
+- `haltFirst` / `lateExclude` üretimde sıfır değerli test kancaları. Mevcut `noExclude` deseniyle tutarlı.
+
+## Kabul kriterleri
+
+| AC                                                                        | Durum | Kanıt                                                                                                                 |
+| ------------------------------------------------------------------------- | ----- | --------------------------------------------------------------------------------------------------------------------- |
+| AC-392: geç açılan kendi penceremiz yeniden açılıştan sonra görüntüde yok | ✅    | `TestP28fK2AC392LateWindowExcluded` (CI 44668934643; pozitif kontrol aynı koşuda)                                     |
+| AC-392: `Open` ilk kare öncesi yeniden açılış                             | ✅    | `TestP28fK2AC392OpenReopenBeforeFirstFrame`                                                                           |
+| AC-392: durma sonrası yeniden açılış + dışlamasız son kare atılır         | ✅    | `TestP28fK2AC392StreamStopReopens`, `TestP28fK2AC392StoppedUnexcludedDropsFrame`, `TestP28fK2AC392SlotReopenDistinct` |
+
+## Düzeltilmeli
+
+Yok.
+
+## Definition of Done
+
+| Madde                         | Durum         | Not                                                              |
+| ----------------------------- | ------------- | ---------------------------------------------------------------- |
+| Testler yeşil                 | ✅ (Go/macOS) | `web e2e` pending; ilgisiz ama birleştirme öncesi pass görülmeli |
+| gofmt / vet                   | ✅            | CI `gofmt + vet + test -race` pass                               |
+| Yeni kod yolları testli       | ✅            | Open dalı + D-392-2                                              |
+| Ölü kod yok                   | ✅            | `display` silindi                                                |
+| Sapma / bilinen sınır belgeli | ✅            | `implementation.md` + CHANGELOG (D-392-1/2)                      |
+| Yeni bağımlılık / sözleşme    | ✅            | yok                                                              |
+
+## Öneriler (zorunlu değil)
+
+1. Yeniden açılış döngüsü için sayaç ya da üst sınır (tur 1 Öneri 1) hâlâ yok; belgeli ve gözlenmedi.
+2. `implementation.md` "Değişen dosyalar" paragrafında `haltFirst` ve `StoppedUnexcludedDropsFrame` yalnız "Düzeltme"
+   paragrafında geçiyor; dosya listesine de eklenebilir.
+
+## Olumlu
+
+- Tur 1'in dört maddesi gerekçesiyle, tartışılmadan uygulandı. Pozitif kontrol artık test içinde zorunlu.
+- Güvenlik bulgusu D-392-2 kodda kapatıldı ve iki kollu birim testle sabitlendi.
+
+---
+
 # QA Raporu — AC-392 geç pencere düzeltmesi (PR #40)
 
 DURUM: DÜZELTİLMELİ
@@ -7,14 +80,14 @@ Kapsam: dal `fix-late-window-flake`, HEAD 58404a4 (5ac1e2b + yalnız `implementa
 
 ## Test sonucu
 
-| Komut                                                               | Sonuç                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
-| ------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `gofmt -l internal/capture` (Docker `golang:1.26.11-bookworm`)      | boş çıktı (temiz)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
-| `CGO_ENABLED=0 GOOS=darwin GOARCH=arm64 go vet ./internal/capture/` | tanı çıktısı yok (temiz; purego sayesinde cgo'suz derlendi). Not: betikteki `rc=0` `tail`'in çıkış kodudur, kanıt boş çıktıdır                                                                                                                                                                                                                                                                                                                                                                                          |
-| `GOOS=darwin go test -c ./internal/capture/`                        | derlendi, hata yok                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
-| CI 44664994010 (5ac1e2b, koddaki son hâl) macOS işi                 | `TestP28fK2AC392LateWindowExcluded` **PASS** (SKIP değil): "öncesi 13 karede 13 macenta; yeniden açılış→ilk taze kare 190ms; sonrası 20 karede macenta 0". `SlotReopenDistinct`, `StreamStopReopens`, `OwnWindowsExcluded`, `SourceSmoke` PASS                                                                                                                                                                                                                                                                          |
-| `gh pr checks 40` (HEAD 58404a4, run 44666195997/44666195992)       | 22 pass, 13 skipping, 0 fail; `web e2e (Playwright, mock API)` rapor anında **pending** (Go değişikliğiyle ilgisiz web işi). `go test (macOS) + iz testi` success: `TestP28fK2AC392LateWindowExcluded` PASS — "öncesi 17 karede 16 macenta; yeniden açılış→ilk taze kare 130ms; sonrası 20 karede macenta 0"; `SlotReopenDistinct`, `StreamStopReopens`, `OwnWindowsExcluded` PASS. `gofmt + vet + test -race + govulncheck + lisans` success. 44662954083'teki ilgisiz Linux/Windows kırmızıları bu koşuda yinelenmedi |
-| Yarış analizi                                                       | darwin dosyaları `-race` ile koşmuyor (`-race` işi Linux). Aşağıdaki eşzamanlılık değerlendirmesi kod okumasıdır                                                                                                                                                                                                                                                                                                                                                                                                        |
+| Komut                                                               | Sonuç                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
+| ------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `gofmt -l internal/capture` (Docker `golang:1.26.11-bookworm`)      | boş çıktı (temiz)                                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| `CGO_ENABLED=0 GOOS=darwin GOARCH=arm64 go vet ./internal/capture/` | tanı çıktısı yok (temiz; purego sayesinde cgo'suz derlendi). Not: betikteki `rc=0` `tail`'in çıkış kodudur, kanıt boş çıktıdır                                                                                                                                                                                                                                                                                                                             |
+| `GOOS=darwin go test -c ./internal/capture/`                        | derlendi, hata yok                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| CI 44664994010 (5ac1e2b, koddaki son hâl) macOS işi                 | `TestP28fK2AC392LateWindowExcluded` **PASS** (SKIP değil): "öncesi 13 karede 13 macenta; yeniden açılış→ilk taze kare 190ms; sonrası 20 karede macenta 0". `SlotReopenDistinct`, `StreamStopReopens`, `OwnWindowsExcluded`, `SourceSmoke` PASS                                                                                                                                                                                                             |
+| `gh pr checks 40` (HEAD 58404a4, run 44666195997/44666195992)       | 23 pass, 13 skipping, 0 fail/pending (`web e2e` sonradan pass). `go test (macOS) + iz testi` success: `TestP28fK2AC392LateWindowExcluded` PASS — "öncesi 17 karede 16 macenta; yeniden açılış→ilk taze kare 130ms; sonrası 20 karede macenta 0"; `SlotReopenDistinct`, `StreamStopReopens`, `OwnWindowsExcluded` PASS. `gofmt + vet + test -race + govulncheck + lisans` success. 44662954083'teki ilgisiz Linux/Windows kırmızıları bu koşuda yinelenmedi |
+| Yarış analizi                                                       | darwin dosyaları `-race` ile koşmuyor (`-race` işi Linux). Aşağıdaki eşzamanlılık değerlendirmesi kod okumasıdır                                                                                                                                                                                                                                                                                                                                           |
 
 ## İnceleme bulguları (brief maddeleri)
 
@@ -64,16 +137,16 @@ Kapsam: dal `fix-late-window-flake`, HEAD 58404a4 (5ac1e2b + yalnız `implementa
 
 ## Definition of Done
 
-| Madde                                  | Durum          | Not                                                                                            |
-| -------------------------------------- | -------------- | ---------------------------------------------------------------------------------------------- |
-| Testler yeşil (CI)                     | ✅ (e2e hariç) | 22 pass / 0 fail; web e2e pending (ilgisiz)                                                    |
-| gofmt / vet temiz                      | ✅             | Docker, darwin/arm64                                                                           |
-| Yeni kod yolu testle kanıtlı           | ❌             | `Open` yeniden açılış dalı (Düzeltilmeli 3)                                                    |
-| Ölü kod yok                            | ❌             | `sckStream.display` (Düzeltilmeli 1)                                                           |
-| Tasarım sapması gerekçeli              | ✅             | `updateContentFilter` → yeniden açma, `implementation.md`'de kök nedenle; ADR-0037 m.2 korunur |
-| Yeni bağımlılık / sözleşme değişikliği | ✅             | yok                                                                                            |
-| Hata yutma                             | ✅             | `ownListed` hata → false (yeniden dener, 1 sn tık); bilinçli                                   |
-| Geçici tanı kodu temizliği             | ✅             | net diff'te yok                                                                                |
+| Madde                                  | Durum | Not                                                                                            |
+| -------------------------------------- | ----- | ---------------------------------------------------------------------------------------------- |
+| Testler yeşil (CI)                     | ✅    | 23 pass / 0 fail / 0 pending                                                                   |
+| gofmt / vet temiz                      | ✅    | Docker, darwin/arm64                                                                           |
+| Yeni kod yolu testle kanıtlı           | ❌    | `Open` yeniden açılış dalı (Düzeltilmeli 3)                                                    |
+| Ölü kod yok                            | ❌    | `sckStream.display` (Düzeltilmeli 1)                                                           |
+| Tasarım sapması gerekçeli              | ✅    | `updateContentFilter` → yeniden açma, `implementation.md`'de kök nedenle; ADR-0037 m.2 korunur |
+| Yeni bağımlılık / sözleşme değişikliği | ✅    | yok                                                                                            |
+| Hata yutma                             | ✅    | `ownListed` hata → false (yeniden dener, 1 sn tık); bilinçli                                   |
+| Geçici tanı kodu temizliği             | ✅    | net diff'te yok                                                                                |
 
 ## Öneriler (zorunlu değil)
 
