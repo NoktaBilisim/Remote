@@ -18083,22 +18083,29 @@ başarılı (`code 0`) dönüyor ve `excluded` bayrağı ancak o zaman set edili
 sonraki ~3 sn'de gelen 24 **taze** SCK karesinin hepsinde kendi penceremiz (macenta) vardı; ekran durağanlaşınca SCK
 yeni kare üretmedi ve pencereli son kare `idleKeepAlive` ile süresiz yeniden kodlandı. Filtreyi ikinci kez uygulamak da
 yeni kare üretmedi. Dışlamayla açılan akışta (4/4 tur) sonradan açılan pencereler güvenilir biçimde dışlandı. Önceki
-yeşil koşularda test bu yolu hiç sınamıyordu (`açılışta hariç=true`); kırmızılar runner'ın uygulamayı açılışta
-listelemediği koşulardı.
+yeşil koşularda test bu yolu hiç sınamıyordu (`açılışta hariç=true`). Eski kırmızı koşuların runner'ın uygulamayı
+açılışta listelemediği koşular olduğu **çıkarımdır** (eski test `initially` değerini yalnız geçerken yazıyordu; kırmızılar
+~1 sn uzun sürdü = `sckExcludeEvery` tıkı, tanı koşusunda da kırmızı tur `başta hariç=false` idi).
 
 **Düzeltme.** `excludeLater` uygulamamızı listede görünce artık filtre güncellemez; yuvayı `halt(true)` ile durdurur,
 `grab` `errStreamReopen` alınca akışı kapatır, **son kareyi atar** (`p.cur = nil`) ve beklemeden dışlamalı filtreyle
 yeniden açar; ilk taze kare gelene kadar kodlama yapılmaz. Sistem durdurması (`errStreamStopped`) eskisi gibi son kareyi
-korur. Dışlama öncesi ≤ 1 sn'lik (`sckExcludeEvery`) görünürlük tasarımdaki gibi kalır. `tryExclude` kaldırıldı.
+korur. `Open` ilk kareyi beklerken yeniden açılış isteği gelirse (ilk kare > 1 sn) bir kez dışlamalı yeniden açar
+(eskiden `FirstFrame` hatası olurdu). Dışlama öncesi ≤ 1 sn'lik (`sckExcludeEvery`) görünürlük tasarımdaki gibi kalır.
+`tryExclude` kaldırıldı. Bilinen sınır: yeniden açılan akış yine uygulamamızı listelemezse döngü en çok saniyede bir
+yeniden açar (sınırlı; gözlenmedi).
 
 **Tasarımdan sapma.** ADR-0037 m.2 "excludingApplications: [kendi uygulamamız]" korunur; yalnız geç dışlama
 mekanizması `updateContentFilter` yerine akışı yeniden açmaktır (gerekçe yukarıda). Yeni bağımlılık yok. Sözleşme
 değişikliği yok.
 
 **Değişen dosyalar.** `apps/agent-win/internal/capture/sck_darwin.go` (errStreamReopen, `frameSlot.halt/reopen`,
-`excludeLater`→`ownListed`, `streamOpts.lateExclude` test kancası), `source_darwin.go` (`grab` yeniden açılış dalı),
-`sck_darwin_test.go` (geç yol `lateExclude` ile zorlanır; yeniden açılış sonrası ilk kare ≤ 1 sn ve 1,5 sn boyunca
-macenta 0; `TestP28fK2AC392SlotReopenDistinct`).
+`excludeLater`→`ownListed`, `streamOpts.lateExclude` test kancası), `source_darwin.go` (`grab` yeniden açılış dalı,
+`open` ilk kare yeniden açılışı, `pipeStats.reopenedAt`), `sck_darwin_test.go` (geç yol `lateExclude` ile zorlanır;
+tek geçişte yeniden açılış → ilk taze kare ≤ 1 sn, sonrasında 1,5 sn boyunca her karede macenta 0;
+`TestP28fK2AC392SlotReopenDistinct`).
 
 **Test.** Yerel: `gofmt -l`, `go vet` (darwin + `GOOS=windows`), birim testler PASS; SCK testleri yerelde ekran yok
-(NO_OUTPUT) → CI macOS (`gh workflow run agent-win.yml --ref fix-late-window-flake`).
+(NO_OUTPUT). Linux gofmt/vet CI "gofmt + vet + test -race" işinde. CI macOS (`gh workflow run agent-win.yml --ref
+fix-late-window-flake`): tanı 44657284519 (kök neden); düzeltmenin ilk sürümüyle 44658757181, 44659877551,
+44660762390 yeşil; son sürüm (open + tek geçiş testi) koşuları aşağıda.

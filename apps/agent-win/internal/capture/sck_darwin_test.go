@@ -412,31 +412,41 @@ func TestP28fK2AC392LateWindowExcluded(t *testing.T) {
 	}
 	src.p.opt = streamOpts{} // yeniden açılış üretim yolundan; NextFrame yalnız bu goroutine'den çağrılır
 	probeWindow(t)
-	reopened := func() bool { return src.p.st != nil && src.p.st != first && src.p.st.excluded.Load() }
-	deadline := time.Now().Add(5 * time.Second)
-	for !reopened() && time.Now().Before(deadline) {
-		framesFor(t, src, 100*time.Millisecond, nil)
+	// Tek geçiş: yeni akışın ilk kareleri de ölçülür. Eski akıştan kare (dışlama öncesi) macenta içerebilir; yeniden
+	// açılışta eski kare atıldığı için sonrasında kodlanan her kare yeni (dışlamalı) akıştandır ve macenta 0 olmalı.
+	var pre, preMag, post, postMag int
+	var firstAt time.Time
+	deadline := time.Now().Add(6 * time.Second)
+	for time.Now().Before(deadline) && (firstAt.IsZero() || time.Since(firstAt) < 1500*time.Millisecond) {
+		framesFor(t, src, 100*time.Millisecond, func(f *NV12) {
+			m := magentaAtCenter(f)
+			if src.p.st == first {
+				pre++
+				if m {
+					preMag++
+				}
+				return
+			}
+			if firstAt.IsZero() {
+				firstAt = time.Now()
+			}
+			post++
+			if m {
+				postMag++
+			}
+		})
 	}
-	if !reopened() {
-		t.Fatal("uygulama sonradan dışlanmadı (akış dışlamalı yeniden açılmadı)")
+	reopenedAt := src.p.stats.reopenedAt
+	if firstAt.IsZero() || reopenedAt.IsZero() || src.p.st == nil || !src.p.st.excluded.Load() {
+		t.Fatalf("uygulama sonradan dışlanmadı: dışlama öncesi %d kare (%d macenta), sonrası %d", pre, preMag, post)
 	}
-	// Yeniden açılışta eski kare atılır: buradan sonra kodlanan her kare yeni (dışlamalı) akıştandır.
-	t0 := time.Now()
-	var firstAt time.Duration
-	seen, total := 0, 0
-	framesFor(t, src, 1500*time.Millisecond, func(f *NV12) {
-		if total == 0 {
-			firstAt = time.Since(t0)
-		}
-		total++
-		if magentaAtCenter(f) {
-			seen++
-		}
-	})
-	if total == 0 || firstAt > time.Second || seen != 0 {
-		t.Fatalf("dışlama sonrası: ilk kare %v (≤ 1 sn), macenta %d/%d", firstAt.Round(time.Millisecond), seen, total)
+	lag := firstAt.Sub(reopenedAt)
+	if postMag != 0 || lag > time.Second {
+		t.Fatalf("dışlama sonrası: ilk taze kare %v (≤ 1 sn), macenta %d/%d; öncesi %d/%d",
+			lag.Round(time.Millisecond), postMag, post, preMag, pre)
 	}
-	t.Logf("geç dışlama: yeniden açıldı, ilk kare %v, %d karede macenta 0", firstAt.Round(time.Millisecond), total)
+	t.Logf("geç dışlama: öncesi %d karede %d macenta; yeniden açılış→ilk taze kare %v; sonrası %d karede macenta 0",
+		pre, preMag, lag.Round(time.Millisecond), post)
 }
 
 // Sistem durdurması (errStreamStopped: son kare korunur) ile dışlama yeniden açılışı (errStreamReopen: son kare
