@@ -1,3 +1,64 @@
+# QA Raporu — P31 Tur 2 (tur 1 maddelerinin kapanışı)
+
+DURUM: DÜZELTİLMELİ
+
+Kapsam: dal `p31-mac-destek-iste` (PR #38), HEAD 0392038 (294c3cf + 0392038 dahil). Kod değiştirilmedi. Kısa tur; `test:int` ve Go yeniden koşulmadı (değişen kod yalnız `customer-templates.ts` etiketi + birim testi).
+
+## Test sonucu
+
+| Komut                                                                | Sonuç                                                                                                                                                                                                                                                                                                                                                                                          |
+| -------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `pnpm -r run lint` · `pnpm -r run typecheck`                         | Temiz (exit 0)                                                                                                                                                                                                                                                                                                                                                                                 |
+| `pnpm -r run test`                                                   | contracts 32/338; web 70/688; server 53/734 geçti + 1 skip (eski `fsrv-p28b` AC-353 clamd, gerekçeli). Exit 0                                                                                                                                                                                                                                                                                  |
+| `playwright test e2e/p31-mac-request.spec.ts e2e/p28f-macos.spec.ts` | **Kararsız.** 4 koşunun 3'ünde 1 test düştü, her seferinde farklı bir P31 testi: koşu 1 ve 3'te `p31-mac-request.spec.ts:153` "AC-520: portal …" (tek başına yeniden koşunca geçti); `--repeat-each=3` koşusunda `:92` "AC-520: availability yanıtı gecikirse …" → `toAccepted` (satır 37) `wr-accepted` bulunamadı. Koşu 2: 25 geçti / 25 skip / 0 hata. Tur 1'de tüm takım koşusunda yeşildi |
+| PR #38 CI (`gh pr checks 38`, rapor anı)                             | Yalnız `shellcheck + actionlint` pass. Geri kalan işler (`go test (macOS) + iz testi`, `test -race`, `test (MySQL 8.4)`, web e2e, `build-mac`) **pending**. update-resign işleri skipping (beklenen). Sonuç yok                                                                                                                                                                                |
+
+E2e kök neden tahmini: mock `GET /__e2e/p19/accept/<ref>` mesajı yalnız o an bağlı `/ws/request` soketine gönderiyor (`mock-p19.mjs:200-225`). `toAccepted` kabul kancasını `wr-waiting` görünür olur olmaz çağırıyor; WS bağlantısı henüz açılmadıysa mesaj kayboluyor. `fullyParallel: true` olduğu için dosyadaki testler paylaşılan mock'a aynı anda yükleniyor. Bu test kodu hatası, ürün hatası değil.
+
+## Tur 1 maddelerinin durumu
+
+| #        | Madde                                                                                                   | Durum                 | Kanıt                                                                                                                                                                                                                                                                                                                                                                    |
+| -------- | ------------------------------------------------------------------------------------------------------- | --------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| 1        | [devops] PR CI kırmızı (macOS `TestP28fK2AC392…`, race `TestAC253…`), iz adımı ve `cmp` yeşil görülmeli | ⏳ açık               | 0392038 için CI pending. Sonuç görülmeden kapanmaz                                                                                                                                                                                                                                                                                                                       |
+| 2        | [backend-dev] implementation.md P31-B1 bölümü                                                           | ✅ kapandı            | `docs/implementation.md:17662`: istenen tüm başlıklar var (agent-os, macos-firm, FIRM_ZIP_URI/uzantı, şemada ref olmaması gerekçesiyle, `PreAdmitInput.clientOs`, `{os}` ↔ `{os,kind}` pano etkisi, `origin`/targets, testler, komutlar). `request.created` ad farkı da gerekçeli                                                                                        |
+| 3        | [backend-dev] K3 etiketi "(Windows / macOS)" + test                                                     | ✅ kapandı            | `customer-templates.ts:143`. Yeni test `agent-os.test.ts` "AC-520: K3 indirme etiketi platformdan bağımsız…" EMAIL/WHATSAPP/SMS'te yeni etiketi bekliyor, "(Windows):" geçmemeli. `mock-lg.mjs` eşlendi. Repoda (implementation geçmiş notu dışında) eski etiket kalmadı                                                                                                 |
+| 4        | [test-operatoru] P31-K0 + E-P31-1..7 gerçek Mac'te                                                      | ⏳ teslim sonrası     | Kullanıcının Mac'inde staging test paketiyle yapılacak (teslim sonrası). CHANGELOG:51 bunu açıkça yazıyor                                                                                                                                                                                                                                                                |
+| 5        | [mimar] Developer ID OKUBENI sapması §15.3/AC-520'ye, `gm.firmNameNotProof` §15.3'e                     | ✅ kapandı            | `mimari-p31.md` r1.3 §15.3 satır 339 (Developer ID metni + gerekçe K-P28f-r4-11), 342–343. AC-520 (`gereksinimler.md:565`) aynı metni taşıyor. `OKUBENI.txt` ile uyumlu                                                                                                                                                                                                  |
+| 6        | [teknik-yazar] AC-522 dokümanları + PDF                                                                 | ✅ kapandı            | Kılavuz macOS alt başlığı (Nereden :865, dosyayı saklamayın :885 …), api.md (`clientOs`/`macos-firm`/`os=macos` 33 geçiş), README, DATASHEET:40,124, CHANGELOG 0.24.0, `gereksinimler-p28.md:65` ve `mimari-p28f.md:30` "P31 ile değişti" notları, `mimari-link-gonderme.md`. PDF'ler 03:44'te yeniden üretildi (üçü). Sürüm etiketi (tag) yayın adımında atılacak       |
+| S-P31-K1 | `gm.adhocOnlyTitle` metni + testi                                                                       | ⚠️ metin ✅, test yok | `tr.json`: "“Yine de Aç” yalnız resmi adresten indirdiğiniz uygulama için". AC-520 ve §15.3 ile birebir. `waiting-parts.tsx:96` ve `agent-download.tsx:114` kullanıyor. **Ancak** web birim/e2e testlerinin hiçbiri başlık metnini doğrulamıyor (`grep` "resmi adresten" testlerde 0 sonuç). Testler yalnız gövdeyi (`adhocOnlyBody`) ve testid görünürlüğünü denetliyor |
+
+## Engelleyici kararı
+
+- **m.4 (elle Mac testi): Kod turu için engelleyici değil, yayın için engelleyici.** Gerekçe: AC-512..518'in birim kısımları yeşil. Elle kısım donanım gerektiriyor ve CI'da ya da bu ortamda yapılamaz. K0 tasarımda ön koşul olarak yazılmıştı; yani K0 başarısız olursa A-P31-1/A-P31-5 kullanıcıya sorulur ve tasarım değişebilir. Bu yüzden AC-514/515/517/518 ⚠️ kalır ve 0.24.0 macOS prod yayını K0 + E-P31-1..7 kaydı olmadan yapılmaz. Kayıt yeri: `docs/test-raporu.md`.
+- **m.1 (CI): Engelleyici.** CI sonucu görülmeden merge edilmez. Özellikle `go test (macOS) + iz testi` işindeki AC-517 iz adımının `success` olması ve `cmp` adımlarının yeşil olması gerekiyor. Tur 1'deki iki Go testi P31 dışı. Yine düşerlerse ayrı oynaklık maddesi açılır ve ancak o zaman merge'e engel sayılmaz.
+- **Yeni: P31 e2e kararsızlığı engelleyici.** P31'in kendi testi (AC-520 kanıtı) 4 koşunun 3'ünde kırmızı.
+
+## Düzeltilmeli
+
+1. [frontend-dev] `apps/web/e2e/p31-mac-request.spec.ts:27-38` (`toAccepted`) ve `:153` portal testi: kabul kancası WS bağlanmadan çağrılınca mesaj kayboluyor. Beklenen: kancayı `expect.poll`/`toPass` ile, `wr-accepted` görünene kadar yeniden çağırmak ya da mock'ta bağlantı yokken mesajı kuyruğa alıp bağlanınca göndermek. Diğer seçenek: dosyayı `test.describe.configure({ mode: "serial" })` ile seri koşmak (yorumdaki "paylaşılan sahte durum" bunu gerektiriyor). Kabul ölçütü: `playwright test e2e/p31-mac-request.spec.ts e2e/p28f-macos.spec.ts --repeat-each=5` 0 hata.
+2. [frontend-dev] S-P31-K1 başlık metni testsiz. `waiting-parts.test.tsx`'e (ad-hoc vakası) ve `p31-mac-request.spec.ts` ad-hoc testine `wr-mac-adhoc-only` içinde "“Yine de Aç” yalnız resmi adresten indirdiğiniz uygulama için" beklentisi eklenmeli. Oturum sayfası için de aynı beklenti `p28f-macos.spec.ts` AC-503 ad-hoc testine eklenmeli. Eski metin "yalnız bu sayfadaki indirme" geçmemeli.
+3. [devops] PR #38 CI tamamlanınca sonucu kayda al (tur 1 m.1). Gereken: macOS işinde "trace-check-mac firma klasörü (AC-517)" adımı `success`, OKUBENI `cmp` adımları yeşil. Kırmızı Go testi P31 dışıysa oynaklık maddesi açılmalı.
+4. [test-operatoru] (teslim sonrası, yayın ön koşulu) P31-K0 + E-P31-1..7, kullanıcının Mac'inde staging test paketiyle yapılacak. Sonuç `docs/test-raporu.md`'ye yazılacak (tur 1 m.4 aynen).
+
+## Definition of Done
+
+| Madde                                   | ✅/❌   | Not                                                                                            |
+| --------------------------------------- | ------- | ---------------------------------------------------------------------------------------------- |
+| 1. AC'ler testle kanıtlı, testler yeşil | ❌      | P31 e2e kararsız (m.1). S-P31-K1 başlığı testsiz. AC-514/515/517/518 elle bekliyor. CI pending |
+| 2. Lint / type-check                    | ✅      | Temiz                                                                                          |
+| 3. qa GEÇTİ, güvenlik K/Y 0             | ❌ / ✅ | qa DÜZELTİLMELİ; güvenlik kod turu 0/0/0/2                                                     |
+| 4. test-operatoru                       | ❌      | Teslim sonrası Mac testi                                                                       |
+| 5. Migration geri alınabilir            | ✅      | Tur 1'den değişmedi                                                                            |
+| 6. Dokümantasyon güncel                 | ✅      | m.6 kapandı, PDF'ler yeniden üretildi                                                          |
+| 7. Sapmalar implementation.md'de        | ✅      | P31-B1 eklendi                                                                                 |
+
+## Olumlu
+
+- m.2, m.3, m.5, m.6 eksiksiz ve kaynakla uyumlu kapatılmış. K3 etiket testi üç kanalı da kapsıyor.
+- AC-520 metni, mimari §15.3, `tr.json` ve `OKUBENI.txt` birbirleriyle tutarlı.
+
+---
+
 # QA Raporu — P31 Tur 1 (macOS Hızlı Destek'te "Destek iste", AC-509..AC-522)
 
 DURUM: DÜZELTİLMELİ
