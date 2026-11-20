@@ -6,14 +6,13 @@ import { renderFor } from "../../src/notify/customer-templates.ts";
 import { UA } from "../helpers/user-agents.ts";
 import { FIRM_ZIP_URI, parseFirmDownloadUri, requestDownloadLocation, requestFileName } from "../../src/requests/ref.ts";
 
-
 describe("P31 osFromUserAgent (AC-509, AC-521)", () => {
   it("AC-509: Mac Safari ve Mac Chrome → macos", () => {
     expect(osFromUserAgent(UA.macSafari)).toBe("macos");
     expect(osFromUserAgent(UA.macChrome)).toBe("macos");
   });
 
-  it("AC-509: iPad / iPhone (\"like Mac OS X\") → windows (bugünkü davranış)", () => {
+  it('AC-509: iPad / iPhone ("like Mac OS X") → windows (bugünkü davranış)', () => {
     expect(osFromUserAgent(UA.iPad)).toBe("windows");
     expect(osFromUserAgent(UA.iPhone)).toBe("windows");
   });

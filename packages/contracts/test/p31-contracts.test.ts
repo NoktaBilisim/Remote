@@ -1,11 +1,6 @@
 // P31-B1 contracts (mimari-p31 K-P31-2, K-P31-4, §4, §15 S-P31-7; AC-509, AC-511, AC-521).
 import { describe, expect, it } from "vitest";
-import {
-  createRequestInputSchema,
-  REQUEST_CLIENT_OS,
-  requestClientOsSchema,
-  requestDownloadQuerySchema,
-} from "../src/api/requests.ts";
+import { createRequestInputSchema, REQUEST_CLIENT_OS, requestClientOsSchema, requestDownloadQuerySchema } from "../src/api/requests.ts";
 import { CLIENT_OS } from "../src/api/sessions.ts";
 
 const body = (o: Record<string, unknown> = {}) => ({

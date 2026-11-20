@@ -94,10 +94,9 @@ const NO_NOTIFY: NotifyChoice = { sms: false, whatsapp: false, email: false };
  * Ortak oluşturma çekirdeğinin girdisi (P19 §8c.2): AGENT (`createRequestInputSchema`) ve WEB (`webRequestInputSchema`)
  * aynı TX'e girer. Sürüm yalnız AGENT dalında vardır (S-P19-13: WEB'de `null`; `?? "0.0.0"` yasak).
  */
-export type CreateCoreInput = Omit<CreateRequestData, "clientVersion" | "clientOs"> & { notify: NotifyChoice } & (
-    // P31 (AC-511): `clientOs` yalnız AGENT dalında; WEB'de tipte yok (DB CHECK source_client_os_chk: WEB ⇒ NULL, aksi 3819).
-    { source: "AGENT"; clientVersion: string; clientOs?: RequestClientOs } | { source: "WEB"; clientVersion: null; clientOs?: never }
-  );
+export type CreateCoreInput = Omit<CreateRequestData, "clientVersion" | "clientOs"> & { notify: NotifyChoice } &
+  // P31 (AC-511): `clientOs` yalnız AGENT dalında; WEB'de tipte yok (DB CHECK source_client_os_chk: WEB ⇒ NULL, aksi 3819).
+  ({ source: "AGENT"; clientVersion: string; clientOs?: RequestClientOs } | { source: "WEB"; clientVersion: null; clientOs?: never });
 
 /** P31 (AC-509): firma indirmesinde platform kapıları — `assertReady` seçilen platformun 503'ü, `macosOk` örtük seçim için. */
 export interface DownloadGates {

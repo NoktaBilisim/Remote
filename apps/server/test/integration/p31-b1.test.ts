@@ -166,7 +166,7 @@ describe("P31 GET /public/agent/request-download?os= (AC-509, AC-521)", () => {
     expect((await dl(l, ref, { ip, os: "macos" })).statusCode).toBe(302);
   });
 
-  it("AC-509: metrik rs_agent_download_total{os, kind=\"firm\"}; ref ve UA loga/metriğe girmez", async () => {
+  it('AC-509: metrik rs_agent_download_total{os, kind="firm"}; ref ve UA loga/metriğe girmez', async () => {
     const l = await boot();
     const t = await createTenant();
     const ref = await createRequestSettings(t.id);
@@ -366,7 +366,11 @@ describe("P31 POST /public/requests clientOs → misafir (AC-511, K-P31-4, D-2)"
     l.app.requests.formTokens = backdatedTokens();
     const post = async (extra: Record<string, unknown>) => {
       const ip = nextIp();
-      const f = await l.app.inject({ method: "GET", url: `/api/v1/public/web-requests/form?ref=${ref}`, headers: { "x-forwarded-for": ip } });
+      const f = await l.app.inject({
+        method: "GET",
+        url: `/api/v1/public/web-requests/form?ref=${ref}`,
+        headers: { "x-forwarded-for": ip },
+      });
       const info = f.json<WebFormInfo>();
       return l.app.inject({
         method: "POST",
