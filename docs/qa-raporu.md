@@ -1,3 +1,96 @@
+# QA Raporu — AC-392 geç pencere düzeltmesi (PR #40)
+
+DURUM: DÜZELTİLMELİ
+
+Kapsam: dal `fix-late-window-flake`, HEAD 58404a4 (5ac1e2b + yalnız `implementation.md`). İncelenen: `git diff origin/main...HEAD`
+(`sck_darwin.go`, `source_darwin.go`, `sck_darwin_test.go`, `docs/implementation.md`). Kod değiştirilmedi.
+
+## Test sonucu
+
+| Komut                                                               | Sonuç                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
+| ------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `gofmt -l internal/capture` (Docker `golang:1.26.11-bookworm`)      | boş çıktı (temiz)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| `CGO_ENABLED=0 GOOS=darwin GOARCH=arm64 go vet ./internal/capture/` | tanı çıktısı yok (temiz; purego sayesinde cgo'suz derlendi). Not: betikteki `rc=0` `tail`'in çıkış kodudur, kanıt boş çıktıdır                                                                                                                                                                                                                                                                                                                                                                                          |
+| `GOOS=darwin go test -c ./internal/capture/`                        | derlendi, hata yok                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
+| CI 44664994010 (5ac1e2b, koddaki son hâl) macOS işi                 | `TestP28fK2AC392LateWindowExcluded` **PASS** (SKIP değil): "öncesi 13 karede 13 macenta; yeniden açılış→ilk taze kare 190ms; sonrası 20 karede macenta 0". `SlotReopenDistinct`, `StreamStopReopens`, `OwnWindowsExcluded`, `SourceSmoke` PASS                                                                                                                                                                                                                                                                          |
+| `gh pr checks 40` (HEAD 58404a4, run 44666195997/44666195992)       | 22 pass, 13 skipping, 0 fail; `web e2e (Playwright, mock API)` rapor anında **pending** (Go değişikliğiyle ilgisiz web işi). `go test (macOS) + iz testi` success: `TestP28fK2AC392LateWindowExcluded` PASS — "öncesi 17 karede 16 macenta; yeniden açılış→ilk taze kare 130ms; sonrası 20 karede macenta 0"; `SlotReopenDistinct`, `StreamStopReopens`, `OwnWindowsExcluded` PASS. `gofmt + vet + test -race + govulncheck + lisans` success. 44662954083'teki ilgisiz Linux/Windows kırmızıları bu koşuda yinelenmedi |
+| Yarış analizi                                                       | darwin dosyaları `-race` ile koşmuyor (`-race` işi Linux). Aşağıdaki eşzamanlılık değerlendirmesi kod okumasıdır                                                                                                                                                                                                                                                                                                                                                                                                        |
+
+## İnceleme bulguları (brief maddeleri)
+
+1. **Yeniden açma yolu — doğru.** `excludeLater` → `slot.halt(true)` → `poll` önce `reopen`'ı kontrol ettiği için yuvadaki
+   bekleyen kare de atılır → `grab` `p.st.close()` (quit kapanır, `wg.Wait`, `stopCapture`, `sckStreams`'ten silinir; geç gelen
+   örnek `lookupStream`=nil ile düşer) → `p.cur=nil`, `retryAt` sıfır → sonraki `grab` beklemeden `openStream`. `next()`
+   `p.cur==nil` iken kodlamaz, dolayısıyla pencereli son kare keep-alive ile yeniden gönderilmez. `low.go` kare tutmuyor
+   (yalnız `last` zamanı). `halt`'ın engellemesiz gönderimi kayıp uyanma üretmez (`ready` kap. 1; dolu ise uyanma zaten
+   bekliyor, `wait` uyanınca `poll` eder). `stop()` sonradan gelirse `reopen` korunur (OR) — `SlotReopenDistinct` bunu sınıyor.
+   `errStreamStopped` dalı eski davranışı (son kare korunur, `reopenMin` geri çekilme) koruyor.
+2. **Döngü riski — sınırlı, belgelenmiş.** Yeni akış üretim seçenekleriyle açılır; uygulama listedeyse `excluded=true`,
+   `excludeLater` başlamaz. Listeleme dalgalanırsa en çok `sckExcludeEvery` (1 sn) + açılış süresinde bir yeniden açılış
+   (her biri 2× SCShareableContent, stop/start, IDR). Sayaç/üst sınır/test yok (Öneri 1).
+3. **Test geç yolu gerçekten zorluyor, ölçüt gevşemedi.** `lateExclude` ilk akışı dışlamasız açar ve bu `first.excluded=false`
+   ile doğrulanır; yeniden açılış `p.opt` sıfırlanarak üretim yolundan yapılır. Ölçüt eskisinden sıkı: eski test dışlama
+   sonrası 200 ms tolerans tanıyıp yalnız 1,5 sn'lik pencereye bakıyordu; yeni test yeniden açılıştan sonraki **her** kareyi
+   (ilk dahil) sayar ve ilk taze kare ≤ 1 sn ister. Eksik: `preMag > 0` doğrulanmıyor (Düzeltilmeli 2).
+4. **Tanı commit'i 73913d1 kalıntısı yok.** Net diff (`origin/main...HEAD`) yalnız yukarıdaki 4 dosya; tanı kodu (5 turlu
+   test) tamamen değiştirilmiş. `tryExclude`/`updateContentFilter` kullanımı kaldırılmış (yalnız açıklama yorumunda geçiyor).
+   Ancak `tryExclude` kaldırılınca `sckStream.display` alanı yalnız yazılan ölü alan kaldı (Düzeltilmeli 1).
+5. **`Open` sırasında yeniden açma (`try==0` dalı) — kanıtsız.** Hiçbir test ilk kareden önce `halt(true)` üretmiyor (CI'da
+   ilk kare ms'ler içinde geliyor, `excludeLater` tıkı 1 sn). Kod okumasında doğru: ilk akış kapatılır, ikinci akış açılır;
+   ikinci denemede tekrar `errStreamReopen` gelirse `f==nil` → `FirstFrame` hatası (bilinçli, tek tekrar). Düzeltilmeli 3.
+
+## Kabul kriterleri
+
+| AC                                                                         | Durum          | Kanıt                                                                                                                                                                  |
+| -------------------------------------------------------------------------- | -------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| AC-392 (macOS: kendi pencerelerimiz görüntüye girmez — geç açılan pencere) | ✅ (grab yolu) | `TestP28fK2AC392LateWindowExcluded` CI macOS PASS (44663983867, 44664994010; HEAD 58404a4 koşusu 44666195997 dahil); öncesi macenta görüldü = yoklama o koşuda geçerli |
+| AC-392 — `Open` ilk kare öncesi yeniden açılış                             | ⚠️ kanıtsız    | Test yok (Düzeltilmeli 3)                                                                                                                                              |
+| AC-392 — sistem durdurması son kareyi korur (gerileme)                     | ✅             | `TestP28fK2AC392StreamStopReopens`, `TestP28fK2AC392SlotReopenDistinct`                                                                                                |
+
+## Düzeltilmeli
+
+1. [backend-dev] `apps/agent-win/internal/capture/sck_darwin.go:249` (`display uint32` alanı) ve `:343` (`s.display = displayID`)
+   — alan artık hiçbir yerde okunmuyor (tek okuyucu `tryExclude` silindi) → alanı ve atamasını kaldır.
+2. [backend-dev] `apps/agent-win/internal/capture/sck_darwin_test.go:438-441` — `preMag == 0` ise test boşuna geçebilir (pencere
+   çizilmeden dışlama olursa "sonrası macenta 0" kanıt değildir) → `preMag == 0` durumunda `t.Fatalf("pozitif kontrol: dışlama
+öncesi macenta görülmedi")` ekle (CI'da 13/13 görüldüğü için kararlı olmalı).
+3. [backend-dev] `apps/agent-win/internal/capture/source_darwin.go:93-110` — `Open` içindeki `errStreamReopen && try == 0` dalı
+   test edilmiyor → ya bir darwin testi ekle (ör. `streamOpts`'a ilk kare beklenmeden `slot.halt(true)` çağıran test kancası;
+   beklenen: `open` hatasız döner, `src.p.st.excluded==true`, `p.cur` ikinci akıştan) ya da dal gereksizse kaldırıp
+   `implementation.md`'ye gerekçe yaz.
+4. [backend-dev] `docs/implementation.md` (AC-392 geç dışlama bölümü) — "Dışlama öncesi ≤ 1 sn'lik görünürlük tasarımdaki gibi
+   kalır" iddiasının karşılığı ADR-0037 / `mimari-p28f.md`'de yok (yalnız `excludingApplications` var) → ya mimari/ADR'de bu
+   pencereyi kabul eden satırı göster ya da cümleyi "bilinen sınır (tasarımda tanımlı değil)" olarak düzelt.
+
+## Definition of Done
+
+| Madde                                  | Durum          | Not                                                                                            |
+| -------------------------------------- | -------------- | ---------------------------------------------------------------------------------------------- |
+| Testler yeşil (CI)                     | ✅ (e2e hariç) | 22 pass / 0 fail; web e2e pending (ilgisiz)                                                    |
+| gofmt / vet temiz                      | ✅             | Docker, darwin/arm64                                                                           |
+| Yeni kod yolu testle kanıtlı           | ❌             | `Open` yeniden açılış dalı (Düzeltilmeli 3)                                                    |
+| Ölü kod yok                            | ❌             | `sckStream.display` (Düzeltilmeli 1)                                                           |
+| Tasarım sapması gerekçeli              | ✅             | `updateContentFilter` → yeniden açma, `implementation.md`'de kök nedenle; ADR-0037 m.2 korunur |
+| Yeni bağımlılık / sözleşme değişikliği | ✅             | yok                                                                                            |
+| Hata yutma                             | ✅             | `ownListed` hata → false (yeniden dener, 1 sn tık); bilinçli                                   |
+| Geçici tanı kodu temizliği             | ✅             | net diff'te yok                                                                                |
+
+## Öneriler (zorunlu değil)
+
+1. Yeniden açılış döngüsüne sayaç/üst sınır (ör. art arda N başarısız dışlamada geri çekilme) ve `p.stats`'a sayaç; şu an
+   sonsuz 1 sn döngüsü teorik olarak mümkün.
+2. `pipeStats.reopenedAt` yalnız test için; üretimde her yeniden açılışta yazılması zararsız, ancak `stats.on` koşuluna
+   bağlanabilir.
+
+## Olumlu
+
+- Kök neden CI tanısıyla (taze karelerde pencere görünmesi) kanıtlanmış; yalnız test zamanlaması değil ürün hatası olarak
+  düzeltilmiş.
+- Hata ayrımı (`errStreamReopen` vs `errStreamStopped`) temiz; öncelik birim testle sabitlenmiş.
+- Test artık geç yolu deterministik olarak zorluyor; önceki yeşil koşuların bu yolu hiç sınamadığı açıkça belgelenmiş.
+
+---
+
 # QA Raporu — P31 Tur 3 (tur 2 maddelerinin kapanışı)
 
 DURUM: GEÇTİ (kod + otomatik test kapsamı). Tur 2'nin iki frontend maddesi kapandı ve PR #38 CI e077e3b'de tamamen yeşil (23 pass, 13 skipping, 0 fail/pending). P31-K0 + E-P31-1..7 (gerçek Mac) **yayın ön koşulu** olarak açık. AC-514/515/517/518'in elle doğrulanan kısımları ⚠️ kalır. 0.24.0 macOS prod yayını bu kayıt olmadan yapılmaz.

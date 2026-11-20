@@ -1,3 +1,137 @@
+# Güvenlik — AC-392 geç pencere düzeltmesi (PR #40)
+
+Dal `fix-late-window-flake`, HEAD 58404a4, 2026-11-20. Kapsam: `git diff origin/main...HEAD -- apps/agent-win`
+(`internal/capture/sck_darwin.go`, `source_darwin.go`, `sck_darwin_test.go`). İlgili: ADR-0037 m.2 (`excludingApplications:
+[kendi uygulamamız]`; gösterge, işaretleme, onay ve izin pencereleri görüntüye girmez), AC-392 (E8 AC'lerinin macOS karşılığı).
+
+DURUM: GEÇTİ. Kritik 0 / Yüksek 0 / Orta 0 / Düşük 2 / Bilgi 3
+
+**Sonuç.** Düzeltme önceki hatayı kapatıyor. Önceki kodda `updateContentFilter` başarılı dönse bile taze karelerde
+penceremiz yaklaşık 3 sn görünmeye devam ediyordu. Ekran durağanlaşınca da pencereli son kare `idleKeepAlive` ile süresiz
+yeniden gönderiliyordu. Yeni yolda `halt(true)` sonrasında `grab` (`source_darwin.go:193-201`) eski akışı kapatıyor ve
+`p.cur = nil` yapıyor. `next` (`source_darwin.go:243`) `p.cur == nil` iken kodlamıyor, bu yüzden eski kare ne keep-alive
+ile ne de PLI/IDR ile yeniden gönderilebiliyor. Yeni akış açılınca `p.kc.Request()` IDR istiyor. Dışlamalı akışta
+`excludeLater` başlamıyor (`sck_darwin.go:282`). Dışlama uygulama düzeyinde olduğu için sonradan açılan pencereler de
+kapsanıyor ve döngü oluşmuyor. Kalan risk tasarımda zaten kabul edilmiş tespit gecikmesi: ≤ 1 sn ve buna
+`SCShareableContent` gecikmesi ekleniyor (D-392-1).
+
+## Sorulara yanıt
+
+1. **Pencereli eski kare için kalan yarış.**
+   - _Yeniden açma sırası:_ `p.cur` atıldı, `p.st` boş. Yeni akışın ilk taze karesine kadar kodlama yapılmıyor. Eski akışa
+     `close()` sonrasında gelen `deliver` çağrıları eski yuvaya düşüyor ve okunmuyor. Kapalı.
+   - _idleKeepAlive:_ `p.cur == nil` koşulu `next` içinde ilk sırada kontrol ediliyor. Kapalı.
+   - _Önceden alınmış kare:_ `halt(true)` gelmeden önce `wait` ile alınmış pencereli taze kare kodlanıp gidiyor. Bu tespit
+     gecikmesinin parçası (D-392-1).
+   - _errStreamStopped yolu:_ `p.cur` korunuyor. Durdurma dışlamasız akışta, pencere açıldıktan sonra ama tespitten önce
+     gelirse son kare penceremizi içerebilir. Yeniden açma sürekli başarısız olursa bu kare keep-alive ile yeniden
+     gönderilir (D-392-2). Yeniden açma başarılı olursa yeni akış `ownApps` ile dışlamalı açılır ve ilk taze kare eski
+     karenin yerine geçer.
+   - _Open:_ ilk denemede `errStreamReopen` gelirse kare atılıyor ve akış dışlamalı yeniden açılıyor. İkinci denemede de
+     gelirse `f == nil` oluyor ve `FirstFrame` hatası dönüyor (fail-closed). Üretimde ilk kare genellikle 1 sn'lik tıktan
+     önce geliyor. O durumda grab yolu devreye giriyor ve davranış aynı.
+2. **Fail-open mı, fail-closed mı?** Fail-closed. `openStream` hata verirse `p.cur == nil` kalıyor ve 250 ms–2 sn geri
+   çekilmeyle yeniden deneniyor. Bu sürede hiç kare kodlanmıyor; teknisyen donmuş, zaten gönderilmiş son görüntüyü görüyor.
+   Yeni akış uygulamamızı yine listelemezse (yarış ya da pencere kapanmış olabilir) akış dışlamasız açılıyor ve
+   `excludeLater` yeniden başlıyor. Penceremiz o an listede olmadığı için sızacak görüntü de yok. Pencere yeniden açılırsa
+   D-392-1'deki gecikme tekrar geçerli olur. Tek açık kalan, D-392-2'deki eski karenin keep-alive ile gönderilmesi.
+3. **DoS ve kaynak kullanımı.** Yeniden açılış yalnız dışlamasız akışta ve akış başına en çok bir kez oluyor; tetikleyici
+   `sckExcludeEvery` = 1 sn tıkı. Dışlamalı akışta yoklama yapılmıyor. Teknisyen müşteri tarafında pencere açtırabilir
+   (dosya kabulü, işaretleme, pano), ancak dışlama bir kez kurulduktan sonra kalıcı. Bu yüzden uzaktan tetiklenebilen bir
+   yükseltme yok. En kötü durumda (uygulama listeye girip çıkıyorsa) yük saniyede bir `SCShareableContent` çağrısı ve
+   akış aç/kapa olur; sınırlı. Bilgi notları B-392-1 ve B-392-2'de.
+4. **Daha önce yayınlanmış macOS sürümleri (0.19.0–0.24.0, `updateContentFilter` yolu).** Hata yalnız şu durumda
+   ortaya çıkıyor: `Open` anında uygulamamız `SCShareableContent` listesinde yoksa, yani hiç penceresi yoksa. Gerçek
+   akışta karşılama ve oturum penceresi yakalamadan önce açık; uygulama listede olduğu için akış baştan dışlamalı açılıyor
+   (`ownApps`, `sck_darwin.go:341`). Hata CI'da pencereli olmayan bir test sürecinde görüldü. Sistem durdurmasından sonraki
+   yeniden açma da `ownApps` ile yeni listeye bakıyor. Bu nedenle yayınlanmış sürümlerde istismar edilebilir pratik bir
+   yol görmüyorum. Risk **Düşük** (koşullu, kanıtlanmış üretim yolu yok). Bu sonuç kodun okunmasından çıkarıldı; üretim
+   yolunda ölçülmedi.
+   - Macenta pozitif kontrolüne benzer, gerçek `.app` ile açılıştan sonra pencere açılan bir senaryo test-operatoru
+     tarafından staging'de elle denenmeli.
+   - Müşteriye ayrı bildirim gerekmiyor.
+   - CHANGELOG `[Unreleased]` altına "Güvenlik / Düzeltildi" satırı eklenmeli. Önerilen metin: "macOS: yakalama
+     başladığında uygulamanın penceresi yoksa, sonradan açılan Nokta Destek pencereleri (gösterge, onay, işaretleme)
+     teknisyen görüntüsünde birkaç saniye, durağan ekranda daha uzun görünebiliyordu. Akış artık dışlamalı yeniden açılıyor
+     ve eski kare atılıyor (AC-392, ADR-0037 m.2)." Atanan: teknik-yazar.
+   - Prod macOS yayını bu düzeltme dahil edilmiş sürümle yapılmalı.
+
+## Bulgular
+
+### [DÜŞÜK] D-392-1 Tespit gecikmesi: dışlama kurulana kadar pencerelerimiz taze karelerde gidiyor — A04 (güvensiz tasarım)
+
+Yer: `apps/agent-win/internal/capture/sck_darwin.go:457-484` (`excludeLater`, `sckExcludeEvery` = 1 sn, `ownListed` en
+çok `sckContentTimeout` = 5 sn bekliyor; hata gelirse bir sonraki tık bekleniyor).
+
+Sorun: Akış dışlamasız açıldıysa uygulamamızın ilk penceresi en geç sonraki tıkta ve `SCShareableContent` yanıtı
+geldikten sonra fark ediliyor. Normalde bu ≤ 1 sn ile birkaç on ms arasında. `SCShareableContent` takılırsa süre 6 sn'ye
+çıkabiliyor; hata dönerse sonraki tıka kalıyor. Bu süre boyunca gelen taze kareler kodlanıp gönderiliyor. implementation.md
+bunu "tasarımdaki gibi" diye kabul etmiş, ancak ADR-0037 m.2 "görüntüye girmez" diyor.
+
+İstismar senaryosu: Uygulamanın penceresi olmadan yakalama başlarsa teknisyen, ilk açılan onay, pano ya da dosya
+kabul penceresinin içeriğini (dosya adı, pano metni vb.) yaklaşık 1 sn görür. Üretim akışında bu ön koşul pratikte
+oluşmuyor (bkz. 4. madde), bu yüzden şiddet Düşük.
+
+Düzeltme (önerilerden biri):
+
+- (a) Dışlamasız akışta, kodlamadan önce `CGWindowListCopyWindowInfo` ile kendi PID'imize ait ekranda pencere olup
+  olmadığına senkron bakılsın. Varsa kare kodlanmasın ve hemen `halt(true)` çağrılsın. Bu fail-closed bir yaklaşım ve
+  maliyeti düşük.
+- (b) UI katmanı ilk penceresini göstermeden önce yakalamaya dışlama isteği göndersin ve onay gelmeden göstermesin.
+
+Atanan ajan: backend-dev.
+
+### [DÜŞÜK] D-392-2 errStreamStopped yolunda pencereli son kare korunuyor — A04
+
+Yer: `apps/agent-win/internal/capture/source_darwin.go:202-207`. `p.cur` korunuyor; `next` (`:243-244`) keep-alive ile onu
+yeniden kodluyor.
+
+Sorun: Dışlamasız akış, penceremiz açıldıktan sonra ama `halt(true)` gelmeden sistemce durdurulursa (ekran değişimi,
+izin geri alınması) son kare penceremizi içerebilir. `openStream` uzun süre başarısız olursa (örneğin izin geri
+alınmışsa) bu kare her `idleKeepAlive` döngüsünde ve her PLI isteğinde yeniden gönderiliyor. Yeni bilgi sızmıyor, çünkü
+kare zaten gönderilmişti, ancak görüntü teknisyen ekranında kalıcı oluyor ve yeni bağlanan ikincil izleyicilere (P28c
+düşük akış ya da PLI/IDR ile katılan) ilk kez gidiyor.
+
+İstismar senaryosu: Çoklu teknisyen oturumunda pencere açıkken akış durur. Sonradan katılan ikincil teknisyen IDR ile
+pencereli kareyi alır.
+
+Düzeltme: Akış `excluded == false` iken durursa `p.cur = nil` yapılsın. Yalnız dışlamalı akışın son karesi korunsun.
+Kısaca: `if !p.st.excluded.Load() { p.cur = nil }`. Atanan ajan: backend-dev.
+
+### [BİLGİ] B-392-1 Yeniden açılış döngüsü sınırlı
+
+implementation.md'de "Bilinen sınır" olarak yazılı. Tetikleyici 1 sn tık; dışlamalı akışta yoklama yok; uzaktan
+yükseltilemiyor. Eylem gerekmiyor. Sayaç ya da log eklenirse (`reopen` sayısı, kişisel veri olmadan) sahada gözlem
+kolaylaşır.
+
+### [BİLGİ] B-392-2 `close()` en çok 5 sn bloklanabilir
+
+`sckStream.close` `wg.Wait()` ile `excludeLater` içindeki `ownListed → shareableContent` çağrısını bekliyor (en çok
+`sckContentTimeout`). `source.Close` ya da yeniden açma bu süre kadar gecikebilir. Güvenlik etkisi yok: kapanırken
+kodlama yapılmıyor. Bu davranış önceki `tryExclude` ile de aynıydı.
+
+### [BİLGİ] B-392-3 Test kancası üretim yapısında
+
+`streamOpts.lateExclude` üretimde sıfır değerle çalışıyor (`Open` → `streamOpts{}`), dışarıdan ayarlanamıyor ve `Open`
+ikinci denemede onu temizliyor. Risk yok.
+
+## Olumlu
+
+- Yeniden açılış ile sistem durdurması ayrılmış: `reopen` önceliği yapışkan (`halt`), test
+  `TestP28fK2AC392SlotReopenDistinct`.
+- Test geç yolu `lateExclude` ile zorluyor ve öncesi/sonrası karelerini ayrı sayıyor. Dışlama öncesinde macenta görülmesi
+  pozitif kontrol işlevi görüyor; dışlama sonrasında macenta 0 (CI 44663983867, 44664994010).
+- Hata durumunda davranış fail-closed: yeniden açma başarısız olursa kodlama yapılmıyor ve `Open` ikinci yeniden açma
+  isteğinde hata dönüyor.
+- `nsErrorCode` yalnız sayı okuyor; loga kişisel veri ya da NSError metni yazılmıyor.
+
+## Otomatik tarama
+
+Bu tur yalnız Go yakalama koduna dokunuyor; yeni bağımlılık yok (`go.mod` değişmedi). Gizli bilgi taraması
+(`git grep` deseni, diff kapsamı) temiz.
+
+---
+
 # Güvenlik Raporu — P31 — Kod turu (dal p31-mac-destek-iste, HEAD abfca0c, PR #38, 2026-11-20)
 
 DURUM: GEÇTİ — Kritik 0 / Yüksek 0 / Orta 0 / Düşük 2 / Bilgi 4
