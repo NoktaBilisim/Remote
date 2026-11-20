@@ -74,12 +74,20 @@ func Outdated(version string, minVersion *string) bool {
 	return false
 }
 
-// DownloadURL ADR-0004 r3 eki: açılabilecek TEK adres — gömülü sunucu kökü + sabit yol + doğrulanmış ref.
-func DownloadURL(server *url.URL, ref string) (string, bool) {
+// DownloadOSMac P31 (AC-519): macOS istemcisinin indirme platformu (Deps.DownloadOS).
+const DownloadOSMac = "macos"
+
+// DownloadURL ADR-0004 r3 eki: açılabilecek TEK adres — gömülü sunucu kökü + sabit yol + doğrulanmış ref. P31 AC-519:
+// os=="macos" → `&os=macos` eki (sunucu .zip'e yönlendirir); başka her değerde adres P31 öncesiyle bayt bayt aynıdır.
+func DownloadURL(server *url.URL, ref, os string) (string, bool) {
 	if !tenantRefRe.MatchString(ref) || server == nil || server.Scheme != "https" {
 		return "", false
 	}
-	u := url.URL{Scheme: "https", Host: server.Host, Path: "/api/v1/public/agent/request-download", RawQuery: "ref=" + ref}
+	q := "ref=" + ref
+	if os == DownloadOSMac {
+		q += "&os=" + DownloadOSMac
+	}
+	u := url.URL{Scheme: "https", Host: server.Host, Path: "/api/v1/public/agent/request-download", RawQuery: q}
 	return u.String(), true
 }
 

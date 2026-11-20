@@ -88,8 +88,10 @@ describe("P28f AgentDownload (macOS) — AC-503 varyantları", () => {
     expect(warn).toBeLessThan(html.indexOf("mac-guide"));
     expect(warn).toBeLessThan(html.indexOf("Gizlilik ve Güvenlik → Yine de Aç"));
     const block = html.slice(warn, html.indexOf("mac-guide"));
-    expect(block).toContain("adresindeki bu sayfadan şimdi indirdiğiniz Nokta Destek");
-    expect(block).toContain("e-posta eki ya da mesajla göndermez");
+    // P31 (mimari-p31 §15.3, S-P31-2): metin kanaldan bağımsız, indirme kaynağına çapalı (OKUBENI son paragrafının web eşi)
+    expect(block).toContain("adresinden indirdiğiniz Nokta Destek için kullanın");
+    expect(block).toContain("Bilgi Al → “Nereden” satırı https://");
+    expect(block).toContain("Firmanız size yalnız bağlantı gönderir, dosya göndermez. Dosya ek olarak geldiyse açmayın.");
     expect(block).not.toContain("4821");
   });
   it("varsayılan (varyant verilmezse) adhoc — asla notarized değil", () => {

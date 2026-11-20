@@ -138,6 +138,8 @@ async function createTx(svc: RequestService, tx: Prisma.TransactionClient, p: Cr
     result: "success",
     newValue: {
       clientVersion: p.input.clientVersion,
+      // P31 (K-P31-4): beyan varsa (Windows/eski istemci gövdesi alansız → audit satırı bugünkü gibi).
+      ...(p.input.source === "AGENT" && p.input.clientOs ? { clientOs: p.input.clientOs } : {}),
       via: p.portal ? p.portal.via : p.via,
       ...(p.portal ? { portalUserId: p.portal.portalUserId } : {}),
       customerId: p.customerId,
@@ -256,6 +258,8 @@ function requestRow(p: CreatePlan, x: RowExtra): Prisma.SupportRequestUncheckedC
     secretHash: sha256Hex(p.secret),
     clientInstance: input.clientInstanceId,
     clientVersion: input.clientVersion,
+    // P31 (AC-511): yalnız AGENT beyanı; WEB her zaman NULL (CHECK source_client_os_chk). Yoksa NULL = windows.
+    clientOs: input.source === "AGENT" ? (input.clientOs ?? null) : null,
     customerName: input.customerName,
     customerPhone: input.phone,
     customerEmail: input.email ?? null,

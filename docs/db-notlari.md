@@ -1947,3 +1947,43 @@ olay kopyası audit'te 730 g).
   `%update%` CHECK 0, ikili CHECK 80, kayıt silindi; yeniden up → diff 0, 4 CHECK.
 - `pnpm db:generate`, server typecheck temiz. Entegrasyon 21 dosya / 141 test geçti (session-history-p8, db-grants,
   tenant-purge-meta-p16, users-delete-p16, tenants-p9, unattended-* 16 dosya).
+
+## P31 — talep istemcisinin işletim sistemi `support_requests.client_os` (P31-D, 2026-11-20)
+
+Migration `apps/server/prisma/migrations/20261129000000_p31_request_client_os/{migration,down}.sql` (mimari-p31 §5, §15 S-P31-7,
+K-P31-4; AC-511). Veri taşıma yok (eski satırlar NULL = windows); yeni tablo/GRANT/tetikleyici/indeks yok (tetikleyici 23 kalır,
+audit-continuity özeti değişmez). Seed değişmedi (seed talep satırı üretmez; NULL = windows doğru varsayılan).
+
+### Şema
+
+| Değişiklik                              | Ayrıntı                                                                                                                 |
+| --------------------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
+| `support_requests.client_os`            | VARCHAR(10) NULL; Prisma `clientOs`. Oluşturmada yazılır, sonra değişmez; kişisel veri değil (anonimleştirmede korunur) |
+| `support_requests_client_os_chk`        | `client_os IS NULL OR CAST(client_os AS BINARY) IN ('windows','macos')` — tam küçük harf                                |
+| `support_requests_source_client_os_chk` | `source <> 'WEB' OR client_os IS NULL` (WEB talebinde her zaman NULL)                                                   |
+
+Enum/lookup: ikili CHECK (sabit iki değer; kodda tek kaynak contracts `requestClientOsSchema`; lookup gereksiz). Linux talebi
+gelirse ileri migration ile CHECK genişler (S-P31-7). İkili enum CHECK sayısı 82 → 83 (`session-history-p8` meta-testi güncellendi;
+information_schema'dan ölçüldü).
+
+Sapma (sıkılaştırma; mimari-p31 §5'e not düşüldü): §5 düz `IN ('windows','macos')` yazıyor. Tablo harmanlamasında düz IN
+`'MACOS'` ve `'macos '` değerlerini kabul ediyor (test DB'de ölçüldü: `SELECT 'MACOS' IN (...)` = 1) → ADR-0014 kalıbı
+`CAST AS BINARY` kullanıldı. B1 için: değer **tam küçük harf** yazılmalı; WEB talebine `client_os` yazmak 3819
+(`source_client_os_chk`) verir.
+
+### Kilit ve geri alma
+
+ADD CHECK INPLACE/INSTANT desteklemez (P19/P29'da ölçüldü, 1845) → sütun + 2 CHECK **tek COPY ALTER**. support_requests
+retention'lı ve küçük (deploy öncesi `SELECT COUNT(*) FROM support_requests`); süresince talep yazımı bekler, pencere gerekmez.
+Geri alma: asıl yol önceki server imajı (sütun okunmaz). Şema geri alınacaksa B1 kodu geri → `down.sql` (migrator, `prisma db
+execute`; guard yok, mimari §5). Kalıcı kayıp: `client_os` (geçmiş kopyası audit `request.create` `newValue.clientOs`); bekleyen
+macOS talebi kabul edilirse misafir `windows` sayılır (yalnız OS_PERMISSION metni; yetki vermez, T-P31-5).
+
+### Test (2026-11-20, geçici `rs-p31-test`:33474, mysql 8.4.13 — B1 için AÇIK bırakıldı)
+
+- Temiz up (tüm migration'lar + P31) OK; `migrate diff --exit-code` 0. down → HEAD şemasına diff 0, `%client_os%` CHECK 0, kayıt
+  silindi; yeniden up → diff 0.
+- `check-app-grants.sh` **966/966 PASS** (+11 P31: AGENT windows/macos/NULL, ikili enum varyantları MACOS / `macos ` / `maçs`,
+  linux, boş, sonda `\n`; WEB + NULL OK, WEB + macos ve AGENT macos → WEB 3819).
+- `test/integration/p31-schema-d.test.ts` (5 test): varsayılan NULL, CHECK negatifleri, WEB kuralı, anonimleştirmede korunma,
+  information_schema (tip, indeks yok, iki CHECK, ikili karşılaştırma).

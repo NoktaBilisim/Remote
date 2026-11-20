@@ -6,10 +6,11 @@ import (
 	"remote-support/agent-win/internal/darwin/objc"
 )
 
-// BundleCode çalışan .app'in özgün yolundan kod (mimari-p28f §2 sıra 2–3). App Translocation altındaysa özgün yol
-// SecTranslocateCreateOriginalPathForURL ile çözülür; çözülemezse çalışılan yol kullanılır (translocation yolu
-// rastgele adlıdır, desenle eşleşmez → kod alanı, AC-97). Hata → "" (fail-closed: kod elle girilir).
-func BundleCode() string { return CodeFromBundlePath(BundlePath()) }
+// BundleSource çalışan .app'in özgün yolundan açılış kaynağı (mimari-p28f §2 sıra 2–3; P31 §15.2: klasör kod > klasör
+// ref > bundle adı yalnız kod). App Translocation altındaysa özgün yol SecTranslocateCreateOriginalPathForURL ile
+// çözülür; çözülemezse çalışılan yol kullanılır (translocation yolu rastgele adlıdır, desenle eşleşmez → kaynak yok,
+// AC-190 + NoticeMacFolder). Hata → boş kaynak (fail-closed).
+func BundleSource() Source { return SourceFromBundlePath(BundlePath()) }
 
 // BundlePath çalışan bundle'ın özgün yolu ("" okunamazsa).
 func BundlePath() string {

@@ -57,6 +57,8 @@ export interface CustomerTemplateInput {
   firm: string;
   downloadUrl: string | null;
   webFormUrl: string | null;
+  /** P31 (§15.3, AC-520): sunucunun genel kökeni (`PUBLIC_BASE_URL`, sondaki `/` yok) — kaynak satırı. */
+  origin: string;
 }
 export type TemplateInput = SessionTemplateInput | UnattendedTemplateInput | CustomerTemplateInput;
 
@@ -141,9 +143,16 @@ const customerLinks = (i: CustomerTemplateInput): [string, string][] => [
   ...(i.webFormUrl ? ([["Destek talebi formu", i.webFormUrl]] as [string, string][]) : []),
 ];
 const CUSTOMER_WARN = "Bu bağlantılar firmanıza özeldir, paylaşmayın.";
+/** P31 (mimari-p31 §15.3, S-P31-2; AC-520): kaynağa çapa. Köken sunucu ayarından gelir (firma adı süzgecinden geçmez). */
+const sourceLine = (origin: string): string => `Bağlantı her zaman ${origin}/ ile başlar; dosya eki göndermeyiz.`;
 
 function customerShort(i: CustomerTemplateInput): string {
-  return [`${F(i.firm)} destek bağlantılarınız:`, ...customerLinks(i).map(([l, u]) => `${l}: ${u}`), CUSTOMER_WARN].join("\n");
+  return [
+    `${F(i.firm)} destek bağlantılarınız:`,
+    ...customerLinks(i).map(([l, u]) => `${l}: ${u}`),
+    CUSTOMER_WARN,
+    sourceLine(i.origin),
+  ].join("\n");
 }
 
 function customerMail(i: CustomerTemplateInput): Rendered {
@@ -153,7 +162,7 @@ function customerMail(i: CustomerTemplateInput): Rendered {
     text: customerShort(i),
     bodyHtml: `<p>${esc(firm)} destek bağlantılarınız:</p><ul>${customerLinks(i)
       .map(([l, u]) => `<li>${esc(l)}: <a href="${esc(u)}">${esc(u)}</a></li>`)
-      .join("")}</ul><p>${esc(CUSTOMER_WARN)}</p>`,
+      .join("")}</ul><p>${esc(CUSTOMER_WARN)}</p><p>${esc(sourceLine(i.origin))}</p>`,
   };
 }
 

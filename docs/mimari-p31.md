@@ -131,6 +131,9 @@ Geri dönüş: sütun NULL'lanabilir ve kod onu okumazsa zararsız; rollback mig
 `prisma/sql/grants.sql`: `app` kullanıcısının bu tabloda sütun düzeyi INSERT/UPDATE listesi varsa `client_os` INSERT'e
 eklenir (UPDATE gerekmez — oluşturulduktan sonra değişmez). dba doğrular.
 
+> dba notu (P31-D, 2026-11-20): `client_os` CHECK'i ADR-0014 kalıbıyla ikili yazıldı (`CAST(client_os AS BINARY) IN (...)`);
+> düz IN tablo harmanlamasında `'MACOS'`/`'macos '` kabul ediyordu (ölçüldü). grants.sql tablo düzeyi — yeni GRANT yok. Ayrıntı: `docs/db-notlari.md` "P31".
+
 ## 6. Güvenlik tasarımı
 
 | Tehdit                                                                                                                                                       | Önlem                                                                                                                                                                                                                                                                    |

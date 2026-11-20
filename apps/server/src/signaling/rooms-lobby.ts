@@ -37,6 +37,8 @@ export interface PreAdmitInput {
   name: string;
   email?: string;
   clientVersion: string | null;
+  /** P31 (AC-511, D-2): talepteki beyan (`support_requests.client_os`); yoksa misafir `windows` sayılır. */
+  clientOs?: ClientOs;
   consent: GuestConsent;
   acceptCode?: boolean;
 }
@@ -109,6 +111,7 @@ export function preAdmitGuest(rooms: Rooms, row: RoomRow, g: PreAdmitInput): Tic
       since: rooms.clock.now(),
       requestId: g.requestId,
       ...(g.clientVersion !== null ? { clientVersion: g.clientVersion } : {}), // P19: WEB talebinde sürüm yok
+      ...(g.clientOs ? { clientOs: g.clientOs } : {}),
       ticketGen: 0,
     };
     room.lobby.set(guest.id, guest);

@@ -1135,6 +1135,16 @@ run DENIED "$TX $UD1; $(ups "'AVAILABLE'" NULL); $UUD update_at=NULL $WUD; $R" u
 run DENIED "$TX $UD1; $(ups "'AVAILABLE'" NULL); $UUD update_version='0.22.1-beta' $WUD; $R" unattended_devices_update_version_chk
 run DENIED "$TX $UD1; $(ups "'AVAILABLE'" NULL); $UUD update_version=CONCAT('0.22.1',CHAR(10)) $WUD; $R" unattended_devices_update_version_chk
 run DENIED "$TX $UD1; $(ups "'AVAILABLE'" NULL); $UUD update_version='1000.0.0' $WUD; $R" unattended_devices_update_version_chk
+# P31 (mimari-p31 §5, S-P31-7, K-P31-4; AC-511): support_requests.client_os — AGENT'ta 'windows'|'macos'|NULL (ikili, tam küçük
+# harf), WEB'de NULL. Yeni tablo/GRANT/tetikleyici yok (tablo düzeyi INSERT/UPDATE). Tümü geri alınan TX'te.
+run OK     "$TX $RQ; $UR client_os='macos' $WR; $UR client_os='windows' $WR; $UR client_os=NULL $WR; $R"
+enum_case support_requests_client_os_chk macos MACOS "CONCAT('mac',CONVERT(X'C3B6' USING utf8mb4),'s')" "$TX $RQ; $UR client_os=@V@ $WR; $R"   # ö
+run DENIED "$TX $RQ; $UR client_os='linux' $WR; $R" support_requests_client_os_chk
+run DENIED "$TX $RQ; $UR client_os='' $WR; $R" support_requests_client_os_chk
+run DENIED "$TX $RQ; $UR client_os=CONCAT('windows',CHAR(10)) $WR; $R" support_requests_client_os_chk
+run OK     "$TX $RQW; $R"                                                                                  # WEB + NULL
+run DENIED "$TX $RQW; $UR client_os='macos' $WR; $R" support_requests_source_client_os_chk              # WEB + macos
+run DENIED "$TX $RQ; $UR client_os='macos' $WR; $UR source='WEB',client_version=NULL $WR; $R" support_requests_source_client_os_chk
 # Temizlik (FK sırasıyla)
 run_mig OK "DELETE FROM tenant_purge_jobs WHERE tenant_id IN ('00000000000000000000GRANTT','00000000000000000000GRANTW'); DELETE FROM session_consents WHERE id IN ('00000000000000000000GRANT9','0000000000000000000GRANT10'); DELETE FROM support_sessions WHERE id IN ('00000000000000000000GRANT7','00000000000000000000GRANT8'); DELETE FROM customers WHERE id='00000000000000000000GRANTY'; DELETE FROM tenants WHERE id='00000000000000000000GRANTW'; DELETE FROM users WHERE id='00000000000000000000GRANTU'; DELETE FROM tenant_settings WHERE tenant_id='00000000000000000000GRANTT'; DELETE FROM tenants WHERE id='00000000000000000000GRANTT'"  # P16: app tenant/users silemez (tetikleyici) → migrator
 # P13a `backup` kullanıcısı (mimari-p13 §4): yalnız 'backup'@'localhost'; DB'de SELECT, SHOW VIEW, TRIGGER; global yetki yok.

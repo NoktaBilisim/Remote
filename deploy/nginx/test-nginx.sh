@@ -2,6 +2,7 @@
 # Host nginx vhost'u testi (ADR-0015, G-10, G-E9-8; yerel ve CI). Sunucuya DOKUNMAZ: sunucudaki nginx sürümüyle
 # (Ubuntu 24.04 = 1.24.0) geçici konteynerde, geçici öz-imzalı sertifikayla `nginx -t` + erişim logu maskesi sınanır.
 # Upstream (127.0.0.1:4451) bu konteynerde yok → 443 istekleri 502 döner; amaç yalnız log satırıdır.
+# P31 (§15.4): /downloads/NoktaDestek-* limit_req (7. istek 429, /api/ ve diğer yollar sınırsız), red satırı hata loguna ref yazmaz.
 # Kullanım: deploy/nginx/test-nginx.sh
 set -euo pipefail
 cd "$(dirname "$0")"
@@ -35,6 +36,19 @@ get80() { curl -s -o /dev/null -w '%{http_code}' -H 'Host: remote.noktabilisim.n
 get443() { curl -sk $R -o /dev/null -w '%{http_code}' "https://remote.noktabilisim.net:$H443$1"; }
 [ "$(get80 "/downloads/NoktaDestek-DemoFirma-$REF.exe?ref=gizli")" = 301 ] && pass "80 → 301" || fail "80 yönlendirme"
 [ "$(get443 "/downloads/NoktaDestek-DemoFirma-$REF.exe?x=1")" = 502 ] && pass "443 → upstream (bu testte 502)" || fail "443"
+# P31 §15.4 (S-P31-6, AC-510): limit_req 10/dk, burst 5, 429. Yukarıdaki firma .exe isteği 1. istektir (aynı IP, aynı kova);
+# 2..6 burst içinde geçer (upstream yok → 502), 7. istek 429. Mac .zip ve jenerik zip aynı kovayı paylaşır.
+for i in 2 3 4 5 6; do
+  case $i in 2|4) u="/downloads/NoktaDestek-MacFirma-$REF.zip" ;; 3) u="/downloads/NoktaDestek-macOS.zip" ;; *) u="/downloads/NoktaDestek-DemoFirma-$REF.exe" ;; esac
+  CODE="$(get443 "$u")"; [ "$CODE" = 502 ] && pass "limit_req: $i. indirme isteği geçer (502)" || fail "limit_req: $i. istek → $CODE"
+done
+CODE="$(get443 "/downloads/NoktaDestek-MacFirma-$REF.zip?gizli=1")"
+[ "$CODE" = 429 ] && pass "limit_req: aynı IP'den 7. istek → 429 (1 + burst 5)" || fail "limit_req: 7. istek → $CODE (429 bekleniyordu)"
+[ "$(get443 "/downloads/NoktaDestek-DemoFirma-$REF.exe")" = 429 ] && pass "limit_req: .exe firma yolu da aynı kovada 429" || fail "limit_req: exe 429 değil"
+OK=1; for _ in $(seq 1 12); do [ "$(get443 /api/v1/health/x)" = 502 ] || OK=0; done
+[ "$OK" = 1 ] && pass "limit_req: /api/ yolunda sınır yok (12 istek, 429 yok)" || fail "limit_req: /api/ yolu sınırlandı"
+OK=1; for u in /downloads/NoktaDestek.exe /downloads/Destek-12345678.exe /r/webref /ws/request /; do [ "$(get443 "$u")" = 502 ] || OK=0; done
+[ "$OK" = 1 ] && pass "limit_req: kova dolu iken NoktaDestek.exe, Destek-<kod>, /r/, /ws/, / etkilenmez" || fail "limit_req: kapsam dışı yol sınırlandı"
 get443 "/x/NoktaDestek-Ikinci-$REF/y" >/dev/null
 get443 "/downloads/NoktaDestek.exe" >/dev/null
 get443 "/downloads/Destek-12345678.exe" >/dev/null
@@ -61,6 +75,10 @@ sleep 0.5
 docker exec "$C" cat /var/log/nginx/remote.access.log >"$TMP/access.log"
 U="$(grep -o '"uri":"[^"]*"' "$TMP/access.log" | sort | uniq -c)"
 echo "$U"
+grep -q '"status":429' "$TMP/access.log" && pass "429 erişim logunda görünür" || fail "429 erişim logunda yok"
+docker exec "$C" sh -c 'cat /var/log/nginx/remote.error.log 2>/dev/null' >"$TMP/error.log" || true
+grep -q -- "$REF" "$TMP/error.log" && fail "hata logunda ref var (limit_req red satırı)" || pass "hata logunda ref yok (error_log crit)"
+grep -q 'MacFirma' "$TMP/access.log" && fail "logda 'MacFirma' var" || pass "logda 'MacFirma' yok"
 for want in '/downloads/NoktaDestek-***' '/x/NoktaDestek-***' '/downloads/NoktaDestek.exe' '/downloads/Destek-***' '/session/***/x'; do
   grep -qF "\"uri\":\"$want\"" "$TMP/access.log" && pass "uri $want" || fail "uri $want yok"
 done

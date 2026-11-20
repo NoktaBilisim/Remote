@@ -25,6 +25,9 @@ const (
 	hintTrayNoFirm      = "Tepside çalıştır, bu bilgisayar bir firmaya kaydolduktan sonra (ilk destek oturumunun ardından) açılabilir."
 	fileRowPrefix       = "Bu dosyanın firması"
 	noteForgetAllFailed = "Bu bilgisayardaki kayıt silinemedi. Pencereyi kapatıp yeniden deneyin."
+	// NoticeMacFolder P31 AC-512: macOS'ta kaynak (klasör adı) okunamadığında ana ekranın bilgi satırı (Deps.SourceHint).
+	NoticeMacFolder = "Firmanızın bağlantısından indirdiyseniz zip'i açtığınız klasörü yeniden adlandırmadan ve " +
+		"uygulamayı klasörden çıkarmadan açın. Teknisyen size kod verdiyse Bağlantı kodum var ile devam edin."
 )
 
 // BlockedText K-P20-5 + G-P20-9: 5 sınırı nedeniyle eski sürümden kalan kayıt eklenemedi.

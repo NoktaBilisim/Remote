@@ -29,6 +29,8 @@ type Deps struct {
 	Ref        string
 	BindingKey string
 	Version    string
+	// DownloadOS P31 AC-519: "Yeni sürümü indir" adresinin platformu (DownloadOSMac ya da boş = Windows, bugünkü adres).
+	DownloadOS string
 	// Registered seçili kaydın YEREL etiketi ("<firma>[ – <müşteri>]"); bekleme penceresi başlığı (G-P20-7). Ref
 	// modunda boş.
 	Registered string
@@ -189,7 +191,7 @@ func (r *runner) problem(ctx context.Context, p Problem) (bool, *Outcome) {
 				return false, &Outcome{Kind: OutCodeMode}
 			}
 		case ProblemDownload:
-			if u, ok := DownloadURL(r.d.ServerURL, r.d.Ref); ok && p.Download { // kayıt modunda Ref yok → düğme yok
+			if u, ok := DownloadURL(r.d.ServerURL, r.d.Ref, r.d.DownloadOS); ok && p.Download { // kayıt modunda Ref yok → düğme yok
 				r.d.UI.OpenURL(u)
 			}
 			continue

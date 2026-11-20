@@ -1,7 +1,12 @@
 // Talep kabul TX'i ve commit sonrası adımları (AC-153, 154, 239; mimari-e9 §3.4) — PT-K9: panel.ts `acceptRequest`
 // gövdesinden mekanik çıkarım. Kilit sırası (S-P19-T12): ayarlar → teknisyen → müşteri → talep (oluşturma/ret/süre dolumu ile
 // aynı; 1213 yok). Tüm TX adımları aynı `tx` nesnesini alır.
-import { ACCEPT_CODE_MIN_CLIENT_VERSION, REQUEST_CONNECT_WINDOW_SEC } from "@remote/contracts/api/requests";
+import {
+  ACCEPT_CODE_MIN_CLIENT_VERSION,
+  REQUEST_CONNECT_WINDOW_SEC,
+  requestClientOsSchema,
+  type RequestClientOs,
+} from "@remote/contracts/api/requests";
 import { writeAudit, type AuditContext } from "../audit/service.ts";
 import type { AuthContext } from "../auth/session.ts";
 import * as crepo from "../customers/repo.ts";
@@ -14,6 +19,12 @@ import * as srepo from "../sessions/repo.ts";
 import { who } from "./panel-settings.ts";
 import * as repo from "./repo.ts";
 import type { RequestService } from "./service.ts";
+
+/** DB değeri (CHECK'li) şemayla daraltılır; yalnız AGENT talebinde. */
+const clientOsOf = (r: repo.SecretRow): { clientOs?: RequestClientOs } => {
+  const p = requestClientOsSchema.safeParse(r.clientOs);
+  return r.source === "AGENT" && p.success ? { clientOs: p.data } : {};
+};
 
 const sec = (ms: number): number => Math.max(0, Math.floor(ms / 1000));
 
@@ -135,6 +146,8 @@ export async function afterAccept(w: Omit<Who, "ctx">, res: Accepted): Promise<v
       name: r.customerName ?? "Müşteri",
       ...(r.customerEmail ? { email: r.customerEmail } : {}),
       clientVersion: r.clientVersion,
+      // P31 (AC-511, D-2): talepteki beyan → misafir clientOs (OS_PERMISSION kabulü). NULL/WEB → alan yok (= windows).
+      ...clientOsOf(r),
       consent: { textId: r.consentTextId, version: r.consentText.version, sha256: r.consentSha256, at: now, ip: "", userAgent: "" },
       acceptCode,
     },

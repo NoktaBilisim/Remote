@@ -6,6 +6,7 @@ package mac
 
 import (
 	"fmt"
+	"net/url"
 
 	"remote-support/agent-win/internal/flow"
 	"remote-support/agent-win/internal/input"
@@ -74,4 +75,30 @@ func aboutSigLine(si signInfo) string {
 // CoreGraphics nokta koordinatına (sol üst köken, y aşağı) çevirir; her yönde 1 nokta dışa yuvarlanır (Y-P28f-K1).
 func flipRect(x, y, w, h, primaryH float64) input.FRect {
 	return input.FRect{X: x - 1, Y: primaryH - (y + h) - 1, W: w + 2, H: h + 2}
+}
+
+// --- P31 talep ekranları (mimari-p31 §6 T-P31-8) -----------------------------------------------------------------
+
+// downloadPath request.DownloadURL'in sabit yolu.
+const downloadPath = "/api/v1/public/agent/request-download"
+
+// downloadURLAllowed OpenURL'in açabileceği TEK adres biçimi: https, kullanıcı bilgisiz, sabit yol, yalnız `ref` ve
+// (isteğe bağlı) `os=macos` sorgusu, parçasız (request.DownloadURL çıktısı; köken orada gömülü sunucudan gelir).
+// mailto ayrı yoldan (openMailto + uicore.MailtoAddr) açılır.
+func downloadURLAllowed(s string) bool {
+	u, err := url.Parse(s)
+	if err != nil || u.Scheme != "https" || u.User != nil || u.Host == "" || u.Path != downloadPath ||
+		u.Fragment != "" || u.Opaque != "" {
+		return false
+	}
+	q, err := url.ParseQuery(u.RawQuery)
+	if err != nil || len(q["ref"]) != 1 {
+		return false
+	}
+	for k, v := range q {
+		if k != "ref" && (k != "os" || len(v) != 1 || v[0] != "macos") {
+			return false
+		}
+	}
+	return true
 }

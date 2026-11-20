@@ -4,10 +4,10 @@ package ui
 
 import (
 	"context"
-	"fmt"
 
 	"remote-support/agent-win/internal/flow"
 	"remote-support/agent-win/internal/request"
+	"remote-support/agent-win/internal/ui/uicore"
 	"remote-support/agent-win/internal/win"
 )
 
@@ -63,8 +63,8 @@ func (u *UI) newReqForm(v request.FormView) *reqForm {
 	r := &reqForm{f: f, errs: map[string]*ctrl{}, abuseEmail: v.AbuseEmail}
 	f.picture(orSystemLogo(v.Logo), 396, 8, 128, 56)
 	f.label(v.Tenant, 16, 10, 370, 32, fontBig) // yalnız sunucudan gelen firma adı (G-E9-11)
-	f.label(fmt.Sprintf("Uzaktan destek talebi · yanıt bekleme süresi en çok %d dk", v.WaitMinutes), 16, 46, 370, 20, fontNormal)
-	f.danger(fraudText, 16, 70, 508, 36, fontNormal)
+	f.label(uicore.FormTitle(v.WaitMinutes), 16, 46, 370, 20, fontNormal)
+	f.danger(uicore.RequestFraudText, 16, 70, 508, 36, fontNormal)
 	if v.AbuseEmail != "" { // Tab sırasında uyarının hemen ardından (QA önerisi)
 		f.button("Kötüye kullanımı bildir", idAbuse, 16, 110, 200, false)
 	}
@@ -74,8 +74,8 @@ func (u *UI) newReqForm(v request.FormView) *reqForm {
 	// AC-292: gönder düğmesinin hemen üstünde saklama satırı (P22, K-P22-9).
 	r.ready = retentionLine(f, v.ChatRetentionDays, 16, 652+shift, 508)
 	shift += retentionRow
-	r.submit = f.button("Destek iste", idOK, 16, 656+shift, 140, true)
-	r.code = f.button("Bağlantı kodum var", idReqCode, 164, 656+shift, 190, false)
+	r.submit = f.button(uicore.FormSubmitText, idOK, 16, 656+shift, 140, true)
+	r.code = f.button(uicore.FormCodeText, idReqCode, 164, 656+shift, 190, false)
 	r.closeB = f.button("Kapat", idCancel, 434, 656+shift, 90, false)
 	f.label(u.footer, 16, 700+shift, 508, 20, fontNormal) // sunucu + sürüm + SHA-256 ilk 8 (AC-133)
 	f.command = r.command
@@ -96,12 +96,14 @@ func (r *reqForm) field(label string, id int, y int32, key string, limit int) *c
 // addFields ad, telefon, e-posta ve sorun açıklaması (hata satırlarıyla).
 func (r *reqForm) addFields() {
 	f := r.f
-	r.name = r.field("Ad soyad", idReqName, 146, request.FieldName, 100)
-	r.phone = r.field("Telefon", idReqPhone, 192, request.FieldPhone, 40)
-	r.email = r.field("E-posta (isteğe bağlı)", idReqEmail, 238, request.FieldEmail, 254)
-	f.label("Sorununuz", 16, 287, 130, 20, fontNormal)
-	r.desc = f.edit(idReqDesc, 150, 284, 374, 52, win.ES_MULTILINE|win.ES_AUTOVSCROLL|win.WS_VSCROLL, 600)
-	r.errs[request.FieldDescription] = f.danger("", 150, 338, 374, 18, fontNormal)
+	ff := uicore.FormFields() // P31 K-P31-7: etiket, sıra, sınır tek tablodan
+	r.name = r.field(ff[0].Label, idReqName, 146, ff[0].Key, ff[0].Limit)
+	r.phone = r.field(ff[1].Label, idReqPhone, 192, ff[1].Key, ff[1].Limit)
+	r.email = r.field(ff[2].Label, idReqEmail, 238, ff[2].Key, ff[2].Limit)
+	d := ff[3]
+	f.label(d.Label, 16, 287, 130, 20, fontNormal)
+	r.desc = f.edit(idReqDesc, 150, 284, 374, 52, win.ES_MULTILINE|win.ES_AUTOVSCROLL|win.WS_VSCROLL, d.Limit)
+	r.errs[d.Key] = f.danger("", 150, 338, 374, 18, fontNormal)
 }
 
 // recFormRow P28e kayıt kutusunun talep formunda kapladığı yükseklik.
@@ -111,22 +113,21 @@ const recFormRow = 40
 // "Bilgilerimi unut" ve ipucu. shift kayıt kutusunun altındaki denetimlerin kayması.
 func (r *reqForm) addConsent(v request.FormView, shift int32) {
 	f := r.f
-	f.label(fmt.Sprintf("Aydınlatma metni (sürüm %d)", v.ConsentVersion), 16, 360, 508, 20, fontBold)
+	f.label(uicore.ConsentHeading(v.ConsentVersion), 16, 360, 508, 20, fontBold)
 	text := f.edit(0, 16, 382, 508, 80, win.ES_MULTILINE|win.ES_READONLY|win.ES_AUTOVSCROLL|win.WS_VSCROLL, 0)
 	win.SetText(text.h, crlf(v.ConsentBody))
 	f.label(v.RememberNote, 16, 466, 508, 36, fontNormal) // AC-188: KVKK onayının üstünde
-	r.consent = f.add("BUTTON", "Aydınlatma metnini okudum; bilgilerimin destek talebi için işlenmesini kabul ediyorum. "+
-		"Ekran paylaşımı için teknisyen bağlanırken ayrıca onay istenir.",
+	r.consent = f.add("BUTTON", uicore.FormConsentText,
 		win.WS_TABSTOP|win.BS_AUTOCHECKBOX|win.BS_MULTILINE, 0, idReqConsent, 16, 506, 508, 36, fontNormal)
 	r.errs[request.FieldConsent] = f.danger("", 16, 542, 508, 18, fontNormal)
 	if v.RecOffered { // P28e AC-381: ayrı, varsayılan işaretsiz kutu; metin derlemedeki cümle
 		r.rec = f.add("BUTTON", flow.RecTexts.ConsentLine, win.WS_TABSTOP|win.BS_AUTOCHECKBOX|win.BS_MULTILINE, 0,
 			idRecConsent, 16, 562, 508, 36, fontNormal)
 	}
-	r.remember = f.add("BUTTON", "Bilgilerimi bu bilgisayarda hatırla", win.WS_TABSTOP|win.BS_AUTOCHECKBOX, 0,
+	r.remember = f.add("BUTTON", uicore.FormRememberText, win.WS_TABSTOP|win.BS_AUTOCHECKBOX, 0,
 		idReqRemember, 16, 566+shift, 300, 22, fontNormal)
-	r.forget = f.button("Bilgilerimi unut", idReqForget, 374, 563+shift, 150, false)
-	r.hint = f.label("Bu bilgiler size ait değilse: Bilgilerimi unut", 16, 592+shift, 508, 18, fontNormal)
+	r.forget = f.button(uicore.FormForgetText, idReqForget, 374, 563+shift, 150, false)
+	r.hint = f.label(uicore.FormForgetHint, 16, 592+shift, 508, 18, fontNormal)
 }
 
 // reply bekleyen RequestForm çağrısına alanların o anki değerleriyle yanıt verir (gönderim sürüyorsa yok sayılır).

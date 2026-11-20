@@ -19,7 +19,7 @@
 	# G-10 (S6 bilinen 3): hata logu (http.log.error, reverse_proxy/forward_auth 502/503 vb.) varsayılan logger'a
 	# `request` nesnesiyle tam URI ve başlıkları yazar. Site `log` bloğu yalnız erişim logunu kapsar; aynı filtre
 	# burada da uygulanır (sorgu dizesi, /session/<token>, /downloads/Destek-<kod>.exe, firma dosyası
-	# /downloads/NoktaDestek-<label>-<ref>.exe (P8b, G-E9-8), web talep formu /r/<ref> (P19), kimlik başlıkları).
+	# /downloads/NoktaDestek-<label>-<ref>.exe (P8b, G-E9-8) ve .zip (P31), web talep formu /r/<ref> (P19), kimlik başlıkları).
 	log default {
 		output stderr
 		format filter {
@@ -236,6 +236,22 @@
 				header_up X-Forwarded-Uri "/downloads/{re.agentExeFirm.1}.exe"
 			}
 			import agent_exe_file {re.agentExeFirm.1}
+		}
+	}
+	# P31 (AC-510; mimari-p31 K-P31-3, §15.1, S-P31-1): Mac firma zip'i NoktaDestek-<file_label>-<tenantRef>.zip — AYNI jenerik
+	# macOS zip'i (agent_zip_file). Kapı AYRI iç uç /internal/agent-ready/macos-firm (fail-closed): ad tam firma deseni değilse ya da
+	# ref pasif / label eski ise 404, mac ikili kapısı (MAC_AGENT_SHA256) değilse 503. X-Forwarded-Uri = yalnız yol, tam ad ({path}
+	# sorgu dizesi içermez). @agentZip'teki `"/downloads/***"` satırı BURAYA KOPYALANMAZ (kopyalanırsa uç 404 verir — hata kapalı
+	# yönde). Yayın: önce sunucu (uç canlı), sonra bu dosya; geri alma ters (runbook §32). Eski sunucuda uç yok → 404 (zip sunulmaz).
+	# Log maskesi "NoktaDestek-[^/?]+" .zip firma adını da kapsar (G-10). `handle /downloads/*` 404'ünden ÖNCE.
+	@agentZipFirm path_regexp agentZipFirm ^/downloads/(NoktaDestek-[A-Za-z0-9]{1,20}-[a-z2-7]{16})\.zip$
+	handle @agentZipFirm {
+		route {
+			forward_auth server:3001 {
+				uri /internal/agent-ready/macos-firm
+				header_up X-Forwarded-Uri {path}
+			}
+			import agent_zip_file {re.agentZipFirm.1}
 		}
 	}
 	handle /downloads/* {

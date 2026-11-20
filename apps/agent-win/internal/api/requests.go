@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/url"
+	"runtime"
 	"time"
 )
 
@@ -40,6 +41,19 @@ type CreateRequestBody struct {
 	ConsentTextID    string `json:"consentTextId"`
 	ConsentAccepted  bool   `json:"consentAccepted"`
 	DeviceKey        string `json:"deviceKey,omitempty"`
+	// ClientOS P31 (AC-511, mimari-p31 K-P31-4 + §14 D-1): yalnız macOS'ta "macos"; CreateRequest doldurur (requestClientOS).
+	// Windows'ta boş → alan gönderilmez (gövde P31 öncesiyle bayt bayt aynı; sunucu NULL = windows sayar).
+	ClientOS string `json:"clientOs,omitempty"`
+}
+
+// requestClientOS talep gövdesinin `clientOs` değeri (resolve'un clientOS'undan ayrı): talep şeması yalnız
+// `windows|macos` kabul eder (S-P31-7); Windows alanı göndermez (D-1), Linux'ta talep akışı yoktur (AC-521) → yalnız
+// macOS (clientOS == "macos"), diğer her GOOS boş.
+func requestClientOS(goos string) string {
+	if os := clientOS(goos); os == "macos" {
+		return os
+	}
+	return ""
 }
 
 // CreateRequestResult 201 yanıtı. RequestSecret yalnız bellekte tutulur; diske/loga yazılmaz (mimari-e9 §5.1).
@@ -67,6 +81,7 @@ func (c *Client) TenantInfo(ctx context.Context, ref string) (*TenantRequestInfo
 // CreateRequest talebi oluşturur. Burada yeniden DENENMEZ: her deneme sunucunun IP/önek kovalarını tüketir; 503
 // yeniden deneme politikası (S8b-8) internal/request'tedir.
 func (c *Client) CreateRequest(ctx context.Context, body CreateRequestBody) (*CreateRequestResult, error) {
+	body.ClientOS = requestClientOS(runtime.GOOS)
 	b, err := json.Marshal(body)
 	if err != nil {
 		return nil, err

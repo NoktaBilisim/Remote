@@ -12,6 +12,9 @@
 # P28g (S-P28g-6/12): Linux ELF'i (NoktaDestek-linux, Destek-<8 hane>, uzantısız) /internal/agent-ready/linux'a gider; başlıklar
 # (octet-stream, attachment uzantısız ad, nosniff, no-store, Last-Modified YOK); çapraz kapı senaryoları (Windows açık + Linux kapalı,
 # macOS açık + Linux kapalı, Linux açık + diğerleri kapalı); biçim dışı adlar (Destek-12345678.sh, NoktaDestek-linux/) server'a gitmez.
+# P31 (AC-510, mimari-p31 §15.1): Mac firma zip'i NoktaDestek-<label>-<ref>.zip ayrı iç uç /internal/agent-ready/macos-firm'e tam adla
+# (sorgu dizesiz) gider; Yanlis → 404, mac kapısı kapalı → 503, .exe windows'a, jenerik zip macos'a; eski sunucu (uç yok) → 404;
+# geri alınmış Caddyfile (blok yok) → 404 ve forward_auth çağrılmaz; erişim + hata logunda NoktaDestek-***.
 # P13c: ROBOTS_NOINDEX yokken (prod) X-Robots-Tag / robots.txt Disallow yok; staging katmanı değerleriyle noindex + trusted_proxies.
 # Kullanım: deploy/test-caddy.sh   ·   KEEP=1 (konteynerleri bırak)   ·   uzun WS bağlantısı (HTTP zaman aşımlarından etkilenmiyor mu, ~40 sn):
 #           CADDY_TEST_WS_HOLD=1 deploy/test-caddy.sh
@@ -22,7 +25,7 @@ NODE_IMAGE="$(sed -n 's/^ARG NODE_IMAGE=//p' ../apps/server/Dockerfile)"
 [ -n "$CADDY_IMAGE" ] && [ -n "$NODE_IMAGE" ] || { echo "imaj adı bulunamadı"; exit 2; }
 P="remote-caddy-test-$$"   # benzersiz ad: paralel koşular / paylaşılan Docker çakışmaz
 TMP="$(mktemp -d)"
-cleanup() { docker rm -f "$P-caddy" "$P-caddy-stg" "$P-server" >/dev/null 2>&1 || true; docker network rm "$P" >/dev/null 2>&1 || true; rm -rf "$TMP"; }
+cleanup() { docker rm -f "$P-caddy" "$P-caddy-stg" "$P-caddy-rb" "$P-server" >/dev/null 2>&1 || true; docker network rm "$P" >/dev/null 2>&1 || true; rm -rf "$TMP"; }
 trap cleanup EXIT
 if [ "${KEEP:-0}" = 1 ]; then trap - EXIT; fi   # KEEP=1: konteynerler incelemek için kalır (sonra elle rm)
 FAILS=0
@@ -69,7 +72,13 @@ const s = http.createServer((req, res) => {
     fs.appendFileSync("/tmp/fa.log", JSON.stringify({ uri, method: req.headers["x-forwarded-method"] ?? "" }) + "\n");
     fs.appendFileSync("/tmp/fa-path.log", path + "\n");
     // P28f: platform kapısı kapalı senaryosu (/tmp/<platform>-closed varsa 503).
-    if (path === "/internal/agent-ready/macos" && fs.existsSync("/tmp/macos-closed")) { res.writeHead(503, { "content-type": "application/json" }); return res.end('{"error":{"code":"NOT_READY"}}'); }
+    // P31 (mimari-p31 §15.1): /internal/agent-ready/macos-firm — /tmp/macos-firm-absent = eski sunucu (uç kayıtlı değil → 404).
+    // Fail-closed taklidi: X-Forwarded-Uri tam firma zip deseni değilse 404 (Caddyfile "/downloads/***" kopyalarsa test düşer).
+    if (path === "/internal/agent-ready/macos-firm") {
+      if (fs.existsSync("/tmp/macos-firm-absent")) { res.writeHead(404, { "content-type": "application/json" }); return res.end('{"error":{"code":"NOT_FOUND"}}'); }
+      if (!/^\/downloads\/NoktaDestek-[A-Za-z0-9]{1,20}-[a-z2-7]{16}\.zip$/.test(uri)) { res.writeHead(404, { "content-type": "application/json" }); return res.end('{"error":{"code":"REQUEST_REF_INVALID"}}'); }
+    }
+    if ((path === "/internal/agent-ready/macos" || path === "/internal/agent-ready/macos-firm") && fs.existsSync("/tmp/macos-closed")) { res.writeHead(503, { "content-type": "application/json" }); return res.end('{"error":{"code":"NOT_READY"}}'); }
     if (path === "/internal/agent-ready/windows" && fs.existsSync("/tmp/windows-closed")) { res.writeHead(503, { "content-type": "application/json" }); return res.end('{"error":{"code":"NOT_READY"}}'); }
     // P28g: /tmp/linux-closed = LINUX_AGENT_SHA256 uyuşmaz / dosya yok (server 503 NOT_READY).
     if (path === "/internal/agent-ready/linux" && fs.existsSync("/tmp/linux-closed")) { res.writeHead(503, { "content-type": "application/json" }); return res.end('{"error":{"code":"NOT_READY"}}'); }
@@ -132,11 +141,14 @@ N0="$(fa_count)"
 for bad in "NoktaDestek-ABCDEFGHIJKLMNOPQRSTU-$REF.exe" "NoktaDestek-Demo-ABCDEFGHIJKLMN27.exe" \
   "NoktaDestek-Demo-abcdefghijklmn18.exe" "NoktaDestek-Demo-abcdefghijklmn2.exe" "NoktaDestek-Demo_1-$REF.exe" \
   "NoktaDestek--$REF.exe" "x/$FIRM.exe" "$FIRM.exe.zip" "nokta$FIRM.exe" "Destek-1234567.exe" \
-  "Destek-1234567.zip" "Destek-123456789.zip" "$FIRM.zip" "NoktaDestek.zip" "NoktaDestek-macos.zip" "NoktaDestek-macOS.exe" \
+  "Destek-1234567.zip" "Destek-123456789.zip" "NoktaDestek.zip" "NoktaDestek-macos.zip" "NoktaDestek-macOS.exe" \
   "Destek-12345678.ZIP" "x/NoktaDestek-macOS.zip" \
   "Destek-12345678.sh" "NoktaDestek-linux/" "Destek-12345678/" "NoktaDestek-Linux" "NoktaDestek-linux.exe" "NoktaDestek-linux.zip" \
   "NoktaDestek-linux-x86_64-0.20.0" "Destek-1234567" "Destek-123456789" "destek-98765432" "x/NoktaDestek-linux" \
-  "Destek-12345678(1)" "NoktaDestek-linuxx"; do
+  "Destek-12345678(1)" "NoktaDestek-linuxx" \
+  "NoktaDestek-ABCDEFGHIJKLMNOPQRSTU-$REF.zip" "NoktaDestek-Demo-ABCDEFGHIJKLMN27.zip" "NoktaDestek-Demo-abcdefghijklmn2.zip" \
+  "NoktaDestek-Demo-abcdefghijklmn278.zip" "NoktaDestek-Demo_1-$REF.zip" "NoktaDestek--$REF.zip" "x/$FIRM.zip" "$FIRM.ZIP" \
+  "$FIRM.zip.exe" "$FIRM.zip/" "$FIRM%20(1).zip" "$FIRM(1).zip" "nokta$FIRM.zip"; do
   CODE="$(curl -s -o /dev/null -w '%{http_code}' "$B/downloads/$bad")"
   [ "$CODE" = 404 ] && pass "404 $bad" || fail "$bad → $CODE"
 done
@@ -186,6 +198,48 @@ CODE="$(curl -s -o "$TMP/out" -w '%{http_code}' "$B/downloads/$FIRM.exe")"
 CODE="$(curl -s -o "$TMP/out" -w '%{http_code}' "$B/downloads/NoktaDestek-macOS.zip")"
 [ "$CODE" = 200 ] && [ "$(cat "$TMP/out")" = "$WANTZ" ] && pass "windows kapısı kapalıyken zip sunulur (çapraz)" || fail "windows kapalı zip: $CODE"
 docker exec "$P-server" rm -f /tmp/windows-closed
+
+echo "== P31 Mac firma zip (AC-510, mimari-p31 §15.1 satır 1-6; satır 7 = log maskesi bölümü)"
+MFIRM="NoktaDestek-MacFirma-$REF"
+H="$(curl -s -D - -o "$TMP/out" "$B/downloads/$MFIRM.zip?utm=3")"
+CODE="$(printf '%s' "$H" | head -1 | awk '{print $2}')"
+[ "$CODE" = 200 ] && [ "$(cat "$TMP/out")" = "$WANTZ" ] && pass "P31 firma zip → 200, aynı jenerik zip" || fail "P31 firma zip → $CODE"
+HL="$(printf '%s' "$H" | tr -d '\r')"
+printf '%s' "$HL" | grep -qi "^content-disposition: attachment; filename=\"$MFIRM.zip\"$" && pass "P31 Content-Disposition firma zip adı" || fail "P31 Content-Disposition"
+printf '%s' "$HL" | grep -qi '^content-type: application/zip$' && pass "P31 Content-Type application/zip" || fail "P31 Content-Type"
+printf '%s' "$HL" | grep -qi '^cache-control: no-store$' && pass "P31 no-store" || fail "P31 Cache-Control"
+printf '%s' "$HL" | grep -qi '^x-content-type-options: nosniff$' && pass "P31 nosniff" || fail "P31 nosniff"
+[ "$(fa_path)" = /internal/agent-ready/macos-firm ] && pass "§15.1/1 firma zip → /internal/agent-ready/macos-firm" || fail "§15.1/1 kapı yolu: $(fa_path)"
+[ "$(fa_last)" = "{\"uri\":\"/downloads/$MFIRM.zip\",\"method\":\"GET\"}" ] \
+  && pass "§15.1/2 X-Forwarded-Uri = /downloads/<tam ad>.zip (*** değil, sorgu dizesi yok)" || fail "§15.1/2 uri: $(fa_last)"
+S3="$(sha256 "$TMP/out")"
+curl -s -o "$TMP/out" "$B/downloads/NoktaDestek-Ikinci2-$REF2.zip"
+[ "$(sha256 "$TMP/out")" = "$S3" ] && [ "$S3" = "$(sha256 "$TMP/dl/NoktaDestek-macOS.zip")" ] && pass "P31 iki firma adı aynı zip SHA-256" || fail "P31 SHA-256"
+CODE="$(curl -s -I -o /dev/null -w '%{http_code}' "$B/downloads/$MFIRM.zip")"
+[ "$CODE" = 200 ] && [ "$(fa_path)" = /internal/agent-ready/macos-firm ] && pass "P31 HEAD (staging curl -I) → 200, aynı kapı" || fail "P31 HEAD → $CODE"
+CODE="$(curl -s -o "$TMP/out" -w '%{http_code}' "$B/downloads/NoktaDestek-Yanlis-$REF.zip")"
+[ "$CODE" = 404 ] && ! grep -q PK-sahte "$TMP/out" && [ "$(fa_path)" = /internal/agent-ready/macos-firm ] \
+  && pass "§15.1/3 NoktaDestek-Yanlis-<ref>.zip → 404, zip sunulmaz" || fail "§15.1/3: $CODE $(fa_path)"
+docker exec "$P-server" touch /tmp/macos-closed
+CODE="$(curl -s -o "$TMP/out" -w '%{http_code}' "$B/downloads/$MFIRM.zip")"
+[ "$CODE" = 503 ] && ! grep -q PK-sahte "$TMP/out" && pass "§15.1/4 mac kapısı kapalı → firma zip 503, sunulmaz" || fail "§15.1/4: $CODE"
+CODE="$(curl -s -o "$TMP/out" -w '%{http_code}' "$B/downloads/$FIRM.exe")"
+[ "$CODE" = 200 ] && [ "$(cat "$TMP/out")" = "$WANT" ] && [ "$(fa_path)" = /internal/agent-ready/windows ] \
+  && pass "§15.1/5 firma .exe → windows kapısı (mac kapalıyken 200; macos/macos-firm'e gitmez)" || fail "§15.1/5: $CODE $(fa_path)"
+docker exec "$P-server" sh -c 'rm -f /tmp/macos-closed && touch /tmp/windows-closed'
+CODE="$(curl -s -o "$TMP/out" -w '%{http_code}' "$B/downloads/$MFIRM.zip")"
+[ "$CODE" = 200 ] && [ "$(cat "$TMP/out")" = "$WANTZ" ] && pass "P31 windows kapısı kapalıyken firma zip 200 (çapraz)" || fail "P31 windows kapalı firma zip: $CODE"
+docker exec "$P-server" rm -f /tmp/windows-closed
+CODE="$(curl -s -o "$TMP/out" -w '%{http_code}' "$B/downloads/NoktaDestek-macOS.zip")"
+[ "$CODE" = 200 ] && [ "$(fa_path)" = /internal/agent-ready/macos ] && [ "$(fa_last)" = '{"uri":"/downloads/***","method":"GET"}' ] \
+  && pass "§15.1/6 NoktaDestek-macOS.zip → /internal/agent-ready/macos (macos-firm'e gitmez, ad gitmez)" || fail "§15.1/6: $CODE $(fa_path)"
+echo "== P31 sürüm kayması: eski sunucu (macos-firm yok) + yeni Caddyfile → 404, 200 değil (geri alma sırası, §9)"
+docker exec "$P-server" touch /tmp/macos-firm-absent
+CODE="$(curl -s -o "$TMP/out" -w '%{http_code}' "$B/downloads/$MFIRM.zip")"
+[ "$CODE" = 404 ] && ! grep -q PK-sahte "$TMP/out" && pass "eski sunucu + yeni Caddyfile → firma zip 404 (fail-closed)" || fail "kayma (sunucu geri): $CODE"
+CODE="$(curl -s -o "$TMP/out" -w '%{http_code}' "$B/downloads/NoktaDestek-macOS.zip")"
+[ "$CODE" = 200 ] && pass "eski sunucu: jenerik NoktaDestek-macOS.zip etkilenmez (200)" || fail "kayma jenerik zip: $CODE"
+docker exec "$P-server" rm -f /tmp/macos-firm-absent
 
 echo "== P28g Linux ELF (S-P28g-6/12): uzantısız, octet-stream, Last-Modified yok"
 WANTL="$(cat "$TMP/dl/NoktaDestek-linux")"
@@ -292,7 +346,7 @@ printf '%s' "$H" | grep -qi '^server:' && fail "Server başlığı var" || pass 
 printf '%s' "$H" | tr -d '\r' | grep -qi '^x-content-type-options: nosniff$' && pass "X-Content-Type-Options nosniff" || fail "nosniff yok"
 
 echo "== ops uçları dışarıya kapalı"
-for u in /internal/agent-ready /internal/agent-ready/windows /internal/agent-ready/macos /internal/agent-ready/linux /metrics /ready; do
+for u in /internal/agent-ready /internal/agent-ready/windows /internal/agent-ready/macos /internal/agent-ready/macos-firm /internal/agent-ready/linux /metrics /ready; do
   CODE="$(curl -s -o /dev/null -w '%{http_code}' -H 'X-Forwarded-Method: GET' "$B$u")"
   [ "$CODE" = 404 ] && pass "$u → 404" || fail "$u → $CODE"
 done
@@ -317,6 +371,26 @@ docker exec "$P-caddy-stg" caddy adapt --config /etc/caddy/Caddyfile --adapter c
   && pass "staging: 4451 trusted_proxies = CADDY_TRUSTED_PROXIES" || fail "staging trusted_proxies"
 docker rm -f "$P-caddy-stg" >/dev/null
 
+echo "== P31 geri alma provası: @agentZipFirm bloğu silinmiş Caddyfile (önceki sürüm) → firma zip 404, server'a gitmez"
+sed '/@agentZipFirm path_regexp/,/^'"$(printf '\t')"'}$/d' Caddyfile >"$TMP/Caddyfile.rollback"
+chmod 0644 "$TMP/Caddyfile.rollback"
+if grep -q agentZipFirm "$TMP/Caddyfile.rollback" || ! grep -q agentExeFirm "$TMP/Caddyfile.rollback"; then
+  fail "geri alma Caddyfile'ı üretilemedi"
+else
+  docker run -d --name "$P-caddy-rb" --network "$P" -p 127.0.0.1::4451 \
+    -e SITE_HOST=localhost -e EDGE_PROXY_SECRET=test-only-edge-secret-0123456789abcdef \
+    -v "$TMP/Caddyfile.rollback:/etc/caddy/Caddyfile:ro" -v "$TMP/dl:/srv/downloads:ro" "$CADDY_IMAGE" >/dev/null
+  RB="http://127.0.0.1:$(docker port "$P-caddy-rb" 4451/tcp | head -1 | sed 's/.*://')"
+  for _ in $(seq 1 50); do curl -s -o /dev/null "$RB/downloads/x" && break; sleep 0.2; done
+  N0="$(fa_count)"
+  CODE="$(curl -s -o "$TMP/out" -w '%{http_code}' "$RB/downloads/NoktaDestek-MacFirma-$REF.zip")"
+  [ "$CODE" = 404 ] && ! grep -q PK-sahte "$TMP/out" && [ "$(fa_count)" = "$N0" ] \
+    && pass "Caddyfile geri alındı → firma zip 404, forward_auth çağrılmadı" || fail "Caddyfile geri alma: $CODE"
+  CODE="$(curl -s -o /dev/null -w '%{http_code}' "$RB/downloads/NoktaDestek-macOS.zip")"
+  [ "$CODE" = 200 ] && pass "Caddyfile geri alındı → jenerik zip 200" || fail "geri alma jenerik zip: $CODE"
+  docker rm -f "$P-caddy-rb" >/dev/null
+fi
+
 echo "== P19 web talep formu /r/<ref> (web:3000 testte yok → 502: erişim + hata logu birlikte sınanır)"
 for u in "/r/$WREF" "/r/$WREF/" "/r/$WREF?x=1" "/r/$WREF/bekle"; do
   CODE="$(curl -s -o /dev/null -w '%{http_code}' "$B$u")"
@@ -327,6 +401,8 @@ echo "== server erişilemez → 502, dosya sunulmaz (hata logu da maskeli olmal�
 docker stop -t 1 "$P-server" >/dev/null
 CODE="$(curl -s -o "$TMP/out" -w '%{http_code}' "$B/downloads/$FIRM.exe?utm=2")"
 [ "$CODE" = 502 ] && ! grep -q MZ-sahte "$TMP/out" && pass "server yok → 502, dosya sunulmaz" || fail "server yok → $CODE"
+CODE="$(curl -s -o "$TMP/out" -w '%{http_code}' "$B/downloads/NoktaDestek-MacFirma-$REF.zip?utm=4")"
+[ "$CODE" = 502 ] && ! grep -q PK-sahte "$TMP/out" && pass "P31 server yok → firma zip 502, sunulmaz (hata logu satırı)" || fail "P31 server yok → $CODE"
 
 echo "== log maskesi (G-10, G-E9-8, T31)"
 sleep 1
@@ -334,12 +410,13 @@ sleep 1
 docker logs "$P-caddy" >"$TMP/caddy.log" 2>&1
 grep -q '"logger":"http.log.error' "$TMP/caddy.log" && pass "hata logu satırı üretildi (filtre sınanıyor)" || fail "hata logu satırı yok"
 grep -q '"uri":"/downloads/NoktaDestek-\*\*\*"' "$TMP/caddy.log" && pass "erişim logu /downloads/NoktaDestek-***" || fail "maskeli firma yolu logda yok"
+grep '"logger":"http.log.error' "$TMP/caddy.log" | grep -q '"uri":"/downloads/NoktaDestek-\*\*\*"' && pass "§15.1/7 hata logu (firma zip, server yok) /downloads/NoktaDestek-***" || fail "§15.1/7 hata logunda maskeli firma yolu yok"
 grep -q '"uri":"/downloads/NoktaDestek.exe"' "$TMP/caddy.log" && pass "kodsuz ad maskelenmez (NoktaDestek.exe)" || fail "NoktaDestek.exe logda yok"
 grep -q '"uri":"/downloads/Destek-\*\*\*"' "$TMP/caddy.log" && pass "P28f: Destek-<kod>.zip/.exe erişim logunda /downloads/Destek-***" || fail "maskeli Destek yolu logda yok"
 grep -q '"uri":"/api/v1/files/avatar/T1/abcdefghijklmnop.webp"' "$TMP/caddy.log" && pass "erişim logu /api/v1/files yolu sorgu dizesiz" || fail "/api/v1/files log satırı"
 grep '"logger":"http.log.access' "$TMP/caddy.log" | grep -q '"uri":"/r/\*\*\*/bekle"' && pass "P19 erişim logu /r/***/bekle" || fail "P19 erişim logu /r/*** yok"
 grep '"logger":"http.log.error' "$TMP/caddy.log" | grep -q '"uri":"/r/\*\*\*"' && pass "P19 hata logu (varsayılan logger) /r/***" || fail "P19 hata logu /r/*** yok"
-for s in "$WREF" "webref" "$REF" "$REF2" "TESTSIRRI" "utm=" "x=1" "gizlisorgu" "12345678" "DemoFirma" "IkinciFirma2" "test-only-edge-secret" "$FTOK" "gizli-ad-fsrv" "$RTOK"; do
+for s in "$WREF" "webref" "$REF" "$REF2" "TESTSIRRI" "utm=" "x=1" "gizlisorgu" "12345678" "DemoFirma" "IkinciFirma2" "MacFirma" "Ikinci2" "test-only-edge-secret" "$FTOK" "gizli-ad-fsrv" "$RTOK"; do
   if grep -q -- "$s" "$TMP/caddy.log"; then fail "logda '$s' var"; else pass "logda '$s' yok"; fi
 done
 

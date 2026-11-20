@@ -9,5 +9,11 @@ Nokta Destek — uzaktan destek istemcisi (macOS 13 ve üstü)
 Nokta Destek hiçbir zaman "Yine de Aç" istemez. macOS uygulamanın açılamayacağını
 söylerse uygulamayı AÇMAYIN ve teknisyeninize bildirin.
 
+Nokta Destek'i yalnız tarayıcınızda remote.noktabilisim.net adresinden indirin (Finder → Bilgi Al → “Nereden” satırı https://remote.noktabilisim.net/ ile başlamalı). Firmanız size yalnız bağlantı gönderir, dosya göndermez. Dosya ek olarak geldiyse açmayın.
+
+Pencerede firmanızın adı ya da teknisyen doğrulama kodu görünür; bu yalnız doğru firmaya bağlandığınızı gösterir, dosyanın güvenli olduğunu göstermez.
+
+Mac'te dosyayı saklamayın; her destek isteğinde firmanızın bağlantısından yeniden indirin, eski klasörü silin.
+
 Verilen izinleri kaldırmak: Sistem Ayarları > Gizlilik ve Güvenlik > Ekran Kaydı /
 Erişilebilirlik listesinden "Nokta Destek"i seçip "−" düğmesine basın.

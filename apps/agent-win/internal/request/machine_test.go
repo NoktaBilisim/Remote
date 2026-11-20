@@ -188,10 +188,10 @@ func TestAC133OutdatedAndDownloadURL(t *testing.T) {
 		}
 	}
 	srv, _ := url.Parse("https://remote.example:4450")
-	if u, ok := DownloadURL(srv, "abcdefghijk23456"); !ok || u != "https://remote.example:4450/api/v1/public/agent/request-download?ref=abcdefghijk23456" {
+	if u, ok := DownloadURL(srv, "abcdefghijk23456", ""); !ok || u != "https://remote.example:4450/api/v1/public/agent/request-download?ref=abcdefghijk23456" {
 		t.Fatal(u)
 	}
-	if _, ok := DownloadURL(srv, "ABC&x=1"); ok {
+	if _, ok := DownloadURL(srv, "ABC&x=1", ""); ok {
 		t.Fatal("geçersiz ref ile URL üretilmemeli")
 	}
 }

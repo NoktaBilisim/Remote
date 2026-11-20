@@ -404,7 +404,9 @@ Firewall > NAT > Port Forward, her satır için "Filter rule association: Add as
 
 ### 8.3 Alan adı: `https://remote.noktabilisim.net` (host nginx + Let's Encrypt; ADR-0015)
 
-DNS: Cloudflare A `remote` → 185.126.217.99, **DNS only (gri)** — proxied yapılırsa ACME ve gerçek IP bozulur.
+DNS: Cloudflare A `remote` → 185.126.217.99, **DNS only (gri)** — proxied yapılırsa ACME ve gerçek IP bozulur. P31'den beri
+`/downloads/NoktaDestek-*` için `limit_req` (IP başına 10/dk) da `$remote_addr`'a dayanır: proxied yapılırsa tüm müşteriler tek
+kovaya düşer ve indirme herkes için 429 olur (§32.4).
 Akış: istemci → host nginx :443 (LE, `remote.noktabilisim.net` vhost'u) → `http://127.0.0.1:4451` (Caddy, yalnız loopback)
 → web/server. IP girişi `https://185.126.217.99:4450` geçiş süresince aynen çalışır (`SITE_HOST` IP olarak kalır).
 
@@ -5648,3 +5650,113 @@ istemcilere zarar vermez (AC-493). Güncelleme uçları yoksa istemciler sessiz 
 
 `deploy/agent/test-publish-manifest.sh` 63 PASS. `deploy/test-caddy.sh`: `update/` alt yolu 404. `deploy/ops/test-watch.sh`: P29
 alarmları. `apps/server/test/unit/p29-k6-env.test.ts`.
+
+## 32. P31 — macOS Hızlı Destek'te "Destek iste": firma zip yolu, hız sınırı, yayın (devops P31-O, 2026-11-20; mimari-p31 §9, §15.1, §15.3, §15.4; AC-510, AC-520, AC-522)
+
+Firma bağlantısı (`/api/v1/public/request-download?ref=`) değişmez; Mac'te sunucu `Location: /downloads/NoktaDestek-<label>-<ref>.zip`
+verir. Bu yol yeni Caddy bloğu `@agentZipFirm` ile **ayrı iç uç** `/internal/agent-ready/macos-firm`'den geçer (fail-closed). Yeni env yok;
+migration P31-D'nin tek `ALTER`'ı (`migrate` servisi). İstemci 0.24.0 (sunucu ile aynı etiket).
+
+### 32.1 Değişen dosyalar (devops)
+
+| Dosya                                          | Değişiklik                                                                                                                                                                                                                                                                                 |
+| ---------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `deploy/Caddyfile`                             | `@agentZipFirm` `^/downloads/(NoktaDestek-[A-Za-z0-9]{1,20}-[a-z2-7]{16})\.zip$` → `forward_auth` `uri /internal/agent-ready/macos-firm`, `header_up X-Forwarded-Uri {path}` (tam ad, sorgu dizesiz) → `agent_zip_file` (jenerik zip, istenen adla). `handle /downloads/*` 404'ünden önce. |
+| `deploy/nginx/remote.noktabilisim.net.conf`    | `map $uri $remote_dl_key` + `limit_req_zone … zone=remote_dl:10m rate=10r/m`; `location /` içinde `limit_req zone=remote_dl burst=5 nodelay; limit_req_status 429;` (yeni `location` yok).                                                                                                 |
+| `deploy/test-caddy.sh`                         | §15.1 satırları 1–7 + eski sunucu kayması + geri alınmış Caddyfile provası + zip biçimli kötü adlar.                                                                                                                                                                                       |
+| `deploy/nginx/test-nginx.sh`                   | 7. istekte 429, `/api/` ve kapsam dışı yollar sınırsız, 429 erişim logunda, hata logunda ref yok.                                                                                                                                                                                          |
+| `.github/workflows/agent-win.yml` (`sign-mac`) | Developer ID zip'indeki `OKUBENI.txt` ↔ `build/macos/OKUBENI.txt` `cmp` (ad-hoc/stg için `package-mac`'te zaten vardı).                                                                                                                                                                    |
+
+**Açık iş:** `apps/agent-win/build/macos/OKUBENI*.txt` metinleri (mimari-p31 §15.3 kaynak çapası) bu pakette yazılmadı (paralel
+çalışmada `apps/` dokunulmazdı); metinler `docs/implementation.md` "P31-O" bölümünde. Yazıldıktan sonra CI `cmp` adımları (profil
+başına) zip içi ↔ kaynak eşliğini zorlar; 0.24.0 etiketi bu dosyalar güncellenmeden atılmaz.
+
+Log maskesi değişmedi: Caddy `NoktaDestek-[^/?]+` ve nginx `remote_log_uri` `.zip` firma adını da `NoktaDestek-***` yazar (G-10;
+test-caddy erişim + hata logu, test-nginx erişim logu).
+
+### 32.2 Yayın sırası (staging; prod aynı) — **önce sunucu, sonra Caddyfile** (S-P31-1, bağlayıcı)
+
+Ön koşul: P31 qa GEÇTİ + güvenlik Kritik/Yüksek 0; `ci` (`test-caddy.sh`, `test-nginx.sh` dahil) ve `agent-win` yeşil. Staging tek yığın
+`/opt/remote/deploy`. Komutlar staging'de **DENENMEDİ** (bu paket sunucuya bağlanmadı); ilk yayında koordinatör uygular ve §8 yayın
+geçmişine sonucu yazar.
+
+1. **Ön yedek** (§15.1/1, `remote-pre-p31-…`) → repo güncelle (§8 bundle + pull). `git pull` Caddyfile'ı da değiştirir; Caddy dosyayı
+   yalnız yeniden başlatınca okur (`admin off`, `reload` yok) — bu yüzden 4. adıma kadar Caddy **yeniden başlatılmaz/yaratılmaz**.
+2. **Sunucu (Caddy hariç):** `IMAGE_TAG` → `docker compose build migrate server web && docker compose up -d --no-deps migrate server web`
+   (Caddy'ye dokunmaz). `docker compose logs --since 5m migrate` → P31 migration uygulandı; `check-app-grants.sh` PASS.
+3. **İç ucu doğrula** (Caddy konteynerinden; uç yalnız güvenilen proxy'ye açık):
+
+```bash
+cd /opt/remote/deploy
+fa() { docker compose exec -T caddy wget -S -O /dev/null --header "X-Forwarded-Method: GET" --header "X-Forwarded-Uri: $1" \
+  http://server:3001/internal/agent-ready/macos-firm 2>&1 | grep -m1 'HTTP/'; }
+fa "/downloads/NoktaDestek-<label>-<gerçek-ref>.zip"     # → 204 (mac kapısı ok) ya da 503 (MAC_AGENT_SHA256 / dosya yok)
+fa "/downloads/NoktaDestek-Yanlis-<gerçek-ref>.zip"      # → 404 (label eski)
+fa "/downloads/***"                                       # → 404 (fail-closed: maskeli URI)
+fa "/downloads/NoktaDestek-<label>-<gerçek-ref>.exe"     # → 404 (yanlış uzantı)
+```
+
+`<label>` = Admin panelindeki firma kısa adı, `<gerçek-ref>` = staging test firmasının Genel ref'i (panel "Firma bağlantısı" adresindeki
+`ref=` değeri). Ref'i ekran görüntüsüne, issue'ya, sohbete yazmayın. 404 yerine "Not Found" sayfası yoksa (uç kayıtlı değil) → server
+eski imajda: dur, 2. adıma dön. Bu adım geçmeden Caddy yeniden başlatılmaz. 4. **Caddyfile:** `docker compose up -d --force-recreate --no-deps caddy` (ya da `docker compose restart caddy`) → `docker compose logs --since 2m caddy`
+hatasız. 5. **Host nginx (yalnız alan adlı yığın, prod):** §8.3 "vhost güncelleme" komutu aynen (`nginx -t` başarısızsa kendiliğinden geri alır).
+Staging (4450/4460) nginx'ten geçmez → hız sınırı staging'de yoktur (kabul, mimari-p31 §15.4). 6. **Dış doğrulama** (staging adresi, `tls internal` → `-k`):
+
+```bash
+B=https://185.126.217.99:4450
+MAC_UA='Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Safari/605.1.15'
+curl -skI -A "$MAC_UA" "$B/api/v1/public/request-download?ref=<gerçek-ref>" | grep -i '^location:'   # → /downloads/NoktaDestek-<label>-<ref>.zip
+curl -skI "$B/api/v1/public/request-download?ref=<gerçek-ref>" | grep -i '^location:'                # (curl UA) → … .exe (değişmedi)
+curl -skI "$B/downloads/NoktaDestek-<label>-<gerçek-ref>.zip" | grep -iE '^HTTP|^content-(type|disposition)'  # → 200, application/zip, adı
+curl -skI "$B/downloads/NoktaDestek-Bozuk-<gerçek-ref>.zip" | head -1                                  # → 404
+curl -skI "$B/downloads/NoktaDestek-macOS.zip" | head -1                                               # → 200 (jenerik değişmedi)
+docker compose logs --since 5m caddy | grep -c '<gerçek-ref>'                                          # → 0 (G-10)
+```
+
+Prod'da ek olarak (host nginx): aynı IP'den hızlı 7 istek → 7.'si 429:
+`for i in 1 2 3 4 5 6 7; do curl -s -o /dev/null -w '%{http_code} ' -I https://remote.noktabilisim.net/downloads/NoktaDestek-macOS.zip; done`
+→ `200 200 200 200 200 200 429` (1 dk bekleyince düzelir). `grep -c '<gerçek-ref>' /var/log/nginx/remote.access.log` → 0. 7. İstemci 0.24.0: macOS zip r4 ad-hoc hattından (§28f.9), Windows §24.4 — sunucu ile aynı etiket. §8 yayın geçmişine satır.
+
+### 32.3 Geri alma — **ters sıra: önce Caddyfile, sonra sunucu** (denendi: `deploy/test-caddy.sh` "P31 geri alma provası" + "sürüm kayması")
+
+1. Caddyfile'ı önceki sürüme döndür: `git -C /opt/remote checkout <önceki-commit> -- deploy/Caddyfile && docker compose up -d --force-recreate --no-deps caddy`.
+   Sonuç: `@agentZipFirm` yok → firma zip'i `handle /downloads/*` 404'üne düşer, server'a gitmez; jenerik zip/exe etkilenmez.
+2. Sunucu: önceki `IMAGE_TAG` → `docker compose up -d --no-deps server web`. DB sütunu geri alınmaz (mimari-p31 §5; eski kod sütunu okumaz).
+3. nginx `limit_req` sorun çıkarırsa (yalnız onu geri almak): `cp /root/remote.conf.prev /etc/nginx/sites-available/remote.noktabilisim.net && nginx -t && systemctl reload nginx`.
+
+Kayma güvenliği (CI'da sınanır): yalnız sunucu geri alınıp yeni Caddyfile kalırsa eski sunucuda `/internal/agent-ready/macos-firm`
+kayıtlı değildir → 404 → firma zip'i **404** (200 değil). Yalnız Caddyfile geri alınırsa da 404. Hiçbir ara durumda kapı atlanmaz.
+Eski sunucu Mac kullanıcısına `.exe` yönlendirir → kılavuz "Mac'te Windows dosyası indi" durumu (geçici).
+
+### 32.4 Hız sınırı (nginx `limit_req`, S-P31-6) — işletim
+
+- Kapsam: `/downloads/NoktaDestek-*` (firma `.exe` + `.zip`, jenerik `NoktaDestek-macOS.zip`, `NoktaDestek-linux`). Kodsuz `NoktaDestek.exe`,
+  `Destek-<kod>.*`, `/api`, `/ws`, `/r/` sınırsız. IP başına 10/dk, anlık 5 fazla (gecikmesiz), aşımda 429.
+- **Ön koşul:** nginx gerçek istemci IP'sini görür (Cloudflare "DNS only", §8.3). Kayıt proxied (turuncu) yapılırsa önce
+  `set_real_ip_from <Cloudflare aralıkları>; real_ip_header CF-Connecting-IP;` eklenmeden `limit_req` kalamaz → aksi halde tek kova
+  herkesi keser; o durumda `limit_req` satırları kaldırılır ve bu bir kabul edilen risk olarak §8 geçmişine yazılır.
+- Gözcüler sınırın altında: `agent-watch.yml` günde 1 istek/iş (GitHub IP'leri); `publish-mac.sh`/`publish-linux.sh` doğrulaması 127.0.0.1'den
+  en çok 10 deneme × 3 sn (429 → `curl -f` başarısız → yeniden dener; kovanın dolma hızı yeterli). NAT arkasında çok sayıda müşteri aynı
+  dakikada indirirse 7.'si 429 alır → 1 dk sonra yeniden dener (kılavuz). Sık şikâyette `rate` artırılır (yalnız repo dosyası + §8.3 komutu).
+- Teşhis: `jq -r 'select(.status==429) | .remote_addr' /var/log/nginx/remote.access.log | sort | uniq -c | sort -rn | head` (uri maskeli;
+  red satırı hata loguna yazılmaz, `error_log crit`).
+
+### 32.5 Destek notları (AC-522)
+
+- **Ref sızdı → ref yenile — Mac müşterileri için de geçerlidir.** Yenileme sonrası eski `NoktaDestek-<label>-<eski-ref>.zip` ve
+  `.exe` 404 olur (aynı kapı). Müşteriye: "Firmanız bağlantıyı yenilediyse yeni bağlantıdan yeniden indirin." Mac'te eski klasör
+  (`NoktaDestek-<label>-<eski-ref>/`) ile açılan uygulama talep gönderemez (ref geçersiz) → yeni bağlantıdan indirilen zip kullanılır.
+- **Talep yolunda `MIN_AGENT_VERSION` → `CLIENT_OUTDATED` (AC-519):** talep yolu da `MIN_AGENT_VERSION`'ı uygular; Mac istemcisi
+  asgari sürümün altındaysa 426 `CLIENT_OUTDATED` alır ve "Bu Hızlı Destek dosyası eski" ekranındaki **Yeni sürümü indir**
+  `…/request-download?ref=<ref>&os=macos` adresini açar (yeni zip iner). `MIN_AGENT_VERSION` yükseltmesi Windows ve Mac'i birlikte
+  etkiler — Mac zip'i yeni sürümle yayımlanmadan yükseltilmez (§31.7 sırası).
+- **Mac talepleri "bilinmeyen kaynak" kovasında (R-P31-4, kabul edilen risk):** Mac'te kayıt olmadığından talepler tenant başına
+  60/sa kovasına düşer; sızmış ref ile spam yapılırsa Mac müşterileri bir saat "meşgul" görür → ilk müdahale ref yenilemedir (§26.5 m.3).
+- Firma kısa adı değişirse eski adlı `.zip` de 404 (label uyuşmaz) — panel bağlantısı her zaman güncel adı verir.
+- Mac'te 404 / 503 ayrımı: 404 = ref/label geçersiz (bağlantıyı yenileyin); 503 `NOT_READY` = macOS ikilisi yayımlanmamış/SHA uyuşmuyor
+  (§28f.4 `publish-mac.sh`; bu durumda sunucu Mac'e zaten `.exe` yönlendirir).
+
+### 32.6 Doğrulama komutları (yerel; sunucuya bağlanmaz)
+
+`deploy/test-caddy.sh` → SONUÇ: GEÇTİ (P31: §15.1/1–7, kayma, geri alma provası; mutasyon: `header_up X-Forwarded-Uri "/downloads/***"`
+kopyalanırsa 9 FAIL — hata kapalı yönde görünür). `deploy/nginx/test-nginx.sh` → GEÇTİ (`limit_req` 7. istek 429).

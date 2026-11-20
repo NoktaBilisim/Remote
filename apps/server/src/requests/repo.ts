@@ -182,6 +182,7 @@ const secretSelect = {
   status: true,
   requestCode: true,
   clientVersion: true,
+  clientOs: true, // P31 (AC-511): kabulde misafirin clientOs'u
   source: true, // P19 (S-P19-3, 13): tür ↔ kaynak ve sürüm kapısı
   createdAt: true,
   expiresAt: true,

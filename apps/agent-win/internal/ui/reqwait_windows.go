@@ -3,7 +3,6 @@
 package ui
 
 import (
-	"fmt"
 	"strings"
 	"time"
 
@@ -26,13 +25,9 @@ func (u *UI) RequestWaiting(v request.WaitView) {
 			w = u.newReqWait(v)
 			u.reqWait = w
 		}
-		win.SetText(w.code.h, codeText(v.Code))
-		pos := "Sıra bilgisi alınıyor…"
-		if v.Position > 0 {
-			pos = fmt.Sprintf("Sırada %d. talepsiniz", v.Position)
-		}
-		win.SetText(w.pos.h, pos)
-		win.SetText(w.elapsed.h, "Bekleme süresi: "+mmss(v.Elapsed))
+		win.SetText(w.code.h, uicore.RequestCodeText(v.Code))
+		win.SetText(w.pos.h, uicore.WaitPositionText(v.Position))
+		win.SetText(w.elapsed.h, uicore.WaitElapsedText(v.Elapsed))
 		msg := v.Notice
 		if v.Warning != "" { // QA-P8b2-2: hatırlama dosyası silinemedi
 			msg = strings.TrimSpace(v.Warning + " " + msg)
@@ -74,12 +69,7 @@ func (u *UI) newReqWait(v request.WaitView) *reqWait {
 	return w
 }
 
-func acceptBody(v request.AcceptView) string {
-	return "Teknisyen doğrulama kodu: " + v.TechVerifyCode + " (telefondaki teknisyen de bu kodu söylemeli)\r\n" +
-		"Talep kodunuz: " + codeText(v.RequestCode) + uicore.AdmitLine(v.AdmitCode) + "\r\n" +
-		"\"Ekranımı paylaş\" derseniz teknisyen ekranınızı görür; uzaktan kontrol için ayrıca izin istenir.\r\n" +
-		"Kalan süre: " + mmss(v.Remaining)
-}
+func acceptBody(v request.AcceptView) string { return uicore.AcceptBody(v, "\r\n") }
 
 // RequestAccepted AC-154 / §13.3: P7 izin diyaloğu kuralları (odak "Vazgeç", 1,5 sn kilit, Enter/Space paylaşmaz,
 // enjekte tıklama uyarısı, imleç dışında açılır); öne getirilir ve görev çubuğu yanıp söner. Otomatik onay yok.
@@ -97,7 +87,7 @@ func (u *UI) RequestAccepted(v request.AcceptView) {
 			closeDlg(d)
 		}
 		u.reqAcceptKey = key
-		u.reqAccept = u.newConsent(consentSpec{title: "Bağlantı isteği", heading: v.TechName + " bağlanmak istiyor",
+		u.reqAccept = u.newConsent(consentSpec{title: "Bağlantı isteği", heading: uicore.AcceptHeading(v.TechName),
 			body: acceptBody(v), grantText: "&Ekranımı paylaş", denyText: "Vazgeç", logo: orSystemLogo(v.Logo), hotkeyOK: true,
 			slot:    &u.reqAccept,
 			onGrant: func() { u.reqEmit(request.UserShare) },
@@ -114,8 +104,8 @@ func (u *UI) RequestAcceptedTick(remaining time.Duration) {
 			return
 		}
 		text := win.GetText(d.body.h)
-		if i := strings.LastIndex(text, "Kalan süre: "); i >= 0 {
-			win.SetText(d.body.h, text[:i]+"Kalan süre: "+mmss(remaining))
+		if i := strings.LastIndex(text, uicore.AcceptRemainingPrefix); i >= 0 {
+			win.SetText(d.body.h, text[:i]+uicore.AcceptRemainingPrefix+uicore.MMSS(remaining))
 		}
 	})
 }

@@ -54,6 +54,8 @@ REVOKE IF EXISTS ALTER, DROP, INDEX, TRIGGER, REFERENCES ON tenant_request_setti
 -- P8b-1 support_requests (mimari-e9 §3.2/§3.6): durum geçişleri ve anonimleştirme UPDATE'tir. DELETE YOK
 -- (K-P13-1/K27: hard delete ertelendi; genişleme noktası purgeAnonymized(), grant o pakette eklenir).
 -- P16: DELETE — anonim + 30 g ya da RUNNING firma silme işi (support_requests_delete_guard).
+-- P31: client_os (oluşturmada INSERT; sonra değişmez) tablo düzeyi INSERT/UPDATE ile kapsanır — sütun düzeyi liste yok,
+-- yeni GRANT gerekmez (mimari-p31 §5 doğrulandı).
 GRANT SELECT, INSERT, UPDATE, DELETE ON support_requests TO 'app'@'%';
 REVOKE IF EXISTS ALTER, DROP, INDEX, TRIGGER, REFERENCES ON support_requests FROM 'app'@'%';
 

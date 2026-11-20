@@ -51,7 +51,7 @@ export default async function PortalHome({ searchParams }: { searchParams: Searc
           href={links.downloadUrl}
           className={actionCls}
           data-testid="portal-download"
-          aria-label={t("portal.download.aria", { file: links.fileName })}
+          aria-label={`${t("portal.download.aria", { file: links.fileName })} ${t("rq.linkMacNote")}`}
         >
           <Download aria-hidden className="mt-0.5 size-5 shrink-0 text-primary" />
           <span className="flex min-w-0 flex-col gap-1">
@@ -59,6 +59,10 @@ export default async function PortalHome({ searchParams }: { searchParams: Searc
             <span className="text-sm text-fg-muted">{t("portal.download.body")}</span>
             <span className="font-mono text-xs text-fg-muted break-all" data-testid="portal-file-name">
               {links.fileName}
+            </span>
+            {/* P31 (AC-520) */}
+            <span className="text-xs text-fg-muted" data-testid="portal-mac-note">
+              {t("rq.linkMacNote")}
             </span>
           </span>
         </a>

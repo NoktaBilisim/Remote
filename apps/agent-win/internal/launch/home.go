@@ -56,6 +56,9 @@ type FirmView struct {
 	Toggles      Toggles
 	SetTray      func(on bool) Toggles
 	SetAutostart func(on bool) Toggles
+	// AbuseEmail P31 AC-513: dosyanın firmasının "Kötüye kullanımı bildir" adresi (açılıştaki firma bilgisi yanıtından;
+	// yoksa boş). Ham değerdir; arayüz uicore.MailtoAddr ile doğrular. Win32 ana ekranı kullanmaz (form kullanır).
+	AbuseEmail string
 }
 
 // FirmActionKind ana ekran kararı.
@@ -184,6 +187,9 @@ func (d Deps) firmView(data remember.Data, file *fileFirm, own []remember.Bindin
 	v := FirmView{Notice: notice, Toggles: d.toggles(""), SetTray: d.setTray, SetAutostart: d.setAutostart}
 	if file != nil {
 		v.Firms = append(v.Firms, file.row())
+		if file.info != nil && file.info.AbuseEmail != nil {
+			v.AbuseEmail = *file.info.AbuseEmail
+		}
 	}
 	for _, b := range own {
 		v.Firms = append(v.Firms, FirmRow{Key: b.Key, Text: rowText(b)})

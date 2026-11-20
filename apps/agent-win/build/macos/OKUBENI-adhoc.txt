@@ -18,9 +18,11 @@ açılışta uygulamayı durdurur; aşağıdaki adımla bir kez onaylarsınız.
 4. Oturum bitince uygulama kendiliğinden kapanır. Bu klasörü silin: eski sürümler
    verdiğiniz izinleri korur.
 
-"Yine de Aç"ı YALNIZ teknisyeninizle görüşürken destek sayfasından kendiniz
-indirdiğiniz bu uygulama için kullanın. Nokta Bilişim uygulamayı e-posta eki ya da
-mesajla göndermez; başka bir yoldan gelen dosyayı açmayın.
+Pencerede firmanızın adı ya da teknisyen doğrulama kodu görünür; bu yalnız doğru firmaya bağlandığınızı gösterir, dosyanın güvenli olduğunu göstermez.
+
+Mac'te dosyayı saklamayın; her destek isteğinde firmanızın bağlantısından yeniden indirin, eski klasörü silin.
+
+“Yine de Aç”ı yalnız tarayıcınızda remote.noktabilisim.net adresinden indirdiğiniz Nokta Destek için kullanın (Finder → Bilgi Al → “Nereden” satırı https://remote.noktabilisim.net/ ile başlamalı). Firmanız size yalnız bağlantı gönderir, dosya göndermez. Dosya ek olarak geldiyse açmayın.
 
 Verilen izinleri kaldırmak: Sistem Ayarları > Gizlilik ve Güvenlik > Ekran Kaydı /
 Erişilebilirlik listesinden "Nokta Destek"i seçip "-" düğmesine basın.

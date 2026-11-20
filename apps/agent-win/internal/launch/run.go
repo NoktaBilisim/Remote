@@ -51,6 +51,12 @@ type Deps struct {
 	Diag func(event, class string)
 	// UpdateNotice P29 (AC-482/483): gösterilmemiş güncelleme bilgi satırı (bir kez; update.Portable.Notice). nil olabilir.
 	UpdateNotice func() string
+	// Source P31 (mimari-p31 §3.2, K-P31-5): açılış kaynağı dosya adından değil buradan gelir (macOS: BundleSource, klasör
+	// adı). nil → bugünkü yol (Exe adından pairing.FromFileName / RefFromFileName; Windows).
+	Source *Source
+	// SourceHint P31 AC-512: kaynak yokken (FileOther) ana ekranın bilgi satırına eklenen platform metni (macOS:
+	// NoticeMacFolder). Karar tablosu (Decide) değişmez.
+	SourceHint string
 }
 
 // Run açılış kararını verir ve seçilen akışı yürütür; dönen sonucun Message'ı son ekrandır (boşsa son ekran yok).
@@ -73,6 +79,9 @@ func Run(ctx context.Context, d Deps) flow.Outcome {
 		d.Flow.API = once
 	}
 	dec := Decide(in)
+	if in.File == FileOther {
+		dec.Notice = joinNotes([]string{dec.Notice, d.SourceHint})
+	}
 	if ctx.Err() != nil {
 		return flow.Outcome{}
 	}
@@ -116,8 +125,7 @@ func (d Deps) keeperFor(obs *observedAPI, server string) (*keeper, func(key stri
 // (yanıt kod akışına bir kez verilir: once). bindings gömülü kökenin kayıt sayısıdır.
 func (d Deps) openFile(ctx context.Context, bindings int) (in Input, file fileFirm, code string, once *onceResolve) {
 	in = Input{Bindings: bindings}
-	ref, isRef := pairing.RefFromFileName(d.Exe)
-	code, isCode := pairing.FromFileName(d.Exe)
+	ref, isRef, code, isCode := d.source()
 	switch {
 	case isRef:
 		in.File = FileRef
@@ -135,6 +143,16 @@ func (d Deps) openFile(ctx context.Context, bindings int) (in Input, file fileFi
 		once = &onceResolve{API: d.API, code: code, res: res, err: err}
 	}
 	return in, file, code, once
+}
+
+// source açılış kaynağı: Deps.Source verildiyse o (P31), değilse çalıştırılan dosyanın adı (ADR-0006 r4).
+func (d Deps) source() (ref string, isRef bool, code string, isCode bool) {
+	if d.Source != nil {
+		return d.Source.Ref, d.Source.Ref != "", d.Source.Code, d.Source.Code != "" && d.Source.Ref == ""
+	}
+	ref, isRef = pairing.RefFromFileName(d.Exe)
+	code, isCode = pairing.FromFileName(d.Exe)
+	return ref, isRef, code, isCode
 }
 
 // startState açılış okuma durumu (K5 Migrate sonucunu verirse o, değilse LoadState). Depo yoksa kayıtsız.

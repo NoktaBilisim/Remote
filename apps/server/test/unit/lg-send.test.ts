@@ -38,6 +38,7 @@ const k3 = (firm = "Nokta Bilişim", webFormUrl: string | null = "https://rs.tes
   firm,
   downloadUrl: "https://rs.test/downloads/NoktaDestek-firma-abcdefghijklmnop.exe",
   webFormUrl,
+  origin: "https://rs.test",
 });
 
 describe("LG şablonlar (renderFor)", () => {

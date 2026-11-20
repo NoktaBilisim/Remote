@@ -14,8 +14,11 @@ import (
 	"remote-support/agent-win/internal/flow"
 	"remote-support/agent-win/internal/fsrv"
 	"remote-support/agent-win/internal/input"
+	"remote-support/agent-win/internal/launch"
+	"remote-support/agent-win/internal/request"
 	"remote-support/agent-win/internal/rtc"
 	"remote-support/agent-win/internal/signal"
+	"remote-support/agent-win/internal/ui/mac"
 )
 
 // flowDeps macOS kod akışının bağımlılıkları (mimari-p28f §2). Bağlanmayan özellikler bildirilmez (flow.Features):
@@ -139,4 +142,18 @@ func controlDeps(d *flow.Deps, u flow.UI, gate *control.Gate) {
 			}
 		})
 	}
+}
+
+// launchDeps P31 (mimari-p31 §3.2, K-P31-5/6): macOS açılışı launch.Run ile. Store nil (kayıt ve hatırlama yok →
+// flow.Deps.Binding nil, AC-517), kaynak klasör adından (Source), kaynak yokken Mac bilgi satırı (AC-512), ana ekran ve
+// talep arayüzü ui/mac, "Yeni sürümü indir" `&os=macos` (AC-519), otomatik başlatma yok (autostart_other).
+func launchDeps(cfg config.Config, client *api.Client, u *mac.UI, fd flow.Deps, src launch.Source,
+	updateNotice func() string) launch.Deps {
+	return launch.Deps{ServerURL: cfg.ServerURL, API: client, Flow: fd, Home: u, Source: &src,
+		SourceHint: launch.NoticeMacFolder, UpdateNotice: updateNotice,
+		Request: request.Deps{UI: u, Events: u.RequestEvents(), Version: cfg.Version, Logo: client.Logo,
+			DownloadOS: request.DownloadOSMac,
+			Dial: func(ctx context.Context, secret string) (request.Conn, error) {
+				return request.Dial(ctx, client.HTTPClient(), cfg.ServerURL, secret)
+			}}}
 }

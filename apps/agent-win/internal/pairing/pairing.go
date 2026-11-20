@@ -14,9 +14,14 @@ var fileNameRe = regexp.MustCompile(`(?i)^Destek-(\d{8})(?: ?\(\d{1,3}\))?\.exe$
 
 var codeRe = regexp.MustCompile(`^\d{8}$`)
 
+// RefCorePattern firma dosyası adının çekirdeği (mimari-p31 §15.2, S-P31-4; tek tanım): `NoktaDestek-<etiket>-<ref>`,
+// tek yakalama grubu ref'tir. Windows dosya adı ve macOS klasör adı (launch.SourceFromBundlePath) bundan türetilir;
+// çapa, `(?i)` ve sonek türetende eklenir.
+const RefCorePattern = `NoktaDestek-[A-Za-z0-9]{1,20}-([a-z2-7]{16})`
+
 // refFileNameRe contracts `REQUEST_FILE_NAME_RE` ile aynı (ortak fixture `request-form.json` fileName): önek büyük/küçük
-// harf duyarsız, ref küçük harfe indirilir; tarayıcının eklediği ` (1)` kabul.
-var refFileNameRe = regexp.MustCompile(`(?i)^NoktaDestek-[A-Za-z0-9]{1,20}-([a-z2-7]{16})(?: ?\(\d+\))?\.exe$`)
+// harf duyarsız, ref küçük harfe indirilir; tarayıcının eklediği ` (1)` kabul. P31 öncesi ifadeyle bayt eşdeğeri.
+var refFileNameRe = regexp.MustCompile(`(?i)^` + RefCorePattern + `(?: ?\(\d+\))?\.exe$`)
 
 func baseName(path string) string {
 	base := path

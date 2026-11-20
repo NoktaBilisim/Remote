@@ -6,6 +6,7 @@ import type {
   CreateRequestData,
   CreateRequestResponse,
   NotifyChoice,
+  RequestClientOs,
   RequestSource,
   TenantRequestInfo,
   WebFormInfo,
@@ -32,7 +33,8 @@ import type { Clock, Timing } from "../signaling/types.ts";
 import type { RequestHub, RequestStatePayload } from "./hub.ts";
 import { blocked, hitBlocked, rateLimited, type RequestLimits } from "./limits.ts";
 import { issueBinding } from "../bindings/service.ts";
-import { parseFirmDownloadUri, requestDownloadLocation } from "./ref.ts";
+import { osFromUserAgent } from "../lib/agent-os.ts";
+import { parseFirmDownloadUri, requestDownloadLocation, type FirmFileExt } from "./ref.ts";
 import { effectiveLogoUrl } from "../uploads/urls.ts";
 import * as repo from "./repo.ts";
 import { RequestBlockCache } from "./blocks.ts";
@@ -92,9 +94,16 @@ const NO_NOTIFY: NotifyChoice = { sms: false, whatsapp: false, email: false };
  * Ortak oluşturma çekirdeğinin girdisi (P19 §8c.2): AGENT (`createRequestInputSchema`) ve WEB (`webRequestInputSchema`)
  * aynı TX'e girer. Sürüm yalnız AGENT dalında vardır (S-P19-13: WEB'de `null`; `?? "0.0.0"` yasak).
  */
-export type CreateCoreInput = Omit<CreateRequestData, "clientVersion"> & { notify: NotifyChoice } & (
-    { source: "AGENT"; clientVersion: string } | { source: "WEB"; clientVersion: null }
+export type CreateCoreInput = Omit<CreateRequestData, "clientVersion" | "clientOs"> & { notify: NotifyChoice } & (
+    // P31 (AC-511): `clientOs` yalnız AGENT dalında; WEB'de tipte yok (DB CHECK source_client_os_chk: WEB ⇒ NULL, aksi 3819).
+    { source: "AGENT"; clientVersion: string; clientOs?: RequestClientOs } | { source: "WEB"; clientVersion: null; clientOs?: never }
   );
+
+/** P31 (AC-509): firma indirmesinde platform kapıları — `assertReady` seçilen platformun 503'ü, `macosOk` örtük seçim için. */
+export interface DownloadGates {
+  assertReady: (os: RequestClientOs) => Promise<void>;
+  macosOk: () => Promise<boolean>;
+}
 
 const agentInput = (d: CreateRequestData): CreateCoreInput => ({ ...d, source: "AGENT", notify: NO_NOTIFY });
 
@@ -425,23 +434,32 @@ export class RequestService {
     return cancelSystemOf(this, requestId, reason);
   }
 
-  /** GET /public/agent/request-download?ref= (AC-130, 132): 302 konumu; ref loga/audit'e yazılmaz. */
-  async download(ctx: AuditContext, ref: unknown, assertReady: () => Promise<void>): Promise<string> {
+  /**
+   * GET /public/agent/request-download?ref=&os= (AC-130, 132; P31 AC-509, 521): 302 konumu; ref ve UA loga/audit'e
+   * yazılmaz. Sıra: engel → kova → ref (tek 404) → platform → kapı. `os` açıksa ona göre (macos + kapı kapalı → 503);
+   * yoksa UA macOS masaüstü **ve** mac kapısı `ok` → macos, aksi windows (bugünkü davranış, gerileme yok).
+   */
+  async download(ctx: AuditContext, ref: unknown, os: RequestClientOs | undefined, gates: DownloadGates): Promise<string> {
     const ip = ipKey(ctx.ip);
     this.assertRefNotBlocked(ip);
     await this.limit(ctx, null, "download", "req.download", "ip", ip);
     const r = await this.resolveRef(ref);
     if (!r) throw this.refInvalid(ip);
-    await assertReady();
+    const chosen = os ?? (osFromUserAgent(ctx.userAgent) === "macos" && (await gates.macosOk()) ? "macos" : "windows");
+    await gates.assertReady(chosen);
+    this.d.metrics.inc("rs_agent_download_total", { os: chosen, kind: "firm" });
     // AC-168: dosya adı sahibin etiketi + ref (G-E10-8 şerhi: yalnız ref'i bilen görür).
     return r.customer
-      ? requestDownloadLocation(r.customer.fileLabel, ref as string)
-      : requestDownloadLocation(r.s.fileLabel, r.s.requestRef);
+      ? requestDownloadLocation(r.customer.fileLabel, ref as string, chosen)
+      : requestDownloadLocation(r.s.fileLabel, r.s.requestRef, chosen);
   }
 
-  /** forward_auth firma yolu (G-E9-11): ref aktif ve label güncel file_label → true; aksi false (tek 404). */
-  async firmPathValid(uri: string): Promise<boolean> {
-    const p = parseFirmDownloadUri(uri);
+  /**
+   * forward_auth firma yolu (G-E9-11): ref aktif ve label güncel file_label → true; aksi false (tek 404). P31 (K-P31-3):
+   * uzantı kapıya göre sabit — `/agent-ready/windows` yalnız `.exe`, `/agent-ready/macos-firm` yalnız `.zip`.
+   */
+  async firmPathValid(uri: string, ext: FirmFileExt): Promise<boolean> {
+    const p = parseFirmDownloadUri(uri, ext);
     if (!p) return false;
     const r = await this.resolveRef(p.ref);
     if (!r) return false;
