@@ -5663,8 +5663,7 @@ Gerçek anahtar **yalnız bu adımla**, internete bağlı olmayan bir makinede �
 5. Bundan sonraki ilk derleme anahtarı gömer: build, ikilide anahtarı arar ve bulamazsa durur.
    **0.22.0 son elle kurulumdur** (R-P29-5). Anahtarsız derlenmiş ikililer kendini hiçbir zaman güncellemez.
 
-**Durum (2026-11-19, staging `1d706ce`):** anahtar henüz üretilmedi (`update-keys/` yalnız README). Staging `.env` `UPDATE_MANIFEST_PUBKEYS`
-boş, güncelleme ucu 204; 0.22.0 staging ikilileri anahtarsız (güncelleyici kapalı). Ajanlar anahtar üretmez; adım 1–4 kullanıcıda.
+**Durum (2026-11-20):** dört çift kullanıcı tarafından üretildi (Docker `golang:1.26.11-bookworm`, `--network none`, çıktı repo dışında `~/update-keys`); dört tohumun türettiği açık anahtar `.txt` `PUBLIC_KEY` satırıyla eşleşti. `prod.pub` ve `staging.pub` repoya girdi; etkin tohumlar `agent-update-sign` / `agent-update-sign-stg` ortam secret'larında (repo düzeyi `UPDATE_SIGNING_KEY` yok); ortamlar §31.5'e göre kuruldu (required reviewer, admin bypass kapalı, prod yalnız `v*` etiketi, stg yalnız `main`). Yedek tohumlar kullanıcıda, çevrimdışı. Staging `.env` `UPDATE_MANIFEST_PUBKEYS` = staging etkin,yedek.
 
 ### 31.3 Rotasyon, sızıntı, kayıp
 
