@@ -18108,4 +18108,8 @@ tek geçişte yeniden açılış → ilk taze kare ≤ 1 sn, sonrasında 1,5 sn 
 **Test.** Yerel: `gofmt -l`, `go vet` (darwin + `GOOS=windows`), birim testler PASS; SCK testleri yerelde ekran yok
 (NO_OUTPUT). Linux gofmt/vet CI "gofmt + vet + test -race" işinde. CI macOS (`gh workflow run agent-win.yml --ref
 fix-late-window-flake`): tanı 44657284519 (kök neden); düzeltmenin ilk sürümüyle 44658757181, 44659877551,
-44660762390 yeşil; son sürüm (open + tek geçiş testi) koşuları aşağıda.
+44660762390 yeşil. Son sürüm (open + tek geçiş testi): 44662954083 (macOS PASS; ilgisiz Linux
+`TestAC402P28gGTKClipSecretHint` ve Windows `TestAC254GP202ConcurrentUpdatesNoLostWrite` kırmızı), 44663983867 ve
+44664994010 tamamen yeşil (yeniden açılış → ilk taze kare 153–201 ms, sonrasında 6–20 karede macenta 0; dışlama
+öncesi karelerde macenta görüldü = yoklama geçerli). 44662061810 altyapı (proxy.golang.org DNS) nedeniyle koşmadı.
+Dalda geçici tanı commit'i (5 turlu test) geçmişte durur; son haliyle değiştirildi.
