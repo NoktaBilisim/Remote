@@ -3020,28 +3020,30 @@ Yetki `users.edit`; gövde `{}`. Yanıt `{ "revoked": 3 }`. Kendi hesabı 403 (p
 Kaynak: `apps/server/src/unattended/{routes,service,connect,registration,contacts,gate,download,hub,device-ws}.ts`,
 `signaling/admit-device.ts`, `packages/contracts/src/{api/unattended.ts,ws-device.ts,errors.ts,permissions.ts,audit.ts}`.
 Tasarım `docs/mimari-p27.md`; operasyon runbook §27. Yetkiler `unattended.connect`, `unattended.manage`. Tüm uçlar firma
-kapsamlıdır (Super Admin bir firma seçmelidir); başka firmanın kaydı 404.
+kapsamlıdır (Super Admin bir firma seçmelidir; istisna `GET /status`, bkz. P32); başka firmanın kaydı 404.
 
 **İmza kapısı (`UNATTENDED_MODE`):** `off` (varsayılan) → kayıt kodu, kayıt ve bağlantı 409 `UNATTENDED_DISABLED`;
-`unsigned` yalnız `DEPLOY_ENV=staging`; `signed` → cihaz imzalı ve SHA-256'sı `UNATTENDED_SIGNED_SHA256`'da olmalı.
+`unsigned` yalnız `DEPLOY_ENV=staging`; `unsigned-accepted` (P32, ADR-0042; yalnız `DEPLOY_ENV=production|staging`) → imzadan
+bağımsız, cihazın beyan ettiği SHA-256 `UNATTENDED_SIGNED_SHA256` izinli listesinde olmalı; `signed` → cihaz imzalı ve SHA-256'sı
+listede olmalı. Ayrıntı "Gözetimsiz servis prod risk kabulü (P32)".
 
 ### Uçlar (`/api/v1/unattended`)
 
-| Uç                                             | Yetki                                               | Girdi                                                                                          | Çıktı                                                                                                | Hatalar                                                                                                                |
-| ---------------------------------------------- | --------------------------------------------------- | ---------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
-| `GET /status`                                  | `connect` ∨ `manage`                                | —                                                                                              | `{ mode, available, notifyChannel }`                                                                 | —                                                                                                                      |
-| `GET /devices`                                 | `connect` ∨ `manage`                                | `q?` (≤ 64), `customerId?`, `state` `online\|offline\|all`, `cursor?`, `limit` 1–100 (50)      | `{ items: DeviceListItem[], nextCursor }`; `manage` yoksa yalnız yetkili cihazlar                    | 400                                                                                                                    |
-| `GET /devices/:id`                             | yetkili `connect` ∨ `manage`                        | —                                                                                              | `DeviceDetail` (`lastIp`, `registeredIp`, `registeredAt`, `grants` yalnız `manage`'de dolu)          | 404                                                                                                                    |
-| `PUT /devices/:id/grants`                      | `manage` (+ ekleme varsa step-up)                   | `{ "userIds": ["01K…"] }` (tam küme, ≤ 200; boş = tümünü kapat)                                | `{ grants }`                                                                                         | 400 (`fields.userIds`: başka firma/pasif/`connect` yetkisiz), 401 `MFA_STEP_UP_REQUIRED`, 404                          |
-| `POST /devices/:id/revoke`                     | `manage`                                            | `{}`                                                                                           | 204; açık bağlantı ≤ 10 sn'de kesilir                                                                | 404, 409 (zaten iptal)                                                                                                 |
-| `POST /devices/:id/connect`                    | `connect` + cihaz yetkisi + step-up (**tüketilir**) | `{}`                                                                                           | `{ "sessionId": "01K…" }` → konsol `/sessions/:id/console`                                           | aşağıdaki zincir                                                                                                       |
-| `GET /registration-codes`                      | `manage`                                            | —                                                                                              | bekleyen kodlar `{ id, customerId, customerName, createdBy, expiresAt }` (kod yok)                   | —                                                                                                                      |
-| `POST /registration-codes`                     | `manage` + step-up                                  | `{ "customerId": "01K…" }`                                                                     | `{ id, code: "ABCD-1234-EFGH-5678", expiresAt, downloadUrl }` (kod **bir kez**; 24 sa, tek kullanım) | 404, 409 `UNATTENDED_DISABLED` / `NOTIFY_CONTACT_REQUIRED` / `NOTIFY_CHANNEL_UNAVAILABLE` / `CONFLICT` (müşteri pasif) |
-| `DELETE /registration-codes/:id`               | `manage`                                            | —                                                                                              | 204                                                                                                  | 404                                                                                                                    |
-| `GET /customers/:customerId/contacts`          | `manage`                                            | —                                                                                              | `{ items: [{ email, phone }] }`                                                                      | 404                                                                                                                    |
-| `PUT /customers/:customerId/contacts`          | `manage` + step-up                                  | `{ "items": [{ "email": "bt@musteri.com.tr", "phone": "05321234567" }] }` (0–5, tekil e-posta) | `{ items }`; fark varsa eski ve yeni adreslerin hepsine değişiklik e-postası                         | 400, 401 `MFA_STEP_UP_REQUIRED`, 404                                                                                   |
-| `GET /download`                                | `manage`                                            | —                                                                                              | `NoktaDestekServis.exe`                                                                              | 503 (SHA uyuşmazlığı / yayın yok)                                                                                      |
-| `POST /register` (cihaz; çerezsiz, Origin'siz) | kayıt kodu                                          | `{ code, publicKey, name, osVersion, version, sha256, signed }`                                | `{ deviceId, tenantName, customerName }`                                                             | 404 `REGISTRATION_CODE_INVALID`, 409 `UNATTENDED_DISABLED`, 429                                                        |
+| Uç                                             | Yetki                                               | Girdi                                                                                          | Çıktı                                                                                                                                | Hatalar                                                                                                                |
+| ---------------------------------------------- | --------------------------------------------------- | ---------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------- |
+| `GET /status`                                  | `connect` ∨ `manage`                                | —                                                                                              | `{ mode, available, notifyChannel }`                                                                                                 | —                                                                                                                      |
+| `GET /devices`                                 | `connect` ∨ `manage`                                | `q?` (≤ 64), `customerId?`, `state` `online\|offline\|all`, `cursor?`, `limit` 1–100 (50)      | `{ items: DeviceListItem[], nextCursor }`; `manage` yoksa yalnız yetkili cihazlar                                                    | 400                                                                                                                    |
+| `GET /devices/:id`                             | yetkili `connect` ∨ `manage`                        | —                                                                                              | `DeviceDetail` (`lastIp`, `registeredIp`, `registeredAt`, `grants` yalnız `manage`'de dolu)                                          | 404                                                                                                                    |
+| `PUT /devices/:id/grants`                      | `manage` (+ ekleme varsa step-up)                   | `{ "userIds": ["01K…"] }` (tam küme, ≤ 200; boş = tümünü kapat)                                | `{ grants }`                                                                                                                         | 400 (`fields.userIds`: başka firma/pasif/`connect` yetkisiz), 401 `MFA_STEP_UP_REQUIRED`, 404                          |
+| `POST /devices/:id/revoke`                     | `manage`                                            | `{}`                                                                                           | 204; açık bağlantı ≤ 10 sn'de kesilir                                                                                                | 404, 409 (zaten iptal)                                                                                                 |
+| `POST /devices/:id/connect`                    | `connect` + cihaz yetkisi + step-up (**tüketilir**) | `{}`                                                                                           | `{ "sessionId": "01K…" }` → konsol `/sessions/:id/console`                                                                           | aşağıdaki zincir                                                                                                       |
+| `GET /registration-codes`                      | `manage`                                            | —                                                                                              | bekleyen kodlar `{ id, customerId, customerName, createdBy, expiresAt }` (kod yok)                                                   | —                                                                                                                      |
+| `POST /registration-codes`                     | `manage` + step-up                                  | `{ "customerId": "01K…" }`                                                                     | `{ id, code: "ABCD-1234-EFGH-5678", expiresAt, downloadUrl, agentSha256 }` (kod **bir kez**; 24 sa, tek kullanım; `agentSha256` P32) | 404, 409 `UNATTENDED_DISABLED` / `NOTIFY_CONTACT_REQUIRED` / `NOTIFY_CHANNEL_UNAVAILABLE` / `CONFLICT` (müşteri pasif) |
+| `DELETE /registration-codes/:id`               | `manage`                                            | —                                                                                              | 204                                                                                                                                  | 404                                                                                                                    |
+| `GET /customers/:customerId/contacts`          | `manage`                                            | —                                                                                              | `{ items: [{ email, phone }] }`                                                                                                      | 404                                                                                                                    |
+| `PUT /customers/:customerId/contacts`          | `manage` + step-up                                  | `{ "items": [{ "email": "bt@musteri.com.tr", "phone": "05321234567" }] }` (0–5, tekil e-posta) | `{ items }`; fark varsa eski ve yeni adreslerin hepsine değişiklik e-postası                                                         | 400, 401 `MFA_STEP_UP_REQUIRED`, 404                                                                                   |
+| `GET /download`                                | `manage`                                            | —                                                                                              | `NoktaDestekServis.exe`                                                                                                              | 503 (SHA uyuşmazlığı / yayın yok)                                                                                      |
+| `POST /register` (cihaz; çerezsiz, Origin'siz) | kayıt kodu                                          | `{ code, publicKey, name, osVersion, version, sha256, signed }`                                | `{ deviceId, tenantName, customerName }`                                                                                             | 404 `REGISTRATION_CODE_INVALID`, 409 `UNATTENDED_DISABLED`, 429                                                        |
 
 `DeviceListItem`: `{ id, name, customerId, customerName, online, localEnabled, signatureOk, lastSeenAt, lastSessionAt,
 grantCount, canConnect, connectBlockedReason, verified, notifyFailed, replacedAlert }`. `connectBlockedReason`:
@@ -4657,8 +4659,8 @@ Ed25519 anahtarıyla imzalar (`.json.sig`, base64url 86 karakter; imzalanan bayt
 Sunucu manifesti üretmez ve değiştirmez; yalnız şu koşulların hepsi tutarsa sunar: imza `UPDATE_MANIFEST_PUBKEYS`
 anahtarlarından biriyle geçerli, `env` = `DEPLOY_ENV` (`production→prod`, `staging→staging`; başka değerde hiçbir manifest
 sunulmaz), süresi dolmamış, `sha256` = ilgili ikili kapısının beklenen SHA'sı (`AGENT_SHA256` / `MAC_AGENT_SHA256` /
-`LINUX_AGENT_SHA256` / `UNATTENDED_AGENT_SHA256`), servis için `UNATTENDED_MODE=signed` iken SHA `UNATTENDED_SIGNED_SHA256`
-listesinde. İstemci her şeyi yeniden doğrular (imza, ortam, platform, süre, sürüm > çalışan ve ≥ görülen en yüksek, boyut,
+`LINUX_AGENT_SHA256` / `UNATTENDED_AGENT_SHA256`), servis için `UNATTENDED_MODE` `signed` ya da `unsigned-accepted` (P32, AC-530) iken SHA
+`UNATTENDED_SIGNED_SHA256` listesinde. İstemci her şeyi yeniden doğrular (imza, ortam, platform, süre, sürüm > çalışan ve ≥ görülen en yüksek, boyut,
 SHA-256). Güncelleme uçları `MIN_AGENT_VERSION` kapısından muaftır.
 
 Manifest alanları (sabit sıra): `schema` (1), `env` (`prod`|`staging`), `platform` (`windows`|`macos`|`linux`), `arch`
@@ -4820,6 +4822,67 @@ Audit süzgecinde grup "İstemci güncelleme".
 Metrikler: `rs_agent_update_total{platform,component,result,source}`, `rs_agent_update_rejected_total{reason,source}`,
 `rs_agent_update_check_total{platform,component,result}`, `rs_agent_update_download_total{component,result}`,
 `rs_update_manifest_expiry_seconds{component,platform}`, `rs_unattended_agent_versions{version}` (en çok 50 + `other`).
+
+## Gözetimsiz servis prod risk kabulü (P32)
+
+Kaynak: `apps/server/src/{env.ts,unattended/gate.ts,unattended/registration.ts,unattended/register.ts,unattended/connect.ts,
+unattended/device-auth.ts,notify/customer-templates.ts,customer-send/targets.ts,update/wiring.ts}`,
+`packages/contracts/src/api/unattended.ts`. Tasarım `docs/mimari-p32.md`, ADR-0042; operasyon runbook §27.9. Yeni uç, yetki
+ve migration yok.
+
+### Kapı modu `unsigned-accepted`
+
+`UnattendedMode` = `"off"` | `"unsigned"` | `"unsigned-accepted"` | `"signed"`. `unsigned-accepted`: servis kod imzasız, prod'da
+risk kabulüyle çalışır.
+
+| Kural                       | Davranış                                                                                                                                                                                                                              |
+| --------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Ortam                       | Yalnız `DEPLOY_ENV=production` ya da `staging`; başka değerde server açılmaz                                                                                                                                                          |
+| Açılış koşulları (`env.ts`) | `UNATTENDED_SIGNED_SHA256` dolu (≤ 20 öğe, her modda), `UNATTENDED_AGENT_SHA256` ve `UNATTENDED_AGENT_VERSION` (`X.Y.Z`) dolu, `UNATTENDED_AGENT_SHA256` listede. Liste ve sürümü `deploy/agent/publish-servis.sh --tag vX.Y.Z` yazar |
+| Kapı (`gate.ts`)            | İmza beyanından bağımsız: cihazın beyan ettiği SHA-256 (küçük harf) listede olmalı. Liste kimlik doğrulaması değil, beyana dayalı sürüm kapısıdır                                                                                     |
+| Ret                         | Kayıt 409 `UNATTENDED_DISABLED` (kod tüketilmez), `device.auth` 4403, bağlantı 409; cihaz listesinde `signatureOk:false`, `connectBlockedReason:"unsigned"` (panel rozeti "İzinli sürüm değil")                                       |
+| Gösterge                    | "TEST — imzasız" öneki **yok** (yalnız `unsigned`'da)                                                                                                                                                                                 |
+| P29 güncelleme              | Servis manifesti yalnız SHA'sı listedeyse sunulur (AC-530)                                                                                                                                                                            |
+| Açılış alarmı               | Server açılışında bir kez `warn` `alarm:"unattended_unsigned_risk_accepted"` (liste öğe sayısı + `listFingerprint`)                                                                                                                   |
+
+`GET /api/v1/unattended/status` → `{ "mode": "unsigned-accepted", "available": true, "notifyChannel": true }`. Bu uç firma
+kapsamı istisnasıdır: firma seçmemiş Super Admin de çağırabilir (`notifyChannel:false` döner); panel bu durumda yalnız
+risk kabul bandını çizer.
+
+### `POST /api/v1/unattended/registration-codes` yanıtında `agentSha256`
+
+```json
+{
+  "id": "01KCODE00000000000000000000",
+  "code": "ABCD-1234-EFGH-5678",
+  "expiresAt": "2026-11-21T09:00:00.000Z",
+  "downloadUrl": "/api/v1/unattended/download",
+  "agentSha256": "1a2b3c4d…(64 küçük hex)…5e6f7a8b"
+}
+```
+
+`agentSha256` = `UNATTENDED_AGENT_SHA256` (panelden indirilen ikilinin SHA-256'sı). `unsigned-accepted`'te her zaman doludur;
+diğer modlarda servis yayınlanmamışsa boş dize. Panel kayıt kodu penceresinde `unsigned-accepted` iken "Windows 'Bilinmeyen
+yayıncı' gösterebilir; SHA-256: ilk8…son8" notu gösterir.
+
+### Kayıt kodu e-postasında doğrulama bloğu (AC-533)
+
+`UNATTENDED_CODE` yalnız e-postayla gönderilir. Mod bağımsız, her e-postada:
+
+```
+Yalnız <PUBLIC_BASE_URL host'u> adresinden indirin. Dosya: NoktaDestekServis.exe · Sürüm: <UNATTENDED_AGENT_VERSION> · SHA-256: <ilk8>…<son8>
+Size başka yoldan gönderilen dosyayı çalıştırmayın.
+```
+
+Host port dahil; sürüm boşsa "Sürüm" parçası, SHA 64 hex değilse "SHA-256" parçası yazılmaz. Kurulum adımında tam 64 haneli SHA
+korunur.
+
+### Audit (AC-528)
+
+`unattended.device.registered` ve `unattended.connect` satırlarının `new_value`'su `gateMode` ve `binarySha256` (cihazın o anki
+beyanı, 64 hane) taşır; `connect` ve başarısız kayıt ayrıca `signed` beyanını. Kayıtta kapı reddi `result:"fail"`,
+`reason:"gate"`, tenant koddan. `unattended.device.auth` kapı reddi (`reason:"gate"`) yalnız `sha256Prefix` (ilk 12 hane) taşır.
+SHA-256 gizli değildir.
 
 ## Saklama ve anonimleştirme (P13a)
 

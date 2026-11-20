@@ -1,10 +1,11 @@
-import { Building2 } from "lucide-react";
+import { Building2, ShieldAlert } from "lucide-react";
 import type { ReactNode } from "react";
 import { ListPageHeader } from "@/components/list-page";
 import { Alert } from "@/components/ui/alert";
 import { EmptyState } from "@/components/ui/empty-state";
 import { t } from "@/lib/i18n";
-import { UNATTENDED_OFF_BANNER, UNATTENDED_TEST_BANNER, type UnattendedStatus } from "@/lib/unattended/contract";
+import { UNATTENDED_OFF_BANNER, UNATTENDED_RISK_BANNER, UNATTENDED_TEST_BANNER, type UnattendedStatus } from "@/lib/unattended/contract";
+import { isRiskAccepted, modeBanners } from "@/lib/unattended/errors";
 import { CreateCodeButton } from "./code-dialog";
 import { UnTabs } from "./un-tabs";
 
@@ -13,6 +14,8 @@ export interface UnAccess {
   manage: boolean;
   pickTenant: boolean;
   history: boolean;
+  /** P32 (AC-527c): risk kabul bilgi bandı yalnız Super Admin'e. */
+  superAdmin: boolean;
 }
 
 export function accessOf(me: { permissions: readonly string[]; user: { role: string }; actingTenant?: unknown }): UnAccess {
@@ -22,11 +25,15 @@ export function accessOf(me: { permissions: readonly string[]; user: { role: str
     manage: p.includes("unattended.manage"),
     pickTenant: me.user.role === "SUPER_ADMIN" && !me.actingTenant,
     history: p.includes("session_history.view"),
+    superAdmin: me.user.role === "SUPER_ADMIN",
   };
 }
 
-/** Kapı bantları (AC-297, 342): kapalı/imzasız red → `danger`; staging imzasız → TEST `warning`; durum alınamadı → `warning`. */
-export function ModeBanner({ status }: { status: UnattendedStatus | null }) {
+/**
+ * Kapı bantları (AC-297, 342; P32 AC-526/527): kapalı/imzasız red → `danger`; staging imzasız → TEST `warning`;
+ * prod risk kabul (`unsigned-accepted`) → yalnız Super Admin'e `info`; durum alınamadı → `warning`.
+ */
+export function ModeBanner({ status, superAdmin }: { status: UnattendedStatus | null; superAdmin: boolean }) {
   if (!status)
     return (
       <Alert tone="warning" testId="un-status-error">
@@ -35,19 +42,37 @@ export function ModeBanner({ status }: { status: UnattendedStatus | null }) {
     );
   return (
     <>
-      {!status.available && (
-        <Alert tone="danger" testId="un-off-banner">
-          {UNATTENDED_OFF_BANNER}
-        </Alert>
-      )}
-      {status.mode === "unsigned" && (
-        <Alert tone="warning" testId="un-test-banner">
-          {UNATTENDED_TEST_BANNER}
-        </Alert>
+      {modeBanners(status, superAdmin).map((k) =>
+        k === "off" ? (
+          <Alert key={k} tone="danger" testId="un-off-banner">
+            {UNATTENDED_OFF_BANNER}
+          </Alert>
+        ) : k === "test" ? (
+          <Alert key={k} tone="warning" testId="un-test-banner">
+            {UNATTENDED_TEST_BANNER}
+          </Alert>
+        ) : (
+          <RiskBanner key={k} />
+        ),
       )}
     </>
   );
 }
+
+function RiskBanner() {
+  return (
+    <Alert tone="info" icon={ShieldAlert} testId="un-risk-banner">
+      {UNATTENDED_RISK_BANNER}
+    </Alert>
+  );
+}
+
+/**
+ * Firma seçmemiş Super Admin (AC-527c, QA P32 tur 1 m.2): `GET /unattended/status` firma bağlamı olmadan da çalışır; yalnız
+ * risk kabul bandı çizilir (OFF/TEST bantları ve kayıt kodu düğmesi firma bağlamına aittir, değişmez).
+ */
+export const pickTenantRisk = (access: UnAccess, status: UnattendedStatus | null | undefined): boolean =>
+  access.pickTenant && access.superAdmin && (access.connect || access.manage) && isRiskAccepted(status);
 
 /** /unattended ve /unattended/codes ortak kabuğu: başlık (+ yönetici "Kayıt kodu oluştur"), bant, sekmeler (`manage`). */
 export function UnattendedShell({
@@ -68,11 +93,18 @@ export function UnattendedShell({
         crumb={t("nav.unattended")}
         title={t("un.title")}
         subtitle={t("un.subtitle")}
-        actions={ready && access.manage && status !== undefined && <CreateCodeButton block={createBlock} />}
+        actions={
+          ready && access.manage && status !== undefined && <CreateCodeButton block={createBlock} riskAccepted={isRiskAccepted(status)} />
+        }
       />
       {ready && status !== undefined && (
         <div className="mt-4 flex max-w-3xl flex-col gap-2">
-          <ModeBanner status={status} />
+          <ModeBanner status={status} superAdmin={access.superAdmin} />
+        </div>
+      )}
+      {pickTenantRisk(access, status) && (
+        <div className="mt-4 flex max-w-3xl flex-col gap-2">
+          <RiskBanner />
         </div>
       )}
       {ready && access.manage && (

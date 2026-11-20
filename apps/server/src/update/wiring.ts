@@ -16,6 +16,12 @@ declare module "fastify" {
   }
 }
 
+/**
+ * P29 AC-492 + P32 AC-530 (mimari-p32 §4.6): servis manifesti SHA'sı izinli listede olmalı mı — `signed` ve `unsigned-accepted`
+ * modda liste zorlanır (listede olmayan sürüme güncellenen servis 4403'te kilitlenmesin).
+ */
+export const serviceListEnforced = (mode: Env["UNATTENDED_MODE"]): boolean => mode === "signed" || mode === "unsigned-accepted";
+
 export interface UpdateWiringOptions {
   env: Env;
   now: () => number;
@@ -35,7 +41,7 @@ export function decorateUpdates(app: FastifyInstance, o: UpdateWiringOptions): v
       "client-linux": gate(() => app.linuxAgentBinary.check(), env.LINUX_AGENT_SHA256),
       "service-windows": gate(() => app.unattendedBinary.check(), env.UNATTENDED_AGENT_SHA256),
     },
-    signedMode: { signed: env.UNATTENDED_MODE === "signed", list: env.unattendedSignedSha256 },
+    signedMode: { signed: serviceListEnforced(env.UNATTENDED_MODE), list: env.unattendedSignedSha256 },
     now: o.now,
     warn: (obj, msg) => app.log.warn(obj, msg),
   });

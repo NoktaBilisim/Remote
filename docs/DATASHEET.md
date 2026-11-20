@@ -26,7 +26,7 @@ aktarır; bu durumda teslim edilen dosyalar da seçilen süre (1–7 gün) boyun
   2FA doğrulaması ister ve müşteriye e-postayla bildirilir; cihazda kapatılamayan "Uzaktan bağlantı" göstergesi çıkar,
   müşteri tek tıkla kapatabilir. Bağlantı cihaz kullanıcısına sorulmadan açılır ve teknisyen ekranı görüp kontrolü hemen
   alır; sunucu ve personel bilgisayarlarına destek ve müdahale için tek, basit yol. Gizli izleme yoktur: gösterge her
-  bağlantıda görünür. Teknisyen gerekirse Windows oturumunu kilitler ya da kullanıcı oturumunu kapatır. Kod imzası alındıktan sonra canlı ortamda açılır.
+  bağlantıda görünür. Teknisyen gerekirse Windows oturumunu kilitler ya da kullanıcı oturumunu kapatır. Servis programı kod imzası (yayıncı sertifikası) olmadan dağıtılır; canlı ortamda bu risk kabul edilerek açılabilir.
 - **Kendini güncelleyen programlar** — gözetimsiz erişim servisi ile Windows ve Linux destek programı yeni sürüme
   kendileri geçer; yalnız bizim imzaladığımız sürüm kurulur, destek oturumu sırasında hiçbir şey değişmez. Servis yeni
   sürümle açılamazsa eski sürüme kendiliğinden döner. Yönetici her cihazın sürümünü ve başarısız güncellemeleri panelde
@@ -195,6 +195,13 @@ aktarır; bu durumda teslim edilen dosyalar da seçilen süre (1–7 gün) boyun
   iptal edince bağlantı 10 saniyede kesilir. Koşullar sunucuda denetlenir; eski servis sürümlerine bağlantı açılmaz.
   Olaylar denetim kaydına ve cihazın Windows olay günlüğüne yazılır. **Not:** cihazda oturum açmış Windows kullanıcısı
   yöneticiyse teknisyen yönetici onayı (UAC) verebilir; standart kullanıcı hesabı önerilir.
+- Gözetimsiz servis imzasızdır (risk kabul): Windows yayıncıyı doğrulayamaz, kurulumda "Bilinmeyen yayımcı" uyarısı
+  çıkabilir. Telafi: sunucu yalnız yayımlanmış ve kökeni kanıtlanmış servis sürümlerinin özet (SHA-256) listesindeki
+  sürümleri kabul eder; liste yanlış ya da açıklı bir sürümü dışarıda tutmaya yarayan bir sürüm kapısıdır, yayıncı
+  doğrulaması yerine geçmez. Müşteriye giden kayıt kodu e-postası indirme adresini, dosya adını, sürümü ve özeti yazar,
+  "başka yoldan gönderilen dosyayı çalıştırmayın" uyarır; kılavuz kurulumdan önce özetin PowerShell ile karşılaştırılmasını
+  ve antivirüs istisnasının klasörle değil özetle verilmesini anlatır. Mod, liste ve ortam değişiklikleri izleme
+  betiğinde alarm üretir; süper yönetici panelde risk kabul bandını görür.
 - Otomatik güncelleme: programlar yeni sürümü yalnız Nokta Bilişim'in dijital imzasıyla doğrulayıp kurar; imzası tutmayan,
   bozuk, eski ya da başka ortama ait sürüm reddedilir ve güvenlik olayı olarak kaydedilir. Sunucu ele geçirilse bile
   istemci imzayı kendisi denetler. İmza anahtarı yalnız onaylı yayın ortamında durur; yedek anahtarla değiştirilebilir.

@@ -4,6 +4,7 @@
  */
 import { ApiError } from "@/lib/api";
 import { toUiError, type UiError } from "@/lib/error-message";
+import { formatShortSha } from "@/lib/format";
 import { t } from "@/lib/i18n";
 import {
   CONNECT_BLOCKED_REASON_LABELS,
@@ -49,4 +50,34 @@ export function connectBlock(d: Pick<DeviceListItem, "canConnect" | "connectBloc
 export function createCodeBlock(status: UnattendedStatus | null): string | null {
   if (!gateOpen(status)) return UNATTENDED_OFF_BANNER;
   return status?.notifyChannel === false ? CONNECT_BLOCKED_REASON_LABELS.smtp : null;
+}
+
+/*
+ * P32 (mimari-p32 §4.7; AC-526, 527, S-P32-8): prod risk kabul modu (`unsigned-accepted`); karşılaştırma tek yerde.
+ */
+
+/** Kapı `unsigned-accepted` mi (durum alınamadıysa hayır). */
+export const isRiskAccepted = (status: Pick<UnattendedStatus, "mode"> | null | undefined): boolean => status?.mode === "unsigned-accepted";
+
+export type ModeBannerKind = "off" | "test" | "risk";
+
+/**
+ * Görünecek kapı bantları (sıra = ekran sırası): kapalı → `off`; staging `unsigned` → TEST (AC-342; `unsigned-accepted`'te
+ * yok, AC-526); `unsigned-accepted` + Super Admin → risk kabul bilgi bandı (AC-527c; Admin/User'a bant yok).
+ */
+export function modeBanners(status: UnattendedStatus, superAdmin: boolean): ModeBannerKind[] {
+  const out: ModeBannerKind[] = [];
+  if (!status.available) out.push("off");
+  if (status.mode === "unsigned") out.push("test");
+  if (superAdmin && isRiskAccepted(status)) out.push("risk");
+  return out;
+}
+
+/**
+ * Kayıt kodu diyaloğu kurulum notu (S-P32-8): yalnız `unsigned-accepted`'te tek satır. SHA kaynağı kod üretim yanıtının
+ * `agentSha256` alanı (contracts `CreatedRegistrationCode`); boşsa SHA parçası yazılmaz.
+ */
+export function installNote(riskAccepted: boolean, agentSha256: string | undefined): string | null {
+  if (!riskAccepted) return null;
+  return agentSha256 ? t("un.code.unsignedNoteSha", { sha: formatShortSha(agentSha256) }) : t("un.code.unsignedNote");
 }

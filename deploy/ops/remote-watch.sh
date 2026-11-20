@@ -40,7 +40,7 @@ WATCH_GUEST_PREFIX_MAX WATCH_MYSQL_FAIL_MAX WATCH_PURGE_CHECKS WATCH_PURGE_REPEA
 WATCH_NOTIFY_RL_MAX WATCH_AV_CHECKS WATCH_AV_STALE_DAYS WATCH_AV_FAIL_MIN
 WATCH_REC_ERR_MIN WATCH_REC_PART_BAD_MAX WATCH_REC_VIEW_THROTTLE_MAX
 WATCH_MULTI_DENIED_MAX WATCH_PORTAL_LOGIN_FAIL_MAX WATCH_PORTAL_LOCKED_MAX WATCH_PORTAL_REQ_REJECT_MAX
-WATCH_UPDATE_REJECT_CLIENT_MIN WATCH_UPDATE_EXPIRY_MIN_DAYS WATCH_UPDATE_MANIFEST_REQUIRED"
+WATCH_UPDATE_REJECT_CLIENT_MIN WATCH_UPDATE_EXPIRY_MIN_DAYS WATCH_UPDATE_MANIFEST_REQUIRED WATCH_DEPLOY_ENV"
 
 # P13c: isteğe bağlı örnek adı (2. argüman). Boş = prod (bugünkü adlar/yollar birebir).
 INST="${2:-}"
@@ -146,8 +146,8 @@ DISK_MAX="${WATCH_DISK_MAX_PCT:-80}"
 CERT_DAYS="${WATCH_CERT_MIN_DAYS:-14}"
 # P13c: örnekte prod adlarına DÜŞÜLMEZ (S = "-<örnek>" son eki; prod'da boş -> bugünkü değerler).
 S="${INST:+-$INST}"
-# WATCH_DEPLOY_DIR (tasarım anahtarı) bilgi amaçlıdır: servis durumu compose dosyası çözülmeden etiketlerden okunur.
-# shellcheck disable=SC2034
+# WATCH_DEPLOY_DIR: servis durumu compose dosyası çözülmeden etiketlerden okunur; P32'den beri yalnız
+# $DEPLOY_DIR/agent/PUBLISHED.log (publish-servis.sh yayın kaydı) buradan okunur.
 DEPLOY_DIR="${WATCH_DEPLOY_DIR:-/opt/remote$S/deploy}"
 if [ -n "$INST" ]; then
   HOSTN="${WATCH_PUBLIC_HOST:-}"; [ -n "$HOSTN" ] || die "örnek $INST: WATCH_PUBLIC_HOST zorunlu ($ENV_FILE)"
@@ -217,6 +217,9 @@ case "$AV_CHECKS" in 0|1|auto) ;; *) die "WATCH_AV_CHECKS 0, 1 ya da auto olmal�
 case "$TURN_CHECKS" in 0|1) ;; *) die "WATCH_TURN_CHECKS 0 ya da 1 olmalı" ;; esac
 case "$PURGE_CHECKS" in 0|1) ;; *) die "WATCH_PURGE_CHECKS 0 ya da 1 olmalı" ;; esac
 case "$UM_REQ" in 0|1) ;; *) die "WATCH_UPDATE_MANIFEST_REQUIRED 0 ya da 1 olmalı" ;; esac
+# P32 (mimari-p32 §8.5, S-P32-3, S-P32-r2-1): server'ın beklenen DEPLOY_ENV'i. Boşsa ve gözetimsiz mod off değilse ALERT.
+WDENV="${WATCH_DEPLOY_ENV:-}"
+case "$WDENV" in ''|production|staging|development) ;; *) die "WATCH_DEPLOY_ENV production, staging ya da development olmalı" ;; esac
 for v in REPEAT_MIN DISK_MAX CERT_DAYS REMIND_DAYS GP_MAX MF_MAX PURGE_REPEAT NF_MIN NRL_MAX AV_STALE AV_FMIN REC_EMIN REC_BMAX REC_VMAX MD_MAX PL_FMAX PL_LMAX PR_RMAX UR_CMIN UE_DAYS; do
   case "${!v}" in ''|*[!0-9]*) die "WATCH_${v} sayı olmalı (bulunan: ${!v})" ;; esac
 done
@@ -464,6 +467,80 @@ if [ -n "$SERVER_C" ] && [[ "${r_last:-yok}" != yok ]]; then
       seen update-manifest-missing
       [ -n "$UP_EXP" ] || fail update-manifest-missing "sunulabilir güncelleme manifesti yok (rs_update_manifest_expiry_seconds serisi yok: süresi doldu/geri çekildi/imza kapısı? donma; runbook §31.8)"
     fi
+  fi
+fi
+
+# P32 gözetimsiz servis imzasız risk kabulü (mimari-p32 §8.5, AC-527b; S-P32-3/5, S-P32-r2-1/r2-2; runbook §27.9).
+# Server konteynerinin env'i KEY=değer satırları olarak okunur (yalnız 5 anahtar; sır yok). Çıktı güvenilmez (S14-2): mod beyaz
+# liste, DEPLOY_ENV [a-z], liste öğeleri 64-hex; ham değer journal'a yazılmaz (SHA'dan yalnız ilk 12 hane).
+# listFingerprint (server açılış alarmı ile AYNI tanım): öğeler kırpılır, küçük harfe çevrilir, boşlar atılır, yinelenen
+# ATILMAZ, LC_ALL=C sıralanır, "," ile birleştirilir (sonda satır sonu yok), SHA-256, ilk 12 hane.
+U_OK=0; U_MODE=""; U_DENV=""; U_FP=""; U_N=0; U_CHANGED=""; U_PREV=""
+U_STATE="$STATE_DIR/unattended.state"
+PUBLOG="$DEPLOY_DIR/agent/PUBLISHED.log"
+sha12() { openssl dgst -sha256 -r 2>/dev/null | cut -c1-12; }
+publog_has() {  # publog_has <sha> [sürüm] -> PUBLISHED.log'da "servis v<X.Y.Z> <sha>" satırı (alan eşleşmesi, dir-*/-unattested sayılmaz)
+  if [ -n "${2:-}" ]; then awk -v s="$1" -v t="v$2" '$2 == "servis" && $3 == t && $4 == s {f = 1} END {exit !f}' "$PUBLOG" 2>/dev/null
+  else awk -v s="$1" '$2 == "servis" && $3 ~ /^v[0-9]+\.[0-9]+\.[0-9]+$/ && $4 == s {f = 1} END {exit !f}' "$PUBLOG" 2>/dev/null; fi
+}
+if [ -n "$SERVER_C" ]; then
+  uenv="$(timeout 20 docker exec "$SERVER_C" node -e "for(const k of ['DEPLOY_ENV','UNATTENDED_MODE','UNATTENDED_SIGNED_SHA256','UNATTENDED_AGENT_SHA256','UNATTENDED_AGENT_VERSION'])console.log(k+'='+(process.env[k]||''))" 2>/dev/null)" || uenv=""
+  grep -q '^UNATTENDED_MODE=' <<<"$uenv" && U_OK=1
+  # S-P32-K-1: konteyner çalışıyor ama env okunamadıysa (exec/node hatası, 20 sn zaman aşımı) denetimler sessizce atlanmaz.
+  # Mod bilinmediği için güvenli taraf ALERT'tir (prod'da unsigned-accepted olabilir); geçici hata bir sonraki turda DUZELDI olur.
+  seen unattended-env-read
+  [ "$U_OK" = 1 ] || fail unattended-env-read "server çalışıyor ama env okunamadı (docker exec/node hatası ya da zaman aşımı): gözetimsiz servis denetimleri bu tur yapılamadı, mod bilinmiyor (runbook §27.9)"
+fi
+if [ "$U_OK" = 1 ]; then
+  uv() { sed -n "s/^$1=//p" <<<"$uenv" | head -1 | tr -d '\r'; }
+  U_MODE="$(uv UNATTENDED_MODE)"
+  case "$U_MODE" in ''|off) U_MODE=off ;; unsigned|unsigned-accepted|signed) ;; *) U_MODE=gecersiz ;; esac
+  U_DENV="$(uv DEPLOY_ENV)"; [[ "$U_DENV" =~ ^[a-z]{0,16}$ ]] || U_DENV=gecersiz
+  u_items="$(uv UNATTENDED_SIGNED_SHA256 | tr ',' '\n' | tr -d ' \t' | tr 'A-F' 'a-f' | awk 'NF')"
+  U_N=0; [ -z "$u_items" ] || U_N="$(grep -c . <<<"$u_items")"
+  U_FP="$(printf '%s' "$(LC_ALL=C sort <<<"$u_items" | paste -sd, -)" | sha12)"
+  [[ "$U_FP" =~ ^[0-9a-f]{12}$ ]] || U_FP=hesaplanamadi
+  u_asha="$(uv UNATTENDED_AGENT_SHA256 | tr -d ' \t' | tr 'A-F' 'a-f')"; u_ver="$(uv UNATTENDED_AGENT_VERSION | tr -d ' \t')"
+  if [ "$U_MODE" = unsigned-accepted ]; then
+    log "BILGI check=unattended-unsigned-accepted gozetimsiz servis imzasiz (risk kabul, ADR-0042) liste=$U_N listFingerprint=$U_FP"
+    [ "$U_N" -lt 16 ] || log "BILGI check=unattended-list-size izinli liste dolmak uzere ($U_N/20; runbook §27.9 temizlik)"
+  fi
+  seen unattended-deploy-env
+  if [ -z "$WDENV" ]; then
+    if [ "$U_MODE" != off ]; then fail unattended-deploy-env "WATCH_DEPLOY_ENV yapılandırılmamış (mod=$U_MODE): watch.env'e beklenen ortamı yazın (runbook §20.4)"
+    else log "ATLANDI check=unattended-deploy-env WATCH_DEPLOY_ENV bos (mod off)"; fi
+  elif [ "$U_DENV" != "$WDENV" ]; then
+    fail unattended-deploy-env "server DEPLOY_ENV=${U_DENV:-bos} beklenen $WDENV (staging .env kopyası? runbook §27.9)"
+  else log "BILGI check=unattended-deploy-env OK DEPLOY_ENV=$U_DENV"; fi
+  if [ "$U_MODE" = signed ] || [ "$U_MODE" = unsigned-accepted ]; then
+    seen unattended-list-unpublished
+    if [ ! -f "$PUBLOG" ]; then fail unattended-list-unpublished "$PUBLOG yok (liste yalnız publish-servis.sh --tag ile dolar)"
+    else
+      bad=""
+      while IFS= read -r x; do
+        [ -n "$x" ] || continue
+        if ! [[ "$x" =~ ^[0-9a-f]{64}$ ]]; then bad="${bad:+$bad,}gecersiz-oge"
+        elif ! publog_has "$x"; then bad="${bad:+$bad,}${x:0:12}"; fi
+      done <<<"$u_items"
+      [ "$U_N" -gt 0 ] || bad="liste-bos"
+      [ -z "$bad" ] || fail unattended-list-unpublished "izinli listede PUBLISHED.log'da 'servis vX.Y.Z <sha>' satırı olmayan öğe: $bad (elle ekleme? runbook §27.9)"
+    fi
+  fi
+  if [ -n "$u_ver" ] || [ "$U_MODE" = unsigned-accepted ]; then
+    seen unattended-agent-version-mismatch
+    if ! [[ "$u_ver" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || ! [[ "$u_asha" =~ ^[0-9a-f]{64}$ ]]; then
+      fail unattended-agent-version-mismatch "UNATTENDED_AGENT_VERSION / UNATTENDED_AGENT_SHA256 boş ya da biçimsiz (publish-servis.sh --tag ile yeniden yayınlayın)"
+    elif ! publog_has "$u_asha" "$u_ver"; then
+      fail unattended-agent-version-mismatch "PUBLISHED.log'da 'servis v$u_ver ${u_asha:0:12}…' yok: müşteri mesajındaki sürüm ikiliyle uyuşmuyor olabilir (publish-servis.sh --tag ile yeniden yayınlayın; runbook §27.9)"
+    fi
+  fi
+  # Mod/liste değişimi: bir kez ALERT (aşağıda, fail() dışında; düzelince DUZELDI gönderilmez). İlk koşu yalnız durumu yazar.
+  seen unattended-mode-changed
+  if [ -f "$U_STATE" ]; then
+    pm="$(sed -n 's/^mode=//p' "$U_STATE" | tail -1)"; pf="$(sed -n 's/^fp=//p' "$U_STATE" | tail -1)"
+    [[ "$pm" =~ ^[a-z-]{1,24}$ ]] || pm=bilinmiyor; [[ "$pf" =~ ^[0-9a-z]{1,16}$ ]] || pf=bilinmiyor
+    U_PREV="$pm/$pf"
+    [ "$U_PREV" = "$U_MODE/$U_FP" ] || U_CHANGED="$U_PREV->$U_MODE/$U_FP"
   fi
 fi
 
@@ -728,7 +805,8 @@ for x in "${FAILS[@]+"${FAILS[@]}"}"; do
   n="${x%%|*}"; err "ALERT check=$n ${x#*|}"
   case " $cur " in *" $n "*) ;; *) cur="${cur:+$cur }$n" ;; esac
 done
-[ -n "$cur" ] || log "OK (${#CHECKS[@]} kontrol)"
+[ -z "$U_CHANGED" ] || err "ALERT check=unattended-mode-changed gözetimsiz mod/liste değişti (mod/listFingerprint): $U_CHANGED"
+[ -n "$cur$U_CHANGED" ] || log "OK (${#CHECKS[@]} kontrol)"
 
 send() {  # send <mesaj>; 0 = gönderildi (ya da komut yok)
   local msg="$1"
@@ -756,6 +834,14 @@ if [ -n "$fixed" ]; then
   else keep="${keep:+$keep }$fixed"; fi
 fi
 
+# P32 (S-P32-5): mod/liste değişimi tek seferlik alarmdır; durum yalnız gönderim başarılıysa (ya da komut yoksa) yazılır,
+# başarısızsa sonraki turda yeniden denenir. Sunucu okunamadıysa (U_OK=0) durum dosyasına dokunulmaz (yanlış değişim alarmı yok).
+if [ "$U_OK" = 1 ]; then
+  if [ -z "$U_CHANGED" ] || send "remote-watch${INST:+[$INST]} $H: ALERT unattended-mode-changed $U_CHANGED"; then
+    printf 'mode=%s\nfp=%s\n' "$U_MODE" "$U_FP" >"$U_STATE.tmp.$$" && mv -f "$U_STATE.tmp.$$" "$U_STATE"
+  fi
+fi
+
 # Site dışı yedek yapılandırılmamışsa WATCH_OFFSITE_REMIND_DAYS günde bir hatırlatma (alarm sayılmaz; durum OK kalır).
 if [ -f "$BSTATUS" ] && [ "$(prom remote_backup_offsite_configured)" = 0 ]; then
   log "UYARI check=offsite-unconfigured site dışı yedek kopyası yok (ADR-0020)"
@@ -772,10 +858,11 @@ tmp="$STATE_DIR/status.prom.tmp.$$"
 {
   echo "# $TAG (mimari-p13 §7.8); sır yok"
   echo "remote_watch_last_run_timestamp_seconds $NOW"
-  echo "remote_watch_ok $([ -z "$cur" ] && echo 1 || echo 0)"
+  echo "remote_watch_ok $([ -z "$cur$U_CHANGED" ] && echo 1 || echo 0)"
   echo "remote_watch_failing_checks $(wc -w <<<"$cur" | tr -d ' ')"
   for c in "${CHECKS[@]}"; do
     case " $cur " in *" $c "*) v=0 ;; *) v=1 ;; esac
+    [ "$c" != unattended-mode-changed ] || [ -z "$U_CHANGED" ] || v=0
     printf 'remote_watch_check_ok{check="%s"} %s\n' "$c" "$v"
   done
 } >"$tmp" && chmod 0644 "$tmp" && mv -f "$tmp" "$STATE_DIR/status.prom"

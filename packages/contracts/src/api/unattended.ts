@@ -16,8 +16,12 @@ const blankToUndefined = (v: unknown) => (typeof v === "string" && v.trim() === 
 
 // ------------------------------------------------------------------------------------------- mod / imza kapısı (AC-297)
 
-/** Env `UNATTENDED_MODE` (§4.5): `off` her şey 409; `unsigned` yalnız `DEPLOY_ENV=staging`; `signed` imza + SHA-256 listesi. */
-export const UNATTENDED_MODES = ["off", "unsigned", "signed"] as const;
+/**
+ * Env `UNATTENDED_MODE` (§4.5; P32 mimari-p32 §4.1–4.2, ADR-0042): `off` her şey 409; `unsigned` yalnız `DEPLOY_ENV=staging`
+ * (TEST öneki + bandı); `unsigned-accepted` yalnız `DEPLOY_ENV=production|staging` — prod'da imzasız servis, risk kabul:
+ * beyan edilen SHA-256 izinli listede olmalı, imza beyanı aranmaz, TEST öneki/bandı yok; `signed` imza + SHA-256 listesi.
+ */
+export const UNATTENDED_MODES = ["off", "unsigned", "unsigned-accepted", "signed"] as const;
 export type UnattendedMode = (typeof UNATTENDED_MODES)[number];
 
 /** GET /unattended/status (`connect` ∨ `manage`). `available=false` → panel bandı, Bağlan ve Kayıt kodu düğmeleri pasif. */
@@ -53,6 +57,9 @@ export const UNATTENDED_ERROR_MESSAGES = {
 /** Panel bantları (§4.5, §6): mod `off` ve `unsigned` (O-P27-6). */
 export const UNATTENDED_OFF_BANNER = UNATTENDED_ERROR_MESSAGES.UNATTENDED_DISABLED;
 export const UNATTENDED_TEST_BANNER = "TEST ortamı — imzasız servis. Gerçek müşteri cihazı kaydetmeyin.";
+/** P32 (mimari-p32 §4.7, AC-527c): `unsigned-accepted` modda yalnız Super Admin'e bilgi bandı (Admin/User görmez). */
+export const UNATTENDED_RISK_BANNER =
+  "Gözetimsiz servis kod imzasız çalışıyor (risk kabul, ADR-0042). Kurulumda Windows SmartScreen uyarısı görülebilir.";
 
 // ------------------------------------------------------------------------------------------- kayıt kodu (AC-273, §3.3)
 
@@ -89,6 +96,12 @@ export interface CreatedRegistrationCode {
   code: string;
   expiresAt: string;
   downloadUrl: string;
+  /**
+   * P32 (mimari-p32 §4.7, AC-527c, S-P32-8): panelden indirilen servis ikilisinin SHA-256'sı (`UNATTENDED_AGENT_SHA256`, 64 küçük
+   * hex) — Admin kurulum notunda `ilk8…son8`. Kod yalnız mod `off` değilken üretilir; `unsigned-accepted`'te her zaman dolu
+   * (env.ts zorlar), diğer modlarda servis yayınlanmamışsa boş dize.
+   */
+  agentSha256: string;
 }
 
 /** GET /unattended/registration-codes öğesi — bekleyen (kullanılmamış, süresi dolmamış) kodlar; kodun kendisi YOK. */

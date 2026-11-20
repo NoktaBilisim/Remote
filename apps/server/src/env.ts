@@ -1,6 +1,7 @@
 // Ortam değişkenleri tek giriş noktası (mimari §8.1). Doğrulanmamış process.env başka yerde okunmaz.
 // Her paket yalnız kullandığı anahtarları ister; diğerleri (APP_ENCRYPTION_KEYS …)
 // ilgili pakette eklenir.
+import { createHash } from "node:crypto";
 import { isIP } from "node:net";
 import { serviceUrlSchema } from "@remote/contracts/api/notify";
 import { UNATTENDED_MODES } from "@remote/contracts/api/unattended";
@@ -110,17 +111,66 @@ export function parseUpdatePubkeys(raw: string): Buffer[] | null {
 /** S14-7: herkesçe bilinen/zayıf anahtar — tüm baytları aynı (CI'daki 32 sıfır bayt dahil). Production'da reddedilir. */
 const isWeakEncryptionKey = (key: Buffer): boolean => key.every((b) => b === key[0]);
 
-/** P27 (§4.5 r2, K-P27-22; AC-342): DEPLOY_ENV zorunluluğu ve `unsigned` ⇔ staging; `signed` → SHA listesi zorunlu. */
+/** P32 (mimari-p32 §4.1, S-P32-6): izinli servis SHA-256 listesinin üst sınırı (her modda). */
+export const UNATTENDED_SIGNED_SHA256_MAX = 20;
+
+/**
+ * P32 (S-P32-r2-2) izinli SHA listesinin TEK normalizasyonu: `,` ile böl → her öğe kırpılır → küçük harf → boş öğe atılır.
+ * Sıra korunur, tekrar ATILMAZ. Sınır, üyelik, `unattendedSignedSha256` kümesi ve `listFingerprint` bunu kullanır.
+ */
+export function normalizeShaList(raw: string | undefined): string[] {
+  return (raw ?? "")
+    .split(",")
+    .map((h) => h.trim().toLowerCase())
+    .filter(Boolean);
+}
+
+/**
+ * P32 (AC-527a, S-P32-r2-2) liste parmak izi — remote-watch (`deploy/ops/remote-watch.sh`) aynı tanımı uygular:
+ * `normalizeShaList` → bayt sırasıyla sırala (öğeler yalnız [0-9a-f]; kabukta `LC_ALL=C sort`) → `,` ile birleştir (sonda satır
+ * sonu yok) → UTF-8 SHA-256 → ilk 12 küçük hex hane. Boş liste → boş dizenin SHA-256'sı (`e3b0c44298fc`).
+ */
+export function listFingerprint(raw: string | undefined): string {
+  const joined = normalizeShaList(raw).sort().join(",");
+  return createHash("sha256").update(joined, "utf8").digest("hex").slice(0, 12);
+}
+
+/**
+ * P27 (§4.5 r2, K-P27-22; AC-342) + P32 (mimari-p32 §4.1; AC-523, 524, 533): DEPLOY_ENV zorunluluğu; `unsigned` ⇔ staging;
+ * `unsigned-accepted` ⇔ production|staging; `signed`/`unsigned-accepted` → liste zorunlu; `unsigned-accepted` → ajan SHA'sı ve
+ * sürümü zorunlu, SHA listede. Mesajlar yalnız anahtar adı + kural (değer yok).
+ */
 function deployEnvRules(
-  e: { NODE_ENV: string; DEPLOY_ENV?: string | undefined; UNATTENDED_MODE: string; UNATTENDED_SIGNED_SHA256?: string | undefined },
+  e: {
+    NODE_ENV: string;
+    DEPLOY_ENV?: string | undefined;
+    UNATTENDED_MODE: string;
+    UNATTENDED_SIGNED_SHA256?: string | undefined;
+    UNATTENDED_AGENT_SHA256?: string | undefined;
+    UNATTENDED_AGENT_VERSION?: string | undefined;
+  },
   ctx: z.RefinementCtx,
 ): void {
   const issue = (path: string, message: string) => ctx.addIssue({ code: "custom", path: [path], message });
+  const mode = e.UNATTENDED_MODE;
+  const list = normalizeShaList(e.UNATTENDED_SIGNED_SHA256);
   if (!e.DEPLOY_ENV && e.NODE_ENV === "production") issue("DEPLOY_ENV", "DEPLOY_ENV gerekli (production)");
-  if (!e.DEPLOY_ENV && e.UNATTENDED_MODE !== "off") issue("DEPLOY_ENV", "DEPLOY_ENV gerekli (UNATTENDED_MODE off değil)");
-  if (e.UNATTENDED_MODE === "unsigned" && e.DEPLOY_ENV !== "staging")
-    issue("UNATTENDED_MODE", "unsigned yalnız DEPLOY_ENV=staging iken kabul edilir");
-  if (e.UNATTENDED_MODE === "signed" && !e.UNATTENDED_SIGNED_SHA256) issue("UNATTENDED_SIGNED_SHA256", "signed modda zorunlu");
+  if (!e.DEPLOY_ENV && mode !== "off") issue("DEPLOY_ENV", "DEPLOY_ENV gerekli (UNATTENDED_MODE off değil)");
+  if (mode === "unsigned" && e.DEPLOY_ENV !== "staging") issue("UNATTENDED_MODE", "unsigned yalnız DEPLOY_ENV=staging iken kabul edilir");
+  if (mode === "unsigned-accepted" && e.DEPLOY_ENV !== "production" && e.DEPLOY_ENV !== "staging")
+    issue("UNATTENDED_MODE", "unsigned-accepted yalnız DEPLOY_ENV=production|staging iken kabul edilir");
+  if ((mode === "signed" || mode === "unsigned-accepted") && list.length === 0)
+    issue("UNATTENDED_SIGNED_SHA256", "signed/unsigned-accepted modda zorunlu");
+  if (list.length > UNATTENDED_SIGNED_SHA256_MAX)
+    issue("UNATTENDED_SIGNED_SHA256", `en çok ${UNATTENDED_SIGNED_SHA256_MAX} öğe (eski sürümleri runbook §27.9 ile çıkarın)`);
+  if (mode !== "unsigned-accepted") return;
+  if (!e.UNATTENDED_AGENT_SHA256 || !e.UNATTENDED_AGENT_VERSION)
+    issue(
+      "UNATTENDED_AGENT_SHA256",
+      "unsigned-accepted modda UNATTENDED_AGENT_SHA256 ve UNATTENDED_AGENT_VERSION zorunlu (publish-servis.sh --tag)",
+    );
+  else if (!list.includes(e.UNATTENDED_AGENT_SHA256))
+    issue("UNATTENDED_AGENT_SHA256", "izinli listede değil — panelden indirilen servis listede değil (publish-servis.sh ile yayınlayın)");
 }
 
 const schema = z
@@ -228,8 +278,10 @@ const schema = z
     // P27 (mimari-p27 §4.5, §8.1, K-P27-3/22; AC-297, 342): dağıtım ortamı ve gözetimsiz erişim imza kapısı. DEPLOY_ENV
     // varsayılansız: production'da ya da UNATTENDED_MODE ≠ off iken zorunlu; `unsigned` yalnız staging.
     DEPLOY_ENV: z.enum(["production", "staging", "development"]).optional(),
+    // P32 (ADR-0042): `unsigned-accepted` = prod'da imzasız servis, risk kabul (yalnız production|staging; deployEnvRules).
     UNATTENDED_MODE: z.enum(UNATTENDED_MODES).default("off"),
-    // `signed` modda zorunlu: virgüllü 64-hex servis ikilisi SHA-256 listesi (Release attestation'ından).
+    // `signed` / `unsigned-accepted` modda zorunlu: virgüllü 64-hex izinli servis ikilisi SHA-256 listesi (adı tarihsel).
+    // publish-servis.sh yalnız `vX.Y.Z` (attestation'lı Release) SHA'sını ekler; elle yalnız çıkarılır. Her modda ≤ 20 öğe.
     UNATTENDED_SIGNED_SHA256: z
       .string()
       .regex(/^[0-9a-fA-F]{64}(\s*,\s*[0-9a-fA-F]{64})*$/, "virgüllü 64 haneli onaltılık SHA-256 listesi olmalı")
@@ -240,6 +292,12 @@ const schema = z
       .string()
       .regex(/^[0-9a-fA-F]{64}$/, "64 haneli onaltılık SHA-256 olmalı")
       .transform((v) => v.toLowerCase())
+      .optional(),
+    // P32 (mimari-p32 §4.1, AC-533): yayınlanan servis sürümü (publish-servis.sh `--tag vX.Y.Z` yazar; `dir-*` boşaltır).
+    // Müşteri mesajının doğrulama bloğunda gösterilir; `unsigned-accepted` modda zorunlu, diğer modlarda boşsa sürüm yazılmaz.
+    UNATTENDED_AGENT_VERSION: z
+      .string()
+      .regex(/^\d+\.\d+\.\d+$/, "X.Y.Z biçiminde olmalı")
       .optional(),
     // P29 (mimari-p29 §9.1, K-P29-5): imzalı güncelleme manifestleri. Boş = güncelleme uçları her zaman 204 / update.none.
     // Production'da yol sabit (UPDATE_MANIFEST_DIR_FIXED). Dolu iken UPDATE_MANIFEST_PUBKEYS zorunlu (aşağıdaki refine).
@@ -324,12 +382,7 @@ const schema = z
       turnUrls,
       encryptionKeys,
       updateManifestPubkeys: e.UPDATE_MANIFEST_PUBKEYS ? (parseUpdatePubkeys(e.UPDATE_MANIFEST_PUBKEYS) ?? []) : [],
-      unattendedSignedSha256: new Set(
-        (e.UNATTENDED_SIGNED_SHA256 ?? "")
-          .split(",")
-          .map((h) => h.trim().toLowerCase())
-          .filter(Boolean),
-      ),
+      unattendedSignedSha256: new Set(normalizeShaList(e.UNATTENDED_SIGNED_SHA256)),
     };
   });
 

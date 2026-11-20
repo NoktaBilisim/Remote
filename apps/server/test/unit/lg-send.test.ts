@@ -32,6 +32,8 @@ const k2 = (firm = "Nokta Bilişim"): TemplateInput => ({
   code: "ABCD-1234-EFGH-5678",
   expiresAt: EXP,
   sha256: "d".repeat(64),
+  host: "rs.test",
+  version: "0.23.0",
 });
 const k3 = (firm = "Nokta Bilişim", webFormUrl: string | null = "https://rs.test/r/abcdefghijklmnop"): TemplateInput => ({
   kind: "CUSTOMER",

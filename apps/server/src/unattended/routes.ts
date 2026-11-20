@@ -64,6 +64,7 @@ function depsOf(app: FastifyInstance, link: DeviceLink): () => RegistrationDeps 
     metrics: app.metrics,
     updates: app.updates,
     minAgentVersion: app.env.MIN_AGENT_VERSION,
+    agentSha256: app.env.UNATTENDED_AGENT_SHA256,
   });
 }
 

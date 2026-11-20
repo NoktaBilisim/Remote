@@ -10,7 +10,7 @@ const TONES = {
   danger: "bg-danger-surface text-danger",
 } as const;
 
-type Flag = { key: string; Icon: LucideIcon; label: MessageKey; tone: keyof typeof TONES };
+type Flag = { key: string; Icon: LucideIcon; label: MessageKey; tone: keyof typeof TONES; hint?: MessageKey };
 
 /** Cihaz rozetleri (mimari-p27 §6 r2): sıra durum → yerel anahtar → imza → doğrulama → bildirim → anahtar uyarısı. */
 function flagsOf(d: DeviceListItem): Flag[] {
@@ -22,7 +22,9 @@ function flagsOf(d: DeviceListItem): Flag[] {
   // P28u (AC-435): soket `consent1` bildirmedi → "Servis güncel değil" (Bağlan pasif, nedeni düğmenin altında).
   if (d.connectBlockedReason === "outdated") out.push({ key: "outdated", Icon: CircleAlert, label: "un.badge.outdated", tone: "warning" });
   if (!d.localEnabled) out.push({ key: "local", Icon: PowerOff, label: "un.badge.localOff", tone: "warning" });
-  if (!d.signatureOk) out.push({ key: "unsigned", Icon: ShieldAlert, label: "un.badge.unsigned", tone: "warning" });
+  // P32 (AC-531): SHA izinli listede değil → "İzinli sürüm değil" + ne yapılacağı ipucu (ayrıntıdaki "İmza:" satırı ayrı anahtar)
+  if (!d.signatureOk)
+    out.push({ key: "unsigned", Icon: ShieldAlert, label: "un.badge.unsigned", tone: "warning", hint: "un.badge.unsignedHint" });
   if (!d.verified) out.push({ key: "unverified", Icon: ShieldQuestion, label: "un.badge.unverified", tone: "warning" });
   if (d.notifyFailed) out.push({ key: "notify", Icon: MailWarning, label: "un.badge.notifyFailed", tone: "danger" });
   if (d.replacedAlert) out.push({ key: "replaced", Icon: KeyRound, label: "un.badge.replaced", tone: "warning" });
@@ -33,10 +35,11 @@ function flagsOf(d: DeviceListItem): Flag[] {
 export function DeviceBadges({ device }: { device: DeviceListItem }) {
   return (
     <ul className="flex flex-wrap gap-1.5" aria-label={t("un.badges", { name: device.name })} data-testid="un-badges">
-      {flagsOf(device).map(({ key, Icon, label, tone }) => (
-        <li key={key} className={`${pill} ${TONES[tone]}`} data-testid={`un-badge-${key}`}>
+      {flagsOf(device).map(({ key, Icon, label, tone, hint }) => (
+        <li key={key} className={`${pill} ${TONES[tone]}`} data-testid={`un-badge-${key}`} title={hint && t(hint)}>
           <Icon aria-hidden className="size-3.5" />
           {t(label)}
+          {hint && <span className="sr-only">{`. ${t(hint)}`}</span>}
         </li>
       ))}
     </ul>
