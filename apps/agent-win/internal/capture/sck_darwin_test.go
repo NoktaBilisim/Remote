@@ -399,30 +399,75 @@ func pct(d []time.Duration, p int) time.Duration {
 // güncellenmeli (excludeLater) ve macenta görüntüye girmemeli.
 func TestP28fK2AC392LateWindowExcluded(t *testing.T) {
 	needCapture(t)
+	fails := 0
+	for round := range 5 {
+		if !lateRound(t, round) {
+			fails++
+		}
+	}
+	if fails > 0 {
+		t.Fatalf("TANI: %d/5 turda geç pencere görüldü", fails)
+	}
+}
+
+func delivered(s *source) int {
+	s.p.st.slot.mu.Lock()
+	defer s.p.st.slot.mu.Unlock()
+	return s.p.st.slot.delivered
+}
+
+// sample d süresince: toplam, macenta, taze (SCK yeni kare verdi) ve taze macenta.
+func sample(t *testing.T, src *source, d time.Duration) (total, mag, fresh, freshMag int) {
+	last := delivered(src)
+	framesFor(t, src, d, func(f *NV12) {
+		total++
+		m := magentaAtCenter(f)
+		n := delivered(src)
+		if n != last {
+			fresh++
+			if m {
+				freshMag++
+			}
+		}
+		last = n
+		if m {
+			mag++
+		}
+	})
+	return
+}
+
+func lateRound(t *testing.T, round int) bool {
 	src, err := open(1, streamOpts{})
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}
 	defer src.Close()
 	initially := src.p.st.excluded.Load()
-	probeWindow(t)
+	w := probeWindow(t)
+	defer onMain(t, func() { w.Send(objc.Sel("orderOut:"), objc.ID(0)) })
+	t0 := time.Now()
 	deadline := time.Now().Add(5 * time.Second)
 	for !src.p.st.excluded.Load() && time.Now().Before(deadline) {
 		framesFor(t, src, 200*time.Millisecond, nil)
 	}
-	if !src.p.st.excluded.Load() {
-		t.Fatal("uygulama sonradan dışlanmadı")
-	}
+	flip := time.Since(t0)
 	time.Sleep(200 * time.Millisecond)
-	seen, total := 0, 0
-	framesFor(t, src, 1500*time.Millisecond, func(f *NV12) {
-		total++
-		if magentaAtCenter(f) {
-			seen++
-		}
-	})
-	if seen != 0 || total == 0 {
-		t.Fatalf("geç dışlama sonrası macenta %d/%d", seen, total)
+	d0 := delivered(src)
+	total, mag, fresh, freshMag := sample(t, src, 1500*time.Millisecond)
+	t.Logf("TANI tur %d: başta hariç=%v, bayrak %v sonra; teslim %d→%d; kare %d macenta %d taze %d taze-macenta %d",
+		round, initially, flip.Round(time.Millisecond), d0, delivered(src), total, mag, fresh, freshMag)
+	if mag == 0 && total > 0 {
+		return true
 	}
-	t.Logf("açılışta hariç=%v; sonradan dışlandı, %d karede macenta 0", initially, total)
+	for i := range 5 {
+		a, b, c, e := sample(t, src, time.Second)
+		t.Logf("TANI tur %d +%d sn: kare %d macenta %d taze %d taze-macenta %d", round, i+1, a, b, c, e)
+	}
+	ok := src.p.st.tryExclude()
+	for i := range 3 {
+		a, b, c, e := sample(t, src, time.Second)
+		t.Logf("TANI tur %d yeniden filtre (ok=%v) +%d sn: kare %d macenta %d taze %d taze-macenta %d", round, ok, i+1, a, b, c, e)
+	}
+	return false
 }
