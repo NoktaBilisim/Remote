@@ -2,6 +2,8 @@
 
 Durum: Kabul — lisans **Apache-2.0** kesinleşti (kullanıcı kararı K7) · Tarih: 2026-11-10
 
+> **2026-11-21 güncelleme (kullanıcı kararı):** Repo **private** yapıldı (fikrin kopyalanmaması). Etkiler: attestation doğrulaması (`gh attestation verify`, publish-*.sh) ücretsiz hesapta gizli repoda çalışmaz; ortamların zorunlu onaylayıcı kuralları, tag ruleset'leri ve main dal koruması GitHub Pro olmadan devre dışı; SignPath Foundation (ADR-0010) yolu kapandı. Lisans dosyasının değişimi ayrıca karara bağlanacak.
+
 ## Bağlam
 
 Kullanıcı MeshCentral (Apache-2.0) ve RustDesk (AGPL-3.0) projelerinden **tasarım ilhamı** istedi; kod kopyalanmaz, istemci Go kalır.

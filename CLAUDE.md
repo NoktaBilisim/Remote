@@ -2,7 +2,7 @@
 
 Ortak standartlar: `/Users/mennan/Projeler/CLAUDE.md`, `~/.claude/checklists/kalite-standartlari.md`.
 Bu dosya onları yalnız daraltır. Tasarım: `docs/mimari.md` (+ `mimari-api.md`, `mimari-protokol.md`),
-UI: `DESIGN.md`. Repo **açık kaynak (Apache-2.0)**: gizli bilgi asla repoya girmez (CI gitleaks).
+UI: `DESIGN.md`. Repo **2026-11-21'den beri private** (kullanıcı kararı; öncesinde 11 gün public/Apache-2.0 kaldı): yine de gizli bilgi asla repoya girmez (CI gitleaks).
 
 ## Paket kuralları (mimari §10.1 — bağlayıcı)
 
