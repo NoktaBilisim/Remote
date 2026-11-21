@@ -2,7 +2,7 @@
 
 Durum: Kabul — lisans **Apache-2.0** kesinleşti (kullanıcı kararı K7) · Tarih: 2026-11-10
 
-> **2026-11-21 güncelleme (kullanıcı kararı):** Repo **private** yapıldı (fikrin kopyalanmaması). Etkiler: attestation doğrulaması (`gh attestation verify`, publish-*.sh) ücretsiz hesapta gizli repoda çalışmaz; ortamların zorunlu onaylayıcı kuralları, tag ruleset'leri ve main dal koruması GitHub Pro olmadan devre dışı; SignPath Foundation (ADR-0010) yolu kapandı. Lisans dosyasının değişimi ayrıca karara bağlanacak.
+> 2026-11-21: Repo birkaç saat private yapıldı, aynı gün geri public alındı (kullanıcı kararı). Gerekçe: private repoda GitHub Actions faturalı dakikaya düşüyor (push başına ~147 dk; hesap limiti nedeniyle işler başlamadı) ve ortam onaylayıcıları, tag kuralı ile attestation ücretsiz planda çalışmıyor.
 
 ## Bağlam
 
