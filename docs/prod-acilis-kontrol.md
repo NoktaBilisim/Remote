@@ -11,43 +11,43 @@
 
 ## Özet
 
-| #   | Alt madde                                                        | Durum     |
-| --- | ---------------------------------------------------------------- | --------- |
-| 1a  | AC-88 ≤ 120 sn                                                   | GEÇTİ     |
-| 1b  | AC-91 prod restore-verify + RTO (iş istasyonu, age gizli anahtarı) | KULLANICI |
-| 1c  | AC-200 yedek hata testi                                          | GEÇTİ (alarm iletimi: KALDI, bkz. 10b) |
-| 1d  | İmza olumsuz testi (`restore-verify: FAIL (imza)`)               | GEÇTİ     |
-| 2a  | AC-23 `relay/tls` sunucu tarafı (5349 LE sertifikası, kök kurulmadan) | GEÇTİ |
-| 2b  | AC-23 uçtan uca (UDP kapalı istemci, yalnız 443 + 5349/TCP)      | KULLANICI |
-| 2c  | AC-21 tavanı (allocation başına 8 Mbit/s) yapılandırması         | GEÇTİ     |
-| 3a  | `test-denied.sh` 0 FAIL (49160–49479)                            | GEÇTİ     |
-| 3b  | §9.2.3 çalışma zamanı listesi                                    | GEÇTİ     |
-| 4a  | S-P2-5 audit `ip_address` = istemcinin genel IPv4'ü              | GEÇTİ     |
-| 4b  | IPv6 kaydı (§20.7)                                               | GEÇTİ     |
-| 5a  | HSTS                                                             | GEÇTİ     |
-| 5b  | `rs_theme` çerezi `Secure` (kod + ortam)                         | GEÇTİ (canlı gözlem: KULLANICI) |
-| 5c  | AC-126 e2e                                                       | GEÇTİ (CI; prod'a karşı çalıştırılmaz) |
-| 6   | P10 elle testleri (SMTP vb.)                                     | GEÇTİ (kullanıcı, 2026-11-21: SMTP ayarı + test e-postası) |
-| 7a  | İndirme SHA = Release `SHA256SUMS`                               | GEÇTİ     |
-| 7b  | Eski istemci 426 `CLIENT_OUTDATED`                               | GEÇTİ (protokol düzeyinde) |
-| 7c  | Windows elle testleri (0.10.2 adım 1–7, AC-95/96/128)            | KULLANICI |
-| 8   | K13 WhatsApp test mesajı                                         | GEÇTİ (2026-11-21: panelden test mesajı başarılı) |
-| 9   | `reset-superadmin --dry-run` rc 0                                | GEÇTİ     |
-| 10a | proxy-guard verify/check, nginx yolu 200                         | GEÇTİ     |
-| 10  | `remote-watch` alarm testi — algılama ve DUZELDI                 | GEÇTİ     |
-| 10b | Alarm **iletimi** (Telegram)                                     | GEÇTİ (2026-11-21: Telegram kanalı bağlandı; ALERT + DUZELDI alarm komutu çağrıldı) |
-| 11a | AC-200 FAILED (bkz. 1c)                                          | GEÇTİ (alarm iletimi: KALDI, bkz. 10b) |
-| 11b | Audit süreklilik olumsuz testi (T1 yerel kanıtı)                 | GEÇTİ     |
-| 12  | Repo public, gitleaks tüm geçmiş, attestation, agent-watch       | GEÇTİ     |
-| 13.1 | History taraması, imaj katmanları, sır yeniden kullanımı, 4450 yalnız 127.0.0.1 | GEÇTİ |
-| 13.2 | Journal taraması (30 gün)                                       | GEÇTİ (2026-11-21: 30 günlük journal, sır deseni 0) |
-| 13.3 | Staging artıkları imha, `ACCESS.txt` yok                        | GEÇTİ (2026-11-21: §20.2/5 imha uygulandı; staging-final 14 gün kalır) |
-| 13.4 | 4450 dışarıdan zaman aşımı                                      | GEÇTİ (pfSense P2 yine imzadan sonra) |
-| 13.5 | Yeni sırların kasa kaydı                                        | KULLANICI |
-| 13b | `docker` grubu boş                                               | GEÇTİ     |
-| 14  | "Nokta Test" pasif; dokümanlar güncel                            | KULLANICI |
-| 15  | K13 geçici izni kapalı, WhatsApp HTTPS                           | GEÇTİ     |
-| 16  | P32 risk kabulü (gözetimsiz servis imzasız açılış)               | GEÇTİ (2026-11-21: publish-servis --tag v0.25.1, liste 1 öğe ok, unsigned-accepted; kullanıcı gerçek Windows cihazda gözetimsiz bağlantıyı doğruladı) |
+| #    | Alt madde                                                                       | Durum                                                                                                                                                 |
+| ---- | ------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1a   | AC-88 ≤ 120 sn                                                                  | GEÇTİ                                                                                                                                                 |
+| 1b   | AC-91 prod restore-verify + RTO (iş istasyonu, age gizli anahtarı)              | KULLANICI                                                                                                                                             |
+| 1c   | AC-200 yedek hata testi                                                         | GEÇTİ (alarm iletimi: KALDI, bkz. 10b)                                                                                                                |
+| 1d   | İmza olumsuz testi (`restore-verify: FAIL (imza)`)                              | GEÇTİ                                                                                                                                                 |
+| 2a   | AC-23 `relay/tls` sunucu tarafı (5349 LE sertifikası, kök kurulmadan)           | GEÇTİ                                                                                                                                                 |
+| 2b   | AC-23 uçtan uca (UDP kapalı istemci, yalnız 443 + 5349/TCP)                     | KULLANICI                                                                                                                                             |
+| 2c   | AC-21 tavanı (allocation başına 8 Mbit/s) yapılandırması                        | GEÇTİ                                                                                                                                                 |
+| 3a   | `test-denied.sh` 0 FAIL (49160–49479)                                           | GEÇTİ                                                                                                                                                 |
+| 3b   | §9.2.3 çalışma zamanı listesi                                                   | GEÇTİ                                                                                                                                                 |
+| 4a   | S-P2-5 audit `ip_address` = istemcinin genel IPv4'ü                             | GEÇTİ                                                                                                                                                 |
+| 4b   | IPv6 kaydı (§20.7)                                                              | GEÇTİ                                                                                                                                                 |
+| 5a   | HSTS                                                                            | GEÇTİ                                                                                                                                                 |
+| 5b   | `rs_theme` çerezi `Secure` (kod + ortam)                                        | GEÇTİ (canlı gözlem: KULLANICI)                                                                                                                       |
+| 5c   | AC-126 e2e                                                                      | GEÇTİ (CI; prod'a karşı çalıştırılmaz)                                                                                                                |
+| 6    | P10 elle testleri (SMTP vb.)                                                    | GEÇTİ (kullanıcı, 2026-11-21: SMTP ayarı + test e-postası)                                                                                            |
+| 7a   | İndirme SHA = Release `SHA256SUMS`                                              | GEÇTİ                                                                                                                                                 |
+| 7b   | Eski istemci 426 `CLIENT_OUTDATED`                                              | GEÇTİ (protokol düzeyinde)                                                                                                                            |
+| 7c   | Windows elle testleri (0.10.2 adım 1–7, AC-95/96/128)                           | KULLANICI                                                                                                                                             |
+| 8    | K13 WhatsApp test mesajı                                                        | GEÇTİ (2026-11-21: panelden test mesajı başarılı)                                                                                                     |
+| 9    | `reset-superadmin --dry-run` rc 0                                               | GEÇTİ                                                                                                                                                 |
+| 10a  | proxy-guard verify/check, nginx yolu 200                                        | GEÇTİ                                                                                                                                                 |
+| 10   | `remote-watch` alarm testi — algılama ve DUZELDI                                | GEÇTİ                                                                                                                                                 |
+| 10b  | Alarm **iletimi** (Telegram)                                                    | GEÇTİ (2026-11-21: Telegram kanalı bağlandı; ALERT + DUZELDI alarm komutu çağrıldı)                                                                   |
+| 11a  | AC-200 FAILED (bkz. 1c)                                                         | GEÇTİ (alarm iletimi: KALDI, bkz. 10b)                                                                                                                |
+| 11b  | Audit süreklilik olumsuz testi (T1 yerel kanıtı)                                | GEÇTİ                                                                                                                                                 |
+| 12   | Repo public, gitleaks tüm geçmiş, attestation, agent-watch                      | GEÇTİ                                                                                                                                                 |
+| 13.1 | History taraması, imaj katmanları, sır yeniden kullanımı, 4450 yalnız 127.0.0.1 | GEÇTİ                                                                                                                                                 |
+| 13.2 | Journal taraması (30 gün)                                                       | GEÇTİ (2026-11-21: 30 günlük journal, sır deseni 0)                                                                                                   |
+| 13.3 | Staging artıkları imha, `ACCESS.txt` yok                                        | GEÇTİ (2026-11-21: §20.2/5 imha uygulandı; staging-final 14 gün kalır)                                                                                |
+| 13.4 | 4450 dışarıdan zaman aşımı                                                      | GEÇTİ (pfSense P2 yine imzadan sonra)                                                                                                                 |
+| 13.5 | Yeni sırların kasa kaydı                                                        | KULLANICI                                                                                                                                             |
+| 13b  | `docker` grubu boş                                                              | GEÇTİ                                                                                                                                                 |
+| 14   | "Nokta Test" pasif; dokümanlar güncel                                           | KULLANICI                                                                                                                                             |
+| 15   | K13 geçici izni kapalı, WhatsApp HTTPS                                          | GEÇTİ                                                                                                                                                 |
+| 16   | P32 risk kabulü (gözetimsiz servis imzasız açılış)                              | GEÇTİ (2026-11-21: publish-servis --tag v0.25.1, liste 1 öğe ok, unsigned-accepted; kullanıcı gerçek Windows cihazda gözetimsiz bağlantıyı doğruladı) |
 
 ## Madde ayrıntıları ve kanıt
 
@@ -162,6 +162,7 @@ nginx yolu: dış makineden `/login` → `HTTP/2 200`.
   `failing=disk:/ disk:/var/lib/docker disk:/var/backups/remote` → **DUZELDI** koşulu sağlandı.
   - Not: `WATCH_ALERT_CMD` boş olduğu için betik "DUZELDI" satırını journal'a yazmaz (yalnız gönderimde loglanır). Kanıt, durum
     dosyasındaki bozuk kümenin değişmesidir.
+
 - **10b KALDI — alarm iletimi.** `/etc/remote-watch/watch.env` içinde `WATCH_ALERT_CMD` boş; `/etc/remote-watch/telegram.curl` yok.
   `backup.env` `BACKUP_ALERT_CMD` de boş. Bu nedenle hiçbir ALERT dışarıya (Telegram) gitmiyor; açılıştan beri süren disk
   alarmı da yalnız journal'da duruyor. Düzeltme §20.4'e göre yapılır (aşağıdaki kullanıcı adımı K-1). Ardından alarm testi
@@ -256,8 +257,7 @@ Sıra önerisi: K-1 → K-2 → SA ilk giriş → 5b → 8 → 6 → 14 (Nokta T
 - **SA ilk giriş (§20.2/11).** Kasadaki seed parolasıyla giriş → parola değiştir → 2FA kur → 10 kurtarma kodu kasaya.
 - **5b.** Girişten sonra tarayıcı geliştirici araçları → Application/Storage → Cookies → `rs_theme` → `Secure` işaretli.
 - **8 (K13 a).** Super Admin → WhatsApp Ayarları → "Test Mesajı Gönder" başarılı. Anahtar ekranda ve logda görünmemeli.
-- **6 (P10).** SMTP SSL/465 ve STARTTLS/587 test maili; parola sıfırlama bağlantısı 30 dk geçerli; sıfırlama isteği 20/saat,
-  21. istek 429; kilit e-postası; logout-all ve 2FA sıfırlamada açık oturum ≤ 5 sn düşer; SA SMTP ekranı; 8 saat oturum
+- **6 (P10).** SMTP SSL/465 ve STARTTLS/587 test maili; parola sıfırlama bağlantısı 30 dk geçerli; sıfırlama isteği 20/saat, 21. istek 429; kilit e-postası; logout-all ve 2FA sıfırlamada açık oturum ≤ 5 sn düşer; SA SMTP ekranı; 8 saat oturum
   süresi. Sonuçlar `docs/test-raporu.md`'ye.
 - **14.** "Nokta Test" firması ve test hesaplarını oluştur, testleri bu firmada yap, imzadan önce pasife al. README, kılavuz,
   DATASHEET ve PDF'lerin güncel olduğuna bak.
