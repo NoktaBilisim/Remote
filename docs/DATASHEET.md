@@ -3,6 +3,9 @@
 > Kendi sunucunuzda çalışan, çok firmalı uzaktan destek: teknisyen müşterinin ekranını görür, izinle kontrol eder;
 > onaylar ve işlemler kayıt altında kalır.
 
+**Durum:** canlı kullanımda (https://remote.noktabilisim.net, 2026-11-21). Güncel müşteri programı 0.25.1 (Windows, macOS,
+Linux).
+
 ## Ne işe yarar
 
 Uzaktan destek çoğu zaman dışarıdaki bir hizmete bağlıdır; veriler ve kayıtlar başka yerde tutulur. Remote Support
@@ -30,7 +33,9 @@ aktarır; bu durumda teslim edilen dosyalar da seçilen süre (1–7 gün) boyun
 - **Kendini güncelleyen programlar** — gözetimsiz erişim servisi ile Windows ve Linux destek programı yeni sürüme
   kendileri geçer; yalnız bizim imzaladığımız sürüm kurulur, destek oturumu sırasında hiçbir şey değişmez. Servis yeni
   sürümle açılamazsa eski sürüme kendiliğinden döner. Yönetici her cihazın sürümünü ve başarısız güncellemeleri panelde
-  görür; isterse firması için otomatik kurulumu kapatıp yalnız bildirim alır. (Mac programı yeni sürümü yalnız haber verir.)
+  görür; isterse firması için otomatik kurulumu kapatıp yalnız bildirim alır. (Mac programı yeni sürümü yalnız haber verir.
+  Canlı ortamda otomatik güncelleme 0.25.1 ve sonrası için çalışır; gözetimsiz servisin otomatik güncellemesi şimdilik
+  kapalıdır, servis elle güncellenir.)
 - **İzinli uzaktan kontrol (müşteri onaylı oturum)** — her kontrol isteğini müşteri onaylar, tek tuşla geri alır; uzaktan tıklama izin sayılmaz.
 - **Mac desteği** — Mac kullanan müşteri de kurulumsuz Nokta Destek uygulamasıyla bağlanır: teknisyen ekranı görür, izinle
   kontrol eder, yazışır, dosya ve belge gönderir. Uygulama Apple Silicon ve Intel Mac'lerde (macOS 13 ve üstü) çalışır,
@@ -39,6 +44,7 @@ aktarır; bu durumda teslim edilen dosyalar da seçilen süre (1–7 gün) boyun
   Müşteri ilk açılışta ve her yeni sürümde macOS'un "Yine de Aç" onayını bir kez verir; destek sayfası bunu adım adım anlatır.
   Mac müşterisi de firma bağlantısından teknisyeni beklemeden "Destek iste" der: aynı bağlantı Mac'te Mac uygulamasını
   indirir, talep aynı kuyruğa düşer. Müşteri metinleri "Yine de Aç"ı yalnız resmi adresten indirilen uygulamaya bağlar.
+  Mac uygulamasında sesli görüşme, yalnız bir pencereyi paylaşma, bilgisayar kaydı ve gözetimsiz erişim yoktur.
 - **Linux desteği** — Ubuntu 22.04 / 24.04 (64 bit, standart masaüstü) kullanan müşteri de kurulum ve yönetici şifresi
   gerektirmeyen tek dosyalık programla bağlanır: teknisyen ekranı görür, izinle kontrol eder, dosya ve belge gönderir, sesli
   konuşur. Destek sayfası programı açan tek satırlık komutu kopyalanabilir verir. Ubuntu'nun yeni ekran sisteminde (Wayland)

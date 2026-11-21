@@ -6,9 +6,18 @@ oturumu açar; müşteri taşınabilir Windows, macOS ya da Linux istemcisi (tam
 Görüntü eşler arası WebRTC ile akar; sunucu sinyalizasyon ve meta veri tutar. Dosyalar varsayılan olarak eşler arası
 gider; firma isterse sunucu üzerinden, ClamAV taramalı ve şifreli saklamalı aktarır (P28b).
 
-## Şu anki durum: P1–P13a tamamlandı, P13b (prod açılışı) kodu hazır, P14a/P14b, P15, P16, P17 (istemci 0.11.0), P18 (talep iletişimi), P19 (web talep formu, SMS, müşteri bildirimi, müşteri CSV) P20 (istemci 0.12.0), P27a (2FA'da cihaz hatırlama), P27 (gözetimsiz erişim; prod'da P32 risk kabulüyle imzasız açılabilir) P28a (pano paylaşımı + uzaktan yazdırma, istemci 0.13.0) P28b (sunucuda dosya aktarımı + ClamAV + depolama kotası, istemci 0.14.0), P28u (gözetimsiz izinli / izinsiz bağlantı ve müdahale, servis 0.15.0) P28e (oturum kaydı, istemci/servis 0.16.0) ve P28c (çoklu teknisyen: davet, İzle, kontrol ve oturum devri, istemci/yardımcı 0.17.0) ve P28d (sesli görüşme, istemci 0.18.0) ve P28f (macOS istemci, istemci 0.19.0; prod'a ad-hoc imzalı, P28f-r4) ve P21 (müşteri portalı) kodlandı (QA sürüyor)
+## Şu anki durum: prod canlıda (2026-11-21), istemci 0.25.1
 
-## Şu anki durum: P1–P13a tamamlandı, P13b (prod açılışı) kodu hazır, P14a/P14b, P15, P16, P17 (istemci 0.11.0), P18 (talep iletişimi), P19 (web talep formu, SMS, müşteri bildirimi, müşteri CSV) P20 (istemci 0.12.0), P27a (2FA'da cihaz hatırlama), P27 (gözetimsiz erişim; prod'da P32 risk kabulüyle imzasız açılabilir) P28a (pano paylaşımı + uzaktan yazdırma, istemci 0.13.0) P28b (sunucuda dosya aktarımı + ClamAV + depolama kotası, istemci 0.14.0), P28u (gözetimsiz onaysız bağlantı ve müdahale; r3 onaysız tek yol, servis 0.15.0) P28e (oturum kaydı, istemci/servis 0.16.0) ve P28c (çoklu teknisyen: davet, İzle, kontrol ve oturum devri, istemci/yardımcı 0.17.0) ve P28d (sesli görüşme, istemci 0.18.0) ve P28f (macOS istemci, istemci 0.19.0; prod'a ad-hoc imzalı, P28f-r4) ve P22 (oturum sohbeti kaydı + KVKK) ve P22-G (istemci 0.21.0: kayıtlı oturum sohbeti) ve P31 (macOS'ta "Destek iste", istemci 0.24.0) kodlandı (QA sürüyor)
+Prod **https://remote.noktabilisim.net** adresinde 2026-11-21 açıldı: staging yığını aynı sunucuda yerinde prod'a terfi etti
+(runbook §20, doğrulama kaydı `docs/prod-acilis-kontrol.md`). Yayındaki istemci sürümü **0.25.1** (Windows, macOS ad-hoc
+imzalı, Linux); `MIN_AGENT_VERSION=0.25.1` olduğundan eski istemciler bağlanamaz (HTTP 426 `CLIENT_OUTDATED`, "güncel sürümü
+indirin" uyarısı). 0.25.1 prod güncelleme anahtarlarını taşıyan ilk sürümdür: bundan sonraki sürümler Windows ve Linux'ta
+imzalı (Ed25519) manifestle kendiliğinden kurulur, macOS yalnız "yeni sürüm var" der (P29). Gözetimsiz servisin otomatik
+güncellemesi prod'da şimdilik kapalıdır (servis manifesti yayınlanmadı); servis elle güncellenir. Gözetimsiz erişim prod'da
+kod imzasız, risk kabulüyle açıktır (P32, ADR-0042, `UNATTENDED_MODE=unsigned-accepted`). Sürüm geçmişi:
+[`CHANGELOG.md`](CHANGELOG.md).
+
+Kodlanan paketler: P1–P13a tamamlandı, P13b (prod açılışı) kodu hazır, P14a/P14b, P15, P16, P17 (istemci 0.11.0), P18 (talep iletişimi), P19 (web talep formu, SMS, müşteri bildirimi, müşteri CSV) P20 (istemci 0.12.0), P27a (2FA'da cihaz hatırlama), P27 (gözetimsiz erişim; prod'da P32 risk kabulüyle imzasız açılabilir) P28a (pano paylaşımı + uzaktan yazdırma, istemci 0.13.0) P28b (sunucuda dosya aktarımı + ClamAV + depolama kotası, istemci 0.14.0), P28u (gözetimsiz onaysız bağlantı ve müdahale; r3 onaysız tek yol, servis 0.15.0) P28e (oturum kaydı, istemci/servis 0.16.0) ve P28c (çoklu teknisyen: davet, İzle, kontrol ve oturum devri, istemci/yardımcı 0.17.0) ve P28d (sesli görüşme, istemci 0.18.0) ve P28f (macOS istemci, istemci 0.19.0; prod'a ad-hoc imzalı, P28f-r4) ve P22 (oturum sohbeti kaydı + KVKK) ve P22-G (istemci 0.21.0: kayıtlı oturum sohbeti) ve P31 (macOS'ta "Destek iste", istemci 0.24.0) kodlandı (QA sürüyor)
 
 İş P1..P13 dikey paketlerle yürür (`docs/mimari.md` §10). P1–P11 ve **P12** (firma ve sistem logosu, kullanıcı profil
 resmi, kullanıcı başına tema, hesap menüsü, tasarım token lint kuralı) tamamlandı: P12 güvenlik Kritik/Yüksek 0 (doğrulama
@@ -23,8 +32,8 @@ kancası, HSTS `includeSubDomains`, WhatsApp servis anahtarı) kodlandı; prod t
 (runbook §20, ADR-0019). Açık maddeler `docs/gereksinimler-sonra-acik.md`.
 
 Prod: **https://remote.noktabilisim.net** (Let's Encrypt; host nginx → Caddy `127.0.0.1:4451`). Staging yığını `/opt/remote`
-içinde yerinde prod'a terfi eder; IP girişi `https://185.126.217.99:4450` açılış imzasından sonra kapanır (`CADDY_BIND=127.0.0.1`).
-P13c'ye kadar ayrı staging yoktur; yeni kod yerelde (`scripts/e2e-real.sh`) denenir.
+içinde yerinde prod'a terfi etti; eski IP:4450 girişi dışarıya kapalıdır (`CADDY_BIND=127.0.0.1`). Ayrı staging yığını yoktur;
+yeni kod yerelde (`scripts/e2e-real.sh`) denenir.
 
 **P1 — ince iskelet**
 
@@ -1102,7 +1111,7 @@ teklif sınırı ve zaman aşımı, yetkisiz kullanıcı, işaretleme ve lazer, 
 
 - Tek sunucu, Docker Compose. MySQL portu yayımlanmaz; server portu host'a açılmaz.
 - Prod: **`https://remote.noktabilisim.net`** — host nginx (Let's Encrypt) → Caddy `127.0.0.1:4451` (ADR-0015, ADR-0019,
-  runbook §20). Prod'da `CADDY_BIND=127.0.0.1` olur; `https://185.126.217.99:4450` açılış imzasından sonra dışarıdan kapanır.
+  runbook §20). Prod'da `CADDY_BIND=127.0.0.1` olur; eski IP:4450 girişi açılıştan sonra dışarıdan kapalıdır.
   Yanıtlarda `Strict-Transport-Security: max-age=31536000; includeSubDomains` bulunur (preload yok).
 - **P13b prod terfisi** (yerinde terfi, yeni volume ve sırlar, `DEPLOY_ENV=production`): sıra, beklenen çıktılar, imzalı
   kontrol listesi ve geri dönüş runbook §20.2–§20.8'dedir.
@@ -1216,7 +1225,7 @@ build attestation üretir; `v*` etiketinde onaylı Release açar (0.11.0 ve sonr
 attestation → Release; runbook §24). Sunucuya yayın operatör makinesinden yapılır:
 
 ```bash
-deploy/agent/verify-and-publish.sh --tag vX.Y.Z --ssh root@185.126.217.99      # önce --dry-run ile yalnız doğrulama
+deploy/agent/verify-and-publish.sh --tag vX.Y.Z --ssh root@<sunucu>      # önce --dry-run ile yalnız doğrulama
 ```
 
 Betik `SHA256SUMS` + `gh attestation verify` doğrular, exe'yi `agent_downloads` volume'una koyar, `deploy/.env`
@@ -1278,6 +1287,11 @@ Sunucuya yayın: `deploy/agent/publish-linux.sh` (staging `--dir` / `--stg-run`,
 503). Kilit testi `deploy/agent/test-publish-linux-lock.sh`. Ayrıntı ve staging komutları: runbook §28g.4–§28g.7.
 
 ### İstemci güncellemesi yayını (P29; runbook §31)
+
+**Prod durumu (2026-11-21):** ilk prod sürümü `v0.25.1`; prod manifest anahtarları bu sürümle gömülü geldi, öncekiler bir kez
+elle değiştirilir. Ayrı staging yığını olmadığından ilk prod sürümünde staging provası ve 24 saat bekleme atlandı (runbook §31.4
+risk kabulü). Servis manifesti yayınlanmadı: gözetimsiz servis prod'da kendini güncellemez, yeni servis elle kurulur.
+macOS istemcisi manifesti doğrular ama kendini değiştirmez, yalnız "yeni sürüm var" der.
 
 Her sürüm önce staging'de denenir, 24 saat beklenir, sonra prod'a çıkar. Prod sırası:
 
@@ -1427,6 +1441,9 @@ docs/               Gereksinim, mimari, ADR, runbook, DB notları, API, denetim 
 - PR öncesi `pnpm format:check`, lint, typecheck, test ve e2e yeşil olmalı. Değiştirdiğiniz dosyaları
   `pnpm exec prettier --write <dosya>` ile biçimleyin.
 - Doküman PDF'leri (`docs/pdf/` README, KULLANIM_KILAVUZU, DATASHEET): `pnpm docs:pdf` (`scripts/build-docs.sh`; ortak araç yolu `DOCS_PDF_TOOL` ile değiştirilebilir).
+  Kapaktaki sürüm `CHANGELOG.md`'deki ilk `## [x.y.z]` başlığından okunur (kök `package.json`'da `version` ve kökte `VERSION`
+  dosyası bilerek yoktur; olsalar CHANGELOG'u ezerler). Sürüm çıkarken `[Unreleased]` altındakileri yeni sürüm başlığına
+  taşıyın, sonra PDF'leri üretin. Betik kullanılacak sürümü yazar; sürüm başlığı yoksa durur. Tarih üretim günüdür (UTC).
 
 ## Lisans
 

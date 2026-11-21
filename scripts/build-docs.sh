@@ -38,6 +38,17 @@ for src in "${SOURCES[@]}"; do
   [[ -f "$ROOT/$src" ]] || fail "kaynak doküman yok: $src"
 done
 
+# Kapak sürümü: ortak araç kök package.json "version" ya da VERSION dosyası yoksa CHANGELOG.md'deki ilk
+# "## [x.y.z]" başlığını okur. Bu projede ikisi de bilerek yoktur (tek kaynak CHANGELOG). Başlık yoksa araç "1.0" yazar.
+for f in package.json VERSION; do
+  if [[ "$f" == VERSION && -f "$ROOT/VERSION" ]] || { [[ "$f" == package.json ]] && grep -q '"version"' "$ROOT/package.json"; }; then
+    fail "kökte $f sürümü var; kapak sürümü CHANGELOG.md'den okunmalı. Kaldırın ya da CHANGELOG ile eşitleyin."
+  fi
+done
+COVER_VERSION="$(grep -m1 -oE '^##[[:space:]]*\[?v?[0-9]+\.[0-9]+(\.[0-9]+)?' "$ROOT/CHANGELOG.md" | grep -oE '[0-9]+\.[0-9]+(\.[0-9]+)?' || true)"
+[[ -n "$COVER_VERSION" ]] || fail "CHANGELOG.md'de '## [x.y.z]' sürüm başlığı yok; kapak sürümü belirlenemez."
+echo "build-docs: kapak sürümü $COVER_VERSION (CHANGELOG.md), tarih $(date -u +%F) (UTC)"
+
 # Eski PDF'ler silinir; böylece aşağıdaki kontrol yalnız bu çalıştırmanın çıktısını görür.
 for out in "${OUTPUTS[@]}"; do
   rm -f "$ROOT/docs/pdf/$out"

@@ -47,9 +47,61 @@ geliştirilir (bkz. `README.md` "Yol haritası"); kılavuz da her paketle birlik
 - **Admin, teknisyen, müşteri ve müşteri BT için:** İstemcilerin otomatik güncellenmesi (0.22.0; servis, Windows ve
   Linux programı kendini günceller, Mac yalnız haber verir; Ayarlar > İstemciler; asgari sürüm istisnası; cihaz listesinde
   sürüm rozetleri ve sürüm dağılımı; audit kayıtları; 0.21 ve öncesini bir kez elle güncelleme)
+- **Herkes için:** Canlı ortam (adres, güncel sürüm 0.25.1, en düşük sürüm, otomatik güncelleme durumu, imzasız
+  gözetimsiz servis, Mac ilk açılış) ve **Hangi programda ne var?** (Windows / macOS / Linux / tarayıcı karşılaştırması);
+  kılavuzun sonunda **Sık sorulan sorular**
 - **Super Admin için:** Firmalar ve aranabilir firma seçici, firmanın sunucu depolama kotası, firmayı kalıcı silme (24 saat iptal penceresi), tüm firmaların oturum geçmişi, destek talepleri, Sistem ayarları
   (MySQL, TURN, sistem logosunu değiştirme/kaldırma, WhatsApp servisi, virüs tarama (ClamAV)), başka bir Super Admin'in şifresini sıfırlama,
   şifre/2FA kaybı
+
+---
+
+## Canlı ortam: adres, sürüm ve platformlar (2026-11-21)
+
+Platform **https://remote.noktabilisim.net** adresinde canlıdır (2026-11-21 açıldı). Teknisyen paneli, müşteri sayfaları
+ve program indirmeleri yalnız bu adresten yapılır. Size başka bir adresten gelen bağlantıyı ya da e-posta ekiyle gelen
+programı açmayın.
+
+**Güncel program sürümü: 0.25.1** (Windows, macOS, Linux). Sunucu en az **0.25.1** ister. Daha eski bir Hızlı Destek
+programıyla bağlanmaya çalışan müşteri bağlanamaz; program "güncel sürümü indirin" uyarısı verir. Müşteri destek
+sayfasından ya da firma bağlantısından programı yeniden indirir.
+
+**Otomatik güncelleme:** 0.25.1, canlı ortamda kendini güncelleyebilen ilk sürümdür. Daha önceki sürümler bir kez elle
+değiştirilir. 0.25.1 ve sonrasında:
+
+- Windows ve Linux programı yeni sürümü kendisi indirir, Nokta Bilişim'in imzasıyla doğrular ve oturum yokken kurar.
+- Mac uygulaması kendini değiştirmez; oturum sonunda "Yeni sürüm var" der. Yeni sürümü destek sayfasından indirin.
+- **Gözetimsiz erişim servisinin otomatik güncellemesi şimdilik kapalıdır.** Yeni servis sürümünü teknisyen elle kurar
+  (bkz. "Eski servis: Servis güncel değil").
+
+**Gözetimsiz erişim:** canlı ortamda servis programı **kod imzası olmadan, risk kabulüyle** çalışır. Kurulumda Windows
+"Windows bilgisayarınızı korudu" uyarısı gösterir: **Ek bilgi** → **Yine de çalıştır** (önce özeti doğrulayın; bkz.
+"Müşteri BT için: servisi kurma"). Sunucu yalnız yayımlanmış servis sürümlerini kabul eder; listede olmayan bir sürüm
+bağlanamaz. Super Admin bu durumu gösteren risk kabul bandını görür (bkz. "Ortam bantları").
+
+**Mac uygulaması** Apple Developer ID olmadan (ad-hoc) imzalıdır. İlk açılışta macOS uygulamayı durdurur: **Bitti** →
+**Sistem Ayarları → Gizlilik ve Güvenlik → Yine de Aç** (macOS 13–14'te Control-tık → **Aç** kısa yolu da çalışır). Ayrıntı:
+"Mac'te nasıl indirir ve açarım?".
+
+### Hangi programda ne var?
+
+| Özellik                                     | Windows      | macOS              | Linux (Ubuntu)           | Tarayıcı  |
+| ------------------------------------------- | ------------ | ------------------ | ------------------------ | --------- |
+| Ekranı görme                                | Var          | Var                | Var                      | Var       |
+| Uzaktan kontrol (fare, klavye)              | Var          | Var                | Var (Wayland'de sınırlı) | Yok       |
+| Sohbet                                      | Var          | Var                | Var                      | Var       |
+| **Sesli görüşme**                           | Var          | **Yok**            | Var                      | Var       |
+| Dosya alma (sunucu üzerinden taranan dahil) | Var          | Var                | Var                      | Var       |
+| Pano paylaşımı ve uzaktan yazdırma          | Var          | Var                | Var                      | Yok       |
+| Çoklu teknisyen (davet, İzle, devir)        | Var          | Var                | Var                      | Var       |
+| Yalnız bir pencereyi paylaşma               | Var          | Yok                | Yok                      | —         |
+| "Destek iste" (firma bağlantısıyla)         | Var          | Var                | Yok                      | Web formu |
+| Bilgisayar kaydı, tepside çalışma           | Var          | Yok                | Yok                      | Yok       |
+| Gözetimsiz erişim (başında kimse yokken)    | Var (servis) | Yok                | Yok                      | Yok       |
+| Kendini güncelleme                          | Var          | Yalnız haber verir | Var                      | —         |
+
+Sesli görüşme Windows, Linux ve tarayıcıda vardır; **yalnız Mac uygulamasında yoktur**. Mac müşterisiyle telefonda konuşun.
+Gözetimsiz bağlantıda da ses yoktur.
 
 ---
 
@@ -1272,7 +1324,7 @@ paylaşımına yönlendirir. Bu durumda teknisyen ekranınızı görür ama fare
 > bağlandığınızı gösterir, dosyanın güvenli olduğunu göstermez. Uygulama açılınca karşılama penceresindeki kontrolleri
 > yapın (bkz. "Doğru programla mı bağlanıyorum?").
 
-**Mac sürümünde olmayanlar** (Windows sürümünde var):
+**Mac sürümünde olmayanlar** (Windows sürümünde var; tüm platformların karşılaştırması: "Hangi programda ne var?"):
 
 - Yalnız bir pencereyi paylaşma (Mac'te her zaman bir ekranın tamamı paylaşılır).
 - Sesli görüşme (şimdilik yok; teknisyenle telefonda konuşun).
@@ -1333,6 +1385,22 @@ göremez. Uygulama ilk açılışta bunu kontrol eder ve **Ekran Kaydı izni ger
 5. Listede **Nokta Destek** zaten açık görünüyorsa (önceki bir sürümden kalmış olabilir) ama uygulama yine izin istiyorsa:
    satırı seçin, alttaki **−** düğmesiyle kaldırın, Nokta Destek penceresini kapatıp uygulamayı yeniden açın ve izni
    yeniden verin. Eski kayıt yeni sürüme geçmez; anahtarı kapatıp açmak yetmez.
+6. **"İzni verdim, yeniden başlat" döngüye giriyorsa** (izin listede açık görünüyor ama pencere her açılışta yeniden
+   geliyorsa), eski kaydı Terminal ile silin. Bu durum özellikle Mac'e daha önce eski bir sürüm kurulduysa ya da yeni
+   sürüme geçildiyse görülür: izin uygulamanın o sürümdeki imzasına bağlıdır, yeni sürüm eski izni devralmaz.
+   1. Nokta Destek'i **⌘Q** ile kapatın.
+   2. **Terminal**'i açın (Uygulamalar → İzlenceler → Terminal) ve şu iki komutu çalıştırın:
+
+      ```bash
+      tccutil reset ScreenCapture net.noktabilisim.destek
+      tccutil reset Accessibility net.noktabilisim.destek
+      ```
+
+   3. **Sistem Ayarları → Gizlilik ve Güvenlik → Ekran Kaydı** (ve **Erişilebilirlik**) listesinde Nokta Destek hâlâ
+      görünüyorsa satırı seçip **−** ile kaldırın.
+   4. Nokta Destek'i indirdiğiniz klasörden yeniden açın ve izni yeniden verin.
+
+   Test sunucusundan indirilen deneme paketinde kimlik farklıdır: komutlarda `net.noktabilisim.destek.stg` yazın.
 
 Vazgeçmek isterseniz **Vazgeç**'e tıklayın; ekranınız paylaşılmaz.
 
@@ -1533,25 +1601,26 @@ tccutil reset Accessibility net.noktabilisim.destek
 
 ### Sık karşılaşılan durumlar (Mac)
 
-| Durum                                                                            | Ne yapmalı                                                                                                                                           |
-| -------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Destek sayfasında Mac için indirme düğmesi yok                                   | Mac sürümü bu sunucuda yayımlanmamış. **Tarayıcıdan** ekranınızı paylaşın.                                                                           |
-| macOS "açılmadı" / "doğrulanamadı" diyor                                         | Beklenen uyarı. **Bitti**'yi seçin, Sistem Ayarları → Gizlilik ve Güvenlik → **Yine de Aç** (bkz. "Mac'te nasıl indirir ve açarım?").                |
-| macOS "zarar verir" / "kötü amaçlı yazılım içeriyor" diyor                       | **Çöp Sepetine Taşı**'yı seçin, "Yine de Aç" denemeyin, teknisyeninize bildirin.                                                                     |
-| "Yine de Aç" parola istiyor, yönetici parolam yok                                | Standart kullanıcı uygulamayı açamaz. Destek sayfasından **tarayıcıdan paylaşımı** kullanın.                                                         |
-| Yeni sürümde yine "Yine de Aç" ve izinler istendi                                | Normaldir; her yeni sürümde onay ve izinler bir kez yeniden verilir.                                                                                 |
-| İzin listede açık görünüyor ama uygulama yine izin istiyor                       | Eski sürümün kaydı. Satırı seçip **−** ile kaldırın, uygulamayı yeniden açın, izni yeniden verin.                                                    |
-| Uygulama kodu soruyor ya da ana ekranda **Destek iste** pasif                    | Klasör adı değişmiş ya da uygulama taşınmış. 0.24 ve sonrasında **Bağlantı kodum var**'a tıklayıp teknisyeninizden aldığınız 8 haneli kodu yazın.    |
-| Firma bağlantısından açtım ama **Destek iste** pasif                             | Zip'i yeniden açın ya da firma bağlantısından yeniden indirin; klasörü yeniden adlandırmayın, uygulamayı klasörden çıkarmayın.                       |
-| "Bu dosya artık geçerli değil" (Mac)                                             | Firmanız bağlantıyı yenilemiş. Firmanızdan yeni bağlantıyı isteyin ve oradan yeniden indirin; eski klasörü silin.                                    |
-| Bilgi Al'daki "Nereden" satırı `https://remote.noktabilisim.net/` ile başlamıyor | Uygulamayı açmayın, "Yine de Aç" demeyin. Firmanızı telefonla arayın.                                                                                |
-| "Ekran Kaydı izni gerekli" ekranı tekrar tekrar geliyor                          | Sistem Ayarları'nda Nokta Destek anahtarının açık olduğunu kontrol edip **İzni verdim, yeniden başlat**'a tıklayın.                                  |
-| "Kontrol için Erişilebilirlik izni gerekli"                                      | Erişilebilirlik listesinde Nokta Destek'i açın; teknisyenden kontrolü yeniden istemesini isteyin.                                                    |
-| "Uzaktan kontrol kapatıldı: macOS girdi iznini ya da izlemesini durdurdu."       | Erişilebilirlik izni kaldırılmış ya da macOS denetimi durdurmuş. İzni kontrol edin; teknisyen kontrolü yeniden ister.                                |
-| **İzin ver** / **Yazdır** / pano kutusu tepki vermiyor                           | 1,5 saniye bekleyin, sonra gerçek fare ya da izleme dörtgeniyle tıklayın. VoiceOver, Fare Tuşları ve klavye bu düğmelerde çalışmaz.                  |
-| Control+Shift+F12 çalışmıyor                                                     | Dizüstünde **fn** ile birlikte basın. Oturum penceresinde F11 yazıyorsa Control+Shift+F11 kullanın. Her zaman **Kontrolü kapat** düğmesi de çalışır. |
-| Teknisyen bazı harfleri yazamıyor                                                | Fare Tuşları açık olabilir. Kapatın ya da o harfleri siz yazın.                                                                                      |
-| Teknisyen sesli görüşme başlatamıyor                                             | Mac sürümünde sesli görüşme yoktur; telefonda konuşun.                                                                                               |
+| Durum                                                                            | Ne yapmalı                                                                                                                                                                                                                                                                                                                                                                                               |
+| -------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Destek sayfasında Mac için indirme düğmesi yok                                   | Mac sürümü bu sunucuda yayımlanmamış. **Tarayıcıdan** ekranınızı paylaşın.                                                                                                                                                                                                                                                                                                                               |
+| macOS "açılmadı" / "doğrulanamadı" diyor                                         | Beklenen uyarı. **Bitti**'yi seçin, Sistem Ayarları → Gizlilik ve Güvenlik → **Yine de Aç** (bkz. "Mac'te nasıl indirir ve açarım?").                                                                                                                                                                                                                                                                    |
+| macOS "zarar verir" / "kötü amaçlı yazılım içeriyor" diyor                       | **Çöp Sepetine Taşı**'yı seçin, "Yine de Aç" denemeyin, teknisyeninize bildirin.                                                                                                                                                                                                                                                                                                                         |
+| "Yine de Aç" parola istiyor, yönetici parolam yok                                | Standart kullanıcı uygulamayı açamaz. Destek sayfasından **tarayıcıdan paylaşımı** kullanın.                                                                                                                                                                                                                                                                                                             |
+| Yeni sürümde yine "Yine de Aç" ve izinler istendi                                | Normaldir; her yeni sürümde onay ve izinler bir kez yeniden verilir.                                                                                                                                                                                                                                                                                                                                     |
+| İzin listede açık görünüyor ama uygulama yine izin istiyor                       | Eski sürümün kaydı. Satırı seçip **−** ile kaldırın, uygulamayı yeniden açın, izni yeniden verin.                                                                                                                                                                                                                                                                                                        |
+| Uygulama kodu soruyor ya da ana ekranda **Destek iste** pasif                    | Klasör adı değişmiş ya da uygulama taşınmış. 0.24 ve sonrasında **Bağlantı kodum var**'a tıklayıp teknisyeninizden aldığınız 8 haneli kodu yazın.                                                                                                                                                                                                                                                        |
+| Firma bağlantısından açtım ama **Destek iste** pasif                             | Zip'i yeniden açın ya da firma bağlantısından yeniden indirin; klasörü yeniden adlandırmayın, uygulamayı klasörden çıkarmayın.                                                                                                                                                                                                                                                                           |
+| "Bu dosya artık geçerli değil" (Mac)                                             | Firmanız bağlantıyı yenilemiş. Firmanızdan yeni bağlantıyı isteyin ve oradan yeniden indirin; eski klasörü silin.                                                                                                                                                                                                                                                                                        |
+| Bilgi Al'daki "Nereden" satırı `https://remote.noktabilisim.net/` ile başlamıyor | Uygulamayı açmayın, "Yine de Aç" demeyin. Firmanızı telefonla arayın.                                                                                                                                                                                                                                                                                                                                    |
+| "Ekran Kaydı izni gerekli" ekranı tekrar tekrar geliyor                          | Anahtar kapalıysa açıp **İzni verdim, yeniden başlat**'a tıklayın. Anahtar açık olduğu hâlde döngü sürüyorsa: uygulamayı ⌘Q ile kapatın, Terminal'de `tccutil reset ScreenCapture net.noktabilisim.destek` ve `tccutil reset Accessibility net.noktabilisim.destek` çalıştırın, listede kalan kaydı **−** ile kaldırın, uygulamayı klasörden yeniden açıp izni verin (bkz. "Ekran Kaydı izni", 6. adım). |
+| Güncellemeden ya da yeni sürümü indirdikten sonra izin çalışmıyor                | İzin eski sürüme bağlı kalmıştır. Yukarıdaki satırdaki Terminal adımlarını uygulayın.                                                                                                                                                                                                                                                                                                                    |
+| "Kontrol için Erişilebilirlik izni gerekli"                                      | Erişilebilirlik listesinde Nokta Destek'i açın; teknisyenden kontrolü yeniden istemesini isteyin.                                                                                                                                                                                                                                                                                                        |
+| "Uzaktan kontrol kapatıldı: macOS girdi iznini ya da izlemesini durdurdu."       | Erişilebilirlik izni kaldırılmış ya da macOS denetimi durdurmuş. İzni kontrol edin; teknisyen kontrolü yeniden ister.                                                                                                                                                                                                                                                                                    |
+| **İzin ver** / **Yazdır** / pano kutusu tepki vermiyor                           | 1,5 saniye bekleyin, sonra gerçek fare ya da izleme dörtgeniyle tıklayın. VoiceOver, Fare Tuşları ve klavye bu düğmelerde çalışmaz.                                                                                                                                                                                                                                                                      |
+| Control+Shift+F12 çalışmıyor                                                     | Dizüstünde **fn** ile birlikte basın. Oturum penceresinde F11 yazıyorsa Control+Shift+F11 kullanın. Her zaman **Kontrolü kapat** düğmesi de çalışır.                                                                                                                                                                                                                                                     |
+| Teknisyen bazı harfleri yazamıyor                                                | Fare Tuşları açık olabilir. Kapatın ya da o harfleri siz yazın.                                                                                                                                                                                                                                                                                                                                          |
+| Teknisyen sesli görüşme başlatamıyor                                             | Mac sürümünde sesli görüşme yoktur; telefonda konuşun.                                                                                                                                                                                                                                                                                                                                                   |
 
 ### Super Admin için: Mac sürümünün yayını (not)
 
@@ -4491,7 +4560,7 @@ Teknisyen süren bir destek oturumunda müşteriyle sesli konuşabilir; telefonl
 - Müşteri tarafında **tarayıcı** ya da **Hızlı Destek 0.18 ve sonrası** gerekir. Eski sürümde düğme pasiftir: "Müşterinin
   uygulaması bu özelliği desteklemiyor — güncel sürümü indirmesini isteyin".
 - **Hızlı Destek macOS'ta sesli görüşme şimdilik yoktur.** Mac müşterisinde düğme aynı iletiyle pasiftir; güncel sürümü
-  indirmek bunu çözmez. Telefonla konuşun.
+  indirmek bunu çözmez. Telefonla konuşun. Windows ve Linux programında ve tarayıcıda ses vardır (bkz. "Hangi programda ne var?").
 - **Gözetimsiz oturumda sesli görüşme yoktur** (bilgisayar başında kimse yokken mikrofon açılmaz). Konsolda "Gözetimsiz
   oturumda sesli görüşme yapılamaz" yazar.
 - Yankı olmaması için iki tarafa da kulaklık önerilir.
@@ -5340,6 +5409,10 @@ Kararı geri almak (özelliği kapatmak) sunucu yöneticisinin işidir; ayrınt�
 
 ## İstemcilerin otomatik güncellenmesi (Admin, teknisyen, müşteri ve müşteri BT için)
 
+> **Canlı ortamda (2026-11-21):** otomatik güncelleme **0.25.1 ve sonrası** için çalışır; 0.25.1'den eski programlar bir kez
+> elle değiştirilir (zaten bağlanamazlar). **Gözetimsiz erişim servisinin otomatik güncellemesi canlıda şimdilik kapalıdır**:
+> aşağıdaki "Tam otomatik" satırı servis için sunucu yöneticisi açana kadar geçerli değildir; servis elle güncellenir.
+
 Sürüm **0.22.0** ile destek programları ve gözetimsiz erişim servisi yeni sürüme kendileri geçer. Program yeni sürümü
 sunucudan öğrenir, indirir, Nokta Bilişim'in imzasıyla doğrular ve **yalnız destek oturumu yokken** kurar. Oturum
 sırasında hiçbir program değişmez, kapanmaz ya da yeniden başlamaz. İmzası tutmayan, bozuk ya da eski bir sürüm kurulmaz;
@@ -5350,13 +5423,13 @@ bekler; ekrana hata çıkmaz.
 
 ### Hangi program nasıl güncellenir?
 
-| Program                             | Ne olur                                                                                                                                                                                                                                                                                                                                                                                     |
-| ----------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Gözetimsiz erişim servisi (Windows) | **Tam otomatik.** Bağlantı yokken indirir, doğrular, kendini değiştirir ve yeniden başlar; kesinti yaklaşık 30 saniyedir. Yeni sürüm 60 saniye içinde sunucuya bağlanamazsa servis eski sürüme kendiliğinden döner ve aynı sürümü 24 saat denemez. Kayıt, teknisyen yetkileri ve yerel kapatma anahtarı korunur; cihaz panelde aynı cihaz olarak kalır. Kimsenin bir şey tıklaması gerekmez |
-| Hızlı Destek (Windows)              | Yeni sürümü arka planda indirir. Oturum bitince dosyayı **aynı klasörde, aynı adla** değiştirir. Yeni sürüm programı bir sonraki açışınızda çalışır; açık program kendini kapatmaz. Ekranda bir kez "Yeni sürüm (x.y.z) hazır — programı sonraki açışınızda kullanılacak" yazar. Tepside çalışan programda bu bilgi balon olarak çıkar                                                      |
-| Hızlı Destek (Linux)                | Windows ile aynı: dosya aynı adla değişir, çalıştırma izni korunur, yeni sürüm sonraki açılışta çalışır. Bilgi oturum sonu ekranında görünür                                                                                                                                                                                                                                                |
-| Hızlı Destek (macOS)                | **Kendini güncellemez.** Yeni sürüm varsa oturum sonu ekranında "Yeni sürüm var — indirme bağlantısından yeni sürümü alın" yazar. Yeni zip'i teknisyenin verdiği destek sayfasından indirin. Mac'te her yeni sürüm yeni bir indirmedir: Apple Developer ID olmadığı için ilk açılışta "Yine de Aç" onayı ve Ekran Kaydı / Erişilebilirlik izinleri yeniden istenir                          |
-| Tarayıcıdan katılım                 | Güncellenecek program yoktur                                                                                                                                                                                                                                                                                                                                                                |
+| Program                             | Ne olur                                                                                                                                                                                                                                                                                                                                                                                                           |
+| ----------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Gözetimsiz erişim servisi (Windows) | **Tam otomatik.** Bağlantı yokken indirir, doğrular, kendini değiştirir ve yeniden başlar; kesinti yaklaşık 30 saniyedir. Yeni sürüm 60 saniye içinde sunucuya bağlanamazsa servis eski sürüme kendiliğinden döner ve aynı sürümü 24 saat denemez. Kayıt, teknisyen yetkileri ve yerel kapatma anahtarı korunur; cihaz panelde aynı cihaz olarak kalır. Kimsenin bir şey tıklaması gerekmez                       |
+| Hızlı Destek (Windows)              | Yeni sürümü arka planda indirir. Oturum bitince dosyayı **aynı klasörde, aynı adla** değiştirir. Yeni sürüm programı bir sonraki açışınızda çalışır; açık program kendini kapatmaz. Ekranda bir kez "Yeni sürüm (x.y.z) hazır — programı sonraki açışınızda kullanılacak" yazar. Tepside çalışan programda bu bilgi balon olarak çıkar                                                                            |
+| Hızlı Destek (Linux)                | Windows ile aynı: dosya aynı adla değişir, çalıştırma izni korunur, yeni sürüm sonraki açılışta çalışır. Bilgi oturum sonu ekranında görünür                                                                                                                                                                                                                                                                      |
+| Hızlı Destek (macOS)                | **Kendini güncellemez.** Yeni sürüm varsa oturum sonu ekranında "Yeni sürüm var — indirme bağlantısından yeni sürümü alın" yazar. Yeni zip'i teknisyenin verdiği destek sayfasından indirin. Mac'te her yeni sürüm yeni bir indirmedir: Apple Developer ID olmadığı için ilk açılışta "Yine de Aç" onayı ve Ekran Kaydı / Erişilebilirlik izinleri yeniden istenir (döngüye girerse: "Ekran Kaydı izni", 6. adım) |
+| Tarayıcıdan katılım                 | Güncellenecek program yoktur                                                                                                                                                                                                                                                                                                                                                                                      |
 
 Dosya yazılamayan bir yerdeyse (ağ sürücüsü, USB bellek, salt okunur klasör, Linux'ta başka kullanıcıya ait dosya) program
 dosyaya dokunmaz. Yalnız "Yeni sürüm var — indirme bağlantısından yeni sürümü alın" bilgisini ve destek firmanızın
@@ -5455,6 +5528,9 @@ yöneticinize hemen bildirin.
 - Ayar penceresindeki **Güncelle…** düğmesi elle güncelleme için yerinde durur.
 
 ### 0.21 ve önceki programlar: bir kez elle güncelleme
+
+Canlı ortamda bu kural **0.25.1'den eski** bütün programlar için geçerlidir: canlı ortamın güncelleme imzası ilk kez
+0.25.1'e gömüldü. Bu programlar bir kez elle 0.25.1'e geçirilir; sonraki sürümler (Mac dışında) kendiliğinden gelir.
 
 Otomatik güncelleme 0.22.0 sürümüyle gelir. 0.21 ve önceki programlarda güncelleyici yoktur; bu yüzden her program **bir
 kez elle** 0.22.0 ya da sonrasına geçirilir. Sonraki sürümler kendiliğinden gelir.
@@ -5953,3 +6029,33 @@ Geçici şifreyle giriş:
 
 Sıfırlama audit log'a "Super Admin şifresi sunucudan sıfırlandı" olarak yazılır (şifre yazılmaz). Sizin bilginiz dışında
 böyle bir kayıt görürseniz hemen sunucu yöneticisine bildirin.
+
+---
+
+## Sık sorulan sorular (SSS)
+
+**Super Admin olarak bir firmanın destek talebini kabul edebilir miyim?**
+Hayır. Super Admin bütün firmaların taleplerini görür ve atama yapabilir, ama talebi kabul edemez ve reddedemez: kabul ve
+ret yalnız talebin geldiği firmanın kullanıcılarına açıktır ("Talep yalnız kendi firmanızda kabul edilebilir."). Super
+Admin başka firmanın oturumuna yalnız **İzle** ile, o firmayı seçerek katılır. Talep akışını denemek için o firmada bir
+teknisyen (User) ya da Admin hesabı açın, "Destek talepleri → Kabul et" yetkisini verin ve o hesapla girin.
+
+**Mac müşterisiyle neden sesli konuşamıyorum?**
+Mac uygulamasında sesli görüşme yoktur. Windows ve Linux programında ve tarayıcıda vardır. Mac müşterisiyle telefonda
+konuşun (bkz. "Hangi programda ne var?").
+
+**Mac'te izin açık görünüyor ama uygulama yine izin istiyor; ne yapmalıyım?**
+Uygulamayı ⌘Q ile kapatın, Terminal'de `tccutil reset ScreenCapture net.noktabilisim.destek` ve
+`tccutil reset Accessibility net.noktabilisim.destek` komutlarını çalıştırın, Sistem Ayarları'nda kalan kaydı **−** ile
+kaldırın, uygulamayı klasörden yeniden açıp izni verin (bkz. "Ekran Kaydı izni", 6. adım).
+
+**Müşterinin programı "güncel sürümü indirin" diyor ve bağlanmıyor.**
+Programı 0.25.1'den eski. Müşteriye yeni bağlantı gönderin ya da destek sayfasından programı yeniden indirmesini isteyin.
+
+**Gözetimsiz servisi kurarken Windows "bilgisayarınızı korudu" diyor.**
+Canlı ortamda servis kod imzasızdır; bu beklenen uyarıdır. Önce dosyanın özetini e-postadaki ya da paneldeki SHA-256 ile
+karşılaştırın, eşleşiyorsa **Ek bilgi** → **Yine de çalıştır** deyin (bkz. "Müşteri BT için: servisi kurma").
+
+**Gözetimsiz servis neden kendini güncellemiyor?**
+Canlı ortamda servisin otomatik güncellemesi şimdilik kapalıdır. Yeni servis sürümünü elle kurun (bkz. "Eski servis:
+Servis güncel değil").
