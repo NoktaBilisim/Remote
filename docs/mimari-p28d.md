@@ -7,6 +7,8 @@ Girdiler: `docs/gereksinimler-p28.md` (US-69, AC-373..379, R44, V45), `docs/mima
 §4.4 `ROLE_MAY`/roster, §6), `docs/mimari-p28e.md` + ADR-0034 (kayıt konsolda), `docs/mimari-p28u.md` (gözetimsizde ses kapalı).
 Yeni ADR: **ADR-0036**. Kontrol listesi: `docs/tasarim-kontrol.md` "P28d".
 
+**P33 ile değişti → ADR-0043:** macOS'ta Opus libopus wasm/wazero değil AudioToolbox ile; ses aygıtı AudioQueue (Windows/Linux değişmez).
+
 **Sadelik:** tek yol (tarayıcı ve Windows aynı mesajlar), oda başına tek görüşme, yeni tablo/REST yok, yeni WS mesajı 5 tane. Misafir mikrofonu tek olayla açılır: aynı sayfa/süreçte o
 `callId` için yerel "Kabul et" tıklaması (K-PD-2).
 

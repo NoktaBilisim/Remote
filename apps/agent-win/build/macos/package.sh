@@ -10,6 +10,7 @@
 #   package.sh zip    <stage-dizini> <zip>              sabit mtime (SOURCE_DATE_EPOCH) + ditto; ≤ 60 MiB; iki üst öğe
 #   package.sh check  <app> <stg|prod> <sürüm> [team-id] Info.plist izin listesi + entitlement tam eşleşme + imza/runtime/dilim
 #   package.sh adhoc  <arm64> <amd64> <sürüm> <stg|prod> <çıktı-dizini> <zip-adı>   bundle + sign - + check + zip
+#   package.sh id <stg|prod>                            profilin paket kimliği (macOS gerekmez; tcc-rehber-check.sh kullanır)
 #   package.sh compare <app> <ince-ikili> <arm64|x86_64>  S-P28f-17: paketteki dilim = yeniden derlenen imzasız ince ikili mi
 #        (iki taraftan imza kaldırılır; `codesign --remove-signature` __LINKEDIT vmsize'ı geri yüklemediği için TEK izinli fark
 #        bu 8 baytlık alandır; o alan eşitlenip dosyanın tamamı `cmp` ile karşılaştırılır)
@@ -22,6 +23,11 @@ set -eu
 HERE="$(cd "$(dirname "$0")" && pwd)"
 ICON_SRC="$HERE/../../internal/ui/uicore/assets/nokta-kucuk.png"
 ENT="$HERE/entitlements.plist"
+# P33 (ADR-0043 m.4, K-P33-10, AC-554): entitlements.plist'in olması gereken TEK küme (jq -S -c). Dosya ile imza birbirine eşit olsa
+# bile ikisine birden fazladan anahtar (allow-jit vb.) eklenmesi burada yakalanır. Değişiklik yalnız ADR revizyonu + güvenlik onayıyla.
+ENT_WANT='{"com.apple.security.device.audio-input":true}'
+# AC-554 / mimari-p33 §5.2: mikrofon gerekçe metni (Info.plist.tmpl ile birebir).
+MIC_TEXT="Teknisyenle sesli görüşme için. Mikrofon yalnız siz Kabul'e tıkladığınızda açılır."
 APP_NAME="Nokta Destek.app"
 EXE=noktadestek
 MAX_ZIP=62914560 # 60 MiB (AC-389; agent-watch --max-filesize ile aynı)
@@ -141,7 +147,8 @@ cmd_check() {
     rm -f "${TMPDIR:-/tmp}/pk-got.$$" "${TMPDIR:-/tmp}/pk-want.$$"
     bad=1
   fi
-  for k in CFBundleURLTypes CFBundleDocumentTypes NSAppleScriptEnabled NSServices UTExportedTypeDeclarations NSMicrophoneUsageDescription; do
+  # P33 B-2: kamera kullanılmaz → NSCameraUsageDescription yasak (mikrofon anahtarı artık izin listesinde, aşağıda metni denetlenir).
+  for k in CFBundleURLTypes CFBundleDocumentTypes NSAppleScriptEnabled NSServices UTExportedTypeDeclarations NSCameraUsageDescription; do
     if plutil -extract "$k" raw -o /dev/null "$plist" >/dev/null 2>&1 || plutil -extract "$k" xml1 -o /dev/null "$plist" >/dev/null 2>&1; then
       echo "FAIL Info.plist yasak anahtar: $k" >&2; bad=1
     fi
@@ -151,6 +158,11 @@ cmd_check() {
     k="${kv%%=*}" v="${kv#*=}"
     [ "$(plist_get "$plist" "$k")" = "$v" ] || { echo "FAIL Info.plist $k = '$(plist_get "$plist" "$k")' (beklenen '$v')" >&2; bad=1; }
   done
+  [ "$(plist_get "$plist" NSMicrophoneUsageDescription)" = "$MIC_TEXT" ] \
+    || { echo "FAIL Info.plist NSMicrophoneUsageDescription metni AC-554 metni değil" >&2; bad=1; }
+  # P33 S-P33-T-7: OKUBENI/kılavuz/MacGuide'daki `tccutil reset … <kimlik>` = bu paketin CFBundleIdentifier'ı; yasak öneri yok.
+  sh "$HERE/tcc-rehber-check.sh" --bundle-id "$(plist_get "$plist" CFBundleIdentifier)" --profile "$prof" >&2 \
+    || { echo "FAIL TCC rehber metni (tcc-rehber-check.sh)" >&2; bad=1; }
   # 2) Universal: tam olarak x86_64 + arm64.
   archs="$(lipo -archs "$bin" | tr ' ' '\n' | LC_ALL=C sort | tr '\n' ' ')"
   [ "$archs" = "arm64 x86_64 " ] || { echo "FAIL dilimler '$archs' (beklenen arm64 + x86_64)" >&2; bad=1; }
@@ -171,11 +183,17 @@ cmd_check() {
     fi
   done
   if [ "$prof" = stg ] && [ -n "$team" ]; then echo "FAIL stg profili Developer ID ile imzalanmaz" >&2; bad=1; fi
-  # 4) Entitlement'lar entitlements.plist ile TAM eşleşme (S-P28f-4; fazlası FAIL). Boş liste: codesign hiçbir şey basmaz.
-  ent="$(codesign -d --entitlements - --xml "$app" 2>/dev/null || true)"
-  if [ -n "$ent" ]; then gotent="$(printf '%s' "$ent" | plutil -convert json -o - -- - | jq -S -c .)"; else gotent='{}'; fi
+  # 4) Entitlement'lar entitlements.plist ile TAM eşleşme (S-P28f-4; fazlası FAIL); dosyanın kendisi = ENT_WANT (P33 K-P33-10).
+  #    Boş liste: codesign hiçbir şey basmaz. Universal pakette her dilim ayrı imzalıdır → dilim başına (--arch).
   wantent="$(plutil -convert json -o - "$ENT" | jq -S -c .)"
-  [ "$gotent" = "$wantent" ] || { echo "FAIL entitlement'lar $wantent değil: $gotent" >&2; bad=1; }
+  [ "$wantent" = "$ENT_WANT" ] || { echo "FAIL entitlements.plist $ENT_WANT değil: $wantent (ADR-0043 m.4)" >&2; bad=1; }
+  gotent=""
+  for a in arm64 x86_64; do
+    ent="$(codesign -d --entitlements - --xml --arch "$a" "$app" 2>/dev/null || true)"
+    if [ -n "$ent" ]; then g="$(printf '%s' "$ent" | plutil -convert json -o - -- - | jq -S -c .)"; else g='{}'; fi
+    [ "$g" = "$wantent" ] || { echo "FAIL $a entitlement'ları $wantent değil: $g" >&2; bad=1; }
+    gotent="$g"
+  done
   [ "$bad" = 0 ] || die "paket denetimi başarısız ($app)"
   echo "check: GEÇTİ ($bid $ver; dilimler $archs; runtime; entitlements $gotent${team:+; TeamIdentifier $team})"
 }
@@ -216,6 +234,8 @@ cmd_compare() {
 
 [ $# -ge 1 ] || usage
 sub="$1"; shift
+# `id` macOS araçları gerektirmez (Linux CI `check` işinde tcc-rehber-check.sh çağırır).
+if [ "$sub" = id ]; then [ $# -eq 1 ] || usage; bundle_id "$1"; exit 0; fi
 need_mac
 OKUBENI_VARIANT="" # yalnız cmd_adhoc atar (ortamdan devralınmaz: sign-mac `bundle … prod` her zaman OKUBENI.txt)
 case "$sub" in

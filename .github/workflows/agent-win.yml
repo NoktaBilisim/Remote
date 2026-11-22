@@ -10,9 +10,10 @@
 # Go adımları sabit digest'li resmi imajda koşar (yerel doğrulama komutuyla birebir aynı ortam, runbook §11).
 # Go sürümü değişince (go.mod `toolchain`) GO_IMAGE de değişir; `check` job'u uyuşmazlıkta kırmızı olur.
 # P28f K8a/K8b (mimari-p28f §8.2, ADR-0037 r3): macOS istemcisi. İnce ikililer (arm64, amd64) Linux GO_IMAGE'da CGO'suz çapraz
-# derlenir (build-mac ×2 → reproducible-mac SHA eşitliği); macos-15'te universal .app + ad-hoc/hardened runtime + boş entitlement
-# (package-mac), go test darwin + iz testi (test-macos). P28f-r4 (mimari-p28f §15.4, K-P28f-r4-4; S-r4-3/4): etikette dal TEK
-# kaynaktan — reproducible-mac `signing` çıktısı (build-meta 4. satır = gömülü Team ID: dolu → notarized, boş → adhoc); sonraki işler
+# derlenir (build-mac ×2 → reproducible-mac SHA eşitliği); macos-15'te universal .app + ad-hoc/hardened runtime + entitlement
+# {device.audio-input} (P33, package-mac), go test darwin (macos-15; macos-14 runner kaldırıldı) + iz testi (test-macos, macos-15). P28f-r4
+# (mimari-p28f §15.4, K-P28f-r4-4; S-r4-3/4): etikette dal TEK kaynaktan — reproducible-mac `signing` çıktısı (build-meta 4.
+# satır = gömülü Team ID: dolu → notarized, boş → adhoc); sonraki işler
 # vars.APPLE_TEAM_ID'yi yalnız tutarlılık için karşılaştırır (uyuşmazlık = hata). notarized: onaydan sonra sign-mac (Developer ID +
 # notarize + staple) → attest-mac (notarized predicate) → Release (aynen). adhoc (APPLE_TEAM_ID boş, Developer ID'siz prod): package-mac
 # onaydan ÖNCE prod ad-hoc zip'i `agent-mac-adhoc` artifact'i olarak yükler (retention 7; attestation'sız → yayın betiğinden geçemez);
@@ -101,6 +102,22 @@ jobs:
         run: |
           GOOS=darwin GOARCH=arm64 CGO_ENABLED=0 go vet ./...
           GOOS=darwin GOARCH=amd64 CGO_ENABLED=0 go vet ./...
+      # P33 K3 (mimari-p33 §5.1 T3, §8.4; ADR-0043): darwin ikilisinde wazero YOK (ses AudioToolbox Opus; JIT/çalıştırılabilir bellek
+      # yüzeyi kalktı, entitlement'ta allow-jit yok). go list hatası görünür kalır (önce değişkene), eşleşme varsa kırmızı.
+      - name: darwin ikilisinde wazero yok (arm64 + amd64)
+        run: |
+          for a in arm64 amd64; do
+            deps="$(GOOS=darwin GOARCH=$a CGO_ENABLED=0 go list -buildvcs=false -deps ./cmd/noktadestek)"
+            if printf '%s\n' "$deps" | grep -q 'tetratelabs/wazero'; then
+              printf '%s\n' "$deps" | grep 'tetratelabs/wazero' | head -5
+              echo "::error::darwin/$a ikilisi wazero'ya bağlı (mimari-p33 §8.4, T3)"; exit 1
+            fi
+            echo "darwin/$a: wazero yok ($(printf '%s\n' "$deps" | wc -l) paket)"
+          done
+      # P33 K3 (S-P33-T-7, AC-556): müşteri metinlerinde yalnız paket kimlikli tccutil; sudo / reset All / csrutil / TCC.db yok;
+      # OKUBENI profil kimliği. package.sh check aynı betiği paketin CFBundleIdentifier'ıyla da koşar (package-mac / sign-mac).
+      - name: TCC rehber metni (tccutil kimliği, yasak öneriler)
+        run: sh build/macos/tcc-rehber-check.sh
       - name: araçlar (sürüm sabit; sum.golang.org doğrular)
         run: |
           GOFLAGS='' go install golang.org/x/vuln/cmd/govulncheck@v1.7.0
@@ -825,8 +842,9 @@ jobs:
           if-no-files-found: error
           retention-days: 7
 
-  # P28f K8a (§8.2 package-mac; S-P28f-4/5/14/17): universal + .app + AD-HOC + hardened runtime + entitlements.plist (boş; prod ile
-  # aynı dosya) + Info.plist izin listesi + entitlement tam eşleşme + zip ≤ 60 MiB. Girdi SHA'ları reproducible-mac ÇIKTILARIYLA
+  # P28f K8a (§8.2 package-mac; S-P28f-4/5/14/17): universal + .app + AD-HOC + hardened runtime + entitlements.plist (P33: tam olarak
+  # {device.audio-input}, ADR-0043 m.4; prod ile aynı dosya; NSCameraUsageDescription yok, NSMicrophoneUsageDescription metni, TCC
+  # rehber kimliği = CFBundleIdentifier — hepsi package.sh check) + Info.plist izin listesi + entitlement tam eşleşme + zip ≤ 60 MiB. Girdi SHA'ları reproducible-mac ÇIKTILARIYLA
   # karşılaştırılır (aynı artifact'teki SHA256SUMS ile değil). r4 (K-P28f-r4-4/11, S-r4-3/4): etiket + signing=notarized → yalnız
   # denetler, YÜKLEMEZ (Developer ID zip'i sign-mac üretir). Etiket + signing=adhoc → prod ad-hoc zip (OKUBENI-adhoc) `agent-mac-adhoc`
   # artifact'i (retention 7: onay 1 günü aşabilir); attestation YOK — yalnız approve sonrası attest-mac. Çıktılar zip_sha / exe_sha
@@ -942,11 +960,17 @@ jobs:
   # P28f K8a (§8.2 test-macos, §9; S-P28f-11/14): darwin go test (MallocScribble/NSZombieEnabled), x86_64 dilimi Rosetta ile (varsa),
   # AC-394 iz testi `.invalid` sunuculu, testBuild'siz AYRI derlemeyle argümansız. İz betiği TRACE_MAC (K5:
   # test/trace-check-mac.sh snapshot/compare; salt okunur).
+  # P33 K3 (mimari-p33 §8.4): macos-15 (macos-14 runner GitHub'da kaldırıldı — 'not supported'; matris korunur) (AudioToolbox Opus / SCK pencere davranışı iki sürümde). İş adı korunur
+  # (approve `needs.test-macos.result` matrisin toplamıdır); iz testi (paket + uygulamayı açma) yalnız macos-15'te.
   test-macos:
-    name: go test (macOS) + iz testi
+    name: go test (macOS) + iz testi (${{ matrix.os }})
     if: inputs.resign_tag == ''
-    runs-on: macos-15
+    runs-on: ${{ matrix.os }}
     timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-15]
     defaults:
       run:
         working-directory: apps/agent-win
@@ -1018,7 +1042,31 @@ jobs:
           else
             echo "::warning::Rosetta yok: x86_64 bağlama testleri bu koşuda KOŞMADI (elle: arch -x86_64, runbook §28f)"
           fi
+      # P33 K3 (mimari-p33 §8.4, §9; S-P33-T2-1/T2-2, S-P33-T-4): çözücü yardımcısı sandbox REDDİ (dosya okuma ~/.ssh benzeri,
+      # connect/sendto, /tmp yazma, exec → EPERM; socket() fd döner, profil engelleyemez) ve yoklama sonrası mikrofon authorizationStatus = notDetermined testleri. Bunlar TCC/ekran
+      # gerektirmez → SKIP kabul edilmez. Ad sözleşmesi (K1; docs/implementation.md "P33-K3"): sandbox testi adında `P33` ve
+      # `Sandbox`, yoklama testi adında `P33` ve `Probe` geçer. Her sınıftan en az bir PASS; FAIL/SKIP kırmızı.
+      - name: P33 sandbox reddi + yoklama testleri (-v; SKIP kabul edilmez)
+        env:
+          CGO_ENABLED: "0"
+        run: |
+          set +e -o pipefail
+          out="$RUNNER_TEMP/p33-darwin.txt"
+          GITHUB_STEP_SUMMARY='' go test -count=1 -v -run 'P33.*(Sandbox|Probe)|(Sandbox|Probe).*P33' ./internal/... 2>&1 | tee "$out"
+          rc=$?
+          set -e
+          [ "$rc" = 0 ] || { echo "::error::P33 darwin testleri çıkış kodu $rc"; exit "$rc"; }
+          bad=0
+          for cls in Sandbox Probe; do
+            if grep -E -- "^[[:space:]]*--- SKIP: Test[A-Za-z0-9_]*" "$out" | grep -q "$cls"; then
+              echo "::error::P33 $cls testi SKIP — izin gerektirmez, bu runner'da koşmalı"; bad=1
+            fi
+            grep -E -- "^[[:space:]]*--- PASS: Test[A-Za-z0-9_]*" "$out" | grep "P33" | grep -q "$cls" \
+              || { echo "::error::P33 $cls testi PASS yok (koşmadı / ad sözleşmesi bozuldu: adda P33 + $cls)"; bad=1; }
+          done
+          exit "$bad"
       - name: iz testi paketi (.invalid, testBuild yok, prod profili ad-hoc)
+        if: matrix.os == 'macos-15'
         run: |
           for a in arm64 amd64; do build/build-darwin.sh "$PLACEHOLDER_SERVER_URL" 0.0.0 "$a" "$RUNNER_TEMP/trace-thin/noktadestek-$a"; done
           SOURCE_DATE_EPOCH="$(git log -1 --format=%ct)"; export SOURCE_DATE_EPOCH
@@ -1026,7 +1074,22 @@ jobs:
             "$RUNNER_TEMP/trace-pkg" Destek-12345678.zip
           # Arşiv İzlencesi davranışı: zip adıyla klasör (kod klasör adından okunur, AC-97).
           ditto -x -k "$RUNNER_TEMP/trace-pkg/Destek-12345678.zip" "$RUNNER_TEMP/trace/Destek-12345678"
+      # P33 (AC-556, S-P33-T-8): --content "GIZLI-BASLIK-123" — K2 testlerinin sahte pencere başlığı ~/Library / $TMPDIR / birleşik
+      # logda olmamalı. Runner'da TCC izni olmadığından ses/pencere oturumu burada KOŞMAZ (elle D-listesi, runbook §33.4); önce
+      # pozitif kontrol: yeni dosyadaki işaret yakalanmalı (betik içerik aramasını gerçekten yapıyor mu).
+      - name: trace-check-mac içerik işareti pozitif kontrolü (P33)
+        if: matrix.os == 'macos-15'
+        run: |
+          snap="$RUNNER_TEMP/p33-once.txt"; tmp="$(getconf DARWIN_USER_TEMP_DIR)"
+          bash "$TRACE_MAC" snapshot "$snap"; sleep 1
+          printf 'x GIZLI-BASLIK-123 y\n' > "$tmp/p33-pozitif.txt"
+          set +e; bash "$TRACE_MAC" compare "$snap" --content GIZLI-BASLIK-123 > "$RUNNER_TEMP/p33-poz.txt" 2>&1; rc=$?; set -e
+          rm -f "$tmp/p33-pozitif.txt"; cat "$RUNNER_TEMP/p33-poz.txt"
+          if [ "$rc" != 1 ] || ! grep -q 'İZ: Content.*p33-pozitif.txt' "$RUNNER_TEMP/p33-poz.txt"; then
+            echo "::error::trace-check-mac --content işareti yakalamadı (rc=$rc)"; exit 1
+          fi
       - name: trace-check-mac (AC-394; snapshot → argümansız aç → kapat → compare)
+        if: matrix.os == 'macos-15'
         run: |
           [ -f "$TRACE_MAC" ] || { echo "::error::$TRACE_MAC yok (sözleşme: docs/implementation.md P28f K5)"; exit 1; }
           app="$RUNNER_TEMP/trace/Destek-12345678/Nokta Destek.app"; snap="$RUNNER_TEMP/trace/once.txt"
@@ -1041,9 +1104,10 @@ jobs:
           fi
           wait "$pid" 2>/dev/null; echo "istemci çıkış kodu $?"
           sleep 2
-          bash "$TRACE_MAC" compare "$snap" --since "$since" --bundle "$app" --marker 12345678
+          bash "$TRACE_MAC" compare "$snap" --since "$since" --bundle "$app" --marker 12345678 --content GIZLI-BASLIK-123
       # P31 AC-517 (mimari-p31 §14 D-3): aynı zip firma klasörü adıyla (NoktaDestek-Test-<ref>/) → ana ekran → SIGTERM → compare.
       - name: trace-check-mac firma klasörü (AC-517; ref içerik işareti)
+        if: matrix.os == 'macos-15'
         run: bash test/trace-firm-mac.sh "$RUNNER_TEMP/trace-pkg/Destek-12345678.zip" "$RUNNER_TEMP/trace-firm"
 
   # P28g K8a (mimari-p28g §8.2 build-linux; S-P28g-9): tek ELF GO_IMAGE'da (CGO_ENABLED=0, purego). Sunucu adresi tablosu build-mac

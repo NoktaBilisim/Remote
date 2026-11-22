@@ -13,6 +13,11 @@
 #   --marker <metin>                 içerik işareti (tekrarlanabilir; ör. kod, teknisyen adı, dosya adı): dosya
 #                                    YOLLARINDA ve birleşik logda aranır; bulunan içerik ekrana basılmaz
 #   --bundle <yol>                   çalıştırılan .app (kendisi ve bulunduğu klasör iz sayılmaz)
+#   --content <metin>                P33 (S-P33-T-8, AC-556): DOSYA İÇERİĞİ işareti (tekrarlanabilir; ör. sahte pencere başlığı
+#                                    "GIZLI-BASLIK-123"). ~/Library, DARWIN_USER_CACHE_DIR ve DARWIN_USER_TEMP_DIR ($TMPDIR) altında
+#                                    önceki durumdan (compare: snapshot dosyasının zamanı) ya da --since'ten (check) SONRA değişen
+#                                    ≤ 20 MiB normal dosyaların içeriğinde ve birleşik logda aranır. Bulunan dosyanın yolu basılır,
+#                                    içeriği basılmaz. check kipinde --since zorunludur.
 #
 # Taranan yerler (öncesi/sonrası ad eşleşmesi):
 #   ~/Library/{Application Support,Caches,Preferences,LaunchAgents,Saved Application State,HTTPStorages,WebKit,
@@ -23,8 +28,11 @@
 #   /Library/LaunchAgents, /Library/LaunchDaemons
 #   çalışan noktadestek süreci
 # İz deseni (büyük/küçük harf duyarsız): net.noktabilisim.destek, noktadestek, "Nokta Destek", NoktaDestek.
-# Sistem tarafından tutulan kayıtlar (TCC veritabanı, LaunchServices, CUPS iş geçmişi) istemcinin yazdığı veri değildir;
-# taranmaz (kılavuz: tccutil reset ... net.noktabilisim.destek).
+# Sistem tarafından tutulan kayıtlar (TCC veritabanı — Ekran Kaydı, Erişilebilirlik ve P33'ten beri Mikrofon —, LaunchServices,
+# CUPS iş geçmişi) istemcinin yazdığı veri değildir; taranmaz (AC-556 tek istisna; kılavuz/OKUBENI: yalnız paket kimlikli
+# `tccutil reset <ScreenCapture|Accessibility|Microphone> net.noktabilisim.destek`).
+# İçerik taramasında (--content) başka uygulamaların kendi durumu (ör. sahte başlıklı pencereyi açan test uygulamasının Saved
+# Application State'i, Terminal geçmişi) yanlış pozitif olabilir: yol basılır, değerlendirme operatörün (runbook §33.4).
 #
 # Çıkış: 0 temiz (snapshot: kaydedildi), 1 iz bulundu, 2 kullanım/ortam hatası.
 set -u
@@ -32,7 +40,7 @@ export LC_ALL=C
 
 PATTERN='net\.noktabilisim\.destek|noktadestek|nokta destek'
 
-usage() { sed -n '2,30p' "$0" >&2; exit 2; }
+usage() { sed -n '2,/^set -u/p' "$0" | sed '$d' >&2; exit 2; }
 [ "$(uname -s)" = Darwin ] || { echo "HATA: yalnız macOS" >&2; exit 2; }
 [ $# -ge 1 ] || usage
 mode=$1; shift
@@ -42,15 +50,20 @@ case "$mode" in
   check) ;;
   *) usage ;;
 esac
-since=""; bundle=""; markers=()
+since=""; bundle=""; markers=(); contents=()
 while [ $# -gt 0 ]; do
   case "$1" in
     --since) [ $# -ge 2 ] || usage; since=$2; shift 2 ;;
     --marker) [ $# -ge 2 ] || usage; markers+=("$2"); shift 2 ;;
     --bundle) [ $# -ge 2 ] || usage; bundle=$2; shift 2 ;;
+    --content) [ $# -ge 2 ] && [ -n "$2" ] || usage; contents+=("$2"); shift 2 ;;
     *) usage ;;
   esac
 done
+
+if [ "$mode" = check ] && [ ${#contents[@]} -gt 0 ] && [ -z "$since" ]; then
+  echo "HATA: check kipinde --content için --since gerekir" >&2; exit 2
+fi
 
 cache_dir=$(getconf DARWIN_USER_CACHE_DIR 2>/dev/null) || { echo "HATA: DARWIN_USER_CACHE_DIR alınamadı" >&2; exit 2; }
 temp_dir=$(getconf DARWIN_USER_TEMP_DIR 2>/dev/null) || { echo "HATA: DARWIN_USER_TEMP_DIR alınamadı" >&2; exit 2; }
@@ -121,11 +134,29 @@ if pgrep -x noktadestek >/dev/null 2>&1; then
   echo "İZ: Process	noktadestek süreci hâlâ çalışıyor"; traces=$((traces + 1))
 fi
 
-# Birleşik log: istemci log çağrısı yapmaz (S-P28f-14); kod/ad/dosya adı geçmemeli. İçerik basılmaz, yalnız sayı.
+# P33 içerik işaretleri (S-P33-T-8): yalnız önceki durumdan/--since'ten sonra değişen normal dosyalar; içerik basılmaz.
+if [ ${#contents[@]} -gt 0 ]; then
+  newer=()
+  if [ "$mode" = compare ]; then newer=(-newer "$snap"); else newer=(-newermt "$since"); fi
+  for root in "$lib" "$cache_dir" "$temp_dir"; do
+    [ -d "$root" ] || continue
+    while IFS= read -r -d '' f; do
+      [ "$f" = "$snap" ] || [ "$f" = "$after" ] && continue
+      if [ -n "$bundle" ] && { [ "$f" = "$bundle" ] || [ "${f#"$bundle"/}" != "$f" ]; }; then continue; fi
+      for c in "${contents[@]}"; do
+        if grep -qF -- "$c" "$f" 2>/dev/null; then
+          echo "İZ: Content	$f (içerik işareti; içerik gösterilmez)"; traces=$((traces + 1)); break
+        fi
+      done
+    done < <(find "$root" -type f "${newer[@]}" -size -20971520c -print0 2>/dev/null)
+  done
+fi
+
+# Birleşik log: istemci log çağrısı yapmaz (S-P28f-14); kod/ad/dosya adı/pencere başlığı geçmemeli. İçerik basılmaz, yalnız sayı.
 if [ -n "$since" ]; then
   logs=$(log show --style compact --start "$since" --predicate 'process CONTAINS[c] "noktadestek"' 2>/dev/null) || {
     echo "HATA: log show çalışmadı" >&2; exit 2; }
-  for m in "${markers[@]+"${markers[@]}"}"; do
+  for m in "${markers[@]+"${markers[@]}"}" "${contents[@]+"${contents[@]}"}"; do
     n=$(printf '%s\n' "$logs" | grep -Fic -- "$m")
     if [ "$n" -gt 0 ]; then
       echo "İZ: UnifiedLog	içerik işareti $n satırda (içerik gösterilmez)"; traces=$((traces + 1))
@@ -133,7 +164,7 @@ if [ -n "$since" ]; then
   done
 fi
 
-if [ $traces -gt 0 ]; then
+if [ "$traces" -gt 0 ]; then
   echo "SONUÇ: $traces iz bulundu"
   exit 1
 fi

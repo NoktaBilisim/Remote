@@ -5,7 +5,8 @@ Bu paket Apple tarafından onaylanmamıştır ve gerçek müşterilere verilmez.
 1. Bu klasördeki "Nokta Destek" uygulamasını çift tıklayın. macOS "doğrulanamadı" uyarısı
    verirse: Sistem Ayarları > Gizlilik ve Güvenlik > "Yine de Aç" (yalnız bu TEST paketi için).
 2. Ekran Kaydı ve Erişilebilirlik izinlerini verin; uygulamanın üstünde gizlenemeyen
-   "TEST SÜRÜMÜ" bandı görünür.
+   "TEST SÜRÜMÜ" bandı görünür. Sesli görüşmede "Kabul"e tıklayınca macOS "Mikrofon"
+   izni sorar; "İzin Ver"i seçin (yalnız Nokta Destek açıkken istediği izni verin).
 3. Oturum bitince uygulama kendiliğinden kapanır.
 
 Pencerede firmanızın adı ya da teknisyen doğrulama kodu görünür; bu yalnız doğru firmaya bağlandığınızı gösterir, dosyanın güvenli olduğunu göstermez.
@@ -16,3 +17,4 @@ Mac'te dosyayı saklamayın; her destek isteğinde firmanızın bağlantısında
 
 İzinleri kaldırmak: tccutil reset ScreenCapture net.noktabilisim.destek.stg
                     tccutil reset Accessibility net.noktabilisim.destek.stg
+                    tccutil reset Microphone net.noktabilisim.destek.stg

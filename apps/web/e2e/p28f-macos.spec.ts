@@ -34,7 +34,8 @@ test("AC-396: macOS'ta birincil 'uygulamayı indir' + ikincil tarayıcı; indirm
   await expect(guide).toHaveAttribute("data-build", "adhoc");
   await expect(page.getByTestId("mac-perm-screen")).toContainText("Ekran Kaydı");
   await expect(page.getByTestId("mac-perm-ax")).toContainText("Erişilebilirlik");
-  await expect(page.getByTestId("mac-perm-mic")).toHaveCount(0); // r3: macOS istemcide ses yok
+  await expect(page.getByTestId("mac-perm-mic")).toContainText("Mikrofon"); // P33: macOS istemcide ses (0.26.0)
+  await expect(page.getByTestId("mac-mic-reset")).toContainText("tccutil reset Microphone net.noktabilisim.destek");
   await expect(guide).toContainText("Gizlilik ve Güvenlik → Yine de Aç");
   await expect(page.getByTestId("mac-harmful")).toContainText("Çöp Sepetine Taşı");
   await expect(page.getByTestId("mac-never-open-anyway")).toHaveCount(0);

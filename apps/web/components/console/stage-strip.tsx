@@ -116,7 +116,7 @@ function FullscreenButton({ full, onToggle }: { full: boolean; onToggle: () => v
 
 /** P17 (AC-248): pencere modu konsolda görünür; DXGI/GDI'da rozet yok (görünüm değişmez). */
 function WindowShareBadge({ method }: { method: string }) {
-  const hint = t("cs.windowShareHint", { method: SHARE_METHOD_LABELS.WGC ?? "WGC" });
+  const hint = t("cs.windowShareHint", { method: SHARE_METHOD_LABELS.WGC ?? "Pencere yakalama" });
   return (
     <span
       data-testid="stage-share-mode"

@@ -291,7 +291,10 @@ func openStream(displayID uint32, opt streamOpts) (*sckStream, error) {
 
 // shareableContent SCShareableContent (kendi pencereleri dahil, ekran dışı pencereler de: uygulamamız listede olsun).
 // Dönen nesne +1 tutulur.
-func shareableContent() (objc.ID, error) {
+func shareableContent() (objc.ID, error) { return shareableContentOpts(false, false) }
+
+// shareableContentOpts P33 pencere listesi (§6.2: masaüstü öğeleri hariç, yalnız ekrandakiler) ile ortak çağrı.
+func shareableContentOpts(excludeDesktop, onScreenOnly bool) (objc.ID, error) {
 	type res struct {
 		content objc.ID
 		code    uint32
@@ -310,7 +313,7 @@ func shareableContent() (objc.ID, error) {
 		return 0, &Error{Reason: ReasonOther, Op: "SCShareableContent"}
 	}
 	objc.ID(c).Send(objc.Sel("getShareableContentExcludingDesktopWindows:onScreenWindowsOnly:completionHandler:"),
-		false, false, blk)
+		excludeDesktop, onScreenOnly, blk)
 	select {
 	case r := <-ch:
 		if r.content == 0 {
@@ -350,12 +353,17 @@ func (s *sckStream) start(content objc.ID, displayID uint32, opt streamOpts) err
 	defer objc.Release(filter)
 	pw, ph := pixelSize(displayID)
 	s.w, s.h = OutputSize(pw, ph)
+	return s.startFilter(filter)
+}
+
+// streamConfig +1 SCStreamConfiguration (s.w × s.h, NV12 '420v', 30 fps tavan, imleç karede). Ekran ve pencere akışı
+// ile boyut güncellemesi (P33 updateConfiguration) aynı yapılandırmayı kullanır.
+func (s *sckStream) streamConfig() (objc.ID, error) {
 	cfgCls, err := objc.GetClass("SCStreamConfiguration")
 	if err != nil {
-		return &Error{Reason: ReasonOther, Op: "SCStreamConfiguration"}
+		return 0, &Error{Reason: ReasonOther, Op: "SCStreamConfiguration"}
 	}
 	cfg := objc.ID(cfgCls).Send(objc.Sel("new"))
-	defer objc.Release(cfg)
 	cfg.Send(objc.Sel("setWidth:"), uint(s.w))
 	cfg.Send(objc.Sel("setHeight:"), uint(s.h))
 	cfg.Send(objc.Sel("setPixelFormat:"), uint32(pixFmtNV12))
@@ -364,6 +372,16 @@ func (s *sckStream) start(content objc.ID, displayID uint32, opt streamOpts) err
 	cfg.Send(objc.Sel("setQueueDepth:"), 5)
 	cfg.Send(objc.Sel("setColorMatrix:"), objc.ID(kSCKMatrix))
 	cfg.Send(objc.Sel("setColorSpaceName:"), objc.ID(kSRGB))
+	return cfg, nil
+}
+
+// startFilter yapılandırma + temsilci + akışın başlatılması (ekran ve pencere filtresi ortak).
+func (s *sckStream) startFilter(filter objc.ID) error {
+	cfg, err := s.streamConfig()
+	if err != nil {
+		return err
+	}
+	defer objc.Release(cfg)
 	s.output = objc.ID(outputCls).Send(objc.Sel("new"))
 	sckMu.Lock()
 	sckStreams[s.output] = s
@@ -388,12 +406,12 @@ func (s *sckStream) start(content objc.ID, displayID uint32, opt streamOpts) err
 	return s.call("startCaptureWithCompletionHandler:", "startCapture")
 }
 
-// call tamamlama bloklu SCStream çağrısı (en çok sckContentTimeout).
-func (s *sckStream) call(sel, op string) error {
+// call tamamlama bloklu SCStream çağrısı (en çok sckContentTimeout). args bloktan önceki argümanlardır.
+func (s *sckStream) call(sel, op string, args ...any) error {
 	ch := make(chan uint32, 1)
 	blk := pobjc.NewBlock(func(_ pobjc.Block, nserr objc.ID) { ch <- nsErrorCode(nserr) })
 	defer blk.Release()
-	s.stream.Send(objc.Sel(sel), blk)
+	s.stream.Send(objc.Sel(sel), append(args, blk)...)
 	select {
 	case code := <-ch:
 		if code != 0 {

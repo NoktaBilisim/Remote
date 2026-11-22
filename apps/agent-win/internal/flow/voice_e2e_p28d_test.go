@@ -1,3 +1,8 @@
+//go:build !darwin
+
+// P33 K1: darwin'de voice.New çözücüyü .app içi sandbox'lı yardımcıda çalıştırır; flow test ikilisi paket değildir ve
+// yardımcı kipini taşımaz. darwin eşdeğeri internal/voice opus_darwin_test.go (gerçek yardımcıyla gidiş-dönüş).
+
 package flow
 
 import (

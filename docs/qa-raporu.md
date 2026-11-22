@@ -1,3 +1,227 @@
+# QA Raporu — P33 K4 — Tur 2
+
+DURUM: GEÇTİ (kod + yerel doğrulama). Birleştirme / staging öncesi koşul: `agent-win` CI'ının (macos-14/15, "P33 sandbox reddi +
+yoklama", iz testi) ve `ci` web e2e'nin bu dalda yeşil görülmesi. Dalda henüz CI koşusu yok (`gh run list` boş). ELLE maddeleri K6'ya,
+AC-557 K7'ye, AC-558 etiket/staging sonraya kalır; bunlar DÜZELTİLMELİ sayılmadı.
+
+Kapsam: ee85f5e (QA 1, 6, 7) + 6c4f8bb (düzeltme turu 1). Güvenlik K5 GEÇTİ (d4aea7a). Kod değiştirilmedi.
+
+## Test sonucu (tek koşu, apps/agent-win, CGO_ENABLED=0)
+
+| Komut                                                                           | Sonuç                                                                            |
+| ------------------------------------------------------------------------------- | -------------------------------------------------------------------------------- |
+| `gofmt -l .`                                                                    | boş (test/spike-p33 dahil)                                                       |
+| `go vet` + `staticcheck` darwin/arm64, darwin/amd64, windows/amd64, linux/amd64 | temiz                                                                            |
+| `GOOS=linux go test -c ./internal/input/ ./internal/ui/mac/`                    | derleniyor (yeni testler etiketsiz, Linux CI'da koşar)                           |
+| `go test -count=1 ./...` (darwin/arm64)                                         | 0 FAIL                                                                           |
+| `pnpm --filter @remote/server test`                                             | 54 dosya, 752 geçti + 1 skip (eski, gerekçeli clamd); `-t AC-553` → 2 test geçti |
+
+## Tur 1 maddelerinin kapanışı
+
+| #   | Madde                | Durum | Kanıt                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
+| --- | -------------------- | ----- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1   | gofmt spike          | ✅    | `gofmt -l .` boş; CI `check` adımı artık geçer                                                                                                                                                                                                                                                                                                                                                                                                          |
+| 2   | AC-553 sunucu testi  | ✅    | `voice-p28d.test.ts` "P33 AC-553": gerçek giriş yolu `onGuestMessage` (şema + işleyici), `clientOs: macos` + voice1 misafirde `sharing{WGC}` ve `stopped{WINDOW_CLOSED, WGC}` 1008'siz kabul + teknisyene iletilir; Windows misafirinde aynı; biçim dışı `SCK` → 1008. Runbook §33.3 sıra maddesi zaten vardı                                                                                                                                           |
+| 3   | AC-542 seçim mantığı | ✅    | `internal/ui/mac/window_choice.go` (etiketsiz) + `TestAC542WindowChoiceTable` 16 satır: varsayılan tüm ekran/def monitör, pencere modu → liste etkin, seçimsiz/boş liste Paylaş pasif, sentetik mod/pencere/Paylaş yok sayılır, klavye kabul, yenilemede seçim koruma/kaldırma. AppKit dosyası yalnız çizer                                                                                                                                             |
+| 4   | AltGr / AC-549       | ✅    | K5 güvenlik kararı → mimari §6.4 m.6a. `macAltGrText` dar koşullar (AltRight + yalnız ControlLeft/⇧, OS ⌃ kapalı, tek yazdırılabilir karakter); yalnız bayraksız Unicode enjekte, VK yoluna düşecekse düşer. 6 yeni test PASS (`…PassesAsUnicode`, `…WithoutCharacterDropped`, `…ExtraModifiersDropped`, `…StickyAndMouseKeysFirst`, `…RepeatOfVKKeyDropped`, `…PropertyOracle` 2000 örnek). `TestAC558WindowsPolicyUnchangedAfterMove` değişmeden PASS |
+| 5   | 30 dk fuzz           | ✅\*  | `TestP33FuzzProductHelper` (`NOKTA_FUZZ_SURE` ile; varsayılanda gerekçeli SKIP). Ürün `RunDecoderHelper` (sandbox + öz-test) içinde 30 dk, 33,4 M paket, çökme/askı 0, > 200 ms 0. \*Ölçüm geliştiricinin; qa yeniden koşmadı (30 dk), çıktı implementation.md + spike-p33-k0s §2.2b'de                                                                                                                                                                 |
+| 6   | `logic.go:2` yorumu  | ✅    | ADR-0043'e göre güncellendi                                                                                                                                                                                                                                                                                                                                                                                                                             |
+| 7   | CI yorumu `socket()` | ✅    | `agent-win.yml:1046` "connect/sendto … socket() fd döner, profil engelleyemez"                                                                                                                                                                                                                                                                                                                                                                          |
+
+Ek (güvenlik K5): S-P33-K-1 devralınan fd kapatma (`sandbox/fds_darwin.go`, `TestP33K1HelperClosesInheritedFDs` PASS, pozitif
+denetimli), S-P33-K-2 ısıtmada kodlayıcı kaldırıldı (davranış değişikliği yok, altın/fikstür testleri yeşil). Sapmalar 1–7
+implementation.md'de gerekçeli.
+
+## Kabul kriterleri (Tur 1'e göre değişen)
+
+| AC     | Tur 1 | Tur 2   | Not                                                                                    |
+| ------ | ----- | ------- | -------------------------------------------------------------------------------------- |
+| AC-542 | KISMİ | ELLE    | Go birim tamam; görsel/Tab/VoiceOver/kontrast K6                                       |
+| AC-549 | KISMİ | ELLE    | Tablo + AltGr istisnası testli; örneklem ve HID tap ile yerel ⌘ birleşmesi (K5 m.7) K6 |
+| AC-553 | KISMİ | GEÇTİ   | Sunucu birim + runbook                                                                 |
+| AC-554 | KISMİ | ELLE/CI | Kod doğru, gofmt engeli kalktı; CI ilk koşuda yeşil görülmeli                          |
+
+Diğerleri Tur 1 ile aynı: GEÇTİ 541, 543 (D-P33-1), 550, 552, 553; ELLE (K6) 534–540, 542, 544–549, 551, 555, 556; BEKLİYOR 557 (K7),
+558 (etiket + staging).
+
+## Düzeltilmeli
+
+Yok.
+
+## Definition of Done
+
+| Madde                                | Durum | Not                                                   |
+| ------------------------------------ | ----- | ----------------------------------------------------- |
+| Otomatik testler yeşil (yerel)       | ✅    | Go darwin, server; Tur 1'de contracts/web birim yeşil |
+| gofmt / vet / staticcheck dört hedef | ✅    |                                                       |
+| Her AC'nin otomatik kanıtı           | ✅    | Otomatik kısımlar tam; kalan elle K6                  |
+| Sapmalar gerekçeli                   | ✅    | K1 1–9, K2 1–5, düzeltme turu 1–7; D-P33-1            |
+| Güvenlik koşulları                   | ✅    | K5 GEÇTİ; 30 dk fuzz yapıldı                          |
+| Ölü/yanlış yorum                     | ✅    | 6, 7 kapandı                                          |
+| CI (macos-14/15, web e2e) yeşil      | ⚠️    | Dalda koşu yok → birleştirme/staging öncesi koşul     |
+| Dokümantasyon (AC-557)               | —     | K7                                                    |
+
+## K6'ya ek elle maddeler
+
+- AltGr: Windows TR teknisyen Mac pencere modunda @ # { } [ ] \ | ~ yazabilmeli; Mac müşteri yerelde ⌘ basılıyken uzaktan AltGr karakteri
+  ⌘ kısayoluna dönüşmemeli (K5 m.7).
+- S-P33-K-2 kalanı: `sudo lsmp -p <opus-cozucu pid>` ile ısıtmanın getirdiği 20 Mach gönderme hakkının servisleri bir kez kaydedilmeli.
+
+## Öneriler (zorunlu değil)
+
+1. S-P33-K-3 (aynı PID katman ≠ 0 her yüzen pencere kabul) sonraya bırakıldı; mimari §12'de açık madde olarak izlenmeli.
+2. fd varsayımı ("hazır sonrası yalnız 0/1/2") yalnız macOS 26.3'te ölçüldü; macos-14/15 CI ilk koşusu kırmızı çıkarsa düzeltme turu
+   sapma 7'ye göre test koşulu gevşetilir, kapatma kuralı değil.
+3. Tur 1 Öneri 1, 4, 5 açık (darwin `macVoiceDeps` testi, `k0sa1` spike derlenmiyor, AudioQueue CI adımı).
+
+## Olumlu
+
+- AltGr istisnası dar ve kâhin tabanlı özellik testiyle sınanmış; kilit sırası testinin gerçekten kilidi sınadığı negatif denemeyle
+  doğrulanmış.
+- AC-553 testi doğrudan işleyiciyi değil gerçek giriş yolunu (şema + işleyici) kullanıyor.
+- Seçim ekranı mantığı kopyasız ayrıştırılmış; AppKit katmanı yalnız tıklama sınıfını iletiyor.
+
+---
+
+# QA Raporu — P33 (macOS ses + tek pencere paylaşımı) K4 — Tur 1
+
+DURUM: DÜZELTİLMELİ
+
+Kapsam: dal `claude/p33-mac-ses-pencere`, HEAD 01f764f (`git diff main...HEAD`, 112 dosya). Girdi: `docs/gereksinimler-p33.md`
+(AC-534..558, Ek: D-P33-1 kabul), `docs/mimari-p33.md` r2 §9/§11, ADR-0043, `docs/implementation.md` P33-K0..K3. Kod değiştirilmedi.
+GUI/TCC gerektiren AC'ler "ELLE (K6)" olarak ayrıldı; bunlar DÜZELTİLMELİ sayılmadı.
+
+## Test sonucu
+
+| Komut (yerel, Apple Silicon macOS 26)                                                 | Sonuç                                                                                                                                                                                                                         |
+| ------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `go vet ./...` darwin/arm64, darwin/amd64, windows/amd64, linux/amd64 (CGO_ENABLED=0) | temiz                                                                                                                                                                                                                         |
+| `staticcheck ./...` aynı dört hedef                                                   | temiz. Bilinen `capture/macwindow.go plateLabel` U1000 bu HEAD'de **yeniden üretilemedi** (linux/windows dahil 0 bulgu)                                                                                                       |
+| `gofmt -l .` (apps/agent-win; CI `check` işinin birebir adımı)                        | **KIRMIZI**: `test/spike-p33/at/at_darwin.go`, `test/spike-p33/mac/mac_darwin.go` → bkz. Düzeltilmeli 1                                                                                                                       |
+| `go test -count=1 ./...` (darwin)                                                     | 43 paket ok, 0 FAIL. K2 notundaki `TestP28dVoiceTechToCustomerPlaysEndToEnd` kırığı yok (K1 `!darwin` etiketledi, sapma 9)                                                                                                    |
+| `go test -v ./internal/...` SKIP'ler                                                  | `TestP28fK2Measure`, `…MeasureHeavyVT` (ölçüm kipi, eski), `TestAC117P28fQuarantineSpctl` (gerekçeli, eski), `TestP33K1AudioQueueOpenReadClose` (mikrofon açar, `NOKTA_AUDIOQUEUE_TEST=1`; gerekçe implementation K1 sapma 8) |
+| `pnpm -r run lint` / `typecheck`                                                      | yeşil                                                                                                                                                                                                                         |
+| `pnpm -r run test`                                                                    | contracts 338/338, web 699/699, server 750 + 1 skip (`fsrv-p28b` gerçek clamd, `CLAMD_TEST_HOST` — eski, gerekçeli)                                                                                                           |
+| Web e2e / CI (`agent-win` macos-14/15, P33 sandbox adımı)                             | Bu turda koşulmadı; dalda PR/CI koşusu yok. K0 raporu e2e 669/0 diyor. macOS CI ve "P33 sandbox reddi + yoklama" adımı **ilk koşuda doğrulanacak** (kanıt yok)                                                                |
+
+## Kabul kriterleri
+
+Durum: GEÇTİ (otomatik kanıt tam) · KISMİ (otomatik kanıt eksik/kusurlu) · ELLE (otomatik kısmı tamam, kalan K6) · BEKLİYOR (sonraki paket).
+
+| AC     | Durum    | Kanıt / eksik                                                                                                                                                                                                                                                                                                                     |
+| ------ | -------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| AC-534 | ELLE     | Ortak `flow` Features testi (`voice_p28d_test.go:518` "tam bağlı istemci voice1 bildirmeli"); darwin bağlama `cmd/noktadestek/voice_darwin.go` `macVoiceDeps` yalnız `voice.Supported()` + arayüzle bağlar (kod okuması; darwin'e özgü birim testi yok — Öneri 1). Web e2e `p33-mac.spec.ts` düğme etkin. Diyalog/60 sn/metin: K6 |
+| AC-535 | ELLE     | `macperm/mic_darwin.go`, `audio_darwin.go` Close=Stop+Dispose (yerel 10,8 ms). Turuncu gösterge ≤ 1 sn ×5: K6                                                                                                                                                                                                                     |
+| AC-536 | ELLE     | `openMacVoice` izin yok → `MicGuide` + `ErrDeviceDenied`; ortak `voice.end{device}` testi `voice_p28d_test.go:452,465`; `TestP33K1AudioQueueErrorClasses`. İzin reddi / `tccutil reset`: K6                                                                                                                                       |
+| AC-537 | ELLE     | Karar mantığı `classifyClick` (`ui/mac/logic_test.go`, P28f); `voiceMuteClicked` "Mikrofonu aç" yalnız `clickLocal` (`voice_darwin.go:119`); kabul ve rehber düğmesi ortak `newPrompt` (localClick + 1,5 sn). TCC isteminde `HoldInjection`. K4 sahte kaynak senaryoları: K6                                                      |
+| AC-538 | ELLE     | `TestP33K1IPCLatencyBudget` arm64 0,138 ms / Rosetta 0,161 ms (≤ 10 ms), `TestP33K1AppleDecoderMatchesLibopusGolden` 108,9–110,9 dB. Ağızdan kulağa p95, 30 dk boşalma 0, FPS/CPU: K6                                                                                                                                             |
+| AC-539 | ELLE     | Ortak mix-minus/listeners (değişmedi); Mac "Dinleyen" satırı: K6                                                                                                                                                                                                                                                                  |
+| AC-540 | ELLE     | İstemci diske yazmaz (AudioQueue yalnız bellek; kod okuması). Kayıtta ses izi: mevcut AC-375 testi Mac misafiriyle **ayrıca koşulmadı**; iz testi K6 (§33.4)                                                                                                                                                                      |
+| AC-541 | GEÇTİ    | Sunucu `voice-p28d.test.ts` "P33 yetenek…": `clientOs: macos` + voice1 → `hasVoice` true, voice1'siz → false (OS dalı yok); web e2e `p33-mac.spec.ts` etkin; eski istemci pasif + AC-352 metni `p28a-clip-print.spec.ts:122`. Windows/tarayıcı/Linux testleri değişmeden yeşil                                                    |
+| AC-542 | KISMİ    | Seçim ekranı `window_choose_darwin.go` var; mimari §11 "Go birim: seçim mantığı" **yok** (Düzeltilmeli 3). Görsel/Tab/VoiceOver/kontrast: K6                                                                                                                                                                                      |
+| AC-543 | GEÇTİ\*  | `TestAC543FilterWindows`, `TestAC543TitleNeverInErrors` (GIZLI-BASLIK-123), `TestP33K2ShareableWindowsExcludesOwn`; \*D-P33-1 kalıcı sapma (küçültülmüş pencere listelenmez, "(simge durumunda)" yok) — kılavuzda yazılmalı (K7). Ağ dökümü: K6                                                                                   |
+| AC-544 | ELLE     | `TestP33K2W1WindowStream` (örtücü 0 kare, boyut 118 ms). Notlar/bildirim, başka monitör, Retina ±2 px: K6                                                                                                                                                                                                                         |
+| AC-545 | ELLE     | `TestAC545WinTrackStates`, `TestAC545HidePlateReplacesFrame`, `TestP33K2PlateMaskDrawn`; girdi düşmesi `TestAC547MacScopeEndToEnd`. Space/tam ekran/⌘H gerçek uygulamada: K6                                                                                                                                                      |
+| AC-546 | ELLE     | `macwindow_test.go:81-82` (kapalı kalıcı, geri gelse de), `TestP33K2W1OtherProcessWindowClosed` 0,22 sn. Konsol metni e2e `p33-mac.spec.ts`. Gerçek uygulama kapanışı: K6                                                                                                                                                         |
+| AC-547 | ELLE     | `TestAC547MacOwnerSheetMenuAndSamePID`, `…RootAtOwnWindows`, `…ScopeEndToEnd` (sahte sorgu). Gerçek AX izinli kimlikle uçtan uca yok: K6 (K2 kalan 2)                                                                                                                                                                             |
+| AC-548 | ELLE     | `TestAC548MacForegroundRoot` (AX hatası → 0). Gerçek odak: K6                                                                                                                                                                                                                                                                     |
+| AC-549 | KISMİ    | Tablo/özellik testleri tam (`TestAC549Mac*`, 55 satır + 2000 rastgele). **Ancak** AC "normal yazı çalışır" der; Windows TR teknisyende AltGr ile yazılan @ # { } [ ] \ \| ~ pencere modunda düşüyor (`TestAC549MacAltGrDroppedByGeneralRule` bunu sabitliyor). Karar verilmemiş sapma → Düzeltilmeli 4                            |
+| AC-550 | GEÇTİ    | Ortak `flow` pencere modu testleri (P17, değişmedi, yeşil); web e2e monitör seçici yok. Kayıt içeriği yalnız pencere: K6 örneklem                                                                                                                                                                                                 |
+| AC-551 | ELLE     | `uicore.WindowWatchText`, `u.watchText`; §5.2b kuralları pencere modunda: K6                                                                                                                                                                                                                                                      |
+| AC-552 | GEÇTİ    | `p17-share-reasons.test.ts`, `p17-console.test.ts`, e2e `p33-mac.spec.ts` (rozet, ipucu, neden "WGC"/"Windows" içermez, axe açık/koyu 0). Go: tüm pencere hataları `Method: WGC`, `WGC_UNSUPPORTED` üretilmez                                                                                                                     |
+| AC-553 | KISMİ    | Runbook §33.3 sıra maddesi var. Mimari §9 "sunucu birim: `share.state{WGC}` + `clientOs macos` + voice1 geçer" testi **yok** (K0'da sahipsiz bırakıldı) → Düzeltilmeli 2                                                                                                                                                          |
+| AC-554 | KISMİ    | `entitlements.plist`/`package.sh check`/`info-plist-keys.txt` doğru (kod okuması + yerel K3 doğrulaması). CI'da yeşil olduğu henüz görülmedi; ayrıca `check` işi gofmt'ta kırmızı olacak (Düzeltilmeli 1)                                                                                                                         |
+| AC-555 | ELLE     | Ölçüm tamamen K6; OKUBENI "−" ile kaldırma bilerek yazılmadı (R-P33-10)                                                                                                                                                                                                                                                           |
+| AC-556 | ELLE     | `trace-check-mac.sh --content` + CI pozitif kontrol (CI koşusu bekliyor); `tccutil reset Microphone <kimlik>` OKUBENI + MacGuide; kılavuz K7                                                                                                                                                                                      |
+| AC-557 | BEKLİYOR | K7 (teknik-yazar, K6 sonrası). Bu turda DÜZELTİLMELİ sayılmadı                                                                                                                                                                                                                                                                    |
+| AC-558 | BEKLİYOR | Regresyon: Go/web/sunucu birim yeşil, `TestAC558WindowsPolicyUnchangedAfterMove`, `opus_libopus.go` taşıma davranışsız (Linux/Windows testleri değişmeden). `v0.26.0` etiketi, CI yeşil, staging D-listesi: sonra                                                                                                                 |
+
+### K6 elle listesi (test-operatoru; DÜZELTİLMELİ sayılmaz)
+
+AC-534 (diyalog, 60 sn, metin), 535 (gösterge ≤ 1 sn ×5), 536 (izin reddi, `tccutil reset`), 537 (sahte kaynak senaryoları ses
+düğmeleriyle + TCC istemine uzaktan tıklama), 538 (gecikme p95, 30 dk, FPS/CPU, x86_64), 539 (1+1+1), 540 (kayıt ses izi Mac misafiri),
+542 (yerleşim, iki tema, Tab, VoiceOver, kontrast, tek monitör), 543 (ağ dökümü), 544, 545 (dört durum), 546, 547/548 (AX izinli gerçek
+kimlik, Kaydet/Aç paneli, sayfa), 549 (örneklem), 551, 555, 556 (§33.4). Ayrıca: K0s-A2 (`k1a2.sh`), Yapışkan Tuşlar bayrağı (W3), gerçek
+Chrome yükü.
+
+## Düzeltilmeli
+
+1. **[backend-dev] `apps/agent-win/test/spike-p33/at/at_darwin.go`, `test/spike-p33/mac/mac_darwin.go`** — `gofmt -l .` bu iki dosyayı
+   listeliyor. CI `agent-win.yml:94` (`check` işi, working-directory `apps/agent-win`) aynı komutu koşar → iş **kırmızı**, P33 adımları da
+   koşmaz. Beklenen: `gofmt -w test/spike-p33` ile biçimlendir, `gofmt -l .` boş dönmeli.
+2. **[backend-dev] `apps/server/test/unit/`** (ör. `voice-p28d.test.ts` P33 bloğu ya da P17 share testi) — AC-553 / mimari §9 sunucu
+   satırı: `clientOs: "macos"` AGENT misafirinden gelen `share.state{state:"sharing", method:"WGC"}` ve
+   `{state:"stopped", reason:"WINDOW_CLOSED", method:"WGC"}` 0.26.0 sunucuda reddedilmez, teknisyene iletilir (strictObject geçer);
+   aynı mesaj Windows misafirinde değişmez. Beklenen: en az bir birim testi, adında AC-553.
+3. **[backend-dev] `apps/agent-win/internal/ui/mac/window_choose_darwin.go`** — AC-542 / mimari §11 "Go birim: seçim mantığı" yok.
+   Beklenen: seçim kararını (Tüm ekran varsayılan; pencere seçilince liste etkin; boş liste → Paylaş pasif; sentetik etkinleştirme yok
+   sayılır; seçilen pencere kimliği → `flow` olayı) AppKit'siz bir fonksiyona (ör. `ui/mac/logic.go` ya da `uicore`) ayırıp etiketsiz
+   tablo testi yaz (Linux CI'da koşar).
+4. **[mimar + guvenlik] AC-549 AltGr çatışması** (`internal/input/shortcuts_mac.go` genel kural; `shortcuts_mac_test.go`
+   `TestAC549MacAltGrDroppedByGeneralRule`) — Windows TR klavyeli teknisyen (en olası kullanıcı) Mac pencere modunda @ # { } [ ] \ | ~
+   yazamıyor; AC-549 "normal yazı çalışır" diyor. K2 kararı ertelemiş. Beklenen: (a) güvenli istisna tasarımı (ör. tarayıcı
+   `ControlLeft+AltRight` + yazılabilir tuş → ⌘ eklenmeden ⌥+tuş olarak eşle; ⌘ hiç üretilmez) ve T-2 güncellemesi, **ya da** (b)
+   `mimari-p33.md` §12'ye D-P33-3 kalıcı sapma + kullanıcı/orkestratör kabulü + kılavuzda (K7) teknisyen notu. Karar yazılmadan AC-549
+   GEÇTİ sayılmaz.
+5. **[backend-dev] 30 dk fuzz (K0s-A1 (6), güvenlik koşullu GEÇTİ şartı)** — `implementation.md` K1 "Kalan": ürün yardımcısı (sandbox'lı
+   `--opus-cozucu`) içinde 30 dk fuzz koşulmadı. Beklenen: `test/spike-p33/cmd/k0sa1fuzz` ürün yardımcısına uyarlanıp 30 dk koşulur,
+   sonuç (çerçeve sayısı, çökme 0) implementation.md'ye yazılır.
+6. **[backend-dev] `apps/agent-win/internal/ui/mac/logic.go:2`** — paket yorumu "Ses yoktur (ADR-0037 r3; VoiceUI uygulanmaz →
+   `rs.cap.voice1` bildirilmez)" P33 ile yanlış oldu. Beklenen: yorum ADR-0043'e göre güncellenir (ses var, yoklamaya bağlı).
+7. **[devops] `.github/workflows/agent-win.yml:1045-1046`** — yorum "socket() … → EPERM" diyor; ölçüm ve test connect/sendto EPERM
+   (implementation K1 sapması: `socket()` SBPL ile engellenemiyor). Beklenen: yorum "TCP connect/UDP sendto EPERM" olarak düzeltilir.
+   Aynı sapmanın `docs/guvenlik-raporu.md:44,53` şartlarına karşı kabulü K5'te (guvenlik) kayda geçmeli.
+
+## Bilinen açıklar — değerlendirme
+
+| #   | Konu                                         | Karar                                                                                                                                                                                                                    |
+| --- | -------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| a   | AltGr                                        | DÜZELTİLMELİ (madde 4): AC-549 metniyle çelişiyor, karar sahipsiz                                                                                                                                                        |
+| b   | `socket()` sandbox'ta engellenemiyor         | Kod/test doğru (connect/sendto + exec + dosya EPERM, negatif denetim var). Runbook §33.2 yalnız "sandbox reddi" der, sorun yok; CI yorumu yanlış (madde 7, düşük). Fd tek başına veri çıkarmaz — güvenlik kabulü K5'te   |
+| c   | Sunucu birim AC-553 / AC-541                 | AC-541 mevcut P33 testiyle yeterli (OS'tan bağımsız `hasVoice` macos + voice1/voice1'siz). AC-553 eksik → madde 2                                                                                                        |
+| d1  | Ses UI birim testi yok                       | Kabul: karar mantığı `classifyClick` (ortak, testli) + `clickOf`; AppKit kısmı K6. Seçim ekranı ise test edilebilir mantık içeriyor → madde 3                                                                            |
+| d2  | Tanılama `ses_ozet.backend` (§8.3) eklenmedi | Mac'te tanılama logu bağlı değil; sapma implementation.md'de yazılı. Öneri 2 (mimari §8.3'e not)                                                                                                                         |
+| d3  | 30 dk fuzz                                   | Güvenlik koşulunun parçası → madde 5                                                                                                                                                                                     |
+| d4  | Seçim ekranı / gösterge görsel kontrol       | K6 elle                                                                                                                                                                                                                  |
+| d5  | Flow düzeyi GIZLI-BASLIK taraması            | Kabul: başlık `flow`'a hiç girmiyor (`ShareableWindows` → yalnız UI); capture testi + `trace-check-mac.sh --content` var. Öneri 3                                                                                        |
+| e   | DESIGN.md / i18n / ikon (Mac UI)             | Ham renk yok (AppKit semantik); yeni metinler `flow/messages_p33.go` + `uicore/texts.go` tablolarında (sapma 6 gerekçeli). Native AppKit penceresinde menü/link ikonu kuralı uygulanmaz (yeni menü öğesi yok). Bulgu yok |
+
+## Definition of Done
+
+| Madde                                              | Durum | Not                                                                                         |
+| -------------------------------------------------- | ----- | ------------------------------------------------------------------------------------------- |
+| Tüm otomatik testler yeşil (yerel)                 | ✅    | Go darwin, pnpm birim                                                                       |
+| Lint / tip / vet / staticcheck                     | ✅    | Dört hedef temiz                                                                            |
+| gofmt / CI `check` yeşil                           | ❌    | Madde 1                                                                                     |
+| CI (macos-14/15, P33 sandbox adımı, web e2e) yeşil | ❌    | Kanıt yok (dalda koşu yok)                                                                  |
+| Her AC'nin otomatik kanıtı                         | ❌    | AC-542, 549, 553 KISMİ; 554 CI bekliyor                                                     |
+| Tasarım-kod uyumu, sapmalar gerekçeli              | ✅    | K1 sapma 1–9, K2 sapma 1–5 implementation.md'de; D-P33-1 kabul edilmiş                      |
+| Gereksiz `skip` yok                                | ✅    | Tüm SKIP'ler gerekçeli                                                                      |
+| Yeni bağımlılık gerekçeli / lisans                 | ✅    | Yeni bağımlılık yok (purego, x/sys mevcut); darwin'de wazero yok (`go list -deps`)          |
+| Gizli bilgi / başlık sızması yok                   | ✅    | `TestAC543TitleNeverInErrors`; trace-check içerik araması                                   |
+| Ölü/yanlış kod ve yorum yok                        | ❌    | Madde 6, 7; `test/spike-p33/cmd/k0sa1` darwin'de derlenmiyor (ayrı modül, CI dışı; Öneri 4) |
+| Güvenlik koşulları (Tur 2) karşılandı              | ⚠️    | T2-1/2/3 karşılandı; A1 30 dk fuzz eksik (madde 5); K5 bekliyor                             |
+| Dokümantasyon (AC-557)                             | —     | K7                                                                                          |
+
+## Öneriler (zorunlu değil)
+
+1. `cmd/noktadestek` darwin bağlaması için küçük bir test: `macVoiceDeps` sahte UI ile `voice.Supported()` true iken `VoiceUI/OpenVoice`
+   doluyor, arayüz eksikse nil kalıyor (AC-534 alt protokol kanıtını darwin'e bağlar).
+2. `mimari-p33.md` §8.3'e "Mac'te tanılama logu yok; `backend` alanı yalnız Windows/Linux" notu.
+3. Başlık sızma güvencesi için `ShareableWindows` dönüş tipinin `flow`'a geçmediğini derleme düzeyinde belgelemek (paket yorumu).
+4. `test/spike-p33/cmd/k0sa1` artık derlenmiyor; tarihsel spike olarak README notu ya da silme.
+5. `TestP33K1AudioQueueOpenReadClose` için macOS CI'da aygıt yoksa görünür SKIP ile `NOKTA_AUDIOQUEUE_TEST=1` adımı (K1 sapma 8).
+
+## Olumlu
+
+- Sandbox'lı çözücü yardımcısı güvenlik şartlarının en dar halini uyguluyor (profil yalnız `deny default`, öz-test, `sandbox_check(pid)`,
+  sandbox'sız çocuğu reddeden negatif test, uçuştaki istek sahibine panik yazma testi).
+- `macShortcuts` tablo + 2000 örnekli özellik testi; Windows politikasının taşınması davranışsız olduğu ayrı testle sabit.
+- Pencere modunda tüm hatalar ortak `WGC` belirteciyle, sözleşme değişmeden; konsol etiketleri nötr ve e2e ile doğrulanmış.
+- Ölçümler (IPC p95, SNR, pencere akışı süreleri) sayısal ve implementation.md'de kayıtlı.
+
+---
+
 # QA Raporu — AC-392 geç pencere düzeltmesi (PR #40) — Tur 2
 
 DURUM: GEÇTİ (kod + Go/macOS CI). Tek açık konu: `web e2e (Playwright, mock API)` rapor anında **pending**. Tur 2'de

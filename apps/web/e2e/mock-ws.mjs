@@ -141,7 +141,7 @@ function end(rec, reason) {
   endRoom(rec.view.id, reason);
 }
 
-function admitted(r, rec, ws, kind = "BROWSER", guestName, features = [], schat = false) {
+function admitted(r, rec, ws, kind = "BROWSER", guestName, features = [], schat = false, voice1 = false) {
   const first = !r.maxEndsAt;
   // P28b (§5.1): tarayıcı misafiri SERVER odasında `fsrv` yeteneklidir (K-P28b-20)
   if (rec.fileMode === "SERVER" && kind === "BROWSER" && !features.includes("fsrv")) features = [...features, "fsrv"];
@@ -170,7 +170,9 @@ function admitted(r, rec, ws, kind = "BROWSER", guestName, features = [], schat 
   });
   // P28d (K1 active.ts): ses odasında tarayıcı misafire hello'dan hemen sonra roster (teklif `from`'u buna göre), ardından
   // callId'siz `voice.state{idle}`. Misafir hello'sunda `guestVoice` YOK (sözleşme).
-  r.guestVoice = kind === "BROWSER"; // sunucu hasVoice: BROWSER ya da rs.cap.voice1 (sahte istemci bildirmez → eski istemci)
+  // sunucu hasVoice: BROWSER ya da rs.cap.voice1 — yalnız yetenek, işletim sistemi değil (AC-541). Sahte istemci varsayılanda
+  // bildirmez → eski istemci (AC-379); P33 sahte Mac misafiri `rs.cap.voice1` ile açar.
+  r.guestVoice = kind === "BROWSER" || voice1;
   if (rec.voice) r.voiceRec = rec;
   if (voiceRoom(r, rec)) {
     send(ws, techsRosterSchema.parse({ t: "techs.roster", techs: [voiceEntry(r)] }));
@@ -718,7 +720,8 @@ export function attachWs(srv) {
         ...(protos.includes("rs.cap.print1") ? ["print"] : []),
         ...(protos.includes("rs.cap.fsrv1") ? ["fsrv"] : []),
       ];
-      return wss.handleUpgrade(req, sock, head, (ws) => admitted(r, rec, ws, "AGENT", "Ayşe Yılmaz", features, hasSchat(protos)));
+      const voice1 = protos.includes("rs.cap.voice1");
+      return wss.handleUpgrade(req, sock, head, (ws) => admitted(r, rec, ws, "AGENT", "Ayşe Yılmaz", features, hasSchat(protos), voice1));
     }
     const tk = protos.find((p) => p.startsWith("rs.ticket."))?.slice(10);
     const rc = protos.find((p) => p.startsWith("rs.reconnect."))?.slice(13);

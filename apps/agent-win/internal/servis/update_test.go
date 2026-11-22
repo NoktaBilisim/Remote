@@ -541,9 +541,11 @@ func TestAC489HashMismatchFails(t *testing.T) {
 	if u.Store.Load().Phase != "" {
 		t.Fatal("bozuk indirme sahnelendi")
 	}
-	if ids := u.Events.(*memEvents).ids(); len(ids) == 0 || ids[len(ids)-1] != EvUpdateRejected {
-		t.Fatalf("olay günlüğü 1012 yok: %v", ids)
-	}
+	// Olay günlüğü kuyruk kaydından hemen sonra yazılır; yarış olmasın diye beklenir (CI linux-gui'de görüldü).
+	eventually(t, "olay günlüğü 1012", func() bool {
+		ids := u.Events.(*memEvents).ids()
+		return len(ids) > 0 && ids[len(ids)-1] == EvUpdateRejected
+	})
 }
 
 func TestAC485PolicyNotifyNoDownload(t *testing.T) {

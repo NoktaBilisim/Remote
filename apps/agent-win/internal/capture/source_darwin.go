@@ -16,7 +16,7 @@ import (
 // P28f K2 (mimari-p28f §2, ADR-0037 m.2 r3): ScreenCaptureKit → Go NV12 → VideoToolbox H.264. Hat Windows'takiyle
 // aynı platform bağımsız parçaları kullanır: selectEncoder/fallbackEncoder (donanım → yazılım, AC-245), rateCtl
 // (AC-41), keyClock (GOP + PLI), lowStage (P28c düşük iz = ikinci VT oturumu, ADR-0035). Yakalama yolu (Method)
-// macOS'ta boştur (contracts SHARE_METHODS yalnız Windows yollarını içerir).
+// ekran modunda boştur; P33 pencere modunda MethodWGC (= pencere modu belirteci, K-P33-6).
 
 const (
 	openFirstFrame = 2 * time.Second
@@ -41,6 +41,7 @@ type source struct {
 // pipeline kodlama goroutine'inin durumu.
 type pipeline struct {
 	display  uint32
+	window   uint32 // P33 pencere modu (CGWindowID; 0 = ekran); window_darwin.go
 	opt      streamOpts
 	st       *sckStream
 	cur      *NV12 // son kare (ekran değişmezken yeniden kodlanır, PLI'de IDR)
@@ -56,6 +57,11 @@ type pipeline struct {
 	lastEmit time.Time
 	nextAt   time.Time
 	stats    pipeStats
+	// P33 pencere modu durumu (window_darwin.go).
+	track     winTrack
+	pollAt    time.Time
+	closedErr error // kalıcı WINDOW_CLOSED / WINDOW_UNAVAILABLE
+	winFails  int   // art arda açılamayan pencere akışı
 }
 
 // pipeStats ölçüm sayaçları (K2 ölçüm testi; kişisel veri yok).
@@ -82,8 +88,21 @@ func open(monitorID int, opt streamOpts) (*source, error) {
 	if !ok {
 		return nil, &Error{Reason: ReasonNoOutput, Op: "MonitorID"}
 	}
+	return openPipeline(&pipeline{display: id, opt: opt})
+}
+
+// openStream hedefin (ekran ya da P33 pencere) akışını açar.
+func (p *pipeline) openStream() (*sckStream, error) {
+	if p.window != 0 {
+		return openWindowStream(p.window, p.track.w, p.track.h)
+	}
+	return openStream(p.display, p.opt)
+}
+
+// openPipeline ilk kare + kodlayıcı (ekran ve pencere kaynağı ortak).
+func openPipeline(p *pipeline) (*source, error) {
 	s := &source{done: make(chan struct{})}
-	p := &pipeline{display: id, opt: opt, kc: &s.kc, low: &s.low, rc: newRateCtl()}
+	p.kc, p.low, p.rc = &s.kc, &s.low, newRateCtl()
 	s.p = p
 	s.low.open = func(w, h int) (Encoder, error) { // P28c ikinci oturum (sabit 8 FPS)
 		ch, err := selectEncoder(func(hw bool) (Encoder, error) { return openEncoder(w, h, signal.LowFPS, hw) },
@@ -92,7 +111,7 @@ func open(monitorID int, opt streamOpts) (*source, error) {
 	}
 	var f *NV12
 	for try := 0; ; try++ {
-		st, err := openStream(id, p.opt)
+		st, err := p.openStream()
 		if err != nil {
 			return nil, err
 		}
@@ -176,12 +195,22 @@ func (p *pipeline) ensureEncoder() error {
 // grab yeni kareyi alır. Akış durursa (ekran çıkarıldı, kip değişti, izin geri alındı) geri çekilmeli yeniden açılır;
 // bu sürede son kare kullanılmaya devam eder (Windows grab ile aynı).
 func (p *pipeline) grab(ctx context.Context, done <-chan struct{}) (bool, error) {
+	if p.window != 0 { // P33: CG pencere durumu (kapanış, görünmezlik, boyut) kare almadan önce
+		if changed, err, handled := p.windowPoll(ctx, done); handled {
+			return changed, err
+		}
+	}
 	if p.st == nil {
 		if wait := time.Until(p.retryAt); wait > 0 {
 			return false, sleepCtx(ctx, done, min(wait, frameWait))
 		}
-		st, err := openStream(p.display, p.opt)
+		st, err := p.openStream()
 		if err != nil {
+			if p.window != 0 {
+				if ferr := p.windowOpenFailed(); ferr != nil {
+					return false, ferr
+				}
+			}
 			p.backoff = min(reopenMax, max(reopenMin, p.backoff*2))
 			p.retryAt = time.Now().Add(p.backoff)
 			return false, nil
@@ -212,6 +241,7 @@ func (p *pipeline) grab(ctx context.Context, done <-chan struct{}) (bool, error)
 	if err != nil || f == nil {
 		return false, err
 	}
+	p.winFails = 0
 	p.st.slot.recycle(p.cur)
 	p.cur = f
 	return true, p.ensureEncoder()

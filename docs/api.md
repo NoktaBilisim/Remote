@@ -2499,7 +2499,9 @@ Müşteri ekranındaki teknisyen fotoğrafı (AC-236). Adres `POST /public/sessi
   `GDI_FAILED`, `MF_STARTUP`, `NO_H264_ENCODER`, `ENCODER_CONFIG`, `ENCODE_FAILED`, `OTHER`; P17 (0.11.0, pencere modu):
   `WGC_UNSUPPORTED` (pencere yakalama yok), `WINDOW_CLOSED` (paylaşılan pencere kapandı), `WINDOW_UNAVAILABLE` (pencere
   yakalamaya açılamadı). Şema enum değil, desen `^[A-Z0-9_]{1,32}$`; yeni kod sunucu değişikliği gerektirmez.
-- **`method`:** `DXGI` (masaüstü çoğaltma), `GDI` (yedek), `WGC` (P17 pencere yakalama). Yöntem bilinmiyorsa alan yoktur
+- **`method`:** `DXGI` (masaüstü çoğaltma), `GDI` (yedek), `WGC` (P17 pencere yakalama; P33'ten itibaren macOS 0.26.0
+  istemci de pencere modunda `WGC` gönderir — değer "pencere modu" belirtecidir, Mac'te ScreenCaptureKit; `WGC_UNSUPPORTED`
+  yalnız Windows'ta üretilir). Yöntem bilinmiyorsa alan yoktur
   (ör. Media Foundation/kodlayıcı nedenleri).
 - **Pencere modu (P17, AC-248):** 0.11.0 istemci müşteri "Yalnız bir pencere" seçtiğinde `{ "t": "share.state", "state":
 "sharing", "method": "WGC" }` gönderir; `monitors`/`activeMonitor` yoktur ve istemci `monitor.request`'i yok sayar. Konsol

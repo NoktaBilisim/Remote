@@ -4,7 +4,9 @@
   Nokta Destek macOS paketi (ADR-0037 m.5/m.6, mimari-p28f §5.3 m.6, S-P28f-14). package.sh @BUNDLE_ID@ ve @VERSION@ yer
   tutucularını doldurur. Anahtar kümesi info-plist-keys.txt ile TAM eşleşmelidir (package.sh check; fazlası/eksiği FAIL).
   YASAK (izinli uygulama dışarıdan tetiklenemesin): CFBundleURLTypes, CFBundleDocumentTypes, NSAppleScriptEnabled, NSServices,
-  UTExportedTypeDeclarations. Ses kapalı (ADR r3 m.7): NSMicrophoneUsageDescription YOK — A-PF-1 sesi açarsa ADR revizyonuyla eklenir.
+  UTExportedTypeDeclarations, NSCameraUsageDescription (B-2: kamera kullanılmaz). P33 (ADR-0043 m.4, AC-554):
+  NSMicrophoneUsageDescription — hardened runtime'da bu anahtar yoksa mikrofon isteğinde süreç öldürülür; metni package.sh check
+  birebir denetler (değiştirirseniz orayı da güncelleyin).
 -->
 <plist version="1.0">
 <dict>
@@ -36,6 +38,8 @@
 	<string>13.0</string>
 	<key>NSHighResolutionCapable</key>
 	<true/>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>Teknisyenle sesli görüşme için. Mikrofon yalnız siz Kabul'e tıkladığınızda açılır.</string>
 	<key>NSHumanReadableCopyright</key>
 	<string>Nokta Bilişim — Apache-2.0</string>
 	<key>NSQuitAlwaysKeepsWindows</key>

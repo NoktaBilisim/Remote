@@ -1,10 +1,12 @@
 // P28d K1 birim testleri (mimari-p28d r2 §3, §4.1, §4.2, §6): metrik kaydı, ses yeteneği kapısı (`voiceOf`/`hasVoice`),
 // `endVoice` tetikleyici matrisi ve `voice.state` değişmezleri (`talkers ⊆ listeners`). Oda/Rooms yalnız kullanılan alanlarla
 // kurulur (DB yok; audit sahte istemciye yazılır), saat sahte. Uçtan uca davranış `test/integration/voice-p28d.test.ts`.
+import { SHARE_STATE_MIN_INTERVAL_MS } from "@remote/contracts/ws";
 import { VOICE_DENY_COOLDOWN_MS, VOICE_REQUEST_TIMEOUT_MS, WS_CAP_VOICE, voiceStateSchema } from "@remote/contracts/ws-voice";
 import type { PermissionKey } from "@remote/contracts/permissions";
 import { describe, expect, it } from "vitest";
 import { createMetrics } from "../../src/ops/metrics.ts";
+import { onGuestMessage, TokenBucket } from "../../src/signaling/handlers.ts";
 import { projectDetails } from "../../src/sessions/history.ts";
 import { newMulti, tidOf } from "../../src/signaling/members.ts";
 import { hasVoice, voiceOf } from "../../src/signaling/rooms-features.ts";
@@ -267,5 +269,79 @@ describe("P28d oturum geçmişi zaman çizelgesi (AC-379)", () => {
     expect(projectDetails("voice.end", null, end)).toEqual({ reason: "tech", durationSec: 192 });
     expect(projectDetails("voice.reject", null, { reason: "timeout" })).toEqual({ reason: "timeout" });
     expect(projectDetails("voice.join", null, { any: "x" })).toEqual({});
+  });
+});
+
+describe("P33 yetenek bildirimi yetki değildir (S-P33-T-10, mimari-p33 §5.1 T14)", () => {
+  /** Sahte Mac misafiri: AGENT + `clientOs: macos` + `rs.cap.voice1` (soket `voice` bayrağı). */
+  const macGuest = () => {
+    const f = fixture();
+    Object.assign(f.guest, { kind: "AGENT", clientOs: "macos" });
+    f.gpeer.voice = voiceOf([WS_CAP_VOICE], f.room, f.guest);
+    return f;
+  };
+
+  it("voice1 bildiren Mac misafiri: sessions.voice'u olmayan teknisyenin voice.request'i FORBIDDEN; misafire istek gitmez, faz idle", () => {
+    const f = macGuest();
+    expect(hasVoice(f.room, f.gpeer)).toBe(true); // yetenek var — yetki kararını değiştirmemeli
+    f.own.permissions = new Set(["sessions.view"]);
+    handleTechVoice(f.rooms, f.room, f.own, { t: "voice.request" });
+    expect(f.own.peer.of("error").at(-1)).toMatchObject({ code: "FORBIDDEN" });
+    expect(f.gpeer.of("voice.request")).toHaveLength(0);
+    expect(f.room.voice.phase).toBe("idle");
+    expect(f.metrics.render()).toContain('rs_voice_denied_total{code="permission"} 1');
+  });
+
+  it("yetkisiz üye voice.join → FORBIDDEN, konuşan/dinleyen olmaz; yetkili sahip aynı misafirle görüşür", () => {
+    const f = macGuest();
+    const nov = f.addMember("nov", "participant", ["sessions.view"]);
+    const callId = f.startCall();
+    handleTechVoice(f.rooms, f.room, nov, { t: "voice.join", callId });
+    expect(nov.peer.of("error").at(-1)).toMatchObject({ code: "FORBIDDEN" });
+    const last = f.states(f.gpeer).at(-1);
+    expect(last).toMatchObject({ phase: "active", talkers: [tidOf(f.room, "own")], listeners: [tidOf(f.room, "own")] });
+  });
+
+  it("yetki kapısı yetenekten önce: voice1'siz misafirde de yetkisiz teknisyen FORBIDDEN (CLIENT_UNSUPPORTED değil)", () => {
+    const f = macGuest();
+    f.gpeer.voice = voiceOf([], f.room, f.guest);
+    expect(hasVoice(f.room, f.gpeer)).toBe(false);
+    f.own.permissions = new Set(["sessions.view"]);
+    handleTechVoice(f.rooms, f.room, f.own, { t: "voice.request" });
+    expect(f.own.peer.of("error").at(-1)).toMatchObject({ code: "FORBIDDEN" });
+  });
+});
+
+describe("P33 AC-553: Mac misafirinin pencere paylaşımı share.state{method:WGC} (mimari-p33 §9 sunucu birim)", () => {
+  /** Kabul edilmiş AGENT misafiri; `share.state` gerçek giriş yolundan (şema + işleyici) geçer. */
+  const agentGuest = (clientOs: "macos" | "windows") => {
+    const f = fixture();
+    Object.assign(f.guest, { kind: "AGENT", clientOs });
+    f.gpeer.voice = voiceOf([WS_CAP_VOICE], f.room, f.guest);
+    Object.assign(f.room, { timers: {}, control: {} });
+    const bucket = new TokenBucket(f.clock);
+    const send = (m: object) => onGuestMessage(f.rooms, f.room, f.guest, f.gpeer, bucket, Buffer.from(JSON.stringify(m)), false);
+    return { ...f, send };
+  };
+  const sharing = { t: "share.state", state: "sharing", method: "WGC" };
+  const closed = { t: "share.state", state: "stopped", reason: "WINDOW_CLOSED", method: "WGC" };
+
+  it("AC-553: clientOs macos + voice1 misafirin sharing{WGC} ve stopped{WINDOW_CLOSED, WGC} mesajları reddedilmez, teknisyene aynen iletilir", async () => {
+    const f = agentGuest("macos");
+    await f.send(sharing);
+    f.clock.advance(SHARE_STATE_MIN_INTERVAL_MS);
+    await f.send(closed);
+    f.clock.advance(SHARE_STATE_MIN_INTERVAL_MS);
+    expect(f.gpeer.closed).toBeNull();
+    expect(f.own.peer.of("share.state")).toEqual([sharing, closed]);
+    expect(f.room.share).toEqual({ state: "stopped", reason: "WINDOW_CLOSED", method: "WGC" });
+  });
+
+  it("AC-553: aynı mesajlar Windows misafirinde de değişmeden geçer (OS dalı yok); biçim dışı yöntem 1008", async () => {
+    const f = agentGuest("windows");
+    await f.send(closed);
+    expect(f.own.peer.of("share.state")).toEqual([closed]);
+    await f.send({ t: "share.state", state: "stopped", reason: "WINDOW_CLOSED", method: "SCK" });
+    expect(f.gpeer.closed?.code).toBe(1008);
   });
 });

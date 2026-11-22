@@ -4868,7 +4868,7 @@ imzalı** macOS zip'i çıkar (Release + `macos-adhoc/v1` attestation; müşteri
 | ---------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------ |
 | `apps/agent-win/build/macos/package.sh`                    | `bundle` / `sign` / `zip` / `check` / `adhoc` / `compare` (kullanım başlıkta)                                      |
 | `build/macos/Info.plist.tmpl` + `info-plist-keys.txt`      | Info.plist; anahtar kümesi izin listesiyle **tam** eşleşmeli (S-P28f-14)                                           |
-| `build/macos/entitlements.plist`                           | boş `<dict/>`; ad-hoc ve Developer ID aynı dosya (S-P28f-4/5)                                                      |
+| `build/macos/entitlements.plist`                           | P33'ten beri tam olarak `{device.audio-input}` (§33); ad-hoc ve Developer ID aynı dosya (S-P28f-4/5)               |
 | `build/macos/OKUBENI.txt`, `OKUBENI-stg.txt`               | zip'teki ikinci üst öğe (prod: "asla Yine de Aç istemez"; stg: TEST metni)                                         |
 | `apps/agent-win/test/trace-check-mac.sh` (K5)              | AC-394 iz testi (`snapshot` / `compare`, salt okunur); CI test-macos çağırır                                       |
 | `deploy/agent/publish-mac.sh` + `test-publish-mac-lock.sh` | yayın / geri alma; kilit testi                                                                                     |
@@ -5928,3 +5928,84 @@ Eski sunucu Mac kullanıcısına `.exe` yönlendirir → kılavuz "Mac'te Window
 
 `deploy/test-caddy.sh` → SONUÇ: GEÇTİ (P31: §15.1/1–7, kayma, geri alma provası; mutasyon: `header_up X-Forwarded-Uri "/downloads/***"`
 kopyalanırsa 9 FAIL — hata kapalı yönde görünür). `deploy/nginx/test-nginx.sh` → GEÇTİ (`limit_req` 7. istek 429).
+
+## 33. P33 — macOS sesli görüşme + pencere paylaşımı: paket, CI, yayın 0.26.0 (devops K3, 2026-11-22; mimari-p33 §5.2, §8, §10 K3; ADR-0043; S-P33-T-7/T-8, B-2, T2-1/T2-2)
+
+Yeni env değişkeni, migration, Caddy/nginx değişikliği **yok** (mimari-p33 §8.2, §8.5). Değişen yalnız macOS paketi ve CI.
+
+### 33.1 Değişen dosyalar (devops)
+
+| Dosya                                                 | Değişiklik                                                                                                                                                                                                                                                                                                                                          |
+| ----------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `apps/agent-win/build/macos/entitlements.plist`       | Tam olarak `com.apple.security.device.audio-input` (hardened runtime'da mikrofon için zorunlu). `allow-jit`, `allow-unsigned-executable-memory`, `disable-library-validation`, `device.camera` yok                                                                                                                                                  |
+| `Info.plist.tmpl` + `info-plist-keys.txt`             | `NSMicrophoneUsageDescription` = "Teknisyenle sesli görüşme için. Mikrofon yalnız siz Kabul'e tıkladığınızda açılır." (AC-554); izin listesine eklendi                                                                                                                                                                                              |
+| `package.sh`                                          | `check`: `NSCameraUsageDescription` yasak (B-2); mikrofon metni birebir; `entitlements.plist` = sabit `ENT_WANT`; imzadaki entitlement **dilim başına** (`--arch`) dosyayla tam eşit; `tcc-rehber-check.sh` çağrısı. Yeni `id <stg\|prod>`                                                                                                          |
+| `build/macos/tcc-rehber-check.sh` (yeni)              | Müşteri metinlerinde (`OKUBENI*`, kılavuz, README, `apps/web/messages/*.json`, `mac-guide.tsx`, `internal/ui/**/*.go`) `tccutil reset <Hizmet> <kimlik>` kimliği bilinen paket kimliği; kimliksiz / `reset All` / `sudo` / `csrutil` / `TCC.db` yasak; OKUBENI profil kimliği + Mikrofon satırı zorunlu; `--bundle-id` = paket `CFBundleIdentifier` |
+| `OKUBENI.txt`, `OKUBENI-adhoc.txt`, `OKUBENI-stg.txt` | Mikrofon izin adımı (istem → İzin Ver; "yalnız Nokta Destek açıkken istediği izni verin"); kaldırma yalnız `tccutil reset Microphone <profil kimliği>`. Mikrofon için "−" ile kaldırma yazılmadı (R-P33-10 doğrulanmadı)                                                                                                                            |
+| `apps/agent-win/test/trace-check-mac.sh`              | `--content <metin>`: önceki durumdan sonra değişen dosyaların **içeriğinde** ve birleşik logda arama (S-P33-T-8); başlıkta Mikrofon TCC istisnası                                                                                                                                                                                                   |
+| `.github/workflows/agent-win.yml`                     | `check`: darwin wazero yokluğu + `tcc-rehber-check.sh`; `test-macos`: macos-15 (macos-14 runner GitHub'da kaldırıldı), P33 sandbox/yoklama adımı, iz testinde `--content GIZLI-BASLIK-123` + pozitif kontrol                                                                                                                                        |
+
+### 33.2 CI denetimleri (ne kırmızı yapar)
+
+- **`check` "darwin ikilisinde wazero yok"**: `GOOS=darwin go list -deps ./cmd/noktadestek` çıktısında `tetratelabs/wazero` geçerse
+  kırmızı (her iki mimari; T3). Ses Mac'te AudioToolbox'tan gelir; biri darwin yoluna `internal/voice`'un wasm dosyasını bağlarsa yakalanır.
+- **`check` "TCC rehber metni"**: §33.1 kuralları. Kılavuza/web metnine `tccutil` komutu ekleyen kişi kimliği yazmak zorundadır.
+- **`package-mac` / `sign-mac` (`package.sh check`)**: Info.plist anahtar kümesi, `NSCameraUsageDescription` yokluğu, mikrofon metni,
+  entitlement kümesi (dosya + her dilimin imzası), hardened runtime, TCC rehber kimliği = paketin `CFBundleIdentifier`'ı (stg paketinde
+  `.stg`).
+- **`test-macos` (macos-15; macos-14 runner GitHub'da kaldırıldı, `fail-fast: false`)**: mevcut zorunlu liste (§28f.8). Yeni adım "P33 sandbox reddi +
+  yoklama testleri": `-run 'P33.*(Sandbox|Probe)|(Sandbox|Probe).*P33'`; adında `P33` + `Sandbox` geçen en az bir test ve `P33` + `Probe`
+  geçen en az bir test **PASS** olmalı, SKIP kırmızı (sandbox ve yoklama TCC/ekran gerektirmez; S-P33-T2-1 m.4, T2-2, T-4). **Ad
+  sözleşmesi** K1'e bağlıdır: K1 testleri bu adlarla gelmeden adım kırmızıdır (bilerek; yumuşatılmaz).
+- **İz testi yalnız macos-15'te** (paketleme + uygulamayı açma); önce `--content` pozitif kontrolü (yeni dosyadaki işaret yakalanmalı),
+  sonra AC-394 dizisi `--content GIZLI-BASLIK-123` ile. Runner'da TCC izni olmadığından ses/pencere oturumu CI'da **koşmaz**; gerçek
+  kapsam §33.4 elle senaryo + K2'nin Go başlık sızma testi.
+- İş adı `go test (macOS) + iz testi (macos-15)` oldu; `test-macos` main dalı koruma listesinde değil (§ "Branch protection"),
+  `approve` `needs.test-macos.result` matris toplamını okur → ek ayar yok.
+
+### 33.3 Yayın 0.26.0 (staging → prod; koordinatör uygular)
+
+Sıra (AC-553, mimari-p33 §4.3): **önce sunucu + web**, sonra istemci. Sözleşme değişmediği için 0.25.x istemciler 0.26.0 sunucuda aynen
+çalışır; etiket yalnız konsol metni.
+
+1. Ön koşul: P33 qa GEÇTİ + güvenlik Kritik/Yüksek 0; `ci` ve `agent-win` (yeni adımlar dahil) yeşil.
+2. **Staging sunucu/web**: normal deploy (§8). Env/migration yok.
+3. **Staging macOS TEST paketi**: §28f.4 "Staging TEST paketi" komutu `VER=0.26.0` ile (stg profili → `.stg` kimliği, OKUBENI-stg). Paket
+   `check: GEÇTİ (… entitlements {"com.apple.security.device.audio-input":true})` satırını basmalı. Windows/Linux §24.4 / §28g.5.
+4. **Elle D-listesi** (test-operatoru, macOS 14 veya 15 + 26; arm64 + Rosetta): AC-534..540, 542..551, 555 ve §33.4 iz senaryosu.
+5. **Prod**: etiket `v0.26.0` → `approve` (macOS maddesi: imza dalı `adhoc` + E-listesi) → §28f.9 ad-hoc prod yayını → §31.4 manifest.
+   P29 risk kabulü gereği ilk prod sürümde manifest provası atlanır (kullanıcı kararı, 2026-11-20).
+6. `MIN_AGENT_VERSION` **yükseltilmez** (0.25.1 kalır; ses Mac'te yalnız 0.26.0+ ile, eski Mac istemcide düğme pasif — AC-541).
+
+### 33.4 Elle iz senaryosu (AC-556; staging paketiyle) — DENENMEDİ, ilk koşuda doğrulanır
+
+1. Temiz kullanıcı hesabında: `bash apps/agent-win/test/trace-check-mac.sh snapshot /tmp/once.txt`.
+2. Başlığı `GIZLI-BASLIK-123` olan bir pencere açın (ör. TextEdit'te bu adla kaydedilmiş belge). Nokta Destek ile oturuma girin,
+   **pencere modunda** bu pencereyi paylaşın, sesli görüşmeyi kabul edin (Mikrofon istemi → İzin Ver), 1 dk konuşun, bitirin.
+3. Uygulama kapanınca: `bash apps/agent-win/test/trace-check-mac.sh compare /tmp/once.txt --since "<1. adım saati>" --bundle "<.app yolu>" --marker <kod> --content GIZLI-BASLIK-123`
+   → `SONUÇ: temiz`. **Yanlış pozitif**: başlığı taşıyan uygulamanın kendi kaydı (TextEdit `Saved Application State`, son belgeler,
+   Terminal geçmişi) `İZ: Content` olarak görünebilir — yol `net.noktabilisim.destek`/`noktadestek` içermiyorsa ve TextEdit/Terminal'e
+   aitse iz sayılmaz; test raporuna yolu yazın. İstemciye ait yol (`…noktabilisim…`, `$TMPDIR/noktadestek-*`) = gerçek iz → hata.
+4. TCC kaydı (Ekran Kaydı, Erişilebilirlik, Mikrofon) tek istisnadır; kaldırma: `tccutil reset Microphone net.noktabilisim.destek.stg`
+   (staging) / `… net.noktabilisim.destek` (prod). `sudo`, `tccutil reset All`, SIP kapatma, `TCC.db` düzenleme **asla** önerilmez.
+
+### 33.5 Geri alma (mimari-p33 §8.5)
+
+- İstemci: önceki etiketle yeniden yayın `deploy/agent/publish-mac.sh --tag v0.25.1` (Windows/Linux kendi betikleriyle). Sunucu/web geri
+  alınırsa yalnız konsol etiketi eski metne döner (sözleşme aynı).
+- Mac sesinde ciddi sorun (çökme, sandbox kaçışı şüphesi): acil düzeltme sürümünde `supported_darwin.go` false → ses pasif, pencere modu
+  sürer. Entitlement **kaldırılmaz** (eski paketlerle aynı kimlik davranışı; mikrofon zaten yalnız Kabul ile açılır).
+- Entitlement/plist değişikliği geri alınacaksa üç dosya birlikte: `entitlements.plist`, `package.sh` `ENT_WANT`, ADR revizyonu.
+
+### 33.6 Doğrulama komutları (yerel)
+
+- `sh apps/agent-win/build/macos/tcc-rehber-check.sh` → `GEÇTİ` (macOS ya da Linux).
+- macOS'ta sahte ikililerle paket akışı (Go gerekmez):
+  `clang -arch arm64 -o a64 m.c && clang -arch x86_64 -o x64 m.c && SOURCE_DATE_EPOCH=1763700000 apps/agent-win/build/macos/package.sh adhoc a64 x64 0.26.0 prod out NoktaDestek-macOS-0.26.0.zip`
+  (`m.c` = `int main(void){return 0;}`).
+- Denendi (2026-11-22, Apple Silicon macOS 26): stg ve prod `adhoc` → `check: GEÇTİ` (entitlement her iki dilimde `{device.audio-input}`).
+  Negatif: plist'e `NSCameraUsageDescription` → FAIL; imzaya fazladan `cs.allow-jit` → iki dilimde FAIL; `entitlements.plist`'e
+  `allow-jit` (dosya = imza) → `ENT_WANT` FAIL; OKUBENI-adhoc'ta `.stg` kimliği → FAIL; `sudo tccutil reset All` / kimliksiz
+  `tccutil reset Microphone` → FAIL. `trace-check-mac.sh --content`: `$TMPDIR`'e işaretli dosya → `İZ: Content`, çıkış 1; silince
+  temiz. wazero denetimi GO_IMAGE'da HEAD ağacında: darwin arm64/amd64 0 eşleşme, aynı komut windows/amd64'te 31 paket (grep çalışıyor).
+  `actionlint` + `shellcheck` temiz. CI macOS işleri ilk koşuda doğrulanır.

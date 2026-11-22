@@ -26,7 +26,7 @@ describe("AC-248: konsolda paylaşım modu", () => {
       { t: "share.state", state: "stopped", reason: "WINDOW_CLOSED", method: "WGC" },
     );
     expect(s.shareMethod).toBeNull();
-    expect(s.shareFail).toBe("Paylaşılan pencere kapatıldı — Pencere yakalama (WGC)");
+    expect(s.shareFail).toBe("Paylaşılan pencere kapatıldı — Pencere yakalama");
     expect(tm(live(), { t: "share.state", state: "stopped", reason: "WGC_UNSUPPORTED" }).shareFail).toBe(
       "Bu Windows sürümü pencere paylaşımını desteklemiyor",
     );

@@ -104,14 +104,24 @@ func (a *Applier) key(m Msg) []Event {
 	if a.blocked(m.Code) {
 		return nil
 	}
-	k := heldKey{vk: vk}
+	k := heldKey{vk: vk, uni: a.pressUnicode(m)}
 	if prev, held := a.keys[m.Code]; held {
 		k = prev // otomatik tekrar: aynı yöntemle yeniden bas
-	} else if uni := unicodeOf(m); uni != nil && charKey(m.Code) && !a.shortcutHeld() {
-		k.uni = uni
 	}
 	a.keys[m.Code] = k
 	return keyEvents(k, true)
+}
+
+// pressUnicode basmanın key() içinde gideceği Unicode birimleri (nil = VK yolu). Otomatik tekrar ilk basmanın
+// yöntemini kullanır. key() ve pencere modu AltGr istisnasının savunma denetimi (scopedKeyDown) aynı yüklemi kullanır.
+func (a *Applier) pressUnicode(m Msg) []uint16 {
+	if prev, held := a.keys[m.Code]; held {
+		return prev.uni
+	}
+	if uni := unicodeOf(m); uni != nil && charKey(m.Code) && !a.shortcutHeld() {
+		return uni
+	}
+	return nil
 }
 
 // unicodeOf `key` tek yazdırılabilir karakterse UTF-16 birimleri.

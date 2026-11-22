@@ -27,6 +27,7 @@ var prefs struct {
 	user      uintptr // kCFPreferencesCurrentUser
 	anyHost   uintptr // kCFPreferencesAnyHost
 	app, key  objc.ID // süreç ömrü NSString (CFString ile köprülü)
+	sticky    objc.ID // P33: Yapışkan Tuşlar anahtarı (stickyKey)
 }
 
 var bindPrefs = sync.OnceValue(func() error {
@@ -56,7 +57,7 @@ var bindPrefs = sync.OnceValue(func() error {
 		for _, p := range []struct {
 			dst  *objc.ID
 			text string
-		}{{&prefs.app, "com.apple.universalaccess"}, {&prefs.key, "mouseDriver"}} {
+		}{{&prefs.app, "com.apple.universalaccess"}, {&prefs.key, "mouseDriver"}, {&prefs.sticky, "stickyKey"}} {
 			s, e := objc.NSString(p.text)
 			if e != nil {
 				err = e
@@ -65,14 +66,21 @@ var bindPrefs = sync.OnceValue(func() error {
 			*p.dst = s.Send(objc.Sel("retain"))
 		}
 	})
-	if err != nil || prefs.app == 0 || prefs.key == 0 {
+	if err != nil || prefs.app == 0 || prefs.key == 0 || prefs.sticky == 0 {
 		return errors.Join(errPrefs, err)
 	}
 	return nil
 })
 
 // MouseKeysOn Fare Tuşları açık mı (okunamazsa true).
-func MouseKeysOn() bool {
+func MouseKeysOn() bool { return prefOn(&prefs.key) }
+
+// StickyKeysOn P33 (§6.4, S-P33-T-5): Yapışkan Tuşlar açık mı. Fare Tuşları ile aynı kural: alan okunabiliyor ama
+// anahtar yoksa kapalı; alan okunamazsa ya da değer beklenmeyen türdeyse açık (fail-closed).
+func StickyKeysOn() bool { return prefOn(&prefs.sticky) }
+
+// prefOn universalaccess alanındaki mantıksal anahtarın yorumu (mouseKeysState).
+func prefOn(key *objc.ID) bool {
 	if bindPrefs() != nil {
 		return true
 	}
@@ -85,7 +93,7 @@ func MouseKeysOn() bool {
 			readable = prefs.arrCount(list) > 0
 			objc.Release(objc.ID(list))
 		}
-		v := objc.ID(prefs.copyValue(uintptr(prefs.key), app))
+		v := objc.ID(prefs.copyValue(uintptr(*key), app))
 		if v != 0 {
 			defer objc.Release(v)
 		}

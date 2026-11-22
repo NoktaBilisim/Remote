@@ -45,7 +45,7 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
  * u-slow-* (liste/oluşturma gecikmeli), u-expire-* (liste 200, POST'lar 401), u-limit-* (409), u-rate-* (429).
  * P5: u-p5-* `file_transfer.use` yetkili (müşteriye caps=[file_transfer]); u-p5nf-* yetkisiz (caps=[]). İkisinde maxFileMb=1.
  * P7: u-p7-* `remote_control.use` yetkili; u-p7np-* yetkisiz (sunucu control.request → FORBIDDEN).
- * P28d: u-p28d-* / u-p28drec-* / u-p28dold-* `sessions.voice` yetkili (ses odası, mock-ws.mjs voice*).
+ * P28d: u-p28d-* / u-p28drec-* / u-p28dold-* `sessions.voice` yetkili (ses odası, mock-ws.mjs voice*). P33: u-p33mac-* aynı.
  */
 export function sessionUser(cookie) {
   if (!cookie?.startsWith("u-") || dead.has(cookie)) return null;
@@ -70,7 +70,7 @@ export function sessionUser(cookie) {
             ? [...ALL, "remote_control.use"]
             : cookie.startsWith("u-p28-")
               ? [...ALL, "remote_control.use", "remote_control.clipboard", "file_transfer.print"]
-              : /^u-p28d(rec|old)?-/.test(cookie)
+              : /^u-(p28d(rec|old)?|p33mac)-/.test(cookie)
                 ? [...ALL, "sessions.voice"]
                 : cookie.startsWith("u-p28b-")
                   ? [...ALL, "file_transfer.use", "remote_control.use", "file_transfer.print"]
@@ -363,7 +363,8 @@ export async function handleSessions(req, res, { url, session, csrfOk, send, err
     if (session.startsWith("u-p28ec")) Object.assign(rec, { recOffer: true, recAck: !session.startsWith("u-p28ecnoack") });
     // P28d: u-p28d* → ses odası (teknisyen hello tid/roster, misafire roster + `from`); u-p28drec* ayrıca kayıt teklifi (AC-375);
     // u-p28dold* aynı kullanıcı, misafir sahte Hızlı Destek istemcisi (voice1 yok → guestVoice=false, AC-379)
-    if (/^u-p28d(rec|old)?-/.test(session)) Object.assign(rec, { voice: true, canVoice: true });
+    // P33: u-p33mac* → aynı ses odası, misafir sahte Mac istemcisi (`rs.cap.voice1` bildirir → guestVoice=true, AC-541/552)
+    if (/^u-(p28d(rec|old)?|p33mac)-/.test(session)) Object.assign(rec, { voice: true, canVoice: true });
     if (session.startsWith("u-p28drec-")) Object.assign(rec, { recOffer: true, recAck: true });
     list.push(rec);
     const v = rec.view;
