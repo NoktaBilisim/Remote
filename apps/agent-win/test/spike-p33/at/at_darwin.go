@@ -23,18 +23,18 @@ const (
 	FmtOpus = 0x6f707573 // 'opus'
 	FmtLPCM = 0x6c70636d // 'lpcm'
 
-	propPrime       = 0x7072696d // 'prim'
-	propBitRate     = 0x62726174 // 'brat'
-	propApplicable  = 0x61656272 // 'aebr'
-	propQuality     = 0x63647175 // 'cdqu'
-	propCurOut      = 0x61636f64 // 'acod'
-	propCurIn       = 0x61636964 // 'acid'
-	propMaxOutPkt   = 0x786f7073 // 'xops'
-	propSettings    = 0x61637073 // 'acps'
-	propCompCookie  = 0x636d6763 // 'cmgc'
+	propPrime        = 0x7072696d // 'prim'
+	propBitRate      = 0x62726174 // 'brat'
+	propApplicable   = 0x61656272 // 'aebr'
+	propQuality      = 0x63647175 // 'cdqu'
+	propCurOut       = 0x61636f64 // 'acod'
+	propCurIn        = 0x61636964 // 'acid'
+	propMaxOutPkt    = 0x786f7073 // 'xops'
+	propSettings     = 0x61637073 // 'acps'
+	propCompCookie   = 0x636d6763 // 'cmgc'
 	propDecompCookie = 0x646d6763 // 'dmgc'
-	fmtEncoders     = 0x6176656e // 'aven'
-	fmtDecoders     = 0x61766465 // 'avde'
+	fmtEncoders      = 0x6176656e // 'aven'
+	fmtDecoders      = 0x61766465 // 'avde'
 
 	statusNoData = 0x6e6f6474 // 'nodt' — geri çağrının "şimdilik veri yok" özel kodu
 
@@ -295,7 +295,7 @@ func (c *Conv) fill(capPackets uint32, outBytes int) (uint32, int32) {
 type Encoder struct {
 	*Conv
 	FillCalls int // FillComplexBuffer çağrısı
-	queued [][]byte
+	queued    [][]byte
 }
 
 // EncodeInfo kurulum bilgisi.
@@ -439,7 +439,9 @@ func (d *Decoder) DecodeCap(pkt []byte, capFrames uint32) ([]int16, error) {
 // ClassDesc AudioClassDescription.
 type ClassDesc struct{ Type, SubType, Manufacturer string }
 
-func fourcc(u uint32) string { return string([]byte{byte(u >> 24), byte(u >> 16), byte(u >> 8), byte(u)}) }
+func fourcc(u uint32) string {
+	return string([]byte{byte(u >> 24), byte(u >> 16), byte(u >> 8), byte(u)})
+}
 
 // Codecs kAudioFormatProperty_Encoders/Decoders listesi (Opus için).
 func Codecs(decoders bool) ([]ClassDesc, error) {

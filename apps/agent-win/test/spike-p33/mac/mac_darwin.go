@@ -157,7 +157,9 @@ func Describe(id uintptr) string {
 }
 
 // Send kısaltması.
-func Send[T any](id objc.ID, sel string, args ...any) T { return pobjc.Send[T](id, objc.Sel(sel), args...) }
+func Send[T any](id objc.ID, sel string, args ...any) T {
+	return pobjc.Send[T](id, objc.Sel(sel), args...)
+}
 
 // NSStr CF anahtarı için kalıcı NSString (retain edilir; spike süreç ömrü).
 func NSStr(s string) uintptr {

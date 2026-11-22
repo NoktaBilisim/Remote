@@ -1,5 +1,5 @@
 // Package mac macOS istemcisinin AppKit arayüzüdür (mimari-p28f §2.1): flow.UI, ClipPrintUI, FileServerUI, RosterUI ve
-// RecUI uygulamaları. Ses yoktur (ADR-0037 r3; VoiceUI uygulanmaz → `rs.cap.voice1` bildirilmez). AppKit'e dokunan
+// RecUI uygulamaları; P33'ten beri VoiceUI de (ADR-0043; `rs.cap.voice1` bildirilir). AppKit'e dokunan
 // kod `*_darwin.go` dosyalarındadır; bu dosya ve testleri platformdan bağımsız karar mantığıdır (Linux/Windows CI'da da
 // koşar).
 package mac

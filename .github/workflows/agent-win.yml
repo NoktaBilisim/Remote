@@ -1043,7 +1043,7 @@ jobs:
             echo "::warning::Rosetta yok: x86_64 bağlama testleri bu koşuda KOŞMADI (elle: arch -x86_64, runbook §28f)"
           fi
       # P33 K3 (mimari-p33 §8.4, §9; S-P33-T2-1/T2-2, S-P33-T-4): çözücü yardımcısı sandbox REDDİ (dosya okuma ~/.ssh benzeri,
-      # socket(), /tmp yazma, exec → EPERM) ve yoklama sonrası mikrofon authorizationStatus = notDetermined testleri. Bunlar TCC/ekran
+      # connect/sendto, /tmp yazma, exec → EPERM; socket() fd döner, profil engelleyemez) ve yoklama sonrası mikrofon authorizationStatus = notDetermined testleri. Bunlar TCC/ekran
       # gerektirmez → SKIP kabul edilmez. Ad sözleşmesi (K1; docs/implementation.md "P33-K3"): sandbox testi adında `P33` ve
       # `Sandbox`, yoklama testi adında `P33` ve `Probe` geçer. Her sınıftan en az bir PASS; FAIL/SKIP kırmızı.
       - name: P33 sandbox reddi + yoklama testleri (-v; SKIP kabul edilmez)
