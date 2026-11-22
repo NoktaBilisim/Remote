@@ -162,7 +162,7 @@ func (c *windowChooser) apply() {
 	}
 	show(c.empty, v.ShowEmpty)
 	show(c.scroll, v.ShowList)
-	enable(c.scroll, v.ListEnabled)
+	// NSScrollView bir NSControl değildir (setEnabled: yok → NSInvalidArgumentException, çöker); pasiflik satırlara verilir.
 	if doc := c.scroll.Send(objc.Sel("documentView")); doc != 0 {
 		for i, sub := range subviews(doc) {
 			enable(sub, v.ListEnabled)
