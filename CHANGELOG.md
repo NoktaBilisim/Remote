@@ -5,6 +5,16 @@ Biçim [Keep a Changelog](https://keepachangelog.com/tr/1.1.0/), sürümleme [Se
 
 ## [Unreleased]
 
+### Değişti — P33 macOS paketi ve CI, istemci 0.26.0 hazırlığı (devops K3; ADR-0043, AC-554, AC-556)
+
+- macOS paketi: entitlement kümesi tam olarak `com.apple.security.device.audio-input` (hardened runtime korunur; JIT/imzasız bellek
+  yok); `Info.plist`'e Türkçe `NSMicrophoneUsageDescription`. Paket denetimi `NSCameraUsageDescription`'ı reddeder, mikrofon metnini
+  ve entitlement'ı her dilimde birebir denetler.
+- OKUBENI metinlerine Mikrofon izin adımı; kaldırma yalnız paket kimlikli `tccutil reset Microphone net.noktabilisim.destek`
+  (staging `.stg`). Yeni `tcc-rehber-check.sh` müşteri metinlerinde kimliksiz/`reset All`/`sudo`/SIP/`TCC.db` önerisini CI'da durdurur.
+- CI: darwin ikilisinde wazero olmadığı denetimi; `test-macos` macos-14 + macos-15; çözücü sandbox reddi testleri SKIP'siz zorunlu;
+  iz testi pencere başlığı işaretini (`GIZLI-BASLIK-123`) dosya içeriğinde ve birleşik logda arar.
+
 ## [0.25.1] - 2026-11-21
 
 İlk prod istemci sürümü (prod güncelleme anahtarları gömülü; bu sürümden sonra istemciler kendini otomatik günceller). `v0.25.0` etiketi CI yapılandırma hatasıyla Release üretmedi (imzalayıcı derlemesinde `-buildvcs=false` eksikti, `LINUX_WAYLAND_CONTROL` tanımsızdı); aynı kod `v0.25.1` olarak yayınlandı.

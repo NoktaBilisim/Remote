@@ -1,10 +1,16 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <!--
-  ADR-0037 r3 m.6/m.7, S-P28f-4/5: entitlement listesi BOŞ (ses yok). Staging ad-hoc ve prod Developer ID imzası AYNI dosyayı
-  hardened runtime ile kullanır. package.sh check imzalı paketteki entitlement'ları bu dosyayla TAM eşleşmeyle denetler.
-  Ekleme (device.audio-input, cs.allow-unsigned-executable-memory) yalnız A-PF-1 kullanıcı kararı + ADR revizyonu + güvenlik onayıyla.
+  ADR-0043 m.4 (P33, K-P33-10; ADR-0037 r3 m.6/m.7'nin yerine): entitlement kümesi TAM OLARAK {device.audio-input} — hardened
+  runtime altında mikrofon (sesli görüşme, AC-554) bu anahtarsız açılamaz. Staging ad-hoc ve prod Developer ID imzası AYNI dosyayı
+  hardened runtime ile kullanır; çözücü yardımcısı (aynı ikili, mimari-p33 §6.6) ek entitlement almaz (B-2).
+  package.sh check (1) bu dosyanın içeriğini sabit kümeyle, (2) imzalı paketteki entitlement'ları bu dosyayla TAM eşleşmeyle denetler.
+  YASAK: cs.allow-jit, cs.allow-unsigned-executable-memory, cs.disable-library-validation, device.camera (darwin'de wazero yok, T3).
+  Başka ekleme yalnız ADR revizyonu + güvenlik onayıyla (package.sh'teki sabit küme de birlikte değişir).
 -->
 <plist version="1.0">
-<dict/>
+<dict>
+	<key>com.apple.security.device.audio-input</key>
+	<true/>
+</dict>
 </plist>

@@ -13,6 +13,7 @@ LSFileQuarantineEnabled
 LSMinimumSystemVersion
 NSHighResolutionCapable
 NSHumanReadableCopyright
+NSMicrophoneUsageDescription
 NSQuitAlwaysKeepsWindows
 NSSupportsAutomaticTermination
 NSSupportsSuddenTermination
