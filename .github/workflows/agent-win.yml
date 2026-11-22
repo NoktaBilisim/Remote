@@ -11,7 +11,7 @@
 # Go sürümü değişince (go.mod `toolchain`) GO_IMAGE de değişir; `check` job'u uyuşmazlıkta kırmızı olur.
 # P28f K8a/K8b (mimari-p28f §8.2, ADR-0037 r3): macOS istemcisi. İnce ikililer (arm64, amd64) Linux GO_IMAGE'da CGO'suz çapraz
 # derlenir (build-mac ×2 → reproducible-mac SHA eşitliği); macos-15'te universal .app + ad-hoc/hardened runtime + entitlement
-# {device.audio-input} (P33, package-mac), go test darwin (macos-14 + macos-15) + iz testi (test-macos, macos-15). P28f-r4
+# {device.audio-input} (P33, package-mac), go test darwin (macos-15; macos-14 runner kaldırıldı) + iz testi (test-macos, macos-15). P28f-r4
 # (mimari-p28f §15.4, K-P28f-r4-4; S-r4-3/4): etikette dal TEK kaynaktan — reproducible-mac `signing` çıktısı (build-meta 4.
 # satır = gömülü Team ID: dolu → notarized, boş → adhoc); sonraki işler
 # vars.APPLE_TEAM_ID'yi yalnız tutarlılık için karşılaştırır (uyuşmazlık = hata). notarized: onaydan sonra sign-mac (Developer ID +
@@ -960,7 +960,7 @@ jobs:
   # P28f K8a (§8.2 test-macos, §9; S-P28f-11/14): darwin go test (MallocScribble/NSZombieEnabled), x86_64 dilimi Rosetta ile (varsa),
   # AC-394 iz testi `.invalid` sunuculu, testBuild'siz AYRI derlemeyle argümansız. İz betiği TRACE_MAC (K5:
   # test/trace-check-mac.sh snapshot/compare; salt okunur).
-  # P33 K3 (mimari-p33 §8.4): macos-14 + macos-15 matrisi (AudioToolbox Opus / SCK pencere davranışı iki sürümde). İş adı korunur
+  # P33 K3 (mimari-p33 §8.4): macos-15 (macos-14 runner GitHub'da kaldırıldı — 'not supported'; matris korunur) (AudioToolbox Opus / SCK pencere davranışı iki sürümde). İş adı korunur
   # (approve `needs.test-macos.result` matrisin toplamıdır); iz testi (paket + uygulamayı açma) yalnız macos-15'te.
   test-macos:
     name: go test (macOS) + iz testi (${{ matrix.os }})
@@ -970,7 +970,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [macos-14, macos-15]
+        os: [macos-15]
     defaults:
       run:
         working-directory: apps/agent-win

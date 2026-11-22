@@ -18210,7 +18210,7 @@ Kapsam: mimari-p33 §2, §5, §6.5, §6.6, §7 (K1 satırları), §10 K1, §11 (
 
 ### Güvenlik koşulları (Tur 2) — sonuç
 
-- **S-P33-T2-1 (file-read* daraltma): tercih edilen m.3 uygulandı, en dar hal.** Üç çözücü `sandbox_init`'ten ÖNCE kurulup ısıtılınca
+- _*S-P33-T2-1 (file-read* daraltma): tercih edilen m.3 uygulandı, en dar hal._* Üç çözücü `sandbox_init`'ten ÖNCE kurulup ısıtılınca
   (gerçek paket + PLC + `AudioConverterReset`) profil yalnız `(version 1)(deny default)`: **`file-read*`, `sysctl-read` ve
   `mach-lookup AudioComponentRegistrar` hiç yok.** Ölçüm (M4 Pro, macOS 26.3.1; arm64 + Rosetta x86_64, `k1sandbox`): çözme, PLC, Reset
   ve hatta sandbox sonrası yeni çözücü kurma çalışıyor; `/Users`, `/Library/Keychains`, `/private/var/folders`, `/etc/hosts`,
@@ -18252,9 +18252,9 @@ Kapsam: mimari-p33 §2, §5, §6.5, §6.6, §7 (K1 satırları), §10 K1, §11 (
    kullanılır; Linux eşi `messages_p28g_linux.go` kalıbı). K2 ile ortak dosya çakışması da önlendi.
 7. Ses göstergesi ayrı pencere değil, mevcut §5.2b gösterge şeridinin metnine eklenir ("… · ● Mikrofon açık") — aynı canHide=NO/1 sn
    tik/3 tik kuralı; `overlay_darwin.go`'ya (K2) dokunulmadı.
-9. `internal/flow/voice_e2e_p28d_test.go` `!darwin` etiketlendi: darwin'de `voice.New` çözücüyü `.app` içi yardımcıda çalıştırır,
+8. `internal/flow/voice_e2e_p28d_test.go` `!darwin` etiketlendi: darwin'de `voice.New` çözücüyü `.app` içi yardımcıda çalıştırır,
    flow test ikilisi paket değildir. darwin eşdeğeri `internal/voice/opus_darwin_test.go` (gerçek yardımcıyla gidiş-dönüş).
-8. AudioQueue testi mikrofonu gerçekten açtığı için yalnız `NOKTA_AUDIOQUEUE_TEST=1` ile koşar (CI test-macos'a K3 ekleyebilir; aygıt yoksa SKIP).
+9. AudioQueue testi mikrofonu gerçekten açtığı için yalnız `NOKTA_AUDIOQUEUE_TEST=1` ile koşar (CI test-macos'a K3 ekleyebilir; aygıt yoksa SKIP).
 
 Yeni bağımlılık yok (purego, x/sys mevcut).
 
@@ -18277,6 +18277,7 @@ K-P33-11 yoklaması, AudioQueue aygıtı, macperm mikrofon, Mac ses UI (kabul, s
 TCC isteminde enjektör duraklatma, gösterge sağlığı → voice.end{device}), deps bağlama, K0s-A2 düzeneği.
 
 Kalan (K1 içinde, yapılmadı):
+
 - 30 dk fuzz yardımcı içinde (A1 (6) kalanı) — spike `k0sa1fuzz`'u ürün yardımcısına uyarlamak.
 - Ses UI'si için Go birim testi yok (ui/mac AppKit; mantık uicore'da). `HoldInjection`'ın gerçek TCC isteminde etkisi K4 elle senaryosu.
 - Mac'te tanılama `ses_ozet` `backend` alanı (§8.3) eklenmedi (Mac'te diag logu bağlı değil).
@@ -18293,6 +18294,7 @@ Kalan (K1 içinde, yapılmadı):
 Kaynak: `docs/mimari-p33.md` §6.1–6.4, §10 K2; güvenlik Tur 1/2 (T-2, T-3, T-5, T-8, T-9). Commit yok.
 
 ### Değişen / yeni dosyalar (apps/agent-win)
+
 - `internal/darwin/cgwin/cgwin_darwin.go` (yeni, ortak): CG pencere sorguları (yalnız sayısal alan; başlık okunmaz). `Get` = `CGWindowListCreateDescriptionFromArray` (**bulgu:** `kCGWindowListOptionIncludingWindow` tek başına küçültülmüş pencereyi döndürmüyor → küçültme yanlışlıkla WINDOW_CLOSED oluyordu), `OnScreen` = OnScreenOnly|ExcludeDesktop.
 - `internal/capture/macwindow.go` (etiketsiz): `filterWindows` (§6.2, 64 sınır, 80 karakter, D-P33-1: ekranda olmayan listelenmez), `winTrack` durum makinesi (kapalı kalıcı / görünmez / görünür / boyut), `hidePlate` (T-9: son gerçek karenin boyutunda siyah NV12; gerçek kareden piksel taşımaz).
 - `internal/capture/window_darwin.go` (yeni): `WindowCaptureSupported`, `ShareableWindows`, `OpenWindow` (SCK `initWithDesktopIndependentWindow:`), 250 ms CG yoklaması (`windowPoll`), görünmezde akış kapanır + plaka (CoreText yazılı; bağlanamazsa düz siyah), görünür olunca akış yeniden açılır, boyut → `updateConfiguration:`, kapanış → kalıcı `WINDOW_CLOSED` (akış ve kare bırakılır), art arda 3 açılamazsa `WINDOW_UNAVAILABLE`. Tüm hatalar `Method: WGC`; `WGC_UNSUPPORTED` üretilmez.
@@ -18305,23 +18307,26 @@ Kaynak: `docs/mimari-p33.md` §6.1–6.4, §10 K2; güvenlik Tur 1/2 (T-2, T-3, 
 - `internal/ui/mac/window_choose_darwin.go` (yeni): seçim ekranı (§6.1; radyo grupları ayrı kaplarda, NSScrollView listesi, Listeyi yenile, boş liste iletisi + Paylaş pasif, VoiceOver etiketleri, sentetik etkinleştirme yok sayılır), `u.watchText`. `screens_darwin.go`: `ChooseShare` pencere modunu buraya yönlendirir. `ui_darwin.go`: `windowShare` alanı. `session_darwin.go`: `WatchText` çağrıları `u.watchText` (AC-551 metni). `uicore/texts.go`: `MacWindowTexts`, `WindowWatchText`.
 
 ### Testler (`go test ./internal/input/ ./internal/capture/`)
+
 - Etiketsiz (Linux CI): `TestAC549MacShortcutTable` (55 satır; ⇧⌘Q, ⌥⇧⌘Q, ⌃⌘Space, ⌃⌘F, ⌃F1, ⌘F5 … ve izinli liste), `TestAC549MacTwoModifiersAnyKeyDropped` (özellik testi, 2000 rastgele), OS değiştirici, kilit, ⇧×5/⌥×5, Yapışkan/Fare Tuşları, AltGr, `TestAC558WindowsPolicyUnchangedAfterMove`, `TestAC547/548 Mac*` (sayfa/menü/aynı PID/AX hatası/belirsizlik/kendi pencere, uçtan uca Applier), `TestAC549MacAccessibilityFailClosed`, `TestAC543FilterWindows`, `TestAC543TitleNeverInErrors` ("GIZLI-BASLIK-123"), `TestAC545WinTrackStates`, `TestAC545HidePlateReplacesFrame`.
 - darwin: `TestP33K2W1WindowStream` (ölçüm: `NK_K2W1_OLCUM=<sn>`), `TestP33K2W1OtherProcessWindowClosed` (yardımcı süreç penceresi; `sck_darwin_test.go` TestMain'e yardımcı kip eklendi), `TestP33K2OpenWindowUnavailable`, `TestP33K2ShareableWindowsExcludesOwn`, `TestP33K2PlateMaskDrawn`, `TestP33K2MacQuerySmoke`.
 - Son durum: dört hedefte build/vet temiz, staticcheck temiz (K2 dosyaları), `internal/input` ve `internal/capture` darwin'de yeşil (`TestP28fK2AC392OwnWindowsExcluded` dahil). `go test ./...` darwin'de tek kırık: `internal/flow TestP28dVoiceTechToCustomerPlaysEndToEnd` (ses; K1 alanı, K2 değişikliği dokunmuyor).
 
 ### Ölçümler (K0s-W1 otomatik kısım; M4 Pro, macOS 26.3.1, test süreci penceresi)
-| Ölçüt | Sonuç |
-| --- | --- |
-| fps (10 sn, 60 Hz içerik) | 27,4 (≥ 25 ✓; yük altında tek koşuda 15 görüldü → ölçüt yalnız ölçüm kipinde zorlanır) |
-| Üstteki örtücü pencere karede | 0 kare ✓ (yalnız-pencere karesi GEÇTİ) |
-| Boyut değişimi → yeni boyutta ilk kare | 118 ms ✓ (≤ 2 sn) |
-| Küçültme → plaka / geri dönüş taze kare | 0,74 sn / 0,57 sn ✓ |
-| orderOut (⌘H eşdeğeri) → plaka / geri dönüş | 0,37 sn / 0,45 sn ✓ |
-| Başka süreç penceresi kapanınca WINDOW_CLOSED | 0,22 sn ✓ (kalıcı, akış/kare bırakıldı) |
-| Görünmezken CG `IsOnscreen` | false (küçültme ve orderOut) |
-| AX odak sorgusu (test ikilisi kimliği) | hata → fail-closed düşer (Erişilebilirlik izni bu kimlikte yok; elle doğrulanmalı) |
+
+| Ölçüt                                         | Sonuç                                                                                  |
+| --------------------------------------------- | -------------------------------------------------------------------------------------- |
+| fps (10 sn, 60 Hz içerik)                     | 27,4 (≥ 25 ✓; yük altında tek koşuda 15 görüldü → ölçüt yalnız ölçüm kipinde zorlanır) |
+| Üstteki örtücü pencere karede                 | 0 kare ✓ (yalnız-pencere karesi GEÇTİ)                                                 |
+| Boyut değişimi → yeni boyutta ilk kare        | 118 ms ✓ (≤ 2 sn)                                                                      |
+| Küçültme → plaka / geri dönüş taze kare       | 0,74 sn / 0,57 sn ✓                                                                    |
+| orderOut (⌘H eşdeğeri) → plaka / geri dönüş   | 0,37 sn / 0,45 sn ✓                                                                    |
+| Başka süreç penceresi kapanınca WINDOW_CLOSED | 0,22 sn ✓ (kalıcı, akış/kare bırakıldı)                                                |
+| Görünmezken CG `IsOnscreen`                   | false (küçültme ve orderOut)                                                           |
+| AX odak sorgusu (test ikilisi kimliği)        | hata → fail-closed düşer (Erişilebilirlik izni bu kimlikte yok; elle doğrulanmalı)     |
 
 ### Tasarımdan sapmalar / netleştirmeler (gerekçeli)
+
 1. **RootAt kendi pencereleri:** §6.4 "kendi pencerelerimiz atlanır" → yalnız tıklama geçirgenler atlanır; girdi alanlar (`SetOwnWindows`) örtücü sayılır (pencere modunda Y-P28f-K1 korumasının karşılığı).
 2. **Fare Tuşları:** §6.4 m.5 "Numpad*/NumLock" → monitör kipindeki geniş küme (`mouseKeysKey`: tuş takımsız 7 8 9 U I O J K L M . dahil); daha sıkı, mevcut kuralla tutarlı.
 3. **Plaka:** `iconicPlate` Windows GDI/BGRA olduğu için ortak değil; Mac'te NV12 `hidePlate` + CoreText maske. Görünmezde akış kapatılır, görünür olunca yeniden açılır (durağan içerikte taze kare garantisi).
@@ -18329,10 +18334,12 @@ Kaynak: `docs/mimari-p33.md` §6.1–6.4, §10 K2; güvenlik Tur 1/2 (T-2, T-3, 
 5. **Açılışta pencere yok/ekranda değil → WINDOW_UNAVAILABLE** (§6.1 metni; Windows'ta yok → CLOSED).
 
 ### Açık konular
+
 - **AltGr (Windows teknisyen, TR klavye):** tarayıcı ControlLeft+AltRight gönderir = ⌘⌥ → genel kural (T-2) pencere modunda @ # { } vb. düşürür. İstisna açılmadı (T-2 bağlayıcı); `TestAC549MacAltGrDroppedByGeneralRule` sabitler. Mimar/güvenlik kararı gerekir.
 - ⌥ + noktalama (§6.4 m.6 yalnız harf/rakam) düşer; Mac teknisyen için özel karakter kısıtı. Yapışkan Tuşlar açıkken (ya da okunamazsa) Q ve 3–6 değiştiricisiz de düşer (m.5 "2. madde tuşları" harfiyen).
 
 ### Kalanlar (devralan ajan için)
+
 1. Seçim ekranı ve gösterge **görsel/elle doğrulanmadı** (derleniyor; GUI açılmadı): yerleşim, iki tema, Tab sırası, VoiceOver, boş liste, Listeyi yenile, tek monitörde açılma.
 2. Uçtan uca darwin girdi testi (gerçek pencere + `NewMacWindowAPI` + AX izni olan kimlik) yok; AX yolları yalnız sahte sorguyla test edildi.
 3. `internal/flow` seviyesinde "GIZLI-BASLIK-123" WS/tanılama taraması (başlık flow'a hiç girmediği için capture seviyesinde yapıldı; K3 trace-check araması ayrıca var).
@@ -18340,6 +18347,7 @@ Kaynak: `docs/mimari-p33.md` §6.1–6.4, §10 K2; güvenlik Tur 1/2 (T-2, T-3, 
 5. `test-macos` CI matrisi bu darwin testlerini koşacak; Ekran Kaydı izni yoksa görünür SKIP.
 
 ### Kullanıcı elle adımları (K0s-W1/W3 kalanları, K4/K6)
+
 1. **Başka süreçten örtücü:** Safari'yi paylaş, üstüne Notlar penceresini getir → konsolda Notlar görünmemeli.
 2. **Space / tam ekran:** paylaşılan pencereyi başka masaüstüne taşı ve tam ekran yap → konsolda siyah "Pencere simge durumunda" plakası, girdi düşer; geri getirince ≤ 2 sn görüntü.
 3. **⌘H ve ⌘M** gerçek uygulamada (test süreci yerine) aynı davranış.
@@ -18356,25 +18364,25 @@ kararı). QA madde 1, 6, 7 önceki adımda düzeltildi (gofmt spike, `logic.go` 
 
 ### Madde → dosya
 
-| Madde | Dosyalar (apps/agent-win, apps/server) | Özet |
-| --- | --- | --- |
+| Madde                           | Dosyalar (apps/agent-win, apps/server)                                                                                                               | Özet                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| ------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | QA 4 / K5 AltGr kararı (AC-549) | `internal/input/shortcuts.go`, `shortcuts_mac.go`, `scope_keys.go`, `keys.go`, `applier.go`, `shortcuts_mac_test.go`; `docs/mimari-p33.md` §6.4 m.6a | Politika imzası `drop(a, m Msg)` (Windows `winShortcuts` yalnız `m.Code` okur; davranış aynı, `TestAC558WindowsPolicyUnchangedAfterMove` değişmeden yeşil). `macAltGrText`: `altGrText` açık ∧ OS ⌃ kapalı ∧ alıcıda `AltRight` ∧ ek değiştirici yalnız `ControlLeft`/⇧ (`AltLeft`, `ControlRight`, `Meta*`, `CapsLock` → yok) ∧ `charKey` ∧ `unicodeOf(m) != nil` (yok / `"Dead"` / çok karakter → yok). Sıra: kilit → (istisna, 5. madde o tuşu düşürmüyorsa) → 1, 4, 2, 3, 5, 6. ⇧×5/⌥×5 yalnız değiştirici basmalarına, istisna değiştirici olmayan tuşa uygulandığından kümeler ayrık. İstisna `scopeUniOnly` açar; `scopedKeyDown` ön plan + kova sonrası `pressUnicode(m) == nil` ise enjekte etmeden düşürür (m.4 savunma). `pressUnicode` `key()` ile ortak yüklem (iki kopya yok). |
-| QA 2 (AC-553) | `apps/server/test/unit/voice-p28d.test.ts` | Gerçek giriş yolu (`onGuestMessage`: şema + işleyici) ile `clientOs: macos` + voice1 AGENT misafirinden `share.state{sharing, WGC}` ve `{stopped, WINDOW_CLOSED, WGC}` 1008'siz kabul, teknisyene aynen iletilir, `room.share` güncellenir; Windows misafirinde aynı; biçim dışı yöntem (`SCK`) 1008. |
-| QA 3 (AC-542) | `internal/ui/mac/window_choice.go` (yeni, etiketsiz), `window_choice_test.go` (yeni), `window_choose_darwin.go` | Karar mantığı (`windowChoice`: varsayılan Tüm ekran / def monitör, mod, monitör ve pencere seçimi, liste yenilemede seçim koruma/kaldırma, görünüm `choiceView`, `submit` → `flow.ShareChoice`) AppKit'ten ayrıldı; AppKit dosyası yalnız çizer ve `clickOf(sender)` sınıfını iletir (paralel kopya yok). `TestAC542WindowChoiceTable` 16 satır (QA'nın beş maddesi + sentetik Paylaş, listede olmayan pencere, yenileme). |
-| S-P33-K-1 | `internal/darwin/sandbox/fds_darwin.go` (yeni), `internal/voice/opushelper_darwin.go`, `internal/voice/opushelper_fds_darwin_test.go` (yeni) | `RunDecoderHelper` ilk iş (ısıtma ve `sandbox_init`'ten önce) `sandbox.CloseInheritedFDs`: `proc_pidinfo(PROC_PIDLISTFDS)` ile fd listesi, 0/1/2 (IPC) ve kqueue (`PROX_FDTYPE_KQUEUE`; fork ile devralınmaz, Go yoklayıcısının) dışındakiler kapatılır, sonra yeniden listelenip doğrulanır; liste alınamaz ya da fd kalırsa yardımcı çıkar (`helperExitFDs`, fail-closed). Test: ana süreçte CLOEXEC'siz fd 100 (dup2) → pozitif denetim `/bin/sleep` çocuğunda görünür; yardımcıda görünmez ve hazır sonrası yardımcının fd'leri yalnız `{0,1,2}` (ölçülen: `[{0 pipe} {1 pipe} {2 vnode}]`). Kapatma devre dışı bırakılınca test kırmızı (elle doğrulandı). |
-| S-P33-K-2 | `internal/voice/opushelper_darwin.go`, `internal/voice/machports_darwin_test.go` (yeni, ölçüm) | Isıtmada AudioToolbox **kodlayıcısı kurulmaz**; ısıtma paketi `warmPacket` sabiti (eski ısıtma kodlayıcısının 440 Hz sinüsten ürettiği 111 baytlık 20 ms hibrit paketin birebir kopyası, TOC 0x78; belirlenimci olduğu iki koşuyla doğrulandı). Ölçüm aşağıda. |
-| QA 5 / K0s-A1 (6) | `internal/voice/opushelper_fuzz_darwin_test.go` (yeni) | Ürün yardımcısı içinde 30 dk fuzz; sonuç aşağıda ve `docs/spike-p33-k0s.md` §2.2b. |
+| QA 2 (AC-553)                   | `apps/server/test/unit/voice-p28d.test.ts`                                                                                                           | Gerçek giriş yolu (`onGuestMessage`: şema + işleyici) ile `clientOs: macos` + voice1 AGENT misafirinden `share.state{sharing, WGC}` ve `{stopped, WINDOW_CLOSED, WGC}` 1008'siz kabul, teknisyene aynen iletilir, `room.share` güncellenir; Windows misafirinde aynı; biçim dışı yöntem (`SCK`) 1008.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| QA 3 (AC-542)                   | `internal/ui/mac/window_choice.go` (yeni, etiketsiz), `window_choice_test.go` (yeni), `window_choose_darwin.go`                                      | Karar mantığı (`windowChoice`: varsayılan Tüm ekran / def monitör, mod, monitör ve pencere seçimi, liste yenilemede seçim koruma/kaldırma, görünüm `choiceView`, `submit` → `flow.ShareChoice`) AppKit'ten ayrıldı; AppKit dosyası yalnız çizer ve `clickOf(sender)` sınıfını iletir (paralel kopya yok). `TestAC542WindowChoiceTable` 16 satır (QA'nın beş maddesi + sentetik Paylaş, listede olmayan pencere, yenileme).                                                                                                                                                                                                                                                                                                                                                                   |
+| S-P33-K-1                       | `internal/darwin/sandbox/fds_darwin.go` (yeni), `internal/voice/opushelper_darwin.go`, `internal/voice/opushelper_fds_darwin_test.go` (yeni)         | `RunDecoderHelper` ilk iş (ısıtma ve `sandbox_init`'ten önce) `sandbox.CloseInheritedFDs`: `proc_pidinfo(PROC_PIDLISTFDS)` ile fd listesi, 0/1/2 (IPC) ve kqueue (`PROX_FDTYPE_KQUEUE`; fork ile devralınmaz, Go yoklayıcısının) dışındakiler kapatılır, sonra yeniden listelenip doğrulanır; liste alınamaz ya da fd kalırsa yardımcı çıkar (`helperExitFDs`, fail-closed). Test: ana süreçte CLOEXEC'siz fd 100 (dup2) → pozitif denetim `/bin/sleep` çocuğunda görünür; yardımcıda görünmez ve hazır sonrası yardımcının fd'leri yalnız `{0,1,2}` (ölçülen: `[{0 pipe} {1 pipe} {2 vnode}]`). Kapatma devre dışı bırakılınca test kırmızı (elle doğrulandı).                                                                                                                              |
+| S-P33-K-2                       | `internal/voice/opushelper_darwin.go`, `internal/voice/machports_darwin_test.go` (yeni, ölçüm)                                                       | Isıtmada AudioToolbox **kodlayıcısı kurulmaz**; ısıtma paketi `warmPacket` sabiti (eski ısıtma kodlayıcısının 440 Hz sinüsten ürettiği 111 baytlık 20 ms hibrit paketin birebir kopyası, TOC 0x78; belirlenimci olduğu iki koşuyla doğrulandı). Ölçüm aşağıda.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
+| QA 5 / K0s-A1 (6)               | `internal/voice/opushelper_fuzz_darwin_test.go` (yeni)                                                                                               | Ürün yardımcısı içinde 30 dk fuzz; sonuç aşağıda ve `docs/spike-p33-k0s.md` §2.2b.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
 
 ### S-P33-K-2 Mach port ölçümü
 
 `NOKTA_MACH_OLCUM=1 go test -run TestP33K2MachPortsAfterWarm -v ./internal/voice/` (taze çocuk süreç, `mach_port_names`; M4 Pro,
 macOS 26.3.1, arm64):
 
-| An | Port adı | gönderme | alma |
-| --- | --- | --- | --- |
-| Isıtma öncesi | 16 | 10 | 6 |
-| Çözücü ısıtması sonrası (güncel yardımcı) | 44 | 30 | 14 |
-| + kodlayıcı (eski ısıtma) | 44 | 30 | 14 |
+| An                                        | Port adı | gönderme | alma |
+| ----------------------------------------- | -------- | -------- | ---- |
+| Isıtma öncesi                             | 16       | 10       | 6    |
+| Çözücü ısıtması sonrası (güncel yardımcı) | 44       | 30       | 14   |
+| + kodlayıcı (eski ısıtma)                 | 44       | 30       | 14   |
 
 Kodlayıcı kurulumu ek port hakkı getirmiyordu; kaldırılması yüzeyi azaltmasa da gereksiz kodu çıkarır. Isıtmanın getirdiği 20 gönderme
 hakkının **hangi servislere** ait olduğu ölçülemedi: `mach_port_names` yalnız ad/hak türü verir, `lsmp -p` kök ister
@@ -18392,19 +18400,20 @@ Paketlenmiş `.app` değil; ürün ikilisinin aynı yoldan hazır baytı verdiğ
 `opus20ms` (R1–R7 + 20 ms) geçen paketler ham IPC ile (15 ms tik sınırı olmadan) rastgele yuvaya gider, %2 PLC isteği; her 1000 pakette
 her yuvada bilinen iyi paket çözülmeli.
 
-| Ölçüt | Sonuç |
-| --- | --- |
-| Süre / yineleme | 30 dk / 53 629 453 mutasyon |
-| Süzgeçte düşen (yardımcıya gitmeyen) | 20 233 251 |
-| Yardımcıya giden | **33 396 202** (1 073 759 PLC dahil) |
-| Çökme / askı (boru kapandı ya da 5 sn yanıt yok) | **0** |
-| "Çözülemedi" yanıtı / kullanılamaz durum | 0 / 0 |
-| > 200 ms çağrı (§6.6 sert sınır) | 0 |
-| > 15 ms çağrı (tik sınırı) | 505 (üretimde o çerçeve sessiz geçerdi) |
-| En uzun çağrı | **165,9 ms** |
-| p50 / p99 (ilk 1 048 576 çağrı) | 0,043 ms / 0,090 ms |
+| Ölçüt                                            | Sonuç                                   |
+| ------------------------------------------------ | --------------------------------------- |
+| Süre / yineleme                                  | 30 dk / 53 629 453 mutasyon             |
+| Süzgeçte düşen (yardımcıya gitmeyen)             | 20 233 251                              |
+| Yardımcıya giden                                 | **33 396 202** (1 073 759 PLC dahil)    |
+| Çökme / askı (boru kapandı ya da 5 sn yanıt yok) | **0**                                   |
+| "Çözülemedi" yanıtı / kullanılamaz durum         | 0 / 0                                   |
+| > 200 ms çağrı (§6.6 sert sınır)                 | 0                                       |
+| > 15 ms çağrı (tik sınırı)                       | 505 (üretimde o çerçeve sessiz geçerdi) |
+| En uzun çağrı                                    | **165,9 ms**                            |
+| p50 / p99 (ilk 1 048 576 çağrı)                  | 0,043 ms / 0,090 ms                     |
 
 Not: koşunun bir kısmında aynı makinede dört hedefte vet/staticcheck, sunucu test paketi ve Rosetta derlemeleri koştu; en uzun çağrı ve
+
 > 15 ms sayısı bu yük altında ölçüldü (20 sn yüksüz duman koşusunda en uzun 0,27 ms). Sonuç: K0s-A1 (6) ve güvenlik koşulu karşılandı.
 
 ### Tasarımdan sapmalar / notlar
@@ -18424,7 +18433,7 @@ Not: koşunun bir kısmında aynı makinede dört hedefte vet/staticcheck, sunuc
 
 6. AltRight tek başına (alıcıda yalnız AltRight, ⌘ yok) + noktalama tuşu artık Unicode olarak geçer (K2'deki "⌥ + noktalama düşer" notu
    bu durum için geçersiz; m.1 "AltRight basılı, ek değiştirici yalnız ControlLeft/⇧" ile uyumlu). Gerçek Mac teknisyeninin ⌥ (AltLeft)
-   + noktalaması eskisi gibi düşer.
+   - noktalaması eskisi gibi düşer.
 7. fd varsayımı ("hazır sonrası yalnız 0/1/2") yalnız macOS 26.3 (arm64 + Rosetta) üzerinde ölçüldü; macos-14/15 CI ilk koşusu başka
    sürümdeki ilk kanıt olacak. Farklı çıkarsa test kırmızı olur (kapatma kuralı kqueue dışında fd bırakmaz; sorun AudioToolbox'ın ısıtmada
    açtığı fd olur → test koşulu "ısıtma sonrası yeni fd'ler" diye gevşetilmeli, kapatma kuralı değil).

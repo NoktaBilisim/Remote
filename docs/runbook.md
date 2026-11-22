@@ -5943,7 +5943,7 @@ Yeni env değişkeni, migration, Caddy/nginx değişikliği **yok** (mimari-p33 
 | `build/macos/tcc-rehber-check.sh` (yeni)              | Müşteri metinlerinde (`OKUBENI*`, kılavuz, README, `apps/web/messages/*.json`, `mac-guide.tsx`, `internal/ui/**/*.go`) `tccutil reset <Hizmet> <kimlik>` kimliği bilinen paket kimliği; kimliksiz / `reset All` / `sudo` / `csrutil` / `TCC.db` yasak; OKUBENI profil kimliği + Mikrofon satırı zorunlu; `--bundle-id` = paket `CFBundleIdentifier` |
 | `OKUBENI.txt`, `OKUBENI-adhoc.txt`, `OKUBENI-stg.txt` | Mikrofon izin adımı (istem → İzin Ver; "yalnız Nokta Destek açıkken istediği izni verin"); kaldırma yalnız `tccutil reset Microphone <profil kimliği>`. Mikrofon için "−" ile kaldırma yazılmadı (R-P33-10 doğrulanmadı)                                                                                                                            |
 | `apps/agent-win/test/trace-check-mac.sh`              | `--content <metin>`: önceki durumdan sonra değişen dosyaların **içeriğinde** ve birleşik logda arama (S-P33-T-8); başlıkta Mikrofon TCC istisnası                                                                                                                                                                                                   |
-| `.github/workflows/agent-win.yml`                     | `check`: darwin wazero yokluğu + `tcc-rehber-check.sh`; `test-macos`: macos-14 + macos-15 matrisi, P33 sandbox/yoklama adımı, iz testinde `--content GIZLI-BASLIK-123` + pozitif kontrol                                                                                                                                                            |
+| `.github/workflows/agent-win.yml`                     | `check`: darwin wazero yokluğu + `tcc-rehber-check.sh`; `test-macos`: macos-15 (macos-14 runner GitHub'da kaldırıldı), P33 sandbox/yoklama adımı, iz testinde `--content GIZLI-BASLIK-123` + pozitif kontrol                                                                                                                                        |
 
 ### 33.2 CI denetimleri (ne kırmızı yapar)
 
@@ -5953,14 +5953,14 @@ Yeni env değişkeni, migration, Caddy/nginx değişikliği **yok** (mimari-p33 
 - **`package-mac` / `sign-mac` (`package.sh check`)**: Info.plist anahtar kümesi, `NSCameraUsageDescription` yokluğu, mikrofon metni,
   entitlement kümesi (dosya + her dilimin imzası), hardened runtime, TCC rehber kimliği = paketin `CFBundleIdentifier`'ı (stg paketinde
   `.stg`).
-- **`test-macos` (macos-14 ve macos-15, `fail-fast: false`)**: mevcut zorunlu liste (§28f.8) iki sürümde. Yeni adım "P33 sandbox reddi +
+- **`test-macos` (macos-15; macos-14 runner GitHub'da kaldırıldı, `fail-fast: false`)**: mevcut zorunlu liste (§28f.8). Yeni adım "P33 sandbox reddi +
   yoklama testleri": `-run 'P33.*(Sandbox|Probe)|(Sandbox|Probe).*P33'`; adında `P33` + `Sandbox` geçen en az bir test ve `P33` + `Probe`
   geçen en az bir test **PASS** olmalı, SKIP kırmızı (sandbox ve yoklama TCC/ekran gerektirmez; S-P33-T2-1 m.4, T2-2, T-4). **Ad
   sözleşmesi** K1'e bağlıdır: K1 testleri bu adlarla gelmeden adım kırmızıdır (bilerek; yumuşatılmaz).
 - **İz testi yalnız macos-15'te** (paketleme + uygulamayı açma); önce `--content` pozitif kontrolü (yeni dosyadaki işaret yakalanmalı),
   sonra AC-394 dizisi `--content GIZLI-BASLIK-123` ile. Runner'da TCC izni olmadığından ses/pencere oturumu CI'da **koşmaz**; gerçek
   kapsam §33.4 elle senaryo + K2'nin Go başlık sızma testi.
-- İş adı `go test (macOS) + iz testi (macos-14|macos-15)` oldu; `test-macos` main dalı koruma listesinde değil (§ "Branch protection"),
+- İş adı `go test (macOS) + iz testi (macos-15)` oldu; `test-macos` main dalı koruma listesinde değil (§ "Branch protection"),
   `approve` `needs.test-macos.result` matris toplamını okur → ek ayar yok.
 
 ### 33.3 Yayın 0.26.0 (staging → prod; koordinatör uygular)
