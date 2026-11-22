@@ -26,7 +26,7 @@ describe("P17 share.state neden kodları (AC-234, AC-248)", () => {
   });
 
   it("AC-248 pencere modu nedenleri Türkçe; 'Bilinmeyen neden' yoluna düşmez", () => {
-    expect(describeShareFailure("WINDOW_CLOSED", "WGC")).toBe("Paylaşılan pencere kapatıldı — Pencere yakalama (WGC)");
+    expect(describeShareFailure("WINDOW_CLOSED", "WGC")).toBe("Paylaşılan pencere kapatıldı — Pencere yakalama");
     expect(describeShareFailure("WGC_UNSUPPORTED")).toBe("Bu Windows sürümü pencere paylaşımını desteklemiyor");
     expect(describeShareFailure("WINDOW_UNAVAILABLE")).not.toMatch("Bilinmeyen");
   });

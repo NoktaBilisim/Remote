@@ -49,14 +49,29 @@ describe("P28f MacGuide (AC-391, AC-396, AC-503)", () => {
     expect(html).not.toContain("Çöp Sepetine Taşı&#x27;yı değil");
     expect(html).toContain("Yalnız macOS “Nokta Destek” açılmadı ya da Apple uygulamayı doğrulayamadı derse Bitti");
   });
-  it("iki izin (Ekran Kaydı / Erişilebilirlik; ses yok r3) ve doğrulama kodu + sunucu", () => {
+  it("P33: üç izin (Ekran Kaydı / Erişilebilirlik / Mikrofon) ve doğrulama kodu + sunucu", () => {
     for (const v of ["test", "adhoc", "notarized"] as const) {
       const html = guide(v);
       expect(html).toContain("Ekran Kaydı (gerekli)");
       expect(html).toContain("Erişilebilirlik (yalnız kontrol için)");
-      expect(html).not.toContain("Mikrofon");
+      expect(html).toMatch(/data-testid="mac-perm-mic"[^]*Mikrofon \(yalnız sesli görüşme için\)[^]*Kabul&#x27;e tıklarsanız sorulur/);
       expect(html).toContain("İzni verdim, yeniden başlat");
       expect(html).toContain("doğrulama kodu 4821, sunucu adresi destek.ornek.com");
+    }
+  });
+  it("S-P33-T-7 / AC-556: yalnız paket kimlikli tccutil (prod / stg kimliği); sudo, reset All, SIP, TCC.db yok; '−' + istem akışı", () => {
+    for (const v of ["adhoc", "notarized"] as const) {
+      const html = guide(v);
+      expect(html).toContain("tccutil reset Microphone net.noktabilisim.destek</code>");
+    }
+    expect(guide("test")).toContain("tccutil reset Microphone net.noktabilisim.destek.stg</code>");
+    for (const v of ["test", "adhoc", "notarized"] as const) {
+      const html = guide(v);
+      expect(html).toContain("Yalnız Nokta Destek açıkken istediği izni verin.");
+      expect(html).toMatch(/− ile kaldırın, Nokta Destek&#x27;i yeniden açın ve sistemin sorduğu istemde İzin Ver/);
+      expect(html.match(/tccutil/g)).toHaveLength(1);
+      expect(html).not.toMatch(/sudo|reset all|csrutil|TCC\.db|tccutil reset Microphone(?! net\.noktabilisim\.destek)/i);
+      expect(html).not.toMatch(/\bSIP\b/);
     }
   });
 });

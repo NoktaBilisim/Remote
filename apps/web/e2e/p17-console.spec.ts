@@ -38,7 +38,7 @@ test("AC-248: pencere modu (WGC) konsolda 'Pencere paylaşımı' olarak görün�
   await expect(mode).toBeVisible({ timeout: 2_000 });
   await expect(mode).toContainText("Pencere paylaşımı");
   await expect(mode).toHaveAttribute("data-method", "WGC");
-  await expect(mode).toHaveAttribute("title", "Müşteri yalnız bir pencereyi paylaşıyor (Pencere yakalama (WGC))");
+  await expect(mode).toHaveAttribute("title", "Müşteri yalnız bir pencereyi paylaşıyor (Pencere yakalama)");
   // Pencere modunda monitör geçişi yok (istemci monitor.request'i yok sayar) → seçici gizlenir
   await openViewMenu(page);
   await expect(page.getByTestId("monitor-picker")).toHaveCount(0);
@@ -57,7 +57,7 @@ test("AC-248: pencere modu (WGC) konsolda 'Pencere paylaşımı' olarak görün�
   await expect(mode).toBeVisible();
   await agentSend(a, { t: "share.state", state: "stopped", reason: "WINDOW_CLOSED", method: "WGC" });
   await expect(page.getByTestId("stage")).toHaveAttribute("data-share", "stopped");
-  await expect(page.getByTestId("stage-share-reason")).toHaveText("Neden: Paylaşılan pencere kapatıldı — Pencere yakalama (WGC)", {
+  await expect(page.getByTestId("stage-share-reason")).toHaveText("Neden: Paylaşılan pencere kapatıldı — Pencere yakalama", {
     timeout: 2_000,
   });
   await expect(mode).toHaveCount(0);

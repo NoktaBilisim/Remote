@@ -1,4 +1,4 @@
-import { CircleHelp, FileCheck2, MousePointerClick, ScreenShare, Trash2, type LucideIcon } from "lucide-react";
+import { CircleHelp, FileCheck2, Mic, MousePointerClick, ScreenShare, Trash2, type LucideIcon } from "lucide-react";
 import { Alert } from "@/components/ui/alert";
 import type { MacVariant } from "@/lib/agent-download";
 import { t, type MessageKey } from "@/lib/i18n";
@@ -7,9 +7,16 @@ import { GuideStep } from "./guide-step";
 const PERMS: readonly { Icon: LucideIcon; title: MessageKey; body: MessageKey; testId: string }[] = [
   { Icon: ScreenShare, title: "gm.permScreen", body: "gm.permScreenBody", testId: "mac-perm-screen" },
   { Icon: MousePointerClick, title: "gm.permAx", body: "gm.permAxBody", testId: "mac-perm-ax" },
+  { Icon: Mic, title: "gm.permMic", body: "gm.permMicBody", testId: "mac-perm-mic" },
 ];
 
 const INTRO: Record<MacVariant, MessageKey> = { test: "gm.guideIntroTest", adhoc: "gm.guideIntroAdhoc", notarized: "gm.guideIntro" };
+/** P33 (AC-556, S-P33-T-7): yalnız paket kimlikli sıfırlama; kimlik `package.sh bundle_id` ile aynı (stg = `.stg`). */
+const MIC_RESET_CMD: Record<MacVariant, MessageKey> = {
+  test: "gm.permMicResetCmdTest",
+  adhoc: "gm.permMicResetCmd",
+  notarized: "gm.permMicResetCmd",
+};
 const VERIFY: Record<MacVariant, MessageKey> = { test: "gm.verifyBodyTest", adhoc: "gm.verifyBodyAdhoc", notarized: "gm.verifyBody" };
 
 /**
@@ -17,6 +24,8 @@ const VERIFY: Record<MacVariant, MessageKey> = { test: "gm.verifyBodyTest", adho
  * (numaralı adım, ekran görüntüsüz). `notarized`: bugünkü metin + "asla 'Yine de Aç' istemez" uyarısı. `test` ve `adhoc`: ortak
  * 2. adım (Gizlilik ve Güvenlik → Yine de Aç; zararlı uyarısında Çöp Sepeti — S-r4-2). TEST uyarısı (`test`) ve yalnız-bu-sayfa
  * uyarısı (`adhoc`, S-r4-1) indirme düğmesinin yanında (`AgentDownload`), rehberden önce.
+ * P33 (K0, AC-536/556, S-P33-T-7): 3. adımda Mikrofon izni + "yalnız açıkken istediği izni verin" + güncelleme sonrası sıfırlama
+ * (önce "−" ile kaldır → yeniden aç → istemde İzin Ver; Terminal'de yalnız paket kimlikli `tccutil reset Microphone`).
  */
 export function MacGuide({
   id,
@@ -68,6 +77,15 @@ export function MacGuide({
               </li>
             ))}
           </ul>
+          <p className="mt-2 font-medium text-fg" data-testid="mac-perm-only-open">
+            {t("gm.permOnlyOpen")}
+          </p>
+          <div className="mt-2 rounded-md border border-border bg-canvas p-3" data-testid="mac-mic-reset">
+            <p className="text-fg-muted">{t("gm.permMicReset")}</p>
+            <code className="mt-2 block rounded-sm bg-surface-muted px-2 py-1 font-mono text-xs break-all whitespace-pre-wrap text-fg">
+              {t(MIC_RESET_CMD[variant])}
+            </code>
+          </div>
         </GuideStep>
         <GuideStep n={4} title={t("gm.step4")} body={t("gm.step4Body", { code: verifyCode, host: host || "—" })} />
       </ol>

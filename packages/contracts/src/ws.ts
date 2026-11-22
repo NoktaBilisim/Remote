@@ -121,7 +121,7 @@ export const guestRejectSchema = z.strictObject({ t: z.literal("guest.reject"), 
  * konsol `SHARE_FAIL_REASON_LABELS`'ta yoksa ham gösterir. Büyük harf/rakam/alt çizgi, ≤ 32 (kişisel veri taşıyamaz).
  */
 export const SHARE_FAIL_REASON_PATTERN = /^[A-Z0-9_]{1,32}$/;
-/** P15 (AC-234): son denenen yakalama yolu. `WGC` P17 pencere modu (AC-248). */
+/** P15 (AC-234): son denenen yakalama yolu. `WGC` = pencere modu belirteci (Windows WGC, macOS SCK; ADR-0043; AC-248, AC-552). */
 export const SHARE_METHODS = ["DXGI", "GDI", "WGC"] as const;
 export type ShareMethod = (typeof SHARE_METHODS)[number];
 /** P15 (S17-2): sunucu oda başına `share.state` iletimini bu aralıkla sınırlar; aradakiler birleştirilip sonuncusu iletilir. */

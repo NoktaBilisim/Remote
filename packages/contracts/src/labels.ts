@@ -501,7 +501,7 @@ export const SHARE_FAIL_REASON_LABELS: Readonly<Record<string, string>> = {
   NO_H264_ENCODER: "Bilgisayarda görüntü kodlayıcı (H.264) bulunamadı",
   ENCODER_CONFIG: "Görüntü kodlayıcı ayarları kabul etmedi",
   ENCODE_FAILED: "Yayın sırasında görüntü kodlama hatası",
-  // P17 I4 (AC-248): pencere modu (WGC). Go `capture.Reason` ile eşleşme `test/p17-share-reasons.test.ts`'te denetlenir.
+  // P17 I4 (AC-248): pencere modu; `WGC` = pencere modu belirteci (Windows WGC, macOS SCK; ADR-0043). `WGC_UNSUPPORTED` yalnız Windows'ta üretilir. Go `capture.Reason` ile eşleşme `test/p17-share-reasons.test.ts`'te denetlenir.
   WGC_UNSUPPORTED: "Bu Windows sürümü pencere paylaşımını desteklemiyor",
   WINDOW_CLOSED: "Paylaşılan pencere kapatıldı",
   WINDOW_UNAVAILABLE: "Seçilen pencere paylaşılamadı (pencereye erişilemiyor)",
@@ -512,7 +512,7 @@ export const SHARE_FAIL_REASON_LABELS: Readonly<Record<string, string>> = {
 export const SHARE_METHOD_LABELS: Readonly<Record<string, string>> = {
   DXGI: "Masaüstü çoğaltma (DXGI)",
   GDI: "Yedek yakalama (GDI)",
-  WGC: "Pencere yakalama (WGC)",
+  WGC: "Pencere yakalama",
 };
 
 /**

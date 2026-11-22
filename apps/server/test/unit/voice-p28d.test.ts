@@ -269,3 +269,43 @@ describe("P28d oturum geçmişi zaman çizelgesi (AC-379)", () => {
     expect(projectDetails("voice.join", null, { any: "x" })).toEqual({});
   });
 });
+
+describe("P33 yetenek bildirimi yetki değildir (S-P33-T-10, mimari-p33 §5.1 T14)", () => {
+  /** Sahte Mac misafiri: AGENT + `clientOs: macos` + `rs.cap.voice1` (soket `voice` bayrağı). */
+  const macGuest = () => {
+    const f = fixture();
+    Object.assign(f.guest, { kind: "AGENT", clientOs: "macos" });
+    f.gpeer.voice = voiceOf([WS_CAP_VOICE], f.room, f.guest);
+    return f;
+  };
+
+  it("voice1 bildiren Mac misafiri: sessions.voice'u olmayan teknisyenin voice.request'i FORBIDDEN; misafire istek gitmez, faz idle", () => {
+    const f = macGuest();
+    expect(hasVoice(f.room, f.gpeer)).toBe(true); // yetenek var — yetki kararını değiştirmemeli
+    f.own.permissions = new Set(["sessions.view"]);
+    handleTechVoice(f.rooms, f.room, f.own, { t: "voice.request" });
+    expect(f.own.peer.of("error").at(-1)).toMatchObject({ code: "FORBIDDEN" });
+    expect(f.gpeer.of("voice.request")).toHaveLength(0);
+    expect(f.room.voice.phase).toBe("idle");
+    expect(f.metrics.render()).toContain('rs_voice_denied_total{code="permission"} 1');
+  });
+
+  it("yetkisiz üye voice.join → FORBIDDEN, konuşan/dinleyen olmaz; yetkili sahip aynı misafirle görüşür", () => {
+    const f = macGuest();
+    const nov = f.addMember("nov", "participant", ["sessions.view"]);
+    const callId = f.startCall();
+    handleTechVoice(f.rooms, f.room, nov, { t: "voice.join", callId });
+    expect(nov.peer.of("error").at(-1)).toMatchObject({ code: "FORBIDDEN" });
+    const last = f.states(f.gpeer).at(-1);
+    expect(last).toMatchObject({ phase: "active", talkers: [tidOf(f.room, "own")], listeners: [tidOf(f.room, "own")] });
+  });
+
+  it("yetki kapısı yetenekten önce: voice1'siz misafirde de yetkisiz teknisyen FORBIDDEN (CLIENT_UNSUPPORTED değil)", () => {
+    const f = macGuest();
+    f.gpeer.voice = voiceOf([], f.room, f.guest);
+    expect(hasVoice(f.room, f.gpeer)).toBe(false);
+    f.own.permissions = new Set(["sessions.view"]);
+    handleTechVoice(f.rooms, f.room, f.own, { t: "voice.request" });
+    expect(f.own.peer.of("error").at(-1)).toMatchObject({ code: "FORBIDDEN" });
+  });
+});
