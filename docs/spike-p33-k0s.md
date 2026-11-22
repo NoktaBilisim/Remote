@@ -135,6 +135,13 @@ gerçek paket + PLC + `AudioConverterReset` ile ısıtıldıktan sonra `(version
 Sonuç: `file-read*`, `sysctl-read` ve `AudioComponentRegistrar` mach-lookup'ı gerekmez; ürün profili `(deny default)`. `socket()` SBPL ile
 engellenemiyor; ağ çıkışı connect/sendto düzeyinde reddediliyor (test bunu sınar).
 
+### 2.2b Ürün yardımcısı içinde 30 dk fuzz (K0s-A1 madde 6; QA K4 madde 5, düzeltme turu 1)
+
+`internal/voice/opushelper_fuzz_darwin_test.go` (`NOKTA_FUZZ_SURE=30m`, tohum 33; 2026-11-23, M4 Pro macOS 26.3.1 arm64): sandbox'lı
+`--opus-cozucu` yardımcısına `opus20ms` süzgecinden geçen 33 396 202 mutasyon paketi (1 073 759 PLC dahil) gönderildi. Çökme/askı **0**,
+"çözülemedi" 0, kullanılamaz durum 0, > 200 ms 0, > 15 ms 505 (koşunun bir kısmı derleme/test yükü altında), en uzun çağrı 165,9 ms,
+p50 0,043 ms, p99 0,090 ms. Ayrıntı `docs/implementation.md` "P33 düzeltme turu 1".
+
 ### 2.3 K0s-A2 — Mikrofon TCC (ELLE-BEKLİYOR)
 
 Ölçülen (istem açmadan):

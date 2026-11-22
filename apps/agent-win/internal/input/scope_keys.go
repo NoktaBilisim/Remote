@@ -21,7 +21,8 @@ func (a *Applier) scopedKeyDown(m Msg) []Event {
 		a.dropLocked(why)
 		return nil
 	}
-	if why := a.shortcuts().drop(a, m.Code); why != "" { // ön plan denetiminden önce (S-P17-1, S-P33-T-2)
+	a.scopeUniOnly = false
+	if why := a.shortcuts().drop(a, m); why != "" { // ön plan denetiminden önce (S-P17-1, S-P33-T-2)
 		a.dropLocked(why)
 		return nil
 	}
@@ -31,6 +32,10 @@ func (a *Applier) scopedKeyDown(m Msg) []Event {
 	}
 	if !a.takeKeyLocked(a.cur) {
 		a.dropLocked(DropKeyBurst)
+		return nil
+	}
+	if a.scopeUniOnly && a.pressUnicode(m) == nil { // AltGr istisnası yalnız Unicode olayına (K5 AltGr kararı m.4)
+		a.dropLocked(DropShell)
 		return nil
 	}
 	_, held := a.keys[m.Code]

@@ -18348,3 +18348,101 @@ Kaynak: `docs/mimari-p33.md` §6.1–6.4, §10 K2; güvenlik Tur 1/2 (T-2, T-3, 
 6. **Sayfa ve menü:** TextEdit'te kaydedilmemiş belgeyi ⌘W → sayfa (AXSheet) teknisyen tıklamasını kabul etmeli; menü çubuğu menüleri görünmez ama hedefin açılır menüsü (sağ tık) çalışmalı.
 7. **AX odak:** Uygulamaya Erişilebilirlik izni verilmiş paketle, paylaşılan pencere öndeyken tuşlar geçmeli; başka pencereye tıklanınca düşmeli.
 8. **Kısayollar örneklemi:** ⇧⌘Q, ⌥⇧⌘Q, ⌃⌘Q, ⌘Space, ⌘Tab, ⌃→ uzaktan → hiçbiri etkili olmamalı; ⌘C/⌘V/⌘Z çalışmalı.
+
+## P33 düzeltme turu 1 — QA K4 Tur 1 + güvenlik K5 (backend-dev, 2026-11-23)
+
+Kaynak: `docs/qa-raporu.md` "P33 K4 Tur 1" (DÜZELTİLMELİ), `docs/guvenlik-raporu.md` "Kod turu (K5)" (GEÇTİ; Düşük 3 + AltGr
+kararı). QA madde 1, 6, 7 önceki adımda düzeltildi (gofmt spike, `logic.go` yorumu, CI yorumu). Commit yok.
+
+### Madde → dosya
+
+| Madde | Dosyalar (apps/agent-win, apps/server) | Özet |
+| --- | --- | --- |
+| QA 4 / K5 AltGr kararı (AC-549) | `internal/input/shortcuts.go`, `shortcuts_mac.go`, `scope_keys.go`, `keys.go`, `applier.go`, `shortcuts_mac_test.go`; `docs/mimari-p33.md` §6.4 m.6a | Politika imzası `drop(a, m Msg)` (Windows `winShortcuts` yalnız `m.Code` okur; davranış aynı, `TestAC558WindowsPolicyUnchangedAfterMove` değişmeden yeşil). `macAltGrText`: `altGrText` açık ∧ OS ⌃ kapalı ∧ alıcıda `AltRight` ∧ ek değiştirici yalnız `ControlLeft`/⇧ (`AltLeft`, `ControlRight`, `Meta*`, `CapsLock` → yok) ∧ `charKey` ∧ `unicodeOf(m) != nil` (yok / `"Dead"` / çok karakter → yok). Sıra: kilit → (istisna, 5. madde o tuşu düşürmüyorsa) → 1, 4, 2, 3, 5, 6. ⇧×5/⌥×5 yalnız değiştirici basmalarına, istisna değiştirici olmayan tuşa uygulandığından kümeler ayrık. İstisna `scopeUniOnly` açar; `scopedKeyDown` ön plan + kova sonrası `pressUnicode(m) == nil` ise enjekte etmeden düşürür (m.4 savunma). `pressUnicode` `key()` ile ortak yüklem (iki kopya yok). |
+| QA 2 (AC-553) | `apps/server/test/unit/voice-p28d.test.ts` | Gerçek giriş yolu (`onGuestMessage`: şema + işleyici) ile `clientOs: macos` + voice1 AGENT misafirinden `share.state{sharing, WGC}` ve `{stopped, WINDOW_CLOSED, WGC}` 1008'siz kabul, teknisyene aynen iletilir, `room.share` güncellenir; Windows misafirinde aynı; biçim dışı yöntem (`SCK`) 1008. |
+| QA 3 (AC-542) | `internal/ui/mac/window_choice.go` (yeni, etiketsiz), `window_choice_test.go` (yeni), `window_choose_darwin.go` | Karar mantığı (`windowChoice`: varsayılan Tüm ekran / def monitör, mod, monitör ve pencere seçimi, liste yenilemede seçim koruma/kaldırma, görünüm `choiceView`, `submit` → `flow.ShareChoice`) AppKit'ten ayrıldı; AppKit dosyası yalnız çizer ve `clickOf(sender)` sınıfını iletir (paralel kopya yok). `TestAC542WindowChoiceTable` 16 satır (QA'nın beş maddesi + sentetik Paylaş, listede olmayan pencere, yenileme). |
+| S-P33-K-1 | `internal/darwin/sandbox/fds_darwin.go` (yeni), `internal/voice/opushelper_darwin.go`, `internal/voice/opushelper_fds_darwin_test.go` (yeni) | `RunDecoderHelper` ilk iş (ısıtma ve `sandbox_init`'ten önce) `sandbox.CloseInheritedFDs`: `proc_pidinfo(PROC_PIDLISTFDS)` ile fd listesi, 0/1/2 (IPC) ve kqueue (`PROX_FDTYPE_KQUEUE`; fork ile devralınmaz, Go yoklayıcısının) dışındakiler kapatılır, sonra yeniden listelenip doğrulanır; liste alınamaz ya da fd kalırsa yardımcı çıkar (`helperExitFDs`, fail-closed). Test: ana süreçte CLOEXEC'siz fd 100 (dup2) → pozitif denetim `/bin/sleep` çocuğunda görünür; yardımcıda görünmez ve hazır sonrası yardımcının fd'leri yalnız `{0,1,2}` (ölçülen: `[{0 pipe} {1 pipe} {2 vnode}]`). Kapatma devre dışı bırakılınca test kırmızı (elle doğrulandı). |
+| S-P33-K-2 | `internal/voice/opushelper_darwin.go`, `internal/voice/machports_darwin_test.go` (yeni, ölçüm) | Isıtmada AudioToolbox **kodlayıcısı kurulmaz**; ısıtma paketi `warmPacket` sabiti (eski ısıtma kodlayıcısının 440 Hz sinüsten ürettiği 111 baytlık 20 ms hibrit paketin birebir kopyası, TOC 0x78; belirlenimci olduğu iki koşuyla doğrulandı). Ölçüm aşağıda. |
+| QA 5 / K0s-A1 (6) | `internal/voice/opushelper_fuzz_darwin_test.go` (yeni) | Ürün yardımcısı içinde 30 dk fuzz; sonuç aşağıda ve `docs/spike-p33-k0s.md` §2.2b. |
+
+### S-P33-K-2 Mach port ölçümü
+
+`NOKTA_MACH_OLCUM=1 go test -run TestP33K2MachPortsAfterWarm -v ./internal/voice/` (taze çocuk süreç, `mach_port_names`; M4 Pro,
+macOS 26.3.1, arm64):
+
+| An | Port adı | gönderme | alma |
+| --- | --- | --- | --- |
+| Isıtma öncesi | 16 | 10 | 6 |
+| Çözücü ısıtması sonrası (güncel yardımcı) | 44 | 30 | 14 |
+| + kodlayıcı (eski ısıtma) | 44 | 30 | 14 |
+
+Kodlayıcı kurulumu ek port hakkı getirmiyordu; kaldırılması yüzeyi azaltmasa da gereksiz kodu çıkarır. Isıtmanın getirdiği 20 gönderme
+hakkının **hangi servislere** ait olduğu ölçülemedi: `mach_port_names` yalnız ad/hak türü verir, `lsmp -p` kök ister
+(`task_for_pid() failed`). **Kalan (K-2):** kök yetkisiyle `sudo lsmp -p <yardımcı pid>` ile tccd/windowserver/coreaudiod hakkı olup
+olmadığı bir kez kaydedilmeli (test-operatoru ya da kullanıcı; yardımcı `go test -run TestP33K1SandboxHelperStartsSandboxed` sırasında
+ya da uygulama ses görüşmesindeyken `pgrep -f opus-cozucu`).
+
+### Fuzz (QA 5)
+
+`NOKTA_FUZZ_SURE=30m NOKTA_FUZZ_TOHUM=33 voice.test -test.run '^TestP33FuzzProductHelper$' -test.timeout 45m` (çalışma dizini
+`internal/voice`; M4 Pro, macOS 26.3.1, arm64). Yardımcı = test ikilisinin `[exe, --opus-cozucu]` ile yeniden çalıştırılması; ürün
+ikilisiyle aynı `RunDecoderHelper` (fd kapatma, gömülü ısıtma, `sandbox_init (deny default)`, öz-test, hazır baytı, `serveHelper`).
+Paketlenmiş `.app` değil; ürün ikilisinin aynı yoldan hazır baytı verdiği ayrıca doğrulandı (aşağıda). Mutasyonlar
+`test/spike-p33/cmd/k0sa1fuzz` ile aynı; derlem = gömülü ısıtma paketi + libopus altın paketleri + 20 ms fikstürler; üretim süzgeci
+`opus20ms` (R1–R7 + 20 ms) geçen paketler ham IPC ile (15 ms tik sınırı olmadan) rastgele yuvaya gider, %2 PLC isteği; her 1000 pakette
+her yuvada bilinen iyi paket çözülmeli.
+
+| Ölçüt | Sonuç |
+| --- | --- |
+| Süre / yineleme | 30 dk / 53 629 453 mutasyon |
+| Süzgeçte düşen (yardımcıya gitmeyen) | 20 233 251 |
+| Yardımcıya giden | **33 396 202** (1 073 759 PLC dahil) |
+| Çökme / askı (boru kapandı ya da 5 sn yanıt yok) | **0** |
+| "Çözülemedi" yanıtı / kullanılamaz durum | 0 / 0 |
+| > 200 ms çağrı (§6.6 sert sınır) | 0 |
+| > 15 ms çağrı (tik sınırı) | 505 (üretimde o çerçeve sessiz geçerdi) |
+| En uzun çağrı | **165,9 ms** |
+| p50 / p99 (ilk 1 048 576 çağrı) | 0,043 ms / 0,090 ms |
+
+Not: koşunun bir kısmında aynı makinede dört hedefte vet/staticcheck, sunucu test paketi ve Rosetta derlemeleri koştu; en uzun çağrı ve
+> 15 ms sayısı bu yük altında ölçüldü (20 sn yüksüz duman koşusunda en uzun 0,27 ms). Sonuç: K0s-A1 (6) ve güvenlik koşulu karşılandı.
+
+### Tasarımdan sapmalar / notlar
+
+1. **AltGr + 5. madde:** Rapor "Yapışkan Tuşlar ve ⇧×5/⌥×5 önce" diyor; Fare Tuşları kuralı da (aynı 5. madde; `mouseKeysKey` harf/rakam
+   içerir: U I O J K L M 7 8 9 .) istisnadan önce uygulandı — daha sıkı. Yapışkan/Fare Tuşları açıkken AltGr ile Q, 3–6, `, ok/F tuşları ve
+   U/I/O/J/K/L/M/7/8/9/. düşer (genel kural kilidi açar). Diğer karakterler geçer.
+2. **`CapsLock`** basılı tutulurken istisna yok (rapor m.1 "ek değiştirici yalnız ControlLeft ve ⇧" harfiyen).
+3. `TestAC549MacAltGrDroppedByGeneralRule` (eski davranışı sabitleyen test) **kaldırıldı**, yerine: `TestAC549MacAltGrTextPassesAsUnicode`
+   (çeviricide `flags 0`, `vk 0` dahil), `…WithoutCharacterDropped` (key yok / `"Dead"` / `"ab"`; Tab/Space/F5/ArrowLeft), `…ExtraModifiersDropped`
+   (AltLeft+ControlLeft, +MetaLeft/MetaRight/AltLeft/ControlRight, OS ⌃, altGrText kapalı, kilit açık), `…StickyAndMouseKeysFirst`,
+   `…RepeatOfVKKeyDropped` (m.4 savunma), `…PropertyOracle` (2000 örnek, kâhin politikadan bağımsız; VK basması hiçbir durumda iletilmez).
+   Hepsi etiketsiz (Linux CI). Rapor m.7 (HID tap'te yerel ⌘ ile birleşme) test-operatoru K6 elle maddesi olarak kalır.
+4. Uzun `key` adları (`"ArrowLeft"`, `"Tab"` > 4 UTF-16) zaten mesaj doğrulamasında reddediliyor; testte yazı tuşu olmayanlar `key` boş / `"@"` ile de sınandı.
+5. S-P33-K-1 kapatma, rapordaki "Go çalışma zamanının kendi fd'leri" için kqueue türüne bakar (fstat izin bitlerine değil). Ölçümde yardımcıda
+   kqueue hiç yoktu (stdin/stdout bloklu boru); kural yine de korunur.
+
+6. AltRight tek başına (alıcıda yalnız AltRight, ⌘ yok) + noktalama tuşu artık Unicode olarak geçer (K2'deki "⌥ + noktalama düşer" notu
+   bu durum için geçersiz; m.1 "AltRight basılı, ek değiştirici yalnız ControlLeft/⇧" ile uyumlu). Gerçek Mac teknisyeninin ⌥ (AltLeft)
+   + noktalaması eskisi gibi düşer.
+7. fd varsayımı ("hazır sonrası yalnız 0/1/2") yalnız macOS 26.3 (arm64 + Rosetta) üzerinde ölçüldü; macos-14/15 CI ilk koşusu başka
+   sürümdeki ilk kanıt olacak. Farklı çıkarsa test kırmızı olur (kapatma kuralı kqueue dışında fd bırakmaz; sorun AudioToolbox'ın ısıtmada
+   açtığı fd olur → test koşulu "ısıtma sonrası yeni fd'ler" diye gevşetilmeli, kapatma kuralı değil).
+
+**Bağımlılık:** yeni bağımlılık yok (purego, x/sys mevcut). **Sözleşme:** WS/HTTP sözleşmesi değişmedi; `frontend-dev` için bir şey yok.
+
+### Sonraya bırakılan
+
+- **S-P33-K-3** (katman ≠ 0 aynı PID her yüzen pencereyi kabul ediyor): koordinatör kararıyla sonraya; mimar + K0s-W3 ölçümüyle açık katman
+  listesine (101 + gerekirse açılır panel) indirilecek.
+- K-2 servis kimliği ölçümü (kök gerekli, yukarıda).
+
+### Doğrulama
+
+Son (fuzz bittikten sonra, `apps/agent-win`): `gofmt -l .` boş (test/spike-p33 dahil); `go vet ./...` + `staticcheck ./...`
+darwin/arm64, darwin/amd64, windows/amd64, linux/amd64 temiz; `go test -count=1 ./...` (darwin/arm64) 43 paket ok, 0 FAIL; etiketsiz
+testler linux/windows için derleniyor (`go test -c ./internal/input/ ./internal/ui/mac/`); Rosetta (darwin/amd64) `internal/voice`
+yardımcı testleri (sandbox, fd, altın, fikstür, bozuk çerçeve) ve `internal/darwin/...` yeşil; ürün ikilisi (`cmd/noktadestek`, arm64 ve
+amd64) yalnız `--opus-cozucu` ile başlatılınca ilk bayt `a5` (fd kapatma + gömülü ısıtma + sandbox + öz-test ürün ikilisinde geçiyor).
+Kilit alt testinin gerçekten kilidi sınadığı, istisna kilidin önüne alınınca kırmızı olmasıyla doğrulandı. Sunucu: `pnpm --filter
+@remote/server lint` / `typecheck` temiz, `test` 54 dosya, 752 geçti + 1 skip (eski, gerekçeli `fsrv-p28b` clamd).

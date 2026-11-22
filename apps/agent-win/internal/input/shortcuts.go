@@ -8,9 +8,10 @@ import "strings"
 // etiketsizdir: tablo testleri her platformda (Linux CI) koşar.
 
 // ShortcutPolicy pencere modunda basılan tuşun düşme nedeni ("" = geçer). a.mu altında çağrılır; politika
-// Applier'ın kilit altı durumunu (scopeMeta, scopeLatch, basılı tuşlar, art arda sayaçlar) okuyup yazabilir.
+// Applier'ın kilit altı durumunu (scopeMeta, scopeLatch, scopeUniOnly, basılı tuşlar, art arda sayaçlar) okuyup
+// yazabilir. Mesajın tamamını alır: macOS AltGr istisnası `key` alanına bakar (S-P33-K5 AltGr kararı m.3).
 type ShortcutPolicy interface {
-	drop(a *Applier, code string) string
+	drop(a *Applier, m Msg) string
 }
 
 // winShortcuts Windows kabuk kısayolu kuralları (S-P17-1/7; P17'den taşındı, davranış aynı).
@@ -38,7 +39,8 @@ var shellMods = []string{"MetaLeft", "MetaRight", "AltLeft", "AltRight", "Contro
 // düşme nedeni, geçerse "". Win basması enjekte edilmez; uzakta basılı olduğu scopeMeta'da izlenir (monitör modunda
 // basılıp a.keys'te kalan Win de sayılır). Değiştirici kararı bu alıcının ve işletim sisteminin durumunun birleşimidir.
 // a.mu altında.
-func (winShortcuts) drop(a *Applier, code string) string {
+func (winShortcuts) drop(a *Applier, m Msg) string {
+	code := m.Code
 	osWin, osAlt, osCtrl := a.scope.api.OSModifiers()
 	alt := osAlt || a.modHeld("AltLeft", "AltRight")
 	ctrl := osCtrl || a.modHeld("ControlLeft", "ControlRight")

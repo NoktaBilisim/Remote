@@ -18,6 +18,16 @@ import "strings"
 //  6. Açık izinli liste (varsayılan-ret): değiştiricisiz (⇧ serbest) her tuş; tek ⌘ (+⇧) ile harf/rakam/noktalama;
 //     tek ⌥ (+⇧) ile harf/rakam. Gerisi düşer.
 //
+// AltGr güvenli istisnası (guvenlik-raporu K5 "AltGr kararı" m.1–5; AC-549 "normal yazı"): Windows tarayıcısı AltGr'yi
+// ControlLeft + AltRight (= ⌘⌥) olarak gönderir. Kilit yokken ve 5. madde (Yapışkan/Fare Tuşları) o tuşu düşürmüyorken,
+// şu basma 1–3 ve 6. maddeleri atlar: altGrText açık; alıcıda AltRight basılı, başka basılı değiştirici yalnız
+// ControlLeft ve ⇧ (AltLeft/ControlRight/Meta*/CapsLock basılıysa istisna yok); OS ⌃ kapalı (OS ⌘/⌥ alıcının kendi
+// enjekte ettiği tuşlardır, yok sayılır); tuş yazı tuşu (charKey) ve `key` tek, yazdırılabilir, boşluk olmayan karakter
+// (yoksa, çok karakterliyse ya da "Dead" ise istisna yok → genel kural düşürür). İstisnayla geçen basma scopeUniOnly'yi
+// açar: scopedKeyDown basma Unicode yoluna (bayraksız metin olayı) gitmezse enjekte etmeden düşürür; VK yoluna asla
+// geçmez. 4. madde (⇧×5/⌥×5) yalnız değiştirici basmalarına uygulanır, istisna değiştirici olmayan tuşa; kümeler
+// ayrıktır. Ön plan ve tuş kovası denetimleri değişmez.
+//
 // Değiştirici tuşların kendi basmaları (kilit yoksa ve 4. madde dışında) iletilir.
 type macShortcuts struct{}
 
@@ -27,7 +37,8 @@ func MacShortcuts() ShortcutPolicy { return macShortcuts{} }
 // osShifter isteğe bağlı: işletim sisteminin ⇧ durumu (macOS CGEventSourceFlagsState; Yapışkan Tuşlar kilidi dahil).
 type osShifter interface{ OSShift() bool }
 
-func (macShortcuts) drop(a *Applier, code string) string {
+func (macShortcuts) drop(a *Applier, m Msg) string {
+	code := m.Code
 	osCtl, osOpt, osCmd := a.scope.api.OSModifiers()
 	cmd := osCmd || a.modHeld("ControlLeft", "ControlRight")
 	ctl := osCtl || a.modHeld("MetaLeft", "MetaRight")
@@ -44,9 +55,14 @@ func (macShortcuts) drop(a *Applier, code string) string {
 		}
 	}
 	mod := macModifier(code)
+	altGr := !mod && a.macAltGrText(m, osCtl) &&
+		!(sticky && macStickyKey(code)) && !(mouseKeys && mouseKeysKey(code)) // 5 istisnadan önce
 	switch {
 	case a.scopeLatch:
 		return DropShell
+	case altGr:
+		a.scopeUniOnly = true
+		return ""
 	case !mod && n >= 2: // 1
 		a.scopeLatch = true
 		return DropShell
@@ -61,7 +77,7 @@ func (macShortcuts) drop(a *Applier, code string) string {
 		return DropShell
 	case code == "F3" || code == "F4" || code == "F11": // 3
 		return DropShell
-	case sticky && (code == "Tab" || code == "Escape" || code == "Space" || macTableKey(code)): // 5
+	case sticky && macStickyKey(code): // 5
 		return DropSticky
 	case mouseKeys && mouseKeysKey(code): // 5
 		return DropMouseKeys
@@ -72,6 +88,18 @@ func (macShortcuts) drop(a *Applier, code string) string {
 }
 
 func isAlt(code string) bool { return code == "AltLeft" || code == "AltRight" }
+
+// macStickyKey 5. madde: Yapışkan Tuşlar açıkken değiştiricisiz de düşen tuşlar.
+func macStickyKey(code string) bool {
+	return code == "Tab" || code == "Escape" || code == "Space" || macTableKey(code)
+}
+
+// macAltGrText AltGr istisnasının değiştirici ve karakter koşulları (dosya başı; K5 AltGr kararı m.1–3). a.mu altında.
+func (a *Applier) macAltGrText(m Msg, osCtl bool) bool {
+	return a.altGrText && !osCtl && a.modHeld("AltRight") &&
+		!a.modHeld("AltLeft", "ControlRight", "MetaLeft", "MetaRight", "CapsLock") &&
+		charKey(m.Code) && unicodeOf(m) != nil
+}
 
 // macModifier değiştirici tuşun kendisi (CapsLock dahil).
 func macModifier(code string) bool {

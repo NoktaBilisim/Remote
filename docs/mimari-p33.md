@@ -270,6 +270,11 @@ Kılavuz: "Kaydet/Aç penceresini müşteri kullanır". K2'nin ilk adımında (K
    harf/rakam/noktalama — ⌘C/V/X/Z/A/S, ⇧⌘Z/⇧⌘S, ⌘W ve ⌘Q (paylaşılan programı kapatır → `WINDOW_CLOSED`); tek ⌥ (+ ⇧) ile harf/rakam
    (özel karakter girişi). Bu listede olmayan her birleşim **düşer** (varsayılan-ret). Kalıntı risk: ⇧⌘+harf Hizmetler kısayolları
    (R-P33-5, kılavuz).
+   6a. **AltGr güvenli istisnası (K5 güvenlik kararı, `docs/guvenlik-raporu.md` "AltGr kararı" m.1–5; QA K4 madde 4; düzeltme
+   turu 1'de uygulandı):** Windows tarayıcısının AltGr dizisi (`ControlLeft` + `AltRight`) ile basılan yazı tuşu, kilit yokken ve 5.
+   madde o tuşu düşürmüyorken 1–3 ve 6. maddeleri atlar; koşullar: `altGrText` açık, alıcıda `AltRight` basılı, ek değiştirici yalnız
+   `ControlLeft`/⇧, OS ⌃ kapalı, `charKey` ve `key` tek yazdırılabilir karakter. Olay yalnız bayraksız Unicode olarak enjekte edilir;
+   VK yoluna düşecekse enjekte edilmeden düşer. Politika imzası `drop(a, Msg)`.
 7. **Genişleme noktası (Sonra):** `com.apple.symbolichotkeys` okunup etkin sistem kısayolları dinamik düşürülür; okunamazsa 1–6 yeterli.
 
 Tablo testi (Linux CI, build etiketsiz): her madde için en az bir satır; ⇧⌘Q, ⌥⇧⌘Q, ⌃⌘Space, ⌃⌘F, ⌃F1, ⌘F5, ⌥×5, ⇧×5 ve "iki değiştirici ile rastgele harf" özellik testi; izinli liste örnekleri iletilir. Tuş kovası (40/sn) aynen.

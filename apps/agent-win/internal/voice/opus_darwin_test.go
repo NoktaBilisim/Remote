@@ -32,6 +32,9 @@ func TestMain(m *testing.M) {
 	if os.Getenv("NOKTA_PROBE_CHILD") == "1" {
 		os.Exit(probeChild())
 	}
+	if os.Getenv("NOKTA_MACH_CHILD") == "1" {
+		os.Exit(machChild())
+	}
 	helperPath = os.Executable
 	os.Exit(m.Run())
 }

@@ -4,9 +4,9 @@ package voice
 
 import (
 	"encoding/binary"
+	"encoding/hex"
 	"errors"
 	"io"
-	"math"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -22,8 +22,9 @@ import (
 // yükü ana süreçte (Ekran Kaydı, Erişilebilirlik, Mikrofon TCC'li) değil, aynı ikilinin `--opus-cozucu` kipindeki,
 // `sandbox_init` ile `(deny default)` profiline girmiş alt sürecinde çözülür.
 //
-// Yardımcı: üç AudioConverter çözücüsünü kurar ve ısıtır (gerçek paket + PLC + Reset; sandbox sonrası bileşen kaydı
-// gerekmesin), sandbox'a girer, öz-test yapar (sandbox_check + ev/sistem dizini okuma, /tmp yazma, ağ: EPERM), ancak
+// Yardımcı: önce devralınmış fd'leri kapatır (0/1/2 = IPC dışında; S-P33-K-1), üç AudioConverter çözücüsünü kurar ve
+// ısıtır (gömülü gerçek paket + PLC + Reset; sandbox sonrası bileşen kaydı gerekmesin; kodlayıcı kurulmaz, S-P33-K-2),
+// sandbox'a girer, öz-test yapar (sandbox_check + ev/sistem dizini okuma, /tmp yazma, ağ: EPERM), ancak
 // sonra boruya tek "hazır" baytı yazar. İstek = tid(1) | uzunluk(u16 LE) | paket(≤ 1275); uzunluk 0 = PLC. Yanıt sabit
 // 1 + 1920 bayt: durum(1) | 960 × s16 LE. tid ≥ 3 ya da uzunluk > 1275 → hemen çıkış.
 //
@@ -59,6 +60,7 @@ const (
 	helperExitSelfTest
 	helperExitPipe
 	helperExitProtocol
+	helperExitFDs
 )
 
 var (
@@ -76,6 +78,9 @@ func RunDecoderHelper() int {
 	if !helpermode.Active {
 		return helperExitArgs
 	}
+	if sandbox.CloseInheritedFDs() != nil {
+		return helperExitFDs
+	}
 	decs, err := warmDecoders()
 	if err != nil {
 		return helperExitCodec
@@ -92,24 +97,19 @@ func RunDecoderHelper() int {
 	return serveHelper(os.Stdin, os.Stdout, decs)
 }
 
+// warmPacket ısıtma paketi: 20 ms hibrit (TOC 0x78, SILK + CELT yolu). K1'de ısıtmayı yapan AudioToolbox kodlayıcısının
+// 440 Hz sinüsten ürettiği paketin birebir kopyasıdır (çıktı belirlenimci); yardımcıda kodlayıcı kurulmaz (S-P33-K-2).
+const warmPacket = "788201b76c9e99ac0000086d69dc92085474dc09cd81ef0dcf951a5924e3eebc7443ed92041bd82385be6cdbed96043625051d688a9b149" +
+	"882fba3f85f91deffe54da21b2274da063f321874d17d082d7b625445aeacd82eb24233f7f695a3da4c2ee416a8837f2627e6311064e60b"
+
 // warmDecoders üç çözücüyü sandbox'tan önce kurar ve her birinde bir gerçek paket + PLC çözüp Reset eder (K1 ölçümü:
 // sonrasında `(deny default)` altında çözme/PLC/Reset sürer).
 func warmDecoders() ([helperSlots]*atDecoder, error) {
 	var decs [helperSlots]*atDecoder
-	enc, err := newATEncoder()
+	pkt, err := hex.DecodeString(warmPacket)
 	if err != nil {
 		return decs, err
 	}
-	defer enc.c.close()
-	frame := make([]int16, FrameSamples)
-	for i := range frame {
-		frame[i] = int16(8000 * math.Sin(2*math.Pi*440*float64(i)/SampleRate))
-	}
-	pkt, err := enc.encode(frame)
-	if err != nil {
-		return decs, err
-	}
-	pkt = append([]byte(nil), pkt...)
 	out := make([]int16, FrameSamples)
 	for i := range decs {
 		d, err := newATDecoder()

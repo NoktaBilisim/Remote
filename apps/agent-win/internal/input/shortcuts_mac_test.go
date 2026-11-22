@@ -2,6 +2,7 @@ package input
 
 import (
 	"math/rand/v2"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -250,19 +251,227 @@ func TestAC549MacStickyAndMouseKeys(t *testing.T) {
 	}
 }
 
-// Açık konu (implementation.md P33-K2): Windows tarayıcısı AltGr için ControlLeft + AltRight gönderir; macOS pencere
-// modunda bu ⌘⌥ sayılır ve genel kural (S-P33-T-2) karakteri düşürür. İstisna açılmaz; bu test davranışı sabitler.
-func TestAC549MacAltGrDroppedByGeneralRule(t *testing.T) {
-	_, inj, a, _ := newMacScoped(t)
+// altGrPress mods basılıyken code'a key metniyle basar; yalnız bu basmanın enjekte ettiği olayları döndürür, sonra
+// hepsini bırakır. all, oturum başından beri enjekte edilen olayların tamamıdır (çeviriciye sırayla verilir).
+func altGrPress(a *Applier, inj *fakeInj, all *[]Event, mods []string, code, key string) []Event {
+	for _, m := range mods {
+		a.Handle(kd(m, true, ""))
+	}
+	*all = append(*all, inj.take()...)
+	a.Handle(kd(code, true, key))
+	evs := inj.take()
+	*all = append(*all, evs...)
+	a.Handle(kd(code, false, key))
+	for i := len(mods) - 1; i >= 0; i-- {
+		a.Handle(kd(mods[i], false, ""))
+	}
+	*all = append(*all, inj.take()...)
+	return evs
+}
+
+// keyDowns olaylarda bırakma olmayan klavye olayları.
+func keyDowns(evs []Event) []Event {
+	var out []Event
+	for _, e := range evs {
+		if !e.Mouse && e.Flags&KeyUp == 0 {
+			out = append(out, e)
+		}
+	}
+	return out
+}
+
+var altGr = []string{"ControlLeft", "AltRight"} // Windows tarayıcısının AltGr dizisi
+
+func newAltGrScoped(t *testing.T) (*macDesk, *fakeInj, *Applier, *[]string) {
+	t.Helper()
+	d, inj, a, logs := newMacScoped(t)
 	a.SetAltGrText(true)
+	return d, inj, a, logs
+}
+
+// K5 AltGr kararı: Windows TR AltGr dizisi (ControlLeft↓ AltRight↓ tuş↓ key=@) pencere modunda tek bir Unicode olayı
+// olarak geçer (VK yok); macOS çeviricisinde bu olay bayraksız (flags 0, vk 0) metin olayıdır. ⇧ eklenmesi de geçer.
+func TestAC549MacAltGrTextPassesAsUnicode(t *testing.T) {
+	_, inj, a, logs := newAltGrScoped(t)
+	var all []Event
+	for _, c := range []struct {
+		mods      []string
+		code, key string
+	}{
+		{altGr, "KeyQ", "@"}, {altGr, "Digit3", "#"}, {altGr, "Digit7", "{"}, {altGr, "Digit0", "}"},
+		{altGr, "Digit8", "["}, {altGr, "Digit9", "]"}, {altGr, "Minus", "|"}, {altGr, "Equal", "~"},
+		{altGr, "KeyE", "€"}, {append([]string{"ShiftLeft"}, altGr...), "KeyE", "€"},
+	} {
+		downs := keyDowns(altGrPress(a, inj, &all, c.mods, c.code, c.key))
+		r := []rune(c.key)[0]
+		if len(downs) != 1 || downs[0].Flags != KeyUnicode || downs[0].VK != 0 || downs[0].Scan != uint16(r) {
+			t.Fatalf("%v + %s (%s): %+v", c.mods, c.code, c.key, downs)
+		}
+	}
+	if len(*logs) != 0 {
+		t.Fatalf("düşme olmamalı: %v", *logs)
+	}
+	var text int
+	for _, e := range newMacTranslator(nil, func() uint64 { return 0 }).translate(all) {
+		if e.text != nil {
+			text++
+			if e.flags != 0 || e.vk != 0 {
+				t.Fatalf("Unicode olayı bayraksız olmalı: %+v", e)
+			}
+		}
+	}
+	if text == 0 {
+		t.Fatal("çeviricide metin olayı yok")
+	}
+	if len(a.keys) != 0 {
+		t.Fatalf("basılı kalan: %v", a.keys)
+	}
+}
+
+// K5 AltGr kararı m.3: key yoksa, "Dead" ise ya da çok karakterliyse istisna yok → genel kural düşürür (VK yoluna
+// geçmez). Yazı tuşu olmayan tuşlar (Tab/Space/F5/ArrowLeft) AltGr ile, key metni ne olursa olsun düşer (uzun key
+// adları — "ArrowLeft" — zaten mesaj doğrulamasında reddedilir).
+func TestAC549MacAltGrWithoutCharacterDropped(t *testing.T) {
+	for _, c := range []struct{ code, key string }{
+		{"KeyQ", ""}, {"KeyQ", "Dead"}, {"KeyQ", "ab"}, {"Tab", "Tab"}, {"Space", " "}, {"F5", "F5"},
+		{"ArrowLeft", ""}, {"ArrowLeft", "@"}, {"Space", "@"}, {"Tab", "@"}, {"F5", "@"},
+	} {
+		t.Run(c.code+"/"+c.key, func(t *testing.T) {
+			_, inj, a, logs := newAltGrScoped(t)
+			var all []Event
+			if downs := keyDowns(altGrPress(a, inj, &all, altGr, c.code, c.key)); len(downs) != 0 {
+				t.Fatalf("iletildi: %+v", downs)
+			}
+			if len(*logs) == 0 || (*logs)[0] != DropShell {
+				t.Fatalf("%v", *logs)
+			}
+		})
+	}
+}
+
+// K5 AltGr kararı m.1–2, m.5: AltRight yoksa (AltLeft+ControlLeft), ek ⌃/AltLeft/ControlRight basılıysa, OS ⌃
+// basılıysa, altGrText kapalıysa ya da kabuk kilidi açıksa istisna yok.
+func TestAC549MacAltGrExtraModifiersDropped(t *testing.T) {
+	for _, c := range []struct {
+		name string
+		set  func(d *macDesk, a *Applier)
+		mods []string
+	}{
+		{"AltLeft+ControlLeft", nil, []string{"ControlLeft", "AltLeft"}},
+		{"+MetaLeft (⌃)", nil, []string{"ControlLeft", "AltRight", "MetaLeft"}},
+		{"+MetaRight (⌃)", nil, []string{"ControlLeft", "AltRight", "MetaRight"}},
+		{"+AltLeft", nil, []string{"ControlLeft", "AltRight", "AltLeft"}},
+		{"+ControlRight", nil, []string{"ControlLeft", "AltRight", "ControlRight"}},
+		{"OS ⌃", func(d *macDesk, _ *Applier) { d.osWin = true }, altGr},
+		{"altGrText kapalı", func(_ *macDesk, a *Applier) { a.SetAltGrText(false) }, altGr},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			d, inj, a, _ := newAltGrScoped(t)
+			if c.set != nil {
+				c.set(d, a)
+			}
+			var all []Event
+			if downs := keyDowns(altGrPress(a, inj, &all, c.mods, "KeyQ", "@")); len(downs) != 0 {
+				t.Fatalf("iletildi: %+v", downs)
+			}
+		})
+	}
+	t.Run("kilit açık", func(t *testing.T) {
+		_, inj, a, _ := newAltGrScoped(t)
+		play(a, inj, "+ControlLeft", "+AltRight", "+Tab", "-Tab") // AltGr dizisiyle Tab kilidi açar; ⌘⌥ basılı kalır
+		if !a.scopeLatch {
+			t.Fatal("kilit açılmalıydı")
+		}
+		a.Handle(kd("KeyQ", true, "@")) // istisna koşulları tam, ama kilit önce
+		if downs := keyDowns(inj.take()); len(downs) != 0 {
+			t.Fatalf("kilitliyken iletildi: %+v", downs)
+		}
+	})
+}
+
+// K5 AltGr kararı m.5: Yapışkan Tuşlar açıkken 5. madde tuşları (KeyQ tablo tuşu) ve Fare Tuşları açıkken karşılık
+// tuşları (KeyU, Digit7) istisnadan önce düşer; diğer karakter tuşları geçer.
+func TestAC549MacAltGrStickyAndMouseKeysFirst(t *testing.T) {
+	d, inj, a, _ := newAltGrScoped(t)
+	d.sticky, d.mouseKeys = true, true
+	var all []Event
+	for _, k := range []string{"KeyQ", "Digit3", "KeyU", "KeyI", "Digit7"} {
+		if downs := keyDowns(altGrPress(a, inj, &all, altGr, k, "@")); len(downs) != 0 {
+			t.Fatalf("%s iletildi (ayar açık): %+v", k, downs)
+		}
+	}
+	if downs := keyDowns(altGrPress(a, inj, &all, altGr, "Digit0", "}")); len(downs) != 1 || downs[0].Flags != KeyUnicode {
+		t.Fatalf("Digit0 } geçmeli: %+v", downs)
+	}
+}
+
+// K5 AltGr kararı m.4 (savunma derinliği): istisnayla geçen basma Unicode yoluna gitmezse enjekte edilmez. Burada
+// KeyQ önce tek ⌘ ile VK olarak basılır (⌘Q izinli); AltRight eklenince gelen otomatik tekrar istisna koşullarını
+// sağlar ama key() önceki yöntemi (VK) kullanacağı için düşer.
+func TestAC549MacAltGrRepeatOfVKKeyDropped(t *testing.T) {
+	_, inj, a, logs := newAltGrScoped(t)
 	a.Handle(kd("ControlLeft", true, ""))
+	a.Handle(kd("KeyQ", true, "q"))
+	if !hasVKDown(inj.take(), 'Q') {
+		t.Fatal("⌘Q VK olarak geçmeli")
+	}
 	a.Handle(kd("AltRight", true, ""))
 	inj.take()
-	a.Handle(kd("KeyQ", true, "@"))
-	for _, e := range inj.take() {
-		if !e.Mouse && e.Flags&KeyUp == 0 {
-			t.Fatalf("AltGr karakteri iletildi: %+v", e)
+	a.Handle(kd("KeyQ", true, "@")) // otomatik tekrar
+	if downs := keyDowns(inj.take()); len(downs) != 0 {
+		t.Fatalf("VK tekrarı iletildi: %+v", downs)
+	}
+	if len(*logs) == 0 || (*logs)[len(*logs)-1] != DropShell {
+		t.Fatalf("%v", *logs)
+	}
+}
+
+// S-P33-T-2 özellik testi (AltGr istisnasıyla): ControlLeft + AltRight her zaman basılı, üstüne rastgele ek
+// değiştirici, rastgele tuş ve key metni. Kâhin istisnayı politikadan bağımsız yazar: yalnız ek değiştirici ⇧'dan
+// ibaretse, tuş yazı tuşuysa ve metin tek yazdırılabilir karakterse tek bir Unicode olayı geçer; aksi halde hiçbir
+// basma iletilmez. Tuşun VK basması hiçbir durumda iletilmez.
+func TestAC549MacAltGrPropertyOracle(t *testing.T) {
+	r := rand.New(rand.NewPCG(549, 33))
+	var keys []string
+	for code := range codeMacVK {
+		if !macModifier(code) {
+			keys = append(keys, code)
 		}
+	}
+	slices.Sort(keys)
+	extras := []string{"ShiftLeft", "ShiftRight", "AltLeft", "MetaLeft", "MetaRight", "ControlRight", "CapsLock"}
+	texts := []string{"", "@", "€", "{", "Dead", "ab", " ", "ç"}
+	_, inj, a, _ := newAltGrScoped(t)
+	var all []Event
+	passed := 0
+	for range 2000 {
+		mods := append([]string(nil), altGr...)
+		onlyShift := true
+		for _, e := range extras {
+			if r.IntN(5) == 0 {
+				mods = append(mods, e)
+				onlyShift = onlyShift && (e == "ShiftLeft" || e == "ShiftRight")
+			}
+		}
+		code, text := keys[r.IntN(len(keys))], texts[r.IntN(len(texts))]
+		rs := []rune(text)
+		want := onlyShift && charKey(code) && len(rs) == 1 && rs[0] != ' '
+		downs := keyDowns(altGrPress(a, inj, &all, mods, code, text))
+		if hasVKDown(downs, codeVK[code].vk) {
+			t.Fatalf("%v + %s (%q): VK iletildi", mods, code, text)
+		}
+		switch {
+		case want && (len(downs) != 1 || downs[0].Flags != KeyUnicode || downs[0].Scan != uint16(rs[0])):
+			t.Fatalf("%v + %s (%q): geçmeliydi, %+v", mods, code, text, downs)
+		case !want && len(downs) != 0:
+			t.Fatalf("%v + %s (%q): düşmeliydi, %+v", mods, code, text, downs)
+		}
+		if want {
+			passed++
+		}
+	}
+	if passed == 0 {
+		t.Fatal("hiç geçen örnek yok (kâhin sınanmadı)")
 	}
 }
 

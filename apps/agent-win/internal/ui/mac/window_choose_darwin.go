@@ -5,7 +5,6 @@ package mac
 import (
 	"remote-support/agent-win/internal/capture"
 	"remote-support/agent-win/internal/darwin/objc"
-	"remote-support/agent-win/internal/flow"
 	"remote-support/agent-win/internal/signal"
 	"remote-support/agent-win/internal/ui/uicore"
 )
@@ -14,7 +13,8 @@ import (
 // monitörde altında monitör listesi) / "Yalnız bir pencere" (kaydırılabilir radyo listesi, "Listeyi yenile").
 // Pencere başlıkları yalnız bu ekranda görünür; ekran kapanınca liste bırakılır (AC-556). Paylaş yalnız yerel tıklama
 // ya da klavyeyle (VoiceOver/Tab) kabul edilir; sentetik/AX etkinleştirmesi yok sayılır (S-P28f-1 kalıbı). Renkler
-// AppKit semantik (iki tema), radyolar VoiceOver etiketi taşır.
+// AppKit semantik (iki tema), radyolar VoiceOver etiketi taşır. Karar mantığı (seçim, etkinlik, Paylaş sonucu)
+// window_choice.go'dadır (platformdan bağımsız, tablo testli); bu dosya yalnız çizer.
 
 const (
 	chooseW     = 520.0
@@ -26,13 +26,11 @@ type windowChooser struct {
 	u       *UI
 	f       *form
 	ch      chan<- shareResult
-	mons    []signal.Monitor
-	mon     int
-	window  bool    // "Yalnız bir pencere" seçili
-	sel     uintptr // seçili pencere
-	list    []capture.ShareWindow
+	st      windowChoice
+	list    []capture.ShareWindow // yalnız radyo etiketleri için (sıra st.list ile aynı)
 	scroll  objc.ID
 	monRads []objc.ID
+	monIDs  []int // monRads ile aynı sırada
 	full    objc.ID
 	one     objc.ID
 	empty   objc.ID
@@ -41,7 +39,11 @@ type windowChooser struct {
 
 func (u *UI) chooseWindow(mons []signal.Monitor, def int, ch chan<- shareResult) {
 	t := uicore.MacWindowTexts
-	c := &windowChooser{u: u, ch: ch, mons: mons, mon: def}
+	ids := make([]int, len(mons))
+	for i, m := range mons {
+		ids[i] = m.ID
+	}
+	c := &windowChooser{u: u, ch: ch, st: newWindowChoice(ids, def)}
 	monH := 0.0
 	if len(mons) > 1 {
 		monH = float64(len(mons)) * chooseRowH
@@ -55,25 +57,15 @@ func (u *UI) chooseWindow(mons []signal.Monitor, def int, ch chan<- shareResult)
 	y += 26
 	if monH > 0 { // monitör radyoları ayrı grup (ayrı üst görünüm)
 		box := c.box(32, y, chooseW-48, monH)
-		found := false
 		for i, m := range mons {
 			id := m.ID
 			r := c.in(box, func() objc.ID {
 				return f.radio(monitorLabel(m), 0, float64(i)*chooseRowH, chooseW-48, 22, func(s objc.ID) {
-					if c.accept(s) {
-						c.mon = id
-					}
+					c.st.pickMonitor(clickOf(s), id)
+					c.apply()
 				})
 			})
-			c.monRads = append(c.monRads, r)
-			if m.ID == def {
-				setChecked(r, true)
-				found = true
-			}
-		}
-		if !found {
-			c.mon = mons[0].ID
-			setChecked(c.monRads[0], true)
+			c.monRads, c.monIDs = append(c.monRads, r), append(c.monIDs, id)
 		}
 		y += monH
 	}
@@ -92,13 +84,13 @@ func (u *UI) chooseWindow(mons []signal.Monitor, def int, ch chan<- shareResult)
 	f.label(t.Hint, 16, y, chooseW-32, 36, fontNormal)
 	y += 40 + 24
 	f.button(t.Refresh, 16, y, 150, 32, func(s objc.ID) {
-		if c.accept(s) {
+		if accepted(clickOf(s)) {
 			c.fill()
 		}
 	})
 	c.share = f.button(t.Share, chooseW-200, y, 92, 32, func(s objc.ID) {
-		if c.accept(s) {
-			c.submit()
+		if sc, ok := c.st.submit(clickOf(s)); ok {
+			c.done(shareResult{sc, true})
 		}
 	})
 	setDefault(c.share)
@@ -108,9 +100,6 @@ func (u *UI) chooseWindow(mons []signal.Monitor, def int, ch chan<- shareResult)
 	c.apply()
 	f.show(c.full, false, 0)
 }
-
-// accept yalnız yerel fare tıklaması ya da klavye (Tab/Space, VoiceOver); sentetik etkinleştirme yok sayılır.
-func (c *windowChooser) accept(sender objc.ID) bool { return clickOf(sender) != clickInjected }
 
 // box radyo grubu için ayrı, çevrilmiş (y aşağı) kap görünüm.
 func (c *windowChooser) box(x, y, w, h float64) objc.ID {
@@ -128,12 +117,9 @@ func (c *windowChooser) in(v objc.ID, fn func() objc.ID) objc.ID {
 	return fn()
 }
 
+// setMode sentetik etkinleştirmede de apply çağrılır: görünen seçim Go durumuna geri döner.
 func (c *windowChooser) setMode(sender objc.ID, window bool) {
-	if !c.accept(sender) {
-		c.apply() // görünen seçim Go durumuna geri döner
-		return
-	}
-	c.window = window
+	c.st.setMode(clickOf(sender), window)
 	c.apply()
 }
 
@@ -144,55 +130,46 @@ func (c *windowChooser) fill() {
 		list = nil
 	}
 	c.list = list
-	keep := false
-	for _, w := range list {
-		keep = keep || w.ID == c.sel
+	ids := make([]uintptr, len(list))
+	for i, w := range list {
+		ids[i] = w.ID
 	}
-	if !keep {
-		c.sel = 0
-	}
+	c.st.setList(ids)
 	doc := c.box(0, 0, chooseW-66, max(chooseListH-4, float64(len(list))*chooseRowH))
 	doc.Send(objc.Sel("removeFromSuperview"))
 	for i, w := range list {
 		id := w.ID
 		r := c.in(doc, func() objc.ID {
 			return c.f.radio(w.Label, 4, float64(i)*chooseRowH+2, chooseW-74, 22, func(s objc.ID) {
-				if c.accept(s) {
-					c.sel = id
-				}
+				c.st.pickWindow(clickOf(s), id)
 				c.apply()
 			})
 		})
 		r.Send(objc.Sel("setAccessibilityLabel:"), nsstr(w.Label))
-		setChecked(r, id == c.sel)
 	}
 	c.scroll.Send(objc.Sel("setDocumentView:"), doc)
 	c.apply()
 }
 
-// apply denetimlerin etkinliği: pencere listesi yalnız "Yalnız bir pencere"de; boş liste iletisi; Paylaş seçim yoksa
-// pasif (AC-543).
+// apply windowChoice görünümünü denetimlere yansıtır (AC-543: Paylaş seçim yoksa pasif).
 func (c *windowChooser) apply() {
-	setChecked(c.full, !c.window)
-	setChecked(c.one, c.window)
-	for _, r := range c.monRads {
-		enable(r, !c.window)
+	v := c.st.view()
+	setChecked(c.full, v.FullChecked)
+	setChecked(c.one, v.OneChecked)
+	for i, r := range c.monRads {
+		enable(r, v.MonitorsEnabled)
+		setChecked(r, c.monIDs[i] == c.st.mon)
 	}
-	show(c.empty, c.window && len(c.list) == 0)
-	show(c.scroll, !c.window || len(c.list) > 0)
-	enable(c.scroll, c.window)
+	show(c.empty, v.ShowEmpty)
+	show(c.scroll, v.ShowList)
+	enable(c.scroll, v.ListEnabled)
 	if doc := c.scroll.Send(objc.Sel("documentView")); doc != 0 {
-		for _, sub := range subviews(doc) {
-			enable(sub, c.window)
-			setChecked(sub, false)
-		}
 		for i, sub := range subviews(doc) {
-			if i < len(c.list) && c.list[i].ID == c.sel {
-				setChecked(sub, true)
-			}
+			enable(sub, v.ListEnabled)
+			setChecked(sub, i < len(c.st.list) && c.st.list[i] == v.Checked && v.Checked != 0)
 		}
 	}
-	enable(c.share, !c.window || c.sel != 0)
+	enable(c.share, v.ShareEnabled)
 }
 
 func subviews(v objc.ID) []objc.ID {
@@ -203,17 +180,6 @@ func subviews(v objc.ID) []objc.ID {
 		out = append(out, arr.Send(objc.Sel("objectAtIndex:"), uint(i)))
 	}
 	return out
-}
-
-func (c *windowChooser) submit() {
-	if !c.window {
-		c.done(shareResult{flow.ShareChoice{Monitor: c.mon}, true})
-		return
-	}
-	if c.sel == 0 {
-		return
-	}
-	c.done(shareResult{flow.ShareChoice{Window: c.sel}, true})
 }
 
 func (c *windowChooser) done(r shareResult) {
