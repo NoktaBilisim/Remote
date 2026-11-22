@@ -1,3 +1,276 @@
+# Güvenlik Raporu — P33 — Tasarım turu (K0g; dal claude/p33-mac-ses-pencere, HEAD 2343f29, 2026-11-22)
+
+DURUM: DÜZELTİLMELİ (tasarım) — Kritik 0 / Yüksek 2 / Orta 3 / Düşük 5 / Bilgi 2
+
+Kapsam: `docs/gereksinimler-p33.md` (AC-534..558), `docs/mimari-p33.md` r1, ADR-0043 r1, `docs/tasarim-kontrol.md` "P33".
+Referans: mimari-p28d (Y-PD-2), mimari-p28f §5.2a/§5.2b/§5.3, mimari-e11 §8.1 (AC-248). Okunan kod: `internal/voice/opus.go`
+(`admit`, `decode`, `maxPanics`), `internal/voice/voice.go` (talker kapısı), `internal/input/{scope.go,scope_keys.go,keys_mac.go,
+localclick.go,click_darwin.go,access_darwin.go}`, `internal/flow/{session_media.go,control.go}`, `cmd/noktadestek/deps.go`,
+`build/macos/entitlements.plist`, `apps/server/src/signaling/handlers.ts:355-367`, web `machine.ts:236`, `stage-strip.tsx:60,119`.
+
+**Sonuç.** Tasarımın büyük kısmı sağlam: sözleşme değişmiyor, JIT/W^X yüzeyi kalkıyor, entitlement kümesi tam eşleşmeyle
+dar, girdi kapsamı ortak fail-closed motoru kullanıyor, mikrofon rızası mevcut `localClick` kuralına bağlı. İki Yüksek bulgu
+var. (1) G-P33-1: önerilen azaltımlar, süreç içi kapalı kaynak yerel çözücünün **kod çalıştırma** riskini kapatmıyor; R1–R7
+yalnız çerçeveleme denetimidir, çözücü hataları yükün içindedir. (2) G-P33-2: Mac kısayol tablosu kapalı liste olarak
+eksik; ⇧⌘Q / ⌥⇧⌘Q (oturumu kapat) gibi pencere dışına çıkan kısayollar iletiliyor. İkisinin düzeltmesi de tasarım metnidir;
+r2'de işlenirse K1/K2 kodlamasına geçilebilir (kısa tur 2 yeterli).
+
+## Sorulara yanıt
+
+| #       | Soru                                                    | Hüküm                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
+| ------- | ------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| G-P33-1 | Sandbox'sız Apple Opus çözücüsü; azaltımlar yeterli mi  | **Hayır, olduğu gibi yeterli değil** (S-P33-T-1, Yüksek). Talker kapısı ve boyut/hız sınırı saldırganı daraltır ama yük içeriğine dokunmaz; R1–R7 çözücünün SILK/CELT ayrıştırıcısına giden baytları denetlemez; kapalı kaynak çözücüde 30 dk mutasyon fuzz'ı zayıf kanıttır; "3 tuzakta eş düşer" yerel kodda geçersizdir (bellek hatası süreci öldürür ya da sessizce istismar edilir). Kabul yolu: **süreç dışı, sandbox'lı çözücü yardımcısı** (önerilen) ya da kullanıcı risk kabulü + sertleştirme listesi. (b′)'ye dönmek gerekmez. |
+| G-P33-2 | Mac kısayol tablosu eksiksiz mi                         | **Hayır** (S-P33-T-2, Yüksek). Eksikler: ⇧⌘Q, ⌥⇧⌘Q, ⌃⌘Space, ⌃⌘F, ⌃F1, ⌘⇧6, ⌘F5/⌥⌘F5, ⌥ ×5; açık küme: Hizmetler kısayolları, üçüncü taraf genel kısayollar (Raycast/Alfred ⌥Space, 1Password ⇧⌘Space, Rectangle ⌃⌥ok), kullanıcının değiştirdiği sistem kısayolları. Kapalı liste yerine **genel kural + liste** gerekir.                                                                                                                                                                                                                 |
+| G-P33-3 | "Aynı PID'li bağlı pencere" kabulü                      | **Koşullu** (S-P33-T-3, Orta). Katman ≠ 0 kuralı kabul (nokta zaten hedef dikdörtgenine kırpılıyor). "Hedef sınırları içinde kalan katman-0 sayfa" kuralı tarayıcıda yanlış pozitif üretir: aynı süreçteki başka normal pencere (`window.open` açılır penceresi, hedefin içine taşınmış ikinci pencere) görünmeden tıklanır. Mac'te kontrol zaten Erişilebilirlik izni gerektirdiği için sayfa tanımı AX ile kesin yapılmalı (`AXSheet` + `AXParent`/`AXWindow` = hedef); AX okunamazsa katman-0 aynı PID düşer.                           |
+| G-P33-4 | Erişilebilirlik ayarı okunamazsa fail-closed            | **Kabul, ama koşulsuz olmalı** (S-P33-T-5, Orta). §6.4 kuralı K0s-W3 sonucuna bağlı ("yansıtıyorsa ek kural yok"); bu iki durumlu dal gereksiz. Okunamazsa `stickyKey` ve `mouseDriver` "açık" sayılır (bugünkü `MouseKeysOn` kalıbı, `access_darwin.go`). Ayrıca Shift ×5 ve Option ×5 ardışık basma kuralı ayardan bağımsız her zaman uygulanır.                                                                                                                                                                                         |
+| G-P33-5 | `"WGC"` değerinin Mac'te yeniden kullanımı yanıltıcı mı | **Hayır, kabul** (Bilgi B-1). Sunucu `method`'u yalnız aktarıyor ve `room.share` anlık görüntüsünde tutuyor (`handlers.ts:355-367`); audit satırına ve metriğe yazılmıyor. Konsol yalnız rozet/monitör temizliği için kullanıyor (`machine.ts:236`, `stage-strip.tsx:60`). Konsolda platform `session.join{os}` ile zaten belli. Etiket nötrleşince yanıltıcı metin kalmıyor. Koşul: ileride `method` audit/metriğe girerse `clientOs` ile birlikte yazılır (ADR-0043 m.7'ye bir cümle).                                                   |
+
+## Bulgular (öncelik sırasıyla)
+
+### [YÜKSEK] S-P33-T-1 Güvenilmeyen Opus yükü, Ekran Kaydı + Erişilebilirlik + Mikrofon izinli süreçte sandbox'sız yerel çözücüye gidiyor — A04 Güvensiz Tasarım / A08
+
+Yer: `docs/mimari-p33.md` K-P33-1, §2.1 "Kabul edilen bedel", §5.1 T2, R-P33-11; ADR-0043 m.1. Bugünkü savunma:
+`internal/voice/opus.go:1-6` (wasm sandbox, Y-PD-2), `opus.go:425-474` (`admit` → `decode`, `guard`/`recover`, `maxPanics`).
+
+Sorun:
+
+1. Windows/Linux'ta Y-PD-2'nin birincil savunması sandbox'tır: bozuk paket en kötü wasm tuzağıdır. Mac'te aynı paket süreç
+   içi kapalı kaynak AudioConverter koduna gider. Bu süreç Ekran Kaydı, Erişilebilirlik (girdi enjeksiyonu) ve artık Mikrofon
+   TCC izinlerini taşır ve uygulama sandbox'ı yoktur (kullanıcı haklarıyla dosya yazabilir, LaunchAgent kurabilir).
+2. R1–R7 (RFC 6716 §3.4) yalnız TOC/çerçeve sayısı/uzunluk tutarlılığını denetler. Çözücü hataları entropi kodlu SILK/CELT
+   yükünün işlenmesindedir; doğrulayıcıdan geçen her geçerli çerçeveli paket bu koda ulaşır.
+3. `guard`/`recover` ve "3 tuzakta eş düşer" yerel kodda işlemez: purego üzerinden C kodundaki bellek hatası Go'da
+   yakalanamaz (süreç SIGSEGV ile ölür) ya da hiç belirti vermeden istismar edilir. Bu sayaç Mac'te yanlış güvence verir.
+4. "Çözücü OS ile yamalanır" azaltımı macOS 13'te geçersiz (Apple güvenlik güncellemesi almıyor; ürün 13+ destekliyor) ve
+   ad-hoc kullanıcı tabanında güncelleme gecikmesi beklenir.
+5. Apple ses çözücüleri gerçek bir saldırı yüzeyidir: CoreAudio'da AudioConverter yolunda bellek bozulması (CVE-2025-31200,
+   Nisan 2025, sahada istismar edildi) bunun örneğidir.
+
+İstismar senaryosu: Kötü niyetli ya da hesabı ele geçirilmiş bir teknisyen (veya imzalama sinyalini değiştiren ele geçirilmiş
+sunucu; DTLS parmak izi WS üzerinden gelir) müşteri yalnız **sesi** kabul ettiğinde, kontrol izni vermeden, özel hazırlanmış
+Opus paketleriyle çözücüdeki bir açığı tetikler. Kod Nokta Destek sürecinde ve onun TCC izinleriyle çalışır: gösterge ve
+rıza kapılarını atlayarak ekranı/mikrofonu dinler, oturum bittikten sonra kalıcılık kurar. Windows'ta aynı saldırı wasm
+tuzağında biter.
+
+Düzeltme (mimar → ADR-0043 r2; backend-dev K1):
+
+- **Önerilen (A): süreç dışı sandbox'lı çözücü yardımcısı.** Aynı ikili `--opus-cozucu` kipinde alt süreç olarak başlar,
+  ilk iş `sandbox_init` (ya da `sandbox_init_with_parameters`, purego) ile her şeyi reddeden profile girer (ağ, dosya yazma,
+  `mach-lookup` yok; yalnız AudioToolbox'ın çözme için gerektirdiği en az izin — K0s-A1 belirler). Hiçbir aygıt açmaz,
+  TCC'li servise erişemez. Ana süreçle stdin/stdout borusu: çerçeve = uzunluk + paket → 960 Int16. Konuşan başına ya da
+  görüşme başına tek yardımcı; çökme = `ErrCodecPanic` sayılır, yeniden başlatılır, 3'te eş düşer (`maxPanics` anlamını
+  geri kazanır). Kodlayıcı yerel kalabilir (girdi kendi mikrofonumuz). Maliyet: 50 paket/sn/konuşan boru trafiği,
+  CPU bütçesine etkisi ihmal edilebilir; K0s-A1'e ölçüt eklenir (gidiş-dönüş p95 ≤ 2 ms korunur).
+- **Asgari (B), yalnız kullanıcı risk kabulüyle (R-P33-11 "Yüksek" olarak kayda):** yardımcı yapılmazsa: (i) doğrulayıcı
+  Chrome profiline daraltılır: yalnız 20 ms yapılandırmalar, kod 0 (tek çerçeve) — K0s-A1 Chrome yakalamasında kod 1/2/3
+  görülürse yalnız görüleni ekle —, paket ≤ 400 bayt (32–64 kbit/s'de 20 ms ≈ 80–160 bayt); (ii) macOS 13'te ve Apple'ın
+  güvenlik desteğindeki son iki sürüm dışında `voice.Supported()` = false; (iii) Mac'te `maxPanics` sayacı yerine "ilk
+  çözme hatasında eş düşer"; (iv) fuzz süresi 30 dk değil ≥ 4 saat, libFuzzer tarzı yapı farkında mutasyon (SILK/CELT
+  alanları), macos-14 ve macos-15 matrisinde.
+- Her iki yolda: §5.1 T2 ve ADR "Sonuçlar" metni "geçersiz paket yerel koda hiç girmez" yerine "çerçevesi geçersiz paket
+  girmez; yük içeriği çözücüye ulaşır" olarak düzeltilir.
+
+### [YÜKSEK] S-P33-T-2 Mac kısayol tablosu kapalı liste ve eksik: oturumu kapatma, karakter görüntüleyici, üçüncü taraf genel kısayollar pencere dışına çıkıyor — A01 Erişim Denetimi / A04
+
+Yer: `docs/mimari-p33.md` §6.4 "Mac kısayol tablosu", K-P33-9; AC-549; mevcut motor `internal/input/scope_keys.go:51-108`.
+Eşleme `keys_mac.go:55-57` (Ctrl→⌘, Win→⌃, Alt→⌥); tablo dışı DOM kodu zaten düşer (`codeMacVK`), bu yüzden Fn/Globe,
+`LaunchApp*`, `PrintScreen`, F13+ kendiliğinden enjekte edilemez (olumlu).
+
+Sorun: Windows'ta Win tuşu ve Win basılıyken her tuş tümden düşer; kabuk yüzeyinin çoğu tek değiştiriciyle kapanır. Mac'te
+sistem ve uygulama kısayolları aynı ⌘/⌥/⌃ uzayını paylaşır; tablo tek tek kalemle yazılmış ve şunları kaçırıyor:
+
+- ⇧⌘Q (Apple menüsü "Çıkış Yap") ve ⌥⇧⌘Q (onaysız çıkış): her uygulamanın menü çubuğunda Apple menüsü vardır, enjekte edilen
+  tuş paylaşılan pencereye gittiğinde bütün oturum kapanır, müşterinin diğer programları kapanır.
+- ⌃⌘Space (Karakter Görüntüleyici; sistem paneli), ⌃⌘F (tam ekran; pencere ayrı Space'e geçer), ⌃F1 (Tam Klavye Erişimi
+  aç/kapa), ⌘⇧6, ⌘F5 / ⌥⌘F5 (VoiceOver / Erişilebilirlik kısayolları paneli), ⌥ ×5 (Fare Tuşları aç/kapa). mimari-p28f §5.2a
+  bunların "hiçbir durumda enjekte edilmediğini" söylüyor ama §6.4 tablosu buna atıf yapmıyor.
+- Açık küme: Hizmetler menüsü kısayolları (seçili metni başka uygulamaya taşır), üçüncü taraf genel kısayollar ve kullanıcının
+  Sistem Ayarları'nda değiştirdiği kısayollar (`com.apple.symbolichotkeys`). Kapalı liste bunları hiçbir zaman kapatamaz
+  (R-P33-5 kabul ediyor).
+
+İstismar senaryosu: Teknisyen pencere modunda Ctrl+Shift+Q (eşlemeyle ⇧⌘Q) ya da Ctrl+Alt+Shift+Q basar; Mac oturumu kapanır
+(müşterinin kaydedilmemiş işi, diğer uygulamalar). Ctrl+Win+Space ile Karakter Görüntüleyici paneli açılır. Müşterinin
+kurduğu Raycast/Alfred ⌥Space ile başlatıcıyı açıp program çalıştırmayı dener (ön plan denetimi sonraki tuşları düşürür ama
+kısayolun kendisi iletilmiştir; tek tuşlu eylemler bunun için yeterlidir). Pencere modunun vaadi ("kontrol yalnız o
+pencerede") bozulur.
+
+Düzeltme (mimar §6.4 + AC-549 metni; backend-dev K2 `macShortcuts`):
+
+1. **Genel kural (tablodan önce):** pencere modunda, eşleme sonrası şu tuş basmaları düşer ve kilit açılır:
+   - {⌘, ⌥, ⌃} kümesinden **iki ya da daha fazlası** basılıyken her değiştirici olmayan tuş (⇧ sayılmaz). Bu ⌃⌘Q, ⌥⌘Esc,
+     ⌥⌘Space, ⌃⌘Space, ⌃⌘F, ⌥⌘D/H/M, ⌥⇧⌘Q, ⌃⌥ ok tuşlarını tek kuralda kapatır.
+   - ⌃ ile ok tuşları, Space, F1–F12, Tab, Esc; ⌥ ile Space; ⌘ ile Space, Tab, \`, F1–F12.
+   - ⇧⌘Q, ⇧⌘3/4/5/6.
+   - Değiştiricisiz F3, F4, F11 (bugünkü kalem) ve tüm F tuşlarının ⌘/⌃ ile basması.
+2. **İletilen beyaz liste açıkça yazılır:** tek ⌘ (+ isteğe bağlı ⇧) ile harf/rakam/noktalama; ⌘Q ve ⌘W iletilir. ⇧⌘ +
+   harf uygulama kısayollarında yaygındır (⇧⌘Z, ⇧⌘S); Hizmetler kalıntı riski kılavuza ve R-P33-5'e yazılır.
+3. Erişilebilirlik kısayolları (⌘F5, ⌥⌘F5, ⌥ ×5, ⇧ ×5, fn ×3) §6.4'e açıkça girer ve ayardan bağımsız düşer.
+4. İsteğe bağlı genişleme (K0s-W3'e ölçüt): `com.apple.symbolichotkeys` CFPreferences ile okunur, etkin sistem kısayolları
+   dinamik olarak düşer; okunamazsa yalnız 1. madde geçerli (o zaten fail-closed).
+5. Tablo testi: her kalem için Linux CI'da birer satır; ⇧⌘Q, ⌥⇧⌘Q, ⌃⌘Space, ⌃⌘F, ⌃F1 ve "iki değiştirici + rastgele harf"
+   özellik testi.
+
+### [ORTA] S-P33-T-3 Aynı PID kuralı tarayıcıdaki başka pencereyi kabul ediyor; klavye ön plan tanımı belirsiz — A01
+
+Yer: `docs/mimari-p33.md` §6.4 `Owner`, `ForegroundRoot` satırları, R-P33-14; motor `scope.go:131-163` (`acceptsRoot`),
+`scope_keys.go:30-33` (`ForegroundRoot() != hwnd` → düşer).
+
+Sorun:
+
+- `Owner`: "aynı PID ve hedef sınırları içinde kalan katman-0 pencere" kabul ediliyor. Chrome/Safari'de bütün pencereler aynı
+  süreçtir. Hedefin içine konmuş ikinci normal pencere ya da paylaşılan sayfanın `window.open` ile açtığı küçük açılır pencere
+  tıklamayı alır. SCK masaüstünden bağımsız pencere filtresi o pencereyi göstermez; teknisyen görmediği bir pencereye kör
+  tıklar (müşterinin başka sekmesi, e-postası).
+- `ForegroundRoot` "ön uygulamanın listedeki ilk katman-0 penceresi" ve motor katı eşitlik istiyor. Sayfa (sheet) açıkken
+  ilk katman-0 pencere sayfanın kendisi olabilir; o zaman AC-548'in "bağlı sayfaya klavye" vaadi çalışmaz. Eğer uygulama
+  bunu `Owner` ile hedefe eşlerse, yukarıdaki yanlış pozitif klavyeye de taşınır. `NSWorkspace.frontmostApplication` ana iş
+  parçacığında bildirimle güncellenir; girdi goroutine'inden okununca bayat olabilir.
+
+İstismar senaryosu: Müşteri tarayıcıda bir web uygulamasını paylaşır. Teknisyen paylaşılan sayfada `window.open(...,
+"width=400,height=300,left=…,top=…")` çağıran bir bağlantıya tıklar (ya da ⌘N sonrası pencere hedefin içine düşer); açılır
+pencere hedef dikdörtgeninin içindedir, görüntüye girmez ama fare olayları ona gider.
+
+Düzeltme (mimar §6.4; backend-dev K2):
+
+- Kontrol Mac'te zaten Erişilebilirlik izni gerektiriyor (V-P33-A3). `Owner` katman-0 için **AX ile kesin** karar verir:
+  pencere `AXRole = AXSheet` ve `AXParent`/`AXWindow` = hedef pencere (hedef `CGWindowID` ↔ AX eşlemesi `_AXUIElementGetWindow`
+  yerine çerçeve + PID + başlık karşılaştırmasıyla, belirsizse ret). AX sorgusu başarısızsa aynı PID'li katman-0 pencere
+  **düşer**. Katman ≠ 0 (menü 101, açılır panel) kuralı aynen kalır (nokta hedef dikdörtgenine kırpılıyor).
+- `ForegroundRoot` = ön uygulamanın `AXFocusedWindow`'u; hedef ya da hedefin AX sayfasıysa hedef döner, değilse 0. Ön uygulama
+  `AXUIElementCreateSystemWide` → `AXFocusedApplication` ile o anda okunur (`NSWorkspace` önbelleği kullanılmaz).
+- Testler: sahte `WindowAPI` ile "aynı PID, katman 0, hedef içinde, sayfa değil → düşer" ve "AX hatası → düşer".
+
+### [ORTA] S-P33-T-4 Ses yoklaması ve TCC istemi sırası: mikrofon istemi ya da mikrofon açılışı rıza dışından tetiklenebilir — A04
+
+Yer: `docs/mimari-p33.md` K-P33-3, K-P33-11 (`supported_darwin.go`), §6.5; AC-537.
+
+Sorun: (1) K-P33-11 "1 çerçeve gidiş-dönüş öz-testi" yalnız AudioConverter'ı kapsamalı; tasarım bunu açıkça yazmıyor. Yoklamada
+giriş AudioQueue'su açılırsa (ya da `AVCaptureDevice requestAccess…` çağrılırsa) uygulama açılışında rıza olmadan mikrofon
+istemi çıkar/mikrofon kısa süre açılır (turuncu nokta). (2) "Kabul" sonrası sistem Mikrofon istemi açıkken enjeksiyonun
+duraklayıp duraklamadığı yazılmamış; S-P28f-1 duraklatması yalnız bizim diyaloğumuzu kapsıyor. Apple TCC istemlerinde sentetik
+tıklamayı engelliyor görünse de bu belgelenmiş bir garanti değil; müşterinin ikinci "Reddet" şansı teknisyen girdisine açık
+kalmamalı.
+
+Düzeltme: K-P33-11'e "yoklama yalnız AudioConverter kurar ve sahte PCM ile kodla/çöz yapar; hiçbir AudioQueue (giriş/çıkış)
+açmaz, AVCaptureDevice çağırmaz" cümlesi + darwin testi (yoklama sonrası `authorizationStatus` notDetermined kalır).
+§6.5'e: `requestAccess` tamamlanma bloğu dönene dek (≤ 60 sn) enjektör kapısı "duraklat" durumundadır. K4 elle senaryosu:
+TCC istemine uzaktan tıklama → etkisiz.
+
+### [ORTA] S-P33-T-5 Erişilebilirlik ayarı kuralı K0s sonucuna bağlı iki dallı; fail-closed koşulsuz olmalı — A04
+
+Yer: `docs/mimari-p33.md` §6.4 son paragraf, `Accessibility` satırı; mevcut `internal/input/access_darwin.go` (`MouseKeysOn`,
+okunamazsa açık).
+
+Sorun: "Ayar okunamazsa ve K0s-W3 `CGEventSourceFlagsState`'in kilitli değiştiriciyi yansıttığını gösterirse ek kural yok"
+dalı fail-closed'u bir ölçüm sonucuna bağlıyor; ölçüm tek macOS sürümünde yapılacak. Ayrıca Mac'te "tek başına değiştirici
+basması düşer" ifadesi basma anında bilinemez (sonra harf gelip gelmeyeceği belli değil); uygulayıcı ya bütün değiştiricileri
+düşürür (büyük harf yazılamaz) ya da kuralı gevşetir.
+
+Düzeltme: (1) `stickyKey` okunamazsa açık sayılır; dal kaldırılır. (2) Yapışkan Tuşlar açıkken kural Windows'taki gibi
+somutlaştırılır: Tab, Esc, Space ve S-P33-T-2 madde 1'deki tuşlar değiştiricisiz basmada da düşer; ⇧ ×5 ve ⌥ ×5 dizileri
+her zaman düşer (`stickyShiftRun` kalıbı Option için de). (3) Fare Tuşları kuralı aynen (`Numpad*`, `NumLock`→`KeypadClear`).
+
+### [DÜŞÜK] S-P33-T-6 Ses çubuğu gizlenemezlik kuralı ve fail-closed bağı yazılmamış — A04
+
+Yer: `docs/mimari-p33.md` §6.5, AC-535; mimari-p28f §5.2b yalnız kontrol göstergesini kapı kapatmaya bağlıyor.
+
+Sorun: macOS'un turuncu mikrofon noktası işletim sistemince zorlanır (olumlu), ama bizim "Mikrofon açık / Dinleyen: …" çubuğu
+için §5.2b kuralları (`canHide=NO`, küçültülemez, 1 sn tik) açıkça yazılmamış. Dinleyen eklenme bildirimi (V-PD-3) bu çubukta.
+
+Düzeltme: §6.5'e: ses çubuğu §5.2b penceresi kurallarıyla açılır; 3 tikte görünür kılınamazsa görüşme `voice.end{device}` ile
+biter (mikrofon kapanır). K4 senaryosu ⌘H/⌥⌘H/⌘M ses açıkken.
+
+### [DÜŞÜK] S-P33-T-7 TCC rehberi: komut ve liste yönergeleri sınırlanmalı — A04 / sosyal mühendislik
+
+Yer: AC-555, AC-556, §5.1 T11, OKUBENI/kılavuz (K3/K7).
+
+Sorun: Ad-hoc imzada Sistem Ayarları listesinde birden çok "Nokta Destek" satırı görünebilir; aynı adı taşıyan başka bir
+uygulama da listeye girebilir. Rehber "listedeki Nokta Destek'i açın" derse müşteri yanlış satıra mikrofon verebilir.
+`tccutil reset Microphone` paket kimliksiz yazılırsa bütün uygulamaların mikrofon izni sıfırlanır.
+
+Düzeltme: Rehber ve kılavuzda yalnız paket kimlikli komut (`tccutil reset Microphone net.noktabilisim.destek`; değer
+`Info.plist` `CFBundleIdentifier` ile CI'da karşılaştırılır); `sudo`, `tccutil reset All`, SIP kapatma, `TCC.db` düzenleme
+**asla** önerilmez. "Eski kaydı − ile kaldırın, ardından uygulamayı yeniden açın; sistemin sorduğu istemde İzin Ver'e basın"
+akışı tercih edilir (listede elle açma yerine istem). Kılavuza: "Yalnız Nokta Destek'in açıkken istediği izni verin."
+
+### [DÜŞÜK] S-P33-T-8 Pencere başlığı sızma yüzeyleri testte tam sayılmamış — A09 / KVKK
+
+Yer: §5.1 T6, §6.2, AC-543.
+
+Sorun: Test "log yakalayıcı + ağ fikstürü" diyor. Başka yollar: çökme/panik iletileri (`fmt.Errorf` içine `SCWindow` açıklaması),
+`ses_ozet`/`input_dropped` dışındaki tanılama satırları, VoiceOver etiketleri (yerel, sorun değil), pano. `-description`
+çıktısı başlığı içerir.
+
+Düzeltme: §6.2'ye: `SCWindow`/`NSRunningApplication` nesneleri hiçbir hata/log biçimlendirmesine verilmez; yalnız sayılar.
+Go birim testi: sahte başlık "GIZLI-BASLIK-123" ile seçim + yakalama + kapanış akışında tüm tanılama çıktısı ve WS çerçeveleri
+taranır. `trace-check-mac.sh` aynı dizgiyi `~/Library` ve `$TMPDIR`'de arar.
+
+### [DÜŞÜK] S-P33-T-9 Görünmez/kapalı geçişinde son gerçek kare ve 250 ms aralığı — A04
+
+Yer: K-P33-5, §6.3 m.2.
+
+Sorun: Girdi denetimi olay başına CG sorgusuyla yapıldığı için girdi tarafı sıkı (olumlu). Görüntü tarafında 250 ms yoklama
+arasında SCK'nın küçültme animasyonu ya da başka Space'e geçiş anında ürettiği kare kodlanabilir; ayrıca durağan ekranda
+`idleKeepAlive` son kareyi yeniden gönderebilir (PR #40'taki sınıf). İçerik aynı pencereye ait olduğu için gizlilik etkisi
+düşük; ama "siyah kare" vaadi keep-alive yoluyla delinmemeli.
+
+Düzeltme: görünmez durumuna geçişte `p.cur` siyah plakayla değiştirilir (keep-alive ve PLI/IDR eski kareyi göndermez) —
+PR #40 `p.cur = nil` kalıbı; `WINDOW_CLOSED`'da akış ve kare yuvası hemen bırakılır. Go birim testi.
+
+### [DÜŞÜK] S-P33-T-10 Sahte Mac misafiri ve `rs.cap.voice1` — yetenek bildirimi güven sınırı değildir — A04
+
+Yer: AC-541, §4.1.
+
+Sorun: Sunucu `hasVoice`'u yeteneğe bağlıyor; misafir istediği yeteneği bildirebilir. Bu P28d'de de böyleydi; ses yalnız
+teknisyen istediğinde ve misafir kabul ettiğinde akar, ek yetki vermez. Kayıt için not: yetenek bildirimi hiçbir yetki
+kararında kullanılmamalı (bugün kullanılmıyor).
+
+Düzeltme: Yok (bilgi düzeyinde kabul); sunucu birim testine "yetenek bildirimi `sessions.voice` kontrolünü değiştirmez" satırı.
+
+### [BİLGİ] B-1 `"WGC"` yeniden kullanımı — G-P33-5 cevabı; bulgu yok.
+
+### [BİLGİ] B-2 Entitlement ve hardened runtime
+
+`{com.apple.security.device.audio-input}` tam eşleşmesi, `allow-jit`/`allow-unsigned-executable-memory`/`disable-library-validation`
+yokluğu ve `--options runtime` denetimi doğru. S-P33-T-1 (A) yolu seçilirse yardımcı alt süreç aynı ikili ve aynı imzayla
+çalışır; ek entitlement gerekmez (`sandbox_init` entitlement istemez). K3: `codesign -d --entitlements :-` çıktısı tam eşleşme
+
+- `Info.plist`'te `NSCameraUsageDescription` olmadığı denetimi.
+
+## Sorulan ek konular — kısa hüküm
+
+| Konu                                    | Hüküm                                                                                                                                                         |
+| --------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Mikrofon izni yalnız gerçek tıklamayla  | Kabul (mevcut `localClick` beyaz listesi `localclick.go:73-87`); TCC istemi sırasında duraklatma eklenmeli (S-P33-T-4)                                        |
+| Mikrofon göstergesi / gizlenemezlik     | OS turuncu noktası zorunlu (olumlu); ses çubuğu için §5.2b + fail-closed (S-P33-T-6)                                                                          |
+| Pencere başlıkları sunucuya/loga gitmez | Tasarım doğru; test yüzeyi genişletilmeli (S-P33-T-8)                                                                                                         |
+| Siyah kare / girdi düşürme              | Girdi olay başına CG sorgusuyla fail-closed (olumlu); kare tarafı keep-alive kuralı (S-P33-T-9)                                                               |
+| Entitlement kümesi                      | Kabul (B-2)                                                                                                                                                   |
+| TCC rehberi / `tccutil`                 | Yalnız paket kimlikli komut; tehlikeli öneri yasağı (S-P33-T-7)                                                                                               |
+| Ses saklanmaması                        | Kabul: istemci PCM'i yalnız bellekte, kayıt yalnız video (AC-540); S-P33-T-1 (A) yardımcısı da diske yazmaz (sandbox profili yazmayı reddeder)                |
+| DoS                                     | Kabul edilebilir: 100 paket/sn, 1275 bayt, ≤ 3 konuşan, tuş kovası 40/sn mevcut. Yerel çözücü çökmesi tüm oturumu düşürür — (A) yolunda yalnız yardımcı düşer |
+
+## Otomatik tarama çıktıları
+
+Tasarım turu; yeni bağımlılık yok (AudioToolbox/AVFoundation sistem çerçevesi), `go.mod`/`package.json` değişmedi. Bağımlılık
+ve gizli bilgi taramaları K5 kod turunda koşulacak.
+
+## Tasarımda vaat edilip kodda bulunmayanlar (K5'te doğrulanacak; bugün beklenen durum)
+
+- `opus_darwin.go`, `opuspkt.go`, `audio_darwin.go`, `supported_darwin.go`, `macperm/mic_darwin.go`, `capture/window_darwin.go`,
+  `input/window_darwin.go`, `shortcuts_mac.go` henüz yok (beklenen).
+- `build/macos/entitlements.plist` bugün boş `<dict/>` (ADR-0037 m.6); K3'te `device.audio-input` eklenecek.
+- CI `go list -deps | grep wazero = 0` darwin denetimi henüz yok.
+
+## Olumlu
+
+- Sözleşme değişmiyor (`share.state` `strictObject` riski yok); sunucu `method`'u yalnız aktarıyor, audit'e yazmıyor.
+- JIT/W^X yüzeyi tamamen kalkıyor; `allow-unsigned-executable-memory` reddi ölçümle gerekçelendirilmiş.
+- Girdi kapsamı ortak motorda; Mac'e kopya motor yazılmıyor; tablo dışı DOM kodu zaten düşüyor (`codeMacVK` beyaz listesi).
+- Pencere durumu her girdi olayında taze sorgulanıyor (TOCTOU küçük); pencere kapanınca tüm ekrana sessiz geçiş yok (AC-546).
+- Mikrofon izni yokken davranış tek kural (görüşme `device` ile biter); istem AudioQueue'nun örtük istemine bırakılmıyor.
+- `objc.Allowed` mutlak sistem çerçevesi yolu kuralı genişletilmiyor (T9).
+
 # Güvenlik — AC-392 geç pencere düzeltmesi (PR #40)
 
 Dal `fix-late-window-flake`, HEAD 58404a4, 2026-11-20. Kapsam: `git diff origin/main...HEAD -- apps/agent-win`
