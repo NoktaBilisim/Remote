@@ -1,3 +1,155 @@
+# Güvenlik Raporu — P33 — Kod turu (K5; dal claude/p33-mac-ses-pencere, HEAD 01f764f, 2026-11-23)
+
+DURUM: GEÇTİ (Kritik 0 / Yüksek 0 / Orta 0 / Düşük 3 / Bilgi 4). AltGr istisnası aşağıdaki koşullarla **güvenli
+uygulanabilir** (karar §AltGr). Düşük bulgular `docs/gereksinimler.md` §9'a "Sonra" olarak önerilir; K-1 prod öncesi
+kapatılırsa iyi olur.
+
+Kapsam: `git diff main...HEAD` içinde `internal/darwin/{sandbox,helpermode,cgwin}`, `internal/voice/{opushelper_darwin,
+opuspkt,opus_darwin,supported_darwin}.go`, `cmd/noktadestek/{main,opushelper,voice}_darwin.go`, `internal/macperm/mic_darwin.go`,
+`internal/input/{shortcuts,shortcuts_mac,window_mac,window_darwin,keys,keys_mac,inject_mac,cgevent_darwin,scope_keys}.go`,
+`internal/capture/{window_darwin,macwindow}.go`, `build/macos/entitlements.plist`, `.github/workflows/agent-win.yml`.
+
+### Tasarım turu bulgularının kodda doğrulanması
+
+| Bulgu                                 | Kodda                                                                                                                                                                                                                                                                                                                                                                                                                                                         | Hüküm                |
+| ------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------- |
+| S-P33-T-1 (sandbox'lı çözücü)         | `opushelper_darwin.go:75-93`: çözücüler ısıtılır → `sandbox.Enter` → `SelfTest` → hazır baytı → döngü; ana süreç çözücüyü hiç kurmaz (`opus_darwin.go:60-73`)                                                                                                                                                                                                                                                                                                 | Kapandı              |
+| S-P33-T2-1 (file-read daraltma)       | `sandbox_darwin.go:24` profil yalnız `(version 1)(deny default)` — m.3 (tercih edilen en dar seçenek) uygulanmış; `file-read*`, `mach-lookup`, `sysctl-read` yok. Öz-test `/Users`, `/Library/Keychains` okuması, `/tmp` yazması ve TCP connect/UDP sendto için EPERM ister (`:86-102`). `socket()` engellenemiyor ama connect/sendto EPERM: kabul                                                                                                            | Kapandı              |
+| S-P33-T2-2 (sandbox gerçekten var mı) | Yardımcıda öz-test (`sandbox_darwin.go:86`), ancak sonra hazır baytı (`opushelper_darwin.go:89`); ana süreçte hazır baytı 3 sn + `sandbox_check(çocuk)==1` yoksa öldürme (`:227-238`); yoklama `Supported()` aynı `spawnHelper`'ı kullanır (`supported_darwin.go`)                                                                                                                                                                                            | Kapandı              |
+| S-P33-T2-3 (başlatma/IPC)             | `helpermode.go:12` tam `[exe, Flag]`; `main_darwin.go:48` ilk satır; `ui/mac` ve `capture` init'leri bayrağa bakar. `EvalSymlinks` + `.app/Contents/MacOS` (`:167-190`); `Env: []string{}`, `ExtraFiles` yok, `Stderr` nil (= /dev/null). Yardımcı `tid≥3 \|\| n>1275` → çıkış (`:138`), `io.ReadFull`. Ana taraf sabit 1+1920 bayt, bilinmeyen durum → öldür (`:409-419`); 15 ms tik, 200 ms sert sınır, panik yalnız uçuştaki isteğin sahibine (`:317-333`) | Kapandı (K-1 artığı) |
+| S-P33-T-2 / T-5 (kısayol)             | `shortcuts_mac.go:30-72`: genel iki-değiştirici kuralı, tablo, F3/F4/F11, ⇧×5/⌥×5, Yapışkan/Fare Tuşları (okunamazsa açık), varsayılan-ret izinli liste; OS bayrağı okunamazsa hepsi basılı (`window_darwin.go:133-136`)                                                                                                                                                                                                                                      | Kapandı              |
+| S-P33-T-3 (aynı PID / ön plan)        | `window_mac.go:97-137`: ön plan AXFocusedApplication→AXFocusedWindow, `unique` belirsizlikte 0; katman-0 yalnız AXSheet çerçevesiyle; her AX hatası → 0 (düşer)                                                                                                                                                                                                                                                                                               | Kapandı              |
+| S-P33-T-4 (mikrofon istemi)           | `supported_darwin.go` yoklaması AVCaptureDevice/AudioQueue'ya dokunmaz; istem yalnız `openMacVoice` (yerel Kabul sonrası, `voice_darwin.go:34-44`), istem boyunca `HoldInjection(true)`; bağlanamazsa `MicRestricted` (fail-closed)                                                                                                                                                                                                                           | Kapandı              |
+| S-P33-T-8 (başlık sızması)            | Başlık yalnız `macwindow.go` etiketine ve seçim ekranına gider; hata/log iletileri yalnız `Op`/`Reason` taşır; `cgwin` başlık okumaz; `GIZLI-BASLIK-123` testi var                                                                                                                                                                                                                                                                                            | Kapandı              |
+| S-P33-T-9 (plaka)                     | `capture/window_darwin.go:284-297` akış kapatılır, son kare aynı boyutta siyah plakayla değiştirilir, keep-alive plakayı yollar                                                                                                                                                                                                                                                                                                                               | Kapandı              |
+| B-2 entitlement                       | `entitlements.plist` yalnız `com.apple.security.device.audio-input` eklendi; JIT/unsigned-memory yok                                                                                                                                                                                                                                                                                                                                                          | Olumlu               |
+| CI                                    | `agent-win.yml` tüm `uses:` commit SHA ile; üst düzey `permissions: contents: read`, iş düzeyinde de `contents: read`                                                                                                                                                                                                                                                                                                                                         | Olumlu               |
+
+### Bulgular (öncelik sırasıyla)
+
+#### [DÜŞÜK] S-P33-K-1 Yardımcıya devralınan dosya tanımlayıcıları sınırlanmıyor — A04
+
+Yer: `apps/agent-win/internal/voice/opushelper_darwin.go:217-218` (`exec.Cmd.Start`).
+
+Sorun: Go yalnız kendi açtığı fd'leri `O_CLOEXEC` ile açar. Ana süreçte purego ile yüklenen Apple çerçeveleri
+(AppKit, ScreenCaptureKit, VideoToolbox, AudioToolbox) `CLOEXEC`'siz fd açarsa bunlar fork/exec ile yardımcıya geçer.
+Sandbox `open`/`connect` anında denetler; **zaten açık** bir fd üzerinde `read`/`write`/`send` genelde denetlenmez.
+Bugün böyle bir fd'nin olduğu kanıtlanmadı; ama `(deny default)`'un dar yüzeyi bu varsayıma dayanıyor.
+
+İstismar senaryosu: Teknisyen çözücü açığıyla yardımcıda kod çalıştırır; devralınmış bağlı bir soket ya da yazılabilir
+dosya varsa EPERM'e takılmadan veri taşır ya da yazar.
+
+Düzeltme (backend-dev): (1) Yardımcı `RunDecoderHelper` başında, güvenilmeyen veri gelmeden **önce**, 0/1/2 ve Go
+çalışma zamanının kendi fd'leri dışındaki tüm fd'leri kapatsın (ya da ana süreç `posix_spawn` +
+`POSIX_SPAWN_CLOEXEC_DEFAULT` + yalnız 0/1/2 `addinherit` kullansın). (2) darwin testi: ana süreçte `CLOEXEC`'siz bir
+fd açıp yardımcıyı başlatsın, yardımcının o fd'yi göremediğini doğrulasın (öz-test `fcntl(fd, F_GETFD)` EBADF).
+
+#### [DÜŞÜK] S-P33-K-2 Önceden açılmış Mach bağlantıları sandbox sonrasında da kullanılabilir — A04
+
+Yer: `opushelper_darwin.go:79` (`warmDecoders`), `sandbox_darwin.go:24`.
+
+Sorun: Isıtma sırasında AudioToolbox/CoreFoundation'ın kurduğu Mach bağlantıları (ör. bileşen kayıt servisi)
+`sandbox_init`'ten sonra da açık kalır; `(deny default)` yalnız **yeni** `mach-lookup`'ı keser. Yardımcı ayrıca ana
+sürecin TCC "sorumlu süreci" altındadır. Bugün ölçülmedi: ısıtmadan sonra hangi port hakları elde kalıyor?
+
+Düzeltme (backend-dev, ölçüm): K1 spike'ına bir ölçüm ekleyin. Isıtmadan sonra yardımcının görev port listesini
+(`mach_port_names`) kaydedin ve `docs/spike-p33-k0s.md`'ye yazın. TCC'li bir servise (tccd, windowserver, coreaudiod)
+hak kalmışsa ısıtmayı daraltın (ör. yalnız çözücü kurma; kodlayıcı ısıtmasını yardımcıdan çıkarın; `warmDecoders`
+bugün bir **kodlayıcı** da kuruyor, `:99`).
+
+#### [DÜŞÜK] S-P33-K-3 Katman ≠ 0 aynı PID kuralı yalnız menüyü değil her yüzen pencereyi kabul ediyor — A01
+
+Yer: `apps/agent-win/internal/input/window_mac.go:121-123`.
+
+Sorun: `w.Layer != 0` olan her aynı-PID pencere hedef sayılıyor. Tarayıcının Resim-içinde-Resim penceresi (yüzen
+katman), uygulamanın yüzen paletleri ve durum öğeleri de buna girer. Nokta hedef dikdörtgenine kırpıldığı için
+etki, paylaşılan pencerenin üstüne binen bu pencerelerle sınırlı. Pencere yakalaması onları göstermediği için teknisyen
+körlemesine tıklar. Tasarım (§6.4 "menü 101, açılır panel") buna izin veriyor; kod tasarıma uygun.
+
+Düzeltme (mimar + backend-dev, sonra): Kabul edilen katmanları açık listeye indirin: `kCGPopUpMenuWindowLevel` (101),
+gerekiyorsa `kCGStatusWindowLevel` dışı açılır panel katmanları (K0s-W3 ölçümüne göre). Yüzen katman (3) düşsün.
+
+#### [BİLGİ] S-P33-K-4 Panik sahipliği yaklaşık
+
+`opushelper_darwin.go:317-333`. Yardımcıda, konuşan A'nın paketiyle bozulan bellek, B'nin isteğinde çökmeye yol açabilir.
+Bu durumda panik B'ye yazılır. Görüşme başına başlatma bütçesi (`maxHelperStarts`, `:50`) bunu sınırlar; bütçe dolunca
+ses herkes için kapanır (`ErrPeerDropped`). Kötü niyetli bir teknisyen, oturumdaki diğer teknisyenlerin **gelen sesini**
+kapatabilir; müşterinin mikrofon akışı bloklanmaz. Kabul edilebilir DoS.
+
+#### [BİLGİ] S-P33-K-5 R1–R7 süzgeci doğru
+
+`opuspkt.go:45-139`. Kod 0/1/2/3, VBR/CBR, dolgu zinciri (255 → 254 + devam) ve ≤ 120 ms kuralı RFC 6716 §3.2 ile
+uyumlu. 20 ms süzgeci (`:146`) Apple'ın 0 örnek dönüşünü önlüyor. FEC çözme kapalı (`opushelper_darwin.go:437`).
+Bu süzgeç güvenlik sınırı değil; sınır sandbox'tır.
+
+#### [BİLGİ] S-P33-K-6 Yardımcı kipinde paket düzeyi `objc.Sel` değişkenleri
+
+`ui/mac/*`, `overlay_darwin.go:206` gibi dosyalarda paket değişkenleri, `main`'den önce `sel_registerName` çağırıyor.
+Yalnız libobjc seçici kaydıdır; AppKit/WindowServer bağlantısı kurulmaz (init'ler `helpermode.Active` ile korunuyor).
+Bulgu yok. Yeni bir init eklenirse bayrak denetimi unutulmamalı; kod incelemesinde bakılmalı.
+
+#### [BİLGİ] S-P33-K-7 AX zaman aşımı süreç geneli 250 ms
+
+`window_darwin.go:20,101`. Askıda kalan bir hedef uygulama her tuş/tıklamada en çok 250 ms × birkaç öznitelik
+bekletir. Bu süre Applier kilidi altında geçer; etki yalnız o oturumun girdisinin yavaşlaması. Hata yolu düşürür (fail-closed).
+
+### AltGr kararı (Windows TR teknisyen, Mac pencere modu)
+
+**Mevcut durum.** Windows'ta AltGr, tarayıcıya `ControlLeft` + `AltRight` olarak gelir. Monitör modunda `keys.go:76-81`
+(`altGrText`) `AltRight` basılıyken karakteri Unicode olarak gönderir. `inject_mac.go:145-160` + `cgevent_darwin.go:218`
+bu olayı **bayrakları 0**, tuş kodu sabit olacak şekilde gönderir; sonuç kısayol değil, düz metindir. Pencere modunda ise
+`shortcuts_mac.go:50` ⌘ (ControlLeft) + ⌥ (AltRight) = iki değiştirici sayar ve tuşu politika aşamasında, `key()`'den
+önce düşürür. Bu yüzden @ # { } [ ] | \ ~ € yazılamıyor. Protokolde ayrı bir "metin" mesajı yok (`dc.ts:258` yalnız `k`;
+pano `clip.*` ayrı ve izinli). Bugünkü çözüm yolu pano + ⌘V'dir; bu yol tek ⌘ + harf ile zaten izinli.
+
+**Karar: istisna güvenli olarak eklenebilir.** Güvenlik, enjekte edilen olayın gerçekten bayraksız Unicode olayı
+olmasına dayanır. Bu yüzden istisna "tuş VK yoluna düşerse" hiçbir koşulda geçmemelidir. Koşulların **hepsi** sağlanmalı:
+
+1. `a.altGrText` açık ve **alıcı durumunda** `AltRight` basılı. Ek değiştirici olarak yalnız `ControlLeft` ve ⇧ kabul
+   edilir. `AltLeft`, `ControlRight`, `MetaLeft`/`MetaRight` (⌃) basılıysa istisna yok.
+2. OS durumundaki ⌃ (`osCtl`) kapalı. ⌘ ve ⌥, alıcının kendi enjekte ettiği tuşlardan geldiği için yok sayılabilir;
+   yerel kullanıcının ayrıca ⌃ basması istisnayı kapatır.
+3. `charKey(code)` ve `unicodeOf(m) != nil`: tek, yazdırılabilir, boşluk olmayan karakter. Bunun için politika imzası
+   `drop(a, code)` yerine `drop(a, m Msg)` olmalı ya da politika `m.Key`'i almalı. `Key` yoksa, çok karakterliyse ya da
+   `Dead` ise **düşer**; VK yoluna asla geçmez.
+4. Tuş, aynı basmada `key()` içinde Unicode yoluna gitmeli. Güvence için `scopedKeyDown` istisnayla geçen basmada
+   `k.uni == nil` çıkarsa olayı enjekte etmeden düşürsün (savunma derinliği). Otomatik tekrar zaten aynı yöntemi kullanır.
+5. `a.scopeLatch` açıksa istisna yok. Yapışkan Tuşlar ve ⇧×5/⌥×5 kuralları istisnadan **önce** değerlendirilir. Ön plan
+   ve tuş kovası denetimleri değişmez (istisna yalnız 1. maddeyi atlar; 2–6 Unicode olayı için anlamsızdır).
+6. Testler (`shortcuts_mac_test.go`): Windows AltGr dizisi (`ControlLeft`↓ `AltRight`↓ `KeyQ` key="@") geçer ve Unicode
+   üretir. Aynı dizi key yoksa, `"Dead"` ise ya da `"ab"` ise düşer. `ControlLeft`+`AltRight`+`Tab`/`Space`/`F5`/
+   `ArrowLeft` düşer. `AltLeft`+`ControlLeft`+`KeyQ` düşer. `MetaLeft` eklenince düşer. Enjekte edilen olayın bayrakları 0'dır.
+7. darwin elle doğrulama (test-operatoru): ⌘ bir yerel tuşla basılı tutulurken AltGr olayının HID tap'te yerel
+   bayraklarla **birleşmediği** (Unicode olayının ⌘ kısayolu tetiklemediği) bir kez ölçülsün. Birleşiyorsa 2. madde, OS
+   ⌘ için de geçerli olur.
+
+Gerekçe: Unicode olayı sabit, bayraksız bir klavye olayıdır. Etkisi, izinli listedeki "değiştiricisiz karakter" ile
+aynıdır. Kabuk kısayolu üretmesi için bayrak ya da anlamlı bir tuş kodu gerekir; ikisi de yoktur. Bu istisnayla basılı
+kalan ⌘⌥ enjekte değiştiricileri, karakter olmayan tuşlarda genel kuralla düşmeye devam eder.
+
+### Otomatik tarama çıktıları
+
+- `go vet` + `go test` (`internal/darwin/...`, `internal/voice/...`, `internal/input/...`, `internal/capture/...`,
+  `internal/macperm/...`; macOS, Go 1.26.11): hepsi `ok` (sandbox öz-testi ve yardımcı yeniden çalıştırma testleri dahil).
+- Gizli bilgi taraması (`git diff main...HEAD` üzerinde anahtar/şifre/token deseni): eşleşme yok. `.env` git geçmişinde yok.
+- Bağımlılık: üretim `go.mod`/`package.json`/kilit dosyası değişmedi; yalnız `test/spike-p33/go.mod` (ayrı modül,
+  ikiliye girmez). `npm audit`/`govulncheck` bu turda koşulmadı (değişiklik yok).
+
+### Tasarımda vaat edilip kodda bulunmayanlar
+
+- Yok. Tur 2'deki kısmi madde (S-P33-T2-1 m.4 `~/.ssh` testi), `/Users` + `/Library/Keychains` okuma EPERM öz-testiyle
+  eşdeğer biçimde karşılandı.
+
+### Olumlu
+
+- Profil `(deny default)` ile tasarımın istediğinden daha dar; daraltmanın ölçümü `spike-p33-k0s.md` §2.7'de.
+- Yardımcıdan gelen hiçbir uzunluğa güvenilmiyor; istenmemiş yanıt okuyucuyu bitiriyor (`opushelper_darwin.go:244-256`).
+- Askıda kalan yardımcı mikrofon gönderimini bloklamıyor (15 ms tik, IPC'de bekleyen konuşan yok).
+- Kısayol politikası Linux CI'da tablo ve özellik testiyle koşuyor. OS bayrakları okunamazsa "hepsi basılı" (fail-closed).
+- Mikrofon istemi yalnız yerel Kabul'den sonra açılıyor; istem süresince enjeksiyon duruyor.
+
+---
+
 # Güvenlik Raporu — P33 — Tasarım turu (K0g; dal claude/p33-mac-ses-pencere, HEAD 2343f29, 2026-11-22)
 
 ## Tur 2 (r2, commit edfb7d9, 2026-11-22)
