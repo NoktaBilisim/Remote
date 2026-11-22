@@ -27,7 +27,7 @@ export function EditorHeader({ ed, canEdit, actorPermissions }: { ed: Ed; canEdi
     .filter(Boolean)
     .join(" · ");
   return (
-    <div className="flex flex-col gap-3 sm:flex-row sm:items-start">
+    <div className="flex flex-col gap-3 lg:flex-row lg:items-start">
       <div className="min-w-0 flex-1">
         <h1 className="text-2xl font-semibold break-words text-fg" data-testid="user-name">
           {saved.fullName}
