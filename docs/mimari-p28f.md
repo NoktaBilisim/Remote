@@ -6,6 +6,8 @@ Girdiler: `docs/gereksinimler-p28.md` (US-71, AC-389..396, AC-393, R39, R49, V52
 Yeni ADR: **ADR-0037** (purego/objc, AppKit, .app + zip, Linux'ta derleme + macOS'ta imza/notarization). Kontrol listesi:
 `docs/tasarim-kontrol.md` "P28f".
 
+**P33 ile değişti → ADR-0043:** macOS'ta ses (A-PF-1 kapandı: AudioToolbox Opus, entitlement `device.audio-input`) ve pencere paylaşımı (SCK) var; §1 "Pencere paylaşımı" kapsam dışı satırı ve T10 geçersiz.
+
 **Sadelik:** macOS istemcisi yalnız **Hızlı Destek (kod/bağlantı)** akışıdır; Windows'taki akış (`internal/flow`) ve tüm WS/DC
 mesajları aynen kullanılır. Yeni WS mesajı yok; protokolde iki küçük ek var: resolve'da `clientOs` ve `control.state` kaynağına
 `OS_PERMISSION` değeri. Yeni tablo/migration yok. Yeni Go bağımlılığı 1 (`purego`).
