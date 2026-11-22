@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { LogoImage } from "@/components/brand-logo";
+import { ThemeToggle } from "@/components/branding/theme-provider";
 import { LoadError } from "@/components/load-error";
 import { ToastProvider } from "@/components/ui/toast";
 import { t } from "@/lib/i18n";
@@ -47,7 +48,8 @@ export default async function PortalAppLayout({ children }: { children: React.Re
                 </p>
                 <p className="hidden truncate text-xs text-fg-muted sm:block">{t("portal.name")}</p>
               </div>
-              <div className="ml-auto flex items-center">
+              <div className="ml-auto flex items-center gap-2">
+                <ThemeToggle testId="portal-theme-toggle" />
                 <PortalUserMenu name={user.fullName} email={user.email} />
               </div>
             </div>

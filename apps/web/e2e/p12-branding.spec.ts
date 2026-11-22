@@ -73,6 +73,31 @@ test("AC-85: kayıt başarısızsa tema geri alınır ve kullanıcıya söylenir
   await expect(menu(page).getByTestId("user-menu-theme").getByRole("button", { name: "Sistem" })).toHaveAttribute("aria-pressed", "true");
 });
 
+test("std. §1.6: üst çubuktaki tek tıklık tema düğmesi Sistem → Açık → Koyu döngüsü; anında, kalıcı, menüyle eşit", async ({
+  page,
+  context,
+}, info) => {
+  desktopOnly(info.project.name);
+  await signIn(context, "br");
+  await page.emulateMedia({ colorScheme: "light" });
+  await page.goto("/");
+  const toggle = page.getByTestId("theme-toggle");
+  await expect(toggle).toHaveAttribute("data-value", "SYSTEM");
+  await expect(toggle).toHaveAccessibleName("Tema: Sistem (tıklayınca: Açık)");
+  await toggle.click();
+  await expect(page.locator("html")).toHaveClass(/\blight\b/);
+  const saved = page.waitForResponse((r) => r.url().endsWith("/api/v1/auth/me/preferences") && r.request().method() === "PATCH");
+  await toggle.click();
+  await expect(page.locator("html")).toHaveClass(/\bdark\b/); // anında
+  expect((await saved).status()).toBe(200);
+  await expect(toggle).toHaveAttribute("data-value", "DARK");
+  await openMenu(page);
+  await expect(menu(page).getByTestId("user-menu-theme").getByRole("button", { name: "Koyu" })).toHaveAttribute("aria-pressed", "true");
+  await page.reload();
+  await expect(page.locator("html")).toHaveClass(/\bdark\b/);
+  await expect(page.getByTestId("theme-toggle")).toHaveAttribute("data-value", "DARK");
+});
+
 test("AC-85: oturumsuz giriş ekranı tarayıcıdaki son tercihe uyar (çerez), yoksa sistem", async ({ page, context }) => {
   expect(await firstPaintClass(page, "/login")).not.toMatch(/class="(light|dark)"/);
   await context.addCookies([{ ...base, name: "rs_theme", value: "dark", sameSite: "Lax" }]);
