@@ -1,5 +1,5 @@
 import { redirect } from "next/navigation";
-import { ThemeProvider } from "@/components/branding/theme-provider";
+import { ThemeProvider, ThemeToggle } from "@/components/branding/theme-provider";
 import { ToastProvider } from "@/components/ui/toast";
 import { StepUpProvider } from "@/components/account/step-up-dialog";
 import { LogoImage } from "@/components/brand-logo";
@@ -79,6 +79,9 @@ export default async function PanelLayout({ children }: { children: React.ReactN
                   {tenant ? ` · ${tenant.name}` : ""}
                 </p>
               </div>
+              {/* std. §1.6: tek tıklık tema düğmesi (Açık → Koyu → Sistem); ayrıntılı seçim hesap menüsünde ve /account'ta.
+              < sm gizli: 360 px'te firma seçici/rozetlerle taşardı; dar ekranda tema avatar menüsünden */}
+              <ThemeToggle className="hidden sm:inline-flex" />
               {/* P12: avatar → hesap menüsü (Hesabım, Şifre değiştir, Tema, Çıkış); tek dokunuşla çıkış düğmesi yanında kalır */}
               <UserMenu name={user.fullName} email={user.email} avatarUrl={user.avatarUrl ?? null} />
               <LogoutButton userName={user.fullName} />

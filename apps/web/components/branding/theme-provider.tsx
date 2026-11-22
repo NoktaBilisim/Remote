@@ -108,3 +108,46 @@ export function ThemePicker({ compact = false, testId = "theme-picker" }: { comp
     </div>
   );
 }
+
+/** Tek tıklık düğmenin döngüsü: Açık → Koyu → Sistem → Açık. */
+export const nextTheme = (current: Theme): Theme => THEMES[(THEMES.indexOf(current) + 1) % THEMES.length] ?? "SYSTEM";
+
+/**
+ * Üst çubuktaki tek tıklık tema düğmesi (std. §1.6 "tek tıklık ikon"; Akış taslağı). İkon o anki seçimi gösterir; tıklayınca
+ * sıradaki temaya geçer (anında, animasyonsuz). Erişilebilir ad ve ipucu hem şimdikini hem sıradakini söyler. Saf görünüm
+ * (bağlamsız; birim testi) — üst çubuklar `ThemeToggle`'ı kullanır.
+ */
+export function ThemeToggleButton({
+  theme,
+  onToggle,
+  testId,
+  className = "inline-flex",
+}: {
+  theme: Theme;
+  onToggle: () => void;
+  testId: string;
+  /** Görünürlük (`display`) sınıfı; panel 360 px'te gizler (`hidden sm:inline-flex`), tema avatar menüsünde kalır. */
+  className?: string;
+}) {
+  const Icon = THEME_ICONS[theme];
+  const label = t("theme.toggle", { current: t(`theme.${theme}`), next: t(`theme.${nextTheme(theme)}`) });
+  return (
+    <button
+      type="button"
+      onClick={onToggle}
+      aria-label={label}
+      title={label}
+      data-testid={testId}
+      data-value={theme}
+      className={`${className} size-11 shrink-0 cursor-pointer items-center justify-center rounded-full text-fg-muted hover:bg-surface-muted hover:text-fg active:scale-[0.97]`}
+    >
+      <Icon aria-hidden className="size-5" />
+    </button>
+  );
+}
+
+/** Panel ve portal üst çubuğu: `ThemeToggleButton` + tema bağlamı (kayıt ucu sağlayıcıdan; panel/portal ayrı). */
+export function ThemeToggle({ testId = "theme-toggle", className }: { testId?: string; className?: string }) {
+  const { theme, setTheme } = useTheme();
+  return <ThemeToggleButton theme={theme} onToggle={() => setTheme(nextTheme(theme))} testId={testId} className={className} />;
+}

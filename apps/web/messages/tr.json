@@ -1683,6 +1683,7 @@
   "theme.LIGHT": "Açık",
   "theme.DARK": "Koyu",
   "theme.SYSTEM": "Sistem",
+  "theme.toggle": "Tema: {current} (tıklayınca: {next})",
   "theme.saveFailed": "Tema kaydedilemedi; önceki seçim geri yüklendi.",
   "acc.appearance": "Görünüm",
   "acc.appearanceBody": "Tema yalnız sizin hesabınız için geçerlidir ve giriş yaptığınız her cihazda aynı gelir. \"Sistem\" işletim sisteminizin ayarını izler.",
