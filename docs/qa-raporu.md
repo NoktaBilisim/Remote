@@ -1,3 +1,88 @@
+# QA Raporu — P33 K4 — Tur 2
+
+DURUM: GEÇTİ (kod + yerel doğrulama). Birleştirme / staging öncesi koşul: `agent-win` CI'ının (macos-14/15, "P33 sandbox reddi +
+yoklama", iz testi) ve `ci` web e2e'nin bu dalda yeşil görülmesi. Dalda henüz CI koşusu yok (`gh run list` boş). ELLE maddeleri K6'ya,
+AC-557 K7'ye, AC-558 etiket/staging sonraya kalır; bunlar DÜZELTİLMELİ sayılmadı.
+
+Kapsam: ee85f5e (QA 1, 6, 7) + 6c4f8bb (düzeltme turu 1). Güvenlik K5 GEÇTİ (d4aea7a). Kod değiştirilmedi.
+
+## Test sonucu (tek koşu, apps/agent-win, CGO_ENABLED=0)
+
+| Komut                                                                           | Sonuç                                                                            |
+| ------------------------------------------------------------------------------- | -------------------------------------------------------------------------------- |
+| `gofmt -l .`                                                                    | boş (test/spike-p33 dahil)                                                       |
+| `go vet` + `staticcheck` darwin/arm64, darwin/amd64, windows/amd64, linux/amd64 | temiz                                                                            |
+| `GOOS=linux go test -c ./internal/input/ ./internal/ui/mac/`                    | derleniyor (yeni testler etiketsiz, Linux CI'da koşar)                           |
+| `go test -count=1 ./...` (darwin/arm64)                                         | 0 FAIL                                                                           |
+| `pnpm --filter @remote/server test`                                             | 54 dosya, 752 geçti + 1 skip (eski, gerekçeli clamd); `-t AC-553` → 2 test geçti |
+
+## Tur 1 maddelerinin kapanışı
+
+| #   | Madde                | Durum | Kanıt                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
+| --- | -------------------- | ----- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1   | gofmt spike          | ✅    | `gofmt -l .` boş; CI `check` adımı artık geçer                                                                                                                                                                                                                                                                                                                                                                                                          |
+| 2   | AC-553 sunucu testi  | ✅    | `voice-p28d.test.ts` "P33 AC-553": gerçek giriş yolu `onGuestMessage` (şema + işleyici), `clientOs: macos` + voice1 misafirde `sharing{WGC}` ve `stopped{WINDOW_CLOSED, WGC}` 1008'siz kabul + teknisyene iletilir; Windows misafirinde aynı; biçim dışı `SCK` → 1008. Runbook §33.3 sıra maddesi zaten vardı                                                                                                                                           |
+| 3   | AC-542 seçim mantığı | ✅    | `internal/ui/mac/window_choice.go` (etiketsiz) + `TestAC542WindowChoiceTable` 16 satır: varsayılan tüm ekran/def monitör, pencere modu → liste etkin, seçimsiz/boş liste Paylaş pasif, sentetik mod/pencere/Paylaş yok sayılır, klavye kabul, yenilemede seçim koruma/kaldırma. AppKit dosyası yalnız çizer                                                                                                                                             |
+| 4   | AltGr / AC-549       | ✅    | K5 güvenlik kararı → mimari §6.4 m.6a. `macAltGrText` dar koşullar (AltRight + yalnız ControlLeft/⇧, OS ⌃ kapalı, tek yazdırılabilir karakter); yalnız bayraksız Unicode enjekte, VK yoluna düşecekse düşer. 6 yeni test PASS (`…PassesAsUnicode`, `…WithoutCharacterDropped`, `…ExtraModifiersDropped`, `…StickyAndMouseKeysFirst`, `…RepeatOfVKKeyDropped`, `…PropertyOracle` 2000 örnek). `TestAC558WindowsPolicyUnchangedAfterMove` değişmeden PASS |
+| 5   | 30 dk fuzz           | ✅\*  | `TestP33FuzzProductHelper` (`NOKTA_FUZZ_SURE` ile; varsayılanda gerekçeli SKIP). Ürün `RunDecoderHelper` (sandbox + öz-test) içinde 30 dk, 33,4 M paket, çökme/askı 0, > 200 ms 0. \*Ölçüm geliştiricinin; qa yeniden koşmadı (30 dk), çıktı implementation.md + spike-p33-k0s §2.2b'de                                                                                                                                                                 |
+| 6   | `logic.go:2` yorumu  | ✅    | ADR-0043'e göre güncellendi                                                                                                                                                                                                                                                                                                                                                                                                                             |
+| 7   | CI yorumu `socket()` | ✅    | `agent-win.yml:1046` "connect/sendto … socket() fd döner, profil engelleyemez"                                                                                                                                                                                                                                                                                                                                                                          |
+
+Ek (güvenlik K5): S-P33-K-1 devralınan fd kapatma (`sandbox/fds_darwin.go`, `TestP33K1HelperClosesInheritedFDs` PASS, pozitif
+denetimli), S-P33-K-2 ısıtmada kodlayıcı kaldırıldı (davranış değişikliği yok, altın/fikstür testleri yeşil). Sapmalar 1–7
+implementation.md'de gerekçeli.
+
+## Kabul kriterleri (Tur 1'e göre değişen)
+
+| AC     | Tur 1 | Tur 2   | Not                                                                                    |
+| ------ | ----- | ------- | -------------------------------------------------------------------------------------- |
+| AC-542 | KISMİ | ELLE    | Go birim tamam; görsel/Tab/VoiceOver/kontrast K6                                       |
+| AC-549 | KISMİ | ELLE    | Tablo + AltGr istisnası testli; örneklem ve HID tap ile yerel ⌘ birleşmesi (K5 m.7) K6 |
+| AC-553 | KISMİ | GEÇTİ   | Sunucu birim + runbook                                                                 |
+| AC-554 | KISMİ | ELLE/CI | Kod doğru, gofmt engeli kalktı; CI ilk koşuda yeşil görülmeli                          |
+
+Diğerleri Tur 1 ile aynı: GEÇTİ 541, 543 (D-P33-1), 550, 552, 553; ELLE (K6) 534–540, 542, 544–549, 551, 555, 556; BEKLİYOR 557 (K7),
+558 (etiket + staging).
+
+## Düzeltilmeli
+
+Yok.
+
+## Definition of Done
+
+| Madde                                | Durum | Not                                                   |
+| ------------------------------------ | ----- | ----------------------------------------------------- |
+| Otomatik testler yeşil (yerel)       | ✅    | Go darwin, server; Tur 1'de contracts/web birim yeşil |
+| gofmt / vet / staticcheck dört hedef | ✅    |                                                       |
+| Her AC'nin otomatik kanıtı           | ✅    | Otomatik kısımlar tam; kalan elle K6                  |
+| Sapmalar gerekçeli                   | ✅    | K1 1–9, K2 1–5, düzeltme turu 1–7; D-P33-1            |
+| Güvenlik koşulları                   | ✅    | K5 GEÇTİ; 30 dk fuzz yapıldı                          |
+| Ölü/yanlış yorum                     | ✅    | 6, 7 kapandı                                          |
+| CI (macos-14/15, web e2e) yeşil      | ⚠️    | Dalda koşu yok → birleştirme/staging öncesi koşul     |
+| Dokümantasyon (AC-557)               | —     | K7                                                    |
+
+## K6'ya ek elle maddeler
+
+- AltGr: Windows TR teknisyen Mac pencere modunda @ # { } [ ] \ | ~ yazabilmeli; Mac müşteri yerelde ⌘ basılıyken uzaktan AltGr karakteri
+  ⌘ kısayoluna dönüşmemeli (K5 m.7).
+- S-P33-K-2 kalanı: `sudo lsmp -p <opus-cozucu pid>` ile ısıtmanın getirdiği 20 Mach gönderme hakkının servisleri bir kez kaydedilmeli.
+
+## Öneriler (zorunlu değil)
+
+1. S-P33-K-3 (aynı PID katman ≠ 0 her yüzen pencere kabul) sonraya bırakıldı; mimari §12'de açık madde olarak izlenmeli.
+2. fd varsayımı ("hazır sonrası yalnız 0/1/2") yalnız macOS 26.3'te ölçüldü; macos-14/15 CI ilk koşusu kırmızı çıkarsa düzeltme turu
+   sapma 7'ye göre test koşulu gevşetilir, kapatma kuralı değil.
+3. Tur 1 Öneri 1, 4, 5 açık (darwin `macVoiceDeps` testi, `k0sa1` spike derlenmiyor, AudioQueue CI adımı).
+
+## Olumlu
+
+- AltGr istisnası dar ve kâhin tabanlı özellik testiyle sınanmış; kilit sırası testinin gerçekten kilidi sınadığı negatif denemeyle
+  doğrulanmış.
+- AC-553 testi doğrudan işleyiciyi değil gerçek giriş yolunu (şema + işleyici) kullanıyor.
+- Seçim ekranı mantığı kopyasız ayrıştırılmış; AppKit katmanı yalnız tıklama sınıfını iletiyor.
+
+---
+
 # QA Raporu — P33 (macOS ses + tek pencere paylaşımı) K4 — Tur 1
 
 DURUM: DÜZELTİLMELİ
