@@ -44,7 +44,8 @@ aktarır; bu durumda teslim edilen dosyalar da seçilen süre (1–7 gün) boyun
   Müşteri ilk açılışta ve her yeni sürümde macOS'un "Yine de Aç" onayını bir kez verir; destek sayfası bunu adım adım anlatır.
   Mac müşterisi de firma bağlantısından teknisyeni beklemeden "Destek iste" der: aynı bağlantı Mac'te Mac uygulamasını
   indirir, talep aynı kuyruğa düşer. Müşteri metinleri "Yine de Aç"ı yalnız resmi adresten indirilen uygulamaya bağlar.
-  Mac uygulamasında sesli görüşme, yalnız bir pencereyi paylaşma, bilgisayar kaydı ve gözetimsiz erişim yoktur.
+  Mac uygulaması 0.26 ile sesli görüşmeyi (Mikrofon izni rehberiyle) ve yalnız bir pencereyi paylaşmayı da destekler; pencere
+  modunda teknisyen paylaşılan programın dışına kısayolla çıkamaz. Mac'te bilgisayar kaydı ve gözetimsiz erişim yoktur.
 - **Linux desteği** — Ubuntu 22.04 / 24.04 (64 bit, standart masaüstü) kullanan müşteri de kurulum ve yönetici şifresi
   gerektirmeyen tek dosyalık programla bağlanır: teknisyen ekranı görür, izinle kontrol eder, dosya ve belge gönderir, sesli
   konuşur. Destek sayfası programı açan tek satırlık komutu kopyalanabilir verir. Ubuntu'nun yeni ekran sisteminde (Wayland)
@@ -63,7 +64,7 @@ aktarır; bu durumda teslim edilen dosyalar da seçilen süre (1–7 gün) boyun
   çıkarma denetim kaydına yazılır.
 - **Sesli görüşme** — teknisyen oturum içinden müşteriyle sesli konuşur; ayrı telefon gerekmez. Müşteri kabul etmeden
   mikrofonu açılmaz, görüşmeyi tek tıkla bitirir, kimin konuştuğunu ve dinlediğini adıyla görür. Birden çok teknisyen
-  konuşabilir; yetkili yönetici dinler. Tarayıcıda, Windows programında (0.18) ve Linux programında (0.20) çalışır; ses kaydedilmez.
+  konuşabilir; yetkili yönetici dinler. Tarayıcıda, Windows programında (0.18), Linux programında (0.20) ve Mac uygulamasında (0.26) çalışır; ses kaydedilmez.
 - **Zorlu donanımda da görüntü** — ekran üç farklı yöntemle okunur (HDR ve çift ekran kartlı dizüstüler dahil);
   okunamazsa müşteri ekranında kısa bir neden kodu ve ne yapacağı yazar; yeni sürüm programla neden teknisyen konsoluna
   da gelir.
@@ -127,7 +128,7 @@ aktarır; bu durumda teslim edilen dosyalar da seçilen süre (1–7 gün) boyun
 | Destek oturumları                | Tek kullanımlık link ve 8 haneli kod (panelden e-posta, WhatsApp veya SMS ile tek mesajda, Windows programı bağlantısıyla gönderilir), bekleme odası, teknisyen kabulü, iptal, zorla sonlandırma; müşteri beklerken panelin her sayfasında sayaç ve bildirim                                                                                                                                                                                                                                                                      |
 | Teknisyen konsolu                | Canlı ekran, uzaktan kontrol, monitör değiştirme, sohbet, dosya (doğrudan ya da sunucu üzerinden virüs taramalı; tarama durumu: taranıyor, teslim edildi, virüslü, taranamadı), işaretleme, pano gönder/al, uzaktan yazdırma (PDF), kalite paneli, teknisyen davet etme, kontrolü ve oturumu devretme, etkin oturumları izleme                                                                                                                                                                                                    |
 | Hızlı Destek (Windows)           | Müşteri programı: "Destek iste", "Bağlantı kodum var", 5 firmaya kadar kayıt ve firma seçimi, firma/bilgisayar unutma, beklerken sohbet, isteğe bağlı tepsi ve Windows açılışında başlatma, onay ve izin diyalogları, pano paylaşımı izni ve yazdırma onayı, bağlı teknisyenler listesi ve "Çıkar"; yalnız bir pencereyi paylaşma, açık/koyu tema                                                                                                                                                                                 |
-| Hızlı Destek (macOS)             | Mac müşteri uygulaması (kod, destek bağlantısı ya da firma bağlantısıyla): "Destek iste", "Bağlantı kodum var", beklerken sohbet, kurulumsuz, izin rehberi (Ekran Kaydı, Erişilebilirlik), onay diyalogları, uzaktan kontrol, sohbet, dosya, pano ve yazdırma onayı, bağlı teknisyenler listesi ve "Çıkar", gizlenemeyen gösterge, açık/koyu görünüm                                                                                                                                                                              |
+| Hızlı Destek (macOS)             | Mac müşteri uygulaması (kod, destek bağlantısı ya da firma bağlantısıyla): "Destek iste", "Bağlantı kodum var", beklerken sohbet, kurulumsuz, izin rehberi (Ekran Kaydı, Erişilebilirlik), onay diyalogları, uzaktan kontrol, sohbet, dosya, pano ve yazdırma onayı, sesli görüşme ve yalnız bir pencereyi paylaşma (0.26), bağlı teknisyenler listesi ve "Çıkar", gizlenemeyen gösterge, açık/koyu görünüm                                                                                                                       |
 | Hızlı Destek (Linux)             | Ubuntu 22.04 / 24.04 müşteri programı (kod veya bağlantıyla): kurulumsuz, kopyalanabilir başlatma komutu, onay diyalogları, uzaktan kontrol (Wayland'de sınırlı), kayıtlı sohbet (0.21), dosya, pano ve yazdırma onayı, sesli görüşme, bağlı teknisyenler listesi ve "Çıkar", gösterge, açık/koyu görünüm                                                                                                                                                                                                                         |
 | Destek talepleri                 | Canlı kuyruk, bildirim ve ses, kabul/ret, firma filtresi, son 30 gün geçmişi, kaynak engelleme (Engellenenler ekranı), isteğe bağlı kabul kodu, atama, öncelik ve SLA, mesai saatleri ve tatiller, web talep formu ve "Web" kaynak süzgeci                                                                                                                                                                                                                                                                                        |
 | Müşteriler                       | Müşteri firma kaydı, firma başına bağlantı ve web formu bağlantısı (kopyala, yenile, müşteriye gönder), pasife alma, talep ve oturum geçmişi, CSV dışa/içe aktarma                                                                                                                                                                                                                                                                                                                                                                |
@@ -244,9 +245,10 @@ aktarır; bu durumda teslim edilen dosyalar da seçilen süre (1–7 gün) boyun
   yeniden boyutlandırılır, konum gibi gizli bilgiler (EXIF) silinir. Profil resimleri aynı firmanın kullanıcılarına görünür;
   müşteri, teknisyeninin resmini yalnız oturum sürerken, 10 dakika geçerli imzalı bir adresten görür.
 - Sesli görüşmede mikrofon yalnız müşterinin kendi bilgisayarındaki "Kabul et" tıklamasıyla açılır; teknisyen uzaktan
-  kontrolle kabul edemez. Görüşme sürerken Windows'ta her ekranda kapatılamaz bir "mikrofon açık" göstergesi durur. Ses uçtan
-  uca şifreli akar, sunucuda tutulmaz. Windows programında ses kodlayıcı yalıtılmış bir sanal ortamda (WebAssembly) çalışır;
-  bozuk ses verisi programı çökertemez. Gözetimsiz bağlantıda ses özelliği hiç yüklenmez. İstek, kabul, ret, katılım ve
+  kontrolle kabul edemez. Görüşme sürerken Windows'ta her ekranda, Mac'te ekranın üstündeki gizlenemeyen göstergede
+  "mikrofon açık" yazar. Ses uçtan uca şifreli akar, sunucuda tutulmaz. Windows programında ses kodlayıcı yalıtılmış bir
+  sanal ortamda (WebAssembly), Mac uygulamasında gelen ses dosyaya, ağa ve diğer programlara erişemeyen kısıtlanmış ayrı bir
+  süreçte çözülür; bozuk ses verisi programı çökertemez. Mac uygulamasında pencere başlıkları cihazdan çıkmaz. Gözetimsiz bağlantıda ses özelliği hiç yüklenmez. İstek, kabul, ret, katılım ve
   bitiş (süre, konuşan ve dinleyenler) audit log'a yazılır.
 
 ## Entegrasyonlar

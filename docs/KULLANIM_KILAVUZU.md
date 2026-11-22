@@ -4,7 +4,7 @@ Bu kılavuz Nokta Bilişim uzaktan destek platformunun kullanıcıya dönük ekr
 geliştirilir (bkz. `README.md` "Yol haritası"); kılavuz da her paketle birlikte büyür. Bu sürümde yer alan bölümler:
 
 - **Müşteri için:** Hızlı Destek uygulaması (Windows) ve **Hızlı Destek uygulaması (macOS, 0.19)** (indirme ve açma, Ekran
-  Kaydı / Erişilebilirlik izinleri, ilk açılışta "Yine de Aç" onayı, her yeni sürümde onay ve izinler, korunan düğmeler, yazdırma, izinleri kaldırma; 0.24 ile Mac'te de "Destek iste"), **Hızlı Destek
+  Kaydı / Erişilebilirlik izinleri, ilk açılışta "Yine de Aç" onayı, her yeni sürümde onay ve izinler, korunan düğmeler, yazdırma, izinleri kaldırma; 0.24 ile Mac'te de "Destek iste"; 0.26 ile Mac'te sesli görüşme ve Mikrofon izni, yalnız bir pencereyi paylaşma, pencere modunda iletilmeyen kısayollar), **Hızlı Destek
   uygulaması (Linux, 0.20)** (Ubuntu 22.04 / 24.04, başlatma komutu, X11 ve Wayland farkları, Wayland izin penceresi ve
   kontrol sınırları, Super+L), pencere başlığında sürüm (0.20), yalnız bir pencereyi paylaşma (0.11), "Destek iste" ile talep gönderme,
   birden çok firmaya kayıt, tepside çalıştırma ve Windows açılışında başlatma, beklerken teknisyenle yazışma (0.12),
@@ -85,23 +85,24 @@ bağlanamaz. Super Admin bu durumu gösteren risk kabul bandını görür (bkz. 
 
 ### Hangi programda ne var?
 
-| Özellik                                     | Windows      | macOS              | Linux (Ubuntu)           | Tarayıcı  |
-| ------------------------------------------- | ------------ | ------------------ | ------------------------ | --------- |
-| Ekranı görme                                | Var          | Var                | Var                      | Var       |
-| Uzaktan kontrol (fare, klavye)              | Var          | Var                | Var (Wayland'de sınırlı) | Yok       |
-| Sohbet                                      | Var          | Var                | Var                      | Var       |
-| **Sesli görüşme**                           | Var          | **Yok**            | Var                      | Var       |
-| Dosya alma (sunucu üzerinden taranan dahil) | Var          | Var                | Var                      | Var       |
-| Pano paylaşımı ve uzaktan yazdırma          | Var          | Var                | Var                      | Yok       |
-| Çoklu teknisyen (davet, İzle, devir)        | Var          | Var                | Var                      | Var       |
-| Yalnız bir pencereyi paylaşma               | Var          | Yok                | Yok                      | —         |
-| "Destek iste" (firma bağlantısıyla)         | Var          | Var                | Yok                      | Web formu |
-| Bilgisayar kaydı, tepside çalışma           | Var          | Yok                | Yok                      | Yok       |
-| Gözetimsiz erişim (başında kimse yokken)    | Var (servis) | Yok                | Yok                      | Yok       |
-| Kendini güncelleme                          | Var          | Yalnız haber verir | Var                      | —         |
+| Özellik                                     | Windows      | macOS                 | Linux (Ubuntu)           | Tarayıcı  |
+| ------------------------------------------- | ------------ | --------------------- | ------------------------ | --------- |
+| Ekranı görme                                | Var          | Var                   | Var                      | Var       |
+| Uzaktan kontrol (fare, klavye)              | Var          | Var                   | Var (Wayland'de sınırlı) | Yok       |
+| Sohbet                                      | Var          | Var                   | Var                      | Var       |
+| Sesli görüşme                               | Var          | Var (0.26 ve sonrası) | Var                      | Var       |
+| Dosya alma (sunucu üzerinden taranan dahil) | Var          | Var                   | Var                      | Var       |
+| Pano paylaşımı ve uzaktan yazdırma          | Var          | Var                   | Var                      | Yok       |
+| Çoklu teknisyen (davet, İzle, devir)        | Var          | Var                   | Var                      | Var       |
+| Yalnız bir pencereyi paylaşma               | Var          | Var (0.26 ve sonrası) | Yok                      | —         |
+| "Destek iste" (firma bağlantısıyla)         | Var          | Var                   | Yok                      | Web formu |
+| Bilgisayar kaydı, tepside çalışma           | Var          | Yok                   | Yok                      | Yok       |
+| Gözetimsiz erişim (başında kimse yokken)    | Var (servis) | Yok                   | Yok                      | Yok       |
+| Kendini güncelleme                          | Var          | Yalnız haber verir    | Var                      | —         |
 
-Sesli görüşme Windows, Linux ve tarayıcıda vardır; **yalnız Mac uygulamasında yoktur**. Mac müşterisiyle telefonda konuşun.
-Gözetimsiz bağlantıda da ses yoktur.
+Mac uygulamasında sesli görüşme ve yalnız bir pencereyi paylaşma **0.26 ve sonrasında** vardır. Mac müşterisi daha eski bir
+uygulama kullanıyorsa sesli görüşme düğmesi pasif kalır; müşteri güncel uygulamayı destek sayfasından yeniden indirir.
+Gözetimsiz bağlantıda ses yoktur.
 
 ---
 
@@ -1326,11 +1327,12 @@ paylaşımına yönlendirir. Bu durumda teknisyen ekranınızı görür ama fare
 
 **Mac sürümünde olmayanlar** (Windows sürümünde var; tüm platformların karşılaştırması: "Hangi programda ne var?"):
 
-- Yalnız bir pencereyi paylaşma (Mac'te her zaman bir ekranın tamamı paylaşılır).
-- Sesli görüşme (şimdilik yok; teknisyenle telefonda konuşun).
 - Bilgisayar (firma) kaydı, "Bilgilerimi hatırla", tepside çalışma ve açılışta başlatma. "Destek iste" ve firma
   bağlantısı 0.24 ile Mac'te de vardır (bkz. "Mac'te nasıl destek isterim?").
 - Gözetimsiz erişim (başında kimse yokken bağlanma).
+
+Sesli görüşme ve yalnız bir pencereyi paylaşma Mac'te **0.26 ve sonrasında** vardır (bkz. "Sesli görüşme (Mac)" ve "Yalnız
+bir pencereyi paylaşma (Mac)").
 
 ### Mac'te nasıl indirir ve açarım?
 
@@ -1406,8 +1408,8 @@ Vazgeçmek isterseniz **Vazgeç**'e tıklayın; ekranınız paylaşılmaz.
 
 Bilmeniz gerekenler:
 
-- **Her yeni sürümde** macOS Ekran Kaydı ve Erişilebilirlik izinlerini yeniden ister (uygulama Apple Developer ID olmadan
-  imzalandığı için izin o sürüme bağlıdır).
+- **Her yeni sürümde** macOS Ekran Kaydı ve Erişilebilirlik izinlerini (0.26 ve sonrasında sesli görüşmede Mikrofon iznini de)
+  yeniden isteyebilir (uygulama Apple Developer ID olmadan imzalandığı için izin o sürüme bağlıdır).
 - İzin yalnız bu Mac'te ve yalnız Nokta Destek için geçerlidir. Oturum bittikten sonra da Sistem Ayarları'nda kalır;
   istediğiniz an kaldırabilirsiniz (bkz. "Mac'te verdiğim izinleri nasıl kaldırırım?").
 - macOS 15 ve sonrası, ekran kaydı izni olan uygulamalar için zaman zaman "… ekranınıza erişmeye devam etsin mi?"
@@ -1423,7 +1425,8 @@ Bu adımlar Windows sürümüyle aynıdır:
   oturum kaydı açtıysa kayıt için ayrı bir kutu çıkar; işaretlemezseniz kayıt alınmaz. Hızlı Destek 0.21 ve sonrasında
   **Bağlan**'ın hemen üstünde sohbet saklama satırı yazar; satır yoksa düğme pasiftir (bkz. "KVKK onayı ve bağlanma").
 - **Bekleme odası:** ekrandaki 4 haneli kabul kodunu telefonda teknisyene okuyun.
-- **Ekran seçimi:** birden fazla ekranınız varsa paylaşılacak ekranı seçersiniz.
+- **Ekran seçimi:** birden fazla ekranınız varsa paylaşılacak ekranı seçersiniz. 0.26 ve sonrasında bu pencere tek ekranda
+  da açılır ve **Tüm ekran** ile **Yalnız bir pencere** arasında seçim sunar (bkz. "Yalnız bir pencereyi paylaşma (Mac)").
 
 Uygulama menüsünde (**Nokta Destek**) **Hakkında** ve **Lisanslar** bulunur. **Hakkında** penceresinde sürüm, sunucu
 adresi, **parmak izi** (uygulama dosyasının özetinin ilk 8 karakteri) ve imza satırı yazar. Canlı sürümde imza satırı
@@ -1503,12 +1506,16 @@ teknisyen ne de bilgisayardaki başka bir program bu düğmelere sizin yerinize 
 - **Pano paylaşımına izin ver** kutusu
 - Bağlı teknisyenler listesindeki **Çıkar** ve onayı
 - Oturum kaydı izin kutusu
+- Sesli görüşme isteğinde **Kabul et**, ses satırındaki **Mikrofonu aç** ve **Mikrofon izni gerekli** penceresindeki
+  **Sistem Ayarları'nı aç** (0.26 ve sonrası)
 
 Bu düğmeler **VoiceOver**, **Fare Tuşları**, Sesle Denetim, Anahtar Denetimi ya da klavye ile **çalışmaz**. Bu bir hata
 değil, bilinçli bir güvenlik önlemidir. Bu araçlarla çalışıyorsanız bu onaylar için gerçek bir fare ya da izleme dörtgeni
 kullanın veya yanınızdaki birinden yardım isteyin.
 
-Güvenli yöne işleyen düğmeler klavyeyle de çalışır: **Kontrolü kapat**, **Oturumu bitir**, **Kaydı durdur**.
+Güvenli yöne işleyen düğmeler klavyeyle de çalışır: **Kontrolü kapat**, **Oturumu bitir**, **Kaydı durdur**, **Sessize al**,
+**Görüşmeyi bitir**. Paylaşım seçim penceresi (**Tüm ekran** / **Yalnız bir pencere**, pencere listesi, **Listeyi yenile**,
+**Paylaş**) fareyle ya da klavyeyle (Tab ve Boşluk) kullanılır; VoiceOver öğelerin adını okur.
 
 **Klavye ile gezinme:** macOS'ta Tab tuşu düğmeler arasında yalnız **Sistem Ayarları → Klavye → Klavye ile gezinme**
 açıkken dolaşır. Kapalıysa Tab yalnız metin kutuları arasında geçer.
@@ -1516,6 +1523,121 @@ açıkken dolaşır. Kapalıysa Tab yalnız metin kutuları arasında geçer.
 **Fare Tuşları açıksa:** Fare Tuşları (Sistem Ayarları → Erişilebilirlik → İşaretçi Denetimi) açıkken teknisyen sayısal tuş
 takımını ve `7 8 9 U I O J K L M .` tuşlarını kullanamaz; bu tuşlar macOS'ta fareyi oynatır ve tıklar. Teknisyen ayrıca
 Nokta Destek pencerelerinin üzerinde bu tuşlara hiç basamaz. Bu harfleri yazmak gerekiyorsa siz yazın.
+
+### Yalnız bir pencereyi paylaşma (Mac, 0.26 ve sonrası)
+
+Teknisyenin bütün ekranınızı değil yalnız bir programın penceresini görmesini istiyorsanız bunu kullanın.
+
+**Nasıl yalnız bir pencere paylaşırım?**
+
+1. Paylaşım başlarken **Teknisyenle neyi paylaşmak istiyorsunuz?** penceresi açılır (tek ekranda da). **Tüm ekran** seçili
+   gelir.
+2. **Yalnız bir pencere**'yi seçin. Altındaki listede açık pencereleriniz "Başlık — Program adı" biçiminde görünür.
+3. Paylaşmak istediğiniz pencereyi seçin ve **Paylaş**'a tıklayın. Ekranın üstündeki yazı **"Paylaştığınız pencere izleniyor
+   — <teknisyen adı>"** olur.
+
+**Pencerem listede yok.** Listede yalnız bu masaüstünde ekranda görünen pencereler bulunur. Şunlar listede **görünmez**:
+
+- **Küçültülmüş (Dock'a indirilmiş) pencereler** ve gizlenmiş (⌘H) programlar. Windows'taki gibi "(simge durumunda)" satırı
+  Mac'te yoktur. Pencereyi Dock'tan geri açın, sonra **Listeyi yenile**'ye tıklayın.
+- Başka bir masaüstündeki (Space) ve tam ekran çalışan pencereler. Pencereyi bu masaüstüne getirin ya da tam ekrandan
+  çıkın, sonra **Listeyi yenile**'ye tıklayın.
+- Nokta Destek'in kendi pencereleri, Dock, menü çubuğu, Denetim Merkezi ve başlığı olmayan küçük pencereler.
+
+Liste boşsa "Paylaşılabilecek pencere yok — programı açıp Listeyi yenile'ye tıklayın" yazar ve **Paylaş** pasif kalır.
+Pencere başlıkları yalnız sizin ekranınızda görünür; teknisyene ya da sunucuya gönderilmez.
+
+**Ne olur?**
+
+- Teknisyen yalnız seçtiğiniz pencerenin içini görür. **Menü çubuğu** (ekranın en üstündeki Dosya, Düzen… menüleri) ve bu
+  pencereden açılan yeni pencereler teknisyene görünmez. Seçim ekranında da bu uyarı yazılıdır. Teknisyen bir menü komutuna
+  ihtiyaç duyarsa menüyü siz açın ya da teknisyen klavye kısayolunu kullansın.
+- Uzaktan kontrol izni verirseniz teknisyenin faresi ve klavyesi **yalnız bu pencerede** çalışır. Siz başka bir programa
+  geçerseniz teknisyenin yazdıkları o programa gitmez ve sonradan da yazılmaz.
+- Pencereye bağlı "Kaydedilsin mi?" gibi sayfalar teknisyen tarafından kullanılabilir. **Kaydet / Aç pencerelerini siz
+  kullanın:** bu pencere macOS'ta çoğu zaman ayrı bir programdır; teknisyen onu göremeyebilir ve tıklayamaz.
+- Ekrana çizim (işaretleme) ve ekran değiştirme pencere modunda yoktur.
+
+**Pencereyi küçültürsem, gizlersem ya da kapatırsam?**
+
+- **Küçültürseniz, gizlerseniz (⌘H), başka bir masaüstüne geçerseniz ya da pencereyi tam ekran yaparsanız:** teknisyen siyah
+  bir ekran ve "Pencere simge durumunda" yazısı görür; bu sırada fare ve klavyesi hiçbir şey yapamaz. Pencere yeniden
+  göründüğünde görüntü ve kontrol birkaç saniye içinde kendiliğinden döner.
+- **Kapatırsanız** (ya da program ⌘Q ile kapanırsa): paylaşım durur ve program kendiliğinden tüm ekrana **geçmez**. Devam
+  etmek için oturumu bitirip yeniden bağlanın.
+- **Taşır veya boyutunu değiştirirseniz:** görüntü yeni boyuta uyar.
+
+### Pencere modunda iletilmeyen kısayollar (Mac)
+
+Teknisyen pencere modunda paylaşılan programın dışına çıkamasın diye bazı tuş birleşimleri Mac'inize **iletilmez**:
+
+- **İki ya da daha fazla değiştiriciyle** (⌘, ⌥ Option, Control) basılan her kısayol. Örnekler: Control+⌘+Q (ekranı
+  kilitle), ⌥⌘Esc (Çıkmaya Zorla), ⌥⇧⌘Q, Control+⌘+Space (karakter görüntüleyici), Control+⌘+F (tam ekran), ⌥⌘D (Dock'u
+  gizle).
+- ⌘Space (Spotlight), ⌘Tab ve ⌘\` (program / pencere değiştirme), ⌘ ile F tuşları (ör. ⌘F5 VoiceOver).
+- Control ile ok tuşları (masaüstleri arası geçiş), Control+Space, Control+Tab, Control+Esc, Control ile F tuşları ve Control
+  ile harfler.
+- ⌥Space; ⌥ ile noktalama işaretleri.
+- ⇧⌘Q (oturumu kapat), ⇧⌘3, ⇧⌘4, ⇧⌘5, ⇧⌘6 (ekran görüntüsü).
+- Tek başına F3 (Görev Kontrolü), F4 (Launchpad), F11 (masaüstünü göster).
+- Art arda beş kez ⇧ ya da ⌥ basma (Yapışkan Tuşlar / Fare Tuşları kısayolu).
+- Mac'inizde **Yapışkan Tuşlar** açıksa Tab, Esc, Boşluk, ok ve F tuşları da gitmez; **Fare Tuşları** açıksa sayısal tuş
+  takımı ve `7 8 9 U I O J K L M .` tuşları gitmez.
+
+**Çalışanlar:** normal yazı ve ⇧ ile yazı; ⌘C, ⌘V, ⌘X, ⌘Z, ⇧⌘Z, ⌘A, ⌘S, ⇧⌘S gibi tek ⌘ kısayolları; ⌥ ile harf ve rakam
+(özel karakterler). Windows kullanan teknisyen AltGr ile `@ # { } [ ] \ |` gibi karakterleri yazabilir. ⌘W ve ⌘Q da
+çalışır; paylaşılan programı kapatırlarsa paylaşım durur.
+
+### Sesli görüşme (Mac, 0.26 ve sonrası)
+
+Teknisyen oturum sırasında sizinle sesli konuşmak isteyebilir. Akış tarayıcı ve Windows ile aynıdır (bkz. "Sesli görüşme").
+Ses kaydedilmez.
+
+1. "<Ad> sesli görüşme istiyor" penceresi açılır. Pencerede kimlerin dinleyeceği ve kulaklık önerisi yazar.
+2. Düğmeler **1,5 saniye** sonra etkinleşir. **Kabul et**'e yalnız **kendi farenizle ya da izleme dörtgeninizle**
+   tıklayabilirsiniz; Enter ve Boşluk isteği reddeder. Teknisyen uzaktan kontrolle sizin yerinize kabul edemez.
+3. İlk görüşmede macOS **"Nokta Destek" mikrofona erişmek istiyor** diye sorar. **İzin Ver**'i seçin. Bu soru açıkken
+   teknisyenin fare ve klavyesi durur. Yalnız Nokta Destek açıkken ve siz Kabul'e tıkladıktan sonra çıkan istemde izin
+   verin.
+4. Mikrofon açılır. Ekranın üstündeki gösterge yazısına **"● Mikrofon açık"** eklenir; macOS da menü çubuğunda turuncu bir
+   mikrofon işareti gösterir. Oturum penceresinde ses satırı görünür: "● Mikrofon açık · Konuşan: … · Dinleyen: …",
+   **Sessize al** ve **Görüşmeyi bitir**.
+5. **Sessize al** ile sesinizi kesersiniz; **Mikrofonu aç** yalnız kendi farenizle çalışır. **Görüşmeyi bitir** ile
+   görüşmeyi istediğiniz an kapatırsınız; mikrofon hemen kapanır.
+
+Bilmeniz gerekenler:
+
+- **Kulaklık kullanın.** Mac'in kendi hoparlörü ve mikrofonuyla yankı olabilir.
+- Gösterge ekranda gösterilemezse güvenlik için görüşme kendiliğinden biter.
+- Yeni biri dinlemeye başlarsa sohbette "<Ad> görüşmeyi dinlemeye başladı" yazar.
+- Sesli görüşme macOS 14 ve 15'te denenmiştir; macOS 13'te doğrulanmadı. Mac'iniz sesi desteklemiyorsa teknisyenin düğmesi
+  pasif kalır, oturumun geri kalanı etkilenmez.
+
+**Mikrofon izni yoksa ya da mikrofon açılamazsa:** görüşme başlamaz, ekran paylaşımı ve sohbet sürer. Oturum penceresinde
+"Mikrofonunuz açılamadı. Sistem Ayarları → Gizlilik ve Güvenlik → Mikrofon altında Nokta Destek açık olmalı; teknisyen
+yeniden isteyebilir." yazar ve **Mikrofon izni gerekli** penceresi açılır. Yalnız dinleme kipi yoktur.
+
+1. **Sistem Ayarları'nı aç**'a kendi farenizle tıklayın. Sistem Ayarları **Gizlilik ve Güvenlik → Mikrofon** bölümünde
+   açılır.
+2. Listede **Nokta Destek**'in anahtarını açın.
+3. Teknisyene söyleyin; teknisyen görüşmeyi yeniden ister (30 saniye sonra).
+
+**Listede açık görünüyor ama ses gitmiyorsa** (çoğunlukla yeni sürüme geçince; izin eski sürüme bağlı kalır):
+
+1. Nokta Destek'i **⌘Q** ile kapatın.
+2. **Terminal**'i açın ve yalnız şu komutu aynen çalıştırın:
+
+   ```bash
+   tccutil reset Microphone net.noktabilisim.destek
+   ```
+
+3. Nokta Destek'i indirdiğiniz klasörden yeniden açın. Teknisyen görüşmeyi yeniden istediğinde **Kabul et**'e, sonra
+   macOS'un sorduğu istemde **İzin Ver**'e tıklayın.
+
+Test sunucusundan indirilen deneme paketinde komut `tccutil reset Microphone net.noktabilisim.destek.stg` olur. Mikrofon
+listesinde eski kaydı kaldıran **−** düğmesi her macOS sürümünde bulunmayabilir; Terminal komutu her zaman çalışır. Bu
+komutlardan başka bir Terminal komutu (yönetici parolası isteyen ya da sistem korumasını kapatan komutlar dahil) önerilirse
+uygulamayın ve teknisyeninize bildirin.
 
 ### Pano paylaşımı (Mac)
 
@@ -1575,29 +1697,35 @@ Kalanlar:
 - İndirdiğiniz `Destek-….zip` ya da `NoktaDestek-<firma adı>-….zip` ve aynı adlı klasör (oturum bitince siz silin; firma
   zip'ini de saklamayın, her destek isteğinde yeniden indirin).
 - Teknisyenden aldığınız dosyalar (İndirilenler'de).
-- Verdiğiniz **Ekran Kaydı** ve **Erişilebilirlik** izinleri (macOS tutar).
+- Verdiğiniz **Ekran Kaydı**, **Erişilebilirlik** ve (sesli görüşme yaptıysanız) **Mikrofon** izinleri (macOS tutar).
 - Yazdırma yaptıysanız macOS'un yazdırma geçmişindeki iş kaydı.
 
 **İzinleri kaldırmak için (önerilen yol):**
 
 1. **Sistem Ayarları → Gizlilik ve Güvenlik → Ekran Kaydı** (yeni sürümlerde "Ekran ve Sistem Sesi Kaydı") bölümünü açın.
 2. Listede **Nokta Destek**'i seçin ve alttaki **−** düğmesine basın (macOS sürümünüzde düğme yoksa anahtarı kapatın).
-3. Aynısını **Gizlilik ve Güvenlik → Erişilebilirlik** bölümünde yapın.
+3. Aynısını **Gizlilik ve Güvenlik → Erişilebilirlik** bölümünde yapın. Mikrofon izni için **Mikrofon** bölümünde anahtarı
+   kapatın ya da aşağıdaki Terminal komutunu kullanın.
 
 **Terminal ile (BT sorumlusu için):**
 
 ```bash
 tccutil reset ScreenCapture net.noktabilisim.destek
 tccutil reset Accessibility net.noktabilisim.destek
+tccutil reset Microphone net.noktabilisim.destek
 ```
+
+Bu komutlardan başka bir Terminal komutu (yönetici parolası isteyen ya da sistem korumasını kapatan komutlar dahil)
+önerilirse uygulamayın.
 
 İzinleri kaldırdıktan sonra Nokta Destek'i yeniden kullanırsanız macOS izinleri yeniden sorar.
 
 > **Yalnız test ortamı için (gerçek müşterilere verilmez).** Test sunucusundan indirilen Mac pakette tüm pencerelerde ve
 > ekranın üstünde gizlenemeyen **"TEST SÜRÜMÜ — imzasız"** bandı görünür; destek sayfasında da "TEST SÜRÜMÜ" uyarısı çıkar.
 > Açılış adımları ("Bitti", Gizlilik ve Güvenlik → Yine de Aç) canlı sürümle aynıdır. Test paketinin kimliği farklıdır;
-> izinlerini kaldırmak için: `tccutil reset ScreenCapture net.noktabilisim.destek.stg` ve
-> `tccutil reset Accessibility net.noktabilisim.destek.stg`. Canlı sürümde bu bant görünmez.
+> izinlerini kaldırmak için: `tccutil reset ScreenCapture net.noktabilisim.destek.stg`,
+> `tccutil reset Accessibility net.noktabilisim.destek.stg` ve
+> `tccutil reset Microphone net.noktabilisim.destek.stg`. Canlı sürümde bu bant görünmez.
 
 ### Sık karşılaşılan durumlar (Mac)
 
@@ -1620,7 +1748,11 @@ tccutil reset Accessibility net.noktabilisim.destek
 | **İzin ver** / **Yazdır** / pano kutusu tepki vermiyor                           | 1,5 saniye bekleyin, sonra gerçek fare ya da izleme dörtgeniyle tıklayın. VoiceOver, Fare Tuşları ve klavye bu düğmelerde çalışmaz.                                                                                                                                                                                                                                                                      |
 | Control+Shift+F12 çalışmıyor                                                     | Dizüstünde **fn** ile birlikte basın. Oturum penceresinde F11 yazıyorsa Control+Shift+F11 kullanın. Her zaman **Kontrolü kapat** düğmesi de çalışır.                                                                                                                                                                                                                                                     |
 | Teknisyen bazı harfleri yazamıyor                                                | Fare Tuşları açık olabilir. Kapatın ya da o harfleri siz yazın.                                                                                                                                                                                                                                                                                                                                          |
-| Teknisyen sesli görüşme başlatamıyor                                             | Mac sürümünde sesli görüşme yoktur; telefonda konuşun.                                                                                                                                                                                                                                                                                                                                                   |
+| Teknisyen sesli görüşme başlatamıyor                                             | Sesli görüşme Mac'te 0.26 ve sonrasında vardır. Eski uygulamada düğme pasiftir; güncel uygulamayı destek sayfasından yeniden indirin.                                                                                                                                                                                                                                                                    |
+| "Mikrofon izni gerekli" / "Mikrofonunuz açılamadı"                               | Sistem Ayarları → Gizlilik ve Güvenlik → Mikrofon → Nokta Destek anahtarını açın; açık olduğu hâlde ses gitmiyorsa ⌘Q, Terminal'de `tccutil reset Microphone net.noktabilisim.destek`, uygulamayı yeniden açın (bkz. "Sesli görüşme (Mac)").                                                                                                                                                             |
+| Paylaşmak istediğim pencere listede yok                                          | Pencere küçültülmüş, gizlenmiş, başka masaüstünde ya da tam ekranda olabilir. Pencereyi bu masaüstünde açın, sonra **Listeyi yenile**.                                                                                                                                                                                                                                                                   |
+| Teknisyen siyah ekran ve "Pencere simge durumunda" görüyor                       | Paylaşılan pencere küçültülmüş, gizlenmiş, tam ekran ya da başka masaüstünde. Pencereyi geri açın.                                                                                                                                                                                                                                                                                                       |
+| Teknisyen Kaydet / Aç penceresini göremiyor ya da tıklayamıyor                   | Pencere modunda bu pencereyi siz kullanın.                                                                                                                                                                                                                                                                                                                                                               |
 
 ### Super Admin için: Mac sürümünün yayını (not)
 
@@ -2225,7 +2357,8 @@ onaylasa bile kontrol açılmaz.
 ### Müşteri yalnız bir pencere paylaşıyorsa ("Pencere paylaşımı" rozeti)
 
 Hızlı Destek 0.11 ve sonrasında müşteri tüm ekran yerine tek bir pencere paylaşabilir. Bu durumda sahnenin üst şeridinde
-**Pencere paylaşımı** rozeti görünür (üzerine gelince "Müşteri yalnız bir pencereyi paylaşıyor (Pencere yakalama (WGC))").
+**Pencere paylaşımı** rozeti görünür (üzerine gelince "Müşteri yalnız bir pencereyi paylaşıyor (Pencere yakalama)"). Mac
+müşterisinde (0.26 ve sonrası) de aynı rozet çıkar; Mac'e özgü farklar "Müşteri Mac kullanıyorsa" bölümündedir.
 
 - Yalnız o pencerenin içini görürsünüz. Monitör seçimi gizlenir; ekran değiştirme ve işaretleme yoktur.
 - Kontrol izniyle tıklamanız yalnız o pencereye gider. Üstüne başka pencere gelmiş bir bölgeye tıklarsanız hiçbir şey olmaz.
@@ -2236,7 +2369,7 @@ Hızlı Destek 0.11 ve sonrasında müşteri tüm ekran yerine tek bir pencere p
   açıksa tek başına Ctrl/Alt sonrası Tab/Esc ve sayısal tuş takımı da gitmez; rakam için üst sırayı kullanın. Ctrl+C,
   Ctrl+V ve Alt+F4 çalışır. Hızlı yazımda saniyede 40 tuştan fazlası düşer.
 - Müşteri pencereyi küçültürse siyah ekran ve "Pencere simge durumunda" görürsünüz; girdiniz uygulanmaz. Pencere kapanırsa
-  kırmızı uyarı çıkar: **"Neden: Paylaşılan pencere kapatıldı — Pencere yakalama (WGC)"**. Müşteri oturumu yeniden başlatır.
+  kırmızı uyarı çıkar: **"Neden: Paylaşılan pencere kapatıldı — Pencere yakalama"**. Müşteri oturumu yeniden başlatır.
 - Tüm ekrana ihtiyacınız varsa müşteriden oturumu bitirip yeniden bağlanırken **Tüm ekran**'ı seçmesini isteyin.
 
 ### Kontrolün kendiliğinden kapandığı durumlar
@@ -2289,7 +2422,18 @@ Hızlı Destek 0.11 ve sonrasında müşteri tüm ekran yerine tek bir pencere p
   panelde Windows talebiyle aynı görünür; kabul ettiğinizde Erişilebilirlik izni yoksa kontrol isteğiniz kodla açılan Mac
   oturumundaki gibi yukarıdaki "Müşterinin bilgisayarı uzaktan kontrole izin vermiyor…" metniyle kapanır. Mac'te bilgisayar kaydı olmadığı için talepte "Kayıtlı bilgisayar" rozeti
   çıkmaz. Müşteri talebi gönderdikten sonra uygulamayı yeniden başlatırsa talep iptal olur.
-- **Olmayanlar:** pencere paylaşımı (her zaman tam ekran), sesli görüşme (düğme pasif; bkz. "Sesli görüşme").
+- **Sesli görüşme (0.26 ve sonrası):** Windows müşterisiyle aynı çalışır. Müşteri Mikrofon iznini vermezse görüşme "Müşterinin
+  mikrofonu açılamadı" ile biter; müşteriden izni açmasını isteyip 30 sn sonra yeniden isteyin. Mac uygulaması 0.25 veya
+  daha eskiyse ya da Mac sesi desteklemiyorsa düğme pasiftir.
+- **Pencere paylaşımı (0.26 ve sonrası):** rozet ve ipucu Windows'takiyle aynıdır (bkz. "Müşteri yalnız bir pencere
+  paylaşıyorsa"). Mac'te **menü çubuğunu görmezsiniz**: menü komutu için müşteriden menüyü açmasını isteyin ya da kısayol
+  kullanın. Kaydet / Aç penceresini müşteri kullanır. Küçültülmüş, başka masaüstündeki ya da tam ekran pencere listede
+  çıkmaz; görünmez olursa siyah ekran görürsünüz.
+- **Pencere modunda gitmeyen tuşlar (Mac):** Ctrl, Alt ve Windows tuşundan ikisi birlikte basılan her kısayol; Ctrl+Space,
+  Ctrl+Tab, Ctrl+\`, Ctrl ile F tuşları, Ctrl+Shift+Q, Ctrl+Shift+3–6; Windows tuşu (Mac'te Control) ile oklar, harfler, Tab,
+  Esc, Boşluk ve F tuşları; Alt+Space ve Alt ile noktalama; tek başına F3, F4, F11; art arda beş Shift ya da Alt. Çalışanlar:
+  normal yazı, Ctrl+C/V/X/Z/A/S, Ctrl+Shift+Z/S, Alt ile harf ve rakam, AltGr ile `@ # { } [ ] \ |`. Ctrl+W ve Ctrl+Q
+  paylaşılan programı kapatabilir; o zaman paylaşım durur.
 - **Yazdırma:** müşterinin onay penceresinde sayfa sayısı ve yazıcı adı yazmaz ("Sayfa sayısı: yazıcıda belirlenir",
   "Varsayılan yazıcı"). Müşterinin varsayılan yazıcısı yoksa bunu müşteri onayladıktan sonra görürsünüz.
 - Audit log'da katılım satırının ayrıntısında **İşletim sistemi (beyan)**: Windows / macOS / Linux / Tarayıcı yazar. Bu
@@ -4559,8 +4703,8 @@ Teknisyen süren bir destek oturumunda müşteriyle sesli konuşabilir; telefonl
   girmez.
 - Müşteri tarafında **tarayıcı** ya da **Hızlı Destek 0.18 ve sonrası** gerekir. Eski sürümde düğme pasiftir: "Müşterinin
   uygulaması bu özelliği desteklemiyor — güncel sürümü indirmesini isteyin".
-- **Hızlı Destek macOS'ta sesli görüşme şimdilik yoktur.** Mac müşterisinde düğme aynı iletiyle pasiftir; güncel sürümü
-  indirmek bunu çözmez. Telefonla konuşun. Windows ve Linux programında ve tarayıcıda ses vardır (bkz. "Hangi programda ne var?").
+- **Hızlı Destek macOS'ta sesli görüşme 0.26 ve sonrasında vardır.** Daha eski Mac uygulamasında düğme aynı iletiyle
+  pasiftir; müşteri güncel uygulamayı indirir. Mac müşterisinin adımları: "Sesli görüşme (Mac)".
 - **Gözetimsiz oturumda sesli görüşme yoktur** (bilgisayar başında kimse yokken mikrofon açılmaz). Konsolda "Gözetimsiz
   oturumda sesli görüşme yapılamaz" yazar.
 - Yankı olmaması için iki tarafa da kulaklık önerilir.
@@ -4648,6 +4792,7 @@ Ayrı bir ses ayarı yoktur. Super Admin, seçtiği firmada Admin ile aynı yetk
 | "Mikrofon izni verilmedi — adres çubuğundaki site ayarlarından mikrofona izin verip tekrar deneyin" (teknisyen)        | Tarayıcının site ayarlarından mikrofona izin verin, düğmeye yeniden basın                                                                             |
 | "Mikrofonunuz açılamadı. Mikrofonun bağlı olduğunu ve tarayıcıya izin verdiğinizi kontrol edin; …" (müşteri, tarayıcı) | Mikrofonu takın, tarayıcıda izin verin; teknisyen yeniden ister                                                                                       |
 | "Mikrofonunuz açılamadı. … Ayarlar > Gizlilik ve güvenlik > Mikrofon …" (müşteri, Windows)                             | Windows ayarında "Masaüstü uygulamalarının mikrofonunuza erişmesine izin verin" seçeneğini açın; teknisyen yeniden ister                              |
+| "Mikrofonunuz açılamadı. Sistem Ayarları → Gizlilik ve Güvenlik → Mikrofon …" (müşteri, Mac 0.26+)                     | Mac'te Mikrofon listesinde Nokta Destek'i açın; teknisyen yeniden ister (bkz. "Sesli görüşme (Mac)")                                                  |
 | "Sesli görüşme başlatılamadı; mikrofonunuz kapatıldı. Teknisyen yeniden isteyebilir." (müşteri)                        | Kabul ettiniz ama görüşme 5 saniye içinde başlamadı; güvenlik için mikrofon kapatıldı. Tarayıcıda ve Windows'ta aynı metin. Teknisyen yeniden istesin |
 | "Müşterinin mikrofonu açılamadı — 30 sn sonra tekrar deneyebilirsiniz" (teknisyen)                                     | Müşteriden mikrofonunu ve iznini kontrol etmesini isteyin                                                                                             |
 | "Müşteri reddetti / Müşteri yanıt vermedi — 30 sn sonra tekrar deneyebilirsiniz"                                       | 30 saniye bekleyin; müşteriyle sohbetten konuşun                                                                                                      |
@@ -6041,8 +6186,8 @@ Admin başka firmanın oturumuna yalnız **İzle** ile, o firmayı seçerek kat�
 teknisyen (User) ya da Admin hesabı açın, "Destek talepleri → Kabul et" yetkisini verin ve o hesapla girin.
 
 **Mac müşterisiyle neden sesli konuşamıyorum?**
-Mac uygulamasında sesli görüşme yoktur. Windows ve Linux programında ve tarayıcıda vardır. Mac müşterisiyle telefonda
-konuşun (bkz. "Hangi programda ne var?").
+Mac uygulamasında sesli görüşme 0.26 ve sonrasında vardır. Müşterinin uygulaması daha eskiyse düğme pasiftir; güncel
+uygulamayı destek sayfasından indirmesini isteyin. Müşteri Mikrofon iznini vermediyse bkz. "Sesli görüşme (Mac)".
 
 **Mac'te izin açık görünüyor ama uygulama yine izin istiyor; ne yapmalıyım?**
 Uygulamayı ⌘Q ile kapatın, Terminal'de `tccutil reset ScreenCapture net.noktabilisim.destek` ve

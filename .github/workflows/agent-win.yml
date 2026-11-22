@@ -107,7 +107,7 @@ jobs:
       - name: darwin ikilisinde wazero yok (arm64 + amd64)
         run: |
           for a in arm64 amd64; do
-            deps="$(GOOS=darwin GOARCH=$a CGO_ENABLED=0 go list -deps ./cmd/noktadestek)"
+            deps="$(GOOS=darwin GOARCH=$a CGO_ENABLED=0 go list -buildvcs=false -deps ./cmd/noktadestek)"
             if printf '%s\n' "$deps" | grep -q 'tetratelabs/wazero'; then
               printf '%s\n' "$deps" | grep 'tetratelabs/wazero' | head -5
               echo "::error::darwin/$a ikilisi wazero'ya bağlı (mimari-p33 §8.4, T3)"; exit 1

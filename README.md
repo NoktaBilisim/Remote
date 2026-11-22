@@ -17,7 +17,7 @@ güncellemesi prod'da şimdilik kapalıdır (servis manifesti yayınlanmadı); s
 kod imzasız, risk kabulüyle açıktır (P32, ADR-0042, `UNATTENDED_MODE=unsigned-accepted`). Sürüm geçmişi:
 [`CHANGELOG.md`](CHANGELOG.md).
 
-Kodlanan paketler: P1–P13a tamamlandı, P13b (prod açılışı) kodu hazır, P14a/P14b, P15, P16, P17 (istemci 0.11.0), P18 (talep iletişimi), P19 (web talep formu, SMS, müşteri bildirimi, müşteri CSV) P20 (istemci 0.12.0), P27a (2FA'da cihaz hatırlama), P27 (gözetimsiz erişim; prod'da P32 risk kabulüyle imzasız açılabilir) P28a (pano paylaşımı + uzaktan yazdırma, istemci 0.13.0) P28b (sunucuda dosya aktarımı + ClamAV + depolama kotası, istemci 0.14.0), P28u (gözetimsiz onaysız bağlantı ve müdahale; r3 onaysız tek yol, servis 0.15.0) P28e (oturum kaydı, istemci/servis 0.16.0) ve P28c (çoklu teknisyen: davet, İzle, kontrol ve oturum devri, istemci/yardımcı 0.17.0) ve P28d (sesli görüşme, istemci 0.18.0) ve P28f (macOS istemci, istemci 0.19.0; prod'a ad-hoc imzalı, P28f-r4) ve P22 (oturum sohbeti kaydı + KVKK) ve P22-G (istemci 0.21.0: kayıtlı oturum sohbeti) ve P31 (macOS'ta "Destek iste", istemci 0.24.0) kodlandı (QA sürüyor)
+Kodlanan paketler: P1–P13a tamamlandı, P13b (prod açılışı) kodu hazır, P14a/P14b, P15, P16, P17 (istemci 0.11.0), P18 (talep iletişimi), P19 (web talep formu, SMS, müşteri bildirimi, müşteri CSV) P20 (istemci 0.12.0), P27a (2FA'da cihaz hatırlama), P27 (gözetimsiz erişim; prod'da P32 risk kabulüyle imzasız açılabilir) P28a (pano paylaşımı + uzaktan yazdırma, istemci 0.13.0) P28b (sunucuda dosya aktarımı + ClamAV + depolama kotası, istemci 0.14.0), P28u (gözetimsiz onaysız bağlantı ve müdahale; r3 onaysız tek yol, servis 0.15.0) P28e (oturum kaydı, istemci/servis 0.16.0) ve P28c (çoklu teknisyen: davet, İzle, kontrol ve oturum devri, istemci/yardımcı 0.17.0) ve P28d (sesli görüşme, istemci 0.18.0) ve P28f (macOS istemci, istemci 0.19.0; prod'a ad-hoc imzalı, P28f-r4) ve P22 (oturum sohbeti kaydı + KVKK) ve P22-G (istemci 0.21.0: kayıtlı oturum sohbeti) ve P31 (macOS'ta "Destek iste", istemci 0.24.0) ve P33 (macOS'ta ses ve tek pencere paylaşımı, istemci 0.26.0) kodlandı (QA sürüyor)
 
 İş P1..P13 dikey paketlerle yürür (`docs/mimari.md` §10). P1–P11 ve **P12** (firma ve sistem logosu, kullanıcı profil
 resmi, kullanıcı başına tema, hesap menüsü, tasarım token lint kuralı) tamamlandı: P12 güvenlik Kritik/Yüksek 0 (doğrulama
@@ -274,6 +274,22 @@ yeni kod yerelde (`scripts/e2e-real.sh`) denenir.
 - Yeni cihaz hatırlanınca ve çalınmış çerez şüphesinde kullanıcıya e-posta; şifre değişimi, 2FA sıfırlama, tüm cihazlardan
   çıkış gibi olaylar hatırlamayı siler. Çerez `__Secure-rs_td` (`Path=/api/v1/auth`). Migration `20261121000000_p27a_trusted_devices`; yeni env yok.
 
+**P33 — macOS istemcisine ses ve tek pencere paylaşımı, istemci 0.26.0** (AC-534..558, ADR-0043, `docs/mimari-p33.md`; kod
+tamam, güvenlik kod turu K5 GEÇTİ, qa tur 2 GEÇTİ (CI koşulu); staging'de Mac elle D-listesi bekliyor; prod'a çıkmadı)
+
+- Sesli görüşme Mac'te: Opus macOS AudioToolbox ile (cgo/JIT yok; darwin ikilisinde wazero yok), gelen ses `sandbox_init`
+  `(deny default)` profilli ayrı çözücü alt sürecinde çözülür; ses aygıtı AudioQueue. Mikrofon izni yalnız yerel "Kabul et"
+  tıklamasından sonra istenir; izin/aygıt yoksa görüşme `device` nedeniyle biter ve Mikrofon rehberi açılır. Sesli görüşme
+  macOS 14/15'te CI'da denetlenir, macOS 13'te doğrulanmadı (yoklama başarısızsa ses pasif).
+- Tek pencere paylaşımı Mac'te: ScreenCaptureKit pencere filtresi, kendi seçim ekranı (küçültülmüş, başka Space'teki ve
+  tam ekran pencereler listelenmez — D-P33-1), görünmezde siyah plaka, kapanınca `WINDOW_CLOSED`; girdi AX ile pencereye
+  kapsanır, `macShortcuts` kısayol politikası (iki değiştirici kuralı + tablo + izinli liste, AltGr güvenli istisnası).
+- Paket: entitlement tam olarak `com.apple.security.device.audio-input`, Türkçe `NSMicrophoneUsageDescription`; OKUBENI ve
+  web Mac rehberine Mikrofon adımı; `tcc-rehber-check.sh` müşteri metinlerinde yalnız paket kimlikli `tccutil` komutuna izin verir.
+- Sözleşme değişmedi (`method: WGC` = pencere modu belirteci); konsol etiketi "Pencere yakalama". Yeni env, migration,
+  yetki yok. Kullanım `docs/KULLANIM_KILAVUZU.md` "Sesli görüşme (Mac)", "Yalnız bir pencereyi paylaşma (Mac)"; operasyon
+  runbook §33.
+
 **P31 — macOS Hızlı Destek'te "Destek iste", istemci 0.24.0** (AC-509..522, ADR-0041, `docs/mimari-p31.md`; kod tamam,
 güvenlik kod turu GEÇTİ, QA tur 1 düzeltmeleri sürüyor; gerçek Mac'te K0 ölçümü ve elle E-P31-1..7 bekliyor)
 
@@ -392,7 +408,7 @@ notarization olmadan **ad-hoc imzalı** çıkar; köken GitHub attestation ile d
 - Hızlı Destek'in macOS 13+ sürümü: tek universal `.app` (Apple Silicon + Intel), `Destek-<kod>.zip` içinde, kurulumsuz.
   Kod zip'in açıldığı klasör adından okunur. Görüntü ScreenCaptureKit + VideoToolbox, kontrol CGEvent; sohbet, dosya
   (karantina işaretli), işaretleme, pano, yazdırma (`/usr/bin/lp`, sayfa sayısı yazıcıda), çoklu teknisyen, kayıt rızası.
-  Ses, pencere paylaşımı, tepsi ve gözetimsiz erişim macOS'ta yok ("Destek iste" P31 ile 0.24.0'da geldi).
+  Tepsi ve gözetimsiz erişim macOS'ta yok ("Destek iste" P31 ile 0.24.0'da, ses ve pencere paylaşımı P33 ile 0.26.0'da geldi).
 - Ekran Kaydı / Erişilebilirlik izin rehberi (kodu koruyarak yeniden başlatma); izin yoksa teknisyene `OS_PERMISSION`.
   Korunan düğmeler yalnız gerçek yerel fare tıklamasıyla çalışır. Staging paketinde gizlenemeyen "TEST SÜRÜMÜ" bandı.
 - **Ad-hoc prod (P28f-r4):** `vars.APPLE_TEAM_ID` tanımsızken etiket derlemesi ad-hoc prod zip'ini (`OKUBENI-adhoc.txt`
@@ -771,6 +787,7 @@ görür. `deploy/staging-users.sh` staging test hesapları için hâlâ kullanı
 | P21 (kod ✓, qa tur 2 GEÇTİ; staging doğrulaması bekliyor)                         | G6 müşteri portalı: portal girişi, talep/oturum geçmişi, portaldan talep, firma dosyası, isteğe bağlı 2FA; panel Portal hesapları; runbook §30                                                                             |
 | P22 (kod ✓, qa/güvenlik/sayfa testi GEÇTİ)                                        | Oturum sohbeti sunucu üzerinden ve her zaman kayıtlı, oturum geçmişinde sohbet (`sessions.view_chat`), aydınlatma sohbet paragrafı; runbook §29                                                                            |
 | P31 (kod ✓, QA sürüyor; Mac elle turu bekliyor)                                   | macOS istemci 0.24.0: firma bağlantısından `.zip`, "Destek iste" formu, bekleme ve kabul; `macos-firm` iç ucu; runbook §32                                                                                                 |
+| P33 (kod ✓, qa GEÇTİ (CI koşulu); Mac elle turu bekliyor)                         | macOS istemci 0.26.0: sesli görüşme (AudioToolbox Opus, sandbox'lı çözücü, Mikrofon izni) ve tek pencere paylaşımı (SCK, kısayol politikası); runbook §33                                                                  |
 | P32 (kod ✓, QA sürüyor)                                                           | Prod'da imzasız gözetimsiz servis, risk kabulüyle (`unsigned-accepted`, SHA izinli liste, kayıt kodu e-postasında doğrulama bloğu, remote-watch ALERT'leri); ADR-0042, runbook §27.9                                       |
 | P13c                                                                              | Ayrı staging (`stg.remote.noktabilisim.net`, ayrı DB/sır/yedek); E11 özelliklerinden önce                                                                                                                                  |
 
@@ -779,18 +796,18 @@ müşteri ağları desteklenmez (ADR-0018 risk kabulü); gereken portlar kullan�
 
 ## Teknoloji yığını
 
-| Katman               | Teknoloji                                                                                                                                             |
-| -------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Server               | Node.js ≥ 22.18 (yerleşik TypeScript type stripping, derleme adımı yok), Fastify 5, Prisma 7, zod, pino, argon2id, nodemailer (SMTP), qrcode (2FA QR) |
-| Web                  | Next.js 16 (App Router), React 19, Tailwind 4, lucide-react                                                                                           |
-| Ortak                | `packages/contracts` (zod şemaları, yetki listesi, hata kodları)                                                                                      |
-| DB                   | MySQL 8.4                                                                                                                                             |
-| Giriş                | Caddy 2.11 (TLS, ters vekil, log filtresi)                                                                                                            |
-| Sinyalizasyon / TURN | `ws` 8.21 (Fastify sunucusunda), coturn 4.18 (ayrı compose)                                                                                           |
-| Windows istemci      | Go 1.26 (CGO'suz), Pion WebRTC v4, `coder/websocket`, `golang.org/x/sys`; Win32 arayüz                                                                |
-| macOS istemci        | Aynı Go kodu (CGO'suz), `ebitengine/purego` v0.11.3 ile AppKit, ScreenCaptureKit, VideoToolbox, CGEvent; macOS 13+ universal `.app`                   |
-| Test                 | Vitest, Playwright + axe, `go test -race`                                                                                                             |
-| Paket yöneticisi     | pnpm 9 (corepack), monorepo                                                                                                                           |
+| Katman               | Teknoloji                                                                                                                                                     |
+| -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Server               | Node.js ≥ 22.18 (yerleşik TypeScript type stripping, derleme adımı yok), Fastify 5, Prisma 7, zod, pino, argon2id, nodemailer (SMTP), qrcode (2FA QR)         |
+| Web                  | Next.js 16 (App Router), React 19, Tailwind 4, lucide-react                                                                                                   |
+| Ortak                | `packages/contracts` (zod şemaları, yetki listesi, hata kodları)                                                                                              |
+| DB                   | MySQL 8.4                                                                                                                                                     |
+| Giriş                | Caddy 2.11 (TLS, ters vekil, log filtresi)                                                                                                                    |
+| Sinyalizasyon / TURN | `ws` 8.21 (Fastify sunucusunda), coturn 4.18 (ayrı compose)                                                                                                   |
+| Windows istemci      | Go 1.26 (CGO'suz), Pion WebRTC v4, `coder/websocket`, `golang.org/x/sys`; Win32 arayüz                                                                        |
+| macOS istemci        | Aynı Go kodu (CGO'suz), `ebitengine/purego` v0.11.3 ile AppKit, ScreenCaptureKit, VideoToolbox, CGEvent, AudioToolbox, AudioQueue; macOS 13+ universal `.app` |
+| Test                 | Vitest, Playwright + axe, `go test -race`                                                                                                                     |
+| Paket yöneticisi     | pnpm 9 (corepack), monorepo                                                                                                                                   |
 
 ## Gereksinimler
 
@@ -800,7 +817,7 @@ müşteri ağları desteklenmez (ADR-0018 risk kabulü); gereken portlar kullan�
 - Windows istemciyi derlemek için Go kurulumu gerekmez; derleme Docker'daki `golang` imajında yapılır.
 - Müşteri tarafı: Windows 10 / 11 (64 bit). Windows N sürümlerinde Media Feature Pack gerekir; yoksa görüntü gönderilemez.
   macOS istemci: macOS 13+ (Apple Silicon ve Intel). macOS 13/14 ve gerçek Intel Mac'te elle test yapılmadı (Intel dilimi
-  Rosetta ile denendi).
+  Rosetta ile denendi). Mac'te sesli görüşme (0.26) macOS 14/15'te CI ile denetlenir; macOS 13'te doğrulanmadı.
 - macOS paketini (`.app`, imza, zip) üretmek için Xcode komut satırı araçları olan bir Mac gerekir; ince ikililer yine
   Docker'da derlenir.
 

@@ -5,7 +5,45 @@ Biçim [Keep a Changelog](https://keepachangelog.com/tr/1.1.0/), sürümleme [Se
 
 ## [Unreleased]
 
-### Değişti — P33 macOS paketi ve CI, istemci 0.26.0 hazırlığı (devops K3; ADR-0043, AC-554, AC-556)
+## [0.26.0] - 2026-11-23
+
+macOS istemcisine sesli görüşme ve tek pencere paylaşımı (P33; AC-534..558, ADR-0043, `docs/mimari-p33.md`). Kod tamam;
+güvenlik kod turu K5 GEÇTİ, qa tur 2 GEÇTİ (CI koşulu). Staging'de Mac elle D-listesi (AC-534..540, 542..551, 555) ve prod
+yayını bekliyor (runbook §33.3). Windows ve Linux istemcide davranış değişmez; `MIN_AGENT_VERSION` 0.25.1 kalır.
+
+### Eklendi — P33 macOS sesli görüşme (AC-534..541)
+
+- Mac müşterisiyle P28d sesli görüşme: istek penceresinde **Kabul et** yalnız yerel fare/izleme dörtgeni tıklamasıyla (1,5 sn
+  kilit; Enter/Boşluk reddeder). Mikrofon izni yalnız bu tıklamadan sonra istenir; istem sürerken uzaktan girdi durur.
+- Gizlenemeyen göstergede "● Mikrofon açık / Sessizde", oturum penceresinde ses satırı (Sessize al, Mikrofonu aç — yalnız yerel
+  tıklama, Görüşmeyi bitir). Gösterge görünür kılınamazsa görüşme biter.
+- İzin ya da aygıt yoksa görüşme `device` nedeniyle biter, **Mikrofon izni gerekli** rehberi açılır; oturum sürer (yalnız
+  dinleme kipi yok, Windows ile aynı).
+- Opus macOS AudioToolbox ile; gelen ses `sandbox_init` `(deny default)` profilli ayrı çözücü alt sürecinde çözülür (devralınan
+  fd'ler kapatılır, öz-test, 30 dk fuzz 0 çökme). Ses aygıtı AudioQueue. darwin ikilisinde wazero/libopus wasm yok, cgo/JIT yok.
+- Ses desteği çalışma zamanında yoklanır (mikrofona dokunmadan); başarısızsa (ör. doğrulanmamış macOS 13) ses pasif kalır.
+
+### Eklendi — P33 macOS tek pencere paylaşımı (AC-542..552)
+
+- Seçim ekranı ("Teknisyenle neyi paylaşmak istiyorsunuz?", tek ekranda da): Tüm ekran / Yalnız bir pencere, pencere
+  listesi, Listeyi yenile. Liste yalnız bu masaüstünde ekranda görünen pencereleri içerir; küçültülmüş, başka masaüstündeki
+  ve tam ekran pencereler listelenmez (D-P33-1, kılavuzda ipucu). Pencere başlıkları cihazdan çıkmaz.
+- ScreenCaptureKit pencere filtresi; görünmezde (küçültme, ⌘H, başka masaüstü, tam ekran) siyah "Pencere simge durumunda"
+  plakası ve girdi düşer; kapanınca kalıcı `WINDOW_CLOSED`, tüm ekrana geçilmez. Menü çubuğu ve yeni pencereler paylaşılmaz.
+- Girdi kapsamı: tıklama/tuş yalnız paylaşılan pencereye ve ona bağlı sayfalara (AX ile kesin; AX hatası → düşer). Süreç dışı
+  Kaydet/Aç paneli müşteri tarafından kullanılır.
+- Mac kısayol politikası: {⌘, ⌥, ⌃}'den iki değiştirici → düşer; tek değiştirici tablosu (⌘Space, ⌘Tab, ⌃ ok, ⇧⌘Q,
+  ⇧⌘3–6 …), F3/F4/F11, ⇧×5/⌥×5, Yapışkan/Fare Tuşları kuralları; açık izinli liste (varsayılan-ret). Windows teknisyenin AltGr
+  ile yazdığı karakterler (`@ # {` …) güvenli istisnayla Unicode olarak iletilir.
+
+### Değişti — P33
+
+- Konsol: pencere modu etiketi platformdan bağımsız "Pencere yakalama" (eski "Pencere yakalama (WGC)"); sözleşme değişmedi,
+  Mac de `method: WGC` gönderir (AC-552, AC-553).
+- Kılavuz, README, DATASHEET: "Hangi programda ne var?" tablosunda Mac sesli görüşme ve pencere paylaşımı "Var (0.26 ve
+  sonrası)"; Mac'te iletilmeyen kısayollar, Kaydet/Aç paneli notu, Mikrofon izni rehberi. Eski belgelerde "P33 ile değişti" notları.
+
+### Değişti — P33 macOS paketi ve CI (devops K3; ADR-0043, AC-554, AC-556)
 
 - macOS paketi: entitlement kümesi tam olarak `com.apple.security.device.audio-input` (hardened runtime korunur; JIT/imzasız bellek
   yok); `Info.plist`'e Türkçe `NSMicrophoneUsageDescription`. Paket denetimi `NSCameraUsageDescription`'ı reddeder, mikrofon metnini
