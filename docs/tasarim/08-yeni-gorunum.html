@@ -1,0 +1,358 @@
+<!doctype html>
+<html lang="tr" data-tema-varsayilan="acik">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Yeni görünüm önerisi (Akış) — Nokta Uzaktan Destek</title>
+<link rel="icon" href="img/favicon-32x32.png">
+<!-- Taslak: Geologica (SIL OFL) Google Fonts'tan; üründe self-host edilir (CSP, dış istek yok). -->
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Geologica:wght@300..700&display=swap" rel="stylesheet">
+<script src="tasarim.js"></script><script src="ikonlar.js" defer></script>
+<style>
+/* ===== Token seti "Akış" (öneri) — Nokta mavisi #0093DD'den türetildi ===== */
+:root, [data-theme="light"] {
+  --page:#eef3f7; --surface:#ffffff; --surface-muted:#f4f7fa; --line:#d6e1ea;
+  --ink:#0b2a45; --ink-soft:#24496a; --ink-muted:#4f6f8b; --ink-faint:#8aa3b8;
+  --brand:#0093dd; --brand-ink:#0670a8; --brand-soft:#e6f4fc;
+  --action:#0b2a45; --action-hover:#143a5c; --on-action:#ffffff;
+  --success:#0f8a52; --success-soft:#e7f7ef; --warning:#a6560a; --warning-soft:#fff5e6;
+  --danger:#c0322b; --danger-soft:#fdeceb; --danger-solid:#c0322b; --neutral-soft:#eaf0f5;
+  --bubble-me:#0b2a45; --on-bubble-me:#ffffff; --bubble-me-meta:#9fb7cc;
+  --overlay:rgb(11 42 69 / .45); --ring:#0093dd;
+  --r-sm:8px; --r-md:12px; --r-lg:16px; --r-xl:24px; --r-tail:6px; --r-pill:9999px;
+  --shadow-card:0 0 0 1px var(--line), 0 1px 2px rgb(11 42 69 / .04);
+  --ease-out:cubic-bezier(.23,1,.32,1);
+  color-scheme:light;
+}
+[data-theme="dark"] {
+  --page:#08131f; --surface:#0f1d2c; --surface-muted:#152637; --line:#22384d;
+  --ink:#e6eef6; --ink-soft:#bfd0e0; --ink-muted:#8fa7bd; --ink-faint:#5f7a92;
+  --brand:#3db4f2; --brand-ink:#7cccf5; --brand-soft:#0f2e44;
+  --action:#3db4f2; --action-hover:#6cc6f5; --on-action:#06223a;
+  --success:#4fd08f; --success-soft:#0f2e25; --warning:#f3b35a; --warning-soft:#33280f;
+  --danger:#f2837c; --danger-soft:#3a1c1e; --danger-solid:#b42d27; --neutral-soft:#1a2d40;
+  --bubble-me:#1d4a70; --on-bubble-me:#eef6fd; --bubble-me-meta:#9cc2e2;
+  --overlay:rgb(0 0 0 / .6); --ring:#3db4f2;
+  --shadow-card:0 0 0 1px var(--line);
+  color-scheme:dark;
+}
+*{box-sizing:border-box;margin:0}
+body{font-family:Geologica,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;background:var(--page);color:var(--ink);font-size:15px;line-height:1.5;-webkit-font-smoothing:antialiased}
+.i{width:18px;height:18px;stroke:currentColor;fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round;flex:none}
+.i-sm{width:15px;height:15px}.i-lg{width:22px;height:22px}
+button{font:inherit;color:inherit;cursor:pointer;border:0;background:none}
+a{color:inherit;text-decoration:none}
+:focus-visible{outline:2px solid var(--ring);outline-offset:2px}
+.row{display:flex;align-items:center;gap:8px}
+.muted{color:var(--ink-muted)}.faint{color:var(--ink-faint)}.small{font-size:13px}.xs{font-size:12px}
+.num{font-variant-numeric:tabular-nums}.mono{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:.92em}
+
+/* taslak çubuğu (ürünün parçası değil) */
+.mock-bar{position:sticky;top:0;z-index:20;display:flex;flex-wrap:wrap;align-items:center;gap:12px;padding:8px 16px;background:#111;color:#ddd;font:13px system-ui}
+.mock-bar a{color:#ddd;display:flex;gap:6px;align-items:center}
+.mock-bar .seg{display:flex;background:#222;border-radius:8px;padding:2px}
+.mock-bar .seg button{padding:4px 10px;border-radius:6px;color:#bbb;display:flex;gap:6px;align-items:center}
+.mock-bar .seg button[aria-pressed="true"]{background:#444;color:#fff}
+.mock-bar .sp{flex:1}
+
+/* ===== Kabuk ===== */
+.shell{display:grid;grid-template-columns:264px 1fr;min-height:calc(100vh - 41px)}
+.side{background:var(--surface);border-right:1px solid var(--line);padding:20px 16px;display:flex;flex-direction:column;gap:20px}
+.logo-card{display:flex;align-items:center;gap:10px;padding:4px 8px}
+.logo-card img{height:40px}
+[data-theme="dark"] .logo-card img{background:#f4f6f9;border-radius:var(--r-sm);padding:4px 8px;height:38px}
+.tenant-chip{display:inline-flex;align-items:center;gap:6px;padding:2px 10px;border-radius:var(--r-pill);background:var(--success-soft);color:var(--success);font-size:12px;font-weight:600;margin-left:8px}
+.tenant-chip::before{content:"";width:6px;height:6px;border-radius:50%;background:currentColor}
+.nav{display:flex;flex-direction:column;gap:2px}
+.nav a{display:flex;align-items:center;gap:12px;padding:8px 12px;border-radius:var(--r-md);color:var(--ink-soft);font-weight:500;transition:background-color .15s var(--ease-out)}
+.nav a:hover{background:var(--surface-muted)}
+.nav a[aria-current="page"]{background:var(--brand-soft);color:var(--ink)}
+.nav a[aria-current="page"] .i{color:var(--brand)}
+.nav .cnt{margin-left:auto;min-width:22px;padding:0 7px;border-radius:var(--r-pill);background:var(--success);color:#fff;font-size:12px;font-weight:600;text-align:center}
+[data-theme="dark"] .nav .cnt{color:#06221a}
+.nav-h{font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:var(--ink-faint);font-weight:600;padding:0 12px 4px}
+.side-card{margin-top:auto;background:var(--action);color:var(--on-action);border-radius:var(--r-lg);padding:16px;display:flex;flex-direction:column;gap:10px}
+[data-theme="dark"] .side-card{background:var(--brand-soft);color:var(--ink)}
+.side-card small{opacity:.75;font-size:12px}
+.side-card b{font-size:26px;font-weight:600;letter-spacing:-.01em}
+
+.main{display:flex;flex-direction:column;min-width:0}
+.top{height:64px;display:flex;align-items:center;gap:16px;padding:0 28px;background:var(--surface);border-bottom:1px solid var(--line)}
+.search{display:flex;align-items:center;gap:8px;height:38px;padding:0 14px;border-radius:var(--r-pill);background:var(--surface-muted);color:var(--ink-faint);width:280px;font-size:14px}
+.top .sp{flex:1}
+.icon-btn{position:relative;width:38px;height:38px;border-radius:var(--r-pill);display:grid;place-items:center;color:var(--ink-soft)}
+.icon-btn:hover{background:var(--surface-muted)}
+.icon-btn .dot{position:absolute;top:4px;right:4px;min-width:16px;height:16px;border-radius:8px;background:var(--danger);color:#fff;font-size:10px;font-weight:700;display:grid;place-items:center;padding:0 4px}
+.me{display:flex;align-items:center;gap:10px}
+.me .n{font-weight:600;font-size:14px;line-height:1.2}.me .e{font-size:12px;color:var(--ink-muted)}
+.av{width:36px;height:36px;border-radius:50%;display:grid;place-items:center;font-weight:600;font-size:13px;flex:none}
+.av.c1{background:#2f6f99;color:#fff}.av.c2{background:var(--brand-soft);color:var(--brand-ink)}.av.c3{background:#7a4fb3;color:#fff}
+
+.content{padding:28px 40px 48px;max-width:1040px;width:100%}
+.crumb{display:inline-flex;align-items:center;gap:6px;color:var(--ink-muted);font-size:14px;font-weight:500}
+.crumb:hover{color:var(--ink)}
+.h-row{display:flex;align-items:flex-start;gap:16px;margin-top:12px}
+h1{font-size:30px;font-weight:700;letter-spacing:-.02em;line-height:1.15}
+.meta{margin-top:6px;color:var(--ink-soft);display:flex;flex-wrap:wrap;gap:6px}
+.meta span+span::before{content:"·";margin-right:6px;color:var(--ink-faint)}
+.h-row .sp{flex:1}
+
+/* rozetler */
+.badge{display:inline-flex;align-items:center;gap:6px;padding:3px 12px;border-radius:var(--r-pill);font-size:12px;font-weight:600;white-space:nowrap}
+.b-brand{background:var(--brand-soft);color:var(--brand-ink)}
+.b-ok{background:var(--success-soft);color:var(--success)}
+.b-warn{background:var(--warning-soft);color:var(--warning)}
+.b-done{background:var(--neutral-soft);color:var(--ink-soft)}
+.b-live::before{content:"";width:6px;height:6px;border-radius:50%;background:currentColor;animation:p 1.6s ease-in-out infinite}
+@keyframes p{50%{opacity:.35}}
+@media (prefers-reduced-motion:reduce){.b-live::before{animation:none}}
+
+/* butonlar */
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;height:40px;padding:0 18px;border-radius:var(--r-pill);font-weight:600;font-size:14px;transition:background-color .15s var(--ease-out),transform .12s var(--ease-out)}
+.btn:active{transform:scale(.97)}
+.btn-primary{background:var(--action);color:var(--on-action)}.btn-primary:hover{background:var(--action-hover)}
+.btn-ghost{background:var(--surface);color:var(--ink);box-shadow:inset 0 0 0 1px var(--line)}.btn-ghost:hover{background:var(--surface-muted)}
+.btn-brand{background:var(--brand);color:#fff}
+[data-theme="dark"] .btn-brand{color:#06223a}
+
+/* bilgi kutucukları */
+.facts{margin-top:24px;display:grid;grid-template-columns:repeat(4,1fr);gap:1px;background:var(--line);border-radius:var(--r-lg);overflow:hidden;box-shadow:0 0 0 1px var(--line)}
+.facts div{background:var(--surface);padding:14px 18px}
+.facts small{display:block;font-size:12px;color:var(--ink-muted);font-weight:500}
+.facts b{font-weight:600;font-size:14px}
+
+/* ===== Konuşma akışı ===== */
+.thread{margin-top:32px;display:flex;flex-direction:column;gap:20px}
+.day{align-self:center;font-size:12px;color:var(--ink-faint);font-weight:500;display:flex;align-items:center;gap:12px;width:100%}
+.day::before,.day::after{content:"";flex:1;height:1px;background:var(--line)}
+.msg{display:flex;gap:12px;max-width:78%}
+.msg.me{align-self:flex-end;flex-direction:row-reverse}
+.bubble{padding:16px 20px;border-radius:var(--r-xl);background:var(--surface);box-shadow:var(--shadow-card)}
+.msg:not(.me) .bubble{border-top-left-radius:var(--r-tail)}
+.msg.me .bubble{background:var(--bubble-me);color:var(--on-bubble-me);box-shadow:none;border-top-right-radius:var(--r-tail)}
+.bubble .who{display:flex;align-items:center;gap:8px;font-weight:600;font-size:14px;margin-bottom:6px}
+.bubble p+p{margin-top:10px}
+.stamp{font-size:12px;color:var(--ink-faint);margin-top:6px;display:flex;gap:10px}
+.msg.me .stamp{justify-content:flex-end}
+.side-ic{width:32px;height:32px;border-radius:50%;display:grid;place-items:center;background:var(--brand-soft);color:var(--brand);flex:none;margin-top:4px}
+.sys{align-self:center;display:flex;align-items:center;gap:8px;padding:6px 14px;border-radius:var(--r-pill);background:var(--surface);box-shadow:var(--shadow-card);font-size:13px;color:var(--ink-soft)}
+.sys .i{color:var(--brand)}
+.att{margin-top:10px;display:flex;align-items:center;gap:12px;padding:10px 12px;border-radius:var(--r-md);background:var(--surface-muted)}
+.msg.me .att{background:rgb(255 255 255 / .1)}
+.att .fi{width:36px;height:36px;border-radius:var(--r-sm);display:grid;place-items:center;background:var(--brand-soft);color:var(--brand)}
+.closed{margin-top:32px;text-align:center;color:var(--ink-muted);font-size:14px;display:flex;flex-direction:column;align-items:center;gap:12px}
+
+/* ===== Konsol sohbet ekranı ===== */
+.con{display:grid;grid-template-columns:1fr 380px;min-height:calc(100vh - 41px);background:var(--page)}
+.con-l{display:flex;flex-direction:column;min-width:0}
+.con-top{display:flex;align-items:center;gap:14px;padding:12px 20px;background:var(--surface);border-bottom:1px solid var(--line)}
+.metric small{display:block;font-size:11px;color:var(--ink-faint);font-weight:500}.metric b{font-size:14px;font-weight:600}
+.stage{flex:1;margin:16px;border-radius:var(--r-lg);background:#0d141c;display:grid;place-items:center;position:relative;overflow:hidden}
+.fake{width:78%;aspect-ratio:16/9;border-radius:var(--r-md);background:linear-gradient(#e9eef3 0 28px,#f7f9fb 28px);box-shadow:0 20px 60px rgb(0 0 0 / .45);position:relative}
+.fake::after{content:"e-Fatura gönderilemedi";position:absolute;left:50%;top:48%;transform:translate(-50%,-50%);background:#fff;border-radius:10px;padding:22px 28px;font-weight:600;color:#1b2b3a;box-shadow:0 10px 30px rgb(0 0 0 / .2)}
+.chip-live{position:absolute;top:14px;left:14px;background:rgb(13 20 28 / .8);color:#e6eef6;border-radius:var(--r-pill);padding:6px 12px;font-size:12px;display:flex;gap:8px;align-items:center}
+.chip-live::before{content:"";width:7px;height:7px;border-radius:50%;background:#4fd08f}
+.chat{background:var(--surface);border-left:1px solid var(--line);display:flex;flex-direction:column;min-height:0}
+.tabs{display:flex;gap:4px;padding:12px 12px 0;border-bottom:1px solid var(--line)}
+.tabs button{display:flex;align-items:center;gap:8px;padding:10px 14px;font-weight:600;font-size:14px;color:var(--ink-muted);border-bottom:2px solid transparent;margin-bottom:-1px}
+.tabs button[aria-selected="true"]{color:var(--ink);border-color:var(--brand)}
+.tabs .n{min-width:18px;height:18px;border-radius:9px;background:var(--brand);color:#fff;font-size:11px;display:grid;place-items:center;padding:0 5px}
+.chat-body{flex:1;overflow:auto;padding:18px 16px;display:flex;flex-direction:column;gap:14px;background:var(--surface-muted)}
+.chat .msg{max-width:88%}
+.chat .bubble{padding:10px 14px;border-radius:18px;font-size:14px}
+.chat .msg:not(.me) .bubble{border-top-left-radius:var(--r-tail)}
+.chat .msg.me .bubble{border-top-right-radius:var(--r-tail)}
+.chat .stamp{font-size:11px;margin-top:4px}
+.composer{padding:12px;border-top:1px solid var(--line);display:flex;gap:8px;align-items:flex-end;background:var(--surface)}
+.composer .field{flex:1;min-height:44px;border-radius:22px;background:var(--surface-muted);box-shadow:inset 0 0 0 1px var(--line);padding:11px 16px;color:var(--ink-faint);font-size:14px}
+.round{width:44px;height:44px;border-radius:50%;display:grid;place-items:center;flex:none}
+.round.send{background:var(--action);color:var(--on-action)}
+.round.att2{color:var(--ink-muted)}
+.typing{display:flex;gap:4px;padding:12px 14px}
+.typing i{width:6px;height:6px;border-radius:50%;background:var(--ink-faint);animation:t 1.2s infinite}
+.typing i:nth-child(2){animation-delay:.15s}.typing i:nth-child(3){animation-delay:.3s}
+@keyframes t{0%,60%,100%{opacity:.3}30%{opacity:1}}
+@media (prefers-reduced-motion:reduce){.typing i{animation:none}}
+
+/* ===== Token tablosu ===== */
+.tok{display:grid;grid-template-columns:repeat(auto-fill,minmax(190px,1fr));gap:12px;margin-top:20px}
+.sw{background:var(--surface);border-radius:var(--r-lg);box-shadow:var(--shadow-card);overflow:hidden}
+.sw i{display:block;height:56px}
+.sw div{padding:10px 14px}.sw b{font-size:13px;display:block}.sw code{font-size:12px;color:var(--ink-muted)}
+.cmp{margin-top:28px;display:grid;grid-template-columns:1fr 1fr;gap:16px}
+.card{background:var(--surface);border-radius:var(--r-lg);box-shadow:var(--shadow-card);padding:20px 22px}
+.card h3{font-size:16px;margin-bottom:10px}
+.card ul{padding-left:18px;color:var(--ink-soft);font-size:14px;display:flex;flex-direction:column;gap:6px}
+
+@media (max-width:900px){.shell{grid-template-columns:1fr}.side{display:none}.content{padding:20px}.facts{grid-template-columns:1fr 1fr}.msg{max-width:92%}.con{grid-template-columns:1fr}.stage{display:none}.search{display:none}}
+[hidden]{display:none!important}
+</style>
+</head>
+<body>
+<div class="mock-bar" role="region" aria-label="Taslak denetimleri">
+  <a href="index.html"><svg class="i i-sm" aria-hidden="true"><use href="#i-arrow-left"/></svg>Taslaklar</a>
+  <span>Ekran</span>
+  <span class="seg"><button data-set="ekran:portal">Portal — talep</button><button data-set="ekran:konsol">Konsol — sohbet</button><button data-set="ekran:token">Renkler ve kurallar</button></span>
+  <span class="sp"></span>
+  <span>Tema</span>
+  <span class="seg"><button data-tema="acik"><svg class="i i-sm" aria-hidden="true"><use href="#i-sun"/></svg>Açık</button><button data-tema="koyu"><svg class="i i-sm" aria-hidden="true"><use href="#i-moon"/></svg>Koyu</button><button data-tema="sistem"><svg class="i i-sm" aria-hidden="true"><use href="#i-laptop"/></svg>Sistem</button></span>
+</div>
+
+<!-- ============ 1) Müşteri portalı: destek talebi ============ -->
+<div class="shell" data-when="ekran:portal">
+  <aside class="side" aria-label="Portal menüsü">
+    <div class="logo-card"><img src="img/logo.png" alt="Nokta Bilişim"></div>
+    <nav class="nav" aria-label="Ana menü">
+      <span class="nav-h">Destek</span>
+      <a href="#"><svg class="i" aria-hidden="true"><use href="#i-house"/></svg>Genel bakış</a>
+      <a href="#" aria-current="page"><svg class="i" aria-hidden="true"><use href="#i-inbox"/></svg>Destek taleplerim<span class="cnt">2</span></a>
+      <a href="#"><svg class="i" aria-hidden="true"><use href="#i-monitor-smartphone"/></svg>Oturum geçmişi</a>
+      <a href="#"><svg class="i" aria-hidden="true"><use href="#i-plus"/></svg>Yeni talep</a>
+      <span class="nav-h" style="margin-top:12px">Hesap</span>
+      <a href="#"><svg class="i" aria-hidden="true"><use href="#i-user-round"/></svg>Hesabım</a>
+      <a href="#"><svg class="i" aria-hidden="true"><use href="#i-key-round"/></svg>Şifre değiştir</a>
+    </nav>
+    <div class="side-card">
+      <div class="row"><svg class="i" aria-hidden="true"><use href="#i-phone"/></svg><small>Telefonla destek</small></div>
+      <div class="small">Teknisyen size bir doğrulama kodu söyler; kodu bu ekranda görürsünüz.</div>
+      <button class="btn btn-brand" style="width:100%"><svg class="i i-sm" aria-hidden="true"><use href="#i-screen-share"/></svg>Hızlı destek başlat</button>
+    </div>
+  </aside>
+  <div class="main">
+    <header class="top">
+      <div class="search"><svg class="i i-sm" aria-hidden="true"><use href="#i-search"/></svg>Talep veya oturum ara…</div>
+      <span class="sp"></span>
+      <button class="icon-btn" aria-label="Bildirimler, 3 yeni"><svg class="i" aria-hidden="true"><use href="#i-bell"/></svg><span class="dot">3</span></button>
+      <button class="icon-btn" aria-label="Temayı değiştir"><svg class="i" aria-hidden="true"><use href="#i-moon"/></svg></button>
+      <div class="me"><span class="av c1">AY</span><div><div class="n">Demir Lojistik A.Ş.</div><div class="e">ayse.yilmaz@demirlojistik.com.tr</div></div></div>
+    </header>
+    <main class="content">
+      <a class="crumb" href="#"><svg class="i i-sm" aria-hidden="true"><use href="#i-arrow-left"/></svg>Destek taleplerim</a>
+      <div class="h-row">
+        <div>
+          <h1>e-Fatura gönderilemiyor</h1>
+          <div class="meta"><span class="mono">TLP-2026-0418</span><span>Muhasebe yazılımı</span><span>21.11.2026 09:42</span></div>
+        </div>
+        <span class="sp"></span>
+        <span class="badge b-ok">Çözüldü</span>
+      </div>
+      <div class="facts">
+        <div><small>Öncelik</small><b>Yüksek</b></div>
+        <div><small>Teknisyen</small><b>Furkan Yıldırım</b></div>
+        <div><small>Oturum süresi</small><b class="num">18 dk 24 sn</b></div>
+        <div><small>Kapanış</small><b class="num">21.11.2026 10:07</b></div>
+      </div>
+
+      <section class="thread" aria-label="Talep geçmişi">
+        <div class="day">21 Kasım 2026, Cumartesi</div>
+        <div class="msg me">
+          <div>
+            <div class="bubble"><div class="who">Ayşe Yılmaz</div><p>e-Fatura listesinde 0419 numaralı fatura "entegratör zaman aşımı" hatası veriyor, tekrar gönder dediğimde de aynı hata geliyor.</p>
+              <div class="att"><span class="fi"><svg class="i" aria-hidden="true"><use href="#i-image"/></svg></span><div><div class="small" style="font-weight:600">hata-ekrani.png</div><div class="xs" style="opacity:.7">184 KB</div></div></div>
+            </div>
+            <div class="stamp num">09:42</div>
+          </div>
+        </div>
+        <div class="msg">
+          <span class="side-ic"><svg class="i i-sm" aria-hidden="true"><use href="#i-shield-check"/></svg></span>
+          <div>
+            <div class="bubble"><div class="who">Furkan Yıldırım <span class="badge b-brand">Teknisyen</span></div><p>Merhaba Ayşe Hanım, talebinizi aldım. Ekranınıza bakmam gerekiyor; birazdan size bir uzaktan destek bağlantısı göndereceğim.</p></div>
+            <div class="stamp num">09:46</div>
+          </div>
+        </div>
+        <div class="sys"><svg class="i i-sm" aria-hidden="true"><use href="#i-monitor-smartphone"/></svg>Uzaktan destek oturumu açıldı · 09:49 – 10:07 · <a href="#" style="color:var(--brand-ink);font-weight:600">Oturumu gör</a></div>
+        <div class="msg">
+          <span class="side-ic"><svg class="i i-sm" aria-hidden="true"><use href="#i-shield-check"/></svg></span>
+          <div>
+            <div class="bubble"><div class="who">Furkan Yıldırım <span class="badge b-brand">Teknisyen</span></div><p>Entegratör adresinin sertifikası yenilenmiş, programdaki eski sertifika güncellendi. Bekleyen faturanızı tekrar gönderdim; durumu "Gönderildi" olarak görünüyor.</p><p>Başka bir sorun olursa bu talebe yazabilirsiniz.</p></div>
+            <div class="stamp num">10:08</div>
+          </div>
+        </div>
+      </section>
+      <div class="closed">
+        <span>Bu talep çözüldü olarak kapatıldı.</span>
+        <div class="row"><button class="btn btn-ghost"><svg class="i i-sm" aria-hidden="true"><use href="#i-rotate-cw"/></svg>Yeniden aç</button><button class="btn btn-primary"><svg class="i i-sm" aria-hidden="true"><use href="#i-plus"/></svg>Yeni talep oluştur</button></div>
+      </div>
+    </main>
+  </div>
+</div>
+
+<!-- ============ 2) Teknisyen konsolu: sohbet paneli ============ -->
+<div class="con" data-when="ekran:konsol">
+  <div class="con-l">
+    <header class="con-top">
+      <button class="icon-btn" aria-label="Oturumlara dön"><svg class="i" aria-hidden="true"><use href="#i-arrow-left"/></svg></button>
+      <span class="av c1">AY</span>
+      <div><b>Ayşe Yılmaz</b><div class="xs muted">Hızlı Destek · Windows 11 Pro</div></div>
+      <span class="badge b-ok b-live">Aktif</span>
+      <div class="metric" style="margin-left:12px"><small>Süre</small><b class="num">12:48</b></div>
+      <div class="metric"><small>Doğrulama kodu</small><b class="mono">7305</b></div>
+      <span style="flex:1"></span>
+      <div class="metric"><small>RTT</small><b class="num">38 ms</b></div>
+      <div class="metric"><small>FPS</small><b class="num">30</b></div>
+      <button class="btn btn-ghost"><svg class="i i-sm" aria-hidden="true"><use href="#i-hand"/></svg>Kontrol iste</button>
+      <button class="btn" style="background:var(--danger-solid);color:#fff"><svg class="i i-sm" aria-hidden="true"><use href="#i-power"/></svg>Oturumu bitir</button>
+    </header>
+    <div class="stage" aria-label="Müşteri ekranı"><span class="chip-live">Doğrudan bağlantı · İyi</span><div class="fake" role="img" aria-label="Müşteri ekranı örneği"></div></div>
+  </div>
+  <aside class="chat" aria-label="Oturum yan paneli">
+    <div class="tabs" role="tablist">
+      <button role="tab" aria-selected="true"><svg class="i i-sm" aria-hidden="true"><use href="#i-message-square"/></svg>Sohbet<span class="n">2</span></button>
+      <button role="tab" aria-selected="false"><svg class="i i-sm" aria-hidden="true"><use href="#i-folder-open"/></svg>Dosyalar</button>
+      <button role="tab" aria-selected="false"><svg class="i i-sm" aria-hidden="true"><use href="#i-info"/></svg>Bilgi</button>
+    </div>
+    <div class="chat-body">
+      <div class="sys xs"><svg class="i i-sm" aria-hidden="true"><use href="#i-lock"/></svg>Uçtan uca şifreli · 30 gün saklanır</div>
+      <div class="msg"><span class="av c2" style="width:28px;height:28px;font-size:11px">AY</span><div><div class="bubble">Merhaba, ekran göründü mü?</div><div class="stamp num">09:49</div></div></div>
+      <div class="msg me"><div><div class="bubble">Göründü, teşekkürler. Hata penceresini daire içine aldım, oraya bakıyorum.</div><div class="stamp num">09:50 · Okundu</div></div></div>
+      <div class="msg"><span class="av c2" style="width:28px;height:28px;font-size:11px">AY</span><div><div class="bubble">Bu sabahtan beri böyle, dün çalışıyordu.</div><div class="stamp num">09:51</div></div></div>
+      <div class="msg me"><div><div class="bubble">Sertifikayı güncellemem gerekiyor. Kontrol isteyeceğim, ekranda çıkan onaya "İzin ver" demeniz yeterli.
+        <div class="att"><span class="fi"><svg class="i i-sm" aria-hidden="true"><use href="#i-file-text"/></svg></span><div><div class="xs" style="font-weight:600">entegrator-sertifika.cer</div><div class="xs" style="opacity:.7">3 KB · gönderildi</div></div></div></div><div class="stamp num">09:53</div></div></div>
+      <div class="msg"><span class="av c2" style="width:28px;height:28px;font-size:11px">AY</span><div class="bubble typing" aria-label="Ayşe yazıyor"><i></i><i></i><i></i></div></div>
+    </div>
+    <div class="composer">
+      <button class="round att2" aria-label="Dosya ekle"><svg class="i" aria-hidden="true"><use href="#i-paperclip"/></svg></button>
+      <div class="field">Mesaj yazın…</div>
+      <button class="round send" aria-label="Gönder"><svg class="i" aria-hidden="true"><use href="#i-send"/></svg></button>
+    </div>
+  </aside>
+</div>
+
+<!-- ============ 3) Renkler ve kurallar ============ -->
+<div class="shell" data-when="ekran:token" style="grid-template-columns:1fr">
+  <main class="content" style="max-width:1100px;margin:0 auto">
+    <h1>"Akış" görünümü — öneri</h1>
+    <p class="meta"><span>Voyar destek ekranının havasından esinlenildi; renkler Nokta logosunun mavisinden (#0093DD) türetildi</span></p>
+    <div class="tok">
+      <div class="sw"><i style="background:var(--ink)"></i><div><b>Mürekkep (ink)</b><code>#0B2A45 / #E6EEF6</code></div></div>
+      <div class="sw"><i style="background:var(--brand)"></i><div><b>Nokta mavisi (brand)</b><code>#0093DD / #3DB4F2</code></div></div>
+      <div class="sw"><i style="background:var(--brand-soft)"></i><div><b>Açık mavi zemin</b><code>#E6F4FC / #0F2E44</code></div></div>
+      <div class="sw"><i style="background:var(--page)"></i><div><b>Sayfa zemini</b><code>#EEF3F7 / #08131F</code></div></div>
+      <div class="sw"><i style="background:var(--surface);box-shadow:inset 0 -1px var(--line)"></i><div><b>Kart</b><code>#FFFFFF / #0F1D2C</code></div></div>
+      <div class="sw"><i style="background:var(--line)"></i><div><b>Çizgi</b><code>#D6E1EA / #22384D</code></div></div>
+      <div class="sw"><i style="background:var(--success)"></i><div><b>Başarı</b><code>#0F8A52 / #4FD08F</code></div></div>
+      <div class="sw"><i style="background:var(--danger)"></i><div><b>Tehlike</b><code>#C0322B / #F2837C</code></div></div>
+    </div>
+    <div class="cmp">
+      <div class="card"><h3>Ne değişir</h3><ul>
+        <li>Yazı tipi: sistem fontu yerine <b>Geologica</b> (açık lisans, sunucudan servis edilir)</li>
+        <li>Köşeler: kart 16px, sohbet balonu 24px (konuşana bakan köşe 6px), butonlar tamamen yuvarlak</li>
+        <li>Gölge yerine ince çizgi; sayfa zemini açık mavi-gri, kartlar beyaz</li>
+        <li>Sohbet: kendi mesajın sağda koyu lacivert, karşı taraf solda beyaz kart</li>
+        <li>Menüde seçili öğe açık mavi zemin + mavi ikon; sayaçlar yuvarlak rozet</li>
+      </ul></div>
+      <div class="card"><h3>Ne değişmez</h3><ul>
+        <li>Ekran düzenleri, akışlar ve metinler (yalnız görsel dil değişir)</li>
+        <li>Konsol sahnesi, işaretleme renkleri ve kırmızı "uzaktan kontrol" çerçevesi</li>
+        <li>Açık / Koyu / Sistem tema tercihi; koyu temada logo açık kart içinde</li>
+        <li>Erişilebilirlik: metin kontrastı WCAG AA, hareket azaltma desteği</li>
+        <li>Token'ların tek kaynağı <span class="mono">globals.css</span> — bileşenler değişmez, renk/yarıçap değerleri değişir</li>
+      </ul></div>
+    </div>
+  </main>
+</div>
+<script>
+// tasarim.js "ekran" grubunu ilk düğmeden başlatır; ?durum=ekran:konsol ile doğrudan açılabilir.
+</script>
+</body>
+</html>

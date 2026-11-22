@@ -8,8 +8,8 @@ import { getMe } from "@/lib/server-api";
 import { PORTAL_AREA_HEADER } from "@/lib/portal/paths";
 import { getPortalMe } from "@/lib/portal/server";
 import { htmlThemeClass, resolveTheme, THEME_COOKIE } from "@/lib/theme";
-// Vitrin görsel dili (2026-11-17): self-host değişken fontlar (OFL-1.1) — dosyalar /_next/static altından ('self'), tüm alt kümeler unicode-range ile
-import "@fontsource-variable/plus-jakarta-sans";
+// Akış görsel dili (2026-11-23; Vitrin 2026-11-17): self-host değişken fontlar (OFL-1.1) — dosyalar /_next/static altından ('self'), tüm alt kümeler unicode-range ile
+import "@fontsource-variable/geologica";
 import "@fontsource-variable/jetbrains-mono";
 import "./globals.css";
 

@@ -42,7 +42,7 @@ test("AC-85 kritik akış: tema menüden seçilir → anında uygulanır → yen
   expect((await saved).status()).toBe(200);
   await expect(picker.getByRole("button", { name: "Koyu" })).toHaveAttribute("aria-pressed", "true");
   // Koyu token'lar etkin (işletim sistemi açıkken bile)
-  expect(await page.evaluate(() => getComputedStyle(document.body).backgroundColor)).toBe("rgb(11, 14, 20)");
+  expect(await page.evaluate(() => getComputedStyle(document.body).backgroundColor)).toBe("rgb(8, 19, 31)");
   expect(await firstPaintClass(page)).toMatch(/class="dark"/);
   await page.reload();
   await expect(page.locator("html")).toHaveClass(/\bdark\b/);

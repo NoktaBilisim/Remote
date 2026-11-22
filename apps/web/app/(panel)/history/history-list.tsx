@@ -32,7 +32,7 @@ function SourceNote({ s, compact = false }: { s: Pick<SessionListItem, "source" 
     <span
       data-testid="history-source"
       title={wait ?? undefined}
-      className="inline-flex items-center gap-1 rounded-full bg-primary-surface px-2 py-0.5 text-xs font-medium whitespace-nowrap text-primary"
+      className="inline-flex items-center gap-1 rounded-full bg-accent-surface px-2 py-0.5 text-xs font-medium whitespace-nowrap text-accent-fg"
     >
       {labelOf(SESSION_SOURCE_LABELS, s.source)}
       {wait && <span className={compact ? "sr-only" : "font-normal"}>· {wait}</span>}

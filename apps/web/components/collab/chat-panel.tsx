@@ -122,9 +122,11 @@ export function ChatPanel({
                 <span className="text-xs text-fg-muted">
                   {author(m)} · <time dateTime={m.at}>{formatTime(m.at)}</time>
                 </span>
+                {/* Akış balonu: kendi mesajım sağda koyu lacivert (`bubble-own`), karşı taraf solda `surface` + çizgi; konuşana bakan
+                    üst köşe `tail` (6px), diğerleri `bubble` (18px) */}
                 <p
                   data-testid="chat-msg"
-                  className={`rounded-lg px-3 py-2 text-sm max-w-full whitespace-pre-wrap wrap-anywhere text-fg ${m.mine ? "bg-primary-surface" : "bg-surface-muted"} ${m.status === "sending" ? "opacity-70" : ""}`}
+                  className={`rounded-bubble px-3.5 py-2.5 text-sm max-w-full whitespace-pre-wrap wrap-anywhere ${m.mine ? "rounded-tr-tail bg-bubble-own text-on-bubble-own" : "rounded-tl-tail border border-border bg-surface text-fg"} ${m.status === "sending" ? "opacity-70" : ""}`}
                 >
                   {m.body}
                 </p>
@@ -177,7 +179,7 @@ export function ChatPanel({
             onChange={(e) => setText(clipCodePoints(e.target.value, MESSAGE_BODY_MAX))}
             onKeyDown={onKey}
             placeholder={chat.ready ? t("p5.chat.placeholder") : chat.outdated ? t("p22.chat.outdatedShort") : t("p5.connecting")}
-            className="min-h-11 flex-1 resize-none rounded-md border border-border bg-surface px-3 py-2 text-base text-fg shadow-sm placeholder:text-fg-muted disabled:opacity-60 sm:text-sm"
+            className="min-h-11 flex-1 resize-none rounded-bubble border border-border bg-surface-muted px-4 py-2.5 text-base text-fg shadow-sm placeholder:text-fg-muted disabled:opacity-60 sm:text-sm"
           />
           <Button type="submit" aria-label={t("p5.chat.send")} disabled={!chat.ready || !text.trim()} data-testid="chat-send">
             {chat.ready || chat.outdated || closed ? (

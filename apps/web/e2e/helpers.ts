@@ -100,7 +100,7 @@ export async function scanThemes(p: Page, sel: string, label: string) {
       document.documentElement.classList.add(c);
     }, scheme);
     const fg = await p.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue("--rs-fg").trim());
-    expect(fg, `${label} ${scheme} teması etkin`).toBe(scheme === "light" ? "#0f172a" : "#f1f5f9");
+    expect(fg, `${label} ${scheme} teması etkin`).toBe(scheme === "light" ? "#0b2a45" : "#e6eef6");
     expect(await axeScan(p, sel), `${label} ${scheme}`).toEqual([]);
   }
 }

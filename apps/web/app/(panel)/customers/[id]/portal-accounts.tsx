@@ -60,7 +60,7 @@ function useAccounts(customerId: string) {
 
 const BADGE: Record<AccountBadge, { cls: string; key: MessageKey; Icon: typeof KeyRound }> = {
   mfa: { cls: "bg-success-surface text-success", key: "pa.mfa", Icon: ShieldCheck },
-  mustChange: { cls: "bg-primary-surface text-primary", key: "pa.mustChange", Icon: KeyRound },
+  mustChange: { cls: "bg-accent-surface text-accent-fg", key: "pa.mustChange", Icon: KeyRound },
   tempExpired: { cls: "bg-warning-surface text-warning", key: "pa.tempExpired", Icon: Hourglass },
 };
 const pill = "inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-xs font-medium whitespace-nowrap";

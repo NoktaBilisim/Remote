@@ -11,7 +11,7 @@ import { AssignMenuItems, type AssignActions } from "./assign-menu";
 import { CardFacts, ClosedInfo, P18Badges, RequestCode, SourceIndicator } from "./request-card-parts";
 
 const STATUS_PILL: Record<RequestStatus, string> = {
-  PENDING: "bg-primary-surface text-primary",
+  PENDING: "bg-accent-surface text-accent-fg",
   ACCEPTED: "bg-success-surface text-success",
   CANCELLED: "bg-surface-muted text-fg-muted",
   EXPIRED: "bg-surface-muted text-fg-muted",

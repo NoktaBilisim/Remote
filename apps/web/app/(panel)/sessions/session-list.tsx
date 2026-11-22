@@ -111,7 +111,7 @@ export function SessionList({ items, showTechnician, canCancel, onCancel, meId, 
 
   return (
     <>
-      <div className="hidden overflow-x-auto rounded-lg border border-border bg-surface md:block">
+      <div className="hidden overflow-x-auto rounded-lg border border-border bg-surface xl:block">
         <table className="w-full text-left text-sm" data-testid="sessions-table">
           <thead className="bg-surface-muted text-xs text-fg-muted">
             <tr>
@@ -157,7 +157,7 @@ export function SessionList({ items, showTechnician, canCancel, onCancel, meId, 
         </table>
       </div>
 
-      <ul className="flex flex-col gap-2 md:hidden" data-testid="sessions-cards">
+      <ul className="flex flex-col gap-2 xl:hidden" data-testid="sessions-cards">
         {items.map((s) => (
           <li key={s.id} data-testid="session-card" className="rounded-lg border border-border bg-surface p-3">
             <div className="flex items-center justify-between gap-2">

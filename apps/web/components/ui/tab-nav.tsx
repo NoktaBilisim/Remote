@@ -12,6 +12,7 @@ const COLS: Record<number, string> = { 2: "grid-cols-2", 3: "grid-cols-3", 4: "g
  * `aria-current`, anında geçiş (animasyonsuz). Dar ekranda (< sm) eşit sütunlar, ikon üstte + etiket alt alta sarar →
  * kaydırma/kırpma yok, tüm sekmeler her genişlikte görünür. sm+ yatay tek satır; sekmeler sığmazsa (Ayarlar 11 sekme)
  * daralıp üst üste binmez, şerit kendi içinde yatay kayar (Vitrin 2026-11-17 düzeltmesi).
+ * Akış (2026-11-23): etkin sekme alt çizgi `accent` + `accent-surface` zemin + Nokta mavisi ikon, metin `fg`; üst köşeler 12px.
  * P27: `exact` sekme yalnız yolu birebir eşleşince etkindir (üst yol bir başka sekmenin öneki olduğunda, ör. `/unattended`
  * ↔ `/unattended/codes`).
  */
@@ -45,11 +46,11 @@ export function TabNav({
               <Link
                 href={href}
                 aria-current={active ? "page" : undefined}
-                className={`flex min-h-11 flex-col items-center justify-center gap-1 border-b-2 px-1 py-1.5 text-center text-xs break-words hyphens-auto font-medium sm:flex-row sm:gap-2 sm:px-3 sm:py-0 sm:text-sm sm:whitespace-nowrap ${
-                  active ? "border-primary text-primary" : "border-transparent text-fg-muted hover:text-fg"
+                className={`flex min-h-11 flex-col items-center justify-center gap-1 rounded-t-md border-b-2 px-1 py-1.5 text-center text-xs break-words hyphens-auto font-medium sm:flex-row sm:gap-2 sm:px-3 sm:py-0 sm:text-sm sm:whitespace-nowrap ${
+                  active ? "border-accent bg-accent-surface text-fg" : "border-transparent text-fg-muted hover:text-fg"
                 }`}
               >
-                <Icon aria-hidden className="size-4 shrink-0" />
+                <Icon aria-hidden className={`size-4 shrink-0 ${active ? "text-accent" : ""}`} />
                 {text}
               </Link>
             </li>
