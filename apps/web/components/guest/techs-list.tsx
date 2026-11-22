@@ -82,7 +82,7 @@ export function TechsList({
               <p className="truncate text-sm font-medium text-fg">{e.name}</p>
               <p className="flex flex-wrap items-center gap-1.5 text-xs text-fg-muted">
                 <span>{t(ROLE_LABEL_KEY[e.role])}</span>
-                {e.owner && <span className="rounded-full bg-primary-surface px-2 py-0.5 font-medium text-primary">{t("mt.owner")}</span>}
+                {e.owner && <span className="rounded-full bg-accent-surface px-2 py-0.5 font-medium text-accent-fg">{t("mt.owner")}</span>}
                 {!e.connected && (
                   <span className="inline-flex items-center gap-1 text-danger">
                     <WifiOff aria-hidden className="size-3.5" />

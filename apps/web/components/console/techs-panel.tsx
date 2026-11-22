@@ -245,7 +245,7 @@ function RosterRow(p: { e: TechRosterEntry; me: boolean; ownerActions: boolean; 
           <p className="flex flex-wrap items-center gap-1.5 text-xs text-fg-muted">
             <span data-testid="techs-role">{t(ROLE_LABEL_KEY[e.role])}</span>
             {e.owner && (
-              <span className="rounded-full bg-primary-surface px-2 py-0.5 font-medium text-primary" data-testid="techs-owner">
+              <span className="rounded-full bg-accent-surface px-2 py-0.5 font-medium text-accent-fg" data-testid="techs-owner">
                 {t("mt.owner")}
               </span>
             )}

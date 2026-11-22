@@ -6,7 +6,7 @@ export function GuideStep({ n, title, body, children }: { n: number; title: stri
     <li className="flex gap-3">
       <span
         aria-hidden
-        className="flex size-6 shrink-0 items-center justify-center rounded-full bg-primary-surface text-xs font-semibold text-primary tabular-nums"
+        className="flex size-6 shrink-0 items-center justify-center rounded-full bg-accent-surface text-xs font-semibold text-accent-fg tabular-nums"
       >
         {n}
       </span>

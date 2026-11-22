@@ -110,7 +110,7 @@ function ActiveRow({ s, busy, onWatch }: { s: ActiveSessionItem; busy: boolean; 
         <p className="flex flex-wrap items-center gap-2 font-medium text-fg">
           <span className="truncate">{s.customerName}</span>
           {s.unattended && (
-            <span className="inline-flex items-center gap-1 rounded-full bg-primary-surface px-2 py-0.5 text-xs font-medium text-primary">
+            <span className="inline-flex items-center gap-1 rounded-full bg-accent-surface px-2 py-0.5 text-xs font-medium text-accent-fg">
               <MonitorCog aria-hidden className="size-3.5" />
               {t("mt.active.unattended")}
             </span>

@@ -122,7 +122,7 @@ function WindowShareBadge({ method }: { method: string }) {
       data-testid="stage-share-mode"
       data-method={method}
       title={hint}
-      className="inline-flex min-h-8 shrink-0 items-center gap-1.5 rounded-full bg-primary-surface px-2.5 text-xs font-medium whitespace-nowrap text-primary"
+      className="inline-flex min-h-8 shrink-0 items-center gap-1.5 rounded-full bg-accent-surface px-2.5 text-xs font-medium whitespace-nowrap text-accent-fg"
     >
       <AppWindow aria-hidden className="size-3.5" />
       {t("cs.windowShare")}

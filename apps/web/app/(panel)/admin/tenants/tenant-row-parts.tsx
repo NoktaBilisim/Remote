@@ -104,7 +104,7 @@ export function NameCell({ x, actingId }: { x: TenantItem; actingId: string | nu
       </Link>
       {x.id === actingId && (
         <span
-          className="inline-flex shrink-0 items-center gap-1 rounded-full bg-primary-surface px-2 py-0.5 text-xs font-medium text-primary"
+          className="inline-flex shrink-0 items-center gap-1 rounded-full bg-accent-surface px-2 py-0.5 text-xs font-medium text-accent-fg"
           data-testid="tenant-current"
         >
           <Check aria-hidden className="size-3.5" />

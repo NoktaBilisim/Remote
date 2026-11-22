@@ -10,8 +10,8 @@ const pill = "inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-x
  */
 const LOOK: Record<DeviceUpdateBadge, { Icon: LucideIcon; tone: string }> = {
   CURRENT: { Icon: CircleCheck, tone: "bg-success-surface text-success" },
-  PENDING: { Icon: Clock, tone: "bg-primary-surface text-primary" },
-  UPDATING: { Icon: RefreshCw, tone: "bg-primary-surface text-primary" },
+  PENDING: { Icon: Clock, tone: "bg-accent-surface text-accent-fg" },
+  UPDATING: { Icon: RefreshCw, tone: "bg-accent-surface text-accent-fg" },
   FAILED: { Icon: TriangleAlert, tone: "bg-warning-surface text-warning" },
   BELOW_MIN: { Icon: ShieldAlert, tone: "bg-danger-surface text-danger" },
 };

@@ -28,7 +28,7 @@ export function PriorityBadge({ priority }: { priority: RequestPriority }) {
 /** P19 (AC-259): web formundan gelen talep rozeti "Web" (`Globe`); İstemci (AGENT) varsayılan olduğu için rozet yok. */
 export function WebSourceBadge() {
   return (
-    <span data-testid="request-source-web" className={`${pill} bg-primary-surface text-primary`}>
+    <span data-testid="request-source-web" className={`${pill} bg-accent-surface text-accent-fg`}>
       <Globe aria-hidden className="size-3.5 shrink-0" />
       <span className="sr-only">{t("rq.src.sr")} </span>
       {REQUEST_SOURCE_LABELS.WEB}
@@ -53,7 +53,7 @@ export function AssignedChip({ assignedTo, meId }: { assignedTo: NonNullable<Sup
       data-testid="request-assigned"
       data-mine={mine}
       title={assignedTo.name}
-      className={`${pill} max-w-full ${mine ? "bg-primary-surface text-primary" : "bg-surface-muted text-fg"}`}
+      className={`${pill} max-w-full ${mine ? "bg-accent-surface text-accent-fg" : "bg-surface-muted text-fg"}`}
     >
       <UserCheck aria-hidden className="size-3.5 shrink-0" />
       <span className="truncate">{mine ? t("rq.as.mine") : t("rq.as.chip", { name: assignedTo.name })}</span>

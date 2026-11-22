@@ -95,7 +95,7 @@ export function AgentDownload({
             <Download aria-hidden className="size-5 text-primary" />
           )}
           {checking ? t("ga.checking") : t("ga.download")}
-          <span className="rounded-full bg-primary-surface px-2.5 py-0.5 text-xs font-medium whitespace-nowrap text-primary">
+          <span className="rounded-full bg-accent-surface px-2.5 py-0.5 text-xs font-medium whitespace-nowrap text-accent-fg">
             {t("ga.recommended")}
           </span>
         </span>

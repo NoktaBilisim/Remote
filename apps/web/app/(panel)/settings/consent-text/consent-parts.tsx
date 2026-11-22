@@ -145,7 +145,7 @@ function VersionRow({ v, isCurrent }: { v: ConsentTextVersion; isCurrent: boolea
       <span className="flex items-center gap-2 font-medium text-fg sm:w-36">
         {t("ct.versionN", { n: formatNumber(v.version) })}
         {isCurrent && (
-          <span className="rounded-full bg-primary-surface px-2 py-0.5 text-xs font-medium text-primary">{t("ct.currentBadge")}</span>
+          <span className="rounded-full bg-accent-surface px-2 py-0.5 text-xs font-medium text-accent-fg">{t("ct.currentBadge")}</span>
         )}
       </span>
       <span className="text-fg-muted">

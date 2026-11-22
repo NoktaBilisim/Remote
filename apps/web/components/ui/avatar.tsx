@@ -53,7 +53,7 @@ export function Avatar({
     <span
       aria-hidden
       data-testid={testId}
-      className={`inline-flex shrink-0 items-center justify-center rounded-full bg-primary-surface font-semibold text-primary ${cls}`}
+      className={`inline-flex shrink-0 items-center justify-center rounded-full bg-accent-surface font-semibold text-accent-fg ${cls}`}
     >
       {initials(name)}
     </span>

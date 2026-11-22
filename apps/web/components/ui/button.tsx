@@ -19,14 +19,14 @@ interface Props extends ButtonHTMLAttributes<HTMLButtonElement> {
   ref?: Ref<HTMLButtonElement>;
 }
 
-/** Tek buton primitifi. Dokunma hedefi ≥ 44px (min-h-11); basınca scale(0.97). */
+/** Tek buton primitifi. Dokunma hedefi ≥ 44px (min-h-11); Akış görsel dili: hap (rounded-full); basınca scale(0.97). */
 export function Button({ variant = "primary", loading = false, disabled, className = "", children, ...rest }: Props) {
   return (
     <button
       {...rest}
       disabled={disabled || loading}
       aria-busy={loading || undefined}
-      className={`inline-flex min-h-11 cursor-pointer items-center justify-center gap-2 rounded-md px-4 text-sm font-medium transition-[transform,background-color,opacity] duration-150 ease-out active:scale-[0.97] disabled:cursor-not-allowed disabled:opacity-60 disabled:active:scale-100 ${variants[variant]} ${className}`}
+      className={`inline-flex min-h-11 cursor-pointer items-center justify-center gap-2 rounded-full px-4 text-sm font-medium transition-[transform,background-color,opacity] duration-150 ease-out active:scale-[0.97] disabled:cursor-not-allowed disabled:opacity-60 disabled:active:scale-100 ${variants[variant]} ${className}`}
     >
       {loading && <LoaderCircle aria-hidden className="size-4 animate-spin" />}
       {children}

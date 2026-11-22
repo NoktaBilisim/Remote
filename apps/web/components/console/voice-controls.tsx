@@ -65,7 +65,7 @@ function ViewBody({ view, hint, unsupportedText, ...a }: { view: VoiceView; hint
       );
     case "listening":
       return (
-        <span className={`${pillCls} bg-primary-surface text-primary`} data-testid="voice-listening">
+        <span className={`${pillCls} bg-accent-surface text-accent-fg`} data-testid="voice-listening">
           <Headphones aria-hidden className="size-3.5" />
           {t("vc.listening")}
         </span>
