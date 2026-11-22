@@ -24,6 +24,7 @@ Tarih: 2026-11-12 Durum: TASLAK (2026-11-10: tam erişim MVP'de; 2026-11-11: `do
 > P28f-r4 — macOS prod yayını Developer ID'siz, ad-hoc imzalı (2026-11-20, kullanıcı kararı): yeni AC-500..AC-508 bu dosyanın §13'ünde; AC-390 ve R39 "r4 ile değişti" (`docs/gereksinimler-p28.md`). Tasarım `docs/mimari-p28f.md` §15, ADR-0037 "Değişiklik (2026-11-20)".
 
 > P31 — macOS Hızlı Destek'te "Destek iste" (2026-11-20, TASLAK; kullanıcı kararı 2026-11-20: "destek iste olmalı"): firma bağlantısından inen `NoktaDestek-<firma>-<ref>.zip`, Windows ile aynı ana ekran + talep formu + bekleme/sohbet + kabul onayı; yeni AC-509..AC-522, bu dosyanın §14'ü; tasarım `docs/mimari-p31.md`, ADR-0041. §13 numarası P28f-r4'e (AC-500..AC-508, ayrı dal) ayrılmıştır.
+> P33 — macOS istemcisine ses ve tek pencere paylaşımı (2026-11-22, TASLAK; kullanıcı kararı 2026-11-21, "Sonra — sonraki sürüm" satırı): Windows ile aynı davranış ve web tarafıyla P28d sesli görüşme ve AC-248 pencere modu Mac'te, ad-hoc TCC izin rehberi; istemci 0.26.0; yeni AC-534..AC-558, US-P33-1..4, V-P33-1..12, R-P33-1..10, S-P33-1..6: `docs/gereksinimler-p33.md`.
 > Toplam: **65 kullanıcı hikâyesi, 324 kabul kriteri** (AC-1..AC-324; AC-317..AC-324 2026-11-15, PT kod temizliği; AC-196 2026-11-13, E9 WhatsApp servisi sistem ayarı; AC-197..AC-200 2026-11-14, E7 saklama ve yedek — P13a; AC-201..AC-297 2026-11-14, E11; AC-298..AC-302 2026-11-14 ve AC-303 2026-11-15, P13b prod açılışı; AC-304..AC-316 2026-11-15, E4 lobi göstergesi).
 
 ## 1. Amaç ve iş değeri
