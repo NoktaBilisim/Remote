@@ -272,9 +272,7 @@ Kılavuz: "Kaydet/Aç penceresini müşteri kullanır". K2'nin ilk adımında (K
    (R-P33-5, kılavuz).
 7. **Genişleme noktası (Sonra):** `com.apple.symbolichotkeys` okunup etkin sistem kısayolları dinamik düşürülür; okunamazsa 1–6 yeterli.
 
-Tablo testi (Linux CI, build etiketsiz): her madde için en az bir satır; ⇧⌘Q, ⌥⇧⌘Q, ⌃⌘Space, ⌃⌘F, ⌃F1, ⌘F5, ⌥×5, ⇧×5 ve "iki değiştirici
-
-- rastgele harf" özellik testi; izinli liste örnekleri iletilir. Tuş kovası (40/sn) aynen.
+Tablo testi (Linux CI, build etiketsiz): her madde için en az bir satır; ⇧⌘Q, ⌥⇧⌘Q, ⌃⌘Space, ⌃⌘F, ⌃F1, ⌘F5, ⌥×5, ⇧×5 ve "iki değiştirici ile rastgele harf" özellik testi; izinli liste örnekleri iletilir. Tuş kovası (40/sn) aynen.
 
 ### 6.5 Ses (AC-534..541)
 

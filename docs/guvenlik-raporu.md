@@ -1,5 +1,90 @@
 # Güvenlik Raporu — P33 — Tasarım turu (K0g; dal claude/p33-mac-ses-pencere, HEAD 2343f29, 2026-11-22)
 
+## Tur 2 (r2, commit edfb7d9, 2026-11-22)
+
+DURUM: KOŞULLU GEÇTİ (tasarım) — Kritik 0 / Yüksek 0 / Orta 1 / Düşük 3 (yeni). K1/K2 kodlamasına geçilebilir. S-P33-T2-1
+K1'in bağlayıcı kabul ölçütüdür ve K5 kod turunda kapanışı aranır.
+
+Kapsam: `docs/mimari-p33.md` r2 (§5.1, §5.3, §6.4, §6.5, §6.6, §13), ADR-0043 r2, `docs/spike-p33-k0s.md` §2.2. Kod değişikliği yok.
+
+### Tur 1 bulgularının kapanışı
+
+| Bulgu                  | r2 karşılığı                                                                                                                                     | Hüküm                           |
+| ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------- |
+| S-P33-T-1 (Yüksek)     | §6.6 sandbox'lı alt süreç (öneri A); T2 metni "yük içeriği çözücüye ulaşır" olarak düzeltildi; profil spike'ta ölçüldü (p95 değişmedi)           | Kapandı (yeni yüzeyler aşağıda) |
+| S-P33-T-2 (Yüksek)     | §6.4 genel kural (iki değiştirici) + tek değiştirici tablosu + erişilebilirlik dizileri + **varsayılan-ret izinli liste**; tablo + özellik testi | Kapandı                         |
+| S-P33-T-3 (Orta)       | Katman-0 yalnız `AXSheet` + `AXParent`/`AXWindow`; ön plan `AXFocusedApplication` → `AXFocusedWindow`; eşleme belirsizse ya da AX hatasında 0    | Kapandı                         |
+| S-P33-T-4 (Orta)       | K-P33-11 yoklaması AudioQueue/AVCaptureDevice'a dokunmuyor; TCC istemi sürerken enjektör duraklıyor                                              | Kapandı                         |
+| S-P33-T-5 (Orta)       | Koşulsuz fail-closed; ⇧×5/⌥×5 her zaman; Yapışkan Tuşlar açıkken Tab/Esc/Space/tablo tuşları değiştiricisiz de düşüyor                           | Kapandı                         |
+| S-P33-T-6..T-10, B-1/2 | T12, T13, T6, T8, T14; §5.2 (`NSCameraUsageDescription` yokluğu), ADR m.7 (`clientOs` koşulu)                                                    | Kapandı                         |
+
+### Yeni bulgular
+
+#### [ORTA] S-P33-T2-1 `file-read*` geniş; ele geçirilmiş yardımcı kullanıcı dosyalarını PCM kanalıyla dışarı taşıyabilir — A04 / A01
+
+Yer: `docs/mimari-p33.md` §6.6 profil (`(allow file-read*)`), "K1'de ölçülecek: daraltma"; spike §2.2 satır 118.
+
+Sorun: Sandbox ağı, yazmayı ve TCC'li servisleri kapatıyor, ama `file-read*` kısıtsız: yardımcı `~/.ssh`, tarayıcı çerez/oturum
+veritabanları, `~/Library` altındaki uygulama verileri gibi TCC korumasız kullanıcı dosyalarını okuyabilir. Dışarı çıkış kanalı
+var: yardımcının yanıtı olan PCM, hoparlöre ve mix-minus ile **diğer** dinleyenlere kodlanıp gider (mimari-p28d ADR-0036 m.4).
+Daraltma "ölçülecek" diye bırakılmış; başarısız olursa geniş profil kalır.
+
+İstismar senaryosu: Teknisyen A (sahip) çözücü açığıyla yardımcıda kod çalıştırır; yardımcı `~/.ssh/id_ed25519`'i okuyup çözülmüş
+PCM'e modem sinyali olarak gömer. Aynı oturumdaki teknisyen B (A'nın ikinci hesabı, katılımcı ya da izleyici, P28c) bu sesi alır
+ve çözer. Opus kayıplı olsa da düşük hızlı veri taşınabilir. Müşteri yalnız hoparlörde gürültü duyar.
+
+Düzeltme (bağlayıcı K1 ölçütü; mimar §6.6 metni, backend-dev K1):
+
+1. Profil izinli liste olur: `file-read*` yalnız `/System`, `/usr/lib`, `/usr/share`, `/private/var/db/dyld`,
+   `/System/Volumes/Preboot/Cryptexes` (dyld paylaşımlı önbelleği) ve kendi `.app` paketi; `file-read-metadata` gerekirse genel.
+2. Daraltma çalışmazsa en az: `(deny file-read* (subpath "/Users") (subpath "/Volumes") (subpath "/private/var/folders")
+(subpath "/Library/Audio") (subpath "/Library/Keychains"))`. Bu satırlar olmadan K1 GEÇTİ sayılmaz.
+3. Tercih edilen ek daraltma: üç AudioConverter örneği **`sandbox_init`'ten önce** kurulur, ardından `mach-lookup` ve mümkünse
+   `file-read*` tamamen kaldırılır (spike §2.2 açık sorusu); ölçüm `docs/spike-p33-k0s.md`'ye.
+4. darwin testi: yardımcı içinde `~/.ssh` (ya da test için `$HOME/.noktatest`) okuması EPERM, `socket()` EPERM, `/tmp` yazması EPERM.
+
+#### [DÜŞÜK] S-P33-T2-2 Sandbox'ın gerçekten uygulandığı doğrulanmıyor — A05
+
+Yer: §6.6 "Sandbox" ("`sandbox_init` başarısızsa yardımcı çıkar").
+
+Sorun: Fail-closed dal yalnız dönüş koduna bakıyor. `sandbox_init` deprecated; gelecekteki bir macOS'ta sessizce etkisiz kalırsa
+(0 dönüp profili uygulamazsa) çözücü sandbox'sız koşar ve ana süreç bunu bilmez.
+
+Düzeltme: (1) Yardımcı `sandbox_init` sonrası öz-test yapar (yasak bir dosya okuması ve `socket()` EPERM vermeli); geçmezse çıkar.
+(2) Yardımcı ancak bundan sonra boruya tek baytlık "hazır" yazar; ana süreç hazır baytından önce paket göndermez. (3) Ana süreç
+`sandbox_check(çocuk_pid, NULL, 0)` (libsystem_sandbox, purego) ile çocuğun sandbox'ta olduğunu doğrular; 1 değilse yardımcıyı
+öldürür ve `voice.Supported()` = false. Üçü de K-P33-11 yoklamasının parçasıdır.
+
+#### [DÜŞÜK] S-P33-T2-3 Başlatma yolu ve IPC çerçevesi sertleştirme ayrıntıları — A04 / A08
+
+Yer: §6.6 "Başlatma", "IPC çerçevesi", "Hata".
+
+Sorun ve düzeltme (tasarım metnine eklenecek kurallar):
+
+- **Mod seçimi:** `--opus-cozucu` denetimi `main`'in ilk satırıdır; tam olarak `argv == [exe, "--opus-cozucu"]` değilse normal
+  akış. Yardımcı kipinde başka argüman, ortam değişkeni, yapılandırma, log dosyası, AppKit, ağ ve TCC'li API kurulmaz; sandbox
+  öncesi yalnız Go runtime çalışır. Kullanıcının bayrağı elle vermesi zararsızdır (sandbox'a girer, stdin bekler).
+- **Başlatma:** `os.Executable` + `filepath.EvalSymlinks`; yol ana sürecin kendi `.app` paketi içinde değilse yardımcı başlatılmaz
+  (ses kapalı). `exec.Cmd{Env: []string{}, ExtraFiles: nil}`; stderr `/dev/null`.
+- **Yardımcı tarafı ayrıştırma:** `tid < 3`, `uzunluk ≤ 1275`; aksi halde hemen çıkış (yeniden başlatma sayacı artar). Gövde
+  `io.ReadFull` ile okunur.
+- **Ana süreç tarafı:** yanıt sabit boyutludur (1 + 1920 bayt), `io.ReadFull`; `durum` yalnız bilinen değerler, aksi `ErrCodecPanic`.
+  Yardımcıdan gelen hiçbir uzunluk alanına güvenilmez.
+- **Zamanlama:** 200 ms yanıt süresi 20 ms ses tikinden uzundur; çözme çağrısı tik başına süreli olmalı (ör. 15 ms) ve aşımda o
+  çerçeve için `Conceal`/sessizlik kullanılıp mikrofon gönderim yolu bloklanmamalı. Askıda kalan yardımcı yalnız gelen sesi
+  susturur, müşterinin mikrofon akışını durdurmaz.
+
+### Bilgi
+
+- B-T2-1: Hardened runtime + ad-hoc imzada kütüphane doğrulaması yalnız Apple platform ikililerinin yüklenmesine izin verir; bu
+  yüzden `file-read*` genişliğine rağmen `/Library/Audio/Plug-Ins` altındaki üçüncü taraf AudioComponent'ler yardımcıya
+  yüklenemez (olumlu). T2-1 madde 2'deki `/Library/Audio` reddi ek katmandır.
+- B-T2-2: `mimari-p33.md` §6.4 son paragrafında prettier "iki değiştirici + rastgele harf" ifadesini liste maddesine çevirmiş
+  ("- rastgele harf"). Mimar metni düzeltmeli (ör. "iki değiştirici ve rastgele harf").
+- Profil spike'ta `sandbox-exec` ile ölçüldü; K1'de süreç içi `sandbox_init` ile aynı ölçüm tekrarlanır (spike §2.2 notu).
+
+## Tur 1 (r1)
+
 DURUM: DÜZELTİLMELİ (tasarım) — Kritik 0 / Yüksek 2 / Orta 3 / Düşük 5 / Bilgi 2
 
 Kapsam: `docs/gereksinimler-p33.md` (AC-534..558), `docs/mimari-p33.md` r1, ADR-0043 r1, `docs/tasarim-kontrol.md` "P33".
