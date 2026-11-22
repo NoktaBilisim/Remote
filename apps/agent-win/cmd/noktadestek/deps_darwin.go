@@ -22,8 +22,8 @@ import (
 )
 
 // flowDeps macOS kod akışının bağımlılıkları (mimari-p28f §2). Bağlanmayan özellikler bildirilmez (flow.Features):
-// kontrol (Hotkey/Input boş → izin verilemez, G-21; K3), ses (ADR-0037 r3: bildirilmez), roster/çoklu teknisyen ve sunucu dosyası
-// arayüzü (K4), pencere paylaşımı (macOS'ta yok, AC-248).
+// kontrol (Hotkey/Input boş → izin verilemez, G-21; K3), ses (P33 K1: yoklama geçerse, voice_darwin.go), roster/çoklu teknisyen ve sunucu dosyası
+// arayüzü (K4). Pencere paylaşımı P33 K2'de bağlanır (AC-248 macOS karşılığı).
 // K5: alınan dosyalar ~/Downloads'a (files.DownloadsDir), `.part`'ta karantinayla (T8); pano NSPasteboard ile ve yalnız
 // arayüz ClipPrintUI'yi uyguluyorsa (pano izni anahtarı korunan denetimdir, S-P28f-1); yazdırma lp ile (r4: sayfa sayısı
 // istemcide yok, PagesUnknown; yazıcı "Varsayılan yazıcı"), yine yalnız ClipPrintUI varken.
@@ -73,6 +73,12 @@ func flowDeps(cfg config.Config, fp string, client *api.Client, u flow.UI, event
 	if fs, ok := u.(flow.FileServerUI); ok {
 		d.FileServerUI = fs
 	}
+	// P33 K2 (mimari-p33 K-P33-4, §6.1–6.4): "Yalnız bir pencere" (SCK masaüstünden bağımsız pencere). Seçim ekranında
+	// sunulması SetInputWindow'a da bağlıdır (flow.windowMode): o controlDeps'te Applier kurulunca bağlanır; enjektör
+	// kurulamazsa pencere modu hiç sunulmaz (girdi kapsamı olmadan pencere modu yok, fail-closed).
+	d.WindowCapture = capture.WindowCaptureSupported
+	d.CaptureWindow = capture.OpenWindow
+	macVoiceDeps(&d, u)      // P33 K1: ses (voice_darwin.go); Features'tan ÖNCE
 	controlDeps(&d, u, gate) // K3: Features'tan ÖNCE (Input/Hotkey bağlı değilse kontrol bildirilmez)
 	features := flow.Features(d)
 	d.Dial = func(ctx context.Context, cred signal.Credential) (flow.Conn, error) {
@@ -125,6 +131,13 @@ func controlDeps(d *flow.Deps, u flow.UI, gate *control.Gate) {
 			inj.SetVirtual(virt)
 			applier.SetTarget(mon, virt)
 		}
+	}
+	// P33 K2: pencere modu girdi kapsamı (ortak scope.go + MacWindowAPI + macOS kısayol politikası, §6.4).
+	applier.SetShortcutPolicy(input.MacShortcuts())
+	d.SetInputWindow = func(wid uintptr) {
+		virt := input.VirtualScreen()
+		inj.SetVirtual(virt)
+		applier.SetWindowTarget(wid, virt, input.NewMacWindowAPI(wid))
 	}
 	d.ControlReady = input.ControlReady
 	if g, ok := u.(interface{ AccessibilityGuide() }); ok {

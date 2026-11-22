@@ -203,11 +203,18 @@ type shareResult struct {
 	ok bool
 }
 
-// ChooseShare AC-106: yalnız monitör listesi; varsayılan def. windows parametresi macOS'ta yok sayılır (AC-248).
-func (u *UI) ChooseShare(ctx context.Context, mons []signal.Monitor, def int, _ bool) (flow.ShareChoice, bool) {
+// ChooseShare AC-106: monitör listesi; varsayılan def. P33 K2 (AC-542): windows true ise "Tüm ekran / Yalnız bir
+// pencere" seçimi ve pencere listesi (chooseWindow, window_choose_darwin.go).
+func (u *UI) ChooseShare(ctx context.Context, mons []signal.Monitor, def int, windows bool) (flow.ShareChoice, bool) {
 	ch := make(chan shareResult, 1)
+	if windows {
+		u.do(func() { u.closeLobby(); u.windowShare = false; u.chooseWindow(mons, def, ch) })
+		r := await(ctx, ch, shareResult{})
+		return r.c, r.ok
+	}
 	u.do(func() {
 		u.closeLobby()
+		u.windowShare = false
 		h := 120 + float64(len(mons))*26
 		f := u.newForm(uicore.AppTitle+" — Ekran seçimi", 460, h)
 		f.label("Teknisyenle paylaşılacak ekranı seçin", 16, 16, 428, 24, fontBold)

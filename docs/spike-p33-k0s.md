@@ -121,6 +121,20 @@ pakette yeniden kuruluyor. Geçerli paketlerin süre dağılımı 2,5–120 ms a
 - Sonuç: gecikme bütçesi (≤ 2 ms) alt süreç tasarımını rahatça kaldırır. Engel performans değil, karmaşıklık: süreç yönetimi,
   çöküşte yeniden başlatma, 3 hata sonrası eşin düşürülmesi.
 
+### 2.2a K1 ölçümü: çözücüler sandbox'tan önce kurulunca profil yalnız `(deny default)` (S-P33-T2-1 m.3)
+
+`test/spike-p33/cmd/k1sandbox` (süreç içi `sandbox_init`, 2026-11-23, M4 Pro macOS 26.3.1; arm64 ve Rosetta x86_64): üç çözücü kurulup
+gerçek paket + PLC + `AudioConverterReset` ile ısıtıldıktan sonra `(version 1)(deny default)` profiline girildi.
+
+| Profil | Çözme / PLC / Reset | Yeni çözücü | Okuma (`/Users`, `/Library/Keychains`, `/private/var/folders`, `/etc/hosts`, `~/.noktatest`) | `/tmp` yazma | TCP connect | `socket()` |
+| ------ | ------------------- | ----------- | ------------------------------------------------------------------------------------------- | ------------ | ----------- | ---------- |
+| `(deny default)` | çalışıyor, p95 0,06 ms (arm64) / 0,027 ms (x86_64) | kuruluyor | EPERM | EPERM | EPERM | fd dönüyor |
+| + `(deny system-socket)(deny network*)` | aynı | aynı | EPERM | EPERM | EPERM | fd dönüyor |
+| spike §2.2 geniş profil (karşılaştırma) | aynı | aynı | **okunuyor** | EPERM | EPERM | fd dönüyor |
+
+Sonuç: `file-read*`, `sysctl-read` ve `AudioComponentRegistrar` mach-lookup'ı gerekmez; ürün profili `(deny default)`. `socket()` SBPL ile
+engellenemiyor; ağ çıkışı connect/sendto düzeyinde reddediliyor (test bunu sınar).
+
 ### 2.3 K0s-A2 — Mikrofon TCC (ELLE-BEKLİYOR)
 
 Ölçülen (istem açmadan):

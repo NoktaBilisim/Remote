@@ -3,11 +3,13 @@
 package mac
 
 import (
+	"errors"
 	"strings"
 	"unicode/utf8"
 
 	pobjc "github.com/ebitengine/purego/objc"
 
+	"remote-support/agent-win/internal/darwin/helpermode"
 	"remote-support/agent-win/internal/darwin/objc"
 	"remote-support/agent-win/internal/input"
 )
@@ -79,7 +81,16 @@ var (
 	selSetSelectable, selSetEditable = objc.Sel("setSelectable:"), objc.Sel("setEditable:")
 )
 
-func init() { rtErr = setupRuntime() }
+// P33 (S-P33-T2-3): Opus çözücü yardımcısı kipinde AppKit yüklenmez, sınıf kaydedilmez (New çağrılmaz).
+func init() {
+	if helpermode.Active {
+		rtErr = errHelperMode
+		return
+	}
+	rtErr = setupRuntime()
+}
+
+var errHelperMode = errors.New("ui/mac: çözücü yardımcısı kipi")
 
 // setupRuntime çerçeveleri izin listeli mutlak yoldan açar ve sınıfları kaydeder (FFI kuralı 2 ve 7).
 func setupRuntime() error {

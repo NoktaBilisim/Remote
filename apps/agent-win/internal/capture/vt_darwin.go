@@ -3,12 +3,14 @@
 package capture
 
 import (
+	"errors"
 	"sync"
 	"time"
 	"unsafe"
 
 	"github.com/ebitengine/purego"
 
+	"remote-support/agent-win/internal/darwin/helpermode"
 	"remote-support/agent-win/internal/darwin/objc"
 )
 
@@ -383,6 +385,10 @@ func array(vals []objc.ID) objc.ID {
 
 // FFI kuralı 2: geri çağrı yuvası ve temsilci sınıf yalnız init'te, bir kez.
 func init() {
+	if helpermode.Active { // P33 S-P33-T2-3: çözücü yardımcısı kipinde çerçeve yüklenmez
+		fwErr = errors.New("capture: çözücü yardımcısı kipi")
+		return
+	}
 	fwErr = bindFrameworks()
 	if fwErr != nil {
 		return

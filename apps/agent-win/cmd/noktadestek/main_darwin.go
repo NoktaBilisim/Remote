@@ -19,6 +19,7 @@ import (
 	"remote-support/agent-win/internal/api"
 	"remote-support/agent-win/internal/config"
 	"remote-support/agent-win/internal/control"
+	"remote-support/agent-win/internal/darwin/helpermode"
 	"remote-support/agent-win/internal/darwin/objc"
 	"remote-support/agent-win/internal/files"
 	"remote-support/agent-win/internal/launch"
@@ -41,7 +42,14 @@ const (
 // closeDelay AC-107: son ekran gösterildikten sonra kapanış ("3 sn içinde" — pay bırakıldı).
 const closeDelay = 2500 * time.Millisecond
 
-func main() { os.Exit(run()) }
+func main() {
+	// P33 (mimari-p33 §6.6, S-P33-T2-3): ilk satır. Tam olarak [exe, "--opus-cozucu"] ise sandbox'lı Opus çözücü
+	// yardımcısı; arayüz, yapılandırma, ağ ve TCC'li API kurulmaz (opushelper_darwin.go).
+	if helpermode.Active {
+		os.Exit(runOpusHelper())
+	}
+	os.Exit(run())
+}
 
 // run kurulum → arayüz → NSApplication döngüsü (akış bitince uygulama sonlandırılır).
 func run() int {

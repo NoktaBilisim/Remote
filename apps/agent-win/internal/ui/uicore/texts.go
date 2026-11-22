@@ -52,3 +52,28 @@ func PrintBody(p flow.PrintPrompt, left time.Duration, nl string) string {
 		tx.PromptPrinter + printer + nl +
 		fmt.Sprintf(tx.PromptRemaining, secs)
 }
+
+// P33 K2 (mimari-p33 §6.1, §6.3 m.3; AC-542/543/551): macOS "Yalnız bir pencere" metinleri (tek ileti tablosu).
+var MacWindowTexts = struct {
+	Question, FullScreen, OneWindow, Refresh, Share, Cancel, Empty, Warning, Hint, ListLabel string
+}{
+	Question:   "Teknisyenle neyi paylaşmak istiyorsunuz?",
+	FullScreen: "Tüm ekran",
+	OneWindow:  "Yalnız bir pencere",
+	Refresh:    "Listeyi yenile",
+	Share:      "Paylaş",
+	Cancel:     "Vazgeç",
+	Empty:      "Paylaşılabilecek pencere yok — programı açıp Listeyi yenile'ye tıklayın",
+	Warning:    "Paylaştığınız pencereden açılan yeni pencereler ve menü çubuğu teknisyene görünmez.",
+	Hint: "Pencere listede yoksa: Dock'tan açın, bu masaüstüne getirin ya da tam ekrandan çıkın, sonra " +
+		"Listeyi yenile'ye tıklayın.",
+	ListLabel: "Paylaşılabilecek pencereler",
+}
+
+// WindowWatchText AC-551: pencere modunda gösterge metni (kontrol verilmişse WatchText ile aynı).
+func WindowWatchText(granted bool, tech string) string {
+	if granted {
+		return WatchText(true, tech)
+	}
+	return "Paylaştığınız pencere izleniyor — " + tech
+}

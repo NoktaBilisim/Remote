@@ -32,6 +32,7 @@ type sessionWin struct {
 	fileLbl, fileBtn, sendBtn, endBtn     objc.ID
 	grantBtn, closeBtn, hotkey, clipChk   objc.ID
 	recLbl, recBtn, recNote               objc.ID
+	voiceLbl, voiceMute, voiceEnd         objc.ID // P33 K1 ses satırı (voice_darwin.go)
 	techs                                 [rosterRows]rosterRow
 	hist                                  string // yerel sistem satırları (uicore.ChatComposite)
 	chatText                              string // P22-G flow.ChatView.Text
@@ -47,8 +48,8 @@ func (u *UI) Active(techName string, mon signal.Monitor) {
 	u.do(func() {
 		u.closeLobby()
 		u.techName = techName
-		u.sess = u.newSessionWin(uicore.WatchText(false, techName))
-		u.ind = newIndicator(u, uicore.WatchText(false, techName), mon.ID)
+		u.sess = u.newSessionWin(u.watchText(false))
+		u.ind = newIndicator(u, u.watchText(false), mon.ID)
 		u.restoreQuit()
 	})
 }
@@ -58,8 +59,8 @@ func (u *UI) newSessionWin(watch string) *sessionWin {
 	if u.fileServer {
 		shift = 40
 	}
-	const rosterH, recH = rosterRows * 32, 56
-	h := 488 + shift + rosterH + recH + 46 // son satır: "Oturumu bitir"
+	const rosterH, recH, voiceH = rosterRows * 32, 56, 60
+	h := 488 + shift + rosterH + recH + voiceH + 46 // son satır: "Oturumu bitir"
 	f := u.newForm(uicore.AppTitle+" — Oturum", 440, h)
 	s := &sessionWin{f: f, active: true}
 	s.watch = f.danger(watch, 16, 14, 408, 22, fontBold)
@@ -119,7 +120,21 @@ func (u *UI) newSessionWin(watch string) *sessionWin {
 	for _, c := range []objc.ID{s.recLbl, s.recBtn, s.recNote} {
 		show(c, false)
 	}
-	s.endBtn = f.button("Oturumu bitir", 16, y+recH, 160, 30, func(objc.ID) {
+	// P33 K1: ses satırı (gizli başlar; VoiceBar açar).
+	vy := y + recH
+	s.voiceLbl = f.label("", 16, vy, 408, 22, fontBold)
+	s.voiceMute = f.button(uicore.StripAccel(flow.VoiceTexts.Mute), 16, vy+24, 180, 30, func(sender objc.ID) {
+		u.voiceMuteClicked(s, sender)
+	})
+	s.voiceEnd = f.button(uicore.StripAccel(flow.VoiceTexts.End), 204, vy+24, 220, 30, func(objc.ID) {
+		if !s.finished && u.voiceOn {
+			u.emit(flow.Event{Kind: flow.EvVoiceEnd})
+		}
+	})
+	for _, c := range s.voiceCtl() {
+		show(c, false)
+	}
+	s.endBtn = f.button("Oturumu bitir", 16, y+recH+voiceH, 160, 30, func(objc.ID) {
 		if !s.finished {
 			u.emit(flow.Event{Kind: flow.EvEnd})
 		}
@@ -333,7 +348,7 @@ func (u *UI) ControlPromptClosed() { u.do(func() { closePrompt(u.ctlDlg) }) }
 func (u *UI) MonitorPromptClosed() { u.do(func() { closePrompt(u.monDlg) }) }
 
 func (u *UI) closePrompts() {
-	for _, d := range []*prompt{u.ctlDlg, u.monDlg, u.offer, u.printDlg, u.removeDlg, u.endDlg, u.accessDlg} {
+	for _, d := range []*prompt{u.ctlDlg, u.monDlg, u.offer, u.printDlg, u.removeDlg, u.endDlg, u.accessDlg, u.voiceDlg} {
 		closePrompt(d)
 	}
 }
@@ -348,9 +363,9 @@ func (u *UI) closeControlNow() {
 func (u *UI) ControlState(granted bool, hotkey string) {
 	u.do(func() {
 		u.granted = granted
-		text := uicore.WatchText(granted, u.techName)
+		text := u.watchText(granted)
 		if u.ind != nil {
-			u.ind.setText(text)
+			u.ind.setText(text + u.voiceIndicatorText()) // P33: mikrofon açıksa ses parçası korunur
 		}
 		if s := u.sess; s != nil && !s.finished {
 			setText(s.watch, text)
@@ -465,7 +480,7 @@ func (u *UI) drawRoster(v flow.RosterView) bool {
 		return false
 	}
 	u.techName = v.Controller
-	text := uicore.WatchText(u.granted, u.techName)
+	text := u.watchText(u.granted)
 	if u.ind != nil {
 		u.ind.setText(text)
 	}

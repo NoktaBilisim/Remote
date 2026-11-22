@@ -43,6 +43,7 @@ var errLoopPanic = fmt.Errorf("%w: ses döngüsü durdu", ErrDevice)
 // goroutine'ine aittir. Eşzamanlı kullanım: tüm dışa açık yöntemler her goroutine'den güvenlidir.
 type Call struct {
 	dev    Device
+	be     backend // nil: test (sahte kodek); görüşme bitince close (darwin: çözücü yardımcısı öldürülür)
 	onFail func(error)
 	newDec func() (frameDecoder, error)
 	newEnc func() (frameEncoder, error)
@@ -90,16 +91,17 @@ type snapshot struct {
 // döngüyü başlatır. onFail görüşme sırasında aygıt hatasında bir kez, döngü bittikten ve aygıt bırakıldıktan sonra
 // çağrılır (içinden Close çağrılabilir); Close ile biten görüşmede çağrılmaz.
 func New(open func() (Device, error), onFail func(error)) (*Call, error) {
-	if _, err := sharedRuntime(); err != nil {
+	be, err := openBackend()
+	if err != nil {
 		return nil, err
 	}
 	dev, err := open()
 	if err != nil {
+		be.close()
 		return nil, err
 	}
-	c := newCall(dev, onFail,
-		func() (frameDecoder, error) { return NewDecoder() },
-		func() (frameEncoder, error) { return NewEncoder() })
+	c := newCall(dev, onFail, be.newDecoder, be.newEncoder)
+	c.be = be
 	c.start()
 	return c, nil
 }
@@ -123,6 +125,7 @@ func (c *Call) run() {
 			failErr = errLoopPanic
 		}
 		c.closeCodecs()
+		c.closeBackend()
 		if failErr != nil {
 			_ = c.dev.Close()
 		}
@@ -243,8 +246,15 @@ func (c *Call) Close() error {
 			case <-time.After(closeWait):
 			}
 		}
+		c.closeBackend() // döngü beklenenden uzun sürdüyse de yardımcı hemen bırakılır (idempotent)
 	})
 	return c.closeErr
+}
+
+func (c *Call) closeBackend() {
+	if c.be != nil {
+		c.be.close()
+	}
 }
 
 // takeSnapshot Call.mu altında bu tikin anlık görüntüsünü alır.

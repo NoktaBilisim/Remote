@@ -88,7 +88,10 @@ type Applier struct {
 	keyTokens  float64         // S-P17-1: pencere modu tuş basma kovası
 	keyLast    time.Time
 	// S-P17-7 erişilebilirlik izi (pencere modu).
-	shiftRun    int // art arda Shift basması
+	shiftRun int // art arda Shift basması
+	altRun   int // art arda Alt (macOS ⌥) basması (S-P33-T-5)
+	// policy pencere modu kısayol politikası (shortcuts.go; nil → winShortcuts).
+	policy      ShortcutPolicy
 	sticky      bool
 	mouseKeys   bool
 	accessAt    time.Time
@@ -125,7 +128,7 @@ func (a *Applier) SetTarget(mon, virt Rect) {
 	a.scope = winScope{}
 	a.hasLast = false
 	a.resetShellLocked()
-	a.shiftRun = 0
+	a.shiftRun, a.altRun = 0, 0
 	a.mu.Unlock()
 }
 

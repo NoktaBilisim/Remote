@@ -48,6 +48,8 @@ type UI struct {
 	dark    bool
 	forms   map[*form]bool
 	quit    func() // ön plandaki ekranın kapatma yolu (Cmd+Q, uygulama menüsü)
+	// windowShare P33 K2: müşteri "Yalnız bir pencere" seçti (gösterge metni pencere modunda, AC-551).
+	windowShare bool
 
 	lobby, ended, licenses, about *form
 	sess                          *sessionWin
@@ -57,8 +59,12 @@ type UI struct {
 
 	// İzin diyalogları (prompt_darwin.go): kontrol, monitör, dosya teklifi, yazdırma, roster "Çıkar", oturum bitirme.
 	ctlDlg, monDlg, offer, printDlg, removeDlg, endDlg, accessDlg *prompt
-	offerFID, printPID                                            string
-	protectedOpen                                                 int
+	// P33 K1 ses (voice_darwin.go): kabul diyaloğu, Mikrofon rehberi, görüşme durumu.
+	voiceDlg, micDlg                  *prompt
+	voiceAskID                        string
+	voiceOn, voiceMuted, voiceTripped bool
+	offerFID, printPID                string
+	protectedOpen                     int
 
 	techName    string
 	granted     bool
@@ -251,6 +257,7 @@ func (u *UI) tick() {
 	u.syncOwnWindows()
 	if u.ind != nil {
 		u.indicatorTick()
+		u.voiceHealth() // P33 S-P33-T-6
 	}
 }
 

@@ -33,6 +33,9 @@ func TestMain(m *testing.M) {
 	testApp = objc.ID(c).Send(objc.Sel("sharedApplication"))
 	testApp.Send(objc.Sel("setActivationPolicy:"), 1) // accessory: Dock simgesi yok
 	testApp.Send(objc.Sel("finishLaunching"))
+	if os.Getenv(helperEnv) != "" { // P33 K2: başka süreçten pencere (window_darwin_test.go)
+		os.Exit(runHelperWindow())
+	}
 	done := make(chan int, 1)
 	go func() { done <- m.Run() }()
 	for {
