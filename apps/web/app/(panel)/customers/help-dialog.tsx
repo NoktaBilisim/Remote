@@ -31,7 +31,7 @@ export function HelpDialog({ open, onClose }: { open: boolean; onClose: () => vo
           <li key={k} className="flex items-start gap-3 text-sm text-fg">
             <span
               aria-hidden
-              className="flex size-6 shrink-0 items-center justify-center rounded-full bg-primary-surface text-xs font-semibold text-primary tabular-nums"
+              className="flex size-6 shrink-0 items-center justify-center rounded-full bg-accent-surface text-xs font-semibold text-accent-fg tabular-nums"
             >
               {i + 1}
             </span>

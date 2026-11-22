@@ -5,7 +5,7 @@ import { t } from "@/lib/i18n";
 // DESIGN.md §6.1: Bekliyor primary-surface, Aktif success, Bitti nötr, İptal danger, Süresi doldu içi boş nokta.
 // "Lobide" (warning + nabız) P3 ile eklenir.
 const styles: Record<SessionStatus, { pill: string; dot: string }> = {
-  PENDING: { pill: "bg-primary-surface text-primary", dot: "bg-current" },
+  PENDING: { pill: "bg-accent-surface text-accent-fg", dot: "bg-current" },
   ACTIVE: { pill: "bg-success-surface text-success", dot: "bg-current" },
   ENDED: { pill: "bg-surface-muted text-fg-muted", dot: "bg-current" },
   EXPIRED: { pill: "bg-surface-muted text-fg-muted", dot: "border border-current" },

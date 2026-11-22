@@ -9,14 +9,17 @@
  */
 @theme {
   --color-*: initial;
-  /* Vitrin görsel dili (2026-11-17): self-host değişken fontlar (@fontsource-variable, OFL-1.1; layout.tsx'te yüklenir,
+  /* Akış görsel dili (2026-11-23): self-host değişken fontlar (@fontsource-variable, OFL-1.1; layout.tsx'te yüklenir,
      latin + latin-ext dahil → ğ ı İ ş). CSP font-src yok → default-src 'self' yeter. */
-  --font-sans:
-    "Plus Jakarta Sans Variable", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --font-sans: "Geologica Variable", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
   --font-mono: "JetBrains Mono Variable", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-  --radius-sm: 0.375rem;
-  --radius-md: 0.5rem;
-  --radius-lg: 0.75rem;
+  /* Akış şekil dili: küçük 8px, girdi/menü öğesi 12px, kart 16px; sohbet balonu 18px, konuşana bakan üst köşe 6px.
+     Butonlar ve rozetler hap (rounded-full, primitifte). */
+  --radius-sm: 0.5rem;
+  --radius-md: 0.75rem;
+  --radius-lg: 1rem;
+  --radius-bubble: 1.125rem;
+  --radius-tail: 0.375rem;
   --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
   --ease-in-out: cubic-bezier(0.77, 0, 0.175, 1);
 }
@@ -40,6 +43,11 @@
   --color-ring: var(--rs-ring);
   --color-logo-surface: var(--rs-logo-surface);
   --color-primary-surface: var(--rs-primary-surface);
+  --color-accent: var(--rs-accent);
+  --color-accent-fg: var(--rs-accent-fg);
+  --color-accent-surface: var(--rs-accent-surface);
+  --color-bubble-own: var(--rs-bubble-own);
+  --color-on-bubble-own: var(--rs-on-bubble-own);
   --color-overlay: var(--rs-overlay);
   --color-stage: var(--rs-stage);
   --color-on-stage: var(--rs-on-stage);
@@ -57,31 +65,38 @@
   --shadow-md: var(--rs-shadow-md);
 }
 
-/* Açık tema (varsayılan) */
+/* Açık tema (varsayılan) — Akış görsel dili (2026-11-23, docs/tasarim/08-yeni-gorunum.html; DESIGN.md §2) */
 :root {
   color-scheme: light;
-  --rs-canvas: #f4f6f9;
+  --rs-canvas: #eef3f7;
   --rs-surface: #ffffff;
-  --rs-surface-muted: #eef2f6;
-  --rs-border: #dde3ea;
-  --rs-fg: #0f172a;
-  --rs-fg-muted: #475569;
-  --rs-primary: #0f4c81;
-  --rs-primary-hover: #0b3d69;
+  --rs-surface-muted: #f4f7fa;
+  --rs-border: #d6e1ea;
+  --rs-fg: #0b2a45;
+  --rs-fg-muted: #4f6f8b;
+  --rs-primary: #0b2a45;
+  --rs-primary-hover: #143a5c;
   --rs-on-primary: #ffffff;
-  --rs-danger: #b91c1c;
-  --rs-danger-surface: #fee2e2;
-  --rs-warning: #ad4f08;
-  --rs-warning-surface: #fef3c7;
-  --rs-success: #147a3a;
-  --rs-success-surface: #dcfce7;
-  --rs-ring: #0f4c81;
+  --rs-danger: #c0322b;
+  --rs-danger-surface: #fdeceb;
+  --rs-warning: #a6560a;
+  --rs-warning-surface: #fff5e6;
+  --rs-success: #0c7a49;
+  --rs-success-surface: #e7f7ef;
+  --rs-ring: #0b2a45;
   --rs-logo-surface: #ffffff;
-  --rs-shadow-sm: 0 1px 2px rgb(15 23 42 / 0.06);
-  --rs-shadow-md: 0 4px 12px rgb(15 23 42 / 0.08), 0 1px 3px rgb(15 23 42 / 0.06);
-  /* 2026-11-11 onaylı taslaklardan (docs/tasarim/) — DESIGN.md §2 */
-  --rs-primary-surface: #e7eef6;
-  --rs-overlay: rgb(15 23 42 / 0.5);
+  /* Nokta mavisi: yalnız ikon/dekor (beyazda 3.38:1 — metin ve buton zemini DEĞİL); metin için accent-fg */
+  --rs-accent: #0093dd;
+  --rs-accent-fg: #0670a8;
+  --rs-accent-surface: #e6f4fc;
+  --rs-bubble-own: #0b2a45;
+  --rs-on-bubble-own: #ffffff;
+  /* Gölge yerine ince çizgi: kartlar `border` taşır; sm/md yalnız çok hafif lacivert iz, lg (diyalog/toast) yükseltir */
+  --rs-shadow-sm: 0 1px 2px rgb(11 42 69 / 0.04);
+  --rs-shadow-md: 0 1px 2px rgb(11 42 69 / 0.04);
+  /* 2026-11-11 onaylı taslaklardan (docs/tasarim/) — DESIGN.md §2; primary-surface = accent-surface (Akış) */
+  --rs-primary-surface: #e6f4fc;
+  --rs-overlay: rgb(11 42 69 / 0.45);
   --rs-stage: #10151b;
   --rs-on-stage: #c3ccd5;
   --rs-control-frame: #d92d20;
@@ -94,7 +109,7 @@
   /* P14b AC-221: kapalı / kilitli anahtar rayı — surface, surface-muted ve canvas zemininde ≥ 3:1 (WCAG 1.4.11) */
   --rs-switch-track-off: #64748b;
   --rs-switch-track-locked: #7b8794;
-  --rs-shadow-lg: 0 16px 40px rgb(15 23 42 / 0.18), 0 2px 6px rgb(15 23 42 / 0.08);
+  --rs-shadow-lg: 0 16px 40px rgb(11 42 69 / 0.16), 0 2px 6px rgb(11 42 69 / 0.08);
 }
 
 /*
@@ -106,27 +121,32 @@
 :root.dark,
 :root:not(.light):has(.theme-dark) {
   color-scheme: dark;
-  --rs-canvas: #0b0e14;
-  --rs-surface: #121721;
-  --rs-surface-muted: #19202e;
-  --rs-border: #263042;
-  --rs-fg: #f1f5f9;
-  --rs-fg-muted: #94a3b8;
-  --rs-primary: #38bdf8;
-  --rs-primary-hover: #7dd3fc;
-  --rs-on-primary: #082f49;
-  --rs-danger: #f87171;
-  --rs-danger-surface: #32242c;
-  --rs-warning: #fbbf24;
-  --rs-warning-surface: #332f21;
-  --rs-success: #4ade80;
-  --rs-success-surface: #142f2a;
-  --rs-ring: #38bdf8;
+  --rs-canvas: #08131f;
+  --rs-surface: #0f1d2c;
+  --rs-surface-muted: #152637;
+  --rs-border: #22384d;
+  --rs-fg: #e6eef6;
+  --rs-fg-muted: #8fa7bd;
+  --rs-primary: #3db4f2;
+  --rs-primary-hover: #6cc6f5;
+  --rs-on-primary: #06223a;
+  --rs-danger: #f2837c;
+  --rs-danger-surface: #3a1c1e;
+  --rs-warning: #f3b35a;
+  --rs-warning-surface: #33280f;
+  --rs-success: #4fd08f;
+  --rs-success-surface: #0f2e25;
+  --rs-ring: #3db4f2;
   --rs-logo-surface: #f4f6f9;
-  --rs-shadow-sm: 0 1px 2px rgb(0 0 0 / 0.4);
-  --rs-shadow-md: 0 4px 12px rgb(0 0 0 / 0.45), 0 1px 3px rgb(0 0 0 / 0.3);
-  --rs-primary-surface: #172e3f;
-  --rs-overlay: rgb(0 0 0 / 0.62);
+  --rs-accent: #3db4f2;
+  --rs-accent-fg: #7cccf5;
+  --rs-accent-surface: #0f2e44;
+  --rs-bubble-own: #1d4a70;
+  --rs-on-bubble-own: #eef6fd;
+  --rs-shadow-sm: 0 0 #0000;
+  --rs-shadow-md: 0 0 #0000;
+  --rs-primary-surface: #0f2e44;
+  --rs-overlay: rgb(0 0 0 / 0.6);
   --rs-stage: #07090c;
   --rs-switch-track-off: #7b8794;
   --rs-switch-track-locked: #66717e;
@@ -136,27 +156,32 @@
 @media (prefers-color-scheme: dark) {
   :root:not(.light) {
     color-scheme: dark;
-    --rs-canvas: #0b0e14;
-    --rs-surface: #121721;
-    --rs-surface-muted: #19202e;
-    --rs-border: #263042;
-    --rs-fg: #f1f5f9;
-    --rs-fg-muted: #94a3b8;
-    --rs-primary: #38bdf8;
-    --rs-primary-hover: #7dd3fc;
-    --rs-on-primary: #082f49;
-    --rs-danger: #f87171;
-    --rs-danger-surface: #32242c;
-    --rs-warning: #fbbf24;
-    --rs-warning-surface: #332f21;
-    --rs-success: #4ade80;
-    --rs-success-surface: #142f2a;
-    --rs-ring: #38bdf8;
+    --rs-canvas: #08131f;
+    --rs-surface: #0f1d2c;
+    --rs-surface-muted: #152637;
+    --rs-border: #22384d;
+    --rs-fg: #e6eef6;
+    --rs-fg-muted: #8fa7bd;
+    --rs-primary: #3db4f2;
+    --rs-primary-hover: #6cc6f5;
+    --rs-on-primary: #06223a;
+    --rs-danger: #f2837c;
+    --rs-danger-surface: #3a1c1e;
+    --rs-warning: #f3b35a;
+    --rs-warning-surface: #33280f;
+    --rs-success: #4fd08f;
+    --rs-success-surface: #0f2e25;
+    --rs-ring: #3db4f2;
     --rs-logo-surface: #f4f6f9;
-    --rs-shadow-sm: 0 1px 2px rgb(0 0 0 / 0.4);
-    --rs-shadow-md: 0 4px 12px rgb(0 0 0 / 0.45), 0 1px 3px rgb(0 0 0 / 0.3);
-    --rs-primary-surface: #172e3f;
-    --rs-overlay: rgb(0 0 0 / 0.62);
+    --rs-accent: #3db4f2;
+    --rs-accent-fg: #7cccf5;
+    --rs-accent-surface: #0f2e44;
+    --rs-bubble-own: #1d4a70;
+    --rs-on-bubble-own: #eef6fd;
+    --rs-shadow-sm: 0 0 #0000;
+    --rs-shadow-md: 0 0 #0000;
+    --rs-primary-surface: #0f2e44;
+    --rs-overlay: rgb(0 0 0 / 0.6);
     --rs-stage: #07090c;
     --rs-switch-track-off: #7b8794;
     --rs-switch-track-locked: #66717e;
@@ -175,7 +200,7 @@
     outline: 2px solid var(--rs-ring);
     outline-offset: 2px;
   }
-  /* Vitrin görsel dili: tablo hücreleri, tarih/saat ve mono (kimlik, kod, sayısal alan) sabit genişlikli rakam */
+  /* Vitrin/Akış görsel dili: tablo hücreleri, tarih/saat ve mono (kimlik, kod, sayısal alan) sabit genişlikli rakam */
   table,
   time,
   code,

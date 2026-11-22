@@ -18117,3 +18117,74 @@ fix-late-window-flake`): tanı 44657284519 (kök neden); düzeltmenin ilk sürü
 44664994010 tamamen yeşil (yeniden açılış → ilk taze kare 153–201 ms, sonrasında 6–20 karede macenta 0; dışlama
 öncesi karelerde macenta görüldü = yoklama geçerli). 44662061810 altyapı (proxy.golang.org DNS) nedeniyle koşmadı.
 Dalda geçici tanı commit'i (5 turlu test) geçmişte durur; son haliyle değiştirildi.
+
+## Akış görsel dili (frontend-dev, 2026-11-23)
+
+Kullanıcı onayı (2026-11-23): `docs/tasarim/08-yeni-gorunum.html` ("Akış"). Yalnız görsel dil değişti; ekran düzeni, akışlar,
+metinler ve bileşen yapısı aynı. Taslaktaki portal mesaj akışı, arama kutusu, bildirim zili, "yazıyor" göstergesi ve "Okundu"
+ürüne eklenmedi (taslağın gösterim öğeleri). Yeni rota yok. Tasarım skill'i (`~/.claude/skills/ui-ux-pro-max/SKILL.md`) okundu;
+çelişkide DESIGN.md esas.
+
+**Değişen dosyalar**
+
+- `apps/web/app/globals.css` — renk token'ları (açık + üç koyu seçici birlikte), yeni `accent`, `accent-fg`, `accent-surface`,
+  `bubble-own`, `on-bubble-own`; `primary-surface` = `accent-surface` değeri; `--radius-sm/md/lg` 8/12/16px, yeni
+  `--radius-bubble` 18px ve `--radius-tail` 6px; `shadow-sm/md` açıkta %4 lacivert iz, koyuda `0 0 #0000`; `shadow-lg`/`overlay`
+  lacivert tonu; `--font-sans` Geologica.
+- `apps/web/app/layout.tsx`, `apps/web/package.json`, `pnpm-lock.yaml` — `@fontsource-variable/plus-jakarta-sans` →
+  `@fontsource-variable/geologica@5.3.0` (lock farkı yalnız bu paket; 3 girdi).
+- `apps/web/components/ui/button.tsx` — hap (`rounded-full`); `active:scale-[0.97]` korunur.
+- `apps/web/app/(panel)/side-nav.tsx` — seçili öğe `bg-accent-surface text-fg` + ikon `text-accent`.
+- `apps/web/components/ui/tab-nav.tsx` — alt çizgili yapı korunur; etkin sekme `border-accent bg-accent-surface text-fg` + ikon
+  `text-accent`, `rounded-t-md` (12px).
+- `apps/web/components/collab/chat-panel.tsx` (konsol + müşteri aynı bileşen) — balon `rounded-bubble`; kendi mesajım
+  `bg-bubble-own text-on-bubble-own rounded-tr-tail`, karşı taraf `border border-border bg-surface rounded-tl-tail`; mesaj kutusu
+  `rounded-bubble bg-surface-muted`; gönder `Button` primary (hap).
+- Bilgi rozetleri `bg-primary-surface text-primary` → `bg-accent-surface text-accent-fg` (22 satır): `ui/badge.tsx` (Bekliyor),
+  `ui/avatar.tsx` (baş harf), `update-badge.tsx`, `guest/techs-list.tsx`, `account/trusted-devices.tsx`,
+  `console/{stage-strip,techs-panel,voice-controls}.tsx`, `customers/help-dialog.tsx`, `customers/[id]/portal-accounts.tsx`,
+  `settings/consent-text/consent-parts.tsx`, `admin/tenants/tenant-row-parts.tsx`, `requests/{request-badges,request-card}.tsx`,
+  `sessions/active-sessions.tsx`, `sessions/[id]/console/console-header.tsx`, `history/history-list.tsx`,
+  `session/[token]/{agent-download,guide-step}.tsx`.
+- Testler: `apps/web/lib/theme-contrast.test.ts` (yeni; globals.css'ten metin ≥ 4.5 / ikon ≥ 3 çiftleri, iki koyu seçici eşitliği),
+  `e2e/vitrin-fonts.spec.ts` → `e2e/akis-fonts.spec.ts` (Geologica), `e2e/helpers.ts` (`--rs-fg` #0b2a45 / #e6eef6),
+  `e2e/p12-branding.spec.ts` (koyu `canvas` rgb(8, 19, 31)).
+- `DESIGN.md` §2 (tablo, Akış paragrafı, kontrast tablosu, Vitrin tarihçe), §3 (radius, gölge, font), §6 sohbet/rozet satırları.
+
+**Yeni bağımlılık (mimari §10.4 dışı, gerekçe):** `@fontsource-variable/geologica@5.3.0` (OFL-1.1, değişken ağırlık 100–900).
+Onaylı taslağın yazı tipi; Plus Jakarta Sans'ın yerine geçer (bağımlılık sayısı değişmez). Self-host (CSP `default-src 'self'`,
+dış istek yok); latin alt kümesi ı (U+0131), latin-ext alt kümesi ğ İ ş (U+0100–02BA) içerir — `e2e/akis-fonts.spec.ts` doğrular.
+
+**Token eşlemesi (taslak → ürün):** page→`canvas`, surface, surface-muted, line→`border`, ink→`fg`, ink-muted→`fg-muted`,
+action→`primary` (+hover, on-action→`on-primary`), brand→`accent`, brand-ink→`accent-fg`, brand-soft→`accent-surface`
+(=`primary-surface`), success/warning/danger (+soft→`*-surface`), bubble-me→`bubble-own`, on-bubble-me→`on-bubble-own`,
+r-sm/md/lg→`radius-sm/md/lg`, r-tail→`radius-tail`, sohbet balonu 18px→`radius-bubble`, overlay.
+
+**Kontrast (açık / koyu):** fg/surface 14.67 / 14.54; fg-muted/surface-muted 4.91 / 6.18; fg-muted/canvas 4.72 / 7.51;
+fg-muted/accent-surface 4.70 / 5.64; on-primary/primary 14.67 / 6.94; on-primary/danger 5.63 / 6.41; accent-fg/accent-surface
+4.81 / 7.90; accent (ikon)/surface 3.38 / 7.31, /canvas 3.02 / 8.02, /accent-surface 3.01 / 6.03; success/success-surface
+4.86 / 7.48; warning/warning-surface 4.92 / 7.86; danger/danger-surface 4.92 / 6.09; on-bubble-own/bubble-own 14.67 / 8.49.
+
+**Sapmalar (taslağa göre)**
+
+- `ring` taslakta Nokta mavisi; üründe `primary` (görev: "buton, odak = lacivert"; açıkta 14.7:1).
+- Açık `success` #0f8a52 → #0c7a49 (zemininde 3.97 / beyazda 4.40 → 4.86 / 5.39).
+- `ink-faint` (#8aa3b8, beyazda 2.62) ve `ink-soft` ürüne alınmadı; soluk metin `fg-muted`. `danger-solid` alınmadı (yıkıcı
+  buton `danger` + `on-primary`, iki temada ≥ 5.6). `neutral-soft` yerine mevcut `surface-muted`.
+- Balon köşesi: konsol taslağındaki 18px (portal taslağı 24px) — ürünün tek sohbet bileşeni konsol/müşteri yan panelinde.
+- Ad/saat satırı balonun üstünde kalır (yapı değişmez); zaman damgası `text-xs fg-muted`.
+- Gönder butonu `Button` primitifi: hap, 48×44 (tam daire için `px-4`'ü ezmek gerekir; tailwind-merge yok, yeni boyut varyantı
+  eklenmedi).
+- Taslaktaki menü sayacı (dolu `success`) uygulanmadı: ürün sayaçları anlamsal (Bekliyor `warning-surface`, talepler `primary`
+  dolu) ve zaten hap.
+- Kapsam dışı bırakılan sohbet görünümleri: `requests/thread-parts.tsx`, `history/[id]/chat.tsx` (sağdaki taraf "ben" değil
+  "teknisyen"), `r/[ref]/request-chat.tsx` (ad/saat balonun içinde; lacivert balonda `fg-muted` okunmaz). Bunlar
+  `primary-surface` (= accent-surface) balonla kalır; değer değiştiği için görünümleri Akış rengine kendiliğinden geçer.
+- `text-primary` 117 kullanımda (bağlantılar, vurgular) dokunulmadı: açıkta artık `fg` ile aynı lacivert (14.67), koyuda
+  #3db4f2 (7.31). Bağlantıların ayırt edilebilirliği (alt çizgi/ikon) ayrı bir inceleme konusu — açık konu.
+- Font metriği düzeltmesi: `components/console/control-button.tsx` macOS/Wayland izin notu `line-clamp-3 max-w-80` →
+  `max-w-96` (Geologica daha geniş; 1280 px şeritte metin 3 satıra sığmıyordu, `e2e/p7-control.spec.ts` AC-391 kırmızıydı).
+- Doğrulama: `pnpm -r run lint` yeşil; `typecheck` yeşil (önce `pnpm db:generate` — sunucudaki eski üretilmiş Prisma istemcisi);
+  birim testleri contracts 338, web 807 (yeni `theme-contrast` dahil), server 747 + 1 atlandı; web e2e 668 geçti / 304 atlandı
+  / 0 kaldı; `prettier --check` yeşil (izlenmeyen `.claude/worktrees` hariç tutularak).
+- `docs/img/` için Akış ekran görüntüleri koordinatör tarafından alınacak.

@@ -102,7 +102,7 @@ function DeviceRow({ d, pending, onRemove }: { d: TrustedDeviceView; pending: bo
         <p className="flex flex-wrap items-center gap-2 text-sm font-medium break-words text-fg">
           {d.uaSummary}
           {d.current && (
-            <span className="rounded-full bg-primary-surface px-2 py-0.5 text-xs font-medium text-primary" data-testid="td-current">
+            <span className="rounded-full bg-accent-surface px-2 py-0.5 text-xs font-medium text-accent-fg" data-testid="td-current">
               {t("acc.td.current")}
             </span>
           )}

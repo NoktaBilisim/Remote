@@ -98,10 +98,11 @@ export function SideNav({ permissions, role }: { permissions: readonly string[];
                 href={href}
                 aria-current={active ? "page" : undefined}
                 className={`flex min-h-11 items-center gap-3 rounded-md px-3 text-sm font-medium whitespace-nowrap ${
-                  active ? "bg-surface-muted text-primary" : "text-fg-muted hover:bg-surface-muted hover:text-fg"
+                  active ? "bg-accent-surface text-fg" : "text-fg-muted hover:bg-surface-muted hover:text-fg"
                 }`}
               >
-                <Icon aria-hidden className="size-5 shrink-0" />
+                {/* Akış: seçili öğe accent-surface zemin + Nokta mavisi ikon (yalnız ikon; metin fg) */}
+                <Icon aria-hidden className={`size-5 shrink-0 ${active ? "text-accent" : ""}`} />
                 {t(label)}
                 {href === "/sessions" && <LobbyCountBadge />}
                 {href === "/requests" && <RequestCountBadge />}

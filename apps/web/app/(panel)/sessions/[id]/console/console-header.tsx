@@ -17,10 +17,10 @@ function statusOf(state: TechState): { cls: string; label: string } {
   if (state.phase === "ended") return { cls: "bg-surface-muted text-fg-muted", label: t("c.st.ended") };
   if (state.reconnectSince !== null || state.peerLostSince !== null) return { cls: "bg-danger-surface text-danger", label: t("c.st.lost") };
   if (state.phase === "live") return { cls: "bg-success-surface text-success", label: t("c.st.live") };
-  if (state.unattended) return { cls: "bg-primary-surface text-primary", label: t("un.c.connecting") };
+  if (state.unattended) return { cls: "bg-accent-surface text-accent-fg", label: t("un.c.connecting") };
   return state.pending.length
     ? { cls: "bg-warning-surface text-warning", label: t("c.st.lobby") }
-    : { cls: "bg-primary-surface text-primary", label: t("c.st.waiting") };
+    : { cls: "bg-accent-surface text-accent-fg", label: t("c.st.waiting") };
 }
 
 /** Konsol üst barı: geri, müşteri, durum, kalan süre, doğrulama kodu (gözetimsizde yok), (tarayıcı modunda pasif kontrol), bitir/iptal. */
