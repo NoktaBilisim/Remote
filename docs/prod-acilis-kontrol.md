@@ -302,3 +302,20 @@ Sıra önerisi: K-1 → K-2 → SA ilk giriş → 5b → 8 → 6 → 14 (Nokta T
 - **13.2:** `journalctl --since "-30 days" | grep -cE "PASSWORD=|SECRET=|AGE-SECRET-KEY|TOKEN=|bot<id>:<token>"` → 0.
 - **Disk:** kullanıcı onayıyla build cache (6,6 GB) + `8de7a569`/`a26f712d` imajları silindi → %78 (eşik %80 altı). Staging imaj geri dönüşü artık yok.
 - **pfSense (P2):** pfSense `pfctl -sn`: 4450 NAT/kural yok; UDP 49160–49479 rdr var (eski 49160–49199 rdr zararsız, silinebilir).
+
+## Güncelleme (2026-11-23) — 0.26.0 prod yayını (P33) ve risk kabulü
+
+- Sunucu + web `25343ce5` (PR #44 P33 + PR #45 tema düğmesi); migration ve env değişikliği yok. Ön yedek `20261123T000021Z` OK
+  (`audit-sureklilik: ok env=production`), `.env` yedeği `/root/.env.bak.p33.*`; açık destek oturumu yoktu. Eski `7cae7365`
+  imajları silindi, `347c6ccb` geri dönüş için duruyor. Duman: `/login`, `/portal/login` 200, oturumsuz `/api/v1/auth/me` 401,
+  server log `level 50` 0, web paketinde tema düğmesi / `permMic` / "Pencere yakalama" var.
+- İstemci Release `v0.26.0` (koşu 45086423973; iki onay kapısı: `agent-release`, `agent-update-sign`). Yayın (hepsi attestation'lı
+  `--tag`, önce `--dry-run`): `NoktaDestek.exe` `31421f88…`, `NoktaDestek-macOS.zip` `f00e5211…` (adhoc, paket içi ikili
+  `5912eaeb…`), `NoktaDestek-linux` `8fab32e4…`, servis `5e2b9f38…`, manifestler (istemci ×3 30 g, servis 90 g). Üç indirme
+  gövde SHA'sı Release `SHA256SUMS` ile aynı; güncelleme ucu macOS/Linux/Windows istemci için 0.26.0 manifesti sunuyor.
+  `MIN_AGENT_VERSION` 0.25.1 kaldı (§33.3 m.6).
+- **Risk kabulü (kullanıcı, 2026-11-23, "Evet, onayla"):** onay listesi macOS maddesi (E-listesi macOS 14 + 15) tam karşılanmadan
+  onaylandı. Elle doğrulanan: macOS 26 arm64'te yerel stg paketiyle bağlantı kodu, sesli görüşme, tek pencere paylaşımı GEÇTİ.
+  Denenmeyen: uzaktan kısayol engeli (⌘Tab, ⇧⌘Q), AltGr güvenli istisnası, Kaydet paneli, macOS 14/15 ve Rosetta, §33.4 iz
+  senaryosu, firma bağlantısıyla "Destek iste". `292dd26` (pencere seçicide NSScrollView `setEnabled:` çökmesi; elle testte
+  bulundu) qa/güvenlik turlarından sonra girdi; değişiklik tek satır, aynı Mac'te düzeltme doğrulandı.
