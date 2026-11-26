@@ -779,6 +779,9 @@ NoktaBilisim/Remote/.github/workflows/agent-win.yml --source-ref refs/tags/vX.Y.
   `DEPLOY_ENV=development`). Yalnız main push koşuları kabul edilir; koşu `success` değilse **reddedilir** (S6-5). Bilerek
   denemek için yalnız yerelde: `--run <id> --local --allow-failed-run` (etiket `run-<id>-failedrun`). Prod ve staging hedefi
   `run-*` etiketini zaten reddeder.
+- **Artifact saklama süresi:** main/PR deneme paketleri **3 gün**, etiket ve `*-stg` paketleri 30 gün, ara derlemeler
+  (`*-build-N`) 1 gün. `--run` için 3 günden eski main koşusu yeniden çalıştırılır; 1 günden eski koşuda "Re-run failed jobs"
+  ara derlemeyi bulamazsa "Re-run all jobs" seçilir. Kalıcı kopya yalnız Release'tedir.
 - Not: PR ve `server_url=yer-tutucu` ile elle tetiklenen derlemelerde exe'ye `https://destek.example.invalid:4450` gömülür;
   gerçek `AGENT_SERVER_URL` yalnız main/etiket push'unda, staging adresi yalnız main'de elle tetiklemede (S6-4).
 
