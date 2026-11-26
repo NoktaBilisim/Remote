@@ -9,7 +9,7 @@
 # G-18: Action'lar commit SHA ile sabit; varsayılan izin `contents: read`; yazma izinleri yalnız attest/release job'larında.
 # Go adımları sabit digest'li resmi imajda koşar (yerel doğrulama komutuyla birebir aynı ortam, runbook §11).
 # Go sürümü değişince (go.mod `toolchain`) GO_IMAGE de değişir; `check` job'u uyuşmazlıkta kırmızı olur.
-# Artifact saklama (depo alanı): ara derlemeler (*-build-N) 1 gün; deneme paketleri 3 gün; etiket ve *-stg paketleri 30 gün;
+# Artifact saklama (depo alanı): ara derlemeler (*-build-N) 1 gün; main/PR ve *-stg paketleri 3 gün; etiket paketleri ve
 # onay sonrası tüketilenler (agent-mac-thin, agent-mac-adhoc) 7 gün. Süre dolunca koşu baştan çalıştırılır.
 # P28f K8a/K8b (mimari-p28f §8.2, ADR-0037 r3): macOS istemcisi. İnce ikililer (arm64, amd64) Linux GO_IMAGE'da CGO'suz çapraz
 # derlenir (build-mac ×2 → reproducible-mac SHA eşitliği); macos-15'te universal .app + ad-hoc/hardened runtime + entitlement
@@ -957,7 +957,7 @@ jobs:
           name: ${{ needs.reproducible-mac.outputs.artifact }}
           path: ${{ runner.temp }}/dist/
           if-no-files-found: error
-          retention-days: ${{ needs.reproducible-mac.outputs.artifact == 'agent-mac-stg' && 30 || 3 }}
+          retention-days: 3
 
   # P28f K8a (§8.2 test-macos, §9; S-P28f-11/14): darwin go test (MallocScribble/NSZombieEnabled), x86_64 dilimi Rosetta ile (varsa),
   # AC-394 iz testi `.invalid` sunuculu, testBuild'siz AYRI derlemeyle argümansız. İz betiği TRACE_MAC (K5:
@@ -1238,7 +1238,7 @@ jobs:
           name: ${{ steps.cmp.outputs.artifact }}
           path: dist/
           if-no-files-found: error
-          retention-days: ${{ (github.ref_type == 'tag' || steps.cmp.outputs.artifact == 'agent-linux-stg') && 30 || 3 }}
+          retention-days: ${{ github.ref_type == 'tag' && 7 || 3 }}
 
   # P28g K8a (§8.2 test-linux-gui, §9; D-P28g-T2-2, §14 m.2, T6): Ubuntu 22.04 / 24.04 imajı (taban digest sabit; Go GO_IMAGE'dan)
   # içinde Xvfb + başsız mutter/portal ile `go test -tags linuxgui`, GStreamer envanteri, XI2 ofsetleri, ELF yükleme + ortam pozitif
@@ -1420,7 +1420,7 @@ jobs:
           name: ${{ steps.name.outputs.artifact }}
           path: dist/
           if-no-files-found: error
-          retention-days: ${{ (github.ref_type == 'tag' || steps.name.outputs.artifact == 'agent-win-stg') && 30 || 3 }}
+          retention-days: ${{ github.ref_type == 'tag' && 7 || 3 }}
 
   approve:
     name: "ONAY: sunucu ön koşulu prod'da mı (runbook §24.1) — onaydan sonra imza + Release"
@@ -2316,7 +2316,7 @@ jobs:
           name: agent-update-stg
           path: out/
           if-no-files-found: error
-          retention-days: 30
+          retention-days: 3
 
   # Yeniden imza (§9.3, §14.2, §14.5 T-7): üç iş. (1) anahtarsız hazırlık: etiket doğrulanır, Release'in manifestleri indirilir ve
   # Node doğrulayıcısıyla (imza + kanonik; --now = issuedAt, süresi dolmuş olabilir) denetlenir. (2) anahtarlı imza
